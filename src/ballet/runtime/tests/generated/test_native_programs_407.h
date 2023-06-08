@@ -5,7 +5,7 @@ int test_407(fd_executor_test_suite_t *suite) {
   test.disable_cnt = 47;
   uchar disabled_features[] = { 77,111,103,120,87,62,80,75,89,128,83,123,29,30,61,117,105,33,114,15,110,27,112,122,127,125,109,24,98,79,56,76,2,82,116,90,124,106,121,108,126,26,78,92,118,113,55 };
   test.disable_feature = disabled_features;
-  test.bt = "   2: solana_stake_program::stake_instruction::tests::process_instruction             at ./src/stake_instruction.rs:578:9   3: solana_stake_program::stake_instruction::tests::test_merge_incorrect_authorized_staker             at ./src/stake_instruction.rs:6033:17   4: solana_stake_program::stake_instruction::tests::test_merge_incorrect_authorized_staker::old_behavior             at ./src/stake_instruction.rs:5950:5";
+  test.bt = "   2: solana_stake_program::stake_instruction::tests::process_instruction             at ./src/stake_instruction.rs:578:9   3: solana_stake_program::stake_instruction::tests::test_merge_incorrect_authorized_staker             at ./src/stake_instruction.rs:6033:17   4: solana_stake_program::stake_instruction::tests::test_merge_incorrect_authorized_staker::old_behavior             at ./src/stake_instruction.rs:5950:5   5: solana_stake_program::stake_instruction::tests::test_merge_incorrect_authorized_staker::old_behavior::{{closure}}             at ./src/stake_instruction.rs:5950:5";
   test.test_name = "stake_instruction::tests::test_merge_incorrect_authorized_staker::old_behavior";
   test.test_nonce  = 527;
   test.test_number = 407;

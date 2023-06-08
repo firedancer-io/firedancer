@@ -5,7 +5,7 @@ int test_117(fd_executor_test_suite_t *suite) {
   test.disable_cnt = 0;
   uchar disabled_features[] = { 55,83,78,29,80,111,76,30,112,27,114,89,2,121,106,77,33,128,117,127,56,108,87,105,126,110,118,98,116,109,75,123,92,120,103,15,62,90,24,125,82,122,79,113,61,26,124 };
   test.disable_feature = disabled_features;
-  test.bt = "   2: solana_stake_program::stake_instruction::tests::process_instruction             at ./src/stake_instruction.rs:578:9   3: solana_stake_program::stake_instruction::tests::test_authorize_override             at ./src/stake_instruction.rs:1909:9   4: solana_stake_program::stake_instruction::tests::test_authorize_override::new_behavior             at ./src/stake_instruction.rs:1838:5";
+  test.bt = "   2: solana_stake_program::stake_instruction::tests::process_instruction             at ./src/stake_instruction.rs:578:9   3: solana_stake_program::stake_instruction::tests::test_authorize_override             at ./src/stake_instruction.rs:1909:9   4: solana_stake_program::stake_instruction::tests::test_authorize_override::new_behavior             at ./src/stake_instruction.rs:1838:5   5: solana_stake_program::stake_instruction::tests::test_authorize_override::new_behavior::{{closure}}             at ./src/stake_instruction.rs:1838:5";
   test.test_name = "stake_instruction::tests::test_authorize_override::new_behavior";
   test.test_nonce  = 76;
   test.test_number = 117;

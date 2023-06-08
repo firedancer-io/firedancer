@@ -5,7 +5,7 @@ int test_56(fd_executor_test_suite_t *suite) {
   test.disable_cnt = 47;
   uchar disabled_features[] = { 83,24,106,56,105,123,90,78,109,80,112,33,62,108,98,29,126,75,113,114,110,121,122,15,89,127,77,55,2,120,79,92,128,124,103,111,76,82,30,87,26,117,118,61,116,125,27 };
   test.disable_feature = disabled_features;
-  test.bt = "   2: solana_config_program::config_processor::tests::test_process_store_with_bad_additional_signer             at ./src/config_processor.rs:419:9   3: solana_config_program::config_processor::tests::test_process_store_with_bad_additional_signer::{{closure}}             at ./src/config_processor.rs:384:5   4: core::ops::function::FnOnce::call_once             at /rustc/0677edc86e342f333d4828b0ee1ef395a4e70fe5/library/core/src/ops/function.rs:227:5";
+  test.bt = "   2: solana_config_program::config_processor::tests::test_process_store_with_bad_additional_signer             at ./src/config_processor.rs:419:9   3: solana_config_program::config_processor::tests::test_process_store_with_bad_additional_signer::{{closure}}             at ./src/config_processor.rs:384:5   4: core::ops::function::FnOnce::call_once             at /rustc/0677edc86e342f333d4828b0ee1ef395a4e70fe5/library/core/src/ops/function.rs:227:5   5: core::ops::function::FnOnce::call_once             at /rustc/0677edc86e342f333d4828b0ee1ef395a4e70fe5/library/core/src/ops/function.rs:227:5";
   test.test_name = "config_processor::tests::test_process_store_with_bad_additional_signer";
   test.test_nonce  = 26;
   test.test_number = 56;

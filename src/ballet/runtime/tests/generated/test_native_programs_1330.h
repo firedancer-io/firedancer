@@ -5,7 +5,7 @@ int test_1330(fd_executor_test_suite_t *suite) {
   test.disable_cnt = 47;
   uchar disabled_features[] = { 120,83,79,92,105,33,80,76,87,114,62,55,106,127,124,89,61,103,112,82,123,125,111,29,98,121,118,15,2,126,113,24,78,77,117,90,26,27,109,75,30,110,108,128,116,122,56 };
   test.disable_feature = disabled_features;
-  test.bt = "   2: solana_stake_program::stake_instruction::tests::process_instruction             at ./src/stake_instruction.rs:578:9   3: solana_stake_program::stake_instruction::tests::test_withdraw_stake             at ./src/stake_instruction.rs:3069:9   4: solana_stake_program::stake_instruction::tests::test_withdraw_stake::new_behavior             at ./src/stake_instruction.rs:2843:5";
+  test.bt = "   2: solana_stake_program::stake_instruction::tests::process_instruction             at ./src/stake_instruction.rs:578:9   3: solana_stake_program::stake_instruction::tests::test_withdraw_stake             at ./src/stake_instruction.rs:3069:9   4: solana_stake_program::stake_instruction::tests::test_withdraw_stake::new_behavior             at ./src/stake_instruction.rs:2843:5   5: solana_stake_program::stake_instruction::tests::test_withdraw_stake::new_behavior::{{closure}}             at ./src/stake_instruction.rs:2843:5";
   test.test_name = "stake_instruction::tests::test_withdraw_stake::new_behavior";
   test.test_nonce  = 618;
   test.test_number = 1330;

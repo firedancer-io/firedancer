@@ -5,7 +5,7 @@ int test_742(fd_executor_test_suite_t *suite) {
   test.disable_cnt = 47;
   uchar disabled_features[] = { 123,30,125,61,128,80,27,114,109,90,122,92,77,106,15,113,33,83,121,2,76,24,120,79,98,56,87,62,26,118,117,116,55,111,82,126,29,112,75,108,103,110,78,124,127,89,105 };
   test.disable_feature = disabled_features;
-  test.bt = "   2: solana_stake_program::stake_instruction::tests::process_instruction             at ./src/stake_instruction.rs:578:9   3: solana_stake_program::stake_instruction::tests::test_split_full_amount_minimum_stake_delegation             at ./src/stake_instruction.rs:4195:17   4: solana_stake_program::stake_instruction::tests::test_split_full_amount_minimum_stake_delegation::old_behavior             at ./src/stake_instruction.rs:4143:5";
+  test.bt = "   2: solana_stake_program::stake_instruction::tests::process_instruction             at ./src/stake_instruction.rs:578:9   3: solana_stake_program::stake_instruction::tests::test_split_full_amount_minimum_stake_delegation             at ./src/stake_instruction.rs:4195:17   4: solana_stake_program::stake_instruction::tests::test_split_full_amount_minimum_stake_delegation::old_behavior             at ./src/stake_instruction.rs:4143:5   5: solana_stake_program::stake_instruction::tests::test_split_full_amount_minimum_stake_delegation::old_behavior::{{closure}}             at ./src/stake_instruction.rs:4143:5";
   test.test_name = "stake_instruction::tests::test_split_full_amount_minimum_stake_delegation::old_behavior";
   test.test_nonce  = 98;
   test.test_number = 742;

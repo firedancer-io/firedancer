@@ -5,7 +5,7 @@ int test_1421(fd_executor_test_suite_t *suite) {
   test.disable_cnt = 47;
   uchar disabled_features[] = { 82,83,125,112,121,113,55,105,76,62,92,128,90,27,122,106,29,118,33,15,111,124,56,120,87,123,24,117,126,30,108,77,116,114,89,103,61,109,2,127,80,79,75,98,26,78,110 };
   test.disable_feature = disabled_features;
-  test.bt = "   2: solana_runtime::system_instruction_processor::tests::test_process_authorize_ix_ok             at ./src/system_instruction_processor.rs:2054:9   3: solana_runtime::system_instruction_processor::tests::test_process_authorize_ix_ok::{{closure}}             at ./src/system_instruction_processor.rs:2022:5   4: core::ops::function::FnOnce::call_once             at /rustc/0677edc86e342f333d4828b0ee1ef395a4e70fe5/library/core/src/ops/function.rs:227:5";
+  test.bt = "   2: solana_runtime::system_instruction_processor::tests::test_process_authorize_ix_ok             at ./src/system_instruction_processor.rs:2054:9   3: solana_runtime::system_instruction_processor::tests::test_process_authorize_ix_ok::{{closure}}             at ./src/system_instruction_processor.rs:2022:5   4: core::ops::function::FnOnce::call_once             at /rustc/0677edc86e342f333d4828b0ee1ef395a4e70fe5/library/core/src/ops/function.rs:227:5   5: core::ops::function::FnOnce::call_once             at /rustc/0677edc86e342f333d4828b0ee1ef395a4e70fe5/library/core/src/ops/function.rs:227:5";
   test.test_name = "system_instruction_processor::tests::test_process_authorize_ix_ok";
   test.test_nonce  = 51;
   test.test_number = 1421;

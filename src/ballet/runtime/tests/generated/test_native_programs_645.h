@@ -5,7 +5,7 @@ int test_645(fd_executor_test_suite_t *suite) {
   test.disable_cnt = 0;
   uchar disabled_features[] = { 116,120,90,15,26,106,61,121,83,89,98,92,126,109,56,87,110,24,117,112,30,29,2,55,27,105,128,108,76,122,127,77,103,114,124,113,82,75,80,62,79,33,125,118,78,123,111 };
   test.disable_feature = disabled_features;
-  test.bt = "   2: solana_stake_program::stake_instruction::tests::process_instruction             at ./src/stake_instruction.rs:578:9   3: solana_stake_program::stake_instruction::tests::test_split_100_percent_of_source_to_account_with_lamports             at ./src/stake_instruction.rs:5572:28   4: solana_stake_program::stake_instruction::tests::test_split_100_percent_of_source_to_account_with_lamports::new_behavior             at ./src/stake_instruction.rs:5509:5";
+  test.bt = "   2: solana_stake_program::stake_instruction::tests::process_instruction             at ./src/stake_instruction.rs:578:9   3: solana_stake_program::stake_instruction::tests::test_split_100_percent_of_source_to_account_with_lamports             at ./src/stake_instruction.rs:5572:28   4: solana_stake_program::stake_instruction::tests::test_split_100_percent_of_source_to_account_with_lamports::new_behavior             at ./src/stake_instruction.rs:5509:5   5: solana_stake_program::stake_instruction::tests::test_split_100_percent_of_source_to_account_with_lamports::new_behavior::{{closure}}             at ./src/stake_instruction.rs:5509:5";
   test.test_name = "stake_instruction::tests::test_split_100_percent_of_source_to_account_with_lamports::new_behavior";
   test.test_nonce  = 66;
   test.test_number = 645;

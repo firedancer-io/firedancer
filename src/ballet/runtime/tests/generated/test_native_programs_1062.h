@@ -5,7 +5,7 @@ int test_1062(fd_executor_test_suite_t *suite) {
   test.disable_cnt = 47;
   uchar disabled_features[] = { 106,128,126,125,124,87,30,121,55,77,79,113,111,98,82,103,122,29,33,108,26,27,62,112,61,114,109,56,127,110,117,2,24,123,80,83,15,120,92,105,116,78,76,75,118,90,89 };
   test.disable_feature = disabled_features;
-  test.bt = "   2: solana_stake_program::stake_instruction::tests::process_instruction             at ./src/stake_instruction.rs:578:9   3: solana_stake_program::stake_instruction::tests::test_staked_split_destination_minimum_balance             at ./src/stake_instruction.rs:4424:28   4: solana_stake_program::stake_instruction::tests::test_staked_split_destination_minimum_balance::new_behavior             at ./src/stake_instruction.rs:4313:5";
+  test.bt = "   2: solana_stake_program::stake_instruction::tests::process_instruction             at ./src/stake_instruction.rs:578:9   3: solana_stake_program::stake_instruction::tests::test_staked_split_destination_minimum_balance             at ./src/stake_instruction.rs:4424:28   4: solana_stake_program::stake_instruction::tests::test_staked_split_destination_minimum_balance::new_behavior             at ./src/stake_instruction.rs:4313:5   5: solana_stake_program::stake_instruction::tests::test_staked_split_destination_minimum_balance::new_behavior::{{closure}}             at ./src/stake_instruction.rs:4313:5";
   test.test_name = "stake_instruction::tests::test_staked_split_destination_minimum_balance::new_behavior";
   test.test_nonce  = 318;
   test.test_number = 1062;

@@ -5,7 +5,7 @@ int test_1456(fd_executor_test_suite_t *suite) {
   test.disable_cnt = 47;
   uchar disabled_features[] = { 27,125,24,33,82,124,29,114,79,80,111,89,62,15,110,105,116,55,123,2,76,30,120,109,117,98,128,83,61,75,106,26,78,122,56,90,112,127,103,87,108,121,113,92,118,126,77 };
   test.disable_feature = disabled_features;
-  test.bt = "   2: solana_runtime::system_instruction_processor::tests::test_transfer_lamports             at ./src/system_instruction_processor.rs:1395:24   3: solana_runtime::system_instruction_processor::tests::test_transfer_lamports::{{closure}}             at ./src/system_instruction_processor.rs:1353:5   4: core::ops::function::FnOnce::call_once             at /rustc/0677edc86e342f333d4828b0ee1ef395a4e70fe5/library/core/src/ops/function.rs:227:5";
+  test.bt = "   2: solana_runtime::system_instruction_processor::tests::test_transfer_lamports             at ./src/system_instruction_processor.rs:1395:24   3: solana_runtime::system_instruction_processor::tests::test_transfer_lamports::{{closure}}             at ./src/system_instruction_processor.rs:1353:5   4: core::ops::function::FnOnce::call_once             at /rustc/0677edc86e342f333d4828b0ee1ef395a4e70fe5/library/core/src/ops/function.rs:227:5   5: core::ops::function::FnOnce::call_once             at /rustc/0677edc86e342f333d4828b0ee1ef395a4e70fe5/library/core/src/ops/function.rs:227:5";
   test.test_name = "system_instruction_processor::tests::test_transfer_lamports";
   test.test_nonce  = 47;
   test.test_number = 1456;

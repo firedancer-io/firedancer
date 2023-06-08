@@ -5,7 +5,7 @@ int test_1624(fd_executor_test_suite_t *suite) {
   test.disable_cnt = 47;
   uchar disabled_features[] = { 89,112,98,30,92,108,90,61,82,117,76,55,62,78,123,33,75,56,103,24,83,113,110,15,87,77,111,125,118,126,27,116,80,122,128,120,2,124,26,29,105,121,114,79,109,127,106 };
   test.disable_feature = disabled_features;
-  test.bt = "   2: solana_vote_program::vote_processor::tests::process_instruction_as_one_arg             at ./src/vote_processor.rs:394:9   3: solana_vote_program::vote_processor::tests::test_spoofed_vote             at ./src/vote_processor.rs:1763:9   4: solana_vote_program::vote_processor::tests::test_spoofed_vote::{{closure}}             at ./src/vote_processor.rs:1762:5";
+  test.bt = "   2: solana_vote_program::vote_processor::tests::process_instruction_as_one_arg             at ./src/vote_processor.rs:394:9   3: solana_vote_program::vote_processor::tests::test_spoofed_vote             at ./src/vote_processor.rs:1763:9   4: solana_vote_program::vote_processor::tests::test_spoofed_vote::{{closure}}             at ./src/vote_processor.rs:1762:5   5: core::ops::function::FnOnce::call_once             at /rustc/0677edc86e342f333d4828b0ee1ef395a4e70fe5/library/core/src/ops/function.rs:227:5";
   test.test_name = "vote_processor::tests::test_spoofed_vote";
   test.test_nonce  = 4;
   test.test_number = 1624;

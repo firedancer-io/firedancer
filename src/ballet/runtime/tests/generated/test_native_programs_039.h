@@ -5,7 +5,7 @@ int test_39(fd_executor_test_suite_t *suite) {
   test.disable_cnt = 0;
   uchar disabled_features[] = { 80,126,29,55,76,114,108,109,90,127,124,83,77,111,15,92,89,62,2,56,79,110,26,82,75,120,113,27,128,122,116,118,61,87,106,78,30,112,125,33,98,24,105,103,123,121,117 };
   test.disable_feature = disabled_features;
-  test.bt = "   2: solana_config_program::config_processor::tests::create_config_account             at ./src/config_processor.rs:215:24   3: solana_config_program::config_processor::tests::test_process_store_fail_account0_not_signer             at ./src/config_processor.rs:289:48   4: solana_config_program::config_processor::tests::test_process_store_fail_account0_not_signer::{{closure}}             at ./src/config_processor.rs:286:5";
+  test.bt = "   2: solana_config_program::config_processor::tests::create_config_account             at ./src/config_processor.rs:215:24   3: solana_config_program::config_processor::tests::test_process_store_fail_account0_not_signer             at ./src/config_processor.rs:289:48   4: solana_config_program::config_processor::tests::test_process_store_fail_account0_not_signer::{{closure}}             at ./src/config_processor.rs:286:5   5: core::ops::function::FnOnce::call_once             at /rustc/0677edc86e342f333d4828b0ee1ef395a4e70fe5/library/core/src/ops/function.rs:227:5";
   test.test_name = "config_processor::tests::test_process_store_fail_account0_not_signer";
   test.test_nonce  = 3;
   test.test_number = 39;

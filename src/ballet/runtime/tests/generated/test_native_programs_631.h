@@ -5,7 +5,7 @@ int test_631(fd_executor_test_suite_t *suite) {
   test.disable_cnt = 0;
   uchar disabled_features[] = { 92,125,103,126,82,98,77,112,24,124,80,117,89,120,128,30,29,113,76,90,75,105,78,87,61,106,118,109,15,33,116,56,26,62,27,121,114,111,110,108,123,2,83,79,55,122,127 };
   test.disable_feature = disabled_features;
-  test.bt = "   2: solana_stake_program::stake_instruction::tests::process_instruction             at ./src/stake_instruction.rs:578:9   3: solana_stake_program::stake_instruction::tests::test_split_100_percent_of_source             at ./src/stake_instruction.rs:5469:28   4: solana_stake_program::stake_instruction::tests::test_split_100_percent_of_source::new_behavior             at ./src/stake_instruction.rs:5413:5";
+  test.bt = "   2: solana_stake_program::stake_instruction::tests::process_instruction             at ./src/stake_instruction.rs:578:9   3: solana_stake_program::stake_instruction::tests::test_split_100_percent_of_source             at ./src/stake_instruction.rs:5469:28   4: solana_stake_program::stake_instruction::tests::test_split_100_percent_of_source::new_behavior             at ./src/stake_instruction.rs:5413:5   5: solana_stake_program::stake_instruction::tests::test_split_100_percent_of_source::new_behavior::{{closure}}             at ./src/stake_instruction.rs:5413:5";
   test.test_name = "stake_instruction::tests::test_split_100_percent_of_source::new_behavior";
   test.test_nonce  = 67;
   test.test_number = 631;

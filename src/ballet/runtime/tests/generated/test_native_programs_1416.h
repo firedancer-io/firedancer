@@ -5,7 +5,7 @@ int test_1416(fd_executor_test_suite_t *suite) {
   test.disable_cnt = 0;
   uchar disabled_features[] = { 110,121,83,80,78,61,62,77,108,56,103,2,29,82,126,114,113,127,117,124,122,26,109,111,24,118,15,89,120,125,106,79,112,116,76,27,55,75,90,128,98,87,123,30,92,33,105 };
   test.disable_feature = disabled_features;
-  test.bt = "   2: solana_runtime::system_instruction_processor::tests::process_nonce_instruction             at ./src/system_instruction_processor.rs:1764:9   3: solana_runtime::system_instruction_processor::tests::test_process_authorize_bad_account_data_fail             at ./src/system_instruction_processor.rs:2070:9   4: solana_runtime::system_instruction_processor::tests::test_process_authorize_bad_account_data_fail::{{closure}}             at ./src/system_instruction_processor.rs:2068:5";
+  test.bt = "   2: solana_runtime::system_instruction_processor::tests::process_nonce_instruction             at ./src/system_instruction_processor.rs:1764:9   3: solana_runtime::system_instruction_processor::tests::test_process_authorize_bad_account_data_fail             at ./src/system_instruction_processor.rs:2070:9   4: solana_runtime::system_instruction_processor::tests::test_process_authorize_bad_account_data_fail::{{closure}}             at ./src/system_instruction_processor.rs:2068:5   5: core::ops::function::FnOnce::call_once             at /rustc/0677edc86e342f333d4828b0ee1ef395a4e70fe5/library/core/src/ops/function.rs:227:5";
   test.test_name = "system_instruction_processor::tests::test_process_authorize_bad_account_data_fail";
   test.test_nonce  = 20;
   test.test_number = 1416;

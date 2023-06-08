@@ -5,7 +5,7 @@ int test_63(fd_executor_test_suite_t *suite) {
   test.disable_cnt = 47;
   uchar disabled_features[] = { 114,61,118,123,26,27,56,75,121,106,113,77,103,87,82,125,105,117,24,33,55,30,2,120,80,76,127,83,90,15,108,111,78,112,110,89,128,116,122,126,109,124,29,79,92,98,62 };
   test.disable_feature = disabled_features;
-  test.bt = "   2: solana_config_program::config_processor::tests::test_process_store_without_config_signer             at ./src/config_processor.rs:371:9   3: solana_config_program::config_processor::tests::test_process_store_without_config_signer::{{closure}}             at ./src/config_processor.rs:360:5   4: core::ops::function::FnOnce::call_once             at /rustc/0677edc86e342f333d4828b0ee1ef395a4e70fe5/library/core/src/ops/function.rs:227:5";
+  test.bt = "   2: solana_config_program::config_processor::tests::test_process_store_without_config_signer             at ./src/config_processor.rs:371:9   3: solana_config_program::config_processor::tests::test_process_store_without_config_signer::{{closure}}             at ./src/config_processor.rs:360:5   4: core::ops::function::FnOnce::call_once             at /rustc/0677edc86e342f333d4828b0ee1ef395a4e70fe5/library/core/src/ops/function.rs:227:5   5: core::ops::function::FnOnce::call_once             at /rustc/0677edc86e342f333d4828b0ee1ef395a4e70fe5/library/core/src/ops/function.rs:227:5";
   test.test_name = "config_processor::tests::test_process_store_without_config_signer";
   test.test_nonce  = 17;
   test.test_number = 63;

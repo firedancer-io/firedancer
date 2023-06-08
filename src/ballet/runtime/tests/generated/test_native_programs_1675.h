@@ -5,7 +5,7 @@ int test_1675(fd_executor_test_suite_t *suite) {
   test.disable_cnt = 129;
   uchar disabled_features[] = { 15,88,89,30,76,35,128,68,49,28,111,29,91,72,103,66,54,0,109,77,33,25,121,81,14,32,55,117,8,16,26,67,83,23,116,24,107,63,64,126,17,112,101,2,18,94,46,45,37,5,56,70,62,119,113,47,127,97,114,110,69,22,20,87,75,36,58,21,108,92,38,93,27,31,106,120,60,6,82,59,85,52,48,104,86,53,80,4,42,122,7,57,84,105,90,71,41,123,65,99,12,11,50,73,3,10,1,34,13,100,102,95,118,43,51,61,98,79,74,39,44,124,96,40,115,78,19,9,125 };
   test.disable_feature = disabled_features;
-  test.bt = "   2: solana_vote_program::vote_processor::tests::perform_authorize_with_seed_test             at ./src/vote_processor.rs:1357:9   3: solana_vote_program::vote_processor::tests::test_voter_base_key_can_authorize_new_voter             at ./src/vote_processor.rs:1523:9   4: solana_vote_program::vote_processor::tests::test_voter_base_key_can_authorize_new_voter::{{closure}}             at ./src/vote_processor.rs:1513:5";
+  test.bt = "   2: solana_vote_program::vote_processor::tests::perform_authorize_with_seed_test             at ./src/vote_processor.rs:1357:9   3: solana_vote_program::vote_processor::tests::test_voter_base_key_can_authorize_new_voter             at ./src/vote_processor.rs:1523:9   4: solana_vote_program::vote_processor::tests::test_voter_base_key_can_authorize_new_voter::{{closure}}             at ./src/vote_processor.rs:1513:5   5: core::ops::function::FnOnce::call_once             at /rustc/0677edc86e342f333d4828b0ee1ef395a4e70fe5/library/core/src/ops/function.rs:227:5";
   test.test_name = "vote_processor::tests::test_voter_base_key_can_authorize_new_voter";
   test.test_nonce  = 59;
   test.test_number = 1675;

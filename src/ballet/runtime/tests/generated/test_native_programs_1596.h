@@ -5,7 +5,7 @@ int test_1596(fd_executor_test_suite_t *suite) {
   test.disable_cnt = 47;
   uchar disabled_features[] = { 24,112,128,55,29,126,89,121,108,2,109,124,77,56,15,87,76,106,26,123,122,111,30,75,103,116,33,78,90,120,82,62,61,80,125,79,92,105,98,27,110,117,118,114,127,83,113 };
   test.disable_feature = disabled_features;
-  test.bt = "   2: solana_vote_program::vote_processor::tests::test_authorize_voter             at ./src/vote_processor.rs:934:9   3: solana_vote_program::vote_processor::tests::test_authorize_voter::{{closure}}             at ./src/vote_processor.rs:859:5   4: core::ops::function::FnOnce::call_once             at /rustc/0677edc86e342f333d4828b0ee1ef395a4e70fe5/library/core/src/ops/function.rs:227:5";
+  test.bt = "   2: solana_vote_program::vote_processor::tests::test_authorize_voter             at ./src/vote_processor.rs:934:9   3: solana_vote_program::vote_processor::tests::test_authorize_voter::{{closure}}             at ./src/vote_processor.rs:859:5   4: core::ops::function::FnOnce::call_once             at /rustc/0677edc86e342f333d4828b0ee1ef395a4e70fe5/library/core/src/ops/function.rs:227:5   5: core::ops::function::FnOnce::call_once             at /rustc/0677edc86e342f333d4828b0ee1ef395a4e70fe5/library/core/src/ops/function.rs:227:5";
   test.test_name = "vote_processor::tests::test_authorize_voter";
   test.test_nonce  = 48;
   test.test_number = 1596;

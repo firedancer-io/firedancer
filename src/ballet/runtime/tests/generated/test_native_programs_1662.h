@@ -5,7 +5,7 @@ int test_1662(fd_executor_test_suite_t *suite) {
   test.disable_cnt = 47;
   uchar disabled_features[] = { 55,15,127,77,87,30,83,108,122,76,123,128,92,125,105,79,111,29,118,106,124,62,80,27,78,89,114,24,82,56,103,116,110,98,112,75,26,33,121,120,2,113,117,90,126,61,109 };
   test.disable_feature = disabled_features;
-  test.bt = "   2: solana_vote_program::vote_processor::tests::perform_authorize_checked_with_seed_test             at ./src/vote_processor.rs:1436:9   3: solana_vote_program::vote_processor::tests::test_voter_base_key_can_authorize_new_voter_checked             at ./src/vote_processor.rs:1645:9   4: solana_vote_program::vote_processor::tests::test_voter_base_key_can_authorize_new_voter_checked::{{closure}}             at ./src/vote_processor.rs:1635:5";
+  test.bt = "   2: solana_vote_program::vote_processor::tests::perform_authorize_checked_with_seed_test             at ./src/vote_processor.rs:1436:9   3: solana_vote_program::vote_processor::tests::test_voter_base_key_can_authorize_new_voter_checked             at ./src/vote_processor.rs:1645:9   4: solana_vote_program::vote_processor::tests::test_voter_base_key_can_authorize_new_voter_checked::{{closure}}             at ./src/vote_processor.rs:1635:5   5: core::ops::function::FnOnce::call_once             at /rustc/0677edc86e342f333d4828b0ee1ef395a4e70fe5/library/core/src/ops/function.rs:227:5";
   test.test_name = "vote_processor::tests::test_voter_base_key_can_authorize_new_voter_checked";
   test.test_nonce  = 24;
   test.test_number = 1662;

@@ -5,7 +5,7 @@ int test_45(fd_executor_test_suite_t *suite) {
   test.disable_cnt = 0;
   uchar disabled_features[] = { 126,27,108,127,124,103,128,83,29,92,30,80,117,78,125,116,79,61,113,111,105,110,98,89,109,75,82,24,120,87,106,56,118,55,122,77,26,114,112,2,76,33,123,15,62,121,90 };
   test.disable_feature = disabled_features;
-  test.bt = "   2: solana_config_program::config_processor::tests::create_config_account             at ./src/config_processor.rs:215:24   3: solana_config_program::config_processor::tests::test_process_store_fail_instruction_data_too_large             at ./src/config_processor.rs:267:48   4: solana_config_program::config_processor::tests::test_process_store_fail_instruction_data_too_large::{{closure}}             at ./src/config_processor.rs:264:5";
+  test.bt = "   2: solana_config_program::config_processor::tests::create_config_account             at ./src/config_processor.rs:215:24   3: solana_config_program::config_processor::tests::test_process_store_fail_instruction_data_too_large             at ./src/config_processor.rs:267:48   4: solana_config_program::config_processor::tests::test_process_store_fail_instruction_data_too_large::{{closure}}             at ./src/config_processor.rs:264:5   5: core::ops::function::FnOnce::call_once             at /rustc/0677edc86e342f333d4828b0ee1ef395a4e70fe5/library/core/src/ops/function.rs:227:5";
   test.test_name = "config_processor::tests::test_process_store_fail_instruction_data_too_large";
   test.test_nonce  = 4;
   test.test_number = 45;

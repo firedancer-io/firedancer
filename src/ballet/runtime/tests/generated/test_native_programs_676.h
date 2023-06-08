@@ -5,7 +5,7 @@ int test_676(fd_executor_test_suite_t *suite) {
   test.disable_cnt = 47;
   uchar disabled_features[] = { 105,118,125,112,108,83,33,79,90,78,82,61,127,15,77,113,24,124,26,120,121,122,110,87,30,2,98,109,27,106,89,116,56,117,75,62,126,103,76,80,92,111,128,29,123,55,114 };
   test.disable_feature = disabled_features;
-  test.bt = "   2: solana_stake_program::stake_instruction::tests::process_instruction             at ./src/stake_instruction.rs:578:9   3: solana_stake_program::stake_instruction::tests::test_split_from_larger_sized_account             at ./src/stake_instruction.rs:5276:28   4: solana_stake_program::stake_instruction::tests::test_split_from_larger_sized_account::old_behavior             at ./src/stake_instruction.rs:5203:5";
+  test.bt = "   2: solana_stake_program::stake_instruction::tests::process_instruction             at ./src/stake_instruction.rs:578:9   3: solana_stake_program::stake_instruction::tests::test_split_from_larger_sized_account             at ./src/stake_instruction.rs:5276:28   4: solana_stake_program::stake_instruction::tests::test_split_from_larger_sized_account::old_behavior             at ./src/stake_instruction.rs:5203:5   5: solana_stake_program::stake_instruction::tests::test_split_from_larger_sized_account::old_behavior::{{closure}}             at ./src/stake_instruction.rs:5203:5";
   test.test_name = "stake_instruction::tests::test_split_from_larger_sized_account::old_behavior";
   test.test_nonce  = 169;
   test.test_number = 676;

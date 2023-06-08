@@ -5,7 +5,7 @@ int test_1233(fd_executor_test_suite_t *suite) {
   test.disable_cnt = 0;
   uchar disabled_features[] = { 109,87,126,124,75,78,92,118,83,33,82,128,122,121,98,62,77,61,108,123,26,103,116,106,80,15,114,24,79,110,125,2,55,127,56,120,105,90,111,27,117,89,112,113,30,29,76 };
   test.disable_feature = disabled_features;
-  test.bt = "   2: solana_stake_program::stake_instruction::tests::process_instruction             at ./src/stake_instruction.rs:578:9   3: solana_stake_program::stake_instruction::tests::process_instruction_as_one_arg             at ./src/stake_instruction.rs:651:9   4: solana_stake_program::stake_instruction::tests::test_stake_process_instruction             at ./src/stake_instruction.rs:761:9";
+  test.bt = "   2: solana_stake_program::stake_instruction::tests::process_instruction             at ./src/stake_instruction.rs:578:9   3: solana_stake_program::stake_instruction::tests::process_instruction_as_one_arg             at ./src/stake_instruction.rs:651:9   4: solana_stake_program::stake_instruction::tests::test_stake_process_instruction             at ./src/stake_instruction.rs:761:9   5: solana_stake_program::stake_instruction::tests::test_stake_process_instruction::new_behavior             at ./src/stake_instruction.rs:673:5";
   test.test_name = "stake_instruction::tests::test_stake_process_instruction::new_behavior";
   test.test_nonce  = 524;
   test.test_number = 1233;

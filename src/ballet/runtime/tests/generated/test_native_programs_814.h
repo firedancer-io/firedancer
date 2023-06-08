@@ -5,7 +5,7 @@ int test_814(fd_executor_test_suite_t *suite) {
   test.disable_cnt = 47;
   uchar disabled_features[] = { 56,113,27,114,33,55,126,90,123,26,110,109,117,121,108,125,128,111,118,116,124,78,2,77,83,98,29,127,82,30,76,24,80,103,105,106,112,122,75,79,92,61,120,15,87,89,62 };
   test.disable_feature = disabled_features;
-  test.bt = "   2: solana_stake_program::stake_instruction::tests::process_instruction             at ./src/stake_instruction.rs:578:9   3: solana_stake_program::stake_instruction::tests::test_split_rent_exemptness             at ./src/stake_instruction.rs:5692:28   4: solana_stake_program::stake_instruction::tests::test_split_rent_exemptness::old_behavior             at ./src/stake_instruction.rs:5605:5";
+  test.bt = "   2: solana_stake_program::stake_instruction::tests::process_instruction             at ./src/stake_instruction.rs:578:9   3: solana_stake_program::stake_instruction::tests::test_split_rent_exemptness             at ./src/stake_instruction.rs:5692:28   4: solana_stake_program::stake_instruction::tests::test_split_rent_exemptness::old_behavior             at ./src/stake_instruction.rs:5605:5   5: solana_stake_program::stake_instruction::tests::test_split_rent_exemptness::old_behavior::{{closure}}             at ./src/stake_instruction.rs:5605:5";
   test.test_name = "stake_instruction::tests::test_split_rent_exemptness::old_behavior";
   test.test_nonce  = 124;
   test.test_number = 814;

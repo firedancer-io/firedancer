@@ -5,7 +5,7 @@ int test_1490(fd_executor_test_suite_t *suite) {
   test.disable_cnt = 47;
   uchar disabled_features[] = { 111,110,124,105,82,78,33,118,24,126,15,56,120,55,106,116,109,62,27,123,30,112,76,87,80,108,29,75,125,117,90,103,114,2,122,121,127,83,61,26,79,113,92,77,89,128,98 };
   test.disable_feature = disabled_features;
-  test.bt = "   2: solana_bpf_loader_program::tests::test_bpf_loader_serialize_aligned             at ./src/lib.rs:1854:9   3: solana_bpf_loader_program::tests::test_bpf_loader_serialize_aligned::{{closure}}             at ./src/lib.rs:1827:5   4: core::ops::function::FnOnce::call_once             at /rustc/0677edc86e342f333d4828b0ee1ef395a4e70fe5/library/core/src/ops/function.rs:227:5";
+  test.bt = "   2: solana_bpf_loader_program::tests::test_bpf_loader_serialize_aligned             at ./src/lib.rs:1854:9   3: solana_bpf_loader_program::tests::test_bpf_loader_serialize_aligned::{{closure}}             at ./src/lib.rs:1827:5   4: core::ops::function::FnOnce::call_once             at /rustc/0677edc86e342f333d4828b0ee1ef395a4e70fe5/library/core/src/ops/function.rs:227:5   5: core::ops::function::FnOnce::call_once             at /rustc/0677edc86e342f333d4828b0ee1ef395a4e70fe5/library/core/src/ops/function.rs:227:5";
   test.test_name = "tests::test_bpf_loader_serialize_aligned";
   test.test_nonce  = 38;
   test.test_number = 1490;

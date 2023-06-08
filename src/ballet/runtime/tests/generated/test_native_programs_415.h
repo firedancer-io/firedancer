@@ -5,7 +5,7 @@ int test_415(fd_executor_test_suite_t *suite) {
   test.disable_cnt = 47;
   uchar disabled_features[] = { 105,55,29,24,56,120,109,61,127,89,83,80,78,113,118,90,112,2,110,108,15,124,77,27,122,79,126,62,125,123,128,30,117,98,82,76,75,103,116,106,26,121,92,33,87,111,114 };
   test.disable_feature = disabled_features;
-  test.bt = "   2: solana_stake_program::stake_instruction::tests::process_instruction             at ./src/stake_instruction.rs:578:9   3: solana_stake_program::stake_instruction::tests::test_merge_invalid_account_data             at ./src/stake_instruction.rs:6114:17   4: solana_stake_program::stake_instruction::tests::test_merge_invalid_account_data::new_behavior             at ./src/stake_instruction.rs:6044:5";
+  test.bt = "   2: solana_stake_program::stake_instruction::tests::process_instruction             at ./src/stake_instruction.rs:578:9   3: solana_stake_program::stake_instruction::tests::test_merge_invalid_account_data             at ./src/stake_instruction.rs:6114:17   4: solana_stake_program::stake_instruction::tests::test_merge_invalid_account_data::new_behavior             at ./src/stake_instruction.rs:6044:5   5: solana_stake_program::stake_instruction::tests::test_merge_invalid_account_data::new_behavior::{{closure}}             at ./src/stake_instruction.rs:6044:5";
   test.test_name = "stake_instruction::tests::test_merge_invalid_account_data::new_behavior";
   test.test_nonce  = 577;
   test.test_number = 415;

@@ -5,7 +5,7 @@ int test_327(fd_executor_test_suite_t *suite) {
   test.disable_cnt = 0;
   uchar disabled_features[] = { 128,61,117,111,108,125,26,29,105,2,90,33,55,114,77,83,62,82,118,113,98,120,24,78,75,106,124,123,103,27,110,112,121,79,126,92,80,30,116,109,122,89,15,127,76,56,87 };
   test.disable_feature = disabled_features;
-  test.bt = "   2: solana_stake_program::stake_instruction::tests::process_instruction             at ./src/stake_instruction.rs:578:9   3: solana_stake_program::stake_instruction::tests::test_merge_active_stake::try_merge             at ./src/stake_instruction.rs:6308:32   4: solana_stake_program::stake_instruction::tests::test_merge_active_stake             at ./src/stake_instruction.rs:6448:9";
+  test.bt = "   2: solana_stake_program::stake_instruction::tests::process_instruction             at ./src/stake_instruction.rs:578:9   3: solana_stake_program::stake_instruction::tests::test_merge_active_stake::try_merge             at ./src/stake_instruction.rs:6308:32   4: solana_stake_program::stake_instruction::tests::test_merge_active_stake             at ./src/stake_instruction.rs:6448:9   5: solana_stake_program::stake_instruction::tests::test_merge_active_stake::new_behavior             at ./src/stake_instruction.rs:6196:5";
   test.test_name = "stake_instruction::tests::test_merge_active_stake::new_behavior";
   test.test_nonce  = 643;
   test.test_number = 327;

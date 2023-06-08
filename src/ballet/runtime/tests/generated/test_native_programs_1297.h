@@ -5,7 +5,7 @@ int test_1297(fd_executor_test_suite_t *suite) {
   test.disable_cnt = 0;
   uchar disabled_features[] = { 90,80,105,128,110,114,112,127,76,121,116,122,77,27,98,106,29,87,30,61,111,123,89,113,78,79,109,33,55,125,124,92,2,56,26,83,15,24,120,126,62,108,103,82,75,118,117 };
   test.disable_feature = disabled_features;
-  test.bt = "   2: solana_stake_program::stake_instruction::tests::process_instruction             at ./src/stake_instruction.rs:578:9   3: solana_stake_program::stake_instruction::tests::test_withdraw_rent_exempt             at ./src/stake_instruction.rs:3473:9   4: solana_stake_program::stake_instruction::tests::test_withdraw_rent_exempt::new_behavior             at ./src/stake_instruction.rs:3393:5";
+  test.bt = "   2: solana_stake_program::stake_instruction::tests::process_instruction             at ./src/stake_instruction.rs:578:9   3: solana_stake_program::stake_instruction::tests::test_withdraw_rent_exempt             at ./src/stake_instruction.rs:3473:9   4: solana_stake_program::stake_instruction::tests::test_withdraw_rent_exempt::new_behavior             at ./src/stake_instruction.rs:3393:5   5: solana_stake_program::stake_instruction::tests::test_withdraw_rent_exempt::new_behavior::{{closure}}             at ./src/stake_instruction.rs:3393:5";
   test.test_name = "stake_instruction::tests::test_withdraw_rent_exempt::new_behavior";
   test.test_nonce  = 407;
   test.test_number = 1297;

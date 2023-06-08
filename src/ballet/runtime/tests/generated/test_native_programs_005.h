@@ -5,7 +5,7 @@ int test_5(fd_executor_test_suite_t *suite) {
   test.disable_cnt = 0;
   uchar disabled_features[] = { 33,110,118,89,77,113,108,126,92,29,128,111,120,79,83,124,103,125,114,106,127,105,116,27,15,121,55,61,78,123,98,2,90,109,75,76,62,30,112,122,24,56,117,82,26,80,87 };
   test.disable_feature = disabled_features;
-  test.bt = "   2: solana_config_program::config_processor::tests::create_config_account             at ./src/config_processor.rs:215:24   3: solana_config_program::config_processor::tests::test_config_initialize_contains_duplicates_fails             at ./src/config_processor.rs:601:48   4: solana_config_program::config_processor::tests::test_config_initialize_contains_duplicates_fails::{{closure}}             at ./src/config_processor.rs:591:5";
+  test.bt = "   2: solana_config_program::config_processor::tests::create_config_account             at ./src/config_processor.rs:215:24   3: solana_config_program::config_processor::tests::test_config_initialize_contains_duplicates_fails             at ./src/config_processor.rs:601:48   4: solana_config_program::config_processor::tests::test_config_initialize_contains_duplicates_fails::{{closure}}             at ./src/config_processor.rs:591:5   5: core::ops::function::FnOnce::call_once             at /rustc/0677edc86e342f333d4828b0ee1ef395a4e70fe5/library/core/src/ops/function.rs:227:5";
   test.test_name = "config_processor::tests::test_config_initialize_contains_duplicates_fails";
   test.test_nonce  = 1;
   test.test_number = 5;

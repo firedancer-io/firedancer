@@ -5,7 +5,7 @@ int test_1479(fd_executor_test_suite_t *suite) {
   test.disable_cnt = 47;
   uchar disabled_features[] = { 120,98,127,76,26,118,92,62,113,106,126,128,82,116,75,124,105,112,80,125,123,33,89,55,111,83,61,114,109,27,78,24,56,87,103,90,79,30,110,122,121,108,117,15,77,29,2 };
   test.disable_feature = disabled_features;
-  test.bt = "   2: solana_bpf_loader_program::tests::test_bpf_loader_invoke_main             at ./src/lib.rs:1729:9   3: solana_bpf_loader_program::tests::test_bpf_loader_invoke_main::{{closure}}             at ./src/lib.rs:1695:5   4: core::ops::function::FnOnce::call_once             at /rustc/0677edc86e342f333d4828b0ee1ef395a4e70fe5/library/core/src/ops/function.rs:227:5";
+  test.bt = "   2: solana_bpf_loader_program::tests::test_bpf_loader_invoke_main             at ./src/lib.rs:1729:9   3: solana_bpf_loader_program::tests::test_bpf_loader_invoke_main::{{closure}}             at ./src/lib.rs:1695:5   4: core::ops::function::FnOnce::call_once             at /rustc/0677edc86e342f333d4828b0ee1ef395a4e70fe5/library/core/src/ops/function.rs:227:5   5: core::ops::function::FnOnce::call_once             at /rustc/0677edc86e342f333d4828b0ee1ef395a4e70fe5/library/core/src/ops/function.rs:227:5";
   test.test_name = "tests::test_bpf_loader_invoke_main";
   test.test_nonce  = 48;
   test.test_number = 1479;

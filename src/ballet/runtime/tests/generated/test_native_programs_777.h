@@ -5,7 +5,7 @@ int test_777(fd_executor_test_suite_t *suite) {
   test.disable_cnt = 0;
   uchar disabled_features[] = { 76,15,77,62,56,89,116,75,92,125,117,61,108,124,26,120,106,82,105,121,126,80,78,24,123,2,122,112,90,127,27,111,98,109,87,118,103,110,79,83,55,30,29,128,114,33,113 };
   test.disable_feature = disabled_features;
-  test.bt = "   2: solana_stake_program::stake_instruction::tests::process_instruction             at ./src/stake_instruction.rs:578:9   3: solana_stake_program::stake_instruction::tests::test_split_more_than_staked             at ./src/stake_instruction.rs:4959:9   4: solana_stake_program::stake_instruction::tests::test_split_more_than_staked::new_behavior             at ./src/stake_instruction.rs:4909:5";
+  test.bt = "   2: solana_stake_program::stake_instruction::tests::process_instruction             at ./src/stake_instruction.rs:578:9   3: solana_stake_program::stake_instruction::tests::test_split_more_than_staked             at ./src/stake_instruction.rs:4959:9   4: solana_stake_program::stake_instruction::tests::test_split_more_than_staked::new_behavior             at ./src/stake_instruction.rs:4909:5   5: solana_stake_program::stake_instruction::tests::test_split_more_than_staked::new_behavior::{{closure}}             at ./src/stake_instruction.rs:4909:5";
   test.test_name = "stake_instruction::tests::test_split_more_than_staked::new_behavior";
   test.test_nonce  = 41;
   test.test_number = 777;
