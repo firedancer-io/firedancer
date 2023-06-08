@@ -15,15 +15,15 @@ typedef struct fd_fee_calculator fd_fee_calculator_t;
 
 struct fd_hash_age {
   fd_fee_calculator_t fee_calculator;
-  unsigned long       hash_index;
-  unsigned long       timestamp;
+  unsigned long hash_index;
+  unsigned long timestamp;
 };
 typedef struct fd_hash_age fd_hash_age_t;
 #define FD_HASH_AGE_FOOTPRINT sizeof(fd_hash_age_t)
 #define FD_HASH_AGE_ALIGN (8UL)
 
 struct fd_hash_hash_age_pair {
-  fd_hash_t     key;
+  fd_hash_t key;
   fd_hash_age_t val;
 };
 typedef struct fd_hash_hash_age_pair fd_hash_hash_age_pair_t;
@@ -31,11 +31,11 @@ typedef struct fd_hash_hash_age_pair fd_hash_hash_age_pair_t;
 #define FD_HASH_HASH_AGE_PAIR_ALIGN (8UL)
 
 struct fd_block_hash_queue {
-  unsigned long            last_hash_index;
-  fd_hash_t*               last_hash;
-  ulong                    ages_len;
+  unsigned long last_hash_index;
+  fd_hash_t* last_hash;
+  ulong ages_len;
   fd_hash_hash_age_pair_t* ages;
-  unsigned long            max_age;
+  unsigned long max_age;
 };
 typedef struct fd_block_hash_queue fd_block_hash_queue_t;
 #define FD_BLOCK_HASH_QUEUE_FOOTPRINT sizeof(fd_block_hash_queue_t)
@@ -73,7 +73,7 @@ typedef struct fd_slot_pair fd_slot_pair_t;
 #define FD_SLOT_PAIR_ALIGN (8UL)
 
 struct fd_hard_forks {
-  ulong           hard_forks_len;
+  ulong hard_forks_len;
   fd_slot_pair_t* hard_forks;
 };
 typedef struct fd_hard_forks fd_hard_forks_t;
@@ -95,7 +95,7 @@ typedef struct fd_inflation fd_inflation_t;
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/rent.rs#L11 */
 struct fd_rent {
   unsigned long lamports_per_uint8_year;
-  double        exemption_threshold;
+  double exemption_threshold;
   unsigned char burn_percent;
 };
 typedef struct fd_rent fd_rent_t;
@@ -103,10 +103,10 @@ typedef struct fd_rent fd_rent_t;
 #define FD_RENT_ALIGN (8UL)
 
 struct fd_rent_collector {
-  unsigned long       epoch;
+  unsigned long epoch;
   fd_epoch_schedule_t epoch_schedule;
-  double              slots_per_year;
-  fd_rent_t           rent;
+  double slots_per_year;
+  fd_rent_t rent;
 };
 typedef struct fd_rent_collector fd_rent_collector_t;
 #define FD_RENT_COLLECTOR_FOOTPRINT sizeof(fd_rent_collector_t)
@@ -122,7 +122,7 @@ typedef struct fd_stake_history_entry fd_stake_history_entry_t;
 #define FD_STAKE_HISTORY_ENTRY_ALIGN (8UL)
 
 struct fd_stake_history_epochentry_pair {
-  unsigned long            epoch;
+  unsigned long epoch;
   fd_stake_history_entry_t entry;
 };
 typedef struct fd_stake_history_epochentry_pair fd_stake_history_epochentry_pair_t;
@@ -131,7 +131,7 @@ typedef struct fd_stake_history_epochentry_pair fd_stake_history_epochentry_pair
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake_history.rs#L55 */
 struct fd_stake_history {
-  ulong                               entries_len;
+  ulong entries_len;
   fd_stake_history_epochentry_pair_t* entries;
 };
 typedef struct fd_stake_history fd_stake_history_t;
@@ -139,12 +139,12 @@ typedef struct fd_stake_history fd_stake_history_t;
 #define FD_STAKE_HISTORY_ALIGN (8UL)
 
 struct fd_solana_account {
-  unsigned long  lamports;
-  ulong          data_len;
+  unsigned long lamports;
+  ulong data_len;
   unsigned char* data;
-  fd_pubkey_t    owner;
-  unsigned char  executable;
-  unsigned long  rent_epoch;
+  fd_pubkey_t owner;
+  unsigned char executable;
+  unsigned long rent_epoch;
 };
 typedef struct fd_solana_account fd_solana_account_t;
 #define FD_SOLANA_ACCOUNT_FOOTPRINT sizeof(fd_solana_account_t)
@@ -153,7 +153,7 @@ typedef struct fd_solana_account fd_solana_account_t;
 struct __attribute__((packed)) fd_solana_account_stored_meta {
   unsigned long write_version_obsolete;
   unsigned long data_len;
-  char          pubkey[32];
+  char pubkey[32];
 };
 typedef struct fd_solana_account_stored_meta fd_solana_account_stored_meta_t;
 #define FD_SOLANA_ACCOUNT_STORED_META_FOOTPRINT sizeof(fd_solana_account_stored_meta_t)
@@ -162,9 +162,9 @@ typedef struct fd_solana_account_stored_meta fd_solana_account_stored_meta_t;
 struct __attribute__((packed)) fd_solana_account_meta {
   unsigned long lamports;
   unsigned long rent_epoch;
-  char          owner[32];
-  char          executable;
-  char          padding[7];
+  char owner[32];
+  char executable;
+  char padding[7];
 };
 typedef struct fd_solana_account_meta fd_solana_account_meta_t;
 #define FD_SOLANA_ACCOUNT_META_FOOTPRINT sizeof(fd_solana_account_meta_t)
@@ -179,19 +179,19 @@ typedef struct fd_solana_account_fd_hash fd_solana_account_fd_hash_t;
 
 struct __attribute__((packed, aligned(8UL))) fd_solana_account_hdr {
   fd_solana_account_stored_meta_t meta;
-  fd_solana_account_meta_t        info;
-  fd_solana_account_fd_hash_t     hash;
+  fd_solana_account_meta_t info;
+  fd_solana_account_fd_hash_t hash;
 };
 typedef struct fd_solana_account_hdr fd_solana_account_hdr_t;
 #define FD_SOLANA_ACCOUNT_HDR_FOOTPRINT sizeof(fd_solana_account_hdr_t)
 #define FD_SOLANA_ACCOUNT_HDR_ALIGN (8UL)
 
 struct __attribute__((packed)) fd_account_meta {
-  ushort                   magic;
-  ushort                   hlen;
-  unsigned long            dlen;
-  unsigned char            hash[32];
-  unsigned long            slot;
+  ushort magic;
+  ushort hlen;
+  unsigned long dlen;
+  unsigned char hash[32];
+  unsigned long slot;
   fd_solana_account_meta_t info;
 };
 typedef struct fd_account_meta fd_account_meta_t;
@@ -199,8 +199,8 @@ typedef struct fd_account_meta fd_account_meta_t;
 #define FD_ACCOUNT_META_ALIGN (8UL)
 
 struct fd_vote_accounts_pair {
-  fd_pubkey_t         key;
-  unsigned long       stake;
+  fd_pubkey_t key;
+  unsigned long stake;
   fd_solana_account_t value;
 };
 typedef struct fd_vote_accounts_pair fd_vote_accounts_pair_t;
@@ -208,7 +208,7 @@ typedef struct fd_vote_accounts_pair fd_vote_accounts_pair_t;
 #define FD_VOTE_ACCOUNTS_PAIR_ALIGN (8UL)
 
 struct fd_vote_accounts {
-  ulong                    vote_accounts_len;
+  ulong vote_accounts_len;
   fd_vote_accounts_pair_t* vote_accounts;
 };
 typedef struct fd_vote_accounts fd_vote_accounts_t;
@@ -217,18 +217,18 @@ typedef struct fd_vote_accounts fd_vote_accounts_t;
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/state.rs#L303 */
 struct fd_delegation {
-  fd_pubkey_t   voter_pubkey;
+  fd_pubkey_t voter_pubkey;
   unsigned long stake;
   unsigned long activation_epoch;
   unsigned long deactivation_epoch;
-  double        warmup_cooldown_rate;
+  double warmup_cooldown_rate;
 };
 typedef struct fd_delegation fd_delegation_t;
 #define FD_DELEGATION_FOOTPRINT sizeof(fd_delegation_t)
 #define FD_DELEGATION_ALIGN (8UL)
 
 struct fd_delegation_pair {
-  fd_pubkey_t     account;
+  fd_pubkey_t account;
   fd_delegation_t delegation;
 };
 typedef struct fd_delegation_pair fd_delegation_pair_t;
@@ -243,11 +243,11 @@ typedef struct fd_delegation_pair fd_delegation_pair_t;
 
 /* https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L147 */
 struct fd_stakes {
-  fd_vote_accounts_t            vote_accounts;
+  fd_vote_accounts_t vote_accounts;
   fd_vec_fd_delegation_pair_t_t stake_delegations;
-  unsigned long                 unused;
-  unsigned long                 epoch;
-  fd_stake_history_t            stake_history;
+  unsigned long unused;
+  unsigned long epoch;
+  fd_stake_history_t stake_history;
 };
 typedef struct fd_stakes fd_stakes_t;
 #define FD_STAKES_FOOTPRINT sizeof(fd_stakes_t)
@@ -255,9 +255,9 @@ typedef struct fd_stakes fd_stakes_t;
 
 struct fd_bank_incremental_snapshot_persistence {
   unsigned long full_slot;
-  fd_hash_t     full_hash;
+  fd_hash_t full_hash;
   unsigned long full_capitalization;
-  fd_hash_t     incremental_hash;
+  fd_hash_t incremental_hash;
   unsigned long incremental_capitalization;
 };
 typedef struct fd_bank_incremental_snapshot_persistence fd_bank_incremental_snapshot_persistence_t;
@@ -265,8 +265,8 @@ typedef struct fd_bank_incremental_snapshot_persistence fd_bank_incremental_snap
 #define FD_BANK_INCREMENTAL_SNAPSHOT_PERSISTENCE_ALIGN (8UL)
 
 struct fd_node_vote_accounts {
-  ulong         vote_accounts_len;
-  fd_pubkey_t*  vote_accounts;
+  ulong vote_accounts_len;
+  fd_pubkey_t* vote_accounts;
   unsigned long total_stake;
 };
 typedef struct fd_node_vote_accounts fd_node_vote_accounts_t;
@@ -274,7 +274,7 @@ typedef struct fd_node_vote_accounts fd_node_vote_accounts_t;
 #define FD_NODE_VOTE_ACCOUNTS_ALIGN (8UL)
 
 struct fd_pubkey_node_vote_accounts_pair {
-  fd_pubkey_t             key;
+  fd_pubkey_t key;
   fd_node_vote_accounts_t value;
 };
 typedef struct fd_pubkey_node_vote_accounts_pair fd_pubkey_node_vote_accounts_pair_t;
@@ -290,19 +290,19 @@ typedef struct fd_pubkey_pubkey_pair fd_pubkey_pubkey_pair_t;
 #define FD_PUBKEY_PUBKEY_PAIR_ALIGN (8UL)
 
 struct fd_epoch_stakes {
-  fd_stakes_t                          stakes;
-  unsigned long                        total_stake;
-  ulong                                node_id_to_vote_accounts_len;
+  fd_stakes_t stakes;
+  unsigned long total_stake;
+  ulong node_id_to_vote_accounts_len;
   fd_pubkey_node_vote_accounts_pair_t* node_id_to_vote_accounts;
-  ulong                                epoch_authorized_voters_len;
-  fd_pubkey_pubkey_pair_t*             epoch_authorized_voters;
+  ulong epoch_authorized_voters_len;
+  fd_pubkey_pubkey_pair_t* epoch_authorized_voters;
 };
 typedef struct fd_epoch_stakes fd_epoch_stakes_t;
 #define FD_EPOCH_STAKES_FOOTPRINT sizeof(fd_epoch_stakes_t)
 #define FD_EPOCH_STAKES_ALIGN (8UL)
 
 struct fd_epoch_epoch_stakes_pair {
-  unsigned long     key;
+  unsigned long key;
   fd_epoch_stakes_t value;
 };
 typedef struct fd_epoch_epoch_stakes_pair fd_epoch_epoch_stakes_pair_t;
@@ -310,7 +310,7 @@ typedef struct fd_epoch_epoch_stakes_pair fd_epoch_epoch_stakes_pair_t;
 #define FD_EPOCH_EPOCH_STAKES_PAIR_ALIGN (8UL)
 
 struct fd_pubkey_u64_pair {
-  fd_pubkey_t   _0;
+  fd_pubkey_t _0;
   unsigned long _1;
 };
 typedef struct fd_pubkey_u64_pair fd_pubkey_u64_pair_t;
@@ -318,11 +318,11 @@ typedef struct fd_pubkey_u64_pair fd_pubkey_u64_pair_t;
 #define FD_PUBKEY_U64_PAIR_ALIGN (8UL)
 
 struct fd_unused_accounts {
-  ulong                 unused1_len;
-  fd_pubkey_t*          unused1;
-  ulong                 unused2_len;
-  fd_pubkey_t*          unused2;
-  ulong                 unused3_len;
+  ulong unused1_len;
+  fd_pubkey_t* unused1;
+  ulong unused2_len;
+  fd_pubkey_t* unused2;
+  ulong unused3_len;
   fd_pubkey_u64_pair_t* unused3;
 };
 typedef struct fd_unused_accounts fd_unused_accounts_t;
@@ -331,40 +331,40 @@ typedef struct fd_unused_accounts fd_unused_accounts_t;
 
 /* https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/bank.rs#L967 */
 struct fd_deserializable_versioned_bank {
-  fd_block_hash_queue_t         blockhash_queue;
-  ulong                         ancestors_len;
-  fd_slot_pair_t*               ancestors;
-  fd_hash_t                     hash;
-  fd_hash_t                     parent_hash;
-  unsigned long                 parent_slot;
-  fd_hard_forks_t               hard_forks;
-  unsigned long                 transaction_count;
-  unsigned long                 tick_height;
-  unsigned long                 signature_count;
-  unsigned long                 capitalization;
-  unsigned long                 max_tick_height;
-  unsigned long*                hashes_per_tick;
-  unsigned long                 ticks_per_slot;
-  uint128                       ns_per_slot;
-  unsigned long                 genesis_creation_time;
-  double                        slots_per_year;
-  unsigned long                 accounts_data_len;
-  unsigned long                 slot;
-  unsigned long                 epoch;
-  unsigned long                 block_height;
-  fd_pubkey_t                   collector_id;
-  unsigned long                 collector_fees;
-  fd_fee_calculator_t           fee_calculator;
-  fd_fee_rate_governor_t        fee_rate_governor;
-  unsigned long                 collected_rent;
-  fd_rent_collector_t           rent_collector;
-  fd_epoch_schedule_t           epoch_schedule;
-  fd_inflation_t                inflation;
-  fd_stakes_t                   stakes;
-  fd_unused_accounts_t          unused_accounts;
-  ulong                         epoch_stakes_len;
+  fd_block_hash_queue_t blockhash_queue;
+  ulong ancestors_len;
+  fd_slot_pair_t* ancestors;
+  fd_hash_t hash;
+  fd_hash_t parent_hash;
+  unsigned long parent_slot;
+  fd_hard_forks_t hard_forks;
+  unsigned long transaction_count;
+  unsigned long tick_height;
+  unsigned long signature_count;
+  unsigned long capitalization;
+  unsigned long max_tick_height;
+  unsigned long* hashes_per_tick;
+  unsigned long ticks_per_slot;
+  uint128 ns_per_slot;
+  unsigned long genesis_creation_time;
+  double slots_per_year;
+  unsigned long accounts_data_len;
+  unsigned long slot;
+  unsigned long epoch;
+  unsigned long block_height;
+  fd_pubkey_t collector_id;
+  unsigned long collector_fees;
+  fd_fee_calculator_t fee_calculator;
+  fd_fee_rate_governor_t fee_rate_governor;
+  unsigned long collected_rent;
+  fd_rent_collector_t rent_collector;
+  fd_epoch_schedule_t epoch_schedule;
+  fd_inflation_t inflation;
+  fd_stakes_t stakes;
+  fd_unused_accounts_t unused_accounts;
+  ulong epoch_stakes_len;
   fd_epoch_epoch_stakes_pair_t* epoch_stakes;
-  char                          is_delta;
+  char is_delta;
 };
 typedef struct fd_deserializable_versioned_bank fd_deserializable_versioned_bank_t;
 #define FD_DESERIALIZABLE_VERSIONED_BANK_FOOTPRINT sizeof(fd_deserializable_versioned_bank_t)
@@ -390,8 +390,8 @@ typedef struct fd_bank_hash_stats fd_bank_hash_stats_t;
 #define FD_BANK_HASH_STATS_ALIGN (8UL)
 
 struct fd_bank_hash_info {
-  fd_hash_t            hash;
-  fd_hash_t            snapshot_hash;
+  fd_hash_t hash;
+  fd_hash_t snapshot_hash;
   fd_bank_hash_stats_t stats;
 };
 typedef struct fd_bank_hash_info fd_bank_hash_info_t;
@@ -406,14 +406,14 @@ typedef struct fd_serializable_account_storage_entry_t_mapnode fd_serializable_a
 #undef REDBLK_T
 #undef REDBLK_NAME
 struct fd_serializable_account_storage_entry_t_mapnode {
-  fd_serializable_account_storage_entry_t elem;
-  ulong                                   redblack_parent;
-  ulong                                   redblack_left;
-  ulong                                   redblack_right;
-  int                                     redblack_color;
+    fd_serializable_account_storage_entry_t elem;
+    ulong redblack_parent;
+    ulong redblack_left;
+    ulong redblack_right;
+    int redblack_color;
 };
 struct fd_slot_account_pair {
-  unsigned long                                      slot;
+  unsigned long slot;
   fd_serializable_account_storage_entry_t_mapnode_t* accounts_pool;
   fd_serializable_account_storage_entry_t_mapnode_t* accounts_root;
 };
@@ -423,7 +423,7 @@ typedef struct fd_slot_account_pair fd_slot_account_pair_t;
 
 struct fd_slot_map_pair {
   unsigned long slot;
-  fd_hash_t     hash;
+  fd_hash_t hash;
 };
 typedef struct fd_slot_map_pair fd_slot_map_pair_t;
 #define FD_SLOT_MAP_PAIR_FOOTPRINT sizeof(fd_slot_map_pair_t)
@@ -437,22 +437,22 @@ typedef struct fd_slot_account_pair_t_mapnode fd_slot_account_pair_t_mapnode_t;
 #undef REDBLK_T
 #undef REDBLK_NAME
 struct fd_slot_account_pair_t_mapnode {
-  fd_slot_account_pair_t elem;
-  ulong                  redblack_parent;
-  ulong                  redblack_left;
-  ulong                  redblack_right;
-  int                    redblack_color;
+    fd_slot_account_pair_t elem;
+    ulong redblack_parent;
+    ulong redblack_left;
+    ulong redblack_right;
+    int redblack_color;
 };
 struct fd_solana_accounts_db_fields {
   fd_slot_account_pair_t_mapnode_t* storages_pool;
   fd_slot_account_pair_t_mapnode_t* storages_root;
-  unsigned long                     version;
-  unsigned long                     slot;
-  fd_bank_hash_info_t               bank_hash_info;
-  ulong                             historical_roots_len;
-  unsigned long*                    historical_roots;
-  ulong                             historical_roots_with_hash_len;
-  fd_slot_map_pair_t*               historical_roots_with_hash;
+  unsigned long version;
+  unsigned long slot;
+  fd_bank_hash_info_t bank_hash_info;
+  ulong historical_roots_len;
+  unsigned long* historical_roots;
+  ulong historical_roots_with_hash_len;
+  fd_slot_map_pair_t* historical_roots_with_hash;
 };
 typedef struct fd_solana_accounts_db_fields fd_solana_accounts_db_fields_t;
 #define FD_SOLANA_ACCOUNTS_DB_FIELDS_FOOTPRINT sizeof(fd_solana_accounts_db_fields_t)
@@ -460,8 +460,8 @@ typedef struct fd_solana_accounts_db_fields fd_solana_accounts_db_fields_t;
 
 struct fd_solana_manifest {
   fd_deserializable_versioned_bank_t bank;
-  fd_solana_accounts_db_fields_t     accounts_db;
-  unsigned long                      lamports_per_signature;
+  fd_solana_accounts_db_fields_t accounts_db;
+  unsigned long lamports_per_signature;
 };
 typedef struct fd_solana_manifest fd_solana_manifest_t;
 #define FD_SOLANA_MANIFEST_FOOTPRINT sizeof(fd_solana_manifest_t)
@@ -469,7 +469,7 @@ typedef struct fd_solana_manifest fd_solana_manifest_t;
 
 struct fd_rust_duration {
   unsigned long seconds;
-  uint          nanoseconds;
+  uint nanoseconds;
 };
 typedef struct fd_rust_duration fd_rust_duration_t;
 #define FD_RUST_DURATION_FOOTPRINT sizeof(fd_rust_duration_t)
@@ -477,15 +477,15 @@ typedef struct fd_rust_duration fd_rust_duration_t;
 
 struct fd_poh_config {
   fd_rust_duration_t target_tick_duration;
-  unsigned long*     target_tick_count;
-  unsigned long*     hashes_per_tick;
+  unsigned long* target_tick_count;
+  unsigned long* hashes_per_tick;
 };
 typedef struct fd_poh_config fd_poh_config_t;
 #define FD_POH_CONFIG_FOOTPRINT sizeof(fd_poh_config_t)
 #define FD_POH_CONFIG_ALIGN (8UL)
 
 struct fd_string_pubkey_pair {
-  char*       string;
+  char* string;
   fd_pubkey_t pubkey;
 };
 typedef struct fd_string_pubkey_pair fd_string_pubkey_pair_t;
@@ -493,7 +493,7 @@ typedef struct fd_string_pubkey_pair fd_string_pubkey_pair_t;
 #define FD_STRING_PUBKEY_PAIR_ALIGN (8UL)
 
 struct fd_pubkey_account_pair {
-  fd_pubkey_t         key;
+  fd_pubkey_t key;
   fd_solana_account_t account;
 };
 typedef struct fd_pubkey_account_pair fd_pubkey_account_pair_t;
@@ -501,34 +501,34 @@ typedef struct fd_pubkey_account_pair fd_pubkey_account_pair_t;
 #define FD_PUBKEY_ACCOUNT_PAIR_ALIGN (8UL)
 
 struct fd_genesis_solana {
-  unsigned long             creation_time;
-  ulong                     accounts_len;
+  unsigned long creation_time;
+  ulong accounts_len;
   fd_pubkey_account_pair_t* accounts;
-  ulong                     native_instruction_processors_len;
-  fd_string_pubkey_pair_t*  native_instruction_processors;
-  ulong                     rewards_pools_len;
+  ulong native_instruction_processors_len;
+  fd_string_pubkey_pair_t* native_instruction_processors;
+  ulong rewards_pools_len;
   fd_pubkey_account_pair_t* rewards_pools;
-  unsigned long             ticks_per_slot;
-  unsigned long             unused;
-  fd_poh_config_t           poh_config;
-  unsigned long             __backwards_compat_with_v0_23;
-  fd_fee_rate_governor_t    fee_rate_governor;
-  fd_rent_t                 rent;
-  fd_inflation_t            inflation;
-  fd_epoch_schedule_t       epoch_schedule;
-  uint                      cluster_type;
+  unsigned long ticks_per_slot;
+  unsigned long unused;
+  fd_poh_config_t poh_config;
+  unsigned long __backwards_compat_with_v0_23;
+  fd_fee_rate_governor_t fee_rate_governor;
+  fd_rent_t rent;
+  fd_inflation_t inflation;
+  fd_epoch_schedule_t epoch_schedule;
+  uint cluster_type;
 };
 typedef struct fd_genesis_solana fd_genesis_solana_t;
 #define FD_GENESIS_SOLANA_FOOTPRINT sizeof(fd_genesis_solana_t)
 #define FD_GENESIS_SOLANA_ALIGN (8UL)
 
 struct fd_secp256k1_signature_offsets {
-  ushort        signature_offset;
+  ushort signature_offset;
   unsigned char signature_instruction_index;
-  ushort        eth_address_offset;
+  ushort eth_address_offset;
   unsigned char eth_address_instruction_index;
-  ushort        message_data_offset;
-  ushort        message_data_size;
+  ushort message_data_offset;
+  ushort message_data_size;
   unsigned char message_instruction_index;
 };
 typedef struct fd_secp256k1_signature_offsets fd_secp256k1_signature_offsets_t;
@@ -538,10 +538,10 @@ typedef struct fd_secp256k1_signature_offsets fd_secp256k1_signature_offsets_t;
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/clock.rs#L114 */
 struct fd_sol_sysvar_clock {
   unsigned long slot;
-  long          epoch_start_timestamp;
+  long epoch_start_timestamp;
   unsigned long epoch;
   unsigned long leader_schedule_epoch;
-  long          unix_timestamp;
+  long unix_timestamp;
 };
 typedef struct fd_sol_sysvar_clock fd_sol_sysvar_clock_t;
 #define FD_SOL_SYSVAR_CLOCK_FOOTPRINT sizeof(fd_sol_sysvar_clock_t)
@@ -549,7 +549,7 @@ typedef struct fd_sol_sysvar_clock fd_sol_sysvar_clock_t;
 
 struct fd_vote_lockout {
   unsigned long slot;
-  uint          confirmation_count;
+  uint confirmation_count;
 };
 typedef struct fd_vote_lockout fd_vote_lockout_t;
 #define FD_VOTE_LOCKOUT_FOOTPRINT sizeof(fd_vote_lockout_t)
@@ -565,14 +565,14 @@ typedef struct fd_compact_vote_lockout fd_compact_vote_lockout_t;
 
 struct fd_vote_authorized_voter {
   unsigned long epoch;
-  fd_pubkey_t   pubkey;
+  fd_pubkey_t pubkey;
 };
 typedef struct fd_vote_authorized_voter fd_vote_authorized_voter_t;
 #define FD_VOTE_AUTHORIZED_VOTER_FOOTPRINT sizeof(fd_vote_authorized_voter_t)
 #define FD_VOTE_AUTHORIZED_VOTER_ALIGN (8UL)
 
 struct fd_vote_prior_voter {
-  fd_pubkey_t   pubkey;
+  fd_pubkey_t pubkey;
   unsigned long epoch_start;
   unsigned long epoch_end;
 };
@@ -581,7 +581,7 @@ typedef struct fd_vote_prior_voter fd_vote_prior_voter_t;
 #define FD_VOTE_PRIOR_VOTER_ALIGN (8UL)
 
 struct fd_vote_prior_voter_0_23_5 {
-  fd_pubkey_t   pubkey;
+  fd_pubkey_t pubkey;
   unsigned long epoch_start;
   unsigned long epoch_end;
   unsigned long slot;
@@ -602,7 +602,7 @@ typedef struct fd_vote_epoch_credits fd_vote_epoch_credits_t;
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/authorized_voters.rs#L9 */
 struct fd_vote_historical_authorized_voter {
   unsigned long epoch;
-  fd_pubkey_t   pubkey;
+  fd_pubkey_t pubkey;
 };
 typedef struct fd_vote_historical_authorized_voter fd_vote_historical_authorized_voter_t;
 #define FD_VOTE_HISTORICAL_AUTHORIZED_VOTER_FOOTPRINT sizeof(fd_vote_historical_authorized_voter_t)
@@ -618,10 +618,10 @@ typedef struct fd_vote_block_timestamp fd_vote_block_timestamp_t;
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L268 */
 struct fd_vote_prior_voters {
-  ulong                  buf_len;
+  ulong buf_len;
   fd_vote_prior_voter_t* buf;
-  unsigned long          idx;
-  unsigned char          is_empty;
+  unsigned long idx;
+  unsigned char is_empty;
 };
 typedef struct fd_vote_prior_voters fd_vote_prior_voters_t;
 #define FD_VOTE_PRIOR_VOTERS_FOOTPRINT sizeof(fd_vote_prior_voters_t)
@@ -629,10 +629,10 @@ typedef struct fd_vote_prior_voters fd_vote_prior_voters_t;
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L268 */
 struct fd_vote_prior_voters_0_23_5 {
-  ulong                         buf_len;
+  ulong buf_len;
   fd_vote_prior_voter_0_23_5_t* buf;
-  unsigned long                 idx;
-  unsigned char                 is_empty;
+  unsigned long idx;
+  unsigned char is_empty;
 };
 typedef struct fd_vote_prior_voters_0_23_5 fd_vote_prior_voters_0_23_5_t;
 #define FD_VOTE_PRIOR_VOTERS_0_23_5_FOOTPRINT sizeof(fd_vote_prior_voters_0_23_5_t)
@@ -652,16 +652,16 @@ typedef struct fd_vote_prior_voters_0_23_5 fd_vote_prior_voters_0_23_5_t;
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/vote_state_0_23_5.rs#L6 */
 struct fd_vote_state_0_23_5 {
-  fd_pubkey_t                      voting_node;
-  fd_pubkey_t                      authorized_voter;
-  unsigned long                    authorized_voter_epoch;
-  fd_vote_prior_voters_0_23_5_t    prior_voters;
-  fd_pubkey_t                      authorized_withdrawer;
-  unsigned char                    commission;
-  fd_vec_fd_vote_lockout_t_t       votes;
-  unsigned long*                   saved_root_slot;
+  fd_pubkey_t voting_node;
+  fd_pubkey_t authorized_voter;
+  unsigned long authorized_voter_epoch;
+  fd_vote_prior_voters_0_23_5_t prior_voters;
+  fd_pubkey_t authorized_withdrawer;
+  unsigned char commission;
+  fd_vec_fd_vote_lockout_t_t votes;
+  unsigned long* saved_root_slot;
   fd_vec_fd_vote_epoch_credits_t_t epoch_credits;
-  fd_vote_block_timestamp_t        latest_timestamp;
+  fd_vote_block_timestamp_t latest_timestamp;
 };
 typedef struct fd_vote_state_0_23_5 fd_vote_state_0_23_5_t;
 #define FD_VOTE_STATE_0_23_5_FOOTPRINT sizeof(fd_vote_state_0_23_5_t)
@@ -675,15 +675,15 @@ typedef struct fd_vote_state_0_23_5 fd_vote_state_0_23_5_t;
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L310 */
 struct fd_vote_state {
-  fd_pubkey_t                                    voting_node;
-  fd_pubkey_t                                    authorized_withdrawer;
-  unsigned char                                  commission;
-  fd_vec_fd_vote_lockout_t_t                     votes;
-  unsigned long*                                 saved_root_slot;
+  fd_pubkey_t voting_node;
+  fd_pubkey_t authorized_withdrawer;
+  unsigned char commission;
+  fd_vec_fd_vote_lockout_t_t votes;
+  unsigned long* saved_root_slot;
   fd_vec_fd_vote_historical_authorized_voter_t_t authorized_voters;
-  fd_vote_prior_voters_t                         prior_voters;
-  fd_vec_fd_vote_epoch_credits_t_t               epoch_credits;
-  fd_vote_block_timestamp_t                      latest_timestamp;
+  fd_vote_prior_voters_t prior_voters;
+  fd_vec_fd_vote_epoch_credits_t_t epoch_credits;
+  fd_vote_block_timestamp_t latest_timestamp;
 };
 typedef struct fd_vote_state fd_vote_state_t;
 #define FD_VOTE_STATE_FOOTPRINT sizeof(fd_vote_state_t)
@@ -691,13 +691,13 @@ typedef struct fd_vote_state fd_vote_state_t;
 
 union fd_vote_state_versioned_inner {
   fd_vote_state_0_23_5_t v0_23_5;
-  fd_vote_state_t        current;
+  fd_vote_state_t current;
 };
 typedef union fd_vote_state_versioned_inner fd_vote_state_versioned_inner_t;
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/vote_state_versions.rs#L4 */
 struct fd_vote_state_versioned {
-  uint                            discriminant;
+  uint discriminant;
   fd_vote_state_versioned_inner_t inner;
 };
 typedef struct fd_vote_state_versioned fd_vote_state_versioned_t;
@@ -706,22 +706,22 @@ typedef struct fd_vote_state_versioned fd_vote_state_versioned_t;
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L185 */
 struct fd_vote_state_update {
-  ulong              lockouts_len;
+  ulong lockouts_len;
   fd_vote_lockout_t* lockouts;
-  unsigned long*     proposed_root;
-  fd_hash_t          hash;
-  unsigned long*     timestamp;
+  unsigned long* proposed_root;
+  fd_hash_t hash;
+  unsigned long* timestamp;
 };
 typedef struct fd_vote_state_update fd_vote_state_update_t;
 #define FD_VOTE_STATE_UPDATE_FOOTPRINT sizeof(fd_vote_state_update_t)
 #define FD_VOTE_STATE_UPDATE_ALIGN (8UL)
 
 struct fd_compact_vote_state_update {
-  unsigned long              proposed_root;
-  ushort                     lockouts_len;
+  unsigned long proposed_root;
+  ushort lockouts_len;
   fd_compact_vote_lockout_t* lockouts;
-  fd_hash_t                  hash;
-  unsigned long*             timestamp;
+  fd_hash_t hash;
+  unsigned long* timestamp;
 };
 typedef struct fd_compact_vote_state_update fd_compact_vote_state_update_t;
 #define FD_COMPACT_VOTE_STATE_UPDATE_FOOTPRINT sizeof(fd_compact_vote_state_update_t)
@@ -730,14 +730,14 @@ typedef struct fd_compact_vote_state_update fd_compact_vote_state_update_t;
 /* https://github.com/solana-labs/solana/blob/252438e28fbfb2c695fe1215171b83456e4b761c/programs/vote/src/vote_instruction.rs#L143 */
 struct fd_compact_vote_state_update_switch {
   fd_compact_vote_state_update_t compact_vote_state_update;
-  fd_hash_t                      hash;
+  fd_hash_t hash;
 };
 typedef struct fd_compact_vote_state_update_switch fd_compact_vote_state_update_switch_t;
 #define FD_COMPACT_VOTE_STATE_UPDATE_SWITCH_FOOTPRINT sizeof(fd_compact_vote_state_update_switch_t)
 #define FD_COMPACT_VOTE_STATE_UPDATE_SWITCH_ALIGN (8UL)
 
 struct fd_slot_history_inner {
-  ulong          blocks_len;
+  ulong blocks_len;
   unsigned long* blocks;
 };
 typedef struct fd_slot_history_inner fd_slot_history_inner_t;
@@ -747,7 +747,7 @@ typedef struct fd_slot_history_inner fd_slot_history_inner_t;
 /* https://github.com/tov/bv-rs/blob/107be3e9c45324e55844befa4c4239d4d3d092c6/src/bit_vec/inner.rs#L8 */
 struct fd_slot_history_bitvec {
   fd_slot_history_inner_t* bits;
-  unsigned long            len;
+  unsigned long len;
 };
 typedef struct fd_slot_history_bitvec fd_slot_history_bitvec_t;
 #define FD_SLOT_HISTORY_BITVEC_FOOTPRINT sizeof(fd_slot_history_bitvec_t)
@@ -756,7 +756,7 @@ typedef struct fd_slot_history_bitvec fd_slot_history_bitvec_t;
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_history.rs#L11 */
 struct fd_slot_history {
   fd_slot_history_bitvec_t bits;
-  unsigned long            next_slot;
+  unsigned long next_slot;
 };
 typedef struct fd_slot_history fd_slot_history_t;
 #define FD_SLOT_HISTORY_FOOTPRINT sizeof(fd_slot_history_t)
@@ -764,7 +764,7 @@ typedef struct fd_slot_history fd_slot_history_t;
 
 struct fd_slot_hash {
   unsigned long slot;
-  fd_hash_t     hash;
+  fd_hash_t hash;
 };
 typedef struct fd_slot_hash fd_slot_hash_t;
 #define FD_SLOT_HASH_FOOTPRINT sizeof(fd_slot_hash_t)
@@ -785,7 +785,7 @@ typedef struct fd_slot_hashes fd_slot_hashes_t;
 #define FD_SLOT_HASHES_ALIGN (8UL)
 
 struct fd_block_block_hash_entry {
-  fd_hash_t           blockhash;
+  fd_hash_t blockhash;
   fd_fee_calculator_t fee_calculator;
 };
 typedef struct fd_block_block_hash_entry fd_block_block_hash_entry_t;
@@ -806,17 +806,17 @@ typedef struct fd_recent_block_hashes fd_recent_block_hashes_t;
 #define FD_RECENT_BLOCK_HASHES_ALIGN (8UL)
 
 struct fd_slot_meta {
-  unsigned long  slot;
-  unsigned long  consumed;
-  unsigned long  received;
-  unsigned long  first_shred_timestamp;
-  unsigned long  last_index;
-  unsigned long  parent_slot;
-  ulong          next_slot_len;
+  unsigned long slot;
+  unsigned long consumed;
+  unsigned long received;
+  unsigned long first_shred_timestamp;
+  unsigned long last_index;
+  unsigned long parent_slot;
+  ulong next_slot_len;
   unsigned long* next_slot;
-  unsigned char  is_connected;
-  ulong          entry_end_indexes_len;
-  uint*          entry_end_indexes;
+  unsigned char is_connected;
+  ulong entry_end_indexes_len;
+  uint* entry_end_indexes;
 };
 typedef struct fd_slot_meta fd_slot_meta_t;
 #define FD_SLOT_META_FOOTPRINT sizeof(fd_slot_meta_t)
@@ -832,8 +832,8 @@ typedef struct fd_slot_meta_meta fd_slot_meta_meta_t;
 
 /* A validator timestamp oracle vote received from a voting node */
 struct fd_clock_timestamp_vote {
-  fd_pubkey_t   pubkey;
-  long          timestamp;
+  fd_pubkey_t pubkey;
+  long timestamp;
   unsigned long slot;
 };
 typedef struct fd_clock_timestamp_vote fd_clock_timestamp_vote_t;
@@ -863,7 +863,7 @@ typedef struct fd_sysvar_fees fd_sysvar_fees_t;
 #define FD_SYSVAR_FEES_ALIGN (8UL)
 
 struct fd_config_keys_pair {
-  fd_pubkey_t   key;
+  fd_pubkey_t key;
   unsigned char value;
 };
 typedef struct fd_config_keys_pair fd_config_keys_pair_t;
@@ -872,10 +872,10 @@ typedef struct fd_config_keys_pair fd_config_keys_pair_t;
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/config.rs#L14 */
 struct fd_stake_config {
-  ushort                 config_keys_len;
+  ushort config_keys_len;
   fd_config_keys_pair_t* config_keys;
-  double                 warmup_cooldown_rate;
-  unsigned char          slash_penalty;
+  double warmup_cooldown_rate;
+  unsigned char slash_penalty;
 };
 typedef struct fd_stake_config fd_stake_config_t;
 #define FD_STAKE_CONFIG_FOOTPRINT sizeof(fd_stake_config_t)
@@ -883,9 +883,9 @@ typedef struct fd_stake_config fd_stake_config_t;
 
 struct fd_firedancer_banks {
   fd_deserializable_versioned_bank_t solana_bank;
-  fd_stakes_t                        stakes;
-  fd_recent_block_hashes_t           recent_block_hashes;
-  fd_clock_timestamp_votes_t         timestamp_votes;
+  fd_stakes_t stakes;
+  fd_recent_block_hashes_t recent_block_hashes;
+  fd_clock_timestamp_votes_t timestamp_votes;
 };
 typedef struct fd_firedancer_banks fd_firedancer_banks_t;
 #define FD_FIREDANCER_BANKS_FOOTPRINT sizeof(fd_firedancer_banks_t)
@@ -900,7 +900,7 @@ typedef struct fd_firedancer_banks fd_firedancer_banks_t;
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L133 */
 struct fd_vote {
   fd_vec_ulong_t slots;
-  fd_hash_t      hash;
+  fd_hash_t hash;
   unsigned long* timestamp;
 };
 typedef struct fd_vote fd_vote_t;
@@ -909,9 +909,9 @@ typedef struct fd_vote fd_vote_t;
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L230 */
 struct fd_vote_init {
-  fd_pubkey_t   node_pubkey;
-  fd_pubkey_t   authorized_voter;
-  fd_pubkey_t   authorized_withdrawer;
+  fd_pubkey_t node_pubkey;
+  fd_pubkey_t authorized_voter;
+  fd_pubkey_t authorized_withdrawer;
   unsigned char commission;
 };
 typedef struct fd_vote_init fd_vote_init_t;
@@ -919,13 +919,13 @@ typedef struct fd_vote_init fd_vote_init_t;
 #define FD_VOTE_INIT_ALIGN (8UL)
 
 union fd_vote_authorize_inner {
-  uchar nonempty; /* Hack to support enums with no inner structures */
+  uchar nonempty; /* Hack to support enums with no inner structures */ 
 };
 typedef union fd_vote_authorize_inner fd_vote_authorize_inner_t;
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L238 */
 struct fd_vote_authorize {
-  uint                      discriminant;
+  uint discriminant;
   fd_vote_authorize_inner_t inner;
 };
 typedef struct fd_vote_authorize fd_vote_authorize_t;
@@ -934,7 +934,7 @@ typedef struct fd_vote_authorize fd_vote_authorize_t;
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_instruction.rs#L37 */
 struct fd_vote_authorize_pubkey {
-  fd_pubkey_t         pubkey;
+  fd_pubkey_t pubkey;
   fd_vote_authorize_t vote_authorize;
 };
 typedef struct fd_vote_authorize_pubkey fd_vote_authorize_pubkey_t;
@@ -953,7 +953,7 @@ typedef struct fd_vote_switch fd_vote_switch_t;
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_instruction.rs#L104 */
 struct fd_update_vote_state_switch {
   fd_vote_state_update_t vote_state_update;
-  fd_hash_t              hash;
+  fd_hash_t hash;
 };
 typedef struct fd_update_vote_state_switch fd_update_vote_state_switch_t;
 #define FD_UPDATE_VOTE_STATE_SWITCH_FOOTPRINT sizeof(fd_update_vote_state_switch_t)
@@ -962,9 +962,9 @@ typedef struct fd_update_vote_state_switch fd_update_vote_state_switch_t;
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L244 */
 struct fd_vote_authorize_with_seed_args {
   fd_vote_authorize_t authorization_type;
-  fd_pubkey_t         current_authority_derived_key_owner;
-  char*               current_authority_derived_key_seed;
-  fd_pubkey_t         new_authority;
+  fd_pubkey_t current_authority_derived_key_owner;
+  char* current_authority_derived_key_seed;
+  fd_pubkey_t new_authority;
 };
 typedef struct fd_vote_authorize_with_seed_args fd_vote_authorize_with_seed_args_t;
 #define FD_VOTE_AUTHORIZE_WITH_SEED_ARGS_FOOTPRINT sizeof(fd_vote_authorize_with_seed_args_t)
@@ -973,33 +973,33 @@ typedef struct fd_vote_authorize_with_seed_args fd_vote_authorize_with_seed_args
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L252 */
 struct fd_vote_authorize_checked_with_seed_args {
   fd_vote_authorize_t authorization_type;
-  fd_pubkey_t         current_authority_derived_key_owner;
-  char*               current_authority_derived_key_seed;
+  fd_pubkey_t current_authority_derived_key_owner;
+  char* current_authority_derived_key_seed;
 };
 typedef struct fd_vote_authorize_checked_with_seed_args fd_vote_authorize_checked_with_seed_args_t;
 #define FD_VOTE_AUTHORIZE_CHECKED_WITH_SEED_ARGS_FOOTPRINT sizeof(fd_vote_authorize_checked_with_seed_args_t)
 #define FD_VOTE_AUTHORIZE_CHECKED_WITH_SEED_ARGS_ALIGN (8UL)
 
 union fd_vote_instruction_inner {
-  fd_vote_init_t                             initialize_account;
-  fd_vote_authorize_pubkey_t                 authorize;
-  fd_vote_t                                  vote;
-  unsigned long                              withdraw;
-  unsigned char                              update_commission;
-  fd_vote_switch_t                           vote_switch;
-  fd_vote_authorize_t                        authorize_checked;
-  fd_vote_state_update_t                     update_vote_state;
-  fd_update_vote_state_switch_t              update_vote_state_switch;
-  fd_vote_authorize_with_seed_args_t         authorize_with_seed;
+  fd_vote_init_t initialize_account;
+  fd_vote_authorize_pubkey_t authorize;
+  fd_vote_t vote;
+  unsigned long withdraw;
+  unsigned char update_commission;
+  fd_vote_switch_t vote_switch;
+  fd_vote_authorize_t authorize_checked;
+  fd_vote_state_update_t update_vote_state;
+  fd_update_vote_state_switch_t update_vote_state_switch;
+  fd_vote_authorize_with_seed_args_t authorize_with_seed;
   fd_vote_authorize_checked_with_seed_args_t authorize_checked_with_seed;
-  fd_compact_vote_state_update_t             compact_update_vote_state;
-  fd_compact_vote_state_update_switch_t      compact_update_vote_state_switch;
+  fd_compact_vote_state_update_t compact_update_vote_state;
+  fd_compact_vote_state_update_switch_t compact_update_vote_state_switch;
 };
 typedef union fd_vote_instruction_inner fd_vote_instruction_inner_t;
 
 /* https://github.com/firedancer-io/solana/blob/53a4e5d6c58b2ffe89b09304e4437f8ca198dadd/programs/vote/src/vote_instruction.rs#L21 */
 struct fd_vote_instruction {
-  uint                        discriminant;
+  uint discriminant;
   fd_vote_instruction_inner_t inner;
 };
 typedef struct fd_vote_instruction fd_vote_instruction_t;
@@ -1010,7 +1010,7 @@ typedef struct fd_vote_instruction fd_vote_instruction_t;
 struct fd_system_program_instruction_create_account {
   unsigned long lamports;
   unsigned long space;
-  fd_pubkey_t   owner;
+  fd_pubkey_t owner;
 };
 typedef struct fd_system_program_instruction_create_account fd_system_program_instruction_create_account_t;
 #define FD_SYSTEM_PROGRAM_INSTRUCTION_CREATE_ACCOUNT_FOOTPRINT sizeof(fd_system_program_instruction_create_account_t)
@@ -1018,11 +1018,11 @@ typedef struct fd_system_program_instruction_create_account fd_system_program_in
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/system_instruction.rs#L193 */
 struct fd_system_program_instruction_create_account_with_seed {
-  fd_pubkey_t   base;
-  char*         seed;
+  fd_pubkey_t base;
+  char* seed;
   unsigned long lamports;
   unsigned long space;
-  fd_pubkey_t   owner;
+  fd_pubkey_t owner;
 };
 typedef struct fd_system_program_instruction_create_account_with_seed fd_system_program_instruction_create_account_with_seed_t;
 #define FD_SYSTEM_PROGRAM_INSTRUCTION_CREATE_ACCOUNT_WITH_SEED_FOOTPRINT sizeof(fd_system_program_instruction_create_account_with_seed_t)
@@ -1030,10 +1030,10 @@ typedef struct fd_system_program_instruction_create_account_with_seed fd_system_
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/system_instruction.rs#L269 */
 struct fd_system_program_instruction_allocate_with_seed {
-  fd_pubkey_t   base;
-  char*         seed;
+  fd_pubkey_t base;
+  char* seed;
   unsigned long space;
-  fd_pubkey_t   owner;
+  fd_pubkey_t owner;
 };
 typedef struct fd_system_program_instruction_allocate_with_seed fd_system_program_instruction_allocate_with_seed_t;
 #define FD_SYSTEM_PROGRAM_INSTRUCTION_ALLOCATE_WITH_SEED_FOOTPRINT sizeof(fd_system_program_instruction_allocate_with_seed_t)
@@ -1042,7 +1042,7 @@ typedef struct fd_system_program_instruction_allocate_with_seed fd_system_progra
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/system_instruction.rs#L288 */
 struct fd_system_program_instruction_assign_with_seed {
   fd_pubkey_t base;
-  char*       seed;
+  char* seed;
   fd_pubkey_t owner;
 };
 typedef struct fd_system_program_instruction_assign_with_seed fd_system_program_instruction_assign_with_seed_t;
@@ -1052,31 +1052,31 @@ typedef struct fd_system_program_instruction_assign_with_seed fd_system_program_
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/system_instruction.rs#L288 */
 struct fd_system_program_instruction_transfer_with_seed {
   unsigned long lamports;
-  char*         from_seed;
-  fd_pubkey_t   from_owner;
+  char* from_seed;
+  fd_pubkey_t from_owner;
 };
 typedef struct fd_system_program_instruction_transfer_with_seed fd_system_program_instruction_transfer_with_seed_t;
 #define FD_SYSTEM_PROGRAM_INSTRUCTION_TRANSFER_WITH_SEED_FOOTPRINT sizeof(fd_system_program_instruction_transfer_with_seed_t)
 #define FD_SYSTEM_PROGRAM_INSTRUCTION_TRANSFER_WITH_SEED_ALIGN (8UL)
 
 union fd_system_program_instruction_inner {
-  fd_system_program_instruction_create_account_t           create_account;
-  fd_pubkey_t                                              assign;
-  unsigned long                                            transfer;
+  fd_system_program_instruction_create_account_t create_account;
+  fd_pubkey_t assign;
+  unsigned long transfer;
   fd_system_program_instruction_create_account_with_seed_t create_account_with_seed;
-  unsigned long                                            withdraw_nonce_account;
-  fd_pubkey_t                                              initialize_nonce_account;
-  fd_pubkey_t                                              authorize_nonce_account;
-  unsigned long                                            allocate;
-  fd_system_program_instruction_allocate_with_seed_t       allocate_with_seed;
-  fd_system_program_instruction_assign_with_seed_t         assign_with_seed;
-  fd_system_program_instruction_transfer_with_seed_t       transfer_with_seed;
+  unsigned long withdraw_nonce_account;
+  fd_pubkey_t initialize_nonce_account;
+  fd_pubkey_t authorize_nonce_account;
+  unsigned long allocate;
+  fd_system_program_instruction_allocate_with_seed_t allocate_with_seed;
+  fd_system_program_instruction_assign_with_seed_t assign_with_seed;
+  fd_system_program_instruction_transfer_with_seed_t transfer_with_seed;
 };
 typedef union fd_system_program_instruction_inner fd_system_program_instruction_inner_t;
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/system_instruction.rs#L152 */
 struct fd_system_program_instruction {
-  uint                                  discriminant;
+  uint discriminant;
   fd_system_program_instruction_inner_t inner;
 };
 typedef struct fd_system_program_instruction fd_system_program_instruction_t;
@@ -1084,13 +1084,13 @@ typedef struct fd_system_program_instruction fd_system_program_instruction_t;
 #define FD_SYSTEM_PROGRAM_INSTRUCTION_ALIGN (8UL)
 
 union fd_system_error_inner {
-  uchar nonempty; /* Hack to support enums with no inner structures */
+  uchar nonempty; /* Hack to support enums with no inner structures */ 
 };
 typedef union fd_system_error_inner fd_system_error_inner_t;
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/system_instruction.rs#L16 */
 struct fd_system_error {
-  uint                    discriminant;
+  uint discriminant;
   fd_system_error_inner_t inner;
 };
 typedef struct fd_system_error fd_system_error_t;
@@ -1110,7 +1110,7 @@ typedef struct fd_stake_authorized fd_stake_authorized_t;
 struct fd_stake_lockup {
   unsigned long unix_timestamp;
   unsigned long epoch;
-  fd_pubkey_t   custodian;
+  fd_pubkey_t custodian;
 };
 typedef struct fd_stake_lockup fd_stake_lockup_t;
 #define FD_STAKE_LOCKUP_FOOTPRINT sizeof(fd_stake_lockup_t)
@@ -1119,20 +1119,20 @@ typedef struct fd_stake_lockup fd_stake_lockup_t;
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/instruction.rs#L68 */
 struct fd_stake_instruction_initialize {
   fd_stake_authorized_t authorized;
-  fd_pubkey_t           lockup;
+  fd_pubkey_t lockup;
 };
 typedef struct fd_stake_instruction_initialize fd_stake_instruction_initialize_t;
 #define FD_STAKE_INSTRUCTION_INITIALIZE_FOOTPRINT sizeof(fd_stake_instruction_initialize_t)
 #define FD_STAKE_INSTRUCTION_INITIALIZE_ALIGN (8UL)
 
 union fd_stake_authorize_inner {
-  uchar nonempty; /* Hack to support enums with no inner structures */
+  uchar nonempty; /* Hack to support enums with no inner structures */ 
 };
 typedef union fd_stake_authorize_inner fd_stake_authorize_inner_t;
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/state.rs#L117 */
 struct fd_stake_authorize {
-  uint                       discriminant;
+  uint discriminant;
   fd_stake_authorize_inner_t inner;
 };
 typedef struct fd_stake_authorize fd_stake_authorize_t;
@@ -1141,7 +1141,7 @@ typedef struct fd_stake_authorize fd_stake_authorize_t;
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/instruction.rs#L78 */
 struct fd_stake_instruction_authorize {
-  fd_pubkey_t          pubkey;
+  fd_pubkey_t pubkey;
   fd_stake_authorize_t stake_authorize;
 };
 typedef struct fd_stake_instruction_authorize fd_stake_instruction_authorize_t;
@@ -1152,7 +1152,7 @@ typedef struct fd_stake_instruction_authorize fd_stake_instruction_authorize_t;
 struct fd_lockup_args {
   unsigned long* unix_timestamp;
   unsigned long* epoch;
-  fd_pubkey_t*   custodian;
+  fd_pubkey_t* custodian;
 };
 typedef struct fd_lockup_args fd_lockup_args_t;
 #define FD_LOCKUP_ARGS_FOOTPRINT sizeof(fd_lockup_args_t)
@@ -1160,10 +1160,10 @@ typedef struct fd_lockup_args fd_lockup_args_t;
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/instruction.rs#L241 */
 struct fd_authorize_with_seed_args {
-  fd_pubkey_t          new_authorized_pubkey;
+  fd_pubkey_t new_authorized_pubkey;
   fd_stake_authorize_t stake_authorize;
-  char*                authority_seed;
-  fd_pubkey_t          authority_owner;
+  char* authority_seed;
+  fd_pubkey_t authority_owner;
 };
 typedef struct fd_authorize_with_seed_args fd_authorize_with_seed_args_t;
 #define FD_AUTHORIZE_WITH_SEED_ARGS_FOOTPRINT sizeof(fd_authorize_with_seed_args_t)
@@ -1172,8 +1172,8 @@ typedef struct fd_authorize_with_seed_args fd_authorize_with_seed_args_t;
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/instruction.rs#L249 */
 struct fd_authorize_checked_with_seed_args {
   fd_stake_authorize_t stake_authorize;
-  char*                authority_seed;
-  fd_pubkey_t          authority_owner;
+  char* authority_seed;
+  fd_pubkey_t authority_owner;
 };
 typedef struct fd_authorize_checked_with_seed_args fd_authorize_checked_with_seed_args_t;
 #define FD_AUTHORIZE_CHECKED_WITH_SEED_ARGS_FOOTPRINT sizeof(fd_authorize_checked_with_seed_args_t)
@@ -1189,20 +1189,20 @@ typedef struct fd_lockup_checked_args fd_lockup_checked_args_t;
 #define FD_LOCKUP_CHECKED_ARGS_ALIGN (8UL)
 
 union fd_stake_instruction_inner {
-  fd_stake_instruction_initialize_t     initialize;
-  fd_stake_instruction_authorize_t      authorize;
-  unsigned long                         split;
-  unsigned long                         withdraw;
-  fd_authorize_with_seed_args_t         authorize_with_seed;
-  fd_stake_authorize_t                  authorize_checked;
+  fd_stake_instruction_initialize_t initialize;
+  fd_stake_instruction_authorize_t authorize;
+  unsigned long split;
+  unsigned long withdraw;
+  fd_authorize_with_seed_args_t authorize_with_seed;
+  fd_stake_authorize_t authorize_checked;
   fd_authorize_checked_with_seed_args_t authorize_checked_with_seed;
-  fd_lockup_checked_args_t              set_lockup_checked;
+  fd_lockup_checked_args_t set_lockup_checked;
 };
 typedef union fd_stake_instruction_inner fd_stake_instruction_inner_t;
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/instruction.rs#L58 */
 struct fd_stake_instruction {
-  uint                         discriminant;
+  uint discriminant;
   fd_stake_instruction_inner_t inner;
 };
 typedef struct fd_stake_instruction fd_stake_instruction_t;
@@ -1211,9 +1211,9 @@ typedef struct fd_stake_instruction fd_stake_instruction_t;
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/state.rs#L248 */
 struct fd_stake_state_meta {
-  unsigned long         rent_exempt_reserve;
+  unsigned long rent_exempt_reserve;
   fd_stake_authorized_t authorized;
-  fd_stake_lockup_t     lockup;
+  fd_stake_lockup_t lockup;
 };
 typedef struct fd_stake_state_meta fd_stake_state_meta_t;
 #define FD_STAKE_STATE_META_FOOTPRINT sizeof(fd_stake_state_meta_t)
@@ -1221,7 +1221,7 @@ typedef struct fd_stake_state_meta fd_stake_state_meta_t;
 
 struct fd_stake {
   fd_delegation_t delegation;
-  unsigned long   credits_observed;
+  unsigned long credits_observed;
 };
 typedef struct fd_stake fd_stake_t;
 #define FD_STAKE_FOOTPRINT sizeof(fd_stake_t)
@@ -1230,21 +1230,21 @@ typedef struct fd_stake fd_stake_t;
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/state.rs#L25 */
 struct fd_stake_state_stake {
   fd_stake_state_meta_t meta;
-  fd_stake_t            stake;
+  fd_stake_t stake;
 };
 typedef struct fd_stake_state_stake fd_stake_state_stake_t;
 #define FD_STAKE_STATE_STAKE_FOOTPRINT sizeof(fd_stake_state_stake_t)
 #define FD_STAKE_STATE_STAKE_ALIGN (8UL)
 
 union fd_stake_state_inner {
-  fd_stake_state_meta_t  initialized;
+  fd_stake_state_meta_t initialized;
   fd_stake_state_stake_t stake;
 };
 typedef union fd_stake_state_inner fd_stake_state_inner_t;
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/state.rs#L22 */
 struct fd_stake_state {
-  uint                   discriminant;
+  uint discriminant;
   fd_stake_state_inner_t inner;
 };
 typedef struct fd_stake_state fd_stake_state_t;
@@ -1253,8 +1253,8 @@ typedef struct fd_stake_state fd_stake_state_t;
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/nonce/state/current.rs#L17 */
 struct fd_nonce_data {
-  fd_pubkey_t         authority;
-  fd_hash_t           durable_nonce;
+  fd_pubkey_t authority;
+  fd_hash_t durable_nonce;
   fd_fee_calculator_t fee_calculator;
 };
 typedef struct fd_nonce_data fd_nonce_data_t;
@@ -1268,7 +1268,7 @@ typedef union fd_nonce_state_inner fd_nonce_state_inner_t;
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/nonce/state/current.rs#L65 */
 struct fd_nonce_state {
-  uint                   discriminant;
+  uint discriminant;
   fd_nonce_state_inner_t inner;
 };
 typedef struct fd_nonce_state fd_nonce_state_t;
@@ -1283,7 +1283,7 @@ typedef union fd_nonce_state_versions_inner fd_nonce_state_versions_inner_t;
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/nonce/state/mod.rs#L9 */
 struct fd_nonce_state_versions {
-  uint                            discriminant;
+  uint discriminant;
   fd_nonce_state_versions_inner_t inner;
 };
 typedef struct fd_nonce_state_versions fd_nonce_state_versions_t;
@@ -1632,9 +1632,9 @@ ulong fd_vote_state_versioned_size(fd_vote_state_versioned_t* self);
 uchar fd_vote_state_versioned_is_v0_23_5(fd_vote_state_versioned_t* self);
 uchar fd_vote_state_versioned_is_current(fd_vote_state_versioned_t* self);
 enum {
-  fd_vote_state_versioned_enum_v0_23_5 = 0,
-  fd_vote_state_versioned_enum_current = 1,
-};
+fd_vote_state_versioned_enum_v0_23_5 = 0,
+fd_vote_state_versioned_enum_current = 1,
+}; 
 void fd_vote_state_update_decode(fd_vote_state_update_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_vote_state_update_encode(fd_vote_state_update_t* self, void const** data);
 void fd_vote_state_update_destroy(fd_vote_state_update_t* self, fd_free_fun_t freef, void* freef_arg);
@@ -1764,9 +1764,9 @@ ulong fd_vote_authorize_size(fd_vote_authorize_t* self);
 uchar fd_vote_authorize_is_voter(fd_vote_authorize_t* self);
 uchar fd_vote_authorize_is_withdrawer(fd_vote_authorize_t* self);
 enum {
-  fd_vote_authorize_enum_voter = 0,
-  fd_vote_authorize_enum_withdrawer = 1,
-};
+fd_vote_authorize_enum_voter = 0,
+fd_vote_authorize_enum_withdrawer = 1,
+}; 
 void fd_vote_authorize_pubkey_decode(fd_vote_authorize_pubkey_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_vote_authorize_pubkey_encode(fd_vote_authorize_pubkey_t* self, void const** data);
 void fd_vote_authorize_pubkey_destroy(fd_vote_authorize_pubkey_t* self, fd_free_fun_t freef, void* freef_arg);
@@ -1818,21 +1818,21 @@ uchar fd_vote_instruction_is_authorize_checked_with_seed(fd_vote_instruction_t* 
 uchar fd_vote_instruction_is_compact_update_vote_state(fd_vote_instruction_t* self);
 uchar fd_vote_instruction_is_compact_update_vote_state_switch(fd_vote_instruction_t* self);
 enum {
-  fd_vote_instruction_enum_initialize_account = 0,
-  fd_vote_instruction_enum_authorize = 1,
-  fd_vote_instruction_enum_vote = 2,
-  fd_vote_instruction_enum_withdraw = 3,
-  fd_vote_instruction_enum_update_validator_identity = 4,
-  fd_vote_instruction_enum_update_commission = 5,
-  fd_vote_instruction_enum_vote_switch = 6,
-  fd_vote_instruction_enum_authorize_checked = 7,
-  fd_vote_instruction_enum_update_vote_state = 8,
-  fd_vote_instruction_enum_update_vote_state_switch = 9,
-  fd_vote_instruction_enum_authorize_with_seed = 10,
-  fd_vote_instruction_enum_authorize_checked_with_seed = 11,
-  fd_vote_instruction_enum_compact_update_vote_state = 12,
-  fd_vote_instruction_enum_compact_update_vote_state_switch = 13,
-};
+fd_vote_instruction_enum_initialize_account = 0,
+fd_vote_instruction_enum_authorize = 1,
+fd_vote_instruction_enum_vote = 2,
+fd_vote_instruction_enum_withdraw = 3,
+fd_vote_instruction_enum_update_validator_identity = 4,
+fd_vote_instruction_enum_update_commission = 5,
+fd_vote_instruction_enum_vote_switch = 6,
+fd_vote_instruction_enum_authorize_checked = 7,
+fd_vote_instruction_enum_update_vote_state = 8,
+fd_vote_instruction_enum_update_vote_state_switch = 9,
+fd_vote_instruction_enum_authorize_with_seed = 10,
+fd_vote_instruction_enum_authorize_checked_with_seed = 11,
+fd_vote_instruction_enum_compact_update_vote_state = 12,
+fd_vote_instruction_enum_compact_update_vote_state_switch = 13,
+}; 
 void fd_system_program_instruction_create_account_decode(fd_system_program_instruction_create_account_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_system_program_instruction_create_account_encode(fd_system_program_instruction_create_account_t* self, void const** data);
 void fd_system_program_instruction_create_account_destroy(fd_system_program_instruction_create_account_t* self, fd_free_fun_t freef, void* freef_arg);
@@ -1883,20 +1883,20 @@ uchar fd_system_program_instruction_is_assign_with_seed(fd_system_program_instru
 uchar fd_system_program_instruction_is_transfer_with_seed(fd_system_program_instruction_t* self);
 uchar fd_system_program_instruction_is_upgrade_nonce_account(fd_system_program_instruction_t* self);
 enum {
-  fd_system_program_instruction_enum_create_account = 0,
-  fd_system_program_instruction_enum_assign = 1,
-  fd_system_program_instruction_enum_transfer = 2,
-  fd_system_program_instruction_enum_create_account_with_seed = 3,
-  fd_system_program_instruction_enum_advance_nonce_account = 4,
-  fd_system_program_instruction_enum_withdraw_nonce_account = 5,
-  fd_system_program_instruction_enum_initialize_nonce_account = 6,
-  fd_system_program_instruction_enum_authorize_nonce_account = 7,
-  fd_system_program_instruction_enum_allocate = 8,
-  fd_system_program_instruction_enum_allocate_with_seed = 9,
-  fd_system_program_instruction_enum_assign_with_seed = 10,
-  fd_system_program_instruction_enum_transfer_with_seed = 11,
-  fd_system_program_instruction_enum_upgrade_nonce_account = 12,
-};
+fd_system_program_instruction_enum_create_account = 0,
+fd_system_program_instruction_enum_assign = 1,
+fd_system_program_instruction_enum_transfer = 2,
+fd_system_program_instruction_enum_create_account_with_seed = 3,
+fd_system_program_instruction_enum_advance_nonce_account = 4,
+fd_system_program_instruction_enum_withdraw_nonce_account = 5,
+fd_system_program_instruction_enum_initialize_nonce_account = 6,
+fd_system_program_instruction_enum_authorize_nonce_account = 7,
+fd_system_program_instruction_enum_allocate = 8,
+fd_system_program_instruction_enum_allocate_with_seed = 9,
+fd_system_program_instruction_enum_assign_with_seed = 10,
+fd_system_program_instruction_enum_transfer_with_seed = 11,
+fd_system_program_instruction_enum_upgrade_nonce_account = 12,
+}; 
 void fd_system_error_decode(fd_system_error_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_system_error_encode(fd_system_error_t* self, void const** data);
 void fd_system_error_destroy(fd_system_error_t* self, fd_free_fun_t freef, void* freef_arg);
@@ -1913,16 +1913,16 @@ uchar fd_system_error_is_nonce_no_recent_blockhashes(fd_system_error_t* self);
 uchar fd_system_error_is_nonce_blockhash_not_expired(fd_system_error_t* self);
 uchar fd_system_error_is_nonce_unexpected_blockhash_value(fd_system_error_t* self);
 enum {
-  fd_system_error_enum_account_already_in_use = 0,
-  fd_system_error_enum_result_with_negative_lamports = 1,
-  fd_system_error_enum_invalid_program_id = 2,
-  fd_system_error_enum_invalid_account_data_length = 3,
-  fd_system_error_enum_max_seed_length_exceeded = 4,
-  fd_system_error_enum_address_with_seed_mismatch = 5,
-  fd_system_error_enum_nonce_no_recent_blockhashes = 6,
-  fd_system_error_enum_nonce_blockhash_not_expired = 7,
-  fd_system_error_enum_nonce_unexpected_blockhash_value = 8,
-};
+fd_system_error_enum_account_already_in_use = 0,
+fd_system_error_enum_result_with_negative_lamports = 1,
+fd_system_error_enum_invalid_program_id = 2,
+fd_system_error_enum_invalid_account_data_length = 3,
+fd_system_error_enum_max_seed_length_exceeded = 4,
+fd_system_error_enum_address_with_seed_mismatch = 5,
+fd_system_error_enum_nonce_no_recent_blockhashes = 6,
+fd_system_error_enum_nonce_blockhash_not_expired = 7,
+fd_system_error_enum_nonce_unexpected_blockhash_value = 8,
+}; 
 void fd_stake_authorized_decode(fd_stake_authorized_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_stake_authorized_encode(fd_stake_authorized_t* self, void const** data);
 void fd_stake_authorized_destroy(fd_stake_authorized_t* self, fd_free_fun_t freef, void* freef_arg);
@@ -1950,9 +1950,9 @@ ulong fd_stake_authorize_size(fd_stake_authorize_t* self);
 uchar fd_stake_authorize_is_staker(fd_stake_authorize_t* self);
 uchar fd_stake_authorize_is_withdrawer(fd_stake_authorize_t* self);
 enum {
-  fd_stake_authorize_enum_staker = 0,
-  fd_stake_authorize_enum_withdrawer = 1,
-};
+fd_stake_authorize_enum_staker = 0,
+fd_stake_authorize_enum_withdrawer = 1,
+}; 
 void fd_stake_instruction_authorize_decode(fd_stake_instruction_authorize_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_stake_instruction_authorize_encode(fd_stake_instruction_authorize_t* self, void const** data);
 void fd_stake_instruction_authorize_destroy(fd_stake_instruction_authorize_t* self, fd_free_fun_t freef, void* freef_arg);
@@ -2002,21 +2002,27 @@ uchar fd_stake_instruction_is_initialize_checked(fd_stake_instruction_t* self);
 uchar fd_stake_instruction_is_authorize_checked(fd_stake_instruction_t* self);
 uchar fd_stake_instruction_is_authorize_checked_with_seed(fd_stake_instruction_t* self);
 uchar fd_stake_instruction_is_set_lockup_checked(fd_stake_instruction_t* self);
+uchar fd_stake_instruction_is_get_minimum_delegation(fd_stake_instruction_t* self);
+uchar fd_stake_instruction_is_deactivate_delinquent(fd_stake_instruction_t* self);
+uchar fd_stake_instruction_is_redelegate(fd_stake_instruction_t* self);
 enum {
-  fd_stake_instruction_enum_initialize = 0,
-  fd_stake_instruction_enum_authorize = 1,
-  fd_stake_instruction_enum_delegate_stake = 2,
-  fd_stake_instruction_enum_split = 3,
-  fd_stake_instruction_enum_withdraw = 4,
-  fd_stake_instruction_enum_deactivate = 5,
-  fd_stake_instruction_enum_set_lockup = 6,
-  fd_stake_instruction_enum_merge = 7,
-  fd_stake_instruction_enum_authorize_with_seed = 8,
-  fd_stake_instruction_enum_initialize_checked = 9,
-  fd_stake_instruction_enum_authorize_checked = 10,
-  fd_stake_instruction_enum_authorize_checked_with_seed = 11,
-  fd_stake_instruction_enum_set_lockup_checked = 12,
-};
+fd_stake_instruction_enum_initialize = 0,
+fd_stake_instruction_enum_authorize = 1,
+fd_stake_instruction_enum_delegate_stake = 2,
+fd_stake_instruction_enum_split = 3,
+fd_stake_instruction_enum_withdraw = 4,
+fd_stake_instruction_enum_deactivate = 5,
+fd_stake_instruction_enum_set_lockup = 6,
+fd_stake_instruction_enum_merge = 7,
+fd_stake_instruction_enum_authorize_with_seed = 8,
+fd_stake_instruction_enum_initialize_checked = 9,
+fd_stake_instruction_enum_authorize_checked = 10,
+fd_stake_instruction_enum_authorize_checked_with_seed = 11,
+fd_stake_instruction_enum_set_lockup_checked = 12,
+fd_stake_instruction_enum_get_minimum_delegation = 13,
+fd_stake_instruction_enum_deactivate_delinquent = 14,
+fd_stake_instruction_enum_redelegate = 15,
+}; 
 void fd_stake_state_meta_decode(fd_stake_state_meta_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_stake_state_meta_encode(fd_stake_state_meta_t* self, void const** data);
 void fd_stake_state_meta_destroy(fd_stake_state_meta_t* self, fd_free_fun_t freef, void* freef_arg);
@@ -2046,11 +2052,11 @@ uchar fd_stake_state_is_initialized(fd_stake_state_t* self);
 uchar fd_stake_state_is_stake(fd_stake_state_t* self);
 uchar fd_stake_state_is_rewards_pool(fd_stake_state_t* self);
 enum {
-  fd_stake_state_enum_uninitialized = 0,
-  fd_stake_state_enum_initialized = 1,
-  fd_stake_state_enum_stake = 2,
-  fd_stake_state_enum_rewards_pool = 3,
-};
+fd_stake_state_enum_uninitialized = 0,
+fd_stake_state_enum_initialized = 1,
+fd_stake_state_enum_stake = 2,
+fd_stake_state_enum_rewards_pool = 3,
+}; 
 void fd_nonce_data_decode(fd_nonce_data_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_nonce_data_encode(fd_nonce_data_t* self, void const** data);
 void fd_nonce_data_destroy(fd_nonce_data_t* self, fd_free_fun_t freef, void* freef_arg);
@@ -2066,9 +2072,9 @@ ulong fd_nonce_state_size(fd_nonce_state_t* self);
 uchar fd_nonce_state_is_uninitialized(fd_nonce_state_t* self);
 uchar fd_nonce_state_is_initialized(fd_nonce_state_t* self);
 enum {
-  fd_nonce_state_enum_uninitialized = 0,
-  fd_nonce_state_enum_initialized = 1,
-};
+fd_nonce_state_enum_uninitialized = 0,
+fd_nonce_state_enum_initialized = 1,
+}; 
 void fd_nonce_state_versions_decode(fd_nonce_state_versions_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_nonce_state_versions_encode(fd_nonce_state_versions_t* self, void const** data);
 void fd_nonce_state_versions_destroy(fd_nonce_state_versions_t* self, fd_free_fun_t freef, void* freef_arg);
@@ -2078,9 +2084,9 @@ ulong fd_nonce_state_versions_size(fd_nonce_state_versions_t* self);
 uchar fd_nonce_state_versions_is_legacy(fd_nonce_state_versions_t* self);
 uchar fd_nonce_state_versions_is_current(fd_nonce_state_versions_t* self);
 enum {
-  fd_nonce_state_versions_enum_legacy = 0,
-  fd_nonce_state_versions_enum_current = 1,
-};
+fd_nonce_state_versions_enum_legacy = 0,
+fd_nonce_state_versions_enum_current = 1,
+}; 
 FD_PROTOTYPES_END
 
 #endif // HEADER_FD_RUNTIME_TYPES

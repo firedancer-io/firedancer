@@ -1,5 +1,6 @@
 #include "fd_stake_program.h"
 #include "fd_vote_program.h"
+#include "../../../util/bits/fd_sat.h"
 #include "../sysvar/fd_sysvar.h"
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/stake/src/stake_state.rs#L441 */
@@ -7,6 +8,205 @@
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/mod.rs#L12 */
 #define MINIMUM_STAKE_DELEGATION ( 1 )
+
+fd_stake_history_entry_t stake_and_activating( fd_delegation_t const * delegation, ulong target_epoch, fd_stake_history_t * stake_history ) {
+  ulong delegated_stake = delegation->stake;
+
+  fd_stake_history_entry_t * cluster_stake_at_activation_epoch = NULL;
+  // TODO: move this elsewhere, do better than linear scanning.
+  for (ulong i = 0; i < stake_history->entries_len; i++) {
+    fd_stake_history_epochentry_pair_t * stake_history_ent = &stake_history->entries[i];
+    if (stake_history_ent->epoch == target_epoch) {
+      cluster_stake_at_activation_epoch = &stake_history_ent->entry;
+    }
+  }
+
+  if (delegation->activation_epoch == (ulong)-1) {
+    // if is bootstrap
+    fd_stake_history_entry_t entry = {
+      .effective = delegated_stake,
+      .activating = 0
+    };
+
+    return entry;
+  } else if (delegation->activation_epoch == delegation->deactivation_epoch) {
+    fd_stake_history_entry_t entry = {
+      .effective = 0,
+      .activating = 0
+    };
+
+    return entry;
+  } else if ( target_epoch == delegation->activation_epoch ) {
+    fd_stake_history_entry_t entry = {
+      .effective = 0,
+      .activating = delegated_stake
+    };
+
+    return entry;
+  } else if (cluster_stake_at_activation_epoch != NULL) {
+    ulong prev_epoch = delegation->activation_epoch;
+    fd_stake_history_entry_t * prev_cluster_stake = cluster_stake_at_activation_epoch;
+
+    ulong current_epoch;
+    ulong current_effective_stake = 0;
+    for (;;) {
+      current_epoch = prev_epoch + 1;
+      if (prev_cluster_stake->activating == 0) {
+        break;
+      }
+
+      ulong remaining_activating_stake = delegated_stake - current_effective_stake;
+      double weight = (double)remaining_activating_stake / (double)prev_cluster_stake->activating;
+      
+      double newly_effective_cluster_stake = (double)prev_cluster_stake->effective * delegation->warmup_cooldown_rate;
+      ulong newly_effective_stake = (ulong)(weight * newly_effective_cluster_stake);
+      newly_effective_stake = (newly_effective_stake == 0) ? 1 : newly_effective_stake;
+
+      current_effective_stake += newly_effective_stake;
+      if (current_effective_stake >= delegated_stake) {
+          current_effective_stake = delegated_stake;
+          break;
+      }
+
+      if (current_epoch >= target_epoch || current_epoch >= delegation->deactivation_epoch) {
+        break;
+      }
+
+      // Find the current epoch in history
+      uint found_current_epoch = 0;
+      for( ulong i = 0; i < stake_history->entries_len; i++ ) {
+        fd_stake_history_epochentry_pair_t * stake_history_epochentry_pair = &stake_history->entries[i];
+        if( current_epoch == stake_history_epochentry_pair->epoch ) {
+          prev_epoch = current_epoch;
+          prev_cluster_stake = &stake_history_epochentry_pair->entry;
+          found_current_epoch = 1;
+          break;
+        }
+      }
+
+      if( !found_current_epoch ) {
+        break;
+      }
+    }
+
+    fd_stake_history_entry_t entry = {
+      .effective = current_effective_stake,
+      .activating = 0,
+      .deactivating = current_effective_stake
+    };
+    return entry;
+  } else {
+    fd_stake_history_entry_t entry = {
+      .effective = 0,
+      .activating = 0,
+      .deactivating = 0
+    };
+
+    return entry;
+  }
+}
+
+fd_stake_history_entry_t stake_activating_and_deactivating( fd_delegation_t const * delegation, ulong target_epoch, fd_stake_history_t * stake_history ) {
+  fd_stake_history_entry_t stake_and_activating_entry = stake_and_activating( delegation, target_epoch, stake_history );
+
+  ulong effective_stake = stake_and_activating_entry.effective;
+  ulong activating_stake = stake_and_activating_entry.activating;
+
+  fd_stake_history_entry_t * cluster_stake_at_activation_epoch = NULL;
+  // TODO: move this elsewhere, do better than linear scanning.
+  for (ulong i = 0; i < stake_history->entries_len; i++) {
+    fd_stake_history_epochentry_pair_t * stake_history_ent = &stake_history->entries[i];
+    if (stake_history_ent->epoch == target_epoch) {
+      cluster_stake_at_activation_epoch = &stake_history_ent->entry;
+    }
+  }
+
+  if (target_epoch < delegation->deactivation_epoch) {
+    // if is bootstrap
+    if (activating_stake == 0) {
+      fd_stake_history_entry_t entry = {
+        .effective = effective_stake,
+        .deactivating = 0,
+        .activating = 0
+      };
+      return entry;
+    } else {
+      fd_stake_history_entry_t entry = {
+        .effective = effective_stake,
+        .deactivating = 0,
+        .activating = activating_stake
+      };
+      return entry;
+    }
+  } else if (target_epoch == delegation->deactivation_epoch) {
+    fd_stake_history_entry_t entry = {
+      .effective = effective_stake,
+      .deactivating = effective_stake,
+      .activating = 0
+    };
+
+    return entry;
+  } else if (cluster_stake_at_activation_epoch != NULL) {
+    ulong prev_epoch = delegation->activation_epoch;
+    fd_stake_history_entry_t * prev_cluster_stake = cluster_stake_at_activation_epoch;
+
+    ulong current_epoch;
+    ulong current_effective_stake = effective_stake;
+    for (;;) {
+      current_epoch = prev_epoch + 1;
+      if (prev_cluster_stake->deactivating == 0) {
+        break;
+      }
+
+      double weight = (double)current_effective_stake / (double)prev_cluster_stake->deactivating;
+      
+      double newly_not_effective_cluster_stake = (double)prev_cluster_stake->effective * delegation->warmup_cooldown_rate;
+      ulong newly_not_effective_stake = (ulong)(weight * newly_not_effective_cluster_stake);
+      newly_not_effective_stake = (newly_not_effective_stake == 0) ? 1 : newly_not_effective_stake;
+ 
+      current_effective_stake = fd_ulong_sat_sub(current_effective_stake, newly_not_effective_stake);
+      if (current_effective_stake == 0) {
+          break;
+      }
+
+      if (current_epoch >= target_epoch) {
+        break;
+      }
+
+      // Find the current epoch in history
+      uint found_current_epoch = 0;
+      for( ulong i = 0; i < stake_history->entries_len; i++ ) {
+        fd_stake_history_epochentry_pair_t * stake_history_epochentry_pair = &stake_history->entries[i];
+        if( current_epoch == stake_history_epochentry_pair->epoch ) {
+          prev_epoch = current_epoch;
+          prev_cluster_stake = &stake_history_epochentry_pair->entry;
+          found_current_epoch = 1;
+          break;
+        }
+      }
+
+      if( !found_current_epoch ) {
+        break;
+      }
+    }
+
+    fd_stake_history_entry_t entry = {
+      .effective = current_effective_stake,
+      .deactivating = current_effective_stake,
+      .activating = 0
+    };
+
+    return entry;
+  } else {
+     fd_stake_history_entry_t entry = {
+      .effective = 0,
+      .activating = 0,
+      .deactivating = 0
+    };
+
+    return entry;
+  }
+}
 
 void write_stake_config( fd_global_ctx_t* global, fd_stake_config_t* stake_config) {
   ulong          sz = fd_stake_config_size( stake_config );
@@ -86,7 +286,8 @@ int write_stake_state(
       return read_result;
     }
 
-    ulong encoded_stake_state_size = fd_stake_state_size( stake_state );
+    // ulong encoded_stake_state_size = fd_stake_state_size( stake_state );
+    ulong encoded_stake_state_size = STAKE_ACCOUNT_SIZE;
     uchar* encoded_stake_state = (uchar *)(global->allocf)( global->allocf_arg, 8UL, encoded_stake_state_size );
     fd_memset( encoded_stake_state, 0, encoded_stake_state_size );
 
@@ -101,6 +302,43 @@ int write_stake_state(
     structured_account.rent_epoch = 0;
     memcpy( &structured_account.owner, global->solana_stake_program, sizeof(fd_pubkey_t) );
 
+    int write_result = fd_acc_mgr_write_structured_account( global->acc_mgr, global->funk_txn, global->bank.solana_bank.slot, stake_acc, &structured_account );
+    if ( write_result != FD_ACC_MGR_SUCCESS ) {
+      FD_LOG_WARNING(( "failed to write account data" ));
+      return write_result;
+    }
+    fd_acc_mgr_update_hash ( global->acc_mgr, &metadata, global->funk_txn, global->bank.solana_bank.slot, stake_acc, (uchar*)encoded_stake_state, encoded_stake_state_size);
+
+    return FD_EXECUTOR_INSTR_SUCCESS;
+}
+
+int write_stake_state_2(
+    fd_global_ctx_t* global,
+    fd_pubkey_t* stake_acc,
+    fd_stake_state_t* stake_state
+) {
+    fd_account_meta_t metadata;
+    int read_result = fd_acc_mgr_get_metadata( global->acc_mgr, global->funk_txn, stake_acc, &metadata );
+    if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
+      FD_LOG_WARNING(( "failed to read account metadata" ));
+      return read_result;
+    }
+
+    ulong encoded_stake_state_size = fd_stake_state_size( stake_state );
+    // ulong encoded_stake_state_size = STAKE_ACCOUNT_SIZE;
+    uchar* encoded_stake_state = (uchar *)(global->allocf)( global->allocf_arg, 8UL, encoded_stake_state_size );
+
+    void* encoded_stake_state_vp = (void*)encoded_stake_state;
+    const void ** encode_stake_state_dest = (const void **)(&encoded_stake_state_vp);
+    fd_stake_state_encode( stake_state, encode_stake_state_dest );
+
+    fd_solana_account_t structured_account;
+    structured_account.data = encoded_stake_state;
+    structured_account.data_len = encoded_stake_state_size;
+    structured_account.executable = 0;
+    structured_account.rent_epoch = 0;
+    memcpy( &structured_account.owner, global->solana_stake_program, sizeof(fd_pubkey_t) );
+  
     int write_result = fd_acc_mgr_write_structured_account( global->acc_mgr, global->funk_txn, global->bank.solana_bank.slot, stake_acc, &structured_account );
     if ( write_result != FD_ACC_MGR_SUCCESS ) {
       FD_LOG_WARNING(( "failed to write account data" ));
@@ -412,7 +650,7 @@ int fd_executor_stake_program_execute_instruction(
 
     } else if ( fd_stake_state_is_uninitialized( &stake_state ) ) {
 
-      uchar authorized_staker_signed = 0;
+      uint authorized_staker_signed = 0;
       for ( ulong i = 0; i < ctx.instr->acct_cnt; i++ ) {
         if ( instr_acc_idxs[i] < ctx.txn_descriptor->signature_cnt ) {
           fd_pubkey_t * signer = &txn_accs[instr_acc_idxs[i]];
@@ -476,6 +714,185 @@ int fd_executor_stake_program_execute_instruction(
     //     stake_account.set_state(&StakeState::Stake(meta, stake))    
     
   }
+  else if ( fd_stake_instruction_is_withdraw( &instruction )) { // discriminant X
+    ulong lamports = instruction.inner.withdraw;
+    // instruction_context.check_number_of_instruction_accounts(2)?;
+    if (ctx.txn_descriptor->acct_addr_cnt < 2) {
+      return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+    }
+    /* Check that the instruction accounts are correct */
+    uchar* instr_acc_idxs = ((uchar *)ctx.txn_raw->raw + ctx.instr->acct_off);
+    fd_pubkey_t* txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_raw->raw + ctx.txn_descriptor->acct_addr_off);
+    fd_pubkey_t* stake_acc         = &txn_accs[instr_acc_idxs[0]];
+    fd_pubkey_t* to_acc            = &txn_accs[instr_acc_idxs[1]];
+
+    /* Check that the Instruction Account 2 is the Clock Sysvar account */
+    if ( memcmp( &txn_accs[instr_acc_idxs[2]], ctx.global->sysvar_clock, sizeof(fd_pubkey_t) ) != 0 ) {
+      return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+    }
+    fd_sol_sysvar_clock_t clock;
+    fd_sysvar_clock_read( ctx.global, &clock );
+
+    /* Check that the Instruction Account 3 is the Stake History Sysvar account */
+    if ( memcmp( &txn_accs[instr_acc_idxs[3]], ctx.global->sysvar_stake_history, sizeof(fd_pubkey_t) ) != 0 ) {
+      return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+    }
+
+    fd_account_meta_t metadata;
+    int               read_result = fd_acc_mgr_get_metadata( ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) ctx.global->sysvar_stake_history, &metadata );
+    if ( read_result != FD_ACC_MGR_SUCCESS ) {
+      FD_LOG_NOTICE(( "failed to read account metadata: %d", read_result ));
+      return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+    }
+
+    unsigned char *raw_acc_data = fd_alloca( 1, metadata.dlen );
+    read_result = fd_acc_mgr_get_account_data( ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) ctx.global->sysvar_stake_history, raw_acc_data, metadata.hlen, metadata.dlen );
+    if ( read_result != FD_ACC_MGR_SUCCESS ) {
+      FD_LOG_NOTICE(( "failed to read account data: %d", read_result ));
+      return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+    }
+
+    fd_stake_history_t stake_history;
+    void* sh_input = (void *)raw_acc_data;
+    fd_stake_history_decode( &stake_history, (const void **)&sh_input, raw_acc_data + metadata.dlen, ctx.global->allocf, ctx.global->allocf_arg );
+
+    if (ctx.txn_descriptor->acct_addr_cnt < 5) {
+      return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+    }
+  
+    /* Check that the Instruction Account 3 is the Stake History Sysvar account */
+    if ( memcmp( &txn_accs[instr_acc_idxs[3]], ctx.global->sysvar_stake_history, sizeof(fd_pubkey_t) ) != 0 ) {
+      return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+    }
+    
+    /* Check that Instruction Account 4 is a signer */
+    if(instr_acc_idxs[4] >= ctx.txn_descriptor->signature_cnt) {
+      return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+    }
+
+    fd_pubkey_t * withdraw_authority_acc = &txn_accs[instr_acc_idxs[4]];
+
+    fd_account_meta_t stake_acc_metadata;
+    read_result = fd_acc_mgr_get_metadata( ctx.global->acc_mgr, ctx.global->funk_txn, stake_acc, &stake_acc_metadata );
+    if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
+      FD_LOG_WARNING(( "failed to read account metadata" ));
+      return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
+    }
+    if ( stake_acc_metadata.dlen != STAKE_ACCOUNT_SIZE ) {
+      FD_LOG_WARNING(( "Stake account size incorrect. expected %d got %lu", STAKE_ACCOUNT_SIZE, stake_acc_metadata.dlen ));
+      return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+    }
+
+    /* Read the current data in the Stake account */
+    uchar *stake_acc_data = (uchar *)(ctx.global->allocf)(ctx.global->allocf_arg, 8UL, stake_acc_metadata.dlen);
+    read_result = fd_acc_mgr_get_account_data( ctx.global->acc_mgr, ctx.global->funk_txn, stake_acc, (uchar*)stake_acc_data, sizeof(fd_account_meta_t), stake_acc_metadata.dlen );
+    if ( read_result != FD_ACC_MGR_SUCCESS ) {
+      FD_LOG_WARNING(( "failed to read stake account data" ));
+      return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
+    }
+
+    void* input            = (void *)stake_acc_data;
+    const void** input_ptr = (const void **)&input;
+    void* dataend          = (void*)&stake_acc_data[stake_acc_metadata.dlen];
+
+    fd_stake_state_t stake_state;
+    fd_stake_state_decode( &stake_state, input_ptr, dataend, ctx.global->allocf, ctx.global->allocf_arg );
+
+    ulong reserve_lamports = 0;
+    uint is_staked = 0;
+    if( fd_stake_state_is_stake( &stake_state ) ) {
+      fd_pubkey_t * authorized_withdrawer_acc = &stake_state.inner.stake.meta.authorized.withdrawer;
+      if( memcmp( authorized_withdrawer_acc, withdraw_authority_acc, sizeof(fd_pubkey_t) ) != 0 ) {
+        return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+      }
+      
+      // // TODO: REMOVE
+      // if( clock.epoch >= stake_state.inner.stake.stake.delegation.deactivation_epoch ) {
+      //   return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;m
+      // }
+
+      ulong staked_lamports = (clock.epoch >= stake_state.inner.stake.stake.delegation.deactivation_epoch) 
+          ? stake_activating_and_deactivating(&stake_state.inner.stake.stake.delegation, clock.epoch, &stake_history).effective
+          : stake_state.inner.stake.stake.delegation.stake;
+
+      reserve_lamports = staked_lamports + stake_state.inner.stake.meta.rent_exempt_reserve;
+      // Checked add
+      if (reserve_lamports < staked_lamports || reserve_lamports < stake_state.inner.stake.meta.rent_exempt_reserve) {
+        return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
+      }
+
+      is_staked = staked_lamports != 0;
+    } else if ( fd_stake_state_is_initialized( &stake_state ) ) {
+      fd_pubkey_t * authorized_withdrawer_acc = &stake_state.inner.stake.meta.authorized.withdrawer;
+      if( memcmp( authorized_withdrawer_acc, withdraw_authority_acc, sizeof(fd_pubkey_t) ) != 0 ) {
+        return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+      }
+
+      reserve_lamports = stake_state.inner.initialized.rent_exempt_reserve;
+      is_staked = 0;
+    } else if ( fd_stake_state_is_uninitialized( &stake_state ) ) {
+      /* Check that the Stake account is Uninitialized, if it is, then only stack account can withdraw */
+      if (instr_acc_idxs[0] >= ctx.txn_descriptor->signature_cnt) {
+        return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+      }
+    }
+    
+    ulong lamports_and_reserve = lamports + reserve_lamports;
+    if (lamports_and_reserve < lamports || lamports_and_reserve < reserve_lamports) {
+      return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
+    }
+    // TODO: a bunch of stuff
+    if( is_staked && lamports_and_reserve > stake_acc_metadata.info.lamports ) {
+      return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
+    }
+
+    char addr[100];
+    fd_base58_encode_32((uchar*) to_acc, NULL, addr);
+
+    FD_LOG_WARNING(( "XXX: %s", addr));
+
+    fd_acc_lamports_t receiver_lamports = 0;
+    read_result = fd_acc_mgr_get_lamports( ctx.global->acc_mgr, ctx.global->funk_txn, to_acc, &receiver_lamports );
+    if ( FD_UNLIKELY( read_result == FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) ) {
+      /* Create new account if it doesn't exist */
+      FD_LOG_DEBUG(( "transfer to unknown account: creating new account" ));
+      fd_account_meta_t metadata;
+      fd_account_meta_init(&metadata);
+      int write_result = fd_acc_mgr_write_account_data( ctx.global->acc_mgr, ctx.global->funk_txn, to_acc, &metadata, sizeof(metadata), NULL, 0, 0 );
+      if ( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) ) {
+        FD_LOG_WARNING(( "failed to create new account" ));
+        return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
+      }
+
+    } else if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
+      FD_LOG_WARNING(( "failed to get lamports" ));
+      return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
+    }
+
+    fd_account_meta_t to_acc_metadata;
+
+    read_result = fd_acc_mgr_get_metadata( ctx.global->acc_mgr, ctx.global->funk_txn, to_acc, &to_acc_metadata );
+    if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
+      FD_LOG_WARNING(( "failed to read to account metadata %d", read_result ));
+      return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+    }
+
+    if( stake_acc_metadata.info.lamports == lamports ) {
+      stake_state.discriminant = fd_stake_state_enum_uninitialized;
+      int write_result = write_stake_state_2(ctx.global, stake_acc, &stake_state);
+      if ( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) ) {
+        FD_LOG_WARNING(( "failed to write stake account" ));
+        return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
+      }
+    }
+
+    to_acc_metadata.info.lamports += lamports;
+    stake_acc_metadata.info.lamports -= lamports;
+    FD_LOG_WARNING(("QQQQ %lx %lu", stake_acc_metadata.info.lamports, stake_acc_metadata.info.lamports));
+    fd_acc_mgr_set_metadata(ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot, stake_acc, &stake_acc_metadata);
+    fd_acc_mgr_set_metadata(ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot, to_acc, &to_acc_metadata);
+
+  } 
   else {
     FD_LOG_NOTICE(( "unsupported StakeInstruction instruction: discriminant %d", instruction.discriminant ));
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;

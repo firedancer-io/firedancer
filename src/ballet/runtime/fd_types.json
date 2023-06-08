@@ -1085,7 +1085,10 @@
         { "name": "initialize_checked" },
         { "name": "authorize_checked", "type": "stake_authorize" },
         { "name": "authorize_checked_with_seed", "type": "authorize_checked_with_seed_args" },
-        { "name": "set_lockup_checked", "type": "lockup_checked_args" }
+        { "name": "set_lockup_checked", "type": "lockup_checked_args" },
+        { "name": "get_minimum_delegation" },
+        { "name": "deactivate_delinquent" },
+        { "name": "redelegate" }
       ],
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/instruction.rs#L58"
     },
