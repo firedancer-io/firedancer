@@ -6,6 +6,7 @@ include config/with-debug.mk
 include config/with-brutality.mk
 include config/with-optimization.mk
 include config/with-threads.mk
+include config/with-openssl.mk
 
 # Clang sadly doesn't support important optimizations.  This practically
 # limits clang usage to code hygenine usage for the time being.  Here,
@@ -16,7 +17,7 @@ include config/with-threads.mk
 
 CPPFLAGS+=-fomit-frame-pointer -march=haswell -mtune=skylake -mfpmath=sse \
 	  -DFD_HAS_INT128=1 -DFD_HAS_DOUBLE=1 -DFD_HAS_ALLOCA=1 -DFD_HAS_X86=1 -DFD_HAS_SSE=1 -DFD_HAS_AVX=1
-LDFLAGS+=-lrt
+LDFLAGS+=-lrt -fuse-ld=lld
 
 FD_HAS_INT128:=1
 FD_HAS_DOUBLE:=1

@@ -6,7 +6,7 @@ MAKEFLAGS += --no-builtin-variables
 .SECONDARY:
 .SECONDEXPANSION:
 
-BASEDIR:=build
+BASEDIR?=build
 OBJDIR:=$(BASEDIR)/$(BUILDDIR)
 
 # Auxiliarily rules that should not set up depenencies
@@ -108,6 +108,24 @@ endef
 add-objs = $(eval $(call _add-objs,$(1),$(2)))
 
 ##############################
+# Usage: $(call maybe-add-env-obj,env,lib)
+
+define _maybe-add-env-obj
+
+ifdef $(1)
+OBJ_FILE = $(patsubst %.c,%.o,$($(1)))
+
+$(OBJDIR)/lib/lib$(2).a: $(OBJ_FILE)
+
+$(OBJ_FILE): $($(1))
+	$(CC) -I.. $(CPPFLAGS) $(CFLAGS) -c $$< -o $$@
+endif
+
+endef
+
+maybe-add-env-obj = $(eval $(call _maybe-add-env-obj,$(1),$(2)))
+
+##############################
 # Usage: $(call add-asms,asms,lib)
 
 define _add-asms
@@ -183,7 +201,7 @@ $(OBJDIR)/$(4)/$(1): $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj
 	# Creating $(4) $$@ from $$^
 	#######################################################################
 	$(MKDIR) $$(dir $$@) && \
-$(LD) -L$(OBJDIR)/lib $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) $(foreach lib,$(3),-l$(lib)) $(LDFLAGS) -o $$@
+$(LD) -L$(OBJDIR)/lib $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) -Wl,--start-group $(foreach lib,$(3),-l$(lib)) $(LDFLAGS) -Wl,--end-group -o $$@
 
 $(4): $(OBJDIR)/$(4)/$(1)
 

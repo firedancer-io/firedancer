@@ -1,5 +1,6 @@
 pub use crate::generated::{
     fd_wksp_align,
+    fd_wksp_alloc,
     fd_wksp_alloc_at_least,
     fd_wksp_alloc_laddr,
     fd_wksp_attach,
@@ -28,10 +29,3 @@ pub use crate::generated::{
     fd_wksp_t,
     fd_wksp_unmap,
 };
-
-#[inline]
-pub unsafe fn fd_wksp_alloc(wksp: *mut fd_wksp_t, align: u64, sz: u64, tag: u64) -> u64 {
-    let mut lo = 0u64;
-    let mut hi = 0u64;
-    unsafe { fd_wksp_alloc_at_least(wksp, align, sz, tag, &mut lo, &mut hi) }
-}

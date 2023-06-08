@@ -702,7 +702,8 @@ fd_xsk_rx_enqueue2( fd_xsk_t *            xsk,
 ulong
 fd_xsk_tx_enqueue( fd_xsk_t *            xsk,
                    fd_xsk_frame_meta_t * meta,
-                   ulong                 count ) {
+                   ulong                 count,
+                   int                   flush ) {
   /* to submit frames for tx, we enqueue onto the tx ring */
 
   /* tx ring */
@@ -749,6 +750,7 @@ fd_xsk_tx_enqueue( fd_xsk_t *            xsk,
 
   tx->cached_prod = prod;
 
+  if( flush ) {
     /* update producer */
     FD_VOLATILE( *tx->prod ) = prod;
 
@@ -760,6 +762,7 @@ fd_xsk_tx_enqueue( fd_xsk_t *            xsk,
         }
       }
     }
+  }
 
   return sz;
 }

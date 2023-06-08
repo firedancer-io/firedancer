@@ -10,6 +10,7 @@ pub use crate::generated::{
 };
 // Administrative APIs
 pub use crate::generated::{
+    fd_shmem_create,
     fd_shmem_create_multi,
     fd_shmem_info,
     fd_shmem_name_len,
@@ -29,14 +30,3 @@ pub use crate::generated::{
     fd_shmem_leave,
     fd_shmem_leave_anonymous,
 };
-
-#[inline]
-pub unsafe fn fd_shmem_create(
-    name: *const i8,
-    page_sz: u64,
-    page_cnt: u64,
-    cpu_idx: u64,
-    mode: u64,
-) -> i32 {
-    unsafe { fd_shmem_create_multi(name, page_sz, 1, &page_cnt, &cpu_idx, mode) }
-}

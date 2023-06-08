@@ -281,14 +281,14 @@ test_xsk( void ) {
 
   /* Test fd_xsk_tx_enqueue */
 
-  FD_TEST( fd_xsk_tx_enqueue( xsk, NULL, 0UL )==0UL );
+  FD_TEST( fd_xsk_tx_enqueue( xsk, NULL, 0UL, 1 )==0UL );
 
   {
     fd_xsk_frame_meta_t metas[ 3UL ] =
       { {.off=0UL, .sz=0U, .flags=0U},
         {.off=1UL, .sz=1U, .flags=1U},
         {.off=2UL, .sz=2U, .flags=2U} };
-    FD_TEST( fd_xsk_tx_enqueue( xsk, metas, 3UL )==3UL );
+    FD_TEST( fd_xsk_tx_enqueue( xsk, metas, 3UL, 1 )==3UL );
     FD_TEST( test_xsk_ring_tx.prod==3UL );
   }
 
@@ -300,9 +300,9 @@ test_xsk( void ) {
         {.off=6UL, .sz=6U, .flags=6U},
         {.off=7UL, .sz=7U, .flags=7U},
         {.off=8UL, .sz=8U, .flags=8U} };
-    FD_TEST( fd_xsk_tx_enqueue( xsk, metas, 6UL )==5UL );
+    FD_TEST( fd_xsk_tx_enqueue( xsk, metas, 6UL, 1 )==5UL );
     FD_TEST( test_xsk_ring_tx.prod==8UL );
-    FD_TEST( fd_xsk_tx_enqueue( xsk, metas, 6UL )==0UL );
+    FD_TEST( fd_xsk_tx_enqueue( xsk, metas, 6UL, 1 )==0UL );
   }
 
   /* Test fd_xsk_rx_complete */
@@ -445,9 +445,11 @@ static int
 test_xsk_aio_rx( void *                    ctx,
                  fd_aio_pkt_info_t const * batch,
                  ulong                     batch_cnt,
-                 ulong *                   opt_batch_idx ) {
+                 ulong *                   opt_batch_idx,
+                 int                       flush ) {
   (void)ctx;
   (void)opt_batch_idx;
+  (void)flush;
 
   _rx_call_cnt++;
   FD_LOG_INFO(( "serving fd_xsk_aio callback" ));
@@ -535,7 +537,7 @@ test_xsk_aio( void ) {
 
   /* Send packets */
 
-  FD_TEST( fd_aio_send( aio_tx, NULL, 0UL, NULL )==FD_AIO_SUCCESS );
+  FD_TEST( fd_aio_send( aio_tx, NULL, 0UL, NULL, 1 )==FD_AIO_SUCCESS );
   FD_TEST( xsk_aio->tx_top==8UL );
 
   {
@@ -544,7 +546,7 @@ test_xsk_aio( void ) {
       { .buf="bb",  .buf_sz=2UL },
       { .buf="ccc", .buf_sz=3UL }
     };
-    FD_TEST( fd_aio_send( aio_tx, pkts, 3UL, NULL )==FD_AIO_SUCCESS );
+    FD_TEST( fd_aio_send( aio_tx, pkts, 3UL, NULL, 1 )==FD_AIO_SUCCESS );
     FD_TEST( xsk_aio->tx_top==5UL );
 
     FD_TEST( test_xsk_ring_tx.prod          ==3UL );
@@ -567,7 +569,7 @@ test_xsk_aio( void ) {
       { .buf="ii", .buf_sz=2UL }
     };
     ulong batch_idx;
-    FD_TEST( fd_aio_send( aio_tx, pkts, 6UL, &batch_idx )==FD_AIO_ERR_AGAIN );
+    FD_TEST( fd_aio_send( aio_tx, pkts, 6UL, &batch_idx, 1 )==FD_AIO_ERR_AGAIN );
     FD_TEST( batch_idx==5UL );
     FD_TEST( xsk_aio->tx_top==0UL );
 

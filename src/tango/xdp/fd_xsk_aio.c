@@ -10,7 +10,8 @@ static int
 fd_xsk_aio_send( void *                    ctx,
                  fd_aio_pkt_info_t const * batch,
                  ulong                     batch_cnt,
-                 ulong *                   opt_batch_idx );
+                 ulong *                   opt_batch_idx,
+                 int                       flush );
 
 ulong
 fd_xsk_aio_align( void ) {
@@ -259,7 +260,7 @@ fd_xsk_aio_service( fd_xsk_aio_t * xsk_aio ) {
       };
     }
 
-    fd_aio_send( ingress, pkt, rx_avail, NULL );
+    fd_aio_send( ingress, pkt, rx_avail, NULL, 1 );
     /* TODO frames may not all be processed at this point
        we should count them, and possibly buffer them */
 
@@ -299,15 +300,18 @@ static int
 fd_xsk_aio_send( void *                    ctx,
                  fd_aio_pkt_info_t const * pkt,
                  ulong                     pkt_cnt,
-                 ulong *                   opt_batch_idx ) {
+                 ulong *                   opt_batch_idx,
+                 int                       flush ) {
 
   fd_xsk_aio_t * xsk_aio = (fd_xsk_aio_t*)ctx;
   fd_xsk_t *     xsk     = xsk_aio->xsk;
 
   if( FD_UNLIKELY( pkt_cnt==0UL ) ) {
-    fd_xsk_frame_meta_t meta[1] = {{0}};
-    ulong sent_cnt = fd_xsk_tx_enqueue( xsk, meta, 0 );
-    (void)sent_cnt;
+    if( flush ) {
+      fd_xsk_frame_meta_t meta[1] = {{0}};
+      ulong sent_cnt = fd_xsk_tx_enqueue( xsk, meta, 0, 1 );
+      (void)sent_cnt;
+    }
     return FD_AIO_SUCCESS;
   }
 
@@ -364,7 +368,9 @@ fd_xsk_aio_send( void *                    ctx,
   }
 
   /* Enqueue send */
-  ulong sent_cnt = fd_xsk_tx_enqueue( xsk, meta, pending_cnt );
+  ulong sent_cnt=0UL;
+  if( FD_LIKELY( pending_cnt>0UL || flush ) )
+    sent_cnt = fd_xsk_tx_enqueue( xsk, meta, pending_cnt, flush );
 
   /* Sent less than user requested? */
   if( FD_UNLIKELY( sent_cnt<pkt_cnt ) ) {

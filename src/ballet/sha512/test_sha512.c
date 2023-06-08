@@ -31,7 +31,7 @@ test_sha512_vectors( fd_sha512_test_vector_t const * vec,
     FD_TEST( fd_sha512_init( sha )==sha );
     FD_TEST( fd_sha512_append( sha, msg, sz )==sha );
     FD_TEST( fd_sha512_fini( sha, hash )==hash );
-    if( FD_UNLIKELY( memcmp( hash, expected, 64UL ) ) )
+    if( FD_UNLIKELY( memcmp( hash, expected, FD_SHA512_HASH_SZ ) ) )
       FD_LOG_ERR(( "FAIL (sz %lu)"
                    "\n\tGot"
                    "\n\t\t" FD_LOG_HEX16_FMT "  " FD_LOG_HEX16_FMT
@@ -61,7 +61,7 @@ test_sha512_vectors( fd_sha512_test_vector_t const * vec,
 
     FD_TEST( fd_sha512_fini( sha, hash )==hash );
 
-    if( FD_UNLIKELY( memcmp( hash, expected, 64UL ) ) )
+    if( FD_UNLIKELY( memcmp( hash, expected, FD_SHA512_HASH_SZ ) ) )
       FD_LOG_ERR(( "FAIL (sz %lu)"
                    "\n\tGot"
                    "\n\t\t" FD_LOG_HEX16_FMT "  " FD_LOG_HEX16_FMT
@@ -77,7 +77,7 @@ test_sha512_vectors( fd_sha512_test_vector_t const * vec,
     /* test streamlined hashing */
 
     FD_TEST( fd_sha512_hash( msg, sz, hash )==hash );
-    if( FD_UNLIKELY( memcmp( hash, expected, 32UL ) ) )
+    if( FD_UNLIKELY( memcmp( hash, expected, FD_SHA512_HASH_SZ ) ) )
       FD_LOG_ERR(( "FAIL (sz %lu)"
                    "\n\tGot"
                    "\n\t\t" FD_LOG_HEX16_FMT "  " FD_LOG_HEX16_FMT
@@ -182,10 +182,10 @@ main( int     argc,
   FD_LOG_NOTICE(( "Benchmarking incremental (best case)" ));
   for( ulong idx=0U; idx<2UL; idx++ ) {
     ulong sz = bench_sz[ idx ];
-  
+
     /* warmup */
     for( ulong rem=10UL; rem; rem-- ) fd_sha512_fini( fd_sha512_append( fd_sha512_init( sha ), buf, sz ), hash );
-  
+
     /* for real */
     ulong iter = 100000UL;
     long  dt   = -fd_log_wallclock();
