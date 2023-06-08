@@ -1,6 +1,8 @@
 #include "../fd_util.h"
 #include "fd_pcap.h"
 
+FD_IMPORT_BINARY( simple_pcap, "src/util/net/simple.pcap" );
+
 FD_STATIC_ASSERT( FD_PCAP_ITER_TYPE_ETHERNET==0UL, unit_test );
 FD_STATIC_ASSERT( FD_PCAP_ITER_TYPE_COOKED  ==1UL, unit_test );
 
@@ -70,6 +72,30 @@ main( int     argc,
 
   if( stream_out && FD_UNLIKELY( fclose( stream_out ) ) ) FD_LOG_ERR(( "fclose failed" ));
   if( in_path    && FD_UNLIKELY( fclose( stream_in  ) ) ) FD_LOG_ERR(( "fclose failed" ));
+
+  FILE * file = fmemopen( (void *)simple_pcap, simple_pcap_sz, "r" );
+  iter = fd_pcap_iter_new( file );
+  FD_TEST( iter );
+
+  uchar hdr[ 2048UL ];
+  uchar pld[ 2048UL ];
+
+  ulong hdr_sz = 2048UL;
+  ulong pld_sz = 2048UL;
+  long ts;
+  FD_TEST( fd_pcap_iter_next_split( iter, hdr, &hdr_sz, pld, &pld_sz, &ts ) );
+  FD_TEST( hdr_sz==34UL );  FD_TEST( fd_memeq( hdr, "\xff\xff\xff\xff\xff\xff\x00\x00", 8UL ) );
+  FD_TEST( pld_sz==36UL );  FD_TEST( fd_memeq( pld, "\x00\x14\x00\x50\x00\x00\x00\x00", 8UL ) );
+
+  hdr_sz = 2048UL;
+  pld_sz = 2048UL;
+  FD_TEST( fd_pcap_iter_next_split( iter, hdr, &hdr_sz, pld, &pld_sz, &ts ) );
+  FD_TEST( hdr_sz==42UL );  FD_TEST( fd_memeq( hdr, "\xff\xff\xff\xff\xff\xff\x00\x00", 8UL ) );
+  FD_TEST( pld_sz==32UL );  FD_TEST( fd_memeq( pld, "\x00\x01\x02\x03\x04\x05\x06\x07", 8UL ) );
+
+  hdr_sz = 2048UL;
+  pld_sz = 2048UL;
+  FD_TEST( !fd_pcap_iter_next_split( iter, hdr, &hdr_sz, pld, &pld_sz, &ts ) );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
