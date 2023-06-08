@@ -1,5 +1,5 @@
 #include "fd_sysvar_epoch_schedule.h"
-#include "../fd_types.h"
+#include "../../../flamenco/types/fd_types.h"
 #include "fd_sysvar.h"
 #include <math.h>
 

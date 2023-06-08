@@ -1,5 +1,4 @@
 #include <stdio.h>
-#include "../fd_types.h"
 #include "../fd_banks_solana.h"
 #include "../fd_acc_mgr.h"
 #include "../fd_hashes.h"
@@ -27,13 +26,11 @@ void fd_sysvar_recent_hashes_init( fd_global_ctx_t* global ) {
   if (global->bank.solana_bank.slot != 0) 
     return;
 
-  fd_block_block_hash_entry_t s;
-  memset(&s, 0, sizeof(s));
-
-  fd_vec_fd_block_block_hash_entry_t_new(&global->bank.recent_block_hashes.hashes);
-
-  fd_memcpy(s.blockhash.hash, global->genesis_hash, sizeof(global->genesis_hash));
-  fd_vec_fd_block_block_hash_entry_t_push_front(&global->bank.recent_block_hashes.hashes, s);
+  fd_block_block_hash_entry_t * hashes = global->bank.recent_block_hashes.hashes =
+    deq_fd_block_block_hash_entry_t_alloc( global->allocf, global->allocf_arg );
+  fd_block_block_hash_entry_t * elem = deq_fd_block_block_hash_entry_t_push_head_nocopy(hashes);
+  fd_block_block_hash_entry_new(elem);
+  fd_memcpy(elem->blockhash.hash, global->genesis_hash, sizeof(global->genesis_hash));
 
   ulong sz = fd_recent_block_hashes_size(&global->bank.recent_block_hashes);
   if (sz < 6008)
@@ -53,16 +50,18 @@ void fd_sysvar_recent_hashes_update(fd_global_ctx_t* global ) {
   if (global->bank.solana_bank.slot == 0)  // we already set this... as part of boot
     return; 
 
-  fd_block_block_hash_entry_t s;
-  memset(&s, 0, sizeof(s));
+  fd_block_block_hash_entry_t * hashes = global->bank.recent_block_hashes.hashes;
+  fd_bincode_destroy_ctx_t ctx2;
+  ctx2.freef = global->freef;
+  ctx2.freef_arg = global->allocf_arg;
+  while (deq_fd_block_block_hash_entry_t_cnt(hashes) >= 150)
+    fd_block_block_hash_entry_destroy( deq_fd_block_block_hash_entry_t_pop_tail_nocopy( hashes ), &ctx2 );
 
-  s.fee_calculator.lamports_per_signature = fd_runtime_txn_lamports_per_signature(global, NULL, NULL);
-  fd_memcpy(s.blockhash.hash, global->block_hash, sizeof(global->block_hash));
-
-  while (global->bank.recent_block_hashes.hashes.cnt >= 150)
-    fd_vec_fd_block_block_hash_entry_t_pop_unsafe(&global->bank.recent_block_hashes.hashes);
-
-  fd_vec_fd_block_block_hash_entry_t_push_front(&global->bank.recent_block_hashes.hashes, s);
+  FD_TEST( !deq_fd_block_block_hash_entry_t_full(hashes) );
+  fd_block_block_hash_entry_t * elem = deq_fd_block_block_hash_entry_t_push_head_nocopy(hashes);
+  fd_block_block_hash_entry_new(elem);
+  fd_memcpy(elem->blockhash.hash, global->block_hash, sizeof(global->block_hash));
+  elem->fee_calculator.lamports_per_signature = fd_runtime_txn_lamports_per_signature(global, NULL, NULL);
 
   ulong sz = fd_recent_block_hashes_size(&global->bank.recent_block_hashes);
   if (sz < 6008)

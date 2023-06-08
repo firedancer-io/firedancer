@@ -1,5 +1,5 @@
 #include "fd_sysvar_stake_history.h"
-#include "../fd_types.h"
+#include "../../../flamenco/types/fd_types.h"
 #include "fd_sysvar.h"
 
 void write_stake_history( fd_global_ctx_t* global, fd_stake_history_t* stake_history ) {

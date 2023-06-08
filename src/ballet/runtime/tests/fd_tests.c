@@ -1,9 +1,12 @@
 #include "fd_tests.h"
+#include <stdio.h>
 #include <unistd.h>
 
 #ifdef _DISABLE_OPTIMIZATION
 #pragma GCC optimize ("O0")
 #endif
+
+const char *verbose = NULL;
 
 /* copied from test_funk_txn.c */
 static fd_funk_txn_xid_t *
@@ -47,6 +50,8 @@ void fd_executor_test_suite_new( fd_executor_test_suite_t* suite ) {
   suite->allocf = allocf;
   suite->allocf_arg = allocf_args;
   suite->freef = freef;
+
+  memset(&suite->features, 1, sizeof(suite->features));
 }
 
 int fd_executor_run_test(
@@ -66,6 +71,12 @@ int fd_executor_run_test(
   global->freef = suite->freef;
   global->funk = suite->funk;
   global->wksp = suite->wksp;
+
+  memcpy(&global->features, &suite->features, sizeof(suite->features));
+  if (test->disable_cnt > 0) {
+    for (uint i = 0; i < test->disable_cnt; i++)
+      ((uchar *) &global->features)[test->disable_feature[i]] = 0;
+  }
 
   char *acc_mgr_mem = fd_alloca_check(FD_ACC_MGR_ALIGN, FD_ACC_MGR_FOOTPRINT);
   memset(acc_mgr_mem, 0, sizeof(FD_ACC_MGR_FOOTPRINT));
@@ -139,13 +150,14 @@ int fd_executor_run_test(
   execute_instruction_func_t exec_instr_func = fd_executor_lookup_native_program( global, &test->program_id );
   int exec_result = exec_instr_func( ctx );
   if ( exec_result != test->expected_result ) {
-    FD_LOG_WARNING(( "Failed test %d: %s (nonce: %d): expected transaction result %d, got %d", test->test_number, test->test_name, test->test_nonce, test->expected_result , exec_result));
+    FD_LOG_WARNING(( "Failed test %d: %s (nonce: %d): expected transaction result %d, got %d: %s", test->test_number, test->test_name, test->test_nonce, test->expected_result , exec_result
+        , (NULL != verbose) ? test->bt : ""));
     return -1;
   }
 
   if ( exec_result == FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR ) {
     if ( ctx.txn_ctx->custom_err != test->custom_err) {
-      FD_LOG_WARNING(( "Failed test %d: %s (nonce: %d): expected custom error inner value of %d, got %d", test->test_number, test->test_name, test->test_nonce, test->custom_err, ctx.txn_ctx->custom_err ));
+      FD_LOG_WARNING(( "Failed test %d: %s (nonce: %d): expected custom error inner value of %d, got %d: %s", test->test_number, test->test_name, test->test_nonce, test->custom_err, ctx.txn_ctx->custom_err , (NULL != verbose) ? test->bt : ""));
       return -1;
     }
   }
@@ -166,15 +178,27 @@ int fd_executor_run_test(
       void* d = (void *)(raw_acc_data + m->hlen);
 
       if (m->info.lamports != test->accs[i].result_lamports) {
-        FD_LOG_WARNING(( "Failed test %d: %s (nonce: %d): expected lamports %ld, got %ld", test->test_number, test->test_name, test->test_nonce, test->accs[i].result_lamports, m->info.lamports));
+        FD_LOG_WARNING(( "Failed test %d: %s (nonce: %d): expected lamports %ld, got %ld: %s", test->test_number, test->test_name, test->test_nonce, test->accs[i].result_lamports, m->info.lamports, (NULL != verbose) ? test->bt : ""));
         return -666;
       }
       if (m->dlen != test->accs[i].result_data_len) {
-        FD_LOG_WARNING(( "Failed test %d: %s (nonce: %d): size missmatch", test->test_number, test->test_name, test->test_nonce));
+        FD_LOG_WARNING(( "Failed test %d: %s (nonce: %d): size mismatch (expected %lu, got %lu): %s",
+                         test->test_number, test->test_name, test->test_nonce,
+                         test->accs[i].result_data_len, m->dlen, (NULL != verbose) ? test->bt : "" ));
         return -777;
       }
       if (memcmp(d, test->accs[i].result_data, test->accs[i].result_data_len)) {
-        FD_LOG_WARNING(( "Failed test %d: %s (nonce: %d): account missmatch", test->test_number, test->test_name, test->test_nonce));
+        FD_LOG_WARNING(( "Failed test %d: %s: account missmatch: %s", test->test_number, test->test_name, (NULL != verbose) ? test->bt : ""));
+      {
+        FILE * fd = fopen("actual.bin", "wb");
+        fwrite(d, 1, m->dlen, fd);
+        fclose(fd);
+      }
+      {
+        FILE * fd = fopen("expected.bin", "wb");
+        fwrite(test->accs[i].result_data, 1, test->accs[i].result_data_len, fd);
+        fclose(fd);
+      }
         return -888;
       }
     }
@@ -183,27 +207,28 @@ int fd_executor_run_test(
   /* Revert the Funk transaction */
   fd_funk_txn_cancel( suite->funk, global->funk_txn, 0 );
 
-  FD_LOG_WARNING(("Passed test %d: %s (nonce: %d)", test->test_number, test->test_name, test->test_nonce));
+  FD_LOG_NOTICE(("Passed test %d: %s (nonce: %d)", test->test_number, test->test_name, test->test_nonce));
 
   return 0;
 }
 
-extern int run_test(int idx, fd_executor_test_suite_t *suite);
-
 int main(int argc, char **argv) {
   fd_boot( &argc, &argv );
 
-  long test_start = fd_env_strip_cmdline_long(&argc, &argv, "--start", NULL, 0);
-  long test_end = fd_env_strip_cmdline_long(&argc, &argv, "--end", NULL, 889);
+  ulong test_start = fd_env_strip_cmdline_ulong(&argc, &argv, "--start", NULL, 0UL);
+  ulong test_end = fd_env_strip_cmdline_ulong(&argc, &argv, "--end", NULL, ULONG_MAX);
   long do_test = fd_env_strip_cmdline_long(&argc, &argv, "--test", NULL, -1);
   const char * filter = fd_env_strip_cmdline_cstr(&argc, &argv, "--filter", NULL, NULL);
+  verbose = fd_env_strip_cmdline_cstr(&argc, &argv, "--verbose", NULL, NULL);
 
-  if (-1 != do_test) 
-    test_start = test_end = do_test;
+  if (-1 != do_test)
+    test_start = test_end = (ulong)do_test;
 
   /* Initialize the test suite */
   fd_executor_test_suite_t suite;
   fd_executor_test_suite_new( &suite );
+
+  memset(&suite.features, 1, sizeof(suite.features));
 
   if (NULL != filter) {
     suite.filter = filter;
@@ -214,10 +239,14 @@ int main(int argc, char **argv) {
     suite.filter = NULL;
 
   int ret = 0;
-  for (long i = test_start; i <= test_end; i++)  {
-    int r = run_test((int)i, &suite);
+
+  /* Loop through tests */
+  for( ulong idx = test_start; idx <= test_end; idx++ ) {
+    if( FD_UNLIKELY( idx >= test_cnt ) )
+      break;
+    int r = tests[ idx ]( &suite );
     if ((r != 0) && (r != -9999)) {
-      FD_LOG_NOTICE( ("test %ld returned %d", i, r)) ;
+      FD_LOG_NOTICE( ("test %lu returned %d", idx, r)) ;
       ret = r;
     }
   }
@@ -228,7 +257,7 @@ int main(int argc, char **argv) {
   return ret;
 }
 
-int 
+int
 fd_executor_test_suite_check_filter(fd_executor_test_suite_t *suite, fd_executor_test_t *test) {
   if (NULL != suite->filter)
     return regexec(&suite->filter_ex, test->test_name, 0, NULL, 0);

@@ -1,9 +1,9 @@
 #ifndef HEADER_fd_src_ballet_runtime_program_fd_config_program_h
 #define HEADER_fd_src_ballet_runtime_program_fd_config_program_h
 
-/* The config program is a native program which provides a conveience method for creating accounts
-which store lists of pubkeys, some of which have signed the config data. The config program is 
-only responsible for maintaining this list, the actual config accounts are created independently to this.
+/* The config program is a native program which implements a single instruction:
+a convenience method for storing lists of pubkeys in accounts. Some of these pubkeys are designated "signers".
+To change the list of pubkeys, all the designated signers have to sign the instruction.
 
 https://github.com/solana-labs/solana/blob/a03ae63daff987912c48ee286eb8ee7e8a84bf01/programs/config/src/config_processor.rs */
 

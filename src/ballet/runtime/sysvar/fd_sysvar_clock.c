@@ -1,5 +1,5 @@
 #include "fd_sysvar_clock.h"
-#include "../fd_types.h"
+#include "../../../flamenco/types/fd_types.h"
 #include "fd_sysvar.h"
 
 #ifdef _DISABLE_OPTIMIZATION
@@ -124,14 +124,19 @@ long estimate_timestamp( fd_global_ctx_t* global, uint128 ns_per_slot ) {
   /* TODO: bound the estimate to ensure it stays within a certain range of the expected PoH clock:
   https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/stake_weighted_timestamp.rs#L13 */
 
-  if ( global->bank.timestamp_votes.votes.cnt == 0 ) {
+  fd_clock_timestamp_vote_t * votes = global->bank.timestamp_votes.votes;
+  if ( NULL == votes )
+    global->bank.timestamp_votes.votes =
+      votes = deq_fd_clock_timestamp_vote_t_alloc( global->allocf, global->allocf_arg );
+  if ( deq_fd_clock_timestamp_vote_t_cnt( votes ) == 0 ) {
     return timestamp_from_genesis( &global->genesis_block, global->bank.solana_bank.slot );
   }
 
   /* TODO: actually take the stake-weighted median. For now, just take the first vote */
-  ulong slots = global->bank.solana_bank.slot - global->bank.timestamp_votes.votes.elems[0].slot;
+  fd_clock_timestamp_vote_t * head = deq_fd_clock_timestamp_vote_t_peek_head( votes );
+  ulong slots = global->bank.solana_bank.slot - head->slot;
   uint128 ns_correction = ns_per_slot * slots;
-  return global->bank.timestamp_votes.votes.elems[0].timestamp  + (long) (ns_correction / NS_IN_S) ;
+  return head->timestamp  + (long) (ns_correction / NS_IN_S) ;
 }
 
 void fd_sysvar_clock_update( fd_global_ctx_t* global ) {

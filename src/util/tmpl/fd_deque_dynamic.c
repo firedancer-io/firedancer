@@ -42,9 +42,30 @@
      my_ele_t * my_deque_remove_tail( my_ele_t * deque ); // removes tail, returns deque
      my_ele_t * my_deque_remove_all ( my_ele_t * deque ); // removes all, returns deque, fast O(1)
 
+     my_ele_t * my_deque_push_head_nocopy( my_ele_t * deque ); // push the head, returns the new uninitialized element
+     my_ele_t * my_deque_push_tail_nocopy( my_ele_t * deque ); // push the tail, returns the new uninitialized element
+     my_ele_t * my_deque_pop_head_nocopy ( my_ele_t * deque ); // pops the head, returns the deleted element
+     my_ele_t * my_deque_pop_tail_nocopy ( my_ele_t * deque ); // pops the tail, returns the deleted element
+
      my_ele_t const * my_deque_peek_head_const( my_ele_t const * deque ); // const version of peek_head
      my_ele_t const * my_deque_peek_tail_const( my_ele_t const * deque ); // const version of peek_tail
 
+     // my_deque_iter_* allow for iteration over all the elements in
+     // a my_deque.  The iteration will be in order from head to tail.
+     // Example usage:
+     //
+     //   for( my_deque_iter_t iter = my_deque_iter_init( deque ); !my_deque_iter_done( deque, iter ); iter = my_deque_iter_next( deque, iter ) ) {
+     //     my_deque_t * ele = my_deque_iter_ele( deque, iter );
+     //
+     //     ... process ele here
+     //   }
+ 
+     my_deque_iter_t  my_deque_iter_init     ( my_deque_t const * deque );
+     int              my_deque_iter_done     ( my_deque_t const * deque, my_deque_iter_t iter ); // returns 1 if no more iterations, 0 o.w.
+     my_deque_iter_t  my_deque_iter_next     ( my_deque_t const * deque, my_deque_iter_t iter ); // returns next iter value iter
+     my_ele_t *       my_deque_iter_ele      ( my_deque_t *       deque, my_deque_iter_t iter ); // assumes not done, return non-NULL ele
+     my_ele_t const * my_deque_iter_ele_const( my_deque_t const * deque, my_deque_iter_t iter ); // assumes not done, return non-NULL ele
+     
    For performance, none of the functions do any error checking.
    Specifically, the caller promises that max is such that footprint
    will not overflow 2^64 (e.g. max << (2^64)/sizeof(my_ele_t)), cnt<max
@@ -277,12 +298,90 @@ DEQUE_(remove_tail)( DEQUE_T * deque ) {
 }
 
 static inline DEQUE_T *
+DEQUE_(push_head_nocopy)( DEQUE_T * deque ) {
+  DEQUE_(private_t) * hdr = DEQUE_(private_hdr_from_deque)( deque );
+  ulong max1  = hdr->max1;
+  ulong cnt   = hdr->cnt;
+  ulong start = hdr->start;
+  hdr->cnt    = cnt + 1UL;
+  hdr->start  = DEQUE_(private_prev)( start, max1 );
+  return hdr->deque + hdr->start;
+}
+
+static inline DEQUE_T *
+DEQUE_(push_tail_nocopy)( DEQUE_T * deque ) {
+  DEQUE_(private_t) * hdr = DEQUE_(private_hdr_from_deque)( deque );
+  ulong max1 = hdr->max1;
+  ulong cnt  = hdr->cnt;
+  ulong end  = hdr->end;
+  hdr->cnt   = cnt + 1UL;
+  DEQUE_T * res = hdr->deque + hdr->end;
+  hdr->end   = DEQUE_(private_next)( end, max1 );
+  return res;
+}
+
+static inline DEQUE_T *
+DEQUE_(pop_head_nocopy)( DEQUE_T * deque ) {
+  DEQUE_(private_t) * hdr = DEQUE_(private_hdr_from_deque)( deque );
+  ulong max1  = hdr->max1;
+  ulong cnt   = hdr->cnt;
+  ulong start = hdr->start;
+  hdr->cnt    = cnt - 1UL;
+  DEQUE_T * res = hdr->deque + hdr->start;
+  hdr->start  = DEQUE_(private_next)( start, max1 );
+  return res;
+}
+
+static inline DEQUE_T *
+DEQUE_(pop_tail_nocopy)( DEQUE_T * deque ) {
+  DEQUE_(private_t) * hdr = DEQUE_(private_hdr_from_deque)( deque );
+  ulong max1 = hdr->max1;
+  ulong cnt  = hdr->cnt;
+  ulong end  = hdr->end;
+  hdr->cnt   = cnt - 1UL;
+  hdr->end   = DEQUE_(private_prev)( end, max1 );
+  return hdr->deque + hdr->end;
+}
+
+static inline DEQUE_T *
 DEQUE_(remove_all)( DEQUE_T * deque ) {
   DEQUE_(private_t) * hdr = DEQUE_(private_hdr_from_deque)( deque );
   hdr->cnt   = 0UL;
   hdr->start = 0UL;
   hdr->end   = 0UL;
   return deque;
+}
+
+typedef ulong DEQUE_(iter_t);
+
+static inline DEQUE_(iter_t)
+DEQUE_(iter_init)( DEQUE_T const * deque ) {
+  DEQUE_(private_t) const * hdr = DEQUE_(private_const_hdr_from_deque)( deque );
+  return hdr->start;
+}
+
+static inline int
+DEQUE_(iter_done)( DEQUE_T const * deque, DEQUE_(iter_t) iter ) {
+  DEQUE_(private_t) const * hdr = DEQUE_(private_const_hdr_from_deque)( deque );
+  return iter == hdr->end;
+}
+
+static inline DEQUE_(iter_t)
+DEQUE_(iter_next)( DEQUE_T const * deque, DEQUE_(iter_t) iter ) {
+  DEQUE_(private_t) const * hdr = DEQUE_(private_const_hdr_from_deque)( deque );
+  return DEQUE_(private_next)( iter, hdr->max1 );
+}
+
+static inline DEQUE_T *
+DEQUE_(iter_ele)( DEQUE_T * deque, DEQUE_(iter_t) iter ) {
+  DEQUE_(private_t) * hdr = DEQUE_(private_hdr_from_deque)( deque );
+  return hdr->deque + iter;
+}
+
+static inline DEQUE_T const *
+DEQUE_(iter_ele_const)( DEQUE_T const * deque, DEQUE_(iter_t) iter ) {
+  DEQUE_(private_t) const * hdr = DEQUE_(private_const_hdr_from_deque)( deque );
+  return hdr->deque + iter;
 }
 
 FD_PROTOTYPES_END

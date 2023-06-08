@@ -169,6 +169,10 @@ typedef struct fd_aio_pkt_info fd_aio_pkt_info_t;
      interest in the batch array, the packet buffers referred to in the
      array on return.
 
+   - flush requests an asychronous best-effort transmit of packets
+     buffered from this and prior send operations.  Actual flush
+     semantics are implementation-defined.
+
    Note the reception of any packets "sent" by this call is not
    guaranteed.  Reasons for failed reception could include local AIO
    instance failures not diagnosable at time of call and/or failures,
@@ -185,7 +189,8 @@ typedef int
 (*fd_aio_send_func_t)( void *                    ctx,
                        fd_aio_pkt_info_t const * batch,
                        ulong                     batch_cnt,
-                       ulong *                   opt_batch_idx );
+                       ulong *                   opt_batch_idx,
+                       int                       flush );
 
 /* An fd_aio_t * is an opaque handle of an AIO instance.  (It
    technically isn't here to facilitate inlining of fd_aio operations.) */
@@ -243,8 +248,9 @@ static inline int
 fd_aio_send( fd_aio_t const *          aio,
              fd_aio_pkt_info_t const * batch,
              ulong                     batch_cnt,
-             ulong *                   opt_batch_idx ) {
-  return aio->send_func( aio->ctx, batch, batch_cnt, opt_batch_idx );
+             ulong *                   opt_batch_idx,
+             int                       flush ) {
+  return aio->send_func( aio->ctx, batch, batch_cnt, opt_batch_idx, flush );
 }
 
 /* fd_aio_strerror converts an FD_AIO_SUCCESS / FD_AIO_ERR_* code into

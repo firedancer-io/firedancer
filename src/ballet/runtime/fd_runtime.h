@@ -4,6 +4,7 @@
 #include "fd_rocksdb.h"
 #include "fd_acc_mgr.h"
 #include "fd_executor.h"
+#include "fd_features.h"
 #include "../poh/fd_poh.h"
 #include "program/fd_builtin_programs.h"
 
@@ -30,6 +31,8 @@ struct __attribute__((aligned(FD_GLOBAL_CTX_ALIGN))) fd_global_ctx {
   fd_funk_t*                 funk;
   fd_executor_t              executor;  // Amusingly, it is just a pointer to this...
   fd_rng_t*                  rng;
+
+  fd_features_t              features;
 
   unsigned char              sysvar_recent_block_hashes[32];
   unsigned char              sysvar_clock[32];
@@ -108,7 +111,7 @@ ulong             fd_runtime_lamports_per_signature_for_blockhash( fd_global_ctx
 fd_funk_rec_key_t fd_runtime_block_key     (ulong slot);
 fd_funk_rec_key_t fd_runtime_block_meta_key(ulong slot);
 
-int               fd_pubkey_create_with_seed(fd_pubkey_t *base, char *seed, fd_pubkey_t *owner, fd_pubkey_t *out );
+int               fd_pubkey_create_with_seed(fd_pubkey_t const * base, char const * seed, fd_pubkey_t const *owner, fd_pubkey_t *out );
 
 FD_PROTOTYPES_END
 

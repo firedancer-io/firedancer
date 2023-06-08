@@ -1,5 +1,5 @@
 #include "fd_sysvar_slot_hashes.h"
-#include "../fd_types.h"
+#include "../../../flamenco/types/fd_types.h"
 #include "fd_sysvar.h"
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_hashes.rs#L11 */
@@ -33,12 +33,15 @@ void write_slot_hashes( fd_global_ctx_t* global, fd_slot_hashes_t* slot_hashes )
 void fd_sysvar_slot_hashes_update( fd_global_ctx_t* global ) {
   fd_slot_hashes_t slot_hashes;
   fd_sysvar_slot_hashes_read( global, &slot_hashes );
+  fd_slot_hash_t * hashes = slot_hashes.hashes;
 
   uchar found = 0;
-  for ( ulong i = 0; i < slot_hashes.hashes.cnt; i++ ) {
-    fd_slot_hash_t* slot_hash = &slot_hashes.hashes.elems[i];
-    if ( slot_hash->slot == global->bank.solana_bank.slot ) {
-      memcpy( &slot_hash->hash, &global->banks_hash, sizeof(fd_hash_t) );
+  for ( deq_fd_slot_hash_t_iter_t iter = deq_fd_slot_hash_t_iter_init( hashes );
+        !deq_fd_slot_hash_t_iter_done( hashes, iter );
+        iter = deq_fd_slot_hash_t_iter_next( hashes, iter ) ) {
+    fd_slot_hash_t * ele = deq_fd_slot_hash_t_iter_ele( hashes, iter );
+    if ( ele->slot == global->bank.solana_bank.slot ) {
+      memcpy( &ele->hash, &global->banks_hash, sizeof(fd_hash_t) );
       found = 1; 
     }
   }
@@ -58,7 +61,8 @@ void fd_sysvar_slot_hashes_update( fd_global_ctx_t* global ) {
       FD_LOG_WARNING(( "fd_sysvar_slot_hash_update:  slot %ld,  hash %s", slot_hash.slot, buf)); 
     }
 
-    fd_vec_fd_slot_hash_t_push_front( &slot_hashes.hashes, slot_hash );
+    FD_TEST( !deq_fd_slot_hash_t_full( hashes ) );
+    deq_fd_slot_hash_t_push_head( hashes, slot_hash );
   }
 
   write_slot_hashes( global, &slot_hashes );
@@ -75,7 +79,7 @@ void fd_sysvar_slot_hashes_read( fd_global_ctx_t* global, fd_slot_hashes_t* resu
   if ( read_result != FD_ACC_MGR_SUCCESS ) {
     // Initialize the database... 
     memset(result, 0, sizeof(*result));
-    fd_vec_fd_slot_hash_t_new(&result->hashes);
+    result->hashes = deq_fd_slot_hash_t_alloc( global->allocf, global->allocf_arg );
     return;
   }
 

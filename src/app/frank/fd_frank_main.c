@@ -51,10 +51,10 @@ main( int     argc,
 
   /* Load up the configuration for this frank instance */
 
-  FD_LOG_NOTICE(( "using configuration in pod --pod %s at path firedancer", pod_gaddr ));
+  FD_LOG_NOTICE(( "using configuration in pod --pod %s at path %s", pod_gaddr, FD_FRANK_CONFIGURATION_PREFIX ));
 
   uchar const * pod     = fd_wksp_pod_attach( pod_gaddr );
-  uchar const * cfg_pod = fd_pod_query_subpod( pod, "firedancer" );
+  uchar const * cfg_pod = fd_pod_query_subpod( pod, FD_FRANK_CONFIGURATION_PREFIX );
   if( FD_UNLIKELY( !cfg_pod ) ) FD_LOG_ERR(( "path not found" ));
 
   uchar const * verify_pods = fd_pod_query_subpod( cfg_pod, "verify" );
@@ -76,21 +76,21 @@ main( int     argc,
   do {
     ulong tile_idx = 0UL;
 
-    FD_LOG_NOTICE(( "joining firedancer.main.cnc" ));
+    FD_LOG_NOTICE(( "joining %s.main.cnc", FD_FRANK_CONFIGURATION_PREFIX ));
     tile_name[ tile_idx ] = "main";
     tile_cnc [ tile_idx ] = fd_cnc_join( fd_wksp_pod_map( cfg_pod, "main.cnc" ) );
     if( FD_UNLIKELY( !tile_cnc[ tile_idx ] ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
     if( FD_UNLIKELY( fd_cnc_app_sz( tile_cnc[ tile_idx ] )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
     tile_idx++;
 
-    FD_LOG_NOTICE(( "joining firedancer.pack.cnc" ));
+    FD_LOG_NOTICE(( "joining %s.pack.cnc", FD_FRANK_CONFIGURATION_PREFIX ));
     tile_name[ tile_idx ] = "pack";
     tile_cnc [ tile_idx ] = fd_cnc_join( fd_wksp_pod_map( cfg_pod, "pack.cnc" ) );
     if( FD_UNLIKELY( !tile_cnc[ tile_idx ] ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
     if( FD_UNLIKELY( fd_cnc_app_sz( tile_cnc[ tile_idx ] )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
     tile_idx++;
 
-    FD_LOG_NOTICE(( "joining firedancer.dedup.cnc" ));
+    FD_LOG_NOTICE(( "joining %s.dedup.cnc", FD_FRANK_CONFIGURATION_PREFIX ));
     tile_name[ tile_idx ] = "dedup";
     tile_cnc [ tile_idx ] = fd_cnc_join( fd_wksp_pod_map( cfg_pod, "dedup.cnc" ) );
     if( FD_UNLIKELY( !tile_cnc[ tile_idx ] ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
@@ -103,7 +103,7 @@ main( int     argc,
       char const  * verify_name =                info.key;
       uchar const * verify_pod  = (uchar const *)info.val;
 
-      FD_LOG_NOTICE(( "joining firedancer.verify.%s.cnc", verify_name ));
+      FD_LOG_NOTICE(( "joining %s.verify.%s.cnc", FD_FRANK_CONFIGURATION_PREFIX, verify_name ));
       tile_name[ tile_idx ] = verify_name;
       tile_cnc [ tile_idx ] = fd_cnc_join( fd_wksp_pod_map( verify_pod, "cnc" ) );
       if( FD_UNLIKELY( !tile_cnc[tile_idx] ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
@@ -129,9 +129,10 @@ main( int     argc,
     default:  task = fd_frank_verify_task; break;
     }
 
-    char * task_argv[2];
+    char * task_argv[3];
     task_argv[0] = (char *)tile_name[ tile_idx ];
     task_argv[1] = (char *)pod_gaddr;
+    task_argv[2] = (char *)FD_FRANK_CONFIGURATION_PREFIX;
     if( FD_UNLIKELY( !fd_tile_exec_new( tile_idx, task, 0, task_argv ) ) )
       FD_LOG_ERR(( "fd_tile_exec_new failed" ));
 

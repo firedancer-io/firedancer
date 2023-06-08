@@ -114,7 +114,8 @@ int fd_rocksdb_get_meta(fd_rocksdb_t *db, ulong slot, fd_slot_meta_t *m, fd_allo
   ctx.dataend = &meta[vallen];
   ctx.allocf = allocf;
   ctx.allocf_arg = allocf_arg;
-  fd_slot_meta_decode(m, &ctx);
+  if ( fd_slot_meta_decode(m, &ctx) )
+    FD_LOG_ERR(("fd_slot_meta_decode failed"));
 
   free(meta);
 

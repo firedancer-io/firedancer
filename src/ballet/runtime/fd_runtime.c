@@ -434,8 +434,9 @@ fd_runtime_lamports_per_signature_for_blockhash( fd_global_ctx_t *global, FD_FN_
     return default_fee;
   }
 
-  for (ulong i = 0; i < global->bank.recent_block_hashes.hashes.cnt; ++i) {
-    fd_block_block_hash_entry_t * curr_elem = &(global->bank.recent_block_hashes.hashes.elems[i]);
+  fd_block_block_hash_entry_t * hashes = global->bank.recent_block_hashes.hashes;
+  for ( deq_fd_block_block_hash_entry_t_iter_t iter = deq_fd_block_block_hash_entry_t_iter_init( hashes ); !deq_fd_block_block_hash_entry_t_iter_done( hashes, iter ); iter = deq_fd_block_block_hash_entry_t_iter_next( hashes, iter ) ) {
+    fd_block_block_hash_entry_t * curr_elem = deq_fd_block_block_hash_entry_t_iter_ele( hashes, iter );
     if (memcmp(&curr_elem->blockhash, blockhash, sizeof(fd_hash_t)) == 0) {
       return curr_elem->fee_calculator.lamports_per_signature;
     }
@@ -616,6 +617,7 @@ fd_global_ctx_new        ( void * mem ) {
   fd_base58_decode_32( "BPFLoader1111111111111111111111111111111111",  (unsigned char *) self->solana_bpf_loader_deprecated_program);
   fd_base58_decode_32( "BPFLoader2111111111111111111111111111111111",  (unsigned char *) self->solana_bpf_loader_program_with_jit);
   fd_base58_decode_32( "BPFLoaderUpgradeab1e11111111111111111111111",  (unsigned char *) self->solana_bpf_loader_upgradeable_program_with_jit);
+
   fd_base58_decode_32( "Ed25519SigVerify111111111111111111111111111",  (unsigned char *) self->solana_ed25519_sig_verify_program);
   fd_base58_decode_32( "KeccakSecp256k11111111111111111111111111111",  (unsigned char *) self->solana_keccak_secp_256k_program);
   fd_base58_decode_32( "ComputeBudget111111111111111111111111111111",  (unsigned char *) self->solana_compute_budget_program);
@@ -827,7 +829,11 @@ const size_t MAX_SEED_LEN = 32;
 //
 const char PDA_MARKER[] = {"ProgramDerivedAddress"};
 
-int fd_pubkey_create_with_seed(fd_pubkey_t *base, char *seed, fd_pubkey_t *owner, fd_pubkey_t *out ) {
+int
+fd_pubkey_create_with_seed( fd_pubkey_t const * base,
+                            char const *        seed,  /* FIXME add sz param */
+                            fd_pubkey_t const * owner,
+                            fd_pubkey_t *       out ) {
 //  if seed.len() > MAX_SEED_LEN {
 //      return Err(PubkeyError::MaxSeedLengthExceeded);
 //    }
