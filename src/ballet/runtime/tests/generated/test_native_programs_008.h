@@ -5,7 +5,7 @@ int test_8(fd_executor_test_suite_t *suite) {
   test.disable_cnt = 47;
   uchar disabled_features[] = { 103,80,55,89,90,127,79,123,122,114,118,126,29,56,26,98,117,62,30,108,125,2,116,77,33,109,76,61,27,110,113,121,75,111,105,92,82,112,128,120,124,83,24,87,106,15,78 };
   test.disable_feature = disabled_features;
-  test.bt = "   2: solana_config_program::config_processor::tests::test_config_initialize_no_panic             at ./src/config_processor.rs:809:9   3: solana_config_program::config_processor::tests::test_config_initialize_no_panic::{{closure}}             at ./src/config_processor.rs:803:5";
+  test.bt = "   2: solana_config_program::config_processor::tests::test_config_initialize_no_panic             at ./src/config_processor.rs:809:9   3: solana_config_program::config_processor::tests::test_config_initialize_no_panic::{{closure}}             at ./src/config_processor.rs:803:5   4: core::ops::function::FnOnce::call_once             at /rustc/0677edc86e342f333d4828b0ee1ef395a4e70fe5/library/core/src/ops/function.rs:227:5";
   test.test_name = "config_processor::tests::test_config_initialize_no_panic";
   test.test_nonce  = 23;
   test.test_number = 8;

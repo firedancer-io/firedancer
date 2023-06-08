@@ -5,7 +5,7 @@ int test_7(fd_executor_test_suite_t *suite) {
   test.disable_cnt = 47;
   uchar disabled_features[] = { 117,76,75,120,83,116,61,123,109,127,24,126,111,87,27,105,118,2,108,79,113,33,15,62,98,90,89,29,121,128,92,55,114,122,124,77,26,56,106,112,110,80,78,30,125,82,103 };
   test.disable_feature = disabled_features;
-  test.bt = "   2: solana_config_program::config_processor::tests::test_config_initialize_contains_duplicates_fails             at ./src/config_processor.rs:607:9   3: solana_config_program::config_processor::tests::test_config_initialize_contains_duplicates_fails::{{closure}}             at ./src/config_processor.rs:591:5";
+  test.bt = "   2: solana_config_program::config_processor::tests::test_config_initialize_contains_duplicates_fails             at ./src/config_processor.rs:607:9   3: solana_config_program::config_processor::tests::test_config_initialize_contains_duplicates_fails::{{closure}}             at ./src/config_processor.rs:591:5   4: core::ops::function::FnOnce::call_once             at /rustc/0677edc86e342f333d4828b0ee1ef395a4e70fe5/library/core/src/ops/function.rs:227:5";
   test.test_name = "config_processor::tests::test_config_initialize_contains_duplicates_fails";
   test.test_nonce  = 20;
   test.test_number = 7;

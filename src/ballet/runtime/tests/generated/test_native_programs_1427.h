@@ -5,7 +5,7 @@ int test_1427(fd_executor_test_suite_t *suite) {
   test.disable_cnt = 0;
   uchar disabled_features[] = { 75,124,27,26,24,98,118,89,30,108,113,123,29,77,15,92,56,87,109,106,61,33,117,125,111,105,2,82,128,112,114,79,90,110,127,76,78,121,120,126,103,80,116,62,83,55,122 };
   test.disable_feature = disabled_features;
-  test.bt = "   2: solana_runtime::system_instruction_processor::tests::test_process_initialize_ix_no_keyed_accs_fail             at ./src/system_instruction_processor.rs:1960:9   3: solana_runtime::system_instruction_processor::tests::test_process_initialize_ix_no_keyed_accs_fail::{{closure}}             at ./src/system_instruction_processor.rs:1959:5";
+  test.bt = "   2: solana_runtime::system_instruction_processor::tests::test_process_initialize_ix_no_keyed_accs_fail             at ./src/system_instruction_processor.rs:1960:9   3: solana_runtime::system_instruction_processor::tests::test_process_initialize_ix_no_keyed_accs_fail::{{closure}}             at ./src/system_instruction_processor.rs:1959:5   4: core::ops::function::FnOnce::call_once             at /rustc/0677edc86e342f333d4828b0ee1ef395a4e70fe5/library/core/src/ops/function.rs:227:5";
   test.test_name = "system_instruction_processor::tests::test_process_initialize_ix_no_keyed_accs_fail";
   test.test_nonce  = 23;
   test.test_number = 1427;

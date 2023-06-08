@@ -5,7 +5,7 @@ int test_1433(fd_executor_test_suite_t *suite) {
   test.disable_cnt = 0;
   uchar disabled_features[] = { 128,90,24,122,106,113,92,112,116,114,127,118,108,83,77,121,80,29,76,89,56,111,82,125,79,15,105,30,110,123,33,61,117,27,2,109,124,120,75,103,98,78,62,126,26,55,87 };
   test.disable_feature = disabled_features;
-  test.bt = "   2: solana_runtime::system_instruction_processor::tests::process_nonce_instruction             at ./src/system_instruction_processor.rs:1764:9   3: solana_runtime::system_instruction_processor::tests::test_process_nonce_ix_no_acc_data_fail             at ./src/system_instruction_processor.rs:1776:9";
+  test.bt = "   2: solana_runtime::system_instruction_processor::tests::process_nonce_instruction             at ./src/system_instruction_processor.rs:1764:9   3: solana_runtime::system_instruction_processor::tests::test_process_nonce_ix_no_acc_data_fail             at ./src/system_instruction_processor.rs:1776:9   4: solana_runtime::system_instruction_processor::tests::test_process_nonce_ix_no_acc_data_fail::{{closure}}             at ./src/system_instruction_processor.rs:1774:5";
   test.test_name = "system_instruction_processor::tests::test_process_nonce_ix_no_acc_data_fail";
   test.test_nonce  = 35;
   test.test_number = 1433;

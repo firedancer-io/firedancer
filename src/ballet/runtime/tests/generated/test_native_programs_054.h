@@ -5,7 +5,7 @@ int test_54(fd_executor_test_suite_t *suite) {
   test.disable_cnt = 47;
   uchar disabled_features[] = { 98,79,24,56,30,123,89,26,126,106,55,124,29,80,76,77,110,114,2,103,90,113,121,92,109,122,27,108,120,87,117,83,111,62,105,78,118,112,61,128,82,75,116,15,33,125,127 };
   test.disable_feature = disabled_features;
-  test.bt = "   2: solana_config_program::config_processor::tests::create_config_account             at ./src/config_processor.rs:215:24   3: solana_config_program::config_processor::tests::test_process_store_with_bad_additional_signer             at ./src/config_processor.rs:391:48";
+  test.bt = "   2: solana_config_program::config_processor::tests::create_config_account             at ./src/config_processor.rs:215:24   3: solana_config_program::config_processor::tests::test_process_store_with_bad_additional_signer             at ./src/config_processor.rs:391:48   4: solana_config_program::config_processor::tests::test_process_store_with_bad_additional_signer::{{closure}}             at ./src/config_processor.rs:384:5";
   test.test_name = "config_processor::tests::test_process_store_with_bad_additional_signer";
   test.test_nonce  = 9;
   test.test_number = 54;

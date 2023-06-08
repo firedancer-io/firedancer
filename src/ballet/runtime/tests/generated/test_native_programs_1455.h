@@ -5,7 +5,7 @@ int test_1455(fd_executor_test_suite_t *suite) {
   test.disable_cnt = 0;
   uchar disabled_features[] = { 30,123,76,78,33,79,92,2,83,128,26,116,121,62,27,112,113,89,122,29,125,110,114,15,120,24,126,61,111,108,117,105,90,127,82,55,106,124,56,87,75,109,103,80,98,118,77 };
   test.disable_feature = disabled_features;
-  test.bt = "   2: solana_runtime::system_instruction_processor::tests::test_transfer_lamports_from_nonce_account_fail             at ./src/system_instruction_processor.rs:1526:9   3: solana_runtime::system_instruction_processor::tests::test_transfer_lamports_from_nonce_account_fail::{{closure}}             at ./src/system_instruction_processor.rs:1508:5";
+  test.bt = "   2: solana_runtime::system_instruction_processor::tests::test_transfer_lamports_from_nonce_account_fail             at ./src/system_instruction_processor.rs:1526:9   3: solana_runtime::system_instruction_processor::tests::test_transfer_lamports_from_nonce_account_fail::{{closure}}             at ./src/system_instruction_processor.rs:1508:5   4: core::ops::function::FnOnce::call_once             at /rustc/0677edc86e342f333d4828b0ee1ef395a4e70fe5/library/core/src/ops/function.rs:227:5";
   test.test_name = "system_instruction_processor::tests::test_transfer_lamports_from_nonce_account_fail";
   test.test_nonce  = 50;
   test.test_number = 1455;

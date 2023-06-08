@@ -5,7 +5,7 @@ int test_18(fd_executor_test_suite_t *suite) {
   test.disable_cnt = 47;
   uchar disabled_features[] = { 118,117,127,24,15,126,78,112,108,121,122,80,89,26,79,77,125,56,82,76,109,33,116,105,29,92,111,83,30,120,90,128,55,113,62,61,27,75,103,106,124,87,98,114,110,123,2 };
   test.disable_feature = disabled_features;
-  test.bt = "   2: solana_config_program::config_processor::tests::create_config_account             at ./src/config_processor.rs:215:24   3: solana_config_program::config_processor::tests::test_config_updates             at ./src/config_processor.rs:456:48";
+  test.bt = "   2: solana_config_program::config_processor::tests::create_config_account             at ./src/config_processor.rs:215:24   3: solana_config_program::config_processor::tests::test_config_updates             at ./src/config_processor.rs:456:48   4: solana_config_program::config_processor::tests::test_config_updates::{{closure}}             at ./src/config_processor.rs:442:5";
   test.test_name = "config_processor::tests::test_config_updates";
   test.test_nonce  = 1;
   test.test_number = 18;

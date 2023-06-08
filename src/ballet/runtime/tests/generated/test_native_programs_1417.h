@@ -5,7 +5,7 @@ int test_1417(fd_executor_test_suite_t *suite) {
   test.disable_cnt = 47;
   uchar disabled_features[] = { 82,87,2,33,110,62,80,61,78,111,98,24,103,120,89,75,55,26,92,90,108,114,122,27,123,105,116,128,127,124,113,79,112,118,109,106,117,15,77,83,125,29,30,126,121,76,56 };
   test.disable_feature = disabled_features;
-  test.bt = "   2: solana_runtime::system_instruction_processor::tests::process_nonce_instruction             at ./src/system_instruction_processor.rs:1764:9   3: solana_runtime::system_instruction_processor::tests::test_process_authorize_bad_account_data_fail             at ./src/system_instruction_processor.rs:2070:9";
+  test.bt = "   2: solana_runtime::system_instruction_processor::tests::process_nonce_instruction             at ./src/system_instruction_processor.rs:1764:9   3: solana_runtime::system_instruction_processor::tests::test_process_authorize_bad_account_data_fail             at ./src/system_instruction_processor.rs:2070:9   4: solana_runtime::system_instruction_processor::tests::test_process_authorize_bad_account_data_fail::{{closure}}             at ./src/system_instruction_processor.rs:2068:5";
   test.test_name = "system_instruction_processor::tests::test_process_authorize_bad_account_data_fail";
   test.test_nonce  = 22;
   test.test_number = 1417;

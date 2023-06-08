@@ -5,7 +5,7 @@ int test_805(fd_executor_test_suite_t *suite) {
   test.disable_cnt = 0;
   uchar disabled_features[] = { 15,111,62,113,106,126,123,89,109,29,75,103,90,24,80,120,55,82,87,124,56,105,78,33,121,79,92,117,122,77,26,61,27,110,108,128,114,83,116,127,98,2,118,30,125,112,76 };
   test.disable_feature = disabled_features;
-  test.bt = "   2: solana_stake_program::stake_instruction::tests::process_instruction             at ./src/stake_instruction.rs:578:9   3: solana_stake_program::stake_instruction::tests::test_split_rent_exemptness             at ./src/stake_instruction.rs:5660:13";
+  test.bt = "   2: solana_stake_program::stake_instruction::tests::process_instruction             at ./src/stake_instruction.rs:578:9   3: solana_stake_program::stake_instruction::tests::test_split_rent_exemptness             at ./src/stake_instruction.rs:5660:13   4: solana_stake_program::stake_instruction::tests::test_split_rent_exemptness::new_behavior             at ./src/stake_instruction.rs:5605:5";
   test.test_name = "stake_instruction::tests::test_split_rent_exemptness::new_behavior";
   test.test_nonce  = 96;
   test.test_number = 805;

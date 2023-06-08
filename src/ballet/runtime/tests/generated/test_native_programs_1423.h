@@ -5,7 +5,7 @@ int test_1423(fd_executor_test_suite_t *suite) {
   test.disable_cnt = 47;
   uchar disabled_features[] = { 33,92,106,27,108,125,117,89,24,122,56,26,128,2,79,124,127,116,29,98,112,30,123,111,126,62,55,120,110,114,113,103,80,61,76,83,78,118,82,105,121,90,75,15,87,77,109 };
   test.disable_feature = disabled_features;
-  test.bt = "   2: solana_runtime::system_instruction_processor::tests::test_process_bogus_instruction             at ./src/system_instruction_processor.rs:1326:9   3: solana_runtime::system_instruction_processor::tests::test_process_bogus_instruction::{{closure}}             at ./src/system_instruction_processor.rs:1320:5";
+  test.bt = "   2: solana_runtime::system_instruction_processor::tests::test_process_bogus_instruction             at ./src/system_instruction_processor.rs:1326:9   3: solana_runtime::system_instruction_processor::tests::test_process_bogus_instruction::{{closure}}             at ./src/system_instruction_processor.rs:1320:5   4: core::ops::function::FnOnce::call_once             at /rustc/0677edc86e342f333d4828b0ee1ef395a4e70fe5/library/core/src/ops/function.rs:227:5";
   test.test_name = "system_instruction_processor::tests::test_process_bogus_instruction";
   test.test_nonce  = 26;
   test.test_number = 1423;

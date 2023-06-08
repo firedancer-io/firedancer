@@ -5,7 +5,7 @@ int test_1362(fd_executor_test_suite_t *suite) {
   test.disable_cnt = 47;
   uchar disabled_features[] = { 113,2,114,112,120,105,83,29,108,116,103,62,27,126,82,106,125,80,61,127,117,76,128,55,109,79,30,124,75,78,123,111,98,15,77,33,121,90,89,122,92,24,118,56,87,26,110 };
   test.disable_feature = disabled_features;
-  test.bt = "   2: solana_runtime::system_instruction_processor::tests::test_assign             at ./src/system_instruction_processor.rs:1303:9   3: solana_runtime::system_instruction_processor::tests::test_assign::{{closure}}             at ./src/system_instruction_processor.rs:1256:5";
+  test.bt = "   2: solana_runtime::system_instruction_processor::tests::test_assign             at ./src/system_instruction_processor.rs:1303:9   3: solana_runtime::system_instruction_processor::tests::test_assign::{{closure}}             at ./src/system_instruction_processor.rs:1256:5   4: core::ops::function::FnOnce::call_once             at /rustc/0677edc86e342f333d4828b0ee1ef395a4e70fe5/library/core/src/ops/function.rs:227:5";
   test.test_name = "system_instruction_processor::tests::test_assign";
   test.test_nonce  = 16;
   test.test_number = 1362;

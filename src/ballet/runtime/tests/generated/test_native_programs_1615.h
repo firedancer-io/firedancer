@@ -5,7 +5,7 @@ int test_1615(fd_executor_test_suite_t *suite) {
   test.disable_cnt = 0;
   uchar disabled_features[] = { 86,124,105,42,127,57,38,17,125,123,44,18,69,97,89,39,21,10,104,45,58,22,2,28,114,37,81,25,72,95,71,41,7,20,76,15,47,79,9,106,63,93,35,107,98,120,11,74,8,99,16,113,33,30,49,88,1,103,46,77,62,67,66,70,50,6,54,111,14,80,126,61,3,43,91,60,4,31,13,53,122,52,87,117,55,19,12,128,116,96,48,59,83,84,64,115,75,118,32,40,36,94,85,51,102,5,92,109,108,29,78,101,90,100,82,56,27,26,73,110,121,24,0,34,65,23,119,68,112 };
   test.disable_feature = disabled_features;
-  test.bt = "   2: solana_vote_program::vote_processor::tests::test_authorize_withdrawer             at ./src/vote_processor.rs:1031:9   3: solana_vote_program::vote_processor::tests::test_authorize_withdrawer::{{closure}}             at ./src/vote_processor.rs:979:5";
+  test.bt = "   2: solana_vote_program::vote_processor::tests::test_authorize_withdrawer             at ./src/vote_processor.rs:1031:9   3: solana_vote_program::vote_processor::tests::test_authorize_withdrawer::{{closure}}             at ./src/vote_processor.rs:979:5   4: core::ops::function::FnOnce::call_once             at /rustc/0677edc86e342f333d4828b0ee1ef395a4e70fe5/library/core/src/ops/function.rs:227:5";
   test.test_name = "vote_processor::tests::test_authorize_withdrawer";
   test.test_nonce  = 35;
   test.test_number = 1615;
