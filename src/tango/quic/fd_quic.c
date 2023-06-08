@@ -221,17 +221,22 @@ fd_quic_config_from_env( int  *             pargc,
   char const * keylog_file     = fd_env_strip_cmdline_cstr ( pargc, pargv, NULL,             "SSLKEYLOGFILE", NULL  );
   ulong        idle_timeout_ms = fd_env_strip_cmdline_ulong( pargc, pargv, "--idle-timeout", NULL,            100UL );
 
-  if( FD_UNLIKELY( !cert_file ) ) {
-    FD_LOG_WARNING(( "Missing --ssl-cert" ));
-    return NULL;
-  }
-  if( FD_UNLIKELY( !key_file ) ) {
-    FD_LOG_WARNING(( "Missing --ssl-key" ));
-    return NULL;
-  }
+  if( cfg->role == FD_QUIC_ROLE_SERVER ) {
+    if( FD_UNLIKELY( !cert_file ) ) {
+      FD_LOG_WARNING(( "Missing --ssl-cert" ));
+      return NULL;
+    }
+    if( FD_UNLIKELY( !key_file ) ) {
+      FD_LOG_WARNING(( "Missing --ssl-key" ));
+      return NULL;
+    }
 
-  strncpy( cfg->cert_file, cert_file, FD_QUIC_CERT_PATH_LEN );
-  strncpy( cfg->key_file,  key_file,  FD_QUIC_CERT_PATH_LEN );
+    strncpy( cfg->cert_file, cert_file, FD_QUIC_CERT_PATH_LEN );
+    strncpy( cfg->key_file,  key_file,  FD_QUIC_CERT_PATH_LEN );
+  } else {
+    cfg->cert_file[ 0 ]='\0';
+    cfg->key_file [ 0 ]='\0';
+  }
 
   if( keylog_file ) {
     strncpy( cfg->keylog_file, keylog_file, FD_QUIC_CERT_PATH_LEN );
@@ -305,8 +310,6 @@ fd_quic_join( fd_quic_t * quic ) {
   fd_quic_config_t       * config = &quic->config;
 
   if( FD_UNLIKELY( !config->role                ) ) { FD_LOG_WARNING(( "cfg.role not set"           )); return NULL; }
-  if( FD_UNLIKELY( !config->cert_file[0]        ) ) { FD_LOG_WARNING(( "no cfg.cert_file"           )); return NULL; }
-  if( FD_UNLIKELY( !config->key_file [0]        ) ) { FD_LOG_WARNING(( "no cfg.key_file"            )); return NULL; }
   if( FD_UNLIKELY( !config->net.ip_addr         ) ) { FD_LOG_WARNING(( "no cfg.net.ip_addr"         )); return NULL; }
   if( FD_UNLIKELY( fd_ulong_load_6( config->link.src_mac_addr )==0 ) ) { FD_LOG_WARNING(( "no cfg.link.src_mac_addr" )); return NULL; }
   if( FD_UNLIKELY( fd_ulong_load_6( config->link.dst_mac_addr )==0 ) ) { FD_LOG_WARNING(( "no cfg.link.dst_mac_addr" )); return NULL; }
@@ -314,6 +317,8 @@ fd_quic_join( fd_quic_t * quic ) {
 
   switch( config->role ) {
   case FD_QUIC_ROLE_SERVER:
+    if( FD_UNLIKELY( !config->cert_file[0]        ) ) { FD_LOG_WARNING(( "no cfg.cert_file"           )); return NULL; }
+    if( FD_UNLIKELY( !config->key_file [0]        ) ) { FD_LOG_WARNING(( "no cfg.key_file"            )); return NULL; }
     if( FD_UNLIKELY( !config->net.listen_udp_port ) ) { FD_LOG_WARNING(( "no cfg.net.listen_udp_port" )); return NULL; }
     break;
   case FD_QUIC_ROLE_CLIENT:
@@ -364,8 +369,6 @@ fd_quic_join( fd_quic_t * quic ) {
 
     last = conn;
   }
-
-  state->conn_cnt = 0;
 
   /* State: Initialize conn ID map */
 
@@ -765,7 +768,8 @@ fd_quic_leave( fd_quic_t * quic ) {
   fd_quic_conn_map_delete( state->conn_map );
   state->conn_map = NULL;
 
-  state->conn_cnt = 0;
+  /* Reset conn free list */
+
   state->conns    = NULL;
 
   /* Clear join-lifetime memory regions */
@@ -805,6 +809,8 @@ fd_quic_stream_t *
 fd_quic_conn_new_stream( fd_quic_conn_t * conn,
                          int              dirtype ) {
   dirtype &= 1;
+
+  fd_quic_t * quic = conn->quic;
 
   uint server = (uint)conn->server;
   uint type   = server + ( (uint)dirtype << 1u );
@@ -870,6 +876,10 @@ fd_quic_conn_new_stream( fd_quic_conn_t * conn,
   }
 
   entry->stream = stream;
+
+  /* update metrics */
+  quic->metrics.stream_opened_cnt[ next_stream_id&0x3 ]++;
+  quic->metrics.stream_active_cnt[ next_stream_id&0x3 ]++;
 
   return stream;
 }
@@ -970,6 +980,8 @@ fd_quic_stream_fin( fd_quic_stream_t * stream ) {
   /* set the last byte */
   fd_quic_buffer_t * tx_buf = &stream->tx_buf;
   stream->tx_last_byte = tx_buf->tail - 1; /* want last byte index */
+
+  /* TODO update metrics */
 }
 
 /* packet processing */
@@ -1097,11 +1109,12 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
         return FD_QUIC_PARSE_FAIL;
       }
 
-      /* Check current number of connections */
+      /* Early check: Is conn free? */
 
-      if( state->conn_cnt == quic->limits.conn_cnt ) {
-        DEBUG( FD_LOG_DEBUG(( "fd_quic_handle_v1_initial: new connection would exceed max_concur_conns" )); )
-          return FD_QUIC_PARSE_FAIL; /* FIXME better error code? */
+      if( !state->conns ) {
+        DEBUG( FD_LOG_DEBUG(( "ignoring conn request: no free conn slots" )); )
+        quic->metrics.conn_err_no_slots_cnt++;
+        return FD_QUIC_PARSE_FAIL; /* FIXME better error code? */
       }
 
       /* Pick a new conn ID for ourselves, which the peer will address us
@@ -2893,6 +2906,8 @@ fd_quic_tx_buffered( fd_quic_t *      quic,
   conn->tx_ptr = conn->tx_buf;
   conn->tx_sz  = sizeof( conn->tx_buf );
 
+  quic->metrics.net_tx_pkt_cnt += aio_rc==FD_AIO_SUCCESS;
+
   return FD_QUIC_SUCCESS; /* success */
 }
 
@@ -3950,8 +3965,9 @@ fd_quic_conn_service( fd_quic_t * quic, fd_quic_conn_t * conn, ulong now ) {
           int process_rc = fd_quic_tls_process( conn->tls_hs );
           if( process_rc == FD_QUIC_TLS_FAILED ) {
             /* mark as DEAD, and allow it to be cleaned up */
-            conn->state             = FD_QUIC_CONN_STATE_DEAD;
+            conn->state = FD_QUIC_CONN_STATE_DEAD;
             fd_quic_reschedule_conn( conn, 0 );
+            quic->metrics.conn_err_tls_fail_cnt++;
             return;
           }
 
@@ -3981,6 +3997,7 @@ fd_quic_conn_service( fd_quic_t * quic, fd_quic_conn_t * conn, ulong now ) {
 
         /* this will make the service call free the connection */
         conn->state = FD_QUIC_CONN_STATE_DEAD; /* TODO need draining state wait for 3 * TPO */
+        quic->metrics.conn_closed_cnt++;
 
         break;
 
@@ -3990,6 +4007,7 @@ fd_quic_conn_service( fd_quic_t * quic, fd_quic_conn_t * conn, ulong now ) {
 
         /* this will make the service call free the connection */
         conn->state = FD_QUIC_CONN_STATE_DEAD;
+        quic->metrics.conn_aborted_cnt++;
 
         break;
 
@@ -4092,6 +4110,8 @@ fd_quic_conn_free( fd_quic_t *      quic,
       conn->acks_tx[j] = conn->acks_tx_end[j] = NULL;
     }
   }
+
+  quic->metrics.conn_active_cnt--;
 }
 
 fd_quic_conn_id_t
@@ -4307,16 +4327,11 @@ fd_quic_conn_create( fd_quic_t *               quic,
   fd_quic_config_t * config = &quic->config;
   fd_quic_state_t *  state  = fd_quic_get_state( quic );
 
-  /* check current number of connections */
-  if( state->conn_cnt == quic->limits.conn_cnt ) {
-    DEBUG( FD_LOG_DEBUG(( "new conn would exceed max_concur_conns" )); )
-    return NULL;
-  }
-
   /* fetch top of connection free list */
   fd_quic_conn_t * conn = state->conns;
-  if( conn == NULL ) { /* no free connections */
-    DEBUG( FD_LOG_DEBUG(( "no conns in free list" )); )
+  if( FD_UNLIKELY( !conn ) ) {
+    DEBUG( FD_LOG_DEBUG(( "fd_quic_conn_create failed: no free conn slots" )); )
+    quic->metrics.conn_err_no_slots_cnt++;
     return NULL;
   }
 
@@ -4327,6 +4342,7 @@ fd_quic_conn_create( fd_quic_t *               quic,
   /* if insert failed (should be impossible) fail, and do not remove connection
      from free list */
   if( FD_UNLIKELY( insert_entry == NULL ) ) {
+    FD_LOG_WARNING(( "fd_quic_conn_create failed: failed to register new conn ID" ));
     return NULL;
   }
 
@@ -4511,6 +4527,10 @@ fd_quic_conn_create( fd_quic_t *               quic,
   conn->last_activity = fd_quic_now( quic );
 
   fd_memset( conn->exp_pkt_number, 0, sizeof( conn->exp_pkt_number ) );
+
+  /* update metrics */
+  quic->metrics.conn_active_cnt++;
+  quic->metrics.conn_created_cnt++;
 
   /* return connection */
   return conn;
@@ -5831,27 +5851,5 @@ fd_quic_conn_get_pkt_meta_free_count( fd_quic_conn_t * conn ) {
     pkt_meta = pkt_meta->next;
   }
   return cnt;
-}
-
-
-int
-fd_quic_aio_send( fd_quic_t *               quic,
-                  fd_aio_pkt_info_t const * batch,
-                  ulong                     batch_cnt,
-                  ulong *                   opt_batch_idx ) {
-
-  ulong _opt_batch_idx;
-  int rc = fd_aio_send( &quic->join.aio_tx, batch, batch_cnt, &_opt_batch_idx );
-
-  ulong tx_pkt_cnt;
-  if( FD_LIKELY( rc==FD_AIO_SUCCESS ) ) {
-    tx_pkt_cnt = batch_cnt;
-  } else {
-    tx_pkt_cnt = _opt_batch_idx;
-    if( opt_batch_idx ) *opt_batch_idx = _opt_batch_idx;
-  }
-
-  quic->metrics.net_tx_pkt_cnt += tx_pkt_cnt;
-  return rc;
 }
 
