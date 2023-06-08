@@ -5,7 +5,7 @@ int test_1699(fd_executor_test_suite_t *suite) {
   test.disable_cnt = 47;
   uchar disabled_features[] = { 127,78,120,103,89,87,62,77,26,79,92,75,98,126,82,29,80,128,24,121,123,2,76,83,110,27,90,106,116,109,108,113,105,55,114,118,124,15,56,33,30,61,125,111,117,112,122 };
   test.disable_feature = disabled_features;
-  test.bt = "   2: solana_vote_program::vote_processor::tests::test_vote_state_withdraw             at ./src/vote_processor.rs:1205:9   3: solana_vote_program::vote_processor::tests::test_vote_state_withdraw::{{closure}}             at ./src/vote_processor.rs:1155:5";
+  test.bt = "   2: solana_vote_program::vote_processor::tests::test_vote_state_withdraw             at ./src/vote_processor.rs:1205:9   3: solana_vote_program::vote_processor::tests::test_vote_state_withdraw::{{closure}}             at ./src/vote_processor.rs:1155:5   4: core::ops::function::FnOnce::call_once             at /rustc/0677edc86e342f333d4828b0ee1ef395a4e70fe5/library/core/src/ops/function.rs:227:5";
   test.test_name = "vote_processor::tests::test_vote_state_withdraw";
   test.test_nonce  = 31;
   test.test_number = 1699;

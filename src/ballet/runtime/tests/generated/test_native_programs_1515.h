@@ -5,7 +5,7 @@ int test_1515(fd_executor_test_suite_t *suite) {
   test.disable_cnt = 47;
   uchar disabled_features[] = { 103,98,125,76,77,87,116,29,114,15,82,124,90,78,55,61,92,123,108,24,121,83,75,30,122,112,118,128,120,26,27,113,79,106,126,62,33,109,127,89,80,111,105,117,110,2,56 };
   test.disable_feature = disabled_features;
-  test.bt = "   2: solana_bpf_loader_program::tests::test_bpf_loader_upgradeable_set_buffer_authority             at ./src/lib.rs:3623:9   3: solana_bpf_loader_program::tests::test_bpf_loader_upgradeable_set_buffer_authority::{{closure}}             at ./src/lib.rs:3524:5";
+  test.bt = "   2: solana_bpf_loader_program::tests::test_bpf_loader_upgradeable_set_buffer_authority             at ./src/lib.rs:3623:9   3: solana_bpf_loader_program::tests::test_bpf_loader_upgradeable_set_buffer_authority::{{closure}}             at ./src/lib.rs:3524:5   4: core::ops::function::FnOnce::call_once             at /rustc/0677edc86e342f333d4828b0ee1ef395a4e70fe5/library/core/src/ops/function.rs:227:5";
   test.test_name = "tests::test_bpf_loader_upgradeable_set_buffer_authority";
   test.test_nonce  = 27;
   test.test_number = 1515;

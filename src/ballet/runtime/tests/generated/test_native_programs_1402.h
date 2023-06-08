@@ -5,7 +5,7 @@ int test_1402(fd_executor_test_suite_t *suite) {
   test.disable_cnt = 47;
   uchar disabled_features[] = { 118,111,80,79,76,87,33,24,126,92,110,116,127,82,29,27,108,30,83,121,122,77,55,26,62,112,117,61,98,124,89,113,103,123,75,109,128,2,120,125,106,90,114,15,56,105,78 };
   test.disable_feature = disabled_features;
-  test.bt = "   2: solana_runtime::system_instruction_processor::tests::test_nonce_account_upgrade             at ./src/system_instruction_processor.rs:2329:28   3: solana_runtime::system_instruction_processor::tests::test_nonce_account_upgrade::{{closure}}             at ./src/system_instruction_processor.rs:2273:5";
+  test.bt = "   2: solana_runtime::system_instruction_processor::tests::test_nonce_account_upgrade             at ./src/system_instruction_processor.rs:2329:28   3: solana_runtime::system_instruction_processor::tests::test_nonce_account_upgrade::{{closure}}             at ./src/system_instruction_processor.rs:2273:5   4: core::ops::function::FnOnce::call_once             at /rustc/0677edc86e342f333d4828b0ee1ef395a4e70fe5/library/core/src/ops/function.rs:227:5";
   test.test_name = "system_instruction_processor::tests::test_nonce_account_upgrade";
   test.test_nonce  = 23;
   test.test_number = 1402;

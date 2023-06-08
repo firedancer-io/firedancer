@@ -5,7 +5,7 @@ int test_59(fd_executor_test_suite_t *suite) {
   test.disable_cnt = 0;
   uchar disabled_features[] = { 24,15,106,89,62,90,61,126,110,108,98,121,92,105,117,127,78,128,56,109,116,29,77,26,27,122,75,113,33,112,83,123,82,120,125,114,2,111,80,118,76,79,30,55,124,103,87 };
   test.disable_feature = disabled_features;
-  test.bt = "   2: solana_config_program::config_processor::tests::test_process_store_with_bad_additional_signer             at ./src/config_processor.rs:419:9   3: solana_config_program::config_processor::tests::test_process_store_with_bad_additional_signer::{{closure}}             at ./src/config_processor.rs:384:5";
+  test.bt = "   2: solana_config_program::config_processor::tests::test_process_store_with_bad_additional_signer             at ./src/config_processor.rs:419:9   3: solana_config_program::config_processor::tests::test_process_store_with_bad_additional_signer::{{closure}}             at ./src/config_processor.rs:384:5   4: core::ops::function::FnOnce::call_once             at /rustc/0677edc86e342f333d4828b0ee1ef395a4e70fe5/library/core/src/ops/function.rs:227:5";
   test.test_name = "config_processor::tests::test_process_store_with_bad_additional_signer";
   test.test_nonce  = 28;
   test.test_number = 59;

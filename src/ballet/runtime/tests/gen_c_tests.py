@@ -241,7 +241,7 @@ extern int fd_executor_test_suite_check_filter(fd_executor_test_suite_t *suite, 
                 )
                 feature_idxs.append(str(feature_idx))
 
-        bt = "".join(test_case["backtrace"].split("\n")[4:8])
+        bt = "".join(test_case["backtrace"].split("\n")[4:10])
 
         print(
             f"""int test_{test_case_idx}(fd_executor_test_suite_t *suite) {{

@@ -5,7 +5,7 @@ int test_1556(fd_executor_test_suite_t *suite) {
   test.disable_cnt = 0;
   uchar disabled_features[] = { 106,90,126,29,15,109,125,117,27,80,113,87,98,122,30,26,92,55,124,56,77,121,2,114,62,111,112,116,128,127,105,120,108,123,33,103,83,24,82,61,78,76,118,79,89,75,110 };
   test.disable_feature = disabled_features;
-  test.bt = "   2: solana_bpf_loader_program::tests::test_bpf_loader_upgradeable_upgrade             at ./src/lib.rs:3080:9   3: solana_bpf_loader_program::tests::test_bpf_loader_upgradeable_upgrade::{{closure}}             at ./src/lib.rs:2879:5";
+  test.bt = "   2: solana_bpf_loader_program::tests::test_bpf_loader_upgradeable_upgrade             at ./src/lib.rs:3080:9   3: solana_bpf_loader_program::tests::test_bpf_loader_upgradeable_upgrade::{{closure}}             at ./src/lib.rs:2879:5   4: core::ops::function::FnOnce::call_once             at /rustc/0677edc86e342f333d4828b0ee1ef395a4e70fe5/library/core/src/ops/function.rs:227:5";
   test.test_name = "tests::test_bpf_loader_upgradeable_upgrade";
   test.test_nonce  = 27;
   test.test_number = 1556;

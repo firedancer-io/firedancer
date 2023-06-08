@@ -5,7 +5,7 @@ int test_1370(fd_executor_test_suite_t *suite) {
   test.disable_cnt = 47;
   uchar disabled_features[] = { 126,110,108,128,15,79,26,117,109,24,80,113,90,123,89,121,124,29,118,83,2,56,103,125,77,75,105,116,114,127,120,61,112,111,33,92,106,78,55,30,27,62,76,87,122,82,98 };
   test.disable_feature = disabled_features;
-  test.bt = "   2: solana_runtime::system_instruction_processor::tests::test_create_account_with_seed_missing_sig             at ./src/system_instruction_processor.rs:813:24   3: solana_runtime::system_instruction_processor::tests::test_create_account_with_seed_missing_sig::{{closure}}             at ./src/system_instruction_processor.rs:805:5";
+  test.bt = "   2: solana_runtime::system_instruction_processor::tests::test_create_account_with_seed_missing_sig             at ./src/system_instruction_processor.rs:813:24   3: solana_runtime::system_instruction_processor::tests::test_create_account_with_seed_missing_sig::{{closure}}             at ./src/system_instruction_processor.rs:805:5   4: core::ops::function::FnOnce::call_once             at /rustc/0677edc86e342f333d4828b0ee1ef395a4e70fe5/library/core/src/ops/function.rs:227:5";
   test.test_name = "system_instruction_processor::tests::test_create_account_with_seed_missing_sig";
   test.test_nonce  = 1;
   test.test_number = 1370;

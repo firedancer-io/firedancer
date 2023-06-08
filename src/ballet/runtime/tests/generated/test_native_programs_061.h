@@ -5,7 +5,7 @@ int test_61(fd_executor_test_suite_t *suite) {
   test.disable_cnt = 0;
   uchar disabled_features[] = { 113,24,106,103,87,123,108,61,26,55,117,78,121,75,127,56,116,110,89,15,83,98,120,112,29,30,82,2,125,27,76,90,114,109,62,79,105,92,128,77,33,122,124,126,80,111,118 };
   test.disable_feature = disabled_features;
-  test.bt = "   2: solana_config_program::config_processor::tests::create_config_account             at ./src/config_processor.rs:215:24   3: solana_config_program::config_processor::tests::test_process_store_without_config_signer             at ./src/config_processor.rs:365:35";
+  test.bt = "   2: solana_config_program::config_processor::tests::create_config_account             at ./src/config_processor.rs:215:24   3: solana_config_program::config_processor::tests::test_process_store_without_config_signer             at ./src/config_processor.rs:365:35   4: solana_config_program::config_processor::tests::test_process_store_without_config_signer::{{closure}}             at ./src/config_processor.rs:360:5";
   test.test_name = "config_processor::tests::test_process_store_without_config_signer";
   test.test_nonce  = 6;
   test.test_number = 61;

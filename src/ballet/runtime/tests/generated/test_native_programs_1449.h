@@ -5,7 +5,7 @@ int test_1449(fd_executor_test_suite_t *suite) {
   test.disable_cnt = 0;
   uchar disabled_features[] = { 27,98,62,111,30,127,90,106,121,103,26,79,114,33,126,80,29,125,118,128,122,92,116,77,117,82,78,123,89,76,15,120,87,55,24,83,113,2,61,124,110,112,56,109,105,108,75 };
   test.disable_feature = disabled_features;
-  test.bt = "   2: solana_runtime::system_instruction_processor::tests::test_process_withdraw_ix_only_nonce_acc_fail             at ./src/system_instruction_processor.rs:1903:9   3: solana_runtime::system_instruction_processor::tests::test_process_withdraw_ix_only_nonce_acc_fail::{{closure}}             at ./src/system_instruction_processor.rs:1901:5";
+  test.bt = "   2: solana_runtime::system_instruction_processor::tests::test_process_withdraw_ix_only_nonce_acc_fail             at ./src/system_instruction_processor.rs:1903:9   3: solana_runtime::system_instruction_processor::tests::test_process_withdraw_ix_only_nonce_acc_fail::{{closure}}             at ./src/system_instruction_processor.rs:1901:5   4: core::ops::function::FnOnce::call_once             at /rustc/0677edc86e342f333d4828b0ee1ef395a4e70fe5/library/core/src/ops/function.rs:227:5";
   test.test_name = "system_instruction_processor::tests::test_process_withdraw_ix_only_nonce_acc_fail";
   test.test_nonce  = 43;
   test.test_number = 1449;

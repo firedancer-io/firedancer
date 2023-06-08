@@ -5,7 +5,7 @@ int test_171(fd_executor_test_suite_t *suite) {
   test.disable_cnt = 47;
   uchar disabled_features[] = { 83,62,82,118,125,106,89,126,92,105,108,128,75,90,30,2,24,77,123,98,116,15,110,61,29,122,33,121,103,124,56,27,113,87,79,78,112,55,114,117,76,127,120,26,109,111,80 };
   test.disable_feature = disabled_features;
-  test.bt = "   2: solana_stake_program::stake_instruction::tests::process_instruction             at ./src/stake_instruction.rs:578:9   3: solana_stake_program::stake_instruction::tests::test_behavior_withdrawal_then_redelegate_with_less_than_minimum_stake_delegation             at ./src/stake_instruction.rs:4749:9";
+  test.bt = "   2: solana_stake_program::stake_instruction::tests::process_instruction             at ./src/stake_instruction.rs:578:9   3: solana_stake_program::stake_instruction::tests::test_behavior_withdrawal_then_redelegate_with_less_than_minimum_stake_delegation             at ./src/stake_instruction.rs:4749:9   4: solana_stake_program::stake_instruction::tests::test_behavior_withdrawal_then_redelegate_with_less_than_minimum_stake_delegation::old_old_behavior             at ./src/stake_instruction.rs:4576:5";
   test.test_name = "stake_instruction::tests::test_behavior_withdrawal_then_redelegate_with_less_than_minimum_stake_delegation::old_old_behavior";
   test.test_nonce  = 426;
   test.test_number = 171;

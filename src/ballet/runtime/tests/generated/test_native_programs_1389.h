@@ -5,7 +5,7 @@ int test_1389(fd_executor_test_suite_t *suite) {
   test.disable_cnt = 0;
   uchar disabled_features[] = { 92,30,55,79,75,15,83,127,118,123,29,78,111,117,121,114,125,27,110,62,124,106,122,24,116,89,61,90,113,77,103,33,2,108,87,112,76,56,120,80,82,109,128,105,126,26,98 };
   test.disable_feature = disabled_features;
-  test.bt = "   2: solana_runtime::system_instruction_processor::tests::test_create_sysvar_invalid_id_with_feature             at ./src/system_instruction_processor.rs:1156:9   3: solana_runtime::system_instruction_processor::tests::test_create_sysvar_invalid_id_with_feature::{{closure}}             at ./src/system_instruction_processor.rs:1148:5";
+  test.bt = "   2: solana_runtime::system_instruction_processor::tests::test_create_sysvar_invalid_id_with_feature             at ./src/system_instruction_processor.rs:1156:9   3: solana_runtime::system_instruction_processor::tests::test_create_sysvar_invalid_id_with_feature::{{closure}}             at ./src/system_instruction_processor.rs:1148:5   4: core::ops::function::FnOnce::call_once             at /rustc/0677edc86e342f333d4828b0ee1ef395a4e70fe5/library/core/src/ops/function.rs:227:5";
   test.test_name = "system_instruction_processor::tests::test_create_sysvar_invalid_id_with_feature";
   test.test_nonce  = 3;
   test.test_number = 1389;

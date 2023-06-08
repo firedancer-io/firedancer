@@ -5,7 +5,7 @@ int test_136(fd_executor_test_suite_t *suite) {
   test.disable_cnt = 0;
   uchar disabled_features[] = { 89 };
   test.disable_feature = disabled_features;
-  test.bt = "   2: solana_stake_program::stake_instruction::tests::process_instruction             at ./src/stake_instruction.rs:578:9   3: solana_stake_program::stake_instruction::tests::test_authorize_with_seed             at ./src/stake_instruction.rs:1999:9";
+  test.bt = "   2: solana_stake_program::stake_instruction::tests::process_instruction             at ./src/stake_instruction.rs:578:9   3: solana_stake_program::stake_instruction::tests::test_authorize_with_seed             at ./src/stake_instruction.rs:1999:9   4: solana_stake_program::stake_instruction::tests::test_authorize_with_seed::new_behavior             at ./src/stake_instruction.rs:1957:5";
   test.test_name = "stake_instruction::tests::test_authorize_with_seed::new_behavior";
   test.test_nonce  = 10;
   test.test_number = 136;

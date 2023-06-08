@@ -5,7 +5,7 @@ int test_1413(fd_executor_test_suite_t *suite) {
   test.disable_cnt = 47;
   uchar disabled_features[] = { 92,30,124,110,98,61,120,106,90,56,26,87,78,112,118,82,121,123,125,116,24,2,75,76,33,117,126,89,55,15,62,83,113,127,77,29,122,128,103,108,79,109,80,114,27,111,105 };
   test.disable_feature = disabled_features;
-  test.bt = "   2: solana_runtime::system_instruction_processor::tests::test_nonce_advance_with_empty_recent_blockhashes_fail             at ./src/system_instruction_processor.rs:2175:24   3: solana_runtime::system_instruction_processor::tests::test_nonce_advance_with_empty_recent_blockhashes_fail::{{closure}}             at ./src/system_instruction_processor.rs:2170:5";
+  test.bt = "   2: solana_runtime::system_instruction_processor::tests::test_nonce_advance_with_empty_recent_blockhashes_fail             at ./src/system_instruction_processor.rs:2175:24   3: solana_runtime::system_instruction_processor::tests::test_nonce_advance_with_empty_recent_blockhashes_fail::{{closure}}             at ./src/system_instruction_processor.rs:2170:5   4: core::ops::function::FnOnce::call_once             at /rustc/0677edc86e342f333d4828b0ee1ef395a4e70fe5/library/core/src/ops/function.rs:227:5";
   test.test_name = "system_instruction_processor::tests::test_nonce_advance_with_empty_recent_blockhashes_fail";
   test.test_nonce  = 29;
   test.test_number = 1413;

@@ -5,7 +5,7 @@ int test_1396(fd_executor_test_suite_t *suite) {
   test.disable_cnt = 47;
   uchar disabled_features[] = { 110,75,128,62,90,87,108,82,112,78,118,121,126,113,103,2,79,120,109,77,30,15,105,55,26,98,76,92,125,27,61,83,33,106,117,56,122,114,29,124,127,89,123,24,116,80,111 };
   test.disable_feature = disabled_features;
-  test.bt = "   2: solana_runtime::system_instruction_processor::tests::test_create_with_zero_lamports             at ./src/system_instruction_processor.rs:849:24   3: solana_runtime::system_instruction_processor::tests::test_create_with_zero_lamports::{{closure}}             at ./src/system_instruction_processor.rs:841:5";
+  test.bt = "   2: solana_runtime::system_instruction_processor::tests::test_create_with_zero_lamports             at ./src/system_instruction_processor.rs:849:24   3: solana_runtime::system_instruction_processor::tests::test_create_with_zero_lamports::{{closure}}             at ./src/system_instruction_processor.rs:841:5   4: core::ops::function::FnOnce::call_once             at /rustc/0677edc86e342f333d4828b0ee1ef395a4e70fe5/library/core/src/ops/function.rs:227:5";
   test.test_name = "system_instruction_processor::tests::test_create_with_zero_lamports";
   test.test_nonce  = 10;
   test.test_number = 1396;

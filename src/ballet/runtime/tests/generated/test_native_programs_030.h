@@ -5,7 +5,7 @@ int test_30(fd_executor_test_suite_t *suite) {
   test.disable_cnt = 47;
   uchar disabled_features[] = { 79,125,92,122,80,82,2,98,77,105,29,121,62,78,89,113,117,116,114,55,15,24,56,103,118,106,123,87,26,61,76,112,83,30,90,33,109,110,27,127,124,120,75,111,128,126,108 };
   test.disable_feature = disabled_features;
-  test.bt = "   2: solana_config_program::config_processor::tests::test_config_updates_requiring_config             at ./src/config_processor.rs:790:9   3: solana_config_program::config_processor::tests::test_config_updates_requiring_config::{{closure}}             at ./src/config_processor.rs:715:5";
+  test.bt = "   2: solana_config_program::config_processor::tests::test_config_updates_requiring_config             at ./src/config_processor.rs:790:9   3: solana_config_program::config_processor::tests::test_config_updates_requiring_config::{{closure}}             at ./src/config_processor.rs:715:5   4: core::ops::function::FnOnce::call_once             at /rustc/0677edc86e342f333d4828b0ee1ef395a4e70fe5/library/core/src/ops/function.rs:227:5";
   test.test_name = "config_processor::tests::test_config_updates_requiring_config";
   test.test_nonce  = 29;
   test.test_number = 30;

@@ -5,7 +5,7 @@ int test_1650(fd_executor_test_suite_t *suite) {
   test.disable_cnt = 47;
   uchar disabled_features[] = { 118,125,29,27,2,113,92,117,56,103,108,83,111,62,78,105,112,79,55,106,128,98,127,77,33,26,89,30,80,116,110,76,15,114,120,109,126,24,61,75,90,123,122,82,121,87,124 };
   test.disable_feature = disabled_features;
-  test.bt = "   2: solana_vote_program::vote_processor::tests::process_instruction_as_one_arg             at ./src/vote_processor.rs:394:9   3: solana_vote_program::vote_processor::tests::test_vote_process_instruction             at ./src/vote_processor.rs:1836:9";
+  test.bt = "   2: solana_vote_program::vote_processor::tests::process_instruction_as_one_arg             at ./src/vote_processor.rs:394:9   3: solana_vote_program::vote_processor::tests::test_vote_process_instruction             at ./src/vote_processor.rs:1836:9   4: solana_vote_program::vote_processor::tests::test_vote_process_instruction::{{closure}}             at ./src/vote_processor.rs:1782:5";
   test.test_name = "vote_processor::tests::test_vote_process_instruction";
   test.test_nonce  = 88;
   test.test_number = 1650;

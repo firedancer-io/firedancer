@@ -5,7 +5,7 @@ int test_1466(fd_executor_test_suite_t *suite) {
   test.disable_cnt = 47;
   uchar disabled_features[] = { 122,82,110,90,111,55,128,77,33,103,108,80,114,124,113,62,109,105,112,123,83,61,89,30,75,2,121,125,127,56,79,98,120,116,126,24,92,87,15,26,106,118,76,117,29,78,27 };
   test.disable_feature = disabled_features;
-  test.bt = "   2: solana_runtime::system_instruction_processor::tests::test_transfer_with_seed             at ./src/system_instruction_processor.rs:1459:24   3: solana_runtime::system_instruction_processor::tests::test_transfer_with_seed::{{closure}}             at ./src/system_instruction_processor.rs:1429:5";
+  test.bt = "   2: solana_runtime::system_instruction_processor::tests::test_transfer_with_seed             at ./src/system_instruction_processor.rs:1459:24   3: solana_runtime::system_instruction_processor::tests::test_transfer_with_seed::{{closure}}             at ./src/system_instruction_processor.rs:1429:5   4: core::ops::function::FnOnce::call_once             at /rustc/0677edc86e342f333d4828b0ee1ef395a4e70fe5/library/core/src/ops/function.rs:227:5";
   test.test_name = "system_instruction_processor::tests::test_transfer_with_seed";
   test.test_nonce  = 48;
   test.test_number = 1466;

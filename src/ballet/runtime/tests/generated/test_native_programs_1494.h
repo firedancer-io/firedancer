@@ -5,7 +5,7 @@ int test_1494(fd_executor_test_suite_t *suite) {
   test.disable_cnt = 47;
   uchar disabled_features[] = { 120,111,89,77,103,75,124,83,105,98,127,15,116,2,24,90,27,114,80,61,55,113,92,110,56,109,62,79,122,76,78,87,108,29,123,117,126,106,82,125,118,30,121,112,33,128,26 };
   test.disable_feature = disabled_features;
-  test.bt = "   2: solana_bpf_loader_program::tests::test_bpf_loader_serialize_unaligned             at ./src/lib.rs:1800:9   3: solana_bpf_loader_program::tests::test_bpf_loader_serialize_unaligned::{{closure}}             at ./src/lib.rs:1786:5";
+  test.bt = "   2: solana_bpf_loader_program::tests::test_bpf_loader_serialize_unaligned             at ./src/lib.rs:1800:9   3: solana_bpf_loader_program::tests::test_bpf_loader_serialize_unaligned::{{closure}}             at ./src/lib.rs:1786:5   4: core::ops::function::FnOnce::call_once             at /rustc/0677edc86e342f333d4828b0ee1ef395a4e70fe5/library/core/src/ops/function.rs:227:5";
   test.test_name = "tests::test_bpf_loader_serialize_unaligned";
   test.test_nonce  = 8;
   test.test_number = 1494;

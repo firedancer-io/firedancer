@@ -5,7 +5,7 @@ int test_1445(fd_executor_test_suite_t *suite) {
   test.disable_cnt = 0;
   uchar disabled_features[] = { 127,76,24,56,112,116,103,61,110,80,82,98,89,75,15,108,121,126,29,26,27,30,105,77,120,83,55,118,87,117,90,106,92,128,109,78,62,111,123,122,114,125,124,33,113,79,2 };
   test.disable_feature = disabled_features;
-  test.bt = "   2: solana_runtime::system_instruction_processor::tests::test_process_withdraw_ix_no_keyed_accs_fail             at ./src/system_instruction_processor.rs:1891:9   3: solana_runtime::system_instruction_processor::tests::test_process_withdraw_ix_no_keyed_accs_fail::{{closure}}             at ./src/system_instruction_processor.rs:1890:5";
+  test.bt = "   2: solana_runtime::system_instruction_processor::tests::test_process_withdraw_ix_no_keyed_accs_fail             at ./src/system_instruction_processor.rs:1891:9   3: solana_runtime::system_instruction_processor::tests::test_process_withdraw_ix_no_keyed_accs_fail::{{closure}}             at ./src/system_instruction_processor.rs:1890:5   4: core::ops::function::FnOnce::call_once             at /rustc/0677edc86e342f333d4828b0ee1ef395a4e70fe5/library/core/src/ops/function.rs:227:5";
   test.test_name = "system_instruction_processor::tests::test_process_withdraw_ix_no_keyed_accs_fail";
   test.test_nonce  = 40;
   test.test_number = 1445;

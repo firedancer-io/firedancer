@@ -5,7 +5,7 @@ int test_1379(fd_executor_test_suite_t *suite) {
   test.disable_cnt = 0;
   uchar disabled_features[] = { 61,78,89,128,15,55,98,127,87,120,124,29,27,82,123,125,83,121,75,118,110,112,103,122,62,113,26,111,126,90,79,56,30,2,92,77,106,117,116,33,76,114,105,108,109,24,80 };
   test.disable_feature = disabled_features;
-  test.bt = "   2: solana_runtime::system_instruction_processor::tests::test_create_already_in_use             at ./src/system_instruction_processor.rs:1002:24   3: solana_runtime::system_instruction_processor::tests::test_create_already_in_use::{{closure}}             at ./src/system_instruction_processor.rs:963:5";
+  test.bt = "   2: solana_runtime::system_instruction_processor::tests::test_create_already_in_use             at ./src/system_instruction_processor.rs:1002:24   3: solana_runtime::system_instruction_processor::tests::test_create_already_in_use::{{closure}}             at ./src/system_instruction_processor.rs:963:5   4: core::ops::function::FnOnce::call_once             at /rustc/0677edc86e342f333d4828b0ee1ef395a4e70fe5/library/core/src/ops/function.rs:227:5";
   test.test_name = "system_instruction_processor::tests::test_create_already_in_use";
   test.test_nonce  = 16;
   test.test_number = 1379;
