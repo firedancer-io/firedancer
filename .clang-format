@@ -1,0 +1,43 @@
+BasedOnStyle: LLVM
+AccessModifierOffset: -2
+IndentWidth: 2
+UseTab: Never
+BreakBeforeBraces: Attach
+AllowShortIfStatementsOnASingleLine: true
+AllowShortFunctionsOnASingleLine: Inline
+AlignConsecutiveDeclarations: true
+AlignTrailingComments: true
+ColumnLimit: 80
+TabWidth: 2
+Language: Cpp
+CommentPragmas: '^ *LINT-(OFF|ON) *$'
+SpaceAfterTemplateKeyword: false
+SpaceBeforeParens: ControlStatements
+SpacesInParentheses: true
+SpacesInSquareBrackets: true
+AlwaysBreakAfterDefinitionReturnType: All
+AlwaysBreakAfterReturnType: All
+BinPackArguments: false
+BinPackParameters: false
+AlignAfterOpenBracket: Align
+PointerAlignment: Middle
+ReflowComments: true
+PenaltyBreakComment: 0
+PenaltyBreakOpenParenthesis: 1
+AlignConsecutiveMacros:
+  Enabled: true
+  AcrossEmptyLines: true
+  AcrossComments: true
+AlignConsecutiveAssignments:
+  Enabled: true
+  AcrossEmptyLines: true
+  AcrossComments: true
+  AlignCompound: true
+  PadOperators: true
+AlignConsecutiveBitFields:
+  Enabled: true
+  AcrossEmptyLines: true
+  AcrossComments: true
+AlignArrayOfStructures: Right
+AllowAllArgumentsOnNextLine: false
+AllowAllParametersOfDeclarationOnNextLine: false
