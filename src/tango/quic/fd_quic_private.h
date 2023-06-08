@@ -58,10 +58,7 @@ struct __attribute__((aligned(16UL))) fd_quic_state_private {
   /* Various internal state */
 
   fd_quic_conn_t *       conns;          /* free list of unused connections */
-  ulong                  conn_cnt;       /* current number of connections */
-
   fd_quic_conn_map_t *   conn_map;       /* map connection ids -> connection */
-
   fd_quic_event_t *      service_queue;  /* priority queue of connections by service time */
 
   /* crypto members */
@@ -208,6 +205,11 @@ fd_quic_cb_stream_new( fd_quic_t *        quic,
                        int                stream_type ) {
   if( FD_UNLIKELY( !quic->join.cb.stream_new ) ) return;
   quic->join.cb.stream_new( stream, quic->join.cb.quic_ctx, stream_type );
+
+  /* update metrics */
+  ulong stream_id = stream->stream_id;
+  quic->metrics.stream_opened_cnt[ stream_id&0x3 ]++;
+  quic->metrics.stream_active_cnt[ stream_id&0x3 ]++;
 }
 
 static inline void
@@ -220,6 +222,10 @@ fd_quic_cb_stream_receive( fd_quic_t *        quic,
                            int                fin ) {
   if( FD_UNLIKELY( !quic->join.cb.stream_receive ) ) return;
   quic->join.cb.stream_receive( stream, stream_ctx, data, data_sz, offset, fin );
+
+  /* update metrics */
+  quic->metrics.stream_rx_event_cnt++;
+  quic->metrics.stream_rx_byte_cnt += data_sz;
 }
 
 static inline void
@@ -229,6 +235,11 @@ fd_quic_cb_stream_notify( fd_quic_t *        quic,
                           int                event ) {
   if( FD_UNLIKELY( !quic->join.cb.stream_notify ) ) return;
   quic->join.cb.stream_notify( stream, stream_ctx, event );
+
+  /* update metrics */
+  ulong stream_id = stream->stream_id;
+  quic->metrics.stream_closed_cnt[ stream_id&0x3 ]++;
+  quic->metrics.stream_active_cnt[ stream_id&0x3 ]--;
 }
 
 
