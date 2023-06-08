@@ -366,4 +366,3 @@ uint
 fd_udpsock_get_listen_port( fd_udpsock_t const * sock ) {
   return sock->udp_self_port;
 }
-
