@@ -71,17 +71,18 @@ distclean:
 	$(RMDIR) $(BASEDIR) && \
 $(SCRUB)
 
-lint:
+format:
 	#######################################################################
-	# Linting src/
+	# Formatting src/
 	#######################################################################
-	$(FIND) src/ -iname "*.c" -or -iname "*.h" | uncrustify -c lint.cfg -F - --replace
+	$(FIND) src/ -iname "*.c" -exec clang-format --Werror -i {} \;
+	$(FIND) src/ -iname "*.h" -exec clang-format --Werror -i {} \;
 
-check-lint:
+check-format:
 	#######################################################################
-	# Checking lint in src/
+	# Checking formatting in src/
 	#######################################################################
-	$(FIND) src/ -iname "*.c" -or -iname "*.h" | uncrustify -c lint.cfg -F - --check
+	$(FIND) src/ -iname "*.c" -or -iname "*.h" -exec clang-format --Werror --dry-run -i {} \;
 
 ##############################
 # Usage: $(call make-lib,name)
