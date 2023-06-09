@@ -489,6 +489,7 @@ fd_funk_rec_write_prepare( fd_funk_t *               funk,
                            fd_funk_txn_t *           txn,
                            fd_funk_rec_key_t const * key,
                            ulong                     min_val_size,
+                           int                       do_create,
                            int *                     opt_err );
 
 /* Misc */
