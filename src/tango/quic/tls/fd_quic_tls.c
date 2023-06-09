@@ -712,7 +712,7 @@ fd_quic_create_context( fd_quic_tls_t * quic_tls,
   }
 
   ERR_clear_error();
-  char const * ciphersuites = "TLS_AES_128_GCM_SHA256:TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256";
+  char const * ciphersuites = "TLS_AES_128_GCM_SHA256";
   if( !SSL_CTX_set_ciphersuites( ctx, ciphersuites ) ) {
     SSL_CTX_free( ctx );
     FD_LOG_WARNING(( "SSL_CTX_set_ciphersuites failed: %s", fd_quic_tls_strerror() ));

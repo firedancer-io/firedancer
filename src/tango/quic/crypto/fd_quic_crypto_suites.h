@@ -23,20 +23,13 @@
        | TLS_AES_128_CCM_8_SHA256     | {0x13,0x05} |
        +------------------------------+-------------+
 
-   Notes:
-     TLS_AES_128_CCM_SHA256 does not seem to be mentioned in rfc9001, so is excluded
-     TLS_AES_128_CCM_8_SHA256 has no packet-header encryption defined, and so must be excluded
-
-     The remainder are defined below */
+   For now, fd_quic only supports the TLS_AES_128_GCM_SHA256. */
 
 /* TLS suites
 
-    id,  suite name,                   major, minor, pkt cipher,        hp cipher,   hash,   key sz, iv sz */
+    id, suite name,            major, minor, pkt cipher,  hp cipher,   hash,   key sz, iv sz */
 #define FD_QUIC_CRYPTO_SUITE_LIST( X, ... ) \
-  X( 0, TLS_AES_128_GCM_SHA256,        0x13,  0x01,  AES_128_GCM,       AES_128_ECB, sha256, 16,     12, __VA_ARGS__ ) \
-  X( 1, TLS_AES_256_GCM_SHA384,        0x13,  0x02,  AES_256_GCM,       AES_256_ECB, sha384, 32,     12, __VA_ARGS__ ) \
-  X( 2, TLS_AES_128_CCM_SHA256,        0x13,  0x04,  AES_128_CCM,       AES_128_ECB, sha256, 16,     12, __VA_ARGS__ ) \
-  X( 3, TLS_CHACHA20_POLY1305_SHA256,  0x13,  0x03,  CHACHA20_POLY1305, CHACHA20,    sha256, 32,     12, __VA_ARGS__ ) \
+  X( 0, TLS_AES_128_GCM_SHA256, 0x13,  0x01,  AES_128_GCM, AES_128_ECB, sha256, 16,     12, __VA_ARGS__ )
 
 
 #define FD_QUIC_ENC_LEVEL_LIST( X, ... ) \
@@ -95,14 +88,9 @@ struct fd_quic_crypto_keys {
 struct fd_quic_crypto_ctx {
   /* for packet protection */
   EVP_CIPHER const * CIPHER_AES_128_GCM;
-  EVP_CIPHER const * CIPHER_AES_256_GCM;
-  EVP_CIPHER const * CIPHER_AES_128_CCM;
-  EVP_CIPHER const * CIPHER_CHACHA20_POLY1305;
 
   /* for header protection */
   EVP_CIPHER const * CIPHER_AES_128_ECB;
-  EVP_CIPHER const * CIPHER_AES_256_ECB;
-  EVP_CIPHER const * CIPHER_CHACHA20;
 
   /* hash functions */
   fd_hmac_fn_t hmac_fn;

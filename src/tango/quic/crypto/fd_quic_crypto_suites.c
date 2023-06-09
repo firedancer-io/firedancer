@@ -16,19 +16,12 @@ uchar FD_QUIC_CRYPTO_V1_INITIAL_SALT[ 20UL ] = {
 /* Helpers */
 
 #define FD_QUIC_HASH_SZ_sha256 (32UL)
-#define FD_QUIC_HASH_SZ_sha384 (48UL)
 #define FD_QUIC_HASH_SZ_sha512 (64UL)
 
 void
 fd_quic_crypto_ctx_init( fd_quic_crypto_ctx_t * ctx ) {
   ctx->CIPHER_AES_128_GCM       = EVP_aes_128_gcm();
-  ctx->CIPHER_AES_256_GCM       = EVP_aes_256_gcm();
-  ctx->CIPHER_AES_128_CCM       = EVP_aes_128_ccm();
-  ctx->CIPHER_CHACHA20_POLY1305 = EVP_chacha20_poly1305();
-
   ctx->CIPHER_AES_128_ECB       = EVP_aes_128_ecb();
-  ctx->CIPHER_AES_256_ECB       = EVP_aes_256_ecb();
-  ctx->CIPHER_CHACHA20          = EVP_chacha20();
 
   /* initialize suites map */
 #define EACH( ID, SUITE, MAJ, MIN, PKT, HP, HASHFN, KEY_SZ, IV_SZ, ... ) \
