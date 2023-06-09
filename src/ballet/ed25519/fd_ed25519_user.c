@@ -399,6 +399,8 @@ fd_ed25519_verify( void const *  msg,
      (and hence an inversion) at the end */
   fd_ed25519_ge_p3_t rD[1];
   int err = fd_ed25519_ge_frombytes_vartime_2( A, public_key, rD, r ); if( FD_UNLIKELY( err ) ) return err;
+  if( fd_ed25519_ge_p3_is_small_order(A) )  return FD_ED25519_ERR_PUBKEY;
+  if( fd_ed25519_ge_p3_is_small_order(rD) ) return FD_ED25519_ERR_SIG;
 # else
   int err = fd_ed25519_ge_frombytes_vartime( A, public_key ); if( FD_UNLIKELY( err ) ) return err;
 # endif
