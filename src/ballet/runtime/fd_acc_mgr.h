@@ -106,7 +106,7 @@ int fd_acc_mgr_update_data( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, ulong slo
 
 int fd_acc_mgr_is_key( fd_funk_rec_key_t const* id );
 
-void * fd_acc_mgr_view_data( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, fd_pubkey_t const * pubkey, ulong *sz, int *err );
+void const * fd_acc_mgr_view_data( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, fd_pubkey_t const * pubkey, ulong *sz, int *err );
 
 FD_PROTOTYPES_END
 

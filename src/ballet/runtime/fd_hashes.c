@@ -213,17 +213,9 @@ fd_hash_meta( fd_account_meta_t const * m, ulong slot, fd_pubkey_t const * pubke
   fd_blake3_t sha;
   fd_blake3_init( &sha );
   fd_blake3_append( &sha, (uchar const *) &m->info.lamports, sizeof( ulong ) );
-  // TODO: There is a feature flag where slot is gonna get removed from the hash...
   fd_blake3_append( &sha, (uchar const *) &slot, sizeof( ulong ) );
   fd_blake3_append( &sha, (uchar const *) &m->info.rent_epoch, sizeof( ulong ) );
-  // TODO: convince solana that this should effectively be
-  //   fd_blake3_append( &sha, hash_of(data, m->dlen) );
-  // instead of
   fd_blake3_append( &sha, (uchar const *) data, m->dlen );
-  //  This way,  if the data does not change, you can recompute the hash of
-  //  the account without having to haul all the data in.  ie, sending 1 lamport
-  //  to a 10m account has exactly the same network cost as sending 1 lamport to
-  //  a 100 byte account...
 
   uchar executable = m->info.executable & 0x1;
   fd_blake3_append( &sha, (uchar const *) &executable, sizeof( uchar ));

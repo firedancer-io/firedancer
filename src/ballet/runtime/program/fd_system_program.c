@@ -15,18 +15,44 @@
 
 static int transfer(
   instruction_ctx_t ctx,
-  ulong             requested_lamports
+  fd_system_program_instruction_t *instruction
   ) {
-  if (ctx.instr->acct_cnt < 2) 
-    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
 
   /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/system_instruction_processor.rs#L327 */
 
   /* Pull out sender (acc idx 0) and recipient (acc idx 1) */
   uchar *       instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
   fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
-  fd_pubkey_t * sender   = &txn_accs[instr_acc_idxs[0]];
-  fd_pubkey_t * receiver = &txn_accs[instr_acc_idxs[1]];
+  fd_pubkey_t * sender;
+  fd_pubkey_t * receiver;
+
+  ulong requested_lamports;
+  if (instruction->discriminant == fd_system_program_instruction_enum_transfer) {
+    if (ctx.instr->acct_cnt < 2) 
+      return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+    sender   = &txn_accs[instr_acc_idxs[0]];
+    receiver = &txn_accs[instr_acc_idxs[1]];
+    requested_lamports = instruction->inner.transfer;
+
+  } else if (instruction->discriminant == fd_system_program_instruction_enum_transfer_with_seed) {
+    if (ctx.instr->acct_cnt < 3) 
+      return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+    sender      = &txn_accs[instr_acc_idxs[0]];
+    fd_pubkey_t * sender_base;
+    sender_base = &txn_accs[instr_acc_idxs[1]];
+    receiver    = &txn_accs[instr_acc_idxs[2]];
+    requested_lamports = instruction->inner.transfer_with_seed.lamports;
+
+    fd_pubkey_t      address_with_seed;
+    fd_pubkey_create_with_seed(sender_base, instruction->inner.transfer_with_seed.from_seed,
+                               &instruction->inner.transfer_with_seed.from_owner, &address_with_seed);
+    if (memcmp(address_with_seed.hash, sender->hash, sizeof(sender->hash))) 
+      return fd_system_error_enum_address_with_seed_mismatch;
+
+  } else {
+    /* Should never get here */
+    return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
+  }
 
 #if 0
   char encoded_sender[50];
@@ -59,8 +85,10 @@ static int transfer(
   int               read_result = fd_acc_mgr_get_lamports( ctx.global->acc_mgr, ctx.global->funk_txn, sender, &sender_lamports );
   if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) 
     return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
-  if ( FD_UNLIKELY( sender_lamports < requested_lamports ) ) 
-    return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
+  if ( FD_UNLIKELY( sender_lamports < requested_lamports ) ) {
+    ctx.txn_ctx->custom_err = 1;
+    return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+  }
 
   /* Determine the receiver's current balance, creating the account if it does not exist */
   fd_acc_lamports_t receiver_lamports = 0;
@@ -199,7 +227,7 @@ static int create_account(
 
   /* Check that we are not exceeding the MAX_PERMITTED_DATA_LENGTH account size */
   if ( space > MAX_PERMITTED_DATA_LENGTH ) {
-    /* TODO: propagate SystemError::InvalidAccountDataLength enum variant */
+    ctx.txn_ctx->custom_err = 3;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
@@ -300,7 +328,7 @@ int fd_executor_system_program_execute_instruction(
 
   switch (instruction.discriminant) {
   case fd_system_program_instruction_enum_transfer: {
-    result = transfer( ctx, instruction.inner.transfer );
+    result = transfer( ctx, &instruction );
     break;
   }
   case fd_system_program_instruction_enum_create_account: {
@@ -351,8 +379,7 @@ int fd_executor_system_program_execute_instruction(
   }
   case fd_system_program_instruction_enum_transfer_with_seed: {
     // https://github.com/solana-labs/solana/blob/b00d18cec4011bb452e3fe87a3412a3f0146942e/runtime/src/system_instruction_processor.rs#L412
-    FD_LOG_WARNING(( "unsupported fd_system_program_instruction_enum_transfer_with_seed  %d", instruction.discriminant ));
-    result = -1;
+    result = transfer( ctx, &instruction );
     break;
   }
   case fd_system_program_instruction_enum_upgrade_nonce_account: {

@@ -70,7 +70,7 @@ struct recordvalue {
     void write_data(fd_funk_t * funk, const recordkey& key) {
       int err;
       auto sz = data_.size();
-      rec_ = fd_funk_rec_write_prepare(funk, NULL, &key.id_, sz, &err);
+      rec_ = fd_funk_rec_write_prepare(funk, NULL, &key.id_, sz, 1, &err);
       assert(rec_ != NULL);
       auto* wksp = fd_funk_wksp(funk);
       auto* rec2 = fd_funk_val_copy(rec_, data_.data(), sz, sz, fd_funk_alloc(funk, wksp), wksp, &err);

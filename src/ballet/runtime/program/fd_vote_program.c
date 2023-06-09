@@ -157,7 +157,7 @@ fd_vote_save_account( fd_vote_state_versioned_t const * account,
   if( serialized_sz < meta->dlen ) {
     ulong _sz;
     int   _err = 0;
-    void * orig = fd_acc_mgr_view_data( ctx.global->acc_mgr, ctx.global->funk_txn, address, &_sz, &_err );
+    void const * orig = fd_acc_mgr_view_data( ctx.global->acc_mgr, ctx.global->funk_txn, address, &_sz, &_err );
     if( FD_UNLIKELY( (_err!=0) | (!orig) ) ) {
       FD_LOG_ERR(( "fd_acc_mgr_view_data failed: %d", _err ));
     }

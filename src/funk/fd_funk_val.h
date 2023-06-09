@@ -6,10 +6,9 @@
 
 #include "fd_funk_rec.h" /* Includes fd_funk_txn.h, fd_funk_base.h */
 
-/* FD_FUNK_REC_VAL_MAX is the maximum size of a record value.  The
-   current value is aligned with Solana usages. */
+/* FD_FUNK_REC_VAL_MAX is the maximum size of a record value. */
 
-#define FD_FUNK_REC_VAL_MAX (10UL<<20) /* 10 MiB */
+#define FD_FUNK_REC_VAL_MAX UINT_MAX
 
 FD_PROTOTYPES_BEGIN
 
