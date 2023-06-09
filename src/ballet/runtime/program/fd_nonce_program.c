@@ -131,10 +131,8 @@ int fd_advance_nonce_account(
   ctx2.dataend = (char *) ctx2.data + m->dlen;
   ctx2.allocf = ctx.global->allocf;
   ctx2.allocf_arg = ctx.global->allocf_arg;
-  if ( fd_nonce_state_versions_decode( &state, &ctx2 ) ) {
-    FD_LOG_WARNING(("fd_nonce_state_versions_decode failed"));
+  if ( fd_nonce_state_versions_decode( &state, &ctx2 ) ) 
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
-  }
 
   if (state.inner.current.discriminant != fd_nonce_state_enum_initialized)
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
@@ -266,7 +264,7 @@ FD_FN_UNUSED  unsigned long                   requested_lamports
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
 
   fd_pubkey_t * from   = &txn_accs[instr_acc_idxs[0]];
-//  fd_pubkey_t * to  = &txn_accs[instr_acc_idxs[1]];
+  fd_pubkey_t * to  = &txn_accs[instr_acc_idxs[1]];
 
   ulong  sz = 0;
   int    err = 0;
@@ -340,18 +338,27 @@ FD_FN_UNUSED  unsigned long                   requested_lamports
   if ( !new_signed )  
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
 
-//        let nonce_balance = self.try_account_ref_mut()?.lamports();
-//        self.try_account_ref_mut()?.set_lamports(
-//            nonce_balance
-//                .checked_sub(lamports)
-//                .ok_or(InstructionError::ArithmeticOverflow)?,
-//        );
-//        let to_balance = to.try_account_ref_mut()?.lamports();
-//        to.try_account_ref_mut()?.set_lamports(
-//            to_balance
-//                .checked_add(lamports)
-//                .ok_or(InstructionError::ArithmeticOverflow)?,
-//        );
+  raw_acc_data = (char*) fd_acc_mgr_view_data(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) to, &sz, &err);
+  if (NULL == raw_acc_data)
+    return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+  fd_account_meta_t *m2 = (fd_account_meta_t *) raw_acc_data;
+
+  // This is quite odd since it was checked earlier ... but I am just reproducing what is in the code...
+  if ( FD_UNLIKELY( m->info.lamports < requested_lamports ) ) 
+    return FD_EXECUTOR_INSTR_ERR_ARITHMETIC_OVERFLOW;
+
+  ulong res = m2->info.lamports + requested_lamports;
+  if (res < m2->info.lamports)
+    return FD_EXECUTOR_INSTR_ERR_ARITHMETIC_OVERFLOW;
+
+  /* Execute the transfer */
+  int write_result = fd_acc_mgr_set_lamports( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot , from, m->info.lamports - requested_lamports );
+  if ( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) ) 
+    return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
+
+  write_result = fd_acc_mgr_set_lamports( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot, to, res );
+  if ( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) ) 
+    return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
 
   return FD_EXECUTOR_INSTR_SUCCESS;
 }

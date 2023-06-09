@@ -212,7 +212,7 @@ void grinder(int argc, char** argv, bool firsttime) {
   auto funk_write = [&](fd_funk_txn_t* txn, recordkey& key, databuf& data) {
     auto sz = data.size();
     int err;
-    auto* rec = fd_funk_rec_write_prepare(funk, txn, &key._id, sz, &err);
+    auto* rec = fd_funk_rec_write_prepare(funk, txn, &key._id, sz, 1, &err);
     assert(rec != NULL);
     auto* rec2 = fd_funk_val_copy(rec, data.data(), sz, sz, fd_funk_alloc(funk, wksp), wksp, &err);
     assert(rec2 != NULL);
@@ -222,7 +222,7 @@ void grinder(int argc, char** argv, bool firsttime) {
 
   auto funk_remove = [&](fd_funk_txn_t* txn, recordkey& key) {
     int err;
-    auto* rec = fd_funk_rec_write_prepare(funk, txn, &key._id, 0, &err);
+    auto* rec = fd_funk_rec_write_prepare(funk, txn, &key._id, 0, 1, &err);
     assert(rec != NULL);
     fd_funk_rec_remove(funk, rec, 1);
   };

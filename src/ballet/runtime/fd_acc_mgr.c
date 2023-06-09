@@ -8,6 +8,11 @@
 #pragma GCC optimize ("O0")
 #endif
 
+#define MAX_ACC_SIZE (10UL<<20) /* 10MB */
+
+extern fd_funk_rec_t *fd_acc_mgr_modify_data( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, fd_pubkey_t const * pubkey, int do_create, ulong *sz, void **data, int *err );
+extern int fd_acc_mgr_commit_data( fd_acc_mgr_t* acc_mgr, fd_funk_rec_t *rec, fd_pubkey_t const * pubkey, void *data, ulong slot, int uncache);
+
 void* fd_acc_mgr_new( void*            mem,
                       fd_global_ctx_t* global,
                       ulong            footprint ) {
@@ -64,18 +69,6 @@ fd_funk_rec_key_t fd_acc_mgr_key( fd_pubkey_t const * pubkey ) {
 
 int fd_acc_mgr_is_key( fd_funk_rec_key_t const* id ) {
   return id->c[ FD_FUNK_REC_KEY_FOOTPRINT - 1 ] == FD_ACC_MGR_KEY_TYPE;
-}
-
-void * fd_acc_mgr_view_data( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, fd_pubkey_t const * pubkey, ulong *sz, int *err ) {
-  fd_funk_rec_key_t     id = fd_acc_mgr_key(pubkey);
-  fd_funk_t *           funk = acc_mgr->global->funk;
-  fd_funk_rec_t const * rec = fd_funk_rec_query_global(funk, txn, &id);
-  if ( FD_UNLIKELY( NULL == rec ) )  {
-    *err = FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
-    return NULL;
-  }
-  *sz = fd_funk_val_sz( rec );
-  return fd_funk_val_cache( funk, rec, err );
 }
 
 int fd_acc_mgr_get_account_data( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, fd_pubkey_t const * pubkey, uchar* result, ulong offset, ulong bytes ) {
@@ -137,7 +130,7 @@ int fd_acc_mgr_write_account_data( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, fd
   fd_funk_rec_key_t     id       = fd_acc_mgr_key( pubkey );
   int opt_err;
 
-  fd_funk_rec_t *rec = fd_funk_rec_write_prepare(funk, txn, &id, sz + sz2, &opt_err);
+  fd_funk_rec_t *rec = fd_funk_rec_write_prepare(funk, txn, &id, sz + sz2, 1, &opt_err);
   if (NULL == rec) {
     FD_LOG_WARNING(("fd_acc_mgr_write_account_data: %s", fd_funk_strerror(opt_err)));
     return FD_ACC_MGR_ERR_WRITE_FAILED;
@@ -160,19 +153,20 @@ int fd_acc_mgr_write_account_data( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, fd
 }
 
 int fd_acc_mgr_get_lamports( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, fd_pubkey_t * pubkey, fd_acc_lamports_t* result ) {
-  fd_account_meta_t metadata;
-  int               read_result = fd_acc_mgr_get_metadata( acc_mgr, txn, pubkey, &metadata );
-  if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
-    if (FD_UNLIKELY(acc_mgr->global->log_level > 2)) {
+  ulong sz = 0;
+  int err = 0;
+  void const * data = fd_acc_mgr_view_data(acc_mgr, txn, pubkey, &sz, &err);
+  if (NULL == data) {
       char buf[50];
       fd_base58_encode_32((uchar *) pubkey, NULL, buf);
       FD_LOG_WARNING(( "failed to read account metadata: %s", buf ));
-    }
 
-    return read_result;
+    return err;
   }
+  fd_account_meta_t *metadata = (fd_account_meta_t *) data;
 
-  *result = metadata.info.lamports;
+  *result = metadata->info.lamports;
+
   return FD_ACC_MGR_SUCCESS;
 }
 
@@ -195,31 +189,30 @@ int fd_acc_mgr_get_owner( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, fd_pubkey_t
 }
 
 int fd_acc_mgr_set_lamports( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, ulong slot, fd_pubkey_t * pubkey, fd_acc_lamports_t lamports ) {
-  /* Read the current metadata from Funk */
-  fd_account_meta_t metadata;
-  int               read_result = fd_acc_mgr_get_metadata( acc_mgr, txn, pubkey, &metadata );
-  if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
-    FD_LOG_WARNING(( "failed to read account metadata" ));
-    return read_result;
+  ulong sz = sizeof(fd_account_meta_t);
+  int err = 0;
+  void *data = NULL;
+  fd_funk_rec_t * rec = fd_acc_mgr_modify_data(acc_mgr, txn, pubkey, 1, &sz, &data, &err);
+  if (NULL == rec) {
+      char buf[50];
+      fd_base58_encode_32((uchar *) pubkey, NULL, buf);
+      FD_LOG_WARNING(( "failed to read account metadata: %s", buf ));
+
+    return err;
   }
+  fd_account_meta_t *metadata = (fd_account_meta_t *) data;
+  metadata->info.lamports = lamports;
 
   if (FD_UNLIKELY(acc_mgr->global->log_level > 2)) {
     char encoded_pubkey[50];
     fd_base58_encode_32((uchar *) pubkey, 0, encoded_pubkey);
-    FD_LOG_WARNING(( "set_lamports: %ld:%s: %ld->%ld (%ld)", slot, encoded_pubkey, metadata.info.lamports, lamports, lamports-metadata.info.lamports ));
+    FD_LOG_WARNING(( "set_lamports: %ld:%s: %ld->%ld (%ld)", slot, encoded_pubkey, metadata->info.lamports, lamports, lamports - metadata->info.lamports ));
   }
 
-  /* Overwrite the lamports value and write back */
-  metadata.info.lamports = lamports;
+  metadata->info.lamports = lamports;
 
-  /* Bet we have to update the hash of the account.. and track the dirty pubkeys.. */
-  int write_result = fd_acc_mgr_write_account_data( acc_mgr, txn, pubkey, &metadata, sizeof(metadata), NULL, 0, 0 );
-  if ( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) ) {
-    FD_LOG_WARNING(( "failed to write account metadata" ));
-    return write_result;
-  }
+  fd_acc_mgr_commit_data( acc_mgr, rec, pubkey, data, slot, 0);
 
-  fd_acc_mgr_update_hash( acc_mgr, &metadata, txn,  slot, pubkey, NULL, 0);
   return FD_ACC_MGR_SUCCESS;
 }
 
@@ -266,6 +259,11 @@ int fd_acc_mgr_set_metadata( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, ulong sl
 }
 
 int fd_acc_mgr_update_data( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, ulong slot, fd_pubkey_t* pubkey, uchar *data, ulong dlen) {
+  if ( dlen > MAX_ACC_SIZE ) {
+    FD_LOG_WARNING(("account too large: %lu bytes", dlen));
+    return FD_ACC_MGR_ERR_WRITE_FAILED;
+  }
+  
   fd_account_meta_t m;
   int result = fd_acc_mgr_get_metadata(acc_mgr, txn, pubkey, &m);
   if (FD_ACC_MGR_SUCCESS != result)
@@ -302,6 +300,11 @@ int fd_acc_mgr_update_data( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, ulong slo
 }
 
 int fd_acc_mgr_write_structured_account( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, ulong slot, fd_pubkey_t const * pubkey, fd_solana_account_t * account) {
+  if ( account->data_len > MAX_ACC_SIZE ) {
+    FD_LOG_WARNING(("account too large: %lu bytes", account->data_len));
+    return FD_ACC_MGR_ERR_WRITE_FAILED;
+  }
+  
   fd_account_meta_t m;
 
   fd_account_meta_init(&m);
@@ -343,6 +346,11 @@ int fd_acc_mgr_write_structured_account( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* t
 }
 
 int fd_acc_mgr_write_append_vec_account( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, ulong slot, fd_solana_account_hdr_t * hdr, int uncache) {
+  if ( hdr->meta.data_len > MAX_ACC_SIZE ) {
+    FD_LOG_WARNING(("account too large: %lu bytes", hdr->meta.data_len));
+    return FD_ACC_MGR_ERR_WRITE_FAILED;
+  }
+  
   fd_account_meta_t m;
   fd_account_meta_init(&m);
   m.dlen = hdr->meta.data_len;
@@ -445,4 +453,85 @@ int fd_acc_mgr_update_hash ( fd_acc_mgr_t * acc_mgr, fd_account_meta_t * m, fd_f
   }
 
   return 0;
+}
+
+void const * 
+fd_acc_mgr_view_data( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, fd_pubkey_t const * pubkey, ulong *sz, int *err ) {
+  fd_funk_rec_key_t     id = fd_acc_mgr_key(pubkey);
+  fd_funk_t *           funk = acc_mgr->global->funk;
+  fd_funk_rec_t const * rec = fd_funk_rec_query_global(funk, txn, &id);
+  if ( FD_UNLIKELY( NULL == rec ) )  {
+    *err = FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
+    return NULL;
+  }
+  *sz = fd_funk_val_sz( rec );
+  return fd_funk_val_cache( funk, rec, err );
+}
+
+fd_funk_rec_t *fd_acc_mgr_modify_data( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, fd_pubkey_t const * pubkey, int do_create, ulong *sz, void **data, int *err ) {
+  fd_funk_t            *funk     = acc_mgr->global->funk;
+  fd_funk_rec_key_t     id       = fd_acc_mgr_key( pubkey );
+
+  fd_funk_rec_t *rec = fd_funk_rec_write_prepare(funk, txn, &id, *sz, do_create, err);
+  if (NULL == rec)
+    return NULL;
+
+  *sz = fd_funk_val_sz( rec );
+  *data = fd_funk_val_cache( funk, rec, err );
+
+  return rec;
+}
+
+ulong
+fd_acc_mgr_size(fd_funk_rec_t *rec)  {
+  return fd_funk_val_sz( rec );
+}
+
+int
+fd_acc_mgr_resize(fd_acc_mgr_t* acc_mgr, fd_funk_rec_t *rec, ulong sz)  {
+  fd_funk_t            *funk     = acc_mgr->global->funk;
+  fd_wksp_t            *wksp     = fd_funk_wksp( funk );
+
+  int opt_err = 0;
+  if (NULL == fd_funk_val_truncate( rec, sz, fd_funk_alloc( funk, wksp ), wksp, &opt_err ))
+    return opt_err;
+
+  return FD_ACC_MGR_SUCCESS;
+}
+
+int
+fd_acc_mgr_commit_data( fd_acc_mgr_t* acc_mgr, fd_funk_rec_t *rec, fd_pubkey_t const * pubkey, void *data, ulong slot, int uncache) {
+  fd_funk_t            *funk     = acc_mgr->global->funk;
+
+  fd_account_meta_t * m = (fd_account_meta_t *) data;
+
+  m->slot = slot;
+
+  void *p = ((char *) data) + m->hlen;
+
+  fd_hash_t hash;
+  fd_hash_meta(m, slot, pubkey, p, (fd_hash_t *) &hash);
+
+  if (memcmp(&hash, m->hash, sizeof(hash))) {
+    if (FD_UNLIKELY(acc_mgr->global->log_level > 2)) {
+      char encoded_pubkey[50];
+      fd_base58_encode_32((uchar *) pubkey, 0, encoded_pubkey);
+      char encoded_owner[50];
+      fd_base58_encode_32((uchar *) m->info.owner, 0, encoded_owner);
+
+      char buf[50];
+      fd_base58_encode_32((uchar *) &hash, NULL, buf);
+
+      FD_LOG_WARNING(( "fd_acc_mgr_commit_data: %s slot: %ld lamports: %ld  owner: %s  executable: %s,  rent_epoch: %ld, data_len: %ld, data: %s = %s",
+          encoded_pubkey, slot, m->info.lamports, encoded_owner, m->info.executable ? "true" : "false", m->info.rent_epoch, m->dlen, "xx", buf));
+    }
+
+    fd_funk_rec_persist(funk, rec);
+    if ( uncache )
+      fd_funk_val_uncache(funk, rec);
+
+    fd_acc_mgr_dirty_pubkey( acc_mgr, pubkey, &hash);
+  }
+
+  return FD_ACC_MGR_SUCCESS;
 }

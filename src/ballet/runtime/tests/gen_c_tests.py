@@ -206,21 +206,8 @@ def main():
     generated_dir = Path(__file__).parent / "generated"
     generated_dir.mkdir(exist_ok=True)
 
-    set_stdout("test_native_programs.c")
-    print(
-        """#include <stdlib.h>
-#include <stdio.h>
-#include "fd_tests.h"
-#include "../../base58/fd_base58.h"
-
-#ifdef _DISABLE_OPTIMIZATION
-#pragma GCC optimize (\"O0\")
-#endif
-
-extern int fd_executor_test_suite_check_filter(fd_executor_test_suite_t *suite, fd_executor_test_t *test);"""
-    )
-
     file_idx = -1
+
     for test_case_idx, test_case in enumerate(json_test_cases):
         file_idx += 1
         set_stdout(generated_dir / f"test_native_programs_{file_idx:03d}.h")
@@ -240,8 +227,8 @@ extern int fd_executor_test_suite_check_filter(fd_executor_test_suite_t *suite, 
                     )
                 )
                 feature_idxs.append(str(feature_idx))
-
-        bt = "".join(test_case["backtrace"].split("\n")[4:10])
+            feature_idxs = sorted(feature_idxs)
+        bt = "".join(test_case["backtrace"].split("\n")[4:12])
 
         print(
             f"""int test_{test_case_idx}(fd_executor_test_suite_t *suite) {{
@@ -344,9 +331,22 @@ extern int fd_executor_test_suite_check_filter(fd_executor_test_suite_t *suite, 
         print("}")
     #    sys.exit(0)
 
-    set_stdout("test_native_programs.c", append=True)
+    set_stdout("test_native_programs.c")
+
+    hdr = """#include <stdlib.h>
+#include <stdio.h>
+
+#ifdef _DISABLE_OPTIMIZATION
+#pragma GCC optimize (\"O0\")
+#endif
+"""
+
+    print(hdr)
+    print(f'#include "fd_tests.h"')
+    print("extern int fd_executor_test_suite_check_filter(fd_executor_test_suite_t *suite, fd_executor_test_t *test);")
+
     for idx in range(file_idx + 1):
-        print(f'#include "generated/test_native_programs_{idx:03d}.h"')
+        print("extern int test_{}(fd_executor_test_suite_t *suite);".format(idx));
     print(
         f"""
 ulong               test_cnt = {test_case_idx};
@@ -356,6 +356,14 @@ fd_executor_test_fn tests[] = {{"""
         print(f" test_{n},", end="")
     print(" NULL\n};")
 
+    for idx in range(file_idx + 1):
+        if idx % 50 == 0:
+            set_stdout("generated/test_native_programs_{}.c".format(idx))
+            print(hdr)
+            print(f'#include "../fd_tests.h"')
+            print(f'#include "../../../base58/fd_base58.h"')
+            print("extern int fd_executor_test_suite_check_filter(fd_executor_test_suite_t *suite, fd_executor_test_t *test);")
+        print(f'#include "test_native_programs_{idx:03d}.h"')
 
 if __name__ == "__main__":
     main()

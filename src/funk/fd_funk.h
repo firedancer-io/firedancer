@@ -9,11 +9,11 @@
    short for "transaction id" and xids have a compile time fixed size
    (e.g. 32-bytes).  keys also have a compile time fixed size (e.g.
    64-bytes).  Record values can vary in length from zero to a compile
-   time maximum size (e.g. 10 MiB) inclusive.  The xid of all zeros is
-   reserved for the "root" transaction described below.  Outside this,
-   there are no restrictions on what a record xid, key or val can be.
-   Individual records can be created, updated, and deleted arbitrarily.
-   They are just binary data as far as funk is concerned.
+   time maximum size.  The xid of all zeros is reserved for the "root"
+   transaction described below.  Outside this, there are no
+   restrictions on what a record xid, key or val can be.  Individual
+   records can be created, updated, and deleted arbitrarily.  They are
+   just binary data as far as funk is concerned.
 
    The maximum number of records is practically only limited by the size
    of the workspace memory backing it.  At present, each record requires

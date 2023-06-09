@@ -508,6 +508,7 @@ fd_funk_rec_write_prepare( fd_funk_t *               funk,
                            fd_funk_txn_t *           txn,
                            fd_funk_rec_key_t const * key,
                            ulong                     min_val_size,
+                           int                       do_create,
                            int *                     opt_err ) {
   
   fd_wksp_t * wksp = fd_funk_wksp( funk );
@@ -542,6 +543,9 @@ fd_funk_rec_write_prepare( fd_funk_t *               funk,
     }
 
   } else {
+    if (!do_create)
+      return NULL;
+
     /* Create a new record */
     rec = fd_funk_rec_modify( funk, fd_funk_rec_insert( funk, txn, key, opt_err ) );
     if ( !rec )

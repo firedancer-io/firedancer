@@ -157,7 +157,7 @@ fd_vote_save_account( fd_vote_state_versioned_t const * account,
   if( serialized_sz < meta->dlen ) {
     ulong _sz;
     int   _err = 0;
-    void * orig = fd_acc_mgr_view_data( ctx.global->acc_mgr, ctx.global->funk_txn, address, &_sz, &_err );
+    void const * orig = fd_acc_mgr_view_data( ctx.global->acc_mgr, ctx.global->funk_txn, address, &_sz, &_err );
     if( FD_UNLIKELY( (_err!=0) | (!orig) ) ) {
       FD_LOG_ERR(( "fd_acc_mgr_view_data failed: %d", _err ));
     }
@@ -185,7 +185,8 @@ fd_vote_save_account( fd_vote_state_versioned_t const * account,
   memcpy( &structured.owner, ctx.global->solana_vote_program, sizeof(fd_pubkey_t) );
 
   /* Write updated account
-     TODO could do in-place write instead? */
+     TODO could do in-place write instead?
+     TODO this should be one call */
   int write_res = fd_acc_mgr_write_account_data(
       ctx.global->acc_mgr, ctx.global->funk_txn, address,
       meta, sizeof(fd_account_meta_t),
@@ -220,11 +221,11 @@ fd_vote_verify_authority( fd_vote_state_t const * vote_state,
 
   /* Get the current authorized voter for the current epoch */
   /* TODO: handle epoch rollover */
-  fd_pubkey_t authorized_voter = deq_fd_vote_historical_authorized_voter_t_peek_head( authorized_voters )->pubkey;
+  fd_pubkey_t authorized_voter = deq_fd_vote_historical_authorized_voter_t_peek_tail( authorized_voters )->pubkey;
 
   /* Check that the authorized voter for this epoch has signed the vote transaction
       https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L1265 */
-  uchar authorized_voter_signed = 0;
+  int authorized_voter_signed = 0;
   for( ulong i = 0; i < ctx.instr->acct_cnt; i++ ) {
     if( instr_acc_idxs[i] < ctx.txn_ctx->txn_descriptor->signature_cnt ) {
       fd_pubkey_t const * signer = &txn_accs[instr_acc_idxs[i]];
@@ -753,7 +754,7 @@ int fd_executor_vote_program_execute_instruction(
 
       /* Check that for each slot in the vote tower, we found a slot in the slot hashes:
          if so, we would have got to the end of the vote tower. */
-      if ( vote_idx != deq_ulong_cnt( vote_slots ) ) {
+      if ( vote_idx != vote_slots_new_cnt ) {
         /* TODO: propagate custom error code FD_VOTE_SLOTS_MISMATCH */
         return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
       }
@@ -1294,10 +1295,11 @@ int fd_executor_vote_program_execute_instruction(
           return save_result;
       }
 
-      fd_bincode_destroy_ctx_t ctx3;
-      ctx3.freef = ctx.global->freef;
-      ctx3.freef_arg = ctx.global->allocf_arg;
-      fd_vote_state_versioned_destroy( &vote_state_versioned, &ctx3 );
+      fd_bincode_destroy_ctx_t destroy = {
+        .freef     = ctx.global->freef,
+        .freef_arg = ctx.global->allocf_arg
+      };
+      fd_vote_state_versioned_destroy( &vote_state_versioned, &destroy );
 
       /* TODO leaks on error */
       if( FD_UNLIKELY( 0!=update_result ) )
