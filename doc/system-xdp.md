@@ -94,7 +94,7 @@ called `firedancer` with permission bits `0750` and set the user  to the
 current user.
 
 ```bash
-$ sudo build/linux/gcc/x86_64/bin/fd_xdp_ctl init firedancer 0750 $USER ""
+$ sudo target/gcc/bin/fd_xdp_ctl init firedancer 0750 $USER ""
 fd_xdp_redirect_user.c(124): Activated XDP environment at /sys/fs/bpf/firedancer
 fd_xdp_ctl.c(76): 0: init firedancer 0750 firedancer : success
 fd_xdp_ctl.c(358): processed 1 commands

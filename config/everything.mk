@@ -6,7 +6,7 @@ MAKEFLAGS += --no-builtin-variables
 .SECONDARY:
 .SECONDEXPANSION:
 
-BASEDIR?=build
+BASEDIR?=target
 OBJDIR:=$(BASEDIR)/$(BUILDDIR)
 
 # Auxiliarily rules that should not set up depenencies
@@ -16,7 +16,6 @@ all: bin include lib unit-test
 
 help:
 	# Configuration
-	# MACHINE  = $(MACHINE)
 	# EXTRAS   = $(EXTRAS)
 	# SHELL    = $(SHELL)
 	# BASEDIR  = $(BASEDIR)

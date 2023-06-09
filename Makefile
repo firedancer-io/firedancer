@@ -2,36 +2,20 @@
 #
 #  make -j
 #
-# will do a parallel make all targets for the default machine.
+# will do a parallel make all targets for the native machine.
 #
-# The environment variable MACHINE allows building for different
-# machines.  As such, the above is equivalent to running:
-#
-#  MACHINE=[default_machine] make -j
-#
-# where [default_machine] is specified below.  Likewise:
-#
-#  MACHINE=my_machine make -j
-#
-# would build for the machine "my_machine".  The detailed configuration
-# of the build for this machine would be specified in the file:
-#
-#  config/my_machine.mk
+# If a default compiler is not specified with CC=clang or CC=gcc,
+# gcc will be used.  The features of the compiler and host machine
+# are automatically detected.
 #
 # The environment variable EXTRAS allows enabling optional build
 # features in config/with-*.mk.  For example:
 #
-#  make -j EXTRAS="debug"
+#  make -j EXTRAS="ffi"
 #
-# would enable the "with-debug.mk" config.
+# would enable the "with-ffi.mk" config.
 #
-# Build binaries, unit tests, libraries, headers, other build artifacts
-# will be in the directory specified by that file.  As such, builds for
-# multiple machine can coexist concurrently.  Typically, targeting a
-# build at a new machine can be done by just writing up an appropriate
-# machine description.
-#
-#  MACHINE=my_machine make help
+#  make help
 #
 # will print out help for the make (targets available for cleaning the
 # build for the particular machine, cleaning all builds, generating
@@ -44,16 +28,9 @@
 # use more cores with -j[N]).  See the "make-j" script in contrib for
 # help building efficiently on systems with cpu isolation enabled.
 
-ifndef MACHINE
-$(warning MACHINE not specified, using default, run make help for more info)
-MACHINE=linux_gcc_x86_64
-endif
-
-$(info Using MACHINE=$(MACHINE))
 $(info Using EXTRAS=$(EXTRAS))
 
-include config/$(MACHINE).mk
+include config/native.mk
 include $(addprefix config/with-,$(addsuffix .mk,$(EXTRAS)))
 include config/everything.mk
 include config/coverage.mk
-

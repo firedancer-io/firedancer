@@ -2,8 +2,8 @@ Firedancer source tree
 
   firedancer/
   │
-  ├── build/                   Build artifacts
-  │   └── linux/gcc/x86_64     Build profile
+  ├── target/                  Build artifacts
+  │   └── gcc/                 Build profile
   │       ├── bin/             Main programs and scripts
   │       ├── include/         Exported include headers
   │       ├─  lib/             Static libraries

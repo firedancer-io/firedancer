@@ -17,7 +17,7 @@ jobs:
         shell: bash --noprofile --norc -eo pipefail -c "set -ex; source /home/runner/firedancer-opts/activate-opt && echo `pwd` && ls -lah {0} && chmod +x {0} && {0}"
 
     env:
-      MACHINE: linux_${{ matrix.compiler }}_x86_64
+      CC: ${{ matrix.compiler }}
     steps:
       - uses: actions/checkout@v3
 

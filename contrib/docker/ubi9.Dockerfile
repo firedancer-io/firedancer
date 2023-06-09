@@ -38,13 +38,13 @@ COPY config ./config
 COPY src ./src
 COPY Makefile ./
 RUN source ./activate-opt \
- && scl run gcc-toolset-12 -- make -j all MACHINE=linux_gcc_x86_64 --output-sync=target
+ && scl run gcc-toolset-12 -- make -j all --output-sync=target
 
 # Set up release container
 
 FROM ${RELEASE_BASE_IMAGE} AS release
 
-COPY --from=builder /firedancer/build/linux/gcc/x86_64/bin /opt/firedancer/bin
+COPY --from=builder /firedancer/target/gcc/bin /opt/firedancer/bin
 ENV FD_LOG_PATH=""
 ENV PATH="/opt/firedancer/bin:$PATH"
 

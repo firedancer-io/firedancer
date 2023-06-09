@@ -29,7 +29,7 @@ struct Cli {
     config: Option<PathBuf>,
 
     /// Location of the Firedancer build binary directory. For example
-    /// `/home/user/firedancer/build/linux/gcc/x86_65/bin/`
+    /// `/home/user/firedancer/target/gcc/bin`
     #[arg(long)]
     binary_dir: Option<PathBuf>,
 }

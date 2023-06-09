@@ -9,17 +9,12 @@ fn main() {
     let out_dir_env = env::var("OUT_DIR").unwrap();
     let dir = Path::new(&dir_env);
     let out_dir = Path::new(&out_dir_env);
+    let build_dir = out_dir.join("target");
 
-    let (machine, build_dir) = if cfg!(feature = "fuzz-asan") {
-        (
-            "linux_clang_fuzz_asan",
-            out_dir.join("build/linux/clang/fuzz_asan"),
-        )
+    let extras = if cfg!(feature = "fuzz-asan") {
+        "fuzz-asan"
     } else {
-        (
-            "linux_clang_x86_64_ffi",
-            out_dir.join("build/linux/clang/x86_64_ffi"),
-        )
+        "ffi"
     };
 
     for lib in ["ballet", "disco", "tango", "util"] {
@@ -128,8 +123,9 @@ fn main() {
         // No statics in disco yet so no extern wrapper file is produced
         // .env("DISCO_STATIC_EXTERN_OBJECT", out_dir.join("gen_disco.c"))
         .env("BALLET_STATIC_EXTERN_OBJECT", out_dir.join("gen_ballet.c"))
-        .env("MACHINE", machine)
-        .env("BASEDIR", out_dir.join("build"))
+        .env("CC", "clang")
+        .env("EXTRAS", extras)
+        .env("BASEDIR", out_dir.join("target"))
         .output()
         .unwrap_or_else(|_| {
             panic!(
