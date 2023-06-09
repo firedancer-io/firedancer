@@ -3,11 +3,11 @@ int test_11(fd_executor_test_suite_t *suite) {
   fd_executor_test_t test;
   fd_memset( &test, 0, FD_EXECUTOR_TEST_FOOTPRINT );
   test.disable_cnt = 0;
-  uchar disabled_features[] = { 62,61,111,128,55,120,90,15,92,110,106,105,2,30,114,122,79,118,77,24,109,83,113,29,78,121,116,80,123,56,87,112,89,75,76,127,126,82,27,124,103,26,125,108,117,98,33 };
+  uchar disabled_features[] = { 125,78,122,56,113,116,62,75,114,108,127,106,15,124,128,33,110,109,77,120,98,87,92,111,61,30,105,112,82,90,123,26,27,83,126,76,55,80,117,24,103,79,121,2,118,29,89 };
   test.disable_feature = disabled_features;
   test.bt = "   2: solana_config_program::config_processor::tests::test_config_initialize_no_panic             at ./src/config_processor.rs:809:9   3: solana_config_program::config_processor::tests::test_config_initialize_no_panic::{{closure}}             at ./src/config_processor.rs:803:5   4: core::ops::function::FnOnce::call_once             at /rustc/0677edc86e342f333d4828b0ee1ef395a4e70fe5/library/core/src/ops/function.rs:227:5   5: core::ops::function::FnOnce::call_once             at /rustc/0677edc86e342f333d4828b0ee1ef395a4e70fe5/library/core/src/ops/function.rs:227:5";
   test.test_name = "config_processor::tests::test_config_initialize_no_panic";
-  test.test_nonce  = 23;
+  test.test_nonce  = 19;
   test.test_number = 11;
   if (fd_executor_test_suite_check_filter(suite, &test)) return -9999;
   ulong test_accs_len = 0;

@@ -2,12 +2,12 @@
 int test_944(fd_executor_test_suite_t *suite) {
   fd_executor_test_t test;
   fd_memset( &test, 0, FD_EXECUTOR_TEST_FOOTPRINT );
-  test.disable_cnt = 1;
-  uchar disabled_features[] = { 89 };
+  test.disable_cnt = 47;
+  uchar disabled_features[] = { 78,90,33,55,114,75,92,122,15,105,112,89,111,117,61,121,109,127,77,76,108,79,24,56,120,124,103,87,26,2,125,116,82,62,123,30,126,110,118,98,128,29,80,83,113,27,106 };
   test.disable_feature = disabled_features;
   test.bt = "   2: solana_stake_program::stake_instruction::tests::process_instruction             at ./src/stake_instruction.rs:578:9   3: solana_stake_program::stake_instruction::tests::process_instruction_as_one_arg             at ./src/stake_instruction.rs:651:9   4: solana_stake_program::stake_instruction::tests::test_spoofed_stake_accounts             at ./src/stake_instruction.rs:802:9   5: solana_stake_program::stake_instruction::tests::test_spoofed_stake_accounts::old_behavior             at ./src/stake_instruction.rs:790:5";
   test.test_name = "stake_instruction::tests::test_spoofed_stake_accounts::old_behavior";
-  test.test_nonce  = 98;
+  test.test_nonce  = 125;
   test.test_number = 944;
   if (fd_executor_test_suite_check_filter(suite, &test)) return -9999;
   ulong test_accs_len = 3;
@@ -28,15 +28,15 @@ int test_944(fd_executor_test_suite_t *suite) {
   test_acc->result_data     = fd_flamenco_native_prog_test_944_acc_0_post_data;
   test_acc->result_data_len = 40UL;
   test_acc++;
-  fd_base58_decode_32( "SpoofedStake1111111111111111111111111111111",  (uchar *) &test_acc->pubkey);
-  fd_base58_decode_32( "Spoofed111111111111111111111111111111111111",  (uchar *) &test_acc->owner);
+  fd_base58_decode_32( "1111111NKuyBkoGdZZSLyPbJEetheRhMjezgQv9mH",  (uchar *) &test_acc->pubkey);
+  fd_base58_decode_32( "Stake11111111111111111111111111111111111111",  (uchar *) &test_acc->owner);
   test_acc->lamports        = 0UL;
   test_acc->result_lamports = 0UL;
   test_acc->executable      = 0;
   test_acc->rent_epoch      = 0;
   test_acc++;
-  fd_base58_decode_32( "1111111NKuyBkoGdZZSLyPbJEetheRhMjezgQv9mH",  (uchar *) &test_acc->pubkey);
-  fd_base58_decode_32( "Stake11111111111111111111111111111111111111",  (uchar *) &test_acc->owner);
+  fd_base58_decode_32( "SpoofedStake1111111111111111111111111111111",  (uchar *) &test_acc->pubkey);
+  fd_base58_decode_32( "Spoofed111111111111111111111111111111111111",  (uchar *) &test_acc->owner);
   test_acc->lamports        = 0UL;
   test_acc->result_lamports = 0UL;
   test_acc->executable      = 0;

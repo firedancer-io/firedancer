@@ -3,11 +3,11 @@ int test_1489(fd_executor_test_suite_t *suite) {
   fd_executor_test_t test;
   fd_memset( &test, 0, FD_EXECUTOR_TEST_FOOTPRINT );
   test.disable_cnt = 0;
-  uchar disabled_features[] = { 61,108,83,125,2,114,122,15,127,90,126,33,123,98,75,29,103,92,117,116,26,82,78,76,55,62,24,77,112,79,124,89,120,30,121,109,118,80,87,27,56,106,113,111,128,105,110 };
+  uchar disabled_features[] = { 15,33,87,78,98,29,120,127,62,125,80,126,83,106,61,110,113,89,92,2,116,122,27,76,82,128,124,77,56,103,114,112,26,118,109,108,105,121,90,24,111,123,30,79,55,117,75 };
   test.disable_feature = disabled_features;
   test.bt = "   2: solana_bpf_loader_program::tests::test_bpf_loader_invoke_main::{{closure}}             at ./src/lib.rs:1695:5   3: core::ops::function::FnOnce::call_once             at /rustc/0677edc86e342f333d4828b0ee1ef395a4e70fe5/library/core/src/ops/function.rs:227:5   4: core::ops::function::FnOnce::call_once             at /rustc/0677edc86e342f333d4828b0ee1ef395a4e70fe5/library/core/src/ops/function.rs:227:5   5: test::__rust_begin_short_backtrace             at /rustc/0677edc86e342f333d4828b0ee1ef395a4e70fe5/library/test/src/lib.rs:574:5";
   test.test_name = "tests::test_bpf_loader_invoke_main";
-  test.test_nonce  = 58;
+  test.test_nonce  = 60;
   test.test_number = 1489;
   if (fd_executor_test_suite_check_filter(suite, &test)) return -9999;
   ulong test_accs_len = 1;
@@ -15,7 +15,7 @@ int test_1489(fd_executor_test_suite_t *suite) {
   fd_memset( test_accs, 0, FD_EXECUTOR_TEST_ACC_FOOTPRINT * test_accs_len );
 
   fd_executor_test_acc_t* test_acc = test_accs;
-  fd_base58_decode_32( "1111112v4HUkyGWxntpidUuknvxqc88iE7MDdzvJB",  (uchar *) &test_acc->pubkey);
+  fd_base58_decode_32( "1111112vTd5k5ZofyMhY4cznDGHKjPvLjNHvsakcX",  (uchar *) &test_acc->pubkey);
   fd_base58_decode_32( "BPFLoader2111111111111111111111111111111111",  (uchar *) &test_acc->owner);
   test_acc->lamports        = 16871040UL;
   test_acc->result_lamports = 16871040UL;

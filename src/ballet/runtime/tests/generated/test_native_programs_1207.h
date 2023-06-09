@@ -3,11 +3,11 @@ int test_1207(fd_executor_test_suite_t *suite) {
   fd_executor_test_t test;
   fd_memset( &test, 0, FD_EXECUTOR_TEST_FOOTPRINT );
   test.disable_cnt = 47;
-  uchar disabled_features[] = { 112,61,114,109,15,78,127,33,56,126,29,90,89,2,30,62,98,80,92,123,122,24,77,76,120,105,106,103,87,118,79,121,128,110,82,111,55,26,108,27,116,113,124,75,125,83,117 };
+  uchar disabled_features[] = { 2,90,92,117,121,76,55,77,122,127,24,111,80,124,98,30,108,75,33,87,82,27,56,113,105,126,106,123,29,15,120,125,62,116,61,26,79,83,118,128,112,89,103,114,110,109,78 };
   test.disable_feature = disabled_features;
   test.bt = "   2: solana_stake_program::stake_instruction::tests::test_stake_process_instruction_error_ordering::old_behavior             at ./src/stake_instruction.rs:6511:5   3: solana_stake_program::stake_instruction::tests::test_stake_process_instruction_error_ordering::old_behavior::{{closure}}             at ./src/stake_instruction.rs:6511:5   4: core::ops::function::FnOnce::call_once             at /rustc/0677edc86e342f333d4828b0ee1ef395a4e70fe5/library/core/src/ops/function.rs:227:5   5: core::ops::function::FnOnce::call_once             at /rustc/0677edc86e342f333d4828b0ee1ef395a4e70fe5/library/core/src/ops/function.rs:227:5";
   test.test_name = "stake_instruction::tests::test_stake_process_instruction_error_ordering::old_behavior";
-  test.test_nonce  = 432;
+  test.test_nonce  = 328;
   test.test_number = 1207;
   if (fd_executor_test_suite_check_filter(suite, &test)) return -9999;
   ulong test_accs_len = 0;

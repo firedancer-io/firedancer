@@ -7,7 +7,7 @@ int test_198(fd_executor_test_suite_t *suite) {
   test.disable_feature = disabled_features;
   test.bt = "   2: solana_stake_program::stake_instruction::tests::test_deactivate_delinquent::{{closure}}             at ./src/stake_instruction.rs:6675:17   3: solana_stake_program::stake_instruction::tests::test_deactivate_delinquent             at ./src/stake_instruction.rs:6776:35   4: solana_stake_program::stake_instruction::tests::test_deactivate_delinquent::old_behavior             at ./src/stake_instruction.rs:6617:5   5: solana_stake_program::stake_instruction::tests::test_deactivate_delinquent::old_behavior::{{closure}}             at ./src/stake_instruction.rs:6617:5";
   test.test_name = "stake_instruction::tests::test_deactivate_delinquent::old_behavior";
-  test.test_nonce  = 160;
+  test.test_nonce  = 151;
   test.test_number = 198;
   if (fd_executor_test_suite_check_filter(suite, &test)) return -9999;
   ulong test_accs_len = 3;

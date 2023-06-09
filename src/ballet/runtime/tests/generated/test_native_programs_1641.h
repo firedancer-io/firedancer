@@ -3,11 +3,11 @@ int test_1641(fd_executor_test_suite_t *suite) {
   fd_executor_test_t test;
   fd_memset( &test, 0, FD_EXECUTOR_TEST_FOOTPRINT );
   test.disable_cnt = 0;
-  uchar disabled_features[] = { 110,98,121,80,116,76,75,89,127,24,77,78,87,83,105,29,2,79,112,109,122,90,26,92,15,114,125,118,128,62,56,120,61,33,126,108,123,27,30,124,111,82,117,103,113,55,106 };
+  uchar disabled_features[] = { 62,118,89,105,113,121,2,128,127,120,77,26,61,75,90,24,30,79,111,29,110,109,103,117,106,56,114,15,83,80,27,82,123,87,125,126,112,92,122,124,78,116,76,55,98,33,108 };
   test.disable_feature = disabled_features;
   test.bt = "   2: solana_vote_program::vote_processor::tests::test_vote_process_instruction_decode_bail             at ./src/vote_processor.rs:511:9   3: solana_vote_program::vote_processor::tests::test_vote_process_instruction_decode_bail::{{closure}}             at ./src/vote_processor.rs:510:5   4: core::ops::function::FnOnce::call_once             at /rustc/0677edc86e342f333d4828b0ee1ef395a4e70fe5/library/core/src/ops/function.rs:227:5   5: core::ops::function::FnOnce::call_once             at /rustc/0677edc86e342f333d4828b0ee1ef395a4e70fe5/library/core/src/ops/function.rs:227:5";
   test.test_name = "vote_processor::tests::test_vote_process_instruction_decode_bail";
-  test.test_nonce  = 14;
+  test.test_nonce  = 15;
   test.test_number = 1641;
   if (fd_executor_test_suite_check_filter(suite, &test)) return -9999;
   ulong test_accs_len = 0;

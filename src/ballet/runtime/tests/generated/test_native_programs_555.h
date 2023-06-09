@@ -7,7 +7,7 @@ int test_555(fd_executor_test_suite_t *suite) {
   test.disable_feature = disabled_features;
   test.bt = "   2: solana_stake_program::stake_instruction::tests::test_redelegate::{{closure}}             at ./src/stake_instruction.rs:6968:17   3: solana_stake_program::stake_instruction::tests::test_redelegate             at ./src/stake_instruction.rs:7277:17   4: solana_stake_program::stake_instruction::tests::test_redelegate::old_behavior             at ./src/stake_instruction.rs:6887:5   5: solana_stake_program::stake_instruction::tests::test_redelegate::old_behavior::{{closure}}             at ./src/stake_instruction.rs:6887:5";
   test.test_name = "stake_instruction::tests::test_redelegate::old_behavior";
-  test.test_nonce  = 566;
+  test.test_nonce  = 586;
   test.test_number = 555;
   if (fd_executor_test_suite_check_filter(suite, &test)) return -9999;
   ulong test_accs_len = 5;
@@ -29,7 +29,7 @@ int test_555(fd_executor_test_suite_t *suite) {
   test_acc->result_data_len = 200UL;
   test_acc++;
   fd_base58_decode_32( "11111117353mdUKehx9GW6JNHznGt5oSZs9fWkVkB",  (uchar *) &test_acc->pubkey);
-  fd_base58_decode_32( "11111112EdANGL4HP7Uxa9pRMgHjKKT32nruYgqHJP",  (uchar *) &test_acc->owner);
+  fd_base58_decode_32( "11111112F2VyFSMa6HwqPaxWP6d3oSipfJ7rFvR7cj",  (uchar *) &test_acc->owner);
   test_acc->lamports        = 0UL;
   test_acc->result_lamports = 0UL;
   test_acc->executable      = 0;

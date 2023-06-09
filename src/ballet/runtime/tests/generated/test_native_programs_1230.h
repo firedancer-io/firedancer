@@ -3,11 +3,11 @@ int test_1230(fd_executor_test_suite_t *suite) {
   fd_executor_test_t test;
   fd_memset( &test, 0, FD_EXECUTOR_TEST_FOOTPRINT );
   test.disable_cnt = 47;
-  uchar disabled_features[] = { 109,87,126,124,75,78,92,118,83,33,82,128,122,121,98,62,77,61,108,123,26,103,116,106,80,15,114,24,79,110,125,2,55,127,56,120,105,90,111,27,117,89,112,113,30,29,76 };
+  uchar disabled_features[] = { 27,62,128,24,2,30,75,92,111,118,114,122,126,120,109,121,33,117,127,77,78,106,113,83,56,103,87,26,61,79,125,112,110,123,29,124,76,55,98,108,116,15,90,105,80,82,89 };
   test.disable_feature = disabled_features;
   test.bt = "   2: solana_stake_program::stake_instruction::tests::process_instruction             at ./src/stake_instruction.rs:578:9   3: solana_stake_program::stake_instruction::tests::process_instruction_as_one_arg             at ./src/stake_instruction.rs:651:9   4: solana_stake_program::stake_instruction::tests::test_stake_process_instruction             at ./src/stake_instruction.rs:761:9   5: solana_stake_program::stake_instruction::tests::test_stake_process_instruction::new_behavior             at ./src/stake_instruction.rs:673:5";
   test.test_name = "stake_instruction::tests::test_stake_process_instruction::new_behavior";
-  test.test_nonce  = 536;
+  test.test_nonce  = 557;
   test.test_number = 1230;
   if (fd_executor_test_suite_check_filter(suite, &test)) return -9999;
   ulong test_accs_len = 4;
@@ -15,8 +15,8 @@ int test_1230(fd_executor_test_suite_t *suite) {
   fd_memset( test_accs, 0, FD_EXECUTOR_TEST_ACC_FOOTPRINT * test_accs_len );
 
   fd_executor_test_acc_t* test_acc = test_accs;
-  fd_base58_decode_32( "111111129PmXTvBY9mTZwX1J3Dxb1guorEWeJeFTBu",  (uchar *) &test_acc->pubkey);
-  fd_base58_decode_32( "Stake11111111111111111111111111111111111111",  (uchar *) &test_acc->owner);
+  fd_base58_decode_32( "BadVote111111111111111111111111111111111111",  (uchar *) &test_acc->pubkey);
+  fd_base58_decode_32( "Vote111111111111111111111111111111111111111",  (uchar *) &test_acc->owner);
   test_acc->lamports        = 0UL;
   test_acc->result_lamports = 0UL;
   test_acc->executable      = 0;
@@ -35,15 +35,15 @@ int test_1230(fd_executor_test_suite_t *suite) {
   test_acc->result_data     = fd_flamenco_native_prog_test_1230_acc_1_post_data;
   test_acc->result_data_len = 40UL;
   test_acc++;
-  fd_base58_decode_32( "111111129o78T2UprwvSkx9P4eHuVpBbUjmb1sqHWF",  (uchar *) &test_acc->pubkey);
+  fd_base58_decode_32( "111111129PmXTvBY9mTZwX1J3Dxb1guorEWeJeFTBu",  (uchar *) &test_acc->pubkey);
   fd_base58_decode_32( "Stake11111111111111111111111111111111111111",  (uchar *) &test_acc->owner);
   test_acc->lamports        = 0UL;
   test_acc->result_lamports = 0UL;
   test_acc->executable      = 0;
   test_acc->rent_epoch      = 0;
   test_acc++;
-  fd_base58_decode_32( "BadVote111111111111111111111111111111111111",  (uchar *) &test_acc->pubkey);
-  fd_base58_decode_32( "Vote111111111111111111111111111111111111111",  (uchar *) &test_acc->owner);
+  fd_base58_decode_32( "111111129o78T2UprwvSkx9P4eHuVpBbUjmb1sqHWF",  (uchar *) &test_acc->pubkey);
+  fd_base58_decode_32( "Stake11111111111111111111111111111111111111",  (uchar *) &test_acc->owner);
   test_acc->lamports        = 0UL;
   test_acc->result_lamports = 0UL;
   test_acc->executable      = 0;
@@ -53,7 +53,7 @@ int test_1230(fd_executor_test_suite_t *suite) {
   static uchar const fd_flamenco_native_prog_test_1230_raw[] = { 0x00,0x00,0x00,0x03,0x04,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0xa5,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0xa6,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x02,0xb5,0xd5,0x32,0xf5,0x1f,0xa0,0x4e,0xf5,0xc0,0xdc,0x9b,0x35,0x42,0x02,0x70,0x97,0x87,0x3d,0xb8,0x04,0xff,0x8b,0x0b,0x37,0x06,0x35,0xb0,0x00,0x00,0x00,0x00,0x06,0xa1,0xd8,0x17,0x91,0x37,0x54,0x2a,0x98,0x34,0x37,0xbd,0xfe,0x2a,0x7a,0xb2,0x55,0x7f,0x53,0x5c,0x8a,0x78,0x72,0x2b,0x68,0xa4,0x9d,0xc0,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x01,0x03,0x03,0x00,0x01,0x02,0x04,0x0e,0x00,0x00,0x00 };
   test.raw_tx = fd_flamenco_native_prog_test_1230_raw;
   test.raw_tx_len = 176UL;
-  test.expected_result = -7;
+  test.expected_result = -3;
   test.custom_err = 0;
 
   test.accs_len = test_accs_len;

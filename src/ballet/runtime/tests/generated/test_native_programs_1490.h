@@ -3,11 +3,11 @@ int test_1490(fd_executor_test_suite_t *suite) {
   fd_executor_test_t test;
   fd_memset( &test, 0, FD_EXECUTOR_TEST_FOOTPRINT );
   test.disable_cnt = 47;
-  uchar disabled_features[] = { 111,110,124,105,82,78,33,118,24,126,15,56,120,55,106,116,109,62,27,123,30,112,76,87,80,108,29,75,125,117,90,103,114,2,122,121,127,83,61,26,79,113,92,77,89,128,98 };
+  uchar disabled_features[] = { 83,113,106,121,116,114,24,30,76,127,33,79,2,56,87,62,110,26,124,89,77,112,123,111,128,125,78,27,29,117,105,98,122,90,103,118,109,82,61,92,75,15,120,108,80,126,55 };
   test.disable_feature = disabled_features;
-  test.bt = "   2: solana_bpf_loader_program::tests::test_bpf_loader_serialize_aligned             at ./src/lib.rs:1854:9   3: solana_bpf_loader_program::tests::test_bpf_loader_serialize_aligned::{{closure}}             at ./src/lib.rs:1827:5   4: core::ops::function::FnOnce::call_once             at /rustc/0677edc86e342f333d4828b0ee1ef395a4e70fe5/library/core/src/ops/function.rs:227:5   5: core::ops::function::FnOnce::call_once             at /rustc/0677edc86e342f333d4828b0ee1ef395a4e70fe5/library/core/src/ops/function.rs:227:5";
+  test.bt = "   2: solana_bpf_loader_program::tests::test_bpf_loader_serialize_aligned             at ./src/lib.rs:1841:9   3: solana_bpf_loader_program::tests::test_bpf_loader_serialize_aligned::{{closure}}             at ./src/lib.rs:1827:5   4: core::ops::function::FnOnce::call_once             at /rustc/0677edc86e342f333d4828b0ee1ef395a4e70fe5/library/core/src/ops/function.rs:227:5   5: core::ops::function::FnOnce::call_once             at /rustc/0677edc86e342f333d4828b0ee1ef395a4e70fe5/library/core/src/ops/function.rs:227:5";
   test.test_name = "tests::test_bpf_loader_serialize_aligned";
-  test.test_nonce  = 38;
+  test.test_nonce  = 5;
   test.test_number = 1490;
   if (fd_executor_test_suite_check_filter(suite, &test)) return -9999;
   ulong test_accs_len = 2;
@@ -15,7 +15,7 @@ int test_1490(fd_executor_test_suite_t *suite) {
   fd_memset( test_accs, 0, FD_EXECUTOR_TEST_ACC_FOOTPRINT * test_accs_len );
 
   fd_executor_test_acc_t* test_acc = test_accs;
-  fd_base58_decode_32( "1111112vrxgjBs6P9paMVm5odbborfhyEdEe7Aavs",  (uchar *) &test_acc->pubkey);
+  fd_base58_decode_32( "1111112wfdthQTfoWkKzN3FrUGEn7DHEF984aLFZZ",  (uchar *) &test_acc->pubkey);
   fd_base58_decode_32( "BPFLoader2111111111111111111111111111111111",  (uchar *) &test_acc->owner);
   test_acc->lamports        = 16871040UL;
   test_acc->result_lamports = 16871040UL;
@@ -28,7 +28,7 @@ int test_1490(fd_executor_test_suite_t *suite) {
   test_acc->result_data     = fd_flamenco_native_prog_test_1490_acc_0_post_data;
   test_acc->result_data_len = 2296UL;
   test_acc++;
-  fd_base58_decode_32( "1111112wfdthQTfoWkKzN3FrUGEn7DHEF984aLFZZ",  (uchar *) &test_acc->pubkey);
+  fd_base58_decode_32( "1111112xUK6fd4FDsg5dEKRuJvskMkrVFf1V3VvCF",  (uchar *) &test_acc->pubkey);
   fd_base58_decode_32( "BPFLoader2111111111111111111111111111111111",  (uchar *) &test_acc->owner);
   test_acc->lamports        = 1UL;
   test_acc->result_lamports = 1UL;
@@ -36,9 +36,9 @@ int test_1490(fd_executor_test_suite_t *suite) {
   test_acc->rent_epoch      = 0;
   test_acc++;
   fd_base58_decode_32( "BPFLoader2111111111111111111111111111111111",  (unsigned char *) &test.program_id);
-  static uchar const fd_flamenco_native_prog_test_1490_raw[] = { 0x00,0x00,0x00,0x02,0x02,0x00,0x00,0x00,0x00,0x00,0x00,0x01,0x18,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x02,0xa8,0xf6,0x91,0x4e,0x88,0xa1,0x6e,0x39,0x5a,0xe1,0x28,0x94,0x8f,0xfa,0x69,0x56,0x93,0x37,0x68,0x18,0xdd,0x47,0x43,0x52,0x21,0xf3,0xc6,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x01,0x01,0x02,0x00,0x00,0x00 };
+  static uchar const fd_flamenco_native_prog_test_1490_raw[] = { 0x00,0x00,0x00,0x02,0x02,0x00,0x00,0x00,0x00,0x00,0x00,0x01,0x1a,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x02,0xa8,0xf6,0x91,0x4e,0x88,0xa1,0x6e,0x39,0x5a,0xe1,0x28,0x94,0x8f,0xfa,0x69,0x56,0x93,0x37,0x68,0x18,0xdd,0x47,0x43,0x52,0x21,0xf3,0xc6,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x01,0x01,0x01,0x00,0x00 };
   test.raw_tx = fd_flamenco_native_prog_test_1490_raw;
-  test.raw_tx_len = 107UL;
+  test.raw_tx_len = 106UL;
   test.expected_result = 0;
   test.custom_err = 0;
 

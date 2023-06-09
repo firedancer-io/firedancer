@@ -7,7 +7,7 @@ int test_1169(fd_executor_test_suite_t *suite) {
   test.disable_feature = disabled_features;
   test.bt = "   2: solana_stake_program::stake_instruction::tests::process_instruction             at ./src/stake_instruction.rs:578:9   3: solana_stake_program::stake_instruction::tests::test_stake_process_instruction_decode_bail             at ./src/stake_instruction.rs:1104:9   4: solana_stake_program::stake_instruction::tests::test_stake_process_instruction_decode_bail::old_behavior             at ./src/stake_instruction.rs:918:5   5: solana_stake_program::stake_instruction::tests::test_stake_process_instruction_decode_bail::old_behavior::{{closure}}             at ./src/stake_instruction.rs:918:5";
   test.test_name = "stake_instruction::tests::test_stake_process_instruction_decode_bail::old_behavior";
-  test.test_nonce  = 464;
+  test.test_nonce  = 437;
   test.test_number = 1169;
   if (fd_executor_test_suite_check_filter(suite, &test)) return -9999;
   ulong test_accs_len = 1;

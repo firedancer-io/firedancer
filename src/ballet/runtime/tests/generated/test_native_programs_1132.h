@@ -3,11 +3,11 @@ int test_1132(fd_executor_test_suite_t *suite) {
   fd_executor_test_t test;
   fd_memset( &test, 0, FD_EXECUTOR_TEST_FOOTPRINT );
   test.disable_cnt = 0;
-  uchar disabled_features[] = { 83,125,98,103,87,108,112,128,29,126,92,26,75,27,111,121,123,105,89,106,78,76,116,122,61,82,110,127,33,90,77,56,120,62,124,55,114,79,117,80,109,113,118,30,24,15,2 };
+  uchar disabled_features[] = { 110,83,127,55,77,98,27,106,75,78,105,33,80,113,121,82,123,30,29,89,2,116,108,114,112,15,109,124,120,128,125,103,26,24,122,56,118,62,87,79,61,76,117,92,111,126,90 };
   test.disable_feature = disabled_features;
   test.bt = "   2: solana_stake_program::stake_instruction::tests::process_instruction             at ./src/stake_instruction.rs:578:9   3: solana_stake_program::stake_instruction::tests::test_stake_process_instruction_decode_bail             at ./src/stake_instruction.rs:958:9   4: solana_stake_program::stake_instruction::tests::test_stake_process_instruction_decode_bail::new_behavior             at ./src/stake_instruction.rs:918:5   5: solana_stake_program::stake_instruction::tests::test_stake_process_instruction_decode_bail::new_behavior::{{closure}}             at ./src/stake_instruction.rs:918:5";
   test.test_name = "stake_instruction::tests::test_stake_process_instruction_decode_bail::new_behavior";
-  test.test_nonce  = 265;
+  test.test_nonce  = 225;
   test.test_number = 1132;
   if (fd_executor_test_suite_check_filter(suite, &test)) return -9999;
   ulong test_accs_len = 1;
