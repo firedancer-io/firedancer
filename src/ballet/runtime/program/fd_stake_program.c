@@ -214,10 +214,10 @@ int validate_split_amount(
     // 2. The destination account being prefunded, which would lower the minimum split amount
     // https://github.com/firedancer-io/solana/blob/56bd357f0dfdb841b27c4a346a58134428173f42/programs/stake/src/stake_state.rs#L1277-L1289
     // Note stake_split_uses_rent_sysvar is inactive this time
-    if (FEATURE_ACTIVE_STAKE_SPLIT_USES_RENT_SYSVAR) {
+    if (ctx.global->features.stake_split_uses_rent_sysvar) {
       *destination_rent_exempt_reserve = fd_rent_exempt_minimum_balance(ctx.global, destination_data_len);
     } else {
-      *destination_rent_exempt_reserve = source_state.inner.initialized.rent_exempt_reserve / (source_data_len + ACCOUNT_STORAGE_OVERHEAD) * (destination_data_len + ACCOUNT_STORAGE_OVERHEAD); 
+      *destination_rent_exempt_reserve = source_state.inner.initialized.rent_exempt_reserve / fd_ulong_sat_add(source_data_len, ACCOUNT_STORAGE_OVERHEAD) * fd_ulong_sat_add(destination_data_len, ACCOUNT_STORAGE_OVERHEAD);
     }
     fd_acc_lamports_t dest_minimum_balance = fd_ulong_sat_add(*destination_rent_exempt_reserve, additional_lamports);
 
@@ -227,7 +227,7 @@ int validate_split_amount(
     }
 
     if (
-      !FEATURE_CLEAN_UP_DELEGATION_ERRORS &&
+      !ctx.global->features.clean_up_delegation_errors &&
       source_stake_is_some &&
       lamports < additional_lamports) {
       return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
@@ -454,6 +454,11 @@ int fd_executor_stake_program_execute_instruction(
     // https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/stake/src/stake_instruction.rs#L50
 
   } else if ( fd_stake_instruction_is_split( &instruction )) { // discriminant 3
+    FD_LOG_NOTICE(( "stake_split_uses_rent_sysvar=%d", ctx.global->features.stake_split_uses_rent_sysvar ));
+    FD_LOG_NOTICE(( "stake_allow_zero_undelegated_amount=%d", ctx.global->features.stake_allow_zero_undelegated_amount ));
+    FD_LOG_NOTICE(( "clean_up_delegation_errors=%d", ctx.global->features.clean_up_delegation_errors));
+    FD_LOG_NOTICE(( "stake_raise_minimum_delegation_to_1_sol=%d", ctx.global->features.stake_raise_minimum_delegation_to_1_sol));
+
   // https://github.com/firedancer-io/solana/blob/56bd357f0dfdb841b27c4a346a58134428173f42/programs/stake/src/stake_instruction.rs#L192
     if (ctx.txn_ctx->txn_descriptor->acct_addr_cnt < 2) {
       return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
@@ -529,7 +534,7 @@ int fd_executor_stake_program_execute_instruction(
       }
 
 
-      fd_acc_lamports_t minimum_delegation = (FEATURE_STAKE_RAISE_MINIMUM_DELEGATION_TO_1_SOL) ? MINIMUM_DELEGATION_SOL * LAMPORTS_PER_SOL: MINIMUM_STAKE_DELEGATION;
+      fd_acc_lamports_t minimum_delegation = ctx.global->features.stake_raise_minimum_delegation_to_1_sol ? MINIMUM_DELEGATION_SOL * LAMPORTS_PER_SOL: MINIMUM_STAKE_DELEGATION;
       fd_acc_lamports_t source_remaining_balance, destination_rent_exempt_reserve;
       // todo: implement source_stake = Some(&stake)
       int validate_result = validate_split_amount(ctx, 0, 1, 1, lamports, minimum_delegation, &source_remaining_balance, &destination_rent_exempt_reserve);
@@ -541,21 +546,21 @@ int fd_executor_stake_program_execute_instruction(
         remaining_stake_delta = fd_ulong_sat_sub(lamports, stake_state.inner.initialized.rent_exempt_reserve);
         split_stake_amount = remaining_stake_delta;
       } else {
-        if (FEATURE_CLEAN_UP_DELEGATION_ERRORS && stake_state.inner.stake.stake.delegation.stake < fd_ulong_sat_add(minimum_delegation, lamports)) {
+        if ( ctx.global->features.clean_up_delegation_errors && stake_state.inner.stake.stake.delegation.stake < fd_ulong_sat_add(minimum_delegation, lamports)) {
           ctx.txn_ctx->custom_err = 12;
           return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR; // (StakeError::InsufficientDelegation.into());
         }
         remaining_stake_delta = lamports;
         split_stake_amount = fd_ulong_sat_sub(lamports, fd_ulong_sat_sub(destination_rent_exempt_reserve, split_lamports_balance));
       }
-      if (FEATURE_CLEAN_UP_DELEGATION_ERRORS && split_stake_amount < minimum_delegation) {
+      if (ctx.global->features.clean_up_delegation_errors && split_stake_amount < minimum_delegation) {
         ctx.txn_ctx->custom_err = 12; 
         return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR; // (StakeError::InsufficientDelegation.into());
       }
 
       if (remaining_stake_delta > stake_state.inner.stake.stake.delegation.stake) {
-        ctx.txn_ctx->custom_err = 12;
-        return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR; // (StakeError::InsufficientDelegation.into()); 
+        ctx.txn_ctx->custom_err = 4;
+        return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR; // Err(StakeError::InsufficientStake)
       }
 
       stake_state.inner.stake.stake.delegation.stake -= remaining_stake_delta;
@@ -588,7 +593,7 @@ int fd_executor_stake_program_execute_instruction(
       }
 
       // ./target/debug/solana feature status sTKz343FM8mqtyGvYWvbLpTThw3ixRM4Xk8QvZ985mw
-      fd_acc_lamports_t additional_required_lamports = FEATURE_STAKE_ALLOW_ZERO_UNDELEGATED_AMOUNT ? 0 : (FEATURE_STAKE_RAISE_MINIMUM_DELEGATION_TO_1_SOL ? MINIMUM_DELEGATION_SOL * LAMPORTS_PER_SOL : MINIMUM_STAKE_DELEGATION);
+      fd_acc_lamports_t additional_required_lamports = ctx.global->features.stake_allow_zero_undelegated_amount ? 0 : ( ctx.global->features.stake_raise_minimum_delegation_to_1_sol ? MINIMUM_DELEGATION_SOL * LAMPORTS_PER_SOL : MINIMUM_STAKE_DELEGATION);
       
       fd_acc_lamports_t source_remaining_balance, destination_rent_exempt_reserve;
       int validate_result = validate_split_amount(ctx, 0, 1, 0, lamports, additional_required_lamports, &source_remaining_balance, &destination_rent_exempt_reserve);
