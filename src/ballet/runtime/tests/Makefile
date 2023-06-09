@@ -1,4 +1,4 @@
-PYTHON?=python3
+PYTHON?=python3.8
 
 .PHONY: all
 all: test_native_programs.c

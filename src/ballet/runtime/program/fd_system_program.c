@@ -79,6 +79,14 @@ static int transfer(
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
 
   // TODO: check sender has empty data https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/system_instruction_processor.rs#LL177C20-L177C20
+  ulong  sz = 0;
+  int    err = 0;
+  char * raw_acc_data = (char*) fd_acc_mgr_view_data(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) sender, &sz, &err);
+  if (NULL == raw_acc_data)
+    return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+  fd_account_meta_t *m = (fd_account_meta_t *) raw_acc_data;
+  if (m->dlen > 0) 
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
 
   /* Check sender account has enough balance to execute this transaction */
   fd_acc_lamports_t sender_lamports = 0;
