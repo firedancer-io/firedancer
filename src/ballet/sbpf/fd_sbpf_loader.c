@@ -3,7 +3,6 @@
 #include "../../util/fd_util.h"
 #include "../../util/bits/fd_sat.h"
 #include "../murmur3/fd_murmur3.h"
-#include "../utf8/fd_utf8.h"
 
 #include <stdio.h>
 
@@ -299,9 +298,9 @@ fd_sbpf_load_shdrs( fd_sbpf_elf_info_t *  info,
     char __attribute__((aligned(8UL))) name[ 16UL ]={0};
     fd_memcpy( name, elf->bin + name_off, fd_ulong_min( fd_ulong_min( shstr_sz-sh_name, elf_sz-name_off ), 16UL ) );
 
-    /* UTF-8 validation */
+    /* Length check */
 
-    REQUIRE( fd_utf8_check_cstr( name, 16UL )>=0L );
+    REQUIRE( strnlen( name, 16UL )<16UL );
 
     /* Check name */
     /* TODO switch table for this? */
@@ -585,7 +584,7 @@ typedef struct fd_sbpf_loader fd_sbpf_loader_t;
 /* FD_SBPF_SYM_NAME_SZ_MAX is the maximum length of a symbol name cstr
    including zero terminator. */
 
-#define FD_SBPF_SYM_NAME_SZ_MAX (1024UL)
+#define FD_SBPF_SYM_NAME_SZ_MAX (64UL)
 
 
 static int
@@ -900,10 +899,9 @@ fd_sbpf_r_bpf_64_32( fd_sbpf_loader_t   const * loader,
   char const * name   = &dynstr[ sym->st_name ];
 
   /* Verify symbol name */
-  ulong max_len      = fd_ulong_min( info->dynstr_sz - sym->st_name, FD_SBPF_SYM_NAME_SZ_MAX );
-  long  name_len_res = fd_utf8_check_cstr( name, max_len );
-  ulong name_len     = (ulong)name_len_res;
-  REQUIRE( (name_len_res>=0L) & (name_len<max_len) );
+  ulong max_len  = fd_ulong_min( info->dynstr_sz - sym->st_name, FD_SBPF_SYM_NAME_SZ_MAX );
+  ulong name_len = strnlen( name, max_len );
+  REQUIRE( name_len<max_len );
 
   /* Value to write into relocated field */
   uint V;
