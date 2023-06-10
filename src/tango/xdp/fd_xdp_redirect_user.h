@@ -126,11 +126,13 @@ fd_xdp_unhook_iface( char const * app_name,
 /* Listen API (privileged) ********************************************/
 
 /* fd_xdp_udp_dst_key returns a key for the fd_xdp_udp_dsts eBPF
-   map given the IPv4 dest address and UDP port number. */
+   map given the IPv4 dest address and UDP port number.  ip4_addr is the
+   network byte order IP address.  udp_port is the host byte order UDP
+   port. */
 static inline ulong
 fd_xdp_udp_dst_key( uint ip4_addr,
                     uint udp_port ) {
-  return ( (ulong)fd_uint_bswap( ip4_addr )<<16 ) | fd_ushort_bswap( (ushort)udp_port );
+  return ( (ulong)( ip4_addr )<<16 ) | fd_ushort_bswap( (ushort)udp_port );
 }
 
 /* fd_xdp_listen_udp_port installs a listener for protocol proto on IPv4
