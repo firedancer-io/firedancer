@@ -45,7 +45,8 @@ fd_quic_ssl_set_encryption_secrets( SSL *                 ssl,
 SSL_CTX *
 fd_quic_create_context( fd_quic_tls_t * quic_tls,
                         char const *    cert_file,
-                        char const *    key_file );
+                        char const *    key_file,
+                        void const *    ed25519_privkey );
 
 /* fd_quic_tls_strerror returns a cstr describing the last OpenSSL
    error.  Error is read from OpenSSL's error stack.  The returned
@@ -684,7 +685,8 @@ fd_quic_tls_cb_alpn_select( SSL * ssl,
 SSL_CTX *
 fd_quic_create_context( fd_quic_tls_t * quic_tls,
                         char const *    cert_file,
-                        char const *    key_file ) {
+                        char const *    key_file,
+                        void const *    ed25519_privkey ) {
 
   SSL_METHOD const * method = TLS_method();
 
@@ -724,6 +726,35 @@ fd_quic_create_context( fd_quic_tls_t * quic_tls,
     SSL_CTX_free( ctx );
     FD_LOG_WARNING(( "SSL_CTX_set_quic_method failed: %s", fd_quic_tls_strerror() ));
     return NULL;
+  }
+
+  /* Set list of supported cert types */
+  uchar cert_type[2];
+  ulong cert_type_cnt = 0UL;
+  if( ed25519_privkey ) cert_type[ cert_type_cnt++ ] = TLSEXT_cert_type_rpk;
+  if( cert_file       ) cert_type[ cert_type_cnt++ ] = TLSEXT_cert_type_x509;
+
+  if( !SSL_CTX_set1_server_cert_type( ctx, cert_type, cert_type_cnt ) ) {
+    SSL_CTX_free( ctx );
+    FD_LOG_WARNING(( "SSL_CTX_set1_server_cert_type failed" ));
+    return NULL;
+  }
+
+  /* Set raw public key auth (RFC 7250) */
+  if( ed25519_privkey ) {
+    EVP_PKEY * pkey = EVP_PKEY_new_raw_private_key( EVP_PKEY_ED25519, NULL, ed25519_privkey, 32 );
+    if( !pkey ) {
+      SSL_CTX_free( ctx );
+      FD_LOG_WARNING(( "EVP_PKEY_new_raw_private_key failed" ));
+      return NULL;
+    }
+
+    if( !SSL_CTX_use_PrivateKey( ctx, pkey ) ) {
+      SSL_CTX_free( ctx );
+      EVP_PKEY_free( pkey );
+      FD_LOG_WARNING(( "SSL_CTX_use_PrivateKey failed" ));
+      return NULL;
+    }
   }
 
   /* Set the key and cert */
