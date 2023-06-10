@@ -14,7 +14,7 @@ static FILE * test_pcap;
 /* Mac address counter, incremented for each new QUIC */
 static ulong test_mac_addr_seq = 0x0A0000000000;
 /* IP address counter, incremented for each new QUIC */
-static uint  test_ip_addr_seq  = 0x7f0a0000;
+static uint  test_ip_addr_seq  = FD_IP4_ADDR( 127, 10, 0, 0 );
 
 /* Default implementations of callbacks */
 
@@ -127,8 +127,8 @@ fd_quic_new_anonymous( fd_wksp_t *              wksp,
   memcpy( config->link.dst_mac_addr, dst_mac_addr, 6 );
 
   /* Generate IP address */
-  test_ip_addr_seq++;
-  config->net.ip_addr         = test_ip_addr_seq;
+  test_ip_addr_seq = fd_uint_bswap( fd_uint_bswap( test_ip_addr_seq ) + 1 );
+  config->net.ip_addr = test_ip_addr_seq;
 
   config->net.listen_udp_port   =  9000;
   config->net.ephem_udp_port.lo = 10000;
@@ -340,7 +340,7 @@ fd_quic_udpsock_create( void *           _sock,
 
     struct sockaddr_in listen_addr = {
       .sin_family = AF_INET,
-      .sin_addr   = { .s_addr = fd_uint_bswap( listen_ip ) },
+      .sin_addr   = { .s_addr = listen_ip },
       .sin_port   = (ushort)fd_ushort_bswap( (ushort)listen_port ),
     };
     if( FD_UNLIKELY( 0!=bind( sock_fd, (struct sockaddr const *)fd_type_pun_const( &listen_addr ), sizeof(struct sockaddr_in) ) ) ) {

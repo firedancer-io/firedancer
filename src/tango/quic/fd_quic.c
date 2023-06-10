@@ -2299,7 +2299,7 @@ fd_quic_process_packet( fd_quic_t *   quic,
 
   /* TODO support for vlan? */
 
-  if ( pkt.eth->net_type != fd_ushort_bswap( FD_ETH_HDR_TYPE_IP ) ) {
+  if( pkt.eth->net_type != FD_ETH_HDR_TYPE_IP ) {
     DEBUG( FD_LOG_DEBUG(( "Invalid ethertype: %4.4x", pkt.eth->net_type )); )
     return;
   }
@@ -2315,7 +2315,7 @@ fd_quic_process_packet( fd_quic_t *   quic,
   }
 
   /* check version, tot_len, protocol, checksum? */
-  if( ( pkt.ip4->version != 4 ) | ( pkt.ip4->protocol != FD_IP4_HDR_PROTOCOL_UDP ) ) {
+  if( ( pkt.ip4->protocol != FD_IP4_HDR_PROTOCOL_UDP ) ) {
     return;
   }
 
@@ -2857,18 +2857,18 @@ fd_quic_tx_buffered( fd_quic_t *      quic,
 
   fd_quic_config_t * config = &quic->config;
 
-  ulong                    peer_idx = conn->cur_peer_idx;
-  fd_quic_endpoint_t     * peer     = &conn->peer[ peer_idx ];
+  ulong                peer_idx = conn->cur_peer_idx;
+  fd_quic_endpoint_t * peer     = &conn->peer[ peer_idx ];
 
   uchar * cur_ptr = conn->crypt_scratch;
-  ulong  cur_sz  = sizeof( conn->crypt_scratch );
+  ulong  cur_sz   = sizeof( conn->crypt_scratch );
 
   /* TODO much of this may be prepared ahead of time */
   fd_quic_pkt_t pkt;
 
   memcpy( pkt.eth->dst, peer->mac_addr,                 6 );
   memcpy( pkt.eth->src, quic->config.link.src_mac_addr, 6 );
-  pkt.eth->net_type = 0x0008;
+  pkt.eth->net_type = FD_ETH_HDR_TYPE_IP;
 
   pkt.ip4->version      = 4;
   pkt.ip4->ihl          = 5;
@@ -2883,10 +2883,9 @@ fd_quic_tx_buffered( fd_quic_t *      quic,
      determine an appropriate source address */
   pkt.ip4->saddr    = config->net.ip_addr;
   pkt.ip4->daddr    = peer  ->net.ip_addr;
-  pkt.ip4->check    = (ushort)fd_ip4_hdr_check_fast( pkt.ip4 );
 
-  pkt.udp->net_sport = conn  ->host.udp_port;
-  pkt.udp->net_dport = peer  ->net.udp_port;
+  pkt.udp->net_sport = conn->host.udp_port;
+  pkt.udp->net_dport = peer->net .udp_port;
   pkt.udp->net_len   = (ushort)( 8 + payload_sz );
   pkt.udp->check     = 0x0000;
 
@@ -2902,6 +2901,10 @@ fd_quic_tx_buffered( fd_quic_t *      quic,
   rc = fd_quic_encode_ip4( cur_ptr, cur_sz, pkt.ip4 );
   if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) )
     FD_LOG_ERR(( "fd_quic_encode_ip4 failed with buffer overrun" ));
+
+  /* Compute checksum over network byte order header */
+  fd_ip4_hdr_t * ip4_encoded = (fd_ip4_hdr_t *)fd_type_pun( cur_ptr );
+  ip4_encoded->check = (ushort)fd_ip4_hdr_check_fast( ip4_encoded );
 
   cur_ptr += rc;
   cur_sz  -= rc;

@@ -25,10 +25,10 @@ struct fd_udpsock {
   uchar eth_self_addr[ 6 ];
   uchar eth_peer_addr[ 6 ];
 
-  /* Mock UDP/IPv4 fields (big endian) */
+  /* Mock UDP/IPv4 fields */
 
-  uint   ip_self_addr;
-  ushort udp_self_port;
+  uint   ip_self_addr;   /* network byte order */
+  ushort udp_self_port;  /* little endian */
 
   /* Pointers to variable length data structures */
 
@@ -212,7 +212,7 @@ fd_udpsock_join( void * shsock,
     return NULL;
   }
   struct sockaddr_in const * sin = (struct sockaddr_in const *)fd_type_pun_const( &addr );
-  sock->ip_self_addr  = fd_uint_bswap( sin->sin_addr.s_addr );
+  sock->ip_self_addr  = sin->sin_addr.s_addr;
   sock->udp_self_port = fd_ushort_bswap( sin->sin_port );
 
   return sock;
@@ -270,7 +270,7 @@ fd_udpsock_service( fd_udpsock_t * sock ) {
       .ihl          = 5,
       .version      = 4,
       .tos          = 0,
-      .net_tot_len  = (ushort)fd_ushort_bswap( (ushort)(sock->rx_iov[i].iov_len - sizeof(fd_eth_hdr_t)) ),
+      .net_tot_len  = (ushort)(sock->rx_iov[i].iov_len - sizeof(fd_eth_hdr_t)),
       .net_id       = 0,
       .net_frag_off = 0,
       .ttl          = 64,
@@ -279,7 +279,9 @@ fd_udpsock_service( fd_udpsock_t * sock ) {
       .saddr        = addr->sin_addr.s_addr,
       .daddr        = sock->ip_self_addr
     };
+    fd_ip4_hdr_bswap( ip4 );  /* convert to "network" byte order */
 
+    /* Create UDP header with network byte order */
     fd_udp_hdr_t * udp = (fd_udp_hdr_t *)((ulong)ip4 + sizeof(fd_ip4_hdr_t));
     *udp = (fd_udp_hdr_t) {
       .net_sport = (ushort)addr->sin_port,
@@ -318,21 +320,20 @@ fd_udpsock_send( void *                    ctx,
   /* Set up iovecs */
 
   for( ulong i=0UL; i<send_cnt; i++ ) {
-    uint   daddr = 0U;
-    ushort dport = 0U;
-
     if( FD_LIKELY( batch[i].buf_sz >= sizeof(fd_eth_hdr_t)+sizeof(fd_ip4_hdr_t) ) ) {
-      fd_ip4_hdr_t const * ip4 = (fd_ip4_hdr_t const *)( (ulong)batch[i].buf + sizeof(fd_eth_hdr_t) );
-      daddr = ip4->daddr;
-      fd_udp_hdr_t const * udp = (fd_udp_hdr_t const *)( (ulong)ip4 + (ulong)ip4->ihl*4 );
-      dport = udp->net_dport;
+      fd_ip4_hdr_t * ip4 = (fd_ip4_hdr_t *)( (ulong)batch[i].buf + sizeof(fd_eth_hdr_t) );
+      fd_ip4_hdr_bswap( ip4 );  /* convert to host byte order */
+      uint daddr = ip4->daddr;
+      fd_udp_hdr_t * udp = (fd_udp_hdr_t *)( (ulong)ip4 + (ulong)ip4->ihl*4 );
+      fd_udp_hdr_bswap( udp );  /* convert to host byte order */
+      ushort dport = udp->net_dport;
 
       void * payload = (void *)( (ulong)udp + sizeof(fd_udp_hdr_t) );
       sock->tx_iov[i].iov_base = payload;
       sock->tx_iov[i].iov_len  = batch[i].buf_sz - (ulong)( (ulong)payload - (ulong)batch[i].buf );
       struct sockaddr_in * addr = (struct sockaddr_in *)sock->tx_msg[i].msg_hdr.msg_name;
       addr->sin_addr = (struct in_addr) { .s_addr = daddr };
-      addr->sin_port = dport;
+      addr->sin_port = (ushort)fd_ushort_bswap( (ushort)dport );
 
       sock->rx_msg[i].msg_len = !!ip4->ttl;
     } else {

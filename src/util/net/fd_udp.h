@@ -94,6 +94,17 @@ fd_ip4_udp_check( uint                 ip4_saddr,
   return (ushort)~ul;
 }
 
+/* fd_udp_hdr_bswap reverses the endianness of all fields in the UDP
+   header. */
+
+static inline void
+fd_udp_hdr_bswap( fd_udp_hdr_t * hdr ) {
+  hdr->net_sport = (ushort)fd_ushort_bswap( hdr->net_sport    );
+  hdr->net_dport = (ushort)fd_ushort_bswap( hdr->net_dport    );
+  hdr->net_len   = (ushort)fd_ushort_bswap( hdr->net_len      );
+  hdr->check     = (ushort)fd_ushort_bswap( hdr->check        );
+}
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_util_net_fd_udp_h */
