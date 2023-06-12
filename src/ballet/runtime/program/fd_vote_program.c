@@ -673,6 +673,23 @@ int fd_executor_vote_program_execute_instruction(
         return result;
       fd_vote_state_t * vote_state = &vote_state_versioned.inner.current;
 
+      /* Purge stale authorized voters */
+
+      fd_vote_historical_authorized_voter_t * authorized_voters = vote_state->authorized_voters;
+
+      fd_sol_sysvar_clock_t clock;
+      fd_sysvar_clock_read( ctx.global, &clock );
+
+      for(;;) {
+        fd_vote_historical_authorized_voter_t * ele =
+        deq_fd_vote_historical_authorized_voter_t_peek_head( authorized_voters );
+
+        if( FD_UNLIKELY( !ele ) ) break;
+        if( FD_UNLIKELY( ele->epoch >= clock.epoch ) ) break;
+
+        deq_fd_vote_historical_authorized_voter_t_pop_head_nocopy( authorized_voters );
+      }
+
       /* Verify vote authority */
       int authorize_res = fd_vote_verify_authority( vote_state, instr_acc_idxs, txn_accs, ctx );
       if( FD_UNLIKELY( 0!=authorize_res ) )
