@@ -42,6 +42,10 @@ fd_vote_load_account( fd_vote_state_versioned_t * account,
   /* Copy metadata */
   memcpy( meta, meta_raw, sizeof(fd_account_meta_t) );
 
+  /* Check account owner */
+  if( FD_UNLIKELY( 0!=memcmp( meta->info.owner, global->solana_vote_program, 32UL ) ) )
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
+
   /* Deserialize content */
   fd_bincode_decode_ctx_t decode = {
     .data    = data_raw,
