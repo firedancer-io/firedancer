@@ -336,23 +336,28 @@ vote_authorize( instruction_ctx_t             ctx,
         deq_fd_vote_historical_authorized_voter_t_pop_head_nocopy( authorized_voters ), &ctx3 );
     }
 
-    /* If not already authorized by withdrawer, check for authorized voter signature */
-    if( !authorized_withdrawer_signer ) {
-      /* Check whether authorized voter has signed
-          Matching solana_vote_program::vote_state::verify_authorized_signer(&authorized_voters_vec->elems[0].pubkey) */
-      int authorized_voter_signer = 0;
-      for( ulong i=0; i<ctx.instr->acct_cnt; i++ ) {
-        if( instr_acc_idxs[i] < ctx.txn_ctx->txn_descriptor->signature_cnt ) {
-          fd_pubkey_t const * signer = &txn_accs[instr_acc_idxs[i]];
-          if( 0==memcmp( signer, &authorized_voter->pubkey, sizeof(fd_pubkey_t) ) ) {
-            authorized_voter_signer = 1;
-            break;
-          }
+    /* Check whether authorized voter has signed
+       Matching solana_vote_program::vote_state::verify_authorized_signer(&authorized_voters_vec->elems[0].pubkey) */
+    int authorized_voter_signer = 0;
+    for( ulong i=0; i<ctx.instr->acct_cnt; i++ ) {
+      if( instr_acc_idxs[i] < ctx.txn_ctx->txn_descriptor->signature_cnt ) {
+        fd_pubkey_t const * signer = &txn_accs[instr_acc_idxs[i]];
+        if( 0==memcmp( signer, &authorized_voter->pubkey, sizeof(fd_pubkey_t) ) ) {
+          authorized_voter_signer = 1;
+          break;
         }
       }
-      if( FD_UNLIKELY( !authorized_voter_signer ) )
-        return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
     }
+
+    /* If not already authorized by withdrawer, check for authorized voter signature */
+    int is_authorized;
+    if( ctx.global->features.vote_withdraw_authority_may_change_authorized_voter ) {
+      is_authorized = authorized_withdrawer_signer | authorized_voter_signer;
+    } else {
+      is_authorized = authorized_voter_signer;
+    }
+    if( FD_UNLIKELY( !is_authorized ) )
+      return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
 
     /* If authorized voter changes, add to prior voters */
     fd_vote_historical_authorized_voter_t * tail_voter = deq_fd_vote_historical_authorized_voter_t_peek_tail( authorized_voters );
