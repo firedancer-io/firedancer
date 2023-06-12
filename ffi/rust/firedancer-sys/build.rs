@@ -22,7 +22,7 @@ fn main() {
         )
     };
 
-    for lib in ["ballet", "disco", "tango", "util"] {
+    for lib in ["util", "ballet", "tango", "disco"] {
         // Generate bindings to the header files
         let mut builder = bindgen::Builder::default()
             .wrap_static_fns(true)
@@ -117,24 +117,27 @@ fn main() {
             .expect("Failed to write bindings to file");
 
         // Build the Firedancer sources
-        let output = Command::new("make")
+        let mut command = Command::new("make");
+        command
             .arg("-j")
             .arg(format!("{}/lib/libfd_{lib}.a", build_dir.display()))
             .current_dir(&dir.join("firedancer"))
-            .env("UTIL_STATIC_EXTERN_OBJECT", out_dir.join("gen_util.c"))
-            .env("TANGO_STATIC_EXTERN_OBJECT", out_dir.join("gen_tango.c"))
-            // No statics in disco yet so no extern wrapper file is produced
-            // .env("DISCO_STATIC_EXTERN_OBJECT", out_dir.join("gen_disco.c"))
-            .env("BALLET_STATIC_EXTERN_OBJECT", out_dir.join("gen_ballet.c"))
             .env("MACHINE", machine)
-            .env("BASEDIR", out_dir.join("build"))
-            .output()
-            .unwrap_or_else(|_| {
-                panic!(
-                    "failed to execute `make`, does it exist? PATH {:#?}",
-                    std::env::var("PATH")
-                )
-            });
+            .env("BASEDIR", out_dir.join("build"));
+
+        // No statics in disco yet so no extern wrapper file is produced
+        if lib != "disco" {
+            let key = format!("{}_STATIC_EXTERN_OBJECT", lib.to_uppercase());
+            let value = out_dir.join(&format!("gen_{}.c", lib));
+            command.env(key, value);
+        }
+
+        let output = command.output().unwrap_or_else(|_| {
+            panic!(
+                "failed to execute `make`, does it exist? PATH {:#?}",
+                std::env::var("PATH")
+            )
+        });
         if !output.status.success() {
             panic!("{}", String::from_utf8(output.stderr).unwrap());
         }

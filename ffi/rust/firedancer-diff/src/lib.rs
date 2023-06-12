@@ -64,9 +64,11 @@ pub fn load_program_firedancer(mut elf: Vec<u8>) -> Result<LoadedProgram, String
         }
 
         let mut rodata = vec![0u8; elf_info.rodata_footprint as usize];
-        let syscalls_region =
-            HeapObject::new(fd_sbpf_syscalls_align(), fd_sbpf_syscalls_footprint());
-        let syscalls = fd_sbpf_syscalls_new(syscalls_region.ptr);
+        let syscalls_region = HeapObject::new(
+            fd_sbpf_syscalls_align() as usize,
+            fd_sbpf_syscalls_footprint() as usize,
+        );
+        let syscalls = fd_sbpf_syscalls_new(syscalls_region.ptr) as *mut fd_sbpf_syscalls_t;
         let syscall_ids: &[u32] = &[
             0xb6fc1a11, 0x686093bb, 0x207559bd, 0x5c2a3178, 0x52ba5096, 0x7ef088ca, 0x9377323c,
             0x48504a38, 0x11f49d86, 0xd7793abb, 0x17e40350, 0x174c5122, 0xaa2607ca, 0xdd1c41a6,
@@ -113,7 +115,7 @@ pub fn load_program_firedancer(mut elf: Vec<u8>) -> Result<LoadedProgram, String
         };
         fd_sbpf_program_delete(prog);
         drop(prog_region);
-        fd_sbpf_syscalls_delete(syscalls);
+        fd_sbpf_syscalls_delete(syscalls as *mut c_void);
         drop(syscalls_region);
         res
     }
