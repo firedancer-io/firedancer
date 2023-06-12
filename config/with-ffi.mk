@@ -1,3 +1,20 @@
-# -Wno-pedantic is needed because bindgen::wrap_static_fns spits out code that
-# triggers a warning.
-CPPFLAGS+=-DFD_HAS_FFI=1 -fPIC -flto=thin -Wno-pedantic
+CPPFLAGS+=-DFD_HAS_FFI=1 -fPIC
+
+##############################
+# Usage: $(call maybe-add-env-obj,env,lib)
+
+define _maybe-add-env-obj
+
+$(OBJDIR)/lib/lib$(2).a: $(patsubst %.c,%.o,$(1))
+
+$(patsubst %.c,%.o,$(1)): $(1)
+	$(CC) -I.. $(CPPFLAGS) $(CFLAGS) -c $$< -o $$@
+
+endef
+
+maybe-add-env-obj = $(eval $(call _maybe-add-env-obj,$(1),$(2)))
+
+$(call maybe-add-env-obj,$(UTIL_STATIC_EXTERN_OBJECT),fd_util)
+$(call maybe-add-env-obj,$(TANGO_STATIC_EXTERN_OBJECT),fd_tango)
+$(call maybe-add-env-obj,$(DISCO_STATIC_EXTERN_OBJECT),fd_disco)
+$(call maybe-add-env-obj,$(BALLET_STATIC_EXTERN_OBJECT),fd_ballet)
