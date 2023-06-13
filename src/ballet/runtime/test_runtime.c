@@ -116,6 +116,7 @@ struct global_state {
   char const *        accounts;
   char const *        cmd;
   char const *        txn_exe_opt;
+  char const *        net;
 };
 typedef struct global_state global_state_t;
 
@@ -459,6 +460,7 @@ int main(int argc, char **argv) {
   state.accounts            = fd_env_strip_cmdline_cstr ( &argc, &argv, "--accounts",     NULL, NULL);
   state.cmd                 = fd_env_strip_cmdline_cstr ( &argc, &argv, "--cmd",          NULL, NULL);
   state.txn_exe_opt         = fd_env_strip_cmdline_cstr ( &argc, &argv, "--txn-exe",      NULL, NULL);
+  state.net                 = fd_env_strip_cmdline_cstr ( &argc, &argv, "--net",          NULL, NULL);
 
   state.pages         = fd_env_strip_cmdline_ulong ( &argc, &argv, "--pages",      NULL, 0);
 
@@ -481,6 +483,16 @@ int main(int argc, char **argv) {
     state.txn_exe = (strcmp(state.txn_exe_opt, "skip") == 0) ? 1 : 0;
     state.txn_exe = (strcmp(state.txn_exe_opt, "sim") == 0) ? 2 : 0;
   }
+
+  if (NULL != state.net) {
+    if (!strncmp(state.net, "main", 4))
+      enable_mainnet(&state.global->features);
+    if (!strcmp(state.net, "test"))
+      enable_testnet(&state.global->features);
+    if (!strcmp(state.net, "dev"))
+      enable_devnet(&state.global->features);
+  } else
+    memset(&state.global->features, 1, sizeof(state.global->features));
 
   fd_wksp_t *wksp = NULL;
   if ( state.name ) {
