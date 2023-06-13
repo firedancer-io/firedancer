@@ -42,10 +42,6 @@ fd_vote_load_account( fd_vote_state_versioned_t * account,
   /* Copy metadata */
   memcpy( meta, meta_raw, sizeof(fd_account_meta_t) );
 
-  /* Check account owner */
-  if( FD_UNLIKELY( 0!=memcmp( meta->info.owner, global->solana_vote_program, 32UL ) ) )
-    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
-
   /* Deserialize content */
   fd_bincode_decode_ctx_t decode = {
     .data    = data_raw,
@@ -483,6 +479,21 @@ vote_update_validator_identity( instruction_ctx_t   ctx,
 int fd_executor_vote_program_execute_instruction(
     instruction_ctx_t ctx
 ) {
+    /* Accounts */
+    uchar const * instr_acc_idxs = ((uchar const *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
+    fd_pubkey_t const * txn_accs = (fd_pubkey_t const *)((uchar const *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
+
+    /* Check vote account account owner.
+       TODO dedup metadata fetch */
+    if( FD_UNLIKELY( ctx.txn_ctx->txn_descriptor->acct_addr_cnt < 1 ) )
+      return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+    fd_pubkey_t vote_acc_owner;
+    int get_owner_res = fd_acc_mgr_get_owner( ctx.global->acc_mgr, ctx.global->funk_txn, &txn_accs[instr_acc_idxs[0]], &vote_acc_owner );
+    if( FD_UNLIKELY( get_owner_res != FD_ACC_MGR_SUCCESS ) )
+      return get_owner_res;
+    if( FD_UNLIKELY( 0!=memcmp( &vote_acc_owner, ctx.global->solana_vote_program, 32UL ) ) )
+      return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
+
     /* Deserialize the Vote instruction */
     void const * data = (void const *)( (ulong)ctx.txn_ctx->txn_raw->raw + ctx.instr->data_off );
 
@@ -504,10 +515,6 @@ int fd_executor_vote_program_execute_instruction(
       .freef     = ctx.global->freef,
       .freef_arg = ctx.global->allocf_arg
     };
-
-    /* Accounts */
-    uchar const * instr_acc_idxs = ((uchar const *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
-    fd_pubkey_t const * txn_accs = (fd_pubkey_t const *)((uchar const *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
 
     switch( instruction.discriminant ) {
     case fd_vote_instruction_enum_initialize_account: {
@@ -543,14 +550,12 @@ int fd_executor_vote_program_execute_instruction(
          https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L1340-L1342 */
       fd_account_meta_t metadata;
       int read_result = fd_acc_mgr_get_metadata( ctx.global->acc_mgr, ctx.global->funk_txn, vote_acc, &metadata );
-      if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
+      if( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
         FD_LOG_WARNING(( "failed to read account metadata" ));
         return read_result;
       }
-      if ( metadata.dlen != VOTE_ACCOUNT_SIZE ) {
-        FD_LOG_WARNING(( "vote account size incorrect. expected %d got %lu", VOTE_ACCOUNT_SIZE, metadata.dlen ));
+      if( FD_UNLIKELY( metadata.dlen != VOTE_ACCOUNT_SIZE ) )
         return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
-      }
 
       /* Check, for both the current and V0_23_5 versions of the vote account state, that the vote account is uninitialized. */
       uchar *vota_acc_data = (uchar *)(ctx.global->allocf)(ctx.global->allocf_arg, 8UL, metadata.dlen);
@@ -656,11 +661,12 @@ int fd_executor_vote_program_execute_instruction(
       fd_vote_state_versioned_destroy( vote_state_versioned, &destroy );
       break;
     }
-    case fd_vote_instruction_enum_vote: {
+    case fd_vote_instruction_enum_vote:
+    case fd_vote_instruction_enum_vote_switch: {
       /* VoteInstruction::Vote instruction
          https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_instruction.rs#L39-L46
        */
-      FD_LOG_INFO(( "executing VoteInstruction::Vote instruction" ));
+      FD_LOG_INFO(( "executing VoteInstruction::Vote(Switch) instruction" ));
       fd_vote_t const * vote = &instruction.inner.vote;
 
       /* Check that the accounts are correct */
@@ -930,11 +936,15 @@ int fd_executor_vote_program_execute_instruction(
       fd_vote_state_versioned_destroy( &vote_state_versioned, &destroy );
       break;
     }
-    case fd_vote_instruction_enum_update_vote_state: {
+    case fd_vote_instruction_enum_update_vote_state:
+    case fd_vote_instruction_enum_update_vote_state_switch: {
+      if( FD_UNLIKELY( !ctx.global->features.allow_votes_to_directly_update_vote_state ) )
+        return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+
       /* VoteInstruction::UpdateVoteState instruction
          https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_processor.rs#L174
        */
-      FD_LOG_INFO(( "executing VoteInstruction::UpdateVoteState instruction" ));
+      FD_LOG_INFO(( "executing VoteInstruction::UpdateVoteState(Switch) instruction" ));
       fd_vote_state_update_t * vote_state_update = &instruction.inner.update_vote_state;
 
       /* Read vote account state stored in the vote account data */
@@ -1129,6 +1139,9 @@ int fd_executor_vote_program_execute_instruction(
       if( FD_UNLIKELY( ctx.instr->acct_cnt < 3 ) )
         return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
 
+      if( FD_UNLIKELY( !ctx.global->features.vote_authorize_with_seed ) )
+        return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+
       /* Instruction accounts (untrusted user inputs) */
       fd_pubkey_t const * vote_acc_addr  = &txn_accs[instr_acc_idxs[0]];
       fd_pubkey_t const * clock_acc_addr = &txn_accs[instr_acc_idxs[1]];
@@ -1202,6 +1215,9 @@ int fd_executor_vote_program_execute_instruction(
       /* Voter pubkey must be a signer */
       if( FD_UNLIKELY( instr_acc_idxs[3] >= ctx.txn_ctx->txn_descriptor->signature_cnt ) )
         return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+
+      if( FD_UNLIKELY( !ctx.global->features.vote_authorize_with_seed ) )
+        return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
 
       /* Check that account at index 1 is the clock sysvar */
       if( FD_UNLIKELY( 0!=memcmp( clock_acc_addr, ctx.global->sysvar_clock, sizeof(fd_pubkey_t) ) ) )
