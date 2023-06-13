@@ -19,4 +19,4 @@ jobs:
         run: "cp -r /home/runner/firedancer-opts/opt . && ls -lah opt"
 
       - name: Build fuzz tests
-        run: MACHINE=linux_clang_fuzz_asan make -j fuzz-test
+        run: MACHINE=linux_clang_x86_64_fuzz_asan make -j fuzz-test
