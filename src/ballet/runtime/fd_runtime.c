@@ -856,9 +856,9 @@ fd_pubkey_create_with_seed( fd_pubkey_t const * base,
   fd_sha256_t sha;
   fd_sha256_init( &sha );
 
-  fd_sha256_append( &sha, (uchar const *) base->hash, sizeof( fd_hash_t ) );
-  fd_sha256_append( &sha, (uchar const *) seed, slen );
-  fd_sha256_append( &sha, (uchar const *) owner->hash, sizeof( fd_hash_t ) );
+  fd_sha256_append( &sha, base->hash, sizeof( fd_hash_t ) );
+  fd_sha256_append( &sha, seed, slen );
+  fd_sha256_append( &sha, owner->hash, sizeof( fd_hash_t ) );
 
   fd_sha256_fini( &sha, out->hash );
 
