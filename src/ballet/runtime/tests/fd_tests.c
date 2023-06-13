@@ -241,15 +241,21 @@ int main(int argc, char **argv) {
   int ret = 0;
 
   /* Loop through tests */
+  ulong executed_cnt = 0UL;
+  ulong success_cnt = 0UL;
   for( ulong idx = test_start; idx <= test_end; idx++ ) {
     if( FD_UNLIKELY( idx >= test_cnt ) )
       break;
     int r = tests[ idx ]( &suite );
-    if ((r != 0) && (r != -9999)) {
-      FD_LOG_NOTICE( ("test %lu returned %d", idx, r)) ;
+    if ((r != 0) && (r != -9999))
       ret = r;
+    if( r != -9999 ) {
+      executed_cnt++;
+      if( r == 0 ) success_cnt++;
     }
   }
+
+  FD_LOG_NOTICE(( "Progress: %lu/%lu tests", success_cnt, executed_cnt ));
 
   fd_log_flush();
   fd_halt();
