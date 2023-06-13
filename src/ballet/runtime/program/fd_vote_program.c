@@ -339,8 +339,8 @@ vote_authorize( instruction_ctx_t             ctx,
       }
       /* Excerpt from solana_vote_program::vote_state::VoteState::set_new_authorized_voter */
       if( ele->epoch == target_epoch ) {
-        ctx.txn_ctx->custom_err = 5;
-        return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR /* FD_VOTE_TOO_SOON_TO_REAUTHORIZE */;
+        ctx.txn_ctx->custom_err = FD_VOTE_TOO_SOON_TO_REAUTHORIZE;
+        return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
       }
     }
     if( FD_UNLIKELY( !authorized_voter ) )
@@ -664,8 +664,7 @@ int fd_executor_vote_program_execute_instruction(
         .epoch  = clock.epoch,
         .pubkey = init_account_params->authorized_voter,
       };
-      void * authorized_voters_buf = fd_alloca_check( alignof( deq_fd_vote_historical_authorized_voter_t_private_t), deq_fd_vote_historical_authorized_voter_t_footprint() );
-      vote_state->authorized_voters = deq_fd_vote_historical_authorized_voter_t_join( deq_fd_vote_historical_authorized_voter_t_new( authorized_voters_buf ) );
+      vote_state->authorized_voters = deq_fd_vote_historical_authorized_voter_t_alloc( ctx.global->allocf, ctx.global->allocf_arg );
       FD_TEST( !deq_fd_vote_historical_authorized_voter_t_full( vote_state->authorized_voters ) );
       deq_fd_vote_historical_authorized_voter_t_push_head( vote_state->authorized_voters, authorized_voter );
       vote_state->authorized_withdrawer = init_account_params->authorized_withdrawer;
