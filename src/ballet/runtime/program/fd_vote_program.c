@@ -307,21 +307,13 @@ vote_authorize( instruction_ctx_t             ctx,
      Matching solana_vote_program::vote_state::verify_authorized_signer(&vote_state.authorized_withdrawer) */
   int authorized_withdrawer_signer = 0;
   if( extra_authority ) {
-    char x[FD_BASE58_ENCODED_32_SZ];
-    fd_base58_encode_32( vote_state->authorized_withdrawer.uc, NULL, x );
-    FD_LOG_INFO(( "current authorized withdraw authority: %s", x ));
-    fd_base58_encode_32( extra_authority->uc, NULL, x );
-    FD_LOG_INFO(( "provided derived key to act as withdraw authority: %s", x ));
-    if( 0==memcmp( extra_authority->uc, vote_state->authorized_withdrawer.uc, sizeof(fd_pubkey_t) ) ) {
-      FD_LOG_INFO(( "authorized by derived withdraw authority" ));
+    if( 0==memcmp( extra_authority->uc, vote_state->authorized_withdrawer.uc, sizeof(fd_pubkey_t) ) )
       authorized_withdrawer_signer = 1;
-    }
   }
   for( ulong i=0; i<ctx.instr->acct_cnt; i++ ) {
     if( instr_acc_idxs[i] < ctx.txn_ctx->txn_descriptor->signature_cnt ) {
       fd_pubkey_t const * signer = &txn_accs[instr_acc_idxs[i]];
       if( 0==memcmp( signer, &vote_state->authorized_withdrawer, sizeof(fd_pubkey_t) ) ) {
-        FD_LOG_INFO(( "authorized directly by withdraw authority" ));
         authorized_withdrawer_signer = 1;
         break;
       }
@@ -376,21 +368,13 @@ vote_authorize( instruction_ctx_t             ctx,
        Matching solana_vote_program::vote_state::verify_authorized_signer(&authorized_voters_vec->elems[0].pubkey) */
     int authorized_voter_signer = 0;
     if( extra_authority ) {
-      char x[FD_BASE58_ENCODED_32_SZ];
-      fd_base58_encode_32( authorized_voter->pubkey.uc, NULL, x );
-      FD_LOG_INFO(( "current authorized vote authority: %s", x ));
-      fd_base58_encode_32( extra_authority->uc, NULL, x );
-      FD_LOG_INFO(( "provided derived key to act as vote authority: %s", x ));
-      if( 0==memcmp( extra_authority->uc, authorized_voter->pubkey.uc, sizeof(fd_pubkey_t) ) ) {
-        FD_LOG_INFO(( "authorized by derived vote authority" ));
+      if( 0==memcmp( extra_authority->uc, authorized_voter->pubkey.uc, sizeof(fd_pubkey_t) ) )
         authorized_voter_signer = 1;
-      }
     }
     for( ulong i=0; i<ctx.instr->acct_cnt; i++ ) {
       if( instr_acc_idxs[i] < ctx.txn_ctx->txn_descriptor->signature_cnt ) {
         fd_pubkey_t const * signer = &txn_accs[instr_acc_idxs[i]];
         if( 0==memcmp( signer->uc, authorized_voter->pubkey.uc, sizeof(fd_pubkey_t) ) ) {
-          FD_LOG_INFO(( "authorized directly by vote authority" ));
           authorized_voter_signer = 1;
           break;
         }
@@ -404,10 +388,8 @@ vote_authorize( instruction_ctx_t             ctx,
     } else {
       is_authorized = authorized_voter_signer;
     }
-    if( FD_UNLIKELY( !is_authorized ) ) {
-      FD_LOG_INFO(( "not authorized to change vote authority" ));
+    if( FD_UNLIKELY( !is_authorized ) )
       return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
-    }
 
     /* If authorized voter changes, add to prior voters */
     fd_vote_historical_authorized_voter_t * tail_voter = deq_fd_vote_historical_authorized_voter_t_peek_tail( authorized_voters );
@@ -455,10 +437,8 @@ vote_authorize( instruction_ctx_t             ctx,
     break;
   }
   case 1:
-    if( FD_UNLIKELY( !authorized_withdrawer_signer ) ) {
-      FD_LOG_INFO(( "not authorized to change withdraw authority" ));
+    if( FD_UNLIKELY( !authorized_withdrawer_signer ) )
       return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
-    }
     /* Updating authorized withdrawer */
     memcpy( &vote_state->authorized_withdrawer,
             authorize_pubkey,
