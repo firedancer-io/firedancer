@@ -1,0 +1,4 @@
+[submodule "solana"]
+	path = solana
+	url = git@github.com:firedancer-io/solana.git
+	branch = milestone-1.5
