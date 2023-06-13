@@ -80,6 +80,11 @@ scratch_directory = "/home/{user}/.firedancer/{name}"
     # QUIC and verify tiles are connected 1:1.
     verify_tile_count = 4
 
+    # How many bank tiles to run. Multiple banks can run in parallel, if they are not writing to the
+    # same accounts at the same time. Bank tile 0 is not managed by Firedancer, it is the Solana
+    # Labs thread receiving gossiped transactions.
+    bank_tile_count = 4
+
 # All memory that will be used in Firedancer is pre-allocated in two kinds of pages: huge and
 # gigantic. Huge pages are 2MB and gigantic pages are 1GB. This is done to prevent TLB misses
 # which can have a high performance cost. There are three important steps in this configuration,
@@ -305,6 +310,12 @@ scratch_directory = "/home/{user}/.firedancer/{name}"
         #
         # TODO: This should be removed, we should just use a standard backpressure mechanism here.
         solana_labs_bank_thread_compute_units_executed_per_second = 12000001
+
+    # The bank tile is what executes transactions and updates the accounting state as a result of
+    # any operations performed by the transactions.
+    [tiles.bank]
+        # TODO
+        receive_buffer_size = 2
 
     # All transactions entering into the validator are deduplicated after their signature is
     # verified, to ensure the same transaction is not repeated multiple times.

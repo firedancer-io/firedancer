@@ -51,7 +51,37 @@ fn step(config: &mut Config) {
     let main_cnc = run!("{bin}/fd_tango_ctl new-cnc {workspace} 0 tic {CNC_APP_SIZE}");
     run!("{bin}/fd_pod_ctl insert {pod} cstr {prefix}.main.cnc {main_cnc}");
 
-    // Pack tiles
+    let mut bank_info = vec![];
+
+    // Bank tiles. We don't set anything for tile 0, which is the gossip vote receiver and runs
+    // with the Solana Labs networking layer.
+    for i in 1..config.layout.bank_tile_count {
+        let in_mcache = run!("{bin}/fd_tango_ctl new-mcache {workspace} {} 0 0", config.tiles.bank.receive_buffer_size);
+        let in_dcache = run!("{bin}/fd_tango_ctl new-dcache {workspace} {mtu} {receive_buffer_size} 1 1 0",
+            mtu=config.tiles.bank.mtu,
+            receive_buffer_size=config.tiles.bank.receive_buffer_size);
+        let in_fseq = run!("{bin}/fd_tango_ctl new-fseq {workspace} 0");
+        run!("{bin}/fd_pod_ctl \
+            insert {pod} cstr {prefix}.bankin.b{i}in.mcache {in_mcache} \
+            insert {pod} cstr {prefix}.bankin.b{i}in.dcache {in_dcache} \
+            insert {pod} cstr {prefix}.bankin.b{i}in.fseq {in_fseq}");
+
+        let cnc = run!("{bin}/fd_tango_ctl new-cnc {workspace} 2 tic {CNC_APP_SIZE}");
+        let mcache = run!("{bin}/fd_tango_ctl new-mcache {workspace} {} 0 0", config.tiles.bank.receive_buffer_size);
+        let dcache = run!("{bin}/fd_tango_ctl new-dcache {workspace} {mtu} {receive_buffer_size} 1 1 0",
+            mtu=config.tiles.bank.mtu,
+            receive_buffer_size=config.tiles.bank.receive_buffer_size);
+        let fseq = run!("{bin}/fd_tango_ctl new-fseq {workspace} 0");
+        run!("{bin}/fd_pod_ctl \
+            insert {pod} cstr {prefix}.bank.b{i}.cnc {cnc} \
+            insert {pod} cstr {prefix}.bank.b{i}.mcache {mcache} \
+            insert {pod} cstr {prefix}.bank.b{i}.dcache {dcache} \
+            insert {pod} cstr {prefix}.bank.b{i}.fseq {fseq}");
+
+        bank_info.push((in_mcache, in_dcache, in_fseq));
+    }
+
+    // Pack tile
     let cnc = run!("{bin}/fd_tango_ctl new-cnc {workspace} 0 tic {CNC_APP_SIZE}");
     let mcache = run!("{bin}/fd_tango_ctl new-mcache {workspace} {} 0 0", config.tiles.pack.max_pending_transactions);
     

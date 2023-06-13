@@ -220,7 +220,8 @@ config_struct!(TilesConfig {
     quic: QuicConfig,
     verify: VerifyConfig,
     pack: PackConfig,
-    dedup: DedupConfig
+    dedup: DedupConfig,
+    bank: BankConfig
 });
 
 config_struct!(VerifyConfig {
@@ -238,6 +239,13 @@ config_struct!(PackConfig {
         compute_unit_estimator_ema_default: u32,
         solana_labs_bank_thread_count: u32,
         solana_labs_bank_thread_compute_units_executed_per_second: u32
+    }
+});
+
+config_struct!(BankConfig {
+    {
+        receive_buffer_size: u32,
+        mtu: u32
     }
 });
 
@@ -269,7 +277,8 @@ config_struct!(NetNsConfig {
 config_struct!(LayoutConfig {
     {
         affinity: String,
-        verify_tile_count: u32
+        verify_tile_count: u32,
+        bank_tile_count: u32
     }
 });
 
