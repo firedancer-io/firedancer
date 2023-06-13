@@ -1014,7 +1014,7 @@ void fd_stakes_destroy(fd_stakes_t* self, fd_bincode_destroy_ctx_t * ctx) {
       fd_delegation_pair_t * ele = deq_fd_delegation_pair_t_iter_ele( self->stake_delegations, iter );
       fd_delegation_pair_destroy(ele, ctx);
     }
-    (*ctx->freef)(ctx->freef_arg, self->stake_delegations);
+    (*ctx->freef)(ctx->freef_arg, deq_fd_delegation_pair_t_delete( deq_fd_delegation_pair_t_leave( self->stake_delegations) ) );
     self->stake_delegations = NULL;
   }
   fd_stake_history_destroy(&self->stake_history, ctx);
@@ -3364,7 +3364,7 @@ void fd_vote_state_0_23_5_destroy(fd_vote_state_0_23_5_t* self, fd_bincode_destr
       fd_vote_lockout_t * ele = deq_fd_vote_lockout_t_iter_ele( self->votes, iter );
       fd_vote_lockout_destroy(ele, ctx);
     }
-    (*ctx->freef)(ctx->freef_arg, self->votes);
+    (*ctx->freef)(ctx->freef_arg, deq_fd_vote_lockout_t_delete( deq_fd_vote_lockout_t_leave( self->votes) ) );
     self->votes = NULL;
   }
   if (NULL != self->saved_root_slot) {
@@ -3376,7 +3376,7 @@ void fd_vote_state_0_23_5_destroy(fd_vote_state_0_23_5_t* self, fd_bincode_destr
       fd_vote_epoch_credits_t * ele = deq_fd_vote_epoch_credits_t_iter_ele( self->epoch_credits, iter );
       fd_vote_epoch_credits_destroy(ele, ctx);
     }
-    (*ctx->freef)(ctx->freef_arg, self->epoch_credits);
+    (*ctx->freef)(ctx->freef_arg, deq_fd_vote_epoch_credits_t_delete( deq_fd_vote_epoch_credits_t_leave( self->epoch_credits) ) );
     self->epoch_credits = NULL;
   }
   fd_vote_block_timestamp_destroy(&self->latest_timestamp, ctx);
@@ -3568,7 +3568,7 @@ void fd_vote_state_destroy(fd_vote_state_t* self, fd_bincode_destroy_ctx_t * ctx
       fd_vote_lockout_t * ele = deq_fd_vote_lockout_t_iter_ele( self->votes, iter );
       fd_vote_lockout_destroy(ele, ctx);
     }
-    (*ctx->freef)(ctx->freef_arg, self->votes);
+    (*ctx->freef)(ctx->freef_arg, deq_fd_vote_lockout_t_delete( deq_fd_vote_lockout_t_leave( self->votes) ) );
     self->votes = NULL;
   }
   if (NULL != self->saved_root_slot) {
@@ -3580,7 +3580,7 @@ void fd_vote_state_destroy(fd_vote_state_t* self, fd_bincode_destroy_ctx_t * ctx
       fd_vote_historical_authorized_voter_t * ele = deq_fd_vote_historical_authorized_voter_t_iter_ele( self->authorized_voters, iter );
       fd_vote_historical_authorized_voter_destroy(ele, ctx);
     }
-    (*ctx->freef)(ctx->freef_arg, self->authorized_voters);
+    (*ctx->freef)(ctx->freef_arg, deq_fd_vote_historical_authorized_voter_t_delete( deq_fd_vote_historical_authorized_voter_t_leave( self->authorized_voters) ) );
     self->authorized_voters = NULL;
   }
   fd_vote_prior_voters_destroy(&self->prior_voters, ctx);
@@ -3589,7 +3589,7 @@ void fd_vote_state_destroy(fd_vote_state_t* self, fd_bincode_destroy_ctx_t * ctx
       fd_vote_epoch_credits_t * ele = deq_fd_vote_epoch_credits_t_iter_ele( self->epoch_credits, iter );
       fd_vote_epoch_credits_destroy(ele, ctx);
     }
-    (*ctx->freef)(ctx->freef_arg, self->epoch_credits);
+    (*ctx->freef)(ctx->freef_arg, deq_fd_vote_epoch_credits_t_delete( deq_fd_vote_epoch_credits_t_leave( self->epoch_credits) ) );
     self->epoch_credits = NULL;
   }
   fd_vote_block_timestamp_destroy(&self->latest_timestamp, ctx);
@@ -4310,7 +4310,7 @@ void fd_slot_hashes_destroy(fd_slot_hashes_t* self, fd_bincode_destroy_ctx_t * c
       fd_slot_hash_t * ele = deq_fd_slot_hash_t_iter_ele( self->hashes, iter );
       fd_slot_hash_destroy(ele, ctx);
     }
-    (*ctx->freef)(ctx->freef_arg, self->hashes);
+    (*ctx->freef)(ctx->freef_arg, deq_fd_slot_hash_t_delete( deq_fd_slot_hash_t_leave( self->hashes) ) );
     self->hashes = NULL;
   }
 }
@@ -4419,7 +4419,7 @@ void fd_recent_block_hashes_destroy(fd_recent_block_hashes_t* self, fd_bincode_d
       fd_block_block_hash_entry_t * ele = deq_fd_block_block_hash_entry_t_iter_ele( self->hashes, iter );
       fd_block_block_hash_entry_destroy(ele, ctx);
     }
-    (*ctx->freef)(ctx->freef_arg, self->hashes);
+    (*ctx->freef)(ctx->freef_arg, deq_fd_block_block_hash_entry_t_delete( deq_fd_block_block_hash_entry_t_leave( self->hashes) ) );
     self->hashes = NULL;
   }
 }
@@ -4692,7 +4692,7 @@ void fd_clock_timestamp_votes_destroy(fd_clock_timestamp_votes_t* self, fd_binco
       fd_clock_timestamp_vote_t * ele = deq_fd_clock_timestamp_vote_t_iter_ele( self->votes, iter );
       fd_clock_timestamp_vote_destroy(ele, ctx);
     }
-    (*ctx->freef)(ctx->freef_arg, self->votes);
+    (*ctx->freef)(ctx->freef_arg, deq_fd_clock_timestamp_vote_t_delete( deq_fd_clock_timestamp_vote_t_leave( self->votes) ) );
     self->votes = NULL;
   }
 }
@@ -4967,7 +4967,7 @@ void fd_vote_new(fd_vote_t* self) {
 }
 void fd_vote_destroy(fd_vote_t* self, fd_bincode_destroy_ctx_t * ctx) {
   if ( self->slots ) {
-    (*ctx->freef)(ctx->freef_arg, self->slots);
+    (*ctx->freef)(ctx->freef_arg, deq_ulong_delete( deq_ulong_leave( self->slots) ) );
     self->slots = NULL;
   }
   fd_hash_destroy(&self->hash, ctx);
