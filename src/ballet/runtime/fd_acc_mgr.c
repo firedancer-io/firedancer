@@ -152,7 +152,7 @@ int fd_acc_mgr_write_account_data( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, fd
   return FD_ACC_MGR_SUCCESS;
 }
 
-int fd_acc_mgr_get_lamports( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, fd_pubkey_t * pubkey, fd_acc_lamports_t* result ) {
+int fd_acc_mgr_get_lamports( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, fd_pubkey_t const * pubkey, fd_acc_lamports_t* result ) {
   ulong sz = 0;
   int err = 0;
   void const * data = fd_acc_mgr_view_data(acc_mgr, txn, pubkey, &sz, &err);
@@ -170,7 +170,7 @@ int fd_acc_mgr_get_lamports( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, fd_pubke
   return FD_ACC_MGR_SUCCESS;
 }
 
-int fd_acc_mgr_get_owner( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, fd_pubkey_t * pubkey, fd_pubkey_t* result ) {
+int fd_acc_mgr_get_owner( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, fd_pubkey_t const * pubkey, fd_pubkey_t* result ) {
   fd_account_meta_t metadata;
   int               read_result = fd_acc_mgr_get_metadata( acc_mgr, txn, pubkey, &metadata );
   if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
@@ -188,7 +188,7 @@ int fd_acc_mgr_get_owner( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, fd_pubkey_t
   return FD_ACC_MGR_SUCCESS;
 }
 
-int fd_acc_mgr_set_lamports( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, ulong slot, fd_pubkey_t * pubkey, fd_acc_lamports_t lamports ) {
+int fd_acc_mgr_set_lamports( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, ulong slot, fd_pubkey_t const * pubkey, fd_acc_lamports_t lamports ) {
   ulong sz = sizeof(fd_account_meta_t);
   int err = 0;
   void *data = NULL;
@@ -216,7 +216,7 @@ int fd_acc_mgr_set_lamports( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, ulong sl
   return FD_ACC_MGR_SUCCESS;
 }
 
-int fd_acc_mgr_set_owner( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, ulong slot, fd_pubkey_t * pubkey, fd_pubkey_t new_owner ) {
+int fd_acc_mgr_set_owner( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, ulong slot, fd_pubkey_t const * pubkey, fd_pubkey_t new_owner ) {
   /* Read the current metadata from Funk */
   fd_account_meta_t metadata;
   int               read_result = fd_acc_mgr_get_metadata( acc_mgr, txn, pubkey, &metadata );
@@ -245,7 +245,7 @@ int fd_acc_mgr_set_owner( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, ulong slot,
   return FD_ACC_MGR_SUCCESS;
 }
 
-int fd_acc_mgr_set_metadata( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, ulong slot, fd_pubkey_t * pubkey, fd_account_meta_t *metadata) {
+int fd_acc_mgr_set_metadata( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, ulong slot, fd_pubkey_t const * pubkey, fd_account_meta_t *metadata) {
   /* Bet we have to update the hash of the account.. and track the dirty pubkeys.. */
   int write_result = fd_acc_mgr_write_account_data( acc_mgr, txn, pubkey, metadata, sizeof(*metadata), NULL, 0, 0 );
   if ( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) ) {
@@ -263,7 +263,7 @@ int fd_acc_mgr_update_data( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, ulong slo
     FD_LOG_WARNING(("account too large: %lu bytes", dlen));
     return FD_ACC_MGR_ERR_WRITE_FAILED;
   }
-  
+
   fd_account_meta_t m;
   int result = fd_acc_mgr_get_metadata(acc_mgr, txn, pubkey, &m);
   if (FD_ACC_MGR_SUCCESS != result)
@@ -304,7 +304,7 @@ int fd_acc_mgr_write_structured_account( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* t
     FD_LOG_WARNING(("account too large: %lu bytes", account->data_len));
     return FD_ACC_MGR_ERR_WRITE_FAILED;
   }
-  
+
   fd_account_meta_t m;
 
   fd_account_meta_init(&m);
@@ -350,7 +350,7 @@ int fd_acc_mgr_write_append_vec_account( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* t
     FD_LOG_WARNING(("account too large: %lu bytes", hdr->meta.data_len));
     return FD_ACC_MGR_ERR_WRITE_FAILED;
   }
-  
+
   fd_account_meta_t m;
   fd_account_meta_init(&m);
   m.dlen = hdr->meta.data_len;
@@ -455,7 +455,7 @@ int fd_acc_mgr_update_hash ( fd_acc_mgr_t * acc_mgr, fd_account_meta_t * m, fd_f
   return 0;
 }
 
-void const * 
+void const *
 fd_acc_mgr_view_data( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, fd_pubkey_t const * pubkey, ulong *sz, int *err ) {
   fd_funk_rec_key_t     id = fd_acc_mgr_key(pubkey);
   fd_funk_t *           funk = acc_mgr->global->funk;
