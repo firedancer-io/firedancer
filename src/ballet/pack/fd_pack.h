@@ -71,6 +71,8 @@ typedef struct fd_pack_private fd_pack_t;
    least `bank_depth` additional transactions have been scheduled to
    that bank.  Typically, this should be the same as the depth of the
    mcache being used to communicate with the banking thread.
+   FIXME: This is not exactly true right now when bank_cnt>1, but can be
+   fixed without affecting the interface.
 
    pack_depth sets the maximum number of pending transactions that pack
    stores and may eventually schedule. */
@@ -109,6 +111,12 @@ fd_pack_t * fd_pack_join( void * mem );
    object was created.  pack must be a valid local join of a pack object
    */
 ulong fd_pack_bank_cnt( fd_pack_t * pack );
+
+/* fd_pack_avail_txn_cnt returns the number of transactions that this
+   pack object has available to schedule but that have not been
+   scheduled yet. pack must be a vaild local join.  The return value
+   will be in [0, pack_depth). */
+ulong fd_pack_avail_txn_cnt( fd_pack_t * pack );
 
 /* fd_pack_insert_txn_{init,fini,cancel} execute the process of
    inserting a new transaction into the pool of available transactions
@@ -160,7 +168,7 @@ fd_pack_scheduled_txn_t fd_pack_schedule_next( fd_pack_t * pack );
 
    Summarizing,
       * insert and schedule transactions
-      * drain the block
+      * drain the block until it returns null
       * clear
       * repeat for the next block
    */

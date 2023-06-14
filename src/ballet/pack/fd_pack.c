@@ -215,6 +215,8 @@ fd_pack_join( void * mem ) {
 
 ulong fd_pack_bank_cnt( fd_pack_t * pack ) { return pack->bank_cnt; }
 
+ulong fd_pack_avail_txn_cnt( fd_pack_t * pack ) { return outq_cnt( pack->outq ); }
+
 
 /* Helper function that determines whether a transaction is considered a
    "simple vote" transaction.  Simple vote transactions are scheduled to a
