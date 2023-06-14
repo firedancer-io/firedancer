@@ -7,8 +7,16 @@
 
 /* TLS Extensions *****************************************************/
 
-/* Server name indication (RFC 6066)
+/* Supported TLS versions (RFC 8446)
+   Type: FD_TLS_EXT_TYPE_SUPPORTED_VERSIONS */
 
+struct fd_tls_ext_supported_versions {
+  uchar tls13 : 1;
+};
+
+typedef struct fd_tls_ext_supported_versions fd_tls_ext_supported_versions_t;
+
+/* Server name indication (RFC 6066)
    Type: FD_TLS_EXT_TYPE_SERVER_NAME (0) */
 
 struct fd_tls_ext_server_name {
@@ -18,9 +26,34 @@ struct fd_tls_ext_server_name {
 
 typedef struct fd_tls_ext_server_name fd_tls_ext_server_name_t;
 
+/* Supported ECDHE groups (RFC 8422, 7919)
+   Type: FD_TLS_EXT_TYPE_SUPPORTED_GROUPS */
+
+struct fd_tls_ext_supported_groups {
+  uchar x25519 : 1;
+};
+
+typedef struct fd_tls_ext_supported_groups fd_tls_ext_supported_groups_t;
+
+/* Supported signature schemes (RFC 8446)
+   Type: FD_TLS_EXT_TYPE_SIGNATURE_ALGORITHMS */
+
+struct fd_tls_ext_signature_algorithms {
+  uchar ed25519 : 1;
+};
+
+typedef struct fd_tls_ext_signature_algorithms fd_tls_ext_signature_algorithms_t;
+
+struct fd_tls_ext_key_share {
+  uchar has_x25519 : 1;
+  uchar x25519[ 32 ];
+};
+
+typedef struct fd_tls_ext_key_share fd_tls_ext_key_share_t;
+
 /* TLS v1.3 Client and Server Hello ************************************
 
-   - legacy_version is always set to FD_TLS_LEGACY_VERSION_TLS12.
+   - legacy_version is always set to FD_TLS_VERSION_TLS12.
      Other values raise FD_TLS_ALERT_PROTOCOL_VERSION.
 
    - random contains 32 cryptographically secure random bytes.
@@ -41,28 +74,25 @@ typedef struct fd_tls_ext_server_name fd_tls_ext_server_name_t;
 
    - legacy_compression_method_cnt is always 1.
      legacy_compression_methods[0] is always 0.
-     Violations result in FD_TLS_ALERT_ILLEGAL_PARAMETER.
-
-   - extension_cnt indicates the number of extensions that were
-     originally presented over the wire.  As unsupported extensions are
-     ignored, this number may be larger than the number of extensions
-     structs stored in the client/server hellos. */
+     Violations result in FD_TLS_ALERT_ILLEGAL_PARAMETER. */
 
 struct fd_tls_client_hello {
-  ushort legacy_version;  /* ==FD_TLS_LEGACY_VERSION_TLS12 */
   uchar  random[ 32 ];
-  uchar  legacy_session_id_sz; /* ==0 */
-  uchar  cipher_suite_cnt;
-  ushort cipher_suites[ 8 ];
-  uchar  legacy_compression_method_cnt;    /* == 1  */
-  uchar  legacy_compression_methods[ 1 ];  /* =={0} */
-  ushort extension_cnt;
 
-  fd_tls_ext_server_name_t server_name;
+  struct {
+    uchar aes_128_gcm_sha256 : 1;
+    /* Add more cipher suites here */
+  } cipher_suites;
+
+  fd_tls_ext_supported_versions_t   supported_versions;
+  fd_tls_ext_server_name_t          server_name;
+  fd_tls_ext_supported_groups_t     supported_groups;
+  fd_tls_ext_signature_algorithms_t signature_algorithms;
+  fd_tls_ext_key_share_t            key_share;
 };
 
 struct fd_tls_server_hello {
-  ushort legacy_version;  /* ==FD_TLS_LEGACY_VERSION_TLS12 */
+  ushort legacy_version;  /* ==FD_TLS_VERSION_TLS12 */
   uchar  random[ 32 ];
   uchar  legacy_session_id_echo_sz;  /* ==0 */
   ushort cipher_suite;
@@ -75,7 +105,8 @@ typedef struct fd_tls_server_hello fd_tls_server_hello_t;
 
 /* TLS Legacy Version field */
 
-#define FD_TLS_LEGACY_VERSION_TLS12 ((ushort)0x0303)
+#define FD_TLS_VERSION_TLS12 ((ushort)0x0303)
+#define FD_TLS_VERSION_TLS13 ((ushort)0x0304)
 
 /* TLS cipher suite IDs */
 
@@ -187,6 +218,31 @@ long
 fd_tls_decode_server_hello( fd_tls_server_hello_t * out,
                             void const *            wire,
                             ulong                   wire_sz );
+
+long
+fd_tls_decode_ext_server_name( fd_tls_ext_server_name_t * out,
+                               void const *               wire,
+                               ulong                      wire_sz );
+
+long
+fd_tls_decode_ext_supported_groups( fd_tls_ext_supported_groups_t * out,
+                                    void const *                    wire,
+                                    ulong                           wire_sz );
+
+long
+fd_tls_decode_ext_supported_versions( fd_tls_ext_supported_versions_t * out,
+                                      void const *                      wire,
+                                      ulong                             wire_sz );
+
+long
+fd_tls_decode_ext_signature_algorithms( fd_tls_ext_signature_algorithms_t * out,
+                                        void const *                        wire,
+                                        ulong                               wire_sz );
+
+long
+fd_tls_decode_ext_key_share( fd_tls_ext_key_share_t * out,
+                             void const *             wire,
+                             ulong                    wire_sz );
 
 FD_PROTOTYPES_END
 
