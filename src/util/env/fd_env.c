@@ -55,6 +55,20 @@ FD_ENV_STRIP_CMDLINE_IMPL( double,       double )
 
 #undef FD_ENV_STRIP_CMDLINE_IMPL
 
+int
+fd_env_strip_cmdline_contains( int * pargc, char *** pargv, char const * key ) {
+  int new_argc = 0;
+  int found = 0;
+  if( key && pargc && pargv ) {
+    for( int arg=0; arg<(*pargc); arg++ )
+      if( strcmp( key, (*pargv)[arg] ) ) (*pargv)[new_argc++] = (*pargv)[arg];
+      else if( (++arg)<(*pargc) ) found = 1;
+    (*pargc)           = new_argc;
+    (*pargv)[new_argc] = NULL; /* ANSI - argv is NULL terminated */
+  }
+  return found;
+}
+
 #else
 #error "Unknown FD_ENV_STYLE"
 #endif
