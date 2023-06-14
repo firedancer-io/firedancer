@@ -80,7 +80,7 @@ main( int     argc,
     /* Randomly pick an operation to do */
 
     ulong r = fd_rng_ulong( rng );
-    int   op    = (int)(r & 7UL); r >>= 3;
+    int   op    = (int)(r & 0xfUL); r >>= 4;
     int   val   = (int)(uint)r;   r >>= 32;
     int   reset = !(r & 65535UL); r >>= 16;
 
@@ -141,6 +141,38 @@ main( int     argc,
       FD_TEST( test_deque_remove_tail( deque )==deque      );
       break;
 
+    case 8: /* push head nocopy */
+      if( FD_UNLIKELY( buf_cnt>=TEST_DEQUE_MAX ) ) break; /* skip when full */
+      buf_push_head( val ); *test_deque_push_head_nocopy( deque ) = val;
+      break;
+
+    case 9: /* push tail nocopy */
+      if( FD_UNLIKELY( buf_cnt>=TEST_DEQUE_MAX ) ) break; /* skip when full */
+      buf_push_tail( val ); *test_deque_push_tail_nocopy( deque ) = val;
+      break;
+
+    case 10: /* pop head nocopy */
+      if( FD_UNLIKELY( !buf_cnt ) ) break; /* skip when empty */
+      val = buf_pop_head(); FD_TEST( *test_deque_pop_head_nocopy( deque )==val );
+      break;
+
+    case 12: /* pop tail nocopy */
+      if( FD_UNLIKELY( !buf_cnt ) ) break; /* skip when empty */
+      val = buf_pop_tail(); FD_TEST( *test_deque_pop_tail_nocopy( deque )==val );
+      break;
+
+    case 13: {
+      ulong i = buf_start;
+      for( test_deque_iter_t iter = test_deque_iter_init( deque ); !test_deque_iter_done( deque, iter ); iter = test_deque_iter_next( deque, iter ) ) {
+        int * ele = test_deque_iter_ele( deque, iter );
+        FD_TEST( buf[i] == *ele );
+        if ( ++i >= TEST_DEQUE_MAX )
+          i = 0;
+      }
+      FD_TEST( i == buf_end );
+      break;
+    }
+      
     default: /* never get here */
       break;
     }

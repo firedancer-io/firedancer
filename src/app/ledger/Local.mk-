@@ -1,0 +1,10 @@
+ifneq ($(FD_HAS_ROCKSDB),)
+
+ifeq ($(FD_HAS_ZSTD),1)
+$(call make-bin,fd_frank_ledger,main tar,fd_ballet fd_util)
+$(call make-bin,banks_test,banks_test,fd_ballet fd_util)
+endif
+
+else
+$(warning ledger tool build disabled due to lack of rocksdb)
+endif

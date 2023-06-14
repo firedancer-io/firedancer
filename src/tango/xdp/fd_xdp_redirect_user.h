@@ -61,10 +61,17 @@ FD_PROTOTYPES_BEGIN
    Assumes that /sys/fs/bpf is a valid bpffs mount.
    Creates the following files in /sys/fs/bpf/{app_name}/
 
-     udp_dsts  BPF_MAP_TYPE_HASH map, see firedancer_udp_dsts in
-               program ebpf_xdp_flow.c */
+     udp_dsts  BPF_MAP_TYPE_HASH map, see fd_xdp_udp_dsts in
+               program ebpf_xdp_flow.c
+
+   /sys/fs/bpf and any created dirs and files will assume the given FS
+   mode, user ID and group ID.  Executable bit is removed as required.
+   If uid or gid are -1, then that ID is not changed. */
 int
-fd_xdp_init( char const * app_name );
+fd_xdp_init( char const * app_name,
+             uint         mode,
+             int          uid,
+             int          gid );
 
 /* fd_xdp_fini: Destroy all kernel resources installed by fd_xdp
    corresponding to the given app name, including any XDP programs,
@@ -78,12 +85,10 @@ fd_xdp_fini( char const * app_name );
    device with name ifname.  Installation lifetime is until a
    matching call to fd_xdp_unhook_iface() or until the system is
    shut down.  xdp_mode is the XDP install mode (as defined by
-   XDP_FLAGS_{...}_MODE in <linux/if_link.h>).  The given XDP priority
-   is used to determine order of execution when multiple XDP programs
-   are installed on this interface.  Programs installed with lower
-   priority values are executed first.  The given prog_elf must point
-   to memory containing an ELF static object of fd_xdp_redirect_prog.c
-   compiled for eBPF arch, where prog_elf_sz is the size of ELF file.
+   XDP_FLAGS_{...}_MODE in <linux/if_link.h>).  The given prog_elf must
+   point to memory containing an ELF static object of
+   fd_xdp_redirect_prog.c compiled for eBPF arch, where prog_elf_sz is
+   the size of ELF file.
    Returns 0 on success and -1 on error.  Fails if the XDP redirect
    program is already installed on this iface for this app_name.
    Reasons for error are logged to FD_LOG_WARNING.
@@ -106,7 +111,6 @@ int
 fd_xdp_hook_iface( char const * app_name,
                    char const * ifname,
                    uint         xdp_mode,
-                   int          priority,
                    void const * prog_elf,
                    ulong        prog_elf_sz );
 
@@ -121,7 +125,7 @@ fd_xdp_unhook_iface( char const * app_name,
 
 /* Listen API (privileged) ********************************************/
 
-/* fd_xdp_udp_dst_key returns a key for the firedancer_udp_dsts eBPF
+/* fd_xdp_udp_dst_key returns a key for the fd_xdp_udp_dsts eBPF
    map given the IPv4 dest address and UDP port number. */
 static inline ulong
 fd_xdp_udp_dst_key( uint ip4_addr,
@@ -153,6 +157,12 @@ int
 fd_xdp_release_udp_port( char const * app_name,
                          uint         ip4_dst_addr,
                          uint         udp_dst_port );
+
+/* fd_xdp_clear_listeners uninstalls all listeners previously installed
+   via fd_xdp_listen_udp_port(). */
+
+int
+fd_xdp_clear_listeners( char const * app_name );
 
 /* Runtime API (unprivileged) *****************************************/
 

@@ -288,6 +288,12 @@
   (uint)(((uchar const *)(b))[12]), (uint)(((uchar const *)(b))[13]), \
   (uint)(((uchar const *)(b))[14]), (uint)(((uchar const *)(b))[15])
 
+#define FD_LOG_HEX20_FMT "%02x%02x%02x%02x %02x%02x%02x%02x %02x%02x%02x%02x %02x%02x%02x%02x %02x%02x%02x%02x"
+#define FD_LOG_HEX20_FMT_ARGS(b)                                      \
+  FD_LOG_HEX16_FMT_ARGS(b),                                           \
+  (uint)(((uchar const *)(b))[16]), (uint)(((uchar const *)(b))[17]), \
+  (uint)(((uchar const *)(b))[18]), (uint)(((uchar const *)(b))[19])
+
 #define FD_LOG_NAME_MAX (40UL)
 
 FD_PROTOTYPES_BEGIN
@@ -432,6 +438,18 @@ ulong fd_log_tid( void );
 
 FD_FN_CONST char const * fd_log_user( void ); /* ptr is CONST, cstr pointed at is PURE */
 
+/* fd_log_group_id_query() returns the status of group_id.  Will be a
+   FD_LOG_GROUP_ID_QUERY_* code.  Positive indicates live, zero
+   indicates dead, negative indicates failure reason. */
+
+#define FD_LOG_GROUP_ID_QUERY_LIVE  (1)  /* group_id is live */
+#define FD_LOG_GROUP_ID_QUERY_DEAD  (0)  /* group_id is not live */
+#define FD_LOG_GROUP_ID_QUERY_INVAL (-1) /* query failed because invalid group_id (e.g. group_id does to map to a host pid) */
+#define FD_LOG_GROUP_ID_QUERY_PERM  (-2) /* query failed because caller lacks permissions */
+#define FD_LOG_GROUP_ID_QUERY_FAIL  (-3) /* query failed for unknown reason (should not happen) */
+
+int fd_log_group_id_query( ulong group_id );
+
 /* FIXME: TID DESC? UID? UID_SET? */
 
 /* Logging helper APIs ************************************************/
@@ -500,13 +518,17 @@ fd_log_flush( void );
    no validation of there inputs so the values may not behave like the
    caller things (e.g. stderr<logfile will be treated as
    stderr==logfile, flush<stderr will be treated as flush==stderr,
-   core<4 will be treated as 4). */
+   core<4 will be treated as 4).  colorize returns the colorization mode
+   of the ephemeral log.  Currently, zero indicates no colorization of
+   the ephmeral log and non-zero indicates to colorize it. */
 
-int fd_log_level_logfile( void );
-int fd_log_level_stderr ( void );
-int fd_log_level_flush  ( void );
-int fd_log_level_core   ( void );
+int fd_log_colorize( void );
+int fd_log_level_logfile ( void );
+int fd_log_level_stderr  ( void );
+int fd_log_level_flush   ( void );
+int fd_log_level_core    ( void );
 
+void fd_log_colorize_set     ( int mode  );
 void fd_log_level_logfile_set( int level );
 void fd_log_level_stderr_set ( int level );
 void fd_log_level_flush_set  ( int level );
@@ -544,6 +566,13 @@ fd_log_private_boot( int *    pargc,
 
 void
 fd_log_private_halt( void );
+
+ulong fd_log_private_main_stack_sz( void ); /* Returns ulimit -s (if reasonable) on success, 0 on failure (logs details) */
+
+void
+fd_log_private_stack_discover( ulong   stack_sz,  /* Size the stack is expected to be */
+                               ulong * _stack0,   /* [*_stack0,*_stack1) is the caller's stack region (will have stack_sz */
+                               ulong * _stack1 ); /* bytes) on success.  Both set to 0UL on failure (logs details). */
 
 /* These are exposed to allow the user to override the values set at
    boot/halt time.  If these are used, they are usually a sign of

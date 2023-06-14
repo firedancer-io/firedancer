@@ -1,0 +1,41 @@
+Firedancer source tree
+
+  firedancer/
+  │
+  ├── build/                   Build artifacts
+  │   └── linux/gcc/x86_64     Build profile
+  │       ├── bin/             Main programs and scripts
+  │       ├── include/         Exported include headers
+  │       ├─  lib/             Static libraries
+  │       ├── obj/             Object files of individual compile units
+  │       └── unit-test/       Test binaries
+  │
+  ├── config/          GNU Make configuration
+  │
+  ├── contrib/         Miscellaneous developer tooling
+  │
+  ├── opt/
+  │   ├── git/         Third-party dependency repos
+  │   ├── include/     Third-party dependency headers
+  │   └── lib/         Third-party dependency libraries
+  │
+  └── src/             The main Firedancer source tree
+      │
+      ├── app/         Main binaries
+      │
+      ├── ballet/      Standalone implementations of various standards
+      │                needed for interoperability with the Solana ecosystem
+      │                (hash functions, cryptographic algorithms)
+      │
+      ├── disco/       Tiles running on the tango messaging layer
+      │
+      ├── flamenco/    Major Solana runtime and consensus components
+      │                (bank, leader schedule, virtual machine, ...)
+      │
+      ├── funk/        Database optimized for storing Solana ledger and
+      │                accounts
+      │
+      ├── tango/       IPC messaging layer and networking
+      │
+      └── util/        C language environment, system runtime, common data
+                       structures and various utilities (math, bits, rng ...)

@@ -10,3 +10,6 @@ FD_TLS ulong * fd_scratch_private_frame;      /* NULL on thread start */
 FD_TLS ulong   fd_scratch_private_frame_cnt;  /* 0UL  on thread start */
 FD_TLS ulong   fd_scratch_private_frame_max;  /* 0UL  on thread start */
 
+#if FD_HAS_ALLOCA
+FD_TLS ulong fd_alloca_check_private_sz;
+#endif

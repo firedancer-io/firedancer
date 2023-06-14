@@ -21,7 +21,6 @@
 #include "fd_xdp_redirect_prog.h"
 
 #include <linux/bpf.h>
-#include <bpf/bpf_helpers.h>
 
 
 /* TODO: Some devices only support one XSK which requires multiplexing
@@ -33,38 +32,41 @@
 
 char __license[] __attribute__(( section("license") )) = "Apache-2.0";
 
+/* eBPF syscalls ******************************************************/
+
+static void *
+(* bpf_map_lookup_elem)( void *       map,
+                         void const * key)
+  = (void *)1U;
+
+static long
+(* bpf_redirect_map)( void * map,
+                      ulong  key,
+                      ulong  flags )
+  = (void *)51U;
+
 /* eBPF maps **********************************************************/
 
 /* eBPF maps allows sharing information between the Linux userspace and
    eBPF programs (XDP).  In this program, they are used to lookup flow
    steering configuration. */
 
-/* firedancer_xsks: Available XSKs for AF_XDP
+/* fd_xdp_xsks: Available XSKs for AF_XDP
    key in the interface queue index (in host byte order). */
-struct {
-  __uint( type,        BPF_MAP_TYPE_XSKMAP );
-  __uint( max_entries, FD_XDP_XSKS_MAP_CNT );
-  __type( key,         int                 );
-  __type( value,       int                 );
-} firedancer_xsks SEC(".maps");
+extern uint fd_xdp_xsks __attribute__((section("maps")));
 
-/* firedancer_udp_dsts: UDP/IP listen addrs
+/* fd_xdp_udp_dsts: UDP/IP listen addrs
    key is hex pattern 0000AAAAAAAABBBB where AAAAAAAA is the IP dest
    addr and BBBB is the UDP dest port (in network byte order). */
-struct {
-  __uint( type,        BPF_MAP_TYPE_HASH  );
-  __uint( max_entries, FD_XDP_UDP_MAP_CNT );
-  __type( key,         ulong              );
-  __type( value,       int                );
-} firedancer_udp_dsts SEC(".maps");
+extern uint fd_xdp_udp_dsts __attribute__((section("maps")));
 
 /* Executable Code ****************************************************/
 
-/* firedancer_redirect: Entrypoint of redirect XDP program.
+/* fd_xdp_redirect: Entrypoint of redirect XDP program.
    ctx is the XDP context for an Ethernet/IP packet.
    Returns an XDP action code in XDP_{PASS,REDIRECT,DROP}. */
 __attribute__(( section("xdp"), used ))
-int firedancer_redirect( struct xdp_md *ctx ) {
+int fd_xdp_redirect( struct xdp_md *ctx ) {
 
   uchar const * data      = (uchar const*)(ulong)ctx->data;
   uchar const * data_end  = (uchar const*)(ulong)ctx->data_end;
@@ -91,11 +93,15 @@ int firedancer_redirect( struct xdp_md *ctx ) {
   ulong flow_key    = (ip_dstaddr<<16) | udp_dstport;
 
   /* Filter for known UDP dest ports of interest */
-  uint * udp_value = bpf_map_lookup_elem( &firedancer_udp_dsts, &flow_key );
+  /* FIXME: This generates invalid asm.  The lddw instruction for
+            loading the fd_xdp_udp_dsts has src_reg==0, but it should
+            be src_reg==1 */
+  /* TODO: Consider using inline asm instead */
+  uint * udp_value = bpf_map_lookup_elem( &fd_xdp_udp_dsts, &flow_key );
   if( !udp_value ) return XDP_PASS;
 
   /* Look up the interface queue to find the socket to forward to */
   uint socket_key = ctx->rx_queue_index;
-  return bpf_redirect_map( &firedancer_xsks, socket_key, 0 );
+  return bpf_redirect_map( &fd_xdp_xsks, socket_key, 0 );
 }
 

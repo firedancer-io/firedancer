@@ -88,5 +88,20 @@ fd_cu16_dec( uchar const * buf,
   return sz;
 }
 
+static inline uint
+fd_cu16_enc( ushort val, uchar * out ) {
+  ulong _i = val;
+  uint j = 0;
+  while( 1 ) {
+    out[ j ] = _i&0x7F;
+    _i >>= 7;
+    if( _i ) 
+      out[ j++ ] |= 0x80;
+    else {
+      return j + 1;
+    }
+  }
+}
+
 FD_PROTOTYPES_END
 #endif /* HEADER_fd_src_ballet_txn_fd_compact_u16_h */

@@ -1,10 +1,10 @@
-#if FD_HAS_HOSTED && FD_HAS_X86
+#if FD_HAS_HOSTED
 #define _GNU_SOURCE
 #endif
 
 #include "fd_shmem_private.h"
 
-#if FD_HAS_HOSTED && FD_HAS_X86
+#if FD_HAS_HOSTED
 
 #include <errno.h>
 #include <unistd.h>
@@ -141,6 +141,7 @@ fd_shmem_join( char const *               name,
   char path[ FD_SHMEM_PRIVATE_PATH_BUF_MAX ];
   int fd = open( fd_shmem_private_path( name, page_sz, path ), rw ? O_RDWR : O_RDONLY, (mode_t)0 );
   if( FD_UNLIKELY( fd==-1 ) ) {
+    FD_SHMEM_UNLOCK;
     FD_LOG_WARNING(( "open(\"%s\",%s,0) failed (%i-%s)", path, rw ? "O_RDWR" : "O_RDONLY", errno, strerror( errno ) ));
     return NULL;
   }

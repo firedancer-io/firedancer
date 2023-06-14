@@ -28,6 +28,10 @@
 #define FD_FRANK_CNC_DIAG_SV_FILT_CNT (4UL)                 /* ", ideally never */
 #define FD_FRANK_CNC_DIAG_SV_FILT_SZ  (5UL)                 /* " */
 
+/* FD_FRANK_CONFIGURATION_PREFIX is a fixed prefix that we should
+   prepend when looking up our configuration. */
+extern char const * FD_FRANK_CONFIGURATION_PREFIX;
+
 FD_PROTOTYPES_BEGIN
 
 /* fd_frank_{verify,dedup,pack}_task is a fd_tile_task_t compatible

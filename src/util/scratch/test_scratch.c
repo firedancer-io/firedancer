@@ -16,8 +16,8 @@ main( int     argc,
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
 # if FD_HAS_ALLOCA
-  uchar * smem = fd_alloca( FD_SCRATCH_SMEM_ALIGN, fd_scratch_smem_footprint( SMAX  ) );
-  ulong * fmem = fd_alloca( FD_SCRATCH_FMEM_ALIGN, fd_scratch_fmem_footprint( DEPTH ) );
+  uchar * smem = fd_alloca      ( FD_SCRATCH_SMEM_ALIGN, fd_scratch_smem_footprint( SMAX  ) );
+  ulong * fmem = fd_alloca_check( FD_SCRATCH_FMEM_ALIGN, fd_scratch_fmem_footprint( DEPTH ) );
   FD_TEST( smem ); FD_TEST( fd_ulong_is_aligned( (ulong)smem, FD_SCRATCH_SMEM_ALIGN ) );
   FD_TEST( fmem ); FD_TEST( fd_ulong_is_aligned( (ulong)fmem, FD_SCRATCH_FMEM_ALIGN ) );
 # endif

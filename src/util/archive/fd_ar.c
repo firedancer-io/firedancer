@@ -146,7 +146,7 @@ fd_ar_read_next( void *         _stream,
 
 #else /* Not supported on this target */
 
-int fd_ar_read_init( void * stream                      ) { (void)stream;             return 1; }
-int fd_ar_read_next( void * stream, fd_ar_meta_t * meta ) { (void)stream; (void)meta; return 1; }
+int fd_ar_read_init( void * stream                      ) { (void)stream;             FD_COMPILER_MFENCE(); return 1; }
+int fd_ar_read_next( void * stream, fd_ar_meta_t * meta ) { (void)stream; (void)meta; FD_COMPILER_MFENCE(); return 1; }
 
 #endif

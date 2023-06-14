@@ -2,12 +2,15 @@ MAKEFLAGS += --no-builtin-rules
 MAKEFLAGS += --no-builtin-variables
 .SUFFIXES:
 .SUFFIXES: .h .hxx .c .cxx .o .a .d .S .i
-.PHONY: all bin include lib unit-test help clean distclean asm ppp show-deps
+.PHONY: all bin include lib unit-test fuzz-test run-unit-test help clean distclean asm ppp show-deps lint check-lint
 .SECONDARY:
 .SECONDEXPANSION:
 
-BASEDIR:=build
+BASEDIR?=build
 OBJDIR:=$(BASEDIR)/$(BUILDDIR)
+
+# Auxiliarily rules that should not set up depenencies
+AUX_RULES:=clean distclean help show-deps lint check-lint
 
 all: bin include lib unit-test
 
@@ -42,6 +45,7 @@ help:
 	# "make include" makes all include files for the current platform
 	# "make lib" makes all libraries for the current platform
 	# "make unit-test" makes all unit-tests for the current platform
+	# "make fuzz-test" makes all fuzz-tests for the current platform (requires fuzzing profile)
 	# "make run-unit-test" runs all unit-tests for the current platform. NOTE: this will not (re)build the test executables
 	# "make help" prints this message
 	# "make clean" removes editor temp files and the current platform build
@@ -50,6 +54,8 @@ help:
 	# "make ppp" run all source files through the preprocessor
 	# "make show-deps" shows all the dependencies
 	# "make cov-report" creates an LCOV coverage report from LLVM profdata. Requires make run-unit-test EXTRAS="llvm-cov"
+	# "make lint" runs the linter on all C source and header files. Creates backup files.
+	# "make check-lint" runs the linter in dry run mode.
 
 clean:
 	#######################################################################
@@ -64,6 +70,18 @@ distclean:
 	#######################################################################
 	$(RMDIR) $(BASEDIR) && \
 $(SCRUB)
+
+lint:
+	#######################################################################
+	# Linting src/
+	#######################################################################
+	$(FIND) src/ -iname "*.c" -or -iname "*.h" | uncrustify -c lint.cfg -F - --replace
+
+check-lint:
+	#######################################################################
+	# Checking lint in src/
+	#######################################################################
+	$(FIND) src/ -iname "*.c" -or -iname "*.h" | uncrustify -c lint.cfg -F - --check
 
 ##############################
 # Usage: $(call make-lib,name)
@@ -88,6 +106,24 @@ $(OBJDIR)/lib/lib$(2).a: $(foreach obj,$(1),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)
 endef
 
 add-objs = $(eval $(call _add-objs,$(1),$(2)))
+
+##############################
+# Usage: $(call maybe-add-env-obj,env,lib)
+
+define _maybe-add-env-obj
+
+ifdef $(1)
+OBJ_FILE = $(patsubst %.c,%.o,$($(1)))
+
+$(OBJDIR)/lib/lib$(2).a: $(OBJ_FILE)
+
+$(OBJ_FILE): $($(1))
+	$(CC) -I.. $(CPPFLAGS) $(CFLAGS) -c $$< -o $$@
+endif
+
+endef
+
+maybe-add-env-obj = $(eval $(call _maybe-add-env-obj,$(1),$(2)))
 
 ##############################
 # Usage: $(call add-asms,asms,lib)
@@ -143,12 +179,15 @@ $(1): $(OBJDIR)/$(1)/$(2)
 
 endef
 
+ifeq "$(FD_HAS_MAIN)" "1"
 add-scripts = $(foreach script,$(1),$(eval $(call _add-script,bin,$(script))))
 add-test-scripts = $(foreach script,$(1),$(eval $(call _add-script,unit-test,$(script))))
+endif
 
 ##############################
 # Usage: $(call make-bin,name,objs,libs)
 # Usage: $(call make-unit-test,name,objs,libs)
+# Usage: $(call make-fuzz-test,name,objs,libs)
 # Usage: $(call run-unit-test,name,args)
 
 # Note: The library arguments require customization of each target
@@ -186,9 +225,17 @@ run-$(3): run-$(1)
 
 endef
 
+ifeq "$(FD_HAS_MAIN)" "1"
 make-bin       = $(eval $(call _make-exe,$(1),$(2),$(3),bin))
 make-unit-test = $(eval $(call _make-exe,$(1),$(2),$(3),unit-test))
+make-fuzz-test =
 run-unit-test = $(eval $(call _run-unit-test,$(1),$(2),unit-test))
+else
+make-bin =
+make-unit-test =
+make-fuzz-test = $(eval $(call _make-exe,$(1),$(2),$(3),fuzz-test))
+run-unit-test =
+endif
 
 ##############################
 # Usage: $(call make-ebpf-bin,obj)
@@ -309,9 +356,8 @@ $(OBJDIR)/example/% : src/%
 	$(MKDIR) $(dir $@) && \
 $(CP) $^ $@
 
-ifneq ($(MAKECMDGOALS),distclean)
-ifneq ($(MAKECMDGOALS),clean)
-ifneq ($(MAKECMDGOALS),help)
+ifeq ($(filter $(MAKECMDGOALS),$(AUX_RULES)),)
+# If we are not in an auxiliary rule (aka we need to actually build something/need dep tree)
 
 # Include all the make fragments
 
@@ -343,7 +389,5 @@ asm: $(DEPFILES:.d=.S)
 
 ppp: $(DEPFILES:.d=.i)
 
-endif
-endif
 endif
 

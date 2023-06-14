@@ -32,10 +32,10 @@ vi_bcast_wide( int i0, int i1 ) {
   return _mm_setr_epi32( i0, i0, i1, i1 );
 }
 
-/* vi_permute returns [ i(imm_l0) i(imm_l1) i(imm_l2) i(imm_l3) ].
-   imm_l* should be compile time constants in 0:3. */
+/* vi_permute returns [ i(imm_i0) i(imm_i1) i(imm_i2) i(imm_i3) ].
+   imm_i* should be compile time constants in 0:3. */
 
-#define vi_permute(x,imm_l0,imm_l1,imm_l2,imm_l3) _mm_shuffle_epi32( (x), _MM_SHUFFLE( (imm_l3), (imm_l2), (imm_l1), (imm_l0) ) )
+#define vi_permute(x,imm_i0,imm_i1,imm_i2,imm_i3) _mm_shuffle_epi32( (x), _MM_SHUFFLE( (imm_i3), (imm_i2), (imm_i1), (imm_i0) ) )
 
 /* Predefined constants */
 
@@ -47,9 +47,9 @@ vi_bcast_wide( int i0, int i1 ) {
 /* vi_ld return the 4 ints at the 16-byte aligned / 16-byte sized
    location p as a vector int.  vi_ldu is the same but p does not have
    to be aligned.  vi_st writes the vector int to the 16-byte aligned /
-   16-byte sized ocation p as 4 ints.  vi_stu is the same but p does not
-   have to be aligned.  In all these lane l will be at p[l].  FIXME: USE
-   ATTRIBUTES ON P PASSED TO THESE?
+   16-byte sized location p as 4 ints.  vi_stu is the same but p does
+   not have to be aligned.  In all these lane l will be at p[l].  FIXME:
+   USE ATTRIBUTES ON P PASSED TO THESE?
    
    Note: gcc knows a __m128i may alias. */
 
@@ -60,10 +60,9 @@ static inline void vi_stu( int * p, vi_t i ) { _mm_storeu_si128( (__m128i *)p, i
 
 /* vi_ldif is an optimized equivalent to vi_notczero(c,vi_ldu(p)) (may
    have different behavior if c is not a proper vector conditional).  It
-   is provided for symmetry with with the vi_stif operation.  vi_stif
-   stores x(n) to p[n] if c(n) is true and leaves p[n] unchanged
-   otherwise.  Undefined behavior if c is not a proper vector
-   conditional. */
+   is provided for symmetry with the vi_stif operation.  vi_stif stores
+   x(n) to p[n] if c(n) is true and leaves p[n] unchanged otherwise.
+   Undefined behavior if c is not a proper vector conditional. */
 
 #define vi_ldif(c,p)   _mm_maskload_epi32( (p),(c))
 #define vi_stif(c,p,x) _mm_maskstore_epi32((p),(c),(x))
@@ -136,6 +135,22 @@ vi_insert_variable( vi_t a, int n, int v ) {
 #define vi_or(a,b)     _mm_or_si128(     (a), (b) ) /* [   a0 |b0    a1 |b1 ...   a3 |b3 ] */
 #define vi_xor(a,b)    _mm_xor_si128(    (a), (b) ) /* [   a0 ^b0    a1 ^b1 ...   a3 ^b3 ] */
 
+static inline vi_t vi_rol( vi_t a, int imm ) { return vi_or( vi_shl(  a, imm & 31 ), vi_shru( a, (-imm) & 31 ) ); }
+static inline vi_t vi_ror( vi_t a, int imm ) { return vi_or( vi_shru( a, imm & 31 ), vi_shl(  a, (-imm) & 31 ) ); }
+
+static inline vi_t vi_rol_variable( vi_t a, int n ) { return vi_or( vi_shl_variable(  a, n&31 ), vi_shru_variable( a, (-n)&31 ) ); }
+static inline vi_t vi_ror_variable( vi_t a, int n ) { return vi_or( vi_shru_variable( a, n&31 ), vi_shl_variable(  a, (-n)&31 ) ); }
+
+static inline vi_t vi_rol_vector( vi_t a, vi_t b ) {
+  vi_t m = vi_bcast( 31 );
+  return vi_or( vi_shl_vector(  a, vi_and( b, m ) ), vi_shru_vector( a, vi_and( vi_neg( b ), m ) ) );
+}
+
+static inline vi_t vi_ror_vector( vi_t a, vi_t b ) {
+  vi_t m = vi_bcast( 31 );
+  return vi_or( vi_shru_vector( a, vi_and( b, m ) ), vi_shl_vector(  a, vi_and( vi_neg( b ), m ) ) );
+}
+
 /* Logical operations */
 
 #define vi_lnot(a)     _mm_cmpeq_epi32( (a), _mm_setzero_si128() ) /* [  !a0  !a1 ...  !a3 ] */
@@ -160,15 +175,19 @@ vi_insert_variable( vi_t a, int n, int v ) {
 
 /* Summarizing:
 
-   vi_to_vc(a)               returns [ !!a0 !!a1 ... a3 ]
+   vi_to_vc(a)               returns [ !!a0 !!a1 ... !!a3 ]
+
+   vi_to_vu(a)               returns [ (uint)a0 (uint)a1 ... (uint)a3 ]
 
    vi_to_vf(a)               returns [ (float)a0 (float)a1 ... (float)a3 ]
 
-   vi_to_vd(a,imm_l0,imm_l1) returns [ (double)a(imm_l0) (double)a(imm_l1) ]
+   vi_to_vd(a,imm_i0,imm_i1) returns [ (double)a(imm_i0) (double)a(imm_i1) ]
 
-   vi_to_vl(a,imm_l0,imm_l1) returns [ (long)a(imm_l0) (long)a(imm_l1) ]
+   vi_to_vl(a,imm_i0,imm_i1) returns [ (long)a(imm_i0) (long)a(imm_i1) ]
 
-   where imm_l* should be a compile time constant in 0:3.
+   vi_to_vv(a,imm_i0,imm_i1) returns [ (ulong)a(imm_i0) (ulong)a(imm_i1) ]
+
+   where imm_i* should be a compile time constant in 0:3.
 
    The raw variants just treat the raw bits as the corresponding vector
    type.  For vi_to_vc_raw, the user promises vi contains a proper
@@ -178,13 +197,17 @@ vi_insert_variable( vi_t a, int n, int v ) {
 
 #define vi_to_vc(a)               _mm_xor_si128( _mm_set1_epi32( -1 ), _mm_cmpeq_epi32( (a), _mm_setzero_si128() ) )
 #define vi_to_vf(a)               _mm_cvtepi32_ps( (a) )
-#define vi_to_vd(a,imm_l0,imm_l1) _mm_cvtepi32_pd   ( _mm_shuffle_epi32( (a), _MM_SHUFFLE(3,2,(imm_l1),(imm_l0)) ) )
-#define vi_to_vl(a,imm_l0,imm_l1) _mm_cvtepi32_epi64( _mm_shuffle_epi32( (a), _MM_SHUFFLE(3,2,(imm_l1),(imm_l0)) ) )
+#define vi_to_vu(a)               (a)
+#define vi_to_vd(a,imm_i0,imm_i1) _mm_cvtepi32_pd   ( _mm_shuffle_epi32( (a), _MM_SHUFFLE(3,2,(imm_i1),(imm_i0)) ) )
+#define vi_to_vl(a,imm_i0,imm_i1) _mm_cvtepi32_epi64( _mm_shuffle_epi32( (a), _MM_SHUFFLE(3,2,(imm_i1),(imm_i0)) ) )
+#define vi_to_vv(a,imm_i0,imm_i1) _mm_cvtepi32_epi64( _mm_shuffle_epi32( (a), _MM_SHUFFLE(3,2,(imm_i1),(imm_i0)) ) )
 
 #define vi_to_vc_raw(a) (a)
 #define vi_to_vf_raw(a) _mm_castsi128_ps( (a) )
+#define vi_to_vu_raw(a) (a)
 #define vi_to_vd_raw(a) _mm_castsi128_pd( (a) )
 #define vi_to_vl_raw(a) (a)
+#define vi_to_vv_raw(a) (a)
 
 /* Reduction operations */
 
@@ -221,3 +244,23 @@ vi_max_all( vi_t x ) { /* Returns vi_bcast( max( x ) ) */
 
 #define vi_gather(b,i) _mm_i32gather_epi32( (b), (i), 4 )
 
+/* vi_transpose_4x4 transposes the 4x4 matrix stored in vi_t r0,r1,r2,r3
+   and stores the result in 4x4 matrix vi_t c0,c1,c2,c3.  All
+   c0,c1,c2,c3 should be different for a well defined result.
+   Otherwise, in-place operation and/or using the same vi_t to specify
+   multiple rows of r is fine. */
+
+#define vi_transpose_4x4( r0,r1,r2,r3, c0,c1,c2,c3 ) do {                                                                   \
+    vi_t _vi_transpose_r0 = (r0); vi_t _vi_transpose_r1 = (r1); vi_t _vi_transpose_r2 = (r2); vi_t _vi_transpose_r3 = (r3); \
+    vi_t _vi_transpose_t;                                                                                                   \
+    /* Transpose 2x2 blocks */                                                                                              \
+    _vi_transpose_t = _vi_transpose_r0; _vi_transpose_r0 = _mm_unpacklo_epi32( _vi_transpose_t,  _vi_transpose_r2 );        \
+    /**/                                _vi_transpose_r2 = _mm_unpackhi_epi32( _vi_transpose_t,  _vi_transpose_r2 );        \
+    _vi_transpose_t = _vi_transpose_r1; _vi_transpose_r1 = _mm_unpacklo_epi32( _vi_transpose_t,  _vi_transpose_r3 );        \
+    /**/                                _vi_transpose_r3 = _mm_unpackhi_epi32( _vi_transpose_t,  _vi_transpose_r3 );        \
+    /* Transpose 1x1 blocks */                                                                                              \
+    /**/                                (c0)             = _mm_unpacklo_epi32( _vi_transpose_r0, _vi_transpose_r1 );        \
+    /**/                                (c1)             = _mm_unpackhi_epi32( _vi_transpose_r0, _vi_transpose_r1 );        \
+    /**/                                (c2)             = _mm_unpacklo_epi32( _vi_transpose_r2, _vi_transpose_r3 );        \
+    /**/                                (c3)             = _mm_unpackhi_epi32( _vi_transpose_r2, _vi_transpose_r3 );        \
+  } while(0)

@@ -6,8 +6,6 @@
 
 #include "../fd_disco_base.h"
 
-#if FD_HAS_HOSTED && FD_HAS_X86
-
 /* Beyond the standard FD_CNC_SIGNAL_HALT, FD_REPLAY_CNC_SIGNAL_ACK can
    be raised by a cnc thread with an open command session while the
    replay is in the RUN state.  The replay will transition from ACK->RUN
@@ -156,8 +154,6 @@ fd_replay_tile( fd_cnc_t *       cnc,       /* Local join to the replay's comman
                 void *           scratch ); /* Tile scratch memory */
 
 FD_PROTOTYPES_END
-
-#endif
 
 #endif /* HEADER_fd_src_disco_replay_fd_replay_h */
 

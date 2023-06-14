@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_tango_xdp_fd_xsk_h
 #define HEADER_fd_src_tango_xdp_fd_xsk_h
 
-#if defined(__linux__) && FD_HAS_LIBBPF
+#if defined(__linux__)
 
 /* fd_xsk manages an XSK file descriptor and provides RX/TX buffers.
 
@@ -300,7 +300,8 @@ fd_xsk_rx_complete( fd_xsk_t *            xsk,
 ulong
 fd_xsk_tx_enqueue( fd_xsk_t *            xsk,
                    fd_xsk_frame_meta_t * meta,
-                   ulong                 meta_cnt );
+                   ulong                 meta_cnt,
+                   int                   flush );
 
 
 /* fd_xsk_tx_complete: Check for TX completions and reclaim frames.
@@ -344,7 +345,7 @@ fd_xsk_fd( fd_xsk_t * const xsk );
    register itself to.  fd_xsk_activate will register XSK at
    "/sys/fs/bpf/{bpf_app_name}/{ifname}/xsks" on queue index ifidx. */
 
-FD_FN_PURE char const *
+FD_FN_CONST char const *
 fd_xsk_app_name( fd_xsk_t * const xsk );
 
 /* fd_xsk_ifname: Returns the network interface name of that the
@@ -380,10 +381,10 @@ fd_xsk_umem_laddr( fd_xsk_t * xsk );
    memory region in the caller's local address space.  The returned
    params struct is valid during the lifetime of the xsk. */
 
-fd_xsk_params_t const *
+FD_FN_CONST fd_xsk_params_t const *
 fd_xsk_get_params( fd_xsk_t const * xsk );
 
 FD_PROTOTYPES_END
 
-#endif /* defined(__linux__) && FD_HAS_LIBBPF */
+#endif /* defined(__linux__) */
 #endif /* HEADER_fd_src_tango_xdp_fd_xsk_h */

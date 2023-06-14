@@ -1,60 +1,163 @@
-use std::{
-    env,
-    path::Path,
-    process::Command,
-};
+use std::env;
+use std::path::Path;
+use std::process::Command;
 
 extern crate bindgen;
 
 fn main() {
     let dir_env = env::var("CARGO_MANIFEST_DIR").unwrap();
+    let out_dir_env = env::var("OUT_DIR").unwrap();
     let dir = Path::new(&dir_env);
-    let firedancer_dir = dir.join("firedancer");
-    let machine = env::var("MACHINE").unwrap_or("linux_clang_x86_64".to_string());
-    let objdir = firedancer_dir.join("build").join(get_builddir(&machine));
+    let out_dir = Path::new(&out_dir_env);
+
+    let (machine, build_dir) = if cfg!(feature = "fuzz-asan") {
+        (
+            "linux_clang_fuzz_asan",
+            out_dir.join("build/linux/clang/fuzz_asan"),
+        )
+    } else {
+        (
+            "linux_clang_x86_64_ffi",
+            out_dir.join("build/linux/clang/x86_64_ffi"),
+        )
+    };
+
+    for lib in ["ballet", "disco", "tango", "util"] {
+        // Generate bindings to the header files
+        let mut builder = bindgen::Builder::default()
+            .wrap_static_fns(true)
+            .wrap_static_fns_path(out_dir.join(&format!("gen_{lib}.c")))
+            .allowlist_recursively(false)
+            .default_non_copy_union_style(bindgen::NonCopyUnionStyle::ManuallyDrop)
+            .header(&format!("wrapper_{lib}.h"))
+            .blocklist_type("schar|uchar|ushort|uint|ulong")
+            .blocklist_item("SORT_QUICK_ORDER_STYLE|SORT_MERGE_THRESH|SORT_QUICK_THRESH|SORT_QUICK_ORDER_STYLE|SORT_QUICK_SWAP_MINIMIZE");
+
+        // Well this is a complete mess. We want to only include, say, functions
+        // declared in the `ballet` directory in the ballet bindgen output. If
+        // we include all the util stuff that it #includes, it will get defined
+        // by every lib in turn and produce errors.
+        //
+        // Unfortunately, the only control we have over this is a regex "blocklist
+        // file". There's an "allow list" but it can only cause otherwise blocked
+        // items to be included, not being on the allow list doesn't make you
+        // blocked.
+        //
+        // So we have to use this blocklist. It's Rust regex crate, so no
+        // lookbehind so this is going to be pretty painful...
+        //
+        // It's annoying to debug as well. The easiest way I found is editing
+        // `context/item.rs` in the local bindgen crate source to add println!
+        // when it blocks or allows, and then scanning the build output file.
+        // If one of the regular expressions is not valid, bingden will just
+        // silently ignore all of the other blocklists and allow everything.
+        //
+        // // context/item.rs:652
+        // if let Some(filename) = file.name() {
+        //     if ctx.options().blocklisted_files.matches(&filename) {
+        //         println!("BLOCK true {}", filename);
+        //         return true;
+        //     }
+        //     println!("BLOCK false {}", filename);
+        // }
+        //
+        // All of our headers and code are referenced like `./firedancer/src/..`
+        // so if something does not start with `./` it's a system header and we
+        // should block it. Both of these two rules check this.
+        builder = builder.blocklist_file("[^\\.].*");
+        builder = builder.blocklist_file("\\.[^/].*");
+
+        // Now basically we want to say, if we are building `tango` we allow
+        // anything that looks like `./firedancer/src/tango/...`
+        //
+        // To do this with the blocklist, we just look at all the directories
+        // in `./firedancer/src/` that are not `tango`, and block those.
+        for dir in std::fs::read_dir("firedancer/src").unwrap() {
+            let dir = dir.unwrap().file_name();
+            let dir = dir.to_str().unwrap();
+            if dir != lib {
+                // Block all top level uses of other libraries.
+                builder = builder.blocklist_file(&format!("\\.firedancer/src/{}/.*", dir));
+
+                // Most includes are actually going to look like `.firedancer/src/tango/../util/`
+                // so it's not enough to check the `src/other` path. We also need to check that
+                // there is no `../other` for these other libraries.
+                //
+                // Well.. except a special case. If we are in a template file like `tmpl/fd_map.c`
+                // it actually *should* be exported, because even though it's kind-of declared in
+                // the util folder, it's unique to the #including lib.
+                if lib == "util" || dir != "util" {
+                    // `util` just shouldn't include `../tango` or anything else. And there
+                    // are no templates in non-util subdirs so block those.
+                    builder = builder.blocklist_file(&format!(".*/\\.\\./{}/.*", dir));
+                } else {
+                    // For the other packages, block if it's not ending in `/tmpl/*`
+                    // ./firedancer/src/ballet/sbpf/../../util/tmpl/fd_map.c -> allow
+                    // ./firedancer/src/ballet/sbpf/../../util/fd_util_base.h -> deny
+                    builder = builder.blocklist_file(".*/\\.\\./util/[^/]+");
+                    builder = builder.blocklist_file(".*/\\.\\./util/(.*/)?[^t][^/]+/[^/]+");
+                    builder = builder.blocklist_file(".*/\\.\\./util/(.*/)?t[^m][^/]+/[^/]+");
+                    builder = builder.blocklist_file(".*/\\.\\./util/(.*/)?tm[^p][^/]+/[^/]+");
+                    builder = builder.blocklist_file(".*/\\.\\./util/(.*/)?tmp[^l][^/]+/[^/]+");
+                    builder = builder.blocklist_file(".*/\\.\\./util/(.*/)?tmpl[^/][^/]+/[^/]+");
+                }
+
+                // Only declare templates that are actually defined in this library,
+                // deny ones that come from some other include. Eg, below the template
+                // comes from util/math not ballet, so we don't want it.
+                // ./firedancer/src/ballet/../util/math/../tmpl/fd_sort.c -> deny
+                builder = builder.blocklist_file(&format!(".*\\.\\./{}/.*/tmpl/[^/]+", dir));
+            }
+        }
+
+        builder
+            .generate()
+            .expect("Unable to generate bindings")
+            .write_to_file(out_dir.join(&format!("bindings_{lib}.rs")))
+            .expect("Failed to write bindings to file");
+    }
 
     // Build the Firedancer sources
-    Command::new("make")
+    let output = Command::new("make")
         .arg("-j")
         .arg("lib")
-        .current_dir(&firedancer_dir)
+        .arg("include")
+        .current_dir(&dir.join("firedancer"))
+        .env("UTIL_STATIC_EXTERN_OBJECT", out_dir.join("gen_util.c"))
+        .env("TANGO_STATIC_EXTERN_OBJECT", out_dir.join("gen_tango.c"))
+        // No statics in disco yet so no extern wrapper file is produced
+        // .env("DISCO_STATIC_EXTERN_OBJECT", out_dir.join("gen_disco.c"))
+        .env("BALLET_STATIC_EXTERN_OBJECT", out_dir.join("gen_ballet.c"))
         .env("MACHINE", machine)
+        .env("BASEDIR", out_dir.join("build"))
         .output()
-        .expect("failed to build firedancer sources");
+        .unwrap_or_else(|_| {
+            panic!(
+                "failed to execute `make`, does it exist? PATH {:#?}",
+                std::env::var("PATH")
+            )
+        });
+    if !output.status.success() {
+        panic!("{}", String::from_utf8(output.stderr).unwrap());
+    }
 
     // Link against the Firedancer sources
     println!(
         "cargo:rustc-link-search=all={}",
-        objdir
+        build_dir
             .join("lib")
             .to_str()
             .expect("failed to convert path to string")
     );
     println!(
         "cargo:rerun-if-changed={}",
-        objdir.to_str().expect("failed to convert path to string")
+        dir.join("firedancer")
+            .to_str()
+            .expect("failed to convert path to string")
     );
     println!("cargo:rustc-link-lib=static=fd_util");
     println!("cargo:rustc-link-lib=static=fd_tango");
     println!("cargo:rustc-link-lib=static=fd_disco");
     println!("cargo:rustc-link-lib=static=fd_ballet");
-    println!("cargo:rustc-link-lib=numa");
     println!("cargo:rustc-link-lib=stdc++");
-
-    // Generate bindings to the header files
-    bindgen::Builder::default()
-        .header("wrapper.h")
-        .blocklist_type("schar|uchar|ushort|uint|ulong")
-        .generate()
-        .expect("Unable to generate bindings")
-        .write_to_file(Path::new("./src/generated.rs"))
-        .expect("Failed to write bindings to file");
-}
-
-fn get_builddir(machine: &str) -> String {
-    machine
-        .splitn(3, "_")
-        .into_iter()
-        .collect::<Vec<&str>>()
-        .join("/")
 }

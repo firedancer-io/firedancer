@@ -5,19 +5,21 @@ on:
     branches:
       - main
   workflow_dispatch:
+  merge_group:
 jobs:
   make-test:
     runs-on: [self-hosted, Linux, X64]
     defaults:
       run:
-        shell: nix-shell --pure --keep MACHINE --keep EXTRAS --run "bash --noprofile --norc -eo pipefail {0}"
-    env:
-      EXTRAS: libbpf
+        shell: sudo bash --noprofile --norc -eo pipefail -c "set -ex; source /home/runner/firedancer-opts/activate-opt && chmod +x {0} && {0}"
     steps:
       - uses: actions/checkout@v3
+
+      - name: Copy prebuilt deps
+        run: "cp -r /home/runner/firedancer-opts/opt . && ls -lah opt"
 
       - name: Build everything
         run: make -j
 
       - name: Run unit tests
-        run: make -kj --output-sync=target run-unit-test
+        run: make -k -j4 --output-sync=target run-unit-test

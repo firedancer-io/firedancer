@@ -1,23 +1,24 @@
-#if !defined(__linux__) || !FD_HAS_LIBBPF
+#if !defined(__linux__)
 #error "fd_xsk_aio requires Linux operating system with XDP support"
 #endif
 
 #include "../../util/fd_util.h"
 #include "fd_xsk_aio_private.h"
 
-/* Forward declaration */
+/* Forward declarations */
 static int
 fd_xsk_aio_send( void *                    ctx,
                  fd_aio_pkt_info_t const * batch,
                  ulong                     batch_cnt,
-                 ulong *                   opt_batch_idx );
+                 ulong *                   opt_batch_idx,
+                 int                       flush );
 
 ulong
 fd_xsk_aio_align( void ) {
   return FD_XSK_AIO_ALIGN;
 }
 
-ulong
+FD_FN_CONST ulong
 fd_xsk_aio_footprint( ulong tx_depth,
                       ulong pkt_cnt ) {
   if( FD_UNLIKELY( tx_depth==0UL ) ) return 0UL;
@@ -62,7 +63,7 @@ fd_xsk_aio_new( void * mem,
   fd_xsk_aio_t * xsk_aio = (fd_xsk_aio_t *)mem;
 
   /* Assumes alignment of `fd_xsk_aio_t` matches alignment of
-     `fd_xsk_frame_meta_t` and `fd_aio_buf_t`. */
+     `fd_xsk_frame_meta_t` and `fd_aio_pkt_info_t`. */
 
   ulong meta_off     =                    sizeof(fd_xsk_aio_t       );
   ulong pkt_off      = meta_off + pkt_cnt*sizeof(fd_xsk_frame_meta_t);
@@ -142,15 +143,15 @@ fd_xsk_aio_join( void *     shxsk_aio,
 
   /* Setup local TX */
 
-  fd_aio_new( &xsk_aio->tx, xsk_aio, fd_xsk_aio_send );
-
-  /* Set up RX callback (local address) */
-
-  fd_aio_t * rx = fd_aio_join( fd_aio_new( &xsk_aio->rx, xsk_aio, fd_xsk_aio_send ) );
-  if( FD_UNLIKELY( !rx ) ) {
-    FD_LOG_WARNING(( "Failed to join rx aio" ));
+  fd_aio_t * tx = fd_aio_join( fd_aio_new( &xsk_aio->tx, xsk_aio, fd_xsk_aio_send ) );
+  if( FD_UNLIKELY( !tx ) ) {
+    FD_LOG_WARNING(( "Failed to join local tx aio" ));
     return NULL;
   }
+
+  /* Reset RX callback (laddr pointers to external object) */
+
+  memset( &xsk_aio->rx, 0, sizeof(fd_aio_t) );
 
   /* Enqueue frames to RX ring for receive (via fill ring) */
 
@@ -259,15 +260,20 @@ fd_xsk_aio_service( fd_xsk_aio_t * xsk_aio ) {
       };
     }
 
-    fd_aio_send( ingress, pkt, rx_avail, NULL );
+    fd_aio_send( ingress, pkt, rx_avail, NULL, 1 );
     /* TODO frames may not all be processed at this point
        we should count them, and possibly buffer them */
 
     /* return frames to rx ring */
     ulong enq_rc = fd_xsk_rx_enqueue2( xsk, meta, rx_avail );
     if( FD_UNLIKELY( enq_rc < rx_avail ) ) {
-      /* this should not be possible */
-      FD_LOG_WARNING(( "frames lost trying to replenish rx ring" ));
+      /* keep trying indefinitely */
+      /* TODO consider adding a timeout */
+      ulong j = enq_rc;
+      while( rx_avail > j ) {
+        ulong enq_rc = fd_xsk_rx_enqueue2( xsk, meta + j, rx_avail - j );
+        j += enq_rc;
+      }
     }
   }
 
@@ -294,11 +300,20 @@ static int
 fd_xsk_aio_send( void *                    ctx,
                  fd_aio_pkt_info_t const * pkt,
                  ulong                     pkt_cnt,
-                 ulong *                   opt_batch_idx ) {
-  if( FD_UNLIKELY( pkt_cnt==0UL ) ) return FD_AIO_SUCCESS;
+                 ulong *                   opt_batch_idx,
+                 int                       flush ) {
 
   fd_xsk_aio_t * xsk_aio = (fd_xsk_aio_t*)ctx;
   fd_xsk_t *     xsk     = xsk_aio->xsk;
+
+  if( FD_UNLIKELY( pkt_cnt==0UL ) ) {
+    if( flush ) {
+      fd_xsk_frame_meta_t meta[1] = {{0}};
+      ulong sent_cnt = fd_xsk_tx_enqueue( xsk, meta, 0, 1 );
+      (void)sent_cnt;
+    }
+    return FD_AIO_SUCCESS;
+  }
 
   /* Check if any previous send operations completed
      to reclaim transmit frames. */
@@ -354,8 +369,8 @@ fd_xsk_aio_send( void *                    ctx,
 
   /* Enqueue send */
   ulong sent_cnt=0UL;
-  if( FD_LIKELY( pending_cnt>0UL ) )
-    sent_cnt = fd_xsk_tx_enqueue( xsk, meta, pending_cnt );
+  if( FD_LIKELY( pending_cnt>0UL || flush ) )
+    sent_cnt = fd_xsk_tx_enqueue( xsk, meta, pending_cnt, flush );
 
   /* Sent less than user requested? */
   if( FD_UNLIKELY( sent_cnt<pkt_cnt ) ) {

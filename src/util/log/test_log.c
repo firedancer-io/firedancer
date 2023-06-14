@@ -1,5 +1,15 @@
 #include "../fd_util.h"
 
+FD_STATIC_ASSERT( FD_LOG_NAME_MAX==40UL, unit_test );
+
+FD_STATIC_ASSERT( FD_LOG_WALLCLOCK_CSTR_BUF_SZ==37UL, unit_test );
+
+FD_STATIC_ASSERT( FD_LOG_GROUP_ID_QUERY_LIVE == 1, unit_test );
+FD_STATIC_ASSERT( FD_LOG_GROUP_ID_QUERY_DEAD == 0, unit_test );
+FD_STATIC_ASSERT( FD_LOG_GROUP_ID_QUERY_INVAL==-1, unit_test );
+FD_STATIC_ASSERT( FD_LOG_GROUP_ID_QUERY_PERM ==-2, unit_test );
+FD_STATIC_ASSERT( FD_LOG_GROUP_ID_QUERY_FAIL ==-3, unit_test );
+
 int volatile volatile_yes = 1;
 
 static void
@@ -23,6 +33,9 @@ main( int     argc,
   FD_LOG_WARNING(( "Test WARNING      (notice+flush log and stderr)"           ));
 
   /* Info about the calling thread */
+
+  int cmode = fd_log_colorize();
+  FD_LOG_NOTICE(( "fd_log_colorize      %i",  cmode                  ));
   FD_LOG_NOTICE(( "fd_log_level_logfile %i",  fd_log_level_logfile() ));
   FD_LOG_NOTICE(( "fd_log_level_stderr  %i",  fd_log_level_stderr()  ));
   FD_LOG_NOTICE(( "fd_log_level_flush   %i",  fd_log_level_flush()   ));
@@ -39,6 +52,17 @@ main( int     argc,
   FD_LOG_NOTICE(( "fd_log_cpu           %s",  fd_log_cpu()           ));
   FD_LOG_NOTICE(( "fd_log_group         %s",  fd_log_group()         ));
   FD_LOG_NOTICE(( "fd_log_user          %s",  fd_log_user()          ));
+
+  if( cmode ) {
+    fd_log_colorize_set( 0 );
+    FD_LOG_NOTICE(( "disabled colorize" ));
+    fd_log_colorize_set( cmode );
+    FD_LOG_NOTICE(( "reenabled colorize" ));
+  }
+
+  FD_TEST( fd_log_group_id_query( 0UL               )==FD_LOG_GROUP_ID_QUERY_INVAL );
+  FD_TEST( fd_log_group_id_query( ULONG_MAX         )==FD_LOG_GROUP_ID_QUERY_INVAL );
+  FD_TEST( fd_log_group_id_query( fd_log_group_id() )==FD_LOG_GROUP_ID_QUERY_LIVE  );
 
   FD_LOG_NOTICE( ( "Testing hexdump logging API: " ) );
 

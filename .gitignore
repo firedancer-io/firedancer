@@ -4,10 +4,20 @@ bin
 unit-test
 tmp
 
+# Coverage
 genhtml/
 target/
+fd_ffi.rs
 *.lcov
 *.profraw
+
+# Core Dumps
+core.*.*
+# Rust
+**/Cargo.lock
+
+# Dependencies
+opt/
 
 # Nix
 /result
@@ -18,3 +28,17 @@ target/
 # Vim
 *.swp
 *.swo
+
+# Certificates
+*.csr
+*.crt
+*.key
+*.pem
+
+# Packet Captures
+*.pcap
+*.pcapng
+
+# Logs
+*.log
+

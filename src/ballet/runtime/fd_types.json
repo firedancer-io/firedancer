@@ -1,0 +1,687 @@
+{
+  "namespace": "fd",
+  "name": "fd_banks_solana",
+  "extra_header": [
+      "#include \"../../util/encoders/fd_bincode.h\"",
+      "typedef char* (*fd_alloc_fun_t)(void *arg, ulong align, ulong len);",
+      "typedef void  (*fd_free_fun_t) (void *arg, void *ptr);",
+      "#define FD_ACCOUNT_META_MAGIC 9823"
+  ],
+  "entries": [
+    {
+      "name": "fee_calculator",
+      "type": "struct",
+      "fields": [
+        { "name": "lamports_per_signature", "type": "ulong" }
+      ]
+    },
+    {
+      "name": "hash_age",
+      "type": "struct",
+      "fields": [
+        { "name": "fee_calculator", "type": "fee_calculator" },
+        { "name": "hash_index", "type": "ulong" },
+        { "name": "timestamp", "type": "ulong" }
+      ]
+    },
+    {
+      "name": "hash",
+      "type": "struct",
+      "fields": [
+        { "name": "hash", "type": "unsigned char[32]" }
+      ]
+    },
+    {
+      "name": "hash_hash_age_pair",
+      "type": "struct",
+      "fields": [
+        { "name": "key", "type": "hash" },
+        { "name": "val", "type": "hash_age" }
+      ]
+    },
+    {
+      "name": "block_hash_queue",
+      "type": "struct",
+      "fields": [
+        { "name": "last_hash_index", "type": "ulong" },
+        { "name": "last_hash", "type": "option", "element": "hash" },
+        { "name": "ages", "type": "vector", "element": "hash_hash_age_pair" },
+        { "name": "max_age", "type": "ulong" }
+      ]
+    },
+    {
+      "name": "pubkey",
+      "type": "struct",
+      "fields": [
+        { "name": "key", "type": "unsigned char[32]" }
+      ]
+    },
+    {
+      "name": "epoch_schedule",
+      "type": "struct",
+      "fields": [
+        { "name": "slots_per_epoch", "type": "ulong" },
+        { "name": "leader_schedule_slot_offset", "type": "ulong" },
+        { "name": "warmup", "type": "unsigned char" },
+        { "name": "first_normal_epoch", "type": "ulong" },
+        { "name": "first_normal_slot", "type": "ulong" }
+      ]
+    },
+    {
+      "name": "fee_rate_governor",
+      "type": "struct",
+      "fields": [
+        { "name": "target_lamports_per_signature", "type": "ulong" },
+        { "name": "target_signatures_per_slot", "type": "ulong" },
+        { "name": "min_lamports_per_signature", "type": "ulong" },
+        { "name": "max_lamports_per_signature", "type": "ulong" },
+        { "name": "burn_percent", "type": "unsigned char" }
+      ]
+    },
+    {
+      "name": "slot_pair",
+      "type": "struct",
+      "fields": [
+        { "name": "slot", "type": "ulong" },
+        { "name": "val", "type": "ulong" }
+      ]
+    },
+    {
+      "name": "hard_forks",
+      "type": "struct",
+      "fields": [
+        { "name": "hard_forks", "type": "vector", "element": "slot_pair" }
+      ]
+    },
+    {
+      "name": "inflation",
+      "type": "struct",
+      "fields": [
+        { "name": "initial", "type": "double" },
+        { "name": "terminal", "type": "double" },
+        { "name": "taper", "type": "double" },
+        { "name": "foundation", "type": "double" },
+        { "name": "foundation_term", "type": "double" },
+        { "name": "__unused", "type": "double" }
+      ]
+    },
+    {
+      "name": "rent",
+      "type": "struct",
+      "fields": [
+        { "name": "lamports_per_uint8_year", "type": "ulong" },
+        { "name": "exemption_threshold", "type": "double" },
+        { "name": "burn_percent", "type": "unsigned char" }
+      ]
+    },
+    {
+      "name": "rent_collector",
+      "type": "struct",
+      "fields": [
+        { "name": "epoch", "type": "ulong" },
+        { "name": "epoch_schedule", "type": "epoch_schedule" },
+        { "name": "slots_per_year", "type": "double" },
+        { "name": "rent", "type": "rent" }
+      ]
+    },
+    {
+      "name": "stake_history_entry",
+      "type": "struct",
+      "fields": [
+        { "name": "effective", "type": "ulong" },
+        { "name": "activating", "type": "ulong" },
+        { "name": "deactivating", "type": "ulong" }
+      ]
+    },
+    {
+      "name": "stake_history_epochentry_pair",
+      "type": "struct",
+      "fields": [
+        { "name": "epoch", "type": "ulong" },
+        { "name": "entry", "type": "stake_history_entry" }
+      ]
+    },
+    {
+      "name": "stake_history",
+      "type": "struct",
+      "fields": [
+        { "name": "entries", "type": "vector", "element": "stake_history_epochentry_pair" }
+      ]
+    },
+    {
+      "name": "solana_account",
+      "type": "struct",
+      "fields": [
+        { "name": "lamports", "type": "ulong" },
+        { "name": "data", "type": "vector", "element": "unsigned char" },
+        { "name": "owner", "type": "pubkey" },
+        { "name": "executable", "type": "unsigned char" },
+        { "name": "rent_epoch", "type": "ulong" }
+      ]
+    },
+    {
+      "name": "solana_account_stored_meta",
+      "attribute": "((packed))",
+      "type": "struct",
+      "fields": [
+        { "name": "write_version_obsolete", "type": "ulong" },
+        { "name": "data_len", "type": "ulong" },
+        { "name": "pubkey", "type": "char[32]" }
+      ]
+    },
+    {
+      "name": "solana_account_meta",
+      "attribute": "((packed))",
+      "type": "struct",
+      "fields": [
+        { "name": "lamports", "type": "ulong" },
+        { "name": "rent_epoch", "type": "ulong" },
+        { "name": "owner", "type": "char[32]" },
+        { "name": "executable", "type": "char" },
+        { "name": "padding", "type": "char[7]" }
+      ]
+    },
+    {
+      "name": "solana_account_fd_hash",
+      "attribute": "((packed))",
+      "type": "struct",
+      "fields": [
+        { "name": "value", "type": "char[32]" }
+      ]
+    },
+    {
+      "name": "solana_account_hdr",
+      "attribute": "((packed))",
+      "type": "struct",
+      "fields": [
+        { "name": "meta", "type": "solana_account_stored_meta" },
+        { "name": "info", "type": "solana_account_meta" },
+        { "name": "hash", "type": "solana_account_fd_hash" }
+      ]
+    },
+    {
+      "name": "account_meta",
+      "type": "struct",
+      "attribute": "((packed))",
+      "fields": [
+        { "name": "magic", "type": "ushort" },
+        { "name": "hlen", "type": "ushort" },
+        { "name": "dlen", "type": "ulong" },
+        { "name": "hash", "type": "unsigned char[32]" },
+        { "name": "slot", "type": "ulong" },
+        { "name": "info", "type": "solana_account_meta" }
+      ]
+    },
+    {
+      "name": "vote_accounts_pair",
+      "type": "struct",
+      "fields": [
+        { "name": "key", "type": "pubkey" },
+        { "name": "stake", "type": "ulong" },
+        { "name": "value", "type": "solana_account" }
+      ]
+    },
+    {
+      "name": "vote_accounts",
+      "type": "struct",
+      "fields": [
+        { "name": "vote_accounts", "type": "vector", "element": "vote_accounts_pair" }
+      ]
+    },
+    {
+      "name": "delegation",
+      "type": "struct",
+      "fields": [
+        { "name": "voter_pubkey", "type": "pubkey" },
+        { "name": "stake", "type": "ulong" },
+        { "name": "activation_epoch", "type": "ulong" },
+        { "name": "deactivation_epoch", "type": "ulong" },
+        { "name": "warmup_cooldown_rate", "type": "double" }
+      ]
+    },
+    {
+      "name": "delegation_pair",
+      "type": "struct",
+      "fields": [
+        { "name": "key", "type": "pubkey" },
+        { "name": "value", "type": "delegation" }
+      ]
+    },
+    {
+      "name": "stakes_delegation",
+      "type": "struct",
+      "fields": [
+        { "name": "vote_accounts", "type": "vote_accounts" },
+        { "name": "stake_delegations", "type": "vector", "element": "delegation_pair" },
+        { "name": "unused", "type": "ulong" },
+        { "name": "epoch", "type": "ulong" },
+        { "name": "stake_history", "type": "stake_history" }
+      ]
+    },
+    {
+      "name": "bank_incremental_snapshot_persistence",
+      "type": "struct",
+      "fields": [
+        { "name": "full_slot", "type": "ulong" },
+        { "name": "full_hash", "type": "hash" },
+        { "name": "full_capitalization", "type": "ulong" },
+        { "name": "incremental_hash", "type": "hash" },
+        { "name": "incremental_capitalization", "type": "ulong" }
+      ]
+    },
+    {
+      "name": "node_vote_accounts",
+      "type": "struct",
+      "fields": [
+        { "name": "vote_accounts", "type": "vector", "element":"pubkey" },
+        { "name": "total_stake", "type": "ulong" }
+      ]
+    },
+    {
+      "name": "pubkey_node_vote_accounts_pair",
+      "type": "struct",
+      "fields": [
+        { "name": "key", "type": "pubkey" },
+        { "name": "value", "type": "node_vote_accounts" }
+      ]
+    },
+    {
+      "name": "pubkey_pubkey_pair",
+      "type": "struct",
+      "fields": [
+        { "name": "key", "type": "pubkey" },
+        { "name": "value", "type": "pubkey" }
+      ]
+    },
+    {
+      "name": "epoch_stakes",
+      "type": "struct",
+      "fields": [
+        { "name": "stakes", "type": "stakes_delegation" },
+        { "name": "total_stake", "type": "ulong" },
+        { "name": "node_id_to_vote_accounts", "type": "vector", "element": "pubkey_node_vote_accounts_pair" },
+        { "name": "epoch_authorized_voters", "type": "vector", "element": "pubkey_pubkey_pair" }
+      ]
+    },
+    {
+      "name": "epoch_epoch_stakes_pair",
+      "type": "struct",
+      "fields": [
+        { "name": "key", "type": "ulong" },
+        { "name": "value", "type": "epoch_stakes" }
+      ]
+    },
+    {
+      "name": "pubkey_u64_pair",
+      "type": "struct",
+      "fields": [
+        { "name": "_0", "type": "pubkey" },
+        { "name": "_1", "type": "ulong" }
+      ]
+    },
+    {
+      "name": "unused_accounts",
+      "type": "struct",
+      "fields": [
+        { "name": "unused1", "type": "vector", "element": "pubkey" },
+        { "name": "unused2", "type": "vector", "element": "pubkey" },
+        { "name": "unused3", "type": "vector", "element": "pubkey_u64_pair" }
+      ]
+    },
+    {
+      "name": "deserializable_versioned_bank",
+      "type": "struct",
+      "fields": [
+        { "name": "blockhash_queue", "type": "block_hash_queue" },
+        { "name": "ancestors", "type": "vector", "element": "slot_pair" },
+        { "name": "hash", "type": "hash" },
+        { "name": "parent_hash", "type": "hash" },
+        { "name": "parent_slot", "type": "ulong" },
+        { "name": "hard_forks", "type": "hard_forks" },
+        { "name": "transaction_count", "type": "ulong" },
+        { "name": "tick_height", "type": "ulong" },
+        { "name": "signature_count", "type": "ulong" },
+        { "name": "capitalization", "type": "ulong" },
+        { "name": "max_tick_height", "type": "ulong" },
+        { "name": "hashes_per_tick", "type": "option", "element": "ulong" },
+        { "name": "ticks_per_slot", "type": "ulong" },
+        { "name": "ns_per_slot", "type": "uint128" },
+        { "name": "genesis_creation_time", "type": "ulong" },
+        { "name": "slots_per_year", "type": "double" },
+        { "name": "accounts_data_len", "type": "ulong" },
+        { "name": "slot", "type": "ulong" },
+        { "name": "epoch", "type": "ulong" },
+        { "name": "block_height", "type": "ulong" },
+        { "name": "collector_id", "type": "pubkey" },
+        { "name": "collector_fees", "type": "ulong" },
+        { "name": "fee_calculator", "type": "fee_calculator" },
+        { "name": "fee_rate_governor", "type": "fee_rate_governor" },
+        { "name": "collected_rent", "type": "ulong" },
+        { "name": "rent_collector", "type": "rent_collector" },
+        { "name": "epoch_schedule", "type": "epoch_schedule" },
+        { "name": "inflation", "type": "inflation" },
+        { "name": "stakes", "type": "stakes_delegation" },
+        { "name": "unused_accounts", "type": "unused_accounts" },
+        { "name": "epoch_stakes", "type": "vector", "element": "epoch_epoch_stakes_pair" },
+        { "name": "is_delta", "type": "char" }
+      ]
+    },
+    {
+      "name": "serializable_account_storage_entry",
+      "type": "struct",
+      "fields": [
+        { "name": "id", "type": "ulong" },
+        { "name": "accounts_current_len", "type": "ulong" }
+      ]
+    },
+    {
+      "name": "bank_hash_stats",
+      "type": "struct",
+      "fields": [
+        { "name": "num_updated_accounts", "type": "ulong" },
+        { "name": "num_removed_accounts", "type": "ulong" },
+        { "name": "num_lamports_stored", "type": "ulong" },
+        { "name": "total_data_len", "type": "ulong" },
+        { "name": "num_executable_accounts", "type": "ulong" }
+      ]
+    },
+    {
+      "name": "bank_hash_info",
+      "type": "struct",
+      "fields": [
+        { "name": "hash", "type": "hash" },
+        { "name": "snapshot_hash", "type": "hash" },
+        { "name": "stats", "type": "bank_hash_stats" }
+      ]
+    },
+    {
+      "name": "slot_account_pair",
+      "type": "struct",
+      "fields": [
+        { "name": "slot", "type": "ulong" },
+        { "name": "accounts", "type": "vector", "element": "serializable_account_storage_entry" }
+      ]
+    },
+    {
+      "name": "slot_map_pair",
+      "type": "struct",
+      "fields": [
+        { "name": "slot", "type": "ulong" },
+        { "name": "hash", "type": "hash" }
+      ]
+    },
+    {
+      "name": "solana_accounts_db_fields",
+      "type": "struct",
+      "fields": [
+        { "name": "storages", "type": "vector", "element": "slot_account_pair" },
+        { "name": "version", "type": "ulong" },
+        { "name": "slot", "type": "ulong" },
+        { "name": "bank_hash_info", "type": "bank_hash_info" },
+        { "name": "historical_roots", "type": "vector", "element": "ulong" },
+        { "name": "historical_roots_with_hash", "type": "vector", "element": "slot_map_pair" }
+      ]
+    },
+    {
+      "name": "rust_duration",
+      "type": "struct",
+      "fields": [
+        { "name": "seconds", "type": "ulong" },
+        { "name": "nanoseconds", "type": "uint" }
+      ]
+    },
+    {
+      "name": "poh_config",
+      "type": "struct",
+      "fields": [
+        { "name": "target_tick_duration", "type": "rust_duration" },
+        { "name": "target_tick_count", "type": "option", "element": "ulong" },
+        { "name": "hashes_per_tick", "type": "option", "element": "ulong" }
+      ]
+    },
+    {
+      "name": "string_pubkey_pair",
+      "type": "struct",
+      "fields": [
+        { "name": "string", "type": "char*" },
+        { "name": "pubkey", "type": "pubkey" }
+      ]
+    },
+    {
+      "name": "pubkey_account_pair",
+      "type": "struct",
+      "fields": [
+        { "name": "key", "type": "pubkey" },
+        { "name": "account", "type": "solana_account" }
+      ]
+    },
+    {
+      "name": "genesis_solana",
+      "type": "struct",
+      "fields": [
+        { "name": "creation_time", "type": "ulong" },
+        { "name": "accounts", "type": "vector", "element": "pubkey_account_pair" },
+        { "name": "native_instruction_processors", "type": "vector", "element": "string_pubkey_pair" },
+        { "name": "rewards_pools", "type": "vector", "element": "pubkey_account_pair" },
+        { "name": "ticks_per_slot", "type": "ulong" },
+        { "name": "unused", "type": "ulong" },
+        { "name": "poh_config", "type": "poh_config" },
+        { "name": "__backwards_compat_with_v0_23", "type": "ulong" },
+        { "name": "fee_rate_governor", "type": "fee_rate_governor" },
+        { "name": "rent", "type": "rent" },
+        { "name": "inflation", "type": "inflation" },
+        { "name": "epoch_schedule", "type": "epoch_schedule" },
+        { "name": "cluster_type", "type": "uint" }
+      ]
+    },
+    {
+      "name": "secp256k1_signature_offsets",
+      "type": "struct",
+      "fields": [
+          { "name": "signature_offset", "type": "ushort" },
+          { "name": "signature_instruction_index", "type": "unsigned char" },
+          { "name": "eth_address_offset", "type": "ushort" },
+          { "name": "eth_address_instruction_index", "type": "unsigned char" },
+          { "name": "message_data_offset", "type": "ushort" },
+          { "name": "message_data_size", "type": "ushort" },
+          { "name": "message_instruction_index", "type": "unsigned char" }
+      ]
+    },
+    {
+      "name": "sol_sysvar_clock",
+      "type": "struct",
+      "fields": [
+          { "name": "slot", "type": "uint64_t" },
+          { "name": "epoch_start_timestamp", "type": "int64_t" },
+          { "name": "epoch", "type": "uint64_t" },
+          { "name": "leader_schedule_epoch", "type": "uint64_t" },
+          { "name": "unix_timestamp", "type": "int64_t" }
+      ],
+      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/clock.rs#L114"
+    },
+    {
+      "name": "vote_lockout",
+      "type": "struct",
+      "fields": [
+          { "name": "slot", "type": "uint64_t" },
+          { "name": "confirmation_count", "type": "uint" }
+      ]
+    },
+    {
+      "name": "compact_vote_lockout",
+      "type": "struct",
+      "fields": [
+          { "name": "slot", "type": "uint64_t",  "modifier": "varint" },
+          { "name": "confirmation_count", "type": "uchar" }
+      ]
+    },
+    {
+      "name": "vote_authorized_voter",
+      "type": "struct",
+      "fields": [
+          { "name": "epoch", "type": "ulong" },
+          { "name": "pubkey", "type": "pubkey" }
+      ]
+    },
+    {
+      "name": "vote_prior_voter",
+      "type": "struct",
+      "fields": [
+          { "name": "pubkey", "type": "pubkey" },
+          { "name": "epoch_start", "type": "ulong" },
+          { "name": "epoch_end", "type": "ulong" }
+      ]
+    },
+    {
+      "name": "vote_epoch_credits",
+      "type": "struct",
+      "fields": [
+          { "name": "epoch", "type": "ulong" },
+          { "name": "credits", "type": "ulong" },
+          { "name": "prev_credits", "type": "ulong" }
+      ]
+    },
+    {
+      "name": "vote_historical_authorized_voter",
+      "type": "struct",
+      "fields": [
+        { "name": "epoch", "type": "ulong" },
+        { "name": "pubkey", "type": "pubkey" }
+      ],
+      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/authorized_voters.rs#L9"
+    },
+    {
+      "name": "vote_block_timestamp",
+      "type": "struct",
+      "fields": [
+        { "name": "slot", "type": "ulong" },
+        { "name": "timestamp", "type": "ulong" }
+      ]
+    },
+    {
+      "name": "vote_state",
+      "type": "struct",
+      "fields": [
+          { "name": "voting_node", "type": "pubkey" },
+          { "name": "authorized_withdrawer", "type": "pubkey" },
+          { "name": "commission", "type": "uchar" },
+          { "name": "votes", "type": "vector_dynamic", "element": "vote_lockout" },
+          { "name": "saved_root_slot", "type": "option", "element": "ulong" },
+          { "name": "authorized_voters", "type": "vector", "element": "vote_historical_authorized_voter" },
+          { "name": "prior_voters", "type": "vector", "element": "vote_prior_voter" },
+          { "name": "epoch_credits", "type": "vector_dynamic", "element": "vote_epoch_credits" },
+          { "name": "latest_timestamp", "type": "vote_block_timestamp" }
+      ],
+      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L310"
+    },
+    {
+      "name": "vote_state_update",
+      "type": "struct",
+      "fields": [
+        { "name": "lockouts", "type": "vector", "element": "vote_lockout" },
+        { "name": "proposed_root", "type": "option", "element": "ulong" },
+        { "name": "hash", "type": "hash" },
+        { "name": "timestamp", "type": "option", "element": "ulong" }
+      ],
+      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L185"
+    },
+    {
+      "name": "compact_vote_state_update",
+      "type": "struct",
+      "fields": [
+          { "name": "proposed_root", "type": "ulong" },
+          { "name": "lockouts", "type": "vector", "element": "compact_vote_lockout", "modifier": "compact" },
+          { "name": "hash", "type": "hash" },
+          { "name": "timestamp", "type": "option", "element": "ulong" }
+      ]
+    },
+    {
+      "name": "slot_history_inner",
+      "type": "struct",
+      "fields": [
+          { "name": "blocks", "type": "vector", "element": "ulong" }
+      ]
+    },
+    {
+      "name": "slot_history_bitvec",
+      "type": "struct",
+      "fields": [
+          { "name": "bits", "type": "option", "element": "slot_history_inner" },
+          { "name": "len", "type": "ulong" }
+      ],
+      "comment": "https://github.com/tov/bv-rs/blob/107be3e9c45324e55844befa4c4239d4d3d092c6/src/bit_vec/inner.rs#L8"
+    },
+    {
+      "name": "slot_history",
+      "type": "struct",
+      "fields": [
+          { "name": "bits", "type": "slot_history_bitvec" },
+          { "name": "next_slot", "type": "ulong" }
+      ],
+      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_history.rs#L11"
+    },
+    {
+      "name": "slot_hash",
+      "type": "struct",
+      "fields": [
+          { "name": "slot", "type": "ulong" },
+          { "name": "hash", "type": "hash" }
+      ]
+    },
+    {
+      "name": "slot_hashes",
+      "type": "struct",
+      "fields": [
+          { "name": "hashes", "type": "vector", "element": "slot_hash" }
+      ]
+    },
+    {
+      "name": "block_block_hash_entry",
+      "type": "struct",
+      "fields": [
+          { "name": "blockhash", "type": "hash" },
+          { "name": "fee_calculator", "type": "fee_calculator" }
+      ]
+    },
+    {
+      "name": "recent_block_hashes",
+      "type": "struct",
+      "fields": [
+          { "name": "hashes", "type": "vector_dynamic", "element": "block_block_hash_entry" }
+      ]
+    },
+    {
+      "name": "slot_meta",
+      "type": "struct",
+      "fields": [
+          { "name": "slot", "type": "ulong" },
+          { "name": "consumed", "type": "ulong" },
+          { "name": "received", "type": "ulong" },
+          { "name": "first_shred_timestamp", "type": "ulong" },
+          { "name": "last_index", "type": "ulong" },
+          { "name": "parent_slot", "type": "ulong" },
+          { "name": "next_slot", "type": "vector", "element": "ulong"},
+          { "name": "is_connected", "type": "uchar" },
+          { "name": "entry_end_indexes", "type": "vector", "element": "uint" }
+      ]
+    },
+    {
+      "name": "clock_timestamp_vote",
+      "type": "struct",
+      "fields": [
+        { "name": "pubkey", "type": "pubkey" },
+        { "name": "timestamp", "type": "long" },
+        { "name": "slot", "type": "ulong" }
+      ],
+      "comment": "A validator timestamp oracle vote received from a voting node"
+    },
+    {
+      "name": "clock_timestamp_votes",
+      "type": "struct",
+      "fields": [
+        { "name": "votes", "type": "vector_dynamic", "element": "clock_timestamp_vote" }
+      ],
+      "comment": "Validator timestamp oracle votes received from voting nodes. TODO: make this a map"
+    }
+  ]
+}

@@ -44,7 +44,6 @@ the necessary `sudo` access.
   and then only use external dependencies that are trivially installable
   on recent stock Linux distributions.  Current packages used include:
     - pkg-config
-    - libbpf v1.1.0
     - xdp-tools
 
 - Configure the host for high performance by allowing users to lock
@@ -54,7 +53,6 @@ the necessary `sudo` access.
     ```
     * - memlock unlimited
     * - nice -20
-    * - rtprio unlimited
     ```
   (The user might only opt to be more restrictiv if desired, e.g. only
   allow Firedancer users to do this.)  Recommend logging out and then
@@ -68,8 +66,6 @@ the necessary `sudo` access.
     scheduling priority             (-e) 40
     ... snip ...
     max locked memory       (kbytes, -l) unlimited
-    ... snip ...
-    real-time priority              (-r) unlimited
     ... snip ...
     ```
 
