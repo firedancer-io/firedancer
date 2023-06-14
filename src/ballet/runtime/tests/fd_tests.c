@@ -5,7 +5,6 @@
 #ifdef _DISABLE_OPTIMIZATION
 #pragma GCC optimize ("O0")
 #endif
-#pragma GCC optimize ("O0")
 
 const char *verbose = NULL;
 
