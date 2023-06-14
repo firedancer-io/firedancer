@@ -1,3 +1,4 @@
+#include "time.h"
 #include "fd_runtime.h"
 #include "fd_hashes.h"
 #include "sysvar/fd_sysvar_clock.h"
@@ -382,7 +383,10 @@ fd_runtime_block_eval( fd_global_ctx_t *global, fd_slot_meta_t *m, const void* b
   xid.ul[1] = fd_rng_ulong( global->rng );
   xid.ul[2] = fd_rng_ulong( global->rng );
   xid.ul[3] = fd_rng_ulong( global->rng );
-  fd_funk_txn_t * txn = fd_funk_txn_prepare( global->funk, parent_txn, &xid, 0 );
+  fd_funk_txn_t * txn = fd_funk_txn_prepare( global->funk, parent_txn, &xid, 1 );
+
+  if (NULL == txn)
+    FD_LOG_ERR(("fd_funk_txn_prepare failed"));
 
   global->funk_txn_index = (global->funk_txn_index + 1) & 31;
   fd_funk_txn_t * old_txn = global->funk_txn_tower[global->funk_txn_index];
@@ -590,7 +594,7 @@ fd_global_ctx_new        ( void * mem ) {
 
   fd_global_ctx_t * self = (fd_global_ctx_t *) mem;
 
-  self->rng  = fd_rng_join( fd_rng_new(&self->rnd_mem, 0, 0) );
+  self->rng  = fd_rng_join( fd_rng_new(&self->rnd_mem, (uint) time(0), 0) );
 
   // Yeah, maybe we should get rid of this?
   fd_executor_new ( &self->executor, self, FD_EXECUTOR_FOOTPRINT );

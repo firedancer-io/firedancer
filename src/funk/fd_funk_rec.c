@@ -1,5 +1,9 @@
 #include "fd_funk.h"
 
+#ifdef _DISABLE_OPTIMIZATION
+#pragma GCC optimize ("O0")
+#endif
+
 /* Provide the actual record map implementation */
 
 #define MAP_NAME              fd_funk_rec_map

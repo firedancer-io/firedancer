@@ -429,6 +429,8 @@ int replay(global_state_t *state) {
     fd_slot_meta_destroy(&m, &ctx);
   }
 
+  fd_funk_txn_publish( state->global->funk, state->global->funk_txn, 1);
+
   return 0;
 }
 
@@ -604,6 +606,25 @@ int main(int argc, char **argv) {
 
   if (strcmp(state.cmd, "accounts_hash") != 0) {
     FD_LOG_WARNING(("loading genesis account into funk db"));
+
+    fd_funk_rec_t * rec_map = fd_funk_rec_map( state.global->funk, state.global->wksp );
+
+    for( fd_funk_rec_map_iter_t iter = fd_funk_rec_map_iter_init( rec_map );
+         !fd_funk_rec_map_iter_done( rec_map, iter );
+         iter = fd_funk_rec_map_iter_next( rec_map, iter ) ) {
+      fd_funk_rec_t * trec = fd_funk_rec_map_iter_ele( rec_map, iter );
+
+      fd_funk_rec_key_t *k = trec->pair.key;
+
+      if (!fd_acc_mgr_is_key(k))
+        continue;
+
+      if (fd_funk_rec_persist_erase(state.global->funk, trec) != FD_FUNK_SUCCESS)
+        FD_LOG_WARNING(("persist erase failed"));
+
+      if (fd_funk_rec_remove(state.global->funk, trec, 1) != FD_FUNK_SUCCESS)
+        FD_LOG_WARNING(("remove failed"));
+    }
 
     for (ulong i = 0; i < state.global->genesis_block.accounts_len; i++) {
       fd_pubkey_account_pair_t *a = &state.global->genesis_block.accounts[i];
