@@ -23,7 +23,7 @@ fd_ulong_sat_add( ulong x, ulong y ) {
 FD_FN_CONST static inline ulong
 fd_ulong_sat_mul( ulong x, ulong y ) {
   ulong res = x * y;
-  uchar overflow = ( x != 0 ) && ( y != 0 ) && ( ( res < x ) || ( res < y ) || ( ( x / res ) != y ) );
+  uchar overflow = ( x != 0 ) && ( y != 0 ) && ( ( res < x ) || ( res < y ) || ( ( res / x ) != y ) );
   return fd_ulong_if( overflow, ULONG_MAX, res );
 }
 
@@ -42,7 +42,7 @@ fd_uint_sat_add( uint x, uint y ) {
 FD_FN_CONST static inline uint
 fd_uint_sat_mul( uint x, uint y ) {
   uint res = x * y;
-  uchar overflow = ( x != 0 ) && ( y != 0 ) && ( ( res < x ) || ( res < y ) || ( ( x / res ) != y ) );
+  uchar overflow = ( x != 0 ) && ( y != 0 ) && ( ( res < x ) || ( res < y ) || ( ( res / x ) != y ) );
   return fd_uint_if( overflow, UINT_MAX, res );
 }
 
