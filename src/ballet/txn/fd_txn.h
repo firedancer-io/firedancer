@@ -389,12 +389,44 @@ fd_txn_footprint( ulong instr_cnt,
    number of bytes read from payload is written to payload_sz_opt. If
    payload_sz_opt is NULL and the payload_sz is larger than the amount of bytes
    read, returns 0 (failure). */
+
+ulong
+fd_txn_parse_core( uchar const             * payload,
+                   ulong                     payload_sz,
+                   void                    * out_buf,
+                   fd_txn_parse_counters_t * counters_opt,
+                   ulong *                   payload_sz_opt,
+                   int allow_zero_signatures );
+
+static inline
 ulong
 fd_txn_parse( uchar const             * payload,
               ulong                     payload_sz,
               void                    * out_buf,
-              fd_txn_parse_counters_t * counters_opt,
-              ulong *                   payload_sz_opt );
+              fd_txn_parse_counters_t * counters_opt ) {
+  return fd_txn_parse_core(payload, payload_sz, out_buf, counters_opt, NULL, 0);
+}
+
+struct fd_txn_xray_result {
+  uchar       signature_cnt;
+  ushort      signature_off;
+};
+typedef struct fd_txn_xray_result fd_txn_xray_result_t;
+
+ulong
+fd_txn_xray( uchar const             * payload,
+             ulong                     payload_sz,
+             fd_txn_xray_result_t    * result );
+
+static inline int
+fd_txn_is_writable( fd_txn_t const * txn, int idx) 
+{
+  if (idx < (txn->signature_cnt - txn->readonly_signed_cnt))
+    return 1;
+  if ((idx >= txn->signature_cnt) & (idx < (txn->acct_addr_cnt - txn->readonly_unsigned_cnt)))
+    return 1;
+  return 0;
+}
 
 FD_PROTOTYPES_END
 

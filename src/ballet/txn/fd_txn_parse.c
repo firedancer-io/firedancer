@@ -1,14 +1,17 @@
+/* https://docs.solana.com/developing/programming-model/transactions#anatomy-of-a-transaction */
+
 #include "fd_txn.h"
 #include "fd_compact_u16.h"
 
 
 
 ulong
-fd_txn_parse( uchar const             * payload,
-              ulong                     payload_sz,
-              void                    * out_buf,
-              fd_txn_parse_counters_t * counters_opt,
-              ulong *                   payload_sz_opt ) {
+fd_txn_parse_core( uchar const             * payload,
+                   ulong                     payload_sz,
+                   void                    * out_buf,
+                   fd_txn_parse_counters_t * counters_opt,
+                   ulong *                   payload_sz_opt,
+                   int allow_zero_signatures ) {
   ulong i = 0UL;
   /* This code does non-trivial parsing of untrusted user input, which is a potentially dangerous thing.
      The main invariants we need to ensure are
@@ -79,7 +82,7 @@ fd_txn_parse( uchar const             * payload,
      u8 are represented the same way. */
   CHECK_LEFT( 1UL                               );   uchar signature_cnt  = payload[ i ];     i++;
   /* Must have at least one signer for the fee payer */
-  CHECK( (1UL<=signature_cnt) & (signature_cnt<=FD_TXN_SIG_MAX) );
+  CHECK( allow_zero_signatures | ((1UL<=signature_cnt) & (signature_cnt<=FD_TXN_SIG_MAX)) );
   CHECK_LEFT( FD_TXN_SIGNATURE_SZ*signature_cnt );   ulong signature_off  =          i  ;     i+=FD_TXN_SIGNATURE_SZ*signature_cnt;
 
   /* Not actually parsing anything, just store. */   ulong message_off    =          i  ;
@@ -98,7 +101,7 @@ fd_txn_parse( uchar const             * payload,
   }
   CHECK_LEFT( 1UL                               );   uchar ro_signed_cnt  = payload[ i ];     i++;
   /* Must have at least one writable signer for the fee payer */
-  CHECK( ro_signed_cnt<signature_cnt );
+  CHECK( allow_zero_signatures | (ro_signed_cnt<signature_cnt ) );
 
   CHECK_LEFT( 1UL                               );   uchar ro_unsigned_cnt= payload[ i ];     i++;
 
@@ -208,7 +211,7 @@ fd_txn_parse( uchar const             * payload,
          The fee payer account must be owned by the system program, but the
          program must be an executable account and the system program is not
          permitted to own any executable account. */
-      CHECK( (0 < parsed->instr[ j ].program_id) & (parsed->instr[ j ].program_id < acct_addr_cnt + addr_table_adtl_cnt) );
+      CHECK( allow_zero_signatures | ((0 < parsed->instr[ j ].program_id) & (parsed->instr[ j ].program_id < acct_addr_cnt + addr_table_adtl_cnt) ));
       for( ulong k=0; k<parsed->instr[ j ].acct_cnt; k++ ) {
         CHECK( payload[ parsed->instr[ j ].acct_off + k ] < acct_addr_cnt + addr_table_adtl_cnt );
       }
@@ -228,4 +231,80 @@ fd_txn_parse( uchar const             * payload,
   #undef CHECK
   #undef CHECK_LEFT
   #undef READ_CHECKED_COMPACT_U16
+}
+
+ulong
+fd_txn_xray( uchar const             * payload,
+             ulong                     payload_sz,
+             fd_txn_xray_result_t    * result ) {
+  ulong i = 0UL;
+
+#define READ_COMPACT_U16( var_name, where )                              \
+  do {                                                                   \
+    ulong _where = (where);                                              \
+    ulong _out_sz = fd_cu16_dec_sz( payload+_where, payload_sz-_where ); \
+    if ( FD_UNLIKELY( !_out_sz ) ) return 0UL;                           \
+    (var_name) = fd_cu16_dec_fixed( payload+_where, _out_sz );           \
+    (where) += _out_sz;                                                  \
+  } while( 0 )
+
+  if ( FD_UNLIKELY( i >= payload_sz ) ) return 0UL;
+  uchar signature_cnt  = payload[ i ]; i++;
+  ulong signature_off  =          i  ;
+  i += FD_TXN_SIGNATURE_SZ*signature_cnt;
+  result->signature_cnt = signature_cnt;
+  result->signature_off = (ushort)signature_off;
+
+  if ( FD_UNLIKELY( i >= payload_sz ) ) return 0UL;
+  uchar header_b0      = payload[ i ]; i++;
+  uchar transaction_version;
+  if( FD_LIKELY( (ulong)header_b0 & 0x80UL ) ) {
+    /* This is a versioned transaction */
+    transaction_version = header_b0 & 0x7F;
+    /* Only recognized one so far */
+    i++;
+  } else {
+    transaction_version = FD_TXN_VLEGACY;
+  }
+  i++;
+  i++;
+
+  ushort acct_addr_cnt = (ushort)0;
+  READ_COMPACT_U16( acct_addr_cnt, i );
+  i += FD_TXN_ACCT_ADDR_SZ*acct_addr_cnt;
+  i += FD_TXN_BLOCKHASH_SZ;
+
+  ushort instr_cnt = (ushort)0;
+  READ_COMPACT_U16( instr_cnt, i );
+  for( ulong j=0UL; j<instr_cnt; j++ ) {
+    ushort acct_cnt = (ushort)0;
+    ushort data_sz  = (ushort)0;
+    i++;
+    READ_COMPACT_U16( acct_cnt, i );
+    i += acct_cnt;
+    READ_COMPACT_U16( data_sz,  i );
+    i += data_sz;
+  }
+
+  if( FD_LIKELY( transaction_version==FD_TXN_V0 ) ) {
+    ushort addr_table_cnt = 0;
+    READ_COMPACT_U16( addr_table_cnt, i );
+    for( ulong j=0; j<addr_table_cnt; j++ ) {
+      i += FD_TXN_ACCT_ADDR_SZ;
+
+      ushort writable_cnt = 0;
+      ushort readonly_cnt = 0;
+      READ_COMPACT_U16( writable_cnt, i );
+      i += writable_cnt;
+      READ_COMPACT_U16( readonly_cnt, i );
+      i += readonly_cnt;
+    }
+  }
+
+  if ( FD_UNLIKELY( i > payload_sz ) ) return 0UL;
+
+  return i;
+
+#undef READ_COMPACT_U16
+#undef CHECK_SIZE
 }

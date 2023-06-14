@@ -5,3 +5,4 @@ $(call make-unit-test,test_compute_budget_program,test_compute_budget_program,fd
 $(call make-unit-test,test_pack,test_pack,fd_tango fd_ballet fd_util)
 $(call make-bin,fd_pack_ctl,fd_pack_ctl,fd_ballet fd_tango fd_util)
 $(call run-unit-test,test_compute_budget_program,)
+$(call run-unit-test,test_est_tbl,)

@@ -54,12 +54,12 @@ struct recordvalue {
           len -= sizeof(ulong);
         } else {
           switch (len) {
-          case 7: p[6] = ((uchar*)&r)[6]; // Fallthrough
-          case 6: p[5] = ((uchar*)&r)[5]; // Fallthrough
-          case 5: p[4] = ((uchar*)&r)[4]; // Fallthrough
-          case 4: p[3] = ((uchar*)&r)[3]; // Fallthrough
-          case 3: p[2] = ((uchar*)&r)[2]; // Fallthrough
-          case 2: p[1] = ((uchar*)&r)[1]; // Fallthrough
+          case 7: p[6] = ((uchar*)&r)[6]; __attribute__((fallthrough));
+          case 6: p[5] = ((uchar*)&r)[5]; __attribute__((fallthrough));
+          case 5: p[4] = ((uchar*)&r)[4]; __attribute__((fallthrough));
+          case 4: p[3] = ((uchar*)&r)[3]; __attribute__((fallthrough));
+          case 3: p[2] = ((uchar*)&r)[2]; __attribute__((fallthrough));
+          case 2: p[1] = ((uchar*)&r)[1]; __attribute__((fallthrough));
           case 1: p[0] = ((uchar*)&r)[0];
           }
           break;
@@ -70,7 +70,7 @@ struct recordvalue {
     void write_data(fd_funk_t * funk, const recordkey& key) {
       int err;
       auto sz = data_.size();
-      rec_ = fd_funk_rec_write_prepare(funk, NULL, &key.id_, sz, &err);
+      rec_ = fd_funk_rec_write_prepare(funk, NULL, &key.id_, sz, 1, &err);
       assert(rec_ != NULL);
       auto* wksp = fd_funk_wksp(funk);
       auto* rec2 = fd_funk_val_copy(rec_, data_.data(), sz, sz, fd_funk_alloc(funk, wksp), wksp, &err);
@@ -165,7 +165,7 @@ int main(int argc, char **argv) {
     shmem = fd_wksp_alloc_laddr( wksp, align, footprint, wksp_tag );
     void * shfunk = fd_funk_new( shmem, wksp_tag, seed, txn_max, rec_max );
     harness.funk_ = fd_funk_join( shfunk );
-    assert(fd_funk_persist_open( harness.funk_, backfile) == FD_FUNK_SUCCESS);
+    assert(fd_funk_persist_open( harness.funk_, backfile, 1 ) == FD_FUNK_SUCCESS);
   };
   unlink(backfile);
   buildup();
@@ -174,7 +174,7 @@ int main(int argc, char **argv) {
   for (int i = 0; i < 100; ++i)
     harness.random_insert();
   harness.verify();
-  
+
   auto teardown = [&](){
     fd_funk_delete( fd_funk_leave( harness.funk_ ) );
     harness.funk_ = NULL;
@@ -208,14 +208,14 @@ int main(int argc, char **argv) {
     teardown();
     buildup();
     harness.verify();
-    
+
     for (int i = 0; i < 1000; ++i)
       harness.random_modify();
     harness.verify();
     teardown();
     buildup();
     harness.verify();
-    
+
     for (int i = 0; i < 5000; ++i)
       harness.random_insert();
     harness.verify();

@@ -8,41 +8,33 @@
 #include <malloc.h>
 #include <string.h>
 #include <dirent.h>
-#include "../../util/fd_util.h"
+#include "../fd_util.h"
 #include "fd_tar.h"
+typedef unsigned char bool;
 #include "gnu_tar_impl.h"
 
-#define fd_tar_read_stream_new_buf_size (1<<16)
+#define fd_tar_stream_initBufSize (1<<16)
 
-fd_tar_read_stream_t* 
-fd_tar_read_stream_new(fd_tar_read_stream_t* self) {
+void fd_tar_stream_init(struct fd_tar_stream* self, fd_alloc_fun_t allocf, void* allocf_arg, fd_free_fun_t freef) {
+  self->allocf_ = allocf;
+  self->allocf_arg_ = allocf_arg;
+  self->freef_ = freef;
   self->totalsize_ = 0;
   self->cursize_ = 0;
-  self->buf_ = malloc(fd_tar_read_stream_new_buf_size);
-  self->bufmax_ = fd_tar_read_stream_new_buf_size;
-
-  return self;
+  self->buf_ = (*allocf)(allocf_arg, 64, fd_tar_stream_initBufSize);
+  self->bufmax_ = fd_tar_stream_initBufSize;
 }
 
-fd_tar_read_stream_t* fd_tar_read_stream_join (fd_tar_read_stream_t* self) {
-  return self;
-}
-
-void 
-fd_tar_read_stream_leave (FD_FN_UNUSED fd_tar_read_stream_t* self) {
-}
-
-// This is used TWICE in a c file... is it really worth making a macro out of it?
+int fd_tar_stream_moreData(struct fd_tar_stream* self, const void* data, size_t datalen, fd_tar_stream_callback cb, void* arg) {
 #define CONSUME_DATA(target, cursize, maxsize)           \
   { size_t newsize = cursize + datalen;                  \
     if (newsize > maxsize) newsize = maxsize;            \
     size_t consumed = (size_t)(newsize - cursize);       \
-    fd_memcpy((char*)target + cursize, data, consumed);     \
+    fd_memcpy((char*)target + cursize, data, consumed);  \
     cursize = newsize;                                   \
     data = (const char*)data + consumed;                 \
     datalen -= consumed; }
 
-int fd_tar_read_stream_more_data(fd_tar_read_stream_t* self, const void* data, size_t datalen, fd_tar_read_stream_callback_t cb, void* arg) {
   union block* blk = (union block*)self->header_;
   while (datalen) {
     if (self->totalsize_ == 0) {
@@ -86,8 +78,8 @@ int fd_tar_read_stream_more_data(fd_tar_read_stream_t* self, const void* data, s
         continue;
       }
       if (self->roundedsize_ > self->bufmax_) {
-        free(self->buf_);
-        self->buf_ = malloc(self->bufmax_ = self->roundedsize_);
+        (*self->freef_)(self->allocf_arg_, self->buf_);
+        self->buf_ = (*self->allocf_)(self->allocf_arg_, 64, (self->bufmax_ = self->roundedsize_));
       }
 
     } else {
@@ -103,11 +95,10 @@ int fd_tar_read_stream_more_data(fd_tar_read_stream_t* self, const void* data, s
   }
 
   return 0;
+
+#undef CONSUME_DATA
 }
 
-void fd_tar_read_stream_delete(fd_tar_read_stream_t* self) {
-  if (NULL != self->buf_) {
-    free(self->buf_);
-    self->buf_ = NULL;
-  }
+void fd_tar_stream_delete(struct fd_tar_stream* self) {
+  (*self->freef_)(self->allocf_arg_, self->buf_);
 }

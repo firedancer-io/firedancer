@@ -42,7 +42,7 @@ struct recordvalue {
     std::vector<uchar> data_;
 
     void random_data(fd_rng_t * rng) {
-      auto len = FD_FUNK_REC_VAL_MAX;
+      auto len = 10UL<<20;
       data_.resize(len);
       auto* p = data_.data();
       while (len) {
@@ -56,7 +56,7 @@ struct recordvalue {
       int err;
       auto sz = data_.size();
       assert(txn != NULL);
-      auto* rec = fd_funk_rec_write_prepare(funk, txn, &key.id_, sz, &err);
+      auto* rec = fd_funk_rec_write_prepare(funk, txn, &key.id_, sz, 1, &err);
       assert(rec != NULL);
       auto* wksp = fd_funk_wksp(funk);
       auto* rec2 = fd_funk_val_copy(rec, data_.data(), sz, sz, fd_funk_alloc(funk, wksp), wksp, &err);
@@ -66,7 +66,7 @@ struct recordvalue {
     void erase_data(fd_funk_t * funk, fd_funk_txn_t * txn, const recordkey& key) {
       int err;
       assert(txn != NULL);
-      auto* rec = fd_funk_rec_write_prepare(funk, txn, &key.id_, 0, &err);
+      auto* rec = fd_funk_rec_write_prepare(funk, txn, &key.id_, 0, 1, &err);
       assert(rec != NULL);
       assert(fd_funk_rec_remove(funk, rec, 1) == FD_FUNK_SUCCESS);
     }
@@ -145,7 +145,7 @@ int main(int argc, char **argv) {
     shmem = fd_wksp_alloc_laddr( wksp, align, footprint, wksp_tag );
     void * shfunk = fd_funk_new( shmem, wksp_tag, seed, txn_max, rec_max );
     harness.funk_ = fd_funk_join( shfunk );
-    assert(fd_funk_persist_open( harness.funk_, backfile) == FD_FUNK_SUCCESS);
+    assert(fd_funk_persist_open( harness.funk_, backfile, 1 ) == FD_FUNK_SUCCESS);
   };
   unlink(backfile);
   buildup();

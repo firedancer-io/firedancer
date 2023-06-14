@@ -1,6 +1,10 @@
 #ifndef HEADER_fd_src_funk_fd_funk_h
 #define HEADER_fd_src_funk_fd_funk_h
 
+#ifdef _DISABLE_OPTIMIZATION
+#pragma GCC optimize ("O0")
+#endif
+
 /* Funk is a hybrid of a database and version control system designed
    for ultra high performance blockchain applications.
 
@@ -9,11 +13,11 @@
    short for "transaction id" and xids have a compile time fixed size
    (e.g. 32-bytes).  keys also have a compile time fixed size (e.g.
    64-bytes).  Record values can vary in length from zero to a compile
-   time maximum size (e.g. 10 MiB) inclusive.  The xid of all zeros is
-   reserved for the "root" transaction described below.  Outside this,
-   there are no restrictions on what a record xid, key or val can be.
-   Individual records can be created, updated, and deleted arbitrarily.
-   They are just binary data as far as funk is concerned.
+   time maximum size.  The xid of all zeros is reserved for the "root"
+   transaction described below.  Outside this, there are no
+   restrictions on what a record xid, key or val can be.  Individual
+   records can be created, updated, and deleted arbitrarily.  They are
+   just binary data as far as funk is concerned.
 
    The maximum number of records is practically only limited by the size
    of the workspace memory backing it.  At present, each record requires
@@ -326,12 +330,24 @@ void *
 fd_funk_delete( void * shfunk );
 
 /* Open a persistent store file and recover database content. Future
-   updates are persisted back to this file. An error code may be returned. */
+   updates are persisted back to this file. An error code may be
+   returned. If cache_all is true, all records are loaded into
+   memory. If not, fd_funk_val_cache must be used to safely access values. */
 
 int
-fd_funk_persist_open( fd_funk_t * funk, const char * filename );
+fd_funk_persist_open( fd_funk_t * funk, const char * filename, int cache_all );
+
+/* Open a persistent store file but don't bother recovering
+   records. This API assumes that the shared memory version of the
+   database matches the persistence file, and everything was
+   previously shutdown in good order. This is the typical,
+   nothing-on-fire case. */
+
+int
+fd_funk_persist_open_fast( fd_funk_t * funk, const char * filename );
 
 /* Close the persistent store file. */
+
 void
 fd_funk_persist_close( fd_funk_t * funk );
 

@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_ballet_runtime_fd_banks_solana_h
 #define HEADER_fd_src_ballet_runtime_fd_banks_solana_h
 
-#include "fd_types.h"
+#include "../../flamenco/types/fd_types.h"
 
 FD_PROTOTYPES_BEGIN
 

@@ -71,10 +71,6 @@ fd_deshredder_init( fd_deshredder_t *          shredder,
 
 long
 fd_deshredder_next( fd_deshredder_t * const shredder ) {
-  /* Terminate early if no shreds are left */
-  if( FD_UNLIKELY( shredder->shred_cnt == 0U ) )
-    return shredder->result;
-
   /* Remember start of provided buffer */
   uchar * const orig_buf = shredder->buf;
 
@@ -82,7 +78,7 @@ fd_deshredder_next( fd_deshredder_t * const shredder ) {
   for(;;) {
     /* Sanity check: No unexpected "end of shred batch" */
     if( FD_UNLIKELY( shredder->shred_cnt == 0U ) )
-      return (shredder->result = -FD_SHRED_EPIPE);
+      break;
 
     fd_shred_t const * shred = *shredder->shreds;
 

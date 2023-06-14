@@ -24,7 +24,7 @@ void txn1_correctness( void ) {
   const uchar first_acct_byte[23] = {220, 255, 85, 89, 201, 170, 194, 48, 228, 123, 151, 133, 6, 6, 203, 6, 11, 6, 0, 140, 3, 5, 168};
   fd_txn_t * parsed = (fd_txn_t *)out_buf;
   ulong      parsed_sz;
-  ulong out_sz = fd_txn_parse( transaction1, transaction1_sz, out_buf, &counters, &parsed_sz );
+  ulong out_sz = fd_txn_parse_core( transaction1, transaction1_sz, out_buf, &counters, &parsed_sz, 0 );
   FD_TEST( out_sz );
   FD_TEST( counters.success_cnt==1UL );
   FD_TEST( counters.failure_cnt==0UL );
@@ -64,6 +64,11 @@ void txn1_correctness( void ) {
   FD_TEST( ix[ 6 ].data_sz    == 12UL );
   FD_TEST( transaction1[ ix[ 6 ].acct_off ] ==  14UL );
   FD_TEST( transaction1[ ix[ 6 ].data_off ] == 211UL );
+
+  fd_txn_xray_result_t xray;
+  FD_TEST( fd_txn_xray( transaction1, transaction1_sz, &xray ) == parsed_sz );
+  FD_TEST( xray.signature_cnt == parsed->signature_cnt );
+  FD_TEST( xray.signature_off == parsed->signature_off );
 }
 void txn2_correctness( void ) {
   fd_txn_parse_counters_t counters = {0};
@@ -72,7 +77,7 @@ void txn2_correctness( void ) {
   const uchar first_lut_writable[4] = {142, 141, 143, 144};
   fd_txn_t * parsed = (fd_txn_t *)out_buf;
   ulong      parsed_sz;
-  ulong out_sz = fd_txn_parse( transaction2, transaction2_sz, out_buf, &counters, &parsed_sz );
+  ulong out_sz = fd_txn_parse_core( transaction2, transaction2_sz, out_buf, &counters, &parsed_sz, 0 );
   FD_TEST( out_sz );
   FD_TEST( counters.success_cnt==1UL );
   FD_TEST( counters.failure_cnt==0UL );
@@ -125,6 +130,10 @@ void txn2_correctness( void ) {
   FD_TEST( transaction2[ luts[ 2 ].writable_off ] == 91UL );
   FD_TEST( transaction2[ luts[ 2 ].readonly_off ] == 97UL );
 
+  fd_txn_xray_result_t xray;
+  FD_TEST( fd_txn_xray( transaction2, transaction2_sz, &xray ) == parsed_sz );
+  FD_TEST( xray.signature_cnt == parsed->signature_cnt );
+  FD_TEST( xray.signature_off == parsed->signature_off );
 }
 
 void
@@ -138,7 +147,7 @@ test_mutate( uchar const * orig_payload,
 
   fd_txn_parse_counters_t counters = {0};
   fd_txn_t * parsed = (fd_txn_t *)out_buf;
-  ulong out_sz = fd_txn_parse( payload, len, out_buf, NULL, NULL );
+  ulong out_sz = fd_txn_parse( payload, len, out_buf, NULL );
   FD_TEST( out_sz );
   ulong footprint = fd_txn_footprint( parsed->instr_cnt, parsed->addr_table_lookup_cnt );
   FD_TEST( out_sz==footprint );
@@ -183,17 +192,17 @@ test_mutate( uchar const * orig_payload,
     MUT_OKAY( tables[ j ].writable_off, tables[ j ].writable_cnt );
     MUT_OKAY( tables[ j ].readonly_off, tables[ j ].readonly_cnt );
   }
-  FD_TEST( fd_txn_parse( payload, len, test_buf, NULL, NULL ) );
+  FD_TEST( fd_txn_parse( payload, len, test_buf, NULL ) );
   FD_TEST( !memcmp( out_buf, test_buf, footprint ) );
 
 #undef MUT_OKAY
   for( ulong i=0; i<len; i++ ) {
     /* Test truncated version */
-    FD_TEST( !fd_txn_parse( payload, i, test_buf, &counters, NULL ) );
+    FD_TEST( !fd_txn_parse( payload, i, test_buf, &counters ) );
     uchar orig = payload[ i ];
     for( ulong off=1; off<256; off++ ) {
       payload[ i ] = (uchar)(orig+off);
-      ulong mut_parsed_footprint = fd_txn_parse( payload, len, test_buf, &counters, NULL );
+      ulong mut_parsed_footprint = fd_txn_parse( payload, len, test_buf, &counters );
       fd_txn_t * mut_parsed = (fd_txn_t *)test_buf;
       if( min_okay[ i ]==0 && max_okay[ i ]==255 ) {
         FD_TEST( footprint == mut_parsed_footprint );
@@ -219,10 +228,18 @@ test_performance( uchar const * payload,
   const ulong test_count = 1000000;
   long start = fd_log_wallclock( );
   for( ulong i = 0; i < test_count; i++ ) {
-    FD_TEST( fd_txn_parse( payload, sz, out_buf, NULL, NULL ) );
+    FD_TEST( fd_txn_parse( payload, sz, out_buf, NULL ) );
   }
   long end = fd_log_wallclock( );
   FD_LOG_NOTICE(( "Average time per parse: %f ns", (double)(end-start)/(double)test_count ));
+
+  start = fd_log_wallclock( );
+  for( ulong i = 0; i < test_count; i++ ) {
+    fd_txn_xray_result_t xray;
+    FD_TEST( fd_txn_xray( payload, sz, &xray ) );
+  }
+  end = fd_log_wallclock( );
+  FD_LOG_NOTICE(( "Average time per xray: %f ns", (double)(end-start)/(double)test_count ));
 }
 
 void
@@ -236,11 +253,11 @@ test_trailing( uchar const * payload,
   fd_asan_unpoison( buf,          sz          );
 
   /* Trailing bytes and payload_sz_opt was not specified => fail    */
-  FD_TEST( 0UL==fd_txn_parse( buf, sizeof(buf), out_buf, NULL, NULL    ) );
+  FD_TEST( 0UL==fd_txn_parse( buf, sizeof(buf), out_buf, NULL ) );
 
   /* Trailing bytes and payload_sz_opt was specified     => success */
   ulong sz_opt;
-  FD_TEST( 0UL!=fd_txn_parse( buf, sizeof(buf), out_buf, NULL, &sz_opt ) );
+  FD_TEST( 0UL!= fd_txn_parse_core( buf, sizeof(buf), out_buf, NULL, &sz_opt, 0 ) );
   FD_TEST( sz_opt==sz );
 }
 
@@ -263,7 +280,7 @@ main( int     argc,
   test_trailing( transaction1, transaction1_sz );
   test_trailing( transaction2, transaction2_sz );
 
-  FD_TEST( FD_TXN_MAX_SZ == fd_txn_parse( transaction3, transaction3_sz, out_buf, NULL, NULL ) );
+  FD_TEST( FD_TXN_MAX_SZ == fd_txn_parse_core( transaction3, transaction3_sz, out_buf, NULL, NULL, 0 ) );
   fd_rng_delete( fd_rng_leave( rng ) );
 
   FD_LOG_NOTICE(( "pass" ));

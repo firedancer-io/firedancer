@@ -1,5 +1,9 @@
 #include "fd_funk.h"
 
+#ifdef _DISABLE_OPTIMIZATION
+#pragma GCC optimize ("O0")
+#endif
+
 /* Provide the actual record map implementation */
 
 #define MAP_NAME              fd_funk_rec_map
@@ -508,6 +512,7 @@ fd_funk_rec_write_prepare( fd_funk_t *               funk,
                            fd_funk_txn_t *           txn,
                            fd_funk_rec_key_t const * key,
                            ulong                     min_val_size,
+                           int                       do_create,
                            int *                     opt_err ) {
   
   fd_wksp_t * wksp = fd_funk_wksp( funk );
@@ -515,6 +520,12 @@ fd_funk_rec_write_prepare( fd_funk_t *               funk,
   fd_funk_rec_t * rec = NULL;
   fd_funk_rec_t const * rec_con = fd_funk_rec_query_global( funk, txn, key );
   if ( rec_con ) {
+    if ( rec_con->val_gaddr == 0UL && rec_con->persist_pos != FD_FUNK_REC_IDX_NULL ) {
+      /* Read the value into the cache */
+      if ( fd_funk_val_cache( funk, rec_con, opt_err ) == NULL )
+        return NULL;
+    }
+
     /* We have an incarnation of the record */
     if ( txn == fd_funk_rec_txn( rec_con,  fd_funk_txn_map( funk, wksp ) ) ) {
       /* The record is already in the right transaction */
@@ -536,6 +547,9 @@ fd_funk_rec_write_prepare( fd_funk_t *               funk,
     }
 
   } else {
+    if (!do_create)
+      return NULL;
+
     /* Create a new record */
     rec = fd_funk_rec_modify( funk, fd_funk_rec_insert( funk, txn, key, opt_err ) );
     if ( !rec )

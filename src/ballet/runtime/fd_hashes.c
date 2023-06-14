@@ -2,6 +2,9 @@
 #include "../blake3/fd_blake3.h"
 #include "../sha256/fd_sha256.h"
 #include <assert.h>
+#include <stdio.h>
+#include "../base58/fd_base58.h"
+#include "fd_runtime.h"
 
 #define SORT_NAME sort_pubkey_hash_pair
 #define SORT_KEY_T fd_pubkey_hash_pair_t
@@ -11,12 +14,12 @@
 #define FD_ACCOUNT_DELTAS_MERKLE_FANOUT (16UL)
 #define FD_ACCOUNT_DELTAS_MAX_MERKLE_HEIGHT (16UL)
 
-void 
-fd_hash_account_deltas( fd_pubkey_hash_pair_t * pairs, ulong pairs_len, FD_FN_UNUSED fd_hash_t * hash ) {
+void
+fd_hash_account_deltas(fd_global_ctx_t *global, fd_pubkey_hash_pair_t * pairs, ulong pairs_len, fd_hash_t * hash ) {
   fd_sha256_t shas[FD_ACCOUNT_DELTAS_MAX_MERKLE_HEIGHT];
   uchar num_hashes[FD_ACCOUNT_DELTAS_MAX_MERKLE_HEIGHT+1];
 
-  // Init the number of hashes 
+  // Init the number of hashes
   fd_memset( num_hashes, 0, sizeof(num_hashes) );
 
   sort_pubkey_hash_pair_inplace( pairs, pairs_len );
@@ -26,29 +29,72 @@ fd_hash_account_deltas( fd_pubkey_hash_pair_t * pairs, ulong pairs_len, FD_FN_UN
 
   if( pairs_len == 0 ) {
     fd_sha256_fini( &shas[0], hash->hash );
+    if (FD_UNLIKELY(global->log_level > 5)) {
       FD_LOG_NOTICE(( "M"
         "\n\t\t" FD_LOG_HEX16_FMT "  " FD_LOG_HEX16_FMT,
-        FD_LOG_HEX16_FMT_ARGS(     hash->hash    ), FD_LOG_HEX16_FMT_ARGS(     hash->hash+16 ))); 
+        FD_LOG_HEX16_FMT_ARGS(     hash->hash    ), FD_LOG_HEX16_FMT_ARGS(     hash->hash+16 )));
+    }
     return;
   }
 
+  if (FD_UNLIKELY(global->log_level > 2))
+    FD_LOG_NOTICE(( "W %ld", pairs_len));
+
   for( ulong i = 0; i < pairs_len; ++i ) {
-    
-    for( ulong k = 0; k < 8; ++k ) {
-      FD_LOG_NOTICE(( "X %lu %lu %u", i, k, num_hashes[k] ));
+
+    if (FD_UNLIKELY(global->log_level > 2)) {
+      char encoded_pubkey[50];
+      fd_base58_encode_32((uchar *) pairs[i].pubkey.key, 0, encoded_pubkey);
+
+      char encoded_hash[50];
+      fd_base58_encode_32((uchar *) pairs[i].hash.hash, 0, encoded_hash);
+      FD_LOG_NOTICE(( "account delta hash X { \"key\":%ld, \"pubkey\":\"%s\", \"hash\":\"%s\" },", i, encoded_pubkey, encoded_hash));
+
+
+      /*
+      pubkey
+      slot
+      lamports
+      owner
+      executable
+      rent_epoch
+      data_len
+      data
+      hash
+      */
+      fd_pubkey_t current_owner;
+      fd_acc_mgr_get_owner( global->acc_mgr, global->funk_txn, &pairs[i].pubkey, &current_owner );
+      char encoded_owner[50];
+      fd_base58_encode_32((uchar *) &current_owner, 0, encoded_owner);
+
+      fd_account_meta_t metadata;
+      fd_acc_mgr_get_metadata( global->acc_mgr, global->funk_txn, &pairs[i].pubkey, &metadata);
+      FD_LOG_NOTICE(( "account_delta_hash_compare pubkey: (%s) slot: (%lu) lamports: (%lu), owner: (%s), executable: (%d), rent_epoch: (%lu), data_len: (%ld), hash: (%s) ",  encoded_pubkey, global->bank.solana_bank.slot, metadata.info.lamports, encoded_owner, metadata.info.executable, metadata.info.rent_epoch, metadata.dlen, encoded_hash ));
+      // TODO: print out hex
+      // FD_LOG_HEXDUMP_NOTICE((  ))
     }
+
     fd_sha256_append( &shas[0] , (uchar const *) pairs[i].hash.hash, sizeof( fd_hash_t ) );
     num_hashes[0]++;
-    
+
     for( ulong j = 0; j < FD_ACCOUNT_DELTAS_MAX_MERKLE_HEIGHT; ++j ) {
-      FD_LOG_NOTICE(( "Z %lu %lu %lu", i, j, shas[j].buf_used ));
+      if (FD_UNLIKELY(global->log_level > 5)) {
+        FD_LOG_NOTICE(( "Z %lu %lu %lu", i, j, shas[j].buf_used ));
+      }
       if (num_hashes[j] == FD_ACCOUNT_DELTAS_MERKLE_FANOUT) {
-        FD_LOG_NOTICE(( "Y %lu %lu %u", i, j, num_hashes[j] ));
+        if (FD_UNLIKELY(global->log_level > 5)) {
+          FD_LOG_NOTICE(( "Y %lu %lu %u %u", i, j, num_hashes[j], num_hashes[j+1] ));
+        }
         num_hashes[j] = 0;
         num_hashes[j+1]++;
         fd_hash_t sub_hash;
         fd_sha256_fini( &shas[j], &sub_hash );
         fd_sha256_init( &shas[j] );
+        if (FD_UNLIKELY(global->log_level > 5)) {
+          char encoded_hash[50];
+          fd_base58_encode_32((uchar *) sub_hash.hash, 0, encoded_hash);
+          FD_LOG_NOTICE(( "V %lu %lu %s", i, j, encoded_hash ));
+        }
         fd_sha256_append( &shas[j+1], (uchar const *) sub_hash.hash, sizeof( fd_hash_t ) );
       } else {
         break;
@@ -66,17 +112,24 @@ fd_hash_account_deltas( fd_pubkey_hash_pair_t * pairs, ulong pairs_len, FD_FN_UN
   }
 
   for( ulong i = 0; i < height; ++i ) {
+#ifdef _VERBOSE
     FD_LOG_NOTICE(( "S %lu %u", i, num_hashes[i] ));
+#endif
+    if( num_hashes[i]==0 ) {
+      continue;
+    }
     // At level i, finalize and append to i + 1
     //fd_hash_t sub_hash;
     fd_sha256_fini( &shas[i], hash );
+#ifdef _VERBOSE
     FD_LOG_NOTICE(( "Q (%lu)"
       "\n\t\t" FD_LOG_HEX16_FMT "  " FD_LOG_HEX16_FMT,
       i,
-      FD_LOG_HEX16_FMT_ARGS(     hash->hash    ), FD_LOG_HEX16_FMT_ARGS(     hash->hash+16 ))); 
+      FD_LOG_HEX16_FMT_ARGS(     hash->hash    ), FD_LOG_HEX16_FMT_ARGS(     hash->hash+16 )));
+#endif
     num_hashes[i] = 0;
     num_hashes[i+1]++;
-      
+
     if (i == (height-1)) {
       ulong tot_num_hashes = 0;
       for (ulong k = 0; k < FD_ACCOUNT_DELTAS_MAX_MERKLE_HEIGHT; ++k ) {
@@ -84,13 +137,15 @@ fd_hash_account_deltas( fd_pubkey_hash_pair_t * pairs, ulong pairs_len, FD_FN_UN
       }
 
       assert(tot_num_hashes == 1);
+#ifdef _VERBOSE
       FD_LOG_NOTICE(( "M"
         "\n\t\t" FD_LOG_HEX16_FMT "  " FD_LOG_HEX16_FMT,
-        FD_LOG_HEX16_FMT_ARGS(     hash->hash    ), FD_LOG_HEX16_FMT_ARGS(     hash->hash+16 ))); 
+        FD_LOG_HEX16_FMT_ARGS(     hash->hash    ), FD_LOG_HEX16_FMT_ARGS(     hash->hash+16 )));
+#endif
       return;
     }
     fd_sha256_append( &shas[i+1], (uchar const *) hash->hash, sizeof( fd_hash_t ) );
-  
+
     // There is now one more hash at level i+1
 
     // check, have we filled this level and ones above it.
@@ -101,50 +156,71 @@ fd_hash_account_deltas( fd_pubkey_hash_pair_t * pairs, ulong pairs_len, FD_FN_UN
         num_hashes[j+1]++;
         fd_hash_t sub_hash;
         fd_sha256_fini( &shas[j], &sub_hash );
+        if (FD_UNLIKELY(global->log_level > 5)) {
+          char encoded_hash[50];
+          fd_base58_encode_32((uchar *) sub_hash.hash, 0, encoded_hash);
+          FD_LOG_NOTICE(( "L %lu %lu %s", i, j, encoded_hash ));
+        }
         fd_sha256_append( &shas[j+1], (uchar const *) sub_hash.hash, sizeof( fd_hash_t ) );
       }
     }
   }
-  
+
   // If the level at the `height' was rolled into, do something about it
 
 }
 
-void 
-fd_hash_bank( fd_deserializable_versioned_bank_t const * bank, fd_pubkey_hash_pair_t * pairs, ulong pairs_len, fd_hash_t * hash ) {
-  fd_hash_t account_deltas_hash;
+void
+fd_hash_bank( fd_global_ctx_t *global, fd_hash_t * hash ) {
+  global->prev_banks_hash = global->banks_hash;
 
-  fd_hash_account_deltas( pairs, pairs_len, &account_deltas_hash );
+  fd_hash_account_deltas( global, global->acc_mgr->keys.elems, global->acc_mgr->keys.cnt, &global->account_delta_hash );
 
   fd_sha256_t sha;
   fd_sha256_init( &sha );
-  fd_sha256_append( &sha, (uchar const *) &bank->parent_hash, sizeof( fd_hash_t ) );
-  fd_sha256_append( &sha, (uchar const *) account_deltas_hash.hash, sizeof( fd_hash_t  ) );
-  fd_sha256_append( &sha, (uchar const *) &bank->signature_count, sizeof( ulong ) );
-  fd_sha256_append( &sha, (uchar const *) bank->blockhash_queue.last_hash->hash, sizeof( fd_hash_t ) );
- 
+  fd_sha256_append( &sha, (uchar const *) global->banks_hash.hash, sizeof( fd_hash_t ) );
+  fd_sha256_append( &sha, (uchar const *) global->account_delta_hash.hash, sizeof( fd_hash_t  ) );
+  fd_sha256_append( &sha, (uchar const *) &global->signature_cnt, sizeof( ulong ) );
+  fd_sha256_append( &sha, (uchar const *) global->block_hash, sizeof( fd_hash_t ) );
+
   fd_sha256_fini( &sha, hash->hash );
+
+  if (global->log_level > 0) {
+    char encoded_hash[50];
+    fd_base58_encode_32((uchar *) hash->hash, 0, encoded_hash);
+
+    char encoded_parent[50];
+    fd_base58_encode_32((uchar *) global->prev_banks_hash.hash, 0, encoded_parent);
+
+    char encoded_account_delta[50];
+    fd_base58_encode_32((uchar *) global->account_delta_hash.hash, 0, encoded_account_delta);
+
+    char encoded_last_block_hash[50];
+    fd_base58_encode_32((uchar *) global->block_hash, 0, encoded_last_block_hash);
+
+    FD_LOG_NOTICE(( "bank_hash slot: %lu,  hash: %s,  parent_hash: %s,  accounts_delta: %s,  signature_count: %ld,  last_blockhash: %s",
+        global->bank.solana_bank.slot, encoded_hash, encoded_parent, encoded_account_delta, global->signature_cnt, encoded_last_block_hash));
+  }
 }
 
-// NOTE: will not work on big endian platforms
-void 
-fd_hash_account( fd_solana_account_t const * account, ulong slot, fd_pubkey_t const * pubkey, fd_hash_t * hash ) {
-  if( account->lamports==0 ) {
+void
+fd_hash_meta( fd_account_meta_t const * m, ulong slot, fd_pubkey_t const * pubkey, uchar const *data, fd_hash_t * hash ) {
+  if( m->info.lamports==0 ) {
     fd_memset(hash->hash, 0, sizeof(fd_hash_t));
     return;
   }
 
   fd_blake3_t sha;
   fd_blake3_init( &sha );
-  fd_blake3_append( &sha, (uchar const *) &account->lamports, sizeof( ulong ) );
+  fd_blake3_append( &sha, (uchar const *) &m->info.lamports, sizeof( ulong ) );
   fd_blake3_append( &sha, (uchar const *) &slot, sizeof( ulong ) );
-  fd_blake3_append( &sha, (uchar const *) &account->rent_epoch, sizeof( ulong ) );
-  fd_blake3_append( &sha, (uchar const *) account->data, account->data_len );
- 
-  uchar executable = account->executable & 0x1;
+  fd_blake3_append( &sha, (uchar const *) &m->info.rent_epoch, sizeof( ulong ) );
+  fd_blake3_append( &sha, (uchar const *) data, m->dlen );
+
+  uchar executable = m->info.executable & 0x1;
   fd_blake3_append( &sha, (uchar const *) &executable, sizeof( uchar ));
 
-  fd_blake3_append( &sha, (uchar const *) account->owner.key, 32 );
+  fd_blake3_append( &sha, (uchar const *) m->info.owner, 32 );
   fd_blake3_append( &sha, (uchar const *) pubkey->key, 32 );
 
   fd_blake3_fini( &sha, hash->hash );

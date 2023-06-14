@@ -1,4 +1,8 @@
 #include "../fd_ballet.h"
+#include "fd_wbmtree.h"
+#include "../../util/simd/fd_avx.h"
+#include "../base58/fd_base58.h"
+#include <stdio.h>
 
 FD_STATIC_ASSERT( FD_BMTREE20_HASH_SZ         ==  20UL, unit_test );
 FD_STATIC_ASSERT( FD_BMTREE20_COMMIT_ALIGN    ==  32UL, unit_test );
@@ -16,10 +20,14 @@ FD_STATIC_ASSERT( FD_BMTREE32_COMMIT_FOOTPRINT==sizeof (fd_bmtree32_commit_t), u
 
 /* Test tree-20 construction */
 
+#ifdef _DISABLE_OPTIMIZATION
+#pragma GCC optimize ("O0")
+#endif
+
 static void
 test_bmtree20_commit( ulong        leaf_cnt,
                       void const * expected_root ) {
-  fd_bmtree20_commit_t _tree[1];
+  fd_bmtree20_commit_t   _tree[1];
   fd_bmtree20_commit_t * tree = fd_bmtree20_commit_init( _tree ); FD_TEST( tree==_tree );
 
   fd_bmtree20_node_t leaf[1];
@@ -45,10 +53,27 @@ test_bmtree20_commit( ulong        leaf_cnt,
                  leaf_cnt, FD_LOG_HEX20_FMT_ARGS( root ), FD_LOG_HEX20_FMT_ARGS( expected_root ) ));
 }
 
+//static void
+//test_bmtree32_commit( ulong        leaf_cnt,
+//                      void const * expected_root ) {
+//}
+
 static void
 hash_leaf( fd_bmtree32_node_t * leaf,
            char const *         leaf_cstr ) {
   FD_TEST( fd_bmtree32_hash_leaf( leaf, leaf_cstr, strlen( leaf_cstr ) )==leaf );
+}
+
+uchar* local_allocf(ulong align, ulong len) {
+  ulong   sz = fd_ulong_align_up(sizeof(char *) + len + align, align);
+  uchar * ptr = malloc(sz);
+  uchar * ret = (uchar *) fd_ulong_align_up( (ulong) (ptr + sizeof(char *)), align );
+  *((uchar **)(ret - sizeof(char *))) = ptr;
+  return ret;
+}
+
+void local_freef(void *ptr) {
+  free(*((char **)((char *) ptr - sizeof(char *))));
 }
 
 int
@@ -83,7 +108,7 @@ main( int     argc,
 
   /* FIXME: WRITE BETTER BENCHMARK */
   ulong bench_cnt = 1000000UL;
-  long dt = -fd_log_wallclock();
+  long  dt = -fd_log_wallclock();
   test_bmtree20_commit( bench_cnt, "\x20\x61\x9a\x7a\xe4\x65\x27\x5a\x70\x9c\xa5\xc2\x8a\x21\x91\x6c\xdf\xf9\x0e\x26" );
   dt += fd_log_wallclock();
   FD_LOG_NOTICE(( "%.3f ns/leaf @ %lu leaves", (double)((float)dt / (float)bench_cnt), bench_cnt ));
@@ -92,25 +117,17 @@ main( int     argc,
 
   // Source: https://github.com/solana-foundation/specs/blob/main/core/merkle-tree.md
 
-  ulong leaf_cnt = 11UL;
+  ulong              leaf_cnt = 11UL;
   fd_bmtree32_node_t leaf[ 11UL ];
+  char *             vals[] = {"my" , "very" , "eager" , "mother" , "just" , "served" , "us" , "nine" , "pizzas" , "make" , "prime" };
 
-  hash_leaf( leaf +  0, "my"     );
-  hash_leaf( leaf +  1, "very"   );
-  hash_leaf( leaf +  2, "eager"  );
-  hash_leaf( leaf +  3, "mother" );
-  hash_leaf( leaf +  4, "just"   );
-  hash_leaf( leaf +  5, "served" );
-  hash_leaf( leaf +  6, "us"     );
-  hash_leaf( leaf +  7, "nine"   );
-  hash_leaf( leaf +  8, "pizzas" );
-  hash_leaf( leaf +  9, "make"   );
-  hash_leaf( leaf + 10, "prime"  );
+  for (ulong i = 0; i < leaf_cnt; i++)
+    hash_leaf( leaf +  i, vals[i] );
 
   FD_TEST( fd_bmtree32_commit_align()    ==FD_BMTREE32_COMMIT_ALIGN     );
   FD_TEST( fd_bmtree32_commit_footprint()==FD_BMTREE32_COMMIT_FOOTPRINT );
 
-  fd_bmtree32_commit_t _tree[1];
+  fd_bmtree32_commit_t   _tree[1];
   fd_bmtree32_commit_t * tree = fd_bmtree32_commit_init( _tree ); FD_TEST( tree==_tree );
 
   FD_TEST( fd_bmtree32_commit_leaf_cnt( tree )==0UL );
@@ -122,6 +139,28 @@ main( int     argc,
   uchar * root = fd_bmtree32_commit_fini( tree );
 
   FD_TEST( fd_bmtree32_commit_leaf_cnt( tree )==leaf_cnt );
+
+  unsigned char *  mem = local_allocf(128UL, fd_wbmtree32_footprint(leaf_cnt));
+  fd_wbmtree32_t * wide_bmtree = fd_wbmtree32_init(mem, leaf_cnt);
+
+  // This is annoying.. that we are booting off a different format... lets revisit this..
+  fd_wbmtree32_leaf_t leafs[leaf_cnt];
+  ulong               tsize = 0;
+  for (ulong i = 0; i < leaf_cnt; i++) {
+    leafs[i].data = (unsigned char *) vals[i];
+    leafs[i].data_len = strlen(vals[i]);
+    tsize += leafs[i].data_len + 1;
+  }
+
+  unsigned char *cbuf = local_allocf(1UL, tsize);
+
+  fd_wbmtree32_append(wide_bmtree, leafs, leaf_cnt, cbuf);
+  uchar *root2 = fd_wbmtree32_fini(wide_bmtree);
+
+  local_freef(mem);
+  local_freef(cbuf);
+
+  FD_TEST( memcmp(root, root2, 32) == 0 );
 
 # define _(v) ((uchar)0x##v)
   uchar const expected[FD_SHA256_HASH_SZ] = {
@@ -138,6 +177,98 @@ main( int     argc,
                  "\n\t\t" FD_LOG_HEX16_FMT "  " FD_LOG_HEX16_FMT,
                  FD_LOG_HEX16_FMT_ARGS(     root ), FD_LOG_HEX16_FMT_ARGS(     root+16 ),
                  FD_LOG_HEX16_FMT_ARGS( expected ), FD_LOG_HEX16_FMT_ARGS( expected+16 ) ));
+
+  leaf_cnt = 1000000;
+
+  ulong  sz = leaf_cnt * 65;
+  uchar *d = malloc(sz);
+  for (ulong i = 0; i < sz; i++)
+    d[i] = i&0xff;
+
+  fd_bmtree32_node_t *l = (fd_bmtree32_node_t *) malloc(leaf_cnt * sizeof(fd_bmtree32_node_t));
+
+  // This is what we are timing,
+  dt = -fd_log_wallclock();
+  for (ulong i = 0; i < leaf_cnt; i++)
+    fd_bmtree32_hash_leaf( l+i, &d[i*65], 65);
+  fd_bmtree32_commit_append( tree, l, leaf_cnt );
+  root = fd_bmtree32_commit_fini( tree );
+  dt += fd_log_wallclock();
+  FD_LOG_NOTICE(( "%.3f ns/leaf @ %lu leaves  -- fd_bmtree32_ code path", (double)((float)dt / (float)leaf_cnt), leaf_cnt ));
+
+  mem = local_allocf(128UL, fd_wbmtree32_footprint(leaf_cnt));
+  wide_bmtree = fd_wbmtree32_init(mem, leaf_cnt);
+
+  // This is annoying.. that we are booting off a different format... lets revisit this..
+  fd_wbmtree32_leaf_t *leaf2 = (fd_wbmtree32_leaf_t *)local_allocf(128UL, sizeof(fd_wbmtree32_leaf_t) * leaf_cnt);
+  tsize = 0;
+  for (ulong i = 0; i < leaf_cnt; i++) {
+    leaf2[i].data = (unsigned char *) &d[i*65];
+    leaf2[i].data_len = 65;
+    tsize += leaf2[i].data_len + 1;
+  }
+
+  cbuf = local_allocf(1UL, tsize);
+  dt = -fd_log_wallclock();
+  fd_wbmtree32_append(wide_bmtree, leaf2, leaf_cnt, cbuf);
+  root2 = fd_wbmtree32_fini(wide_bmtree);
+  dt += fd_log_wallclock();
+  FD_LOG_NOTICE(( "%.3f ns/leaf @ %lu leaves  -- fd_wbmtree32_ code path", (double)((float)dt / (float)leaf_cnt), leaf_cnt ));
+
+  local_freef(mem);
+  local_freef(cbuf);
+
+  char * sigs[] = { "3gHmkVTtVpPinzNGZE9C3Fjsao5T74yrENzkeJCwGUu2GZEhydvPQjWbtiwhPGnevkpfsyMHvTDNMpGf2YjPQNxa", 
+                    "KwpKjWrwxnV9H5ejWZ7WzX7h86xmAZEfQRFQHnsdKCdYAGXaeaVotkso9gM1tWSTk92asQF2Sy4ai8H3W3VeRxm",
+                    "naDHRgKqqVDFvZb2RG7aVoHNZxGd1aY2HsDjEEYvfxQgjuEz5KeuKE6b2My2HNsxH2orpQB626sgAeMjgUN474a"
+  };
+  ulong              sigs_cnt = sizeof(sigs) / sizeof(sigs[0]);;
+  fd_bmtree32_node_t sigs_leaf[ sigs_cnt ];
+
+  tree = fd_bmtree32_commit_init( _tree );
+  FD_TEST( fd_bmtree32_commit_leaf_cnt( tree )==0UL );
+
+  for (ulong i = 0; i < sigs_cnt; i++) {
+    char buf[64];
+    fd_base58_decode_64( sigs[i],  (unsigned char *) buf);
+    fd_bmtree32_hash_leaf( sigs_leaf + i, buf, sizeof(buf) );
+  }
+
+  FD_TEST( fd_bmtree32_commit_append( tree, sigs_leaf, sigs_cnt )==tree );
+
+  root = fd_bmtree32_commit_fini( tree );
+
+  mem = local_allocf(128UL, fd_wbmtree32_footprint(sigs_cnt));
+  wide_bmtree = fd_wbmtree32_init(mem, sigs_cnt);
+
+  // This is annoying.. that we are booting off a different format... lets revisit this..
+  leaf2 = (fd_wbmtree32_leaf_t *)local_allocf(128UL, sizeof(fd_wbmtree32_leaf_t) * sigs_cnt);
+  tsize = 0;
+  for (ulong i = 0; i < sigs_cnt; i++) {
+    unsigned char *buf = fd_alloca(1UL, 64UL);
+    fd_base58_decode_64( sigs[i],  (unsigned char *) buf);
+
+    leaf2[i].data = buf;;
+    leaf2[i].data_len = 64;
+    tsize += leaf2[i].data_len + 1;
+  }
+
+  cbuf = local_allocf(1UL, tsize);
+  fd_wbmtree32_append(wide_bmtree, leaf2, sigs_cnt, cbuf);
+  root2 = fd_wbmtree32_fini(wide_bmtree);
+
+  char encoded_root[50];
+  fd_base58_encode_32((uchar *) root, NULL, encoded_root);
+
+  char encoded_root2[50];
+  fd_base58_encode_32((uchar *) root2, NULL, encoded_root2);
+
+//  FD_LOG_NOTICE(( "%s %s", encoded_root, encoded_root2 ));
+
+  FD_TEST (( strcmp(encoded_root, encoded_root2) == 0 ));
+
+// mixin: 679cSmvKtaU7N5GFKNAheibmUq6vyNEAaz4gvKKez4WQ
+// markle_tree: MerkleTree { leaf_count: 3, nodes: [679cSmvKtaU7N5GFKNAheibmUq6vyNEAaz4gvKKez4WQ, HMUgEFKS2o74gvJJ9k5xDnci3cfV2woNdMTARYdc4SLW, 7v8SHXjZaR5kmbFFeFyp71EHNTYf1UZT18ZkJnce2oZw, 9eovxaBahfaRnXo16mAGNxWBF9G1VyeZT3GYxebDdmQy, 4agJvx37ochKYNeEX3NZF7dKWKhpA1X2dhVMfUoyzHR1, AgVm6NDMgVdjGhTbKE8LdukfpTdUVXS8sFQ25jGP8tr9] }
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

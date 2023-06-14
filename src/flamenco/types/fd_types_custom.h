@@ -1,5 +1,8 @@
-#ifndef HEADER_FD_RUNTIME_TYPES_CUSTOM
-#define HEADER_FD_RUNTIME_TYPES_CUSTOM
+#ifndef HEADER_fd_src_ballet_runtime_fd_types_custom
+#define HEADER_fd_src_ballet_runtime_fd_types_custom
+
+#include "../../ballet/fd_ballet_base.h"
+#include "fd_bincode.h"
 
 typedef void (*fd_walk_fun_t)(void *arg, const char* name, int type, const char *type_name, int level);
 
@@ -10,9 +13,9 @@ typedef void (*fd_walk_fun_t)(void *arg, const char* name, int type, const char 
 
 union __attribute__((aligned(FD_HASH_ALIGN))) fd_hash {
   uchar hash[ FD_HASH_FOOTPRINT ];
-  uchar key [ FD_HASH_FOOTPRINT ]; // Making fd_hash and fd_pubkey interchangable 
+  uchar key [ FD_HASH_FOOTPRINT ]; // Making fd_hash and fd_pubkey interchangable
 
-  // Generic type specific accessors 
+  // Generic type specific accessors
   ulong ul  [ FD_HASH_FOOTPRINT / sizeof(ulong) ];
   uchar uc  [ FD_HASH_FOOTPRINT ];
 };
@@ -32,16 +35,16 @@ int fd_hash_decode(fd_hash_t* self, fd_bincode_decode_ctx_t * ctx) {
 }
 
 static inline
-void fd_hash_destroy(FD_FN_UNUSED fd_hash_t* self, FD_FN_UNUSED fd_bincode_destroy_ctx_t * ctx) {
+void fd_hash_destroy(FD_FN_UNUSED fd_hash_t const * self, FD_FN_UNUSED fd_bincode_destroy_ctx_t * ctx) {
 }
 
 static inline
-ulong fd_hash_size(FD_FN_UNUSED fd_hash_t* self) {
+ulong fd_hash_size(FD_FN_UNUSED fd_hash_t const * self) {
   return 32;
 }
 
 static inline
-int fd_hash_encode(fd_hash_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_hash_encode(fd_hash_t const * self, fd_bincode_encode_ctx_t * ctx) {
   return fd_bincode_bytes_encode(&self->hash[0], sizeof(self->hash), ctx);
 }
 
@@ -64,5 +67,5 @@ void fd_hash_walk(FD_FN_UNUSED fd_hash_t* self, FD_FN_UNUSED fd_walk_fun_t fun, 
 
 FD_PROTOTYPES_END
 
-#endif
+#endif /* HEADER_fd_src_ballet_runtime_fd_types_custom */
 

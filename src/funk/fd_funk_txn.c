@@ -1,5 +1,10 @@
 #include "fd_funk.h"
 #include "fd_funk_persist.h"
+#include <stdio.h>
+
+#ifdef _DISABLE_OPTIMIZATION
+#pragma GCC optimize ("O0")
+#endif
 
 /* Provide the actual transaction map implementation */
 

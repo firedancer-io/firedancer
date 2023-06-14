@@ -57,3 +57,11 @@ include $(addprefix config/with-,$(addsuffix .mk,$(EXTRAS)))
 include config/everything.mk
 include config/coverage.mk
 
+# can this go here or should it be in config/everything.mk
+
+#  export LSAN_OPTIONS="suppressions=`pwd`/lsan-suppressed.cc"
+#  export EXTRAS="asan"
+
+run-runtime-test:
+	export EXTRAS="asan" && export LSAN_OPTIONS="suppressions=`pwd`/lsan-suppressed.cc" && src/ballet/runtime/run_ledger_tests.sh 
+

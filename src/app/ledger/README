@@ -9,7 +9,7 @@ https://github.com/solana-labs/solana/issues/28191
 3) put ../solana/target/debug into your path
     export PATH=/home/jsiegel/repos/solana/target/debug:$PATH
 4) run validator
-  ./target/debug/solana-test-validator --no-accounts-db-caching --reset
+  ./target/debug/solana-test-validator --reset
 5) configure to use local validator
    solana config set --url http://127.0.0.1:8899
 6) confirm the cluster is reachable

@@ -29,6 +29,7 @@ opt/
 *.swp
 *.swo
 
+test-ledger*
 # Certificates
 *.csr
 *.crt
@@ -41,4 +42,8 @@ opt/
 
 # Logs
 *.log
+
+# Temp ... remove this
+actual.bin
+expected.bin
 

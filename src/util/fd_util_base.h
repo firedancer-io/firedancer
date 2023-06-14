@@ -805,6 +805,7 @@ fd_memcpy( void       * FD_RESTRICT d,
            void const * FD_RESTRICT s,
            ulong                    sz ) {
   void * p = d;
+  // This does NOT handle overlapping memory copies correctly...
   __asm__ __volatile__( "rep movsb" : "+D" (p), "+S" (s), "+c" (sz) :: "memory" );
   return d;
 }

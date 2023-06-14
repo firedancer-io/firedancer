@@ -165,6 +165,10 @@
 #include <x86intrin.h>
 #endif
 
+#ifdef _DISABLE_OPTIMIZATION
+#pragma GCC optimize ("O0")
+#endif
+
 #ifndef BMTREE_NAME
 #error "Define BMTREE_NAME"
 #endif
@@ -385,6 +389,7 @@ static inline BMTREE_(commit_t) *    /* Returns mem as a bmtree_commit_t *, comm
 BMTREE_(commit_init)( void * mem ) { /* Assumed unused with required alignment and footprint */
   BMTREE_(commit_t) * state = (BMTREE_(commit_t) *)mem;
   state->leaf_cnt = 0UL;
+  fd_memset(state->node_buf, 0, sizeof(state->node_buf));
   return state;
 }
 

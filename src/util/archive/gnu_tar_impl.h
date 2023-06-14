@@ -293,8 +293,6 @@ struct xattr_map
   size_t xm_max;    /* Max. number of entries in xattr_map */
 };
 
-typedef unsigned char bool;
-
 struct tar_stat_info
 {
   char *orig_file_name;     /* name of file read from the archive header */
