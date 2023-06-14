@@ -53,7 +53,7 @@ fd_executor_lookup_native_program( fd_global_ctx_t* global,  fd_pubkey_t *pubkey
   } else if ( !memcmp( pubkey, global->solana_stake_program, sizeof( fd_pubkey_t ) ) ) {
     return fd_executor_stake_program_execute_instruction;
   } else {
-    FD_LOG_ERR(( "unknown program" ));
+    FD_LOG_HEXDUMP_WARNING(( "unknown program",  pubkey, sizeof(*pubkey)));
     return NULL; /* FIXME */
   }
 }
@@ -63,14 +63,14 @@ fd_execute_txn( fd_executor_t* executor, fd_txn_t * txn_descriptor, fd_rawtxn_b_
   fd_pubkey_t *tx_accs   = (fd_pubkey_t *)((uchar *)txn_raw->raw + txn_descriptor->acct_addr_off);
 
   fd_global_ctx_t *global = executor->global;
-  
+
   ulong fee = fd_runtime_calculate_fee ( global, txn_descriptor, txn_raw );
 
   // TODO: we are just assuming the fee payer is account 0... FIX this..
 
   /// Returns true if the account at the specified index is not invoked as a
   /// program or, if invoked, is passed to a program.
-  //    pub fn is_non_loader_key(&self, key_index: usize) -> bool { 
+  //    pub fn is_non_loader_key(&self, key_index: usize) -> bool {
   //      !self.is_invoked(key_index) || self.is_key_passed_to_program(key_index)
   //    }
 
@@ -97,7 +97,7 @@ fd_execute_txn( fd_executor_t* executor, fd_txn_t * txn_descriptor, fd_rawtxn_b_
     return;
   }
 
-  // TODO:  HORRIBLE hack until we implement the schedule leader stuff...  
+  // TODO:  HORRIBLE hack until we implement the schedule leader stuff...
   //
   // The VERY first txn (at slot 2) happens to be a vote made by the very first schedule leader..
   if (!global->collector_set) {

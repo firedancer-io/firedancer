@@ -147,6 +147,11 @@ int fd_executor_run_test(
     .txn_ctx        = &txn_ctx,
   };
   execute_instruction_func_t exec_instr_func = fd_executor_lookup_native_program( global, &test->program_id );
+  if (NULL == exec_instr_func) {
+    FD_LOG_WARNING(( "fd_executor_lookup_native_program failed"));
+    fd_funk_txn_cancel( suite->funk, global->funk_txn, 0 );
+    return -1;
+  }
   int exec_result = exec_instr_func( ctx );
   if ( exec_result != test->expected_result ) {
     FD_LOG_WARNING(( "Failed test %d: %s (nonce: %d): expected transaction result %d, got %d: %s", test->test_number, test->test_name, test->test_nonce, test->expected_result , exec_result
