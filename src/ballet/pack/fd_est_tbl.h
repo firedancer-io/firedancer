@@ -125,7 +125,12 @@ fd_est_tbl_new( void * mem,
   return (void *)tbl;
 }
 
-static inline fd_est_tbl_t * fd_est_tbl_join  ( void         * _tbl ) { return (fd_est_tbl_t *)_tbl; }
+static inline fd_est_tbl_t *
+fd_est_tbl_join  ( void         * _tbl ) {
+  fd_est_tbl_t * tbl = (fd_est_tbl_t *)_tbl;
+  if( FD_UNLIKELY( tbl->magic != FD_EST_TBL_MAGIC ) ) return NULL;
+  return tbl;
+}
 static inline void         * fd_est_tbl_leave ( fd_est_tbl_t *  tbl ) { return (void         *) tbl; }
 static inline void         * fd_est_tbl_delete( fd_est_tbl_t *  tbl ) {
   FD_COMPILER_MFENCE();
