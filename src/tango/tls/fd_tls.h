@@ -1,0 +1,68 @@
+#ifndef HEADER_src_ballet_tls_fd_tls_h
+#define HEADER_src_ballet_tls_fd_tls_h
+
+#include "../fd_tango_base.h"
+
+/* fd_tls implements a subset of the TLS v1.3 (RFC 8446) handshake
+   protocol.
+
+   fd_tls is not a general purpose TLS library.  It only provides the
+   TLS components required to secure peer-to-peer QUIC connections as
+   they appear in Solana network protocol.  Specifics are listed below.
+
+   Older TLS versions, such as TLS v1.2, are not supported.
+
+   ### Peer Authentication
+
+   Peers are authenticated via Ed25519 using the TLS v1.3 raw public key
+   (RPK) extension.  Unlike usual deployments of TLS, this library does
+   not support X.509 certificates or other signature schemes.
+
+   ### Key Exchange
+
+   Peers exchange symmetric keys using X25519, an Elliptic Curve Diffie-
+   Hellman key exchange scheme using Curve25519.  Pre-shared keys and
+   other key exchange schemes are currently not supported.
+
+   ### Data Confidentiality and Integratity
+
+   fd_tls provides an API for the TLS_AES_128_GCM_SHA256 cipher suite.
+   Other cipher suites are currently not supported.
+
+   ### References
+
+   This library implements parts of protocols specified in the following
+   IETF RFCs:
+
+     RFC 8446: The Transport Layer Security (TLS) Protocol Version 1.3
+     https://datatracker.ietf.org/doc/html/rfc8446
+
+     RFC 6066: Transport Layer Security (TLS) Extensions:
+               Extension Definitions
+     https://datatracker.ietf.org/doc/html/rfc6066
+
+     RFC 9001: Using TLS to Secure QUIC
+     https://datatracker.ietf.org/doc/html/rfc9001
+
+     RFC 7919: Negotiated Finite Field Diffie-Hellman Ephemeral
+               Parameters for Transport Layer Security (TLS)
+     RFC 4492: Elliptic Curve Cryptography (ECC) Cipher Suites for
+               Transport Layer Security (TLS)
+     https://datatracker.ietf.org/doc/html/rfc7919
+     https://datatracker.ietf.org/doc/html/rfc4492
+
+     RFC 7250: Using Raw Public Keys in Transport Layer Security (TLS)
+     https://datatracker.ietf.org/doc/html/rfc7250
+
+     RFC 8032: Edwards-Curve Digital Signature Algorithm (EdDSA)
+     https://datatracker.ietf.org/doc/html/rfc8032
+     Note: fd_ed25519 uses stricter signature malleability checks!
+
+     RFC 7748: Elliptic Curves for Security
+     https://datatracker.ietf.org/doc/html/rfc7748
+
+     RFC 5288: AES Galois Counter Mode (GCM) Cipher Suites for TLS
+     https://datatracker.ietf.org/doc/html/rfc5288 */
+
+#endif /* HEADER_src_ballet_tls_fd_tls_h */
+
