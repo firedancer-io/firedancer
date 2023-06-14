@@ -439,6 +439,29 @@ int validate_split_amount(
     return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
+
+int get_if_mergeable( fd_stake_state_t* stake_state, fd_acc_lamports_t stake_lamports, fd_sol_sysvar_clock_t clock, fd_stake_history_t history) {
+    if ( fd_stake_state_is_stake( stake_state ) ) {
+      fd_stake_history_entry_t entry = stake_activating_and_deactivating( &stake_state->inner.stake.stake.delegation, clock.epoch, &history);
+      if (entry.effective == 0 && entry.activating == 0 && entry.deactivating == 0) {
+        return (int)stake_lamports; //todo: fix this
+        // Ok(Self::Inactive(*meta, stake_lamports)),
+      } else if (entry.effective == 0) {
+        // Ok(Self::ActivationEpoch(*meta, *stake)),
+      } else if (entry.activating == 0 && entry.deactivating == 0) {
+        // Ok(Self::FullyActive(*meta, *stake)),
+      } else {
+        return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR; // StakeError::MergeTransientStake;
+      }
+  } else if ( fd_stake_state_is_initialized( stake_state ) ) {
+    // Ok(Self::Inactive(*meta, stake_lamports))
+  } else {
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+  }
+  return FD_EXECUTOR_INSTR_SUCCESS;
+}
+
+
 int fd_executor_stake_program_execute_instruction(
   FD_FN_UNUSED instruction_ctx_t ctx
 ) {
@@ -831,14 +854,6 @@ int fd_executor_stake_program_execute_instruction(
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
     }
 
-    // ulong sz = 0;
-    // int err = 0;
-    // char * raw_acc_data = (char*) fd_acc_mgr_view_data(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) stake_acc, &sz, &err);   
-    // void* d = (void *)(raw_acc_data + stake_metadata.hlen);
-    // for (int idx = 0; idx < 200; ++idx) {
-    //   FD_LOG_NOTICE(( "idx %d char %d", idx, ((uchar*)d)[idx] ));
-    // }
-
     // Deinitialize state of stake acc (only if it has been initialized) upon zero balance
     if (lamports == stake_metadata.info.lamports && !fd_stake_state_is_uninitialized( &stake_state ) ) {
       stake_state.discriminant = 0; // de-initialize
@@ -885,12 +900,20 @@ int fd_executor_stake_program_execute_instruction(
   } // end of deactivate, discriminant 5
 
   else if ( fd_stake_instruction_is_merge( &instruction )) { // merge, discriminant 7
-    // https://github.com/firedancer-io/solana/blob/56bd357f0dfdb841b27c4a346a58134428173f42/programs/stake/src/stake_state.rs#L830
+    // https://github.com/firedancer-io/solana/blob/56bd357f0dfdb841b27c4a346a58134428173f42/programs/stake/src/stake_instruction.rs#L206    
+
+    /* Check that there are at least two instruction accounts */
     if (ctx.txn_ctx->txn_descriptor->acct_addr_cnt < 2) {
       return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
     }
     uchar * instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
     fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
+
+
+    /* Close the stake account-reference loophole */
+    if (instr_acc_idxs[0] == instr_acc_idxs[1]) {
+      return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+    }
 
     /* Check that the Instruction Account 2 is the Clock Sysvar account */
     if ( memcmp( &txn_accs[instr_acc_idxs[2]], ctx.global->sysvar_clock, sizeof(fd_pubkey_t) ) != 0 ) {
@@ -903,8 +926,13 @@ int fd_executor_stake_program_execute_instruction(
     if ( memcmp( &txn_accs[instr_acc_idxs[3]], ctx.global->sysvar_stake_history, sizeof(fd_pubkey_t) ) != 0 ) {
       return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
     }
-    
-    // Get source account and check its owner
+
+    fd_stake_history_t history;
+    fd_sysvar_stake_history_read( ctx.global, &history);
+
+    // https://github.com/firedancer-io/solana/blob/56bd357f0dfdb841b27c4a346a58134428173f42/programs/stake/src/stake_state.rs#L830
+
+    /* Get source account and check its owner */    
     fd_pubkey_t* source_acc = &txn_accs[instr_acc_idxs[1]];
     fd_pubkey_t source_acc_owner;
     fd_acc_mgr_get_owner( ctx.global->acc_mgr, ctx.global->funk_txn, source_acc, &source_acc_owner ); 
@@ -912,31 +940,69 @@ int fd_executor_stake_program_execute_instruction(
       return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
     }
 
-    // Close the stake account-reference loophole
-    if (instr_acc_idxs[0] == instr_acc_idxs[1]) {
-      return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+    fd_account_meta_t source_metadata;
+    int read_result = fd_acc_mgr_get_metadata( ctx.global->acc_mgr, ctx.global->funk_txn, source_acc, &source_metadata );
+    if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
+      FD_LOG_WARNING(( "failed to read split account metadata" ));
+      return read_result;
+    }
+    /* Read the current State State from the Stake account */
+    fd_stake_state_t source_state;
+    read_stake_state( ctx.global, source_acc, &source_state );
+
+
+    fd_acc_lamports_t source_lamports;
+    read_result = fd_acc_mgr_get_lamports( ctx.global->acc_mgr, ctx.global->funk_txn, source_acc, &source_lamports ); 
+    if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
+      FD_LOG_WARNING(( "failed to read source account lamports" ));
+      return read_result;
     }
 
-    // Get stake account
-    fd_pubkey_t* stake_acc = &txn_accs[instr_acc_idxs[0]];
-
-    // Check if the destination stake acount is mergeable
-    // get_if_mergeable
-
-    // Check if the source stake account is mergeable
+    /* Get stake account */
+    fd_pubkey_t* stake_acc = &txn_accs[instr_acc_idxs[1]];
+    fd_account_meta_t stake_metadata;
+    read_result = fd_acc_mgr_get_metadata( ctx.global->acc_mgr, ctx.global->funk_txn, stake_acc, &stake_metadata );
+    if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
+      FD_LOG_WARNING(( "failed to read split account metadata" ));
+      return read_result;
+    }
     /* Read the current State State from the Stake account */
     fd_stake_state_t stake_state;
     read_stake_state( ctx.global, stake_acc, &stake_state );
+
+
     fd_acc_lamports_t stake_lamports;
-    fd_acc_mgr_get_lamports( ctx.global->acc_mgr, ctx.global->funk_txn, stake_acc, &stake_lamports ); 
+    read_result = fd_acc_mgr_get_lamports( ctx.global->acc_mgr, ctx.global->funk_txn, stake_acc, &stake_lamports ); 
+    if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
+      FD_LOG_WARNING(( "failed to read stake (destination) account lamports" ));
+      return read_result;
+    }
+
+    /* get if mergeable - Check if the destination stake acount is mergeable */
+    // https://github.com/firedancer-io/solana/blob/56bd357f0dfdb841b27c4a346a58134428173f42/programs/stake/src/stake_state.rs#L1347
+
+    int result = get_if_mergeable( &stake_state, source_lamports, clock, history);
+    if (result != FD_EXECUTOR_INSTR_SUCCESS) {
+      return result;
+    }
+
+    /* Check if the source stake account is mergeable */
+    result = get_if_mergeable( &source_state, source_lamports, clock, history);
+    if (result != FD_EXECUTOR_INSTR_SUCCESS) {
+      return result;
+    }
     
-    // Merging stake accounts
+    /* Merging stake accounts */ 
     
-    // deinitialize the source stake account
+    /* Source is about to be drained, deinitialize its state */
+    source_state.discriminant = 0;
+    write_stake_state( ctx.global, source_acc, &source_state, 0);
 
-
-    // Drain the source stake account
-
+    /* Drain the source account */
+    // sub from source 
+    fd_acc_mgr_set_lamports( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot, source_acc, source_metadata.info.lamports - source_lamports);
+    // add to destination
+    fd_acc_mgr_set_lamports( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot, stake_acc, stake_metadata.info.lamports + source_lamports);    
 
   } // end of merge, discriminant 7
   else if ( fd_stake_instruction_is_withdraw( &instruction )) { // discriminant X
