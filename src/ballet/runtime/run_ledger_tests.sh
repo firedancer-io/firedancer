@@ -22,7 +22,7 @@ fi
 # sudo build/linux/gcc/x86_64/bin/fd_shmem_cfg alloc 64 gigantic 0
 # sudo build/linux/gcc/x86_64/bin/fd_shmem_cfg alloc 512 huge 0
 
-set -x
+# set -x
 
 if [ -e /mnt/.fd/.gigantic/test_ledger_wksp ]; then
     build/linux/gcc/x86_64/bin/fd_wksp_ctl delete test_ledger_wksp
@@ -38,4 +38,21 @@ status=$?
 build/linux/gcc/x86_64/bin/fd_wksp_ctl delete test_ledger_wksp
 rm -f testfunk testgaddr
 
-exit $status
+if [ $status -ne 0 ]
+then
+  echo 'ledger test failed'
+  exit $status
+fi
+
+build/linux/gcc/x86_64/unit-test/test_native_programs --filter 'vote|system' >& native.log
+status=$?
+if [ $status -ne 0 ]
+then
+  echo 'native test failed'
+  grep "Failed" native.log | tail -20
+  exit $status
+fi
+
+grep "Progress" native.log
+
+echo 'all tests passed'

@@ -62,9 +62,8 @@ int fd_executor_run_test(
   uchar* global_mem = (uchar*)fd_alloca_check( FD_GLOBAL_CTX_ALIGN, FD_GLOBAL_CTX_FOOTPRINT );
   fd_memset( global_mem, 0, FD_GLOBAL_CTX_FOOTPRINT );
   fd_global_ctx_t* global = fd_global_ctx_join( fd_global_ctx_new( global_mem ) );
-  if ( FD_UNLIKELY( NULL == global ) ) {
+  if ( FD_UNLIKELY( NULL == global ) )
     FD_LOG_ERR(( "failed to join a global context" ));
-  }
 
   global->allocf = suite->allocf;
   global->allocf_arg = suite->allocf_arg;
@@ -85,10 +84,9 @@ int fd_executor_run_test(
   /* Prepare a new Funk transaction to execute this test in */
   fd_funk_txn_xid_t xid;
   fd_funk_txn_xid_set_unique( &xid );
-  global->funk_txn = fd_funk_txn_prepare( global->funk, NULL, &xid, 0 );
-  if ( NULL == global->funk_txn ) {
+  global->funk_txn = fd_funk_txn_prepare( global->funk, NULL, &xid, 1 );
+  if ( NULL == global->funk_txn )
     FD_LOG_ERR(( "failed to prepare funk transaction" ));
-  }
 
   /* Insert all the accounts into the database */
   for ( ulong i = 0; i < test->accs_len; i++ ) {
@@ -113,6 +111,7 @@ int fd_executor_run_test(
       ctx2.allocf_arg = global->allocf_arg;
       if ( fd_recent_block_hashes_decode( &global->bank.recent_block_hashes, &ctx2 ) ) {
         FD_LOG_WARNING(("fd_recent_block_hashes_decode failed"));
+        fd_funk_txn_cancel( suite->funk, global->funk_txn, 0 );
         return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
       }
     }
@@ -152,12 +151,14 @@ int fd_executor_run_test(
   if ( exec_result != test->expected_result ) {
     FD_LOG_WARNING(( "Failed test %d: %s (nonce: %d): expected transaction result %d, got %d: %s", test->test_number, test->test_name, test->test_nonce, test->expected_result , exec_result
         , (NULL != verbose) ? test->bt : ""));
+    fd_funk_txn_cancel( suite->funk, global->funk_txn, 0 );
     return -1;
   }
 
   if ( exec_result == FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR ) {
     if ( ctx.txn_ctx->custom_err != test->custom_err) {
       FD_LOG_WARNING(( "Failed test %d: %s (nonce: %d): expected custom error inner value of %d, got %d: %s", test->test_number, test->test_name, test->test_nonce, test->custom_err, ctx.txn_ctx->custom_err , (NULL != verbose) ? test->bt : ""));
+      fd_funk_txn_cancel( suite->funk, global->funk_txn, 0 );
       return -1;
     }
   }
@@ -172,6 +173,7 @@ int fd_executor_run_test(
         if ((test->accs[ i ].lamports == 0) && (test->accs[ i ].data_len == 0))
           continue;
         FD_LOG_WARNING(( "bad dog.. no donut..  Ask josh to take a look at this"));
+        fd_funk_txn_cancel( suite->funk, global->funk_txn, 0 );
         return err;
       }
       fd_account_meta_t *m = (fd_account_meta_t *) raw_acc_data;
@@ -179,26 +181,29 @@ int fd_executor_run_test(
 
       if (m->info.lamports != test->accs[i].result_lamports) {
         FD_LOG_WARNING(( "Failed test %d: %s (nonce: %d): expected lamports %ld, got %ld: %s", test->test_number, test->test_name, test->test_nonce, test->accs[i].result_lamports, m->info.lamports, (NULL != verbose) ? test->bt : ""));
+        fd_funk_txn_cancel( suite->funk, global->funk_txn, 0 );
         return -666;
       }
       if (m->dlen != test->accs[i].result_data_len) {
         FD_LOG_WARNING(( "Failed test %d: %s (nonce: %d): size mismatch (expected %lu, got %lu): %s",
-                         test->test_number, test->test_name, test->test_nonce,
-                         test->accs[i].result_data_len, m->dlen, (NULL != verbose) ? test->bt : "" ));
+            test->test_number, test->test_name, test->test_nonce,
+            test->accs[i].result_data_len, m->dlen, (NULL != verbose) ? test->bt : "" ));
+        fd_funk_txn_cancel( suite->funk, global->funk_txn, 0 );
         return -777;
       }
       if (memcmp(d, test->accs[i].result_data, test->accs[i].result_data_len)) {
         FD_LOG_WARNING(( "Failed test %d: %s: account missmatch: %s", test->test_number, test->test_name, (NULL != verbose) ? test->bt : ""));
-      {
-        FILE * fd = fopen("actual.bin", "wb");
-        fwrite(d, 1, m->dlen, fd);
-        fclose(fd);
-      }
-      {
-        FILE * fd = fopen("expected.bin", "wb");
-        fwrite(test->accs[i].result_data, 1, test->accs[i].result_data_len, fd);
-        fclose(fd);
-      }
+        {
+          FILE * fd = fopen("actual.bin", "wb");
+          fwrite(d, 1, m->dlen, fd);
+          fclose(fd);
+        }
+        {
+          FILE * fd = fopen("expected.bin", "wb");
+          fwrite(test->accs[i].result_data, 1, test->accs[i].result_data_len, fd);
+          fclose(fd);
+        }
+        fd_funk_txn_cancel( suite->funk, global->funk_txn, 0 );
         return -888;
       }
     }
