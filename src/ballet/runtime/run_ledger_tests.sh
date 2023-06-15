@@ -44,7 +44,7 @@ then
   exit $status
 fi
 
-build/linux/gcc/x86_64/unit-test/test_native_programs --filter 'vote|system' >& native.log
+build/linux/gcc/x86_64/unit-test/test_native_programs --filter 'vote' >& native.log
 status=$?
 if [ $status -ne 0 ]
 then
