@@ -7093,6 +7093,15 @@ FD_FN_PURE uchar fd_stake_instruction_is_authorize_checked_with_seed(fd_stake_in
 FD_FN_PURE uchar fd_stake_instruction_is_set_lockup_checked(fd_stake_instruction_t const * self) {
   return self->discriminant == 12;
 }
+FD_FN_PURE uchar fd_stake_instruction_is_get_minimum_delegation(fd_stake_instruction_t const * self) {
+  return self->discriminant == 13;
+}
+FD_FN_PURE uchar fd_stake_instruction_is_deactivate_delinquent(fd_stake_instruction_t const * self) {
+  return self->discriminant == 14;
+}
+FD_FN_PURE uchar fd_stake_instruction_is_redelegate(fd_stake_instruction_t const * self) {
+  return self->discriminant == 15;
+}
 void fd_stake_instruction_inner_new(fd_stake_instruction_inner_t* self, uint discriminant);
 int fd_stake_instruction_inner_decode(fd_stake_instruction_inner_t* self, uint discriminant, fd_bincode_decode_ctx_t * ctx) {
   fd_stake_instruction_inner_new(self, discriminant);
@@ -7140,6 +7149,15 @@ int fd_stake_instruction_inner_decode(fd_stake_instruction_inner_t* self, uint d
   }
   case 12: {
     return fd_lockup_checked_args_decode(&self->set_lockup_checked, ctx);
+  }
+  case 13: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 14: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 15: {
+    return FD_BINCODE_SUCCESS;
   }
   default: return FD_BINCODE_ERR_ENCODING;
   }
@@ -7196,6 +7214,15 @@ void fd_stake_instruction_inner_new(fd_stake_instruction_inner_t* self, uint dis
     fd_lockup_checked_args_new(&self->set_lockup_checked);
     break;
   }
+  case 13: {
+    break;
+  }
+  case 14: {
+    break;
+  }
+  case 15: {
+    break;
+  }
   default: break; // FD_LOG_ERR(( "unhandled type"));
   }
 }
@@ -7248,6 +7275,15 @@ void fd_stake_instruction_inner_destroy(fd_stake_instruction_inner_t* self, uint
   }
   case 12: {
     fd_lockup_checked_args_destroy(&self->set_lockup_checked, ctx);
+    break;
+  }
+  case 13: {
+    break;
+  }
+  case 14: {
+    break;
+  }
+  case 15: {
     break;
   }
   default: break; // FD_LOG_ERR(( "unhandled type"));

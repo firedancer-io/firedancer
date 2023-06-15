@@ -2189,6 +2189,9 @@ FD_FN_PURE uchar fd_stake_instruction_is_initialize_checked(fd_stake_instruction
 FD_FN_PURE uchar fd_stake_instruction_is_authorize_checked(fd_stake_instruction_t const * self);
 FD_FN_PURE uchar fd_stake_instruction_is_authorize_checked_with_seed(fd_stake_instruction_t const * self);
 FD_FN_PURE uchar fd_stake_instruction_is_set_lockup_checked(fd_stake_instruction_t const * self);
+FD_FN_PURE uchar fd_stake_instruction_is_get_minimum_delegation(fd_stake_instruction_t const * self);
+FD_FN_PURE uchar fd_stake_instruction_is_deactivate_delinquent(fd_stake_instruction_t const * self);
+FD_FN_PURE uchar fd_stake_instruction_is_redelegate(fd_stake_instruction_t const * self);
 enum {
 fd_stake_instruction_enum_initialize = 0,
 fd_stake_instruction_enum_authorize = 1,
@@ -2203,6 +2206,9 @@ fd_stake_instruction_enum_initialize_checked = 9,
 fd_stake_instruction_enum_authorize_checked = 10,
 fd_stake_instruction_enum_authorize_checked_with_seed = 11,
 fd_stake_instruction_enum_set_lockup_checked = 12,
+fd_stake_instruction_enum_get_minimum_delegation = 13,
+fd_stake_instruction_enum_deactivate_delinquent = 14,
+fd_stake_instruction_enum_redelegate = 15,
 }; 
 void fd_stake_state_meta_new(fd_stake_state_meta_t* self);
 int fd_stake_state_meta_decode(fd_stake_state_meta_t* self, fd_bincode_decode_ctx_t * ctx);
