@@ -2761,71 +2761,6 @@ int fd_genesis_solana_encode(fd_genesis_solana_t const * self, fd_bincode_encode
   return FD_BINCODE_SUCCESS;
 }
 
-int fd_secp256k1_signature_offsets_decode(fd_secp256k1_signature_offsets_t* self, fd_bincode_decode_ctx_t * ctx) {
-  int err;
-  err = fd_bincode_uint16_decode(&self->signature_offset, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint8_decode(&self->signature_instruction_index, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint16_decode(&self->eth_address_offset, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint8_decode(&self->eth_address_instruction_index, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint16_decode(&self->message_data_offset, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint16_decode(&self->message_data_size, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint8_decode(&self->message_instruction_index, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
-  return FD_BINCODE_SUCCESS;
-}
-void fd_secp256k1_signature_offsets_new(fd_secp256k1_signature_offsets_t* self) {
-}
-void fd_secp256k1_signature_offsets_destroy(fd_secp256k1_signature_offsets_t* self, fd_bincode_destroy_ctx_t * ctx) {
-}
-
-void fd_secp256k1_signature_offsets_walk(fd_secp256k1_signature_offsets_t* self, fd_walk_fun_t fun, const char *name, int level) {
-  fun(self, name, 32, "fd_secp256k1_signature_offsets", level++);
-  fun(&self->signature_offset, "signature_offset", 12, "ushort", level + 1);
-  fun(&self->signature_instruction_index, "signature_instruction_index", 9, "uchar", level + 1);
-  fun(&self->eth_address_offset, "eth_address_offset", 12, "ushort", level + 1);
-  fun(&self->eth_address_instruction_index, "eth_address_instruction_index", 9, "uchar", level + 1);
-  fun(&self->message_data_offset, "message_data_offset", 12, "ushort", level + 1);
-  fun(&self->message_data_size, "message_data_size", 12, "ushort", level + 1);
-  fun(&self->message_instruction_index, "message_instruction_index", 9, "uchar", level + 1);
-  fun(self, name, 33, "fd_secp256k1_signature_offsets", --level);
-}
-ulong fd_secp256k1_signature_offsets_size(fd_secp256k1_signature_offsets_t const * self) {
-  ulong size = 0;
-  size += sizeof(ushort);
-  size += sizeof(char);
-  size += sizeof(ushort);
-  size += sizeof(char);
-  size += sizeof(ushort);
-  size += sizeof(ushort);
-  size += sizeof(char);
-  return size;
-}
-
-int fd_secp256k1_signature_offsets_encode(fd_secp256k1_signature_offsets_t const * self, fd_bincode_encode_ctx_t * ctx) {
-  int err;
-  err = fd_bincode_uint16_encode(&self->signature_offset, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint8_encode(&self->signature_instruction_index, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint16_encode(&self->eth_address_offset, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint8_encode(&self->eth_address_instruction_index, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint16_encode(&self->message_data_offset, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint16_encode(&self->message_data_size, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint8_encode(&self->message_instruction_index, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
-  return FD_BINCODE_SUCCESS;
-}
-
 int fd_sol_sysvar_clock_decode(fd_sol_sysvar_clock_t* self, fd_bincode_decode_ctx_t * ctx) {
   int err;
   err = fd_bincode_uint64_decode(&self->slot, ctx);
@@ -3580,7 +3515,7 @@ void fd_vote_state_destroy(fd_vote_state_t* self, fd_bincode_destroy_ctx_t * ctx
       fd_vote_historical_authorized_voter_t * ele = deq_fd_vote_historical_authorized_voter_t_iter_ele( self->authorized_voters, iter );
       fd_vote_historical_authorized_voter_destroy(ele, ctx);
     }
-    (*ctx->freef)(ctx->freef_arg, deq_fd_vote_historical_authorized_voter_t_delete( deq_fd_vote_historical_authorized_voter_t_leave( self->authorized_voters ) ) );
+    (*ctx->freef)(ctx->freef_arg, deq_fd_vote_historical_authorized_voter_t_delete( deq_fd_vote_historical_authorized_voter_t_leave( self->authorized_voters) ) );
     self->authorized_voters = NULL;
   }
   fd_vote_prior_voters_destroy(&self->prior_voters, ctx);

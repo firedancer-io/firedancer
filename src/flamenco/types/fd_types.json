@@ -476,19 +476,6 @@
       ]
     },
     {
-      "name": "secp256k1_signature_offsets",
-      "type": "struct",
-      "fields": [
-          { "name": "signature_offset", "type": "ushort" },
-          { "name": "signature_instruction_index", "type": "unsigned char" },
-          { "name": "eth_address_offset", "type": "ushort" },
-          { "name": "eth_address_instruction_index", "type": "unsigned char" },
-          { "name": "message_data_offset", "type": "ushort" },
-          { "name": "message_data_size", "type": "ushort" },
-          { "name": "message_instruction_index", "type": "unsigned char" }
-      ]
-    },
-    {
       "name": "sol_sysvar_clock",
       "type": "struct",
       "fields": [

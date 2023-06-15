@@ -95,6 +95,10 @@ void* fd_executor_delete( void* mem );
 #define FD_EXECUTOR_SYSTEM_ERR_NONCE_BLOCKHASH_NOT_EXPIRED       ( -8 ) /* stored nonce is still in recent_blockhashes */
 #define FD_EXECUTOR_SYSTEM_ERR_NONCE_UNEXPECTED_BLOCKHASH_VALUE  ( -9 ) /* specified nonce does not match stored nonce */
 
+#define FD_EXECUTOR_SIGN_ERR_DATA_OFFSETS                        (-100)
+#define FD_EXECUTOR_SIGN_ERR_INSTRUCTION_DATA_SIZE               (-101)
+#define FD_EXECUTOR_SIGN_ERR_SIGNATURE                           (-102)
+
 struct fd_rawtxn_b {
   /* Pointer to txn in local wksp */
   void * raw;

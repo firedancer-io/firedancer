@@ -5,6 +5,8 @@
 #include "program/fd_vote_program.h"
 #include "program/fd_stake_program.h"
 #include "program/fd_config_program.h"
+#include "program/fd_ed25519_program.h"
+#include "program/fd_secp256k1_program.h"
 
 #include "../base58/fd_base58.h"
 
@@ -52,6 +54,10 @@ fd_executor_lookup_native_program( fd_global_ctx_t* global,  fd_pubkey_t *pubkey
     return fd_executor_config_program_execute_instruction;
   } else if ( !memcmp( pubkey, global->solana_stake_program, sizeof( fd_pubkey_t ) ) ) {
     return fd_executor_stake_program_execute_instruction;
+  } else if ( !memcmp( pubkey, global->solana_ed25519_sig_verify_program, sizeof( fd_pubkey_t ) ) ) {
+    return fd_executor_ed25519_program_execute_instruction;
+  } else if ( !memcmp( pubkey, global->solana_keccak_secp_256k_program, sizeof( fd_pubkey_t ) ) ) {
+    return fd_executor_secp256k1_program_execute_instruction;
   } else {
     FD_LOG_HEXDUMP_WARNING(( "unknown program",  pubkey, sizeof(*pubkey)));
     return NULL; /* FIXME */

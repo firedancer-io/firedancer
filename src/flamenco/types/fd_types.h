@@ -540,19 +540,6 @@ typedef struct fd_genesis_solana fd_genesis_solana_t;
 #define FD_GENESIS_SOLANA_FOOTPRINT sizeof(fd_genesis_solana_t)
 #define FD_GENESIS_SOLANA_ALIGN (8UL)
 
-struct fd_secp256k1_signature_offsets {
-  ushort signature_offset;
-  unsigned char signature_instruction_index;
-  ushort eth_address_offset;
-  unsigned char eth_address_instruction_index;
-  ushort message_data_offset;
-  ushort message_data_size;
-  unsigned char message_instruction_index;
-};
-typedef struct fd_secp256k1_signature_offsets fd_secp256k1_signature_offsets_t;
-#define FD_SECP256K1_SIGNATURE_OFFSETS_FOOTPRINT sizeof(fd_secp256k1_signature_offsets_t)
-#define FD_SECP256K1_SIGNATURE_OFFSETS_ALIGN (8UL)
-
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/clock.rs#L114 */
 struct fd_sol_sysvar_clock {
   unsigned long slot;
@@ -1686,13 +1673,6 @@ int fd_genesis_solana_encode(fd_genesis_solana_t const * self, fd_bincode_encode
 void fd_genesis_solana_destroy(fd_genesis_solana_t* self, fd_bincode_destroy_ctx_t * ctx);
 void fd_genesis_solana_walk(fd_genesis_solana_t* self, fd_walk_fun_t fun, const char *name, int level);
 ulong fd_genesis_solana_size(fd_genesis_solana_t const * self);
-
-void fd_secp256k1_signature_offsets_new(fd_secp256k1_signature_offsets_t* self);
-int fd_secp256k1_signature_offsets_decode(fd_secp256k1_signature_offsets_t* self, fd_bincode_decode_ctx_t * ctx);
-int fd_secp256k1_signature_offsets_encode(fd_secp256k1_signature_offsets_t const * self, fd_bincode_encode_ctx_t * ctx);
-void fd_secp256k1_signature_offsets_destroy(fd_secp256k1_signature_offsets_t* self, fd_bincode_destroy_ctx_t * ctx);
-void fd_secp256k1_signature_offsets_walk(fd_secp256k1_signature_offsets_t* self, fd_walk_fun_t fun, const char *name, int level);
-ulong fd_secp256k1_signature_offsets_size(fd_secp256k1_signature_offsets_t const * self);
 
 void fd_sol_sysvar_clock_new(fd_sol_sysvar_clock_t* self);
 int fd_sol_sysvar_clock_decode(fd_sol_sysvar_clock_t* self, fd_bincode_decode_ctx_t * ctx);
