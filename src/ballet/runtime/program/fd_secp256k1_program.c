@@ -2,6 +2,9 @@
 // https://github.com/solana-labs/solana/blob/master/sdk/src/secp256k1_instruction.rs#L932
 
 #include "../fd_executor.h"
+
+#ifdef FD_HAS_SECP256K1
+
 #include "fd_secp256k1_program.h"
 #include "../../keccak256/fd_keccak256.h"
 #include "../../secp256k1/fd_secp256k1.h"
@@ -103,3 +106,13 @@ int fd_executor_secp256k1_program_execute_instruction( instruction_ctx_t ctx ) {
 
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
+
+#else
+
+int fd_executor_secp256k1_program_execute_instruction( instruction_ctx_t ctx ) {
+  (void)ctx;
+  FD_LOG_WARNING(("secp256k1 not supported in this build"));
+  return FD_EXECUTOR_SIGN_ERR_SIGNATURE;
+}
+  
+#endif /* FD_HAS_SECP256K1 */
