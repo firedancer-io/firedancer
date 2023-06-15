@@ -97,11 +97,11 @@ fd_ed25519_fe_rng( fd_ed25519_fe_t * h,
    Returns h and, on return, the result will be stored in the fe pointed
    to by h.  This currently does not optimize implicitly the case of
    f==g.
-  
+
    Preconditions:
       |f| bounded by 1.1*2^25,1.1*2^24,1.1*2^25,1.1*2^24,etc.
       |g| bounded by 1.1*2^25,1.1*2^24,1.1*2^25,1.1*2^24,etc.
-  
+
    Postconditions:
       |h| bounded by 1.1*2^26,1.1*2^25,1.1*2^26,1.1*2^25,etc. */
 
@@ -121,11 +121,11 @@ fd_ed25519_fe_add( fd_ed25519_fe_t *       h,
    Returns h and, on return, the result will be stored in the fe pointed
    to by h.  This currently does not optimize implicitly the case of
    f==g.
-  
+
    Preconditions:
       |f| bounded by 1.1*2^25,1.1*2^24,1.1*2^25,1.1*2^24,etc.
       |g| bounded by 1.1*2^25,1.1*2^24,1.1*2^25,1.1*2^24,etc.
-  
+
    Postconditions:
       |h| bounded by 1.1*2^26,1.1*2^25,1.1*2^26,1.1*2^25,etc. */
 
@@ -229,6 +229,38 @@ fd_ed25519_fe_if( fd_ed25519_fe_t *       h,
   return h;
 }
 
+/* fd_ed25519_swap_if swaps f and g if c.  Tries to have a deterministic
+   timing. */
+
+FD_FN_UNUSED static void /* Work around -Winline */
+fd_ed25519_fe_swap_if( fd_ed25519_fe_t * f,
+                       fd_ed25519_fe_t * g,
+                       int               c ) {
+  int m  = -!!c;
+
+  int h0 = m & (f->limb[0] ^ g->limb[0]);
+  int h1 = m & (f->limb[1] ^ g->limb[1]);
+  int h2 = m & (f->limb[2] ^ g->limb[2]);
+  int h3 = m & (f->limb[3] ^ g->limb[3]);
+  int h4 = m & (f->limb[4] ^ g->limb[4]);
+  int h5 = m & (f->limb[5] ^ g->limb[5]);
+  int h6 = m & (f->limb[6] ^ g->limb[6]);
+  int h7 = m & (f->limb[7] ^ g->limb[7]);
+  int h8 = m & (f->limb[8] ^ g->limb[8]);
+  int h9 = m & (f->limb[9] ^ g->limb[9]);
+
+  f->limb[0] ^= h0; g->limb[0] ^= h0;
+  f->limb[1] ^= h1; g->limb[1] ^= h1;
+  f->limb[2] ^= h2; g->limb[2] ^= h2;
+  f->limb[3] ^= h3; g->limb[3] ^= h3;
+  f->limb[4] ^= h4; g->limb[4] ^= h4;
+  f->limb[5] ^= h5; g->limb[5] ^= h5;
+  f->limb[6] ^= h6; g->limb[6] ^= h6;
+  f->limb[7] ^= h7; g->limb[7] ^= h7;
+  f->limb[8] ^= h8; g->limb[8] ^= h8;
+  f->limb[9] ^= h9; g->limb[9] ^= h9;
+}
+
 /* fd_ed25519_fe_isnonzero returns 1 if f is not zero and 0 otherwise.
 
    Preconditions:
@@ -260,7 +292,7 @@ fd_ed25519_fe_isnegative( fd_ed25519_fe_t const * f ) {
 
    Preconditions:
       |f| bounded by 1.65*2^26,1.65*2^25,1.65*2^26,1.65*2^25,etc.
-  
+
    Postconditions:
       |h| bounded by 1.01*2^25,1.01*2^24,1.01*2^25,1.01*2^24,etc. */
 
@@ -338,10 +370,10 @@ fd_ed25519_fe_sqn4( fd_ed25519_fe_t * ha, fd_ed25519_fe_t const * fa, long na,  
                     fd_ed25519_fe_t * hb, fd_ed25519_fe_t const * fb, long nb,    /* " */
                     fd_ed25519_fe_t * hc, fd_ed25519_fe_t const * fc, long nc,    /* " */
                     fd_ed25519_fe_t * hd, fd_ed25519_fe_t const * fd, long nd ) { /* " */
-  if( na==1L ) fd_ed25519_fe_sq( ha, fa ); else fd_ed25519_fe_sq2( ha, fa ); 
-  if( nb==1L ) fd_ed25519_fe_sq( hb, fb ); else fd_ed25519_fe_sq2( hb, fb ); 
-  if( nc==1L ) fd_ed25519_fe_sq( hc, fc ); else fd_ed25519_fe_sq2( hc, fc ); 
-  if( nd==1L ) fd_ed25519_fe_sq( hd, fd ); else fd_ed25519_fe_sq2( hd, fd ); 
+  if( na==1L ) fd_ed25519_fe_sq( ha, fa ); else fd_ed25519_fe_sq2( ha, fa );
+  if( nb==1L ) fd_ed25519_fe_sq( hb, fb ); else fd_ed25519_fe_sq2( hb, fb );
+  if( nc==1L ) fd_ed25519_fe_sq( hc, fc ); else fd_ed25519_fe_sq2( hc, fc );
+  if( nd==1L ) fd_ed25519_fe_sq( hd, fd ); else fd_ed25519_fe_sq2( hd, fd );
 }
 
 #define FD_ED25519_FE_POW25523_2_FAST 0
@@ -352,6 +384,14 @@ fd_ed25519_fe_pow22523_2( fd_ed25519_fe_t * out0, fd_ed25519_fe_t const * z0,
   fd_ed25519_fe_pow22523( out0, z0 );
   fd_ed25519_fe_pow22523( out1, z1 );
 }
+
+/* fd_ed25519_fe_mul121666 computes h = f * 121666.  In place operation
+   is fine.  Returns h and, on return, the result will be stored in the
+   fe pointed to by h. */
+
+void
+fd_ed25519_fe_mul121666( fd_ed25519_fe_t *       h,
+                         fd_ed25519_fe_t const * f );
 
 FD_PROTOTYPES_END
 
