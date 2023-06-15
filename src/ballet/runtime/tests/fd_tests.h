@@ -29,7 +29,6 @@ typedef struct fd_executor_test_acc fd_executor_test_acc_t;
 struct fd_executor_test {
   char*                   test_name;
   int                     test_number;
-  int                     test_nonce;
   uint                    disable_cnt;
   uchar                  *disable_feature;
   const char             *bt;
@@ -76,4 +75,3 @@ extern ulong               test_cnt;
 FD_PROTOTYPES_END
 
 #endif /* HEADER_src_ballet_runtime_tests_fd_tests_h */
-

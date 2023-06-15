@@ -154,7 +154,7 @@ int fd_executor_run_test(
   }
   int exec_result = exec_instr_func( ctx );
   if ( exec_result != test->expected_result ) {
-    FD_LOG_WARNING(( "Failed test %d: %s (nonce: %d): expected transaction result %d, got %d: %s", test->test_number, test->test_name, test->test_nonce, test->expected_result , exec_result
+    FD_LOG_WARNING(( "Failed test %d: %s: expected transaction result %d, got %d: %s", test->test_number, test->test_name, test->expected_result , exec_result
         , (NULL != verbose) ? test->bt : ""));
     fd_funk_txn_cancel( suite->funk, global->funk_txn, 0 );
     return -1;
@@ -162,7 +162,7 @@ int fd_executor_run_test(
 
   if ( exec_result == FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR ) {
     if ( ctx.txn_ctx->custom_err != test->custom_err) {
-      FD_LOG_WARNING(( "Failed test %d: %s (nonce: %d): expected custom error inner value of %d, got %d: %s", test->test_number, test->test_name, test->test_nonce, test->custom_err, ctx.txn_ctx->custom_err , (NULL != verbose) ? test->bt : ""));
+      FD_LOG_WARNING(( "Failed test %d: %s: expected custom error inner value of %d, got %d: %s", test->test_number, test->test_name, test->custom_err, ctx.txn_ctx->custom_err , (NULL != verbose) ? test->bt : ""));
       fd_funk_txn_cancel( suite->funk, global->funk_txn, 0 );
       return -1;
     }
@@ -185,13 +185,13 @@ int fd_executor_run_test(
       void* d = (void *)(raw_acc_data + m->hlen);
 
       if (m->info.lamports != test->accs[i].result_lamports) {
-        FD_LOG_WARNING(( "Failed test %d: %s (nonce: %d): expected lamports %ld, got %ld: %s", test->test_number, test->test_name, test->test_nonce, test->accs[i].result_lamports, m->info.lamports, (NULL != verbose) ? test->bt : ""));
+        FD_LOG_WARNING(( "Failed test %d: %s: expected lamports %ld, got %ld: %s", test->test_number, test->test_name, test->accs[i].result_lamports, m->info.lamports, (NULL != verbose) ? test->bt : ""));
         fd_funk_txn_cancel( suite->funk, global->funk_txn, 0 );
         return -666;
       }
       if (m->dlen != test->accs[i].result_data_len) {
-        FD_LOG_WARNING(( "Failed test %d: %s (nonce: %d): size mismatch (expected %lu, got %lu): %s",
-            test->test_number, test->test_name, test->test_nonce,
+        FD_LOG_WARNING(( "Failed test %d: %s: size mismatch (expected %lu, got %lu): %s",
+            test->test_number, test->test_name,
             test->accs[i].result_data_len, m->dlen, (NULL != verbose) ? test->bt : "" ));
         fd_funk_txn_cancel( suite->funk, global->funk_txn, 0 );
         return -777;
@@ -217,7 +217,7 @@ int fd_executor_run_test(
   /* Revert the Funk transaction */
   fd_funk_txn_cancel( suite->funk, global->funk_txn, 0 );
 
-  FD_LOG_NOTICE(("Passed test %d: %s (nonce: %d)", test->test_number, test->test_name, test->test_nonce));
+  FD_LOG_NOTICE(("Passed test %d: %s", test->test_number, test->test_name));
 
   return 0;
 }

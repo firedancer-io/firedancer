@@ -65,9 +65,10 @@ def read_test_cases(path):
     files = os.listdir(path)
     files = [f for f in files if os.path.isfile(path+'/'+f)] #Filtering only the files.
     for file in files:
-        with open(path+'/'+file, "r") as f:
-            data = json.loads('[' + f.read()[:-2] + ']')
-            tests = tests + data
+        if file.endswith(".json"):
+            with open(path+'/'+file, "r") as f:
+                data = json.loads('[' + f.read()[:-2] + ']')
+                tests = tests + data
     return tests
 
 def serializeInstructionError(err):
@@ -214,8 +215,8 @@ def main():
         print('#include "../fd_tests.h"')
 
         fs = json.loads(test_case["feature_set"])
+        feature_idxs = []
         if len(fs) > 0:
-            feature_idxs = []
             for x in fs:
                 disabled_feature = base58.b58encode(bytearray(x)).decode("utf-8")
                 # Find index of feature given pubkey
@@ -235,11 +236,8 @@ def main():
   fd_executor_test_t test;
   fd_memset( &test, 0, FD_EXECUTOR_TEST_FOOTPRINT );
   test.disable_cnt = {len(fs)};
-  uchar disabled_features[] = {{ {",".join(feature_idxs)} }};
-  test.disable_feature = disabled_features;
   test.bt = "{bt}";
   test.test_name = "{test_case["name"]}";
-  test.test_nonce  = {test_case["nonce"]};
   test.test_number = {test_case_idx};
   if (fd_executor_test_suite_check_filter(suite, &test)) return -9999;
   ulong test_accs_len = {len(test_case["transaction_accounts"])};
@@ -247,6 +245,14 @@ def main():
   fd_memset( test_accs, 0, FD_EXECUTOR_TEST_ACC_FOOTPRINT * test_accs_len );
 """
         )
+
+        if len(fs) > 0:
+            print(f"""
+   uchar disabled_features[] = {{ {",".join(feature_idxs)} }};
+   test.disable_feature = disabled_features;
+            """
+        )
+
         if len(test_case["transaction_accounts"]) > 0:
             print("  fd_executor_test_acc_t* test_acc = test_accs;")
 
