@@ -11,10 +11,9 @@
 #define MINIMUM_STAKE_DELEGATION ( 1 )
 #define MINIMUM_DELEGATION_SOL ( 1 )
 #define LAMPORTS_PER_SOL (1000000000)
-#define FEATURE_ACTIVE_STAKE_SPLIT_USES_RENT_SYSVAR ( 1 )
-#define FEATURE_STAKE_ALLOW_ZERO_UNDELEGATED_AMOUNT ( 1 )
-#define FEATURE_CLEAN_UP_DELEGATION_ERRORS ( 1 )
-#define FEATURE_STAKE_RAISE_MINIMUM_DELEGATION_TO_1_SOL ( 0 ) // old behavior
+#define MERGE_KIND_INACTIVE ( 0 )
+#define MERGE_KIND_ACTIVE_EPOCH ( 1 )
+#define MERGE_KIND_FULLY_ACTIVE ( 2 )
 
 fd_stake_history_entry_t stake_and_activating( fd_delegation_t const * delegation, ulong target_epoch, fd_stake_history_t * stake_history ) {
   ulong delegated_stake = delegation->stake;
@@ -440,20 +439,50 @@ int validate_split_amount(
 }
 
 
-int get_if_mergeable( fd_stake_state_t* stake_state, fd_acc_lamports_t stake_lamports, fd_sol_sysvar_clock_t clock, fd_stake_history_t history) {
+int merge_delegation_stake_and_credits_observed( fd_global_ctx_t* global, fd_stake_state_t* stake_state, fd_acc_lamports_t absorbed_lamports, fd_acc_lamports_t absorbed_credits_observed) {
+  if (global->features.stake_merge_with_unmatched_credits_observed) {
+      // stake_state.inner.stake.stake.credits_observed = 
+    if (stake_state->inner.stake.stake.credits_observed == absorbed_credits_observed) {
+      // Some(stake.credits_observed)
+    } else {
+      __uint128_t total_stake = fd_uint128_sat_add(stake_state->inner.stake.stake.delegation.stake, absorbed_lamports);
+      __uint128_t total_weighted_credits = fd_uint128_sat_add(total_stake, fd_uint128_sat_mul( stake_state->inner.stake.stake.credits_observed, stake_state->inner.stake.stake.delegation.stake));
+      total_weighted_credits = fd_uint128_sat_add(total_weighted_credits, fd_uint128_sat_mul(absorbed_credits_observed, absorbed_lamports));
+      __uint128_t result_credits = fd_uint128_sat_sub(total_weighted_credits, 1) / total_stake;
+      if (result_credits > ULONG_MAX) {
+        return FD_EXECUTOR_INSTR_ERR_ARITHMETIC_OVERFLOW;
+      }
+      stake_state->inner.stake.stake.credits_observed = (ulong) result_credits; 
+    }
+  }
+  stake_state->inner.stake.stake.delegation.stake = fd_ulong_sat_add( stake_state->inner.stake.stake.delegation.stake, absorbed_lamports);
+  return FD_EXECUTOR_INSTR_SUCCESS;
+}
+int get_if_mergeable( fd_stake_state_t* stake_state, fd_acc_lamports_t stake_lamports, fd_sol_sysvar_clock_t clock, fd_stake_history_t history, fd_merge_kind_t* merge_kind) {
     if ( fd_stake_state_is_stake( stake_state ) ) {
       fd_stake_history_entry_t entry = stake_activating_and_deactivating( &stake_state->inner.stake.stake.delegation, clock.epoch, &history);
       if (entry.effective == 0 && entry.activating == 0 && entry.deactivating == 0) {
-        return (int)stake_lamports; //todo: fix this
         // Ok(Self::Inactive(*meta, stake_lamports)),
+        merge_kind->discriminant = MERGE_KIND_INACTIVE;
+        merge_kind->meta = &stake_state->inner.stake.meta;
+        merge_kind->merge_stake.stake_lamports = stake_lamports;
       } else if (entry.effective == 0) {
         // Ok(Self::ActivationEpoch(*meta, *stake)),
+        merge_kind->discriminant = MERGE_KIND_ACTIVE_EPOCH;
+        merge_kind->meta = &stake_state->inner.stake.meta;
+        merge_kind->merge_stake.stake = &stake_state->inner.stake.stake;
       } else if (entry.activating == 0 && entry.deactivating == 0) {
         // Ok(Self::FullyActive(*meta, *stake)),
+        merge_kind->discriminant = MERGE_KIND_FULLY_ACTIVE;
+        merge_kind->meta = &stake_state->inner.stake.meta;
+        merge_kind->merge_stake.stake = &stake_state->inner.stake.stake;
       } else {
         return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR; // StakeError::MergeTransientStake;
       }
   } else if ( fd_stake_state_is_initialized( stake_state ) ) {
+    merge_kind->discriminant = MERGE_KIND_INACTIVE;
+    merge_kind->meta = &stake_state->inner.stake.meta;
+    merge_kind->merge_stake.stake_lamports = stake_lamports;
     // Ok(Self::Inactive(*meta, stake_lamports))
   } else {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
@@ -959,7 +988,7 @@ int fd_executor_stake_program_execute_instruction(
     }
 
     /* Get stake account */
-    fd_pubkey_t* stake_acc = &txn_accs[instr_acc_idxs[1]];
+    fd_pubkey_t* stake_acc = &txn_accs[instr_acc_idxs[0]];
     fd_account_meta_t stake_metadata;
     read_result = fd_acc_mgr_get_metadata( ctx.global->acc_mgr, ctx.global->funk_txn, stake_acc, &stake_metadata );
     if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
@@ -980,20 +1009,64 @@ int fd_executor_stake_program_execute_instruction(
 
     /* get if mergeable - Check if the destination stake acount is mergeable */
     // https://github.com/firedancer-io/solana/blob/56bd357f0dfdb841b27c4a346a58134428173f42/programs/stake/src/stake_state.rs#L1347
-
-    int result = get_if_mergeable( &stake_state, source_lamports, clock, history);
+    fd_merge_kind_t stake_merge_kind;
+    int result = get_if_mergeable( &stake_state, stake_lamports, clock, history, &stake_merge_kind);
     if (result != FD_EXECUTOR_INSTR_SUCCESS) {
       return result;
     }
 
     /* Check if the source stake account is mergeable */
-    result = get_if_mergeable( &source_state, source_lamports, clock, history);
+    fd_merge_kind_t source_merge_kind;
+    result = get_if_mergeable( &source_state, source_lamports, clock, history, &source_merge_kind);
     if (result != FD_EXECUTOR_INSTR_SUCCESS) {
       return result;
     }
     
     /* Merging stake accounts */ 
-    
+    // metas_can_merge
+    uint can_merge_lockups = memcmp(&source_state.inner.stake.meta.lockup, &stake_state.inner.stake.meta.lockup, sizeof(fd_stake_lockup_t)) == 0;
+    uint can_merge_authorized = memcmp(&stake_state.inner.stake.meta.authorized, &source_state.inner.stake.meta.authorized, sizeof(fd_stake_lockup_t)) == 0;
+    if (!can_merge_lockups || !can_merge_authorized) {
+      FD_LOG_WARNING(("Unable to merge due to metadata mismatch"));
+      return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+    }
+
+    // if (ctx.global->features.stake_merge_with_unmatched_credits_observed) {
+    //   // active_delegations_can_merge
+    //   if (memcmp(&source_state.inner.stake.stake.delegation.voter_pubkey, &stake_state.inner.stake.stake.delegation.voter_pubkey, sizeof(fd_pubkey_t)) != 0) {
+    //     FD_LOG_WARNING(( "Unable to merge due to voter mismatch" ));
+    //     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR; //  Err(StakeError::MergeMismatch.into())
+    //   }
+    //   if ( fd_double_abs(stake_state.inner.stake.stake.delegation.warmup_cooldown_rate - source_state.inner.stake.stake.delegation.warmup_cooldown_rate) >= DBL_EPSILON
+    //   || stake_state.inner.stake.stake.delegation.deactivation_epoch != ULONG_MAX 
+    //   || source_state.inner.stake.stake.delegation.deactivation_epoch != ULONG_MAX) {
+    //       FD_LOG_WARNING(( "Unable to merge due to stake deactivation %lu %lu", stake_state.inner.stake.stake.delegation.deactivation_epoch, source_state.inner.stake.stake.delegation.deactivation_epoch));
+    //       return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR; // Err(StakeError::MergeMismatch.into())
+    //   }
+
+    // } else {
+    //   // active_stakes_can_merge
+    //   if (source_state.inner.stake.stake.credits_observed != stake_state.inner.stake.stake.credits_observed) {
+    //     FD_LOG_WARNING(("Unable to merge due to credits observed mismatch"));
+    //     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR; // Err(StakeError::MergeMismatch.into())
+    //   }
+    // }
+
+    // ushort is_some_merge = 0;
+    if (stake_merge_kind.discriminant == MERGE_KIND_INACTIVE && source_merge_kind.discriminant == MERGE_KIND_INACTIVE) {
+      // None
+    } else if (stake_merge_kind.discriminant == MERGE_KIND_INACTIVE && source_merge_kind.discriminant == MERGE_KIND_ACTIVE_EPOCH) {
+      // None
+    } else if (stake_merge_kind.discriminant == MERGE_KIND_ACTIVE_EPOCH && source_merge_kind.discriminant == MERGE_KIND_INACTIVE) {
+      stake_state.inner.stake.stake.delegation.stake = fd_ulong_sat_add( stake_state.inner.stake.stake.delegation.stake, source_lamports);
+    } else if (stake_merge_kind.discriminant == MERGE_KIND_ACTIVE_EPOCH && source_merge_kind.discriminant == MERGE_KIND_ACTIVE_EPOCH) {
+      fd_acc_lamports_t src_lamports = fd_ulong_sat_add(source_state.inner.stake.meta.rent_exempt_reserve, stake_state.inner.stake.stake.delegation.stake);
+      merge_delegation_stake_and_credits_observed(ctx.global, &stake_state, src_lamports, source_state.inner.stake.stake.credits_observed);      
+    } else if (stake_merge_kind.discriminant == MERGE_KIND_FULLY_ACTIVE && source_merge_kind.discriminant == MERGE_KIND_FULLY_ACTIVE) {
+      merge_delegation_stake_and_credits_observed(ctx.global, &stake_state, source_state.inner.stake.stake.delegation.stake, source_state.inner.stake.stake.credits_observed);
+    } else {
+      return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR; // Err(StakeError::MergeMismatch.into())
+    }
     /* Source is about to be drained, deinitialize its state */
     source_state.discriminant = 0;
     write_stake_state( ctx.global, source_acc, &source_state, 0);
@@ -1002,7 +1075,7 @@ int fd_executor_stake_program_execute_instruction(
     // sub from source 
     fd_acc_mgr_set_lamports( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot, source_acc, source_metadata.info.lamports - source_lamports);
     // add to destination
-    fd_acc_mgr_set_lamports( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot, stake_acc, stake_metadata.info.lamports + source_lamports);    
+    fd_acc_mgr_set_lamports( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot, stake_acc, stake_metadata.info.lamports + source_lamports);
 
   } // end of merge, discriminant 7
   else if ( fd_stake_instruction_is_withdraw( &instruction )) { // discriminant X

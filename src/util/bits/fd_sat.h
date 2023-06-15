@@ -14,6 +14,25 @@
 
 FD_PROTOTYPES_BEGIN
 
+FD_FN_CONST static inline __uint128_t
+fd_uint128_sat_add( __uint128_t x, __uint128_t y ) {
+  __uint128_t res = x + y;
+  return fd_uint128_if( res < x, UINT128_MAX, res );
+}
+
+FD_FN_CONST static inline __uint128_t
+fd_uint128_sat_mul( __uint128_t x, __uint128_t y ) {
+  __uint128_t res = x * y;
+  uchar overflow = ( x != 0 ) && ( y != 0 ) && ( ( res < x ) || ( res < y ) || ( ( res / x ) != y ) );
+  return fd_uint128_if( overflow, UINT128_MAX, res );
+}
+
+FD_FN_CONST static inline __uint128_t
+fd_uint128_sat_sub( __uint128_t x, __uint128_t y ) {
+  __uint128_t res = x - y;
+  return fd_uint128_if( res > x, 0, res );
+}
+
 FD_FN_CONST static inline ulong
 fd_ulong_sat_add( ulong x, ulong y ) {
   ulong res = x + y;
