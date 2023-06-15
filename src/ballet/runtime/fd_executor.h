@@ -125,6 +125,7 @@ struct transaction_ctx {
   fd_txn_t*         txn_descriptor;           /* Descriptor of the transaction. */
   fd_rawtxn_b_t*    txn_raw;                  /* Raw bytes of the transaction. */
   uint              custom_err;               /* When a custom error is returned, this is where the numeric value gets stashed */
+  
 };
 typedef struct transaction_ctx transaction_ctx_t;
 

@@ -148,16 +148,23 @@ int fd_executor_run_test(
     .txn_ctx        = &txn_ctx,
   };
   execute_instruction_func_t exec_instr_func = fd_executor_lookup_native_program( global, &test->program_id );
+  if ( exec_instr_func == NULL ) {
+    FD_LOG_WARNING(( "Failed test %d: %s (nonce: %d): no native program executor for program", test->test_number, test->test_name, test->test_nonce ));
+    fd_funk_txn_cancel( suite->funk, global->funk_txn, 0 );
+    return -1;
+  }
   int exec_result = exec_instr_func( ctx );
   if ( exec_result != test->expected_result ) {
     FD_LOG_WARNING(( "Failed test %d: %s (nonce: %d): expected transaction result %d, got %d: %s", test->test_number, test->test_name, test->test_nonce, test->expected_result , exec_result
         , (NULL != verbose) ? test->bt : ""));
+    fd_funk_txn_cancel( suite->funk, global->funk_txn, 0 );
     return -1;
   }
 
   if ( exec_result == FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR ) {
     if ( ctx.txn_ctx->custom_err != test->custom_err) {
       FD_LOG_WARNING(( "Failed test %d: %s (nonce: %d): expected custom error inner value of %d, got %d: %s", test->test_number, test->test_name, test->test_nonce, test->custom_err, ctx.txn_ctx->custom_err , (NULL != verbose) ? test->bt : ""));
+      fd_funk_txn_cancel( suite->funk, global->funk_txn, 0 );
       return -1;
     }
   }
@@ -188,17 +195,29 @@ int fd_executor_run_test(
         return -777;
       }
       if (memcmp(d, test->accs[i].result_data, test->accs[i].result_data_len)) {
-        FD_LOG_WARNING(( "Failed test %d: %s: account missmatch: %s", test->test_number, test->test_name, (NULL != verbose) ? test->bt : ""));
-      {
-        FILE * fd = fopen("actual.bin", "wb");
-        fwrite(d, 1, m->dlen, fd);
-        fclose(fd);
-      }
-      {
-        FILE * fd = fopen("expected.bin", "wb");
-        fwrite(test->accs[i].result_data, 1, test->accs[i].result_data_len, fd);
-        fclose(fd);
-      }
+        ulong j = 0;
+        for( ; j < test->accs[i].result_data_len; j++ ) {
+          if( ((uchar*)d)[j] != test->accs[i].result_data[j] ) {          
+            break;
+          }
+        }
+        FD_LOG_WARNING(( "Failed test %d: %s: account mismatch - idx: %lu, at byte: %lu, expected: %02x, got: %02x, %s", test->test_number, test->test_name, i, j, test->accs[i].result_data[j], ((uchar*)d)[j], (NULL != verbose) ? test->bt : "" ));
+      
+        {
+          FILE * fd = fopen("before.bin", "wb");
+          fwrite(test->accs[i].data, 1, test->accs[i].data_len, fd);
+          fclose(fd);
+        }
+        {
+          FILE * fd = fopen("actual.bin", "wb");
+          fwrite(d, 1, m->dlen, fd);
+          fclose(fd);
+        }
+        {
+          FILE * fd = fopen("expected.bin", "wb");
+          fwrite(test->accs[i].result_data, 1, test->accs[i].result_data_len, fd);
+          fclose(fd);
+        }
         return -888;
       }
     }
@@ -240,6 +259,9 @@ int main(int argc, char **argv) {
 
   int ret = 0;
 
+  ulong num_tests_run = 0;
+  ulong num_tests_success = 0;
+  ulong num_tests_skipped = 0;
   /* Loop through tests */
   for( ulong idx = test_start; idx <= test_end; idx++ ) {
     if( FD_UNLIKELY( idx >= test_cnt ) )
@@ -249,8 +271,18 @@ int main(int argc, char **argv) {
       FD_LOG_NOTICE( ("test %lu returned %d", idx, r)) ;
       ret = r;
     }
+
+    if(( r == -9999 )) {
+      num_tests_skipped++;
+    } else {
+      num_tests_run++;
+    }
+    if(( r == 0 )) {
+      num_tests_success++;
+    }
   }
 
+  FD_LOG_NOTICE(( "test results - ran: %lu, success: %lu, failed: %lu, skipped: %lu", num_tests_run, num_tests_success, num_tests_run-num_tests_success, num_tests_skipped ));
   fd_log_flush();
   fd_halt();
 

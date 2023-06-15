@@ -3,9 +3,9 @@
 #include "fd_tests.h"
 #include "../../base58/fd_base58.h"
 
-#ifdef _DISABLE_OPTIMIZATION
+// #ifdef _DISABLE_OPTIMIZATION
 #pragma GCC optimize ("O0")
-#endif
+// #endif
 
 extern int fd_executor_test_suite_check_filter(fd_executor_test_suite_t *suite, fd_executor_test_t *test);
 #include "generated/test_native_programs_000.h"
