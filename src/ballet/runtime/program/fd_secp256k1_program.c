@@ -78,6 +78,14 @@ int fd_executor_secp256k1_program_execute_instruction( instruction_ctx_t ctx ) {
                                                       &sig );
     if ( err ) return ( err == FD_EXECUTOR_SIGN_ERR_DATA_OFFSETS ?
                         FD_EXECUTOR_SIGN_ERR_INSTRUCTION_DATA_SIZE : err );
+
+    void const * recovery_id = NULL;
+    err = fd_executor_secp256k1_program_get_data( ctx,
+                                                  sigoffs->signature_instruction_index,
+                                                  sigoffs->signature_offset + SIGNATURE_SERIALIZED_SIZE,
+                                                  1,
+                                                  &recovery_id );
+    if ( err ) return err;
     
     void const * eth_address = NULL;
     err = fd_executor_secp256k1_program_get_data( ctx,
@@ -98,10 +106,16 @@ int fd_executor_secp256k1_program_execute_instruction( instruction_ctx_t ctx ) {
 
     uchar msg_hash[ FD_KECCAK256_HASH_SZ ];
     fd_keccak256_hash( msg, msg_sz, msg_hash );
-    
-    if( fd_secp256k1_verify( msg_hash, sig, eth_address ) ) {
+
+    uchar pubkey[64];
+    if ( fd_secp256k1_recover( pubkey, msg_hash, sig, *(const uchar*)recovery_id ) == NULL )
       return FD_EXECUTOR_SIGN_ERR_SIGNATURE;
-    }
+
+    uchar msg_hash2[ FD_KECCAK256_HASH_SZ ];
+    fd_keccak256_hash( pubkey, 64, msg_hash2 );
+
+    if ( memcmp( eth_address, &msg_hash2[ FD_KECCAK256_HASH_SZ - HASHED_PUBKEY_SERIALIZED_SIZE ], HASHED_PUBKEY_SERIALIZED_SIZE ) )
+      return FD_EXECUTOR_SIGN_ERR_SIGNATURE;
   }
 
   return FD_EXECUTOR_INSTR_SUCCESS;
