@@ -32,7 +32,7 @@ FD_PROTOTYPES_BEGIN
    sha is a handle of a local join to a sha256 calculator.
 
    Does no input argument checking.  The caller takes a write interest
-   in public_key and sha and a read interest in public_key for the
+   in public_key and a read interest in public_key for the
    duration the call.  Sanitizes the sha and stack to minimize risk of
    leaking private key info before returning.  Returns public_key. */
 
@@ -54,9 +54,9 @@ fd_secp256k1_public_from_private( void *        public_key,
    private_key is assumed to point to first byte of a 32-byte memory
    region that holds the private key to use to sign this message.
 
-   Does no input argument checking.  Sanitizes the sha and stack to
+   Does no input argument checking.  Sanitizes the stack to
    minimize risk of leaking private key info after return.  The caller
-   takes a write interest in sig and sha and a read interest in msg,
+   takes a write interest in sig and sha and a read interest in msg_hash,
    public_key and private_key for the duration the call.  Returns sig. */
 
 void *
@@ -75,9 +75,8 @@ fd_secp256k1_sign( void *        sig,
    public_key is assumed to point to first byte of a 64-byte memory
    region that holds the public key to use to verify this message.
 
-
    Does no input argument checking.  This function takes a write
-   interest in sig and sha and a read interest in msg, public_key and
+   interest in sig and a read interest in msg_hash, public_key and
    private_key for the duration the call.  Sanitizes the sha and stack
    to minimize risk of leaking private key info after return.  Returns
    FD_SECP256K1_SUCCESS (0) if the message verified successfully or a
@@ -87,6 +86,30 @@ int
 fd_secp256k1_verify( void const *  msg_hash,
                      void const *  sig,
                      void const *  public_key );
+
+/* fd_secp256k1_recover recovers a public key from a recoverable SECP256K1 signature.
+    
+   msg_hash is assumed to point to the first byte of a 32-byte memory region
+   which holds the message to verify.
+
+   sig is assumed to point to the first byte of a 64-byte memory region
+   which holds the recoverable signature of the message.
+
+   public_key is assumed to point to first byte of a 64-byte memory
+   region that will hold public key recovered from the signature.
+  
+   recovery_id is the recovery id number used in the signing process.
+
+   Does no input argument checking.  This function takes a write
+   interest in public_key and a read interest in msg_hash, public_key and
+   private_key for the duration the call.  Returns public_key on success and 
+   NULL on failure. */
+
+void *
+fd_secp256k1_recover( void *       public_key,
+                      void const * msg_hash,
+                      void const * sig,
+                      int          recovery_id );
 
 /* fd_secp256k1_strerror converts an FD_SECP256K1_SUCCESS / FD_SECP256K1_ERR_*
    code into a human readable cstr.  The lifetime of the returned
