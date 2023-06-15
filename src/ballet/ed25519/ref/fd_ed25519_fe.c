@@ -58,21 +58,21 @@ fd_ed25519_fe_tobytes( uchar *                 s,
 
   /* Write p=2^255-19; q=floor(h/p).
      Basic claim: q = floor(2^(-255)(h + 19 2^(-25)h9 + 2^(-1))).
-    
+
      Proof:
        Have |h|<=p so |q|<=1 so |19^2 2^(-255) q|<1/4.
        Also have |h-2^230 h9|<2^231 so |19 2^(-255)(h-2^230 h9)|<1/4.
-    
+
        Write y=2^(-1)-19^2 2^(-255)q-19 2^(-255)(h-2^230 h9).
        Then 0<y<1.
-    
+
        Write r=h-pq.
        Have 0<=r<=p-1=2^255-20.
        Thus 0<=r+19(2^-255)r<r+19(2^-255)2^255<=2^255-1.
-    
+
        Write x=r+19(2^-255)r+y.
        Then 0<x<2^255 so floor(2^(-255)x) = 0 so floor(q+2^(-255)x) = q.
-    
+
        Have q+2^(-255)x = 2^(-255)(h + 19 2^(-25) h9 + 2^(-1))
        so floor(2^(-255)(h + 19 2^(-25) h9 + 2^(-1))) = q.  */
 
@@ -114,21 +114,21 @@ fd_ed25519_fe_mul( fd_ed25519_fe_t *       h,
                    fd_ed25519_fe_t const * g ) {
 
   /* Notes on implementation strategy:
-    
+
      Using schoolbook multiplication.
      Karatsuba would save a little in some cost models.
-    
+
      Most multiplications by 2 and 19 are 32-bit precomputations;
      cheaper than 64-bit postcomputations.
-    
+
      There is one remaining multiplication by 19 in the carry chain;
      one *19 precomputation can be merged into this,
      but the resulting data flow is considerably less clean.
-    
+
      There are 12 carries below.
      10 of them are 2-way parallelizable and vectorizable.
      Can get away with 11 carries, but then data flow is much deeper.
-    
+
      With tighter constraints on inputs can squeeze carries into int. */
 
   int f0 = f->limb[0]; int f1 = f->limb[1];
@@ -320,7 +320,7 @@ fd_ed25519_fe_sq( fd_ed25519_fe_t *       h,
   long f1f3_4  = ((long)f1_2)*((long)f3_2 ); long f1f4_2  = ((long)f1_2)*((long)f4   );
   long f1f5_4  = ((long)f1_2)*((long)f5_2 ); long f1f6_2  = ((long)f1_2)*((long)f6   );
   long f1f7_4  = ((long)f1_2)*((long)f7_2 ); long f1f8_2  = ((long)f1_2)*((long)f8   );
-  long f1f9_76 = ((long)f1_2)*((long)f9_38); 
+  long f1f9_76 = ((long)f1_2)*((long)f9_38);
 
   long f2f2    = ((long)f2  )*((long)f2   ); long f2f3_2  = ((long)f2_2)*((long)f3   );
   long f2f4_2  = ((long)f2_2)*((long)f4   ); long f2f5_2  = ((long)f2_2)*((long)f5   );
@@ -331,7 +331,7 @@ fd_ed25519_fe_sq( fd_ed25519_fe_t *       h,
   long f3f5_4  = ((long)f3_2)*((long)f5_2 ); long f3f6_2  = ((long)f3_2)*((long)f6   );
   long f3f7_76 = ((long)f3_2)*((long)f7_38); long f3f8_38 = ((long)f3_2)*((long)f8_19);
   long f3f9_76 = ((long)f3_2)*((long)f9_38);
-  
+
   long f4f4    = ((long)f4  )*((long)f4   ); long f4f5_2  = ((long)f4_2)*((long)f5   );
   long f4f6_38 = ((long)f4_2)*((long)f6_19); long f4f7_38 = ((long)f4  )*((long)f7_38);
   long f4f8_38 = ((long)f4_2)*((long)f8_19); long f4f9_38 = ((long)f4  )*((long)f9_38);
@@ -584,5 +584,18 @@ fd_ed25519_fe_pow22523( fd_ed25519_fe_t *       out,
 
   fd_ed25519_fe_mul(out, t0, z  );
   return out;
+}
+
+void
+fd_ed25519_fe_mul121666( fd_ed25519_fe_t *       h,
+                         fd_ed25519_fe_t const * f ) {
+  long tmp = 0L;
+  for( int i=0; i<10; i+=2 ) {
+    tmp = ( tmp >> 25 ) + ( (long)f->limb[ i   ] * 121666L );
+    h->limb[ i   ] = (int)tmp & ((1<<26)-1);
+    tmp = ( tmp >> 26 ) + ( (long)f->limb[ i+1 ] * 121666L );
+    h->limb[ i+1 ] = (int)tmp & ((1<<25)-1);
+  }
+  h->limb[ 0 ] += 19 * (int)(tmp >> 25);
 }
 
