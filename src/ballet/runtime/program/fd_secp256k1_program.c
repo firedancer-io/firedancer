@@ -111,10 +111,10 @@ int fd_executor_secp256k1_program_execute_instruction( instruction_ctx_t ctx ) {
     if ( fd_secp256k1_recover( pubkey, msg_hash, sig, *(const uchar*)recovery_id ) == NULL )
       return FD_EXECUTOR_SIGN_ERR_SIGNATURE;
 
-    uchar msg_hash2[ FD_KECCAK256_HASH_SZ ];
-    fd_keccak256_hash( pubkey, 64, msg_hash2 );
+    uchar pubkey_hash[ FD_KECCAK256_HASH_SZ ];
+    fd_keccak256_hash( pubkey, 64, pubkey_hash );
 
-    if ( memcmp( eth_address, &msg_hash2[ FD_KECCAK256_HASH_SZ - HASHED_PUBKEY_SERIALIZED_SIZE ], HASHED_PUBKEY_SERIALIZED_SIZE ) )
+    if ( memcmp( eth_address, &pubkey_hash[ FD_KECCAK256_HASH_SZ - HASHED_PUBKEY_SERIALIZED_SIZE ], HASHED_PUBKEY_SERIALIZED_SIZE ) )
       return FD_EXECUTOR_SIGN_ERR_SIGNATURE;
   }
 
