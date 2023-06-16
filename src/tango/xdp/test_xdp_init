@@ -18,7 +18,7 @@ NETNS1=/var/run/netns/"$IFACE1"
 : "${IFACE0_ADDR:=198.18.0.1}"
 : "${IFACE1_ADDR:=198.18.0.2}"
 
-: "${QUIC_PORT:=9000}"
+: "${PORT:=9000}"
 
 : "${XSK_FRAME_SZ:=2048}"
 : "${XSK_RX_DEPTH:=64}"
@@ -132,7 +132,7 @@ fi
 
 # Setup listener
 
-"$BIN/fd_xdp_ctl" listen-udp-port "$WKSP" "$IFACE0_ADDR" "$QUIC_PORT" tpu-quic-user || exit $?
+"$BIN/fd_xdp_ctl" listen-udp-port "$WKSP" "$IFACE0_ADDR" "$PORT" tpu-quic-user || exit $?
 
 # Setup XSK
 
@@ -165,7 +165,7 @@ mkdir -pv "$(dirname "$CONF")" || exit $?
   dumpvar IFACE1
   dumpvar IFACE1_MAC
   dumpvar IFACE1_ADDR
-  dumpvar QUIC_PORT
+  dumpvar PORT
   dumpvar XSK0
   dumpvar XSK_AIO0
 ) > "$CONF" || exit $?

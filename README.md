@@ -16,7 +16,7 @@ in build tooling or dependencies.
 ## Installation
 
 Firedancer is currently under heavy development and is not ready for
-production use. There are no releases avaialble.
+production use. There are no releases available.
 
 ## Developing
 

@@ -1,4 +1,5 @@
 use std::fs;
+use std::path::Path;
 
 use super::*;
 use crate::security::*;
@@ -57,10 +58,31 @@ fn fini(config: &Config) {
         }
     }
 
-    panic!("Not enough free hugepages to proceed, see error log for processes using them");
+    match check(config) {
+        CheckResult::Ok(_) => (),
+        CheckResult::Err(_) => {
+            panic!("Not enough free hugepages to proceed, see error log for processes using them")
+        }
+    }
 }
 
 fn check(config: &Config) -> CheckResult {
+    let huge = &config.shmem.huge_page_mount_path;
+    let huge_exists = Path::new(huge)
+        .try_exists()
+        .map_err(|x| CheckError::PartiallyConfigured(format!("error reading {huge} {x:?}")))?;
+    let gigantic = &config.shmem.gigantic_page_mount_path;
+    let gigantic_exists = Path::new(gigantic)
+        .try_exists()
+        .map_err(|x| CheckError::PartiallyConfigured(format!("error reading {gigantic} {x:?}")))?;
+
+    match (huge_exists, gigantic_exists) {
+        (false, false) => (),
+        // If our mounts are present, it's OK to have used pages, we will be able to clean
+        // up the workspce later.
+        _ => return CheckResult::Ok(()),
+    }
+
     let size = &config.shmem.workspace_page_size;
     let page_size = match size.as_ref() {
         "huge" => 2048,
@@ -78,7 +100,8 @@ fn check(config: &Config) -> CheckResult {
     let expected_pages = config.shmem.workspace_page_count;
     if free_pages < expected_pages {
         return partially_configured!(
-            "expected at least {expected_pages} free {size} pages, but there are {free_pages}, run `fini` to see which processes are using them"
+            "expected at least {expected_pages} free {size} pages, but there are {free_pages}, \
+             run `fini` to see which processes are using them"
         );
     }
 

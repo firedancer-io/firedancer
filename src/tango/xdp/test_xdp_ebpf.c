@@ -13,6 +13,7 @@
 #include "fd_xdp_redirect_user.h"
 #include "fd_xdp_redirect_prog.h"
 #include "../../util/fd_util.h"
+#include "../../util/net/fd_ip4.h"
 #include "../../ballet/ebpf/fd_ebpf.h"
 
 
@@ -92,7 +93,7 @@ fd_run_xdp_redirect_test( fd_xdp_redirect_test_t const * test ) {
     }
   } else {
     /* Add 127.0.0.1:8001 to map by default */
-    ulong k=fd_xdp_udp_dst_key( 0x7f000001U, 8001U );
+    ulong k=fd_xdp_udp_dst_key( FD_IP4_ADDR( 127, 0, 0, 1), 8001U );
     uint  v=0U;
     FD_TEST( 0==fd_bpf_map_update_elem( udp_dsts_fd, &k, &v, 0UL ) );
   }

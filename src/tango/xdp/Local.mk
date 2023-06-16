@@ -12,7 +12,8 @@ $(call run-unit-test,test_xsk)
 $(call make-unit-test,test_xdp_ebpf,test_xdp_ebpf,fd_ballet fd_tango fd_util)
 $(call run-unit-test,test_xdp_ebpf)
 
-$(call make-unit-test,test_xdp_echo_aio,test_xdp_echo_aio,fd_tango fd_ballet fd_util)
+$(call make-unit-test,test_xsk_aio_echo_rx,test_xsk_aio_echo_rx,fd_tango fd_ballet fd_util)
 $(call add-test-scripts,test_xdp_ctl test_xdp_init test_xdp_full test_xdp_fini)
+$(call add-test-scripts,test_xsk_aio_echo_tx)
 endif # FD_HAS_HOSTED
 
