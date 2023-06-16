@@ -50,3 +50,52 @@ fd_eth_fcs_append( uint         seed,
   return ~crc;
 }
 
+uchar *
+fd_cstr_to_mac_addr( char const * s,
+                     uchar      * mac ) {
+
+  if( FD_UNLIKELY( strnlen( s, 18UL ) !=17UL ) )
+    return NULL;
+
+  ulong hi = fd_ulong_load_8( s     );
+  ulong lo = fd_ulong_load_8( s+9UL );
+
+  if( FD_UNLIKELY(
+         (hi&0x0000FF0000FF0000UL)!=0x00003a00003a0000UL
+      || (lo&0x0000FF0000FF0000UL)!=0x00003a00003a0000UL
+      || s[8]!=':' ) )
+    return NULL;
+
+  hi = ((hi>>16)&0xFFFF00000000)|((hi>>8)&0xFFFF0000)|(hi&0xFFFF);
+  lo = ((lo>>16)&0xFFFF00000000)|((lo>>8)&0xFFFF0000)|(lo&0xFFFF);
+
+  uint err = 0;
+
+# define HEX2BIN(out,_in) do {                                \
+    uint in = (uchar)_in;                                     \
+    out = fd_ulong_if( (in>='0'&&in<='9'), in-'0',            \
+          fd_ulong_if( (in>='A'&&in<='F')                     \
+                     ||(in>='a'&&in<='f'), (in&0xdfu)-'A'+10, \
+          ULONG_MAX ) );                                      \
+    err |= (uint)(out>>63UL);                                 \
+  } while(0);
+
+  ulong v0;
+  ulong v1;
+  for( int i=0; i<3; i++ ) {
+    HEX2BIN(v0,hi); hi >>= 8;
+    HEX2BIN(v1,hi); hi >>= 8;
+    mac[ i ]=(uchar)( v0<<4 | v1 );
+  }
+  for( int i=3; i<6; i++ ) {
+    HEX2BIN(v0,lo); lo >>= 8;
+    HEX2BIN(v1,lo); lo >>= 8;
+    mac[ i ]=(uchar)( v0<<4 | v1 );
+  }
+# undef HEX2BIN
+
+  if( FD_UNLIKELY( err ) )
+    return NULL;
+
+  return mac;
+}

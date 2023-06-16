@@ -22,7 +22,7 @@ fn step(config: &mut Config) {
     run!(
         cwd = scratch,
         "openssl req -x509 -newkey ed25519 -days 365 -nodes -keyout key.pem -out cert.pem -subj \
-         /CN=localhost -addext subjectAltName=DNS:localhost,IP:127.0.0.1 -extensions v3-req"
+         /CN=localhost -addext subjectAltName=DNS:localhost,IP:127.0.0.1 -extensions v3_req"
     );
     repermission(format!("{scratch}/key.pem"), config.uid, config.uid, 0o600);
     repermission(format!("{scratch}/cert.pem"), config.uid, config.uid, 0o664);

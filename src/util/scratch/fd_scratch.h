@@ -9,6 +9,7 @@
    It is meant for use in situations that have very complex and large
    temporary memory usage. */
 
+#include "../sanitize/fd_sanitize.h"
 #include "../tile/fd_tile.h"
 
 /* FD_SCRATCH_USE_HANDHOLDING:  Define this to non-zero at compile time
@@ -648,7 +649,8 @@ extern FD_TLS ulong fd_alloca_check_private_sz;
 
 #else /* FD_HAS_ASAN */
 
-/* If AddressSanitizer is enabled no need to do alloca checks */
+/* AddressSanitizer provides its own alloca safety instrumentation
+   which are more powerful than the above fd_alloca_check heuristics. */
 
 #define fd_alloca_check fd_alloca
 

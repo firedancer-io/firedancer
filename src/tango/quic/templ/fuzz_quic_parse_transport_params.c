@@ -1,10 +1,10 @@
-#if !FD_HAS_HOSTED
-#error "This target requires FD_HAS_HOSTED"
-#endif
-
+#include <stddef.h>
 #include <stdlib.h>
 
-#include "fd_utf8.h"
+#include "../../../util/fd_util.h"
+#include "../fd_quic_common.h"
+#include "../fd_quic_config.h"
+#include "fd_quic_transport_params.h"
 
 int
 LLVMFuzzerInitialize( int  *   argc,
@@ -14,16 +14,13 @@ LLVMFuzzerInitialize( int  *   argc,
   fd_boot( argc, argv );
   atexit( fd_halt );
 
-  /* Disable parsing error logging */
-  fd_log_level_stderr_set(4);
   return 0;
 }
 
 int
 LLVMFuzzerTestOneInput( uchar const * data,
                         ulong         size ) {
-  long x = fd_utf8_check_cstr( (char const *)data, size );
-  __asm__ __volatile__( "" :: "r" (x) : );
+  fd_quic_transport_params_t out;
+  fd_quic_decode_transport_params( &out, data, size );
   return 0;
 }
-

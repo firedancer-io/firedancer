@@ -50,7 +50,7 @@
      diagnostic purposes, they are stored in a temporally and/or
      precision compressed representation to free up room for other
      metadata.
-     
+
   -  tsorig is measured on the origin's wallclock and the tspub is
      measured on the consumer facing publisher's wallclock (these are
      often the same wallclock).  As such, tsorig from the same origin
@@ -180,7 +180,7 @@ union __attribute__((aligned(FD_FRAG_META_ALIGN))) fd_frag_meta {
 
        (Note that these instructions require the linear addresses of
        their memory operands to be 16-byte aligned.)
-       
+
      That is accesses to "sse0" and "sse1" below are atomic when AVX
      support is available given the overall structure alignment,
      appropriate intrinsics and what not.  Accesses to avx are likely
@@ -212,7 +212,7 @@ FD_PROTOTYPES_BEGIN
    sequence number reuse is not an issue practically in a real world
    application but sequence number wrapping is if we want to support
    things like initial sequence number randomization for security.
-   
+
    fd_seq_{inc,dec} returns the result of incrementing/decrementing
    sequence number a delta times.
 
@@ -274,6 +274,21 @@ fd_frag_meta_seq_query( fd_frag_meta_t const * meta ) { /* Assumed non-NULL */
   FD_COMPILER_MFENCE();
   return seq;
 }
+
+#if FD_HAS_SSE
+
+/* fd_frag_meta_seq_sig_query returns the sequence number and signature
+   pointed to by meta in one atomic read, same semantics as
+   fd_frag_meta_seq_query. */
+static inline __m128i
+fd_frag_meta_seq_sig_query( fd_frag_meta_t const * meta ) { /* Assumed non-NULL */
+  FD_COMPILER_MFENCE();
+  __m128i sse0 = _mm_load_si128( &meta->sse0 );
+  FD_COMPILER_MFENCE();
+  return sse0;
+}
+
+#endif
 
 /* fd_frag_meta_ctl, fd_frag_meta_ctl_{som,eom,err} pack and unpack the
    fd_frag message reassembly control bits. */

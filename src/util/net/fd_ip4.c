@@ -31,6 +31,6 @@ fd_cstr_to_ip4_addr( char const * s,
   int v2 = __fd_cstr_to_uchar( tok[ 2 ] );
   int v3 = __fd_cstr_to_uchar( tok[ 3 ] );
   if( FD_UNLIKELY( (v0<0)|(v1<0)|(v2<0)|(v3<0) ) ) return 0;
-  *out = ( (uint)v3 | ((uint)v2<<8) | ((uint)v1<<16) | ((uint)v0<<24) );
+  *out = FD_IP4_ADDR( v0, v1, v2, v3 );
   return 1;
 }

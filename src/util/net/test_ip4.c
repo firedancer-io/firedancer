@@ -29,7 +29,7 @@ test_cstr_to_ip4_addr( void ) {
   FD_TEST( fd_cstr_to_ip4_addr( "0.0.0",                      &ip )==0  );
   FD_TEST( fd_cstr_to_ip4_addr( "0.0.0.0",                    &ip )==1  ); FD_TEST( ip==0x00000000 );
   // FIXME FD_TEST( fd_cstr_to_ip4_addr( "0.0.0.0.",                   &ip )==0  );
-  FD_TEST( fd_cstr_to_ip4_addr( "127.0.0.1",                  &ip )==1  ); FD_TEST( ip==0x7f000001 );
+  FD_TEST( fd_cstr_to_ip4_addr( "127.0.0.1",                  &ip )==1  ); FD_TEST( ip==0x0100007F );
   FD_TEST( fd_cstr_to_ip4_addr( "255.255.255.255",            &ip )==1  ); FD_TEST( ip==0xffffffff );
   FD_TEST( fd_cstr_to_ip4_addr( "256.255.255.255",            &ip )==0  );
   FD_TEST( fd_cstr_to_ip4_addr( "255.256.255.255",            &ip )==0  );

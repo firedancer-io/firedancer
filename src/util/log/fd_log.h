@@ -555,7 +555,7 @@ fd_log_private_2( int          level,
                   char const * func,
                   char const * msg ) __attribute__((noreturn)); /* Let compiler know this will not be returning */
 
-char const * 
+char const *
 fd_log_private_hexdump_msg( char const * tag,
                             void const * mem,
                             ulong        sz );
