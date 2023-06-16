@@ -9,6 +9,7 @@
    It is meant for use in situations that have very complex and large
    temporary memory usage. */
 
+#include "../sanitize/fd_sanitize.h"
 #include "../tile/fd_tile.h"
 
 /* FD_SCRATCH_USE_HANDHOLDING:  Define this to non-zero at compile time
@@ -110,7 +111,7 @@ fd_scratch_private_true_align( ulong align ) {
    define.  E.g.:
 
      uchar my_smem[ MY_SMAX ] __attribute__((aligned(FD_SCRATCH_SMEM_ALIGN)));
-   
+
    will be valid to use as a scratch smem with space for up to MY_SMAX
    bytes. */
 
@@ -157,7 +158,7 @@ static inline void
 fd_scratch_attach( void * smem,
                    void * fmem,
                    ulong  smax,
-                   ulong  depth ) { 
+                   ulong  depth ) {
 
 # if FD_SCRATCH_USE_HANDHOLDING
   if( FD_UNLIKELY( fd_scratch_private_frame_max ) ) FD_LOG_ERR(( "already attached" ));
@@ -404,7 +405,7 @@ fd_scratch_cancel( void ) {
    manually align up sz ... e.g. pass fd_ulong_align_up(sz,align) when
    align is non-zero to this call (this could be implemented as a
    compile time mode with some small extra overhead if desirable).
-   
+
    sz 0 is fine.  This will currently return a properly aligned non-NULL
    pointer (the allocator might do some allocation under the hood to get
    the desired alignment and it is possible this might fail ... there is
@@ -631,6 +632,8 @@ fd_scratch_trim_is_safe( void * _end ) {
    diagnostics could not be successfully initialized (this is logged),
    this will always FD_LOG_CRIT. */
 
+#if !FD_HAS_ASAN
+
 extern FD_TLS ulong fd_alloca_check_private_sz;
 
 #define fd_alloca_check( align, sz )                                                                             \
@@ -644,7 +647,15 @@ extern FD_TLS ulong fd_alloca_check_private_sz;
      })),                                                                                                        \
      fd_alloca( (align), fd_alloca_check_private_sz ) )
 
-#endif
+#else /* FD_HAS_ASAN */
+
+/* AddressSanitizer provides its own alloca safety instrumentation
+   which are more powerful than the above fd_alloca_check heuristics. */
+
+#define fd_alloca_check fd_alloca
+
+#endif /* FD_HAS_ASAN */
+#endif /* FD_HAS_ALLOCA */
 
 FD_PROTOTYPES_END
 

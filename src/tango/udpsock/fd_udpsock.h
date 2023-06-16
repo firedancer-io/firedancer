@@ -70,10 +70,10 @@ fd_udpsock_get_tx( fd_udpsock_t * sock );
 void
 fd_udpsock_service( fd_udpsock_t * sock );
 
-uint
+FD_FN_PURE uint
 fd_udpsock_get_ip4_address( fd_udpsock_t const * sock );
 
-uint
+FD_FN_PURE uint
 fd_udpsock_get_listen_port( fd_udpsock_t const * sock );
 
 FD_PROTOTYPES_END

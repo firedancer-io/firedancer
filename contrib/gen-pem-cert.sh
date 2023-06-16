@@ -7,4 +7,4 @@ set -e
 
 openssl req -x509 -newkey ed25519 -days 365 -nodes \
   -keyout key.pem -out cert.pem -subj "/CN=localhost" \
-  -addext "subjectAltName=DNS:localhost,IP:127.0.0.1 -extensions v3-req"
+  -addext "subjectAltName=DNS:localhost,IP:127.0.0.1 -extensions v3_req"
