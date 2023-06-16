@@ -255,7 +255,9 @@ fd_dedup_tile( fd_cnc_t *              cnc,       /* Local join to the dedup's c
                ulong                   cr_max,    /* Maximum number of flow control credits, 0 means use a reasonable default */
                long                    lazy,      /* Lazyiness, <=0 means use a reasonable default */
                fd_rng_t *              rng,       /* Local join to the rng this dedup should use */
-               void *                  scratch ); /* Tile scratch memory */
+               void *                  scratch,   /* Tile scratch memory */
+               int                     demo_bypass, /* Bypass dedup if set (if set) - milestone-1.4-demo only */
+               int                     demo_txn_err_verif); /* Verify txn err (if set) - milestone-1.4-demo only */
 
 FD_PROTOTYPES_END
 

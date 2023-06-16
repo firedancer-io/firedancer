@@ -102,7 +102,9 @@ fd_dedup_tile( fd_cnc_t *              cnc,
                ulong                   cr_max,
                long                    lazy,
                fd_rng_t *              rng,
-               void *                  scratch ) {
+               void *                  scratch,
+               int                     demo_bypass,
+               int                     demo_txn_err_verif ) {
 
   /* cnc state */
   ulong * cnc_diag;           /* ==fd_cnc_app_laddr( cnc ), local address of the dedup tile cnc diagnostic region */
@@ -474,7 +476,6 @@ fd_dedup_tile( fd_cnc_t *              cnc,
     cnc_diag_in_backp = 0UL;
 
     /* Select which in to poll next (randomized round robin) */
-
     if( FD_UNLIKELY( !in_cnt ) ) { now = fd_tickcount(); continue; }
     fd_dedup_tile_in_t * this_in = &in[ in_seq ];
     in_seq++;
@@ -530,27 +531,39 @@ fd_dedup_tile( fd_cnc_t *              cnc,
     /* We have successfully loaded the metadata.  Decide whether it
        is interesting downstream and publish or filter accordingly. */
 
-    int is_dup;
-    FD_TCACHE_INSERT( is_dup, tcache_sync, _tcache_ring, tcache_depth, _tcache_map, tcache_map_cnt, sig );
-    if( FD_UNLIKELY( is_dup ) ) { /* Optimize for forwarding path */
-      now = fd_tickcount();
-      /* If there are any frags from this in that are currently exposed
-         downstream, this frag needs to be taken into acount in the flow
-         control info we send to this in (see note above).  Since we do
-         not track the distribution of the source of exposed frags (or
-         how filtered frags might be interspersed with them), we do not
-         know this exactly.  But we do not need to for flow control
-         purposes.  If cr_avail==cr_max, we are guaranteed nothing is
-         exposed at all from this in (because nothing is exposed from
-         any in).  If cr_avail<cr_max, we assume the worst (that all
-         exposed_frags are from this in) and increment cr_filt. */
-      cr_filt += (ulong)(cr_avail<cr_max);
-    } else {
-      now = fd_tickcount();
-      ulong tspub = (ulong)fd_frag_meta_ts_comp( now );
-      fd_mcache_publish( mcache, depth, seq, sig, chunk, sz, ctl, tsorig, tspub );
-      cr_avail--;
-      seq = fd_seq_inc( seq, 1UL );
+    int is_dup = 0;
+
+    /* FIXME mileston-1.4-demo only */
+    if( FD_UNLIKELY( !!demo_txn_err_verif )) {
+      FD_TEST( (sig&0x1) == (ulong)fd_frag_meta_ctl_err(ctl) );
+    }
+
+    /* When Wiredancer (FPGA) is enabled, failed txn will still be forwarded. In any case,
+      the consumer (in this case the dedup tile) should still always check the err bit. */
+    if( FD_LIKELY( !fd_frag_meta_ctl_err(ctl) ) ) {
+      if( FD_UNLIKELY( !demo_bypass ) ) { /* optimize for high-throughput synthetic test */
+        FD_TCACHE_INSERT( is_dup, tcache_sync, _tcache_ring, tcache_depth, _tcache_map, tcache_map_cnt, sig );
+      }
+      if( FD_UNLIKELY( is_dup ) ) { /* Optimize for forwarding path */
+        now = fd_tickcount();
+        /* If there are any frags from this in that are currently exposed
+          downstream, this frag needs to be taken into acount in the flow
+          control info we send to this in (see note above).  Since we do
+          not track the distribution of the source of exposed frags (or
+          how filtered frags might be interspersed with them), we do not
+          know this exactly.  But we do not need to for flow control
+          purposes.  If cr_avail==cr_max, we are guaranteed nothing is
+          exposed at all from this in (because nothing is exposed from
+          any in).  If cr_avail<cr_max, we assume the worst (that all
+          exposed_frags are from this in) and increment cr_filt. */
+        cr_filt += (ulong)(cr_avail<cr_max);
+      } else {
+        now = fd_tickcount();
+        ulong tspub = (ulong)fd_frag_meta_ts_comp( now );
+        fd_mcache_publish( mcache, depth, seq, sig, chunk, sz, ctl, tsorig, tspub );
+        cr_avail--;
+        seq = fd_seq_inc( seq, 1UL );
+      }
     }
 
     /* Windup for the next in poll and accumulate diagnostics */
