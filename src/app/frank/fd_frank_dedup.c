@@ -88,10 +88,15 @@ fd_frank_dedup_task( int     argc,
   void * scratch = fd_alloca( FD_DEDUP_TILE_SCRATCH_ALIGN, footprint );
   if( FD_UNLIKELY( !scratch ) ) FD_LOG_ERR(( "fd_alloca failed" ));
 
+  /* Bypass dedup - intended only for demo/debugging */
+  int demo_bypass = fd_pod_query_int( cfg_pod, "demo.txn_broadcast", 0 );
+  int demo_txn_err_verif = fd_pod_query_int( cfg_pod, "demo.txn_rand_corrupt", 0 );
+  FD_LOG_NOTICE(( "demo_bypass %d, demo_txn_err_verif %d", demo_bypass, demo_txn_err_verif ));
+
   /* Start deduping */
 
   FD_LOG_INFO(( "dedup run" ));
-  int err = fd_dedup_tile( cnc, in_cnt, in_mcache, in_fseq, tcache, mcache, 1UL, &out_fseq, cr_max, lazy, rng, scratch );
+  int err = fd_dedup_tile( cnc, in_cnt, in_mcache, in_fseq, tcache, mcache, 1UL, &out_fseq, cr_max, lazy, rng, scratch, demo_txn_err_verif, demo_txn_err_verif );
   if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_dedup_tile failed (%i)", err ));
 
   /* Clean up */

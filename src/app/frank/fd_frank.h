@@ -28,6 +28,32 @@
 #define FD_FRANK_CNC_DIAG_SV_FILT_CNT (4UL)                 /* ", ideally never */
 #define FD_FRANK_CNC_DIAG_SV_FILT_SZ  (5UL)                 /* " */
 
+/* A fd_replay_tile will use the fseq and cnc application regions
+   to accumulate flow control diagnostics in the standard ways.  It
+   additionally will accumulate to the cnc application region the
+   following tile specific counters:
+
+     CHUNK_IDX     is the chunk idx where reply tile should start publishing payloads on boot (ignored if not valid on boot)
+     PCAP_DONE     is cleared before the tile starts processing the pcap and is set when the pcap processing is done
+     PCAP_PUB_CNT  is the number of pcap packets published by the replay
+     PCAP_PUB_SZ   is the number of pcap packet payload bytes published by the replay
+     PCAP_FILT_CNT is the number of pcap packets filtered by the replay
+     PCAP_FILT_SZ  is the number of pcap packet payload bytes filtered by the replay
+
+   As such, the cnc app region must be at least 64B in size.
+
+   Except for IN_BACKP, none of the diagnostics are cleared at
+   tile startup (as such that they can be accumulated over multiple
+   runs).  Clearing is up to monitoring scripts. */
+#define FD_FRANK_REPLAY_CNC_DIAG_CHUNK_IDX     (6UL) /* On 1st cache line of app region, updated by producer, frequently */
+#define FD_FRANK_REPLAY_CNC_DIAG_PCAP_DONE     (7UL) /* ", rarely */
+#define FD_FRANK_REPLAY_CNC_DIAG_PCAP_PUB_CNT  (8UL) /* ", frequently */
+#define FD_FRANK_REPLAY_CNC_DIAG_PCAP_PUB_SZ   (9UL) /* ", frequently */
+#define FD_FRANK_REPLAY_CNC_DIAG_PCAP_FILT_CNT (10UL) /* ", frequently */
+#define FD_FRANK_REPLAY_CNC_DIAG_PCAP_FILT_SZ  (11UL) /* ", frequently */
+
+#define FD_FRANK_PARSER_CNC_DIAG_PUB_CNT  (6UL) /* ", frequently */
+
 FD_PROTOTYPES_BEGIN
 
 /* fd_frank_{verify,dedup,pack}_task is a fd_tile_task_t compatible
@@ -59,6 +85,14 @@ fd_frank_pack_task( int     argc,
 int
 fd_frank_quic_task( int     argc,
                     char ** argv );
+
+int
+fd_frank_replay_task( int     argc,
+                      char ** argv );
+
+int
+fd_frank_parser_task( int     argc,
+                      char ** argv );
 
 FD_PROTOTYPES_END
 

@@ -68,7 +68,7 @@ main( int     argc,
   ulong quic_cnt = fd_pod_cnt_subpod( quic_pods );
   FD_LOG_NOTICE(( "%lu quic found", quic_cnt ));
 
-  ulong tile_cnt = 3UL + verify_cnt + quic_cnt;
+  ulong tile_cnt = 5UL + verify_cnt;
   if( FD_UNLIKELY( fd_tile_cnt()<tile_cnt ) ) FD_LOG_ERR(( "at least %lu tiles required for this config", tile_cnt ));
   if( FD_UNLIKELY( fd_tile_cnt()>tile_cnt ) ) FD_LOG_WARNING(( "only %lu tiles required for this config", tile_cnt ));
 
@@ -104,46 +104,59 @@ main( int     argc,
     if( FD_UNLIKELY( fd_cnc_app_sz( tile_cnc[ tile_idx ] )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
     tile_idx++;
 
+    ulong verify_i = 0UL;
     for( fd_pod_iter_t iter = fd_pod_iter_init( verify_pods ); !fd_pod_iter_done( iter ); iter = fd_pod_iter_next( iter ) ) {
       fd_pod_info_t info = fd_pod_iter_info( iter );
       if( FD_UNLIKELY( info.val_type!=FD_POD_VAL_TYPE_SUBPOD ) ) continue;
       char const  * verify_name =                info.key;
       uchar const * verify_pod  = (uchar const *)info.val;
 
+      /* Wiredancer slots configuration */
+      ulong wd_slots = 0UL;
+      if( !!fd_pod_query_ulong( cfg_pod, "wd.enabled", 0UL ) ) {
+        /* Extract how many wd_slots have been configured */
+        char const * wd_slots_cfg = fd_pod_query_cstr(  cfg_pod, "wd.slots", 0UL );
+        ulong wd_slots_idx [ sizeof(ulong) ]; /* max number of slots (size of ulong) */
+        ulong wd_slots_cnt        = fd_cstr_to_ulong_seq( wd_slots_cfg, wd_slots_idx, sizeof(ulong) );
+        if( FD_UNLIKELY( !wd_slots_cnt ) ) FD_LOG_ERR(( "wiredancer unable to find slots" ));
+        /* Verify slots balance among verify tiles */
+        if( FD_UNLIKELY( !!( wd_slots_cnt % verify_cnt ) ) ) FD_LOG_ERR(( "wiredancer has unbalanced wd_slots_cnt %lu vs verify_cnt %lu", wd_slots_cnt, verify_cnt ));
+        ulong wd_slots_per_verify = (ulong)( wd_slots_cnt / verify_cnt );
+        /* Convert to wiredancer 1-hot encoding */
+        for( ulong s_i=0; s_i<wd_slots_per_verify; s_i++) { wd_slots |= ( 1UL<<wd_slots_idx[verify_i * wd_slots_per_verify + s_i] ); }
+      }
+      /* Update verify_pod */
+      uchar * v_pod = (uchar *)fd_pod_query_subpod( verify_pods, verify_name );
+      if( !!fd_pod_remove( v_pod, "wd_slots" ) ) FD_LOG_ERR(( "%s.verify.%s unable to remove wd_slots from verify_pod", cfg_path, verify_name ));
+      if( !fd_pod_insert_ulong( v_pod, "wd_slots", wd_slots ) ) FD_LOG_ERR(( "%s.verify.%s unable to insert wd_slots in verify_pod", cfg_path, verify_name ));
+
       FD_LOG_NOTICE(( "joining %s.verify.%s.cnc", cfg_path, verify_name ));
       tile_name[ tile_idx ] = verify_name;
       tile_cnc [ tile_idx ] = fd_cnc_join( fd_wksp_pod_map( verify_pod, "cnc" ) );
       if( FD_UNLIKELY( !tile_cnc[tile_idx] ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
       if( FD_UNLIKELY( fd_cnc_app_sz( tile_cnc[ tile_idx ] )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
+      verify_i++;
       tile_idx++;
     }
 
-    for( fd_pod_iter_t iter = fd_pod_iter_init( quic_pods ); !fd_pod_iter_done( iter ); iter = fd_pod_iter_next( iter ) ) {
-      fd_pod_info_t info = fd_pod_iter_info( iter );
-      if( FD_UNLIKELY( info.val_type!=FD_POD_VAL_TYPE_SUBPOD ) ) continue;
-      char const  * quic_name =                info.key;
-      uchar const * quic_pod  = (uchar const *)info.val;
+    FD_LOG_NOTICE(( "joining %s.parser.cnc", cfg_path ));
+    tile_name[ tile_idx ] = "parser";
+    tile_cnc [ tile_idx ] = fd_cnc_join( fd_wksp_pod_map( cfg_pod, "parser.cnc" ) );
+    if( FD_UNLIKELY( !tile_cnc[ tile_idx ] ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
+    if( FD_UNLIKELY( fd_cnc_app_sz( tile_cnc[ tile_idx ] )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
+    tile_idx++;
 
-      FD_LOG_NOTICE(( "joining %s.quic.%s.cnc", cfg_path, quic_name ));
-      tile_name[ tile_idx ] = quic_name;
-      tile_cnc [ tile_idx ] = fd_cnc_join( fd_wksp_pod_map( quic_pod, "cnc" ) );
-      if( FD_UNLIKELY( !tile_cnc[tile_idx] ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
-      if( FD_UNLIKELY( fd_cnc_app_sz( tile_cnc[ tile_idx ] )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
-      tile_idx++;
-    }
+    FD_LOG_NOTICE(( "joining %s.replay.cnc", cfg_path ));
+    tile_name[ tile_idx ] = "replay";
+    tile_cnc [ tile_idx ] = fd_cnc_join( fd_wksp_pod_map( cfg_pod, "replay.cnc" ) );
+    if( FD_UNLIKELY( !tile_cnc[ tile_idx ] ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
+    if( FD_UNLIKELY( fd_cnc_app_sz( tile_cnc[ tile_idx ] )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
+    tile_idx++;
 
     FD_TEST( tile_idx==tile_cnt );
   } while(0);
 
   /* Boot all the tiles that main controls */
-
-  ulong tile_main_idx    = 0UL;
-  ulong tile_pack_idx    = tile_main_idx +1UL;
-  ulong tile_dedup_idx   = tile_pack_idx +1UL;
-  ulong tile_verify_idx0 = tile_dedup_idx+1UL;
-  ulong tile_verify_idx1 = tile_verify_idx0 + verify_cnt;
-  ulong tile_quic_idx0   = tile_verify_idx1;
-  //ulong tile_quic_idx1   = tile_quic_idx0 + quic_cnt;
 
   for( ulong tile_idx=1UL; tile_idx<tile_cnt; tile_idx++ ) {
     FD_LOG_NOTICE(( "booting tile %s", tile_name[ tile_idx ] ));
@@ -157,9 +170,16 @@ main( int     argc,
     case 1UL: task = fd_frank_pack_task;   break;
     case 2UL: task = fd_frank_dedup_task;  break;
     default:
-      if( tile_idx<tile_quic_idx0 )
-              task = fd_frank_verify_task;
-      else    task = fd_frank_quic_task;
+      /* place as many verify tasks as needed */
+      if( tile_idx < (tile_cnt-2) ) {
+        task = fd_frank_verify_task;
+      } else if( tile_idx==(tile_cnt-2) ) {
+        /* place parser_task second-last */
+        task = fd_frank_parser_task;
+      } else if( tile_idx==(tile_cnt-1) ) {
+        /* place replay_task last */
+        task = fd_frank_replay_task;
+      }
       break;
     }
 

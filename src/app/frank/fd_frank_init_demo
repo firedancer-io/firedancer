@@ -1,0 +1,221 @@
+#!/bin/bash
+
+if [ $# -ne 8 ]; then
+  echo ""
+  echo "        Usage: $0 [APP_NAME] [APP_CORE_TARGET] [BUILD] [PCAP] [TXN_RAND_CORRUPT] [TXN_BROADCAST] [VERIFY_CNT] [WD_SLOTS]"
+  echo ""
+  exit 1
+fi
+
+APP=$1
+AFFINITY=$2
+# No external interface is required for this demo
+# IFACE=$3
+BUILD=$3
+PCAP=$4
+TXN_RAND_CORRUPT=$5
+TXN_BROADCAST=$6
+VERIFY_CNT=$7
+WD_SLOTS=$8
+shift 8
+
+#######################################################################
+
+CONF=tmp/$APP.cfg
+CONF_DIR=tmp/$APP
+
+WKSP=$APP.wksp
+WKSP_PAGE_CNT=16
+WKSP_PAGE_SZ=gigantic
+WKSP_PERM=0600
+
+POD_SZ=16384
+
+CNC_APP_SZ=128
+MCACHE_DEFAULT_APP_SZ=0
+DCACHE_DEFAULT_APP_SZ=0
+
+[[ $WD_SLOTS = -1 ]] && WD_ENABLED=0 || WD_ENABLED=1
+
+REPLAY_MTU=1542
+REPLAY_FD_TXN_MAX_SZ=860 # as defined in src/app/frnak/fd_frank_replay.c FD_TXN_MAX_SZ_ADJ
+REPLAY_DCACHE_OVERHEAD=4
+REPLAY_DCACHE_SLOT_MAX_SZ=$(( $REPLAY_MTU + $REPLAY_FD_TXN_MAX_SZ + $REPLAY_DCACHE_OVERHEAD ))
+REPLAY_ORIG=0
+REPLAY_DCACHE_DEPTH=262144
+REPLAY_MCACHE_DEPTH=32768
+REPLAY_FSEQ_CNT=1
+
+PARSER_SENTINEL_DEPTH=128
+PARSER_TXN_RAND_CORRUPT=$TXN_RAND_CORRUPT
+[[ $WD_ENABLED = 0 ]] && PARSER_DEPTH=2048 || PARSER_DEPTH=32768
+
+[[ $WD_ENABLED = 0 ]] && VERIFY_DEPTH=2048 || VERIFY_DEPTH=32768
+VERIFY_MTU=4804
+
+DEDUP_TCACHE_DEPTH=2 # essentially disabling dedup checks (as much as possible, 0 or 1 are not allowed)
+DEDUP_TCACHE_MAP_CNT=0
+DEDUP_DEPTH=$VERIFY_DEPTH
+DEDUP_BYPASS=$PARSER_TXN_BROADCAST
+
+PACK_BANK_CNT=4
+PACK_PRQ_SZ=4096
+PACK_CU_EST_TBL_SZ=1024
+PACK_CU_EST_HISTORY=1000
+PACK_CU_EST_DEFAULT=200000
+PACK_CU_LIMIT=12000001
+
+#######################################################################
+
+FD_LOG_PATH=""
+export FD_LOG_PATH
+
+"$BUILD"/bin/fd_wksp_ctl delete $WKSP # Okay if fails ... might not exist already
+"$BUILD"/bin/fd_wksp_ctl new $WKSP $WKSP_PAGE_CNT $WKSP_PAGE_SZ $AFFINITY $WKSP_PERM || exit $?
+
+POD="$("$BUILD"/bin/fd_pod_ctl new $WKSP $POD_SZ)" || exit $?
+
+MAIN_CNC="$("$BUILD"/bin/fd_tango_ctl new-cnc $WKSP 0 tic $CNC_APP_SZ)" || exit $?
+"$BUILD"/bin/fd_pod_ctl                        \
+  insert "$POD" cstr $APP.main.cnc "$MAIN_CNC" \
+  || exit $?
+
+"$BUILD"/bin/fd_pod_ctl                                            \
+  insert "$POD" int   $APP.demo.txn_rand_corrupt $TXN_RAND_CORRUPT \
+  insert "$POD" int   $APP.demo.txn_broadcast    $TXN_BROADCAST    \
+  || exit $?
+
+"$BUILD"/bin/fd_pod_ctl                           \
+  insert "$POD" cstr  $APP.wd.slots   $WD_SLOTS   \
+  insert "$POD" ulong $APP.wd.enabled $WD_ENABLED \
+  || exit $?
+
+CNC="$("$BUILD"/bin/fd_tango_ctl new-cnc $WKSP 1 tic $CNC_APP_SZ)" || exit $?
+DCACHE="$("$BUILD"/bin/fd_tango_ctl new-dcache $WKSP $REPLAY_DCACHE_SLOT_MAX_SZ $REPLAY_DCACHE_DEPTH 1 1 $DCACHE_DEFAULT_APP_SZ)" || exit $?
+MCACHE="$("$BUILD"/bin/fd_tango_ctl new-mcache $WKSP $REPLAY_MCACHE_DEPTH $MCACHE_DEFAULT_APP_SZ 0)" || exit $?
+FSEQ="$("$BUILD"/bin/fd_tango_ctl new-fseq $WKSP 0)" || exit $?
+# Use defaults for cr_max, lazy, seed
+"$BUILD"/bin/fd_pod_ctl                                                           \
+  insert "$POD" cstr  $APP.replay.cnc                 $CNC                        \
+  insert "$POD" cstr  $APP.replay.pcap                "$PCAP"                     \
+  insert "$POD" ulong $APP.replay.mtu                 $REPLAY_MTU                 \
+  insert "$POD" ulong $APP.replay.dcache_slot_max_sz  $REPLAY_DCACHE_SLOT_MAX_SZ  \
+  insert "$POD" ulong $APP.replay.orig                $REPLAY_ORIG                \
+  insert "$POD" cstr  $APP.replay.mcache              $MCACHE                     \
+  insert "$POD" cstr  $APP.replay.dcache              $DCACHE                     \
+  insert "$POD" cstr  $APP.replay.fseq                $FSEQ                       \
+  insert "$POD" ulong $APP.replay.fseq_cnt            $REPLAY_FSEQ_CNT            \
+  || exit $?
+
+CNC="$("$BUILD"/bin/fd_tango_ctl new-cnc $WKSP 1 tic $CNC_APP_SZ)" || exit $?
+SENTINEL_MCACHE="$("$BUILD"/bin/fd_tango_ctl new-mcache $WKSP $PARSER_SENTINEL_DEPTH $MCACHE_DEFAULT_APP_SZ 0)" || exit $?
+# Use defaults for cr_max, lazy, seed
+"$BUILD"/bin/fd_pod_ctl                                                     \
+  insert "$POD" cstr  $APP.parser.cnc              $CNC                     \
+  insert "$POD" cstr  $APP.parser.sentinel_mcache  $SENTINEL_MCACHE         \
+  || exit $?
+  
+CNC="$("$BUILD"/bin/fd_tango_ctl new-cnc $WKSP 0 tic $CNC_APP_SZ)" || exit $?
+MCACHE="$("$BUILD"/bin/fd_tango_ctl new-mcache $WKSP $PACK_PRQ_SZ $MCACHE_DEFAULT_APP_SZ 0)" || exit $?
+DCACHE="$("$BUILD"/bin/fd_tango_ctl new-dcache $WKSP 4808 $PACK_PRQ_SZ 1 1 $DCACHE_DEFAULT_APP_SZ)" || exit $?
+PACK_SCRATCH="$("$BUILD"/bin/fd_pack_ctl new-scratch $WKSP $PACK_BANK_CNT $PACK_PRQ_SZ)" || exit $?
+CU_EST_TBL="$("$BUILD"/bin/fd_pack_ctl new-cu-est-tbl $WKSP $PACK_CU_EST_TBL_SZ $PACK_CU_EST_HISTORY $PACK_CU_EST_DEFAULT)" || exit $?
+RETURN_FSEQ="$("$BUILD"/bin/fd_tango_ctl new-fseq $WKSP 0)" || exit $?
+"$BUILD"/bin/fd_pod_ctl                                           \
+  insert "$POD" cstr  $APP.pack.cnc           $CNC                \
+  insert "$POD" cstr  $APP.pack.out-mcache    $MCACHE             \
+  insert "$POD" cstr  $APP.pack.out-dcache    $DCACHE             \
+  insert "$POD" cstr  $APP.pack.scratch       $PACK_SCRATCH       \
+  insert "$POD" cstr  $APP.pack.cu-est-tbl    $CU_EST_TBL         \
+  insert "$POD" cstr  $APP.pack.return-fseq   $RETURN_FSEQ        \
+  insert "$POD" ulong $APP.pack.bank-cnt      $PACK_BANK_CNT      \
+  insert "$POD" ulong $APP.pack.txnq-sz       $PACK_PRQ_SZ        \
+  insert "$POD" ulong $APP.pack.cu-est-tbl-sz $PACK_CU_EST_TBL_SZ \
+  insert "$POD" uint  $APP.pack.cu-limit      $PACK_CU_LIMIT      \
+  || exit $?
+
+CNC="$("$BUILD"/bin/fd_tango_ctl new-cnc $WKSP 1 tic $CNC_APP_SZ)" || exit $?
+TCACHE="$("$BUILD"/bin/fd_tango_ctl new-tcache $WKSP $DEDUP_TCACHE_DEPTH $DEDUP_TCACHE_MAP_CNT)" || exit $?
+MCACHE="$("$BUILD"/bin/fd_tango_ctl new-mcache $WKSP $DEDUP_DEPTH $MCACHE_DEFAULT_APP_SZ 0)" || exit $?
+FSEQ="$("$BUILD"/bin/fd_tango_ctl new-fseq $WKSP 0)" || exit $?
+# Use defaults for cr_max, lazy, seed
+"$BUILD"/bin/fd_pod_ctl                              \
+  insert "$POD" cstr $APP.dedup.cnc    $CNC          \
+  insert "$POD" cstr $APP.dedup.tcache $TCACHE       \
+  insert "$POD" cstr $APP.dedup.mcache $MCACHE       \
+  insert "$POD" cstr $APP.dedup.fseq   $FSEQ         \
+  || exit $?
+
+for((verify_idx=0;verify_idx<VERIFY_CNT;verify_idx++)); do
+  IN_MCACHE="$("$BUILD"/bin/fd_tango_ctl new-mcache $WKSP $PARSER_DEPTH $MCACHE_DEFAULT_APP_SZ 0)" || exit $?
+  IN_DCACHE="$("$BUILD"/bin/fd_tango_ctl new-dcache $WKSP $VERIFY_MTU $PARSER_DEPTH 1 1 $DCACHE_DEFAULT_APP_SZ)" || exit $?
+  IN_FSEQ="$("$BUILD"/bin/fd_tango_ctl new-fseq $WKSP 0)" || exit $?
+  "$BUILD"/bin/fd_pod_ctl                                                             \
+    insert "$POD" cstr $APP.verifyin.v${verify_idx}in.mcache    $IN_MCACHE            \
+    insert "$POD" cstr $APP.verifyin.v${verify_idx}in.dcache    $IN_DCACHE            \
+    insert "$POD" cstr $APP.verifyin.v${verify_idx}in.fseq      $IN_FSEQ              \
+    || exit $?
+
+  CNC="$("$BUILD"/bin/fd_tango_ctl new-cnc $WKSP 2 tic $CNC_APP_SZ)" || exit $?
+  MCACHE="$("$BUILD"/bin/fd_tango_ctl new-mcache $WKSP $VERIFY_DEPTH $MCACHE_DEFAULT_APP_SZ 0)" || exit $?
+  DCACHE="$("$BUILD"/bin/fd_tango_ctl new-dcache $WKSP $VERIFY_MTU $VERIFY_DEPTH 1 1 $DCACHE_DEFAULT_APP_SZ)" || exit $?
+  FSEQ="$("$BUILD"/bin/fd_tango_ctl new-fseq $WKSP 0)" || exit $?
+  "$BUILD"/bin/fd_pod_ctl                                                 \
+    insert "$POD" cstr  $APP.verify.v$verify_idx.cnc       $CNC           \
+    insert "$POD" cstr  $APP.verify.v$verify_idx.mcache    $MCACHE        \
+    insert "$POD" cstr  $APP.verify.v$verify_idx.dcache    $DCACHE        \
+    insert "$POD" cstr  $APP.verify.v$verify_idx.fseq      $FSEQ          \
+    insert "$POD" ulong $APP.verify.v$verify_idx.wd_slots  $(( 1 << 62 )) \
+    || exit $?
+done
+
+BASE_ARGS="--pod "$POD" --cfg $APP"
+RUN_ARGS="$BASE_ARGS --log-app $APP --log-thread main"
+MON_ARGS="$BASE_ARGS --log-app $APP --log-thread mon"
+
+#######################################################################
+
+dumpvar () { printf "$1=%q\n" "${!1}"; }
+
+mkdir -pv "$(dirname "$CONF")" || exit $?
+mkdir -pv "$CONF_DIR" || exit $?
+( echo "#!/bin/bash"
+  echo "# AUTOGENERATED"
+  dumpvar BUILD
+  dumpvar WKSP
+  dumpvar AFFINITY
+  dumpvar APP
+  dumpvar POD
+  dumpvar RUN_ARGS
+  dumpvar MON_ARGS
+  dumpvar MAIN_CNC
+  # dumpvar IFACE
+  dumpvar LISTEN_ADDRS
+  dumpvar SRC_MAC_ADDR
+  dumpvar PCAP
+  dumpvar TXN_RAND_CORRUPT
+  dumpvar TXN_BROADCAST
+  dumpvar WD_ENABLED
+  dumpvar WD_SLOTS
+) > "$CONF" || exit $?
+
+#######################################################################
+
+echo "Autogenerated configuration at $CONF"
+echo ""
+cat "$CONF"
+echo ""
+
+echo "Generating certs"
+(
+  cd "$CONF_DIR"
+  ../../contrib/gen-pem-cert.sh
+)
+
+echo Configuration details
+echo ""
+"$BUILD"/bin/fd_pod_ctl list "$POD" 2> /dev/null || exit $?
+echo ""
+
+echo success
+exit 0

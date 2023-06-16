@@ -144,91 +144,6 @@ printf_seq( ulong seq_now,
   else                     printf( "%16lx(%s %+6li"  TEXT_NORMAL ")", seq_now, color, delta );
 }
 
-/* printf_rate prints to stdout:
-
-     cvt*((overhead + (cnt_now - cnt_then)) / dt)
-
-   Will be exactly 8 char wide, right justifed with aligned decimal
-   point.  Uses standard engineering base 10 suffixes (e.g. 10.0e9 ->
-   10.0G) to support wide dynamic range rate diagnostics.  Since pretty
-   printing this value will often require rounding it, the rounding is
-   roughly in a round toward near even zero sense (this could be
-   improved numerically to make it even more strict rounding, e.g.
-   rate*=1e-3 used below is not exact, but this is more than adequate
-   for a quick-and-dirty low precision diagnostic. */
-
-static void
-printf_rate( double cvt,
-             double overhead,
-             ulong  cnt_now,
-             ulong  cnt_then,
-             long   dt  ) {
-  if( FD_UNLIKELY( !((0.< cvt     ) & (cvt<=DBL_MAX)) |
-                   !((0.<=overhead) & (cvt<=DBL_MAX)) |
-                   (cnt_now<cnt_then)                 |
-                   (dt<=0L)                           ) ) {
-    printf( TEXT_RED " invalid" TEXT_NORMAL );
-    return;
-  }
-  double rate = cvt*(overhead+(double)(cnt_now-cnt_then)) / (double)dt;
-  if( FD_UNLIKELY( !((0.<=rate) & (rate<=DBL_MAX)) ) ) {
-    printf( TEXT_RED "overflow" TEXT_NORMAL );
-    return;
-  }
-  /**/          if( rate<=9999.9 ) { printf( " %6.1f ", rate ); return; }
-  rate *= 1e-3; if( rate<=9999.9 ) { printf( " %6.1fK", rate ); return; }
-  rate *= 1e-3; if( rate<=9999.9 ) { printf( " %6.1fM", rate ); return; }
-  rate *= 1e-3; if( rate<=9999.9 ) { printf( " %6.1fG", rate ); return; }
-  rate *= 1e-3; if( rate<=9999.9 ) { printf( " %6.1fT", rate ); return; }
-  rate *= 1e-3; if( rate<=9999.9 ) { printf( " %6.1fP", rate ); return; }
-  rate *= 1e-3; if( rate<=9999.9 ) { printf( " %6.1fE", rate ); return; }
-  rate *= 1e-3; if( rate<=9999.9 ) { printf( " %6.1fZ", rate ); return; }
-  rate *= 1e-3; if( rate<=9999.9 ) { printf( " %6.1fY", rate ); return; }
-  /**/                               printf( ">9999.9Y" );
-}
-
-/* printf_pct prints to stdout:
-
-     num_now-num_then + lhopital_num
-     -------------------------------
-     den_now-den_then + lhopital_den
-
-   as a percentage.  Will be exactly 8 char wide, right justifed with
-   aligned decimal point.  In the limit den_now->den_then and
-   num_now->num_then (i.e. approaches -> 0/0), the result will limit to
-   lhopital_num/lhopital_den (as such, lhopital_{num,den} should
-   typically be picked to be a tiny non-denorms with the desired
-   asymptotic limit ratio).  num and den are assumed to be monitonically
-   increasing counters, lhopital_num should be a normal small-ish
-   non-negative and lhopital_den should be a normal small-ish positive. */
-
-static void
-printf_pct( ulong  num_now,
-            ulong  num_then,
-            double lhopital_num,
-            ulong  den_now,
-            ulong  den_then,
-            double lhopital_den ) {
-
-  if( FD_UNLIKELY( (num_now<num_then)                              |
-                   (den_now<den_then)                              |
-                   !((0.<=lhopital_num) & (lhopital_num<=DBL_MAX)) |
-                   !((0.< lhopital_den) & (lhopital_den<=DBL_MAX)) ) ) {
-    printf( TEXT_RED " invalid" TEXT_NORMAL );
-    return;
-  }
-
-  double pct = 100.*(((double)(num_now - num_then) + lhopital_num) / ((double)(den_now - den_then) + lhopital_den));
-
-  if( FD_UNLIKELY( !((0.<=pct) & (pct<=DBL_MAX)) ) ) {
-    printf( TEXT_RED "overflow" TEXT_NORMAL );
-    return;
-  }
-
-  if( pct<=999.999 ) { printf( " %7.3f", pct ); return; }
-  /**/                 printf( ">999.999" );
-}
-
 /**********************************************************************/
 
 /* snap reads all the IPC diagnostics in a frank instance and stores
@@ -270,6 +185,7 @@ snap( ulong             tile_cnt,     /* Number of tiles to snapshot */
       ulong **          tile_fseq ) { /* Local fseq   joins for each tile, NULL if n/a, indexed [0,tile_cnt) */
 
   for( ulong tile_idx=0UL; tile_idx<tile_cnt; tile_idx++ ) {
+
     snap_t * snap = &snap_cur[ tile_idx ];
 
     ulong pmap = 0UL;
@@ -323,41 +239,6 @@ snap( ulong             tile_cnt,     /* Number of tiles to snapshot */
 
 /**********************************************************************/
 
-static void
-printf_link( snap_t *      snap_prv,
-             snap_t *      snap_cur,
-             char const ** tile_name,
-             ulong         src_tile_idx,
-             ulong         dst_tile_idx,
-             long          dt ) {
-  snap_t * prv = &snap_prv[ src_tile_idx ];
-  snap_t * cur = &snap_cur[ src_tile_idx ];
-  printf( " %6s->%-5s", tile_name[ src_tile_idx ], tile_name[ dst_tile_idx ] );
-  ulong cur_raw_cnt = cur->cnc_diag_ha_filt_cnt + cur->fseq_diag_tot_cnt;
-  ulong cur_raw_sz  = cur->cnc_diag_ha_filt_sz  + cur->fseq_diag_tot_sz;
-  ulong prv_raw_cnt = prv->cnc_diag_ha_filt_cnt + prv->fseq_diag_tot_cnt;
-  ulong prv_raw_sz  = prv->cnc_diag_ha_filt_sz  + prv->fseq_diag_tot_sz;
-
-  printf( " | " ); printf_rate( 1e9, 0., cur_raw_cnt,             prv_raw_cnt,             dt );
-  printf( " | " ); printf_rate( 8e9, 0., cur_raw_sz,              prv_raw_sz,              dt ); /* Assumes sz incl framing */
-  printf( " | " ); printf_rate( 1e9, 0., cur->fseq_diag_tot_cnt,  prv->fseq_diag_tot_cnt,  dt );
-  printf( " | " ); printf_rate( 8e9, 0., cur->fseq_diag_tot_sz,   prv->fseq_diag_tot_sz,   dt ); /* Assumes sz incl framing */
-
-  printf( " | " ); printf_pct ( cur->fseq_diag_tot_cnt,  prv->fseq_diag_tot_cnt, 0.,
-                                cur_raw_cnt,             prv_raw_cnt,            DBL_MIN );
-  printf( " | " ); printf_pct ( cur->fseq_diag_tot_sz,   prv->fseq_diag_tot_sz,  0.,
-                                cur_raw_sz,              prv_raw_sz,             DBL_MIN ); /* Assumes sz incl framing */
-  printf( " | " ); printf_pct ( cur->fseq_diag_filt_cnt, prv->fseq_diag_filt_cnt, 0.,
-                                cur->fseq_diag_tot_cnt,  prv->fseq_diag_tot_cnt,  DBL_MIN );
-  printf( " | " ); printf_pct ( cur->fseq_diag_filt_sz,  prv->fseq_diag_filt_sz, 0.,
-                                cur->fseq_diag_tot_sz,   prv->fseq_diag_tot_sz,  DBL_MIN ); /* Assumes sz incl framing */
-
-  printf( " | " ); printf_err_cnt( cur->fseq_diag_ovrnp_cnt, prv->fseq_diag_ovrnp_cnt );
-  printf( " | " ); printf_err_cnt( cur->fseq_diag_ovrnr_cnt, prv->fseq_diag_ovrnr_cnt );
-  printf( " | " ); printf_err_cnt( cur->fseq_diag_slow_cnt,  prv->fseq_diag_slow_cnt  );
-  printf( TEXT_NEWLINE );
-}
-
 int
 main( int     argc,
       char ** argv ) {
@@ -390,28 +271,11 @@ main( int     argc,
   ulong verifyin_cnt = fd_pod_cnt_subpod( verifyin_pods );
   FD_LOG_INFO(( "%lu verifyin found", verifyin_cnt ));
 
-  uchar const * quic_pods = fd_pod_query_subpod( cfg_pod, "quic" );
-  ulong quic_cnt = fd_pod_cnt_subpod( quic_pods );
-  FD_LOG_INFO(( "%lu quic found", quic_cnt ));
-
-  if( FD_UNLIKELY( verifyin_cnt!=quic_cnt ) )
-    FD_LOG_ERR(( "mismatching verifyin (%lu) and quic (%lu) cnt",
-                 verifyin_cnt, quic_cnt ));
-
   uchar const * verify_pods = fd_pod_query_subpod( cfg_pod, "verify" );
   ulong verify_cnt = fd_pod_cnt_subpod( verify_pods );
   FD_LOG_INFO(( "%lu verify found", verify_cnt ));
-  ulong tile_cnt = 3UL + verify_cnt + verifyin_cnt;
 
-  /* Tile indices */
-
-  ulong tile_main_idx    = 0UL;
-  ulong tile_pack_idx    = tile_main_idx +1UL;
-  ulong tile_dedup_idx   = tile_pack_idx +1UL;
-  ulong tile_verify_idx0 = tile_dedup_idx+1UL;
-  ulong tile_verify_idx1 = tile_verify_idx0 + verify_cnt;
-  ulong tile_quic_idx0   = tile_verify_idx1;
-  //ulong tile_quic_idx1   = tile_quic_idx0 + quic_cnt;
+  ulong tile_cnt = 5UL + verify_cnt;
 
   /* Join all IPC objects for this frank instance */
 
@@ -438,11 +302,9 @@ main( int     argc,
     tile_cnc[ tile_idx ] = fd_cnc_join( fd_wksp_pod_map( cfg_pod, "pack.cnc" ) );
     if( FD_UNLIKELY( !tile_cnc[ tile_idx ] ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
     if( FD_UNLIKELY( fd_cnc_app_sz( tile_cnc[ tile_idx ] )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
-    FD_LOG_INFO(( "joining %s.pack.out-mcache", cfg_path ));
-    tile_mcache[ tile_idx ] = fd_mcache_join( fd_wksp_pod_map( cfg_pod, "pack.out-mcache" ) );
-    if( FD_UNLIKELY( !tile_mcache[ tile_idx ] ) ) FD_LOG_ERR(( "fd_mcache_join failed" ));
+    tile_mcache[ tile_idx ] = NULL;
     FD_LOG_INFO(( "joining %s.dedup.fseq", cfg_path ));
-    tile_fseq[ tile_idx ] = fd_fseq_join( fd_wksp_pod_map( cfg_pod, "pack.return-fseq" ) );
+    tile_fseq[ tile_idx ] = fd_fseq_join( fd_wksp_pod_map( cfg_pod, "dedup.fseq" ) );
     if( FD_UNLIKELY( !tile_fseq[ tile_idx ] ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
     tile_idx++;
 
@@ -454,6 +316,7 @@ main( int     argc,
     FD_LOG_INFO(( "joining %s.dedup.mcache", cfg_path ));
     tile_mcache[ tile_idx ] = fd_mcache_join( fd_wksp_pod_map( cfg_pod, "dedup.mcache" ) );
     if( FD_UNLIKELY( !tile_mcache[ tile_idx ] ) ) FD_LOG_ERR(( "fd_mcache_join failed" ));
+    /* FIXME using dedup.fseq instead of aggregating all verify.<verify_name>.fseq */
     FD_LOG_INFO(( "joining %s.dedup.fseq", cfg_path ));
     tile_fseq[ tile_idx ] = fd_fseq_join( fd_wksp_pod_map( cfg_pod, "dedup.fseq" ) );
     if( FD_UNLIKELY( !tile_fseq[ tile_idx ] ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
@@ -479,25 +342,31 @@ main( int     argc,
       tile_idx++;
     }
 
-    for( fd_pod_iter_t iter = fd_pod_iter_init( quic_pods ); !fd_pod_iter_done( iter ); iter = fd_pod_iter_next( iter ) ) {
-      fd_pod_info_t info = fd_pod_iter_info( iter );
-      if( FD_UNLIKELY( info.val_type!=FD_POD_VAL_TYPE_SUBPOD ) ) continue;
-      char const  * quic_name =                info.key;
-      uchar const * quic_pod  = (uchar const *)info.val;
+    tile_name[ tile_idx ] = "parser";
+    FD_LOG_INFO(( "joining %s.parser.cnc", cfg_path ));
+    tile_cnc[ tile_idx ] = fd_cnc_join( fd_wksp_pod_map( cfg_pod, "parser.cnc" ) );
+    if( FD_UNLIKELY( !tile_cnc[ tile_idx ] ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
+    if( FD_UNLIKELY( fd_cnc_app_sz( tile_cnc[ tile_idx ] )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
+    FD_LOG_INFO(( "joining %s.parser.sentinel_mcache", cfg_path ));
+    tile_mcache[ tile_idx ] = fd_mcache_join( fd_wksp_pod_map( cfg_pod, "parser.sentinel_mcache" ) );
+    if( FD_UNLIKELY( !tile_mcache[ tile_idx ] ) ) FD_LOG_ERR(( "fd_mcache_join failed" ));
+    FD_LOG_INFO(( "joining %s.replay.fseq", cfg_path ));
+    tile_fseq[ tile_idx ] = fd_fseq_join( fd_wksp_pod_map( cfg_pod, "replay.fseq" ) );
+    if( FD_UNLIKELY( !tile_fseq[ tile_idx ] ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
+    tile_idx++;
 
-      FD_LOG_INFO(( "joining %s.quic.%s.cnc", cfg_path, quic_name ));
-      tile_name[ tile_idx ] = quic_name;
-      tile_cnc [ tile_idx ] = fd_cnc_join( fd_wksp_pod_map( quic_pod, "cnc" ) );
-      if( FD_UNLIKELY( !tile_cnc[tile_idx] ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
-      if( FD_UNLIKELY( fd_cnc_app_sz( tile_cnc[ tile_idx ] )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
-      FD_LOG_INFO(( "joining %s.quic.%s.mcache", cfg_path, quic_name ));
-      tile_mcache[ tile_idx ] = fd_mcache_join( fd_wksp_pod_map( quic_pod, "mcache" ) );
-      if( FD_UNLIKELY( !tile_mcache[ tile_idx ] ) ) FD_LOG_ERR(( "fd_mcache_join failed" ));
-      FD_LOG_INFO(( "joining %s.quic.%s.fseq", cfg_path, quic_name ));
-      tile_fseq[ tile_idx ] = fd_fseq_join( fd_wksp_pod_map( quic_pod, "fseq" ) );
-      if( FD_UNLIKELY( !tile_fseq[ tile_idx ] ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
-      tile_idx++;
-    }
+    tile_name[ tile_idx ] = "replay";
+    FD_LOG_INFO(( "joining %s.replay.cnc", cfg_path ));
+    tile_cnc[ tile_idx ] = fd_cnc_join( fd_wksp_pod_map( cfg_pod, "replay.cnc" ) );
+    if( FD_UNLIKELY( !tile_cnc[ tile_idx ] ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
+    if( FD_UNLIKELY( fd_cnc_app_sz( tile_cnc[ tile_idx ] )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
+    FD_LOG_INFO(( "joining %s.replay.mcache", cfg_path ));
+    tile_mcache[ tile_idx ] = fd_mcache_join( fd_wksp_pod_map( cfg_pod, "replay.mcache" ) );
+    if( FD_UNLIKELY( !tile_mcache[ tile_idx ] ) ) FD_LOG_ERR(( "fd_mcache_join failed" ));
+    tile_fseq[ tile_idx ] = NULL; /* replay has no fseq */
+    tile_idx++;
+
+    FD_TEST(tile_idx == tile_cnt);
   } while(0);
 
   /* Setup local objects used by this app */
@@ -546,12 +415,12 @@ main( int     argc,
 
     char now_cstr[ FD_LOG_WALLCLOCK_CSTR_BUF_SZ ];
     printf( "snapshot for %s" TEXT_NEWLINE, fd_log_wallclock_cstr( now, now_cstr ) );
-    printf( "  tile |      stale | heart |        sig | in backp |           backp cnt |         sv_filt cnt |                    tx seq |                    rx seq"  TEXT_NEWLINE );
-    printf( "-------+------------+-------+------------+----------+---------------------+---------------------+---------------------------+---------------------------" TEXT_NEWLINE );
+    printf( "  tile  |      stale | heart |        sig | in backp |           backp cnt |         sv_filt cnt |                    tx seq |                    rx seq"  TEXT_NEWLINE );
+    printf( "--------+------------+-------+------------+----------+---------------------+---------------------+---------------------------+---------------------------" TEXT_NEWLINE );
     for( ulong tile_idx=0UL; tile_idx<tile_cnt; tile_idx++ ) {
       snap_t * prv = &snap_prv[ tile_idx ];
       snap_t * cur = &snap_cur[ tile_idx ];
-      printf( " %5s", tile_name[ tile_idx ] );
+      printf( " %6s", tile_name[ tile_idx ] );
       if( FD_LIKELY( cur->pmap & 1UL ) ) {
         printf( " | " ); printf_stale   ( (long)(0.5+ns_per_tic*(double)(toc - cur->cnc_heartbeat)), dt_min );
         printf( " | " ); printf_heart   ( cur->cnc_heartbeat,        prv->cnc_heartbeat        );
@@ -574,18 +443,6 @@ main( int     argc,
       }
       printf( TEXT_NEWLINE );
     }
-    printf( TEXT_NEWLINE );
-    printf( "         link |  tot TPS |  tot bps | uniq TPS | uniq bps |   ha tr%% | uniq bw%% | filt tr%% | filt bw%% |           ovrnp cnt |           ovrnr cnt |            slow cnt" TEXT_NEWLINE );
-    printf( "--------------+----------+----------+----------+----------+----------+----------+-----------+----------+---------------------+---------------------+---------------------"    TEXT_NEWLINE );
-    long dt = now-then;
-    ulong verifyin_link_cnt = fd_ulong_min( verify_cnt, quic_cnt );
-    for( ulong i=0; i<verifyin_link_cnt; i++ ) {
-      printf_link( snap_prv, snap_cur, tile_name, tile_quic_idx0+i, tile_verify_idx0+i, dt );
-    }
-    for( ulong tile_idx=tile_verify_idx0; tile_idx<tile_verify_idx1; tile_idx++ ) {
-      printf_link( snap_prv, snap_cur, tile_name, tile_idx, tile_dedup_idx, dt );
-    }
-    printf_link( snap_prv, snap_cur, tile_name, tile_dedup_idx, tile_pack_idx, dt );
     printf( TEXT_NEWLINE );
 
     /* Switch to alternate screen and erase junk below
