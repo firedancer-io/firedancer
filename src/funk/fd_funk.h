@@ -1,6 +1,10 @@
 #ifndef HEADER_fd_src_funk_fd_funk_h
 #define HEADER_fd_src_funk_fd_funk_h
 
+#ifdef _DISABLE_OPTIMIZATION
+#pragma GCC optimize ("O0")
+#endif
+
 /* Funk is a hybrid of a database and version control system designed
    for ultra high performance blockchain applications.
 
