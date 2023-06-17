@@ -27,6 +27,52 @@ static const fd_x25519_test_vector_t test_x25519_vector[] = {
 };
 
 static void
+simulate_ecdh( fd_rng_t * rng ) {
+
+  uchar secret0[ 32 ];
+  uchar secret1[ 32 ];
+  for( ulong b=0; b<32UL; b++ ) secret0[b] = fd_rng_uchar( rng );
+  for( ulong b=0; b<32UL; b++ ) secret1[b] = fd_rng_uchar( rng );
+
+  uchar pubkey0[ 32 ];
+  uchar pubkey1[ 32 ];
+  fd_x25519_public( pubkey0, secret0 );
+  fd_x25519_public( pubkey1, secret1 );
+
+  uchar _shared0[ 32 ];
+  uchar _shared1[ 32 ];
+  void * shared0 = fd_x25519_exchange( _shared0, secret0, pubkey1 );
+  void * shared1 = fd_x25519_exchange( _shared1, secret1, pubkey0 );
+
+  if( FD_UNLIKELY( (!shared0) | (!shared1) ) ) {
+    FD_LOG_ERR(( "FAIL"
+              "\n\tGiven secrets"
+              "\n\t\t" FD_LOG_HEX16_FMT "  " FD_LOG_HEX16_FMT
+              "\n\t\t" FD_LOG_HEX16_FMT "  " FD_LOG_HEX16_FMT
+              "\n\tGot"
+              "\n\t\tshared0=%s"
+              "\n\t\tshared1=%s",
+              FD_LOG_HEX16_FMT_ARGS( secret0 ), FD_LOG_HEX16_FMT_ARGS( secret0+16 ),
+              FD_LOG_HEX16_FMT_ARGS( secret1 ), FD_LOG_HEX16_FMT_ARGS( secret1+16 ),
+              shared0 ? "OK" : "NULL",
+              shared1 ? "OK" : "NULL" ));
+  }
+  if( FD_UNLIKELY( memcmp( shared0, shared1, 32UL ) ) )
+    FD_LOG_ERR(( "FAIL"
+                 "\n\tGiven secrets"
+                 "\n\t\t" FD_LOG_HEX16_FMT "  " FD_LOG_HEX16_FMT
+                 "\n\t\t" FD_LOG_HEX16_FMT "  " FD_LOG_HEX16_FMT
+                 "\n\tGot"
+                 "\n\t\t" FD_LOG_HEX16_FMT "  " FD_LOG_HEX16_FMT
+                 "\n\tExpected"
+                 "\n\t\t" FD_LOG_HEX16_FMT "  " FD_LOG_HEX16_FMT,
+                 FD_LOG_HEX16_FMT_ARGS(  secret0 ), FD_LOG_HEX16_FMT_ARGS(  secret0+16 ),
+                 FD_LOG_HEX16_FMT_ARGS(  secret1 ), FD_LOG_HEX16_FMT_ARGS(  secret1+16 ),
+                 FD_LOG_HEX16_FMT_ARGS( _shared0 ), FD_LOG_HEX16_FMT_ARGS( _shared0+16 ),
+                 FD_LOG_HEX16_FMT_ARGS( _shared1 ), FD_LOG_HEX16_FMT_ARGS( _shared1+16 ) ));
+}
+
+static void
 log_bench( char const * descr,
            ulong        iter,
            long         dt ) {
@@ -56,6 +102,14 @@ main( int     argc,
                    "\n\t\t" FD_LOG_HEX16_FMT "  " FD_LOG_HEX16_FMT,
                    FD_LOG_HEX16_FMT_ARGS( secret       ), FD_LOG_HEX16_FMT_ARGS( secret      +16 ),
                    FD_LOG_HEX16_FMT_ARGS( test->secret ), FD_LOG_HEX16_FMT_ARGS( test->secret+16 ) ));
+  }
+
+  /* Simulate real key exchange */
+
+  {
+    ulong iter = 10000UL;
+    for( ulong rem=iter; rem; rem-- ) simulate_ecdh( rng );
+    FD_LOG_NOTICE(( "OK: %lu ECDH simulations", iter ));
   }
 
   /* Prepare benchmark inputs */
@@ -93,7 +147,7 @@ main( int     argc,
     long dt = fd_log_wallclock();
     for( ulong rem=iter; rem; rem-- ) {
       FD_COMPILER_FORGET( secret0 ); FD_COMPILER_FORGET( pubkey0 );
-      ulong idx  = (ulong)fd_rng_uint_roll( rng, 256UL );
+      ulong idx  = (ulong)fd_rng_uchar( rng );
       ulong byte = idx>>3;
       ulong bit  = idx & 7UL;
       secret0[ byte ] = (uchar)(((ulong)secret0[ byte ]) ^ (1UL<<bit));
