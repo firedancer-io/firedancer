@@ -2,6 +2,7 @@
 #include "fd_system_program.h"
 #include "../fd_acc_mgr.h"
 #include "../fd_runtime.h"
+#include "../fd_account.h"
 #include "../sysvar/fd_sysvar_rent.h"
 #include "../sysvar/fd_sysvar.h"
 #include "../../base58/fd_base58.h"
@@ -10,11 +11,8 @@
 #pragma GCC optimize ("O0")
 #endif
 
-/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/system_instruction.rs#L139 */
-#define MAX_PERMITTED_DATA_LENGTH ( 10 * 1024 * 1024 )
-
 static int transfer(
-  instruction_ctx_t ctx,
+  instruction_ctx_t                ctx,
   fd_system_program_instruction_t *instruction
   ) {
 
@@ -28,14 +26,14 @@ static int transfer(
 
   ulong requested_lamports;
   if (instruction->discriminant == fd_system_program_instruction_enum_transfer) {
-    if (ctx.instr->acct_cnt < 2) 
+    if (ctx.instr->acct_cnt < 2)
       return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
     sender   = &txn_accs[instr_acc_idxs[0]];
     receiver = &txn_accs[instr_acc_idxs[1]];
     requested_lamports = instruction->inner.transfer;
 
   } else if (instruction->discriminant == fd_system_program_instruction_enum_transfer_with_seed) {
-    if (ctx.instr->acct_cnt < 3) 
+    if (ctx.instr->acct_cnt < 3)
       return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
     sender      = &txn_accs[instr_acc_idxs[0]];
     fd_pubkey_t * sender_base;
@@ -46,7 +44,7 @@ static int transfer(
     fd_pubkey_t      address_with_seed;
     fd_pubkey_create_with_seed(sender_base, instruction->inner.transfer_with_seed.from_seed,
                                &instruction->inner.transfer_with_seed.from_owner, &address_with_seed);
-    if (memcmp(address_with_seed.hash, sender->hash, sizeof(sender->hash))) 
+    if (memcmp(address_with_seed.hash, sender->hash, sizeof(sender->hash)))
       return fd_system_error_enum_address_with_seed_mismatch;
 
   } else {
@@ -75,7 +73,7 @@ static int transfer(
       }
     }
   }
-  if ( !sender_is_signer ) 
+  if ( !sender_is_signer )
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
 
   // TODO: check sender has empty data https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/system_instruction_processor.rs#LL177C20-L177C20
@@ -85,13 +83,13 @@ static int transfer(
   if (NULL == raw_acc_data)
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   fd_account_meta_t *m = (fd_account_meta_t *) raw_acc_data;
-  if (m->dlen > 0) 
+  if (m->dlen > 0)
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
 
   /* Check sender account has enough balance to execute this transaction */
   fd_acc_lamports_t sender_lamports = 0;
   int               read_result = fd_acc_mgr_get_lamports( ctx.global->acc_mgr, ctx.global->funk_txn, sender, &sender_lamports );
-  if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) 
+  if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) )
     return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
   if ( FD_UNLIKELY( sender_lamports < requested_lamports ) ) {
     ctx.txn_ctx->custom_err = 1;
@@ -140,11 +138,154 @@ static int transfer(
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
+// https://github.com/solana-labs/solana/blob/b00d18cec4011bb452e3fe87a3412a3f0146942e/runtime/src/system_instruction_processor.rs#L507
+// https://github.com/solana-labs/solana/blob/b00d18cec4011bb452e3fe87a3412a3f0146942e/runtime/src/system_instruction_processor.rs#L525
+
+static int fd_system_allocate(
+  instruction_ctx_t                ctx,
+  fd_system_program_instruction_t *instruction
+  ) {
+  if (ctx.instr->acct_cnt < 1)
+    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+
+  uchar *       instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
+  fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
+  fd_pubkey_t * account     = &txn_accs[instr_acc_idxs[0]];
+  fd_pubkey_t*  owner = NULL;
+
+  unsigned long allocate = 0;
+  if (instruction->discriminant == fd_system_program_instruction_enum_allocate) {
+    if (!fd_account_is_signer(&ctx, account))
+      return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+
+    allocate = instruction->inner.allocate;
+  } else {
+    fd_system_program_instruction_allocate_with_seed_t *t = &instruction->inner.allocate_with_seed;
+
+    if (!fd_account_is_signer(&ctx, &t->base))
+      return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+
+    fd_pubkey_t      address_with_seed;
+    fd_pubkey_create_with_seed(&t->base, t->seed, &t->owner, &address_with_seed);
+    if (memcmp(address_with_seed.hash, account->hash, sizeof(account->hash))) {
+      ctx.txn_ctx->custom_err = 5;
+      return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+    }
+    allocate = t->space;
+    owner = &t->owner;
+  }
+
+  ulong  sz = 0;
+  int    err = 0;
+  char * raw_acc_data = (char*) fd_acc_mgr_view_data(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) account, &sz, &err);
+  if (NULL != raw_acc_data) {
+    fd_account_meta_t *m = (fd_account_meta_t *) raw_acc_data;
+
+    if (instruction->discriminant == fd_system_program_instruction_enum_allocate) {
+      if (memcmp(m->info.owner, ctx.global->solana_system_program, sizeof(m->info.owner)) != 0)
+        return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+    }
+
+    // This will get handled later in the set_data_length so.. maybe we don't need this here?
+    if (m->dlen > 0)
+      return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+  }
+
+  if (allocate > MAX_PERMITTED_DATA_LENGTH)
+    return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+
+  sz = sizeof(fd_account_meta_t) + allocate;
+  void *data = NULL;
+  err = 0;
+
+  fd_funk_rec_t *rec = fd_acc_mgr_modify_data(ctx.global->acc_mgr, ctx.global->funk_txn, account, 1, &sz, &data, &err);
+  if (NULL == rec)
+    return err;
+
+  fd_account_meta_t *m = (fd_account_meta_t *) data;
+
+  if (NULL == raw_acc_data)
+    fd_account_meta_init(m);
+
+  if (!fd_account_set_data_length(&ctx, m, account, allocate, 0, &err))
+    return err;
+
+  if (instruction->discriminant == fd_system_program_instruction_enum_allocate_with_seed) {
+    err = fd_account_set_owner(&ctx, m, account, owner);
+    if (FD_ACC_MGR_SUCCESS != err)
+      return err;
+  }
+
+  err = fd_acc_mgr_commit_data(ctx.global->acc_mgr, rec, account, data, ctx.global->bank.solana_bank.slot, 0);
+  if (FD_ACC_MGR_SUCCESS != err)
+    return err;
+
+  return FD_ACC_MGR_SUCCESS;
+}
+
+// https://github.com/solana-labs/solana/blob/b00d18cec4011bb452e3fe87a3412a3f0146942e/runtime/src/system_instruction_processor.rs#L545
+static int fd_system_assign_with_seed(
+  instruction_ctx_t                                ctx,
+  fd_system_program_instruction_assign_with_seed_t*t
+  ) {
+  if (ctx.instr->acct_cnt < 1)
+    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+
+  uchar *       instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
+  fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
+  fd_pubkey_t * account     = &txn_accs[instr_acc_idxs[0]];
+
+  fd_pubkey_t      address_with_seed;
+  fd_pubkey_create_with_seed(&t->base, t->seed, &t->owner, &address_with_seed);
+  if (memcmp(address_with_seed.hash, account->hash, sizeof(account->hash))) {
+    ctx.txn_ctx->custom_err = 5;
+    return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+  }
+
+  ulong  sz = 0;
+  int    err = 0;
+  char * raw_acc_data = (char*) fd_acc_mgr_view_data(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) account, &sz, &err);
+  if (NULL != raw_acc_data) {
+    fd_account_meta_t *m = (fd_account_meta_t *) raw_acc_data;
+
+    if (memcmp(&t->owner, m->info.owner, sizeof(fd_pubkey_t)) == 0)
+      return FD_ACC_MGR_SUCCESS;
+  }
+
+  if (!fd_account_is_signer(&ctx, &t->base))
+    return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+
+  void *data = NULL;
+
+  sz = sizeof(fd_account_meta_t);
+  fd_funk_rec_t *rec = fd_acc_mgr_modify_data(ctx.global->acc_mgr, ctx.global->funk_txn, account, 1, &sz, &data, &err);
+  if (NULL == rec)
+    return err;
+
+  fd_account_meta_t *m = (fd_account_meta_t *) data;
+
+  if (NULL == raw_acc_data)
+    fd_account_meta_init(m);
+
+  if (memcmp(m->info.owner, ctx.global->solana_system_program, sizeof(m->info.owner)) != 0)
+    return FD_EXECUTOR_INSTR_ERR_MODIFIED_PROGRAM_ID;
+
+  err = fd_account_set_owner(&ctx, m, account, &t->owner);
+  if (FD_ACC_MGR_SUCCESS != err)
+    return err;
+
+  err = fd_acc_mgr_commit_data(ctx.global->acc_mgr, rec, account, data, ctx.global->bank.solana_bank.slot, 0);
+  if (FD_ACC_MGR_SUCCESS != err)
+    return err;
+
+  return FD_ACC_MGR_SUCCESS;
+}
+
 static int create_account(
-  instruction_ctx_t ctx,
-    fd_system_program_instruction_t *instruction
-) {
-  if (ctx.instr->acct_cnt < 2) 
+  instruction_ctx_t                ctx,
+  fd_system_program_instruction_t *instruction
+  ) {
+  if (ctx.instr->acct_cnt < 2)
     return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
 
   /* Account 0: funding account
@@ -181,7 +322,7 @@ static int create_account(
     fd_pubkey_t      address_with_seed;
 
     fd_pubkey_create_with_seed(base, seed, owner, &address_with_seed);
-    if (memcmp(address_with_seed.hash, to->hash, sizeof(to->hash))) 
+    if (memcmp(address_with_seed.hash, to->hash, sizeof(to->hash)))
       return fd_system_error_enum_address_with_seed_mismatch;
   }
 
@@ -204,13 +345,13 @@ static int create_account(
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
 
   fd_account_meta_t metadata;
-  int read_result = fd_acc_mgr_get_metadata( ctx.global->acc_mgr, ctx.global->funk_txn, from, &metadata );
+  int               read_result = fd_acc_mgr_get_metadata( ctx.global->acc_mgr, ctx.global->funk_txn, from, &metadata );
   if ( read_result == FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
     /* TODO: propagate SystemError::AccountAlreadyInUse enum variant */
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
-  if (metadata.dlen > 0) 
+  if (metadata.dlen > 0)
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
 
   fd_acc_lamports_t sender_lamports = metadata.info.lamports;
@@ -265,8 +406,8 @@ static int create_account(
 // https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/system_instruction_processor.rs#L111
 static int assign(
   instruction_ctx_t ctx,
-  fd_pubkey_t owner
-) {
+  fd_pubkey_t       owner
+  ) {
   if (ctx.instr->acct_cnt < 1)
     return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
 
@@ -277,7 +418,7 @@ static int assign(
 
   // get owner
   fd_pubkey_t current_owner;
-  int read_result = fd_acc_mgr_get_owner( ctx.global->acc_mgr, ctx.global->funk_txn, keyed_account, &current_owner );
+  int         read_result = fd_acc_mgr_get_owner( ctx.global->acc_mgr, ctx.global->funk_txn, keyed_account, &current_owner );
 
   if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
     return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
@@ -368,21 +509,17 @@ int fd_executor_system_program_execute_instruction(
     break;
   }
   case fd_system_program_instruction_enum_allocate: {
-    // https://github.com/solana-labs/solana/blob/b00d18cec4011bb452e3fe87a3412a3f0146942e/runtime/src/system_instruction_processor.rs#L507
-    FD_LOG_WARNING(( "unsupported fd_system_program_instruction_enum_allocate %d", instruction.discriminant ));
-    result = -1;
+    result = fd_system_allocate( ctx, &instruction );
     break;
   }
   case fd_system_program_instruction_enum_allocate_with_seed: {
     // https://github.com/solana-labs/solana/blob/b00d18cec4011bb452e3fe87a3412a3f0146942e/runtime/src/system_instruction_processor.rs#L525
-    FD_LOG_WARNING(( "unsupported fd_system_program_instruction_enum_allocate_with_seed %d", instruction.discriminant ));
-    result = -1;
+    result = fd_system_allocate( ctx, &instruction );
     break;
   }
   case fd_system_program_instruction_enum_assign_with_seed: {
     // https://github.com/solana-labs/solana/blob/b00d18cec4011bb452e3fe87a3412a3f0146942e/runtime/src/system_instruction_processor.rs#L545
-    FD_LOG_WARNING(( "unsupported fd_system_program_instruction_enum_assign_with_seed %d", instruction.discriminant ));
-    result = -1;
+    result = fd_system_assign_with_seed( ctx, &instruction.inner.assign_with_seed );
     break;
   }
   case fd_system_program_instruction_enum_transfer_with_seed: {
@@ -407,4 +544,3 @@ int fd_executor_system_program_execute_instruction(
   fd_system_program_instruction_destroy( &instruction, &ctx3 );
   return result;
 }
-

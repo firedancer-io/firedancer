@@ -7,6 +7,7 @@
 #endif
 
 const char *verbose = NULL;
+const char *fail_fast = NULL;
 
 /* copied from test_funk_txn.c */
 static fd_funk_txn_xid_t *
@@ -189,6 +190,21 @@ int fd_executor_run_test(
         fd_funk_txn_cancel( suite->funk, global->funk_txn, 0 );
         return -666;
       }
+      if (m->info.executable != test->accs[i].result_executable) {
+        FD_LOG_WARNING(( "Failed test %d: %s: expected executable %u, got %u: %s", test->test_number, test->test_name, test->accs[i].result_executable, m->info.executable, (NULL != verbose) ? test->bt : ""));
+        fd_funk_txn_cancel( suite->funk, global->funk_txn, 0 );
+        return -667;
+      }
+      if (m->info.rent_epoch != test->accs[i].result_rent_epoch) {
+        FD_LOG_WARNING(( "Failed test %d: %s: expected rent_epoch %ld, got %ld: %s", test->test_number, test->test_name, test->accs[i].result_rent_epoch, m->info.rent_epoch, (NULL != verbose) ? test->bt : ""));
+        fd_funk_txn_cancel( suite->funk, global->funk_txn, 0 );
+        return -668;
+      }
+      if (memcmp(&m->info.owner, &test->accs[i].result_owner, sizeof(fd_pubkey_t)) != 0) {
+        FD_LOG_WARNING(( "Failed test %d: %s: owner missmatch: %s", test->test_number, test->test_name,  (NULL != verbose) ? test->bt : ""));
+        fd_funk_txn_cancel( suite->funk, global->funk_txn, 0 );
+        return -668;
+      }
       if (m->dlen != test->accs[i].result_data_len) {
         FD_LOG_WARNING(( "Failed test %d: %s: size mismatch (expected %lu, got %lu): %s",
             test->test_number, test->test_name,
@@ -217,7 +233,8 @@ int fd_executor_run_test(
   /* Revert the Funk transaction */
   fd_funk_txn_cancel( suite->funk, global->funk_txn, 0 );
 
-  FD_LOG_NOTICE(("Passed test %d: %s", test->test_number, test->test_name));
+  if (NULL == fail_fast)
+    FD_LOG_NOTICE(("Passed test %d: %s", test->test_number, test->test_name));
 
   return 0;
 }
@@ -230,6 +247,7 @@ int main(int argc, char **argv) {
   long do_test = fd_env_strip_cmdline_long(&argc, &argv, "--test", NULL, -1);
   const char * filter = fd_env_strip_cmdline_cstr(&argc, &argv, "--filter", NULL, NULL);
   verbose = fd_env_strip_cmdline_cstr(&argc, &argv, "--verbose", NULL, NULL);
+  fail_fast = fd_env_strip_cmdline_cstr(&argc, &argv, "--fail_fast", NULL, NULL);
 
   if (-1 != do_test)
     test_start = test_end = (ulong)do_test;
@@ -257,8 +275,11 @@ int main(int argc, char **argv) {
     if( FD_UNLIKELY( idx >= test_cnt ) )
       break;
     int r = tests[ idx ]( &suite );
-    if ((r != 0) && (r != -9999))
+    if ((r != 0) && (r != -9999)) {
       ret = r;
+      if (NULL != fail_fast)
+        break;
+    }
     if( r != -9999 ) {
       executed_cnt++;
       if( r == 0 ) success_cnt++;

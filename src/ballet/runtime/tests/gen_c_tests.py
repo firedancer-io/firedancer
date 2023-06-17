@@ -248,8 +248,8 @@ def main():
 
         if len(fs) > 0:
             print(f"""
-   uchar disabled_features[] = {{ {",".join(feature_idxs)} }};
-   test.disable_feature = disabled_features;
+  uchar disabled_features[] = {{ {",".join(feature_idxs)} }};
+  test.disable_feature = disabled_features;
             """
         )
 
@@ -267,10 +267,13 @@ def main():
             print(
                 f"""  fd_base58_decode_32( "{txn_acc["pubkey"]}",  (uchar *) &test_acc->pubkey);
   fd_base58_decode_32( "{txn_acc_shared_data["owner"]}",  (uchar *) &test_acc->owner);
+  fd_base58_decode_32( "{txn_acc_result["owner"]}",  (uchar *) &test_acc->result_owner);
   test_acc->lamports        = {txn_acc_shared_data["lamports"]}UL;
   test_acc->result_lamports = {format(txn_acc_result["lamports"])}UL;
   test_acc->executable      = {1 if txn_acc_shared_data["executable"] else 0};
-  test_acc->rent_epoch      = {txn_acc_shared_data["rent_epoch"]};""")
+  test_acc->result_executable= {1 if txn_acc_result["executable"] else 0};
+  test_acc->rent_epoch      = {txn_acc_shared_data["rent_epoch"]};
+  test_acc->result_rent_epoch      = {txn_acc_result["rent_epoch"]};""")
             if len(data) > 0:
                 print(f"""  static uchar const fd_flamenco_native_prog_test_{test_case_idx}_acc_{acc_idx}_data[] = {{ {",".join([f"0x{b:02x}" for b in data])} }};
   test_acc->data            = fd_flamenco_native_prog_test_{test_case_idx}_acc_{acc_idx}_data;

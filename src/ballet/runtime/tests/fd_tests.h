@@ -20,8 +20,11 @@ struct fd_executor_test_acc {
   const uchar*  data;
   const uchar*  result_data;
   uchar         executable;
+  uchar         result_executable;
   ulong         rent_epoch;
+  ulong         result_rent_epoch;
   fd_pubkey_t   owner;
+  fd_pubkey_t   result_owner;
 };
 typedef struct fd_executor_test_acc fd_executor_test_acc_t;
 #define FD_EXECUTOR_TEST_ACC_FOOTPRINT ( sizeof(fd_executor_test_acc_t) )

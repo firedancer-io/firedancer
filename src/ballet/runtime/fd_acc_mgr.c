@@ -10,9 +10,6 @@
 
 #define MAX_ACC_SIZE (10UL<<20) /* 10MB */
 
-extern fd_funk_rec_t *fd_acc_mgr_modify_data( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, fd_pubkey_t const * pubkey, int do_create, ulong *sz, void **data, int *err );
-extern int fd_acc_mgr_commit_data( fd_acc_mgr_t* acc_mgr, fd_funk_rec_t *rec, fd_pubkey_t const * pubkey, void *data, ulong slot, int uncache);
-
 void* fd_acc_mgr_new( void*            mem,
                       fd_global_ctx_t* global,
                       ulong            footprint ) {
