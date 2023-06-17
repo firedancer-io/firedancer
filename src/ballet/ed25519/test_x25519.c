@@ -26,10 +26,20 @@ static const fd_x25519_test_vector_t test_x25519_vector[] = {
   }
 };
 
+static void
+log_bench( char const * descr,
+           ulong        iter,
+           long         dt ) {
+  float khz = 1e6f *(float)iter/(float)dt;
+  float tau = (float)dt /(float)iter;
+  FD_LOG_NOTICE(( "%-31s %11.3fK/s/core %10.3f ns/call", descr, (double)khz, (double)tau ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
+  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
   for( fd_x25519_test_vector_t const * test = test_x25519_vector;
        (ulong)test < ((ulong)test_x25519_vector + sizeof(test_x25519_vector));
@@ -48,6 +58,53 @@ main( int     argc,
                    FD_LOG_HEX16_FMT_ARGS( test->secret ), FD_LOG_HEX16_FMT_ARGS( test->secret+16 ) ));
   }
 
+  /* Prepare benchmark inputs */
+
+  uchar _secret0[ 32 ]; uchar * secret0 = _secret0;
+  uchar _secret1[ 32 ]; uchar * secret1 = _secret1;
+  for( ulong b=0; b<32UL; b++ ) secret0[b] = fd_rng_uchar( rng );
+  for( ulong b=0; b<32UL; b++ ) secret1[b] = fd_rng_uchar( rng );
+  ulong iter = 10000UL;
+
+  uchar _pubkey0[ 32 ]; uchar * pubkey0 = _pubkey0;
+  uchar _pubkey1[ 32 ]; uchar * pubkey1 = _pubkey1;
+  fd_x25519_public( pubkey0, secret0 );
+  fd_x25519_public( pubkey1, secret1 );
+
+  uchar _shared[ 32 ]; uchar * shared = _shared;
+
+  /* Bench key exchange */
+
+  {
+    long dt = fd_log_wallclock();
+    for( ulong rem=iter; rem; rem-- ) {
+      FD_COMPILER_FORGET( secret0 ); FD_COMPILER_FORGET( pubkey0 );
+      FD_COMPILER_FORGET( shared  );
+      fd_x25519_exchange( shared, secret0, pubkey1 );
+    }
+    dt = fd_log_wallclock() - dt;
+    char cstr[128];
+    log_bench( fd_cstr_printf( cstr, 128UL, NULL, "fd_x25519_exchange" ), iter, dt );
+  }
+
+  /* Bench public key derivation */
+
+  {
+    long dt = fd_log_wallclock();
+    for( ulong rem=iter; rem; rem-- ) {
+      FD_COMPILER_FORGET( secret0 ); FD_COMPILER_FORGET( pubkey0 );
+      ulong idx  = (ulong)fd_rng_uint_roll( rng, 256UL );
+      ulong byte = idx>>3;
+      ulong bit  = idx & 7UL;
+      secret0[ byte ] = (uchar)(((ulong)secret0[ byte ]) ^ (1UL<<bit));
+      fd_x25519_public( pubkey0, secret0 );
+    }
+    dt = fd_log_wallclock() - dt;
+    char cstr[128];
+    log_bench( fd_cstr_printf( cstr, 128UL, NULL, "fd_x25519_public" ), iter, dt );
+  }
+
+  fd_rng_delete( fd_rng_leave( rng ) );
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;
