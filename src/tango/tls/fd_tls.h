@@ -64,5 +64,58 @@
      RFC 5288: AES Galois Counter Mode (GCM) Cipher Suites for TLS
      https://datatracker.ietf.org/doc/html/rfc5288 */
 
-#endif /* HEADER_src_ballet_tls_fd_tls_h */
+/* The fd_tls_server_t object provides the server-side functionality
+   of a TLS handshake. */
 
+struct fd_tls_server {
+  uchar kex_private_key[ 32 ];
+  uchar kex_public_key [ 32 ];
+};
+
+typedef struct fd_tls_server fd_tls_server_t;
+
+/* fd_tls_server_hs_t is an instance of the server-side TLS handshake
+   state machine. */
+
+struct fd_tls_server_hs {
+  int state;
+
+  uchar key_exchange[ 32 ];
+
+  /* The shared secret derived by the X25519 key exchange */
+  uchar shared_secret[ 32 ];
+};
+
+typedef struct fd_tls_server_hs fd_tls_server_hs_t;
+
+#define FD_TLS_SERVER_HS_FAIL          (-1)
+#define FD_TLS_SERVER_HS_CONNECTED     (-2)
+#define FD_TLS_SERVER_HS_START         ( 0)
+#define FD_TLS_SERVER_HS_RECVD_CH      ( 1)
+#define FD_TLS_SERVER_HS_NEGOTIATED    ( 2)
+#define FD_TLS_SERVER_HS_WAIT_FLIGHT2  ( 3)
+#define FD_TLS_SERVER_HS_WAIT_CERT     ( 4)
+#define FD_TLS_SERVER_HS_WAIT_CV       ( 5)
+#define FD_TLS_SERVER_HS_WAIT_FINISHED ( 6)
+
+FD_PROTOTYPES_BEGIN
+
+/* fd_tls_server_recvmsg ingests a TLS record from the client.
+   Progresses the TLS state machine.  Avoids doing cryptographic
+   computation (such as public key verify, key exchange, hashing). */
+
+long
+fd_tls_server_recvmsg( fd_tls_server_t const * server,
+                       fd_tls_server_hs_t *    handshake,
+                       void const *            record,
+                       ulong                   record_sz );
+
+long
+fd_tls_server_sendmsg( fd_tls_server_t const * server,
+                       fd_tls_server_hs_t *    handshake,
+                       void *                  record,
+                       ulong                   record_bufsz );
+
+FD_PROTOTYPES_END
+
+#endif /* HEADER_src_ballet_tls_fd_tls_h */
