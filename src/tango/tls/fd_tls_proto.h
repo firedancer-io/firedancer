@@ -5,6 +5,13 @@
 
 #include "../fd_tango_base.h"
 
+struct fd_tls_record_hdr {
+  uchar type;
+  uint  sz : 24;
+};
+
+typedef struct fd_tls_record_hdr fd_tls_record_hdr_t;
+
 /* TLS Extensions *****************************************************/
 
 /* Supported TLS versions (RFC 8446)
@@ -92,12 +99,11 @@ struct fd_tls_client_hello {
 };
 
 struct fd_tls_server_hello {
-  ushort legacy_version;  /* ==FD_TLS_VERSION_TLS12 */
   uchar  random[ 32 ];
-  uchar  legacy_session_id_echo_sz;  /* ==0 */
   ushort cipher_suite;
-  uchar  legacy_compression_method;  /* ==0 */
-  ushort extension_cnt;
+
+  fd_tls_ext_supported_versions_t supported_versions;
+  fd_tls_ext_key_share_t          key_share;
 };
 
 typedef struct fd_tls_client_hello fd_tls_client_hello_t;
@@ -190,6 +196,16 @@ typedef struct fd_tls_server_hello fd_tls_server_hello_t;
 
 FD_PROTOTYPES_BEGIN
 
+long
+fd_tls_decode_record_hdr( fd_tls_record_hdr_t * out,
+                          void const *          wire,
+                          ulong                 wire_sz );
+
+long
+fd_tls_encode_record_hdr( fd_tls_record_hdr_t const * in,
+                          void *                      wire,
+                          ulong                       wire_sz );
+
 /* Deserialization functions
 
    All type deserializers follow the same prototype:
@@ -220,6 +236,11 @@ fd_tls_decode_server_hello( fd_tls_server_hello_t * out,
                             ulong                   wire_sz );
 
 long
+fd_tls_encode_server_hello( fd_tls_server_hello_t * out,
+                            void *                  wire,
+                            ulong                   wire_sz );
+
+long
 fd_tls_decode_ext_server_name( fd_tls_ext_server_name_t * out,
                                void const *               wire,
                                ulong                      wire_sz );
@@ -240,9 +261,9 @@ fd_tls_decode_ext_signature_algorithms( fd_tls_ext_signature_algorithms_t * out,
                                         ulong                               wire_sz );
 
 long
-fd_tls_decode_ext_key_share( fd_tls_ext_key_share_t * out,
-                             void const *             wire,
-                             ulong                    wire_sz );
+fd_tls_decode_ext_key_share_client( fd_tls_ext_key_share_t * out,
+                                    void const *             wire,
+                                    ulong                    wire_sz );
 
 FD_PROTOTYPES_END
 
