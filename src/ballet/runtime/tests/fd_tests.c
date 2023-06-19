@@ -172,9 +172,8 @@ int fd_executor_run_test(
   if (FD_EXECUTOR_INSTR_SUCCESS == exec_result) {
     /* Confirm account updates */
     for ( ulong i = 0; i < test->accs_len; i++ ) {
-      ulong sz = 0;
       int err = 0;
-      char * raw_acc_data = (char*) fd_acc_mgr_view_data(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) &test->accs[i].pubkey, &sz, &err);
+      char * raw_acc_data = (char*) fd_acc_mgr_view_data(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) &test->accs[i].pubkey, NULL, &err);
       if (NULL == raw_acc_data) {
         if ((test->accs[ i ].lamports == 0) && (test->accs[ i ].data_len == 0))
           continue;

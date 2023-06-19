@@ -30,10 +30,8 @@ fd_vote_load_account( fd_vote_state_versioned_t * account,
                       fd_pubkey_t const *         address ) {
 
   /* Acquire view into raw vote account data */
-  ulong        acc_sz;
   int          acc_view_err;
-  void const * raw_acc_data =
-      fd_acc_mgr_view_data( global->acc_mgr, global->funk_txn, address, &acc_sz, &acc_view_err );
+  void const * raw_acc_data = fd_acc_mgr_view_data( global->acc_mgr, global->funk_txn, address, NULL, &acc_view_err );
 
   /* Reinterpret account data buffer */
   fd_account_meta_t const * meta_raw = (fd_account_meta_t const *)raw_acc_data;
@@ -180,11 +178,10 @@ fd_vote_save_account( fd_vote_state_versioned_t const * account,
   /* Restore original content if serialized content shrinks
      TODO Skip this by serializing in-place */
   if( serialized_sz < meta->dlen ) {
-    ulong _sz;
-    int   _err = 0;
-    void const * orig = fd_acc_mgr_view_data( ctx.global->acc_mgr, ctx.global->funk_txn, address, &_sz, &_err );
-    if( FD_UNLIKELY( (_err!=0) | (!orig) ) ) {
-      FD_LOG_ERR(( "fd_acc_mgr_view_data failed: %d", _err ));
+    int   err = 0;
+    void const * orig = fd_acc_mgr_view_data( ctx.global->acc_mgr, ctx.global->funk_txn, address, NULL, &err );
+    if( FD_UNLIKELY( (err!=0) | (!orig) ) ) {
+      FD_LOG_ERR(( "fd_acc_mgr_view_data failed: %d", err ));
     }
     fd_memcpy( (void       *)( (ulong)raw_acc + serialized_sz ),
                (void const *)( (ulong)orig    + sizeof(fd_account_meta_t) + serialized_sz ),

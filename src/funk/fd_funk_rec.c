@@ -247,9 +247,9 @@ fd_funk_rec_insert( fd_funk_t *               funk,
   } else { /* Modifying in-prep */
 
     fd_funk_txn_t * txn_map = fd_funk_txn_map( funk, wksp );
-  
+
     ulong txn_max = funk->txn_max;
-  
+
     txn_idx       = (ulong)(txn - txn_map);
     _rec_head_idx = &txn->rec_head_idx;
     _rec_tail_idx = &txn->rec_tail_idx;
@@ -513,12 +513,18 @@ fd_funk_rec_write_prepare( fd_funk_t *               funk,
                            fd_funk_rec_key_t const * key,
                            ulong                     min_val_size,
                            int                       do_create,
+                           fd_funk_rec_t const     * irec,
                            int *                     opt_err ) {
-  
+
   fd_wksp_t * wksp = fd_funk_wksp( funk );
-  
+
   fd_funk_rec_t * rec = NULL;
-  fd_funk_rec_t const * rec_con = fd_funk_rec_query_global( funk, txn, key );
+  fd_funk_rec_t const * rec_con = NULL;
+  if ( FD_LIKELY (NULL == irec ) )
+    rec_con = fd_funk_rec_query_global( funk, txn, key );
+  else
+    rec_con = irec;
+
   if ( rec_con ) {
     if ( rec_con->val_gaddr == 0UL && rec_con->persist_pos != FD_FUNK_REC_IDX_NULL ) {
       /* Read the value into the cache */
@@ -540,7 +546,7 @@ fd_funk_rec_write_prepare( fd_funk_t *               funk,
       rec = fd_funk_rec_modify( funk, fd_funk_rec_insert( funk, txn, key, opt_err ) );
       if ( !rec )
         return NULL;
-      rec = fd_funk_val_copy( rec, fd_funk_val_const(rec_con, wksp), fd_funk_val_sz(rec_con), 
+      rec = fd_funk_val_copy( rec, fd_funk_val_const(rec_con, wksp), fd_funk_val_sz(rec_con),
         fd_ulong_max( fd_funk_val_sz(rec_con), min_val_size ), fd_funk_alloc( funk, wksp ), wksp, opt_err );
       if ( !rec )
         return NULL;
@@ -694,4 +700,3 @@ fd_funk_rec_verify( fd_funk_t * funk ) {
 
   return FD_FUNK_SUCCESS;
 }
-

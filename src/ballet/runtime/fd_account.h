@@ -4,6 +4,39 @@
 #include "../txn/fd_txn.h"
 #include "fd_runtime.h"
 
+// Once these settle out, we will switch almost everything to not be inlined
+
+static inline
+int fd_account_sanity_check_raw(
+  fd_txn_instr_t const * instr,
+  fd_txn_t*         txn_descriptor,
+  fd_rawtxn_b_t*    txn_raw,
+  int cnt
+) {
+  if (instr->acct_cnt < cnt)
+    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+
+  uchar *       instr_acc_idxs = ((uchar *)txn_raw->raw + instr->acct_off);
+  ulong acct_addr_cnt = txn_descriptor->acct_addr_cnt;
+
+  for (int i = 0; i < cnt; i++)
+    if (instr_acc_idxs[i] >= acct_addr_cnt)
+      return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+
+  return FD_EXECUTOR_INSTR_SUCCESS;
+}
+
+static inline
+int fd_account_sanity_check(instruction_ctx_t const *ctx, int cnt) {
+  return fd_account_sanity_check_raw(ctx->instr, ctx->txn_ctx->txn_descriptor, ctx->txn_ctx->txn_raw, cnt);
+}
+
+static inline
+void * fd_account_get_data(fd_account_meta_t *m) {
+  return ((char *) m) + m->hlen;
+}
+
+static inline
 int fd_account_is_early_verification_of_account_modifications_enabled(FD_FN_UNUSED instruction_ctx_t *ctx) {
   // this seems to be based on if rent is enabled in the transaction
   // context instead on if the feature flag is enabled..   Then, you
@@ -16,6 +49,7 @@ int fd_account_is_early_verification_of_account_modifications_enabled(FD_FN_UNUS
   return 1;
 }
 
+static inline
 int fd_account_touch(FD_FN_UNUSED instruction_ctx_t *ctx, FD_FN_UNUSED fd_account_meta_t * acct, FD_FN_UNUSED fd_pubkey_t *key, FD_FN_UNUSED int *err) {
   return 1;
 }
@@ -54,6 +88,20 @@ int fd_account_can_data_be_resized(instruction_ctx_t *ctx, const fd_account_meta
 }
 
 static inline
+int fd_account_is_writable_idx(instruction_ctx_t *ctx, int idx) {
+  ushort        acct_addr_cnt = ctx->txn_ctx->txn_descriptor->acct_addr_cnt;
+
+  if (idx == acct_addr_cnt)
+    return 0;
+
+  // You just cannot write to a program...
+  if (idx == ctx->instr->program_id)
+    return 0;
+
+  return fd_txn_is_writable(ctx->txn_ctx->txn_descriptor, idx);
+}
+
+static inline
 int fd_account_is_writable(instruction_ctx_t *ctx, fd_pubkey_t *acct) {
   fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx->txn_ctx->txn_raw->raw + ctx->txn_ctx->txn_descriptor->acct_addr_off);
   ushort        acct_addr_cnt = ctx->txn_ctx->txn_descriptor->acct_addr_cnt;
@@ -63,19 +111,8 @@ int fd_account_is_writable(instruction_ctx_t *ctx, fd_pubkey_t *acct) {
     if (memcmp(&txn_accs[idx], acct, sizeof(fd_pubkey_t)) == 0)
       break;
   }
-  if (idx == acct_addr_cnt)
-    return 0;
 
-//        if self.index_in_instruction < self.instruction_context.program_accounts.len() {
-//            return false;
-//        }
-//        self.instruction_context
-//            .is_instruction_account_writable(
-//                self.index_in_instruction
-//                    .saturating_sub(self.instruction_context.program_accounts.len()),
-//            )
-//            .unwrap_or_default()
-  return fd_txn_is_writable(ctx->txn_ctx->txn_descriptor, idx);
+  return fd_account_is_writable_idx(ctx, idx);
 }
 
 static inline
@@ -109,6 +146,7 @@ int fd_account_can_data_be_changed(instruction_ctx_t *ctx, fd_account_meta_t * a
 //
 //    /// Assignes the owner of this account (transaction wide)
 
+static inline
 int fd_account_is_zeroed(fd_account_meta_t * acct) {
   if (acct->dlen == 0)
     return 1;
@@ -122,6 +160,7 @@ int fd_account_is_zeroed(fd_account_meta_t * acct) {
   return 1;
 }
 
+static inline
 int fd_account_set_owner(instruction_ctx_t *ctx, fd_account_meta_t * acct, fd_pubkey_t *key, fd_pubkey_t *pubkey) {
   if (fd_account_is_early_verification_of_account_modifications_enabled(ctx)) {
     int err = 0;
@@ -212,6 +251,7 @@ int fd_account_set_owner(instruction_ctx_t *ctx, fd_account_meta_t * acct, fd_pu
 //
 //    /// Overwrites the account data and size (transaction wide)
 
+static inline
 int fd_account_check_set_data(instruction_ctx_t *ctx, fd_account_meta_t * acct, fd_pubkey_t *key, uchar *data, ulong new_length, int space_check, int *err) {
   if (!fd_account_can_data_be_resized(ctx, acct, new_length, err))
     return 0;
@@ -253,6 +293,18 @@ int fd_account_check_set_data(instruction_ctx_t *ctx, fd_account_meta_t * acct, 
 //    ///
 //    /// Fills it with zeros at the end if is extended or truncates at the end otherwise.
 
+static inline
+int fd_account_check_set_data_length(instruction_ctx_t *ctx, fd_account_meta_t * acct, fd_pubkey_t *key, ulong new_length, int *err) {
+  if (!fd_account_can_data_be_resized(ctx, acct, new_length, err))
+    return 0;
+
+  if (!fd_account_can_data_be_changed(ctx, acct, key, err))
+    return 0;
+
+  return 1;
+}
+
+static inline
 int fd_account_set_data_length(instruction_ctx_t *ctx, fd_account_meta_t * acct, fd_pubkey_t *key, ulong new_length, int space_check, int *err) {
   if (!fd_account_can_data_be_resized(ctx, acct, new_length, err))
     return 0;
@@ -343,6 +395,7 @@ int fd_account_set_data_length(instruction_ctx_t *ctx, fd_account_meta_t * acct,
 //    }
 //
 //    /// Returns whether this account is a signer (instruction wide)
+
 static inline
 int fd_account_is_signer(instruction_ctx_t const *ctx, fd_pubkey_t * account) {
   uchar *       instr_acc_idxs = ((uchar *)ctx->txn_ctx->txn_raw->raw + ctx->instr->acct_off);
