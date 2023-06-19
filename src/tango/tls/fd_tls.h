@@ -80,6 +80,9 @@ typedef struct fd_tls_server fd_tls_server_t;
 struct fd_tls_server_hs {
   int state;
 
+  uchar client_random[ 32 ];
+  uchar server_random[ 32 ];
+
   uchar key_exchange[ 32 ];
 
   /* The shared secret derived by the X25519 key exchange */
@@ -102,7 +105,10 @@ FD_PROTOTYPES_BEGIN
 
 /* fd_tls_server_recvmsg ingests a TLS record from the client.
    Progresses the TLS state machine.  Avoids doing cryptographic
-   computation (such as public key verify, key exchange, hashing). */
+   computation (such as public key verify, key exchange, hashing).
+
+   Returns record_sz on success.  On failure, returns negated TLS alert
+   code.  FIXME document that sendmsg has to be called etc */
 
 long
 fd_tls_server_recvmsg( fd_tls_server_t const * server,
