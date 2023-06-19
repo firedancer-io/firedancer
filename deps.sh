@@ -412,6 +412,11 @@ install_openssl () {
 }
 
 install_rocksdb () {
+  if pkg-config --exists rocksdb; then
+    echo "[~] RocksDB already installed at $(pkg-config --path rocksdb), skipping installation"
+    return 0
+  fi
+
   cd ./opt/git/rocksdb
   mkdir -p build
   cd build
