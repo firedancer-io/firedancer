@@ -105,11 +105,12 @@ checkout_repo () {
 fetch () {
   mkdir -pv ./opt/git
 
-  checkout_repo zlib    https://github.com/madler/zlib       "v1.2.13"
-  checkout_repo bzip2   https://sourceware.org/git/bzip2.git "bzip2-1.0.8"
-  checkout_repo zstd    https://github.com/facebook/zstd     "v1.5.4"
-  checkout_repo openssl https://github.com/quictls/openssl   "OpenSSL_1_1_1t-quic1"
-  checkout_repo rocksdb https://github.com/facebook/rocksdb  "v7.10.2"
+  checkout_repo zlib      https://github.com/madler/zlib            "v1.2.13"
+  checkout_repo bzip2     https://sourceware.org/git/bzip2.git      "bzip2-1.0.8"
+  checkout_repo zstd      https://github.com/facebook/zstd          "v1.5.4"
+  checkout_repo openssl   https://github.com/quictls/openssl        "OpenSSL_1_1_1t-quic1"
+  checkout_repo rocksdb   https://github.com/facebook/rocksdb       "v7.10.2"
+  checkout_repo secp256k1 https://github.com/bitcoin-core/secp256k1 "v0.3.2"
 }
 
 check_fedora_pkgs () {
@@ -340,6 +341,53 @@ EOF
 
 }
 
+install_secp256k1 () {
+  if pkg-config --exists secp256k1; then
+    echo "[~] secp256k1 already installed at $(pkg-config --path secp256k1), skipping installation"
+    return 0
+  fi
+
+  cd ./opt/git/secp256k1
+
+  echo "[+] Configuring secp256k1"
+  rm -rf build
+  mkdir build
+  cd build
+  cmake .. \
+    -G"Unix Makefiles" \
+    -DCMAKE_INSTALL_PREFIX:PATH="$PREFIX" \
+    -DCMAKE_INSTALL_LIBDIR="lib" \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DSECP256K1_BUILD_TESTS=OFF \
+    -DSECP256K1_BUILD_EXHAUSTIVE_TESTS=OFF \
+    -DSECP256K1_BUILD_BENCHMARK=OFF \
+    -DSECP256K1_DISABLE_SHARED=OFF \
+    -DBUILD_SHARED_LIBS=OFF \
+    -DSECP256K1_ENABLE_MODULE_RECOVERY=ON \
+    -DSECP256K1_ENABLE_MODULE_EXTRAKEYS=OFF \
+    -DSECP256K1_ENABLE_MODULE_SCHNORRSIG=OFF \
+    -DSECP256K1_ENABLE_MODULE_ECDH=OFF
+
+  echo "[+] Building secp256k1"
+  "${MAKE[@]}"
+  echo "[+] Successfully built secp256k1"
+
+  echo "[+] Installing secp256k1 to $PREFIX"
+  make install
+  cat <<EOF > "$PREFIX/lib/pkgconfig/secp256k1.pc"
+prefix=$PREFIX
+libdir=$PREFIX/lib
+includedir=$PREFIX/include
+
+Name: secp256k1
+Description: secp256k1
+Version: $(git describe --tags --abbrev=0)
+Libs: -L\${libdir} -lsecp256k1
+Cflags: -I\${includedir}
+EOF
+  echo "[+] Successfully installed secp256k1"
+}
+
 install_openssl () {
   if pkg-config --exists openssl; then
     echo "[~] openssl already installed at $(pkg-config --path openssl), skipping installation"
@@ -361,8 +409,6 @@ install_openssl () {
   echo "[+] Installing OpenSSL to $PREFIX"
   make install_sw -j
   echo "[+] Successfully installed OpenSSL"
-
-  echo "[~] Installed all dependencies"
 }
 
 install_rocksdb () {
@@ -403,11 +449,12 @@ install_rocksdb () {
 install () {
   export CC=`which gcc`
   export cc=`which gcc`
-  ( install_zlib    )
-  ( install_bzip2   )
-  ( install_zstd    )
-  ( install_rocksdb )
-  ( install_openssl )
+  ( install_zlib      )
+  ( install_bzip2     )
+  ( install_zstd      )
+  ( install_secp256k1 )
+  ( install_rocksdb   )
+  ( install_openssl   )
 
   echo "[~] Done! To wire up $(pwd)/opt with make, run:"
   echo "    source activate-opt"
