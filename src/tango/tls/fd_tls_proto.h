@@ -5,7 +5,7 @@
 
 #include "../fd_tango_base.h"
 
-struct fd_tls_record_hdr {
+struct __attribute__((packed)) fd_tls_record_hdr {
   uchar type;
   uint  sz : 24;
 };
@@ -102,8 +102,7 @@ struct fd_tls_server_hello {
   uchar  random[ 32 ];
   ushort cipher_suite;
 
-  fd_tls_ext_supported_versions_t supported_versions;
-  fd_tls_ext_key_share_t          key_share;
+  fd_tls_ext_key_share_t key_share;
 };
 
 typedef struct fd_tls_client_hello fd_tls_client_hello_t;
@@ -185,12 +184,11 @@ typedef struct fd_tls_server_hello fd_tls_server_hello_t;
 
 #define FD_TLS_KEY_SHARE_TYPE_X25519 ((ushort)29)
 
-/* TLS v1.3 handshake message types */
+/* TLS v1.3 record types */
 
-#define FD_TLS_HANDSHAKE_TYPE_CLIENT_HELLO ((uchar) 1)
-#define FD_TLS_HANDSHAKE_TYPE_SERVER_HELLO ((uchar) 2)
-#define FD_TLS_HANDSHAKE_TYPE_NEW_SESSION_TICKET ((uchar) 4)
-#define FD_TLS_HANDSHAKE_TYPE_END_OF_EARLY_DATA ((uchar) 5)
+#define FD_TLS_RECORD_CLIENT_HELLO       ((uchar) 1)
+#define FD_TLS_RECORD_SERVER_HELLO       ((uchar) 2)
+#define FD_TLS_RECORD_NEW_SESSION_TICKET ((uchar) 4)
 
 /* Serialization related **********************************************/
 
