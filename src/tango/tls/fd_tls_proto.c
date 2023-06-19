@@ -184,17 +184,17 @@ fd_tls_encode_server_hello( fd_tls_server_hello_t * out,
   /* Encode static sized part of server hello.
      (Assuming that session ID field is of a certain size) */
 
-  ushort legacy_version       = FD_TLS_VERSION_TLS12;
-  uchar  legacy_session_id_sz = 0;
-  ushort cipher_suites_sz     = sizeof(ushort);
-  ushort cipher_suites[1]     = { FD_TLS_CIPHER_SUITE_AES_128_GCM_SHA256 };
+  ushort legacy_version            = FD_TLS_VERSION_TLS12;
+  uchar  legacy_session_id_sz      = 0;
+  ushort cipher_suite              = FD_TLS_CIPHER_SUITE_AES_128_GCM_SHA256;
+  uchar  legacy_compression_method = 0;
 
-# define FIELDS( FIELD )                            \
-    FIELD( 0, &legacy_version,       ushort, 1    ) \
-    FIELD( 1, &out->random[0],       uchar,  32UL ) \
-    FIELD( 2, &legacy_session_id_sz, uchar,  1    ) \
-    FIELD( 3, &cipher_suites_sz,     ushort, 1    ) \
-    FIELD( 4, cipher_suites,         ushort, 1    )
+# define FIELDS( FIELD )                                 \
+    FIELD( 0, &legacy_version,            ushort, 1    ) \
+    FIELD( 1, &out->random[0],            uchar,  32UL ) \
+    FIELD( 2, &legacy_session_id_sz,      uchar,  1    ) \
+    FIELD( 3, &cipher_suite,              ushort, 1    ) \
+    FIELD( 4, &legacy_compression_method, uchar,  1    )
     FD_TLS_ENCODE_STATIC_BATCH( FIELDS )
 # undef FIELDS
 
@@ -202,15 +202,6 @@ fd_tls_encode_server_hello( fd_tls_server_hello_t * out,
 
   ushort * extension_tot_sz = FD_TLS_SKIP_FIELD( ushort );
   ulong    extension_start  = wire_laddr;
-
-# define FIELDS( FIELD )                            \
-    FIELD( 0, &legacy_version,       ushort, 1    ) \
-    FIELD( 1, &out->random[0],       uchar,  32UL ) \
-    FIELD( 2, &legacy_session_id_sz, uchar,  1    ) \
-    FIELD( 3, &cipher_suites_sz,     ushort, 1    ) \
-    FIELD( 4, cipher_suites,         ushort, 1    )
-    FD_TLS_ENCODE_STATIC_BATCH( FIELDS )
-# undef FIELDS
 
   ushort ext_supported_versions_ext_type = FD_TLS_EXT_SUPPORTED_VERSIONS;
   ushort ext_supported_versions[1]       = { FD_TLS_VERSION_TLS13 };
@@ -389,11 +380,7 @@ fd_tls_decode_ext_key_share_client( fd_tls_ext_key_share_t * out,
   ulong wire_laddr = (ulong)wire;
 
   FD_TLS_DECODE_LIST_BEGIN( ushort, alignof(uchar) ) {
-    long res = fd_tls_decode_key_share_entry( out, (void const *)wire_laddr, wire_sz );
-    if( FD_UNLIKELY( res<0L ) )
-      return res;
-    wire_laddr += (ulong)res;
-    wire_sz    -= (ulong)res;
+    FD_TLS_DECODE_SUB( fd_tls_decode_key_share_entry, out );
   }
   FD_TLS_DECODE_LIST_END
 

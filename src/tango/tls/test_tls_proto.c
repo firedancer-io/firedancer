@@ -44,7 +44,6 @@ test_server_hello_encode( void ) {
       0x78, 0xf8, 0x26, 0x7a, 0x14, 0x56, 0xad, 0xaa, 0x92, 0x92, 0xff, 0xdf, 0xbb, 0x59, 0x78, 0xa4
     },
     .cipher_suite = FD_TLS_CIPHER_SUITE_AES_128_GCM_SHA256,
-    .supported_versions = { .tls13 = 1 },
     .key_share = {
       .has_x25519 = 1,
       .x25519 = {

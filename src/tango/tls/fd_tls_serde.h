@@ -112,4 +112,19 @@
     (FIELD_TYPE *)_field__laddr;                         \
   }))
 
+#define FD_TLS_DECODE_SUB( FUNC, OUT ) do {                      \
+    long res = FUNC( (OUT), (void const *)wire_laddr, wire_sz ); \
+    if( FD_UNLIKELY( res<0L ) ) return res;                      \
+    wire_laddr += (ulong)res;                                    \
+    wire_sz    -= (ulong)res;                                    \
+  } while(0)
+
+#define FD_TLS_ENCODE_SUB( FUNC, IN ) (__extension__({    \
+    long res = FUNC( (IN), (void *)wire_laddr, wire_sz ); \
+    if( FD_UNLIKELY( res<0L ) ) return res;               \
+    wire_laddr += (ulong)res;                             \
+    wire_sz    -= (ulong)res;                             \
+    (ulong)res;                                           \
+  }))
+
 #endif /* HEADER_src_ballet_tls_fd_tls_serde_h */
