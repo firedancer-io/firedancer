@@ -46,7 +46,7 @@ Running Turnine Guard is as simple as typing in 1,2,3..., literally. First let's
   $ cd firedancer                 # the root of repo if you are not there already
   $ src/app/tguard/fd_tguard_cnc  # cnc stands for command-n-control
 ```
-Then you will be presented a set of choices to pick and run repeatedly:
+you will then be presented a set of choices to pick and run repeatedly:
 ```
      Choices available to run:
         0:  Cancel/None         : exit command-n-control  
