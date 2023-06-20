@@ -177,11 +177,11 @@ fd_tguard_pcap_cb(
      LegacyData:  0b1010_0101  0xA5 seen 0xa5 only  in shreds_ens3f1_061323_135051.pcap
      MerkleCode:  0b0100_????  0x4? seen 0x46       in demo-shreds
      MerkleData:  0b1000_????  0x8? seen 0x86, 0x87 in demo-shreds */
-  if (shred->variant != 0x5A && 
-      shred->variant != 0xA5 &&
-      shred->variant != 0x46 && 
-      shred->variant != 0x86 &&
-      shred->variant != 0x87 ){
+  if ( FD_UNLIKELY( (shred->variant != 0x5A) & 
+                    (shred->variant != 0xA5) &
+                    (shred->variant != 0x46) & 
+                    (shred->variant != 0x86) &
+                    (shred->variant != 0x87) ) ){
 #if FD_TGUARD_DEBUGLVL >= 0
     FD_LOG_WARNING(("Invalid shred variant shred->variant=0x%X",
       shred->variant));
