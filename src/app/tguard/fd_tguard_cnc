@@ -19,7 +19,7 @@ cmds=(\
 )
 
 
-
+INTERACTIVE=1
 SCRIPT=$(realpath "$0") # so that go through softlink to true path
 SCRIPT_PATH="$( cd -- "$(dirname "$SCRIPT")" >/dev/null 2>&1 ; pwd -P )"
 
@@ -43,6 +43,11 @@ case $SCRIPT_PATH in
 esac
 
 stress_test() {
+    if [[ $INTERACTIVE -eq "0" ]]; then
+        printf "\n\n     stress_test can only be run in interactive mode from cnc panel\n\n"
+        return 1
+    fi
+
     printf "\n\n"
     read -p "     pcap pathname: " pcapfile_raw
     pcapfile=$(realpath $(eval echo "$pcapfile_raw")) # need 'eval echo "$pcapfile_raw"' for path start with "~" to work
@@ -210,15 +215,19 @@ run_tguard_monitor() {
 run_tguard() {
     check_file_exist ${BUILD_DIR}/bin/fd_tguard_run || return 1
 
-    printf "\n\n"
-    read -n 1 -p "     Enable default logging in /tmp? (y|n:default)" userresponse
-
-    if [ "$userresponse" == "y" ]; then
-            unset FD_LOG_PATH
-            printf "\n     Default loggined enabled in /tmp\n\n"
+    if [[ $INTERACTIVE -eq "0" ]]; then
+        export FD_LOG_PATH=""
     else
-            export FD_LOG_PATH=""
-            printf "\n     Default loggined disabled\n\n"
+        printf "\n\n"
+        read -n 1 -p "     Enable default logging in /tmp? (y|n:default)" userresponse
+
+        if [ "$userresponse" == "y" ]; then
+                unset FD_LOG_PATH
+                printf "\n     Default loggined enabled in /tmp\n\n"
+        else
+                export FD_LOG_PATH=""
+                printf "\n     Default loggined disabled\n\n"
+        fi
     fi
 
     ${BUILD_DIR}/bin/fd_tguard_run ${APP_NAME} ${CPU_AFFINITY}
@@ -252,6 +261,7 @@ get_clean_cmd() {
 
 prompt_and_eval_cmd() {
     if [[ $# == "0" ]]; then
+        INTERACTIVE=1
         printf "\n     Choices available to run:\n"
         for (( i=0; i<${#cmds[@]}; i++ ));
         do
@@ -266,6 +276,7 @@ prompt_and_eval_cmd() {
         printf "\n"
         read -p "     Enter choice id to run: " userresponse1
     else
+        INTERACTIVE=0
         userresponse1=$1
     fi
 
