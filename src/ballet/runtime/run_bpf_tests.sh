@@ -2,8 +2,8 @@
 
 # this assumes the test_runtime has already been built
 
-if [ ! -e contract-ledger ]; then
-  wget -q https://github.com/firedancer-io/firedancer-testbins/raw/main/contract-ledger.tar.gz -O - | tar zxf -
+if [ ! -e v13-contract-ledger ]; then
+  wget -q https://github.com/firedancer-io/firedancer-testbins/raw/main/v13-contract-ledger.tar.gz -O - | tar zxf -
 fi
 
 # We determine these values by
@@ -29,9 +29,9 @@ if [ -e /mnt/.fd/.gigantic/test_ledger_wksp ]; then
 fi
 build/linux/gcc/x86_64/bin/fd_wksp_ctl new test_ledger_wksp 5 gigantic 0 0666
 
-build/linux/gcc/x86_64/bin/fd_frank_ledger --wksp test_ledger_wksp --reset true --persist testfunk --rocksdb contract-ledger/rocksdb --cmd ingest --gaddrout testgaddr --indexmax 10000 --txnmax 100
+build/linux/gcc/x86_64/bin/fd_frank_ledger --wksp test_ledger_wksp --reset true --persist testfunk --rocksdb v13-contract-ledger/rocksdb --cmd ingest --gaddrout testgaddr --indexmax 10000 --txnmax 100
 
-build/linux/gcc/x86_64/unit-test/test_runtime --ledger contract-ledger --wksp test_ledger_wksp --gaddr `cat testgaddr` --cmd replay --start-slot 0 --end-slot 30 --validate true --persist testfunk
+build/linux/gcc/x86_64/unit-test/test_runtime --ledger v13-contract-ledger --wksp test_ledger_wksp --gaddr `cat testgaddr` --cmd replay --start-slot 0 --end-slot 30 --validate true --persist testfunk
 
 status=$?
 
