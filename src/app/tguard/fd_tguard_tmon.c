@@ -131,10 +131,10 @@ fd_tguard_pcap_cb(
   }
   
   ushort udp_length = reverse_ushort_bytes(pkt_fields->udp_len);
-  if ( FD_UNLIKELY( udp_length != FD_TGUARD_UDP_LEN_MDATA &&
-                    udp_length != FD_TGUARD_UDP_LEN_MCODE &&
-                    udp_length != FD_TGUARD_UDP_LEN_LDATA &&
-                    udp_length != FD_TGUARD_UDP_LEN_LCODE ) ) {
+  if ( FD_UNLIKELY( (udp_length != FD_TGUARD_UDP_LEN_MDATA) &
+                    (udp_length != FD_TGUARD_UDP_LEN_MCODE) &
+                    (udp_length != FD_TGUARD_UDP_LEN_LDATA) &
+                    (udp_length != FD_TGUARD_UDP_LEN_LCODE) ) ) {
 #if FD_TGUARD_DEBUGLVL > 0
     FD_LOG_WARNING(( "UDP packet not sized to be a shred with"
       " pkt_fields->udp_len=0x%X udp_length=%hu\n",
