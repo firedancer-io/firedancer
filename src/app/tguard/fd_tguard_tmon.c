@@ -97,7 +97,7 @@ fd_tguard_pcap_cb(
   const u_char *packet
 ) {
   if ( FD_UNLIKELY( !pkthdr || pkthdr->caplen != pkthdr->len ) ) return;
-  
+
   wormhole_t *  wormhole = (wormhole_t *)  pcap_user_var;
 
   if (pkthdr->caplen < FD_TGUARD_PKT_SIZ_MIN) {
@@ -189,7 +189,7 @@ fd_tguard_pcap_cb(
       Hence need to validate false parsing with multiple checks:
         1. shred_ptr is non-NULL
         2. shred variant is exact match of known values: 0x5a, 0xa5, 0x86, 0x87, 0x46
-        3. shred.slot is 20+yr into the future
+        3. shred.slot is less than 20+yr into the future
   */
   if ( FD_UNLIKELY( !shred ) ) {
 #if FD_TGUARD_DEBUGLVL > 0
