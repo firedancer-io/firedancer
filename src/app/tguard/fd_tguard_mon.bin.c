@@ -7,7 +7,6 @@
 
 #include <stdio.h>
 #include <signal.h>
-#include <stdlib.h>
 
 /* TEXT_* are quick-and-dirty color terminal hacks.  Probably should
    do something more robust longer term. */
@@ -456,7 +455,7 @@ main( int     argc,
     /* FIXME: CONSIDER ADDING INFO LIKE PID OF INSTANCE */
 
     char now_cstr[ FD_LOG_WALLCLOCK_CSTR_BUF_SZ ];
-    system("clear"); for (ulong i=128; i; i--) printf("\n"); /* ensure display from bottom so no change for next cnc run */
+    for (ulong i=128; i; i--) printf("\n"); /* ensure display from bottom so no change for next cnc run */
     printf("\n");
     printf( "snapshot for %s\n", fd_log_wallclock_cstr( now, now_cstr ) );
     printf( "  tile |      stale | heart |        sig | in backp |           backp cnt |         sv_filt cnt |                    tx seq |                    rx seq\n" );
