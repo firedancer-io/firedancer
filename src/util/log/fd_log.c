@@ -1065,7 +1065,8 @@ fd_log_private_boot( int  *   pargc,
     void * btrace[128];
     int btrace_cnt = backtrace( btrace, 128 );
     int fd = open( "/dev/null", O_WRONLY | O_APPEND );
-    if( FD_UNLIKELY( fd==-1 ) ) fprintf( stderr, "open( \"/dev/null\", O_WRONLY | O_APPEND ) failed; attempting to continue\n" );
+    if( FD_UNLIKELY( fd==-1 ) )
+      fprintf( stderr, "open( \"/dev/null\", O_WRONLY | O_APPEND ) failed (%i-%s); attempting to continue\n", errno, strerror( errno ) );
     else {
       backtrace_symbols_fd( btrace, btrace_cnt, fd );
       if( FD_UNLIKELY( close( fd ) ) )

@@ -1,0 +1,85 @@
+#ifndef HEADER_fd_src_util_sandbox_fd_sandbox_h
+#define HEADER_fd_src_util_sandbox_fd_sandbox_h
+
+#include "../env/fd_env.h"
+#include "../log/fd_log.h"
+
+/* The purpose of the sandbox is to reduce the impact of a Firedancer
+   compromise.
+
+   When starting, before executing any task code and/or processing
+   user-provided input, a Firedancer process prepares everything it
+   needs in order to function properly. This initialization mostly
+   consists in:
+
+   * Creating new tiles which will be used for task execution (clone
+      syscall)
+   * Opening the relevant workspaces which will be used to perform work
+      and communicate (mmap syscall)
+   * Immediately after performing those operations, Firedancer sandboxes
+      itself. Note that firedancer has to be started as root or with
+      various capabilities in order to be able to sandbox itself.
+
+   Here are the mechanisms currently used by Firedancer to achieve
+   sandboxing:
+
+   * The environment variable are cleared. Environment variables are
+      commonly used to hold secrets. If Firedancer is compromised, no
+      secrets living in the operator's environment will be leaked.
+   * The process loses access to network interfaces. The process
+      unshares the network namespace to keep the principle of least
+      privilege: in the event where the process was able to interact
+      with a network interface, it should not be able to perform any
+      communication.
+   * The process gets a restricted view of the filesystem. It is jailed
+      into a mount namespace with a root of its own. The process should
+      only be able to interact with files that it needs to function.
+   * The process is restricted from opening any new files with
+      restrictive resource limits. In the future, more resources types
+      can be limited. Firedancer processes have well understood expected
+      behaviors and resource needs. A process should not be able to
+      exceed those limits, potentially leading to availability issues.
+   * The process enters a new user namespace, and the user it runs as
+      inside the namespace is mapped to the overflow user outside of the
+      namespace. In the case where another control was to fail, the
+      process should be interacting with the system as an unprivileged
+      user.
+   * All file descriptors above a specified number are forcefully
+      closed. Similar to and more impactful than clearenv, an operator's
+      process can have FDs opened that are 1. not relevant to Firedancer
+      2. references to sensitive resources. Those resources should not
+      be made available to Firedancer.
+   * We prevent the usage of most syscalls, only allowing those
+      explicitly needed by the specific Firedancer component. Syscalls
+      are used to interact with the operating system. There exists close
+      to 400 syscalls. While running, A Firedancer process requires 14
+      syscalls out of those 400 in order to perform its functions.
+      Firedancer will crash if it attempts to use a syscall that is not
+      expected. Note: It also happens that the syscalls that Firedancer
+      is using are ubiquitous and well understood. They have stood the
+      test of time (not that time is an ultimate metric for greatness).
+      We have the luxury of disallowing all of the syscalls that might
+      have received less scrutiny. */
+
+/* Sandbox the current process by dropping all privileges and entering various
+   restricted namespaces, but leave it able to make system calls. This should be
+   done as a first step before later calling`fd_sandbox_private`. */
+void
+fd_sandbox_private_privileged( int *    pargc,
+                               char *** pargv );
+
+/* fd_sandbox_private sandboxes the current process. After calling, the process
+   has maximally restricted privileges we can enable given the host environment.
+   On Linux, seccomp is used to prevent any syscalls except select whitelisted
+   ones.
+*/
+void
+fd_sandbox_private( int *    pargc,
+                    char *** pargv );
+
+/* Only used by test code. Install private sandbox without seccomp, used so
+   we can test with some syscalls without bringing down the process. */
+void
+fd_sandbox_private_no_seccomp( void );
+
+#endif /* HEADER_fd_src_util_sandbox_fd_sandbox_h */
