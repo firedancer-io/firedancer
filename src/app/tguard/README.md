@@ -66,14 +66,20 @@ you will then be presented a set of choices to pick and run repeatedly:
 ```
 Alternatively, you can make ***one-shot*** runs of fd_tguard_cnc like:
 ```
-  $ src/app/tguard/fd_tguard_cnc <your choice ids>
+  # setup workspace for datastores from scratch
+  $ src/app/tguard/fd_tguard_cnc 3
 
-  # example to edit config and then recompile:
-  #   $ src/app/tguard/fd_tguard_cnc 1 2
+  # refresh/clear datastores in workspace
+  $ src/app/tguard/fd_tguard_cnc 4
 
-  # example to halt tmon, tqos, and fd_tguard_run.bin :
-  #   $ src/app/tguard/fd_tguard_cnc 8 9 10
+  # edit config, recompile, then re-run tguard:
+  $ src/app/tguard/fd_tguard_cnc 1 2 7
 
+  # launch tguard activity monitor
+  $ src/app/tguard/fd_tguard_cnc 6
+
+  # just recompile
+  src/app/tguard/fd_tguard_cnc 2
 ```
 
 When starting from scratch, you can just run through 1 to 7 in that order.
