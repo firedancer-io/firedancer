@@ -26,12 +26,12 @@
      transaction was dropped by a verify tile due to failing signature
      verification. */
 
-#define FD_TGUARD_CNC_DIAG_IN_BACKP    FD_CNC_DIAG_IN_BACKP  /* ==0 */
-#define FD_TGUARD_CNC_DIAG_BACKP_CNT   FD_CNC_DIAG_BACKP_CNT /* ==1 */
-#define FD_TGUARD_CNC_DIAG_HA_FILT_CNT (2UL)                 /* updated by verify tile, frequently in ha situations, never o.w. */
-#define FD_TGUARD_CNC_DIAG_HA_FILT_SZ  (3UL)                 /* " */
-#define FD_TGUARD_CNC_DIAG_SV_FILT_CNT (4UL)                 /* ", ideally never */
-#define FD_TGUARD_CNC_DIAG_SV_FILT_SZ  (5UL)                 /* " */
+#define FD_TGUARD_CNC_DIAG_IN_BACKP       FD_CNC_DIAG_IN_BACKP  /* ==0 */
+#define FD_TGUARD_CNC_DIAG_BACKP_CNT      FD_CNC_DIAG_BACKP_CNT /* ==1 */
+#define FD_TGUARD_CNC_DIAG_DEDUP_CNT      (2UL)
+#define FD_TGUARD_CNC_DIAG_DEDUP_SIZ      (3UL)
+#define FD_TGUARD_CNC_DIAG_SHRED_FILT_CNT (4UL)
+#define FD_TGUARD_CNC_DIAG_SHRED_FILT_SIZ (5UL)
 
 #define FD_TGUARD_ULONG_GET_BIT(x, a)  ((x &  (   1UL << a  )))
 #define FD_TGUARD_ULONG_SET_BIT(x, a)  ( x |= (   1UL << a  ) )

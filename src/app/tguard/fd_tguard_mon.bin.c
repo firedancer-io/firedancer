@@ -260,10 +260,10 @@ struct snap {
 
   ulong cnc_diag_in_backp;
   ulong cnc_diag_backp_cnt;
-  ulong cnc_diag_ha_filt_cnt;
-  ulong cnc_diag_ha_filt_sz;
-  ulong cnc_diag_sv_filt_cnt;
-  ulong cnc_diag_sv_filt_sz;
+  ulong cnc_diag_dedup_cnt;
+  ulong cnc_diag_dedup_sz;
+  ulong cnc_diag_shrdf_cnt;
+  ulong cnc_diag_shrdf_sz;
 
   ulong mcache_seq;
 
@@ -298,12 +298,12 @@ snap( ulong             tile_cnt,     /* Number of tiles to snapshot */
       snap->cnc_signal    = fd_cnc_signal_query   ( cnc );
       ulong const * cnc_diag = (ulong const *)fd_cnc_app_laddr_const( cnc );
       FD_COMPILER_MFENCE();
-      snap->cnc_diag_in_backp    = cnc_diag[ FD_TGUARD_CNC_DIAG_IN_BACKP    ];
-      snap->cnc_diag_backp_cnt   = cnc_diag[ FD_TGUARD_CNC_DIAG_BACKP_CNT   ];
-      snap->cnc_diag_ha_filt_cnt = cnc_diag[ FD_TGUARD_CNC_DIAG_HA_FILT_CNT ];
-      snap->cnc_diag_ha_filt_sz  = cnc_diag[ FD_TGUARD_CNC_DIAG_HA_FILT_SZ  ];
-      snap->cnc_diag_sv_filt_cnt = cnc_diag[ FD_TGUARD_CNC_DIAG_SV_FILT_CNT ];
-      snap->cnc_diag_sv_filt_sz  = cnc_diag[ FD_TGUARD_CNC_DIAG_SV_FILT_SZ  ];
+      snap->cnc_diag_in_backp  = cnc_diag[ FD_TGUARD_CNC_DIAG_IN_BACKP       ];
+      snap->cnc_diag_backp_cnt = cnc_diag[ FD_TGUARD_CNC_DIAG_BACKP_CNT      ];
+      snap->cnc_diag_dedup_cnt = cnc_diag[ FD_TGUARD_CNC_DIAG_DEDUP_CNT      ];
+      snap->cnc_diag_dedup_sz  = cnc_diag[ FD_TGUARD_CNC_DIAG_DEDUP_SIZ      ];
+      snap->cnc_diag_shrdf_cnt = cnc_diag[ FD_TGUARD_CNC_DIAG_SHRED_FILT_CNT ];
+      snap->cnc_diag_shrdf_sz  = cnc_diag[ FD_TGUARD_CNC_DIAG_SHRED_FILT_SIZ ];
       FD_COMPILER_MFENCE();
 
       pmap |= 1UL;
@@ -454,36 +454,82 @@ main( int     argc,
     /* FIXME: CONSIDER INCLUDING TILE UPTIME */
     /* FIXME: CONSIDER ADDING INFO LIKE PID OF INSTANCE */
 
+    /* ensure display from bottom so no change for next cnc run */
+    for (ulong i=128; i; i--) printf("\n"); 
+
     char now_cstr[ FD_LOG_WALLCLOCK_CSTR_BUF_SZ ];
-    for (ulong i=128; i; i--) printf("\n"); /* ensure display from bottom so no change for next cnc run */
     printf("\n");
     printf( "snapshot for %s\n", fd_log_wallclock_cstr( now, now_cstr ) );
-    printf( "  tile |      stale | heart |        sig | in backp |           backp cnt |         sv_filt cnt |                    tx seq |                    rx seq\n" );
-    printf( "-------+------------+-------+------------+----------+---------------------+---------------------+---------------------------+---------------------------\n" );
+    printf( "  tile "
+      "|      stale "
+      "| heart "
+      "|        sig "
+      "| in backp "
+      "|           backp cnt "
+      "|      shred_filt cnt "
+      "|     shred_dedup cnt "
+      "|                    tx seq "
+      "|                    rx seq\n" 
+    );
+    printf( "-------"
+      "+------------"
+      "+-------"
+      "+------------"
+      "+----------"
+      "+---------------------"
+      "+---------------------"
+      "+---------------------"
+      "+---------------------------"
+      "+---------------------------\n"
+    );
     for( ulong tile_idx=0UL; tile_idx<tile_cnt; tile_idx++ ) {
       snap_t * prv = &snap_prv[ tile_idx ];
       snap_t * cur = &snap_cur[ tile_idx ];
+      
+      /* col: tile */
       printf( " %5s", tile_name[ tile_idx ] );
+
+      /* col: | stale | heart | sig | in backp | backp cnt | sv_filt cn | */
       if( FD_LIKELY( cur->pmap & 1UL ) ) {
+        /* co: | stale */
         printf( " | " ); printf_stale   ( (long)(0.5+ns_per_tic*(double)(toc - cur->cnc_heartbeat)), dt_min );
+
+        /* co: | heart */
         printf( " | " ); printf_heart   ( cur->cnc_heartbeat,        prv->cnc_heartbeat        );
+
+        /* co: | sig */
         printf( " | " ); printf_sig     ( cur->cnc_signal,           prv->cnc_signal           );
+
+        /* co: | in backp */
         printf( " | " ); printf_err_bool( cur->cnc_diag_in_backp,    prv->cnc_diag_in_backp    );
+
+        /* co: | backp cnt */
         printf( " | " ); printf_err_cnt ( cur->cnc_diag_backp_cnt,   prv->cnc_diag_backp_cnt   );
-        printf( " | " ); printf_err_cnt ( cur->cnc_diag_sv_filt_cnt, prv->cnc_diag_sv_filt_cnt );
-      } else {
-        printf(       " |          - |     - |          - |        - |                   -" );
+
+        /* co: | shred_filt cnt */
+        printf( " | " ); printf_err_cnt ( cur->cnc_diag_shrdf_cnt, prv->cnc_diag_shrdf_cnt );
+
+        /* co: | shred_dedup cnt */
+        printf( " | " ); printf_err_cnt ( cur->cnc_diag_dedup_cnt, prv->cnc_diag_dedup_cnt );
+      } 
+      else {
+        printf(       " |          - |     - |          - |        - |                   -|                   -" );
       }
+
+      /* col: | tx seq |*/
       if( FD_LIKELY( cur->pmap & 2UL ) ) {
         printf( " | " ); printf_seq( cur->mcache_seq, prv->mcache_seq );
       } else {
         printf( " |                         -" );
       }
+
+      /* col: | rx seq  */
       if( FD_LIKELY( cur->pmap & 4UL ) ) {
         printf( " | " ); printf_seq( cur->fseq_seq, prv->fseq_seq );
       } else {
         printf( " |                         -" );
       }
+
       printf( "\n" );
     }
     printf( "\n" );
@@ -500,10 +546,10 @@ main( int     argc,
       long dt = now-then;
       snap_t * prv = &snap_prv[ tile_idx ];
       snap_t * cur = &snap_cur[ tile_idx ];
-      ulong cur_raw_cnt = cur->cnc_diag_ha_filt_cnt + cur->fseq_diag_tot_cnt;
-      ulong cur_raw_sz  = cur->cnc_diag_ha_filt_sz  + cur->fseq_diag_tot_sz;
-      ulong prv_raw_cnt = prv->cnc_diag_ha_filt_cnt + prv->fseq_diag_tot_cnt;
-      ulong prv_raw_sz  = prv->cnc_diag_ha_filt_sz  + prv->fseq_diag_tot_sz;
+      ulong cur_raw_cnt = cur->cnc_diag_shrdf_cnt + cur->cnc_diag_dedup_cnt + cur->fseq_diag_tot_cnt;
+      ulong cur_raw_sz  = cur->cnc_diag_shrdf_sz  + cur->cnc_diag_dedup_sz  + cur->fseq_diag_tot_sz;
+      ulong prv_raw_cnt = prv->cnc_diag_shrdf_cnt + prv->cnc_diag_dedup_cnt + prv->fseq_diag_tot_cnt;
+      ulong prv_raw_sz  = prv->cnc_diag_shrdf_sz  + prv->cnc_diag_dedup_sz  + prv->fseq_diag_tot_sz;
 
       printf( " | " ); printf_rate( 1e9, 0., cur_raw_cnt,             prv_raw_cnt,             dt );
       printf( " | " ); printf_rate( 8e9, 0., cur_raw_sz,              prv_raw_sz,              dt ); /* Assumes sz incl framing */

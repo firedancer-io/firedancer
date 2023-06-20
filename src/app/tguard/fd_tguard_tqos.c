@@ -277,6 +277,16 @@ fd_tguard_tqos_task( int     argc,
   fd_cnc_t * cnc = fd_cnc_join( fd_wksp_pod_map( cfg_pod, "tqos.cnc" ) );
   if( FD_UNLIKELY( !cnc ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
   if( FD_UNLIKELY( fd_cnc_signal_query( cnc )!=FD_CNC_SIGNAL_BOOT ) ) FD_LOG_ERR(( "cnc not in boot state" ));
+  ulong * cnc_diag = (ulong *)fd_cnc_app_laddr( cnc );
+  if( FD_UNLIKELY( !cnc_diag ) ) FD_LOG_ERR(( "fd_cnc_app_laddr failed" ));
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( cnc_diag[ FD_TGUARD_CNC_DIAG_IN_BACKP       ] ) = 0UL;
+  FD_VOLATILE( cnc_diag[ FD_TGUARD_CNC_DIAG_BACKP_CNT      ] ) = 0UL;
+  FD_VOLATILE( cnc_diag[ FD_TGUARD_CNC_DIAG_DEDUP_CNT      ] ) = 0UL;
+  FD_VOLATILE( cnc_diag[ FD_TGUARD_CNC_DIAG_DEDUP_SIZ      ] ) = 0UL;
+  FD_VOLATILE( cnc_diag[ FD_TGUARD_CNC_DIAG_SHRED_FILT_CNT ] ) = 0UL;
+  FD_VOLATILE( cnc_diag[ FD_TGUARD_CNC_DIAG_SHRED_FILT_SIZ ] ) = 0UL;
+  FD_COMPILER_MFENCE();
 
   char * pod_subpath;
 

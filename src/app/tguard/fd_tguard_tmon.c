@@ -64,17 +64,23 @@ typedef struct
   ulong            *pkt_sz;
   atomic_ulong     *cr_avail;
   ulong            *store_idx;
+
   uchar *          *chunk0_laddr;
   fd_frag_meta_t * *mcache;
   ulong            *mdepth;
   // ulong            *mseq;
   atomic_ulong     *mseq;
+
   ulong            *tcache_sync;
   ulong *          *tcache_ring_p; 
   ulong            *tcache_depth;
   ulong *          *tcache_map_p; 
   ulong            *tcache_map_cnt; 
-  ulong            *tcache_ddp_cnt;
+
+  ulong            *dedup_cnt;
+  ulong            *dedup_siz;
+  ulong            *shrdf_cnt;
+  ulong            *shrdf_siz;
 } wormhole_t;
 
 static inline ushort 
@@ -91,6 +97,8 @@ fd_tguard_pcap_cb(
   const u_char *packet
 ) {
   if ( FD_UNLIKELY( !pkthdr || pkthdr->caplen != pkthdr->len ) ) return;
+  
+  wormhole_t *  wormhole = (wormhole_t *)  pcap_user_var;
 
   if (pkthdr->caplen < FD_TGUARD_PKT_SIZ_MIN) {
 #if FD_TGUARD_DEBUGLVL > 0
@@ -98,6 +106,10 @@ fd_tguard_pcap_cb(
       " pkthdr->caplen = %hu\n",
       pkthdr->caplen ));
 #endif
+    FD_COMPILER_MFENCE();
+    *wormhole->shrdf_cnt += 1UL;
+    *wormhole->shrdf_siz += (ulong)pkthdr->caplen;
+    FD_COMPILER_MFENCE();
     return;
   }
 
@@ -108,6 +120,10 @@ fd_tguard_pcap_cb(
     FD_LOG_WARNING(( "Non-IP packet with pkt_fields->eth_proto = %hu\n",
       pkt_fields->eth_proto ));
 #endif
+    FD_COMPILER_MFENCE();
+    *wormhole->shrdf_cnt += 1UL;
+    *wormhole->shrdf_siz += (ulong)pkthdr->caplen;
+    FD_COMPILER_MFENCE();
     return;
   }
 
@@ -119,6 +135,10 @@ fd_tguard_pcap_cb(
       "pkt_fields->ip_hdrlen = %hu\n",
       pkt_fields->ip_hdrlen ));
 #endif
+    FD_COMPILER_MFENCE();
+    *wormhole->shrdf_cnt += 1UL;
+    *wormhole->shrdf_siz += (ulong)pkthdr->caplen;
+    FD_COMPILER_MFENCE();
     return;
   }
 
@@ -127,6 +147,10 @@ fd_tguard_pcap_cb(
     FD_LOG_WARNING(( "Non-UDP packet with pkt_fields->ip_proto = %hu\n",
       pkt_fields->ip_proto ));
 #endif
+    FD_COMPILER_MFENCE();
+    *wormhole->shrdf_cnt += 1UL;
+    *wormhole->shrdf_siz += (ulong)pkthdr->caplen;
+    FD_COMPILER_MFENCE();
     return;
   }
   
@@ -140,6 +164,10 @@ fd_tguard_pcap_cb(
       " pkt_fields->udp_len=0x%X udp_length=%hu\n",
       pkt_fields->udp_len, udp_length ));
 #endif
+    FD_COMPILER_MFENCE();
+    *wormhole->shrdf_cnt += 1UL;
+    *wormhole->shrdf_siz += (ulong)pkthdr->caplen;
+    FD_COMPILER_MFENCE();
     return;
   }
 
@@ -170,6 +198,10 @@ fd_tguard_pcap_cb(
       pkt_fields->ip_src, pkt_fields->ip_dst, 
       reverse_ushort_bytes(pkt_fields->udp_len) ));
 #endif
+    FD_COMPILER_MFENCE();
+    *wormhole->shrdf_cnt += 1UL;
+    *wormhole->shrdf_siz += (ulong)pkthdr->caplen;
+    FD_COMPILER_MFENCE();
     return;
   }
 
@@ -186,10 +218,12 @@ fd_tguard_pcap_cb(
     FD_LOG_WARNING(("Invalid shred variant shred->variant=0x%X",
       shred->variant));
 #endif
+    FD_COMPILER_MFENCE();
+    *wormhole->shrdf_cnt += 1UL;
+    *wormhole->shrdf_siz += (ulong)pkthdr->caplen;
+    FD_COMPILER_MFENCE();
     return;
   }
-
-  wormhole_t *  wormhole = (wormhole_t *)  pcap_user_var;
 
   /* To weed out block time "> 20 yr".
        Saw slot_idx of 16475420188292854470 in one packet
@@ -214,6 +248,10 @@ fd_tguard_pcap_cb(
       reverse_ushort_bytes(pkt_fields->udp_len)
     ));
 #endif
+    FD_COMPILER_MFENCE();
+    *wormhole->shrdf_cnt += 1UL;
+    *wormhole->shrdf_siz += (ulong)pkthdr->caplen;
+    FD_COMPILER_MFENCE();
     return;
   }
 
@@ -236,7 +274,10 @@ fd_tguard_pcap_cb(
   #endif
   /* tcahce will dedup all-0 tags even if it is not seen befoe, so guard with cum_cnt */
   if( FD_UNLIKELY( *wormhole->cum_cnt && is_dup ) ) { /* Optimize for forwarding path */
-    *wormhole->tcache_ddp_cnt += 1UL;
+    FD_COMPILER_MFENCE();
+    *wormhole->dedup_cnt += 1UL;
+    *wormhole->dedup_siz += (ulong)pkthdr->caplen;
+    FD_COMPILER_MFENCE();
     return;
   }
 
@@ -321,11 +362,18 @@ fd_tguard_tmon_task(
   if( FD_UNLIKELY( fd_cnc_signal_query( cnc )!=FD_CNC_SIGNAL_BOOT ) ) FD_LOG_ERR(( "cnc not in boot state" ));
   ulong * cnc_diag = (ulong *)fd_cnc_app_laddr( cnc );
   if( FD_UNLIKELY( !cnc_diag ) ) FD_LOG_ERR(( "fd_cnc_app_laddr failed" ));
-  int in_backp = 1;
-
+  int   in_backp  = 1  ;
+  ulong dedup_cnt = 0UL;
+  ulong dedup_siz = 0UL;
+  ulong shrdf_cnt = 0UL;
+  ulong shrdf_siz = 0UL;
   FD_COMPILER_MFENCE();
-  FD_VOLATILE( cnc_diag[ FD_TGUARD_CNC_DIAG_IN_BACKP    ] ) = 1UL;
-  FD_VOLATILE( cnc_diag[ FD_TGUARD_CNC_DIAG_BACKP_CNT   ] ) = 0UL;
+  FD_VOLATILE( cnc_diag[ FD_TGUARD_CNC_DIAG_IN_BACKP       ] ) = 1UL      ;
+  FD_VOLATILE( cnc_diag[ FD_TGUARD_CNC_DIAG_BACKP_CNT      ] ) = 0UL      ;
+  FD_VOLATILE( cnc_diag[ FD_TGUARD_CNC_DIAG_DEDUP_CNT      ] ) = dedup_cnt;
+  FD_VOLATILE( cnc_diag[ FD_TGUARD_CNC_DIAG_DEDUP_SIZ      ] ) = dedup_siz;
+  FD_VOLATILE( cnc_diag[ FD_TGUARD_CNC_DIAG_SHRED_FILT_CNT ] ) = shrdf_cnt;
+  FD_VOLATILE( cnc_diag[ FD_TGUARD_CNC_DIAG_SHRED_FILT_SIZ ] ) = shrdf_siz;
   FD_COMPILER_MFENCE();
 
   char * pod_subpath;
@@ -361,7 +409,6 @@ fd_tguard_tmon_task(
 
   /* tcache filter init */
 
-  ulong   tcache_ddp_cnt = 0UL;
   ulong   tcache_depth   = fd_tcache_depth       ( tcache );
   ulong   tcache_map_cnt = fd_tcache_map_cnt     ( tcache );
   ulong * _tcache_sync   = fd_tcache_oldest_laddr( tcache );
@@ -478,7 +525,10 @@ fd_tguard_tmon_task(
     .tcache_depth   = &tcache_depth   , 
     .tcache_map_p   = &_tcache_map    , 
     .tcache_map_cnt = &tcache_map_cnt , 
-    .tcache_ddp_cnt = &tcache_ddp_cnt
+    .dedup_cnt      = &dedup_cnt      ,
+    .dedup_siz      = &dedup_siz      ,
+    .shrdf_cnt      = &shrdf_cnt      ,
+    .shrdf_siz      = &shrdf_siz      
   };
   u_char * pcap_user_var = (u_char *) &wormhole;
   
@@ -492,7 +542,9 @@ fd_tguard_tmon_task(
   for(;;) {
     now = fd_tickcount();
     if( FD_UNLIKELY( (now-hk_timer)>=0L ) ) { /* Housekeeping at a low rate */
+
       /* Send synchronization info */
+
       /* it is more appropriate to update with "mseq-1":
           - "mseq" is the seq of the pkt to be produced/published next, 
                   not the seq of the pkt  just produced/published most recently.
@@ -511,8 +563,13 @@ fd_tguard_tmon_task(
                   which will make consumer to look for ULONG_MAX as the one just
                   been produced/published, causing consumer hang */
       fd_mcache_seq_update( msync, mseq > 0UL ? fd_seq_dec( mseq, 1UL ) : 0UL );
+
       FD_COMPILER_MFENCE();
       FD_VOLATILE( *_tcache_sync ) = tcache_sync;
+      FD_VOLATILE( cnc_diag[ FD_TGUARD_CNC_DIAG_DEDUP_CNT      ] ) = dedup_cnt;
+      FD_VOLATILE( cnc_diag[ FD_TGUARD_CNC_DIAG_DEDUP_SIZ      ] ) = dedup_siz;
+      FD_VOLATILE( cnc_diag[ FD_TGUARD_CNC_DIAG_SHRED_FILT_CNT ] ) = shrdf_cnt;
+      FD_VOLATILE( cnc_diag[ FD_TGUARD_CNC_DIAG_SHRED_FILT_SIZ ] ) = shrdf_siz;
       FD_COMPILER_MFENCE();
 
       /* Send diagnostic info */
@@ -576,9 +633,9 @@ fd_tguard_tmon_task(
     pcap_cum_cnt_loc += (ulong) pcap_cnt_or_status;
     FD_LOG_NOTICE(( "%6d new packets captured,   callback stats: "
       "pub_pkt_sz=%lu pub_cum_sz=%lu pub_cum_cnt=%lu" 
-      "   workloop stats: fseq=%lu mseq=%lu mcr_avail=%lu cum_cnt=%lu tcache_ddp_cnt=%lu\n",
+      "   workloop stats: fseq=%lu mseq=%lu mcr_avail=%lu cum_cnt=%lu dedup_cnt=%lu\n",
       pcap_cnt_or_status, pcap_pkt_sz, pcap_cum_sz, pcap_cum_cnt, 
-      FD_VOLATILE_CONST( fseq[0] ), mseq, mcr_avail, pcap_cum_cnt_loc, tcache_ddp_cnt ));
+      FD_VOLATILE_CONST( fseq[0] ), mseq, mcr_avail, pcap_cum_cnt_loc, dedup_cnt ));
 #else
     (void)pcap_cum_cnt_loc;
 #endif
