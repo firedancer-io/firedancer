@@ -18,6 +18,7 @@
 #include "rng/fd_rng.h"             /* includes bits/fd_bits.h */
 #include "tpool/fd_tpool.h"         /* includes tile/fd_tile.h and scratch/fd_scratch.h */
 #include "alloc/fd_alloc.h"         /* includes wksp/fd_wksp.h */
+#include "sandbox/fd_sandbox.h"
 
 /* Additional fd_util APIs that are not included by default */
 
@@ -274,6 +275,31 @@ FD_PROTOTYPES_BEGIN
 void
 fd_boot( int *    pargc,
          char *** pargv );
+
+/* Booting securely means starting with a maximal sandbox. This is a
+   three step process,
+
+     1. Initialize logging and shared memory infrastructure
+     .... User code loads any resources it needs
+     2. Drop all privileges, initialize tiles, and enforce seccomp
+        syscall filter,
+
+  These boot_secure1 and boot_secure2 functions map to steps 1 and 2,
+  so that user code can run inbetween to load privileged resources
+  while using logging.
+
+  Once boot_secure2 is called, the process is fully sandboxed and
+  cannot make system calls, access the file system, or really do
+  much of anything. All resources needed in the program should be
+  initialized before calling it.
+   */
+void
+fd_boot_secure1( int *    pargc,
+                 char *** pargv );
+
+void
+fd_boot_secure2( int *    pargc,
+                 char *** pargv );
 
 void
 fd_halt( void );

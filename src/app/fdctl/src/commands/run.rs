@@ -24,6 +24,10 @@ pub(crate) struct RunCli {
     #[arg(long)]
     debug: bool,
 
+    /// Launch the Firedancer binary under `strace`
+    #[arg(long)]
+    strace: bool,
+
     /// Launch Firedancer in the background and run a monitor in the current
     /// terminal.
     #[arg(long)]
@@ -98,7 +102,9 @@ pub(crate) fn run(args: RunCli, config: &mut Config) {
     }
 
     let prefix_gdb = if args.debug {
-        format!("gdb {}/fd_frank_run.bin --args", config.binary_dir)
+        format!("gdb --args {}/fd_frank_run.bin", config.binary_dir)
+    } else if args.strace {
+        format!("strace {}/fd_frank_run.bin", config.binary_dir)
     } else {
         format!("{}/fd_frank_run.bin", config.binary_dir)
     };
@@ -125,11 +131,17 @@ pub(crate) fn run(args: RunCli, config: &mut Config) {
         ("QUIC_RX_BUF_SZ", quic.rx_buf_size.to_string()),
     ];
 
+    let sandbox = if config.development.sandbox {
+        ""
+    } else {
+        "--no-sandbox"
+    };
+
     let mut run = run_builder!(
         cwd = None,
         env = Some(&env),
         cmd = "{prefix_gdb} {netns_arg} --pod {pod} --log-app {name} --log-thread main \
-               --tile-cpus {affinity}",
+               --tile-cpus {affinity} {sandbox}",
     );
 
     set_affinity_zero();

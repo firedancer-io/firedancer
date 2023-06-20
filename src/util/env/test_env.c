@@ -106,6 +106,23 @@ main( int     argc,
   d    = fd_env_strip_cmdline_double( NULL, NULL, "double", NULL,          38.  ); FD_TEST( d   ==         38.  );
 # endif
 
+  int argc2 = 1;
+  char *hello = "--hello";
+  char **argv2 = (char*[]){ hello, NULL };
+  FD_TEST( !fd_env_strip_cmdline_contains ( &argc2, &argv2, "--hello2" ) );
+  FD_TEST( !fd_env_strip_cmdline_contains ( &argc2, &argv2, "hello" ) );
+  FD_TEST( argc2 == 1 );
+  FD_TEST( fd_env_strip_cmdline_contains ( &argc2, &argv2, "--hello" ) );
+  FD_TEST( argc2 == 0 );
+  FD_TEST( *argv2 == NULL );
+
+  argc2 = 3;
+  char *bye = "--bye";
+  argv2 = (char*[]){ hello, bye, hello, NULL };
+  FD_TEST( fd_env_strip_cmdline_contains ( &argc2, &argv2, "--hello" ) );
+  FD_TEST( argc2 == 1 );
+  FD_TEST( !strcmp(*argv2, "--bye") );
+
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;

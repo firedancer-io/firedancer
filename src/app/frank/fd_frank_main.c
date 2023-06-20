@@ -38,16 +38,28 @@ fd_frank_signal_trap( int sig ) {
 int
 main( int     argc,
       char ** argv ) {
-  fd_boot( &argc, &argv );
+  // After fd_boot_secure2 is called, the process will be completely sandboxed,
+  // with no ability to make any system calls. We need to pre-stage resources
+  // we need here.
+
+  // 1. Initialize logging and some shared memory information. This needs to
+  //    happen before any sandboxing.
+  fd_boot_secure1( &argc, &argv );
+
+  // 2. Load any resources we will need before sandboxing. Currently this just
+  //    mmaps the workspace.
+  char const * pod_gaddr = fd_env_strip_cmdline_cstr( &argc, &argv, "--pod", NULL, NULL );
+  if( FD_UNLIKELY( !pod_gaddr ) ) FD_LOG_ERR(( "--pod not specified" ));
+  if( FD_UNLIKELY( !fd_wksp_preload( pod_gaddr ) ) )
+    FD_LOG_ERR(( "unable to preload workspace" ));
+
+  // 3. Drop all privileges and finish boot process.
+  fd_boot_secure2( &argc, &argv );
+
+  // 4. Now run rest of the application sandboxed.
   fd_tempo_tick_per_ns( NULL ); /* eat calibration cost at deterministic place */
 
   FD_LOG_NOTICE(( "app init" ));
-
-  /* Parse command line arguments */
-
-  char const * pod_gaddr = fd_env_strip_cmdline_cstr( &argc, &argv, "--pod", NULL, NULL );
-
-  if( FD_UNLIKELY( !pod_gaddr ) ) FD_LOG_ERR(( "--pod not specified" ));
 
   /* Load up the configuration for this frank instance */
 

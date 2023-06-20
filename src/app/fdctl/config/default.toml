@@ -320,6 +320,12 @@ scratch_directory = "/home/{user}/.firedancer/{name}"
         signature_cache_size = 4194302
 
 [development]
+    # For enhanced security, Firedancer runs itself in a restrictive sandbox in production. The
+    # sandbox prevents most system calls and restricts the capabilities of the process after
+    # initialization to make the attack surface smaller. This is required in production, but might
+    # be too restrictive during development.
+    sandbox = true
+
     # Firedancer requires some privileges for normal operation. In production it will not attempt
     # to acquire these, and must be either be run as root, or have the capabilities set on the
     # binary. During development it can be useful for Firedancer to rerun itself as root if it does
