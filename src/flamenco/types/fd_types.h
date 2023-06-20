@@ -1384,6 +1384,113 @@ typedef struct fd_config_keys fd_config_keys_t;
 #define FD_CONFIG_KEYS_FOOTPRINT sizeof(fd_config_keys_t)
 #define FD_CONFIG_KEYS_ALIGN (8UL)
 
+/*  */
+struct fd_bpf_loader_program_instruction_write {
+  uint offset;
+  ulong bytes_len;
+  unsigned char* bytes;
+};
+typedef struct fd_bpf_loader_program_instruction_write fd_bpf_loader_program_instruction_write_t;
+#define FD_BPF_LOADER_PROGRAM_INSTRUCTION_WRITE_FOOTPRINT sizeof(fd_bpf_loader_program_instruction_write_t)
+#define FD_BPF_LOADER_PROGRAM_INSTRUCTION_WRITE_ALIGN (8UL)
+
+union fd_bpf_loader_program_instruction_inner {
+  fd_bpf_loader_program_instruction_write_t write;
+};
+typedef union fd_bpf_loader_program_instruction_inner fd_bpf_loader_program_instruction_inner_t;
+
+/*  */
+struct fd_bpf_loader_program_instruction {
+  uint discriminant;
+  fd_bpf_loader_program_instruction_inner_t inner;
+};
+typedef struct fd_bpf_loader_program_instruction fd_bpf_loader_program_instruction_t;
+#define FD_BPF_LOADER_PROGRAM_INSTRUCTION_FOOTPRINT sizeof(fd_bpf_loader_program_instruction_t)
+#define FD_BPF_LOADER_PROGRAM_INSTRUCTION_ALIGN (8UL)
+
+/*  */
+struct fd_bpf_upgradeable_loader_program_instruction_write {
+  uint offset;
+  ulong bytes_len;
+  unsigned char* bytes;
+};
+typedef struct fd_bpf_upgradeable_loader_program_instruction_write fd_bpf_upgradeable_loader_program_instruction_write_t;
+#define FD_BPF_UPGRADEABLE_LOADER_PROGRAM_INSTRUCTION_WRITE_FOOTPRINT sizeof(fd_bpf_upgradeable_loader_program_instruction_write_t)
+#define FD_BPF_UPGRADEABLE_LOADER_PROGRAM_INSTRUCTION_WRITE_ALIGN (8UL)
+
+/*  */
+struct fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len {
+  unsigned long max_data_len;
+};
+typedef struct fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len_t;
+#define FD_BPF_UPGRADEABLE_LOADER_PROGRAM_INSTRUCTION_DEPLOY_WITH_MAX_DATA_LEN_FOOTPRINT sizeof(fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len_t)
+#define FD_BPF_UPGRADEABLE_LOADER_PROGRAM_INSTRUCTION_DEPLOY_WITH_MAX_DATA_LEN_ALIGN (8UL)
+
+/*  */
+struct fd_bpf_upgradeable_loader_program_instruction_extend_program {
+  uint additional_bytes;
+};
+typedef struct fd_bpf_upgradeable_loader_program_instruction_extend_program fd_bpf_upgradeable_loader_program_instruction_extend_program_t;
+#define FD_BPF_UPGRADEABLE_LOADER_PROGRAM_INSTRUCTION_EXTEND_PROGRAM_FOOTPRINT sizeof(fd_bpf_upgradeable_loader_program_instruction_extend_program_t)
+#define FD_BPF_UPGRADEABLE_LOADER_PROGRAM_INSTRUCTION_EXTEND_PROGRAM_ALIGN (8UL)
+
+union fd_bpf_upgradeable_loader_program_instruction_inner {
+  fd_bpf_upgradeable_loader_program_instruction_write_t write;
+  fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len_t deploy_with_max_data_len;
+  fd_bpf_upgradeable_loader_program_instruction_extend_program_t extend_program;
+};
+typedef union fd_bpf_upgradeable_loader_program_instruction_inner fd_bpf_upgradeable_loader_program_instruction_inner_t;
+
+/*  */
+struct fd_bpf_upgradeable_loader_program_instruction {
+  uint discriminant;
+  fd_bpf_upgradeable_loader_program_instruction_inner_t inner;
+};
+typedef struct fd_bpf_upgradeable_loader_program_instruction fd_bpf_upgradeable_loader_program_instruction_t;
+#define FD_BPF_UPGRADEABLE_LOADER_PROGRAM_INSTRUCTION_FOOTPRINT sizeof(fd_bpf_upgradeable_loader_program_instruction_t)
+#define FD_BPF_UPGRADEABLE_LOADER_PROGRAM_INSTRUCTION_ALIGN (8UL)
+
+/*  */
+struct fd_bpf_upgradeable_loader_state_buffer {
+  fd_pubkey_t* authority_address;
+};
+typedef struct fd_bpf_upgradeable_loader_state_buffer fd_bpf_upgradeable_loader_state_buffer_t;
+#define FD_BPF_UPGRADEABLE_LOADER_STATE_BUFFER_FOOTPRINT sizeof(fd_bpf_upgradeable_loader_state_buffer_t)
+#define FD_BPF_UPGRADEABLE_LOADER_STATE_BUFFER_ALIGN (8UL)
+
+/*  */
+struct fd_bpf_upgradeable_loader_state_program {
+  fd_pubkey_t programdata_address;
+};
+typedef struct fd_bpf_upgradeable_loader_state_program fd_bpf_upgradeable_loader_state_program_t;
+#define FD_BPF_UPGRADEABLE_LOADER_STATE_PROGRAM_FOOTPRINT sizeof(fd_bpf_upgradeable_loader_state_program_t)
+#define FD_BPF_UPGRADEABLE_LOADER_STATE_PROGRAM_ALIGN (8UL)
+
+/*  */
+struct fd_bpf_upgradeable_loader_state_program_data {
+  unsigned long slot;
+  fd_pubkey_t* upgrade_authority_address;
+};
+typedef struct fd_bpf_upgradeable_loader_state_program_data fd_bpf_upgradeable_loader_state_program_data_t;
+#define FD_BPF_UPGRADEABLE_LOADER_STATE_PROGRAM_DATA_FOOTPRINT sizeof(fd_bpf_upgradeable_loader_state_program_data_t)
+#define FD_BPF_UPGRADEABLE_LOADER_STATE_PROGRAM_DATA_ALIGN (8UL)
+
+union fd_bpf_upgradeable_loader_state_inner {
+  fd_bpf_upgradeable_loader_state_buffer_t buffer;
+  fd_bpf_upgradeable_loader_state_program_t program;
+  fd_bpf_upgradeable_loader_state_program_data_t program_data;
+};
+typedef union fd_bpf_upgradeable_loader_state_inner fd_bpf_upgradeable_loader_state_inner_t;
+
+/*  */
+struct fd_bpf_upgradeable_loader_state {
+  uint discriminant;
+  fd_bpf_upgradeable_loader_state_inner_t inner;
+};
+typedef struct fd_bpf_upgradeable_loader_state fd_bpf_upgradeable_loader_state_t;
+#define FD_BPF_UPGRADEABLE_LOADER_STATE_FOOTPRINT sizeof(fd_bpf_upgradeable_loader_state_t)
+#define FD_BPF_UPGRADEABLE_LOADER_STATE_ALIGN (8UL)
+
 
 FD_PROTOTYPES_BEGIN
 
@@ -2312,6 +2419,108 @@ void fd_config_keys_destroy(fd_config_keys_t* self, fd_bincode_destroy_ctx_t * c
 void fd_config_keys_walk(fd_config_keys_t* self, fd_walk_fun_t fun, const char *name, int level);
 ulong fd_config_keys_size(fd_config_keys_t const * self);
 
+void fd_bpf_loader_program_instruction_write_new(fd_bpf_loader_program_instruction_write_t* self);
+int fd_bpf_loader_program_instruction_write_decode(fd_bpf_loader_program_instruction_write_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_bpf_loader_program_instruction_write_encode(fd_bpf_loader_program_instruction_write_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_bpf_loader_program_instruction_write_destroy(fd_bpf_loader_program_instruction_write_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_bpf_loader_program_instruction_write_walk(fd_bpf_loader_program_instruction_write_t* self, fd_walk_fun_t fun, const char *name, int level);
+ulong fd_bpf_loader_program_instruction_write_size(fd_bpf_loader_program_instruction_write_t const * self);
+
+void fd_bpf_loader_program_instruction_new(fd_bpf_loader_program_instruction_t* self);
+int fd_bpf_loader_program_instruction_decode(fd_bpf_loader_program_instruction_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_bpf_loader_program_instruction_encode(fd_bpf_loader_program_instruction_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_bpf_loader_program_instruction_destroy(fd_bpf_loader_program_instruction_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_bpf_loader_program_instruction_walk(fd_bpf_loader_program_instruction_t* self, fd_walk_fun_t fun, const char *name, int level);
+ulong fd_bpf_loader_program_instruction_size(fd_bpf_loader_program_instruction_t const * self);
+
+FD_FN_PURE uchar fd_bpf_loader_program_instruction_is_write(fd_bpf_loader_program_instruction_t const * self);
+FD_FN_PURE uchar fd_bpf_loader_program_instruction_is_finalize(fd_bpf_loader_program_instruction_t const * self);
+enum {
+fd_bpf_loader_program_instruction_enum_write = 0,
+fd_bpf_loader_program_instruction_enum_finalize = 1,
+}; 
+void fd_bpf_upgradeable_loader_program_instruction_write_new(fd_bpf_upgradeable_loader_program_instruction_write_t* self);
+int fd_bpf_upgradeable_loader_program_instruction_write_decode(fd_bpf_upgradeable_loader_program_instruction_write_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_bpf_upgradeable_loader_program_instruction_write_encode(fd_bpf_upgradeable_loader_program_instruction_write_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_bpf_upgradeable_loader_program_instruction_write_destroy(fd_bpf_upgradeable_loader_program_instruction_write_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_bpf_upgradeable_loader_program_instruction_write_walk(fd_bpf_upgradeable_loader_program_instruction_write_t* self, fd_walk_fun_t fun, const char *name, int level);
+ulong fd_bpf_upgradeable_loader_program_instruction_write_size(fd_bpf_upgradeable_loader_program_instruction_write_t const * self);
+
+void fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len_new(fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len_t* self);
+int fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len_decode(fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len_encode(fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len_destroy(fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len_walk(fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len_t* self, fd_walk_fun_t fun, const char *name, int level);
+ulong fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len_size(fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len_t const * self);
+
+void fd_bpf_upgradeable_loader_program_instruction_extend_program_new(fd_bpf_upgradeable_loader_program_instruction_extend_program_t* self);
+int fd_bpf_upgradeable_loader_program_instruction_extend_program_decode(fd_bpf_upgradeable_loader_program_instruction_extend_program_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_bpf_upgradeable_loader_program_instruction_extend_program_encode(fd_bpf_upgradeable_loader_program_instruction_extend_program_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_bpf_upgradeable_loader_program_instruction_extend_program_destroy(fd_bpf_upgradeable_loader_program_instruction_extend_program_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_bpf_upgradeable_loader_program_instruction_extend_program_walk(fd_bpf_upgradeable_loader_program_instruction_extend_program_t* self, fd_walk_fun_t fun, const char *name, int level);
+ulong fd_bpf_upgradeable_loader_program_instruction_extend_program_size(fd_bpf_upgradeable_loader_program_instruction_extend_program_t const * self);
+
+void fd_bpf_upgradeable_loader_program_instruction_new(fd_bpf_upgradeable_loader_program_instruction_t* self);
+int fd_bpf_upgradeable_loader_program_instruction_decode(fd_bpf_upgradeable_loader_program_instruction_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_bpf_upgradeable_loader_program_instruction_encode(fd_bpf_upgradeable_loader_program_instruction_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_bpf_upgradeable_loader_program_instruction_destroy(fd_bpf_upgradeable_loader_program_instruction_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_bpf_upgradeable_loader_program_instruction_walk(fd_bpf_upgradeable_loader_program_instruction_t* self, fd_walk_fun_t fun, const char *name, int level);
+ulong fd_bpf_upgradeable_loader_program_instruction_size(fd_bpf_upgradeable_loader_program_instruction_t const * self);
+
+FD_FN_PURE uchar fd_bpf_upgradeable_loader_program_instruction_is_initialize_buffer(fd_bpf_upgradeable_loader_program_instruction_t const * self);
+FD_FN_PURE uchar fd_bpf_upgradeable_loader_program_instruction_is_write(fd_bpf_upgradeable_loader_program_instruction_t const * self);
+FD_FN_PURE uchar fd_bpf_upgradeable_loader_program_instruction_is_deploy_with_max_data_len(fd_bpf_upgradeable_loader_program_instruction_t const * self);
+FD_FN_PURE uchar fd_bpf_upgradeable_loader_program_instruction_is_upgrade(fd_bpf_upgradeable_loader_program_instruction_t const * self);
+FD_FN_PURE uchar fd_bpf_upgradeable_loader_program_instruction_is_set_authority(fd_bpf_upgradeable_loader_program_instruction_t const * self);
+FD_FN_PURE uchar fd_bpf_upgradeable_loader_program_instruction_is_close(fd_bpf_upgradeable_loader_program_instruction_t const * self);
+FD_FN_PURE uchar fd_bpf_upgradeable_loader_program_instruction_is_extend_program(fd_bpf_upgradeable_loader_program_instruction_t const * self);
+enum {
+fd_bpf_upgradeable_loader_program_instruction_enum_initialize_buffer = 0,
+fd_bpf_upgradeable_loader_program_instruction_enum_write = 1,
+fd_bpf_upgradeable_loader_program_instruction_enum_deploy_with_max_data_len = 2,
+fd_bpf_upgradeable_loader_program_instruction_enum_upgrade = 3,
+fd_bpf_upgradeable_loader_program_instruction_enum_set_authority = 4,
+fd_bpf_upgradeable_loader_program_instruction_enum_close = 5,
+fd_bpf_upgradeable_loader_program_instruction_enum_extend_program = 6,
+}; 
+void fd_bpf_upgradeable_loader_state_buffer_new(fd_bpf_upgradeable_loader_state_buffer_t* self);
+int fd_bpf_upgradeable_loader_state_buffer_decode(fd_bpf_upgradeable_loader_state_buffer_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_bpf_upgradeable_loader_state_buffer_encode(fd_bpf_upgradeable_loader_state_buffer_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_bpf_upgradeable_loader_state_buffer_destroy(fd_bpf_upgradeable_loader_state_buffer_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_bpf_upgradeable_loader_state_buffer_walk(fd_bpf_upgradeable_loader_state_buffer_t* self, fd_walk_fun_t fun, const char *name, int level);
+ulong fd_bpf_upgradeable_loader_state_buffer_size(fd_bpf_upgradeable_loader_state_buffer_t const * self);
+
+void fd_bpf_upgradeable_loader_state_program_new(fd_bpf_upgradeable_loader_state_program_t* self);
+int fd_bpf_upgradeable_loader_state_program_decode(fd_bpf_upgradeable_loader_state_program_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_bpf_upgradeable_loader_state_program_encode(fd_bpf_upgradeable_loader_state_program_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_bpf_upgradeable_loader_state_program_destroy(fd_bpf_upgradeable_loader_state_program_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_bpf_upgradeable_loader_state_program_walk(fd_bpf_upgradeable_loader_state_program_t* self, fd_walk_fun_t fun, const char *name, int level);
+ulong fd_bpf_upgradeable_loader_state_program_size(fd_bpf_upgradeable_loader_state_program_t const * self);
+
+void fd_bpf_upgradeable_loader_state_program_data_new(fd_bpf_upgradeable_loader_state_program_data_t* self);
+int fd_bpf_upgradeable_loader_state_program_data_decode(fd_bpf_upgradeable_loader_state_program_data_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_bpf_upgradeable_loader_state_program_data_encode(fd_bpf_upgradeable_loader_state_program_data_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_bpf_upgradeable_loader_state_program_data_destroy(fd_bpf_upgradeable_loader_state_program_data_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_bpf_upgradeable_loader_state_program_data_walk(fd_bpf_upgradeable_loader_state_program_data_t* self, fd_walk_fun_t fun, const char *name, int level);
+ulong fd_bpf_upgradeable_loader_state_program_data_size(fd_bpf_upgradeable_loader_state_program_data_t const * self);
+
+void fd_bpf_upgradeable_loader_state_new(fd_bpf_upgradeable_loader_state_t* self);
+int fd_bpf_upgradeable_loader_state_decode(fd_bpf_upgradeable_loader_state_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_bpf_upgradeable_loader_state_encode(fd_bpf_upgradeable_loader_state_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_bpf_upgradeable_loader_state_destroy(fd_bpf_upgradeable_loader_state_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_bpf_upgradeable_loader_state_walk(fd_bpf_upgradeable_loader_state_t* self, fd_walk_fun_t fun, const char *name, int level);
+ulong fd_bpf_upgradeable_loader_state_size(fd_bpf_upgradeable_loader_state_t const * self);
+
+FD_FN_PURE uchar fd_bpf_upgradeable_loader_state_is_uninitialized(fd_bpf_upgradeable_loader_state_t const * self);
+FD_FN_PURE uchar fd_bpf_upgradeable_loader_state_is_buffer(fd_bpf_upgradeable_loader_state_t const * self);
+FD_FN_PURE uchar fd_bpf_upgradeable_loader_state_is_program(fd_bpf_upgradeable_loader_state_t const * self);
+FD_FN_PURE uchar fd_bpf_upgradeable_loader_state_is_program_data(fd_bpf_upgradeable_loader_state_t const * self);
+enum {
+fd_bpf_upgradeable_loader_state_enum_uninitialized = 0,
+fd_bpf_upgradeable_loader_state_enum_buffer = 1,
+fd_bpf_upgradeable_loader_state_enum_program = 2,
+fd_bpf_upgradeable_loader_state_enum_program_data = 3,
+}; 
 FD_PROTOTYPES_END
 
 #endif // HEADER_FD_RUNTIME_TYPES

@@ -147,8 +147,8 @@ int fd_executor_run_test(
     .txn_ctx        = &txn_ctx,
   };
   execute_instruction_func_t exec_instr_func = fd_executor_lookup_native_program( global, &test->program_id );
-  if (NULL == exec_instr_func) {
-    FD_LOG_WARNING(( "fd_executor_lookup_native_program failed"));
+  if ( exec_instr_func == NULL ) {
+    FD_LOG_WARNING(( "Failed test %d: %s: no native program executor for program", test->test_number, test->test_name ));
     fd_funk_txn_cancel( suite->funk, global->funk_txn, 0 );
     return -1;
   }
@@ -197,7 +197,19 @@ int fd_executor_run_test(
         return -777;
       }
       if (memcmp(d, test->accs[i].result_data, test->accs[i].result_data_len)) {
-        FD_LOG_WARNING(( "Failed test %d: %s: account missmatch: %s", test->test_number, test->test_name, (NULL != verbose) ? test->bt : ""));
+        ulong j = 0;
+        for( ; j < test->accs[i].result_data_len; j++ ) {
+          if( ((uchar*)d)[j] != test->accs[i].result_data[j] ) {          
+            break;
+          }
+        }
+        FD_LOG_WARNING(( "Failed test %d: %s: account mismatch - idx: %lu, at byte: %lu, expected: %02x, got: %02x, %s", test->test_number, test->test_name, i, j, test->accs[i].result_data[j], ((uchar*)d)[j], (NULL != verbose) ? test->bt : "" ));
+      
+        {
+          FILE * fd = fopen("before.bin", "wb");
+          fwrite(test->accs[i].data, 1, test->accs[i].data_len, fd);
+          fclose(fd);
+        }
         {
           FILE * fd = fopen("actual.bin", "wb");
           fwrite(d, 1, m->dlen, fd);
@@ -250,6 +262,9 @@ int main(int argc, char **argv) {
 
   int ret = 0;
 
+  ulong num_tests_run = 0;
+  ulong num_tests_success = 0;
+  ulong num_tests_skipped = 0;
   /* Loop through tests */
   ulong executed_cnt = 0UL;
   ulong success_cnt = 0UL;
@@ -263,11 +278,18 @@ int main(int argc, char **argv) {
       executed_cnt++;
       if( r == 0 ) success_cnt++;
     }
+
+    if(( r == -9999 )) {
+      num_tests_skipped++;
+    } else {
+      num_tests_run++;
+    }
+    if(( r == 0 )) {
+      num_tests_success++;
+    }
   }
 
-  FD_LOG_NOTICE(( "Progress: %lu/%lu tests", success_cnt, executed_cnt ));
-
-  fd_log_flush();
+  FD_LOG_NOTICE(( "test results - ran: %lu, success: %lu, failed: %lu, skipped: %lu", num_tests_run, num_tests_success, num_tests_run-num_tests_success, num_tests_skipped ));
   fd_halt();
 
   return ret;
