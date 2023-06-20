@@ -1,0 +1,309 @@
+#! /usr/bin/env bash
+
+
+
+cmds=(\
+     "Cancel/None         : exit command-n-control  " \
+     "edit_tguide_cfg     : vi review/edit config   " \
+     "build_firedancer    : gen/updt executables    " \
+     "setup_wksp          : setup data stores       " \
+     "reset_wksp          : refresh data stores     " \
+     "report_wksp_stats   : shm/wskp stats          " \
+     "run_tguard_monitor  : tguard activities       " \
+     "run_tguard          : run tmon & tqos         " \
+     "halt_tmon           : halt turbine monitor    " \
+     "halt_tqos           : halt turbine qos daemon " \
+     "halt_main           : halt fd_tguard_run.bin  " \
+     "stress_test         : blast pcaps at tguide   " \
+     "view_test_rpt       : less test log abstract  " \
+)
+
+
+
+SCRIPT=$(realpath "$0") # so that go through softlink to true path
+SCRIPT_PATH="$( cd -- "$(dirname "$SCRIPT")" >/dev/null 2>&1 ; pwd -P )"
+
+APP_NAME="tguard"
+CPU_AFFINITY="0-4/2"
+
+SRC1=src/app/tguard
+SRC2=build/linux/gcc/x86_64/bin
+DST_TGSRC=src/app/tguard
+DST_BUILD=build/linux/gcc/x86_64
+case $SCRIPT_PATH in
+    */${SRC1})
+        TGSRC_DIR="${SCRIPT_PATH/${SRC1}/${DST_TGSRC}}"
+        BUILD_DIR="${SCRIPT_PATH/${SRC1}/${DST_BUILD}}" ;;
+    */${SRC2})
+        TGSRC_DIR="${SCRIPT_PATH/${SRC2}/${DST_TGSRC}}"
+        BUILD_DIR="${SCRIPT_PATH/${SRC2}/${DST_BUILD}}" ;;
+    *)
+        printf "\n     $(basename $0) need be from either ${SRC1} or ${SRC2}\n\n"
+        exit 1 ;;
+esac
+
+stress_test() {
+    printf "\n\n"
+    read -p "     pcap pathname: " pcapfile_raw
+    pcapfile=$(realpath $(eval echo "$pcapfile_raw")) # need 'eval echo "$pcapfile_raw"' for path start with "~" to work
+    if [[ ! -f "${pcapfile}" ]]; then
+        printf "\nFailed to locate pcap file ${pcapfile}\n"
+        return 1
+    fi
+
+    printf "\n\n"
+    read -p "     interface name: " ifname
+    printf "\n"
+    ip a show ${ifname} up # 2>&1 /dev/null
+    if [[ $? != "0" ]]; then
+        printf "\nNetwork interface ${ifname} does not exist or is not up\n"
+        return 1
+    fi
+    printf "\n"
+
+    printf "\n\n"
+    read -p "     injection loop count: " loop_cnt
+    printf "\n"
+
+    if [[ ! "$loop_cnt" =~ ^[0-9]+$ ]] ; then
+        printf "\n     Invalid injection loop count $loop_cnt, must be a number\n\n"
+        return 1
+    fi
+
+    loop_cnt_max="1024"
+    if [[ "$loop_cnt" -ge "$loop_cnt_max" ]]; then
+    	printf "\n     Invalid choice id $loop_cnt, need to be less than $loop_cnt_max\n\n"
+    	return 1
+    fi
+
+    tcpreplay --preload-pcap --topspeed --loop=${loop_cnt} --loopdelay-ms=0 -i ${ifname} ${pcapfile}
+}
+
+view_test_rpt() {
+    ls -lrt  /tmp/fd*                      |\
+    tail -n1                               |\
+    rev                                    |\
+    cut -d' ' -f1                          |\
+    rev                                    |\
+    xargs grep -i 'txtime'                 |\
+    sed 's/.*TXtime_ns/tx_time_ns/'        |\
+    sed 's/(.*tx_ena.*rx_cnt/     rx_cnt/' |\
+    sed 's/).*tx_cod.*tx_idx/)    tx_idx/' |\
+    less
+}
+
+run_compile() {
+    source ./activate-opt
+    source ./activate-gcc 
+    MACHINE=linux_gcc_x86_64 COMPILER=gcc EXTRAS=libpcap make -j
+}
+
+edit_tguide_cfg() {
+    vi ${TGSRC_DIR}/fd_tguard_cfg.h
+    # run_compile
+}
+
+build_firedancer() {
+    ./deps.sh
+    run_compile
+}
+
+check_file_exist() {
+    file=$1
+    if [[ ! -f ${file} ]]; then
+        printf "\n     ${file}  does not exist, you need to run build_firedancer first\n\n"
+        return 1 # need to return non-0 on fail to work with 'check_file_exist $cmd || return'
+    else
+        return 0 # need to return 0 on success to work with 'check_file_exist $cmd || return'
+    fi
+}
+
+get_wksp_cfg() {
+    cfg_file="tmp/${APP_NAME}.cfg"
+    if [[ -f ${cfg_file} ]]
+    then
+        . ${cfg_file}
+        return 0 # need to return 0 on success to work with 'check_file_exist $cmd || return'
+    else
+        printf "\n     ${cfg_file}  does not exist, you need to run setup_wksp first\n\n"
+        return 1 # need to return non-0 on fail to work with 'check_file_exist $cmd || return'
+    fi
+}
+
+report_wksp_stats() {
+    ${BUILD_DIR}/bin/fd_shmem_cfg query
+    cfg_file="tmp/${APP_NAME}.cfg"
+    if [[ -f ${cfg_file} ]]
+    then
+        printf "Sourcing current cfg file ${cfg_file}...\n"
+        . ${cfg_file}
+        printf "    Obtained from ${cfg_file}:   APP=${APP}   POD=${POD}   MAIN_CNC=${MAIN_CNC}\n\n"
+        ${BUILD_DIR}/bin/fd_wksp_ctl  query ${APP}.wksp
+        ${BUILD_DIR}/bin/fd_pod_ctl   list  ${POD}
+    else
+        printf "  ${cfg_file} does not exist, need to run 'setup_wksp' first\n"
+        return # exit 1
+    fi
+}
+
+setup_wksp() {
+    # cleanup just in case
+    check_file_exist ${BUILD_DIR}/bin/fd_tguard_fini || return 1
+    ${BUILD_DIR}/bin/fd_tguard_fini ${APP_NAME}
+
+    check_file_exist ${BUILD_DIR}/bin/fd_shmem_cfg
+    sudo ${BUILD_DIR}/bin/fd_shmem_cfg reset
+    sudo ${BUILD_DIR}/bin/fd_shmem_cfg fini
+    
+    # init shm
+    sudo rm -rf /mnt/.fd
+    sudo ${BUILD_DIR}/bin/fd_shmem_cfg init 0700 ${USER} ""
+
+    # allocate shm for wksp
+    sudo ${BUILD_DIR}/bin/fd_shmem_cfg   alloc 8 gigantic 0   alloc 8 gigantic 1   alloc 512 huge 0   alloc 512 huge 1
+    if [ "$?" != "0" ]; then
+        printf "\n     'fd_shmem_cfg alloc...' failed.\n"
+        printf "          likely it is due to some rogue process hogging to the hugepages\n"
+        printf "       The solution is to find the rogue process by running:\n"
+        printf "           sudo grep huge /proc/*/numa_maps\n"
+        printf "         then rerun shmem alloc after killing the rogue process.\n\n"
+        return # exit 1
+    fi
+
+    # create wksp
+    check_file_exist ${BUILD_DIR}/bin/fd_tguard_init || return 1
+    ${BUILD_DIR}/bin/fd_tguard_init  ${APP_NAME} ${CPU_AFFINITY} ${BUILD_DIR}
+    if [ "$?" != "0" ]; then
+        printf "\n     Failed running \"${BUILD_DIR}/bin/fd_tguard_init  ${APP_NAME} ${CPU_AFFINITY} ${BUILD_DIR}\"\n\n"
+        return # exit 1
+    fi
+    
+    # report wksp stats
+    report_wksp_stats
+}
+
+reset_wksp() {
+    check_file_exist ${BUILD_DIR}/bin/fd_tguard_fini || return 1
+    ${BUILD_DIR}/bin/fd_tguard_fini ${APP_NAME}
+    
+    check_file_exist ${BUILD_DIR}/bin/fd_tguard_init || return 1
+    ${BUILD_DIR}/bin/fd_tguard_init  ${APP_NAME} ${CPU_AFFINITY} ${BUILD_DIR}
+}
+
+run_tguard_monitor() {
+    check_file_exist ${BUILD_DIR}/bin/fd_tguard_mon || return 1
+
+    # printf "\n\n"
+    # read -n 1 -p "     Enable default logging in /tmp? (y|n:default)" userresponse
+    # if [ "$userresponse" == "y" ]; then
+    #         unset FD_LOG_PATH
+    #         printf "\n     Default loggined enabled in /tmp\n\n"
+    # else
+    #         export FD_LOG_PATH=""
+    #         printf "\n     Default loggined disabled\n\n"
+    # fi
+    export FD_LOG_PATH="" # always disable logging for monitor to simplify running while avoiding disk out of space
+
+    taskset -c 1 ${BUILD_DIR}/bin/fd_tguard_mon ${APP_NAME} --duration 250000000000000000 # --dt-min 100000000 --dt-max 100000000
+}
+
+run_tguard() {
+    check_file_exist ${BUILD_DIR}/bin/fd_tguard_run || return 1
+
+    printf "\n\n"
+    read -n 1 -p "     Enable default logging in /tmp? (y|n:default)" userresponse
+
+    if [ "$userresponse" == "y" ]; then
+            unset FD_LOG_PATH
+            printf "\n     Default loggined enabled in /tmp\n\n"
+    else
+            export FD_LOG_PATH=""
+            printf "\n     Default loggined disabled\n\n"
+    fi
+
+    ${BUILD_DIR}/bin/fd_tguard_run ${APP_NAME} ${CPU_AFFINITY}
+}
+
+halt_tqos() {
+    get_wksp_cfg || return 1
+
+    check_file_exist ${BUILD_DIR}/bin/fd_tango_ctl || return 1
+    ${BUILD_DIR}/bin/fd_tango_ctl signal-cnc ${TQOS_CNC} halt
+}
+
+halt_tmon() {
+    get_wksp_cfg || return 1
+
+    check_file_exist ${BUILD_DIR}/bin/fd_tango_ctl || return 1
+    ${BUILD_DIR}/bin/fd_tango_ctl signal-cnc ${TMON_CNC} halt
+}
+
+halt_main() {
+    get_wksp_cfg || return 1
+
+    check_file_exist ${BUILD_DIR}/bin/fd_tango_ctl || return 1
+    ${BUILD_DIR}/bin/fd_tango_ctl signal-cnc ${MAIN_CNC} halt
+}
+
+get_clean_cmd() {
+    raw_cmd=$1
+    echo "$raw_cmd" | sed "s/ *:.*//"
+}
+
+prompt_and_eval_cmd() {
+    if [[ $# == "0" ]]; then
+        printf "\n     Choices available to run:\n"
+        for (( i=0; i<${#cmds[@]}; i++ ));
+        do
+        if [[ $i -lt 10 ]]; then
+            padding=" "
+        else
+            padding=""
+        fi
+            printf "        $(( i )):${padding} ${cmds[$i]}\n"
+        done
+        
+        printf "\n"
+        read -p "     Enter choice id to run: " userresponse1
+    else
+        userresponse1=$1
+    fi
+
+    if [[ ! "$userresponse1" ]]; then
+        return 1
+    fi
+    if [[ ! "$userresponse1" =~ ^[0-9]+$ ]] ; then
+        printf "\n     Invalid choice id $userresponse1, need to be a number in range [0, ${#cmds[@]})\n\n"
+        return 1
+    fi
+    if [[ "$userresponse1" -ge ${#cmds[@]} ]]; then
+    	printf "\n     Invalid choice id $userresponse1, need to be less than ${#cmds[@]}\n\n"
+    	return 1
+    elif [[ ${cmds[$userresponse1]} =~ "Cancel/None" ]]; then
+    	printf "\n\n     Stopping command running per user choice $userresponse1: ${cmds[$userresponse1]}\n\n"
+    	exit 0
+    else
+	    userresponse2="y"
+    	if [ "$userresponse2" != "n" ]; then
+            printf "\n"
+                cmd=$(get_clean_cmd ${cmds[$userresponse1]}) 
+                eval ${cmd}
+            printf "\n     ^ Done running command:  ${cmd}\n"
+    	else
+    	    printf "\n\n     Skipping running command $userresponse1: ${cmds[$userresponse1]}\n\n"
+    	fi	
+    fi
+}
+
+## main loop
+if [[ $# -ge "1" ]]; then
+    for cid in "${@}"; do
+      prompt_and_eval_cmd ${cid}
+    done
+else
+    printf "\n\n\n\n\n"
+    for (( ; ; )); 
+    do
+        prompt_and_eval_cmd
+    done
+fi
