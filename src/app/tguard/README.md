@@ -39,7 +39,7 @@
 ## How to make use of Turbine Guard to enhance my validator?
 Turbine Guard is a [BITW](https://en.wikipedia.org/wiki/Bump-in-the-wire) that is to run alongside the validators to be protected against shred FEC set loss, just like a body guard, hence the name Turbine Guard. 
 
-Moreover, this is a body guard with high capacity, one Turbine Guard can have multiple validators under its protection umbrella.
+Moreover, this is a body guard with high capacity, one Turbine Guard is sufficient to have multiple validators under its protection umbrella.
 
 Running Turnine Guard is as simple as typing in 1,2,3..., literally. First let's lauch the command-n-control panel:
 ```
