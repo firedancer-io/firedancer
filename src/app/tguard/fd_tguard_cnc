@@ -301,9 +301,6 @@ if [[ $# -ge "1" ]]; then
       prompt_and_eval_cmd ${cid}
     done
 else
-    printf "\n\n\n\n\n"
-    for (( ; ; )); 
-    do
-        prompt_and_eval_cmd
-    done
+    for _ in {1..50}; do printf "\n\n\n";  done
+    for (( ; ; )); do prompt_and_eval_cmd; done
 fi
