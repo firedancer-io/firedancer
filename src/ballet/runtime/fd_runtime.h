@@ -10,6 +10,7 @@
 
 #define FD_RUNTIME_EXECUTE_SUCCESS                               ( 0 )  /* Slot executed successfully */
 #define FD_RUNTIME_EXECUTE_GENERIC_ERR                          ( -1 ) /* The Slot execute returned an error */
+#define MAX_PERMITTED_DATA_LENGTH ( 10 * 1024 * 1024 )
 
 #define FD_GLOBAL_CTX_ALIGN (32UL)
 struct __attribute__((aligned(FD_GLOBAL_CTX_ALIGN))) fd_global_ctx {

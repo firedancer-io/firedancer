@@ -11,6 +11,7 @@ include config/with-rocksdb.mk
 include config/with-zstd.mk
 #include config/with-asan.mk
 # include config/with-libbpf.mk
+include config/with-openssl.mk
 
 CPPFLAGS+=-fomit-frame-pointer -falign-functions=32 -falign-jumps=32 -falign-labels=32 -falign-loops=32 \
           -march=haswell -mtune=skylake -mfpmath=sse -mbranch-cost=5 \

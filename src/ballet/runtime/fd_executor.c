@@ -18,9 +18,9 @@
 #pragma GCC optimize ("O0")
 #endif
 
-void* fd_executor_new(void* mem,
+void* fd_executor_new(void*            mem,
                       fd_global_ctx_t* global,
-                      ulong footprint) {
+                      ulong            footprint) {
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
     return NULL;
@@ -101,7 +101,7 @@ fd_execute_txn( fd_executor_t* executor, fd_txn_t * txn_descriptor, fd_rawtxn_b_
   //      }
 
   fd_acc_lamports_t lamps;
-  int ret = fd_acc_mgr_get_lamports ( global->acc_mgr, global->funk_txn, &tx_accs[0], &lamps);
+  int               ret = fd_acc_mgr_get_lamports ( global->acc_mgr, global->funk_txn, &tx_accs[0], &lamps);
   if (ret != FD_ACC_MGR_SUCCESS) {
     // TODO: The fee payer does not seem to exist?!  what now?
     return;
@@ -165,12 +165,19 @@ fd_execute_txn( fd_executor_t* executor, fd_txn_t * txn_descriptor, fd_rawtxn_b_
   };
 
   for ( ushort i = 0; i < txn_descriptor->instr_cnt; ++i ) {
-    fd_txn_instr_t * instr = &txn_descriptor->instr[i];
+    fd_txn_instr_t *  instr = &txn_descriptor->instr[i];
     instruction_ctx_t ctx = {
       .global                 = executor->global,
       .instr                  = instr,
       .txn_ctx                = &txn_ctx,
     };
+
+    // defense in depth
+    if (instr->program_id >= txn_ctx.txn_descriptor->acct_addr_cnt) {
+      int exec_result = FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+      FD_LOG_WARNING(( "instruction executed unsuccessfully: error code %d", exec_result ));
+      continue;
+    }
 
     /* TODO: allow instructions to be failed, and the transaction to be reverted */
     execute_instruction_func_t exec_instr_func = fd_executor_lookup_native_program( executor->global, &tx_accs[instr->program_id] );

@@ -106,7 +106,10 @@ int fd_acc_mgr_update_data( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, ulong slo
 
 int fd_acc_mgr_is_key( fd_funk_rec_key_t const* id );
 
-void const * fd_acc_mgr_view_data( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, fd_pubkey_t const * pubkey, ulong *sz, int *err );
+void const * fd_acc_mgr_view_data  ( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, fd_pubkey_t const * pubkey,                           fd_funk_rec_t const **out_rec, int *opt_err );
+void       * fd_acc_mgr_modify_data( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, fd_pubkey_t const * pubkey, int do_create, ulong *sz, fd_funk_rec_t const *opt_con_rec, fd_funk_rec_t **opt_out_rec, int *opt_err );
+
+int fd_acc_mgr_commit_data( fd_acc_mgr_t* acc_mgr, fd_funk_rec_t *rec, fd_pubkey_t const * pubkey, void *data, ulong slot, int uncache);
 
 FD_PROTOTYPES_END
 

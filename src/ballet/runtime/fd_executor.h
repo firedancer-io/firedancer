@@ -59,7 +59,7 @@ void* fd_executor_delete( void* mem );
 #define FD_EXECUTOR_INSTR_ERR_DUPLICATE_ACCOUNT_OUT_OF_SYNC      ( -25 ) /* The same account was multiply passed to an on-chain program's entrypoint, but the program modified them differently. */
 #define FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR                         ( -26 ) /* Allows on-chain programs to implement program-specific error types and see them returned by the runtime. */
 #define FD_EXECUTOR_INSTR_ERR_INVALID_ERR                        ( -27 ) /* The return value from the program was invalid.  */
-#define FD_EXECUTOR_INSTR_ERR_EXECUTABLE_DATA_MOTIFIED           ( -28 ) /* Executable account's data was modified */
+#define FD_EXECUTOR_INSTR_ERR_EXECUTABLE_DATA_MODIFIED           ( -28 ) /* Executable account's data was modified */
 #define FD_EXECUTOR_INSTR_ERR_EXECUTABLE_LAMPORT_CHANGE          ( -29 ) /* Executable account's lamports modified */
 #define FD_EXECUTOR_INSTR_ERR_EXECUTABLE_ACCOUNT_NOT_RENT_EXEMPT ( -30 ) /* Executable accounts must be rent exempt */
 #define FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID             ( -31 ) /* Unsupported program id */
@@ -137,7 +137,7 @@ typedef struct transaction_ctx transaction_ctx_t;
 struct instruction_ctx {
   fd_global_ctx_t *   global;
   fd_txn_instr_t *    instr;    /* The instruction */
-  transaction_ctx_t * txn_ctx;  /* The transaction context for this instruction */                 
+  transaction_ctx_t * txn_ctx;  /* The transaction context for this instruction */
 };
 typedef struct instruction_ctx instruction_ctx_t;
 
