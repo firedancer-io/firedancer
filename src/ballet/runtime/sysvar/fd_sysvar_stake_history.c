@@ -15,7 +15,7 @@ void write_stake_history( fd_global_ctx_t* global, fd_stake_history_t* stake_his
   if ( fd_stake_history_encode( stake_history, &ctx ) )
     FD_LOG_ERR(("fd_stake_history_encode failed"));
 
-  fd_sysvar_set( global, global->sysvar_owner, global->sysvar_stake_history, enc, sz, global->bank.solana_bank.slot );
+  fd_sysvar_set( global, global->sysvar_owner, global->sysvar_stake_history, enc, sz, global->bank.slot );
 }
 
 void fd_sysvar_stake_history_read( fd_global_ctx_t* global, fd_stake_history_t* result ) {

@@ -20,7 +20,7 @@ void write_slot_hashes( fd_global_ctx_t* global, fd_slot_hashes_t* slot_hashes )
   if ( fd_slot_hashes_encode( slot_hashes, &ctx ) )
     FD_LOG_ERR(("fd_slot_hashes_encode failed"));
 
-  fd_sysvar_set( global, global->sysvar_owner, global->sysvar_slot_hashes, enc, sz, global->bank.solana_bank.slot );
+  fd_sysvar_set( global, global->sysvar_owner, global->sysvar_slot_hashes, enc, sz, global->bank.slot );
 }
 
 //void fd_sysvar_slot_hashes_init( fd_global_ctx_t* global ) {
@@ -40,7 +40,7 @@ void fd_sysvar_slot_hashes_update( fd_global_ctx_t* global ) {
         !deq_fd_slot_hash_t_iter_done( hashes, iter );
         iter = deq_fd_slot_hash_t_iter_next( hashes, iter ) ) {
     fd_slot_hash_t * ele = deq_fd_slot_hash_t_iter_ele( hashes, iter );
-    if ( ele->slot == global->bank.solana_bank.slot ) {
+    if ( ele->slot == global->bank.slot ) {
       memcpy( &ele->hash, &global->banks_hash, sizeof(fd_hash_t) );
       found = 1; 
     }
@@ -51,7 +51,7 @@ void fd_sysvar_slot_hashes_update( fd_global_ctx_t* global ) {
   // https://github.com/firedancer-io/solana/blob/08a1ef5d785fe58af442b791df6c4e83fe2e7c74/runtime/src/bank.rs#L2371
     fd_slot_hash_t slot_hash = {
       .hash = global->banks_hash, // parent hash?
-      .slot = global->bank.solana_bank.slot - 1,  // parent_slot
+      .slot = global->bank.slot - 1,  // parent_slot
     };
 
     if (FD_UNLIKELY(global->log_level > 2))  {
@@ -83,7 +83,7 @@ void fd_sysvar_slot_hashes_read( fd_global_ctx_t* global, fd_slot_hashes_t* resu
     return;
   }
 
-//  FD_LOG_INFO(( "SysvarS1otHashes111111111111111111111111111 at slot %lu: " FD_LOG_HEX16_FMT, global->bank.solana_bank.slot, FD_LOG_HEX16_FMT_ARGS(     metadata.hash    ) ));
+//  FD_LOG_INFO(( "SysvarS1otHashes111111111111111111111111111 at slot %lu: " FD_LOG_HEX16_FMT, global->bank.slot, FD_LOG_HEX16_FMT_ARGS(     metadata.hash    ) ));
 
   unsigned char *raw_acc_data = fd_alloca( 1, metadata.dlen );
   read_result = fd_acc_mgr_get_account_data( global->acc_mgr, global->funk_txn, (fd_pubkey_t *) global->sysvar_slot_hashes, raw_acc_data, metadata.hlen, metadata.dlen );

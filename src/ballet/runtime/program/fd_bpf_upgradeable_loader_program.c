@@ -64,12 +64,12 @@ int write_bpf_upgradeable_loader_state(
     structured_account.rent_epoch = 0;
     memcpy( &structured_account.owner, global->solana_stake_program, sizeof(fd_pubkey_t) );
 
-    int write_result = fd_acc_mgr_write_structured_account( global->acc_mgr, global->funk_txn, global->bank.solana_bank.slot, program_acc, &structured_account );
+    int write_result = fd_acc_mgr_write_structured_account( global->acc_mgr, global->funk_txn, global->bank.slot, program_acc, &structured_account );
     if ( write_result != FD_ACC_MGR_SUCCESS ) {
       FD_LOG_WARNING(( "failed to write account data" ));
       return write_result;
     }
-    fd_acc_mgr_update_hash ( global->acc_mgr, &metadata, global->funk_txn, global->bank.solana_bank.slot, program_acc, (uchar*)encoded_loader_state, stored_loader_state_size );
+    fd_acc_mgr_update_hash ( global->acc_mgr, &metadata, global->funk_txn, global->bank.slot, program_acc, (uchar*)encoded_loader_state, stored_loader_state_size );
 
     return FD_EXECUTOR_INSTR_SUCCESS;
 }
@@ -174,7 +174,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
       FD_LOG_WARNING(( "failed to write account data" ));
       return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
     }
-    fd_acc_mgr_update_hash ( ctx.global->acc_mgr, &buffer_acc_metadata, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot, buffer_acc, buffer_acc_data, buffer_acc_metadata.dlen );
+    fd_acc_mgr_update_hash ( ctx.global->acc_mgr, &buffer_acc_metadata, ctx.global->funk_txn, ctx.global->bank.slot, buffer_acc, buffer_acc_data, buffer_acc_metadata.dlen );
 
     return FD_EXECUTOR_INSTR_SUCCESS;
 
@@ -359,13 +359,13 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
       recipient_acc_metdata.info.lamports += close_acc_metadata.info.lamports;
       close_acc_metadata.info.lamports = 0;
 
-      int write_result = fd_acc_mgr_set_metadata( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot, close_acc, &close_acc_metadata );
+      int write_result = fd_acc_mgr_set_metadata( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.slot, close_acc, &close_acc_metadata );
       if ( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) ) {
         FD_LOG_WARNING(( "failed to write account metadata" ));
         return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
       }
 
-      write_result = fd_acc_mgr_set_metadata( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot, recipient_acc, &recipient_acc_metdata );
+      write_result = fd_acc_mgr_set_metadata( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.slot, recipient_acc, &recipient_acc_metdata );
       if ( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) ) {
         FD_LOG_WARNING(( "failed to write account metadata" ));
         return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;

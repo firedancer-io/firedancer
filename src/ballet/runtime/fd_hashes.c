@@ -69,7 +69,7 @@ fd_hash_account_deltas(fd_global_ctx_t *global, fd_pubkey_hash_pair_t * pairs, u
 
       fd_account_meta_t metadata;
       fd_acc_mgr_get_metadata( global->acc_mgr, global->funk_txn, &pairs[i].pubkey, &metadata);
-      FD_LOG_NOTICE(( "account_delta_hash_compare pubkey: (%s) slot: (%lu) lamports: (%lu), owner: (%s), executable: (%d), rent_epoch: (%lu), data_len: (%ld), hash: (%s) ",  encoded_pubkey, global->bank.solana_bank.slot, metadata.info.lamports, encoded_owner, metadata.info.executable, metadata.info.rent_epoch, metadata.dlen, encoded_hash ));
+      FD_LOG_NOTICE(( "account_delta_hash_compare pubkey: (%s) slot: (%lu) lamports: (%lu), owner: (%s), executable: (%d), rent_epoch: (%lu), data_len: (%ld), hash: (%s) ",  encoded_pubkey, global->bank.slot, metadata.info.lamports, encoded_owner, metadata.info.executable, metadata.info.rent_epoch, metadata.dlen, encoded_hash ));
       // TODO: print out hex
       // FD_LOG_HEXDUMP_NOTICE((  ))
     }
@@ -199,7 +199,7 @@ fd_hash_bank( fd_global_ctx_t *global, fd_hash_t * hash ) {
     fd_base58_encode_32((uchar *) global->block_hash, 0, encoded_last_block_hash);
 
     FD_LOG_NOTICE(( "bank_hash slot: %lu,  hash: %s,  parent_hash: %s,  accounts_delta: %s,  signature_count: %ld,  last_blockhash: %s",
-        global->bank.solana_bank.slot, encoded_hash, encoded_parent, encoded_account_delta, global->signature_cnt, encoded_last_block_hash));
+        global->bank.slot, encoded_hash, encoded_parent, encoded_account_delta, global->signature_cnt, encoded_last_block_hash));
   }
 }
 

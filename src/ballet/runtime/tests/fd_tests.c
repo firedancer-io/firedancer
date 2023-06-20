@@ -126,7 +126,7 @@ int fd_executor_run_test(
         .owner = test->accs[ i ].owner,
         .rent_epoch = test->accs[ i ].rent_epoch,
       };
-      fd_acc_mgr_write_structured_account( global->acc_mgr, global->funk_txn, global->bank.solana_bank.slot, &test->accs[i].pubkey, &acc);
+      fd_acc_mgr_write_structured_account( global->acc_mgr, global->funk_txn, global->bank.slot, &test->accs[i].pubkey, &acc);
 
       if (memcmp(&global->sysvar_recent_block_hashes, &test->accs[i].pubkey, sizeof(test->accs[i].pubkey)) == 0) {
         fd_recent_block_hashes_new( &global->bank.recent_block_hashes );

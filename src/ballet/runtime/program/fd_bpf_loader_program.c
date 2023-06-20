@@ -72,14 +72,14 @@ int fd_executor_bpf_loader_program_execute_instruction( instruction_ctx_t ctx ) 
       FD_LOG_WARNING(( "failed to write account data" ));
       return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
     }
-    fd_acc_mgr_update_hash ( ctx.global->acc_mgr, &program_acc_metadata, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot, program_acc, program_acc_data, program_acc_metadata.dlen );
+    fd_acc_mgr_update_hash ( ctx.global->acc_mgr, &program_acc_metadata, ctx.global->funk_txn, ctx.global->bank.slot, program_acc, program_acc_data, program_acc_metadata.dlen );
 
     return FD_EXECUTOR_INSTR_SUCCESS;
   } else if( fd_bpf_loader_program_instruction_is_finalize( &instruction ) ) {
     // TODO: check for rent exemption
     // TODO: check for writable
 
-    fd_acc_mgr_set_metadata(ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot, program_acc, &program_acc_metadata);
+    fd_acc_mgr_set_metadata(ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.slot, program_acc, &program_acc_metadata);
 
     return FD_EXECUTOR_INSTR_SUCCESS;
   } else {

@@ -23,14 +23,8 @@
 void fd_sysvar_recent_hashes_init( fd_global_ctx_t* global ) {
   // https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/fee_calculator.rs#L110
 
-  if (global->bank.solana_bank.slot != 0) 
+  if (global->bank.slot != 0) 
     return;
-
-  fd_block_block_hash_entry_t * hashes = global->bank.recent_block_hashes.hashes =
-    deq_fd_block_block_hash_entry_t_alloc( global->allocf, global->allocf_arg );
-  fd_block_block_hash_entry_t * elem = deq_fd_block_block_hash_entry_t_push_head_nocopy(hashes);
-  fd_block_block_hash_entry_new(elem);
-  fd_memcpy(elem->blockhash.hash, global->genesis_hash, sizeof(global->genesis_hash));
 
   ulong sz = fd_recent_block_hashes_size(&global->bank.recent_block_hashes);
   if (sz < 6008)
@@ -43,11 +37,11 @@ void fd_sysvar_recent_hashes_init( fd_global_ctx_t* global ) {
   if ( fd_recent_block_hashes_encode(&global->bank.recent_block_hashes, &ctx) )
     FD_LOG_ERR(("fd_recent_block_hashes_encode failed"));
 
-  fd_sysvar_set(global, global->sysvar_owner, global->sysvar_recent_block_hashes, enc, sz, global->bank.solana_bank.slot );
+  fd_sysvar_set(global, global->sysvar_owner, global->sysvar_recent_block_hashes, enc, sz, global->bank.slot );
 }
 
 void fd_sysvar_recent_hashes_update(fd_global_ctx_t* global ) {
-  if (global->bank.solana_bank.slot == 0)  // we already set this... as part of boot
+  if (global->bank.slot == 0)  // we already set this... as part of boot
     return; 
 
   fd_block_block_hash_entry_t * hashes = global->bank.recent_block_hashes.hashes;
@@ -74,5 +68,5 @@ void fd_sysvar_recent_hashes_update(fd_global_ctx_t* global ) {
   if ( fd_recent_block_hashes_encode(&global->bank.recent_block_hashes, &ctx) )
     FD_LOG_ERR(("fd_recent_block_hashes_encode failed"));
 
-  fd_sysvar_set(global, global->sysvar_owner, global->sysvar_recent_block_hashes, enc, sz, global->bank.solana_bank.slot);
+  fd_sysvar_set(global, global->sysvar_owner, global->sysvar_recent_block_hashes, enc, sz, global->bank.slot);
 }

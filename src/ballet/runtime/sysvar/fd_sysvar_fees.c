@@ -12,7 +12,7 @@ void write_fees( fd_global_ctx_t* global, fd_sysvar_fees_t* fees ) {
   if ( fd_sysvar_fees_encode( fees, &ctx ) )
     FD_LOG_ERR(("fd_sysvar_fees_encode failed"));
 
-  fd_sysvar_set( global, global->sysvar_owner, global->sysvar_fees, enc, sz, global->bank.solana_bank.slot );
+  fd_sysvar_set( global, global->sysvar_owner, global->sysvar_fees, enc, sz, global->bank.slot );
 }
 
 void fd_sysvar_fees_read( fd_global_ctx_t* global, fd_sysvar_fees_t* result ) {

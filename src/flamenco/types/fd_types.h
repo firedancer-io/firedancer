@@ -933,10 +933,21 @@ typedef struct fd_stake_config fd_stake_config_t;
 #define FD_STAKE_CONFIG_ALIGN (8UL)
 
 struct fd_firedancer_banks {
-  fd_deserializable_versioned_bank_t solana_bank;
   fd_stakes_t stakes;
   fd_recent_block_hashes_t recent_block_hashes;
   fd_clock_timestamp_votes_t timestamp_votes;
+  unsigned long slot;
+  fd_fee_rate_governor_t fee_rate_governor;
+  unsigned long lamports_per_signature;
+  unsigned long hashes_per_tick;
+  unsigned long ticks_per_slot;
+  uint128 ns_per_slot;
+  unsigned long genesis_creation_time;
+  double slots_per_year;
+  unsigned long max_tick_height;
+  fd_inflation_t inflation;
+  fd_epoch_schedule_t epoch_schedule;
+  fd_rent_t rent;
 };
 typedef struct fd_firedancer_banks fd_firedancer_banks_t;
 #define FD_FIREDANCER_BANKS_FOOTPRINT sizeof(fd_firedancer_banks_t)

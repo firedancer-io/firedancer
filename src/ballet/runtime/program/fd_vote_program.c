@@ -226,8 +226,8 @@ fd_vote_save_account( fd_vote_state_versioned_t const * account,
     return write_res;
   int hash_res = fd_acc_mgr_update_hash(
       ctx.global->acc_mgr, meta, ctx.global->funk_txn,
-      ctx.global->bank.solana_bank.slot, address,
-    (uchar*)raw_acc, raw_acc_sz );
+      ctx.global->bank.slot, address,
+      (uchar*)raw_acc, raw_acc_sz );
   if( FD_UNLIKELY( hash_res != FD_ACC_MGR_SUCCESS ) )
     return hash_res;
 
@@ -282,7 +282,7 @@ void record_timestamp_vote(
         iter = deq_fd_clock_timestamp_vote_t_iter_next( votes, iter ) ) {
     fd_clock_timestamp_vote_t * ele = deq_fd_clock_timestamp_vote_t_iter_ele( votes, iter );
     if ( memcmp( &ele->pubkey, vote_acc, sizeof(fd_pubkey_t) ) == 0 ) {
-      ele->slot      = global->bank.solana_bank.slot;
+      ele->slot      = global->bank.slot;
       ele->timestamp = (long)timestamp;
       found = 1;
     }
@@ -291,7 +291,7 @@ void record_timestamp_vote(
     fd_clock_timestamp_vote_t timestamp_vote = {
       .pubkey    = *vote_acc,
       .timestamp = (long)timestamp,
-      .slot      = global->bank.solana_bank.slot,
+      .slot      = global->bank.slot,
     };
     FD_TEST( !deq_fd_clock_timestamp_vote_t_full( votes ) );
     deq_fd_clock_timestamp_vote_t_push_tail( votes, timestamp_vote );

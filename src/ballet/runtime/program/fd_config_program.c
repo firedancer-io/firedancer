@@ -233,13 +233,13 @@ int fd_executor_config_program_execute_instruction( instruction_ctx_t ctx ) {
    structured_account.rent_epoch = 0;
    memcpy( &structured_account.owner, ctx.global->solana_config_program, sizeof(fd_pubkey_t) );
 
-   int write_result = fd_acc_mgr_write_structured_account( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot, config_acc, &structured_account );
+   int write_result = fd_acc_mgr_write_structured_account( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.slot, config_acc, &structured_account );
    if ( write_result != FD_ACC_MGR_SUCCESS ) {
       FD_LOG_WARNING(( "failed to write account data" ));
       ret = write_result;
       goto config_program_execute_instruction_cleanup;
    }
-   fd_acc_mgr_update_hash ( ctx.global->acc_mgr, &metadata, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot, config_acc, new_data, new_data_size);
+   fd_acc_mgr_update_hash ( ctx.global->acc_mgr, &metadata, ctx.global->funk_txn, ctx.global->bank.slot, config_acc, new_data, new_data_size);
 
    fd_bincode_destroy_ctx_t destroy_ctx;
 

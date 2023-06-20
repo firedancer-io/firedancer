@@ -4815,55 +4815,127 @@ int fd_stake_config_encode(fd_stake_config_t const * self, fd_bincode_encode_ctx
 
 int fd_firedancer_banks_decode(fd_firedancer_banks_t* self, fd_bincode_decode_ctx_t * ctx) {
   int err;
-  err = fd_deserializable_versioned_bank_decode(&self->solana_bank, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
   err = fd_stakes_decode(&self->stakes, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_recent_block_hashes_decode(&self->recent_block_hashes, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_clock_timestamp_votes_decode(&self->timestamp_votes, ctx);
   if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_decode(&self->slot, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_fee_rate_governor_decode(&self->fee_rate_governor, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_decode(&self->lamports_per_signature, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_decode(&self->hashes_per_tick, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_decode(&self->ticks_per_slot, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint128_decode(&self->ns_per_slot, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_decode(&self->genesis_creation_time, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_double_decode(&self->slots_per_year, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_decode(&self->max_tick_height, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_inflation_decode(&self->inflation, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_epoch_schedule_decode(&self->epoch_schedule, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_rent_decode(&self->rent, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
 void fd_firedancer_banks_new(fd_firedancer_banks_t* self) {
-  fd_deserializable_versioned_bank_new(&self->solana_bank);
   fd_stakes_new(&self->stakes);
   fd_recent_block_hashes_new(&self->recent_block_hashes);
   fd_clock_timestamp_votes_new(&self->timestamp_votes);
+  fd_fee_rate_governor_new(&self->fee_rate_governor);
+  fd_inflation_new(&self->inflation);
+  fd_epoch_schedule_new(&self->epoch_schedule);
+  fd_rent_new(&self->rent);
 }
 void fd_firedancer_banks_destroy(fd_firedancer_banks_t* self, fd_bincode_destroy_ctx_t * ctx) {
-  fd_deserializable_versioned_bank_destroy(&self->solana_bank, ctx);
   fd_stakes_destroy(&self->stakes, ctx);
   fd_recent_block_hashes_destroy(&self->recent_block_hashes, ctx);
   fd_clock_timestamp_votes_destroy(&self->timestamp_votes, ctx);
+  fd_fee_rate_governor_destroy(&self->fee_rate_governor, ctx);
+  fd_inflation_destroy(&self->inflation, ctx);
+  fd_epoch_schedule_destroy(&self->epoch_schedule, ctx);
+  fd_rent_destroy(&self->rent, ctx);
 }
 
 void fd_firedancer_banks_walk(fd_firedancer_banks_t* self, fd_walk_fun_t fun, const char *name, int level) {
   fun(self, name, 32, "fd_firedancer_banks", level++);
-  fd_deserializable_versioned_bank_walk(&self->solana_bank, fun, "solana_bank", level + 1);
   fd_stakes_walk(&self->stakes, fun, "stakes", level + 1);
   fd_recent_block_hashes_walk(&self->recent_block_hashes, fun, "recent_block_hashes", level + 1);
   fd_clock_timestamp_votes_walk(&self->timestamp_votes, fun, "timestamp_votes", level + 1);
+  fun(&self->slot, "slot", 11, "ulong", level + 1);
+  fd_fee_rate_governor_walk(&self->fee_rate_governor, fun, "fee_rate_governor", level + 1);
+  fun(&self->lamports_per_signature, "lamports_per_signature", 11, "ulong", level + 1);
+  fun(&self->hashes_per_tick, "hashes_per_tick", 11, "ulong", level + 1);
+  fun(&self->ticks_per_slot, "ticks_per_slot", 11, "ulong", level + 1);
+  fun(&self->ns_per_slot, "ns_per_slot", 8, "uint128", level + 1);
+  fun(&self->genesis_creation_time, "genesis_creation_time", 11, "ulong", level + 1);
+  fun(&self->slots_per_year, "slots_per_year", 5, "double", level + 1);
+  fun(&self->max_tick_height, "max_tick_height", 11, "ulong", level + 1);
+  fd_inflation_walk(&self->inflation, fun, "inflation", level + 1);
+  fd_epoch_schedule_walk(&self->epoch_schedule, fun, "epoch_schedule", level + 1);
+  fd_rent_walk(&self->rent, fun, "rent", level + 1);
   fun(self, name, 33, "fd_firedancer_banks", --level);
 }
 ulong fd_firedancer_banks_size(fd_firedancer_banks_t const * self) {
   ulong size = 0;
-  size += fd_deserializable_versioned_bank_size(&self->solana_bank);
   size += fd_stakes_size(&self->stakes);
   size += fd_recent_block_hashes_size(&self->recent_block_hashes);
   size += fd_clock_timestamp_votes_size(&self->timestamp_votes);
+  size += sizeof(ulong);
+  size += fd_fee_rate_governor_size(&self->fee_rate_governor);
+  size += sizeof(ulong);
+  size += sizeof(ulong);
+  size += sizeof(ulong);
+  size += sizeof(uint128);
+  size += sizeof(ulong);
+  size += sizeof(double);
+  size += sizeof(ulong);
+  size += fd_inflation_size(&self->inflation);
+  size += fd_epoch_schedule_size(&self->epoch_schedule);
+  size += fd_rent_size(&self->rent);
   return size;
 }
 
 int fd_firedancer_banks_encode(fd_firedancer_banks_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_deserializable_versioned_bank_encode(&self->solana_bank, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
   err = fd_stakes_encode(&self->stakes, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_recent_block_hashes_encode(&self->recent_block_hashes, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_clock_timestamp_votes_encode(&self->timestamp_votes, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_encode(&self->slot, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_fee_rate_governor_encode(&self->fee_rate_governor, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_encode(&self->lamports_per_signature, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_encode(&self->hashes_per_tick, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_encode(&self->ticks_per_slot, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint128_encode(&self->ns_per_slot, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_encode(&self->genesis_creation_time, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_double_encode(&self->slots_per_year, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_encode(&self->max_tick_height, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_inflation_encode(&self->inflation, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_epoch_schedule_encode(&self->epoch_schedule, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_rent_encode(&self->rent, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }

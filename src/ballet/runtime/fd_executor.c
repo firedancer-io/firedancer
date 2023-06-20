@@ -130,7 +130,7 @@ fd_execute_txn( fd_executor_t* executor, fd_txn_t * txn_descriptor, fd_rawtxn_b_
 
   // TODO: I BELIEVE we charge for the fee BEFORE we create the funk_txn fork
   // since we collect reguardless of the success of the txn execution...
-  ret = fd_acc_mgr_set_lamports ( global->acc_mgr, global->funk_txn, global->bank.solana_bank.slot, &tx_accs[0], lamps - fee);
+  ret = fd_acc_mgr_set_lamports ( global->acc_mgr, global->funk_txn, global->bank.slot, &tx_accs[0], lamps - fee);
   if (ret != FD_ACC_MGR_SUCCESS) {
     // TODO: Wait! wait! what?!
     FD_LOG_ERR(( "lamport update failed" ));
