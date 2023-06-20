@@ -65,10 +65,52 @@
      RFC 5288: AES Galois Counter Mode (GCM) Cipher Suites for TLS
      https://datatracker.ietf.org/doc/html/rfc5288 */
 
+/* Callback functions */
+
+typedef int
+(* fd_tls_secrets_fn_t)( void const * handshake,
+                         void const * recv_secret,
+                         void const * send_secret,
+                         int          encryption_level );
+
+typedef int
+(* fd_tls_sendmsg_fn_t)( void const * handshake,
+                         void const * record,
+                         ulong        record_sz,
+                         int          encryption_level,
+                         int          flush );
+
+typedef void *
+(* fd_tls_rand_fn_t)( void * buf,
+                      ulong  bufsz );
+
+/* Handshake state identifiers */
+
+#define FD_TLS_HS_FAIL          (-1)
+#define FD_TLS_HS_CONNECTED     (-2)
+#define FD_TLS_HS_START         ( 0)
+#define FD_TLS_HS_NEGOTIATED    ( 1)
+#define FD_TLS_HS_WAIT_FLIGHT2  ( 2)
+#define FD_TLS_HS_WAIT_CERT     ( 3)
+#define FD_TLS_HS_WAIT_CV       ( 4)
+#define FD_TLS_HS_WAIT_FINISHED ( 5)
+
+/* TLS encryption levels */
+
+#define FD_TLS_LEVEL_INITIAL     (0)
+#define FD_TLS_LEVEL_EARLY       (1)
+#define FD_TLS_LEVEL_HANDSHAKE   (2)
+#define FD_TLS_LEVEL_APPLICATION (3)
+
+
 /* The fd_tls_server_t object provides the server-side functionality
    of a TLS handshake. */
 
 struct fd_tls_server {
+  fd_tls_rand_fn_t    rand_fn;
+  fd_tls_secrets_fn_t secrets_fn;
+  fd_tls_sendmsg_fn_t sendmsg_fn;
+
   uchar kex_private_key[ 32 ];
   uchar kex_public_key [ 32 ];
 };
@@ -79,58 +121,29 @@ typedef struct fd_tls_server fd_tls_server_t;
    state machine. */
 
 struct fd_tls_server_hs {
-  int state;
-
-  uchar client_random[ 32 ];
-  uchar server_random[ 32 ];
-
-  uchar key_exchange[ 32 ];
-
-  fd_sha256_t hs_transcript;
-
-  uchar client_hs_secret[ 32 ];
-  uchar server_hs_secret[ 32 ];
+  fd_sha256_t transcript;
+  int         state;  /* FD_TLS_HS_{...} */
+  uchar       master_secret[ 32 ];
 };
 
 typedef struct fd_tls_server_hs fd_tls_server_hs_t;
 
-#define FD_TLS_SERVER_HS_FAIL          (-1)
-#define FD_TLS_SERVER_HS_CONNECTED     (-2)
-#define FD_TLS_SERVER_HS_START         ( 0)
-#define FD_TLS_SERVER_HS_RECVD_CH      ( 1)
-#define FD_TLS_SERVER_HS_NEGOTIATED    ( 2)
-#define FD_TLS_SERVER_HS_WAIT_FLIGHT2  ( 3)
-#define FD_TLS_SERVER_HS_WAIT_CERT     ( 4)
-#define FD_TLS_SERVER_HS_WAIT_CV       ( 5)
-#define FD_TLS_SERVER_HS_WAIT_FINISHED ( 6)
-
-#define FD_TLS_LEVEL_INITIAL     (0)
-#define FD_TLS_LEVEL_EARLY       (1)
-#define FD_TLS_LEVEL_HANDSHAKE   (2)
-#define FD_TLS_LEVEL_APPLICATION (3)
-
 FD_PROTOTYPES_BEGIN
 
+fd_tls_server_hs_t *
+fd_tls_server_hs_new( void * mem );
+
 /* fd_tls_server_recvmsg ingests a TLS record from the client.
-   Progresses the TLS state machine.  Avoids doing cryptographic
-   computation (such as public key verify, key exchange, hashing).
+   Progresses the TLS state machine. Synchronously dispatches callbacks.
 
-   Returns record_sz on success.  On failure, returns negated TLS alert
-   code.  FIXME document that sendmsg has to be called etc */
+   Returns 0L on success.  On failure, returns negated TLS alert code. */
 
 long
-fd_tls_server_recvmsg( fd_tls_server_t const * server,
-                       fd_tls_server_hs_t *    handshake,
-                       void const *            record,
-                       ulong                   record_sz,
-                       int                     encryption_level );
-
-long
-fd_tls_server_sendmsg( fd_tls_server_t const * server,
-                       fd_tls_server_hs_t *    handshake,
-                       void *                  record,
-                       ulong                   record_bufsz,
-                       int *                   encryption_level );
+fd_tls_server_handshake( fd_tls_server_t const * server,
+                         fd_tls_server_hs_t *    handshake,
+                         void const *            record,
+                         ulong                   record_sz,
+                         int                     encryption_level );
 
 FD_PROTOTYPES_END
 
