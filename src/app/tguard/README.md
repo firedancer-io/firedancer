@@ -61,9 +61,10 @@ you will then be presented a set of choices to pick and run repeatedly:
         9:  halt_tqos           : halt turbine qos daemon 
         10: halt_main           : halt fd_tguard_run.bin  
         11: stress_test         : blast pcaps at tguide
+        12: view_test_rpt       : less test log abstract
      Enter choice id to run:
 ```
-Alternatively, you can make **one-shot run** of fd_tguard_cnc like:
+Alternatively, you can make ***one-shot*** runs of fd_tguard_cnc like:
 ```
   $ src/app/tguard/fd_tguard_cnc <your choice ids>
 
