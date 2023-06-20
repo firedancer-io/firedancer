@@ -1,0 +1,1 @@
+LDFLAGS+=-L/usr/lib64 -lpcap
