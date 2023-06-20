@@ -23,9 +23,6 @@ struct __attribute__((aligned(FD_GLOBAL_CTX_ALIGN))) fd_global_ctx {
   fd_free_fun_t              freef;
   fd_acc_mgr_t*              acc_mgr;
 
-  fd_genesis_solana_t        genesis_block;
-  uchar                      genesis_hash[FD_SHA256_HASH_SZ];
-
   fd_rng_t                   rnd_mem;
 
   fd_wksp_t *                wksp;
@@ -96,7 +93,8 @@ void *            fd_global_ctx_delete     ( void *  );
 ulong             fd_runtime_lamports_per_signature( fd_global_ctx_t *global );
 
 ulong             fd_runtime_txn_lamports_per_signature( fd_global_ctx_t *global, fd_txn_t * txn_descriptor, fd_rawtxn_b_t* txn_raw );
-void              fd_runtime_boot_slot_zero( fd_global_ctx_t *global );
+void              fd_runtime_init_bank_from_genesis( fd_global_ctx_t * global, fd_genesis_solana_t * genesis_block, uchar genesis_hash[FD_SHA256_HASH_SZ] );
+void              fd_runtime_init_program( fd_global_ctx_t * global );
 int               fd_runtime_block_execute ( fd_global_ctx_t *global, fd_slot_meta_t *m, const void* block, ulong blocklen );
 int               fd_runtime_block_verify  ( fd_global_ctx_t *global, fd_slot_meta_t *m, const void* block, ulong blocklen );
 int               fd_runtime_block_verify_tpool( fd_global_ctx_t *global, fd_slot_meta_t *m, const void* block, ulong blocklen, fd_tpool_t * tpool, ulong max_workers );

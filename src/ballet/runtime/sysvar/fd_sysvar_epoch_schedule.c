@@ -17,7 +17,7 @@ void write_epoch_schedule( fd_global_ctx_t* global, fd_epoch_schedule_t* epoch_s
   if ( fd_epoch_schedule_encode( epoch_schedule, &ctx ) )
     FD_LOG_ERR(("fd_epoch_schedule_encode failed"));
 
-  fd_sysvar_set( global, global->sysvar_owner, global->sysvar_epoch_schedule, enc, sz, global->bank.solana_bank.slot );
+  fd_sysvar_set( global, global->sysvar_owner, global->sysvar_epoch_schedule, enc, sz, global->bank.slot );
 }
 
 void fd_sysvar_epoch_schedule_read( fd_global_ctx_t* global, fd_epoch_schedule_t* result ) {
@@ -45,7 +45,7 @@ void fd_sysvar_epoch_schedule_read( fd_global_ctx_t* global, fd_epoch_schedule_t
 }
 
 void fd_sysvar_epoch_schedule_init( fd_global_ctx_t* global ) {
-  write_epoch_schedule( global, &global->genesis_block.epoch_schedule );
+  write_epoch_schedule( global, &global->bank.epoch_schedule );
 }
 
 /* Returns the number of trailing zeroes in the binary representation of x */

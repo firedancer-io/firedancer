@@ -211,7 +211,7 @@ int fd_advance_nonce_account(
   m->dlen = sz;
   fd_memcpy(fd_account_get_data(m), enc, sz);
 
-  return fd_acc_mgr_commit_data(ctx.global->acc_mgr, rec, me, m, ctx.global->bank.solana_bank.slot, 0);
+  return fd_acc_mgr_commit_data(ctx.global->acc_mgr, rec, me, m, ctx.global->bank.slot, 0);
 }
 
 // https://github.com/firedancer-io/solana/blob/8fb537409eb901444e064f50ea8dd7dcafb12a00/runtime/src/system_instruction_processor.rs#L366
@@ -310,10 +310,10 @@ int fd_withdraw_nonce_account(
   ((fd_account_meta_t *) from_data)->info.lamports = ((fd_account_meta_t *) from_data)->info.lamports - requested_lamports;
   ((fd_account_meta_t *) to_data)->info.lamports = res;
 
-  err = fd_acc_mgr_commit_data(ctx.global->acc_mgr, from_rec, from, from_data, ctx.global->bank.solana_bank.slot, 0);
+  err = fd_acc_mgr_commit_data(ctx.global->acc_mgr, from_rec, from, from_data, ctx.global->bank.slot, 0);
   if (FD_EXECUTOR_INSTR_SUCCESS != err)
     return err;
-  return fd_acc_mgr_commit_data(ctx.global->acc_mgr, to_rec, to, to_data, ctx.global->bank.solana_bank.slot, 0);
+  return fd_acc_mgr_commit_data(ctx.global->acc_mgr, to_rec, to, to_data, ctx.global->bank.slot, 0);
 }
 
 // https://github.com/firedancer-io/solana/blob/8fb537409eb901444e064f50ea8dd7dcafb12a00/runtime/src/system_instruction_processor.rs#L380
@@ -418,7 +418,7 @@ int fd_initialize_nonce_account(
 
     m->dlen = sz;
     fd_memcpy(fd_account_get_data(m), enc, sz);
-    return fd_acc_mgr_commit_data(ctx.global->acc_mgr, rec, me, m, ctx.global->bank.solana_bank.slot, 0);
+    return fd_acc_mgr_commit_data(ctx.global->acc_mgr, rec, me, m, ctx.global->bank.slot, 0);
   }
 
   case fd_nonce_state_enum_initialized: {
@@ -496,7 +496,7 @@ int fd_authorize_nonce_account(
       break;
     }
 
-    if (fd_acc_mgr_update_data ( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot, me, enc, sz) != FD_ACC_MGR_SUCCESS)
+    if (fd_acc_mgr_update_data ( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.slot, me, enc, sz) != FD_ACC_MGR_SUCCESS)
       ret = FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
     else
       ret = FD_EXECUTOR_INSTR_SUCCESS;
@@ -594,7 +594,7 @@ int fd_upgrade_nonce_account(
       break;
     }
 
-    if (fd_acc_mgr_update_data ( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot, me, enc, sz) != FD_ACC_MGR_SUCCESS)
+    if (fd_acc_mgr_update_data ( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.slot, me, enc, sz) != FD_ACC_MGR_SUCCESS)
       ret = FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
     else
       ret = FD_EXECUTOR_INSTR_SUCCESS;

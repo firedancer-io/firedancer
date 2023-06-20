@@ -34,9 +34,9 @@ uint128 ns_per_slot( ulong ticks_per_slot ) {
 }
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/bank.rs#L2200 */
-long timestamp_from_genesis( fd_genesis_solana_t* gen, ulong current_slot ) {
+long timestamp_from_genesis( fd_global_ctx_t* global ) {
   /* TODO: maybe make types of timestamps the same throughout the runtime codebase. as Solana uses a signed representation */
-  return (long)(gen->creation_time + ( ( current_slot * ns_per_slot( gen->ticks_per_slot ) ) / NS_IN_S ) );
+  return (long)(global->bank.genesis_creation_time + ( ( global->bank.slot * ns_per_slot( global->bank.ticks_per_slot ) ) / NS_IN_S ) );
 }
 
 void write_clock( fd_global_ctx_t* global, fd_sol_sysvar_clock_t* clock ) {
@@ -49,7 +49,7 @@ void write_clock( fd_global_ctx_t* global, fd_sol_sysvar_clock_t* clock ) {
   if ( fd_sol_sysvar_clock_encode( clock, &ctx ) )
     FD_LOG_ERR(("fd_sol_sysvar_clock_encode failed"));
 
-  fd_sysvar_set( global, global->sysvar_owner, global->sysvar_clock, enc, sz, global->bank.solana_bank.slot );
+  fd_sysvar_set( global, global->sysvar_owner, global->sysvar_clock, enc, sz, global->bank.slot );
 }
 
 void fd_sysvar_clock_read( fd_global_ctx_t* global, fd_sol_sysvar_clock_t* result ) {
@@ -78,10 +78,10 @@ void fd_sysvar_clock_read( fd_global_ctx_t* global, fd_sol_sysvar_clock_t* resul
 }
 
 void fd_sysvar_clock_init( fd_global_ctx_t* global ) {
-  long timestamp = timestamp_from_genesis( &global->genesis_block, global->bank.solana_bank.slot );
+  long timestamp = timestamp_from_genesis( global );
 
   fd_sol_sysvar_clock_t clock = {
-    .slot = 0,
+    .slot = global->bank.slot,
     .epoch = 0,
     .epoch_start_timestamp = timestamp,
     .leader_schedule_epoch = 1,
@@ -97,7 +97,7 @@ long bound_timestamp_estimate( fd_global_ctx_t* global, long estimate, long epoc
 
   /* Determine offsets from start of epoch */
   /* TODO: handle epoch boundary case */
-  uint128 poh_estimate_offset = ns_per_slot( global->genesis_block.ticks_per_slot ) * global->bank.solana_bank.slot;
+  uint128 poh_estimate_offset = ns_per_slot( global->bank.ticks_per_slot ) * global->bank.slot;
   uint128 estimate_offset = (uint128)( ( estimate - epoch_start_timestamp ) * NS_IN_S );
 
   uint128 max_delta_fast = ( poh_estimate_offset * MAX_ALLOWABLE_DRIFT_FAST ) / 100;
@@ -129,12 +129,12 @@ long estimate_timestamp( fd_global_ctx_t* global, uint128 ns_per_slot ) {
     global->bank.timestamp_votes.votes =
       votes = deq_fd_clock_timestamp_vote_t_alloc( global->allocf, global->allocf_arg );
   if ( deq_fd_clock_timestamp_vote_t_cnt( votes ) == 0 ) {
-    return timestamp_from_genesis( &global->genesis_block, global->bank.solana_bank.slot );
+    return timestamp_from_genesis( global );
   }
 
   /* TODO: actually take the stake-weighted median. For now, just take the first vote */
   fd_clock_timestamp_vote_t * head = deq_fd_clock_timestamp_vote_t_peek_head( votes );
-  ulong slots = global->bank.solana_bank.slot - head->slot;
+  ulong slots = global->bank.slot - head->slot;
   uint128 ns_correction = ns_per_slot * slots;
   return head->timestamp  + (long) (ns_correction / NS_IN_S) ;
 }
@@ -143,15 +143,15 @@ void fd_sysvar_clock_update( fd_global_ctx_t* global ) {
   fd_sol_sysvar_clock_t clock;
   fd_sysvar_clock_read( global, &clock );
 
-  long timestamp_estimate         = estimate_timestamp( global, ns_per_slot( global->genesis_block.ticks_per_slot ) );
+  long timestamp_estimate         = estimate_timestamp( global, ns_per_slot( global->bank.ticks_per_slot ) );
   long bounded_timestamp_estimate = bound_timestamp_estimate( global, timestamp_estimate, clock.epoch_start_timestamp );
   if ( timestamp_estimate != bounded_timestamp_estimate ) {
     FD_LOG_INFO(( "corrected timestamp_estimate %ld to %ld", timestamp_estimate, bounded_timestamp_estimate ));
   }
-  clock.slot                      = global->bank.solana_bank.slot;
+  clock.slot                      = global->bank.slot;
   clock.unix_timestamp            = bounded_timestamp_estimate;
 
-  FD_LOG_INFO(( "Updated clock at slot %lu", global->bank.solana_bank.slot ));
+  FD_LOG_INFO(( "Updated clock at slot %lu", global->bank.slot ));
   FD_LOG_INFO(( "clock.slot: %lu", clock.slot ));
   FD_LOG_INFO(( "clock.epoch_start_timestamp: %ld", clock.epoch_start_timestamp ));
   FD_LOG_INFO(( "clock.epoch: %lu", clock.epoch ));

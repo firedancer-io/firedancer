@@ -15,7 +15,7 @@ void write_rent( fd_global_ctx_t* global, fd_rent_t* rent ) {
   if ( fd_rent_encode( rent, &ctx ) )
     FD_LOG_ERR(("fd_rent_encode failed"));
 
-  fd_sysvar_set( global, global->sysvar_owner, global->sysvar_rent, enc, sz, global->bank.solana_bank.slot );
+  fd_sysvar_set( global, global->sysvar_owner, global->sysvar_rent, enc, sz, global->bank.slot );
 }
 
 void fd_sysvar_rent_read( fd_global_ctx_t* global, fd_rent_t* result ) {

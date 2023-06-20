@@ -7,6 +7,10 @@
 #include "program/fd_config_program.h"
 #include "program/fd_ed25519_program.h"
 #include "program/fd_secp256k1_program.h"
+#include "program/fd_bpf_loader_program.h"
+#include "program/fd_bpf_upgradeable_loader_program.h"
+#include "program/fd_bpf_deprecated_loader_program.h"
+
 
 #include "../base58/fd_base58.h"
 
@@ -58,8 +62,16 @@ fd_executor_lookup_native_program( fd_global_ctx_t* global,  fd_pubkey_t *pubkey
     return fd_executor_ed25519_program_execute_instruction;
   } else if ( !memcmp( pubkey, global->solana_keccak_secp_256k_program, sizeof( fd_pubkey_t ) ) ) {
     return fd_executor_secp256k1_program_execute_instruction;
+  } else if ( !memcmp( pubkey, global->solana_bpf_loader_upgradeable_program_with_jit, sizeof( fd_pubkey_t ) ) ) {
+    return fd_executor_bpf_upgradeable_loader_program_execute_instruction;
+  } else if ( !memcmp( pubkey, global->solana_bpf_loader_program_with_jit, sizeof( fd_pubkey_t ) ) ) {
+    return fd_executor_bpf_loader_program_execute_instruction;
+  } else if ( !memcmp( pubkey, global->solana_bpf_loader_deprecated_program, sizeof( fd_pubkey_t ) ) ) {
+    return fd_executor_bpf_deprecated_loader_program_execute_instruction;
   } else {
-    FD_LOG_HEXDUMP_WARNING(( "unknown program",  pubkey, sizeof(*pubkey)));
+    char program_id_str[FD_BASE58_ENCODED_32_SZ];
+    fd_base58_encode_32((uchar *)pubkey, NULL, program_id_str);
+    FD_LOG_WARNING(( "unknown program - program_id: %s", program_id_str ));
     return NULL; /* FIXME */
   }
 }
@@ -118,7 +130,7 @@ fd_execute_txn( fd_executor_t* executor, fd_txn_t * txn_descriptor, fd_rawtxn_b_
 
   // TODO: I BELIEVE we charge for the fee BEFORE we create the funk_txn fork
   // since we collect reguardless of the success of the txn execution...
-  ret = fd_acc_mgr_set_lamports ( global->acc_mgr, global->funk_txn, global->bank.solana_bank.slot, &tx_accs[0], lamps - fee);
+  ret = fd_acc_mgr_set_lamports ( global->acc_mgr, global->funk_txn, global->bank.slot, &tx_accs[0], lamps - fee);
   if (ret != FD_ACC_MGR_SUCCESS) {
     // TODO: Wait! wait! what?!
     FD_LOG_ERR(( "lamport update failed" ));

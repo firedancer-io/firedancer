@@ -97,10 +97,10 @@ static int transfer(
   ((fd_account_meta_t *) sender_data)->info.lamports = ((fd_account_meta_t *) sender_data)->info.lamports - requested_lamports;
   ((fd_account_meta_t *) receiver_data)->info.lamports = res;
 
-  err = fd_acc_mgr_commit_data(ctx.global->acc_mgr, sender_rec, sender, sender_data, ctx.global->bank.solana_bank.slot, 0);
+  err = fd_acc_mgr_commit_data(ctx.global->acc_mgr, sender_rec, sender, sender_data, ctx.global->bank.slot, 0);
   if (FD_EXECUTOR_INSTR_SUCCESS != err)
     return err;
-  return fd_acc_mgr_commit_data(ctx.global->acc_mgr, receiver_rec, receiver, receiver_data, ctx.global->bank.solana_bank.slot, 0);
+  return fd_acc_mgr_commit_data(ctx.global->acc_mgr, receiver_rec, receiver, receiver_data, ctx.global->bank.slot, 0);
 }
 
 // https://github.com/solana-labs/solana/blob/b00d18cec4011bb452e3fe87a3412a3f0146942e/runtime/src/system_instruction_processor.rs#L507
@@ -176,7 +176,7 @@ static int fd_system_allocate(
       return err;
   }
 
-  err = fd_acc_mgr_commit_data(ctx.global->acc_mgr, rec, account, data, ctx.global->bank.solana_bank.slot, 0);
+  err = fd_acc_mgr_commit_data(ctx.global->acc_mgr, rec, account, data, ctx.global->bank.slot, 0);
   if (FD_ACC_MGR_SUCCESS != err)
     return err;
 
@@ -231,7 +231,7 @@ static int fd_system_assign_with_seed(
   if (FD_ACC_MGR_SUCCESS != err)
     return err;
 
-  err = fd_acc_mgr_commit_data(ctx.global->acc_mgr, rec, account, data, ctx.global->bank.solana_bank.slot, 0);
+  err = fd_acc_mgr_commit_data(ctx.global->acc_mgr, rec, account, data, ctx.global->bank.slot, 0);
   if (FD_ACC_MGR_SUCCESS != err)
     return err;
 
@@ -309,7 +309,7 @@ static int create_account(
   }
 
   /* Execute the transfer */
-  int write_result = fd_acc_mgr_set_lamports( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot , from, sender_lamports - lamports );
+  int write_result = fd_acc_mgr_set_lamports( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.slot , from, sender_lamports - lamports );
   if ( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) ) {
     return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
   }
@@ -383,7 +383,7 @@ static int assign(
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
 
   // Set the owner of the account
-  int execute_result = fd_acc_mgr_set_owner( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot , keyed_account, owner );
+  int execute_result = fd_acc_mgr_set_owner( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.slot , keyed_account, owner );
   if ( FD_UNLIKELY( execute_result != FD_ACC_MGR_SUCCESS ) ) {
     return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
   }

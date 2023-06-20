@@ -1,9 +1,9 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-#ifdef _DISABLE_OPTIMIZATION
+// #ifdef _DISABLE_OPTIMIZATION
 #pragma GCC optimize ("O0")
-#endif
+// #endif
 
 #include "fd_tests.h"
 extern int fd_executor_test_suite_check_filter(fd_executor_test_suite_t *suite, fd_executor_test_t *test);

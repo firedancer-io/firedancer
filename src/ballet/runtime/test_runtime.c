@@ -341,8 +341,6 @@ void print_file(global_state_t *state, const char *file) {
 }
 
 int slot_dump(global_state_t *state) {
-  fd_runtime_boot_slot_zero(state->global);
-
   if (NULL == state->accounts)  {
     usage(state->argv[0]);
     exit(1);
@@ -390,9 +388,6 @@ int slot_dump(global_state_t *state) {
 }
 
 int replay(global_state_t *state) {
-  if (0 == state->start_slot)
-    fd_runtime_boot_slot_zero(state->global);
-
   fd_funk_rec_key_t key = fd_runtime_block_meta_key(ULONG_MAX);
   fd_funk_rec_t const * rec = fd_funk_rec_query( state->global->funk, NULL, &key );
   if (rec == NULL)
@@ -416,7 +411,7 @@ int replay(global_state_t *state) {
     state->end_slot = mm.end_slot;
 
   for ( ulong slot = state->start_slot; slot < state->end_slot; ++slot ) {
-    state->global->bank.solana_bank.slot = slot;
+    state->global->bank.slot = slot;
 
     if ((state->end_slot < 10) || ((slot % 10) == 0))
       FD_LOG_WARNING(("reading slot %ld", slot));
@@ -599,10 +594,12 @@ int main(int argc, char **argv) {
     state.start_id = (ulong) atoi(state.start_id_opt);
 
   // Eventually we will have to add support for reading compressed genesis blocks...
-  char genesis[128];
-  sprintf(genesis, "%s/genesis.bin", state.ledger);
+  fd_genesis_solana_t genesis_block;
+  fd_genesis_solana_new(&genesis_block);
 
   {
+    char genesis[128];
+    sprintf(genesis, "%s/genesis.bin", state.ledger);
     struct stat sbuf;
     stat(genesis, &sbuf);
     int fd = open(genesis, O_RDONLY);
@@ -612,26 +609,31 @@ int main(int argc, char **argv) {
     uchar * buf = malloc((ulong) sbuf.st_size);
     ssize_t n = read(fd, buf, (ulong) sbuf.st_size);
     close(fd);
-
-    fd_genesis_solana_new(&state.global->genesis_block);
+    
     fd_bincode_decode_ctx_t ctx;
     ctx.data = buf;
     ctx.dataend = &buf[n];
     ctx.allocf = state.global->allocf;
     ctx.allocf_arg = state.global->allocf_arg;
-    if ( fd_genesis_solana_decode(&state.global->genesis_block, &ctx) )
+    if ( fd_genesis_solana_decode(&genesis_block, &ctx) )
       FD_LOG_ERR(("fd_genesis_solana_decode failed"));
 
     // The hash is generated from the raw data... don't mess with this..
+    uchar genesis_hash[FD_SHA256_HASH_SZ];
     fd_sha256_t sha;
     fd_sha256_init( &sha );
     fd_sha256_append( &sha, buf, (ulong) n );
-    fd_sha256_fini( &sha, state.global->genesis_hash );
+    fd_sha256_fini( &sha, genesis_hash );
 
+    fd_runtime_init_bank_from_genesis( state.global, &genesis_block, genesis_hash );
+    
     free(buf);
   }
 
+  fd_runtime_init_program( state.global );
+
   if (strcmp(state.cmd, "accounts_hash") != 0) {
+#if 0
     FD_LOG_WARNING(("loading genesis account into funk db"));
 
     fd_funk_rec_t * rec_map = fd_funk_rec_map( state.global->funk, state.global->wksp );
@@ -652,20 +654,22 @@ int main(int argc, char **argv) {
       if (fd_funk_rec_remove(state.global->funk, trec, 1) != FD_FUNK_SUCCESS)
         FD_LOG_WARNING(("remove failed"));
     }
+#endif
 
-    for (ulong i = 0; i < state.global->genesis_block.accounts_len; i++) {
-      fd_pubkey_account_pair_t *a = &state.global->genesis_block.accounts[i];
+    for (ulong i = 0; i < genesis_block.accounts_len; i++) {
+      fd_pubkey_account_pair_t *a = &genesis_block.accounts[i];
 
       char pubkey[50];
 
-      fd_base58_encode_32((uchar *) state.global->genesis_block.accounts[i].key.key, NULL, pubkey);
+      fd_base58_encode_32((uchar *) genesis_block.accounts[i].key.key, NULL, pubkey);
 
       fd_acc_mgr_write_structured_account(state.global->acc_mgr, state.global->funk_txn, 0, &a->key, &a->account);
     }
   }
 
-  for (ulong i = 0; i < state.global->genesis_block.native_instruction_processors_len; i++) {
-    fd_string_pubkey_pair_t * ins = &state.global->genesis_block.native_instruction_processors[i];
+#if 0
+  for (ulong i = 0; i < genesis_block.native_instruction_processors_len; i++) {
+    fd_string_pubkey_pair_t * ins = &genesis_block.native_instruction_processors[i];
 
     char pubkey[50];
 
@@ -673,6 +677,12 @@ int main(int argc, char **argv) {
 
     FD_LOG_WARNING(("native program:  %s <= %s", ins->string, pubkey));
   }
+#endif
+
+  fd_bincode_destroy_ctx_t ctx2;
+  ctx2.freef = state.global->freef;
+  ctx2.freef_arg = state.global->allocf_arg;
+  fd_genesis_solana_destroy(&genesis_block, &ctx2);
 
   if (strcmp(state.cmd, "replay") == 0) {
     replay(&state);

@@ -233,7 +233,7 @@ void write_stake_config( fd_global_ctx_t* global, fd_stake_config_t* stake_confi
     .executable = (uchar) 0
   };
   fd_memcpy( account.owner.key, global->solana_config_program, sizeof(fd_pubkey_t) );
-  fd_acc_mgr_write_structured_account( global->acc_mgr, global->funk_txn, global->bank.solana_bank.slot, (fd_pubkey_t *) global->solana_stake_program_config, &account );
+  fd_acc_mgr_write_structured_account( global->acc_mgr, global->funk_txn, global->bank.slot, (fd_pubkey_t *) global->solana_stake_program_config, &account );
 }
 
 int read_stake_config( fd_global_ctx_t* global, fd_stake_config_t* result ) {
@@ -333,13 +333,13 @@ int write_stake_state(
     structured_account.rent_epoch = 0;
     memcpy( &structured_account.owner, global->solana_stake_program, sizeof(fd_pubkey_t) );
 
-    int write_result = fd_acc_mgr_write_structured_account( global->acc_mgr, global->funk_txn, global->bank.solana_bank.slot, stake_acc, &structured_account );
+    int write_result = fd_acc_mgr_write_structured_account( global->acc_mgr, global->funk_txn, global->bank.slot, stake_acc, &structured_account );
     if ( write_result != FD_ACC_MGR_SUCCESS ) {
       FD_LOG_WARNING(( "failed to write account data" ));
       return write_result;
     }
     ulong dlen = (is_new_account) ? STAKE_ACCOUNT_SIZE : metadata.dlen;
-    fd_acc_mgr_update_hash ( global->acc_mgr, &metadata, global->funk_txn, global->bank.solana_bank.slot, stake_acc, (uchar*)encoded_stake_state, dlen);
+    fd_acc_mgr_update_hash ( global->acc_mgr, &metadata, global->funk_txn, global->bank.slot, stake_acc, (uchar*)encoded_stake_state, dlen);
 
     return FD_EXECUTOR_INSTR_SUCCESS;
 }
@@ -851,9 +851,9 @@ int fd_executor_stake_program_execute_instruction(
 
     if (instr_acc_idxs[0] != instr_acc_idxs[1]) {
       // add to destination
-      fd_acc_mgr_set_lamports( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot, split_acc, split_metadata.info.lamports + lamports);
+      fd_acc_mgr_set_lamports( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.slot, split_acc, split_metadata.info.lamports + lamports);
       // sub from source
-      fd_acc_mgr_set_lamports( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot, stake_acc, stake_metadata.info.lamports - lamports);
+      fd_acc_mgr_set_lamports( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.slot, stake_acc, stake_metadata.info.lamports - lamports);
     }
   } // end of split, discriminant 3
   else if ( fd_stake_instruction_is_deactivate( &instruction )) { // discriminant 5
@@ -1122,8 +1122,8 @@ int fd_executor_stake_program_execute_instruction(
 
     to_acc_metadata.info.lamports += lamports;
     stake_acc_metadata.info.lamports -= lamports;
-    fd_acc_mgr_set_metadata(ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot, stake_acc, &stake_acc_metadata);
-    fd_acc_mgr_set_metadata(ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot, to_acc, &to_acc_metadata);
+    fd_acc_mgr_set_metadata(ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.slot, stake_acc, &stake_acc_metadata);
+    fd_acc_mgr_set_metadata(ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.slot, to_acc, &to_acc_metadata);
 
   } 
 

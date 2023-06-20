@@ -18,19 +18,46 @@
 #pragma GCC optimize ("O0")
 #endif
 
-// boot the global state at slot zero...
-//
-// We have an issue with a lot of the sysvars when we do not start at
-// state zero or bounce around.  For example, if you bounce block_execute around,
-// recent_hashes will make zero sense...
-
 void
-fd_runtime_boot_slot_zero( fd_global_ctx_t *global ) {
-  fd_memcpy(global->poh.state, global->genesis_hash, sizeof(global->genesis_hash));
-
-  fd_memcpy(&global->bank.solana_bank.fee_rate_governor, &global->genesis_block.fee_rate_governor, sizeof(global->genesis_block.fee_rate_governor));
+fd_runtime_init_bank_from_genesis( fd_global_ctx_t * global, fd_genesis_solana_t * genesis_block, uchar genesis_hash[FD_SHA256_HASH_SZ] ) {
+  global->bank.slot = 0;
+  
+  fd_memcpy(global->poh.state, genesis_hash, FD_SHA256_HASH_SZ);
   global->poh_booted = 1;
 
+  global->bank.fee_rate_governor = genesis_block->fee_rate_governor;
+  global->bank.lamports_per_signature = 10000;
+
+  fd_poh_config_t * poh = &genesis_block->poh_config;
+
+  if (poh->hashes_per_tick)
+    global->bank.hashes_per_tick = *poh->hashes_per_tick;
+  else
+    global->bank.hashes_per_tick = 0;
+  global->bank.ticks_per_slot = genesis_block->ticks_per_slot;
+  global->bank.genesis_creation_time = genesis_block->creation_time;
+  uint128 target_tick_duration = ((uint128) poh->target_tick_duration.seconds * 1000000000UL + (uint128) poh->target_tick_duration.nanoseconds);
+  global->bank.ns_per_slot = target_tick_duration * global->bank.ticks_per_slot;
+
+#define SECONDS_PER_YEAR ((double) (365.25 * 24.0 * 60.0 * 60.0))
+
+  global->bank.slots_per_year = SECONDS_PER_YEAR * (1000000000.0 / (double) target_tick_duration) / (double) global->bank.ticks_per_slot;
+  global->bank.genesis_creation_time = genesis_block->creation_time;
+  global->bank.max_tick_height = global->bank.ticks_per_slot * (global->bank.slot + 1);
+  global->bank.epoch_schedule = genesis_block->epoch_schedule;
+  global->bank.inflation = genesis_block->inflation;
+  global->bank.rent = genesis_block->rent;
+
+  fd_block_block_hash_entry_t * hashes = global->bank.recent_block_hashes.hashes =
+    deq_fd_block_block_hash_entry_t_alloc( global->allocf, global->allocf_arg );
+  fd_block_block_hash_entry_t * elem = deq_fd_block_block_hash_entry_t_push_head_nocopy(hashes);
+  fd_block_block_hash_entry_new(elem);
+  fd_memcpy(elem->blockhash.hash, genesis_hash, FD_SHA256_HASH_SZ);
+  elem->fee_calculator.lamports_per_signature = 0;
+}
+
+void
+fd_runtime_init_program( fd_global_ctx_t * global ) {
   fd_sysvar_recent_hashes_init(global );
   fd_sysvar_clock_init( global );
   fd_sysvar_slot_history_init( global );
@@ -101,7 +128,7 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_meta_t* m, const void
   // TODO: move all these out to a fd_sysvar_update() call...
   fd_sysvar_clock_update( global);
   // It has to go into the current txn previous info but is not in slot 0
-  if (global->bank.solana_bank.slot != 0)
+  if (global->bank.slot != 0)
     fd_sysvar_slot_hashes_update( global );
 
   ulong signature_cnt = 0;
@@ -151,7 +178,7 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_meta_t* m, const void
 
   ulong dirty = global->acc_mgr->keys.cnt;
   if (FD_UNLIKELY(global->log_level > 2))
-    FD_LOG_WARNING(("slot %ld   dirty %ld", global->bank.solana_bank.slot, dirty));
+    FD_LOG_WARNING(("slot %ld   dirty %ld", global->bank.slot, dirty));
   if (dirty > 0) {
     global->signature_cnt = signature_cnt;
     fd_hash_bank( global, &global->banks_hash );
@@ -424,7 +451,7 @@ fd_runtime_block_eval( fd_global_ctx_t *global, fd_slot_meta_t *m, const void* b
 ulong
 fd_runtime_lamports_per_signature( fd_global_ctx_t *global ) {
   // https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/fee_calculator.rs#L110
-  return global->bank.solana_bank.fee_rate_governor.target_lamports_per_signature / 2;
+  return global->bank.fee_rate_governor.target_lamports_per_signature / 2;
 }
 
 ulong
@@ -432,7 +459,7 @@ fd_runtime_lamports_per_signature_for_blockhash( fd_global_ctx_t *global, FD_FN_
   // https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/fee_calculator.rs#L110
 
   // https://github.com/firedancer-io/solana/blob/53a4e5d6c58b2ffe89b09304e4437f8ca198dadd/runtime/src/blockhash_queue.rs#L55
-  ulong default_fee = global->bank.solana_bank.fee_rate_governor.target_lamports_per_signature / 2;
+  ulong default_fee = global->bank.fee_rate_governor.target_lamports_per_signature / 2;
 
   if (blockhash == 0) {
     return default_fee;
@@ -536,7 +563,7 @@ fd_runtime_calculate_fee( fd_global_ctx_t *global, fd_txn_t * txn_descriptor, fd
   double fee = (prioritization_fee + signature_fee + write_lock_fee + compute_fee) * congestion_multiplier;
 
   if (FD_UNLIKELY(global->log_level > 2)) {
-      FD_LOG_WARNING(( "fd_runtime_calculate_fee_compare: slot=%ld fee(%lf) = (prioritization_fee(%f) + signature_fee(%f) + write_lock_fee(%f) + compute_fee(%f)) * congestion_multiplier(%f)", global->bank.solana_bank.slot, fee, prioritization_fee, signature_fee, write_lock_fee, compute_fee, congestion_multiplier));
+      FD_LOG_WARNING(( "fd_runtime_calculate_fee_compare: slot=%ld fee(%lf) = (prioritization_fee(%f) + signature_fee(%f) + write_lock_fee(%f) + compute_fee(%f)) * congestion_multiplier(%f)", global->bank.slot, fee, prioritization_fee, signature_fee, write_lock_fee, compute_fee, congestion_multiplier));
   }
 
   if (fee >= (double)ULONG_MAX)
@@ -557,7 +584,7 @@ fd_runtime_freeze( fd_global_ctx_t *global ) {
   if (global->collector_set && global->collected) {
 
     if (FD_UNLIKELY(global->log_level > 2)) {
-      FD_LOG_WARNING(( "fd_runtime_freeze: slot:%ld global->collected: %ld", global->bank.solana_bank.slot, global->collected ));
+      FD_LOG_WARNING(( "fd_runtime_freeze: slot:%ld global->collected: %ld", global->bank.slot, global->collected ));
     }
 
     fd_acc_lamports_t lamps;
@@ -566,7 +593,7 @@ fd_runtime_freeze( fd_global_ctx_t *global ) {
       FD_LOG_ERR(( "The collector_id is wrong?!" ));
 
     // TODO: half get burned?!
-    ret = fd_acc_mgr_set_lamports ( global->acc_mgr, global->funk_txn, global->bank.solana_bank.slot, &global->collector_id, lamps + (global->collected/2));
+    ret = fd_acc_mgr_set_lamports ( global->acc_mgr, global->funk_txn, global->bank.slot, &global->collector_id, lamps + (global->collected/2));
     if (ret != FD_ACC_MGR_SUCCESS)
       FD_LOG_ERR(( "lamport update failed" ));
 
@@ -599,7 +626,6 @@ fd_global_ctx_new        ( void * mem ) {
   // Yeah, maybe we should get rid of this?
   fd_executor_new ( &self->executor, self, FD_EXECUTOR_FOOTPRINT );
 
-  fd_genesis_solana_new(&self->genesis_block);
   fd_firedancer_banks_new(&self->bank);
 
   fd_base58_decode_32( "Sysvar1111111111111111111111111111111111111",  (unsigned char *) self->sysvar_owner);
@@ -691,7 +717,6 @@ fd_global_ctx_delete     ( void * mem ) {
   fd_bincode_destroy_ctx_t ctx;
   ctx.freef = hdr->freef;
   ctx.freef_arg = hdr->allocf_arg;
-  fd_genesis_solana_destroy(&hdr->genesis_block, &ctx);
   fd_firedancer_banks_destroy(&hdr->bank, &ctx);
 
   FD_COMPILER_MFENCE();
@@ -699,61 +724,6 @@ fd_global_ctx_delete     ( void * mem ) {
   FD_COMPILER_MFENCE();
 
   return mem;
-}
-
-void
-fd_global_process_genesis_config     ( fd_global_ctx_t *global  )
-{
-  // Bootstrap validator collects fees until `new_from_parent` is called.
-
-  // fd_fee_rate_governor_copy_to(&global->bank.solana_bank.fee_rate_governor, &global->genesis_block.fee_rate_governor, global->allocf, global->allocf_arg);
-  global->bank.solana_bank.fee_rate_governor = global->genesis_block.fee_rate_governor;
-
-  // global->bank.solana_bank.fee_calculator = self.fee_rate_governor.create_fee_calculator();
-  global->bank.solana_bank.fee_calculator.lamports_per_signature = 10000;
-
-  //  // highest staked node is the first collector
-  //  self.collector_id = self
-  //    .stakes_cache
-  //    .stakes()
-  //    .highest_staked_node()
-  //    .unwrap_or_default();
-
-//  self.blockhash_queue.write().unwrap().genesis_hash(
-//    &genesis_config.hash(),
-//      self.fee_rate_governor.lamports_per_signature,
-//    );
-//
-
-  fd_poh_config_t *poh = &global->genesis_block.poh_config;
-
-  if (poh->hashes_per_tick) {
-    global->bank.solana_bank.hashes_per_tick = (ulong*)(*global->allocf)(global->allocf_arg, 8, sizeof(ulong));
-    *global->bank.solana_bank.hashes_per_tick = *poh->hashes_per_tick;
-  }
-  global->bank.solana_bank.ticks_per_slot = global->genesis_block.ticks_per_slot;
-  global->bank.solana_bank.genesis_creation_time = global->genesis_block.creation_time;
-
-  uint128 target_tick_duration = ((uint128) poh->target_tick_duration.seconds * 1000000000UL + (uint128) poh->target_tick_duration.nanoseconds);
-  global->bank.solana_bank.ns_per_slot = target_tick_duration * global->bank.solana_bank.ticks_per_slot;
-
-#define SECONDS_PER_YEAR ((double) (365.25 * 24.0 * 60.0 * 60.0))
-
-  global->bank.solana_bank.slots_per_year = SECONDS_PER_YEAR * (1000000000.0 / (double) target_tick_duration) / (double) global->bank.solana_bank.ticks_per_slot;
-
-  global->bank.solana_bank.genesis_creation_time = global->genesis_block.creation_time;
-  global->bank.solana_bank.max_tick_height = global->bank.solana_bank.ticks_per_slot * (global->bank.solana_bank.slot + 1);
-
-  global->bank.solana_bank.epoch_schedule = global->genesis_block.epoch_schedule;
-  global->bank.solana_bank.inflation = global->genesis_block.inflation;
-
-//  self.rent_collector = RentCollector::new(
-//    self.epoch,
-//      *self.epoch_schedule(),
-//      self.slots_per_year,
-//      genesis_config.rent,
-//    );
-
 }
 
 void fd_printer_walker(void *arg, const char* name, int type, const char *type_name, int level) {
