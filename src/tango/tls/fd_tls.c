@@ -4,72 +4,17 @@
 #include "../../ballet/ed25519/fd_x25519.h"
 #include "../../ballet/hmac/fd_hmac.h"
 
-long
-fd_tls_server_recv_hello( fd_tls_server_t const * const server,
-                          fd_tls_server_hs_t *    const handshake,
-                          void const *            const wire,
-                          ulong                         wire_sz ) {
+fd_tls_server_hs_t *
+fd_tls_server_hs_new( void * mem ) {
 
-  (void)server;
+  fd_tls_server_hs_t * hs = mem;
 
-  if( FD_UNLIKELY( handshake->state != FD_TLS_SERVER_HS_START ) )
-    return -(long)FD_TLS_ALERT_UNEXPECTED_MESSAGE;
+  memset( hs, 0, sizeof(*hs) );
+  hs->state = FD_TLS_HS_START;
 
-  ulong wire_laddr = (ulong)wire;
+  fd_sha256_init( fd_sha256_join( fd_sha256_new( &hs->transcript ) ) );
 
-  fd_tls_client_hello_t ch;
-  FD_TLS_DECODE_SUB( fd_tls_decode_client_hello, &ch );
-
-  if( FD_UNLIKELY( ( !ch.supported_versions.tls13         )
-                 | ( !ch.supported_groups.x25519          )
-                 | ( !ch.signature_algorithms.ed25519     )
-                 | ( !ch.cipher_suites.aes_128_gcm_sha256 ) ) )
-    return -(long)FD_TLS_ALERT_HANDSHAKE_FAILURE;
-
-  memcpy( handshake->client_random, ch.random,           32UL );
-  memcpy( handshake->key_exchange,  ch.key_share.x25519, 32UL );
-
-  handshake->state = FD_TLS_SERVER_HS_RECVD_CH;
-
-  return (long)(wire_laddr - (ulong)wire);
-}
-
-long
-fd_tls_server_recvmsg( fd_tls_server_t const * const server,
-                       fd_tls_server_hs_t *    const handshake,
-                       void const *            const record,
-                       ulong                   const record_sz,
-                       int                           encryption_level ) {
-
-  ulong wire_laddr = (ulong)record;
-  ulong wire_sz    = record_sz;
-
-  fd_tls_record_hdr_t record_hdr;
-  FD_TLS_DECODE_SUB( fd_tls_decode_record_hdr, &record_hdr );
-
-  long res;
-  switch( record_hdr.type ) {
-  case FD_TLS_RECORD_CLIENT_HELLO:
-    if( FD_UNLIKELY( encryption_level!=FD_TLS_LEVEL_INITIAL ) )
-      return -(long)FD_TLS_ALERT_UNEXPECTED_MESSAGE;
-    res = fd_tls_server_recv_hello( server, handshake, (void const *)wire_laddr, wire_sz );
-    /* Record client hello in transcript hash */
-    fd_sha256_init( &handshake->hs_transcript );
-    fd_sha256_append( &handshake->hs_transcript, record, record_sz );
-    break;
-  default:
-    res = -(long)FD_TLS_ALERT_UNEXPECTED_MESSAGE;
-    break;
-  }
-
-  if( FD_UNLIKELY( res<0L ) ) return res;
-  wire_laddr += (ulong)res;
-
-  /* Fail if trailing bytes detected */
-  if( FD_UNLIKELY( wire_laddr != (ulong)record+record_sz ) )
-    return -(long)FD_TLS_ALERT_DECODE_ERROR;
-
-  return (long)record_sz;
+  return hs;
 }
 
 static void *
@@ -116,54 +61,125 @@ fd_tls_hkdf_expand_label( void *        out,
 }
 
 static long
-fd_tls_server_hs_recvd_ch( fd_tls_server_t const * const server,
-                           fd_tls_server_hs_t *    const handshake,
-                           void *                  const record,
-                           ulong                         record_cap,
-                           int *                   const encryption_level ) {
+fd_tls_server_hs_start( fd_tls_server_t const * const server,
+                        fd_tls_server_hs_t *    const handshake,
+                        void const *            const record,
+                        ulong                         record_sz,
+                        int                           encryption_level ) {
 
-  /* Process buffered client hello ************************************/
+  if( FD_UNLIKELY( encryption_level != FD_TLS_LEVEL_INITIAL ) )
+    return -(long)FD_TLS_ALERT_INTERNAL_ERROR;
+
+  /* Read client hello ************************************************/
+
+  fd_tls_client_hello_t ch;
+
+  do {
+    ulong wire_laddr = (ulong)record;
+    ulong wire_sz    = record_sz;
+
+    /* Decode record header */
+
+    fd_tls_record_hdr_t record_hdr;
+    FD_TLS_DECODE_SUB( fd_tls_decode_record_hdr, &record_hdr );
+
+    if( FD_UNLIKELY( record_hdr.type != FD_TLS_RECORD_CLIENT_HELLO ) )
+      return -(long)FD_TLS_ALERT_UNEXPECTED_MESSAGE;
+
+    /* Decode Client Hello */
+
+    FD_TLS_DECODE_SUB( fd_tls_decode_client_hello, &ch );
+
+    /* Fail if trailing bytes detected */
+
+    if( FD_UNLIKELY( wire_laddr != (ulong)record+record_sz ) )
+      return -(long)FD_TLS_ALERT_DECODE_ERROR;
+  } while(0);
+
+  /* Check for cryptographic compatibility */
+
+  if( FD_UNLIKELY( ( !ch.supported_versions.tls13         )
+                 | ( !ch.supported_groups.x25519          )
+                 | ( !ch.signature_algorithms.ed25519     )
+                 | ( !ch.cipher_suites.aes_128_gcm_sha256 ) ) )
+    return -(long)FD_TLS_ALERT_HANDSHAKE_FAILURE;
+
+  /* Record client hello in transcript hash */
+
+  fd_sha256_append( &handshake->transcript, record, record_sz );
+
+  /* Respond with server hello ****************************************/
+
+  /* Create server random */
+
+  uchar server_random[ 32 ];
+  if( FD_UNLIKELY( !server->rand_fn( server_random, 32UL ) ) )
+    return -(long)FD_TLS_ALERT_INTERNAL_ERROR;
+
+  /* Create server hello record */
+
+  uchar server_hello_buf[ 512UL ];
+  ulong server_hello_bufsz = 512UL;
+  ulong server_hello_sz;
+
+  do {
+    ulong wire_laddr = (ulong)server_hello_buf;
+    ulong wire_sz    = server_hello_bufsz;
+
+    /* Leave space for record header */
+
+    void * hdr_ptr = FD_TLS_SKIP_FIELD( fd_tls_record_hdr_t );
+    fd_tls_record_hdr_t hdr = { .type = FD_TLS_RECORD_SERVER_HELLO };
+
+    /* Construct server hello */
+
+    fd_tls_server_hello_t sh = {
+      .cipher_suite = FD_TLS_CIPHER_SUITE_AES_128_GCM_SHA256,
+      .key_share    = { .has_x25519 = 1 },
+    };
+    memcpy( sh.random,           server_random,          32UL );
+    memcpy( sh.key_share.x25519, server->kex_public_key, 32UL );
+
+    /* Encode server hello */
+
+    hdr.sz = FD_TLS_ENCODE_SUB( fd_tls_encode_server_hello, &sh )
+           & 0xFFFFFF;
+    fd_tls_encode_record_hdr( &hdr, hdr_ptr, 4UL );
+    server_hello_sz = wire_laddr - (ulong)server_hello_buf;
+  } while(0);
+
+  /* Call back with server hello */
+
+  if( FD_UNLIKELY( !server->sendmsg_fn(
+        handshake,
+        server_hello_buf, server_hello_sz,
+        FD_TLS_LEVEL_INITIAL,
+        /* flush */ 1 ) ) )
+    return -(long)FD_TLS_ALERT_INTERNAL_ERROR;
+
+  /* Derive handshake secrets *****************************************/
+
+  /* Record server hello in transcript hash */
+
+  fd_sha256_append( &handshake->transcript, server_hello_buf, server_hello_sz );
+
+  /* Export handshake transcript hash */
+
+  fd_sha256_t transcript_clone = handshake->transcript;  /* FIXME ugly */
+  uchar transcript_hash[ 32 ];
+  fd_sha256_fini( &transcript_clone, transcript_hash );
 
   /* Derive ECDH input key material */
+
   uchar _ecdh_ikm[ 32 ];
   void * ecdh_ikm = fd_x25519_exchange( _ecdh_ikm,
                                         server->kex_private_key,
-                                        handshake->key_exchange );
+                                        ch.key_share.x25519 );
   if( FD_UNLIKELY( !ecdh_ikm ) )
     return -(long)FD_TLS_ALERT_HANDSHAKE_FAILURE;
 
-  /* Respond with server hello ****************************************/
-  ulong wire_laddr = (ulong)record;
-  ulong wire_sz    = record_cap;
-
-  /* Leave space for record header */
-  void * hdr_ptr = FD_TLS_SKIP_FIELD( fd_tls_record_hdr_t );
-  fd_tls_record_hdr_t hdr = { .type = FD_TLS_RECORD_SERVER_HELLO };
-
-  /* Construct server hello */
-  fd_tls_server_hello_t sh = {
-    .cipher_suite = FD_TLS_CIPHER_SUITE_AES_128_GCM_SHA256,
-    .key_share    = { .has_x25519 = 1 },
-  };
-  memcpy( sh.random,           handshake->server_random, 32UL );
-  memcpy( sh.key_share.x25519, server->kex_public_key,   32UL );
-
-  /* Encode server hello */
-  hdr.sz = FD_TLS_ENCODE_SUB( fd_tls_encode_server_hello, &sh )
-         & 0xFFFFFF;
-  fd_tls_encode_record_hdr( &hdr, hdr_ptr, 4UL );
-  ulong record_sz = wire_laddr - (ulong)record;
-
-  /* Record server hello in transcript hash */
-  fd_sha256_append( &handshake->hs_transcript, record, record_sz );
-
-  /* Calculate transcript hash */
-  uchar transcript_hash[ 32 ];
-  fd_sha256_fini( &handshake->hs_transcript, transcript_hash );
-
-  /* Derive handshake secret ******************************************/
-
   /* No early secret, derive dummy value */
+
   //static uchar const psk[ 32 ] = {0};
   //uchar early_secret[ 32 ];
   //fd_hmac_sha256( /* data */ psk, 32UL,
@@ -179,44 +195,72 @@ fd_tls_server_hs_recvd_ch( fd_tls_server_t const * const server,
   uchar empty_hash[ 32 ];
   fd_sha256_hash( NULL, 0UL, empty_hash );
 
-  uchar derived_secret[ 32 ];
-  fd_tls_hkdf_expand_label( derived_secret,
+  /* Derive root of handshake stage */
+  /* TODO Cache */
+
+  uchar handshake_derived[ 32 ];
+  fd_tls_hkdf_expand_label( handshake_derived,
                             early_secret,
                             "derived",   7UL,
                             empty_hash, 32UL );
 
-  uchar handshake_secret[ 32 ];
-  fd_hmac_sha256( /* data */ ecdh_ikm,       32UL,
-                  /* salt */ derived_secret, 32UL,
-                  handshake_secret );
+  /* Derive main handshake secret */
 
-  fd_tls_hkdf_expand_label( handshake->client_hs_secret,
+  uchar handshake_secret[ 32 ];
+  fd_hmac_sha256( /* data */ ecdh_ikm,          32UL,
+                  /* salt */ handshake_derived, 32UL,
+                  /* out  */ handshake_secret );
+
+  /* Derive client/server handshake secrets */
+
+  uchar client_hs_secret[ 32UL ];
+  fd_tls_hkdf_expand_label( client_hs_secret,
                             handshake_secret,
                             "c hs traffic",  12UL,
                             transcript_hash, 32UL );
 
-  fd_tls_hkdf_expand_label( handshake->server_hs_secret,
+  uchar server_hs_secret[ 32UL ];
+  fd_tls_hkdf_expand_label( server_hs_secret,
                             handshake_secret,
                             "s hs traffic",  12UL,
                             transcript_hash, 32UL );
 
-  /* Finish up */
+  /* Call back with handshake secrets */
 
-  handshake->state = FD_TLS_SERVER_HS_FAIL;
-  *encryption_level = FD_TLS_LEVEL_INITIAL;
-  return (long)record_sz;
+  if( FD_UNLIKELY( !server->secrets_fn(
+      handshake,
+      /* read secret  */ client_hs_secret,
+      /* write secret */ server_hs_secret,
+      FD_TLS_LEVEL_HANDSHAKE ) ) )
+    return -(long)FD_TLS_ALERT_HANDSHAKE_FAILURE;
+
+  /* Derive master secret */
+
+  uchar master_derive[ 32 ];
+  fd_tls_hkdf_expand_label( master_derive,
+                            handshake_secret,
+                            "derived",   7UL,
+                            empty_hash, 32UL );
+
+  static uchar const zeros[ 32 ] = {0};
+  fd_hmac_sha256( /* data */ zeros,         32UL,
+                  /* salt */ master_derive, 32UL,
+                  /* out  */ handshake->master_secret );
+
+  handshake->state = FD_TLS_HS_NEGOTIATED;
+  return 0L;
 }
 
 long
-fd_tls_server_sendmsg( fd_tls_server_t const * server,
-                       fd_tls_server_hs_t *    handshake,
-                       void *                  record,
-                       ulong                   record_bufsz,
-                       int *                   encryption_level ) {
+fd_tls_server_handshake( fd_tls_server_t const * server,
+                         fd_tls_server_hs_t *    handshake,
+                         void const *            record,
+                         ulong                   record_sz,
+                         int                     encryption_level ) {
 
   switch( handshake->state ) {
-  case FD_TLS_SERVER_HS_RECVD_CH:
-    return fd_tls_server_hs_recvd_ch( server, handshake, record, record_bufsz, encryption_level );
+  case FD_TLS_HS_START:
+    return fd_tls_server_hs_start( server, handshake, record, record_sz, encryption_level );
   default:
     return -(long)FD_TLS_ALERT_HANDSHAKE_FAILURE;
   }
