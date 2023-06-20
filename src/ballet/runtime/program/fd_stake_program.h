@@ -9,11 +9,7 @@ FD_PROTOTYPES_BEGIN
 
 struct merge_kind {
   uint discriminant;
-  fd_stake_state_meta_t* meta;
-  union merge_stake {
-    fd_acc_lamports_t stake_lamports;
-    fd_stake_t* stake;
-  } merge_stake;
+  uint is_active_stake;
 };
 typedef struct merge_kind fd_merge_kind_t;
 
