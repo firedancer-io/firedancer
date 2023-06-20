@@ -4,6 +4,11 @@
 
 /* https://github.com/solana-labs/solana/blob/a03ae63daff987912c48ee286eb8ee7e8a84bf01/programs/config/src/config_processor.rs#L18 */
 int fd_executor_config_program_execute_instruction( instruction_ctx_t ctx ) {
+  int ret = FD_EXECUTOR_INSTR_SUCCESS;
+  uchar cleanup_config_account_state = 0;
+  uchar cleanup_instruction = 0;
+  uchar *config_acc_data = NULL;
+  uchar *new_data = NULL;
 
    /* Deserialize the Config Program instruction data, which consists only of the ConfigKeys
        https://github.com/solana-labs/solana/blob/a03ae63daff987912c48ee286eb8ee7e8a84bf01/programs/config/src/config_processor.rs#L25 */
@@ -21,12 +26,15 @@ int fd_executor_config_program_execute_instruction( instruction_ctx_t ctx ) {
       return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
    }
 
+   cleanup_instruction = 1;
+
    /* The config account is instruction account 0
       https://github.com/solana-labs/solana/blob/a03ae63daff987912c48ee286eb8ee7e8a84bf01/programs/config/src/config_processor.rs#L26-L27 */
    if ( ctx.instr->acct_cnt == 0 ) {
-      return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+     ret = FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+     goto config_program_execute_instruction_cleanup;
    }
-   
+
    uchar * instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
    fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
    fd_pubkey_t * config_acc = &txn_accs[instr_acc_idxs[0]];
@@ -38,18 +46,21 @@ int fd_executor_config_program_execute_instruction( instruction_ctx_t ctx ) {
    int read_result = fd_acc_mgr_get_metadata( ctx.global->acc_mgr, ctx.global->funk_txn, config_acc, &metadata );
    if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
       FD_LOG_WARNING(( "failed to read account metadata" ));
-      return read_result;
+      ret = read_result;
+      goto config_program_execute_instruction_cleanup;
    }
-   uchar *config_acc_data = (uchar *)(ctx.global->allocf)(ctx.global->allocf_arg, 8UL, metadata.dlen);
+   config_acc_data = (uchar *)(ctx.global->allocf)(ctx.global->allocf_arg, 8UL, metadata.dlen);
    read_result = fd_acc_mgr_get_account_data( ctx.global->acc_mgr, ctx.global->funk_txn, config_acc, (uchar*)config_acc_data, sizeof(fd_account_meta_t), metadata.dlen );
    if ( read_result != FD_ACC_MGR_SUCCESS ) {
       FD_LOG_WARNING(( "failed to read account data" ));
-      return read_result;
+      ret = read_result;
+      goto config_program_execute_instruction_cleanup;
    }
 
    /* Check that the account owner is correct */
    if ( memcmp( &metadata.info.owner, &ctx.global->solana_config_program, sizeof(fd_pubkey_t) ) != 0 ) {
-      return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
+      ret = FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
+      goto config_program_execute_instruction_cleanup;
    }
 
    /* Decode the config state into the ConfigKeys struct */
@@ -63,8 +74,11 @@ int fd_executor_config_program_execute_instruction( instruction_ctx_t ctx ) {
    decode_result = fd_config_keys_decode( &config_account_state, &config_acc_state_decode_context );
    if ( decode_result != FD_BINCODE_SUCCESS ) {
       FD_LOG_WARNING(("fd_config_keys_decode failed: %d", decode_result));
-      return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+      ret =  FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+      goto config_program_execute_instruction_cleanup;
    }
+
+   cleanup_config_account_state = 1;
 
    /* If we have no keys in the account, require the config account to have signed the transaction
       https://github.com/solana-labs/solana/blob/a03ae63daff987912c48ee286eb8ee7e8a84bf01/programs/config/src/config_processor.rs#L50-L56 */
@@ -80,7 +94,8 @@ int fd_executor_config_program_execute_instruction( instruction_ctx_t ctx ) {
    }
    if ( config_account_state.keys_len == 0 ) {
       if ( !config_acc_signed ) {
-         return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+         ret = FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+         goto config_program_execute_instruction_cleanup;
       }
    }
 
@@ -99,14 +114,16 @@ int fd_executor_config_program_execute_instruction( instruction_ctx_t ctx ) {
       /* If the account is the config account, we just need to check that the config account has signed */
       if ( memcmp( &elem->key, config_acc, sizeof(fd_pubkey_t) ) == 0 ) {
          if ( !config_acc_signed ) {
-            return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+            ret = FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+            goto config_program_execute_instruction_cleanup;
          }
          continue;
       }
 
       /* Check that we have been given enough accounts */
       if ( ctx.instr->acct_cnt < new_signer_count ) {
-         return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+         ret = FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+         goto config_program_execute_instruction_cleanup;
       }
 
       /* Check that the account has signed */
@@ -121,12 +138,14 @@ int fd_executor_config_program_execute_instruction( instruction_ctx_t ctx ) {
         }
       }
       if ( !acc_signed ) {
-        return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+        ret = FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+        goto config_program_execute_instruction_cleanup;
       }
 
       /* Check that the order of the signer keys are preserved */
       if ( memcmp( &txn_accs[instr_acc_idxs[new_signer_count]], &elem->key, sizeof(fd_pubkey_t) ) != 0 ) {
-         return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+        ret = FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+        goto config_program_execute_instruction_cleanup;
       }
 
       /* Check that the new signer key list is a superset of the current one */
@@ -145,7 +164,8 @@ int fd_executor_config_program_execute_instruction( instruction_ctx_t ctx ) {
          }
 
          if ( !key_present_in_stored_signers) {
-            return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+           ret = FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+           goto config_program_execute_instruction_cleanup;
          }
       }
 
@@ -161,7 +181,8 @@ int fd_executor_config_program_execute_instruction( instruction_ctx_t ctx ) {
             }
 
             if ( memcmp( &instruction.keys[i].key, &instruction.keys[j].key, sizeof(fd_pubkey_t) ) == 0 ) {
-               return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+              ret = FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+              goto config_program_execute_instruction_cleanup;
             }
          }
       }
@@ -176,13 +197,15 @@ int fd_executor_config_program_execute_instruction( instruction_ctx_t ctx ) {
      }
    }
    if ( current_signer_count > new_signer_count ) {
-      return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+     ret = FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+     goto config_program_execute_instruction_cleanup;
    }
 
    /* Check that the config account can fit the new ConfigKeys map
       https://github.com/solana-labs/solana/blob/a03ae63daff987912c48ee286eb8ee7e8a84bf01/programs/config/src/config_processor.rs#L128-L131 */
    if ( ctx.instr->data_sz > metadata.dlen ) {
-      return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+     ret = FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+     goto config_program_execute_instruction_cleanup;
    }
 
    /* Write the ConfigKeys map in the instruction into the config account.
@@ -198,7 +221,7 @@ int fd_executor_config_program_execute_instruction( instruction_ctx_t ctx ) {
       (although this can obviously be optimised)
    */
    ulong new_data_size = fd_ulong_max( ctx.instr->data_sz, metadata.dlen );
-   uchar *new_data = (uchar *)(ctx.global->allocf)(ctx.global->allocf_arg, 8UL, new_data_size);
+   new_data = (uchar *)(ctx.global->allocf)(ctx.global->allocf_arg, 8UL, new_data_size);
    fd_memcpy( new_data, config_acc_data, metadata.dlen );
    fd_memcpy( new_data, data, ctx.instr->data_sz );
 
@@ -213,16 +236,24 @@ int fd_executor_config_program_execute_instruction( instruction_ctx_t ctx ) {
    int write_result = fd_acc_mgr_write_structured_account( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot, config_acc, &structured_account );
    if ( write_result != FD_ACC_MGR_SUCCESS ) {
       FD_LOG_WARNING(( "failed to write account data" ));
-      return write_result;
+      ret = write_result;
+      goto config_program_execute_instruction_cleanup;
    }
    fd_acc_mgr_update_hash ( ctx.global->acc_mgr, &metadata, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot, config_acc, new_data, new_data_size);
 
-   fd_bincode_destroy_ctx_t destroy_ctx = {
-      .freef = ctx.global->freef,
-      .freef_arg = ctx.global->allocf_arg,
-   };
-   fd_config_keys_destroy( &instruction, &destroy_ctx );
-   fd_config_keys_destroy( &config_account_state, &destroy_ctx );
+   fd_bincode_destroy_ctx_t destroy_ctx;
 
-   return FD_EXECUTOR_INSTR_SUCCESS;
+config_program_execute_instruction_cleanup:
+   destroy_ctx.freef = ctx.global->freef;
+   destroy_ctx.freef_arg = ctx.global->allocf_arg;
+
+   if (cleanup_config_account_state)
+     fd_config_keys_destroy( &config_account_state, &destroy_ctx );
+   if (cleanup_instruction)
+     fd_config_keys_destroy( &instruction, &destroy_ctx );
+   if (NULL != config_acc_data)
+     ctx.global->freef(ctx.global->allocf_arg, config_acc_data);
+   if (NULL != new_data)
+     ctx.global->freef(ctx.global->allocf_arg, new_data);
+   return ret;
 }

@@ -92,6 +92,33 @@ uchar do_valgrind = 0;
 
 int fd_alloc_fprintf( fd_alloc_t * join, FILE *       stream );
 
+char* local_allocf(void *arg, ulong align, ulong len) {
+  if (NULL == arg) {
+    FD_LOG_ERR(( "yo dawg.. you passed a NULL as a fd_alloc pool"));
+  }
+
+  if (do_valgrind) {
+    char * ptr = malloc(fd_ulong_align_up(sizeof(char *) + len, align));
+    char * ret = (char *) fd_ulong_align_up( (ulong) (ptr + sizeof(char *)), align );
+    *((char **)(ret - sizeof(char *))) = ptr;
+    return ret;
+  } else
+    return fd_alloc_malloc(arg, align, len);
+}
+
+void local_freef(void *arg, void *ptr) {
+  if (NULL == arg) {
+    FD_LOG_ERR(( "yo dawg.. you passed a NULL as a fd_alloc pool"));
+  }
+
+  if (do_valgrind)
+    free(*((char **)((char *) ptr - sizeof(char *))));
+  else
+    fd_alloc_free(arg, ptr);
+}
+
+int fd_alloc_fprintf( fd_alloc_t * join, FILE *       stream );
+
 struct global_state {
   fd_global_ctx_t*    global;
 

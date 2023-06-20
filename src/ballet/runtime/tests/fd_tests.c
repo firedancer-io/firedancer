@@ -9,6 +9,21 @@
 const char *verbose = NULL;
 const char *fail_fast = NULL;
 
+uchar do_leakcheck = 0;
+
+int fd_alloc_fprintf( fd_alloc_t * join, FILE *       stream );
+
+char* local_allocf(FD_FN_UNUSED void *arg, ulong align, ulong len) {
+  char * ptr = malloc(fd_ulong_align_up(sizeof(char *) + len, align));
+  char * ret = (char *) fd_ulong_align_up( (ulong) (ptr + sizeof(char *)), align );
+  *((char **)(ret - sizeof(char *))) = ptr;
+  return ret;
+}
+
+void local_freef(FD_FN_UNUSED void *arg, void *ptr) {
+  free(*((char **)((char *) ptr - sizeof(char *))));
+}
+
 /* copied from test_funk_txn.c */
 static fd_funk_txn_xid_t *
 fd_funk_txn_xid_set_unique( fd_funk_txn_xid_t * xid ) {
@@ -44,13 +59,19 @@ void fd_executor_test_suite_new( fd_executor_test_suite_t* suite ) {
   }
 
   /* Set up allocators */
-  fd_alloc_fun_t allocf = (fd_alloc_fun_t)fd_alloc_malloc;
-  void*          allocf_args = fd_wksp_laddr_fast( suite->wksp, suite->funk->alloc_gaddr );
-  fd_free_fun_t  freef = (fd_free_fun_t)fd_alloc_free;
+  if (do_leakcheck) {
+    suite->allocf = local_allocf;
+    suite->allocf_arg = NULL;
+    suite->freef = local_freef;
+  } else {
+    fd_alloc_fun_t allocf = (fd_alloc_fun_t)fd_alloc_malloc;
+    void*          allocf_args = fd_wksp_laddr_fast( suite->wksp, suite->funk->alloc_gaddr );
+    fd_free_fun_t  freef = (fd_free_fun_t)fd_alloc_free;
 
-  suite->allocf = allocf;
-  suite->allocf_arg = allocf_args;
-  suite->freef = freef;
+    suite->allocf = allocf;
+    suite->allocf_arg = allocf_args;
+    suite->freef = freef;
+  }
 
   memset(&suite->features, 1, sizeof(suite->features));
 }
@@ -65,6 +86,8 @@ int fd_executor_run_test(
   fd_global_ctx_t* global = fd_global_ctx_join( fd_global_ctx_new( global_mem ) );
   if ( FD_UNLIKELY( NULL == global ) )
     FD_LOG_ERR(( "failed to join a global context" ));
+
+  fd_firedancer_banks_new(&global->bank);
 
   int ret = 0;
   global->allocf = suite->allocf;
@@ -114,8 +137,8 @@ int fd_executor_run_test(
         ctx2.allocf_arg = global->allocf_arg;
         if ( fd_recent_block_hashes_decode( &global->bank.recent_block_hashes, &ctx2 ) ) {
           FD_LOG_WARNING(("fd_recent_block_hashes_decode failed"));
-          fd_funk_txn_cancel( suite->funk, global->funk_txn, 0 );
-          return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+          ret = FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+          goto fd_executor_run_cleanup;
         }
       }
     }
@@ -236,9 +259,16 @@ int fd_executor_run_test(
   } while (false);
 
   /* Revert the Funk transaction */
+fd_executor_run_cleanup:
   fd_funk_txn_cancel( suite->funk, global->funk_txn, 0 );
 
   fd_acc_mgr_delete(global->acc_mgr);
+
+  fd_bincode_destroy_ctx_t destroy_ctx;
+  destroy_ctx.freef = global->freef;
+  destroy_ctx.freef_arg = global->allocf_arg;
+
+  fd_firedancer_banks_destroy(&global->bank, &destroy_ctx);
 
   return ret;
 }
