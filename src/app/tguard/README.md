@@ -80,6 +80,9 @@ Alternatively, you can make ***one-shot*** runs of fd_tguard_cnc like:
 
   # just recompile
   src/app/tguard/fd_tguard_cnc 2
+
+  # running turbine guard in the background
+  src/app/tguard/fd_tguard_cnc 7 &
 ```
 
 When starting from scratch, you can just run through 1 to 7 in that order.
