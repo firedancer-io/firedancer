@@ -2,6 +2,7 @@
 #define HEADER_src_ballet_tls_fd_tls_h
 
 #include "../fd_tango_base.h"
+#include "../../ballet/sha256/fd_sha256.h"
 
 /* fd_tls implements a subset of the TLS v1.3 (RFC 8446) handshake
    protocol.
@@ -85,8 +86,10 @@ struct fd_tls_server_hs {
 
   uchar key_exchange[ 32 ];
 
-  /* The shared secret derived by the X25519 key exchange */
-  uchar shared_secret[ 32 ];
+  fd_sha256_t hs_transcript;
+
+  uchar client_hs_secret[ 32 ];
+  uchar server_hs_secret[ 32 ];
 };
 
 typedef struct fd_tls_server_hs fd_tls_server_hs_t;
@@ -101,6 +104,11 @@ typedef struct fd_tls_server_hs fd_tls_server_hs_t;
 #define FD_TLS_SERVER_HS_WAIT_CV       ( 5)
 #define FD_TLS_SERVER_HS_WAIT_FINISHED ( 6)
 
+#define FD_TLS_LEVEL_INITIAL     (0)
+#define FD_TLS_LEVEL_EARLY       (1)
+#define FD_TLS_LEVEL_HANDSHAKE   (2)
+#define FD_TLS_LEVEL_APPLICATION (3)
+
 FD_PROTOTYPES_BEGIN
 
 /* fd_tls_server_recvmsg ingests a TLS record from the client.
@@ -114,13 +122,15 @@ long
 fd_tls_server_recvmsg( fd_tls_server_t const * server,
                        fd_tls_server_hs_t *    handshake,
                        void const *            record,
-                       ulong                   record_sz );
+                       ulong                   record_sz,
+                       int                     encryption_level );
 
 long
 fd_tls_server_sendmsg( fd_tls_server_t const * server,
                        fd_tls_server_hs_t *    handshake,
                        void *                  record,
-                       ulong                   record_bufsz );
+                       ulong                   record_bufsz,
+                       int *                   encryption_level );
 
 FD_PROTOTYPES_END
 
