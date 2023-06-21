@@ -977,7 +977,12 @@ int fd_executor_stake_program_execute_instruction(
       return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
     }
 
-    // Get source account and check its owner
+    fd_stake_history_t history;
+    fd_sysvar_stake_history_read( ctx.global, &history);
+
+    // https://github.com/firedancer-io/solana/blob/56bd357f0dfdb841b27c4a346a58134428173f42/programs/stake/src/stake_state.rs#L830
+
+    /* Get source account and check its owner */    
     fd_pubkey_t* source_acc = &txn_accs[instr_acc_idxs[1]];
     fd_pubkey_t source_acc_owner;
     fd_acc_mgr_get_owner( ctx.global->acc_mgr, ctx.global->funk_txn, source_acc, &source_acc_owner );
@@ -1017,11 +1022,11 @@ int fd_executor_stake_program_execute_instruction(
 
 
     fd_acc_lamports_t stake_lamports;
-    fd_acc_mgr_get_lamports( ctx.global->acc_mgr, ctx.global->funk_txn, stake_acc, &stake_lamports );
-
-    // Merging stake accounts
-
-    // deinitialize the source stake account
+    read_result = fd_acc_mgr_get_lamports( ctx.global->acc_mgr, ctx.global->funk_txn, stake_acc, &stake_lamports ); 
+    if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
+      FD_LOG_WARNING(( "failed to read stake (destination) account lamports" ));
+      return read_result;
+    }
 
     /* get if mergeable - Check if the destination stake acount is mergeable */
     // https://github.com/firedancer-io/solana/blob/56bd357f0dfdb841b27c4a346a58134428173f42/programs/stake/src/stake_state.rs#L1347
@@ -1115,9 +1120,9 @@ int fd_executor_stake_program_execute_instruction(
 
     /* Drain the source account */
     // sub from source 
-    fd_acc_mgr_set_lamports( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot, source_acc, source_metadata.info.lamports - source_lamports);
+    fd_acc_mgr_set_lamports( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.slot, source_acc, source_metadata.info.lamports - source_lamports);
     // add to destination
-    fd_acc_mgr_set_lamports( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot, stake_acc, stake_metadata.info.lamports + source_lamports);
+    fd_acc_mgr_set_lamports( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.slot, stake_acc, stake_metadata.info.lamports + source_lamports);
 
   } // end of merge, discriminant 7
   else if ( fd_stake_instruction_is_withdraw( &instruction )) { // discriminant X
