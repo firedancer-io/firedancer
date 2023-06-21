@@ -870,7 +870,7 @@ int fd_quic_retry_token_encrypt(
   uchar * tag = ciphertext + FD_QUIC_RETRY_TOKEN_PLAINTEXT_SZ;
 
   int ciphertext_len = gcm_encrypt(
-      EVP_aes_256_gcm(),
+      EVP_aes_128_gcm(),
       plaintext,
       FD_QUIC_RETRY_TOKEN_PLAINTEXT_SZ,
       aad,
@@ -929,7 +929,7 @@ int fd_quic_retry_token_decrypt(
   uchar   plaintext[FD_QUIC_RETRY_TOKEN_PLAINTEXT_SZ];
   if ( FD_UNLIKELY(
            gcm_decrypt(
-               EVP_aes_256_gcm(),
+               EVP_aes_128_gcm(),
                ciphertext,
                FD_QUIC_RETRY_TOKEN_CIPHERTEXT_SZ,
                aad,
