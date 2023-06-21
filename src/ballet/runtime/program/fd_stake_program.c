@@ -888,7 +888,7 @@ int fd_executor_stake_program_execute_instruction(
 
   else if ( fd_stake_instruction_is_merge( &instruction )) { // merge, discriminant 7
     // https://github.com/firedancer-io/solana/blob/56bd357f0dfdb841b27c4a346a58134428173f42/programs/stake/src/stake_state.rs#L830
-    if (ctx.txn_ctx->txn_descriptor->acct_addr_cnt < 2) {
+    if( FD_UNLIKELY( ctx.txn_ctx->txn_descriptor->acct_addr_cnt < 4 ) ) {
       return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
     }
     uchar * instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
