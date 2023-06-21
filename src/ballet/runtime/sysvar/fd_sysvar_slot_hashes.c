@@ -41,7 +41,7 @@ void fd_sysvar_slot_hashes_update( fd_global_ctx_t* global ) {
         iter = deq_fd_slot_hash_t_iter_next( hashes, iter ) ) {
     fd_slot_hash_t * ele = deq_fd_slot_hash_t_iter_ele( hashes, iter );
     if ( ele->slot == global->bank.slot ) {
-      memcpy( &ele->hash, &global->banks_hash, sizeof(fd_hash_t) );
+      memcpy( &ele->hash, &global->bank.banks_hash, sizeof(fd_hash_t) );
       found = 1; 
     }
   }
@@ -50,8 +50,8 @@ void fd_sysvar_slot_hashes_update( fd_global_ctx_t* global ) {
     /* TODO: handle case where current_slot > slot_hashes_max_entries */
   // https://github.com/firedancer-io/solana/blob/08a1ef5d785fe58af442b791df6c4e83fe2e7c74/runtime/src/bank.rs#L2371
     fd_slot_hash_t slot_hash = {
-      .hash = global->banks_hash, // parent hash?
-      .slot = global->bank.slot - 1,  // parent_slot
+      .hash = global->bank.banks_hash, // parent hash?
+      .slot = global->bank.slot - 1,   // parent_slot
     };
 
     if (FD_UNLIKELY(global->log_level > 2))  {

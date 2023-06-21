@@ -145,7 +145,7 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_meta_t* m, const void
     FD_LOG_WARNING(("slot %ld   dirty %ld", global->bank.slot, dirty));
   if (dirty > 0) {
     global->signature_cnt = signature_cnt;
-    fd_hash_bank( global, &global->banks_hash );
+    fd_hash_bank( global, &global->bank.banks_hash );
 
     fd_dirty_dup_clear(global->acc_mgr->dup);
     fd_pubkey_hash_vector_clear(&global->acc_mgr->keys);

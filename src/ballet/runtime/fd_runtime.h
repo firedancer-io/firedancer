@@ -64,7 +64,6 @@ struct __attribute__((aligned(FD_GLOBAL_CTX_ALIGN))) fd_global_ctx {
   fd_funk_txn_t*             funk_txn_tower[32];
   fd_funk_txn_t*             funk_txn;
   ushort                     funk_txn_index;
-  fd_hash_t                  banks_hash;
   ulong                      signature_cnt;
   fd_hash_t                  account_delta_hash;
   fd_hash_t                  prev_banks_hash;

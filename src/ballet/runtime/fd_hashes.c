@@ -172,14 +172,14 @@ fd_hash_account_deltas(fd_global_ctx_t *global, fd_pubkey_hash_pair_t * pairs, u
 
 void
 fd_hash_bank( fd_global_ctx_t *global, fd_hash_t * hash ) {
-  global->prev_banks_hash = global->banks_hash;
+  global->prev_banks_hash = global->bank.banks_hash;
 
   fd_hash_account_deltas( global, global->acc_mgr->keys.elems, global->acc_mgr->keys.cnt, &global->account_delta_hash );
 
   fd_sha256_t sha;
   fd_sha256_init( &sha );
-  fd_sha256_append( &sha, (uchar const *) global->banks_hash.hash, sizeof( fd_hash_t ) );
-  fd_sha256_append( &sha, (uchar const *) global->account_delta_hash.hash, sizeof( fd_hash_t  ) );
+  fd_sha256_append( &sha, (uchar const *) &global->bank.banks_hash, sizeof( fd_hash_t ) );
+  fd_sha256_append( &sha, (uchar const *) &global->account_delta_hash, sizeof( fd_hash_t  ) );
   fd_sha256_append( &sha, (uchar const *) &global->signature_cnt, sizeof( ulong ) );
   fd_sha256_append( &sha, (uchar const *) &global->bank.poh, sizeof( fd_hash_t ) );
 

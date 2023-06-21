@@ -781,6 +781,7 @@
         { "name": "timestamp_votes",       "type": "clock_timestamp_votes" },
         { "name": "slot",                  "type": "ulong" },
         { "name": "poh",                   "type": "hash" },
+        { "name": "banks_hash",            "type": "hash" },
         { "name": "fee_rate_governor",     "type": "fee_rate_governor" },
         { "name": "lamports_per_signature","type": "ulong" },
         { "name": "hashes_per_tick",       "type": "ulong" },
