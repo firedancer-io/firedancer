@@ -40,3 +40,24 @@ jobs:
 
       - name: Run unit tests
         run: make -k -j4 --output-sync=target run-unit-test
+  
+  make-test-ubsan:
+    runs-on: [self-hosted, Linux, X64]
+    strategy:
+      matrix:
+        compiler: [gcc, clang]
+    defaults:
+      run:
+        shell: sudo bash --noprofile --norc -eo pipefail -c "set -ex; export MACHINE=linux_${{ matrix.compiler }}_x86_64_ubsan; source /home/runner/firedancer-opts/activate-opt && chmod +x {0} && {0}"
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Copy prebuilt deps
+        run: "cp -r /home/runner/firedancer-opts/opt . && ls -lah opt"
+
+      - name: Build everything
+        run: make -j
+
+      - name: Run unit tests
+        run: make -k -j4 --output-sync=target run-unit-test
+
