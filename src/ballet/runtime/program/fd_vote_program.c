@@ -711,8 +711,15 @@ int fd_executor_vote_program_execute_instruction(
     /* VoteInstruction::Vote instruction
        https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_instruction.rs#L39-L46
      */
-    FD_LOG_INFO(( "executing VoteInstruction::Vote(Switch) instruction" ));
-    fd_vote_t const * vote = &instruction.inner.vote;
+    fd_vote_t const * vote;
+
+    if ( instruction.discriminant == fd_vote_instruction_enum_vote) {
+      FD_LOG_INFO(( "executing VoteInstruction::Vote instruction" ));
+      vote = &instruction.inner.vote;
+    } else {
+      FD_LOG_WARNING(( "executing VoteInstruction::VoteSwitch instruction" ));
+      vote = &instruction.inner.vote_switch.vote;
+    }
 
     /* Check that the accounts are correct */
     fd_pubkey_t const * vote_acc = &txn_accs[instr_acc_idxs[0]];
@@ -1025,8 +1032,15 @@ int fd_executor_vote_program_execute_instruction(
     /* VoteInstruction::UpdateVoteState instruction
        https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_processor.rs#L174
      */
-    FD_LOG_INFO(( "executing VoteInstruction::UpdateVoteState(Switch) instruction" ));
-    fd_vote_state_update_t * vote_state_update = &instruction.inner.update_vote_state;
+    fd_vote_state_update_t * vote_state_update;
+
+    if ( instruction.discriminant == fd_vote_instruction_enum_update_vote_state) {
+      FD_LOG_INFO(( "executing VoteInstruction::UpdateVoteState instruction" ));
+      vote_state_update = &instruction.inner.update_vote_state;
+    } else {
+      FD_LOG_WARNING(( "executing VoteInstruction::UpdateVoteStateSwitch instruction" ));
+      vote_state_update = &instruction.inner.update_vote_state_switch.vote_state_update;
+    }
 
     /* Read vote account state stored in the vote account data */
     fd_pubkey_t const * vote_acc = &txn_accs[instr_acc_idxs[0]];
@@ -1545,17 +1559,106 @@ int fd_executor_vote_program_execute_instruction(
     fd_vote_state_versioned_destroy( &vote_state_versioned, &destroy );
     break;
   }
+  case fd_vote_instruction_enum_compact_update_vote_state_switch:
   case fd_vote_instruction_enum_compact_update_vote_state: {
-    FD_FN_UNUSED fd_compact_vote_state_update_t *compact_update_vote_state = &instruction.inner.compact_update_vote_state;
+    if( FD_UNLIKELY( !ctx.global->features.allow_votes_to_directly_update_vote_state ) ) {
+      ret = FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+      break;
+    }
 
-    FD_LOG_WARNING(( "unsupported vote program instruction: fd_vote_instruction_enum_compact_update_vote_state"));
+    // Update the github links...
 
-    break;
-  }
-  case fd_vote_instruction_enum_compact_update_vote_state_switch: {
-    FD_FN_UNUSED fd_compact_vote_state_update_switch_t *compact_update_vote_state_switch = &instruction.inner.compact_update_vote_state_switch;
+    /* VoteInstruction::UpdateVoteState instruction
+       https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_processor.rs#L174
+     */
 
-    FD_LOG_WARNING(( "unsupported vote program instruction: fd_vote_instruction_enum_compact_update_vote_state_switch"));
+    fd_compact_vote_state_update_t *vote_state_update;
+
+    if ( instruction.discriminant == fd_vote_instruction_enum_compact_update_vote_state) {
+      FD_LOG_WARNING(( "executing vote program instruction: fd_vote_instruction_enum_compact_update_vote_state"));
+      vote_state_update = &instruction.inner.compact_update_vote_state;
+    } else {
+      // What are we supposed to do here?  What about the hash?
+      FD_LOG_WARNING(( "executing vote program instruction: fd_vote_instruction_enum_compact_update_vote_state_switch"));
+      vote_state_update = &instruction.inner.compact_update_vote_state_switch.compact_vote_state_update;
+    }
+
+    /* Read vote account state stored in the vote account data */
+    fd_pubkey_t const * vote_acc = &txn_accs[instr_acc_idxs[0]];
+
+    /* Read vote account */
+    fd_account_meta_t         meta;
+    fd_vote_state_versioned_t vote_state_versioned;
+    int result = fd_vote_load_account_current( &vote_state_versioned, &meta, ctx.global, vote_acc, /* allow_uninitialized */ 0 );
+    if( FD_UNLIKELY( 0!=result ) ) {
+      ret = result;
+      break;
+    }
+    fd_vote_state_t * vote_state = &vote_state_versioned.inner.current;
+
+    /* Verify vote authority */
+    int authorize_res = fd_vote_verify_authority( vote_state, instr_acc_idxs, txn_accs, ctx );
+    if( FD_UNLIKELY( 0!=authorize_res ) ) {
+      ret = authorize_res;
+      break;
+    }
+
+    /* Execute the extremely thin minimal slice of the vote state update logic necessary to validate our test ledger, lifted from
+       https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L886-L898
+       This skips all the safety checks, and assumes many things including that:
+       - The vote state update is valid and for the current epoch
+       - The vote is for the current fork
+       - ...
+    */
+
+    /* If the root has changed, give this validator a credit for doing work */
+    /* In mininal slice proposed_root will always be present */
+    if ( vote_state->saved_root_slot == NULL || ( vote_state_update->proposed_root != *vote_state->saved_root_slot ) ) {
+      if( deq_fd_vote_epoch_credits_t_empty( vote_state->epoch_credits ) ) {
+        fd_vote_epoch_credits_t epoch_credits = {
+          .epoch = 0,
+          .credits = 0,
+          .prev_credits = 0,
+        };
+        FD_TEST( !deq_fd_vote_epoch_credits_t_full( vote_state->epoch_credits ) );
+        deq_fd_vote_epoch_credits_t_push_tail( vote_state->epoch_credits, epoch_credits );
+      }
+      deq_fd_vote_epoch_credits_t_peek_head( vote_state->epoch_credits )->credits += 1UL;
+    }
+
+    /* Update the new root slot, timestamp and votes */
+    if ( vote_state_update->timestamp != NULL ) {
+      vote_state->latest_timestamp.slot = vote_state_update->lockouts[ vote_state_update->lockouts_len - 1 ].slot;
+      vote_state->latest_timestamp.timestamp = *vote_state_update->timestamp;
+    }
+    /* TODO: add constructors to fd_types */
+    if ( vote_state->saved_root_slot == NULL ) {
+      vote_state->saved_root_slot = (ulong *)(ctx.global->allocf)( ctx.global->allocf_arg, 8UL, sizeof(ulong) );
+    }
+    *vote_state->saved_root_slot = vote_state_update->proposed_root;
+    deq_fd_vote_lockout_t_remove_all( vote_state->votes );
+    for ( ulong i = 0; i < vote_state_update->lockouts_len; i++ ) {
+      FD_TEST( !deq_fd_vote_lockout_t_full( vote_state->votes ) );
+      fd_vote_lockout_t lc = {
+        .slot = vote_state_update->lockouts[i].slot,
+        .confirmation_count = vote_state_update->lockouts[i].confirmation_count
+      };
+      deq_fd_vote_lockout_t_push_tail( vote_state->votes, lc );
+    }
+
+    /* Write the new vote account back to the database */
+    int save_result = fd_vote_save_account( &vote_state_versioned, &meta, vote_acc, ctx );
+    if( FD_UNLIKELY( save_result != FD_EXECUTOR_INSTR_SUCCESS ) ) {
+      ret = save_result;
+      break;
+    }
+
+    /* Record the timestamp vote */
+    if( vote_state_update->timestamp != NULL ) {
+      record_timestamp_vote( ctx.global, vote_acc, *vote_state_update->timestamp );
+    }
+
+    fd_vote_state_versioned_destroy( &vote_state_versioned, &destroy );
 
     break;
   }
