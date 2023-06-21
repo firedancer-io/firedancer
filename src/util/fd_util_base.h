@@ -174,6 +174,11 @@
 #define FD_HAS_ASAN 0
 #endif
 
+/* FD_HAS_UBSAN indicates that the build targed is using UBSAN. */
+#ifndef FD_HAS_UBSAN
+#define FD_HAS_UBSAN 0
+#endif
+
 /* Base development environment ***************************************/
 
 /* The functionality provided by these vanilla headers are always
