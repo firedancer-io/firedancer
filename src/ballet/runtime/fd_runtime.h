@@ -69,9 +69,6 @@ struct __attribute__((aligned(FD_GLOBAL_CTX_ALIGN))) fd_global_ctx {
   fd_hash_t                  account_delta_hash;
   fd_hash_t                  prev_banks_hash;
 
-  fd_pubkey_t                collector_id;
-  ulong                      collected;
-
   uchar                      collector_set;
   uchar                      log_level;
 };

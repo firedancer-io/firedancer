@@ -537,23 +537,23 @@ fd_runtime_freeze( fd_global_ctx_t *global ) {
   fd_sysvar_recent_hashes_update ( global );
 
   // Look at collect_fees... I think this was where I saw the fee payout..
-  if (global->collector_set && global->collected) {
+  if (global->collector_set && global->bank.collected) {
 
     if (FD_UNLIKELY(global->log_level > 2)) {
-      FD_LOG_WARNING(( "fd_runtime_freeze: slot:%ld global->collected: %ld", global->bank.slot, global->collected ));
+      FD_LOG_WARNING(( "fd_runtime_freeze: slot:%ld global->collected: %ld", global->bank.slot, global->bank.collected ));
     }
 
     fd_acc_lamports_t lamps;
-    int               ret = fd_acc_mgr_get_lamports ( global->acc_mgr, global->funk_txn, &global->collector_id, &lamps);
+    int               ret = fd_acc_mgr_get_lamports ( global->acc_mgr, global->funk_txn, &global->bank.collector_id, &lamps);
     if (ret != FD_ACC_MGR_SUCCESS)
       FD_LOG_ERR(( "The collector_id is wrong?!" ));
 
     // TODO: half get burned?!
-    ret = fd_acc_mgr_set_lamports ( global->acc_mgr, global->funk_txn, global->bank.slot, &global->collector_id, lamps + (global->collected/2));
+    ret = fd_acc_mgr_set_lamports ( global->acc_mgr, global->funk_txn, global->bank.slot, &global->bank.collector_id, lamps + (global->bank.collected/2));
     if (ret != FD_ACC_MGR_SUCCESS)
       FD_LOG_ERR(( "lamport update failed" ));
 
-    global->collected = 0;
+    global->bank.collected = 0;
   }
 
   //self.distribute_rent();

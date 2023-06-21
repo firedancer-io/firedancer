@@ -949,6 +949,8 @@ struct fd_firedancer_banks {
   fd_inflation_t inflation;
   fd_epoch_schedule_t epoch_schedule;
   fd_rent_t rent;
+  fd_pubkey_t collector_id;
+  unsigned long collected;
 };
 typedef struct fd_firedancer_banks fd_firedancer_banks_t;
 #define FD_FIREDANCER_BANKS_FOOTPRINT sizeof(fd_firedancer_banks_t)
