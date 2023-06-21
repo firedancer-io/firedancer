@@ -590,8 +590,12 @@ main( int     argc,
       ulong prv_egress_sz  = prv->cnc_diag_egress_sz;
 
       /* tqos tile (2) has no fseq, so create the equiv. */
-      ulong cur_ovrnp_cnt = tile_idx == 2 ? 0 : cur->fseq_diag_ovrnp_cnt;
-      ulong prv_ovrnp_cnt = tile_idx == 2 ? 0 : prv->fseq_diag_ovrnp_cnt;
+      ulong cur_ovrnp_cnt = tile_idx == 2 ? 
+        snap_cur[1].cnc_diag_egress_cnt - snap_cur[2].cnc_diag_egress_cnt :
+        cur->fseq_diag_ovrnp_cnt;
+      ulong prv_ovrnp_cnt = tile_idx == 2 ? 
+        snap_prv[1].cnc_diag_egress_cnt - snap_prv[2].cnc_diag_egress_cnt : 
+        prv->fseq_diag_ovrnp_cnt;
       ulong cur_ovrnr_cnt = tile_idx == 2 ? 0 : cur->fseq_diag_ovrnr_cnt;
       ulong prv_ovrnr_cnt = tile_idx == 2 ? 0 : prv->fseq_diag_ovrnr_cnt;
       ulong cur_slow_cnt  = tile_idx == 2 ? 0 : cur->fseq_diag_slow_cnt;
