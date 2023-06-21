@@ -690,7 +690,7 @@ int main(int argc, char **argv) {
     if (NULL != confirm_hash) {
       uchar h[32];
       fd_base58_decode_32( confirm_hash,  h);
-      FD_TEST(memcmp(h, state.global->banks_hash.uc, sizeof(h)) == 0);
+      FD_TEST(memcmp(h, &state.global->bank.poh, sizeof(h)) == 0);
     }
 
     if (NULL != confirm_parent) {
