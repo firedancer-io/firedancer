@@ -40,7 +40,7 @@ void fd_sysvar_recent_hashes_init( fd_global_ctx_t* global ) {
   fd_sysvar_set(global, global->sysvar_owner, global->sysvar_recent_block_hashes, enc, sz, global->bank.slot );
 }
 
-void fd_sysvar_recent_hashes_update(fd_global_ctx_t* global ) {
+void fd_sysvar_recent_hashes_update( fd_global_ctx_t* global ) {
   if (global->bank.slot == 0)  // we already set this... as part of boot
     return; 
 
@@ -54,7 +54,8 @@ void fd_sysvar_recent_hashes_update(fd_global_ctx_t* global ) {
   FD_TEST( !deq_fd_block_block_hash_entry_t_full(hashes) );
   fd_block_block_hash_entry_t * elem = deq_fd_block_block_hash_entry_t_push_head_nocopy(hashes);
   fd_block_block_hash_entry_new(elem);
-  fd_memcpy(elem->blockhash.hash, global->block_hash, sizeof(global->block_hash));
+  // bank.poh is updated in fd_runtime_block_verify
+  fd_memcpy(elem->blockhash.hash, &global->bank.poh, sizeof(global->bank.poh));
   elem->fee_calculator.lamports_per_signature = fd_runtime_txn_lamports_per_signature(global, NULL, NULL);
 
   ulong sz = fd_recent_block_hashes_size(&global->bank.recent_block_hashes);

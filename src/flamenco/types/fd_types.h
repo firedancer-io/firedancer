@@ -937,6 +937,7 @@ struct fd_firedancer_banks {
   fd_recent_block_hashes_t recent_block_hashes;
   fd_clock_timestamp_votes_t timestamp_votes;
   unsigned long slot;
+  fd_hash_t poh;
   fd_fee_rate_governor_t fee_rate_governor;
   unsigned long lamports_per_signature;
   unsigned long hashes_per_tick;

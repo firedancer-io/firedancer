@@ -711,7 +711,7 @@ int main(int argc, char **argv) {
     if (NULL != confirm_last_block) {
       uchar h[32];
       fd_base58_decode_32( confirm_last_block,  h);
-      FD_TEST(memcmp(h, state.global->block_hash, sizeof(h)) == 0);
+      FD_TEST(memcmp(h, &state.global->bank.poh, sizeof(h)) == 0);
     }
 
   }

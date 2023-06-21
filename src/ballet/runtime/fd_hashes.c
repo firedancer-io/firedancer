@@ -181,7 +181,7 @@ fd_hash_bank( fd_global_ctx_t *global, fd_hash_t * hash ) {
   fd_sha256_append( &sha, (uchar const *) global->banks_hash.hash, sizeof( fd_hash_t ) );
   fd_sha256_append( &sha, (uchar const *) global->account_delta_hash.hash, sizeof( fd_hash_t  ) );
   fd_sha256_append( &sha, (uchar const *) &global->signature_cnt, sizeof( ulong ) );
-  fd_sha256_append( &sha, (uchar const *) global->block_hash, sizeof( fd_hash_t ) );
+  fd_sha256_append( &sha, (uchar const *) &global->bank.poh, sizeof( fd_hash_t ) );
 
   fd_sha256_fini( &sha, hash->hash );
 
@@ -196,7 +196,7 @@ fd_hash_bank( fd_global_ctx_t *global, fd_hash_t * hash ) {
     fd_base58_encode_32((uchar *) global->account_delta_hash.hash, 0, encoded_account_delta);
 
     char encoded_last_block_hash[50];
-    fd_base58_encode_32((uchar *) global->block_hash, 0, encoded_last_block_hash);
+    fd_base58_encode_32((uchar *) &global->bank.poh, 0, encoded_last_block_hash);
 
     FD_LOG_NOTICE(( "bank_hash slot: %lu,  hash: %s,  parent_hash: %s,  accounts_delta: %s,  signature_count: %ld,  last_blockhash: %s",
         global->bank.slot, encoded_hash, encoded_parent, encoded_account_delta, global->signature_cnt, encoded_last_block_hash));

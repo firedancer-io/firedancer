@@ -22,8 +22,7 @@ void
 fd_runtime_init_bank_from_genesis( fd_global_ctx_t * global, fd_genesis_solana_t * genesis_block, uchar genesis_hash[FD_SHA256_HASH_SZ] ) {
   global->bank.slot = 0;
   
-  fd_memcpy(global->poh.state, genesis_hash, FD_SHA256_HASH_SZ);
-  global->poh_booted = 1;
+  fd_memcpy(&global->bank.poh, genesis_hash, FD_SHA256_HASH_SZ);
 
   global->bank.fee_rate_governor = genesis_block->fee_rate_governor;
   global->bank.lamports_per_signature = 10000;
@@ -90,41 +89,6 @@ fd_runtime_init_program( fd_global_ctx_t * global ) {
 int
 fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_meta_t* m, const void* block, ulong blocklen ) {
   (void)m;
-  // It sucks that we need to know the current block hash which is
-  // stored at the END of the block.  Lets have a fever dream another
-  // time and optimize this...
-  /* Loop across batches */
-  ulong blockoff = 0;
-  while (blockoff < blocklen) {
-    if ( blockoff + sizeof(ulong) > blocklen )
-      FD_LOG_ERR(("premature end of block"));
-    ulong mcount = *(const ulong *)((const uchar *)block + blockoff);
-    blockoff += sizeof(ulong);
-
-    /* Loop across microblocks */
-    for (ulong mblk = 0; mblk < mcount; ++mblk) {
-      if ( blockoff + sizeof(fd_microblock_hdr_t) > blocklen )
-        FD_LOG_ERR(("premature end of block"));
-      fd_microblock_hdr_t * hdr = (fd_microblock_hdr_t *)((const uchar *)block + blockoff);
-      blockoff += sizeof(fd_microblock_hdr_t);
-
-      /* Keep track of the last header hash */
-      fd_memcpy(global->block_hash, hdr->hash, sizeof(hdr->hash));
-
-      /* Loop across transactions */
-      for ( ulong txn_idx = 0; txn_idx < hdr->txn_cnt; txn_idx++ ) {
-        fd_txn_xray_result_t xray;
-        const uchar* raw = (const uchar *)block + blockoff;
-        ulong pay_sz = fd_txn_xray(raw, blocklen - blockoff, &xray);
-        if ( pay_sz == 0UL )
-          FD_LOG_ERR(("failed to parse transaction %lu in microblock %lu in slot %lu", txn_idx, mblk, m->slot));
-        blockoff += pay_sz;
-      }
-    }
-  }
-  if ( blockoff != blocklen )
-    FD_LOG_ERR(("garbage at end of block"));
-
   // TODO: move all these out to a fd_sysvar_update() call...
   fd_sysvar_clock_update( global);
   // It has to go into the current txn previous info but is not in slot 0
@@ -132,7 +96,7 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_meta_t* m, const void
     fd_sysvar_slot_hashes_update( global );
 
   ulong signature_cnt = 0;
-  blockoff = 0;
+  ulong blockoff = 0;
   while (blockoff < blocklen) {
     if ( blockoff + sizeof(ulong) > blocklen )
       FD_LOG_ERR(("premature end of block"));
@@ -215,11 +179,11 @@ fd_runtime_block_verify( fd_global_ctx_t *global, fd_slot_meta_t* m, const void*
       blockoff += sizeof(fd_microblock_hdr_t);
 
       if (hdr->txn_cnt == 0) {
-        fd_poh_append(&global->poh, hdr->hash_cnt);
+        fd_poh_append(&global->bank.poh, hdr->hash_cnt);
 
       } else {
         if (hdr->hash_cnt > 0)
-          fd_poh_append(&global->poh, hdr->hash_cnt - 1);
+          fd_poh_append(&global->bank.poh, hdr->hash_cnt - 1);
 
         fd_bmtree32_commit_t * tree = fd_bmtree32_commit_init( commit_mem );
 
@@ -243,18 +207,12 @@ fd_runtime_block_verify( fd_global_ctx_t *global, fd_slot_meta_t* m, const void*
         }
 
         uchar * root = fd_bmtree32_commit_fini( tree );
-        fd_poh_mixin(&global->poh, root);
+        fd_poh_mixin(&global->bank.poh, root);
       }
 
-      if (memcmp(hdr->hash, global->poh.state, sizeof(global->poh.state))) {
-        if (global->poh_booted) {
-          // TODO should this log and return?  instead of knocking the
-          // whole system over via a _ERR?
-          FD_LOG_ERR(( "poh missmatch at slot: %ld", m->slot));
-        } else {
-          fd_memcpy(global->poh.state, hdr->hash, sizeof(global->poh.state));
-          global->poh_booted = 1;
-        }
+      if (memcmp(hdr->hash, &global->bank.poh, sizeof(global->bank.poh))) {
+        FD_LOG_ERR(( "poh missmatch at slot: %ld", m->slot));
+        return -1;
       }
     }
   }
@@ -267,7 +225,7 @@ fd_runtime_block_verify( fd_global_ctx_t *global, fd_slot_meta_t* m, const void*
 
 struct __attribute__((aligned(64))) fd_runtime_block_micro {
     fd_microblock_hdr_t * hdr;
-    fd_poh_state_t poh;
+    fd_hash_t poh;
     int failed;
 };
 
@@ -328,7 +286,7 @@ static void fd_runtime_block_verify_task( void * tpool,
     fd_poh_mixin(&micro->poh, root);
   }
 
-  micro->failed = (memcmp(hdr->hash, micro->poh.state, sizeof(micro->poh.state)) ? 1 : 0);
+  micro->failed = (memcmp(hdr->hash, &micro->poh, sizeof(micro->poh)) ? 1 : 0);
 }
 
 int fd_runtime_block_verify_tpool( fd_global_ctx_t *global, fd_slot_meta_t *m, const void* block, ulong blocklen, fd_tpool_t * tpool, ulong max_workers ) {
@@ -352,18 +310,16 @@ int fd_runtime_block_verify_tpool( fd_global_ctx_t *global, fd_slot_meta_t *m, c
       fd_microblock_hdr_t * hdr = (fd_microblock_hdr_t *)((const uchar *)block + blockoff);
       blockoff += sizeof(fd_microblock_hdr_t);
 
-      if (global->poh_booted) {
-        /* Setup a task using the previous poh as the input state */
-        if ( num_micros == MAX_MICROS )
-          FD_LOG_ERR(("too many microblocks in slot %lu", m->slot));
-        struct fd_runtime_block_micro * micro = &(micros[num_micros++]);
-        micro->hdr = hdr;
-        fd_memcpy(micro->poh.state, global->poh.state, sizeof(global->poh.state));
-        micro->failed = 0;
-      }
+      /* Setup a task using the previous poh as the input state */
+      if ( num_micros == MAX_MICROS )
+        FD_LOG_ERR(("too many microblocks in slot %lu", m->slot));
+      struct fd_runtime_block_micro * micro = &(micros[num_micros++]);
+      micro->hdr = hdr;
+      fd_memcpy(&micro->poh, &global->bank.poh, sizeof(global->bank.poh));
+      micro->failed = 0;
+
       /* Remember the new poh state */
-      fd_memcpy(global->poh.state, hdr->hash, sizeof(global->poh.state));
-      global->poh_booted = 1;
+      fd_memcpy(&global->bank.poh, hdr->hash, sizeof(global->bank.poh));
 
       /* Loop across transactions */
       for ( ulong txn_idx = 0; txn_idx < hdr->txn_cnt; txn_idx++ ) {

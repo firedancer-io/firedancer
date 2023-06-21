@@ -3,18 +3,19 @@
 /* Ensure that calling fd_poh_append with zero iterations is nop. */
 static void
 test_poh_append_nop( void ) {
-  fd_poh_state_t poh = {0};
+  fd_hash_t poh;
+  fd_memset( &poh, 0, FD_SHA256_HASH_SZ );
 
   /* Make up a pattern */
   uchar want[FD_SHA256_HASH_SZ];
   for( ulong i=0UL; i<FD_SHA256_HASH_SZ; i++ ) want[i] = (uchar)(0x40UL+i);
-  fd_memcpy( poh.state, want, FD_SHA256_HASH_SZ );
+  fd_memcpy( &poh, want, FD_SHA256_HASH_SZ );
 
   /* Call fd_poh_append with zero iters */
   fd_poh_append( &poh, 0UL );
 
   /* PoH state should be untouched */
-  FD_TEST( !memcmp( poh.state, want, FD_SHA256_HASH_SZ ) );
+  FD_TEST( !memcmp( &poh, want, FD_SHA256_HASH_SZ ) );
 }
 
 /* Ensure that one round of fd_poh_append matches the simple hashing API. */
@@ -25,8 +26,8 @@ test_poh_append_one( void ) {
   for( ulong i=0UL; i<FD_SHA256_HASH_SZ; i++ ) pre[i] = (uchar)(0x40UL+i);
 
   /* One round of PoH append */
-  fd_poh_state_t poh = {0};
-  fd_memcpy( poh.state, pre, FD_SHA256_HASH_SZ );
+  fd_hash_t poh = {0};
+  fd_memcpy( &poh, pre, FD_SHA256_HASH_SZ );
   fd_poh_append( &poh, 1UL );
 
   /* SHA-256 simple API */
@@ -36,14 +37,14 @@ test_poh_append_one( void ) {
   uchar expected[FD_SHA256_HASH_SZ];
   fd_sha256_fini( &sha, &expected );
 
-  if( FD_UNLIKELY( memcmp( poh.state, expected, FD_SHA256_HASH_SZ ) ) ) {
+  if( FD_UNLIKELY( memcmp( &poh, expected, FD_SHA256_HASH_SZ ) ) ) {
     FD_LOG_ERR(( "FAIL (test_poh_append_one)"
                  "\n\tGot"
                  "\n\t\t" FD_LOG_HEX16_FMT "  " FD_LOG_HEX16_FMT
                  "\n\tExpected"
                  "\n\t\t" FD_LOG_HEX16_FMT "  " FD_LOG_HEX16_FMT,
-                 FD_LOG_HEX16_FMT_ARGS( poh.state ), FD_LOG_HEX16_FMT_ARGS( poh.state+16 ),
-                 FD_LOG_HEX16_FMT_ARGS(  expected ), FD_LOG_HEX16_FMT_ARGS(  expected+16 ) ));
+                 FD_LOG_HEX16_FMT_ARGS( poh.uc ),   FD_LOG_HEX16_FMT_ARGS( poh.uc+16 ),
+                 FD_LOG_HEX16_FMT_ARGS( expected ), FD_LOG_HEX16_FMT_ARGS( expected+16 ) ));
   }
 }
 
@@ -58,8 +59,8 @@ test_poh_mixin( void ) {
   for( ulong i=0UL; i<FD_SHA256_HASH_SZ; i++ ) mixin[i]=(uchar)(0x60UL+i);
 
   /* Execute a PoH mixin */
-  fd_poh_state_t poh = {0};
-  fd_memcpy( poh.state, pre, FD_SHA256_HASH_SZ );
+  fd_hash_t poh = {0};
+  fd_memcpy( &poh, pre, FD_SHA256_HASH_SZ );
   fd_poh_mixin( &poh, mixin );
 
   /* SHA-256 simple API */
@@ -70,14 +71,14 @@ test_poh_mixin( void ) {
   uchar expected[FD_SHA256_HASH_SZ];
   fd_sha256_fini( &sha, &expected );
 
-  if( FD_UNLIKELY( memcmp( poh.state, expected, FD_SHA256_HASH_SZ ) ) ) {
+  if( FD_UNLIKELY( memcmp( &poh, expected, FD_SHA256_HASH_SZ ) ) ) {
     FD_LOG_ERR(( "FAIL (test_poh_mixin)"
                  "\n\tGot"
                  "\n\t\t" FD_LOG_HEX16_FMT "  " FD_LOG_HEX16_FMT
                  "\n\tExpected"
                  "\n\t\t" FD_LOG_HEX16_FMT "  " FD_LOG_HEX16_FMT,
-                 FD_LOG_HEX16_FMT_ARGS( poh.state ), FD_LOG_HEX16_FMT_ARGS( poh.state+16 ),
-                 FD_LOG_HEX16_FMT_ARGS(  expected ), FD_LOG_HEX16_FMT_ARGS(  expected+16 ) ));
+                 FD_LOG_HEX16_FMT_ARGS( poh.uc ),   FD_LOG_HEX16_FMT_ARGS( poh.uc+16 ),
+                 FD_LOG_HEX16_FMT_ARGS( expected ), FD_LOG_HEX16_FMT_ARGS( expected+16 ) ));
   }
 }
 
@@ -94,8 +95,8 @@ struct fd_poh_test_step {
 typedef struct fd_poh_test_step fd_poh_test_step_t;
 
 struct fd_poh_test_vector {
-  fd_poh_state_t pre   __attribute__((aligned(32)));
-  fd_poh_state_t post  __attribute__((aligned(32)));
+  fd_hash_t pre   __attribute__((aligned(32)));
+  fd_hash_t post  __attribute__((aligned(32)));
   char const * name;
   fd_poh_test_step_t const * steps;
 };
@@ -104,7 +105,7 @@ typedef struct fd_poh_test_vector fd_poh_test_vector_t;
 
 static void
 test_poh_vector( fd_poh_test_vector_t const * t ) {
-  fd_poh_state_t poh = t->pre;
+  fd_hash_t poh = t->pre;
   for( fd_poh_test_step_t const * step = t->steps; step->n >= 0; step++ ) {
     if( FD_UNLIKELY( step->n == 0 ) ) {
       fd_poh_mixin( &poh, step->mixin );
@@ -113,15 +114,15 @@ test_poh_vector( fd_poh_test_vector_t const * t ) {
     }
   }
 
-  if( FD_UNLIKELY( memcmp( poh.state, t->post.state, FD_SHA256_HASH_SZ ) ) ) {
+  if( FD_UNLIKELY( memcmp( &poh, &t->post, FD_SHA256_HASH_SZ ) ) ) {
     FD_LOG_ERR(( "FAIL (%s)"
                  "\n\tGot"
                  "\n\t\t" FD_LOG_HEX16_FMT "  " FD_LOG_HEX16_FMT
                  "\n\tExpected"
                  "\n\t\t" FD_LOG_HEX16_FMT "  " FD_LOG_HEX16_FMT,
                  t->name,
-                 FD_LOG_HEX16_FMT_ARGS(     poh.state ), FD_LOG_HEX16_FMT_ARGS(     poh.state+16 ),
-                 FD_LOG_HEX16_FMT_ARGS( t->post.state ), FD_LOG_HEX16_FMT_ARGS( t->post.state+16 ) ));
+                 FD_LOG_HEX16_FMT_ARGS( poh.uc ),     FD_LOG_HEX16_FMT_ARGS( poh.uc+16 ),
+                 FD_LOG_HEX16_FMT_ARGS( t->post.uc ), FD_LOG_HEX16_FMT_ARGS( t->post.uc+16 ) ));
   } else {
     FD_LOG_NOTICE(( "OK (%s)", t->name ));
   }
@@ -167,8 +168,8 @@ static fd_poh_test_vector_t const poh_test_vectors[] = {
 
 static void
 bench_poh_sequential( void ) {
-  fd_poh_state_t poh;
-  fd_memset( poh.state, 0, FD_SHA256_HASH_SZ );
+  fd_hash_t poh;
+  fd_memset( &poh, 0, FD_SHA256_HASH_SZ );
 
   ulong batch_sz = 1024;
 
