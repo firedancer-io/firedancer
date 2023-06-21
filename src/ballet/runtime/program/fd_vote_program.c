@@ -1675,13 +1675,15 @@ int fd_executor_vote_program_execute_instruction(
 }
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L1041 */
-void fd_vote_acc_credits( fd_global_ctx_t* global, fd_pubkey_t * vote_acc, ulong* result ) {
+int
+fd_vote_acc_credits( fd_global_ctx_t* global, fd_pubkey_t * vote_acc, ulong* result ) {
 
   /* Read vote account */
   fd_account_meta_t         meta;
   fd_vote_state_versioned_t versioned;
-  fd_vote_load_account_current( &versioned, &meta, global, vote_acc, /* allow_uninitialized */ 0 );
-  /* TODO check for errors? */
+  int load_res = fd_vote_load_account_current( &versioned, &meta, global, vote_acc, /* allow_uninitialized */ 0 );
+  if( FD_UNLIKELY( load_res != FD_EXECUTOR_INSTR_SUCCESS ) )
+    return load_res;
 
   fd_vote_state_t* state = &versioned.inner.current;
   if ( deq_fd_vote_epoch_credits_t_empty( state->epoch_credits ) ) {
@@ -1694,4 +1696,6 @@ void fd_vote_acc_credits( fd_global_ctx_t* global, fd_pubkey_t * vote_acc, ulong
   ctx5.freef = global->freef;
   ctx5.freef_arg = global->allocf_arg;
   fd_vote_state_versioned_destroy( &versioned, &ctx5 );
+
+  return FD_EXECUTOR_INSTR_SUCCESS;
 }
