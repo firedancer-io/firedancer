@@ -7,17 +7,11 @@
 #include "../templ/fd_quic_defs.h"
 #include "../templ/fd_quic_templ.h"
 #include "../templ/fd_quic_frames_templ.h"
-#include "../templ/fd_quic_ipv4.h"
-#include "../templ/fd_quic_udp.h"
-#include "../templ/fd_quic_eth.h"
 #include "../templ/fd_quic_undefs.h"
 
 #include "../templ/fd_quic_encoders_decl.h"
 #include "../templ/fd_quic_templ.h"
 #include "../templ/fd_quic_frames_templ.h"
-#include "../templ/fd_quic_ipv4.h"
-#include "../templ/fd_quic_udp.h"
-#include "../templ/fd_quic_eth.h"
 #include "../templ/fd_quic_undefs.h"
 
 void test_retry_token_encrypt_decrypt()
