@@ -944,7 +944,7 @@ int fd_executor_stake_program_execute_instruction(
   else if ( fd_stake_instruction_is_withdraw( &instruction )) { // discriminant X
     ulong lamports = instruction.inner.withdraw;
     // instruction_context.check_number_of_instruction_accounts(2)?;
-    if (ctx.txn_ctx->txn_descriptor->acct_addr_cnt < 2) {
+    if (ctx.txn_ctx->txn_descriptor->acct_addr_cnt < 4) {
       return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
     }
     /* Check that the instruction accounts are correct */
