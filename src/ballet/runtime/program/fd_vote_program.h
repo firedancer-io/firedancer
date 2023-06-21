@@ -32,7 +32,10 @@ FD_PROTOTYPES_BEGIN
 int fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) ;
 
 /* Number of credits owned to the given vote account from the mining pool. */
-void fd_vote_acc_credits( fd_global_ctx_t* global, fd_pubkey_t* vote_acc, ulong* result ) ;
+int
+fd_vote_acc_credits( fd_global_ctx_t * global,
+                     fd_pubkey_t *     vote_acc,
+                     ulong *           result );
 
 FD_PROTOTYPES_END
 
