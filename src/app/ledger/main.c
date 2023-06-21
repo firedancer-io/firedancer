@@ -17,12 +17,12 @@
 #include <bzlib.h>     // presumes bz2 library is installed
 #include "../../util/fd_util.h"
 #include "../../util/archive/fd_tar.h"
-#include "../../ballet/runtime/fd_banks_solana.h"
-#include "../../ballet/runtime/fd_hashes.h"
+#include "../../flamenco/runtime/fd_banks_solana.h"
+#include "../../flamenco/runtime/fd_hashes.h"
 #include "../../funk/fd_funk.h"
-#include "../../flamenco/types//fd_types.h"
-#include "../../ballet/runtime/fd_runtime.h"
-#include "../../ballet/runtime/fd_rocksdb.h"
+#include "../../flamenco/types/fd_types.h"
+#include "../../flamenco/runtime/fd_runtime.h"
+#include "../../flamenco/runtime/fd_rocksdb.h"
 #include "../../ballet/base58/fd_base58.h"
 
 static void usage(const char* progname) {
@@ -80,7 +80,7 @@ void SnapshotParser_destroy(struct SnapshotParser* self) {
     global->freef(global->allocf_arg, self->manifest_);
     self->manifest_ = NULL;
   }
-  
+
   fd_tar_stream_delete(&self->tarreader_);
   free(self->tmpstart_);
 }
@@ -225,7 +225,7 @@ static void decompressBZ2(const char* fname, decompressCallback cb, void* arg) {
   if (fin == -1) {
     FD_LOG_ERR(( "unable to read file %s: %s", fname, strerror(errno) ));
   }
-  
+
   bz_stream bStream;
   bStream.next_in = NULL;
   bStream.avail_in = 0;
@@ -315,7 +315,7 @@ void ingest_rocksdb( fd_global_ctx_t * global, const char* file, ulong start_slo
   if ( fd_slot_meta_meta_encode( &mm, &ctx ) )
     FD_LOG_ERR(("fd_slot_meta_meta_encode failed"));
   fd_funk_rec_persist( global->funk, rec );
-    
+
   fd_rocksdb_root_iter_t iter;
   fd_rocksdb_root_iter_new ( &iter );
 
@@ -375,7 +375,7 @@ void ingest_rocksdb( fd_global_ctx_t * global, const char* file, ulong start_slo
       else
         fd_runtime_block_verify( global, &m, block, block_sz );
     }
-    
+
     global->freef(global->allocf_arg, block);
     fd_bincode_destroy_ctx_t ctx;
     ctx.freef = global->freef;
@@ -407,7 +407,7 @@ int main(int argc, char** argv) {
   char hostname[64];
   gethostname(hostname, sizeof(hostname));
   ulong hashseed = fd_hash(0, hostname, strnlen(hostname, sizeof(hostname)));
-  
+
   const char* reset = fd_env_strip_cmdline_cstr(&argc, &argv, "--reset", NULL, "false");
   if (strcmp(reset, "true") == 0) {
     fd_wksp_reset( wksp, (uint)hashseed);
@@ -426,7 +426,7 @@ int main(int argc, char** argv) {
 
     ulong index_max = fd_env_strip_cmdline_ulong(&argc, &argv, "--indexmax", NULL, 350000000);
     ulong xactions_max = fd_env_strip_cmdline_ulong(&argc, &argv, "--txnmax", NULL, 100);
-    
+
     shmem = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint(), 1 );
     if (shmem == NULL)
       FD_LOG_ERR(( "failed to allocate a funky" ));
@@ -435,7 +435,7 @@ int main(int argc, char** argv) {
       fd_wksp_free_laddr(shmem);
       FD_LOG_ERR(( "failed to allocate a funky" ));
     }
-    
+
   } else {
     if (gaddr[0] == '0' && gaddr[1] == 'x')
       shmem = fd_wksp_laddr_fast( wksp, (ulong)strtol(gaddr+2, NULL, 16) );
@@ -462,7 +462,7 @@ int main(int argc, char** argv) {
   char global_mem[FD_GLOBAL_CTX_FOOTPRINT] __attribute__((aligned(FD_GLOBAL_CTX_ALIGN)));
   memset(global_mem, 0, sizeof(global_mem));
   fd_global_ctx_t * global = fd_global_ctx_join( fd_global_ctx_new( global_mem ) );
-  
+
   global->wksp = wksp;
   global->funk = funk;
   global->allocf = (fd_alloc_fun_t)fd_alloc_malloc;
@@ -485,18 +485,18 @@ int main(int argc, char** argv) {
         FD_LOG_ERR(("failed to launch worker"));
     }
   }
-  
+
   const char* persist = fd_env_strip_cmdline_cstr(&argc, &argv, "--persist", NULL, NULL);
   if (cmd == NULL) {
     // Do nothing
-    
+
   } else if (strcmp(cmd, "ingest") == 0) {
     if (persist != NULL) {
       unlink(persist);
       if (fd_funk_persist_open(funk, persist, 0) != FD_FUNK_SUCCESS)
         FD_LOG_ERR(( "failed to read file %s", persist ));
     }
-    
+
     const char* file = fd_env_strip_cmdline_cstr(&argc, &argv, "--snapshotfile", NULL, NULL);
     if (file != NULL) {
       struct SnapshotParser parser;
@@ -532,7 +532,7 @@ int main(int argc, char** argv) {
       const char* verifypoh = fd_env_strip_cmdline_cstr(&argc, &argv, "--verifypoh", NULL, "false");
       ingest_rocksdb(global, file, start_slot, end_slot, verifypoh, tpool, tcnt-1);
     }
-    
+
   } else if (strcmp(cmd, "recover") == 0) {
     if (persist != NULL) {
       if (fd_funk_persist_open(funk, persist, 0) != FD_FUNK_SUCCESS)
@@ -565,7 +565,7 @@ int main(int argc, char** argv) {
     ulong num_iter_accounts = fd_funk_rec_map_key_cnt( rec_map );
 
     FD_LOG_NOTICE(( "verifying hash for %lu accounts", num_iter_accounts ));
-  
+
     ulong zero_accounts = 0;
     ulong num_pairs = 0;
     fd_pubkey_hash_pair_t * pairs = (fd_pubkey_hash_pair_t *) malloc(num_iter_accounts*sizeof(fd_pubkey_hash_pair_t));
@@ -584,24 +584,24 @@ int main(int argc, char** argv) {
       if ((metadata->magic != FD_ACCOUNT_META_MAGIC) || (metadata->hlen != sizeof(fd_account_meta_t))) {
         FD_LOG_ERR(("invalid magic on metadata"));
       }
-    
+
       if ((metadata->info.lamports == 0) | ((metadata->info.executable & ~1) != 0)) {
         zero_accounts++;
         continue;
       }
-    
-    
+
+
       fd_memcpy(pairs[num_pairs].pubkey.key, rec->pair.key, 32);
       fd_memcpy(pairs[num_pairs].hash.hash, metadata->hash, 32);
       num_pairs++;
     }
     FD_LOG_NOTICE(("num_iter_accounts: %ld  zero_accounts: %lu", num_iter_accounts, zero_accounts));
-    
+
     fd_hash_t accounts_hash;
     fd_hash_account_deltas(global, pairs, num_pairs, &accounts_hash);
 
     free(pairs);
-    
+
     char accounts_hash_58[FD_BASE58_ENCODED_32_SZ];
     fd_base58_encode_32((uchar const *)accounts_hash.hash, NULL, accounts_hash_58);
 
@@ -614,7 +614,7 @@ int main(int argc, char** argv) {
 
   if ( tpool )
     fd_tpool_fini( tpool );
-  
+
   fd_global_ctx_delete( fd_global_ctx_leave( global ) );
   fd_funk_leave( funk );
 

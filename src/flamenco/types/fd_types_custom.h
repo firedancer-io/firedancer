@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_ballet_runtime_fd_types_custom
-#define HEADER_fd_src_ballet_runtime_fd_types_custom
+#ifndef HEADER_fd_src_flamenco_runtime_fd_types_custom
+#define HEADER_fd_src_flamenco_runtime_fd_types_custom
 
 #include "../../ballet/fd_ballet_base.h"
 #include "fd_bincode.h"
@@ -67,5 +67,5 @@ void fd_hash_walk(FD_FN_UNUSED fd_hash_t* self, FD_FN_UNUSED fd_walk_fun_t fun, 
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_ballet_runtime_fd_types_custom */
+#endif /* HEADER_fd_src_flamenco_runtime_fd_types_custom */
 
