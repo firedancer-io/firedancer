@@ -32,9 +32,11 @@ DST_TGSRC=src/app/tguard
 DST_BUILD=build/linux/gcc/x86_64
 case $SCRIPT_PATH in
     */${SRC1})
+        REPO_ROOT="${SCRIPT_PATH/${SRC1}}"
         TGSRC_DIR="${SCRIPT_PATH/${SRC1}/${DST_TGSRC}}"
         BUILD_DIR="${SCRIPT_PATH/${SRC1}/${DST_BUILD}}" ;;
     */${SRC2})
+        REPO_ROOT="${SCRIPT_PATH/${SRC2}}"
         TGSRC_DIR="${SCRIPT_PATH/${SRC2}/${DST_TGSRC}}"
         BUILD_DIR="${SCRIPT_PATH/${SRC2}/${DST_BUILD}}" ;;
     *)
@@ -44,7 +46,46 @@ esac
 
 stress_test() {
     if [[ $INTERACTIVE -eq "0" ]]; then
-        printf "\n\n     stress_test can only be run in interactive mode from cnc panel\n\n"
+        if [[ $# -ne "4" ]]; then
+            printf "\n     Insufficient arg parameters for running stress_test, needs: <replay_speed: y|n> <ifname> <loop_cnt> <pcap filename>\n\n" 
+            return 1
+        fi
+
+        if [[ "$1" == "y" || $1 == "Y" ]]; then
+            replay_speed="--topspeed"
+        else
+            replay_speed=""
+        fi
+        ifname="$2"
+        loop_cnt="$3"
+        pcapfile="$4"
+
+        tcpreplay --preload-pcap ${replay_speed} --loop=${loop_cnt} --loopdelay-ms=0 -i ${ifname} ${pcapfile}
+        return 1
+    fi
+
+    printf "\n\n"
+    read -p "     replay pcap at max speed? (y/n) " userresponse
+    if [[ "$userresponse" == "y" || "$userresponse" == "Y" ]]; then
+        replay_speed="--topspeed"
+    else
+        replay_speed=""
+    fi
+
+    printf "\n\n"
+    read -p "     interface name: " ifname
+    printf "\n"
+    ip a show ${ifname} up # 2>&1 /dev/null
+    if [[ $? != "0" ]]; then
+        printf "\nNetwork interface ${ifname} does not exist or is not up\n"
+        return 1
+    fi
+
+    printf "\n\n"
+    read -p "     injection loop count: " loop_cnt
+    printf "\n"
+    if [[ ! "$loop_cnt" =~ ^[0-9]+$ ]] ; then
+        printf "\n     Invalid injection loop count $loop_cnt, must be a number\n\n"
         return 1
     fi
 
@@ -56,32 +97,14 @@ stress_test() {
         return 1
     fi
 
-    printf "\n\n"
-    read -p "     interface name: " ifname
     printf "\n"
-    ip a show ${ifname} up # 2>&1 /dev/null
-    if [[ $? != "0" ]]; then
-        printf "\nNetwork interface ${ifname} does not exist or is not up\n"
-        return 1
-    fi
-    printf "\n"
-
-    printf "\n\n"
-    read -p "     injection loop count: " loop_cnt
-    printf "\n"
-
-    if [[ ! "$loop_cnt" =~ ^[0-9]+$ ]] ; then
-        printf "\n     Invalid injection loop count $loop_cnt, must be a number\n\n"
-        return 1
-    fi
-
     loop_cnt_max="1024"
     if [[ "$loop_cnt" -ge "$loop_cnt_max" ]]; then
     	printf "\n     Invalid choice id $loop_cnt, need to be less than $loop_cnt_max\n\n"
     	return 1
     fi
 
-    tcpreplay --preload-pcap --topspeed --loop=${loop_cnt} --loopdelay-ms=0 -i ${ifname} ${pcapfile}
+    tcpreplay --preload-pcap ${replay_speed} --loop=${loop_cnt} --loopdelay-ms=0 -i ${ifname} ${pcapfile}
 }
 
 view_test_rpt() {
@@ -306,10 +329,22 @@ prompt_and_eval_cmd() {
     fi
 }
 
-## main loop
+#
+## main
+#
+cd ${REPO_ROOT}
 if [[ $# -ge "1" ]]; then
     for cid in "${@}"; do
-      prompt_and_eval_cmd ${cid}
+      # making `stress_test` an easter egg, 
+      #   => can be run like: fd_tguard_cnc stress_test y lo 1 test.pcap
+      if [[ $cid == "stress_test" ]]; then
+        INTERACTIVE=0
+        shift 1
+        stress_test ${@}
+        break
+      else
+        prompt_and_eval_cmd ${cid}
+      fi
     done
 else
     for _ in {1..50}; do printf "\n\n\n";  done
