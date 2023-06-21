@@ -51,7 +51,7 @@ you will then be presented a set of choices to pick and run repeatedly:
 ```
      Choices available to run:
         0:  Cancel/None         : exit command-n-control  
-        1:  edit_tguide_cfg     : vi review/edit config   
+        1:  edit_tguide_cfg     : 'vi' review/edit config   
         2:  build_firedancer    : gen/updt executables    
         3:  setup_wksp          : setup data stores       
         4:  reset_wksp          : refresh data stores     
@@ -62,7 +62,7 @@ you will then be presented a set of choices to pick and run repeatedly:
         9:  halt_tqos           : halt turbine qos daemon 
         10: halt_main           : halt fd_tguard_run.bin  
         11: stress_test         : blast pcaps at tguide
-        12: view_test_rpt       : less test log abstract
+        12: view_test_rpt       : 'less' test log abstract
      Enter choice id to run:
 ```
 Alternatively, you can make ***one-shot*** runs of fd_tguard_cnc like:
