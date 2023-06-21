@@ -43,8 +43,9 @@ Moreover, this is a body guard with high capacity, one Turbine Guard is sufficie
 
 Running Turnine Guard is as simple as typing in 1,2,3..., literally. First let's lauch the command-n-control interactive panel:
 ```
-  $ cd firedancer                 # the root of repo if you are not there already
-  $ src/app/tguard/fd_tguard_cnc  # cnc stands for command-n-control
+  $ cd firedancer      # the repo root if you are not there already
+  $ cd src/app/tguard  # the tguard src diretory
+  $ ./fd_tguard_cnc    # cnc stands for command-n-control
 ```
 you will then be presented a set of choices to pick and run repeatedly:
 ```
@@ -67,22 +68,22 @@ you will then be presented a set of choices to pick and run repeatedly:
 Alternatively, you can make ***one-shot*** runs of fd_tguard_cnc like:
 ```
   # setup workspace for datastores from scratch
-  $ src/app/tguard/fd_tguard_cnc 3
+  $ ./fd_tguard_cnc 3
 
   # refresh/clear datastores in workspace
-  $ src/app/tguard/fd_tguard_cnc 4
+  $ ./fd_tguard_cnc 4
 
   # edit config, recompile, then re-run tguard:
-  $ src/app/tguard/fd_tguard_cnc 1 2 7
+  $ ./fd_tguard_cnc 1 2 7
 
   # launch tguard activity monitor
-  $ src/app/tguard/fd_tguard_cnc 6
+  $ ./fd_tguard_cnc 6
 
   # just recompile
-  src/app/tguard/fd_tguard_cnc 2
+  ./fd_tguard_cnc 2
 
   # run turbine guard in the background
-  src/app/tguard/fd_tguard_cnc 7 &
+  ./fd_tguard_cnc 7 &
 ```
 
 When starting from scratch, you can just run through 1 to 7 in that order.
