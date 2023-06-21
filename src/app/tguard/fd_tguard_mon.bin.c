@@ -262,8 +262,17 @@ struct snap {
   ulong cnc_diag_backp_cnt;
   ulong cnc_diag_dedup_cnt;
   ulong cnc_diag_dedup_sz;
-  ulong cnc_diag_shrdf_cnt;
-  ulong cnc_diag_shrdf_sz;
+  ulong cnc_diag_filt_cnt;
+  ulong cnc_diag_filt_sz;
+  ulong cnc_diag_produce_cnt;
+  ulong cnc_diag_produce_sz ;
+  ulong cnc_diag_consume_cnt;
+  ulong cnc_diag_consume_sz ;
+  ulong cnc_diag_ingress_cnt;
+  ulong cnc_diag_ingress_sz ;
+  ulong cnc_diag_egress_cnt;
+  ulong cnc_diag_egress_sz ;
+
 
   ulong mcache_seq;
 
@@ -298,15 +307,35 @@ snap( ulong             tile_cnt,     /* Number of tiles to snapshot */
       snap->cnc_signal    = fd_cnc_signal_query   ( cnc );
       ulong const * cnc_diag = (ulong const *)fd_cnc_app_laddr_const( cnc );
       FD_COMPILER_MFENCE();
-      snap->cnc_diag_in_backp  = cnc_diag[ FD_TGUARD_CNC_DIAG_IN_BACKP       ];
-      snap->cnc_diag_backp_cnt = cnc_diag[ FD_TGUARD_CNC_DIAG_BACKP_CNT      ];
-      snap->cnc_diag_dedup_cnt = cnc_diag[ FD_TGUARD_CNC_DIAG_DEDUP_CNT      ];
-      snap->cnc_diag_dedup_sz  = cnc_diag[ FD_TGUARD_CNC_DIAG_DEDUP_SIZ      ];
-      snap->cnc_diag_shrdf_cnt = cnc_diag[ FD_TGUARD_CNC_DIAG_SHRED_FILT_CNT ];
-      snap->cnc_diag_shrdf_sz  = cnc_diag[ FD_TGUARD_CNC_DIAG_SHRED_FILT_SIZ ];
+      snap->cnc_diag_in_backp    = cnc_diag[ FD_TGUARD_CNC_DIAG_IN_BACKP    ];
+      snap->cnc_diag_backp_cnt   = cnc_diag[ FD_TGUARD_CNC_DIAG_BACKP_CNT   ];
+      snap->cnc_diag_dedup_cnt   = cnc_diag[ FD_TGUARD_CNC_DIAG_DEDUP_CNT   ];
+      snap->cnc_diag_dedup_sz    = cnc_diag[ FD_TGUARD_CNC_DIAG_DEDUP_SIZ   ];
+      snap->cnc_diag_filt_cnt    = cnc_diag[ FD_TGUARD_CNC_DIAG_FILT_CNT    ];
+      snap->cnc_diag_filt_sz     = cnc_diag[ FD_TGUARD_CNC_DIAG_FILT_SIZ    ];
+      snap->cnc_diag_produce_cnt = cnc_diag[ FD_TGUARD_CNC_DIAG_PRODUCE_CNT ];
+      snap->cnc_diag_produce_sz  = cnc_diag[ FD_TGUARD_CNC_DIAG_PRODUCE_SIZ ];
+      snap->cnc_diag_consume_cnt = cnc_diag[ FD_TGUARD_CNC_DIAG_CONSUME_CNT ];
+      snap->cnc_diag_consume_sz  = cnc_diag[ FD_TGUARD_CNC_DIAG_CONSUME_SIZ ];
+      snap->cnc_diag_ingress_cnt = cnc_diag[ FD_TGUARD_CNC_DIAG_INGRESS_CNT ];
+      snap->cnc_diag_ingress_sz  = cnc_diag[ FD_TGUARD_CNC_DIAG_INGRESS_SIZ ];
+      snap->cnc_diag_egress_cnt  = cnc_diag[ FD_TGUARD_CNC_DIAG_EGRESS_CNT  ];
+      snap->cnc_diag_egress_sz   = cnc_diag[ FD_TGUARD_CNC_DIAG_EGRESS_SIZ  ];
       FD_COMPILER_MFENCE();
 
       pmap |= 1UL;
+
+      if (tile_idx == 2UL) { /* for tqos tile_idx==2, hack to reuse repurpose BACKP, DEDUP, and SHRED_FILT fields as mline for tqos */
+        snap->mcache_seq  = snap->cnc_diag_produce_cnt;
+        snap->mcache_seq -= snap->mcache_seq ? 1UL : 0UL; /* -1 to convert cnt to virtual seq */
+        pmap |= 2UL;
+
+        snap->fseq_seq  = snap->cnc_diag_consume_cnt;
+        snap->fseq_seq -= snap->fseq_seq ? 1UL : 0UL; /* -1 to convert cnt to virtual seq */
+        pmap |= 4UL;
+
+        /* for tqos (tile_idx 2), FD_TGUARD_CNC_DIAG_FILT_ actually hold pkt cnt/sz tqos received from tmon */
+      }
     }
 
     fd_frag_meta_t const * mcache = tile_mcache[ tile_idx ];
@@ -392,15 +421,6 @@ main( int     argc,
     tile_fseq  [ tile_idx ] = NULL; /* main has no fseq */
     tile_idx++;
   
-    tile_name[ tile_idx ] = "tqos";
-    FD_LOG_INFO(( "joining %s.tqos.cnc", cfg_path ));
-    tile_cnc[ tile_idx ] = fd_cnc_join( fd_wksp_pod_map( cfg_pod, "tqos.cnc" ) );
-    if( FD_UNLIKELY( !tile_cnc[ tile_idx ] ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
-    if( FD_UNLIKELY( fd_cnc_app_sz( tile_cnc[ tile_idx ] )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
-    tile_mcache[ tile_idx ] = NULL; /* tqos has no mcache */
-    tile_fseq  [ tile_idx ] = NULL; /* tqos has no fseq */
-    tile_idx++; 
-
     tile_name[ tile_idx ] = "tmon";
     FD_LOG_INFO(( "joining %s.tmon.cnc", cfg_path ));
     tile_cnc[ tile_idx ] = fd_cnc_join( fd_wksp_pod_map( cfg_pod, "tmon.cnc" ) );
@@ -413,6 +433,15 @@ main( int     argc,
     tile_fseq[ tile_idx ] = fd_fseq_join( fd_wksp_pod_map( cfg_pod, "tmon.fseq" ) );
     if( FD_UNLIKELY( !tile_fseq[ tile_idx ] ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
     tile_idx++;
+  
+    tile_name[ tile_idx ] = "tqos";
+    FD_LOG_INFO(( "joining %s.tqos.cnc", cfg_path ));
+    tile_cnc[ tile_idx ] = fd_cnc_join( fd_wksp_pod_map( cfg_pod, "tqos.cnc" ) );
+    if( FD_UNLIKELY( !tile_cnc[ tile_idx ] ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
+    if( FD_UNLIKELY( fd_cnc_app_sz( tile_cnc[ tile_idx ] )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
+    tile_mcache[ tile_idx ] = NULL; /* tqos has no mcache */
+    tile_fseq  [ tile_idx ] = NULL; /* tqos has no fseq */
+    tile_idx++; 
   } while(0);
   
   /* Setup local objects used by this app */
@@ -507,13 +536,20 @@ main( int     argc,
         printf( " | " ); printf_err_cnt ( cur->cnc_diag_backp_cnt,   prv->cnc_diag_backp_cnt   );
 
         /* co: | shred_filt cnt */
-        printf( " | " ); printf_err_cnt ( cur->cnc_diag_shrdf_cnt, prv->cnc_diag_shrdf_cnt );
+        printf( " | " ); printf_err_cnt ( cur->cnc_diag_filt_cnt, prv->cnc_diag_filt_cnt );
 
         /* co: | shred_dedup cnt */
         printf( " | " ); printf_err_cnt ( cur->cnc_diag_dedup_cnt, prv->cnc_diag_dedup_cnt );
       } 
       else {
-        printf(       " |          - |     - |          - |        - |                   -|                   -" );
+        printf( " "       
+          "|          - "
+          "|     - "
+          "|          - "
+          "|        - "
+          "|        - "
+          "|                   -"
+          "|                   -" );
       }
 
       /* col: | tx seq |*/
@@ -533,41 +569,57 @@ main( int     argc,
       printf( "\n" );
     }
     printf( "\n" );
-    printf( "         link |  tot TPS |  tot bps | uniq TPS | uniq bps |   ha tr%% | uniq bw%% | filt tr%% | filt bw%% |           ovrnp cnt |           ovrnr cnt |            slow cnt\n" );
-    printf( "--------------+----------+----------+---------+----------+----------+----------+-----------+----------+---------------------+---------------------+---------------------\n" );
-    //WW for( ulong tile_idx=2UL; tile_idx<tile_cnt-1; tile_idx++ ) { /* start at 2, end at "tile_idx<tile_cnt-1" so not display the ones that no mcache/fseq */
-    for( ulong tile_idx=0UL; tile_idx<tile_cnt; tile_idx++ ) {
-      if ( ! (tile_mcache[ tile_idx ] || tile_fseq[ tile_idx ]) ) continue;
-
-      /* 0: main  1: tqos  2: tmon */
-      if      ( tile_idx==2UL       ) printf( " %5s->%-5s", tile_name[ 2        ], tile_name[ 1          ] ); /* dedup -> pack */
-      else FD_LOG_ERR(( "Unexpected mcache/fseq chaining, please update " __FILE__ ));
+    printf( "         link |  in PPS  |  in bps  |  out PPS |  out bps |  o/i PPS |  o/i bps |           ovrnp cnt |           ovrnr cnt |            slow cnt\n" );
+    printf( "--------------+----------+----------+----------+----------+----------+----------+---------------------+---------------------+---------------------\n" );
+    /* 0: main  1: tmon  2: tqos */
+    for( ulong tile_idx=1UL; tile_idx<tile_cnt; tile_idx++ ) {
+      printf( " ->%6s -> ", tile_name[tile_idx] );
 
       long dt = now-then;
       snap_t * prv = &snap_prv[ tile_idx ];
       snap_t * cur = &snap_cur[ tile_idx ];
-      ulong cur_raw_cnt = cur->cnc_diag_shrdf_cnt + cur->cnc_diag_dedup_cnt + cur->fseq_diag_tot_cnt;
-      ulong cur_raw_sz  = cur->cnc_diag_shrdf_sz  + cur->cnc_diag_dedup_sz  + cur->fseq_diag_tot_sz;
-      ulong prv_raw_cnt = prv->cnc_diag_shrdf_cnt + prv->cnc_diag_dedup_cnt + prv->fseq_diag_tot_cnt;
-      ulong prv_raw_sz  = prv->cnc_diag_shrdf_sz  + prv->cnc_diag_dedup_sz  + prv->fseq_diag_tot_sz;
 
-      printf( " | " ); printf_rate( 1e9, 0., cur_raw_cnt,             prv_raw_cnt,             dt );
-      printf( " | " ); printf_rate( 8e9, 0., cur_raw_sz,              prv_raw_sz,              dt ); /* Assumes sz incl framing */
-      printf( " | " ); printf_rate( 1e9, 0., cur->fseq_diag_tot_cnt,  prv->fseq_diag_tot_cnt,  dt );
-      printf( " | " ); printf_rate( 8e9, 0., cur->fseq_diag_tot_sz,   prv->fseq_diag_tot_sz,   dt ); /* Assumes sz incl framing */
+      ulong cur_ingress_cnt = cur->cnc_diag_ingress_cnt;
+      ulong cur_ingress_sz  = cur->cnc_diag_ingress_sz;
+      ulong prv_ingress_cnt = prv->cnc_diag_ingress_cnt;
+      ulong prv_ingress_sz  = prv->cnc_diag_ingress_sz;
 
-      printf( " | " ); printf_pct ( cur->fseq_diag_tot_cnt,  prv->fseq_diag_tot_cnt, 0.,
-                                    cur_raw_cnt,             prv_raw_cnt,            DBL_MIN );
-      printf( " | " ); printf_pct ( cur->fseq_diag_tot_sz,   prv->fseq_diag_tot_sz,  0.,
-                                    cur_raw_sz,              prv_raw_sz,             DBL_MIN ); /* Assumes sz incl framing */
-      printf( " | " ); printf_pct ( cur->fseq_diag_filt_cnt, prv->fseq_diag_filt_cnt, 0.,
-                                    cur->fseq_diag_tot_cnt,  prv->fseq_diag_tot_cnt,  DBL_MIN );
-      printf( " | " ); printf_pct ( cur->fseq_diag_filt_sz,  prv->fseq_diag_filt_sz, 0.,
-                                    cur->fseq_diag_tot_sz,   prv->fseq_diag_tot_sz,  DBL_MIN ); /* Assumes sz incl framing */
+      ulong cur_egress_cnt = cur->cnc_diag_egress_cnt;
+      ulong cur_egress_sz  = cur->cnc_diag_egress_sz;
+      ulong prv_egress_cnt = prv->cnc_diag_egress_cnt;
+      ulong prv_egress_sz  = prv->cnc_diag_egress_sz;
 
-      printf( " | " ); printf_err_cnt( cur->fseq_diag_ovrnp_cnt, prv->fseq_diag_ovrnp_cnt );
-      printf( " | " ); printf_err_cnt( cur->fseq_diag_ovrnr_cnt, prv->fseq_diag_ovrnr_cnt );
-      printf( " | " ); printf_err_cnt( cur->fseq_diag_slow_cnt,  prv->fseq_diag_slow_cnt  );
+      /* tqos tile (2) has no fseq, so create the equiv. */
+      ulong cur_ovrnp_cnt = tile_idx == 2 ? 0 : cur->fseq_diag_ovrnp_cnt;
+      ulong prv_ovrnp_cnt = tile_idx == 2 ? 0 : prv->fseq_diag_ovrnp_cnt;
+      ulong cur_ovrnr_cnt = tile_idx == 2 ? 0 : cur->fseq_diag_ovrnr_cnt;
+      ulong prv_ovrnr_cnt = tile_idx == 2 ? 0 : prv->fseq_diag_ovrnr_cnt;
+      ulong cur_slow_cnt  = tile_idx == 2 ? 0 : cur->fseq_diag_slow_cnt;
+      ulong prv_slow_cnt  = tile_idx == 2 ? 0 : prv->fseq_diag_slow_cnt;
+
+      /* in PPS */
+      printf( " | " ); printf_rate( 1e9, 0., cur_ingress_cnt, prv_ingress_cnt, dt );
+      
+      /* in bps */
+      printf( " | " ); printf_rate( 8e9, 0., cur_ingress_sz, prv_ingress_sz, dt );
+
+      /* out PPS */
+      printf( " | " ); printf_rate( 1e9, 0., cur_egress_cnt, prv_egress_cnt, dt );
+      
+      /* out bps */
+      printf( " | " ); printf_rate( 8e9, 0., cur_egress_sz, prv_egress_sz, dt ); 
+
+      /* o/i PPS */
+      printf( " | " ); printf_pct ( cur_egress_cnt,  prv_egress_cnt,   0.,
+                                    cur_ingress_cnt, prv_ingress_cnt,  DBL_MIN );
+      
+      /* o/i bps */
+      printf( " | " ); printf_pct ( cur_egress_sz,  prv_egress_sz,   0.,
+                                    cur_ingress_sz, prv_ingress_sz,  DBL_MIN ); 
+
+      printf( " | " ); printf_err_cnt( cur_ovrnp_cnt, prv_ovrnp_cnt );
+      printf( " | " ); printf_err_cnt( cur_ovrnr_cnt, prv_ovrnr_cnt );
+      printf( " | " ); printf_err_cnt( cur_slow_cnt,  prv_slow_cnt  );
       printf( "\n" );
     }
     printf( "\n" );

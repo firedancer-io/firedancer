@@ -15,6 +15,10 @@ typedef struct __attribute__((__packed__)) {
    long bw_tmr; /* in tick unit, timer used to comply with allocated FD_TGUARD_BW_MBPS */
    long tx_lag; /* in tick unit, wait ticks to queue up shreds for a slot */
    long tx_now; /* in tick unit, current tick */
+  ulong tx_snt_cnt; /* total tx cnt (success only  )*/
+  ulong tx_snt_siz; /* total tx size (success only  )*/
+  ulong tx_tot_cnt; /* total tx cnt (success + fail) */
+  ulong tx_tot_siz; /* total tx size (success + fail) */
   ulong tx_cod; /* is shred code */
   ulong tx_off; /* offset for a new round of striding */
   ulong tx_idx; /* shredstore index */
@@ -235,14 +239,20 @@ fd_tguard_tx_send(
          and RSE FEC is designed to make tx tolerate to individual 
          packt losses */
     }
+    else {
+      tx->tx_snt_cnt += 1UL;
+      tx->tx_snt_siz += pkt_sz;
+    }
 
     tx->bw_tmr = tx->bw_ipg + tx->tx_now;
     tx->tx_cnt[tx_store_slt]++;
+    tx->tx_tot_cnt += 1UL;
+    tx->tx_tot_siz += pkt_sz;
 #if FD_TGUARD_DEBUGLVL > 0
-    FD_LOG_NOTICE(( "rx_cnt=%lu   tx_cnt=%lu" 
+    FD_LOG_NOTICE(( "rx_cnt=%lu   tx_cnt=%lu   tx_tot=%lu" 
       "   tx_slt=%lu tx_cod=%lu"
       "   tx_off=%lu tx_idx=%lu\n",
-      tx->rx_cnt[tx_store_slt], tx->tx_cnt[tx_store_slt],
+      tx->rx_cnt[tx_store_slt], tx->tx_cnt[tx_store_slt], tx->tot,
       tx->tx_slt[tx_store_slt], tx->tx_cod, 
       tx->tx_off,               tx->tx_idx ));
 #endif
@@ -280,12 +290,20 @@ fd_tguard_tqos_task( int     argc,
   ulong * cnc_diag = (ulong *)fd_cnc_app_laddr( cnc );
   if( FD_UNLIKELY( !cnc_diag ) ) FD_LOG_ERR(( "fd_cnc_app_laddr failed" ));
   FD_COMPILER_MFENCE();
-  FD_VOLATILE( cnc_diag[ FD_TGUARD_CNC_DIAG_IN_BACKP       ] ) = 0UL;
-  FD_VOLATILE( cnc_diag[ FD_TGUARD_CNC_DIAG_BACKP_CNT      ] ) = 0UL;
-  FD_VOLATILE( cnc_diag[ FD_TGUARD_CNC_DIAG_DEDUP_CNT      ] ) = 0UL;
-  FD_VOLATILE( cnc_diag[ FD_TGUARD_CNC_DIAG_DEDUP_SIZ      ] ) = 0UL;
-  FD_VOLATILE( cnc_diag[ FD_TGUARD_CNC_DIAG_SHRED_FILT_CNT ] ) = 0UL;
-  FD_VOLATILE( cnc_diag[ FD_TGUARD_CNC_DIAG_SHRED_FILT_SIZ ] ) = 0UL;
+  FD_VOLATILE( cnc_diag [ FD_TGUARD_CNC_DIAG_IN_BACKP    ] ) = 0UL;
+  FD_VOLATILE( cnc_diag [ FD_TGUARD_CNC_DIAG_BACKP_CNT   ] ) = 0UL;
+  FD_VOLATILE( cnc_diag [ FD_TGUARD_CNC_DIAG_DEDUP_CNT   ] ) = 0UL;
+  FD_VOLATILE( cnc_diag [ FD_TGUARD_CNC_DIAG_DEDUP_SIZ   ] ) = 0UL;
+  FD_VOLATILE( cnc_diag [ FD_TGUARD_CNC_DIAG_FILT_CNT    ] ) = 0UL;
+  FD_VOLATILE( cnc_diag [ FD_TGUARD_CNC_DIAG_FILT_SIZ    ] ) = 0UL;
+  FD_VOLATILE( cnc_diag [ FD_TGUARD_CNC_DIAG_PRODUCE_CNT ] ) = 0UL;
+  FD_VOLATILE( cnc_diag [ FD_TGUARD_CNC_DIAG_PRODUCE_SIZ ] ) = 0UL;
+  FD_VOLATILE( cnc_diag [ FD_TGUARD_CNC_DIAG_CONSUME_CNT ] ) = 0UL;
+  FD_VOLATILE( cnc_diag [ FD_TGUARD_CNC_DIAG_CONSUME_SIZ ] ) = 0UL;
+  FD_VOLATILE( cnc_diag [ FD_TGUARD_CNC_DIAG_INGRESS_CNT ] ) = 0UL;
+  FD_VOLATILE( cnc_diag [ FD_TGUARD_CNC_DIAG_INGRESS_SIZ ] ) = 0UL;
+  FD_VOLATILE( cnc_diag [ FD_TGUARD_CNC_DIAG_EGRESS_CNT  ] ) = 0UL;
+  FD_VOLATILE( cnc_diag [ FD_TGUARD_CNC_DIAG_EGRESS_SIZ  ] ) = 0UL;
   FD_COMPILER_MFENCE();
 
   char * pod_subpath;
@@ -372,15 +390,21 @@ fd_tguard_tqos_task( int     argc,
       fd_fctl_rx_cr_return( fseq, fd_seq_dec(seq_expected, 1UL) ); /* need to "-1" as seq_expected is yet to be rcvd */
 
       FD_COMPILER_MFENCE();
-      fseq_diag[ FD_FSEQ_DIAG_PUB_CNT   ] += accum_pub_cnt  ;
-      fseq_diag[ FD_FSEQ_DIAG_PUB_SZ    ] += accum_pub_sz   ;
-      fseq_diag[ FD_FSEQ_DIAG_OVRNP_CNT ] += accum_ovrnp_cnt;
-      fseq_diag[ FD_FSEQ_DIAG_OVRNR_CNT ] += accum_ovrnr_cnt;
+      FD_VOLATILE( fseq_diag[ FD_FSEQ_DIAG_PUB_CNT           ] ) = accum_pub_cnt  ;
+      FD_VOLATILE( fseq_diag[ FD_FSEQ_DIAG_PUB_SZ            ] ) = accum_pub_sz   ;
+      FD_VOLATILE( fseq_diag[ FD_FSEQ_DIAG_OVRNP_CNT         ] ) = accum_ovrnp_cnt;
+      FD_VOLATILE( fseq_diag[ FD_FSEQ_DIAG_OVRNR_CNT         ] ) = accum_ovrnr_cnt;
+
+      /* repurpose DIAG_FILT_ fields */
+      FD_VOLATILE( cnc_diag [ FD_TGUARD_CNC_DIAG_PRODUCE_CNT ] ) = tx.tx_tot_cnt  ;
+      FD_VOLATILE( cnc_diag [ FD_TGUARD_CNC_DIAG_PRODUCE_SIZ ] ) = tx.tx_tot_siz  ;
+      FD_VOLATILE( cnc_diag [ FD_TGUARD_CNC_DIAG_CONSUME_CNT ] ) = tx.tx_snt_cnt  ;
+      FD_VOLATILE( cnc_diag [ FD_TGUARD_CNC_DIAG_CONSUME_SIZ ] ) = tx.tx_snt_siz  ;
+      FD_VOLATILE( cnc_diag [ FD_TGUARD_CNC_DIAG_INGRESS_CNT ] ) = accum_pub_cnt  ;
+      FD_VOLATILE( cnc_diag [ FD_TGUARD_CNC_DIAG_INGRESS_SIZ ] ) = accum_pub_sz   ;
+      FD_VOLATILE( cnc_diag [ FD_TGUARD_CNC_DIAG_EGRESS_CNT  ] ) = tx.tx_snt_cnt  ;
+      FD_VOLATILE( cnc_diag [ FD_TGUARD_CNC_DIAG_EGRESS_SIZ  ] ) = tx.tx_snt_siz  ;
       FD_COMPILER_MFENCE();
-      accum_pub_cnt   = 0UL;
-      accum_pub_sz    = 0UL;
-      accum_ovrnp_cnt = 0UL;
-      accum_ovrnr_cnt = 0UL;
       
       /* Send diagnostic info */
       fd_cnc_heartbeat( cnc, now );

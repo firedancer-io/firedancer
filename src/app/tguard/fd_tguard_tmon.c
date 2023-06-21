@@ -59,8 +59,10 @@ typedef struct
 typedef struct
   __attribute__((__packed__))
 {
-  ulong            *cum_cnt;
-  ulong            *cum_sz;
+  ulong            *rx_cnt;
+  ulong            *rx_sz;
+  ulong            *tx_cnt;
+  ulong            *tx_sz;
   ulong            *pkt_sz;
   atomic_ulong     *cr_avail;
   ulong            *store_idx;
@@ -99,6 +101,11 @@ fd_tguard_pcap_cb(
   if ( FD_UNLIKELY( !pkthdr || pkthdr->caplen != pkthdr->len ) ) return;
 
   wormhole_t *  wormhole = (wormhole_t *)  pcap_user_var;
+  FD_COMPILER_MFENCE();
+  *wormhole->pkt_sz     = pkthdr->caplen;
+  *wormhole->rx_cnt    += 1UL;
+  *wormhole->rx_sz     += (ulong) pkthdr->len;
+  FD_COMPILER_MFENCE();
 
   if (pkthdr->caplen < FD_TGUARD_PKT_SIZ_MIN) {
 #if FD_TGUARD_DEBUGLVL > 0
@@ -232,7 +239,7 @@ fd_tguard_pcap_cb(
 #if FD_TGUARD_DEBUGLVL >= 0
     FD_LOG_WARNING(("Caught unusually large slot_idx: %lu"
       "   shred variant=0x%02X"
-      "   pkt_sz=%lu   cum_cnt=%lu"
+      "   pkt_sz=%lu   tx_cnt=%lu"
       "   ip_src=%u.%u.%u.%u"
       "   ip_dst=%u.%u.%u.%u"
       "   udp_src=%hu"
@@ -240,7 +247,7 @@ fd_tguard_pcap_cb(
       "   udp_len=%u\n", 
       shred->slot,
       shred->variant,
-      (ulong)pkthdr->caplen, *(wormhole->cum_cnt)+1UL,
+      (ulong)pkthdr->caplen, *(wormhole->tx_cnt)+1UL,
       (pkt_fields->ip_src>>0U)&0xFF, (pkt_fields->ip_src>>8U)&0xFF, (pkt_fields->ip_src>>16U)&0xFF, (pkt_fields->ip_src>>24U)&0xFF,
       (pkt_fields->ip_dst>>0U)&0xFF, (pkt_fields->ip_dst>>8U)&0xFF, (pkt_fields->ip_dst>>16U)&0xFF, (pkt_fields->ip_dst>>24U)&0xFF,
       reverse_ushort_bytes(pkt_fields->udp_src), 
@@ -272,8 +279,8 @@ fd_tguard_pcap_cb(
   #else
     is_dup = 0;
   #endif
-  /* tcahce will dedup all-0 tags even if it is not seen befoe, so guard with cum_cnt */
-  if( FD_UNLIKELY( *wormhole->cum_cnt && is_dup ) ) { /* Optimize for forwarding path */
+  /* tcahce will dedup all-0 tags even if it is not seen befoe, so guard with tx_cnt */
+  if( FD_UNLIKELY( *wormhole->tx_cnt && is_dup ) ) { /* Optimize for forwarding path */
     FD_COMPILER_MFENCE();
     *wormhole->dedup_cnt += 1UL;
     *wormhole->dedup_siz += (ulong)pkthdr->caplen;
@@ -305,10 +312,10 @@ fd_tguard_pcap_cb(
   /*      note, tspub and tsorig has different origin (0) time                                       */
 
   FD_COMPILER_MFENCE();
-  *wormhole->store_idx = store_idx;
+  *wormhole->store_idx  = store_idx;
   *wormhole->pkt_sz     = pkthdr->caplen;
-  *wormhole->cum_cnt   += 1UL;
-  *wormhole->cum_sz    += (ulong) pkthdr->len;
+  *wormhole->tx_cnt    += 1UL;
+  *wormhole->tx_sz     += (ulong) pkthdr->len;
   *wormhole->cr_avail  -= 1UL;
   FD_COMPILER_MFENCE();
 
@@ -367,13 +374,25 @@ fd_tguard_tmon_task(
   ulong dedup_siz = 0UL;
   ulong shrdf_cnt = 0UL;
   ulong shrdf_siz = 0UL;
+  ulong rx_cnt    = 0UL;
+  ulong rx_sz     = 0UL;
+  ulong tx_cnt    = 0UL;
+  ulong tx_sz     = 0UL;
   FD_COMPILER_MFENCE();
-  FD_VOLATILE( cnc_diag[ FD_TGUARD_CNC_DIAG_IN_BACKP       ] ) = 1UL      ;
-  FD_VOLATILE( cnc_diag[ FD_TGUARD_CNC_DIAG_BACKP_CNT      ] ) = 0UL      ;
-  FD_VOLATILE( cnc_diag[ FD_TGUARD_CNC_DIAG_DEDUP_CNT      ] ) = dedup_cnt;
-  FD_VOLATILE( cnc_diag[ FD_TGUARD_CNC_DIAG_DEDUP_SIZ      ] ) = dedup_siz;
-  FD_VOLATILE( cnc_diag[ FD_TGUARD_CNC_DIAG_SHRED_FILT_CNT ] ) = shrdf_cnt;
-  FD_VOLATILE( cnc_diag[ FD_TGUARD_CNC_DIAG_SHRED_FILT_SIZ ] ) = shrdf_siz;
+  FD_VOLATILE( cnc_diag [ FD_TGUARD_CNC_DIAG_IN_BACKP    ] ) = 1UL;
+  FD_VOLATILE( cnc_diag [ FD_TGUARD_CNC_DIAG_BACKP_CNT   ] ) = 0UL;
+  FD_VOLATILE( cnc_diag [ FD_TGUARD_CNC_DIAG_DEDUP_CNT   ] ) = 0UL;
+  FD_VOLATILE( cnc_diag [ FD_TGUARD_CNC_DIAG_DEDUP_SIZ   ] ) = 0UL;
+  FD_VOLATILE( cnc_diag [ FD_TGUARD_CNC_DIAG_FILT_CNT    ] ) = 0UL;
+  FD_VOLATILE( cnc_diag [ FD_TGUARD_CNC_DIAG_FILT_SIZ    ] ) = 0UL;
+  FD_VOLATILE( cnc_diag [ FD_TGUARD_CNC_DIAG_PRODUCE_CNT ] ) = 0UL;
+  FD_VOLATILE( cnc_diag [ FD_TGUARD_CNC_DIAG_PRODUCE_SIZ ] ) = 0UL;
+  FD_VOLATILE( cnc_diag [ FD_TGUARD_CNC_DIAG_CONSUME_CNT ] ) = 0UL;
+  FD_VOLATILE( cnc_diag [ FD_TGUARD_CNC_DIAG_CONSUME_SIZ ] ) = 0UL;
+  FD_VOLATILE( cnc_diag [ FD_TGUARD_CNC_DIAG_INGRESS_CNT ] ) = 0UL;
+  FD_VOLATILE( cnc_diag [ FD_TGUARD_CNC_DIAG_INGRESS_SIZ ] ) = 0UL;
+  FD_VOLATILE( cnc_diag [ FD_TGUARD_CNC_DIAG_EGRESS_CNT  ] ) = 0UL;
+  FD_VOLATILE( cnc_diag [ FD_TGUARD_CNC_DIAG_EGRESS_SIZ  ] ) = 0UL;
   FD_COMPILER_MFENCE();
 
   char * pod_subpath;
@@ -504,18 +523,19 @@ fd_tguard_tmon_task(
       " dev %s due to: %s", dev, errbuf ));
   }
 
-  ulong pcap_cum_cnt_loc = 0;
-  ulong pcap_cum_cnt     = 0;
-  ulong pcap_cum_sz      = 0;
-  ulong pcap_pkt_sz      = 0;
-  ulong store_idx       = 0UL;
-  uchar * chunk0_laddr   = fd_chunk_to_laddr( wksp, chunk0 );// should be just void const * dcache //incorrect, 2nd arg is not 0, as 1st arg is wksp:: fd_chunk_to_laddr( wksp, 0UL );
+  ulong pcap_cum_cnt_loc = 0UL;
+
+  ulong pkt_sz         = 0UL;
+  ulong store_idx      = 0UL;
+  uchar * chunk0_laddr = fd_chunk_to_laddr( wksp, chunk0 );
   wormhole_t wormhole = {
-    .cum_cnt        = &pcap_cum_cnt   ,
-    .cum_sz         = &pcap_cum_sz    ,
-    .pkt_sz         = &pcap_pkt_sz    ,
+    .rx_cnt         = &rx_cnt         ,
+    .rx_sz          = &rx_sz          ,
+    .tx_cnt         = &tx_cnt         ,
+    .tx_sz          = &tx_sz          ,
+    .pkt_sz         = &pkt_sz         ,
     .cr_avail       = &mcr_avail      ,
-    .store_idx      = &store_idx     ,
+    .store_idx      = &store_idx      ,
     .chunk0_laddr   = &chunk0_laddr   ,
     .mcache         = &mcache         , 
     .mdepth         = &mdepth         , 
@@ -566,10 +586,17 @@ fd_tguard_tmon_task(
 
       FD_COMPILER_MFENCE();
       FD_VOLATILE( *_tcache_sync ) = tcache_sync;
-      FD_VOLATILE( cnc_diag[ FD_TGUARD_CNC_DIAG_DEDUP_CNT      ] ) = dedup_cnt;
-      FD_VOLATILE( cnc_diag[ FD_TGUARD_CNC_DIAG_DEDUP_SIZ      ] ) = dedup_siz;
-      FD_VOLATILE( cnc_diag[ FD_TGUARD_CNC_DIAG_SHRED_FILT_CNT ] ) = shrdf_cnt;
-      FD_VOLATILE( cnc_diag[ FD_TGUARD_CNC_DIAG_SHRED_FILT_SIZ ] ) = shrdf_siz;
+      FD_VOLATILE( cnc_diag [ FD_TGUARD_CNC_DIAG_DEDUP_CNT   ] ) = dedup_cnt;
+      FD_VOLATILE( cnc_diag [ FD_TGUARD_CNC_DIAG_DEDUP_SIZ   ] ) = dedup_siz;
+      FD_VOLATILE( cnc_diag [ FD_TGUARD_CNC_DIAG_FILT_CNT    ] ) = shrdf_cnt;
+      FD_VOLATILE( cnc_diag [ FD_TGUARD_CNC_DIAG_FILT_SIZ    ] ) = shrdf_siz;
+      FD_VOLATILE( cnc_diag [ FD_TGUARD_CNC_DIAG_PRODUCE_CNT ] ) = tx_cnt   ;
+      FD_VOLATILE( cnc_diag [ FD_TGUARD_CNC_DIAG_PRODUCE_SIZ ] ) = tx_sz    ;
+      FD_VOLATILE( cnc_diag [ FD_TGUARD_CNC_DIAG_INGRESS_CNT ] ) = rx_cnt   ;
+      FD_VOLATILE( cnc_diag [ FD_TGUARD_CNC_DIAG_INGRESS_SIZ ] ) = rx_sz    ;
+      FD_VOLATILE( cnc_diag [ FD_TGUARD_CNC_DIAG_EGRESS_CNT  ] ) = tx_cnt   ; /* same as produce */
+      FD_VOLATILE( cnc_diag [ FD_TGUARD_CNC_DIAG_EGRESS_SIZ  ] ) = tx_sz    ; /* same as produce */
+      /* consume info is from consumer (tqos) feedback/update of fseq */
       FD_COMPILER_MFENCE();
 
       /* Send diagnostic info */
@@ -632,9 +659,9 @@ fd_tguard_tmon_task(
 #if FD_TGUARD_DEBUGLVL > 0
     pcap_cum_cnt_loc += (ulong) pcap_cnt_or_status;
     FD_LOG_NOTICE(( "%6d new packets captured,   callback stats: "
-      "pub_pkt_sz=%lu pub_cum_sz=%lu pub_cum_cnt=%lu" 
-      "   workloop stats: fseq=%lu mseq=%lu mcr_avail=%lu cum_cnt=%lu dedup_cnt=%lu\n",
-      pcap_cnt_or_status, pcap_pkt_sz, pcap_cum_sz, pcap_cum_cnt, 
+      "pub_pkt_sz=%lu tx_sz=%lu tx_cnt=%lu" 
+      "   workloop stats: fseq=%lu mseq=%lu mcr_avail=%lu loc cum_cnt=%lu dedup_cnt=%lu\n",
+      pcap_cnt_or_status, pkt_sz, ptx_sz, tx_cnt, 
       FD_VOLATILE_CONST( fseq[0] ), mseq, mcr_avail, pcap_cum_cnt_loc, dedup_cnt ));
 #else
     (void)pcap_cum_cnt_loc;
