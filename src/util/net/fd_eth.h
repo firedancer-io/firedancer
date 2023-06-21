@@ -39,7 +39,7 @@
    VLAN tags have an unfortunately far wider range of behaviors in the
    wild due to the rather messy set of protocols that have accumulated
    over the decades.
-   
+
    TAG_CNT can only be determined by parsing the packet headers.  0 (raw
    Ethernet) or 1 (VLAN tagged ethernet) are common but there isn't an
    obvious theoretical upper limit to TAG_CNT (nobody seems to have
@@ -49,7 +49,7 @@
    (e.g. queue-in-queue or a capture device adding a tag to vlan tagged
    ethernet indicating timestamp info has been provided for the packet
    somehow) or even 3 (e.g. capture device tagging a 2 vlan tag packet).
-   
+
    Simiarly, hardware might insert or strip VLAN tags behind a thread's
    back depending on the network, hardware, interface and how it was
    configured.  And different hardware devices and hardware-software
@@ -85,7 +85,7 @@
      rare and thus need not be optimized.  In some non-malicious
      scenarios though, header corrupt is common enough to warrant
      optimized handling.
-     
+
    - Routing and flow steering mechanisms for Ethernet tend to not be
      precise.  That is, applications should not assume they will only
      receive packets they care about.  Like the above, in non-malicious
@@ -208,7 +208,7 @@ fd_eth_mac_is_ip4_mcast( uchar const * mac ) {
      fcs = fd_eth_fcs( buf, sz )
 
    if buf/sz are the concatenation with no padding of the parts.
-   
+
    The FCS computation under the hood is the IEEE802.3 crc32.  This
    currently is not a particularly fast implementation (byte at a time
    table lookup based) nor a particularly good hash function
@@ -282,6 +282,16 @@ fd_vlan_tag( void * _tag,
   tag->net_type = fd_ushort_bswap( type );
   return tag;
 }
+
+/* fd_cstr_to_mac_addr parses a MAC address matching format
+   FD_ETH_MAC_FMT from the given cstr and stores the result into mac.
+   On success returns mac.  On failure, returns NULL and leaves mac
+   in an undefined state.  Reasons for failure include that strlen
+   of s is not exactly 17 or that s is not formatted correctly. */
+
+uchar *
+fd_cstr_to_mac_addr( char const * s,
+                     uchar      * mac );
 
 FD_PROTOTYPES_END
 

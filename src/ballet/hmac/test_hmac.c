@@ -33,6 +33,26 @@ static fd_hmac_test_vector_t const fd_hmac_sha256_test_vector[] = {
   {0}
 };
 
+static fd_hmac_test_vector_t const fd_hmac_sha384_test_vector[] = {
+  /* RFC 2104 Test Vectors */
+  {
+    .key_sz =  16UL, .key = "\xb\xb\xb\xb\xb\xb\xb\xb\xb\xb\xb\xb\xb\xb\xb\xb",
+    .msg_sz =   8UL, .msg = "Hi There",
+    .hash = "\x7a\xfa\xa6\x33\xe2\x0d\x37\x9b\x02\x39\x59\x15\xfb\xc3\x85\xff\x8d\xc2\x7d\xcd\x38\x85\xe1\x06\x8a\xb9\x42\xee\xab\x52\xec\x1f\x20\xad\x38\x2a\x92\x37\x0d\x8b\x2e\x0a\xc8\xb8\x3c\x4d\x53\xbf"
+  },
+  {
+    .key_sz =   4UL, .key = "Jefe",
+    .msg_sz =  28UL, .msg = "what do ya want for nothing?",
+    .hash = "\xaf\x45\xd2\xe3\x76\x48\x40\x31\x61\x7f\x78\xd2\xb5\x8a\x6b\x1b\x9c\x7e\xf4\x64\xf5\xa0\x1b\x47\xe4\x2e\xc3\x73\x63\x22\x44\x5e\x8e\x22\x40\xca\x5e\x69\xe2\xc7\x8b\x32\x39\xec\xfa\xb2\x16\x49"
+  },
+  {
+    .key_sz = 200UL, .key = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    .msg_sz = 200UL, .msg = "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+    .hash = "\xff\xd6\xb2\xe8\x76\x8c\xe5\x65\x43\xdf\xa8\x05\x49\xf8\x93\x83\xc3\x99\x1f\x10\xe9\xb0\x00\x23\xc2\x73\x8c\x7f\x1b\x0e\x32\x05\x42\xa2\xfd\x83\x10\x9e\xfd\xd0\x68\x8f\x56\x0f\xbd\xd6\x5d\x4f"
+  },
+  {0}
+};
+
 static fd_hmac_test_vector_t const fd_hmac_sha512_test_vector[] = {
   /* RFC 2104 Test Vectors */
   {
@@ -78,6 +98,25 @@ main( int     argc,
                    FD_LOG_HEX16_FMT_ARGS( expected ), FD_LOG_HEX16_FMT_ARGS( expected+16 ) ));
   }
   FD_LOG_INFO(( "OK: HMAC-SHA256" ));
+
+  for( fd_hmac_test_vector_t const * vec = fd_hmac_sha384_test_vector; vec->msg; vec++ ) {
+    char const *  key      = vec->key;
+    ulong         key_sz   = vec->key_sz;
+    char const *  msg      = vec->msg;
+    ulong         msg_sz   = vec->msg_sz;
+    uchar const * expected = vec->hash;
+
+    FD_TEST( fd_hmac_sha384( msg, msg_sz, key, key_sz, hash )==hash );
+    if( FD_UNLIKELY( memcmp( hash, expected, FD_SHA384_HASH_SZ ) ) )
+      FD_LOG_ERR(( "HMAC-SHA384 FAIL (key_sz %lu msg_sz %lu)"
+                   "\n\tGot"
+                   "\n\t\t" FD_LOG_HEX16_FMT FD_LOG_HEX16_FMT FD_LOG_HEX16_FMT
+                   "\n\tExpected"
+                   "\n\t\t" FD_LOG_HEX16_FMT FD_LOG_HEX16_FMT FD_LOG_HEX16_FMT, key_sz, msg_sz,
+                   FD_LOG_HEX16_FMT_ARGS(     hash ), FD_LOG_HEX16_FMT_ARGS(     hash+16 ), FD_LOG_HEX16_FMT_ARGS(     hash+32 ),
+                   FD_LOG_HEX16_FMT_ARGS( expected ), FD_LOG_HEX16_FMT_ARGS( expected+16 ), FD_LOG_HEX16_FMT_ARGS( expected+32 ) ));
+  }
+  FD_LOG_INFO(( "OK: HMAC-SHA384" ));
 
   for( fd_hmac_test_vector_t const * vec = fd_hmac_sha512_test_vector; vec->msg; vec++ ) {
     char const *  key      = vec->key;

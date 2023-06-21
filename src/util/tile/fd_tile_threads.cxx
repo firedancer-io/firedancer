@@ -1,5 +1,5 @@
 #ifndef _GNU_SOURCE /* GCC seems to do this this is on the command line somehow when using g++ */
-#define _GNU_SOURCE 
+#define _GNU_SOURCE
 #endif
 
 #include <ctype.h>
@@ -11,6 +11,7 @@
 #include <sys/resource.h>
 #include <sys/mman.h>
 
+#include "../sanitize/fd_sanitize.h"
 #include "fd_tile.h"
 
 /* Operating system shims ********************************************/
@@ -484,7 +485,7 @@ fd_tile_private_cpus_parse( char const * cstr,
 
     if( !isdigit( (int)p[0] ) ) {
       if( FD_UNLIKELY( p[0]!='\0' ) ) FD_LOG_ERR(( "fd_tile: malformed --tile-cpus (range lo not a cpu)" ));
-      break;  
+      break;
     }
     ulong cpu0   = fd_cstr_to_ulong( p );
     ulong cpu1   = cpu0;
@@ -721,10 +722,12 @@ fd_tile_private_boot( int *    pargc,
   fd_tile_private_id  = fd_tile_private_id0;
   fd_tile_private_idx = 0UL;
 
+# if !FD_HAS_ASAN
   fd_log_private_stack_discover( fd_log_private_main_stack_sz(),
                                  &fd_tile_private_stack0, &fd_tile_private_stack1 ); /* logs details */
   if( FD_UNLIKELY( !fd_tile_private_stack0 ) )
     FD_LOG_WARNING(( "stack diagnostics not available on this tile; attempting to continue" ));
+# endif /* FD_HAS_ASAN */
 
   fd_tile_private_cpu_config( fd_tile_private_cpu_config_save, cpu_idx );
   fd_tile_private[0].lock = NULL; /* Can't dispatch to tile 0 */

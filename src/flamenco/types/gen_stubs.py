@@ -339,7 +339,7 @@ def do_deque_body_encode(n, f):
     else:
         print("      err = " + n + "_" + f["element"] + "_encode(ele, ctx);", file=body)
         print("      if ( FD_UNLIKELY(err) ) return err;", file=body)
-        
+
     print("    }", file=body)
 
     print("  } else {", file=body)
@@ -617,7 +617,7 @@ def do_deque_body_destroy(n, f):
         print("      " + deque_elem_type(n, f) + " * ele = " + deque_prefix(n, f) + "_iter_ele( self->" + f["name"] + ", iter );", file=body)
         print("      " + n + "_" + f["element"] + "_destroy(ele, ctx);", file=body)
         print("    }", file=body)
-    print("    (*ctx->freef)(ctx->freef_arg, self->" + f["name"] + ");", file=body)
+    print(f"    (*ctx->freef)(ctx->freef_arg, {deque_prefix(n, f)}_delete( {deque_prefix(n, f)}_leave( self->{f['name']}) ) );", file=body)
     print("    self->" + f["name"] + " = NULL;", file=body)
     print("  }", file=body)
 

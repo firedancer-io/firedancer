@@ -44,7 +44,7 @@ Requesting airdrop of 10 SOL
 Signature: 54LRF4XcL18SiffyHrzFHLtv6e5sfDTbLA54BGSE4G53Z2DDYNXmUYHCYMVVFDKsTQ4JRQ1KGP38Bema4mTR1iPE
 
 500000010 SOL
-[jsiegel@rd-sparel3 ~/repos/solana]{(v1.14.13)} solana transaction-count; solana transfer EPhgPANa5Rh2wa4V2jxt7YbtWa3Uyw4sTeZ13cQjDDB8 1 --allow-unfunded-recipient; solana transaction-count  
+[jsiegel@rd-sparel3 ~/repos/solana]{(v1.14.13)} solana transaction-count; solana transfer EPhgPANa5Rh2wa4V2jxt7YbtWa3Uyw4sTeZ13cQjDDB8 1 --allow-unfunded-recipient; solana transaction-count
 72
 
 Signature: EBx7ukSFjerkzdrZqe4oSnehaubUiQpQ6NEhzR5SpuXoQsGxpaWg2r16MQ2XrVFQcaPfCGUVvFRNQsr23PD7Mu7
@@ -216,3 +216,12 @@ https://docs.solana.com/developing/programming-model/transactions
     "block_time": 1675956244,
     "block_height": 73
   },
+
+
+==
+
+git clone https://github.com/solana-labs/example-helloworld
+cd example-helloworld
+npm install
+npm run build:program-rust
+solana transaction-count; solana program deploy dist/program/helloworld.so; npm run start; solana transaction-count

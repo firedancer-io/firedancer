@@ -56,7 +56,7 @@ struct recordvalue {
       int err;
       auto sz = data_.size();
       assert(txn != NULL);
-      auto* rec = fd_funk_rec_write_prepare(funk, txn, &key.id_, sz, 1, &err);
+      auto* rec = fd_funk_rec_write_prepare(funk, txn, &key.id_, sz, 1, NULL, &err);
       assert(rec != NULL);
       auto* wksp = fd_funk_wksp(funk);
       auto* rec2 = fd_funk_val_copy(rec, data_.data(), sz, sz, fd_funk_alloc(funk, wksp), wksp, &err);
@@ -66,7 +66,7 @@ struct recordvalue {
     void erase_data(fd_funk_t * funk, fd_funk_txn_t * txn, const recordkey& key) {
       int err;
       assert(txn != NULL);
-      auto* rec = fd_funk_rec_write_prepare(funk, txn, &key.id_, 0, 1, &err);
+      auto* rec = fd_funk_rec_write_prepare(funk, txn, &key.id_, 0, 1, NULL, &err);
       assert(rec != NULL);
       assert(fd_funk_rec_remove(funk, rec, 1) == FD_FUNK_SUCCESS);
     }
@@ -173,7 +173,7 @@ int main(int argc, char **argv) {
     harness.random_insert();
   end_txn();
   harness.verify();
-  
+
   auto teardown = [&](){
     fd_funk_delete( fd_funk_leave( harness.funk_ ) );
     harness.funk_ = NULL;
@@ -215,7 +215,7 @@ int main(int argc, char **argv) {
     teardown();
     buildup();
     harness.verify();
-    
+
     start_txn();
     for (int i = 0; i < 3; ++i)
       harness.random_modify();
@@ -224,7 +224,7 @@ int main(int argc, char **argv) {
     teardown();
     buildup();
     harness.verify();
-    
+
     start_txn();
     for (int i = 0; i < 5; ++i)
       harness.random_insert();

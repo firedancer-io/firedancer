@@ -115,30 +115,29 @@ fn main() {
             .expect("Unable to generate bindings")
             .write_to_file(out_dir.join(&format!("bindings_{lib}.rs")))
             .expect("Failed to write bindings to file");
-    }
 
-    // Build the Firedancer sources
-    let output = Command::new("make")
-        .arg("-j")
-        .arg("lib")
-        .arg("include")
-        .current_dir(&dir.join("firedancer"))
-        .env("UTIL_STATIC_EXTERN_OBJECT", out_dir.join("gen_util.c"))
-        .env("TANGO_STATIC_EXTERN_OBJECT", out_dir.join("gen_tango.c"))
-        // No statics in disco yet so no extern wrapper file is produced
-        // .env("DISCO_STATIC_EXTERN_OBJECT", out_dir.join("gen_disco.c"))
-        .env("BALLET_STATIC_EXTERN_OBJECT", out_dir.join("gen_ballet.c"))
-        .env("MACHINE", machine)
-        .env("BASEDIR", out_dir.join("build"))
-        .output()
-        .unwrap_or_else(|_| {
-            panic!(
-                "failed to execute `make`, does it exist? PATH {:#?}",
-                std::env::var("PATH")
-            )
-        });
-    if !output.status.success() {
-        panic!("{}", String::from_utf8(output.stderr).unwrap());
+        // Build the Firedancer sources
+        let output = Command::new("make")
+            .arg("-j")
+            .arg(format!("{}/lib/libfd_{lib}.a", build_dir.display()))
+            .current_dir(&dir.join("firedancer"))
+            .env("UTIL_STATIC_EXTERN_OBJECT", out_dir.join("gen_util.c"))
+            .env("TANGO_STATIC_EXTERN_OBJECT", out_dir.join("gen_tango.c"))
+            // No statics in disco yet so no extern wrapper file is produced
+            // .env("DISCO_STATIC_EXTERN_OBJECT", out_dir.join("gen_disco.c"))
+            .env("BALLET_STATIC_EXTERN_OBJECT", out_dir.join("gen_ballet.c"))
+            .env("MACHINE", machine)
+            .env("BASEDIR", out_dir.join("build"))
+            .output()
+            .unwrap_or_else(|_| {
+                panic!(
+                    "failed to execute `make`, does it exist? PATH {:#?}",
+                    std::env::var("PATH")
+                )
+            });
+        if !output.status.success() {
+            panic!("{}", String::from_utf8(output.stderr).unwrap());
+        }
     }
 
     // Link against the Firedancer sources

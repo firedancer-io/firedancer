@@ -1,5 +1,5 @@
 SHELL:=bash
-CPPFLAGS:=
+CPPFLAGS:=-isystem ./opt/include
 CC:=gcc
 CFLAGS:=-std=c17
 CXX:=g++

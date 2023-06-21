@@ -6,8 +6,10 @@ include config/with-debug.mk
 include config/with-brutality.mk
 include config/with-optimization.mk
 include config/with-threads.mk
+include config/with-secp256k1.mk
 include config/with-rocksdb.mk
 # include config/with-libbpf.mk
+include config/with-openssl.mk
 
 # Clang sadly doesn't support important optimizations.  This practically
 # limits clang usage to code hygenine usage for the time being.  Here,
@@ -29,4 +31,3 @@ FD_HAS_ALLOCA:=1
 FD_HAS_X86:=1
 FD_HAS_SSE:=1
 FD_HAS_AVX:=1
-

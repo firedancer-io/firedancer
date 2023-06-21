@@ -124,6 +124,17 @@ int
 fd_cstr_to_ip4_addr( char const * s,
                      uint *       addr );
 
+/* fd_ip4_hdr_bswap reverses the endianness of all fields in the IPv4
+   header. */
+
+static inline void
+fd_ip4_hdr_bswap( fd_ip4_hdr_t * hdr ) {
+  hdr->net_tot_len  = (ushort)fd_ushort_bswap( hdr->net_tot_len  );
+  hdr->net_id       = (ushort)fd_ushort_bswap( hdr->net_id       );
+  hdr->net_frag_off = (ushort)fd_ushort_bswap( hdr->net_frag_off );
+  hdr->check        = (ushort)fd_ushort_bswap( hdr->check        );
+}
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_util_net_fd_ip4_h */
