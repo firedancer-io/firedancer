@@ -387,7 +387,8 @@ fd_tguard_tqos_task( int     argc,
     if( FD_UNLIKELY( ( now-hk_timer)>=0L ) ) {
 
       /* Send flow control credits */
-      fd_fctl_rx_cr_return( fseq, fd_seq_dec(seq_expected, 1UL) ); /* need to "-1" as seq_expected is yet to be rcvd */
+      /* need to "-1" as seq_expected is yet to be rcvd, but handle 0-1 rollover  */
+      fd_fctl_rx_cr_return( fseq, seq_expected ? fd_seq_dec(seq_expected, 1UL) : 0UL ); 
 
       FD_COMPILER_MFENCE();
       FD_VOLATILE( fseq_diag[ FD_FSEQ_DIAG_PUB_CNT           ] ) = accum_pub_cnt  ;
