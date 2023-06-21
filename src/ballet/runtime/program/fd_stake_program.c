@@ -10,10 +10,18 @@
 #define ACCOUNT_STORAGE_OVERHEAD ( 128 )
 #define MINIMUM_STAKE_DELEGATION ( 1 )
 #define MINIMUM_DELEGATION_SOL ( 1 )
-#define LAMPORTS_PER_SOL (1000000000)
+#define LAMPORTS_PER_SOL ( 1000000000 )
 #define MERGE_KIND_INACTIVE ( 0 )
 #define MERGE_KIND_ACTIVE_EPOCH ( 1 )
 #define MERGE_KIND_FULLY_ACTIVE ( 2 )
+
+fd_acc_lamports_t get_minimum_delegation( fd_global_ctx_t* global ) {
+  if ( global->features.stake_raise_minimum_delegation_to_1_sol ) {
+    return MINIMUM_DELEGATION_SOL * LAMPORTS_PER_SOL;
+  } else {
+    return MINIMUM_STAKE_DELEGATION;
+  }
+}
 
 fd_stake_history_entry_t stake_and_activating( fd_delegation_t const * delegation, ulong target_epoch, fd_stake_history_t * stake_history ) {
   ulong delegated_stake = delegation->stake;
@@ -49,7 +57,15 @@ fd_stake_history_entry_t stake_and_activating( fd_delegation_t const * delegatio
     };
 
     return entry;
-  } else if (cluster_stake_at_activation_epoch != NULL) {
+  } else if ( target_epoch < delegation->activation_epoch ) {
+    fd_stake_history_entry_t entry = {
+      .effective = 0,
+      .activating = 0
+    };
+    return entry;    
+  } 
+  
+  else if (cluster_stake_at_activation_epoch != NULL) {
     ulong prev_epoch = delegation->activation_epoch;
     fd_stake_history_entry_t * prev_cluster_stake = cluster_stake_at_activation_epoch;
 
@@ -150,7 +166,6 @@ fd_stake_history_entry_t stake_activating_and_deactivating( fd_delegation_t cons
       .deactivating = effective_stake,
       .activating = 0
     };
-
     return entry;
   } else if (cluster_stake_at_activation_epoch != NULL) {
     ulong prev_epoch = delegation->activation_epoch;
@@ -461,6 +476,7 @@ int merge_delegation_stake_and_credits_observed( fd_global_ctx_t* global, fd_sta
 int get_if_mergeable( instruction_ctx_t* ctx, fd_stake_state_t* stake_state, fd_sol_sysvar_clock_t clock, fd_stake_history_t history, fd_merge_kind_t* merge_kind) {
     if ( fd_stake_state_is_stake( stake_state ) ) {
       fd_stake_history_entry_t entry = stake_activating_and_deactivating( &stake_state->inner.stake.stake.delegation, clock.epoch, &history);
+      FD_LOG_NOTICE(( "effective = %lu, activating = %lu, deactivating = %lu", entry.effective, entry.activating, entry.deactivating ));
       if (entry.effective == 0 && entry.activating == 0 && entry.deactivating == 0) {
         // Ok(Self::Inactive(*meta, stake_lamports)),
         merge_kind->discriminant = MERGE_KIND_INACTIVE;
@@ -513,7 +529,6 @@ int fd_executor_stake_program_execute_instruction(
     /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/stake/src/stake_instruction.rs#L43 */
 
     FD_LOG_INFO(( "executing StakeInstruction::Initialize instruction" ));
-    fd_stake_instruction_initialize_t* initialize_instruction = &instruction.inner.initialize;
 
     /* Check that Instruction Account 1 is the Rent account
        https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/stake/src/stake_instruction.rs#L44-L47 */
@@ -571,7 +586,13 @@ int fd_executor_stake_program_execute_instruction(
       return read_result;
     }
     ulong minimum_rent_exempt_balance = fd_rent_exempt_minimum_balance( ctx.global, metadata.dlen );
-    ulong minimum_balance = MINIMUM_STAKE_DELEGATION + minimum_rent_exempt_balance;
+    ulong minimum_balance;
+    if ( ctx.global->features.stake_allow_zero_undelegated_amount ) {
+      minimum_balance = minimum_rent_exempt_balance;
+    } else {
+      minimum_balance = get_minimum_delegation(ctx.global) + minimum_rent_exempt_balance;
+    }
+     
     if ( lamports < minimum_balance ) {
       return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
     }
@@ -581,11 +602,12 @@ int fd_executor_stake_program_execute_instruction(
     stake_state.discriminant = 1;
     fd_stake_state_meta_t* stake_state_meta = &stake_state.inner.initialized;
     stake_state_meta->rent_exempt_reserve = minimum_rent_exempt_balance;
+    fd_stake_instruction_initialize_t* initialize_instruction = &instruction.inner.initialize;
     fd_memcpy( &stake_state_meta->authorized, &initialize_instruction->authorized, FD_STAKE_AUTHORIZED_FOOTPRINT );
     fd_memcpy( &stake_state_meta->lockup, &initialize_instruction->lockup, sizeof(fd_pubkey_t) );
 
     /* Write the initialized Stake account to the database */
-    int result = write_stake_state( ctx.global, stake_acc, &stake_state, 1 );
+    int result = write_stake_state( ctx.global, stake_acc, &stake_state, 0 );
     if ( result != FD_EXECUTOR_INSTR_SUCCESS ) {
       FD_LOG_WARNING(( "failed to write stake account state: %d", result ));
       return result;
@@ -1068,21 +1090,27 @@ int fd_executor_stake_program_execute_instruction(
       }
     }
 
-    // ushort is_some_merge = 0;
+    ushort is_some_merge = 0;
     if (stake_merge_kind.discriminant == MERGE_KIND_INACTIVE && source_merge_kind.discriminant == MERGE_KIND_INACTIVE) {
       // None
     } else if (stake_merge_kind.discriminant == MERGE_KIND_INACTIVE && source_merge_kind.discriminant == MERGE_KIND_ACTIVE_EPOCH) {
       // None
     } else if (stake_merge_kind.discriminant == MERGE_KIND_ACTIVE_EPOCH && source_merge_kind.discriminant == MERGE_KIND_INACTIVE) {
+      is_some_merge = 1;
       stake_state.inner.stake.stake.delegation.stake = fd_ulong_sat_add( stake_state.inner.stake.stake.delegation.stake, source_lamports);
     } else if (stake_merge_kind.discriminant == MERGE_KIND_ACTIVE_EPOCH && source_merge_kind.discriminant == MERGE_KIND_ACTIVE_EPOCH) {
+      is_some_merge = 1;
       fd_acc_lamports_t src_lamports = fd_ulong_sat_add(source_state.inner.stake.meta.rent_exempt_reserve, stake_state.inner.stake.stake.delegation.stake);
       merge_delegation_stake_and_credits_observed(ctx.global, &stake_state, src_lamports, source_state.inner.stake.stake.credits_observed);      
     } else if (stake_merge_kind.discriminant == MERGE_KIND_FULLY_ACTIVE && source_merge_kind.discriminant == MERGE_KIND_FULLY_ACTIVE) {
+      is_some_merge = 1;
       merge_delegation_stake_and_credits_observed(ctx.global, &stake_state, source_state.inner.stake.stake.delegation.stake, source_state.inner.stake.stake.credits_observed);
     } else {
       ctx.txn_ctx->custom_err = 6;
       return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR; // Err(StakeError::MergeMismatch.into())
+    }
+    if (is_some_merge) {
+      write_stake_state( ctx.global, stake_acc, &stake_state, 0);
     }
     /* Source is about to be drained, deinitialize its state */
     source_state.discriminant = 0;

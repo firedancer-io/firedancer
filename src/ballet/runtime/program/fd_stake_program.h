@@ -13,6 +13,12 @@ struct merge_kind {
 };
 typedef struct merge_kind fd_merge_kind_t;
 
+enum MERGE_KIND_STATE {
+    MERGE_KIND_INACTIVE,
+    MERGE_KIND_ACTIVE_EPOCH,
+    MERGE_KIND_FULLY_ACTIVE
+};
+
 /* Entry-point for the Solana Stake Program */
 int fd_executor_stake_program_execute_instruction( instruction_ctx_t ctx ) ;
 
