@@ -88,7 +88,7 @@ fd_quic_hkdf_expand_label( uchar *       output,  ulong output_sz,
   }
 
   /* expand */
-  uchar HKDF_PREFIX[6] = "tls13 ";  // FIXME make this generic
+  uchar HKDF_PREFIX[6] = "tls13 ";
   ulong HKDF_PREFIX_SZ = sizeof( HKDF_PREFIX );
 
   /* format label */
