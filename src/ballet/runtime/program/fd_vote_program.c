@@ -1545,6 +1545,21 @@ int fd_executor_vote_program_execute_instruction(
     fd_vote_state_versioned_destroy( &vote_state_versioned, &destroy );
     break;
   }
+  case fd_vote_instruction_enum_compact_update_vote_state: {
+    FD_FN_UNUSED fd_compact_vote_state_update_t *compact_update_vote_state = &instruction.inner.compact_update_vote_state;
+
+    FD_LOG_WARNING(( "unsupported vote program instruction: fd_vote_instruction_enum_compact_update_vote_state"));
+
+    break;
+  }
+  case fd_vote_instruction_enum_compact_update_vote_state_switch: {
+    FD_FN_UNUSED fd_compact_vote_state_update_switch_t *compact_update_vote_state_switch = &instruction.inner.compact_update_vote_state_switch;
+
+    FD_LOG_WARNING(( "unsupported vote program instruction: fd_vote_instruction_enum_compact_update_vote_state_switch"));
+
+    break;
+  }
+
   default:
     /* TODO: support other vote program instructions */
     FD_LOG_WARNING(( "unsupported vote program instruction: discriminant: %d", instruction.discriminant ));
