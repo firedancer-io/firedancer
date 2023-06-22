@@ -395,14 +395,22 @@ void ingest_rocksdb( fd_global_ctx_t * global, const char* file, ulong start_slo
 }
 
 int main(int argc, char** argv) {
-  fd_boot( &argc, &argv );
-
-  const char* wkspname = fd_env_strip_cmdline_cstr(&argc, &argv, "--wksp", NULL, NULL);
-  if (wkspname == NULL) {
+  if (argc == 1) {
     usage(argv[0]);
     return 1;
   }
-  fd_wksp_t* wksp = fd_wksp_attach(wkspname);
+  
+  fd_boot( &argc, &argv );
+
+  fd_wksp_t* wksp;
+  const char* wkspname = fd_env_strip_cmdline_cstr(&argc, &argv, "--wksp", NULL, NULL);
+  if (wkspname == NULL) {
+    ulong pages = fd_env_strip_cmdline_ulong(&argc, &argv, "--pages", NULL, 5);
+    FD_LOG_NOTICE(( "--wksp not specified, using an anonymous local workspace" ));
+    wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, pages, 0, "wksp", 0UL );
+  } else {
+    wksp = fd_wksp_attach(wkspname);
+  }
   if (wksp == NULL)
     FD_LOG_ERR(( "failed to attach to workspace %s", wkspname ));
 
