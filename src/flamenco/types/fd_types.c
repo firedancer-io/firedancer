@@ -3733,6 +3733,16 @@ void fd_vote_state_versioned_destroy(fd_vote_state_versioned_t* self, fd_bincode
 void fd_vote_state_versioned_walk(fd_vote_state_versioned_t* self, fd_walk_fun_t fun, const char *name, int level) {
   fun(self, name, 32, "fd_vote_state_versioned", level++);
   // enum fd_vote_block_timestamp_walk(&self->latest_timestamp, fun, "latest_timestamp", level + 1);
+  switch (self->discriminant) {
+  case 0: {
+    fd_vote_state_0_23_5_walk(&self->inner.v0_23_5, fun, "v0_23_5", level + 1);
+    break;
+  }
+  case 1: {
+    fd_vote_state_walk(&self->inner.current, fun, "current", level + 1);
+    break;
+  }
+  }
   fun(self, name, 33, "fd_vote_state_versioned", --level);
 }
 ulong fd_vote_state_versioned_size(fd_vote_state_versioned_t const * self) {
@@ -5037,7 +5047,7 @@ void fd_vote_walk(fd_vote_t* self, fd_walk_fun_t fun, const char *name, int leve
   if ( self->slots ) {
     for ( deq_ulong_iter_t iter = deq_ulong_iter_init( self->slots ); !deq_ulong_iter_done( self->slots, iter ); iter = deq_ulong_iter_next( self->slots, iter ) ) {
       ulong * ele = deq_ulong_iter_ele( self->slots, iter );
-      //fd_bincode_uint64_walk(ele, ctx);
+      fun(*ele, "ele", 6, "long", level + 1);
     }
   }
   fd_hash_walk(&self->hash, fun, "hash", level + 1);
@@ -5201,6 +5211,8 @@ void fd_vote_authorize_destroy(fd_vote_authorize_t* self, fd_bincode_destroy_ctx
 void fd_vote_authorize_walk(fd_vote_authorize_t* self, fd_walk_fun_t fun, const char *name, int level) {
   fun(self, name, 32, "fd_vote_authorize", level++);
   // enum fd_unsigned char_walk(&self->commission, fun, "commission", level + 1);
+  switch (self->discriminant) {
+  }
   fun(self, name, 33, "fd_vote_authorize", --level);
 }
 ulong fd_vote_authorize_size(fd_vote_authorize_t const * self) {
@@ -5690,6 +5702,60 @@ void fd_vote_instruction_destroy(fd_vote_instruction_t* self, fd_bincode_destroy
 void fd_vote_instruction_walk(fd_vote_instruction_t* self, fd_walk_fun_t fun, const char *name, int level) {
   fun(self, name, 32, "fd_vote_instruction", level++);
   // enum fd_char*_walk(&self->current_authority_derived_key_seed, fun, "current_authority_derived_key_seed", level + 1);
+  switch (self->discriminant) {
+  case 0: {
+    fd_vote_init_walk(&self->inner.initialize_account, fun, "initialize_account", level + 1);
+    break;
+  }
+  case 1: {
+    fd_vote_authorize_pubkey_walk(&self->inner.authorize, fun, "authorize", level + 1);
+    break;
+  }
+  case 2: {
+    fd_vote_walk(&self->inner.vote, fun, "vote", level + 1);
+    break;
+  }
+  case 3: {
+  fun(&self->inner.withdraw, "withdraw", 11, "ulong", level + 1);
+    break;
+  }
+  case 5: {
+  fun(&self->inner.update_commission, "update_commission", 9, "uchar", level + 1);
+    break;
+  }
+  case 6: {
+    fd_vote_switch_walk(&self->inner.vote_switch, fun, "vote_switch", level + 1);
+    break;
+  }
+  case 7: {
+    fd_vote_authorize_walk(&self->inner.authorize_checked, fun, "authorize_checked", level + 1);
+    break;
+  }
+  case 8: {
+    fd_vote_state_update_walk(&self->inner.update_vote_state, fun, "update_vote_state", level + 1);
+    break;
+  }
+  case 9: {
+    fd_update_vote_state_switch_walk(&self->inner.update_vote_state_switch, fun, "update_vote_state_switch", level + 1);
+    break;
+  }
+  case 10: {
+    fd_vote_authorize_with_seed_args_walk(&self->inner.authorize_with_seed, fun, "authorize_with_seed", level + 1);
+    break;
+  }
+  case 11: {
+    fd_vote_authorize_checked_with_seed_args_walk(&self->inner.authorize_checked_with_seed, fun, "authorize_checked_with_seed", level + 1);
+    break;
+  }
+  case 12: {
+    fd_compact_vote_state_update_walk(&self->inner.compact_update_vote_state, fun, "compact_update_vote_state", level + 1);
+    break;
+  }
+  case 13: {
+    fd_compact_vote_state_update_switch_walk(&self->inner.compact_update_vote_state_switch, fun, "compact_update_vote_state_switch", level + 1);
+    break;
+  }
+  }
   fun(self, name, 33, "fd_vote_instruction", --level);
 }
 ulong fd_vote_instruction_size(fd_vote_instruction_t const * self) {
@@ -6333,6 +6399,52 @@ void fd_system_program_instruction_destroy(fd_system_program_instruction_t* self
 void fd_system_program_instruction_walk(fd_system_program_instruction_t* self, fd_walk_fun_t fun, const char *name, int level) {
   fun(self, name, 32, "fd_system_program_instruction", level++);
   // enum fd_pubkey_walk(&self->from_owner, fun, "from_owner", level + 1);
+  switch (self->discriminant) {
+  case 0: {
+    fd_system_program_instruction_create_account_walk(&self->inner.create_account, fun, "create_account", level + 1);
+    break;
+  }
+  case 1: {
+    fd_pubkey_walk(&self->inner.assign, fun, "assign", level + 1);
+    break;
+  }
+  case 2: {
+  fun(&self->inner.transfer, "transfer", 11, "ulong", level + 1);
+    break;
+  }
+  case 3: {
+    fd_system_program_instruction_create_account_with_seed_walk(&self->inner.create_account_with_seed, fun, "create_account_with_seed", level + 1);
+    break;
+  }
+  case 5: {
+  fun(&self->inner.withdraw_nonce_account, "withdraw_nonce_account", 11, "ulong", level + 1);
+    break;
+  }
+  case 6: {
+    fd_pubkey_walk(&self->inner.initialize_nonce_account, fun, "initialize_nonce_account", level + 1);
+    break;
+  }
+  case 7: {
+    fd_pubkey_walk(&self->inner.authorize_nonce_account, fun, "authorize_nonce_account", level + 1);
+    break;
+  }
+  case 8: {
+  fun(&self->inner.allocate, "allocate", 11, "ulong", level + 1);
+    break;
+  }
+  case 9: {
+    fd_system_program_instruction_allocate_with_seed_walk(&self->inner.allocate_with_seed, fun, "allocate_with_seed", level + 1);
+    break;
+  }
+  case 10: {
+    fd_system_program_instruction_assign_with_seed_walk(&self->inner.assign_with_seed, fun, "assign_with_seed", level + 1);
+    break;
+  }
+  case 11: {
+    fd_system_program_instruction_transfer_with_seed_walk(&self->inner.transfer_with_seed, fun, "transfer_with_seed", level + 1);
+    break;
+  }
+  }
   fun(self, name, 33, "fd_system_program_instruction", --level);
 }
 ulong fd_system_program_instruction_size(fd_system_program_instruction_t const * self) {
@@ -6597,6 +6709,8 @@ void fd_system_error_destroy(fd_system_error_t* self, fd_bincode_destroy_ctx_t *
 void fd_system_error_walk(fd_system_error_t* self, fd_walk_fun_t fun, const char *name, int level) {
   fun(self, name, 32, "fd_system_error", level++);
   // enum fd_pubkey_walk(&self->from_owner, fun, "from_owner", level + 1);
+  switch (self->discriminant) {
+  }
   fun(self, name, 33, "fd_system_error", --level);
 }
 ulong fd_system_error_size(fd_system_error_t const * self) {
@@ -6796,6 +6910,8 @@ void fd_stake_authorize_destroy(fd_stake_authorize_t* self, fd_bincode_destroy_c
 void fd_stake_authorize_walk(fd_stake_authorize_t* self, fd_walk_fun_t fun, const char *name, int level) {
   fun(self, name, 32, "fd_stake_authorize", level++);
   // enum fd_pubkey_walk(&self->lockup, fun, "lockup", level + 1);
+  switch (self->discriminant) {
+  }
   fun(self, name, 33, "fd_stake_authorize", --level);
 }
 ulong fd_stake_authorize_size(fd_stake_authorize_t const * self) {
@@ -7419,6 +7535,40 @@ void fd_stake_instruction_destroy(fd_stake_instruction_t* self, fd_bincode_destr
 void fd_stake_instruction_walk(fd_stake_instruction_t* self, fd_walk_fun_t fun, const char *name, int level) {
   fun(self, name, 32, "fd_stake_instruction", level++);
   // enum fd_option_walk(&self->epoch, fun, "epoch", level + 1);
+  switch (self->discriminant) {
+  case 0: {
+    fd_stake_instruction_initialize_walk(&self->inner.initialize, fun, "initialize", level + 1);
+    break;
+  }
+  case 1: {
+    fd_stake_instruction_authorize_walk(&self->inner.authorize, fun, "authorize", level + 1);
+    break;
+  }
+  case 3: {
+  fun(&self->inner.split, "split", 11, "ulong", level + 1);
+    break;
+  }
+  case 4: {
+  fun(&self->inner.withdraw, "withdraw", 11, "ulong", level + 1);
+    break;
+  }
+  case 8: {
+    fd_authorize_with_seed_args_walk(&self->inner.authorize_with_seed, fun, "authorize_with_seed", level + 1);
+    break;
+  }
+  case 10: {
+    fd_stake_authorize_walk(&self->inner.authorize_checked, fun, "authorize_checked", level + 1);
+    break;
+  }
+  case 11: {
+    fd_authorize_checked_with_seed_args_walk(&self->inner.authorize_checked_with_seed, fun, "authorize_checked_with_seed", level + 1);
+    break;
+  }
+  case 12: {
+    fd_lockup_checked_args_walk(&self->inner.set_lockup_checked, fun, "set_lockup_checked", level + 1);
+    break;
+  }
+  }
   fun(self, name, 33, "fd_stake_instruction", --level);
 }
 ulong fd_stake_instruction_size(fd_stake_instruction_t const * self) {
@@ -7721,6 +7871,16 @@ void fd_stake_state_destroy(fd_stake_state_t* self, fd_bincode_destroy_ctx_t * c
 void fd_stake_state_walk(fd_stake_state_t* self, fd_walk_fun_t fun, const char *name, int level) {
   fun(self, name, 32, "fd_stake_state", level++);
   // enum fd_stake_walk(&self->stake, fun, "stake", level + 1);
+  switch (self->discriminant) {
+  case 1: {
+    fd_stake_state_meta_walk(&self->inner.initialized, fun, "initialized", level + 1);
+    break;
+  }
+  case 2: {
+    fd_stake_state_stake_walk(&self->inner.stake, fun, "stake", level + 1);
+    break;
+  }
+  }
   fun(self, name, 33, "fd_stake_state", --level);
 }
 ulong fd_stake_state_size(fd_stake_state_t const * self) {
@@ -7869,6 +8029,12 @@ void fd_nonce_state_destroy(fd_nonce_state_t* self, fd_bincode_destroy_ctx_t * c
 void fd_nonce_state_walk(fd_nonce_state_t* self, fd_walk_fun_t fun, const char *name, int level) {
   fun(self, name, 32, "fd_nonce_state", level++);
   // enum fd_fee_calculator_walk(&self->fee_calculator, fun, "fee_calculator", level + 1);
+  switch (self->discriminant) {
+  case 1: {
+    fd_nonce_data_walk(&self->inner.initialized, fun, "initialized", level + 1);
+    break;
+  }
+  }
   fun(self, name, 33, "fd_nonce_state", --level);
 }
 ulong fd_nonce_state_size(fd_nonce_state_t const * self) {
@@ -7963,6 +8129,16 @@ void fd_nonce_state_versions_destroy(fd_nonce_state_versions_t* self, fd_bincode
 void fd_nonce_state_versions_walk(fd_nonce_state_versions_t* self, fd_walk_fun_t fun, const char *name, int level) {
   fun(self, name, 32, "fd_nonce_state_versions", level++);
   // enum fd_fee_calculator_walk(&self->fee_calculator, fun, "fee_calculator", level + 1);
+  switch (self->discriminant) {
+  case 0: {
+    fd_nonce_state_walk(&self->inner.legacy, fun, "legacy", level + 1);
+    break;
+  }
+  case 1: {
+    fd_nonce_state_walk(&self->inner.current, fun, "current", level + 1);
+    break;
+  }
+  }
   fun(self, name, 33, "fd_nonce_state_versions", --level);
 }
 ulong fd_nonce_state_versions_size(fd_nonce_state_versions_t const * self) {
@@ -8129,6 +8305,24 @@ void fd_compute_budget_program_instruction_destroy(fd_compute_budget_program_ins
 void fd_compute_budget_program_instruction_walk(fd_compute_budget_program_instruction_t* self, fd_walk_fun_t fun, const char *name, int level) {
   fun(self, name, 32, "fd_compute_budget_program_instruction", level++);
   // enum fd_uint_walk(&self->additional_fee, fun, "additional_fee", level + 1);
+  switch (self->discriminant) {
+  case 0: {
+    fd_compute_budget_program_instruction_request_units_deprecated_walk(&self->inner.request_units_deprecated, fun, "request_units_deprecated", level + 1);
+    break;
+  }
+  case 1: {
+  fun(&self->inner.request_heap_frame, "request_heap_frame", 7, "uint", level + 1);
+    break;
+  }
+  case 2: {
+  fun(&self->inner.set_compute_unit_limit, "set_compute_unit_limit", 7, "uint", level + 1);
+    break;
+  }
+  case 3: {
+  fun(&self->inner.set_compute_unit_price, "set_compute_unit_price", 11, "ulong", level + 1);
+    break;
+  }
+  }
   fun(self, name, 33, "fd_compute_budget_program_instruction", --level);
 }
 ulong fd_compute_budget_program_instruction_size(fd_compute_budget_program_instruction_t const * self) {
@@ -8359,6 +8553,12 @@ void fd_bpf_loader_program_instruction_destroy(fd_bpf_loader_program_instruction
 void fd_bpf_loader_program_instruction_walk(fd_bpf_loader_program_instruction_t* self, fd_walk_fun_t fun, const char *name, int level) {
   fun(self, name, 32, "fd_bpf_loader_program_instruction", level++);
   // enum fd_vector_walk(&self->bytes, fun, "bytes", level + 1);
+  switch (self->discriminant) {
+  case 0: {
+    fd_bpf_loader_program_instruction_write_walk(&self->inner.write, fun, "write", level + 1);
+    break;
+  }
+  }
   fun(self, name, 33, "fd_bpf_loader_program_instruction", --level);
 }
 ulong fd_bpf_loader_program_instruction_size(fd_bpf_loader_program_instruction_t const * self) {
@@ -8624,6 +8824,20 @@ void fd_bpf_upgradeable_loader_program_instruction_destroy(fd_bpf_upgradeable_lo
 void fd_bpf_upgradeable_loader_program_instruction_walk(fd_bpf_upgradeable_loader_program_instruction_t* self, fd_walk_fun_t fun, const char *name, int level) {
   fun(self, name, 32, "fd_bpf_upgradeable_loader_program_instruction", level++);
   // enum fd_uint_walk(&self->additional_bytes, fun, "additional_bytes", level + 1);
+  switch (self->discriminant) {
+  case 1: {
+    fd_bpf_upgradeable_loader_program_instruction_write_walk(&self->inner.write, fun, "write", level + 1);
+    break;
+  }
+  case 2: {
+    fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len_walk(&self->inner.deploy_with_max_data_len, fun, "deploy_with_max_data_len", level + 1);
+    break;
+  }
+  case 6: {
+    fd_bpf_upgradeable_loader_program_instruction_extend_program_walk(&self->inner.extend_program, fun, "extend_program", level + 1);
+    break;
+  }
+  }
   fun(self, name, 33, "fd_bpf_upgradeable_loader_program_instruction", --level);
 }
 ulong fd_bpf_upgradeable_loader_program_instruction_size(fd_bpf_upgradeable_loader_program_instruction_t const * self) {
@@ -8909,6 +9123,20 @@ void fd_bpf_upgradeable_loader_state_destroy(fd_bpf_upgradeable_loader_state_t* 
 void fd_bpf_upgradeable_loader_state_walk(fd_bpf_upgradeable_loader_state_t* self, fd_walk_fun_t fun, const char *name, int level) {
   fun(self, name, 32, "fd_bpf_upgradeable_loader_state", level++);
   // enum fd_option_walk(&self->upgrade_authority_address, fun, "upgrade_authority_address", level + 1);
+  switch (self->discriminant) {
+  case 1: {
+    fd_bpf_upgradeable_loader_state_buffer_walk(&self->inner.buffer, fun, "buffer", level + 1);
+    break;
+  }
+  case 2: {
+    fd_bpf_upgradeable_loader_state_program_walk(&self->inner.program, fun, "program", level + 1);
+    break;
+  }
+  case 3: {
+    fd_bpf_upgradeable_loader_state_program_data_walk(&self->inner.program_data, fun, "program_data", level + 1);
+    break;
+  }
+  }
   fun(self, name, 33, "fd_bpf_upgradeable_loader_state", --level);
 }
 ulong fd_bpf_upgradeable_loader_state_size(fd_bpf_upgradeable_loader_state_t const * self) {

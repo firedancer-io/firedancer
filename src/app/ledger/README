@@ -18,10 +18,8 @@ https://github.com/solana-labs/solana/issues/28191
    solana-keygen new -o /home/jsiegel/.config/solana/id.json
 8) check your balance
   solana balance
-9) give yourself some money
-   solana airdrop 10
-10) do a simple transfer
-   % solana transaction-count; solana transfer EPhgPANa5Rh2wa4V2jxt7YbtWa3Uyw4sTeZ13cQjDDB8 1 --allow-unfunded-recipient; solana transaction-count
+9) do a simple transfer
+   % solana transaction-count; solana airdrop 10; solana transfer EPhgPANa5Rh2wa4V2jxt7YbtWa3Uyw4sTeZ13cQjDDB8 1 --allow-unfunded-recipient; solana transaction-count
 
   28
   Signature: 5n8vGanaw8XRLPYUkqahBXYGNi4DmJnkGU78L8PnvHQNZQRtTpjWxJQvhb3NWiLpNgQMVUdYzawsEg74Biga8Sy

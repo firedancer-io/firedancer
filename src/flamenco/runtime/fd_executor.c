@@ -184,7 +184,7 @@ fd_execute_txn( fd_executor_t* executor, fd_txn_t * txn_descriptor, fd_rawtxn_b_
     int exec_result = exec_instr_func( ctx );
     if ( FD_UNLIKELY( exec_result != FD_EXECUTOR_INSTR_SUCCESS ) ) {
       exec_result = exec_instr_func( ctx );
-      FD_LOG_ERR(( "instruction executed unsuccessfully: error code %d", exec_result ));
+      FD_LOG_WARNING(( "instruction executed unsuccessfully: error code %d", exec_result ));
       /* TODO: revert transaction context */
     }
 
