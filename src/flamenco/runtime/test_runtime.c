@@ -122,10 +122,7 @@ int fd_alloc_fprintf( fd_alloc_t * join, FILE *       stream );
 struct global_state {
   fd_global_ctx_t*    global;
 
-  ulong               start_slot;
   ulong               end_slot;
-  ulong               start_id;
-  ulong               end_id;
   ulong               pages;
   uchar               txn_exe;
 
@@ -133,13 +130,9 @@ struct global_state {
   char       **       argv;
 
   char const *        name;
-  char const *        ledger;
   char const *        gaddr;
   char const *        persist;
-  char const *        start_slot_opt;
   char const *        end_slot_opt;
-  char const *        start_id_opt;
-  char const *        end_id_opt;
   char const *        accounts;
   char const *        cmd;
   char const *        txn_exe_opt;
@@ -150,11 +143,9 @@ typedef struct global_state global_state_t;
 static void usage(const char* progname) {
   fprintf(stderr, "USAGE: %s\n", progname);
   fprintf(stderr, " --wksp        <name>       workspace name\n");
-  fprintf(stderr, " --ledger      <dir>        ledger directory\n");
   fprintf(stderr, " --gaddr       <num>        global address of funky in the workspace\n");
   fprintf(stderr, " --persist     <file>       funky persistence file\n");
   fprintf(stderr, " --end-slot    <num>        stop iterating at block...\n");
-  fprintf(stderr, " --start-slot  <num>        start iterating at block...\n");
   fprintf(stderr, " --accounts    <dir>        What accounts should I slurp in\n");
   fprintf(stderr, " --cmd         <operation>  What operation should we test\n");
   fprintf(stderr, " --skip-exe    [skip,sim]   Should we skip executing transactions\n");
@@ -340,53 +331,6 @@ void print_file(global_state_t *state, const char *file) {
   state->global->freef(state->global->allocf_arg, r);
 }
 
-int slot_dump(global_state_t *state) {
-  if (NULL == state->accounts)  {
-    usage(state->argv[0]);
-    exit(1);
-  }
-  regex_t reg;
-  // Where were those regular expressions for snapshots?
-  if (regcomp(&reg, "[0-9]+\\.[0-9]+", REG_EXTENDED) != 0) {
-    FD_LOG_ERR(( "compile failed" ));
-  }
-
-  FD_LOG_WARNING(("starting read of %s", state->accounts));
-
-  DIR *dir = opendir(state->accounts);
-
-  struct dirent * ent;
-
-  while ( NULL != (ent = readdir(dir)) ) {
-    if ( regexec(&reg, ent->d_name, 0, NULL, 0) == 0 )  {
-      char buf[1000];
-
-      strcpy(buf, ent->d_name);
-      char *p = buf;
-      while (*p != '.') p++;
-      *p++ = '\0';
-
-      ulong slot = (ulong) atol(buf);
-      ulong id = (ulong) atol(p);
-
-      if ((slot < state->start_slot) | (slot > state->end_slot))
-        continue;
-
-      if ((id < state->start_id) | ((state->end_id > 0) & (id > state->end_id)))
-        continue;
-
-      sprintf(buf, "%s/%s", state->accounts, ent->d_name);
-
-      print_file(state, buf);
-    }
-  }
-
-  closedir(dir);
-  regfree(&reg);
-
-  return 0;
-}
-
 int replay(global_state_t *state) {
   fd_funk_rec_key_t key = fd_runtime_block_meta_key(ULONG_MAX);
   fd_funk_rec_t const * rec = fd_funk_rec_query( state->global->funk, NULL, &key );
@@ -405,12 +349,10 @@ int replay(global_state_t *state) {
   if ( fd_slot_meta_meta_decode( &mm, &ctx2 ) )
     FD_LOG_ERR(("fd_slot_meta_meta_decode failed"));
 
-  if (mm.start_slot > state->start_slot)
-    state->start_slot = mm.start_slot;
   if (mm.end_slot < state->end_slot)
     state->end_slot = mm.end_slot;
 
-  for ( ulong slot = state->start_slot; slot < state->end_slot; ++slot ) {
+  for ( ulong slot = state->global->bank.slot+1; slot < state->end_slot; ++slot ) {
     state->global->bank.slot = slot;
 
     if ((state->end_slot < 10) || ((slot % 10) == 0))
@@ -474,13 +416,9 @@ int main(int argc, char **argv) {
   state.argv = argv;
 
   state.name                = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp",         NULL, NULL );
-  state.ledger              = fd_env_strip_cmdline_cstr ( &argc, &argv, "--ledger",       NULL, NULL);
   state.gaddr               = fd_env_strip_cmdline_cstr ( &argc, &argv, "--gaddr",        NULL, NULL);
   state.persist             = fd_env_strip_cmdline_cstr ( &argc, &argv, "--persist",      NULL, NULL);
-  state.start_slot_opt      = fd_env_strip_cmdline_cstr ( &argc, &argv, "--start-slot",   NULL, NULL);
   state.end_slot_opt        = fd_env_strip_cmdline_cstr ( &argc, &argv, "--end-slot",     NULL, NULL);
-  state.start_id_opt        = fd_env_strip_cmdline_cstr ( &argc, &argv, "--start-id",     NULL, NULL);
-  state.end_id_opt          = fd_env_strip_cmdline_cstr ( &argc, &argv, "--end-id",       NULL, NULL);
   state.accounts            = fd_env_strip_cmdline_cstr ( &argc, &argv, "--accounts",     NULL, NULL);
   state.cmd                 = fd_env_strip_cmdline_cstr ( &argc, &argv, "--cmd",          NULL, NULL);
   state.txn_exe_opt         = fd_env_strip_cmdline_cstr ( &argc, &argv, "--txn-exe",      NULL, NULL);
@@ -498,11 +436,11 @@ int main(int argc, char **argv) {
   const char *confirm_signature       = fd_env_strip_cmdline_cstr ( &argc, &argv, "--confirm_signature",     NULL, NULL);
   const char *confirm_last_block      = fd_env_strip_cmdline_cstr ( &argc, &argv, "--confirm_last_block",    NULL, NULL);
 
-  if (NULL == state.ledger) {
+  if (state.cmd == NULL) {
     usage(argv[0]);
-    exit(1);
+    return 1;
   }
-
+  
   if (state.txn_exe_opt) {
     state.txn_exe = (strcmp(state.txn_exe_opt, "skip") == 0) ? 1 : 0;
     state.txn_exe = (strcmp(state.txn_exe_opt, "sim") == 0) ? 2 : 0;
@@ -584,105 +522,24 @@ int main(int argc, char **argv) {
     state.end_slot = (ulong) atoi(state.end_slot_opt);
   else
     state.end_slot = ULONG_MAX;
-  if (NULL != state.start_slot_opt)
-    state.start_slot = (ulong) atoi(state.start_slot_opt);
-  else
-    state.start_slot = 0;
-  if (NULL != state.end_id_opt)
-    state.end_id = (ulong) atoi(state.end_id_opt);
-  if (NULL != state.start_id_opt)
-    state.start_id = (ulong) atoi(state.start_id_opt);
-
-  // Eventually we will have to add support for reading compressed genesis blocks...
-  fd_genesis_solana_t genesis_block;
-  fd_genesis_solana_new(&genesis_block);
 
   {
-    char genesis[128];
-    sprintf(genesis, "%s/genesis.bin", state.ledger);
-    struct stat sbuf;
-    stat(genesis, &sbuf);
-    int fd = open(genesis, O_RDONLY);
-    if (fd < 0) {
-      FD_LOG_ERR(("Cannot open %s", genesis));
-    }
-    uchar * buf = malloc((ulong) sbuf.st_size);
-    ssize_t n = read(fd, buf, (ulong) sbuf.st_size);
-    close(fd);
-
-    fd_bincode_decode_ctx_t ctx;
-    ctx.data = buf;
-    ctx.dataend = &buf[n];
-    ctx.allocf = state.global->allocf;
-    ctx.allocf_arg = state.global->allocf_arg;
-    if ( fd_genesis_solana_decode(&genesis_block, &ctx) )
-      FD_LOG_ERR(("fd_genesis_solana_decode failed"));
-
-    // The hash is generated from the raw data... don't mess with this..
-    uchar genesis_hash[FD_SHA256_HASH_SZ];
-    fd_sha256_t sha;
-    fd_sha256_init( &sha );
-    fd_sha256_append( &sha, buf, (ulong) n );
-    fd_sha256_fini( &sha, genesis_hash );
-
-    fd_runtime_init_bank_from_genesis( state.global, &genesis_block, genesis_hash );
-
-    free(buf);
+    fd_funk_rec_key_t id = fd_runtime_banks_key();
+    fd_funk_rec_t const * rec = fd_funk_rec_query_global(state.global->funk, NULL, &id);
+    if ( rec == NULL )
+      FD_LOG_ERR(("failed to read banks record"));
+    int err;
+    void * val = fd_funk_val_cache( state.global->funk, rec, &err );
+    if (val == NULL )
+      FD_LOG_ERR(("failed to read banks record"));
+    fd_bincode_decode_ctx_t ctx2;
+    ctx2.data = val;
+    ctx2.dataend = (uchar*)val + fd_funk_val_sz( rec );
+    ctx2.allocf = state.global->allocf;
+    ctx2.allocf_arg = state.global->allocf_arg;
+    if ( fd_firedancer_banks_decode(&state.global->bank, &ctx2 ) )
+      FD_LOG_ERR(("failed to read banks record"));
   }
-
-  fd_runtime_init_program( state.global );
-
-  if (strcmp(state.cmd, "accounts_hash") != 0) {
-#if 0
-    FD_LOG_WARNING(("loading genesis account into funk db"));
-
-    fd_funk_rec_t * rec_map = fd_funk_rec_map( state.global->funk, state.global->wksp );
-
-    for( fd_funk_rec_map_iter_t iter = fd_funk_rec_map_iter_init( rec_map );
-         !fd_funk_rec_map_iter_done( rec_map, iter );
-         iter = fd_funk_rec_map_iter_next( rec_map, iter ) ) {
-      fd_funk_rec_t * trec = fd_funk_rec_map_iter_ele( rec_map, iter );
-
-      fd_funk_rec_key_t *k = trec->pair.key;
-
-      if (!fd_acc_mgr_is_key(k))
-        continue;
-
-      if (fd_funk_rec_persist_erase(state.global->funk, trec) != FD_FUNK_SUCCESS)
-        FD_LOG_WARNING(("persist erase failed"));
-
-      if (fd_funk_rec_remove(state.global->funk, trec, 1) != FD_FUNK_SUCCESS)
-        FD_LOG_WARNING(("remove failed"));
-    }
-#endif
-
-    for (ulong i = 0; i < genesis_block.accounts_len; i++) {
-      fd_pubkey_account_pair_t *a = &genesis_block.accounts[i];
-
-      char pubkey[50];
-
-      fd_base58_encode_32((uchar *) genesis_block.accounts[i].key.key, NULL, pubkey);
-
-      fd_acc_mgr_write_structured_account(state.global->acc_mgr, state.global->funk_txn, 0, &a->key, &a->account);
-    }
-  }
-
-#if 0
-  for (ulong i = 0; i < genesis_block.native_instruction_processors_len; i++) {
-    fd_string_pubkey_pair_t * ins = &genesis_block.native_instruction_processors[i];
-
-    char pubkey[50];
-
-    fd_base58_encode_32((uchar *) ins->pubkey.key, NULL, pubkey);
-
-    FD_LOG_WARNING(("native program:  %s <= %s", ins->string, pubkey));
-  }
-#endif
-
-  fd_bincode_destroy_ctx_t ctx2;
-  ctx2.freef = state.global->freef;
-  ctx2.freef_arg = state.global->allocf_arg;
-  fd_genesis_solana_destroy(&genesis_block, &ctx2);
 
   if (strcmp(state.cmd, "replay") == 0) {
     replay(&state);
@@ -717,8 +574,6 @@ int main(int argc, char **argv) {
   }
   if (strcmp(state.cmd, "accounts_hash") == 0)
     accounts_hash(&state);
-  if (strcmp(state.cmd, "accounts") == 0)
-    slot_dump(&state);
 
   fd_global_ctx_delete(fd_global_ctx_leave(state.global));
 

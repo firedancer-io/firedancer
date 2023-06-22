@@ -889,6 +889,79 @@ fd_funk_txn_persist_writeahead_erase( fd_funk_t * funk,
   fd_funk_persist_free( funk, wa_pos, wa_alloc );
 }
 
+/* Create a backup of the database. The backup file format is the same
+   as the persistence format. */
+int
+fd_funk_make_backup( fd_funk_t * funk, const char * filename ) {
+  /* Open the file */
+  int fd = open(filename, O_CREAT|O_TRUNC|O_RDWR, 0600);
+  if ( fd == -1 ) {
+    FD_LOG_ERR(( "failed to open %s: %s", filename, strerror(errno) ));
+    close(fd);
+    return FD_FUNK_ERR_SYS;
+  }
+  ulong filesize = 0;
+
+  /* Loop through the root transaction entries */
+  fd_wksp_t * wksp = fd_funk_wksp( funk );
+  fd_funk_rec_t * rec_map  = fd_funk_rec_map( funk, wksp );
+  for( fd_funk_rec_map_iter_t iter = fd_funk_rec_map_iter_init( rec_map );
+       !fd_funk_rec_map_iter_done( rec_map, iter );
+       iter = fd_funk_rec_map_iter_next( rec_map, iter ) ) {
+    fd_funk_rec_t * rec = fd_funk_rec_map_iter_ele( rec_map, iter );
+    if ( !fd_funk_txn_idx_is_null( fd_funk_txn_idx( rec->txn_cidx ) ) )
+      continue;
+
+    /* Build the record head */
+    struct fd_funk_persist_record_head head;
+    head.type = FD_FUNK_PERSIST_RECORD_TYPE;
+    fd_memcpy( head.key, &rec->pair.key, sizeof(head.key) );
+    head.val_sz = rec->val_sz;
+    head.alloc_sz = fd_ulong_align_up( sizeof(head) + rec->val_sz, 128U );
+
+    /* Write the record */
+    ulong old_gaddr = rec->val_gaddr;
+    int err = 0;
+    void * val = fd_funk_val_cache( funk, rec, &err );
+    if (val == NULL) {
+      close(fd);
+      return err;
+    }
+
+    struct iovec iov[2];
+    iov[0].iov_base = &head;
+    iov[0].iov_len = sizeof(head);
+    if ( rec->val_sz ) {
+      iov[1].iov_base = val;
+      iov[1].iov_len = rec->val_sz;
+      if ( pwritev( fd, iov, 2, (long)filesize ) != (long)(iov[0].iov_len + iov[1].iov_len) ) {
+        FD_LOG_ERR(( "failed to write backup file: %s", strerror(errno) ));
+        close(fd);
+        return FD_FUNK_ERR_SYS;
+      }
+    } else {
+      /* Naked header */
+      if ( pwritev( fd, iov, 1, (long)filesize ) != (long)iov[0].iov_len ) {
+        FD_LOG_ERR(( "failed to write backup file: %s", strerror(errno) ));
+        close(fd);
+        return FD_FUNK_ERR_SYS;
+      }
+    }
+    filesize += head.alloc_sz;
+
+    if ( !old_gaddr && rec->val_gaddr) {
+      /* Uncache the entry if it was not previously cached */
+      fd_alloc_free( fd_funk_alloc( funk, wksp ), fd_wksp_laddr_fast( wksp, rec->val_gaddr ) );
+      ((fd_funk_rec_t *) rec)->val_max   = 0U;
+      ((fd_funk_rec_t *) rec)->val_gaddr = 0UL;
+    }
+  }
+
+  close(fd);
+
+  return FD_FUNK_SUCCESS;
+}
+
 /* Verify the integrity of the persistence layer */
 int
 fd_funk_persist_verify( fd_funk_t * funk ) {

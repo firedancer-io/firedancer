@@ -730,6 +730,12 @@ void fd_printer_walker(void *arg, const char* name, int type, const char *type_n
       printf("\"%s\": \"%s\",\n", name, buf);
       break;
     }
+    case 36:
+      printf("\"%s\": [\n", name);
+      break;
+    case 37:
+      printf("],\n");
+      break;
   default:
     printf("arg: %ld  name: %s  type: %d   type_name: %s\n", (ulong) arg, name, type, type_name);
     break;
@@ -754,6 +760,13 @@ fd_funk_rec_key_t fd_runtime_block_meta_key(ulong slot) {
   return id;
 }
 
+fd_funk_rec_key_t fd_runtime_banks_key(void) {
+  fd_funk_rec_key_t id;
+  fd_memset( &id, 1, sizeof(id) );
+  id.c[ FD_FUNK_REC_KEY_FOOTPRINT - 1 ] = FD_BLOCK_BANKS_TYPE;
+
+  return id;
+}
 
 const size_t MAX_SEED_LEN = 32;
 //
@@ -797,4 +810,33 @@ fd_pubkey_create_with_seed( fd_pubkey_t const * base,
 //      ))
 
   return FD_RUNTIME_EXECUTE_SUCCESS;
+}
+
+int
+fd_runtime_save_banks( fd_global_ctx_t * global ) {
+  ulong sz = fd_firedancer_banks_size(&global->bank);
+  uchar * buf = (uchar *) fd_alloca(8UL, sz);
+  fd_bincode_encode_ctx_t ctx;
+  ctx.data = buf;
+  ctx.dataend = buf + sz;
+  if ( fd_firedancer_banks_encode(&global->bank, &ctx ) ) {
+    FD_LOG_WARNING(("fd_runtime_save_banks failed"));
+    return -1;
+  }
+
+  fd_funk_rec_key_t id = fd_runtime_banks_key();
+  int opt_err;
+  fd_funk_rec_t * rec = fd_funk_rec_write_prepare( global->funk, global->funk_txn, &id, sz, 1, NULL, &opt_err );
+  if (NULL == rec) {
+    FD_LOG_WARNING(("fd_runtime_save_banks failed: %s", fd_funk_strerror(opt_err)));
+    return -1;
+  }
+  if ( rec != fd_funk_val_write( rec, 0UL, sz, buf, global->wksp ) ) {
+    FD_LOG_WARNING(("fd_runtime_save_banks failed"));
+    return -1;
+  }
+
+  fd_funk_rec_persist(global->funk, rec);
+
+  return 0;
 }

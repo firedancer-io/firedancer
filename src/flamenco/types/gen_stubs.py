@@ -457,18 +457,33 @@ def do_vector_body_size(n, f):
 
 def do_deque_body_size(n, f):
     print("  if ( self->" + f["name"] + " ) {", file=body)
-    print("    size += sizeof(ulong);", file=body)
-    if f["element"] == "unsigned char" or f["element"] == "uchar":
-        print("    size += " + deque_prefix(n, f) + "_cnt(self->" + f["name"] + ");", file=body)
+
+    if "modifier" in f and f["modifier"] == "compact":
+        print("    ushort " + f["name"] + "_len = (ushort)" + deque_prefix(n, f) + "_cnt(self->" + f["name"] + ");", file=body)
+        print("    size += fd_bincode_compact_u16_size(&" + f["name"] + "_len);", file=body)
+    else:
+        print("    size += sizeof(ulong);", file=body)
+
+    if f["element"] == "uchar" or f["element"] == "unsigned char":
+        print("    ulong " + f["name"] + "_len = " + deque_prefix(n, f) + "_cnt(self->" + f["name"] + ");", file=body)
+        print("    size += " + f["name"] + "_len;", file=body)
     elif f["element"] == "ulong" or f["element"] == "unsigned long":
-        print("    size += " + deque_prefix(n, f) + "_cnt(self->" + f["name"] + ") * sizeof(ulong);", file=body)
+        print("    ulong " + f["name"] + "_len = " + deque_prefix(n, f) + "_cnt(self->" + f["name"] + ");", file=body)
+        print("    size += " + f["name"] + "_len * sizeof(ulong);", file=body)
     elif f["element"] == "uint" or f["element"] == "unsigned int":
-        print("    size += " + deque_prefix(n, f) + "_cnt(self->" + f["name"] + ") * sizeof(uint);", file=body)
+        print("    ulong " + f["name"] + "_len = " + deque_prefix(n, f) + "_cnt(self->" + f["name"] + ");", file=body)
+        print("    size += " + f["name"] + "_len * sizeof(uint);", file=body)
     else:
         print("    for ( " + deque_prefix(n, f) + "_iter_t iter = " + deque_prefix(n, f) + "_iter_init( self->" + f["name"] + " ); !" + deque_prefix(n, f) + "_iter_done( self->" + f["name"] + ", iter ); iter = " + deque_prefix(n, f) + "_iter_next( self->" + f["name"] + ", iter ) ) {", file=body)
         print("      " + deque_elem_type(n, f) + " * ele = " + deque_prefix(n, f) + "_iter_ele( self->" + f["name"] + ", iter );", file=body)
         print("      size += " + n + "_" + f["element"] + "_size(ele);", file=body)
         print("    }", file=body)
+
+    print("  } else {", file=body)
+    if "modifier" in f and f["modifier"] == "compact":
+        print("    size += 1;", file=body)
+    else:
+        print("    size += sizeof(ulong);", file=body)
     print("  }", file=body)
 
 def do_map_body_size(n, f):
@@ -710,21 +725,23 @@ def do_vector_body_walk(n, f):
     print("  }", file=body)
 
 def do_deque_body_walk(n, f):
-    print("  if ( self->" + f["name"] + " ) {", file=body)
+#    print("  if ( self->" + f["name"] + " ) {", file=body)
+    print("    fun(self->" + f["name"] +", \""+f["name"]+"\", 36, \""+f["name"]+"\", level++);", file=body)
     print("    for ( " + deque_prefix(n, f) + "_iter_t iter = " + deque_prefix(n, f) + "_iter_init( self->" + f["name"] + " ); !" + deque_prefix(n, f) + "_iter_done( self->" + f["name"] + ", iter ); iter = " + deque_prefix(n, f) + "_iter_next( self->" + f["name"] + ", iter ) ) {", file=body)
     print("      " + deque_elem_type(n, f) + " * ele = " + deque_prefix(n, f) + "_iter_ele( self->" + f["name"] + ", iter );", file=body)
 
     if f["element"] == "unsigned char" or f["element"] == "uchar":
-        print("      //fd_bincode_bytes_walk(ele, 1, ctx);", file=body)
+        print("      fun(ele, \"ele\", 1, \"long\", level + 1);", file=body),
     elif f["element"] == "ulong" or f["element"] == "unsigned long":
-        print("      //fd_bincode_uint64_walk(ele, ctx);", file=body)
+        print("      fun(ele, \"ele\", 6, \"long\", level + 1);", file=body),
     elif f["element"] == "uint" or f["element"] == "unsigned int":
-        print("      //fd_bincode_uint32_walk(ele, ctx);", file=body)
+        print("      fun(ele, \"ele\", 7, \"uint\", level + 1);", file=body),
     else:
         print("      " + n + "_" + f["element"] + "_walk(ele, fun, \"" + f["name"] + "\", level + 1);", file=body)
 
     print("    }", file=body)
-    print("  }", file=body)
+    print("    fun(self->" + f["name"] +", \""+f["name"]+"\", 37, \""+f["name"]+"\", --level);", file=body)
+#    print("  }", file=body)
 
 def do_map_body_walk(n, f):
     print("  //fun(&self->" + f["name"] + ", \"" + f["name"] + "\", 17, \"map\");", file=body),
@@ -780,23 +797,23 @@ def do_option_body_walk(n, f):
         print("  // fun(&self->" + f["name"] + ", \"" + f["name"] + "\", 16, \"option\", level + 1);", file=body),
 
 fields_body_walk = {
-    "char" :              lambda n, f: print("  fun(&self->" + f["name"] + ", \"" + f["name"] + "\", 1, \"char\", level + 1);", file=body),
-    "char*" :             lambda n, f: print("  fun(self->" + f["name"] + ", \"" + f["name"] + "\", 2, \"char*\", level + 1);", file=body),
-    "char[32]" :          lambda n, f: print("  fun(self->" + f["name"] + ", \"" + f["name"] + "\", 3, \"char[32]\", level + 1);", file=body),
-    "char[7]" :           lambda n, f: print("  fun(self->" + f["name"] + ", \"" + f["name"] + "\", 4, \"char[7]\", level + 1);", file=body),
-    "double" :            lambda n, f: print("  fun(&self->" + f["name"] + ", \"" + f["name"] + "\", 5, \"double\", level + 1);", file=body),
-    "long" :              lambda n, f: print("  fun(&self->" + f["name"] + ", \"" + f["name"] + "\", 6, \"long\", level + 1);", file=body),
-    "uint" :              lambda n, f: print("  fun(&self->" + f["name"] + ", \"" + f["name"] + "\", 7, \"uint\", level + 1);", file=body),
-    "uint128" :           lambda n, f: print("  fun(&self->" + f["name"] + ", \"" + f["name"] + "\", 8, \"uint128\", level + 1);", file=body),
-    "unsigned char" :     lambda n, f: print("  fun(&self->" + f["name"] + ", \"" + f["name"] + "\", 9, \"uchar\", level + 1);", file=body),
-    "unsigned char[32]" : lambda n, f: print("  fun(self->" + f["name"] + ", \"" + f["name"] + "\", 10, \"uchar[32]\", level + 1);", file=body),
-    "unsigned long" :     lambda n, f: print("  fun(&self->" + f["name"] + ", \"" + f["name"] + "\", 11, \"ulong\", level + 1);", file=body),
-    "ushort" :            lambda n, f: print("  fun(&self->" + f["name"] + ", \"" + f["name"] + "\", 12, \"ushort\", level + 1);", file=body),
-    "vector" :            lambda n, f: do_vector_body_walk(n, f),
-    "deque" :             lambda n, f: do_deque_body_walk(n, f),
-    "array" :             lambda n, f: do_array_body_walk(n, f),
-    "option" :            lambda n, f: do_option_body_walk(n, f),
-    "map" :               lambda n, f: do_map_body_walk(n, f),
+    "char" :              lambda n, f, e: print("  fun(&self->" + e + f["name"] + ", \"" + f["name"] + "\", 1, \"char\", level + 1);", file=body),
+    "char*" :             lambda n, f, e: print("  fun(self->" + e + f["name"] + ", \"" + f["name"] + "\", 2, \"char*\", level + 1);", file=body),
+    "char[32]" :          lambda n, f, e: print("  fun(self->" + e + f["name"] + ", \"" + f["name"] + "\", 3, \"char[32]\", level + 1);", file=body),
+    "char[7]" :           lambda n, f, e: print("  fun(self->" + e + f["name"] + ", \"" + f["name"] + "\", 4, \"char[7]\", level + 1);", file=body),
+    "double" :            lambda n, f, e: print("  fun(&self->" + e + f["name"] + ", \"" + f["name"] + "\", 5, \"double\", level + 1);", file=body),
+    "long" :              lambda n, f, e: print("  fun(&self->" + e + f["name"] + ", \"" + f["name"] + "\", 6, \"long\", level + 1);", file=body),
+    "uint" :              lambda n, f, e: print("  fun(&self->" + e + f["name"] + ", \"" + f["name"] + "\", 7, \"uint\", level + 1);", file=body),
+    "uint128" :           lambda n, f, e: print("  fun(&self->" + e + f["name"] + ", \"" + f["name"] + "\", 8, \"uint128\", level + 1);", file=body),
+    "unsigned char" :     lambda n, f, e: print("  fun(&self->" + e + f["name"] + ", \"" + f["name"] + "\", 9, \"uchar\", level + 1);", file=body),
+    "unsigned char[32]" : lambda n, f, e: print("  fun(self->" + e + f["name"] + ", \"" + f["name"] + "\", 10, \"uchar[32]\", level + 1);", file=body),
+    "unsigned long" :     lambda n, f, e: print("  fun(&self->" + e + f["name"] + ", \"" + f["name"] + "\", 11, \"ulong\", level + 1);", file=body),
+    "ushort" :            lambda n, f, e: print("  fun(&self->" + e + f["name"] + ", \"" + f["name"] + "\", 12, \"ushort\", level + 1);", file=body),
+    "vector" :            lambda n, f, e: do_vector_body_walk(n, f),
+    "deque" :             lambda n, f, e: do_deque_body_walk(n, f),
+    "array" :             lambda n, f, e: do_array_body_walk(n, f),
+    "option" :            lambda n, f, e: do_option_body_walk(n, f),
+    "map" :               lambda n, f, e: do_map_body_walk(n, f),
 }
 
 # Map different names for the same times into how firedancer knows them
@@ -1057,10 +1074,22 @@ for entry in entries:
 
     if entry["type"] == "enum":
         print("  // enum " + namespace + "_" + f["type"] + "_walk(&self->" + f["name"] + ", fun, \"" + f["name"] + "\", level + 1);", file=body)
+
+        print("  switch (self->discriminant) {", file=body)
+        for i, v in enumerate(entry["variants"]):
+          if "type" in v:
+            print("  case "+ str(i) +": {", file=body)
+            if v["type"] in fields_body_walk:
+                fields_body_walk[v["type"]](namespace, v, "inner.")
+            else:
+                print("    " + namespace + "_" + v["type"] + "_walk(&self->inner." + v["name"] + ", fun, \"" + v["name"] + "\", level + 1);", file=body)
+            print("    break;", file=body)
+            print("  }", file=body)
+        print("  }", file=body)
     else:
         for f in entry["fields"]:
             if f["type"] in fields_body_walk:
-                fields_body_walk[f["type"]](namespace, f)
+                fields_body_walk[f["type"]](namespace, f, "")
             else:
                 print("  " + namespace + "_" + f["type"] + "_walk(&self->" + f["name"] + ", fun, \"" + f["name"] + "\", level + 1);", file=body)
 
