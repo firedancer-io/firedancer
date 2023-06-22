@@ -9,6 +9,11 @@
 
 #include <math.h>
 
+#ifdef _DISABLE_OPTIMIZATION
+#pragma GCC optimize ("O0")
+#endif
+
+
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L36 */
 #define INITIAL_LOCKOUT     ( 2 )
 
@@ -555,6 +560,8 @@ int fd_executor_vote_program_execute_instruction(
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
 
+  fd_vote_instruction_walk(&instruction, fd_printer_walker, "vote", 0);
+
   switch( instruction.discriminant ) {
   case fd_vote_instruction_enum_initialize_account: {
     /* VoteInstruction::InitializeAccount instruction
@@ -857,6 +864,7 @@ int fd_executor_vote_program_execute_instruction(
     /* Check that for each slot in the vote tower, we found a slot in the slot hashes:
        if so, we would have got to the end of the vote tower. */
     if ( vote_idx != vote_slots_new_cnt ) {
+      FD_LOG_WARNING(( "vote_idx != vote_slots_new_cnt" ));
       ctx.txn_ctx->custom_err = FD_VOTE_SLOTS_MISMATCH;
       ret = FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
       fd_vote_state_versioned_destroy(&vote_state_versioned, &destroy);
