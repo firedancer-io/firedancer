@@ -1023,12 +1023,12 @@ void fd_stakes_destroy(fd_stakes_t* self, fd_bincode_destroy_ctx_t * ctx) {
 void fd_stakes_walk(fd_stakes_t* self, fd_walk_fun_t fun, const char *name, int level) {
   fun(self, name, 32, "fd_stakes", level++);
   fd_vote_accounts_walk(&self->vote_accounts, fun, "vote_accounts", level + 1);
-  if ( self->stake_delegations ) {
+    fun(self->stake_delegations, "stake_delegations", 36, "stake_delegations", level++);
     for ( deq_fd_delegation_pair_t_iter_t iter = deq_fd_delegation_pair_t_iter_init( self->stake_delegations ); !deq_fd_delegation_pair_t_iter_done( self->stake_delegations, iter ); iter = deq_fd_delegation_pair_t_iter_next( self->stake_delegations, iter ) ) {
       fd_delegation_pair_t * ele = deq_fd_delegation_pair_t_iter_ele( self->stake_delegations, iter );
       fd_delegation_pair_walk(ele, fun, "stake_delegations", level + 1);
     }
-  }
+    fun(self->stake_delegations, "stake_delegations", 37, "stake_delegations", --level);
   fun(&self->unused, "unused", 11, "ulong", level + 1);
   fun(&self->epoch, "epoch", 11, "ulong", level + 1);
   fd_stake_history_walk(&self->stake_history, fun, "stake_history", level + 1);
@@ -3327,19 +3327,19 @@ void fd_vote_state_0_23_5_walk(fd_vote_state_0_23_5_t* self, fd_walk_fun_t fun, 
   fd_vote_prior_voters_0_23_5_walk(&self->prior_voters, fun, "prior_voters", level + 1);
   fd_pubkey_walk(&self->authorized_withdrawer, fun, "authorized_withdrawer", level + 1);
   fun(&self->commission, "commission", 9, "uchar", level + 1);
-  if ( self->votes ) {
+    fun(self->votes, "votes", 36, "votes", level++);
     for ( deq_fd_vote_lockout_t_iter_t iter = deq_fd_vote_lockout_t_iter_init( self->votes ); !deq_fd_vote_lockout_t_iter_done( self->votes, iter ); iter = deq_fd_vote_lockout_t_iter_next( self->votes, iter ) ) {
       fd_vote_lockout_t * ele = deq_fd_vote_lockout_t_iter_ele( self->votes, iter );
       fd_vote_lockout_walk(ele, fun, "votes", level + 1);
     }
-  }
+    fun(self->votes, "votes", 37, "votes", --level);
   fun(self->saved_root_slot, "saved_root_slot", 11, "ulong", level + 1);
-  if ( self->epoch_credits ) {
+    fun(self->epoch_credits, "epoch_credits", 36, "epoch_credits", level++);
     for ( deq_fd_vote_epoch_credits_t_iter_t iter = deq_fd_vote_epoch_credits_t_iter_init( self->epoch_credits ); !deq_fd_vote_epoch_credits_t_iter_done( self->epoch_credits, iter ); iter = deq_fd_vote_epoch_credits_t_iter_next( self->epoch_credits, iter ) ) {
       fd_vote_epoch_credits_t * ele = deq_fd_vote_epoch_credits_t_iter_ele( self->epoch_credits, iter );
       fd_vote_epoch_credits_walk(ele, fun, "epoch_credits", level + 1);
     }
-  }
+    fun(self->epoch_credits, "epoch_credits", 37, "epoch_credits", --level);
   fd_vote_block_timestamp_walk(&self->latest_timestamp, fun, "latest_timestamp", level + 1);
   fun(self, name, 33, "fd_vote_state_0_23_5", --level);
 }
@@ -3541,26 +3541,26 @@ void fd_vote_state_walk(fd_vote_state_t* self, fd_walk_fun_t fun, const char *na
   fd_pubkey_walk(&self->voting_node, fun, "voting_node", level + 1);
   fd_pubkey_walk(&self->authorized_withdrawer, fun, "authorized_withdrawer", level + 1);
   fun(&self->commission, "commission", 9, "uchar", level + 1);
-  if ( self->votes ) {
+    fun(self->votes, "votes", 36, "votes", level++);
     for ( deq_fd_vote_lockout_t_iter_t iter = deq_fd_vote_lockout_t_iter_init( self->votes ); !deq_fd_vote_lockout_t_iter_done( self->votes, iter ); iter = deq_fd_vote_lockout_t_iter_next( self->votes, iter ) ) {
       fd_vote_lockout_t * ele = deq_fd_vote_lockout_t_iter_ele( self->votes, iter );
       fd_vote_lockout_walk(ele, fun, "votes", level + 1);
     }
-  }
+    fun(self->votes, "votes", 37, "votes", --level);
   fun(self->saved_root_slot, "saved_root_slot", 11, "ulong", level + 1);
-  if ( self->authorized_voters ) {
+    fun(self->authorized_voters, "authorized_voters", 36, "authorized_voters", level++);
     for ( deq_fd_vote_historical_authorized_voter_t_iter_t iter = deq_fd_vote_historical_authorized_voter_t_iter_init( self->authorized_voters ); !deq_fd_vote_historical_authorized_voter_t_iter_done( self->authorized_voters, iter ); iter = deq_fd_vote_historical_authorized_voter_t_iter_next( self->authorized_voters, iter ) ) {
       fd_vote_historical_authorized_voter_t * ele = deq_fd_vote_historical_authorized_voter_t_iter_ele( self->authorized_voters, iter );
       fd_vote_historical_authorized_voter_walk(ele, fun, "authorized_voters", level + 1);
     }
-  }
+    fun(self->authorized_voters, "authorized_voters", 37, "authorized_voters", --level);
   fd_vote_prior_voters_walk(&self->prior_voters, fun, "prior_voters", level + 1);
-  if ( self->epoch_credits ) {
+    fun(self->epoch_credits, "epoch_credits", 36, "epoch_credits", level++);
     for ( deq_fd_vote_epoch_credits_t_iter_t iter = deq_fd_vote_epoch_credits_t_iter_init( self->epoch_credits ); !deq_fd_vote_epoch_credits_t_iter_done( self->epoch_credits, iter ); iter = deq_fd_vote_epoch_credits_t_iter_next( self->epoch_credits, iter ) ) {
       fd_vote_epoch_credits_t * ele = deq_fd_vote_epoch_credits_t_iter_ele( self->epoch_credits, iter );
       fd_vote_epoch_credits_walk(ele, fun, "epoch_credits", level + 1);
     }
-  }
+    fun(self->epoch_credits, "epoch_credits", 37, "epoch_credits", --level);
   fd_vote_block_timestamp_walk(&self->latest_timestamp, fun, "latest_timestamp", level + 1);
   fun(self, name, 33, "fd_vote_state", --level);
 }
@@ -4274,12 +4274,12 @@ void fd_slot_hashes_destroy(fd_slot_hashes_t* self, fd_bincode_destroy_ctx_t * c
 
 void fd_slot_hashes_walk(fd_slot_hashes_t* self, fd_walk_fun_t fun, const char *name, int level) {
   fun(self, name, 32, "fd_slot_hashes", level++);
-  if ( self->hashes ) {
+    fun(self->hashes, "hashes", 36, "hashes", level++);
     for ( deq_fd_slot_hash_t_iter_t iter = deq_fd_slot_hash_t_iter_init( self->hashes ); !deq_fd_slot_hash_t_iter_done( self->hashes, iter ); iter = deq_fd_slot_hash_t_iter_next( self->hashes, iter ) ) {
       fd_slot_hash_t * ele = deq_fd_slot_hash_t_iter_ele( self->hashes, iter );
       fd_slot_hash_walk(ele, fun, "hashes", level + 1);
     }
-  }
+    fun(self->hashes, "hashes", 37, "hashes", --level);
   fun(self, name, 33, "fd_slot_hashes", --level);
 }
 ulong fd_slot_hashes_size(fd_slot_hashes_t const * self) {
@@ -4385,12 +4385,12 @@ void fd_recent_block_hashes_destroy(fd_recent_block_hashes_t* self, fd_bincode_d
 
 void fd_recent_block_hashes_walk(fd_recent_block_hashes_t* self, fd_walk_fun_t fun, const char *name, int level) {
   fun(self, name, 32, "fd_recent_block_hashes", level++);
-  if ( self->hashes ) {
+    fun(self->hashes, "hashes", 36, "hashes", level++);
     for ( deq_fd_block_block_hash_entry_t_iter_t iter = deq_fd_block_block_hash_entry_t_iter_init( self->hashes ); !deq_fd_block_block_hash_entry_t_iter_done( self->hashes, iter ); iter = deq_fd_block_block_hash_entry_t_iter_next( self->hashes, iter ) ) {
       fd_block_block_hash_entry_t * ele = deq_fd_block_block_hash_entry_t_iter_ele( self->hashes, iter );
       fd_block_block_hash_entry_walk(ele, fun, "hashes", level + 1);
     }
-  }
+    fun(self->hashes, "hashes", 37, "hashes", --level);
   fun(self, name, 33, "fd_recent_block_hashes", --level);
 }
 ulong fd_recent_block_hashes_size(fd_recent_block_hashes_t const * self) {
@@ -4660,12 +4660,12 @@ void fd_clock_timestamp_votes_destroy(fd_clock_timestamp_votes_t* self, fd_binco
 
 void fd_clock_timestamp_votes_walk(fd_clock_timestamp_votes_t* self, fd_walk_fun_t fun, const char *name, int level) {
   fun(self, name, 32, "fd_clock_timestamp_votes", level++);
-  if ( self->votes ) {
+    fun(self->votes, "votes", 36, "votes", level++);
     for ( deq_fd_clock_timestamp_vote_t_iter_t iter = deq_fd_clock_timestamp_vote_t_iter_init( self->votes ); !deq_fd_clock_timestamp_vote_t_iter_done( self->votes, iter ); iter = deq_fd_clock_timestamp_vote_t_iter_next( self->votes, iter ) ) {
       fd_clock_timestamp_vote_t * ele = deq_fd_clock_timestamp_vote_t_iter_ele( self->votes, iter );
       fd_clock_timestamp_vote_walk(ele, fun, "votes", level + 1);
     }
-  }
+    fun(self->votes, "votes", 37, "votes", --level);
   fun(self, name, 33, "fd_clock_timestamp_votes", --level);
 }
 ulong fd_clock_timestamp_votes_size(fd_clock_timestamp_votes_t const * self) {
@@ -5044,12 +5044,12 @@ void fd_vote_destroy(fd_vote_t* self, fd_bincode_destroy_ctx_t * ctx) {
 
 void fd_vote_walk(fd_vote_t* self, fd_walk_fun_t fun, const char *name, int level) {
   fun(self, name, 32, "fd_vote", level++);
-  if ( self->slots ) {
+    fun(self->slots, "slots", 36, "slots", level++);
     for ( deq_ulong_iter_t iter = deq_ulong_iter_init( self->slots ); !deq_ulong_iter_done( self->slots, iter ); iter = deq_ulong_iter_next( self->slots, iter ) ) {
       ulong * ele = deq_ulong_iter_ele( self->slots, iter );
       fun(ele, "ele", 6, "long", level + 1);
     }
-  }
+    fun(self->slots, "slots", 37, "slots", --level);
   fd_hash_walk(&self->hash, fun, "hash", level + 1);
   fun(self->timestamp, "timestamp", 11, "ulong", level + 1);
   fun(self, name, 33, "fd_vote", --level);

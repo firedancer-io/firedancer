@@ -725,7 +725,8 @@ def do_vector_body_walk(n, f):
     print("  }", file=body)
 
 def do_deque_body_walk(n, f):
-    print("  if ( self->" + f["name"] + " ) {", file=body)
+#    print("  if ( self->" + f["name"] + " ) {", file=body)
+    print("    fun(self->" + f["name"] +", \""+f["name"]+"\", 36, \""+f["name"]+"\", level++);", file=body)
     print("    for ( " + deque_prefix(n, f) + "_iter_t iter = " + deque_prefix(n, f) + "_iter_init( self->" + f["name"] + " ); !" + deque_prefix(n, f) + "_iter_done( self->" + f["name"] + ", iter ); iter = " + deque_prefix(n, f) + "_iter_next( self->" + f["name"] + ", iter ) ) {", file=body)
     print("      " + deque_elem_type(n, f) + " * ele = " + deque_prefix(n, f) + "_iter_ele( self->" + f["name"] + ", iter );", file=body)
 
@@ -739,7 +740,8 @@ def do_deque_body_walk(n, f):
         print("      " + n + "_" + f["element"] + "_walk(ele, fun, \"" + f["name"] + "\", level + 1);", file=body)
 
     print("    }", file=body)
-    print("  }", file=body)
+    print("    fun(self->" + f["name"] +", \""+f["name"]+"\", 37, \""+f["name"]+"\", --level);", file=body)
+#    print("  }", file=body)
 
 def do_map_body_walk(n, f):
     print("  //fun(&self->" + f["name"] + ", \"" + f["name"] + "\", 17, \"map\");", file=body),

@@ -730,6 +730,12 @@ void fd_printer_walker(void *arg, const char* name, int type, const char *type_n
       printf("\"%s\": \"%s\",\n", name, buf);
       break;
     }
+    case 36:
+      printf("\"%s\": [\n", name);
+      break;
+    case 37:
+      printf("],\n");
+      break;
   default:
     printf("arg: %ld  name: %s  type: %d   type_name: %s\n", (ulong) arg, name, type, type_name);
     break;
