@@ -91,6 +91,11 @@ struct __attribute__((aligned(FD_XSK_ALIGN))) fd_xsk_private {
                            (requires NIC and driver support) */
   ulong xdp_mode;
 
+  /* flags
+     see fd_xsk.h for a description */
+
+  ulong flags;
+
   /* Per-join thread-group-local objects ******************************/
 
   /* Kernel descriptor of UMEM in local address space */

@@ -24,6 +24,18 @@ fd_cstr_to_xdp_mode( char const * s ) {
   else                             return 0U;
 }
 
+static ulong
+parse_xsk_flag( char const * flag_name ) {
+  if( strcmp( flag_name, "use-need-wakeup" ) == 0 ) {
+    return FD_XSK_FLAG_USE_NEED_WAKEUP;
+  }
+  if( strcmp( flag_name, "copy" ) == 0 ) {
+    return FD_XSK_FLAG_COPY;
+  }
+
+  FD_LOG_ERR(( "XSK flag %s not understood", flag_name ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -263,6 +275,40 @@ main( int     argc,
       FD_LOG_NOTICE(( "%i: %s %s: success", cnt, cmd, _shxsk ));
       SHIFT( 1 );
 
+    } else if( 0==strcmp( cmd, "set-xsk-flag" ) ) {
+      if( FD_UNLIKELY( argc<2 ) ) FD_LOG_ERR(( "%i: %s: too few arguments\n\tDo %s help for help", cnt, cmd, bin ));
+
+      char const * _shxsk = argv[0];
+      char const * _flag  = argv[1];
+
+      void * shxsk = fd_wksp_map( _shxsk );
+      if( FD_UNLIKELY( !shxsk ) ) {
+        FD_LOG_ERR(( "%i: %s: fd_wksp_map(%s) failed\n\tDo %s help for help", cnt, cmd, _shxsk, bin ));
+      }
+
+      ulong cur_flags = fd_xsk_get_flags( shxsk );
+      ulong flag      = parse_xsk_flag( _flag );
+
+      fd_xsk_set_flags( shxsk, cur_flags | flag );
+
+      FD_LOG_NOTICE(( "%i: %s %s: success", cnt, cmd, _shxsk ));
+      SHIFT( 2 );
+
+    } else if( 0==strcmp( cmd, "clear-xsk-flags" ) ) {
+      if( FD_UNLIKELY( argc<1 ) ) FD_LOG_ERR(( "%i: %s: too few arguments\n\tDo %s help for help", cnt, cmd, bin ));
+
+      char const * _shxsk = argv[0];
+
+      void * shxsk = fd_wksp_map( _shxsk );
+      if( FD_UNLIKELY( !shxsk ) ) {
+        FD_LOG_ERR(( "%i: %s: fd_wksp_map(%s) failed\n\tDo %s help for help", cnt, cmd, _shxsk, bin ));
+      }
+
+      fd_xsk_set_flags( shxsk, 0UL );
+
+      FD_LOG_NOTICE(( "%i: %s %s: success", cnt, cmd, _shxsk ));
+      SHIFT( 1 );
+
     } else if( 0==strcmp( cmd, "delete-xsk" ) ) {
 
       if( FD_UNLIKELY( argc<1 ) ) FD_LOG_ERR(( "%i: %s: too few arguments\n\tDo %s help for help", cnt, cmd, bin ));
@@ -270,10 +316,12 @@ main( int     argc,
       char const * _shxsk = argv[0];
 
       void * shxsk = fd_wksp_map( _shxsk );
-      if( FD_UNLIKELY( !shxsk ) )
+      if( FD_UNLIKELY( !shxsk ) ) {
         FD_LOG_ERR(( "%i: %s: fd_wksp_map(%s) failed\n\tDo %s help for help", cnt, cmd, _shxsk, bin ));
-      if( FD_UNLIKELY( !fd_xsk_delete( shxsk ) ) )
+      }
+      if( FD_UNLIKELY( !fd_xsk_delete( shxsk ) ) ) {
         FD_LOG_ERR(( "%i: %s: fd_xdp_delete(%s) failed\n\tDo %s help for help", cnt, cmd, _shxsk, bin ));
+      }
       fd_wksp_unmap( shxsk );
 
       FD_LOG_NOTICE(( "%i: %s %s: success", cnt, cmd, _shxsk ));

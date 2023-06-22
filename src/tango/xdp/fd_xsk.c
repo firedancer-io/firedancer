@@ -110,7 +110,7 @@ fd_xsk_bind( void *       shxsk,
     FD_LOG_WARNING(( "missing app_name" ));
     return NULL;
   }
-  if( FD_UNLIKELY( app_name_len==NAME_MAX ) ) {
+  if( FD_UNLIKELY( app_name_len>NAME_MAX ) ) {
     FD_LOG_WARNING(( "app_name not a cstr or exceeds NAME_MAX" ));
     return NULL;
   }
@@ -475,11 +475,14 @@ fd_xsk_init( fd_xsk_t * xsk ) {
 
   /* Bind XSK to queue on network interface */
 
+  ushort flag0 = xsk->flags & FD_XSK_FLAG_USE_NEED_WAKEUP ? XDP_USE_NEED_WAKEUP : 0UL;
+  ushort flag1 = xsk->flags & FD_XSK_FLAG_COPY            ? XDP_COPY            : 0UL;
+
   struct sockaddr_xdp sa = {
     .sxdp_family   = PF_XDP,
     .sxdp_ifindex  = xsk->if_idx,
     .sxdp_queue_id = xsk->if_queue_id,
-    .sxdp_flags    = XDP_USE_NEED_WAKEUP | XDP_COPY
+    .sxdp_flags    = flag0 | flag1
   };
 
   if( FD_UNLIKELY( 0!=bind( xsk->xsk_fd, (void *)&sa, sizeof(struct sockaddr_xdp) ) ) ) {
@@ -898,4 +901,16 @@ fd_xsk_tx_complete2( fd_xsk_t *            xsk,
 FD_FN_CONST fd_xsk_params_t const *
 fd_xsk_get_params( fd_xsk_t const * xsk ) {
   return &xsk->params;
+}
+
+void
+fd_xsk_set_flags( fd_xsk_t * xsk, ulong flags ) {
+  xsk->flags = flags;
+}
+
+/* fd_xsk_get_flags returns the flags mask currently set on the xsk */
+
+FD_FN_CONST ulong
+fd_xsk_get_flags( fd_xsk_t * xsk ) {
+  return xsk->flags;
 }

@@ -14,5 +14,8 @@ $(call run-unit-test,test_xdp_ebpf)
 
 $(call make-unit-test,test_xdp_echo_aio,test_xdp_echo_aio,fd_tango fd_ballet fd_util)
 $(call add-test-scripts,test_xdp_ctl test_xdp_init test_xdp_full test_xdp_fini)
+
+$(call make-unit-test,test_xdp_tx_flood,test_xdp_tx_flood,fd_tango fd_ballet fd_util)
+$(call add-test-scripts,test_xdp_ctl test_xdp_init test_xdp_full test_xdp_fini)
 endif # FD_HAS_HOSTED
 

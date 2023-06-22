@@ -148,6 +148,20 @@ struct fd_xsk_params {
 };
 typedef struct fd_xsk_params fd_xsk_params_t;
 
+/* Flags
+
+     FD_XSK_FLAG_USE_NEED_WAKEUP - Enables the WAKEUP feature of XSK
+                              May affect performance, depending on the
+                              hardware and the driver
+                              Sets XDP_USE_NEED_WAKEUP on the XDP socket
+     FD_XSK_FLAG_COPY            - Enables the COPY feature of XSK
+                              May affect performance, depending on the
+                              hardware and the driver
+                              Sets XDP_COPY on the XDP socket */
+
+#define FD_XSK_FLAG_USE_NEED_WAKEUP (1UL<<0UL)
+#define FD_XSK_FLAG_COPY            (1UL<<1UL)
+
 FD_PROTOTYPES_BEGIN
 
 /* Setup API **********************************************************/
@@ -218,6 +232,19 @@ fd_xsk_unbind( void * shxsk );
 
 fd_xsk_t *
 fd_xsk_join( void * shxsk );
+
+/* fd_xsk_set_flags sets a flag in the xsk. These flags must be set
+   prior to the call to fd_xsk_init, or they will not take effect.
+   See the description of the flags above */
+
+void
+fd_xsk_set_flags( fd_xsk_t * xsk, ulong flags );
+
+/* fd_xsk_get_flags returns the flags mask currently set on the xsk */
+
+ulong
+fd_xsk_get_flags( fd_xsk_t * xsk );
+
 
 /* fd_xsk_leave leaves a current local join and releases all kernel
    resources.  Returns a pointer to the underlying shared memory region

@@ -1,0 +1,313 @@
+#!/bin/bash
+
+declare -a XSK_FLAGS
+
+function execute {
+  >&2 echo Running: "${@}"
+  "${@}"
+}
+
+
+if [ $# -lt 1 ]; then
+  echo ""
+  echo "        Usage: $0 [TODO]"
+  echo ""
+  echo ""
+  echo "        A suitable shared memory sandbox can usually be setup by running:"
+  echo "                sudo [BUILD_DIRECTORY]/bin/fd_shmem_cfg init 0700 $USER \"\""
+  echo "        once."
+  echo ""
+  exit 1
+fi
+
+: "${NUMA_IDX:=0}"
+: "${APP:=test_xdp}"
+: "${BUILD:=./build/linux/gcc/x86_64/}"
+: "${MODE:=drv}"
+: "${PROTO:=tpu-quic-user}"
+FINI=0
+
+POSITIONAL_ARGS=()
+
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    -i|--intf)
+      INTF="$2"
+      shift # past argument
+      shift # past value
+      ;;
+    -a|--ip-addr)
+      IP_ADDR="$2"
+      shift # past argument
+      shift # past value
+      ;;
+    -m|--mac-addr)
+      MAC_ADDR="$2"
+      shift # past argument
+      shift # past value
+      ;;
+    -a|--app)
+      APP="$2"
+      shift # past argument
+      shift # past value
+      ;;
+    -n|--numa-idx)
+      NUMA_IDX="$2"
+      shift # past argument
+      shift # past value
+      ;;
+    -q|--queues)
+      QUEUES="$2"
+      shift # past argument
+      shift # past value
+      ;;
+    -p|--port)
+      PORT="$2"
+      shift # past argument
+      shift # past value
+      ;;
+    -d|--dst-ip-addr)
+      DST_IP_ADDR="$2"
+      shift
+      shift
+      ;;
+    -x|--mode)
+      MODE="$2"
+      shift # past argument
+      shift # past value
+      ;;
+    -f|--flag)
+      XSK_FLAGS+=("$2")
+      shift
+      shift
+      ;;
+    -x|--fini)
+      FINI=1
+      shift
+      shift
+      ;;
+    -*|--*)
+      echo "Unknown option $1"
+      exit 1
+      ;;
+    *)
+      POSITIONAL_ARGS+=("$1") # save positional arg
+      shift # past argument
+      ;;
+  esac
+done
+
+set -- "${POSITIONAL_ARGS[@]}" # restore positional parameters
+
+if [ -z $INTF ]; then
+  echo "--intf [interface name ] missing"
+  exit 1
+fi
+
+if [ ! -d /sys/class/net/$INTF ]; then
+  echo Interface $INTF not found in /sys/class/net
+  exit 1
+fi
+
+MAC_ADDR="$(cat /sys/class/net/$INTF/address)"
+if (( $? )); then
+    echo Failed to get MAC address for interface $INTF
+    exit 1
+fi
+
+IP_ADDR=( $( ip address show dev $INTF | sed -n -E 's/\s+inet ([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)\/.*/\1/p' ) )
+if (( $? )); then
+    echo Failed to obtain IP address for interface $INTF
+    exit 1
+fi
+
+if [ -z "$DST_IP_ADDR" ]; then
+  echo "--dst-ip-addr missing"
+  exit 1
+fi
+
+# convert IP address to 4 ints
+function hex2dec() {
+  while read -r line; do
+    echo $((16#$line))
+  done
+}
+
+dst_ip=( $(echo $DST_IP_ADDR | tr '.' '\n' ) )
+
+if (( ${#dst_ip[@]} != 4 )); then
+  echo "invalid dst-ip-addr: $DST_IP_ADDR"
+  exit 1
+fi
+
+echo dst_ip: ${dst_ip[@]}
+
+mask_ip=( ${dst_ip[@]} )
+mask_ip[0]=$(( ${mask_ip[0]} & 16#e0 ))
+
+# check for multicast
+if (( ${mask_ip[0]} == 16#e0 )); then
+  # multicast
+
+  # map multicast IP -> multicast ethernet MAC
+  # low order 23 bits of IP addr -> 01-00-5E-xx-xx-xx
+
+  # mask 7 bits from octet 1
+  mask_ip[1]=$(( ${mask_ip[1]} & 16#7f ))
+  
+  # now mask_ip[1..3] contains low order 23 bits
+  dst_mac_octets=( $((16#01)) $((16#00)) $((16#5e)) )
+  dst_mac_octets+=(${mask_ip[@]:1})
+
+  dst_mac_octets_hex=()
+  for octet in ${dst_mac_octets[@]}; do
+    dst_mac_octets_hex+=( $(printf "%02x" $octet) )
+  done
+
+  DST_MAC_ADDR=$(printf "%02x:%02x:%02x:%02x:%02x:%02x" ${dst_mac_octets[@]})
+
+else
+  # unicast
+
+  # use ping to verify connectivity, and update ARP table, if necessary
+  ping -A -c 5 "$DST_IP_ADDR" > /dev/null
+  if (( $? )); then
+    echo Failed to ping $DST_IP_ADDR via $INTF
+    exit 1
+  fi
+
+  # look up dest mac
+  DST_MAC_ADDR="$(arp -i $INTF $DST_IP_ADDR | fgrep $DST_IP_ADDR | grep -o "[^: ]*:[^: ]*:[^: ]*:[^: ]*:[^: ]*:[^: ]*" | head -n1)"
+  if (( $? )); then
+      echo Failed to obtain MAC address for $DST_IP_ADDR on $INTF
+      exit 1
+  fi
+fi
+
+: "${WKSP:=$APP}"
+: "${WKSP_CNT:=2}"
+: "${WKSP_PAGE:=gigantic}"
+
+: "${INTF_MAC:=$MAC_ADDR}"
+: "${INTF_ADDR:=$IP_ADDR}"
+
+: "${PORT:=9042}"
+
+: "${XSK_FRAME_SZ:=2048}"
+: "${XSK_RX_DEPTH:=2048}"
+: "${XSK_TX_DEPTH:=2048}"
+: "${AIO_BATCH_CNT:=64}"
+
+: "${XDP_PROGRAM:=src/ballet/ebpf/ebpf_xdp_flow.o}"
+
+if [[ -z "$WKSP" ]]; then
+  echo 'Missing $WKSP' >2
+  exit 1
+fi
+
+CONF=tmp/$APP.conf
+
+########################################################################
+
+BIN=$BUILD/bin
+UNIT_TEST=$BUILD/unit-test
+
+# Disable permanant log for all the controls we are going to run in here
+
+FD_LOG_PATH=""
+export FD_LOG_PATH
+
+# Do basic box config (if not done already)
+
+execute "$BIN/fd_wksp_ctl" delete $WKSP &> /dev/null # Okay if this fails
+
+#sudo $BIN/fd_shmem_cfg init 0700 $USER ""
+#sudo $BIN/fd_shmem_cfg alloc 1 gigantic 0
+#sudo $BIN/fd_shmem_cfg alloc 256 huge 0
+
+# Create the wksp
+
+execute "$BIN/fd_wksp_ctl" new $WKSP $WKSP_CNT $WKSP_PAGE $NUMA_IDX 0600 || exit $?
+
+CNC="$( execute "$BIN/fd_tango_ctl" new-cnc "$WKSP" 0 tic 4032 )" || exit $?
+
+# Create XDP env
+
+execute "$BIN/fd_xdp_ctl" fini "$WKSP"
+
+# some interfaces aren't so easy to reset
+# this seems to do the job
+# the above and following are asynchronous, so pause each time
+sleep 0.1s
+ip link set $INTF xdpdrv off
+sleep 0.1s
+ip link set $INTF xdpgeneric off
+sleep 0.1s
+ip link set $INTF xdpoffload off
+sleep 0.1s
+
+rm -rvf /sys/fs/bpf/"$WKSP"
+rm -rvf /sys/fs/bpf/"$WKSP"
+execute "$BIN/fd_xdp_ctl" init "$WKSP" 0755 "$USER" "" || exit $?
+
+# Install XDP program
+
+execute "$BIN/fd_xdp_ctl" unhook-iface "$WKSP" "$INTF" &> /dev/null # Okay if this fails
+execute "$BIN/fd_xdp_ctl"   hook-iface "$WKSP" "$INTF" "$MODE" || exit $?
+
+# Show XDP program status (xdp-tools)
+
+if command -v xdp-loader; then
+  xdp-loader status "$INTF" || exit $?
+fi
+
+# Setup listener
+
+execute "$BIN/fd_xdp_ctl" listen-udp-port "$WKSP" "$INTF_ADDR" "$PORT" "$PROTO" || exit $?
+
+# Setup XSK
+
+XSK="$(    execute "$BIN/fd_xdp_ctl" new-xsk     "$WKSP" "$XSK_FRAME_SZ" "$XSK_RX_DEPTH" "$XSK_TX_DEPTH")" || exit $?
+XSK_AIO="$(execute "$BIN/fd_xdp_ctl" new-xsk-aio "$WKSP" "$XSK_TX_DEPTH" "$AIO_BATCH_CNT"               )" || exit $?
+
+execute "$BIN/fd_xdp_ctl" bind-xsk "$XSK" "$WKSP" "$INTF" 0 || exit $?
+
+# Set flags
+for FLAG in "${XSK_FLAGS[@]}"; do
+  execute "$BIN/fd_xdp_ctl" set-xsk-flag "$XSK" "${FLAG}"
+done
+
+
+# Write out the details
+
+dumpvar () { printf "$1=%q\n" "${!1}"; }
+
+mkdir -pv "$(dirname "$CONF")" || exit $?
+( echo "#!/bin/bash"
+  echo "# AUTOGENERATED"
+  dumpvar BIN
+  dumpvar UNIT_TEST
+  dumpvar NUMA_IDX
+  dumpvar WKSP
+  dumpvar CNC
+  dumpvar INTF
+  dumpvar INTF_MAC
+  dumpvar INTF_ADDR
+  dumpvar PORT
+  dumpvar XSK
+  dumpvar XSK_AIO
+  dumpvar IP_ADDR
+  dumpvar MAC_ADDR
+  dumpvar DST_IP_ADDR
+  dumpvar DST_MAC_ADDR
+  dumpvar XSK_FRAME_SZ
+  dumpvar XSK_RX_DEPTH
+  dumpvar XSK_TX_DEPTH
+  dumpvar AIO_BATCH_CNT
+  dumpvar MODE
+) > "$CONF" || exit $?
+
+echo "Autogenerated unit test configuration at $CONF"
+echo pass
+exit 0
+
