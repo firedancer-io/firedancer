@@ -330,6 +330,21 @@ fd_bincode_compact_u16_encode( ushort const *            self,
   }
 }
 
+static inline ulong
+fd_bincode_compact_u16_size( ushort const * self ) {
+  ulong val = *self;
+
+  if ( val < 0x80UL ) {
+    return 1;
+  }
+  else if ( val < 0x4000UL ) {
+    return 2;
+  }
+  else {
+    return 3;
+  }
+}
+
 /* Decodes an integer encoded using the serde_varint algorithm:
    https://github.com/solana-labs/solana/blob/master/sdk/program/src/serde_varint.rs
 

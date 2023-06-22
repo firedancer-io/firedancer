@@ -457,18 +457,33 @@ def do_vector_body_size(n, f):
 
 def do_deque_body_size(n, f):
     print("  if ( self->" + f["name"] + " ) {", file=body)
-    print("    size += sizeof(ulong);", file=body)
-    if f["element"] == "unsigned char" or f["element"] == "uchar":
-        print("    size += " + deque_prefix(n, f) + "_cnt(self->" + f["name"] + ");", file=body)
+
+    if "modifier" in f and f["modifier"] == "compact":
+        print("    ushort " + f["name"] + "_len = (ushort)" + deque_prefix(n, f) + "_cnt(self->" + f["name"] + ");", file=body)
+        print("    size += fd_bincode_compact_u16_size(&" + f["name"] + "_len);", file=body)
+    else:
+        print("    size += sizeof(ulong);", file=body)
+
+    if f["element"] == "uchar" or f["element"] == "unsigned char":
+        print("    ulong " + f["name"] + "_len = " + deque_prefix(n, f) + "_cnt(self->" + f["name"] + ");", file=body)
+        print("    size += " + f["name"] + "_len;", file=body)
     elif f["element"] == "ulong" or f["element"] == "unsigned long":
-        print("    size += " + deque_prefix(n, f) + "_cnt(self->" + f["name"] + ") * sizeof(ulong);", file=body)
+        print("    ulong " + f["name"] + "_len = " + deque_prefix(n, f) + "_cnt(self->" + f["name"] + ");", file=body)
+        print("    size += " + f["name"] + "_len * sizeof(ulong);", file=body)
     elif f["element"] == "uint" or f["element"] == "unsigned int":
-        print("    size += " + deque_prefix(n, f) + "_cnt(self->" + f["name"] + ") * sizeof(uint);", file=body)
+        print("    ulong " + f["name"] + "_len = " + deque_prefix(n, f) + "_cnt(self->" + f["name"] + ");", file=body)
+        print("    size += " + f["name"] + "_len * sizeof(uint);", file=body)
     else:
         print("    for ( " + deque_prefix(n, f) + "_iter_t iter = " + deque_prefix(n, f) + "_iter_init( self->" + f["name"] + " ); !" + deque_prefix(n, f) + "_iter_done( self->" + f["name"] + ", iter ); iter = " + deque_prefix(n, f) + "_iter_next( self->" + f["name"] + ", iter ) ) {", file=body)
         print("      " + deque_elem_type(n, f) + " * ele = " + deque_prefix(n, f) + "_iter_ele( self->" + f["name"] + ", iter );", file=body)
         print("      size += " + n + "_" + f["element"] + "_size(ele);", file=body)
         print("    }", file=body)
+
+    print("  } else {", file=body)
+    if "modifier" in f and f["modifier"] == "compact":
+        print("    size += 1;", file=body)
+    else:
+        print("    size += sizeof(ulong);", file=body)
     print("  }", file=body)
 
 def do_map_body_size(n, f):

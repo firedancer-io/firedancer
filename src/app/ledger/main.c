@@ -30,6 +30,7 @@ static void usage(const char* progname) {
   fprintf(stderr, " --cmd ingest --snapshotfile <file>               ingest solana snapshot file\n");
   fprintf(stderr, "              --incremental <file>                also ingest incremental snapshot file\n");
   fprintf(stderr, "              --rocksdb <file>                    also ingest a rocks database file\n");
+  fprintf(stderr, "              --genesis <file>                    also ingest a genesis file\n");
   fprintf(stderr, " --cmd recover                                    recover in-memory database from persistence file\n");
   fprintf(stderr, " --cmd repersist                                  persist in-memory database to persistence file\n");
   fprintf(stderr, " --wksp <name>                                    workspace name\n");
@@ -533,6 +534,61 @@ int main(int argc, char** argv) {
       ingest_rocksdb(global, file, start_slot, end_slot, verifypoh, tpool, tcnt-1);
     }
 
+    file = fd_env_strip_cmdline_cstr(&argc, &argv, "--genesis", NULL, NULL);
+    if (file != NULL) {
+      struct stat sbuf;
+      if (stat(file, &sbuf) < 0)
+        FD_LOG_ERR(("cannot open %s : %s", file, strerror(errno)));
+      int fd = open(file, O_RDONLY);
+      if (fd < 0)
+        FD_LOG_ERR(("cannot open %s : %s", file, strerror(errno)));
+      uchar * buf = malloc((ulong) sbuf.st_size);
+      ssize_t n = read(fd, buf, (ulong) sbuf.st_size);
+      close(fd);
+
+      fd_genesis_solana_t genesis_block;
+      fd_genesis_solana_new(&genesis_block);
+      fd_bincode_decode_ctx_t ctx;
+      ctx.data = buf;
+      ctx.dataend = &buf[n];
+      ctx.allocf = global->allocf;
+      ctx.allocf_arg = global->allocf_arg;
+      if ( fd_genesis_solana_decode(&genesis_block, &ctx) )
+        FD_LOG_ERR(("fd_genesis_solana_decode failed"));
+
+      // The hash is generated from the raw data... don't mess with this..
+      uchar genesis_hash[FD_SHA256_HASH_SZ];
+      fd_sha256_t sha;
+      fd_sha256_init( &sha );
+      fd_sha256_append( &sha, buf, (ulong) n );
+      fd_sha256_fini( &sha, genesis_hash );
+
+      free(buf);
+
+      fd_runtime_init_bank_from_genesis( global, &genesis_block, genesis_hash );
+    
+      fd_runtime_init_program( global );
+
+      for (ulong i = 0; i < genesis_block.accounts_len; i++) {
+        fd_pubkey_account_pair_t * a = &genesis_block.accounts[i];
+        char pubkey[50];
+        fd_base58_encode_32((uchar *) genesis_block.accounts[i].key.key, NULL, pubkey);
+        fd_acc_mgr_write_structured_account(global->acc_mgr, global->funk_txn, 0, &a->key, &a->account);
+      }
+
+      fd_bincode_destroy_ctx_t ctx2;
+      ctx2.freef = global->freef;
+      ctx2.freef_arg = global->allocf_arg;
+      fd_genesis_solana_destroy(&genesis_block, &ctx2);
+    }
+
+    global->signature_cnt = 0;
+    fd_hash_bank( global, &global->bank.banks_hash );
+    fd_dirty_dup_clear(global->acc_mgr->dup);
+    fd_pubkey_hash_vector_clear(&global->acc_mgr->keys);
+
+    fd_runtime_save_banks(global);
+    
   } else if (strcmp(cmd, "recover") == 0) {
     if (persist != NULL) {
       if (fd_funk_persist_open(funk, persist, 0) != FD_FUNK_SUCCESS)

@@ -1043,6 +1043,8 @@ ulong fd_stakes_size(fd_stakes_t const * self) {
       fd_delegation_pair_t * ele = deq_fd_delegation_pair_t_iter_ele( self->stake_delegations, iter );
       size += fd_delegation_pair_size(ele);
     }
+  } else {
+    size += sizeof(ulong);
   }
   size += sizeof(ulong);
   size += sizeof(ulong);
@@ -3355,6 +3357,8 @@ ulong fd_vote_state_0_23_5_size(fd_vote_state_0_23_5_t const * self) {
       fd_vote_lockout_t * ele = deq_fd_vote_lockout_t_iter_ele( self->votes, iter );
       size += fd_vote_lockout_size(ele);
     }
+  } else {
+    size += sizeof(ulong);
   }
   size += sizeof(char);
   if (NULL !=  self->saved_root_slot) {
@@ -3366,6 +3370,8 @@ ulong fd_vote_state_0_23_5_size(fd_vote_state_0_23_5_t const * self) {
       fd_vote_epoch_credits_t * ele = deq_fd_vote_epoch_credits_t_iter_ele( self->epoch_credits, iter );
       size += fd_vote_epoch_credits_size(ele);
     }
+  } else {
+    size += sizeof(ulong);
   }
   size += fd_vote_block_timestamp_size(&self->latest_timestamp);
   return size;
@@ -3569,6 +3575,8 @@ ulong fd_vote_state_size(fd_vote_state_t const * self) {
       fd_vote_lockout_t * ele = deq_fd_vote_lockout_t_iter_ele( self->votes, iter );
       size += fd_vote_lockout_size(ele);
     }
+  } else {
+    size += sizeof(ulong);
   }
   size += sizeof(char);
   if (NULL !=  self->saved_root_slot) {
@@ -3580,6 +3588,8 @@ ulong fd_vote_state_size(fd_vote_state_t const * self) {
       fd_vote_historical_authorized_voter_t * ele = deq_fd_vote_historical_authorized_voter_t_iter_ele( self->authorized_voters, iter );
       size += fd_vote_historical_authorized_voter_size(ele);
     }
+  } else {
+    size += sizeof(ulong);
   }
   size += fd_vote_prior_voters_size(&self->prior_voters);
   if ( self->epoch_credits ) {
@@ -3588,6 +3598,8 @@ ulong fd_vote_state_size(fd_vote_state_t const * self) {
       fd_vote_epoch_credits_t * ele = deq_fd_vote_epoch_credits_t_iter_ele( self->epoch_credits, iter );
       size += fd_vote_epoch_credits_size(ele);
     }
+  } else {
+    size += sizeof(ulong);
   }
   size += fd_vote_block_timestamp_size(&self->latest_timestamp);
   return size;
@@ -4268,6 +4280,8 @@ ulong fd_slot_hashes_size(fd_slot_hashes_t const * self) {
       fd_slot_hash_t * ele = deq_fd_slot_hash_t_iter_ele( self->hashes, iter );
       size += fd_slot_hash_size(ele);
     }
+  } else {
+    size += sizeof(ulong);
   }
   return size;
 }
@@ -4377,6 +4391,8 @@ ulong fd_recent_block_hashes_size(fd_recent_block_hashes_t const * self) {
       fd_block_block_hash_entry_t * ele = deq_fd_block_block_hash_entry_t_iter_ele( self->hashes, iter );
       size += fd_block_block_hash_entry_size(ele);
     }
+  } else {
+    size += sizeof(ulong);
   }
   return size;
 }
@@ -4650,6 +4666,8 @@ ulong fd_clock_timestamp_votes_size(fd_clock_timestamp_votes_t const * self) {
       fd_clock_timestamp_vote_t * ele = deq_fd_clock_timestamp_vote_t_iter_ele( self->votes, iter );
       size += fd_clock_timestamp_vote_size(ele);
     }
+  } else {
+    size += sizeof(ulong);
   }
   return size;
 }
@@ -5030,7 +5048,10 @@ ulong fd_vote_size(fd_vote_t const * self) {
   ulong size = 0;
   if ( self->slots ) {
     size += sizeof(ulong);
-    size += deq_ulong_cnt(self->slots) * sizeof(ulong);
+    ulong slots_len = deq_ulong_cnt(self->slots);
+    size += slots_len * sizeof(ulong);
+  } else {
+    size += sizeof(ulong);
   }
   size += fd_hash_size(&self->hash);
   size += sizeof(char);
