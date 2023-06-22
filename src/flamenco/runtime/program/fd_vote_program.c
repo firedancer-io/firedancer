@@ -560,7 +560,7 @@ int fd_executor_vote_program_execute_instruction(
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
 
-  fd_vote_instruction_walk(&instruction, fd_printer_walker, "vote", 0);
+//  fd_vote_instruction_walk(&instruction, fd_printer_walker, "vote", 0);
 
   switch( instruction.discriminant ) {
   case fd_vote_instruction_enum_initialize_account: {
