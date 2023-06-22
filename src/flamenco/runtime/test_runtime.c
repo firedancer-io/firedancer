@@ -137,6 +137,8 @@ struct global_state {
   char const *        cmd;
   char const *        txn_exe_opt;
   char const *        net;
+  char const *        reset;
+  char const *        load;
 };
 typedef struct global_state global_state_t;
 
@@ -145,12 +147,14 @@ static void usage(const char* progname) {
   fprintf(stderr, " --wksp        <name>       workspace name\n");
   fprintf(stderr, " --gaddr       <num>        global address of funky in the workspace\n");
   fprintf(stderr, " --persist     <file>       funky persistence file\n");
+  fprintf(stderr, " --load        <file>       load funky backup file\n");
   fprintf(stderr, " --end-slot    <num>        stop iterating at block...\n");
   fprintf(stderr, " --accounts    <dir>        What accounts should I slurp in\n");
   fprintf(stderr, " --cmd         <operation>  What operation should we test\n");
   fprintf(stderr, " --skip-exe    [skip,sim]   Should we skip executing transactions\n");
   fprintf(stderr, " --index-max   <bool>       How big should the index table be?\n");
   fprintf(stderr, " --validate    <bool>       Validate the funk db\n");
+  fprintf(stderr, " --reset       <bool>       Reset the workspace\n");
 }
 
 // pub const FULL_SNAPSHOT_ARCHIVE_FILENAME_REGEX: &str = r"^snapshot-(?P<slot>[[:digit:]]+)-(?P<hash>[[:alnum:]]+)\.(?P<ext>tar|tar\.bz2|tar\.zst|tar\.gz|tar\.lz4)$";
@@ -423,8 +427,10 @@ int main(int argc, char **argv) {
   state.cmd                 = fd_env_strip_cmdline_cstr ( &argc, &argv, "--cmd",          NULL, NULL);
   state.txn_exe_opt         = fd_env_strip_cmdline_cstr ( &argc, &argv, "--txn-exe",      NULL, NULL);
   state.net                 = fd_env_strip_cmdline_cstr ( &argc, &argv, "--net",          NULL, NULL);
+  state.reset               = fd_env_strip_cmdline_cstr ( &argc, &argv, "--reset",        NULL, NULL);
+  state.load                = fd_env_strip_cmdline_cstr ( &argc, &argv, "--load",         NULL, NULL);
 
-  state.pages         = fd_env_strip_cmdline_ulong ( &argc, &argv, "--pages",      NULL, 0);
+  state.pages               = fd_env_strip_cmdline_ulong ( &argc, &argv, "--pages",      NULL, 0);
 
   const char *index_max_opt           = fd_env_strip_cmdline_cstr ( &argc, &argv, "--index-max",    NULL, NULL);
   const char *validate_db             = fd_env_strip_cmdline_cstr ( &argc, &argv, "--validate",     NULL, NULL);
@@ -456,6 +462,10 @@ int main(int argc, char **argv) {
   } else
     memset(&state.global->features, 1, sizeof(state.global->features));
 
+  char hostname[64];
+  gethostname(hostname, sizeof(hostname));
+  ulong hashseed = fd_hash(0, hostname, strnlen(hostname, sizeof(hostname)));
+  
   fd_wksp_t *wksp = NULL;
   if ( state.name ) {
     FD_LOG_NOTICE(( "Attaching to --wksp %s", state.name ));
@@ -463,10 +473,16 @@ int main(int argc, char **argv) {
   } else {
     FD_LOG_NOTICE(( "--wksp not specified, using an anonymous local workspace" ));
     wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, state.pages, 0, "wksp", 0UL );
+    state.gaddr = 0;
   }
   if ( FD_UNLIKELY( !wksp ) )
     FD_LOG_ERR(( "Unable to attach to wksp" ));
 
+  if ( state.reset && strcmp(state.reset, "true") == 0 ) {
+    fd_wksp_reset( wksp, (uint)hashseed);
+    state.gaddr = 0;
+  }
+  
   if( !state.gaddr ) {
     FD_LOG_NOTICE(("creating new funk db"));
     void* shmem = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint(), 1 );
@@ -476,9 +492,6 @@ int main(int argc, char **argv) {
     if (index_max_opt)
       index_max = (ulong) atoi((char *) index_max_opt);
     ulong xactions_max = 100;     // Maximum size (count) of transaction index
-    char hostname[64];
-    gethostname(hostname, sizeof(hostname));
-    ulong hashseed = fd_hash(0, hostname, strnlen(hostname, sizeof(hostname)));
     state.global->funk = fd_funk_join(fd_funk_new(shmem, 1, hashseed, xactions_max, index_max));
     if (state.global->funk == NULL) {
       fd_wksp_free_laddr(shmem);
@@ -509,6 +522,11 @@ int main(int argc, char **argv) {
   if (NULL != state.persist) {
     if ( fd_funk_persist_open_fast( state.global->funk, state.persist ) != FD_FUNK_SUCCESS )
       FD_LOG_ERR(("failed to open persistence file"));
+  }
+
+  if (NULL != state.load) {
+    if ( fd_funk_load_backup( state.global->funk, state.load, 0 ) != FD_FUNK_SUCCESS )
+      FD_LOG_ERR(("failed to open backup file"));
   }
 
   if ((validate_db != NULL) && (strcmp(validate_db, "true") == 0)) {
