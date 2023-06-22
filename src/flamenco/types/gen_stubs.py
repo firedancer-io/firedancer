@@ -730,11 +730,11 @@ def do_deque_body_walk(n, f):
     print("      " + deque_elem_type(n, f) + " * ele = " + deque_prefix(n, f) + "_iter_ele( self->" + f["name"] + ", iter );", file=body)
 
     if f["element"] == "unsigned char" or f["element"] == "uchar":
-        print("      fun(*ele, \"ele\", 1, \"long\", level + 1);", file=body),
+        print("      fun(ele, \"ele\", 1, \"long\", level + 1);", file=body),
     elif f["element"] == "ulong" or f["element"] == "unsigned long":
-        print("      fun(*ele, \"ele\", 6, \"long\", level + 1);", file=body),
+        print("      fun(ele, \"ele\", 6, \"long\", level + 1);", file=body),
     elif f["element"] == "uint" or f["element"] == "unsigned int":
-        print("      fun(*ele, \"ele\", 7, \"uint\", level + 1);", file=body),
+        print("      fun(ele, \"ele\", 7, \"uint\", level + 1);", file=body),
     else:
         print("      " + n + "_" + f["element"] + "_walk(ele, fun, \"" + f["name"] + "\", level + 1);", file=body)
 

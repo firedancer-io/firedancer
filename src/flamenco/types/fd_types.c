@@ -5047,7 +5047,7 @@ void fd_vote_walk(fd_vote_t* self, fd_walk_fun_t fun, const char *name, int leve
   if ( self->slots ) {
     for ( deq_ulong_iter_t iter = deq_ulong_iter_init( self->slots ); !deq_ulong_iter_done( self->slots, iter ); iter = deq_ulong_iter_next( self->slots, iter ) ) {
       ulong * ele = deq_ulong_iter_ele( self->slots, iter );
-      fun(*ele, "ele", 6, "long", level + 1);
+      fun(ele, "ele", 6, "long", level + 1);
     }
   }
   fd_hash_walk(&self->hash, fun, "hash", level + 1);
