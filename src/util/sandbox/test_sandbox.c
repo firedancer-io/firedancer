@@ -2,6 +2,8 @@
 # error "Target operating system is unsupported by seccomp."
 #endif
 
+#if !FD_HAS_ASAN
+
 #define _GNU_SOURCE
 
 #include "../fd_util.h"
@@ -205,4 +207,17 @@ main( int     argc,
   netns();
   mountns_null();
   seccomp_default_filter();
+  return 0;
 }
+
+#else
+#include <stdio.h>
+int main( int argc,
+          char ** argv ) {
+  (void) argc;
+  (void) argv;
+  printf( "sandbox tests not supported in this configuration\n" );
+  return 0;
+}
+
+#endif /* FD_HAS_ASAN */
