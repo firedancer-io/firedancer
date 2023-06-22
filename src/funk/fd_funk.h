@@ -351,6 +351,12 @@ fd_funk_persist_open_fast( fd_funk_t * funk, const char * filename );
 void
 fd_funk_persist_close( fd_funk_t * funk );
 
+/* Create a backup of the database. The backup file format is the same
+   as the persistence format. */
+
+int
+fd_funk_make_backup( fd_funk_t * funk, const char * filename );
+
 /* Accessors */
 
 /* fd_funk_wksp returns the local join to the wksp backing the funk.

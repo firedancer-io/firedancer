@@ -36,6 +36,7 @@ static void usage(const char* progname) {
   fprintf(stderr, " --wksp <name>                                    workspace name\n");
   fprintf(stderr, " --reset true                                     reset workspace before ingesting\n");
   fprintf(stderr, " --persist <file>                                 read/write to persistence file\n");
+  fprintf(stderr, " --backup <file>                                  make a funky backup file\n");
   fprintf(stderr, " --gaddr <address>                                join funky at the address instead of making a new one\n");
   fprintf(stderr, " --gaddrout <file>                                write the funky address to the given file\n");
   fprintf(stderr, " --indexmax <count>                               size of funky account map\n");
@@ -670,6 +671,12 @@ int main(int argc, char** argv) {
 
   if ( tpool )
     fd_tpool_fini( tpool );
+
+  const char* backup = fd_env_strip_cmdline_cstr(&argc, &argv, "--backup", NULL, NULL);
+  if (backup) {
+    if ( fd_funk_make_backup( funk, backup ) )
+      FD_LOG_ERR(("backup failed"));
+  }
 
   fd_global_ctx_delete( fd_global_ctx_leave( global ) );
   fd_funk_leave( funk );
