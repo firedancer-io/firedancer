@@ -151,7 +151,7 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_meta_t* m, const void
     fd_pubkey_hash_vector_clear(&global->acc_mgr->keys);
   }
 
-  return FD_RUNTIME_EXECUTE_SUCCESS;
+  return fd_runtime_save_banks( global );
 }
 
 // TODO: add solana txn verify to this as well since, again, it can be
@@ -838,7 +838,7 @@ fd_runtime_save_banks( fd_global_ctx_t * global ) {
 
   fd_funk_rec_persist(global->funk, rec);
 
-  return 0;
+  return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
 int fd_global_import_solana_manifest(fd_global_ctx_t *global, fd_solana_manifest_t* manifest) {
@@ -855,7 +855,7 @@ int fd_global_import_solana_manifest(fd_global_ctx_t *global, fd_solana_manifest
   // bank->recent_block_hashes = oldbank->recent_block_hashes;
   // bank->timestamp_votes = oldbank->timestamp_votes;
   bank->slot = oldbank->slot;
-  // bank->poh = oldbank->poh;
+  fd_memcpy(&bank->banks_hash, &oldbank->hash, sizeof(oldbank->hash));
   // bank->banks_hash = oldbank->banks_hash;
   fd_memcpy(&bank->fee_rate_governor, &oldbank->fee_rate_governor, sizeof(oldbank->fee_rate_governor));
   bank->lamports_per_signature = oldbank->fee_calculator.lamports_per_signature;
