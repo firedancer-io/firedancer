@@ -141,6 +141,9 @@ void SnapshotParser_parseSnapshots(struct SnapshotParser* self, const void* data
   ctx.allocf_arg = global->allocf_arg;
   if ( fd_solana_manifest_decode(self->manifest_, &ctx) )
     FD_LOG_ERR(("fd_solana_manifest_decode failed"));
+
+  if ( fd_global_import_solana_manifest(global, self->manifest_) )
+    FD_LOG_ERR(("fd_global_import_solana_manifest failed"));
 }
 
 void SnapshotParser_tarEntry(void* arg, const char* name, const void* data, size_t datalen) {

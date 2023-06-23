@@ -107,6 +107,7 @@ fd_funk_rec_key_t fd_runtime_banks_key     (void);
 int               fd_pubkey_create_with_seed(fd_pubkey_t const * base, char const * seed, fd_pubkey_t const *owner, fd_pubkey_t *out );
 
 int               fd_runtime_save_banks    ( fd_global_ctx_t *global );
+int               fd_global_import_solana_manifest(fd_global_ctx_t *global, fd_solana_manifest_t* manifest);
 
 FD_PROTOTYPES_END
 
