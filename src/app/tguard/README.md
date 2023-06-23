@@ -15,7 +15,7 @@
     - You eggs are not in one basket, atually cookies from the same box are not all in the mouth of the cookie monster
     - You have a much much (orders of magnitude) better chance that each box has more than 1/2 of the cookies survived 
     - Hence you will make good deliveries with much much higher probability
-      - So you can be sure you your delvery effort will not go waisted
+      - So you can be sure your delvery effort will unlikely go waisted
 ### Analytical answer for the numerically minded
 - Optimization Objective: minimize the odds of the loss of shreds from the same FEC set that exceeds the capability of the FEC recovery capablity.
   - This can be achieved by ***maximizing the minimum spacing betweeen any two originally adjacent shreds*** in a new transmission sequence that Turbine Guard produces.
