@@ -122,20 +122,16 @@ int fd_alloc_fprintf( fd_alloc_t * join, FILE *       stream );
 struct global_state {
   fd_global_ctx_t*    global;
 
-  ulong               end_slot;
-  ulong               pages;
-  uchar               txn_exe;
-
   int                 argc;
   char       **       argv;
 
   char const *        name;
+  ulong               pages;
   char const *        gaddr;
   char const *        persist;
+  ulong               end_slot;
   char const *        end_slot_opt;
-  char const *        accounts;
   char const *        cmd;
-  char const *        txn_exe_opt;
   char const *        net;
   char const *        reset;
   char const *        load;
@@ -149,17 +145,11 @@ static void usage(const char* progname) {
   fprintf(stderr, " --persist     <file>       funky persistence file\n");
   fprintf(stderr, " --load        <file>       load funky backup file\n");
   fprintf(stderr, " --end-slot    <num>        stop iterating at block...\n");
-  fprintf(stderr, " --accounts    <dir>        What accounts should I slurp in\n");
   fprintf(stderr, " --cmd         <operation>  What operation should we test\n");
-  fprintf(stderr, " --skip-exe    [skip,sim]   Should we skip executing transactions\n");
   fprintf(stderr, " --index-max   <bool>       How big should the index table be?\n");
   fprintf(stderr, " --validate    <bool>       Validate the funk db\n");
   fprintf(stderr, " --reset       <bool>       Reset the workspace\n");
 }
-
-// pub const FULL_SNAPSHOT_ARCHIVE_FILENAME_REGEX: &str = r"^snapshot-(?P<slot>[[:digit:]]+)-(?P<hash>[[:alnum:]]+)\.(?P<ext>tar|tar\.bz2|tar\.zst|tar\.gz|tar\.lz4)$";
-// pub const INCREMENTAL_SNAPSHOT_ARCHIVE_FILENAME_REGEX: &str = r"^incremental-snapshot-(?P<base>[[:digit:]]+)-(?P<slot>[[:digit:]]+)-(?P<hash>[[:alnum:]]+)\.(?P<ext>tar|tar\.bz2|tar\.zst|tar\.gz|tar\.lz4)$";
-
 
 #define SORT_NAME sort_pubkey_hash_pair
 #define SORT_KEY_T fd_pubkey_hash_pair_t
@@ -423,9 +413,7 @@ int main(int argc, char **argv) {
   state.gaddr               = fd_env_strip_cmdline_cstr ( &argc, &argv, "--gaddr",        NULL, NULL);
   state.persist             = fd_env_strip_cmdline_cstr ( &argc, &argv, "--persist",      NULL, NULL);
   state.end_slot_opt        = fd_env_strip_cmdline_cstr ( &argc, &argv, "--end-slot",     NULL, NULL);
-  state.accounts            = fd_env_strip_cmdline_cstr ( &argc, &argv, "--accounts",     NULL, NULL);
   state.cmd                 = fd_env_strip_cmdline_cstr ( &argc, &argv, "--cmd",          NULL, NULL);
-  state.txn_exe_opt         = fd_env_strip_cmdline_cstr ( &argc, &argv, "--txn-exe",      NULL, NULL);
   state.net                 = fd_env_strip_cmdline_cstr ( &argc, &argv, "--net",          NULL, NULL);
   state.reset               = fd_env_strip_cmdline_cstr ( &argc, &argv, "--reset",        NULL, NULL);
   state.load                = fd_env_strip_cmdline_cstr ( &argc, &argv, "--load",         NULL, NULL);
@@ -447,11 +435,6 @@ int main(int argc, char **argv) {
     return 1;
   }
   
-  if (state.txn_exe_opt) {
-    state.txn_exe = (strcmp(state.txn_exe_opt, "skip") == 0) ? 1 : 0;
-    state.txn_exe = (strcmp(state.txn_exe_opt, "sim") == 0) ? 2 : 0;
-  }
-
   if (NULL != state.net) {
     if (!strncmp(state.net, "main", 4))
       enable_mainnet(&state.global->features);

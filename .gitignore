@@ -47,3 +47,5 @@ test-ledger*
 actual.bin
 expected.bin
 before.bin
+v14-test-ledger
+testgaddr
