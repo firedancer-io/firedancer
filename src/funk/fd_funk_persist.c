@@ -964,8 +964,8 @@ fd_funk_make_backup( fd_funk_t * funk, const char * filename ) {
 
 /* Process a record found during persistence recovery */
 static void
-  fd_funk_persist_recover_backup_record( fd_funk_t * funk, struct fd_funk_persist_record_head * head,
-                                         const uchar * value, int cache_all ) {
+fd_funk_persist_recover_backup_record( fd_funk_t * funk, struct fd_funk_persist_record_head * head,
+                                       const uchar * value, int cache_all ) {
   /* See if we already saw the key */
   int err = 0;
   fd_funk_rec_key_t key;
