@@ -2,6 +2,7 @@
 
 #include "../fd_executor.h"
 #include "../fd_runtime.h"
+#include "../fd_account.h"
 #include "../sysvar/fd_sysvar.h"
 
 #include "../../../ballet/base58/fd_base58.h"
@@ -727,6 +728,10 @@ int fd_executor_vote_program_execute_instruction(
       FD_LOG_WARNING(( "executing VoteInstruction::VoteSwitch instruction" ));
       vote = &instruction.inner.vote_switch.vote;
     }
+
+    int err = fd_account_sanity_check(&ctx, 3);
+    if (FD_UNLIKELY(FD_EXECUTOR_INSTR_SUCCESS != err))
+      return err;
 
     /* Check that the accounts are correct */
     fd_pubkey_t const * vote_acc = &txn_accs[instr_acc_idxs[0]];
