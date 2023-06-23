@@ -155,8 +155,6 @@ def do_vector_body_decode(n, f):
 
 
 def do_deque_body_decode(n, f):
-    print("  self->" + f["name"] + " = " + deque_prefix(n, f) + "_alloc( ctx->allocf, ctx->allocf_arg );", file=body)
-
     if "modifier" in f and f["modifier"] == "compact":
         print("  ushort " + f["name"] + "_len;", file=body)
         print("  err = fd_bincode_compact_u16_decode(&" + f["name"] + "_len, ctx);", file=body)
@@ -164,6 +162,10 @@ def do_deque_body_decode(n, f):
         print("  ulong " + f["name"] + "_len;", file=body)
         print("  err = fd_bincode_uint64_decode(&" + f["name"] + "_len, ctx);", file=body)
     print("  if ( FD_UNLIKELY(err) ) return err;", file=body)
+    if "max" in f:
+        print("  self->" + f["name"] + " = " + deque_prefix(n, f) + "_alloc( ctx->allocf, ctx->allocf_arg );", file=body)
+    else:
+        print("  self->" + f["name"] + " = " + deque_prefix(n, f) + "_alloc( ctx->allocf, ctx->allocf_arg, " + f["name"] + "_len );", file=body)
     print("  if ( " + f["name"] + "_len > " + deque_prefix(n, f) + "_max(self->" + f["name"] + ") ) return FD_BINCODE_ERR_SMALL_DEQUE;", file=body)
 
     print("  for (ulong i = 0; i < " + f["name"] + "_len; ++i) {", file=body)
@@ -845,18 +847,34 @@ for entry in entries:
                   continue
 
               dp = deque_prefix(namespace, f)
-              print("#define DEQUE_NAME " + dp, file=header)
-              print("#define DEQUE_T " + element_type, file=header)
-              print("#define DEQUE_MAX " + str(f["max"]), file=header)
-              print("#include \"../../util/tmpl/fd_deque.c\"", file=header)
-              print("#undef DEQUE_NAME", file=header)
-              print("#undef DEQUE_T\n", file=header)
-              print("#undef DEQUE_MAX\n", file=header)
-              print("static inline " + element_type + " *", file=header)
-              print(dp + "_alloc(fd_alloc_fun_t allocf, void * allocf_arg) {", file=header)
-              print("  void* mem = (*allocf)(allocf_arg, " + dp + "_align(), " + dp + "_footprint());", file=header)
-              print("  return " + dp + "_join( " + dp + "_new( mem ) );", file=header)
-              print("}", file=header)
+              if "max" in f:
+                  print("#define DEQUE_NAME " + dp, file=header)
+                  print("#define DEQUE_T " + element_type, file=header)
+                  print("#define DEQUE_MAX " + str(f["max"]), file=header)
+                  print("#include \"../../util/tmpl/fd_deque.c\"", file=header)
+                  print("#undef DEQUE_NAME", file=header)
+                  print("#undef DEQUE_T\n", file=header)
+                  print("#undef DEQUE_MAX\n", file=header)
+                  print("static inline " + element_type + " *", file=header)
+                  print(dp + "_alloc(fd_alloc_fun_t allocf, void * allocf_arg) {", file=header)
+                  print("  void* mem = (*allocf)(allocf_arg, " + dp + "_align(), " + dp + "_footprint());", file=header)
+                  print("  return " + dp + "_join( " + dp + "_new( mem ) );", file=header)
+                  print("}", file=header)
+              else:
+                  print("#define DEQUE_NAME " + dp, file=header)
+                  print("#define DEQUE_T " + element_type, file=header)
+                  print("#include \"../../util/tmpl/fd_deque_dynamic.c\"", file=header)
+                  print("#undef DEQUE_NAME", file=header)
+                  print("#undef DEQUE_T\n", file=header)
+                  print("static inline " + element_type + " *", file=header)
+                  print(dp + "_alloc(fd_alloc_fun_t allocf, void * allocf_arg, ulong len) {", file=header)
+                  if "growth" in f:
+                      print("  ulong max = len + " + str(f["growth"]) + ";", file=header) # Provide headroom
+                  else:
+                      print("  ulong max = len + len/5 + 10;", file=header) # Provide headroom
+                  print("  void* mem = (*allocf)(allocf_arg, " + dp + "_align(), " + dp + "_footprint( max ));", file=header)
+                  print("  return " + dp + "_join( " + dp + "_new( mem, max ) );", file=header)
+                  print("}", file=header)
 
               deque_element_types.add(element_type)
 

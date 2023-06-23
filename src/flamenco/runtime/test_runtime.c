@@ -1,64 +1,16 @@
+/****
 
-//- sed -r "s/\x1B\[(([0-9]+)(;[0-9]+)*)?[m,K,H,f,J]//g" ~/repos/solana/nonce-ledger/validator.log | grep 'bank frozen:' | grep 'solana_runtime::bank' | sed -e 's/.*bank frozen://g' > q
+build/linux/gcc/x86_64/bin/fd_frank_ledger --rocksdb $LEDGER/rocksdb --genesis $LEDGER/genesis.bin --cmd ingest --indexmax 10000 --txnmax 100 --backup test_ledger_backup
 
-// sed -r "s/\x1B\[(([0-9]+)(;[0-9]+)*)?[m,K,H,f,J]//g" ~/repos/solana/nonce-ledger/validator.log > q2
+build/linux/gcc/x86_64/unit-test/test_runtime --load test_ledger_backup --cmd replay --end-slot 25 --confirm_hash AsHedZaZkabNtB8XBiKWQkKwaeLy2y4Hrqm6MkQALT5h --confirm_parent CvgPeR54qpVRZGBuiQztGXecxSXREPfTF8wALujK4WdE --confirm_account_delta 7PL6JZgcNy5vkPSc6JsMHET9dvpvsFMWR734VtCG29xN  --confirm_signature 2  --confirm_last_block G4YL2SieHDGNZGjiwBsJESK7jMDfazg33ievuCwbkjrv --validate true
 
-// sudo /home/jsiegel/repos/firedancer/build/linux/gcc/x86_64/bin/fd_shmem_cfg init 0777 jsiegel ""
-// sudo /home/jsiegel/repos/firedancer/build/linux/gcc/x86_64/bin/fd_shmem_cfg alloc 64 gigantic 0
-// sudo /home/jsiegel/repos/firedancer/build/linux/gcc/x86_64/bin/fd_shmem_cfg alloc 512 huge 0
+build/linux/gcc/x86_64/bin/fd_shmem_cfg reset
 
-// build/linux/gcc/x86_64/bin/fd_wksp_ctl new giant_wksp 200 gigantic 0-127 0666
+build/linux/gcc/x86_64/bin/fd_wksp_ctl new giant_wksp 200 gigantic 0-127 0666
 
-// build/linux/gcc/x86_64/bin/fd_frank_ledger --cmd ingest --snapshotfile /home/jsiegel/mainnet-ledger/snapshot-179244882-2DyMb1qN8JuTijCjsW8w4G2tg1hWuAw2AopH7Bj9Qstu.tar.zst --wksp giant_wksp --verifyhash 2DyMb1qN8JuTijCjsW8w4G2tg1hWuAw2AopH7Bj9Qstu
-// build/linux/gcc/x86_64/bin/fd_frank_ledger --wksp giant_wksp  --cmd ingest --snapshotfile /home/jsiegel/mainnet-ledger/snapshot-179244882-2DyMb1qN8JuTijCjsW8w4G2tg1hWuAw2AopH7Bj9Qstu.tar.zst --incremental /home/jsiegel/mainnet-ledger/incremental-snapshot-179244882-179248368-6TprbHABozQQLjjc1HBeQ2p4AigMC7rhHJS2Q5WLcbyw.tar.zst --verifyhash 6TprbHABozQQLjjc1HBeQ2p4AigMC7rhHJS2Q5WLcbyw --reset true
-// build/linux/gcc/x86_64/bin/fd_frank_ledger --gaddr 0x000000000c7ce180 --wksp giant_wksp --verifyhash 2DyMb1qN8JuTijCjsW8w4G2tg1hWuAw2AopH7Bj9Qstu
-// build/linux/gcc/x86_64/bin/fd_frank_ledger --wksp giant_wksp  --cmd ingest --snapshotfile /home/jsiegel/mainnet-ledger/snapshot-179244882-2DyMb1qN8JuTijCjsW8w4G2tg1hWuAw2AopH7Bj9Qstu.tar.zst --incremental /home/jsiegel/mainnet-ledger/incremental-snapshot-179244882-179248368-6TprbHABozQQLjjc1HBeQ2p4AigMC7rhHJS2Q5WLcbyw.tar.zst --reset true --persist /home/asiegel/funktest
+build/linux/gcc/x86_64/bin/fd_frank_ledger --wksp giant_wksp --reset true --cmd ingest --snapshotfile /home/jsiegel/mainnet-ledger/snapshot-179244882-2DyMb1qN8JuTijCjsW8w4G2tg1hWuAw2AopH7Bj9Qstu.tar.zst --incremental /home/jsiegel/mainnet-ledger/incremental-snapshot-179244882-179248368-6TprbHABozQQLjjc1HBeQ2p4AigMC7rhHJS2Q5WLcbyw.tar.zst --backup /home/asiegel/mainnet_backup
 
-// fpid-devworkl187 asiegel/firedancer-private $ build/linux/gcc/x86_64/bin/fd_frank_ledger --wksp giant_wksp --reset true --persist ~/testfunk --rocksdb ~/firedancer-private/test-ledger-4/rocksdb --cmd ingest --gaddrout gaddr
-
-// /home/jsiegel/repos/firedancer-private/build/linux/gcc/x86_64/bin/fd_wksp_ctl new test_wksp 32 gigantic 0 0777
-// /home/jsiegel/repos/firedancer-private/build/linux/gcc/x86_64/bin/fd_wksp_ctl query test_wksp
-
-// --ledger /home/jsiegel/repos/solana/nonce-ledger --db /home/jsiegel/funk --cmd replay --accounts /home/jsiegel/repos/solana/nonce-ledger/accounts/ --pages 15 --index-max 12000000 --start-slot 0 --end-slot 100
-
-//  --ledger /dev/shm/mainnet-ledger --db /dev/shm/funk --cmd replay --start-slot 179138256 --end-slot 179138258  --txn-exe sim  --index-max 12000000 --pages 15
-
-// --ledger /home/jsiegel/multi-node-cluster-ledger --db /dev/shm/funk --cmd replay --start-slot 0 --end-slot 280   --index-max 12000000 --pages 15
-
-//  --ledger /dev/shm/mainnet-ledger --db /dev/shm/funk --cmd manifest --manifest /home/jsiegel/mainnet-ledger/snapshot/tmp-snapshot-archive-JfVTLu/snapshots/179248368/179248368
-
-//  --ledger /dev/shm/mainnet-ledger --db /dev/shm/funk --cmd replay --start-slot 179138205 --end-slot 279138205  --txn-exe sim  --index-max 12000000 --pages 15
-//  --ledger /dev/shm/mainnet-ledger --db /dev/shm/funk --cmd ingest --start-slot 179138205 --end-slot 279138205 --manifest /dev/shm/mainnet-ledger/snapshot/tmp-snapshot-archive-JfVTLu/snapshots/179248368/179248368
-// run --ledger /home/jsiegel/mainnet-ledger --db /home/jsiegel/funk --cmd ingest --accounts /home/jsiegel/mainnet-ledger/accounts --pages 15 --index-max 12000000
-// run --ledger /dev/shm/mainnet-ledger --db /dev/shm/funk --cmd ingest --accounts /dev/shm/mainnet-ledger/accounts --pages 15 --index-max 12000000
-
-// --ledger /home/jsiegel/repos/solana/test-ledger --db /home/jsiegel/repos/solana//test-ledger/funk --cmd replay --start-slot 0 --end-slot 200  --txn-exe sim  --index-max 12000000 --pages 15
-
-// run --ledger /home/jsiegel/test-ledger --db /home/jsiegel/test-ledger/funk --cmd replay --start-slot 0 --end-slot 200 --index-max 12000000 --pages 15
-
-// --ledger /home/jsiegel/test-ledger --db /home/jsiegel/funk --cmd validate --accounts /home/jsiegel/test-ledger/accounts/ --pages 15 --index-max 12000000 --manifest /home/jsiegel/test-ledger/200/snapshots/200/200 --start-slot 200
-// --ledger /home/jsiegel/repos/firedancer-testbins/test-ledger --db /home/jsiegel/funk --cmd validate --accounts /home/jsiegel/repos/firedancer-testbins/test-ledger/accounts/ --pages 15 --index-max 12000000 --manifest /home/jsiegel/repos/firedancer-testbins/test-ledger/200/snapshots/200/200 --start-slot 200
-
-// --ledger /home/jsiegel/test-ledger --db /home/jsiegel/funk --cmd validate --accounts /home/jsiegel/test-ledger/accounts/ --pages 15 --index-max 12000000 --manifest /home/jsiegel/test-ledger/100/snapshots/100/100 --start-slot 100
-
-// --ledger /home/jsiegel/test-ledger --db /home/jsiegel/funk --cmd accounts --accounts /home/jsiegel/test-ledger/accounts/ --pages 15 --index-max 12000000 --start-slot 4 --end-slot 5 --start-id 41 --end-id 43
-
-// --ledger /home/jsiegel/test-ledger --db /home/jsiegel/funk --cmd replay --pages 15 --index-max 12000000 --start-slot 0 --end-slot 6
-
-// --ledger /home/jsiegel/test-ledger --db /home/jsiegel/funk --cmd replay --pages 15 --index-max 12000000 --start-slot 0 --end-slot 35
-
-//  --ledger /home/jsiegel/test-ledger --db /home/jsiegel/funk --cmd accounts --accounts /home/jsiegel/test-ledger/accounts/ --pages 15 --index-max 12000000 --start-slot 0 --end-slot 0 --start-id 35 --end-id 35
-
-//owner:      Sysvar1111111111111111111111111111111111111 pubkey:      SysvarRecentB1ockHashes11111111111111111111 hash:     EeEiSR3bwzfALaqzJdNSgf81c6dsnb4Cvb7f1rEqUaE9 file: /home/jsiegel/test-ledger/accounts//0.35
-//  {blockhash = Ha5DVgnD1xSA8oQc337jtA3atEfQ4TFX1ajeZG1Y2tUx,  fee_calculator={lamports_per_signature = 0}}
-
-// #define _VHASH
-
-
-// --ledger /home/jsiegel/repos/solana/test-ledger --db /home/jsiegel/funk --cmd accounts --accounts /home/jsiegel/repos/solana/test-ledger/accounts/ --pages 15 --index-max 12000000 --start-slot 0 --end-slot 1 --start-id 0 --end-id 1
-// --ledger /home/jsiegel/repos/solana/test-ledger --db /home/jsiegel/funk --cmd replay --accounts /home/jsiegel/repos/solana/test-ledger/accounts/ --pages 15 --index-max 12000000 --start-slot 0 --end-slot 6 --log_level 3
-
-// --ledger /home/jsiegel/repos/solana/test-ledger --db /home/jsiegel/funk --cmd replay --accounts /home/jsiegel/repos/solana/test-ledger/accounts/ --pages 15 --index-max 12000000 --start-slot 0 --end-slot 25  --confirm_hash AsHedZaZkabNtB8XBiKWQkKwaeLy2y4Hrqm6MkQALT5h --confirm_parent CvgPeR54qpVRZGBuiQztGXecxSXREPfTF8wALujK4WdE --confirm_account_delta 7PL6JZgcNy5vkPSc6JsMHET9dvpvsFMWR734VtCG29xN  --confirm_signature 2  --confirm_last_block G4YL2SieHDGNZGjiwBsJESK7jMDfazg33ievuCwbkjrv
+****/
 
 #include <stdio.h>
 #include <stdlib.h>

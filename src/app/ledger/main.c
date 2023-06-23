@@ -1,9 +1,3 @@
-// build/linux/gcc/x86_64/bin/fd_wksp_ctl new giant_wksp 100 gigantic 0-127 0666
-
-// time build/linux/gcc/x86_64/bin/fd_frank_ledger --wksp giant_wksp --cmd ingest --snapshotfile /home/jsiegel/mainnet-ledger/snapshot-179244882-2DyMb1qN8JuTijCjsW8w4G2tg1hWuAw2AopH7Bj9Qstu.tar.zst --incremental /home/jsiegel/mainnet-ledger/incremental-snapshot-179244882-179248368-6TprbHABozQQLjjc1HBeQ2p4AigMC7rhHJS2Q5WLcbyw.tar.zst --reset true --persist /home/asiegel/funkmainnet --gaddrout /home/asiegel/funkaddr
-
-// time build/linux/gcc/x86_64/bin/fd_frank_ledger --wksp giant_wksp --cmd ingest --rocksdb /home/jsiegel/mainnet-ledger/rocksdb --reset true --persist /home/asiegel/funkmainnet --gaddrout /home/asiegel/funkaddr --verifypoh true --startslot 179138205 --endslot 179140205 --tile-cpus 32-127
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <stddef.h>
@@ -277,7 +271,7 @@ static void decompressBZ2(const char* fname, decompressCallback cb, void* arg) {
 }
 
 void ingest_rocksdb( fd_global_ctx_t * global, const char* file, ulong start_slot, ulong end_slot, const char* verifypoh,
-                     fd_tpool_t * tpool, ulong max_workers ) {
+                     fd_tpool_t * tpool, ulong max_workers ) {  
   fd_rocksdb_t        rocks_db;
   char *err = fd_rocksdb_init(&rocks_db, file);
   if (err != NULL) {
@@ -297,6 +291,8 @@ void ingest_rocksdb( fd_global_ctx_t * global, const char* file, ulong start_slo
   }
   if (start_slot < first_slot)
     start_slot = first_slot;
+
+  FD_LOG_NOTICE(("ingesting rocksdb from start=%lu to end=%lu", start_slot, end_slot));
 
   fd_slot_meta_meta_t mm;
   mm.start_slot = start_slot;
@@ -620,9 +616,11 @@ int main(int argc, char** argv) {
     }
   }
 
-  if (strcmp(verifyfunky, "true") == 0)
+  if (strcmp(verifyfunky, "true") == 0) {
+    FD_LOG_NOTICE(("verifying funky"));
     if (fd_funk_verify(funk))
       FD_LOG_ERR(( "verification failed" ));
+  }
 
   const char* verifyhash = fd_env_strip_cmdline_cstr(&argc, &argv, "--verifyhash", NULL, NULL);
   if (verifyhash) {
@@ -682,6 +680,7 @@ int main(int argc, char** argv) {
 
   const char* backup = fd_env_strip_cmdline_cstr(&argc, &argv, "--backup", NULL, NULL);
   if (backup) {
+    FD_LOG_NOTICE(("writing %s", backup));
     if ( fd_funk_make_backup( funk, backup ) )
       FD_LOG_ERR(("backup failed"));
   }

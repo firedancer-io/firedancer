@@ -237,17 +237,15 @@ typedef struct fd_delegation_pair fd_delegation_pair_t;
 
 #define DEQUE_NAME deq_fd_delegation_pair_t
 #define DEQUE_T fd_delegation_pair_t
-#define DEQUE_MAX 35
-#include "../../util/tmpl/fd_deque.c"
+#include "../../util/tmpl/fd_deque_dynamic.c"
 #undef DEQUE_NAME
 #undef DEQUE_T
 
-#undef DEQUE_MAX
-
 static inline fd_delegation_pair_t *
-deq_fd_delegation_pair_t_alloc(fd_alloc_fun_t allocf, void * allocf_arg) {
-  void* mem = (*allocf)(allocf_arg, deq_fd_delegation_pair_t_align(), deq_fd_delegation_pair_t_footprint());
-  return deq_fd_delegation_pair_t_join( deq_fd_delegation_pair_t_new( mem ) );
+deq_fd_delegation_pair_t_alloc(fd_alloc_fun_t allocf, void * allocf_arg, ulong len) {
+  ulong max = len + len/5 + 10;
+  void* mem = (*allocf)(allocf_arg, deq_fd_delegation_pair_t_align(), deq_fd_delegation_pair_t_footprint( max ));
+  return deq_fd_delegation_pair_t_join( deq_fd_delegation_pair_t_new( mem, max ) );
 }
 /* https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L147 */
 struct fd_stakes {

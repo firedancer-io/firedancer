@@ -983,10 +983,10 @@ int fd_stakes_decode(fd_stakes_t* self, fd_bincode_decode_ctx_t * ctx) {
   int err;
   err = fd_vote_accounts_decode(&self->vote_accounts, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  self->stake_delegations = deq_fd_delegation_pair_t_alloc( ctx->allocf, ctx->allocf_arg );
   ulong stake_delegations_len;
   err = fd_bincode_uint64_decode(&stake_delegations_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
+  self->stake_delegations = deq_fd_delegation_pair_t_alloc( ctx->allocf, ctx->allocf_arg, stake_delegations_len );
   if ( stake_delegations_len > deq_fd_delegation_pair_t_max(self->stake_delegations) ) return FD_BINCODE_ERR_SMALL_DEQUE;
   for (ulong i = 0; i < stake_delegations_len; ++i) {
     fd_delegation_pair_t * elem = deq_fd_delegation_pair_t_push_tail_nocopy(self->stake_delegations);
@@ -3244,10 +3244,10 @@ int fd_vote_state_0_23_5_decode(fd_vote_state_0_23_5_t* self, fd_bincode_decode_
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_bincode_uint8_decode(&self->commission, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  self->votes = deq_fd_vote_lockout_t_alloc( ctx->allocf, ctx->allocf_arg );
   ulong votes_len;
   err = fd_bincode_uint64_decode(&votes_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
+  self->votes = deq_fd_vote_lockout_t_alloc( ctx->allocf, ctx->allocf_arg );
   if ( votes_len > deq_fd_vote_lockout_t_max(self->votes) ) return FD_BINCODE_ERR_SMALL_DEQUE;
   for (ulong i = 0; i < votes_len; ++i) {
     fd_vote_lockout_t * elem = deq_fd_vote_lockout_t_push_tail_nocopy(self->votes);
@@ -3266,10 +3266,10 @@ int fd_vote_state_0_23_5_decode(fd_vote_state_0_23_5_t* self, fd_bincode_decode_
     } else
       self->saved_root_slot = NULL;
   }
-  self->epoch_credits = deq_fd_vote_epoch_credits_t_alloc( ctx->allocf, ctx->allocf_arg );
   ulong epoch_credits_len;
   err = fd_bincode_uint64_decode(&epoch_credits_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
+  self->epoch_credits = deq_fd_vote_epoch_credits_t_alloc( ctx->allocf, ctx->allocf_arg );
   if ( epoch_credits_len > deq_fd_vote_epoch_credits_t_max(self->epoch_credits) ) return FD_BINCODE_ERR_SMALL_DEQUE;
   for (ulong i = 0; i < epoch_credits_len; ++i) {
     fd_vote_epoch_credits_t * elem = deq_fd_vote_epoch_credits_t_push_tail_nocopy(self->epoch_credits);
@@ -3441,10 +3441,10 @@ int fd_vote_state_decode(fd_vote_state_t* self, fd_bincode_decode_ctx_t * ctx) {
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_bincode_uint8_decode(&self->commission, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  self->votes = deq_fd_vote_lockout_t_alloc( ctx->allocf, ctx->allocf_arg );
   ulong votes_len;
   err = fd_bincode_uint64_decode(&votes_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
+  self->votes = deq_fd_vote_lockout_t_alloc( ctx->allocf, ctx->allocf_arg );
   if ( votes_len > deq_fd_vote_lockout_t_max(self->votes) ) return FD_BINCODE_ERR_SMALL_DEQUE;
   for (ulong i = 0; i < votes_len; ++i) {
     fd_vote_lockout_t * elem = deq_fd_vote_lockout_t_push_tail_nocopy(self->votes);
@@ -3463,10 +3463,10 @@ int fd_vote_state_decode(fd_vote_state_t* self, fd_bincode_decode_ctx_t * ctx) {
     } else
       self->saved_root_slot = NULL;
   }
-  self->authorized_voters = deq_fd_vote_historical_authorized_voter_t_alloc( ctx->allocf, ctx->allocf_arg );
   ulong authorized_voters_len;
   err = fd_bincode_uint64_decode(&authorized_voters_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
+  self->authorized_voters = deq_fd_vote_historical_authorized_voter_t_alloc( ctx->allocf, ctx->allocf_arg );
   if ( authorized_voters_len > deq_fd_vote_historical_authorized_voter_t_max(self->authorized_voters) ) return FD_BINCODE_ERR_SMALL_DEQUE;
   for (ulong i = 0; i < authorized_voters_len; ++i) {
     fd_vote_historical_authorized_voter_t * elem = deq_fd_vote_historical_authorized_voter_t_push_tail_nocopy(self->authorized_voters);
@@ -3476,10 +3476,10 @@ int fd_vote_state_decode(fd_vote_state_t* self, fd_bincode_decode_ctx_t * ctx) {
   }
   err = fd_vote_prior_voters_decode(&self->prior_voters, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  self->epoch_credits = deq_fd_vote_epoch_credits_t_alloc( ctx->allocf, ctx->allocf_arg );
   ulong epoch_credits_len;
   err = fd_bincode_uint64_decode(&epoch_credits_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
+  self->epoch_credits = deq_fd_vote_epoch_credits_t_alloc( ctx->allocf, ctx->allocf_arg );
   if ( epoch_credits_len > deq_fd_vote_epoch_credits_t_max(self->epoch_credits) ) return FD_BINCODE_ERR_SMALL_DEQUE;
   for (ulong i = 0; i < epoch_credits_len; ++i) {
     fd_vote_epoch_credits_t * elem = deq_fd_vote_epoch_credits_t_push_tail_nocopy(self->epoch_credits);
@@ -4245,10 +4245,10 @@ int fd_slot_hash_encode(fd_slot_hash_t const * self, fd_bincode_encode_ctx_t * c
 
 int fd_slot_hashes_decode(fd_slot_hashes_t* self, fd_bincode_decode_ctx_t * ctx) {
   int err;
-  self->hashes = deq_fd_slot_hash_t_alloc( ctx->allocf, ctx->allocf_arg );
   ulong hashes_len;
   err = fd_bincode_uint64_decode(&hashes_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
+  self->hashes = deq_fd_slot_hash_t_alloc( ctx->allocf, ctx->allocf_arg );
   if ( hashes_len > deq_fd_slot_hash_t_max(self->hashes) ) return FD_BINCODE_ERR_SMALL_DEQUE;
   for (ulong i = 0; i < hashes_len; ++i) {
     fd_slot_hash_t * elem = deq_fd_slot_hash_t_push_tail_nocopy(self->hashes);
@@ -4356,10 +4356,10 @@ int fd_block_block_hash_entry_encode(fd_block_block_hash_entry_t const * self, f
 
 int fd_recent_block_hashes_decode(fd_recent_block_hashes_t* self, fd_bincode_decode_ctx_t * ctx) {
   int err;
-  self->hashes = deq_fd_block_block_hash_entry_t_alloc( ctx->allocf, ctx->allocf_arg );
   ulong hashes_len;
   err = fd_bincode_uint64_decode(&hashes_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
+  self->hashes = deq_fd_block_block_hash_entry_t_alloc( ctx->allocf, ctx->allocf_arg );
   if ( hashes_len > deq_fd_block_block_hash_entry_t_max(self->hashes) ) return FD_BINCODE_ERR_SMALL_DEQUE;
   for (ulong i = 0; i < hashes_len; ++i) {
     fd_block_block_hash_entry_t * elem = deq_fd_block_block_hash_entry_t_push_tail_nocopy(self->hashes);
@@ -4631,10 +4631,10 @@ int fd_clock_timestamp_vote_encode(fd_clock_timestamp_vote_t const * self, fd_bi
 
 int fd_clock_timestamp_votes_decode(fd_clock_timestamp_votes_t* self, fd_bincode_decode_ctx_t * ctx) {
   int err;
-  self->votes = deq_fd_clock_timestamp_vote_t_alloc( ctx->allocf, ctx->allocf_arg );
   ulong votes_len;
   err = fd_bincode_uint64_decode(&votes_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
+  self->votes = deq_fd_clock_timestamp_vote_t_alloc( ctx->allocf, ctx->allocf_arg );
   if ( votes_len > deq_fd_clock_timestamp_vote_t_max(self->votes) ) return FD_BINCODE_ERR_SMALL_DEQUE;
   for (ulong i = 0; i < votes_len; ++i) {
     fd_clock_timestamp_vote_t * elem = deq_fd_clock_timestamp_vote_t_push_tail_nocopy(self->votes);
@@ -5000,10 +5000,10 @@ int fd_firedancer_banks_encode(fd_firedancer_banks_t const * self, fd_bincode_en
 
 int fd_vote_decode(fd_vote_t* self, fd_bincode_decode_ctx_t * ctx) {
   int err;
-  self->slots = deq_ulong_alloc( ctx->allocf, ctx->allocf_arg );
   ulong slots_len;
   err = fd_bincode_uint64_decode(&slots_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
+  self->slots = deq_ulong_alloc( ctx->allocf, ctx->allocf_arg );
   if ( slots_len > deq_ulong_max(self->slots) ) return FD_BINCODE_ERR_SMALL_DEQUE;
   for (ulong i = 0; i < slots_len; ++i) {
     ulong * elem = deq_ulong_push_tail_nocopy(self->slots);
