@@ -24,9 +24,9 @@ fi
 
 # set -x
 
-build/linux/gcc/x86_64/bin/fd_frank_ledger --reset true --rocksdb test-ledger-4/rocksdb --genesis test-ledger-4/genesis.bin --cmd ingest --indexmax 10000 --txnmax 100 --backup test_ledger_backup
+build/linux/gcc/x86_64/bin/fd_frank_ledger --rocksdb test-ledger-4/rocksdb --genesis test-ledger-4/genesis.bin --cmd ingest --indexmax 10000 --txnmax 100 --backup test_ledger_backup
 
-build/linux/gcc/x86_64/unit-test/test_runtime --load test_ledger_backup --pages 5 --cmd replay --end-slot 25 --confirm_hash AsHedZaZkabNtB8XBiKWQkKwaeLy2y4Hrqm6MkQALT5h --confirm_parent CvgPeR54qpVRZGBuiQztGXecxSXREPfTF8wALujK4WdE --confirm_account_delta 7PL6JZgcNy5vkPSc6JsMHET9dvpvsFMWR734VtCG29xN  --confirm_signature 2  --confirm_last_block G4YL2SieHDGNZGjiwBsJESK7jMDfazg33ievuCwbkjrv --validate true
+build/linux/gcc/x86_64/unit-test/test_runtime --load test_ledger_backup --cmd replay --end-slot 25 --confirm_hash AsHedZaZkabNtB8XBiKWQkKwaeLy2y4Hrqm6MkQALT5h --confirm_parent CvgPeR54qpVRZGBuiQztGXecxSXREPfTF8wALujK4WdE --confirm_account_delta 7PL6JZgcNy5vkPSc6JsMHET9dvpvsFMWR734VtCG29xN  --confirm_signature 2  --confirm_last_block G4YL2SieHDGNZGjiwBsJESK7jMDfazg33ievuCwbkjrv --validate true
 
 status=$?
 
