@@ -857,21 +857,21 @@ int fd_global_import_solana_manifest(fd_global_ctx_t *global, fd_solana_manifest
   bank->slot = oldbank->slot;
   // bank->poh = oldbank->poh;
   // bank->banks_hash = oldbank->banks_hash;
-  bank->fee_rate_governor = oldbank->fee_rate_governor;
+  fd_memcpy(&bank->fee_rate_governor, &oldbank->fee_rate_governor, sizeof(oldbank->fee_rate_governor));
   bank->lamports_per_signature = oldbank->fee_calculator.lamports_per_signature;
   if ( oldbank->hashes_per_tick )
     bank->hashes_per_tick = *oldbank->hashes_per_tick;
   else
     bank->hashes_per_tick = 0;
   bank->ticks_per_slot = oldbank->ticks_per_slot;
-  bank->ns_per_slot = oldbank->ns_per_slot;
+  fd_memcpy(&bank->ns_per_slot, &oldbank->ns_per_slot, sizeof(oldbank->ns_per_slot));
   bank->genesis_creation_time = oldbank->genesis_creation_time;
   bank->slots_per_year = oldbank->slots_per_year;
   bank->max_tick_height = oldbank->max_tick_height;
   bank->inflation = oldbank->inflation;
   bank->epoch_schedule = oldbank->rent_collector.epoch_schedule;
   bank->rent = oldbank->rent_collector.rent;
-  bank->collector_id = oldbank->collector_id;
+  fd_memcpy(&bank->collector_id, &oldbank->collector_id, sizeof(oldbank->collector_id));
   bank->collected = oldbank->collected_rent;
   
   return fd_runtime_save_banks( global );
