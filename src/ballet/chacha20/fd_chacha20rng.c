@@ -26,16 +26,28 @@ fd_chacha20rng_new( void * shmem ) {
 
 fd_chacha20rng_t *
 fd_chacha20rng_join( void * shrng ) {
+  if( FD_UNLIKELY( !shrng ) ) {
+    FD_LOG_WARNING(( "NULL shrng" ));
+    return NULL;
+  }
   return (fd_chacha20rng_t *)shrng;
 }
 
 void *
 fd_chacha20rng_leave( fd_chacha20rng_t * rng ) {
+  if( FD_UNLIKELY( !rng ) ) {
+    FD_LOG_WARNING(( "NULL rng" ));
+    return NULL;
+  }
   return (void *)rng;
 }
 
 void *
 fd_chacha20rng_delete( void * shrng ) {
+  if( FD_UNLIKELY( !shrng ) ) {
+    FD_LOG_WARNING(( "NULL shrng" ));
+    return NULL;
+  }
   memset( shrng, 0, sizeof(fd_chacha20rng_t) );
   return shrng;
 }
