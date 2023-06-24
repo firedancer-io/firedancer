@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include "fd_cstr.h"
 
 /* FIXME: WEAN THIS OFF STDLIB FOR NON-HOSTED TARGETS */
@@ -96,6 +97,12 @@ int
 fd_cstr_casecmp( char const * a,
                  char const * b ) {
   return strcasecmp( a, b );
+}
+
+ulong
+fd_cstr_nlen( char const * s,
+              ulong        m ) {
+  return strnlen( s, m );
 }
 
 char *
