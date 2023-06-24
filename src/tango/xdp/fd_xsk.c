@@ -105,7 +105,7 @@ fd_xsk_bind( void *       shxsk,
     FD_LOG_WARNING(( "NULL app_name" ));
     return NULL;
   }
-  ulong app_name_len = strnlen( app_name, NAME_MAX );
+  ulong app_name_len = fd_cstr_nlen( app_name, NAME_MAX );
   if( FD_UNLIKELY( app_name_len==0UL ) ) {
     FD_LOG_WARNING(( "missing app_name" ));
     return NULL;
@@ -121,7 +121,7 @@ fd_xsk_bind( void *       shxsk,
     FD_LOG_WARNING(( "NULL ifname" ));
     return NULL;
   }
-  ulong if_name_len = strnlen( ifname, IF_NAMESIZE );
+  ulong if_name_len = fd_cstr_nlen( ifname, IF_NAMESIZE );
   if( FD_UNLIKELY( if_name_len==0UL ) ) {
     FD_LOG_WARNING(( "missing ifname" ));
     return NULL;
@@ -586,7 +586,7 @@ fd_xsk_ifidx( fd_xsk_t * const xsk ) {
 FD_FN_PURE char const *
 fd_xsk_ifname( fd_xsk_t * const xsk ) {
   /* cstr coherence check */
-  ulong len = strnlen( xsk->if_name_cstr, IF_NAMESIZE );
+  ulong len = fd_cstr_nlen( xsk->if_name_cstr, IF_NAMESIZE );
   if( FD_UNLIKELY( len==0UL || len==IF_NAMESIZE ) ) return NULL;
 
   return xsk->if_name_cstr;

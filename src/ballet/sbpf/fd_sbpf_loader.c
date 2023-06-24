@@ -300,7 +300,7 @@ fd_sbpf_load_shdrs( fd_sbpf_elf_info_t *  info,
 
     /* Length check */
 
-    REQUIRE( strnlen( name, 16UL )<16UL );
+    REQUIRE( fd_cstr_nlen( name, 16UL )<16UL );
 
     /* Check name */
     /* TODO switch table for this? */
@@ -484,12 +484,12 @@ fd_sbpf_elf_peek( fd_sbpf_elf_info_t * info,
         previously stored */
 
 
-FD_FN_CONST ulong
+ulong
 fd_sbpf_program_align( void ) {
   return alignof( fd_sbpf_program_t );
 }
 
-FD_FN_PURE ulong
+ulong
 fd_sbpf_program_footprint( fd_sbpf_elf_info_t const * info ) {
   (void)info;
   return FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_INIT,
@@ -900,7 +900,7 @@ fd_sbpf_r_bpf_64_32( fd_sbpf_loader_t   const * loader,
 
   /* Verify symbol name */
   ulong max_len  = fd_ulong_min( info->dynstr_sz - sym->st_name, FD_SBPF_SYM_NAME_SZ_MAX );
-  ulong name_len = strnlen( name, max_len );
+  ulong name_len = fd_cstr_nlen( name, max_len );
   REQUIRE( name_len<max_len );
 
   /* Value to write into relocated field */
