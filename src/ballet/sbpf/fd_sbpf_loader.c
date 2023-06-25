@@ -491,7 +491,7 @@ fd_sbpf_program_align( void ) {
 
 ulong
 fd_sbpf_program_footprint( fd_sbpf_elf_info_t const * info ) {
-  (void)info;
+  FD_COMPILER_UNPREDICTABLE( info ); /* Make this appear as FD_FN_PURE (e.g. footprint might depened on info contents in future) */
   return FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_INIT,
     alignof(fd_sbpf_program_t), sizeof(fd_sbpf_program_t) ),
     fd_sbpf_calldests_align(),  fd_sbpf_calldests_footprint() ),

@@ -110,9 +110,7 @@ typedef struct fd_pack_private fd_pack_t;
 #define MAP_KEY_HASH(key)     (*(uint*)(key))
 #include "../../util/tmpl/fd_map_dynamic.c"
 
-
-
-FD_FN_PURE ulong
+ulong
 fd_pack_footprint( ulong bank_cnt,
                    ulong bank_depth,
                    ulong pack_depth ) {
@@ -132,7 +130,7 @@ fd_pack_footprint( ulong bank_cnt,
   return FD_LAYOUT_FINI( l, FD_PACK_ALIGN );
 }
 
-FD_FN_PURE ulong
+ulong
 fd_pack_txnmem_footprint( ulong bank_cnt,
                           ulong bank_depth,
                           ulong pack_depth ) {
@@ -606,5 +604,5 @@ fd_pack_clear( fd_pack_t * pack,
 }
 
 
-void * fd_pack_leave(  fd_pack_t * pack ) { return (void *)pack; }
-void * fd_pack_delete( void      * mem  ) { return mem;          }
+void * fd_pack_leave ( fd_pack_t * pack ) { FD_COMPILER_MFENCE(); return (void *)pack; }
+void * fd_pack_delete( void      * mem  ) { FD_COMPILER_MFENCE(); return mem;          }
