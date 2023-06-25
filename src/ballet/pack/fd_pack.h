@@ -77,12 +77,18 @@ typedef struct fd_pack_private fd_pack_t;
    pack_depth sets the maximum number of pending transactions that pack
    stores and may eventually schedule. */
 
-static inline ulong fd_pack_align(        void ) { return FD_PACK_ALIGN; }
-static inline ulong fd_pack_txnmem_align( void ) { return 128UL; }
+FD_FN_CONST static inline ulong fd_pack_align       ( void ) { return FD_PACK_ALIGN; }
+FD_FN_CONST static inline ulong fd_pack_txnmem_align( void ) { return 128UL;         }
 
-ulong fd_pack_footprint(        ulong bank_cnt, ulong bank_depth, ulong pack_depth );
-ulong fd_pack_txnmem_footprint( ulong bank_cnt, ulong bank_depth, ulong pack_depth );
+ulong /* FIXME: Not FD_FN_CONST because this logs errors (but probably shouldn't). */
+fd_pack_footprint( ulong bank_cnt,
+                   ulong bank_depth,
+                   ulong pack_depth );
 
+FD_FN_CONST ulong
+fd_pack_txnmem_footprint( ulong bank_cnt,
+                          ulong bank_depth,
+                          ulong pack_depth );
 
 /* fd_pack_new formats a region of memory to be suitable for use as a
    pack object.  mem and txnmem are non-NULL pointers to regions of
@@ -108,15 +114,18 @@ fd_pack_t * fd_pack_join( void * mem );
 
 
 /* fd_pack_bank_cnt returns the value used for bank_cnt when the pack
-   object was created.  pack must be a valid local join of a pack object
-   */
-ulong fd_pack_bank_cnt( fd_pack_t * pack );
+   object was created.  pack must be a valid local join of a pack object */
+
+FD_FN_PURE ulong
+fd_pack_bank_cnt( fd_pack_t * pack );
 
 /* fd_pack_avail_txn_cnt returns the number of transactions that this
    pack object has available to schedule but that have not been
    scheduled yet. pack must be a vaild local join.  The return value
    will be in [0, pack_depth). */
-ulong fd_pack_avail_txn_cnt( fd_pack_t * pack );
+
+FD_FN_PURE ulong
+fd_pack_avail_txn_cnt( fd_pack_t * pack );
 
 /* fd_pack_insert_txn_{init,fini,cancel} execute the process of
    inserting a new transaction into the pool of available transactions

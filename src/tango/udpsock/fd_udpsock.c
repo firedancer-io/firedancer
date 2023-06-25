@@ -196,6 +196,11 @@ fd_udpsock_t *
 fd_udpsock_join( void * shsock,
                  int    fd ) {
 
+  if( FD_UNLIKELY( !shsock ) ) {
+    FD_LOG_WARNING(( "NULL shsock" ));
+    return NULL;
+  }
+
   fd_udpsock_t * sock = (fd_udpsock_t *)shsock;
   sock->fd = fd;
 
@@ -220,12 +225,20 @@ fd_udpsock_join( void * shsock,
 
 void *
 fd_udpsock_leave( fd_udpsock_t * sock ) {
+  if( FD_UNLIKELY( !sock ) ) {
+    FD_LOG_WARNING(( "NULL sock" ));
+    return NULL;
+  }
   sock->fd = -1;
   return (void *)sock;
 }
 
 void *
 fd_udpsock_delete( void * shsock ) {
+  if( FD_UNLIKELY( !shsock ) ) {
+    FD_LOG_WARNING(( "NULL shsock" ));
+    return NULL;
+  }
   return shsock;
 }
 
