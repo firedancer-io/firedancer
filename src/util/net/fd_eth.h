@@ -285,9 +285,9 @@ fd_vlan_tag( void * _tag,
 
 /* fd_cstr_to_mac_addr parses a MAC address matching format
    FD_ETH_MAC_FMT from the given cstr and stores the result into mac.
-   On success returns mac.  On failure, returns NULL and leaves mac
-   in an undefined state.  Reasons for failure include that strlen
-   of s is not exactly 17 or that s is not formatted correctly. */
+   On success returns mac.  On failure, returns NULL and leaves mac in
+   an undefined state.  On success, exactly 17 characters of s were
+   processed. */
 
 uchar *
 fd_cstr_to_mac_addr( char const * s,
