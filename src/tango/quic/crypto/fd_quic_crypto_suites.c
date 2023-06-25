@@ -656,7 +656,7 @@ fd_quic_crypto_decrypt(
   fd_memcpy( nonce, quic_iv, nonce_tmp );
   for( uint k = 0; k < 4; ++k ) {
     uint j = nonce_tmp + k;
-    nonce[j] = quic_iv[j] ^ (uchar)( pkt_number >> ( (3u - k) * 8u ) );
+    nonce[j] = (uchar)(quic_iv[j] ^ (uchar)( pkt_number >> ( (3u - k) * 8u ) ));
   }
 
   EVP_CIPHER_CTX * cipher_ctx = keys->pkt_cipher_ctx;
