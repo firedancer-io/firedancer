@@ -273,7 +273,7 @@ static void decompressBZ2(const char* fname, decompressCallback cb, void* arg) {
   close(fin);
 }
 
-void ingest_rocksdb( fd_global_ctx_t * global, const char* file, ulong start_slot, ulong end_slot, const char* verifypoh,
+void ingest_rocksdb( fd_global_ctx_t * global, const char* file, ulong end_slot, const char* verifypoh,
                      fd_tpool_t * tpool, ulong max_workers ) {  
   fd_rocksdb_t        rocks_db;
   char *err = fd_rocksdb_init(&rocks_db, file);
@@ -288,12 +288,7 @@ void ingest_rocksdb( fd_global_ctx_t * global, const char* file, ulong start_slo
   if (end_slot > last_slot)
     end_slot = last_slot;
 
-  ulong first_slot = fd_rocksdb_first_slot(&rocks_db, &err);
-  if (err != NULL) {
-    FD_LOG_ERR(("fd_rocksdb_first_slot returned %s", err));
-  }
-  if (start_slot < first_slot)
-    start_slot = first_slot;
+  ulong start_slot = global->bank.slot+1;
 
   FD_LOG_NOTICE(("ingesting rocksdb from start=%lu to end=%lu", start_slot, end_slot));
 
@@ -330,8 +325,6 @@ void ingest_rocksdb( fd_global_ctx_t * global, const char* file, ulong start_slo
   ulong blk_cnt = 0;
   do {
     ulong slot = m.slot;
-    if (slot < start_slot)
-      continue;
     if (slot >= end_slot)
       break;
 
@@ -534,14 +527,6 @@ int main(int argc, char** argv) {
       SnapshotParser_destroy(&parser);
     }
 
-    file = fd_env_strip_cmdline_cstr(&argc, &argv, "--rocksdb", NULL, NULL);
-    if (file != NULL) {
-      ulong start_slot = fd_env_strip_cmdline_ulong(&argc, &argv, "--startslot", NULL, 0);
-      ulong end_slot = fd_env_strip_cmdline_ulong(&argc, &argv, "--endslot", NULL, ULONG_MAX);
-      const char* verifypoh = fd_env_strip_cmdline_cstr(&argc, &argv, "--verifypoh", NULL, "false");
-      ingest_rocksdb(global, file, start_slot, end_slot, verifypoh, tpool, tcnt-1);
-    }
-
     file = fd_env_strip_cmdline_cstr(&argc, &argv, "--genesis", NULL, NULL);
     if (file != NULL) {
       struct stat sbuf;
@@ -588,6 +573,13 @@ int main(int argc, char** argv) {
       ctx2.freef = global->freef;
       ctx2.freef_arg = global->allocf_arg;
       fd_genesis_solana_destroy(&genesis_block, &ctx2);
+    }
+
+    file = fd_env_strip_cmdline_cstr(&argc, &argv, "--rocksdb", NULL, NULL);
+    if (file != NULL) {
+      ulong end_slot = fd_env_strip_cmdline_ulong(&argc, &argv, "--endslot", NULL, ULONG_MAX);
+      const char* verifypoh = fd_env_strip_cmdline_cstr(&argc, &argv, "--verifypoh", NULL, "false");
+      ingest_rocksdb(global, file, end_slot, verifypoh, tpool, tcnt-1);
     }
 
     global->signature_cnt = 0;
