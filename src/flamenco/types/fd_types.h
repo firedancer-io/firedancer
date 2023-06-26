@@ -827,7 +827,7 @@ typedef struct fd_block_block_hash_entry fd_block_block_hash_entry_t;
 
 #define DEQUE_NAME deq_fd_block_block_hash_entry_t
 #define DEQUE_T fd_block_block_hash_entry_t
-#define DEQUE_MAX 150
+#define DEQUE_MAX 350
 #include "../../util/tmpl/fd_deque.c"
 #undef DEQUE_NAME
 #undef DEQUE_T

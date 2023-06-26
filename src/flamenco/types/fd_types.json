@@ -701,7 +701,7 @@
       "name": "recent_block_hashes",
       "type": "struct",
       "fields": [
-          { "name": "hashes", "type": "deque", "element": "block_block_hash_entry", "max":150 }
+          { "name": "hashes", "type": "deque", "element": "block_block_hash_entry", "max":350 }
       ]
     },
     {

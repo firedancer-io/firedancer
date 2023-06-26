@@ -854,6 +854,8 @@ int fd_global_import_solana_manifest(fd_global_ctx_t *global, fd_solana_manifest
   // bank->stakes = oldbank->stakes;
   fd_block_block_hash_entry_t * hashes = global->bank.recent_block_hashes.hashes =
     deq_fd_block_block_hash_entry_t_alloc( global->allocf, global->allocf_arg );
+  if ( oldbank->blockhash_queue.ages_len > deq_fd_block_block_hash_entry_t_max(hashes) )
+    FD_LOG_ERR(("too many recent hashes"));
   for ( ulong i = 0; i < oldbank->blockhash_queue.ages_len; ++i) {
     fd_block_block_hash_entry_t * elem = deq_fd_block_block_hash_entry_t_push_tail_nocopy(hashes);
     fd_block_block_hash_entry_new(elem);
