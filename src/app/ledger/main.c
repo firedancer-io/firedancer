@@ -292,6 +292,8 @@ void ingest_rocksdb( fd_global_ctx_t * global, const char* file, ulong end_slot,
 
   FD_LOG_NOTICE(("ingesting rocksdb from start=%lu to end=%lu", start_slot, end_slot));
 
+  fd_hash_t oldhash = global->bank.poh;
+  
   fd_slot_meta_meta_t mm;
   mm.start_slot = start_slot;
   mm.end_slot = end_slot;
@@ -383,6 +385,9 @@ void ingest_rocksdb( fd_global_ctx_t * global, const char* file, ulong end_slot,
 
   fd_rocksdb_destroy(&rocks_db);
 
+  /* Verify messes with the poh */
+  global->bank.poh = oldhash;
+  
   FD_LOG_NOTICE(("ingested %lu blocks", blk_cnt));
 }
 
