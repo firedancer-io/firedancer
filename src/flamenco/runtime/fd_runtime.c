@@ -852,20 +852,21 @@ int fd_global_import_solana_manifest(fd_global_ctx_t *global, fd_solana_manifest
 
   fd_deserializable_versioned_bank_t * oldbank = &manifest->bank;
   // bank->stakes = oldbank->stakes;
+  // bank->recent_block_hashes = oldbank->recent_block_hashes;
   fd_block_block_hash_entry_t * hashes = global->bank.recent_block_hashes.hashes =
     deq_fd_block_block_hash_entry_t_alloc( global->allocf, global->allocf_arg );
   for ( ulong i = 0; i < oldbank->blockhash_queue.ages_len; ++i) {
-    fd_block_block_hash_entry_t * elem = deq_fd_block_block_hash_entry_t_push_tail_nocopy(hashes);
+    fd_block_block_hash_entry_t * elem = deq_fd_block_block_hash_entry_t_push_head_nocopy(hashes);
     fd_block_block_hash_entry_new(elem);
     fd_hash_t * h = &oldbank->blockhash_queue.ages[i].key;
     fd_memcpy(elem->blockhash.hash, h, FD_SHA256_HASH_SZ);
     elem->fee_calculator.lamports_per_signature = 0;
+    fd_memcpy(&global->bank.poh, h, FD_SHA256_HASH_SZ);
   }
-  if ( oldbank->blockhash_queue.last_hash )
-    fd_memcpy(&global->bank.poh, oldbank->blockhash_queue.last_hash, FD_SHA256_HASH_SZ);
   // bank->timestamp_votes = oldbank->timestamp_votes;
   bank->slot = oldbank->slot;
   fd_memcpy(&bank->banks_hash, &oldbank->hash, sizeof(oldbank->hash));
+  // bank->banks_hash = oldbank->banks_hash;
   fd_memcpy(&bank->fee_rate_governor, &oldbank->fee_rate_governor, sizeof(oldbank->fee_rate_governor));
   bank->lamports_per_signature = oldbank->fee_calculator.lamports_per_signature;
   if ( oldbank->hashes_per_tick )
