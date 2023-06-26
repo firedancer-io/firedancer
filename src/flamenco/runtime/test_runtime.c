@@ -10,7 +10,7 @@ build/linux/gcc/x86_64/bin/fd_wksp_ctl new giant_wksp 200 gigantic 0-31 0666
 
 build/linux/gcc/x86_64/bin/fd_frank_ledger --wksp giant_wksp --reset true --cmd ingest --snapshotfile /home/jsiegel/mainnet-ledger/snapshot-179244882-2DyMb1qN8JuTijCjsW8w4G2tg1hWuAw2AopH7Bj9Qstu.tar.zst --incremental /home/jsiegel/mainnet-ledger/incremental-snapshot-179244882-179248368-6TprbHABozQQLjjc1HBeQ2p4AigMC7rhHJS2Q5WLcbyw.tar.zst --rocksdb /home/jsiegel/mainnet-ledger/rocksdb --endslot 179248378 --backup /home/asiegel/mainnet_backup
 
-build/linux/gcc/x86_64/unit-test/test_runtime --wksp giant_wksp --reset true --load /home/asiegel/mainnet_backup --cmd replay --validate true
+build/linux/gcc/x86_64/unit-test/test_runtime --wksp giant_wksp --reset true --load /home/asiegel/mainnet_backup --cmd replay --index-max 350000000
 
 ****/
 
@@ -303,8 +303,7 @@ int replay(global_state_t *state) {
   for ( ulong slot = state->global->bank.slot+1; slot < state->end_slot; ++slot ) {
     state->global->bank.slot = slot;
 
-    if ((state->end_slot < 10) || ((slot % 10) == 0))
-      FD_LOG_WARNING(("reading slot %ld", slot));
+    FD_LOG_NOTICE(("reading slot %ld", slot));
 
     fd_slot_meta_t m;
     fd_memset(&m, 0, sizeof(m));
@@ -408,7 +407,7 @@ int main(int argc, char **argv) {
     FD_LOG_NOTICE(( "Attaching to --wksp %s", state.name ));
     wksp = fd_wksp_attach( state.name );
   } else {
-    FD_LOG_NOTICE(( "--wksp not specified, using an anonymous local workspace" ));
+    FD_LOG_NOTICE(( "--wksp not specified, using an anonymous workspace with %lu pages", state.pages ));
     wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, state.pages, 0, "wksp", 0UL );
     state.gaddr = 0;
   }
@@ -420,24 +419,23 @@ int main(int argc, char **argv) {
     state.gaddr = 0;
   }
   
+  void* shmem;
   if( !state.gaddr ) {
-    FD_LOG_NOTICE(("creating new funk db"));
-    void* shmem = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint(), 1 );
+    shmem = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint(), 1 );
     if (shmem == NULL)
       FD_LOG_ERR(( "failed to allocate a funky" ));
     ulong index_max = 1000000;    // Maximum size (count) of master index
     if (index_max_opt)
       index_max = (ulong) atoi((char *) index_max_opt);
     ulong xactions_max = 100;     // Maximum size (count) of transaction index
+    FD_LOG_NOTICE(("creating new funk db, index_max=%lu xactions_max=%lu", index_max, xactions_max));
     state.global->funk = fd_funk_join(fd_funk_new(shmem, 1, hashseed, xactions_max, index_max));
     if (state.global->funk == NULL) {
       fd_wksp_free_laddr(shmem);
       FD_LOG_ERR(( "failed to allocate a funky" ));
     }
-    FD_LOG_WARNING(( "funky at global address %lu", fd_wksp_gaddr_fast( wksp, shmem ) ));
 
   } else {
-    void* shmem;
     if (state.gaddr[0] == '0' && state.gaddr[1] == 'x')
       shmem = fd_wksp_laddr_fast( wksp, (ulong)strtol(state.gaddr+2, NULL, 16) );
     else
@@ -447,6 +445,7 @@ int main(int argc, char **argv) {
       FD_LOG_ERR(( "failed to join a funky" ));
     }
   }
+  FD_LOG_NOTICE(( "funky at global address 0x%lx", fd_wksp_gaddr_fast( wksp, shmem ) ));
 
   if (NULL != log_level)
     state.global->log_level = (uchar) atoi(log_level);
@@ -457,11 +456,13 @@ int main(int argc, char **argv) {
   state.global->allocf_arg = fd_wksp_laddr_fast( wksp, state.global->funk->alloc_gaddr );
 
   if (NULL != state.persist) {
+    FD_LOG_NOTICE(("using %s for persistence", state.persist));
     if ( fd_funk_persist_open_fast( state.global->funk, state.persist ) != FD_FUNK_SUCCESS )
       FD_LOG_ERR(("failed to open persistence file"));
   }
 
   if (NULL != state.load) {
+    FD_LOG_NOTICE(("loading %s", state.load));
     if ( fd_funk_load_backup( state.global->funk, state.load, 0 ) != FD_FUNK_SUCCESS )
       FD_LOG_ERR(("failed to open backup file"));
   }
@@ -479,6 +480,7 @@ int main(int argc, char **argv) {
     state.end_slot = ULONG_MAX;
 
   {
+    FD_LOG_NOTICE(("reading banks record"));
     fd_funk_rec_key_t id = fd_runtime_banks_key();
     fd_funk_rec_t const * rec = fd_funk_rec_query_global(state.global->funk, NULL, &id);
     if ( rec == NULL )
