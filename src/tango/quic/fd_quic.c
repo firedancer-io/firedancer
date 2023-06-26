@@ -64,13 +64,11 @@ fd_quic_footprint_ext( fd_quic_limits_t const * limits,
   ulong  handshake_cnt    = limits->handshake_cnt;
   ulong  inflight_pkt_cnt = limits->inflight_pkt_cnt;
   ulong  tx_buf_sz        = limits->tx_buf_sz;
-  ulong  rx_buf_sz        = limits->rx_buf_sz;
 
   if( FD_UNLIKELY( conn_cnt        ==0UL ) ) return 0UL;
   if( FD_UNLIKELY( handshake_cnt   ==0UL ) ) return 0UL;
   if( FD_UNLIKELY( inflight_pkt_cnt==0UL ) ) return 0UL;
   if( FD_UNLIKELY( tx_buf_sz       ==0UL ) ) return 0UL;
-  if( FD_UNLIKELY( rx_buf_sz       ==0UL ) ) return 0UL;
 
   if( FD_UNLIKELY( conn_id_sparsity==0.0 ) )
     conn_id_sparsity = FD_QUIC_DEFAULT_SPARSITY;
@@ -153,9 +151,9 @@ fd_quic_new( void * mem,
   if( FD_UNLIKELY( ( limits->conn_cnt        ==0UL )
                  | ( limits->handshake_cnt   ==0UL )
                  | ( limits->inflight_pkt_cnt==0UL )
-                 | ( limits->tx_buf_sz       ==0UL )
-                 | ( limits->rx_buf_sz       ==0UL ) ) )
+                 | ( limits->tx_buf_sz       ==0UL ) ) ) {
     return 0UL;
+  }
 
   ulong footprint = fd_quic_footprint( limits );
   if( FD_UNLIKELY( !footprint ) ) {
@@ -191,7 +189,6 @@ fd_quic_limits_from_env( int  *   pargc,
   limits->handshake_cnt    = fd_env_strip_cmdline_uint ( pargc, pargv, "--quic-handshakes",    "QUIC_HANDSHAKE_CNT",    256UL );
   limits->inflight_pkt_cnt = fd_env_strip_cmdline_ulong( pargc, pargv, "--quic-inflight-pkts", "QUIC_MAX_INFLIGHT_PKTS", 64UL );
   limits->tx_buf_sz        = fd_env_strip_cmdline_ulong( pargc, pargv, "--quic-tx-buf-sz",     "QUIC_TX_BUF_SZ",    1UL<<15UL );
-  limits->rx_buf_sz        = fd_env_strip_cmdline_ulong( pargc, pargv, "--quic-rx-buf-sz",     "QUIC_RX_BUF_SZ",    1UL<<15UL );
 
   limits->stream_cnt[ FD_QUIC_STREAM_TYPE_BIDI_CLIENT ] = 0UL;
   limits->stream_cnt[ FD_QUIC_STREAM_TYPE_BIDI_SERVER ] = 0UL;
@@ -453,7 +450,7 @@ fd_quic_init( fd_quic_t * quic ) {
 
   /* total data that may be sent on the connection is rx_buf_sz per stream,
      four types of stream */
-  ulong tot_initial_max_data = limits->rx_buf_sz * (
+  ulong tot_initial_max_data = config->rx_buf_sz * (
     limits->stream_cnt[ FD_QUIC_STREAM_TYPE_BIDI_CLIENT ] +
     limits->stream_cnt[ FD_QUIC_STREAM_TYPE_BIDI_SERVER ] +
     limits->stream_cnt[ FD_QUIC_STREAM_TYPE_UNI_CLIENT  ] +
@@ -469,9 +466,9 @@ fd_quic_init( fd_quic_t * quic ) {
   FD_QUIC_TRANSPORT_PARAM_SET( tp, max_idle_timeout,                    idle_timeout_ms          );
   FD_QUIC_TRANSPORT_PARAM_SET( tp, max_udp_payload_size,                FD_QUIC_MAX_PAYLOAD_SZ   ); /* TODO */
   FD_QUIC_TRANSPORT_PARAM_SET( tp, initial_max_data,                    tot_initial_max_data     );
-  FD_QUIC_TRANSPORT_PARAM_SET( tp, initial_max_stream_data_bidi_local,  limits->rx_buf_sz        );
-  FD_QUIC_TRANSPORT_PARAM_SET( tp, initial_max_stream_data_bidi_remote, limits->rx_buf_sz        );
-  FD_QUIC_TRANSPORT_PARAM_SET( tp, initial_max_stream_data_uni,         limits->rx_buf_sz        );
+  FD_QUIC_TRANSPORT_PARAM_SET( tp, initial_max_stream_data_bidi_local,  config->rx_buf_sz        );
+  FD_QUIC_TRANSPORT_PARAM_SET( tp, initial_max_stream_data_bidi_remote, config->rx_buf_sz        );
+  FD_QUIC_TRANSPORT_PARAM_SET( tp, initial_max_stream_data_uni,         config->rx_buf_sz        );
   FD_QUIC_TRANSPORT_PARAM_SET( tp, initial_max_streams_bidi,            initial_max_streams_bidi );
   FD_QUIC_TRANSPORT_PARAM_SET( tp, initial_max_streams_uni,             initial_max_streams_uni  );
   FD_QUIC_TRANSPORT_PARAM_SET( tp, ack_delay_exponent,                  0                        ); /* TODO */
@@ -4525,10 +4522,6 @@ fd_quic_conn_create( fd_quic_t *               quic,
   conn->tx_ptr = conn->tx_buf;
   conn->tx_sz  = sizeof( conn->tx_buf );
 
-  /* these appear to be initialized within fd_quic_conn.c */
-  // conn->stream_tx_buf_sz = 0;
-  // conn->stream_rx_buf_sz = 0;
-
   fd_memset( &conn->suites[0], 0, sizeof( conn->suites ) );
 
   /* rfc specifies TLS_AES_128_GCM_SHA256_ID for the suite for initial
@@ -5506,7 +5499,7 @@ fd_quic_frame_handle_stream_frame(
       stream->tx_tot_data        = 0;
       stream->tx_last_byte       = 0;
 
-      stream->rx_max_stream_data = context.conn->stream_rx_buf_sz;
+      stream->rx_max_stream_data = context.quic->config.rx_buf_sz;
       stream->rx_tot_data        = 0;
 
       stream->upd_pkt_number     = 0;

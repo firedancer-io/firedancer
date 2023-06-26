@@ -204,10 +204,6 @@ scratch_directory = "/home/{user}/.firedancer/{name}"
         # TODO: This should be removed. We never transmit stream data so this should be unused.
         tx_buf_size = 4096
 
-        # TODO: This should not be configurable. The rx buf size should always just be the maximum
-        # transaction size. This is apparently used for flow control as well?
-        rx_buf_size = 8192
-
         # Firedancer uses XDP for fast packet processing. XDP supports two modes, XDP_SKB and
         # XDP_DRV. XDP_DRV is preferred as it is faster, but is not supported by all drivers.
         xdp_mode = "skb"

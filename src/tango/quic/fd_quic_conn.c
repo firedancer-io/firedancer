@@ -41,7 +41,6 @@ fd_quic_conn_footprint_ext( fd_quic_limits_t const * limits,
                             fd_quic_conn_layout_t *  layout ) {
 
   ulong  tx_buf_sz           = limits->tx_buf_sz;
-  ulong  rx_buf_sz           = limits->rx_buf_sz;
   double stream_sparsity     = limits->stream_sparsity;
   ulong  inflight_pkt_cnt    = limits->inflight_pkt_cnt;
 
@@ -54,10 +53,10 @@ fd_quic_conn_footprint_ext( fd_quic_limits_t const * limits,
 
   if( FD_UNLIKELY( stream_cnt         ==0UL ) ) return 0UL;
   if( FD_UNLIKELY( tx_buf_sz          ==0UL ) ) return 0UL;
-  if( FD_UNLIKELY( rx_buf_sz          ==0UL ) ) return 0UL;
   if( FD_UNLIKELY( inflight_pkt_cnt   ==0UL ) ) return 0UL;
-  if( FD_UNLIKELY( stream_sparsity==0.0 ) )
+  if( FD_UNLIKELY( stream_sparsity==0.0 ) ) {
     stream_sparsity = FD_QUIC_DEFAULT_SPARSITY;
+  }
 
   ulong off  = 0;
 
@@ -70,7 +69,7 @@ fd_quic_conn_footprint_ext( fd_quic_limits_t const * limits,
   off                    += stream_cnt * sizeof(void *);
 
   /* allocate space for stream instances */
-  ulong   stream_footprint = fd_quic_stream_footprint( tx_buf_sz, rx_buf_sz );
+  ulong   stream_footprint = fd_quic_stream_footprint( tx_buf_sz );
   layout->stream_footprint = stream_footprint;
 
   off                 = fd_ulong_align_up( off, fd_quic_stream_align() );
@@ -152,7 +151,6 @@ fd_quic_conn_new( void *                   mem,
 
   conn->quic             = quic;
   conn->stream_tx_buf_sz = limits->tx_buf_sz;
-  conn->stream_rx_buf_sz = limits->rx_buf_sz;
   conn->tot_num_streams  = layout.stream_cnt;
   conn->state            = FD_QUIC_CONN_STATE_INVALID;
 
@@ -170,7 +168,7 @@ fd_quic_conn_new( void *                   mem,
   ulong stream_laddr = (ulong)mem + layout.stream_off;
   for( ulong j=0; j < layout.stream_cnt; j++ ) {
     fd_quic_stream_t * stream = fd_quic_stream_new(
-        (void *)stream_laddr, conn, limits->tx_buf_sz, limits->rx_buf_sz );
+        (void *)stream_laddr, conn, limits->tx_buf_sz );
     if( FD_UNLIKELY( !stream ) ) return NULL;
 
     conn->streams[j] = stream;

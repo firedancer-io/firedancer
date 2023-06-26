@@ -167,7 +167,6 @@ struct fd_quic_conn {
   ulong   tx_sz;  /* sz remaining at ptr */
 
   ulong   stream_tx_buf_sz; /* size of per-stream tx buffer */
-  ulong   stream_rx_buf_sz; /* size of per-stream rx buffer */
 
   /* the peer transport parameters */
   fd_quic_transport_params_t peer_transport_params;
