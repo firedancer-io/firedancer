@@ -182,8 +182,8 @@ struct __attribute__((aligned(16UL))) fd_quic_limits {
 
   ulong  inflight_pkt_cnt; /* per-conn, max inflight packet count   */
 
-  ulong  tx_buf_sz;        /* per-conn, tx buf sz in bytes          */
-  ulong  rx_buf_sz;        /* per-conn, rx buf sz in bytes          */
+  ulong  tx_buf_sz;        /* per-stream, tx buf sz in bytes          */
+  /* the user consumes rx directly from the network buffer */
 };
 typedef struct fd_quic_limits fd_quic_limits_t;
 
@@ -238,6 +238,8 @@ struct __attribute__((aligned(16UL))) fd_quic_config {
      FIXME: Extend server to validate SNI */
 # define FD_QUIC_SNI_LEN (255UL)
   char sni[ FD_QUIC_SNI_LEN+1UL ];
+
+  ulong rx_buf_sz; /* per-stream, rx buf sz in bytes, set by the user. */
 
   /* Network config ****************************************/
 

@@ -89,8 +89,7 @@ main( int argc, char ** argv ) {
     .handshake_cnt    = 10,
     .stream_cnt       = {0, 0, 2, 0},
     .inflight_pkt_cnt = 100,
-    .tx_buf_sz        = 1<<16,
-    .rx_buf_sz        = 1<<16
+    .tx_buf_sz        = 1<<16
   };
 
   ulong quic_footprint = fd_quic_footprint( &quic_limits );
@@ -119,6 +118,8 @@ main( int argc, char ** argv ) {
   FD_LOG_NOTICE(( "Initializing QUICs" ));
   FD_TEST( fd_quic_init( server_quic ) );
   FD_TEST( fd_quic_init( client_quic ) );
+  server_quic->config.rx_buf_sz = 1<<16;
+  client_quic->config.rx_buf_sz = 1<<16;
 
   FD_LOG_NOTICE(( "Creating connection" ));
   fd_quic_conn_t * client_conn = fd_quic_connect(
@@ -235,4 +236,3 @@ main( int argc, char ** argv ) {
   fd_halt();
   return 0;
 }
-
