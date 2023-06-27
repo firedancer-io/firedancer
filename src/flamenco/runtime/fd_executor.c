@@ -10,7 +10,7 @@
 #include "program/fd_bpf_loader_program.h"
 #include "program/fd_bpf_upgradeable_loader_program.h"
 #include "program/fd_bpf_deprecated_loader_program.h"
-
+#include "program/fd_compute_budget_program.h"
 
 #include "../../ballet/base58/fd_base58.h"
 
@@ -48,7 +48,7 @@ void* fd_executor_delete(void* mem) {
 
 /* Look up a native program given it's pubkey key */
 execute_instruction_func_t
-fd_executor_lookup_native_program( fd_global_ctx_t* global,  fd_pubkey_t *pubkey ) {
+fd_executor_lookup_native_program( fd_global_ctx_t* global,  fd_pubkey_t* pubkey ) {
   /* TODO: replace with proper lookup table */
   if ( !memcmp( pubkey, global->solana_vote_program, sizeof( fd_pubkey_t ) ) ) {
     return fd_executor_vote_program_execute_instruction;
@@ -68,12 +68,23 @@ fd_executor_lookup_native_program( fd_global_ctx_t* global,  fd_pubkey_t *pubkey
     return fd_executor_bpf_loader_program_execute_instruction;
   } else if ( !memcmp( pubkey, global->solana_bpf_loader_deprecated_program, sizeof( fd_pubkey_t ) ) ) {
     return fd_executor_bpf_deprecated_loader_program_execute_instruction;
+  } else if ( !memcmp( pubkey, global->solana_compute_budget_program, sizeof( fd_pubkey_t ) ) ) {
+    return fd_executor_compute_budget_program_execute_instruction_nop;
   } else {
     char program_id_str[FD_BASE58_ENCODED_32_SZ];
     fd_base58_encode_32((uchar *)pubkey, NULL, program_id_str);
-    FD_LOG_WARNING(( "unknown program - program_id: %s", program_id_str ));
+    FD_LOG_WARNING(( "unknown native program - program_id: %s", program_id_str ));
     return NULL; /* FIXME */
   }
+}
+
+int
+fd_executor_lookup_program( fd_global_ctx_t * global, fd_pubkey_t * pubkey ) {
+  if( fd_executor_bpf_upgradeable_loader_program_is_executable_program_account(global, pubkey)==0 ) {
+    return 0;
+  }
+
+  return -1;
 }
 
 void
@@ -99,6 +110,7 @@ fd_execute_txn( fd_executor_t* executor, fd_txn_t * txn_descriptor, fd_rawtxn_b_
   //                }
   //            }
   //      }
+
 
   fd_acc_lamports_t lamps;
   int               ret = fd_acc_mgr_get_lamports ( global->acc_mgr, global->funk_txn, &tx_accs[0], &lamps);
@@ -164,6 +176,9 @@ fd_execute_txn( fd_executor_t* executor, fd_txn_t * txn_descriptor, fd_rawtxn_b_
     .txn_raw            = txn_raw,
   };
 
+  int compute_budget_status = fd_executor_compute_budget_program_execute_instructions( &txn_ctx );
+  (void)compute_budget_status;
+
   for ( ushort i = 0; i < txn_descriptor->instr_cnt; ++i ) {
     fd_txn_instr_t *  instr = &txn_descriptor->instr[i];
     instruction_ctx_t ctx = {
@@ -181,16 +196,30 @@ fd_execute_txn( fd_executor_t* executor, fd_txn_t * txn_descriptor, fd_rawtxn_b_
 
     /* TODO: allow instructions to be failed, and the transaction to be reverted */
     execute_instruction_func_t exec_instr_func = fd_executor_lookup_native_program( executor->global, &tx_accs[instr->program_id] );
-    int exec_result = exec_instr_func( ctx );
-    if ( FD_UNLIKELY( exec_result != FD_EXECUTOR_INSTR_SUCCESS ) ) {
-      exec_result = exec_instr_func( ctx );
+
+    if (exec_instr_func != NULL) {
+      int exec_result = exec_instr_func( ctx );
+      if ( FD_UNLIKELY( exec_result != FD_EXECUTOR_INSTR_SUCCESS ) ) {
+        exec_result = exec_instr_func( ctx );
+        char program_id_str[FD_BASE58_ENCODED_32_SZ];
+        fd_base58_encode_32((uchar *)&tx_accs[instr->program_id], NULL, program_id_str);
+        FD_LOG_WARNING(( "instruction executed unsuccessfully: error code %d, program id: %s", exec_result, program_id_str ));
+        FD_LOG_HEXDUMP_ERR(( "instruction content", (uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->data_off, instr->data_sz ));
+
+        /* TODO: revert transaction context */
+      }
+    } else {
       char program_id_str[FD_BASE58_ENCODED_32_SZ];
       fd_base58_encode_32((uchar *)&tx_accs[instr->program_id], NULL, program_id_str);
-      FD_LOG_WARNING(( "instruction executed unsuccessfully: error code %d, program id: %s", exec_result, program_id_str ));
-      FD_LOG_HEXDUMP_ERR(( "instruction content", (uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->data_off, instr->data_sz ));
+      if (fd_executor_lookup_program(executor->global, &tx_accs[instr->program_id]) == 0 ) {
+        FD_LOG_NOTICE(( "found BPF executable program account - program id: %s", program_id_str ));
 
-      /* TODO: revert transaction context */
+        fd_executor_bpf_upgradeable_loader_program_execute_program_instruction(ctx);
+      } else {
+        FD_LOG_WARNING(( "did not find BPF executable program account - program id: %s", program_id_str ));
+      }
     }
+
 
     /* TODO: sanity before/after checks: total lamports unchanged etc */
   }
