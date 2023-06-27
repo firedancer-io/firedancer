@@ -533,7 +533,7 @@ fd_dedup_tile( fd_cnc_t *              cnc,
 
     int is_dup = 0;
 
-    /* FIXME mileston-1.4-demo only */
+    /* Check sig_verify result: milestone-1.4-demo only. */
     if( FD_UNLIKELY( !!demo_txn_err_verif )) {
       FD_TEST( (sig&0x1) == (ulong)fd_frag_meta_ctl_err(ctl) );
     }

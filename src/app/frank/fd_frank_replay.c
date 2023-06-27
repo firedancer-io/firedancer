@@ -173,17 +173,14 @@ fd_frank_replay_loop( fd_cnc_t *       cnc,
     if( FD_UNLIKELY( !base ) ) { FD_LOG_WARNING(( "fd_wksp_containing failed" )); return 1; }
 
     /* Replicating fd_quic_tile's dcache structure, with a few modification:
-        - the payload is now the entire pkt (including eth/ip/udp headers)
-        - the allocated space for fd_txn_t has to be the maximum
-        - pkt_sz is used in replacement of txn_sz
-        - txn_offset is needed from the base of the pkt
+        - the allocated space for fd_txn_t has to be the maximum allowed/required.
+        - fd_txn_t is populated by parser.
         
-        Field:            Comment:                      Updated by:
-        [ pkt          ]  (pkt_sz bytes)                replay
-        [ pad-align 2B ]  (? bytes)                     replay (empty bytes)
-        [ fd_txn_t     ]  (FD_TXN_MAX_SZ_ADJ bytes)     *parser
-        [ pkt_sz       ]  (2B)                          replay
-        [ txn_offset   ]  (2B, offset inside pkt)       *parser
+        Field:              Comment:                      Updated by:
+        [ udp_payload    ]  (bytes)                       replay
+        [ pad-align 2B   ]  (? bytes)                     replay (empty bytes)
+        [ fd_txn_t       ]  (FD_TXN_MAX_SZ_ADJ bytes)     *parser
+        [ udp_payload_sz ]  (2B)                          replay
     */
     ulong dcache_entry_max_sz = fd_ulong_align_up( pkt_max, 2UL ) + FD_TXN_MAX_SZ_ADJ + 4UL;
 

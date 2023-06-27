@@ -423,8 +423,10 @@ fd_frank_verify_task( int     argc,
     /* wiredancer */
     if( !!wd_slots ){
       ulong ctl = fd_frag_meta_ctl( 0, 1 /*ctl_som*/, 1 /*ctl_eom*/, 0 /*ctl_err*/ );
-      /* Iterate trying to send the request */
-      while( wd_ed25519_verify_req(&wd, msg, msg_sz, sig, public_key, seq, (uint)chunk, (uint16_t)ctl, (uint16_t)vin_data_sz ) ) ;
+      /* Block until the request is sent (or error on timeout) */
+      FD_TEST( !wd_ed25519_verify_req( &wd, /* wiredancer context */
+                                       msg, msg_sz, sig, public_key, /* verify arguments */
+                                       seq, (uint)chunk, (uint16_t)ctl, (uint16_t)vin_data_sz /* mcache arguments */) );
       /* Windup for the next iteration */
       chunk = fd_dcache_compact_next( chunk, vin_data_sz, chunk0, wmark );
       seq   = fd_seq_inc( seq, 1UL );
