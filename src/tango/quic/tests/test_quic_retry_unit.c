@@ -107,8 +107,8 @@ void test_retry_integrity_tag() {
   fd_quic_encode_retry_pseudo( buf_, sz, &retry_pseudo_pkt );
 
   // FIXME variable-length encodings without len field
-  // FIXME hack around it by using 100-byte retry tokens -- but this sample use 5-byte
-  sz -= 95;
+  // FIXME hack around it by using 77-byte retry tokens -- but this sample use 5-byte
+  sz -= 72;
   uchar buf[sz];
   memcpy( buf, buf_, sz );
 
