@@ -34,7 +34,7 @@ my_stream_receive( fd_quic_stream_t * stream,
     FD_LOG_HEXDUMP_DEBUG( ( "buffer", buffer, stream->rx_tot_data ) );
     FD_TEST( 0 == memcmp( buffer, "Hello world", 12u ) ); /* includes NUL */
   }
-  FD_LOG_HEXDUMP_NOTICE(("rx", data, data_sz));
+  FD_LOG_HEXDUMP_DEBUG(("rx", data, data_sz));
   for ( uchar i = 0; i < data_sz; i++ ) {
     buffer[stream->rx_tot_data + i] = data[i];
   }
