@@ -16,6 +16,8 @@ FD_PROTOTYPES_BEGIN
 /* Entry-point for the Solana Compute Budget Program */
 int fd_executor_compute_budget_program_execute_instructions( transaction_ctx_t * ctx );
 
+int fd_executor_compute_budget_program_execute_instruction_nop( instruction_ctx_t ctx ) ;
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_program_fd_compute_budget_program_h */
