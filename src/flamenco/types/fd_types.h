@@ -655,7 +655,7 @@ deq_fd_vote_lockout_t_alloc(fd_alloc_fun_t allocf, void * allocf_arg) {
 }
 #define DEQUE_NAME deq_fd_vote_epoch_credits_t
 #define DEQUE_T fd_vote_epoch_credits_t
-#define DEQUE_MAX 35
+#define DEQUE_MAX 100
 #include "../../util/tmpl/fd_deque.c"
 #undef DEQUE_NAME
 #undef DEQUE_T
