@@ -438,8 +438,7 @@ main( int argc, char ** argv ) {
     .handshake_cnt    = 10,
     .stream_cnt       = { 0, 0, 10, 0 },
     .inflight_pkt_cnt = 1024,
-    .tx_buf_sz        = 1<<14,
-    .rx_buf_sz        = 1<<14
+    .tx_buf_sz        = 1<<14
   };
 
   ulong quic_footprint = fd_quic_footprint( &quic_limits );
