@@ -254,7 +254,6 @@ serialize_aligned( instruction_ctx_t ctx, ulong * sz ) {
   serialized_params += sizeof(fd_pubkey_t);
 
   FD_LOG_NOTICE(( "SERIALIZE - sz: %lu, diff: %lu", serialized_size, serialized_params - serialized_params_start ));
-  FD_LOG_HEXDUMP_NOTICE(("serial params", serialized_params_start, (ulong)(serialized_params - serialized_params_start)));
   *sz = serialized_size;
   return serialized_params_start;
 }
@@ -415,7 +414,6 @@ int fd_executor_bpf_upgradeable_loader_program_execute_program_instruction( inst
   vm_ctx.register_file[1] = FD_VM_MEM_MAP_INPUT_REGION_START;
   vm_ctx.register_file[10] = FD_VM_MEM_MAP_STACK_REGION_START + 0x1000;
 
-  FD_LOG_HEXDUMP_NOTICE(( "bpf instrs", prog->text, prog->text_cnt * 8 ));
 
   ulong validate_result = fd_vm_context_validate( &vm_ctx );
   if (validate_result != FD_VM_SBPF_VALIDATE_SUCCESS) {
@@ -453,10 +451,6 @@ int fd_executor_bpf_upgradeable_loader_program_execute_program_instruction( inst
   }
   fclose(trace_fd);
 
-  uchar * instr_data            = (uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->data_off;
-
-  FD_LOG_HEXDUMP_NOTICE(( "bpf instr data", instr_data, ctx.instr->data_sz ));
-
   for( ulong i = 0; i < ctx.instr->acct_cnt; i++ ) {
     char program_id_str[FD_BASE58_ENCODED_32_SZ];
     fd_base58_encode_32((uchar *) &txn_accs[instr_acc_idxs[i]], NULL, program_id_str);
@@ -472,10 +466,6 @@ int fd_executor_bpf_upgradeable_loader_program_execute_program_instruction( inst
   FD_LOG_WARNING(( "fd_vm_interp_instrs() success: %lu, ic: %lu, pc: %lu, ep: %lu, r0: %lu, fault: %lu", interp_res, vm_ctx.instruction_counter, vm_ctx.program_counter, vm_ctx.entrypoint, vm_ctx.register_file[0], vm_ctx.cond_fault ));
   FD_LOG_WARNING(( "log coll: %s", vm_ctx.log_collector.buf ));
 
-  //FD_LOG_HEXDUMP_NOTICE(( "bpf instrs exit", prog->text + (8*(vm_ctx.program_counter-10)), 10 * 8 ));
-
-  FD_LOG_HEXDUMP_NOTICE(("after exec serial params", input, input_sz ));
-
   for( ulong i = 0; i < input_sz; i++ ) {
     if( input[i] != input_cpy[i] ) {
       FD_LOG_NOTICE(("INPUT CHANGED: idx: %lu, before: %x, after: %x", i, input_cpy[i], input[i]));
@@ -484,12 +474,6 @@ int fd_executor_bpf_upgradeable_loader_program_execute_program_instruction( inst
   }
 
   deserialize_aligned(ctx, input, input_sz);
-
-  uchar * reinput;
-  ulong reinput_sz;
-  reinput = serialize_aligned(ctx, &reinput_sz);
-
-  FD_LOG_HEXDUMP_NOTICE(("REINPUT", reinput, reinput_sz));
 
   return 0;
 }

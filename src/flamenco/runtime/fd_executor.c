@@ -71,9 +71,6 @@ fd_executor_lookup_native_program( fd_global_ctx_t* global,  fd_pubkey_t* pubkey
   } else if ( !memcmp( pubkey, global->solana_compute_budget_program, sizeof( fd_pubkey_t ) ) ) {
     return fd_executor_compute_budget_program_execute_instruction_nop;
   } else {
-    char program_id_str[FD_BASE58_ENCODED_32_SZ];
-    fd_base58_encode_32((uchar *)pubkey, NULL, program_id_str);
-    FD_LOG_WARNING(( "unknown native program - program_id: %s", program_id_str ));
     return NULL; /* FIXME */
   }
 }
@@ -216,7 +213,7 @@ fd_execute_txn( fd_executor_t* executor, fd_txn_t * txn_descriptor, fd_rawtxn_b_
 
         fd_executor_bpf_upgradeable_loader_program_execute_program_instruction(ctx);
       } else {
-        FD_LOG_WARNING(( "did not find BPF executable program account - program id: %s", program_id_str ));
+        FD_LOG_WARNING(( "did not find native or BPF executable program account - program id: %s", program_id_str ));
       }
     }
 
