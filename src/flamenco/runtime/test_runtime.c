@@ -302,6 +302,9 @@ int replay(global_state_t *state) {
   if (mm.end_slot < state->end_slot)
     state->end_slot = mm.end_slot;
 
+  if (0 != state->global->bank.slot)
+    fd_update_features(state->global);
+
   for ( ulong slot = state->global->bank.slot+1; slot < state->end_slot; ++slot ) {
     state->global->bank.slot = slot;
 
@@ -389,21 +392,21 @@ int main(int argc, char **argv) {
     usage(argv[0]);
     return 1;
   }
-  
+
   if (NULL != state.net) {
     if (!strncmp(state.net, "main", 4))
-      enable_mainnet(&state.global->features);
+      fd_enable_mainnet(&state.global->features);
     if (!strcmp(state.net, "test"))
-      enable_testnet(&state.global->features);
+      fd_enable_testnet(&state.global->features);
     if (!strcmp(state.net, "dev"))
-      enable_devnet(&state.global->features);
+      fd_enable_devnet(&state.global->features);
   } else
-    memset(&state.global->features, 1, sizeof(state.global->features));
+    fd_enable_everything(&state.global->features);
 
   char hostname[64];
   gethostname(hostname, sizeof(hostname));
   ulong hashseed = fd_hash(0, hostname, strnlen(hostname, sizeof(hostname)));
-  
+
   fd_wksp_t *wksp = NULL;
   if ( state.name ) {
     FD_LOG_NOTICE(( "Attaching to --wksp %s", state.name ));
@@ -420,7 +423,7 @@ int main(int argc, char **argv) {
     fd_wksp_reset( wksp, (uint)hashseed);
     state.gaddr = 0;
   }
-  
+
   void* shmem;
   if( !state.gaddr ) {
     shmem = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint(), 1 );

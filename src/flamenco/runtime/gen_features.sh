@@ -1,4 +1,4 @@
-#!/bin/bash 
+#!/bin/bash
 set -x
 
 #solana feature status -u mainnet-beta --output json --display-all > mainnet-beta.json
@@ -9,4 +9,3 @@ python3 gen_features.py fd_features.h fd_features.c
 
 uncrustify  -c ../../../lint.cfg --no-backup --replace fd_features.h
 uncrustify  -c ../../../lint.cfg --no-backup --replace fd_features.c
-

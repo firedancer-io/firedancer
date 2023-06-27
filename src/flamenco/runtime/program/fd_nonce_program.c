@@ -84,7 +84,7 @@ int fd_load_nonce_account(
 
   fd_bincode_decode_ctx_t ctx;
   ctx.data = raw_acc_data + m->hlen;
-  ctx.dataend = (char *) ctx2.data + m->dlen;
+  ctx.dataend = (char *) ctx.data + m->dlen;
   ctx.allocf = global->allocf;
   ctx.allocf_arg = global->allocf_arg;
   if ( fd_nonce_state_versions_decode( state, &ctx ) ) {

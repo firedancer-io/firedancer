@@ -4,6 +4,59 @@
 #ifdef _DISABLE_OPTIMIZATION
 #pragma GCC optimize ("O0")
 #endif
+int fd_feature_decode(fd_feature_t* self, fd_bincode_decode_ctx_t * ctx) {
+  int err;
+  {
+    unsigned char o;
+    err = fd_bincode_option_decode(&o, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    if (o) {
+      self->activated_at = (ulong*)(*ctx->allocf)(ctx->allocf_arg, 8, sizeof(ulong));
+      err = fd_bincode_uint64_decode(self->activated_at, ctx);
+      if ( FD_UNLIKELY(err) ) return err;
+    } else
+      self->activated_at = NULL;
+  }
+  return FD_BINCODE_SUCCESS;
+}
+void fd_feature_new(fd_feature_t* self) {
+  self->activated_at = NULL;
+}
+void fd_feature_destroy(fd_feature_t* self, fd_bincode_destroy_ctx_t * ctx) {
+  if (NULL != self->activated_at) {
+    (*ctx->freef)(ctx->freef_arg, self->activated_at);
+    self->activated_at = NULL;
+  }
+}
+
+void fd_feature_walk(fd_feature_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_feature", level++);
+  fun(self->activated_at, "activated_at", 11, "ulong", level + 1);
+  fun(self, name, 33, "fd_feature", --level);
+}
+ulong fd_feature_size(fd_feature_t const * self) {
+  ulong size = 0;
+  size += sizeof(char);
+  if (NULL !=  self->activated_at) {
+    size += sizeof(ulong);
+  }
+  return size;
+}
+
+int fd_feature_encode(fd_feature_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  if (self->activated_at != NULL) {
+    err = fd_bincode_option_encode(1, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    err = fd_bincode_uint64_encode(self->activated_at, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+  } else {
+    err = fd_bincode_option_encode(0, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+  }
+  return FD_BINCODE_SUCCESS;
+}
+
 int fd_fee_calculator_decode(fd_fee_calculator_t* self, fd_bincode_decode_ctx_t * ctx) {
   int err;
   err = fd_bincode_uint64_decode(&self->lamports_per_signature, ctx);

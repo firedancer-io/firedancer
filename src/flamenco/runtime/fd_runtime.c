@@ -858,7 +858,7 @@ int fd_global_import_solana_manifest(fd_global_ctx_t *global, fd_solana_manifest
     FD_LOG_ERR(("too many recent hashes"));
   for ( ulong i = 0; i < oldbank->blockhash_queue.ages_len; ++i) {
     fd_block_block_hash_entry_t * elem = deq_fd_block_block_hash_entry_t_push_tail_nocopy(hashes);
-    fd_block_block_hash_entry_new(elem);
+     fd_block_block_hash_entry_new(elem);
     fd_hash_t * h = &oldbank->blockhash_queue.ages[i].key;
     fd_memcpy(elem->blockhash.hash, h, FD_SHA256_HASH_SZ);
     elem->fee_calculator.lamports_per_signature = 0;
@@ -884,6 +884,35 @@ int fd_global_import_solana_manifest(fd_global_ctx_t *global, fd_solana_manifest
   bank->rent = oldbank->rent_collector.rent;
   fd_memcpy(&bank->collector_id, &oldbank->collector_id, sizeof(oldbank->collector_id));
   bank->collected = oldbank->collected_rent;
-  
+
   return fd_runtime_save_banks( global );
+}
+
+void fd_update_feature(FD_FN_UNUSED fd_global_ctx_t * global, ulong * f, const char *key) {
+  unsigned char              acct[32];
+  fd_base58_decode_32( key,  (unsigned char *) acct);
+
+  char * raw_acc_data = (char*) fd_acc_mgr_view_data(global->acc_mgr, global->funk_txn, (fd_pubkey_t *) acct, NULL, NULL);
+  if (NULL == raw_acc_data)
+    return;
+  fd_account_meta_t *m = (fd_account_meta_t *) raw_acc_data;
+
+  fd_feature_t feature;
+  fd_feature_new(&feature);
+
+  fd_bincode_decode_ctx_t ctx;
+  ctx.data = raw_acc_data + m->hlen;
+  ctx.dataend = (char *) ctx.data + m->dlen;
+  ctx.allocf = global->allocf;
+  ctx.allocf_arg = global->allocf_arg;
+  if ( fd_feature_decode( &feature, &ctx ) )
+    return;
+
+  if (NULL != feature.activated_at)
+    *f = *feature.activated_at;
+
+  fd_bincode_destroy_ctx_t ctx3;
+  ctx3.freef = global->freef;
+  ctx3.freef_arg = global->allocf_arg;
+  fd_feature_destroy( &feature, &ctx3 );
 }

@@ -73,7 +73,7 @@ void fd_executor_test_suite_new( fd_executor_test_suite_t* suite ) {
     suite->freef = freef;
   }
 
-  memset(&suite->features, 1, sizeof(suite->features));
+  fd_enable_everything(&suite->features);
 }
 
 int fd_executor_run_test(
@@ -99,7 +99,7 @@ int fd_executor_run_test(
   memcpy(&global->features, &suite->features, sizeof(suite->features));
   if (test->disable_cnt > 0) {
     for (uint i = 0; i < test->disable_cnt; i++)
-      ((uchar *) &global->features)[test->disable_feature[i]] = 0;
+      ((ulong *) &global->features)[test->disable_feature[i]] = 0;
   }
 
   char *acc_mgr_mem = fd_alloca_check(FD_ACC_MGR_ALIGN, FD_ACC_MGR_FOOTPRINT);
@@ -142,6 +142,8 @@ int fd_executor_run_test(
         }
       }
     }
+
+    global->bank.slot = 200880004;
 
     /* Parse the raw transaction */
 
@@ -290,7 +292,7 @@ int main(int argc, char **argv) {
   fd_executor_test_suite_t suite;
   fd_executor_test_suite_new( &suite );
 
-  memset(&suite.features, 1, sizeof(suite.features));
+  fd_enable_everything(&suite.features);
 
   if (NULL != filter) {
     suite.filter = filter;

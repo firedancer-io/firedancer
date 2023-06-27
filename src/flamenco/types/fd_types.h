@@ -5,6 +5,14 @@
 #include "fd_types_custom.h"
 #define FD_ACCOUNT_META_MAGIC 9823
 
+/* sdk/program/src/feature.rs#L22 */
+struct fd_feature {
+  unsigned long* activated_at;
+};
+typedef struct fd_feature fd_feature_t;
+#define FD_FEATURE_FOOTPRINT sizeof(fd_feature_t)
+#define FD_FEATURE_ALIGN (8UL)
+
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/fee_calculator.rs#L9 */
 struct fd_fee_calculator {
   unsigned long lamports_per_signature;
@@ -1506,6 +1514,13 @@ typedef struct fd_bpf_upgradeable_loader_state fd_bpf_upgradeable_loader_state_t
 
 
 FD_PROTOTYPES_BEGIN
+
+void fd_feature_new(fd_feature_t* self);
+int fd_feature_decode(fd_feature_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_feature_encode(fd_feature_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_feature_destroy(fd_feature_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_feature_walk(fd_feature_t* self, fd_walk_fun_t fun, const char *name, int level);
+ulong fd_feature_size(fd_feature_t const * self);
 
 void fd_fee_calculator_new(fd_fee_calculator_t* self);
 int fd_fee_calculator_decode(fd_fee_calculator_t* self, fd_bincode_decode_ctx_t * ctx);

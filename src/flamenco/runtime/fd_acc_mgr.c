@@ -322,7 +322,7 @@ int fd_acc_mgr_write_structured_account( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* t
     char encoded_pubkey[50];
     fd_base58_encode_32((uchar *) pubkey, 0, encoded_pubkey);
 
-//    if (!strcmp(encoded_pubkey, "SysvarC1ock11111111111111111111111111111111")) {
+//    if (!strcmp(encoded_pubkey, "zk1snxsc6Fh3wsGNbbHAJNHiJoYgF29mMnTSusGx5EJ")) {
 //      FD_LOG_WARNING(( "hi mom"));
 //    }
 

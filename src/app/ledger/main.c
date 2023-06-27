@@ -541,13 +541,13 @@ int main(int argc, char** argv) {
 
     if (NULL != net) {
       if (!strncmp(net, "main", 4))
-        enable_mainnet(&global->features);
+        fd_enable_mainnet(&global->features);
       if (!strcmp(net, "test"))
-        enable_testnet(&global->features);
+        fd_enable_testnet(&global->features);
       if (!strcmp(net, "dev"))
-        enable_devnet(&global->features);
+        fd_enable_devnet(&global->features);
     } else
-      memset(&global->features, 1, sizeof(global->features));
+      fd_enable_everything(&global->features);
 
     file = fd_env_strip_cmdline_cstr(&argc, &argv, "--genesis", NULL, NULL);
     if (file != NULL) {

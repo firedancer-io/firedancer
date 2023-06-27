@@ -1,4 +1,8 @@
 
+# solana feature status -u mainnet-beta --output json --display-all > mainnet-beta.jsno
+# solana feature status -u devnet --output json --display-all > devnet.json
+# solana feature status -u testnet --output json --display-all > testnet.json
+
 import json
 import sys
 
@@ -22,40 +26,56 @@ print("#define HEADER_fd_features_h", file=header);
 
 print("#include \"./fd_acc_mgr.h\"", file=header);
 
+print("#define FD_FEATURE_ACTIVE(_g, _y)  ((_g->features. _y != 0) && (_g->bank.slot >= _g->features. _y))", file=header)
 
 print ("typedef struct fd_features {", file=header)
 
 rmap = {}
-fm = feature_map["feature_map"]
+fm = feature_map
 for x in fm:
-    print ("uchar {};".format(x), file=header)
-    rmap[fm[x]] = x
+    print ("ulong {};".format(x["name"]), file=header)
+    rmap[x["pubkey"]] = x["name"]
 print ("} fd_features_t;", file=header)
 
-print ("void enable_testnet(struct fd_features *);", file=header)
-print ("void enable_devnet(struct fd_features *);", file=header)
-print ("void enable_mainnet(struct fd_features *);", file=header)
+print ("void fd_enable_testnet(struct fd_features *);", file=header)
+print ("void fd_enable_devnet(struct fd_features *);", file=header)
+print ("void fd_enable_mainnet(struct fd_features *);", file=header)
+print ("void fd_enable_everything(struct fd_features *);", file=header)
+print ("void fd_update_features(fd_global_ctx_t * global);", file=header)
+print ("void fd_update_feature(fd_global_ctx_t * global, ulong *, const char *key);", file=header)
 
 print ("#include \"fd_features.h\"", file=body);
-print ("void enable_testnet(struct fd_features *f) {", file=body)
+print ("#include \"fd_runtime.h\"", file=body);
+print ("void fd_enable_testnet(struct fd_features *f) {", file=body)
 print ("fd_memset(f, 0, sizeof(*f));", file=body)
 for x in testnet["features"]:
     if x["status"] == "active":
-        print("f->{} = 1;".format(rmap[x["id"]]), file=body)
+        print("f->{} = {}; // {}".format(rmap[x["id"]], x["sinceSlot"], x["description"]), file=body)
 print ("}", file=body)
 
-print ("void enable_devnet(struct fd_features *f) {", file=body)
+print ("void fd_enable_devnet(struct fd_features *f) {", file=body)
 print ("fd_memset(f, 0, sizeof(*f));", file=body)
 for x in devnet["features"]:
     if x["status"] == "active":
-        print("f->{} = 1;".format(rmap[x["id"]]), file=body)
+        print("f->{} = {}; // {}".format(rmap[x["id"]], x["sinceSlot"], x["description"]), file=body)
 print ("}", file=body)
 
-print ("void enable_mainnet(struct fd_features *f) {", file=body)
+print ("void fd_enable_mainnet(struct fd_features *f) {", file=body)
 print ("fd_memset(f, 0, sizeof(*f));", file=body)
 for x in mainnet["features"]:
     if x["status"] == "active":
-        print("f->{} = 1;".format(rmap[x["id"]]), file=body)
+        print("f->{} = {}; // {}".format(rmap[x["id"]], x["sinceSlot"], x["description"]), file=body)
+print ("}", file=body)
+
+print ("void fd_enable_everything(struct fd_features *f) {", file=body)
+print ("fd_memset(f, 0, sizeof(*f));", file=body)
+for x in mainnet["features"]:
+    print("f->{} = 1; // {}".format(rmap[x["id"]], x["description"]), file=body)
+print ("}", file=body)
+
+print ("void fd_update_features(fd_global_ctx_t * global) {", file=body)
+for x in mainnet["features"]:
+    print("fd_update_feature(global, &global->features.{}, \"{}\");".format(rmap[x["id"]], x["id"]), file=body)
 print ("}", file=body)
 
 print("#endif", file=header);

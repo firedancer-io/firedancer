@@ -8,6 +8,14 @@
   ],
   "entries": [
     {
+      "name": "feature",
+      "type": "struct",
+      "fields": [
+        { "name": "activated_at", "type": "option", "element": "ulong" }
+      ],
+      "comment": "sdk/program/src/feature.rs#L22"
+    },
+    {
       "name": "fee_calculator",
       "type": "struct",
       "fields": [
@@ -861,7 +869,7 @@
         { "name": "authorization_type", "type": "vote_authorize" },
         { "name": "current_authority_derived_key_owner", "type": "pubkey" },
         { "name": "current_authority_derived_key_seed", "type": "char*" },
-        { "name": "new_authority", "type": "pubkey" } 
+        { "name": "new_authority", "type": "pubkey" }
       ],
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L244"
     },

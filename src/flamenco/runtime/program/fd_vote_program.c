@@ -394,7 +394,7 @@ vote_authorize( instruction_ctx_t             ctx,
 
     /* If not already authorized by withdrawer, check for authorized voter signature */
     int is_authorized;
-    if( ctx.global->features.vote_withdraw_authority_may_change_authorized_voter ) {
+    if( FD_FEATURE_ACTIVE(ctx.global, vote_withdraw_authority_may_change_authorized_voter )) {
       is_authorized = authorized_withdrawer_signer | authorized_voter_signer;
     } else {
       is_authorized = authorized_voter_signer;
@@ -1042,7 +1042,7 @@ int fd_executor_vote_program_execute_instruction(
   }
   case fd_vote_instruction_enum_update_vote_state:
   case fd_vote_instruction_enum_update_vote_state_switch: {
-    if( FD_UNLIKELY( !ctx.global->features.allow_votes_to_directly_update_vote_state ) ) {
+    if( FD_UNLIKELY( !FD_FEATURE_ACTIVE(ctx.global, allow_votes_to_directly_update_vote_state ) )) {
       ret = FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
       break;
     }
@@ -1257,7 +1257,7 @@ int fd_executor_vote_program_execute_instruction(
       break;
     }
 
-    if( FD_UNLIKELY( !ctx.global->features.vote_authorize_with_seed ) ) {
+    if( FD_UNLIKELY( !FD_FEATURE_ACTIVE(ctx.global, vote_authorize_with_seed ) ) ) {
       ret = FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
       break;
     }
@@ -1344,7 +1344,7 @@ int fd_executor_vote_program_execute_instruction(
       ret = FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
     }
 
-    if( FD_UNLIKELY( !ctx.global->features.vote_authorize_with_seed ) ) {
+    if( FD_UNLIKELY( !FD_FEATURE_ACTIVE(ctx.global, vote_authorize_with_seed ) ) ) {
       ret = FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
       break;
     }
@@ -1535,7 +1535,7 @@ int fd_executor_vote_program_execute_instruction(
     ulong post_balance = pre_balance - withdraw_amount;
     if( post_balance == 0UL ) {
       /* Reject close of active vote accounts */
-      if( ctx.global->features.reject_vote_account_close_unless_zero_credit_epoch && !deq_fd_vote_epoch_credits_t_empty( vote_state->epoch_credits ) ) {
+      if( FD_FEATURE_ACTIVE(ctx.global, reject_vote_account_close_unless_zero_credit_epoch) && !deq_fd_vote_epoch_credits_t_empty( vote_state->epoch_credits ) ) {
         ulong last_epoch_with_credits = deq_fd_vote_epoch_credits_t_peek_tail_const( vote_state->epoch_credits )->epoch;
         ulong current_epoch = clock.epoch;
         /* FIXME this can be written without saturating sub */
@@ -1579,7 +1579,7 @@ int fd_executor_vote_program_execute_instruction(
   }
   case fd_vote_instruction_enum_compact_update_vote_state_switch:
   case fd_vote_instruction_enum_compact_update_vote_state: {
-    if( FD_UNLIKELY( !ctx.global->features.allow_votes_to_directly_update_vote_state ) ) {
+    if( FD_UNLIKELY( !FD_FEATURE_ACTIVE(ctx.global, allow_votes_to_directly_update_vote_state ) ) ) {
       ret = FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
       break;
     }
