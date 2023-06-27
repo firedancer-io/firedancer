@@ -994,32 +994,33 @@ int fd_executor_vote_program_execute_instruction(
     /* Check that the vote is new enough, and if so update the timestamp.
        https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L1386-L1392
     */
-    if ( vote->timestamp != NULL ) {
+    if( vote->timestamp != NULL ) {
       ulong highest_vote_slot = 0;
       for ( ulong i = 0; i < vote_slots_new_cnt; i++ ) {
         /* TODO: can maybe just use vote at top of tower? Seems safer to use same logic as Solana though. */
         highest_vote_slot = fd_ulong_max( highest_vote_slot, vote->slots[i] );
       }
 
-      if ( highest_vote_slot < vote_state->latest_timestamp.slot || *vote->timestamp < vote_state->latest_timestamp.timestamp ) {
-        /* TODO: propagate custom error code FD_VOTE_TIMESTAMP_TOO_OLD */
+      /* Reject if slot/timestamp rewinds, or if timestamp changed. */
+
+      if( FD_UNLIKELY(
+          (    highest_vote_slot  < vote_state->latest_timestamp.slot
+            || *vote->timestamp   < vote_state->latest_timestamp.timestamp )
+          || ( highest_vote_slot == vote_state->latest_timestamp.slot
+            && *vote->timestamp  != vote_state->latest_timestamp.timestamp
+            && vote_state->latest_timestamp.timestamp != 0 ) ) ) {
         fd_vote_state_versioned_destroy(&vote_state_versioned, &destroy);
         fd_slot_hashes_destroy( &slot_hashes, &destroy );
         ret = FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+        ctx.txn_ctx->custom_err = FD_VOTE_TIMESTAMP_TOO_OLD;
         break;
       }
 
-      /* If we have previously received a vote with this slot and a different
-         timestamp, reject it. */
-      if ( highest_vote_slot == vote_state->latest_timestamp.slot &&
-           *vote->timestamp != vote_state->latest_timestamp.timestamp &&
-           vote_state->latest_timestamp.timestamp != 0 ) {
-        /* TODO: propagate custom error code FD_VOTE_TIMESTAMP_TOO_OLD */
-        fd_vote_state_versioned_destroy(&vote_state_versioned, &destroy);
-        fd_slot_hashes_destroy( &slot_hashes, &destroy );
-        ret = FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
-        break;
-      }
+      /* Remember timestamp update */
+      vote_state->latest_timestamp = (fd_vote_block_timestamp_t) {
+        .slot      = highest_vote_slot,
+        .timestamp = *vote->timestamp,
+      };
     }
 
     /* Write the new vote account back to the database */
