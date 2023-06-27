@@ -53,6 +53,8 @@ main( int     argc,
   if( FD_UNLIKELY( !fd_wksp_preload( pod_gaddr ) ) )
     FD_LOG_ERR(( "unable to preload workspace" ));
 
+  fd_frank_quic_task_preload( pod_gaddr );
+
   // 3. Drop all privileges and finish boot process.
   fd_boot_secure2( &argc, &argv );
 
@@ -152,22 +154,32 @@ main( int     argc,
        boot logging easier to read and easier to pass args */
 
     fd_tile_task_t task;
+    ulong          task_idx;
     switch( tile_idx ) {
-    case 0UL: task = main;                 break;
-    case 1UL: task = fd_frank_pack_task;   break;
-    case 2UL: task = fd_frank_dedup_task;  break;
+    case 0UL: task = main;                 task_idx = 0;  break;
+    case 1UL: task = fd_frank_pack_task;   task_idx = 0;  break;
+    case 2UL: task = fd_frank_dedup_task;  task_idx = 0;  break;
     default:
-      if( tile_idx<3+verify_cnt )
-              task = fd_frank_verify_task;
-      else    task = fd_frank_quic_task;
+      if( tile_idx<3+verify_cnt ) {
+        task = fd_frank_verify_task;
+        task_idx = tile_idx - 3;
+      } else {
+        task = fd_frank_quic_task;
+        task_idx = tile_idx - 3 - verify_cnt;
+      }
       break;
     }
 
-    char * task_argv[3];
+    char task_idx_str[ 10 ] = { 0 };
+    if( 10 == snprintf( task_idx_str, 10, "%lu", task_idx ) )
+      FD_LOG_ERR(( "task_idx_str overflow" ));
+
+    char * task_argv[5] = { 0 };
     task_argv[0] = (char *)tile_name[ tile_idx ];
     task_argv[1] = (char *)pod_gaddr;
     task_argv[2] = (char *)FD_FRANK_CONFIGURATION_PREFIX;
-    if( FD_UNLIKELY( !fd_tile_exec_new( tile_idx, task, 0, task_argv ) ) )
+    task_argv[3] = task_idx_str;
+    if( FD_UNLIKELY( !fd_tile_exec_new( tile_idx, task, 4, task_argv ) ) )
       FD_LOG_ERR(( "fd_tile_exec_new failed" ));
 
     if( FD_UNLIKELY( fd_cnc_wait( tile_cnc[ tile_idx ], FD_CNC_SIGNAL_BOOT, (long)5e9, NULL )!=FD_CNC_SIGNAL_RUN ) )
