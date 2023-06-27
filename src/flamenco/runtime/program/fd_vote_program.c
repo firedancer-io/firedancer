@@ -758,6 +758,9 @@ int fd_executor_vote_program_execute_instruction(
       ret = result;
       break;
     }
+
+//    fd_vote_state_versioned_walk(&vote_state_versioned, fd_printer_walker, "fd_vote_state_versioned", 0);
+
     fd_vote_state_t * vote_state = &vote_state_versioned.inner.current;
 
     /* Purge stale authorized voters */
@@ -802,6 +805,8 @@ int fd_executor_vote_program_execute_instruction(
     fd_slot_hashes_new( &slot_hashes );
     fd_sysvar_slot_hashes_read( ctx.global, &slot_hashes );
 
+//    fd_slot_hashes_walk(&slot_hashes, fd_printer_walker, "slot_hashes", 0);
+
     ulong earliest_slot_in_history = 0;
     if( FD_UNLIKELY( !deq_fd_slot_hash_t_empty( slot_hashes.hashes ) ) ) {
       earliest_slot_in_history = deq_fd_slot_hash_t_peek_tail_const( slot_hashes.hashes )->slot;
@@ -843,7 +848,7 @@ int fd_executor_vote_program_execute_instruction(
       }
 
       /* Find the corresponding slot hash entry for that slot. */
-      if( vote_slots[ vote_idx ] != deq_fd_slot_hash_t_peek_tail_const( slot_hashes.hashes )->slot ) {
+      if( vote_slots[ vote_idx ] != deq_fd_slot_hash_t_peek_index_const( slot_hashes.hashes, slot_hash_idx - 1 )->slot ) {
         slot_hash_idx -= 1;
         continue;
       }
@@ -887,7 +892,7 @@ int fd_executor_vote_program_execute_instruction(
       char vote_hash_hash[50];
       fd_base58_encode_32((uchar const *) &vote->hash, 0, vote_hash_hash);
 
-      FD_LOG_INFO(( "hash mismatch: slot_hash: %s vote_hash: %s", slot_hash_hash, vote_hash_hash ));
+      FD_LOG_WARNING(( "hash mismatch: slot_hash: %s vote_hash: %s", slot_hash_hash, vote_hash_hash ));
       /* FIXME: re-visit when bank hashes are confirmed to be good */
       fd_vote_state_versioned_destroy(&vote_state_versioned, &destroy);
       ctx.txn_ctx->custom_err = FD_VOTE_SLOT_HASH_MISMATCH;

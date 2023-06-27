@@ -56,8 +56,10 @@ void fd_builtin_programs_init( fd_global_ctx_t* global ) {
   uchar config_program_data[] = {99, 111, 110, 102, 105, 103, 95, 112, 114, 111, 103, 114, 97, 109}; /* "config_program".as_bytes() */
   write_builtin_bogus_account( global, global->solana_config_program, (uchar *) &config_program_data, sizeof(config_program_data) );
 
-  uchar zk_token_proof_program_data[] = {122, 107, 95, 116, 111, 107, 101, 110, 95, 112, 114, 111, 111, 102, 95, 112, 114, 111, 103, 114, 97, 109}; /* "zk_token_proof_program".as_bytes() */
-  write_builtin_bogus_account( global, global->solana_zk_token_proof_program, (uchar *) &zk_token_proof_program_data, sizeof(zk_token_proof_program_data) );
+  if (global->features.zk_token_sdk_enabled) {
+    uchar zk_token_proof_program_data[] = {122, 107, 95, 116, 111, 107, 101, 110, 95, 112, 114, 111, 111, 102, 95, 112, 114, 111, 103, 114, 97, 109}; /* "zk_token_proof_program".as_bytes() */
+    write_builtin_bogus_account( global, global->solana_zk_token_proof_program, (uchar *) &zk_token_proof_program_data, sizeof(zk_token_proof_program_data) );
+  }
 
   uchar address_lookup_table_program_data[] = {97, 100, 100, 114, 101, 115, 115, 95, 108, 111, 111, 107, 117, 112, 95, 116, 97, 98, 108, 101, 95, 112, 114, 111, 103, 114, 97, 109}; /* "address_lookup_table_program".as_bytes() */
   write_builtin_bogus_account( global, global->solana_address_lookup_table_program, (uchar *) &address_lookup_table_program_data, sizeof(address_lookup_table_program_data) );
