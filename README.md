@@ -8,10 +8,9 @@ contains many novel high performance reimplementations of core Solana
 primitives.
 * **Secure** The architecture of the validator allows it to run almost
 completely in user space with a highly restrictive sandbox.
-* **Independent** Firedancer is a new implementation of a Solana
-validator client, written from scratch. This brings client diversity to
-the Solana network and helps it stay resilient to supply chain attacks
-in build tooling or dependencies.
+* **Independent** Firedancer is written from scratch. This brings client
+diversity to the Solana network and helps it stay resilient to supply
+chain attacks in build tooling or dependencies.
 
 ## Installation
 
@@ -38,18 +37,16 @@ environment, but we also have a command line utility `fdctl` that lets a
 user set up and tear down the environment easily.
 
 ```bash
-$ cargo run configure all init # Configure required system knobs
-$ cargo run run # Run the Firedancer program
+$ cargo run run --configure # Run the Firedancer program, configuring required system knobs
 ```
 
 When done, the environment can be returned to normal.
 
 ```bash
-$ cargo run configure all check # Check if the system is configured correctly
 $ cargo run configure all fini # Remove any special configuration we installed
 ```
 
-`fdctl` reads from a  `FIREDANCER_CONFIG_TOML` environment variable to
+`fdctl` reads from a `FIREDANCER_CONFIG_TOML` environment variable to
 determine all options needed in configuring and running the program. A
 complete list of configuration options is provided in
 [default.toml](src/app/fdctl/config/default.toml)
