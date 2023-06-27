@@ -38,6 +38,8 @@ static void usage(const char* progname) {
   fprintf(stderr, " --verifyhash <base58hash>                        verify that the accounts hash matches the given one\n");
   fprintf(stderr, " --verifyfunky true                               verify database integrity\n");
   fprintf(stderr, " --verifypoh true                                 verify proof-of-history while importing blocks\n");
+  fprintf(stderr, " --loglevel <level>                               Set logging level\n");
+  fprintf(stderr, " --network <net>                                  main/dev/testnet\n");
 }
 
 struct SnapshotParser {
@@ -274,7 +276,7 @@ static void decompressBZ2(const char* fname, decompressCallback cb, void* arg) {
 }
 
 void ingest_rocksdb( fd_global_ctx_t * global, const char* file, ulong end_slot, const char* verifypoh,
-                     fd_tpool_t * tpool, ulong max_workers ) {  
+                     fd_tpool_t * tpool, ulong max_workers ) {
   fd_rocksdb_t        rocks_db;
   char *err = fd_rocksdb_init(&rocks_db, file);
   if (err != NULL) {
@@ -293,7 +295,7 @@ void ingest_rocksdb( fd_global_ctx_t * global, const char* file, ulong end_slot,
   FD_LOG_NOTICE(("ingesting rocksdb from start=%lu to end=%lu", start_slot, end_slot));
 
   fd_hash_t oldhash = global->bank.poh;
-  
+
   fd_slot_meta_meta_t mm;
   mm.start_slot = start_slot;
   mm.end_slot = end_slot;
@@ -387,7 +389,7 @@ void ingest_rocksdb( fd_global_ctx_t * global, const char* file, ulong end_slot,
 
   /* Verify messes with the poh */
   global->bank.poh = oldhash;
-  
+
   FD_LOG_NOTICE(("ingested %lu blocks", blk_cnt));
 }
 
@@ -396,7 +398,7 @@ int main(int argc, char** argv) {
     usage(argv[0]);
     return 1;
   }
-  
+
   fd_boot( &argc, &argv );
 
   fd_wksp_t* wksp;
@@ -532,6 +534,21 @@ int main(int argc, char** argv) {
       SnapshotParser_destroy(&parser);
     }
 
+    ulong loglevel = fd_env_strip_cmdline_ulong(&argc, &argv, "--loglevel", NULL, 0);
+    global->log_level = (uchar) loglevel;
+
+    const char *net = fd_env_strip_cmdline_cstr(&argc, &argv, "--network", NULL, NULL);
+
+    if (NULL != net) {
+      if (!strncmp(net, "main", 4))
+        enable_mainnet(&global->features);
+      if (!strcmp(net, "test"))
+        enable_testnet(&global->features);
+      if (!strcmp(net, "dev"))
+        enable_devnet(&global->features);
+    } else
+      memset(&global->features, 1, sizeof(global->features));
+
     file = fd_env_strip_cmdline_cstr(&argc, &argv, "--genesis", NULL, NULL);
     if (file != NULL) {
       struct stat sbuf;
@@ -564,7 +581,7 @@ int main(int argc, char** argv) {
       free(buf);
 
       fd_runtime_init_bank_from_genesis( global, &genesis_block, genesis_hash );
-    
+
       fd_runtime_init_program( global );
 
       for (ulong i = 0; i < genesis_block.accounts_len; i++) {
@@ -593,7 +610,7 @@ int main(int argc, char** argv) {
     fd_pubkey_hash_vector_clear(&global->acc_mgr->keys);
 
     fd_runtime_save_banks(global);
-    
+
   } else if (strcmp(cmd, "recover") == 0) {
     if (persist != NULL) {
       if (fd_funk_persist_open(funk, persist, 0) != FD_FUNK_SUCCESS)
