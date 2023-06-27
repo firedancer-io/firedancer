@@ -12,6 +12,8 @@ build/linux/gcc/x86_64/bin/fd_frank_ledger --wksp giant_wksp --reset true --cmd 
 
 build/linux/gcc/x86_64/unit-test/test_runtime --wksp giant_wksp --reset true --load /home/asiegel/mainnet_backup --cmd replay --index-max 350000000
 
+build/linux/gcc/x86_64/unit-test/test_runtime --wksp giant_wksp --gaddr 0xc7ce180 --cmd replay
+
 ****/
 
 #include <stdio.h>
