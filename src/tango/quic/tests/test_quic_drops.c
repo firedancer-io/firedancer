@@ -120,10 +120,8 @@ mitm_tx( void *                    ctx,
 
   if( rnd() < mitm_ctx->thresh ) {
     /* dropping behaves as-if the send was successful */
-    printf( "dropped!  server=%d\n", mitm_ctx->server );
     return FD_AIO_SUCCESS;
   } else {
-    printf( "passed thru!  server=%d\n", mitm_ctx->server );
     return fd_aio_send( mitm_ctx->dst, batch, batch_cnt, opt_batch_idx, flush );
   }
 }
