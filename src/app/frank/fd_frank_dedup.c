@@ -96,7 +96,7 @@ fd_frank_dedup_task( int     argc,
   /* Start deduping */
 
   FD_LOG_INFO(( "dedup run" ));
-  int err = fd_dedup_tile( cnc, in_cnt, in_mcache, in_fseq, tcache, mcache, 1UL, &out_fseq, cr_max, lazy, rng, scratch, demo_txn_err_verif, demo_txn_err_verif );
+  int err = fd_dedup_tile( cnc, in_cnt, in_mcache, in_fseq, tcache, mcache, 1UL, &out_fseq, cr_max, lazy, rng, scratch, demo_bypass, demo_txn_err_verif );
   if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_dedup_tile failed (%i)", err ));
 
   /* Clean up */

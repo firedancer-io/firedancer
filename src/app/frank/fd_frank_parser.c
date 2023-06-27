@@ -264,6 +264,7 @@ fd_frank_parser_task( int     argc,
       for(ulong v_i=0; v_i<verify_cnt; v_i++) {
         verify_cr_avail[ v_i ] = fd_fctl_tx_cr_update( verify_fctl[ v_i ], verify_cr_avail[ v_i ], verify_seq[ v_i ] );
       }
+      now = fd_tickcount();
       continue;
     }
     cnc_diag_in_backp = 0UL;

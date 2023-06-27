@@ -218,7 +218,7 @@ fd_frank_verify_task( int     argc,
   if( !!wd_slots ) { FD_LOG_NOTICE(( "running with wiredancer wd_slots 0x%lx", wd_slots )); } else {FD_LOG_NOTICE(("running on x86"));}
   if( !!wd_slots ) {
     FD_TEST( !wd_init_pci( &wd, wd_slots ) );
-    wd_ed25519_verify_init_req( &wd, 1, seq, depth, mcache );
+    wd_ed25519_verify_init_req( &wd, 1, depth, mcache );
   }
 
   /* Start verifying */
@@ -345,12 +345,13 @@ fd_frank_verify_task( int     argc,
       mline at time now.  Speculatively processs it here. */
     ulong vin_data_sz    = (ulong)vin_mline->sz;
     uchar *  vin_dcache_chunk_laddr = (uchar *)fd_chunk_to_laddr( vin_wksp, vin_mline->chunk );
-    /* This belongs to the original demo - Instead, we can now make use
-      of a single dcache:
-          uchar *  udp_payload = (uchar *)fd_chunk_to_laddr( wksp, chunk );
-          memcpy(udp_payload, vin_dcache_chunk_laddr, vin_data_sz);
-      making upd_payload and chunk point to vin_dcache_chunk_laddr.
-    */
+#if 0
+    /* This belongs to the quic demo - Instead, in 1.4 we can now make use
+      of a single dcache: */
+    uchar *  udp_payload = (uchar *)fd_chunk_to_laddr( wksp, chunk );
+    memcpy(udp_payload, vin_dcache_chunk_laddr, vin_data_sz);
+#endif
+    /* making upd_payload and chunk point to vin_dcache_chunk_laddr. */
     uchar * udp_payload = vin_dcache_chunk_laddr;
     chunk = (ulong)vin_dcache_chunk_laddr;
 
@@ -402,7 +403,7 @@ fd_frank_verify_task( int     argc,
         time being. */
 
     ulong ha_tag = *sig;
-    int ha_dup = 0;
+    int ha_dup;
     FD_TCACHE_INSERT( ha_dup, tcache_oldest, _tcache_ring, tcache_depth, _tcache_map, tcache_map_cnt, ha_tag );
     if( FD_UNLIKELY( ha_dup ) ) { /* optimize for the non dup case */
       accum_ha_filt_cnt++;
@@ -419,58 +420,57 @@ fd_frank_verify_task( int     argc,
         expensively get the same effect by corrupting the udp_payload
         region before the verify.) */
 
+    /* wiredancer */
     if( !!wd_slots ){
-      /* wiredancer */
-      int   ctl_som  = 1;
-      int   ctl_eom  = 1;
-      int   ctl_err  = 0;
-      ulong ctl      = fd_frag_meta_ctl( 0, ctl_som, ctl_eom, ctl_err );
+      ulong ctl = fd_frag_meta_ctl( 0, 1 /*ctl_som*/, 1 /*ctl_eom*/, 0 /*ctl_err*/ );
       /* Iterate trying to send the request */
-      while( wd_ed25519_verify_req(&wd, msg, msg_sz, sig, public_key, (uint)chunk, (uint16_t)ctl, (uint16_t)vin_data_sz ) ) ;
-      sigvfy_pass_cnt++;
-    } else {
-      /* x86 */
-      int err = fd_ed25519_verify( msg, msg_sz, sig, public_key, sha );
-      if (err) {
-        sigvfy_fail_cnt ++;
-        // FD_LOG_WARNING(( "fd_ed25519_verify failed for mcache[%lu], fail/pass: %lu/%lu",
-        //   vin_seq_found, sigvfy_fail_cnt, sigvfy_pass_cnt ));
-        now = fd_tickcount();
-        continue;
-      }
-      else {
-        sigvfy_pass_cnt ++;
-      }
-      /* Packet looks superficially good.  Forward it.  If somebody is
-          opening multiple connections (which would potentially flow
-          steered to different verify tiles) and spammed these
-          connections with the same transaction, ha dedup here is likely
-          to miss that.   But the dedup tile that muxes all the inputs
-          will take care of that.  (The use of QUIC and the like should
-          also strongly reduce the economic incentives for this
-          behavior.)
-
-          When running synthetic load, we have the same problem we had
-          above.  So we use a signature that will match with the desired
-          probability. */
-
-      /* Note that sig is now guaranteed to be not FD_TCACHE_TAG_NULL
-          and we use the least significant 64-bits of the SHA-512 hash
-          for dedup purposes. */
-
+      while( wd_ed25519_verify_req(&wd, msg, msg_sz, sig, public_key, seq, (uint)chunk, (uint16_t)ctl, (uint16_t)vin_data_sz ) ) ;
+      /* Windup for the next iteration */
+      chunk = fd_dcache_compact_next( chunk, vin_data_sz, chunk0, wmark );
+      seq   = fd_seq_inc( seq, 1UL );
+      cr_avail--;
+      /* skip x86 down below */
       now = fd_tickcount();
-      ulong tspub = fd_frag_meta_ts_comp( now );
-      int   ctl_som  = 1;
-      int   ctl_eom  = 1;
-      ulong   ctl    = fd_frag_meta_ctl( 0, ctl_som, ctl_eom, 0 );
-      ulong   tsorig = tspub;
-      fd_mcache_publish( mcache, depth, seq, ha_tag, chunk, vin_data_sz, ctl, tsorig, tspub );
-
-      if( FD_UNLIKELY( !ctl_eom ) ) ctl_som = 0;
-      else {
-        ctl_som = 1;
-      }
+      continue;
     }
+
+    /* x86 */
+    int err = fd_ed25519_verify( msg, msg_sz, sig, public_key, sha );
+    if (err) {
+      sigvfy_fail_cnt ++;
+      //FD_LOG_WARNING(( "fd_ed25519_verify failed for mcache[%lu], fail/pass: %lu/%lu",
+      //  vin_seq_found, sigvfy_fail_cnt, sigvfy_pass_cnt ));
+      now = fd_tickcount();
+      continue;
+    }
+    else {
+      sigvfy_pass_cnt ++;
+    }
+
+    /* Packet looks superficially good.  Forward it.  If somebody is
+        opening multiple connections (which would potentially flow
+        steered to different verify tiles) and spammed these
+        connections with the same transaction, ha dedup here is likely
+        to miss that.   But the dedup tile that muxes all the inputs
+        will take care of that.  (The use of QUIC and the like should
+        also strongly reduce the economic incentives for this
+        behavior.)
+
+        When running synthetic load, we have the same problem we had
+        above.  So we use a signature that will match with the desired
+        probability. */
+
+    /* Note that sig is now guaranteed to be not FD_TCACHE_TAG_NULL
+        and we use the least significant 64-bits of the SHA-512 hash
+        for dedup purposes. */
+
+    now = fd_tickcount();
+    ulong tspub = fd_frag_meta_ts_comp( now );
+    int   ctl_som  = 1;
+    int   ctl_eom  = 1;
+    ulong   ctl    = fd_frag_meta_ctl( 0, ctl_som, ctl_eom, 0 );
+    ulong   tsorig = tspub;
+    fd_mcache_publish( mcache, depth, seq, ha_tag, chunk, vin_data_sz, ctl, tsorig, tspub );
 
     chunk = fd_dcache_compact_next( chunk, vin_data_sz, chunk0, wmark );
     seq   = fd_seq_inc( seq, 1UL );
@@ -480,6 +480,12 @@ fd_frank_verify_task( int     argc,
     FD_LOG_INFO(( "published to dedup-in mcache, post publishing:   seqp=%lu   cr_avail=%lu    next_chunk=%lu",
       seq,  cr_avail, chunk));
 #endif
+
+
+    if( FD_UNLIKELY( !ctl_eom ) ) ctl_som = 0;
+    else {
+      ctl_som = 1;
+    }
 
   }
 
@@ -516,4 +522,3 @@ fd_frank_verify_task( int     argc,
 }
 
 #endif
-

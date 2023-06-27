@@ -45,18 +45,22 @@ REPLAY_ORIG=0
 REPLAY_DCACHE_DEPTH=262144
 REPLAY_MCACHE_DEPTH=32768
 REPLAY_FSEQ_CNT=1
+REPLAY_LAZY=0 #$(( $REPLAY_MCACHE_DEPTH / 2 ))
 
 PARSER_SENTINEL_DEPTH=128
 PARSER_TXN_RAND_CORRUPT=$TXN_RAND_CORRUPT
 [[ $WD_ENABLED = 0 ]] && PARSER_DEPTH=2048 || PARSER_DEPTH=32768
+PARSER_LAZY=0 #$(( $PARSER_DEPTH / 2 ))
 
 [[ $WD_ENABLED = 0 ]] && VERIFY_DEPTH=2048 || VERIFY_DEPTH=32768
 VERIFY_MTU=4804
+[[ $WD_ENABLED = 0 ]] && VERIFY_LAZY=0 || VERIFY_LAZY=$(( $VERIFY_DEPTH / 4 ))
 
 DEDUP_TCACHE_DEPTH=2 # essentially disabling dedup checks (as much as possible, 0 or 1 are not allowed)
 DEDUP_TCACHE_MAP_CNT=0
 DEDUP_DEPTH=$VERIFY_DEPTH
 DEDUP_BYPASS=$PARSER_TXN_BROADCAST
+DEDUP_LAZY=$(( $DEDUP_DEPTH / 4 ))
 
 PACK_BANK_CNT=4
 PACK_PRQ_SZ=4096
@@ -105,6 +109,7 @@ FSEQ="$("$BUILD"/bin/fd_tango_ctl new-fseq $WKSP 0)" || exit $?
   insert "$POD" cstr  $APP.replay.dcache              $DCACHE                     \
   insert "$POD" cstr  $APP.replay.fseq                $FSEQ                       \
   insert "$POD" ulong $APP.replay.fseq_cnt            $REPLAY_FSEQ_CNT            \
+  insert "$POD" long  $APP.replay.lazy                $REPLAY_LAZY                \
   || exit $?
 
 CNC="$("$BUILD"/bin/fd_tango_ctl new-cnc $WKSP 1 tic $CNC_APP_SZ)" || exit $?
@@ -113,6 +118,7 @@ SENTINEL_MCACHE="$("$BUILD"/bin/fd_tango_ctl new-mcache $WKSP $PARSER_SENTINEL_D
 "$BUILD"/bin/fd_pod_ctl                                                     \
   insert "$POD" cstr  $APP.parser.cnc              $CNC                     \
   insert "$POD" cstr  $APP.parser.sentinel_mcache  $SENTINEL_MCACHE         \
+  insert "$POD" long  $APP.parser.lazy             $PARSER_LAZY             \
   || exit $?
   
 CNC="$("$BUILD"/bin/fd_tango_ctl new-cnc $WKSP 0 tic $CNC_APP_SZ)" || exit $?
@@ -144,6 +150,7 @@ FSEQ="$("$BUILD"/bin/fd_tango_ctl new-fseq $WKSP 0)" || exit $?
   insert "$POD" cstr $APP.dedup.tcache $TCACHE       \
   insert "$POD" cstr $APP.dedup.mcache $MCACHE       \
   insert "$POD" cstr $APP.dedup.fseq   $FSEQ         \
+  insert "$POD" long $APP.dedup.lazy   $DEDUP_LAZY   \
   || exit $?
 
 for((verify_idx=0;verify_idx<VERIFY_CNT;verify_idx++)); do
@@ -165,6 +172,7 @@ for((verify_idx=0;verify_idx<VERIFY_CNT;verify_idx++)); do
     insert "$POD" cstr  $APP.verify.v$verify_idx.mcache    $MCACHE        \
     insert "$POD" cstr  $APP.verify.v$verify_idx.dcache    $DCACHE        \
     insert "$POD" cstr  $APP.verify.v$verify_idx.fseq      $FSEQ          \
+    insert "$POD" long  $APP.verify.v$verify_idx.lazy      $VERIFY_LAZY   \
     insert "$POD" ulong $APP.verify.v$verify_idx.wd_slots  $(( 1 << 62 )) \
     || exit $?
 done
