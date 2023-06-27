@@ -58,6 +58,35 @@ main( int     argc,
   if( FD_UNLIKELY( !dedup_fseq ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
   ulong const * dedup_fseq_diag = (ulong const *)fd_fseq_app_laddr_const( dedup_fseq );
 
+  uchar const * verify_pods = fd_pod_query_subpod( cfg_pod, "verify" );
+  ulong verify_cnt = fd_pod_cnt_subpod( verify_pods );
+  ulong wd_cnt = 0;
+  if( !!fd_pod_query_ulong( cfg_pod, "wd.enabled", 0UL ) ) {
+    wd_cnt = verify_cnt;
+  }
+
+
+  uchar const * vin_pods = fd_pod_query_subpod( cfg_pod, "verifyin" );
+  if( FD_UNLIKELY( !vin_pods ) ) FD_LOG_ERR(( "%s.verifyin path not found", cfg_path ));
+
+  ulong const ** sigv_fseq_diag = fd_alloca(32, verify_cnt * sizeof(ulong const *));
+  for (ulong vi = 0; vi < verify_cnt; vi ++)
+  {
+    #define MAX_POD_NAME (128)
+    char vin_name[MAX_POD_NAME];
+    sprintf(vin_name, "v%luin", vi);
+
+    uchar const * vin_pod = fd_pod_query_subpod( vin_pods, vin_name );
+    if( FD_UNLIKELY( !vin_pod ) ) FD_LOG_ERR(( "%s.verifyin.%s path not found", cfg_path, vin_name ));
+
+    ulong const * vin_fseq = fd_fseq_join( fd_wksp_pod_map( vin_pod, "fseq" ) );
+    if( FD_UNLIKELY( !vin_fseq ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
+    ulong const * vin_fseq_diag = (ulong const *)fd_fseq_app_laddr_const( vin_fseq );
+    if( FD_UNLIKELY( !vin_fseq_diag ) ) FD_LOG_ERR(( "fd_fseq_app_laddr failed" ));
+
+    sigv_fseq_diag[vi] = vin_fseq_diag;
+  }
+
   /* Wiredancer Monitor */
   wd_mon_state_t wd_mon_state;
   wd_mon_state.recv_cnt[0] = 0UL;
@@ -67,6 +96,8 @@ main( int     argc,
   wd_mon_state.cnt_replay  = 0UL;
   wd_mon_state.cnt_parser  = 0UL;
   wd_mon_state.cnt_dedup   = 0UL;
+  wd_mon_state.cnt_sigv    = 0UL;
+  wd_mon_state.cnt_sw_sigv = 0UL;
   wd_mon_state.rate_pkt_sz = 0UL;
   wd_mon_state.rate_replay = 0UL;
   wd_mon_state.rate_parser = 0UL;
@@ -92,18 +123,28 @@ main( int     argc,
       ulong replay_cnt = replay_cnc_diag[ FD_FRANK_REPLAY_CNC_DIAG_PCAP_PUB_CNT ];
       ulong parser_cnt = parser_cnc_diag[      FD_FRANK_PARSER_CNC_DIAG_PUB_CNT ];
       ulong dedup_cnt  = dedup_fseq_diag[                  FD_FSEQ_DIAG_PUB_CNT ];
+      ulong sigv_cnt   = 0;
+      ulong sw_sigv_cnt= 0;
+      for (ulong vi = 0; vi < verify_cnt; vi ++)
+        sigv_cnt += sigv_fseq_diag[vi][FD_FSEQ_DIAG_PUB_CNT];
+      for (ulong vi = wd_cnt; vi < verify_cnt; vi ++)
+        sw_sigv_cnt += sigv_fseq_diag[vi][FD_FSEQ_DIAG_PUB_CNT];
       FD_COMPILER_MFENCE();
       /* compute the rates first */
       wd_mon_state.rate_pkt_sz = pkt_sz_cnt - wd_mon_state.cnt_pkt_sz; /* per second */
       wd_mon_state.rate_replay = replay_cnt - wd_mon_state.cnt_replay; /* per second */
       wd_mon_state.rate_parser = parser_cnt - wd_mon_state.cnt_parser; /* per second */
       wd_mon_state.rate_dedup  = dedup_cnt  - wd_mon_state.cnt_dedup;  /* per second */
+      wd_mon_state.rate_sigv   = sigv_cnt   - wd_mon_state.cnt_sigv;   /* per second */
+      wd_mon_state.rate_sw_sigv= sw_sigv_cnt- wd_mon_state.cnt_sw_sigv;/* per second */
       FD_COMPILER_MFENCE();
       /* update the counts second */
       wd_mon_state.cnt_pkt_sz = pkt_sz_cnt;  /* bytes */
       wd_mon_state.cnt_replay = replay_cnt;
       wd_mon_state.cnt_parser = parser_cnt;
       wd_mon_state.cnt_dedup  = dedup_cnt;
+      wd_mon_state.cnt_sigv   = sigv_cnt;
+      wd_mon_state.cnt_sw_sigv= sw_sigv_cnt;
       FD_COMPILER_MFENCE();
       /* time increment must be 1 second (for the above rates to be computed easily) */
       next += (long)1e9; /* 1 second */

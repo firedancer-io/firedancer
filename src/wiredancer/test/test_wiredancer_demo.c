@@ -279,7 +279,7 @@ parser_tile_main( int     argc,
   uint64_t wd_slots = cfg->wd_slots;
   FD_TEST( !wd_init_pci( &wd, wd_slots ) );
   // wd_ed25519_verify_rst( &wd );
-  wd_ed25519_verify_init_req( &wd, 1, v___wd_seq, v___wd_depth, v___wd_mcache );
+  wd_ed25519_verify_init_req( &wd, 1, v___wd_depth, v___wd_mcache );
   FD_TEST( !!wd_split );
 
   /* Main loop */
@@ -412,7 +412,7 @@ parser_tile_main( int     argc,
           ulong out_ctl = fd_frag_meta_ctl( parser_idx, 1 /*som*/, 1 /*eom*/, 0 /*err*/ );
           /* Iterate trying to send the request */
           while( wd_ed25519_verify_req(&wd, msg, msg_sz, signature, public_key,
-                                       (uint)chunk, (uint16_t)out_ctl, (uint16_t)out_sz ) ) {
+                                       v___wd_seq, (uint)chunk, (uint16_t)out_ctl, (uint16_t)out_sz ) ) {
             /* Receive command-and-control signals */
             ulong s = fd_cnc_signal_query( cnc );
             if( FD_UNLIKELY( s!=FD_CNC_SIGNAL_RUN ) ) {
