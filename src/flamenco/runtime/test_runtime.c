@@ -1,64 +1,20 @@
+/****
 
-//- sed -r "s/\x1B\[(([0-9]+)(;[0-9]+)*)?[m,K,H,f,J]//g" ~/repos/solana/nonce-ledger/validator.log | grep 'bank frozen:' | grep 'solana_runtime::bank' | sed -e 's/.*bank frozen://g' > q
+build/linux/gcc/x86_64/bin/fd_frank_ledger --rocksdb $LEDGER/rocksdb --genesis $LEDGER/genesis.bin --cmd ingest --indexmax 10000 --txnmax 100 --backup test_ledger_backup
 
-// sed -r "s/\x1B\[(([0-9]+)(;[0-9]+)*)?[m,K,H,f,J]//g" ~/repos/solana/nonce-ledger/validator.log > q2
+build/linux/gcc/x86_64/unit-test/test_runtime --load test_ledger_backup --cmd replay --end-slot 25 --confirm_hash AsHedZaZkabNtB8XBiKWQkKwaeLy2y4Hrqm6MkQALT5h --confirm_parent CvgPeR54qpVRZGBuiQztGXecxSXREPfTF8wALujK4WdE --confirm_account_delta 7PL6JZgcNy5vkPSc6JsMHET9dvpvsFMWR734VtCG29xN  --confirm_signature 2  --confirm_last_block G4YL2SieHDGNZGjiwBsJESK7jMDfazg33ievuCwbkjrv --validate true
 
-// sudo /home/jsiegel/repos/firedancer/build/linux/gcc/x86_64/bin/fd_shmem_cfg init 0777 jsiegel ""
-// sudo /home/jsiegel/repos/firedancer/build/linux/gcc/x86_64/bin/fd_shmem_cfg alloc 64 gigantic 0
-// sudo /home/jsiegel/repos/firedancer/build/linux/gcc/x86_64/bin/fd_shmem_cfg alloc 512 huge 0
+build/linux/gcc/x86_64/bin/fd_shmem_cfg reset
 
-// build/linux/gcc/x86_64/bin/fd_wksp_ctl new giant_wksp 200 gigantic 0-127 0666
+build/linux/gcc/x86_64/bin/fd_wksp_ctl new giant_wksp 200 gigantic 0-31 0666
 
-// build/linux/gcc/x86_64/bin/fd_frank_ledger --cmd ingest --snapshotfile /home/jsiegel/mainnet-ledger/snapshot-179244882-2DyMb1qN8JuTijCjsW8w4G2tg1hWuAw2AopH7Bj9Qstu.tar.zst --wksp giant_wksp --verifyhash 2DyMb1qN8JuTijCjsW8w4G2tg1hWuAw2AopH7Bj9Qstu
-// build/linux/gcc/x86_64/bin/fd_frank_ledger --wksp giant_wksp  --cmd ingest --snapshotfile /home/jsiegel/mainnet-ledger/snapshot-179244882-2DyMb1qN8JuTijCjsW8w4G2tg1hWuAw2AopH7Bj9Qstu.tar.zst --incremental /home/jsiegel/mainnet-ledger/incremental-snapshot-179244882-179248368-6TprbHABozQQLjjc1HBeQ2p4AigMC7rhHJS2Q5WLcbyw.tar.zst --verifyhash 6TprbHABozQQLjjc1HBeQ2p4AigMC7rhHJS2Q5WLcbyw --reset true
-// build/linux/gcc/x86_64/bin/fd_frank_ledger --gaddr 0x000000000c7ce180 --wksp giant_wksp --verifyhash 2DyMb1qN8JuTijCjsW8w4G2tg1hWuAw2AopH7Bj9Qstu
-// build/linux/gcc/x86_64/bin/fd_frank_ledger --wksp giant_wksp  --cmd ingest --snapshotfile /home/jsiegel/mainnet-ledger/snapshot-179244882-2DyMb1qN8JuTijCjsW8w4G2tg1hWuAw2AopH7Bj9Qstu.tar.zst --incremental /home/jsiegel/mainnet-ledger/incremental-snapshot-179244882-179248368-6TprbHABozQQLjjc1HBeQ2p4AigMC7rhHJS2Q5WLcbyw.tar.zst --reset true --persist /home/asiegel/funktest
+build/linux/gcc/x86_64/bin/fd_frank_ledger --wksp giant_wksp --reset true --cmd ingest --snapshotfile /home/jsiegel/mainnet-ledger/snapshot-179244882-2DyMb1qN8JuTijCjsW8w4G2tg1hWuAw2AopH7Bj9Qstu.tar.zst --incremental /home/jsiegel/mainnet-ledger/incremental-snapshot-179244882-179248368-6TprbHABozQQLjjc1HBeQ2p4AigMC7rhHJS2Q5WLcbyw.tar.zst --rocksdb /home/jsiegel/mainnet-ledger/rocksdb --endslot 179248378 --backup /home/asiegel/mainnet_backup
 
-// fpid-devworkl187 asiegel/firedancer-private $ build/linux/gcc/x86_64/bin/fd_frank_ledger --wksp giant_wksp --reset true --persist ~/testfunk --rocksdb ~/firedancer-private/test-ledger-4/rocksdb --cmd ingest --gaddrout gaddr
+build/linux/gcc/x86_64/unit-test/test_runtime --wksp giant_wksp --reset true --load /home/asiegel/mainnet_backup --cmd replay --index-max 350000000
 
-// /home/jsiegel/repos/firedancer-private/build/linux/gcc/x86_64/bin/fd_wksp_ctl new test_wksp 32 gigantic 0 0777
-// /home/jsiegel/repos/firedancer-private/build/linux/gcc/x86_64/bin/fd_wksp_ctl query test_wksp
+build/linux/gcc/x86_64/unit-test/test_runtime --wksp giant_wksp --gaddr 0xc7ce180 --cmd replay
 
-// --ledger /home/jsiegel/repos/solana/nonce-ledger --db /home/jsiegel/funk --cmd replay --accounts /home/jsiegel/repos/solana/nonce-ledger/accounts/ --pages 15 --index-max 12000000 --start-slot 0 --end-slot 100
-
-//  --ledger /dev/shm/mainnet-ledger --db /dev/shm/funk --cmd replay --start-slot 179138256 --end-slot 179138258  --txn-exe sim  --index-max 12000000 --pages 15
-
-// --ledger /home/jsiegel/multi-node-cluster-ledger --db /dev/shm/funk --cmd replay --start-slot 0 --end-slot 280   --index-max 12000000 --pages 15
-
-//  --ledger /dev/shm/mainnet-ledger --db /dev/shm/funk --cmd manifest --manifest /home/jsiegel/mainnet-ledger/snapshot/tmp-snapshot-archive-JfVTLu/snapshots/179248368/179248368
-
-//  --ledger /dev/shm/mainnet-ledger --db /dev/shm/funk --cmd replay --start-slot 179138205 --end-slot 279138205  --txn-exe sim  --index-max 12000000 --pages 15
-//  --ledger /dev/shm/mainnet-ledger --db /dev/shm/funk --cmd ingest --start-slot 179138205 --end-slot 279138205 --manifest /dev/shm/mainnet-ledger/snapshot/tmp-snapshot-archive-JfVTLu/snapshots/179248368/179248368
-// run --ledger /home/jsiegel/mainnet-ledger --db /home/jsiegel/funk --cmd ingest --accounts /home/jsiegel/mainnet-ledger/accounts --pages 15 --index-max 12000000
-// run --ledger /dev/shm/mainnet-ledger --db /dev/shm/funk --cmd ingest --accounts /dev/shm/mainnet-ledger/accounts --pages 15 --index-max 12000000
-
-// --ledger /home/jsiegel/repos/solana/test-ledger --db /home/jsiegel/repos/solana//test-ledger/funk --cmd replay --start-slot 0 --end-slot 200  --txn-exe sim  --index-max 12000000 --pages 15
-
-// run --ledger /home/jsiegel/test-ledger --db /home/jsiegel/test-ledger/funk --cmd replay --start-slot 0 --end-slot 200 --index-max 12000000 --pages 15
-
-// --ledger /home/jsiegel/test-ledger --db /home/jsiegel/funk --cmd validate --accounts /home/jsiegel/test-ledger/accounts/ --pages 15 --index-max 12000000 --manifest /home/jsiegel/test-ledger/200/snapshots/200/200 --start-slot 200
-// --ledger /home/jsiegel/repos/firedancer-testbins/test-ledger --db /home/jsiegel/funk --cmd validate --accounts /home/jsiegel/repos/firedancer-testbins/test-ledger/accounts/ --pages 15 --index-max 12000000 --manifest /home/jsiegel/repos/firedancer-testbins/test-ledger/200/snapshots/200/200 --start-slot 200
-
-// --ledger /home/jsiegel/test-ledger --db /home/jsiegel/funk --cmd validate --accounts /home/jsiegel/test-ledger/accounts/ --pages 15 --index-max 12000000 --manifest /home/jsiegel/test-ledger/100/snapshots/100/100 --start-slot 100
-
-// --ledger /home/jsiegel/test-ledger --db /home/jsiegel/funk --cmd accounts --accounts /home/jsiegel/test-ledger/accounts/ --pages 15 --index-max 12000000 --start-slot 4 --end-slot 5 --start-id 41 --end-id 43
-
-// --ledger /home/jsiegel/test-ledger --db /home/jsiegel/funk --cmd replay --pages 15 --index-max 12000000 --start-slot 0 --end-slot 6
-
-// --ledger /home/jsiegel/test-ledger --db /home/jsiegel/funk --cmd replay --pages 15 --index-max 12000000 --start-slot 0 --end-slot 35
-
-//  --ledger /home/jsiegel/test-ledger --db /home/jsiegel/funk --cmd accounts --accounts /home/jsiegel/test-ledger/accounts/ --pages 15 --index-max 12000000 --start-slot 0 --end-slot 0 --start-id 35 --end-id 35
-
-//owner:      Sysvar1111111111111111111111111111111111111 pubkey:      SysvarRecentB1ockHashes11111111111111111111 hash:     EeEiSR3bwzfALaqzJdNSgf81c6dsnb4Cvb7f1rEqUaE9 file: /home/jsiegel/test-ledger/accounts//0.35
-//  {blockhash = Ha5DVgnD1xSA8oQc337jtA3atEfQ4TFX1ajeZG1Y2tUx,  fee_calculator={lamports_per_signature = 0}}
-
-// #define _VHASH
-
-
-// --ledger /home/jsiegel/repos/solana/test-ledger --db /home/jsiegel/funk --cmd accounts --accounts /home/jsiegel/repos/solana/test-ledger/accounts/ --pages 15 --index-max 12000000 --start-slot 0 --end-slot 1 --start-id 0 --end-id 1
-// --ledger /home/jsiegel/repos/solana/test-ledger --db /home/jsiegel/funk --cmd replay --accounts /home/jsiegel/repos/solana/test-ledger/accounts/ --pages 15 --index-max 12000000 --start-slot 0 --end-slot 6 --log_level 3
-
-// --ledger /home/jsiegel/repos/solana/test-ledger --db /home/jsiegel/funk --cmd replay --accounts /home/jsiegel/repos/solana/test-ledger/accounts/ --pages 15 --index-max 12000000 --start-slot 0 --end-slot 25  --confirm_hash AsHedZaZkabNtB8XBiKWQkKwaeLy2y4Hrqm6MkQALT5h --confirm_parent CvgPeR54qpVRZGBuiQztGXecxSXREPfTF8wALujK4WdE --confirm_account_delta 7PL6JZgcNy5vkPSc6JsMHET9dvpvsFMWR734VtCG29xN  --confirm_signature 2  --confirm_last_block G4YL2SieHDGNZGjiwBsJESK7jMDfazg33ievuCwbkjrv
+****/
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -122,49 +78,34 @@ int fd_alloc_fprintf( fd_alloc_t * join, FILE *       stream );
 struct global_state {
   fd_global_ctx_t*    global;
 
-  ulong               start_slot;
-  ulong               end_slot;
-  ulong               start_id;
-  ulong               end_id;
-  ulong               pages;
-  uchar               txn_exe;
-
   int                 argc;
   char       **       argv;
 
   char const *        name;
-  char const *        ledger;
+  ulong               pages;
   char const *        gaddr;
   char const *        persist;
-  char const *        start_slot_opt;
+  ulong               end_slot;
   char const *        end_slot_opt;
-  char const *        start_id_opt;
-  char const *        end_id_opt;
-  char const *        accounts;
   char const *        cmd;
-  char const *        txn_exe_opt;
   char const *        net;
+  char const *        reset;
+  char const *        load;
 };
 typedef struct global_state global_state_t;
 
 static void usage(const char* progname) {
   fprintf(stderr, "USAGE: %s\n", progname);
   fprintf(stderr, " --wksp        <name>       workspace name\n");
-  fprintf(stderr, " --ledger      <dir>        ledger directory\n");
   fprintf(stderr, " --gaddr       <num>        global address of funky in the workspace\n");
   fprintf(stderr, " --persist     <file>       funky persistence file\n");
+  fprintf(stderr, " --load        <file>       load funky backup file\n");
   fprintf(stderr, " --end-slot    <num>        stop iterating at block...\n");
-  fprintf(stderr, " --start-slot  <num>        start iterating at block...\n");
-  fprintf(stderr, " --accounts    <dir>        What accounts should I slurp in\n");
   fprintf(stderr, " --cmd         <operation>  What operation should we test\n");
-  fprintf(stderr, " --skip-exe    [skip,sim]   Should we skip executing transactions\n");
   fprintf(stderr, " --index-max   <bool>       How big should the index table be?\n");
   fprintf(stderr, " --validate    <bool>       Validate the funk db\n");
+  fprintf(stderr, " --reset       <bool>       Reset the workspace\n");
 }
-
-// pub const FULL_SNAPSHOT_ARCHIVE_FILENAME_REGEX: &str = r"^snapshot-(?P<slot>[[:digit:]]+)-(?P<hash>[[:alnum:]]+)\.(?P<ext>tar|tar\.bz2|tar\.zst|tar\.gz|tar\.lz4)$";
-// pub const INCREMENTAL_SNAPSHOT_ARCHIVE_FILENAME_REGEX: &str = r"^incremental-snapshot-(?P<base>[[:digit:]]+)-(?P<slot>[[:digit:]]+)-(?P<hash>[[:alnum:]]+)\.(?P<ext>tar|tar\.bz2|tar\.zst|tar\.gz|tar\.lz4)$";
-
 
 #define SORT_NAME sort_pubkey_hash_pair
 #define SORT_KEY_T fd_pubkey_hash_pair_t
@@ -340,53 +281,6 @@ void print_file(global_state_t *state, const char *file) {
   state->global->freef(state->global->allocf_arg, r);
 }
 
-int slot_dump(global_state_t *state) {
-  if (NULL == state->accounts)  {
-    usage(state->argv[0]);
-    exit(1);
-  }
-  regex_t reg;
-  // Where were those regular expressions for snapshots?
-  if (regcomp(&reg, "[0-9]+\\.[0-9]+", REG_EXTENDED) != 0) {
-    FD_LOG_ERR(( "compile failed" ));
-  }
-
-  FD_LOG_WARNING(("starting read of %s", state->accounts));
-
-  DIR *dir = opendir(state->accounts);
-
-  struct dirent * ent;
-
-  while ( NULL != (ent = readdir(dir)) ) {
-    if ( regexec(&reg, ent->d_name, 0, NULL, 0) == 0 )  {
-      char buf[1000];
-
-      strcpy(buf, ent->d_name);
-      char *p = buf;
-      while (*p != '.') p++;
-      *p++ = '\0';
-
-      ulong slot = (ulong) atol(buf);
-      ulong id = (ulong) atol(p);
-
-      if ((slot < state->start_slot) | (slot > state->end_slot))
-        continue;
-
-      if ((id < state->start_id) | ((state->end_id > 0) & (id > state->end_id)))
-        continue;
-
-      sprintf(buf, "%s/%s", state->accounts, ent->d_name);
-
-      print_file(state, buf);
-    }
-  }
-
-  closedir(dir);
-  regfree(&reg);
-
-  return 0;
-}
-
 int replay(global_state_t *state) {
   fd_funk_rec_key_t key = fd_runtime_block_meta_key(ULONG_MAX);
   fd_funk_rec_t const * rec = fd_funk_rec_query( state->global->funk, NULL, &key );
@@ -405,16 +299,13 @@ int replay(global_state_t *state) {
   if ( fd_slot_meta_meta_decode( &mm, &ctx2 ) )
     FD_LOG_ERR(("fd_slot_meta_meta_decode failed"));
 
-  if (mm.start_slot > state->start_slot)
-    state->start_slot = mm.start_slot;
   if (mm.end_slot < state->end_slot)
     state->end_slot = mm.end_slot;
 
-  for ( ulong slot = state->start_slot; slot < state->end_slot; ++slot ) {
+  for ( ulong slot = state->global->bank.slot+1; slot < state->end_slot; ++slot ) {
     state->global->bank.slot = slot;
 
-    if ((state->end_slot < 10) || ((slot % 10) == 0))
-      FD_LOG_WARNING(("reading slot %ld", slot));
+    FD_LOG_NOTICE(("reading slot %ld", slot));
 
     fd_slot_meta_t m;
     fd_memset(&m, 0, sizeof(m));
@@ -474,19 +365,15 @@ int main(int argc, char **argv) {
   state.argv = argv;
 
   state.name                = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp",         NULL, NULL );
-  state.ledger              = fd_env_strip_cmdline_cstr ( &argc, &argv, "--ledger",       NULL, NULL);
   state.gaddr               = fd_env_strip_cmdline_cstr ( &argc, &argv, "--gaddr",        NULL, NULL);
   state.persist             = fd_env_strip_cmdline_cstr ( &argc, &argv, "--persist",      NULL, NULL);
-  state.start_slot_opt      = fd_env_strip_cmdline_cstr ( &argc, &argv, "--start-slot",   NULL, NULL);
   state.end_slot_opt        = fd_env_strip_cmdline_cstr ( &argc, &argv, "--end-slot",     NULL, NULL);
-  state.start_id_opt        = fd_env_strip_cmdline_cstr ( &argc, &argv, "--start-id",     NULL, NULL);
-  state.end_id_opt          = fd_env_strip_cmdline_cstr ( &argc, &argv, "--end-id",       NULL, NULL);
-  state.accounts            = fd_env_strip_cmdline_cstr ( &argc, &argv, "--accounts",     NULL, NULL);
   state.cmd                 = fd_env_strip_cmdline_cstr ( &argc, &argv, "--cmd",          NULL, NULL);
-  state.txn_exe_opt         = fd_env_strip_cmdline_cstr ( &argc, &argv, "--txn-exe",      NULL, NULL);
   state.net                 = fd_env_strip_cmdline_cstr ( &argc, &argv, "--net",          NULL, NULL);
+  state.reset               = fd_env_strip_cmdline_cstr ( &argc, &argv, "--reset",        NULL, NULL);
+  state.load                = fd_env_strip_cmdline_cstr ( &argc, &argv, "--load",         NULL, NULL);
 
-  state.pages         = fd_env_strip_cmdline_ulong ( &argc, &argv, "--pages",      NULL, 0);
+  state.pages               = fd_env_strip_cmdline_ulong ( &argc, &argv, "--pages",      NULL, 5);
 
   const char *index_max_opt           = fd_env_strip_cmdline_cstr ( &argc, &argv, "--index-max",    NULL, NULL);
   const char *validate_db             = fd_env_strip_cmdline_cstr ( &argc, &argv, "--validate",     NULL, NULL);
@@ -498,16 +385,11 @@ int main(int argc, char **argv) {
   const char *confirm_signature       = fd_env_strip_cmdline_cstr ( &argc, &argv, "--confirm_signature",     NULL, NULL);
   const char *confirm_last_block      = fd_env_strip_cmdline_cstr ( &argc, &argv, "--confirm_last_block",    NULL, NULL);
 
-  if (NULL == state.ledger) {
+  if (state.cmd == NULL) {
     usage(argv[0]);
-    exit(1);
+    return 1;
   }
-
-  if (state.txn_exe_opt) {
-    state.txn_exe = (strcmp(state.txn_exe_opt, "skip") == 0) ? 1 : 0;
-    state.txn_exe = (strcmp(state.txn_exe_opt, "sim") == 0) ? 2 : 0;
-  }
-
+  
   if (NULL != state.net) {
     if (!strncmp(state.net, "main", 4))
       enable_mainnet(&state.global->features);
@@ -518,38 +400,44 @@ int main(int argc, char **argv) {
   } else
     memset(&state.global->features, 1, sizeof(state.global->features));
 
+  char hostname[64];
+  gethostname(hostname, sizeof(hostname));
+  ulong hashseed = fd_hash(0, hostname, strnlen(hostname, sizeof(hostname)));
+  
   fd_wksp_t *wksp = NULL;
   if ( state.name ) {
     FD_LOG_NOTICE(( "Attaching to --wksp %s", state.name ));
     wksp = fd_wksp_attach( state.name );
   } else {
-    FD_LOG_NOTICE(( "--wksp not specified, using an anonymous local workspace" ));
+    FD_LOG_NOTICE(( "--wksp not specified, using an anonymous workspace with %lu pages", state.pages ));
     wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, state.pages, 0, "wksp", 0UL );
+    state.gaddr = 0;
   }
   if ( FD_UNLIKELY( !wksp ) )
     FD_LOG_ERR(( "Unable to attach to wksp" ));
 
+  if ( state.reset && strcmp(state.reset, "true") == 0 ) {
+    fd_wksp_reset( wksp, (uint)hashseed);
+    state.gaddr = 0;
+  }
+  
+  void* shmem;
   if( !state.gaddr ) {
-    FD_LOG_NOTICE(("creating new funk db"));
-    void* shmem = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint(), 1 );
+    shmem = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint(), 1 );
     if (shmem == NULL)
       FD_LOG_ERR(( "failed to allocate a funky" ));
     ulong index_max = 1000000;    // Maximum size (count) of master index
     if (index_max_opt)
       index_max = (ulong) atoi((char *) index_max_opt);
     ulong xactions_max = 100;     // Maximum size (count) of transaction index
-    char hostname[64];
-    gethostname(hostname, sizeof(hostname));
-    ulong hashseed = fd_hash(0, hostname, strnlen(hostname, sizeof(hostname)));
+    FD_LOG_NOTICE(("creating new funk db, index_max=%lu xactions_max=%lu", index_max, xactions_max));
     state.global->funk = fd_funk_join(fd_funk_new(shmem, 1, hashseed, xactions_max, index_max));
     if (state.global->funk == NULL) {
       fd_wksp_free_laddr(shmem);
       FD_LOG_ERR(( "failed to allocate a funky" ));
     }
-    FD_LOG_WARNING(( "funky at global address %lu", fd_wksp_gaddr_fast( wksp, shmem ) ));
 
   } else {
-    void* shmem;
     if (state.gaddr[0] == '0' && state.gaddr[1] == 'x')
       shmem = fd_wksp_laddr_fast( wksp, (ulong)strtol(state.gaddr+2, NULL, 16) );
     else
@@ -559,6 +447,7 @@ int main(int argc, char **argv) {
       FD_LOG_ERR(( "failed to join a funky" ));
     }
   }
+  FD_LOG_NOTICE(( "funky at global address 0x%lx", fd_wksp_gaddr_fast( wksp, shmem ) ));
 
   if (NULL != log_level)
     state.global->log_level = (uchar) atoi(log_level);
@@ -569,8 +458,15 @@ int main(int argc, char **argv) {
   state.global->allocf_arg = fd_wksp_laddr_fast( wksp, state.global->funk->alloc_gaddr );
 
   if (NULL != state.persist) {
+    FD_LOG_NOTICE(("using %s for persistence", state.persist));
     if ( fd_funk_persist_open_fast( state.global->funk, state.persist ) != FD_FUNK_SUCCESS )
       FD_LOG_ERR(("failed to open persistence file"));
+  }
+
+  if (NULL != state.load) {
+    FD_LOG_NOTICE(("loading %s", state.load));
+    if ( fd_funk_load_backup( state.global->funk, state.load, 0 ) != FD_FUNK_SUCCESS )
+      FD_LOG_ERR(("failed to open backup file"));
   }
 
   if ((validate_db != NULL) && (strcmp(validate_db, "true") == 0)) {
@@ -584,105 +480,25 @@ int main(int argc, char **argv) {
     state.end_slot = (ulong) atoi(state.end_slot_opt);
   else
     state.end_slot = ULONG_MAX;
-  if (NULL != state.start_slot_opt)
-    state.start_slot = (ulong) atoi(state.start_slot_opt);
-  else
-    state.start_slot = 0;
-  if (NULL != state.end_id_opt)
-    state.end_id = (ulong) atoi(state.end_id_opt);
-  if (NULL != state.start_id_opt)
-    state.start_id = (ulong) atoi(state.start_id_opt);
-
-  // Eventually we will have to add support for reading compressed genesis blocks...
-  fd_genesis_solana_t genesis_block;
-  fd_genesis_solana_new(&genesis_block);
 
   {
-    char genesis[128];
-    sprintf(genesis, "%s/genesis.bin", state.ledger);
-    struct stat sbuf;
-    stat(genesis, &sbuf);
-    int fd = open(genesis, O_RDONLY);
-    if (fd < 0) {
-      FD_LOG_ERR(("Cannot open %s", genesis));
-    }
-    uchar * buf = malloc((ulong) sbuf.st_size);
-    ssize_t n = read(fd, buf, (ulong) sbuf.st_size);
-    close(fd);
-
-    fd_bincode_decode_ctx_t ctx;
-    ctx.data = buf;
-    ctx.dataend = &buf[n];
-    ctx.allocf = state.global->allocf;
-    ctx.allocf_arg = state.global->allocf_arg;
-    if ( fd_genesis_solana_decode(&genesis_block, &ctx) )
-      FD_LOG_ERR(("fd_genesis_solana_decode failed"));
-
-    // The hash is generated from the raw data... don't mess with this..
-    uchar genesis_hash[FD_SHA256_HASH_SZ];
-    fd_sha256_t sha;
-    fd_sha256_init( &sha );
-    fd_sha256_append( &sha, buf, (ulong) n );
-    fd_sha256_fini( &sha, genesis_hash );
-
-    fd_runtime_init_bank_from_genesis( state.global, &genesis_block, genesis_hash );
-
-    free(buf);
+    FD_LOG_NOTICE(("reading banks record"));
+    fd_funk_rec_key_t id = fd_runtime_banks_key();
+    fd_funk_rec_t const * rec = fd_funk_rec_query_global(state.global->funk, NULL, &id);
+    if ( rec == NULL )
+      FD_LOG_ERR(("failed to read banks record"));
+    int err;
+    void * val = fd_funk_val_cache( state.global->funk, rec, &err );
+    if (val == NULL )
+      FD_LOG_ERR(("failed to read banks record"));
+    fd_bincode_decode_ctx_t ctx2;
+    ctx2.data = val;
+    ctx2.dataend = (uchar*)val + fd_funk_val_sz( rec );
+    ctx2.allocf = state.global->allocf;
+    ctx2.allocf_arg = state.global->allocf_arg;
+    if ( fd_firedancer_banks_decode(&state.global->bank, &ctx2 ) )
+      FD_LOG_ERR(("failed to read banks record"));
   }
-
-  fd_runtime_init_program( state.global );
-
-  if (strcmp(state.cmd, "accounts_hash") != 0) {
-#if 0
-    FD_LOG_WARNING(("loading genesis account into funk db"));
-
-    fd_funk_rec_t * rec_map = fd_funk_rec_map( state.global->funk, state.global->wksp );
-
-    for( fd_funk_rec_map_iter_t iter = fd_funk_rec_map_iter_init( rec_map );
-         !fd_funk_rec_map_iter_done( rec_map, iter );
-         iter = fd_funk_rec_map_iter_next( rec_map, iter ) ) {
-      fd_funk_rec_t * trec = fd_funk_rec_map_iter_ele( rec_map, iter );
-
-      fd_funk_rec_key_t *k = trec->pair.key;
-
-      if (!fd_acc_mgr_is_key(k))
-        continue;
-
-      if (fd_funk_rec_persist_erase(state.global->funk, trec) != FD_FUNK_SUCCESS)
-        FD_LOG_WARNING(("persist erase failed"));
-
-      if (fd_funk_rec_remove(state.global->funk, trec, 1) != FD_FUNK_SUCCESS)
-        FD_LOG_WARNING(("remove failed"));
-    }
-#endif
-
-    for (ulong i = 0; i < genesis_block.accounts_len; i++) {
-      fd_pubkey_account_pair_t *a = &genesis_block.accounts[i];
-
-      char pubkey[50];
-
-      fd_base58_encode_32((uchar *) genesis_block.accounts[i].key.key, NULL, pubkey);
-
-      fd_acc_mgr_write_structured_account(state.global->acc_mgr, state.global->funk_txn, 0, &a->key, &a->account);
-    }
-  }
-
-#if 0
-  for (ulong i = 0; i < genesis_block.native_instruction_processors_len; i++) {
-    fd_string_pubkey_pair_t * ins = &genesis_block.native_instruction_processors[i];
-
-    char pubkey[50];
-
-    fd_base58_encode_32((uchar *) ins->pubkey.key, NULL, pubkey);
-
-    FD_LOG_WARNING(("native program:  %s <= %s", ins->string, pubkey));
-  }
-#endif
-
-  fd_bincode_destroy_ctx_t ctx2;
-  ctx2.freef = state.global->freef;
-  ctx2.freef_arg = state.global->allocf_arg;
-  fd_genesis_solana_destroy(&genesis_block, &ctx2);
 
   if (strcmp(state.cmd, "replay") == 0) {
     replay(&state);
@@ -717,8 +533,6 @@ int main(int argc, char **argv) {
   }
   if (strcmp(state.cmd, "accounts_hash") == 0)
     accounts_hash(&state);
-  if (strcmp(state.cmd, "accounts") == 0)
-    slot_dump(&state);
 
   fd_global_ctx_delete(fd_global_ctx_leave(state.global));
 

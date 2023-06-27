@@ -242,7 +242,7 @@
       "type": "struct",
       "fields": [
         { "name": "vote_accounts", "type": "vote_accounts" },
-        { "name": "stake_delegations", "type": "deque", "element": "delegation_pair", "max":35 },
+        { "name": "stake_delegations", "type": "deque", "element": "delegation_pair" },
         { "name": "unused", "type": "ulong" },
         { "name": "epoch", "type": "ulong" },
         { "name": "stake_history", "type": "stake_history" }
@@ -685,7 +685,7 @@
       "name": "slot_hashes",
       "type": "struct",
       "fields": [
-          { "name": "hashes", "type": "deque", "element": "slot_hash", "max":35 }
+          { "name": "hashes", "type": "deque", "element": "slot_hash", "max":700 }
       ],
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_hashes.rs#L31"
     },
@@ -701,7 +701,7 @@
       "name": "recent_block_hashes",
       "type": "struct",
       "fields": [
-          { "name": "hashes", "type": "deque", "element": "block_block_hash_entry", "max":150 }
+          { "name": "hashes", "type": "deque", "element": "block_block_hash_entry", "max":350 }
       ]
     },
     {

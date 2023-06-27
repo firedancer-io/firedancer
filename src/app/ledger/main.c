@@ -1,9 +1,3 @@
-// build/linux/gcc/x86_64/bin/fd_wksp_ctl new giant_wksp 100 gigantic 0-127 0666
-
-// time build/linux/gcc/x86_64/bin/fd_frank_ledger --wksp giant_wksp --cmd ingest --snapshotfile /home/jsiegel/mainnet-ledger/snapshot-179244882-2DyMb1qN8JuTijCjsW8w4G2tg1hWuAw2AopH7Bj9Qstu.tar.zst --incremental /home/jsiegel/mainnet-ledger/incremental-snapshot-179244882-179248368-6TprbHABozQQLjjc1HBeQ2p4AigMC7rhHJS2Q5WLcbyw.tar.zst --reset true --persist /home/asiegel/funkmainnet --gaddrout /home/asiegel/funkaddr
-
-// time build/linux/gcc/x86_64/bin/fd_frank_ledger --wksp giant_wksp --cmd ingest --rocksdb /home/jsiegel/mainnet-ledger/rocksdb --reset true --persist /home/asiegel/funkmainnet --gaddrout /home/asiegel/funkaddr --verifypoh true --startslot 179138205 --endslot 179140205 --tile-cpus 32-127
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <stddef.h>
@@ -30,11 +24,13 @@ static void usage(const char* progname) {
   fprintf(stderr, " --cmd ingest --snapshotfile <file>               ingest solana snapshot file\n");
   fprintf(stderr, "              --incremental <file>                also ingest incremental snapshot file\n");
   fprintf(stderr, "              --rocksdb <file>                    also ingest a rocks database file\n");
+  fprintf(stderr, "              --genesis <file>                    also ingest a genesis file\n");
   fprintf(stderr, " --cmd recover                                    recover in-memory database from persistence file\n");
   fprintf(stderr, " --cmd repersist                                  persist in-memory database to persistence file\n");
   fprintf(stderr, " --wksp <name>                                    workspace name\n");
   fprintf(stderr, " --reset true                                     reset workspace before ingesting\n");
   fprintf(stderr, " --persist <file>                                 read/write to persistence file\n");
+  fprintf(stderr, " --backup <file>                                  make a funky backup file\n");
   fprintf(stderr, " --gaddr <address>                                join funky at the address instead of making a new one\n");
   fprintf(stderr, " --gaddrout <file>                                write the funky address to the given file\n");
   fprintf(stderr, " --indexmax <count>                               size of funky account map\n");
@@ -42,6 +38,8 @@ static void usage(const char* progname) {
   fprintf(stderr, " --verifyhash <base58hash>                        verify that the accounts hash matches the given one\n");
   fprintf(stderr, " --verifyfunky true                               verify database integrity\n");
   fprintf(stderr, " --verifypoh true                                 verify proof-of-history while importing blocks\n");
+  fprintf(stderr, " --loglevel <level>                               Set logging level\n");
+  fprintf(stderr, " --network <net>                                  main/dev/testnet\n");
 }
 
 struct SnapshotParser {
@@ -145,6 +143,9 @@ void SnapshotParser_parseSnapshots(struct SnapshotParser* self, const void* data
   ctx.allocf_arg = global->allocf_arg;
   if ( fd_solana_manifest_decode(self->manifest_, &ctx) )
     FD_LOG_ERR(("fd_solana_manifest_decode failed"));
+
+  if ( fd_global_import_solana_manifest(global, self->manifest_) )
+    FD_LOG_ERR(("fd_global_import_solana_manifest failed"));
 }
 
 void SnapshotParser_tarEntry(void* arg, const char* name, const void* data, size_t datalen) {
@@ -274,7 +275,7 @@ static void decompressBZ2(const char* fname, decompressCallback cb, void* arg) {
   close(fin);
 }
 
-void ingest_rocksdb( fd_global_ctx_t * global, const char* file, ulong start_slot, ulong end_slot, const char* verifypoh,
+void ingest_rocksdb( fd_global_ctx_t * global, const char* file, ulong end_slot, const char* verifypoh,
                      fd_tpool_t * tpool, ulong max_workers ) {
   fd_rocksdb_t        rocks_db;
   char *err = fd_rocksdb_init(&rocks_db, file);
@@ -289,12 +290,11 @@ void ingest_rocksdb( fd_global_ctx_t * global, const char* file, ulong start_slo
   if (end_slot > last_slot)
     end_slot = last_slot;
 
-  ulong first_slot = fd_rocksdb_first_slot(&rocks_db, &err);
-  if (err != NULL) {
-    FD_LOG_ERR(("fd_rocksdb_first_slot returned %s", err));
-  }
-  if (start_slot < first_slot)
-    start_slot = first_slot;
+  ulong start_slot = global->bank.slot+1;
+
+  FD_LOG_NOTICE(("ingesting rocksdb from start=%lu to end=%lu", start_slot, end_slot));
+
+  fd_hash_t oldhash = global->bank.poh;
 
   fd_slot_meta_meta_t mm;
   mm.start_slot = start_slot;
@@ -329,8 +329,6 @@ void ingest_rocksdb( fd_global_ctx_t * global, const char* file, ulong start_slo
   ulong blk_cnt = 0;
   do {
     ulong slot = m.slot;
-    if (slot < start_slot)
-      continue;
     if (slot >= end_slot)
       break;
 
@@ -389,18 +387,29 @@ void ingest_rocksdb( fd_global_ctx_t * global, const char* file, ulong start_slo
 
   fd_rocksdb_destroy(&rocks_db);
 
+  /* Verify messes with the poh */
+  global->bank.poh = oldhash;
+
   FD_LOG_NOTICE(("ingested %lu blocks", blk_cnt));
 }
 
 int main(int argc, char** argv) {
-  fd_boot( &argc, &argv );
-
-  const char* wkspname = fd_env_strip_cmdline_cstr(&argc, &argv, "--wksp", NULL, NULL);
-  if (wkspname == NULL) {
+  if (argc == 1) {
     usage(argv[0]);
     return 1;
   }
-  fd_wksp_t* wksp = fd_wksp_attach(wkspname);
+
+  fd_boot( &argc, &argv );
+
+  fd_wksp_t* wksp;
+  const char* wkspname = fd_env_strip_cmdline_cstr(&argc, &argv, "--wksp", NULL, NULL);
+  if (wkspname == NULL) {
+    ulong pages = fd_env_strip_cmdline_ulong(&argc, &argv, "--pages", NULL, 5);
+    FD_LOG_NOTICE(( "--wksp not specified, using an anonymous local workspace" ));
+    wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, pages, 0, "wksp", 0UL );
+  } else {
+    wksp = fd_wksp_attach(wkspname);
+  }
   if (wksp == NULL)
     FD_LOG_ERR(( "failed to attach to workspace %s", wkspname ));
 
@@ -525,13 +534,82 @@ int main(int argc, char** argv) {
       SnapshotParser_destroy(&parser);
     }
 
+    ulong loglevel = fd_env_strip_cmdline_ulong(&argc, &argv, "--loglevel", NULL, 0);
+    global->log_level = (uchar) loglevel;
+
+    const char *net = fd_env_strip_cmdline_cstr(&argc, &argv, "--network", NULL, NULL);
+
+    if (NULL != net) {
+      if (!strncmp(net, "main", 4))
+        enable_mainnet(&global->features);
+      if (!strcmp(net, "test"))
+        enable_testnet(&global->features);
+      if (!strcmp(net, "dev"))
+        enable_devnet(&global->features);
+    } else
+      memset(&global->features, 1, sizeof(global->features));
+
+    file = fd_env_strip_cmdline_cstr(&argc, &argv, "--genesis", NULL, NULL);
+    if (file != NULL) {
+      struct stat sbuf;
+      if (stat(file, &sbuf) < 0)
+        FD_LOG_ERR(("cannot open %s : %s", file, strerror(errno)));
+      int fd = open(file, O_RDONLY);
+      if (fd < 0)
+        FD_LOG_ERR(("cannot open %s : %s", file, strerror(errno)));
+      uchar * buf = malloc((ulong) sbuf.st_size);
+      ssize_t n = read(fd, buf, (ulong) sbuf.st_size);
+      close(fd);
+
+      fd_genesis_solana_t genesis_block;
+      fd_genesis_solana_new(&genesis_block);
+      fd_bincode_decode_ctx_t ctx;
+      ctx.data = buf;
+      ctx.dataend = &buf[n];
+      ctx.allocf = global->allocf;
+      ctx.allocf_arg = global->allocf_arg;
+      if ( fd_genesis_solana_decode(&genesis_block, &ctx) )
+        FD_LOG_ERR(("fd_genesis_solana_decode failed"));
+
+      // The hash is generated from the raw data... don't mess with this..
+      uchar genesis_hash[FD_SHA256_HASH_SZ];
+      fd_sha256_t sha;
+      fd_sha256_init( &sha );
+      fd_sha256_append( &sha, buf, (ulong) n );
+      fd_sha256_fini( &sha, genesis_hash );
+
+      free(buf);
+
+      fd_runtime_init_bank_from_genesis( global, &genesis_block, genesis_hash );
+
+      fd_runtime_init_program( global );
+
+      for (ulong i = 0; i < genesis_block.accounts_len; i++) {
+        fd_pubkey_account_pair_t * a = &genesis_block.accounts[i];
+        char pubkey[50];
+        fd_base58_encode_32((uchar *) genesis_block.accounts[i].key.key, NULL, pubkey);
+        fd_acc_mgr_write_structured_account(global->acc_mgr, global->funk_txn, 0, &a->key, &a->account);
+      }
+
+      fd_bincode_destroy_ctx_t ctx2;
+      ctx2.freef = global->freef;
+      ctx2.freef_arg = global->allocf_arg;
+      fd_genesis_solana_destroy(&genesis_block, &ctx2);
+    }
+
     file = fd_env_strip_cmdline_cstr(&argc, &argv, "--rocksdb", NULL, NULL);
     if (file != NULL) {
-      ulong start_slot = fd_env_strip_cmdline_ulong(&argc, &argv, "--startslot", NULL, 0);
       ulong end_slot = fd_env_strip_cmdline_ulong(&argc, &argv, "--endslot", NULL, ULONG_MAX);
       const char* verifypoh = fd_env_strip_cmdline_cstr(&argc, &argv, "--verifypoh", NULL, "false");
-      ingest_rocksdb(global, file, start_slot, end_slot, verifypoh, tpool, tcnt-1);
+      ingest_rocksdb(global, file, end_slot, verifypoh, tpool, tcnt-1);
     }
+
+    global->signature_cnt = 0;
+    fd_hash_bank( global, &global->bank.banks_hash );
+    fd_dirty_dup_clear(global->acc_mgr->dup);
+    fd_pubkey_hash_vector_clear(&global->acc_mgr->keys);
+
+    fd_runtime_save_banks(global);
 
   } else if (strcmp(cmd, "recover") == 0) {
     if (persist != NULL) {
@@ -555,9 +633,11 @@ int main(int argc, char** argv) {
     }
   }
 
-  if (strcmp(verifyfunky, "true") == 0)
+  if (strcmp(verifyfunky, "true") == 0) {
+    FD_LOG_NOTICE(("verifying funky"));
     if (fd_funk_verify(funk))
       FD_LOG_ERR(( "verification failed" ));
+  }
 
   const char* verifyhash = fd_env_strip_cmdline_cstr(&argc, &argv, "--verifyhash", NULL, NULL);
   if (verifyhash) {
@@ -614,6 +694,13 @@ int main(int argc, char** argv) {
 
   if ( tpool )
     fd_tpool_fini( tpool );
+
+  const char* backup = fd_env_strip_cmdline_cstr(&argc, &argv, "--backup", NULL, NULL);
+  if (backup) {
+    FD_LOG_NOTICE(("writing %s", backup));
+    if ( fd_funk_make_backup( funk, backup ) )
+      FD_LOG_ERR(("backup failed"));
+  }
 
   fd_global_ctx_delete( fd_global_ctx_leave( global ) );
   fd_funk_leave( funk );

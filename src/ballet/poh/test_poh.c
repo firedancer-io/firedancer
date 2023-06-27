@@ -3,8 +3,7 @@
 /* Ensure that calling fd_poh_append with zero iterations is nop. */
 static void
 test_poh_append_nop( void ) {
-  fd_hash_t poh;
-  fd_memset( &poh, 0, FD_SHA256_HASH_SZ );
+  uchar poh[FD_SHA256_HASH_SZ] = {0};
 
   /* Make up a pattern */
   uchar want[FD_SHA256_HASH_SZ];
@@ -26,7 +25,7 @@ test_poh_append_one( void ) {
   for( ulong i=0UL; i<FD_SHA256_HASH_SZ; i++ ) pre[i] = (uchar)(0x40UL+i);
 
   /* One round of PoH append */
-  fd_hash_t poh = {0};
+  uchar poh[FD_SHA256_HASH_SZ] = {0};
   fd_memcpy( &poh, pre, FD_SHA256_HASH_SZ );
   fd_poh_append( &poh, 1UL );
 
@@ -43,7 +42,7 @@ test_poh_append_one( void ) {
                  "\n\t\t" FD_LOG_HEX16_FMT "  " FD_LOG_HEX16_FMT
                  "\n\tExpected"
                  "\n\t\t" FD_LOG_HEX16_FMT "  " FD_LOG_HEX16_FMT,
-                 FD_LOG_HEX16_FMT_ARGS( poh.uc ),   FD_LOG_HEX16_FMT_ARGS( poh.uc+16 ),
+                 FD_LOG_HEX16_FMT_ARGS( poh      ), FD_LOG_HEX16_FMT_ARGS( poh     +16 ),
                  FD_LOG_HEX16_FMT_ARGS( expected ), FD_LOG_HEX16_FMT_ARGS( expected+16 ) ));
   }
 }
@@ -59,7 +58,7 @@ test_poh_mixin( void ) {
   for( ulong i=0UL; i<FD_SHA256_HASH_SZ; i++ ) mixin[i]=(uchar)(0x60UL+i);
 
   /* Execute a PoH mixin */
-  fd_hash_t poh = {0};
+  uchar poh[FD_SHA256_HASH_SZ] = {0};
   fd_memcpy( &poh, pre, FD_SHA256_HASH_SZ );
   fd_poh_mixin( &poh, mixin );
 
@@ -77,7 +76,7 @@ test_poh_mixin( void ) {
                  "\n\t\t" FD_LOG_HEX16_FMT "  " FD_LOG_HEX16_FMT
                  "\n\tExpected"
                  "\n\t\t" FD_LOG_HEX16_FMT "  " FD_LOG_HEX16_FMT,
-                 FD_LOG_HEX16_FMT_ARGS( poh.uc ),   FD_LOG_HEX16_FMT_ARGS( poh.uc+16 ),
+                 FD_LOG_HEX16_FMT_ARGS( poh      ), FD_LOG_HEX16_FMT_ARGS( poh     +16 ),
                  FD_LOG_HEX16_FMT_ARGS( expected ), FD_LOG_HEX16_FMT_ARGS( expected+16 ) ));
   }
 }
@@ -95,8 +94,8 @@ struct fd_poh_test_step {
 typedef struct fd_poh_test_step fd_poh_test_step_t;
 
 struct fd_poh_test_vector {
-  fd_hash_t pre   __attribute__((aligned(32)));
-  fd_hash_t post  __attribute__((aligned(32)));
+  uchar pre [32]  __attribute__((aligned(32)));
+  uchar post[32]  __attribute__((aligned(32)));
   char const * name;
   fd_poh_test_step_t const * steps;
 };
@@ -105,7 +104,8 @@ typedef struct fd_poh_test_vector fd_poh_test_vector_t;
 
 static void
 test_poh_vector( fd_poh_test_vector_t const * t ) {
-  fd_hash_t poh = t->pre;
+  uchar poh[32];
+  memcpy( poh, t->pre, 32UL );
   for( fd_poh_test_step_t const * step = t->steps; step->n >= 0; step++ ) {
     if( FD_UNLIKELY( step->n == 0 ) ) {
       fd_poh_mixin( &poh, step->mixin );
@@ -121,8 +121,8 @@ test_poh_vector( fd_poh_test_vector_t const * t ) {
                  "\n\tExpected"
                  "\n\t\t" FD_LOG_HEX16_FMT "  " FD_LOG_HEX16_FMT,
                  t->name,
-                 FD_LOG_HEX16_FMT_ARGS( poh.uc ),     FD_LOG_HEX16_FMT_ARGS( poh.uc+16 ),
-                 FD_LOG_HEX16_FMT_ARGS( t->post.uc ), FD_LOG_HEX16_FMT_ARGS( t->post.uc+16 ) ));
+                 FD_LOG_HEX16_FMT_ARGS( poh     ), FD_LOG_HEX16_FMT_ARGS( poh    +16 ),
+                 FD_LOG_HEX16_FMT_ARGS( t->post ), FD_LOG_HEX16_FMT_ARGS( t->post+16 ) ));
   } else {
     FD_LOG_NOTICE(( "OK (%s)", t->name ));
   }
@@ -151,14 +151,14 @@ static fd_poh_test_step_t const solana_mainnet_block_1_steps[] = {
 static fd_poh_test_vector_t const poh_test_vectors[] = {
   {
     .name  = "Solana mainnet block 0",
-    .pre   = {{ _(45),_(29),_(69),_(98),_(a6),_(f8),_(e2),_(a7),_(84),_(db),_(5d),_(9f),_(95),_(e1),_(8f),_(c2),_(3f),_(70),_(44),_(1a),_(10),_(39),_(44),_(68),_(01),_(08),_(98),_(79),_(b0),_(8c),_(7e),_(f0) }},
-    .post  = {{ _(39),_(73),_(e3),_(30),_(c2),_(9b),_(83),_(1f),_(3f),_(cb),_(0e),_(49),_(37),_(4e),_(d8),_(d0),_(38),_(8f),_(41),_(0a),_(23),_(e4),_(eb),_(f2),_(33),_(28),_(50),_(50),_(36),_(ef),_(bd),_(03) }},
+    .pre   = { _(45),_(29),_(69),_(98),_(a6),_(f8),_(e2),_(a7),_(84),_(db),_(5d),_(9f),_(95),_(e1),_(8f),_(c2),_(3f),_(70),_(44),_(1a),_(10),_(39),_(44),_(68),_(01),_(08),_(98),_(79),_(b0),_(8c),_(7e),_(f0) },
+    .post  = { _(39),_(73),_(e3),_(30),_(c2),_(9b),_(83),_(1f),_(3f),_(cb),_(0e),_(49),_(37),_(4e),_(d8),_(d0),_(38),_(8f),_(41),_(0a),_(23),_(e4),_(eb),_(f2),_(33),_(28),_(50),_(50),_(36),_(ef),_(bd),_(03) },
     .steps = solana_mainnet_block_0_steps
   },
   {
     .name  = "Solana mainnet block 1",
-    .pre   = {{ _(39),_(73),_(e3),_(30),_(c2),_(9b),_(83),_(1f),_(3f),_(cb),_(0e),_(49),_(37),_(4e),_(d8),_(d0),_(38),_(8f),_(41),_(0a),_(23),_(e4),_(eb),_(f2),_(33),_(28),_(50),_(50),_(36),_(ef),_(bd),_(03) }},
-    .post  = {{ _(8e),_(e2),_(06),_(07),_(dc),_(f1),_(d9),_(39),_(3c),_(f5),_(a2),_(f2),_(c9),_(f7),_(ba),_(be),_(16),_(7d),_(bd),_(d2),_(67),_(49),_(1b),_(51),_(3c),_(73),_(d2),_(cb),_(f8),_(74),_(13),_(f5) }},
+    .pre   = { _(39),_(73),_(e3),_(30),_(c2),_(9b),_(83),_(1f),_(3f),_(cb),_(0e),_(49),_(37),_(4e),_(d8),_(d0),_(38),_(8f),_(41),_(0a),_(23),_(e4),_(eb),_(f2),_(33),_(28),_(50),_(50),_(36),_(ef),_(bd),_(03) },
+    .post  = { _(8e),_(e2),_(06),_(07),_(dc),_(f1),_(d9),_(39),_(3c),_(f5),_(a2),_(f2),_(c9),_(f7),_(ba),_(be),_(16),_(7d),_(bd),_(d2),_(67),_(49),_(1b),_(51),_(3c),_(73),_(d2),_(cb),_(f8),_(74),_(13),_(f5) },
     .steps = solana_mainnet_block_1_steps
   },
   { .name = NULL }
@@ -168,8 +168,7 @@ static fd_poh_test_vector_t const poh_test_vectors[] = {
 
 static void
 bench_poh_sequential( void ) {
-  fd_hash_t poh;
-  fd_memset( &poh, 0, FD_SHA256_HASH_SZ );
+  uchar poh[FD_SHA256_HASH_SZ] = {0};
 
   ulong batch_sz = 1024;
 

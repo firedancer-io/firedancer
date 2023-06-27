@@ -102,13 +102,18 @@ ulong             fd_runtime_lamports_per_signature_for_blockhash( fd_global_ctx
 
 fd_funk_rec_key_t fd_runtime_block_key     (ulong slot);
 fd_funk_rec_key_t fd_runtime_block_meta_key(ulong slot);
+fd_funk_rec_key_t fd_runtime_banks_key     (void);
 
 int               fd_pubkey_create_with_seed(fd_pubkey_t const * base, char const * seed, fd_pubkey_t const *owner, fd_pubkey_t *out );
+
+int               fd_runtime_save_banks    ( fd_global_ctx_t *global );
+int               fd_global_import_solana_manifest(fd_global_ctx_t *global, fd_solana_manifest_t* manifest);
 
 FD_PROTOTYPES_END
 
 #define FD_ACC_MGR_KEY_TYPE ((uchar)0)
 #define FD_BLOCK_KEY_TYPE ((uchar)1)
 #define FD_BLOCK_META_KEY_TYPE ((uchar)2)
+#define FD_BLOCK_BANKS_TYPE ((uchar)3)
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_runtime_h */

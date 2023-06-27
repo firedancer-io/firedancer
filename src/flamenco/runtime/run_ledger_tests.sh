@@ -2,8 +2,34 @@
 
 # this assumes the test_runtime has already been built
 
-if [ ! -e test-ledger-4 ]; then
-  wget -q https://github.com/firedancer-io/firedancer-testbins/raw/main/test-ledger-4.tar.gz -O - | tar zxf -
+LEDGER="test-ledger-4"
+VERBOSE=NO
+POSITION_ARGS=()
+
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    -l|--ledger)
+       LEDGER="$2"
+       shift
+       shift
+       ;;
+    -v|--verbose)
+       VERBOSE=YES
+       shift
+       ;;
+    -*|--*)
+       echo "unknown option $1"
+       exit 1
+       ;;
+    *)
+       POSITION_ARGS+=("$1")
+       shift
+       ;;
+  esac
+done
+
+if [ ! -e $LEDGER ]; then
+  wget -q https://github.com/firedancer-io/firedancer-testbins/raw/main/$LEDGER.tar.gz -O - | tar zxf -
 fi
 
 # We determine these values by
@@ -24,19 +50,15 @@ fi
 
 # set -x
 
-if [ -e /mnt/.fd/.gigantic/test_ledger_wksp ]; then
-    build/linux/gcc/x86_64/bin/fd_wksp_ctl delete test_ledger_wksp
+if [ $VERBOSE == "YES" ]; then
+  set -x
 fi
-build/linux/gcc/x86_64/bin/fd_wksp_ctl new test_ledger_wksp 5 gigantic 0 0666
 
-build/linux/gcc/x86_64/bin/fd_frank_ledger --wksp test_ledger_wksp --reset true --persist testfunk --rocksdb test-ledger-4/rocksdb --cmd ingest --gaddrout testgaddr --indexmax 10000 --txnmax 100
+build/linux/gcc/x86_64/bin/fd_frank_ledger --rocksdb $LEDGER/rocksdb --genesis $LEDGER/genesis.bin --cmd ingest --indexmax 10000 --txnmax 100 --backup test_ledger_backup
 
-build/linux/gcc/x86_64/unit-test/test_runtime --ledger test-ledger-4 --wksp test_ledger_wksp --gaddr `cat testgaddr` --cmd replay --start-slot 0 --end-slot 25  --confirm_hash AsHedZaZkabNtB8XBiKWQkKwaeLy2y4Hrqm6MkQALT5h --confirm_parent CvgPeR54qpVRZGBuiQztGXecxSXREPfTF8wALujK4WdE --confirm_account_delta 7PL6JZgcNy5vkPSc6JsMHET9dvpvsFMWR734VtCG29xN  --confirm_signature 2  --confirm_last_block G4YL2SieHDGNZGjiwBsJESK7jMDfazg33ievuCwbkjrv --validate true --persist testfunk
+build/linux/gcc/x86_64/unit-test/test_runtime --load test_ledger_backup --cmd replay --end-slot 25 --confirm_hash AsHedZaZkabNtB8XBiKWQkKwaeLy2y4Hrqm6MkQALT5h --confirm_parent CvgPeR54qpVRZGBuiQztGXecxSXREPfTF8wALujK4WdE --confirm_account_delta 7PL6JZgcNy5vkPSc6JsMHET9dvpvsFMWR734VtCG29xN  --confirm_signature 2  --confirm_last_block G4YL2SieHDGNZGjiwBsJESK7jMDfazg33ievuCwbkjrv --validate true
 
 status=$?
-
-build/linux/gcc/x86_64/bin/fd_wksp_ctl delete test_ledger_wksp
-rm -f testfunk testgaddr
 
 if [ $status -ne 0 ]
 then
@@ -45,7 +67,9 @@ then
 fi
 
 build/linux/gcc/x86_64/unit-test/test_native_programs --filter 'vote|system|config' >& native.log
+
 status=$?
+
 if [ $status -ne 0 ]
 then
   echo 'native test failed'

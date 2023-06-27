@@ -196,7 +196,7 @@ fd_execute_txn( fd_executor_t* executor, fd_txn_t * txn_descriptor, fd_rawtxn_b_
 
     /* TODO: allow instructions to be failed, and the transaction to be reverted */
     execute_instruction_func_t exec_instr_func = fd_executor_lookup_native_program( executor->global, &tx_accs[instr->program_id] );
-
+ 
     if (exec_instr_func != NULL) {
       int exec_result = exec_instr_func( ctx );
       if ( FD_UNLIKELY( exec_result != FD_EXECUTOR_INSTR_SUCCESS ) ) {

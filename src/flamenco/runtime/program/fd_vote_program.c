@@ -2,12 +2,18 @@
 
 #include "../fd_executor.h"
 #include "../fd_runtime.h"
+#include "../fd_account.h"
 #include "../sysvar/fd_sysvar.h"
 
 #include "../../../ballet/base58/fd_base58.h"
 #include "../../../ballet/txn/fd_compact_u16.h"
 
 #include <math.h>
+
+#ifdef _DISABLE_OPTIMIZATION
+#pragma GCC optimize ("O0")
+#endif
+
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L36 */
 #define INITIAL_LOCKOUT     ( 2 )
@@ -555,6 +561,8 @@ int fd_executor_vote_program_execute_instruction(
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
 
+//  fd_vote_instruction_walk(&instruction, fd_printer_walker, "vote", 0);
+
   switch( instruction.discriminant ) {
   case fd_vote_instruction_enum_initialize_account: {
     /* VoteInstruction::InitializeAccount instruction
@@ -721,6 +729,10 @@ int fd_executor_vote_program_execute_instruction(
       vote = &instruction.inner.vote_switch.vote;
     }
 
+    int err = fd_account_sanity_check(&ctx, 3);
+    if (FD_UNLIKELY(FD_EXECUTOR_INSTR_SUCCESS != err))
+      return err;
+
     /* Check that the accounts are correct */
     fd_pubkey_t const * vote_acc = &txn_accs[instr_acc_idxs[0]];
 
@@ -746,6 +758,9 @@ int fd_executor_vote_program_execute_instruction(
       ret = result;
       break;
     }
+
+//    fd_vote_state_versioned_walk(&vote_state_versioned, fd_printer_walker, "fd_vote_state_versioned", 0);
+
     fd_vote_state_t * vote_state = &vote_state_versioned.inner.current;
 
     /* Purge stale authorized voters */
@@ -790,6 +805,8 @@ int fd_executor_vote_program_execute_instruction(
     fd_slot_hashes_new( &slot_hashes );
     fd_sysvar_slot_hashes_read( ctx.global, &slot_hashes );
 
+//    fd_slot_hashes_walk(&slot_hashes, fd_printer_walker, "slot_hashes", 0);
+
     ulong earliest_slot_in_history = 0;
     if( FD_UNLIKELY( !deq_fd_slot_hash_t_empty( slot_hashes.hashes ) ) ) {
       earliest_slot_in_history = deq_fd_slot_hash_t_peek_tail_const( slot_hashes.hashes )->slot;
@@ -831,7 +848,7 @@ int fd_executor_vote_program_execute_instruction(
       }
 
       /* Find the corresponding slot hash entry for that slot. */
-      if( vote_slots[ vote_idx ] != deq_fd_slot_hash_t_peek_tail_const( slot_hashes.hashes )->slot ) {
+      if( vote_slots[ vote_idx ] != deq_fd_slot_hash_t_peek_index_const( slot_hashes.hashes, slot_hash_idx - 1 )->slot ) {
         slot_hash_idx -= 1;
         continue;
       }
@@ -857,6 +874,7 @@ int fd_executor_vote_program_execute_instruction(
     /* Check that for each slot in the vote tower, we found a slot in the slot hashes:
        if so, we would have got to the end of the vote tower. */
     if ( vote_idx != vote_slots_new_cnt ) {
+      FD_LOG_WARNING(( "vote_idx != vote_slots_new_cnt" ));
       ctx.txn_ctx->custom_err = FD_VOTE_SLOTS_MISMATCH;
       ret = FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
       fd_vote_state_versioned_destroy(&vote_state_versioned, &destroy);
@@ -874,7 +892,7 @@ int fd_executor_vote_program_execute_instruction(
       char vote_hash_hash[50];
       fd_base58_encode_32((uchar const *) &vote->hash, 0, vote_hash_hash);
 
-      FD_LOG_INFO(( "hash mismatch: slot_hash: %s vote_hash: %s", slot_hash_hash, vote_hash_hash ));
+      FD_LOG_WARNING(( "hash mismatch: slot_hash: %s vote_hash: %s", slot_hash_hash, vote_hash_hash ));
       /* FIXME: re-visit when bank hashes are confirmed to be good */
       fd_vote_state_versioned_destroy(&vote_state_versioned, &destroy);
       ctx.txn_ctx->custom_err = FD_VOTE_SLOT_HASH_MISMATCH;

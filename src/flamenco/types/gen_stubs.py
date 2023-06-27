@@ -155,8 +155,6 @@ def do_vector_body_decode(n, f):
 
 
 def do_deque_body_decode(n, f):
-    print("  self->" + f["name"] + " = " + deque_prefix(n, f) + "_alloc( ctx->allocf, ctx->allocf_arg );", file=body)
-
     if "modifier" in f and f["modifier"] == "compact":
         print("  ushort " + f["name"] + "_len;", file=body)
         print("  err = fd_bincode_compact_u16_decode(&" + f["name"] + "_len, ctx);", file=body)
@@ -164,6 +162,10 @@ def do_deque_body_decode(n, f):
         print("  ulong " + f["name"] + "_len;", file=body)
         print("  err = fd_bincode_uint64_decode(&" + f["name"] + "_len, ctx);", file=body)
     print("  if ( FD_UNLIKELY(err) ) return err;", file=body)
+    if "max" in f:
+        print("  self->" + f["name"] + " = " + deque_prefix(n, f) + "_alloc( ctx->allocf, ctx->allocf_arg );", file=body)
+    else:
+        print("  self->" + f["name"] + " = " + deque_prefix(n, f) + "_alloc( ctx->allocf, ctx->allocf_arg, " + f["name"] + "_len );", file=body)
     print("  if ( " + f["name"] + "_len > " + deque_prefix(n, f) + "_max(self->" + f["name"] + ") ) return FD_BINCODE_ERR_SMALL_DEQUE;", file=body)
 
     print("  for (ulong i = 0; i < " + f["name"] + "_len; ++i) {", file=body)
@@ -457,18 +459,33 @@ def do_vector_body_size(n, f):
 
 def do_deque_body_size(n, f):
     print("  if ( self->" + f["name"] + " ) {", file=body)
-    print("    size += sizeof(ulong);", file=body)
-    if f["element"] == "unsigned char" or f["element"] == "uchar":
-        print("    size += " + deque_prefix(n, f) + "_cnt(self->" + f["name"] + ");", file=body)
+
+    if "modifier" in f and f["modifier"] == "compact":
+        print("    ushort " + f["name"] + "_len = (ushort)" + deque_prefix(n, f) + "_cnt(self->" + f["name"] + ");", file=body)
+        print("    size += fd_bincode_compact_u16_size(&" + f["name"] + "_len);", file=body)
+    else:
+        print("    size += sizeof(ulong);", file=body)
+
+    if f["element"] == "uchar" or f["element"] == "unsigned char":
+        print("    ulong " + f["name"] + "_len = " + deque_prefix(n, f) + "_cnt(self->" + f["name"] + ");", file=body)
+        print("    size += " + f["name"] + "_len;", file=body)
     elif f["element"] == "ulong" or f["element"] == "unsigned long":
-        print("    size += " + deque_prefix(n, f) + "_cnt(self->" + f["name"] + ") * sizeof(ulong);", file=body)
+        print("    ulong " + f["name"] + "_len = " + deque_prefix(n, f) + "_cnt(self->" + f["name"] + ");", file=body)
+        print("    size += " + f["name"] + "_len * sizeof(ulong);", file=body)
     elif f["element"] == "uint" or f["element"] == "unsigned int":
-        print("    size += " + deque_prefix(n, f) + "_cnt(self->" + f["name"] + ") * sizeof(uint);", file=body)
+        print("    ulong " + f["name"] + "_len = " + deque_prefix(n, f) + "_cnt(self->" + f["name"] + ");", file=body)
+        print("    size += " + f["name"] + "_len * sizeof(uint);", file=body)
     else:
         print("    for ( " + deque_prefix(n, f) + "_iter_t iter = " + deque_prefix(n, f) + "_iter_init( self->" + f["name"] + " ); !" + deque_prefix(n, f) + "_iter_done( self->" + f["name"] + ", iter ); iter = " + deque_prefix(n, f) + "_iter_next( self->" + f["name"] + ", iter ) ) {", file=body)
         print("      " + deque_elem_type(n, f) + " * ele = " + deque_prefix(n, f) + "_iter_ele( self->" + f["name"] + ", iter );", file=body)
         print("      size += " + n + "_" + f["element"] + "_size(ele);", file=body)
         print("    }", file=body)
+
+    print("  } else {", file=body)
+    if "modifier" in f and f["modifier"] == "compact":
+        print("    size += 1;", file=body)
+    else:
+        print("    size += sizeof(ulong);", file=body)
     print("  }", file=body)
 
 def do_map_body_size(n, f):
@@ -710,21 +727,23 @@ def do_vector_body_walk(n, f):
     print("  }", file=body)
 
 def do_deque_body_walk(n, f):
-    print("  if ( self->" + f["name"] + " ) {", file=body)
+#    print("  if ( self->" + f["name"] + " ) {", file=body)
+    print("    fun(self->" + f["name"] +", \""+f["name"]+"\", 36, \""+f["name"]+"\", level++);", file=body)
     print("    for ( " + deque_prefix(n, f) + "_iter_t iter = " + deque_prefix(n, f) + "_iter_init( self->" + f["name"] + " ); !" + deque_prefix(n, f) + "_iter_done( self->" + f["name"] + ", iter ); iter = " + deque_prefix(n, f) + "_iter_next( self->" + f["name"] + ", iter ) ) {", file=body)
     print("      " + deque_elem_type(n, f) + " * ele = " + deque_prefix(n, f) + "_iter_ele( self->" + f["name"] + ", iter );", file=body)
 
     if f["element"] == "unsigned char" or f["element"] == "uchar":
-        print("      //fd_bincode_bytes_walk(ele, 1, ctx);", file=body)
+        print("      fun(ele, \"ele\", 1, \"long\", level + 1);", file=body),
     elif f["element"] == "ulong" or f["element"] == "unsigned long":
-        print("      //fd_bincode_uint64_walk(ele, ctx);", file=body)
+        print("      fun(ele, \"ele\", 6, \"long\", level + 1);", file=body),
     elif f["element"] == "uint" or f["element"] == "unsigned int":
-        print("      //fd_bincode_uint32_walk(ele, ctx);", file=body)
+        print("      fun(ele, \"ele\", 7, \"uint\", level + 1);", file=body),
     else:
         print("      " + n + "_" + f["element"] + "_walk(ele, fun, \"" + f["name"] + "\", level + 1);", file=body)
 
     print("    }", file=body)
-    print("  }", file=body)
+    print("    fun(self->" + f["name"] +", \""+f["name"]+"\", 37, \""+f["name"]+"\", --level);", file=body)
+#    print("  }", file=body)
 
 def do_map_body_walk(n, f):
     print("  //fun(&self->" + f["name"] + ", \"" + f["name"] + "\", 17, \"map\");", file=body),
@@ -780,23 +799,23 @@ def do_option_body_walk(n, f):
         print("  // fun(&self->" + f["name"] + ", \"" + f["name"] + "\", 16, \"option\", level + 1);", file=body),
 
 fields_body_walk = {
-    "char" :              lambda n, f: print("  fun(&self->" + f["name"] + ", \"" + f["name"] + "\", 1, \"char\", level + 1);", file=body),
-    "char*" :             lambda n, f: print("  fun(self->" + f["name"] + ", \"" + f["name"] + "\", 2, \"char*\", level + 1);", file=body),
-    "char[32]" :          lambda n, f: print("  fun(self->" + f["name"] + ", \"" + f["name"] + "\", 3, \"char[32]\", level + 1);", file=body),
-    "char[7]" :           lambda n, f: print("  fun(self->" + f["name"] + ", \"" + f["name"] + "\", 4, \"char[7]\", level + 1);", file=body),
-    "double" :            lambda n, f: print("  fun(&self->" + f["name"] + ", \"" + f["name"] + "\", 5, \"double\", level + 1);", file=body),
-    "long" :              lambda n, f: print("  fun(&self->" + f["name"] + ", \"" + f["name"] + "\", 6, \"long\", level + 1);", file=body),
-    "uint" :              lambda n, f: print("  fun(&self->" + f["name"] + ", \"" + f["name"] + "\", 7, \"uint\", level + 1);", file=body),
-    "uint128" :           lambda n, f: print("  fun(&self->" + f["name"] + ", \"" + f["name"] + "\", 8, \"uint128\", level + 1);", file=body),
-    "unsigned char" :     lambda n, f: print("  fun(&self->" + f["name"] + ", \"" + f["name"] + "\", 9, \"uchar\", level + 1);", file=body),
-    "unsigned char[32]" : lambda n, f: print("  fun(self->" + f["name"] + ", \"" + f["name"] + "\", 10, \"uchar[32]\", level + 1);", file=body),
-    "unsigned long" :     lambda n, f: print("  fun(&self->" + f["name"] + ", \"" + f["name"] + "\", 11, \"ulong\", level + 1);", file=body),
-    "ushort" :            lambda n, f: print("  fun(&self->" + f["name"] + ", \"" + f["name"] + "\", 12, \"ushort\", level + 1);", file=body),
-    "vector" :            lambda n, f: do_vector_body_walk(n, f),
-    "deque" :             lambda n, f: do_deque_body_walk(n, f),
-    "array" :             lambda n, f: do_array_body_walk(n, f),
-    "option" :            lambda n, f: do_option_body_walk(n, f),
-    "map" :               lambda n, f: do_map_body_walk(n, f),
+    "char" :              lambda n, f, e: print("  fun(&self->" + e + f["name"] + ", \"" + f["name"] + "\", 1, \"char\", level + 1);", file=body),
+    "char*" :             lambda n, f, e: print("  fun(self->" + e + f["name"] + ", \"" + f["name"] + "\", 2, \"char*\", level + 1);", file=body),
+    "char[32]" :          lambda n, f, e: print("  fun(self->" + e + f["name"] + ", \"" + f["name"] + "\", 3, \"char[32]\", level + 1);", file=body),
+    "char[7]" :           lambda n, f, e: print("  fun(self->" + e + f["name"] + ", \"" + f["name"] + "\", 4, \"char[7]\", level + 1);", file=body),
+    "double" :            lambda n, f, e: print("  fun(&self->" + e + f["name"] + ", \"" + f["name"] + "\", 5, \"double\", level + 1);", file=body),
+    "long" :              lambda n, f, e: print("  fun(&self->" + e + f["name"] + ", \"" + f["name"] + "\", 6, \"long\", level + 1);", file=body),
+    "uint" :              lambda n, f, e: print("  fun(&self->" + e + f["name"] + ", \"" + f["name"] + "\", 7, \"uint\", level + 1);", file=body),
+    "uint128" :           lambda n, f, e: print("  fun(&self->" + e + f["name"] + ", \"" + f["name"] + "\", 8, \"uint128\", level + 1);", file=body),
+    "unsigned char" :     lambda n, f, e: print("  fun(&self->" + e + f["name"] + ", \"" + f["name"] + "\", 9, \"uchar\", level + 1);", file=body),
+    "unsigned char[32]" : lambda n, f, e: print("  fun(self->" + e + f["name"] + ", \"" + f["name"] + "\", 10, \"uchar[32]\", level + 1);", file=body),
+    "unsigned long" :     lambda n, f, e: print("  fun(&self->" + e + f["name"] + ", \"" + f["name"] + "\", 11, \"ulong\", level + 1);", file=body),
+    "ushort" :            lambda n, f, e: print("  fun(&self->" + e + f["name"] + ", \"" + f["name"] + "\", 12, \"ushort\", level + 1);", file=body),
+    "vector" :            lambda n, f, e: do_vector_body_walk(n, f),
+    "deque" :             lambda n, f, e: do_deque_body_walk(n, f),
+    "array" :             lambda n, f, e: do_array_body_walk(n, f),
+    "option" :            lambda n, f, e: do_option_body_walk(n, f),
+    "map" :               lambda n, f, e: do_map_body_walk(n, f),
 }
 
 # Map different names for the same times into how firedancer knows them
@@ -828,18 +847,34 @@ for entry in entries:
                   continue
 
               dp = deque_prefix(namespace, f)
-              print("#define DEQUE_NAME " + dp, file=header)
-              print("#define DEQUE_T " + element_type, file=header)
-              print("#define DEQUE_MAX " + str(f["max"]), file=header)
-              print("#include \"../../util/tmpl/fd_deque.c\"", file=header)
-              print("#undef DEQUE_NAME", file=header)
-              print("#undef DEQUE_T\n", file=header)
-              print("#undef DEQUE_MAX\n", file=header)
-              print("static inline " + element_type + " *", file=header)
-              print(dp + "_alloc(fd_alloc_fun_t allocf, void * allocf_arg) {", file=header)
-              print("  void* mem = (*allocf)(allocf_arg, " + dp + "_align(), " + dp + "_footprint());", file=header)
-              print("  return " + dp + "_join( " + dp + "_new( mem ) );", file=header)
-              print("}", file=header)
+              if "max" in f:
+                  print("#define DEQUE_NAME " + dp, file=header)
+                  print("#define DEQUE_T " + element_type, file=header)
+                  print("#define DEQUE_MAX " + str(f["max"]), file=header)
+                  print("#include \"../../util/tmpl/fd_deque.c\"", file=header)
+                  print("#undef DEQUE_NAME", file=header)
+                  print("#undef DEQUE_T\n", file=header)
+                  print("#undef DEQUE_MAX\n", file=header)
+                  print("static inline " + element_type + " *", file=header)
+                  print(dp + "_alloc(fd_alloc_fun_t allocf, void * allocf_arg) {", file=header)
+                  print("  void* mem = (*allocf)(allocf_arg, " + dp + "_align(), " + dp + "_footprint());", file=header)
+                  print("  return " + dp + "_join( " + dp + "_new( mem ) );", file=header)
+                  print("}", file=header)
+              else:
+                  print("#define DEQUE_NAME " + dp, file=header)
+                  print("#define DEQUE_T " + element_type, file=header)
+                  print("#include \"../../util/tmpl/fd_deque_dynamic.c\"", file=header)
+                  print("#undef DEQUE_NAME", file=header)
+                  print("#undef DEQUE_T\n", file=header)
+                  print("static inline " + element_type + " *", file=header)
+                  print(dp + "_alloc(fd_alloc_fun_t allocf, void * allocf_arg, ulong len) {", file=header)
+                  if "growth" in f:
+                      print("  ulong max = len + " + str(f["growth"]) + ";", file=header) # Provide headroom
+                  else:
+                      print("  ulong max = len + len/5 + 10;", file=header) # Provide headroom
+                  print("  void* mem = (*allocf)(allocf_arg, " + dp + "_align(), " + dp + "_footprint( max ));", file=header)
+                  print("  return " + dp + "_join( " + dp + "_new( mem, max ) );", file=header)
+                  print("}", file=header)
 
               deque_element_types.add(element_type)
 
@@ -1057,10 +1092,22 @@ for entry in entries:
 
     if entry["type"] == "enum":
         print("  // enum " + namespace + "_" + f["type"] + "_walk(&self->" + f["name"] + ", fun, \"" + f["name"] + "\", level + 1);", file=body)
+
+        print("  switch (self->discriminant) {", file=body)
+        for i, v in enumerate(entry["variants"]):
+          if "type" in v:
+            print("  case "+ str(i) +": {", file=body)
+            if v["type"] in fields_body_walk:
+                fields_body_walk[v["type"]](namespace, v, "inner.")
+            else:
+                print("    " + namespace + "_" + v["type"] + "_walk(&self->inner." + v["name"] + ", fun, \"" + v["name"] + "\", level + 1);", file=body)
+            print("    break;", file=body)
+            print("  }", file=body)
+        print("  }", file=body)
     else:
         for f in entry["fields"]:
             if f["type"] in fields_body_walk:
-                fields_body_walk[f["type"]](namespace, f)
+                fields_body_walk[f["type"]](namespace, f, "")
             else:
                 print("  " + namespace + "_" + f["type"] + "_walk(&self->" + f["name"] + ", fun, \"" + f["name"] + "\", level + 1);", file=body)
 

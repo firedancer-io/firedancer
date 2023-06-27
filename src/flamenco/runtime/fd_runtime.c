@@ -151,7 +151,7 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_meta_t* m, const void
     fd_pubkey_hash_vector_clear(&global->acc_mgr->keys);
   }
 
-  return FD_RUNTIME_EXECUTE_SUCCESS;
+  return fd_runtime_save_banks( global );
 }
 
 // TODO: add solana txn verify to this as well since, again, it can be
@@ -730,6 +730,12 @@ void fd_printer_walker(void *arg, const char* name, int type, const char *type_n
       printf("\"%s\": \"%s\",\n", name, buf);
       break;
     }
+    case 36:
+      printf("\"%s\": [\n", name);
+      break;
+    case 37:
+      printf("],\n");
+      break;
   default:
     printf("arg: %ld  name: %s  type: %d   type_name: %s\n", (ulong) arg, name, type, type_name);
     break;
@@ -754,6 +760,13 @@ fd_funk_rec_key_t fd_runtime_block_meta_key(ulong slot) {
   return id;
 }
 
+fd_funk_rec_key_t fd_runtime_banks_key(void) {
+  fd_funk_rec_key_t id;
+  fd_memset( &id, 1, sizeof(id) );
+  id.c[ FD_FUNK_REC_KEY_FOOTPRINT - 1 ] = FD_BLOCK_BANKS_TYPE;
+
+  return id;
+}
 
 const size_t MAX_SEED_LEN = 32;
 //
@@ -797,4 +810,80 @@ fd_pubkey_create_with_seed( fd_pubkey_t const * base,
 //      ))
 
   return FD_RUNTIME_EXECUTE_SUCCESS;
+}
+
+int
+fd_runtime_save_banks( fd_global_ctx_t * global ) {
+  ulong sz = fd_firedancer_banks_size(&global->bank);
+  uchar * buf = (uchar *) fd_alloca(8UL, sz);
+  fd_bincode_encode_ctx_t ctx;
+  ctx.data = buf;
+  ctx.dataend = buf + sz;
+  if ( fd_firedancer_banks_encode(&global->bank, &ctx ) ) {
+    FD_LOG_WARNING(("fd_runtime_save_banks failed"));
+    return -1;
+  }
+
+  fd_funk_rec_key_t id = fd_runtime_banks_key();
+  int opt_err;
+  fd_funk_rec_t * rec = fd_funk_rec_write_prepare( global->funk, global->funk_txn, &id, sz, 1, NULL, &opt_err );
+  if (NULL == rec) {
+    FD_LOG_WARNING(("fd_runtime_save_banks failed: %s", fd_funk_strerror(opt_err)));
+    return -1;
+  }
+  if ( rec != fd_funk_val_write( rec, 0UL, sz, buf, global->wksp ) ) {
+    FD_LOG_WARNING(("fd_runtime_save_banks failed"));
+    return -1;
+  }
+
+  fd_funk_rec_persist(global->funk, rec);
+
+  return FD_RUNTIME_EXECUTE_SUCCESS;
+}
+
+int fd_global_import_solana_manifest(fd_global_ctx_t *global, fd_solana_manifest_t* manifest) {
+  /* Clean out prior bank */
+  fd_bincode_destroy_ctx_t ctx;
+  ctx.freef = global->freef;
+  ctx.freef_arg = global->allocf_arg;
+  fd_firedancer_banks_t * bank = &global->bank;
+  fd_firedancer_banks_destroy(bank, &ctx);
+  fd_firedancer_banks_new(bank);
+
+  fd_deserializable_versioned_bank_t * oldbank = &manifest->bank;
+  // bank->stakes = oldbank->stakes;
+  fd_block_block_hash_entry_t * hashes = global->bank.recent_block_hashes.hashes =
+    deq_fd_block_block_hash_entry_t_alloc( global->allocf, global->allocf_arg );
+  if ( oldbank->blockhash_queue.ages_len > deq_fd_block_block_hash_entry_t_max(hashes) )
+    FD_LOG_ERR(("too many recent hashes"));
+  for ( ulong i = 0; i < oldbank->blockhash_queue.ages_len; ++i) {
+    fd_block_block_hash_entry_t * elem = deq_fd_block_block_hash_entry_t_push_tail_nocopy(hashes);
+    fd_block_block_hash_entry_new(elem);
+    fd_hash_t * h = &oldbank->blockhash_queue.ages[i].key;
+    fd_memcpy(elem->blockhash.hash, h, FD_SHA256_HASH_SZ);
+    elem->fee_calculator.lamports_per_signature = 0;
+  }
+  if ( oldbank->blockhash_queue.last_hash )
+    fd_memcpy(&global->bank.poh, oldbank->blockhash_queue.last_hash, FD_SHA256_HASH_SZ);
+  // bank->timestamp_votes = oldbank->timestamp_votes;
+  bank->slot = oldbank->slot;
+  fd_memcpy(&bank->banks_hash, &oldbank->hash, sizeof(oldbank->hash));
+  fd_memcpy(&bank->fee_rate_governor, &oldbank->fee_rate_governor, sizeof(oldbank->fee_rate_governor));
+  bank->lamports_per_signature = oldbank->fee_calculator.lamports_per_signature;
+  if ( oldbank->hashes_per_tick )
+    bank->hashes_per_tick = *oldbank->hashes_per_tick;
+  else
+    bank->hashes_per_tick = 0;
+  bank->ticks_per_slot = oldbank->ticks_per_slot;
+  fd_memcpy(&bank->ns_per_slot, &oldbank->ns_per_slot, sizeof(oldbank->ns_per_slot));
+  bank->genesis_creation_time = oldbank->genesis_creation_time;
+  bank->slots_per_year = oldbank->slots_per_year;
+  bank->max_tick_height = oldbank->max_tick_height;
+  bank->inflation = oldbank->inflation;
+  bank->epoch_schedule = oldbank->rent_collector.epoch_schedule;
+  bank->rent = oldbank->rent_collector.rent;
+  fd_memcpy(&bank->collector_id, &oldbank->collector_id, sizeof(oldbank->collector_id));
+  bank->collected = oldbank->collected_rent;
+  
+  return fd_runtime_save_banks( global );
 }
