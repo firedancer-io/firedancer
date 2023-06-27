@@ -60,6 +60,9 @@ int
 fd_frank_pack_task( int     argc,
                     char ** argv );
 
+void
+fd_frank_quic_task_preload( char const * pod_gaddr );
+
 int
 fd_frank_quic_task( int     argc,
                     char ** argv );

@@ -5,6 +5,31 @@
 #include "../../util/net/fd_eth.h"
 #include "../../util/net/fd_ip4.h"
 
+#include <errno.h>
+
+static fd_xsk_t * preload_xsks[ FD_TILE_MAX ];
+
+void
+fd_frank_quic_task_preload( char const * pod_gaddr ) {
+  uchar const * pod       = fd_wksp_pod_attach( pod_gaddr );
+  uchar const * quic_pods = fd_pod_query_subpod( pod, "firedancer.quic" );
+  if( FD_UNLIKELY( !quic_pods ) ) FD_LOG_ERR(( "firedancer.quic path not found" ));
+
+  ulong idx = 0;
+  for( fd_pod_iter_t iter = fd_pod_iter_init( quic_pods ); !fd_pod_iter_done( iter ); iter = fd_pod_iter_next( iter ) ) {
+    fd_pod_info_t info = fd_pod_iter_info( iter );
+    if( FD_UNLIKELY( info.val_type!=FD_POD_VAL_TYPE_SUBPOD ) ) continue;
+    char const  * quic_name =                info.key;
+    uchar const * quic_pod  = (uchar const *)info.val;
+
+    if( FD_UNLIKELY( !quic_pod ) ) FD_LOG_ERR(( "%s.quic.%s path not found", "firedancer", quic_name ));
+    preload_xsks[ idx ] = fd_xsk_join( fd_wksp_pod_map( quic_pod, "xsk") );
+    if( FD_UNLIKELY( !preload_xsks[ idx ] ) ) FD_LOG_ERR(( "fd_xsk_join failed" ));
+
+    idx++;
+  }
+}
+
 int
 fd_frank_quic_task( int     argc,
                     char ** argv ) {
@@ -17,6 +42,14 @@ fd_frank_quic_task( int     argc,
 
   char const * pod_gaddr = argv[1];
   char const * cfg_path  = argv[2];
+  char const * idx_cstr  = argv[3];
+
+  char * endptr = NULL;
+  ulong idx = strtoul( idx_cstr, &endptr, 10 );
+  if( FD_UNLIKELY( *endptr!='\0' ) ) FD_LOG_ERR(( "idx %s not a number", idx_cstr ));
+  if( errno == ERANGE ) FD_LOG_ERR(( "idx %s out of range", idx_cstr ));
+  if( FD_UNLIKELY( idx>=FD_TILE_MAX ) ) FD_LOG_ERR(( "idx %lu out of range", idx ));
+  if( FD_UNLIKELY( !preload_xsks[ idx ] ) ) FD_LOG_ERR(( "preload_xsks[ %lu ] not set", idx ));
 
   /* Load up the configuration for this frank instance */
 
@@ -54,7 +87,7 @@ fd_frank_quic_task( int     argc,
   if( FD_UNLIKELY( !quic ) ) FD_LOG_ERR(( "fd_quic_join failed" ));
 
   FD_LOG_INFO(( "loading %s.quic.%s.xsk", cfg_path, quic_name ));
-  fd_xsk_t * xsk = fd_xsk_join( fd_wksp_pod_map( quic_pod, "xsk") );
+  fd_xsk_t * xsk = preload_xsks[ idx ];
   if( FD_UNLIKELY( !xsk ) ) FD_LOG_ERR(( "fd_xsk_join failed" ));
 
   FD_LOG_INFO(( "loading %s.quic.%s.xsk_aio", cfg_path, quic_name ));
@@ -90,14 +123,19 @@ fd_frank_quic_task( int     argc,
   fd_quic_config_t * quic_cfg = &quic->config;
   quic_cfg->role = FD_QUIC_ROLE_SERVER;
 
-  char const * cert_file = fd_pod_query_cstr( quic_cfg_pod, "cert_file", NULL );
-  if( FD_UNLIKELY( !cert_file ) ) FD_LOG_ERR(( "%s.quic_cfg.cert_file not set", cfg_path ));
-  char const * key_file  = fd_pod_query_cstr( quic_cfg_pod, "key_file",  NULL );
-  if( FD_UNLIKELY( !key_file  ) ) FD_LOG_ERR(( "%s.quic_cfg.key_file not set", cfg_path ));
+  ulong cert_sz, key_sz;
+  void const * cert_data = fd_pod_query_buf( quic_cfg_pod, "cert_data", &cert_sz );
+  if( FD_UNLIKELY( !cert_data ) ) FD_LOG_ERR(( "%s.quic_cfg.cert_data not set", cfg_path ));
+  void const * key_data  = fd_pod_query_buf( quic_cfg_pod, "key_data",  &key_sz );
+  if( FD_UNLIKELY( !key_data  ) ) FD_LOG_ERR(( "%s.quic_cfg.key_data not set", cfg_path ));
   char const * keylog_file = fd_pod_query_cstr( quic_cfg_pod, "keylog_file", NULL ); /* optional */
 
-  strncpy( quic_cfg->cert_file, cert_file, FD_QUIC_CERT_PATH_LEN );
-  strncpy( quic_cfg->key_file,  key_file,  FD_QUIC_CERT_PATH_LEN );
+  quic_cfg->cert.data = cert_data;
+  quic_cfg->cert.data_sz  = (int) cert_sz;
+  quic_cfg->cert.file[0]  = '\0';
+  quic_cfg->key.data      = key_data;
+  quic_cfg->key.data_sz   = (int) key_sz;
+  quic_cfg->key.file[0]   = '\0';
   strncpy( quic_cfg->keylog_file, keylog_file ? keylog_file : "", FD_QUIC_CERT_PATH_LEN );
 
   /* TODO read IP addresses from interface instead? */
