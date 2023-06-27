@@ -218,7 +218,7 @@ fd_frank_verify_task( int     argc,
   if( !!wd_slots ) { FD_LOG_NOTICE(( "running with wiredancer wd_slots 0x%lx", wd_slots )); } else {FD_LOG_NOTICE(("running on x86"));}
   if( !!wd_slots ) {
     FD_TEST( !wd_init_pci( &wd, wd_slots ) );
-    wd_ed25519_verify_init_req( &wd, 1, seq, depth, mcache );
+    wd_ed25519_verify_init_req( &wd, 1, depth, mcache );
   }
 
   /* Start verifying */
@@ -426,7 +426,7 @@ fd_frank_verify_task( int     argc,
       int   ctl_err  = 0;
       ulong ctl      = fd_frag_meta_ctl( 0, ctl_som, ctl_eom, ctl_err );
       /* Iterate trying to send the request */
-      while( wd_ed25519_verify_req(&wd, msg, msg_sz, sig, public_key, (uint)chunk, (uint16_t)ctl, (uint16_t)vin_data_sz ) ) ;
+      while( wd_ed25519_verify_req(&wd, msg, msg_sz, sig, public_key, seq, (uint)chunk, (uint16_t)ctl, (uint16_t)vin_data_sz ) ) ;
       sigvfy_pass_cnt++;
     } else {
       /* x86 */
