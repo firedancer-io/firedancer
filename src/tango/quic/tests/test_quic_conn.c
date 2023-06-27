@@ -346,6 +346,9 @@ main( int argc, char ** argv ) {
   server_quic->cb.now     = test_clock;
   server_quic->cb.now_ctx = NULL;
 
+  server_quic->config.initial_rx_max_stream_data = 1<<14;
+  client_quic->config.initial_rx_max_stream_data = 1<<14;
+
   FD_LOG_NOTICE(( "Creating virtual pair" ));
   fd_quic_virtual_pair_t vp;
   fd_quic_virtual_pair_init( &vp, server_quic, client_quic );
@@ -353,8 +356,6 @@ main( int argc, char ** argv ) {
   FD_LOG_NOTICE(( "Initializing QUICs" ));
   FD_TEST( fd_quic_init( client_quic ) );
   FD_TEST( fd_quic_init( server_quic ) );
-  server_quic->config.initial_rx_max_stream_data = 1<<14;
-  client_quic->config.initial_rx_max_stream_data = 1<<14;
 
   uint k = 1;
 

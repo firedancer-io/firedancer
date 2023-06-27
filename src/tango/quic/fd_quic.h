@@ -663,7 +663,7 @@ fd_quic_stream_fin( fd_quic_stream_t * stream );
 
    A violation of this flow control param will result in connection termination
    with FLOW_CONTROL_ERROR, per RFC 9000. */
-void
+FD_QUIC_API void
 fd_quic_conn_set_rx_max_data( fd_quic_conn_t * conn, ulong rx_max_data );
 
 /* fd_quic_stream_set_rx_max_stream_data sets the maximum amount of data that
@@ -677,7 +677,8 @@ fd_quic_conn_set_rx_max_data( fd_quic_conn_t * conn, ulong rx_max_data );
    The effective limit will be the smaller of the two (see the stream loop in
    `fd_quic.c`). Therefore, a user should consider both params when configuring
    flow control. */
-void fd_quic_stream_set_rx_max_stream_data( fd_quic_stream_t * stream, ulong rx_max_stream_data );
+FD_QUIC_API void
+fd_quic_stream_set_rx_max_stream_data( fd_quic_stream_t * stream, ulong rx_max_stream_data );
 
 FD_PROTOTYPES_END
 
