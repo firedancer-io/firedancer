@@ -529,6 +529,7 @@ fd_sbpf_program_new( void *                     prog_mem,
   prog->rodata    = rodata;
   prog->rodata_sz = elf_info->rodata_sz;
   prog->text      = (ulong *)((ulong)rodata + elf_info->text_off);
+  prog->text_off  = elf_info->text_off / 8;
   prog->text_cnt  = elf_info->text_cnt;
   prog->entry_pc  = elf_info->entry_pc;
 

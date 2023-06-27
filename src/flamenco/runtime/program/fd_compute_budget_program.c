@@ -7,6 +7,11 @@ is_compute_budget_instruction( transaction_ctx_t * ctx, fd_txn_instr_t * instr )
   return !memcmp(program_pubkey, ctx->global->solana_compute_budget_program, sizeof(fd_pubkey_t));
 }
 
+// No-op as compute budget instructions are processed prior.
+int fd_executor_compute_budget_program_execute_instruction_nop( FD_FN_UNUSED instruction_ctx_t ctx ) {
+  return FD_EXECUTOR_INSTR_SUCCESS;
+}
+
 int fd_executor_compute_budget_program_execute_instructions( transaction_ctx_t * ctx ) {
   uint has_compute_units_limit_update = 0;
   uint has_compute_units_price_update = 0;

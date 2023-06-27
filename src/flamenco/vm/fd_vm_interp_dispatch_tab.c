@@ -13,7 +13,7 @@ JT_CASE_END
   pc += instr.offset;
 JT_CASE_END
 /* 0x07 */ JT_CASE(0x07) // FD_BPF_OP_ADD64_IMM
-  register_file[instr.dst_reg] = (ulong)((long)register_file[instr.dst_reg] + (long)instr.imm);
+  register_file[instr.dst_reg] = (ulong)((long)register_file[instr.dst_reg] + (int)instr.imm);
 JT_CASE_END
 /* 0x0c */ JT_CASE(0x0c) // FD_BPF_OP_ADD_REG
   register_file[instr.dst_reg] = (uint)((uint)register_file[instr.dst_reg] + (uint)register_file[instr.src_reg]);
@@ -30,7 +30,7 @@ JT_CASE_END
   pc += (register_file[instr.dst_reg] == instr.imm) ? instr.offset : 0;
 JT_CASE_END
 /* 0x17 */ JT_CASE(0x17) // FD_BPF_OP_SUB64_IMM
-  register_file[instr.dst_reg] = (ulong)((long)register_file[instr.dst_reg] - (long)instr.imm);
+  register_file[instr.dst_reg] = (ulong)((long)register_file[instr.dst_reg] - (int)instr.imm);
 JT_CASE_END
 /* 0x18 */ JT_CASE(0x18) // FD_BPF_OP_LDQ
   register_file[instr.dst_reg] = (ulong)((ulong)instr.imm | ((ulong)ctx->instrs[pc+1].imm << 32));
@@ -54,7 +54,7 @@ JT_CASE_END
   pc += (register_file[instr.dst_reg] > instr.imm) ? instr.offset : 0;
 JT_CASE_END
 /* 0x27 */ JT_CASE(0x27) // FD_BPF_OP_MUL64_IMM
-  register_file[instr.dst_reg] = (ulong)((long)register_file[instr.dst_reg] * (long)instr.imm);
+  register_file[instr.dst_reg] = (ulong)((long)register_file[instr.dst_reg] * (int)instr.imm);
 JT_CASE_END
 /* 0x2c */ JT_CASE(0x2c) // FD_BPF_OP_MUL_REG
   register_file[instr.dst_reg] = (uint)((uint)register_file[instr.dst_reg] * (uint)register_file[instr.src_reg]);
@@ -74,7 +74,7 @@ JT_CASE_END
   pc += (register_file[instr.dst_reg] >= instr.imm) ? instr.offset : 0;
 JT_CASE_END
 /* 0x37 */ JT_CASE(0x37) // FD_BPF_OP_DIV64_IMM
-  register_file[instr.dst_reg] = instr.imm == 0 ? 0UL : (ulong)((long)register_file[instr.dst_reg] / (long)instr.imm);
+  register_file[instr.dst_reg] = instr.imm == 0 ? 0UL : (ulong)((long)register_file[instr.dst_reg] / (int)instr.imm);
 JT_CASE_END
 /* 0x3c */ JT_CASE(0x3c) // FD_BPF_OP_DIV_REG
   register_file[instr.dst_reg] = (uint)register_file[instr.src_reg] == 0 ? 0 : (uint)((uint)register_file[instr.dst_reg] / (uint)register_file[instr.src_reg]);
@@ -94,7 +94,7 @@ JT_CASE_END
   pc += (register_file[instr.dst_reg] & instr.imm) ? instr.offset : 0;
 JT_CASE_END
 /* 0x47 */ JT_CASE(0x47) // FD_BPF_OP_OR64_IMM
-  register_file[instr.dst_reg] |= instr.imm;
+  register_file[instr.dst_reg] = (ulong)((long)register_file[instr.dst_reg] | (int)instr.imm);
 JT_CASE_END
 /* 0x4c */ JT_CASE(0x4c) // FD_BPF_OP_OR_REG
   register_file[instr.dst_reg] = (uint)((uint)register_file[instr.dst_reg] | (uint)register_file[instr.src_reg]);
@@ -114,7 +114,7 @@ JT_CASE_END
   pc += (register_file[instr.dst_reg] != instr.imm) ? instr.offset : 0;
 JT_CASE_END
 /* 0x57 */ JT_CASE(0x57) // FD_BPF_OP_AND64_IMM
-  register_file[instr.dst_reg] = (ulong)((long)register_file[instr.dst_reg] & (long)instr.imm);
+  register_file[instr.dst_reg] = (ulong)((long)register_file[instr.dst_reg] & (int)instr.imm);
 JT_CASE_END
 /* 0x5c */ JT_CASE(0x5c) // FD_BPF_OP_AND_REG
   register_file[instr.dst_reg] = (uint)((uint)register_file[instr.dst_reg] & (uint)register_file[instr.src_reg]);
@@ -349,7 +349,7 @@ JT_CASE_END
   pc += (register_file[instr.dst_reg] <= instr.imm) ? instr.offset : 0;
 JT_CASE_END
 /* 0xb7 */ JT_CASE(0xb7) // FD_BPF_OP_MOV64_IMM
-  register_file[instr.dst_reg] = instr.imm;
+  *(long *)&register_file[instr.dst_reg] = (int)instr.imm;
 JT_CASE_END
 /* 0xbc */ JT_CASE(0xbc) // FD_BPF_OP_MOV_REG
   register_file[instr.dst_reg] = (uint)register_file[instr.src_reg];

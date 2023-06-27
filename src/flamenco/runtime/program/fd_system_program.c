@@ -339,7 +339,7 @@ static int create_account(
     .executable = 0,
     .rent_epoch = 0,   /* TODO */
   };
-  write_result = fd_acc_mgr_write_structured_account(ctx.global->acc_mgr, ctx.global->funk_txn, 0, to, &account);
+  write_result = fd_acc_mgr_write_structured_account(ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.slot, to, &account);
   ctx.global->freef(ctx.global->allocf_arg, data);
   if ( write_result != FD_ACC_MGR_SUCCESS ) {
     FD_LOG_NOTICE(( "failed to create account: %d", write_result ));

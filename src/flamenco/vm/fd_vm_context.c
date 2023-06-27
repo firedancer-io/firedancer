@@ -161,7 +161,7 @@ fd_vm_translate_vm_to_host( fd_vm_exec_context_t *  ctx,
       if( write ) {
         return FD_VM_MEM_MAP_ERR_ACC_VIO;
       }
-      if( end_addr >= ctx->read_only_sz ) {
+      if( end_addr > ctx->read_only_sz ) {
         return FD_VM_MEM_MAP_ERR_ACC_VIO;
       }
       *host_addr = &ctx->read_only[start_addr];
@@ -170,7 +170,7 @@ fd_vm_translate_vm_to_host( fd_vm_exec_context_t *  ctx,
       /* Stack memory region */
       /* TODO: needs more of the runtime to actually implement */
       /* FIXME: check that we are in the current or previous stack frame! */
-      if( end_addr >= (FD_VM_STACK_MAX_DEPTH * FD_VM_STACK_FRAME_WITH_GUARD_SZ) ) {
+      if( end_addr > (FD_VM_STACK_MAX_DEPTH * FD_VM_STACK_FRAME_WITH_GUARD_SZ) ) {
         return FD_VM_MEM_MAP_ERR_ACC_VIO;
       }
 
@@ -179,14 +179,14 @@ fd_vm_translate_vm_to_host( fd_vm_exec_context_t *  ctx,
       break;
     case FD_VM_MEM_MAP_HEAP_REGION_START:
       /* Heap memory region */
-      if( end_addr >= FD_VM_HEAP_SZ ) {
+      if( end_addr > FD_VM_HEAP_SZ ) {
         return FD_VM_MEM_MAP_ERR_ACC_VIO;
       }
       *host_addr = &ctx->heap[start_addr];
       break;
     case FD_VM_MEM_MAP_INPUT_REGION_START:
       /* Program input memory region */
-      if( end_addr >= ctx->input_sz ) {
+      if( end_addr > ctx->input_sz ) {
         return FD_VM_MEM_MAP_ERR_ACC_VIO;
       }
       *host_addr = &ctx->input[start_addr];
