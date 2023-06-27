@@ -150,8 +150,8 @@ fn step(config: &mut Config) {
     let src_mac_address = super::netns::src_mac_address(config);
 
     run!("{bin}/fd_pod_ctl \
-        insert {pod} cstr {prefix}.quic_cfg.cert_file {cert_file} \
-        insert {pod} cstr {prefix}.quic_cfg.key_file {key_file} \
+        insert-file {pod} {prefix}.quic_cfg.cert_data {cert_file} \
+        insert-file {pod} {prefix}.quic_cfg.key_data {key_file} \
         insert {pod} cstr {prefix}.quic_cfg.ip_addr {ip_addr} \
         insert {pod} ushort {prefix}.quic_cfg.listen_port {listen_port} \
         insert {pod} cstr {prefix}.quic_cfg.src_mac_addr {src_mac_address} \

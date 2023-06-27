@@ -105,6 +105,13 @@ struct fd_quic_tls_secret {
   ulong                 secret_len;
 };
 
+typedef struct fd_quic_tls_cert_cfg {
+  void const * data;
+  int          data_sz;
+
+  char const * file;
+} fd_quic_tls_cert_cfg_t;
+
 struct fd_quic_tls_cfg {
   // callbacks ../crypto/fd_quic_crypto_suites
   fd_quic_tls_cb_client_hello_t        client_hello_cb;
@@ -115,8 +122,8 @@ struct fd_quic_tls_cfg {
 
   ulong          max_concur_handshakes;
 
-  char const *   cert_file;             /* certificate file */
-  char const *   key_file;              /* private key file */
+  fd_quic_tls_cert_cfg_t cert;      /* certificate data */
+  fd_quic_tls_cert_cfg_t key;       /* private key data */
 
   /* keylog_fd == 0 indicates no keylogger file */
   int            keylog_fd;             /* keylogger file */
