@@ -126,7 +126,8 @@ main( int argc, char ** argv ) {
   client_quic->cb.now              = test_clock;
   client_quic->cb.conn_hs_complete = my_handshake_complete;
 
-  server_quic->config.initial_rx_max_stream_data = 1;
+  /* start with 1-byte for flow control testing (see my_stream_receive) */
+  server_quic->config.initial_rx_max_stream_data = 1; 
   client_quic->config.initial_rx_max_stream_data = 0;
 
   FD_LOG_NOTICE(( "Creating virtual pair" ));
