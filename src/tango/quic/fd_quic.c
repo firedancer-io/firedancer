@@ -210,6 +210,9 @@ fd_quic_config_from_env( int  *             pargc,
   char const * keylog_file     = fd_env_strip_cmdline_cstr ( pargc, pargv, NULL,             "SSLKEYLOGFILE", NULL  );
   ulong        idle_timeout_ms = fd_env_strip_cmdline_ulong( pargc, pargv, "--idle-timeout", NULL,            100UL );
 
+  cfg->cert.data = NULL;
+  cfg->key.data  = NULL;
+
   if( cfg->role == FD_QUIC_ROLE_SERVER ) {
     if( FD_UNLIKELY( !cert_file ) ) {
       FD_LOG_WARNING(( "Missing --ssl-cert" ));
@@ -220,10 +223,10 @@ fd_quic_config_from_env( int  *             pargc,
       return NULL;
     }
 
-    strncpy( cfg->cert_file, cert_file, FD_QUIC_CERT_PATH_LEN );
-    strncpy( cfg->key_file,  key_file,  FD_QUIC_CERT_PATH_LEN );
+    strncpy( cfg->cert.file, cert_file, FD_QUIC_CERT_PATH_LEN );
+    strncpy( cfg->key.file,  key_file,  FD_QUIC_CERT_PATH_LEN );
   } else {
-    cfg->cert_file[ 0 ]='\0';
+    cfg->cert.file[ 0 ]='\0';
   }
 
   if( keylog_file ) {
@@ -321,8 +324,8 @@ fd_quic_init( fd_quic_t * quic ) {
 
   switch( config->role ) {
   case FD_QUIC_ROLE_SERVER:
-    if( FD_UNLIKELY( !config->cert_file[0]        ) ) { FD_LOG_WARNING(( "no cfg.cert_file"           )); return NULL; }
-    if( FD_UNLIKELY( !config->key_file [0]        ) ) { FD_LOG_WARNING(( "no cfg.key_file"            )); return NULL; }
+    if( FD_UNLIKELY( !config->cert.data && !config->cert.file[0] ) ) { FD_LOG_WARNING(( "no cfg.cert" )); return NULL; }
+    if( FD_UNLIKELY( !config->key.data  && !config->key.file[0]  ) ) { FD_LOG_WARNING(( "no cfg.key"  )); return NULL; }
     if( FD_UNLIKELY( !config->net.listen_udp_port ) ) { FD_LOG_WARNING(( "no cfg.net.listen_udp_port" )); return NULL; }
     break;
   case FD_QUIC_ROLE_CLIENT:
@@ -417,8 +420,12 @@ fd_quic_init( fd_quic_t * quic ) {
   /* State: Initialize TLS */
 
   fd_quic_tls_cfg_t tls_cfg = {
-    .cert_file             = config->cert_file,
-    .key_file              = config->key_file,
+    .cert.data             = config->cert.data,
+    .cert.data_sz          = config->cert.data_sz,
+    .cert.file             = config->cert.file,
+    .key.data              = config->key.data,
+    .key.data_sz           = config->key.data_sz,
+    .key.file              = config->key.file,
     .max_concur_handshakes = limits->handshake_cnt,
 
     /* set up callbacks */

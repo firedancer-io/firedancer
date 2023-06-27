@@ -91,8 +91,10 @@ main( int     argc,
 
     .max_concur_handshakes = 16,
 
-    .cert_file             = "cert.pem",
-    .key_file              = "key.pem",
+    .cert.data             = NULL,
+    .cert.file             = "cert.pem",
+    .key.data              = NULL,
+    .key.file              = "key.pem",
 
   };
 

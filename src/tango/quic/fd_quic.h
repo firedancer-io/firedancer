@@ -221,10 +221,23 @@ struct __attribute__((aligned(16UL))) fd_quic_config {
 
   /* TLS config ********************************************/
 
-  /* cstrs containing TLS PEM cert and key file path */
 # define FD_QUIC_CERT_PATH_LEN (1023UL)
-  char cert_file  [ FD_QUIC_CERT_PATH_LEN+1UL ];
-  char key_file   [ FD_QUIC_CERT_PATH_LEN+1UL ];
+  struct { /* cert config */
+    void const * data;
+    int          data_sz;
+
+    /* cstrs containing TLS PEM cert file path */
+    char         file  [ FD_QUIC_CERT_PATH_LEN+1UL ];
+  } cert;
+
+  struct { /* key config */
+    void const * data;
+    int          data_sz;
+
+    /* cstrs containing TLS PEM key file path */
+    char         file  [ FD_QUIC_CERT_PATH_LEN+1UL ];
+  } key;
+
   char keylog_file[ FD_QUIC_CERT_PATH_LEN+1UL ];
 
   /* alpns: List of supported ALPN IDs in OpenSSL format.

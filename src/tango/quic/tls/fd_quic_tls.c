@@ -44,8 +44,8 @@ fd_quic_ssl_set_encryption_secrets( SSL *                 ssl,
 
 SSL_CTX *
 fd_quic_create_context( fd_quic_tls_t * quic_tls,
-                        char const *    cert_file,
-                        char const *    key_file );
+                        fd_quic_tls_cert_cfg_t * cert,
+                        fd_quic_tls_cert_cfg_t * key );
 
 /* fd_quic_tls_strerror returns a cstr describing the last OpenSSL
    error.  Error is read from OpenSSL's error stack.  The returned
@@ -149,8 +149,8 @@ fd_quic_tls_new( void *              mem,
   // create ssl context
   self->ssl_ctx = fd_quic_create_context(
     self,
-    cfg->cert_file[ 0 ]!='\0' ? cfg->cert_file : NULL,
-    cfg->key_file [ 0 ]!='\0' ? cfg->key_file  : NULL );
+    &cfg->cert,
+    &cfg->key );
   if( FD_UNLIKELY( !self->ssl_ctx ) ) {
     FD_LOG_WARNING(( "fd_quic_create_context failed" ));
     return NULL;
@@ -683,8 +683,8 @@ fd_quic_tls_cb_alpn_select( SSL * ssl,
 
 SSL_CTX *
 fd_quic_create_context( fd_quic_tls_t * quic_tls,
-                        char const *    cert_file,
-                        char const *    key_file ) {
+                        fd_quic_tls_cert_cfg_t * cert,
+                        fd_quic_tls_cert_cfg_t * key ) {
 
   SSL_METHOD const * method = TLS_method();
 
@@ -727,18 +727,66 @@ fd_quic_create_context( fd_quic_tls_t * quic_tls,
   }
 
   /* Set the key and cert */
-  if( cert_file ) {
+  if( cert->data ) {
     ERR_clear_error();
-    if( SSL_CTX_use_certificate_file( ctx, cert_file, SSL_FILETYPE_PEM ) <= 0 ) {
+    BIO * bio = BIO_new_mem_buf( cert->data, cert->data_sz );
+    if( !bio ) {
+      SSL_CTX_free( ctx );
+      FD_LOG_WARNING(( "BIO_new_mem_buf failed: %s", fd_quic_tls_strerror() ));
+      return NULL;
+    }
+
+    X509 * cert = PEM_read_bio_X509( bio, NULL, 0, NULL );
+    if( !cert ) {
+      BIO_free( bio );
+      SSL_CTX_free( ctx );
+      FD_LOG_WARNING(( "PEM_read_bio_X509 failed: %s", fd_quic_tls_strerror() ));
+      return NULL;
+    }
+
+    if( SSL_CTX_use_certificate( ctx, cert ) <= 0 ) {
+      BIO_free( bio );
+      SSL_CTX_free( ctx );
+      FD_LOG_WARNING(( "Failed to load SSL cert: %s", fd_quic_tls_strerror() ));
+      return NULL;
+    }
+  }
+  else if( cert->file[0] != '\0' ) {
+    ERR_clear_error();
+    if( SSL_CTX_use_certificate_file( ctx, cert->file, SSL_FILETYPE_PEM ) <= 0 ) {
       SSL_CTX_free( ctx );
       FD_LOG_WARNING(( "Failed to load SSL cert: %s", fd_quic_tls_strerror() ));
       return NULL;
     }
   }
 
-  if( key_file ) {
+  if( key->data ) {
     ERR_clear_error();
-    if( SSL_CTX_use_PrivateKey_file( ctx, key_file, SSL_FILETYPE_PEM ) <= 0 ) {
+    BIO * bio = BIO_new_mem_buf( key->data, key->data_sz );
+    if( !bio ) {
+      SSL_CTX_free( ctx );
+      FD_LOG_WARNING(( "BIO_new_mem_buf failed: %s", fd_quic_tls_strerror() ));
+      return NULL;
+    }
+
+    EVP_PKEY * key = PEM_read_bio_PrivateKey(bio, NULL, 0, NULL);
+    if( !key ) {
+      BIO_free( bio );
+      SSL_CTX_free( ctx );
+      FD_LOG_WARNING(( "PEM_read_bio_PrivateKey failed: %s", fd_quic_tls_strerror() ));
+      return NULL;
+    }
+
+    if( SSL_CTX_use_PrivateKey( ctx, key ) <= 0 ) {
+      BIO_free( bio );
+      SSL_CTX_free( ctx );
+      FD_LOG_WARNING(( "Failed to load SSL key: %s", fd_quic_tls_strerror() ));
+      return NULL;
+    }
+  }
+  else if( key->file[0] != '\0' ) {
+    ERR_clear_error();
+    if( SSL_CTX_use_PrivateKey_file( ctx, key->file, SSL_FILETYPE_PEM ) <= 0 ) {
       SSL_CTX_free( ctx );
       FD_LOG_WARNING(( "Failed to load SSL key: %s", fd_quic_tls_strerror() ));
       return NULL;
