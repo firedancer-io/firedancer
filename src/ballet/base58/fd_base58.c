@@ -5,13 +5,13 @@
 void fd_base58_print_32( uchar const * bytes ) {
   char encoded_str[FD_BASE58_ENCODED_32_SZ];
   fd_base58_encode_32( (uchar *)bytes, NULL, encoded_str );
-  printf( "%s", encoded_str );
+  printf( "%s\n", encoded_str );
 }
 
 void fd_base58_print_64( uchar const * bytes ) {
   char encoded_str[FD_BASE58_ENCODED_64_SZ];
   fd_base58_encode_64( (uchar *)bytes, NULL, encoded_str );
-  printf( "%s", encoded_str );
+  printf( "%s\n", encoded_str );
 }
 
 #if FD_HAS_AVX
