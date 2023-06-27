@@ -1006,7 +1006,7 @@ fd_funk_persist_recover_backup_record( fd_funk_t * funk, struct fd_funk_persist_
 int
 fd_funk_load_backup( fd_funk_t * funk, const char * filename, int cache_all ) {
   /* Open the file */
-  int fd = open(filename, O_CREAT|O_RDWR, 0600);
+  int fd = open(filename, O_CREAT|O_RDONLY, 0600);
   if ( fd == -1 ) {
     FD_LOG_ERR(( "failed to open %s: %s", filename, strerror(errno) ));
     return FD_FUNK_ERR_SYS;
