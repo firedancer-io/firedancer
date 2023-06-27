@@ -10,6 +10,13 @@
 /* TEXT_* are quick-and-dirty color terminal hacks.  Probably should
    do something more robust longer term. */
 
+#define TEXT_ALTBUF_ENABLE  "\033[?1049h"
+#define TEXT_ALTBUF_DISABLE "\033[?1049l"
+#define TEXT_CUP_HOME       "\033[H"
+#define TEXT_ED             "\033[J"
+#define TEXT_EL             "\033[K"
+#define TEXT_NEWLINE         TEXT_EL "\n"
+
 #define TEXT_NORMAL "\033[0m"
 #define TEXT_BLUE   "\033[34m"
 #define TEXT_GREEN  "\033[32m"
@@ -314,6 +321,43 @@ snap( ulong             tile_cnt,     /* Number of tiles to snapshot */
   }
 }
 
+/**********************************************************************/
+
+static void
+printf_link( snap_t *      snap_prv,
+             snap_t *      snap_cur,
+             char const ** tile_name,
+             ulong         src_tile_idx,
+             ulong         dst_tile_idx,
+             long          dt ) {
+  snap_t * prv = &snap_prv[ src_tile_idx ];
+  snap_t * cur = &snap_cur[ src_tile_idx ];
+  printf( " %6s->%-5s", tile_name[ src_tile_idx ], tile_name[ dst_tile_idx ] );
+  ulong cur_raw_cnt = cur->cnc_diag_ha_filt_cnt + cur->fseq_diag_tot_cnt;
+  ulong cur_raw_sz  = cur->cnc_diag_ha_filt_sz  + cur->fseq_diag_tot_sz;
+  ulong prv_raw_cnt = prv->cnc_diag_ha_filt_cnt + prv->fseq_diag_tot_cnt;
+  ulong prv_raw_sz  = prv->cnc_diag_ha_filt_sz  + prv->fseq_diag_tot_sz;
+
+  printf( " | " ); printf_rate( 1e9, 0., cur_raw_cnt,             prv_raw_cnt,             dt );
+  printf( " | " ); printf_rate( 8e9, 0., cur_raw_sz,              prv_raw_sz,              dt ); /* Assumes sz incl framing */
+  printf( " | " ); printf_rate( 1e9, 0., cur->fseq_diag_tot_cnt,  prv->fseq_diag_tot_cnt,  dt );
+  printf( " | " ); printf_rate( 8e9, 0., cur->fseq_diag_tot_sz,   prv->fseq_diag_tot_sz,   dt ); /* Assumes sz incl framing */
+
+  printf( " | " ); printf_pct ( cur->fseq_diag_tot_cnt,  prv->fseq_diag_tot_cnt, 0.,
+                                cur_raw_cnt,             prv_raw_cnt,            DBL_MIN );
+  printf( " | " ); printf_pct ( cur->fseq_diag_tot_sz,   prv->fseq_diag_tot_sz,  0.,
+                                cur_raw_sz,              prv_raw_sz,             DBL_MIN ); /* Assumes sz incl framing */
+  printf( " | " ); printf_pct ( cur->fseq_diag_filt_cnt, prv->fseq_diag_filt_cnt, 0.,
+                                cur->fseq_diag_tot_cnt,  prv->fseq_diag_tot_cnt,  DBL_MIN );
+  printf( " | " ); printf_pct ( cur->fseq_diag_filt_sz,  prv->fseq_diag_filt_sz, 0.,
+                                cur->fseq_diag_tot_sz,   prv->fseq_diag_tot_sz,  DBL_MIN ); /* Assumes sz incl framing */
+
+  printf( " | " ); printf_err_cnt( cur->fseq_diag_ovrnp_cnt, prv->fseq_diag_ovrnp_cnt );
+  printf( " | " ); printf_err_cnt( cur->fseq_diag_ovrnr_cnt, prv->fseq_diag_ovrnr_cnt );
+  printf( " | " ); printf_err_cnt( cur->fseq_diag_slow_cnt,  prv->fseq_diag_slow_cnt  );
+  printf( TEXT_NEWLINE );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -345,10 +389,32 @@ main( int     argc,
   uchar const * cfg_pod = fd_pod_query_subpod( pod, FD_FRANK_CONFIGURATION_PREFIX );
   if( FD_UNLIKELY( !cfg_pod ) ) FD_LOG_ERR(( "path not found" ));
 
+  uchar const * verifyin_pods = fd_pod_query_subpod( cfg_pod, "verifyin" );
+  ulong verifyin_cnt = fd_pod_cnt_subpod( verifyin_pods );
+  FD_LOG_INFO(( "%lu verifyin found", verifyin_cnt ));
+
+  uchar const * quic_pods = fd_pod_query_subpod( cfg_pod, "quic" );
+  ulong quic_cnt = fd_pod_cnt_subpod( quic_pods );
+  FD_LOG_INFO(( "%lu quic found", quic_cnt ));
+
+  if( FD_UNLIKELY( verifyin_cnt!=quic_cnt ) )
+    FD_LOG_ERR(( "mismatching verifyin (%lu) and quic (%lu) cnt",
+                 verifyin_cnt, quic_cnt ));
+
   uchar const * verify_pods = fd_pod_query_subpod( cfg_pod, "verify" );
   ulong verify_cnt = fd_pod_cnt_subpod( verify_pods );
   FD_LOG_INFO(( "%lu verify found", verify_cnt ));
-  ulong tile_cnt = 3UL + verify_cnt;
+  ulong tile_cnt = 3UL + verify_cnt + verifyin_cnt;
+
+  /* Tile indices */
+
+  ulong tile_main_idx    = 0UL;
+  ulong tile_pack_idx    = tile_main_idx +1UL;
+  ulong tile_dedup_idx   = tile_pack_idx +1UL;
+  ulong tile_verify_idx0 = tile_dedup_idx+1UL;
+  ulong tile_verify_idx1 = tile_verify_idx0 + verify_cnt;
+  ulong tile_quic_idx0   = tile_verify_idx1;
+  //ulong tile_quic_idx1   = tile_quic_idx0 + quic_cnt;
 
   /* Join all IPC objects for this frank instance */
 
@@ -357,7 +423,7 @@ main( int     argc,
   fd_frag_meta_t ** tile_mcache = fd_alloca( alignof(fd_frag_meta_t *), sizeof(fd_frag_meta_t *)*tile_cnt );
   ulong **          tile_fseq   = fd_alloca( alignof(ulong *         ), sizeof(ulong *         )*tile_cnt );
   if( FD_UNLIKELY( (!tile_name) | (!tile_cnc) | (!tile_mcache) | (!tile_fseq) ) ) FD_LOG_ERR(( "fd_alloca failed" )); /* paranoia */
-  
+
   do {
     ulong tile_idx = 0UL;
 
@@ -375,8 +441,12 @@ main( int     argc,
     tile_cnc[ tile_idx ] = fd_cnc_join( fd_wksp_pod_map( cfg_pod, "pack.cnc" ) );
     if( FD_UNLIKELY( !tile_cnc[ tile_idx ] ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
     if( FD_UNLIKELY( fd_cnc_app_sz( tile_cnc[ tile_idx ] )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
-    tile_mcache[ tile_idx ] = NULL; /* pack has no mcache */
-    tile_fseq  [ tile_idx ] = NULL; /* pack has no fseq */
+    FD_LOG_INFO(( "joining %s.pack.out-mcache", FD_FRANK_CONFIGURATION_PREFIX ));
+    tile_mcache[ tile_idx ] = fd_mcache_join( fd_wksp_pod_map( cfg_pod, "pack.out-mcache" ) );
+    if( FD_UNLIKELY( !tile_mcache[ tile_idx ] ) ) FD_LOG_ERR(( "fd_mcache_join failed" ));
+    FD_LOG_INFO(( "joining %s.dedup.fseq", FD_FRANK_CONFIGURATION_PREFIX ));
+    tile_fseq[ tile_idx ] = fd_fseq_join( fd_wksp_pod_map( cfg_pod, "pack.return-fseq" ) );
+    if( FD_UNLIKELY( !tile_fseq[ tile_idx ] ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
     tile_idx++;
 
     tile_name[ tile_idx ] = "dedup";
@@ -411,8 +481,28 @@ main( int     argc,
       if( FD_UNLIKELY( !tile_fseq[ tile_idx ] ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
       tile_idx++;
     }
+
+    for( fd_pod_iter_t iter = fd_pod_iter_init( quic_pods ); !fd_pod_iter_done( iter ); iter = fd_pod_iter_next( iter ) ) {
+      fd_pod_info_t info = fd_pod_iter_info( iter );
+      if( FD_UNLIKELY( info.val_type!=FD_POD_VAL_TYPE_SUBPOD ) ) continue;
+      char const  * quic_name =                info.key;
+      uchar const * quic_pod  = (uchar const *)info.val;
+
+      FD_LOG_INFO(( "joining %s.quic.%s.cnc", FD_FRANK_CONFIGURATION_PREFIX, quic_name ));
+      tile_name[ tile_idx ] = quic_name;
+      tile_cnc [ tile_idx ] = fd_cnc_join( fd_wksp_pod_map( quic_pod, "cnc" ) );
+      if( FD_UNLIKELY( !tile_cnc[tile_idx] ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
+      if( FD_UNLIKELY( fd_cnc_app_sz( tile_cnc[ tile_idx ] )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
+      FD_LOG_INFO(( "joining %s.quic.%s.mcache", FD_FRANK_CONFIGURATION_PREFIX, quic_name ));
+      tile_mcache[ tile_idx ] = fd_mcache_join( fd_wksp_pod_map( quic_pod, "mcache" ) );
+      if( FD_UNLIKELY( !tile_mcache[ tile_idx ] ) ) FD_LOG_ERR(( "fd_mcache_join failed" ));
+      FD_LOG_INFO(( "joining %s.quic.%s.fseq", FD_FRANK_CONFIGURATION_PREFIX, quic_name ));
+      tile_fseq[ tile_idx ] = fd_fseq_join( fd_wksp_pod_map( quic_pod, "fseq" ) );
+      if( FD_UNLIKELY( !tile_fseq[ tile_idx ] ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
+      tile_idx++;
+    }
   } while(0);
-  
+
   /* Setup local objects used by this app */
 
   fd_rng_t _rng[1];
@@ -434,6 +524,10 @@ main( int     argc,
 
   double ns_per_tic = 1./fd_tempo_tick_per_ns( NULL ); /* calibrate during first wait */
 
+  /* Setup TTY */
+
+  printf( TEXT_CUP_HOME );
+
   long stop = then + duration;
   for(;;) {
 
@@ -444,7 +538,7 @@ main( int     argc,
 
     snap( tile_cnt, snap_cur, tile_cnc, tile_mcache, tile_fseq );
     long now; long toc; fd_tempo_observe_pair( &now, &toc );
-    
+
     /* Pretty print a comparison between this diagnostic snapshot and
        the previous one. */
 
@@ -453,9 +547,9 @@ main( int     argc,
     /* FIXME: CONSIDER ADDING INFO LIKE PID OF INSTANCE */
 
     char now_cstr[ FD_LOG_WALLCLOCK_CSTR_BUF_SZ ];
-    printf( "snapshot for %s\n", fd_log_wallclock_cstr( now, now_cstr ) );
-    printf( "  tile |      stale | heart |        sig | in backp |           backp cnt |         sv_filt cnt |                    tx seq |                    rx seq\n" );
-    printf( "-------+------------+-------+------------+----------+---------------------+---------------------+---------------------------+---------------------------\n" );
+    printf( "snapshot for %s" TEXT_NEWLINE, fd_log_wallclock_cstr( now, now_cstr ) );
+    printf( "  tile |      stale | heart |        sig | in backp |           backp cnt |         sv_filt cnt |                    tx seq |                    rx seq"  TEXT_NEWLINE );
+    printf( "-------+------------+-------+------------+----------+---------------------+---------------------+---------------------------+---------------------------" TEXT_NEWLINE );
     for( ulong tile_idx=0UL; tile_idx<tile_cnt; tile_idx++ ) {
       snap_t * prv = &snap_prv[ tile_idx ];
       snap_t * cur = &snap_cur[ tile_idx ];
@@ -480,42 +574,28 @@ main( int     argc,
       } else {
         printf( " |                         -" );
       }
-      printf( "\n" );
+      printf( TEXT_NEWLINE );
     }
-    printf( "\n" );
-    printf( "         link |  tot TPS |  tot bps | uniq TPS | uniq bps |   ha tr%% | uniq bw%% | filt tr%% | filt bw%% |           ovrnp cnt |           ovrnr cnt |            slow cnt\n" );
-    printf( "--------------+----------+----------+---------+----------+----------+----------+-----------+----------+---------------------+---------------------+---------------------\n" );
-    for( ulong tile_idx=2UL; tile_idx<tile_cnt; tile_idx++ ) {
-      snap_t * prv = &snap_prv[ tile_idx ];
-      snap_t * cur = &snap_cur[ tile_idx ];
-      if( tile_idx==2UL ) printf( " %5s->%-5s", tile_name[ 2        ], tile_name[ 1 ] );
-      else                printf( " %5s->%-5s", tile_name[ tile_idx ], tile_name[ 2 ] );
-      long dt = now-then;
-      ulong cur_raw_cnt = cur->cnc_diag_ha_filt_cnt + cur->fseq_diag_tot_cnt;
-      ulong cur_raw_sz  = cur->cnc_diag_ha_filt_sz  + cur->fseq_diag_tot_sz;
-      ulong prv_raw_cnt = prv->cnc_diag_ha_filt_cnt + prv->fseq_diag_tot_cnt;
-      ulong prv_raw_sz  = prv->cnc_diag_ha_filt_sz  + prv->fseq_diag_tot_sz;
-
-      printf( " | " ); printf_rate( 1e9, 0., cur_raw_cnt,             prv_raw_cnt,             dt );
-      printf( " | " ); printf_rate( 8e9, 0., cur_raw_sz,              prv_raw_sz,              dt ); /* Assumes sz incl framing */
-      printf( " | " ); printf_rate( 1e9, 0., cur->fseq_diag_tot_cnt,  prv->fseq_diag_tot_cnt,  dt );
-      printf( " | " ); printf_rate( 8e9, 0., cur->fseq_diag_tot_sz,   prv->fseq_diag_tot_sz,   dt ); /* Assumes sz incl framing */
-
-      printf( " | " ); printf_pct ( cur->fseq_diag_tot_cnt,  prv->fseq_diag_tot_cnt, 0.,
-                                    cur_raw_cnt,             prv_raw_cnt,            DBL_MIN );
-      printf( " | " ); printf_pct ( cur->fseq_diag_tot_sz,   prv->fseq_diag_tot_sz,  0.,
-                                    cur_raw_sz,              prv_raw_sz,             DBL_MIN ); /* Assumes sz incl framing */
-      printf( " | " ); printf_pct ( cur->fseq_diag_filt_cnt, prv->fseq_diag_filt_cnt, 0.,
-                                    cur->fseq_diag_tot_cnt,  prv->fseq_diag_tot_cnt,  DBL_MIN );
-      printf( " | " ); printf_pct ( cur->fseq_diag_filt_sz,  prv->fseq_diag_filt_sz, 0.,
-                                    cur->fseq_diag_tot_sz,   prv->fseq_diag_tot_sz,  DBL_MIN ); /* Assumes sz incl framing */
-
-      printf( " | " ); printf_err_cnt( cur->fseq_diag_ovrnp_cnt, prv->fseq_diag_ovrnp_cnt );
-      printf( " | " ); printf_err_cnt( cur->fseq_diag_ovrnr_cnt, prv->fseq_diag_ovrnr_cnt );
-      printf( " | " ); printf_err_cnt( cur->fseq_diag_slow_cnt,  prv->fseq_diag_slow_cnt  );
-      printf( "\n" );
+    printf( TEXT_NEWLINE );
+    printf( "         link |  tot TPS |  tot bps | uniq TPS | uniq bps |   ha tr%% | uniq bw%% | filt tr%% | filt bw%% |           ovrnp cnt |           ovrnr cnt |            slow cnt" TEXT_NEWLINE );
+    printf( "--------------+----------+----------+----------+----------+----------+----------+-----------+----------+---------------------+---------------------+---------------------"    TEXT_NEWLINE );
+    long dt = now-then;
+    ulong verifyin_link_cnt = fd_ulong_min( verify_cnt, quic_cnt );
+    for( ulong i=0; i<verifyin_link_cnt; i++ ) {
+      printf_link( snap_prv, snap_cur, tile_name, tile_quic_idx0+i, tile_verify_idx0+i, dt );
     }
-    printf( "\n" );
+    for( ulong tile_idx=tile_verify_idx0; tile_idx<tile_verify_idx1; tile_idx++ ) {
+      printf_link( snap_prv, snap_cur, tile_name, tile_idx, tile_dedup_idx, dt );
+    }
+    printf_link( snap_prv, snap_cur, tile_name, tile_dedup_idx, tile_pack_idx, dt );
+    printf( TEXT_NEWLINE );
+
+    /* Switch to alternate screen and erase junk below
+       TODO ideally we'd have the last iteration on the main buffer and only the rest on ALTBUF */
+
+    printf( TEXT_ALTBUF_ENABLE
+            TEXT_ED
+            TEXT_CUP_HOME );
 
     /* Stop once we've been monitoring for duration ns */
 
@@ -529,6 +609,8 @@ main( int     argc,
   }
 
   /* Monitoring done ... clean up */
+
+  printf( TEXT_ALTBUF_DISABLE );
 
   FD_LOG_NOTICE(( "cleaning up" ));
   fd_rng_delete( fd_rng_leave( rng ) );

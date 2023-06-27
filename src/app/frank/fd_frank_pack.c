@@ -107,7 +107,7 @@ fd_frank_pack_task( int     argc,
   ulong txnmem_footprint = fd_pack_txnmem_footprint( bank_cnt, out_depth, txnq_sz );
 
   if( FD_UNLIKELY( fd_dcache_data_sz( out_dcache )<txnmem_footprint ) )
-    FD_LOG_ERR(( "dcache too small. Data region must be at least %lu bytes.", txnmem_footprint ));
+    FD_LOG_ERR(( "dcache too small. Data region must be at least %lu bytes. %lu %lu %lu", txnmem_footprint, bank_cnt, out_depth, txnq_sz ));
 
 
   /* Setup local objects used by this tile */
