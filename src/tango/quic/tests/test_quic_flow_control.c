@@ -29,7 +29,8 @@ my_stream_receive( fd_quic_stream_t * stream,
     FD_TEST( data_sz == 2 );  /* stream flow control increased, but conn not */
     fd_quic_conn_set_rx_max_data( stream->conn, 12 );
   } else if ( stream->rx_tot_data < 12 ) {
-    FD_TEST( data_sz == 4 );  /* both flow controls set to 12 */
+    FD_TEST( data_sz == 4 );  /* both flow controls set to 12, so it sends the 
+                                 rest of the remaining buffer of 4 bytes */
   } else {
     FD_LOG_HEXDUMP_DEBUG( ( "buffer", buffer, stream->rx_tot_data ) );
     FD_TEST( 0 == memcmp( buffer, "Hello world", 12u ) ); /* includes NUL */
