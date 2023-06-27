@@ -353,8 +353,8 @@ main( int argc, char ** argv ) {
   FD_LOG_NOTICE(( "Initializing QUICs" ));
   FD_TEST( fd_quic_init( client_quic ) );
   FD_TEST( fd_quic_init( server_quic ) );
-  server_quic->config.rx_buf_sz = 1<<14;
-  client_quic->config.rx_buf_sz = 1<<14;
+  server_quic->config.initial_rx_max_stream_data = 1<<14;
+  client_quic->config.initial_rx_max_stream_data = 1<<14;
 
   uint k = 1;
 

@@ -117,8 +117,8 @@ main( int     argc,
   FD_LOG_NOTICE(( "Initializing QUICs" ));
   FD_TEST( fd_quic_init( server_quic ) );
   FD_TEST( fd_quic_init( client_quic ) );
-  server_quic->config.rx_buf_sz = 1<<20;
-  client_quic->config.rx_buf_sz = 1<<20;
+  server_quic->config.initial_rx_max_stream_data = 1<<20;
+  client_quic->config.initial_rx_max_stream_data = 1<<20;
 
   /* make a connection from client to server */
   fd_quic_conn_t * client_conn = fd_quic_connect(
