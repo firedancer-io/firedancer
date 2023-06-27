@@ -10,6 +10,7 @@
 #include "../../vm/fd_vm_disasm.h"
 
 #include <stdio.h>
+#include <malloc.h>
 
 #define BUFFER_METADATA_SIZE  (37)
 #define PROGRAMDATA_METADATA_SIZE (45UL)
@@ -19,14 +20,14 @@ int read_bpf_upgradeable_loader_state( fd_global_ctx_t* global, fd_pubkey_t* pro
   fd_account_meta_t metadata;
   int               read_result = fd_acc_mgr_get_metadata( global->acc_mgr, global->funk_txn, program_acc, &metadata );
   if ( read_result != FD_ACC_MGR_SUCCESS ) {
-    FD_LOG_NOTICE(( "failed to read account metadata: %d", read_result ));
+    FD_LOG_WARNING(( "failed to read account metadata: %d", read_result ));
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
 
-  unsigned char *raw_acc_data = fd_alloca_check( 1, metadata.dlen );
+  unsigned char *raw_acc_data = malloc( metadata.dlen );
   read_result = fd_acc_mgr_get_account_data( global->acc_mgr, global->funk_txn, program_acc, raw_acc_data, metadata.hlen, metadata.dlen );
   if ( read_result != FD_ACC_MGR_SUCCESS ) {
-    FD_LOG_NOTICE(( "failed to read account data: %d", read_result ));
+    FD_LOG_WARNING(( "failed to read account data: %d", read_result ));
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
 
@@ -40,6 +41,8 @@ int read_bpf_upgradeable_loader_state( fd_global_ctx_t* global, fd_pubkey_t* pro
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
   return FD_ACC_MGR_SUCCESS;
+
+  free(raw_acc_data);
 
   return 0;
 }
@@ -226,7 +229,6 @@ serialize_aligned( instruction_ctx_t ctx, ulong * sz ) {
       ulong alignment_padding_len = aligned_acc_data_len - acc_data_len;
 
       ulong data_len = acc_data_len;
-      FD_LOG_NOTICE(("PRE_DL: %lu", data_len));
       FD_STORE( ulong, serialized_params, data_len );
       serialized_params += sizeof(ulong);
 
@@ -289,13 +291,11 @@ deserialize_aligned( instruction_ctx_t ctx, uchar * input, FD_FN_UNUSED ulong in
       input_cursor += sizeof(ulong);
 
       ulong post_data_len = FD_LOAD(ulong, input_cursor);
-      FD_LOG_NOTICE(("PDL: %lu", post_data_len));
       input_cursor += sizeof(ulong);
 
       uchar * post_data = input_cursor;
 
       ulong acc_sz = sizeof(fd_account_meta_t) + post_data_len;
-      FD_LOG_NOTICE(("ACC SZ: %lu", acc_sz));
 
       void * raw_acc_data = fd_acc_mgr_modify_data(ctx.global->acc_mgr, ctx.global->funk_txn, acc, 0, &acc_sz, NULL, &acc_data_rec, &modify_err);
       fd_account_meta_t * metadata = (fd_account_meta_t *)raw_acc_data;
@@ -314,11 +314,12 @@ deserialize_aligned( instruction_ctx_t ctx, uchar * input, FD_FN_UNUSED ulong in
     }
   }
 
+  free(input);
+
   return 0;
 }
 
 int fd_executor_bpf_upgradeable_loader_program_execute_program_instruction( instruction_ctx_t ctx ) {
-  uchar* instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
   fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
   fd_pubkey_t * program_acc = &txn_accs[ctx.instr->program_id];
 
@@ -349,7 +350,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_program_instruction( inst
   }
   
   ulong program_data_len = programdata_metadata.dlen - PROGRAMDATA_METADATA_SIZE;
-  uchar * program_data = fd_alloca_check( 1, program_data_len);
+  uchar * program_data = malloc( program_data_len);
   read_result = fd_acc_mgr_get_account_data( ctx.global->acc_mgr, ctx.global->funk_txn, programdata_acc, program_data, programdata_metadata.hlen + PROGRAMDATA_METADATA_SIZE, program_data_len );
   if (read_result != FD_ACC_MGR_SUCCESS) {
     return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
@@ -451,26 +452,13 @@ int fd_executor_bpf_upgradeable_loader_program_execute_program_instruction( inst
   }
   fclose(trace_fd);
 
-  for( ulong i = 0; i < ctx.instr->acct_cnt; i++ ) {
-    char program_id_str[FD_BASE58_ENCODED_32_SZ];
-    fd_base58_encode_32((uchar *) &txn_accs[instr_acc_idxs[i]], NULL, program_id_str);
-    FD_LOG_NOTICE(("bpf instr acct - idx: %lu, addr: %s", i, program_id_str));
-
-    //fd_funk_rec_t * acc_data_rec = NULL;
-    //int modify_err;
-    //ulong sz;
-    //void * data = fd_acc_mgr_modify_data(ctx.global->acc_mgr, ctx.global->funk_txn, &txn_accs[instr_acc_idxs[i]], 0, &sz, NULL, &acc_data_rec, &modify_err);
-    //fd_acc_mgr_commit_data(ctx.global->acc_mgr, acc_data_rec, &txn_accs[instr_acc_idxs[i]], data, ctx.global->bank.slot, 0);
-    //FD_LOG_WARNING(( "mod: sz: %lu, err: %d", sz, modify_err));
-  }
   FD_LOG_WARNING(( "fd_vm_interp_instrs() success: %lu, ic: %lu, pc: %lu, ep: %lu, r0: %lu, fault: %lu", interp_res, vm_ctx.instruction_counter, vm_ctx.program_counter, vm_ctx.entrypoint, vm_ctx.register_file[0], vm_ctx.cond_fault ));
   FD_LOG_WARNING(( "log coll: %s", vm_ctx.log_collector.buf ));
 
-  for( ulong i = 0; i < input_sz; i++ ) {
-    if( input[i] != input_cpy[i] ) {
-      FD_LOG_NOTICE(("INPUT CHANGED: idx: %lu, before: %x, after: %x", i, input_cpy[i], input[i]));
-      
-    }
+  if( vm_ctx.cond_fault ) {
+    free(input);
+    // TODO: vm should report this error
+    return -1;
   }
 
   deserialize_aligned(ctx, input, input_sz);
@@ -490,8 +478,6 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
   decode_ctx.dataend = &data[ctx.instr->data_sz];
   decode_ctx.allocf = ctx.global->allocf;
   decode_ctx.allocf_arg = ctx.global->allocf_arg;
-
-  FD_LOG_HEXDUMP_NOTICE(( "bpf upgradeable loader instruction content", (uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->data_off, 1 ));
 
   int decode_err;
   if ( ( decode_err = fd_bpf_upgradeable_loader_program_instruction_decode( &instruction, &decode_ctx ) ) ) {
