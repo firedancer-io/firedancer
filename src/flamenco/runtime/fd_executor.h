@@ -112,7 +112,7 @@ typedef struct fd_rawtxn_b fd_rawtxn_b_t;
   Execute the given transaction.
 
   Makes changes to the Funk accounts DB. */
-void
+int
 fd_execute_txn( fd_executor_t* executor, fd_txn_t * txn_descriptor, fd_rawtxn_b_t* txn_raw ) ;
 
 

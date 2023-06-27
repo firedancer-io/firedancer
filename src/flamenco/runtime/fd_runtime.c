@@ -104,6 +104,7 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_meta_t* m, const void
     blockoff += sizeof(ulong);
 
     /* Loop across microblocks */
+    ulong txn_idx_in_block = 1;
     for (ulong mblk = 0; mblk < mcount; ++mblk) {
       if ( blockoff + sizeof(fd_microblock_hdr_t) > blocklen )
         FD_LOG_ERR(("premature end of block"));
@@ -124,9 +125,14 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_meta_t* m, const void
         rawtxn.raw = (void*)raw;
         rawtxn.txn_sz = (ushort)txn_sz;
         signature_cnt += txn->signature_cnt;
+
+        char sig[FD_BASE58_ENCODED_64_SZ];
+        fd_base58_encode_64(raw+txn->signature_off, NULL, sig);
+        FD_LOG_NOTICE(("executing txn -  slot: %lu, txn_idx_in_block: %lu, mblk: %lu, txn_idx: %lu, sig: %s", global->bank.slot, txn_idx_in_block, mblk, txn_idx, sig));
         fd_execute_txn( &global->executor, txn, &rawtxn );
 
         blockoff += pay_sz;
+        txn_idx_in_block++;
       }
     }
   }

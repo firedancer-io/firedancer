@@ -996,11 +996,13 @@ int fd_executor_vote_program_execute_instruction(
     */
     if( vote->timestamp != NULL ) {
       ulong highest_vote_slot = 0;
-      for ( ulong i = 0; i < vote_slots_new_cnt; i++ ) {
-        /* TODO: can maybe just use vote at top of tower? Seems safer to use same logic as Solana though. */
-        highest_vote_slot = fd_ulong_max( highest_vote_slot, vote->slots[i] );
+      for( deq_ulong_iter_t iter = deq_ulong_iter_init( vote->slots );
+            !deq_ulong_iter_done( vote->slots, iter );
+            iter = deq_ulong_iter_next( vote->slots, iter ) ) {
+          /* TODO: can maybe just use vote at top of tower? Seems safer to use same logic as Solana though. */
+          ulong slot = *deq_ulong_iter_ele_const( vote->slots, iter );
+          highest_vote_slot = fd_ulong_max( highest_vote_slot, slot );
       }
-
       /* Reject if slot/timestamp rewinds, or if timestamp changed. */
 
       if( FD_UNLIKELY(

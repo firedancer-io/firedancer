@@ -84,7 +84,7 @@ fd_executor_lookup_program( fd_global_ctx_t * global, fd_pubkey_t * pubkey ) {
   return -1;
 }
 
-void
+int
 fd_execute_txn( fd_executor_t* executor, fd_txn_t * txn_descriptor, fd_rawtxn_b_t* txn_raw ) {
   fd_pubkey_t *tx_accs   = (fd_pubkey_t *)((uchar *)txn_raw->raw + txn_descriptor->acct_addr_off);
 
@@ -113,7 +113,7 @@ fd_execute_txn( fd_executor_t* executor, fd_txn_t * txn_descriptor, fd_rawtxn_b_
   int               ret = fd_acc_mgr_get_lamports ( global->acc_mgr, global->funk_txn, &tx_accs[0], &lamps);
   if (ret != FD_ACC_MGR_SUCCESS) {
     // TODO: The fee payer does not seem to exist?!  what now?
-    return;
+    return -1;
   }
 
   if (fee > lamps) {
@@ -121,7 +121,7 @@ fd_execute_txn( fd_executor_t* executor, fd_txn_t * txn_descriptor, fd_rawtxn_b_
     //
     // (Should this be lamps + whatever is required to keep the payer rent exempt?)
     FD_LOG_WARNING(( "Not enough lamps" ));
-    return;
+    return -1;
   }
 
   // TODO:  HORRIBLE hack until we implement the schedule leader stuff...
@@ -143,7 +143,7 @@ fd_execute_txn( fd_executor_t* executor, fd_txn_t * txn_descriptor, fd_rawtxn_b_
   if (ret != FD_ACC_MGR_SUCCESS) {
     // TODO: Wait! wait! what?!
     FD_LOG_ERR(( "lamport update failed" ));
-    return;
+    return -1;
   }
   global->bank.collected += fee;
 
@@ -173,6 +173,15 @@ fd_execute_txn( fd_executor_t* executor, fd_txn_t * txn_descriptor, fd_rawtxn_b_
     .txn_raw            = txn_raw,
   };
 
+  fd_funk_txn_t* parent_txn = global->funk_txn;
+  fd_funk_txn_xid_t xid;
+  xid.ul[0] = fd_rng_ulong( global->rng );
+  xid.ul[1] = fd_rng_ulong( global->rng );
+  xid.ul[2] = fd_rng_ulong( global->rng );
+  xid.ul[3] = fd_rng_ulong( global->rng );
+  fd_funk_txn_t * txn = fd_funk_txn_prepare( global->funk, parent_txn, &xid, 1 );
+  global->funk_txn = txn;
+
   int compute_budget_status = fd_executor_compute_budget_program_execute_instructions( &txn_ctx );
   (void)compute_budget_status;
 
@@ -201,8 +210,9 @@ fd_execute_txn( fd_executor_t* executor, fd_txn_t * txn_descriptor, fd_rawtxn_b_
         char program_id_str[FD_BASE58_ENCODED_32_SZ];
         fd_base58_encode_32((uchar *)&tx_accs[instr->program_id], NULL, program_id_str);
         FD_LOG_WARNING(( "instruction executed unsuccessfully: error code %d, program id: %s", exec_result, program_id_str ));
-        FD_LOG_HEXDUMP_ERR(( "instruction content", (uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->data_off, instr->data_sz ));
-
+        fd_funk_txn_cancel(global->funk, txn, 0);
+        global->funk_txn = parent_txn;
+        return -1;
         /* TODO: revert transaction context */
       }
     } else {
@@ -211,19 +221,24 @@ fd_execute_txn( fd_executor_t* executor, fd_txn_t * txn_descriptor, fd_rawtxn_b_
       if (fd_executor_lookup_program(executor->global, &tx_accs[instr->program_id]) == 0 ) {
         FD_LOG_NOTICE(( "found BPF executable program account - program id: %s", program_id_str ));
 
-        fd_executor_bpf_upgradeable_loader_program_execute_program_instruction(ctx);
+        int exec_result = fd_executor_bpf_upgradeable_loader_program_execute_program_instruction(ctx);
+        if (exec_result != FD_EXECUTOR_INSTR_SUCCESS) {
+          fd_funk_txn_cancel(global->funk, txn, 0);
+          global->funk_txn = parent_txn;
+          return -1;
+        }
       } else {
         FD_LOG_WARNING(( "did not find native or BPF executable program account - program id: %s", program_id_str ));
+        fd_funk_txn_cancel(global->funk, txn, 0);
+        global->funk_txn = parent_txn;
+        return -1;
       }
     }
-
 
     /* TODO: sanity before/after checks: total lamports unchanged etc */
   }
 
-  // if err
-  //             fd_funk_cancel(global->funk, global->funk_txn);
-  // else
-//  fd_funk_commit(global->funk, global->funk_txn);
-//  global->funk_txn = ptxn;
+  fd_funk_txn_merge(global->funk, txn, 0);
+  global->funk_txn = parent_txn;
+  return 0;
 }
