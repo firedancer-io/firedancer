@@ -115,7 +115,7 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_meta_t* m, const void
         uchar txn_out[FD_TXN_MAX_SZ];
         ulong pay_sz = 0;
         const uchar* raw = (const uchar *)block + blockoff;
-        ulong txn_sz = fd_txn_parse_core(raw, blocklen - blockoff, txn_out, NULL, &pay_sz, 0);
+        ulong txn_sz = fd_txn_parse_core(raw, fd_ulong_min(blocklen - blockoff, USHORT_MAX), txn_out, NULL, &pay_sz, 0);
         if ( txn_sz == 0 || txn_sz > FD_TXN_MAX_SZ )
           FD_LOG_ERR(("failed to parse transaction"));
 
