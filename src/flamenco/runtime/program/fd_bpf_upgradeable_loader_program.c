@@ -141,6 +141,12 @@ serialize_aligned( instruction_ctx_t ctx, ulong * sz ) {
       int read_result;
       uchar * raw_acc_data = (uchar *)fd_acc_mgr_view_data(ctx.global->acc_mgr, ctx.global->funk_txn, acc, NULL, &read_result);
       fd_account_meta_t * metadata = (fd_account_meta_t *)raw_acc_data;
+      if ( read_result != FD_ACC_MGR_SUCCESS ) {
+        char acc_str[FD_BASE58_ENCODED_32_SZ];
+        fd_base58_encode_32((uchar *)acc, NULL, acc_str);
+        FD_LOG_WARNING(( "failed to read account data - pubkey: %s", acc_str ));
+        return NULL;
+      }
 
       ulong acc_data_len = metadata->dlen;
       ulong aligned_acc_data_len = fd_ulong_align_up(acc_data_len, 8);
@@ -381,6 +387,9 @@ int fd_executor_bpf_upgradeable_loader_program_execute_program_instruction( inst
 
   ulong input_sz = 0;
   uchar * input = serialize_aligned(ctx, &input_sz);
+  if( input==NULL ) {
+    return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
+  }
   uchar * input_cpy = (uchar *)(ctx.global->allocf)(ctx.global->allocf_arg, 8UL, input_sz);
   fd_memcpy(input_cpy, input, input_sz);
   fd_vm_exec_context_t vm_ctx = {
