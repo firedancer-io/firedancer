@@ -209,6 +209,13 @@ fd_quic_config_from_env( int  *             pargc,
   char const * key_file        = fd_env_strip_cmdline_cstr ( pargc, pargv, "--ssl-key",      "QUIC_TLS_KEY",  NULL  );
   char const * keylog_file     = fd_env_strip_cmdline_cstr ( pargc, pargv, NULL,             "SSLKEYLOGFILE", NULL  );
   ulong        idle_timeout_ms = fd_env_strip_cmdline_ulong( pargc, pargv, "--idle-timeout", NULL,            100UL );
+  ulong        initial_rx_max_stream_data = fd_env_strip_cmdline_ulong(
+      pargc,
+      pargv,
+      "--quic-initial-rx-max-stream-data",
+      "QUIC_INITIAL_RX_MAX_STREAM_DATA",
+      FD_QUIC_DEFAULT_INITIAL_RX_MAX_STREAM_DATA
+  );
 
   cfg->cert.data = NULL;
   cfg->key.data  = NULL;
@@ -236,6 +243,7 @@ fd_quic_config_from_env( int  *             pargc,
   }
 
   cfg->idle_timeout = idle_timeout_ms * (ulong)1e6;
+  cfg->initial_rx_max_stream_data = initial_rx_max_stream_data;
 
   return cfg;
 }
@@ -457,7 +465,7 @@ fd_quic_init( fd_quic_t * quic ) {
 
   /* total data that may be sent on the connection is rx_buf_sz per stream,
      four types of stream */
-  ulong tot_initial_max_data = config->rx_buf_sz * (
+  ulong tot_initial_max_data = config->initial_rx_max_stream_data * (
     limits->stream_cnt[ FD_QUIC_STREAM_TYPE_BIDI_CLIENT ] +
     limits->stream_cnt[ FD_QUIC_STREAM_TYPE_BIDI_SERVER ] +
     limits->stream_cnt[ FD_QUIC_STREAM_TYPE_UNI_CLIENT  ] +
@@ -467,15 +475,16 @@ fd_quic_init( fd_quic_t * quic ) {
 
   ulong initial_max_streams_bidi = limits->stream_cnt[ config->role==FD_QUIC_ROLE_SERVER ? FD_QUIC_STREAM_TYPE_BIDI_CLIENT : FD_QUIC_STREAM_TYPE_BIDI_SERVER ];
   ulong initial_max_streams_uni  = limits->stream_cnt[ config->role==FD_QUIC_ROLE_SERVER ? FD_QUIC_STREAM_TYPE_UNI_CLIENT  : FD_QUIC_STREAM_TYPE_UNI_SERVER  ];
+  ulong initial_max_stream_data = config->initial_rx_max_stream_data;
 
   memset( tp, 0, sizeof(fd_quic_transport_params_t) );
   ulong idle_timeout_ms = (config->idle_timeout + 1000000UL - 1UL) / 1000000UL;
   FD_QUIC_TRANSPORT_PARAM_SET( tp, max_idle_timeout,                    idle_timeout_ms          );
   FD_QUIC_TRANSPORT_PARAM_SET( tp, max_udp_payload_size,                FD_QUIC_MAX_PAYLOAD_SZ   ); /* TODO */
   FD_QUIC_TRANSPORT_PARAM_SET( tp, initial_max_data,                    tot_initial_max_data     );
-  FD_QUIC_TRANSPORT_PARAM_SET( tp, initial_max_stream_data_bidi_local,  config->rx_buf_sz        );
-  FD_QUIC_TRANSPORT_PARAM_SET( tp, initial_max_stream_data_bidi_remote, config->rx_buf_sz        );
-  FD_QUIC_TRANSPORT_PARAM_SET( tp, initial_max_stream_data_uni,         config->rx_buf_sz        );
+  FD_QUIC_TRANSPORT_PARAM_SET( tp, initial_max_stream_data_bidi_local,  initial_max_stream_data  );
+  FD_QUIC_TRANSPORT_PARAM_SET( tp, initial_max_stream_data_bidi_remote, initial_max_stream_data  );
+  FD_QUIC_TRANSPORT_PARAM_SET( tp, initial_max_stream_data_uni,         initial_max_stream_data  );
   FD_QUIC_TRANSPORT_PARAM_SET( tp, initial_max_streams_bidi,            initial_max_streams_bidi );
   FD_QUIC_TRANSPORT_PARAM_SET( tp, initial_max_streams_uni,             initial_max_streams_uni  );
   FD_QUIC_TRANSPORT_PARAM_SET( tp, ack_delay_exponent,                  0                        ); /* TODO */
@@ -997,6 +1006,16 @@ fd_quic_stream_fin( fd_quic_stream_t * stream ) {
   stream->tx_last_byte = tx_buf->tail - 1; /* want last byte index */
 
   /* TODO update metrics */
+}
+
+void
+fd_quic_conn_set_rx_max_data( fd_quic_conn_t * conn, ulong rx_max_data ) {
+  conn->rx_max_data = rx_max_data;
+}
+
+void
+fd_quic_stream_set_rx_max_stream_data( fd_quic_stream_t * stream, ulong rx_max_stream_data ) {
+  stream->rx_max_stream_data = rx_max_stream_data;
 }
 
 /* packet processing */
@@ -5506,7 +5525,7 @@ fd_quic_frame_handle_stream_frame(
       stream->tx_tot_data        = 0;
       stream->tx_last_byte       = 0;
 
-      stream->rx_max_stream_data = context.quic->config.rx_buf_sz;
+      stream->rx_max_stream_data = context.quic->config.initial_rx_max_stream_data;
       stream->rx_tot_data        = 0;
 
       stream->upd_pkt_number     = 0;
@@ -5545,6 +5564,14 @@ fd_quic_frame_handle_stream_frame(
       /* since we're terminating the connection, don't parse more */
       return FD_QUIC_PARSE_FAIL;
     }
+  }
+
+  /* A receiver MUST close the connection with an error of type FLOW_CONTROL_ERROR if the sender
+     violates the advertised connection or stream data limits */
+  if (stream->rx_max_stream_data < offset + data_sz) {
+    FD_LOG_WARNING(( "peer exceeded advertised stream data limit" ));
+    fd_quic_conn_error( context.conn, FD_QUIC_CONN_REASON_STREAM_LIMIT_ERROR );
+    return FD_QUIC_PARSE_FAIL;
   }
 
   /* TODO pass the fin bit to the user here? */
@@ -5606,9 +5633,6 @@ fd_quic_frame_handle_stream_frame(
     /* update data received */
     stream->rx_tot_data = exp_offset + delivered;
     conn->rx_tot_data  += delivered;
-
-    /* send max_stream_data update */
-    stream->rx_max_stream_data += delivered;
 
     /* set max_data and max_data_frame to go out next packet */
     stream->upd_pkt_number = FD_QUIC_PKT_NUM_PENDING;
@@ -5673,7 +5697,6 @@ fd_quic_frame_handle_max_stream_data(
     ulong                      p_sz ) {
   (void)p;
   (void)p_sz;
-
   fd_quic_frame_context_t context = *(fd_quic_frame_context_t*)vp_context;
 
   ulong stream_id  = data->stream_id;

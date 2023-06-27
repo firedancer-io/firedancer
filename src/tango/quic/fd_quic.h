@@ -252,7 +252,7 @@ struct __attribute__((aligned(16UL))) fd_quic_config {
 # define FD_QUIC_SNI_LEN (255UL)
   char sni[ FD_QUIC_SNI_LEN+1UL ];
 
-  ulong rx_buf_sz; /* per-stream, rx buf sz in bytes, set by the user. */
+  ulong initial_rx_max_stream_data; /* per-stream, rx buf sz in bytes, set by the user. */
 
   /* Network config ****************************************/
 
@@ -655,6 +655,30 @@ fd_quic_stream_fin( fd_quic_stream_t * stream );
 //void
 //fd_quic_stream_close( fd_quic_stream_t * stream, int direction_flags );
 
+/* Flow Control API ***************************************************/
+
+/* fd_quic_conn_set_rx_max_data sets the maximum amount of data that can be sent
+   by the peer on a connection. This update will propagate to the peer via a
+   MAX_DATA frame.
+
+   A violation of this flow control param will result in connection termination
+   with FLOW_CONTROL_ERROR, per RFC 9000. */
+void
+fd_quic_conn_set_rx_max_data( fd_quic_conn_t * conn, ulong rx_max_data );
+
+/* fd_quic_stream_set_rx_max_stream_data sets the maximum amount of data that
+   can be sent by the peer on a stream. This update will propagate to the peer
+   via a MAX_STREAM_DATA frame.
+
+   A violation of this flow control param will result in connection termination
+   with FLOW_CONTROL_ERROR, per RFC 9000.
+
+   Note that updating this param will not affect the `max_data` param (above).
+   The effective limit will be the smaller of the two (see the stream loop in
+   `fd_quic.c`). Therefore, a user should consider both params when configuring
+   flow control. */
+void fd_quic_stream_set_rx_max_stream_data( fd_quic_stream_t * stream, ulong rx_max_stream_data );
+
 FD_PROTOTYPES_END
 
 /* Convenience exports for consumers of API */
@@ -663,4 +687,3 @@ FD_PROTOTYPES_END
 #include "fd_quic_stream.h"
 
 #endif /* HEADER_fd_src_tango_quic_fd_quic_h */
-

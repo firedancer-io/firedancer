@@ -60,6 +60,8 @@ struct fd_quic_stream {
 # define FD_QUIC_STREAM_STATE_TX_FIN (1u<<0u)
 # define FD_QUIC_STREAM_STATE_RX_FIN (1u<<1u)
 
+# define FD_QUIC_DEFAULT_INITIAL_RX_MAX_STREAM_DATA 1280  // IPv6 minimum MTU
+
   /* flow control */
   ulong  tx_max_stream_data; /* the limit on the number of bytes we are allowed to send
                                   to the peer on this stream
@@ -202,6 +204,9 @@ fd_quic_stream_set_context( fd_quic_stream_t * stream, void * context );
      context     the user defined context associated with the stream */
 void *
 fd_quic_stream_get_context( fd_quic_stream_t * stream );
+
+void
+fd_quic_stream_set_rx_max_stream_data( fd_quic_stream_t * stream, ulong rx_max_stream_data );
 
 FD_PROTOTYPES_END
 
