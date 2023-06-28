@@ -195,7 +195,10 @@ def do_map_body_decode(n, f):
         print("  err = fd_bincode_uint64_decode(&" + f["name"] + "_len, ctx);", file=body)
     print("  if ( FD_UNLIKELY(err) ) return err;", file=body)
 
-    print("  self->" + f["name"] + "_pool = " + mapname + "_alloc(ctx->allocf, ctx->allocf_arg, " + f["name"] + "_len);", file=body)
+    if "minalloc" in f:
+        print("  self->" + f["name"] + "_pool = " + mapname + "_alloc(ctx->allocf, ctx->allocf_arg, fd_ulong_max(" + f["name"] + "_len, " + str(f["minalloc"]) + "));", file=body)
+    else:
+        print("  self->" + f["name"] + "_pool = " + mapname + "_alloc(ctx->allocf, ctx->allocf_arg, " + f["name"] + "_len);", file=body)
     print("  self->" + f["name"] + "_root = NULL;", file=body)
     print("  for (ulong i = 0; i < " + f["name"] + "_len; ++i) {", file=body)
     print("    " + nodename + "* node = " + mapname + "_acquire(self->" + f["name"] + "_pool);", file=body);
@@ -359,16 +362,26 @@ def do_map_body_encode(n, f):
     mapname = element_type + "_map"
     nodename = element_type + "_mapnode_t"
 
+    print("  if (self->" + f["name"] + "_root) {", file=body)
     if "modifier" in f and f["modifier"] == "compact":
-        print("  ushort " + f["name"] + "_len = (ushort)" + mapname + "_size(self->" + f["name"] + "_pool, self->" + f["name"] + "_root);", file=body)
-        print("  err = fd_bincode_compact_u16_encode(&" + f["name"] + "_len, ctx);", file=body)
+        print("    ushort " + f["name"] + "_len = (ushort)" + mapname + "_size(self->" + f["name"] + "_pool, self->" + f["name"] + "_root);", file=body)
+        print("    err = fd_bincode_compact_u16_encode(&" + f["name"] + "_len, ctx);", file=body)
     else:
-        print("  ulong " + f["name"] + "_len = " + mapname + "_size(self->" + f["name"] + "_pool, self->" + f["name"] + "_root);", file=body)
-        print("  err = fd_bincode_uint64_encode(&" + f["name"] + "_len, ctx);", file=body)
-    print("  if ( FD_UNLIKELY(err) ) return err;", file=body)
+        print("    ulong " + f["name"] + "_len = " + mapname + "_size(self->" + f["name"] + "_pool, self->" + f["name"] + "_root);", file=body)
+        print("    err = fd_bincode_uint64_encode(&" + f["name"] + "_len, ctx);", file=body)
+    print("    if ( FD_UNLIKELY(err) ) return err;", file=body)
 
-    print("  for ( " + nodename + "* n = " + mapname + "_minimum(self->" + f["name"] + "_pool, self->" + f["name"] + "_root); n; n = " + mapname + "_successor(self->" + f["name"] + "_pool, n) ) {", file=body);
-    print("    err = " + n + "_" + f["element"] + "_encode(&n->elem, ctx);", file=body)
+    print("    for ( " + nodename + "* n = " + mapname + "_minimum(self->" + f["name"] + "_pool, self->" + f["name"] + "_root); n; n = " + mapname + "_successor(self->" + f["name"] + "_pool, n) ) {", file=body);
+    print("      err = " + n + "_" + f["element"] + "_encode(&n->elem, ctx);", file=body)
+    print("      if ( FD_UNLIKELY(err) ) return err;", file=body)
+    print("    }", file=body)
+    print("  } else {", file=body)
+    if "modifier" in f and f["modifier"] == "compact":
+        print("    ushort " + f["name"] + "_len = 0;", file=body)
+        print("    err = fd_bincode_compact_u16_encode(&" + f["name"] + "_len, ctx);", file=body)
+    else:
+        print("    ulong " + f["name"] + "_len = 0;", file=body)
+        print("    err = fd_bincode_uint64_encode(&" + f["name"] + "_len, ctx);", file=body)
     print("    if ( FD_UNLIKELY(err) ) return err;", file=body)
     print("  }", file=body)
 
@@ -493,12 +506,20 @@ def do_map_body_size(n, f):
     mapname = element_type + "_map"
     nodename = element_type + "_mapnode_t"
 
+    print("  if (self->" + f["name"] + "_root) {", file=body)
     if "modifier" in f and f["modifier"] == "compact":
-        print("  size += sizeof(ushort);", file=body)
+        print("    ushort " + f["name"] + "_len = (ushort)" + mapname + "_size(self->" + f["name"] + "_pool, self->" + f["name"] + "_root);", file=body)
+        print("    size += fd_bincode_compact_u16_size(&" + f["name"] + "_len);", file=body)
     else:
-        print("  size += sizeof(ulong);", file=body)
-    print("  for ( " + nodename + "* n = " + mapname + "_minimum(self->" + f["name"] + "_pool, self->" + f["name"] + "_root); n; n = " + mapname + "_successor(self->" + f["name"] + "_pool, n) ) {", file=body);
-    print("    size += " + n + "_" + f["element"] + "_size(&n->elem);", file=body)
+        print("    size += sizeof(ulong);", file=body)
+    print("    for ( " + nodename + "* n = " + mapname + "_minimum(self->" + f["name"] + "_pool, self->" + f["name"] + "_root); n; n = " + mapname + "_successor(self->" + f["name"] + "_pool, n) ) {", file=body);
+    print("      size += " + n + "_" + f["element"] + "_size(&n->elem);", file=body)
+    print("    }", file=body)
+    print("  } else {", file=body)
+    if "modifier" in f and f["modifier"] == "compact":
+        print("    size += 1;", file=body)
+    else:
+        print("    size += sizeof(ulong);", file=body)
     print("  }", file=body)
 
 def do_array_body_size(n, f):
@@ -1201,7 +1222,10 @@ for (element_type,key) in map_element_types.items():
     print(f"#undef REDBLK_T", file=body)
     print(f"#undef REDBLK_NAME", file=body)
     print(f"long {mapname}_compare({nodename} * left, {nodename} * right) {{", file=body)
-    print(f"  return (long)(left->elem.{key} - right->elem.{key});", file=body)
+    if key == "pubkey":
+        print(f"  return memcmp(left->elem.{key}.uc, right->elem.{key}.uc, sizeof(right->elem.{key}));", file=body)
+    else:
+        print(f"  return (long)(left->elem.{key} - right->elem.{key});", file=body)
     print(f"}}", file=body)
 
 print("FD_PROTOTYPES_END", file=header)

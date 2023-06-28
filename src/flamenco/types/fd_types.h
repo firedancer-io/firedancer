@@ -889,23 +889,29 @@ typedef struct fd_clock_timestamp_vote fd_clock_timestamp_vote_t;
 #define FD_CLOCK_TIMESTAMP_VOTE_FOOTPRINT sizeof(fd_clock_timestamp_vote_t)
 #define FD_CLOCK_TIMESTAMP_VOTE_ALIGN (8UL)
 
-#define DEQUE_NAME deq_fd_clock_timestamp_vote_t
-#define DEQUE_T fd_clock_timestamp_vote_t
-#define DEQUE_MAX 35
-#include "../../util/tmpl/fd_deque.c"
-#undef DEQUE_NAME
-#undef DEQUE_T
-
-#undef DEQUE_MAX
-
-static inline fd_clock_timestamp_vote_t *
-deq_fd_clock_timestamp_vote_t_alloc(fd_alloc_fun_t allocf, void * allocf_arg) {
-  void* mem = (*allocf)(allocf_arg, deq_fd_clock_timestamp_vote_t_align(), deq_fd_clock_timestamp_vote_t_footprint());
-  return deq_fd_clock_timestamp_vote_t_join( deq_fd_clock_timestamp_vote_t_new( mem ) );
+typedef struct fd_clock_timestamp_vote_t_mapnode fd_clock_timestamp_vote_t_mapnode_t;
+#define REDBLK_T fd_clock_timestamp_vote_t_mapnode_t
+#define REDBLK_NAME fd_clock_timestamp_vote_t_map
+#define REDBLK_IMPL_STYLE 1
+#include "../../util/tmpl/fd_redblack.c"
+#undef REDBLK_T
+#undef REDBLK_NAME
+struct fd_clock_timestamp_vote_t_mapnode {
+    fd_clock_timestamp_vote_t elem;
+    ulong redblack_parent;
+    ulong redblack_left;
+    ulong redblack_right;
+    int redblack_color;
+};
+static inline fd_clock_timestamp_vote_t_mapnode_t *
+fd_clock_timestamp_vote_t_map_alloc(fd_alloc_fun_t allocf, void * allocf_arg, ulong len) {
+  void* mem = (*allocf)(allocf_arg, fd_clock_timestamp_vote_t_map_align(), fd_clock_timestamp_vote_t_map_footprint(len));
+  return fd_clock_timestamp_vote_t_map_join(fd_clock_timestamp_vote_t_map_new(mem, len));
 }
 /* Validator timestamp oracle votes received from voting nodes. TODO: make this a map */
 struct fd_clock_timestamp_votes {
-  fd_clock_timestamp_vote_t * votes;
+  fd_clock_timestamp_vote_t_mapnode_t* votes_pool;
+  fd_clock_timestamp_vote_t_mapnode_t* votes_root;
 };
 typedef struct fd_clock_timestamp_votes fd_clock_timestamp_votes_t;
 #define FD_CLOCK_TIMESTAMP_VOTES_FOOTPRINT sizeof(fd_clock_timestamp_votes_t)

@@ -281,26 +281,29 @@ void record_timestamp_vote(
   fd_pubkey_t const * vote_acc,
   ulong               timestamp
   ) {
-  uchar found = 0;
-  fd_clock_timestamp_vote_t * votes = global->bank.timestamp_votes.votes;
-  for ( deq_fd_clock_timestamp_vote_t_iter_t iter = deq_fd_clock_timestamp_vote_t_iter_init( votes );
-        !deq_fd_clock_timestamp_vote_t_iter_done( votes, iter );
-        iter = deq_fd_clock_timestamp_vote_t_iter_next( votes, iter ) ) {
-    fd_clock_timestamp_vote_t * ele = deq_fd_clock_timestamp_vote_t_iter_ele( votes, iter );
-    if ( memcmp( &ele->pubkey, vote_acc, sizeof(fd_pubkey_t) ) == 0 ) {
-      ele->slot      = global->bank.slot;
-      ele->timestamp = (long)timestamp;
-      found = 1;
-    }
-  }
-  if ( !found ) {
-    fd_clock_timestamp_vote_t timestamp_vote = {
-      .pubkey    = *vote_acc,
-      .timestamp = (long)timestamp,
-      .slot      = global->bank.slot,
-    };
-    FD_TEST( !deq_fd_clock_timestamp_vote_t_full( votes ) );
-    deq_fd_clock_timestamp_vote_t_push_tail( votes, timestamp_vote );
+  fd_clock_timestamp_vote_t_mapnode_t * root = global->bank.timestamp_votes.votes_root;
+  fd_clock_timestamp_vote_t_mapnode_t * pool = global->bank.timestamp_votes.votes_pool;
+  if ( NULL == pool )
+    pool = global->bank.timestamp_votes.votes_pool =
+      fd_clock_timestamp_vote_t_map_alloc(global->allocf, global->allocf_arg, 10000);
+
+  fd_clock_timestamp_vote_t timestamp_vote = {
+    .pubkey    = *vote_acc,
+    .timestamp = (long)timestamp,
+    .slot      = global->bank.slot,
+  };
+  fd_clock_timestamp_vote_t_mapnode_t key = {
+    .elem = timestamp_vote
+  };
+  fd_clock_timestamp_vote_t_mapnode_t* node = fd_clock_timestamp_vote_t_map_find(pool, root, &key);
+  if ( NULL != node ) {
+    node->elem = timestamp_vote;
+  } else {
+    node = fd_clock_timestamp_vote_t_map_acquire(pool);
+    FD_TEST(node != NULL);
+    node->elem = timestamp_vote;
+    fd_clock_timestamp_vote_t_map_insert(pool, &root, node);
+    global->bank.timestamp_votes.votes_root = root;
   }
 }
 

@@ -2152,9 +2152,13 @@ void fd_slot_account_pair_walk(fd_slot_account_pair_t* self, fd_walk_fun_t fun, 
 ulong fd_slot_account_pair_size(fd_slot_account_pair_t const * self) {
   ulong size = 0;
   size += sizeof(ulong);
-  size += sizeof(ulong);
-  for ( fd_serializable_account_storage_entry_t_mapnode_t* n = fd_serializable_account_storage_entry_t_map_minimum(self->accounts_pool, self->accounts_root); n; n = fd_serializable_account_storage_entry_t_map_successor(self->accounts_pool, n) ) {
-    size += fd_serializable_account_storage_entry_size(&n->elem);
+  if (self->accounts_root) {
+    size += sizeof(ulong);
+    for ( fd_serializable_account_storage_entry_t_mapnode_t* n = fd_serializable_account_storage_entry_t_map_minimum(self->accounts_pool, self->accounts_root); n; n = fd_serializable_account_storage_entry_t_map_successor(self->accounts_pool, n) ) {
+      size += fd_serializable_account_storage_entry_size(&n->elem);
+    }
+  } else {
+    size += sizeof(ulong);
   }
   return size;
 }
@@ -2163,11 +2167,17 @@ int fd_slot_account_pair_encode(fd_slot_account_pair_t const * self, fd_bincode_
   int err;
   err = fd_bincode_uint64_encode(&self->slot, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  ulong accounts_len = fd_serializable_account_storage_entry_t_map_size(self->accounts_pool, self->accounts_root);
-  err = fd_bincode_uint64_encode(&accounts_len, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
-  for ( fd_serializable_account_storage_entry_t_mapnode_t* n = fd_serializable_account_storage_entry_t_map_minimum(self->accounts_pool, self->accounts_root); n; n = fd_serializable_account_storage_entry_t_map_successor(self->accounts_pool, n) ) {
-    err = fd_serializable_account_storage_entry_encode(&n->elem, ctx);
+  if (self->accounts_root) {
+    ulong accounts_len = fd_serializable_account_storage_entry_t_map_size(self->accounts_pool, self->accounts_root);
+    err = fd_bincode_uint64_encode(&accounts_len, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    for ( fd_serializable_account_storage_entry_t_mapnode_t* n = fd_serializable_account_storage_entry_t_map_minimum(self->accounts_pool, self->accounts_root); n; n = fd_serializable_account_storage_entry_t_map_successor(self->accounts_pool, n) ) {
+      err = fd_serializable_account_storage_entry_encode(&n->elem, ctx);
+      if ( FD_UNLIKELY(err) ) return err;
+    }
+  } else {
+    ulong accounts_len = 0;
+    err = fd_bincode_uint64_encode(&accounts_len, ctx);
     if ( FD_UNLIKELY(err) ) return err;
   }
   return FD_BINCODE_SUCCESS;
@@ -2304,9 +2314,13 @@ void fd_solana_accounts_db_fields_walk(fd_solana_accounts_db_fields_t* self, fd_
 }
 ulong fd_solana_accounts_db_fields_size(fd_solana_accounts_db_fields_t const * self) {
   ulong size = 0;
-  size += sizeof(ulong);
-  for ( fd_slot_account_pair_t_mapnode_t* n = fd_slot_account_pair_t_map_minimum(self->storages_pool, self->storages_root); n; n = fd_slot_account_pair_t_map_successor(self->storages_pool, n) ) {
-    size += fd_slot_account_pair_size(&n->elem);
+  if (self->storages_root) {
+    size += sizeof(ulong);
+    for ( fd_slot_account_pair_t_mapnode_t* n = fd_slot_account_pair_t_map_minimum(self->storages_pool, self->storages_root); n; n = fd_slot_account_pair_t_map_successor(self->storages_pool, n) ) {
+      size += fd_slot_account_pair_size(&n->elem);
+    }
+  } else {
+    size += sizeof(ulong);
   }
   size += sizeof(ulong);
   size += sizeof(ulong);
@@ -2321,11 +2335,17 @@ ulong fd_solana_accounts_db_fields_size(fd_solana_accounts_db_fields_t const * s
 
 int fd_solana_accounts_db_fields_encode(fd_solana_accounts_db_fields_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  ulong storages_len = fd_slot_account_pair_t_map_size(self->storages_pool, self->storages_root);
-  err = fd_bincode_uint64_encode(&storages_len, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
-  for ( fd_slot_account_pair_t_mapnode_t* n = fd_slot_account_pair_t_map_minimum(self->storages_pool, self->storages_root); n; n = fd_slot_account_pair_t_map_successor(self->storages_pool, n) ) {
-    err = fd_slot_account_pair_encode(&n->elem, ctx);
+  if (self->storages_root) {
+    ulong storages_len = fd_slot_account_pair_t_map_size(self->storages_pool, self->storages_root);
+    err = fd_bincode_uint64_encode(&storages_len, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    for ( fd_slot_account_pair_t_mapnode_t* n = fd_slot_account_pair_t_map_minimum(self->storages_pool, self->storages_root); n; n = fd_slot_account_pair_t_map_successor(self->storages_pool, n) ) {
+      err = fd_slot_account_pair_encode(&n->elem, ctx);
+      if ( FD_UNLIKELY(err) ) return err;
+    }
+  } else {
+    ulong storages_len = 0;
+    err = fd_bincode_uint64_encode(&storages_len, ctx);
     if ( FD_UNLIKELY(err) ) return err;
   }
   err = fd_bincode_uint64_encode(&self->version, ctx);
@@ -4690,47 +4710,41 @@ int fd_clock_timestamp_votes_decode(fd_clock_timestamp_votes_t* self, fd_bincode
   ulong votes_len;
   err = fd_bincode_uint64_decode(&votes_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  self->votes = deq_fd_clock_timestamp_vote_t_alloc( ctx->allocf, ctx->allocf_arg );
-  if ( votes_len > deq_fd_clock_timestamp_vote_t_max(self->votes) ) return FD_BINCODE_ERR_SMALL_DEQUE;
+  self->votes_pool = fd_clock_timestamp_vote_t_map_alloc(ctx->allocf, ctx->allocf_arg, fd_ulong_max(votes_len, 10000));
+  self->votes_root = NULL;
   for (ulong i = 0; i < votes_len; ++i) {
-    fd_clock_timestamp_vote_t * elem = deq_fd_clock_timestamp_vote_t_push_tail_nocopy(self->votes);
-    fd_clock_timestamp_vote_new(elem);
-    err = fd_clock_timestamp_vote_decode(elem, ctx);
+    fd_clock_timestamp_vote_t_mapnode_t* node = fd_clock_timestamp_vote_t_map_acquire(self->votes_pool);
+    fd_clock_timestamp_vote_new(&node->elem);
+    err = fd_clock_timestamp_vote_decode(&node->elem, ctx);
     if ( FD_UNLIKELY(err) ) return err;
+    fd_clock_timestamp_vote_t_map_insert(self->votes_pool, &self->votes_root, node);
   }
   return FD_BINCODE_SUCCESS;
 }
 void fd_clock_timestamp_votes_new(fd_clock_timestamp_votes_t* self) {
-  self->votes = NULL;
+  self->votes_pool = NULL;
+  self->votes_root = NULL;
 }
 void fd_clock_timestamp_votes_destroy(fd_clock_timestamp_votes_t* self, fd_bincode_destroy_ctx_t * ctx) {
-  if ( self->votes ) {
-    for ( deq_fd_clock_timestamp_vote_t_iter_t iter = deq_fd_clock_timestamp_vote_t_iter_init( self->votes ); !deq_fd_clock_timestamp_vote_t_iter_done( self->votes, iter ); iter = deq_fd_clock_timestamp_vote_t_iter_next( self->votes, iter ) ) {
-      fd_clock_timestamp_vote_t * ele = deq_fd_clock_timestamp_vote_t_iter_ele( self->votes, iter );
-      fd_clock_timestamp_vote_destroy(ele, ctx);
-    }
-    (*ctx->freef)(ctx->freef_arg, deq_fd_clock_timestamp_vote_t_delete( deq_fd_clock_timestamp_vote_t_leave( self->votes) ) );
-    self->votes = NULL;
+  for ( fd_clock_timestamp_vote_t_mapnode_t* n = fd_clock_timestamp_vote_t_map_minimum(self->votes_pool, self->votes_root); n; n = fd_clock_timestamp_vote_t_map_successor(self->votes_pool, n) ) {
+    fd_clock_timestamp_vote_destroy(&n->elem, ctx);
   }
+  (*ctx->freef)(ctx->freef_arg, fd_clock_timestamp_vote_t_map_delete(fd_clock_timestamp_vote_t_map_leave(self->votes_pool)));
+  self->votes_pool = NULL;
+  self->votes_root = NULL;
 }
 
 void fd_clock_timestamp_votes_walk(fd_clock_timestamp_votes_t* self, fd_walk_fun_t fun, const char *name, int level) {
   fun(self, name, 32, "fd_clock_timestamp_votes", level++);
-    fun(self->votes, "votes", 36, "votes", level++);
-    for ( deq_fd_clock_timestamp_vote_t_iter_t iter = deq_fd_clock_timestamp_vote_t_iter_init( self->votes ); !deq_fd_clock_timestamp_vote_t_iter_done( self->votes, iter ); iter = deq_fd_clock_timestamp_vote_t_iter_next( self->votes, iter ) ) {
-      fd_clock_timestamp_vote_t * ele = deq_fd_clock_timestamp_vote_t_iter_ele( self->votes, iter );
-      fd_clock_timestamp_vote_walk(ele, fun, "votes", level + 1);
-    }
-    fun(self->votes, "votes", 37, "votes", --level);
+  //fun(&self->votes, "votes", 17, "map");
   fun(self, name, 33, "fd_clock_timestamp_votes", --level);
 }
 ulong fd_clock_timestamp_votes_size(fd_clock_timestamp_votes_t const * self) {
   ulong size = 0;
-  if ( self->votes ) {
+  if (self->votes_root) {
     size += sizeof(ulong);
-    for ( deq_fd_clock_timestamp_vote_t_iter_t iter = deq_fd_clock_timestamp_vote_t_iter_init( self->votes ); !deq_fd_clock_timestamp_vote_t_iter_done( self->votes, iter ); iter = deq_fd_clock_timestamp_vote_t_iter_next( self->votes, iter ) ) {
-      fd_clock_timestamp_vote_t * ele = deq_fd_clock_timestamp_vote_t_iter_ele( self->votes, iter );
-      size += fd_clock_timestamp_vote_size(ele);
+    for ( fd_clock_timestamp_vote_t_mapnode_t* n = fd_clock_timestamp_vote_t_map_minimum(self->votes_pool, self->votes_root); n; n = fd_clock_timestamp_vote_t_map_successor(self->votes_pool, n) ) {
+      size += fd_clock_timestamp_vote_size(&n->elem);
     }
   } else {
     size += sizeof(ulong);
@@ -4740,13 +4754,12 @@ ulong fd_clock_timestamp_votes_size(fd_clock_timestamp_votes_t const * self) {
 
 int fd_clock_timestamp_votes_encode(fd_clock_timestamp_votes_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  if ( self->votes ) {
-    ulong votes_len = deq_fd_clock_timestamp_vote_t_cnt(self->votes);
+  if (self->votes_root) {
+    ulong votes_len = fd_clock_timestamp_vote_t_map_size(self->votes_pool, self->votes_root);
     err = fd_bincode_uint64_encode(&votes_len, ctx);
     if ( FD_UNLIKELY(err) ) return err;
-    for ( deq_fd_clock_timestamp_vote_t_iter_t iter = deq_fd_clock_timestamp_vote_t_iter_init( self->votes ); !deq_fd_clock_timestamp_vote_t_iter_done( self->votes, iter ); iter = deq_fd_clock_timestamp_vote_t_iter_next( self->votes, iter ) ) {
-      fd_clock_timestamp_vote_t * ele = deq_fd_clock_timestamp_vote_t_iter_ele( self->votes, iter );
-      err = fd_clock_timestamp_vote_encode(ele, ctx);
+    for ( fd_clock_timestamp_vote_t_mapnode_t* n = fd_clock_timestamp_vote_t_map_minimum(self->votes_pool, self->votes_root); n; n = fd_clock_timestamp_vote_t_map_successor(self->votes_pool, n) ) {
+      err = fd_clock_timestamp_vote_encode(&n->elem, ctx);
       if ( FD_UNLIKELY(err) ) return err;
     }
   } else {
@@ -9299,4 +9312,13 @@ long fd_serializable_account_storage_entry_t_map_compare(fd_serializable_account
 #undef REDBLK_NAME
 long fd_slot_account_pair_t_map_compare(fd_slot_account_pair_t_mapnode_t * left, fd_slot_account_pair_t_mapnode_t * right) {
   return (long)(left->elem.slot - right->elem.slot);
+}
+#define REDBLK_T fd_clock_timestamp_vote_t_mapnode_t
+#define REDBLK_NAME fd_clock_timestamp_vote_t_map
+#define REDBLK_IMPL_STYLE 2
+#include "../../util/tmpl/fd_redblack.c"
+#undef REDBLK_T
+#undef REDBLK_NAME
+long fd_clock_timestamp_vote_t_map_compare(fd_clock_timestamp_vote_t_mapnode_t * left, fd_clock_timestamp_vote_t_mapnode_t * right) {
+  return memcmp(left->elem.pubkey.uc, right->elem.pubkey.uc, sizeof(right->elem.pubkey));
 }

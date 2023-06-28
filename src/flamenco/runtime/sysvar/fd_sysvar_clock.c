@@ -124,16 +124,12 @@ long estimate_timestamp( fd_global_ctx_t* global, uint128 ns_per_slot ) {
   /* TODO: bound the estimate to ensure it stays within a certain range of the expected PoH clock:
   https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/stake_weighted_timestamp.rs#L13 */
 
-  fd_clock_timestamp_vote_t * votes = global->bank.timestamp_votes.votes;
+  fd_clock_timestamp_vote_t_mapnode_t * votes = global->bank.timestamp_votes.votes_root;
   if ( NULL == votes )
-    global->bank.timestamp_votes.votes =
-      votes = deq_fd_clock_timestamp_vote_t_alloc( global->allocf, global->allocf_arg );
-  if ( deq_fd_clock_timestamp_vote_t_cnt( votes ) == 0 ) {
     return timestamp_from_genesis( global );
-  }
 
-  /* TODO: actually take the stake-weighted median. For now, just take the first vote */
-  fd_clock_timestamp_vote_t * head = deq_fd_clock_timestamp_vote_t_peek_head( votes );
+  /* TODO: actually take the stake-weighted median. For now, just use the root node. */
+  fd_clock_timestamp_vote_t * head = &votes->elem;
   ulong slots = global->bank.slot - head->slot;
   uint128 ns_correction = ns_per_slot * slots;
   return head->timestamp  + (long) (ns_correction / NS_IN_S) ;
