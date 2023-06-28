@@ -2,7 +2,7 @@ MAKEFLAGS += --no-builtin-rules
 MAKEFLAGS += --no-builtin-variables
 .SUFFIXES:
 .SUFFIXES: .h .hxx .c .cxx .o .a .d .S .i
-.PHONY: all bin include lib unit-test fuzz-test run-unit-test help clean distclean asm ppp show-deps lint check-lint
+.PHONY: all bin include lib unit-test fuzz-test run-unit-test help clean distclean asm ppp show-deps format check-format
 .SECONDARY:
 .SECONDEXPANSION:
 
@@ -10,7 +10,7 @@ BASEDIR?=build
 OBJDIR:=$(BASEDIR)/$(BUILDDIR)
 
 # Auxiliarily rules that should not set up depenencies
-AUX_RULES:=clean distclean help show-deps lint check-lint
+AUX_RULES:=clean distclean help show-deps format check-format
 
 all: bin include lib unit-test
 
@@ -76,6 +76,7 @@ format:
 	# Formatting src/
 	#######################################################################
 	$(FIND) src/ -iname "*.c" -exec clang-format --Werror -i {} \;
+	$(FIND) src/ -iname "*.h" -exec clang-format --Werror -i {} \;
 
 check-format:
 	#######################################################################
