@@ -314,8 +314,6 @@ deserialize_aligned( instruction_ctx_t ctx, uchar * input, FD_FN_UNUSED ulong in
     }
   }
 
-  free(input);
-
   return 0;
 }
 

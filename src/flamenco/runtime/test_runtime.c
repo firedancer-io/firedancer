@@ -49,6 +49,7 @@ build/linux/gcc/x86_64/unit-test/test_runtime --wksp giant_wksp --gaddr 0x000000
 #pragma GCC optimize ("O0")
 #endif
 
+// #define MALLOC_NOT_FDALLOC
 #ifdef MALLOC_NOT_FDALLOC
 int fd_alloc_fprintf( fd_alloc_t * join, FILE *       stream );
 
@@ -336,7 +337,7 @@ int replay(global_state_t *state) {
     fd_slot_meta_destroy(&m, &ctx);
   }
 
-  fd_funk_txn_publish( state->global->funk, state->global->funk_txn, 1);
+  // fd_funk_txn_publish( state->global->funk, state->global->funk_txn, 1);
 
   return 0;
 }

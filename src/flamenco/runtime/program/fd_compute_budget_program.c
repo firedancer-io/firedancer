@@ -34,16 +34,16 @@ int fd_executor_compute_budget_program_execute_instructions( transaction_ctx_t *
     uchar *      data             = (uchar *)ctx->txn_raw->raw + instr->data_off;
 
     fd_compute_budget_program_instruction_t instruction;
-    fd_compute_budget_program_instruction_new( &instruction );
-    fd_bincode_decode_ctx_t ctx2 = {
+    fd_bincode_decode_ctx_t decode_ctx = {
       .data = data,
       .dataend = &data[instr->data_sz],
       .allocf = ctx->global->allocf,
       .allocf_arg = ctx->global->allocf_arg
     };
-    int ret = fd_compute_budget_program_instruction_decode( &instruction, &ctx2 );
+    int ret = fd_compute_budget_program_instruction_decode( &instruction, &decode_ctx );
     if ( ret ) {
       FD_LOG_WARNING(("fd_compute_budget_program_instruction_decode failed"));
+      FD_LOG_HEXDUMP_WARNING(("cbi data", data, instr->data_sz));
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
     }
 

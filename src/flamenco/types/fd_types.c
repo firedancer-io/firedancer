@@ -8510,7 +8510,9 @@ int fd_compute_budget_program_instruction_inner_decode(fd_compute_budget_program
   }
 }
 int fd_compute_budget_program_instruction_decode(fd_compute_budget_program_instruction_t* self, fd_bincode_decode_ctx_t * ctx) {
-  int err = fd_bincode_uint32_decode(&self->discriminant, ctx);
+  ushort tmp = 0;
+  int err = fd_bincode_compact_u16_decode(&tmp, ctx);
+  self->discriminant = tmp;
   if ( FD_UNLIKELY(err) ) return err;
   return fd_compute_budget_program_instruction_inner_decode(&self->inner, self->discriminant, ctx);
 }
