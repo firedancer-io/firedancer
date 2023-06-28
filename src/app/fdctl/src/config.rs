@@ -60,31 +60,39 @@ impl UserConfig {
         config
     }
 
-    pub(crate) fn into_config(self, cli: &Cli) -> Config {
+    pub(crate) fn into_config(mut self, cli: &Cli) -> Config {
         let user = if self.user.is_empty() {
             default_user()
         } else {
             self.user
         };
 
-        let interface = &self.tiles.quic.interface;
-        assert!(
-            !interface.is_empty(),
-            "Configuration must specify an interface to listen to with [tiles.quic.interface]"
-        );
+        let interface = self.tiles.quic.interface.to_owned();
+        let interface = if interface.is_empty() {
+            // Use `ip route get 8.8.8.8` to get the interface used to route to the public internet
+            let output = run!("ip route get 8.8.8.8");
+            let parts = output.split_whitespace().collect::<Vec<_>>();
+
+            info!("Using default interface `{}`", parts[4]);
+            parts[4].to_string()
+        } else {
+            interface
+        };
 
         if self.development.netns.enabled {
             assert_eq!(
-                interface, &self.development.netns.interface0,
+                interface, self.development.netns.interface0,
                 "if using [netns] expect [tiles.quic.interface] to be the same as \
                  [development.netns.interface0]"
             );
         } else {
             assert!(
-                interface_exists(interface),
+                interface_exists(&interface),
                 "Configuration specifies a network interface \"{interface}\" which does not exist"
             );
         }
+
+        self.tiles.quic.interface = interface;
 
         Config {
             name: self.name.clone(),
