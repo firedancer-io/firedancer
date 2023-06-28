@@ -128,7 +128,6 @@ pub(crate) fn run(args: RunCli, config: &mut Config) {
         ("QUIC_HANDSHAKE_CNT", quic.max_concurrent_handshakes.to_string()),
         ("QUIC_MAX_INFLIGHT_PKTS", quic.max_inflight_quic_packets.to_string()),
         ("QUIC_TX_BUF_SZ", quic.tx_buf_size.to_string()),
-        ("QUIC_RX_BUF_SZ", quic.rx_buf_size.to_string()),
     ];
 
     let sandbox = if config.development.sandbox {
