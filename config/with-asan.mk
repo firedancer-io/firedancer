@@ -5,5 +5,5 @@
 # FIXME: CONSIDER MANUALLY SETTING FD_HAS_ASAN IN BOTH THE CPPFLAGS AND
 # IN THE MAKE ENVIRONMENT?
 
-CPPFLAGS+=-fsanitize=address -fno-omit-frame-pointer
+CPPFLAGS+=-fsanitize=address -fno-omit-frame-pointer -DMALLOC_NOT_FDALLOC=1
 LDFLAGS+=-fsanitize=address

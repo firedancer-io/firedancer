@@ -45,36 +45,22 @@ build/linux/gcc/x86_64/unit-test/test_runtime --wksp giant_wksp --gaddr 0xc7ce18
 #pragma GCC optimize ("O0")
 #endif
 
-uchar do_valgrind = 0;
-
+#ifdef MALLOC_NOT_FDALLOC
 int fd_alloc_fprintf( fd_alloc_t * join, FILE *       stream );
 
-char* local_allocf(void *arg, ulong align, ulong len) {
-  if (NULL == arg) {
-    FD_LOG_ERR(( "yo dawg.. you passed a NULL as a fd_alloc pool"));
-  }
-
-  if (do_valgrind) {
-    char * ptr = malloc(fd_ulong_align_up(sizeof(char *) + len, align));
-    char * ret = (char *) fd_ulong_align_up( (ulong) (ptr + sizeof(char *)), align );
-    *((char **)(ret - sizeof(char *))) = ptr;
-    return ret;
-  } else
-    return fd_alloc_malloc(arg, align, len);
+char* local_allocf(void * arg, ulong align, ulong len) {
+  (void)arg;
+  char * ptr = malloc(fd_ulong_align_up(sizeof(char *) + len, align));
+  char * ret = (char *) fd_ulong_align_up( (ulong) (ptr + sizeof(char *)), align );
+  *((char **)(ret - sizeof(char *))) = ptr;
+  return ret;
 }
 
-void local_freef(void *arg, void *ptr) {
-  if (NULL == arg) {
-    FD_LOG_ERR(( "yo dawg.. you passed a NULL as a fd_alloc pool"));
-  }
-
-  if (do_valgrind)
-    free(*((char **)((char *) ptr - sizeof(char *))));
-  else
-    fd_alloc_free(arg, ptr);
+void local_freef(void * arg, void *ptr) {
+  (void)arg;
+  free(*((char **)((char *) ptr - sizeof(char *))));
 }
-
-int fd_alloc_fprintf( fd_alloc_t * join, FILE *       stream );
+#endif
 
 struct global_state {
   fd_global_ctx_t*    global;
@@ -460,8 +446,13 @@ int main(int argc, char **argv) {
     state.global->log_level = (uchar) atoi(log_level);
 
   state.global->wksp = wksp;
+#ifdef MALLOC_NOT_FDALLOC
+  state.global->allocf = (fd_alloc_fun_t)local_allocf;
+  state.global->freef = (fd_free_fun_t)local_freef;
+#else
   state.global->allocf = (fd_alloc_fun_t)fd_alloc_malloc;
   state.global->freef = (fd_free_fun_t)fd_alloc_free;
+#endif
   state.global->allocf_arg = fd_wksp_laddr_fast( wksp, state.global->funk->alloc_gaddr );
 
   if (NULL != state.persist) {

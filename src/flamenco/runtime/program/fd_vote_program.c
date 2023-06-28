@@ -682,10 +682,10 @@ int fd_executor_vote_program_execute_instruction(
 
     /* Create a new vote account state structure */
     /* TODO: create constructors in fd_types */
-    fd_vote_state_versioned_t* vote_state_versioned = (fd_vote_state_versioned_t*) fd_alloca_check( 1UL, sizeof(fd_vote_state_versioned_t) );
-    memset( vote_state_versioned, 0, sizeof(fd_vote_state_versioned_t) );
-    vote_state_versioned->discriminant = 1;
-    fd_vote_state_t*       vote_state = &vote_state_versioned->inner.current;
+    fd_vote_state_versioned_t vote_state_versioned;
+    vote_state_versioned.discriminant = 1;
+    fd_vote_state_versioned_new(&vote_state_versioned);
+    fd_vote_state_t*       vote_state = &vote_state_versioned.inner.current;
     fd_vote_prior_voters_t prior_voters = {
       .idx = 31,
       .is_empty = 1,
@@ -706,12 +706,12 @@ int fd_executor_vote_program_execute_instruction(
     vote_state->commission = init_account_params->commission;
 
     /* Write the new vote account back to the database */
-    int save_result = fd_vote_save_account( vote_state_versioned, &metadata, vote_acc, ctx );
+    int save_result = fd_vote_save_account( &vote_state_versioned, &metadata, vote_acc, ctx );
     if( FD_UNLIKELY( save_result != FD_EXECUTOR_INSTR_SUCCESS ) )
       ret = save_result;
 
     ctx.global->freef(ctx.global->allocf_arg, vote_acc_data);
-    fd_vote_state_versioned_destroy( vote_state_versioned, &destroy );
+    fd_vote_state_versioned_destroy( &vote_state_versioned, &destroy );
     break;
   }
   case fd_vote_instruction_enum_vote:
@@ -931,7 +931,8 @@ int fd_executor_vote_program_execute_instruction(
       if( deq_fd_vote_lockout_t_cnt( vote_state->votes ) == MAX_LOCKOUT_HISTORY ) {
 
         /* Update the root slot to be the oldest lockout. */
-        vote_state->saved_root_slot = fd_alloca_check( alignof(ulong), sizeof(ulong) );
+        if ( !vote_state->saved_root_slot )
+          vote_state->saved_root_slot = (ulong*)(*ctx.global->allocf)(ctx.global->allocf_arg, 8, sizeof(ulong));
         *vote_state->saved_root_slot = deq_fd_vote_lockout_t_peek_head_const( vote_state->votes )->slot;
 
         /* Give this validator a credit for committing to a slot. */
