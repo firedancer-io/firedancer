@@ -97,6 +97,7 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_meta_t* m, const void
 
   ulong signature_cnt = 0;
   ulong blockoff = 0;
+  ulong txn_idx_in_block = 1;
   while (blockoff < blocklen) {
     if ( blockoff + sizeof(ulong) > blocklen )
       FD_LOG_ERR(("premature end of block"));
@@ -104,7 +105,6 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_meta_t* m, const void
     blockoff += sizeof(ulong);
 
     /* Loop across microblocks */
-    ulong txn_idx_in_block = 1;
     for (ulong mblk = 0; mblk < mcount; ++mblk) {
       if ( blockoff + sizeof(fd_microblock_hdr_t) > blocklen )
         FD_LOG_ERR(("premature end of block"));
