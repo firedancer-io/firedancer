@@ -354,6 +354,10 @@ fd_funk_txn_cancel_children( fd_funk_t *     funk,
                              fd_funk_txn_t * txn,
                              int             verbose );
 
+ulong
+fd_funk_txn_cancel_all( fd_funk_t *     funk,
+                        int             verbose );
+
 /* fd_funk_txn_publish publishes in-preparation transaction txn and any
    of txn's in-preparation ancestors.  Returns the number of
    transactions published.  Any competing histories to this chain will
