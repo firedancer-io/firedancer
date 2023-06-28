@@ -1,43 +1,109 @@
+# The `kbowers` style, loosely based on some lineage back to K&R, Bell
+# Labs, and the National Labs
 BasedOnStyle: LLVM
-AccessModifierOffset: -2
-IndentWidth: 2
-UseTab: Never
-BreakBeforeBraces: Attach
-AllowShortIfStatementsOnASingleLine: true
-AllowShortFunctionsOnASingleLine: Inline
-AlignConsecutiveDeclarations: true
-AlignTrailingComments: true
-ColumnLimit: 80
-TabWidth: 2
 Language: Cpp
-CommentPragmas: '^ *LINT-(OFF|ON) *$'
-SpaceAfterTemplateKeyword: false
-SpaceBeforeParens: ControlStatements
-SpacesInParentheses: true
-SpacesInSquareBrackets: true
-AlwaysBreakAfterDefinitionReturnType: All
-AlwaysBreakAfterReturnType: All
+# AccessModifierOffset: 0 # Unused, C++
+AlignAfterOpenBracket: Align
+AlignArrayOfStructures: Right
+AlignConsecutiveAssignments:
+    Enabled: true
+    AcrossEmptyLines: false
+    AcrossComments: true
+    AlignCompound: true
+    PadOperators: true
+AlignConsecutiveBitFields:
+    Enabled: true
+    AcrossEmptyLines: false
+    AcrossComments: true
+AlignConsecutiveDeclarations:
+    Enabled: true
+    AcrossEmptyLines: false
+    AcrossComments: true
+AlignConsecutiveMacros:
+    Enabled: true
+    AcrossEmptyLines: false
+    AcrossComments: true
+AlignEscapedNewlines: Left
+AlignOperands: Align
+AlignTrailingComments: # Circle back, maybe Leave to leave it alone
+    Kind: Always 
+    OverEmptyLines: 1
+AllowAllArgumentsOnNextLine: false # Circle back, maybe set true
+AllowAllParametersOfDeclarationOnNextLine: false
+AllowShortBlocksOnASingleLine: Empty # Circle back?
+AllowShortCaseLabelsOnASingleLine: true
+AllowShortEnumsOnASingleLine: false
+AllowShortFunctionsOnASingleLine: None
+# AllowShortIfStatementsOnASingleLine: false  # Wtf... not sure what to do with this, we do this everywhere
+# AllowShortLambdasOnASingleLine: None # Unused, C++
+AllowShortLoopsOnASingleLine: true
+AlwaysBreakAfterReturnType: All # Circle back, maybe AllDefinitions
+AlwaysBreakBeforeMultilineStrings: true # Circle back
+# AlwaysBreakTemplateDeclarations: Yes # Unused, C++
+AttributeMacros: ['FD_FN_PURE', 'FD_FN_CONST', 'FD_FN_UNUSED', 'FD_FN_NO_ASAN']
 BinPackArguments: false
 BinPackParameters: false
-AlignAfterOpenBracket: Align
-PointerAlignment: Middle
-ReflowComments: true
-PenaltyBreakComment: 0
-PenaltyBreakOpenParenthesis: 1
-AlignConsecutiveMacros:
-  Enabled: true
-  AcrossEmptyLines: true
-  AcrossComments: true
-AlignConsecutiveAssignments:
-  Enabled: true
-  AcrossEmptyLines: true
-  AcrossComments: true
-  AlignCompound: true
-  PadOperators: true
-AlignConsecutiveBitFields:
-  Enabled: true
-  AcrossEmptyLines: true
-  AcrossComments: true
-AlignArrayOfStructures: Right
-AllowAllArgumentsOnNextLine: false
-AllowAllParametersOfDeclarationOnNextLine: false
+BitFieldColonSpacing: Both
+BraceWrapping:
+    AfterCaseLabel: false
+    AfterClass: false # Unused, C++
+    BraceWrappingAfterControlStatementStyle: Never
+    AfterEnum: false
+    AfterFunction: false
+    AfterNamespace: false # Unused, C++
+    AfterObjCDeclaration: false # Unused, ObjC
+    AfterStruct: false
+    AfterUnion: false
+    AfterExternBlock: false
+    BeforeCatch: false
+    BeforeElse: false
+    BeforeLambdaBody: false # Unused, C++
+    BeforeWhile: false
+    IndentBraces: false
+    SplitEmptyFunction: false
+    SplitEmptyRecord: false
+    SplitEmptyNamespace: false
+BracedInitializerIndentWidth: 2 # Unused, C++
+
+BreakBeforeBraces: Custom
+
+
+
+
+
+MaxEmptyLinesToKeep: 1
+
+
+BreakBeforeBinaryOperators: NonAssignment
+
+
+
+# 
+# 
+# UseTab: Never
+# BreakBeforeBraces: Attach
+# AllowShortIfStatementsOnASingleLine: true
+# AllowShortFunctionsOnASingleLine: Inline
+# AlignConsecutiveDeclarations: true
+# AlignTrailingComments: true
+# ColumnLimit: 80
+# TabWidth: 2
+# Language: Cpp
+# CommentPragmas: '^ *LINT-(OFF|ON) *$'
+# SpaceAfterTemplateKeyword: false
+# SpaceBeforeParens: ControlStatements
+# SpacesInParentheses: true
+# SpacesInSquareBrackets: true
+# AlwaysBreakAfterDefinitionReturnType: All
+# 
+# BinPackArguments: false
+# BinPackParameters: false
+# AlignAfterOpenBracket: Align
+# PointerAlignment: Middle
+# ReflowComments: true
+# PenaltyBreakComment: 0
+# PenaltyBreakOpenParenthesis: 1
+# 
+# 
+# AllowAllParametersOfDeclarationOnNextLine: false
+# 
