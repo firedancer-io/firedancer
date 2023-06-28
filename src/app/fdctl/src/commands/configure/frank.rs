@@ -1,5 +1,3 @@
-use std::path::Path;
-
 use super::*;
 use crate::security::*;
 use crate::utility::*;
@@ -55,7 +53,8 @@ fn step(config: &mut Config) {
     let cnc = run!("{bin}/fd_tango_ctl new-cnc {workspace} 0 tic {CNC_APP_SIZE}");
     let mcache = run!("{bin}/fd_tango_ctl new-mcache {workspace} {} 0 0", config.tiles.pack.max_pending_transactions);
 
-    let dcache = run!("{bin}/fd_tango_ctl new-dcache {workspace} 4808 {} 1 1 0", config.tiles.pack.max_pending_transactions);
+    // 6 should be  `(num_bank_threads+1) * max_pending_transactions + num_bank_threads`
+    let dcache = run!("{bin}/fd_tango_ctl new-dcache {workspace} 4808 {} 1 1 0", 6 * config.tiles.pack.max_pending_transactions);
 
     let return_fseq = run!("{bin}/fd_tango_ctl new-fseq {workspace} 0");
 
@@ -123,12 +122,7 @@ fn step(config: &mut Config) {
     // QUIC tiles
     for (i, (verify_mcache, verify_dcache, verify_fseq)) in verify_info.into_iter().enumerate() {
         let cnc = run!("{bin}/fd_tango_ctl new-cnc {workspace} 2 tic {CNC_APP_SIZE}");
-        let quic = if Path::new(&format!("{bin}/fd_quic_ctl")).exists() {
-            // TODO: Always enable this when merged with QUIC changes in 1.1
-            run!("{bin}/fd_quic_ctl new-quic {workspace}")
-        } else {
-            "unused".to_owned()
-        };
+        let quic = run!("{bin}/fd_quic_ctl new-quic {workspace}");
         let xsk = run!("{bin}/fd_xdp_ctl new-xsk {workspace} 2048 {} {}", config.tiles.quic.xdp_rx_queue_size, config.tiles.quic.xdp_tx_queue_size);
         run!("{bin}/fd_xdp_ctl bind-xsk {xsk} {name} {interface} {i}");
         let xsk_aio = run!("{bin}/fd_xdp_ctl new-xsk-aio {workspace} {} {}", config.tiles.quic.xdp_tx_queue_size, config.tiles.quic.xdp_aio_depth);

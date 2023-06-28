@@ -305,7 +305,6 @@ config_struct!(QuicConfig {
         max_concurrent_handshakes: u32,
         max_inflight_quic_packets: u32,
         tx_buf_size: u32,
-        rx_buf_size: u32,
         xdp_mode: String,
         xdp_rx_queue_size: u32,
         xdp_tx_queue_size: u32,
@@ -336,7 +335,6 @@ impl Config {
         let quic_max_concurrent_handshakes = &self.tiles.quic.max_concurrent_handshakes;
         let quic_max_inflight_quic_packets = &self.tiles.quic.max_inflight_quic_packets;
         let quic_tx_buf_size = &self.tiles.quic.tx_buf_size;
-        let quic_rx_buf_size = &self.tiles.quic.rx_buf_size;
         let listen_address = &self.frank.listen_address;
 
         let path = format!("{}/config.cfg", self.scratch_directory);
@@ -361,7 +359,6 @@ impl Config {
             QUIC_HANDSHAKE_CNT={quic_max_concurrent_handshakes} \n\
             QUIC_MAX_INFLIGHT_PKTS={quic_max_inflight_quic_packets} \n\
             QUIC_TX_BUF_SZ={quic_tx_buf_size} \n\
-            QUIC_RX_BUF_SZ={quic_rx_buf_size} \n\
         ")).unwrap();
         repermission(&path, self.uid, self.uid, 0o700);
     }

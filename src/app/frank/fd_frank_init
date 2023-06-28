@@ -55,21 +55,21 @@ MAIN_CNC=$("$BUILD"/bin/fd_tango_ctl new-cnc "$WKSP" 0 tic "$CNC_APP_SZ") || exi
 
 CNC=`$BUILD/bin/fd_tango_ctl new-cnc $WKSP 0 tic $CNC_APP_SZ` || exit $?
 MCACHE=`$BUILD/bin/fd_tango_ctl new-mcache $WKSP $PACK_PRQ_SZ 0 0` || exit $?
-DCACHE=`$BUILD/bin/fd_tango_ctl new-dcache $WKSP 4808 $PACK_PRQ_SZ 1 1 0` || exit $?
+DCACHE=`$BUILD/bin/fd_tango_ctl new-dcache $WKSP 4808 $((6*$PACK_PRQ_SZ)) 1 1 0` || exit $?
 PACK_CU_EST_TBL_FOOTPRINT=$((32+32*PACK_CU_EST_TBL_BIN_CNT))
-PACK_CU_EST_TBL=`$BUILD/bin/fd_wskp_ctl alloc $WKSP 32 $PACK_CU_EST_TBL_FOOTPRINT` || exit $?
+PACK_CU_EST_TBL=`$BUILD/bin/fd_wksp_ctl alloc $WKSP 32 $PACK_CU_EST_TBL_FOOTPRINT` || exit $?
 RETURN_FSEQ=`$BUILD/bin/fd_tango_ctl new-fseq $WKSP 0` || exit $?
 $BUILD/bin/fd_pod_ctl                                           \
-  insert $POD cstr  $APP.pack.cnc           $CNC                \
-  insert $POD cstr  $APP.pack.out-mcache    $MCACHE             \
-  insert $POD cstr  $APP.pack.out-dcache    $DCACHE             \
-  insert $POD cstr  $APP.pack.return-fseq   $RETURN_FSEQ        \
-  insert $POD ulong $APP.pack.bank-cnt      $PACK_BANK_CNT      \
-  insert $POD ulong $APP.pack.txnq-sz       $PACK_PRQ_SZ        \
-  insert $POD uint  $APP.pack.cu-limit      $PACK_CU_LIMIT      \
-  insert $POD ulong $APP.pack.cu-est-tbl.bin-cnt    $PACK_CU_EST_TBL_BIN_CNT    \
-  insert $POD ulong $APP.pack.cu-est-tbl.footprint  $PACK_CU_EST_TBL_FOOTPRINT  \
-  insert $POD ulong $APP.pack.cu-est-tbl.memory     $PACK_CU_EST_TBL            \
+  insert $POD cstr  firedancer.pack.cnc           $CNC                \
+  insert $POD cstr  firedancer.pack.out-mcache    $MCACHE             \
+  insert $POD cstr  firedancer.pack.out-dcache    $DCACHE             \
+  insert $POD cstr  firedancer.pack.return-fseq   $RETURN_FSEQ        \
+  insert $POD ulong firedancer.pack.bank-cnt      $PACK_BANK_CNT      \
+  insert $POD ulong firedancer.pack.txnq-sz       $PACK_PRQ_SZ        \
+  insert $POD uint  firedancer.pack.cu-limit      $PACK_CU_LIMIT      \
+  insert $POD ulong firedancer.pack.cu-est-tbl.bin-cnt    $PACK_CU_EST_TBL_BIN_CNT    \
+  insert $POD ulong firedancer.pack.cu-est-tbl.footprint  $PACK_CU_EST_TBL_FOOTPRINT  \
+  insert $POD cstr  firedancer.pack.cu-est-tbl.memory     $PACK_CU_EST_TBL            \
   || exit $?
 
 CNC=$("$BUILD"/bin/fd_tango_ctl new-cnc "$WKSP" 1 tic "$CNC_APP_SZ") || exit $?
@@ -90,10 +90,10 @@ for((verify_idx=0;verify_idx<VERIFY_CNT;verify_idx++)); do
   IN_DCACHE=`$BUILD/bin/fd_tango_ctl new-dcache $WKSP $VERIFY_MTU $VERIFY_DEPTH 1 1 0` || exit $?
   IN_FSEQ=`$BUILD/bin/fd_tango_ctl new-fseq $WKSP 0` || exit $?
   $BUILD/bin/fd_pod_ctl                                      \
-    insert $POD cstr $APP.verifyin.v${verify_idx}in.cnc    $IN_CNC    \
-    insert $POD cstr $APP.verifyin.v${verify_idx}in.mcache $IN_MCACHE \
-    insert $POD cstr $APP.verifyin.v${verify_idx}in.dcache $IN_DCACHE \
-    insert $POD cstr $APP.verifyin.v${verify_idx}in.fseq   $IN_FSEQ   \
+    insert $POD cstr firedancer.verifyin.v${verify_idx}in.cnc    $IN_CNC    \
+    insert $POD cstr firedancer.verifyin.v${verify_idx}in.mcache $IN_MCACHE \
+    insert $POD cstr firedancer.verifyin.v${verify_idx}in.dcache $IN_DCACHE \
+    insert $POD cstr firedancer.verifyin.v${verify_idx}in.fseq   $IN_FSEQ   \
     || exit $?
 
   CNC=`$BUILD/bin/fd_tango_ctl new-cnc $WKSP 2 tic $CNC_APP_SZ` || exit $?
@@ -101,10 +101,10 @@ for((verify_idx=0;verify_idx<VERIFY_CNT;verify_idx++)); do
   DCACHE=`$BUILD/bin/fd_tango_ctl new-dcache $WKSP $VERIFY_MTU $VERIFY_DEPTH 1 1 0` || exit $?
   FSEQ=`$BUILD/bin/fd_tango_ctl new-fseq $WKSP 0` || exit $?
   $BUILD/bin/fd_pod_ctl                                      \
-    insert $POD cstr $APP.verify.v$verify_idx.cnc    $CNC    \
-    insert $POD cstr $APP.verify.v$verify_idx.mcache $MCACHE \
-    insert $POD cstr $APP.verify.v$verify_idx.dcache $DCACHE \
-    insert $POD cstr $APP.verify.v$verify_idx.fseq   $FSEQ   \
+    insert $POD cstr firedancer.verify.v$verify_idx.cnc    $CNC    \
+    insert $POD cstr firedancer.verify.v$verify_idx.mcache $MCACHE \
+    insert $POD cstr firedancer.verify.v$verify_idx.dcache $DCACHE \
+    insert $POD cstr firedancer.verify.v$verify_idx.fseq   $FSEQ   \
     || exit $?
 done
 
