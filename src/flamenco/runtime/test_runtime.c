@@ -454,6 +454,9 @@ int main(int argc, char **argv) {
     if (state.global->funk == NULL) {
       FD_LOG_ERR(( "failed to join a funky" ));
     }
+    ulong r = fd_funk_txn_cancel_all( state.global->funk, 1 );
+    if (r)
+      FD_LOG_NOTICE(("cancelled %lu old transactions", r));
   }
   FD_LOG_NOTICE(( "funky at global address 0x%lx", fd_wksp_gaddr_fast( wksp, shmem ) ));
 

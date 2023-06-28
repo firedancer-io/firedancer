@@ -466,6 +466,23 @@ fd_funk_txn_cancel_children( fd_funk_t *     funk,
   return fd_funk_txn_cancel_sibling_list( funk, map, txn_max, funk->cycle_tag++, oldest_idx, FD_FUNK_TXN_IDX_NULL );
 }
 
+/* Cancel all outstanding transactions */
+
+ulong
+fd_funk_txn_cancel_all( fd_funk_t *     funk,
+                        int             verbose ) {
+  fd_wksp_t *     wksp    = fd_funk_wksp( funk );
+  fd_funk_txn_t * map     = fd_funk_txn_map( funk, wksp );
+  ulong result = 0;
+  do {
+    ulong idx = fd_funk_txn_idx( funk->child_tail_cidx );
+    if ( idx==FD_FUNK_TXN_IDX_NULL )
+      break;
+    result += fd_funk_txn_cancel( funk, map+idx, verbose );
+  } while (1);
+  return result;
+}
+
 /* fd_funk_txn_update applies the record updates in transaction txn_idx
    to another transaction or the parent transaction.  Callers have
    already validated our input arguments.

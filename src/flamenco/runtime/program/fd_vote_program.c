@@ -751,7 +751,6 @@ int fd_executor_vote_program_execute_instruction(
     /* Read vote account */
     fd_account_meta_t         meta;
     fd_vote_state_versioned_t vote_state_versioned;
-    fd_vote_state_versioned_new(&vote_state_versioned);
 
     int result = fd_vote_load_account_current( &vote_state_versioned, &meta, ctx.global, vote_acc, /* allow_uninitialized */ 0 );
     if( FD_UNLIKELY( 0!=result ) ) {
@@ -894,7 +893,6 @@ int fd_executor_vote_program_execute_instruction(
 
       FD_LOG_WARNING(( "hash mismatch: slot_hash: %s vote_hash: %s", slot_hash_hash, vote_hash_hash ));
       /* FIXME: re-visit when bank hashes are confirmed to be good */
-      fd_vote_state_versioned_destroy(&vote_state_versioned, &destroy);
       ctx.txn_ctx->custom_err = FD_VOTE_SLOT_HASH_MISMATCH;
       ret = FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
       fd_vote_state_versioned_destroy(&vote_state_versioned, &destroy);
