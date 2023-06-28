@@ -144,6 +144,9 @@ scratch_directory = "/home/{user}/.firedancer/{name}"
     [tiles.quic]
         # Which interface to bind to. If developing under a network namespace with [netns] enabled,
         # this should be the same as [development.netns.interface0].
+        #
+        # If this is empty, the default is interface used to route to 8.8.8.8, you can check what
+        # this is with `ip route get 8.8.8.8`
         interface = ""
 
         # Which port to listen on.
