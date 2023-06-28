@@ -12,7 +12,7 @@ fn main() {
 
     let (machine, build_dir) = if cfg!(feature = "fuzz-asan") {
         (
-            "linux_clang_fuzz_asan",
+            "linux_clang_x86_64_fuzz_asan",
             out_dir.join("build/linux/clang/fuzz_asan"),
         )
     } else {
