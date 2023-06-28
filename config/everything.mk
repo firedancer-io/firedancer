@@ -76,6 +76,7 @@ format:
 	# Formatting src/
 	#######################################################################
 	$(FIND) src/ -iname "*.c" -exec clang-format --Werror -i {} \;
+	$(FIND) src/ -iname "*.cxx" -exec clang-format --Werror -i {} \;
 	$(FIND) src/ -iname "*.h" -exec clang-format --Werror -i {} \;
 
 check-format:
