@@ -683,8 +683,7 @@ int fd_executor_vote_program_execute_instruction(
     /* Create a new vote account state structure */
     /* TODO: create constructors in fd_types */
     fd_vote_state_versioned_t vote_state_versioned;
-    vote_state_versioned.discriminant = 1;
-    fd_vote_state_versioned_new(&vote_state_versioned);
+    fd_vote_state_versioned_new_disc(&vote_state_versioned, 1);
     fd_vote_state_t*       vote_state = &vote_state_versioned.inner.current;
     fd_vote_prior_voters_t prior_voters = {
       .idx = 31,
