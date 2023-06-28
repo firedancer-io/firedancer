@@ -25,9 +25,10 @@ AlignConsecutiveMacros:
     AcrossComments: true
 AlignEscapedNewlines: Left
 AlignOperands: Align
-AlignTrailingComments: # Circle back, maybe Leave to leave it alone
-    Kind: Always 
-    OverEmptyLines: 1
+AlignTrailingComments: true
+# AlignTrailingComments: # Circle back, maybe Leave to leave it alone
+#    Kind: Always 
+#    OverEmptyLines: 1
 AllowAllArgumentsOnNextLine: false # Circle back, maybe set true
 AllowAllParametersOfDeclarationOnNextLine: false
 AllowShortBlocksOnASingleLine: Empty # Circle back?
@@ -49,7 +50,7 @@ BreakBeforeBraces: Custom
 BraceWrapping:
     AfterCaseLabel: false
     AfterClass: false # Unused, C++
-    BraceWrappingAfterControlStatementStyle: Never
+    #BraceWrappingAfterControlStatementStyle: Never
     AfterEnum: false
     AfterFunction: false
     AfterNamespace: false # Unused, C++
@@ -66,13 +67,13 @@ BraceWrapping:
     SplitEmptyRecord: false
     SplitEmptyNamespace: false
 
-BracedInitializerIndentWidth: 2
-BreakAfterAttributes: Leave # Unused, C++
+# BracedInitializerIndentWidth: 2
+# BreakAfterAttributes: Leave # Unused, C++
 BreakAfterJavaFieldAnnotations: false # Unused, Java
-BreakArrays: false # Unused, JSON
+# BreakArrays: false # Unused, JSON
 BreakBeforeBinaryOperators: NonAssignment
 BreakBeforeConceptDeclarations: Never # Unused, C++
-BreakBeforeInlineASMColon: Never
+# BreakBeforeInlineASMColon: Never
 BreakBeforeTernaryOperators: true
 BreakConstructorInitializers: AfterColon # Unused, C++
 BreakInheritanceList: AfterColon # Unused, C++
@@ -105,22 +106,22 @@ IndentRequiresClause: false # Unused, C++
 IndentWidth: 2
 IndentWrappedFunctionNames: false
 InsertBraces: false
-InsertNewlineAtEOF: true
-InsertTrailingCommas: All # Unused, JavaScript
-IntegerLiteralSeparator:
-  Binary: 0
-  Decimal: 0
-  Hex: 0
+# InsertNewlineAtEOF: true
+InsertTrailingCommas: Wrapped # Unused, JavaScript
+# IntegerLiteralSeparator:
+#  Binary: 0
+#  Decimal: 0
+#  Hex: 0
 # JavaImportGroups:
 # JavaScriptQuotes:
 # JavaScriptWrapImports:
-KeepEmptyLinesAtEOF: false
+# KeepEmptyLinesAtEOF: false
 KeepEmptyLinesAtTheStartOfBlocks: true
 LambdaBodyIndentation: Signature # Unused, C++
-LineEnding: LF
+# LineEnding: LF
 MacroBlockBegin: '' # TODO: THIS
 MacroBlockEnd: '' # TODO: THIS
-Macros: [] # TODO: MUST DO THIS
+# Macros: [] # TODO: MUST DO THIS
 MaxEmptyLinesToKeep: 1
 NamespaceIndentation: None # Unused, C++
 NamespaceMacros: [] # Unused, C++
@@ -131,7 +132,7 @@ ObjCSpaceAfterProperty: false # Unused, ObjC
 ObjCSpaceBeforeProtocolList: false # Unused, ObjC
 PPIndentWidth: 2 # TODO: CHECK ON THIS
 PackConstructorInitializers: Never # Unused, C++
-PeanltyBreakAssignment: 100
+PenaltyBreakAssignment: 100
 PenaltyBreakBeforeFirstCallParameter: 0
 PenaltyBreakComment: 100
 PenaltyBreakFirstLessLess: 0
@@ -148,14 +149,14 @@ RawStringFormats : [] # Unused
 ReferenceAlignment: Middle # Unused, C++
 ReflowComments: true
 RemoveBracesLLVM: false
-RemoveSemicolon: true
+#RemoveSemicolon: true
 # RequiresClausePosition: Unused C++
 # RequiresExpressionIndentation: Unused C++
 SeparateDefinitionBlocks: Always
 ShortNamespaceLines: 0 # Unused, C++
 SortIncludes: Never # TODO: COME BACK TO THIS
 SortJavaStaticImport: Before # Unused, Java
-SortUsingDeclarations: Never # Unused, C++
+SortUsingDeclarations: false # Unused, C++
 SpaceAfterCStyleCast: false
 SpaceAfterLogicalNot: false
 SpaceAfterTemplateKeyword: false # Unused, C++
@@ -165,7 +166,7 @@ SpaceBeforeCaseColon: false
 SpaceBeforeCpp11BracedList: true # Unused, C++
 SpaceBeforeCtorInitializerColon: true # Unused, C++
 SpaceBeforeInheritanceColon: true # Unused, C++
-SpaceBforeJsonColon: true # Unused, JSON
+#SpaceBeforeJsonColon: true # Unused, JSON
 SpaceBeforeParens: Custom
 SpaceBeforeParensOptions:
   AfterControlStatements: false
