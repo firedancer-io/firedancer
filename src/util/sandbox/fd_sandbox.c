@@ -101,6 +101,13 @@ close_fds_proc( void ) {
   FD_TESTV( 0 == closedir( dir ) );
 }
 
+// Older kernels might not have SYS_close_range
+#if FD_HAS_X86
+#ifndef SYS_close_range
+#define SYS_close_range 436
+#endif
+#endif
+
 static void
 close_fds( void ) {
   if( syscall( SYS_close_range, 3, UINT_MAX, CLOSE_RANGE_UNSHARE ) ) {
@@ -262,7 +269,7 @@ fd_sandbox_private( int *    pargc,
 
 void
 fd_sandbox_private_no_seccomp( void ) {
-  struct rlimit limit = { .rlim_cur = 3, .rlim_max = 3 };
+  struct rlimit limit = { .rlim_cur = 0, .rlim_max = 0 };
   FD_TESTV( 0 == setrlimit( RLIMIT_NOFILE, &limit ));
 
   close_fds();
