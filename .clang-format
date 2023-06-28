@@ -44,6 +44,8 @@ AttributeMacros: ['FD_FN_PURE', 'FD_FN_CONST', 'FD_FN_UNUSED', 'FD_FN_NO_ASAN']
 BinPackArguments: false
 BinPackParameters: false
 BitFieldColonSpacing: Both
+
+BreakBeforeBraces: Custom
 BraceWrapping:
     AfterCaseLabel: false
     AfterClass: false # Unused, C++
@@ -63,20 +65,140 @@ BraceWrapping:
     SplitEmptyFunction: false
     SplitEmptyRecord: false
     SplitEmptyNamespace: false
-BracedInitializerIndentWidth: 2 # Unused, C++
 
-BreakBeforeBraces: Custom
-
-
-
-
-
-MaxEmptyLinesToKeep: 1
-
-
+BracedInitializerIndentWidth: 2
+BreakAfterAttributes: Leave # Unused, C++
+BreakAfterJavaFieldAnnotations: false # Unused, Java
+BreakArrays: false # Unused, JSON
 BreakBeforeBinaryOperators: NonAssignment
-
-
+BreakBeforeConceptDeclarations: Never # Unused, C++
+BreakBeforeInlineASMColon: Never
+BreakBeforeTernaryOperators: true
+BreakConstructorInitializers: AfterColon # Unused, C++
+BreakInheritanceList: AfterColon # Unused, C++
+BreakStringLiterals: false
+ColumnLimit: 100
+CommentPragmas: '^ NOFMT'
+CompactNamespaces: false # Unused, C++
+ConstructorInitializerIndentWidth: 2 # Unused, C++
+ContinuationIndentWidth: 2 # TODO: Maybe 4 ?
+Cpp11BracedListStyle: false # Unused, C++
+DerivePointerAlignment: false
+DisableFormat: false
+EmptyLineAfterAccessModifier: Leave # Unused, C++
+EmptyLineBeforeAccessModifier: Leave # Unused, C++
+# ExperimentalAutoDetectBinPacking: false # Ummmmm
+FixNamespaceComments: true # Unused, C++
+ForEachMacros: [] # TODO: FIGURE THIS OUT
+IfMacros: [] # TODO: FIGURE THIS OUT
+IncludeBlocks: Preserve # TODO: MUST BE CHANGED
+IncludeCategories: [] # TODO: MUST BE CHANGED
+# IncludeIsMainRegex: '([-_](test|unittest))?$' # TODO: MUST BE CHANGED
+# IncludeIsMainSourceRegex: '([-_](test|unittest))?$' # TODO: MUST BE CHANGED
+IndentAccessModifiers: false # Unused, C++
+IndentCaseBlocks: false
+IndentCaseLabels: false
+IndentExternBlock: NoIndent
+IndentGotoLabels: false
+IndentPPDirectives: None
+IndentRequiresClause: false # Unused, C++
+IndentWidth: 2
+IndentWrappedFunctionNames: false
+InsertBraces: false
+InsertNewlineAtEOF: true
+InsertTrailingCommas: All # Unused, JavaScript
+IntegerLiteralSeparator:
+  Binary: 0
+  Decimal: 0
+  Hex: 0
+# JavaImportGroups:
+# JavaScriptQuotes:
+# JavaScriptWrapImports:
+KeepEmptyLinesAtEOF: false
+KeepEmptyLinesAtTheStartOfBlocks: true
+LambdaBodyIndentation: Signature # Unused, C++
+LineEnding: LF
+MacroBlockBegin: '' # TODO: THIS
+MacroBlockEnd: '' # TODO: THIS
+Macros: [] # TODO: MUST DO THIS
+MaxEmptyLinesToKeep: 1
+NamespaceIndentation: None # Unused, C++
+NamespaceMacros: [] # Unused, C++
+ObjCBinPackProtocolList: Auto # Unused, ObjC
+ObjCBlockIndentWidth: 2 # Unused, ObjC
+ObjCBreakBeforeNestedBlockParam: false # Unused, ObjC
+ObjCSpaceAfterProperty: false # Unused, ObjC
+ObjCSpaceBeforeProtocolList: false # Unused, ObjC
+PPIndentWidth: 2 # TODO: CHECK ON THIS
+PackConstructorInitializers: Never # Unused, C++
+PeanltyBreakAssignment: 100
+PenaltyBreakBeforeFirstCallParameter: 0
+PenaltyBreakComment: 100
+PenaltyBreakFirstLessLess: 0
+PenaltyBreakOpenParenthesis: 0
+PenaltyBreakString: 20
+PenaltyBreakTemplateDeclaration: 0
+PenaltyExcessCharacter: 1
+PenaltyIndentedWhitespace: 0
+PenaltyReturnTypeOnItsOwnLine: 0
+PointerAlignment: Middle
+QualifierAlignment: Custom
+QualifierOrder: ['static', 'inline', 'type', 'const', 'volatile', 'restrict']
+RawStringFormats : [] # Unused
+ReferenceAlignment: Middle # Unused, C++
+ReflowComments: true
+RemoveBracesLLVM: false
+RemoveSemicolon: true
+# RequiresClausePosition: Unused C++
+# RequiresExpressionIndentation: Unused C++
+SeparateDefinitionBlocks: Always
+ShortNamespaceLines: 0 # Unused, C++
+SortIncludes: Never # TODO: COME BACK TO THIS
+SortJavaStaticImport: Before # Unused, Java
+SortUsingDeclarations: Never # Unused, C++
+SpaceAfterCStyleCast: false
+SpaceAfterLogicalNot: false
+SpaceAfterTemplateKeyword: false # Unused, C++
+SpaceAroundPointerQualifiers: Both
+SpaceBeforeAssignmentOperators: true
+SpaceBeforeCaseColon: false
+SpaceBeforeCpp11BracedList: true # Unused, C++
+SpaceBeforeCtorInitializerColon: true # Unused, C++
+SpaceBeforeInheritanceColon: true # Unused, C++
+SpaceBforeJsonColon: true # Unused, JSON
+SpaceBeforeParens: Custom
+SpaceBeforeParensOptions:
+  AfterControlStatements: false
+  AfterForeachMacros: false
+  AfterFunctionDeclarationName: false
+  AfterFunctionDefinitionName: false
+  AfterIfMacros: false
+  AfterOverloadedOperator: false
+  AfterRequiresInClause: false
+  AfterRequiresInExpression: false
+  BeforeNonEmptyParentheses: false
+SpaceBeforeRangeBasedForLoopColon: false # Unused, C++
+SpaceBeforeSquareBrackets: false
+SpaceInEmptyBlock: false
+SpaceInEmptyParentheses: false
+SpacesBeforeTrailingComments: 1
+SpacesInAngles: Never # Unused, C++
+SpacesInCStyleCastParentheses: false
+SpacesInConditionalStatement: true
+SpacesInContainerLiterals: true
+SpacesInLineCommentPrefix:
+  Minimum: 1
+  Maximum: -1
+SpacesInParentheses: true
+SpacesInSquareBrackets: true
+Standard: c++17
+StatementAttributeLikeMacros: [] # TODO: LATER
+StatementMacros: [] # TODO: LATER
+TabWidth: 2
+TypenameMacros: [] # TODO: LATER
+UseTab: Never
+# VerilogBreakBetweenInstancePorts: Unused, Verilog
+WhitespaceSensitiveMacros: [] # TODO: LATER
 
 # 
 # 
