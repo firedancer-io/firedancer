@@ -71,7 +71,7 @@ int fd_xdp_redirect( struct xdp_md *ctx ) {
   uchar const * data      = (uchar const*)(ulong)ctx->data;
   uchar const * data_end  = (uchar const*)(ulong)ctx->data_end;
 
-  if( FD_UNLIKELY( data + 60U > data_end ) ) return XDP_PASS;
+  if( FD_UNLIKELY( data + 14+20+8 > data_end ) ) return XDP_PASS;
 
   uchar const * iphdr = data + 14U;
 

@@ -6,6 +6,15 @@
 
 #include "../fd_ballet_base.h"
 
+typedef void *
+(* fd_hmac_fn_t)( void const * data,
+                  ulong        data_sz,
+                  void const * key,
+                  ulong        key_sz,
+                  void *       hash );
+
+FD_PROTOTYPES_BEGIN
+
 /* fd_hmac_sha256 computes the HMAC-SHA256 digest given a key and a
    message.  key points to the first byte of the key byte array of size
    key_sz.  data points to the first byte of the message byte array of
@@ -32,5 +41,7 @@ fd_hmac_sha512( void const * data,
                 void const * key,
                 ulong        key_sz,
                 void *       hash );
+
+FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_ballet_hmac_fd_hmac_h */

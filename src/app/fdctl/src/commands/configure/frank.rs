@@ -1,5 +1,3 @@
-use std::path::Path;
-
 use super::*;
 use crate::security::*;
 use crate::utility::*;
@@ -54,33 +52,31 @@ fn step(config: &mut Config) {
     // Pack tiles
     let cnc = run!("{bin}/fd_tango_ctl new-cnc {workspace} 0 tic {CNC_APP_SIZE}");
     let mcache = run!("{bin}/fd_tango_ctl new-mcache {workspace} {} 0 0", config.tiles.pack.max_pending_transactions);
-    
-    let dcache = run!("{bin}/fd_tango_ctl new-dcache {workspace} 4808 {} 1 1 0", config.tiles.pack.max_pending_transactions);
-    let (pack_scratch, cu_est_table) = if Path::new(&format!("{bin}/fd_pack_ctl")).exists() {
-        // TODO: Always enable this when merged with pack changes in 1.2
-        let pack_scratch = run!("{bin}/fd_pack_ctl new-scratch {workspace} {} {}", config.tiles.pack.solana_labs_bank_thread_count, config.tiles.pack.max_pending_transactions);
-        let cu_est_table = run!("{bin}/fd_pack_ctl new-cu-est-tbl {workspace} {} {} {}", config.tiles.pack.compute_unit_estimator_table_size, config.tiles.pack.compute_unit_estimator_ema_history, config.tiles.pack.compute_unit_estimator_ema_default);
-        (pack_scratch, cu_est_table)
-    } else {
-        ("unused".to_string(), "unused".to_string())
-    };
+
+    // 6 should be  `(num_bank_threads+1) * max_pending_transactions + num_bank_threads`
+    let dcache = run!("{bin}/fd_tango_ctl new-dcache {workspace} 4808 {} 1 1 0", 6 * config.tiles.pack.max_pending_transactions);
 
     let return_fseq = run!("{bin}/fd_tango_ctl new-fseq {workspace} 0");
+
+    let compute_unit_estimator_bin_count = 4096;
+    let compute_unit_estimator_footprint = 32 + 32 * compute_unit_estimator_bin_count;
+    let compute_unit_estimator_memory = run!("{bin}/fd_wksp_ctl alloc {workspace} 32 {}", compute_unit_estimator_footprint);
+
     run!("{bin}/fd_pod_ctl \
         insert {pod} cstr {prefix}.pack.cnc {cnc} \
         insert {pod} cstr {prefix}.pack.out-mcache {mcache} \
         insert {pod} cstr {prefix}.pack.out-dcache {dcache} \
-        insert {pod} cstr {prefix}.pack.scratch {pack_scratch} \
-        insert {pod} cstr {prefix}.pack.cu-est-tbl {cu_est_table} \
         insert {pod} cstr {prefix}.pack.return-fseq {return_fseq} \
         insert {pod} ulong {prefix}.pack.bank-cnt {solana_labs_bank_thread_count} \
         insert {pod} ulong {prefix}.pack.txnq-sz {max_pending_transactions} \
-        insert {pod} ulong {prefix}.pack.cu-est-tbl-sz {compute_unit_estimator_table_size} \
-        insert {pod} uint {prefix}.pack.cu-limit {solana_labs_bank_thread_compute_units_executed_per_second}",
+        insert {pod} uint {prefix}.pack.cu-limit {solana_labs_bank_thread_compute_units_executed_per_second} \
+        insert {pod} ulong {prefix}.pack.cu-est-tbl.bin-cnt   {compute_unit_estimator_bin_count} \
+        insert {pod} ulong {prefix}.pack.cu-est-tbl.footprint {compute_unit_estimator_footprint} \
+        insert {pod} cstr  {prefix}.pack.cu-est-tbl.memory    {compute_unit_estimator_memory}",
         solana_labs_bank_thread_count=config.tiles.pack.solana_labs_bank_thread_count,
         max_pending_transactions=config.tiles.pack.max_pending_transactions,
-        compute_unit_estimator_table_size=config.tiles.pack.compute_unit_estimator_table_size,
         solana_labs_bank_thread_compute_units_executed_per_second=config.tiles.pack.solana_labs_bank_thread_compute_units_executed_per_second);
+
 
     // Dedup tiles
     let cnc = run!("{bin}/fd_tango_ctl new-cnc {workspace} 0 tic {CNC_APP_SIZE}");
@@ -126,12 +122,7 @@ fn step(config: &mut Config) {
     // QUIC tiles
     for (i, (verify_mcache, verify_dcache, verify_fseq)) in verify_info.into_iter().enumerate() {
         let cnc = run!("{bin}/fd_tango_ctl new-cnc {workspace} 2 tic {CNC_APP_SIZE}");
-        let quic = if Path::new(&format!("{bin}/fd_quic_ctl")).exists() {
-            // TODO: Always enable this when merged with QUIC changes in 1.1
-            run!("{bin}/fd_quic_ctl new-quic {workspace}")
-        } else {
-            "unused".to_owned()
-        };
+        let quic = run!("{bin}/fd_quic_ctl new-quic {workspace}");
         let xsk = run!("{bin}/fd_xdp_ctl new-xsk {workspace} 2048 {} {}", config.tiles.quic.xdp_rx_queue_size, config.tiles.quic.xdp_tx_queue_size);
         run!("{bin}/fd_xdp_ctl bind-xsk {xsk} {name} {interface} {i}");
         let xsk_aio = run!("{bin}/fd_xdp_ctl new-xsk-aio {workspace} {} {}", config.tiles.quic.xdp_tx_queue_size, config.tiles.quic.xdp_aio_depth);
@@ -153,8 +144,8 @@ fn step(config: &mut Config) {
     let src_mac_address = super::netns::src_mac_address(config);
 
     run!("{bin}/fd_pod_ctl \
-        insert {pod} cstr {prefix}.quic_cfg.cert_file {cert_file} \
-        insert {pod} cstr {prefix}.quic_cfg.key_file {key_file} \
+        insert-file {pod} {prefix}.quic_cfg.cert_data {cert_file} \
+        insert-file {pod} {prefix}.quic_cfg.key_data {key_file} \
         insert {pod} cstr {prefix}.quic_cfg.ip_addr {ip_addr} \
         insert {pod} ushort {prefix}.quic_cfg.listen_port {listen_port} \
         insert {pod} cstr {prefix}.quic_cfg.src_mac_addr {src_mac_address} \

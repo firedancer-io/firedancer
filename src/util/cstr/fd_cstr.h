@@ -101,12 +101,19 @@ fd_cstr_hash_append( ulong        hash,
 
 FD_FN_PURE static inline ulong fd_cstr_hash( char const * key ) { return fd_cstr_hash_append( 5381UL, key ); }
 
-/* fd_cstr_casecmp is equivalent to strcasecmp but doesn't require a
-   HOSTED (POSIX) support. */
+/* fd_cstr_casecmp is equivalent to strcasecmp but doesn't require
+   FD_HAS_HOSTED (POSIX) support. */
 
 FD_FN_PURE int
 fd_cstr_casecmp( char const * a,
                  char const * b );
+
+/* fd_cstr_nlen is equivalent to strnlen but doesn't require
+   FD_HAS_HOSTED (POSIX) support. */
+
+FD_FN_PURE ulong
+fd_cstr_nlen( char const * s,
+              ulong        m );
 
 /* cstr output ********************************************************/
 

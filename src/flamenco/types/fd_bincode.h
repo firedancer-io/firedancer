@@ -2,7 +2,6 @@
 #define HEADER_fd_src_util_encoders_fd_bincode_h
 
 #include "../../util/fd_util.h"
-#include "../../util/simd/fd_sse.h"
 
 /* Context argument used for encoding */
 struct fd_bincode_encode_ctx {
@@ -44,19 +43,13 @@ typedef struct fd_bincode_destroy_ctx fd_bincode_destroy_ctx_t;
 #define FD_BINCODE_ERR_ENCODING -3  /* Invalid encoding */
 #define FD_BINCODE_ERR_SMALL_DEQUE -4 /* deque max size is too small */
 
-#if FD_HAS_INT128
-
 static inline int
 fd_bincode_uint128_decode(uint128 * self, fd_bincode_decode_ctx_t * ctx) {
   const uint128 * ptr = (const uint128 *) ctx->data;
   if ( FD_UNLIKELY((void const *) (ptr + 1) > ctx->dataend ) )
     return FD_BINCODE_ERR_UNDERFLOW;
 
-#if FD_HAS_INT128 && FD_HAS_SSE
-  *(__m128i_u*)self = _mm_loadu_si128((void const *) ptr);
-#else
-  memcpy(self, ptr, sizeof(uint128));
-#endif
+  memcpy( self, ptr, sizeof(uint128) ); /* Do direct assignment (especially if ptr is aligned 16)? */
   ctx->data = ptr + 1;
 
   return FD_BINCODE_SUCCESS;
@@ -68,17 +61,11 @@ fd_bincode_uint128_encode(uint128 const * self, fd_bincode_encode_ctx_t * ctx) {
   if ( FD_UNLIKELY((void const *) (ptr + 1) > ctx->dataend ) )
     return FD_BINCODE_ERR_OVERFLOW;
 
-#if FD_HAS_INT128 && FD_HAS_SSE
-  _mm_storeu_si128((__m128i *) ptr, (__m128i) *self);
-#else
-  memcpy(ptr, *self, sizeof(uint128));
-#endif
+  memcpy( ptr, self, sizeof(uint128) ); /* Do direct assignment (especially if ptr is aligned 16)? */
   ctx->data = ptr + 1;
 
   return FD_BINCODE_SUCCESS;
 }
-
-#endif /* FD_HAS_INT128 */
 
 static inline int
 fd_bincode_uint64_decode( ulong *                   self,

@@ -204,10 +204,6 @@ scratch_directory = "/home/{user}/.firedancer/{name}"
         # TODO: This should be removed. We never transmit stream data so this should be unused.
         tx_buf_size = 4096
 
-        # TODO: This should not be configurable. The rx buf size should always just be the maximum
-        # transaction size. This is apparently used for flow control as well?
-        rx_buf_size = 8192
-
         # Firedancer uses XDP for fast packet processing. XDP supports two modes, XDP_SKB and
         # XDP_DRV. XDP_DRV is preferred as it is faster, but is not supported by all drivers.
         xdp_mode = "skb"
@@ -320,6 +316,12 @@ scratch_directory = "/home/{user}/.firedancer/{name}"
         signature_cache_size = 4194302
 
 [development]
+    # For enhanced security, Firedancer runs itself in a restrictive sandbox in production. The
+    # sandbox prevents most system calls and restricts the capabilities of the process after
+    # initialization to make the attack surface smaller. This is required in production, but might
+    # be too restrictive during development.
+    sandbox = true
+
     # Firedancer requires some privileges for normal operation. In production it will not attempt
     # to acquire these, and must be either be run as root, or have the capabilities set on the
     # binary. During development it can be useful for Firedancer to rerun itself as root if it does

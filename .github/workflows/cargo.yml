@@ -14,6 +14,7 @@ jobs:
       - uses: actions-rs/cargo@v1
         with:
           command: check
+          args: --workspace
 
   package:
     name: cargo-package
@@ -43,6 +44,7 @@ jobs:
       - uses: actions-rs/cargo@v1
         with:
           command: test
+          args: --all
 
   fmt:
     name: cargo-rustfmt
@@ -74,7 +76,7 @@ jobs:
       - uses: actions-rs/cargo@v1
         with:
           command: clippy
-          args: -- -D warnings
+          args: --all -- -D warnings
 
   cargo-deny:
     name: cargo-deny

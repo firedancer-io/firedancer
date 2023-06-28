@@ -50,3 +50,47 @@ fd_eth_fcs_append( uint         seed,
   return ~crc;
 }
 
+static inline ulong
+ascii_to_xdigit( char c ) {
+
+  /* '0'-'9' -> 0x30-0x39 ->  0- 9
+     'A'-'F' -> 0x41-0x46 -> 10-15
+     'a'-'f' -> 0x61-0x66 -> 10-15.
+     All other values map to 16.
+
+     Trick 1: We note that the span from '0' to 'f' covers 55
+     characters.  Thus suggests using a range test and bit field to
+     determine if c is a hexdigit.  We subtract c by 0 with unsigned
+     arithmetic (such that c below '0' map to values >=55and c above 'f'
+     map to values >=55).  We then branchlessly saturate the result to
+     [0,63] and quick lookup in a 64-bit table encoded as an ulong
+     whether or not 'c' is in range.
+
+     Trick 2: After filtering c to range of actual hexdigits, we note
+     the least significant nibble is the desired result d <= 9 and the
+     desired result minus 9 otherwise.
+
+     (Arguable that a simple table lookup might be faster.) */
+
+  ulong ul = (ulong)(uchar)c;
+  return fd_ulong_if( (int)((0x007e0000007e03ffUL >> fd_ulong_min( ul - (ulong)(uchar)'0', 63UL )) & 1UL), /* isxdigit */
+                      (ul & 15UL) + 9UL*(ulong)(ul>(ulong)(uchar)'9'),
+                      16UL );
+}
+
+uchar *
+fd_cstr_to_mac_addr( char const * s,
+                     uchar      * mac ) {
+
+  if( FD_UNLIKELY( (!s) | (!mac) ) ) return NULL;
+
+  for( ulong i=0UL; i<6UL; i++ ) {
+    ulong s1 = ascii_to_xdigit( s[0] ); if( FD_UNLIKELY( s1>15UL ) ) return NULL;
+    ulong s0 = ascii_to_xdigit( s[1] ); if( FD_UNLIKELY( s0>15UL ) ) return NULL;
+    if( (i<5UL) && FD_UNLIKELY( s[2]!=':' ) ) return NULL;
+    mac[i] = (uchar)((s1<<4) | s0);
+    s += 3;
+  }
+  
+  return mac;
+}
