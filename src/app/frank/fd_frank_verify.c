@@ -353,7 +353,7 @@ fd_frank_verify_task( int     argc,
 #endif
     /* making upd_payload and chunk point to vin_dcache_chunk_laddr. */
     uchar * udp_payload = vin_dcache_chunk_laddr;
-    chunk = (ulong)vin_dcache_chunk_laddr;
+    chunk = vin_mline->chunk;
 
 #if DETAILED_LOGGING
     FD_LOG_INFO(( "verifyin.%s received from vin_mcache[%lu]", vin_name, vin_seq_found ));
