@@ -72,18 +72,29 @@ fd_quic_hkdf_expand_label( uchar *       output,  ulong output_sz,
   if( FD_UNLIKELY( ( output_sz  > ( 1u<<16u )                ) |
                    ( secret_sz  > INT_MAX                    ) |
                    ( label_sz   > FD_QUIC_CRYPTO_LABEL_BOUND ) ) ) {
-    FD_LOG_WARNING(( "fd_quic_hkdf_expand_label: invalid params (output_sz=%lu secret_sz=%lu label_sz=%lu)",
-                     output_sz, secret_sz, label_sz ));
+    FD_DEBUG(
+        FD_LOG_WARNING( (
+            "fd_quic_hkdf_expand_label: invalid params (output_sz=%lu secret_sz=%lu label_sz=%lu)",
+            output_sz,
+            secret_sz,
+            label_sz
+        ) );
+    )
     return NULL;
   }
 
   if( FD_UNLIKELY( output_sz > hash_sz ) ) {
-    FD_LOG_WARNING(( "fd_quic_hkdf_expand_label: output_sz (%lu) is larger than hash size (%lu)", output_sz, hash_sz ));
+    FD_DEBUG( FD_LOG_WARNING(
+        ( "fd_quic_hkdf_expand_label: output_sz (%lu) is larger than hash size (%lu)",
+          output_sz,
+          hash_sz )
+    ) );
     return NULL;
   }
 
   if( FD_UNLIKELY( hash_sz > FD_QUIC_CRYPTO_HASH_SZ_BOUND ) ) {
-    FD_LOG_WARNING(( "fd_quic_hkdf_expand_label: hash_sz is larger than output buffer" ));
+    FD_DEBUG( FD_LOG_WARNING( ( "fd_quic_hkdf_expand_label: hash_sz is larger than output buffer" ) )
+    );
     return NULL;
   }
 
@@ -100,7 +111,7 @@ fd_quic_hkdf_expand_label( uchar *       output,  ulong output_sz,
        const 0x01:           1 byte */
   ulong label_data_sz = 3 + HKDF_PREFIX_SZ + label_sz + 1 + 1;
   if( FD_UNLIKELY( label_data_sz > sizeof( label_data ) ) ) {
-    FD_LOG_WARNING(( "fd_quic_hkdf_expand_label: label data size larger than allowed"  ));
+    FD_DEBUG( FD_LOG_WARNING( ( "fd_quic_hkdf_expand_label: label data size larger than allowed" ) ) );
     return NULL;
   }
 
@@ -138,7 +149,7 @@ fd_quic_gen_initial_secret(
                              initial_salt,            initial_salt_sz,
                              conn_id,                 conn_id_sz,
                              fd_hmac_sha256 ) ) ) {
-    FD_LOG_WARNING(( "fd_quic_hkdf_extract failed" ));
+    FD_DEBUG( FD_LOG_WARNING( ( "fd_quic_hkdf_extract failed" ) ) );
     return FD_QUIC_FAILED;
   }
 
@@ -169,7 +180,7 @@ fd_quic_gen_secrets(
       secrets->initial_secret, sizeof( secrets->initial_secret ),
       (uchar*)client_in,       strlen( client_in ),
       hmac_fn,                 hash_sz ) ) ) {
-    FD_LOG_WARNING(( "fd_quic_hkdf_expand_label failed" ));
+    FD_DEBUG( FD_LOG_WARNING( ( "fd_quic_hkdf_expand_label failed" ) ) );
     return FD_QUIC_FAILED;
   }
 
@@ -600,16 +611,16 @@ fd_quic_crypto_encrypt(
 }
 
 static char const *
-fd_quic_tls_strerror( void ) {
+fd_quic_openssl_strerror( void ) {
   /* had a segfault in ERR_error_string_n
    * so disaabling this for now
    * TODO fix */
 #if 1
-  static char errbuf[ 512UL ];
+  static char errbuf[ 256UL ];  /* openssl docs state buf >= 256 bytes */
   errbuf[ 0 ] = '\0';
 
   ulong err_id = ERR_get_error();
-  ERR_error_string_n( err_id, errbuf, 2048UL );
+  ERR_error_string_n( err_id, errbuf, sizeof( errbuf ) );
 
   return errbuf;
 #else
@@ -632,12 +643,12 @@ fd_quic_crypto_decrypt(
   /* must have at least a short header and a TAG */
   if( FD_UNLIKELY( cipher_text_sz < FD_QUIC_CRYPTO_TAG_SZ ) ) {
     FD_LOG_ERR(( "fd_quic_crypto_decrypt: cipher text too small" ));
-    return FD_QUIC_FAILED;
   }
 
   /* must have space for cipher_text_sz - FD_QUIC_CRYPTO_TAG_SZ */
   if( FD_UNLIKELY( *plain_text_sz + FD_QUIC_CRYPTO_TAG_SZ < cipher_text_sz ) ) {
-    FD_LOG_WARNING(( "fd_quic_crypto_decrypt: plain text buffer too small" ));
+    /* should this stop the process? */
+    FD_DEBUG( FD_LOG_WARNING( ( "fd_quic_crypto_decrypt: plain text buffer too small" ) ) );
     return FD_QUIC_FAILED;
   }
 
@@ -705,9 +716,9 @@ fd_quic_crypto_decrypt(
 
   ulong offset = (ulong)out_sz;
   if( EVP_DecryptFinal( cipher_ctx, payload + offset, &out_sz ) != 1 ) {
-    /* TODO this can happen, probably shouldn't warn here */
-    FD_LOG_WARNING(( "EVP_DecryptFinal failed: %s", fd_quic_tls_strerror() ));
-
+    FD_DEBUG( FD_LOG_WARNING(
+        ( "fd_quic_crypto_decrypt: EVP_DecryptFinal failed %s", fd_quic_openssl_strerror() )
+    ) );
     return FD_QUIC_FAILED;
   }
 
@@ -731,13 +742,13 @@ fd_quic_crypto_decrypt_hdr(
 
   /* must have at least a short header */
   if( FD_UNLIKELY( cipher_text_sz < FD_QUIC_CRYPTO_TAG_SZ ) ) {
-    FD_LOG_ERR(( "fd_quic_crypto_decrypt: cipher text too small" ));
+    FD_DEBUG( FD_LOG_WARNING( ( "fd_quic_crypto_decrypt: cipher text too small" ) ) );
     return FD_QUIC_FAILED;
   }
 
   /* must have capacity for header */
   if( FD_UNLIKELY( *plain_text_sz < pkt_number_off + 4 ) ) {
-    FD_LOG_ERR(( "fd_quic_crypto_decrypt: plain text buffer too small" ));
+    FD_DEBUG( FD_LOG_WARNING( ( "fd_quic_crypto_decrypt: plain text buffer too small" ) ) );
     return FD_QUIC_FAILED;
   }
 
@@ -749,7 +760,6 @@ fd_quic_crypto_decrypt_hdr(
   EVP_CIPHER_CTX * hp_cipher_ctx = keys->hp_cipher_ctx;
   if( FD_UNLIKELY( !hp_cipher_ctx ) ) {
     FD_LOG_ERR(( "fd_quic_crypto_decrypt: Error creating cipher ctx" ));
-    return FD_QUIC_FAILED;
   }
 
   uchar hp_cipher[ FD_QUIC_CRYPTO_BLOCK_BOUND ] = {0};
@@ -758,8 +768,7 @@ fd_quic_crypto_decrypt_hdr(
   }
 
   if( FD_UNLIKELY( sample + FD_QUIC_HP_SAMPLE_SZ > cipher_text + cipher_text_sz ) ) {
-    FD_LOG_WARNING(( "fd_quic_crypto_decrypt failed. Not enough bytes for a sample" ));
-    return FD_QUIC_FAILED;
+    FD_LOG_ERR(( "fd_quic_crypto_decrypt failed. Not enough bytes for a sample" ));
   }
 
   int hp_cipher_sz = 0;
@@ -800,7 +809,7 @@ fd_quic_crypto_rand( uchar * buf,
                      ulong   buf_sz ) {
 
   if( FD_UNLIKELY( buf_sz > INT_MAX ) ) {
-    FD_LOG_WARNING(( "fd_quic_crypto_rand: buf_sz too big (%#lx)", buf_sz ));
+    FD_DEBUG ( FD_LOG_WARNING(( "fd_quic_crypto_rand: buf_sz too big (%#lx)", buf_sz )) );
     return FD_QUIC_FAILED;
   }
 
@@ -808,8 +817,7 @@ fd_quic_crypto_rand( uchar * buf,
     return FD_QUIC_SUCCESS;
 
   /* openssl error getting random bytes - bail */
-  ulong err = ERR_get_error();
-  FD_LOG_ERR(( "openssl RAND_bytes failed. Error: %lu", err ));
+  FD_LOG_ERR( ( "openssl RAND_bytes failed. Error: %s", fd_quic_openssl_strerror() ) );
 }
 
 int fd_quic_retry_token_encrypt(
@@ -881,9 +889,6 @@ int fd_quic_retry_token_encrypt(
       tag
   );
   if ( FD_QUIC_RETRY_TOKEN_CIPHERTEXT_SZ != ciphertext_len ) {
-    FD_LOG_WARNING(
-        ( "Expected ciphertext length to equal plaintext length. Instead got: %d", ciphertext_len )
-    );
     return FD_QUIC_FAILED;
   }
   return FD_QUIC_SUCCESS;
@@ -1006,23 +1011,20 @@ int gcm_encrypt(
 ) {
   EVP_CIPHER_CTX * ctx;
   ctx = EVP_CIPHER_CTX_new();
-  if ( ( FD_UNLIKELY( !ctx ) ) ) {
-    ulong err = ERR_get_error();
-    FD_LOG_WARNING( ( "EVP_CIPHER_CTX_new failed. Error: %lu", err ) );
+  if( FD_UNLIKELY( !ctx ) ) {
+    FD_DEBUG( FD_LOG_ERR( ( "EVP_CIPHER_CTX_new failed. Error: %s", fd_quic_openssl_strerror() ) ) );
     return FD_QUIC_FAILED;
   }
 
-  if ( FD_UNLIKELY( 1 != EVP_EncryptInit_ex( ctx, cipher, NULL, key, iv ) ) ) {
-    ulong err = ERR_get_error();
-    FD_LOG_WARNING( ( "EVP_EncryptInit_ex failed. Error: %lu", err ) );
+  if( FD_UNLIKELY( 1 != EVP_EncryptInit_ex( ctx, cipher, NULL, key, iv ) ) ) {
+    FD_DEBUG( FD_LOG_ERR( ( "EVP_EncryptInit_ex failed. Error: %s", fd_quic_openssl_strerror() ) ); )
     return FD_QUIC_FAILED;
   }
 
   int len;
   /* The associated data ("AD" in AEAD). */
-  if ( FD_UNLIKELY( 1 != EVP_EncryptUpdate( ctx, NULL, &len, aad, aad_len ) ) ) {
-    ulong err = ERR_get_error();
-    FD_LOG_WARNING( ( "EVP_EncryptUpdate (AAD) failed. Error: %lu", err ) );
+  if( FD_UNLIKELY( 1 != EVP_EncryptUpdate( ctx, NULL, &len, aad, aad_len ) ) ) {
+    FD_DEBUG( FD_LOG_ERR( ( "EVP_EncryptUpdate (AAD) failed. Error: %s", fd_quic_openssl_strerror() ) ); )
     return FD_QUIC_FAILED;
   }
 
@@ -1030,22 +1032,19 @@ int gcm_encrypt(
   int ciphertext_len;
   if ( plaintext_len > 0 &&
        FD_UNLIKELY( 1 != EVP_EncryptUpdate( ctx, ciphertext, &len, plaintext, plaintext_len ) ) ) {
-    ulong err = ERR_get_error();
-    FD_LOG_WARNING( ( "EVP_EncryptUpdate (plaintext) failed. Error: %lu", err ) );
+    FD_DEBUG( FD_LOG_ERR( ( "EVP_EncryptUpdate (plaintext) failed. Error: %s", fd_quic_openssl_strerror() ) ); )
     return FD_QUIC_FAILED;
   }
   ciphertext_len = len;
   if ( FD_UNLIKELY( 1 != EVP_EncryptFinal_ex( ctx, ciphertext + len, &len ) ) ) {
-    ulong err = ERR_get_error();
-    FD_LOG_WARNING( ( "EVP_EncryptFinal_ex failed. Error: %lu", err ) );
+    FD_DEBUG( FD_LOG_ERR( ( "EVP_EncryptFinal_ex failed. Error: %s", fd_quic_openssl_strerror() ) ); )
     return FD_QUIC_FAILED;
   }
   ciphertext_len += len;
 
   /* The authentication tag ("A" in AEAD). */
-  if ( FD_UNLIKELY( 1 != EVP_CIPHER_CTX_ctrl( ctx, EVP_CTRL_GCM_GET_TAG, 16, tag ) ) ) {
-    ulong err = ERR_get_error();
-    FD_LOG_WARNING( ( "EVP_CIPHER_CTX_ctrl (get tag) failed. Error: %lu", err ) );
+  if( FD_UNLIKELY( 1 != EVP_CIPHER_CTX_ctrl( ctx, EVP_CTRL_GCM_GET_TAG, 16, tag ) ) ) {
+    FD_DEBUG( FD_LOG_ERR(( "EVP_CIPHER_CTX_ctrl (get tag) failed. Error: %s", fd_quic_openssl_strerror() )) );
     return FD_QUIC_FAILED;
   }
 
@@ -1066,42 +1065,36 @@ int gcm_decrypt(
 ) {
   EVP_CIPHER_CTX * ctx;
 
-  if ( FD_UNLIKELY( !( ctx = EVP_CIPHER_CTX_new() ) ) ) {
-    ulong err = ERR_get_error();
-    FD_LOG_WARNING( ( "EVP_CIPHER_CTX_new failed. Error: %lu", err ) );
+  if( FD_UNLIKELY( !( ctx = EVP_CIPHER_CTX_new() ) ) ) {
+    FD_DEBUG( FD_LOG_ERR( ( "EVP_CIPHER_CTX_new failed. Error: %s", fd_quic_openssl_strerror() ) ) );
     return FD_QUIC_FAILED;
   }
 
-  if ( FD_UNLIKELY( !EVP_DecryptInit_ex( ctx, cipher, NULL, key, iv ) ) ) {
-    ulong err = ERR_get_error();
-    FD_LOG_WARNING( ( "EVP_DecryptInit_ex failed. Error: %lu", err ) );
+  if( FD_UNLIKELY( !EVP_DecryptInit_ex( ctx, cipher, NULL, key, iv ) ) ) {
+    FD_DEBUG( FD_LOG_ERR( ( "EVP_DecryptInit_ex failed. Error: %s", fd_quic_openssl_strerror() ) ) );
     return FD_QUIC_FAILED;
   }
 
   int len;
-  if ( FD_UNLIKELY( !EVP_DecryptUpdate( ctx, NULL, &len, aad, aad_len ) ) ) {
-    ulong err = ERR_get_error();
-    FD_LOG_WARNING( ( "EVP_DecryptUpdate (AAD) failed. Error: %lu", err ) );
+  if( FD_UNLIKELY( !EVP_DecryptUpdate( ctx, NULL, &len, aad, aad_len ) ) ) {
+    FD_DEBUG( FD_LOG_ERR( ( "EVP_DecryptUpdate (AAD) failed. Error: %s", fd_quic_openssl_strerror() ) ) );
     return FD_QUIC_FAILED;
   }
 
-  if ( FD_UNLIKELY( !EVP_DecryptUpdate( ctx, plaintext, &len, ciphertext, ciphertext_len ) ) ) {
-    ulong err = ERR_get_error();
-    FD_LOG_WARNING( ( "EVP_DecryptUpdate (ciphertext) failed. Error: %lu", err ) );
+  if( FD_UNLIKELY( !EVP_DecryptUpdate( ctx, plaintext, &len, ciphertext, ciphertext_len ) ) ) {
+    FD_DEBUG( FD_LOG_ERR( ( "EVP_DecryptUpdate (ciphertext) failed. Error: %s", fd_quic_openssl_strerror() ) ) );
     return FD_QUIC_FAILED;
   }
 
   int plaintext_len = len;
-  if ( !EVP_CIPHER_CTX_ctrl( ctx, EVP_CTRL_GCM_SET_TAG, FD_QUIC_CRYPTO_TAG_SZ, tag ) ) {
-    ulong err = ERR_get_error();
-    FD_LOG_WARNING( ( "EVP_CIPHER_CTX_ctrl (get tag) failed. Error: %lu", err ) );
+  if( FD_UNLIKELY( !EVP_CIPHER_CTX_ctrl( ctx, EVP_CTRL_GCM_SET_TAG, FD_QUIC_CRYPTO_TAG_SZ, tag ) ) ) {
+    FD_DEBUG( FD_LOG_ERR( ( "EVP_CIPHER_CTX_ctrl (get tag) failed. Error: %s", fd_quic_openssl_strerror() ) ) );
     return FD_QUIC_FAILED;
   }
 
   int rc = EVP_DecryptFinal_ex( ctx, plaintext + len, &len );
-  if ( rc <= 0 ) {
-    ulong err = ERR_get_error();
-    FD_LOG_WARNING( ( "EVP_DecryptFinal_ex failed. Error: %lu", err ) );
+  if( FD_UNLIKELY( rc <= 0 ) ) {
+    FD_DEBUG( FD_LOG_DEBUG( ( "EVP_DecryptFinal_ex failed. Error: %s", fd_quic_openssl_strerror() ) ) );
     return FD_QUIC_FAILED;
   }
   plaintext_len += len;

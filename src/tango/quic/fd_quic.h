@@ -680,4 +680,11 @@ uint fd_quic_tx_buffered_raw(fd_quic_t *quic,
 #include "fd_quic_conn.h"
 #include "fd_quic_stream.h"
 
+/* FD_DEBUG_MODE: set to enable debug-only code */
+#ifndef FD_DEBUG_MODE
+#define FD_DEBUG(...) __VA_ARGS__
+#else
+#define FD_DEBUG(...)
+#endif
+
 #endif /* HEADER_fd_src_tango_quic_fd_quic_h */
