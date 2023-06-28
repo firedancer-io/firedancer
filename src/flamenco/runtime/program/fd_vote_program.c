@@ -688,7 +688,6 @@ int fd_executor_vote_program_execute_instruction(
     fd_vote_state_versioned_t vote_state_versioned;
     fd_vote_state_versioned_new_disc(&vote_state_versioned, 1);
     fd_vote_state_t*       vote_state = &vote_state_versioned.inner.current;
-    fd_memset(vote_state, 0, sizeof(*vote_state));
     fd_vote_prior_voters_t prior_voters = {
       .idx = 31,
       .is_empty = 1,

@@ -64,6 +64,7 @@ int fd_fee_calculator_decode(fd_fee_calculator_t* self, fd_bincode_decode_ctx_t 
   return FD_BINCODE_SUCCESS;
 }
 void fd_fee_calculator_new(fd_fee_calculator_t* self) {
+  self->lamports_per_signature = 0;
 }
 void fd_fee_calculator_destroy(fd_fee_calculator_t* self, fd_bincode_destroy_ctx_t * ctx) {
 }
@@ -98,6 +99,8 @@ int fd_hash_age_decode(fd_hash_age_t* self, fd_bincode_decode_ctx_t * ctx) {
 }
 void fd_hash_age_new(fd_hash_age_t* self) {
   fd_fee_calculator_new(&self->fee_calculator);
+  self->hash_index = 0;
+  self->timestamp = 0;
 }
 void fd_hash_age_destroy(fd_hash_age_t* self, fd_bincode_destroy_ctx_t * ctx) {
   fd_fee_calculator_destroy(&self->fee_calculator, ctx);
@@ -202,8 +205,10 @@ int fd_block_hash_queue_decode(fd_block_hash_queue_t* self, fd_bincode_decode_ct
   return FD_BINCODE_SUCCESS;
 }
 void fd_block_hash_queue_new(fd_block_hash_queue_t* self) {
+  self->last_hash_index = 0;
   self->last_hash = NULL;
   self->ages = NULL;
+  self->max_age = 0;
 }
 void fd_block_hash_queue_destroy(fd_block_hash_queue_t* self, fd_bincode_destroy_ctx_t * ctx) {
   if (NULL != self->last_hash) {
@@ -287,6 +292,11 @@ int fd_epoch_schedule_decode(fd_epoch_schedule_t* self, fd_bincode_decode_ctx_t 
   return FD_BINCODE_SUCCESS;
 }
 void fd_epoch_schedule_new(fd_epoch_schedule_t* self) {
+  self->slots_per_epoch = 0;
+  self->leader_schedule_slot_offset = 0;
+  self->warmup = 0;
+  self->first_normal_epoch = 0;
+  self->first_normal_slot = 0;
 }
 void fd_epoch_schedule_destroy(fd_epoch_schedule_t* self, fd_bincode_destroy_ctx_t * ctx) {
 }
@@ -340,6 +350,11 @@ int fd_fee_rate_governor_decode(fd_fee_rate_governor_t* self, fd_bincode_decode_
   return FD_BINCODE_SUCCESS;
 }
 void fd_fee_rate_governor_new(fd_fee_rate_governor_t* self) {
+  self->target_lamports_per_signature = 0;
+  self->target_signatures_per_slot = 0;
+  self->min_lamports_per_signature = 0;
+  self->max_lamports_per_signature = 0;
+  self->burn_percent = 0;
 }
 void fd_fee_rate_governor_destroy(fd_fee_rate_governor_t* self, fd_bincode_destroy_ctx_t * ctx) {
 }
@@ -387,6 +402,8 @@ int fd_slot_pair_decode(fd_slot_pair_t* self, fd_bincode_decode_ctx_t * ctx) {
   return FD_BINCODE_SUCCESS;
 }
 void fd_slot_pair_new(fd_slot_pair_t* self) {
+  self->slot = 0;
+  self->val = 0;
 }
 void fd_slot_pair_destroy(fd_slot_pair_t* self, fd_bincode_destroy_ctx_t * ctx) {
 }
@@ -490,6 +507,12 @@ int fd_inflation_decode(fd_inflation_t* self, fd_bincode_decode_ctx_t * ctx) {
   return FD_BINCODE_SUCCESS;
 }
 void fd_inflation_new(fd_inflation_t* self) {
+  self->initial = 0;
+  self->terminal = 0;
+  self->taper = 0;
+  self->foundation = 0;
+  self->foundation_term = 0;
+  self->__unused = 0;
 }
 void fd_inflation_destroy(fd_inflation_t* self, fd_bincode_destroy_ctx_t * ctx) {
 }
@@ -543,6 +566,9 @@ int fd_rent_decode(fd_rent_t* self, fd_bincode_decode_ctx_t * ctx) {
   return FD_BINCODE_SUCCESS;
 }
 void fd_rent_new(fd_rent_t* self) {
+  self->lamports_per_uint8_year = 0;
+  self->exemption_threshold = 0;
+  self->burn_percent = 0;
 }
 void fd_rent_destroy(fd_rent_t* self, fd_bincode_destroy_ctx_t * ctx) {
 }
@@ -586,7 +612,9 @@ int fd_rent_collector_decode(fd_rent_collector_t* self, fd_bincode_decode_ctx_t 
   return FD_BINCODE_SUCCESS;
 }
 void fd_rent_collector_new(fd_rent_collector_t* self) {
+  self->epoch = 0;
   fd_epoch_schedule_new(&self->epoch_schedule);
+  self->slots_per_year = 0;
   fd_rent_new(&self->rent);
 }
 void fd_rent_collector_destroy(fd_rent_collector_t* self, fd_bincode_destroy_ctx_t * ctx) {
@@ -635,6 +663,9 @@ int fd_stake_history_entry_decode(fd_stake_history_entry_t* self, fd_bincode_dec
   return FD_BINCODE_SUCCESS;
 }
 void fd_stake_history_entry_new(fd_stake_history_entry_t* self) {
+  self->effective = 0;
+  self->activating = 0;
+  self->deactivating = 0;
 }
 void fd_stake_history_entry_destroy(fd_stake_history_entry_t* self, fd_bincode_destroy_ctx_t * ctx) {
 }
@@ -674,6 +705,7 @@ int fd_stake_history_epochentry_pair_decode(fd_stake_history_epochentry_pair_t* 
   return FD_BINCODE_SUCCESS;
 }
 void fd_stake_history_epochentry_pair_new(fd_stake_history_epochentry_pair_t* self) {
+  self->epoch = 0;
   fd_stake_history_entry_new(&self->entry);
 }
 void fd_stake_history_epochentry_pair_destroy(fd_stake_history_epochentry_pair_t* self, fd_bincode_destroy_ctx_t * ctx) {
@@ -783,8 +815,11 @@ int fd_solana_account_decode(fd_solana_account_t* self, fd_bincode_decode_ctx_t 
   return FD_BINCODE_SUCCESS;
 }
 void fd_solana_account_new(fd_solana_account_t* self) {
+  self->lamports = 0;
   self->data = NULL;
   fd_pubkey_new(&self->owner);
+  self->executable = 0;
+  self->rent_epoch = 0;
 }
 void fd_solana_account_destroy(fd_solana_account_t* self, fd_bincode_destroy_ctx_t * ctx) {
   if (NULL != self->data) {
@@ -845,6 +880,7 @@ int fd_vote_accounts_pair_decode(fd_vote_accounts_pair_t* self, fd_bincode_decod
 }
 void fd_vote_accounts_pair_new(fd_vote_accounts_pair_t* self) {
   fd_pubkey_new(&self->key);
+  self->stake = 0;
   fd_solana_account_new(&self->value);
 }
 void fd_vote_accounts_pair_destroy(fd_vote_accounts_pair_t* self, fd_bincode_destroy_ctx_t * ctx) {
@@ -954,6 +990,10 @@ int fd_delegation_decode(fd_delegation_t* self, fd_bincode_decode_ctx_t * ctx) {
 }
 void fd_delegation_new(fd_delegation_t* self) {
   fd_pubkey_new(&self->voter_pubkey);
+  self->stake = 0;
+  self->activation_epoch = 0;
+  self->deactivation_epoch = 0;
+  self->warmup_cooldown_rate = 0;
 }
 void fd_delegation_destroy(fd_delegation_t* self, fd_bincode_destroy_ctx_t * ctx) {
   fd_pubkey_destroy(&self->voter_pubkey, ctx);
@@ -1058,6 +1098,8 @@ int fd_stakes_decode(fd_stakes_t* self, fd_bincode_decode_ctx_t * ctx) {
 void fd_stakes_new(fd_stakes_t* self) {
   fd_vote_accounts_new(&self->vote_accounts);
   self->stake_delegations = NULL;
+  self->unused = 0;
+  self->epoch = 0;
   fd_stake_history_new(&self->stake_history);
 }
 void fd_stakes_destroy(fd_stakes_t* self, fd_bincode_destroy_ctx_t * ctx) {
@@ -1147,8 +1189,11 @@ int fd_bank_incremental_snapshot_persistence_decode(fd_bank_incremental_snapshot
   return FD_BINCODE_SUCCESS;
 }
 void fd_bank_incremental_snapshot_persistence_new(fd_bank_incremental_snapshot_persistence_t* self) {
+  self->full_slot = 0;
   fd_hash_new(&self->full_hash);
+  self->full_capitalization = 0;
   fd_hash_new(&self->incremental_hash);
+  self->incremental_capitalization = 0;
 }
 void fd_bank_incremental_snapshot_persistence_destroy(fd_bank_incremental_snapshot_persistence_t* self, fd_bincode_destroy_ctx_t * ctx) {
   fd_hash_destroy(&self->full_hash, ctx);
@@ -1210,6 +1255,7 @@ int fd_node_vote_accounts_decode(fd_node_vote_accounts_t* self, fd_bincode_decod
 }
 void fd_node_vote_accounts_new(fd_node_vote_accounts_t* self) {
   self->vote_accounts = NULL;
+  self->total_stake = 0;
 }
 void fd_node_vote_accounts_destroy(fd_node_vote_accounts_t* self, fd_bincode_destroy_ctx_t * ctx) {
   if (NULL != self->vote_accounts) {
@@ -1369,6 +1415,7 @@ int fd_epoch_stakes_decode(fd_epoch_stakes_t* self, fd_bincode_decode_ctx_t * ct
 }
 void fd_epoch_stakes_new(fd_epoch_stakes_t* self) {
   fd_stakes_new(&self->stakes);
+  self->total_stake = 0;
   self->node_id_to_vote_accounts = NULL;
   self->epoch_authorized_voters = NULL;
 }
@@ -1453,6 +1500,7 @@ int fd_epoch_epoch_stakes_pair_decode(fd_epoch_epoch_stakes_pair_t* self, fd_bin
   return FD_BINCODE_SUCCESS;
 }
 void fd_epoch_epoch_stakes_pair_new(fd_epoch_epoch_stakes_pair_t* self) {
+  self->key = 0;
   fd_epoch_stakes_new(&self->value);
 }
 void fd_epoch_epoch_stakes_pair_destroy(fd_epoch_epoch_stakes_pair_t* self, fd_bincode_destroy_ctx_t * ctx) {
@@ -1491,6 +1539,7 @@ int fd_pubkey_u64_pair_decode(fd_pubkey_u64_pair_t* self, fd_bincode_decode_ctx_
 }
 void fd_pubkey_u64_pair_new(fd_pubkey_u64_pair_t* self) {
   fd_pubkey_new(&self->_0);
+  self->_1 = 0;
 }
 void fd_pubkey_u64_pair_destroy(fd_pubkey_u64_pair_t* self, fd_bincode_destroy_ctx_t * ctx) {
   fd_pubkey_destroy(&self->_0, ctx);
@@ -1756,17 +1805,34 @@ void fd_deserializable_versioned_bank_new(fd_deserializable_versioned_bank_t* se
   self->ancestors = NULL;
   fd_hash_new(&self->hash);
   fd_hash_new(&self->parent_hash);
+  self->parent_slot = 0;
   fd_hard_forks_new(&self->hard_forks);
+  self->transaction_count = 0;
+  self->tick_height = 0;
+  self->signature_count = 0;
+  self->capitalization = 0;
+  self->max_tick_height = 0;
   self->hashes_per_tick = NULL;
+  self->ticks_per_slot = 0;
+  self->ns_per_slot = 0;
+  self->genesis_creation_time = 0;
+  self->slots_per_year = 0;
+  self->accounts_data_len = 0;
+  self->slot = 0;
+  self->epoch = 0;
+  self->block_height = 0;
   fd_pubkey_new(&self->collector_id);
+  self->collector_fees = 0;
   fd_fee_calculator_new(&self->fee_calculator);
   fd_fee_rate_governor_new(&self->fee_rate_governor);
+  self->collected_rent = 0;
   fd_rent_collector_new(&self->rent_collector);
   fd_epoch_schedule_new(&self->epoch_schedule);
   fd_inflation_new(&self->inflation);
   fd_stakes_new(&self->stakes);
   fd_unused_accounts_new(&self->unused_accounts);
   self->epoch_stakes = NULL;
+  self->is_delta = 0;
 }
 void fd_deserializable_versioned_bank_destroy(fd_deserializable_versioned_bank_t* self, fd_bincode_destroy_ctx_t * ctx) {
   fd_block_hash_queue_destroy(&self->blockhash_queue, ctx);
@@ -1986,6 +2052,8 @@ int fd_serializable_account_storage_entry_decode(fd_serializable_account_storage
   return FD_BINCODE_SUCCESS;
 }
 void fd_serializable_account_storage_entry_new(fd_serializable_account_storage_entry_t* self) {
+  self->id = 0;
+  self->accounts_current_len = 0;
 }
 void fd_serializable_account_storage_entry_destroy(fd_serializable_account_storage_entry_t* self, fd_bincode_destroy_ctx_t * ctx) {
 }
@@ -2027,6 +2095,11 @@ int fd_bank_hash_stats_decode(fd_bank_hash_stats_t* self, fd_bincode_decode_ctx_
   return FD_BINCODE_SUCCESS;
 }
 void fd_bank_hash_stats_new(fd_bank_hash_stats_t* self) {
+  self->num_updated_accounts = 0;
+  self->num_removed_accounts = 0;
+  self->num_lamports_stored = 0;
+  self->total_data_len = 0;
+  self->num_executable_accounts = 0;
 }
 void fd_bank_hash_stats_destroy(fd_bank_hash_stats_t* self, fd_bincode_destroy_ctx_t * ctx) {
 }
@@ -2131,6 +2204,7 @@ int fd_slot_account_pair_decode(fd_slot_account_pair_t* self, fd_bincode_decode_
   return FD_BINCODE_SUCCESS;
 }
 void fd_slot_account_pair_new(fd_slot_account_pair_t* self) {
+  self->slot = 0;
   self->accounts_pool = NULL;
   self->accounts_root = NULL;
 }
@@ -2192,6 +2266,7 @@ int fd_slot_map_pair_decode(fd_slot_map_pair_t* self, fd_bincode_decode_ctx_t * 
   return FD_BINCODE_SUCCESS;
 }
 void fd_slot_map_pair_new(fd_slot_map_pair_t* self) {
+  self->slot = 0;
   fd_hash_new(&self->hash);
 }
 void fd_slot_map_pair_destroy(fd_slot_map_pair_t* self, fd_bincode_destroy_ctx_t * ctx) {
@@ -2268,6 +2343,8 @@ int fd_solana_accounts_db_fields_decode(fd_solana_accounts_db_fields_t* self, fd
 void fd_solana_accounts_db_fields_new(fd_solana_accounts_db_fields_t* self) {
   self->storages_pool = NULL;
   self->storages_root = NULL;
+  self->version = 0;
+  self->slot = 0;
   fd_bank_hash_info_new(&self->bank_hash_info);
   self->historical_roots = NULL;
   self->historical_roots_with_hash = NULL;
@@ -2385,6 +2462,7 @@ int fd_solana_manifest_decode(fd_solana_manifest_t* self, fd_bincode_decode_ctx_
 void fd_solana_manifest_new(fd_solana_manifest_t* self) {
   fd_deserializable_versioned_bank_new(&self->bank);
   fd_solana_accounts_db_fields_new(&self->accounts_db);
+  self->lamports_per_signature = 0;
 }
 void fd_solana_manifest_destroy(fd_solana_manifest_t* self, fd_bincode_destroy_ctx_t * ctx) {
   fd_deserializable_versioned_bank_destroy(&self->bank, ctx);
@@ -2426,6 +2504,8 @@ int fd_rust_duration_decode(fd_rust_duration_t* self, fd_bincode_decode_ctx_t * 
   return FD_BINCODE_SUCCESS;
 }
 void fd_rust_duration_new(fd_rust_duration_t* self) {
+  self->seconds = 0;
+  self->nanoseconds = 0;
 }
 void fd_rust_duration_destroy(fd_rust_duration_t* self, fd_bincode_destroy_ctx_t * ctx) {
 }
@@ -2696,14 +2776,19 @@ int fd_genesis_solana_decode(fd_genesis_solana_t* self, fd_bincode_decode_ctx_t 
   return FD_BINCODE_SUCCESS;
 }
 void fd_genesis_solana_new(fd_genesis_solana_t* self) {
+  self->creation_time = 0;
   self->accounts = NULL;
   self->native_instruction_processors = NULL;
   self->rewards_pools = NULL;
+  self->ticks_per_slot = 0;
+  self->unused = 0;
   fd_poh_config_new(&self->poh_config);
+  self->__backwards_compat_with_v0_23 = 0;
   fd_fee_rate_governor_new(&self->fee_rate_governor);
   fd_rent_new(&self->rent);
   fd_inflation_new(&self->inflation);
   fd_epoch_schedule_new(&self->epoch_schedule);
+  self->cluster_type = 0;
 }
 void fd_genesis_solana_destroy(fd_genesis_solana_t* self, fd_bincode_destroy_ctx_t * ctx) {
   if (NULL != self->accounts) {
@@ -2851,6 +2936,11 @@ int fd_sol_sysvar_clock_decode(fd_sol_sysvar_clock_t* self, fd_bincode_decode_ct
   return FD_BINCODE_SUCCESS;
 }
 void fd_sol_sysvar_clock_new(fd_sol_sysvar_clock_t* self) {
+  self->slot = 0;
+  self->epoch_start_timestamp = 0;
+  self->epoch = 0;
+  self->leader_schedule_epoch = 0;
+  self->unix_timestamp = 0;
 }
 void fd_sol_sysvar_clock_destroy(fd_sol_sysvar_clock_t* self, fd_bincode_destroy_ctx_t * ctx) {
 }
@@ -2898,6 +2988,8 @@ int fd_vote_lockout_decode(fd_vote_lockout_t* self, fd_bincode_decode_ctx_t * ct
   return FD_BINCODE_SUCCESS;
 }
 void fd_vote_lockout_new(fd_vote_lockout_t* self) {
+  self->slot = 0;
+  self->confirmation_count = 0;
 }
 void fd_vote_lockout_destroy(fd_vote_lockout_t* self, fd_bincode_destroy_ctx_t * ctx) {
 }
@@ -2933,6 +3025,8 @@ int fd_compact_vote_lockout_decode(fd_compact_vote_lockout_t* self, fd_bincode_d
   return FD_BINCODE_SUCCESS;
 }
 void fd_compact_vote_lockout_new(fd_compact_vote_lockout_t* self) {
+  self->slot = 0;
+  self->confirmation_count = 0;
 }
 void fd_compact_vote_lockout_destroy(fd_compact_vote_lockout_t* self, fd_bincode_destroy_ctx_t * ctx) {
 }
@@ -2968,6 +3062,7 @@ int fd_vote_authorized_voter_decode(fd_vote_authorized_voter_t* self, fd_bincode
   return FD_BINCODE_SUCCESS;
 }
 void fd_vote_authorized_voter_new(fd_vote_authorized_voter_t* self) {
+  self->epoch = 0;
   fd_pubkey_new(&self->pubkey);
 }
 void fd_vote_authorized_voter_destroy(fd_vote_authorized_voter_t* self, fd_bincode_destroy_ctx_t * ctx) {
@@ -3008,6 +3103,8 @@ int fd_vote_prior_voter_decode(fd_vote_prior_voter_t* self, fd_bincode_decode_ct
 }
 void fd_vote_prior_voter_new(fd_vote_prior_voter_t* self) {
   fd_pubkey_new(&self->pubkey);
+  self->epoch_start = 0;
+  self->epoch_end = 0;
 }
 void fd_vote_prior_voter_destroy(fd_vote_prior_voter_t* self, fd_bincode_destroy_ctx_t * ctx) {
   fd_pubkey_destroy(&self->pubkey, ctx);
@@ -3053,6 +3150,9 @@ int fd_vote_prior_voter_0_23_5_decode(fd_vote_prior_voter_0_23_5_t* self, fd_bin
 }
 void fd_vote_prior_voter_0_23_5_new(fd_vote_prior_voter_0_23_5_t* self) {
   fd_pubkey_new(&self->pubkey);
+  self->epoch_start = 0;
+  self->epoch_end = 0;
+  self->slot = 0;
 }
 void fd_vote_prior_voter_0_23_5_destroy(fd_vote_prior_voter_0_23_5_t* self, fd_bincode_destroy_ctx_t * ctx) {
   fd_pubkey_destroy(&self->pubkey, ctx);
@@ -3099,6 +3199,9 @@ int fd_vote_epoch_credits_decode(fd_vote_epoch_credits_t* self, fd_bincode_decod
   return FD_BINCODE_SUCCESS;
 }
 void fd_vote_epoch_credits_new(fd_vote_epoch_credits_t* self) {
+  self->epoch = 0;
+  self->credits = 0;
+  self->prev_credits = 0;
 }
 void fd_vote_epoch_credits_destroy(fd_vote_epoch_credits_t* self, fd_bincode_destroy_ctx_t * ctx) {
 }
@@ -3138,6 +3241,7 @@ int fd_vote_historical_authorized_voter_decode(fd_vote_historical_authorized_vot
   return FD_BINCODE_SUCCESS;
 }
 void fd_vote_historical_authorized_voter_new(fd_vote_historical_authorized_voter_t* self) {
+  self->epoch = 0;
   fd_pubkey_new(&self->pubkey);
 }
 void fd_vote_historical_authorized_voter_destroy(fd_vote_historical_authorized_voter_t* self, fd_bincode_destroy_ctx_t * ctx) {
@@ -3175,6 +3279,8 @@ int fd_vote_block_timestamp_decode(fd_vote_block_timestamp_t* self, fd_bincode_d
   return FD_BINCODE_SUCCESS;
 }
 void fd_vote_block_timestamp_new(fd_vote_block_timestamp_t* self) {
+  self->slot = 0;
+  self->timestamp = 0;
 }
 void fd_vote_block_timestamp_destroy(fd_vote_block_timestamp_t* self, fd_bincode_destroy_ctx_t * ctx) {
 }
@@ -3216,6 +3322,8 @@ int fd_vote_prior_voters_decode(fd_vote_prior_voters_t* self, fd_bincode_decode_
 void fd_vote_prior_voters_new(fd_vote_prior_voters_t* self) {
   for (ulong i = 0; i < 32; ++i)
     fd_vote_prior_voter_new(self->buf + i);
+  self->idx = 0;
+  self->is_empty = 0;
 }
 void fd_vote_prior_voters_destroy(fd_vote_prior_voters_t* self, fd_bincode_destroy_ctx_t * ctx) {
   for (ulong i = 0; i < 32; ++i)
@@ -3267,6 +3375,8 @@ int fd_vote_prior_voters_0_23_5_decode(fd_vote_prior_voters_0_23_5_t* self, fd_b
 void fd_vote_prior_voters_0_23_5_new(fd_vote_prior_voters_0_23_5_t* self) {
   for (ulong i = 0; i < 32; ++i)
     fd_vote_prior_voter_0_23_5_new(self->buf + i);
+  self->idx = 0;
+  self->is_empty = 0;
 }
 void fd_vote_prior_voters_0_23_5_destroy(fd_vote_prior_voters_0_23_5_t* self, fd_bincode_destroy_ctx_t * ctx) {
   for (ulong i = 0; i < 32; ++i)
@@ -3357,8 +3467,10 @@ int fd_vote_state_0_23_5_decode(fd_vote_state_0_23_5_t* self, fd_bincode_decode_
 void fd_vote_state_0_23_5_new(fd_vote_state_0_23_5_t* self) {
   fd_pubkey_new(&self->voting_node);
   fd_pubkey_new(&self->authorized_voter);
+  self->authorized_voter_epoch = 0;
   fd_vote_prior_voters_0_23_5_new(&self->prior_voters);
   fd_pubkey_new(&self->authorized_withdrawer);
+  self->commission = 0;
   self->votes = NULL;
   self->saved_root_slot = NULL;
   self->epoch_credits = NULL;
@@ -3567,6 +3679,7 @@ int fd_vote_state_decode(fd_vote_state_t* self, fd_bincode_decode_ctx_t * ctx) {
 void fd_vote_state_new(fd_vote_state_t* self) {
   fd_pubkey_new(&self->voting_node);
   fd_pubkey_new(&self->authorized_withdrawer);
+  self->commission = 0;
   self->votes = NULL;
   self->saved_root_slot = NULL;
   self->authorized_voters = NULL;
@@ -4021,6 +4134,7 @@ int fd_compact_vote_state_update_decode(fd_compact_vote_state_update_t* self, fd
   return FD_BINCODE_SUCCESS;
 }
 void fd_compact_vote_state_update_new(fd_compact_vote_state_update_t* self) {
+  self->proposed_root = 0;
   self->lockouts = NULL;
   fd_hash_new(&self->hash);
   self->timestamp = NULL;
@@ -4204,6 +4318,7 @@ int fd_slot_history_bitvec_decode(fd_slot_history_bitvec_t* self, fd_bincode_dec
 }
 void fd_slot_history_bitvec_new(fd_slot_history_bitvec_t* self) {
   self->bits = NULL;
+  self->len = 0;
 }
 void fd_slot_history_bitvec_destroy(fd_slot_history_bitvec_t* self, fd_bincode_destroy_ctx_t * ctx) {
   if (NULL != self->bits) {
@@ -4255,6 +4370,7 @@ int fd_slot_history_decode(fd_slot_history_t* self, fd_bincode_decode_ctx_t * ct
 }
 void fd_slot_history_new(fd_slot_history_t* self) {
   fd_slot_history_bitvec_new(&self->bits);
+  self->next_slot = 0;
 }
 void fd_slot_history_destroy(fd_slot_history_t* self, fd_bincode_destroy_ctx_t * ctx) {
   fd_slot_history_bitvec_destroy(&self->bits, ctx);
@@ -4291,6 +4407,7 @@ int fd_slot_hash_decode(fd_slot_hash_t* self, fd_bincode_decode_ctx_t * ctx) {
   return FD_BINCODE_SUCCESS;
 }
 void fd_slot_hash_new(fd_slot_hash_t* self) {
+  self->slot = 0;
   fd_hash_new(&self->hash);
 }
 void fd_slot_hash_destroy(fd_slot_hash_t* self, fd_bincode_destroy_ctx_t * ctx) {
@@ -4541,7 +4658,14 @@ int fd_slot_meta_decode(fd_slot_meta_t* self, fd_bincode_decode_ctx_t * ctx) {
   return FD_BINCODE_SUCCESS;
 }
 void fd_slot_meta_new(fd_slot_meta_t* self) {
+  self->slot = 0;
+  self->consumed = 0;
+  self->received = 0;
+  self->first_shred_timestamp = 0;
+  self->last_index = 0;
+  self->parent_slot = 0;
   self->next_slot = NULL;
+  self->is_connected = 0;
   self->entry_end_indexes = NULL;
 }
 void fd_slot_meta_destroy(fd_slot_meta_t* self, fd_bincode_destroy_ctx_t * ctx) {
@@ -4636,6 +4760,8 @@ int fd_slot_meta_meta_decode(fd_slot_meta_meta_t* self, fd_bincode_decode_ctx_t 
   return FD_BINCODE_SUCCESS;
 }
 void fd_slot_meta_meta_new(fd_slot_meta_meta_t* self) {
+  self->start_slot = 0;
+  self->end_slot = 0;
 }
 void fd_slot_meta_meta_destroy(fd_slot_meta_meta_t* self, fd_bincode_destroy_ctx_t * ctx) {
 }
@@ -4674,6 +4800,8 @@ int fd_clock_timestamp_vote_decode(fd_clock_timestamp_vote_t* self, fd_bincode_d
 }
 void fd_clock_timestamp_vote_new(fd_clock_timestamp_vote_t* self) {
   fd_pubkey_new(&self->pubkey);
+  self->timestamp = 0;
+  self->slot = 0;
 }
 void fd_clock_timestamp_vote_destroy(fd_clock_timestamp_vote_t* self, fd_bincode_destroy_ctx_t * ctx) {
   fd_pubkey_destroy(&self->pubkey, ctx);
@@ -4811,6 +4939,7 @@ int fd_config_keys_pair_decode(fd_config_keys_pair_t* self, fd_bincode_decode_ct
 }
 void fd_config_keys_pair_new(fd_config_keys_pair_t* self) {
   fd_pubkey_new(&self->key);
+  self->signer = 0;
 }
 void fd_config_keys_pair_destroy(fd_config_keys_pair_t* self, fd_bincode_destroy_ctx_t * ctx) {
   fd_pubkey_destroy(&self->key, ctx);
@@ -4861,6 +4990,8 @@ int fd_stake_config_decode(fd_stake_config_t* self, fd_bincode_decode_ctx_t * ct
 }
 void fd_stake_config_new(fd_stake_config_t* self) {
   self->config_keys = NULL;
+  self->warmup_cooldown_rate = 0;
+  self->slash_penalty = 0;
 }
 void fd_stake_config_destroy(fd_stake_config_t* self, fd_bincode_destroy_ctx_t * ctx) {
   if (NULL != self->config_keys) {
@@ -4956,13 +5087,22 @@ void fd_firedancer_banks_new(fd_firedancer_banks_t* self) {
   fd_stakes_new(&self->stakes);
   fd_recent_block_hashes_new(&self->recent_block_hashes);
   fd_clock_timestamp_votes_new(&self->timestamp_votes);
+  self->slot = 0;
   fd_hash_new(&self->poh);
   fd_hash_new(&self->banks_hash);
   fd_fee_rate_governor_new(&self->fee_rate_governor);
+  self->lamports_per_signature = 0;
+  self->hashes_per_tick = 0;
+  self->ticks_per_slot = 0;
+  self->ns_per_slot = 0;
+  self->genesis_creation_time = 0;
+  self->slots_per_year = 0;
+  self->max_tick_height = 0;
   fd_inflation_new(&self->inflation);
   fd_epoch_schedule_new(&self->epoch_schedule);
   fd_rent_new(&self->rent);
   fd_pubkey_new(&self->collector_id);
+  self->collected = 0;
 }
 void fd_firedancer_banks_destroy(fd_firedancer_banks_t* self, fd_bincode_destroy_ctx_t * ctx) {
   fd_stakes_destroy(&self->stakes, ctx);
@@ -5185,6 +5325,7 @@ void fd_vote_init_new(fd_vote_init_t* self) {
   fd_pubkey_new(&self->node_pubkey);
   fd_pubkey_new(&self->authorized_voter);
   fd_pubkey_new(&self->authorized_withdrawer);
+  self->commission = 0;
 }
 void fd_vote_init_destroy(fd_vote_init_t* self, fd_bincode_destroy_ctx_t * ctx) {
   fd_pubkey_destroy(&self->node_pubkey, ctx);
@@ -5662,12 +5803,14 @@ void fd_vote_instruction_inner_new(fd_vote_instruction_inner_t* self, uint discr
     break;
   }
   case 3: {
+  self->withdraw = 0;
     break;
   }
   case 4: {
     break;
   }
   case 5: {
+  self->update_commission = 0;
     break;
   }
   case 6: {
@@ -5982,6 +6125,8 @@ int fd_system_program_instruction_create_account_decode(fd_system_program_instru
   return FD_BINCODE_SUCCESS;
 }
 void fd_system_program_instruction_create_account_new(fd_system_program_instruction_create_account_t* self) {
+  self->lamports = 0;
+  self->space = 0;
   fd_pubkey_new(&self->owner);
 }
 void fd_system_program_instruction_create_account_destroy(fd_system_program_instruction_create_account_t* self, fd_bincode_destroy_ctx_t * ctx) {
@@ -6036,6 +6181,8 @@ int fd_system_program_instruction_create_account_with_seed_decode(fd_system_prog
 void fd_system_program_instruction_create_account_with_seed_new(fd_system_program_instruction_create_account_with_seed_t* self) {
   fd_pubkey_new(&self->base);
   self->seed = NULL;
+  self->lamports = 0;
+  self->space = 0;
   fd_pubkey_new(&self->owner);
 }
 void fd_system_program_instruction_create_account_with_seed_destroy(fd_system_program_instruction_create_account_with_seed_t* self, fd_bincode_destroy_ctx_t * ctx) {
@@ -6104,6 +6251,7 @@ int fd_system_program_instruction_allocate_with_seed_decode(fd_system_program_in
 void fd_system_program_instruction_allocate_with_seed_new(fd_system_program_instruction_allocate_with_seed_t* self) {
   fd_pubkey_new(&self->base);
   self->seed = NULL;
+  self->space = 0;
   fd_pubkey_new(&self->owner);
 }
 void fd_system_program_instruction_allocate_with_seed_destroy(fd_system_program_instruction_allocate_with_seed_t* self, fd_bincode_destroy_ctx_t * ctx) {
@@ -6222,6 +6370,7 @@ int fd_system_program_instruction_transfer_with_seed_decode(fd_system_program_in
   return FD_BINCODE_SUCCESS;
 }
 void fd_system_program_instruction_transfer_with_seed_new(fd_system_program_instruction_transfer_with_seed_t* self) {
+  self->lamports = 0;
   self->from_seed = NULL;
   fd_pubkey_new(&self->from_owner);
 }
@@ -6370,6 +6519,7 @@ void fd_system_program_instruction_inner_new(fd_system_program_instruction_inner
     break;
   }
   case 2: {
+  self->transfer = 0;
     break;
   }
   case 3: {
@@ -6380,6 +6530,7 @@ void fd_system_program_instruction_inner_new(fd_system_program_instruction_inner
     break;
   }
   case 5: {
+  self->withdraw_nonce_account = 0;
     break;
   }
   case 6: {
@@ -6391,6 +6542,7 @@ void fd_system_program_instruction_inner_new(fd_system_program_instruction_inner
     break;
   }
   case 8: {
+  self->allocate = 0;
     break;
   }
   case 9: {
@@ -6862,6 +7014,8 @@ int fd_stake_lockup_decode(fd_stake_lockup_t* self, fd_bincode_decode_ctx_t * ct
   return FD_BINCODE_SUCCESS;
 }
 void fd_stake_lockup_new(fd_stake_lockup_t* self) {
+  self->unix_timestamp = 0;
+  self->epoch = 0;
   fd_pubkey_new(&self->custodian);
 }
 void fd_stake_lockup_destroy(fd_stake_lockup_t* self, fd_bincode_destroy_ctx_t * ctx) {
@@ -7504,9 +7658,11 @@ void fd_stake_instruction_inner_new(fd_stake_instruction_inner_t* self, uint dis
     break;
   }
   case 3: {
+  self->split = 0;
     break;
   }
   case 4: {
+  self->withdraw = 0;
     break;
   }
   case 5: {
@@ -7762,6 +7918,7 @@ int fd_stake_state_meta_decode(fd_stake_state_meta_t* self, fd_bincode_decode_ct
   return FD_BINCODE_SUCCESS;
 }
 void fd_stake_state_meta_new(fd_stake_state_meta_t* self) {
+  self->rent_exempt_reserve = 0;
   fd_stake_authorized_new(&self->authorized);
   fd_stake_lockup_new(&self->lockup);
 }
@@ -7806,6 +7963,7 @@ int fd_stake_decode(fd_stake_t* self, fd_bincode_decode_ctx_t * ctx) {
 }
 void fd_stake_new(fd_stake_t* self) {
   fd_delegation_new(&self->delegation);
+  self->credits_observed = 0;
 }
 void fd_stake_destroy(fd_stake_t* self, fd_bincode_destroy_ctx_t * ctx) {
   fd_delegation_destroy(&self->delegation, ctx);
@@ -8285,6 +8443,8 @@ int fd_compute_budget_program_instruction_request_units_deprecated_decode(fd_com
   return FD_BINCODE_SUCCESS;
 }
 void fd_compute_budget_program_instruction_request_units_deprecated_new(fd_compute_budget_program_instruction_request_units_deprecated_t* self) {
+  self->units = 0;
+  self->additional_fee = 0;
 }
 void fd_compute_budget_program_instruction_request_units_deprecated_destroy(fd_compute_budget_program_instruction_request_units_deprecated_t* self, fd_bincode_destroy_ctx_t * ctx) {
 }
@@ -8361,12 +8521,15 @@ void fd_compute_budget_program_instruction_inner_new(fd_compute_budget_program_i
     break;
   }
   case 1: {
+  self->request_heap_frame = 0;
     break;
   }
   case 2: {
+  self->set_compute_unit_limit = 0;
     break;
   }
   case 3: {
+  self->set_compute_unit_price = 0;
     break;
   }
   default: break; // FD_LOG_ERR(( "unhandled type"));
@@ -8556,6 +8719,7 @@ int fd_bpf_loader_program_instruction_write_decode(fd_bpf_loader_program_instruc
   return FD_BINCODE_SUCCESS;
 }
 void fd_bpf_loader_program_instruction_write_new(fd_bpf_loader_program_instruction_write_t* self) {
+  self->offset = 0;
   self->bytes = NULL;
 }
 void fd_bpf_loader_program_instruction_write_destroy(fd_bpf_loader_program_instruction_write_t* self, fd_bincode_destroy_ctx_t * ctx) {
@@ -8708,6 +8872,7 @@ int fd_bpf_upgradeable_loader_program_instruction_write_decode(fd_bpf_upgradeabl
   return FD_BINCODE_SUCCESS;
 }
 void fd_bpf_upgradeable_loader_program_instruction_write_new(fd_bpf_upgradeable_loader_program_instruction_write_t* self) {
+  self->offset = 0;
   self->bytes = NULL;
 }
 void fd_bpf_upgradeable_loader_program_instruction_write_destroy(fd_bpf_upgradeable_loader_program_instruction_write_t* self, fd_bincode_destroy_ctx_t * ctx) {
@@ -8751,6 +8916,7 @@ int fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len_decod
   return FD_BINCODE_SUCCESS;
 }
 void fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len_new(fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len_t* self) {
+  self->max_data_len = 0;
 }
 void fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len_destroy(fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len_t* self, fd_bincode_destroy_ctx_t * ctx) {
 }
@@ -8780,6 +8946,7 @@ int fd_bpf_upgradeable_loader_program_instruction_extend_program_decode(fd_bpf_u
   return FD_BINCODE_SUCCESS;
 }
 void fd_bpf_upgradeable_loader_program_instruction_extend_program_new(fd_bpf_upgradeable_loader_program_instruction_extend_program_t* self) {
+  self->additional_bytes = 0;
 }
 void fd_bpf_upgradeable_loader_program_instruction_extend_program_destroy(fd_bpf_upgradeable_loader_program_instruction_extend_program_t* self, fd_bincode_destroy_ctx_t * ctx) {
 }
@@ -9098,6 +9265,7 @@ int fd_bpf_upgradeable_loader_state_program_data_decode(fd_bpf_upgradeable_loade
   return FD_BINCODE_SUCCESS;
 }
 void fd_bpf_upgradeable_loader_state_program_data_new(fd_bpf_upgradeable_loader_state_program_data_t* self) {
+  self->slot = 0;
   self->upgrade_authority_address = NULL;
 }
 void fd_bpf_upgradeable_loader_state_program_data_destroy(fd_bpf_upgradeable_loader_state_program_data_t* self, fd_bincode_destroy_ctx_t * ctx) {
