@@ -15,6 +15,10 @@ build/linux/gcc/x86_64/unit-test/test_runtime --wksp giant_wksp --reset true --l
 build/linux/gcc/x86_64/unit-test/test_runtime --wksp giant_wksp --gaddr 0xc7ce180 --cmd replay
   NOTE: gaddr argument may be different
 
+build/linux/gcc/x86_64/bin/fd_frank_ledger --wksp giant_wksp --reset true --cmd ingest --snapshotfile /data/jsiegel/mainnet-ledger/snapshot-179244882-2DyMb1qN8JuTijCjsW8w4G2tg1hWuAw2AopH7Bj9Qstu.tar.zst --incremental /data/jsiegel/mainnet-ledger/incremental-snapshot-179244882-179248368-6TprbHABozQQLjjc1HBeQ2p4AigMC7rhHJS2Q5WLcbyw.tar.zst --rocksdb /data/jsiegel/mainnet-ledger/rocksdb --endslot 179248378 --backup /data/jsiegel/mainnet_backup
+
+build/linux/gcc/x86_64/unit-test/test_runtime --wksp giant_wksp --gaddr 0x000000000c7ce180 --cmd replay
+
 ****/
 
 #include <stdio.h>
