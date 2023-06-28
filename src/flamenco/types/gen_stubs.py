@@ -1036,7 +1036,13 @@ for entry in entries:
         print("}", file=body)
 
         print("int " + n + "_decode(" + n + "_t* self, fd_bincode_decode_ctx_t * ctx) {", file=body)
-        print("  int err = fd_bincode_uint32_decode(&self->discriminant, ctx);", file=body)
+        if "compact" in entry and entry["compact"]:
+            print("  ushort tmp = 0;", file=body)
+            print("  int err = fd_bincode_compact_u16_decode(&tmp, ctx);", file=body)
+            print("  self->discriminant = tmp;", file=body)
+        else:
+            print("  int err = fd_bincode_uint32_decode(&self->discriminant, ctx);", file=body)
+
         print("  if ( FD_UNLIKELY(err) ) return err;", file=body)
         print("  return " + namespace + "_" + entry["name"] + "_inner_decode(&self->inner" + ", self->discriminant, ctx);", file=body)
         print("}", file=body)
