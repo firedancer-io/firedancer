@@ -14,7 +14,10 @@
 #include "../templ/fd_quic_templ.h"
 #include "../templ/fd_quic_undefs.h"
 
-void test_retry_token_encrypt_decrypt() {
+#include "../../../util/net/fd_ip4.h"
+
+void
+test_retry_token_encrypt_decrypt( void ) {
 #define NUM_TEST_CASES 3
 
   fd_quic_conn_id_t orig_dst_conn_ids[NUM_TEST_CASES] = {
@@ -39,7 +42,7 @@ void test_retry_token_encrypt_decrypt() {
             "\x83\x94\xc8\xf0\x3e\x51\x57\x08\x83\x94\xc8\xf0\x3e\x51\x57\x08\x00\x00\x00\x00" },
   };
 
-  fd_quic_net_endpoint_t client = { .ip_addr = 0x7f000001, .udp_port = 9000 };
+  fd_quic_net_endpoint_t client = { .ip_addr = FD_IP4_ADDR(127, 0, 0, 1), .udp_port = 9000 };
   uchar                  retry_token[FD_QUIC_RETRY_TOKEN_SZ];
   ulong                  now = (ulong)fd_log_wallclock();
 
@@ -87,7 +90,8 @@ void test_retry_token_encrypt_decrypt() {
 
    also, A.1 includes the original dest conn id: 0x8394c8f03e515708
 */
-void test_retry_integrity_tag() {
+void
+test_retry_integrity_tag( void ) {
   fd_quic_retry_pseudo_t retry_pseudo_pkt = {
       .odcid_length     = 8,
       .odcid            = "\x83\x94\xc8\xf0\x3e\x51\x57\x08",
@@ -129,18 +133,46 @@ void test_retry_integrity_tag() {
   FD_TEST( rc == FD_QUIC_SUCCESS );
 }
 
-void test_retry_token_invalid_length() {}
+void
+test_retry_token_invalid_length( void ) {
+  uchar invalid_length_retry_token[42] = {0};
+  fd_quic_conn_id_t retry_src_conn_id = { .sz = 8, .conn_id = "\x42\x41\x40\x3F\x3E\x3D\x3C\x3B" };
+  fd_quic_conn_id_t orig_dst_conn_id = { .sz = 20,
+       .conn_id =
+            "\x83\x94\xc8\xf0\x3e\x51\x57\x08\x83\x94\xc8\xf0\x3e\x51\x57\x08\x00\x00\x00\x00" };
+  ulong now;
+  int rc = fd_quic_retry_token_decrypt(
+    invalid_length_retry_token,
+    &retry_src_conn_id,
+    FD_IP4_ADDR(127, 0, 0, 1),
+    9000,
+    &orig_dst_conn_id,
+    &now
+  );
+  FD_TEST ( rc == FD_QUIC_FAILED );
+}
 
 /* Invariant: a valid token should always decrypt to the original inputs. */
-void test_property_retry_token_encrypt_decrypt() {}
+void
+test_property_retry_token_encrypt_decrypt( void ) {
+  /* TODO */
+}
 
 /* Invariant: invalid-length tokens should always return an error. */
-void test_property_retry_token_invalid_length_decrypt() {}
+void
+test_property_retry_token_invalid_length_decrypt( void ) {
+  /* TODO */
+}
 
 /* Invariant: generating and checking the integrity tag should always match. */
-void test_property_retry_integrity_tag_encrypt_decrypt() {}
+void
+test_property_retry_integrity_tag_encrypt_decrypt( void ) {
+  /* TODO */
+}
 
-int main( int argc, char ** argv ) {
+int
+main( int     argc,
+      char ** argv ) {
   fd_boot( &argc, &argv );
 
   if ( FD_UNLIKELY( argc > 1 ) )
@@ -148,6 +180,7 @@ int main( int argc, char ** argv ) {
 
   test_retry_token_encrypt_decrypt();
   test_retry_integrity_tag();
+  // test_retry_token_invalid_length();  // FIXME after error change
 
   FD_LOG_NOTICE( ( "pass" ) );
   fd_halt();
