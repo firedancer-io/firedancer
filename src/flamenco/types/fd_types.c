@@ -3762,9 +3762,12 @@ void fd_vote_state_versioned_inner_new(fd_vote_state_versioned_inner_t* self, ui
   default: break; // FD_LOG_ERR(( "unhandled type"));
   }
 }
-void fd_vote_state_versioned_new(fd_vote_state_versioned_t* self) {
-  self->discriminant = 0;
+void fd_vote_state_versioned_new_disc(fd_vote_state_versioned_t* self, uint discriminant) {
+  self->discriminant = discriminant;
   fd_vote_state_versioned_inner_new(&self->inner, self->discriminant);
+}
+void fd_vote_state_versioned_new(fd_vote_state_versioned_t* self) {
+  fd_vote_state_versioned_new_disc(self, UINT_MAX);
 }
 void fd_vote_state_versioned_inner_destroy(fd_vote_state_versioned_inner_t* self, uint discriminant, fd_bincode_destroy_ctx_t * ctx) {
   switch (discriminant) {
@@ -5242,9 +5245,12 @@ void fd_vote_authorize_inner_new(fd_vote_authorize_inner_t* self, uint discrimin
   default: break; // FD_LOG_ERR(( "unhandled type"));
   }
 }
-void fd_vote_authorize_new(fd_vote_authorize_t* self) {
-  self->discriminant = 0;
+void fd_vote_authorize_new_disc(fd_vote_authorize_t* self, uint discriminant) {
+  self->discriminant = discriminant;
   fd_vote_authorize_inner_new(&self->inner, self->discriminant);
+}
+void fd_vote_authorize_new(fd_vote_authorize_t* self) {
+  fd_vote_authorize_new_disc(self, UINT_MAX);
 }
 void fd_vote_authorize_inner_destroy(fd_vote_authorize_inner_t* self, uint discriminant, fd_bincode_destroy_ctx_t * ctx) {
   switch (discriminant) {
@@ -5686,9 +5692,12 @@ void fd_vote_instruction_inner_new(fd_vote_instruction_inner_t* self, uint discr
   default: break; // FD_LOG_ERR(( "unhandled type"));
   }
 }
-void fd_vote_instruction_new(fd_vote_instruction_t* self) {
-  self->discriminant = 0;
+void fd_vote_instruction_new_disc(fd_vote_instruction_t* self, uint discriminant) {
+  self->discriminant = discriminant;
   fd_vote_instruction_inner_new(&self->inner, self->discriminant);
+}
+void fd_vote_instruction_new(fd_vote_instruction_t* self) {
+  fd_vote_instruction_new_disc(self, UINT_MAX);
 }
 void fd_vote_instruction_inner_destroy(fd_vote_instruction_inner_t* self, uint discriminant, fd_bincode_destroy_ctx_t * ctx) {
   switch (discriminant) {
@@ -6389,9 +6398,12 @@ void fd_system_program_instruction_inner_new(fd_system_program_instruction_inner
   default: break; // FD_LOG_ERR(( "unhandled type"));
   }
 }
-void fd_system_program_instruction_new(fd_system_program_instruction_t* self) {
-  self->discriminant = 0;
+void fd_system_program_instruction_new_disc(fd_system_program_instruction_t* self, uint discriminant) {
+  self->discriminant = discriminant;
   fd_system_program_instruction_inner_new(&self->inner, self->discriminant);
+}
+void fd_system_program_instruction_new(fd_system_program_instruction_t* self) {
+  fd_system_program_instruction_new_disc(self, UINT_MAX);
 }
 void fd_system_program_instruction_inner_destroy(fd_system_program_instruction_inner_t* self, uint discriminant, fd_bincode_destroy_ctx_t * ctx) {
   switch (discriminant) {
@@ -6719,9 +6731,12 @@ void fd_system_error_inner_new(fd_system_error_inner_t* self, uint discriminant)
   default: break; // FD_LOG_ERR(( "unhandled type"));
   }
 }
-void fd_system_error_new(fd_system_error_t* self) {
-  self->discriminant = 0;
+void fd_system_error_new_disc(fd_system_error_t* self, uint discriminant) {
+  self->discriminant = discriminant;
   fd_system_error_inner_new(&self->inner, self->discriminant);
+}
+void fd_system_error_new(fd_system_error_t* self) {
+  fd_system_error_new_disc(self, UINT_MAX);
 }
 void fd_system_error_inner_destroy(fd_system_error_inner_t* self, uint discriminant, fd_bincode_destroy_ctx_t * ctx) {
   switch (discriminant) {
@@ -6941,9 +6956,12 @@ void fd_stake_authorize_inner_new(fd_stake_authorize_inner_t* self, uint discrim
   default: break; // FD_LOG_ERR(( "unhandled type"));
   }
 }
-void fd_stake_authorize_new(fd_stake_authorize_t* self) {
-  self->discriminant = 0;
+void fd_stake_authorize_new_disc(fd_stake_authorize_t* self, uint discriminant) {
+  self->discriminant = discriminant;
   fd_stake_authorize_inner_new(&self->inner, self->discriminant);
+}
+void fd_stake_authorize_new(fd_stake_authorize_t* self) {
+  fd_stake_authorize_new_disc(self, UINT_MAX);
 }
 void fd_stake_authorize_inner_destroy(fd_stake_authorize_inner_t* self, uint discriminant, fd_bincode_destroy_ctx_t * ctx) {
   switch (discriminant) {
@@ -7518,9 +7536,12 @@ void fd_stake_instruction_inner_new(fd_stake_instruction_inner_t* self, uint dis
   default: break; // FD_LOG_ERR(( "unhandled type"));
   }
 }
-void fd_stake_instruction_new(fd_stake_instruction_t* self) {
-  self->discriminant = 0;
+void fd_stake_instruction_new_disc(fd_stake_instruction_t* self, uint discriminant) {
+  self->discriminant = discriminant;
   fd_stake_instruction_inner_new(&self->inner, self->discriminant);
+}
+void fd_stake_instruction_new(fd_stake_instruction_t* self) {
+  fd_stake_instruction_new_disc(self, UINT_MAX);
 }
 void fd_stake_instruction_inner_destroy(fd_stake_instruction_inner_t* self, uint discriminant, fd_bincode_destroy_ctx_t * ctx) {
   switch (discriminant) {
@@ -7894,9 +7915,12 @@ void fd_stake_state_inner_new(fd_stake_state_inner_t* self, uint discriminant) {
   default: break; // FD_LOG_ERR(( "unhandled type"));
   }
 }
-void fd_stake_state_new(fd_stake_state_t* self) {
-  self->discriminant = 0;
+void fd_stake_state_new_disc(fd_stake_state_t* self, uint discriminant) {
+  self->discriminant = discriminant;
   fd_stake_state_inner_new(&self->inner, self->discriminant);
+}
+void fd_stake_state_new(fd_stake_state_t* self) {
+  fd_stake_state_new_disc(self, UINT_MAX);
 }
 void fd_stake_state_inner_destroy(fd_stake_state_inner_t* self, uint discriminant, fd_bincode_destroy_ctx_t * ctx) {
   switch (discriminant) {
@@ -8059,9 +8083,12 @@ void fd_nonce_state_inner_new(fd_nonce_state_inner_t* self, uint discriminant) {
   default: break; // FD_LOG_ERR(( "unhandled type"));
   }
 }
-void fd_nonce_state_new(fd_nonce_state_t* self) {
-  self->discriminant = 0;
+void fd_nonce_state_new_disc(fd_nonce_state_t* self, uint discriminant) {
+  self->discriminant = discriminant;
   fd_nonce_state_inner_new(&self->inner, self->discriminant);
+}
+void fd_nonce_state_new(fd_nonce_state_t* self) {
+  fd_nonce_state_new_disc(self, UINT_MAX);
 }
 void fd_nonce_state_inner_destroy(fd_nonce_state_inner_t* self, uint discriminant, fd_bincode_destroy_ctx_t * ctx) {
   switch (discriminant) {
@@ -8158,9 +8185,12 @@ void fd_nonce_state_versions_inner_new(fd_nonce_state_versions_inner_t* self, ui
   default: break; // FD_LOG_ERR(( "unhandled type"));
   }
 }
-void fd_nonce_state_versions_new(fd_nonce_state_versions_t* self) {
-  self->discriminant = 0;
+void fd_nonce_state_versions_new_disc(fd_nonce_state_versions_t* self, uint discriminant) {
+  self->discriminant = discriminant;
   fd_nonce_state_versions_inner_new(&self->inner, self->discriminant);
+}
+void fd_nonce_state_versions_new(fd_nonce_state_versions_t* self) {
+  fd_nonce_state_versions_new_disc(self, UINT_MAX);
 }
 void fd_nonce_state_versions_inner_destroy(fd_nonce_state_versions_inner_t* self, uint discriminant, fd_bincode_destroy_ctx_t * ctx) {
   switch (discriminant) {
@@ -8329,9 +8359,12 @@ void fd_compute_budget_program_instruction_inner_new(fd_compute_budget_program_i
   default: break; // FD_LOG_ERR(( "unhandled type"));
   }
 }
-void fd_compute_budget_program_instruction_new(fd_compute_budget_program_instruction_t* self) {
-  self->discriminant = 0;
+void fd_compute_budget_program_instruction_new_disc(fd_compute_budget_program_instruction_t* self, uint discriminant) {
+  self->discriminant = discriminant;
   fd_compute_budget_program_instruction_inner_new(&self->inner, self->discriminant);
+}
+void fd_compute_budget_program_instruction_new(fd_compute_budget_program_instruction_t* self) {
+  fd_compute_budget_program_instruction_new_disc(self, UINT_MAX);
 }
 void fd_compute_budget_program_instruction_inner_destroy(fd_compute_budget_program_instruction_inner_t* self, uint discriminant, fd_bincode_destroy_ctx_t * ctx) {
   switch (discriminant) {
@@ -8583,9 +8616,12 @@ void fd_bpf_loader_program_instruction_inner_new(fd_bpf_loader_program_instructi
   default: break; // FD_LOG_ERR(( "unhandled type"));
   }
 }
-void fd_bpf_loader_program_instruction_new(fd_bpf_loader_program_instruction_t* self) {
-  self->discriminant = 0;
+void fd_bpf_loader_program_instruction_new_disc(fd_bpf_loader_program_instruction_t* self, uint discriminant) {
+  self->discriminant = discriminant;
   fd_bpf_loader_program_instruction_inner_new(&self->inner, self->discriminant);
+}
+void fd_bpf_loader_program_instruction_new(fd_bpf_loader_program_instruction_t* self) {
+  fd_bpf_loader_program_instruction_new_disc(self, UINT_MAX);
 }
 void fd_bpf_loader_program_instruction_inner_destroy(fd_bpf_loader_program_instruction_inner_t* self, uint discriminant, fd_bincode_destroy_ctx_t * ctx) {
   switch (discriminant) {
@@ -8837,9 +8873,12 @@ void fd_bpf_upgradeable_loader_program_instruction_inner_new(fd_bpf_upgradeable_
   default: break; // FD_LOG_ERR(( "unhandled type"));
   }
 }
-void fd_bpf_upgradeable_loader_program_instruction_new(fd_bpf_upgradeable_loader_program_instruction_t* self) {
-  self->discriminant = 0;
+void fd_bpf_upgradeable_loader_program_instruction_new_disc(fd_bpf_upgradeable_loader_program_instruction_t* self, uint discriminant) {
+  self->discriminant = discriminant;
   fd_bpf_upgradeable_loader_program_instruction_inner_new(&self->inner, self->discriminant);
+}
+void fd_bpf_upgradeable_loader_program_instruction_new(fd_bpf_upgradeable_loader_program_instruction_t* self) {
+  fd_bpf_upgradeable_loader_program_instruction_new_disc(self, UINT_MAX);
 }
 void fd_bpf_upgradeable_loader_program_instruction_inner_destroy(fd_bpf_upgradeable_loader_program_instruction_inner_t* self, uint discriminant, fd_bincode_destroy_ctx_t * ctx) {
   switch (discriminant) {
@@ -9145,9 +9184,12 @@ void fd_bpf_upgradeable_loader_state_inner_new(fd_bpf_upgradeable_loader_state_i
   default: break; // FD_LOG_ERR(( "unhandled type"));
   }
 }
-void fd_bpf_upgradeable_loader_state_new(fd_bpf_upgradeable_loader_state_t* self) {
-  self->discriminant = 0;
+void fd_bpf_upgradeable_loader_state_new_disc(fd_bpf_upgradeable_loader_state_t* self, uint discriminant) {
+  self->discriminant = discriminant;
   fd_bpf_upgradeable_loader_state_inner_new(&self->inner, self->discriminant);
+}
+void fd_bpf_upgradeable_loader_state_new(fd_bpf_upgradeable_loader_state_t* self) {
+  fd_bpf_upgradeable_loader_state_new_disc(self, UINT_MAX);
 }
 void fd_bpf_upgradeable_loader_state_inner_destroy(fd_bpf_upgradeable_loader_state_inner_t* self, uint discriminant, fd_bincode_destroy_ctx_t * ctx) {
   switch (discriminant) {

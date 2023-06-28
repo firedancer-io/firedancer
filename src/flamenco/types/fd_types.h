@@ -1900,6 +1900,7 @@ void fd_vote_state_destroy(fd_vote_state_t* self, fd_bincode_destroy_ctx_t * ctx
 void fd_vote_state_walk(fd_vote_state_t* self, fd_walk_fun_t fun, const char *name, int level);
 ulong fd_vote_state_size(fd_vote_state_t const * self);
 
+void fd_vote_state_versioned_new_disc(fd_vote_state_versioned_t* self, uint discriminant);
 void fd_vote_state_versioned_new(fd_vote_state_versioned_t* self);
 int fd_vote_state_versioned_decode(fd_vote_state_versioned_t* self, fd_bincode_decode_ctx_t * ctx);
 int fd_vote_state_versioned_encode(fd_vote_state_versioned_t const * self, fd_bincode_encode_ctx_t * ctx);
@@ -2053,6 +2054,7 @@ void fd_vote_init_destroy(fd_vote_init_t* self, fd_bincode_destroy_ctx_t * ctx);
 void fd_vote_init_walk(fd_vote_init_t* self, fd_walk_fun_t fun, const char *name, int level);
 ulong fd_vote_init_size(fd_vote_init_t const * self);
 
+void fd_vote_authorize_new_disc(fd_vote_authorize_t* self, uint discriminant);
 void fd_vote_authorize_new(fd_vote_authorize_t* self);
 int fd_vote_authorize_decode(fd_vote_authorize_t* self, fd_bincode_decode_ctx_t * ctx);
 int fd_vote_authorize_encode(fd_vote_authorize_t const * self, fd_bincode_encode_ctx_t * ctx);
@@ -2101,6 +2103,7 @@ void fd_vote_authorize_checked_with_seed_args_destroy(fd_vote_authorize_checked_
 void fd_vote_authorize_checked_with_seed_args_walk(fd_vote_authorize_checked_with_seed_args_t* self, fd_walk_fun_t fun, const char *name, int level);
 ulong fd_vote_authorize_checked_with_seed_args_size(fd_vote_authorize_checked_with_seed_args_t const * self);
 
+void fd_vote_instruction_new_disc(fd_vote_instruction_t* self, uint discriminant);
 void fd_vote_instruction_new(fd_vote_instruction_t* self);
 int fd_vote_instruction_decode(fd_vote_instruction_t* self, fd_bincode_decode_ctx_t * ctx);
 int fd_vote_instruction_encode(fd_vote_instruction_t const * self, fd_bincode_encode_ctx_t * ctx);
@@ -2173,6 +2176,7 @@ void fd_system_program_instruction_transfer_with_seed_destroy(fd_system_program_
 void fd_system_program_instruction_transfer_with_seed_walk(fd_system_program_instruction_transfer_with_seed_t* self, fd_walk_fun_t fun, const char *name, int level);
 ulong fd_system_program_instruction_transfer_with_seed_size(fd_system_program_instruction_transfer_with_seed_t const * self);
 
+void fd_system_program_instruction_new_disc(fd_system_program_instruction_t* self, uint discriminant);
 void fd_system_program_instruction_new(fd_system_program_instruction_t* self);
 int fd_system_program_instruction_decode(fd_system_program_instruction_t* self, fd_bincode_decode_ctx_t * ctx);
 int fd_system_program_instruction_encode(fd_system_program_instruction_t const * self, fd_bincode_encode_ctx_t * ctx);
@@ -2208,6 +2212,7 @@ fd_system_program_instruction_enum_assign_with_seed = 10,
 fd_system_program_instruction_enum_transfer_with_seed = 11,
 fd_system_program_instruction_enum_upgrade_nonce_account = 12,
 }; 
+void fd_system_error_new_disc(fd_system_error_t* self, uint discriminant);
 void fd_system_error_new(fd_system_error_t* self);
 int fd_system_error_decode(fd_system_error_t* self, fd_bincode_decode_ctx_t * ctx);
 int fd_system_error_encode(fd_system_error_t const * self, fd_bincode_encode_ctx_t * ctx);
@@ -2256,6 +2261,7 @@ void fd_stake_instruction_initialize_destroy(fd_stake_instruction_initialize_t* 
 void fd_stake_instruction_initialize_walk(fd_stake_instruction_initialize_t* self, fd_walk_fun_t fun, const char *name, int level);
 ulong fd_stake_instruction_initialize_size(fd_stake_instruction_initialize_t const * self);
 
+void fd_stake_authorize_new_disc(fd_stake_authorize_t* self, uint discriminant);
 void fd_stake_authorize_new(fd_stake_authorize_t* self);
 int fd_stake_authorize_decode(fd_stake_authorize_t* self, fd_bincode_decode_ctx_t * ctx);
 int fd_stake_authorize_encode(fd_stake_authorize_t const * self, fd_bincode_encode_ctx_t * ctx);
@@ -2304,6 +2310,7 @@ void fd_lockup_checked_args_destroy(fd_lockup_checked_args_t* self, fd_bincode_d
 void fd_lockup_checked_args_walk(fd_lockup_checked_args_t* self, fd_walk_fun_t fun, const char *name, int level);
 ulong fd_lockup_checked_args_size(fd_lockup_checked_args_t const * self);
 
+void fd_stake_instruction_new_disc(fd_stake_instruction_t* self, uint discriminant);
 void fd_stake_instruction_new(fd_stake_instruction_t* self);
 int fd_stake_instruction_decode(fd_stake_instruction_t* self, fd_bincode_decode_ctx_t * ctx);
 int fd_stake_instruction_encode(fd_stake_instruction_t const * self, fd_bincode_encode_ctx_t * ctx);
@@ -2366,6 +2373,7 @@ void fd_stake_state_stake_destroy(fd_stake_state_stake_t* self, fd_bincode_destr
 void fd_stake_state_stake_walk(fd_stake_state_stake_t* self, fd_walk_fun_t fun, const char *name, int level);
 ulong fd_stake_state_stake_size(fd_stake_state_stake_t const * self);
 
+void fd_stake_state_new_disc(fd_stake_state_t* self, uint discriminant);
 void fd_stake_state_new(fd_stake_state_t* self);
 int fd_stake_state_decode(fd_stake_state_t* self, fd_bincode_decode_ctx_t * ctx);
 int fd_stake_state_encode(fd_stake_state_t const * self, fd_bincode_encode_ctx_t * ctx);
@@ -2390,6 +2398,7 @@ void fd_nonce_data_destroy(fd_nonce_data_t* self, fd_bincode_destroy_ctx_t * ctx
 void fd_nonce_data_walk(fd_nonce_data_t* self, fd_walk_fun_t fun, const char *name, int level);
 ulong fd_nonce_data_size(fd_nonce_data_t const * self);
 
+void fd_nonce_state_new_disc(fd_nonce_state_t* self, uint discriminant);
 void fd_nonce_state_new(fd_nonce_state_t* self);
 int fd_nonce_state_decode(fd_nonce_state_t* self, fd_bincode_decode_ctx_t * ctx);
 int fd_nonce_state_encode(fd_nonce_state_t const * self, fd_bincode_encode_ctx_t * ctx);
@@ -2403,6 +2412,7 @@ enum {
 fd_nonce_state_enum_uninitialized = 0,
 fd_nonce_state_enum_initialized = 1,
 }; 
+void fd_nonce_state_versions_new_disc(fd_nonce_state_versions_t* self, uint discriminant);
 void fd_nonce_state_versions_new(fd_nonce_state_versions_t* self);
 int fd_nonce_state_versions_decode(fd_nonce_state_versions_t* self, fd_bincode_decode_ctx_t * ctx);
 int fd_nonce_state_versions_encode(fd_nonce_state_versions_t const * self, fd_bincode_encode_ctx_t * ctx);
@@ -2423,6 +2433,7 @@ void fd_compute_budget_program_instruction_request_units_deprecated_destroy(fd_c
 void fd_compute_budget_program_instruction_request_units_deprecated_walk(fd_compute_budget_program_instruction_request_units_deprecated_t* self, fd_walk_fun_t fun, const char *name, int level);
 ulong fd_compute_budget_program_instruction_request_units_deprecated_size(fd_compute_budget_program_instruction_request_units_deprecated_t const * self);
 
+void fd_compute_budget_program_instruction_new_disc(fd_compute_budget_program_instruction_t* self, uint discriminant);
 void fd_compute_budget_program_instruction_new(fd_compute_budget_program_instruction_t* self);
 int fd_compute_budget_program_instruction_decode(fd_compute_budget_program_instruction_t* self, fd_bincode_decode_ctx_t * ctx);
 int fd_compute_budget_program_instruction_encode(fd_compute_budget_program_instruction_t const * self, fd_bincode_encode_ctx_t * ctx);
@@ -2454,6 +2465,7 @@ void fd_bpf_loader_program_instruction_write_destroy(fd_bpf_loader_program_instr
 void fd_bpf_loader_program_instruction_write_walk(fd_bpf_loader_program_instruction_write_t* self, fd_walk_fun_t fun, const char *name, int level);
 ulong fd_bpf_loader_program_instruction_write_size(fd_bpf_loader_program_instruction_write_t const * self);
 
+void fd_bpf_loader_program_instruction_new_disc(fd_bpf_loader_program_instruction_t* self, uint discriminant);
 void fd_bpf_loader_program_instruction_new(fd_bpf_loader_program_instruction_t* self);
 int fd_bpf_loader_program_instruction_decode(fd_bpf_loader_program_instruction_t* self, fd_bincode_decode_ctx_t * ctx);
 int fd_bpf_loader_program_instruction_encode(fd_bpf_loader_program_instruction_t const * self, fd_bincode_encode_ctx_t * ctx);
@@ -2488,6 +2500,7 @@ void fd_bpf_upgradeable_loader_program_instruction_extend_program_destroy(fd_bpf
 void fd_bpf_upgradeable_loader_program_instruction_extend_program_walk(fd_bpf_upgradeable_loader_program_instruction_extend_program_t* self, fd_walk_fun_t fun, const char *name, int level);
 ulong fd_bpf_upgradeable_loader_program_instruction_extend_program_size(fd_bpf_upgradeable_loader_program_instruction_extend_program_t const * self);
 
+void fd_bpf_upgradeable_loader_program_instruction_new_disc(fd_bpf_upgradeable_loader_program_instruction_t* self, uint discriminant);
 void fd_bpf_upgradeable_loader_program_instruction_new(fd_bpf_upgradeable_loader_program_instruction_t* self);
 int fd_bpf_upgradeable_loader_program_instruction_decode(fd_bpf_upgradeable_loader_program_instruction_t* self, fd_bincode_decode_ctx_t * ctx);
 int fd_bpf_upgradeable_loader_program_instruction_encode(fd_bpf_upgradeable_loader_program_instruction_t const * self, fd_bincode_encode_ctx_t * ctx);
@@ -2532,6 +2545,7 @@ void fd_bpf_upgradeable_loader_state_program_data_destroy(fd_bpf_upgradeable_loa
 void fd_bpf_upgradeable_loader_state_program_data_walk(fd_bpf_upgradeable_loader_state_program_data_t* self, fd_walk_fun_t fun, const char *name, int level);
 ulong fd_bpf_upgradeable_loader_state_program_data_size(fd_bpf_upgradeable_loader_state_program_data_t const * self);
 
+void fd_bpf_upgradeable_loader_state_new_disc(fd_bpf_upgradeable_loader_state_t* self, uint discriminant);
 void fd_bpf_upgradeable_loader_state_new(fd_bpf_upgradeable_loader_state_t* self);
 int fd_bpf_upgradeable_loader_state_decode(fd_bpf_upgradeable_loader_state_t* self, fd_bincode_decode_ctx_t * ctx);
 int fd_bpf_upgradeable_loader_state_encode(fd_bpf_upgradeable_loader_state_t const * self, fd_bincode_encode_ctx_t * ctx);

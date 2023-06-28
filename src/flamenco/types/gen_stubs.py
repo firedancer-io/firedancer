@@ -967,6 +967,8 @@ for entry in entries:
         continue
     n = namespace + "_" + entry["name"]
 
+    if entry["type"] == "enum":
+        print("void " + n + "_new_disc(" + n + "_t* self, uint discriminant);", file=header)
     print("void " + n + "_new(" + n + "_t* self);", file=header)
     print("int " + n + "_decode(" + n + "_t* self, fd_bincode_decode_ctx_t * ctx);", file=header)
     print("int " + n + "_encode(" + n + "_t const * self, fd_bincode_encode_ctx_t * ctx);", file=header)
@@ -1045,9 +1047,12 @@ for entry in entries:
       print("  }", file=body)
       print("}", file=body)
 
-      print("void " + n + "_new(" + n + "_t* self) {", file=body)
-      print("  self->discriminant = 0;", file=body)
+      print("void " + n + "_new_disc(" + n + "_t* self, uint discriminant) {", file=body)
+      print("  self->discriminant = discriminant;", file=body)
       print("  " + namespace + "_" + entry["name"] + "_inner_new(&self->inner" + ", self->discriminant);", file=body)
+      print("}", file=body)
+      print("void " + n + "_new(" + n + "_t* self) {", file=body)
+      print("  " + namespace + "_" + entry["name"] + "_new_disc(self" + ", UINT_MAX);", file=body) # Invalid by default
       print("}", file=body)
     else:
       print("void " + n + "_new(" + n + "_t* self) {", file=body)
