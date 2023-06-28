@@ -199,11 +199,11 @@ fd_quic_tls_hs_new( fd_quic_tls_t * quic_tls,
 
   // no room
   if( hs_idx == hs_sz ) {
-    DEBUG( FD_LOG_DEBUG(( "tls_hs alloc fail" )); );
+    FD_DEBUG( FD_LOG_DEBUG(( "tls_hs alloc fail" )) );
     return NULL;
   }
 
-  DEBUG( FD_LOG_DEBUG(( "tls_hs alloc %lu", hs_idx )); );
+  FD_DEBUG( FD_LOG_DEBUG(( "tls_hs alloc %lu", hs_idx )) );
 
   // set the handshake to used
   hs_used[hs_idx] = 1;
@@ -297,7 +297,7 @@ fd_quic_tls_hs_new( fd_quic_tls_t * quic_tls,
 
 fd_quic_tls_hs_new_error:
   // free handshake
-  DEBUG( FD_LOG_DEBUG(( "tls_hs free inline %lu", hs_idx )); );
+  FD_DEBUG( FD_LOG_DEBUG(( "tls_hs free inline %lu", hs_idx )) );
   quic_tls->used_handshakes[hs_idx] = 0;
 
   return NULL;
@@ -313,7 +313,7 @@ fd_quic_tls_hs_delete( fd_quic_tls_hs_t * self ) {
 
   // find index into array
   ulong hs_idx = (ulong)( self - quic_tls->handshakes );
-  DEBUG( FD_LOG_DEBUG(( "tls_hs free %lu", hs_idx )); );
+  FD_DEBUG( FD_LOG_DEBUG(( "tls_hs free %lu", hs_idx )) );
   if( quic_tls->used_handshakes[hs_idx] != 1 ) {
     return;
   }

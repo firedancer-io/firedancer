@@ -9,13 +9,6 @@
 #include "crypto/fd_quic_crypto_suites.h"
 #include "tls/fd_quic_tls.h"
 
-/* DEBUG: set to 1 to enable aggressive verbose logging */
-#if 0
-#define DEBUG(...) __VA_ARGS__
-#else
-#define DEBUG(...)
-#endif
-
 /* FD_QUIC_DISABLE_CRYPTO: set to 1 to disable packet protection and
    encryption.  Only intended for testing.
    FIXME not fully implemented (#256) */
@@ -286,4 +279,3 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_tango_quic_fd_quic_private_h */
-
