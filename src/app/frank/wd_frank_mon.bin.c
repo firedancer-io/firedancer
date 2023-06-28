@@ -25,6 +25,9 @@ main( int     argc,
   uchar const * cfg_pod = fd_pod_query_subpod( pod, cfg_path );
   if( FD_UNLIKELY( !cfg_pod ) ) FD_LOG_ERR(( "path not found" ));
 
+  int demo_txn_rand_corrupt = fd_pod_query_int( cfg_pod, "demo.txn_rand_corrupt", 0 );
+  int demo_txn_broadcast = fd_pod_query_int( cfg_pod, "demo.txn_broadcast", 0 );
+ 
   /* wiredancer */
   ulong wd_enabled = fd_pod_query_ulong( cfg_pod, "wd.enabled", 0UL );
   ulong wd_slots = 0UL;
@@ -104,6 +107,9 @@ main( int     argc,
   wd_mon_state.rate_dedup  = 0UL;
   wd_mon_state.running     = 1;
   wd_mon_state.stopped     = 0;
+  wd_mon_state.verify_live = verify_cnt;
+  wd_mon_state.txn_corrupt = (ulong)demo_txn_rand_corrupt;
+  wd_mon_state.txn_bcast   = (ulong)demo_txn_broadcast;
   FD_TEST( !wd_init_pci( &wd_mon_state.wd, wd_slots ) );
   pthread_t wd_mon_thread;
   FD_TEST( !pthread_create( &wd_mon_thread, NULL, mon_thread, &wd_mon_state)  );

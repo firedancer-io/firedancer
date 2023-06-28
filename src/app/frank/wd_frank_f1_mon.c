@@ -199,6 +199,10 @@ uint32_t cnt_data[][7] = {
     {124-105,  67-1, 5, 0, 0, 104, 0}, // sigv   rate
     {999-105, 999-1, 5, 0, 0, 105, 0}, // sigv_swrate
 
+    {120-105,  63-1, 7, 0, 0, 106, 0}, // txn_corrupt
+    {120-105,  72-1, 8, 0, 0, 107, 0}, // txn_bcast
+    {122-105,  64-1, 9, 0, 0, 108, 0}, // verify_live
+
     {0, 0, 0, 0, 0, 0}, // end marker
 };
 
@@ -218,7 +222,7 @@ int anm_data[][9] = {
 
     {124-105,  64-2,  0, -1, 12, 4,  0, 0, (int)'<'},
     {124-105,  44-2,  0, -1, 12, 4,  0, 0, (int)'<'},
-    {116-105,  28-2, -1,  0,  3, 4,  0, 0, (int)'^'},
+    {119-105,  28-2, -1,  0,  6, 4,  0, 0, (int)'^'},
     {111-105,  22-2,  0, -1,  7, 4,  0, 0, (int)'<'},
     {114-105,  11-2,  1,  0, 10, 4,  0, 0, (int)'v'},
     {132-105,  17-2,  0,  1,  7, 4,  0, 0, (int)'>'},
@@ -227,7 +231,7 @@ int anm_data[][9] = {
 
     {124-105,  78-2,  0,  1, 12, 4, 20, 0, (int)'>'},
     {124-105,  98-2,  0,  1, 12, 4, 20, 0, (int)'>'},
-    {116-105, 114-2, -1,  0,  3, 4, 20, 0, (int)'^'},
+    {119-105, 114-2, -1,  0,  6, 4, 20, 0, (int)'^'},
     {111-105, 120-2,  0,  1,  7, 4, 20, 0, (int)'>'},
     {114-105, 131-2,  1,  0, 10, 4, 20, 0, (int)'v'},
     {132-105, 125-2,  0, -1,  7, 4, 20, 0, (int)'<'},
@@ -387,6 +391,12 @@ void* mon_thread(void* arg)
                 cnt = (uint)state->rate_sigv;
             if (cnt_data[i][5] == 105 )
                 cnt = (uint)state->rate_sw_sigv;
+            if (cnt_data[i][5] == 106 )
+                cnt = (uint)state->txn_corrupt;
+            if (cnt_data[i][5] == 107 )
+                cnt = (uint)state->txn_bcast;
+            if (cnt_data[i][5] == 108 )
+                cnt = (uint)state->verify_live;
             cnts[1][i] = cnt;
             if (first)
                 cnts[0][i] = cnt;
@@ -457,6 +467,24 @@ void* mon_thread(void* arg)
                 int sel = pretty_num(cnt_st[ci], cnt, "bps");
                 color = cols[sel];
                 cnts[1][ci] = cnt;
+            }
+            else if (cnt_data[ci][2] == 7)
+            {
+                uint64_t cnt = cnts[0][ci];
+                sprintf(cnt_st[ci], "%s", cnt ? "corrupt" : " ");
+                color = 2;
+            }
+            else if (cnt_data[ci][2] == 8)
+            {
+                uint64_t cnt = cnts[0][ci];
+                sprintf(cnt_st[ci], "%s", cnt ? "bcast" : " ");
+                color = 2;
+            }
+            else if (cnt_data[ci][2] == 9)
+            {
+                uint64_t cnt = cnts[0][ci];
+                sprintf(cnt_st[ci], "%02lu", cnt);
+                color = 2;
             }
             cnt_data[ci][3] = color;
             cnt_data[ci][4] = (uint32_t)strlen(cnt_st[ci]);

@@ -30,6 +30,9 @@ typedef struct {
     uint64_t rate_dedup;
     uint64_t rate_sigv;
     uint64_t rate_sw_sigv;
+    uint64_t txn_corrupt;
+    uint64_t txn_bcast;
+    uint64_t verify_live;
     uint32_t running;
     uint32_t running_recv;
     uint32_t stopped;
