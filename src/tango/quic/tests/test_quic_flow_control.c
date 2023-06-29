@@ -29,7 +29,7 @@ my_stream_receive( fd_quic_stream_t * stream,
     FD_TEST( data_sz == 2 );  /* stream flow control increased, but conn not */
     fd_quic_conn_set_rx_max_data( stream->conn, 12 );
   } else if ( stream->rx_tot_data < 12 ) {
-    FD_TEST( data_sz == 4 );  /* both flow controls set to 12, so it sends the 
+    FD_TEST( data_sz == 4 );  /* both flow controls set to 12, so it sends the
                                  rest of the remaining buffer of 4 bytes */
   } else {
     FD_LOG_HEXDUMP_DEBUG( ( "buffer", buffer, stream->rx_tot_data ) );
@@ -128,7 +128,7 @@ main( int argc, char ** argv ) {
   client_quic->cb.conn_hs_complete = my_handshake_complete;
 
   /* start with 1-byte for flow control testing (see my_stream_receive) */
-  server_quic->config.initial_rx_max_stream_data = 1; 
+  server_quic->config.initial_rx_max_stream_data = 1;
   client_quic->config.initial_rx_max_stream_data = 0;
 
   FD_LOG_NOTICE(( "Creating virtual pair" ));
@@ -239,8 +239,8 @@ main( int argc, char ** argv ) {
 
   FD_LOG_NOTICE(( "Cleaning up" ));
   fd_quic_virtual_pair_fini( &vp );
-  fd_wksp_free_laddr( fd_quic_delete( fd_quic_leave( server_quic ) ) );
-  fd_wksp_free_laddr( fd_quic_delete( fd_quic_leave( client_quic ) ) );
+  fd_wksp_free_laddr( fd_quic_delete( fd_quic_leave( fd_quic_fini( server_quic ) ) ) );
+  fd_wksp_free_laddr( fd_quic_delete( fd_quic_leave( fd_quic_fini( client_quic ) ) ) );
   fd_wksp_delete_anonymous( wksp );
 
   FD_LOG_NOTICE(( "pass" ));
