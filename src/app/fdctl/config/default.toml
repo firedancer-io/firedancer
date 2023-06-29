@@ -9,9 +9,8 @@ name = "fd1"
 # sudo.
 user = ""
 
-# Absolute directory path to place scratch files used during setup and operation. Firedancer does
-# not read or write many files when it is run except for `key.pem` and `cert.pem` files to
-# initialize SSL. Information about the running process is also placed here in a `config.cfg` file
+# Absolute directory path to place scratch files used during setup and operation.
+# Information about the running process is also placed here in a `config.cfg` file
 # so monitoring and debugging tools can find it and connect automatically.
 #
 # In future, Firedancer will also page the Solana accounts database to disk in this directory but
@@ -27,7 +26,7 @@ scratch_directory = "/home/{user}/.firedancer/{name}"
 # most of this behavior by pinning threads to CPU cores.
 #
 # Consider a validator node needing to do six essential pieces of work:
-# 
+#
 #  1. quic      Receive client transactions on a network device
 #  2. verify    Verify the signature of the transaction, dropping invalid ones
 #  3. dedup     Drop duplicated or repeatedly sent transactions
@@ -37,7 +36,7 @@ scratch_directory = "/home/{user}/.firedancer/{name}"
 #
 # This is a data pipeline. When we model the flow of a transaction through the system, it's a simple
 # linear sequence, and could run nicely on six CPU cores, one for each stage,
-#   
+#
 #   1 -> 2 -> 3 -> 4 -> 5 -> 6
 #
 # Transactions can largely be processed indepdendently, except for deduplication. With that in mind,
@@ -156,7 +155,7 @@ scratch_directory = "/home/{user}/.firedancer/{name}"
         # would exceed this limit will not be accepted.
         max_concurrent_connections = 32
 
-        # While in TCP a connection is identified by (Source IP, Source Port, Dest IP, Dest Port) 
+        # While in TCP a connection is identified by (Source IP, Source Port, Dest IP, Dest Port)
         # in QUIC a connection is uniquely identified by a connection ID. Because this isn't
         # dependent on network identifiers, it allows connection migration and continuity across
         # network changes. It can also offer enhanced privacy by obfuscating the client IP address
@@ -240,7 +239,7 @@ scratch_directory = "/home/{user}/.firedancer/{name}"
         receive_buffer_size = 16384
 
         # The maximum size of a message from a QUIC tile to a verify tile.
-        # 
+        #
         # TODO: This should be removed. Not configuration, should be transaction MTU.
         mtu = 4804
 
@@ -300,7 +299,7 @@ scratch_directory = "/home/{user}/.firedancer/{name}"
         solana_labs_bank_thread_count = 4
 
         # The second part of the banking stage speed estimator is a simple constant describing how
-        # fast we think the stage can execute compute units. 
+        # fast we think the stage can execute compute units.
         #
         # TODO: This should be removed, we should just use a standard backpressure mechanism here.
         solana_labs_bank_thread_compute_units_executed_per_second = 12000001

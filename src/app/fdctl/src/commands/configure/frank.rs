@@ -144,14 +144,10 @@ fn step(config: &mut Config) {
     let src_mac_address = super::netns::src_mac_address(config);
 
     run!("{bin}/fd_pod_ctl \
-        insert-file {pod} {prefix}.quic_cfg.cert_data {cert_file} \
-        insert-file {pod} {prefix}.quic_cfg.key_data {key_file} \
         insert {pod} cstr {prefix}.quic_cfg.ip_addr {ip_addr} \
         insert {pod} ushort {prefix}.quic_cfg.listen_port {listen_port} \
         insert {pod} cstr {prefix}.quic_cfg.src_mac_addr {src_mac_address} \
         insert {pod} ulong {prefix}.quic_cfg.idle_timeout_ms 1000",
-        cert_file=format!("{}/cert.pem", &config.scratch_directory),
-        key_file=format!("{}/key.pem", &config.scratch_directory),
         ip_addr=listen_address,
         listen_port=config.tiles.quic.listen_port);
 
