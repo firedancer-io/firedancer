@@ -633,8 +633,6 @@ int fd_executor_stake_program_execute_instruction(
 
     /* Check that the instruction accounts are correct
       https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/stake/src/stake_instruction.rs#L127-L142 */
-    uchar* instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
-    fd_pubkey_t* txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
     fd_pubkey_t* stake_acc         = &txn_accs[instr_acc_idxs[0]];
 
     /* Check that the Instruction Account 2 is the Clock Sysvar account */
@@ -648,6 +646,8 @@ int fd_executor_stake_program_execute_instruction(
     if ( memcmp( &txn_accs[instr_acc_idxs[3]], ctx.global->sysvar_stake_history, sizeof(fd_pubkey_t) ) != 0 ) {
       return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
     }
+    fd_stake_history_t history;
+    fd_sysvar_stake_history_read( ctx.global, &history);    
 
     /* Check that Instruction Account 4 is the Stake Config Program account */
     if ( memcmp( &txn_accs[instr_acc_idxs[4]], ctx.global->solana_stake_program_config, sizeof(fd_pubkey_t) ) != 0 ) {
@@ -684,18 +684,11 @@ int fd_executor_stake_program_execute_instruction(
 
     /* Check that the authorized staker for this Stake account has signed the transaction
        https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/stake/src/stake_state.rs#L546 */
-    uchar authorized_staker_signed = 0;
-    for ( ulong i = 0; i < ctx.instr->acct_cnt; i++ ) {
-      if ( instr_acc_idxs[i] < ctx.txn_ctx->txn_descriptor->signature_cnt ) {
-        fd_pubkey_t * signer = &txn_accs[instr_acc_idxs[i]];
-        if ( !memcmp( signer, &meta->authorized.staker, sizeof(fd_pubkey_t) ) ) {
-          authorized_staker_signed = 1;
-          break;
-        }
-      }
-    }
-    if ( !authorized_staker_signed ) {
-      return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+
+    // meta.authorized.check(signers, StakeAuthorize::Staker)?;
+    int result = authorized_check_signers(&ctx, instr_acc_idxs, txn_accs, &stake_state.inner.stake.meta.authorized.staker);
+    if (result != FD_EXECUTOR_INSTR_SUCCESS) {
+      return result;
     }
 
     /* Ensire that we leave enough balance in the account such that the Stake account is rent exempt
@@ -711,6 +704,11 @@ int fd_executor_stake_program_execute_instruction(
       stake_amount = lamports - meta->rent_exempt_reserve;
     }
 
+    if ((ctx.global->features.stake_allow_zero_undelegated_amount || ctx.global->features.stake_raise_minimum_delegation_to_1_sol) && stake_amount < get_minimum_delegation(ctx.global)) {
+      ctx.txn_ctx->custom_err = 12;
+      return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+    }
+
     if ( fd_stake_state_is_initialized( &stake_state ) ) {
       /* Create the new stake state
          https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/stake/src/stake_state.rs#L549 */
@@ -718,7 +716,7 @@ int fd_executor_stake_program_execute_instruction(
       fd_stake_state_stake_t* stake_state_stake = &stake_state.inner.stake;
       fd_memcpy( &stake_state_stake->meta, meta, FD_STAKE_STATE_META_FOOTPRINT );
       stake_state_stake->stake.delegation.activation_epoch = clock.epoch;
-      stake_state_stake->stake.delegation.activation_epoch = ULONG_MAX;
+      stake_state_stake->stake.delegation.deactivation_epoch = ULONG_MAX;
       stake_state_stake->stake.delegation.stake = stake_amount;
       fd_memcpy( &stake_state_stake->stake.delegation.voter_pubkey, vote_acc, sizeof(fd_pubkey_t) );
       stake_state_stake->stake.delegation.warmup_cooldown_rate = stake_config.warmup_cooldown_rate;
@@ -728,10 +726,37 @@ int fd_executor_stake_program_execute_instruction(
       if( FD_UNLIKELY( !acc_res ) )
         return acc_res;  /* FIXME leak */
       stake_state_stake->stake.credits_observed = credits;
+    } else {
+      /* redelegate when fd_stake_state_is_stake( &stake_state )
+        https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/stake/src/stake_state.rs#L562
+      */
+      if (stake_activating_and_deactivating( &stake_state.inner.stake.stake.delegation, clock.epoch, &history).effective != 0) {
+        ushort stake_lamports_ok = (ctx.global->features.stake_redelegate_instruction) ? lamports >= stake_state.inner.stake.stake.delegation.stake : 1;
+        if (stake_lamports_ok && clock.epoch == stake_state.inner.stake.stake.delegation.deactivation_epoch && memcmp( &stake_state.inner.stake.stake.delegation.voter_pubkey, vote_acc, sizeof(fd_pubkey_t) ) == 0) {
+          stake_state.inner.stake.stake.delegation.deactivation_epoch = ULONG_MAX;  
+        } else {
+          ctx.txn_ctx->custom_err = 3;
+          return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+        }
+      }
+      
+      stake_state.discriminant = 2;
+      fd_stake_state_stake_t* stake_state_stake = &stake_state.inner.stake;
+      fd_memcpy( &stake_state_stake->meta, meta, FD_STAKE_STATE_META_FOOTPRINT );
+      stake_state_stake->stake.delegation.activation_epoch = clock.epoch;
+      stake_state_stake->stake.delegation.stake = stake_amount;
+      fd_memcpy( &stake_state_stake->stake.delegation.voter_pubkey, vote_acc, sizeof(fd_pubkey_t) );
+      stake_state_stake->stake.delegation.warmup_cooldown_rate = stake_config.warmup_cooldown_rate;
+
+      ulong credits = 0;
+      int acc_res = fd_vote_acc_credits( ctx.global, vote_acc, &credits );
+      if( FD_UNLIKELY( !acc_res ) )
+        return acc_res;  /* FIXME leak */
+      stake_state_stake->stake.credits_observed = credits; 
     }
 
     /* Write the stake state back to the database */
-    int result = write_stake_state( ctx.global, stake_acc, &stake_state, 0 );
+    result = write_stake_state( ctx.global, stake_acc, &stake_state, 0 );
     if ( result != FD_EXECUTOR_INSTR_SUCCESS ) {
       FD_LOG_WARNING(( "failed to write stake account state: %d", result ));
       return result;
@@ -1329,7 +1354,97 @@ int fd_executor_stake_program_execute_instruction(
     fd_acc_mgr_set_metadata(ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.slot, to_acc, &to_acc_metadata);
 
   }
+  else if ( fd_stake_instruction_is_get_minimum_delegation( &instruction ) ) {
+    if ( !ctx.global->features.add_get_minimum_delegation_instruction_to_stake_program ) {
+      return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+    }
 
+  }
+  else if ( fd_stake_instruction_is_deactivate_delinquent( &instruction ) ) {
+    if (!ctx.global->features.stake_deactivate_delinquent_instruction) {
+      return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+    }
+
+    /* check at least there are at least 3 accounts */
+    if (ctx.txn_ctx->txn_descriptor->acct_addr_cnt < 3) {
+      return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+    }
+
+    /* Read the current State State from the Stake account */
+    fd_pubkey_t* stake_acc         = &txn_accs[instr_acc_idxs[0]];
+    fd_stake_state_t stake_state;
+    int result = read_stake_state( ctx.global, stake_acc, &stake_state );
+    if (result != FD_EXECUTOR_INSTR_SUCCESS) {
+      return result;
+    }
+
+    // /* Check that the Instruction Account 0 is the Clock Sysvar account */
+    // if ( memcmp( &txn_accs[instr_acc_idxs[0]], ctx.global->sysvar_clock, sizeof(fd_pubkey_t) ) != 0 ) {
+    //   return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+    // }
+    // FD_LOG_NOTICE(("BEFORE CLOCK"));
+    // fd_sol_sysvar_clock_t clock;
+    // fd_sysvar_clock_read( ctx.global, &clock );
+    // FD_LOG_NOTICE(("AFTER CLOCK"));
+    fd_pubkey_t * delinquent_vote_acc = &txn_accs[instr_acc_idxs[1]];
+    fd_pubkey_t delinquent_vote_acc_owner;
+    fd_acc_mgr_get_owner( ctx.global->acc_mgr, ctx.global->funk_txn, delinquent_vote_acc, &delinquent_vote_acc_owner );
+    if ( memcmp( &delinquent_vote_acc_owner, ctx.global->solana_vote_program, sizeof(fd_pubkey_t) ) != 0 ) {
+      return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
+    }
+    // ulong delinquent_credits = 0;
+    // result = fd_vote_acc_credits( ctx.global, delinquent_vote_acc, &delinquent_credits );
+    // FD_LOG_NOTICE(("AFTER DELINQUENT CREDITS =%d", result));
+    // if( FD_UNLIKELY( result != FD_EXECUTOR_INSTR_SUCCESS ) ) {
+    //   return result;  /* FIXME leak */
+    // }    
+    // let delinquent_vote_state = delinquent_vote_account
+    //     .get_state::<VoteStateVersions>()?
+    //     .convert_to_current();
+
+    fd_pubkey_t * reference_vote_acc = &txn_accs[instr_acc_idxs[2]];
+    fd_pubkey_t reference_vote_acc_owner;
+    fd_acc_mgr_get_owner( ctx.global->acc_mgr, ctx.global->funk_txn, reference_vote_acc, &reference_vote_acc_owner );
+    if ( memcmp( &reference_vote_acc_owner, ctx.global->solana_vote_program, sizeof(fd_pubkey_t) ) != 0 ) {
+      return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
+    }
+    
+    ulong reference_credits = 0;
+    result = fd_vote_acc_credits( ctx.global, reference_vote_acc, &reference_credits );
+    // if( FD_UNLIKELY( result != FD_EXECUTOR_INSTR_SUCCESS ) ) {
+    //   return result;  /* FIXME leak */
+    // }
+    // let reference_vote_state = reference_vote_account
+    //     .get_state::<VoteStateVersions>()?
+    //     .convert_to_current();
+
+
+    // if !acceptable_reference_epoch_credits(&reference_vote_state.epoch_credits, current_epoch) {
+    //     return Err(StakeError::InsufficientReferenceVotes.into());
+    // }
+    // if (!acceptable_reference_epoch_credits(0, 0)) {
+    //   ctx.txn_ctx->custom_err = 9;
+    //   return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+    // }
+
+    if ( !fd_stake_state_is_stake( &stake_state ) ) {
+      return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+    }
+
+    if (memcmp(&stake_state.inner.stake.stake.delegation.voter_pubkey, delinquent_vote_acc, sizeof(fd_pubkey_t)) != 0) {
+      ctx.txn_ctx->custom_err = 10;
+      return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR; // return Err(StakeError::VoteAddressMismatch.into());
+    }
+
+    // // Deactivate the stake account if its delegated vote account has never voted or has not
+    // // voted in the last `MINIMUM_DELINQUENT_EPOCHS_FOR_DEACTIVATION`
+    // if eligible_for_deactivate_delinquent(&delinquent_vote_state.epoch_credits, current_epoch) {
+    //     stake.deactivate(current_epoch)?;
+    //     stake_account.set_state(&StakeState::Stake(meta, stake))
+    // } else {
+    //     Err(StakeError::MinimumDelinquentEpochsForDeactivationNotMet.into())
+    // }
+  } // end of deactivate_delinquent, discriminant 14
   else {
     FD_LOG_NOTICE(( "unsupported StakeInstruction instruction: discriminant %d", instruction.discriminant ));
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
