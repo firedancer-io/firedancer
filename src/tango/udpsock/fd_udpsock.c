@@ -283,7 +283,9 @@ fd_udpsock_service( fd_udpsock_t * sock ) {
       .ihl          = 5,
       .version      = 4,
       .tos          = 0,
-      .net_tot_len  = (ushort)(sock->rx_iov[i].iov_len - sizeof(fd_eth_hdr_t)),
+      .net_tot_len  = (ushort)( sock->rx_msg[i].msg_len
+                      + sizeof(fd_ip4_hdr_t)
+                      + sizeof(fd_udp_hdr_t) ),
       .net_id       = 0,
       .net_frag_off = 0,
       .ttl          = 64,
@@ -293,13 +295,14 @@ fd_udpsock_service( fd_udpsock_t * sock ) {
       .daddr        = sock->ip_self_addr
     };
     fd_ip4_hdr_bswap( ip4 );  /* convert to "network" byte order */
+    ip4->check = fd_ip4_hdr_check_fast( ip4 );
 
     /* Create UDP header with network byte order */
     fd_udp_hdr_t * udp = (fd_udp_hdr_t *)((ulong)ip4 + sizeof(fd_ip4_hdr_t));
     *udp = (fd_udp_hdr_t) {
       .net_sport = (ushort)addr->sin_port,
       .net_dport = (ushort)fd_ushort_bswap( sock->udp_self_port ),
-      .net_len   = (ushort)fd_ushort_bswap( (ushort)(sock->rx_iov[i].iov_len - sizeof(fd_eth_hdr_t) - sizeof(fd_ip4_hdr_t)) ),
+      .net_len   = (ushort)fd_ushort_bswap( (ushort)( sock->rx_msg[i].msg_len + sizeof(fd_udp_hdr_t) ) ),
       .check     = 0
     };
 
