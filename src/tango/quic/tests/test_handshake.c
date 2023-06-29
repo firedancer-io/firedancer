@@ -5,6 +5,9 @@
 #include "../../../util/fd_util.h"
 #include "../tls/fd_quic_tls.h"
 #include "../templ/fd_quic_transport_params.h"
+#include "../../../util/net/fd_ip4.h"
+#include "../../../ballet/ed25519/fd_ed25519_openssl.h"
+#include "../../../ballet/x509/fd_x509.h"
 
 
 // test transport parameters
@@ -80,7 +83,19 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
+  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
+
   if( FD_UNLIKELY( argc>1 ) ) FD_LOG_ERR(( "unrecognized argument: %s", argv[ 1 ] ));
+
+  /* Generate certificate key */
+  uchar cert_private_key[ 32 ];
+  for( ulong b=0; b<32UL; b++ ) cert_private_key[b] = fd_rng_uchar( rng );
+  EVP_PKEY * cert_pkey = fd_ed25519_pkey_from_private( cert_private_key );
+  FD_TEST( cert_pkey );
+
+  /* Generate X509 certificate */
+  X509 * cert = fd_x509_gen_solana_cert( cert_pkey, FD_IP4_ADDR( 127, 0, 0, 1 ) );
+  FD_TEST( cert );
 
   // config parameters
   fd_quic_tls_cfg_t cfg = {
@@ -91,11 +106,8 @@ main( int     argc,
 
     .max_concur_handshakes = 16,
 
-    .cert.data             = NULL,
-    .cert.file             = "cert.pem",
-    .key.data              = NULL,
-    .key.file              = "key.pem",
-
+    .cert     = cert,
+    .cert_key = cert_pkey
   };
 
   /* dump transport params */
@@ -282,6 +294,8 @@ main( int     argc,
            fd_quic_tls_hs_delete( hs_client );
            fd_quic_tls_hs_delete( hs_server );
   FD_TEST( fd_quic_tls_delete   ( quic_tls  ) );
+
+  fd_rng_delete( fd_rng_leave( rng ) );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
