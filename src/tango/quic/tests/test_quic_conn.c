@@ -491,8 +491,8 @@ main( int argc, char ** argv ) {
 
   FD_LOG_NOTICE(( "Cleaning up" ));
   fd_quic_virtual_pair_fini( &vp );
-  fd_wksp_free_laddr( fd_quic_delete( fd_quic_leave( server_quic ) ) );
-  fd_wksp_free_laddr( fd_quic_delete( fd_quic_leave( client_quic ) ) );
+  fd_wksp_free_laddr( fd_quic_delete( fd_quic_leave( fd_quic_fini( server_quic ) ) ) );
+  fd_wksp_free_laddr( fd_quic_delete( fd_quic_leave( fd_quic_fini( client_quic ) ) ) );
   fd_wksp_delete_anonymous( wksp );
 
   FD_LOG_NOTICE(( "pass" ));
