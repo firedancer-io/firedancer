@@ -14,6 +14,13 @@
 #include <fcntl.h>   /* for keylog open(2)  */
 #include <unistd.h>  /* for keylog close(2) */
 
+// TODO ugly -- remove TLS dependency here
+#include <openssl/evp.h>
+#include <openssl/x509.h>
+#include "../../ballet/ed25519/fd_ed25519_openssl.h"
+#include "../../ballet/x509/fd_x509.h"
+#include <openssl/rand.h>
+
 #define CONN_FMT "%02x%02x%02x%02x%02x%02x%02x%02x"
 #define CONN_ID(CONN_ID) (CONN_ID)->conn_id[0], (CONN_ID)->conn_id[1], (CONN_ID)->conn_id[2], (CONN_ID)->conn_id[3],  \
                          (CONN_ID)->conn_id[4], (CONN_ID)->conn_id[5], (CONN_ID)->conn_id[6], (CONN_ID)->conn_id[7]
@@ -205,8 +212,6 @@ fd_quic_config_from_env( int  *             pargc,
 
   if( FD_UNLIKELY( !cfg ) ) return NULL;
 
-  char const * cert_file       = fd_env_strip_cmdline_cstr ( pargc, pargv, "--ssl-cert",     "QUIC_TLS_CERT", NULL  );
-  char const * key_file        = fd_env_strip_cmdline_cstr ( pargc, pargv, "--ssl-key",      "QUIC_TLS_KEY",  NULL  );
   char const * keylog_file     = fd_env_strip_cmdline_cstr ( pargc, pargv, NULL,             "SSLKEYLOGFILE", NULL  );
   ulong        idle_timeout_ms = fd_env_strip_cmdline_ulong( pargc, pargv, "--idle-timeout", NULL,            100UL );
   ulong        initial_rx_max_stream_data = fd_env_strip_cmdline_ulong(
@@ -216,25 +221,6 @@ fd_quic_config_from_env( int  *             pargc,
       "QUIC_INITIAL_RX_MAX_STREAM_DATA",
       FD_QUIC_DEFAULT_INITIAL_RX_MAX_STREAM_DATA
   );
-
-  cfg->cert.data = NULL;
-  cfg->key.data  = NULL;
-
-  if( cfg->role == FD_QUIC_ROLE_SERVER ) {
-    if( FD_UNLIKELY( !cert_file ) ) {
-      FD_LOG_WARNING(( "Missing --ssl-cert" ));
-      return NULL;
-    }
-    if( FD_UNLIKELY( !key_file ) ) {
-      FD_LOG_WARNING(( "Missing --ssl-key" ));
-      return NULL;
-    }
-
-    strncpy( cfg->cert.file, cert_file, FD_QUIC_CERT_PATH_LEN );
-    strncpy( cfg->key.file,  key_file,  FD_QUIC_CERT_PATH_LEN );
-  } else {
-    cfg->cert.file[ 0 ]='\0';
-  }
 
   if( keylog_file ) {
     strncpy( cfg->keylog_file, keylog_file, FD_QUIC_CERT_PATH_LEN );
@@ -313,6 +299,13 @@ fd_quic_join( void * shquic ) {
     return NULL;
   }
 
+  /* Clear join-lifetime memory regions */
+
+  quic->cert_object     = NULL;
+  quic->cert_key_object = NULL;
+
+  memset( &quic->cb, 0, sizeof( fd_quic_callbacks_t  ) );
+
   return quic;
 }
 
@@ -327,13 +320,34 @@ fd_quic_init( fd_quic_t * quic ) {
   fd_quic_limits_t const * limits = &quic->limits;
   fd_quic_config_t       * config = &quic->config;
 
-  if( FD_UNLIKELY( !config->role         ) ) { FD_LOG_WARNING(( "cfg.role not set"      )); return NULL; }
-  if( FD_UNLIKELY( !config->idle_timeout ) ) { FD_LOG_WARNING(( "zero cfg.idle_timeout" )); return NULL; }
+  if( FD_UNLIKELY( !config->role          ) ) { FD_LOG_WARNING(( "cfg.role not set"      )); return NULL; }
+  if( FD_UNLIKELY( !config->idle_timeout  ) ) { FD_LOG_WARNING(( "zero cfg.idle_timeout" )); return NULL; }
+
+  if( FD_UNLIKELY( (!quic->cert_object) | (!quic->cert_key_object) ) ) {
+    /* FIXME remove this hack by separating TLS and QUIC management.
+             User should provide pre-initialized SSL_CTX with cert
+             installed.  fd_quic should not touch any certificate
+             handling. */
+    FD_LOG_WARNING(( "Warning: Certificate or key not set. Generating random." ));
+    if( FD_UNLIKELY( quic->cert_object     ) ) X509_free    ( (X509 *)quic->cert_object         );
+    if( FD_UNLIKELY( quic->cert_key_object ) ) EVP_PKEY_free( (EVP_PKEY *)quic->cert_key_object );
+
+    /* Generate certificate key */
+    uchar cert_private_key[ 32 ];
+    FD_TEST( 1==RAND_bytes( cert_private_key, 32 ) );
+    EVP_PKEY * cert_pkey = fd_ed25519_pkey_from_private( cert_private_key );
+    FD_TEST( cert_pkey );
+
+    /* Generate X509 certificate */
+    X509 * cert = fd_x509_gen_solana_cert( cert_pkey, config->net.ip_addr );
+    FD_TEST( cert );
+
+    quic->cert_key_object = cert_pkey;
+    quic->cert_object     = cert;
+  }
 
   switch( config->role ) {
   case FD_QUIC_ROLE_SERVER:
-    if( FD_UNLIKELY( !config->cert.data && !config->cert.file[0] ) ) { FD_LOG_WARNING(( "no cfg.cert" )); return NULL; }
-    if( FD_UNLIKELY( !config->key.data  && !config->key.file[0]  ) ) { FD_LOG_WARNING(( "no cfg.key"  )); return NULL; }
     if( FD_UNLIKELY( !config->net.listen_udp_port ) ) { FD_LOG_WARNING(( "no cfg.net.listen_udp_port" )); return NULL; }
     break;
   case FD_QUIC_ROLE_CLIENT:
@@ -403,8 +417,6 @@ fd_quic_init( fd_quic_t * quic ) {
     return NULL;
   }
 
-  /* TODO open and close key_file and cert_file to ensure read access */
-
   /* Prepare keylog file */
 
   char const * keylog_file = config->keylog_file;
@@ -428,12 +440,6 @@ fd_quic_init( fd_quic_t * quic ) {
   /* State: Initialize TLS */
 
   fd_quic_tls_cfg_t tls_cfg = {
-    .cert.data             = config->cert.data,
-    .cert.data_sz          = config->cert.data_sz,
-    .cert.file             = config->cert.file,
-    .key.data              = config->key.data,
-    .key.data_sz           = config->key.data_sz,
-    .key.file              = config->key.file,
     .max_concur_handshakes = limits->handshake_cnt,
 
     /* set up callbacks */
@@ -449,6 +455,8 @@ fd_quic_init( fd_quic_t * quic ) {
 
     .keylog_fd             = keylog_fd
   };
+  tls_cfg.cert     = (X509 *)    quic->cert_object;     quic->cert_object     = NULL;
+  tls_cfg.cert_key = (EVP_PKEY *)quic->cert_key_object; quic->cert_key_object = NULL;
 
   ulong tls_laddr = (ulong)quic + layout.tls_off;
   state->tls = fd_quic_tls_new( (void *)tls_laddr, &tls_cfg );
@@ -786,6 +794,9 @@ fd_quic_fini( fd_quic_t * quic ) {
   state->conns    = NULL;
 
   /* Clear join-lifetime memory regions */
+
+  quic->cert_object     = NULL;
+  quic->cert_key_object = NULL;
 
   memset( &quic->cb, 0, sizeof( fd_quic_callbacks_t  ) );
   memset( state,     0, sizeof( fd_quic_state_t      ) );
@@ -5996,3 +6007,4 @@ fd_quic_conn_get_pkt_meta_free_count( fd_quic_conn_t * conn ) {
   }
   return cnt;
 }
+

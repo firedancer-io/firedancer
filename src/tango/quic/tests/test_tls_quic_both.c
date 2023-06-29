@@ -7,6 +7,9 @@
 #include <openssl/err.h>
 
 #include "../../../util/fd_util.h"
+#include "../../../util/net/fd_ip4.h"
+#include "../../../ballet/ed25519/fd_ed25519_openssl.h"
+#include "../../../ballet/x509/fd_x509.h"
 
 // test transport parameters
 uchar test_tp[] = "\x00\x39\x00\x39\x01\x04\x80\x00\xea\x60\x04\x04\x80\x10\x00\x00"
@@ -209,14 +212,13 @@ SSL_QUIC_METHOD quic_method = {
   fd_quic_ssl_flush_flight,
   fd_quic_ssl_send_alert };
 
-SSL_CTX * fd_quic_create_context( int is_server )
-{
-  const SSL_METHOD *method;
-  SSL_CTX *ctx;
+static SSL_CTX *
+fd_quic_create_context( int        is_server,
+                        fd_rng_t * rng ) {
 
-  method = TLS_method();
+  SSL_METHOD const * method = TLS_method();
 
-  ctx = SSL_CTX_new(method);
+  SSL_CTX * ctx = SSL_CTX_new( method );
   FD_TEST( ctx );
 
   FD_TEST( 1==SSL_CTX_set_min_proto_version( ctx, TLS1_3_VERSION ) );
@@ -225,16 +227,19 @@ SSL_CTX * fd_quic_create_context( int is_server )
 
   FD_TEST( 1==SSL_CTX_set_quic_method( ctx, &quic_method ) );
 
-  /* Set the key and cert */
-  if( SSL_CTX_use_certificate_file(ctx, "cert.pem", SSL_FILETYPE_PEM) <= 0 ) {
-    ERR_print_errors_fp(stderr);
-    exit( EXIT_FAILURE );
-  }
+  uchar cert_private_key[ 32 ];
+  for( ulong b=0; b<32UL; b++ ) cert_private_key[b] = fd_rng_uchar( rng );
+  EVP_PKEY * cert_pkey = fd_ed25519_pkey_from_private( cert_private_key );
+  FD_TEST( cert_pkey );
 
-  if( SSL_CTX_use_PrivateKey_file(ctx, "key.pem", SSL_FILETYPE_PEM) <= 0 ) {
-    ERR_print_errors_fp(stderr);
-    exit( EXIT_FAILURE );
-  }
+  X509 * cert = fd_x509_gen_solana_cert( cert_pkey, FD_IP4_ADDR( 127, 0, 0, 1 ) );
+  FD_TEST( cert );
+
+  FD_TEST( 1==SSL_CTX_use_certificate( ctx, cert ) );
+  X509_free( cert );
+
+  FD_TEST( 1==SSL_CTX_use_PrivateKey( ctx, cert_pkey ) );
+  EVP_PKEY_free( cert_pkey );
 
   // TODO set cipher suites?
   // TODO set verify clients?
@@ -257,14 +262,16 @@ int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
-  SSL_CTX *ctx;
+
+  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
+
   //SSL_CTX *ctx_server;
 
   /* Ignore broken pipe signals */
-  signal(SIGPIPE, SIG_IGN);
+  signal( SIGPIPE, SIG_IGN );
 
-  //ctx_client =  fd_quic_create_context( 0 );
-  ctx =  fd_quic_create_context( 1 );
+  //ctx_client =  fd_quic_create_context( 0, rng );
+  SSL_CTX * ctx = fd_quic_create_context( 1, rng );
 
   fd_quic_tls_t * tls_client = fd_quic_tls_new( 0, ctx );
   fd_quic_tls_t * tls_server = fd_quic_tls_new( 1, ctx );
@@ -489,6 +496,8 @@ main( int     argc,
 
   free( tls_client );
   free( tls_server );
+
+  fd_rng_delete( fd_rng_leave( rng ) );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
