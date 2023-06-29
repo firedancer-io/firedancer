@@ -49,7 +49,6 @@ build/linux/gcc/x86_64/unit-test/test_runtime --wksp giant_wksp --gaddr 0x000000
 #pragma GCC optimize ("O0")
 #endif
 
-// #define MALLOC_NOT_FDALLOC
 #ifdef MALLOC_NOT_FDALLOC
 int fd_alloc_fprintf( fd_alloc_t * join, FILE *       stream );
 

@@ -28,6 +28,7 @@ int read_bpf_upgradeable_loader_state( fd_global_ctx_t* global, fd_pubkey_t* pro
   read_result = fd_acc_mgr_get_account_data( global->acc_mgr, global->funk_txn, program_acc, raw_acc_data, metadata.hlen, metadata.dlen );
   if ( read_result != FD_ACC_MGR_SUCCESS ) {
     FD_LOG_WARNING(( "failed to read account data: %d", read_result ));
+    free(raw_acc_data);
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
 
@@ -38,13 +39,12 @@ int read_bpf_upgradeable_loader_state( fd_global_ctx_t* global, fd_pubkey_t* pro
   ctx.allocf_arg = global->allocf_arg;
   if ( fd_bpf_upgradeable_loader_state_decode( result, &ctx ) ) {
     FD_LOG_WARNING(("fd_bpf_upgradeable_loader_state_decode failed"));
+    free(raw_acc_data);
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
-  return FD_ACC_MGR_SUCCESS;
 
   free(raw_acc_data);
-
-  return 0;
+  return FD_ACC_MGR_SUCCESS;
 }
 
 int write_bpf_upgradeable_loader_state(
@@ -118,6 +118,13 @@ int fd_executor_bpf_upgradeable_loader_program_is_executable_program_account( fd
   return 0;
 }
 
+/**
+ * num accounts
+ * serialized accounts
+ * instr data len
+ * instr data
+ * program id public key
+*/
 // 64-bit aligned
 uchar *
 serialize_aligned( instruction_ctx_t ctx, ulong * sz ) {
@@ -141,13 +148,13 @@ serialize_aligned( instruction_ctx_t ctx, ulong * sz ) {
       acc_idx_seen[acc_idx] = 1;
       dup_acc_idx[acc_idx] = i;
       fd_pubkey_t * acc = &txn_accs[acc_idx];
-      int read_result;
+      int read_result = 0;
       uchar * raw_acc_data = (uchar *)fd_acc_mgr_view_data(ctx.global->acc_mgr, ctx.global->funk_txn, acc, NULL, &read_result);
       fd_account_meta_t * metadata = (fd_account_meta_t *)raw_acc_data;
       if ( read_result != FD_ACC_MGR_SUCCESS ) {
         char acc_str[FD_BASE58_ENCODED_32_SZ];
         fd_base58_encode_32((uchar *)acc, NULL, acc_str);
-        FD_LOG_WARNING(( "failed to read account data - pubkey: %s", acc_str ));
+        FD_LOG_WARNING(( "failed to read account data - pubkey: %s, err: %d", acc_str, read_result ));
         return NULL;
       }
 
@@ -172,7 +179,7 @@ serialize_aligned( instruction_ctx_t ctx, ulong * sz ) {
       + ctx.instr->data_sz
       + sizeof(fd_pubkey_t);
   
-  uchar * serialized_params = (uchar *)(ctx.global->allocf)(ctx.global->allocf_arg, 8UL, serialized_size);
+  uchar * serialized_params = malloc(serialized_size);
   uchar * serialized_params_start = serialized_params;
 
   FD_STORE( ulong, serialized_params, ctx.instr->acct_cnt );
@@ -314,6 +321,8 @@ deserialize_aligned( instruction_ctx_t ctx, uchar * input, FD_FN_UNUSED ulong in
     }
   }
 
+  free(input);
+
   return 0;
 }
 
@@ -348,7 +357,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_program_instruction( inst
   }
   
   ulong program_data_len = programdata_metadata.dlen - PROGRAMDATA_METADATA_SIZE;
-  uchar * program_data = malloc( program_data_len);
+  uchar * program_data = malloc( program_data_len );
   read_result = fd_acc_mgr_get_account_data( ctx.global->acc_mgr, ctx.global->funk_txn, programdata_acc, program_data, programdata_metadata.hlen + PROGRAMDATA_METADATA_SIZE, program_data_len );
   if (read_result != FD_ACC_MGR_SUCCESS) {
     return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
@@ -386,6 +395,10 @@ int fd_executor_bpf_upgradeable_loader_program_execute_program_instruction( inst
   ulong input_sz = 0;
   uchar * input = serialize_aligned(ctx, &input_sz);
   if( input==NULL ) {
+    free( fd_sbpf_program_delete( prog ) );
+    free( fd_sbpf_syscalls_delete( syscalls ) );
+    free(program_data);
+    free(rodata);
     return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
   }
   uchar * input_cpy = (uchar *)(ctx.global->allocf)(ctx.global->allocf_arg, 8UL, input_sz);
@@ -405,7 +418,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_program_instruction( inst
     .read_only_sz        = prog->rodata_sz
   };
 
-  ulong trace_sz = 128 * 1024;
+  ulong trace_sz = 1024 * 1024;
   ulong trace_used = 0;
   fd_vm_trace_entry_t * trace = (fd_vm_trace_entry_t *) malloc(trace_sz * sizeof(fd_vm_trace_entry_t));
 
@@ -449,9 +462,21 @@ int fd_executor_bpf_upgradeable_loader_program_execute_program_instruction( inst
     fprintf(trace_fd, "\n");
   }
   fclose(trace_fd);
+  free(trace);
+
+  free( fd_sbpf_program_delete( prog ) );
+  free( fd_sbpf_syscalls_delete( syscalls ) );
+  free(program_data);
+  free(rodata);
 
   FD_LOG_WARNING(( "fd_vm_interp_instrs() success: %lu, ic: %lu, pc: %lu, ep: %lu, r0: %lu, fault: %lu", interp_res, vm_ctx.instruction_counter, vm_ctx.program_counter, vm_ctx.entrypoint, vm_ctx.register_file[0], vm_ctx.cond_fault ));
   FD_LOG_WARNING(( "log coll: %s", vm_ctx.log_collector.buf ));
+
+  if( vm_ctx.register_file[0]!=0 ) {
+    free(input);
+    // TODO: vm should report this error
+    return -1;
+  }
 
   if( vm_ctx.cond_fault ) {
     free(input);

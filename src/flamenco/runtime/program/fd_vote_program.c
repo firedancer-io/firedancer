@@ -893,7 +893,7 @@ int fd_executor_vote_program_execute_instruction(
       char vote_hash_hash[50];
       fd_base58_encode_32((uchar const *) &vote->hash, 0, vote_hash_hash);
 
-      FD_LOG_WARNING(( "hash mismatch: slot_hash: %s vote_hash: %s", slot_hash_hash, vote_hash_hash ));
+      FD_LOG_WARNING(( "hash mismatch: slot: %lu slot_hash: %s vote_hash: %s", hash->slot, slot_hash_hash, vote_hash_hash ));
       /* FIXME: re-visit when bank hashes are confirmed to be good */
       ctx.txn_ctx->custom_err = FD_VOTE_SLOT_HASH_MISMATCH;
       ret = FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
