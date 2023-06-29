@@ -221,23 +221,7 @@ struct __attribute__((aligned(16UL))) fd_quic_config {
 
   /* TLS config ********************************************/
 
-# define FD_QUIC_CERT_PATH_LEN (1023UL)
-  struct { /* cert config */
-    void const * data;
-    int          data_sz;
-
-    /* cstrs containing TLS PEM cert file path */
-    char         file  [ FD_QUIC_CERT_PATH_LEN+1UL ];
-  } cert;
-
-  struct { /* key config */
-    void const * data;
-    int          data_sz;
-
-    /* cstrs containing TLS PEM key file path */
-    char         file  [ FD_QUIC_CERT_PATH_LEN+1UL ];
-  } key;
-
+# define FD_QUIC_CERT_PATH_LEN 1023UL
   char keylog_file[ FD_QUIC_CERT_PATH_LEN+1UL ];
 
   /* alpns: List of supported ALPN IDs in OpenSSL format.
@@ -430,6 +414,13 @@ struct fd_quic {
 
   fd_aio_t aio_rx; /* local AIO */
   fd_aio_t aio_tx; /* remote AIO */
+
+  /* Opaque handles for OpenSSL objects.
+     Owned by fd_quic object (freed on fini).
+     TODO: Instead, provide SSL_CTX object here. */
+
+  void * cert_object;      /* X509 * object */
+  void * cert_key_object;  /* EVP_PKEY * object */
 
   /* ... private variable-length structures follow ... */
 };

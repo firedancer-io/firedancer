@@ -3,6 +3,7 @@
 
 #include <openssl/ssl.h>
 #include <openssl/err.h>
+#include <openssl/ossl_typ.h>
 #include <stdlib.h>
 #include <stdio.h>
 
@@ -105,13 +106,6 @@ struct fd_quic_tls_secret {
   ulong                 secret_len;
 };
 
-typedef struct fd_quic_tls_cert_cfg {
-  void const * data;
-  int          data_sz;
-
-  char const * file;
-} fd_quic_tls_cert_cfg_t;
-
 struct fd_quic_tls_cfg {
   // callbacks ../crypto/fd_quic_crypto_suites
   fd_quic_tls_cb_client_hello_t        client_hello_cb;
@@ -122,8 +116,9 @@ struct fd_quic_tls_cfg {
 
   ulong          max_concur_handshakes;
 
-  fd_quic_tls_cert_cfg_t cert;      /* certificate data */
-  fd_quic_tls_cert_cfg_t key;       /* private key data */
+  /* Certificate and key */
+  EVP_PKEY * cert_key;
+  X509 *     cert;
 
   /* keylog_fd == 0 indicates no keylogger file */
   int            keylog_fd;             /* keylogger file */
