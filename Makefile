@@ -52,6 +52,9 @@ endif
 $(info Using MACHINE=$(MACHINE))
 $(info Using EXTRAS=$(EXTRAS))
 
+# Default target
+all:
+
 include config/$(MACHINE).mk
 include $(addprefix config/with-,$(addsuffix .mk,$(EXTRAS)))
 include config/everything.mk
