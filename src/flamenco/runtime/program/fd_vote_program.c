@@ -245,9 +245,7 @@ fd_vote_save_account( fd_vote_state_versioned_t const * account,
 
 static int
 fd_vote_verify_authority( fd_vote_state_t const * vote_state,
-                          uchar const *           instr_acc_idxs,
-                          fd_pubkey_t const *     txn_accs,
-                          instruction_ctx_t       ctx ) {
+                          instruction_ctx_t const * ctx ) {
 
   /* Check that the vote state account is initialized
      Assuming here that authorized voters is not empty */
@@ -255,24 +253,17 @@ fd_vote_verify_authority( fd_vote_state_t const * vote_state,
 
   /* Get the current authorized voter for the current epoch */
   /* TODO: handle epoch rollover */
-  fd_pubkey_t authorized_voter = deq_fd_vote_historical_authorized_voter_t_peek_tail( authorized_voters )->pubkey;
-
-  /* Check that the authorized voter for this epoch has signed the vote transaction
-      https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L1265 */
-  int authorized_voter_signed = 0;
-  for( ulong i = 0; i < ctx.instr->acct_cnt; i++ ) {
-    if( instr_acc_idxs[i] < ctx.txn_ctx->txn_descriptor->signature_cnt ) {
-      fd_pubkey_t const * signer = &txn_accs[instr_acc_idxs[i]];
-      if( 0==memcmp( signer, &authorized_voter, sizeof(fd_pubkey_t) ) ) {
-        authorized_voter_signed = 1;
-        break;
-      }
-    }
+  for ( deq_fd_vote_historical_authorized_voter_t_iter_t iter = deq_fd_vote_historical_authorized_voter_t_iter_init( authorized_voters );
+        !deq_fd_vote_historical_authorized_voter_t_iter_done( authorized_voters, iter );
+        iter = deq_fd_vote_historical_authorized_voter_t_iter_next( authorized_voters, iter ) ) {
+    fd_vote_historical_authorized_voter_t * ele = deq_fd_vote_historical_authorized_voter_t_iter_ele( authorized_voters, iter );
+    fd_pubkey_t * authorized_voter = &ele->pubkey;
+    /* Check that the authorized voter for this epoch has signed the vote transaction
+       https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L1265 */
+    if( fd_account_is_signer(ctx, authorized_voter) )
+      return FD_EXECUTOR_INSTR_SUCCESS;
   }
-  if( FD_UNLIKELY( !authorized_voter_signed ) )
-    return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
-
-  return FD_EXECUTOR_INSTR_SUCCESS;
+  return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
 }
 
 
@@ -782,7 +773,7 @@ int fd_executor_vote_program_execute_instruction(
     }
 
     /* Verify vote authority */
-    int authorize_res = fd_vote_verify_authority( vote_state, instr_acc_idxs, txn_accs, ctx );
+    int authorize_res = fd_vote_verify_authority( vote_state, &ctx );
     if( FD_UNLIKELY( 0!=authorize_res ) ) {
       ret = authorize_res;
       fd_vote_state_versioned_destroy(&vote_state_versioned, &destroy);
@@ -1078,7 +1069,7 @@ int fd_executor_vote_program_execute_instruction(
     fd_vote_state_t * vote_state = &vote_state_versioned.inner.current;
 
     /* Verify vote authority */
-    int authorize_res = fd_vote_verify_authority( vote_state, instr_acc_idxs, txn_accs, ctx );
+    int authorize_res = fd_vote_verify_authority( vote_state, &ctx );
     if( FD_UNLIKELY( 0!=authorize_res ) ) {
       ret = authorize_res;
       break;
@@ -1619,7 +1610,7 @@ int fd_executor_vote_program_execute_instruction(
     fd_vote_state_t * vote_state = &vote_state_versioned.inner.current;
 
     /* Verify vote authority */
-    int authorize_res = fd_vote_verify_authority( vote_state, instr_acc_idxs, txn_accs, ctx );
+    int authorize_res = fd_vote_verify_authority( vote_state, &ctx );
     if( FD_UNLIKELY( 0!=authorize_res ) ) {
       ret = authorize_res;
       break;
