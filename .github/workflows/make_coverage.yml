@@ -10,7 +10,7 @@ jobs:
     runs-on: [self-hosted, Linux, X64]
     defaults:
       run:
-        shell: sudo bash --noprofile --norc -eo pipefail -c "export MACHINE=linux_clang_x86_64; export EXTRAS=llvm-cov; set -ex; chmod +x {0} && {0}"
+        shell: sudo bash --noprofile --norc -eo pipefail -c "export CC=clang; export EXTRAS=llvm-cov; set -ex; chmod +x {0} && {0}"
     steps:
       - uses: actions/checkout@v3
 
@@ -26,7 +26,7 @@ jobs:
       - name: Make coverage report
         run: |
           make cov-report
-          mv build/linux/clang/x86_64/cov/html coverage-report
+          mv build/native/clang/cov/html coverage-report
 
       - name: Upload coverage HTML report as GitHub artifact
         uses: actions/upload-artifact@v3
@@ -38,8 +38,8 @@ jobs:
         uses: codecov/codecov-action@v3
         timeout-minutes: 5
         with:
-          files: build/linux/clang/x86_64/cov/cov.lcov
-          name: codecov-make-linux_clang-14_x86_64
+          files: build/native/clang/cov/cov.lcov
+          name: codecov-make-linux_clang-14_native
           fail_ci_if_error: false
           functionalities: search
 
