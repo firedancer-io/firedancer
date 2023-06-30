@@ -141,10 +141,11 @@ fd_vm_disassemble_instr_jmp( fd_sbpf_instr_t        instr,
         fd_sbpf_calldests_t * calldest = fd_sbpf_calldests_query( calldests, instr.imm, NULL );
         if( syscall ) {
           char const * name = syscall->name;
-          if( name )
+          if( name ) {
             OUT_PRINTF( "syscall%s %s",     suffix, name ? name : "???" );
-          else
+          } else {
             OUT_PRINTF( "syscall%s 0x%08x", suffix, instr.imm );
+          }
         } else if ( calldest ) {
           OUT_PRINTF( "%s%s function_%ld", op_name, suffix, (long)((long)calldest->pc) );
         } else {

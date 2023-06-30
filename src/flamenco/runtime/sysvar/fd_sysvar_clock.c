@@ -79,7 +79,7 @@ void fd_sysvar_clock_read( fd_global_ctx_t* global, fd_sol_sysvar_clock_t* resul
 
 void fd_sysvar_clock_init( fd_global_ctx_t* global ) {
   long timestamp = timestamp_from_genesis( global );
-
+  
   fd_sol_sysvar_clock_t clock = {
     .slot = global->bank.slot,
     .epoch = 0,

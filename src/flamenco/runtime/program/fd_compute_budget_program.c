@@ -40,6 +40,7 @@ int fd_executor_compute_budget_program_execute_instructions( transaction_ctx_t *
       .allocf = ctx->global->allocf,
       .allocf_arg = ctx->global->allocf_arg
     };
+
     int ret = fd_compute_budget_program_instruction_decode( &instruction, &decode_ctx );
     if ( ret ) {
       FD_LOG_WARNING(("fd_compute_budget_program_instruction_decode failed"));

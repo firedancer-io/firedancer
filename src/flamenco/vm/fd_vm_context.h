@@ -24,6 +24,10 @@
 #define FD_VM_SBPF_VALIDATE_ERR_LDQ_NO_ADDL_IMM   (9UL)  /* An FD_BPF_INSTR_LDQ did not have an FD_BPF_ADDL_IMM after it. */
 #define FD_VM_SBPF_VALIDATE_ERR_NO_SUCH_EXT_CALL  (10UL) /* An FD_BPF_INSTR_CALL had an immediate but no function was registered for that immediate. */
 
+#define FD_VM_COND_FAULT_FLAG_NONE        (0x0UL)
+#define FD_VM_COND_FAULT_FLAG_MEM_TRANS   (0x1UL)
+#define FD_VM_COND_FAULT_FLAG_BAD_CALL    (0x2UL)
+
 /* VM memory map constants */
 #define FD_VM_MEM_MAP_PROGRAM_REGION_START   (0x100000000UL)
 #define FD_VM_MEM_MAP_STACK_REGION_START     (0x200000000UL)

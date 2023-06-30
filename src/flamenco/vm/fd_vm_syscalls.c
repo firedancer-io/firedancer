@@ -20,6 +20,7 @@ fd_vm_register_syscall( fd_sbpf_syscalls_t *    syscalls,
 
   fd_sbpf_syscalls_t * syscall_entry = fd_sbpf_syscalls_insert( syscalls, syscall_hash );
   syscall_entry->func_ptr            = fn_ptr;
+  syscall_entry->name = name;
 }
 
 void fd_vm_syscall_register_all( fd_sbpf_syscalls_t * syscalls ) {

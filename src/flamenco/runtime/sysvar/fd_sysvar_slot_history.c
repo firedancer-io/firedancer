@@ -10,7 +10,7 @@ const ulong slot_history_max_entries = 1024 * 1024;
 /* TODO: move into seperate bitvec library */
 const ulong bits_per_block = 8 * sizeof(ulong);
 void set( fd_slot_history_t* history, ulong i ) {
-  ulong block_idx = i / bits_per_block;
+  ulong block_idx = (i / bits_per_block) % (history->bits.bits->blocks_len);
   history->bits.bits->blocks[ block_idx ] |= ( 1UL << ( i % bits_per_block ) );
 }
 
@@ -43,8 +43,8 @@ void fd_sysvar_slot_history_init( fd_global_ctx_t* global ) {
   history.bits.len = slot_history_max_entries;
 
   /* TODO: handle slot != 0 init case */
-  set( &history, 0 );
-  history.next_slot = 1;
+  set( &history, global->bank.slot );
+  history.next_slot = global->bank.slot + 1;
 
   write_history( global, &history );
   fd_bincode_destroy_ctx_t ctx;

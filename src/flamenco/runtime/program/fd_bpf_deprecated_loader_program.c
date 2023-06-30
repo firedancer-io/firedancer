@@ -18,5 +18,4 @@ int fd_executor_bpf_deprecated_loader_program_execute_instruction( instruction_c
   }
 
   return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
-
 }
