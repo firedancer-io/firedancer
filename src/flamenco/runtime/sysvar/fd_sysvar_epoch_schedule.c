@@ -50,7 +50,7 @@ write_epoch_schedule( fd_global_ctx_t *     global,
   if ( fd_epoch_schedule_encode( epoch_schedule, &ctx ) )
     FD_LOG_ERR(("fd_epoch_schedule_encode failed"));
 
-  fd_sysvar_set( global, global->sysvar_owner, global->sysvar_epoch_schedule, enc, sz, global->bank.slot );
+  fd_sysvar_set( global, global->sysvar_owner, (fd_pubkey_t *) global->sysvar_epoch_schedule, enc, sz, global->bank.slot );
 }
 
 void

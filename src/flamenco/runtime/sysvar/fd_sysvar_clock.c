@@ -16,7 +16,7 @@
 #define NS_IN_S ( 1000000000 )
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/clock.rs#L10 */
-#define DEFAULT_TICKS_PER_SECOND ( 160 ) 
+#define DEFAULT_TICKS_PER_SECOND ( 160 )
 
 /* The target tick duration, derived from the target tick rate.
  https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/src/poh_config.rs#L32
@@ -49,7 +49,7 @@ void write_clock( fd_global_ctx_t* global, fd_sol_sysvar_clock_t* clock ) {
   if ( fd_sol_sysvar_clock_encode( clock, &ctx ) )
     FD_LOG_ERR(("fd_sol_sysvar_clock_encode failed"));
 
-  fd_sysvar_set( global, global->sysvar_owner, global->sysvar_clock, enc, sz, global->bank.slot );
+  fd_sysvar_set( global, global->sysvar_owner, (fd_pubkey_t *) global->sysvar_clock, enc, sz, global->bank.slot );
 }
 
 void fd_sysvar_clock_read( fd_global_ctx_t* global, fd_sol_sysvar_clock_t* result ) {
@@ -79,7 +79,7 @@ void fd_sysvar_clock_read( fd_global_ctx_t* global, fd_sol_sysvar_clock_t* resul
 
 void fd_sysvar_clock_init( fd_global_ctx_t* global ) {
   long timestamp = timestamp_from_genesis( global );
-  
+
   fd_sol_sysvar_clock_t clock = {
     .slot = global->bank.slot,
     .epoch = 0,

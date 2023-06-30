@@ -5,7 +5,7 @@
 void write_stake_history( fd_global_ctx_t* global, fd_stake_history_t* stake_history ) {
   /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/sysvar/stake_history.rs#L12 */
   ulong min_size = 16392;
-  
+
   ulong          sz = fd_ulong_max( min_size, fd_stake_history_size( stake_history ) );
   unsigned char *enc = fd_alloca( 1, sz );
   memset( enc, 0, sz );
@@ -15,7 +15,7 @@ void write_stake_history( fd_global_ctx_t* global, fd_stake_history_t* stake_his
   if ( fd_stake_history_encode( stake_history, &ctx ) )
     FD_LOG_ERR(("fd_stake_history_encode failed"));
 
-  fd_sysvar_set( global, global->sysvar_owner, global->sysvar_stake_history, enc, sz, global->bank.slot );
+  fd_sysvar_set( global, global->sysvar_owner, (fd_pubkey_t *) global->sysvar_stake_history, enc, sz, global->bank.slot );
 }
 
 void fd_sysvar_stake_history_read( fd_global_ctx_t* global, fd_stake_history_t* result ) {

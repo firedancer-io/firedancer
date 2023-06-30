@@ -20,14 +20,14 @@ void write_slot_hashes( fd_global_ctx_t* global, fd_slot_hashes_t* slot_hashes )
   if ( fd_slot_hashes_encode( slot_hashes, &ctx ) )
     FD_LOG_ERR(("fd_slot_hashes_encode failed"));
 
-  fd_sysvar_set( global, global->sysvar_owner, global->sysvar_slot_hashes, enc, sz, global->bank.slot );
+  fd_sysvar_set( global, global->sysvar_owner, (fd_pubkey_t *) global->sysvar_slot_hashes, enc, sz, global->bank.slot );
 }
 
 //void fd_sysvar_slot_hashes_init( fd_global_ctx_t* global ) {
 //  fd_slot_hashes_t slot_hashes;
-//  memset( &slot_hashes, 0, sizeof(fd_slot_hashes_t) );  
+//  memset( &slot_hashes, 0, sizeof(fd_slot_hashes_t) );
 //  write_slot_hashes( global, &slot_hashes );
-//} 
+//}
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_hashes.rs#L34 */
 void fd_sysvar_slot_hashes_update( fd_global_ctx_t* global ) {
@@ -42,7 +42,7 @@ void fd_sysvar_slot_hashes_update( fd_global_ctx_t* global ) {
     fd_slot_hash_t * ele = deq_fd_slot_hash_t_iter_ele( hashes, iter );
     if ( ele->slot == global->bank.slot ) {
       memcpy( &ele->hash, &global->bank.banks_hash, sizeof(fd_hash_t) );
-      found = 1; 
+      found = 1;
     }
   }
 
@@ -58,7 +58,7 @@ void fd_sysvar_slot_hashes_update( fd_global_ctx_t* global ) {
       char buf[50];
       fd_base58_encode_32((uchar *) slot_hash.hash.key, NULL, buf);
 
-      FD_LOG_WARNING(( "fd_sysvar_slot_hash_update:  slot %ld,  hash %s", slot_hash.slot, buf)); 
+      FD_LOG_WARNING(( "fd_sysvar_slot_hash_update:  slot %ld,  hash %s", slot_hash.slot, buf));
     }
 
     FD_TEST( !deq_fd_slot_hash_t_full( hashes ) );
@@ -77,7 +77,7 @@ void fd_sysvar_slot_hashes_read( fd_global_ctx_t* global, fd_slot_hashes_t* resu
   fd_account_meta_t metadata;
   int               read_result = fd_acc_mgr_get_metadata( global->acc_mgr, global->funk_txn, (fd_pubkey_t *) global->sysvar_slot_hashes, &metadata );
   if ( read_result != FD_ACC_MGR_SUCCESS ) {
-    // Initialize the database... 
+    // Initialize the database...
     memset(result, 0, sizeof(*result));
     result->hashes = deq_fd_slot_hash_t_alloc( global->allocf, global->allocf_arg );
     return;

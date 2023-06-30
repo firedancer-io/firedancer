@@ -12,7 +12,7 @@
 // run --ledger /home/jsiegel/test-ledger --db /home/jsiegel/funk --cmd accounts --accounts /home/jsiegel/test-ledger/accounts/ --pages 15 --index-max 120000000 --start-slot 2 --end-slot 2 --start-id 35 --end-id 37
 // run --ledger /home/jsiegel/test-ledger --db /home/jsiegel/funk --cmd replay --pages 15 --index-max 120000000 --start-slot 0 --end-slot 3
 
-// {meta = {write_version_obsolete = 137, 
+// {meta = {write_version_obsolete = 137,
 // data_len = 6008, pubkey = "\006\247\325\027\031,V\216\340\212\204_sҗ\210\317\003\\1E\262\032\263D\330\006.\251@\000"}, info = {lamports = 42706560, rent_epoch = 0, owner = "\006\247\325\027\030u\367)\307=\223@\217!a \006~،v\340\214(\177\301\224`\000\000\000", executable = 0 '\000', padding = "K\000\f\376\177\000"}, hash = {value = "\302Q\316\035qTY\347\352]\260\335\213\224R\227ԯ\366R\273\063H\345֑c\377\207/k\275"}}
 
 // owner:      Sysvar1111111111111111111111111111111111111 pubkey:      SysvarRecentB1ockHashes11111111111111111111 hash:     E5YSehyvJ7xXcNnQjWCH9UhMJ1dxDBJ1RuuPh1Y3RZgg file: /home/jsiegel/test-ledger/accounts//2.37
@@ -23,7 +23,7 @@
 void fd_sysvar_recent_hashes_init( fd_global_ctx_t* global ) {
   // https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/fee_calculator.rs#L110
 
-  if (global->bank.slot != 0) 
+  if (global->bank.slot != 0)
     return;
 
   ulong sz = fd_recent_block_hashes_size(&global->bank.recent_block_hashes);
@@ -37,12 +37,12 @@ void fd_sysvar_recent_hashes_init( fd_global_ctx_t* global ) {
   if ( fd_recent_block_hashes_encode(&global->bank.recent_block_hashes, &ctx) )
     FD_LOG_ERR(("fd_recent_block_hashes_encode failed"));
 
-  fd_sysvar_set(global, global->sysvar_owner, global->sysvar_recent_block_hashes, enc, sz, global->bank.slot );
+  fd_sysvar_set(global, global->sysvar_owner, (fd_pubkey_t *) global->sysvar_recent_block_hashes, enc, sz, global->bank.slot );
 }
 
 void fd_sysvar_recent_hashes_update( fd_global_ctx_t* global ) {
   if (global->bank.slot == 0)  // we already set this... as part of boot
-    return; 
+    return;
 
   fd_block_block_hash_entry_t * hashes = global->bank.recent_block_hashes.hashes;
   fd_bincode_destroy_ctx_t ctx2;
@@ -69,5 +69,5 @@ void fd_sysvar_recent_hashes_update( fd_global_ctx_t* global ) {
   if ( fd_recent_block_hashes_encode(&global->bank.recent_block_hashes, &ctx) )
     FD_LOG_ERR(("fd_recent_block_hashes_encode failed"));
 
-  fd_sysvar_set(global, global->sysvar_owner, global->sysvar_recent_block_hashes, enc, sz, global->bank.slot);
+  fd_sysvar_set(global, global->sysvar_owner, (fd_pubkey_t *) global->sysvar_recent_block_hashes, enc, sz, global->bank.slot);
 }
