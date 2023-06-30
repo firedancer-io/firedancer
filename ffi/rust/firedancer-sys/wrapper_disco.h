@@ -12,4 +12,4 @@
 #define FD_HAS_SHANI     1
 #define FD_HAS_GFNI      1
 
-#include "firedancer/src/disco/fd_disco.h"
+#include "src/disco/fd_disco.h"

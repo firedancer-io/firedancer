@@ -12,5 +12,5 @@
 #define FD_HAS_SHANI     1
 #define FD_HAS_GFNI      1
 
-#include "firedancer/src/tango/fd_tango.h"
-#include "firedancer/src/tango/xdp/fd_xdp.h"
+#include "src/tango/fd_tango.h"
+#include "src/tango/xdp/fd_xdp.h"

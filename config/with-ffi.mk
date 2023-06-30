@@ -8,7 +8,7 @@ define _maybe-add-env-obj
 $(BASEDIR)/$(BUILDDIR)/lib/lib$(2).a: $(patsubst %.c,%.o,$(1))
 
 $(patsubst %.c,%.o,$(1)): $(1)
-	$(CC) -I.. $(CPPFLAGS) $(CFLAGS) -c $$< -o $$@
+	$(CC) -I. -I.. -Iffi/rust/firedancer-sys $(CPPFLAGS) $(CFLAGS) -c $$< -o $$@
 
 endef
 

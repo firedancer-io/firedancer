@@ -12,8 +12,8 @@
 #define FD_HAS_SHANI     1
 #define FD_HAS_GFNI      1
 
-#include "firedancer/src/ballet/fd_ballet.h"
-#include "firedancer/src/ballet/sbpf/fd_sbpf_loader.h"
-#include "firedancer/src/ballet/sbpf/fd_sbpf_maps.c"
-#include "firedancer/src/ballet/shred/fd_shred.h"
-#include "firedancer/src/ballet/txn/fd_txn.h"
+#include "src/ballet/fd_ballet.h"
+#include "src/ballet/sbpf/fd_sbpf_loader.h"
+#include "src/ballet/sbpf/fd_sbpf_maps.c"
+#include "src/ballet/shred/fd_shred.h"
+#include "src/ballet/txn/fd_txn.h"

@@ -1,5 +1,5 @@
 #!/bin/bash
-set -eu
+set -xeuo
 
 # Abort if our local tree is unclean
 if [ ! "$(git status --porcelain | wc -l)" -eq "0" ]; then
@@ -17,4 +17,14 @@ if [ -z "$( git tag --list "$GIT_TAG" )" ]; then
   exit 1
 fi
 
-cargo publish
+rm -rf "${PWD}/staging"
+mkdir -p "${PWD}/staging"
+cd "${PWD}/staging"
+ln -s ../../../../Makefile Makefile
+ln -s ../../../../config config
+ln -s ../../../../src src
+
+cd "${PWD}"
+# Need to allow dirty because of the symlinks we created
+cargo package --allow-dirty
+rm -rf "${PWD}/staging"
