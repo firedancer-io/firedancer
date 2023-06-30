@@ -47,7 +47,6 @@ void fd_sysvar_slot_hashes_update( fd_global_ctx_t* global ) {
   }
 
   if ( !found ) {
-    /* TODO: handle case where current_slot > slot_hashes_max_entries */
   // https://github.com/firedancer-io/solana/blob/08a1ef5d785fe58af442b791df6c4e83fe2e7c74/runtime/src/bank.rs#L2371
     fd_slot_hash_t slot_hash = {
       .hash = global->bank.banks_hash, // parent hash?
@@ -60,7 +59,6 @@ void fd_sysvar_slot_hashes_update( fd_global_ctx_t* global ) {
 
       FD_LOG_WARNING(( "fd_sysvar_slot_hash_update:  slot %ld,  hash %s", slot_hash.slot, buf));
     }
-
 
     fd_bincode_destroy_ctx_t ctx2;
     ctx2.freef = global->freef;
