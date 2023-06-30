@@ -55,18 +55,28 @@ fd_xdp_reperm( char const * path,
                int          gid,
                int          is_dir ) {
 
-  if( FD_UNLIKELY( 0!=chown( path, (uint)uid, (uint)gid ) ) ) {
-    FD_LOG_WARNING(( "chown(%s,%u,%u) failed (%d-%s)",
-                     path, uid, gid, errno, strerror( errno ) ));
+  int fd;
+  if ( FD_UNLIKELY( 0 > ( fd = open( path, 0 ) ) ) ) {
+    FD_LOG_WARNING(( "open(%s, 0) failed (%d-%s)",
+                     path, errno, strerror( errno ) ));
+  }
+
+  if( FD_UNLIKELY( 0!=fchown( fd, (uint)uid, (uint)gid ) ) ) {
+    FD_LOG_WARNING(( "fchown(%d,%u,%u) failed (%d-%s)",
+                     fd, uid, gid, errno, strerror( errno ) ));
+    close( fd );
     return;
   }
 
   mode &= fd_uint_if( is_dir, 0777, 0666 );
-  if( FD_UNLIKELY( 0!=chmod( path, mode ) ) ) {
-    FD_LOG_WARNING(( "chown(%s,%u,%u) failed (%d-%s)",
-                     path, uid, gid, errno, strerror( errno ) ));
+  if( FD_UNLIKELY( 0!=fchmod( fd, mode ) ) ) {
+    FD_LOG_WARNING(( "fchmod(%d,%u,%u) failed (%d-%s)",
+                     fd, uid, gid, errno, strerror( errno ) ));
+    close( fd );
     return;
   }
+
+  close( fd ); 
 }
 
 
