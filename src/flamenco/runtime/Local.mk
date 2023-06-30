@@ -12,6 +12,7 @@ $(call add-objs,sysvar/fd_sysvar sysvar/fd_sysvar_clock sysvar/fd_sysvar_recent_
 $(call add-objs,program/fd_system_program program/fd_nonce_program program/fd_vote_program program/fd_builtin_programs program/fd_stake_program program/fd_compute_budget_program program/fd_config_program program/fd_bpf_loader_program program/fd_bpf_upgradeable_loader_program program/fd_bpf_deprecated_loader_program program/fd_ed25519_program program/fd_secp256k1_program,fd_flamenco)
 
 $(call make-unit-test,test_runtime,test_runtime,fd_ballet fd_funk fd_util fd_flamenco)
+$(call make-unit-test,test_sysvar_epoch_schedule,sysvar/test_sysvar_epoch_schedule,fd_flamenco fd_funk fd_ballet fd_util)
 
 else
 
