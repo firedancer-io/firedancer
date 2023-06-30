@@ -61,7 +61,14 @@ void fd_sysvar_slot_hashes_update( fd_global_ctx_t* global ) {
       FD_LOG_WARNING(( "fd_sysvar_slot_hash_update:  slot %ld,  hash %s", slot_hash.slot, buf));
     }
 
-    FD_TEST( !deq_fd_slot_hash_t_full( hashes ) );
+
+    fd_bincode_destroy_ctx_t ctx2;
+    ctx2.freef = global->freef;
+    ctx2.freef_arg = global->allocf_arg;
+
+    if (deq_fd_slot_hash_t_full( hashes ) )
+      fd_slot_hash_destroy( deq_fd_slot_hash_t_pop_tail_nocopy( hashes ), &ctx2 );
+
     deq_fd_slot_hash_t_push_head( hashes, slot_hash );
   }
 

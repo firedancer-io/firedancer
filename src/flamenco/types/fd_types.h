@@ -805,7 +805,7 @@ typedef struct fd_slot_hash fd_slot_hash_t;
 
 #define DEQUE_NAME deq_fd_slot_hash_t
 #define DEQUE_T fd_slot_hash_t
-#define DEQUE_MAX 700
+#define DEQUE_MAX 512
 #include "../../util/tmpl/fd_deque.c"
 #undef DEQUE_NAME
 #undef DEQUE_T
