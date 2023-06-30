@@ -17,8 +17,8 @@ fn main() {
         )
     } else {
         (
-            "linux_clang_x86_64_ffi",
-            out_dir.join("build/linux/clang/x86_64_ffi"),
+            "linux_gcc_x86_64_ffi",
+            out_dir.join("build/linux/gcc/x86_64_ffi"),
         )
     };
 
