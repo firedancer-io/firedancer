@@ -1,6 +1,7 @@
 [workspace]
 members = ["src/app/fdctl", "ffi/rust/firedancer-sys", "ffi/rust/firedancer-diff"]
 default-members = ["src/app/fdctl"]
+resolver = "2"
 
 [profile.dev]
 panic = "abort"

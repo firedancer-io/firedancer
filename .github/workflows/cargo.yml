@@ -26,10 +26,12 @@ jobs:
           profile: minimal
           toolchain: stable
           override: true
+      - name: stage
+        run: bash ffi/rust/firedancer-sys/stage.sh
       - uses: actions-rs/cargo@v1
         with:
           command: package
-          args: --manifest-path ffi/rust/firedancer-sys/Cargo.toml
+          args: --allow-dirty --manifest-path ffi/rust/firedancer-sys/Cargo.toml
 
   test:
     name: cargo-test
