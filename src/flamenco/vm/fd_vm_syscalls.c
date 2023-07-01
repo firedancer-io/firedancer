@@ -6,6 +6,7 @@
 #include "../../ballet/base58/fd_base58.h"
 #include "../../ballet/murmur3/fd_murmur3.h"
 #include "../../ballet/sbpf/fd_sbpf_maps.c"
+#include "fd_vm_cpi.h"
 
 #include <stdio.h>
 
@@ -416,14 +417,169 @@ fd_vm_syscall_sol_invoke_signed_c(
 
 ulong
 fd_vm_syscall_sol_invoke_signed_rust(
-    FD_FN_UNUSED void * _ctx,
-    FD_FN_UNUSED ulong arg0,
-    FD_FN_UNUSED ulong arg1,
-    FD_FN_UNUSED ulong arg2,
-    FD_FN_UNUSED ulong arg3,
-    FD_FN_UNUSED ulong arg4,
+    void * _ctx,
+    ulong instruction_va,
+    ulong acct_infos_va,
+    ulong acct_info_cnt,
+    ulong signers_seeds_va,
+    ulong signers_seeds_cnt,
     FD_FN_UNUSED ulong * ret
 ) {
+  fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
+
+  /* TODO Consume syscall invoke fee compute units */
+
+  /* Pre-flight checks ************************************************/
+
+  /* Solana Labs does these checks after address translation.
+     We do them before to avoid length overflow.
+     This changes the error code, but consensus does not care -
+     Protocol error conditions are only qualitative, not quantitative. */
+
+  /* Check signer count */
+
+  if( FD_UNLIKELY( signers_seeds_cnt > 11UL ) )
+    /* TODO use MAX_SIGNERS constant */
+    FD_LOG_ERR(("TODO: return too many signers" ));
+
+  /* Check account info count */
+
+  if( FD_UNLIKELY( acct_info_cnt > 64UL ) )
+    FD_LOG_ERR(( "TODO: return max instruction account infos exceeded" ));
+
+  /* Translate instruction ********************************************/
+
+  /* TODO check alignment */
+  fd_vm_rust_instruction_t const * instruction =
+    fd_vm_translate_vm_to_host(
+      _ctx,
+      0 /* write */,
+      instruction_va,
+      sizeof(fd_vm_rust_instruction_t) );
+  if( FD_UNLIKELY( !instruction ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
+
+  /* TODO Check instruction size */
+
+  fd_vm_rust_account_meta_t const * accounts =
+    fd_vm_translate_vm_to_host(
+      ctx,
+      0 /* write */,
+      acct_infos_va,
+      acct_info_cnt * sizeof(fd_vm_rust_account_meta_t) );
+  if( FD_UNLIKELY( !accounts ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
+
+  /* TODO consume compute meter proportionally to data sz */
+
+  uchar const * data = fd_vm_translate_vm_to_host(
+      ctx,
+      0 /* write */,
+      instruction->data.addr,
+      instruction->data.len );
+  if( FD_UNLIKELY( !data ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
+
+  /* Translate signers ************************************************/
+
+  /* Order of operations is liberally rearranged.
+     For inputs that cause multiple errors, this means that Solana Labs
+     and Firedancer may return different error codes (as we abort at the
+     first error).  Again, we don't mind as consensus is not aware of
+     error codes, but only of the existence of an arbitrary error or
+     success. */
+
+  fd_pubkey_t signers[11];
+  if( signers_seeds_cnt>0UL ) {
+    /* Translate &[&[&[u8]]].
+       Outer slice addr and cnt provided as r4, r5.
+       Inner slice params stored in memory */
+    fd_vm_rust_slice_t const * seeds = fd_vm_translate_vm_to_host(
+        ctx,
+        0 /* write */,
+        signers_seeds_va,
+        signers_seeds_cnt * sizeof(fd_vm_rust_slice_t) );
+    if( FD_UNLIKELY( !seeds ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
+
+    /* Create program addresses.
+       TODO use MAX_SIGNERS constant */
+
+    for( ulong i=0UL; i<signers_seeds_cnt; i++ ) {
+
+      /* Check seed count (avoid overflow) */
+      /* TODO use constant */
+      if( FD_UNLIKELY( seeds[i].len > 16UL ) )
+        FD_LOG_ERR(("TODO: return MaxSeedLengthExceeded" ));
+
+      /* Translate inner seed slice (type &[&[u8]]) */
+      fd_vm_rust_slice_t const * seed = fd_vm_translate_vm_to_host(
+          ctx,
+          0 /* write */,
+          seeds[i].addr,
+          seeds[i].len );
+      if( FD_UNLIKELY( !seed ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
+
+      /* Derive program address.
+         Matches Pubkey::create_program_address */
+
+      fd_sha256_t _sha[1];
+      fd_sha256_t * sha = fd_sha256_init( fd_sha256_join( fd_sha256_new( _sha ) ) );
+
+      for( ulong i=0UL; i < seed->len; i++ ) {
+        /* Check seed limb length */
+        /* TODO use constant */
+        if( FD_UNLIKELY( seed[i].len > 32 ) )
+          FD_LOG_ERR(("TODO: return MaxSeedLengthExceeded" ));
+
+        /* Translate inner seed limb (type &[u8]) */
+        uchar const * seed_limb = fd_vm_translate_vm_to_host(
+            ctx,
+            0 /* write */,
+            seed[i].addr,
+            seed[i].len );
+        if( FD_UNLIKELY( !seed_limb ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
+
+        fd_sha256_append( sha, seed_limb, seed[i].len );
+      }
+
+      /* TODO hash program ID */
+      /* TODO use char const[] symbol for PDA marker */
+      fd_sha256_append( sha, "ProgramDerivedAddress", 21UL );
+      fd_sha256_fini  ( sha, &signers[i].uc );
+      /* TODO check if off curve point */
+    }
+  }
+
+  /* TODO prepare accounts */
+
+  /* Translate account infos ******************************************/
+
+  fd_vm_rust_account_info_t const * acc_infos =
+    fd_vm_translate_vm_to_host(
+      ctx,
+      0 /* write */,
+      acct_infos_va,
+      acct_info_cnt * sizeof(fd_vm_rust_account_info_t) );
+  if( FD_UNLIKELY( !acc_infos ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
+
+  /* Collect pubkeys */
+
+  fd_pubkey_t * acct_keys =
+    fd_alloca_check( /* align */ 1UL, /* sz */ acct_info_cnt * sizeof(fd_pubkey_t) );
+
+  for( ulong i=0UL; i<acct_info_cnt; i++ ) {
+    /* Extract address of account info */
+
+    fd_pubkey_t const * acct_addr = fd_vm_translate_vm_to_host(
+        ctx,
+        0 /* write */,
+        acc_infos[i].pubkey_addr,
+        sizeof(fd_pubkey_t) );
+    if( FD_UNLIKELY( !acct_addr ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
+
+    /* Copy address */
+
+    memcpy( acct_keys[i].uc, acct_addr->uc, sizeof(fd_pubkey_t) );
+  }
+
+  FD_LOG_WARNING(( "TODO implement CPIs" ));
   return FD_VM_SYSCALL_ERR_UNIMPLEMENTED;
 }
 
