@@ -26,7 +26,7 @@ fd_vm_log_collector_init( fd_vm_log_collector_t * log_collector );
  */
 void
 fd_vm_log_collector_log( fd_vm_log_collector_t *  log_collector,
-                         char *                   msg,
+                         char const *             msg,
                          ulong                    msg_len );
 
 FD_PROTOTYPES_END

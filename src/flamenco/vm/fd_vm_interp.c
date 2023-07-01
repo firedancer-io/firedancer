@@ -2,22 +2,20 @@
 
 #include "../../ballet/murmur3/fd_murmur3.h"
 #include "../../ballet/sbpf/fd_sbpf_maps.c"
+#include "fd_vm_context.h"
 
 /* Helper function for reading a uchar from VM memory. Returns success or a fault for the memory
  * access. Sets the value pointed to by `val` on success.
  */
 static ulong
 fd_vm_mem_map_read_uchar( fd_vm_exec_context_t * ctx,
-                          ulong                       vm_addr,
-                          ulong *                     val ) {
-  void * vm_mem;
-  ulong translation_res = fd_vm_translate_vm_to_host(ctx, 0, vm_addr, sizeof(uchar), &vm_mem);
-  if( translation_res != FD_VM_MEM_MAP_SUCCESS ) {
-    return translation_res;
-  }
+                          ulong                  vm_addr,
+                          ulong *                val ) {
 
+  void const * vm_mem = fd_vm_translate_vm_to_host( ctx, 0, vm_addr, sizeof(uchar) );
+  if( FD_UNLIKELY( !vm_mem ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
 
-  *val = (*(uchar *)vm_mem) & 0xFFUL;
+  *val = (*(uchar const *)vm_mem) & 0xFFUL;
 
   return FD_VM_MEM_MAP_SUCCESS;
 }
@@ -26,16 +24,14 @@ fd_vm_mem_map_read_uchar( fd_vm_exec_context_t * ctx,
  * access. Sets the value pointed to by `val` on success.
  */
 static ulong
-fd_vm_mem_map_read_ushort( fd_vm_exec_context_t *  ctx,
-                           ulong                        vm_addr,
-                           ulong *                      val ) {
-  void * vm_mem;
-  ulong translation_res = fd_vm_translate_vm_to_host(ctx, 0, vm_addr, sizeof(ushort), &vm_mem);
-  if( translation_res != FD_VM_MEM_MAP_SUCCESS ) {
-    return translation_res;
-  }
+fd_vm_mem_map_read_ushort( fd_vm_exec_context_t * ctx,
+                           ulong                  vm_addr,
+                           ulong *                val ) {
 
-  *val = (*(ushort *)vm_mem) & 0xFFFFUL;
+  void const * vm_mem = fd_vm_translate_vm_to_host( ctx, 0, vm_addr, sizeof(ushort) );
+  if( FD_UNLIKELY( !vm_mem ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
+
+  *val = (*(ushort const *)vm_mem) & 0xFFFFUL;
 
   return FD_VM_MEM_MAP_SUCCESS;
 }
@@ -44,14 +40,12 @@ fd_vm_mem_map_read_ushort( fd_vm_exec_context_t *  ctx,
  * access. Sets the value pointed to by `val` on success.
  */
 static ulong
-fd_vm_mem_map_read_uint( fd_vm_exec_context_t *  ctx,
-                         ulong                        vm_addr,
-                         ulong *                      val ) {
-  void * vm_mem;
-  ulong translation_res = fd_vm_translate_vm_to_host(ctx, 0, vm_addr, sizeof(uint), &vm_mem);
-  if( translation_res != FD_VM_MEM_MAP_SUCCESS ) {
-    return translation_res;
-  }
+fd_vm_mem_map_read_uint( fd_vm_exec_context_t * ctx,
+                         ulong                  vm_addr,
+                         ulong *                val ) {
+
+  void const * vm_mem = fd_vm_translate_vm_to_host( ctx, 0, vm_addr, sizeof(uint) );
+  if( FD_UNLIKELY( !vm_mem ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
 
   *val = (*(uint *)vm_mem) & 0xFFFFFFFFUL;
 
@@ -63,13 +57,11 @@ fd_vm_mem_map_read_uint( fd_vm_exec_context_t *  ctx,
  */
 static ulong
 fd_vm_mem_map_read_ulong( fd_vm_exec_context_t * ctx,
-                          ulong                       vm_addr,
-                          ulong *                     val ) {
-  void * vm_mem;
-  ulong translation_res = fd_vm_translate_vm_to_host(ctx, 0, vm_addr, sizeof(ulong), &vm_mem);
-  if( translation_res != FD_VM_MEM_MAP_SUCCESS ) {
-    return translation_res;
-  }
+                          ulong                  vm_addr,
+                          ulong *                val ) {
+
+  void const * vm_mem = fd_vm_translate_vm_to_host( ctx, 0, vm_addr, sizeof(ulong) );
+  if( FD_UNLIKELY( !vm_mem ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
 
   *val = *(ulong *)vm_mem;
 
@@ -81,13 +73,11 @@ fd_vm_mem_map_read_ulong( fd_vm_exec_context_t * ctx,
  */
 static ulong
 fd_vm_mem_map_write_uchar( fd_vm_exec_context_t *  ctx,
-                           ulong                        vm_addr,
-                           uchar                        val ) {
-  void * vm_mem;
-  ulong translation_res = fd_vm_translate_vm_to_host(ctx, 1, vm_addr, sizeof(uchar), &vm_mem);
-  if( translation_res != FD_VM_MEM_MAP_SUCCESS ) {
-    return translation_res;
-  }
+                           ulong                   vm_addr,
+                           uchar                   val ) {
+
+  void * vm_mem = fd_vm_translate_vm_to_host( ctx, 1, vm_addr, sizeof(uchar) );
+  if( FD_UNLIKELY( !vm_mem ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
 
   *(uchar *)vm_mem = val;
 
@@ -99,13 +89,11 @@ fd_vm_mem_map_write_uchar( fd_vm_exec_context_t *  ctx,
  */
 static ulong
 fd_vm_mem_map_write_ushort( fd_vm_exec_context_t * ctx,
-                            ulong                       vm_addr,
-                            ushort                      val ) {
-  void * vm_mem;
-  ulong translation_res = fd_vm_translate_vm_to_host(ctx, 1, vm_addr, sizeof(ushort), &vm_mem);
-  if( translation_res != FD_VM_MEM_MAP_SUCCESS) {
-    return translation_res;
-  }
+                            ulong                  vm_addr,
+                            ushort                 val ) {
+
+  void * vm_mem = fd_vm_translate_vm_to_host( ctx, 1, vm_addr, sizeof(ushort) );
+  if( FD_UNLIKELY( !vm_mem ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
 
   *(ushort *)vm_mem = val;
 
@@ -117,13 +105,11 @@ fd_vm_mem_map_write_ushort( fd_vm_exec_context_t * ctx,
  */
 static ulong
 fd_vm_mem_map_write_uint( fd_vm_exec_context_t * ctx,
-                          ulong                       vm_addr,
-                          uint                        val ) {
-  void * vm_mem;
-  ulong translation_res = fd_vm_translate_vm_to_host(ctx, 1, vm_addr, sizeof(uint), &vm_mem);
-  if( translation_res != FD_VM_MEM_MAP_SUCCESS) {
-    return translation_res;
-  }
+                          ulong                  vm_addr,
+                          uint                   val ) {
+
+  void * vm_mem = fd_vm_translate_vm_to_host( ctx, 1, vm_addr, sizeof(uint) );
+  if( FD_UNLIKELY( !vm_mem ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
 
   *(uint *)vm_mem = val;
 
@@ -135,13 +121,11 @@ fd_vm_mem_map_write_uint( fd_vm_exec_context_t * ctx,
  */
 static ulong
 fd_vm_mem_map_write_ulong( fd_vm_exec_context_t *  ctx,
-                          ulong                         vm_addr,
-                          ulong                         val ) {
-  void * vm_mem;
-  ulong translation_res = fd_vm_translate_vm_to_host(ctx, 1, vm_addr, sizeof(ulong), &vm_mem);
-  if( translation_res != FD_VM_MEM_MAP_SUCCESS) {
-    return translation_res;
-  }
+                          ulong                    vm_addr,
+                          ulong                    val ) {
+
+  void * vm_mem = fd_vm_translate_vm_to_host(ctx, 1, vm_addr, sizeof(ulong) );
+  if( FD_UNLIKELY( !vm_mem ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
 
   *(ulong *)vm_mem = val;
 

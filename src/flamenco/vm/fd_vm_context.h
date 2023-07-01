@@ -94,16 +94,20 @@ FD_PROTOTYPES_BEGIN
 /* Validates the sBPF program from the given context. Returns success or an error code. */
 FD_FN_PURE ulong fd_vm_context_validate( fd_vm_exec_context_t const * ctx );
 
-// FIXME: crossing region boundaries is probably bad
-/* Translates an address from the VM address space to the host address space. Takes an execution
-   context, whether this is a read or write (0 for read, 1 for write), the VM addresss, the size of
-   the access, and the location for storing the host address on success. Returns success or
-   an error code (a fault). On success, the host_addr is set to the actual host_addr. */
-ulong fd_vm_translate_vm_to_host( fd_vm_exec_context_t *  ctx,
-                                  uint                    write,
-                                  ulong                   vm_addr,
-                                  ulong                   sz,
-                                  void * *                host_addr );
+/* fd_vm_translate_vm_to_host translates a virtual memory area into the
+   local address space.  ctx is the current execution context.  write is
+   1 if requesting a write, 0 if requesting a read.  vm_addr points to
+   the region's first byte in VM address space.  sz is the number of
+   bytes in the requested access.  Returns pointer to same memory region
+   in local address space on success.  On failure, returns NULL.
+   Reasons for failure include access violation (out-of-bounds access,
+   write requested on read-only region). */
+
+void *
+fd_vm_translate_vm_to_host( fd_vm_exec_context_t *  ctx,
+                            uint                    write,
+                            ulong                   vm_addr,
+                            ulong                   sz );
 
 FD_PROTOTYPES_END
 

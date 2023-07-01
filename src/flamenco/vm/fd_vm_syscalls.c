@@ -99,17 +99,11 @@ fd_vm_syscall_sol_sha256(
 ) {
   fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
 
-  void * slices_raw;
-  ulong translation_res = fd_vm_translate_vm_to_host( ctx, 0, slices_addr, slices_len * sizeof(fd_vm_syscall_bytes_slice_t), &slices_raw );
-  if( translation_res != FD_VM_MEM_MAP_SUCCESS ) {
-    return translation_res;
-  }
+  void const * slices_raw = fd_vm_translate_vm_to_host( ctx, 0, slices_addr, slices_len * sizeof(fd_vm_syscall_bytes_slice_t) );
+  if( FD_UNLIKELY( !slices_raw ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
 
-  void * hash;
-  translation_res = fd_vm_translate_vm_to_host( ctx, 1, res_addr, 32, &hash );
-  if( translation_res != FD_VM_MEM_MAP_SUCCESS ) {
-    return translation_res;
-  }
+  void * hash = fd_vm_translate_vm_to_host( ctx, 1, res_addr, 32 );
+  if( FD_UNLIKELY( !slices_raw ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
 
   fd_vm_syscall_bytes_slice_t * slices = (fd_vm_syscall_bytes_slice_t *)slices_raw;
 
@@ -117,17 +111,13 @@ fd_vm_syscall_sol_sha256(
   fd_sha256_init( &sha );
 
   for( ulong i = 0; i < slices_len; i++ ) {
-    void * slice;
-    translation_res = fd_vm_translate_vm_to_host( ctx, 0, slices[i].addr, slices[i].len, &slice );
-    if ( translation_res != FD_VM_MEM_MAP_SUCCESS ) {
-      return translation_res;
-    }
+    void const * slice = fd_vm_translate_vm_to_host( ctx, 0, slices[i].addr, slices[i].len );
+    if( FD_UNLIKELY( !slices_raw ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
 
     fd_sha256_append( &sha, slice, slices[i].len );
   }
 
   fd_sha256_fini( &sha, hash );
-
   return FD_VM_SYSCALL_SUCCESS;
 }
 
@@ -143,17 +133,11 @@ fd_vm_syscall_sol_keccak256(
 ) {
   fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
 
-  void * slices_raw;
-  ulong translation_res = fd_vm_translate_vm_to_host(ctx, 0, slices_addr, slices_len * sizeof(fd_vm_syscall_bytes_slice_t), &slices_raw);
-  if (translation_res != FD_VM_MEM_MAP_SUCCESS) {
-    return translation_res;
-  }
+  void const * slices_raw = fd_vm_translate_vm_to_host( ctx, 0, slices_addr, slices_len * sizeof(fd_vm_syscall_bytes_slice_t) );
+  if( FD_UNLIKELY( !slices_raw ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
 
-  void * hash;
-  translation_res = fd_vm_translate_vm_to_host(ctx, 1, res_addr, 32, &hash);
-  if (translation_res != FD_VM_MEM_MAP_SUCCESS) {
-    return translation_res;
-  }
+  void * hash = fd_vm_translate_vm_to_host( ctx, 1, res_addr, 32 );
+  if( FD_UNLIKELY( !slices_raw ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
 
   fd_vm_syscall_bytes_slice_t * slices = (fd_vm_syscall_bytes_slice_t *) slices_raw;
 
@@ -161,17 +145,13 @@ fd_vm_syscall_sol_keccak256(
   fd_keccak256_init(&sha);
 
   for (ulong i = 0; i < slices_len; i++) {
-    void * slice;
-    translation_res = fd_vm_translate_vm_to_host(ctx, 0, slices[i].addr, slices[i].len, &slice);
-    if (translation_res != FD_VM_MEM_MAP_SUCCESS) {
-      return translation_res;
-    }
+    void const * slice = fd_vm_translate_vm_to_host(ctx, 0, slices[i].addr, slices[i].len );
+    if( FD_UNLIKELY( !slices_raw ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
 
-    fd_keccak256_append(&sha, slice, slices[i].len);
+    fd_keccak256_append( &sha, slice, slices[i].len );
   }
 
   fd_keccak256_fini(&sha, hash);
-
   return FD_VM_SYSCALL_SUCCESS;
 }
 
@@ -187,17 +167,11 @@ fd_vm_syscall_sol_blake3(
 ) {
   fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
 
-  void * slices_raw;
-  ulong translation_res = fd_vm_translate_vm_to_host(ctx, 0, slices_addr, slices_len * sizeof(fd_vm_syscall_bytes_slice_t), &slices_raw);
-  if (translation_res != FD_VM_MEM_MAP_SUCCESS) {
-    return translation_res;
-  }
+  void const * slices_raw = fd_vm_translate_vm_to_host( ctx, 0, slices_addr, slices_len * sizeof(fd_vm_syscall_bytes_slice_t) );
+  if( FD_UNLIKELY( !slices_raw ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
 
-  void * hash;
-  translation_res = fd_vm_translate_vm_to_host(ctx, 1, res_addr, 32, &hash);
-  if (translation_res != FD_VM_MEM_MAP_SUCCESS) {
-    return translation_res;
-  }
+  void * hash = fd_vm_translate_vm_to_host( ctx, 1, res_addr, 32 );
+  if( FD_UNLIKELY( !slices_raw ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
 
   fd_vm_syscall_bytes_slice_t * slices = (fd_vm_syscall_bytes_slice_t *) slices_raw;
 
@@ -205,17 +179,13 @@ fd_vm_syscall_sol_blake3(
   fd_blake3_init(&sha);
 
   for (ulong i = 0; i < slices_len; i++) {
-    void * slice;
-    translation_res = fd_vm_translate_vm_to_host(ctx, 0, slices[i].addr, slices[i].len, &slice);
-    if (translation_res != FD_VM_MEM_MAP_SUCCESS) {
-      return translation_res;
-    }
+    void const * slice = fd_vm_translate_vm_to_host( ctx, 0, slices[i].addr, slices[i].len );
+    if( FD_UNLIKELY( !slices_raw ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
 
-    fd_blake3_append(&sha, slice, slices[i].len);
+    fd_blake3_append( &sha, slice, slices[i].len );
   }
 
-  fd_blake3_fini(&sha, hash);
-
+  fd_blake3_fini( &sha, hash );
   return FD_VM_SYSCALL_SUCCESS;
 }
 
@@ -244,12 +214,8 @@ fd_vm_syscall_sol_log(
     ulong * ret
 ) {
   fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
-  void * msg_host_addr;
-
-  ulong translation_res = fd_vm_translate_vm_to_host(ctx, 0, msg_vm_addr, msg_len, &msg_host_addr);
-  if (translation_res != FD_VM_MEM_MAP_SUCCESS) {
-    return translation_res;
-  }
+  void const * msg_host_addr = fd_vm_translate_vm_to_host( ctx, 0, msg_vm_addr, msg_len );
+  if( FD_UNLIKELY( !msg_host_addr ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
 
   fd_vm_log_collector_log( &ctx->log_collector, msg_host_addr, msg_len );
 
@@ -289,15 +255,13 @@ fd_vm_syscall_sol_log_pubkey(
     FD_FN_UNUSED ulong * ret
 ) {
   fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
-  void * pubkey_host_addr;
 
   char msg[128];
   char pubkey_str[FD_BASE58_ENCODED_32_SZ];
 
-  ulong translation_res = fd_vm_translate_vm_to_host(ctx, 1, pubkey_vm_addr, 32, &pubkey_host_addr);
-  if (translation_res != FD_VM_MEM_MAP_SUCCESS) {
-    return translation_res;
-  }
+  /* FIXME Really need write here? */
+  void * pubkey_host_addr = fd_vm_translate_vm_to_host( ctx, 1, pubkey_vm_addr, 32 );
+  if( FD_UNLIKELY( !pubkey_host_addr ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
 
   fd_base58_encode_32( pubkey_host_addr, NULL, pubkey_str );
 
@@ -353,18 +317,11 @@ fd_vm_syscall_sol_memcpy(
   }
   */
 
-  void * dst_host_addr;
-  void * src_host_addr;
+  void *       dst_host_addr = fd_vm_translate_vm_to_host( ctx, 1, dst_vm_addr, n );
+  void const * src_host_addr = fd_vm_translate_vm_to_host( ctx, 0, src_vm_addr, n );
 
-  ulong translation_res = fd_vm_translate_vm_to_host(ctx, 1, dst_vm_addr, n, &dst_host_addr);
-  if (translation_res != FD_VM_MEM_MAP_SUCCESS) {
-    return translation_res;
-  }
-
-  translation_res = fd_vm_translate_vm_to_host(ctx, 0, src_vm_addr, n, &src_host_addr);
-  if (translation_res != FD_VM_MEM_MAP_SUCCESS) {
-    return translation_res;
-  }
+  if( FD_UNLIKELY( (!dst_host_addr) | (!src_host_addr) ) )
+    return FD_VM_MEM_MAP_ERR_ACC_VIO;
 
   fd_memcpy(dst_host_addr, src_host_addr, n);
 
@@ -385,18 +342,11 @@ fd_vm_syscall_sol_memcmp(
 ) {
   fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
 
-  void * host_addr1;
-  void * host_addr2;
+  void const * host_addr1 = fd_vm_translate_vm_to_host( ctx, 0, vm_addr1, n );
+  void const * host_addr2 = fd_vm_translate_vm_to_host( ctx, 0, vm_addr2, n );
 
-  ulong translation_res = fd_vm_translate_vm_to_host(ctx, 0, vm_addr1, n, &host_addr1);
-  if (translation_res != FD_VM_MEM_MAP_SUCCESS) {
-    return translation_res;
-  }
-
-  translation_res = fd_vm_translate_vm_to_host(ctx, 0, vm_addr2, n, &host_addr2);
-  if (translation_res != FD_VM_MEM_MAP_SUCCESS) {
-    return translation_res;
-  }
+  if( FD_UNLIKELY( (!host_addr1) | (!host_addr2) ) )
+    return FD_VM_MEM_MAP_ERR_ACC_VIO;
 
   *ret = (ulong)memcmp(host_addr1, host_addr2, n);
 
@@ -415,12 +365,8 @@ fd_vm_syscall_sol_memset(
 ) {
   fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
 
-  void * dst_host_addr;
-
-  ulong translation_res = fd_vm_translate_vm_to_host( ctx, 1, dst_vm_addr, n, &dst_host_addr );
-  if( translation_res != FD_VM_MEM_MAP_SUCCESS ) {
-    return translation_res;
-  }
+  void * dst_host_addr = fd_vm_translate_vm_to_host( ctx, 1, dst_vm_addr, n );
+  if( FD_UNLIKELY( !dst_host_addr ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
 
   fd_memset( dst_host_addr, (int)c, n );
 
@@ -441,19 +387,13 @@ fd_vm_syscall_sol_memmove(
 ) {
   fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
 
-  void * dst_host_addr;
-  void * src_host_addr;
+  void *       dst_host_addr = fd_vm_translate_vm_to_host( ctx, 1, dst_vm_addr, n );
+  void const * src_host_addr = fd_vm_translate_vm_to_host( ctx, 0, src_vm_addr, n );
 
-  ulong translation_res = fd_vm_translate_vm_to_host( ctx, 1, dst_vm_addr, n, &dst_host_addr );
-  if( translation_res != FD_VM_MEM_MAP_SUCCESS ) {
-    return translation_res;
-  }
+  if( FD_UNLIKELY( (!dst_host_addr) | (!src_host_addr) ) )
+    return FD_VM_MEM_MAP_ERR_ACC_VIO;
 
-  translation_res = fd_vm_translate_vm_to_host( ctx, 0, src_vm_addr, n, &src_host_addr );
-  if( translation_res != FD_VM_MEM_MAP_SUCCESS ) {
-    return translation_res;
-  }
-
+  /* FIXME use fd_memcpy here? */
   memmove( dst_host_addr, src_host_addr, n );
 
   *ret = dst_vm_addr;
@@ -464,11 +404,11 @@ fd_vm_syscall_sol_memmove(
 ulong
 fd_vm_syscall_sol_invoke_signed_c(
     FD_FN_UNUSED void * _ctx,
-    FD_FN_UNUSED ulong arg0,
-    FD_FN_UNUSED ulong arg1,
-    FD_FN_UNUSED ulong arg2,
-    FD_FN_UNUSED ulong arg3,
-    FD_FN_UNUSED ulong arg4,
+    FD_FN_UNUSED ulong instruction_va,
+    FD_FN_UNUSED ulong acct_infos_va,
+    FD_FN_UNUSED ulong acct_info_cnt,
+    FD_FN_UNUSED ulong signers_seeds_va,
+    FD_FN_UNUSED ulong signers_seeds_cnt,
     FD_FN_UNUSED ulong * ret
 ) {
   return FD_VM_SYSCALL_ERR_UNIMPLEMENTED;
