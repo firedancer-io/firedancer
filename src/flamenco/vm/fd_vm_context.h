@@ -50,6 +50,21 @@ typedef struct fd_vm_exec_context fd_vm_exec_context_t;
    value is a status code for the syscall. */
 typedef ulong (*fd_vm_syscall_fn_ptr_t)(fd_vm_exec_context_t * ctx, ulong arg0, ulong arg1, ulong arg2, ulong arg3, ulong arg4, ulong * ret);
 
+/* fd_vm_heap_allocator_t is the state of VM's native allocator backing
+   the sol_alloc_free_ syscall.  Provides a naive bump allocator.
+   Obviously, this feature is redundant.  The same allocation logic
+   could trivially be implemented in on-chain bytecode.
+
+   TODO Document if this is a legacy feature.  I think it has been
+        removed in later runtime versions. */
+
+struct fd_vm_heap_allocator {
+  ulong heap_sz;  /* Total size of heap region */
+  ulong offset;   /* Points to beginning of free region within heap,
+                     relative to start of heap region. */
+};
+typedef struct fd_vm_heap_allocator fd_vm_heap_allocator_t;
+
 // FIXME: THE HEAP IS RESIZEABLE AT INVOCATION ~~ugh~~
 /* The sBPF execution context. This is the primary data structure that is evolved before, during
    and after contract execution. */
@@ -77,6 +92,12 @@ struct fd_vm_exec_context {
   ulong         input_sz;             /* The program input memory region size */
   fd_vm_stack_t stack;                /* The sBPF call frame stack */
   uchar         heap[FD_VM_HEAP_SZ];  /* The heap memory allocated by the bump allocator syscall */
+
+  /* Miscellaneous native state:
+     Below contains state of syscall logic for the lifetime of the
+     execution context.
+     TODO Separate this out from the core virtual machine */
+  fd_vm_heap_allocator_t alloc; /* Bump allocator provided through syscall */
 };
 typedef struct fd_vm_exec_context fd_vm_exec_context_t;
 

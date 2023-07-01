@@ -433,7 +433,7 @@ fd_vm_syscall_sol_invoke_signed_rust(
 
   /* Solana Labs does these checks after address translation.
      We do them before to avoid length overflow.
-     This changes the error code, but consensus does not care -
+     This can change the error code, but consensus does not care -
      Protocol error conditions are only qualitative, not quantitative. */
 
   /* Check signer count */
@@ -579,21 +579,54 @@ fd_vm_syscall_sol_invoke_signed_rust(
     memcpy( acct_keys[i].uc, acct_addr->uc, sizeof(fd_pubkey_t) );
   }
 
+  /* TODO: Dispatch CPI to executor.
+           For now, we'll just log parameters. */
+
   FD_LOG_WARNING(( "TODO implement CPIs" ));
   return FD_VM_SYSCALL_ERR_UNIMPLEMENTED;
 }
 
 ulong
-fd_vm_syscall_sol_alloc_free(
-    FD_FN_UNUSED void * _ctx,
-    FD_FN_UNUSED ulong arg0,
-    FD_FN_UNUSED ulong arg1,
-    FD_FN_UNUSED ulong arg2,
-    FD_FN_UNUSED ulong arg3,
-    FD_FN_UNUSED ulong arg4,
-    FD_FN_UNUSED ulong * ret
-) {
-  return FD_VM_SYSCALL_ERR_UNIMPLEMENTED;
+fd_vm_syscall_sol_alloc_free( void * _ctx,
+                              ulong sz,
+                              ulong free_addr,
+                              FD_FN_UNUSED ulong r3,
+                              FD_FN_UNUSED ulong r4,
+                              FD_FN_UNUSED ulong r5,
+                              ulong * ret ) {
+
+  /* Value to return */
+  ulong r0 = 0UL;
+
+  /* TODO Get suitable alignment size based on invoke context */
+  ulong align = 1UL;
+
+  fd_vm_exec_context_t * ctx     = (fd_vm_exec_context_t *) _ctx;
+  fd_vm_heap_allocator_t * alloc = &ctx->alloc;
+
+  /* Non-zero free address implies that this is a free() call.
+     However, we provide a bump allocator, so free is a no-op. */
+
+  if( free_addr ) goto fini;
+
+  /* Rest of function provides malloc() ... */
+
+  ulong pos   = fd_ulong_align_up( alloc->offset, align );
+  ulong vaddr = fd_ulong_sat_add ( pos,           FD_VM_MEM_MAP_HEAP_REGION_START );
+        pos   = fd_ulong_sat_add ( pos,           sz    );
+
+  /* Bail if allocation overruns heap size */
+
+  if( FD_UNLIKELY( pos > alloc->heap_sz ) ) goto fini;
+
+  /* Success. Return virtual address of allocation and update allocator */
+
+  r0            = vaddr;
+  alloc->offset = pos;
+
+fini:
+  *ret = r0;
+  return FD_VM_SYSCALL_SUCCESS;
 }
 
 ulong
