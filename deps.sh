@@ -398,16 +398,73 @@ install_openssl () {
 
   echo "[+] Configuring OpenSSL"
   ./config \
+    -static \
     --prefix="$PREFIX" \
-    enable-quic
+    enable-quic \
+    no-engine \
+    no-static-engine \
+    no-weak-ssl-ciphers \
+    no-tls1 \
+    no-tls1-method \
+    no-tls1_1 \
+    no-tls1_1-method \
+    no-tls1_2 \
+    no-tls1_2-method \
+    enable-tls1_3 \
+    no-shared \
+    no-legacy \
+    no-tests \
+    no-ui-console \
+    no-sctp \
+    no-ssl3 \
+    no-aria \
+    no-bf \
+    no-blake2 \
+    no-camellia \
+    no-cast \
+    no-cmac \
+    no-cmp \
+    no-cms \
+    no-comp \
+    no-ct \
+    no-des \
+    no-dh \
+    no-dsa \
+    no-dtls \
+    no-dtls1-method \
+    no-dtls1_2-method \
+    no-ecdsa \
+    no-fips \
+    no-gost \
+    no-idea \
+    no-ktls \
+    no-md4 \
+    no-nextprotoneg \
+    no-ocb \
+    no-ocsp \
+    no-rc2 \
+    no-rc4 \
+    no-rc5 \
+    no-rmd160 \
+    no-scrypt \
+    no-seed \
+    no-siphash \
+    no-siv \
+    no-sm3 \
+    no-sm4 \
+    no-srp \
+    no-srtp \
+    no-sock \
+    no-ts \
+    no-whirlpool
   echo "[+] Configured OpenSSL"
 
   echo "[+] Building OpenSSL"
-  "${MAKE[@]}"
+  "${MAKE[@]}" build_libs
   echo "[+] Successfully built OpenSSL"
 
   echo "[+] Installing OpenSSL to $PREFIX"
-  make install_sw -j
+  "${MAKE[@]}" install_dev
   echo "[+] Successfully installed OpenSSL"
 }
 
@@ -458,8 +515,8 @@ install () {
   ( install_bzip2     )
   ( install_zstd      )
   ( install_secp256k1 )
-  ( install_rocksdb   )
   ( install_openssl   )
+  ( install_rocksdb   )
 
   echo "[~] Done! To wire up $(pwd)/opt with make, run:"
   echo "    source activate-opt"
