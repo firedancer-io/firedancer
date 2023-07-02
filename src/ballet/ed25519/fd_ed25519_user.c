@@ -1,7 +1,7 @@
 #include "fd_ed25519_private.h"
 
 uchar *
-fd_ed25519_sc_reduce( uchar *       out, 
+fd_ed25519_sc_reduce( uchar *       out,
                       uchar const * in ) {
 
   /* Load the 512 bits to reduce */
@@ -288,7 +288,7 @@ fd_ed25519_public_from_private( void *        public_key,
   az[ 0] &= (uchar)248;
   az[31] &= (uchar)63;
   az[31] |= (uchar)64;
- 
+
   /* Compute the corresponding public key from the hash */
 
   fd_ed25519_ge_p3_t A[1];
@@ -430,6 +430,13 @@ fd_ed25519_verify( void const *  msg,
   fd_ed25519_ge_tobytes( rcheck, R );
   return memcmp( rcheck, r, 32UL ) ? FD_ED25519_ERR_MSG : FD_ED25519_SUCCESS;
 # endif
+}
+
+FD_FN_PURE void const *
+fd_ed25519_validate_public_key( void const * public_key ) {
+  fd_ed25519_ge_p3_t A[1];
+  int err = fd_ed25519_ge_frombytes_vartime( A, public_key );
+  return err == FD_ED25519_SUCCESS ? public_key : NULL;
 }
 
 char const *
