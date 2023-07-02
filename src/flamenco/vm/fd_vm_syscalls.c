@@ -3,6 +3,7 @@
 #include "../../ballet/sha256/fd_sha256.h"
 #include "../../ballet/keccak256/fd_keccak256.h"
 #include "../../ballet/blake3/fd_blake3.h"
+#include "../../ballet/ed25519/fd_ed25519.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../../ballet/murmur3/fd_murmur3.h"
 #include "../../ballet/sbpf/fd_sbpf_maps.c"
@@ -723,30 +724,221 @@ fd_vm_syscall_sol_get_rent_sysvar(
   return FD_VM_SYSCALL_ERR_UNIMPLEMENTED;
 }
 
+/* fd_vm_partial_derive_address begins the SHA calculation for a program
+   derived account address.  sha is an uninitialized, joined SHA state
+   object. program_id_vaddr points to the program address in VM address
+   space. seeds_vaddr points to the first element of an iovec-like
+   scatter of a seed byte array (&[&[u8]]) in VM address space.
+   seed_cnt is the number of scatter elems.  Returns in-flight sha
+   calculation on success.  On failure, returns NULL.  Reasons for
+   failure include out-of-bounds memory access or invalid seed list. */
+
+static fd_sha256_t *
+fd_vm_partial_derive_address( fd_vm_exec_context_t * ctx,
+                              fd_sha256_t *          sha,
+                              ulong                  program_id_vaddr,
+                              ulong                  seeds_vaddr,
+                              ulong                  seeds_cnt ) {
+
+  /* TODO use constant macro */
+  if( FD_UNLIKELY( seeds_cnt > 16UL ) ) return NULL;
+
+  /* Translate program ID address */
+
+  fd_pubkey_t const * program_id = fd_vm_translate_vm_to_host(
+      ctx,
+      0 /* write */,
+      program_id_vaddr,
+      sizeof(fd_pubkey_t) );
+
+  /* Translate seed scatter array address */
+
+  fd_vm_rust_slice_t const * seeds = fd_vm_translate_vm_to_host(
+      ctx,
+      0 /* write */,
+      seeds_vaddr,
+      /* no overflow, as seeds_cnt<=16UL */
+      seeds_cnt * sizeof(fd_vm_rust_vec_t) );
+
+  /* Bail if translation fails */
+
+  if( FD_UNLIKELY( ( !program_id )
+                 | ( !seeds      ) ) ) return NULL;
+
+  /* Start hashing */
+
+  fd_sha256_init( sha );
+  fd_sha256_append( sha, program_id, sizeof(fd_pubkey_t) );
+
+  for( ulong i=0UL; i<seeds_cnt; i++ ) {
+
+    /* Refuse to hash overlong parts */
+
+    if( FD_UNLIKELY( seeds[ i ].len > 32UL ) ) return NULL;
+
+    /* Translate seed */
+
+    void const * seed_part = fd_vm_translate_vm_to_host(
+        ctx,
+        0 /* write */,
+        seeds[ i ].addr,
+        seeds[ i ].len );
+    if( FD_UNLIKELY( !seed_part ) ) return NULL;
+
+    /* Append to hash (gather) */
+
+    fd_sha256_append( sha, seed_part, seeds[ i ].len );
+
+  }
+
+  return sha;
+}
+
 ulong
 fd_vm_syscall_sol_create_program_address(
-    FD_FN_UNUSED void * _ctx,
-    FD_FN_UNUSED ulong arg0,
-    FD_FN_UNUSED ulong arg1,
-    FD_FN_UNUSED ulong arg2,
-    FD_FN_UNUSED ulong arg3,
-    FD_FN_UNUSED ulong arg4,
-    FD_FN_UNUSED ulong * ret
-) {
-  return FD_VM_SYSCALL_ERR_UNIMPLEMENTED;
+    void *  _ctx,
+    ulong   seeds_vaddr,
+    ulong   seeds_cnt,
+    ulong   program_id_vaddr,
+    ulong   out_vaddr,
+    ulong   r5,
+    ulong * ret )  {
+
+  fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *)_ctx;
+  (void)r5;
+  ulong r0 = 1UL;  /* 1 implies fail */
+
+  /* TODO charge CUs */
+
+  /* Calculate PDA */
+
+  fd_sha256_t _sha[1];
+  fd_sha256_t * sha = fd_sha256_join( fd_sha256_new( _sha ) );
+  if( FD_UNLIKELY( !fd_vm_partial_derive_address( ctx, sha, program_id_vaddr, seeds_vaddr, seeds_cnt ) ) )
+    return FD_VM_MEM_MAP_ERR_ACC_VIO;
+
+  fd_pubkey_t result;
+  fd_sha256_fini( sha, &result );
+
+  /* Return failure if PDA overlaps with a valid curve point */
+
+  if( FD_UNLIKELY( fd_ed25519_validate_public_key( &result ) ) )
+    goto fini;
+
+  /* Translate output address
+     Cannot reorder - Out may be an invalid pointer if PDA is invalid */
+
+  fd_pubkey_t * out = fd_vm_translate_vm_to_host(
+      ctx,
+      1 /* write */,
+      out_vaddr,
+      sizeof(fd_pubkey_t) );
+  if( FD_UNLIKELY( !out ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
+
+  /* Write result into out */
+
+  memcpy( out, result.uc, sizeof(fd_pubkey_t) );
+  r0 = 0UL; /* success */
+
+fini:
+  fd_sha256_delete( fd_sha256_leave( sha ) );
+  *ret = r0;
+  return FD_VM_SYSCALL_SUCCESS;
 }
 
 ulong
 fd_vm_syscall_sol_try_find_program_address(
-    FD_FN_UNUSED void * _ctx,
-    FD_FN_UNUSED ulong arg0,
-    FD_FN_UNUSED ulong arg1,
-    FD_FN_UNUSED ulong arg2,
-    FD_FN_UNUSED ulong arg3,
-    FD_FN_UNUSED ulong arg4,
-    FD_FN_UNUSED ulong * ret
-) {
-  return FD_VM_SYSCALL_ERR_UNIMPLEMENTED;
+    void *  _ctx,
+    ulong   seeds_vaddr,
+    ulong   seeds_cnt,
+    ulong   program_id_vaddr,
+    ulong   out_vaddr,
+    ulong   bump_seed_vaddr,
+    ulong * ret ) {
+
+  fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *)_ctx;
+  ulong r0 = 1UL;  /* 1 implies fail */
+
+  /* TODO charge CUs */
+
+  /* Similar to create_program_address, but suffixes a 1 byte nonce
+     that it decrements from 255 down to 1, until a valid PDA is found.
+
+     Solana Labs recomputes the SHA hash for each iteration here. We
+     leverage SHA's streaming properties to precompute all but the last
+     two blocks (1 data, 0 or 1 padding). */
+
+  fd_sha256_t _sha[2];
+  fd_sha256_t * sha0 = fd_sha256_join( fd_sha256_new( _sha     ) );
+  fd_sha256_t * sha1 = fd_sha256_join( fd_sha256_new( _sha + 1 ) );
+
+  /* Translate outputs but delay validation.
+
+     In the unlikely case that none of the 255 iterations yield a valid
+     PDA, Solana Labs never validates whether out_vaddr is a valid
+     pointer */
+
+  fd_pubkey_t * address_out = fd_vm_translate_vm_to_host(
+      ctx,
+      1 /* write */,
+      out_vaddr,
+      sizeof(fd_pubkey_t) );
+
+  uchar * bump_seed_out = fd_vm_translate_vm_to_host(
+      ctx,
+      1 /* write */,
+      bump_seed_vaddr,
+      1UL );
+
+  /* Calculate PDA prefix */
+
+  if( FD_UNLIKELY( !fd_vm_partial_derive_address( ctx, sha0, program_id_vaddr, seeds_vaddr, seeds_cnt ) ) )
+    return FD_VM_MEM_MAP_ERR_ACC_VIO;
+
+  /* Iterate through bump prefix and hash */
+
+  fd_pubkey_t result;
+  for( ulong i=255UL; i>0UL; i-- ) {
+
+    /* Compute PDA on copy of SHA state */
+
+    memcpy( sha1, sha0, FD_SHA256_FOOTPRINT );
+
+    uchar suffix[1] = {(uchar)i};
+    fd_sha256_append( sha1, suffix, 1UL );
+    fd_sha256_fini  ( sha1, &result );
+
+    /* PDA is valid if it's not a curve point */
+
+    if( FD_LIKELY( !fd_ed25519_validate_public_key( &result ) ) ) {
+
+      /* Delayed translation and overlap check */
+
+      if( FD_UNLIKELY( ( !address_out   )
+                     | ( !bump_seed_out )
+                     | ( (ulong)address_out+32UL  >= (ulong)bump_seed_out )
+                     | ( (ulong)bump_seed_out+1UL >= (ulong)address_out   ) ) )
+        return FD_VM_MEM_MAP_ERR_ACC_VIO;
+
+      /* Write results */
+
+      *bump_seed_out = (uchar)i;
+      memcpy( address_out, result.uc, sizeof(fd_pubkey_t) );
+      r0 = 0UL; /* success */
+      goto fini;
+
+    }
+
+  }
+
+  /* Exhausted all 255 iterations and failed to find a valid PDA.
+     Return failure. */
+
+fini:
+  fd_sha256_delete( fd_sha256_leave( sha0 ) );
+  fd_sha256_delete( fd_sha256_leave( sha1 ) );
+  *ret = r0;
+  return FD_VM_SYSCALL_SUCCESS;
 }
 
 ulong
