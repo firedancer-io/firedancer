@@ -77,15 +77,40 @@ fd_vm_syscall_abort(
 
 ulong
 fd_vm_syscall_sol_panic(
-    FD_FN_UNUSED void * _ctx,
-    FD_FN_UNUSED ulong arg0,
-    FD_FN_UNUSED ulong arg1,
-    FD_FN_UNUSED ulong arg2,
-    FD_FN_UNUSED ulong arg3,
-    FD_FN_UNUSED ulong arg4,
-    FD_FN_UNUSED ulong * ret
-) {
-  return FD_VM_SYSCALL_ERR_UNIMPLEMENTED;
+    void *  _ctx,
+    ulong   msg_vaddr,
+    ulong   msg_len,
+    ulong   r3,
+    ulong   r4,
+    ulong   r5,
+    ulong * r0 ) {
+
+  /* Here, Solana Labs charges compute units, does UTF-8 validation,
+     and checks for a cstr terminating NUL.  We skip all of this since
+     this syscall always aborts the transaction.  The type of error
+     does not matter. */
+
+  fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
+
+  char const * str = fd_vm_translate_vm_to_host(
+      ctx,
+      0 /* write */,
+      msg_vaddr,
+      msg_len );
+
+  /* TODO write to log collector instead of writing to fd_log */
+
+  if( FD_UNLIKELY( !str ) ) {
+    FD_LOG_WARNING(( "sol_panic_ called with invalid string (addr=%#lx, len=%#lx)",
+                     msg_vaddr, msg_len ));
+    return FD_VM_SYSCALL_ERR_MEM_OVERLAP;
+  }
+
+  if( FD_UNLIKELY( msg_len > 1024UL ) )
+    FD_LOG_WARNING(( "Truncating sol_panic_ message (orig %#lx bytes)", msg_len ));
+  FD_LOG_HEXDUMP_DEBUG(( "sol_panic", str, msg_len ));
+
+  return FD_VM_SYSCALL_ERR_PANIC;
 }
 
 
@@ -562,20 +587,14 @@ fd_vm_syscall_sol_invoke_signed_rust(
 
   /* Collect pubkeys */
 
-  fd_pubkey_t * acct_keys =
-    fd_alloca_check( /* align */ 1UL, /* sz */ acct_info_cnt * sizeof(fd_pubkey_t) );
-
+  fd_pubkey_t acct_keys[ acct_info_cnt ];  /* FIXME get rid of VLA */
   for( ulong i=0UL; i<acct_info_cnt; i++ ) {
-    /* Extract address of account info */
-
     fd_pubkey_t const * acct_addr = fd_vm_translate_vm_to_host(
         ctx,
         0 /* write */,
         acc_infos[i].pubkey_addr,
         sizeof(fd_pubkey_t) );
     if( FD_UNLIKELY( !acct_addr ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
-
-    /* Copy address */
 
     memcpy( acct_keys[i].uc, acct_addr->uc, sizeof(fd_pubkey_t) );
   }
