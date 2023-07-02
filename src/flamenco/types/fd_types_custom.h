@@ -65,6 +65,26 @@ void fd_hash_walk(FD_FN_UNUSED fd_hash_t* self, FD_FN_UNUSED fd_walk_fun_t fun, 
 #define fd_pubkey_set_zero(_x)           fd_hash_set_zero(_x)
 #define fd_pubkey_walk(_x, _y, _z, _l)   fd_hash_walk(_x, _y, _z, _l)
 
+/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/epoch_schedule.rs#L26 */
+struct fd_epoch_schedule {
+  ulong slots_per_epoch;
+  ulong leader_schedule_slot_offset;
+  uchar warmup;
+  uchar _pad11[7];  /* Padding, must be zero */
+  ulong first_normal_epoch;
+  ulong first_normal_slot;
+};
+typedef struct fd_epoch_schedule fd_epoch_schedule_t;
+#define FD_EPOCH_SCHEDULE_FOOTPRINT sizeof(fd_epoch_schedule_t)
+#define FD_EPOCH_SCHEDULE_ALIGN (8UL)
+
+void fd_epoch_schedule_new(fd_epoch_schedule_t* self);
+int fd_epoch_schedule_decode(fd_epoch_schedule_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_epoch_schedule_encode(fd_epoch_schedule_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_epoch_schedule_destroy(fd_epoch_schedule_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_epoch_schedule_walk(fd_epoch_schedule_t* self, fd_walk_fun_t fun, const char *name, int level);
+ulong fd_epoch_schedule_size(fd_epoch_schedule_t const * self);
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_types_custom */

@@ -28,6 +28,9 @@ print("#ifdef _DISABLE_OPTIMIZATION", file=body)
 print("#pragma GCC optimize (\"O0\")", file=body)
 print("#endif", file=body)
 
+print("#define SOURCE_fd_src_flamenco_types_fd_types_c", file=body)
+print('#include "fd_types_custom.c"', file=body)
+
 type_map = {
     "int64_t": "long",
     "uint64_t": "unsigned long",

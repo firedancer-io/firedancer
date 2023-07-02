@@ -49,18 +49,6 @@ typedef struct fd_block_hash_queue fd_block_hash_queue_t;
 #define FD_BLOCK_HASH_QUEUE_FOOTPRINT sizeof(fd_block_hash_queue_t)
 #define FD_BLOCK_HASH_QUEUE_ALIGN (8UL)
 
-/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/epoch_schedule.rs#L26 */
-struct fd_epoch_schedule {
-  unsigned long slots_per_epoch;
-  unsigned long leader_schedule_slot_offset;
-  unsigned char warmup;
-  unsigned long first_normal_epoch;
-  unsigned long first_normal_slot;
-};
-typedef struct fd_epoch_schedule fd_epoch_schedule_t;
-#define FD_EPOCH_SCHEDULE_FOOTPRINT sizeof(fd_epoch_schedule_t)
-#define FD_EPOCH_SCHEDULE_ALIGN (8UL)
-
 struct fd_fee_rate_governor {
   unsigned long target_lamports_per_signature;
   unsigned long target_signatures_per_slot;
@@ -1555,13 +1543,6 @@ int fd_block_hash_queue_encode(fd_block_hash_queue_t const * self, fd_bincode_en
 void fd_block_hash_queue_destroy(fd_block_hash_queue_t* self, fd_bincode_destroy_ctx_t * ctx);
 void fd_block_hash_queue_walk(fd_block_hash_queue_t* self, fd_walk_fun_t fun, const char *name, int level);
 ulong fd_block_hash_queue_size(fd_block_hash_queue_t const * self);
-
-void fd_epoch_schedule_new(fd_epoch_schedule_t* self);
-int fd_epoch_schedule_decode(fd_epoch_schedule_t* self, fd_bincode_decode_ctx_t * ctx);
-int fd_epoch_schedule_encode(fd_epoch_schedule_t const * self, fd_bincode_encode_ctx_t * ctx);
-void fd_epoch_schedule_destroy(fd_epoch_schedule_t* self, fd_bincode_destroy_ctx_t * ctx);
-void fd_epoch_schedule_walk(fd_epoch_schedule_t* self, fd_walk_fun_t fun, const char *name, int level);
-ulong fd_epoch_schedule_size(fd_epoch_schedule_t const * self);
 
 void fd_fee_rate_governor_new(fd_fee_rate_governor_t* self);
 int fd_fee_rate_governor_decode(fd_fee_rate_governor_t* self, fd_bincode_decode_ctx_t * ctx);
