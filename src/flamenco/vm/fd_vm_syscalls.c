@@ -726,7 +726,8 @@ fd_vm_syscall_sol_get_clock_sysvar(
       ctx,
       1 /* write */,
       out_addr,
-      sizeof(fd_sol_sysvar_clock_t) );
+      sizeof(fd_sol_sysvar_clock_t),
+      0 );
   if( FD_UNLIKELY( !out ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
 
   memcpy( out, &clock, sizeof(fd_sol_sysvar_clock_t ) );
