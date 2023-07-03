@@ -108,7 +108,7 @@ fetch () {
   checkout_repo zlib      https://github.com/madler/zlib            "v1.2.13"
   checkout_repo bzip2     https://sourceware.org/git/bzip2.git      "bzip2-1.0.8"
   checkout_repo zstd      https://github.com/facebook/zstd          "v1.5.4"
-  checkout_repo openssl   https://github.com/quictls/openssl        "OpenSSL_1_1_1t-quic1"
+  checkout_repo openssl   https://github.com/quictls/openssl        "openssl-3.0.9-quic1"
   checkout_repo rocksdb   https://github.com/facebook/rocksdb       "v7.10.2"
   checkout_repo secp256k1 https://github.com/bitcoin-core/secp256k1 "v0.3.2"
 }
@@ -398,16 +398,73 @@ install_openssl () {
 
   echo "[+] Configuring OpenSSL"
   ./config \
+    -static \
     --prefix="$PREFIX" \
-    enable-quic
+    enable-quic \
+    no-engine \
+    no-static-engine \
+    no-weak-ssl-ciphers \
+    no-tls1 \
+    no-tls1-method \
+    no-tls1_1 \
+    no-tls1_1-method \
+    no-tls1_2 \
+    no-tls1_2-method \
+    enable-tls1_3 \
+    no-shared \
+    no-legacy \
+    no-tests \
+    no-ui-console \
+    no-sctp \
+    no-ssl3 \
+    no-aria \
+    no-bf \
+    no-blake2 \
+    no-camellia \
+    no-cast \
+    no-cmac \
+    no-cmp \
+    no-cms \
+    no-comp \
+    no-ct \
+    no-des \
+    no-dh \
+    no-dsa \
+    no-dtls \
+    no-dtls1-method \
+    no-dtls1_2-method \
+    no-ecdsa \
+    no-fips \
+    no-gost \
+    no-idea \
+    no-ktls \
+    no-md4 \
+    no-nextprotoneg \
+    no-ocb \
+    no-ocsp \
+    no-rc2 \
+    no-rc4 \
+    no-rc5 \
+    no-rmd160 \
+    no-scrypt \
+    no-seed \
+    no-siphash \
+    no-siv \
+    no-sm3 \
+    no-sm4 \
+    no-srp \
+    no-srtp \
+    no-sock \
+    no-ts \
+    no-whirlpool
   echo "[+] Configured OpenSSL"
 
   echo "[+] Building OpenSSL"
-  "${MAKE[@]}"
+  "${MAKE[@]}" build_libs
   echo "[+] Successfully built OpenSSL"
 
   echo "[+] Installing OpenSSL to $PREFIX"
-  make install_sw -j
+  "${MAKE[@]}" install_dev
   echo "[+] Successfully installed OpenSSL"
 }
 
@@ -458,8 +515,8 @@ install () {
   ( install_bzip2     )
   ( install_zstd      )
   ( install_secp256k1 )
-  ( install_rocksdb   )
   ( install_openssl   )
+  ( install_rocksdb   )
 
   echo "[~] Done! To wire up $(pwd)/opt with make, run:"
   echo "    source activate-opt"
