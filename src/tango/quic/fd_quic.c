@@ -1021,6 +1021,12 @@ fd_quic_stream_fin( fd_quic_stream_t * stream ) {
 }
 
 void
+fd_quic_conn_set_max_streams( fd_quic_conn_t * conn, int dirtype, ulong max_streams ) {
+  int type = ((dirtype & 1) << 1) + conn->server;  /* `dirtype & 1` clamps to 0 or 1 */
+  conn->max_streams[(ulong)type] = max_streams;
+}
+
+void
 fd_quic_conn_set_rx_max_data( fd_quic_conn_t * conn, ulong rx_max_data ) {
   conn->rx_max_data = rx_max_data;
 }
@@ -3932,6 +3938,7 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
             ulong stream_type_idx = 2u | !conn->server;
             frame.max_streams.stream_type = 1;
             frame.max_streams.max_streams = conn->max_streams[stream_type_idx];
+            frame.max_streams.max_streams = conn->max_streams[stream_type_idx];
 
             /* attempt to write into buffer */
             frame_sz = fd_quic_encode_max_streams_frame( payload_ptr,
@@ -4642,8 +4649,7 @@ fd_quic_connect( fd_quic_t *  quic,
       transport_params_raw,
       FD_QUIC_TRANSPORT_PARAMS_RAW_SZ,
       tp );
-  if( FD_UNLIKELY( tp_rc == FD_QUIC_ENCODE_FAIL ) ) {
-    /* FIXME log error in counters */
+  if( FD_UNLIKELY( tp_rc == FD_QUIC_ENCODE_FAIL ) ) { /* FIXME log error in counters */
     FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_encode_transport_params failed" )) );
     goto fail_conn;
   }

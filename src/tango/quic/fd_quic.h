@@ -358,6 +358,13 @@ typedef void
 (* fd_quic_cb_tls_keylog_t)( void *       quic_ctx,
                              char const * line );
 
+/* fd_quic_conn_evict is called when there are no available connections
+   to determine which to evict. */
+
+typedef void
+(* fd_quic_cb_conn_evict_t)( void * quic_ctx );
+
+
 /* fd_quic_callbacks_t defines the set of user-provided callbacks that
    are invoked by the QUIC library.  Resets on leave. */
 
@@ -662,6 +669,34 @@ fd_quic_stream_fin( fd_quic_stream_t * stream );
 //void
 //fd_quic_stream_close( fd_quic_stream_t * stream, int direction_flags );
 
+/* Flow Control API ***************************************************/
+
+/* fd_quic_conn_set_rx_max_data sets the maximum amount of data that can be sent
+   by the peer on a connection. This update will propagate to the peer via a
+   MAX_DATA frame.
+
+   A violation of this flow control param will result in connection termination
+   with FLOW_CONTROL_ERROR, per RFC 9000. */
+FD_QUIC_API void
+fd_quic_conn_set_rx_max_data( fd_quic_conn_t * conn, ulong rx_max_data );
+
+FD_QUIC_API void
+fd_quic_conn_set_max_streams( fd_quic_conn_t * conn, int dirtype, ulong max_streams );
+
+/* fd_quic_stream_set_rx_max_stream_data sets the maximum amount of data that
+   can be sent by the peer on a stream. This update will propagate to the peer
+   via a MAX_STREAM_DATA frame.
+
+   A violation of this flow control param will result in connection termination
+   with FLOW_CONTROL_ERROR, per RFC 9000.
+
+   Note that updating this param will not affect the `max_data` param (above).
+   The effective limit will be the smaller of the two (see the stream loop in
+   `fd_quic.c`). Therefore, a user should consider both params when configuring
+   flow control. */
+FD_QUIC_API void
+fd_quic_stream_set_rx_max_stream_data( fd_quic_stream_t * stream, ulong rx_max_stream_data );
+
 FD_PROTOTYPES_END
 
 uint fd_quic_tx_buffered_raw(fd_quic_t *quic,
@@ -681,6 +716,7 @@ uint fd_quic_tx_buffered_raw(fd_quic_t *quic,
 /* Convenience exports for consumers of API */
 #include "fd_quic_conn.h"
 #include "fd_quic_stream.h"
+#include "fd_quic_qos.h"
 
 /* FD_DEBUG_MODE: set to enable debug-only code
    TODO move to util? */

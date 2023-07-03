@@ -50,14 +50,17 @@ fd_x509_gen_solana_cert( EVP_PKEY * pkey ) {
 
   /* Generate serial number */
   long serial;
-  if( FD_UNLIKELY( 1!=RAND_bytes( (uchar *)&serial, sizeof(long) ) ) ) {
+  if ( FD_UNLIKELY( 1 != RAND_bytes( (uchar *)&serial, sizeof( long ) ) ) ) {
     FD_LOG_WARNING(( "RAND_bytes() failed" ));
     goto cleanup1;
   }
   ASN1_INTEGER_set( X509_get_serialNumber(x), serial );
 
   /* Set public key (the only important part) */
-  X509_set_pubkey( x, pkey );
+  if ( FD_UNLIKELY( 1 != X509_set_pubkey( x, pkey ) ) ) {
+    FD_LOG_WARNING(( "X509_set_pubkey() failed" ));
+    goto cleanup1;
+  };
 
   /* Set very long expiration date */
   long not_before = 0L;            /* Jan  1 00:00:00 1975 GMT */
