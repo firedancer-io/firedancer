@@ -596,6 +596,8 @@ int main(int argc, char** argv) {
       ctx2.freef = global->freef;
       ctx2.freef_arg = global->allocf_arg;
       fd_genesis_solana_destroy(&genesis_block, &ctx2);
+
+      fd_runtime_save_banks( global );
     }
 
     file = fd_env_strip_cmdline_cstr(&argc, &argv, "--rocksdb", NULL, NULL);
