@@ -183,8 +183,10 @@ extern uchar FD_QUIC_CRYPTO_V1_INITIAL_SALT[ 20UL ];
 /* HKFD application-specific context (similar to a salt) */
 #define FD_QUIC_RETRY_TOKEN_AEAD_INFO ((const uchar *)"fd quic retry token")
 #define FD_QUIC_RETRY_TOKEN_AEAD_INFO_SZ (sizeof("fd quic retry token") - 1)
+/* Retry token lifetime is 15 seconds */
+#define FD_QUIC_RETRY_TOKEN_LIFETIME (ulong)(15 * 1e9L)
 /* The retry integrity tag is the 16-byte tag output of AES-128-GCM */
-#define FD_QUIC_RETRY_INTEGRITY_TAG_SZ 16
+#define FD_QUIC_RETRY_INTEGRITY_TAG_SZ FD_QUIC_CRYPTO_TAG_SZ
 #define FD_QUIC_RETRY_INTEGRITY_TAG_KEY ((uchar *)"\xbe\x0c\x69\x0b\x9f\x66\x57\x5a\x1d\x76\x6b\x54\xe3\x68\xc8\x4e")
 #define FD_QUIC_RETRY_INTEGRITY_TAG_NONCE ((uchar *)"\x46\x15\x99\xd3\x5d\x63\x2b\xf2\x23\x98\x25\xbb")
 
@@ -540,53 +542,63 @@ fd_quic_crypto_lookup_suite( uchar major,
     to AEAD as plaintext vs. as associated data. */
 int fd_quic_retry_token_encrypt(
     /* plaintext (timestamp calculated in function) */
-    fd_quic_conn_id_t *orig_dst_conn_id,
-    ulong *now,
+    fd_quic_conn_id_t * orig_dst_conn_id,
+    ulong               now,
     /* aad */
-    fd_quic_conn_id_t *retry_src_conn_id,
-    uint ip_addr,
-    ushort udp_port,
+    fd_quic_conn_id_t * retry_src_conn_id,
+    uint                ip_addr,
+    ushort              udp_port,
     /* ciphertext */
-    uchar retry_token[static FD_QUIC_RETRY_TOKEN_CIPHERTEXT_SZ]);
+    uchar retry_token[static FD_QUIC_RETRY_TOKEN_SZ]
+);
 
 /* Decrypt a retry token, and checks it for validity (see `fd_quic_retry_token_encrypt`). */
 int fd_quic_retry_token_decrypt(
     /* ciphertext */
-    uchar retry_token[static FD_QUIC_RETRY_TOKEN_CIPHERTEXT_SZ],
+    uchar * retry_token,
     /* aad */
-    fd_quic_conn_id_t *retry_src_conn_id,
-    uint ip_addr,
-    ushort udp_port,
+    fd_quic_conn_id_t * retry_src_conn_id,
+    uint                ip_addr,
+    ushort              udp_port,
     /* plaintext */
-    fd_quic_conn_id_t *orig_dst_conn_id,
-    ulong *now);
+    fd_quic_conn_id_t * orig_dst_conn_id,
+    ulong *             now
+);
 
 int fd_quic_retry_integrity_tag_encrypt(
-    uchar *retry_pseudo_pkt,
-    int retry_pseudo_pkt_len,
-    uchar retry_integrity_tag[static FD_QUIC_CRYPTO_TAG_SZ]);
+    uchar * retry_pseudo_pkt,
+    int     retry_pseudo_pkt_len,
+    uchar   retry_integrity_tag[static FD_QUIC_CRYPTO_TAG_SZ]
+);
 
 int fd_quic_retry_integrity_tag_decrypt(
-    uchar *retry_pseudo_pkt,
-    int retry_pseudo_pkt_len,
-    uchar retry_integrity_tag[static FD_QUIC_CRYPTO_TAG_SZ]);
+    uchar * retry_pseudo_pkt,
+    int     retry_pseudo_pkt_len,
+    uchar   retry_integrity_tag[static FD_QUIC_CRYPTO_TAG_SZ]
+);
 
 int gcm_encrypt(
-    const EVP_CIPHER *cipher,
-    uchar *plaintext, int plaintext_len,
-    uchar *aad, int aad_len,
-    uchar *key,
-    uchar *iv,
-    uchar *ciphertext,
-    uchar *tag);
+   EVP_CIPHER const * cipher,
+    uchar *            plaintext,
+    int                plaintext_len,
+    uchar *            aad,
+    int                aad_len,
+    uchar *            key,
+    uchar *            iv,
+    uchar *            ciphertext,
+    uchar *            tag
+);
 
 int gcm_decrypt(
-    const EVP_CIPHER *cipher,
-    uchar *ciphertext, int ciphertext_len,
-    uchar *aad, int aad_len,
-    uchar *tag,
-    uchar *key,
-    uchar *iv,
-    uchar *plaintext);
+    const EVP_CIPHER * cipher,
+    uchar *            ciphertext,
+    int                ciphertext_len,
+    uchar *            aad,
+    int                aad_len,
+    uchar *            tag,
+    uchar *            key,
+    uchar *            iv,
+    uchar *            plaintext
+);
 
 #endif /* HEADER_fd_src_tango_quic_crypto_fd_quic_crypto_suites_h */

@@ -461,9 +461,11 @@ fd_quic_init( fd_quic_t * quic ) {
   ulong tls_laddr = (ulong)quic + layout.tls_off;
   state->tls = fd_quic_tls_new( (void *)tls_laddr, &tls_cfg );
   if( FD_UNLIKELY( !state->tls ) ) {
+    quic->metrics.hs_err_alloc_fail_cnt++;
     FD_LOG_WARNING(( "fd_quic_tls_new failed" ));
     return NULL;
   }
+  quic->metrics.hs_created_cnt++;
 
   /* Initialize crypto */
 
@@ -659,7 +661,6 @@ fd_quic_tx_enc_level( fd_quic_conn_t * conn ) {
         while( hs_data && hs_data->offset + hs_data->data_sz <= offset ) {
           hs_data = fd_quic_tls_get_next_hs_data( conn->tls_hs, hs_data );
         }
-
         if( hs_data ) {
           enc_level = i;
           return enc_level;
@@ -1084,6 +1085,61 @@ fd_quic_ack_enc_level( fd_quic_conn_t * conn, uint enc_level ) {
   /* TODO */
 }
 
+int fd_quic_gen_initial_secret_and_keys(
+    fd_quic_crypto_suite_t *suite,
+    fd_quic_conn_t *conn,
+    fd_quic_conn_id_t *orig_dst_conn_id)
+{
+  /* Initial Packets
+     from rfc:
+     initial_salt = 0x38762cf7f55934b34d179ae6a4c80cadccbb7f0a */
+  uchar const * initial_salt    = FD_QUIC_CRYPTO_V1_INITIAL_SALT;
+  ulong         initial_salt_sz = FD_QUIC_CRYPTO_V1_INITIAL_SALT_SZ;
+
+  if (FD_UNLIKELY(fd_quic_gen_initial_secret(
+                      &conn->secrets,
+                      initial_salt, initial_salt_sz,
+                      orig_dst_conn_id->conn_id, orig_dst_conn_id->sz) != FD_QUIC_SUCCESS))
+  {
+    DEBUG( FD_LOG_DEBUG(( "fd_quic_gen_initial_secret failed" )); )
+    return FD_QUIC_FAILED;
+    // goto fail_tls_hs;
+  }
+
+  if( fd_quic_gen_secrets( &conn->secrets,
+                           fd_quic_enc_level_initial_id, /* generate initial secrets */
+                           suite->hmac_fn, suite->hash_sz ) != FD_QUIC_SUCCESS ) {
+    DEBUG( FD_LOG_DEBUG(( "fd_quic_gen_secrets failed" )); )
+    return FD_QUIC_FAILED;
+    // goto fail_tls_hs;
+  }
+
+  /* gen initial keys */
+  if( FD_UNLIKELY( fd_quic_gen_keys(
+      &conn->keys[ fd_quic_enc_level_initial_id ][ 0 ],
+      suite,
+      conn->secrets.secret   [ fd_quic_enc_level_initial_id ][ 0 ],
+      conn->secrets.secret_sz[ fd_quic_enc_level_initial_id ][ 0 ] )
+      != FD_QUIC_SUCCESS ) ) {
+    DEBUG( FD_LOG_DEBUG(( "fd_quic_gen_keys failed" )); )
+    return FD_QUIC_FAILED;
+    // goto fail_tls_hs;
+  }
+
+  /* gen initial keys */
+  if( FD_UNLIKELY( fd_quic_gen_keys(
+      &conn->keys[ fd_quic_enc_level_initial_id ][ 1 ],
+      suite,
+      conn->secrets.secret   [ fd_quic_enc_level_initial_id ][ 1 ],
+      conn->secrets.secret_sz[ fd_quic_enc_level_initial_id ][ 1 ] )
+      != FD_QUIC_SUCCESS ) ) {
+    DEBUG( FD_LOG_DEBUG(( "fd_quic_gen_keys failed" )); )
+    // goto fail_tls_hs;
+    return FD_QUIC_FAILED;
+  }
+  return FD_QUIC_SUCCESS;
+}
+
 /* fd_quic_handle_v1_initial handles an "Initial"-type packet.
    Valid for both server and client.  Initial packets are used to
    establish QUIC conns and wrap the TLS handshake flow among other
@@ -1096,7 +1152,6 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
                            fd_quic_conn_id_t const * conn_id,
                            uchar const *             cur_ptr,
                            ulong                     cur_sz ) {
-
   fd_quic_conn_t * conn = *p_conn;
 
   fd_quic_state_t * state = fd_quic_get_state( quic );
@@ -1115,11 +1170,11 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
      choose their own "conn ID" (more like a peer ID) and indirectly
      instruct the other peer to be addressed as such via the dest conn
      ID field.  However, when the client sends the first packet, it
-     doesn't know the preferred dest conn ID to pick for the server.
+     doesn't know the preferred dest conn ID to pick for the server
      Thus, the client picks a random dest conn ID -- which is referred
      to as "original dest conn ID". */
 
-  fd_quic_conn_id_t orig_conn_id = *conn_id;
+  fd_quic_conn_id_t orig_dst_conn_id = *conn_id;
 
   /* Parse initial packet */
 
@@ -1196,6 +1251,176 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
         return FD_QUIC_PARSE_FAIL;
       }
 
+      /* Prepare QUIC-TLS transport params object (sent as a TLS extension).
+         Take template from state and mutate certain params in-place.
+
+         See RFC 9000 Section 18 */
+
+      /* TODO Each transport param is a TLV tuple. This allows serializing
+         most transport params ahead of time.  Only the conn-specific
+         differences will have to be appended here. */
+
+      fd_quic_transport_params_t * tp = &state->transport_params;
+
+      /* Send orig conn ID back to client (server only) */
+
+      tp->original_destination_connection_id_present = 1;
+      tp->original_destination_connection_id_len     = orig_dst_conn_id.sz;
+      fd_memcpy( state->transport_params.original_destination_connection_id,
+          orig_dst_conn_id.conn_id,
+          orig_dst_conn_id.sz );
+
+      /* Repeat the conn ID we picked in transport params (this is done
+         to authenticate conn IDs via TLS by including them in TLS-
+         protected data).
+
+         Per spec, this field should be the source conn ID field we've set
+         on the first Initial packet we've sent.  At this point, we might
+         not have sent an Initial packet yet -- so this field should hold
+         a value we are about to pick.
+
+         fd_quic_conn_create will set conn->initial_source_conn_id to
+         the random new_conn_id we've created earlier. */
+
+      tp->initial_source_connection_id_present = 1;
+      tp->initial_source_connection_id_len     = new_conn_id.sz;
+      fd_memcpy( tp->initial_source_connection_id,
+          new_conn_id.conn_id,
+          new_conn_id.sz );
+
+      /* Handle retry if configured. */
+      if (quic->config.retry)
+      {
+        /* This is the initial packet before retry. */
+        if (initial->token_len == 0)
+        {
+          /* Set the retry_source_connection_id tp. The server response to the post-retry initial
+             will be another SCID. */
+          tp->retry_source_connection_id_present = 1;
+          tp->retry_source_connection_id_len = new_conn_id.sz;
+          fd_memcpy(tp->retry_source_connection_id,
+                 new_conn_id.conn_id,
+                 new_conn_id.sz);
+
+          fd_quic_retry_t retry_pkt = {
+            .hdr_form = 1,
+            .fixed_bit = 1,
+            // .long_packet_type (initialized below)
+            .unused = 0xf,
+            .version = 1,
+            .dst_conn_id_len = pkt->long_hdr->src_conn_id_len,
+            // .dst_conn_id (initialized below)
+            .src_conn_id_len = new_conn_id.sz,
+            // .src_conn_id (initialized below)
+            // .retry_token (initialized below)
+            // .retry_integrity_tag (initialized below)
+          };
+
+          fd_memcpy(
+              retry_pkt.dst_conn_id, pkt->long_hdr->src_conn_id, pkt->long_hdr->src_conn_id_len
+          );
+          fd_memcpy( retry_pkt.src_conn_id, &new_conn_id.conn_id, retry_pkt.src_conn_id_len );
+
+          /* Retry token */
+          ulong now = fd_quic_now(quic);
+          int   rc  = fd_quic_retry_token_encrypt(
+              &orig_dst_conn_id,
+              now,
+              &new_conn_id,
+              pkt->ip4->saddr,
+              pkt->udp->net_sport,
+              retry_pkt.retry_token
+          );
+          if( FD_UNLIKELY( rc == FD_QUIC_FAILED ) ) return FD_QUIC_PARSE_FAIL;
+
+          /* Retry integrity tag */
+          fd_quic_retry_pseudo_t retry_pseudo_pkt = {
+              .odcid_len = orig_dst_conn_id.sz,
+              // .odcid
+              .hdr_form = retry_pkt.hdr_form,
+              .fixed_bit = retry_pkt.fixed_bit,
+              .long_packet_type = retry_pkt.long_packet_type,
+              .unused = retry_pkt.unused,
+              .version = retry_pkt.version,
+              .dst_conn_id_len = retry_pkt.dst_conn_id_len,
+              // .dst_conn_id
+              .src_conn_id_len = retry_pkt.src_conn_id_len,
+              // .src_conn_id
+              // .retry_token
+          };
+          // TODO can make this more efficient by directly manipulating the retry_pkt pkt
+          // bytes directly: prepending the ODCID and removing the retry_pkt integrity tag
+
+          // TODO zero-copy?
+          memcpy(&retry_pseudo_pkt.odcid, &orig_dst_conn_id.conn_id, orig_dst_conn_id.sz);
+          memcpy(&retry_pseudo_pkt.dst_conn_id, &retry_pkt.dst_conn_id, retry_pkt.dst_conn_id_len);
+          memcpy(&retry_pseudo_pkt.src_conn_id, &retry_pkt.src_conn_id, retry_pkt.src_conn_id_len);
+          memcpy(&retry_pseudo_pkt.retry_token, &retry_pkt.retry_token, FD_QUIC_RETRY_TOKEN_SZ);
+
+          ulong retry_pseudo_footprint = fd_quic_encode_footprint_retry_pseudo(&retry_pseudo_pkt);
+          uchar retry_pseudo_buf[retry_pseudo_footprint];
+          fd_quic_encode_retry_pseudo(retry_pseudo_buf, retry_pseudo_footprint, &retry_pseudo_pkt);
+          fd_quic_retry_integrity_tag_encrypt(retry_pseudo_buf, (int) retry_pseudo_footprint, retry_pkt.retry_integrity_tag);
+
+          ulong tx_buf_sz = fd_quic_encode_footprint_retry(&retry_pkt);
+          uchar tx_buf[tx_buf_sz];
+          fd_quic_encode_retry(tx_buf, tx_buf_sz, &retry_pkt);
+          uchar *tx_ptr = tx_buf + tx_buf_sz;
+          ulong tx_sz = 0;  // no space remaining after encoding
+          uchar encode_buf[2048];  // space for lower-layer headers, same size as crypt_scratch
+          if (FD_UNLIKELY( fd_quic_tx_buffered_raw(
+            quic,
+            // these are state variable's normally updated on a conn, but irrelevant in retry so we
+            // just size it exactly as the encoded retry packet
+            &tx_ptr, 
+            tx_buf,
+            tx_buf_sz,
+            &tx_sz,
+            // encode buffer
+            encode_buf,
+            2048,
+            pkt->eth->dst,
+            &pkt->ip4->net_id,
+            dst_ip_addr,
+            quic->config.net.listen_udp_port,
+            dst_udp_port,
+            1
+          ) == FD_QUIC_FAILED)) {
+            FD_LOG_WARNING(("Failed to tx retry pkt"));
+            return FD_QUIC_FAILED;
+          };
+          quic->metrics.retry_pkt_cnt++;
+          return (initial->pkt_num_pnoff + initial->len);
+        }
+
+        /* Otherwise this is the initial packet _after_ retry, i.e. the client's response to retry
+           (which is also an initial packet). */
+        if ( FD_UNLIKELY( initial->token_len != FD_QUIC_RETRY_TOKEN_SZ ) ) {
+          fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_INVALID_TOKEN );
+          return FD_QUIC_PARSE_FAIL;
+        }
+
+        /* Validate the relevant fields of this post-retry INITIAL packet,
+           i.e. retry src conn id, ip, port */
+        fd_quic_conn_id_t retry_src_conn_id;
+        retry_src_conn_id.sz = initial->dst_conn_id_len;
+        fd_memcpy(&retry_src_conn_id.conn_id, initial->dst_conn_id, initial->dst_conn_id_len);
+
+        fd_quic_conn_id_t retry_odcid;
+        ulong issued;
+        if (FD_UNLIKELY(fd_quic_retry_token_decrypt((uchar *) initial->token, &retry_src_conn_id, dst_ip_addr, dst_udp_port, &retry_odcid, &issued))) {
+          return FD_QUIC_PARSE_FAIL;
+        };
+        tp->original_destination_connection_id_len     = retry_odcid.sz;
+        fd_memcpy( state->transport_params.original_destination_connection_id,
+          retry_odcid.conn_id,
+          retry_odcid.sz );
+        ulong now = fd_quic_now(quic);
+        if ( FD_UNLIKELY( now < issued || ( now - issued ) > FD_QUIC_RETRY_TOKEN_LIFETIME ) ) {
+          return FD_QUIC_PARSE_FAIL;
+        }
+      }
+
       /* Allocate new conn */
 
       conn = fd_quic_conn_create( quic,
@@ -1219,43 +1444,6 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
 
       /* if we fail after here, we must reap the connection
          TODO maybe actually set the connection to reset, and clean up resources later */
-
-      /* Prepare QUIC-TLS transport params object (sent as a TLS extension).
-         Take template from state and mutate certain params in-place.
-
-         See RFC 9000 Section 18 */
-
-      /* TODO Each transport param is a TLV tuple. This allows serializing
-         most transport params ahead of time.  Only the conn-specific
-         differences will have to be appended here. */
-
-      fd_quic_transport_params_t * tp = &state->transport_params;
-
-      /* Send orig conn ID back to client (server only) */
-
-      tp->original_destination_connection_id_present = 1;
-      fd_memcpy( state->transport_params.original_destination_connection_id,
-          orig_conn_id.conn_id,
-          orig_conn_id.sz );
-      tp->original_destination_connection_id_len     = orig_conn_id.sz;
-
-      /* Repeat the conn ID we picked in transport params (this is done
-         to authenticate conn IDs via TLS by including them in TLS-
-         protected data).
-
-         Per spec, this field should be the source conn ID field we've set
-         on the first Initial packet we've sent.  At this point, we might
-         not have sent an Initial packet yet -- so this field should hold
-         a value we are about to pick.
-
-         fd_quic_conn_create will set conn->initial_source_conn_id to
-         the random new_conn_id we've created earlier. */
-
-      fd_memcpy( tp->initial_source_connection_id,
-          conn->initial_source_conn_id.conn_id,
-          conn->initial_source_conn_id.sz );
-      tp->initial_source_connection_id_present = 1;
-      tp->initial_source_connection_id_len     = conn->initial_source_conn_id.sz;
 
       /* Encode transport params to be sent to peer */
 
@@ -1287,51 +1475,8 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
       }
       conn->tls_hs = tls_hs;
 
-      /* generate initial secrets, keys etc */
-
-      /* TODO move this to somewhere more appropriate */
-      /* Initial Packets
-         from rfc:
-         initial_salt = 0x38762cf7f55934b34d179ae6a4c80cadccbb7f0a */
-      uchar const * initial_salt    = FD_QUIC_CRYPTO_V1_INITIAL_SALT;
-      ulong         initial_salt_sz = FD_QUIC_CRYPTO_V1_INITIAL_SALT_SZ;
-
-      if( FD_UNLIKELY( FD_QUIC_SUCCESS!=fd_quic_gen_initial_secret(
-              &conn->secrets,
-              initial_salt,         initial_salt_sz,
-              orig_conn_id.conn_id, conn_id->sz ) ) ) {
-        DEBUG( FD_LOG_DEBUG(( "fd_quic_gen_initial_secret failed" )); )
-        conn->state = FD_QUIC_CONN_STATE_DEAD;
-        return FD_QUIC_PARSE_FAIL;
-      }
-
-      if( FD_UNLIKELY( FD_QUIC_SUCCESS!=fd_quic_gen_secrets(
-              &conn->secrets,
-              (int)enc_level, /* generate initial secrets */
-              suite->hmac_fn, suite->hash_sz ) ) ) {
-        DEBUG( FD_LOG_DEBUG(( "fd_quic_gen_secrets failed" )); )
-        conn->state = FD_QUIC_CONN_STATE_DEAD;
-        return FD_QUIC_PARSE_FAIL;
-      }
-
-      /* gen initial keys */
-      if( FD_UNLIKELY( FD_QUIC_SUCCESS!=fd_quic_gen_keys(
-              &conn->keys[enc_level][0],
-              suite,
-              conn->secrets.secret   [ enc_level ][0],
-              conn->secrets.secret_sz[ enc_level ][0] ) ) ) {
-        DEBUG( FD_LOG_DEBUG(( "fd_quic_gen_keys failed" )); )
-        conn->state = FD_QUIC_CONN_STATE_DEAD;
-        return FD_QUIC_PARSE_FAIL;
-      }
-
-      if( FD_UNLIKELY( FD_QUIC_SUCCESS!=fd_quic_gen_keys(
-              &conn->keys[enc_level][1],
-              suite,
-              conn->secrets.secret   [ enc_level ][1],
-              conn->secrets.secret_sz[ enc_level ][1] ) ) ) {
-        DEBUG( FD_LOG_DEBUG(( "fd_quic_gen_keys failed" )); )
-        conn->state = FD_QUIC_CONN_STATE_DEAD;
+      if (FD_UNLIKELY(fd_quic_gen_initial_secret_and_keys(suite, conn, &orig_dst_conn_id)) == FD_QUIC_FAILED) {
+        conn->state = FD_QUIC_CONN_STATE_DEAD;   
         return FD_QUIC_PARSE_FAIL;
       }
     } else {
@@ -1676,15 +1821,87 @@ fd_quic_handle_v1_handshake(
   return tot_sz;
 }
 
-ulong
-fd_quic_handle_v1_retry( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_pkt_t const * pkt, uchar const * cur_ptr, ulong cur_sz ) {
+ulong fd_quic_handle_v1_retry(
+    fd_quic_t *           quic,
+    fd_quic_conn_t *      conn,
+    fd_quic_pkt_t const * pkt,
+    uchar const *         cur_ptr,
+    ulong                 cur_sz
+) {
   (void)pkt;
-  (void)quic;
-  (void)conn;
-  (void)cur_ptr;
-  (void)cur_sz;
-  DEBUG( FD_LOG_DEBUG(( "stub" )); )
-  return 0;
+  fd_quic_retry_t retry_pkt;
+  fd_quic_decode_retry(&retry_pkt, cur_ptr, cur_sz);
+
+  fd_quic_conn_id_t * orig_dst_conn_id = &conn->peer->conn_id;
+
+  /* Validate the Retry Integrity Tag. TODO can we make this more efficient? */
+  fd_quic_retry_pseudo_t retry_pseudo_pkt = {
+      .odcid_len        = orig_dst_conn_id->sz,
+      // .odcid
+      .hdr_form         = retry_pkt.hdr_form,
+      .fixed_bit        = retry_pkt.fixed_bit,
+      .long_packet_type = retry_pkt.long_packet_type,
+      .unused           = retry_pkt.unused,
+      .version          = retry_pkt.version,
+      .dst_conn_id_len  = retry_pkt.dst_conn_id_len,
+      // .dst_conn_id
+      .src_conn_id_len  = retry_pkt.src_conn_id_len,
+      // .src_conn_id
+      // .retry_token
+  };
+
+  /* Retry-pseudo packet is the retry packet with ODCID prepended and integrity
+     tag removed*/
+  fd_memcpy( retry_pseudo_pkt.odcid, orig_dst_conn_id->conn_id, orig_dst_conn_id->sz );
+  fd_memcpy( retry_pseudo_pkt.dst_conn_id, retry_pkt.dst_conn_id, retry_pkt.dst_conn_id_len );
+  fd_memcpy( retry_pseudo_pkt.src_conn_id, retry_pkt.src_conn_id, retry_pkt.src_conn_id_len );
+  memcpy( retry_pseudo_pkt.retry_token, retry_pkt.retry_token, FD_QUIC_RETRY_TOKEN_SZ );
+
+  ulong retry_pseudo_footprint = fd_quic_encode_footprint_retry_pseudo( &retry_pseudo_pkt );
+  uchar retry_pseudo_buf[retry_pseudo_footprint];
+  fd_quic_encode_retry_pseudo( retry_pseudo_buf, retry_pseudo_footprint, &retry_pseudo_pkt );
+
+  /* Validate the retry integrity tag
+    
+     Retry packets (see Section 17.2.5 of [QUIC-TRANSPORT]) carry a Retry Integrity Tag that
+     provides two properties: it allows the discarding of packets that have accidentally been
+     corrupted by the network, and only an entity that observes an Initial packet can send a valid
+     Retry packet.*/
+  int rc = fd_quic_retry_integrity_tag_decrypt(
+      retry_pseudo_buf, (int)retry_pseudo_footprint, retry_pkt.retry_integrity_tag
+  );
+
+  /* Clients MUST discard Retry packets that have a Retry Integrity Tag that
+     cannot be validated */
+
+  if ( FD_UNLIKELY( rc == FD_QUIC_FAILED ) ) {
+    return cur_sz;  // FIXME hack to drop packet
+  }
+
+  /* Update the peer using the retry src conn id */
+  fd_quic_endpoint_t * peer         = &conn->peer[conn->cur_peer_idx];
+  peer->conn_id.sz = retry_pkt.src_conn_id_len;
+  fd_memcpy( peer->conn_id.conn_id, retry_pkt.src_conn_id, retry_pkt.src_conn_id_len );
+
+  /* Re-send the ClientHello */
+  conn->hs_sent_bytes[fd_quic_enc_level_initial_id] = 0;
+  fd_quic_state_t *state = fd_quic_get_state(quic);
+
+  /* Need to regenerate keys using the retry source connection id */
+  fd_quic_crypto_suite_t *suite = &state->crypto_ctx->suites[TLS_AES_128_GCM_SHA256_ID];
+  fd_quic_conn_id_t retry_src_conn_id; 
+  retry_src_conn_id.sz = retry_pkt.src_conn_id_len;
+  fd_memcpy(&retry_src_conn_id.conn_id, &retry_pkt.src_conn_id, retry_pkt.src_conn_id_len);
+  if (FD_UNLIKELY(fd_quic_gen_initial_secret_and_keys(suite, conn, &retry_src_conn_id)) == FD_QUIC_FAILED)
+  {
+    conn->state = FD_QUIC_CONN_STATE_DEAD;
+    return FD_QUIC_PARSE_FAIL;
+  }
+  /* The token length is the remaining bytes in the retry packet after subtracting known fields. */
+  conn->token_len = cur_sz - FD_QUIC_EMPTY_RETRY_PKT_SZ - retry_pkt.src_conn_id_len - retry_pkt.dst_conn_id_len;
+  fd_memcpy(&conn->token, retry_pkt.retry_token, conn->token_len);
+
+  return cur_sz;
 }
 
 ulong
@@ -2205,6 +2422,7 @@ fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
                                 uchar const *   cur_ptr,
                                 ulong           cur_sz ) {
 
+    
   fd_quic_state_t *      state = fd_quic_get_state( quic );
   fd_quic_conn_entry_t * entry = NULL;
   fd_quic_conn_t *       conn  = NULL;
@@ -2801,7 +3019,6 @@ fd_quic_frame_handle_crypto_frame( void *                   vp_context,
 
 void
 fd_quic_service( fd_quic_t * quic ) {
-
   fd_quic_state_t * state = fd_quic_get_state( quic );
 
   ulong now = fd_quic_now( quic );
@@ -2861,22 +3078,33 @@ fd_quic_service( fd_quic_t * quic ) {
   }
 }
 
-
 /* attempt to transmit buffered data
 
-   prior to call, conn->tx_ptr points to the first free byte in conn->tx_buf
+   prior to call, conn->tx_ptr points to the first free byte in tx_buf
    the data in tx_buf..tx_ptr is prepended by networking headers
    and put on the wire
 
    returns 0 if successful, or 1 otherwise */
 uint
-fd_quic_tx_buffered( fd_quic_t *      quic,
-                     fd_quic_conn_t * conn,
-                     int              flush ) {
-
+fd_quic_tx_buffered_raw(
+    fd_quic_t * quic,
+    uchar **    tx_ptr_ptr,
+    uchar *     tx_buf,
+    ulong       tx_buf_sz,
+    ulong *     tx_sz,
+    uchar *     crypt_scratch,
+    ulong       crypt_scratch_sz,
+    uchar *     dst_mac_addr,
+    ushort *    ipv4_id,
+    uint        dst_ipv4_addr,
+    ushort      src_udp_port,
+    ushort      dst_udp_port,
+    int         flush
+) {
   /* TODO leave space at front of tx_buf for header
           then encode directly into it to avoid 1 copy */
-  long payload_sz = conn->tx_ptr - conn->tx_buf;
+  uchar *tx_ptr = *tx_ptr_ptr;
+  long payload_sz = tx_ptr - tx_buf;
 
   /* nothing to do */
   if( FD_UNLIKELY( payload_sz<=0L ) ) {
@@ -2891,16 +3119,13 @@ fd_quic_tx_buffered( fd_quic_t *      quic,
 
   fd_quic_config_t * config = &quic->config;
 
-  ulong                peer_idx = conn->cur_peer_idx;
-  fd_quic_endpoint_t * peer     = &conn->peer[ peer_idx ];
-
-  uchar * cur_ptr = conn->crypt_scratch;
-  ulong  cur_sz   = sizeof( conn->crypt_scratch );
+  uchar * cur_ptr = crypt_scratch;
+  ulong  cur_sz  = crypt_scratch_sz;
 
   /* TODO much of this may be prepared ahead of time */
   fd_quic_pkt_t pkt;
 
-  memcpy( pkt.eth->dst, peer->mac_addr,                 6 );
+  memcpy( pkt.eth->dst, dst_mac_addr,                   6 );
   memcpy( pkt.eth->src, quic->config.link.src_mac_addr, 6 );
   pkt.eth->net_type = FD_ETH_HDR_TYPE_IP;
 
@@ -2908,7 +3133,7 @@ fd_quic_tx_buffered( fd_quic_t *      quic,
   pkt.ip4->ihl          = 5;
   pkt.ip4->tos          = (uchar)(config->net.dscp << 2); /* could make this per-connection or per-stream */
   pkt.ip4->net_tot_len  = (ushort)( 20 + 8 + payload_sz );
-  pkt.ip4->net_id       = conn->ipv4_id++;
+  pkt.ip4->net_id       = *ipv4_id++;
   pkt.ip4->net_frag_off = 0x4000u; /* don't fragment */
   pkt.ip4->ttl          = 64; /* TODO make configurable */
   pkt.ip4->protocol     = FD_IP4_HDR_PROTOCOL_UDP;
@@ -2916,10 +3141,10 @@ fd_quic_tx_buffered( fd_quic_t *      quic,
   /* TODO saddr could be zero -- should use the kernel routing table to
      determine an appropriate source address */
   pkt.ip4->saddr    = config->net.ip_addr;
-  pkt.ip4->daddr    = peer  ->net.ip_addr;
+  pkt.ip4->daddr    = dst_ipv4_addr;
 
-  pkt.udp->net_sport = conn->host.udp_port;
-  pkt.udp->net_dport = peer->net .udp_port;
+  pkt.udp->net_sport = src_udp_port;
+  pkt.udp->net_dport = dst_udp_port;
   pkt.udp->net_len   = (ushort)( 8 + payload_sz );
   pkt.udp->check     = 0x0000;
 
@@ -2956,16 +3181,16 @@ fd_quic_tx_buffered( fd_quic_t *      quic,
     FD_LOG_WARNING(( "%s : payload too big for buffer", __func__ ));
 
     /* reset buffer, since we can't use its contents */
-    conn->tx_ptr = conn->tx_buf;
-    conn->tx_sz  = sizeof( conn->tx_buf );
+    *tx_ptr_ptr = tx_buf;
+    *tx_sz  = tx_buf_sz;
     return FD_QUIC_FAILED;
   }
-  fd_memcpy( cur_ptr, conn->tx_buf, (ulong)payload_sz );
+  fd_memcpy( cur_ptr, tx_buf, (ulong)payload_sz );
 
   cur_ptr += (ulong)payload_sz;
   cur_sz  -= (ulong)payload_sz;
 
-  fd_aio_pkt_info_t aio_buf = { .buf = conn->crypt_scratch, .buf_sz = (ushort)( cur_ptr - conn->crypt_scratch ) };
+  fd_aio_pkt_info_t aio_buf = { .buf = crypt_scratch, .buf_sz = (ushort)( cur_ptr - crypt_scratch ) };
   int aio_rc = fd_aio_send( &quic->aio_tx, &aio_buf, 1, NULL, flush );
   if( aio_rc == FD_AIO_ERR_AGAIN ) {
     /* transient condition - try later */
@@ -2976,12 +3201,34 @@ fd_quic_tx_buffered( fd_quic_t *      quic,
   }
 
   /* after send, reset tx_ptr and tx_sz */
-  conn->tx_ptr = conn->tx_buf;
-  conn->tx_sz  = sizeof( conn->tx_buf );
+  *tx_ptr_ptr = tx_buf;
+  *tx_sz  = tx_buf_sz;
+
 
   quic->metrics.net_tx_pkt_cnt += aio_rc==FD_AIO_SUCCESS;
 
   return FD_QUIC_SUCCESS; /* success */
+}
+
+uint fd_quic_tx_buffered(fd_quic_t *quic,
+                         fd_quic_conn_t *conn,
+                         int flush)
+{
+  fd_quic_endpoint_t *peer = &conn->peer[conn->cur_peer_idx];
+  return fd_quic_tx_buffered_raw(
+      quic,
+      &conn->tx_ptr,
+      conn->tx_buf,
+      sizeof(conn->tx_buf),
+      &conn->tx_sz,
+      conn->crypt_scratch,
+      sizeof(conn->crypt_scratch),
+      peer->mac_addr,
+      &conn->ipv4_id,
+      peer->net.ip_addr,
+      conn->host.udp_port,
+      peer->net.udp_port,
+      flush);
 }
 
 
@@ -2990,6 +3237,7 @@ struct fd_quic_pkt_hdr {
     fd_quic_initial_t   initial;
     fd_quic_handshake_t handshake;
     fd_quic_one_rtt_t   one_rtt;
+    fd_quic_retry_t     retry;
     /* don't currently support early data */
   } quic_pkt;
   uint enc_level; /* implies the type of quic_pkt */
@@ -3022,23 +3270,29 @@ fd_quic_pkt_hdr_populate( fd_quic_pkt_hdr_t * pkt_hdr,
       pkt_hdr->quic_pkt.initial.pkt_number_len   = 3;      /* indicates 4-byte packet number TODO vary? */
       pkt_hdr->quic_pkt.initial.pkt_num_bits     = 4 * 8;  /* actual number of bits to encode */
       pkt_hdr->quic_pkt.initial.version          = conn->version;
+      pkt_hdr->quic_pkt.initial.dst_conn_id_len  = peer_conn_id->sz;
+      // .dst_conn_id
+      pkt_hdr->quic_pkt.initial.src_conn_id_len  = conn_id->sz;
+      // .src_conn_id
+      // .token
+      pkt_hdr->quic_pkt.initial.len              = 0;  /* length of payload initially 0 */
+      pkt_hdr->quic_pkt.initial.pkt_num          = pkt_number;
 
-      /* destination */
       fd_memcpy( pkt_hdr->quic_pkt.initial.dst_conn_id,
               peer_conn_id->conn_id,
               peer_conn_id->sz );
-      pkt_hdr->quic_pkt.initial.dst_conn_id_len = peer_conn_id->sz;
-
-      /* source */
       fd_memcpy( pkt_hdr->quic_pkt.initial.src_conn_id,
               conn_id->conn_id,
               conn_id->sz );
-      pkt_hdr->quic_pkt.initial.src_conn_id_len = conn_id->sz;
 
-      pkt_hdr->quic_pkt.initial.token_len       = 0; /* not supported */
+      /* Initial packets sent by the server MUST set the Token Length field to 0. */
+      if ( conn->quic->config.role == FD_QUIC_ROLE_CLIENT && conn->token_len ) {
+        pkt_hdr->quic_pkt.initial.token_len       = conn->token_len;
+        fd_memcpy( &pkt_hdr->quic_pkt.initial.token, &conn->token, conn->token_len );
+      } else {
+        pkt_hdr->quic_pkt.initial.token_len       = 0;
+      }
 
-      pkt_hdr->quic_pkt.initial.len             = 0; /* length of payload initially 0 */
-      pkt_hdr->quic_pkt.initial.pkt_num         = pkt_number;
       return;
 
     case fd_quic_enc_level_handshake_id:
@@ -3096,7 +3350,6 @@ fd_quic_pkt_hdr_populate( fd_quic_pkt_hdr_t * pkt_hdr,
   }
 }
 
-
 /* set the payload size within the packet header */
 void
 fd_quic_pkt_hdr_set_payload_sz( fd_quic_pkt_hdr_t * pkt_hdr, uint enc_level, uint payload_sz ) {
@@ -3139,7 +3392,7 @@ fd_quic_pkt_hdr_footprint( fd_quic_pkt_hdr_t * pkt_hdr, uint enc_level ) {
 ulong
 fd_quic_pkt_hdr_encode( uchar * cur_ptr, ulong cur_sz, fd_quic_pkt_hdr_t * pkt_hdr, uint enc_level ) {
   switch( enc_level ) {
-    case fd_quic_enc_level_initial_id:
+    case fd_quic_enc_level_initial_id:;
       return fd_quic_encode_initial( cur_ptr, cur_sz, &pkt_hdr->quic_pkt.initial );
     case fd_quic_enc_level_handshake_id:
       return fd_quic_encode_handshake( cur_ptr, cur_sz, &pkt_hdr->quic_pkt.handshake );
@@ -3913,11 +4166,10 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
        payload */
     ulong act_hdr_sz = fd_quic_pkt_hdr_footprint( &pkt_hdr, enc_level );
 
-    cur_ptr += initial_hdr_sz + 3u - act_hdr_sz;
-
     /* encode packet header into buffer
        allow `initial_hdr_sz + 3` space for the header... as the payload bytes
        start there */
+    cur_ptr += initial_hdr_sz + 3u - act_hdr_sz;
     ulong rc = fd_quic_pkt_hdr_encode( cur_ptr, act_hdr_sz, &pkt_hdr, enc_level );
 
     if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) {
@@ -4325,6 +4577,10 @@ fd_quic_connect( fd_quic_t *  quic,
   tp->original_destination_connection_id_present = 0;
   tp->original_destination_connection_id_len     = 0;
 
+  /* Similarly, explicitly zero out retry fields. */
+  tp->retry_source_connection_id_present     = 0;
+  tp->retry_source_connection_id_len     = 0;
+
   /* Repeat source conn ID -- rationale see fd_quic_handle_v1_initial */
 
   memcpy( tp->initial_source_connection_id,
@@ -4386,55 +4642,11 @@ fd_quic_connect( fd_quic_t *  quic,
 
   conn->tls_hs = tls_hs;
 
-  /* generate initial secrets, keys etc */
-
-  /* rfc specifies TLS_AES_128_GCM_SHA256_ID for the suite for initial
-     secrets and keys */
-  fd_quic_crypto_suite_t * suite =
-      &state->crypto_ctx->suites[ TLS_AES_128_GCM_SHA256_ID ];
-
-  /* TODO move this to somewhere more appropriate */
-  /* Initial Packets
-     from rfc:
-     initial_salt = 0x38762cf7f55934b34d179ae6a4c80cadccbb7f0a */
-  uchar const * initial_salt    = FD_QUIC_CRYPTO_V1_INITIAL_SALT;
-  ulong         initial_salt_sz = FD_QUIC_CRYPTO_V1_INITIAL_SALT_SZ;
-
-  if( FD_UNLIKELY( fd_quic_gen_initial_secret(
-      &conn->secrets,
-      initial_salt,         initial_salt_sz,
-      peer_conn_id.conn_id, peer_conn_id.sz )
-      != FD_QUIC_SUCCESS ) ) {
-    DEBUG( FD_LOG_DEBUG(( "fd_quic_gen_initial_secret failed" )); )
-    goto fail_tls_hs;
-  }
-
-  if( fd_quic_gen_secrets( &conn->secrets,
-                           fd_quic_enc_level_initial_id, /* generate initial secrets */
-                           suite->hmac_fn, suite->hash_sz ) != FD_QUIC_SUCCESS ) {
-    DEBUG( FD_LOG_DEBUG(( "fd_quic_gen_secrets failed" )); )
-    goto fail_tls_hs;
-  }
-
-  /* gen initial keys */
-  if( FD_UNLIKELY( fd_quic_gen_keys(
-      &conn->keys[ fd_quic_enc_level_initial_id ][ 0 ],
-      suite,
-      conn->secrets.secret   [ fd_quic_enc_level_initial_id ][ 0 ],
-      conn->secrets.secret_sz[ fd_quic_enc_level_initial_id ][ 0 ] )
-      != FD_QUIC_SUCCESS ) ) {
-    DEBUG( FD_LOG_DEBUG(( "fd_quic_gen_keys failed" )); )
-    goto fail_tls_hs;
-  }
-
-  /* gen initial keys */
-  if( FD_UNLIKELY( fd_quic_gen_keys(
-      &conn->keys[ fd_quic_enc_level_initial_id ][ 1 ],
-      suite,
-      conn->secrets.secret   [ fd_quic_enc_level_initial_id ][ 1 ],
-      conn->secrets.secret_sz[ fd_quic_enc_level_initial_id ][ 1 ] )
-      != FD_QUIC_SUCCESS ) ) {
-    DEBUG( FD_LOG_DEBUG(( "fd_quic_gen_keys failed" )); )
+  fd_quic_crypto_suite_t *suite =
+          &state->crypto_ctx->suites[TLS_AES_128_GCM_SHA256_ID];
+  if (FD_UNLIKELY(fd_quic_gen_initial_secret_and_keys(suite, conn, &peer_conn_id)) == FD_QUIC_FAILED)
+  {
+    conn->state = FD_QUIC_CONN_STATE_DEAD;
     goto fail_tls_hs;
   }
 
@@ -4528,6 +4740,7 @@ fd_quic_conn_create( fd_quic_t *               quic,
   conn->our_conn_id_cnt     = 0; /* set later */
   conn->cur_conn_id_idx     = 0;
   conn->cur_peer_idx        = 0;
+  conn->token_len           = 0;
 
   /* start with smallest value we allow, then allow peer to increase */
   conn->tx_max_datagram_sz  = FD_QUIC_INITIAL_PAYLOAD_SZ_MAX;
@@ -6007,4 +6220,3 @@ fd_quic_conn_get_pkt_meta_free_count( fd_quic_conn_t * conn ) {
   }
   return cnt;
 }
-

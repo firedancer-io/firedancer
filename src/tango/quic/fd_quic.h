@@ -113,6 +113,16 @@
 #define FD_QUIC_INITIAL_PAYLOAD_SZ_MIN (1200)
 #define FD_QUIC_INITIAL_PAYLOAD_SZ_MAX (FD_QUIC_INITIAL_PAYLOAD_SZ_MIN)
 
+/* Tokens (both RETRY and NEW_TOKEN) are specified by varints. We bound it to
+   77 bytes. Both our and quinn's RETRY tokens are 77 bytes, but our client
+   needs to be able to handle other server impl's of RETRY too.
+
+   FIXME change this bound (requires variable-length encoding). */
+#define FD_QUIC_TOKEN_SZ_MAX (77)
+/* Retry packets don't carry a token length field, so we infer it from the
+   footprint of a packet with a zero-length token and zero-length conn ids. */
+#define FD_QUIC_EMPTY_RETRY_PKT_SZ (23)
+
 /* FD_QUIC_MAX_PAYLOAD_SZ is the max byte size of the UDP payload of any
    QUIC packets.  Derived from FD_QUIC_MTU by subtracting the typical
    IPv4 header (no options) and UDP header sizes. */
@@ -218,6 +228,9 @@ struct __attribute__((aligned(16UL))) fd_quic_config {
   /* idle_timeout: time in ns before timing out a conn.
      Also sent to peer via max_idle_timeout transport param */
   ulong idle_timeout;
+
+   /* retry: whether address validation using retry packets is enabled (RFC 9000, Section 8.1.2) */
+  int retry;
 
   /* TLS config ********************************************/
 
@@ -389,8 +402,9 @@ struct fd_quic_metrics {
   ulong conn_err_tls_fail_cnt; /* number of conns that aborted due to TLS failure */
 
   /* Handshake metrics */
-  //ulong hs_created_cnt;        /* number of handshake flows created */
-  //ulong hs_err_alloc_fail_cnt; /* number of handshakes dropped due to alloc fail */
+  ulong hs_created_cnt;        /* number of handshake flows created */
+  ulong hs_err_alloc_fail_cnt; /* number of handshakes dropped due to alloc fail */
+  ulong retry_pkt_cnt;         /* number of retry packets sent (server-only) */
 
   /* Stream metrics */
   ulong stream_opened_cnt  [ 4 ]; /* number of streams opened (per type) */
@@ -646,32 +660,21 @@ fd_quic_stream_fin( fd_quic_stream_t * stream );
 //void
 //fd_quic_stream_close( fd_quic_stream_t * stream, int direction_flags );
 
-/* Flow Control API ***************************************************/
-
-/* fd_quic_conn_set_rx_max_data sets the maximum amount of data that can be sent
-   by the peer on a connection. This update will propagate to the peer via a
-   MAX_DATA frame.
-
-   A violation of this flow control param will result in connection termination
-   with FLOW_CONTROL_ERROR, per RFC 9000. */
-FD_QUIC_API void
-fd_quic_conn_set_rx_max_data( fd_quic_conn_t * conn, ulong rx_max_data );
-
-/* fd_quic_stream_set_rx_max_stream_data sets the maximum amount of data that
-   can be sent by the peer on a stream. This update will propagate to the peer
-   via a MAX_STREAM_DATA frame.
-
-   A violation of this flow control param will result in connection termination
-   with FLOW_CONTROL_ERROR, per RFC 9000.
-
-   Note that updating this param will not affect the `max_data` param (above).
-   The effective limit will be the smaller of the two (see the stream loop in
-   `fd_quic.c`). Therefore, a user should consider both params when configuring
-   flow control. */
-FD_QUIC_API void
-fd_quic_stream_set_rx_max_stream_data( fd_quic_stream_t * stream, ulong rx_max_stream_data );
-
 FD_PROTOTYPES_END
+
+uint fd_quic_tx_buffered_raw(fd_quic_t *quic,
+                             uchar **tx_ptr_ptr,
+                             uchar *tx_buf,
+                             ulong tx_buf_sz,
+                             ulong *tx_sz,
+                             uchar *crypt_scratch,
+                             ulong crypt_scratch_sz,
+                             uchar *dst_mac_addr,
+                             ushort *ipv4_id,
+                             uint dst_ipv4_addr,
+                             ushort src_udp_port,
+                             ushort dst_udp_port,
+                             int flush);
 
 /* Convenience exports for consumers of API */
 #include "fd_quic_conn.h"
