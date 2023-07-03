@@ -95,8 +95,8 @@ FD_TEMPL_DEF_STRUCT_BEGIN(initial)
   FD_TEMPL_MBR_ELEM          ( src_conn_id_len,  uchar                   )
   FD_TEMPL_MBR_ELEM_VAR      ( src_conn_id,      0,160,  src_conn_id_len )
 
-  FD_TEMPL_MBR_ELEM          ( token_len,        uchar                   )
-  FD_TEMPL_MBR_ELEM_VAR_RAW  ( token,            0,8192, token_len       )
+  FD_TEMPL_MBR_ELEM_VARINT   ( token_len,        ulong                   )
+  FD_TEMPL_MBR_ELEM_VAR      ( token,            0,616, token_len       )
   FD_TEMPL_MBR_ELEM_VARINT   ( len,              ulong                   )
   FD_TEMPL_MBR_ELEM_PKTNUM   ( pkt_num,          ulong                   )
 
@@ -206,9 +206,9 @@ FD_TEMPL_DEF_STRUCT_BEGIN(retry)
   FD_TEMPL_MBR_ELEM          ( src_conn_id_len,     uchar                  )
   FD_TEMPL_MBR_ELEM_VAR      ( src_conn_id,         0,160, src_conn_id_len )
 
-  // both our and quinn's retry tokens are exactly 77 bytes
+  // TODO variable-length encoding with hidden len
   FD_TEMPL_MBR_ELEM_FIXED    ( retry_token,         uchar, 77              )
-  FD_TEMPL_MBR_ELEM_BITS     ( retry_integrity_tag, uchar, 128             )
+  FD_TEMPL_MBR_ELEM_FIXED    ( retry_integrity_tag, uchar, 16              )
 FD_TEMPL_DEF_STRUCT_END(retry)
 
 
@@ -229,8 +229,8 @@ FD_TEMPL_DEF_STRUCT_END(retry)
    }
    Figure 8: Retry Pseudo-Packet */
 FD_TEMPL_DEF_STRUCT_BEGIN(retry_pseudo)
-  FD_TEMPL_MBR_ELEM          ( odcid_length,        uchar                  )
-  FD_TEMPL_MBR_ELEM_VAR      ( odcid,               0,160, odcid_length    )
+  FD_TEMPL_MBR_ELEM          ( odcid_len,           uchar                  ) 
+  FD_TEMPL_MBR_ELEM_VAR      ( odcid,               0,160, odcid_len       )
 
   FD_TEMPL_MBR_ELEM_BITS     ( hdr_form,            uchar, 1               )
   FD_TEMPL_MBR_ELEM_BITS     ( fixed_bit,           uchar, 1               )
@@ -243,7 +243,7 @@ FD_TEMPL_DEF_STRUCT_BEGIN(retry_pseudo)
   FD_TEMPL_MBR_ELEM          ( src_conn_id_len,     uchar                  )
   FD_TEMPL_MBR_ELEM_VAR      ( src_conn_id,         0,160, src_conn_id_len )
 
-  // both our and quinn's retry tokens are exactly 77 bytes
+  // TODO variable-length encoding with hidden len
   FD_TEMPL_MBR_ELEM_FIXED    ( retry_token,         uchar, 77              )
 FD_TEMPL_DEF_STRUCT_END(retry_pseudo)
 

@@ -276,6 +276,8 @@ struct fd_quic_conn {
 
   /* next connection in the free list, or in service list */
   fd_quic_conn_t *     next;
+  ulong token_len;
+  uchar token[FD_QUIC_TOKEN_SZ_MAX];
 };
 
 FD_PROTOTYPES_BEGIN

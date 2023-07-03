@@ -51,7 +51,7 @@ test_retry_token_encrypt_decrypt( void ) {
     fd_quic_conn_id_t retry_src_conn_id = retry_src_conn_ids[i];
 
     fd_quic_retry_token_encrypt(
-        &orig_dst_conn_id, &now, &retry_src_conn_id, client.ip_addr, client.udp_port, retry_token
+        &orig_dst_conn_id, now, &retry_src_conn_id, client.ip_addr, client.udp_port, retry_token
     );
 
     fd_quic_conn_id_t orig_dst_conn_id_decrypt;
@@ -70,6 +70,7 @@ test_retry_token_encrypt_decrypt( void ) {
     for ( int j = 0; j < orig_dst_conn_id.sz; j++ ) {
       FD_TEST( orig_dst_conn_id.conn_id[j] == orig_dst_conn_id_decrypt.conn_id[j] );
     }
+    FD_TEST( now_decrypt == now);
   }
 }
 
@@ -93,7 +94,7 @@ test_retry_token_encrypt_decrypt( void ) {
 void
 test_retry_integrity_tag( void ) {
   fd_quic_retry_pseudo_t retry_pseudo_pkt = {
-      .odcid_length     = 8,
+      .odcid_len        = 8,
       .odcid            = "\x83\x94\xc8\xf0\x3e\x51\x57\x08",
       .hdr_form         = 1,
       .fixed_bit        = 1,
@@ -110,9 +111,10 @@ test_retry_integrity_tag( void ) {
   uchar buf_[sz];
   fd_quic_encode_retry_pseudo( buf_, sz, &retry_pseudo_pkt );
 
-  // FIXME variable-length encodings without len field
-  // FIXME hack around it by using 77-byte retry tokens -- but this sample use 5-byte
-  sz -= 72;
+  /* This is a hack to get our retry packet to encrypt exactly like the example
+     given in the RFC. In practice, it doesn't matter because the token is
+     opaque. */
+  sz -= (FD_QUIC_TOKEN_SZ_MAX - 5);
   uchar buf[sz];
   memcpy( buf, buf_, sz );
 
@@ -125,8 +127,6 @@ test_retry_integrity_tag( void ) {
   for ( int i = 0; i < 16; i++ ) {
     FD_TEST( retry_integrity_tag_actual[i] == retry_integrity_tag_expected[i] );
   }
-  // FD_LOG_HEXDUMP_NOTICE(("actual", retry_integrity_tag_actual, 16));
-  // FD_LOG_HEXDUMP_NOTICE(("expected", retry_integrity_tag_expected, 16));
 
   // check the retry integrity tag tag authenticates successfully (AEAD)
   int rc = fd_quic_retry_integrity_tag_decrypt( buf, (int)sz, retry_integrity_tag_expected );
@@ -136,13 +136,14 @@ test_retry_integrity_tag( void ) {
 void
 test_retry_token_invalid_length( void ) {
   uchar invalid_length_retry_token[42] = {0};
+  uchar *invalid_length_retry_token_ptr = invalid_length_retry_token;
   fd_quic_conn_id_t retry_src_conn_id = { .sz = 8, .conn_id = "\x42\x41\x40\x3F\x3E\x3D\x3C\x3B" };
   fd_quic_conn_id_t orig_dst_conn_id = { .sz = 20,
        .conn_id =
             "\x83\x94\xc8\xf0\x3e\x51\x57\x08\x83\x94\xc8\xf0\x3e\x51\x57\x08\x00\x00\x00\x00" };
   ulong now;
   int rc = fd_quic_retry_token_decrypt(
-    invalid_length_retry_token,
+    invalid_length_retry_token_ptr,
     &retry_src_conn_id,
     FD_IP4_ADDR(127, 0, 0, 1),
     9000,
