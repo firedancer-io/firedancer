@@ -723,6 +723,7 @@ fd_vm_syscall_sol_get_clock_sysvar(
 
   memcpy( out, &clock, sizeof(fd_sol_sysvar_clock_t ) );
 
+  *pr0 = 0UL;
   return FD_VM_SYSCALL_SUCCESS;
 }
 
@@ -743,6 +744,9 @@ fd_vm_syscall_sol_get_epoch_schedule_sysvar(
   fd_epoch_schedule_t schedule;
   fd_sysvar_epoch_schedule_read( ctx->instr_ctx.global, &schedule );
 
+  (void)out_addr;  /* TODO */
+
+  *pr0 = 0UL;
   return FD_VM_SYSCALL_SUCCESS;
 }
 
@@ -760,6 +764,9 @@ fd_vm_syscall_sol_get_fees_sysvar(
   fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
   FD_TEST( ctx->instr_ctx.instr );  /* TODO */
 
+  (void)out_addr; /* TODO */
+
+  *pr0 = 0UL;
   return FD_VM_SYSCALL_SUCCESS;
 }
 
@@ -777,6 +784,9 @@ fd_vm_syscall_sol_get_rent_sysvar(
   fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
   FD_TEST( ctx->instr_ctx.instr );  /* TODO */
 
+  (void)out_addr; /* TODO */
+
+  *pr0 = 0UL;
   return FD_VM_SYSCALL_SUCCESS;
 }
 
