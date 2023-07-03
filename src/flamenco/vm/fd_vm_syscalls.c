@@ -80,10 +80,10 @@ fd_vm_syscall_sol_panic(
     void *  _ctx,
     ulong   msg_vaddr,
     ulong   msg_len,
-    ulong   r3,
-    ulong   r4,
-    ulong   r5,
-    ulong * r0 ) {
+    FD_FN_UNUSED ulong   r3,
+    FD_FN_UNUSED ulong   r4,
+    FD_FN_UNUSED ulong   r5,
+    FD_FN_UNUSED ulong * r0 ) {
 
   /* Here, Solana Labs charges compute units, does UTF-8 validation,
      and checks for a cstr terminating NUL.  We skip all of this since
