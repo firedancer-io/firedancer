@@ -605,11 +605,6 @@ int main(int argc, char** argv) {
       ingest_rocksdb(global, file, end_slot, verifypoh, tpool, tcnt-1);
     }
 
-    global->signature_cnt = 0;
-    fd_hash_bank( global, &global->bank.banks_hash );
-    fd_dirty_dup_clear(global->acc_mgr->dup);
-    fd_pubkey_hash_vector_clear(&global->acc_mgr->keys);
-
   } else if (strcmp(cmd, "recover") == 0) {
     if (persist != NULL) {
       if (fd_funk_persist_open(funk, persist, 0) != FD_FUNK_SUCCESS)
