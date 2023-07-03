@@ -256,6 +256,9 @@ int fd_executor_run_test(
       }
     }
 
+    if (ret != FD_EXECUTOR_INSTR_SUCCESS) {
+      break;
+    }
     if (NULL == fail_fast)
       FD_LOG_NOTICE(("Passed test %d: %s", test->test_number, test->test_name));
   } while (false);
