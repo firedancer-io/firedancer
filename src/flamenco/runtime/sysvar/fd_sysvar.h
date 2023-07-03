@@ -14,6 +14,12 @@
 #include "fd_sysvar_rent.h"
 #include "fd_sysvar_stake_history.h"
 
-int fd_sysvar_set(fd_global_ctx_t *state, const unsigned char *owner, const fd_pubkey_t *pubkey, unsigned char *data, unsigned long sz, ulong slot);
+int
+fd_sysvar_set( fd_global_ctx_t *   state,
+               uchar const *       owner,
+               fd_pubkey_t const * pubkey,
+               uchar *             data,
+               ulong               sz,
+               ulong               slot );
 
 #endif

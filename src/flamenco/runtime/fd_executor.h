@@ -119,6 +119,8 @@ fd_execute_txn( fd_executor_t* executor, fd_txn_t * txn_descriptor, fd_rawtxn_b_
 #define FD_COMPUTE_BUDGET_PRIORITIZATION_FEE_TYPE_COMPUTE_UNIT_PRICE (0)
 #define FD_COMPUTE_BUDGET_PRIORITIZATION_FEE_TYPE_DEPRECATED         (1)
 
+/* TODO prefix constant types with fd_ */
+
 /* Context needed to execute a single transaction. */
 struct transaction_ctx {
   fd_global_ctx_t * global;
