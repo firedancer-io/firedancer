@@ -6,7 +6,7 @@ build/linux/gcc/x86_64/unit-test/test_runtime --load test_ledger_backup --cmd re
 
 build/linux/gcc/x86_64/bin/fd_shmem_cfg reset
 
-build/linux/gcc/x86_64/bin/fd_wksp_ctl new giant_wksp 200 gigantic 8-63 0666
+build/linux/gcc/x86_64/bin/fd_wksp_ctl new giant_wksp 200 gigantic 32-127 0666
 
 build/linux/gcc/x86_64/bin/fd_frank_ledger --wksp giant_wksp --reset true --cmd ingest --snapshotfile /home/jsiegel/mainnet-ledger/snapshot-179244882-2DyMb1qN8JuTijCjsW8w4G2tg1hWuAw2AopH7Bj9Qstu.tar.zst --incremental /home/jsiegel/mainnet-ledger/incremental-snapshot-179244882-179248368-6TprbHABozQQLjjc1HBeQ2p4AigMC7rhHJS2Q5WLcbyw.tar.zst --rocksdb /home/jsiegel/mainnet-ledger/rocksdb --endslot 179249378 --backup /home/asiegel/mainnet_backup
 
