@@ -78,6 +78,7 @@ struct fd_vm_exec_context {
   fd_sbpf_instr_t const *     instrs;         /* The program instructions */
   ulong                       instrs_sz;      /* The number of program instructions FIXME this should be _cnt, not _sz */
   ulong                       instrs_offset;  /* This is the relocation offset we must apply to indirect calls (callx/CALL_REGs) */
+  uint                        check_align;    /* If non-zero, VM does alignment checks where necessary (syscalls) */
 
   /* Writable VM parameters: */
   ulong                 register_file[11];    /* The sBPF register file */
@@ -124,7 +125,8 @@ FD_FN_PURE ulong fd_vm_context_validate( fd_vm_exec_context_t const * ctx );
    local address space.  ctx is the current execution context.  write is
    1 if requesting a write, 0 if requesting a read.  vm_addr points to
    the region's first byte in VM address space.  sz is the number of
-   bytes in the requested access.  Returns pointer to same memory region
+   bytes in the requested access.  align is the required alignment for the 
+   vm_addr. Returns pointer to same memory region
    in local address space on success.  On failure, returns NULL.
    Reasons for failure include access violation (out-of-bounds access,
    write requested on read-only region). */
@@ -133,7 +135,8 @@ void *
 fd_vm_translate_vm_to_host( fd_vm_exec_context_t *  ctx,
                             uint                    write,
                             ulong                   vm_addr,
-                            ulong                   sz );
+                            ulong                   sz,
+                            ulong                   align );
 
 FD_PROTOTYPES_END
 

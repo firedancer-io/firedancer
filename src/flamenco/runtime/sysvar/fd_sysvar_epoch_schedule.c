@@ -31,7 +31,7 @@ fd_epoch_schedule_derive( fd_epoch_schedule_t * schedule,
     ulong ceil_log2_len_min = (ulong)fd_ulong_find_msb( FD_EPOCH_LEN_MIN );
 
     schedule->first_normal_epoch = fd_ulong_sat_sub( ceil_log2_epoch, ceil_log2_len_min );
-    schedule->first_normal_slot  = (1 << ceil_log2_epoch) - FD_EPOCH_LEN_MIN;
+    schedule->first_normal_slot  = (1UL << ceil_log2_epoch) - FD_EPOCH_LEN_MIN;
   }
 
   return schedule;
