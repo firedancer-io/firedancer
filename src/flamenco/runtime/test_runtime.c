@@ -397,6 +397,12 @@ int main(int argc, char **argv) {
     ctx2.allocf_arg = state.global->allocf_arg;
     if ( fd_firedancer_banks_decode(&state.global->bank, &ctx2 ) )
       FD_LOG_ERR(("failed to read banks record"));
+
+    char banks_hash[50];
+    fd_base58_encode_32((uchar *) state.global->bank.banks_hash.hash, NULL, banks_hash);
+    char poh_hash[50];
+    fd_base58_encode_32((uchar *) state.global->bank.poh.hash, NULL, poh_hash);
+    FD_LOG_WARNING(( "decoded banks_hash %s  poh_hash %s", banks_hash, poh_hash));
   }
 
   ulong tcnt = fd_tile_cnt();

@@ -830,6 +830,12 @@ fd_runtime_save_banks( fd_global_ctx_t * global ) {
     return -1;
   }
 
+  char banks_hash[50];
+  fd_base58_encode_32((uchar *) global->bank.banks_hash.hash, NULL, banks_hash);
+  char poh_hash[50];
+  fd_base58_encode_32((uchar *) global->bank.poh.hash, NULL, poh_hash);
+  FD_LOG_WARNING(( "saved banks_hash %s  poh_hash %s", banks_hash, poh_hash));
+
   fd_funk_rec_key_t id = fd_runtime_banks_key();
   int opt_err;
   fd_funk_rec_t * rec = fd_funk_rec_write_prepare( global->funk, global->funk_txn, &id, sz, 1, NULL, &opt_err );
