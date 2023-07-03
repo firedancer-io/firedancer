@@ -135,6 +135,7 @@ void SnapshotParser_parseSnapshots(struct SnapshotParser* self, const void* data
 
   self->manifest_ = (fd_solana_manifest_t*)
     global->allocf(global->allocf_arg, FD_SOLANA_MANIFEST_ALIGN, FD_SOLANA_MANIFEST_FOOTPRINT);
+  memset(self->manifest_, 0, FD_SOLANA_MANIFEST_FOOTPRINT);
   fd_solana_manifest_new(self->manifest_);
   fd_bincode_decode_ctx_t ctx;
   ctx.data = data;
@@ -603,13 +604,6 @@ int main(int argc, char** argv) {
       const char* verifypoh = fd_env_strip_cmdline_cstr(&argc, &argv, "--verifypoh", NULL, "false");
       ingest_rocksdb(global, file, end_slot, verifypoh, tpool, tcnt-1);
     }
-
-    global->signature_cnt = 0;
-    fd_hash_bank( global, &global->bank.banks_hash );
-    fd_dirty_dup_clear(global->acc_mgr->dup);
-    fd_pubkey_hash_vector_clear(&global->acc_mgr->keys);
-
-    fd_runtime_save_banks(global);
 
   } else if (strcmp(cmd, "recover") == 0) {
     if (persist != NULL) {

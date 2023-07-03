@@ -24,10 +24,16 @@ typedef struct fd_vm_syscall_bytes_slice fd_vm_syscall_bytes_slice_t;
 FD_PROTOTYPES_BEGIN
 
 /* Registers a syscall by name to an execution context. */
-void fd_vm_register_syscall( fd_sbpf_syscalls_t * syscalls, char const * name, fd_sbpf_syscall_fn_ptr_t fn_ptr );
+
+void
+fd_vm_register_syscall( fd_sbpf_syscalls_t *     syscalls,
+                        char const *             name,
+                        fd_sbpf_syscall_fn_ptr_t fn_ptr );
 
 /* Registers all standard syscalls with the VM */
-void fd_vm_syscall_register_all( fd_sbpf_syscalls_t * syscalls );
+
+void
+fd_vm_syscall_register_all( fd_sbpf_syscalls_t * syscalls );
 
 /* Syscall function declarations **************************************/
 

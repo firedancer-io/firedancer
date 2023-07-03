@@ -8,14 +8,15 @@
 #include "../../ballet/murmur3/fd_murmur3.h"
 #include "../../ballet/sbpf/fd_sbpf_maps.c"
 #include "fd_vm_cpi.h"
+#include "../runtime/sysvar/fd_sysvar.h"
 
 #include <stdio.h>
 
 
 void
-fd_vm_register_syscall( fd_sbpf_syscalls_t *    syscalls,
-                        char const *            name,
-                        fd_sbpf_syscall_fn_ptr_t  fn_ptr) {
+fd_vm_register_syscall( fd_sbpf_syscalls_t *     syscalls,
+                        char const *             name,
+                        fd_sbpf_syscall_fn_ptr_t fn_ptr) {
 
   ulong name_len     = strlen(name);
   uint  syscall_hash = fd_murmur3_32( name, name_len, 0U );
@@ -25,7 +26,8 @@ fd_vm_register_syscall( fd_sbpf_syscalls_t *    syscalls,
   syscall_entry->name = name;
 }
 
-void fd_vm_syscall_register_all( fd_sbpf_syscalls_t * syscalls ) {
+void
+fd_vm_syscall_register_all( fd_sbpf_syscalls_t * syscalls ) {
   fd_vm_register_syscall( syscalls, "abort", fd_vm_syscall_abort );
   fd_vm_register_syscall( syscalls, "sol_panic_", fd_vm_syscall_sol_panic );
 
@@ -52,10 +54,10 @@ void fd_vm_syscall_register_all( fd_sbpf_syscalls_t * syscalls ) {
   fd_vm_register_syscall( syscalls, "sol_get_return_data", fd_vm_syscall_sol_get_return_data );
   fd_vm_register_syscall( syscalls, "sol_get_stack_height", fd_vm_syscall_sol_get_stack_height );
 
-  fd_vm_register_syscall( syscalls, "sol_get_clock_sysvar", fd_vm_syscall_sol_get_clock_sysvar );
+  fd_vm_register_syscall( syscalls, "sol_get_clock_sysvar",          fd_vm_syscall_sol_get_clock_sysvar          );
   fd_vm_register_syscall( syscalls, "sol_get_epoch_schedule_sysvar", fd_vm_syscall_sol_get_epoch_schedule_sysvar );
-  fd_vm_register_syscall( syscalls, "sol_get_fees_sysvar", fd_vm_syscall_sol_get_fees_sysvar );
-  fd_vm_register_syscall( syscalls, "sol_get_rent_sysvar", fd_vm_syscall_sol_get_rent_sysvar );
+  fd_vm_register_syscall( syscalls, "sol_get_fees_sysvar",           fd_vm_syscall_sol_get_fees_sysvar           );
+  fd_vm_register_syscall( syscalls, "sol_get_rent_sysvar",           fd_vm_syscall_sol_get_rent_sysvar           );
 
   fd_vm_register_syscall( syscalls, "sol_create_program_address", fd_vm_syscall_sol_create_program_address );
   fd_vm_register_syscall( syscalls, "sol_try_find_program_address", fd_vm_syscall_sol_try_find_program_address );
@@ -80,10 +82,12 @@ fd_vm_syscall_sol_panic(
     void *  _ctx,
     ulong   msg_vaddr,
     ulong   msg_len,
-    FD_FN_UNUSED ulong   r3,
-    FD_FN_UNUSED ulong   r4,
-    FD_FN_UNUSED ulong   r5,
-    FD_FN_UNUSED ulong * r0 ) {
+    ulong   r3,
+    ulong   r4,
+    ulong   r5,
+    ulong * pr0 ) {
+
+  (void)r3; (void)r4; (void)r5; (void)pr0;
 
   /* Here, Solana Labs charges compute units, does UTF-8 validation,
      and checks for a cstr terminating NUL.  We skip all of this since
@@ -432,10 +436,10 @@ fd_vm_syscall_sol_memmove(
 ulong
 fd_vm_syscall_sol_invoke_signed_c(
     FD_FN_UNUSED void * _ctx,
-    FD_FN_UNUSED ulong instruction_va,
-    FD_FN_UNUSED ulong acct_infos_va,
+    FD_FN_UNUSED ulong instruction_vaddr,
+    FD_FN_UNUSED ulong acct_infos_vaddr,
     FD_FN_UNUSED ulong acct_info_cnt,
-    FD_FN_UNUSED ulong signers_seeds_va,
+    FD_FN_UNUSED ulong signers_seeds_vaddr,
     FD_FN_UNUSED ulong signers_seeds_cnt,
     FD_FN_UNUSED ulong * ret
 ) {
@@ -701,54 +705,97 @@ fd_vm_syscall_sol_get_stack_height(
 
 ulong
 fd_vm_syscall_sol_get_clock_sysvar(
-    FD_FN_UNUSED void * _ctx,
-    FD_FN_UNUSED ulong arg0,
-    FD_FN_UNUSED ulong arg1,
-    FD_FN_UNUSED ulong arg2,
-    FD_FN_UNUSED ulong arg3,
-    FD_FN_UNUSED ulong arg4,
-    FD_FN_UNUSED ulong * ret
-) {
-  return FD_VM_SYSCALL_ERR_UNIMPLEMENTED;
+    void *  _ctx,
+    ulong   out_addr,
+    ulong   r2,
+    ulong   r3,
+    ulong   r4,
+    ulong   r5,
+    ulong * pr0 ) {
+
+  (void)r2; (void) r3; (void)r4; (void)r5;
+  fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
+  FD_TEST( ctx->instr_ctx.instr );  /* TODO */
+
+  fd_sol_sysvar_clock_t clock;
+  fd_sysvar_clock_read( ctx->instr_ctx.global, &clock );
+
+  /* TODO alignment check */
+
+  void * out = fd_vm_translate_vm_to_host(
+      ctx,
+      1 /* write */,
+      out_addr,
+      sizeof(fd_sol_sysvar_clock_t) );
+  if( FD_UNLIKELY( !out ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
+
+  memcpy( out, &clock, sizeof(fd_sol_sysvar_clock_t ) );
+
+  *pr0 = 0UL;
+  return FD_VM_SYSCALL_SUCCESS;
 }
 
 ulong
 fd_vm_syscall_sol_get_epoch_schedule_sysvar(
-    FD_FN_UNUSED void * _ctx,
-    FD_FN_UNUSED ulong arg0,
-    FD_FN_UNUSED ulong arg1,
-    FD_FN_UNUSED ulong arg2,
-    FD_FN_UNUSED ulong arg3,
-    FD_FN_UNUSED ulong arg4,
-    FD_FN_UNUSED ulong * ret
-) {
-  return FD_VM_SYSCALL_ERR_UNIMPLEMENTED;
+    void *  _ctx,
+    ulong   out_addr,
+    ulong   r2,
+    ulong   r3,
+    ulong   r4,
+    ulong   r5,
+    ulong * pr0 ) {
+
+  (void)r2; (void) r3; (void)r4; (void)r5;
+  fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
+  FD_TEST( ctx->instr_ctx.instr );  /* TODO */
+
+  fd_epoch_schedule_t schedule;
+  fd_sysvar_epoch_schedule_read( ctx->instr_ctx.global, &schedule );
+
+  (void)out_addr;  /* TODO */
+
+  *pr0 = 0UL;
+  return FD_VM_SYSCALL_SUCCESS;
 }
 
 ulong
 fd_vm_syscall_sol_get_fees_sysvar(
-    FD_FN_UNUSED void * _ctx,
-    FD_FN_UNUSED ulong arg0,
-    FD_FN_UNUSED ulong arg1,
-    FD_FN_UNUSED ulong arg2,
-    FD_FN_UNUSED ulong arg3,
-    FD_FN_UNUSED ulong arg4,
-    FD_FN_UNUSED ulong * ret
-) {
-  return FD_VM_SYSCALL_ERR_UNIMPLEMENTED;
+    void *  _ctx,
+    ulong   out_addr,
+    ulong   r2,
+    ulong   r3,
+    ulong   r4,
+    ulong   r5,
+    ulong * pr0 ) {
+
+  (void)r2; (void) r3; (void)r4; (void)r5;
+  fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
+  FD_TEST( ctx->instr_ctx.instr );  /* TODO */
+
+  (void)out_addr; /* TODO */
+
+  *pr0 = 0UL;
+  return FD_VM_SYSCALL_SUCCESS;
 }
 
 ulong
 fd_vm_syscall_sol_get_rent_sysvar(
-    FD_FN_UNUSED void * _ctx,
-    FD_FN_UNUSED ulong arg0,
-    FD_FN_UNUSED ulong arg1,
-    FD_FN_UNUSED ulong arg2,
-    FD_FN_UNUSED ulong arg3,
-    FD_FN_UNUSED ulong arg4,
-    FD_FN_UNUSED ulong * ret
-) {
-  return FD_VM_SYSCALL_ERR_UNIMPLEMENTED;
+    void *  _ctx,
+    ulong   out_addr,
+    ulong   r2,
+    ulong   r3,
+    ulong   r4,
+    ulong   r5,
+    ulong * pr0 ) {
+
+  (void)r2; (void) r3; (void)r4; (void)r5;
+  fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
+  FD_TEST( ctx->instr_ctx.instr );  /* TODO */
+
+  (void)out_addr; /* TODO */
+
+  *pr0 = 0UL;
+  return FD_VM_SYSCALL_SUCCESS;
 }
 
 /* fd_vm_partial_derive_address begins the SHA calculation for a program

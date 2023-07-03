@@ -11,6 +11,8 @@
 #include "fd_vm_log_collector.h"
 #include "fd_vm_stack.h"
 
+#include "../runtime/fd_executor.h"
+
 /* sBPF instruction validation error codes */
 #define FD_VM_SBPF_VALIDATE_SUCCESS               (0UL)  /* Program is valid. */
 #define FD_VM_SBPF_VALIDATE_ERR_INVALID_OPCODE    (1UL)  /* An invalid opcode was used. */
@@ -93,6 +95,9 @@ struct fd_vm_exec_context {
   ulong         input_sz;             /* The program input memory region size */
   fd_vm_stack_t stack;                /* The sBPF call frame stack */
   uchar         heap[FD_VM_HEAP_SZ];  /* The heap memory allocated by the bump allocator syscall */
+
+  /* Runtime context */
+  instruction_ctx_t instr_ctx;
 
   /* Miscellaneous native state:
      Below contains state of syscall logic for the lifetime of the
