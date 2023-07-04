@@ -1485,8 +1485,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
       }
     } else {
       /* not accepting incoming connections */
-      FD_DEBUG( FD_LOG_WARNING( ( "this endpoint is not a QUIC server: ignoring incoming packet" ) )
-      );
+      FD_DEBUG( FD_LOG_WARNING( ( "this endpoint is not a QUIC server: ignoring incoming packet" ) ) );
       return FD_QUIC_PARSE_FAIL;
     }
   }
@@ -2759,13 +2758,16 @@ fd_quic_tls_cb_alert( fd_quic_tls_hs_t * hs,
   (void)hs;
   (void)context;
   (void)alert;
-  FD_DEBUG( fd_quic_conn_t * conn = (fd_quic_conn_t*)context;
-         printf( "TLS : %s\n", conn->server ? "SERVER" : "CLIENT"  );
-         printf( "TLS alert: %d\n", alert );
-         printf( "TLS CALLBACK: %s\n", __func__ );
-         printf( "TLS alert: %s %s\n",
-                   SSL_alert_type_string_long( alert ),
-                   SSL_alert_desc_string_long( alert ) ) );
+  FD_DEBUG( fd_quic_conn_t * conn = (fd_quic_conn_t *)context;
+            FD_LOG_DEBUG( ( "TLS : %s\n", conn->server ? "SERVER" : "CLIENT" ) );
+            FD_LOG_DEBUG( ( "TLS alert: %d\n", alert ) );
+            FD_LOG_DEBUG( ( "TLS CALLBACK: %s\n", __func__ ) );
+            FD_LOG_DEBUG( (
+                ( "TLS alert: %s %s\n" ),
+                SSL_alert_type_string_long( alert ),
+                SSL_alert_desc_string_long( alert )
+            ) ) 
+            );
 
   /* may use the following to retrieve alert information:
 
