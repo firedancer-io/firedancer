@@ -8,18 +8,13 @@
 #define FD_VM_SYSCALL_ERR_ABORT         (1UL)
 #define FD_VM_SYSCALL_ERR_PANIC         (2UL)
 #define FD_VM_SYSCALL_ERR_MEM_OVERLAP   (3UL)
+#define FD_VM_SYSCALL_ERR_INVAL         (4UL)
 #define FD_VM_SYSCALL_ERR_UNIMPLEMENTED (0xFFFFUL) /* TODO: remove when unused */
 
 #define FD_VM_SYSCALL_DECL(name) ulong fd_vm_syscall_##name ( \
     void * _ctx, \
     ulong arg0, ulong arg1, ulong arg2, ulong arg3, ulong arg4, \
     ulong * ret_val )
-
-struct fd_vm_syscall_bytes_slice {
-  ulong addr;
-  ulong len;
-};
-typedef struct fd_vm_syscall_bytes_slice fd_vm_syscall_bytes_slice_t;
 
 FD_PROTOTYPES_BEGIN
 

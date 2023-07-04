@@ -145,13 +145,12 @@ fd_vm_context_validate( fd_vm_exec_context_t const * ctx ) {
   return FD_VM_SBPF_VALIDATE_SUCCESS;
 }
 
-void *
-fd_vm_translate_vm_to_host( fd_vm_exec_context_t *  ctx,
-                            uint                    write,
-                            ulong                   vm_addr,
-                            ulong                   sz,
-                            ulong                   align ) {
-  (void)align;
+ulong
+fd_vm_translate_vm_to_host_private( fd_vm_exec_context_t *  ctx,
+                                    ulong                   vm_addr,
+                                    ulong                   sz,
+                                    int                     write ) {
+
   ulong mem_region = vm_addr & FD_VM_MEM_MAP_REGION_MASK;
   ulong start_addr = vm_addr & FD_VM_MEM_MAP_REGION_SZ;
   ulong end_addr = start_addr + sz;
@@ -161,26 +160,26 @@ fd_vm_translate_vm_to_host( fd_vm_exec_context_t *  ctx,
       /* Read-only program binary blob memory region */
       if( FD_UNLIKELY( ( write                        )
                      | ( end_addr > ctx->read_only_sz ) ) )
-        return NULL;
-      return &ctx->read_only[start_addr];
+        return 0UL;
+      return (ulong)ctx->read_only + start_addr;
     case FD_VM_MEM_MAP_STACK_REGION_START:
       /* Stack memory region */
       /* TODO: needs more of the runtime to actually implement */
       /* FIXME: check that we are in the current or previous stack frame! */
       if( FD_UNLIKELY( end_addr > (FD_VM_STACK_MAX_DEPTH * FD_VM_STACK_FRAME_WITH_GUARD_SZ ) ) )
-        return NULL;
-      return &ctx->stack.data[start_addr];
+        return 0UL;
+      return (ulong)ctx->stack.data + start_addr;
     case FD_VM_MEM_MAP_HEAP_REGION_START:
       /* Heap memory region */
       if( FD_UNLIKELY( end_addr > FD_VM_HEAP_SZ ) )
-        return NULL;
-      return &ctx->heap[start_addr];
+        return 0UL;
+      return (ulong)ctx->heap + start_addr;
     case FD_VM_MEM_MAP_INPUT_REGION_START:
       /* Program input memory region */
       if( FD_UNLIKELY( end_addr > ctx->input_sz ) )
-        return NULL;
-      return &ctx->input[start_addr];
+        return 0UL;
+      return (ulong)ctx->input + start_addr;
     default:
-      return NULL;
+      return 0UL;
   }
 }

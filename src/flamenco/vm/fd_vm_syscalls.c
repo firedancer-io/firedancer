@@ -28,39 +28,39 @@ fd_vm_register_syscall( fd_sbpf_syscalls_t *     syscalls,
 
 void
 fd_vm_syscall_register_all( fd_sbpf_syscalls_t * syscalls ) {
-  fd_vm_register_syscall( syscalls, "abort", fd_vm_syscall_abort );
-  fd_vm_register_syscall( syscalls, "sol_panic_", fd_vm_syscall_sol_panic );
+  fd_vm_register_syscall( syscalls, "abort",                  fd_vm_syscall_abort     );
+  fd_vm_register_syscall( syscalls, "sol_panic_",             fd_vm_syscall_sol_panic );
 
-  fd_vm_register_syscall( syscalls, "sol_log_", fd_vm_syscall_sol_log );
-  fd_vm_register_syscall( syscalls, "sol_log_64_", fd_vm_syscall_sol_log_64 );
-  fd_vm_register_syscall( syscalls, "sol_log_compute_units_", fd_vm_syscall_sol_log );
-  fd_vm_register_syscall( syscalls, "sol_log_pubkey", fd_vm_syscall_sol_log_pubkey );
-  fd_vm_register_syscall( syscalls, "sol_log_data", fd_vm_syscall_sol_log_data );
+  fd_vm_register_syscall( syscalls, "sol_log_",               fd_vm_syscall_sol_log        );
+  fd_vm_register_syscall( syscalls, "sol_log_64_",            fd_vm_syscall_sol_log_64     );
+  fd_vm_register_syscall( syscalls, "sol_log_compute_units_", fd_vm_syscall_sol_log        );
+  fd_vm_register_syscall( syscalls, "sol_log_pubkey",         fd_vm_syscall_sol_log_pubkey );
+  fd_vm_register_syscall( syscalls, "sol_log_data",           fd_vm_syscall_sol_log_data   );
 
-  fd_vm_register_syscall( syscalls, "sol_sha256", fd_vm_syscall_sol_sha256 );
-  fd_vm_register_syscall( syscalls, "sol_keccak256", fd_vm_syscall_sol_keccak256 );
-  fd_vm_register_syscall( syscalls, "sol_blake3", fd_vm_syscall_sol_blake3 );
-  fd_vm_register_syscall( syscalls, "sol_secp256k1_recover", fd_vm_syscall_sol_secp256k1_recover );
+  fd_vm_register_syscall( syscalls, "sol_sha256",             fd_vm_syscall_sol_sha256            );
+  fd_vm_register_syscall( syscalls, "sol_keccak256",          fd_vm_syscall_sol_keccak256         );
+  fd_vm_register_syscall( syscalls, "sol_blake3",             fd_vm_syscall_sol_blake3            );
+  fd_vm_register_syscall( syscalls, "sol_secp256k1_recover",  fd_vm_syscall_sol_secp256k1_recover );
 
-  fd_vm_register_syscall( syscalls, "sol_memcpy_", fd_vm_syscall_sol_memcpy );
-  fd_vm_register_syscall( syscalls, "sol_memcmp_", fd_vm_syscall_sol_memcmp );
-  fd_vm_register_syscall( syscalls, "sol_memset_", fd_vm_syscall_sol_memset );
-  fd_vm_register_syscall( syscalls, "sol_memmove_", fd_vm_syscall_sol_memmove );
+  fd_vm_register_syscall( syscalls, "sol_memcpy_",            fd_vm_syscall_sol_memcpy  );
+  fd_vm_register_syscall( syscalls, "sol_memcmp_",            fd_vm_syscall_sol_memcmp  );
+  fd_vm_register_syscall( syscalls, "sol_memset_",            fd_vm_syscall_sol_memset  );
+  fd_vm_register_syscall( syscalls, "sol_memmove_",           fd_vm_syscall_sol_memmove );
 
-  fd_vm_register_syscall( syscalls, "sol_invoke_signed_c", fd_vm_syscall_sol_invoke_signed_c );
-  fd_vm_register_syscall( syscalls, "sol_invoke_signed_rust", fd_vm_syscall_sol_invoke_signed_rust );
-  fd_vm_register_syscall( syscalls, "sol_alloc_free_", fd_vm_syscall_sol_alloc_free );
-  fd_vm_register_syscall( syscalls, "sol_set_return_data", fd_vm_syscall_sol_set_return_data );
-  fd_vm_register_syscall( syscalls, "sol_get_return_data", fd_vm_syscall_sol_get_return_data );
-  fd_vm_register_syscall( syscalls, "sol_get_stack_height", fd_vm_syscall_sol_get_stack_height );
+  fd_vm_register_syscall( syscalls, "sol_invoke_signed_c",           fd_vm_syscall_sol_invoke_signed_c    );
+  fd_vm_register_syscall( syscalls, "sol_invoke_signed_rust",        fd_vm_syscall_sol_invoke_signed_rust );
+  fd_vm_register_syscall( syscalls, "sol_alloc_free_",               fd_vm_syscall_sol_alloc_free         );
+  fd_vm_register_syscall( syscalls, "sol_set_return_data",           fd_vm_syscall_sol_set_return_data    );
+  fd_vm_register_syscall( syscalls, "sol_get_return_data",           fd_vm_syscall_sol_get_return_data    );
+  fd_vm_register_syscall( syscalls, "sol_get_stack_height",          fd_vm_syscall_sol_get_stack_height   );
 
   fd_vm_register_syscall( syscalls, "sol_get_clock_sysvar",          fd_vm_syscall_sol_get_clock_sysvar          );
   fd_vm_register_syscall( syscalls, "sol_get_epoch_schedule_sysvar", fd_vm_syscall_sol_get_epoch_schedule_sysvar );
   fd_vm_register_syscall( syscalls, "sol_get_fees_sysvar",           fd_vm_syscall_sol_get_fees_sysvar           );
   fd_vm_register_syscall( syscalls, "sol_get_rent_sysvar",           fd_vm_syscall_sol_get_rent_sysvar           );
 
-  fd_vm_register_syscall( syscalls, "sol_create_program_address", fd_vm_syscall_sol_create_program_address );
-  fd_vm_register_syscall( syscalls, "sol_try_find_program_address", fd_vm_syscall_sol_try_find_program_address );
+  fd_vm_register_syscall( syscalls, "sol_create_program_address",            fd_vm_syscall_sol_create_program_address            );
+  fd_vm_register_syscall( syscalls, "sol_try_find_program_address",          fd_vm_syscall_sol_try_find_program_address          );
   fd_vm_register_syscall( syscalls, "sol_get_processed_sibling_instruction", fd_vm_syscall_sol_get_processed_sibling_instruction );
 }
 
@@ -87,6 +87,7 @@ fd_vm_syscall_sol_panic(
     ulong   r5,
     ulong * pr0 ) {
 
+  fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
   (void)r3; (void)r4; (void)r5; (void)pr0;
 
   /* Here, Solana Labs charges compute units, does UTF-8 validation,
@@ -94,14 +95,7 @@ fd_vm_syscall_sol_panic(
      this syscall always aborts the transaction.  The type of error
      does not matter. */
 
-  fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
-
-  char const * str = fd_vm_translate_vm_to_host(
-      ctx,
-      0 /* write */,
-      msg_vaddr,
-      msg_len, 
-      0 );
+  char const * str = fd_vm_translate_vm_to_host_const( ctx, msg_vaddr, msg_len, alignof(uchar) );
 
   /* TODO write to log collector instead of writing to fd_log */
 
@@ -121,103 +115,121 @@ fd_vm_syscall_sol_panic(
 
 ulong
 fd_vm_syscall_sol_sha256(
-    void * _ctx,
-    ulong slices_addr,
-    ulong slices_len,
-    ulong res_addr,
-    FD_FN_UNUSED ulong arg3,
-    FD_FN_UNUSED ulong arg4,
-    FD_FN_UNUSED ulong * ret
+    void *  _ctx,
+    ulong   slices_vaddr,
+    ulong   slices_cnt,
+    ulong   res_vaddr,
+    ulong   r4 __attribute__((unused)),
+    ulong   r5 __attribute__((unused)),
+    ulong * pr0
 ) {
+
   fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
 
-  void const * slices_raw = fd_vm_translate_vm_to_host( ctx, 0, slices_addr, slices_len * sizeof(fd_vm_syscall_bytes_slice_t), 0 );
-  if( FD_UNLIKELY( !slices_raw ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
+  /* TODO don't hardcode limit */
+  if( FD_UNLIKELY( slices_cnt > 20000UL ) )
+    return FD_VM_SYSCALL_ERR_INVAL;
+  ulong slices_sz = slices_cnt * sizeof(fd_vm_rust_slice_t);
 
-  void * hash = fd_vm_translate_vm_to_host( ctx, 1, res_addr, 32, 0 );
-  if( FD_UNLIKELY( !slices_raw ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
+  fd_vm_rust_slice_t const * slices =
+      fd_vm_translate_vm_to_host_const( ctx, slices_vaddr, slices_sz, FD_VM_RUST_SLICE_ALIGN );
+  void * hash =
+      fd_vm_translate_vm_to_host      ( ctx, res_vaddr,    32UL,      alignof(uchar)         );
 
-  fd_vm_syscall_bytes_slice_t * slices = (fd_vm_syscall_bytes_slice_t *)slices_raw;
+  if( FD_UNLIKELY( (!slices) | (!hash) ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
 
   fd_sha256_t sha;
   fd_sha256_init( &sha );
 
-  for( ulong i = 0; i < slices_len; i++ ) {
-    void const * slice = fd_vm_translate_vm_to_host( ctx, 0, slices[i].addr, slices[i].len, 0 );
-    if( FD_UNLIKELY( !slices_raw ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
+  for( ulong i = 0; i < slices_cnt; i++ ) {
+    uchar const * slice = fd_vm_translate_vm_to_host_const( ctx, slices[i].addr, slices[i].len, alignof(uchar) );
+    if( FD_UNLIKELY( !slice ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
 
     fd_sha256_append( &sha, slice, slices[i].len );
   }
 
   fd_sha256_fini( &sha, hash );
+  *pr0 = 0UL;
   return FD_VM_SYSCALL_SUCCESS;
 }
 
 ulong
 fd_vm_syscall_sol_keccak256(
-    void * _ctx,
-    ulong slices_addr,
-    ulong slices_len,
-    ulong res_addr,
-    FD_FN_UNUSED ulong arg3,
-    FD_FN_UNUSED ulong arg4,
-    FD_FN_UNUSED ulong * ret
+    void *  _ctx,
+    ulong   slices_vaddr,
+    ulong   slices_cnt,
+    ulong   res_vaddr,
+    ulong   r4 __attribute__((unused)),
+    ulong   r5 __attribute__((unused)),
+    ulong * pr0
 ) {
+
   fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
 
-  void const * slices_raw = fd_vm_translate_vm_to_host( ctx, 0, slices_addr, slices_len * sizeof(fd_vm_syscall_bytes_slice_t), 0 );
-  if( FD_UNLIKELY( !slices_raw ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
+  /* TODO don't hardcode limit */
+  if( FD_UNLIKELY( slices_cnt > 20000UL ) )
+    return FD_VM_SYSCALL_ERR_INVAL;
+  ulong slices_sz = slices_cnt * sizeof(fd_vm_rust_slice_t);
 
-  void * hash = fd_vm_translate_vm_to_host( ctx, 1, res_addr, 32, 0 );
-  if( FD_UNLIKELY( !slices_raw ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
+  fd_vm_rust_slice_t const * slices =
+      fd_vm_translate_vm_to_host_const( ctx, slices_vaddr, slices_sz, FD_VM_RUST_SLICE_ALIGN );
+  void * hash =
+      fd_vm_translate_vm_to_host      ( ctx, res_vaddr,    32UL,      alignof(uchar)         );
 
-  fd_vm_syscall_bytes_slice_t * slices = (fd_vm_syscall_bytes_slice_t *) slices_raw;
+  if( FD_UNLIKELY( (!slices) | (!hash) ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
 
   fd_keccak256_t sha;
   fd_keccak256_init(&sha);
 
-  for (ulong i = 0; i < slices_len; i++) {
-    void const * slice = fd_vm_translate_vm_to_host(ctx, 0, slices[i].addr, slices[i].len, 0 );
-    if( FD_UNLIKELY( !slices_raw ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
+  for (ulong i = 0; i < slices_cnt; i++) {
+    void const * slice = fd_vm_translate_vm_to_host( ctx, slices[i].addr, slices[i].len, alignof(uchar) );
+    if( FD_UNLIKELY( !slice ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
 
     fd_keccak256_append( &sha, slice, slices[i].len );
   }
 
   fd_keccak256_fini(&sha, hash);
+  *pr0 = 0UL;
   return FD_VM_SYSCALL_SUCCESS;
 }
 
 ulong
 fd_vm_syscall_sol_blake3(
-    FD_FN_UNUSED void * _ctx,
-    ulong slices_addr,
-    ulong slices_len,
-    ulong res_addr,
-    FD_FN_UNUSED ulong arg3,
-    FD_FN_UNUSED ulong arg4,
-    FD_FN_UNUSED ulong * ret
+    void *  _ctx,
+    ulong   slices_vaddr,
+    ulong   slices_cnt,
+    ulong   res_vaddr,
+    ulong   r4 __attribute__((unused)),
+    ulong   r5 __attribute__((unused)),
+    ulong * pr0
 ) {
+
   fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
 
-  void const * slices_raw = fd_vm_translate_vm_to_host( ctx, 0, slices_addr, slices_len * sizeof(fd_vm_syscall_bytes_slice_t), 0 );
-  if( FD_UNLIKELY( !slices_raw ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
+  /* TODO don't hardcode limit */
+  if( FD_UNLIKELY( slices_cnt > 20000UL ) )
+    return FD_VM_SYSCALL_ERR_INVAL;
+  ulong slices_sz = slices_cnt * sizeof(fd_vm_rust_slice_t);
 
-  void * hash = fd_vm_translate_vm_to_host( ctx, 1, res_addr, 32, 0 );
-  if( FD_UNLIKELY( !slices_raw ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
+  fd_vm_rust_slice_t const * slices =
+      fd_vm_translate_vm_to_host_const( ctx, slices_vaddr, slices_sz, FD_VM_RUST_SLICE_ALIGN );
+  void * hash =
+      fd_vm_translate_vm_to_host      ( ctx, res_vaddr,    32UL,      alignof(uchar)         );
 
-  fd_vm_syscall_bytes_slice_t * slices = (fd_vm_syscall_bytes_slice_t *) slices_raw;
+  if( FD_UNLIKELY( (!slices) | (!hash) ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
 
-  fd_blake3_t sha;
-  fd_blake3_init(&sha);
+  fd_blake3_t b3;
+  fd_blake3_init(&b3);
 
-  for (ulong i = 0; i < slices_len; i++) {
-    void const * slice = fd_vm_translate_vm_to_host( ctx, 0, slices[i].addr, slices[i].len, 0 );
-    if( FD_UNLIKELY( !slices_raw ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
+  for (ulong i = 0; i < slices_cnt; i++) {
+    void const * slice = fd_vm_translate_vm_to_host( ctx, slices[i].addr, slices[i].len, alignof(uchar) );
+    if( FD_UNLIKELY( !slice ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
 
-    fd_blake3_append( &sha, slice, slices[i].len );
+    fd_blake3_append( &b3, slice, slices[i].len );
   }
 
-  fd_blake3_fini( &sha, hash );
+  fd_blake3_fini( &b3, hash );
+  *pr0 = 0UL;
   return FD_VM_SYSCALL_SUCCESS;
 }
 
@@ -237,62 +249,65 @@ fd_vm_syscall_sol_secp256k1_recover(
 
 ulong
 fd_vm_syscall_sol_log(
-    void  * _ctx,
-    ulong msg_vm_addr,
-    ulong msg_len,
-    FD_FN_UNUSED ulong arg2,
-    FD_FN_UNUSED ulong arg3,
-    FD_FN_UNUSED ulong arg4,
-    ulong * ret
+    void *  _ctx,
+    ulong   msg_vm_addr,
+    ulong   msg_len,
+    ulong   r3 __attribute__((unused)),
+    ulong   r4 __attribute__((unused)),
+    ulong   r5 __attribute__((unused)),
+    ulong * pr0
 ) {
+
   fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
-  void const * msg_host_addr = fd_vm_translate_vm_to_host( ctx, 0, msg_vm_addr, msg_len, 0 );
+
+  void const * msg_host_addr =
+      fd_vm_translate_vm_to_host_const( ctx, msg_vm_addr, msg_len, alignof(uchar) );
   if( FD_UNLIKELY( !msg_host_addr ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
 
   fd_vm_log_collector_log( &ctx->log_collector, msg_host_addr, msg_len );
 
-  *ret = 0;
+  *pr0 = 0UL;
   return FD_VM_SYSCALL_SUCCESS;
 }
 
 ulong
 fd_vm_syscall_sol_log_64(
-    void * _ctx,
-    ulong arg0,
-    ulong arg1,
-    ulong arg2,
-    ulong arg3,
-    ulong arg4,
-    FD_FN_UNUSED ulong * ret
+    void *  _ctx,
+    ulong   r1,
+    ulong   r2,
+    ulong   r3,
+    ulong   r4,
+    ulong   r5,
+    ulong * pr0
 ) {
   fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
 
   char msg[1024];
-
-  int msg_len = sprintf(msg, "Program log: %lx %lx %lx %lx %lx", arg0, arg1, arg2, arg3, arg4);
+  int msg_len = sprintf( msg, "Program log: %lx %lx %lx %lx %lx", r1, r2, r3, r4, r5 );
 
   fd_vm_log_collector_log( &ctx->log_collector, msg, (ulong)msg_len );
 
+  *pr0 = 0UL;
   return FD_VM_SYSCALL_SUCCESS;
 }
 
 ulong
 fd_vm_syscall_sol_log_pubkey(
-    void * _ctx,
-    ulong pubkey_vm_addr,
-    FD_FN_UNUSED ulong arg1,
-    FD_FN_UNUSED ulong arg2,
-    FD_FN_UNUSED ulong arg3,
-    FD_FN_UNUSED ulong arg4,
-    FD_FN_UNUSED ulong * ret
+    void *  _ctx,
+    ulong   pubkey_vm_addr,
+    ulong   r2 __attribute__((unused)),
+    ulong   r3 __attribute__((unused)),
+    ulong   r4 __attribute__((unused)),
+    ulong   r5 __attribute__((unused)),
+    ulong * pr0
 ) {
   fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
 
   char msg[128];
   char pubkey_str[FD_BASE58_ENCODED_32_SZ];
 
-  /* FIXME Really need write here? */
-  void * pubkey_host_addr = fd_vm_translate_vm_to_host( ctx, 1, pubkey_vm_addr, 32, 0 );
+  void * pubkey_host_addr =
+      fd_vm_translate_vm_to_host( ctx, pubkey_vm_addr, sizeof(fd_pubkey_t), alignof(uchar) );
   if( FD_UNLIKELY( !pubkey_host_addr ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
 
   fd_base58_encode_32( pubkey_host_addr, NULL, pubkey_str );
@@ -301,6 +316,7 @@ fd_vm_syscall_sol_log_pubkey(
 
   fd_vm_log_collector_log( &ctx->log_collector, msg, (ulong)msg_len );
 
+  *pr0 = 0UL;
   return FD_VM_SYSCALL_SUCCESS;
 }
 
@@ -332,14 +348,15 @@ fd_vm_syscall_sol_log_data(
 
 ulong
 fd_vm_syscall_sol_memcpy(
-    void * _ctx,
-    ulong dst_vm_addr,
-    ulong src_vm_addr,
-    ulong n,
-    FD_FN_UNUSED ulong arg3,
-    FD_FN_UNUSED ulong arg4,
-    ulong * ret
+    void *  _ctx,
+    ulong   dst_vm_addr,
+    ulong   src_vm_addr,
+    ulong   n,
+    ulong   r4 __attribute__((unused)),
+    ulong   r5 __attribute__((unused)),
+    ulong * pr0
 ) {
+
   fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
 
   /* Check for overlap */
@@ -349,78 +366,79 @@ fd_vm_syscall_sol_memcpy(
   }
   */
 
-  void *       dst_host_addr = fd_vm_translate_vm_to_host( ctx, 1, dst_vm_addr, n, 0 );
-  void const * src_host_addr = fd_vm_translate_vm_to_host( ctx, 0, src_vm_addr, n, 0 );
+  void *       dst_host_addr =
+      fd_vm_translate_vm_to_host      ( ctx, dst_vm_addr, n, alignof(uchar) );
+  void const * src_host_addr =
+      fd_vm_translate_vm_to_host_const( ctx, src_vm_addr, n, alignof(uchar) );
 
   if( FD_UNLIKELY( (!dst_host_addr) | (!src_host_addr) ) )
     return FD_VM_MEM_MAP_ERR_ACC_VIO;
 
   fd_memcpy(dst_host_addr, src_host_addr, n);
 
-  *ret = 0;
-
+  *pr0 = 0;
   return FD_VM_SYSCALL_SUCCESS;
 }
 
 ulong
 fd_vm_syscall_sol_memcmp(
-    void * _ctx,
-    ulong vm_addr1,
-    ulong vm_addr2,
-    ulong n,
-    FD_FN_UNUSED ulong arg3,
-    FD_FN_UNUSED ulong arg4,
-    ulong * ret
+    void *  _ctx,
+    ulong   vm_addr1,
+    ulong   vm_addr2,
+    ulong   n,
+    ulong   r4 __attribute__((unused)),
+    ulong   r5 __attribute__((unused)),
+    ulong * pr0
 ) {
   fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
 
-  void const * host_addr1 = fd_vm_translate_vm_to_host( ctx, 0, vm_addr1, n, 0 );
-  void const * host_addr2 = fd_vm_translate_vm_to_host( ctx, 0, vm_addr2, n, 0 );
+  void const * host_addr1 =
+      fd_vm_translate_vm_to_host_const( ctx, vm_addr1, n, alignof(uchar) );
+  void const * host_addr2 =
+      fd_vm_translate_vm_to_host_const( ctx, vm_addr2, n, alignof(uchar) );
 
   if( FD_UNLIKELY( (!host_addr1) | (!host_addr2) ) )
     return FD_VM_MEM_MAP_ERR_ACC_VIO;
 
-  *ret = (ulong)memcmp(host_addr1, host_addr2, n);
-
+  *pr0 = (ulong)memcmp(host_addr1, host_addr2, n);
   return FD_VM_SYSCALL_SUCCESS;
 }
 
 ulong
 fd_vm_syscall_sol_memset(
-    void * _ctx,
-    ulong dst_vm_addr,
-    ulong c,
-    ulong n,
-    FD_FN_UNUSED ulong arg3,
-    FD_FN_UNUSED ulong arg4,
+    void *  _ctx,
+    ulong   dst_vm_addr,
+    ulong   c,
+    ulong   n,
+    ulong   r4 __attribute__((unused)),
+    ulong   r5 __attribute__((unused)),
     ulong * ret
 ) {
   fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
 
-  void * dst_host_addr = fd_vm_translate_vm_to_host( ctx, 1, dst_vm_addr, n, 0 );
+  void * dst_host_addr = fd_vm_translate_vm_to_host( ctx, dst_vm_addr, n, alignof(uchar) );
   if( FD_UNLIKELY( !dst_host_addr ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
 
   fd_memset( dst_host_addr, (int)c, n );
 
   *ret = dst_vm_addr;
-
   return FD_VM_SYSCALL_SUCCESS;
 }
 
 ulong
 fd_vm_syscall_sol_memmove(
-    void * _ctx,
-    ulong dst_vm_addr,
-    ulong src_vm_addr,
-    ulong n,
-    FD_FN_UNUSED ulong arg3,
-    FD_FN_UNUSED ulong arg4,
+    void *  _ctx,
+    ulong   dst_vm_addr,
+    ulong   src_vm_addr,
+    ulong   n,
+    ulong   r4 __attribute__((unused)),
+    ulong   r5 __attribute__((unused)),
     ulong * ret
 ) {
   fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
 
-  void *       dst_host_addr = fd_vm_translate_vm_to_host( ctx, 1, dst_vm_addr, n, 0 );
-  void const * src_host_addr = fd_vm_translate_vm_to_host( ctx, 0, src_vm_addr, n, 0 );
+  void *       dst_host_addr = fd_vm_translate_vm_to_host      ( ctx, dst_vm_addr, n, alignof(uchar) );
+  void const * src_host_addr = fd_vm_translate_vm_to_host_const( ctx, src_vm_addr, n, alignof(uchar) );
 
   if( FD_UNLIKELY( (!dst_host_addr) | (!src_host_addr) ) )
     return FD_VM_MEM_MAP_ERR_ACC_VIO;
@@ -448,13 +466,13 @@ fd_vm_syscall_sol_invoke_signed_c(
 
 ulong
 fd_vm_syscall_sol_invoke_signed_rust(
-    void * _ctx,
-    ulong instruction_va,
-    ulong acct_infos_va,
-    ulong acct_info_cnt,
-    ulong signers_seeds_va,
-    ulong signers_seeds_cnt,
-    FD_FN_UNUSED ulong * ret
+    void *  _ctx,
+    ulong   instruction_va,
+    ulong   acct_infos_va,
+    ulong   acct_info_cnt,
+    ulong   signers_seeds_va,
+    ulong   signers_seeds_cnt,
+    ulong * pr0
 ) {
   fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
 
@@ -482,33 +500,30 @@ fd_vm_syscall_sol_invoke_signed_rust(
 
   /* TODO check alignment */
   fd_vm_rust_instruction_t const * instruction =
-    fd_vm_translate_vm_to_host(
+    fd_vm_translate_vm_to_host_const(
       _ctx,
-      0 /* write */,
       instruction_va,
       sizeof(fd_vm_rust_instruction_t),
-      0 );
+      FD_VM_RUST_INSTRUCTION_ALIGN );
   if( FD_UNLIKELY( !instruction ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
 
   /* TODO Check instruction size */
 
   fd_vm_rust_account_meta_t const * accounts =
-    fd_vm_translate_vm_to_host(
+    fd_vm_translate_vm_to_host_const(
       ctx,
-      0 /* write */,
       acct_infos_va,
       acct_info_cnt * sizeof(fd_vm_rust_account_meta_t),
-      0 );
+      FD_VM_RUST_ACCOUNT_META_ALIGN );
   if( FD_UNLIKELY( !accounts ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
 
   /* TODO consume compute meter proportionally to data sz */
 
-  uchar const * data = fd_vm_translate_vm_to_host(
+  uchar const * data = fd_vm_translate_vm_to_host_const(
       ctx,
-      0 /* write */,
       instruction->data.addr,
       instruction->data.len,
-      0 );
+      alignof(uchar) );
   if( FD_UNLIKELY( !data ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
 
   /* Translate signers ************************************************/
@@ -525,12 +540,11 @@ fd_vm_syscall_sol_invoke_signed_rust(
     /* Translate &[&[&[u8]]].
        Outer slice addr and cnt provided as r4, r5.
        Inner slice params stored in memory */
-    fd_vm_rust_slice_t const * seeds = fd_vm_translate_vm_to_host(
+    fd_vm_rust_slice_t const * seeds = fd_vm_translate_vm_to_host_const(
         ctx,
-        0 /* write */,
         signers_seeds_va,
-        signers_seeds_cnt * sizeof(fd_vm_rust_slice_t), 
-        0 );
+        signers_seeds_cnt * sizeof(fd_vm_rust_slice_t),
+        FD_VM_RUST_SLICE_ALIGN );
     if( FD_UNLIKELY( !seeds ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
 
     /* Create program addresses.
@@ -544,12 +558,11 @@ fd_vm_syscall_sol_invoke_signed_rust(
         FD_LOG_ERR(("TODO: return MaxSeedLengthExceeded" ));
 
       /* Translate inner seed slice (type &[&[u8]]) */
-      fd_vm_rust_slice_t const * seed = fd_vm_translate_vm_to_host(
+      fd_vm_rust_slice_t const * seed = fd_vm_translate_vm_to_host_const(
           ctx,
-          0 /* write */,
           seeds[i].addr,
           seeds[i].len,
-          0 );
+          FD_VM_RUST_SLICE_ALIGN );
       if( FD_UNLIKELY( !seed ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
 
       /* Derive program address.
@@ -558,19 +571,18 @@ fd_vm_syscall_sol_invoke_signed_rust(
       fd_sha256_t _sha[1];
       fd_sha256_t * sha = fd_sha256_init( fd_sha256_join( fd_sha256_new( _sha ) ) );
 
-      for( ulong i=0UL; i < seed->len; i++ ) {
+      for( ulong i=0UL; i < seeds->len; i++ ) {
         /* Check seed limb length */
         /* TODO use constant */
         if( FD_UNLIKELY( seed[i].len > 32 ) )
           FD_LOG_ERR(("TODO: return MaxSeedLengthExceeded" ));
 
         /* Translate inner seed limb (type &[u8]) */
-        uchar const * seed_limb = fd_vm_translate_vm_to_host(
+        uchar const * seed_limb = fd_vm_translate_vm_to_host_const(
             ctx,
-            0 /* write */,
             seed[i].addr,
             seed[i].len,
-            0 );
+            alignof(uchar) );
         if( FD_UNLIKELY( !seed_limb ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
 
         fd_sha256_append( sha, seed_limb, seed[i].len );
@@ -589,23 +601,22 @@ fd_vm_syscall_sol_invoke_signed_rust(
   /* Translate account infos ******************************************/
 
   fd_vm_rust_account_info_t const * acc_infos =
-    fd_vm_translate_vm_to_host(
+    fd_vm_translate_vm_to_host_const(
       ctx,
-      0 /* write */,
       acct_infos_va,
-      acct_info_cnt * sizeof(fd_vm_rust_account_info_t), 0 );
+      acct_info_cnt * sizeof(fd_vm_rust_account_info_t),
+      FD_VM_RUST_ACCOUNT_INFO_ALIGN );
   if( FD_UNLIKELY( !acc_infos ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
 
   /* Collect pubkeys */
 
   fd_pubkey_t acct_keys[ acct_info_cnt ];  /* FIXME get rid of VLA */
   for( ulong i=0UL; i<acct_info_cnt; i++ ) {
-    fd_pubkey_t const * acct_addr = fd_vm_translate_vm_to_host(
+    fd_pubkey_t const * acct_addr = fd_vm_translate_vm_to_host_const(
         ctx,
-        0 /* write */,
         acc_infos[i].pubkey_addr,
         sizeof(fd_pubkey_t),
-        0 );
+        alignof(uchar) );
     if( FD_UNLIKELY( !acct_addr ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
 
     memcpy( acct_keys[i].uc, acct_addr->uc, sizeof(fd_pubkey_t) );
@@ -615,6 +626,7 @@ fd_vm_syscall_sol_invoke_signed_rust(
            For now, we'll just log parameters. */
 
   FD_LOG_WARNING(( "TODO implement CPIs" ));
+  *pr0 = 0UL;
   return FD_VM_SYSCALL_ERR_UNIMPLEMENTED;
 }
 
@@ -724,10 +736,9 @@ fd_vm_syscall_sol_get_clock_sysvar(
 
   void * out = fd_vm_translate_vm_to_host(
       ctx,
-      1 /* write */,
       out_addr,
       sizeof(fd_sol_sysvar_clock_t),
-      0 );
+      FD_SOL_SYSVAR_CLOCK_ALIGN );
   if( FD_UNLIKELY( !out ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
 
   memcpy( out, &clock, sizeof(fd_sol_sysvar_clock_t ) );
@@ -820,21 +831,20 @@ fd_vm_partial_derive_address( fd_vm_exec_context_t * ctx,
 
   /* Translate program ID address */
 
-  fd_pubkey_t const * program_id = fd_vm_translate_vm_to_host(
+  fd_pubkey_t const * program_id = fd_vm_translate_vm_to_host_const(
       ctx,
-      0 /* write */,
       program_id_vaddr,
       sizeof(fd_pubkey_t),
-      0 );
+      alignof(uchar) );
 
   /* Translate seed scatter array address */
 
-  fd_vm_rust_slice_t const * seeds = fd_vm_translate_vm_to_host(
+  fd_vm_rust_slice_t const * seeds = fd_vm_translate_vm_to_host_const(
       ctx,
-      0 /* write */,
       seeds_vaddr,
       /* no overflow, as seeds_cnt<=16UL */
-      seeds_cnt * sizeof(fd_vm_rust_vec_t), 0 );
+      seeds_cnt * sizeof(fd_vm_rust_vec_t),
+      FD_VM_RUST_SLICE_ALIGN );
 
   /* Bail if translation fails */
 
@@ -854,12 +864,11 @@ fd_vm_partial_derive_address( fd_vm_exec_context_t * ctx,
 
     /* Translate seed */
 
-    void const * seed_part = fd_vm_translate_vm_to_host(
+    void const * seed_part = fd_vm_translate_vm_to_host_const(
         ctx,
-        0 /* write */,
         seeds[ i ].addr,
-        seeds[ i ].len, 
-        0 );
+        seeds[ i ].len,
+        alignof(uchar) );
     if( FD_UNLIKELY( !seed_part ) ) return NULL;
 
     /* Append to hash (gather) */
@@ -907,9 +916,9 @@ fd_vm_syscall_sol_create_program_address(
 
   fd_pubkey_t * out = fd_vm_translate_vm_to_host(
       ctx,
-      1 /* write */,
       out_vaddr,
-      sizeof(fd_pubkey_t), 0 );
+      sizeof(fd_pubkey_t),
+      alignof(uchar) );
   if( FD_UNLIKELY( !out ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
 
   /* Write result into out */
@@ -957,15 +966,15 @@ fd_vm_syscall_sol_try_find_program_address(
 
   fd_pubkey_t * address_out = fd_vm_translate_vm_to_host(
       ctx,
-      1 /* write */,
       out_vaddr,
-      sizeof(fd_pubkey_t), 0 );
+      sizeof(fd_pubkey_t),
+      alignof(uchar) );
 
   uchar * bump_seed_out = fd_vm_translate_vm_to_host(
       ctx,
-      1 /* write */,
       bump_seed_vaddr,
-      1UL, 0 );
+      1UL,
+      alignof(uchar) );
 
   /* Calculate PDA prefix */
 
