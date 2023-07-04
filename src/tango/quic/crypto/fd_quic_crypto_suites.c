@@ -1066,35 +1066,35 @@ int gcm_decrypt(
   EVP_CIPHER_CTX * ctx;
 
   if( FD_UNLIKELY( !( ctx = EVP_CIPHER_CTX_new() ) ) ) {
-    FD_DEBUG( FD_LOG_ERR( ( "EVP_CIPHER_CTX_new failed. Error: %s", fd_quic_openssl_strerror() ) ) );
+    FD_DEBUG( FD_LOG_WARNING( ( "EVP_CIPHER_CTX_new failed. Error: %s", fd_quic_openssl_strerror() ) ) );
     return FD_QUIC_FAILED;
   }
 
   if( FD_UNLIKELY( !EVP_DecryptInit_ex( ctx, cipher, NULL, key, iv ) ) ) {
-    FD_DEBUG( FD_LOG_ERR( ( "EVP_DecryptInit_ex failed. Error: %s", fd_quic_openssl_strerror() ) ) );
+    FD_DEBUG( FD_LOG_WARNING( ( "EVP_DecryptInit_ex failed. Error: %s", fd_quic_openssl_strerror() ) ) );
     return FD_QUIC_FAILED;
   }
 
   int len;
   if( FD_UNLIKELY( !EVP_DecryptUpdate( ctx, NULL, &len, aad, aad_len ) ) ) {
-    FD_DEBUG( FD_LOG_ERR( ( "EVP_DecryptUpdate (AAD) failed. Error: %s", fd_quic_openssl_strerror() ) ) );
+    FD_DEBUG( FD_LOG_WARNING( ( "EVP_DecryptUpdate (AAD) failed. Error: %s", fd_quic_openssl_strerror() ) ) );
     return FD_QUIC_FAILED;
   }
 
   if( FD_UNLIKELY( !EVP_DecryptUpdate( ctx, plaintext, &len, ciphertext, ciphertext_len ) ) ) {
-    FD_DEBUG( FD_LOG_ERR( ( "EVP_DecryptUpdate (ciphertext) failed. Error: %s", fd_quic_openssl_strerror() ) ) );
+    FD_DEBUG( FD_LOG_WARNING( ( "EVP_DecryptUpdate (ciphertext) failed. Error: %s", fd_quic_openssl_strerror() ) ) );
     return FD_QUIC_FAILED;
   }
 
   int plaintext_len = len;
   if( FD_UNLIKELY( !EVP_CIPHER_CTX_ctrl( ctx, EVP_CTRL_GCM_SET_TAG, FD_QUIC_CRYPTO_TAG_SZ, tag ) ) ) {
-    FD_DEBUG( FD_LOG_ERR( ( "EVP_CIPHER_CTX_ctrl (get tag) failed. Error: %s", fd_quic_openssl_strerror() ) ) );
+    FD_DEBUG( FD_LOG_WARNING( ( "EVP_CIPHER_CTX_ctrl (get tag) failed. Error: %s", fd_quic_openssl_strerror() ) ) );
     return FD_QUIC_FAILED;
   }
 
   int rc = EVP_DecryptFinal_ex( ctx, plaintext + len, &len );
   if( FD_UNLIKELY( rc <= 0 ) ) {
-    FD_DEBUG( FD_LOG_DEBUG( ( "EVP_DecryptFinal_ex failed. Error: %s", fd_quic_openssl_strerror() ) ) );
+    FD_DEBUG( FD_LOG_WARNING( ( "EVP_DecryptFinal_ex failed. Error: %s", fd_quic_openssl_strerror() ) ) );
     return FD_QUIC_FAILED;
   }
   plaintext_len += len;
