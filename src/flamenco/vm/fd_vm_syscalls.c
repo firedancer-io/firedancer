@@ -719,20 +719,17 @@ ulong
 fd_vm_syscall_sol_get_clock_sysvar(
     void *  _ctx,
     ulong   out_addr,
-    ulong   r2,
-    ulong   r3,
-    ulong   r4,
-    ulong   r5,
+    ulong   r2 __attribute__((unused)),
+    ulong   r3 __attribute__((unused)),
+    ulong   r4 __attribute__((unused)),
+    ulong   r5 __attribute__((unused)),
     ulong * pr0 ) {
 
-  (void)r2; (void) r3; (void)r4; (void)r5;
   fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
   FD_TEST( ctx->instr_ctx.instr );  /* TODO */
 
   fd_sol_sysvar_clock_t clock;
   fd_sysvar_clock_read( ctx->instr_ctx.global, &clock );
-
-  /* TODO alignment check */
 
   void * out = fd_vm_translate_vm_to_host(
       ctx,
@@ -740,7 +737,6 @@ fd_vm_syscall_sol_get_clock_sysvar(
       sizeof(fd_sol_sysvar_clock_t),
       FD_SOL_SYSVAR_CLOCK_ALIGN );
   if( FD_UNLIKELY( !out ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
-
   memcpy( out, &clock, sizeof(fd_sol_sysvar_clock_t ) );
 
   *pr0 = 0UL;
@@ -751,20 +747,25 @@ ulong
 fd_vm_syscall_sol_get_epoch_schedule_sysvar(
     void *  _ctx,
     ulong   out_addr,
-    ulong   r2,
-    ulong   r3,
-    ulong   r4,
-    ulong   r5,
+    ulong   r2 __attribute__((unused)),
+    ulong   r3 __attribute__((unused)),
+    ulong   r4 __attribute__((unused)),
+    ulong   r5 __attribute__((unused)),
     ulong * pr0 ) {
 
-  (void)r2; (void) r3; (void)r4; (void)r5;
   fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
   FD_TEST( ctx->instr_ctx.instr );  /* TODO */
 
   fd_epoch_schedule_t schedule;
   fd_sysvar_epoch_schedule_read( ctx->instr_ctx.global, &schedule );
 
-  (void)out_addr;  /* TODO */
+  void * out = fd_vm_translate_vm_to_host(
+      ctx,
+      out_addr,
+      sizeof(fd_epoch_schedule_t),
+      FD_EPOCH_SCHEDULE_ALIGN );
+  if( FD_UNLIKELY( !out ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
+  memcpy( out, &schedule, sizeof(fd_epoch_schedule_t) );
 
   *pr0 = 0UL;
   return FD_VM_SYSCALL_SUCCESS;
@@ -774,17 +775,25 @@ ulong
 fd_vm_syscall_sol_get_fees_sysvar(
     void *  _ctx,
     ulong   out_addr,
-    ulong   r2,
-    ulong   r3,
-    ulong   r4,
-    ulong   r5,
+    ulong   r2 __attribute__((unused)),
+    ulong   r3 __attribute__((unused)),
+    ulong   r4 __attribute__((unused)),
+    ulong   r5 __attribute__((unused)),
     ulong * pr0 ) {
 
-  (void)r2; (void) r3; (void)r4; (void)r5;
   fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
   FD_TEST( ctx->instr_ctx.instr );  /* TODO */
 
-  (void)out_addr; /* TODO */
+  fd_sysvar_fees_t fees;
+  fd_sysvar_fees_read( ctx->instr_ctx.global, &fees );
+
+  void * out = fd_vm_translate_vm_to_host(
+      ctx,
+      out_addr,
+      sizeof(fd_sysvar_fees_t),
+      FD_SYSVAR_FEES_ALIGN );
+  if( FD_UNLIKELY( !out ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
+  memcpy( out, &fees, sizeof(fd_sysvar_fees_t) );
 
   *pr0 = 0UL;
   return FD_VM_SYSCALL_SUCCESS;
@@ -794,17 +803,25 @@ ulong
 fd_vm_syscall_sol_get_rent_sysvar(
     void *  _ctx,
     ulong   out_addr,
-    ulong   r2,
-    ulong   r3,
-    ulong   r4,
-    ulong   r5,
+    ulong   r2 __attribute__((unused)),
+    ulong   r3 __attribute__((unused)),
+    ulong   r4 __attribute__((unused)),
+    ulong   r5 __attribute__((unused)),
     ulong * pr0 ) {
 
-  (void)r2; (void) r3; (void)r4; (void)r5;
   fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
   FD_TEST( ctx->instr_ctx.instr );  /* TODO */
 
-  (void)out_addr; /* TODO */
+  fd_rent_t rent;
+  fd_sysvar_rent_read( ctx->instr_ctx.global, &rent );
+
+  void * out = fd_vm_translate_vm_to_host(
+      ctx,
+      out_addr,
+      sizeof(fd_rent_t),
+      FD_RENT_ALIGN );
+  if( FD_UNLIKELY( !out ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
+  memcpy( out, &rent, sizeof(fd_rent_t) );
 
   *pr0 = 0UL;
   return FD_VM_SYSCALL_SUCCESS;

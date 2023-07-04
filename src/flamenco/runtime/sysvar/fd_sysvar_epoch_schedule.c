@@ -71,7 +71,9 @@ fd_sysvar_epoch_schedule_read( fd_global_ctx_t *     global,
   ctx.dataend = raw_acc_data + metadata.dlen;
   ctx.allocf = global->allocf;
   ctx.allocf_arg = global->allocf_arg;
-  if ( fd_epoch_schedule_decode( result, &ctx ) )
+
+  fd_epoch_schedule_new( result );
+  if( FD_UNLIKELY( fd_epoch_schedule_decode( result, &ctx ) ) )
     FD_LOG_ERR(("fd_epoch_schedule_decode failed"));
 }
 
