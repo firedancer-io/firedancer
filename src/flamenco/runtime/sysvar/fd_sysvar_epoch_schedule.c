@@ -2,13 +2,6 @@
 #include "../../../flamenco/types/fd_types.h"
 #include "fd_sysvar.h"
 
-/* fd_ulong_align_up_pow2 aligns up to the next power of two. */
-
-static inline ulong
-fd_ulong_align_up_pow2( ulong x ) {
-  return 1UL << ( fd_ulong_find_msb( x-1UL ) + 1 );
-}
-
 fd_epoch_schedule_t *
 fd_epoch_schedule_derive( fd_epoch_schedule_t * schedule,
                           ulong                 epoch_len,
