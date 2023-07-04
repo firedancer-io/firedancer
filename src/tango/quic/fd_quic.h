@@ -680,7 +680,8 @@ uint fd_quic_tx_buffered_raw(fd_quic_t *quic,
 #include "fd_quic_conn.h"
 #include "fd_quic_stream.h"
 
-/* FD_DEBUG_MODE: set to enable debug-only code */
+/* FD_DEBUG_MODE: set to enable debug-only code
+   TODO move to util? */
 #ifndef FD_DEBUG_MODE
 #define FD_DEBUG(...) __VA_ARGS__
 #else
