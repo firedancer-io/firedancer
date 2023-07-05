@@ -1331,7 +1331,10 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
               pkt->udp->net_sport,
               retry_pkt.retry_token
           );
-          if( FD_UNLIKELY( rc == FD_QUIC_FAILED ) ) return FD_QUIC_PARSE_FAIL;
+          if( FD_UNLIKELY( rc == FD_QUIC_FAILED ) ) {
+            quic->metrics.conn_err_retry_fail_cnt++;
+            return FD_QUIC_PARSE_FAIL;
+          }
 
           /* Retry integrity tag */
           fd_quic_retry_pseudo_t retry_pseudo_pkt = {
@@ -1387,6 +1390,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
             1
           ) == FD_QUIC_FAILED)) {
             FD_LOG_WARNING(("Failed to tx retry pkt"));
+            quic->metrics.conn_err_retry_fail_cnt++;
             return FD_QUIC_FAILED;
           };
           return (initial->pkt_num_pnoff + initial->len);
@@ -1395,7 +1399,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
         /* Otherwise this is the initial packet _after_ retry, i.e. the client's response to retry
            (which is also an initial packet). */
         if( FD_UNLIKELY( initial->token_len != FD_QUIC_RETRY_TOKEN_SZ ) ) {
-          quic->metrics.retry_pkt_cnt++;
+          quic->metrics.conn_err_retry_fail_cnt++;
           /* The server SHOULD immediately close (Section 10.2) the connection
              with an INVALID_TOKEN error */
           fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_INVALID_TOKEN );
@@ -1411,6 +1415,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
         fd_quic_conn_id_t retry_odcid;
         ulong issued;
         if (FD_UNLIKELY(fd_quic_retry_token_decrypt((uchar *) initial->token, &retry_src_conn_id, dst_ip_addr, dst_udp_port, &retry_odcid, &issued))) {
+          quic->metrics.conn_err_retry_fail_cnt++;
           return FD_QUIC_PARSE_FAIL;
         };
         tp->original_destination_connection_id_len     = retry_odcid.sz;
@@ -1419,8 +1424,10 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
           retry_odcid.sz );
         ulong now = fd_quic_now(quic);
         if ( FD_UNLIKELY( now < issued || ( now - issued ) > FD_QUIC_RETRY_TOKEN_LIFETIME ) ) {
+          quic->metrics.conn_err_retry_fail_cnt++;
           return FD_QUIC_PARSE_FAIL;
         }
+        quic->metrics.conn_retry_cnt++;
       }
 
       /* Allocate new conn */
@@ -1456,7 +1463,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
           tp );
       if( FD_UNLIKELY( tp_rc == FD_QUIC_ENCODE_FAIL ) ) {
         /* FIXME log error in counters */
-        conn->state = FD_QUIC_CONN_STATE_DEAD;
+        fd_quic_conn_close(conn, FD_QUIC_CONN_REASON_TRANSPORT_PARAMETER_ERROR);
         return FD_QUIC_PARSE_FAIL;
       }
       ulong transport_params_raw_sz = tp_rc;
@@ -1472,6 +1479,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
           transport_params_raw_sz );
       if( !tls_hs ) {
         conn->state = FD_QUIC_CONN_STATE_DEAD;
+        quic->metrics.conn_aborted_cnt++;
         quic->metrics.hs_err_alloc_fail_cnt++;
         FD_DEBUG( FD_LOG_WARNING(( "fd_quic_tls_hs_new failed" )) );
         return FD_QUIC_PARSE_FAIL;
@@ -1479,7 +1487,9 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
       conn->tls_hs = tls_hs;
 
       if (FD_UNLIKELY(fd_quic_gen_initial_secret_and_keys(suite, conn, &orig_dst_conn_id)) == FD_QUIC_FAILED) {
-        conn->state = FD_QUIC_CONN_STATE_DEAD;
+        conn->state = FD_QUIC_CONN_STATE_DEAD;   
+        quic->metrics.conn_aborted_cnt++;
+        quic->metrics.conn_err_tls_fail_cnt++;
         FD_DEBUG( FD_LOG_WARNING(( "fd_quic_gen_initial_secret_and_keys failed" )) );
         return FD_QUIC_PARSE_FAIL;
       }
@@ -1549,6 +1559,8 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
          it to be reaped */
       FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_crypto_decrypt_hdr failed" )) );
       conn->state = FD_QUIC_CONN_STATE_DEAD;
+      quic->metrics.conn_aborted_cnt++;
+      quic->metrics.conn_err_tls_fail_cnt++;
       return FD_QUIC_PARSE_FAIL;
     }
 
@@ -1590,6 +1602,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
                                 suite,
                                 &conn->keys[enc_level][!server] ) != FD_QUIC_SUCCESS ) {
       FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_crypto_decrypt failed" )) );
+      quic->metrics.conn_err_tls_fail_cnt++;
       return FD_QUIC_PARSE_FAIL;
     }
   }
@@ -1750,6 +1763,7 @@ fd_quic_handle_v1_handshake(
                                     &conn->keys[enc_level][!server] ) != FD_QUIC_SUCCESS ) {
       /* remove connection from map, and insert into free list */
       FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_crypto_decrypt_hdr failed" )) );
+      quic->metrics.conn_err_tls_fail_cnt++;
       return FD_QUIC_PARSE_FAIL;
     }
 
@@ -1792,6 +1806,7 @@ fd_quic_handle_v1_handshake(
                                 &conn->keys[enc_level][!server] ) != FD_QUIC_SUCCESS ) {
       /* remove connection from map, and insert into free list */
       FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_crypto_decrypt failed" )) );
+      quic->metrics.conn_err_tls_fail_cnt++;
       return FD_QUIC_PARSE_FAIL;
     }
   }
@@ -1900,6 +1915,8 @@ ulong fd_quic_handle_v1_retry(
   if (FD_UNLIKELY(fd_quic_gen_initial_secret_and_keys(suite, conn, &retry_src_conn_id)) == FD_QUIC_FAILED)
   {
     conn->state = FD_QUIC_CONN_STATE_DEAD;
+    quic->metrics.conn_aborted_cnt++;
+    quic->metrics.conn_err_tls_fail_cnt++;
     return FD_QUIC_PARSE_FAIL;
   }
   /* The token length is the remaining bytes in the retry packet after subtracting known fields. */
@@ -2018,6 +2035,7 @@ fd_quic_handle_v1_one_rtt( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_pkt_
                                     &conn->keys[enc_level][!server] ) != FD_QUIC_SUCCESS ) {
       /* remove connection from map, and insert into free list */
       FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_crypto_decrypt_hdr failed" )) );
+      quic->metrics.conn_err_tls_fail_cnt++;
       return FD_QUIC_PARSE_FAIL;
     }
 
@@ -2120,6 +2138,7 @@ fd_quic_handle_v1_one_rtt( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_pkt_
                                 keys ) != FD_QUIC_SUCCESS ) {
       /* remove connection from map, and insert into free list */
       FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_crypto_decrypt failed" )) );
+      quic->metrics.conn_err_tls_fail_cnt++;
       return FD_QUIC_PARSE_FAIL;
     }
   }
@@ -2829,6 +2848,8 @@ fd_quic_tls_cb_secret( fd_quic_tls_hs_t *           hs,
           != FD_QUIC_SUCCESS ) {
       /* set state to DEAD to reclaim connection */
       conn->state = FD_QUIC_CONN_STATE_DEAD;
+      quic->metrics.conn_aborted_cnt++;
+      quic->metrics.conn_err_tls_fail_cnt++;
       FD_LOG_WARNING(( "fd_quic_gen_keys failed on client" ));
     }
 
@@ -2840,6 +2861,8 @@ fd_quic_tls_cb_secret( fd_quic_tls_hs_t *           hs,
         conn->secrets.secret_sz[ enc_level ][1] ) ) != FD_QUIC_SUCCESS ) {
       /* set state to DEAD to reclaim connection */
       conn->state = FD_QUIC_CONN_STATE_DEAD;
+      quic->metrics.conn_aborted_cnt++;
+      quic->metrics.conn_err_tls_fail_cnt++;
       FD_LOG_WARNING(( "fd_quic_gen_keys failed on server" ));
     }
 
@@ -2966,6 +2989,8 @@ fd_quic_frame_handle_crypto_frame( void *                   vp_context,
   if( FD_LIKELY( rcv_offset <= exp_offset && rcv_offset + rcv_sz > exp_offset ) ) {
     if( !conn->tls_hs ) {
       conn->state = FD_QUIC_CONN_STATE_DEAD;
+      conn->quic->metrics.conn_aborted_cnt++;
+      conn->quic->metrics.conn_err_tls_fail_cnt++;
       return FD_QUIC_TLS_FAILED;
     }
 
@@ -3063,6 +3088,7 @@ fd_quic_service( fd_quic_t * quic ) {
          when it remains idle for longer than the minimum of the
          max_idle_timeout value advertised by both endpoints." */
       conn->state = FD_QUIC_CONN_STATE_DEAD;
+      quic->metrics.conn_aborted_cnt++;
     } else {
       fd_quic_conn_service( quic, conn, now );
     }
@@ -3214,6 +3240,9 @@ fd_quic_tx_buffered_raw(
 
 
   quic->metrics.net_tx_pkt_cnt += aio_rc==FD_AIO_SUCCESS;
+  if (FD_LIKELY (aio_rc==FD_AIO_SUCCESS) ) {
+    quic->metrics.net_tx_byte_cnt += aio_buf.buf_sz;
+  }
 
   return FD_QUIC_SUCCESS; /* success */
 }
@@ -3569,6 +3598,7 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
            this connection is no longer usable
            so set to DEAD to be freed cleanly */
         conn->state = FD_QUIC_CONN_STATE_DEAD;
+        quic->metrics.conn_aborted_cnt++;
       }
 
       break;
@@ -4244,7 +4274,7 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
       /* this situation is unlikely to improve, so kill the connection */
       conn->state = FD_QUIC_CONN_STATE_DEAD;
       quic->metrics.conn_aborted_cnt++;
-
+      quic->metrics.conn_err_tls_fail_cnt++;
       break;
     }
 
@@ -4360,6 +4390,7 @@ fd_quic_conn_service( fd_quic_t * quic, fd_quic_conn_t * conn, ulong now ) {
             /* mark as DEAD, and allow it to be cleaned up */
             conn->state = FD_QUIC_CONN_STATE_DEAD;
             fd_quic_reschedule_conn( conn, 0 );
+            quic->metrics.conn_aborted_cnt++;
             quic->metrics.conn_err_tls_fail_cnt++;
             return;
           }
@@ -4654,7 +4685,10 @@ fd_quic_connect( fd_quic_t *  quic,
           &state->crypto_ctx->suites[TLS_AES_128_GCM_SHA256_ID];
   if (FD_UNLIKELY(fd_quic_gen_initial_secret_and_keys(suite, conn, &peer_conn_id)) == FD_QUIC_FAILED)
   {
+    fd_quic_conn_close(conn, FD_QUIC_CONN_REASON_CRYPTO_BASE);
     conn->state = FD_QUIC_CONN_STATE_DEAD;
+    quic->metrics.conn_err_tls_fail_cnt++;
+    quic->metrics.conn_aborted_cnt++;
     goto fail_tls_hs;
   }
 
