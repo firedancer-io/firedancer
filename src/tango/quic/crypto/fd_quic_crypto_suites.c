@@ -616,7 +616,7 @@ fd_quic_openssl_strerror( void ) {
    * so disaabling this for now
    * TODO fix */
 #if 1
-  static char errbuf[ 256UL ];  /* openssl docs state buf >= 256 bytes */
+  static char errbuf[ 256UL ];  /* openssl docs state buf <= 256 bytes */
   errbuf[ 0 ] = '\0';
 
   ulong err_id = ERR_get_error();
