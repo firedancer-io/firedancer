@@ -7,6 +7,7 @@
 #include "../../ballet/base58/fd_base58.h"
 #include "../../ballet/murmur3/fd_murmur3.h"
 #include "../../ballet/sbpf/fd_sbpf_maps.c"
+#include "fd_vm_context.h"
 #include "fd_vm_cpi.h"
 #include "../runtime/sysvar/fd_sysvar.h"
 
@@ -47,12 +48,12 @@ fd_vm_syscall_register_all( fd_sbpf_syscalls_t * syscalls ) {
   fd_vm_register_syscall( syscalls, "sol_memset_",            fd_vm_syscall_sol_memset  );
   fd_vm_register_syscall( syscalls, "sol_memmove_",           fd_vm_syscall_sol_memmove );
 
-  fd_vm_register_syscall( syscalls, "sol_invoke_signed_c",           fd_vm_syscall_sol_invoke_signed_c    );
-  fd_vm_register_syscall( syscalls, "sol_invoke_signed_rust",        fd_vm_syscall_sol_invoke_signed_rust );
-  fd_vm_register_syscall( syscalls, "sol_alloc_free_",               fd_vm_syscall_sol_alloc_free         );
-  fd_vm_register_syscall( syscalls, "sol_set_return_data",           fd_vm_syscall_sol_set_return_data    );
-  fd_vm_register_syscall( syscalls, "sol_get_return_data",           fd_vm_syscall_sol_get_return_data    );
-  fd_vm_register_syscall( syscalls, "sol_get_stack_height",          fd_vm_syscall_sol_get_stack_height   );
+  fd_vm_register_syscall( syscalls, "sol_invoke_signed_c",           fd_vm_syscall_cpi_c                );
+  fd_vm_register_syscall( syscalls, "sol_invoke_signed_rust",        fd_vm_syscall_cpi_rust             );
+  fd_vm_register_syscall( syscalls, "sol_alloc_free_",               fd_vm_syscall_sol_alloc_free       );
+  fd_vm_register_syscall( syscalls, "sol_set_return_data",           fd_vm_syscall_sol_set_return_data  );
+  fd_vm_register_syscall( syscalls, "sol_get_return_data",           fd_vm_syscall_sol_get_return_data  );
+  fd_vm_register_syscall( syscalls, "sol_get_stack_height",          fd_vm_syscall_sol_get_stack_height );
 
   fd_vm_register_syscall( syscalls, "sol_get_clock_sysvar",          fd_vm_syscall_sol_get_clock_sysvar          );
   fd_vm_register_syscall( syscalls, "sol_get_epoch_schedule_sysvar", fd_vm_syscall_sol_get_epoch_schedule_sysvar );
@@ -129,12 +130,12 @@ fd_vm_syscall_sol_sha256(
   /* TODO don't hardcode limit */
   if( FD_UNLIKELY( slices_cnt > 20000UL ) )
     return FD_VM_SYSCALL_ERR_INVAL;
-  ulong slices_sz = slices_cnt * sizeof(fd_vm_rust_slice_t);
+  ulong slices_sz = slices_cnt * sizeof(fd_vm_vec_t);
 
-  fd_vm_rust_slice_t const * slices =
-      fd_vm_translate_vm_to_host_const( ctx, slices_vaddr, slices_sz, FD_VM_RUST_SLICE_ALIGN );
+  fd_vm_vec_t const * slices =
+      fd_vm_translate_vm_to_host_const( ctx, slices_vaddr, slices_sz, FD_VM_VEC_ALIGN );
   void * hash =
-      fd_vm_translate_vm_to_host      ( ctx, res_vaddr,    32UL,      alignof(uchar)         );
+      fd_vm_translate_vm_to_host      ( ctx, res_vaddr,    32UL,      alignof(uchar)  );
 
   if( FD_UNLIKELY( (!slices) | (!hash) ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
 
@@ -169,12 +170,12 @@ fd_vm_syscall_sol_keccak256(
   /* TODO don't hardcode limit */
   if( FD_UNLIKELY( slices_cnt > 20000UL ) )
     return FD_VM_SYSCALL_ERR_INVAL;
-  ulong slices_sz = slices_cnt * sizeof(fd_vm_rust_slice_t);
+  ulong slices_sz = slices_cnt * sizeof(fd_vm_vec_t);
 
-  fd_vm_rust_slice_t const * slices =
-      fd_vm_translate_vm_to_host_const( ctx, slices_vaddr, slices_sz, FD_VM_RUST_SLICE_ALIGN );
+  fd_vm_vec_t const * slices =
+      fd_vm_translate_vm_to_host_const( ctx, slices_vaddr, slices_sz, FD_VM_VEC_ALIGN );
   void * hash =
-      fd_vm_translate_vm_to_host      ( ctx, res_vaddr,    32UL,      alignof(uchar)         );
+      fd_vm_translate_vm_to_host      ( ctx, res_vaddr,    32UL,      alignof(uchar)  );
 
   if( FD_UNLIKELY( (!slices) | (!hash) ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
 
@@ -209,12 +210,12 @@ fd_vm_syscall_sol_blake3(
   /* TODO don't hardcode limit */
   if( FD_UNLIKELY( slices_cnt > 20000UL ) )
     return FD_VM_SYSCALL_ERR_INVAL;
-  ulong slices_sz = slices_cnt * sizeof(fd_vm_rust_slice_t);
+  ulong slices_sz = slices_cnt * sizeof(fd_vm_vec_t);
 
-  fd_vm_rust_slice_t const * slices =
-      fd_vm_translate_vm_to_host_const( ctx, slices_vaddr, slices_sz, FD_VM_RUST_SLICE_ALIGN );
+  fd_vm_vec_t const * slices =
+      fd_vm_translate_vm_to_host_const( ctx, slices_vaddr, slices_sz, FD_VM_VEC_ALIGN );
   void * hash =
-      fd_vm_translate_vm_to_host      ( ctx, res_vaddr,    32UL,      alignof(uchar)         );
+      fd_vm_translate_vm_to_host      ( ctx, res_vaddr,    32UL,      alignof(uchar)  );
 
   if( FD_UNLIKELY( (!slices) | (!hash) ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
 
@@ -451,21 +452,310 @@ fd_vm_syscall_sol_memmove(
   return FD_VM_SYSCALL_SUCCESS;
 }
 
+/**********************************************************************
+   CROSS PROGRAM INVOCATION (Generic logic)
+ **********************************************************************/
+
+/* FD_CPI_MAX_SIGNER_CNT is the max amount of PDA signer addresses that
+   a cross-program invocation can include in an instruction. */
+
+#define FD_CPI_MAX_SIGNER_CNT (16UL)
+
+/* fd_vm_syscall_cpi_preflight_check contains common argument checks
+   for cross-program invocations.
+
+   Solana Labs does these checks after address translation.
+   We do them before to avoid length overflow.  Reordering checks can
+   change the error code, but this is fine as consensus only cares about
+   whether an error occurred at all or not. */
+
+static ulong
+fd_vm_syscall_cpi_preflight_check( ulong signers_seeds_cnt,
+                                   ulong acct_info_cnt ) {
+
+  /* TODO use MAX_SIGNERS constant */
+
+  if( FD_UNLIKELY( signers_seeds_cnt > FD_CPI_MAX_SIGNER_CNT ) ) {
+    FD_LOG_WARNING(("TODO: return too many signers" ));
+    return FD_VM_SYSCALL_ERR_INVAL;
+  }
+
+  if( FD_UNLIKELY( acct_info_cnt > 64UL ) ) {
+    FD_LOG_ERR(( "TODO: return max instruction account infos exceeded" ));
+    return FD_VM_SYSCALL_ERR_INVAL;
+  }
+
+  return FD_VM_SYSCALL_SUCCESS;
+}
+
+/* fd_vm_syscall_cpi_check_instruction contains common instruction acct
+   count and data sz checks.  Also consumes compute units proportional
+   to instruction data size. */
+
+static ulong
+fd_vm_syscall_cpi_check_instruction( fd_vm_exec_context_t const * ctx,
+                                     ulong                        acct_cnt,
+                                     ulong                        data_sz ) {
+
+  if( ctx->instr_ctx.global->features.loosen_cpi_size_restriction ) {
+    if( FD_UNLIKELY( data_sz > 0x2800UL ) ) {
+      FD_LOG_WARNING(( "cpi: data too long (%#lx)", data_sz ));
+      return FD_VM_SYSCALL_ERR_INVAL;
+    }
+    if( FD_UNLIKELY( acct_cnt > 0xFFUL ) ) {
+      FD_LOG_WARNING(( "cpi: too many accounts (%#lx)", acct_cnt ));
+      return FD_VM_SYSCALL_ERR_INVAL;
+    }
+  } else {
+    ulong tot_sz;
+    int too_long  = __builtin_umull_overflow( acct_cnt, sizeof(fd_vm_c_account_meta_t), &tot_sz );
+        too_long |= __builtin_uaddl_overflow( tot_sz, data_sz, &tot_sz );
+    if( FD_UNLIKELY( too_long ) ) {
+      FD_LOG_WARNING(( "cpi: instruction too long (%#lx)", tot_sz ));
+      return FD_VM_SYSCALL_ERR_INVAL;
+    }
+  }
+
+  return FD_VM_SYSCALL_SUCCESS;
+}
+
+/* fd_vm_syscall_pdas_t is buffer holding program derived accounts. */
+
+struct fd_vm_syscall_pdas_t {
+  ulong         idx;  /* <=FD_CPI_MAX_SIGNER_CNT */
+  fd_pubkey_t * keys; /* cnt==FD_CPI_MAX_SIGNER_CNT */
+  fd_sha256_t   sha[1];
+};
+
+typedef struct fd_vm_syscall_pdas_t fd_vm_syscall_pdas_t;
+
+/* fd_vm_syscall_pdas_{new,join,leave,delete} follows the Firedancer
+   object lifecycle pattern. */
+
+static inline void *
+fd_vm_syscall_pdas_new( void *        mem,
+                        fd_pubkey_t * keys ) {
+
+  fd_vm_syscall_pdas_t * pdas = (fd_vm_syscall_pdas_t *)mem;
+  *pdas = (fd_vm_syscall_pdas_t) {
+    .idx  = 0UL,
+    .keys = keys
+  };
+
+  fd_sha256_new( &pdas->sha );
+
+  return mem;
+}
+
+static inline fd_vm_syscall_pdas_t * fd_vm_syscall_pdas_join( void * mem ) { return (fd_vm_syscall_pdas_t *)mem; }
+static inline void * fd_vm_syscall_pdas_leave( fd_vm_syscall_pdas_t * pdas ) { return (void *)pdas; }
+static inline void * fd_vm_syscall_pdas_delete( fd_vm_syscall_pdas_t * pdas ) { return (void *)pdas; }
+
+/* fd_vm_syscall_pda_next starts the calculation of a program derived
+   address.  Panics if called more than FD_CPI_MAX_SIGNER_CNT times. */
+
+static void
+fd_vm_syscall_pda_next( fd_vm_exec_context_t const * ctx,
+                        fd_vm_syscall_pdas_t *       pdas ) {
+  FD_TEST( pdas->idx < FD_CPI_MAX_SIGNER_CNT );
+
+  fd_sha256_t * sha = fd_sha256_join( pdas->sha );
+  fd_sha256_init  ( sha );
+  fd_sha256_append( sha, &ctx->instr_ctx.txn_ctx->txn_raw[ ctx->instr_ctx.instr->program_id ], sizeof(fd_pubkey_t) );
+  fd_sha256_leave ( sha );
+}
+
+/* fd_vm_syscall_pda_seed_append adds a seed to the hash state that will
+   eventually produce the program derived address. */
+
+static void
+fd_vm_syscall_pda_seed_append( fd_vm_syscall_pdas_t * pdas,
+                               uchar const *          piece,
+                               ulong                  piece_sz ) {
+  fd_sha256_leave( fd_sha256_append( fd_sha256_join( pdas->sha ), piece, piece_sz ) );
+}
+
+/* fd_vm_syscall_pda_fini finalizes the current PDA calculation.
+   Returns pointer to resulting pubkey on success.  Pointer is valid for
+   duration of join.  On failure, returns NULL.  Reasons for failure
+   include address is not a valid PDA. */
+
+static fd_pubkey_t const *
+fd_vm_syscall_pda_fini( fd_vm_syscall_pdas_t * pdas ) {
+  fd_pubkey_t * pda = &pdas->keys[ pdas->idx ];
+
+  fd_sha256_t * sha = fd_sha256_join( pdas->sha );
+  /* TODO use char const[] symbol for PDA marker */
+  fd_sha256_append( sha, "ProgramDerivedAddress", 21UL );
+  fd_sha256_fini  ( sha, pda->uc );
+  fd_sha256_leave ( sha );
+
+  /* A PDA is valid if is not an Ed25519 curve point */
+  if( FD_UNLIKELY(fd_ed25519_validate_public_key( pda->key ) != 0) ) return NULL;
+
+  pdas->idx++;
+  return (fd_pubkey_t const *)pda;
+}
+
+/* fd_vm_syscall_cpi_derive_signers loads a vector of PDA derive
+   paths provided by the user.  Part of fd_vm_syscall_cpi_{c,rust}.
+   This code was implemented twice in Solana Labs (for C and Rust ABIs
+   respectively), but the logic is identical. */
+
+static ulong
+fd_vm_syscall_cpi_derive_signers_( fd_vm_exec_context_t * ctx,
+                                   fd_vm_syscall_pdas_t * pdas,
+                                   ulong signers_seeds_va,
+                                   ulong signers_seeds_cnt ) {
+
+  /* Translate array of seeds.  Each seed is an array of byte arrays. */
+  fd_vm_vec_t const * seeds = fd_vm_translate_vm_to_host_const(
+      ctx,
+      signers_seeds_va,
+      signers_seeds_cnt * sizeof(fd_vm_vec_t),
+      FD_VM_VEC_ALIGN );
+  if( FD_UNLIKELY( !seeds ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
+
+  /* Create program addresses.
+      TODO use MAX_SIGNERS constant */
+
+  for( ulong i=0UL; i<signers_seeds_cnt; i++ ) {
+
+    /* Check seed count (avoid overflow) */
+    /* TODO use constant */
+    if( FD_UNLIKELY( seeds[i].len > 16UL ) ) return FD_VM_SYSCALL_ERR_INVAL;
+
+    /* Translate inner seed slice.  Each element points to a byte array. */
+    fd_vm_vec_t const * seed = fd_vm_translate_vm_to_host_const(
+        ctx,
+        seeds[i].addr,
+        seeds[i].len * sizeof(fd_vm_vec_t),
+        FD_VM_VEC_ALIGN );
+    if( FD_UNLIKELY( !seed ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
+
+    /* Derive PDA */
+
+    fd_vm_syscall_pda_next( ctx, pdas );
+
+    for( ulong i=0UL; i < seeds->len; i++ ) {
+      /* Check seed limb length */
+      /* TODO use constant */
+      if( FD_UNLIKELY( seed[i].len > 32 ) ) return FD_VM_SYSCALL_ERR_INVAL;
+
+      /* Translate inner seed limb (type &[u8]) */
+      uchar const * seed_limb = fd_vm_translate_vm_to_host_const(
+          ctx,
+          seed[i].addr,
+          seed[i].len,
+          alignof(uchar) );
+      if( FD_UNLIKELY( !seed_limb ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
+
+      fd_vm_syscall_pda_seed_append( pdas, seed_limb, seed[i].len );
+    }
+
+    if( FD_UNLIKELY( !fd_vm_syscall_pda_fini( pdas ) ) )
+      return FD_VM_SYSCALL_ERR_INVAL;
+  }
+
+  return FD_VM_SYSCALL_SUCCESS;
+}
+
+static ulong
+fd_vm_syscall_cpi_derive_signers( fd_vm_exec_context_t * ctx,
+                                  fd_pubkey_t *          out,
+                                  ulong                  signers_seeds_va,
+                                    ulong                  signers_seeds_cnt ) {
+
+  fd_vm_syscall_pdas_t _pdas[1];
+  fd_vm_syscall_pdas_t * pdas = fd_vm_syscall_pdas_join( fd_vm_syscall_pdas_new( _pdas, out ) );
+
+  if( signers_seeds_cnt>0UL ) {
+    ulong res = fd_vm_syscall_cpi_derive_signers_( ctx, pdas, signers_seeds_va, signers_seeds_cnt );
+    if( FD_UNLIKELY( res != FD_VM_SYSCALL_SUCCESS ) ) return res;
+  }
+
+  fd_vm_syscall_pdas_delete( fd_vm_syscall_pdas_leave( pdas ) );
+  return FD_VM_SYSCALL_SUCCESS;
+}
+
+/**********************************************************************
+   CROSS PROGRAM INVOCATION (C ABI)
+ **********************************************************************/
+
+/* fd_vm_syscall_cpi_c implements Solana VM syscall sol_invoked_signed_c. */
+
 ulong
-fd_vm_syscall_sol_invoke_signed_c(
-    FD_FN_UNUSED void * _ctx,
-    FD_FN_UNUSED ulong instruction_vaddr,
-    FD_FN_UNUSED ulong acct_infos_vaddr,
-    FD_FN_UNUSED ulong acct_info_cnt,
-    FD_FN_UNUSED ulong signers_seeds_vaddr,
-    FD_FN_UNUSED ulong signers_seeds_cnt,
-    FD_FN_UNUSED ulong * ret
+fd_vm_syscall_cpi_c(
+    void *  _ctx,
+    ulong   instruction_va,
+    ulong   acct_infos_va,
+    ulong   acct_info_cnt,
+    ulong   signers_seeds_va,
+    ulong   signers_seeds_cnt,
+    ulong * pr0
 ) {
+  fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
+
+  /* Pre-flight checks ************************************************/
+
+  ulong res = fd_vm_syscall_cpi_preflight_check( signers_seeds_cnt, acct_info_cnt);
+  if( FD_UNLIKELY( res != FD_VM_SYSCALL_SUCCESS ) ) return res;
+
+  /* Translate instruction ********************************************/
+
+  fd_vm_c_instruction_t const * instruction =
+    fd_vm_translate_vm_to_host_const(
+      ctx,
+      instruction_va,
+      sizeof(fd_vm_c_instruction_t),
+      FD_VM_C_INSTRUCTION_ALIGN );
+  if( FD_UNLIKELY( !instruction ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
+
+  fd_vm_c_account_meta_t const * accounts =
+    fd_vm_translate_vm_to_host_const(
+      ctx,
+      acct_infos_va,
+      acct_info_cnt * sizeof(fd_vm_c_account_meta_t),
+      FD_VM_C_ACCOUNT_META_ALIGN );
+  if( FD_UNLIKELY( !accounts ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
+
+  uchar const * data = fd_vm_translate_vm_to_host_const(
+      ctx,
+      instruction->data.addr,
+      instruction->data.len,
+      alignof(uchar) );
+  if( FD_UNLIKELY( !data ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
+
+  /* Instruction checks ***********************************************/
+
+  res = fd_vm_syscall_cpi_check_instruction( ctx, instruction->accounts.len, instruction->data.len );
+  if( FD_UNLIKELY( res != FD_VM_SYSCALL_SUCCESS ) ) return res;
+
+  /* Translate signers ************************************************/
+
+  /* Order of operations is liberally rearranged.
+     For inputs that cause multiple errors, this means that Solana Labs
+     and Firedancer may return different error codes (as we abort at the
+     first error).  (See above) */
+
+  fd_pubkey_t signers[ FD_CPI_MAX_SIGNER_CNT ];
+  res = fd_vm_syscall_cpi_derive_signers( ctx, signers, signers_seeds_va, signers_seeds_cnt );
+  if( FD_UNLIKELY( res != FD_VM_SYSCALL_SUCCESS ) ) return res;
+
+  /* TODO: Dispatch CPI to executor.
+           For now, we'll just log parameters. */
+
+  FD_LOG_WARNING(( "TODO implement CPIs" ));
+  *pr0 = 0UL;
   return FD_VM_SYSCALL_ERR_UNIMPLEMENTED;
 }
 
+/**********************************************************************
+   CROSS PROGRAM INVOCATION (Rust ABI)
+ **********************************************************************/
+
 ulong
-fd_vm_syscall_sol_invoke_signed_rust(
+fd_vm_syscall_cpi_rust(
     void *  _ctx,
     ulong   instruction_va,
     ulong   acct_infos_va,
@@ -480,34 +770,18 @@ fd_vm_syscall_sol_invoke_signed_rust(
 
   /* Pre-flight checks ************************************************/
 
-  /* Solana Labs does these checks after address translation.
-     We do them before to avoid length overflow.
-     This can change the error code, but consensus does not care -
-     Protocol error conditions are only qualitative, not quantitative. */
-
-  /* Check signer count */
-
-  if( FD_UNLIKELY( signers_seeds_cnt > 11UL ) )
-    /* TODO use MAX_SIGNERS constant */
-    FD_LOG_ERR(("TODO: return too many signers" ));
-
-  /* Check account info count */
-
-  if( FD_UNLIKELY( acct_info_cnt > 64UL ) )
-    FD_LOG_ERR(( "TODO: return max instruction account infos exceeded" ));
+  ulong res = fd_vm_syscall_cpi_preflight_check( signers_seeds_cnt, acct_info_cnt);
+  if( FD_UNLIKELY( res != FD_VM_SYSCALL_SUCCESS ) ) return res;
 
   /* Translate instruction ********************************************/
 
-  /* TODO check alignment */
   fd_vm_rust_instruction_t const * instruction =
     fd_vm_translate_vm_to_host_const(
-      _ctx,
+      ctx,
       instruction_va,
       sizeof(fd_vm_rust_instruction_t),
       FD_VM_RUST_INSTRUCTION_ALIGN );
   if( FD_UNLIKELY( !instruction ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
-
-  /* TODO Check instruction size */
 
   fd_vm_rust_account_meta_t const * accounts =
     fd_vm_translate_vm_to_host_const(
@@ -517,8 +791,6 @@ fd_vm_syscall_sol_invoke_signed_rust(
       FD_VM_RUST_ACCOUNT_META_ALIGN );
   if( FD_UNLIKELY( !accounts ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
 
-  /* TODO consume compute meter proportionally to data sz */
-
   uchar const * data = fd_vm_translate_vm_to_host_const(
       ctx,
       instruction->data.addr,
@@ -526,75 +798,16 @@ fd_vm_syscall_sol_invoke_signed_rust(
       alignof(uchar) );
   if( FD_UNLIKELY( !data ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
 
+  /* Instruction checks ***********************************************/
+
+  res = fd_vm_syscall_cpi_check_instruction( ctx, instruction->accounts.len, instruction->data.len );
+  if( FD_UNLIKELY( res != FD_VM_SYSCALL_SUCCESS ) ) return res;
+
   /* Translate signers ************************************************/
 
-  /* Order of operations is liberally rearranged.
-     For inputs that cause multiple errors, this means that Solana Labs
-     and Firedancer may return different error codes (as we abort at the
-     first error).  Again, we don't mind as consensus is not aware of
-     error codes, but only of the existence of an arbitrary error or
-     success. */
-
-  fd_pubkey_t signers[11];
-  if( signers_seeds_cnt>0UL ) {
-    /* Translate &[&[&[u8]]].
-       Outer slice addr and cnt provided as r4, r5.
-       Inner slice params stored in memory */
-    fd_vm_rust_slice_t const * seeds = fd_vm_translate_vm_to_host_const(
-        ctx,
-        signers_seeds_va,
-        signers_seeds_cnt * sizeof(fd_vm_rust_slice_t),
-        FD_VM_RUST_SLICE_ALIGN );
-    if( FD_UNLIKELY( !seeds ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
-
-    /* Create program addresses.
-       TODO use MAX_SIGNERS constant */
-
-    for( ulong i=0UL; i<signers_seeds_cnt; i++ ) {
-
-      /* Check seed count (avoid overflow) */
-      /* TODO use constant */
-      if( FD_UNLIKELY( seeds[i].len > 16UL ) )
-        FD_LOG_ERR(("TODO: return MaxSeedLengthExceeded" ));
-
-      /* Translate inner seed slice (type &[&[u8]]) */
-      fd_vm_rust_slice_t const * seed = fd_vm_translate_vm_to_host_const(
-          ctx,
-          seeds[i].addr,
-          seeds[i].len,
-          FD_VM_RUST_SLICE_ALIGN );
-      if( FD_UNLIKELY( !seed ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
-
-      /* Derive program address.
-         Matches Pubkey::create_program_address */
-
-      fd_sha256_t _sha[1];
-      fd_sha256_t * sha = fd_sha256_init( fd_sha256_join( fd_sha256_new( _sha ) ) );
-
-      for( ulong i=0UL; i < seeds->len; i++ ) {
-        /* Check seed limb length */
-        /* TODO use constant */
-        if( FD_UNLIKELY( seed[i].len > 32 ) )
-          FD_LOG_ERR(("TODO: return MaxSeedLengthExceeded" ));
-
-        /* Translate inner seed limb (type &[u8]) */
-        uchar const * seed_limb = fd_vm_translate_vm_to_host_const(
-            ctx,
-            seed[i].addr,
-            seed[i].len,
-            alignof(uchar) );
-        if( FD_UNLIKELY( !seed_limb ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
-
-        fd_sha256_append( sha, seed_limb, seed[i].len );
-      }
-
-      /* TODO hash program ID */
-      /* TODO use char const[] symbol for PDA marker */
-      fd_sha256_append( sha, "ProgramDerivedAddress", 21UL );
-      fd_sha256_fini  ( sha, &signers[i].uc );
-      /* TODO check if off curve point */
-    }
-  }
+  fd_pubkey_t signers[ FD_CPI_MAX_SIGNER_CNT ];
+  res = fd_vm_syscall_cpi_derive_signers( ctx, signers, signers_seeds_va, signers_seeds_cnt );
+  if( FD_UNLIKELY( res != FD_VM_SYSCALL_SUCCESS ) ) return res;
 
   /* TODO prepare accounts */
 
@@ -715,6 +928,10 @@ fd_vm_syscall_sol_get_stack_height(
   return FD_VM_SYSCALL_SUCCESS;
 }
 
+/**********************************************************************
+   SYSVAR GETTERS
+ **********************************************************************/
+
 ulong
 fd_vm_syscall_sol_get_clock_sysvar(
     void *  _ctx,
@@ -827,6 +1044,10 @@ fd_vm_syscall_sol_get_rent_sysvar(
   return FD_VM_SYSCALL_SUCCESS;
 }
 
+/**********************************************************************
+   PROGRAM DERIVED ADDRESSES
+ **********************************************************************/
+
 /* fd_vm_partial_derive_address begins the SHA calculation for a program
    derived account address.  sha is an uninitialized, joined SHA state
    object. program_id_vaddr points to the program address in VM address
@@ -856,12 +1077,12 @@ fd_vm_partial_derive_address( fd_vm_exec_context_t * ctx,
 
   /* Translate seed scatter array address */
 
-  fd_vm_rust_slice_t const * seeds = fd_vm_translate_vm_to_host_const(
+  fd_vm_vec_t const * seeds = fd_vm_translate_vm_to_host_const(
       ctx,
       seeds_vaddr,
-      /* no overflow, as seeds_cnt<=16UL */
+      /* no overflow, as fd_vm_vec_t<=16UL */
       seeds_cnt * sizeof(fd_vm_rust_vec_t),
-      FD_VM_RUST_SLICE_ALIGN );
+      FD_VM_VEC_ALIGN );
 
   /* Bail if translation fails */
 

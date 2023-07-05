@@ -111,12 +111,12 @@ FD_VM_SYSCALL_DECL(sol_memmove);
 /* syscall(a22b9c85) "sol_invoke_signed_c"
    Dispatch a cross program invocation.  Inputs are in C ABI. */
 
-FD_VM_SYSCALL_DECL( sol_invoke_signed_c );
+FD_VM_SYSCALL_DECL( cpi_c );
 
 /* syscall(d7449092) "sol_invoke_signed_rust"
    Dispatch a cross program invocation.  Inputs are in Rust ABI. */
 
-FD_VM_SYSCALL_DECL( sol_invoke_signed_rust );
+FD_VM_SYSCALL_DECL( cpi_rust );
 
 FD_VM_SYSCALL_DECL(sol_alloc_free);
 FD_VM_SYSCALL_DECL(sol_set_return_data);

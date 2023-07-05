@@ -10,24 +10,39 @@
    Structs also have alignment requirements in VM address space.  These
    alignments are provided as const macros.  Since we cannot guarantee
    that a type is aligned in host address space even when aligned in
-   VM address space, all, structs support unaligned access
+   VM address space, all structs support unaligned access
    (i.e. alignof(type)==1UL).
 
    Unfortunately, the Solana protocol provides this API twice:
    In a C-style ABI and in Rust ABI. */
 
+/* fd_vm_vec_t is the in-memory representation of a vector descriptor.
+   Equal in layout to the Rust slice header &[_] and various vector
+   types in the C version of the syscall API. */
+
+#define FD_VM_VEC_ALIGN (8UL)
+
+struct __attribute__((packed)) fd_vm_vec {
+  ulong addr;
+  ulong len;
+};
+
+typedef struct fd_vm_vec fd_vm_vec_t;
+
 /* Structs fd_vm_c_{...}_t are part of the C ABI for the cross-program
    invocation syscall API. */
 
+#define FD_VM_C_INSTRUCTION_ALIGN (8UL)
+
 struct __attribute__((packed)) fd_vm_c_instruction {
-  ulong program_id_addr;
-  ulong accounts_addr;
-  ulong accounts_cnt;
-  ulong data_addr;
-  ulong data_sz;
+  ulong       program_id_addr;
+  fd_vm_vec_t accounts;
+  fd_vm_vec_t data;
 };
 
 typedef struct fd_vm_c_instruction fd_vm_c_instruction_t;
+
+#define FD_VM_C_ACCOUNT_META_ALIGN (8UL)
 
 struct __attribute__((packed)) fd_vm_c_account_meta {
   ulong pubkey_addr;
@@ -36,6 +51,8 @@ struct __attribute__((packed)) fd_vm_c_account_meta {
 };
 
 typedef struct fd_vm_c_account_meta fd_vm_c_account_meta_t;
+
+#define FD_VM_C_ACCOUNT_INFO_ALIGN (8UL)
 
 struct __attribute__((packed)) fd_vm_c_account_info {
   ulong key_addr;
@@ -51,26 +68,8 @@ struct __attribute__((packed)) fd_vm_c_account_info {
 
 typedef struct fd_vm_c_account_info fd_vm_c_account_info_t;
 
-struct __attribute__((packed)) fd_vm_c_vec {
-  ulong addr;
-  ulong len;
-};
-
-typedef struct fd_vm_c_vec fd_vm_c_vec_t;
-
 /* Structs fd_vm_rust_{...}_t are part of the Rust ABI for the
    cross-program-invocation syscall API. */
-
-/* fd_vm_rust_slice_t is the in-memory representation of Rust type &[_] */
-
-#define FD_VM_RUST_SLICE_ALIGN (8UL)
-
-struct __attribute__((packed)) fd_vm_rust_slice {
-  ulong addr;
-  ulong len;
-};
-
-typedef struct fd_vm_rust_slice fd_vm_rust_slice_t;
 
 /* fd_vm_rust_vec_t is Rust type Vec<_> using the default allocator. */
 
