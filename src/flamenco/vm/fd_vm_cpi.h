@@ -96,6 +96,8 @@ struct __attribute__((packed)) fd_vm_rust_instruction {
 
 typedef struct fd_vm_rust_instruction fd_vm_rust_instruction_t;
 
+#define FD_VM_RUST_ACCOUNT_META_ALIGN (1UL)
+
 struct __attribute__((packed)) fd_vm_rust_account_meta {
   uchar pubkey[32];
   uchar is_signer;
@@ -103,6 +105,8 @@ struct __attribute__((packed)) fd_vm_rust_account_meta {
 };
 
 typedef struct fd_vm_rust_account_meta fd_vm_rust_account_meta_t;
+
+#define FD_VM_RUST_ACCOUNT_INFO_ALIGN (8UL)
 
 struct __attribute__((packed)) fd_vm_rust_account_info {
   ulong pubkey_addr;          /* points to uchar[32] */

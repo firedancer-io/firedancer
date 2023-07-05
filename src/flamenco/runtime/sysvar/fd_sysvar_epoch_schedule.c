@@ -2,13 +2,6 @@
 #include "../../../flamenco/types/fd_types.h"
 #include "fd_sysvar.h"
 
-/* fd_ulong_align_up_pow2 aligns up to the next power of two. */
-
-static inline ulong
-fd_ulong_align_up_pow2( ulong x ) {
-  return 1UL << ( fd_ulong_find_msb( x-1UL ) + 1 );
-}
-
 fd_epoch_schedule_t *
 fd_epoch_schedule_derive( fd_epoch_schedule_t * schedule,
                           ulong                 epoch_len,
@@ -78,7 +71,9 @@ fd_sysvar_epoch_schedule_read( fd_global_ctx_t *     global,
   ctx.dataend = raw_acc_data + metadata.dlen;
   ctx.allocf = global->allocf;
   ctx.allocf_arg = global->allocf_arg;
-  if ( fd_epoch_schedule_decode( result, &ctx ) )
+
+  fd_epoch_schedule_new( result );
+  if( FD_UNLIKELY( fd_epoch_schedule_decode( result, &ctx ) ) )
     FD_LOG_ERR(("fd_epoch_schedule_decode failed"));
 }
 
