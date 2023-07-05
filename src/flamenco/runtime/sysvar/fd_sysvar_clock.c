@@ -200,11 +200,24 @@ int fd_sysvar_clock_update( fd_global_ctx_t* global ) {
 
 
 
-//ulong fd_calculate_stake_weighted_timestamp(
+
+ulong fd_calculate_stake_weighted_timestamp(
 //  fd_global_ctx_t* global,
-//  fd_clock_timestamp_votes_t *unique_timestamps,
-//  ulong slot,
-//  ulong epoch_time
+ fd_clock_timestamp_votes_t *unique_timestamps,
+ ulong slot_duration,
+ ulong slot
+//  ushort fix_estimate_into_u64
+ ) {
+  // get the unique timestamps
+  for ( fd_clock_timestamp_vote_t_mapnode_t* n = fd_clock_timestamp_vote_t_map_minimum(unique_timestamps->votes_pool, unique_timestamps->votes_root); n; n = fd_clock_timestamp_vote_t_map_successor(unique_timestamps->votes_pool, n) ) {
+    ulong timestamp = (ulong)n->elem.timestamp;
+    ulong timestamp_slot = n->elem.slot;
+    ulong offset = (slot - timestamp_slot) * slot_duration;
+    ulong estimate = timestamp + offset;
+    FD_LOG_NOTICE(("estimate = %lu", estimate));
+  }
+  return 1;
+ }
 
 // pub(crate) fn calculate_stake_weighted_timestamp<I, K, V, T>(
 //     unique_timestamps: I,
