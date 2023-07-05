@@ -49,6 +49,7 @@ build/linux/gcc/x86_64/unit-test/test_runtime --wksp giant_wksp --gaddr 0xc7ce18
 #include "sysvar/fd_sysvar_clock.h"
 #include "sysvar/fd_sysvar.h"
 #include "fd_runtime.h"
+#include "sysvar/fd_sysvar_epoch_schedule.h"
 
 #include <dirent.h>
 
@@ -186,10 +187,23 @@ int replay(global_state_t * state, int justverify, fd_tpool_t * tpool, ulong max
   if (0 != state->global->bank.slot)
     fd_update_features(state->global);
 
+  /* Load epoch schedule sysvar */
+  fd_epoch_schedule_t schedule;
+  fd_sysvar_epoch_schedule_read( state->global, &schedule );
+  FD_LOG_INFO(( "schedule->slots_per_epoch = %lu", schedule.slots_per_epoch ));
+  FD_LOG_INFO(( "schedule->leader_schedule_slot_offset = %lu", schedule.leader_schedule_slot_offset ));
+  FD_LOG_INFO(( "schedule->warmup = %d", schedule.warmup ));
+  FD_LOG_INFO(( "schedule->first_normal_epoch = %lu", schedule.first_normal_epoch ));
+  FD_LOG_INFO(( "schedule->first_normal_slot = %lu", schedule.first_normal_slot ));
+
+  /* Slot of next epoch boundary */
+  ulong epoch           = fd_slot_to_epoch( &schedule, state->global->bank.slot+1, NULL );
+  ulong last_epoch_slot = fd_epoch_slot0  ( &schedule, epoch+1UL );
+
   for ( ulong slot = state->global->bank.slot+1; slot < state->end_slot; ++slot ) {
     state->global->bank.slot = slot;
 
-    FD_LOG_NOTICE(("reading slot %ld", slot));
+    FD_LOG_NOTICE(("reading slot %ld (epoch %lu)", slot, epoch));
 
     fd_slot_meta_t m;
     fd_memset(&m, 0, sizeof(m));
@@ -231,6 +245,10 @@ int replay(global_state_t * state, int justverify, fd_tpool_t * tpool, ulong max
     ctx.freef = state->global->freef;
     ctx.freef_arg = state->global->allocf_arg;
     fd_slot_meta_destroy(&m, &ctx);
+
+    if( slot == last_epoch_slot ) {
+      FD_LOG_NOTICE(( "EPOCH TRANSITION" ));
+    }
   }
 
   // fd_funk_txn_publish( state->global->funk, state->global->funk_txn, 1);
