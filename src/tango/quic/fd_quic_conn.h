@@ -35,8 +35,10 @@ enum {
   FD_QUIC_CONN_REASON_KEY_UPDATE_ERROR             = 0x0e,    /* Invalid packet protection update */
   FD_QUIC_CONN_REASON_AEAD_LIMIT_REACHED           = 0x0f,    /* Excessive use of packet protection keys */
   FD_QUIC_CONN_REASON_NO_VIABLE_PATH               = 0x10,    /* No viable network path exists */
-/* 0x0100-0x01ff    CRYPTO_ERROR    TLS alert code*/
-  FD_QUIC_CONN_REASON_CRYPTO_BASE                  = 0x100    /* base for crypto errors */
+  FD_QUIC_CONN_REASON_CRYPTO_BASE                  = 0x100,   /* 0x0100-0x01ff CRYPTO_ERROR TLS alert code*/
+  /* QUIC permits the use of a generic code in place of a specific error code [...]
+     such as handshake_failure (0x0128 in QUIC). */
+  FD_QUIC_CONN_REASON_HANDSHAKE_FAILURE            = 0x128    /* Handshake failed. */
 };
 
 typedef struct fd_quic_conn       fd_quic_conn_t;

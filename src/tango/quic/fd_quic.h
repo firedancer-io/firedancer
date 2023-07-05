@@ -392,19 +392,21 @@ struct fd_quic_metrics {
   ulong net_rx_pkt_cnt;  /* number of IP packets received */
   ulong net_rx_byte_cnt; /* total bytes received (including IP, UDP, QUIC headers) */
   ulong net_tx_pkt_cnt;  /* number of IP packets sent */
+  ulong net_tx_byte_cnt; /* total bytes sent */
 
   /* Conn metrics */
-  long  conn_active_cnt;       /* number of active conns */
-  ulong conn_created_cnt;      /* number of conns created */
-  ulong conn_closed_cnt;       /* number of conns gracefully closed */
-  ulong conn_aborted_cnt;      /* number of conns aborted */
-  ulong conn_err_no_slots_cnt; /* number of conns that failed to create due to lack of slots */
-  ulong conn_err_tls_fail_cnt; /* number of conns that aborted due to TLS failure */
+  long  conn_active_cnt;         /* number of active conns */
+  ulong conn_created_cnt;        /* number of conns created */
+  ulong conn_closed_cnt;         /* number of conns gracefully closed */
+  ulong conn_aborted_cnt;        /* number of conns aborted */
+  ulong conn_retry_cnt;          /* number of conns established with retry */
+  ulong conn_err_no_slots_cnt;   /* number of conns that failed to create due to lack of slots */
+  ulong conn_err_tls_fail_cnt;   /* number of conns that aborted due to TLS failure */
+  ulong conn_err_retry_fail_cnt; /* number of conns that failed during retry (e.g. invalid token) */
 
   /* Handshake metrics */
-  ulong hs_created_cnt;        /* number of handshake flows created */
-  ulong hs_err_alloc_fail_cnt; /* number of handshakes dropped due to alloc fail */
-  ulong retry_pkt_cnt;         /* number of retry packets sent (server-only) */
+  ulong hs_created_cnt;          /* number of handshake flows created */
+  ulong hs_err_alloc_fail_cnt;   /* number of handshakes dropped due to alloc fail */
 
   /* Stream metrics */
   ulong stream_opened_cnt  [ 4 ]; /* number of streams opened (per type) */
