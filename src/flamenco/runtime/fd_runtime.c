@@ -218,8 +218,12 @@ fd_runtime_block_verify( fd_global_ctx_t *global, fd_slot_meta_t* m, const void*
         fd_poh_mixin(&global->bank.poh, root);
       }
 
-      if (memcmp(hdr->hash, &global->bank.poh, sizeof(global->bank.poh))) {
-        FD_LOG_ERR(( "poh missmatch at slot: %ld", m->slot));
+      if( FD_UNLIKELY( 0!=memcmp(hdr->hash, &global->bank.poh, sizeof(fd_hash_t) ) ) ) {
+        char entry_poh_str[ FD_BASE58_ENCODED_32_SZ ];
+        char bank_poh_str [ FD_BASE58_ENCODED_32_SZ ];
+        fd_base58_encode_32( hdr->hash,           NULL, entry_poh_str );
+        fd_base58_encode_32( global->bank.poh.uc, NULL, bank_poh_str  );
+        FD_LOG_ERR(( "poh missmatch at slot: %ld (bank: %s, entry: %s)", m->slot, bank_poh_str, entry_poh_str ));
         return -1;
       }
     }
