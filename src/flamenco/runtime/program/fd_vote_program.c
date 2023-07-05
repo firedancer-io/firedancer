@@ -29,7 +29,7 @@
    On success, populates account with vote state info (which may be an
    old version) and populates meta with generic account info. */
 
-static int
+int
 fd_vote_load_account( fd_vote_state_versioned_t * account,
                       fd_account_meta_t *         meta,
                       fd_global_ctx_t *           global,
@@ -266,12 +266,16 @@ fd_vote_verify_authority( fd_vote_state_t const * vote_state,
   return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
 }
 
+void record_timestamp_vote( fd_global_ctx_t *   global,
+                            fd_pubkey_t const * vote_acc,
+                            ulong               timestamp ) {
+  record_timestamp_vote_with_slot( global, vote_acc, timestamp, global->bank.slot );
+}
 
-void record_timestamp_vote(
-  fd_global_ctx_t *   global,
-  fd_pubkey_t const * vote_acc,
-  ulong               timestamp
-  ) {
+void record_timestamp_vote_with_slot( fd_global_ctx_t *   global,
+                                      fd_pubkey_t const * vote_acc,
+                                      ulong               timestamp,
+                                      ulong               slot ) {
   fd_clock_timestamp_vote_t_mapnode_t * root = global->bank.timestamp_votes.votes_root;
   fd_clock_timestamp_vote_t_mapnode_t * pool = global->bank.timestamp_votes.votes_pool;
   if ( NULL == pool )
@@ -281,7 +285,7 @@ void record_timestamp_vote(
   fd_clock_timestamp_vote_t timestamp_vote = {
     .pubkey    = *vote_acc,
     .timestamp = (long)timestamp,
-    .slot      = global->bank.slot,
+    .slot      = slot,
   };
   fd_clock_timestamp_vote_t_mapnode_t key = {
     .elem = timestamp_vote

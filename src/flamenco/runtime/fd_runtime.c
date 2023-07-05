@@ -859,7 +859,74 @@ fd_runtime_save_banks( fd_global_ctx_t * global ) {
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
-int fd_global_import_solana_manifest(fd_global_ctx_t *global, fd_solana_manifest_t* manifest) {
+static int
+fd_global_import_stakes(fd_global_ctx_t * global, fd_solana_manifest_t * manifest) {
+  ulong raw_stakes_sz = fd_stakes_size( &manifest->bank.stakes );
+  void * raw_stakes = global->allocf( global->allocf_arg, 1UL, raw_stakes_sz );
+  fd_memset( raw_stakes, 0, raw_stakes_sz );
+
+  fd_bincode_encode_ctx_t encode_ctx = {
+    .data    = raw_stakes,
+    .dataend = (void *)( (ulong)raw_stakes + raw_stakes_sz )
+  };
+  if( FD_UNLIKELY( 0!=fd_stakes_encode( &manifest->bank.stakes, &encode_ctx ) ) ) {
+    FD_LOG_ERR(( "fd_stakes_encode failed" ));
+  }
+
+  fd_bincode_decode_ctx_t decode_ctx = {
+    .data    = raw_stakes,
+    .dataend = (void const *)( (ulong)raw_stakes + raw_stakes_sz ),
+    /* TODO: Make this a instruction-scoped allocator */
+    .allocf     = global->allocf,
+    .allocf_arg = global->allocf_arg
+  };
+
+  if( FD_UNLIKELY( 0!=fd_stakes_decode( &global->bank.stakes, &decode_ctx ) ) ) {
+    FD_LOG_ERR(( "fd_stakes_decode failed" ));
+  }
+
+  fd_vote_accounts_pair_t_mapnode_t * vote_accounts_pool = global->bank.stakes.vote_accounts.vote_accounts_pool;
+  fd_vote_accounts_pair_t_mapnode_t * vote_accounts_root = global->bank.stakes.vote_accounts.vote_accounts_root;
+
+  for( fd_vote_accounts_pair_t_mapnode_t * n = fd_vote_accounts_pair_t_map_minimum(vote_accounts_pool, vote_accounts_root); 
+    n;
+    n = fd_vote_accounts_pair_t_map_successor(vote_accounts_pool, n)
+  ) {
+      /* Deserialize content */
+    fd_bincode_decode_ctx_t vote_state_decode_ctx = {
+      .data    = n->elem.value.data,
+      .dataend = (void const *)( (ulong) n->elem.value.data +  n->elem.value.data_len ),
+      /* TODO: Make this a instruction-scoped allocator */
+      .allocf     = global->allocf,
+      .allocf_arg = global->allocf_arg
+    };
+    
+    fd_vote_state_versioned_t vote_state_versioned;
+    if( FD_UNLIKELY( 0!=fd_vote_state_versioned_decode( &vote_state_versioned, &vote_state_decode_ctx ) ) ) {
+      FD_LOG_ERR(( "fd_vote_state_versioned_decode failed" ));
+    }
+
+    fd_vote_block_timestamp_t vote_state_timestamp;
+    switch( vote_state_versioned.discriminant ) {
+    case fd_vote_state_versioned_enum_current:
+      vote_state_timestamp = vote_state_versioned.inner.current.latest_timestamp;
+      break;
+    case fd_vote_state_versioned_enum_v0_23_5:
+      vote_state_timestamp = vote_state_versioned.inner.v0_23_5.latest_timestamp;
+      break;
+    default:
+      __builtin_unreachable();
+    }
+
+    record_timestamp_vote_with_slot( global, &n->elem.key, vote_state_timestamp.timestamp, vote_state_timestamp.slot );
+  }
+
+  global->freef( global->allocf_arg, raw_stakes );
+
+  return 0;
+}
+
+int fd_global_import_solana_manifest(fd_global_ctx_t * global, fd_solana_manifest_t * manifest) {
   /* Clean out prior bank */
   fd_bincode_destroy_ctx_t ctx;
   ctx.freef = global->freef;
@@ -869,7 +936,8 @@ int fd_global_import_solana_manifest(fd_global_ctx_t *global, fd_solana_manifest
   fd_firedancer_banks_new(bank);
 
   fd_deserializable_versioned_bank_t * oldbank = &manifest->bank;
-  // bank->stakes = oldbank->stakes;
+  fd_global_import_stakes( global, manifest );
+  
   fd_block_block_hash_entry_t * hashes = global->bank.recent_block_hashes.hashes =
     deq_fd_block_block_hash_entry_t_alloc( global->allocf, global->allocf_arg );
   if ( oldbank->blockhash_queue.ages_len > deq_fd_block_block_hash_entry_t_max(hashes) )

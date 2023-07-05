@@ -28,6 +28,17 @@ FD_PROTOTYPES_BEGIN
 #define FD_VOTE_ROOT_ON_DIFFERENT_FORK          ( 17 )
 #define FD_VOTE_ACTIVE_VOTE_ACCOUNT_CLOSE       ( 18 )
 
+
+void record_timestamp_vote( fd_global_ctx_t *   global,
+                            fd_pubkey_t const * vote_acc,
+                            ulong               timestamp );
+
+
+void record_timestamp_vote_with_slot( fd_global_ctx_t *   global,
+                                      fd_pubkey_t const * vote_acc,
+                                      ulong               timestamp,
+                                      ulong               slot );
+
 /* Entry-point for the Solana Vote Program */
 int fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) ;
 
