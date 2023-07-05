@@ -52,29 +52,20 @@ void write_clock( fd_global_ctx_t* global, fd_sol_sysvar_clock_t* clock ) {
   fd_sysvar_set( global, global->sysvar_owner, (fd_pubkey_t *) global->sysvar_clock, enc, sz, global->bank.slot );
 }
 
-void fd_sysvar_clock_read( fd_global_ctx_t* global, fd_sol_sysvar_clock_t* result ) {
-  /* Read the clock sysvar from the account */
-  fd_account_meta_t metadata;
-  int               read_result = fd_acc_mgr_get_metadata( global->acc_mgr, global->funk_txn, (fd_pubkey_t *) global->sysvar_clock, &metadata );
-  if ( read_result != FD_ACC_MGR_SUCCESS ) {
-    FD_LOG_NOTICE(( "failed to read account metadata: %d", read_result ));
-    return;
-  }
-
-  unsigned char *raw_acc_data = fd_alloca( 1, metadata.dlen );
-  read_result = fd_acc_mgr_get_account_data( global->acc_mgr, global->funk_txn, (fd_pubkey_t *) global->sysvar_clock, raw_acc_data, metadata.hlen, metadata.dlen );
-  if ( read_result != FD_ACC_MGR_SUCCESS ) {
-    FD_LOG_NOTICE(( "failed to read account data: %d", read_result ));
-    return;
-  }
+int fd_sysvar_clock_read( fd_global_ctx_t* global, fd_sol_sysvar_clock_t* result ) {
+  int err = 0;
+  char * raw_acc_data = (char*) fd_acc_mgr_view_data(global->acc_mgr, global->funk_txn, (fd_pubkey_t *) global->sysvar_clock, NULL, &err);
+  if (NULL == raw_acc_data)
+    return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+  fd_account_meta_t *m = (fd_account_meta_t *) raw_acc_data;
 
   fd_bincode_decode_ctx_t ctx;
-  ctx.data = raw_acc_data;
-  ctx.dataend = raw_acc_data + metadata.dlen;
+  ctx.data = raw_acc_data + m->hlen;
+  ctx.dataend = (char *) ctx.data + m->dlen;
   ctx.allocf = global->allocf;
   ctx.allocf_arg = global->allocf_arg;
-  if ( fd_sol_sysvar_clock_decode( result, &ctx ) )
-    FD_LOG_ERR(("fd_sol_sysvar_clock_decode failed"));
+
+  return fd_sol_sysvar_clock_decode( result, &ctx );
 }
 
 void fd_sysvar_clock_init( fd_global_ctx_t* global ) {
@@ -135,9 +126,24 @@ long estimate_timestamp( fd_global_ctx_t* global, uint128 ns_per_slot ) {
   return head->timestamp  + (long) (ns_correction / NS_IN_S) ;
 }
 
-void fd_sysvar_clock_update( fd_global_ctx_t* global ) {
+int fd_sysvar_clock_update( fd_global_ctx_t* global ) {
   fd_sol_sysvar_clock_t clock;
-  fd_sysvar_clock_read( global, &clock );
+
+  int err = 0;
+  fd_funk_rec_t const *con_rec = NULL;
+  char * raw_acc_data = (char*) fd_acc_mgr_view_data(global->acc_mgr, global->funk_txn, (fd_pubkey_t *) global->sysvar_clock, &con_rec, &err);
+  if (NULL == raw_acc_data)
+    return err;  // This should be a trap
+  fd_account_meta_t *m = (fd_account_meta_t *) raw_acc_data;
+
+  fd_bincode_decode_ctx_t ctx;
+  ctx.data = raw_acc_data + m->hlen;
+  ctx.dataend = (char *) ctx.data + m->dlen;
+  ctx.allocf = global->allocf;
+  ctx.allocf_arg = global->allocf_arg;
+
+  if ( fd_sol_sysvar_clock_decode( &clock, &ctx ) )
+    FD_LOG_ERR(("fd_sol_sysvar_clock_decode failed"));
 
   long timestamp_estimate         = estimate_timestamp( global, ns_per_slot( global->bank.ticks_per_slot ) );
   long bounded_timestamp_estimate = bound_timestamp_estimate( global, timestamp_estimate, clock.epoch_start_timestamp );
@@ -154,8 +160,45 @@ void fd_sysvar_clock_update( fd_global_ctx_t* global ) {
   FD_LOG_INFO(( "clock.leader_schedule_epoch: %lu", clock.leader_schedule_epoch ));
   FD_LOG_INFO(( "clock.unix_timestamp: %ld", clock.unix_timestamp ));
 
-  write_clock( global, &clock );
+  ulong sz = fd_sol_sysvar_clock_size(&clock);
+  ulong acc_sz = sizeof(fd_account_meta_t) + sz;
+  fd_funk_rec_t * acc_data_rec = NULL;
+
+  err = 0;
+  raw_acc_data = fd_acc_mgr_modify_data(global->acc_mgr, global->funk_txn, (fd_pubkey_t *) global->sysvar_slot_history, 1, &acc_sz, con_rec, &acc_data_rec, &err);
+  if ( FD_UNLIKELY (NULL == raw_acc_data) )
+    return err;
+
+  m = (fd_account_meta_t *)raw_acc_data;
+
+  fd_bincode_encode_ctx_t e_ctx;
+  e_ctx.data = raw_acc_data + m->hlen;
+  e_ctx.dataend = (char*)e_ctx.data + sz;
+  if ( fd_sol_sysvar_clock_encode( &clock, &e_ctx ) )
+    return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+
+  ulong lamps = (sz + 128) * ((ulong) ((double)global->bank.rent.lamports_per_uint8_year * global->bank.rent.exemption_threshold));
+  if (m->info.lamports < lamps)
+    m->info.lamports = lamps;
+
+  m->dlen = sz;
+  fd_memcpy(m->info.owner, global->sysvar_owner, 32);
+
+  err = fd_acc_mgr_commit_data(global->acc_mgr, acc_data_rec, (fd_pubkey_t *) global->sysvar_slot_history, raw_acc_data, global->bank.slot, 0);
+
+  fd_bincode_destroy_ctx_t ctx_d;
+  ctx_d.freef = global->freef;
+  ctx_d.freef_arg = global->allocf_arg;
+  fd_sol_sysvar_clock_destroy( &clock, &ctx_d );
+
+  return err;
 }
+
+  /* Slot of next epoch boundary */
+//  ulong epoch           = fd_slot_to_epoch( &schedule, state->global->bank.slot+1, NULL );
+//  ulong last_epoch_slot = fd_epoch_slot0  ( &schedule, epoch+1UL );
+
+
 
 //ulong fd_calculate_stake_weighted_timestamp(
 //  fd_global_ctx_t* global,
