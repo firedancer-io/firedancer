@@ -282,3 +282,50 @@ int fd_sysvar_clock_update( fd_global_ctx_t* global ) {
 //     }
 //     Some(estimate)
 // }
+
+//    fn get_timestamp_estimate(
+//        &self,
+//        max_allowable_drift: MaxAllowableDrift,
+//        epoch_start_timestamp: Option<(Slot, UnixTimestamp)>,
+//    ) -> Option<UnixTimestamp> {
+//        let mut get_timestamp_estimate_time = Measure::start("get_timestamp_estimate");
+//        let slots_per_epoch = self.epoch_schedule().slots_per_epoch;
+//        let vote_accounts = self.vote_accounts();
+//        let recent_timestamps = vote_accounts.iter().filter_map(|(pubkey, (_, account))| {
+//            let vote_state = account.vote_state();
+//            let vote_state = vote_state.as_ref().ok()?;
+//            let slot_delta = self.slot().checked_sub(vote_state.last_timestamp.slot)?;
+//            (slot_delta <= slots_per_epoch).then(|| {
+//                (
+//                    *pubkey,
+//                    (
+//                        vote_state.last_timestamp.slot,
+//                        vote_state.last_timestamp.timestamp,
+//                    ),
+//                )
+//            })
+//        });
+//        let slot_duration = Duration::from_nanos(self.ns_per_slot as u64);
+//        let epoch = self.epoch_schedule().get_epoch(self.slot());
+//        let stakes = self.epoch_vote_accounts(epoch)?;
+//        let stake_weighted_timestamp = calculate_stake_weighted_timestamp(
+//            recent_timestamps,
+//            stakes,
+//            self.slot(),
+//            slot_duration,
+//            epoch_start_timestamp,
+//            max_allowable_drift,
+//            self.feature_set
+//                .is_active(&feature_set::warp_timestamp_again::id()),
+//        );
+//        get_timestamp_estimate_time.stop();
+//        datapoint_info!(
+//            "bank-timestamp",
+//            (
+//                "get_timestamp_estimate_us",
+//                get_timestamp_estimate_time.as_us(),
+//                i64
+//            ),
+//        );
+//        stake_weighted_timestamp
+//    }
