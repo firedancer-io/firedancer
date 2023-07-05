@@ -662,60 +662,64 @@ int fd_stake_history_epochentry_pair_encode(fd_stake_history_epochentry_pair_t c
 
 int fd_stake_history_decode(fd_stake_history_t* self, fd_bincode_decode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint64_decode(&self->entries_len, ctx);
+  ulong entries_len;
+  err = fd_bincode_uint64_decode(&entries_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  if (self->entries_len != 0) {
-    self->entries = (fd_stake_history_epochentry_pair_t*)(*ctx->allocf)(ctx->allocf_arg, FD_STAKE_HISTORY_EPOCHENTRY_PAIR_ALIGN, FD_STAKE_HISTORY_EPOCHENTRY_PAIR_FOOTPRINT*self->entries_len);
-    for (ulong i = 0; i < self->entries_len; ++i) {
-      fd_stake_history_epochentry_pair_new(self->entries + i);
-    }
-    for (ulong i = 0; i < self->entries_len; ++i) {
-      err = fd_stake_history_epochentry_pair_decode(self->entries + i, ctx);
-      if ( FD_UNLIKELY(err) ) return err;
-    }
-  } else
-    self->entries = NULL;
+  self->entries_pool = fd_stake_history_epochentry_pair_t_map_alloc(ctx->allocf, ctx->allocf_arg, entries_len);
+  self->entries_root = NULL;
+  for (ulong i = 0; i < entries_len; ++i) {
+    fd_stake_history_epochentry_pair_t_mapnode_t* node = fd_stake_history_epochentry_pair_t_map_acquire(self->entries_pool);
+    fd_stake_history_epochentry_pair_new(&node->elem);
+    err = fd_stake_history_epochentry_pair_decode(&node->elem, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    fd_stake_history_epochentry_pair_t_map_insert(self->entries_pool, &self->entries_root, node);
+  }
   return FD_BINCODE_SUCCESS;
 }
 void fd_stake_history_new(fd_stake_history_t* self) {
   fd_memset(self, 0, sizeof(fd_stake_history_t));
 }
 void fd_stake_history_destroy(fd_stake_history_t* self, fd_bincode_destroy_ctx_t * ctx) {
-  if (NULL != self->entries) {
-    for (ulong i = 0; i < self->entries_len; ++i)
-      fd_stake_history_epochentry_pair_destroy(self->entries + i, ctx);
-    (*ctx->freef)(ctx->freef_arg, self->entries);
-    self->entries = NULL;
+  for ( fd_stake_history_epochentry_pair_t_mapnode_t* n = fd_stake_history_epochentry_pair_t_map_minimum(self->entries_pool, self->entries_root); n; n = fd_stake_history_epochentry_pair_t_map_successor(self->entries_pool, n) ) {
+    fd_stake_history_epochentry_pair_destroy(&n->elem, ctx);
   }
+  (*ctx->freef)(ctx->freef_arg, fd_stake_history_epochentry_pair_t_map_delete(fd_stake_history_epochentry_pair_t_map_leave(self->entries_pool)));
+  self->entries_pool = NULL;
+  self->entries_root = NULL;
 }
 
 void fd_stake_history_walk(fd_stake_history_t* self, fd_walk_fun_t fun, const char *name, int level) {
   fun(self, name, 32, "fd_stake_history", level++);
-  if (self->entries_len != 0) {
-    fun(NULL, NULL, 30, "entries", level++);
-    for (ulong i = 0; i < self->entries_len; ++i)
-      fd_stake_history_epochentry_pair_walk(self->entries + i, fun, "stake_history_epochentry_pair", level + 1);
-    fun(NULL, NULL, 31, "entries", --level);
-  }
+  //fun(&self->entries, "entries", 17, "map");
   fun(self, name, 33, "fd_stake_history", --level);
 }
 ulong fd_stake_history_size(fd_stake_history_t const * self) {
   ulong size = 0;
-  size += sizeof(ulong);
-  for (ulong i = 0; i < self->entries_len; ++i)
-    size += fd_stake_history_epochentry_pair_size(self->entries + i);
+  if (self->entries_root) {
+    size += sizeof(ulong);
+    for ( fd_stake_history_epochentry_pair_t_mapnode_t* n = fd_stake_history_epochentry_pair_t_map_minimum(self->entries_pool, self->entries_root); n; n = fd_stake_history_epochentry_pair_t_map_successor(self->entries_pool, n) ) {
+      size += fd_stake_history_epochentry_pair_size(&n->elem);
+    }
+  } else {
+    size += sizeof(ulong);
+  }
   return size;
 }
 
 int fd_stake_history_encode(fd_stake_history_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint64_encode(&self->entries_len, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
-  if (self->entries_len != 0) {
-    for (ulong i = 0; i < self->entries_len; ++i) {
-      err = fd_stake_history_epochentry_pair_encode(self->entries + i, ctx);
+  if (self->entries_root) {
+    ulong entries_len = fd_stake_history_epochentry_pair_t_map_size(self->entries_pool, self->entries_root);
+    err = fd_bincode_uint64_encode(&entries_len, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    for ( fd_stake_history_epochentry_pair_t_mapnode_t* n = fd_stake_history_epochentry_pair_t_map_minimum(self->entries_pool, self->entries_root); n; n = fd_stake_history_epochentry_pair_t_map_successor(self->entries_pool, n) ) {
+      err = fd_stake_history_epochentry_pair_encode(&n->elem, ctx);
       if ( FD_UNLIKELY(err) ) return err;
     }
+  } else {
+    ulong entries_len = 0;
+    err = fd_bincode_uint64_encode(&entries_len, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
   }
   return FD_BINCODE_SUCCESS;
 }
@@ -839,60 +843,64 @@ int fd_vote_accounts_pair_encode(fd_vote_accounts_pair_t const * self, fd_bincod
 
 int fd_vote_accounts_decode(fd_vote_accounts_t* self, fd_bincode_decode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint64_decode(&self->vote_accounts_len, ctx);
+  ulong vote_accounts_len;
+  err = fd_bincode_uint64_decode(&vote_accounts_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  if (self->vote_accounts_len != 0) {
-    self->vote_accounts = (fd_vote_accounts_pair_t*)(*ctx->allocf)(ctx->allocf_arg, FD_VOTE_ACCOUNTS_PAIR_ALIGN, FD_VOTE_ACCOUNTS_PAIR_FOOTPRINT*self->vote_accounts_len);
-    for (ulong i = 0; i < self->vote_accounts_len; ++i) {
-      fd_vote_accounts_pair_new(self->vote_accounts + i);
-    }
-    for (ulong i = 0; i < self->vote_accounts_len; ++i) {
-      err = fd_vote_accounts_pair_decode(self->vote_accounts + i, ctx);
-      if ( FD_UNLIKELY(err) ) return err;
-    }
-  } else
-    self->vote_accounts = NULL;
+  self->vote_accounts_pool = fd_vote_accounts_pair_t_map_alloc(ctx->allocf, ctx->allocf_arg, vote_accounts_len);
+  self->vote_accounts_root = NULL;
+  for (ulong i = 0; i < vote_accounts_len; ++i) {
+    fd_vote_accounts_pair_t_mapnode_t* node = fd_vote_accounts_pair_t_map_acquire(self->vote_accounts_pool);
+    fd_vote_accounts_pair_new(&node->elem);
+    err = fd_vote_accounts_pair_decode(&node->elem, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    fd_vote_accounts_pair_t_map_insert(self->vote_accounts_pool, &self->vote_accounts_root, node);
+  }
   return FD_BINCODE_SUCCESS;
 }
 void fd_vote_accounts_new(fd_vote_accounts_t* self) {
   fd_memset(self, 0, sizeof(fd_vote_accounts_t));
 }
 void fd_vote_accounts_destroy(fd_vote_accounts_t* self, fd_bincode_destroy_ctx_t * ctx) {
-  if (NULL != self->vote_accounts) {
-    for (ulong i = 0; i < self->vote_accounts_len; ++i)
-      fd_vote_accounts_pair_destroy(self->vote_accounts + i, ctx);
-    (*ctx->freef)(ctx->freef_arg, self->vote_accounts);
-    self->vote_accounts = NULL;
+  for ( fd_vote_accounts_pair_t_mapnode_t* n = fd_vote_accounts_pair_t_map_minimum(self->vote_accounts_pool, self->vote_accounts_root); n; n = fd_vote_accounts_pair_t_map_successor(self->vote_accounts_pool, n) ) {
+    fd_vote_accounts_pair_destroy(&n->elem, ctx);
   }
+  (*ctx->freef)(ctx->freef_arg, fd_vote_accounts_pair_t_map_delete(fd_vote_accounts_pair_t_map_leave(self->vote_accounts_pool)));
+  self->vote_accounts_pool = NULL;
+  self->vote_accounts_root = NULL;
 }
 
 void fd_vote_accounts_walk(fd_vote_accounts_t* self, fd_walk_fun_t fun, const char *name, int level) {
   fun(self, name, 32, "fd_vote_accounts", level++);
-  if (self->vote_accounts_len != 0) {
-    fun(NULL, NULL, 30, "vote_accounts", level++);
-    for (ulong i = 0; i < self->vote_accounts_len; ++i)
-      fd_vote_accounts_pair_walk(self->vote_accounts + i, fun, "vote_accounts_pair", level + 1);
-    fun(NULL, NULL, 31, "vote_accounts", --level);
-  }
+  //fun(&self->vote_accounts, "vote_accounts", 17, "map");
   fun(self, name, 33, "fd_vote_accounts", --level);
 }
 ulong fd_vote_accounts_size(fd_vote_accounts_t const * self) {
   ulong size = 0;
-  size += sizeof(ulong);
-  for (ulong i = 0; i < self->vote_accounts_len; ++i)
-    size += fd_vote_accounts_pair_size(self->vote_accounts + i);
+  if (self->vote_accounts_root) {
+    size += sizeof(ulong);
+    for ( fd_vote_accounts_pair_t_mapnode_t* n = fd_vote_accounts_pair_t_map_minimum(self->vote_accounts_pool, self->vote_accounts_root); n; n = fd_vote_accounts_pair_t_map_successor(self->vote_accounts_pool, n) ) {
+      size += fd_vote_accounts_pair_size(&n->elem);
+    }
+  } else {
+    size += sizeof(ulong);
+  }
   return size;
 }
 
 int fd_vote_accounts_encode(fd_vote_accounts_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint64_encode(&self->vote_accounts_len, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
-  if (self->vote_accounts_len != 0) {
-    for (ulong i = 0; i < self->vote_accounts_len; ++i) {
-      err = fd_vote_accounts_pair_encode(self->vote_accounts + i, ctx);
+  if (self->vote_accounts_root) {
+    ulong vote_accounts_len = fd_vote_accounts_pair_t_map_size(self->vote_accounts_pool, self->vote_accounts_root);
+    err = fd_bincode_uint64_encode(&vote_accounts_len, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    for ( fd_vote_accounts_pair_t_mapnode_t* n = fd_vote_accounts_pair_t_map_minimum(self->vote_accounts_pool, self->vote_accounts_root); n; n = fd_vote_accounts_pair_t_map_successor(self->vote_accounts_pool, n) ) {
+      err = fd_vote_accounts_pair_encode(&n->elem, ctx);
       if ( FD_UNLIKELY(err) ) return err;
     }
+  } else {
+    ulong vote_accounts_len = 0;
+    err = fd_bincode_uint64_encode(&vote_accounts_len, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
   }
   return FD_BINCODE_SUCCESS;
 }
@@ -1000,13 +1008,14 @@ int fd_stakes_decode(fd_stakes_t* self, fd_bincode_decode_ctx_t * ctx) {
   ulong stake_delegations_len;
   err = fd_bincode_uint64_decode(&stake_delegations_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  self->stake_delegations = deq_fd_delegation_pair_t_alloc( ctx->allocf, ctx->allocf_arg, stake_delegations_len );
-  if ( stake_delegations_len > deq_fd_delegation_pair_t_max(self->stake_delegations) ) return FD_BINCODE_ERR_SMALL_DEQUE;
+  self->stake_delegations_pool = fd_delegation_pair_t_map_alloc(ctx->allocf, ctx->allocf_arg, stake_delegations_len);
+  self->stake_delegations_root = NULL;
   for (ulong i = 0; i < stake_delegations_len; ++i) {
-    fd_delegation_pair_t * elem = deq_fd_delegation_pair_t_push_tail_nocopy(self->stake_delegations);
-    fd_delegation_pair_new(elem);
-    err = fd_delegation_pair_decode(elem, ctx);
+    fd_delegation_pair_t_mapnode_t* node = fd_delegation_pair_t_map_acquire(self->stake_delegations_pool);
+    fd_delegation_pair_new(&node->elem);
+    err = fd_delegation_pair_decode(&node->elem, ctx);
     if ( FD_UNLIKELY(err) ) return err;
+    fd_delegation_pair_t_map_insert(self->stake_delegations_pool, &self->stake_delegations_root, node);
   }
   err = fd_bincode_uint64_decode(&self->unused, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -1023,26 +1032,19 @@ void fd_stakes_new(fd_stakes_t* self) {
 }
 void fd_stakes_destroy(fd_stakes_t* self, fd_bincode_destroy_ctx_t * ctx) {
   fd_vote_accounts_destroy(&self->vote_accounts, ctx);
-  if ( self->stake_delegations ) {
-    for ( deq_fd_delegation_pair_t_iter_t iter = deq_fd_delegation_pair_t_iter_init( self->stake_delegations ); !deq_fd_delegation_pair_t_iter_done( self->stake_delegations, iter ); iter = deq_fd_delegation_pair_t_iter_next( self->stake_delegations, iter ) ) {
-      fd_delegation_pair_t * ele = deq_fd_delegation_pair_t_iter_ele( self->stake_delegations, iter );
-      fd_delegation_pair_destroy(ele, ctx);
-    }
-    (*ctx->freef)(ctx->freef_arg, deq_fd_delegation_pair_t_delete( deq_fd_delegation_pair_t_leave( self->stake_delegations) ) );
-    self->stake_delegations = NULL;
+  for ( fd_delegation_pair_t_mapnode_t* n = fd_delegation_pair_t_map_minimum(self->stake_delegations_pool, self->stake_delegations_root); n; n = fd_delegation_pair_t_map_successor(self->stake_delegations_pool, n) ) {
+    fd_delegation_pair_destroy(&n->elem, ctx);
   }
+  (*ctx->freef)(ctx->freef_arg, fd_delegation_pair_t_map_delete(fd_delegation_pair_t_map_leave(self->stake_delegations_pool)));
+  self->stake_delegations_pool = NULL;
+  self->stake_delegations_root = NULL;
   fd_stake_history_destroy(&self->stake_history, ctx);
 }
 
 void fd_stakes_walk(fd_stakes_t* self, fd_walk_fun_t fun, const char *name, int level) {
   fun(self, name, 32, "fd_stakes", level++);
   fd_vote_accounts_walk(&self->vote_accounts, fun, "vote_accounts", level + 1);
-    fun(self->stake_delegations, "stake_delegations", 36, "stake_delegations", level++);
-    for ( deq_fd_delegation_pair_t_iter_t iter = deq_fd_delegation_pair_t_iter_init( self->stake_delegations ); !deq_fd_delegation_pair_t_iter_done( self->stake_delegations, iter ); iter = deq_fd_delegation_pair_t_iter_next( self->stake_delegations, iter ) ) {
-      fd_delegation_pair_t * ele = deq_fd_delegation_pair_t_iter_ele( self->stake_delegations, iter );
-      fd_delegation_pair_walk(ele, fun, "stake_delegations", level + 1);
-    }
-    fun(self->stake_delegations, "stake_delegations", 37, "stake_delegations", --level);
+  //fun(&self->stake_delegations, "stake_delegations", 17, "map");
   fun(&self->unused, "unused", 11, "ulong", level + 1);
   fun(&self->epoch, "epoch", 11, "ulong", level + 1);
   fd_stake_history_walk(&self->stake_history, fun, "stake_history", level + 1);
@@ -1051,11 +1053,10 @@ void fd_stakes_walk(fd_stakes_t* self, fd_walk_fun_t fun, const char *name, int 
 ulong fd_stakes_size(fd_stakes_t const * self) {
   ulong size = 0;
   size += fd_vote_accounts_size(&self->vote_accounts);
-  if ( self->stake_delegations ) {
+  if (self->stake_delegations_root) {
     size += sizeof(ulong);
-    for ( deq_fd_delegation_pair_t_iter_t iter = deq_fd_delegation_pair_t_iter_init( self->stake_delegations ); !deq_fd_delegation_pair_t_iter_done( self->stake_delegations, iter ); iter = deq_fd_delegation_pair_t_iter_next( self->stake_delegations, iter ) ) {
-      fd_delegation_pair_t * ele = deq_fd_delegation_pair_t_iter_ele( self->stake_delegations, iter );
-      size += fd_delegation_pair_size(ele);
+    for ( fd_delegation_pair_t_mapnode_t* n = fd_delegation_pair_t_map_minimum(self->stake_delegations_pool, self->stake_delegations_root); n; n = fd_delegation_pair_t_map_successor(self->stake_delegations_pool, n) ) {
+      size += fd_delegation_pair_size(&n->elem);
     }
   } else {
     size += sizeof(ulong);
@@ -1070,13 +1071,12 @@ int fd_stakes_encode(fd_stakes_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_vote_accounts_encode(&self->vote_accounts, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  if ( self->stake_delegations ) {
-    ulong stake_delegations_len = deq_fd_delegation_pair_t_cnt(self->stake_delegations);
+  if (self->stake_delegations_root) {
+    ulong stake_delegations_len = fd_delegation_pair_t_map_size(self->stake_delegations_pool, self->stake_delegations_root);
     err = fd_bincode_uint64_encode(&stake_delegations_len, ctx);
     if ( FD_UNLIKELY(err) ) return err;
-    for ( deq_fd_delegation_pair_t_iter_t iter = deq_fd_delegation_pair_t_iter_init( self->stake_delegations ); !deq_fd_delegation_pair_t_iter_done( self->stake_delegations, iter ); iter = deq_fd_delegation_pair_t_iter_next( self->stake_delegations, iter ) ) {
-      fd_delegation_pair_t * ele = deq_fd_delegation_pair_t_iter_ele( self->stake_delegations, iter );
-      err = fd_delegation_pair_encode(ele, ctx);
+    for ( fd_delegation_pair_t_mapnode_t* n = fd_delegation_pair_t_map_minimum(self->stake_delegations_pool, self->stake_delegations_root); n; n = fd_delegation_pair_t_map_successor(self->stake_delegations_pool, n) ) {
+      err = fd_delegation_pair_encode(&n->elem, ctx);
       if ( FD_UNLIKELY(err) ) return err;
     }
   } else {
@@ -9281,6 +9281,33 @@ int fd_bpf_upgradeable_loader_state_encode(fd_bpf_upgradeable_loader_state_t con
   return fd_bpf_upgradeable_loader_state_inner_encode(&self->inner, self->discriminant, ctx);
 }
 
+#define REDBLK_T fd_stake_history_epochentry_pair_t_mapnode_t
+#define REDBLK_NAME fd_stake_history_epochentry_pair_t_map
+#define REDBLK_IMPL_STYLE 2
+#include "../../util/tmpl/fd_redblack.c"
+#undef REDBLK_T
+#undef REDBLK_NAME
+long fd_stake_history_epochentry_pair_t_map_compare(fd_stake_history_epochentry_pair_t_mapnode_t * left, fd_stake_history_epochentry_pair_t_mapnode_t * right) {
+  return (long)(left->elem.epoch - right->elem.epoch);
+}
+#define REDBLK_T fd_vote_accounts_pair_t_mapnode_t
+#define REDBLK_NAME fd_vote_accounts_pair_t_map
+#define REDBLK_IMPL_STYLE 2
+#include "../../util/tmpl/fd_redblack.c"
+#undef REDBLK_T
+#undef REDBLK_NAME
+long fd_vote_accounts_pair_t_map_compare(fd_vote_accounts_pair_t_mapnode_t * left, fd_vote_accounts_pair_t_mapnode_t * right) {
+  return memcmp(left->elem.key.uc, right->elem.key.uc, sizeof(right->elem.key));
+}
+#define REDBLK_T fd_delegation_pair_t_mapnode_t
+#define REDBLK_NAME fd_delegation_pair_t_map
+#define REDBLK_IMPL_STYLE 2
+#include "../../util/tmpl/fd_redblack.c"
+#undef REDBLK_T
+#undef REDBLK_NAME
+long fd_delegation_pair_t_map_compare(fd_delegation_pair_t_mapnode_t * left, fd_delegation_pair_t_mapnode_t * right) {
+  return memcmp(left->elem.account.uc, right->elem.account.uc, sizeof(right->elem.account));
+}
 #define REDBLK_T fd_serializable_account_storage_entry_t_mapnode_t
 #define REDBLK_NAME fd_serializable_account_storage_entry_t_map
 #define REDBLK_IMPL_STYLE 2

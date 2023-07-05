@@ -40,13 +40,13 @@ fd_stake_history_entry_t stake_and_activating( fd_delegation_t const * delegatio
   ulong delegated_stake = delegation->stake;
 
   fd_stake_history_entry_t * cluster_stake_at_activation_epoch = NULL;
-  // TODO: move this elsewhere, do better than linear scanning.
-  for (ulong i = 0; i < stake_history->entries_len; i++) {
-    fd_stake_history_epochentry_pair_t * stake_history_ent = &stake_history->entries[i];
-    if (stake_history_ent->epoch == target_epoch) {
-      cluster_stake_at_activation_epoch = &stake_history_ent->entry;
-    }
-  }
+
+  fd_stake_history_epochentry_pair_t_mapnode_t k;
+  k.elem.epoch = target_epoch;
+  fd_stake_history_epochentry_pair_t_mapnode_t* n = fd_stake_history_epochentry_pair_t_map_find( stake_history->entries_pool, stake_history->entries_root, &k );
+
+  if (NULL != n)
+    cluster_stake_at_activation_epoch = &n->elem.entry;
 
   if (delegation->activation_epoch == (ulong)-1) {
     // if is bootstrap
@@ -108,20 +108,15 @@ fd_stake_history_entry_t stake_and_activating( fd_delegation_t const * delegatio
       }
 
       // Find the current epoch in history
-      uint found_current_epoch = 0;
-      for( ulong i = 0; i < stake_history->entries_len; i++ ) {
-        fd_stake_history_epochentry_pair_t * stake_history_epochentry_pair = &stake_history->entries[i];
-        if( current_epoch == stake_history_epochentry_pair->epoch ) {
-          prev_epoch = current_epoch;
-          prev_cluster_stake = &stake_history_epochentry_pair->entry;
-          found_current_epoch = 1;
-          break;
-        }
-      }
+      fd_stake_history_epochentry_pair_t_mapnode_t k;
+      k.elem.epoch = current_epoch;
+      fd_stake_history_epochentry_pair_t_mapnode_t* n = fd_stake_history_epochentry_pair_t_map_find( stake_history->entries_pool, stake_history->entries_root, &k );
 
-      if( !found_current_epoch ) {
+      if (NULL != n) {
+        prev_epoch = current_epoch;
+        prev_cluster_stake = &n->elem.entry;
+      } else
         break;
-      }
     }
 
     fd_stake_history_entry_t entry = {
@@ -148,13 +143,13 @@ fd_stake_history_entry_t stake_activating_and_deactivating( fd_delegation_t cons
   ulong activating_stake = stake_and_activating_entry.activating;
 
   fd_stake_history_entry_t * cluster_stake_at_activation_epoch = NULL;
-  // TODO: move this elsewhere, do better than linear scanning.
-  for (ulong i = 0; i < stake_history->entries_len; i++) {
-    fd_stake_history_epochentry_pair_t * stake_history_ent = &stake_history->entries[i];
-    if (stake_history_ent->epoch == target_epoch) {
-      cluster_stake_at_activation_epoch = &stake_history_ent->entry;
-    }
-  }
+
+  fd_stake_history_epochentry_pair_t_mapnode_t k;
+  k.elem.epoch = target_epoch;
+  fd_stake_history_epochentry_pair_t_mapnode_t* n = fd_stake_history_epochentry_pair_t_map_find( stake_history->entries_pool, stake_history->entries_root, &k );
+
+  if (NULL != n)
+    cluster_stake_at_activation_epoch = &n->elem.entry;
 
   if (target_epoch < delegation->deactivation_epoch) {
     // if is bootstrap
@@ -208,20 +203,15 @@ fd_stake_history_entry_t stake_activating_and_deactivating( fd_delegation_t cons
       }
 
       // Find the current epoch in history
-      uint found_current_epoch = 0;
-      for( ulong i = 0; i < stake_history->entries_len; i++ ) {
-        fd_stake_history_epochentry_pair_t * stake_history_epochentry_pair = &stake_history->entries[i];
-        if( current_epoch == stake_history_epochentry_pair->epoch ) {
-          prev_epoch = current_epoch;
-          prev_cluster_stake = &stake_history_epochentry_pair->entry;
-          found_current_epoch = 1;
-          break;
-        }
-      }
+      fd_stake_history_epochentry_pair_t_mapnode_t k;
+      k.elem.epoch = current_epoch;
+      fd_stake_history_epochentry_pair_t_mapnode_t* n = fd_stake_history_epochentry_pair_t_map_find( stake_history->entries_pool, stake_history->entries_root, &k );
 
-      if( !found_current_epoch ) {
+      if (NULL != n) {
+        prev_epoch = current_epoch;
+        prev_cluster_stake = &n->elem.entry;
+      } else
         break;
-      }
     }
 
     fd_stake_history_entry_t entry = {

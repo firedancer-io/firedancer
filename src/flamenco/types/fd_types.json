@@ -129,7 +129,7 @@
       "name": "stake_history",
       "type": "struct",
       "fields": [
-        { "name": "entries", "type": "vector", "element": "stake_history_epochentry_pair" }
+        { "name": "entries", "type": "map", "element": "stake_history_epochentry_pair", "key": "epoch" }
       ],
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake_history.rs#L55"
     },
@@ -210,7 +210,7 @@
       "name": "vote_accounts",
       "type": "struct",
       "fields": [
-        { "name": "vote_accounts", "type": "vector", "element": "vote_accounts_pair" }
+        { "name": "vote_accounts", "type": "map", "element": "vote_accounts_pair", "key": "key" }
       ]
     },
     {
@@ -238,7 +238,7 @@
       "type": "struct",
       "fields": [
         { "name": "vote_accounts", "type": "vote_accounts" },
-        { "name": "stake_delegations", "type": "deque", "element": "delegation_pair" },
+        { "name": "stake_delegations", "type": "map", "element": "delegation_pair", "key": "account" },
         { "name": "unused", "type": "ulong" },
         { "name": "epoch", "type": "ulong" },
         { "name": "stake_history", "type": "stake_history" }

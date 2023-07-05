@@ -1218,7 +1218,7 @@ for (element_type,key) in map_element_types.items():
     print(f"#undef REDBLK_T", file=body)
     print(f"#undef REDBLK_NAME", file=body)
     print(f"long {mapname}_compare({nodename} * left, {nodename} * right) {{", file=body)
-    if key == "pubkey":
+    if key == "pubkey" or key == "account" or key == "key":
         print(f"  return memcmp(left->elem.{key}.uc, right->elem.{key}.uc, sizeof(right->elem.{key}));", file=body)
     else:
         print(f"  return (long)(left->elem.{key} - right->elem.{key});", file=body)
