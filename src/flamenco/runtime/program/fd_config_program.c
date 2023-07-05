@@ -239,7 +239,6 @@ int fd_executor_config_program_execute_instruction( instruction_ctx_t ctx ) {
       ret = write_result;
       goto config_program_execute_instruction_cleanup;
    }
-   fd_acc_mgr_update_hash ( ctx.global->acc_mgr, &metadata, ctx.global->funk_txn, ctx.global->bank.slot, config_acc, new_data, new_data_size);
 
    fd_bincode_destroy_ctx_t destroy_ctx;
 

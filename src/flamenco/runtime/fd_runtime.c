@@ -146,17 +146,9 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_meta_t* m, const void
   // this slot is frozen... and cannot change anymore...
   fd_runtime_freeze( global );
 
-  // Time to make the donuts...
-
-  ulong dirty = global->acc_mgr->keys.cnt;
-  if (FD_UNLIKELY(global->log_level > 2))
-    FD_LOG_WARNING(("slot %ld   dirty %ld", global->bank.slot, dirty));
-  if (dirty > 0) {
-    global->signature_cnt = signature_cnt;
-    fd_hash_bank( global, &global->bank.banks_hash );
-
-    fd_dirty_dup_clear(global->acc_mgr->dup);
-    fd_pubkey_hash_vector_clear(&global->acc_mgr->keys);
+  int result = fd_update_hash_bank( global, &global->bank.banks_hash, signature_cnt );
+  if (result != FD_EXECUTOR_INSTR_SUCCESS) {
+    return result;
   }
 
   return fd_runtime_save_banks( global );
@@ -681,7 +673,6 @@ fd_global_ctx_delete     ( void * mem ) {
     return NULL;
   }
 
-  fd_acc_mgr_delete(fd_acc_mgr_leave(hdr->acc_mgr));
   fd_bincode_destroy_ctx_t ctx;
   ctx.freef = hdr->freef;
   ctx.freef_arg = hdr->allocf_arg;

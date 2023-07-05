@@ -481,7 +481,7 @@ int main(int argc, char** argv) {
 
   char acc_mgr_mem[FD_ACC_MGR_FOOTPRINT] __attribute__((aligned(FD_ACC_MGR_ALIGN)));
   memset(acc_mgr_mem, 0, sizeof(acc_mgr_mem));
-  global->acc_mgr = fd_acc_mgr_join( fd_acc_mgr_new( acc_mgr_mem, global, FD_ACC_MGR_FOOTPRINT ) );
+  global->acc_mgr = (fd_acc_mgr_t*)( fd_acc_mgr_new( acc_mgr_mem, global, FD_ACC_MGR_FOOTPRINT ) );
 
   ulong tcnt = fd_tile_cnt();
   uchar tpool_mem[ FD_TPOOL_FOOTPRINT(FD_TILE_MAX) ] __attribute__((aligned(FD_TPOOL_ALIGN)));
@@ -592,14 +592,11 @@ int main(int argc, char** argv) {
         fd_acc_mgr_write_structured_account(global->acc_mgr, global->funk_txn, 0, &a->key, &a->account);
       }
 
-      ulong dirty = global->acc_mgr->keys.cnt;
-      if (FD_UNLIKELY(global->log_level > 2))
-        FD_LOG_WARNING(("slot %ld   dirty %ld", global->bank.slot, dirty));
-      if (dirty > 0) {
-        fd_hash_bank( global, &global->bank.banks_hash );
-        fd_dirty_dup_clear(global->acc_mgr->dup);
-        fd_pubkey_hash_vector_clear(&global->acc_mgr->keys);
-      }
+      /* sort and update bank hash */
+      int result = fd_update_hash_bank( global, &global->bank.banks_hash, global->signature_cnt );
+      if (result != FD_EXECUTOR_INSTR_SUCCESS) {
+        return result;
+      }      
       
       fd_runtime_save_banks( global );
       

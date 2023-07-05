@@ -355,8 +355,9 @@ int write_stake_state(
       FD_LOG_WARNING(( "failed to write account data" ));
       return write_result;
     }
-    ulong dlen = (is_new_account) ? STAKE_ACCOUNT_SIZE : metadata.dlen;
-    fd_acc_mgr_update_hash ( global->acc_mgr, &metadata, global->funk_txn, global->bank.slot, stake_acc, (uchar*)encoded_stake_state, dlen);
+    metadata.dlen = (is_new_account) ? STAKE_ACCOUNT_SIZE : metadata.dlen;
+    
+    fd_acc_mgr_set_metadata( global->acc_mgr, global->funk_txn, stake_acc, &metadata);
 
     return FD_EXECUTOR_INSTR_SUCCESS;
 }
@@ -1315,8 +1316,8 @@ int fd_executor_stake_program_execute_instruction(
 
     to_acc_metadata.info.lamports += lamports;
     stake_acc_metadata.info.lamports -= lamports;
-    fd_acc_mgr_set_metadata(ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.slot, stake_acc, &stake_acc_metadata);
-    fd_acc_mgr_set_metadata(ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.slot, to_acc, &to_acc_metadata);
+    fd_acc_mgr_set_metadata(ctx.global->acc_mgr, ctx.global->funk_txn, stake_acc, &stake_acc_metadata);
+    fd_acc_mgr_set_metadata(ctx.global->acc_mgr, ctx.global->funk_txn, to_acc, &to_acc_metadata);
 
   }
 

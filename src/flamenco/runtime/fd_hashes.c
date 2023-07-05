@@ -170,11 +170,11 @@ fd_hash_account_deltas(fd_global_ctx_t *global, fd_pubkey_hash_pair_t * pairs, u
 
 }
 
-void
-fd_hash_bank( fd_global_ctx_t *global, fd_hash_t * hash ) {
+static void
+fd_hash_bank( fd_global_ctx_t *global, fd_hash_t * hash, fd_pubkey_hash_vector_t * dirty_keys) {
   global->prev_banks_hash = global->bank.banks_hash;
 
-  fd_hash_account_deltas( global, global->acc_mgr->keys.elems, global->acc_mgr->keys.cnt, &global->account_delta_hash );
+  fd_hash_account_deltas( global, dirty_keys->elems, dirty_keys->cnt, &global->account_delta_hash );
 
   fd_sha256_t sha;
   fd_sha256_init( &sha );
@@ -201,6 +201,35 @@ fd_hash_bank( fd_global_ctx_t *global, fd_hash_t * hash ) {
     FD_LOG_NOTICE(( "bank_hash slot: %lu,  hash: %s,  parent_hash: %s,  accounts_delta: %s,  signature_count: %ld,  last_blockhash: %s",
         global->bank.slot, encoded_hash, encoded_parent, encoded_account_delta, global->signature_cnt, encoded_last_block_hash));
   }
+}
+
+
+int fd_update_hash_bank( fd_global_ctx_t * global, fd_hash_t * hash, ulong signature_cnt) {
+  fd_pubkey_hash_vector_t dirty_keys;
+  fd_pubkey_hash_vector_new(&dirty_keys);
+  for ( fd_funk_rec_t const * rec = fd_funk_txn_first_rec( global->funk, global->funk_txn );
+    NULL != rec;
+    rec = fd_funk_txn_next_rec( global->funk, rec ) ) {
+    if ( fd_acc_mgr_is_key( rec->pair.key ) &&
+         fd_funk_rec_is_modified( global->funk, rec ) ) { 
+      /* rehash for the dirty key and insert into dirty_keys vectors*/
+      fd_pubkey_t dirty_pubkey;
+      fd_memcpy( &dirty_pubkey, &rec->pair.key, sizeof(fd_pubkey_t) );
+      int result = fd_acc_mgr_update_hash( global->acc_mgr, &dirty_keys, NULL, global->funk_txn, global->bank.slot, &dirty_pubkey, NULL, 0 );
+      if (result != FD_EXECUTOR_INSTR_SUCCESS) {
+        return result;
+      }
+    }
+  }
+  ulong const dirty = dirty_keys.cnt;
+  if (FD_UNLIKELY(global->log_level > 2))
+    FD_LOG_WARNING(("slot %ld   dirty %ld", global->bank.slot, dirty));
+  if (dirty > 0) {
+    global->signature_cnt = signature_cnt;
+    fd_hash_bank( global, hash, &dirty_keys );
+  }
+  fd_pubkey_hash_vector_destroy(&dirty_keys);
+  return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
 void

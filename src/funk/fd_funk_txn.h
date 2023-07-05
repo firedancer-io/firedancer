@@ -192,6 +192,22 @@ fd_funk_txn_is_only_child( fd_funk_txn_t const * txn ) {
          ( fd_funk_txn_idx_is_null( fd_funk_txn_idx( txn->sibling_next_cidx ) ) );
 }
 
+typedef struct fd_funk_rec fd_funk_rec_t;
+
+/* Return the first record in a transaction. Returns NULL if the
+   transaction has no records yet. */
+
+FD_FN_PURE fd_funk_rec_t const *
+fd_funk_txn_first_rec( fd_funk_t *           funk,
+                       fd_funk_txn_t const * txn );
+
+/* Return the next record in a transaction. Returns NULL if the
+   transaction has no more records. */
+
+FD_FN_PURE fd_funk_rec_t const *
+fd_funk_txn_next_rec( fd_funk_t *           funk,
+                      fd_funk_rec_t const * rec );
+
 /* Operations */
 
 /* fd_funk_txn_ancestor returns a pointer in the caller's address space

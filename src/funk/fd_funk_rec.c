@@ -195,6 +195,64 @@ fd_funk_rec_modify( fd_funk_t *           funk,
   return (fd_funk_rec_t *)rec;
 }
 
+FD_FN_PURE int
+fd_funk_rec_is_modified( fd_funk_t *           funk,
+                         fd_funk_rec_t const * rec ) {
+  
+  if( FD_UNLIKELY( (!funk) | (!rec) ) ) return 0;
+
+  fd_wksp_t * wksp = fd_funk_wksp( funk );
+
+  fd_funk_rec_t * rec_map = fd_funk_rec_map( funk, wksp );
+  ulong rec_max = funk->rec_max;
+  ulong rec_idx = (ulong)(rec - rec_map);
+  if( FD_UNLIKELY( (rec_idx>=rec_max) /* Out of map (incl NULL) */ | (rec!=(rec_map+rec_idx)) /* Bad alignment */ ) )
+    FD_LOG_CRIT(( "memory corruption detected (bad idx)" ));
+
+  ulong txn_idx = fd_funk_txn_idx( rec->txn_cidx );
+  if( fd_funk_txn_idx_is_null( txn_idx ) )
+    return 0;
+  fd_funk_txn_t * txn_map = fd_funk_txn_map( funk, wksp );
+  ulong txn_max = funk->txn_max;
+  if( FD_UNLIKELY( txn_idx>=txn_max ) )
+    FD_LOG_CRIT(( "memory corruption detected (bad idx)" ));
+  fd_funk_txn_t * txn = txn_map + txn_idx;
+
+  int err;
+  void * val = fd_funk_val_cache( funk, rec, &err );
+  if ( NULL == val ) {
+    FD_LOG_WARNING(("failed to load record: error %d", err));
+    return 1;
+  }
+  
+  do {
+    /* Go to the parent transaction */
+    fd_funk_xid_key_pair_t pair[1];
+    txn_idx = fd_funk_txn_idx( txn->parent_cidx );
+    if ( fd_funk_txn_idx_is_null( txn_idx ) ) {
+      txn = NULL;
+      fd_funk_xid_key_pair_init( pair, fd_funk_root( funk ), rec->pair.key );
+    } else {
+      txn = txn_map + txn_idx;
+      fd_funk_xid_key_pair_init( pair, fd_funk_txn_xid( txn ), rec->pair.key );
+    }
+
+    fd_funk_rec_t const * rec2 = fd_funk_rec_map_query( rec_map, pair, NULL );
+    if ( rec2 ) {
+      if ( rec->val_sz != rec2->val_sz )
+        return 1;
+      void * val2 = fd_funk_val_cache( funk, rec2, &err );
+      if ( NULL == val2 ) {
+        FD_LOG_WARNING(("failed to load record: error %d", err));
+        return 1;
+      }
+      return memcmp(val, val2, rec->val_sz) != 0;
+    }
+  } while (txn);
+
+  return 1;
+}
+
 fd_funk_rec_t const *
 fd_funk_rec_insert( fd_funk_t *               funk,
                     fd_funk_txn_t *           txn,

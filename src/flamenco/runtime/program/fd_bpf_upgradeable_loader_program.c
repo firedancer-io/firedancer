@@ -60,9 +60,6 @@ int write_bpf_upgradeable_loader_state(
     }
 
     ulong encoded_loader_state_size = fd_bpf_upgradeable_loader_state_size( loader_state );
-    ulong stored_loader_state_size = (metadata.dlen > encoded_loader_state_size)
-        ? metadata.dlen
-        : encoded_loader_state_size;
     uchar* encoded_loader_state = (uchar *)(global->allocf)( global->allocf_arg, 8UL, metadata.dlen );
     fd_memset( encoded_loader_state, 0, metadata.dlen );
 
@@ -87,7 +84,10 @@ int write_bpf_upgradeable_loader_state(
       FD_LOG_WARNING(( "failed to write account data" ));
       return write_result;
     }
-    fd_acc_mgr_update_hash ( global->acc_mgr, &metadata, global->funk_txn, global->bank.slot, program_acc, (uchar*)encoded_loader_state, stored_loader_state_size );
+    metadata.dlen = (metadata.dlen > encoded_loader_state_size) 
+        ? metadata.dlen
+        : encoded_loader_state_size;
+    fd_acc_mgr_set_metadata( global->acc_mgr, global->funk_txn, program_acc, &metadata);
 
     return FD_EXECUTOR_INSTR_SUCCESS;
 }
@@ -597,7 +597,6 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
       FD_LOG_WARNING(( "failed to write account data" ));
       return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
     }
-    fd_acc_mgr_update_hash ( ctx.global->acc_mgr, &buffer_acc_metadata, ctx.global->funk_txn, ctx.global->bank.slot, buffer_acc, buffer_acc_data, buffer_acc_metadata.dlen );
 
     return FD_EXECUTOR_INSTR_SUCCESS;
 
@@ -638,7 +637,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
     payer_acc_metadata.info.lamports += buffer_acc_metadata.info.lamports;
     buffer_acc_metadata.info.lamports = 0;
 
-    int write_result = fd_acc_mgr_set_metadata( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.slot, buffer_acc, &buffer_acc_metadata );
+    int write_result = fd_acc_mgr_set_metadata( ctx.global->acc_mgr, ctx.global->funk_txn, buffer_acc, &buffer_acc_metadata );
     if ( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) ) {
       FD_LOG_WARNING(( "failed to write account metadata" ));
       return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
@@ -691,7 +690,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
 
     program_acc_metadata.info.executable = 1;
 
-    write_result = fd_acc_mgr_set_metadata( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.slot, program_acc, &program_acc_metadata );
+    write_result = fd_acc_mgr_set_metadata( ctx.global->acc_mgr, ctx.global->funk_txn, program_acc, &program_acc_metadata );
     if ( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) ) {
       FD_LOG_WARNING(( "failed to write account metadata" ));
       return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
@@ -706,7 +705,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
 
     write_bpf_upgradeable_loader_state( ctx.global, program_acc, &program_acc_loader_state );
 
-    write_result = fd_acc_mgr_set_metadata( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.slot, payer_acc, &payer_acc_metadata );
+    write_result = fd_acc_mgr_set_metadata( ctx.global->acc_mgr, ctx.global->funk_txn,payer_acc, &payer_acc_metadata );
     if ( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) ) {
       FD_LOG_WARNING(( "failed to write account metadata" ));
       return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
@@ -901,13 +900,13 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
       recipient_acc_metdata.info.lamports += close_acc_metadata.info.lamports;
       close_acc_metadata.info.lamports = 0;
 
-      int write_result = fd_acc_mgr_set_metadata( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.slot, close_acc, &close_acc_metadata );
+      int write_result = fd_acc_mgr_set_metadata( ctx.global->acc_mgr, ctx.global->funk_txn, close_acc, &close_acc_metadata );
       if ( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) ) {
         FD_LOG_WARNING(( "failed to write account metadata" ));
         return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
       }
 
-      write_result = fd_acc_mgr_set_metadata( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.slot, recipient_acc, &recipient_acc_metdata );
+      write_result = fd_acc_mgr_set_metadata( ctx.global->acc_mgr, ctx.global->funk_txn, recipient_acc, &recipient_acc_metdata );
       if ( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) ) {
         FD_LOG_WARNING(( "failed to write account metadata" ));
         return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
