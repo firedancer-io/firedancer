@@ -592,12 +592,21 @@ int main(int argc, char** argv) {
         fd_acc_mgr_write_structured_account(global->acc_mgr, global->funk_txn, 0, &a->key, &a->account);
       }
 
+      ulong dirty = global->acc_mgr->keys.cnt;
+      if (FD_UNLIKELY(global->log_level > 2))
+        FD_LOG_WARNING(("slot %ld   dirty %ld", global->bank.slot, dirty));
+      if (dirty > 0) {
+        fd_hash_bank( global, &global->bank.banks_hash );
+        fd_dirty_dup_clear(global->acc_mgr->dup);
+        fd_pubkey_hash_vector_clear(&global->acc_mgr->keys);
+      }
+      
+      fd_runtime_save_banks( global );
+      
       fd_bincode_destroy_ctx_t ctx2;
       ctx2.freef = global->freef;
       ctx2.freef_arg = global->allocf_arg;
       fd_genesis_solana_destroy(&genesis_block, &ctx2);
-
-      fd_runtime_save_banks( global );
     }
 
     file = fd_env_strip_cmdline_cstr(&argc, &argv, "--rocksdb", NULL, NULL);

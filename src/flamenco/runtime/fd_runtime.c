@@ -53,6 +53,8 @@ fd_runtime_init_bank_from_genesis( fd_global_ctx_t * global, fd_genesis_solana_t
   fd_block_block_hash_entry_new(elem);
   fd_memcpy(elem->blockhash.hash, genesis_hash, FD_SHA256_HASH_SZ);
   elem->fee_calculator.lamports_per_signature = 0;
+
+  global->signature_cnt = 0;
 }
 
 void
