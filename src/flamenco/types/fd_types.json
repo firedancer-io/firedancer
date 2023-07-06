@@ -51,18 +51,6 @@
       ]
     },
     {
-      "name": "epoch_schedule",
-      "type": "struct",
-      "fields": [
-        { "name": "slots_per_epoch", "type": "ulong" },
-        { "name": "leader_schedule_slot_offset", "type": "ulong" },
-        { "name": "warmup", "type": "unsigned char" },
-        { "name": "first_normal_epoch", "type": "ulong" },
-        { "name": "first_normal_slot", "type": "ulong" }
-      ],
-      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/epoch_schedule.rs#L26"
-    },
-    {
       "name": "fee_rate_governor",
       "type": "struct",
       "fields": [
@@ -141,7 +129,7 @@
       "name": "stake_history",
       "type": "struct",
       "fields": [
-        { "name": "entries", "type": "vector", "element": "stake_history_epochentry_pair" }
+        { "name": "entries", "type": "map", "element": "stake_history_epochentry_pair", "key": "epoch" }
       ],
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake_history.rs#L55"
     },
@@ -222,7 +210,7 @@
       "name": "vote_accounts",
       "type": "struct",
       "fields": [
-        { "name": "vote_accounts", "type": "vector", "element": "vote_accounts_pair" }
+        { "name": "vote_accounts", "type": "map", "element": "vote_accounts_pair", "key": "key" }
       ]
     },
     {
@@ -250,7 +238,7 @@
       "type": "struct",
       "fields": [
         { "name": "vote_accounts", "type": "vote_accounts" },
-        { "name": "stake_delegations", "type": "deque", "element": "delegation_pair" },
+        { "name": "stake_delegations", "type": "map", "element": "delegation_pair", "key": "account" },
         { "name": "unused", "type": "ulong" },
         { "name": "epoch", "type": "ulong" },
         { "name": "stake_history", "type": "stake_history" }
@@ -693,7 +681,7 @@
       "name": "slot_hashes",
       "type": "struct",
       "fields": [
-          { "name": "hashes", "type": "deque", "element": "slot_hash", "max":700 }
+          { "name": "hashes", "type": "deque", "element": "slot_hash", "max":512 }
       ],
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_hashes.rs#L31"
     },
@@ -1181,7 +1169,7 @@
     {
       "name": "compute_budget_program_instruction",
       "type": "enum",
-      "compact": true, 
+      "compact": true,
       "variants": [
         { "name": "request_units_deprecated", "type": "compute_budget_program_instruction_request_units_deprecated" },
         { "name": "request_heap_frame", "type": "uint" },

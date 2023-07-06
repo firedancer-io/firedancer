@@ -28,6 +28,9 @@ print("#ifdef _DISABLE_OPTIMIZATION", file=body)
 print("#pragma GCC optimize (\"O0\")", file=body)
 print("#endif", file=body)
 
+print("#define SOURCE_fd_src_flamenco_types_fd_types_c", file=body)
+print('#include "fd_types_custom.c"', file=body)
+
 type_map = {
     "int64_t": "long",
     "uint64_t": "unsigned long",
@@ -574,17 +577,6 @@ fields_body_size = {
 
 # new
 
-def do_vector_body_new(n, f):
-    print("  self->" + f["name"] + " = NULL;", file=body)
-
-
-def do_deque_body_new(n, f):
-    print("  self->" + f["name"] + " = NULL;", file=body)
-
-def do_map_body_new(n, f):
-    print("  self->" + f["name"] + "_pool = NULL;", file=body)
-    print("  self->" + f["name"] + "_root = NULL;", file=body)
-
 def do_array_body_new(n, f):
     length = f["length"]
 
@@ -598,30 +590,27 @@ def do_array_body_new(n, f):
         print("  for (ulong i = 0; i < " + length + "; ++i)", file=body)
         print("    " + n + "_" + f["element"] + "_new(self->" + f["name"] + " + i);", file=body)
 
-def do_option_body_new(n, f):
-    print("  self->" + f["name"] + " = NULL;", file=body)
-
 def do_pass():
     pass
 
 fields_body_new = {
-    "char" :              lambda n, f: print("  self->" + f["name"] + " = 0;", file=body),
-    "char*" :             lambda n, f: print("  self->" + f["name"] + " = NULL;", file=body),
-    "char[32]" :          lambda n, f: print("  fd_memset(self->" + f["name"] + ",0, 32);", file=body),
-    "char[7]" :           lambda n, f: print("  fd_memset(self->" + f["name"] + ",0, 7);", file=body),
-    "double" :            lambda n, f: print("  self->" + f["name"] + " = 0;", file=body),
-    "long" :              lambda n, f: print("  self->" + f["name"] + " = 0;", file=body),
-    "uint" :              lambda n, f: print("  self->" + f["name"] + " = 0;", file=body),
-    "uint128" :           lambda n, f: print("  self->" + f["name"] + " = 0;", file=body),
-    "unsigned char" :     lambda n, f: print("  self->" + f["name"] + " = 0;", file=body),
-    "unsigned char[32]" : lambda n, f: print("  fd_memset(self->" + f["name"] + ",0, 32);", file=body),
-    "unsigned long" :     lambda n, f: print("  self->" + f["name"] + " = 0;", file=body),
-    "ushort" :            lambda n, f: print("  self->" + f["name"] + " = 0;", file=body),
-    "vector" :            lambda n, f: do_vector_body_new(n, f),
-    "deque" :             lambda n, f: do_deque_body_new(n, f),
+    "char" :              lambda n, f: do_pass(),
+    "char*" :             lambda n, f: do_pass(),
+    "char[32]" :          lambda n, f: do_pass(),
+    "char[7]" :           lambda n, f: do_pass(),
+    "double" :            lambda n, f: do_pass(),
+    "long" :              lambda n, f: do_pass(),
+    "uint" :              lambda n, f: do_pass(),
+    "uint128" :           lambda n, f: do_pass(),
+    "unsigned char" :     lambda n, f: do_pass(),
+    "unsigned char[32]" : lambda n, f: do_pass(),
+    "unsigned long" :     lambda n, f: do_pass(),
+    "ushort" :            lambda n, f: do_pass(),
+    "vector" :            lambda n, f: do_pass(),
+    "deque" :             lambda n, f: do_pass(),
     "array" :             lambda n, f: do_array_body_new(n, f),
-    "option" :            lambda n, f: do_option_body_new(n, f),
-    "map" :               lambda n, f: do_map_body_new(n, f),
+    "option" :            lambda n, f: do_pass(),
+    "map" :               lambda n, f: do_pass()
 }
 
 # destroy
@@ -1083,6 +1072,7 @@ for entry in entries:
       print("}", file=body)
     else:
       print("void " + n + "_new(" + n + "_t* self) {", file=body)
+      print("  fd_memset(self, 0, sizeof(" + n + "_t));", file=body)
       for f in entry["fields"]:
           if f["type"] in fields_body_new:
               fields_body_new[f["type"]](namespace, f)
@@ -1228,7 +1218,7 @@ for (element_type,key) in map_element_types.items():
     print(f"#undef REDBLK_T", file=body)
     print(f"#undef REDBLK_NAME", file=body)
     print(f"long {mapname}_compare({nodename} * left, {nodename} * right) {{", file=body)
-    if key == "pubkey":
+    if key == "pubkey" or key == "account" or key == "key":
         print(f"  return memcmp(left->elem.{key}.uc, right->elem.{key}.uc, sizeof(right->elem.{key}));", file=body)
     else:
         print(f"  return (long)(left->elem.{key} - right->elem.{key});", file=body)

@@ -6,9 +6,9 @@ build/linux/gcc/x86_64/unit-test/test_runtime --load test_ledger_backup --cmd re
 
 build/linux/gcc/x86_64/bin/fd_shmem_cfg reset
 
-build/linux/gcc/x86_64/bin/fd_wksp_ctl new giant_wksp 200 gigantic 8-63 0666
+build/linux/gcc/x86_64/bin/fd_wksp_ctl new giant_wksp 200 gigantic 32-127 0666
 
-build/linux/gcc/x86_64/bin/fd_frank_ledger --wksp giant_wksp --reset true --cmd ingest --snapshotfile /home/jsiegel/mainnet-ledger/snapshot-179244882-2DyMb1qN8JuTijCjsW8w4G2tg1hWuAw2AopH7Bj9Qstu.tar.zst --incremental /home/jsiegel/mainnet-ledger/incremental-snapshot-179244882-179248368-6TprbHABozQQLjjc1HBeQ2p4AigMC7rhHJS2Q5WLcbyw.tar.zst --rocksdb /home/jsiegel/mainnet-ledger/rocksdb --endslot 179248378 --backup /home/asiegel/mainnet_backup
+build/linux/gcc/x86_64/bin/fd_frank_ledger --wksp giant_wksp --reset true --cmd ingest --snapshotfile /home/jsiegel/mainnet-ledger/snapshot-179244882-2DyMb1qN8JuTijCjsW8w4G2tg1hWuAw2AopH7Bj9Qstu.tar.zst --incremental /home/jsiegel/mainnet-ledger/incremental-snapshot-179244882-179248368-6TprbHABozQQLjjc1HBeQ2p4AigMC7rhHJS2Q5WLcbyw.tar.zst --rocksdb /home/jsiegel/mainnet-ledger/rocksdb --endslot 179249378 --backup /home/asiegel/mainnet_backup
 
 build/linux/gcc/x86_64/unit-test/test_runtime --wksp giant_wksp --reset true --load /home/asiegel/mainnet_backup --cmd replay --index-max 350000000
 
@@ -18,6 +18,13 @@ build/linux/gcc/x86_64/unit-test/test_runtime --wksp giant_wksp --gaddr 0xc7ce18
 build/linux/gcc/x86_64/bin/fd_frank_ledger --wksp giant_wksp --reset true --cmd ingest --snapshotfile /data/jsiegel/mainnet-ledger/snapshot-179244882-2DyMb1qN8JuTijCjsW8w4G2tg1hWuAw2AopH7Bj9Qstu.tar.zst --incremental /data/jsiegel/mainnet-ledger/incremental-snapshot-179244882-179248368-6TprbHABozQQLjjc1HBeQ2p4AigMC7rhHJS2Q5WLcbyw.tar.zst --rocksdb /data/jsiegel/mainnet-ledger/rocksdb --endslot 179248378 --backup /data/jsiegel/mainnet_backup
 
 build/linux/gcc/x86_64/unit-test/test_runtime --wksp giant_wksp --gaddr 0x000000000c7ce180 --cmd replay
+
+/data/jsiegel/mainnet-ledger/snapshot-179244882-2DyMb1qN8JuTijCjsW8w4G2tg1hWuAw2AopH7Bj9Qstu.tar.zst
+/data/jsiegel/mainnet-ledger/incremental-snapshot-179244882-179248368-6TprbHABozQQLjjc1HBeQ2p4AigMC7rhHJS2Q5WLcbyw.tar.zst
+
+build/linux/gcc/x86_64/unit-test/test_runtime --wksp giant_wksp --gaddr 0xc7ce180 --cmd verifyonly
+
+build/linux/gcc/x86_64/unit-test/test_runtime --wksp giant_wksp --gaddr 0xc7ce180 --cmd verifyonly --tile-cpus 32-100
 
 ****/
 
@@ -42,6 +49,7 @@ build/linux/gcc/x86_64/unit-test/test_runtime --wksp giant_wksp --gaddr 0x000000
 #include "sysvar/fd_sysvar_clock.h"
 #include "sysvar/fd_sysvar.h"
 #include "fd_runtime.h"
+#include "sysvar/fd_sysvar_epoch_schedule.h"
 
 #include <dirent.h>
 
@@ -155,124 +163,7 @@ int accounts_hash(global_state_t *state) {
   return 0;
 }
 
-void print_file(global_state_t *state, const char *file) {
-  char  buf[1000];
-  char *p = (char *) &file[strlen(file) - 1];
-//  ulong slot = 0;
-//  ulong id = 0;
-
-  while ((p > file) && *p != '/')
-    p--;
-  if (*p == '/')
-    p++;
-
-  strcpy(buf, p);
-  p = buf;
-  while (*p != '.') p++;
-
-  if (*p == '.') {
-    *p++ = '\0';
-//    id = (ulong) atol(p);
-  }
-//  slot = (ulong) atol(buf);
-
-  struct stat s;
-
-  stat(file,  &s);
-  unsigned char *r = (unsigned char *)state->global->allocf(state->global->allocf_arg, 8UL, (unsigned long) (unsigned long) s.st_size);
-  unsigned char *b = r;
-  int            fd = open(file, O_RDONLY);
-  ssize_t        n = read(fd, b, (unsigned long) s.st_size);
-  if (n != s.st_size) {
-    FD_LOG_ERR(( "Read failure" ));
-  }
-
-  unsigned char *eptr = &b[(ulong) ((ulong)n - (ulong)sizeof(fd_solana_account_hdr_t))];
-
-  while (b < eptr) {
-    fd_solana_account_hdr_t *hdr = (fd_solana_account_hdr_t *)b;
-    // Look for corruption...
-    if ((b + hdr->meta.data_len) > (r + n)) {
-      // some kind of corruption in the file?
-      break;
-    }
-    // Sanitize accounts...
-    if ((hdr->info.lamports == 0) | ((hdr->info.executable & ~1) != 0))
-      break;
-
-    char pubkey[50];
-    fd_memset(pubkey, 0, sizeof(pubkey));
-    fd_base58_encode_32((uchar *) hdr->meta.pubkey, 0, pubkey);
-
-    char owner[50];
-    fd_memset(owner, 0, sizeof(owner));
-    fd_base58_encode_32((uchar *) hdr->info.owner, 0, owner);
-
-    char encoded_hash[50];
-    fd_base58_encode_32((uchar *) hdr->hash.value, 0, encoded_hash);
-
-//    printf("owner: %48s pubkey: %48s hash: %48s file: %s size: %lu\n", owner, pubkey, encoded_hash, file, hdr->meta.data_len);
-
-    printf("%s owner: %s hash: %48s file: %s size: %lu\n", pubkey, owner, encoded_hash, file, hdr->meta.data_len);
-
-//    fd_account_meta_t result;
-//    fd_acc_mgr_get_metadata(state->global->acc_mgr, fd_funk_root(state->global->acc_mgr->funk), (fd_pubkey_t *) hdr->meta.pubkey, &result);
-//
-//    if (memcmp(result.hash, hash, sizeof(hash))) {
-//      uchar *           account_data = (uchar *) fd_alloca(8UL,  hdr->meta.data_len);
-//      fd_acc_mgr_get_account_data( state->global->acc_mgr, fd_funk_root(state->global->acc_mgr->funk), (fd_pubkey_t *) &hdr->meta.pubkey, account_data, sizeof(fd_account_meta_t), hdr->meta.data_len);
-//      printf("Hmm.. bad dog\n");
-//    }
-
-    fd_bincode_decode_ctx_t ctx2;
-    ctx2.data = &b[sizeof(*hdr)];
-    ctx2.dataend = (uchar *)ctx2.data + hdr->meta.data_len;
-    ctx2.allocf = state->global->allocf;
-    ctx2.allocf_arg = state->global->allocf_arg;
-
-    if (strcmp(pubkey, "SysvarC1ock11111111111111111111111111111111") == 0) {
-      fd_sol_sysvar_clock_t a;
-      memset(&a, 0, sizeof(a));
-      fd_sol_sysvar_clock_new(&a);
-      if ( fd_sol_sysvar_clock_decode(&a, &ctx2) )
-        FD_LOG_ERR(("fd_sol_sysvar_clock_decode failed"));
-      printf("  {slot = %ld, epoch_start_timestamp = %ld, epoch = %ld, leader_schedule_epoch = %ld, unix_timestamp = %ld}\n",
-        a.slot, a.epoch_start_timestamp, a.epoch, a.leader_schedule_epoch, a.unix_timestamp);
-      fd_bincode_destroy_ctx_t ctx;
-      ctx.freef = state->global->freef;
-      ctx.freef_arg = state->global->allocf_arg;
-      fd_sol_sysvar_clock_destroy(&a, &ctx);
-
-    } else if (strcmp(pubkey, "SysvarRecentB1ockHashes11111111111111111111") == 0) {
-      fd_recent_block_hashes_t a;
-      memset(&a, 0, sizeof(a));
-      fd_recent_block_hashes_new(&a);
-      if ( fd_recent_block_hashes_decode(&a, &ctx2) )
-        FD_LOG_ERR(("fd_recent_block_hashes_decode failed"));
-      fd_block_block_hash_entry_t * hashes = a.hashes;
-      for ( deq_fd_block_block_hash_entry_t_iter_t iter = deq_fd_block_block_hash_entry_t_iter_init( hashes );
-            !deq_fd_block_block_hash_entry_t_iter_done( hashes, iter );
-            iter = deq_fd_block_block_hash_entry_t_iter_next( hashes, iter ) ) {
-        fd_block_block_hash_entry_t * e = deq_fd_block_block_hash_entry_t_iter_ele( hashes, iter );
-        char encoded_hash[50];
-        fd_base58_encode_32((uchar *) e->blockhash.hash, 0, encoded_hash);
-
-        printf("  {blockhash = %s,  fee_calculator={lamports_per_signature = %ld}}\n", encoded_hash, e->fee_calculator.lamports_per_signature);
-      }
-      fd_bincode_destroy_ctx_t ctx;
-      ctx.freef = state->global->freef;
-      ctx.freef_arg = state->global->allocf_arg;
-      fd_recent_block_hashes_destroy(&a, &ctx);
-    }
-
-    b += fd_ulong_align_up(hdr->meta.data_len + sizeof(*hdr), 8);
-  }
-
-  close(fd);
-  state->global->freef(state->global->allocf_arg, r);
-}
-
-int replay(global_state_t *state) {
+int replay(global_state_t * state, int justverify, fd_tpool_t * tpool, ulong max_workers) {
   fd_funk_rec_key_t key = fd_runtime_block_meta_key(ULONG_MAX);
   fd_funk_rec_t const * rec = fd_funk_rec_query( state->global->funk, NULL, &key );
   if (rec == NULL)
@@ -296,10 +187,23 @@ int replay(global_state_t *state) {
   if (0 != state->global->bank.slot)
     fd_update_features(state->global);
 
+  /* Load epoch schedule sysvar */
+  fd_epoch_schedule_t schedule;
+  fd_sysvar_epoch_schedule_read( state->global, &schedule );
+  FD_LOG_INFO(( "schedule->slots_per_epoch = %lu", schedule.slots_per_epoch ));
+  FD_LOG_INFO(( "schedule->leader_schedule_slot_offset = %lu", schedule.leader_schedule_slot_offset ));
+  FD_LOG_INFO(( "schedule->warmup = %d", schedule.warmup ));
+  FD_LOG_INFO(( "schedule->first_normal_epoch = %lu", schedule.first_normal_epoch ));
+  FD_LOG_INFO(( "schedule->first_normal_slot = %lu", schedule.first_normal_slot ));
+
+  /* Slot of next epoch boundary */
+  ulong epoch           = fd_slot_to_epoch( &schedule, state->global->bank.slot+1, NULL );
+  ulong last_epoch_slot = fd_epoch_slot0  ( &schedule, epoch+1UL );
+
   for ( ulong slot = state->global->bank.slot+1; slot < state->end_slot; ++slot ) {
     state->global->bank.slot = slot;
 
-    FD_LOG_NOTICE(("reading slot %ld", slot));
+    FD_LOG_NOTICE(("reading slot %ld (epoch %lu)", slot, epoch));
 
     fd_slot_meta_t m;
     fd_memset(&m, 0, sizeof(m));
@@ -328,12 +232,23 @@ int replay(global_state_t *state) {
     if (val == NULL)
       FD_LOG_ERR(("missing block record"));
 
-    FD_TEST (fd_runtime_block_eval( state->global, &m, val, fd_funk_val_sz(rec) ) == FD_RUNTIME_EXECUTE_SUCCESS);
+    if ( justverify ) {
+      if ( tpool )
+        fd_runtime_block_verify_tpool( state->global, &m, val, fd_funk_val_sz(rec), tpool, max_workers );
+      else
+        fd_runtime_block_verify( state->global, &m, val, fd_funk_val_sz(rec) );
+    } else {
+      FD_TEST (fd_runtime_block_eval( state->global, &m, val, fd_funk_val_sz(rec) ) == FD_RUNTIME_EXECUTE_SUCCESS);
+    }
 
     fd_bincode_destroy_ctx_t ctx;
     ctx.freef = state->global->freef;
     ctx.freef_arg = state->global->allocf_arg;
     fd_slot_meta_destroy(&m, &ctx);
+
+    if( slot == last_epoch_slot ) {
+      FD_LOG_NOTICE(( "EPOCH TRANSITION" ));
+    }
   }
 
   // fd_funk_txn_publish( state->global->funk, state->global->funk_txn, 1);
@@ -353,7 +268,7 @@ int main(int argc, char **argv) {
 
   char acc_mgr_mem[FD_ACC_MGR_FOOTPRINT] __attribute__((aligned(FD_ACC_MGR_ALIGN)));
   memset(acc_mgr_mem, 0, sizeof(acc_mgr_mem));
-  state.global->acc_mgr = fd_acc_mgr_join( fd_acc_mgr_new( acc_mgr_mem, state.global, FD_ACC_MGR_FOOTPRINT ) );
+  state.global->acc_mgr = (fd_acc_mgr_t*)( fd_acc_mgr_new( acc_mgr_mem, state.global, FD_ACC_MGR_FOOTPRINT ) );
 
   state.argc = argc;
   state.argv = argv;
@@ -500,10 +415,29 @@ int main(int argc, char **argv) {
     ctx2.allocf_arg = state.global->allocf_arg;
     if ( fd_firedancer_banks_decode(&state.global->bank, &ctx2 ) )
       FD_LOG_ERR(("failed to read banks record"));
+
+    char banks_hash[50];
+    fd_base58_encode_32((uchar *) state.global->bank.banks_hash.hash, NULL, banks_hash);
+    char poh_hash[50];
+    fd_base58_encode_32((uchar *) state.global->bank.poh.hash, NULL, poh_hash);
+    FD_LOG_WARNING(( "decoded banks_hash %s  poh_hash %s", banks_hash, poh_hash));
+  }
+
+  ulong tcnt = fd_tile_cnt();
+  uchar tpool_mem[ FD_TPOOL_FOOTPRINT(FD_TILE_MAX) ] __attribute__((aligned(FD_TPOOL_ALIGN)));
+  fd_tpool_t * tpool = NULL;
+  if ( tcnt > 1) {
+    tpool = fd_tpool_init(tpool_mem, tcnt);
+    if ( tpool == NULL )
+      FD_LOG_ERR(("failed to create thread pool"));
+    for ( ulong i = 1; i <= tcnt-1; ++i ) {
+      if ( fd_tpool_worker_push( tpool, i, NULL, 0UL ) == NULL )
+        FD_LOG_ERR(("failed to launch worker"));
+    }
   }
 
   if (strcmp(state.cmd, "replay") == 0) {
-    replay(&state);
+    replay(&state, 0, tpool, tcnt-1);
 
     if (NULL != confirm_hash) {
       uchar h[32];
@@ -533,6 +467,8 @@ int main(int argc, char **argv) {
     }
 
   }
+  if (strcmp(state.cmd, "verifyonly") == 0)
+    replay(&state, 1, tpool, tcnt-1);
   if (strcmp(state.cmd, "accounts_hash") == 0)
     accounts_hash(&state);
 

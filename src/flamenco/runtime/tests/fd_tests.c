@@ -104,7 +104,7 @@ int fd_executor_run_test(
 
   char *acc_mgr_mem = fd_alloca_check(FD_ACC_MGR_ALIGN, FD_ACC_MGR_FOOTPRINT);
   memset(acc_mgr_mem, 0, sizeof(FD_ACC_MGR_FOOTPRINT));
-  global->acc_mgr = fd_acc_mgr_join( fd_acc_mgr_new( acc_mgr_mem, global, FD_ACC_MGR_FOOTPRINT ) );
+  global->acc_mgr = (fd_acc_mgr_t*)( fd_acc_mgr_new( acc_mgr_mem, global, FD_ACC_MGR_FOOTPRINT ) );
 
   /* Prepare a new Funk transaction to execute this test in */
   fd_funk_txn_xid_t xid;
@@ -256,6 +256,9 @@ int fd_executor_run_test(
       }
     }
 
+    if (ret != FD_EXECUTOR_INSTR_SUCCESS) {
+      break;
+    }
     if (NULL == fail_fast)
       FD_LOG_NOTICE(("Passed test %d: %s", test->test_number, test->test_name));
   } while (false);
@@ -263,8 +266,6 @@ int fd_executor_run_test(
   /* Revert the Funk transaction */
 fd_executor_run_cleanup:
   fd_funk_txn_cancel( suite->funk, global->funk_txn, 0 );
-
-  fd_acc_mgr_delete(global->acc_mgr);
 
   fd_bincode_destroy_ctx_t destroy_ctx;
   destroy_ctx.freef = global->freef;

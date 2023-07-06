@@ -9,14 +9,14 @@ const ulong slot_history_max_entries = 1024 * 1024;
 
 /* TODO: move into seperate bitvec library */
 const ulong bits_per_block = 8 * sizeof(ulong);
-void set( fd_slot_history_t* history, ulong i ) {
+void fd_sysvar_slot_history_set( fd_slot_history_t* history, ulong i ) {
   ulong block_idx = (i / bits_per_block) % (history->bits.bits->blocks_len);
   history->bits.bits->blocks[ block_idx ] |= ( 1UL << ( i % bits_per_block ) );
 }
 
 const ulong blocks_len = slot_history_max_entries / bits_per_block;
 
-void write_history( fd_global_ctx_t* global, fd_slot_history_t* history ) {
+int fd_sysvar_slot_history_write_history( fd_global_ctx_t* global, fd_slot_history_t* history ) {
   ulong          sz = fd_slot_history_size( history );
   if (sz < slot_history_min_account_size)
     sz = slot_history_min_account_size;
@@ -25,10 +25,10 @@ void write_history( fd_global_ctx_t* global, fd_slot_history_t* history ) {
   fd_bincode_encode_ctx_t ctx;
   ctx.data = enc;
   ctx.dataend = enc + sz;
-  if ( fd_slot_history_encode( history, &ctx ) )
-    FD_LOG_ERR(("fd_slot_history_encode failed"));
-
-  fd_sysvar_set( global, global->sysvar_owner, global->sysvar_slot_history, enc, sz, global->bank.slot );
+  int err = fd_slot_history_encode( history, &ctx );
+  if (0 != err)
+    return err;
+  return fd_sysvar_set( global, global->sysvar_owner, (fd_pubkey_t *) global->sysvar_slot_history, enc, sz, global->bank.slot );
 }
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_history.rs#L16 */
@@ -43,60 +43,76 @@ void fd_sysvar_slot_history_init( fd_global_ctx_t* global ) {
   history.bits.len = slot_history_max_entries;
 
   /* TODO: handle slot != 0 init case */
-  set( &history, global->bank.slot );
+  fd_sysvar_slot_history_set( &history, global->bank.slot );
   history.next_slot = global->bank.slot + 1;
 
-  write_history( global, &history );
-  fd_bincode_destroy_ctx_t ctx;
-  ctx.freef = global->freef;
-  ctx.freef_arg = global->allocf_arg;
-  fd_slot_history_destroy( &history, &ctx );
-} 
-
-/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/bank.rs#L2345 */
-void fd_sysvar_slot_history_update( fd_global_ctx_t* global ) {
-  /* Set current_slot, and update next_slot */
-  fd_slot_history_t history;
-  fd_sysvar_slot_history_read( global, &history );
-
-  /* TODO: handle case where current_slot > max_entries */
-
-  /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_history.rs#L48 */
-  set( &history, global->bank.slot );
-  history.next_slot = global->bank.slot + 1;
-
-  write_history( global, &history );
+  fd_sysvar_slot_history_write_history( global, &history );
   fd_bincode_destroy_ctx_t ctx;
   ctx.freef = global->freef;
   ctx.freef_arg = global->allocf_arg;
   fd_slot_history_destroy( &history, &ctx );
 }
 
-void fd_sysvar_slot_history_read( fd_global_ctx_t* global, fd_slot_history_t* result ) {
-  /* Read the slot history sysvar from the account */
-  fd_account_meta_t metadata;
-  int               read_result = fd_acc_mgr_get_metadata( global->acc_mgr, global->funk_txn, (fd_pubkey_t *) global->sysvar_slot_history, &metadata );
-  if ( read_result != FD_ACC_MGR_SUCCESS ) {
-    FD_LOG_NOTICE(( "failed to read account metadata: %d", read_result ));
-    return;
-  }
+/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/bank.rs#L2345 */
+int fd_sysvar_slot_history_update( fd_global_ctx_t* global ) {
+  /* Set current_slot, and update next_slot */
+  fd_slot_history_t history;
+  fd_slot_history_new(&history);
 
-  char encoded_hash[50];
-  fd_base58_encode_32((uchar *) metadata.hash, 0, encoded_hash);
-  FD_LOG_INFO(( "slot history sysvar hash at slot %lu: %48s", global->bank.slot, encoded_hash ));
-
-  unsigned char *raw_acc_data = fd_alloca( 1, metadata.dlen );
-  read_result = fd_acc_mgr_get_account_data( global->acc_mgr, global->funk_txn, (fd_pubkey_t *) global->sysvar_slot_history, raw_acc_data, metadata.hlen, metadata.dlen );
-  if ( read_result != FD_ACC_MGR_SUCCESS ) {
-    FD_LOG_NOTICE(( "failed to read account data: %d", read_result ));
-    return;
-  }
+  int err = 0;
+  fd_funk_rec_t const *con_rec = NULL;
+  char * raw_acc_data = (char*) fd_acc_mgr_view_data(global->acc_mgr, global->funk_txn, (fd_pubkey_t *) global->sysvar_slot_history , &con_rec, &err);
+  if (NULL == raw_acc_data)
+    return err;
+  fd_account_meta_t *m = (fd_account_meta_t *) raw_acc_data;
 
   fd_bincode_decode_ctx_t ctx;
-  ctx.data = raw_acc_data;
-  ctx.dataend = raw_acc_data + metadata.dlen;
+  ctx.data = raw_acc_data + m->hlen;
+  ctx.dataend = (uchar *) ctx.data + m->dlen;
   ctx.allocf = global->allocf;
   ctx.allocf_arg = global->allocf_arg;
-  if ( fd_slot_history_decode( result, &ctx ) )
-    FD_LOG_ERR(("fd_slot_history_decode failed"));
+  err = fd_slot_history_decode( &history, &ctx );
+  if (0 != err)
+    return err;
+
+  /* TODO: handle case where current_slot > max_entries */
+
+  /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_history.rs#L48 */
+  fd_sysvar_slot_history_set( &history, global->bank.slot );
+  history.next_slot = global->bank.slot + 1;
+
+  ulong          sz = fd_slot_history_size( &history );
+  if (sz < slot_history_min_account_size)
+    sz = slot_history_min_account_size;
+
+  fd_funk_rec_t * acc_data_rec = NULL;
+
+  ulong acc_sz = sizeof(fd_account_meta_t) + sz;
+
+  raw_acc_data = fd_acc_mgr_modify_data(global->acc_mgr, global->funk_txn, (fd_pubkey_t *) global->sysvar_slot_history, 1, &acc_sz, con_rec, &acc_data_rec, &err);
+  if ( FD_UNLIKELY (NULL == raw_acc_data) )
+    return FD_ACC_MGR_ERR_READ_FAILED;
+
+  m = (fd_account_meta_t *)raw_acc_data;
+
+  fd_bincode_encode_ctx_t e_ctx;
+  e_ctx.data = raw_acc_data + m->hlen;
+  e_ctx.dataend = (char*)e_ctx.data + sz;
+  err = fd_slot_history_encode( &history, &e_ctx );
+  if (0 != err)
+    return err;
+
+  m->info.lamports = (sz + 128) * ((ulong) ((double)global->bank.rent.lamports_per_uint8_year * global->bank.rent.exemption_threshold));
+
+  m->dlen = sz;
+  fd_memcpy(m->info.owner, global->sysvar_owner, 32);
+
+  err = fd_acc_mgr_commit_data(global->acc_mgr, acc_data_rec, (fd_pubkey_t *) global->sysvar_slot_history, raw_acc_data, global->bank.slot, 0);
+
+  fd_bincode_destroy_ctx_t ctx_d;
+  ctx_d.freef = global->freef;
+  ctx_d.freef_arg = global->allocf_arg;
+  fd_slot_history_destroy( &history, &ctx_d );
+
+  return err;
 }

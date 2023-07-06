@@ -49,18 +49,6 @@ typedef struct fd_block_hash_queue fd_block_hash_queue_t;
 #define FD_BLOCK_HASH_QUEUE_FOOTPRINT sizeof(fd_block_hash_queue_t)
 #define FD_BLOCK_HASH_QUEUE_ALIGN (8UL)
 
-/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/epoch_schedule.rs#L26 */
-struct fd_epoch_schedule {
-  unsigned long slots_per_epoch;
-  unsigned long leader_schedule_slot_offset;
-  unsigned char warmup;
-  unsigned long first_normal_epoch;
-  unsigned long first_normal_slot;
-};
-typedef struct fd_epoch_schedule fd_epoch_schedule_t;
-#define FD_EPOCH_SCHEDULE_FOOTPRINT sizeof(fd_epoch_schedule_t)
-#define FD_EPOCH_SCHEDULE_ALIGN (8UL)
-
 struct fd_fee_rate_governor {
   unsigned long target_lamports_per_signature;
   unsigned long target_signatures_per_slot;
@@ -137,10 +125,29 @@ typedef struct fd_stake_history_epochentry_pair fd_stake_history_epochentry_pair
 #define FD_STAKE_HISTORY_EPOCHENTRY_PAIR_FOOTPRINT sizeof(fd_stake_history_epochentry_pair_t)
 #define FD_STAKE_HISTORY_EPOCHENTRY_PAIR_ALIGN (8UL)
 
+typedef struct fd_stake_history_epochentry_pair_t_mapnode fd_stake_history_epochentry_pair_t_mapnode_t;
+#define REDBLK_T fd_stake_history_epochentry_pair_t_mapnode_t
+#define REDBLK_NAME fd_stake_history_epochentry_pair_t_map
+#define REDBLK_IMPL_STYLE 1
+#include "../../util/tmpl/fd_redblack.c"
+#undef REDBLK_T
+#undef REDBLK_NAME
+struct fd_stake_history_epochentry_pair_t_mapnode {
+    fd_stake_history_epochentry_pair_t elem;
+    ulong redblack_parent;
+    ulong redblack_left;
+    ulong redblack_right;
+    int redblack_color;
+};
+static inline fd_stake_history_epochentry_pair_t_mapnode_t *
+fd_stake_history_epochentry_pair_t_map_alloc(fd_alloc_fun_t allocf, void * allocf_arg, ulong len) {
+  void* mem = (*allocf)(allocf_arg, fd_stake_history_epochentry_pair_t_map_align(), fd_stake_history_epochentry_pair_t_map_footprint(len));
+  return fd_stake_history_epochentry_pair_t_map_join(fd_stake_history_epochentry_pair_t_map_new(mem, len));
+}
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake_history.rs#L55 */
 struct fd_stake_history {
-  ulong entries_len;
-  fd_stake_history_epochentry_pair_t* entries;
+  fd_stake_history_epochentry_pair_t_mapnode_t* entries_pool;
+  fd_stake_history_epochentry_pair_t_mapnode_t* entries_root;
 };
 typedef struct fd_stake_history fd_stake_history_t;
 #define FD_STAKE_HISTORY_FOOTPRINT sizeof(fd_stake_history_t)
@@ -215,9 +222,28 @@ typedef struct fd_vote_accounts_pair fd_vote_accounts_pair_t;
 #define FD_VOTE_ACCOUNTS_PAIR_FOOTPRINT sizeof(fd_vote_accounts_pair_t)
 #define FD_VOTE_ACCOUNTS_PAIR_ALIGN (8UL)
 
+typedef struct fd_vote_accounts_pair_t_mapnode fd_vote_accounts_pair_t_mapnode_t;
+#define REDBLK_T fd_vote_accounts_pair_t_mapnode_t
+#define REDBLK_NAME fd_vote_accounts_pair_t_map
+#define REDBLK_IMPL_STYLE 1
+#include "../../util/tmpl/fd_redblack.c"
+#undef REDBLK_T
+#undef REDBLK_NAME
+struct fd_vote_accounts_pair_t_mapnode {
+    fd_vote_accounts_pair_t elem;
+    ulong redblack_parent;
+    ulong redblack_left;
+    ulong redblack_right;
+    int redblack_color;
+};
+static inline fd_vote_accounts_pair_t_mapnode_t *
+fd_vote_accounts_pair_t_map_alloc(fd_alloc_fun_t allocf, void * allocf_arg, ulong len) {
+  void* mem = (*allocf)(allocf_arg, fd_vote_accounts_pair_t_map_align(), fd_vote_accounts_pair_t_map_footprint(len));
+  return fd_vote_accounts_pair_t_map_join(fd_vote_accounts_pair_t_map_new(mem, len));
+}
 struct fd_vote_accounts {
-  ulong vote_accounts_len;
-  fd_vote_accounts_pair_t* vote_accounts;
+  fd_vote_accounts_pair_t_mapnode_t* vote_accounts_pool;
+  fd_vote_accounts_pair_t_mapnode_t* vote_accounts_root;
 };
 typedef struct fd_vote_accounts fd_vote_accounts_t;
 #define FD_VOTE_ACCOUNTS_FOOTPRINT sizeof(fd_vote_accounts_t)
@@ -243,22 +269,30 @@ typedef struct fd_delegation_pair fd_delegation_pair_t;
 #define FD_DELEGATION_PAIR_FOOTPRINT sizeof(fd_delegation_pair_t)
 #define FD_DELEGATION_PAIR_ALIGN (8UL)
 
-#define DEQUE_NAME deq_fd_delegation_pair_t
-#define DEQUE_T fd_delegation_pair_t
-#include "../../util/tmpl/fd_deque_dynamic.c"
-#undef DEQUE_NAME
-#undef DEQUE_T
-
-static inline fd_delegation_pair_t *
-deq_fd_delegation_pair_t_alloc(fd_alloc_fun_t allocf, void * allocf_arg, ulong len) {
-  ulong max = len + len/5 + 10;
-  void* mem = (*allocf)(allocf_arg, deq_fd_delegation_pair_t_align(), deq_fd_delegation_pair_t_footprint( max ));
-  return deq_fd_delegation_pair_t_join( deq_fd_delegation_pair_t_new( mem, max ) );
+typedef struct fd_delegation_pair_t_mapnode fd_delegation_pair_t_mapnode_t;
+#define REDBLK_T fd_delegation_pair_t_mapnode_t
+#define REDBLK_NAME fd_delegation_pair_t_map
+#define REDBLK_IMPL_STYLE 1
+#include "../../util/tmpl/fd_redblack.c"
+#undef REDBLK_T
+#undef REDBLK_NAME
+struct fd_delegation_pair_t_mapnode {
+    fd_delegation_pair_t elem;
+    ulong redblack_parent;
+    ulong redblack_left;
+    ulong redblack_right;
+    int redblack_color;
+};
+static inline fd_delegation_pair_t_mapnode_t *
+fd_delegation_pair_t_map_alloc(fd_alloc_fun_t allocf, void * allocf_arg, ulong len) {
+  void* mem = (*allocf)(allocf_arg, fd_delegation_pair_t_map_align(), fd_delegation_pair_t_map_footprint(len));
+  return fd_delegation_pair_t_map_join(fd_delegation_pair_t_map_new(mem, len));
 }
 /* https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L147 */
 struct fd_stakes {
   fd_vote_accounts_t vote_accounts;
-  fd_delegation_pair_t * stake_delegations;
+  fd_delegation_pair_t_mapnode_t* stake_delegations_pool;
+  fd_delegation_pair_t_mapnode_t* stake_delegations_root;
   unsigned long unused;
   unsigned long epoch;
   fd_stake_history_t stake_history;
@@ -805,7 +839,7 @@ typedef struct fd_slot_hash fd_slot_hash_t;
 
 #define DEQUE_NAME deq_fd_slot_hash_t
 #define DEQUE_T fd_slot_hash_t
-#define DEQUE_MAX 700
+#define DEQUE_MAX 512
 #include "../../util/tmpl/fd_deque.c"
 #undef DEQUE_NAME
 #undef DEQUE_T
@@ -1555,13 +1589,6 @@ int fd_block_hash_queue_encode(fd_block_hash_queue_t const * self, fd_bincode_en
 void fd_block_hash_queue_destroy(fd_block_hash_queue_t* self, fd_bincode_destroy_ctx_t * ctx);
 void fd_block_hash_queue_walk(fd_block_hash_queue_t* self, fd_walk_fun_t fun, const char *name, int level);
 ulong fd_block_hash_queue_size(fd_block_hash_queue_t const * self);
-
-void fd_epoch_schedule_new(fd_epoch_schedule_t* self);
-int fd_epoch_schedule_decode(fd_epoch_schedule_t* self, fd_bincode_decode_ctx_t * ctx);
-int fd_epoch_schedule_encode(fd_epoch_schedule_t const * self, fd_bincode_encode_ctx_t * ctx);
-void fd_epoch_schedule_destroy(fd_epoch_schedule_t* self, fd_bincode_destroy_ctx_t * ctx);
-void fd_epoch_schedule_walk(fd_epoch_schedule_t* self, fd_walk_fun_t fun, const char *name, int level);
-ulong fd_epoch_schedule_size(fd_epoch_schedule_t const * self);
 
 void fd_fee_rate_governor_new(fd_fee_rate_governor_t* self);
 int fd_fee_rate_governor_decode(fd_fee_rate_governor_t* self, fd_bincode_decode_ctx_t * ctx);

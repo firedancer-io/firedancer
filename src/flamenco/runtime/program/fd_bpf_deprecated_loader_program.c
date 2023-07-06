@@ -2,7 +2,7 @@
 
 int fd_executor_bpf_deprecated_loader_program_execute_instruction( instruction_ctx_t ctx ) {
   /* Deserialize the Stake instruction */
-  uchar * data            = (uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->data_off; 
+  uchar * data            = (uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->data_off;
 
   fd_bpf_loader_program_instruction_t instruction;
   fd_bpf_loader_program_instruction_new( &instruction );
