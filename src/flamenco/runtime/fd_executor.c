@@ -93,7 +93,8 @@ fd_execute_txn( fd_executor_t* executor, fd_txn_t * txn_descriptor, fd_rawtxn_b_
   transaction_ctx_t txn_ctx = {
     .global             = executor->global,
     .compute_unit_limit = 200000,
-    .compute_unit_price = 1,
+    .compute_unit_price = 0,
+    .prioritization_fee_type = FD_COMPUTE_BUDGET_PRIORITIZATION_FEE_TYPE_DEPRECATED,
     .txn_descriptor     = txn_descriptor,
     .txn_raw            = txn_raw,
   };

@@ -377,10 +377,12 @@ fd_runtime_block_eval( fd_global_ctx_t *global, fd_slot_meta_t *m, const void* b
   if (NULL == txn)
     FD_LOG_ERR(("fd_funk_txn_prepare failed"));
 
-  global->funk_txn_index = (global->funk_txn_index + 1) & 31;
+  global->funk_txn_index = (global->funk_txn_index + 1) & 0x1F;
   fd_funk_txn_t * old_txn = global->funk_txn_tower[global->funk_txn_index];
-  if (old_txn != NULL )
+  if (old_txn != NULL ) {
+    FD_LOG_WARNING(( "publishing funk txn in tower: idx: %u", global->funk_txn_index ));
     fd_funk_txn_publish( global->funk, old_txn, 0 );
+  }
   global->funk_txn_tower[global->funk_txn_index] = global->funk_txn = txn;
 
   // This is simple now but really we need to execute block_verify in
@@ -487,12 +489,13 @@ void compute_priority_fee( transaction_ctx_t const * txn_ctx, ulong * fee, ulong
       return;
     }
     case FD_COMPUTE_BUDGET_PRIORITIZATION_FEE_TYPE_COMPUTE_UNIT_PRICE: {
+      
       uint128 micro_lamport_fee = (uint128)txn_ctx->compute_unit_price * (uint128)txn_ctx->compute_unit_limit;
 
       *priority = txn_ctx->compute_unit_price;
-      uint128 _fee = (micro_lamport_fee + (MICRO_LAMPORTS_PER_LAMPORT - 1))/MICRO_LAMPORTS_PER_LAMPORT;
+      uint128 _fee = (micro_lamport_fee + (uint128)(MICRO_LAMPORTS_PER_LAMPORT - 1))/(uint128)(MICRO_LAMPORTS_PER_LAMPORT);
       *fee = _fee > (uint128)ULONG_MAX ? ULONG_MAX : (ulong)_fee;
-
+      FD_LOG_WARNING(("CPF: %lu %lu %lu", *fee, (ulong)txn_ctx->compute_unit_price, txn_ctx->compute_unit_limit));
       return; 
     }
     default:
@@ -504,16 +507,14 @@ ulong
 fd_runtime_calculate_fee( fd_global_ctx_t *global, transaction_ctx_t * txn_ctx, fd_txn_t * txn_descriptor, fd_rawtxn_b_t* txn_raw ) {
 // https://github.com/firedancer-io/solana/blob/08a1ef5d785fe58af442b791df6c4e83fe2e7c74/runtime/src/bank.rs#L4443
 // TODO: implement fee distribution to the collector ... and then charge us the correct amount
-  ulong priority;
-  ulong priority_fee;
+  ulong priority = 0;
+  ulong priority_fee = 0;
   compute_priority_fee(txn_ctx, &priority_fee, &priority);
   ulong lamports_per_signature = fd_runtime_txn_lamports_per_signature(global, txn_descriptor, txn_raw);
 
   double BASE_CONGESTION = 5000.0;
   double current_congestion = (BASE_CONGESTION > (double)lamports_per_signature) ? BASE_CONGESTION : (double)lamports_per_signature;
   double congestion_multiplier = (lamports_per_signature == 0) ? 0.0 : (BASE_CONGESTION / current_congestion);
-  congestion_multiplier = 1.0;
-
 
 //  bool support_set_compute_unit_price_ix = false;
 //  bool use_default_units_per_instruction = false;
@@ -538,7 +539,8 @@ fd_runtime_calculate_fee( fd_global_ctx_t *global, transaction_ctx_t * txn_ctx, 
 //
 //            let write_lock_fee = Self::get_num_write_locks_in_message(message)
 //                .saturating_mul(fee_structure.lamports_per_write_lock);
-  double write_lock_fee = 0;
+  ulong lamports_per_write_lock = 0;
+  double write_lock_fee = (double)fd_ulong_sat_mul( fd_txn_num_writable_accounts( txn_descriptor ), lamports_per_write_lock );
 
 // TODO: the fee_structure bin is static and default..
 //
@@ -560,6 +562,7 @@ fd_runtime_calculate_fee( fd_global_ctx_t *global, transaction_ctx_t * txn_ctx, 
 
   if (FD_UNLIKELY(global->log_level > 2)) {
       FD_LOG_WARNING(( "fd_runtime_calculate_fee_compare: slot=%ld fee(%lf) = (prioritization_fee(%f) + signature_fee(%f) + write_lock_fee(%f) + compute_fee(%f)) * congestion_multiplier(%f)", global->bank.slot, fee, prioritization_fee, signature_fee, write_lock_fee, compute_fee, congestion_multiplier));
+      FD_LOG_WARNING(( "fd_rcfc2: lps: %lu, pp: %lu, pf: %lu, cul: %lu, cup: %lu, pft: %u", lamports_per_signature, priority, priority_fee, txn_ctx->compute_unit_limit, txn_ctx->compute_unit_price, txn_ctx->prioritization_fee_type));
   }
 
   if (fee >= (double)ULONG_MAX)
@@ -886,8 +889,6 @@ fd_runtime_save_banks( fd_global_ctx_t * global ) {
 
   fd_funk_rec_persist(global->funk, rec);
 
-  global->freef( global->allocf_arg, buf );
-
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
@@ -912,7 +913,6 @@ fd_global_import_stakes(fd_global_ctx_t * global, fd_solana_manifest_t * manifes
     .allocf     = global->allocf,
     .allocf_arg = global->allocf_arg
   };
-
   if( FD_UNLIKELY( 0!=fd_stakes_decode( &global->bank.stakes, &decode_ctx ) ) ) {
     FD_LOG_ERR(( "fd_stakes_decode failed" ));
   }
@@ -1011,11 +1011,12 @@ void fd_update_feature(FD_FN_UNUSED fd_global_ctx_t * global, ulong * f, const c
   fd_feature_t feature;
   fd_feature_new(&feature);
 
-  fd_bincode_decode_ctx_t ctx;
-  ctx.data = raw_acc_data + m->hlen;
-  ctx.dataend = (char *) ctx.data + m->dlen;
-  ctx.allocf = global->allocf;
-  ctx.allocf_arg = global->allocf_arg;
+  fd_bincode_decode_ctx_t ctx = {
+    .data = raw_acc_data + m->hlen,
+    .dataend = (char *) ctx.data + m->dlen,
+    .allocf = global->allocf,
+    .allocf_arg = global->allocf_arg,
+  };
   if ( fd_feature_decode( &feature, &ctx ) )
     return;
 

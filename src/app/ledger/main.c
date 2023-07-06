@@ -209,7 +209,7 @@ static void decompressZSTD(const char* fname, decompressCallback cb, void* arg) 
        */
       size_t const ret = ZSTD_decompressStream(dctx, &output, &input);
       if (ZSTD_isError(ret)) {
-        FD_LOG_ERR(( "bz2 decompression failed: %s", ZSTD_getErrorName( ret ) ));
+        FD_LOG_ERR(( "zstd decompression failed: %s", ZSTD_getErrorName( ret ) ));
         goto done;
       }
       if ((*cb)(arg, buffOut, output.pos))
@@ -561,13 +561,15 @@ int main(int argc, char** argv) {
         FD_LOG_ERR(( "missing recent block hashes account" ));
       fd_account_meta_t *m = (fd_account_meta_t *) raw_acc_data;
 
-      fd_bincode_decode_ctx_t ctx;
-      ctx.data = raw_acc_data + m->hlen;
-      ctx.dataend = (char *) ctx.data + m->dlen;
-      ctx.allocf = global->allocf;
-      ctx.allocf_arg = global->allocf_arg;
+      fd_bincode_decode_ctx_t ctx = {
+        .data = raw_acc_data + m->hlen,
+        .dataend = (char *) ctx.data + m->dlen,
+        .allocf = global->allocf,
+        .allocf_arg = global->allocf_arg,
+      };
 
       fd_recent_block_hashes_decode( &global->bank.recent_block_hashes, &ctx );
+
       // fd_recent_block_hashes_walk(&global->bank.recent_block_hashes, fd_printer_walker, "recent_block_hashes", 0);
       fd_runtime_save_banks( global );
     }
