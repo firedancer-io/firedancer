@@ -353,17 +353,34 @@ fd_txn_get_address_tables( fd_txn_t * txn ) {
   return (fd_txn_acct_addr_lut_t *)(txn->instr + txn->instr_cnt);
 }
 
-/* fd_txn_get_signatures: Returns the array of Ed25519 signatures in
-   `payload`, the serialization of the transaction described by `txn`.
-   The number of signatures is seen in `txn->signature_cnt`.
+
+/* fd_acct_addr_t: An Solana account address, which may be an Ed25519
+   public key, a SHA256 hash from a program derived address, a hardcoded
+   sysvar, etc.  This type does not imply any alignment. */
+typedef uchar fd_acct_addr_t[FD_TXN_ACCT_ADDR_SZ];
+
+/* fd_txn_get_{signatures, acct_addrs}: Returns the array of Ed25519
+   signatures or account addresses (commonly, yet imprecisely called
+   pubkeys), respectively, in `payload`, the serialization of the
+   transaction described by `txn`.  The number of signatures is seen in
+   `txn->signature_cnt` and the number of account addresses is in
+   `txn->acct_addr_cnt`.
+
    The lifetime of the returned signature is the lifetime of `payload`.
-   Expect the returned signature to be unaligned.
-   U.B. If `payload` and `txn` were not arguments to a valid
-   `fd_txn_parse` call or if either was modified after the parse call. */
+   Expect the returned pointer to point to memory with no particular
+   alignment.  U.B. If `payload` and `txn` were not arguments to a valid
+   `fd_txn_parse` call or if either was modified after the parse call.
+   */
 static inline fd_ed25519_sig_t const *
 fd_txn_get_signatures( fd_txn_t const * txn,
-                       void const *     payload ) {
+                       void     const * payload ) {
    return (fd_ed25519_sig_t const *)((ulong)payload + (ulong)txn->signature_off);
+}
+
+static inline fd_acct_addr_t const *
+fd_txn_get_acct_addrs( fd_txn_t const * txn,
+                       void     const * payload ) {
+  return (fd_acct_addr_t const *)((ulong)payload + (ulong)txn->acct_addr_off);
 }
 
 /* fd_txn_footprint: Returns the total size of txn, including the
@@ -373,6 +390,215 @@ fd_txn_footprint( ulong instr_cnt,
                   ulong addr_table_lookup_cnt ) {
   return sizeof(fd_txn_t) + instr_cnt*sizeof(fd_txn_instr_t) + addr_table_lookup_cnt*sizeof(fd_txn_acct_addr_lut_t);
 }
+
+
+/* Each account address in a transaction has 3 independent binary
+   properties:
+   -  readonly/writable: this is enforced in the runtime, but a
+       transaction fails if it tries to modify the contents of an
+       account it marks as readonly
+   -  signer/nonsigner: the sigverify tile ensures that the transaction
+       has been validly signed by the key associated to each account
+       address marked as a signer
+   -  immediate/address lookup table: account addresses can come from
+       the transaction itself ("immediate"), which is the only option
+       for legacy transactions, or from an address lookup table
+
+   For example, the fee payer must be writable, a signer, and immediate.
+
+   From these properties, we can make categories of account addresses
+   for counting and iterating over account addresses.  Since these
+   properties can be set indepenently, it would seem to give us 2*2*2=8
+   categories of accounts based on the properties, but account addresses
+   that come from an address lookup table cannot be signers, giving 6
+   raw categories instead of 8.
+
+   The individual types of accounts are defined as bitflags so that
+   combination categories can be created easily, e.g. all readonly
+   accounts or all signers. */
+
+/*                                                        Signer?   Writable?   Source? */
+#define FD_TXN_ACCT_CAT_WRITABLE_SIGNER         0x01  /*    Yes        Yes        imm   */
+#define FD_TXN_ACCT_CAT_READONLY_SIGNER         0x02  /*    Yes        No         imm   */
+#define FD_TXN_ACCT_CAT_WRITABLE_NONSIGNER_IMM  0x04  /*    No         Yes        imm   */
+#define FD_TXN_ACCT_CAT_READONLY_NONSIGNER_IMM  0x08  /*    No         No         imm   */
+#define FD_TXN_ACCT_CAT_WRITABLE_ALT            0x10  /*    No         Yes       lookup */
+#define FD_TXN_ACCT_CAT_READONLY_ALT            0x20  /*    No         No        lookup */
+
+/* Define some groupings for convenience.  In the
+   table below, "Any" means "don't care" */
+#define FD_TXN_ACCT_CAT_WRITABLE                0x15  /*   Any         Yes        Any   */
+#define FD_TXN_ACCT_CAT_READONLY                0x2A  /*   Any         No         Any   */
+#define FD_TXN_ACCT_CAT_SIGNER                  0x03  /*   Yes         Any       Any/imm*/
+#define FD_TXN_ACCT_CAT_NONSIGNER               0x3C  /*   No          Any        Any   */
+#define FD_TXN_ACCT_CAT_IMM                     0x0F  /*   Any         Any        imm   */
+#define FD_TXN_ACCT_CAT_ALT                     0x30  /*   No          Any       lookup */
+#define FD_TXN_ACCT_CAT_NONE                    0x00  /*      --- Empty set ---         */
+#define FD_TXN_ACCT_CAT_ALL                     0x3F  /*   Any         Any        Any   */
+
+/* fd_txn_account_cnt: Returns the number of accounts referenced by this
+   transaction that have the property specified by include_category.
+   txn must be a pointer to a valid transaction.  include_cat must be
+   one of the previously defined FD_TXN_ACCT_CAT_* values.  Ideally,
+   include_cat should be a compile-time constant, in which case this
+   function typically compiles to about 3 instructions. */
+static inline ulong
+fd_txn_account_cnt( fd_txn_t * txn,
+                    int        include_cat ) {
+  ulong cnt = 0UL;
+  if( include_cat & FD_TXN_ACCT_CAT_WRITABLE_SIGNER        ) cnt += (ulong)txn->signature_cnt - (ulong)txn->readonly_signed_cnt;
+  if( include_cat & FD_TXN_ACCT_CAT_READONLY_SIGNER        ) cnt += (ulong)txn->readonly_signed_cnt;
+  if( include_cat & FD_TXN_ACCT_CAT_READONLY_NONSIGNER_IMM ) cnt += (ulong)txn->readonly_unsigned_cnt;
+  if( include_cat & FD_TXN_ACCT_CAT_WRITABLE_ALT           ) cnt += (ulong)txn->addr_table_adtl_writable_cnt;
+  if( include_cat & FD_TXN_ACCT_CAT_WRITABLE_NONSIGNER_IMM )
+    cnt += (ulong)txn->acct_addr_cnt - (ulong)txn->signature_cnt - (ulong)txn->readonly_unsigned_cnt;
+  if( include_cat & FD_TXN_ACCT_CAT_READONLY_ALT           )
+    cnt += (ulong)txn->addr_table_adtl_cnt - (ulong)txn->addr_table_adtl_writable_cnt;
+
+  return cnt;
+}
+
+/* fd_txn_acct_iter_{init, next, end}: These functions are used for
+   iterating over the accounts in a transaction that have the property
+   specified by include_cat.
+
+   Example usage:
+
+   fd_txn_acct_addr const * acct = fd_txn_get_acct_addrs( txn, payload );
+   fd_txn_acct_iter_t ctrl;
+   for( ulong i=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE, &ctrl );
+         i<fd_txn_acct_iter_end(); i=fd_txn_acct_iter_next( i, &ctrl ) ) {
+     // Do something with acct[ i ]
+   }
+
+   For fd_txn_acct_iter_init, txn must be a pointer to a valid
+   transaction, include_cat must be one of the FD_TXN_ACCT_CAT_* values
+   defined above (or a bitwise combination of them) and out_ctrl must
+   point to a writable, potentially uninitialized fd_txn_acct_iter_t.
+   Cannot fail from the caller's perspective.  On completion, returns
+   the index of the first account address meeting the specified
+   criteria, or fd_txn_acct_iter_end() if there aren't any.
+
+   For fd_acct_iter_next, cur should be the current value of the
+   iteration variable, and ctrl contains the control information
+   produced by fd_txn_acct_iter_init, and potentially updated by calls
+   to fd_acct_iter_next.  Returns the next value of the iteration
+   variable, or fd_txn_acct_iter_end() if no more accounts meeting the
+   criteria specified in the call to fd_txn_acct_iter_init remain.
+   It is undefined behavior to call fd_acct_iter_next with values of cur
+   and ctrl not returned by the same call to either fd_acct_iter_init or
+   fd_acct_iter_next.  It's also U.B. to call fd_acct_iter_next after
+   fd_acct_iter_end has been returned.
+
+   fd_txn_acct_iter_t should be treated as an opaque handle and not
+   modified other than by using fd_txn_acc_iter_next. It does not need
+   to be destroyed, and is small enough that it should typically be
+   allocated on the stack. */
+
+typedef ulong fd_txn_acct_iter_t;
+
+/* Account addresses are categorized into 6 categories, and all the
+   account addresses for each category are stored contiguously.  This
+   means that for any subset of the 6 categories that the user wants to
+   iterate over, there are at most 3 disjoint ranges.
+
+   For any iteration space I, we can choose 6 integers
+   {start,end}_{0,1,2} so that
+    I = [start0, end0) U [start1, end1) U [start2, end2)
+   and 0<=start0<=end0<=start1<=end1<=start2<=end2<=256 with the
+   additional restriction that the only empty interval we allow is
+   [256, 256).
+   The fact that we need to handle 0 and 256 is a bit pesky, because it
+   seems like we need more than a byte to represent each number.
+   However, notice that we return start0 from _init, so we don't need to
+   represent it explicitly in the control word.  Furthermore, if
+   start0==0, then all the remaining values are at least 1.  Thus, we
+   can get away with storing each integer in one byte (an the whole
+   control word in a single ulong) as long as we store one less than the
+   actual value. */
+
+static inline ulong
+fd_txn_acct_iter_init( fd_txn_t * txn,
+                       int        include_cat,
+                       ulong *    ctrl     ) {
+  /* Our goal is to output something that looks like [end0-1, start1-1,
+     end1-1, start2-1, end2-1, don't care, don't care, don't care], but
+     we initially construct [255, 255, start0-1, end0-1, start1-1,
+     end1-1, start2-1, end2-1].  If include_cat==0 and we don't end up
+     doing anything below, then this is the right answer.  Otherwise,
+     we'll immediately advance to the next interval when we compare with
+     it. */
+  union {
+    uchar control[9]; /* The last dummy write might be to [8]. We want
+                         to ignore it in that case. */
+    ulong _ctrl;
+  } u;
+  u._ctrl = ULONG_MAX;
+  ulong i = 0;
+
+  /* One less than the start and end of the account address indices
+     corresponding to the category r.  Starting these at -1 handles all
+     the -1's necessary. */
+  ulong start = (ulong)(-1L);
+  ulong end   = (ulong)(-1L);
+
+  /* Note: This has to be invoked in the account address index order */
+# define EXTEND_REGION( r )                                                      \
+  do{                                                                            \
+    ulong cnt =  fd_txn_account_cnt( txn, r );                                   \
+    start     =  end;                                                            \
+    end       += cnt;                                                            \
+    /* If cnt==0, we want to do nothing.  The easiest way to do that is          \
+       to make the interval [endi, endi). */                                     \
+    ulong endi   = (ulong)u.control[2*i+1];                                      \
+    ulong _start = fd_ulong_if( cnt>0, start, endi );                            \
+    ulong _end   = fd_ulong_if( cnt>0, end,   endi );                            \
+    if( include_cat & r ) { /* Hopefully a compile-time const */                 \
+      /* If the start of this sub-interval equals the end of the current         \
+         interval, then we just extend the interval.  This next write is         \
+         a dummy in that case (overwritten before being read) but saves          \
+         a branch.  If it is not, then we write the current start and            \
+         end as the next interval and advance i. */                              \
+      u.control[2*i+2] = (uchar)_start;                                          \
+      i = fd_ulong_if( endi==_start, i, i+1 );                                   \
+      u.control[2*i+1] = (uchar)_end;                                            \
+    }                                                                            \
+  } while( 0 )
+
+  EXTEND_REGION( FD_TXN_ACCT_CAT_WRITABLE_SIGNER        );
+  EXTEND_REGION( FD_TXN_ACCT_CAT_READONLY_SIGNER        );
+  EXTEND_REGION( FD_TXN_ACCT_CAT_WRITABLE_NONSIGNER_IMM );
+  EXTEND_REGION( FD_TXN_ACCT_CAT_READONLY_NONSIGNER_IMM );
+  /* FIXME: Right now we don't have a way of iterating over addresses in
+     lookup tables. */
+  EXTEND_REGION( FD_TXN_ACCT_CAT_WRITABLE_ALT           );
+  EXTEND_REGION( FD_TXN_ACCT_CAT_READONLY_ALT           );
+#undef EXTEND_REGION
+
+  /* Undo last dummy write.  In the worst case, i==3 at this point, so
+     we might write to u.control[8], but we don't care about that write
+     then. */
+  u.control[2*i+2] = (uchar)0xFF;
+
+  *ctrl = (0xFFFFFFUL<<40) | (u._ctrl >> 24);
+  ulong start0 = ((ulong)u.control[2] + 1UL) & 0xFFUL; /* Do the arithmetic as uchars so that 0xFF -> 0 */
+  return fd_ulong_if( i==0UL, 256UL, start0 );
+}
+
+static inline ulong
+fd_txn_acct_iter_next( ulong   cur,
+                       ulong * _ctrl ) {
+  ulong control = *_ctrl;
+  ulong end = control & 0xFF; /* this is end-1, as explained above, but
+                                 the interval is half-open */
+  ulong next_start = ((control>>8)&0xFFUL)+1UL;
+  *_ctrl = fd_ulong_if( cur==end, control>>16, control );
+  return   fd_ulong_if( cur==end, next_start,  cur+1UL );
+}
+
+static inline ulong FD_FN_CONST fd_txn_acct_iter_end( void ) { return FD_TXN_ACCT_ADDR_MAX; }
+
+
 
 /* fd_txn_parse: Parses a transaction from the canonical encoding, i.e. the
    format used on the wire.  Payload points to the first byte of encoded
