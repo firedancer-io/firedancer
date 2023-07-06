@@ -404,6 +404,7 @@ install_openssl () {
     no-engine \
     no-static-engine \
     no-weak-ssl-ciphers \
+    no-autoload-config \
     no-tls1 \
     no-tls1-method \
     no-tls1_1 \
