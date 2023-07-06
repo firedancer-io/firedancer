@@ -6,13 +6,11 @@ int
 fd_frank_dedup_task( int     argc,
                      char ** argv ) {
   (void)argc;
-  fd_log_thread_set( argv[0] );
+  (void)argv;
+  fd_log_thread_set( "dedup" );
   FD_LOG_INFO(( "dedup init" ));
 
-  /* Parse "command line" arguments */
-
-  char const * pod_gaddr = argv[1];
-  char const * cfg_path  = argv[2];
+  char const * cfg_path  = FD_FRANK_CONFIGURATION_PREFIX;
 
   /* Load up the configuration for this frank instance */
 

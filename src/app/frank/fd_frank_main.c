@@ -4,6 +4,8 @@
 
 #include <stdio.h>
 #include <signal.h>
+#include <openssl/err.h>
+#include <openssl/ssl.h>
 
 static fd_cnc_t * fd_frank_main_cnc = NULL;
 
@@ -35,6 +37,21 @@ fd_frank_signal_trap( int sig ) {
   if( FD_UNLIKELY( sigaction( sig, act, NULL ) ) ) FD_LOG_ERR(( "unable to override signal %i", sig ));
 }
 
+void
+tile_init( ulong tile_id ) {
+  (void)tile_id;
+
+  // OpenSSL goes and tries to read files and allocate memory and
+  // other dumb things on a thread local basis, so we need a special
+  // initializer to do it before seccomp happens in the process.
+  ERR_STATE * state = ERR_get_state();
+  if( FD_UNLIKELY( !state )) FD_LOG_ERR(( "ERR_get_state failed" ));
+  if( FD_UNLIKELY( !OPENSSL_init_ssl( OPENSSL_INIT_LOAD_SSL_STRINGS , NULL ) ) )
+    FD_LOG_ERR(( "OPENSSL_init_ssl failed" ));
+  if( FD_UNLIKELY( !OPENSSL_init_crypto( OPENSSL_INIT_LOAD_CRYPTO_STRINGS | OPENSSL_INIT_NO_LOAD_CONFIG , NULL ) ) )
+    FD_LOG_ERR(( "OPENSSL_init_crypto failed" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -48,12 +65,14 @@ main( int     argc,
 
   // 2. Load any resources we will need before sandboxing. Currently this just
   //    mmaps the workspace.
-  char const * pod_gaddr = fd_env_strip_cmdline_cstr( &argc, &argv, "--pod", NULL, NULL );
+  pod_gaddr = fd_env_strip_cmdline_cstr( &argc, &argv, "--pod", NULL, NULL );
   if( FD_UNLIKELY( !pod_gaddr ) ) FD_LOG_ERR(( "--pod not specified" ));
   if( FD_UNLIKELY( !fd_wksp_preload( pod_gaddr ) ) )
     FD_LOG_ERR(( "unable to preload workspace" ));
 
   fd_frank_quic_task_preload( pod_gaddr );
+
+  fd_tile_set_init_func( tile_init );
 
   // 3. Drop all privileges and finish boot process.
   fd_boot_secure2( &argc, &argv );
@@ -80,8 +99,8 @@ main( int     argc,
   FD_LOG_NOTICE(( "%lu quic found", quic_cnt ));
 
   ulong tile_cnt = 3UL + verify_cnt + quic_cnt;
-  if( FD_UNLIKELY( fd_tile_cnt()<tile_cnt ) ) FD_LOG_ERR(( "at least %lu tiles required for this config", tile_cnt ));
-  if( FD_UNLIKELY( fd_tile_cnt()>tile_cnt ) ) FD_LOG_WARNING(( "only %lu tiles required for this config", tile_cnt ));
+  if( FD_UNLIKELY( fd_tile_cnt_boot()<tile_cnt ) ) FD_LOG_ERR(( "at least %lu tiles required for this config", tile_cnt ));
+  if( FD_UNLIKELY( fd_tile_cnt_boot()>tile_cnt ) ) FD_LOG_WARNING(( "only %lu tiles required for this config", tile_cnt ));
 
   /* Join all IPC objects needed by main */
 
@@ -170,16 +189,12 @@ main( int     argc,
       break;
     }
 
-    char task_idx_str[ 10 ] = { 0 };
-    if( 10 == snprintf( task_idx_str, 10, "%lu", task_idx ) )
-      FD_LOG_ERR(( "task_idx_str overflow" ));
-
-    char * task_argv[5] = { 0 };
-    task_argv[0] = (char *)tile_name[ tile_idx ];
-    task_argv[1] = (char *)pod_gaddr;
-    task_argv[2] = (char *)FD_FRANK_CONFIGURATION_PREFIX;
-    task_argv[3] = task_idx_str;
-    if( FD_UNLIKELY( !fd_tile_exec_new( tile_idx, task, 4, task_argv ) ) )
+    /* We don't pass in a real argv here because the tiles we are exec-ing
+       onto are different processes with different virtual memory, so all the
+       pointers would be invalid anyway. Anything we need to share is instead
+       initialized early in the boot process before `clone`ing the children,
+       and only the tile index is punned through here. */
+    if( FD_UNLIKELY( !fd_tile_exec_new( tile_idx, task, 1, (char **)task_idx ) ) )
       FD_LOG_ERR(( "fd_tile_exec_new failed" ));
 
     if( FD_UNLIKELY( fd_cnc_wait( tile_cnc[ tile_idx ], FD_CNC_SIGNAL_BOOT, (long)5e9, NULL )!=FD_CNC_SIGNAL_RUN ) )

@@ -93,7 +93,7 @@ close_fds_proc( void ) {
       continue;
     }
 
-    if ( fd >= 3 && fd != dirfd1 ) {
+    if ( fd > 3 && fd != dirfd1 ) {
       FD_TESTV( 0 == close( (int)fd ) );
     }
   }
@@ -110,7 +110,7 @@ close_fds_proc( void ) {
 
 static void
 close_fds( void ) {
-  if( syscall( SYS_close_range, 3, UINT_MAX, CLOSE_RANGE_UNSHARE ) ) {
+  if( syscall( SYS_close_range, 4, UINT_MAX, CLOSE_RANGE_UNSHARE ) ) {
     // No SYS_close_range, close one by one
     FD_TESTV( errno == ENOSYS );
     close_fds_proc();
@@ -138,6 +138,10 @@ install_seccomp( void ) {
     ALLOW_SYSCALL( fsync        ),
     ALLOW_SYSCALL( gettimeofday ),
     ALLOW_SYSCALL( futex        ),
+    // OpenSSL calls getpid as part of RAND_BYTES to determine if we forked (it reseeds)
+    // it also calls getrandom as an entropy source for reseeding
+    ALLOW_SYSCALL( getpid       ),
+    ALLOW_SYSCALL( getrandom    ),
     // sched_yield is useful for both floating threads and hyperthreaded pairs.
     ALLOW_SYSCALL( sched_yield  ),
     // The rules under this line are expected to be used in fewer occasions.
@@ -240,14 +244,14 @@ static void unshare_user( int *    pargc,
   }
 }
 
+static int no_sandbox;
+
 void
 fd_sandbox_private_privileged( int *    pargc,
                                char *** pargv ) {
-  (void) pargc;
-  for( char ** argv = *pargv; *argv; argv++ ) {
-    if( !strcmp( *argv, "--no-sandbox" ) ) {
-      return;
-    }
+  if( fd_env_strip_cmdline_contains( pargc, pargv, "--no-sandbox" ) ) {
+    no_sandbox = 1;
+    return;
   }
 
   unshare_user( pargc, pargv );
@@ -257,9 +261,8 @@ fd_sandbox_private_privileged( int *    pargc,
 }
 
 void
-fd_sandbox_private( int *    pargc,
-                    char *** pargv ) {
-  if( fd_env_strip_cmdline_contains( pargc, pargv, "--no-sandbox" ) ) {
+fd_sandbox_private( void ) {
+  if( no_sandbox ) {
     return;
   }
 

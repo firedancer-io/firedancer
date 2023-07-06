@@ -4,15 +4,18 @@
 
 #include <ctype.h>
 #include <errno.h>
-#include <pthread.h>
-#include <unistd.h>
 #include <sched.h>
-#include <syscall.h>
 #include <sys/resource.h>
+#include <sys/wait.h>
 #include <sys/mman.h>
+#include <pthread.h>
 
 #include "../sanitize/fd_sanitize.h"
 #include "fd_tile.h"
+
+// Must be in BSS so it can be returned across process boundary for
+// sandboxed tiles.
+static char const UNCAUGHT_EXCEPTION[] = "uncaught exception";
 
 /* Operating system shims ********************************************/
 
@@ -57,15 +60,15 @@ fd_tile_private_cpu_config( fd_tile_private_cpu_config_t * save,
   if( FD_UNLIKELY( -1==getrlimit(RLIMIT_NICE, &rlim) ) ) {
     FD_LOG_WARNING(( "fd_tile: getrlimit failed (%i-%s).",
                      errno, strerror( errno ) ));
-  }
-
-  if( FD_UNLIKELY( rlim.rlim_cur!=40) && FD_UNLIKELY( rlim.rlim_max==40 ) ) {
-    // setpriority will fail based on rlim_cur, but we may be able to raise
-    // it higher first.
-    rlim.rlim_cur = 40;
-    if( FD_UNLIKELY( -1==setrlimit(RLIMIT_NICE, &rlim) ) ) {
-      FD_LOG_WARNING(( "fd_tile: setrlimit failed (%i-%s).",
-                       errno, strerror( errno ) ));
+  } else {
+    if( FD_UNLIKELY( rlim.rlim_cur!=40 ) && FD_UNLIKELY( rlim.rlim_max==40 ) ) {
+      // setpriority will fail based on rlim_cur, but we may be able to raise
+      // it higher first.
+      rlim.rlim_cur = 40;
+      if( FD_UNLIKELY( -1==setrlimit(RLIMIT_NICE, &rlim) ) ) {
+        FD_LOG_WARNING(( "fd_tile: setrlimit failed (%i-%s).",
+                        errno, strerror( errno ) ));
+      }
     }
   }
 
@@ -206,14 +209,20 @@ static ulong fd_tile_private_id0; /* Zeroed at app start, initialized by the boo
 static ulong fd_tile_private_id1; /* " */
 static ulong fd_tile_private_cnt; /* " */
 
+static ulong fd_tile_private_cnt_boot; /* " */
+
 ulong fd_tile_id0( void ) { return fd_tile_private_id0; }
 ulong fd_tile_id1( void ) { return fd_tile_private_id1; }
 ulong fd_tile_cnt( void ) { return fd_tile_private_cnt; }
+
+ulong fd_tile_cnt_boot( void ) { return fd_tile_private_cnt_boot; }
 
 static FD_TLS ulong fd_tile_private_id;     /* Zeroed at app/thread start, initialized by the boot / tile manager */
 static FD_TLS ulong fd_tile_private_idx;    /* " */
 /**/   FD_TLS ulong fd_tile_private_stack0; /* " */
 /**/   FD_TLS ulong fd_tile_private_stack1; /* " */
+
+void (*global_init_func)( ulong tile_id ) = NULL;
 
 ulong fd_tile_id ( void ) { return fd_tile_private_id;  }
 ulong fd_tile_idx( void ) { return fd_tile_private_idx; }
@@ -255,9 +264,35 @@ struct fd_tile_private_manager_args {
   void *              stack;    /* NULL if pthread created, non-NULL if user created */
   ulong               stack_sz;
   fd_tile_private_t * tile;
+  int                 seccomp;
 };
 
 typedef struct fd_tile_private_manager_args fd_tile_private_manager_args_t;
+
+struct fd_tile_private_group_manager_args {
+  ulong               group_id;
+  ulong               host_id;
+  void **             mmap;
+  ulong *             mmap_sz;
+  void *              stack;
+  ushort *            tile_to_cpu;
+  cpu_set_t *         floating_cpu_set;
+};
+
+typedef struct fd_tile_private_group_manager_args fd_tile_private_group_manager_args_t;
+
+
+typedef struct {
+  fd_tile_private_t _private;
+
+  fd_tile_private_t * lock; /* Non-NULL if tile idx is available for dispatch, ==tile otherwise */
+  fd_tile_private_t * tile;
+  int                 pid;
+  int                 wait_pthread;
+  pthread_t           pthread;
+} fd_tile_lock_t;
+
+static fd_tile_lock_t * fd_tile_private[ FD_TILE_MAX ];
 
 static void *
 fd_tile_private_manager( void * _args ) {
@@ -266,15 +301,14 @@ fd_tile_private_manager( void * _args ) {
   ulong  id       = args->id;
   ulong  idx      = args->idx;
   void * stack    = args->stack;
-  ulong  stack_sz = args->stack_sz;
 
   if( FD_UNLIKELY( !( (id ==fd_log_thread_id()                                       ) &
                       (idx==(id-fd_tile_private_id0)                                 ) &
-                      ((fd_tile_private_id0<id) & (id<fd_tile_private_id1)           ) &
+                      ((fd_tile_private_id0<=id) & (id<fd_tile_private_id1)          ) &
                       (fd_tile_private_cnt==(fd_tile_private_id1-fd_tile_private_id0)) ) ) )
     FD_LOG_ERR(( "fd_tile: internal error (unexpected thread identifiers)" ));
 
-  fd_tile_private_t tile[1];
+  fd_tile_private_t * tile = &fd_tile_private[ id ]->_private;
   FD_VOLATILE( tile->id    ) = id;
   FD_VOLATILE( tile->idx   ) = idx;
   FD_VOLATILE( tile->state ) = FD_TILE_PRIVATE_STATE_BOOT;
@@ -292,9 +326,9 @@ fd_tile_private_manager( void * _args ) {
 
   if( FD_LIKELY( stack ) ) { /* User provided stack */
     fd_tile_private_stack0 = (ulong)stack;
-    fd_tile_private_stack1 = (ulong)stack + stack_sz;
+    fd_tile_private_stack1 = (ulong)stack + FD_TILE_PRIVATE_STACK_SZ;
   } else { /* Pthread provided stack */
-    fd_log_private_stack_discover( stack_sz, &fd_tile_private_stack0, &fd_tile_private_stack1 ); /* logs details */
+    fd_log_private_stack_discover( FD_TILE_PRIVATE_STACK_SZ, &fd_tile_private_stack0, &fd_tile_private_stack1 ); /* logs details */
     if( FD_UNLIKELY( !fd_tile_private_stack0 ) )
       FD_LOG_WARNING(( "stack diagnostics not available on this tile; attempting to continue" ));
   }
@@ -306,9 +340,20 @@ fd_tile_private_manager( void * _args ) {
   FD_LOG_INFO(( "fd_tile: boot tile %lu success (thread %lu:%lu in thread group %lu:%lu/%lu)",
                 idx, app_id, id, app_id, fd_tile_private_id0, fd_tile_private_cnt ));
 
+  if (global_init_func != NULL) {
+    global_init_func( id );
+  }
+
+  if( args->seccomp ) {
+    /* Finish sandboxing in the cloned process after booting the last tile. We
+       do this before marking the tile state as runnable, so callers know not
+       to dispatch anything until the sandbox is ready. */
+    fd_sandbox_private();
+  }
+
   FD_COMPILER_MFENCE();
   FD_VOLATILE( tile->state ) = FD_TILE_PRIVATE_STATE_IDLE;
-  FD_VOLATILE( args->tile  ) = tile;
+  FD_VOLATILE( fd_tile_private[ id ]->tile ) = tile;
 
   for(;;) {
 
@@ -328,12 +373,13 @@ fd_tile_private_manager( void * _args ) {
 
     int            argc = FD_VOLATILE_CONST( tile->argc );
     char **        argv = FD_VOLATILE_CONST( tile->argv );
+
     fd_tile_task_t task = FD_VOLATILE_CONST( tile->task );
     try {
       FD_VOLATILE( tile->ret  ) = task( argc, argv );
       FD_VOLATILE( tile->fail ) = NULL;
     } catch( ... ) {
-      FD_VOLATILE( tile->fail ) = "uncaught exception";
+      FD_VOLATILE( tile->fail ) = UNCAUGHT_EXCEPTION;
     }
 
     FD_COMPILER_MFENCE();
@@ -346,21 +392,16 @@ fd_tile_private_manager( void * _args ) {
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( tile->state ) = FD_TILE_PRIVATE_STATE_BOOT;
-  return stack;
+
+  return NULL;
 }
 
 /* Dispatch side APIs ************************************************/
 
-static struct __attribute__((aligned(128))) { /* Each on its own cache line pair to limit false sharing in parallel dispatch */
-  fd_tile_private_t * lock; /* Non-NULL if tile idx is available for dispatch, ==tile otherwise */
-  fd_tile_private_t * tile;
-  pthread_t           pthread;
-} fd_tile_private[ FD_TILE_MAX ];
-
 /* FIXME: ATOMIC_XCHG BASED INSTEAD? */
 static inline fd_tile_private_t *
 fd_tile_private_trylock( ulong tile_idx ) {
-  fd_tile_private_t * volatile * vtile = (fd_tile_private_t * volatile *)&fd_tile_private[ tile_idx ].lock;
+  fd_tile_private_t * volatile * vtile = (fd_tile_private_t * volatile *)&fd_tile_private[ tile_idx ]->lock;
   fd_tile_private_t * tile = *vtile;
   if( FD_LIKELY( tile ) && FD_LIKELY( FD_ATOMIC_CAS( vtile, tile, NULL )==tile ) ) return tile;
   return NULL;
@@ -368,7 +409,7 @@ fd_tile_private_trylock( ulong tile_idx ) {
 
 static inline fd_tile_private_t *
 fd_tile_private_lock( ulong tile_idx ) {
-  fd_tile_private_t * volatile * vtile = (fd_tile_private_t * volatile *)&fd_tile_private[ tile_idx ].lock;
+  fd_tile_private_t * volatile * vtile = (fd_tile_private_t * volatile *)&fd_tile_private[ tile_idx ]->lock;
   fd_tile_private_t * tile;
   for(;;) {
     tile = *vtile;
@@ -381,7 +422,7 @@ fd_tile_private_lock( ulong tile_idx ) {
 static inline void
 fd_tile_private_unlock( ulong               tile_idx,
                         fd_tile_private_t * tile ) {
-  FD_VOLATILE( fd_tile_private[ tile_idx ].lock ) = tile;
+  FD_VOLATILE( fd_tile_private[ tile_idx ]->lock ) = tile;
 }
 
 fd_tile_exec_t *
@@ -422,7 +463,7 @@ fd_tile_exec_delete( fd_tile_exec_t * exec,
   return fail;
 }
 
-fd_tile_exec_t * fd_tile_exec( ulong tile_idx ) { return (fd_tile_exec_t *)fd_tile_private[ tile_idx ].tile; }
+fd_tile_exec_t * fd_tile_exec( ulong tile_idx ) { return (fd_tile_exec_t *)fd_tile_private[ tile_idx ]->tile; }
 
 ulong          fd_tile_exec_id  ( fd_tile_exec_t const * exec ) { return ((fd_tile_private_t const *)exec)->id;   }
 ulong          fd_tile_exec_idx ( fd_tile_exec_t const * exec ) { return ((fd_tile_private_t const *)exec)->idx;  }
@@ -526,170 +567,240 @@ fd_tile_private_cpus_parse( char const * cstr,
   return cnt;
 }
 
-static fd_tile_private_cpu_config_t fd_tile_private_cpu_config_save[1];
+static void fd_tile_private_groups_parse( char const * cstr,
+                                          ulong tile_cnt,
+                                          ulong * tile_groups ) {
+  char const * p = cstr;
 
-void
-fd_tile_private_boot( int *    pargc,
-                      char *** pargv ) {
-  FD_LOG_INFO(( "fd_tile: boot" ));
+  ulong tiles_seen = 0;
+  ulong idx = 0;
+  for(;;) {
+    while( isspace( (int)p[0] ) ) p++; /* Munch whitespace */
 
-  /* Extract the tile configuration from the command line */
+    if( p[0]=='\0' ) break;
+    else if( !isdigit( (int)p[0] ) ) FD_LOG_ERR(( "fd_tile: malformed --tile-groups (malformed count)" ));
+    else {
+        ulong current = fd_cstr_to_ulong( p );
+        if( FD_UNLIKELY( !current ) ) FD_LOG_ERR(( "fd_tile: malformed --tile-groups (bad count)" ));
+        p++; while( isdigit( (int)p[0] ) ) p++; /* FIXME: USE STRTOUL ENDPTR FOR CORRECT HANDLING OF NON-BASE-10 */
+        while( isspace( (int)p[0] ) ) p++; /* Munch whitespace */
+        if( FD_UNLIKELY( !( p[0]==',' || p[0]=='\0' ) ) ) FD_LOG_ERR(( "fd_tile: malformed --tile-groups (bad count delimiter)" ));
+        if( p[0]==',' ) p++;
 
-  char const * cpus = fd_env_strip_cmdline_cstr( pargc, pargv, "--tile-cpus", "FD_TILE_CPUS", NULL );
-  if( !cpus ) FD_LOG_INFO(( "fd_tile: --tile-cpus not specified" ));
-  else        FD_LOG_INFO(( "fd_tile: --tile-cpus \"%s\"", cpus ));
-  ushort tile_to_cpu[ FD_TILE_MAX ];
-  ulong  tile_cnt = fd_tile_private_cpus_parse( cpus, tile_to_cpu );
+        if( current == 0 ) FD_LOG_ERR(( "fd_tile: malformed --tile-groups (zero count)" ));
 
-  if( FD_UNLIKELY( !tile_cnt ) ) {
-    FD_LOG_INFO(( "fd_tile: no cpus specified; treating thread group as single tile running on O/S assigned cpu(s)" ));
-    tile_to_cpu[0] = (ushort)65535;
-    tile_cnt       = 1UL;
+        tiles_seen += current;
+        tile_groups[ idx++ ] = current;
+    }
   }
 
-  fd_tile_private_id0 = fd_log_thread_id();
-  fd_tile_private_id1 = fd_tile_private_id0 + tile_cnt;
-  fd_tile_private_cnt = tile_cnt;
+  if( tiles_seen != tile_cnt ) FD_LOG_ERR(( "fd_tile: --tile-groups does not cover all tiles" ));
+}
 
-  ulong app_id  = fd_log_app_id();
-  ulong host_id = fd_log_host_id();
-  FD_LOG_INFO(( "fd_tile: booting thread group %lu:%lu/%lu", app_id, fd_tile_private_id0, fd_tile_private_cnt ));
+static fd_tile_private_cpu_config_t fd_tile_private_cpu_config_save[1];
 
-  /* We create the tiles [1,tile_cnt) first so that any floating tiles
-     in this inherit the appropriate scheduler priorities and affinities
-     from the thread group launcher. */
+static void *
+fd_tile_private_boot_init( ulong tile_idx,
+                           ushort * tile_to_cpu,
+                           ulong host_id,
+                           cpu_set_t * floating_cpu_set ) {
+  ulong tile_id = fd_tile_private_id0 + tile_idx;
 
-  for( ulong tile_idx=1UL; tile_idx<tile_cnt; tile_idx++ ) {
+  fd_log_private_thread_id_set( tile_id );
 
-    ulong cpu_idx = (ulong)tile_to_cpu[ tile_idx ];
-    int   fixed   = (cpu_idx<65535UL);
+  ulong cpu_idx = tile_to_cpu[ tile_idx ];
+  int   fixed   = (cpu_idx<65535UL);
 
-    if( fixed ) FD_LOG_INFO(( "fd tile: booting tile %lu on cpu %lu:%lu",   tile_idx, host_id, cpu_idx ));
-    else        FD_LOG_INFO(( "fd tile: booting tile %lu on cpu %lu:float", tile_idx, host_id ));
+  if( fixed ) FD_LOG_INFO(( "fd tile: booting tile %lu on cpu %lu:%lu",   tile_id, host_id, cpu_idx ));
+  else        FD_LOG_INFO(( "fd tile: booting tile %lu on cpu %lu:float", tile_id, host_id ));
 
-    pthread_attr_t attr[1];
-    int err = pthread_attr_init( attr );
-    if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_tile: pthread_attr_init failed (%i-%s) for tile %lu.\n\t",
-                                          err, strerror( err ), tile_idx ));
+  /* Create an optimized stack with guard regions if the build target
+      is x86 (e.g. supports huge pages necessary to optimize TLB usage)
+      and the tile is assigned to a particular CPU (e.g. bind the stack
+      memory to the NUMA node closest to the cpu). */
 
-    if( fixed ) {
+  int optimize = FD_HAS_X86 & fixed;
+
+  void * stack = fd_tile_private_stack_new( optimize, cpu_idx );
+  if( FD_UNLIKELY( !stack ) )
+    FD_LOG_ERR(( "fd_tile: Unable to create a stack for tile %lu.", tile_id ));
+
+  cpu_set_t cpu_set[1];
+  if( fixed ) {
+      // Set the thread affinity before we clone the new process to ensure
+      // kernel first touch happens on the desired thread.
       cpu_set_t cpu_set[1];
       CPU_ZERO( cpu_set );
       CPU_SET( cpu_idx, cpu_set );
-      err = pthread_attr_setaffinity_np( attr, sizeof(cpu_set_t), cpu_set );
-      if( FD_UNLIKELY( err ) ) FD_LOG_WARNING(( "fd_tile: pthread_attr_setaffinity_failed (%i-%s)\n\t"
-                                                "Unable to set the thread affinity for tile %lu on cpu %lu.  Attempting to\n\t"
-                                                "continue without explicitly specifying this cpu's thread affinity but it\n\t"
-                                                "is likely this thread group's performance and stability are compromised\n\t"
-                                                "(possibly catastrophically so).  Update --tile-cpus to specify a set of\n\t"
-                                                "allowed cpus that have been reserved for this thread group on this host\n\t"
-                                                "to eliminate this warning.",
-                                                err, strerror( err ), tile_idx, cpu_idx ));
-    }
-
-    /* Create an optimized stack with guard regions if the build target
-       is x86 (e.g. supports huge pages necessary to optimize TLB usage)
-       and the tile is assigned to a particular CPU (e.g. bind the stack
-       memory to the NUMA node closest to the cpu).
-
-       Otherwise (or if an optimized stack could not be created), create
-       vanilla pthread-style stack with guard regions.  We DIY here
-       because pthreads seems to be missing an API to determine the
-       extents of the stacks it creates and we need to know the stack
-       extents for run-time stack diagnostics.  Though we can use
-       fd_log_private_stack_discover to determine stack extents after
-       the thread is started, it is faster, more flexible, more reliable
-       and more portable to use a user specified stack when possible.
-
-       If neither can be done, we will let pthreads create the tile's
-       stack and try to discover the stack extents after the thread is
-       started. */
-
-    int optimize = FD_HAS_X86 & fixed;
-
-    void * stack = fd_tile_private_stack_new( optimize, cpu_idx );
-    if( FD_LIKELY( stack ) ) {
-      err = pthread_attr_setstack( attr, stack, FD_TILE_PRIVATE_STACK_SZ );
-      if( FD_UNLIKELY( err ) ) {
-        FD_LOG_WARNING(( "fd_tile: pthread_attr_setstack failed (%i-%s)\n\t", err, strerror( err ) ));
-        fd_tile_private_stack_delete( stack );
-        stack = NULL;
-      }
-    }
-
-    if( FD_UNLIKELY( !stack ) ) FD_LOG_WARNING(( "fd_tile: Unable to create a stack for tile %lu.\n\t"
-                                                 "Attempting to continue with the default stack but it is likely this\n\t"
-                                                 "thread group's performance and stability is compromised (possibly\n\t"
-                                                 "catastrophically so).",
-                                                 tile_idx ));
-
-    ulong stack_sz;
-    err = pthread_attr_getstacksize( attr, &stack_sz );
-    if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_tile: pthread_attr_getstacksize failed (%i-%s) for tile %lu.\n\t",
-                                          err, strerror( err ), tile_idx ));
-
-    FD_VOLATILE( fd_tile_private[ tile_idx ].lock ) = NULL;
-
-    fd_tile_private_manager_args_t args[1];
-
-    FD_VOLATILE( args->id       ) = fd_tile_private_id0 + tile_idx;
-    FD_VOLATILE( args->idx      ) = tile_idx;
-    FD_VOLATILE( args->cpu_idx  ) = cpu_idx;
-    FD_VOLATILE( args->stack    ) = stack;
-    FD_VOLATILE( args->stack_sz ) = stack_sz;
-    FD_VOLATILE( args->tile     ) = NULL;
-
-    FD_COMPILER_MFENCE();
-
-    err = pthread_create( &fd_tile_private[tile_idx].pthread, attr, fd_tile_private_manager, args );
-    if( FD_UNLIKELY( err ) ) {
-      if( fixed ) FD_LOG_ERR(( "fd_tile: pthread_create failed (%i-%s)\n\t"
-                               "Unable to start up the tile %lu on cpu %lu.  Likely causes for this include\n\t"
-                               "this cpu is restricted from the user or does not exist on this host.\n\t"
-                               "Update --tile-cpus to specify a set of allowed cpus that have been reserved\n\t"
-                               "for this thread group on this host.",
-                               err, strerror( err ), tile_idx, cpu_idx ));
-      FD_LOG_ERR(( "fd_tile: pthread_create failed (%i-%s)\n\tUnable to start up the tile %lu (floating).",
-                   err, strerror( err ), tile_idx ));
-    }
-
-    /* Wait for the tile to be ready to exec */
-
-    fd_tile_private_t * tile;
-    for(;;) {
-      tile = FD_VOLATILE_CONST( args->tile );
-      if( FD_LIKELY( tile ) ) break;
-      FD_YIELD();
-    }
-    FD_VOLATILE( fd_tile_private[ tile_idx ].tile ) = tile;
-    FD_VOLATILE( fd_tile_private[ tile_idx ].lock ) = tile;
-
-    /* Tile is running, args is safe to reuse */
-
-    err = pthread_attr_destroy( attr );
-    if( FD_UNLIKELY( err ) ) FD_LOG_WARNING(( "fd_tile: pthread_attr_destroy failed (%i-%s) for tile %lu; attempting to continue",
-                                              err, strerror( err ), tile_idx ));
+  } else {
+      memcpy( cpu_set, floating_cpu_set, sizeof(cpu_set_t) );
+  }
+  if( FD_UNLIKELY( sched_setaffinity( 0, sizeof(cpu_set_t), cpu_set ) ) ) {
+    FD_LOG_WARNING(( "fd_tile: sched_setaffinity (%i-%s)\n\t"
+                     "Unable to set the thread affinity for tile %lu on cpu %lu.   Attempting to\n\t"
+                     "continue without explicitly specifying this cpu's thread affinity  but it\n\t"
+                     "is likely this thread group's performance and stability are  compromised\n\t"
+                     "(possibly catastrophically so).  Update --tile-cpus to specify a set  of\n\t"
+                     "allowed cpus that have been reserved for this thread group on this  host\n\t"
+                     "to eliminate this warning.",
+                     errno, strerror( errno ), tile_id, cpu_idx ));
   }
 
-  /* And now we "boot" tile 0 */
+  return stack;
+}
 
-  ulong cpu_idx = (ulong)tile_to_cpu[ 0UL ];
+static void
+fd_tile_private_wait( ulong tile_id ) {
+  /* Wait for the tile to be ready to exec */
+  fd_tile_private_t * tile;
+  for(;;) {
+    FD_COMPILER_MFENCE();
+    tile = FD_VOLATILE_CONST( fd_tile_private[ tile_id ]->tile );
+    if( FD_LIKELY( tile ) ) break;
+    FD_YIELD();
+  }
+  FD_VOLATILE( fd_tile_private[ tile_id ]->lock ) = tile;
+}
+
+static void
+fd_tile_private_boot_single( ulong tile_idx,
+                             ulong host_id,
+                             ushort * tile_to_cpu,
+                             cpu_set_t * floating_cpu_set,
+                             int must_wait ) {
+  ulong tile_id = fd_tile_private_id0 + tile_idx;
+  int fixed = tile_to_cpu[ tile_idx ] < 65535UL;
+
+  void * stack = fd_tile_private_boot_init( tile_idx, tile_to_cpu, host_id, floating_cpu_set );
+
+  fd_tile_private_manager_args_t args[1];
+  FD_VOLATILE( args->id         ) = fd_tile_private_id0 + tile_idx;
+  FD_VOLATILE( args->idx        ) = tile_idx;
+  FD_VOLATILE( args->cpu_idx    ) = tile_to_cpu[ tile_idx ];
+  FD_VOLATILE( args->stack      ) = stack;
+  FD_VOLATILE( args->tile       ) = NULL;
+  FD_VOLATILE( args->seccomp    ) = 0;
+  FD_COMPILER_MFENCE();
+
+  /* You might want to also just call clone here, but then you have to set up
+      thread local storage for the cloned thread (since it shares virtual memory),
+      this is difficult to do, so we just farm it back out to pthread_create. */
+  pthread_attr_t attr[1];
+  int err = pthread_attr_init( attr );
+  if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_tile: pthread_attr_init failed (%i-%s) for tile %lu.\n\t",
+                                        err, strerror( err ), tile_id ));
+  err = pthread_attr_setstack( attr, stack, FD_TILE_PRIVATE_STACK_SZ );
+  if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_tile: pthread_attr_setstack failed (%i-%s) for tile %lu.\n\t",
+                                        err, strerror( err ), tile_idx ));
+
+  fd_tile_private[ tile_id ]->wait_pthread = must_wait;
+  err = pthread_create( &fd_tile_private[ tile_id ]->pthread, attr, fd_tile_private_manager, args );
+  if( FD_UNLIKELY( err ) ) {
+    if( fixed ) FD_LOG_ERR(( "fd_tile: pthread_create failed (%i-%s)\n\t"
+                              "Unable to start up the tile %lu on cpu %hu.  Likely causes for this include\n\t"
+                              "this cpu is restricted from the user or does not exist on this host.\n\t"
+                              "Update --tile-cpus to specify a set of allowed cpus that have been reserved\n\t"
+                              "for this thread group on this host.",
+                              err, strerror( err ), tile_id, tile_to_cpu[ tile_idx ] ));
+    FD_LOG_ERR(( "fd_tile: pthread_create failed (%i-%s)\n\tUnable to start up the tile %lu (floating).",
+                  err, strerror( err ), tile_id ));
+  }
+
+  fd_tile_private_wait( tile_id );
+}
+
+static int
+fd_tile_private_group_manager( void * _args ) {
+  fd_tile_private_group_manager_args_t * args = (fd_tile_private_group_manager_args_t *)_args;
+
+  for( ulong i = 0; i < args->group_id; i++ ) {
+    /* The parent group launcher is mapping task dispatch areas one by one before
+       spawning tiles, but we don't want tiles to be able to dispatch to tiles outside
+       their group, so unmap these inside the new process. Seccomp will prevent it
+       from being remapped again.  */
+    if( FD_LIKELY( args->mmap[i] ) ) {
+      if( FD_UNLIKELY( munmap( args->mmap[ i ], args->mmap_sz[ i ] ) ) )
+        FD_LOG_ERR(( "fd_tile: munmap failed (%i-%s)", errno, strerror( errno ) ));
+    }
+  }
+
+  fd_memcpy( fd_tile_private_cpu_id, args->tile_to_cpu+fd_tile_private_id0, fd_tile_private_cnt*sizeof(ushort) );
+
+  for( ulong i = 1; i < fd_tile_private_cnt; i++ ) {
+      fd_tile_private_boot_single( i, args->host_id, args->tile_to_cpu, args->floating_cpu_set, 0 );
+  }
+
+  fd_tile_private_manager_args_t new_args[1];
+  FD_VOLATILE( new_args->id       ) = fd_tile_private_id0;
+  FD_VOLATILE( new_args->idx      ) = 0;
+  FD_VOLATILE( new_args->cpu_idx  ) = args->tile_to_cpu[ 0 ];
+  FD_VOLATILE( new_args->stack    ) = args->stack;
+  FD_VOLATILE( new_args->stack_sz ) = FD_TILE_PRIVATE_STACK_SZ;
+  FD_VOLATILE( new_args->tile     ) = NULL;
+  FD_VOLATILE( new_args->seccomp  ) = 1;
+  FD_COMPILER_MFENCE();
+
+  fd_tile_private_manager( new_args );
+
+  return 0;
+}
+
+static void
+fd_tile_private_boot_group( ulong tile_idx,
+                            ulong host_id,
+                            ushort * tile_to_cpu,
+                            void ** mmap,
+                            ulong * mmap_sz,
+                            ulong group_id,
+                            cpu_set_t * floating_cpu_set ) {
+  ulong tile_id = fd_tile_private_id0 + tile_idx;
+  int fixed = tile_to_cpu[ tile_idx ] < 65535UL;
+
+  void * stack = fd_tile_private_boot_init( tile_idx, tile_to_cpu, host_id, floating_cpu_set );
+
+  fd_tile_private_group_manager_args_t args[1];
+  FD_VOLATILE( args->group_id    ) = group_id;
+  FD_VOLATILE( args->host_id     ) = host_id;
+  FD_VOLATILE( args->mmap        ) = mmap;
+  FD_VOLATILE( args->mmap_sz     ) = mmap_sz;
+  FD_VOLATILE( args->stack       ) = stack;
+  FD_VOLATILE( args->tile_to_cpu ) = tile_to_cpu;
+  FD_VOLATILE( args->floating_cpu_set ) = floating_cpu_set;
+  FD_COMPILER_MFENCE();
+
+  int pid = clone( fd_tile_private_group_manager, (uchar *)stack + FD_TILE_PRIVATE_STACK_SZ, SIGCHLD, args );
+  if( FD_UNLIKELY( -1 == pid ) ) {
+    if (fixed) FD_LOG_ERR(( "fd_tile: clone failed (%i-%s)\n\t"
+                            "Unable to start up the tile %lu on cpu %hu.  Likely causes for this include\n\t"
+                            "this cpu is restricted from the user or does not exist on this host.\n\t"
+                            "Update --tile-cpus to specify a set of allowed cpus that have been reserved\n\t"
+                            "for this thread group on this host.",
+                            errno, strerror( errno ), tile_id, tile_to_cpu[ tile_idx ] ));
+    FD_LOG_ERR(( "fd_tile: clone failed (%i-%s)\n\tUnable to start up the tile %lu (floating).",
+                  errno, strerror( errno ), tile_id ));
+  }
+
+  // Don't need stack mapped in the parent anymore, it's cloned into the child
+  fd_tile_private_stack_delete( stack );
+  fd_tile_private[ tile_id ]->pid = pid;
+
+  fd_tile_private_wait( tile_id );
+}
+
+static void
+fd_tile_private_boot_tile0( ulong cpu_idx,
+                            ulong app_id,
+                            ulong host_id,
+                            ushort * tile_to_cpu,
+                            cpu_set_t * floating_cpu_set ) {
   int   fixed   = (cpu_idx<65535UL);
   if( fixed ) FD_LOG_INFO(( "fd tile: booting tile %lu on cpu %lu:%lu",   0UL, host_id, cpu_idx ));
   else        FD_LOG_INFO(( "fd tile: booting tile %lu on cpu %lu:float", 0UL, host_id ));
 
   if( fixed ) {
-
-    int good_taskset;
-    cpu_set_t cpu_set[1];
-    if( FD_UNLIKELY( sched_getaffinity( (pid_t)0, sizeof(cpu_set_t), cpu_set ) ) ) {
-      FD_LOG_WARNING(( "fd_tile: sched_getaffinity failed (%i-%s) for tile 0 on cpu %lu", errno, strerror( errno ), cpu_idx ));
-      good_taskset = 0;
-    } else {
-      ulong cnt = (ulong)CPU_COUNT( cpu_set );
-      ulong idx; for( idx=0UL; idx<CPU_SETSIZE; idx++ ) if( CPU_ISSET( idx, cpu_set ) ) break;
-      good_taskset = (cnt==1UL) & (idx==cpu_idx);
-    }
+    ulong cnt = (ulong)CPU_COUNT( floating_cpu_set );
+    ulong idx; for( idx=0UL; idx<CPU_SETSIZE; idx++ ) if( CPU_ISSET( idx, floating_cpu_set ) ) break;
+    int good_taskset = (cnt==1UL) & (idx==cpu_idx);
 
     if( FD_UNLIKELY( !good_taskset ) ) {
       FD_LOG_WARNING(( "fd_tile: --tile-cpus for tile 0 may not match initial kernel affinity\n\t"
@@ -697,6 +808,8 @@ fd_tile_private_boot( int *    pargc,
                        "Overriding fd_log_cpu_id(), fd_log_cpu(), fd_log_thread() on tile 0 to\n\t"
                        "match --tile-cpus and attempting to continue.  Launch this thread\n\t"
                        "group via 'taskset -c %lu' or equivalent to eliminate this warning.", cpu_idx ));
+
+      cpu_set_t cpu_set[1];
       CPU_ZERO( cpu_set );
       CPU_SET( (int)cpu_idx, cpu_set );
       if( FD_UNLIKELY( sched_setaffinity( (pid_t)0, sizeof(cpu_set_t), cpu_set ) ) )
@@ -714,12 +827,8 @@ fd_tile_private_boot( int *    pargc,
     }
   }
 
-  /* Tile 0 "pthread_create" */
-  fd_tile_private[0].pthread = pthread_self();
-  /* FIXME: ON X86, DETECT IF TILE 0 STACK ISN'T HUGE PAGE AND WARN AS NECESSARY? */
-
   /* Tile 0 "thread manager init" */
-  fd_tile_private_id  = fd_tile_private_id0;
+  fd_tile_private_id  = fd_log_thread_id();
   fd_tile_private_idx = 0UL;
 
 # if !FD_HAS_ASAN
@@ -730,13 +839,103 @@ fd_tile_private_boot( int *    pargc,
 # endif /* FD_HAS_ASAN */
 
   fd_tile_private_cpu_config( fd_tile_private_cpu_config_save, cpu_idx );
-  fd_tile_private[0].lock = NULL; /* Can't dispatch to tile 0 */
-  fd_tile_private[0].tile = NULL; /* " */
 
   FD_LOG_INFO(( "fd_tile: boot tile %lu success (thread %lu:%lu in thread group %lu:%lu/%lu)",
                 fd_tile_private_idx, app_id, fd_tile_private_id, app_id, fd_tile_private_id0, fd_tile_private_cnt ));
 
   fd_memcpy( fd_tile_private_cpu_id, tile_to_cpu, fd_tile_private_cnt*sizeof(ushort) );
+}
+
+void
+fd_tile_private_boot( int *    pargc,
+                      char *** pargv ) {
+  FD_LOG_INFO(( "fd_tile: boot" ));
+
+  /* Extract the tile configuration from the command line */
+
+  char const * cpus = fd_env_strip_cmdline_cstr( pargc, pargv, "--tile-cpus", "FD_TILE_CPUS", NULL );
+  if( !cpus ) FD_LOG_INFO(( "fd_tile: --tile-cpus not specified" ));
+  else        FD_LOG_INFO(( "fd_tile: --tile-cpus \"%s\"", cpus ));
+  ushort tile_to_cpu[ FD_TILE_MAX ];
+  void * mmaps[ FD_TILE_MAX ];
+  ulong  mmap_sz[ FD_TILE_MAX ];
+  ulong  tile_cnt = fd_tile_private_cpus_parse( cpus, tile_to_cpu );
+
+  if( FD_UNLIKELY( !tile_cnt ) ) {
+    FD_LOG_INFO(( "fd_tile: no cpus specified; treating thread group as single tile running on O/S assigned cpu(s)" ));
+    tile_to_cpu[0] = (ushort)65535;
+    tile_cnt       = 1UL;
+  }
+
+  char const * groups = fd_env_strip_cmdline_cstr( pargc, pargv, "--tile-groups", "FD_TILE_GROUPS", NULL );
+  int empty_groups = fd_env_strip_cmdline_contains( pargc, pargv, "--tile-empty-groups" );
+
+  ulong tile_groups[ FD_TILE_MAX ];
+  if( empty_groups ) {
+    if( groups ) {
+      FD_LOG_WARNING(( "fd_tile: --tile-empty-groups specified with --tile-groups; ignoring --tile-groups" ));
+    }
+    for( ulong idx=0UL; idx<tile_cnt; idx++ ) tile_groups[idx] = 1UL;
+  } else if( groups ) {
+    fd_tile_private_groups_parse( groups, tile_cnt, tile_groups );
+  } else {
+    // If no groups specified, everything runs in one group.
+    FD_LOG_INFO(( "fd_tile: no groups specified; treating all tiles as one virtual memory space" ));
+    tile_groups[0] = tile_cnt;
+  }
+
+  ulong app_id  = fd_log_app_id();
+  ulong host_id = fd_log_host_id();
+
+  /* Save the current affinity, it will be restored after creating any child tiles */
+  cpu_set_t floating_cpu_set[1];
+  if( FD_UNLIKELY( sched_getaffinity( 0, sizeof(cpu_set_t), floating_cpu_set ) ) )
+    FD_LOG_ERR(( "fd_tile sched_getaffinity (%i-%s)", errno, strerror( errno ) ));
+
+  ulong tile0_id = fd_log_thread_id();
+  fd_tile_private_cnt_boot = tile_cnt;
+
+  /* Boot all the tile groups one by one */
+  ulong group_idx = 0;
+  ulong tile_id = 0;
+  while( tile_id<tile_cnt ) {
+    ulong num_tiles = tile_groups[ group_idx++ ];
+
+    fd_log_private_thread_id_set(tile0_id + tile_id );
+    fd_tile_private_id0 = fd_log_thread_id();
+    fd_tile_private_id1 = fd_tile_private_id0 + num_tiles;
+    fd_tile_private_cnt = num_tiles;
+
+    FD_LOG_INFO(( "fd_tile: booting thread group %lu:%lu/%lu", app_id, fd_tile_private_id0, num_tiles ));
+
+    mmap_sz[group_idx] = num_tiles * sizeof(fd_tile_lock_t);
+    mmaps[group_idx] = mmap( NULL, mmap_sz[group_idx], PROT_READ|PROT_WRITE, MAP_SHARED|MAP_ANON, -1, 0 );
+    if( MAP_FAILED == mmaps[group_idx] ) {
+      FD_LOG_ERR(( "fd_tile: mmap (%i-%s)", errno, strerror( errno ) ));
+    }
+
+    for( ulong idx=0; idx<num_tiles; idx++ ) {
+        fd_tile_private[ tile_id+idx ] = (fd_tile_lock_t*)((uchar*)mmaps[group_idx] + sizeof(fd_tile_lock_t)*idx);
+        FD_VOLATILE( fd_tile_private[ tile_id+idx ]->lock ) = NULL;
+    }
+    FD_COMPILER_MFENCE();
+
+    if( tile_id == 0 ) {
+      // Tiles sharing a group with tile 0 can be cloned with CLONE_VM directly, and don't need an
+      // initial process cloned to be the parent of the group.
+      for( ulong idx=1; idx<num_tiles; idx++ ) {
+        fd_tile_private_boot_single( idx, host_id, tile_to_cpu, floating_cpu_set, 1 );
+      }
+    } else {
+      fd_tile_private_boot_group( 0, host_id, tile_to_cpu + tile_id, mmaps, mmap_sz, group_idx, floating_cpu_set );
+    }
+
+    tile_id += num_tiles;
+  }
+
+  /* And now we "boot" tile 0 */
+  fd_log_private_thread_id_set( tile0_id );
+  fd_tile_private_boot_tile0( (ulong)tile_to_cpu[ 0UL ], app_id, host_id, tile_to_cpu, floating_cpu_set );
 
   FD_LOG_INFO(( "fd_tile: boot success" ));
 }
@@ -766,10 +965,16 @@ fd_tile_private_halt( void ) {
 
   FD_LOG_INFO(( "fd_tile: waiting for all tiles to halt" ));
   for( ulong tile_idx=1UL; tile_idx<tile_cnt; tile_idx++ ) {
-    void * stack;
-    int err = pthread_join( fd_tile_private[ tile_idx ].pthread, &stack );
-    if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_tile: pthread_join failed (%i-%s)", err, strerror( err ) ));
-    fd_tile_private_stack_delete( stack );
+    if( FD_LIKELY( fd_tile_private[ tile_idx ]->wait_pthread ) ) {
+      void * stack;
+      int err = pthread_join( fd_tile_private[ tile_idx ]->pthread, &stack );
+      if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_tile: pthread_join failed (%i-%s)", err, strerror( err ) ));
+      fd_tile_private_stack_delete( stack );
+    }
+    if( FD_LIKELY( fd_tile_private[ tile_idx]->pid ) ) {
+      int err = waitpid( fd_tile_private[ tile_idx ]->pid, NULL, 0 );
+      if( FD_UNLIKELY( -1 == err ) ) FD_LOG_ERR(( "fd_tile: waitpid failed (%i-%s)", errno, strerror( errno ) ));
+    }
     FD_LOG_INFO(( "fd_tile: halt tile %lu success", tile_idx ));
   }
 
@@ -791,6 +996,7 @@ fd_tile_private_halt( void ) {
   fd_tile_private_id     = 0UL;
 
   fd_tile_private_cnt = 0UL;
+  fd_tile_private_cnt_boot = 0UL;
   fd_tile_private_id1 = 0UL;
   fd_tile_private_id0 = 0UL;
 

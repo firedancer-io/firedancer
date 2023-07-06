@@ -252,8 +252,7 @@ FD_PROTOTYPES_BEGIN
        thread group with whatever priority was initially assigned the
        thread group.  Fixed tiles run on the specified tile with high
        scheduler priority.  Tile 0's stack is the default stack used by
-       the job launcher.  Floating tiles use the default stack provided
-       by pthread_create.  All other tiles (i.e. high performance fixed
+       the job launcher.  All other tiles (i.e. high performance fixed
        tiles) use an 8 MiB huge page backed numa optimized stack (if
        possible).
 
@@ -270,7 +269,26 @@ FD_PROTOTYPES_BEGIN
 
        If tile 0 is not a floating tile, recommend using
        "taskset -c [cpu for tile 0]" or equivalent at thread group launch
-       to have the OS place the booter on the correct cpu from the start. */
+       to have the OS place the booter on the correct cpu from the start.
+
+     --tile-empty-groups
+    
+        If this is specified, every tile runs in its own group with a
+        fully isolated process and virtual memory address space.
+
+     --tile-groups [group-list] / FD_TILE_GROUPS=[group-list]
+
+       If this is specified, tile groups can be specified which will
+       run in different processes with different virtual memory address
+       spaces. Tiles sharing memory space must have contiguous indexes.
+       For example, with 5 tiles,
+
+          --tile-groups 1,2,2,1
+
+       Tile 0 will be in a process with a unique virtual memory space.
+       Tiles 1 and 2 will share a memory space, tiles 3 and 4 will
+       share a process and address space, and tile 5 will have its own
+       process and address space. */
 
 void
 fd_boot( int *    pargc,

@@ -1,22 +1,25 @@
 #include "fd_frank.h"
 
+#include <stdio.h>
+
 #if FD_HAS_FRANK
 
 int
 fd_frank_verify_task( int     argc,
                       char ** argv ) {
   (void)argc;
-  fd_log_thread_set( argv[0] );
-  char const * verify_name = argv[0];
+
+  ulong idx = (ulong)argv;
+  char verify_name[10];
+  if( FD_UNLIKELY( snprintf( verify_name, sizeof(verify_name), "v%lu", idx ) == 10 ) )
+    FD_LOG_ERR(( "snprintf failed" ));
+
+  fd_log_thread_set( verify_name );
   FD_LOG_INFO(( "verify.%s init", verify_name ));
   
-  /* Parse "command line" arguments */
-
-  char const * pod_gaddr = argv[1];
-  char const * cfg_path  = FD_FRANK_CONFIGURATION_PREFIX;
-
   /* Load up the configuration for this frank instance */
 
+  char const * cfg_path  = FD_FRANK_CONFIGURATION_PREFIX;
   FD_LOG_INFO(( "using configuration in pod %s at path %s", pod_gaddr, cfg_path ));
   uchar const * pod     = fd_wksp_pod_attach( pod_gaddr );
   uchar const * cfg_pod = fd_pod_query_subpod( pod, cfg_path );

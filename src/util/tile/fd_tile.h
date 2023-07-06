@@ -6,6 +6,7 @@
 /* fd_tile is used for fast dispatching of task within a thread group. */
 
 #include "../shmem/fd_shmem.h"
+#include "../sandbox/fd_sandbox.h"
 
 /* FD_TILE_MAX gives a compile tile constant that is the upper bound
    of the number of tiles that could exist within a thread group. */
@@ -32,6 +33,11 @@ FD_FN_PURE ulong fd_tile_id1( void );
 FD_FN_PURE ulong fd_tile_id ( void ); /* == fd_log_thread_id(), in [fd_tile_id0(),fd_tile_id1()) */
 FD_FN_PURE ulong fd_tile_idx( void ); /* == fd_tile_id ()-fd_tile_id0(), in [0,fd_tile_cnt()) */
 FD_FN_PURE ulong fd_tile_cnt( void ); /* == fd_tile_id1()-fd_tile_id0() > 0 */
+
+/* fd_tile_cnt_boot returns the total count of all tiles across all groups
+   that were launched by the tile boot process. This only makes sense for
+   tile 0. */
+FD_FN_PURE ulong fd_tile_cnt_boot( void );
 
 /* fd_tile_cpu_id returns the physical cpu_idx used by tile_idx.  This
    matches the --tile-cpus / FD_TILE_CPUS configuration extracted from
@@ -83,6 +89,17 @@ fd_tile_stack_est_free( void ) {
   uchar stack_mem[1];
   FD_VOLATILE( stack_mem[0] ) = (uchar)1; /* Paranoia to guarantee stack_mem is on the stack and backed by memory */
   return fd_ulong_if( !fd_tile_private_stack0, 0UL, (ulong)stack_mem - fd_tile_private_stack0 );
+}
+
+/* fd_tile_set_init_func sets a callback function to be invoked for
+   every thread in a thread group beforeit is sandboxed. This is useful
+   if there is per-thread syscall initialization that needs to happen.
+   
+   This does not apply to a non-threaded tile. */
+extern void (*global_init_func)( ulong tile_id );
+static inline void
+fd_tile_set_init_func( void (*init_func)( ulong tile_id ) ) {
+   global_init_func = init_func;
 }
 
 /* fd_tile_exec_new starts parallel execution of task( argc, argv ) on

@@ -34,25 +34,21 @@ int
 fd_frank_quic_task( int     argc,
                     char ** argv ) {
   (void)argc;
-  fd_log_thread_set( argv[0] );
-  char const * quic_name = argv[0];
+
+  ulong idx = (ulong)argv;
+  char quic_name[10];
+  if( FD_UNLIKELY( snprintf( quic_name, sizeof(quic_name), "quic%lu", idx ) ) == 10 )
+    FD_LOG_ERR(( "snprintf failed" ));
+
+  fd_log_thread_set( quic_name );
   FD_LOG_INFO(( "quic.%s init", quic_name ));
 
-  /* Parse "command line" arguments */
-
-  char const * pod_gaddr = argv[1];
-  char const * cfg_path  = argv[2];
-  char const * idx_cstr  = argv[3];
-
-  char * endptr = NULL;
-  ulong idx = strtoul( idx_cstr, &endptr, 10 );
-  if( FD_UNLIKELY( *endptr!='\0' ) ) FD_LOG_ERR(( "idx %s not a number", idx_cstr ));
-  if( errno == ERANGE ) FD_LOG_ERR(( "idx %s out of range", idx_cstr ));
   if( FD_UNLIKELY( idx>=FD_TILE_MAX ) ) FD_LOG_ERR(( "idx %lu out of range", idx ));
   if( FD_UNLIKELY( !preload_xsks[ idx ] ) ) FD_LOG_ERR(( "preload_xsks[ %lu ] not set", idx ));
 
   /* Load up the configuration for this frank instance */
 
+  char const * cfg_path  = FD_FRANK_CONFIGURATION_PREFIX;
   FD_LOG_INFO(( "using configuration in pod %s at path %s", pod_gaddr, cfg_path ));
   uchar const * pod     = fd_wksp_pod_attach( pod_gaddr );
   uchar const * cfg_pod = fd_pod_query_subpod( pod, cfg_path );

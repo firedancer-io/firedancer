@@ -8,6 +8,8 @@ ulong fd_tile_id0( void ) { return fd_tile_private_id0; }
 ulong fd_tile_id1( void ) { return fd_tile_private_id1; }
 ulong fd_tile_cnt( void ) { return fd_tile_private_cnt; }
 
+ulong fd_tile_cnt_boot( void ) { return fd_tile_private_cnt; }
+
 static ulong fd_tile_private_id;     /* 0 outside boot/halt, init on boot */
 static ulong fd_tile_private_idx;    /* " */
 /**/   ulong fd_tile_private_stack0; /* " */
@@ -72,6 +74,12 @@ fd_tile_private_boot( int *    pargc,
 
   if( fd_env_strip_cmdline_cstr( pargc, pargv, "--tile-cpus", "FD_TILE_CPUS", NULL ) )
     FD_LOG_INFO(( "fd_tile: ignoring --tile-cpus (group not threaded)" ));
+
+  if( fd_env_strip_cmdline_cstr( pargc, pargv, "--tile-groups", "FD_TILE_GROUPS", NULL ) )
+    FD_LOG_INFO(( "fd_tile: ignoring --tile-groups (group not threaded)" ));
+
+  if( fd_env_strip_cmdline_contains( pargc, pargv, "--tile-empty-groups" ) )
+    FD_LOG_INFO(( "fd_tile: ignoring --tile-empty-groups (group not threaded)" ));
 
   fd_tile_private_id0 = fd_log_thread_id();
   fd_tile_private_id1 = fd_tile_private_id0 + 1UL;

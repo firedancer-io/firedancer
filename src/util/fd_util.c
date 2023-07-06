@@ -46,7 +46,7 @@ fd_boot_secure2( int *    pargc,
   fd_tile_private_boot                 ( pargc, pargv ); /* The caller is now tile 0 */
 
   // 4. Enter sandbox and restrict all system calls
-  fd_sandbox_private                   ( pargc, pargv );
+  fd_sandbox_private                   ();
 }
 
 void

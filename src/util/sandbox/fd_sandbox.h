@@ -4,6 +4,8 @@
 #include "../env/fd_env.h"
 #include "../log/fd_log.h"
 
+FD_PROTOTYPES_BEGIN
+
 /* The purpose of the sandbox is to reduce the impact of a Firedancer
    compromise.
 
@@ -74,12 +76,13 @@ fd_sandbox_private_privileged( int *    pargc,
    ones.
 */
 void
-fd_sandbox_private( int *    pargc,
-                    char *** pargv );
+fd_sandbox_private( void );
 
 /* Only used by test code. Install private sandbox without seccomp, used so
    we can test with some syscalls without bringing down the process. */
 void
 fd_sandbox_private_no_seccomp( void );
+
+FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_util_sandbox_fd_sandbox_h */

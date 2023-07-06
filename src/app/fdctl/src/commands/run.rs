@@ -104,7 +104,7 @@ pub(crate) fn run(args: RunCli, config: &mut Config) {
     let prefix_gdb = if args.debug {
         format!("gdb --args {}/fd_frank_run.bin", config.binary_dir)
     } else if args.strace {
-        format!("strace {}/fd_frank_run.bin", config.binary_dir)
+        format!("strace -f {}/fd_frank_run.bin", config.binary_dir)
     } else {
         format!("{}/fd_frank_run.bin", config.binary_dir)
     };
@@ -131,7 +131,7 @@ pub(crate) fn run(args: RunCli, config: &mut Config) {
     ];
 
     let sandbox = if config.development.sandbox {
-        ""
+        "--tile-empty-groups"
     } else {
         "--no-sandbox"
     };

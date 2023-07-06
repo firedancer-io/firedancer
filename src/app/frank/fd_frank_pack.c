@@ -9,12 +9,12 @@ int
 fd_frank_pack_task( int     argc,
                     char ** argv ) {
   (void)argc;
-  fd_log_thread_set( argv[0] );
+  (void)argv;
+  fd_log_thread_set( "pack" );
   FD_LOG_INFO(( "pack init" ));
 
   /* Parse "command line" arguments */
 
-  char const * pod_gaddr = argv[1];
   char const * cfg_path  = FD_FRANK_CONFIGURATION_PREFIX;
 
   ulong tile_idx = fd_tile_idx();

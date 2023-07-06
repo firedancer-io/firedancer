@@ -46,13 +46,16 @@
    beyond an allowed number are opened. */
 void
 close_open_fds( void ) {
-  int fd = open( "/etc/passwd", O_RDONLY );
-  FD_TEST( -1 != fd && fd >= 3 );
+  // We close fds > 3, since the log file is fd 3, so
+  // need to open twice since there's no log in the test.
+  open( "/etc/passwd", O_RDONLY );
+  int fd2 = open( "/etc/passwd", O_RDONLY );
+  FD_TEST( -1 != fd2 && fd2 > 3 );
 
   TEST_FORK(
-    FD_TEST( fcntl( fd, F_GETFD ) != -1 );
+    FD_TEST( fcntl( fd2, F_GETFD ) != -1 );
     fd_sandbox_private_no_seccomp();
-    FD_TEST( fcntl( fd, F_GETFD ) == -1 );
+    FD_TEST( fcntl( fd2, F_GETFD ) == -1 );
   );
 }
 
@@ -62,7 +65,7 @@ close_open_fds( void ) {
 void
 close_open_fds2( void ) {
   int fd = open( "/etc/passwd", O_RDONLY );
-  FD_TEST( -1 != fd && fd >= 3 );
+  FD_TEST( -1 != fd && fd > 3 );
 
   TEST_FORK(
     FD_TEST( fcntl( fd, F_GETFD ) != -1 );
@@ -185,7 +188,7 @@ seccomp_default_filter( void ) {
     FD_TEST( -1 != waitpid( pid, &wstatus, WUNTRACED ) );
     FD_TEST( WIFSIGNALED( wstatus) && WTERMSIG( wstatus ) == SIGSYS );
   } else { // child
-    fd_sandbox_private( NULL, NULL );
+    fd_sandbox_private();
     // This should fail with SIGSYS
     execl( "/bin/true", "" );
     exit( EXIT_FAILURE );

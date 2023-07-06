@@ -32,6 +32,10 @@
    prepend when looking up our configuration. */
 extern char const * FD_FRANK_CONFIGURATION_PREFIX;
 
+/* Pod gaddr specified in the command line and passed between
+   different memory isolated processes. */
+extern char const * pod_gaddr;
+
 FD_PROTOTYPES_BEGIN
 
 /* fd_frank_{verify,dedup,pack}_task is a fd_tile_task_t compatible
