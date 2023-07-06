@@ -1,4 +1,5 @@
 import argparse
+from collections import Counter
 import re
 from typing import Callable, List, Tuple
 
@@ -38,7 +39,10 @@ class Breadcrumb:
     self.firedancer_display = firedancer_display
 
   def _filter(self, line: str, fd_flag: bool) -> bool:
-    return (self.firedancer_filter(line) and fd_flag) or (self.solana_filter(line) and (not fd_flag))
+    if fd_flag:
+      return self.firedancer_filter(line)
+    else: 
+      return self.solana_filter(line)
 
   def _extract_values(self, line: str, fd_flag: bool):
     val = tuple(self.firedancer_display(line)) if fd_flag else tuple(self.solana_display(line))
@@ -61,7 +65,7 @@ class Breadcrumb:
             val = breadcrumb._extract_values(line, fd_flag)
             if val is None:
               continue
-            results.setdefault(breadcrumb_name, dict()).setdefault(key, set()).add(val)
+            results.setdefault(breadcrumb_name, dict()).setdefault(key, Counter()).update([val])
     return results
 
 def main():
@@ -121,12 +125,12 @@ def main():
       print("----------------------------------------------------------------------------------------------------------------------------")
       print("identifier:", BAKERY[breadcrumb_name].identifiers)
       print("values:", BAKERY[breadcrumb_name].display_values)
-      print("Solana:")
+      print("Solana: (total: {})".format(len(list(truth.elements()))))
       for result in truth:
-        print(result)
-      print("Firedancer:")
+        print("result: {:<64} count: {:>5}".format(repr(result), truth[result]))
+      print("Firedancer: (total: {})".format(len(list(reality.elements()))))
       for result in reality:
-        print(result)
+        print("result: {:<64} count: {:>5}".format(repr(result), reality[result]))
 
 if __name__ == "__main__":
   main()

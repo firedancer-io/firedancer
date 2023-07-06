@@ -398,8 +398,7 @@ fd_txn_parse_core( uchar const             * payload,
                    ulong *                   payload_sz_opt,
                    int allow_zero_signatures );
 
-static inline
-ulong
+static inline ulong
 fd_txn_parse( uchar const             * payload,
               ulong                     payload_sz,
               void                    * out_buf,
@@ -419,13 +418,18 @@ fd_txn_xray( uchar const             * payload,
              fd_txn_xray_result_t    * result );
 
 static inline int
-fd_txn_is_writable( fd_txn_t const * txn, int idx) 
+fd_txn_is_writable( fd_txn_t const * txn, int idx ) 
 {
   if (idx < (txn->signature_cnt - txn->readonly_signed_cnt))
     return 1;
   if ((idx >= txn->signature_cnt) & (idx < (txn->acct_addr_cnt - txn->readonly_unsigned_cnt)))
     return 1;
   return 0;
+}
+
+static inline ulong fd_txn_num_writable_accounts( fd_txn_t * txn ) {
+  return (ulong)((txn->signature_cnt - txn->readonly_signed_cnt)
+      + ((txn->acct_addr_cnt - txn->readonly_unsigned_cnt) - txn->signature_cnt));
 }
 
 FD_PROTOTYPES_END

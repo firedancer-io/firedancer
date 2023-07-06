@@ -1,5 +1,8 @@
 #include "fd_compute_budget_program.h"
 
+#define DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT  (200000)
+#define MAX_COMPUTE_UNIT_LIMIT                  (1400000)
+
 static inline int
 is_compute_budget_instruction( transaction_ctx_t * ctx, fd_txn_instr_t * instr ) {
   fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx->txn_raw->raw + ctx->txn_descriptor->acct_addr_off);
@@ -17,6 +20,8 @@ int fd_executor_compute_budget_program_execute_instructions( transaction_ctx_t *
   uint has_compute_units_price_update = 0;
   uint has_requested_heap_size = 0;
 
+  uint num_non_compute_budget_instrs = 0;
+
   uint updated_compute_unit_limit = 0;
   ulong updated_compute_unit_price = 0;
   uint updated_requested_heap_size = 0;
@@ -28,6 +33,7 @@ int fd_executor_compute_budget_program_execute_instructions( transaction_ctx_t *
     fd_txn_instr_t * instr =  &ctx->txn_descriptor->instr[i];
     
     if( !is_compute_budget_instruction(ctx, instr) ) { /* FIXME: is a compute budget instr */
+      num_non_compute_budget_instrs++;
       continue;
     }
     /* Deserialize the ComputeBudgetInstruction enum */
@@ -118,14 +124,19 @@ int fd_executor_compute_budget_program_execute_instructions( transaction_ctx_t *
   /* TODO: do we need to support default CUs per instr? */
 
   if( has_compute_units_limit_update ) {
-    ctx->compute_unit_limit = (updated_compute_unit_limit < FD_MAX_COMPUTE_UNIT_LIMIT) 
-        ? ctx->compute_unit_limit
-        : FD_MAX_COMPUTE_UNIT_LIMIT;
+    ctx->compute_unit_limit = fd_ulong_min(FD_MAX_COMPUTE_UNIT_LIMIT, updated_compute_unit_limit);
   }
 
   if( has_compute_units_price_update ) {
     ctx->prioritization_fee_type = prioritization_fee_type;
     ctx->compute_unit_price = updated_compute_unit_price;
+
+    if( !has_compute_units_limit_update ) {
+      ctx->compute_unit_limit = MAX_COMPUTE_UNIT_LIMIT;
+      // TODO: IF default_units_per_instruction do below
+      // ctx->compute_unit_limit = fd_ulong_min(FD_MAX_COMPUTE_UNIT_LIMIT, (ulong)num_non_compute_budget_instrs * (ulong)DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT);
+
+    }
   }
 
   return 0;

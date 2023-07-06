@@ -14,6 +14,8 @@
 #include <stdio.h>
 #include <ctype.h>
 
+#define MICRO_LAMPORTS_PER_LAMPORT (1000000UL)
+
 #ifdef _DISABLE_OPTIMIZATION
 #pragma GCC optimize ("O0")
 #endif
@@ -375,10 +377,12 @@ fd_runtime_block_eval( fd_global_ctx_t *global, fd_slot_meta_t *m, const void* b
   if (NULL == txn)
     FD_LOG_ERR(("fd_funk_txn_prepare failed"));
 
-  global->funk_txn_index = (global->funk_txn_index + 1) & 31;
+  global->funk_txn_index = (global->funk_txn_index + 1) & 0x1F;
   fd_funk_txn_t * old_txn = global->funk_txn_tower[global->funk_txn_index];
-  if (old_txn != NULL )
+  if (old_txn != NULL ) {
+    FD_LOG_WARNING(( "publishing funk txn in tower: idx: %u", global->funk_txn_index ));
     fd_funk_txn_publish( global->funk, old_txn, 0 );
+  }
   global->funk_txn_tower[global->funk_txn_index] = global->funk_txn = txn;
 
   // This is simple now but really we need to execute block_verify in
@@ -416,10 +420,12 @@ fd_runtime_lamports_per_signature( fd_global_ctx_t *global ) {
 
 ulong
 fd_runtime_lamports_per_signature_for_blockhash( fd_global_ctx_t *global, FD_FN_UNUSED fd_hash_t *blockhash ) {
+
   // https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/fee_calculator.rs#L110
 
   // https://github.com/firedancer-io/solana/blob/53a4e5d6c58b2ffe89b09304e4437f8ca198dadd/runtime/src/blockhash_queue.rs#L55
   ulong default_fee = global->bank.fee_rate_governor.target_lamports_per_signature / 2;
+  return default_fee;
 
   if (blockhash == 0) {
     return default_fee;
@@ -468,11 +474,42 @@ fd_runtime_txn_lamports_per_signature( fd_global_ctx_t *global, fd_txn_t * txn_d
 
 }
 
+void compute_priority_fee( transaction_ctx_t const * txn_ctx, ulong * fee, ulong * priority ) {
+  switch (txn_ctx->prioritization_fee_type) {
+    case FD_COMPUTE_BUDGET_PRIORITIZATION_FEE_TYPE_DEPRECATED: {
+      if( txn_ctx->compute_unit_limit == 0 ) {
+        *priority = 0;
+      } else {
+        uint128 micro_lamport_fee = (uint128)txn_ctx->compute_unit_price * (uint128)MICRO_LAMPORTS_PER_LAMPORT;
+        uint128 _priority = micro_lamport_fee / (uint128)txn_ctx->compute_unit_limit;
+        *priority = _priority > (uint128)ULONG_MAX ? ULONG_MAX : (ulong)_priority;
+      }
+
+      *fee = txn_ctx->compute_unit_price;
+      return;
+    }
+    case FD_COMPUTE_BUDGET_PRIORITIZATION_FEE_TYPE_COMPUTE_UNIT_PRICE: {
+      
+      uint128 micro_lamport_fee = (uint128)txn_ctx->compute_unit_price * (uint128)txn_ctx->compute_unit_limit;
+
+      *priority = txn_ctx->compute_unit_price;
+      uint128 _fee = (micro_lamport_fee + (uint128)(MICRO_LAMPORTS_PER_LAMPORT - 1))/(uint128)(MICRO_LAMPORTS_PER_LAMPORT);
+      *fee = _fee > (uint128)ULONG_MAX ? ULONG_MAX : (ulong)_fee;
+      FD_LOG_WARNING(("CPF: %lu %lu %lu", *fee, (ulong)txn_ctx->compute_unit_price, txn_ctx->compute_unit_limit));
+      return; 
+    }
+    default:
+      __builtin_unreachable();
+  }
+}
+
 ulong
-fd_runtime_calculate_fee( fd_global_ctx_t *global, fd_txn_t * txn_descriptor, fd_rawtxn_b_t* txn_raw ) {
+fd_runtime_calculate_fee( fd_global_ctx_t *global, transaction_ctx_t * txn_ctx, fd_txn_t * txn_descriptor, fd_rawtxn_b_t* txn_raw ) {
 // https://github.com/firedancer-io/solana/blob/08a1ef5d785fe58af442b791df6c4e83fe2e7c74/runtime/src/bank.rs#L4443
 // TODO: implement fee distribution to the collector ... and then charge us the correct amount
-
+  ulong priority = 0;
+  ulong priority_fee = 0;
+  compute_priority_fee(txn_ctx, &priority_fee, &priority);
   ulong lamports_per_signature = fd_runtime_txn_lamports_per_signature(global, txn_descriptor, txn_raw);
 
   double BASE_CONGESTION = 5000.0;
@@ -493,7 +530,7 @@ fd_runtime_calculate_fee( fd_global_ctx_t *global, fd_txn_t * txn_descriptor, fd
 //            )
 //            .unwrap_or_default();
 //        let prioritization_fee = prioritization_fee_details.get_fee();
-  double prioritization_fee = 0;
+  double prioritization_fee = (double)priority_fee;
 
   // let signature_fee = Self::get_num_signatures_in_message(message) .saturating_mul(fee_structure.lamports_per_signature);
   double signature_fee = (double)fd_runtime_lamports_per_signature(global) * txn_descriptor->signature_cnt;
@@ -502,7 +539,8 @@ fd_runtime_calculate_fee( fd_global_ctx_t *global, fd_txn_t * txn_descriptor, fd
 //
 //            let write_lock_fee = Self::get_num_write_locks_in_message(message)
 //                .saturating_mul(fee_structure.lamports_per_write_lock);
-  double write_lock_fee = 0;
+  ulong lamports_per_write_lock = 0;
+  double write_lock_fee = (double)fd_ulong_sat_mul( fd_txn_num_writable_accounts( txn_descriptor ), lamports_per_write_lock );
 
 // TODO: the fee_structure bin is static and default..
 //
@@ -524,6 +562,7 @@ fd_runtime_calculate_fee( fd_global_ctx_t *global, fd_txn_t * txn_descriptor, fd
 
   if (FD_UNLIKELY(global->log_level > 2)) {
       FD_LOG_WARNING(( "fd_runtime_calculate_fee_compare: slot=%ld fee(%lf) = (prioritization_fee(%f) + signature_fee(%f) + write_lock_fee(%f) + compute_fee(%f)) * congestion_multiplier(%f)", global->bank.slot, fee, prioritization_fee, signature_fee, write_lock_fee, compute_fee, congestion_multiplier));
+      FD_LOG_WARNING(( "fd_rcfc2: lps: %lu, pp: %lu, pf: %lu, cul: %lu, cup: %lu, pft: %u", lamports_per_signature, priority, priority_fee, txn_ctx->compute_unit_limit, txn_ctx->compute_unit_price, txn_ctx->prioritization_fee_type));
   }
 
   if (fee >= (double)ULONG_MAX)
@@ -833,9 +872,10 @@ fd_runtime_save_banks( fd_global_ctx_t * global ) {
     return opt_err;
   }
 
-  fd_bincode_encode_ctx_t ctx;
-  ctx.data = buf;
-  ctx.dataend = buf + sz;
+  fd_bincode_encode_ctx_t ctx = {
+    .data = buf,
+    .dataend = buf + sz,
+  };
   if ( fd_firedancer_banks_encode(&global->bank, &ctx ) ) {
     FD_LOG_WARNING(("fd_runtime_save_banks failed"));
     return -1;
@@ -852,7 +892,77 @@ fd_runtime_save_banks( fd_global_ctx_t * global ) {
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
-int fd_global_import_solana_manifest(fd_global_ctx_t *global, fd_solana_manifest_t* manifest) {
+static int
+fd_global_import_stakes(fd_global_ctx_t * global, fd_solana_manifest_t * manifest) {
+  ulong raw_stakes_sz = fd_stakes_size( &manifest->bank.stakes );
+  void * raw_stakes = global->allocf( global->allocf_arg, 1UL, raw_stakes_sz );
+  fd_memset( raw_stakes, 0, raw_stakes_sz );
+
+  fd_bincode_encode_ctx_t encode_ctx = {
+    .data    = raw_stakes,
+    .dataend = (void *)( (ulong)raw_stakes + raw_stakes_sz )
+  };
+  if( FD_UNLIKELY( 0!=fd_stakes_encode( &manifest->bank.stakes, &encode_ctx ) ) ) {
+    FD_LOG_ERR(( "fd_stakes_encode failed" ));
+  }
+
+  fd_bincode_decode_ctx_t decode_ctx = {
+    .data    = raw_stakes,
+    .dataend = (void const *)( (ulong)raw_stakes + raw_stakes_sz ),
+    /* TODO: Make this a instruction-scoped allocator */
+    .allocf     = global->allocf,
+    .allocf_arg = global->allocf_arg
+  };
+  if( FD_UNLIKELY( 0!=fd_stakes_decode( &global->bank.stakes, &decode_ctx ) ) ) {
+    FD_LOG_ERR(( "fd_stakes_decode failed" ));
+  }
+
+  fd_vote_accounts_pair_t_mapnode_t * vote_accounts_pool = global->bank.stakes.vote_accounts.vote_accounts_pool;
+  fd_vote_accounts_pair_t_mapnode_t * vote_accounts_root = global->bank.stakes.vote_accounts.vote_accounts_root;
+
+  for( fd_vote_accounts_pair_t_mapnode_t * n = fd_vote_accounts_pair_t_map_minimum(vote_accounts_pool, vote_accounts_root); 
+    n;
+    n = fd_vote_accounts_pair_t_map_successor(vote_accounts_pool, n)
+  ) {
+      /* Deserialize content */
+    fd_bincode_decode_ctx_t vote_state_decode_ctx = {
+      .data    = n->elem.value.data,
+      .dataend = (void const *)( (ulong) n->elem.value.data +  n->elem.value.data_len ),
+      /* TODO: Make this a instruction-scoped allocator */
+      .allocf     = global->allocf,
+      .allocf_arg = global->allocf_arg
+    };
+    
+    fd_vote_state_versioned_t vote_state_versioned;
+    if( FD_UNLIKELY( 0!=fd_vote_state_versioned_decode( &vote_state_versioned, &vote_state_decode_ctx ) ) ) {
+      FD_LOG_ERR(( "fd_vote_state_versioned_decode failed" ));
+    }
+
+    fd_vote_block_timestamp_t vote_state_timestamp;
+    switch( vote_state_versioned.discriminant ) {
+    case fd_vote_state_versioned_enum_current:
+      vote_state_timestamp = vote_state_versioned.inner.current.latest_timestamp;
+      break;
+    case fd_vote_state_versioned_enum_v0_23_5:
+      vote_state_timestamp = vote_state_versioned.inner.v0_23_5.latest_timestamp;
+      break;
+    default:
+      __builtin_unreachable();
+    }
+
+    char key_str[FD_BASE58_ENCODED_32_SZ];
+    fd_base58_encode_32((uchar *) n->elem.key.hash, NULL, key_str);
+    FD_LOG_WARNING(( "adding vote account: key: %s, lamports: %lu, stake: %lu, ts: %lu, slot: %lu", key_str, n->elem.value.lamports, n->elem.stake, vote_state_timestamp.timestamp, vote_state_timestamp.slot ));
+
+    record_timestamp_vote_with_slot( global, &n->elem.key, vote_state_timestamp.timestamp, vote_state_timestamp.slot );
+  }
+
+  global->freef( global->allocf_arg, raw_stakes );
+
+  return 0;
+}
+
+int fd_global_import_solana_manifest(fd_global_ctx_t * global, fd_solana_manifest_t * manifest) {
   /* Clean out prior bank */
   fd_bincode_destroy_ctx_t ctx;
   ctx.freef = global->freef;
@@ -862,7 +972,8 @@ int fd_global_import_solana_manifest(fd_global_ctx_t *global, fd_solana_manifest
   fd_firedancer_banks_new(bank);
 
   fd_deserializable_versioned_bank_t * oldbank = &manifest->bank;
-  // bank->stakes = oldbank->stakes;
+  fd_global_import_stakes( global, manifest );
+  
   if ( oldbank->blockhash_queue.last_hash )
     fd_memcpy(&global->bank.poh, oldbank->blockhash_queue.last_hash, FD_SHA256_HASH_SZ);
   // bank->timestamp_votes = oldbank->timestamp_votes;
@@ -900,11 +1011,12 @@ void fd_update_feature(FD_FN_UNUSED fd_global_ctx_t * global, ulong * f, const c
   fd_feature_t feature;
   fd_feature_new(&feature);
 
-  fd_bincode_decode_ctx_t ctx;
-  ctx.data = raw_acc_data + m->hlen;
-  ctx.dataend = (char *) ctx.data + m->dlen;
-  ctx.allocf = global->allocf;
-  ctx.allocf_arg = global->allocf_arg;
+  fd_bincode_decode_ctx_t ctx = {
+    .data = raw_acc_data + m->hlen,
+    .dataend = (char *) ctx.data + m->dlen,
+    .allocf = global->allocf,
+    .allocf_arg = global->allocf_arg,
+  };
   if ( fd_feature_decode( &feature, &ctx ) )
     return;
 
