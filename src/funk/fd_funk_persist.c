@@ -889,6 +889,207 @@ fd_funk_txn_persist_writeahead_erase( fd_funk_t * funk,
   fd_funk_persist_free( funk, wa_pos, wa_alloc );
 }
 
+/* Create a backup of the database. The backup file format is the same
+   as the persistence format. */
+int
+fd_funk_make_backup( fd_funk_t * funk, const char * filename ) {
+  /* Open the file */
+  int fd = open(filename, O_CREAT|O_TRUNC|O_RDWR, 0600);
+  if ( fd == -1 ) {
+    FD_LOG_ERR(( "failed to open %s: %s", filename, strerror(errno) ));
+    close(fd);
+    return FD_FUNK_ERR_SYS;
+  }
+  ulong filesize = 0;
+
+  /* Loop through the root transaction entries */
+  fd_wksp_t * wksp = fd_funk_wksp( funk );
+  fd_funk_rec_t * rec_map  = fd_funk_rec_map( funk, wksp );
+  for( fd_funk_rec_map_iter_t iter = fd_funk_rec_map_iter_init( rec_map );
+       !fd_funk_rec_map_iter_done( rec_map, iter );
+       iter = fd_funk_rec_map_iter_next( rec_map, iter ) ) {
+    fd_funk_rec_t * rec = fd_funk_rec_map_iter_ele( rec_map, iter );
+    if ( !fd_funk_txn_idx_is_null( fd_funk_txn_idx( rec->txn_cidx ) ) )
+      continue;
+
+    /* Build the record head */
+    struct fd_funk_persist_record_head head;
+    head.type = FD_FUNK_PERSIST_RECORD_TYPE;
+    fd_memcpy( head.key, &rec->pair.key, sizeof(head.key) );
+    head.val_sz = rec->val_sz;
+    head.alloc_sz = fd_ulong_align_up( sizeof(head) + rec->val_sz, 128U );
+
+    /* Write the record */
+    ulong old_gaddr = rec->val_gaddr;
+    int err = 0;
+    void * val = fd_funk_val_cache( funk, rec, &err );
+    if (val == NULL) {
+      close(fd);
+      return err;
+    }
+
+    struct iovec iov[2];
+    iov[0].iov_base = &head;
+    iov[0].iov_len = sizeof(head);
+    if ( rec->val_sz ) {
+      iov[1].iov_base = val;
+      iov[1].iov_len = rec->val_sz;
+      if ( pwritev( fd, iov, 2, (long)filesize ) != (long)(iov[0].iov_len + iov[1].iov_len) ) {
+        FD_LOG_ERR(( "failed to write backup file: %s", strerror(errno) ));
+        close(fd);
+        return FD_FUNK_ERR_SYS;
+      }
+    } else {
+      /* Naked header */
+      if ( pwritev( fd, iov, 1, (long)filesize ) != (long)iov[0].iov_len ) {
+        FD_LOG_ERR(( "failed to write backup file: %s", strerror(errno) ));
+        close(fd);
+        return FD_FUNK_ERR_SYS;
+      }
+    }
+    filesize += head.alloc_sz;
+
+    if ( !old_gaddr && rec->val_gaddr) {
+      /* Uncache the entry if it was not previously cached */
+      fd_alloc_free( fd_funk_alloc( funk, wksp ), fd_wksp_laddr_fast( wksp, rec->val_gaddr ) );
+      ((fd_funk_rec_t *) rec)->val_max   = 0U;
+      ((fd_funk_rec_t *) rec)->val_gaddr = 0UL;
+    }
+  }
+
+  close(fd);
+
+  return FD_FUNK_SUCCESS;
+}
+
+/* Process a record found during persistence recovery */
+static void
+fd_funk_persist_recover_backup_record( fd_funk_t * funk, struct fd_funk_persist_record_head * head,
+                                       const uchar * value, int cache_all ) {
+  /* See if we already saw the key */
+  int err = 0;
+  fd_funk_rec_key_t key;
+  fd_memcpy(&key, head->key, sizeof(key));
+  fd_funk_rec_t const * rec_con = fd_funk_rec_query(funk, NULL, &key);
+  if ( FD_LIKELY ( !rec_con ) ) {
+    /* New key */
+    rec_con = fd_funk_rec_insert(funk, NULL, &key, &err);
+    if ( !rec_con ) {
+      FD_LOG_ERR(( "failed to recover record, code %s", fd_funk_strerror( err ) ));
+      return;
+    }
+  }
+  /* Update the record in memory */
+  fd_funk_rec_t * rec = fd_funk_rec_modify(funk, rec_con);
+  if ( !rec ) {
+    FD_LOG_ERR(( "failed to recover record, code %s", fd_funk_strerror( FD_FUNK_ERR_FROZEN ) ));
+    return;
+  }
+  fd_wksp_t * wksp = fd_funk_wksp( funk );
+  fd_alloc_t * alloc = fd_funk_alloc( funk, wksp );
+  rec = fd_funk_val_copy( rec, value, head->val_sz, head->val_sz, alloc, wksp, &err);
+  if ( !rec ) {
+    FD_LOG_ERR(( "failed to recover record, code %s", fd_funk_strerror( err ) ));
+    return;
+  }
+  /* Store in persistence file */
+  fd_funk_rec_persist_unsafe( funk, rec );
+  if ( !cache_all && rec->val_gaddr && rec->persist_pos != FD_FUNK_REC_IDX_NULL ) {
+    /* Remove from memory cache */ 
+    fd_alloc_free( alloc, fd_wksp_laddr_fast( wksp, rec->val_gaddr ) );
+    ((fd_funk_rec_t *) rec)->val_max   = 0U;
+    ((fd_funk_rec_t *) rec)->val_gaddr = 0UL;
+  }
+}
+
+/* Load the records in a backup file into the database. */
+int
+fd_funk_load_backup( fd_funk_t * funk, const char * filename, int cache_all ) {
+  /* Open the file */
+  int fd = open(filename, O_CREAT|O_RDONLY, 0600);
+  if ( fd == -1 ) {
+    FD_LOG_ERR(( "failed to open %s: %s", filename, strerror(errno) ));
+    return FD_FUNK_ERR_SYS;
+  }
+  /* Get the physical size of the file. The "logical" size may be
+     slightly larger if the final record has unused padding. */
+  struct stat statbuf;
+  if ( fstat( fd, &statbuf ) == -1) {
+    FD_LOG_ERR(( "failed to open %s: %s", filename, strerror(errno) ));
+    return FD_FUNK_ERR_SYS;
+  }
+  ulong filesize = (ulong)statbuf.st_size;
+
+  /* Allocate a 10MB temp buffer */
+  fd_wksp_t * wksp = fd_funk_wksp( funk );
+  fd_alloc_t * alloc = fd_funk_alloc( funk, wksp );
+  ulong tmp_max = 10UL<<20;
+  uchar * tmp = (uchar *)fd_alloc_malloc_at_least( alloc, 1UL, tmp_max, &tmp_max );
+  if ( tmp == NULL )
+    FD_LOG_ERR(( "failed to allocate temp buffer" ));
+
+  /* Loop through the file */
+  ulong pos = 0;
+  while ( pos < filesize ) {
+    /* Read a big chunk */
+    long res = pread( fd, tmp, tmp_max, (long)pos );
+    if ( res == -1) {
+      FD_LOG_ERR(( "failed to read %s: %s", filename, strerror(errno) ));
+      return FD_FUNK_ERR_SYS;
+    }
+
+    /* Loop through the chunk */
+    const uchar* tmpptr = tmp;
+    const uchar* tmpend = tmp + res;
+    ulong new_tmp_max = 0;
+    while ( tmpptr < tmpend ) {
+
+      /* Use magic numbers to determine the type of the next header */
+      if ( FD_LIKELY( tmpptr + sizeof(struct fd_funk_persist_record_head) <= tmpend &&
+                      ((struct fd_funk_persist_record_head *)tmpptr)->type == FD_FUNK_PERSIST_RECORD_TYPE ) ) {
+        /* Ordinary record (published) */
+        struct fd_funk_persist_record_head * head = (struct fd_funk_persist_record_head *)tmpptr;
+        if ( tmpptr + sizeof(struct fd_funk_persist_record_head) + head->val_sz <= tmpend ) {
+          fd_funk_persist_recover_backup_record( funk, head, tmpptr + sizeof(struct fd_funk_persist_record_head),
+                                                 cache_all );
+          tmpptr += head->alloc_sz;
+        } else {
+          /* Incomplete record */
+          if ( sizeof(struct fd_funk_persist_record_head) + head->val_sz > tmp_max )
+            /* Need a bigger buffer */
+            new_tmp_max = sizeof(struct fd_funk_persist_record_head) + head->val_sz;
+          break;
+        }
+
+      } else
+        /* Corrupt or incomplete entry */
+        break;
+    }
+
+    /* Update the current position based on how much data was processed */
+    pos += (ulong)(tmpptr - tmp);
+
+    if ( new_tmp_max ) {
+      /* Grow the temp buffer */
+      fd_alloc_free( alloc, tmp );
+      tmp_max = new_tmp_max;
+      tmp = (uchar *)fd_alloc_malloc_at_least( alloc, 1UL, tmp_max, &tmp_max );
+      if ( tmp == NULL )
+        FD_LOG_ERR(( "failed to allocate temp buffer" ));
+
+    } else if (tmpptr == tmp) {
+      /* We are unable to make progress. Database must be corrupt. */
+      FD_LOG_ERR(( "corrupt persistence file" ));
+      break;
+    }
+  }
+  
+  /* Free the temp buffer */
+  fd_alloc_free( alloc, tmp );
+
+  return FD_FUNK_SUCCESS;
+}
+
 /* Verify the integrity of the persistence layer */
 int
 fd_funk_persist_verify( fd_funk_t * funk ) {

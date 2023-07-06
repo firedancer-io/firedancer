@@ -1,5 +1,10 @@
 #include "fd_funk.h"
 #include "fd_funk_persist.h"
+#include <stdio.h>
+
+#ifdef _DISABLE_OPTIMIZATION
+#pragma GCC optimize ("O0")
+#endif
 
 /* Provide the actual transaction map implementation */
 
@@ -461,6 +466,23 @@ fd_funk_txn_cancel_children( fd_funk_t *     funk,
   return fd_funk_txn_cancel_sibling_list( funk, map, txn_max, funk->cycle_tag++, oldest_idx, FD_FUNK_TXN_IDX_NULL );
 }
 
+/* Cancel all outstanding transactions */
+
+ulong
+fd_funk_txn_cancel_all( fd_funk_t *     funk,
+                        int             verbose ) {
+  fd_wksp_t *     wksp    = fd_funk_wksp( funk );
+  fd_funk_txn_t * map     = fd_funk_txn_map( funk, wksp );
+  ulong result = 0;
+  do {
+    ulong idx = fd_funk_txn_idx( funk->child_tail_cidx );
+    if ( idx==FD_FUNK_TXN_IDX_NULL )
+      break;
+    result += fd_funk_txn_cancel( funk, map+idx, verbose );
+  } while (1);
+  return result;
+}
+
 /* fd_funk_txn_update applies the record updates in transaction txn_idx
    to another transaction or the parent transaction.  Callers have
    already validated our input arguments.
@@ -850,6 +872,34 @@ fd_funk_txn_merge( fd_funk_t *     funk,
   fd_funk_txn_map_remove( map, fd_funk_txn_xid( txn ) );
 
   return FD_FUNK_SUCCESS;
+}
+
+/* Return the first record in a transaction. Returns NULL if the
+   transaction has no records yet. */
+
+FD_FN_PURE fd_funk_rec_t const *
+fd_funk_txn_first_rec( fd_funk_t *           funk,
+                       fd_funk_txn_t const * txn ) {
+  ulong rec_idx;
+  if( FD_UNLIKELY( NULL == txn ))
+    rec_idx = funk->rec_head_idx;
+  else
+    rec_idx = txn->rec_head_idx;
+  if( fd_funk_rec_idx_is_null( rec_idx ) ) return NULL;
+  fd_funk_rec_t const * rec_map = fd_funk_rec_map( funk, fd_funk_wksp( funk ) );
+  return rec_map + rec_idx;
+}
+
+/* Return the next record in a transaction. Returns NULL if the
+   transaction has no more records. */
+
+FD_FN_PURE fd_funk_rec_t const *
+fd_funk_txn_next_rec( fd_funk_t *           funk,
+                      fd_funk_rec_t const * rec ) {
+  ulong rec_idx = rec->next_idx;
+  if( fd_funk_rec_idx_is_null( rec_idx ) ) return NULL;
+  fd_funk_rec_t const * rec_map = fd_funk_rec_map( funk, fd_funk_wksp( funk ) );
+  return rec_map + rec_idx;
 }
 
 int

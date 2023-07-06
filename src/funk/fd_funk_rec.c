@@ -1,5 +1,9 @@
 #include "fd_funk.h"
 
+#ifdef _DISABLE_OPTIMIZATION
+#pragma GCC optimize ("O0")
+#endif
+
 /* Provide the actual record map implementation */
 
 #define MAP_NAME              fd_funk_rec_map
@@ -191,6 +195,64 @@ fd_funk_rec_modify( fd_funk_t *           funk,
   return (fd_funk_rec_t *)rec;
 }
 
+FD_FN_PURE int
+fd_funk_rec_is_modified( fd_funk_t *           funk,
+                         fd_funk_rec_t const * rec ) {
+  
+  if( FD_UNLIKELY( (!funk) | (!rec) ) ) return 0;
+
+  fd_wksp_t * wksp = fd_funk_wksp( funk );
+
+  fd_funk_rec_t * rec_map = fd_funk_rec_map( funk, wksp );
+  ulong rec_max = funk->rec_max;
+  ulong rec_idx = (ulong)(rec - rec_map);
+  if( FD_UNLIKELY( (rec_idx>=rec_max) /* Out of map (incl NULL) */ | (rec!=(rec_map+rec_idx)) /* Bad alignment */ ) )
+    FD_LOG_CRIT(( "memory corruption detected (bad idx)" ));
+
+  ulong txn_idx = fd_funk_txn_idx( rec->txn_cidx );
+  if( fd_funk_txn_idx_is_null( txn_idx ) )
+    return 1;
+  fd_funk_txn_t * txn_map = fd_funk_txn_map( funk, wksp );
+  ulong txn_max = funk->txn_max;
+  if( FD_UNLIKELY( txn_idx>=txn_max ) )
+    FD_LOG_CRIT(( "memory corruption detected (bad idx)" ));
+  fd_funk_txn_t * txn = txn_map + txn_idx;
+
+  int err;
+  void * val = fd_funk_val_cache( funk, rec, &err );
+  if ( NULL == val ) {
+    FD_LOG_WARNING(("failed to load record: error %d", err));
+    return 1;
+  }
+  
+  do {
+    /* Go to the parent transaction */
+    fd_funk_xid_key_pair_t pair[1];
+    txn_idx = fd_funk_txn_idx( txn->parent_cidx );
+    if ( fd_funk_txn_idx_is_null( txn_idx ) ) {
+      txn = NULL;
+      fd_funk_xid_key_pair_init( pair, fd_funk_root( funk ), rec->pair.key );
+    } else {
+      txn = txn_map + txn_idx;
+      fd_funk_xid_key_pair_init( pair, fd_funk_txn_xid( txn ), rec->pair.key );
+    }
+
+    fd_funk_rec_t const * rec2 = fd_funk_rec_map_query( rec_map, pair, NULL );
+    if ( rec2 ) {
+      if ( rec->val_sz != rec2->val_sz )
+        return 1;
+      void * val2 = fd_funk_val_cache( funk, rec2, &err );
+      if ( NULL == val2 ) {
+        FD_LOG_WARNING(("failed to load record: error %d", err));
+        return 1;
+      }
+      return memcmp(val, val2, rec->val_sz) != 0;
+    }
+  } while (txn);
+
+  return 1;
+}
+
 fd_funk_rec_t const *
 fd_funk_rec_insert( fd_funk_t *               funk,
                     fd_funk_txn_t *           txn,
@@ -243,9 +305,9 @@ fd_funk_rec_insert( fd_funk_t *               funk,
   } else { /* Modifying in-prep */
 
     fd_funk_txn_t * txn_map = fd_funk_txn_map( funk, wksp );
-  
+
     ulong txn_max = funk->txn_max;
-  
+
     txn_idx       = (ulong)(txn - txn_map);
     _rec_head_idx = &txn->rec_head_idx;
     _rec_tail_idx = &txn->rec_tail_idx;
@@ -509,12 +571,18 @@ fd_funk_rec_write_prepare( fd_funk_t *               funk,
                            fd_funk_rec_key_t const * key,
                            ulong                     min_val_size,
                            int                       do_create,
+                           fd_funk_rec_t const     * irec,
                            int *                     opt_err ) {
-  
+
   fd_wksp_t * wksp = fd_funk_wksp( funk );
-  
+
   fd_funk_rec_t * rec = NULL;
-  fd_funk_rec_t const * rec_con = fd_funk_rec_query_global( funk, txn, key );
+  fd_funk_rec_t const * rec_con = NULL;
+  if ( FD_LIKELY (NULL == irec ) )
+    rec_con = fd_funk_rec_query_global( funk, txn, key );
+  else
+    rec_con = irec;
+
   if ( rec_con ) {
     if ( rec_con->val_gaddr == 0UL && rec_con->persist_pos != FD_FUNK_REC_IDX_NULL ) {
       /* Read the value into the cache */
@@ -536,7 +604,7 @@ fd_funk_rec_write_prepare( fd_funk_t *               funk,
       rec = fd_funk_rec_modify( funk, fd_funk_rec_insert( funk, txn, key, opt_err ) );
       if ( !rec )
         return NULL;
-      rec = fd_funk_val_copy( rec, fd_funk_val_const(rec_con, wksp), fd_funk_val_sz(rec_con), 
+      rec = fd_funk_val_copy( rec, fd_funk_val_const(rec_con, wksp), fd_funk_val_sz(rec_con),
         fd_ulong_max( fd_funk_val_sz(rec_con), min_val_size ), fd_funk_alloc( funk, wksp ), wksp, opt_err );
       if ( !rec )
         return NULL;
@@ -690,4 +758,3 @@ fd_funk_rec_verify( fd_funk_t * funk ) {
 
   return FD_FUNK_SUCCESS;
 }
-

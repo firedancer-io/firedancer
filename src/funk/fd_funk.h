@@ -351,6 +351,20 @@ fd_funk_persist_open_fast( fd_funk_t * funk, const char * filename );
 void
 fd_funk_persist_close( fd_funk_t * funk );
 
+/* Create a backup of the database. The backup file format is the same
+   as the persistence format, but the usage is different. The
+   persistence file is updated live and is paired with a database in
+   shared memory. A backup is a static snapshot of the database at a
+   specific moment in time. */
+
+int
+fd_funk_make_backup( fd_funk_t * funk, const char * filename );
+
+/* Load the records in a backup file into the database. */
+
+int
+fd_funk_load_backup( fd_funk_t * funk, const char * filename, int cache_all );
+
 /* Accessors */
 
 /* fd_funk_wksp returns the local join to the wksp backing the funk.

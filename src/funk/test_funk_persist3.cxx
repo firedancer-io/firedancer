@@ -34,7 +34,7 @@ class randgen {
       _s2 ^= _s3>>31U;
       _s3 ^= _s1>>31U;
     }
-    
+
   public:
     randgen() {
       struct timeval* _s1_ptr = (struct timeval*) &_s1;
@@ -117,13 +117,13 @@ class databuf {
     databuf() { }
     databuf(databuf&& x) : _buf(std::move(x._buf)) { }
     ~databuf() { }
-    
+
     databuf& operator= (databuf&& x) { _buf = std::move(x._buf); return *this; }
 
     void clear() {
       _buf.resize(0);
     }
-    
+
     void write(const void* data, ulong datalen, databuf& checksum) {
       assert((datalen&(sizeof(ulong)-1)) == 0);
       datalen /= sizeof(ulong);
@@ -193,7 +193,7 @@ void grinder(int argc, char** argv, bool firsttime) {
 
   if (firsttime)
     unlink(BACKFILE);
-  
+
   ulong wksp_tag = 1UL;
   ulong txn_max = 10UL;
   ulong rec_max = 100000UL;
@@ -212,7 +212,7 @@ void grinder(int argc, char** argv, bool firsttime) {
   auto funk_write = [&](fd_funk_txn_t* txn, recordkey& key, databuf& data) {
     auto sz = data.size();
     int err;
-    auto* rec = fd_funk_rec_write_prepare(funk, txn, &key._id, sz, 1, &err);
+    auto* rec = fd_funk_rec_write_prepare(funk, txn, &key._id, sz, 1, NULL, &err);
     assert(rec != NULL);
     auto* rec2 = fd_funk_val_copy(rec, data.data(), sz, sz, fd_funk_alloc(funk, wksp), wksp, &err);
     assert(rec2 != NULL);
@@ -222,7 +222,7 @@ void grinder(int argc, char** argv, bool firsttime) {
 
   auto funk_remove = [&](fd_funk_txn_t* txn, recordkey& key) {
     int err;
-    auto* rec = fd_funk_rec_write_prepare(funk, txn, &key._id, 0, 1, &err);
+    auto* rec = fd_funk_rec_write_prepare(funk, txn, &key._id, 0, 1, NULL, &err);
     assert(rec != NULL);
     fd_funk_rec_remove(funk, rec, 1);
   };
@@ -250,7 +250,7 @@ void grinder(int argc, char** argv, bool firsttime) {
        !fd_funk_rec_map_iter_done( rec_map, iter );
        iter = fd_funk_rec_map_iter_next( rec_map, iter ) ) {
     fd_funk_rec_t * rec = fd_funk_rec_map_iter_ele( rec_map, iter );
-    
+
     ulong len = fd_funk_val_sz( rec );
     const void* data = fd_funk_val( rec, wksp );
     recordkey key(rec->pair.key);
@@ -355,7 +355,7 @@ void grinder(int argc, char** argv, bool firsttime) {
   validateall();
 
   free(scratch);
-  
+
   fd_funk_delete( fd_funk_leave( funk ) );
   fd_wksp_detach(wksp);
 
