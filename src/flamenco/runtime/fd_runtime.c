@@ -818,7 +818,21 @@ fd_pubkey_create_with_seed( fd_pubkey_t const * base,
 int
 fd_runtime_save_banks( fd_global_ctx_t * global ) {
   ulong sz = fd_firedancer_banks_size(&global->bank);
-  uchar * buf = (uchar *) fd_alloca(8UL, sz);
+
+  fd_funk_rec_key_t id = fd_runtime_banks_key();
+  int opt_err = 0;
+  fd_funk_rec_t * rec = fd_funk_rec_write_prepare( global->funk, global->funk_txn, &id, sz, 1, NULL, &opt_err );
+  if (NULL == rec) {
+    FD_LOG_WARNING(("fd_runtime_save_banks failed: %s", fd_funk_strerror(opt_err)));
+    return opt_err;
+  }
+
+  uchar * buf = fd_funk_val_cache( global->funk, rec, &opt_err );
+  if (NULL == buf) {
+    FD_LOG_WARNING(("fd_runtime_save_banks failed: %s", fd_funk_strerror(opt_err)));
+    return opt_err;
+  }
+
   fd_bincode_encode_ctx_t ctx;
   ctx.data = buf;
   ctx.dataend = buf + sz;
@@ -832,18 +846,6 @@ fd_runtime_save_banks( fd_global_ctx_t * global ) {
   char poh_hash[50];
   fd_base58_encode_32((uchar *) global->bank.poh.hash, NULL, poh_hash);
   FD_LOG_WARNING(( "saved banks_hash %s  poh_hash %s", banks_hash, poh_hash));
-
-  fd_funk_rec_key_t id = fd_runtime_banks_key();
-  int opt_err;
-  fd_funk_rec_t * rec = fd_funk_rec_write_prepare( global->funk, global->funk_txn, &id, sz, 1, NULL, &opt_err );
-  if (NULL == rec) {
-    FD_LOG_WARNING(("fd_runtime_save_banks failed: %s", fd_funk_strerror(opt_err)));
-    return -1;
-  }
-  if ( rec != fd_funk_val_write( rec, 0UL, sz, buf, global->wksp ) ) {
-    FD_LOG_WARNING(("fd_runtime_save_banks failed"));
-    return -1;
-  }
 
   fd_funk_rec_persist(global->funk, rec);
 
@@ -861,17 +863,6 @@ int fd_global_import_solana_manifest(fd_global_ctx_t *global, fd_solana_manifest
 
   fd_deserializable_versioned_bank_t * oldbank = &manifest->bank;
   // bank->stakes = oldbank->stakes;
-  fd_block_block_hash_entry_t * hashes = global->bank.recent_block_hashes.hashes =
-    deq_fd_block_block_hash_entry_t_alloc( global->allocf, global->allocf_arg );
-  if ( oldbank->blockhash_queue.ages_len > deq_fd_block_block_hash_entry_t_max(hashes) )
-    FD_LOG_ERR(("too many recent hashes"));
-  for ( ulong i = 0; i < oldbank->blockhash_queue.ages_len; ++i) {
-    fd_block_block_hash_entry_t * elem = deq_fd_block_block_hash_entry_t_push_tail_nocopy(hashes);
-     fd_block_block_hash_entry_new(elem);
-    fd_hash_t * h = &oldbank->blockhash_queue.ages[i].key;
-    fd_memcpy(elem->blockhash.hash, h, FD_SHA256_HASH_SZ);
-    elem->fee_calculator.lamports_per_signature = 0;
-  }
   if ( oldbank->blockhash_queue.last_hash )
     fd_memcpy(&global->bank.poh, oldbank->blockhash_queue.last_hash, FD_SHA256_HASH_SZ);
   // bank->timestamp_votes = oldbank->timestamp_votes;
