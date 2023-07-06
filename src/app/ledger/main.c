@@ -481,7 +481,7 @@ int main(int argc, char** argv) {
 
   char acc_mgr_mem[FD_ACC_MGR_FOOTPRINT] __attribute__((aligned(FD_ACC_MGR_ALIGN)));
   memset(acc_mgr_mem, 0, sizeof(acc_mgr_mem));
-  global->acc_mgr = fd_acc_mgr_join( fd_acc_mgr_new( acc_mgr_mem, global, FD_ACC_MGR_FOOTPRINT ) );
+  global->acc_mgr = (fd_acc_mgr_t*)( fd_acc_mgr_new( acc_mgr_mem, global, FD_ACC_MGR_FOOTPRINT ) );
 
   ulong tcnt = fd_tile_cnt();
   uchar tpool_mem[ FD_TPOOL_FOOTPRINT(FD_TILE_MAX) ] __attribute__((aligned(FD_TPOOL_ALIGN)));
@@ -507,6 +507,8 @@ int main(int argc, char** argv) {
         FD_LOG_ERR(( "failed to read file %s", persist ));
     }
 
+    uchar snapshot_used = 0;
+
     const char* file = fd_env_strip_cmdline_cstr(&argc, &argv, "--snapshotfile", NULL, NULL);
     if (file != NULL) {
       struct SnapshotParser parser;
@@ -519,6 +521,7 @@ int main(int argc, char** argv) {
       else
         FD_LOG_ERR(( "unknown snapshot compression suffix" ));
       SnapshotParser_destroy(&parser);
+      snapshot_used = 1;
     }
 
     file = fd_env_strip_cmdline_cstr(&argc, &argv, "--incremental", NULL, NULL);
@@ -533,6 +536,7 @@ int main(int argc, char** argv) {
       else
         FD_LOG_ERR(( "unknown snapshot compression suffix" ));
       SnapshotParser_destroy(&parser);
+      snapshot_used = 1;
     }
 
     ulong loglevel = fd_env_strip_cmdline_ulong(&argc, &argv, "--loglevel", NULL, 0);
@@ -549,6 +553,24 @@ int main(int argc, char** argv) {
         fd_enable_devnet(&global->features);
     } else
       fd_enable_everything(&global->features);
+
+    if (snapshot_used) {
+      int err = 0;
+      char * raw_acc_data = (char*) fd_acc_mgr_view_data(global->acc_mgr, global->funk_txn, (fd_pubkey_t *) global->sysvar_recent_block_hashes, NULL, &err);
+      if (NULL == raw_acc_data)
+        FD_LOG_ERR(( "missing recent block hashes account" ));
+      fd_account_meta_t *m = (fd_account_meta_t *) raw_acc_data;
+
+      fd_bincode_decode_ctx_t ctx;
+      ctx.data = raw_acc_data + m->hlen;
+      ctx.dataend = (char *) ctx.data + m->dlen;
+      ctx.allocf = global->allocf;
+      ctx.allocf_arg = global->allocf_arg;
+
+      fd_recent_block_hashes_decode( &global->bank.recent_block_hashes, &ctx );
+      // fd_recent_block_hashes_walk(&global->bank.recent_block_hashes, fd_printer_walker, "recent_block_hashes", 0);
+      fd_runtime_save_banks( global );
+    }
 
     file = fd_env_strip_cmdline_cstr(&argc, &argv, "--genesis", NULL, NULL);
     if (file != NULL) {
@@ -592,17 +614,14 @@ int main(int argc, char** argv) {
         fd_acc_mgr_write_structured_account(global->acc_mgr, global->funk_txn, 0, &a->key, &a->account);
       }
 
-      ulong dirty = global->acc_mgr->keys.cnt;
-      if (FD_UNLIKELY(global->log_level > 2))
-        FD_LOG_WARNING(("slot %ld   dirty %ld", global->bank.slot, dirty));
-      if (dirty > 0) {
-        fd_hash_bank( global, &global->bank.banks_hash );
-        fd_dirty_dup_clear(global->acc_mgr->dup);
-        fd_pubkey_hash_vector_clear(&global->acc_mgr->keys);
+      /* sort and update bank hash */
+      int result = fd_update_hash_bank( global, &global->bank.banks_hash, global->signature_cnt );
+      if (result != FD_EXECUTOR_INSTR_SUCCESS) {
+        return result;
       }
-      
+
       fd_runtime_save_banks( global );
-      
+
       fd_bincode_destroy_ctx_t ctx2;
       ctx2.freef = global->freef;
       ctx2.freef_arg = global->allocf_arg;

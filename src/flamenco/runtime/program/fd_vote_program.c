@@ -230,12 +230,6 @@ fd_vote_save_account( fd_vote_state_versioned_t const * account,
     /* uncache */ 0 );
   if( FD_UNLIKELY( write_res != FD_ACC_MGR_SUCCESS ) )
     return write_res;
-  int hash_res = fd_acc_mgr_update_hash(
-      ctx.global->acc_mgr, meta, ctx.global->funk_txn,
-      ctx.global->bank.slot, address,
-      (uchar*)raw_acc, raw_acc_sz );
-  if( FD_UNLIKELY( hash_res != FD_ACC_MGR_SUCCESS ) )
-    return hash_res;
 
   return FD_EXECUTOR_INSTR_SUCCESS;
 }

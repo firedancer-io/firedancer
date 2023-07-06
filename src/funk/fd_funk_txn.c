@@ -874,6 +874,34 @@ fd_funk_txn_merge( fd_funk_t *     funk,
   return FD_FUNK_SUCCESS;
 }
 
+/* Return the first record in a transaction. Returns NULL if the
+   transaction has no records yet. */
+
+FD_FN_PURE fd_funk_rec_t const *
+fd_funk_txn_first_rec( fd_funk_t *           funk,
+                       fd_funk_txn_t const * txn ) {
+  ulong rec_idx;
+  if( FD_UNLIKELY( NULL == txn ))
+    rec_idx = funk->rec_head_idx;
+  else
+    rec_idx = txn->rec_head_idx;
+  if( fd_funk_rec_idx_is_null( rec_idx ) ) return NULL;
+  fd_funk_rec_t const * rec_map = fd_funk_rec_map( funk, fd_funk_wksp( funk ) );
+  return rec_map + rec_idx;
+}
+
+/* Return the next record in a transaction. Returns NULL if the
+   transaction has no more records. */
+
+FD_FN_PURE fd_funk_rec_t const *
+fd_funk_txn_next_rec( fd_funk_t *           funk,
+                      fd_funk_rec_t const * rec ) {
+  ulong rec_idx = rec->next_idx;
+  if( fd_funk_rec_idx_is_null( rec_idx ) ) return NULL;
+  fd_funk_rec_t const * rec_map = fd_funk_rec_map( funk, fd_funk_wksp( funk ) );
+  return rec_map + rec_idx;
+}
+
 int
 fd_funk_txn_verify( fd_funk_t * funk ) {
   fd_wksp_t *     wksp    = fd_funk_wksp( funk );          /* Previously verified */

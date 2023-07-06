@@ -296,6 +296,13 @@ FD_FN_PURE fd_funk_rec_t *
 fd_funk_rec_modify( fd_funk_t *           funk,
                     fd_funk_rec_t const * rec );
 
+/* Returns true if the record has been modified in its transaction
+   compared to the prior incarnation of the record with the same key. */
+
+FD_FN_PURE int
+fd_funk_rec_is_modified( fd_funk_t *           funk,
+                         fd_funk_rec_t const * rec );
+
 /* TODO: Consider instead doing something like: modify_init, modify_fini and
    preventing forking the txn if records are being modified instead of
    the long laundry list of lifetime constraints? */
