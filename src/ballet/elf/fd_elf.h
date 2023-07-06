@@ -124,7 +124,7 @@ fd_elf_read_cstr( void const * buf,
   ulong        str_sz = buf_sz - off;
 
   ulong n = fd_ulong_min( str_sz, max_sz );
-  if( FD_UNLIKELY( strnlen( str, n )==max_sz ) )
+  if( FD_UNLIKELY( fd_cstr_nlen( str, n )==max_sz ) )
     return NULL;
 
   return str;

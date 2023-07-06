@@ -1,9 +1,18 @@
 #include "fd_types.h"
+
+/* FIXME: Temporary scaffolding */
+#pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-parameter"
 #pragma GCC diagnostic ignored "-Wunused-variable"
+#if FD_USING_GCC==1 /* Clang doesn't understand these options */
+#pragma GCC diagnostic ignored "-Wsuggest-attribute=const"
+#pragma GCC diagnostic ignored "-Wsuggest-attribute=pure"
+#endif
+
 #ifdef _DISABLE_OPTIMIZATION
 #pragma GCC optimize ("O0")
 #endif
+
 int fd_fee_calculator_decode(fd_fee_calculator_t* self, fd_bincode_decode_ctx_t * ctx) {
   int err;
   err = fd_bincode_uint64_decode(&self->lamports_per_signature, ctx);
@@ -8172,3 +8181,6 @@ long fd_serializable_account_storage_entry_t_map_compare(fd_serializable_account
 long fd_slot_account_pair_t_map_compare(fd_slot_account_pair_t_mapnode_t * left, fd_slot_account_pair_t_mapnode_t * right) {
   return (long)(left->elem.slot - right->elem.slot);
 }
+
+/* FIXME: SEE ABOVE PUSH */
+#pragma GCC diagnostic pop

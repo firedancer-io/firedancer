@@ -60,31 +60,39 @@ impl UserConfig {
         config
     }
 
-    pub(crate) fn into_config(self, cli: &Cli) -> Config {
+    pub(crate) fn into_config(mut self, cli: &Cli) -> Config {
         let user = if self.user.is_empty() {
             default_user()
         } else {
             self.user
         };
 
-        let interface = &self.tiles.quic.interface;
-        assert!(
-            !interface.is_empty(),
-            "Configuration must specify an interface to listen to with [tiles.quic.interface]"
-        );
+        let interface = self.tiles.quic.interface.to_owned();
+        let interface = if interface.is_empty() {
+            // Use `ip route get 8.8.8.8` to get the interface used to route to the public internet
+            let output = run!("ip route get 8.8.8.8");
+            let parts = output.split_whitespace().collect::<Vec<_>>();
+
+            info!("Using default interface `{}`", parts[4]);
+            parts[4].to_string()
+        } else {
+            interface
+        };
 
         if self.development.netns.enabled {
             assert_eq!(
-                interface, &self.development.netns.interface0,
+                interface, self.development.netns.interface0,
                 "if using [netns] expect [tiles.quic.interface] to be the same as \
                  [development.netns.interface0]"
             );
         } else {
             assert!(
-                interface_exists(interface),
+                interface_exists(&interface),
                 "Configuration specifies a network interface \"{interface}\" which does not exist"
             );
         }
+
+        self.tiles.quic.interface = interface;
 
         Config {
             name: self.name.clone(),
@@ -249,6 +257,7 @@ config_struct!(DedupConfig {
 
 config_struct!(DevelopmentConfig {
     {
+        sandbox: bool,
         sudo: bool
     }
     netns: NetNsConfig
@@ -304,7 +313,6 @@ config_struct!(QuicConfig {
         max_concurrent_handshakes: u32,
         max_inflight_quic_packets: u32,
         tx_buf_size: u32,
-        rx_buf_size: u32,
         xdp_mode: String,
         xdp_rx_queue_size: u32,
         xdp_tx_queue_size: u32,
@@ -335,7 +343,6 @@ impl Config {
         let quic_max_concurrent_handshakes = &self.tiles.quic.max_concurrent_handshakes;
         let quic_max_inflight_quic_packets = &self.tiles.quic.max_inflight_quic_packets;
         let quic_tx_buf_size = &self.tiles.quic.tx_buf_size;
-        let quic_rx_buf_size = &self.tiles.quic.rx_buf_size;
         let listen_address = &self.frank.listen_address;
 
         let path = format!("{}/config.cfg", self.scratch_directory);
@@ -360,7 +367,6 @@ impl Config {
             QUIC_HANDSHAKE_CNT={quic_max_concurrent_handshakes} \n\
             QUIC_MAX_INFLIGHT_PKTS={quic_max_inflight_quic_packets} \n\
             QUIC_TX_BUF_SZ={quic_tx_buf_size} \n\
-            QUIC_RX_BUF_SZ={quic_rx_buf_size} \n\
         ")).unwrap();
         repermission(&path, self.uid, self.uid, 0o700);
     }

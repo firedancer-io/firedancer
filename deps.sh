@@ -105,11 +105,12 @@ checkout_repo () {
 fetch () {
   mkdir -pv ./opt/git
 
-  checkout_repo zlib    https://github.com/madler/zlib       "v1.2.13"
-  checkout_repo bzip2   https://sourceware.org/git/bzip2.git "bzip2-1.0.8"
-  checkout_repo zstd    https://github.com/facebook/zstd     "v1.5.4"
-  checkout_repo openssl https://github.com/quictls/openssl   "OpenSSL_1_1_1t-quic1"
-  checkout_repo rocksdb https://github.com/facebook/rocksdb  "v7.10.2"
+  checkout_repo zlib      https://github.com/madler/zlib            "v1.2.13"
+  checkout_repo bzip2     https://sourceware.org/git/bzip2.git      "bzip2-1.0.8"
+  checkout_repo zstd      https://github.com/facebook/zstd          "v1.5.4"
+  checkout_repo openssl   https://github.com/quictls/openssl        "openssl-3.0.9-quic1"
+  checkout_repo rocksdb   https://github.com/facebook/rocksdb       "v7.10.2"
+  checkout_repo secp256k1 https://github.com/bitcoin-core/secp256k1 "v0.3.2"
 }
 
 check_fedora_pkgs () {
@@ -340,6 +341,53 @@ EOF
 
 }
 
+install_secp256k1 () {
+  if pkg-config --exists secp256k1; then
+    echo "[~] secp256k1 already installed at $(pkg-config --path secp256k1), skipping installation"
+    return 0
+  fi
+
+  cd ./opt/git/secp256k1
+
+  echo "[+] Configuring secp256k1"
+  rm -rf build
+  mkdir build
+  cd build
+  cmake .. \
+    -G"Unix Makefiles" \
+    -DCMAKE_INSTALL_PREFIX:PATH="$PREFIX" \
+    -DCMAKE_INSTALL_LIBDIR="lib" \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DSECP256K1_BUILD_TESTS=OFF \
+    -DSECP256K1_BUILD_EXHAUSTIVE_TESTS=OFF \
+    -DSECP256K1_BUILD_BENCHMARK=OFF \
+    -DSECP256K1_DISABLE_SHARED=OFF \
+    -DBUILD_SHARED_LIBS=OFF \
+    -DSECP256K1_ENABLE_MODULE_RECOVERY=ON \
+    -DSECP256K1_ENABLE_MODULE_EXTRAKEYS=OFF \
+    -DSECP256K1_ENABLE_MODULE_SCHNORRSIG=OFF \
+    -DSECP256K1_ENABLE_MODULE_ECDH=OFF
+
+  echo "[+] Building secp256k1"
+  "${MAKE[@]}"
+  echo "[+] Successfully built secp256k1"
+
+  echo "[+] Installing secp256k1 to $PREFIX"
+  make install
+  cat <<EOF > "$PREFIX/lib/pkgconfig/secp256k1.pc"
+prefix=$PREFIX
+libdir=$PREFIX/lib
+includedir=$PREFIX/include
+
+Name: secp256k1
+Description: secp256k1
+Version: $(git describe --tags --abbrev=0)
+Libs: -L\${libdir} -lsecp256k1
+Cflags: -I\${includedir}
+EOF
+  echo "[+] Successfully installed secp256k1"
+}
+
 install_openssl () {
   if pkg-config --exists openssl; then
     echo "[~] openssl already installed at $(pkg-config --path openssl), skipping installation"
@@ -350,22 +398,82 @@ install_openssl () {
 
   echo "[+] Configuring OpenSSL"
   ./config \
+    -static \
     --prefix="$PREFIX" \
-    enable-quic
+    enable-quic \
+    no-engine \
+    no-static-engine \
+    no-weak-ssl-ciphers \
+    no-tls1 \
+    no-tls1-method \
+    no-tls1_1 \
+    no-tls1_1-method \
+    no-tls1_2 \
+    no-tls1_2-method \
+    enable-tls1_3 \
+    no-shared \
+    no-legacy \
+    no-tests \
+    no-ui-console \
+    no-sctp \
+    no-ssl3 \
+    no-aria \
+    no-bf \
+    no-blake2 \
+    no-camellia \
+    no-cast \
+    no-cmac \
+    no-cmp \
+    no-cms \
+    no-comp \
+    no-ct \
+    no-des \
+    no-dh \
+    no-dsa \
+    no-dtls \
+    no-dtls1-method \
+    no-dtls1_2-method \
+    no-ecdsa \
+    no-fips \
+    no-gost \
+    no-idea \
+    no-ktls \
+    no-md4 \
+    no-nextprotoneg \
+    no-ocb \
+    no-ocsp \
+    no-rc2 \
+    no-rc4 \
+    no-rc5 \
+    no-rmd160 \
+    no-scrypt \
+    no-seed \
+    no-siphash \
+    no-siv \
+    no-sm3 \
+    no-sm4 \
+    no-srp \
+    no-srtp \
+    no-sock \
+    no-ts \
+    no-whirlpool
   echo "[+] Configured OpenSSL"
 
   echo "[+] Building OpenSSL"
-  "${MAKE[@]}"
+  "${MAKE[@]}" build_libs
   echo "[+] Successfully built OpenSSL"
 
   echo "[+] Installing OpenSSL to $PREFIX"
-  make install_sw -j
+  "${MAKE[@]}" install_dev
   echo "[+] Successfully installed OpenSSL"
-
-  echo "[~] Installed all dependencies"
 }
 
 install_rocksdb () {
+  if pkg-config --exists rocksdb; then
+    echo "[~] RocksDB already installed at $(pkg-config --path rocksdb), skipping installation"
+    return 0
+  fi
+
   cd ./opt/git/rocksdb
   mkdir -p build
   cd build
@@ -403,11 +511,12 @@ install_rocksdb () {
 install () {
   export CC=`which gcc`
   export cc=`which gcc`
-  ( install_zlib    )
-  ( install_bzip2   )
-  ( install_zstd    )
-  ( install_rocksdb )
-  ( install_openssl )
+  ( install_zlib      )
+  ( install_bzip2     )
+  ( install_zstd      )
+  ( install_secp256k1 )
+  ( install_openssl   )
+  ( install_rocksdb   )
 
   echo "[~] Done! To wire up $(pwd)/opt with make, run:"
   echo "    source activate-opt"

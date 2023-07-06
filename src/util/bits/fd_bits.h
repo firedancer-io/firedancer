@@ -868,6 +868,43 @@ fd_ulong_svw_dec_tail( uchar const * b,
 #define FD_LAYOUT_APPEND( l, a, s ) (FD_ULONG_ALIGN_UP( (l), (a) ) + (s))
 #define FD_LAYOUT_FINI( l, a )      FD_ULONG_ALIGN_UP( (l), (a) )
 
+/* FD_SCRATCH_ALLOC_{INIT,APPEND,FINI} are utility macros for allocating
+   sub-regions of memory out of one larger region of memory.  These are
+   intentionally parallel to FD_LAYOUT, but for use at runtime, not
+   compile time, and when you want to know the actual addresses, and not
+   just the total footprint.
+
+   FD_SCRATCH_ALLOC_INIT begins a scratch allocation operation called
+   layout with starting base address of base.
+
+   FD_SCRATCH_ALLOC_APPEND returns the next address in the allocation
+   operation `layout` with the required alignment and advances the
+   allocation operation by the provided size.
+
+   FD_SCRATCH_ALLOC_FINI finalizes a scratch allocation operation with
+   the name given by `layout` and returns the next address with the
+   requested alignment.
+
+   align must be a power of 2, and layout should be an identifier name.
+   The macros are robust otherwise.
+
+   Example usage:
+      FD_SCRATCH_ALLOC_INIT( foo, scratch_base );
+      int   * arr1 = FD_SCRATCH_ALLOC_APPEND( foo, alignof(int),   100*sizeof(int)   );
+      ulong * arr2 = FD_SCRATCH_ALLOC_APPEND( foo, alignof(ulong),  25*sizeof(ulong) );
+      FD_SCRATCH_ALLOC_FINI( foo, 32UL );
+   */
+#define FD_SCRATCH_ALLOC_INIT(   layout, base )  ulong _##layout = (ulong)(base)
+#define FD_SCRATCH_ALLOC_APPEND( layout, align, sz ) (__extension__({                               \
+    ulong _align = (align);                                                                         \
+    ulong _sz    = (sz);                                                                            \
+    ulong _scratch_alloc = fd_ulong_align_up( _##layout, (align) );                                 \
+    if( FD_UNLIKELY( _scratch_alloc+_sz<_scratch_alloc ) )                                          \
+      FD_LOG_ERR(( "FD_SCRATCH_ALLOC_APPEND( %s, %lu, %lu ) overflowed", #layout, _align, _sz ));   \
+    _##layout = _scratch_alloc + _sz;                                                               \
+    (void *)_scratch_alloc;                                                                         \
+    }))
+#define FD_SCRATCH_ALLOC_FINI( layout, align ) (_##layout = FD_ULONG_ALIGN_UP( _##layout, (align) ) )
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_util_bits_fd_bits_h */

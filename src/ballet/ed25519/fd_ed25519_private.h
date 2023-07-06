@@ -37,7 +37,7 @@ struct fd_ed25519_ge_p2_private {
   fd_ed25519_fe_t Z[1];
 };
 
-typedef struct fd_ed25519_ge_p2_private fd_ed25519_ge_p2_t; 
+typedef struct fd_ed25519_ge_p2_private fd_ed25519_ge_p2_t;
 
 struct fd_ed25519_ge_p3_private {
   fd_ed25519_fe_t X[1];
@@ -67,6 +67,8 @@ fd_ed25519_ge_frombytes_vartime( fd_ed25519_ge_p3_t * h,
 int
 fd_ed25519_ge_frombytes_vartime_2( fd_ed25519_ge_p3_t * h0, uchar const * s0,   /* 32 */
                                    fd_ed25519_ge_p3_t * h1, uchar const * s1 ); /* 32 */
+
+int fd_ed25519_ge_p3_is_small_order(fd_ed25519_ge_p3_t * const p);
 
 static inline fd_ed25519_ge_p2_t *
 fd_ed25519_ge_p2_0( fd_ed25519_ge_p2_t * h ) {

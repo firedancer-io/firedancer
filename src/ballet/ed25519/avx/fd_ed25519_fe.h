@@ -115,6 +115,19 @@ fd_ed25519_fe_if( fd_ed25519_fe_t *       h,
   return h;
 }
 
+static inline void
+fd_ed25519_fe_swap_if( fd_ed25519_fe_t * f,
+                       fd_ed25519_fe_t * g,
+                       int               c ) {
+  wi_t f07 = wi_ld( f->limb );     wi_t f89 = wi_ld( f->limb+8 );
+  wi_t g07 = wi_ld( g->limb );     wi_t g89 = wi_ld( g->limb+8 );
+  wc_t m   = wc_bcast( c );
+  wi_t h07 = wi_if( m, g07, f07 ); wi_t h89 = wi_if( m, g89, f89 );
+  wi_t i07 = wi_if( m, f07, g07 ); wi_t i89 = wi_if( m, f89, g89 );
+  wi_st( f->limb, h07 );           wi_st( f->limb+8, h89 );
+  wi_st( g->limb, i07 );           wi_st( g->limb+8, i89 );
+}
+
 static inline int
 fd_ed25519_fe_isnonzero( fd_ed25519_fe_t const * f ) {
   uchar s[32] __attribute((aligned(32))); fd_ed25519_fe_tobytes( s, f );
@@ -171,6 +184,10 @@ fd_ed25519_fe_sqn4( fd_ed25519_fe_t * ha, fd_ed25519_fe_t const * fa, long na,
 void
 fd_ed25519_fe_pow22523_2( fd_ed25519_fe_t * out0, fd_ed25519_fe_t const * z0,
                           fd_ed25519_fe_t * out1, fd_ed25519_fe_t const * z1 );
+
+void
+fd_ed25519_fe_mul121666( fd_ed25519_fe_t *       h,
+                         fd_ed25519_fe_t const * f );
 
 FD_PROTOTYPES_END
 

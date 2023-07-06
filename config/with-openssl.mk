@@ -1,8 +1,5 @@
 LDFLAGS+=-Wl,--push-state,-Bstatic $(shell pkg-config --libs libssl libcrypto) -Wl,--pop-state
 
-# OpenSSL requires dynsym
-LDFLAGS+=-ldl
-
 FD_HAS_OPENSSL:=1
 CPPFLAGS+=-DFD_HAS_OPENSSL=1
 

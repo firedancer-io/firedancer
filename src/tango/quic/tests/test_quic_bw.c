@@ -86,8 +86,7 @@ main( int     argc,
     .handshake_cnt    = 10,
     .stream_cnt       = { 0, 0, 10, 0 },
     .inflight_pkt_cnt = 100,
-    .tx_buf_sz        = 1<<20,
-    .rx_buf_sz        = 1<<20
+    .tx_buf_sz        = 1<<20
   };
 
   ulong quic_footprint = fd_quic_footprint( &quic_limits );
@@ -110,6 +109,9 @@ main( int     argc,
   server_quic->cb.stream_receive   = my_stream_receive_cb;
 
   client_quic->cb.conn_hs_complete = my_handshake_complete;
+
+  server_quic->config.initial_rx_max_stream_data = 1<<20;
+  client_quic->config.initial_rx_max_stream_data = 1<<20;
 
   FD_LOG_NOTICE(( "Creating virtual pair" ));
   fd_quic_virtual_pair_t vp;
@@ -244,5 +246,3 @@ main( int     argc,
   fd_halt();
   return 0;
 }
-
-
