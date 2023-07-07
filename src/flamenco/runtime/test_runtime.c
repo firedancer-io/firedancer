@@ -85,7 +85,6 @@ struct global_state {
   char const *        gaddr;
   char const *        persist;
   ulong               end_slot;
-  char const *        end_slot_opt;
   char const *        cmd;
   char const *        net;
   char const *        reset;
@@ -276,7 +275,7 @@ int main(int argc, char **argv) {
   state.name                = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp",         NULL, NULL );
   state.gaddr               = fd_env_strip_cmdline_cstr ( &argc, &argv, "--gaddr",        NULL, NULL);
   state.persist             = fd_env_strip_cmdline_cstr ( &argc, &argv, "--persist",      NULL, NULL);
-  state.end_slot_opt        = fd_env_strip_cmdline_cstr ( &argc, &argv, "--end-slot",     NULL, NULL);
+  state.end_slot            = fd_env_strip_cmdline_ulong( &argc, &argv, "--end-slot",     NULL, ULONG_MAX);
   state.cmd                 = fd_env_strip_cmdline_cstr ( &argc, &argv, "--cmd",          NULL, NULL);
   state.net                 = fd_env_strip_cmdline_cstr ( &argc, &argv, "--net",          NULL, NULL);
   state.reset               = fd_env_strip_cmdline_cstr ( &argc, &argv, "--reset",        NULL, NULL);
@@ -393,11 +392,6 @@ int main(int argc, char **argv) {
     FD_LOG_WARNING(("finishing validate"));
   }
 
-  if (NULL != state.end_slot_opt)
-    state.end_slot = (ulong) atoi(state.end_slot_opt);
-  else
-    state.end_slot = ULONG_MAX;
-
   {
     FD_LOG_NOTICE(("reading banks record"));
     fd_funk_rec_key_t id = fd_runtime_banks_key();
@@ -416,11 +410,9 @@ int main(int argc, char **argv) {
     if ( fd_firedancer_banks_decode(&state.global->bank, &ctx2 ) )
       FD_LOG_ERR(("failed to read banks record"));
 
-    char banks_hash[50];
-    fd_base58_encode_32((uchar *) state.global->bank.banks_hash.hash, NULL, banks_hash);
-    char poh_hash[50];
-    fd_base58_encode_32((uchar *) state.global->bank.poh.hash, NULL, poh_hash);
-    FD_LOG_WARNING(( "decoded banks_hash %s  poh_hash %s", banks_hash, poh_hash));
+    char banks_hash[50]; fd_base58_encode_32( state.global->bank.banks_hash.hash, NULL, banks_hash );
+    char poh_hash[50];   fd_base58_encode_32( state.global->bank.poh.hash,        NULL, poh_hash   );
+    FD_LOG_WARNING(( "decoded slot=%lu banks_hash=%s poh_hash %s", state.global->bank.slot, banks_hash, poh_hash));
   }
 
   ulong tcnt = fd_tile_cnt();

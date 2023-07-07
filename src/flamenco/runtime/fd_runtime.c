@@ -159,7 +159,11 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_meta_t* m, const void
 // TODO: add solana txn verify to this as well since, again, it can be
 // done in parallel...
 int
-fd_runtime_block_verify( fd_global_ctx_t *global, fd_slot_meta_t* m, const void* block, ulong blocklen ) {
+fd_runtime_block_verify( fd_global_ctx_t * global,
+                         fd_slot_meta_t *  m,
+                         void const *      block,
+                         ulong             blocklen ) {
+
   fd_txn_parse_counters_t counters;
   fd_memset(&counters, 0, sizeof(counters));
 
