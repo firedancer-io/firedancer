@@ -425,7 +425,6 @@ fd_runtime_lamports_per_signature_for_blockhash( fd_global_ctx_t *global, FD_FN_
 
   // https://github.com/firedancer-io/solana/blob/53a4e5d6c58b2ffe89b09304e4437f8ca198dadd/runtime/src/blockhash_queue.rs#L55
   ulong default_fee = global->bank.fee_rate_governor.target_lamports_per_signature / 2;
-  return default_fee;
 
   if (blockhash == 0) {
     return default_fee;
@@ -445,7 +444,8 @@ fd_runtime_lamports_per_signature_for_blockhash( fd_global_ctx_t *global, FD_FN_
 ulong
 fd_runtime_txn_lamports_per_signature( fd_global_ctx_t *global, fd_txn_t * txn_descriptor, fd_rawtxn_b_t* txn_raw ) {
   fd_nonce_state_versions_t state;
-  if ((NULL != txn_descriptor) && fd_load_nonce_account(global, txn_descriptor, txn_raw, &state)) {
+  int err;
+  if ((NULL != txn_descriptor) && fd_load_nonce_account(global, txn_descriptor, txn_raw, &state, &err)) {
     if (state.inner.current.discriminant == fd_nonce_state_enum_initialized)
       return state.inner.current.inner.initialized.fee_calculator.lamports_per_signature;
   }
@@ -489,14 +489,14 @@ void compute_priority_fee( transaction_ctx_t const * txn_ctx, ulong * fee, ulong
       return;
     }
     case FD_COMPUTE_BUDGET_PRIORITIZATION_FEE_TYPE_COMPUTE_UNIT_PRICE: {
-      
+
       uint128 micro_lamport_fee = (uint128)txn_ctx->compute_unit_price * (uint128)txn_ctx->compute_unit_limit;
 
       *priority = txn_ctx->compute_unit_price;
       uint128 _fee = (micro_lamport_fee + (uint128)(MICRO_LAMPORTS_PER_LAMPORT - 1))/(uint128)(MICRO_LAMPORTS_PER_LAMPORT);
       *fee = _fee > (uint128)ULONG_MAX ? ULONG_MAX : (ulong)_fee;
       FD_LOG_WARNING(("CPF: %lu %lu %lu", *fee, (ulong)txn_ctx->compute_unit_price, txn_ctx->compute_unit_limit));
-      return; 
+      return;
     }
     default:
       __builtin_unreachable();
@@ -920,7 +920,7 @@ fd_global_import_stakes(fd_global_ctx_t * global, fd_solana_manifest_t * manifes
   fd_vote_accounts_pair_t_mapnode_t * vote_accounts_pool = global->bank.stakes.vote_accounts.vote_accounts_pool;
   fd_vote_accounts_pair_t_mapnode_t * vote_accounts_root = global->bank.stakes.vote_accounts.vote_accounts_root;
 
-  for( fd_vote_accounts_pair_t_mapnode_t * n = fd_vote_accounts_pair_t_map_minimum(vote_accounts_pool, vote_accounts_root); 
+  for( fd_vote_accounts_pair_t_mapnode_t * n = fd_vote_accounts_pair_t_map_minimum(vote_accounts_pool, vote_accounts_root);
     n;
     n = fd_vote_accounts_pair_t_map_successor(vote_accounts_pool, n)
   ) {
@@ -932,7 +932,7 @@ fd_global_import_stakes(fd_global_ctx_t * global, fd_solana_manifest_t * manifes
       .allocf     = global->allocf,
       .allocf_arg = global->allocf_arg
     };
-    
+
     fd_vote_state_versioned_t vote_state_versioned;
     if( FD_UNLIKELY( 0!=fd_vote_state_versioned_decode( &vote_state_versioned, &vote_state_decode_ctx ) ) ) {
       FD_LOG_ERR(( "fd_vote_state_versioned_decode failed" ));
@@ -973,7 +973,7 @@ int fd_global_import_solana_manifest(fd_global_ctx_t * global, fd_solana_manifes
 
   fd_deserializable_versioned_bank_t * oldbank = &manifest->bank;
   fd_global_import_stakes( global, manifest );
-  
+
   if ( oldbank->blockhash_queue.last_hash )
     fd_memcpy(&global->bank.poh, oldbank->blockhash_queue.last_hash, FD_SHA256_HASH_SZ);
   // bank->timestamp_votes = oldbank->timestamp_votes;
