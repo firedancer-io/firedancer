@@ -90,7 +90,19 @@ fd_execute_txn( fd_executor_t* executor, fd_txn_t * txn_descriptor, fd_rawtxn_b_
 
   fd_global_ctx_t *global = executor->global;
 
-  ulong fee = fd_runtime_calculate_fee ( global, txn_descriptor, txn_raw );
+  transaction_ctx_t txn_ctx = {
+    .global             = executor->global,
+    .compute_unit_limit = 200000,
+    .compute_unit_price = 0,
+    .prioritization_fee_type = FD_COMPUTE_BUDGET_PRIORITIZATION_FEE_TYPE_DEPRECATED,
+    .txn_descriptor     = txn_descriptor,
+    .txn_raw            = txn_raw,
+  };
+
+  int compute_budget_status = fd_executor_compute_budget_program_execute_instructions( &txn_ctx );
+  (void)compute_budget_status;
+
+  ulong fee = fd_runtime_calculate_fee ( global, &txn_ctx, txn_descriptor, txn_raw );
 
   // TODO: we are just assuming the fee payer is account 0... FIX this..
 
@@ -165,13 +177,7 @@ fd_execute_txn( fd_executor_t* executor, fd_txn_t * txn_descriptor, fd_rawtxn_b_
 //
 //  if (fd_funk_fork(global->funk, ptxn, global->funk_txn) == 0)
 //    FD_LOG_ERR(("fd_funk_fork failed"));
-  transaction_ctx_t txn_ctx = {
-    .global             = executor->global,
-    .compute_unit_limit = 200000,
-    .compute_unit_price = 1,
-    .txn_descriptor     = txn_descriptor,
-    .txn_raw            = txn_raw,
-  };
+
 
   fd_funk_txn_t* parent_txn = global->funk_txn;
   fd_funk_txn_xid_t xid;
@@ -181,9 +187,6 @@ fd_execute_txn( fd_executor_t* executor, fd_txn_t * txn_descriptor, fd_rawtxn_b_
   xid.ul[3] = fd_rng_ulong( global->rng );
   fd_funk_txn_t * txn = fd_funk_txn_prepare( global->funk, parent_txn, &xid, 1 );
   global->funk_txn = txn;
-
-  int compute_budget_status = fd_executor_compute_budget_program_execute_instructions( &txn_ctx );
-  (void)compute_budget_status;
 
   for ( ushort i = 0; i < txn_descriptor->instr_cnt; ++i ) {
     fd_txn_instr_t *  instr = &txn_descriptor->instr[i];
@@ -202,7 +205,7 @@ fd_execute_txn( fd_executor_t* executor, fd_txn_t * txn_descriptor, fd_rawtxn_b_
 
     /* TODO: allow instructions to be failed, and the transaction to be reverted */
     execute_instruction_func_t exec_instr_func = fd_executor_lookup_native_program( executor->global, &tx_accs[instr->program_id] );
- 
+
     if (exec_instr_func != NULL) {
       int exec_result = exec_instr_func( ctx );
       if ( FD_UNLIKELY( exec_result != FD_EXECUTOR_INSTR_SUCCESS ) ) {

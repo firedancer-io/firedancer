@@ -30,17 +30,21 @@ void fd_durable_nonce_from_blockhash(fd_hash_t *hash, fd_hash_t *out) {
 }
 
 int fd_load_nonce_account(
-  fd_global_ctx_t *global, fd_txn_t * txn_descriptor, fd_rawtxn_b_t* txn_raw, fd_nonce_state_versions_t *state
+  fd_global_ctx_t *global, fd_txn_t * txn_descriptor, fd_rawtxn_b_t* txn_raw, fd_nonce_state_versions_t *state, int *opt_err
   ) {
-  if (txn_descriptor->instr_cnt == 0)
-    return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+  if (txn_descriptor->instr_cnt == 0) {
+    *opt_err = FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+    return 0;
+  }
 
   fd_txn_instr_t * instr = &txn_descriptor->instr[0];
 
   // A little defense in depth?
   int err = fd_account_sanity_check_raw(instr, txn_descriptor, txn_raw, instr->program_id + 1);
-  if (FD_EXECUTOR_INSTR_SUCCESS != err)
-    return err;
+  if (FD_EXECUTOR_INSTR_SUCCESS != err) {
+    *opt_err = err;
+    return 0;
+  }
 
   fd_pubkey_t *tx_accs   = (fd_pubkey_t *)((uchar *)txn_raw->raw + txn_descriptor->acct_addr_off);
   fd_pubkey_t *pubkey = &tx_accs[instr->program_id];
@@ -60,15 +64,18 @@ int fd_load_nonce_account(
   ctx2.allocf_arg = global->allocf_arg;
   if ( fd_system_program_instruction_decode( &instruction, &ctx2 ) ) {
     FD_LOG_WARNING(("fd_system_program_instruction_decode failed"));
-    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+    *opt_err = FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+    return 0;
   }
 
   if (fd_system_program_instruction_enum_advance_nonce_account != instruction.discriminant)
     return 0;
 
   err = fd_account_sanity_check_raw(instr, txn_descriptor, txn_raw, 3);
-  if (FD_UNLIKELY(FD_EXECUTOR_INSTR_SUCCESS != err))
-    return err;
+  if (FD_UNLIKELY(FD_EXECUTOR_INSTR_SUCCESS != err)) {
+    *opt_err = err;
+    return 0;
+  }
 
   uchar *       instr_acc_idxs = ((uchar *)txn_raw->raw + instr->acct_off);
 
@@ -78,8 +85,10 @@ int fd_load_nonce_account(
 
   err = 0;
   char * raw_acc_data = (char*) fd_acc_mgr_view_data(global->acc_mgr, global->funk_txn, (fd_pubkey_t *) me, NULL, &err);
-  if (NULL == raw_acc_data)
-    return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+  if (NULL == raw_acc_data) {
+    *opt_err = FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+    return 0;
+  }
   fd_account_meta_t *m = (fd_account_meta_t *) raw_acc_data;
 
   fd_bincode_decode_ctx_t ctx;
@@ -89,7 +98,8 @@ int fd_load_nonce_account(
   ctx.allocf_arg = global->allocf_arg;
   if ( fd_nonce_state_versions_decode( state, &ctx ) ) {
     FD_LOG_WARNING(("fd_nonce_state_versions_decode failed"));
-    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+    *opt_err = FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+    return 0;
   }
 
   return 1;

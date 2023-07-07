@@ -93,7 +93,7 @@ int               fd_runtime_block_verify  ( fd_global_ctx_t *global, fd_slot_me
 int               fd_runtime_block_verify_tpool( fd_global_ctx_t *global, fd_slot_meta_t *m, const void* block, ulong blocklen, fd_tpool_t * tpool, ulong max_workers );
 int               fd_runtime_block_eval    ( fd_global_ctx_t *global, fd_slot_meta_t *m, const void* block, ulong blocklen );
 
-ulong             fd_runtime_calculate_fee ( fd_global_ctx_t *global, fd_txn_t * txn_descriptor, fd_rawtxn_b_t* txn_raw );
+ulong             fd_runtime_calculate_fee ( fd_global_ctx_t *global, transaction_ctx_t * txn_ctx, fd_txn_t * txn_descriptor, fd_rawtxn_b_t* txn_raw );
 void              fd_runtime_freeze        ( fd_global_ctx_t *global );
 
 void              fd_printer_walker        (void *arg, const char* name, int type, const char *type_name, int level);

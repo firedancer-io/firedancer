@@ -229,13 +229,13 @@ int fd_acc_mgr_update_data( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, ulong slo
   }
 
   fd_account_meta_t m;
+  fd_memset(&m, 0, sizeof(m));
   int               result = fd_acc_mgr_get_metadata(acc_mgr, txn, pubkey, &m);
   if (FD_ACC_MGR_SUCCESS != result)
     return result;
 
   m.slot = slot;
   m.dlen = dlen;
-  fd_memset(&m.hash, 0, sizeof(m.hash));
 
   if (FD_UNLIKELY(acc_mgr->global->log_level > 2)) {
     char encoded_pubkey[50];

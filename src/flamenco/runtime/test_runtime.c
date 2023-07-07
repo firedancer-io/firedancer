@@ -184,7 +184,7 @@ int replay(global_state_t * state, int justverify, fd_tpool_t * tpool, ulong max
   if (mm.end_slot < state->end_slot)
     state->end_slot = mm.end_slot;
 
-  if (0 != state->global->bank.slot)
+  if ((0 != state->global->bank.slot) && (~0ul != state->global->bank.slot))
     fd_update_features(state->global);
 
   /* Load epoch schedule sysvar */
