@@ -20,3 +20,12 @@ jobs:
 
       - name: Build fuzz tests
         run: MACHINE=linux_clang_x86_64_fuzz_asan make -j fuzz-test
+
+      - uses: firedancer-io/clusterfuzz-action@main
+        name: Publish to ClusterFuzz
+        with:
+          bucket-name: firedancer-builds.isol-clusterfuzz.appspot.com
+          artifact-dir: build/linux/clang/x86_64_fuzz_asan/fuzz-test
+          object-prefix: main/libfuzzer-asan/firedancer
+          project-id: isol-clusterfuzz
+          service-account-credentials: ${{ secrets.FUZZ_SERVICE_ACCT_JSON_BUNDLE }}
