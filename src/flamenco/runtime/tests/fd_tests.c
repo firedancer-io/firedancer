@@ -1,4 +1,5 @@
 #include "fd_tests.h"
+#include "../../fd_flamenco.h"
 #include <stdio.h>
 #include <unistd.h>
 
@@ -276,8 +277,11 @@ fd_executor_run_cleanup:
   return ret;
 }
 
-int main(int argc, char **argv) {
-  fd_boot( &argc, &argv );
+int
+main( int     argc,
+      char ** argv ) {
+  fd_boot         ( &argc, &argv );
+  fd_flamenco_boot( &argc, &argv );
 
   ulong        test_start = fd_env_strip_cmdline_ulong(&argc, &argv, "--start", NULL, 0UL);
   ulong        test_end = fd_env_strip_cmdline_ulong(&argc, &argv, "--end", NULL, ULONG_MAX);
@@ -329,8 +333,8 @@ int main(int argc, char **argv) {
     regfree(&suite.filter_ex);
 
   fd_log_flush();
+  fd_flamenco_halt();
   fd_halt();
-
   return ret;
 }
 

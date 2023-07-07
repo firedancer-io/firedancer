@@ -54,10 +54,7 @@ void fd_sysvar_slot_hashes_update( fd_global_ctx_t* global ) {
     };
 
     if (FD_UNLIKELY(global->log_level > 2))  {
-      char buf[50];
-      fd_base58_encode_32((uchar *) slot_hash.hash.key, NULL, buf);
-
-      FD_LOG_WARNING(( "fd_sysvar_slot_hash_update:  slot %ld,  hash %s", slot_hash.slot, buf));
+      FD_LOG_WARNING(( "fd_sysvar_slot_hash_update:  slot %ld,  hash %32J", slot_hash.slot, slot_hash.hash.key ));
     }
 
     fd_bincode_destroy_ctx_t ctx2;

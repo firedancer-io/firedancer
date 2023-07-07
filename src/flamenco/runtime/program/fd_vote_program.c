@@ -876,13 +876,7 @@ int fd_executor_vote_program_execute_instruction(
        matches the slot hashes hash for that slot. */
     fd_slot_hash_t const * hash = deq_fd_slot_hash_t_peek_index_const( slot_hashes.hashes, slot_hash_idx );
     if ( memcmp( &hash->hash, &vote->hash, sizeof(fd_hash_t) ) != 0 ) {
-      char slot_hash_hash[50];
-      fd_base58_encode_32((uchar const *) &hash->hash, 0, slot_hash_hash);
-
-      char vote_hash_hash[50];
-      fd_base58_encode_32((uchar const *) &vote->hash, 0, vote_hash_hash);
-
-      FD_LOG_WARNING(( "hash mismatch: slot: %lu slot_hash: %s vote_hash: %s", hash->slot, slot_hash_hash, vote_hash_hash ));
+      FD_LOG_WARNING(( "hash mismatch: slot: %lu slot_hash: %32J vote_hash: %32J", hash->slot, hash->hash.uc, vote->hash.uc ));
       /* FIXME: re-visit when bank hashes are confirmed to be good */
       ctx.txn_ctx->custom_err = FD_VOTE_SLOT_HASH_MISMATCH;
       ret = FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;

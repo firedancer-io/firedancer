@@ -28,6 +28,7 @@ build/linux/gcc/x86_64/unit-test/test_runtime --wksp giant_wksp --gaddr 0xc7ce18
 
 ****/
 
+#include "../fd_flamenco.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -153,10 +154,7 @@ int accounts_hash(global_state_t *state) {
   fd_hash_t accounts_hash;
   fd_hash_account_deltas(state->global, pairs, num_pairs, &accounts_hash);
 
-  char accounts_hash_58[FD_BASE58_ENCODED_32_SZ];
-  fd_base58_encode_32((uchar const *)accounts_hash.hash, NULL, accounts_hash_58);
-
-  FD_LOG_WARNING(("accounts_hash %s", accounts_hash_58));
+  FD_LOG_WARNING(("accounts_hash %32J", accounts_hash.hash));
   FD_LOG_WARNING(("num_iter_accounts %ld", num_iter_accounts));
 
   return 0;
@@ -256,7 +254,8 @@ int replay(global_state_t * state, int justverify, fd_tpool_t * tpool, ulong max
 }
 
 int main(int argc, char **argv) {
-  fd_boot( &argc, &argv );
+  fd_boot         ( &argc, &argv );
+  fd_flamenco_boot( &argc, &argv );
 
   global_state_t state;
   fd_memset(&state, 0, sizeof(state));
@@ -410,9 +409,10 @@ int main(int argc, char **argv) {
     if ( fd_firedancer_banks_decode(&state.global->bank, &ctx2 ) )
       FD_LOG_ERR(("failed to read banks record"));
 
-    char banks_hash[50]; fd_base58_encode_32( state.global->bank.banks_hash.hash, NULL, banks_hash );
-    char poh_hash[50];   fd_base58_encode_32( state.global->bank.poh.hash,        NULL, poh_hash   );
-    FD_LOG_WARNING(( "decoded slot=%lu banks_hash=%s poh_hash %s", state.global->bank.slot, banks_hash, poh_hash));
+    FD_LOG_WARNING(( "decoded slot=%lu banks_hash=%32J poh_hash %32J",
+                     state.global->bank.slot,
+                     state.global->bank.banks_hash.hash,
+                     state.global->bank.poh.hash ));
   }
 
   ulong tcnt = fd_tile_cnt();

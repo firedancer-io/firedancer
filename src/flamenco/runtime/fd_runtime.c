@@ -217,11 +217,7 @@ fd_runtime_block_verify( fd_global_ctx_t * global,
       }
 
       if( FD_UNLIKELY( 0!=memcmp(hdr->hash, &global->bank.poh, sizeof(fd_hash_t) ) ) ) {
-        char entry_poh_str[ FD_BASE58_ENCODED_32_SZ ];
-        char bank_poh_str [ FD_BASE58_ENCODED_32_SZ ];
-        fd_base58_encode_32( hdr->hash,           NULL, entry_poh_str );
-        fd_base58_encode_32( global->bank.poh.uc, NULL, bank_poh_str  );
-        FD_LOG_ERR(( "poh missmatch at slot: %ld (bank: %s, entry: %s)", m->slot, bank_poh_str, entry_poh_str ));
+        FD_LOG_ERR(( "poh missmatch at slot: %ld (bank: %32J, entry: %32J)", m->slot, global->bank.poh.uc, hdr->hash ));
         return -1;
       }
     }
@@ -886,11 +882,7 @@ fd_runtime_save_banks( fd_global_ctx_t * global ) {
     return -1;
   }
 
-  char banks_hash[50];
-  fd_base58_encode_32((uchar *) global->bank.banks_hash.hash, NULL, banks_hash);
-  char poh_hash[50];
-  fd_base58_encode_32((uchar *) global->bank.poh.hash, NULL, poh_hash);
-  FD_LOG_WARNING(( "saved banks_hash %s  poh_hash %s", banks_hash, poh_hash));
+  FD_LOG_WARNING(( "saved banks_hash %32J  poh_hash %32J", global->bank.banks_hash.hash, global->bank.poh.hash));
 
   fd_funk_rec_persist(global->funk, rec);
 
