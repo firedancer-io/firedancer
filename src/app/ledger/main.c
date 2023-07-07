@@ -622,6 +622,8 @@ int main(int argc, char** argv) {
         return result;
       }
 
+      global->bank.slot = ~0ul;
+
       fd_runtime_save_banks( global );
 
       fd_bincode_destroy_ctx_t ctx2;
