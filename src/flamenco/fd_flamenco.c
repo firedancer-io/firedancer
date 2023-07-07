@@ -17,6 +17,9 @@ fd_printf_specifier_base58( FILE *                     stream,
   void const * mem = *((void const * const *)args[0]);
   char out[ FD_BASE58_ENCODED_64_SZ ];
 
+  if( FD_UNLIKELY( !mem ) )
+    return fprintf( stream, "<NULL>" );
+
   switch( info->width ) {
   case 32:
     fd_base58_encode_32( mem, NULL, out );
@@ -25,8 +28,7 @@ fd_printf_specifier_base58( FILE *                     stream,
     fd_base58_encode_64( mem, NULL, out );
     break;
   default:
-    strcpy( out, "<unsupported Base58 width>" );
-    break;
+    return fprintf( stream, "<unsupported Base58 width>" );
   }
   return fprintf( stream, "%s", out );
 }
