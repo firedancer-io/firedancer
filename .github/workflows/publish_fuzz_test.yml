@@ -1,8 +1,8 @@
 name: Make Fuzz Test
 on:
-  pull_request:
-  workflow_dispatch:
-  merge_group:
+  push:
+    branches:
+      - main
 jobs:
   make-fuzz-test:
     runs-on: [self-hosted, Linux, X64]
