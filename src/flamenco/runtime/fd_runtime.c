@@ -443,6 +443,7 @@ fd_runtime_lamports_per_signature_for_blockhash( fd_global_ctx_t *global, FD_FN_
 
 ulong
 fd_runtime_txn_lamports_per_signature( fd_global_ctx_t *global, fd_txn_t * txn_descriptor, fd_rawtxn_b_t* txn_raw ) {
+  // why is asan not detecting access to uninitialized memory here?!
   fd_nonce_state_versions_t state;
   int err;
   if ((NULL != txn_descriptor) && fd_load_nonce_account(global, txn_descriptor, txn_raw, &state, &err)) {
