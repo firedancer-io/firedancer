@@ -6,7 +6,7 @@ CPPFLAGS+=            \
   -Wconversion        \
   -Wdouble-promotion  \
   -Wstrict-aliasing=2 \
-  -Wformat-security
+  -Wno-format
 
 ifdef FD_USING_CLANG
 
