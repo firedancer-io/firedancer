@@ -9281,6 +9281,133 @@ int fd_bpf_upgradeable_loader_state_encode(fd_bpf_upgradeable_loader_state_t con
   return fd_bpf_upgradeable_loader_state_inner_encode(&self->inner, self->discriminant, ctx);
 }
 
+int fd_frozen_hash_status_decode(fd_frozen_hash_status_t* self, fd_bincode_decode_ctx_t * ctx) {
+  int err;
+  err = fd_hash_decode(&self->frozen_hash, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint8_decode(&self->frozen_status, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_frozen_hash_status_new(fd_frozen_hash_status_t* self) {
+  fd_memset(self, 0, sizeof(fd_frozen_hash_status_t));
+  fd_hash_new(&self->frozen_hash);
+}
+void fd_frozen_hash_status_destroy(fd_frozen_hash_status_t* self, fd_bincode_destroy_ctx_t * ctx) {
+  fd_hash_destroy(&self->frozen_hash, ctx);
+}
+
+void fd_frozen_hash_status_walk(fd_frozen_hash_status_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_frozen_hash_status", level++);
+  fd_hash_walk(&self->frozen_hash, fun, "frozen_hash", level + 1);
+  fun(&self->frozen_status, "frozen_status", 9, "uchar", level + 1);
+  fun(self, name, 33, "fd_frozen_hash_status", --level);
+}
+ulong fd_frozen_hash_status_size(fd_frozen_hash_status_t const * self) {
+  ulong size = 0;
+  size += fd_hash_size(&self->frozen_hash);
+  size += sizeof(char);
+  return size;
+}
+
+int fd_frozen_hash_status_encode(fd_frozen_hash_status_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  err = fd_hash_encode(&self->frozen_hash, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint8_encode(&self->frozen_status, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+
+FD_FN_PURE uchar fd_frozen_hash_versioned_is_current(fd_frozen_hash_versioned_t const * self) {
+  return self->discriminant == 0;
+}
+void fd_frozen_hash_versioned_inner_new(fd_frozen_hash_versioned_inner_t* self, uint discriminant);
+int fd_frozen_hash_versioned_inner_decode(fd_frozen_hash_versioned_inner_t* self, uint discriminant, fd_bincode_decode_ctx_t * ctx) {
+  fd_frozen_hash_versioned_inner_new(self, discriminant);
+  int err;
+  switch (discriminant) {
+  case 0: {
+    return fd_frozen_hash_status_decode(&self->current, ctx);
+  }
+  default: return FD_BINCODE_ERR_ENCODING;
+  }
+}
+int fd_frozen_hash_versioned_decode(fd_frozen_hash_versioned_t* self, fd_bincode_decode_ctx_t * ctx) {
+  int err = fd_bincode_uint32_decode(&self->discriminant, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return fd_frozen_hash_versioned_inner_decode(&self->inner, self->discriminant, ctx);
+}
+void fd_frozen_hash_versioned_inner_new(fd_frozen_hash_versioned_inner_t* self, uint discriminant) {
+  switch (discriminant) {
+  case 0: {
+    fd_frozen_hash_status_new(&self->current);
+    break;
+  }
+  default: break; // FD_LOG_ERR(( "unhandled type"));
+  }
+}
+void fd_frozen_hash_versioned_new_disc(fd_frozen_hash_versioned_t* self, uint discriminant) {
+  self->discriminant = discriminant;
+  fd_frozen_hash_versioned_inner_new(&self->inner, self->discriminant);
+}
+void fd_frozen_hash_versioned_new(fd_frozen_hash_versioned_t* self) {
+  fd_frozen_hash_versioned_new_disc(self, UINT_MAX);
+}
+void fd_frozen_hash_versioned_inner_destroy(fd_frozen_hash_versioned_inner_t* self, uint discriminant, fd_bincode_destroy_ctx_t * ctx) {
+  switch (discriminant) {
+  case 0: {
+    fd_frozen_hash_status_destroy(&self->current, ctx);
+    break;
+  }
+  default: break; // FD_LOG_ERR(( "unhandled type"));
+  }
+}
+void fd_frozen_hash_versioned_destroy(fd_frozen_hash_versioned_t* self, fd_bincode_destroy_ctx_t * ctx) {
+  fd_frozen_hash_versioned_inner_destroy(&self->inner, self->discriminant, ctx);
+}
+
+void fd_frozen_hash_versioned_walk(fd_frozen_hash_versioned_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_frozen_hash_versioned", level++);
+  // enum fd_unsigned char_walk(&self->frozen_status, fun, "frozen_status", level + 1);
+  switch (self->discriminant) {
+  case 0: {
+    fd_frozen_hash_status_walk(&self->inner.current, fun, "current", level + 1);
+    break;
+  }
+  }
+  fun(self, name, 33, "fd_frozen_hash_versioned", --level);
+}
+ulong fd_frozen_hash_versioned_size(fd_frozen_hash_versioned_t const * self) {
+  ulong size = 0;
+  size += sizeof(uint);
+  switch (self->discriminant) {
+  case 0: {
+    size += fd_frozen_hash_status_size(&self->inner.current);
+    break;
+  }
+  }
+  return size;
+}
+
+int fd_frozen_hash_versioned_inner_encode(fd_frozen_hash_versioned_inner_t const * self, uint discriminant, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  switch (discriminant) {
+  case 0: {
+    err = fd_frozen_hash_status_encode(&self->current, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    break;
+  }
+  }
+  return FD_BINCODE_SUCCESS;
+}
+int fd_frozen_hash_versioned_encode(fd_frozen_hash_versioned_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  err = fd_bincode_uint32_encode(&self->discriminant, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return fd_frozen_hash_versioned_inner_encode(&self->inner, self->discriminant, ctx);
+}
+
 #define REDBLK_T fd_stake_history_epochentry_pair_t_mapnode_t
 #define REDBLK_NAME fd_stake_history_epochentry_pair_t_map
 #define REDBLK_IMPL_STYLE 2

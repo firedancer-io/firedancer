@@ -1278,6 +1278,23 @@
         { "name": "program_data", "type": "bpf_upgradeable_loader_state_program_data" }
       ],
       "comment": ""
+    },
+    {
+      "name": "frozen_hash_status",
+      "type": "struct",
+      "fields": [
+        { "name": "frozen_hash", "type": "hash" },
+        { "name": "frozen_status", "type": "uchar" }
+      ],
+      "comment": "https://github.com/firedancer-io/solana/blob/f4b7c54f9e021b40cfc7cbd32dc12b19dedbe791/ledger/src/blockstore_meta.rs#L178"
+    },
+    {
+      "name": "frozen_hash_versioned",
+      "type": "enum",
+      "variants": [
+        { "name": "current", "type": "frozen_hash_status" }
+      ],
+      "comment": "https://github.com/firedancer-io/solana/blob/f4b7c54f9e021b40cfc7cbd32dc12b19dedbe791/ledger/src/blockstore_meta.rs#L157"
     }
   ]
 }

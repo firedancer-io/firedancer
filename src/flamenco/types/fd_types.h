@@ -1552,6 +1552,29 @@ typedef struct fd_bpf_upgradeable_loader_state fd_bpf_upgradeable_loader_state_t
 #define FD_BPF_UPGRADEABLE_LOADER_STATE_FOOTPRINT sizeof(fd_bpf_upgradeable_loader_state_t)
 #define FD_BPF_UPGRADEABLE_LOADER_STATE_ALIGN (8UL)
 
+/* https://github.com/firedancer-io/solana/blob/f4b7c54f9e021b40cfc7cbd32dc12b19dedbe791/ledger/src/blockstore_meta.rs#L178 */
+struct fd_frozen_hash_status {
+  fd_hash_t frozen_hash;
+  unsigned char frozen_status;
+};
+typedef struct fd_frozen_hash_status fd_frozen_hash_status_t;
+#define FD_FROZEN_HASH_STATUS_FOOTPRINT sizeof(fd_frozen_hash_status_t)
+#define FD_FROZEN_HASH_STATUS_ALIGN (8UL)
+
+union fd_frozen_hash_versioned_inner {
+  fd_frozen_hash_status_t current;
+};
+typedef union fd_frozen_hash_versioned_inner fd_frozen_hash_versioned_inner_t;
+
+/* https://github.com/firedancer-io/solana/blob/f4b7c54f9e021b40cfc7cbd32dc12b19dedbe791/ledger/src/blockstore_meta.rs#L157 */
+struct fd_frozen_hash_versioned {
+  uint discriminant;
+  fd_frozen_hash_versioned_inner_t inner;
+};
+typedef struct fd_frozen_hash_versioned fd_frozen_hash_versioned_t;
+#define FD_FROZEN_HASH_VERSIONED_FOOTPRINT sizeof(fd_frozen_hash_versioned_t)
+#define FD_FROZEN_HASH_VERSIONED_ALIGN (8UL)
+
 
 FD_PROTOTYPES_BEGIN
 
@@ -2595,6 +2618,25 @@ fd_bpf_upgradeable_loader_state_enum_uninitialized = 0,
 fd_bpf_upgradeable_loader_state_enum_buffer = 1,
 fd_bpf_upgradeable_loader_state_enum_program = 2,
 fd_bpf_upgradeable_loader_state_enum_program_data = 3,
+}; 
+void fd_frozen_hash_status_new(fd_frozen_hash_status_t* self);
+int fd_frozen_hash_status_decode(fd_frozen_hash_status_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_frozen_hash_status_encode(fd_frozen_hash_status_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_frozen_hash_status_destroy(fd_frozen_hash_status_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_frozen_hash_status_walk(fd_frozen_hash_status_t* self, fd_walk_fun_t fun, const char *name, int level);
+ulong fd_frozen_hash_status_size(fd_frozen_hash_status_t const * self);
+
+void fd_frozen_hash_versioned_new_disc(fd_frozen_hash_versioned_t* self, uint discriminant);
+void fd_frozen_hash_versioned_new(fd_frozen_hash_versioned_t* self);
+int fd_frozen_hash_versioned_decode(fd_frozen_hash_versioned_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_frozen_hash_versioned_encode(fd_frozen_hash_versioned_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_frozen_hash_versioned_destroy(fd_frozen_hash_versioned_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_frozen_hash_versioned_walk(fd_frozen_hash_versioned_t* self, fd_walk_fun_t fun, const char *name, int level);
+ulong fd_frozen_hash_versioned_size(fd_frozen_hash_versioned_t const * self);
+
+FD_FN_PURE uchar fd_frozen_hash_versioned_is_current(fd_frozen_hash_versioned_t const * self);
+enum {
+fd_frozen_hash_versioned_enum_current = 0,
 }; 
 FD_PROTOTYPES_END
 
