@@ -8,13 +8,15 @@
 #include "../../ballet/block/fd_microblock.h"
 #include <rocksdb/c.h>
 
+#define FD_ROCKSDB_CF_CNT (5UL)
+
 /* Solana rocksdb client */
 struct fd_rocksdb {
   rocksdb_t *                     db;
   const char *                    db_name;
-  const char *                    cfgs[4];
-  const rocksdb_options_t *       cf_options[4];
-  rocksdb_column_family_handle_t* column_family_handles[4];
+  const char *                    cfgs      [ FD_ROCKSDB_CF_CNT ];
+  const rocksdb_options_t *       cf_options[ FD_ROCKSDB_CF_CNT ];
+  rocksdb_column_family_handle_t* cf_handles[ FD_ROCKSDB_CF_CNT ];
   rocksdb_options_t *             opts;
   rocksdb_readoptions_t *         ro;
 };
@@ -131,6 +133,16 @@ void* fd_rocksdb_get_block(fd_rocksdb_t* db,
                            fd_alloc_fun_t allocf,
                            void* allocf_arg,
                            ulong* result_sz);
+
+/* fd_rocksdb_get_bank_hash looks up the bank hash for the given slot.
+   Writes the hash to out on success and returns out.  On failure, the
+   content of out is undefined and NULL is returned.  Reasons for
+   failure are written to log. */
+
+void *
+fd_rocksdb_get_bank_hash( fd_rocksdb_t * self,
+                          ulong          slot,
+                          void *         out );
 
 FD_PROTOTYPES_END
 
