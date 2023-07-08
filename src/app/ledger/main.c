@@ -11,6 +11,7 @@
 #include <bzlib.h>     // presumes bz2 library is installed
 #include "../../util/fd_util.h"
 #include "../../util/archive/fd_tar.h"
+#include "../../flamenco/fd_flamenco.h"
 #include "../../flamenco/runtime/fd_banks_solana.h"
 #include "../../flamenco/runtime/fd_hashes.h"
 #include "../../funk/fd_funk.h"
@@ -401,6 +402,7 @@ int main(int argc, char** argv) {
   }
 
   fd_boot( &argc, &argv );
+  fd_flamenco_boot( &argc, &argv );
 
   fd_wksp_t* wksp;
   const char* wkspname = fd_env_strip_cmdline_cstr(&argc, &argv, "--wksp", NULL, NULL);
@@ -734,6 +736,7 @@ int main(int argc, char** argv) {
   fd_funk_leave( funk );
 
   fd_log_flush();
+  fd_flamenco_halt();
   fd_halt();
   return 0;
 }
