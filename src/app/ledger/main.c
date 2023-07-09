@@ -20,7 +20,7 @@
 #include "../../flamenco/runtime/fd_rocksdb.h"
 #include "../../ballet/base58/fd_base58.h"
 
-static void usage(const char* progname) {
+static void usage(char const * progname) {
   fprintf(stderr, "USAGE: %s\n", progname);
   fprintf(stderr, " --cmd ingest --snapshotfile <file>               ingest solana snapshot file\n");
   fprintf(stderr, "              --incremental <file>                also ingest incremental snapshot file\n");
@@ -82,7 +82,7 @@ void SnapshotParser_destroy(struct SnapshotParser* self) {
   free(self->tmpstart_);
 }
 
-void SnapshotParser_parsefd_solana_accounts(struct SnapshotParser* self, const char* name, const void* data, size_t datalen) {
+void SnapshotParser_parsefd_solana_accounts(struct SnapshotParser* self, char const * name, const void* data, size_t datalen) {
   ulong id, slot;
   if (sscanf(name, "accounts/%lu.%lu", &slot, &id) != 2)
     return;
@@ -124,7 +124,7 @@ void SnapshotParser_parsefd_solana_accounts(struct SnapshotParser* self, const c
     roundedlen = (sizeof(fd_solana_account_hdr_t)+hdr->meta.data_len+7UL)&~7UL;
     if (roundedlen > datalen)
       return;
-    data = (const char*)data + roundedlen;
+    data = (char const *)data + roundedlen;
     datalen -= roundedlen;
   }
 }
@@ -137,7 +137,7 @@ void SnapshotParser_parseSnapshots(struct SnapshotParser* self, const void* data
   fd_solana_manifest_new(self->manifest_);
   fd_bincode_decode_ctx_t ctx;
   ctx.data = data;
-  ctx.dataend = (const char*)data + datalen;
+  ctx.dataend = (char const *)data + datalen;
   ctx.valloc  = global->valloc;
   if ( fd_solana_manifest_decode(self->manifest_, &ctx) )
     FD_LOG_ERR(("fd_solana_manifest_decode failed"));
@@ -146,7 +146,7 @@ void SnapshotParser_parseSnapshots(struct SnapshotParser* self, const void* data
     FD_LOG_ERR(("fd_global_import_solana_manifest failed"));
 }
 
-void SnapshotParser_tarEntry(void* arg, const char* name, const void* data, size_t datalen) {
+void SnapshotParser_tarEntry(void* arg, char const * name, const void* data, size_t datalen) {
   if (datalen == 0)
     return;
   if (strncmp(name, "accounts/", sizeof("accounts/")-1) == 0)
@@ -163,7 +163,7 @@ int SnapshotParser_moreData(void* arg, const void* data, size_t datalen) {
 }
 
 typedef int (*decompressCallback)(void* arg, const void* data, size_t datalen);
-static void decompressZSTD(const char* fname, decompressCallback cb, void* arg) {
+static void decompressZSTD(char const * fname, decompressCallback cb, void* arg) {
   int const fin = open(fname, O_RDONLY);
   if (fin == -1) {
     FD_LOG_ERR(( "unable to read file %s: %s", fname, strerror(errno) ));
@@ -219,7 +219,7 @@ static void decompressZSTD(const char* fname, decompressCallback cb, void* arg) 
   close(fin);
 }
 
-static void decompressBZ2(const char* fname, decompressCallback cb, void* arg) {
+static void decompressBZ2(char const * fname, decompressCallback cb, void* arg) {
   int const fin = open(fname, O_RDONLY);
   if (fin == -1) {
     FD_LOG_ERR(( "unable to read file %s: %s", fname, strerror(errno) ));
@@ -273,9 +273,15 @@ static void decompressBZ2(const char* fname, decompressCallback cb, void* arg) {
   close(fin);
 }
 
-void ingest_rocksdb( fd_global_ctx_t * global, const char* file, ulong end_slot, const char* verifypoh,
-                     fd_tpool_t * tpool, ulong max_workers ) {
-  fd_rocksdb_t        rocks_db;
+void
+ingest_rocksdb( fd_global_ctx_t * global,
+                char const *      file,
+                ulong             end_slot,
+                char const *      verifypoh,
+                fd_tpool_t *      tpool,
+                ulong             max_workers ) {
+
+  fd_rocksdb_t rocks_db;
   char *err = fd_rocksdb_init(&rocks_db, file);
   if (err != NULL) {
     FD_LOG_ERR(("fd_rocksdb_init returned %s", err));
@@ -409,19 +415,41 @@ void ingest_rocksdb( fd_global_ctx_t * global, const char* file, ulong end_slot,
   FD_LOG_NOTICE(("ingested %lu blocks", blk_cnt));
 }
 
-int main(int argc, char** argv) {
-  if (argc == 1) {
-    usage(argv[0]);
+int
+main( int     argc,
+      char ** argv ) {
+
+  if( FD_UNLIKELY( argc==1 ) ) {
+    usage( argv[0] );
     return 1;
   }
 
   fd_boot( &argc, &argv );
   fd_flamenco_boot( &argc, &argv );
 
+  char const * wkspname     = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp",         NULL, NULL      );
+  ulong        pages        = fd_env_strip_cmdline_ulong( &argc, &argv, "--pages",        NULL,         5 );
+  char const * reset        = fd_env_strip_cmdline_cstr ( &argc, &argv, "--reset",        NULL, "false"   );
+  char const * cmd          = fd_env_strip_cmdline_cstr ( &argc, &argv, "--cmd",          NULL, NULL      );
+  ulong        index_max    = fd_env_strip_cmdline_ulong( &argc, &argv, "--indexmax",     NULL, 350000000 );
+  ulong        xactions_max = fd_env_strip_cmdline_ulong( &argc, &argv, "--txnmax",       NULL,       100 );
+  char const * verifyfunky  = fd_env_strip_cmdline_cstr ( &argc, &argv, "--verifyfunky",  NULL, "false"   );
+  char const * gaddr        = fd_env_strip_cmdline_cstr ( &argc, &argv, "--gaddr",        NULL, NULL      );
+  char const * gaddrout     = fd_env_strip_cmdline_cstr ( &argc, &argv, "--gaddrout",     NULL, NULL      );
+  char const * persist      = fd_env_strip_cmdline_cstr ( &argc, &argv, "--persist",      NULL, NULL      );
+  char const * snapshotfile = fd_env_strip_cmdline_cstr ( &argc, &argv, "--snapshotfile", NULL, NULL      );
+  char const * incremental  = fd_env_strip_cmdline_cstr ( &argc, &argv, "--incremental",  NULL, NULL      );
+  ulong        loglevel     = fd_env_strip_cmdline_ulong( &argc, &argv, "--loglevel",     NULL, 0         );
+  char const * net          = fd_env_strip_cmdline_cstr ( &argc, &argv, "--network",      NULL, NULL      );
+  char const * genesis      = fd_env_strip_cmdline_cstr ( &argc, &argv, "--genesis",      NULL, NULL      );
+  char const * rocksdb_dir  = fd_env_strip_cmdline_cstr ( &argc, &argv, "--rocksdb",      NULL, NULL      );
+  ulong        end_slot     = fd_env_strip_cmdline_ulong( &argc, &argv, "--endslot",      NULL, ULONG_MAX );
+  char const * verifypoh    = fd_env_strip_cmdline_cstr ( &argc, &argv, "--verifypoh",    NULL, "false"   );
+  char const * verifyhash   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--verifyhash",   NULL, NULL      );
+  char const * backup       = fd_env_strip_cmdline_cstr ( &argc, &argv, "--backup",       NULL, NULL      );
+
   fd_wksp_t* wksp;
-  const char* wkspname = fd_env_strip_cmdline_cstr(&argc, &argv, "--wksp", NULL, NULL);
   if (wkspname == NULL) {
-    ulong pages = fd_env_strip_cmdline_ulong(&argc, &argv, "--pages", NULL, 5);
     FD_LOG_NOTICE(( "--wksp not specified, using an anonymous local workspace" ));
     wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, pages, 0, "wksp", 0UL );
   } else {
@@ -434,25 +462,26 @@ int main(int argc, char** argv) {
   gethostname(hostname, sizeof(hostname));
   ulong hashseed = fd_hash(0, hostname, strnlen(hostname, sizeof(hostname)));
 
-  const char* reset = fd_env_strip_cmdline_cstr(&argc, &argv, "--reset", NULL, "false");
-  if (strcmp(reset, "true") == 0) {
+  if( strcmp(reset, "true") == 0 ) {
     fd_wksp_reset( wksp, (uint)hashseed);
   }
 
+  /* Create scratch region */
+  ulong  smax   = 1<<24UL;  /* 16 MiB scratch memory */
+  ulong  sdepth = 128;      /* 128 scratch frames */
+  void * smem   = fd_wksp_alloc_laddr( wksp, fd_scratch_smem_align(), fd_scratch_smem_footprint( smax   ), 421UL );
+  void * fmem   = fd_wksp_alloc_laddr( wksp, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( sdepth ), 421UL );
+  FD_TEST( (!!smem) & (!!fmem) );
+  fd_scratch_attach( smem, fmem, smax, sdepth );
+
   fd_funk_t* funk;
 
-  const char* cmd = fd_env_strip_cmdline_cstr( &argc, &argv, "--cmd", NULL, NULL );
   if( FD_UNLIKELY( !cmd ) ) FD_LOG_ERR(( "no command specified" ));
-  const char* verifyfunky = fd_env_strip_cmdline_cstr(&argc, &argv, "--verifyfunky", NULL, "false");
 
-  const char* gaddr = fd_env_strip_cmdline_cstr(&argc, &argv, "--gaddr", NULL, NULL);
   void* shmem;
   if (gaddr == NULL) {
     if (strcmp(cmd, "repersist") == 0)
       FD_LOG_ERR(( "repersist requires --gaddr flag" ));
-
-    ulong index_max = fd_env_strip_cmdline_ulong(&argc, &argv, "--indexmax", NULL, 350000000);
-    ulong xactions_max = fd_env_strip_cmdline_ulong(&argc, &argv, "--txnmax", NULL, 100);
 
     shmem = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint(), 1 );
     if (shmem == NULL)
@@ -477,7 +506,6 @@ int main(int argc, char** argv) {
   }
 
   FD_LOG_NOTICE(( "funky at global address 0x%016lx", fd_wksp_gaddr_fast( wksp, shmem ) ));
-  const char* gaddrout = fd_env_strip_cmdline_cstr(&argc, &argv, "--gaddrout", NULL, NULL);
   if (gaddrout != NULL) {
     FILE* f = fopen(gaddrout, "w");
     if (f == NULL)
@@ -515,7 +543,6 @@ int main(int argc, char** argv) {
     }
   }
 
-  const char* persist = fd_env_strip_cmdline_cstr(&argc, &argv, "--persist", NULL, NULL);
   if (cmd == NULL) {
     // Do nothing
 
@@ -528,40 +555,35 @@ int main(int argc, char** argv) {
 
     uchar snapshot_used = 0;
 
-    const char* file = fd_env_strip_cmdline_cstr(&argc, &argv, "--snapshotfile", NULL, NULL);
-    if (file != NULL) {
+    if( snapshotfile ) {
       struct SnapshotParser parser;
       SnapshotParser_init(&parser, global, persist != NULL);
-      FD_LOG_NOTICE(("reading %s", file));
-      if (strcmp(file + strlen(file) - 4, ".zst") == 0)
-        decompressZSTD(file, SnapshotParser_moreData, &parser);
-      else if (strcmp(file + strlen(file) - 4, ".bz2") == 0)
-        decompressBZ2(file, SnapshotParser_moreData, &parser);
+      FD_LOG_NOTICE(( "reading %s", snapshotfile ));
+      if( 0==strcmp( snapshotfile + strlen(snapshotfile) - 4, ".zst" ) )
+        decompressZSTD( snapshotfile, SnapshotParser_moreData, &parser );
+      else if( 0==strcmp( snapshotfile + strlen(snapshotfile) - 4, ".bz2" ) )
+        decompressBZ2( snapshotfile, SnapshotParser_moreData, &parser );
       else
         FD_LOG_ERR(( "unknown snapshot compression suffix" ));
       SnapshotParser_destroy(&parser);
       snapshot_used = 1;
     }
 
-    file = fd_env_strip_cmdline_cstr(&argc, &argv, "--incremental", NULL, NULL);
-    if (file != NULL) {
+    if( incremental ) {
       struct SnapshotParser parser;
       SnapshotParser_init(&parser, global, persist != NULL);
-      FD_LOG_NOTICE(("reading %s", file));
-      if (strcmp(file + strlen(file) - 4, ".zst") == 0)
-        decompressZSTD(file, SnapshotParser_moreData, &parser);
-      else if (strcmp(file + strlen(file) - 4, ".bz2") == 0)
-        decompressBZ2(file, SnapshotParser_moreData, &parser);
+      FD_LOG_NOTICE(( "reading %s", incremental ));
+      if( 0==strcmp( incremental + strlen(incremental) - 4, ".zst" ) )
+        decompressZSTD( incremental, SnapshotParser_moreData, &parser );
+      else if( 0==strcmp( incremental + strlen(incremental) - 4, ".bz2" ) )
+        decompressBZ2( incremental, SnapshotParser_moreData, &parser );
       else
         FD_LOG_ERR(( "unknown snapshot compression suffix" ));
       SnapshotParser_destroy(&parser);
       snapshot_used = 1;
     }
 
-    ulong loglevel = fd_env_strip_cmdline_ulong(&argc, &argv, "--loglevel", NULL, 0);
     global->log_level = (uchar) loglevel;
-
-    const char *net = fd_env_strip_cmdline_cstr(&argc, &argv, "--network", NULL, NULL);
 
     if (NULL != net) {
       if (!strncmp(net, "main", 4))
@@ -592,14 +614,13 @@ int main(int argc, char** argv) {
       fd_runtime_save_banks( global );
     }
 
-    file = fd_env_strip_cmdline_cstr(&argc, &argv, "--genesis", NULL, NULL);
-    if (file != NULL) {
+    if( !genesis ) {
       struct stat sbuf;
-      if (stat(file, &sbuf) < 0)
-        FD_LOG_ERR(("cannot open %s : %s", file, strerror(errno)));
-      int fd = open(file, O_RDONLY);
-      if (fd < 0)
-        FD_LOG_ERR(("cannot open %s : %s", file, strerror(errno)));
+      if( FD_UNLIKELY( stat( genesis, &sbuf) < 0 ) )
+        FD_LOG_ERR(("cannot open %s : %s", genesis, strerror(errno)));
+      int fd = open( genesis, O_RDONLY );
+      if( FD_UNLIKELY( fd < 0 ) )
+        FD_LOG_ERR(("cannot open %s : %s", genesis, strerror(errno)));
       uchar * buf = malloc((ulong) sbuf.st_size);
       ssize_t n = read(fd, buf, (ulong) sbuf.st_size);
       close(fd);
@@ -647,11 +668,8 @@ int main(int argc, char** argv) {
       fd_genesis_solana_destroy(&genesis_block, &ctx2);
     }
 
-    file = fd_env_strip_cmdline_cstr(&argc, &argv, "--rocksdb", NULL, NULL);
-    if (file != NULL) {
-      ulong end_slot = fd_env_strip_cmdline_ulong(&argc, &argv, "--endslot", NULL, ULONG_MAX);
-      const char* verifypoh = fd_env_strip_cmdline_cstr(&argc, &argv, "--verifypoh", NULL, "false");
-      ingest_rocksdb(global, file, end_slot, verifypoh, tpool, tcnt-1);
+    if( rocksdb_dir ) {
+      ingest_rocksdb( global, rocksdb_dir, end_slot, verifypoh, tpool, tcnt-1 );
     }
 
   } else if (strcmp(cmd, "recover") == 0) {
@@ -682,7 +700,6 @@ int main(int argc, char** argv) {
       FD_LOG_ERR(( "verification failed" ));
   }
 
-  const char* verifyhash = fd_env_strip_cmdline_cstr(&argc, &argv, "--verifyhash", NULL, NULL);
   if (verifyhash) {
     fd_funk_rec_t * rec_map  = fd_funk_rec_map( funk, wksp );
     ulong num_iter_accounts = fd_funk_rec_map_key_cnt( rec_map );
@@ -738,7 +755,6 @@ int main(int argc, char** argv) {
   if ( tpool )
     fd_tpool_fini( tpool );
 
-  const char* backup = fd_env_strip_cmdline_cstr(&argc, &argv, "--backup", NULL, NULL);
   if (backup) {
     FD_LOG_NOTICE(("writing %s", backup));
     if ( fd_funk_make_backup( funk, backup ) )
@@ -747,6 +763,10 @@ int main(int argc, char** argv) {
 
   fd_global_ctx_delete( fd_global_ctx_leave( global ) );
   fd_funk_leave( funk );
+
+  fd_scratch_detach( NULL );
+  fd_wksp_free_laddr( smem );
+  fd_wksp_free_laddr( fmem );
 
   fd_log_flush();
   fd_flamenco_halt();
