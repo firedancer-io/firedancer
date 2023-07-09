@@ -58,7 +58,7 @@
         { "name": "target_signatures_per_slot", "type": "ulong" },
         { "name": "min_lamports_per_signature", "type": "ulong" },
         { "name": "max_lamports_per_signature", "type": "ulong" },
-        { "name": "burn_percent", "type": "unsigned char" }
+        { "name": "burn_percent", "type": "uchar" }
       ]
     },
     {
@@ -94,7 +94,7 @@
       "fields": [
         { "name": "lamports_per_uint8_year", "type": "ulong" },
         { "name": "exemption_threshold", "type": "double" },
-        { "name": "burn_percent", "type": "unsigned char" }
+        { "name": "burn_percent", "type": "uchar" }
       ],
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/rent.rs#L11"
     },
@@ -138,9 +138,9 @@
       "type": "struct",
       "fields": [
         { "name": "lamports", "type": "ulong" },
-        { "name": "data", "type": "vector", "element": "unsigned char" },
+        { "name": "data", "type": "vector", "element": "uchar" },
         { "name": "owner", "type": "pubkey" },
-        { "name": "executable", "type": "unsigned char" },
+        { "name": "executable", "type": "uchar" },
         { "name": "rent_epoch", "type": "ulong" }
       ]
     },
@@ -192,7 +192,7 @@
         { "name": "magic", "type": "ushort" },
         { "name": "hlen", "type": "ushort" },
         { "name": "dlen", "type": "ulong" },
-        { "name": "hash", "type": "unsigned char[32]" },
+        { "name": "hash", "type": "uchar[32]" },
         { "name": "slot", "type": "ulong" },
         { "name": "info", "type": "solana_account_meta" }
       ]
@@ -754,7 +754,7 @@
       "type": "struct",
       "fields": [
         { "name": "key", "type": "pubkey" },
-        { "name": "signer", "type": "unsigned char" }
+        { "name": "signer", "type": "uchar" }
       ]
     },
     {
