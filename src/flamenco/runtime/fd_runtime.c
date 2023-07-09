@@ -875,8 +875,8 @@ fd_runtime_save_banks( fd_global_ctx_t * global ) {
     .data = buf,
     .dataend = buf + sz,
   };
-  if ( fd_firedancer_banks_encode(&global->bank, &ctx ) ) {
-    FD_LOG_WARNING(("fd_runtime_save_banks failed"));
+  if( FD_UNLIKELY( fd_firedancer_banks_encode( &global->bank, &ctx )!=FD_BINCODE_SUCCESS ) ) {
+    FD_LOG_WARNING(( "fd_runtime_save_banks: fd_firedancer_banks_encode failed" ));
     return -1;
   }
 

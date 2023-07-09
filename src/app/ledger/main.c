@@ -300,6 +300,8 @@ ingest_rocksdb( fd_global_ctx_t * global,
 
   fd_hash_t oldhash = global->bank.poh;
 
+  /* Write database-wide slot meta */
+
   fd_slot_meta_meta_t mm;
   mm.start_slot = start_slot;
   mm.end_slot = end_slot;
@@ -614,7 +616,7 @@ main( int     argc,
       fd_runtime_save_banks( global );
     }
 
-    if( !genesis ) {
+    if( genesis ) {
       struct stat sbuf;
       if( FD_UNLIKELY( stat( genesis, &sbuf) < 0 ) )
         FD_LOG_ERR(("cannot open %s : %s", genesis, strerror(errno)));
@@ -662,7 +664,7 @@ main( int     argc,
 
       global->bank.slot = ~0ul;
 
-      fd_runtime_save_banks( global );
+      FD_TEST( fd_runtime_save_banks( global )==FD_RUNTIME_EXECUTE_SUCCESS );
 
       fd_bincode_destroy_ctx_t ctx2 = { .valloc = global->valloc };
       fd_genesis_solana_destroy(&genesis_block, &ctx2);

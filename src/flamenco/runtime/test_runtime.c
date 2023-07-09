@@ -253,7 +253,7 @@ replay( global_state_t * state,
         FD_LOG_WARNING(( "Bank hash mismatch! slot=%lu expected=%32J, got=%32J",
                          slot,
                          known_bank_hash->hash,
-                         state->global->bank.banks_hash ));
+                         state->global->bank.banks_hash.hash ));
         return 1;
       }
     }
