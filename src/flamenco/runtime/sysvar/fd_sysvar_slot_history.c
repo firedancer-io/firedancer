@@ -35,8 +35,8 @@ int fd_sysvar_slot_history_write_history( fd_global_ctx_t* global, fd_slot_histo
 void fd_sysvar_slot_history_init( fd_global_ctx_t* global ) {
   /* Create a new slot history instance */
   fd_slot_history_t history;
-  fd_slot_history_inner_t *inner = (fd_slot_history_inner_t *)(global->allocf)( global->allocf_arg, 8UL, sizeof(fd_slot_history_inner_t) );
-  inner->blocks = (ulong*)(global->allocf)( global->allocf_arg, 8UL, sizeof(ulong) * blocks_len );
+  fd_slot_history_inner_t *inner = fd_valloc_malloc( global->valloc, 8UL, sizeof(fd_slot_history_inner_t) );
+  inner->blocks = fd_valloc_malloc( global->valloc, 8UL, sizeof(ulong) * blocks_len );
   memset( inner->blocks, 0, sizeof(ulong) * blocks_len );
   inner->blocks_len = blocks_len;
   history.bits.bits = inner;
@@ -47,9 +47,7 @@ void fd_sysvar_slot_history_init( fd_global_ctx_t* global ) {
   history.next_slot = global->bank.slot + 1;
 
   fd_sysvar_slot_history_write_history( global, &history );
-  fd_bincode_destroy_ctx_t ctx;
-  ctx.freef = global->freef;
-  ctx.freef_arg = global->allocf_arg;
+  fd_bincode_destroy_ctx_t ctx = { .valloc = global->valloc };
   fd_slot_history_destroy( &history, &ctx );
 }
 
@@ -69,8 +67,7 @@ int fd_sysvar_slot_history_update( fd_global_ctx_t* global ) {
   fd_bincode_decode_ctx_t ctx;
   ctx.data = raw_acc_data + m->hlen;
   ctx.dataend = (uchar *) ctx.data + m->dlen;
-  ctx.allocf = global->allocf;
-  ctx.allocf_arg = global->allocf_arg;
+  ctx.valloc  = global->valloc;
   err = fd_slot_history_decode( &history, &ctx );
   if (0 != err)
     return err;
@@ -109,9 +106,7 @@ int fd_sysvar_slot_history_update( fd_global_ctx_t* global ) {
 
   err = fd_acc_mgr_commit_data(global->acc_mgr, acc_data_rec, (fd_pubkey_t *) global->sysvar_slot_history, raw_acc_data, global->bank.slot, 0);
 
-  fd_bincode_destroy_ctx_t ctx_d;
-  ctx_d.freef = global->freef;
-  ctx_d.freef_arg = global->allocf_arg;
+  fd_bincode_destroy_ctx_t ctx_d = { .valloc = global->valloc };
   fd_slot_history_destroy( &history, &ctx_d );
 
   return err;

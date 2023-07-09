@@ -57,9 +57,7 @@ void fd_sysvar_slot_hashes_update( fd_global_ctx_t* global ) {
       FD_LOG_WARNING(( "fd_sysvar_slot_hash_update:  slot %ld,  hash %32J", slot_hash.slot, slot_hash.hash.key ));
     }
 
-    fd_bincode_destroy_ctx_t ctx2;
-    ctx2.freef = global->freef;
-    ctx2.freef_arg = global->allocf_arg;
+    fd_bincode_destroy_ctx_t ctx2 = { .valloc = global->valloc };
 
     if (deq_fd_slot_hash_t_full( hashes ) )
       fd_slot_hash_destroy( deq_fd_slot_hash_t_pop_tail_nocopy( hashes ), &ctx2 );
@@ -68,9 +66,7 @@ void fd_sysvar_slot_hashes_update( fd_global_ctx_t* global ) {
   }
 
   write_slot_hashes( global, &slot_hashes );
-  fd_bincode_destroy_ctx_t ctx;
-  ctx.freef = global->freef;
-  ctx.freef_arg = global->allocf_arg;
+  fd_bincode_destroy_ctx_t ctx = { .valloc = global->valloc };
   fd_slot_hashes_destroy( &slot_hashes, &ctx );
 }
 
@@ -81,7 +77,7 @@ void fd_sysvar_slot_hashes_read( fd_global_ctx_t* global, fd_slot_hashes_t* resu
   if ( read_result != FD_ACC_MGR_SUCCESS ) {
     // Initialize the database...
     memset(result, 0, sizeof(*result));
-    result->hashes = deq_fd_slot_hash_t_alloc( global->allocf, global->allocf_arg );
+    result->hashes = deq_fd_slot_hash_t_alloc( global->valloc );
     return;
   }
 
@@ -96,8 +92,7 @@ void fd_sysvar_slot_hashes_read( fd_global_ctx_t* global, fd_slot_hashes_t* resu
   fd_bincode_decode_ctx_t ctx;
   ctx.data = raw_acc_data;
   ctx.dataend = raw_acc_data + metadata.dlen;
-  ctx.allocf = global->allocf;
-  ctx.allocf_arg = global->allocf_arg;
+  ctx.valloc  = global->valloc;
   if ( fd_slot_hashes_decode( result, &ctx ) )
     FD_LOG_ERR(("fd_slot_hashes_decode failed"));
 }

@@ -33,12 +33,12 @@ void fd_sysvar_rent_read( fd_global_ctx_t* global, fd_rent_t* result ) {
     return;
   }
 
-  fd_bincode_decode_ctx_t ctx;
-  ctx.data = raw_acc_data;
-  ctx.dataend = raw_acc_data + metadata.dlen;
-  ctx.allocf = global->allocf;
-  ctx.allocf_arg = global->allocf_arg;
-  if ( fd_rent_decode( result, &ctx ) )
+  fd_bincode_decode_ctx_t decoder = {
+    .data    = raw_acc_data,
+    .dataend = raw_acc_data + metadata.dlen,
+    .valloc  = global->valloc
+  };
+  if ( fd_rent_decode( result, &decoder ) )
     FD_LOG_ERR(("fd_rent_decode failed"));
 }
 

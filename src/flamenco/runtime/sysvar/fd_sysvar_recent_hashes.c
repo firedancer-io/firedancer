@@ -45,9 +45,7 @@ void fd_sysvar_recent_hashes_update( fd_global_ctx_t* global ) {
     return;
 
   fd_block_block_hash_entry_t * hashes = global->bank.recent_block_hashes.hashes;
-  fd_bincode_destroy_ctx_t ctx2;
-  ctx2.freef = global->freef;
-  ctx2.freef_arg = global->allocf_arg;
+  fd_bincode_destroy_ctx_t ctx2 = { .valloc = global->valloc };
   while (deq_fd_block_block_hash_entry_t_cnt(hashes) >= 150)
     fd_block_block_hash_entry_destroy( deq_fd_block_block_hash_entry_t_pop_tail_nocopy( hashes ), &ctx2 );
 
