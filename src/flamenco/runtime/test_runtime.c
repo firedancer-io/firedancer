@@ -94,7 +94,8 @@ static void usage(const char* progname) {
 #define SORT_BEFORE(a,b) ((memcmp(&a, &b, 32) < 0))
 #include "../../util/tmpl/fd_sort.c"
 
-int accounts_hash(global_state_t *state) {
+int
+accounts_hash( global_state_t *state ) {
   fd_funk_t * funk = state->global->funk;
   fd_wksp_t * wksp = fd_funk_wksp( funk );
   fd_funk_rec_t * rec_map  = fd_funk_rec_map( funk, wksp );
@@ -143,7 +144,29 @@ int accounts_hash(global_state_t *state) {
   return 0;
 }
 
-int replay(global_state_t * state, int justverify, fd_tpool_t * tpool, ulong max_workers) {
+static fd_hash_t const *
+get_bank_hash( fd_funk_t *       funk,
+               fd_wksp_t const * wksp,
+               ulong             slot ) {
+
+  fd_funk_rec_key_t key = fd_runtime_bank_hash_key( slot );
+  fd_funk_rec_t const * rec = fd_funk_rec_query_global( funk, NULL, &key );
+  if( !rec ) {
+    FD_LOG_DEBUG(( "No known bank hash for slot %lu", slot ));
+    return NULL;
+  }
+
+  void const * val = fd_funk_val_const( rec, wksp );
+  FD_TEST( fd_funk_val_sz( rec ) == sizeof(fd_hash_t) );
+  return (fd_hash_t const *)val;
+}
+
+int
+replay( global_state_t * state,
+        int              justverify,
+        fd_tpool_t *     tpool,
+        ulong            max_workers) {
+
   fd_funk_rec_key_t key = fd_runtime_block_meta_key(ULONG_MAX);
   fd_funk_rec_t const * rec = fd_funk_rec_query( state->global->funk, NULL, &key );
   if (rec == NULL)
@@ -188,27 +211,27 @@ int replay(global_state_t * state, int justverify, fd_tpool_t * tpool, ulong max
     fd_memset(&m, 0, sizeof(m));
     fd_slot_meta_new(&m);
 
+    /* Read block meta */
+
     key = fd_runtime_block_meta_key(slot);
     rec = fd_funk_rec_query( state->global->funk, NULL, &key );
-    if (rec == NULL)
-      continue;
+    if( FD_UNLIKELY( !rec ) ) continue;
     val = fd_funk_val_cache( state->global->funk, rec, &err );
-    if (val == NULL)
-      FD_LOG_ERR(("corrupt meta record"));
+    if( FD_UNLIKELY( !val ) ) FD_LOG_ERR(("corrupt meta record"));
     fd_bincode_decode_ctx_t ctx3;
     ctx3.data = val;
     ctx3.dataend = (uchar*)val + fd_funk_val_sz(rec);
     ctx3.valloc  = state->global->valloc;
-    if ( fd_slot_meta_decode( &m, &ctx3 ) )
+    if( FD_UNLIKELY( fd_slot_meta_decode( &m, &ctx3 )!=FD_BINCODE_SUCCESS ) )
       FD_LOG_ERR(("fd_slot_meta_decode failed"));
 
-    key = fd_runtime_block_key(slot);
+    /* Read block */
+
+    key = fd_runtime_block_key( slot );
     rec = fd_funk_rec_query( state->global->funk, NULL, &key );
-    if (rec == NULL)
-      FD_LOG_ERR(("missing block record"));
+    if( FD_UNLIKELY( !rec ) ) FD_LOG_ERR(("missing block record"));
     val = fd_funk_val_cache( state->global->funk, rec, &err );
-    if (val == NULL)
-      FD_LOG_ERR(("missing block record"));
+    if( FD_UNLIKELY( !val ) ) FD_LOG_ERR(("missing block record"));
 
     if ( justverify ) {
       if ( tpool )
@@ -221,6 +244,19 @@ int replay(global_state_t * state, int justverify, fd_tpool_t * tpool, ulong max
 
     fd_bincode_destroy_ctx_t ctx = { .valloc = state->global->valloc };
     fd_slot_meta_destroy(&m, &ctx);
+
+    /* Read bank hash */
+
+    fd_hash_t const * known_bank_hash = get_bank_hash( state->global->funk, state->global->wksp, slot );
+    if( known_bank_hash ) {
+      if( FD_UNLIKELY( 0!=memcmp( state->global->bank.banks_hash.hash, known_bank_hash->hash, 32UL ) ) ) {
+        FD_LOG_WARNING(( "Bank hash mismatch! slot=%lu expected=%32J, got=%32J",
+                         slot,
+                         known_bank_hash->hash,
+                         state->global->bank.banks_hash ));
+        return 1;
+      }
+    }
 
     if( slot == last_epoch_slot ) {
       FD_LOG_NOTICE(( "EPOCH TRANSITION" ));
