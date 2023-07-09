@@ -60,8 +60,7 @@ int fd_load_nonce_account(
   fd_bincode_decode_ctx_t ctx2;
   ctx2.data = data;
   ctx2.dataend = &data[instr->data_sz];
-  ctx2.allocf = global->allocf;
-  ctx2.allocf_arg = global->allocf_arg;
+  ctx2.valloc  = global->valloc;
   if ( fd_system_program_instruction_decode( &instruction, &ctx2 ) ) {
     FD_LOG_WARNING(("fd_system_program_instruction_decode failed"));
     *opt_err = FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
@@ -94,8 +93,7 @@ int fd_load_nonce_account(
   fd_bincode_decode_ctx_t ctx;
   ctx.data = raw_acc_data + m->hlen;
   ctx.dataend = (char *) ctx.data + m->dlen;
-  ctx.allocf = global->allocf;
-  ctx.allocf_arg = global->allocf_arg;
+  ctx.valloc  = global->valloc;
   if ( fd_nonce_state_versions_decode( state, &ctx ) ) {
     FD_LOG_WARNING(("fd_nonce_state_versions_decode failed"));
     *opt_err = FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
@@ -138,8 +136,7 @@ int fd_advance_nonce_account(
   fd_bincode_decode_ctx_t ctx2;
   ctx2.data = raw_acc_data + m->hlen;
   ctx2.dataend = (char *) ctx2.data + m->dlen;
-  ctx2.allocf = ctx.global->allocf;
-  ctx2.allocf_arg = ctx.global->allocf_arg;
+  ctx2.valloc  = ctx.global->valloc;
   if ( fd_nonce_state_versions_decode( &state, &ctx2 ) )
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
 
@@ -256,8 +253,7 @@ int fd_withdraw_nonce_account(
   fd_bincode_decode_ctx_t ctx2;
   ctx2.data = raw_acc_data + m->hlen;
   ctx2.dataend = (char*)ctx2.data + m->dlen;
-  ctx2.allocf = ctx.global->allocf;
-  ctx2.allocf_arg = ctx.global->allocf_arg;
+  ctx2.valloc  = ctx.global->valloc;
   if ( fd_nonce_state_versions_decode( &state, &ctx2 ) )
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
 
@@ -378,8 +374,7 @@ int fd_initialize_nonce_account(
   fd_bincode_decode_ctx_t ctx2;
   ctx2.data = raw_acc_data + m->hlen;
   ctx2.dataend = (char*)ctx2.data + m->dlen;
-  ctx2.allocf = ctx.global->allocf;
-  ctx2.allocf_arg = ctx.global->allocf_arg;
+  ctx2.valloc  = ctx.global->valloc;
   if ( fd_nonce_state_versions_decode( &state, &ctx2 ) ) {
     FD_LOG_WARNING(("fd_nonce_state_versions_decode failed"));
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
@@ -476,8 +471,7 @@ int fd_authorize_nonce_account(
   fd_bincode_decode_ctx_t ctx2;
   ctx2.data = raw_acc_data + m->hlen;
   ctx2.dataend = (char *) ctx2.data + m->dlen;
-  ctx2.allocf = ctx.global->allocf;
-  ctx2.allocf_arg = ctx.global->allocf_arg;
+  ctx2.valloc  = ctx.global->valloc;
   if ( fd_nonce_state_versions_decode( &state, &ctx2 ) )
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
 
@@ -510,11 +504,10 @@ int fd_authorize_nonce_account(
       ret = FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
     else
       ret = FD_EXECUTOR_INSTR_SUCCESS;
-  } while (false);
+  } while (0);
 
   fd_bincode_destroy_ctx_t ctx3;
-  ctx3.freef = ctx.global->freef;
-  ctx3.freef_arg = ctx.global->allocf_arg;
+  ctx3.valloc = ctx.global->valloc;
   fd_nonce_state_versions_destroy( &state, &ctx3 );
 
   return ret;
@@ -566,8 +559,7 @@ int fd_upgrade_nonce_account(
   fd_bincode_decode_ctx_t ctx2;
   ctx2.data = raw_acc_data + m->hlen;
   ctx2.dataend = raw_acc_data + m->hlen + m->dlen;
-  ctx2.allocf = ctx.global->allocf;
-  ctx2.allocf_arg = ctx.global->allocf_arg;
+  ctx2.valloc  = ctx.global->valloc;
 
   if ( fd_nonce_state_versions_decode( &state, &ctx2 ) ) {
     FD_LOG_WARNING(("fd_nonce_state_versions_decode failed"));
@@ -610,9 +602,7 @@ int fd_upgrade_nonce_account(
       ret = FD_EXECUTOR_INSTR_SUCCESS;
   } while (false);
 
-  fd_bincode_destroy_ctx_t ctx3;
-  ctx3.freef = ctx.global->freef;
-  ctx3.freef_arg = ctx.global->allocf_arg;
+  fd_bincode_destroy_ctx_t ctx3 = { .valloc = ctx.global->valloc };
   fd_nonce_state_versions_destroy( &state, &ctx3 );
 
   return ret;

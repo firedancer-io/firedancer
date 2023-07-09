@@ -35,8 +35,7 @@ int read_bpf_upgradeable_loader_state( fd_global_ctx_t* global, fd_pubkey_t* pro
   fd_bincode_decode_ctx_t ctx;
   ctx.data = raw_acc_data;
   ctx.dataend = raw_acc_data + metadata.dlen;
-  ctx.allocf = global->allocf;
-  ctx.allocf_arg = global->allocf_arg;
+  ctx.valloc  = global->valloc;
   if ( fd_bpf_upgradeable_loader_state_decode( result, &ctx ) ) {
     FD_LOG_WARNING(("fd_bpf_upgradeable_loader_state_decode failed"));
     free(raw_acc_data);
@@ -60,7 +59,7 @@ int write_bpf_upgradeable_loader_state(
     }
 
     ulong encoded_loader_state_size = fd_bpf_upgradeable_loader_state_size( loader_state );
-    uchar* encoded_loader_state = (uchar *)(global->allocf)( global->allocf_arg, 8UL, metadata.dlen );
+    uchar* encoded_loader_state = fd_valloc_malloc( global->valloc, 8UL, metadata.dlen );
     fd_memset( encoded_loader_state, 0, metadata.dlen );
 
     fd_bincode_encode_ctx_t ctx;
@@ -397,7 +396,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_program_instruction( inst
     free(rodata);
     return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
   }
-  uchar * input_cpy = (uchar *)(ctx.global->allocf)(ctx.global->allocf_arg, 8UL, input_sz);
+  uchar * input_cpy = fd_valloc_malloc( ctx.global->valloc, 8UL, input_sz);
   fd_memcpy(input_cpy, input, input_sz);
   fd_vm_exec_context_t vm_ctx = {
     .entrypoint          = (long)prog->entry_pc,
@@ -497,8 +496,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
   fd_bincode_decode_ctx_t decode_ctx;
   decode_ctx.data = data;
   decode_ctx.dataend = &data[ctx.instr->data_sz];
-  decode_ctx.allocf = ctx.global->allocf;
-  decode_ctx.allocf_arg = ctx.global->allocf_arg;
+  decode_ctx.valloc  = ctx.global->valloc;
 
   int decode_err;
   if ( ( decode_err = fd_bpf_upgradeable_loader_program_instruction_decode( &instruction, &decode_ctx ) ) ) {
@@ -577,7 +575,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
     }
 
     /* Read the current data in the account */
-    uchar * buffer_acc_data = (uchar *)(ctx.global->allocf)(ctx.global->allocf_arg, 8UL, buffer_acc_metadata.dlen);
+    uchar * buffer_acc_data = fd_valloc_malloc( ctx.global->valloc, 8UL, buffer_acc_metadata.dlen );
     read_result = fd_acc_mgr_get_account_data( ctx.global->acc_mgr, ctx.global->funk_txn, buffer_acc, (uchar*)buffer_acc_data, sizeof(fd_account_meta_t), buffer_acc_metadata.dlen );
     if ( read_result != FD_ACC_MGR_SUCCESS ) {
       FD_LOG_WARNING(( "failed to read account data" ));

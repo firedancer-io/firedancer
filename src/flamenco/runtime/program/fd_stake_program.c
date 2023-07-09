@@ -271,8 +271,7 @@ int read_stake_config( fd_global_ctx_t* global, fd_stake_config_t* result ) {
   fd_bincode_decode_ctx_t ctx;
   ctx.data = raw_acc_data;
   ctx.dataend = raw_acc_data + metadata.dlen;
-  ctx.allocf = global->allocf;
-  ctx.allocf_arg = global->allocf_arg;
+  ctx.valloc  = global->valloc;
   if ( fd_stake_config_decode( result, &ctx ) ) {
     FD_LOG_WARNING(("fd_stake_config_decode failed"));
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
@@ -309,8 +308,7 @@ int read_stake_state( fd_global_ctx_t* global, fd_pubkey_t* stake_acc, fd_stake_
   fd_bincode_decode_ctx_t ctx;
   ctx.data = raw_acc_data;
   ctx.dataend = raw_acc_data + metadata.dlen;
-  ctx.allocf = global->allocf;
-  ctx.allocf_arg = global->allocf_arg;
+  ctx.valloc  = global->valloc;
   if ( fd_stake_state_decode( result, &ctx ) ) {
     FD_LOG_WARNING(("fd_stake_state_decode failed"));
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
@@ -332,7 +330,7 @@ int write_stake_state(
     }
 
     ulong encoded_stake_state_size = (is_new_account) ? STAKE_ACCOUNT_SIZE : fd_stake_state_size(stake_state);
-    uchar* encoded_stake_state = (uchar *)(global->allocf)( global->allocf_arg, 8UL, encoded_stake_state_size );
+    uchar* encoded_stake_state = fd_valloc_malloc( global->valloc, 8UL, encoded_stake_state_size );
     if (is_new_account) {
       fd_memset( encoded_stake_state, 0, encoded_stake_state_size );
     }
@@ -520,8 +518,7 @@ int fd_executor_stake_program_execute_instruction(
   fd_bincode_decode_ctx_t ctx2;
   ctx2.data = data;
   ctx2.dataend = &data[ctx.instr->data_sz];
-  ctx2.allocf = ctx.global->allocf;
-  ctx2.allocf_arg = ctx.global->allocf_arg;
+  ctx2.valloc  = ctx.global->valloc;
   if ( fd_stake_instruction_decode( &instruction, &ctx2 ) ) {
     FD_LOG_WARNING(("fd_stake_instruction_decode failed"));
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
@@ -559,7 +556,7 @@ int fd_executor_stake_program_execute_instruction(
     }
 
     /* Read the current data in the Stake account */
-    uchar *stake_acc_data = (uchar *)(ctx.global->allocf)(ctx.global->allocf_arg, 8UL, metadata.dlen);
+    uchar *stake_acc_data = fd_valloc_malloc( ctx.global->valloc, 8UL, metadata.dlen);
     read_result = fd_acc_mgr_get_account_data( ctx.global->acc_mgr, ctx.global->funk_txn, stake_acc, (uchar*)stake_acc_data, sizeof(fd_account_meta_t), metadata.dlen );
     if ( read_result != FD_ACC_MGR_SUCCESS ) {
       FD_LOG_WARNING(( "failed to read account data" ));
@@ -571,8 +568,7 @@ int fd_executor_stake_program_execute_instruction(
     fd_bincode_decode_ctx_t ctx3;
     ctx3.data = stake_acc_data;
     ctx3.dataend = &stake_acc_data[metadata.dlen];
-    ctx3.allocf = ctx.global->allocf;
-    ctx3.allocf_arg = ctx.global->allocf_arg;
+    ctx3.valloc  = ctx.global->valloc;
     if ( fd_stake_state_decode( &stake_state, &ctx3 ) ) {
       FD_LOG_WARNING(("fd_stake_state_decode failed"));
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
@@ -1201,8 +1197,7 @@ int fd_executor_stake_program_execute_instruction(
     fd_bincode_decode_ctx_t ctx4;
     ctx4.data = raw_acc_data;
     ctx4.dataend = raw_acc_data + metadata.dlen;
-    ctx4.allocf = ctx.global->allocf;
-    ctx4.allocf_arg = ctx.global->allocf_arg;
+    ctx4.valloc  = ctx.global->valloc;
     fd_stake_history_decode( &stake_history, &ctx4 );
 
     if (ctx.txn_ctx->txn_descriptor->acct_addr_cnt < 5) {
@@ -1233,7 +1228,7 @@ int fd_executor_stake_program_execute_instruction(
     }
 
     /* Read the current data in the Stake account */
-    uchar *stake_acc_data = (uchar *)(ctx.global->allocf)(ctx.global->allocf_arg, 8UL, stake_acc_metadata.dlen);
+    uchar * stake_acc_data = fd_valloc_malloc( ctx.global->valloc, 8UL, stake_acc_metadata.dlen );
     read_result = fd_acc_mgr_get_account_data( ctx.global->acc_mgr, ctx.global->funk_txn, stake_acc, (uchar*)stake_acc_data, sizeof(fd_account_meta_t), stake_acc_metadata.dlen );
     if ( read_result != FD_ACC_MGR_SUCCESS ) {
       FD_LOG_WARNING(( "failed to read stake account data" ));
@@ -1244,11 +1239,11 @@ int fd_executor_stake_program_execute_instruction(
     void* dataend          = (void*)&stake_acc_data[stake_acc_metadata.dlen];
 
     fd_stake_state_t stake_state;
-    fd_bincode_decode_ctx_t ctx5;
-    ctx5.data = input;
-    ctx5.dataend = dataend;
-    ctx5.allocf = ctx.global->allocf;
-    ctx5.allocf_arg = ctx.global->allocf_arg;
+    fd_bincode_decode_ctx_t ctx5 = {
+      .data    = input,
+      .dataend = dataend,
+      .valloc  = ctx.global->valloc
+    };
     fd_stake_state_decode( &stake_state, &ctx5 );
 
     ulong reserve_lamports = 0;
@@ -1438,9 +1433,7 @@ int fd_executor_stake_program_execute_instruction(
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
   }
 
-  fd_bincode_destroy_ctx_t ctx3;
-  ctx3.freef = ctx.global->freef;
-  ctx3.freef_arg = ctx.global->allocf_arg;
+  fd_bincode_destroy_ctx_t ctx3 = { .valloc = ctx.global->valloc };
   fd_stake_instruction_destroy( &instruction, &ctx3 );
 
   return FD_EXECUTOR_INSTR_SUCCESS;

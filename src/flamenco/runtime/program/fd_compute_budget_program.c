@@ -43,8 +43,7 @@ int fd_executor_compute_budget_program_execute_instructions( transaction_ctx_t *
     fd_bincode_decode_ctx_t decode_ctx = {
       .data = data,
       .dataend = &data[instr->data_sz],
-      .allocf = ctx->global->allocf,
-      .allocf_arg = ctx->global->allocf_arg
+      .valloc  = ctx->global->valloc,
     };
 
     int ret = fd_compute_budget_program_instruction_decode( &instruction, &decode_ctx );
