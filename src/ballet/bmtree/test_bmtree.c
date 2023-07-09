@@ -3,6 +3,7 @@
 #include "../../util/simd/fd_avx.h"
 #include "../base58/fd_base58.h"
 #include <stdio.h>
+#include <stdlib.h>
 
 FD_STATIC_ASSERT( FD_BMTREE20_HASH_SZ         ==  20UL, unit_test );
 FD_STATIC_ASSERT( FD_BMTREE20_COMMIT_ALIGN    ==  32UL, unit_test );
@@ -62,18 +63,6 @@ static void
 hash_leaf( fd_bmtree32_node_t * leaf,
            char const *         leaf_cstr ) {
   FD_TEST( fd_bmtree32_hash_leaf( leaf, leaf_cstr, strlen( leaf_cstr ) )==leaf );
-}
-
-uchar* local_allocf(ulong align, ulong len) {
-  ulong   sz = fd_ulong_align_up(sizeof(char *) + len + align, align);
-  uchar * ptr = malloc(sz);
-  uchar * ret = (uchar *) fd_ulong_align_up( (ulong) (ptr + sizeof(char *)), align );
-  *((uchar **)(ret - sizeof(char *))) = ptr;
-  return ret;
-}
-
-void local_freef(void *ptr) {
-  free(*((char **)((char *) ptr - sizeof(char *))));
 }
 
 int
@@ -140,7 +129,7 @@ main( int     argc,
 
   FD_TEST( fd_bmtree32_commit_leaf_cnt( tree )==leaf_cnt );
 
-  unsigned char *  mem = local_allocf(128UL, fd_wbmtree32_footprint(leaf_cnt));
+  uchar * mem = aligned_alloc( 128UL, fd_wbmtree32_footprint(leaf_cnt) );
   fd_wbmtree32_t * wide_bmtree = fd_wbmtree32_init(mem, leaf_cnt);
 
   // This is annoying.. that we are booting off a different format... lets revisit this..
@@ -152,13 +141,13 @@ main( int     argc,
     tsize += leafs[i].data_len + 1;
   }
 
-  unsigned char *cbuf = local_allocf(1UL, tsize);
+  unsigned char *cbuf = aligned_alloc( 1UL, tsize );
 
   fd_wbmtree32_append(wide_bmtree, leafs, leaf_cnt, cbuf);
   uchar *root2 = fd_wbmtree32_fini(wide_bmtree);
 
-  local_freef(mem);
-  local_freef(cbuf);
+  free( mem  );
+  free( cbuf );
 
   FD_TEST( memcmp(root, root2, 32) == 0 );
 
@@ -196,11 +185,11 @@ main( int     argc,
   dt += fd_log_wallclock();
   FD_LOG_NOTICE(( "%.3f ns/leaf @ %lu leaves  -- fd_bmtree32_ code path", (double)((float)dt / (float)leaf_cnt), leaf_cnt ));
 
-  mem = local_allocf(128UL, fd_wbmtree32_footprint(leaf_cnt));
+  mem = aligned_alloc( 128UL, fd_wbmtree32_footprint(leaf_cnt) );
   wide_bmtree = fd_wbmtree32_init(mem, leaf_cnt);
 
   // This is annoying.. that we are booting off a different format... lets revisit this..
-  fd_wbmtree32_leaf_t *leaf2 = (fd_wbmtree32_leaf_t *)local_allocf(128UL, sizeof(fd_wbmtree32_leaf_t) * leaf_cnt);
+  fd_wbmtree32_leaf_t *leaf2 = aligned_alloc( 128UL, sizeof(fd_wbmtree32_leaf_t) * leaf_cnt );
   tsize = 0;
   for (ulong i = 0; i < leaf_cnt; i++) {
     leaf2[i].data = (unsigned char *) &d[i*65];
@@ -208,17 +197,17 @@ main( int     argc,
     tsize += leaf2[i].data_len + 1;
   }
 
-  cbuf = local_allocf(1UL, tsize);
+  cbuf = aligned_alloc( 1UL, tsize );
   dt = -fd_log_wallclock();
   fd_wbmtree32_append(wide_bmtree, leaf2, leaf_cnt, cbuf);
   root2 = fd_wbmtree32_fini(wide_bmtree);
   dt += fd_log_wallclock();
   FD_LOG_NOTICE(( "%.3f ns/leaf @ %lu leaves  -- fd_wbmtree32_ code path", (double)((float)dt / (float)leaf_cnt), leaf_cnt ));
 
-  local_freef(mem);
-  local_freef(cbuf);
+  free( mem  );
+  free( cbuf );
 
-  char * sigs[] = { "3gHmkVTtVpPinzNGZE9C3Fjsao5T74yrENzkeJCwGUu2GZEhydvPQjWbtiwhPGnevkpfsyMHvTDNMpGf2YjPQNxa", 
+  char * sigs[] = { "3gHmkVTtVpPinzNGZE9C3Fjsao5T74yrENzkeJCwGUu2GZEhydvPQjWbtiwhPGnevkpfsyMHvTDNMpGf2YjPQNxa",
                     "KwpKjWrwxnV9H5ejWZ7WzX7h86xmAZEfQRFQHnsdKCdYAGXaeaVotkso9gM1tWSTk92asQF2Sy4ai8H3W3VeRxm",
                     "naDHRgKqqVDFvZb2RG7aVoHNZxGd1aY2HsDjEEYvfxQgjuEz5KeuKE6b2My2HNsxH2orpQB626sgAeMjgUN474a"
   };
@@ -238,14 +227,14 @@ main( int     argc,
 
   root = fd_bmtree32_commit_fini( tree );
 
-  mem = local_allocf(128UL, fd_wbmtree32_footprint(sigs_cnt));
+  mem = aligned_alloc( 128UL, fd_wbmtree32_footprint(sigs_cnt) );
   wide_bmtree = fd_wbmtree32_init(mem, sigs_cnt);
 
   // This is annoying.. that we are booting off a different format... lets revisit this..
-  leaf2 = (fd_wbmtree32_leaf_t *)local_allocf(128UL, sizeof(fd_wbmtree32_leaf_t) * sigs_cnt);
+  leaf2 = aligned_alloc( 128UL, sizeof(fd_wbmtree32_leaf_t) * sigs_cnt );
   tsize = 0;
   for (ulong i = 0; i < sigs_cnt; i++) {
-    unsigned char *buf = fd_alloca(1UL, 64UL);
+    uchar *buf = fd_alloca(1UL, 64UL);
     fd_base58_decode_64( sigs[i],  (unsigned char *) buf);
 
     leaf2[i].data = buf;;
@@ -253,7 +242,7 @@ main( int     argc,
     tsize += leaf2[i].data_len + 1;
   }
 
-  cbuf = local_allocf(1UL, tsize);
+  cbuf = aligned_alloc( 1UL, tsize );
   fd_wbmtree32_append(wide_bmtree, leaf2, sigs_cnt, cbuf);
   root2 = fd_wbmtree32_fini(wide_bmtree);
 

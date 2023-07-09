@@ -58,23 +58,6 @@ build/linux/gcc/x86_64/unit-test/test_runtime --wksp giant_wksp --gaddr 0xc7ce18
 #pragma GCC optimize ("O0")
 #endif
 
-#ifdef MALLOC_NOT_FDALLOC
-int fd_alloc_fprintf( fd_alloc_t * join, FILE *       stream );
-
-char* local_allocf(void * arg, ulong align, ulong len) {
-  (void)arg;
-  char * ptr = malloc(fd_ulong_align_up(sizeof(char *) + len, align));
-  char * ret = (char *) fd_ulong_align_up( (ulong) (ptr + sizeof(char *)), align );
-  *((char **)(ret - sizeof(char *))) = ptr;
-  return ret;
-}
-
-void local_freef(void * arg, void *ptr) {
-  (void)arg;
-  free(*((char **)((char *) ptr - sizeof(char *))));
-}
-#endif
-
 struct global_state {
   fd_global_ctx_t*    global;
 
@@ -121,7 +104,7 @@ int accounts_hash(global_state_t *state) {
 
   ulong zero_accounts = 0;
   ulong num_pairs = 0;
-  fd_pubkey_hash_pair_t * pairs = (fd_pubkey_hash_pair_t *) state->global->allocf(state->global->allocf_arg , 8UL, num_iter_accounts*sizeof(fd_pubkey_hash_pair_t));
+  fd_pubkey_hash_pair_t * pairs = fd_valloc_malloc( state->global->valloc, 8UL, num_iter_accounts*sizeof(fd_pubkey_hash_pair_t));
   for( fd_funk_rec_map_iter_t iter = fd_funk_rec_map_iter_init( rec_map );
        !fd_funk_rec_map_iter_done( rec_map, iter );
        iter = fd_funk_rec_map_iter_next( rec_map, iter ) ) {
@@ -171,10 +154,9 @@ int replay(global_state_t * state, int justverify, fd_tpool_t * tpool, ulong max
   if (val == NULL)
     FD_LOG_ERR(("corrupt meta record"));
   fd_bincode_decode_ctx_t ctx2;
-  ctx2.data = val;
+  ctx2.data    = val;
   ctx2.dataend = (uchar*)val + fd_funk_val_sz(rec);
-  ctx2.allocf = state->global->allocf;
-  ctx2.allocf_arg = state->global->allocf_arg;
+  ctx2.valloc  = state->global->valloc;
   if ( fd_slot_meta_meta_decode( &mm, &ctx2 ) )
     FD_LOG_ERR(("fd_slot_meta_meta_decode failed"));
 
@@ -216,8 +198,7 @@ int replay(global_state_t * state, int justverify, fd_tpool_t * tpool, ulong max
     fd_bincode_decode_ctx_t ctx3;
     ctx3.data = val;
     ctx3.dataend = (uchar*)val + fd_funk_val_sz(rec);
-    ctx3.allocf = state->global->allocf;
-    ctx3.allocf_arg = state->global->allocf_arg;
+    ctx3.valloc  = state->global->valloc;
     if ( fd_slot_meta_decode( &m, &ctx3 ) )
       FD_LOG_ERR(("fd_slot_meta_decode failed"));
 
@@ -238,9 +219,7 @@ int replay(global_state_t * state, int justverify, fd_tpool_t * tpool, ulong max
       FD_TEST (fd_runtime_block_eval( state->global, &m, val, fd_funk_val_sz(rec) ) == FD_RUNTIME_EXECUTE_SUCCESS);
     }
 
-    fd_bincode_destroy_ctx_t ctx;
-    ctx.freef = state->global->freef;
-    ctx.freef_arg = state->global->allocf_arg;
+    fd_bincode_destroy_ctx_t ctx = { .valloc = state->global->valloc };
     fd_slot_meta_destroy(&m, &ctx);
 
     if( slot == last_epoch_slot ) {
@@ -362,15 +341,15 @@ int main(int argc, char **argv) {
   if (NULL != log_level)
     state.global->log_level = (uchar) atoi(log_level);
 
+  fd_alloc_t * alloc = fd_alloc_join( fd_wksp_laddr_fast( wksp, state.global->funk->alloc_gaddr ), 0UL );
+  if( FD_UNLIKELY( !alloc ) ) FD_LOG_ERR(( "fd_alloc_join(gaddr=%#lx) failed", state.global->funk->alloc_gaddr ));
+
   state.global->wksp = wksp;
 #ifdef MALLOC_NOT_FDALLOC
-  state.global->allocf = (fd_alloc_fun_t)local_allocf;
-  state.global->freef = (fd_free_fun_t)local_freef;
+  state.global->valloc = fd_libc_alloc_virtual();
 #else
-  state.global->allocf = (fd_alloc_fun_t)fd_alloc_malloc;
-  state.global->freef = (fd_free_fun_t)fd_alloc_free;
+  state.global->valloc = fd_alloc_virtual( alloc );
 #endif
-  state.global->allocf_arg = fd_wksp_laddr_fast( wksp, state.global->funk->alloc_gaddr );
 
   if (NULL != state.persist) {
     FD_LOG_NOTICE(("using %s for persistence", state.persist));
@@ -404,8 +383,7 @@ int main(int argc, char **argv) {
     fd_bincode_decode_ctx_t ctx2;
     ctx2.data = val;
     ctx2.dataend = (uchar*)val + fd_funk_val_sz( rec );
-    ctx2.allocf = state.global->allocf;
-    ctx2.allocf_arg = state.global->allocf_arg;
+    ctx2.valloc  = state.global->valloc;
     if ( fd_firedancer_banks_decode(&state.global->bank, &ctx2 ) )
       FD_LOG_ERR(("failed to read banks record"));
 

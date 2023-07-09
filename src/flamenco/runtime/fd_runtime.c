@@ -50,7 +50,7 @@ fd_runtime_init_bank_from_genesis( fd_global_ctx_t * global, fd_genesis_solana_t
   global->bank.rent = genesis_block->rent;
 
   fd_block_block_hash_entry_t * hashes = global->bank.recent_block_hashes.hashes =
-    deq_fd_block_block_hash_entry_t_alloc( global->allocf, global->allocf_arg );
+    deq_fd_block_block_hash_entry_t_alloc( global->valloc );
   fd_block_block_hash_entry_t * elem = deq_fd_block_block_hash_entry_t_push_head_nocopy(hashes);
   fd_block_block_hash_entry_new(elem);
   fd_memcpy(elem->blockhash.hash, genesis_hash, FD_SHA256_HASH_SZ);
@@ -713,9 +713,7 @@ fd_global_ctx_delete     ( void * mem ) {
     return NULL;
   }
 
-  fd_bincode_destroy_ctx_t ctx;
-  ctx.freef = hdr->freef;
-  ctx.freef_arg = hdr->allocf_arg;
+  fd_bincode_destroy_ctx_t ctx = { .valloc = hdr->valloc };
   fd_firedancer_banks_destroy(&hdr->bank, &ctx);
 
   FD_COMPILER_MFENCE();
@@ -892,7 +890,7 @@ fd_runtime_save_banks( fd_global_ctx_t * global ) {
 static int
 fd_global_import_stakes(fd_global_ctx_t * global, fd_solana_manifest_t * manifest) {
   ulong raw_stakes_sz = fd_stakes_size( &manifest->bank.stakes );
-  void * raw_stakes = global->allocf( global->allocf_arg, 1UL, raw_stakes_sz );
+  void * raw_stakes = fd_valloc_malloc( global->valloc, 1UL, raw_stakes_sz );
   fd_memset( raw_stakes, 0, raw_stakes_sz );
 
   fd_bincode_encode_ctx_t encode_ctx = {
@@ -907,8 +905,7 @@ fd_global_import_stakes(fd_global_ctx_t * global, fd_solana_manifest_t * manifes
     .data    = raw_stakes,
     .dataend = (void const *)( (ulong)raw_stakes + raw_stakes_sz ),
     /* TODO: Make this a instruction-scoped allocator */
-    .allocf     = global->allocf,
-    .allocf_arg = global->allocf_arg
+    .valloc  = global->valloc,
   };
   if( FD_UNLIKELY( 0!=fd_stakes_decode( &global->bank.stakes, &decode_ctx ) ) ) {
     FD_LOG_ERR(( "fd_stakes_decode failed" ));
@@ -926,8 +923,7 @@ fd_global_import_stakes(fd_global_ctx_t * global, fd_solana_manifest_t * manifes
       .data    = n->elem.value.data,
       .dataend = (void const *)( (ulong) n->elem.value.data +  n->elem.value.data_len ),
       /* TODO: Make this a instruction-scoped allocator */
-      .allocf     = global->allocf,
-      .allocf_arg = global->allocf_arg
+      .valloc  = global->valloc,
     };
 
     fd_vote_state_versioned_t vote_state_versioned;
@@ -954,16 +950,14 @@ fd_global_import_stakes(fd_global_ctx_t * global, fd_solana_manifest_t * manifes
     record_timestamp_vote_with_slot( global, &n->elem.key, vote_state_timestamp.timestamp, vote_state_timestamp.slot );
   }
 
-  global->freef( global->allocf_arg, raw_stakes );
+  fd_valloc_free( global->valloc, raw_stakes );
 
   return 0;
 }
 
 int fd_global_import_solana_manifest(fd_global_ctx_t * global, fd_solana_manifest_t * manifest) {
   /* Clean out prior bank */
-  fd_bincode_destroy_ctx_t ctx;
-  ctx.freef = global->freef;
-  ctx.freef_arg = global->allocf_arg;
+  fd_bincode_destroy_ctx_t ctx = { .valloc = global->valloc };
   fd_firedancer_banks_t * bank = &global->bank;
   fd_firedancer_banks_destroy(bank, &ctx);
   fd_firedancer_banks_new(bank);
@@ -1011,8 +1005,7 @@ void fd_update_feature(FD_FN_UNUSED fd_global_ctx_t * global, ulong * f, const c
   fd_bincode_decode_ctx_t ctx = {
     .data = raw_acc_data + m->hlen,
     .dataend = (char *) ctx.data + m->dlen,
-    .allocf = global->allocf,
-    .allocf_arg = global->allocf_arg,
+    .valloc  = global->valloc,
   };
   if ( fd_feature_decode( &feature, &ctx ) )
     return;
@@ -1020,8 +1013,6 @@ void fd_update_feature(FD_FN_UNUSED fd_global_ctx_t * global, ulong * f, const c
   if (NULL != feature.activated_at)
     *f = *feature.activated_at;
 
-  fd_bincode_destroy_ctx_t ctx3;
-  ctx3.freef = global->freef;
-  ctx3.freef_arg = global->allocf_arg;
-  fd_feature_destroy( &feature, &ctx3 );
+  fd_bincode_destroy_ctx_t destroy = { .valloc = global->valloc };
+  fd_feature_destroy( &feature, &destroy );
 }

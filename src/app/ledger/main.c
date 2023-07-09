@@ -57,7 +57,7 @@ struct SnapshotParser {
 };
 
 void SnapshotParser_init(struct SnapshotParser* self, fd_global_ctx_t* global, int uncache) {
-  fd_tar_stream_init(&self->tarreader_, global->allocf, global->allocf_arg, global->freef);
+  fd_tar_stream_init( &self->tarreader_, global->valloc );
   size_t tmpsize = 1<<30;
   self->tmpstart_ = self->tmpcur_ = (char*)malloc(tmpsize);
   self->tmpend_ = self->tmpstart_ + tmpsize;
@@ -72,11 +72,9 @@ void SnapshotParser_init(struct SnapshotParser* self, fd_global_ctx_t* global, i
 void SnapshotParser_destroy(struct SnapshotParser* self) {
   if (self->manifest_) {
     fd_global_ctx_t* global = self->global_;
-    fd_bincode_destroy_ctx_t ctx;
-    ctx.freef = global->freef;
-    ctx.freef_arg = global->allocf_arg;
+    fd_bincode_destroy_ctx_t ctx = { .valloc = global->valloc };
     fd_solana_manifest_destroy(self->manifest_, &ctx);
-    global->freef(global->allocf_arg, self->manifest_);
+    fd_valloc_free( global->valloc, self->manifest_ );
     self->manifest_ = NULL;
   }
 
@@ -134,15 +132,13 @@ void SnapshotParser_parsefd_solana_accounts(struct SnapshotParser* self, const c
 void SnapshotParser_parseSnapshots(struct SnapshotParser* self, const void* data, size_t datalen) {
   fd_global_ctx_t* global = self->global_;
 
-  self->manifest_ = (fd_solana_manifest_t*)
-    global->allocf(global->allocf_arg, FD_SOLANA_MANIFEST_ALIGN, FD_SOLANA_MANIFEST_FOOTPRINT);
+  self->manifest_ = fd_valloc_malloc( global->valloc, FD_SOLANA_MANIFEST_ALIGN, FD_SOLANA_MANIFEST_FOOTPRINT );
   memset(self->manifest_, 0, FD_SOLANA_MANIFEST_FOOTPRINT);
   fd_solana_manifest_new(self->manifest_);
   fd_bincode_decode_ctx_t ctx;
   ctx.data = data;
   ctx.dataend = (const char*)data + datalen;
-  ctx.allocf = global->allocf;
-  ctx.allocf_arg = global->allocf_arg;
+  ctx.valloc  = global->valloc;
   if ( fd_solana_manifest_decode(self->manifest_, &ctx) )
     FD_LOG_ERR(("fd_solana_manifest_decode failed"));
 
@@ -307,7 +303,7 @@ void ingest_rocksdb( fd_global_ctx_t * global, const char* file, ulong end_slot,
   if (rec == NULL)
     FD_LOG_ERR(("funky insert failed with code %d", ret));
   ulong sz = fd_slot_meta_meta_size(&mm);
-  rec = fd_funk_val_truncate( rec, sz, global->allocf_arg, global->wksp, &ret );
+  rec = fd_funk_val_truncate( rec, sz, (fd_alloc_t *)global->valloc.self, global->wksp, &ret );
   if (rec == NULL)
     FD_LOG_ERR(("funky insert failed with code %d", ret));
   void * val = fd_funk_val( rec, global->wksp );
@@ -324,7 +320,7 @@ void ingest_rocksdb( fd_global_ctx_t * global, const char* file, ulong end_slot,
   fd_slot_meta_t m;
   fd_memset(&m, 0, sizeof(m));
 
-  ret = fd_rocksdb_root_iter_seek ( &iter, &rocks_db, start_slot, &m, global->allocf, global->allocf_arg);
+  ret = fd_rocksdb_root_iter_seek( &iter, &rocks_db, start_slot, &m, global->valloc );
   if (ret < 0)
     FD_LOG_ERR(("fd_rocksdb_root_iter_seek returned %d", ret));
 
@@ -334,37 +330,57 @@ void ingest_rocksdb( fd_global_ctx_t * global, const char* file, ulong end_slot,
     if (slot >= end_slot)
       break;
 
+    /* Insert block metadata */
+
     key = fd_runtime_block_meta_key(slot);
     rec = fd_funk_rec_modify( global->funk, fd_funk_rec_insert( global->funk, NULL, &key, &ret ) );
-    if (rec == NULL)
-      FD_LOG_ERR(("funky insert failed with code %d", ret));
-    sz = fd_slot_meta_size(&m);
-    rec = fd_funk_val_truncate( rec, sz, global->allocf_arg, global->wksp, &ret );
-    if (rec == NULL)
-      FD_LOG_ERR(("funky insert failed with code %d", ret));
+    if( FD_UNLIKELY( !rec ) ) FD_LOG_ERR(( "fd_funk_rec_modify failed with code %d", ret ));
+    sz  = fd_slot_meta_size(&m);
+    rec = fd_funk_val_truncate( rec, sz, (fd_alloc_t *)global->valloc.self, global->wksp, &ret );
+    if( FD_UNLIKELY( !rec ) ) FD_LOG_ERR(( "fd_funk_val_truncate failed with code %d", ret ));
     val = fd_funk_val( rec, global->wksp );
     fd_bincode_encode_ctx_t ctx2;
     ctx2.data = val;
     ctx2.dataend = (uchar *)val + sz;
-    if ( fd_slot_meta_encode( &m, &ctx2 ) )
-      FD_LOG_ERR(("fd_slot_meta_encode failed"));
+    FD_TEST( fd_slot_meta_encode( &m, &ctx2 ) == FD_BINCODE_SUCCESS );
     fd_funk_rec_persist( global->funk, rec );
 
+    /* Read and deshred block from RocksDB */
+
     ulong block_sz;
-    void* block = fd_rocksdb_get_block(&rocks_db, &m, global->allocf, global->allocf_arg, &block_sz);
-    if (block == NULL)
-      FD_LOG_ERR(("failed to get block data"));
+    void* block = fd_rocksdb_get_block(&rocks_db, &m, global->valloc, &block_sz);
+    if( FD_UNLIKELY( !block ) ) FD_LOG_ERR(( "fd_rocksdb_get_block failed" ));
+
+    /* Insert block to funky */
 
     key = fd_runtime_block_key(slot);
     rec = fd_funk_rec_modify( global->funk, fd_funk_rec_insert( global->funk, NULL, &key, &ret ) );
-    if (rec == NULL)
-      FD_LOG_ERR(("funky insert failed with code %d", ret));
-    rec = fd_funk_val_truncate( rec, block_sz, global->allocf_arg, global->wksp, &ret );
-    if (rec == NULL)
-      FD_LOG_ERR(("funky insert failed with code %d", ret));
+    if( FD_UNLIKELY( !rec ) ) FD_LOG_ERR(( "fd_funk_rec_modify failed with code %d", ret ));
+    /* TODO messy valloc => alloc upcast */
+    rec = fd_funk_val_truncate( rec, block_sz, global->valloc.self, global->wksp, &ret );
+    if( FD_UNLIKELY( !rec ) ) FD_LOG_ERR(( "fd_funk_val_truncate failed with code %d", ret ));
     fd_memcpy( fd_funk_val( rec, global->wksp ), block, block_sz );
     fd_funk_rec_persist( global->funk, rec );
     fd_funk_val_uncache( global->funk, rec );
+
+    /* Read bank hash from RocksDB */
+
+    fd_hash_t hash;
+    if( FD_UNLIKELY( !fd_rocksdb_get_bank_hash( &rocks_db, m.slot, hash.hash ) ) ) {
+      FD_LOG_WARNING(( "fd_rocksdb_get_bank_hash failed for slot %lu", m.slot ));
+    } else {
+      /* Insert bank hash to funky */
+      key = fd_runtime_bank_hash_key( slot );
+      rec = fd_funk_rec_modify( global->funk, fd_funk_rec_insert( global->funk, NULL, &key, &ret ) );
+      if( FD_UNLIKELY( !rec ) ) FD_LOG_ERR(( "fd_funk_rec_modify failed with code %d", ret ));
+      sz  = sizeof(fd_hash_t);
+      rec = fd_funk_val_truncate( rec, sz, (fd_alloc_t *)global->valloc.self, global->wksp, &ret );
+      if( FD_UNLIKELY( !rec ) ) FD_LOG_ERR(( "fd_funk_val_truncate failed with code %d", ret ));
+      memcpy( fd_funk_val( rec, global->wksp ), hash.hash, sizeof(fd_hash_t) );
+      fd_funk_rec_persist( global->funk, rec );
+      fd_funk_val_uncache( global->funk, rec );
+      FD_LOG_DEBUG(( "slot=%lu bank_hash=%32J", slot, hash.hash ));
+    }
 
     // FD_LOG_NOTICE(("slot %lu: block size %lu", slot, block_sz));
     ++blk_cnt;
@@ -376,13 +392,11 @@ void ingest_rocksdb( fd_global_ctx_t * global, const char* file, ulong end_slot,
         fd_runtime_block_verify( global, &m, block, block_sz );
     }
 
-    global->freef(global->allocf_arg, block);
-    fd_bincode_destroy_ctx_t ctx;
-    ctx.freef = global->freef;
-    ctx.freef_arg = global->allocf_arg;
+    fd_valloc_free( global->valloc, block );
+    fd_bincode_destroy_ctx_t ctx = { .valloc = global->valloc };
     fd_slot_meta_destroy(&m, &ctx);
 
-    ret = fd_rocksdb_root_iter_next ( &iter, &m, global->allocf, global->allocf_arg);
+    ret = fd_rocksdb_root_iter_next( &iter, &m, global->valloc );
     if (ret < 0)
       FD_LOG_ERR(("fd_rocksdb_root_iter_seek returned %d", ret));
   } while (1);
@@ -427,7 +441,8 @@ int main(int argc, char** argv) {
 
   fd_funk_t* funk;
 
-  const char* cmd = fd_env_strip_cmdline_cstr(&argc, &argv, "--cmd", NULL, NULL);
+  const char* cmd = fd_env_strip_cmdline_cstr( &argc, &argv, "--cmd", NULL, NULL );
+  if( FD_UNLIKELY( !cmd ) ) FD_LOG_ERR(( "no command specified" ));
   const char* verifyfunky = fd_env_strip_cmdline_cstr(&argc, &argv, "--verifyfunky", NULL, "false");
 
   const char* gaddr = fd_env_strip_cmdline_cstr(&argc, &argv, "--gaddr", NULL, NULL);
@@ -475,11 +490,13 @@ int main(int argc, char** argv) {
   memset(global_mem, 0, sizeof(global_mem));
   fd_global_ctx_t * global = fd_global_ctx_join( fd_global_ctx_new( global_mem ) );
 
+  fd_alloc_t * alloc = fd_alloc_join( fd_wksp_laddr_fast( wksp, funk->alloc_gaddr ), 0UL );
+  if( FD_UNLIKELY( !alloc ) ) FD_LOG_ERR(( "fd_alloc_join(gaddr=%#lx) failed", funk->alloc_gaddr ));
+  /* TODO leave */
+
   global->wksp = wksp;
   global->funk = funk;
-  global->allocf = (fd_alloc_fun_t)fd_alloc_malloc;
-  global->freef = (fd_free_fun_t)fd_alloc_free;
-  global->allocf_arg = fd_wksp_laddr_fast( wksp, funk->alloc_gaddr );
+  global->valloc = fd_alloc_virtual( alloc );
 
   char acc_mgr_mem[FD_ACC_MGR_FOOTPRINT] __attribute__((aligned(FD_ACC_MGR_ALIGN)));
   memset(acc_mgr_mem, 0, sizeof(acc_mgr_mem));
@@ -564,10 +581,9 @@ int main(int argc, char** argv) {
       fd_account_meta_t *m = (fd_account_meta_t *) raw_acc_data;
 
       fd_bincode_decode_ctx_t ctx = {
-        .data = raw_acc_data + m->hlen,
-        .dataend = (char *) ctx.data + m->dlen,
-        .allocf = global->allocf,
-        .allocf_arg = global->allocf_arg,
+        .data       = raw_acc_data + m->hlen,
+        .dataend    = (char *) ctx.data + m->dlen,
+        .valloc     = global->valloc
       };
 
       fd_recent_block_hashes_decode( &global->bank.recent_block_hashes, &ctx );
@@ -591,10 +607,9 @@ int main(int argc, char** argv) {
       fd_genesis_solana_t genesis_block;
       fd_genesis_solana_new(&genesis_block);
       fd_bincode_decode_ctx_t ctx;
-      ctx.data = buf;
+      ctx.data    = buf;
       ctx.dataend = &buf[n];
-      ctx.allocf = global->allocf;
-      ctx.allocf_arg = global->allocf_arg;
+      ctx.valloc  = global->valloc;
       if ( fd_genesis_solana_decode(&genesis_block, &ctx) )
         FD_LOG_ERR(("fd_genesis_solana_decode failed"));
 
@@ -628,9 +643,7 @@ int main(int argc, char** argv) {
 
       fd_runtime_save_banks( global );
 
-      fd_bincode_destroy_ctx_t ctx2;
-      ctx2.freef = global->freef;
-      ctx2.freef_arg = global->allocf_arg;
+      fd_bincode_destroy_ctx_t ctx2 = { .valloc = global->valloc };
       fd_genesis_solana_destroy(&genesis_block, &ctx2);
     }
 

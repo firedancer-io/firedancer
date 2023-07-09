@@ -36,23 +36,27 @@ typedef struct fd_rocksdb_root_iter fd_rocksdb_root_iter_t;
 FD_PROTOTYPES_BEGIN
 
 void *
-fd_rocksdb_root_iter_new     ( void * );
+fd_rocksdb_root_iter_new( void * shiter );
 
 fd_rocksdb_root_iter_t *
-fd_rocksdb_root_iter_join    ( void * );
+fd_rocksdb_root_iter_join( void * iter );
 
 void *
-fd_rocksdb_root_iter_leave   ( fd_rocksdb_root_iter_t * );
+fd_rocksdb_root_iter_leave( fd_rocksdb_root_iter_t * iter );
 
 /* fd_rocksdb_root_iter_seek
 
     0 = success
    -1 = seek for supplied slot failed
    -2 = seek succeeded but slot did not match what we seeked for
-   -3 = seek succeeded but points at an empty slot
-*/
+   -3 = seek succeeded but points at an empty slot */
+
 int
-fd_rocksdb_root_iter_seek    ( fd_rocksdb_root_iter_t *, fd_rocksdb_t * db, ulong slot, fd_slot_meta_t *m, fd_alloc_fun_t allocf, void* allocf_arg );
+fd_rocksdb_root_iter_seek( fd_rocksdb_root_iter_t * iter,
+                           fd_rocksdb_t *           db,
+                           ulong                    slot,
+                           fd_slot_meta_t *         m,
+                           fd_valloc_t              valloc );
 
 /*  fd_rocksdb_root_iter_next
 
@@ -60,35 +64,35 @@ fd_rocksdb_root_iter_seek    ( fd_rocksdb_root_iter_t *, fd_rocksdb_t * db, ulon
    -1 = not properly initialized with a seek
    -2 = invalid starting iterator
    -3 = next returned an invalid iterator state
-   -4 = seek succeeded but points at an empty slot
- */
+   -4 = seek succeeded but points at an empty slot */
 
 int
-fd_rocksdb_root_iter_next    ( fd_rocksdb_root_iter_t *, fd_slot_meta_t *m, fd_alloc_fun_t allocf, void* allocf_arg );
+fd_rocksdb_root_iter_next( fd_rocksdb_root_iter_t * iter,
+                           fd_slot_meta_t *         m,
+                           fd_valloc_t              valloc );
 
 int
-fd_rocksdb_root_iter_slot  ( fd_rocksdb_root_iter_t * self , ulong *slot);
+fd_rocksdb_root_iter_slot( fd_rocksdb_root_iter_t * self,
+                           ulong *                  slot );
 
 void
-fd_rocksdb_root_iter_destroy ( fd_rocksdb_root_iter_t * );
+fd_rocksdb_root_iter_destroy( fd_rocksdb_root_iter_t * iter );
 
 /* fd_rocksdb_init: Returns a pointer to a description of the error on failure
 
   The provided db_name needs to point at the actual rocksdb directory
-  as apposed to the directory above (like the solana ledger-tool)
-*/
-char * fd_rocksdb_init(
-    fd_rocksdb_t *db,
-    const char *db_name
-);
+  as apposed to the directory above (like the solana ledger-tool) */
+
+char *
+fd_rocksdb_init( fd_rocksdb_t * db,
+                 char const *   db_name );
 
 /* fd_rocksdb_destroy
 
-   Frees up the internal data structures
-*/
-void fd_rocksdb_destroy(
-    fd_rocksdb_t *db
-);
+   Frees up the internal data structures */
+
+void
+fd_rocksdb_destroy( fd_rocksdb_t * db );
 
 /* fd_rocksdb_last_slot:  Returns the last slot in the db
 
@@ -118,21 +122,18 @@ ulong fd_rocksdb_first_slot(
    there is an error, *err is set to a string describing the error.
    It is expected that you should free() the error once done with it
 
-   returns a 0 if there is no obvious error
-*/
-int fd_rocksdb_get_meta(
-    fd_rocksdb_t *db,
-    ulong slot,
-    fd_slot_meta_t *m,
-    fd_alloc_fun_t allocf,
-    void* allocf_arg
-);
+   returns a 0 if there is no obvious error */
+int
+fd_rocksdb_get_meta( fd_rocksdb_t *   db,
+                     ulong            slot,
+                     fd_slot_meta_t * m,
+                     fd_valloc_t      valloc );
 
-void* fd_rocksdb_get_block(fd_rocksdb_t* db,
-                           fd_slot_meta_t* m,
-                           fd_alloc_fun_t allocf,
-                           void* allocf_arg,
-                           ulong* result_sz);
+void *
+fd_rocksdb_get_block( fd_rocksdb_t *   db,
+                      fd_slot_meta_t * m,
+                      fd_valloc_t      valloc,
+                      ulong *          result_sz );
 
 /* fd_rocksdb_get_bank_hash looks up the bank hash for the given slot.
    Writes the hash to out on success and returns out.  On failure, the

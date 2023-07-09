@@ -93,7 +93,11 @@ ulong fd_rocksdb_first_slot(fd_rocksdb_t *db, char **err) {
   return slot;
 }
 
-int fd_rocksdb_get_meta(fd_rocksdb_t *db, ulong slot, fd_slot_meta_t *m, fd_alloc_fun_t allocf, void* allocf_arg) {
+int
+fd_rocksdb_get_meta( fd_rocksdb_t *   db,
+                     ulong            slot,
+                     fd_slot_meta_t * m,
+                     fd_valloc_t      valloc ) {
   ulong ks = fd_ulong_bswap(slot);
   size_t vallen = 0;
 
@@ -113,8 +117,7 @@ int fd_rocksdb_get_meta(fd_rocksdb_t *db, ulong slot, fd_slot_meta_t *m, fd_allo
   fd_bincode_decode_ctx_t ctx;
   ctx.data = meta;
   ctx.dataend = &meta[vallen];
-  ctx.allocf = allocf;
-  ctx.allocf_arg = allocf_arg;
+  ctx.valloc  = valloc;
   if ( fd_slot_meta_decode(m, &ctx) )
     FD_LOG_ERR(("fd_slot_meta_decode failed"));
 
@@ -123,7 +126,11 @@ int fd_rocksdb_get_meta(fd_rocksdb_t *db, ulong slot, fd_slot_meta_t *m, fd_allo
   return 0;
 }
 
-void* fd_rocksdb_get_block(fd_rocksdb_t* db, fd_slot_meta_t* m, fd_alloc_fun_t allocf, void* allocf_arg, ulong* result_sz) {
+void *
+fd_rocksdb_get_block( fd_rocksdb_t *   db,
+                      fd_slot_meta_t * m,
+                      fd_valloc_t      valloc,
+                      ulong *          result_sz ) {
   ulong slot = m->slot;
   ulong start_idx = 0;
   ulong end_idx = m->received;
@@ -137,7 +144,7 @@ void* fd_rocksdb_get_block(fd_rocksdb_t* db, fd_slot_meta_t* m, fd_alloc_fun_t a
   rocksdb_iter_seek(iter, (const char *) k, sizeof(k));
 
   ulong bufsize = m->consumed * 1500;
-  void* buf = allocf(allocf_arg, 1, bufsize);
+  void* buf = fd_valloc_malloc( valloc, 1UL, bufsize);
 
   fd_deshredder_t deshred;
   fd_deshredder_init(&deshred, buf, bufsize, NULL, 0);
@@ -217,7 +224,11 @@ fd_rocksdb_root_iter_leave   ( fd_rocksdb_root_iter_t * ptr ) {
 }
 
 int
-fd_rocksdb_root_iter_seek    ( fd_rocksdb_root_iter_t * self, fd_rocksdb_t * db, ulong slot, fd_slot_meta_t *m, fd_alloc_fun_t allocf, void* allocf_arg ) {
+fd_rocksdb_root_iter_seek( fd_rocksdb_root_iter_t * self,
+                           fd_rocksdb_t *           db,
+                           ulong                    slot,
+                           fd_slot_meta_t *         m,
+                           fd_valloc_t              valloc ) {
   self->db = db;
 
   if (NULL == self->iter)
@@ -236,7 +247,7 @@ fd_rocksdb_root_iter_seek    ( fd_rocksdb_root_iter_t * self, fd_rocksdb_t * db,
   if (kslot != slot)
     return -2;
 
-  return fd_rocksdb_get_meta(self->db, slot, m, allocf, allocf_arg);
+  return fd_rocksdb_get_meta( self->db, slot, m, valloc );
 }
 
 int
@@ -254,7 +265,9 @@ fd_rocksdb_root_iter_slot  ( fd_rocksdb_root_iter_t * self, ulong *slot ) {
 }
 
 int
-fd_rocksdb_root_iter_next    ( fd_rocksdb_root_iter_t * self, fd_slot_meta_t *m, fd_alloc_fun_t allocf, void* allocf_arg ) {
+fd_rocksdb_root_iter_next( fd_rocksdb_root_iter_t * self,
+                           fd_slot_meta_t *         m,
+                           fd_valloc_t              valloc ) {
   if ((NULL == self->db) || (NULL == self->iter))
     return -1;
 
@@ -269,7 +282,7 @@ fd_rocksdb_root_iter_next    ( fd_rocksdb_root_iter_t * self, fd_slot_meta_t *m,
   size_t klen = 0;
   const char *key = rocksdb_iter_key(self->iter, &klen); // There is no need to free key
 
-  return fd_rocksdb_get_meta(self->db, fd_ulong_bswap(*((unsigned long *) key)), m, allocf, allocf_arg);
+  return fd_rocksdb_get_meta( self->db, fd_ulong_bswap(*((unsigned long *) key)), m, valloc );
 }
 
 void
@@ -304,18 +317,14 @@ fd_rocksdb_get_bank_hash( fd_rocksdb_t * self,
     return NULL;
   }
 
-  /* Create scratch allocator.  No need to free. */
-  uchar arena[ 1024UL ] __attribute__((aligned(FD_ALLOC_ALIGN)));
-  fd_alloc_t * alloc = fd_alloc_join( fd_alloc_new( arena, 0UL ), 0UL );
+  fd_scratch_push();
 
   void * retval = NULL;
 
   fd_bincode_decode_ctx_t decode = {
-    .data       = res,
-    .dataend    = res + vallen,
-    /* FIXME ugly cast */
-    .allocf     = (fd_alloc_fun_t)fd_alloc_malloc,
-    .allocf_arg = alloc
+    .data    = res,
+    .dataend = res + vallen,
+    .valloc  = fd_scratch_virtual(),
   };
   fd_frozen_hash_versioned_t versioned;
   int decode_err = fd_frozen_hash_versioned_decode( &versioned, &decode );
@@ -329,6 +338,6 @@ fd_rocksdb_get_bank_hash( fd_rocksdb_t * self,
   retval = out;
 
 cleanup:
-  fd_alloc_delete( fd_alloc_leave( alloc ) );
+  fd_scratch_pop();
   return retval;
 }

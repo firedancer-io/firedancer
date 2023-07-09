@@ -18,9 +18,7 @@ struct __attribute__((aligned(FD_GLOBAL_CTX_ALIGN))) fd_global_ctx {
 
   ulong                      magic;       /* ==FD_GLOBAL_CTX_MAGIC */
 
-  fd_alloc_fun_t             allocf;
-  void *                     allocf_arg;
-  fd_free_fun_t              freef;
+  fd_valloc_t                valloc;
   fd_acc_mgr_t*              acc_mgr;
 
   fd_rng_t                   rnd_mem;
@@ -76,6 +74,16 @@ typedef struct fd_global_ctx fd_global_ctx_t;
 #define FD_GLOBAL_CTX_FOOTPRINT ( sizeof(fd_global_ctx_t) )
 #define FD_GLOBAL_CTX_MAGIC (0xBBB3CB3B91A2FB96UL) /* random */
 
+#define FD_ACC_MGR_KEY_TYPE ((uchar)0)
+#define FD_BLOCK_KEY_TYPE ((uchar)1)
+#define FD_BLOCK_META_KEY_TYPE ((uchar)2)
+
+/* FD_BLOCK_BANKS_TYPE stores fd_firedancer_banks_t bincode encoded */
+#define FD_BLOCK_BANKS_TYPE ((uchar)3)
+
+/* FD_BANK_HASH_TYPE stores the bank hash of each slot */
+#define FD_BANK_HASH_TYPE ((uchar)4)
+
 FD_PROTOTYPES_BEGIN
 
 void *            fd_global_ctx_new        ( void * );
@@ -104,16 +112,19 @@ fd_funk_rec_key_t fd_runtime_block_key     (ulong slot);
 fd_funk_rec_key_t fd_runtime_block_meta_key(ulong slot);
 fd_funk_rec_key_t fd_runtime_banks_key     (void);
 
+static inline fd_funk_rec_key_t
+fd_runtime_bank_hash_key( ulong slot ) {
+  fd_funk_rec_key_t id = {0};
+  id.ul[ 0 ] = slot;
+  id.c[ FD_FUNK_REC_KEY_FOOTPRINT - 1 ] = FD_BANK_HASH_TYPE;
+  return id;
+}
+
 int               fd_pubkey_create_with_seed(fd_pubkey_t const * base, char const * seed, fd_pubkey_t const *owner, fd_pubkey_t *out );
 
 int               fd_runtime_save_banks    ( fd_global_ctx_t *global );
 int               fd_global_import_solana_manifest(fd_global_ctx_t *global, fd_solana_manifest_t* manifest);
 
 FD_PROTOTYPES_END
-
-#define FD_ACC_MGR_KEY_TYPE ((uchar)0)
-#define FD_BLOCK_KEY_TYPE ((uchar)1)
-#define FD_BLOCK_META_KEY_TYPE ((uchar)2)
-#define FD_BLOCK_BANKS_TYPE ((uchar)3)
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_runtime_h */
