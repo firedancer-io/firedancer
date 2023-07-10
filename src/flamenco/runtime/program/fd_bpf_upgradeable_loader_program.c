@@ -441,29 +441,30 @@ int fd_executor_bpf_upgradeable_loader_program_execute_program_instruction( inst
     FD_LOG_ERR(( "fd_vm_interp_instrs() failed: %lu", interp_res ));
   }
 
-  FILE * trace_fd = fopen("trace.log", "w");
-  for( ulong i = 0; i < trace_used; i++ ) {
-    fd_vm_trace_entry_t trace_ent = trace[i];
-    fprintf(trace_fd, "%5lu [%016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX] %5lu: ",
-        trace_ent.ic,
-        trace_ent.register_file[0],
-        trace_ent.register_file[1],
-        trace_ent.register_file[2],
-        trace_ent.register_file[3],
-        trace_ent.register_file[4],
-        trace_ent.register_file[5],
-        trace_ent.register_file[6],
-        trace_ent.register_file[7],
-        trace_ent.register_file[8],
-        trace_ent.register_file[9],
-        trace_ent.register_file[10],
-        trace_ent.pc+29 /* FIXME: THIS OFFSET IS FOR TESTING ONLY */
-      );
-    fd_vm_disassemble_instr(&vm_ctx.instrs[trace[i].pc], trace[i].pc, vm_ctx.syscall_map, vm_ctx.local_call_map, trace_fd);
+  // TODO: make tracing an option!
+  // FILE * trace_fd = fopen("trace.log", "w");
+  // for( ulong i = 0; i < trace_used; i++ ) {
+  //   fd_vm_trace_entry_t trace_ent = trace[i];
+  //   fprintf(trace_fd, "%5lu [%016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX] %5lu: ",
+  //       trace_ent.ic,
+  //       trace_ent.register_file[0],
+  //       trace_ent.register_file[1],
+  //       trace_ent.register_file[2],
+  //       trace_ent.register_file[3],
+  //       trace_ent.register_file[4],
+  //       trace_ent.register_file[5],
+  //       trace_ent.register_file[6],
+  //       trace_ent.register_file[7],
+  //       trace_ent.register_file[8],
+  //       trace_ent.register_file[9],
+  //       trace_ent.register_file[10],
+  //       trace_ent.pc+29 /* FIXME: THIS OFFSET IS FOR TESTING ONLY */
+  //     );
+  //   fd_vm_disassemble_instr(&vm_ctx.instrs[trace[i].pc], trace[i].pc, vm_ctx.syscall_map, vm_ctx.local_call_map, trace_fd);
 
-    fprintf(trace_fd, "\n");
-  }
-  fclose(trace_fd);
+  //   fprintf(trace_fd, "\n");
+  // }
+  // fclose(trace_fd);
   free(trace);
 
   free( fd_sbpf_program_delete( prog ) );

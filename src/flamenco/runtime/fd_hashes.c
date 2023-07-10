@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include "../../ballet/base58/fd_base58.h"
 #include "fd_runtime.h"
+#include "fd_account.h"
 
 #define SORT_NAME sort_pubkey_hash_pair
 #define SORT_KEY_T fd_pubkey_hash_pair_t
@@ -66,12 +67,29 @@ fd_hash_account_deltas(fd_global_ctx_t *global, fd_pubkey_hash_pair_t * pairs, u
       fd_acc_mgr_get_owner( global->acc_mgr, global->funk_txn, &pairs[i].pubkey, &current_owner );
       char encoded_owner[50];
       fd_base58_encode_32((uchar *) &current_owner, 0, encoded_owner);
+      
+      uchar * raw_acc_data = (uchar*) fd_acc_mgr_view_data(global->acc_mgr, global->funk_txn, (fd_pubkey_t *) &pairs[i].pubkey, NULL, NULL);
+      if (NULL == raw_acc_data)
+        return;
+      fd_account_meta_t * metadata = (fd_account_meta_t *)raw_acc_data;
+      uchar * acc_data = fd_account_get_data(metadata);
+      char * acc_data_str = malloc(5*metadata->dlen + 1);
 
-      fd_account_meta_t metadata;
-      fd_acc_mgr_get_metadata( global->acc_mgr, global->funk_txn, &pairs[i].pubkey, &metadata);
-      FD_LOG_NOTICE(( "account_delta_hash_compare pubkey: (%s) slot: (%lu) lamports: (%lu), owner: (%s), executable: (%d), rent_epoch: (%lu), data_len: (%ld), hash: (%s) ",  encoded_pubkey, global->bank.slot, metadata.info.lamports, encoded_owner, metadata.info.executable, metadata.info.rent_epoch, metadata.dlen, encoded_hash ));
-      // TODO: print out hex
-      // FD_LOG_HEXDUMP_NOTICE((  ))
+      char * acc_data_str_cursor = acc_data_str;
+      if (metadata->dlen > 0) {
+        for( ulong j = 0; j < (metadata->dlen - 1); j++ ) {
+          int x = sprintf(acc_data_str_cursor, "%u, ", acc_data[j]);
+          acc_data_str_cursor += x;
+        }
+        sprintf(acc_data_str_cursor, "%u", acc_data[metadata->dlen - 1]);
+      } else {
+        *acc_data_str_cursor = 0;
+      }
+
+      FD_LOG_NOTICE(( "account_delta_hash_compare pubkey: (%s) slot: (%lu) lamports: (%lu), owner: (%s), executable: (%d), rent_epoch: (%lu), data_len: (%ld), hash: (%s) ",  encoded_pubkey, global->bank.slot, metadata->info.lamports, encoded_owner, metadata->info.executable, metadata->info.rent_epoch, metadata->dlen, encoded_hash ));
+      printf( "account_delta_hash pubkey: %s, slot: %lu, lamports: %lu, owner: %s, executable: %d, rent_epoch: %lu, data_len: %ld, data: [%s] = %s\n",  encoded_pubkey, global->bank.slot, metadata->info.lamports, encoded_owner, metadata->info.executable, metadata->info.rent_epoch, metadata->dlen, acc_data_str, encoded_hash );
+      
+      free(acc_data_str);
     }
 
     fd_sha256_append( &shas[0] , (uchar const *) pairs[i].hash.hash, sizeof( fd_hash_t ) );
