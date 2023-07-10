@@ -123,9 +123,9 @@ fetch () {
   checkout_repo openssl   https://github.com/quictls/openssl        "OpenSSL_1_1_1t-quic1"
   checkout_repo rocksdb   https://github.com/facebook/rocksdb       "v7.10.2"
   checkout_repo secp256k1 https://github.com/bitcoin-core/secp256k1 "v0.3.2"
+  checkout_repo nanopb    https://github.com/nanopb/nanopb          "0.4.7"
 
   mkdir -pv ./opt/gnuweb
-
   checkout_gnuweb libmicrohttpd https://ftp.gnu.org/gnu/libmicrohttpd/ "libmicrohttpd-0.9.77"
 }
 
@@ -495,6 +495,42 @@ EOF
   echo "[+] Successfully installed libmicrohttpd"
 }
 
+install_nanopb () {
+  if pkg-config --exists nanopb; then
+    echo "[~] nanopb already installed at $(pkg-config --path nanopb), skipping installation"
+    return 0
+  fi
+
+  cd ./opt/git/nanopb
+  mkdir -p build
+  cd build
+  cmake .. \
+    -G"Unix Makefiles" \
+    -DCMAKE_INSTALL_PREFIX:PATH="$PREFIX" \
+    -DCMAKE_INSTALL_LIBDIR="lib" \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DBUILD_SHARED_LIBS=OFF \
+    -DBUILD_STATIC_LIBS=ON \
+    -Dnanopb_BUILD_RUNTIME=ON \
+    -Dnanopb_BUILD_GENERATOR=OFF
+
+  make -j
+  make install
+
+  cat <<EOF > "$PREFIX/lib/pkgconfig/nanopb.pc"
+prefix=$PREFIX
+libdir=$PREFIX/lib
+includedir=$PREFIX/include
+
+Name: nanopb
+Description: nanopb
+Version: 0.4.7
+Libs: \${libdir}/libprotobuf-nanopb.a
+Cflags: -I\${includedir}
+EOF
+  echo "[+] Successfully installed nanopb"
+}
+
 install () {
   export CC=`which gcc`
   export cc=`which gcc`
@@ -505,6 +541,7 @@ install () {
   ( install_rocksdb   )
   ( install_openssl   )
   ( install_libmicrohttpd )
+  ( install_nanopb    )
 
   echo "[~] Done! To wire up $(pwd)/opt with make, run:"
   echo "    source activate-opt"
