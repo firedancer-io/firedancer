@@ -4,6 +4,7 @@
 
 #include "../../util/fd_util.h"
 #include "fd_xsk_aio_private.h"
+#include<stdio.h>
 
 /* Forward declarations */
 static int

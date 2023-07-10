@@ -16,6 +16,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <sys/mman.h>
+#include <poll.h>
 
 #include "fd_xsk_private.h"
 #include "fd_xdp_redirect_user.h"
@@ -759,7 +760,7 @@ fd_xsk_tx_enqueue( fd_xsk_t *            xsk,
         FD_LOG_WARNING(( "xsk sendto failed (%d-%s)", errno, strerror( errno ) ));
       }
     }
-  }
+ }
 
   return sz;
 }
@@ -815,9 +816,16 @@ fd_xsk_tx_complete( fd_xsk_t * xsk, ulong * batch, ulong capacity ) {
   /* cr ring */
   fd_ring_desc_t * cr = &xsk->ring_cr;
 
+  if( fd_xsk_tx_need_wakeup( xsk ) ) {
+    if( FD_UNLIKELY( -1==sendto( xsk->xsk_fd, NULL, 0, MSG_DONTWAIT, NULL, 0 ) ) ) {
+      if( FD_UNLIKELY( errno!=EAGAIN ) ) {
+        FD_LOG_WARNING(( "xsk sendto failed (%d-%s)", errno, strerror( errno ) ));
+      }
+    }
+ }
+
   uint prod = cr->cached_prod;
   uint cons = cr->cached_cons;
-
   /* how many frames are available? */
   uint avail = prod - cons;
 

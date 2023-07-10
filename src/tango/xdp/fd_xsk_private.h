@@ -132,7 +132,7 @@ fd_xsk_rx_need_wakeup( fd_xsk_t * xsk ) {
 
 static inline int
 fd_xsk_tx_need_wakeup( fd_xsk_t * xsk ) {
-  return !!( *xsk->ring_tx.flags & XDP_RING_NEED_WAKEUP );
+  return !!( FD_VOLATILE(*xsk->ring_tx.flags) & XDP_RING_NEED_WAKEUP );
 }
 
 FD_PROTOTYPES_END
