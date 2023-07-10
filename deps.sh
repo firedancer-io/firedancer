@@ -474,7 +474,11 @@ install_libmicrohttpd () {
   fi
 
   cd ./opt/gnuweb/libmicrohttpd/
-  ./configure --prefix="$PREFIX"
+  ./configure \
+    --prefix="$PREFIX" \
+    --disable-https \
+    --disable-curl  \
+    --disable-dauth
   ${MAKE} install
 
   cat <<EOF > "$PREFIX/lib/pkgconfig/libmicrohttpd.pc"
@@ -485,7 +489,7 @@ includedir=$PREFIX/include
 Name: libmicrohttpd
 Description: libmicrohttpd
 Version: $(git describe --tags --abbrev=0)
-Libs: \${libdir}/libmicrohttpd.a -lgnutls
+Libs: \${libdir}/libmicrohttpd.a
 Cflags: -I\${includedir}
 EOF
   echo "[+] Successfully installed libmicrohttpd"
