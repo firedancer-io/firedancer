@@ -19,6 +19,9 @@ jobs:
       - name: Copy prebuilt deps
         run: "cp -r /home/runner/firedancer-opts/opt . && ls -lah opt"
 
+      - name: check dependencies
+        run: "./deps.sh install"
+
       - name: Build everything
         run: make -j
 
