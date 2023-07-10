@@ -6,11 +6,11 @@
 #include "../program/fd_stake_program.h"
 
 #define SCRATCH_ALIGN     (128UL)
-#define SCRATCH_FOOTPRINT (1024UL)
+#define SCRATCH_FOOTPRINT (102400UL)
 static uchar scratch[ SCRATCH_FOOTPRINT ] __attribute__((aligned(SCRATCH_ALIGN))) __attribute__((used));
 
 
-#define CIDX_T uchar
+#define CIDX_T ulong
 #define VAL_T  long
 struct ele {
   CIDX_T parent_cidx;
