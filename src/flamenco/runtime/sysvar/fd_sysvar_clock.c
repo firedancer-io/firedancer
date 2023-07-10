@@ -164,7 +164,7 @@ void fd_calculate_stake_weighted_timestamp(
     treap_idx_insert( treap, idx, pool );
   }
   if (total_stake == 0) {
-    result_timestamp = NULL;
+    *result_timestamp = 0;
     return;
   }
   ulong stake_accumulator = 0;
@@ -215,7 +215,10 @@ int fd_sysvar_clock_update( fd_global_ctx_t* global ) {
   if ( fd_sol_sysvar_clock_decode( &clock, &ctx ) )
     FD_LOG_ERR(("fd_sol_sysvar_clock_decode failed"));
 
-  if (global->bank.slot == 0) { 
+  if (global->bank.slot != 0)
+    fd_calculate_stake_weighted_timestamp(global, &clock.unix_timestamp, (uint)global->features.warp_timestamp_again);
+
+  if (0 == clock.unix_timestamp) {
     /* generate timestamp for genesis */
     long timestamp_estimate         = estimate_timestamp( global, ns_per_slot( global->bank.ticks_per_slot ) );
     long bounded_timestamp_estimate = bound_timestamp_estimate( global, timestamp_estimate, clock.epoch_start_timestamp );
@@ -223,11 +226,8 @@ int fd_sysvar_clock_update( fd_global_ctx_t* global ) {
       FD_LOG_INFO(( "corrected timestamp_estimate %ld to %ld", timestamp_estimate, bounded_timestamp_estimate ));
     }
     clock.unix_timestamp            = bounded_timestamp_estimate;
-  } else {
-    fd_calculate_stake_weighted_timestamp(global, &clock.unix_timestamp, (uint)global->features.warp_timestamp_again);
   }
   clock.slot                      = global->bank.slot;
-
 
   FD_LOG_INFO(( "Updated clock at slot %lu", global->bank.slot ));
   FD_LOG_INFO(( "clock.slot: %lu", clock.slot ));
