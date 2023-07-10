@@ -9,6 +9,7 @@ int fd_executor_config_program_execute_instruction( instruction_ctx_t ctx ) {
   uchar cleanup_instruction = 0;
   uchar *config_acc_data = NULL;
   uchar *new_data = NULL;
+  fd_bincode_destroy_ctx_t destroy_ctx;
 
    /* Deserialize the Config Program instruction data, which consists only of the ConfigKeys
        https://github.com/solana-labs/solana/blob/a03ae63daff987912c48ee286eb8ee7e8a84bf01/programs/config/src/config_processor.rs#L25 */
@@ -235,12 +236,11 @@ int fd_executor_config_program_execute_instruction( instruction_ctx_t ctx ) {
    if ( write_result != FD_ACC_MGR_SUCCESS ) {
       FD_LOG_WARNING(( "failed to write account data" ));
       ret = write_result;
-      goto config_program_execute_instruction_cleanup;
    }
 
-   fd_bincode_destroy_ctx_t destroy_ctx = { .valloc = ctx.global->valloc };
-
 config_program_execute_instruction_cleanup:
+   destroy_ctx.valloc = ctx.global->valloc;
+
    if (cleanup_config_account_state)
      fd_config_keys_destroy( &config_account_state, &destroy_ctx );
    if (cleanup_instruction)
