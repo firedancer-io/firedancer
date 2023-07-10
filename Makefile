@@ -63,4 +63,5 @@ include config/coverage.mk
 #  export EXTRAS="asan"
 
 run-runtime-test:
+        ./deps.sh install
 	export EXTRAS="asan" && export LSAN_OPTIONS="suppressions=`pwd`/lsan-suppressed.cc" && src/flamenco/runtime/run_ledger_tests.sh
