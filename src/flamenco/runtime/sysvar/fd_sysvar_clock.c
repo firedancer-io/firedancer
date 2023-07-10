@@ -126,6 +126,72 @@ long estimate_timestamp( fd_global_ctx_t* global, uint128 ns_per_slot ) {
   return head->timestamp  + (long) (ns_correction / NS_IN_S) ;
 }
 
+
+void fd_calculate_stake_weighted_timestamp(
+  fd_global_ctx_t* global,
+  long * result_timestamp,
+  uint fix_estimate_into_u64
+ ) {
+  fd_clock_timestamp_votes_t * unique_timestamps = &global->bank.timestamp_votes;
+  ulong slot_duration = (ulong)ns_per_slot( global->bank.ticks_per_slot );
+  fd_sol_sysvar_clock_t clock;
+  fd_sysvar_clock_read( global, &clock );
+  // get the unique timestamps
+  /* stake per timestamp */
+  treap_t _treap[1];
+  void * shmem = (void *)_treap;
+  void * shtreap = treap_new( shmem, 64UL );
+  treap_t * treap = treap_join( shtreap );
+  ele_t * pool = pool_join( pool_new( scratch, 64UL ) );
+  ulong total_stake = 0;
+
+  for ( fd_clock_timestamp_vote_t_mapnode_t* n = fd_clock_timestamp_vote_t_map_minimum(unique_timestamps->votes_pool, unique_timestamps->votes_root); n; n = fd_clock_timestamp_vote_t_map_successor(unique_timestamps->votes_pool, n) ) {
+    long estimate = n->elem.timestamp + ((long)clock.slot - (long)n->elem.slot) * (long)slot_duration;
+    FD_LOG_NOTICE(("estimate = %lu", estimate));
+    /* get stake */
+    fd_stake_state_t stake_state;
+    int result = read_stake_state(global, &n->elem.pubkey, &stake_state);
+    ulong stake_weight = (result != FD_EXECUTOR_INSTR_SUCCESS) ? 0 : stake_state.inner.stake.stake.delegation.stake;
+    total_stake += stake_weight;
+    ulong idx = pool_idx_acquire( pool );
+    pool[ idx ].timestamp = estimate;
+    pool[ idx ].stake = stake_weight;
+    treap_idx_insert( treap, idx, pool );
+  }
+  if (total_stake == 0) {
+    result_timestamp = NULL;
+    return;
+  }
+  ulong stake_accumulator = 0;
+  *result_timestamp = 0;
+
+  for (treap_fwd_iter_t iter = treap_fwd_iter_init ( treap, pool);
+       !treap_fwd_iter_done( iter );
+       iter = treap_fwd_iter_next( iter, pool ) ) {
+    ulong idx = treap_fwd_iter_idx( iter );
+    stake_accumulator += pool[ idx ].stake;
+    if (stake_accumulator > total_stake / 2) {
+      *result_timestamp = pool[ idx ].timestamp;
+      break;
+    }
+  }
+  // Bound estimate by `max_allowable_drift` since the start of the epoch
+  fd_epoch_schedule_t schedule;
+  fd_sysvar_epoch_schedule_read( global, &schedule );
+  ulong epoch_start_slot = fd_epoch_slot0( &schedule, clock.epoch );
+  ulong poh_estimate_offset = fd_ulong_sat_mul(slot_duration, fd_ulong_sat_sub(clock.slot, epoch_start_slot));
+  ulong estimate_offset = fd_ulong_sat_mul(NS_IN_S, (fix_estimate_into_u64) ? fd_ulong_sat_sub((ulong)*result_timestamp, (ulong)clock.epoch_start_timestamp) : (ulong)(*result_timestamp - clock.epoch_start_timestamp));
+  ulong max_delta_fast = fd_ulong_sat_mul(poh_estimate_offset, MAX_ALLOWABLE_DRIFT_FAST) / 100;
+  ulong max_delta_slow = fd_ulong_sat_mul(poh_estimate_offset, MAX_ALLOWABLE_DRIFT_SLOW) / 100;
+
+  if (estimate_offset > poh_estimate_offset && fd_ulong_sat_sub(estimate_offset, poh_estimate_offset) > max_delta_slow) {
+    *result_timestamp = clock.epoch_start_timestamp + (long)poh_estimate_offset / NS_IN_S + (long)max_delta_slow / NS_IN_S;
+  } else if (estimate_offset < poh_estimate_offset && fd_ulong_sat_sub(poh_estimate_offset, estimate_offset) > max_delta_fast) {
+    *result_timestamp = clock.epoch_start_timestamp + (long)poh_estimate_offset / NS_IN_S - (long)max_delta_fast / NS_IN_S;
+  }
+  return;
+}
+
 int fd_sysvar_clock_update( fd_global_ctx_t* global ) {
   fd_sol_sysvar_clock_t clock;
 
@@ -144,13 +210,19 @@ int fd_sysvar_clock_update( fd_global_ctx_t* global ) {
   if ( fd_sol_sysvar_clock_decode( &clock, &ctx ) )
     FD_LOG_ERR(("fd_sol_sysvar_clock_decode failed"));
 
-  long timestamp_estimate         = estimate_timestamp( global, ns_per_slot( global->bank.ticks_per_slot ) );
-  long bounded_timestamp_estimate = bound_timestamp_estimate( global, timestamp_estimate, clock.epoch_start_timestamp );
-  if ( timestamp_estimate != bounded_timestamp_estimate ) {
-    FD_LOG_INFO(( "corrected timestamp_estimate %ld to %ld", timestamp_estimate, bounded_timestamp_estimate ));
+  if (global->bank.slot == 0) { 
+    /* generate timestamp for genesis */
+    long timestamp_estimate         = estimate_timestamp( global, ns_per_slot( global->bank.ticks_per_slot ) );
+    long bounded_timestamp_estimate = bound_timestamp_estimate( global, timestamp_estimate, clock.epoch_start_timestamp );
+    if ( timestamp_estimate != bounded_timestamp_estimate ) {
+      FD_LOG_INFO(( "corrected timestamp_estimate %ld to %ld", timestamp_estimate, bounded_timestamp_estimate ));
+    }
+    clock.unix_timestamp            = bounded_timestamp_estimate;
+  } else {
+    fd_calculate_stake_weighted_timestamp(global, &clock.unix_timestamp, (uint)global->features.warp_timestamp_again);
   }
   clock.slot                      = global->bank.slot;
-  clock.unix_timestamp            = bounded_timestamp_estimate;
+
 
   FD_LOG_INFO(( "Updated clock at slot %lu", global->bank.slot ));
   FD_LOG_INFO(( "clock.slot: %lu", clock.slot ));
@@ -197,88 +269,7 @@ int fd_sysvar_clock_update( fd_global_ctx_t* global ) {
 
 
 
-//ulong fd_calculate_stake_weighted_timestamp(
-//  fd_global_ctx_t* global,
-//  fd_clock_timestamp_votes_t *unique_timestamps,
-//  ulong slot,
-//  ulong epoch_time
 
-// pub(crate) fn calculate_stake_weighted_timestamp<I, K, V, T>(
-//     unique_timestamps: I,
-//     stakes: &HashMap<Pubkey, (u64, T /*Account|VoteAccount*/)>,
-//     slot: Slot,
-//     slot_duration: Duration,
-//     epoch_start_timestamp: Option<(Slot, UnixTimestamp)>,
-//     max_allowable_drift: MaxAllowableDrift,
-//     fix_estimate_into_u64: bool,
-// ) -> Option<UnixTimestamp>
-// where
-//     I: IntoIterator<Item = (K, V)>,
-//     K: Borrow<Pubkey>,
-//     V: Borrow<(Slot, UnixTimestamp)>,
-// {
-//     let mut stake_per_timestamp: BTreeMap<UnixTimestamp, u128> = BTreeMap::new();
-//     let mut total_stake: u128 = 0;
-//     for (vote_pubkey, slot_timestamp) in unique_timestamps {
-//         let (timestamp_slot, timestamp) = slot_timestamp.borrow();
-//         let offset = slot_duration.saturating_mul(slot.saturating_sub(*timestamp_slot) as u32);
-//         let estimate = timestamp.saturating_add(offset.as_secs() as i64);
-//         let stake = stakes
-//             .get(vote_pubkey.borrow())
-//             .map(|(stake, _account)| stake)
-//             .unwrap_or(&0);
-//         stake_per_timestamp
-//             .entry(estimate)
-//             .and_modify(|stake_sum| *stake_sum = stake_sum.saturating_add(*stake as u128))
-//             .or_insert(*stake as u128);
-//         total_stake = total_stake.saturating_add(*stake as u128);
-//     }
-//     if total_stake == 0 {
-//         return None;
-//     }
-//     let mut stake_accumulator: u128 = 0;
-//     let mut estimate = 0;
-//     // Populate `estimate` with stake-weighted median timestamp
-//     for (timestamp, stake) in stake_per_timestamp.into_iter() {
-//         stake_accumulator = stake_accumulator.saturating_add(stake);
-//         if stake_accumulator > total_stake / 2 {
-//             estimate = timestamp;
-//             break;
-//         }
-//     }
-//     // Bound estimate by `max_allowable_drift` since the start of the epoch
-//     if let Some((epoch_start_slot, epoch_start_timestamp)) = epoch_start_timestamp {
-//         let poh_estimate_offset =
-//             slot_duration.saturating_mul(slot.saturating_sub(epoch_start_slot) as u32);
-//         let estimate_offset = Duration::from_secs(if fix_estimate_into_u64 {
-//             (estimate as u64).saturating_sub(epoch_start_timestamp as u64)
-//         } else {
-//             estimate.saturating_sub(epoch_start_timestamp) as u64
-//         });
-//         let max_allowable_drift_fast =
-//             poh_estimate_offset.saturating_mul(max_allowable_drift.fast) / 100;
-//         let max_allowable_drift_slow =
-//             poh_estimate_offset.saturating_mul(max_allowable_drift.slow) / 100;
-//         if estimate_offset > poh_estimate_offset
-//             && estimate_offset.saturating_sub(poh_estimate_offset) > max_allowable_drift_slow
-//         {
-//             // estimate offset since the start of the epoch is higher than
-//             // `max_allowable_drift_slow`
-//             estimate = epoch_start_timestamp
-//                 .saturating_add(poh_estimate_offset.as_secs() as i64)
-//                 .saturating_add(max_allowable_drift_slow.as_secs() as i64);
-//         } else if estimate_offset < poh_estimate_offset
-//             && poh_estimate_offset.saturating_sub(estimate_offset) > max_allowable_drift_fast
-//         {
-//             // estimate offset since the start of the epoch is lower than
-//             // `max_allowable_drift_fast`
-//             estimate = epoch_start_timestamp
-//                 .saturating_add(poh_estimate_offset.as_secs() as i64)
-//                 .saturating_sub(max_allowable_drift_fast.as_secs() as i64);
-//         }
-//     }
-//     Some(estimate)
-// }
 
 //    fn get_timestamp_estimate(
 //        &self,
