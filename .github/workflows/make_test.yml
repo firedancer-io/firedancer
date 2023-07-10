@@ -25,8 +25,8 @@ jobs:
       - name: Build everything
         run: make -j
 
-      - name: Run unit tests
-        run: make -k -j4 --output-sync=target run-unit-test
-
       - name: Run the janitors test
         run: make -k -j4 --output-sync=target run-runtime-test
+
+      - name: Run unit tests
+        run: make -k -j4 --output-sync=target run-unit-test
