@@ -1,4 +1,5 @@
 #include "fd_tests.h"
+#include "../../fd_flamenco.h"
 #include <stdio.h>
 #include <unistd.h>
 
@@ -12,17 +13,6 @@ const char *fail_fast = NULL;
 uchar do_leakcheck = 0;
 
 int fd_alloc_fprintf( fd_alloc_t * join, FILE *       stream );
-
-char* local_allocf(FD_FN_UNUSED void *arg, ulong align, ulong len) {
-  char * ptr = malloc(fd_ulong_align_up(sizeof(char *) + len, align));
-  char * ret = (char *) fd_ulong_align_up( (ulong) (ptr + sizeof(char *)), align );
-  *((char **)(ret - sizeof(char *))) = ptr;
-  return ret;
-}
-
-void local_freef(FD_FN_UNUSED void *arg, void *ptr) {
-  free(*((char **)((char *) ptr - sizeof(char *))));
-}
 
 /* copied from test_funk_txn.c */
 static fd_funk_txn_xid_t *
@@ -60,17 +50,11 @@ void fd_executor_test_suite_new( fd_executor_test_suite_t* suite ) {
 
   /* Set up allocators */
   if (do_leakcheck) {
-    suite->allocf = local_allocf;
-    suite->allocf_arg = NULL;
-    suite->freef = local_freef;
+    suite->valloc = fd_libc_alloc_virtual();
   } else {
-    fd_alloc_fun_t allocf = (fd_alloc_fun_t)fd_alloc_malloc;
-    void*          allocf_args = fd_wksp_laddr_fast( suite->wksp, suite->funk->alloc_gaddr );
-    fd_free_fun_t  freef = (fd_free_fun_t)fd_alloc_free;
-
-    suite->allocf = allocf;
-    suite->allocf_arg = allocf_args;
-    suite->freef = freef;
+    fd_alloc_t * alloc = fd_alloc_join( fd_wksp_laddr_fast( suite->wksp, suite->funk->alloc_gaddr ), 0UL );
+    FD_TEST( alloc );
+    suite->valloc = fd_alloc_virtual( alloc );
   }
 
   fd_enable_everything(&suite->features);
@@ -90,11 +74,9 @@ int fd_executor_run_test(
   fd_firedancer_banks_new(&global->bank);
 
   int ret = 0;
-  global->allocf = suite->allocf;
-  global->allocf_arg = suite->allocf_arg;
-  global->freef = suite->freef;
-  global->funk = suite->funk;
-  global->wksp = suite->wksp;
+  global->valloc = suite->valloc;
+  global->funk   = suite->funk;
+  global->wksp   = suite->wksp;
 
   memcpy(&global->features, &suite->features, sizeof(suite->features));
   if (test->disable_cnt > 0) {
@@ -133,8 +115,7 @@ int fd_executor_run_test(
         fd_bincode_decode_ctx_t ctx2;
         ctx2.data = acc.data,
         ctx2.dataend = acc.data + acc.data_len;
-        ctx2.allocf = global->allocf;
-        ctx2.allocf_arg = global->allocf_arg;
+        ctx2.valloc  = global->valloc;
         if ( fd_recent_block_hashes_decode( &global->bank.recent_block_hashes, &ctx2 ) ) {
           FD_LOG_WARNING(("fd_recent_block_hashes_decode failed"));
           ret = FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
@@ -266,18 +247,16 @@ int fd_executor_run_test(
   /* Revert the Funk transaction */
 fd_executor_run_cleanup:
   fd_funk_txn_cancel( suite->funk, global->funk_txn, 0 );
-
-  fd_bincode_destroy_ctx_t destroy_ctx;
-  destroy_ctx.freef = global->freef;
-  destroy_ctx.freef_arg = global->allocf_arg;
-
+  fd_bincode_destroy_ctx_t destroy_ctx = { .valloc = global->valloc };
   fd_firedancer_banks_destroy(&global->bank, &destroy_ctx);
-
   return ret;
 }
 
-int main(int argc, char **argv) {
-  fd_boot( &argc, &argv );
+int
+main( int     argc,
+      char ** argv ) {
+  fd_boot         ( &argc, &argv );
+  fd_flamenco_boot( &argc, &argv );
 
   ulong        test_start = fd_env_strip_cmdline_ulong(&argc, &argv, "--start", NULL, 0UL);
   ulong        test_end = fd_env_strip_cmdline_ulong(&argc, &argv, "--end", NULL, ULONG_MAX);
@@ -329,8 +308,8 @@ int main(int argc, char **argv) {
     regfree(&suite.filter_ex);
 
   fd_log_flush();
+  fd_flamenco_halt();
   fd_halt();
-
   return ret;
 }
 

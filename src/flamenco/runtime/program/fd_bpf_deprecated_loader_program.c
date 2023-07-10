@@ -9,8 +9,7 @@ int fd_executor_bpf_deprecated_loader_program_execute_instruction( instruction_c
   fd_bincode_decode_ctx_t decode_ctx;
   decode_ctx.data = data;
   decode_ctx.dataend = &data[ctx.instr->data_sz];
-  decode_ctx.allocf = ctx.global->allocf;
-  decode_ctx.allocf_arg = ctx.global->allocf_arg;
+  decode_ctx.valloc  = ctx.global->valloc;
 
   if ( fd_bpf_loader_program_instruction_decode( &instruction, &decode_ctx ) ) {
     FD_LOG_WARNING(("fd_bpf_loader_program_instruction_decode failed"));

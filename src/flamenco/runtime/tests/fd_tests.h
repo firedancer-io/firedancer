@@ -48,14 +48,12 @@ typedef struct fd_executor_test fd_executor_test_t;
 #define FD_EXECUTOR_TEST_FOOTPRINT ( sizeof(fd_executor_test_t) )
 
 struct fd_executor_test_suite {
-  fd_wksp_t*                 wksp;
-  fd_funk_t*                 funk;
-  fd_alloc_fun_t             allocf;
-  void *                     allocf_arg;
-  fd_free_fun_t              freef;
-  regex_t                    filter_ex;
-  const char *               filter;
-  fd_features_t              features;
+  fd_wksp_t *    wksp;
+  fd_funk_t *    funk;
+  fd_valloc_t    valloc;
+  regex_t        filter_ex;
+  const char *   filter;
+  fd_features_t  features;
 };
 typedef struct fd_executor_test_suite fd_executor_test_suite_t;
 #define FD_EXECUTOR_TEST_SUITE_FOOTPRINT ( sizeof(fd_executor_test_suite_t) )

@@ -210,9 +210,7 @@ fd_execute_txn( fd_executor_t* executor, fd_txn_t * txn_descriptor, fd_rawtxn_b_
       int exec_result = exec_instr_func( ctx );
       if ( FD_UNLIKELY( exec_result != FD_EXECUTOR_INSTR_SUCCESS ) ) {
         exec_result = exec_instr_func( ctx );
-        char program_id_str[FD_BASE58_ENCODED_32_SZ];
-        fd_base58_encode_32((uchar *)&tx_accs[instr->program_id], NULL, program_id_str);
-        FD_LOG_WARNING(( "instruction executed unsuccessfully: error code %d, program id: %s", exec_result, program_id_str ));
+        FD_LOG_WARNING(( "instruction executed unsuccessfully: error code %d, program id: %32J", exec_result, &tx_accs[instr->program_id] ));
         fd_funk_txn_cancel(global->funk, txn, 0);
         global->funk_txn = parent_txn;
         return -1;

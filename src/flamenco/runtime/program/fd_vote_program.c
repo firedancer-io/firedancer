@@ -51,8 +51,7 @@ fd_vote_load_account( fd_vote_state_versioned_t * account,
     .data    = data_raw,
     .dataend = (void const *)( (ulong)data_raw + meta_raw->dlen ),
     /* TODO: Make this a instruction-scoped allocator */
-    .allocf     = global->allocf,
-    .allocf_arg = global->allocf_arg
+    .valloc  = global->valloc,
   };
 
   if( FD_UNLIKELY( 0!=fd_vote_state_versioned_decode( account, &decode ) ) )
@@ -96,7 +95,7 @@ fd_vote_upgrade_account( fd_vote_state_versioned_t * account,
 
     /* Allocate new authorized voters struct */
     current.authorized_voters =
-      deq_fd_vote_historical_authorized_voter_t_alloc( global->allocf, global->allocf_arg );
+      deq_fd_vote_historical_authorized_voter_t_alloc( global->valloc );
     /* Insert currently authorized voter */
     deq_fd_vote_historical_authorized_voter_t_push_tail( current.authorized_voters,
                                                          (fd_vote_historical_authorized_voter_t) {
@@ -105,10 +104,7 @@ fd_vote_upgrade_account( fd_vote_state_versioned_t * account,
         } );
 
     /* Deallocate objects owned by old vote state */
-    fd_bincode_destroy_ctx_t destroy = {
-      .freef     = global->freef,
-      .freef_arg = global->allocf_arg
-    };
+    fd_bincode_destroy_ctx_t destroy = { .valloc = global->valloc };
     fd_vote_state_0_23_5_destroy( old, &destroy );
 
     /* Emplace new vote state into target */
@@ -155,12 +151,8 @@ fd_vote_load_account_current( fd_vote_state_versioned_t * account,
     __builtin_unreachable();
   }
   if( FD_UNLIKELY( !allow_uninitialized && is_uninitialized ) ) {
-    fd_bincode_destroy_ctx_t destroy;
-    destroy.freef = global->freef;
-    destroy.freef_arg = global->allocf_arg;
-
-    fd_vote_state_versioned_destroy(account, &destroy);
-
+    fd_bincode_destroy_ctx_t destroy = { .valloc = global->valloc };
+    fd_vote_state_versioned_destroy( account, &destroy );
     return FD_EXECUTOR_INSTR_ERR_UNINITIALIZED_ACCOUNT;
   }
 
@@ -274,7 +266,7 @@ void record_timestamp_vote_with_slot( fd_global_ctx_t *   global,
   fd_clock_timestamp_vote_t_mapnode_t * pool = global->bank.timestamp_votes.votes_pool;
   if ( NULL == pool )
     pool = global->bank.timestamp_votes.votes_pool =
-      fd_clock_timestamp_vote_t_map_alloc(global->allocf, global->allocf_arg, 10000);
+      fd_clock_timestamp_vote_t_map_alloc( global->valloc, 10000 );
 
   fd_clock_timestamp_vote_t timestamp_vote = {
     .pubkey    = *vote_acc,
@@ -358,9 +350,7 @@ vote_authorize( instruction_ctx_t             ctx,
     authorized_voter->epoch = clock->epoch;
 
     /* Drop preceding entries */
-    fd_bincode_destroy_ctx_t ctx3;
-    ctx3.freef = ctx.global->freef;
-    ctx3.freef_arg = ctx.global->allocf_arg;
+    fd_bincode_destroy_ctx_t ctx3 = { .valloc = ctx.global->valloc };
     while ( deq_fd_vote_historical_authorized_voter_t_peek_head( authorized_voters ) != authorized_voter) {
       FD_TEST( !deq_fd_vote_historical_authorized_voter_t_empty( authorized_voters ) );
       fd_vote_historical_authorized_voter_destroy(
@@ -510,16 +500,11 @@ vote_update_validator_identity( instruction_ctx_t   ctx,
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
-int fd_executor_vote_program_execute_instruction(
-  instruction_ctx_t ctx
-  ) {
+int
+fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
   int ret = FD_EXECUTOR_INSTR_SUCCESS;
 
-  fd_bincode_destroy_ctx_t destroy = {
-    .freef     = ctx.global->freef,
-    .freef_arg = ctx.global->allocf_arg
-  };
-
+  fd_bincode_destroy_ctx_t destroy = { .valloc = ctx.global->valloc };
 
   /* Accounts */
   uchar const *       instr_acc_idxs = ((uchar const *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
@@ -544,8 +529,7 @@ int fd_executor_vote_program_execute_instruction(
   fd_bincode_decode_ctx_t decode = {
     .data       = data,
     .dataend    = (void const *)( (ulong)data + ctx.instr->data_sz ),
-    .allocf     = ctx.global->allocf,
-    .allocf_arg = ctx.global->allocf_arg
+    .valloc     = ctx.global->valloc  /* use instruction alloc */
   };
   if( FD_UNLIKELY( 0!=fd_vote_instruction_decode( &instruction, &decode ) ) ) {
     FD_LOG_WARNING(("fd_vote_instruction_decode failed"));
@@ -602,11 +586,11 @@ int fd_executor_vote_program_execute_instruction(
     }
 
     /* Check, for both the current and V0_23_5 versions of the vote account state, that the vote account is uninitialized. */
-    uchar *vote_acc_data = (uchar *)(ctx.global->allocf)(ctx.global->allocf_arg, 8UL, metadata.dlen);
+    uchar * vote_acc_data = fd_valloc_malloc( ctx.global->valloc, 8UL, metadata.dlen );
     read_result = fd_acc_mgr_get_account_data( ctx.global->acc_mgr, ctx.global->funk_txn, vote_acc, (uchar*)vote_acc_data, sizeof(fd_account_meta_t), metadata.dlen );
     if ( read_result != FD_ACC_MGR_SUCCESS ) {
       FD_LOG_WARNING(( "failed to read account data" ));
-      ctx.global->freef(ctx.global->allocf_arg, vote_acc_data);
+      fd_valloc_free( ctx.global->valloc, vote_acc_data );
       ret = read_result;
       break;
     }
@@ -619,11 +603,10 @@ int fd_executor_vote_program_execute_instruction(
     fd_bincode_decode_ctx_t ctx2;
     ctx2.data = vote_acc_data;
     ctx2.dataend = &vote_acc_data[metadata.dlen];
-    ctx2.allocf = ctx.global->allocf;
-    ctx2.allocf_arg = ctx.global->allocf_arg;
+    ctx2.valloc  = ctx.global->valloc;
     if ( fd_vote_state_versioned_decode( &stored_vote_state_versioned, &ctx2 ) ) {
       FD_LOG_WARNING(("fd_vote_state_versioned_decode failed"));
-      ctx.global->freef(ctx.global->allocf_arg, vote_acc_data);
+      fd_valloc_free( ctx.global->valloc, vote_acc_data );
       ret = FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
       break;
     }
@@ -647,8 +630,8 @@ int fd_executor_vote_program_execute_instruction(
     }
     fd_vote_state_versioned_destroy( &stored_vote_state_versioned, &destroy );
 
-    if ( !uninitialized_vote_state ) {
-      ctx.global->freef(ctx.global->allocf_arg, vote_acc_data);
+    if( FD_UNLIKELY( !uninitialized_vote_state ) ) {
+      fd_valloc_free( ctx.global->valloc, vote_acc_data );
       ret = FD_EXECUTOR_INSTR_ERR_ACC_ALREADY_INITIALIZED;
       break;
     }
@@ -666,8 +649,8 @@ int fd_executor_vote_program_execute_instruction(
         }
       }
     }
-    if ( !node_pubkey_signed ) {
-      ctx.global->freef(ctx.global->allocf_arg, vote_acc_data);
+    if( FD_UNLIKELY( !node_pubkey_signed ) ) {
+      fd_valloc_free( ctx.global->valloc, vote_acc_data );
       ret = FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
       break;
     }
@@ -690,7 +673,7 @@ int fd_executor_vote_program_execute_instruction(
       .epoch  = clock.epoch,
       .pubkey = init_account_params->authorized_voter,
     };
-    vote_state->authorized_voters = deq_fd_vote_historical_authorized_voter_t_alloc( ctx.global->allocf, ctx.global->allocf_arg );
+    vote_state->authorized_voters = deq_fd_vote_historical_authorized_voter_t_alloc( ctx.global->valloc );  /* TODO use instruction alloc */
     FD_TEST( !deq_fd_vote_historical_authorized_voter_t_full( vote_state->authorized_voters ) );
     deq_fd_vote_historical_authorized_voter_t_push_head( vote_state->authorized_voters, authorized_voter );
     vote_state->authorized_withdrawer = init_account_params->authorized_withdrawer;
@@ -701,7 +684,7 @@ int fd_executor_vote_program_execute_instruction(
     if( FD_UNLIKELY( save_result != FD_EXECUTOR_INSTR_SUCCESS ) )
       ret = save_result;
 
-    ctx.global->freef(ctx.global->allocf_arg, vote_acc_data);
+    fd_valloc_free( ctx.global->valloc, vote_acc_data );
     fd_vote_state_versioned_destroy( &vote_state_versioned, &destroy );
     break;
   }
@@ -876,13 +859,7 @@ int fd_executor_vote_program_execute_instruction(
        matches the slot hashes hash for that slot. */
     fd_slot_hash_t const * hash = deq_fd_slot_hash_t_peek_index_const( slot_hashes.hashes, slot_hash_idx );
     if ( memcmp( &hash->hash, &vote->hash, sizeof(fd_hash_t) ) != 0 ) {
-      char slot_hash_hash[50];
-      fd_base58_encode_32((uchar const *) &hash->hash, 0, slot_hash_hash);
-
-      char vote_hash_hash[50];
-      fd_base58_encode_32((uchar const *) &vote->hash, 0, vote_hash_hash);
-
-      FD_LOG_WARNING(( "hash mismatch: slot: %lu slot_hash: %s vote_hash: %s", hash->slot, slot_hash_hash, vote_hash_hash ));
+      FD_LOG_WARNING(( "hash mismatch: slot: %lu slot_hash: %32J vote_hash: %32J", hash->slot, hash->hash.uc, vote->hash.uc ));
       /* FIXME: re-visit when bank hashes are confirmed to be good */
       ctx.txn_ctx->custom_err = FD_VOTE_SLOT_HASH_MISMATCH;
       ret = FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
@@ -923,7 +900,7 @@ int fd_executor_vote_program_execute_instruction(
 
         /* Update the root slot to be the oldest lockout. */
         if ( !vote_state->saved_root_slot )
-          vote_state->saved_root_slot = (ulong*)(*ctx.global->allocf)(ctx.global->allocf_arg, 8, sizeof(ulong));
+          vote_state->saved_root_slot = (ulong *)fd_valloc_malloc( ctx.global->valloc, 8, sizeof(ulong));
         *vote_state->saved_root_slot = deq_fd_vote_lockout_t_peek_head_const( vote_state->votes )->slot;
 
         /* Give this validator a credit for committing to a slot. */
@@ -1103,7 +1080,7 @@ int fd_executor_vote_program_execute_instruction(
     }
     /* TODO: add constructors to fd_types */
     if ( vote_state->saved_root_slot == NULL ) {
-      vote_state->saved_root_slot = (ulong *)(ctx.global->allocf)( ctx.global->allocf_arg, 8UL, sizeof(ulong) );
+      vote_state->saved_root_slot = fd_valloc_malloc( ctx.global->valloc, 8UL, sizeof(ulong) );
     }
     *vote_state->saved_root_slot = *vote_state_update->proposed_root;
     deq_fd_vote_lockout_t_remove_all( vote_state->votes );
@@ -1644,7 +1621,8 @@ int fd_executor_vote_program_execute_instruction(
     }
     /* TODO: add constructors to fd_types */
     if ( vote_state->saved_root_slot == NULL ) {
-      vote_state->saved_root_slot = (ulong *)(ctx.global->allocf)( ctx.global->allocf_arg, 8UL, sizeof(ulong) );
+      /* TODO use instruction alloc */
+      vote_state->saved_root_slot = (ulong *)fd_valloc_malloc( ctx.global->valloc, 8UL, sizeof(ulong) );
     }
     *vote_state->saved_root_slot = vote_state_update->proposed_root;
     deq_fd_vote_lockout_t_remove_all( vote_state->votes );
@@ -1703,9 +1681,7 @@ fd_vote_acc_credits( fd_global_ctx_t* global, fd_pubkey_t * vote_acc, ulong* res
     *result = deq_fd_vote_epoch_credits_t_peek_tail_const( state->epoch_credits )->credits;
   }
 
-  fd_bincode_destroy_ctx_t ctx5;
-  ctx5.freef = global->freef;
-  ctx5.freef_arg = global->allocf_arg;
+  fd_bincode_destroy_ctx_t ctx5 = { .valloc = global->valloc };
   fd_vote_state_versioned_destroy( &versioned, &ctx5 );
 
   return FD_EXECUTOR_INSTR_SUCCESS;

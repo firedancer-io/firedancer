@@ -9,14 +9,14 @@ int fd_executor_config_program_execute_instruction( instruction_ctx_t ctx ) {
   uchar cleanup_instruction = 0;
   uchar *config_acc_data = NULL;
   uchar *new_data = NULL;
+  fd_bincode_destroy_ctx_t destroy_ctx;
 
    /* Deserialize the Config Program instruction data, which consists only of the ConfigKeys
        https://github.com/solana-labs/solana/blob/a03ae63daff987912c48ee286eb8ee7e8a84bf01/programs/config/src/config_processor.rs#L25 */
    uchar *data = (uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->data_off;
    fd_bincode_decode_ctx_t instruction_decode_context = {
-      .allocf = ctx.global->allocf,
-      .allocf_arg = ctx.global->allocf_arg,
-      .data = data,
+      .valloc  = ctx.global->valloc,
+      .data    = data,
       .dataend = &data[ctx.instr->data_sz],
    };
    fd_config_keys_t instruction;
@@ -49,7 +49,7 @@ int fd_executor_config_program_execute_instruction( instruction_ctx_t ctx ) {
       ret = read_result;
       goto config_program_execute_instruction_cleanup;
    }
-   config_acc_data = (uchar *)(ctx.global->allocf)(ctx.global->allocf_arg, 8UL, metadata.dlen);
+   config_acc_data = fd_valloc_malloc( ctx.global->valloc, 8UL, metadata.dlen);
    read_result = fd_acc_mgr_get_account_data( ctx.global->acc_mgr, ctx.global->funk_txn, config_acc, (uchar*)config_acc_data, sizeof(fd_account_meta_t), metadata.dlen );
    if ( read_result != FD_ACC_MGR_SUCCESS ) {
       FD_LOG_WARNING(( "failed to read account data" ));
@@ -65,9 +65,8 @@ int fd_executor_config_program_execute_instruction( instruction_ctx_t ctx ) {
 
    /* Decode the config state into the ConfigKeys struct */
    fd_bincode_decode_ctx_t config_acc_state_decode_context = {
-      .allocf = ctx.global->allocf,
-      .allocf_arg = ctx.global->allocf_arg,
-      .data = config_acc_data,
+      .valloc  = ctx.global->valloc,
+      .data    = config_acc_data,
       .dataend = &config_acc_data[metadata.dlen],
    };
    fd_config_keys_t config_account_state;
@@ -221,7 +220,7 @@ int fd_executor_config_program_execute_instruction( instruction_ctx_t ctx ) {
       (although this can obviously be optimised)
    */
    ulong new_data_size = fd_ulong_max( ctx.instr->data_sz, metadata.dlen );
-   new_data = (uchar *)(ctx.global->allocf)(ctx.global->allocf_arg, 8UL, new_data_size);
+   new_data = fd_valloc_malloc( ctx.global->valloc, 8UL, new_data_size);
    fd_memcpy( new_data, config_acc_data, metadata.dlen );
    fd_memcpy( new_data, data, ctx.instr->data_sz );
 
@@ -237,22 +236,18 @@ int fd_executor_config_program_execute_instruction( instruction_ctx_t ctx ) {
    if ( write_result != FD_ACC_MGR_SUCCESS ) {
       FD_LOG_WARNING(( "failed to write account data" ));
       ret = write_result;
-      goto config_program_execute_instruction_cleanup;
    }
 
-   fd_bincode_destroy_ctx_t destroy_ctx;
-
 config_program_execute_instruction_cleanup:
-   destroy_ctx.freef = ctx.global->freef;
-   destroy_ctx.freef_arg = ctx.global->allocf_arg;
+   destroy_ctx.valloc = ctx.global->valloc;
 
    if (cleanup_config_account_state)
      fd_config_keys_destroy( &config_account_state, &destroy_ctx );
    if (cleanup_instruction)
      fd_config_keys_destroy( &instruction, &destroy_ctx );
    if (NULL != config_acc_data)
-     ctx.global->freef(ctx.global->allocf_arg, config_acc_data);
+     fd_valloc_free( ctx.global->valloc, config_acc_data );
    if (NULL != new_data)
-     ctx.global->freef(ctx.global->allocf_arg, new_data);
+      fd_valloc_free( ctx.global->valloc, new_data );
    return ret;
 }

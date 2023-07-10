@@ -271,8 +271,7 @@ int read_stake_config( fd_global_ctx_t* global, fd_stake_config_t* result ) {
   fd_bincode_decode_ctx_t ctx;
   ctx.data = raw_acc_data;
   ctx.dataend = raw_acc_data + metadata.dlen;
-  ctx.allocf = global->allocf;
-  ctx.allocf_arg = global->allocf_arg;
+  ctx.valloc  = global->valloc;
   if ( fd_stake_config_decode( result, &ctx ) ) {
     FD_LOG_WARNING(("fd_stake_config_decode failed"));
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
@@ -309,8 +308,7 @@ int read_stake_state( fd_global_ctx_t* global, fd_pubkey_t* stake_acc, fd_stake_
   fd_bincode_decode_ctx_t ctx;
   ctx.data = raw_acc_data;
   ctx.dataend = raw_acc_data + metadata.dlen;
-  ctx.allocf = global->allocf;
-  ctx.allocf_arg = global->allocf_arg;
+  ctx.valloc  = global->valloc;
   if ( fd_stake_state_decode( result, &ctx ) ) {
     FD_LOG_WARNING(("fd_stake_state_decode failed"));
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
@@ -332,7 +330,7 @@ int write_stake_state(
     }
 
     ulong encoded_stake_state_size = (is_new_account) ? STAKE_ACCOUNT_SIZE : fd_stake_state_size(stake_state);
-    uchar* encoded_stake_state = (uchar *)(global->allocf)( global->allocf_arg, 8UL, encoded_stake_state_size );
+    uchar* encoded_stake_state = fd_valloc_malloc( global->valloc, 8UL, encoded_stake_state_size );
     if (is_new_account) {
       fd_memset( encoded_stake_state, 0, encoded_stake_state_size );
     }
@@ -356,7 +354,7 @@ int write_stake_state(
       return write_result;
     }
     metadata.dlen = (is_new_account) ? STAKE_ACCOUNT_SIZE : metadata.dlen;
-    
+
     fd_acc_mgr_set_metadata( global->acc_mgr, global->funk_txn, stake_acc, &metadata);
 
     return FD_EXECUTOR_INSTR_SUCCESS;
@@ -520,8 +518,7 @@ int fd_executor_stake_program_execute_instruction(
   fd_bincode_decode_ctx_t ctx2;
   ctx2.data = data;
   ctx2.dataend = &data[ctx.instr->data_sz];
-  ctx2.allocf = ctx.global->allocf;
-  ctx2.allocf_arg = ctx.global->allocf_arg;
+  ctx2.valloc  = ctx.global->valloc;
   if ( fd_stake_instruction_decode( &instruction, &ctx2 ) ) {
     FD_LOG_WARNING(("fd_stake_instruction_decode failed"));
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
@@ -559,7 +556,7 @@ int fd_executor_stake_program_execute_instruction(
     }
 
     /* Read the current data in the Stake account */
-    uchar *stake_acc_data = (uchar *)(ctx.global->allocf)(ctx.global->allocf_arg, 8UL, metadata.dlen);
+    uchar *stake_acc_data = fd_valloc_malloc( ctx.global->valloc, 8UL, metadata.dlen);
     read_result = fd_acc_mgr_get_account_data( ctx.global->acc_mgr, ctx.global->funk_txn, stake_acc, (uchar*)stake_acc_data, sizeof(fd_account_meta_t), metadata.dlen );
     if ( read_result != FD_ACC_MGR_SUCCESS ) {
       FD_LOG_WARNING(( "failed to read account data" ));
@@ -571,8 +568,7 @@ int fd_executor_stake_program_execute_instruction(
     fd_bincode_decode_ctx_t ctx3;
     ctx3.data = stake_acc_data;
     ctx3.dataend = &stake_acc_data[metadata.dlen];
-    ctx3.allocf = ctx.global->allocf;
-    ctx3.allocf_arg = ctx.global->allocf_arg;
+    ctx3.valloc  = ctx.global->valloc;
     if ( fd_stake_state_decode( &stake_state, &ctx3 ) ) {
       FD_LOG_WARNING(("fd_stake_state_decode failed"));
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
@@ -638,7 +634,7 @@ int fd_executor_stake_program_execute_instruction(
       return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
     }
     fd_stake_history_t history;
-    fd_sysvar_stake_history_read( ctx.global, &history);    
+    fd_sysvar_stake_history_read( ctx.global, &history);
 
     /* Check that Instruction Account 4 is the Stake Config Program account */
     if ( memcmp( &txn_accs[instr_acc_idxs[4]], ctx.global->solana_stake_program_config, sizeof(fd_pubkey_t) ) != 0 ) {
@@ -724,13 +720,13 @@ int fd_executor_stake_program_execute_instruction(
       if (stake_activating_and_deactivating( &stake_state.inner.stake.stake.delegation, clock.epoch, &history).effective != 0) {
         ushort stake_lamports_ok = (ctx.global->features.stake_redelegate_instruction) ? lamports >= stake_state.inner.stake.stake.delegation.stake : 1;
         if (stake_lamports_ok && clock.epoch == stake_state.inner.stake.stake.delegation.deactivation_epoch && memcmp( &stake_state.inner.stake.stake.delegation.voter_pubkey, vote_acc, sizeof(fd_pubkey_t) ) == 0) {
-          stake_state.inner.stake.stake.delegation.deactivation_epoch = ULONG_MAX;  
+          stake_state.inner.stake.stake.delegation.deactivation_epoch = ULONG_MAX;
         } else {
           ctx.txn_ctx->custom_err = 3;
           return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
         }
       }
-      
+
       stake_state.discriminant = 2;
       fd_stake_state_stake_t* stake_state_stake = &stake_state.inner.stake;
       fd_memcpy( &stake_state_stake->meta, meta, FD_STAKE_STATE_META_FOOTPRINT );
@@ -743,7 +739,7 @@ int fd_executor_stake_program_execute_instruction(
       int acc_res = fd_vote_acc_credits( ctx.global, vote_acc, &credits );
       if( FD_UNLIKELY( !acc_res ) )
         return acc_res;  /* FIXME leak */
-      stake_state_stake->stake.credits_observed = credits; 
+      stake_state_stake->stake.credits_observed = credits;
     }
 
     /* Write the stake state back to the database */
@@ -1201,8 +1197,7 @@ int fd_executor_stake_program_execute_instruction(
     fd_bincode_decode_ctx_t ctx4;
     ctx4.data = raw_acc_data;
     ctx4.dataend = raw_acc_data + metadata.dlen;
-    ctx4.allocf = ctx.global->allocf;
-    ctx4.allocf_arg = ctx.global->allocf_arg;
+    ctx4.valloc  = ctx.global->valloc;
     fd_stake_history_decode( &stake_history, &ctx4 );
 
     if (ctx.txn_ctx->txn_descriptor->acct_addr_cnt < 5) {
@@ -1233,7 +1228,7 @@ int fd_executor_stake_program_execute_instruction(
     }
 
     /* Read the current data in the Stake account */
-    uchar *stake_acc_data = (uchar *)(ctx.global->allocf)(ctx.global->allocf_arg, 8UL, stake_acc_metadata.dlen);
+    uchar * stake_acc_data = fd_valloc_malloc( ctx.global->valloc, 8UL, stake_acc_metadata.dlen );
     read_result = fd_acc_mgr_get_account_data( ctx.global->acc_mgr, ctx.global->funk_txn, stake_acc, (uchar*)stake_acc_data, sizeof(fd_account_meta_t), stake_acc_metadata.dlen );
     if ( read_result != FD_ACC_MGR_SUCCESS ) {
       FD_LOG_WARNING(( "failed to read stake account data" ));
@@ -1244,11 +1239,11 @@ int fd_executor_stake_program_execute_instruction(
     void* dataend          = (void*)&stake_acc_data[stake_acc_metadata.dlen];
 
     fd_stake_state_t stake_state;
-    fd_bincode_decode_ctx_t ctx5;
-    ctx5.data = input;
-    ctx5.dataend = dataend;
-    ctx5.allocf = ctx.global->allocf;
-    ctx5.allocf_arg = ctx.global->allocf_arg;
+    fd_bincode_decode_ctx_t ctx5 = {
+      .data    = input,
+      .dataend = dataend,
+      .valloc  = ctx.global->valloc
+    };
     fd_stake_state_decode( &stake_state, &ctx5 );
 
     ulong reserve_lamports = 0;
@@ -1299,10 +1294,7 @@ int fd_executor_stake_program_execute_instruction(
       return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
     }
 
-    char addr[100];
-    fd_base58_encode_32((uchar*) to_acc, NULL, addr);
-
-    FD_LOG_WARNING(( "XXX: %s", addr));
+    FD_LOG_WARNING(( "XXX: %32J", to_acc));
 
     fd_acc_lamports_t receiver_lamports = 0;
     read_result = fd_acc_mgr_get_lamports( ctx.global->acc_mgr, ctx.global->funk_txn, to_acc, &receiver_lamports );
@@ -1388,7 +1380,7 @@ int fd_executor_stake_program_execute_instruction(
     // FD_LOG_NOTICE(("AFTER DELINQUENT CREDITS =%d", result));
     // if( FD_UNLIKELY( result != FD_EXECUTOR_INSTR_SUCCESS ) ) {
     //   return result;  /* FIXME leak */
-    // }    
+    // }
     // let delinquent_vote_state = delinquent_vote_account
     //     .get_state::<VoteStateVersions>()?
     //     .convert_to_current();
@@ -1399,7 +1391,7 @@ int fd_executor_stake_program_execute_instruction(
     if ( memcmp( &reference_vote_acc_owner, ctx.global->solana_vote_program, sizeof(fd_pubkey_t) ) != 0 ) {
       return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
     }
-    
+
     ulong reference_credits = 0;
     result = fd_vote_acc_credits( ctx.global, reference_vote_acc, &reference_credits );
     // if( FD_UNLIKELY( result != FD_EXECUTOR_INSTR_SUCCESS ) ) {
@@ -1441,9 +1433,7 @@ int fd_executor_stake_program_execute_instruction(
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
   }
 
-  fd_bincode_destroy_ctx_t ctx3;
-  ctx3.freef = ctx.global->freef;
-  ctx3.freef_arg = ctx.global->allocf_arg;
+  fd_bincode_destroy_ctx_t ctx3 = { .valloc = ctx.global->valloc };
   fd_stake_instruction_destroy( &instruction, &ctx3 );
 
   return FD_EXECUTOR_INSTR_SUCCESS;

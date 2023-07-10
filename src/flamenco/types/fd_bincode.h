@@ -25,16 +25,14 @@ struct fd_bincode_decode_ctx {
   /* End of buffer */
   void const *   dataend;
   /* Allocator for dynamic memory */
-  fd_alloc_fun_t allocf;
-  void *         allocf_arg;
+  fd_valloc_t    valloc;
 };
 typedef struct fd_bincode_decode_ctx fd_bincode_decode_ctx_t;
 
 /* Context argument used for calling "destroy" on a structure */
 struct fd_bincode_destroy_ctx {
   /* Allocator for dynamic memory */
-  fd_free_fun_t freef;
-  void *        freef_arg;
+  fd_valloc_t valloc;
 };
 typedef struct fd_bincode_destroy_ctx fd_bincode_destroy_ctx_t;
 
