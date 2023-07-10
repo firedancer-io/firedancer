@@ -20,7 +20,7 @@ jobs:
         run: "cp -r /home/runner/firedancer-opts/opt . && ls -lah opt"
 
       - name: check dependencies
-        run: "./deps.sh install"
+        run: "rm -rf opt/git/openssl && ./deps.sh install"
 
       - name: Build everything
         run: make -j
