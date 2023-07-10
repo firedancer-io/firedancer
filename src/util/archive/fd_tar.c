@@ -15,13 +15,13 @@ typedef unsigned char bool;
 
 #define fd_tar_stream_initBufSize (1<<16)
 
-void fd_tar_stream_init(struct fd_tar_stream* self, fd_alloc_fun_t allocf, void* allocf_arg, fd_free_fun_t freef) {
-  self->allocf_ = allocf;
-  self->allocf_arg_ = allocf_arg;
-  self->freef_ = freef;
+void
+fd_tar_stream_init( struct fd_tar_stream * self,
+                    fd_valloc_t            valloc ) {
+  self->valloc = valloc;
   self->totalsize_ = 0;
   self->cursize_ = 0;
-  self->buf_ = (*allocf)(allocf_arg, 64, fd_tar_stream_initBufSize);
+  self->buf_ = fd_valloc_malloc( valloc, 64, fd_tar_stream_initBufSize );
   self->bufmax_ = fd_tar_stream_initBufSize;
 }
 
@@ -78,8 +78,8 @@ int fd_tar_stream_moreData(struct fd_tar_stream* self, const void* data, size_t 
         continue;
       }
       if (self->roundedsize_ > self->bufmax_) {
-        (*self->freef_)(self->allocf_arg_, self->buf_);
-        self->buf_ = (*self->allocf_)(self->allocf_arg_, 64, (self->bufmax_ = self->roundedsize_));
+        fd_valloc_free( self->valloc, self->buf_ );
+        self->buf_ = fd_valloc_malloc( self->valloc, 64, (self->bufmax_ = self->roundedsize_));
       }
 
     } else {
@@ -99,6 +99,7 @@ int fd_tar_stream_moreData(struct fd_tar_stream* self, const void* data, size_t 
 #undef CONSUME_DATA
 }
 
-void fd_tar_stream_delete(struct fd_tar_stream* self) {
-  (*self->freef_)(self->allocf_arg_, self->buf_);
+void
+fd_tar_stream_delete( struct fd_tar_stream * self ) {
+  fd_valloc_free( self->valloc, self->buf_ );
 }

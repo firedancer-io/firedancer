@@ -33,8 +33,7 @@ void fd_sysvar_fees_read( fd_global_ctx_t* global, fd_sysvar_fees_t* result ) {
   fd_bincode_decode_ctx_t ctx;
   ctx.data = raw_acc_data;
   ctx.dataend = raw_acc_data + metadata.dlen;
-  ctx.allocf = global->allocf;
-  ctx.allocf_arg = global->allocf_arg;
+  ctx.valloc  = global->valloc;
   if ( fd_sysvar_fees_decode( result, &ctx ) )
     FD_LOG_ERR(("fd_sysvar_fees_decode failed"));
 }

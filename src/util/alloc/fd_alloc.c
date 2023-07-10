@@ -417,7 +417,7 @@ fd_alloc_hdr_store( void *                  laddr,
                     fd_alloc_superblock_t * superblock,
                     ulong                   block_idx,
                     ulong                   sizeclass ) {
-  FD_STORE( fd_alloc_hdr_t, ((ulong)laddr) - sizeof(fd_alloc_hdr_t), 
+  FD_STORE( fd_alloc_hdr_t, ((ulong)laddr) - sizeof(fd_alloc_hdr_t),
             (fd_alloc_hdr_t)( ((((ulong)laddr) - ((ulong)superblock)) << 13) |    /* Bits 31:13 - 19 bit: superblock offset */
                               (block_idx                              <<  7) |    /* Bits 12: 7 -  6 bit: block */
                               sizeclass                                      ) ); /* Bits  6: 0 -  7 bit: sizeclass */
@@ -571,7 +571,7 @@ fd_alloc_delete( void * shalloc ) {
       if( FD_UNLIKELY( superblock_gaddr ) )
         fd_alloc_free( alloc, (fd_alloc_superblock_t *)fd_wksp_laddr_fast( wksp, superblock_gaddr ) );
     }
-    
+
     fd_alloc_vgaddr_t * inactive_stack = alloc->inactive_stack + sizeclass;
     for(;;) {
       ulong superblock_gaddr = fd_alloc_private_inactive_stack_pop( inactive_stack, wksp );
@@ -834,7 +834,7 @@ fd_alloc_malloc_at_least( fd_alloc_t * join,
 void
 fd_alloc_free( fd_alloc_t * join,
                void *       laddr ) {
-  
+
   /* Handle NULL alloc and/or NULL laddr */
 
   fd_alloc_t * alloc  = fd_alloc_private_join_alloc( join );
@@ -987,7 +987,7 @@ fd_alloc_free( fd_alloc_t * join,
        a stale value in this scenario, it highly likely will not be
        injected into the inactive_stack because the CAS will detect that
        inactive_stack top has changed and fail.
-       
+
        And, lastly, we version inactive_stack top such that, even if
        somehow we had a thread stall in pop after reading
        top->next_gaddr / other threads do other operations that
@@ -1449,5 +1449,27 @@ fd_alloc_fprintf( fd_alloc_t * join,
 
   return cnt;
 }
+
+/* Virtual function table
+   TODO type pun functions instead of using virtual wrappers? */
+
+static void *
+fd_alloc_malloc_virtual( void * self,
+                         ulong  align,
+                         ulong  sz ) {
+  return fd_alloc_malloc( (fd_alloc_t *)self, align, sz );
+}
+
+static void
+fd_alloc_free_virtual( void * self,
+                       void * addr ) {
+  fd_alloc_free( (fd_alloc_t *)self, addr );
+}
+
+const fd_valloc_vtable_t
+fd_alloc_vtable = {
+  .malloc = fd_alloc_malloc_virtual,
+  .free   = fd_alloc_free_virtual
+};
 
 #undef TRAP

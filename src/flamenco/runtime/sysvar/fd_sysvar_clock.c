@@ -63,8 +63,7 @@ int fd_sysvar_clock_read( fd_global_ctx_t* global, fd_sol_sysvar_clock_t* result
   fd_bincode_decode_ctx_t ctx;
   ctx.data = raw_acc_data + m->hlen;
   ctx.dataend = (char *) ctx.data + m->dlen;
-  ctx.allocf = global->allocf;
-  ctx.allocf_arg = global->allocf_arg;
+  ctx.valloc  = global->valloc;
 
   return fd_sol_sysvar_clock_decode( result, &ctx );
 }
@@ -140,8 +139,7 @@ int fd_sysvar_clock_update( fd_global_ctx_t* global ) {
   fd_bincode_decode_ctx_t ctx;
   ctx.data = raw_acc_data + m->hlen;
   ctx.dataend = (char *) ctx.data + m->dlen;
-  ctx.allocf = global->allocf;
-  ctx.allocf_arg = global->allocf_arg;
+  ctx.valloc  = global->valloc;
 
   if ( fd_sol_sysvar_clock_decode( &clock, &ctx ) )
     FD_LOG_ERR(("fd_sol_sysvar_clock_decode failed"));
@@ -187,9 +185,7 @@ int fd_sysvar_clock_update( fd_global_ctx_t* global ) {
 
   err = fd_acc_mgr_commit_data(global->acc_mgr, acc_data_rec, (fd_pubkey_t *) global->sysvar_slot_history, raw_acc_data, global->bank.slot, 0);
 
-  fd_bincode_destroy_ctx_t ctx_d;
-  ctx_d.freef = global->freef;
-  ctx_d.freef_arg = global->allocf_arg;
+  fd_bincode_destroy_ctx_t ctx_d = { .valloc = global->valloc };
   fd_sol_sysvar_clock_destroy( &clock, &ctx_d );
 
   return err;

@@ -12,8 +12,7 @@ int fd_executor_bpf_loader_program_execute_instruction( instruction_ctx_t ctx ) 
   fd_bincode_decode_ctx_t decode_ctx;
   decode_ctx.data = data;
   decode_ctx.dataend = &data[ctx.instr->data_sz];
-  decode_ctx.allocf = ctx.global->allocf;
-  decode_ctx.allocf_arg = ctx.global->allocf_arg;
+  decode_ctx.valloc  = ctx.global->valloc;
 
   if( fd_bpf_loader_program_instruction_decode( &instruction, &decode_ctx ) ) {
     FD_LOG_WARNING(("fd_bpf_loader_program_instruction_decode failed"));
@@ -58,7 +57,7 @@ int fd_executor_bpf_loader_program_execute_instruction( instruction_ctx_t ctx ) 
     }
 
     /* Read the current data in the account */
-    uchar * program_acc_data = (uchar *)(ctx.global->allocf)(ctx.global->allocf_arg, 8UL, program_acc_metadata.dlen);
+    uchar * program_acc_data = fd_valloc_malloc( ctx.global->valloc, 8UL, program_acc_metadata.dlen );
     read_result = fd_acc_mgr_get_account_data( ctx.global->acc_mgr, ctx.global->funk_txn, program_acc, (uchar*)program_acc_data, sizeof(fd_account_meta_t), program_acc_metadata.dlen );
     if ( read_result != FD_ACC_MGR_SUCCESS ) {
       FD_LOG_WARNING(( "failed to read account data" ));

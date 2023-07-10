@@ -27,6 +27,8 @@ typedef struct fd_acc_mgr fd_acc_mgr_t;
 
 typedef struct fd_global_ctx fd_global_ctx_t;
 
+fd_funk_rec_key_t fd_acc_mgr_key( fd_pubkey_t const * pubkey );
+
 void* fd_acc_mgr_new( void*            mem,
                       fd_global_ctx_t* global,
                       ulong            footprint );

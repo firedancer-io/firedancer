@@ -50,7 +50,7 @@ fd_runtime_init_bank_from_genesis( fd_global_ctx_t * global, fd_genesis_solana_t
   global->bank.rent = genesis_block->rent;
 
   fd_block_block_hash_entry_t * hashes = global->bank.recent_block_hashes.hashes =
-    deq_fd_block_block_hash_entry_t_alloc( global->allocf, global->allocf_arg );
+    deq_fd_block_block_hash_entry_t_alloc( global->valloc );
   fd_block_block_hash_entry_t * elem = deq_fd_block_block_hash_entry_t_push_head_nocopy(hashes);
   fd_block_block_hash_entry_new(elem);
   fd_memcpy(elem->blockhash.hash, genesis_hash, FD_SHA256_HASH_SZ);
@@ -159,7 +159,11 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_meta_t* m, const void
 // TODO: add solana txn verify to this as well since, again, it can be
 // done in parallel...
 int
-fd_runtime_block_verify( fd_global_ctx_t *global, fd_slot_meta_t* m, const void* block, ulong blocklen ) {
+fd_runtime_block_verify( fd_global_ctx_t * global,
+                         fd_slot_meta_t *  m,
+                         void const *      block,
+                         ulong             blocklen ) {
+
   fd_txn_parse_counters_t counters;
   fd_memset(&counters, 0, sizeof(counters));
 
@@ -213,11 +217,7 @@ fd_runtime_block_verify( fd_global_ctx_t *global, fd_slot_meta_t* m, const void*
       }
 
       if( FD_UNLIKELY( 0!=memcmp(hdr->hash, &global->bank.poh, sizeof(fd_hash_t) ) ) ) {
-        char entry_poh_str[ FD_BASE58_ENCODED_32_SZ ];
-        char bank_poh_str [ FD_BASE58_ENCODED_32_SZ ];
-        fd_base58_encode_32( hdr->hash,           NULL, entry_poh_str );
-        fd_base58_encode_32( global->bank.poh.uc, NULL, bank_poh_str  );
-        FD_LOG_ERR(( "poh missmatch at slot: %ld (bank: %s, entry: %s)", m->slot, bank_poh_str, entry_poh_str ));
+        FD_LOG_ERR(( "poh missmatch at slot: %ld (bank: %32J, entry: %32J)", m->slot, global->bank.poh.uc, hdr->hash ));
         return -1;
       }
     }
@@ -425,7 +425,6 @@ fd_runtime_lamports_per_signature_for_blockhash( fd_global_ctx_t *global, FD_FN_
 
   // https://github.com/firedancer-io/solana/blob/53a4e5d6c58b2ffe89b09304e4437f8ca198dadd/runtime/src/blockhash_queue.rs#L55
   ulong default_fee = global->bank.fee_rate_governor.target_lamports_per_signature / 2;
-  return default_fee;
 
   if (blockhash == 0) {
     return default_fee;
@@ -444,8 +443,10 @@ fd_runtime_lamports_per_signature_for_blockhash( fd_global_ctx_t *global, FD_FN_
 
 ulong
 fd_runtime_txn_lamports_per_signature( fd_global_ctx_t *global, fd_txn_t * txn_descriptor, fd_rawtxn_b_t* txn_raw ) {
+  // why is asan not detecting access to uninitialized memory here?!
   fd_nonce_state_versions_t state;
-  if ((NULL != txn_descriptor) && fd_load_nonce_account(global, txn_descriptor, txn_raw, &state)) {
+  int err;
+  if ((NULL != txn_descriptor) && fd_load_nonce_account(global, txn_descriptor, txn_raw, &state, &err)) {
     if (state.inner.current.discriminant == fd_nonce_state_enum_initialized)
       return state.inner.current.inner.initialized.fee_calculator.lamports_per_signature;
   }
@@ -489,14 +490,14 @@ void compute_priority_fee( transaction_ctx_t const * txn_ctx, ulong * fee, ulong
       return;
     }
     case FD_COMPUTE_BUDGET_PRIORITIZATION_FEE_TYPE_COMPUTE_UNIT_PRICE: {
-      
+
       uint128 micro_lamport_fee = (uint128)txn_ctx->compute_unit_price * (uint128)txn_ctx->compute_unit_limit;
 
       *priority = txn_ctx->compute_unit_price;
       uint128 _fee = (micro_lamport_fee + (uint128)(MICRO_LAMPORTS_PER_LAMPORT - 1))/(uint128)(MICRO_LAMPORTS_PER_LAMPORT);
       *fee = _fee > (uint128)ULONG_MAX ? ULONG_MAX : (ulong)_fee;
       FD_LOG_WARNING(("CPF: %lu %lu %lu", *fee, (ulong)txn_ctx->compute_unit_price, txn_ctx->compute_unit_limit));
-      return; 
+      return;
     }
     default:
       __builtin_unreachable();
@@ -712,9 +713,7 @@ fd_global_ctx_delete     ( void * mem ) {
     return NULL;
   }
 
-  fd_bincode_destroy_ctx_t ctx;
-  ctx.freef = hdr->freef;
-  ctx.freef_arg = hdr->allocf_arg;
+  fd_bincode_destroy_ctx_t ctx = { .valloc = hdr->valloc };
   fd_firedancer_banks_destroy(&hdr->bank, &ctx);
 
   FD_COMPILER_MFENCE();
@@ -876,16 +875,12 @@ fd_runtime_save_banks( fd_global_ctx_t * global ) {
     .data = buf,
     .dataend = buf + sz,
   };
-  if ( fd_firedancer_banks_encode(&global->bank, &ctx ) ) {
-    FD_LOG_WARNING(("fd_runtime_save_banks failed"));
+  if( FD_UNLIKELY( fd_firedancer_banks_encode( &global->bank, &ctx )!=FD_BINCODE_SUCCESS ) ) {
+    FD_LOG_WARNING(( "fd_runtime_save_banks: fd_firedancer_banks_encode failed" ));
     return -1;
   }
 
-  char banks_hash[50];
-  fd_base58_encode_32((uchar *) global->bank.banks_hash.hash, NULL, banks_hash);
-  char poh_hash[50];
-  fd_base58_encode_32((uchar *) global->bank.poh.hash, NULL, poh_hash);
-  FD_LOG_WARNING(( "saved banks_hash %s  poh_hash %s", banks_hash, poh_hash));
+  FD_LOG_WARNING(( "saved banks_hash %32J  poh_hash %32J", global->bank.banks_hash.hash, global->bank.poh.hash));
 
   fd_funk_rec_persist(global->funk, rec);
 
@@ -895,7 +890,7 @@ fd_runtime_save_banks( fd_global_ctx_t * global ) {
 static int
 fd_global_import_stakes(fd_global_ctx_t * global, fd_solana_manifest_t * manifest) {
   ulong raw_stakes_sz = fd_stakes_size( &manifest->bank.stakes );
-  void * raw_stakes = global->allocf( global->allocf_arg, 1UL, raw_stakes_sz );
+  void * raw_stakes = fd_valloc_malloc( global->valloc, 1UL, raw_stakes_sz );
   fd_memset( raw_stakes, 0, raw_stakes_sz );
 
   fd_bincode_encode_ctx_t encode_ctx = {
@@ -910,8 +905,7 @@ fd_global_import_stakes(fd_global_ctx_t * global, fd_solana_manifest_t * manifes
     .data    = raw_stakes,
     .dataend = (void const *)( (ulong)raw_stakes + raw_stakes_sz ),
     /* TODO: Make this a instruction-scoped allocator */
-    .allocf     = global->allocf,
-    .allocf_arg = global->allocf_arg
+    .valloc  = global->valloc,
   };
   if( FD_UNLIKELY( 0!=fd_stakes_decode( &global->bank.stakes, &decode_ctx ) ) ) {
     FD_LOG_ERR(( "fd_stakes_decode failed" ));
@@ -920,7 +914,7 @@ fd_global_import_stakes(fd_global_ctx_t * global, fd_solana_manifest_t * manifes
   fd_vote_accounts_pair_t_mapnode_t * vote_accounts_pool = global->bank.stakes.vote_accounts.vote_accounts_pool;
   fd_vote_accounts_pair_t_mapnode_t * vote_accounts_root = global->bank.stakes.vote_accounts.vote_accounts_root;
 
-  for( fd_vote_accounts_pair_t_mapnode_t * n = fd_vote_accounts_pair_t_map_minimum(vote_accounts_pool, vote_accounts_root); 
+  for( fd_vote_accounts_pair_t_mapnode_t * n = fd_vote_accounts_pair_t_map_minimum(vote_accounts_pool, vote_accounts_root);
     n;
     n = fd_vote_accounts_pair_t_map_successor(vote_accounts_pool, n)
   ) {
@@ -929,10 +923,9 @@ fd_global_import_stakes(fd_global_ctx_t * global, fd_solana_manifest_t * manifes
       .data    = n->elem.value.data,
       .dataend = (void const *)( (ulong) n->elem.value.data +  n->elem.value.data_len ),
       /* TODO: Make this a instruction-scoped allocator */
-      .allocf     = global->allocf,
-      .allocf_arg = global->allocf_arg
+      .valloc  = global->valloc,
     };
-    
+
     fd_vote_state_versioned_t vote_state_versioned;
     if( FD_UNLIKELY( 0!=fd_vote_state_versioned_decode( &vote_state_versioned, &vote_state_decode_ctx ) ) ) {
       FD_LOG_ERR(( "fd_vote_state_versioned_decode failed" ));
@@ -957,23 +950,21 @@ fd_global_import_stakes(fd_global_ctx_t * global, fd_solana_manifest_t * manifes
     record_timestamp_vote_with_slot( global, &n->elem.key, vote_state_timestamp.timestamp, vote_state_timestamp.slot );
   }
 
-  global->freef( global->allocf_arg, raw_stakes );
+  fd_valloc_free( global->valloc, raw_stakes );
 
   return 0;
 }
 
 int fd_global_import_solana_manifest(fd_global_ctx_t * global, fd_solana_manifest_t * manifest) {
   /* Clean out prior bank */
-  fd_bincode_destroy_ctx_t ctx;
-  ctx.freef = global->freef;
-  ctx.freef_arg = global->allocf_arg;
+  fd_bincode_destroy_ctx_t ctx = { .valloc = global->valloc };
   fd_firedancer_banks_t * bank = &global->bank;
   fd_firedancer_banks_destroy(bank, &ctx);
   fd_firedancer_banks_new(bank);
 
   fd_deserializable_versioned_bank_t * oldbank = &manifest->bank;
   fd_global_import_stakes( global, manifest );
-  
+
   if ( oldbank->blockhash_queue.last_hash )
     fd_memcpy(&global->bank.poh, oldbank->blockhash_queue.last_hash, FD_SHA256_HASH_SZ);
   // bank->timestamp_votes = oldbank->timestamp_votes;
@@ -1014,8 +1005,7 @@ void fd_update_feature(FD_FN_UNUSED fd_global_ctx_t * global, ulong * f, const c
   fd_bincode_decode_ctx_t ctx = {
     .data = raw_acc_data + m->hlen,
     .dataend = (char *) ctx.data + m->dlen,
-    .allocf = global->allocf,
-    .allocf_arg = global->allocf_arg,
+    .valloc  = global->valloc,
   };
   if ( fd_feature_decode( &feature, &ctx ) )
     return;
@@ -1023,8 +1013,6 @@ void fd_update_feature(FD_FN_UNUSED fd_global_ctx_t * global, ulong * f, const c
   if (NULL != feature.activated_at)
     *f = *feature.activated_at;
 
-  fd_bincode_destroy_ctx_t ctx3;
-  ctx3.freef = global->freef;
-  ctx3.freef_arg = global->allocf_arg;
-  fd_feature_destroy( &feature, &ctx3 );
+  fd_bincode_destroy_ctx_t destroy = { .valloc = global->valloc };
+  fd_feature_destroy( &feature, &destroy );
 }

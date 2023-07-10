@@ -28,6 +28,7 @@ build/linux/gcc/x86_64/unit-test/test_runtime --wksp giant_wksp --gaddr 0xc7ce18
 
 ****/
 
+#include "../fd_flamenco.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -57,23 +58,6 @@ build/linux/gcc/x86_64/unit-test/test_runtime --wksp giant_wksp --gaddr 0xc7ce18
 #pragma GCC optimize ("O0")
 #endif
 
-#ifdef MALLOC_NOT_FDALLOC
-int fd_alloc_fprintf( fd_alloc_t * join, FILE *       stream );
-
-char* local_allocf(void * arg, ulong align, ulong len) {
-  (void)arg;
-  char * ptr = malloc(fd_ulong_align_up(sizeof(char *) + len, align));
-  char * ret = (char *) fd_ulong_align_up( (ulong) (ptr + sizeof(char *)), align );
-  *((char **)(ret - sizeof(char *))) = ptr;
-  return ret;
-}
-
-void local_freef(void * arg, void *ptr) {
-  (void)arg;
-  free(*((char **)((char *) ptr - sizeof(char *))));
-}
-#endif
-
 struct global_state {
   fd_global_ctx_t*    global;
 
@@ -85,7 +69,6 @@ struct global_state {
   char const *        gaddr;
   char const *        persist;
   ulong               end_slot;
-  char const *        end_slot_opt;
   char const *        cmd;
   char const *        net;
   char const *        reset;
@@ -111,7 +94,8 @@ static void usage(const char* progname) {
 #define SORT_BEFORE(a,b) ((memcmp(&a, &b, 32) < 0))
 #include "../../util/tmpl/fd_sort.c"
 
-int accounts_hash(global_state_t *state) {
+int
+accounts_hash( global_state_t *state ) {
   fd_funk_t * funk = state->global->funk;
   fd_wksp_t * wksp = fd_funk_wksp( funk );
   fd_funk_rec_t * rec_map  = fd_funk_rec_map( funk, wksp );
@@ -121,7 +105,7 @@ int accounts_hash(global_state_t *state) {
 
   ulong zero_accounts = 0;
   ulong num_pairs = 0;
-  fd_pubkey_hash_pair_t * pairs = (fd_pubkey_hash_pair_t *) state->global->allocf(state->global->allocf_arg , 8UL, num_iter_accounts*sizeof(fd_pubkey_hash_pair_t));
+  fd_pubkey_hash_pair_t * pairs = fd_valloc_malloc( state->global->valloc, 8UL, num_iter_accounts*sizeof(fd_pubkey_hash_pair_t));
   for( fd_funk_rec_map_iter_t iter = fd_funk_rec_map_iter_init( rec_map );
        !fd_funk_rec_map_iter_done( rec_map, iter );
        iter = fd_funk_rec_map_iter_next( rec_map, iter ) ) {
@@ -154,16 +138,35 @@ int accounts_hash(global_state_t *state) {
   fd_hash_t accounts_hash;
   fd_hash_account_deltas(state->global, pairs, num_pairs, &accounts_hash);
 
-  char accounts_hash_58[FD_BASE58_ENCODED_32_SZ];
-  fd_base58_encode_32((uchar const *)accounts_hash.hash, NULL, accounts_hash_58);
-
-  FD_LOG_WARNING(("accounts_hash %s", accounts_hash_58));
+  FD_LOG_WARNING(("accounts_hash %32J", accounts_hash.hash));
   FD_LOG_WARNING(("num_iter_accounts %ld", num_iter_accounts));
 
   return 0;
 }
 
-int replay(global_state_t * state, int justverify, fd_tpool_t * tpool, ulong max_workers) {
+static fd_hash_t const *
+get_bank_hash( fd_funk_t *       funk,
+               fd_wksp_t const * wksp,
+               ulong             slot ) {
+
+  fd_funk_rec_key_t key = fd_runtime_bank_hash_key( slot );
+  fd_funk_rec_t const * rec = fd_funk_rec_query_global( funk, NULL, &key );
+  if( !rec ) {
+    FD_LOG_DEBUG(( "No known bank hash for slot %lu", slot ));
+    return NULL;
+  }
+
+  void const * val = fd_funk_val_const( rec, wksp );
+  FD_TEST( fd_funk_val_sz( rec ) == sizeof(fd_hash_t) );
+  return (fd_hash_t const *)val;
+}
+
+int
+replay( global_state_t * state,
+        int              justverify,
+        fd_tpool_t *     tpool,
+        ulong            max_workers) {
+
   fd_funk_rec_key_t key = fd_runtime_block_meta_key(ULONG_MAX);
   fd_funk_rec_t const * rec = fd_funk_rec_query( state->global->funk, NULL, &key );
   if (rec == NULL)
@@ -174,17 +177,16 @@ int replay(global_state_t * state, int justverify, fd_tpool_t * tpool, ulong max
   if (val == NULL)
     FD_LOG_ERR(("corrupt meta record"));
   fd_bincode_decode_ctx_t ctx2;
-  ctx2.data = val;
+  ctx2.data    = val;
   ctx2.dataend = (uchar*)val + fd_funk_val_sz(rec);
-  ctx2.allocf = state->global->allocf;
-  ctx2.allocf_arg = state->global->allocf_arg;
+  ctx2.valloc  = state->global->valloc;
   if ( fd_slot_meta_meta_decode( &mm, &ctx2 ) )
     FD_LOG_ERR(("fd_slot_meta_meta_decode failed"));
 
   if (mm.end_slot < state->end_slot)
     state->end_slot = mm.end_slot;
 
-  if (0 != state->global->bank.slot)
+  if ((0 != state->global->bank.slot) && (~0ul != state->global->bank.slot))
     fd_update_features(state->global);
 
   /* Load epoch schedule sysvar */
@@ -209,28 +211,27 @@ int replay(global_state_t * state, int justverify, fd_tpool_t * tpool, ulong max
     fd_memset(&m, 0, sizeof(m));
     fd_slot_meta_new(&m);
 
+    /* Read block meta */
+
     key = fd_runtime_block_meta_key(slot);
     rec = fd_funk_rec_query( state->global->funk, NULL, &key );
-    if (rec == NULL)
-      continue;
+    if( FD_UNLIKELY( !rec ) ) continue;
     val = fd_funk_val_cache( state->global->funk, rec, &err );
-    if (val == NULL)
-      FD_LOG_ERR(("corrupt meta record"));
+    if( FD_UNLIKELY( !val ) ) FD_LOG_ERR(("corrupt meta record"));
     fd_bincode_decode_ctx_t ctx3;
     ctx3.data = val;
     ctx3.dataend = (uchar*)val + fd_funk_val_sz(rec);
-    ctx3.allocf = state->global->allocf;
-    ctx3.allocf_arg = state->global->allocf_arg;
-    if ( fd_slot_meta_decode( &m, &ctx3 ) )
+    ctx3.valloc  = state->global->valloc;
+    if( FD_UNLIKELY( fd_slot_meta_decode( &m, &ctx3 )!=FD_BINCODE_SUCCESS ) )
       FD_LOG_ERR(("fd_slot_meta_decode failed"));
 
-    key = fd_runtime_block_key(slot);
+    /* Read block */
+
+    key = fd_runtime_block_key( slot );
     rec = fd_funk_rec_query( state->global->funk, NULL, &key );
-    if (rec == NULL)
-      FD_LOG_ERR(("missing block record"));
+    if( FD_UNLIKELY( !rec ) ) FD_LOG_ERR(("missing block record"));
     val = fd_funk_val_cache( state->global->funk, rec, &err );
-    if (val == NULL)
-      FD_LOG_ERR(("missing block record"));
+    if( FD_UNLIKELY( !val ) ) FD_LOG_ERR(("missing block record"));
 
     if ( justverify ) {
       if ( tpool )
@@ -241,10 +242,21 @@ int replay(global_state_t * state, int justverify, fd_tpool_t * tpool, ulong max
       FD_TEST (fd_runtime_block_eval( state->global, &m, val, fd_funk_val_sz(rec) ) == FD_RUNTIME_EXECUTE_SUCCESS);
     }
 
-    fd_bincode_destroy_ctx_t ctx;
-    ctx.freef = state->global->freef;
-    ctx.freef_arg = state->global->allocf_arg;
+    fd_bincode_destroy_ctx_t ctx = { .valloc = state->global->valloc };
     fd_slot_meta_destroy(&m, &ctx);
+
+    /* Read bank hash */
+
+    fd_hash_t const * known_bank_hash = get_bank_hash( state->global->funk, state->global->wksp, slot );
+    if( known_bank_hash ) {
+      if( FD_UNLIKELY( 0!=memcmp( state->global->bank.banks_hash.hash, known_bank_hash->hash, 32UL ) ) ) {
+        FD_LOG_WARNING(( "Bank hash mismatch! slot=%lu expected=%32J, got=%32J",
+                         slot,
+                         known_bank_hash->hash,
+                         state->global->bank.banks_hash.hash ));
+        return 1;
+      }
+    }
 
     if( slot == last_epoch_slot ) {
       FD_LOG_NOTICE(( "EPOCH TRANSITION" ));
@@ -257,7 +269,8 @@ int replay(global_state_t * state, int justverify, fd_tpool_t * tpool, ulong max
 }
 
 int main(int argc, char **argv) {
-  fd_boot( &argc, &argv );
+  fd_boot         ( &argc, &argv );
+  fd_flamenco_boot( &argc, &argv );
 
   global_state_t state;
   fd_memset(&state, 0, sizeof(state));
@@ -276,7 +289,7 @@ int main(int argc, char **argv) {
   state.name                = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp",         NULL, NULL );
   state.gaddr               = fd_env_strip_cmdline_cstr ( &argc, &argv, "--gaddr",        NULL, NULL);
   state.persist             = fd_env_strip_cmdline_cstr ( &argc, &argv, "--persist",      NULL, NULL);
-  state.end_slot_opt        = fd_env_strip_cmdline_cstr ( &argc, &argv, "--end-slot",     NULL, NULL);
+  state.end_slot            = fd_env_strip_cmdline_ulong( &argc, &argv, "--end-slot",     NULL, ULONG_MAX);
   state.cmd                 = fd_env_strip_cmdline_cstr ( &argc, &argv, "--cmd",          NULL, NULL);
   state.net                 = fd_env_strip_cmdline_cstr ( &argc, &argv, "--net",          NULL, NULL);
   state.reset               = fd_env_strip_cmdline_cstr ( &argc, &argv, "--reset",        NULL, NULL);
@@ -364,15 +377,15 @@ int main(int argc, char **argv) {
   if (NULL != log_level)
     state.global->log_level = (uchar) atoi(log_level);
 
+  fd_alloc_t * alloc = fd_alloc_join( fd_wksp_laddr_fast( wksp, state.global->funk->alloc_gaddr ), 0UL );
+  if( FD_UNLIKELY( !alloc ) ) FD_LOG_ERR(( "fd_alloc_join(gaddr=%#lx) failed", state.global->funk->alloc_gaddr ));
+
   state.global->wksp = wksp;
 #ifdef MALLOC_NOT_FDALLOC
-  state.global->allocf = (fd_alloc_fun_t)local_allocf;
-  state.global->freef = (fd_free_fun_t)local_freef;
+  state.global->valloc = fd_libc_alloc_virtual();
 #else
-  state.global->allocf = (fd_alloc_fun_t)fd_alloc_malloc;
-  state.global->freef = (fd_free_fun_t)fd_alloc_free;
+  state.global->valloc = fd_alloc_virtual( alloc );
 #endif
-  state.global->allocf_arg = fd_wksp_laddr_fast( wksp, state.global->funk->alloc_gaddr );
 
   if (NULL != state.persist) {
     FD_LOG_NOTICE(("using %s for persistence", state.persist));
@@ -393,11 +406,6 @@ int main(int argc, char **argv) {
     FD_LOG_WARNING(("finishing validate"));
   }
 
-  if (NULL != state.end_slot_opt)
-    state.end_slot = (ulong) atoi(state.end_slot_opt);
-  else
-    state.end_slot = ULONG_MAX;
-
   {
     FD_LOG_NOTICE(("reading banks record"));
     fd_funk_rec_key_t id = fd_runtime_banks_key();
@@ -411,16 +419,14 @@ int main(int argc, char **argv) {
     fd_bincode_decode_ctx_t ctx2;
     ctx2.data = val;
     ctx2.dataend = (uchar*)val + fd_funk_val_sz( rec );
-    ctx2.allocf = state.global->allocf;
-    ctx2.allocf_arg = state.global->allocf_arg;
+    ctx2.valloc  = state.global->valloc;
     if ( fd_firedancer_banks_decode(&state.global->bank, &ctx2 ) )
       FD_LOG_ERR(("failed to read banks record"));
 
-    char banks_hash[50];
-    fd_base58_encode_32((uchar *) state.global->bank.banks_hash.hash, NULL, banks_hash);
-    char poh_hash[50];
-    fd_base58_encode_32((uchar *) state.global->bank.poh.hash, NULL, poh_hash);
-    FD_LOG_WARNING(( "decoded banks_hash %s  poh_hash %s", banks_hash, poh_hash));
+    FD_LOG_WARNING(( "decoded slot=%lu banks_hash=%32J poh_hash %32J",
+                     state.global->bank.slot,
+                     state.global->bank.banks_hash.hash,
+                     state.global->bank.poh.hash ));
   }
 
   ulong tcnt = fd_tile_cnt();

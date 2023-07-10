@@ -31,7 +31,7 @@ int fd_executor_compute_budget_program_execute_instructions( transaction_ctx_t *
 
   for( ulong i = 0; i < ctx->txn_descriptor->instr_cnt; i++ ) {
     fd_txn_instr_t * instr =  &ctx->txn_descriptor->instr[i];
-    
+
     if( !is_compute_budget_instruction(ctx, instr) ) { /* FIXME: is a compute budget instr */
       num_non_compute_budget_instrs++;
       continue;
@@ -43,8 +43,7 @@ int fd_executor_compute_budget_program_execute_instructions( transaction_ctx_t *
     fd_bincode_decode_ctx_t decode_ctx = {
       .data = data,
       .dataend = &data[instr->data_sz],
-      .allocf = ctx->global->allocf,
-      .allocf_arg = ctx->global->allocf_arg
+      .valloc  = ctx->global->valloc,
     };
 
     int ret = fd_compute_budget_program_instruction_decode( &instruction, &decode_ctx );
@@ -74,11 +73,11 @@ int fd_executor_compute_budget_program_execute_instructions( transaction_ctx_t *
           /* FIXME: RETURN TXN ERR DUPLICATE TXN! */
           return 1;
         }
-        
+
         has_requested_heap_size = 1;
         request_heap_frame_instr_idx = i;
         updated_requested_heap_size = instruction.inner.request_heap_frame;
-        
+
         break;
       }
       case fd_compute_budget_program_instruction_enum_set_compute_unit_limit: {
@@ -97,7 +96,7 @@ int fd_executor_compute_budget_program_execute_instructions( transaction_ctx_t *
           /* FIXME: RETURN TXN ERR DUPLICATE TXN! */
           return 1;
         }
-        
+
         has_compute_units_price_update = 1;
         prioritization_fee_type = FD_COMPUTE_BUDGET_PRIORITIZATION_FEE_TYPE_COMPUTE_UNIT_PRICE;
         updated_compute_unit_price = instruction.inner.set_compute_unit_price;
@@ -107,7 +106,7 @@ int fd_executor_compute_budget_program_execute_instructions( transaction_ctx_t *
       default: {
         FD_LOG_WARNING(( "unsupported compute budget program instruction: discriminant: %d", instruction.discriminant ));
       }
-    } 
+    }
   }
 
   if( has_requested_heap_size ) {
@@ -138,6 +137,9 @@ int fd_executor_compute_budget_program_execute_instructions( transaction_ctx_t *
 
     }
   }
+
+  /* TODO use this? */
+  (void)num_non_compute_budget_instrs;
 
   return 0;
 }

@@ -102,6 +102,18 @@ checkout_repo () {
   echo
 }
 
+checkout_gnuweb () {
+  # Skip if dir already exists
+  if [[ -d ./opt/gnuweb/"$1" ]]; then
+    echo "[~] Skipping $1 fetch as \"$(pwd)/opt/gnuweb/$1\" already exists"
+  else
+    echo "[+] Cloning $1 from $2/$3.tar.gz"
+    wget -O - "$2/$3.tar.gz" | gunzip | tar xf - -C ./opt/gnuweb
+    mv ./opt/gnuweb/$3 ./opt/gnuweb/$1
+    echo
+  fi
+}
+
 fetch () {
   mkdir -pv ./opt/git
 
@@ -111,6 +123,10 @@ fetch () {
   checkout_repo openssl   https://github.com/quictls/openssl        "OpenSSL_1_1_1t-quic1"
   checkout_repo rocksdb   https://github.com/facebook/rocksdb       "v7.10.2"
   checkout_repo secp256k1 https://github.com/bitcoin-core/secp256k1 "v0.3.2"
+
+  mkdir -pv ./opt/gnuweb
+
+  checkout_gnuweb libmicrohttpd https://ftp.gnu.org/gnu/libmicrohttpd/ "libmicrohttpd-0.9.77"
 }
 
 check_fedora_pkgs () {
@@ -451,6 +467,30 @@ install_rocksdb () {
   make install
 }
 
+install_libmicrohttpd () {
+  if pkg-config --exists libmicrohttpd; then
+    echo "[~] libmicrohttpd already installed at $(pkg-config --path libmicrohttpd), skipping installation"
+    return 0
+  fi
+
+  cd ./opt/gnuweb/libmicrohttpd/
+  ./configure --prefix="$PREFIX"
+  ${MAKE} install
+
+  cat <<EOF > "$PREFIX/lib/pkgconfig/libmicrohttpd.pc"
+prefix=$PREFIX
+libdir=$PREFIX/lib
+includedir=$PREFIX/include
+
+Name: libmicrohttpd
+Description: libmicrohttpd
+Version: $(git describe --tags --abbrev=0)
+Libs: \${libdir}/libmicrohttpd.a -lgnutls
+Cflags: -I\${includedir}
+EOF
+  echo "[+] Successfully installed libmicrohttpd"
+}
+
 install () {
   export CC=`which gcc`
   export cc=`which gcc`
@@ -460,6 +500,7 @@ install () {
   ( install_secp256k1 )
   ( install_rocksdb   )
   ( install_openssl   )
+  ( install_libmicrohttpd )
 
   echo "[~] Done! To wire up $(pwd)/opt with make, run:"
   echo "    source activate-opt"
