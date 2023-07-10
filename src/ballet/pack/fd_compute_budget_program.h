@@ -37,9 +37,11 @@ static const uchar FD_COMPUTE_BUDGET_PROGRAM_ID[FD_TXN_ACCT_ADDR_SZ] = {
 #define FD_COMPUTE_BUDGET_HEAP_FRAME_GRANULARITY          (1024UL)
 /* SetComputeUnitPrice specifies the price in "micro-lamports," which is
    10^(-6) lamports, so 10^(-15) SOL. */
-#define FD_COMPUTE_BUDGET_MICRO_LAMPORTS_PER_LAMPORT      (1000000UL)
+#define FD_COMPUTE_BUDGET_MICRO_LAMPORTS_PER_LAMPORT     (1000000UL)
 
-#define FD_COMPUTE_BUDGET_DEFAULT_INSTR_CU_LIMIT          (200000UL)
+#define FD_COMPUTE_BUDGET_DEFAULT_INSTR_CU_LIMIT         ( 200000UL)
+#define FD_COMPUTE_BUDGET_MAX_CU_LIMIT                   (1400000UL)
+
 struct fd_compute_budget_program_private_state {
   /* flags: Which instructions have been parsed so far in this transaction? See
      above for their meaning. */
@@ -91,6 +93,7 @@ fd_compute_budget_program_parse( uchar const * instr_data,
         return 0;
       state->compute_units = *(uint*)(instr_data+1);
       state->total_fee     = *(uint*)(instr_data+5);
+      if( FD_UNLIKELY( state->compute_units > FD_COMPUTE_BUDGET_MAX_CU_LIMIT ) ) return 0;
       state->flags |= (FD_COMPUTE_BUDGET_PROGRAM_FLAG_SET_CU | FD_COMPUTE_BUDGET_PROGRAM_FLAG_SET_FEE |
                                                                FD_COMPUTE_BUDGET_PROGRAM_FLAG_SET_TOTAL_FEE);
       state->compute_budget_instr_cnt++;
@@ -109,6 +112,7 @@ fd_compute_budget_program_parse( uchar const * instr_data,
       if( FD_UNLIKELY( data_sz!=5 ) ) return 0;
       if( FD_UNLIKELY( (state->flags & FD_COMPUTE_BUDGET_PROGRAM_FLAG_SET_CU)!=0 ) ) return 0;
       state->compute_units = *(uint*)(instr_data+1);
+      if( FD_UNLIKELY( state->compute_units > FD_COMPUTE_BUDGET_MAX_CU_LIMIT ) ) return 0;
       state->flags |= FD_COMPUTE_BUDGET_PROGRAM_FLAG_SET_CU;
       state->compute_budget_instr_cnt++;
       return 1;
@@ -147,7 +151,19 @@ fd_compute_budget_program_finalize( fd_compute_budget_program_state_t const * st
     cu_limit = (instr_cnt - state->compute_budget_instr_cnt) * FD_COMPUTE_BUDGET_DEFAULT_INSTR_CU_LIMIT;
   } else cu_limit = state->compute_units;
 
+  cu_limit = fd_ulong_min( cu_limit, FD_COMPUTE_BUDGET_MAX_CU_LIMIT );
+
   *out_compute = (uint)cu_limit;
+
+  /* Note: Prior to feature flag use_default_units_in_fee_calculation
+     (e.g. Solana mainnet today), the per-instruction version of the CU
+     limit is used as the actual CU limit, but a flat amount of 1.4M CUs
+     is used to calculate the fee when no limit is provided. */
+#if PRE_USE_DEFAULT_UNITS_IN_FEE_CALCULATION
+  if( FD_LIKELY( (state->flags & FD_COMPUTE_BUDGET_PROGRAM_FLAG_SET_CU)==0U ) ) {
+    cu_limit = FD_COMPUTE_BUDGET_MAX_CU_LIMIT;
+  }
+#endif
 
   ulong total_fee = 0UL;
   if( FD_LIKELY( (state->flags & FD_COMPUTE_BUDGET_PROGRAM_FLAG_SET_TOTAL_FEE)==0U ) ) {
@@ -178,7 +194,13 @@ fd_compute_budget_program_finalize( fd_compute_budget_program_state_t const * st
        worrying about overflow.
        Of course, we still need to check the final addition of the first term
        with the remaining terms.  As a bonus, all of the divisions can now be
-       done via "magic multiplication." */
+       done via "magic multiplication."
+
+       Note that this computation was done before I was aware of the
+       1.4M CU limit.  Taking that limit into account could make the
+       code a little cleaner, but we'll just keep the version that
+       supports CU limits up to UINT_MAX, since I'm sure the limit will
+       go up someday. */
     do {
       ulong c_h  =                     cu_limit / FD_COMPUTE_BUDGET_MICRO_LAMPORTS_PER_LAMPORT;
       ulong c_l  =                     cu_limit % FD_COMPUTE_BUDGET_MICRO_LAMPORTS_PER_LAMPORT;
@@ -193,7 +215,7 @@ fd_compute_budget_program_finalize( fd_compute_budget_program_state_t const * st
       hh *= FD_COMPUTE_BUDGET_MICRO_LAMPORTS_PER_LAMPORT;
 
       ulong hl = c_h*p_l + c_l*p_h;
-      ulong ll = (c_l*p_l + FD_COMPUTE_BUDGET_MICRO_LAMPORTS_PER_LAMPORT - 1)/FD_COMPUTE_BUDGET_MICRO_LAMPORTS_PER_LAMPORT;
+      ulong ll = (c_l*p_l + FD_COMPUTE_BUDGET_MICRO_LAMPORTS_PER_LAMPORT - 1UL)/FD_COMPUTE_BUDGET_MICRO_LAMPORTS_PER_LAMPORT;
       ulong right_three_terms = hl + ll;
 
       total_fee = hh + right_three_terms;
@@ -202,9 +224,5 @@ fd_compute_budget_program_finalize( fd_compute_budget_program_state_t const * st
   } else total_fee = state->total_fee;
   *out_rewards = total_fee;
 }
-#undef FD_COMPUTE_BUDGET_PROGRAM_FLAG_SET_CU
-#undef FD_COMPUTE_BUDGET_PROGRAM_FLAG_SET_FEE
-#undef FD_COMPUTE_BUDGET_PROGRAM_FLAG_SET_HEAP
-#undef FD_COMPUTE_BUDGET_PROGRAM_FLAG_SET_TOTAL_FEE
 
 #endif /* HEADER_fd_src_ballet_pack_fd_compute_budget_program_h */
