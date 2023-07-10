@@ -126,91 +126,14 @@ long estimate_timestamp( fd_global_ctx_t* global, uint128 ns_per_slot ) {
   return head->timestamp  + (long) (ns_correction / NS_IN_S) ;
 }
 
-int fd_sysvar_clock_update( fd_global_ctx_t* global ) {
-  fd_sol_sysvar_clock_t clock;
-
-  int err = 0;
-  fd_funk_rec_t const *con_rec = NULL;
-  char * raw_acc_data = (char*) fd_acc_mgr_view_data(global->acc_mgr, global->funk_txn, (fd_pubkey_t *) global->sysvar_clock, &con_rec, &err);
-  if (NULL == raw_acc_data)
-    return err;  // This should be a trap
-  fd_account_meta_t *m = (fd_account_meta_t *) raw_acc_data;
-
-  fd_bincode_decode_ctx_t ctx;
-  ctx.data = raw_acc_data + m->hlen;
-  ctx.dataend = (char *) ctx.data + m->dlen;
-  ctx.valloc  = global->valloc;
-
-  if ( fd_sol_sysvar_clock_decode( &clock, &ctx ) )
-    FD_LOG_ERR(("fd_sol_sysvar_clock_decode failed"));
-
-  long timestamp_estimate         = estimate_timestamp( global, ns_per_slot( global->bank.ticks_per_slot ) );
-  long bounded_timestamp_estimate = bound_timestamp_estimate( global, timestamp_estimate, clock.epoch_start_timestamp );
-  if ( timestamp_estimate != bounded_timestamp_estimate ) {
-    FD_LOG_INFO(( "corrected timestamp_estimate %ld to %ld", timestamp_estimate, bounded_timestamp_estimate ));
-  }
-  clock.slot                      = global->bank.slot;
-  clock.unix_timestamp            = bounded_timestamp_estimate;
-
-  FD_LOG_INFO(( "Updated clock at slot %lu", global->bank.slot ));
-  FD_LOG_INFO(( "clock.slot: %lu", clock.slot ));
-  FD_LOG_INFO(( "clock.epoch_start_timestamp: %ld", clock.epoch_start_timestamp ));
-  FD_LOG_INFO(( "clock.epoch: %lu", clock.epoch ));
-  FD_LOG_INFO(( "clock.leader_schedule_epoch: %lu", clock.leader_schedule_epoch ));
-  FD_LOG_INFO(( "clock.unix_timestamp: %ld", clock.unix_timestamp ));
-
-  ulong sz = fd_sol_sysvar_clock_size(&clock);
-  ulong acc_sz = sizeof(fd_account_meta_t) + sz;
-  fd_funk_rec_t * acc_data_rec = NULL;
-
-  err = 0;
-  raw_acc_data = fd_acc_mgr_modify_data(global->acc_mgr, global->funk_txn, (fd_pubkey_t *)  global->sysvar_clock, 1, &acc_sz, con_rec, &acc_data_rec, &err);
-  if ( FD_UNLIKELY (NULL == raw_acc_data) )
-    return err;
-
-  m = (fd_account_meta_t *)raw_acc_data;
-
-  fd_bincode_encode_ctx_t e_ctx;
-  e_ctx.data = raw_acc_data + m->hlen;
-  e_ctx.dataend = (char*)e_ctx.data + sz;
-  if ( fd_sol_sysvar_clock_encode( &clock, &e_ctx ) )
-    return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
-
-  ulong lamps = (sz + 128) * ((ulong) ((double)global->bank.rent.lamports_per_uint8_year * global->bank.rent.exemption_threshold));
-  if (m->info.lamports < lamps)
-    m->info.lamports = lamps;
-
-  m->dlen = sz;
-  fd_memcpy(m->info.owner, global->sysvar_owner, 32);
-
-  err = fd_acc_mgr_commit_data(global->acc_mgr, acc_data_rec, (fd_pubkey_t *) global->sysvar_slot_history, raw_acc_data, global->bank.slot, 0);
-
-  fd_bincode_destroy_ctx_t ctx_d = { .valloc = global->valloc };
-  fd_sol_sysvar_clock_destroy( &clock, &ctx_d );
-
-  return err;
-}
-
-  /* Slot of next epoch boundary */
-//  ulong epoch           = fd_slot_to_epoch( &schedule, state->global->bank.slot+1, NULL );
-//  ulong last_epoch_slot = fd_epoch_slot0  ( &schedule, epoch+1UL );
-
-
-
-#define SCRATCH_ALIGN     (128UL)
-#define SCRATCH_FOOTPRINT (1024UL)
-static uchar scratch[ SCRATCH_FOOTPRINT ] __attribute__((aligned(SCRATCH_ALIGN)));
 
 void fd_calculate_stake_weighted_timestamp(
   fd_global_ctx_t* global,
-  fd_clock_timestamp_votes_t *unique_timestamps,
-  ulong slot_duration,
   long * result_timestamp,
-  uint max_allowable_drift_fast,
-  uint max_allowable_drift_slow,
-  ushort fix_estimate_into_u64
+  uint fix_estimate_into_u64
  ) {
-
+  fd_clock_timestamp_votes_t * unique_timestamps = &global->bank.timestamp_votes;
+  ulong slot_duration = (ulong)ns_per_slot( global->bank.ticks_per_slot );
   fd_sol_sysvar_clock_t clock;
   fd_sysvar_clock_read( global, &clock );
   // get the unique timestamps
@@ -258,8 +181,8 @@ void fd_calculate_stake_weighted_timestamp(
   ulong epoch_start_slot = fd_epoch_slot0( &schedule, clock.epoch );
   ulong poh_estimate_offset = fd_ulong_sat_mul(slot_duration, fd_ulong_sat_sub(clock.slot, epoch_start_slot));
   ulong estimate_offset = fd_ulong_sat_mul(NS_IN_S, (fix_estimate_into_u64) ? fd_ulong_sat_sub((ulong)*result_timestamp, (ulong)clock.epoch_start_timestamp) : (ulong)(*result_timestamp - clock.epoch_start_timestamp));
-  ulong max_delta_fast = fd_ulong_sat_mul(poh_estimate_offset, max_allowable_drift_fast) / 100;
-  ulong max_delta_slow = fd_ulong_sat_mul(poh_estimate_offset, max_allowable_drift_slow) / 100;
+  ulong max_delta_fast = fd_ulong_sat_mul(poh_estimate_offset, MAX_ALLOWABLE_DRIFT_FAST) / 100;
+  ulong max_delta_slow = fd_ulong_sat_mul(poh_estimate_offset, MAX_ALLOWABLE_DRIFT_SLOW) / 100;
 
   if (estimate_offset > poh_estimate_offset && fd_ulong_sat_sub(estimate_offset, poh_estimate_offset) > max_delta_slow) {
     *result_timestamp = clock.epoch_start_timestamp + (long)poh_estimate_offset / NS_IN_S + (long)max_delta_slow / NS_IN_S;
@@ -267,7 +190,85 @@ void fd_calculate_stake_weighted_timestamp(
     *result_timestamp = clock.epoch_start_timestamp + (long)poh_estimate_offset / NS_IN_S - (long)max_delta_fast / NS_IN_S;
   }
   return;
- }
+}
+
+int fd_sysvar_clock_update( fd_global_ctx_t* global ) {
+  fd_sol_sysvar_clock_t clock;
+
+  int err = 0;
+  fd_funk_rec_t const *con_rec = NULL;
+  char * raw_acc_data = (char*) fd_acc_mgr_view_data(global->acc_mgr, global->funk_txn, (fd_pubkey_t *) global->sysvar_clock, &con_rec, &err);
+  if (NULL == raw_acc_data)
+    return err;  // This should be a trap
+  fd_account_meta_t *m = (fd_account_meta_t *) raw_acc_data;
+
+  fd_bincode_decode_ctx_t ctx;
+  ctx.data = raw_acc_data + m->hlen;
+  ctx.dataend = (char *) ctx.data + m->dlen;
+  ctx.valloc  = global->valloc;
+
+  if ( fd_sol_sysvar_clock_decode( &clock, &ctx ) )
+    FD_LOG_ERR(("fd_sol_sysvar_clock_decode failed"));
+
+  if (global->bank.slot == 0) { 
+    /* generate timestamp for genesis */
+    long timestamp_estimate         = estimate_timestamp( global, ns_per_slot( global->bank.ticks_per_slot ) );
+    long bounded_timestamp_estimate = bound_timestamp_estimate( global, timestamp_estimate, clock.epoch_start_timestamp );
+    if ( timestamp_estimate != bounded_timestamp_estimate ) {
+      FD_LOG_INFO(( "corrected timestamp_estimate %ld to %ld", timestamp_estimate, bounded_timestamp_estimate ));
+    }
+    clock.unix_timestamp            = bounded_timestamp_estimate;
+  } else {
+    fd_calculate_stake_weighted_timestamp(global, &clock.unix_timestamp, (uint)global->features.warp_timestamp_again);
+  }
+  clock.slot                      = global->bank.slot;
+
+
+  FD_LOG_INFO(( "Updated clock at slot %lu", global->bank.slot ));
+  FD_LOG_INFO(( "clock.slot: %lu", clock.slot ));
+  FD_LOG_INFO(( "clock.epoch_start_timestamp: %ld", clock.epoch_start_timestamp ));
+  FD_LOG_INFO(( "clock.epoch: %lu", clock.epoch ));
+  FD_LOG_INFO(( "clock.leader_schedule_epoch: %lu", clock.leader_schedule_epoch ));
+  FD_LOG_INFO(( "clock.unix_timestamp: %ld", clock.unix_timestamp ));
+
+  ulong sz = fd_sol_sysvar_clock_size(&clock);
+  ulong acc_sz = sizeof(fd_account_meta_t) + sz;
+  fd_funk_rec_t * acc_data_rec = NULL;
+
+  err = 0;
+  raw_acc_data = fd_acc_mgr_modify_data(global->acc_mgr, global->funk_txn, (fd_pubkey_t *)  global->sysvar_clock, 1, &acc_sz, con_rec, &acc_data_rec, &err);
+  if ( FD_UNLIKELY (NULL == raw_acc_data) )
+    return err;
+
+  m = (fd_account_meta_t *)raw_acc_data;
+
+  fd_bincode_encode_ctx_t e_ctx;
+  e_ctx.data = raw_acc_data + m->hlen;
+  e_ctx.dataend = (char*)e_ctx.data + sz;
+  if ( fd_sol_sysvar_clock_encode( &clock, &e_ctx ) )
+    return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+
+  ulong lamps = (sz + 128) * ((ulong) ((double)global->bank.rent.lamports_per_uint8_year * global->bank.rent.exemption_threshold));
+  if (m->info.lamports < lamps)
+    m->info.lamports = lamps;
+
+  m->dlen = sz;
+  fd_memcpy(m->info.owner, global->sysvar_owner, 32);
+
+  err = fd_acc_mgr_commit_data(global->acc_mgr, acc_data_rec, (fd_pubkey_t *) global->sysvar_slot_history, raw_acc_data, global->bank.slot, 0);
+
+  fd_bincode_destroy_ctx_t ctx_d = { .valloc = global->valloc };
+  fd_sol_sysvar_clock_destroy( &clock, &ctx_d );
+
+  return err;
+}
+
+  /* Slot of next epoch boundary */
+//  ulong epoch           = fd_slot_to_epoch( &schedule, state->global->bank.slot+1, NULL );
+//  ulong last_epoch_slot = fd_epoch_slot0  ( &schedule, epoch+1UL );
+
+
+
 
 
 //    fn get_timestamp_estimate(

@@ -5,6 +5,11 @@
 #include "../fd_executor.h"
 #include "../program/fd_stake_program.h"
 
+#define SCRATCH_ALIGN     (128UL)
+#define SCRATCH_FOOTPRINT (1024UL)
+static uchar scratch[ SCRATCH_FOOTPRINT ] __attribute__((aligned(SCRATCH_ALIGN))) __attribute__((used));
+
+
 #define CIDX_T uchar
 #define VAL_T  long
 struct ele {
