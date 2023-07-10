@@ -2,7 +2,6 @@ use std::fs;
 
 use super::*;
 use crate::security::*;
-use crate::utility::*;
 use crate::Config;
 
 const NAME: &str = "large-pages";
@@ -26,13 +25,14 @@ fn explain_init_permissions(_: &Config) -> Vec<Option<String>> {
 }
 
 fn step(config: &mut Config) {
-    let bin = &config.binary_dir;
-
-    for (size, _, expected_pages) in [
+    for (_, page_size, expected_pages) in [
         ("huge", 2048, config.shmem.min_kernel_huge_pages),
         ("gigantic", 1048576, config.shmem.min_kernel_gigantic_pages),
     ] {
-        run!("{bin}/fd_shmem_cfg alloc {expected_pages} {size} 0");
+        let page_path = format!("/sys/devices/system/node/node0/hugepages/hugepages-{page_size}kB");
+
+        super::shmem::try_defragment_memory();
+        std::fs::write(page_path, expected_pages.to_string()).unwrap();
     }
 }
 
