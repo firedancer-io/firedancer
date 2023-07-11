@@ -124,6 +124,7 @@ fetch () {
   checkout_repo rocksdb   https://github.com/facebook/rocksdb       "v7.10.2"
   checkout_repo secp256k1 https://github.com/bitcoin-core/secp256k1 "v0.3.2"
   checkout_repo nanopb    https://github.com/nanopb/nanopb          "0.4.7"
+  checkout_repo snappy    https://github.com/google/snappy          "1.1.10"
 
   mkdir -pv ./opt/gnuweb
   checkout_gnuweb libmicrohttpd https://ftp.gnu.org/gnu/libmicrohttpd/ "libmicrohttpd-0.9.77"
@@ -445,7 +446,7 @@ install_rocksdb () {
     -DWITH_GFLAGS=OFF \
     -DWITH_LIBURING=OFF \
     -DWITH_BZ2=OFF \
-    -DWITH_SNAPPY=OFF \
+    -DWITH_SNAPPY=ON \
     -DWITH_ZLIB=ON \
     -DWITH_ZSTD=ON \
     -DWITH_ALL_TESTS=OFF \
@@ -458,7 +459,9 @@ install_rocksdb () {
     -DZLIB_ROOT="$PREFIX" \
     -DBZIP2_LIBRARIES="$PREFIX/lib/libbz2.a" \
     -DBZIP2_INCLUDE_DIR="$PREFIX/include" \
-    -Dzstd_ROOT_DIR="$PREFIX"
+    -Dzstd_ROOT_DIR="$PREFIX" \
+    -DSnappy_LIBRARIES="$PREFIX/lib" \
+    -DSnappy_INCLUDE_DIRS="$PREFIX/include"
 
   local NJOBS
   NJOBS=$(( $(nproc) / 2 ))
@@ -512,7 +515,8 @@ install_nanopb () {
     -DBUILD_SHARED_LIBS=OFF \
     -DBUILD_STATIC_LIBS=ON \
     -Dnanopb_BUILD_RUNTIME=ON \
-    -Dnanopb_BUILD_GENERATOR=OFF
+    -Dnanopb_BUILD_GENERATOR=OFF \
+    -DCMAKE_C_FLAGS=-DPB_ENABLE_MALLOC
 
   make -j
   make install
@@ -531,6 +535,31 @@ EOF
   echo "[+] Successfully installed nanopb"
 }
 
+install_snappy () {
+  cd ./opt/git/snappy
+
+  echo "[+] Configuring snappy"
+  mkdir -p build
+  cd build
+  cmake .. \
+    -G"Unix Makefiles" \
+    -DCMAKE_INSTALL_PREFIX:PATH="" \
+    -DCMAKE_INSTALL_LIBDIR=lib \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DBUILD_SHARED_LIBS=ON \
+    -DSNAPPY_BUILD_TESTS=OFF \
+    -DSNAPPY_BUILD_BENCHMARKS=OFF
+  echo "[+] Configured snappy"
+
+  echo "[+] Building snappy"
+  make -j
+  echo "[+] Successfully built snappy"
+
+  echo "[+] Installing snappy to $PREFIX"
+  make install DESTDIR="$PREFIX"
+  echo "[+] Successfully installed snappy"
+}
+
 install () {
   export CC=`which gcc`
   export cc=`which gcc`
@@ -538,6 +567,7 @@ install () {
   ( install_bzip2     )
   ( install_zstd      )
   ( install_secp256k1 )
+  ( install_snappy    )
   ( install_rocksdb   )
   ( install_openssl   )
   ( install_libmicrohttpd )
