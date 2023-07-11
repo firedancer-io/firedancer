@@ -327,7 +327,7 @@ vote_authorize( instruction_ctx_t             ctx,
   }
 
   switch( authorize->discriminant ) {
-  case 0: {
+  case fd_vote_authorize_enum_voter: {
     /* Simplified logic by merging together the following functions:
 
         - solana_vote_program::vote_state::VoteState::set_new_authorized_voter
@@ -440,7 +440,7 @@ vote_authorize( instruction_ctx_t             ctx,
 
     break;
   }
-  case 1:
+  case fd_vote_authorize_enum_withdrawer:
     if( FD_UNLIKELY( !authorized_withdrawer_signer ) )
       return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
     /* Updating authorized withdrawer */
@@ -449,6 +449,7 @@ vote_authorize( instruction_ctx_t             ctx,
             sizeof(fd_pubkey_t) );
     break;
   default:
+    FD_LOG_WARNING(( "invalid vote authorize mode: %lu", authorize->discriminant ));
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
 
@@ -1024,6 +1025,7 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
   case fd_vote_instruction_enum_update_vote_state:
   case fd_vote_instruction_enum_update_vote_state_switch: {
     if( FD_UNLIKELY( !FD_FEATURE_ACTIVE(ctx.global, allow_votes_to_directly_update_vote_state ) )) {
+      FD_LOG_WARNING(( "executing VoteInstruction::UpdateVoteState instruction, but feature is not active" ));
       ret = FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
       break;
     }
@@ -1239,6 +1241,7 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
     }
 
     if( FD_UNLIKELY( !FD_FEATURE_ACTIVE(ctx.global, vote_authorize_with_seed ) ) ) {
+      FD_LOG_WARNING(( "executing VoteInstruction::AuthorizeWithSeed instruction, but feature is not active" ));
       ret = FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
       break;
     }
@@ -1326,6 +1329,7 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
     }
 
     if( FD_UNLIKELY( !FD_FEATURE_ACTIVE(ctx.global, vote_authorize_with_seed ) ) ) {
+      FD_LOG_WARNING(( "executing VoteInstruction::AuthorizeCheckedWithSeed instruction, but feature is not active" ));
       ret = FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
       break;
     }
@@ -1560,7 +1564,8 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
   }
   case fd_vote_instruction_enum_compact_update_vote_state_switch:
   case fd_vote_instruction_enum_compact_update_vote_state: {
-    if( FD_UNLIKELY( !FD_FEATURE_ACTIVE(ctx.global, allow_votes_to_directly_update_vote_state ) ) ) {
+    if( FD_UNLIKELY( !FD_FEATURE_ACTIVE( ctx.global, allow_votes_to_directly_update_vote_state ) ) ) {
+      FD_LOG_WARNING(( "executing VoteInstruction::CompactUpdateVoteState instruction, but feature is not active" ));
       ret = FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
       break;
     }
