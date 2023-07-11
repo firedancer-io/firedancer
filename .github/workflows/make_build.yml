@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - runtime
   workflow_dispatch:
   merge_group:
 jobs:
@@ -21,8 +22,24 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
-      - name: Copy prebuilt deps
-        run: "cp -r /home/runner/firedancer-opts/opt . && ls -lah opt"
+      - id: deps-sh-hash
+        run: sha256sum - <deps.sh
+
+      - id: deps-sh-cache
+        uses: actions/cache@v3
+        with:
+          path: deps-bundle.tar.zst
+          key: ${{ runner.os }}-deps-sh-${{ steps.deps-sh-hash.outputs.stdout }}
+
+      - name: Install dependencies from cache
+        run: tar -Izstd -xvf deps-bundle.tar.zst
+        if: steps.deps-sh-cache.outputs.cache-hit == 'true'
+
+      - name: Install dependencies from scratch
+        run: |
+          ./deps.sh install
+          ./contrib/deps-bundle.sh
+        if: steps.deps-sh-cache.outputs.cache-hit != 'true'
 
       - name: Build everything
         run: make -j
