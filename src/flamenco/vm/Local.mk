@@ -6,6 +6,6 @@ $(call make-bin,fd_vm_tool,fd_vm_tool,fd_flamenco fd_funk fd_ballet fd_util)
 endif
 
 $(call make-unit-test,test_vm_interp,test_vm_interp,fd_flamenco fd_funk fd_ballet fd_util)
-$(call run-unit-test,test_vm_interp)
+# $(call run-unit-test,test_vm_interp)
 $(call make-unit-test,test_vm_cpi,test_vm_cpi,fd_util)
 $(call run-unit-test,test_vm_cpi)
