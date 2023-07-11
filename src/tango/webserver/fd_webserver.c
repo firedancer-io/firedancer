@@ -254,6 +254,49 @@ void fd_web_replier_reply_iov(struct fd_web_replier* replier, const struct fd_io
   replier->response = MHD_create_response_from_iovec((struct MHD_IoVec*)vec, nvec, NULL, NULL);
 }
 
+static const char b58digits_ordered[] = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+
+char* fd_web_replier_encode_base58(struct fd_web_replier* replier, const void* data, ulong data_sz, ulong* out_sz) {
+  /* Prevent explosive growth in computation */
+  if (data_sz > 256)
+    return NULL;
+  
+  const uchar* bin = (const uchar*)data;
+  ulong carry;
+  ulong i, j, high, zcount = 0;
+  ulong size;
+	
+  while (zcount < data_sz && !bin[zcount])
+    ++zcount;
+	
+  size = (data_sz - zcount) * 138 / 100 + 1;
+  uchar buf[size];
+  fd_memset(buf, 0, size);
+	
+  for (i = zcount, high = size - 1; i < data_sz; ++i, high = j) {
+    for (carry = bin[i], j = size - 1; (j > high) || carry; --j) {
+      carry += 256 * buf[j];
+      buf[j] = (uchar)(carry % 58);
+      carry /= 58;
+      if (!j) {
+        // Otherwise j wraps to maxint which is > high
+        break;
+      }
+    }
+  }
+	
+  for (j = 0; j < size && !buf[j]; ++j) ;
+	
+  *out_sz = zcount + size - j;
+  char* b58 = fd_web_replier_temp_alloc(replier, *out_sz);
+	
+  if (zcount)
+    fd_memset(b58, '1', zcount);
+  for (i = zcount; j < size; ++i, ++j)
+    b58[i] = b58digits_ordered[buf[j]];
+  return b58;
+}
+
 static char base64_encoding_table[] = {
   'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H',
   'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P',

@@ -133,6 +133,12 @@ int method_getAccountInfo(struct fd_web_replier* replier, struct json_values* va
   if (val_sz) {
     switch (enc) {
     case ENC_BASE58:
+      vec[nvec].iov_base = fd_web_replier_encode_base58(replier, val, val_sz, &vec[nvec].iov_len);
+      if (vec[nvec].iov_base == NULL) {
+        fd_web_replier_error(replier, "failed to encode data in base58");
+        return 0;
+      }
+      ++nvec;
       break;
     case ENC_BASE64:
       vec[nvec].iov_base = fd_web_replier_encode_base64(replier, val, val_sz, &vec[nvec].iov_len);
