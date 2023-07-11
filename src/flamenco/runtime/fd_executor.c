@@ -164,21 +164,6 @@ fd_execute_txn( fd_executor_t* executor, fd_txn_t * txn_descriptor, fd_rawtxn_b_
 
   /* TODO: execute within a transaction context, which can be reverted */
 
-//
-//  fd_funk_xactionid_t* ptxn = global->funk_txn;
-//  fd_funk_xactionid_t local_funk_txn;
-//  global->funk_txn = &local_funk_txn;
-//
-//  ulong *p = (ulong *) &global->funk_txn->id[0];
-//  p[0] = fd_rng_ulong( global->rng );
-//  p[1] = fd_rng_ulong( global->rng );
-//  p[2] = fd_rng_ulong( global->rng );
-//  p[3] = fd_rng_ulong( global->rng );
-//
-//  if (fd_funk_fork(global->funk, ptxn, global->funk_txn) == 0)
-//    FD_LOG_ERR(("fd_funk_fork failed"));
-
-
   fd_funk_txn_t* parent_txn = global->funk_txn;
   fd_funk_txn_xid_t xid;
   xid.ul[0] = fd_rng_ulong( global->rng );
