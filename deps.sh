@@ -267,10 +267,7 @@ check () {
 }
 
 install_zlib () {
-  if pkg-config --exists zlib; then
-    echo "[~] zlib already installed at $(pkg-config --path zlib), skipping installation"
-    return 0
-  fi
+  # Do not rely on existing packages
 
   cd ./opt/git/zlib
 
@@ -289,10 +286,7 @@ install_zlib () {
 }
 
 install_bzip2 () {
-  if pkg-config --exists bzip2; then
-    echo "[~] bzip2 already installed at $(pkg-config --path bzip2), skipping installation"
-    return 0
-  fi
+  # Do not rely on existing packages
 
   cd ./opt/git/bzip2
 
@@ -313,10 +307,7 @@ EOF
 }
 
 install_zstd () {
-  if pkg-config --exists libzstd; then
-    echo "[~] zstd already installed at $(pkg-config --path libzstd), skipping installation"
-    return 0
-  fi
+  # Do not rely on existing packages
 
   cd ./opt/git/zstd/lib
 
@@ -342,10 +333,7 @@ EOF
 }
 
 install_openssl () {
-  if pkg-config --exists openssl; then
-    echo "[~] openssl already installed at $(pkg-config --path openssl), skipping installation"
-    return 0
-  fi
+  # Do not rely on existing packages
 
   cd ./opt/git/openssl
 

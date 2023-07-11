@@ -164,19 +164,19 @@ void _wd_stream_flush(wd_wksp_t* wd, uint32_t slot)
 
 void wd_rst_cntrs(wd_wksp_t* wd, uint32_t slot)
 {
-    if (!(wd->pci_slots & (1 << slot)))
+    if (!(wd->pci_slots & (1UL << slot)))
         return;
     _wd_write_32(&wd->pci[slot], 0x20<<2, 1);
 }
 void wd_snp_cntrs(wd_wksp_t* wd, uint32_t slot)
 {
-    if (!(wd->pci_slots & (1 << slot)))
+    if (!(wd->pci_slots & (1UL << slot)))
         return;
     _wd_write_32(&wd->pci[slot], 0x20<<2, 2);
 }
 uint32_t wd_rd_cntr(wd_wksp_t* wd, uint32_t slot, uint32_t ci)
 {
-    if (!(wd->pci_slots & (1 << slot)))
+    if (!(wd->pci_slots & (1UL << slot)))
         return 0;
     _wd_write_32(&wd->pci[slot], 0x10<<2, ci);
     return _wd_read_32(&wd->pci[slot], 0x20<<2);
@@ -184,7 +184,7 @@ uint32_t wd_rd_cntr(wd_wksp_t* wd, uint32_t slot, uint32_t ci)
 
 uint64_t wd_rd_ts(wd_wksp_t* wd, uint32_t slot)
 {
-    if (!(wd->pci_slots & (1 << slot)))
+    if (!(wd->pci_slots & (1UL << slot)))
         return 0;
     uint64_t ts = _wd_read_32(&wd->pci[slot], (0x12+0)<<2);
     ts <<= 32;
@@ -210,7 +210,7 @@ uint32_t _wd_next_slot(wd_wksp_t* wd, uint32_t slot)
         slot ++;
         if (slot >= WD_N_PCI_SLOTS)
             slot = 0;
-        if (wd->pci_slots & (1 << slot))
+        if (wd->pci_slots & (1UL << slot))
             break;
     }
     return slot;
@@ -298,7 +298,7 @@ wd_ed25519_verify_init_req( wd_wksp_t *        wd,
 
     for (uint32_t slot = 0; slot < WD_N_PCI_SLOTS; slot ++)
     {
-        if (!(wd->pci_slots & (1 << slot)))
+        if (!(wd->pci_slots & (1UL << slot)))
             continue;
 
         // setup threshold levels for pipe-chain
@@ -368,7 +368,7 @@ wd_ed25519_verify_req( wd_wksp_t *   wd,
 
     wd->stream_buf[0] = WD_PCI_MAGIC;
     wd->stream_buf[1] = src | (((uint32_t)sz + 32 + 32) << 16);
-    wd->stream_buf[2] = (m_sz) | (m_ctrl << 16);
+    wd->stream_buf[2] = (uint32_t)((uint32_t)(m_sz) | (((uint32_t)m_ctrl) << 16));
     wd->stream_buf[3] = (uint32_t)((dma_addr >>  0) & 0xFFFFFFFF);
     wd->stream_buf[4] = (uint32_t)((dma_addr >> 32) & 0xFFFFFFFF);
     wd->stream_buf[5] = (uint32_t)((m_seq >>  0) & 0xFFFFFFFF);

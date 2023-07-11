@@ -313,7 +313,7 @@ fd_frank_parser_task( int     argc,
       /* randomly corrupt the txn's msg (if enabled) */
       if( !!demo_txn_rand_corrupt ) {
         ulong const v_sig = *(ulong const *)(p + txn->signature_off);
-        txn->acct_addr_off-=(ushort)(v_sig & 0x1);
+        txn->acct_addr_off = (ushort)(txn->acct_addr_off - (ushort)(v_sig & 0x1UL));
       }
       /* Publish to the appropriate mcache */
       ulong out_sig     = sig;
