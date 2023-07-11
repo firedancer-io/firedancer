@@ -529,7 +529,7 @@ int fd_executor_stake_program_execute_instruction(
 
   /* TODO: check that the instruction account 0 owner is the stake program ID
      https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/stake/src/stake_instruction.rs#L37 */
-
+  FD_LOG_NOTICE(("discriminant=%d", instruction.discriminant));
   if ( fd_stake_instruction_is_initialize( &instruction ) ) {
     /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/stake/src/stake_instruction.rs#L43 */
 
@@ -601,12 +601,12 @@ int fd_executor_stake_program_execute_instruction(
 
     /* Initialize the Stake Account
        https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/stake/src/stake_state.rs#L449-L453 */
-    stake_state.discriminant = 1;
+    stake_state.discriminant = fd_stake_state_enum_initialized;
     fd_stake_state_meta_t* stake_state_meta = &stake_state.inner.initialized;
     stake_state_meta->rent_exempt_reserve = minimum_rent_exempt_balance;
     fd_stake_instruction_initialize_t* initialize_instruction = &instruction.inner.initialize;
     fd_memcpy( &stake_state_meta->authorized, &initialize_instruction->authorized, FD_STAKE_AUTHORIZED_FOOTPRINT );
-    fd_memcpy( &stake_state_meta->lockup, &initialize_instruction->lockup, sizeof(fd_pubkey_t) );
+    fd_memcpy( &stake_state_meta->lockup, &initialize_instruction->lockup, sizeof(fd_stake_lockup_t) );
 
     /* Write the initialized Stake account to the database */
     int result = write_stake_state( ctx.global, stake_acc, &stake_state, 0 );
@@ -615,6 +615,10 @@ int fd_executor_stake_program_execute_instruction(
       return result;
     }
   } // end of fd_stake_instruction_is_initialize
+  else if ( fd_stake_instruction_is_authorize( &instruction ) ) { //authorize, discriminant 1
+
+
+  } // end of fd_stake_instruction_is_authorize, discriminant 1
   else if ( fd_stake_instruction_is_delegate_stake( &instruction ) ) {
     /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/stake/src/stake_instruction.rs#L126 */
 
@@ -699,7 +703,7 @@ int fd_executor_stake_program_execute_instruction(
     if ( fd_stake_state_is_initialized( &stake_state ) ) {
       /* Create the new stake state
          https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/stake/src/stake_state.rs#L549 */
-      stake_state.discriminant = 2;
+      stake_state.discriminant = fd_stake_state_enum_stake;
       fd_stake_state_stake_t* stake_state_stake = &stake_state.inner.stake;
       fd_memcpy( &stake_state_stake->meta, meta, FD_STAKE_STATE_META_FOOTPRINT );
       stake_state_stake->stake.delegation.activation_epoch = clock.epoch;
@@ -726,8 +730,8 @@ int fd_executor_stake_program_execute_instruction(
           return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
         }
       }
-
-      stake_state.discriminant = 2;
+      
+      stake_state.discriminant = fd_stake_state_enum_stake;
       fd_stake_state_stake_t* stake_state_stake = &stake_state.inner.stake;
       fd_memcpy( &stake_state_stake->meta, meta, FD_STAKE_STATE_META_FOOTPRINT );
       stake_state_stake->stake.delegation.activation_epoch = clock.epoch;
@@ -863,7 +867,7 @@ int fd_executor_stake_program_execute_instruction(
       stake_state.inner.stake.stake.delegation.stake -= remaining_stake_delta;
 
       memcpy(&split_state, &stake_state, STAKE_ACCOUNT_SIZE);
-      split_state.discriminant = 2;
+      split_state.discriminant = fd_stake_state_enum_stake;
       split_state.inner.stake.stake.delegation.stake = split_stake_amount;
       split_state.inner.stake.meta.rent_exempt_reserve = destination_rent_exempt_reserve;
 
@@ -899,7 +903,7 @@ int fd_executor_stake_program_execute_instruction(
       }
 
       memcpy(&split_state, &stake_state, STAKE_ACCOUNT_SIZE);
-      split_state.discriminant = 1; // initialized
+      split_state.discriminant = fd_stake_state_enum_initialized; // initialized
       split_state.inner.initialized.rent_exempt_reserve = destination_rent_exempt_reserve;
 
       /* Write the initialized split account to the database */
@@ -931,7 +935,7 @@ int fd_executor_stake_program_execute_instruction(
 
     // Deinitialize state of stake acc (only if it has been initialized) upon zero balance
     if (lamports == stake_metadata.info.lamports && !fd_stake_state_is_uninitialized( &stake_state ) ) {
-      stake_state.discriminant = 0; // de-initialize
+      stake_state.discriminant = fd_stake_state_enum_uninitialized; // de-initialize
       int result = write_stake_state( ctx.global, stake_acc, &stake_state, 0 );
       if ( result != FD_EXECUTOR_INSTR_SUCCESS ) {
         FD_LOG_WARNING(( "failed to write stake account state: %d", result ));
@@ -987,7 +991,42 @@ int fd_executor_stake_program_execute_instruction(
       return result;
     }
   } // end of deactivate, discriminant 5
+  else if ( fd_stake_instruction_is_set_lockup( &instruction )) { // set_lockup, discriminant 6
+    int result;
+    fd_pubkey_t* stake_acc = &txn_accs[instr_acc_idxs[0]];
+    fd_stake_state_t stake_state;
+    read_stake_state( ctx.global, stake_acc, &stake_state );
+    if ( (!fd_stake_state_is_initialized( &stake_state )) && (!fd_stake_state_is_stake( &stake_state )) ) {
+      return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+    }
 
+    /* read clock */
+    fd_sol_sysvar_clock_t clock;
+    fd_sysvar_clock_read( ctx.global, &clock );
+
+    if (stake_state.inner.stake.meta.lockup.unix_timestamp > clock.unix_timestamp || stake_state.inner.stake.meta.lockup.epoch > clock.epoch) {
+      result = authorized_check_signers(&ctx, instr_acc_idxs, txn_accs, &stake_state.inner.stake.meta.lockup.custodian);
+      if (result != FD_EXECUTOR_INSTR_SUCCESS) {
+        return result;
+      }
+    } else {
+      result = authorized_check_signers(&ctx, instr_acc_idxs, txn_accs, &stake_state.inner.stake.meta.authorized.withdrawer);
+      if (result != FD_EXECUTOR_INSTR_SUCCESS) {
+        return result;
+      }
+    }
+    fd_stake_state_walk(&stake_state, fd_printer_walker, "stake_state", 0);
+    // fd_stake_instruction_initialize_t* initialize_instruction = &instruction.inner.initialize;
+    // stake_state.inner.stake.meta.lockup.unix_timestamp = initialize_instruction->lockup.unix_timestamp;
+    // stake_state.inner.stake.meta.lockup.epoch = initialize_instruction->lockup.epoch;
+    // memcpy(&stake_state.inner.stake.meta.lockup.custodian, &initialize_instruction->lockup.custodian, sizeof(fd_pubkey_t));
+    // FD_LOG_NOTICE(("ts=%lu epoch=%lu", *instruction.inner.set_lockup_checked.unix_timestamp,  *instruction.inner.set_lockup_checked.epoch));
+    result = write_stake_state( ctx.global, stake_acc, &stake_state, 0);
+    if (result != FD_EXECUTOR_INSTR_SUCCESS) {
+      return result;
+    } 
+ 
+  } // end of set_lockup, discriminant 6
   else if ( fd_stake_instruction_is_merge( &instruction )) { // merge, discriminant 7
     // https://github.com/firedancer-io/solana/blob/56bd357f0dfdb841b27c4a346a58134428173f42/programs/stake/src/stake_instruction.rs#L206
 
@@ -1144,7 +1183,7 @@ int fd_executor_stake_program_execute_instruction(
       write_stake_state( ctx.global, stake_acc, &stake_state, 0);
     }
     /* Source is about to be drained, deinitialize its state */
-    source_state.discriminant = 0;
+    source_state.discriminant = fd_stake_state_enum_uninitialized;
     write_stake_state( ctx.global, source_acc, &source_state, 0);
 
     /* Drain the source account */

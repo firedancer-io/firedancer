@@ -276,9 +276,9 @@ char* fd_web_replier_encode_base58(struct fd_web_replier* replier, const void* d
 
   for (i = zcount, high = size - 1; i < data_sz; ++i, high = j) {
     for (carry = bin[i], j = size - 1; (j > high) || carry; --j) {
-      carry += 256 * buf[j];
+      carry += 256UL * (ulong)buf[j];
       buf[j] = (uchar)(carry % 58);
-      carry /= 58;
+      carry /= 58UL;
       if (!j) {
         // Otherwise j wraps to maxint which is > high
         break;

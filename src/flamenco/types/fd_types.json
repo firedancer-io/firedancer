@@ -994,7 +994,7 @@
       "name": "stake_lockup",
       "type": "struct",
       "fields": [
-        { "name": "unix_timestamp", "type": "ulong" },
+        { "name": "unix_timestamp", "type": "long" },
         { "name": "epoch", "type": "ulong" },
         { "name": "custodian", "type": "pubkey" }
       ],
@@ -1005,7 +1005,7 @@
       "type": "struct",
       "fields": [
         { "name": "authorized", "type": "stake_authorized" },
-        { "name": "lockup", "type": "pubkey" }
+        { "name": "lockup", "type": "stake_lockup" }
       ],
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/instruction.rs#L68"
     },
