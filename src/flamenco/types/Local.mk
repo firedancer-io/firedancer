@@ -6,3 +6,4 @@ $(call run-unit-test,test_types)
 ifdef FD_HAS_NANOPB
 $(call add-objs,fd_solana_block.pb,fd_flamenco)
 endif
+endif
