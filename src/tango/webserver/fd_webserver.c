@@ -76,7 +76,7 @@ int json_parse_params_value(struct fd_web_replier* replier, json_lex_state_t* le
       // Recursively parse the inner value
       if (!json_parse_params_value(replier, lex, values, path))
         return 0;
-      
+
       NEXT_TOKEN;
       if (token == JSON_TOKEN_RBRACE)
         break;
@@ -84,7 +84,7 @@ int json_parse_params_value(struct fd_web_replier* replier, json_lex_state_t* le
         SYNTAX_ERROR("expected comma at position %lu", prevpos);
     } while(1);
     break;
-      
+
   case JSON_TOKEN_LBRACKET: { // Start an array
     uint i = 0;
     do {
@@ -93,7 +93,7 @@ int json_parse_params_value(struct fd_web_replier* replier, json_lex_state_t* le
       // Recursively parse the array element
       if (!json_parse_params_value(replier, lex, values, path))
         return 0;
-      
+
       NEXT_TOKEN;
       if (token == JSON_TOKEN_RBRACKET)
         break;
@@ -104,7 +104,7 @@ int json_parse_params_value(struct fd_web_replier* replier, json_lex_state_t* le
     } while(1);
     break;
   }
-      
+
   case JSON_TOKEN_STRING: {
     // Append to the path
     *path_last = (JSON_TOKEN_STRING<<16);
@@ -175,10 +175,10 @@ int json_parse_root(struct fd_web_replier* replier, json_lex_state_t* lex) {
     CLEANUP;
     return 0;
   }
-  
+
   CLEANUP;
 #undef CLEANUP
-  
+
   return 1;
 }
 
@@ -260,19 +260,19 @@ char* fd_web_replier_encode_base58(struct fd_web_replier* replier, const void* d
   /* Prevent explosive growth in computation */
   if (data_sz > 256)
     return NULL;
-  
+
   const uchar* bin = (const uchar*)data;
   ulong carry;
   ulong i, j, high, zcount = 0;
   ulong size;
-	
+
   while (zcount < data_sz && !bin[zcount])
     ++zcount;
-	
+
   size = (data_sz - zcount) * 138 / 100 + 1;
   uchar buf[size];
   fd_memset(buf, 0, size);
-	
+
   for (i = zcount, high = size - 1; i < data_sz; ++i, high = j) {
     for (carry = bin[i], j = size - 1; (j > high) || carry; --j) {
       carry += 256 * buf[j];
@@ -284,12 +284,12 @@ char* fd_web_replier_encode_base58(struct fd_web_replier* replier, const void* d
       }
     }
   }
-	
+
   for (j = 0; j < size && !buf[j]; ++j) ;
-	
+
   *out_sz = zcount + size - j;
   char* b58 = fd_web_replier_temp_alloc(replier, *out_sz);
-	
+
   if (zcount)
     fd_memset(b58, '1', zcount);
   for (i = zcount; j < size; ++i, ++j)
@@ -464,7 +464,7 @@ static enum MHD_Result handler(void* cls,
     *con_cls = replier = fd_web_replier_new();
   else
     replier = (struct fd_web_replier*) (*con_cls);
-  
+
   size_t sz = *upload_data_size;
   if (sz) {
     replier->upload_data = upload_data;
