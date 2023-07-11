@@ -1228,7 +1228,7 @@ typedef struct fd_stake_authorized fd_stake_authorized_t;
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/state.rs#L135 */
 struct fd_stake_lockup {
-  unsigned long unix_timestamp;
+  long unix_timestamp;
   unsigned long epoch;
   fd_pubkey_t custodian;
 };
@@ -1239,7 +1239,7 @@ typedef struct fd_stake_lockup fd_stake_lockup_t;
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/instruction.rs#L68 */
 struct fd_stake_instruction_initialize {
   fd_stake_authorized_t authorized;
-  fd_pubkey_t lockup;
+  fd_stake_lockup_t lockup;
 };
 typedef struct fd_stake_instruction_initialize fd_stake_instruction_initialize_t;
 #define FD_STAKE_INSTRUCTION_INITIALIZE_FOOTPRINT sizeof(fd_stake_instruction_initialize_t)

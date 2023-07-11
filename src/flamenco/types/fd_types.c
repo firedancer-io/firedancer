@@ -6829,7 +6829,7 @@ int fd_stake_authorized_encode(fd_stake_authorized_t const * self, fd_bincode_en
 
 int fd_stake_lockup_decode(fd_stake_lockup_t* self, fd_bincode_decode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint64_decode(&self->unix_timestamp, ctx);
+  err = fd_bincode_uint64_decode((unsigned long *) &self->unix_timestamp, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_bincode_uint64_decode(&self->epoch, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -6847,14 +6847,14 @@ void fd_stake_lockup_destroy(fd_stake_lockup_t* self, fd_bincode_destroy_ctx_t *
 
 void fd_stake_lockup_walk(fd_stake_lockup_t* self, fd_walk_fun_t fun, const char *name, int level) {
   fun(self, name, 32, "fd_stake_lockup", level++);
-  fun(&self->unix_timestamp, "unix_timestamp", 11, "ulong", level + 1);
+  fun(&self->unix_timestamp, "unix_timestamp", 6, "long", level + 1);
   fun(&self->epoch, "epoch", 11, "ulong", level + 1);
   fd_pubkey_walk(&self->custodian, fun, "custodian", level + 1);
   fun(self, name, 33, "fd_stake_lockup", --level);
 }
 ulong fd_stake_lockup_size(fd_stake_lockup_t const * self) {
   ulong size = 0;
-  size += sizeof(ulong);
+  size += sizeof(long);
   size += sizeof(ulong);
   size += fd_pubkey_size(&self->custodian);
   return size;
@@ -6862,7 +6862,7 @@ ulong fd_stake_lockup_size(fd_stake_lockup_t const * self) {
 
 int fd_stake_lockup_encode(fd_stake_lockup_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint64_encode(&self->unix_timestamp, ctx);
+  err = fd_bincode_uint64_encode((unsigned long *) &self->unix_timestamp, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_bincode_uint64_encode(&self->epoch, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -6875,30 +6875,30 @@ int fd_stake_instruction_initialize_decode(fd_stake_instruction_initialize_t* se
   int err;
   err = fd_stake_authorized_decode(&self->authorized, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_pubkey_decode(&self->lockup, ctx);
+  err = fd_stake_lockup_decode(&self->lockup, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
 void fd_stake_instruction_initialize_new(fd_stake_instruction_initialize_t* self) {
   fd_memset(self, 0, sizeof(fd_stake_instruction_initialize_t));
   fd_stake_authorized_new(&self->authorized);
-  fd_pubkey_new(&self->lockup);
+  fd_stake_lockup_new(&self->lockup);
 }
 void fd_stake_instruction_initialize_destroy(fd_stake_instruction_initialize_t* self, fd_bincode_destroy_ctx_t * ctx) {
   fd_stake_authorized_destroy(&self->authorized, ctx);
-  fd_pubkey_destroy(&self->lockup, ctx);
+  fd_stake_lockup_destroy(&self->lockup, ctx);
 }
 
 void fd_stake_instruction_initialize_walk(fd_stake_instruction_initialize_t* self, fd_walk_fun_t fun, const char *name, int level) {
   fun(self, name, 32, "fd_stake_instruction_initialize", level++);
   fd_stake_authorized_walk(&self->authorized, fun, "authorized", level + 1);
-  fd_pubkey_walk(&self->lockup, fun, "lockup", level + 1);
+  fd_stake_lockup_walk(&self->lockup, fun, "lockup", level + 1);
   fun(self, name, 33, "fd_stake_instruction_initialize", --level);
 }
 ulong fd_stake_instruction_initialize_size(fd_stake_instruction_initialize_t const * self) {
   ulong size = 0;
   size += fd_stake_authorized_size(&self->authorized);
-  size += fd_pubkey_size(&self->lockup);
+  size += fd_stake_lockup_size(&self->lockup);
   return size;
 }
 
@@ -6906,7 +6906,7 @@ int fd_stake_instruction_initialize_encode(fd_stake_instruction_initialize_t con
   int err;
   err = fd_stake_authorized_encode(&self->authorized, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_pubkey_encode(&self->lockup, ctx);
+  err = fd_stake_lockup_encode(&self->lockup, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -6971,7 +6971,7 @@ void fd_stake_authorize_destroy(fd_stake_authorize_t* self, fd_bincode_destroy_c
 
 void fd_stake_authorize_walk(fd_stake_authorize_t* self, fd_walk_fun_t fun, const char *name, int level) {
   fun(self, name, 32, "fd_stake_authorize", level++);
-  // enum fd_pubkey_walk(&self->lockup, fun, "lockup", level + 1);
+  // enum fd_stake_lockup_walk(&self->lockup, fun, "lockup", level + 1);
   switch (self->discriminant) {
   }
   fun(self, name, 33, "fd_stake_authorize", --level);
