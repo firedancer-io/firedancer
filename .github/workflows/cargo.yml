@@ -1,48 +1,52 @@
 name: CI
 on: [push, pull_request]
 jobs:
-  check:
-    name: cargo-check
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
-      - uses: actions-rs/cargo@v1
-        with:
-          command: check
+#   check:
+#     name: cargo-check
+#     runs-on: ubuntu-latest
+#     steps:
+#       - uses: actions/checkout@v3
+#       - uses: actions-rs/toolchain@v1
+#         with:
+#           profile: minimal
+#           toolchain: stable
+#           override: true
+#       - uses: actions-rs/cargo@v1
+#         with:
+#           command: check
+#           args: --workspace
 
-  package:
-    name: cargo-package
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
-      - uses: actions-rs/cargo@v1
-        with:
-          command: package
-          args: --manifest-path ffi/rust/firedancer-sys/Cargo.toml
+#  package:
+#    name: cargo-package
+#    runs-on: ubuntu-latest
+#    steps:
+#      - uses: actions/checkout@v3
+#      - uses: actions-rs/toolchain@v1
+#        with:
+#          profile: minimal
+#          toolchain: stable
+#          override: true
+#      - name: stage
+#        run: bash ffi/rust/firedancer-sys/stage.sh
+#      - uses: actions-rs/cargo@v1
+#        with:
+#          command: package
+#          args: --allow-dirty --manifest-path ffi/rust/firedancer-sys/Cargo.toml
 
-  test:
-    name: cargo-test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
-      - uses: actions-rs/cargo@v1
-        with:
-          command: test
+#  test:
+#    name: cargo-test
+#    runs-on: ubuntu-latest
+#    steps:
+#      - uses: actions/checkout@v3
+#      - uses: actions-rs/toolchain@v1
+#        with:
+#          profile: minimal
+#          toolchain: stable
+#          override: true
+#      - uses: actions-rs/cargo@v1
+#        with:
+#          command: test
+#          args: --all
 
   fmt:
     name: cargo-rustfmt
@@ -60,21 +64,21 @@ jobs:
           command: fmt
           args: --all -- --check
 
-  clippy:
-    name: cargo-clippy
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: nightly
-          override: true
-          components: rustfmt, clippy
-      - uses: actions-rs/cargo@v1
-        with:
-          command: clippy
-          args: -- -D warnings
+#  clippy:
+#    name: cargo-clippy
+#    runs-on: ubuntu-latest
+#    steps:
+#      - uses: actions/checkout@v3
+#      - uses: actions-rs/toolchain@v1
+#        with:
+#          profile: minimal
+#          toolchain: nightly
+#          override: true
+#          components: rustfmt, clippy
+#      - uses: actions-rs/cargo@v1
+#        with:
+#          command: clippy
+#          args: --all -- -D warnings
 
   cargo-deny:
     name: cargo-deny

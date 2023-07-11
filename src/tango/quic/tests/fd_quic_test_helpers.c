@@ -137,9 +137,7 @@ fd_quic_new_anonymous( fd_wksp_t *              wksp,
   /* Default settings */
   config->idle_timeout     = (ulong)100e6; /* 10ms */
   config->service_interval = (ulong) 10e6; /* 10ms */
-  strcpy( config->cert_file, "cert.pem" );
-  strcpy( config->key_file,  "key.pem"  );
-  strcpy( config->sni,       "local"    );
+  strcpy( config->sni, "local" );
 
   /* Default callbacks */
   quic->cb.conn_new         = fd_quic_test_cb_conn_new;

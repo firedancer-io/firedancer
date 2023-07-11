@@ -103,8 +103,7 @@ main( int     argc,
     .handshake_cnt    = 10,
     .stream_cnt       = { 0, 0, 20, 0 },
     .inflight_pkt_cnt = 100,
-    .tx_buf_sz        = 1<<15,
-    .rx_buf_sz        = 1<<21
+    .tx_buf_sz        = 1<<15
   };
   fd_quic_t * server_quic = fd_quic_new_anonymous( wksp, &quic_server_limits, FD_QUIC_ROLE_SERVER );
   FD_TEST( server_quic );
@@ -118,8 +117,7 @@ main( int     argc,
     .handshake_cnt    = 10,
     .stream_cnt       = { 0, 0, 20, 0 },
     .inflight_pkt_cnt = 100,
-    .tx_buf_sz        = 1<<21,
-    .rx_buf_sz        = 1<<15
+    .tx_buf_sz        = 1<<21
   };
   fd_quic_t * client_quic = fd_quic_new_anonymous( wksp, &quic_client_limits, FD_QUIC_ROLE_CLIENT );
   FD_TEST( client_quic );
@@ -131,6 +129,9 @@ main( int     argc,
   client_quic->cb.now              = test_clock;
   client_quic->cb.conn_hs_complete = my_handshake_complete;
   client_quic->cb.stream_notify    = fd_quic_stream_spam_notify;
+
+  server_quic->config.initial_rx_max_stream_data = 1<<21;
+  client_quic->config.initial_rx_max_stream_data = 1<<15;
 
   FD_LOG_NOTICE(( "Creating virtual pair" ));
   fd_quic_virtual_pair_t vp;
@@ -252,4 +253,3 @@ main( int     argc,
   fd_halt();
   return 0;
 }
-

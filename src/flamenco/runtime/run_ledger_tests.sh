@@ -29,7 +29,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [ ! -e $LEDGER ]; then
-  wget -q https://github.com/firedancer-io/firedancer-testbins/raw/main/$LEDGER.tar.gz -O - | tar zxf -
+  curl -o - -L -q https://github.com/firedancer-io/firedancer-testbins/raw/main/$LEDGER.tar.gz | tar zxf -
 fi
 
 # We determine these values by

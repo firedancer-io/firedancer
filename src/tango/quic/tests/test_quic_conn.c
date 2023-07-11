@@ -309,8 +309,7 @@ main( int argc, char ** argv ) {
     .handshake_cnt    = 10,
     .stream_cnt       = { 0, 0, 10, 0 },
     .inflight_pkt_cnt = 1024,
-    .tx_buf_sz        = 1<<14,
-    .rx_buf_sz        = 1<<14
+    .tx_buf_sz        = 1<<14
   };
 
   ulong quic_footprint = fd_quic_footprint( &quic_limits );
@@ -346,6 +345,9 @@ main( int argc, char ** argv ) {
 
   server_quic->cb.now     = test_clock;
   server_quic->cb.now_ctx = NULL;
+
+  server_quic->config.initial_rx_max_stream_data = 1<<14;
+  client_quic->config.initial_rx_max_stream_data = 1<<14;
 
   FD_LOG_NOTICE(( "Creating virtual pair" ));
   fd_quic_virtual_pair_t vp;
@@ -489,8 +491,8 @@ main( int argc, char ** argv ) {
 
   FD_LOG_NOTICE(( "Cleaning up" ));
   fd_quic_virtual_pair_fini( &vp );
-  fd_wksp_free_laddr( fd_quic_delete( fd_quic_leave( server_quic ) ) );
-  fd_wksp_free_laddr( fd_quic_delete( fd_quic_leave( client_quic ) ) );
+  fd_wksp_free_laddr( fd_quic_delete( fd_quic_leave( fd_quic_fini( server_quic ) ) ) );
+  fd_wksp_free_laddr( fd_quic_delete( fd_quic_leave( fd_quic_fini( client_quic ) ) ) );
   fd_wksp_delete_anonymous( wksp );
 
   FD_LOG_NOTICE(( "pass" ));
@@ -498,4 +500,3 @@ main( int argc, char ** argv ) {
   fd_halt();
   return 0;
 }
-

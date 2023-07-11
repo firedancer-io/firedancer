@@ -1,4 +1,6 @@
 #include "fd_pcap.h"
+#include "fd_ip4.h"
+#include "fd_udp.h"
 
 #if FD_HAS_HOSTED
 
@@ -74,7 +76,7 @@ fd_pcap_iter_new( void * _file ) {
   return (fd_pcap_iter_t *)((ulong)file | cooked);
 }
 
-ulong   
+ulong
 fd_pcap_iter_next( fd_pcap_iter_t * iter,
                    void *           pkt,
                    ulong            pkt_max,
@@ -149,9 +151,176 @@ fd_pcap_iter_next( fd_pcap_iter_t * iter,
     if( FD_UNLIKELY( !feof( file ) ) ) FD_LOG_WARNING(( "packet payload fread failed (%i-%s)", errno, strerror( errno ) ));
     else                               FD_LOG_WARNING(( "packet payload fread failed (truncated pcap file?)" ));
   }
-    
+
   *_pkt_ts = ((long)pcap->usec) + 1000000000L*((long)pcap->sec); /* Note: assumes ns resolution capture */
   return pkt_sz;
+}
+
+int
+fd_pcap_iter_next_split( fd_pcap_iter_t * iter,
+                         void *           hdr_buf,
+                         ulong *          hdr_sz,
+                         void *           pld_buf,
+                         ulong *          pld_sz,
+                         long *           _pkt_ts ) {
+  FILE * file   = (FILE *)fd_pcap_iter_file( iter );
+  int    cooked = (int   )fd_pcap_iter_type( iter );
+
+  ulong pld_rem = *pld_sz;
+  ulong hdr_rem = *hdr_sz;
+
+  uchar * _hdr_buf = hdr_buf;
+
+  fd_pcap_pkt_hdr_t pcap[1];
+  if( FD_UNLIKELY( fread( pcap, sizeof(fd_pcap_pkt_hdr_t), 1, file ) != 1 ) ) {
+    if( FD_UNLIKELY( !feof( file ) ) ) FD_LOG_WARNING(( "Could not read link header from pcap (%i-%s)", errno, strerror( errno ) ));
+    return 0;
+  }
+
+  ulong pkt_rem = (ulong)pcap->incl_len;
+
+  if( FD_UNLIKELY( pkt_rem!=pcap->orig_len ) ) {
+    FD_LOG_WARNING(( "Read a truncated packet (%lu bytes to %u bytes), run tcpdump with '-s0' option to capture everything",
+                     pkt_rem, pcap->orig_len ));
+    return 0UL;
+  }
+
+  ulong pcap_hdr_sz = fd_ulong_if( cooked, sizeof(fd_pcap_sll_hdr_t), sizeof(fd_eth_hdr_t) );
+  if( FD_UNLIKELY( pkt_rem<pcap_hdr_sz ) ) {
+    FD_LOG_WARNING(( "Corrupt incl_len in cooked pcap file %lu", pkt_rem ));
+    return 0UL;
+  }
+
+  if( FD_UNLIKELY( pkt_rem>hdr_rem+pld_rem ) ) {
+    FD_LOG_WARNING(( "Too large packet detected in pcap (%lu bytes with %lu max)", pkt_rem, hdr_rem+pld_rem ));
+    return 0UL;
+  }
+
+  if( FD_UNLIKELY( hdr_rem<sizeof(fd_eth_hdr_t) ) ) {
+    FD_LOG_WARNING(( "Header buffer not big enough for an Ethernet header" ));
+    return 0UL;
+  }
+
+  fd_eth_hdr_t * hdr = (fd_eth_hdr_t *)_hdr_buf;
+  if( FD_UNLIKELY( cooked ) ) {
+
+    fd_pcap_sll_hdr_t sll[1];
+    if( FD_UNLIKELY( fread( sll, sizeof(fd_pcap_sll_hdr_t), 1, file ) != 1 ) ) {
+      if( FD_UNLIKELY( !feof( file ) ) ) FD_LOG_WARNING(( "packet sll header fread failed (%i-%s)", errno, strerror( errno ) ));
+      else                               FD_LOG_WARNING(( "packet sll header fread failed (truncated pcap file?)" ));
+      return 0UL;
+    }
+
+    /* Construct an ethernet compatible header that encodes the sll
+       header info in a reasonable way */
+
+    hdr->dst[0] = (uchar)(sll->dir    ); hdr->dst[1] = (uchar)(sll->dir     >> 8);
+    hdr->dst[2] = (uchar)(sll->ha_type); hdr->dst[3] = (uchar)(sll->ha_type >> 8);
+    hdr->dst[4] = (uchar)(sll->ha_len ); hdr->dst[5] = (uchar)(sll->ha_len  >> 8);
+    hdr->src[0] = sll->ha[0];            hdr->src[1] = sll->ha[1];
+    hdr->src[2] = sll->ha[2];            hdr->src[3] = sll->ha[3];
+    hdr->src[4] = sll->ha[4];            hdr->src[5] = sll->ha[5];
+    hdr->net_type = sll->net_type;
+
+    hdr->dst[0] = (uchar)(((ulong)hdr->dst[0] & ~3UL) | 2UL); /* Mark as a local admin unicast MAC */
+    hdr->src[0] = (uchar)(((ulong)hdr->src[0] & ~3UL) | 2UL); /* " */
+    /* FIXME: ENCODE LOST BITS TOO? */
+
+    pkt_rem -= sizeof(fd_pcap_sll_hdr_t);
+
+  } else {
+
+    if( FD_UNLIKELY( fread( _hdr_buf, sizeof(fd_eth_hdr_t), 1, file ) ) != 1 ) {
+      if( FD_UNLIKELY( !feof( file ) ) ) FD_LOG_WARNING(( "packet eth header fread failed (%i-%s)", errno, strerror( errno ) ));
+      else                               FD_LOG_WARNING(( "packet eth header fread failed (truncated pcap file?)" ));
+      return 0UL;
+    }
+
+    pkt_rem -= sizeof(fd_eth_hdr_t);
+  }
+  hdr_rem   -= sizeof(fd_eth_hdr_t);
+  _hdr_buf  += sizeof(fd_eth_hdr_t);
+
+  /* Deal with any VLAN tags */
+  do {
+    ushort net_type = hdr->net_type; /* In network byte order */
+    while( FD_UNLIKELY( net_type == fd_ushort_bswap( FD_ETH_HDR_TYPE_VLAN ) ) ) {
+      if( FD_UNLIKELY( hdr_rem<sizeof(fd_eth_hdr_t) ) ) { FD_LOG_WARNING(( "Header buffer too small for vlan tags" )); return 0; }
+      if( FD_UNLIKELY( fread( _hdr_buf, sizeof(fd_vlan_tag_t), 1, file ) ) != 1 ) {
+        if( FD_UNLIKELY( !feof( file ) ) ) FD_LOG_WARNING(( "packet vlan tag fread failed (%i-%s)", errno, strerror( errno ) ));
+        else                               FD_LOG_WARNING(( "packet vlan tag fread failed (truncated pcap file?)" ));
+        return 0;
+      }
+      net_type = ((fd_vlan_tag_t *)_hdr_buf)->net_type;
+      _hdr_buf += sizeof(fd_vlan_tag_t);
+      hdr_rem  -= sizeof(fd_vlan_tag_t);
+      pkt_rem  -= sizeof(fd_vlan_tag_t);
+    }
+
+    if( FD_UNLIKELY( net_type != fd_ushort_bswap( FD_ETH_HDR_TYPE_IP ) ) ) break;
+
+    /* Deal with IP header */
+
+    if( FD_UNLIKELY( hdr_rem<sizeof(fd_ip4_hdr_t) ) ) { FD_LOG_WARNING(( "Header buffer too small for IP header" )); return 0; }
+
+    if( FD_UNLIKELY( fread( _hdr_buf, sizeof(fd_ip4_hdr_t), 1, file ) ) != 1 ) {
+      if( FD_UNLIKELY( !feof( file ) ) ) FD_LOG_WARNING(( "packet ip4 hdr fread failed (%i-%s)", errno, strerror( errno ) ));
+      else                               FD_LOG_WARNING(( "packet ip4 hdr fread failed (truncated pcap file?)" ));
+      return 0;
+    }
+
+    ulong options_len = sizeof(uint)*(((fd_ip4_hdr_t *)_hdr_buf)->ihl - 5U);
+    uchar protocol   = ((fd_ip4_hdr_t *)_hdr_buf)->protocol;
+
+    _hdr_buf += sizeof(fd_ip4_hdr_t);
+    hdr_rem  -= sizeof(fd_ip4_hdr_t);
+    pkt_rem  -= sizeof(fd_ip4_hdr_t);
+
+    /* ... and any IP options */
+
+    if( FD_UNLIKELY( hdr_rem<options_len ) ) { FD_LOG_WARNING(( "Header buffer too small for IP options" )); return 0; }
+
+    if( FD_UNLIKELY( options_len ) ) {
+      if( FD_UNLIKELY( fread( _hdr_buf, options_len, 1, file ) ) != 1 ) {
+        if( FD_UNLIKELY( !feof( file ) ) ) FD_LOG_WARNING(( "packet ip4 hdr options fread failed (%i-%s)", errno, strerror( errno ) ));
+        else                               FD_LOG_WARNING(( "packet ip4 hdr options fread failed (truncated pcap file?)" ));
+        return 0;
+      }
+
+      _hdr_buf += options_len;
+      hdr_rem  -= options_len;
+      pkt_rem  -= options_len;
+    }
+
+    if( FD_UNLIKELY( protocol != FD_IP4_HDR_PROTOCOL_UDP ) ) break;
+
+    /* Deal with UDP header */
+
+    if( FD_UNLIKELY( hdr_rem<sizeof(fd_udp_hdr_t) ) ) { FD_LOG_WARNING(( "Header buffer too small for UDP hdr" )); return 0; }
+
+    if( FD_UNLIKELY( fread( _hdr_buf, sizeof(fd_udp_hdr_t), 1, file ) ) != 1 ) {
+      if( FD_UNLIKELY( !feof( file ) ) ) FD_LOG_WARNING(( "packet udp hdr fread failed (%i-%s)", errno, strerror( errno ) ));
+      else                               FD_LOG_WARNING(( "packet udp hdr fread failed (truncated pcap file?)" ));
+      return 0;
+    }
+
+    _hdr_buf += sizeof(fd_udp_hdr_t);
+    hdr_rem  -= sizeof(fd_udp_hdr_t);
+    pkt_rem  -= sizeof(fd_udp_hdr_t);
+
+  } while( 0 );
+
+  if( FD_UNLIKELY( pld_rem<pkt_rem ) ) { FD_LOG_WARNING(( "Payload buffer (%lu) too small for payload (%lu)", pld_rem, pkt_rem )); return 0; }
+
+  if( FD_UNLIKELY( fread( pld_buf, pkt_rem, 1, file )!=1 ) ) {
+    if( FD_UNLIKELY( !feof( file ) ) ) FD_LOG_WARNING(( "packet payload fread failed (%i-%s)", errno, strerror( errno ) ));
+    else                               FD_LOG_WARNING(( "packet payload fread failed (truncated pcap file?)" ));
+  }
+
+  *pld_sz = pkt_rem;
+  *hdr_sz = *hdr_sz - hdr_rem;
+  *_pkt_ts = ((long)pcap->usec) + 1000000000L*((long)pcap->sec); /* Note: assumes ns resolution capture */
+  return 1;
 }
 
 #define FD_PCAP_SNAPLEN (2048UL) /* FIXME: Allow for Jumbos? */

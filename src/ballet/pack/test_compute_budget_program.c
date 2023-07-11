@@ -237,7 +237,7 @@ test_txn( uchar * payload,
   FD_TEST( (ulong)compute==expected_max_cu );
 }
 
-int
+FD_FN_CONST int
 test_duplicate( ulong request_units_deprecated_cnt,
                 ulong request_heap_frame_cnt,
                 ulong set_compute_unit_limit_cnt,

@@ -38,16 +38,30 @@ fd_frank_signal_trap( int sig ) {
 int
 main( int     argc,
       char ** argv ) {
-  fd_boot( &argc, &argv );
+  // After fd_boot_secure2 is called, the process will be completely sandboxed,
+  // with no ability to make any system calls. We need to pre-stage resources
+  // we need here.
+
+  // 1. Initialize logging and some shared memory information. This needs to
+  //    happen before any sandboxing.
+  fd_boot_secure1( &argc, &argv );
+
+  // 2. Load any resources we will need before sandboxing. Currently this just
+  //    mmaps the workspace.
+  char const * pod_gaddr = fd_env_strip_cmdline_cstr( &argc, &argv, "--pod", NULL, NULL );
+  if( FD_UNLIKELY( !pod_gaddr ) ) FD_LOG_ERR(( "--pod not specified" ));
+  if( FD_UNLIKELY( !fd_wksp_preload( pod_gaddr ) ) )
+    FD_LOG_ERR(( "unable to preload workspace" ));
+
+  fd_frank_quic_task_preload( pod_gaddr );
+
+  // 3. Drop all privileges and finish boot process.
+  fd_boot_secure2( &argc, &argv );
+
+  // 4. Now run rest of the application sandboxed.
   fd_tempo_tick_per_ns( NULL ); /* eat calibration cost at deterministic place */
 
   FD_LOG_NOTICE(( "app init" ));
-
-  /* Parse command line arguments */
-
-  char const * pod_gaddr = fd_env_strip_cmdline_cstr( &argc, &argv, "--pod", NULL, NULL );
-
-  if( FD_UNLIKELY( !pod_gaddr ) ) FD_LOG_ERR(( "--pod not specified" ));
 
   /* Load up the configuration for this frank instance */
 
@@ -61,7 +75,11 @@ main( int     argc,
   ulong verify_cnt = fd_pod_cnt_subpod( verify_pods );
   FD_LOG_NOTICE(( "%lu verify found", verify_cnt ));
 
-  ulong tile_cnt = 3UL + verify_cnt;
+  uchar const * quic_pods = fd_pod_query_subpod( cfg_pod, "quic" );
+  ulong quic_cnt = fd_pod_cnt_subpod( quic_pods );
+  FD_LOG_NOTICE(( "%lu quic found", quic_cnt ));
+
+  ulong tile_cnt = 3UL + verify_cnt + quic_cnt;
   if( FD_UNLIKELY( fd_tile_cnt()<tile_cnt ) ) FD_LOG_ERR(( "at least %lu tiles required for this config", tile_cnt ));
   if( FD_UNLIKELY( fd_tile_cnt()>tile_cnt ) ) FD_LOG_WARNING(( "only %lu tiles required for this config", tile_cnt ));
 
@@ -111,6 +129,20 @@ main( int     argc,
       tile_idx++;
     }
 
+    for( fd_pod_iter_t iter = fd_pod_iter_init( quic_pods ); !fd_pod_iter_done( iter ); iter = fd_pod_iter_next( iter ) ) {
+      fd_pod_info_t info = fd_pod_iter_info( iter );
+      if( FD_UNLIKELY( info.val_type!=FD_POD_VAL_TYPE_SUBPOD ) ) continue;
+      char const  * quic_name =                info.key;
+      uchar const * quic_pod  = (uchar const *)info.val;
+
+      FD_LOG_NOTICE(( "joining %s.quic.%s.cnc", FD_FRANK_CONFIGURATION_PREFIX, quic_name ));
+      tile_name[ tile_idx ] = quic_name;
+      tile_cnc [ tile_idx ] = fd_cnc_join( fd_wksp_pod_map( quic_pod, "cnc" ) );
+      if( FD_UNLIKELY( !tile_cnc[tile_idx] ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
+      if( FD_UNLIKELY( fd_cnc_app_sz( tile_cnc[ tile_idx ] )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
+      tile_idx++;
+    }
+
   } while(0);
 
   /* Boot all the tiles that main controls */
@@ -122,18 +154,32 @@ main( int     argc,
        boot logging easier to read and easier to pass args */
 
     fd_tile_task_t task;
+    ulong          task_idx;
     switch( tile_idx ) {
-    case 0UL: task = main;                 break;
-    case 1UL: task = fd_frank_pack_task;   break;
-    case 2UL: task = fd_frank_dedup_task;  break;
-    default:  task = fd_frank_verify_task; break;
+    case 0UL: task = main;                 task_idx = 0;  break;
+    case 1UL: task = fd_frank_pack_task;   task_idx = 0;  break;
+    case 2UL: task = fd_frank_dedup_task;  task_idx = 0;  break;
+    default:
+      if( tile_idx<3+verify_cnt ) {
+        task = fd_frank_verify_task;
+        task_idx = tile_idx - 3;
+      } else {
+        task = fd_frank_quic_task;
+        task_idx = tile_idx - 3 - verify_cnt;
+      }
+      break;
     }
 
-    char * task_argv[3];
+    char task_idx_str[ 10 ] = { 0 };
+    if( 10 == snprintf( task_idx_str, 10, "%lu", task_idx ) )
+      FD_LOG_ERR(( "task_idx_str overflow" ));
+
+    char * task_argv[5] = { 0 };
     task_argv[0] = (char *)tile_name[ tile_idx ];
     task_argv[1] = (char *)pod_gaddr;
     task_argv[2] = (char *)FD_FRANK_CONFIGURATION_PREFIX;
-    if( FD_UNLIKELY( !fd_tile_exec_new( tile_idx, task, 0, task_argv ) ) )
+    task_argv[3] = task_idx_str;
+    if( FD_UNLIKELY( !fd_tile_exec_new( tile_idx, task, 4, task_argv ) ) )
       FD_LOG_ERR(( "fd_tile_exec_new failed" ));
 
     if( FD_UNLIKELY( fd_cnc_wait( tile_cnc[ tile_idx ], FD_CNC_SIGNAL_BOOT, (long)5e9, NULL )!=FD_CNC_SIGNAL_RUN ) )

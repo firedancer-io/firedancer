@@ -1,9 +1,11 @@
+#include <stdlib.h>
+
 #define VECT_(n)       FD_EXPAND_THEN_CONCAT3(VECT_NAME,_,n)
 
 struct VECT_NAME {
     ulong cnt;
     ulong max;
-    VECT_ELEMENT* elems; 
+    VECT_ELEMENT* elems;
 };
 typedef struct VECT_NAME VECT_(t);
 

@@ -2,6 +2,7 @@
 #include "../fd_quic_private.h"
 #include "../../../util/fd_util.h"
 
+#include <openssl/ssl.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/uio.h>
@@ -44,8 +45,8 @@ fd_quic_ssl_set_encryption_secrets( SSL *                 ssl,
 
 SSL_CTX *
 fd_quic_create_context( fd_quic_tls_t * quic_tls,
-                        char const *    cert_file,
-                        char const *    key_file );
+                        X509 *          cert,
+                        EVP_PKEY *      key );
 
 /* fd_quic_tls_strerror returns a cstr describing the last OpenSSL
    error.  Error is read from OpenSSL's error stack.  The returned
@@ -147,10 +148,9 @@ fd_quic_tls_new( void *              mem,
   fd_memset( used_handshakes, 0, (ulong)self->max_concur_handshakes );
 
   // create ssl context
-  self->ssl_ctx = fd_quic_create_context(
-    self,
-    cfg->cert_file[ 0 ]!='\0' ? cfg->cert_file : NULL,
-    cfg->key_file [ 0 ]!='\0' ? cfg->key_file  : NULL );
+  self->ssl_ctx = fd_quic_create_context( self, cfg->cert, cfg->cert_key );
+  cfg->cert     = NULL;
+  cfg->cert_key = NULL;
   if( FD_UNLIKELY( !self->ssl_ctx ) ) {
     FD_LOG_WARNING(( "fd_quic_create_context failed" ));
     return NULL;
@@ -199,11 +199,11 @@ fd_quic_tls_hs_new( fd_quic_tls_t * quic_tls,
 
   // no room
   if( hs_idx == hs_sz ) {
-    DEBUG( FD_LOG_DEBUG(( "tls_hs alloc fail" )); );
+    FD_DEBUG( FD_LOG_DEBUG(( "tls_hs alloc fail" )) );
     return NULL;
   }
 
-  DEBUG( FD_LOG_DEBUG(( "tls_hs alloc %lu", hs_idx )); );
+  FD_DEBUG( FD_LOG_DEBUG(( "tls_hs alloc %lu", hs_idx )) );
 
   // set the handshake to used
   hs_used[hs_idx] = 1;
@@ -297,7 +297,7 @@ fd_quic_tls_hs_new( fd_quic_tls_t * quic_tls,
 
 fd_quic_tls_hs_new_error:
   // free handshake
-  DEBUG( FD_LOG_DEBUG(( "tls_hs free inline %lu", hs_idx )); );
+  FD_DEBUG( FD_LOG_DEBUG(( "tls_hs free inline %lu", hs_idx )) );
   quic_tls->used_handshakes[hs_idx] = 0;
 
   return NULL;
@@ -313,7 +313,7 @@ fd_quic_tls_hs_delete( fd_quic_tls_hs_t * self ) {
 
   // find index into array
   ulong hs_idx = (ulong)( self - quic_tls->handshakes );
-  DEBUG( FD_LOG_DEBUG(( "tls_hs free %lu", hs_idx )); );
+  FD_DEBUG( FD_LOG_DEBUG(( "tls_hs free %lu", hs_idx )) );
   if( quic_tls->used_handshakes[hs_idx] != 1 ) {
     return;
   }
@@ -683,8 +683,17 @@ fd_quic_tls_cb_alpn_select( SSL * ssl,
 
 SSL_CTX *
 fd_quic_create_context( fd_quic_tls_t * quic_tls,
-                        char const *    cert_file,
-                        char const *    key_file ) {
+                        X509 *          cert,
+                        EVP_PKEY *      pkey ) {
+
+  if( FD_UNLIKELY( !cert ) ) {
+    FD_LOG_WARNING(( "NULL cert" ));
+    return NULL;
+  }
+  if( FD_UNLIKELY( !pkey ) ) {
+    FD_LOG_WARNING(( "NULL pkey" ));
+    return NULL;
+  }
 
   SSL_METHOD const * method = TLS_method();
 
@@ -692,7 +701,6 @@ fd_quic_create_context( fd_quic_tls_t * quic_tls,
   SSL_CTX * ctx = SSL_CTX_new( method );
   if( FD_UNLIKELY( !ctx ) ) {
     FD_LOG_WARNING(( "SSL_CTX_new failed: %s", fd_quic_tls_strerror() ));
-
     return NULL;
   }
 
@@ -727,23 +735,18 @@ fd_quic_create_context( fd_quic_tls_t * quic_tls,
   }
 
   /* Set the key and cert */
-  if( cert_file ) {
-    ERR_clear_error();
-    if( SSL_CTX_use_certificate_file( ctx, cert_file, SSL_FILETYPE_PEM ) <= 0 ) {
-      SSL_CTX_free( ctx );
-      FD_LOG_WARNING(( "Failed to load SSL cert: %s", fd_quic_tls_strerror() ));
-      return NULL;
-    }
+  if( FD_UNLIKELY( SSL_CTX_use_certificate( ctx, cert ) <= 0 ) ) {
+    SSL_CTX_free( ctx );
+    FD_LOG_WARNING(( "Failed to set SSL cert: %s", fd_quic_tls_strerror() ));
+    return NULL;
   }
-
-  if( key_file ) {
-    ERR_clear_error();
-    if( SSL_CTX_use_PrivateKey_file( ctx, key_file, SSL_FILETYPE_PEM ) <= 0 ) {
-      SSL_CTX_free( ctx );
-      FD_LOG_WARNING(( "Failed to load SSL key: %s", fd_quic_tls_strerror() ));
-      return NULL;
-    }
+  X509_free( cert );
+  if( FD_UNLIKELY( SSL_CTX_use_PrivateKey( ctx, pkey ) <= 0 ) ) {
+    SSL_CTX_free( ctx );
+    FD_LOG_WARNING(( "Failed to set SSL private key: %s", fd_quic_tls_strerror() ));
+    return NULL;
   }
+  EVP_PKEY_free( pkey );
 
   /* set verification */
   //SSL_CTX_set_verify( ctx, SSL_VERIFY_PEER, NULL );

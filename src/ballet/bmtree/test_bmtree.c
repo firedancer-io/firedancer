@@ -129,7 +129,7 @@ main( int     argc,
 
   FD_TEST( fd_bmtree32_commit_leaf_cnt( tree )==leaf_cnt );
 
-  uchar * mem = aligned_alloc( 128UL, fd_wbmtree32_footprint(leaf_cnt) );
+  uchar * mem = aligned_alloc( 128UL, fd_ulong_align_up(fd_wbmtree32_footprint(leaf_cnt), 128UL));
   fd_wbmtree32_t * wide_bmtree = fd_wbmtree32_init(mem, leaf_cnt);
 
   // This is annoying.. that we are booting off a different format... lets revisit this..
@@ -146,10 +146,10 @@ main( int     argc,
   fd_wbmtree32_append(wide_bmtree, leafs, leaf_cnt, cbuf);
   uchar *root2 = fd_wbmtree32_fini(wide_bmtree);
 
+  FD_TEST( memcmp(root, root2, 32) == 0 );
+
   free( mem  );
   free( cbuf );
-
-  FD_TEST( memcmp(root, root2, 32) == 0 );
 
 # define _(v) ((uchar)0x##v)
   uchar const expected[FD_SHA256_HASH_SZ] = {
@@ -185,11 +185,11 @@ main( int     argc,
   dt += fd_log_wallclock();
   FD_LOG_NOTICE(( "%.3f ns/leaf @ %lu leaves  -- fd_bmtree32_ code path", (double)((float)dt / (float)leaf_cnt), leaf_cnt ));
 
-  mem = aligned_alloc( 128UL, fd_wbmtree32_footprint(leaf_cnt) );
+  mem = aligned_alloc( 128UL, fd_ulong_align_up(fd_wbmtree32_footprint(leaf_cnt), 128UL) );
   wide_bmtree = fd_wbmtree32_init(mem, leaf_cnt);
 
   // This is annoying.. that we are booting off a different format... lets revisit this..
-  fd_wbmtree32_leaf_t *leaf2 = aligned_alloc( 128UL, sizeof(fd_wbmtree32_leaf_t) * leaf_cnt );
+  fd_wbmtree32_leaf_t *leaf2 = aligned_alloc( 128UL, fd_ulong_align_up(sizeof(fd_wbmtree32_leaf_t) * leaf_cnt, 128UL) );
   tsize = 0;
   for (ulong i = 0; i < leaf_cnt; i++) {
     leaf2[i].data = (unsigned char *) &d[i*65];
@@ -227,11 +227,13 @@ main( int     argc,
 
   root = fd_bmtree32_commit_fini( tree );
 
-  mem = aligned_alloc( 128UL, fd_wbmtree32_footprint(sigs_cnt) );
+  mem = aligned_alloc( 128UL, fd_ulong_align_up(fd_wbmtree32_footprint(sigs_cnt), 128UL) );
   wide_bmtree = fd_wbmtree32_init(mem, sigs_cnt);
 
+  free(leaf2);
+
   // This is annoying.. that we are booting off a different format... lets revisit this..
-  leaf2 = aligned_alloc( 128UL, sizeof(fd_wbmtree32_leaf_t) * sigs_cnt );
+  leaf2 = aligned_alloc( 128UL, fd_ulong_align_up(sizeof(fd_wbmtree32_leaf_t) * sigs_cnt, 128UL) );
   tsize = 0;
   for (ulong i = 0; i < sigs_cnt; i++) {
     uchar *buf = fd_alloca(1UL, 64UL);
@@ -259,8 +261,13 @@ main( int     argc,
 // mixin: 679cSmvKtaU7N5GFKNAheibmUq6vyNEAaz4gvKKez4WQ
 // markle_tree: MerkleTree { leaf_count: 3, nodes: [679cSmvKtaU7N5GFKNAheibmUq6vyNEAaz4gvKKez4WQ, HMUgEFKS2o74gvJJ9k5xDnci3cfV2woNdMTARYdc4SLW, 7v8SHXjZaR5kmbFFeFyp71EHNTYf1UZT18ZkJnce2oZw, 9eovxaBahfaRnXo16mAGNxWBF9G1VyeZT3GYxebDdmQy, 4agJvx37ochKYNeEX3NZF7dKWKhpA1X2dhVMfUoyzHR1, AgVm6NDMgVdjGhTbKE8LdukfpTdUVXS8sFQ25jGP8tr9] }
 
+  free(l);
+  free(cbuf);
+  free(leaf2);
+  free(mem);
+  free(d);
+
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;
 }
-

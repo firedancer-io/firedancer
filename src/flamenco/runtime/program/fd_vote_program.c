@@ -9,6 +9,7 @@
 #include "../../../ballet/txn/fd_compact_u16.h"
 
 #include <math.h>
+#include <stdio.h>
 
 #ifdef _DISABLE_OPTIMIZATION
 #pragma GCC optimize ("O0")
@@ -56,6 +57,13 @@ fd_vote_load_account( fd_vote_state_versioned_t * account,
 
   if( FD_UNLIKELY( 0!=fd_vote_state_versioned_decode( account, &decode ) ) )
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+
+  char x[64];
+  sprintf(x, "%32J", address);
+  if (strcmp(x, "9fDyXmKS8Qgf9TNsRoDw8q2FJJL5J8LN7Y52sddigqyi")==0) {
+    FD_LOG_NOTICE(("HI MOM2: "));
+    fd_vote_state_versioned_walk((fd_vote_state_versioned_t *) account, fd_printer_walker, "fd_vote_state_versioned2", 0);
+  }
 
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
@@ -170,6 +178,9 @@ fd_vote_save_account( fd_vote_state_versioned_t const * account,
                       fd_account_meta_t *               meta,
                       fd_pubkey_t const *               address,
                       instruction_ctx_t                 ctx ) {
+  FD_LOG_NOTICE(("HI MOM: "));
+  fd_base58_print_32((uchar *) address);
+  fd_vote_state_versioned_walk((fd_vote_state_versioned_t *) account, fd_printer_walker, "fd_vote_state_versioned", 0);
 
   /* Derive size of vote account */
   ulong serialized_sz = fd_vote_state_versioned_size( account );
@@ -316,7 +327,7 @@ vote_authorize( instruction_ctx_t             ctx,
   }
 
   switch( authorize->discriminant ) {
-  case 0: {
+  case fd_vote_authorize_enum_voter: {
     /* Simplified logic by merging together the following functions:
 
         - solana_vote_program::vote_state::VoteState::set_new_authorized_voter
@@ -429,7 +440,7 @@ vote_authorize( instruction_ctx_t             ctx,
 
     break;
   }
-  case 1:
+  case fd_vote_authorize_enum_withdrawer:
     if( FD_UNLIKELY( !authorized_withdrawer_signer ) )
       return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
     /* Updating authorized withdrawer */
@@ -438,6 +449,7 @@ vote_authorize( instruction_ctx_t             ctx,
             sizeof(fd_pubkey_t) );
     break;
   default:
+    FD_LOG_WARNING(( "invalid vote authorize mode: %lu", authorize->discriminant ));
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
 
@@ -732,7 +744,7 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
       break;
     }
 
-//    fd_vote_state_versioned_walk(&vote_state_versioned, fd_printer_walker, "fd_vote_state_versioned", 0);
+    // fd_vote_state_versioned_walk(&vote_state_versioned, fd_printer_walker, "fd_vote_state_versioned", 0);
 
     fd_vote_state_t * vote_state = &vote_state_versioned.inner.current;
 
@@ -913,11 +925,11 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
           FD_TEST( !deq_fd_vote_epoch_credits_t_full( vote_state->epoch_credits ) );
           deq_fd_vote_epoch_credits_t_push_tail( vote_state->epoch_credits, epoch_credits );
         }
-        deq_fd_vote_epoch_credits_t_peek_head( vote_state->epoch_credits )->credits += 1UL;
+        deq_fd_vote_epoch_credits_t_peek_tail( vote_state->epoch_credits )->credits += 1UL;
 
         /* Pop the oldest slot from the lockout tower. */
         FD_TEST( !deq_fd_vote_lockout_t_empty( vote_state->votes ) );
-        deq_fd_vote_lockout_t_pop_tail( vote_state->votes );
+        deq_fd_vote_lockout_t_pop_head( vote_state->votes );
       }
 
       /* Push the current vote onto the lockouts stack. */
@@ -1013,6 +1025,7 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
   case fd_vote_instruction_enum_update_vote_state:
   case fd_vote_instruction_enum_update_vote_state_switch: {
     if( FD_UNLIKELY( !FD_FEATURE_ACTIVE(ctx.global, allow_votes_to_directly_update_vote_state ) )) {
+      FD_LOG_WARNING(( "executing VoteInstruction::UpdateVoteState instruction, but feature is not active" ));
       ret = FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
       break;
     }
@@ -1228,6 +1241,7 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
     }
 
     if( FD_UNLIKELY( !FD_FEATURE_ACTIVE(ctx.global, vote_authorize_with_seed ) ) ) {
+      FD_LOG_WARNING(( "executing VoteInstruction::AuthorizeWithSeed instruction, but feature is not active" ));
       ret = FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
       break;
     }
@@ -1315,6 +1329,7 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
     }
 
     if( FD_UNLIKELY( !FD_FEATURE_ACTIVE(ctx.global, vote_authorize_with_seed ) ) ) {
+      FD_LOG_WARNING(( "executing VoteInstruction::AuthorizeCheckedWithSeed instruction, but feature is not active" ));
       ret = FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
       break;
     }
@@ -1549,7 +1564,8 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
   }
   case fd_vote_instruction_enum_compact_update_vote_state_switch:
   case fd_vote_instruction_enum_compact_update_vote_state: {
-    if( FD_UNLIKELY( !FD_FEATURE_ACTIVE(ctx.global, allow_votes_to_directly_update_vote_state ) ) ) {
+    if( FD_UNLIKELY( !FD_FEATURE_ACTIVE( ctx.global, allow_votes_to_directly_update_vote_state ) ) ) {
+      FD_LOG_WARNING(( "executing VoteInstruction::CompactUpdateVoteState instruction, but feature is not active" ));
       ret = FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
       break;
     }

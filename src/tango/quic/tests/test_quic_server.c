@@ -70,6 +70,7 @@ main( int argc, char ** argv ) {
   FD_TEST( quic_config );
 
   quic_config->role = FD_QUIC_ROLE_SERVER;
+  quic_config->retry = 1;
   FD_TEST( fd_quic_config_from_env( &argc, &argv, quic_config ) );
 
   memcpy( quic_config->link.src_mac_addr, udpsock->self_mac, 6UL );
@@ -100,4 +101,3 @@ main( int argc, char ** argv ) {
   fd_halt();
   return 0;
 }
-

@@ -1,4 +1,3 @@
-mod certs;
 mod ethtool;
 mod frank;
 mod large_pages;
@@ -105,7 +104,6 @@ const STAGES: &[Stage] = &[
     xdp::STAGE,
     xdp_leftover::STAGE,
     ethtool::STAGE,
-    certs::STAGE,
     workspace_leftover::STAGE,
     workspace::STAGE,
     frank::STAGE,
@@ -154,9 +152,6 @@ pub(crate) enum StageCli {
     /// Ensures the network device is configured with enough tx / rx queues
     Ethtool(StageCommandCli),
 
-    /// Create new OpenSSL certificates for the QUIC endpoint
-    Certs(StageCommandCli),
-
     /// Checks if there are any Firedancer processes leftover still using the shmem
     WorkspaceLeftover(StageCommandCli),
 
@@ -177,7 +172,6 @@ impl StageCli {
             StageCli::XdpLeftover(_) => &xdp_leftover::STAGE,
             StageCli::Netns(_) => &netns::STAGE,
             StageCli::Ethtool(_) => &ethtool::STAGE,
-            StageCli::Certs(_) => &certs::STAGE,
             StageCli::WorkspaceLeftover(_) => &workspace_leftover::STAGE,
             StageCli::Workspace(_) => &workspace::STAGE,
             StageCli::Frank(_) => &frank::STAGE,
@@ -193,7 +187,6 @@ impl StageCli {
             StageCli::XdpLeftover(argument) => argument,
             StageCli::Netns(argument) => argument,
             StageCli::Ethtool(argument) => argument,
-            StageCli::Certs(argument) => argument,
             StageCli::WorkspaceLeftover(argument) => argument,
             StageCli::Workspace(argument) => argument,
             StageCli::Frank(argument) => argument,

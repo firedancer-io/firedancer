@@ -113,6 +113,16 @@
 #define FD_QUIC_INITIAL_PAYLOAD_SZ_MIN (1200)
 #define FD_QUIC_INITIAL_PAYLOAD_SZ_MAX (FD_QUIC_INITIAL_PAYLOAD_SZ_MIN)
 
+/* Tokens (both RETRY and NEW_TOKEN) are specified by varints. We bound it to
+   77 bytes. Both our and quinn's RETRY tokens are 77 bytes, but our client
+   needs to be able to handle other server impl's of RETRY too.
+
+   FIXME change this bound (requires variable-length encoding). */
+#define FD_QUIC_TOKEN_SZ_MAX (77)
+/* Retry packets don't carry a token length field, so we infer it from the
+   footprint of a packet with a zero-length token and zero-length conn ids. */
+#define FD_QUIC_EMPTY_RETRY_PKT_SZ (23)
+
 /* FD_QUIC_MAX_PAYLOAD_SZ is the max byte size of the UDP payload of any
    QUIC packets.  Derived from FD_QUIC_MTU by subtracting the typical
    IPv4 header (no options) and UDP header sizes. */
@@ -182,8 +192,8 @@ struct __attribute__((aligned(16UL))) fd_quic_limits {
 
   ulong  inflight_pkt_cnt; /* per-conn, max inflight packet count   */
 
-  ulong  tx_buf_sz;        /* per-conn, tx buf sz in bytes          */
-  ulong  rx_buf_sz;        /* per-conn, rx buf sz in bytes          */
+  ulong  tx_buf_sz;        /* per-stream, tx buf sz in bytes          */
+  /* the user consumes rx directly from the network buffer */
 };
 typedef struct fd_quic_limits fd_quic_limits_t;
 
@@ -219,12 +229,12 @@ struct __attribute__((aligned(16UL))) fd_quic_config {
      Also sent to peer via max_idle_timeout transport param */
   ulong idle_timeout;
 
+   /* retry: whether address validation using retry packets is enabled (RFC 9000, Section 8.1.2) */
+  int retry;
+
   /* TLS config ********************************************/
 
-  /* cstrs containing TLS PEM cert and key file path */
-# define FD_QUIC_CERT_PATH_LEN (1023UL)
-  char cert_file  [ FD_QUIC_CERT_PATH_LEN+1UL ];
-  char key_file   [ FD_QUIC_CERT_PATH_LEN+1UL ];
+# define FD_QUIC_CERT_PATH_LEN 1023UL
   char keylog_file[ FD_QUIC_CERT_PATH_LEN+1UL ];
 
   /* alpns: List of supported ALPN IDs in OpenSSL format.
@@ -238,6 +248,8 @@ struct __attribute__((aligned(16UL))) fd_quic_config {
      FIXME: Extend server to validate SNI */
 # define FD_QUIC_SNI_LEN (255UL)
   char sni[ FD_QUIC_SNI_LEN+1UL ];
+
+  ulong initial_rx_max_stream_data; /* per-stream, rx buf sz in bytes, set by the user. */
 
   /* Network config ****************************************/
 
@@ -380,18 +392,21 @@ struct fd_quic_metrics {
   ulong net_rx_pkt_cnt;  /* number of IP packets received */
   ulong net_rx_byte_cnt; /* total bytes received (including IP, UDP, QUIC headers) */
   ulong net_tx_pkt_cnt;  /* number of IP packets sent */
+  ulong net_tx_byte_cnt; /* total bytes sent */
 
   /* Conn metrics */
-  long  conn_active_cnt;       /* number of active conns */
-  ulong conn_created_cnt;      /* number of conns created */
-  ulong conn_closed_cnt;       /* number of conns gracefully closed */
-  ulong conn_aborted_cnt;      /* number of conns aborted */
-  ulong conn_err_no_slots_cnt; /* number of conns that failed to create due to lack of slots */
-  ulong conn_err_tls_fail_cnt; /* number of conns that aborted due to TLS failure */
+  long  conn_active_cnt;         /* number of active conns */
+  ulong conn_created_cnt;        /* number of conns created */
+  ulong conn_closed_cnt;         /* number of conns gracefully closed */
+  ulong conn_aborted_cnt;        /* number of conns aborted */
+  ulong conn_retry_cnt;          /* number of conns established with retry */
+  ulong conn_err_no_slots_cnt;   /* number of conns that failed to create due to lack of slots */
+  ulong conn_err_tls_fail_cnt;   /* number of conns that aborted due to TLS failure */
+  ulong conn_err_retry_fail_cnt; /* number of conns that failed during retry (e.g. invalid token) */
 
   /* Handshake metrics */
-  //ulong hs_created_cnt;        /* number of handshake flows created */
-  //ulong hs_err_alloc_fail_cnt; /* number of handshakes dropped due to alloc fail */
+  ulong hs_created_cnt;          /* number of handshake flows created */
+  ulong hs_err_alloc_fail_cnt;   /* number of handshakes dropped due to alloc fail */
 
   /* Stream metrics */
   ulong stream_opened_cnt  [ 4 ]; /* number of streams opened (per type) */
@@ -415,6 +430,13 @@ struct fd_quic {
 
   fd_aio_t aio_rx; /* local AIO */
   fd_aio_t aio_tx; /* remote AIO */
+
+  /* Opaque handles for OpenSSL objects.
+     Owned by fd_quic object (freed on fini).
+     TODO: Instead, provide SSL_CTX object here. */
+
+  void * cert_object;      /* X509 * object */
+  void * cert_key_object;  /* EVP_PKEY * object */
 
   /* ... private variable-length structures follow ... */
 };
@@ -642,10 +664,30 @@ fd_quic_stream_fin( fd_quic_stream_t * stream );
 
 FD_PROTOTYPES_END
 
-/* Convenience exports for consumers of API */
+uint fd_quic_tx_buffered_raw(fd_quic_t *quic,
+                             uchar **tx_ptr_ptr,
+                             uchar *tx_buf,
+                             ulong tx_buf_sz,
+                             ulong *tx_sz,
+                             uchar *crypt_scratch,
+                             ulong crypt_scratch_sz,
+                             uchar *dst_mac_addr,
+                             ushort *ipv4_id,
+                             uint dst_ipv4_addr,
+                             ushort src_udp_port,
+                             ushort dst_udp_port,
+                             int flush);
 
+/* Convenience exports for consumers of API */
 #include "fd_quic_conn.h"
 #include "fd_quic_stream.h"
 
-#endif /* HEADER_fd_src_tango_quic_fd_quic_h */
+/* FD_DEBUG_MODE: set to enable debug-only code
+   TODO move to util? */
+#ifndef FD_DEBUG_MODE
+#define FD_DEBUG(...) __VA_ARGS__
+#else
+#define FD_DEBUG(...)
+#endif
 
+#endif /* HEADER_fd_src_tango_quic_fd_quic_h */
