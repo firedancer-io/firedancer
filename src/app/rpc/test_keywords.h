@@ -1,4 +1,5 @@
-void test_fd_webserver_json_keyword() {
+void
+test_fd_webserver_json_keyword( void ) {
   assert(fd_webserver_json_keyword("jsonrpc\0\0\0\0\0\0\0", 7) == KEYW_JSON_JSONRPC);
   assert(fd_webserver_json_keyword("jsonrpcx\0\0\0\0\0\0\0", 8) == KEYW_UNKNOWN);
   assert(fd_webserver_json_keyword("jsonrp\0\0\0\0\0\0\0", 6) == KEYW_UNKNOWN);
