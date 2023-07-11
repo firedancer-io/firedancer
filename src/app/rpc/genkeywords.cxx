@@ -298,6 +298,7 @@ int main(int argc, char** argv) {
     { "epoch", false, "KEYW_JSON_EPOCH" },
     { "filters", false, "KEYW_JSON_FILTERS" },
     { "identity", false, "KEYW_JSON_IDENTITY" },
+    { "length", false, "KEYW_JSON_LENGTH" },
     { "limit", false, "KEYW_JSON_LIMIT" },
     { "maxSupportedTransactionVersion", false, "KEYW_JSON_MAXSUPPORTEDTRANSACTIONVERSION" },
     { "memcmp", false, "KEYW_JSON_MEMCMP" },

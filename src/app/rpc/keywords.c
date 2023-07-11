@@ -33,6 +33,11 @@ long fd_webserver_json_keyword(const char* keyw, unsigned long keyw_sz) {
   break;
   case 6:
     switch (keyw[0]) {
+    case 'l':
+      if (((*(unsigned long*)&keyw[1] & 0xFFFFFFFFFFUL) == 0x6874676E65UL)) {
+        return KEYW_JSON_LENGTH; // "length"
+      }
+      break;
     case 'm':
       if (keyw[1] == 'e') {
         switch (keyw[2]) {
@@ -610,6 +615,7 @@ const char* un_fd_webserver_json_keyword(long id) {
   case KEYW_JSON_EPOCH: return "epoch";
   case KEYW_JSON_FILTERS: return "filters";
   case KEYW_JSON_IDENTITY: return "identity";
+  case KEYW_JSON_LENGTH: return "length";
   case KEYW_JSON_LIMIT: return "limit";
   case KEYW_JSON_MAXSUPPORTEDTRANSACTIONVERSION: return "maxSupportedTransactionVersion";
   case KEYW_JSON_MEMCMP: return "memcmp";

@@ -213,7 +213,7 @@ void fd_web_replier_delete(struct fd_web_replier* r) {
   free(r);
 }
 
-char* fd_web_replier_temp_copy(struct fd_web_replier* r, const char* text, ulong sz) {
+char* fd_web_replier_temp_alloc(struct fd_web_replier* r, ulong sz) {
   // Get the new temp size
   ulong new_sz = r->temp_sz + sz;
   // Make sure there is enough room
@@ -230,8 +230,13 @@ char* fd_web_replier_temp_copy(struct fd_web_replier* r, const char* text, ulong
       free(oldtemp);
   }
   char* res = r->temp + r->temp_sz;
-  fd_memcpy(res, text, sz);
   r->temp_sz = new_sz;
+  return res;
+}
+
+char* fd_web_replier_temp_copy(struct fd_web_replier* r, const char* text, ulong sz) {
+  char* res = fd_web_replier_temp_alloc(r, sz);
+  fd_memcpy(res, text, sz);
   return res;
 }
 
@@ -240,6 +245,64 @@ void fd_web_replier_reply(struct fd_web_replier* replier, const char* out, uint 
   if (replier->response != NULL)
     MHD_destroy_response(replier->response);
   replier->response = MHD_create_response_from_buffer(out_sz, (void*)out, MHD_RESPMEM_PERSISTENT);
+}
+
+void fd_web_replier_reply_iov(struct fd_web_replier* replier, const struct fd_iovec* vec, uint nvec) {
+  replier->status_code = MHD_HTTP_BAD_REQUEST;
+  if (replier->response != NULL)
+    MHD_destroy_response(replier->response);
+  replier->response = MHD_create_response_from_iovec((struct MHD_IoVec*)vec, nvec, NULL, NULL);
+}
+
+static char base64_encoding_table[] = {
+  'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H',
+  'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P',
+  'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X',
+  'Y', 'Z', 'a', 'b', 'c', 'd', 'e', 'f',
+  'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n',
+  'o', 'p', 'q', 'r', 's', 't', 'u', 'v',
+  'w', 'x', 'y', 'z', '0', '1', '2', '3',
+  '4', '5', '6', '7', '8', '9', '+', '/'
+};
+
+char* fd_web_replier_encode_base64(struct fd_web_replier* replier, const void* data, ulong sz, ulong* out_sz) {
+  *out_sz = 4 * ((sz + 2) / 3);
+  char* out_data = fd_web_replier_temp_alloc(replier, *out_sz);
+  for (ulong i = 0, j = 0; i < sz; ) {
+    switch (sz - i) {
+    default: { /* 3 and above */
+      uint octet_a = ((uchar*)data)[i++];
+      uint octet_b = ((uchar*)data)[i++];
+      uint octet_c = ((uchar*)data)[i++];
+      uint triple = (octet_a << 0x10) + (octet_b << 0x08) + octet_c;
+      out_data[j++] = base64_encoding_table[(triple >> 3 * 6) & 0x3F];
+      out_data[j++] = base64_encoding_table[(triple >> 2 * 6) & 0x3F];
+      out_data[j++] = base64_encoding_table[(triple >> 1 * 6) & 0x3F];
+      out_data[j++] = base64_encoding_table[(triple >> 0 * 6) & 0x3F];
+      break;
+    }
+    case 2: {
+      uint octet_a = ((uchar*)data)[i++];
+      uint octet_b = ((uchar*)data)[i++];
+      uint triple = (octet_a << 0x10) + (octet_b << 0x08);
+      out_data[j++] = base64_encoding_table[(triple >> 3 * 6) & 0x3F];
+      out_data[j++] = base64_encoding_table[(triple >> 2 * 6) & 0x3F];
+      out_data[j++] = base64_encoding_table[(triple >> 1 * 6) & 0x3F];
+      out_data[j++] = '=';
+      break;
+    }
+    case 1: {
+      uint octet_a = ((uchar*)data)[i++];
+      uint triple = (octet_a << 0x10);
+      out_data[j++] = base64_encoding_table[(triple >> 3 * 6) & 0x3F];
+      out_data[j++] = base64_encoding_table[(triple >> 2 * 6) & 0x3F];
+      out_data[j++] = '=';
+      out_data[j++] = '=';
+      break;
+    }
+    }
+  }
+  return out_data;
 }
 
 void fd_web_replier_error(struct fd_web_replier* replier, const char* text) {

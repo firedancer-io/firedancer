@@ -2,8 +2,16 @@
 
 struct fd_web_replier;
 void fd_web_replier_reply(struct fd_web_replier* replier, const char* out, uint out_sz);
+struct fd_iovec {
+  void  *iov_base;    /* Starting address */
+  ulong  iov_len;     /* Number of bytes to transfer */
+};
+void fd_web_replier_reply_iov(struct fd_web_replier* replier, const struct fd_iovec* vec, uint nvec);
 void fd_web_replier_error(struct fd_web_replier* replier, const char* message);
 char* fd_web_replier_temp_copy(struct fd_web_replier* replier, const char* text, ulong sz);
+
+char* fd_web_replier_encode_base58(struct fd_web_replier* replier, const void* data, ulong sz, ulong* out_sz);
+char* fd_web_replier_encode_base64(struct fd_web_replier* replier, const void* data, ulong sz, ulong* out_sz);
 
 // Data structure describing a "path" to a value in json data. This is
 // basically a path through the syntax tree. A path element can be one

@@ -104,6 +104,15 @@ void test_fd_webserver_json_keyword() {
   assert(fd_webserver_json_keyword("ident|ty\0\0\0\0\0\0\0", 8) == KEYW_UNKNOWN);
   assert(fd_webserver_json_keyword("identi|y\0\0\0\0\0\0\0", 8) == KEYW_UNKNOWN);
   assert(fd_webserver_json_keyword("identit|\0\0\0\0\0\0\0", 8) == KEYW_UNKNOWN);
+  assert(fd_webserver_json_keyword("length\0\0\0\0\0\0\0", 6) == KEYW_JSON_LENGTH);
+  assert(fd_webserver_json_keyword("lengthx\0\0\0\0\0\0\0", 7) == KEYW_UNKNOWN);
+  assert(fd_webserver_json_keyword("lengt\0\0\0\0\0\0\0", 5) == KEYW_UNKNOWN);
+  assert(fd_webserver_json_keyword("|ength\0\0\0\0\0\0\0", 6) == KEYW_UNKNOWN);
+  assert(fd_webserver_json_keyword("l|ngth\0\0\0\0\0\0\0", 6) == KEYW_UNKNOWN);
+  assert(fd_webserver_json_keyword("le|gth\0\0\0\0\0\0\0", 6) == KEYW_UNKNOWN);
+  assert(fd_webserver_json_keyword("len|th\0\0\0\0\0\0\0", 6) == KEYW_UNKNOWN);
+  assert(fd_webserver_json_keyword("leng|h\0\0\0\0\0\0\0", 6) == KEYW_UNKNOWN);
+  assert(fd_webserver_json_keyword("lengt|\0\0\0\0\0\0\0", 6) == KEYW_UNKNOWN);
   assert(fd_webserver_json_keyword("limit\0\0\0\0\0\0\0", 5) == KEYW_JSON_LIMIT);
   assert(fd_webserver_json_keyword("limitx\0\0\0\0\0\0\0", 6) == KEYW_UNKNOWN);
   assert(fd_webserver_json_keyword("limi\0\0\0\0\0\0\0", 4) == KEYW_UNKNOWN);
