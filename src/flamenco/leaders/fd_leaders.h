@@ -1,12 +1,34 @@
 #ifndef HEADER_fd_src_flamenco_leaders_fd_leaders_h
 #define HEADER_fd_src_flamenco_leaders_fd_leaders_h
 
+/* fd_leaders provides APIs for the Solana leader schedule.
+   Logic is compatible with Solana mainnet as of 2023-Jul.
+
+   Every slot is assigned a leader (identified by a "node identity"
+   public key).  The sequence of leaders for all slots in an epoch is
+   called the "leader schedule".  The main responsibility of the leader
+   is to produce a block for the slot.
+
+   The leader schedule is divided into sched_cnt rotations.  Each
+   rotation spans one or more slots, such that
+
+     slots_per_epoch = sched_cnt * slots_per_rotation
+
+   The leader can only change between rotations.  An example leader
+   schedule looks as follows (where A, B, C are node identities and each
+   column is a slot, with 4 slots per rotation)
+
+     A  A  A  A  B  B  B  B  B  B  B  B  C  C  C  C  A  A  A  A
+     ^           ^           ^           ^           ^
+     rotation    rotation    rotation    rotation    rotation
+
+   The mainnet epoch duration is quite long (currently 432000 slots, for
+   more information see fd_sysvar_epoch_schedule.h).  To save space, we
+   dedup pubkeys into a lookup table and only store an index for each
+   rotation. */
+
 #include "../fd_flamenco_base.h"
 #include "../../ballet/ed25519/fd_ed25519.h"
-
-//#define FD_EPOCH_SLOT_CNT           (432000UL)
-//#define FD_EPOCH_SLOTS_PER_ROTATION (4UL)
-//#define FD_EPOCH_ROTATION_CNT       (FD_EPOCH_SLOT_CNT/FD_EPOCH_SLOTS_PER_ROTATION)
 
 /* FD_EPOCH_LEADERS_{ALIGN,FOOTPRINT} are const-friendly versions of the
    fd_epoch_leaders_{align,footprint} functions. */
@@ -31,8 +53,7 @@ struct fd_stake_weight {
 };
 typedef struct fd_stake_weight fd_stake_weight_t;
 
-/* fd_epoch_leaders_t contains the block producer (i.e. leader) schedule
-   of a Solana epoch. */
+/* fd_epoch_leaders_t contains the leader schedule of a Solana epoch. */
 
 struct fd_epoch_leaders {
   /* pub is a lookup table for node public keys with length pub_cnt */
@@ -40,9 +61,7 @@ struct fd_epoch_leaders {
   ulong              pub_cnt;
 
   /* sched contains the leader schedule in the form of indexes into
-     the pub array.  sched_cnt is the number of rotations in the leader
-     schedule.  This is not to be confused with the number of slots, as
-     each rotation typically spans multiple slots. */
+     the pub array.  For sched_cnt, refer to below. */
   uint *             sched;
   ulong              sched_cnt;
 };
@@ -58,7 +77,10 @@ fd_stake_weight_sort( fd_stake_weight_t * stakes,
                       ulong               stakes_cnt );
 
 /* fd_epoch_leaders_{align,footprint} describe the required footprint
-   and alignment of the leader schedule object. */
+   and alignment of the leader schedule object.  pub_cnt is the number
+   of unique public keys.  sched_cnt is the number of rotations in the
+   leader schedule.  (Not to be confused with the number of slots, as
+   each rotation spans FD_EPOCH_SLOTS_PER_ROTATION slots) */
 
 FD_FN_CONST ulong
 fd_epoch_leaders_align( void );
