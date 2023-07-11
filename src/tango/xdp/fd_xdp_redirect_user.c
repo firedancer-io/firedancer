@@ -36,7 +36,7 @@ fd_xdp_validate_name_cstr( char const * s,
     FD_LOG_WARNING(( "empty %s", name ));
     return -1;
   }
-  if( FD_UNLIKELY( strnlen( s, bufsz )==bufsz ) ) {
+  if( FD_UNLIKELY( fd_cstr_nlen( s, bufsz )==bufsz ) ) {
     FD_LOG_WARNING(( "oversz %s", name ));
     return -1;
   }

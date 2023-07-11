@@ -72,18 +72,29 @@ fd_quic_hkdf_expand_label( uchar *       output,  ulong output_sz,
   if( FD_UNLIKELY( ( output_sz  > ( 1u<<16u )                ) |
                    ( secret_sz  > INT_MAX                    ) |
                    ( label_sz   > FD_QUIC_CRYPTO_LABEL_BOUND ) ) ) {
-    FD_LOG_WARNING(( "fd_quic_hkdf_expand_label: invalid params (output_sz=%lu secret_sz=%lu label_sz=%lu)",
-                     output_sz, secret_sz, label_sz ));
+    FD_DEBUG(
+        FD_LOG_WARNING( (
+            "fd_quic_hkdf_expand_label: invalid params (output_sz=%lu secret_sz=%lu label_sz=%lu)",
+            output_sz,
+            secret_sz,
+            label_sz
+        ) );
+    )
     return NULL;
   }
 
   if( FD_UNLIKELY( output_sz > hash_sz ) ) {
-    FD_LOG_WARNING(( "fd_quic_hkdf_expand_label: output_sz (%lu) is larger than hash size (%lu)", output_sz, hash_sz ));
+    FD_DEBUG( FD_LOG_WARNING(
+        ( "fd_quic_hkdf_expand_label: output_sz (%lu) is larger than hash size (%lu)",
+          output_sz,
+          hash_sz )
+    ) );
     return NULL;
   }
 
   if( FD_UNLIKELY( hash_sz > FD_QUIC_CRYPTO_HASH_SZ_BOUND ) ) {
-    FD_LOG_WARNING(( "fd_quic_hkdf_expand_label: hash_sz is larger than output buffer" ));
+    FD_DEBUG( FD_LOG_WARNING( ( "fd_quic_hkdf_expand_label: hash_sz is larger than output buffer" ) )
+    );
     return NULL;
   }
 
@@ -100,7 +111,7 @@ fd_quic_hkdf_expand_label( uchar *       output,  ulong output_sz,
        const 0x01:           1 byte */
   ulong label_data_sz = 3 + HKDF_PREFIX_SZ + label_sz + 1 + 1;
   if( FD_UNLIKELY( label_data_sz > sizeof( label_data ) ) ) {
-    FD_LOG_WARNING(( "fd_quic_hkdf_expand_label: label data size larger than allowed"  ));
+    FD_DEBUG( FD_LOG_WARNING( ( "fd_quic_hkdf_expand_label: label data size larger than allowed" ) ) );
     return NULL;
   }
 
@@ -138,7 +149,7 @@ fd_quic_gen_initial_secret(
                              initial_salt,            initial_salt_sz,
                              conn_id,                 conn_id_sz,
                              fd_hmac_sha256 ) ) ) {
-    FD_LOG_WARNING(( "fd_quic_hkdf_extract failed" ));
+    FD_DEBUG( FD_LOG_WARNING( ( "fd_quic_hkdf_extract failed" ) ) );
     return FD_QUIC_FAILED;
   }
 
@@ -169,7 +180,7 @@ fd_quic_gen_secrets(
       secrets->initial_secret, sizeof( secrets->initial_secret ),
       (uchar*)client_in,       strlen( client_in ),
       hmac_fn,                 hash_sz ) ) ) {
-    FD_LOG_WARNING(( "fd_quic_hkdf_expand_label failed" ));
+    FD_DEBUG( FD_LOG_WARNING( ( "fd_quic_hkdf_expand_label failed" ) ) );
     return FD_QUIC_FAILED;
   }
 
@@ -600,16 +611,16 @@ fd_quic_crypto_encrypt(
 }
 
 static char const *
-fd_quic_tls_strerror( void ) {
+fd_quic_openssl_strerror( void ) {
   /* had a segfault in ERR_error_string_n
    * so disaabling this for now
    * TODO fix */
 #if 1
-  static char errbuf[ 512UL ];
+  static char errbuf[ 256UL ];  /* openssl docs state buf <= 256 bytes */
   errbuf[ 0 ] = '\0';
 
   ulong err_id = ERR_get_error();
-  ERR_error_string_n( err_id, errbuf, 2048UL );
+  ERR_error_string_n( err_id, errbuf, sizeof( errbuf ) );
 
   return errbuf;
 #else
@@ -632,12 +643,12 @@ fd_quic_crypto_decrypt(
   /* must have at least a short header and a TAG */
   if( FD_UNLIKELY( cipher_text_sz < FD_QUIC_CRYPTO_TAG_SZ ) ) {
     FD_LOG_ERR(( "fd_quic_crypto_decrypt: cipher text too small" ));
-    return FD_QUIC_FAILED;
   }
 
   /* must have space for cipher_text_sz - FD_QUIC_CRYPTO_TAG_SZ */
   if( FD_UNLIKELY( *plain_text_sz + FD_QUIC_CRYPTO_TAG_SZ < cipher_text_sz ) ) {
-    FD_LOG_WARNING(( "fd_quic_crypto_decrypt: plain text buffer too small" ));
+    /* should this stop the process? */
+    FD_DEBUG( FD_LOG_WARNING( ( "fd_quic_crypto_decrypt: plain text buffer too small" ) ) );
     return FD_QUIC_FAILED;
   }
 
@@ -656,7 +667,7 @@ fd_quic_crypto_decrypt(
   fd_memcpy( nonce, quic_iv, nonce_tmp );
   for( uint k = 0; k < 4; ++k ) {
     uint j = nonce_tmp + k;
-    nonce[j] = quic_iv[j] ^ (uchar)( pkt_number >> ( (3u - k) * 8u ) );
+    nonce[j] = (uchar)(quic_iv[j] ^ (uchar)( pkt_number >> ( (3u - k) * 8u ) ));
   }
 
   EVP_CIPHER_CTX * cipher_ctx = keys->pkt_cipher_ctx;
@@ -705,9 +716,9 @@ fd_quic_crypto_decrypt(
 
   ulong offset = (ulong)out_sz;
   if( EVP_DecryptFinal( cipher_ctx, payload + offset, &out_sz ) != 1 ) {
-    /* TODO this can happen, probably shouldn't warn here */
-    FD_LOG_WARNING(( "EVP_DecryptFinal failed: %s", fd_quic_tls_strerror() ));
-
+    FD_DEBUG( FD_LOG_WARNING(
+        ( "fd_quic_crypto_decrypt: EVP_DecryptFinal failed %s", fd_quic_openssl_strerror() )
+    ) );
     return FD_QUIC_FAILED;
   }
 
@@ -731,13 +742,13 @@ fd_quic_crypto_decrypt_hdr(
 
   /* must have at least a short header */
   if( FD_UNLIKELY( cipher_text_sz < FD_QUIC_CRYPTO_TAG_SZ ) ) {
-    FD_LOG_ERR(( "fd_quic_crypto_decrypt: cipher text too small" ));
+    FD_DEBUG( FD_LOG_WARNING( ( "fd_quic_crypto_decrypt: cipher text too small" ) ) );
     return FD_QUIC_FAILED;
   }
 
   /* must have capacity for header */
   if( FD_UNLIKELY( *plain_text_sz < pkt_number_off + 4 ) ) {
-    FD_LOG_ERR(( "fd_quic_crypto_decrypt: plain text buffer too small" ));
+    FD_DEBUG( FD_LOG_WARNING( ( "fd_quic_crypto_decrypt: plain text buffer too small" ) ) );
     return FD_QUIC_FAILED;
   }
 
@@ -749,7 +760,6 @@ fd_quic_crypto_decrypt_hdr(
   EVP_CIPHER_CTX * hp_cipher_ctx = keys->hp_cipher_ctx;
   if( FD_UNLIKELY( !hp_cipher_ctx ) ) {
     FD_LOG_ERR(( "fd_quic_crypto_decrypt: Error creating cipher ctx" ));
-    return FD_QUIC_FAILED;
   }
 
   uchar hp_cipher[ FD_QUIC_CRYPTO_BLOCK_BOUND ] = {0};
@@ -758,8 +768,7 @@ fd_quic_crypto_decrypt_hdr(
   }
 
   if( FD_UNLIKELY( sample + FD_QUIC_HP_SAMPLE_SZ > cipher_text + cipher_text_sz ) ) {
-    FD_LOG_WARNING(( "fd_quic_crypto_decrypt failed. Not enough bytes for a sample" ));
-    return FD_QUIC_FAILED;
+    FD_LOG_ERR(( "fd_quic_crypto_decrypt failed. Not enough bytes for a sample" ));
   }
 
   int hp_cipher_sz = 0;
@@ -800,7 +809,7 @@ fd_quic_crypto_rand( uchar * buf,
                      ulong   buf_sz ) {
 
   if( FD_UNLIKELY( buf_sz > INT_MAX ) ) {
-    FD_LOG_WARNING(( "fd_quic_crypto_rand: buf_sz too big (%#lx)", buf_sz ));
+    FD_DEBUG ( FD_LOG_WARNING(( "fd_quic_crypto_rand: buf_sz too big (%#lx)", buf_sz )) );
     return FD_QUIC_FAILED;
   }
 
@@ -808,6 +817,288 @@ fd_quic_crypto_rand( uchar * buf,
     return FD_QUIC_SUCCESS;
 
   /* openssl error getting random bytes - bail */
-  ulong err = ERR_get_error();
-  FD_LOG_ERR(( "openssl RAND_bytes failed. Error: %lu", err ));
+  FD_LOG_ERR( ( "openssl RAND_bytes failed. Error: %s", fd_quic_openssl_strerror() ) );
+}
+
+int fd_quic_retry_token_encrypt(
+    fd_quic_conn_id_t * orig_dst_conn_id,
+    ulong               now,
+    fd_quic_conn_id_t * retry_src_conn_id,
+    uint                ip_addr,
+    ushort              udp_port,
+    uchar               retry_token[static FD_QUIC_RETRY_TOKEN_SZ]
+) {
+  /* Generate pseudorandom bytes to use as the key for the AEAD HKDF. Note these bytes form the
+     beginning of the retry token. */
+  uchar * hkdf_key = retry_token;
+  int     rc       = fd_quic_crypto_rand( retry_token, FD_QUIC_RETRY_TOKEN_HKDF_KEY_SZ );
+  if ( FD_UNLIKELY( rc == FD_QUIC_FAILED ) ) {
+    return FD_QUIC_FAILED;
+  }
+
+  /* The `extract` step of HKDF is unnecessary because what's being passed in to `expand` are
+   pseudorandom bytes. */
+  uchar aead_key[FD_QUIC_RETRY_TOKEN_AEAD_KEY_SZ];
+  fd_quic_hkdf_expand_label(
+      aead_key,
+      FD_QUIC_RETRY_TOKEN_AEAD_KEY_SZ,
+      hkdf_key,
+      FD_QUIC_RETRY_TOKEN_HKDF_KEY_SZ,
+      FD_QUIC_RETRY_TOKEN_AEAD_INFO,
+      FD_QUIC_RETRY_TOKEN_AEAD_INFO_SZ,
+      fd_hmac_sha256,
+      FD_QUIC_RETRY_TOKEN_AEAD_KEY_SZ
+  );
+
+  /* Since the key is derived from random bytes and only used once, we use a zero IV (nonce).
+     Note the IV length is by default 12 bytes (which is the recommended length for AES-GCM). */
+  uchar iv[FD_QUIC_NONCE_SZ] = { 0 };
+
+  /* The AAD is the client IPv4 address, UDP port, and retry source connection id. */
+  ulong aad_sz = (ulong)FD_QUIC_RETRY_TOKEN_AAD_SZ + retry_src_conn_id->sz;
+  uchar aad[aad_sz];
+  memcpy( aad, &ip_addr, sizeof( uint ) );
+  memcpy( aad + sizeof( uint ), &udp_port, sizeof( ushort ) );
+  memcpy( aad + sizeof( uint ) + sizeof( ushort ), &retry_src_conn_id->sz, sizeof( uchar ) );
+  memcpy(
+      aad + sizeof( uint ) + sizeof( ushort ) + sizeof( uchar ),
+      &retry_src_conn_id->conn_id,
+      retry_src_conn_id->sz
+  );
+
+  uchar plaintext[FD_QUIC_RETRY_TOKEN_PLAINTEXT_SZ];
+  memcpy( plaintext, &orig_dst_conn_id->sz, sizeof( uchar ) );
+  memcpy( plaintext + 1, orig_dst_conn_id->conn_id, orig_dst_conn_id->sz );
+  memcpy( plaintext + 1 + orig_dst_conn_id->sz, &now, sizeof( ulong ) );
+
+  /* Append the ciphertext after random bytes in the retry_token. */
+  uchar * ciphertext = hkdf_key + FD_QUIC_RETRY_TOKEN_HKDF_KEY_SZ;
+
+  /* Append the authentication tag after ciphertext in the retry_token. */
+  uchar * tag = ciphertext + FD_QUIC_RETRY_TOKEN_PLAINTEXT_SZ;
+
+  int ciphertext_len = gcm_encrypt(
+      EVP_aes_256_gcm(),
+      plaintext,
+      FD_QUIC_RETRY_TOKEN_PLAINTEXT_SZ,
+      aad,
+      (int)aad_sz,
+      aead_key,
+      iv,
+      ciphertext,
+      tag
+  );
+  if ( FD_QUIC_RETRY_TOKEN_CIPHERTEXT_SZ != ciphertext_len ) {
+    return FD_QUIC_FAILED;
+  }
+  return FD_QUIC_SUCCESS;
+}
+
+int fd_quic_retry_token_decrypt(
+    uchar *             retry_token,
+    fd_quic_conn_id_t * retry_src_conn_id,
+    uint                ip_addr,
+    ushort              udp_port,
+    fd_quic_conn_id_t * orig_dst_conn_id,
+    ulong *             now
+) {
+  /* Regenerate the AEAD key (the HKDF key is the first 32 bytes of the token). */
+  uchar * hkdf_key = retry_token;
+  uchar   aead_key[FD_QUIC_RETRY_TOKEN_AEAD_KEY_SZ];
+  fd_quic_hkdf_expand_label(
+      aead_key,
+      FD_QUIC_RETRY_TOKEN_AEAD_KEY_SZ,
+      hkdf_key,
+      FD_QUIC_RETRY_TOKEN_HKDF_KEY_SZ,
+      FD_QUIC_RETRY_TOKEN_AEAD_INFO,
+      FD_QUIC_RETRY_TOKEN_AEAD_INFO_SZ,
+      fd_hmac_sha256,
+      FD_QUIC_RETRY_TOKEN_AEAD_KEY_SZ
+  );
+
+  uchar * ciphertext = hkdf_key + FD_QUIC_RETRY_TOKEN_HKDF_KEY_SZ;
+  ulong   aad_sz     = (ulong)FD_QUIC_RETRY_TOKEN_AAD_SZ + retry_src_conn_id->sz;
+  uchar   aad[aad_sz];
+  memcpy( aad, &ip_addr, sizeof( uint ) );
+  memcpy( aad + sizeof( uint ), &udp_port, sizeof( ushort ) );
+  memcpy( aad + sizeof( uint ) + sizeof( ushort ), &retry_src_conn_id->sz, sizeof( uchar ) );
+  if ( FD_LIKELY( retry_src_conn_id->sz ) ) {
+    fd_memcpy(
+        aad + sizeof( uint ) + sizeof( ushort ) + sizeof( uchar ),
+        &retry_src_conn_id->conn_id,
+        retry_src_conn_id->sz
+    );
+  }
+  uchar   iv[FD_QUIC_NONCE_SZ] = { 0 };
+  uchar * tag                  = ciphertext + FD_QUIC_RETRY_TOKEN_CIPHERTEXT_SZ;
+  uchar   plaintext[FD_QUIC_RETRY_TOKEN_PLAINTEXT_SZ];
+  if ( FD_UNLIKELY(
+           gcm_decrypt(
+               EVP_aes_256_gcm(),
+               ciphertext,
+               FD_QUIC_RETRY_TOKEN_CIPHERTEXT_SZ,
+               aad,
+               (int)aad_sz,
+               tag,
+               aead_key,
+               iv,
+               plaintext
+           ) == -1
+       ) ) {
+    return FD_QUIC_FAILED;
+  };
+
+  orig_dst_conn_id->sz = *plaintext;
+  memcpy( orig_dst_conn_id->conn_id, plaintext + sizeof( uchar ), orig_dst_conn_id->sz );
+  *now = *( (ulong *)fd_type_pun( plaintext + sizeof( uchar ) + orig_dst_conn_id->sz ) );
+  return FD_QUIC_SUCCESS;
+}
+
+int fd_quic_retry_integrity_tag_encrypt(
+    uchar * retry_pseudo_pkt,
+    int     retry_pseudo_pkt_len,
+    uchar   retry_integrity_tag[static FD_QUIC_CRYPTO_TAG_SZ]
+) {
+  int ciphertext_len = gcm_encrypt(
+      EVP_aes_128_gcm(),
+      NULL,
+      0,
+      retry_pseudo_pkt,
+      retry_pseudo_pkt_len,
+      FD_QUIC_RETRY_INTEGRITY_TAG_KEY,
+      FD_QUIC_RETRY_INTEGRITY_TAG_NONCE,
+      NULL,
+      retry_integrity_tag
+  );
+  if ( FD_UNLIKELY( ciphertext_len != 0 ) ) {
+    return FD_QUIC_FAILED;
+  }
+  return FD_QUIC_SUCCESS;
+}
+
+int fd_quic_retry_integrity_tag_decrypt(
+    uchar * retry_pseudo_pkt,
+    int     retry_pseudo_pkt_len,
+    uchar   retry_integrity_tag[static FD_QUIC_CRYPTO_TAG_SZ]
+) {
+  int plaintext_len = gcm_decrypt(
+      EVP_aes_128_gcm(),
+      NULL,
+      0,
+      retry_pseudo_pkt,
+      retry_pseudo_pkt_len,
+      retry_integrity_tag,
+      FD_QUIC_RETRY_INTEGRITY_TAG_KEY,
+      FD_QUIC_RETRY_INTEGRITY_TAG_NONCE,
+      NULL
+  );
+  if ( FD_UNLIKELY( plaintext_len != 0 ) ) {
+    return FD_QUIC_FAILED;
+  }
+  return FD_QUIC_SUCCESS;
+}
+
+int gcm_encrypt(
+    const EVP_CIPHER * cipher,
+    uchar *            plaintext,
+    int                plaintext_len,
+    uchar *            aad,
+    int                aad_len,
+    uchar *            key,
+    uchar *            iv,
+    uchar *            ciphertext,
+    uchar *            tag
+) {
+  EVP_CIPHER_CTX * ctx;
+  ctx = EVP_CIPHER_CTX_new();
+  if( FD_UNLIKELY( !ctx ) ) {
+    FD_DEBUG( FD_LOG_ERR( ( "EVP_CIPHER_CTX_new failed. Error: %s", fd_quic_openssl_strerror() ) ) );
+    return FD_QUIC_FAILED;
+  }
+
+  if( FD_UNLIKELY( 1 != EVP_EncryptInit_ex( ctx, cipher, NULL, key, iv ) ) ) {
+    FD_DEBUG( FD_LOG_ERR( ( "EVP_EncryptInit_ex failed. Error: %s", fd_quic_openssl_strerror() ) ); )
+    return FD_QUIC_FAILED;
+  }
+
+  int len;
+  /* The associated data ("AD" in AEAD). */
+  if( FD_UNLIKELY( 1 != EVP_EncryptUpdate( ctx, NULL, &len, aad, aad_len ) ) ) {
+    FD_DEBUG( FD_LOG_ERR( ( "EVP_EncryptUpdate (AAD) failed. Error: %s", fd_quic_openssl_strerror() ) ); )
+    return FD_QUIC_FAILED;
+  }
+
+  /* The encryption of plaintext ("E" in AEAD). */
+  int ciphertext_len;
+  if ( plaintext_len > 0 &&
+       FD_UNLIKELY( 1 != EVP_EncryptUpdate( ctx, ciphertext, &len, plaintext, plaintext_len ) ) ) {
+    FD_DEBUG( FD_LOG_ERR( ( "EVP_EncryptUpdate (plaintext) failed. Error: %s", fd_quic_openssl_strerror() ) ); )
+    return FD_QUIC_FAILED;
+  }
+  ciphertext_len = len;
+  if ( FD_UNLIKELY( 1 != EVP_EncryptFinal_ex( ctx, ciphertext + len, &len ) ) ) {
+    FD_DEBUG( FD_LOG_ERR( ( "EVP_EncryptFinal_ex failed. Error: %s", fd_quic_openssl_strerror() ) ); )
+    return FD_QUIC_FAILED;
+  }
+  ciphertext_len += len;
+
+  /* The authentication tag ("A" in AEAD). */
+  if( FD_UNLIKELY( 1 != EVP_CIPHER_CTX_ctrl( ctx, EVP_CTRL_GCM_GET_TAG, 16, tag ) ) ) {
+    FD_DEBUG( FD_LOG_ERR(( "EVP_CIPHER_CTX_ctrl (get tag) failed. Error: %s", fd_quic_openssl_strerror() )) );
+    return FD_QUIC_FAILED;
+  }
+
+  EVP_CIPHER_CTX_free( ctx );
+  return ciphertext_len;
+}
+
+int gcm_decrypt(
+    const EVP_CIPHER * cipher,
+    uchar *            ciphertext,
+    int                ciphertext_len,
+    uchar *            aad,
+    int                aad_len,
+    uchar *            tag,
+    uchar *            key,
+    uchar *            iv,
+    uchar *            plaintext
+) {
+  EVP_CIPHER_CTX * ctx;
+
+  if( FD_UNLIKELY( !( ctx = EVP_CIPHER_CTX_new() ) ) ) {
+    FD_DEBUG( FD_LOG_WARNING( ( "EVP_CIPHER_CTX_new failed. Error: %s", fd_quic_openssl_strerror() ) ) );
+    return FD_QUIC_FAILED;
+  }
+
+  if( FD_UNLIKELY( !EVP_DecryptInit_ex( ctx, cipher, NULL, key, iv ) ) ) {
+    FD_DEBUG( FD_LOG_WARNING( ( "EVP_DecryptInit_ex failed. Error: %s", fd_quic_openssl_strerror() ) ) );
+    return FD_QUIC_FAILED;
+  }
+
+  int len;
+  if( FD_UNLIKELY( !EVP_DecryptUpdate( ctx, NULL, &len, aad, aad_len ) ) ) {
+    FD_DEBUG( FD_LOG_WARNING( ( "EVP_DecryptUpdate (AAD) failed. Error: %s", fd_quic_openssl_strerror() ) ) );
+    return FD_QUIC_FAILED;
+  }
+
+  if( FD_UNLIKELY( !EVP_DecryptUpdate( ctx, plaintext, &len, ciphertext, ciphertext_len ) ) ) {
+    FD_DEBUG( FD_LOG_WARNING( ( "EVP_DecryptUpdate (ciphertext) failed. Error: %s", fd_quic_openssl_strerror() ) ) );
+    return FD_QUIC_FAILED;
+  }
+
+  int plaintext_len = len;
+  if( FD_UNLIKELY( !EVP_CIPHER_CTX_ctrl( ctx, EVP_CTRL_GCM_SET_TAG, FD_QUIC_CRYPTO_TAG_SZ, tag ) ) ) {
+    FD_DEBUG( FD_LOG_WARNING( ( "EVP_CIPHER_CTX_ctrl (get tag) failed. Error: %s", fd_quic_openssl_strerror() ) ) );
+    return FD_QUIC_FAILED;
+  }
+
+  int rc = EVP_DecryptFinal_ex( ctx, plaintext + len, &len );
+  if( FD_UNLIKELY( rc <= 0 ) ) {
+    FD_DEBUG( FD_LOG_WARNING( ( "EVP_DecryptFinal_ex failed. Error: %s", fd_quic_openssl_strerror() ) ) );
+    return FD_QUIC_FAILED;
+  }
+  plaintext_len += len;
+
+  EVP_CIPHER_CTX_free( ctx );
+  return plaintext_len;
 }

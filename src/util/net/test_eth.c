@@ -35,9 +35,10 @@ test_cstr_to_mac_addr( void ) {
 # define MAC_OK(str,num) FD_TEST( fd_ulong_bswap( fd_ulong_load_6( fd_cstr_to_mac_addr( str, mac ) )>>16UL ) )
 # define MAC_FAIL(str)   FD_TEST( !fd_cstr_to_mac_addr( str, mac ) );
 
-  MAC_OK( "01:34:56:78:9a:bc", 0x013456789abc );
-  MAC_OK( "12:34:56:78:9a:bc", 0x123456789abc );
-  MAC_OK( "12:34:56:78:9a:Bc", 0x123456789abc );
+  MAC_OK( "01:34:56:78:9a:bc",  0x013456789abc );
+  MAC_OK( "12:34:56:78:9a:bc",  0x123456789abc );
+  MAC_OK( "12:34:56:78:9a:Bc",  0x123456789abc );
+  MAC_OK( "12:34:56:78:9a:bcd", 0x123456789abc );
 
   /* Test invalid char and truncated string */
 
@@ -88,9 +89,6 @@ test_cstr_to_mac_addr( void ) {
   MAC_FAIL( "12:34:56:78:9a::c" );
   MAC_FAIL( "12:34:56:78:9a:b:" );
 
-  /* Test trailing string */
-
-  MAC_FAIL( "12:34:56:78:9a:bcd" );
 }
 
 int

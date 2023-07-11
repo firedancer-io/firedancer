@@ -3,6 +3,7 @@
 
 #include <openssl/ssl.h>
 #include <openssl/err.h>
+#include <openssl/ossl_typ.h>
 #include <stdlib.h>
 #include <stdio.h>
 
@@ -115,8 +116,9 @@ struct fd_quic_tls_cfg {
 
   ulong          max_concur_handshakes;
 
-  char const *   cert_file;             /* certificate file */
-  char const *   key_file;              /* private key file */
+  /* Certificate and key */
+  EVP_PKEY * cert_key;
+  X509 *     cert;
 
   /* keylog_fd == 0 indicates no keylogger file */
   int            keylog_fd;             /* keylogger file */

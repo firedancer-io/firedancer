@@ -138,14 +138,14 @@ FD_PROTOTYPES_BEGIN
   Return the maximum number of nodes that will fit into a pool with
   the given footprint.
 */
-ulong REDBLK_(max_for_footprint)( ulong footprint );
+FD_FN_CONST ulong REDBLK_(max_for_footprint)( ulong footprint );
 
 /*
   E.g. ulong my_rb_align( void );
 
   Return the pool alignment.
 */
-ulong REDBLK_(align)( void );
+FD_FN_CONST ulong REDBLK_(align)( void );
 
 /*
   E.g. ulong my_rb_footprint( ulong max );
@@ -153,7 +153,7 @@ ulong REDBLK_(align)( void );
   Return the minimum memory footprint needed for a pool with the given
   number of nodes.
 */
-ulong REDBLK_(footprint)( ulong max );
+FD_FN_CONST ulong REDBLK_(footprint)( ulong max );
 
 /*
   E.g. void * my_rb_new( void * shmem, ulong max );
@@ -188,14 +188,14 @@ void * REDBLK_(delete)( void * shpool );
 
   Return the max value given when new was called.
 */
-ulong REDBLK_(max)( REDBLK_T const * pool );
+FD_FN_PURE ulong REDBLK_(max)( REDBLK_T const * pool );
 
 /*
   E.g. ulong my_rb_free( my_rb_node_t const * pool );
 
   Return the number of available nodes in the free pool.
 */
-ulong REDBLK_(free)( REDBLK_T const * pool );
+FD_FN_PURE ulong REDBLK_(free)( REDBLK_T const * pool );
 
 /*
   E.g. ulong my_rb_idx( my_rb_node_t const * pool, my_rb_node_t const * node );
@@ -203,7 +203,7 @@ ulong REDBLK_(free)( REDBLK_T const * pool );
   Return the logical index of the node in a pool. Useful when
   relocating a pool in memory.
   */
-ulong REDBLK_(idx)( REDBLK_T const * pool, REDBLK_T const * node );
+FD_FN_CONST ulong REDBLK_(idx)( REDBLK_T const * pool, REDBLK_T const * node );
 
 /*
   E.g. my_rb_node_t * my_rb_node( my_rb_node_t * pool, ulong idx );
@@ -211,7 +211,7 @@ ulong REDBLK_(idx)( REDBLK_T const * pool, REDBLK_T const * node );
   Return the node at a logical index in a pool. Useful when relocating
   a pool in memory.
 */
-REDBLK_T * REDBLK_(node)( REDBLK_T * pool, ulong idx );
+FD_FN_CONST REDBLK_T * REDBLK_(node)( REDBLK_T * pool, ulong idx );
 
 /*
   E.g. my_rb_node_t * my_rb_acquire( my_rb_node_t * pool );
@@ -390,8 +390,10 @@ int REDBLK_(verify)(REDBLK_T * pool, REDBLK_T * root);
     long my_rb_compare(my_node_t* left, my_node_t* right) {
       return (long)(left->key - right->key);
     }
+
+  Should be a pure function.  (FIXME: SHOULD TAKE CONST POINTERS?)
 */
-long REDBLK_(compare)(REDBLK_T * left, REDBLK_T * right);
+FD_FN_PURE long REDBLK_(compare)(REDBLK_T * left, REDBLK_T * right);
 
 FD_PROTOTYPES_END
 
@@ -463,14 +465,17 @@ void * REDBLK_(new)( void * shmem, ulong max ) {
 }
 
 REDBLK_T * REDBLK_(join)( void * shpool ) {
+  FD_COMPILER_MFENCE();
   return REDBLK_POOL_(join)(shpool);
 }
 
 void * REDBLK_(leave)( REDBLK_T * pool ) {
+  FD_COMPILER_MFENCE();
   return REDBLK_POOL_(leave)(pool);
 }
 
 void * REDBLK_(delete)( void * shpool ) {
+  FD_COMPILER_MFENCE();
   return REDBLK_POOL_(delete)(shpool);
 }
 

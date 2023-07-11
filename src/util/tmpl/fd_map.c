@@ -100,7 +100,9 @@
     mymap_t * mymap_insert( mymap_t * map, ulong key );
 
     // Remove entry from map, fast O(1).  Assumes map is a current join
-    // and that entry points to a full entry currently in the map.
+    // and that entry points to a full entry currently in the map.  When
+    // the function returns, the entry pointed to by entry may be
+    // clobbered.
     // Removal performance very slightly more optimal if sizeof(mymap_t)
     // is a power of two.
 
@@ -218,7 +220,8 @@
 #define MAP_KEY_INVAL(k) !(k)
 #endif
 
-/* MAP_KEY_EQUAL returns 0/1 if k0 is the same/different */
+/* MAP_KEY_EQUAL returns 0/1 if k0 is the same/different.  Note that
+   this function may also be called with MAP_KEY_NULL. */
 
 #ifndef MAP_KEY_EQUAL
 #define MAP_KEY_EQUAL(k0,k1) (k0)==(k1)

@@ -296,11 +296,12 @@ FD_FN_CONST static inline ulong fd_tcache_map_next ( ulong idx, ulong map_cnt ) 
 
 /* fd_tcache_remove removes tag in a map with map_cnt slots.  For
    sparsely populated maps and properly randomized tags, this is a fast
-   O(1).  As this is used in performance critical contexts, does no
-   input argument checking and uses the unpacked fields of a tcache.
-   Assumes map is non-NULL, map is indexed [0,map_cnt) and map_cnt is a
-   positive integer power-of-two.  Does nothing if tag is null or if tag
-   is not currently in the map. */
+   O(1).  This does not remove tag from the ring, so oldest may still
+   take a value that was removed.  As this is used in performance
+   critical contexts, does no input argument checking and uses the
+   unpacked fields of a tcache.  Assumes map is non-NULL, map is indexed
+   [0,map_cnt) and map_cnt is a positive integer power-of-two.  Does
+   nothing if tag is null or if tag is not currently in the map. */
 
 FD_FN_UNUSED static void /* Work around -Winline */
 fd_tcache_remove( ulong * map,

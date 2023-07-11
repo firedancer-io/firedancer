@@ -444,7 +444,7 @@ static int *
 fd_ed25519_ge_slide( int *         r,
                      uchar const * a ) {
 
-  for( int i=0; i<256; i++ ) r[i] = 1 & (((uint)a[i >> 3]) >> (i & 7));
+  for( int i=0; i<256; i++ ) r[i] = (int)(1U & (((uint)a[i >> 3]) >> (i & 7)));
 
   for( int i=0; i<256; i++ ) {
     if( !r[i] ) continue;

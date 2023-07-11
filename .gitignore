@@ -18,6 +18,7 @@ core.*.*
 
 # Dependencies
 opt/
+deps-bundle.tar.zst
 
 # Nix
 /result
