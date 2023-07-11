@@ -208,8 +208,11 @@ struct fd_web_replier* fd_web_replier_new() {
 void fd_web_replier_delete(struct fd_web_replier* r) {
   if (r->response != NULL)
     MHD_destroy_response(r->response);
-  if (r->temp != r->temp_firstbuf)
-    free(r->temp);
+  for (void* t = r->temp; t != r->temp_firstbuf; ) {
+    void* next = *((void**)t);
+    free(t);
+    t = next;
+  }
   free(r);
 }
 
@@ -218,16 +221,14 @@ char* fd_web_replier_temp_alloc(struct fd_web_replier* r, ulong sz) {
   ulong new_sz = r->temp_sz + sz;
   // Make sure there is enough room
   if (new_sz > r->temp_alloc) {
-    // Grow the allocation
-    do {
-      r->temp_alloc <<= 1;
-    } while (new_sz > r->temp_alloc);
-    char* oldtemp = r->temp;
-    r->temp = (char*)malloc(r->temp_alloc);
-    // Copy the old content to the new space
-    fd_memcpy(r->temp, oldtemp, r->temp_sz);
-    if (oldtemp != r->temp_firstbuf)
-      free(oldtemp);
+    // Add a new allocation to the linked list
+    ulong ta = (sz + (1lu<<14)) & ~((1lu<<13)-1);
+    void* t = malloc(ta);
+    *((void**)t) = r->temp;
+    r->temp = t;
+    r->temp_sz = sizeof(void*);
+    r->temp_alloc = ta;
+    new_sz = r->temp_sz + sz;
   }
   char* res = r->temp + r->temp_sz;
   r->temp_sz = new_sz;
