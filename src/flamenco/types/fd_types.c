@@ -3371,6 +3371,7 @@ void fd_vote_state_0_23_5_walk(fd_vote_state_0_23_5_t* self, fd_walk_fun_t fun, 
   fd_pubkey_walk(&self->authorized_withdrawer, fun, "authorized_withdrawer", level + 1);
   fun(&self->commission, "commission", 9, "uchar", level + 1);
     fun(self->votes, "votes", 36, "votes", level++);
+    if (NULL != self->votes) 
     for ( deq_fd_vote_lockout_t_iter_t iter = deq_fd_vote_lockout_t_iter_init( self->votes ); !deq_fd_vote_lockout_t_iter_done( self->votes, iter ); iter = deq_fd_vote_lockout_t_iter_next( self->votes, iter ) ) {
       fd_vote_lockout_t * ele = deq_fd_vote_lockout_t_iter_ele( self->votes, iter );
       fd_vote_lockout_walk(ele, fun, "votes", level + 1);
@@ -3378,6 +3379,7 @@ void fd_vote_state_0_23_5_walk(fd_vote_state_0_23_5_t* self, fd_walk_fun_t fun, 
     fun(self->votes, "votes", 37, "votes", --level);
   fun(self->saved_root_slot, "saved_root_slot", 11, "ulong", level + 1);
     fun(self->epoch_credits, "epoch_credits", 36, "epoch_credits", level++);
+    if (NULL != self->epoch_credits) 
     for ( deq_fd_vote_epoch_credits_t_iter_t iter = deq_fd_vote_epoch_credits_t_iter_init( self->epoch_credits ); !deq_fd_vote_epoch_credits_t_iter_done( self->epoch_credits, iter ); iter = deq_fd_vote_epoch_credits_t_iter_next( self->epoch_credits, iter ) ) {
       fd_vote_epoch_credits_t * ele = deq_fd_vote_epoch_credits_t_iter_ele( self->epoch_credits, iter );
       fd_vote_epoch_credits_walk(ele, fun, "epoch_credits", level + 1);
@@ -3582,6 +3584,7 @@ void fd_vote_state_walk(fd_vote_state_t* self, fd_walk_fun_t fun, const char *na
   fd_pubkey_walk(&self->authorized_withdrawer, fun, "authorized_withdrawer", level + 1);
   fun(&self->commission, "commission", 9, "uchar", level + 1);
     fun(self->votes, "votes", 36, "votes", level++);
+    if (NULL != self->votes) 
     for ( deq_fd_vote_lockout_t_iter_t iter = deq_fd_vote_lockout_t_iter_init( self->votes ); !deq_fd_vote_lockout_t_iter_done( self->votes, iter ); iter = deq_fd_vote_lockout_t_iter_next( self->votes, iter ) ) {
       fd_vote_lockout_t * ele = deq_fd_vote_lockout_t_iter_ele( self->votes, iter );
       fd_vote_lockout_walk(ele, fun, "votes", level + 1);
@@ -3589,6 +3592,7 @@ void fd_vote_state_walk(fd_vote_state_t* self, fd_walk_fun_t fun, const char *na
     fun(self->votes, "votes", 37, "votes", --level);
   fun(self->saved_root_slot, "saved_root_slot", 11, "ulong", level + 1);
     fun(self->authorized_voters, "authorized_voters", 36, "authorized_voters", level++);
+    if (NULL != self->authorized_voters) 
     for ( deq_fd_vote_historical_authorized_voter_t_iter_t iter = deq_fd_vote_historical_authorized_voter_t_iter_init( self->authorized_voters ); !deq_fd_vote_historical_authorized_voter_t_iter_done( self->authorized_voters, iter ); iter = deq_fd_vote_historical_authorized_voter_t_iter_next( self->authorized_voters, iter ) ) {
       fd_vote_historical_authorized_voter_t * ele = deq_fd_vote_historical_authorized_voter_t_iter_ele( self->authorized_voters, iter );
       fd_vote_historical_authorized_voter_walk(ele, fun, "authorized_voters", level + 1);
@@ -3596,6 +3600,7 @@ void fd_vote_state_walk(fd_vote_state_t* self, fd_walk_fun_t fun, const char *na
     fun(self->authorized_voters, "authorized_voters", 37, "authorized_voters", --level);
   fd_vote_prior_voters_walk(&self->prior_voters, fun, "prior_voters", level + 1);
     fun(self->epoch_credits, "epoch_credits", 36, "epoch_credits", level++);
+    if (NULL != self->epoch_credits) 
     for ( deq_fd_vote_epoch_credits_t_iter_t iter = deq_fd_vote_epoch_credits_t_iter_init( self->epoch_credits ); !deq_fd_vote_epoch_credits_t_iter_done( self->epoch_credits, iter ); iter = deq_fd_vote_epoch_credits_t_iter_next( self->epoch_credits, iter ) ) {
       fd_vote_epoch_credits_t * ele = deq_fd_vote_epoch_credits_t_iter_ele( self->epoch_credits, iter );
       fd_vote_epoch_credits_walk(ele, fun, "epoch_credits", level + 1);
@@ -4318,6 +4323,7 @@ void fd_slot_hashes_destroy(fd_slot_hashes_t* self, fd_bincode_destroy_ctx_t * c
 void fd_slot_hashes_walk(fd_slot_hashes_t* self, fd_walk_fun_t fun, const char *name, int level) {
   fun(self, name, 32, "fd_slot_hashes", level++);
     fun(self->hashes, "hashes", 36, "hashes", level++);
+    if (NULL != self->hashes) 
     for ( deq_fd_slot_hash_t_iter_t iter = deq_fd_slot_hash_t_iter_init( self->hashes ); !deq_fd_slot_hash_t_iter_done( self->hashes, iter ); iter = deq_fd_slot_hash_t_iter_next( self->hashes, iter ) ) {
       fd_slot_hash_t * ele = deq_fd_slot_hash_t_iter_ele( self->hashes, iter );
       fd_slot_hash_walk(ele, fun, "hashes", level + 1);
@@ -4430,6 +4436,7 @@ void fd_recent_block_hashes_destroy(fd_recent_block_hashes_t* self, fd_bincode_d
 void fd_recent_block_hashes_walk(fd_recent_block_hashes_t* self, fd_walk_fun_t fun, const char *name, int level) {
   fun(self, name, 32, "fd_recent_block_hashes", level++);
     fun(self->hashes, "hashes", 36, "hashes", level++);
+    if (NULL != self->hashes) 
     for ( deq_fd_block_block_hash_entry_t_iter_t iter = deq_fd_block_block_hash_entry_t_iter_init( self->hashes ); !deq_fd_block_block_hash_entry_t_iter_done( self->hashes, iter ); iter = deq_fd_block_block_hash_entry_t_iter_next( self->hashes, iter ) ) {
       fd_block_block_hash_entry_t * ele = deq_fd_block_block_hash_entry_t_iter_ele( self->hashes, iter );
       fd_block_block_hash_entry_walk(ele, fun, "hashes", level + 1);
@@ -5084,6 +5091,7 @@ void fd_vote_destroy(fd_vote_t* self, fd_bincode_destroy_ctx_t * ctx) {
 void fd_vote_walk(fd_vote_t* self, fd_walk_fun_t fun, const char *name, int level) {
   fun(self, name, 32, "fd_vote", level++);
     fun(self->slots, "slots", 36, "slots", level++);
+    if (NULL != self->slots) 
     for ( deq_ulong_iter_t iter = deq_ulong_iter_init( self->slots ); !deq_ulong_iter_done( self->slots, iter ); iter = deq_ulong_iter_next( self->slots, iter ) ) {
       ulong * ele = deq_ulong_iter_ele( self->slots, iter );
       fun(ele, "ele", 6, "long", level + 1);

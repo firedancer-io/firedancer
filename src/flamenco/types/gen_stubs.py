@@ -738,7 +738,8 @@ def do_vector_body_walk(n, f):
 def do_deque_body_walk(n, f):
 #    print(f'  if ( self->{f["name"]} ) {{', file=body)
     print(f'    fun(self->{f["name"]}, "{f["name"]}", 36, "{f["name"]}", level++);', file=body)
-    print(f'    for ( {deque_prefix(n, f)}_iter_t iter = {deque_prefix(n, f)}_iter_init( self->{f["name"]} ); !{deque_prefix(n, f)}_iter_done( self->{f["name"]}, iter ); iter = {deque_prefix(n, f)}_iter_next( self->{f["name"]}, iter ) ) {{', file=body)
+    print(f'    if (NULL != self->{f["name"]}) ', file=body)
+    print(f'     for ( {deque_prefix(n, f)}_iter_t iter = {deque_prefix(n, f)}_iter_init( self->{f["name"]} ); !{deque_prefix(n, f)}_iter_done( self->{f["name"]}, iter ); iter = {deque_prefix(n, f)}_iter_next( self->{f["name"]}, iter ) ) {{', file=body)
     print(f'      {deque_elem_type(n, f)} * ele = {deque_prefix(n, f)}_iter_ele( self->{f["name"]}, iter );', file=body)
 
     if f["element"] == "uchar":

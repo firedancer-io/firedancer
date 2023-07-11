@@ -108,7 +108,7 @@ checkout_gnuweb () {
     echo "[~] Skipping $1 fetch as \"$(pwd)/opt/gnuweb/$1\" already exists"
   else
     echo "[+] Cloning $1 from $2/$3.tar.gz"
-    wget -O - "$2/$3.tar.gz" | gunzip | tar xf - -C ./opt/gnuweb
+    curl -o - -L "$2/$3.tar.gz" | gunzip | tar xf - -C ./opt/gnuweb
     mv ./opt/gnuweb/$3 ./opt/gnuweb/$1
     echo
   fi
