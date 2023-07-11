@@ -18,8 +18,7 @@ FD_PROTOTYPES_BEGIN
    on success. On failure, returns NULL. */
 
 X509 *
-fd_x509_gen_solana_cert( EVP_PKEY * ed25519_pkey,
-                         uint       ip_address );
+fd_x509_gen_solana_cert( EVP_PKEY * ed25519_pkey );
 
 FD_PROTOTYPES_END
 

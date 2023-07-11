@@ -94,7 +94,7 @@ main( int     argc,
   FD_TEST( cert_pkey );
 
   /* Generate X509 certificate */
-  X509 * cert = fd_x509_gen_solana_cert( cert_pkey, FD_IP4_ADDR( 127, 0, 0, 1 ) );
+  X509 * cert = fd_x509_gen_solana_cert( cert_pkey );
   FD_TEST( cert );
 
   // config parameters
