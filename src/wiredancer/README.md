@@ -48,7 +48,45 @@ WD adopts an asynchronous API.  In fact WD uses the same Tango mcache mechanism 
 + Rebuild `<AWS-FPGA>/hdk/cl/examples/cl_dram_dma` with the same instructions from AWS repo as before.
 
 
+#  #
+# Running WD #
 
+## AWS-F1 Series ##
+
++ To run FD with WD support, you need an EC2 F1 machine.
+
++ Inside the machine, clone AWS-FPGA git repo
+  - `git clone https://github.com/aws/aws-fpga`
+
++ Install the SDK inside the repo:
+  - `source $AWS-FPGA/sdk_setup.sh`
+
++ Load WD image on FPGA slot-0
+  - `sudo fpga-load-local-image -S 0 -I agfi-0d26fb98c51ff6b7b`
+
++ Make FD with WD support
+  - `./deps.sh`
+  - `source activate-opt`
+  - `make MACHINE=linux_gcc_wd_f1 -j`
+
++ Configure FD
+  - `sudo build/linux/gcc/x86_64/bin/fd_shmem_cfg reset`
+  - `sudo build/linux/gcc/x86_64/bin/fd_shmem_cfg fini`
+  - `sudo build/linux/gcc/x86_64/bin/fd_shmem_cfg alloc 32 gigantic 0  alloc 512 huge 0`
+  - `sudo build/linux/gcc/x86_64/bin/fd_shmem_cfg init 0700 $USER ""`
+  - `sudo build/linux/gcc/x86_64/bin/fd_shmem_cfg query`
+
++ Configure app-frank
+  - `sudo ./build/linux/gcc/x86_64/bin/fd_frank_init_demo frank 1-6 ./build/linux/gcc/x86_64 /tmp/solana.pcap 0 0 1 0`
+
++ Run app-frank
+  - `sudo ./build/linux/gcc/x86_64/bin/fd_frank_run frank "1-6"`
+
++ Run wd-monitor
+  - `sudo taskset -c 7 build/linux/gcc/x86_64/bin/wd_frank_mon frank --duration 0`
+
++ Run fd-monitor
+  - `sudo taskset -c 7 build/linux/gcc/x86_64/bin/fd_frank_mon frank --duration 10e12 --dt-min 1e7 --dt-max 1e7`
 
 
 
