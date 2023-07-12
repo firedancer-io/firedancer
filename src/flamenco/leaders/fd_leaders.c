@@ -1,28 +1,6 @@
 #include "fd_leaders.h"
 #include "../../ballet/chacha20/fd_chacha20rng.h"
 
-FD_FN_CONST static int
-fd_stakes_sort_before( fd_stake_weight_t a,
-                       fd_stake_weight_t b ) {
-
-  if( a.stake < b.stake ) return 1;
-  if( a.stake > b.stake ) return 0;
-  if( memcmp( &a.pub, &b.pub, FD_ED25519_PUB_SZ )<0 ) return 1;
-  return 0;
-}
-
-#define SORT_NAME        fd_stakes_sort
-#define SORT_KEY_T       fd_stake_weight_t
-#define SORT_BEFORE(a,b) fd_stakes_sort_before( (a), (b) )
-#include "../../util/tmpl/fd_sort.c"
-
-void
-fd_stake_weight_sort( fd_stake_weight_t * stakes,
-                      ulong               stakes_cnt ) {
-  fd_stakes_sort_inplace( stakes, stakes_cnt );
-}
-
-
 ulong
 fd_epoch_leaders_align( void ) {
   return FD_EPOCH_LEADERS_ALIGN;
@@ -60,10 +38,10 @@ fd_epoch_leaders_new( void * shmem,
   memset( leaders, 0, sizeof(fd_epoch_leaders_t) );
   laddr += sizeof(fd_epoch_leaders_t);
 
-  laddr  = fd_ulong_align_up( laddr, FD_ED25519_PUB_SZ );
-  leaders->pub     = (fd_ed25519_pub_t *)laddr;
+  laddr  = fd_ulong_align_up( laddr, sizeof(fd_pubkey_t) );
+  leaders->pub     = (fd_pubkey_t *)laddr;
   leaders->pub_cnt = pub_cnt;
-  laddr += pub_cnt*FD_ED25519_PUB_SZ;
+  laddr += pub_cnt*sizeof(fd_pubkey_t);
 
   laddr  = fd_ulong_align_up( laddr, alignof(uint) );
   leaders->sched     = (uint *)laddr;
@@ -121,7 +99,7 @@ fd_epoch_leaders_derive( fd_epoch_leaders_t *      leaders,
 
   /* Copy public keys */
   for( ulong i=0UL; i<pub_cnt; i++ )
-    memcpy( &leaders->pub[ i ], &stakes[ i ].pub, FD_ED25519_PUB_SZ );
+    memcpy( &leaders->pub[ i ], &stakes[ i ].pub, 32UL );
 
   /* Create map of cumulative stake index */
   ulong accum_stake = 0UL;

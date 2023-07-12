@@ -28,7 +28,7 @@
    rotation. */
 
 #include "../fd_flamenco_base.h"
-#include "../../ballet/ed25519/fd_ed25519.h"
+#include "../stakes/fd_stakes.h"
 
 /* FD_EPOCH_LEADERS_{ALIGN,FOOTPRINT} are const-friendly versions of the
    fd_epoch_leaders_{align,footprint} functions. */
@@ -37,44 +37,28 @@
 #define FD_EPOCH_LEADERS_FOOTPRINT( pub_cnt, sched_cnt )                \
   FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( \
   FD_LAYOUT_INIT,                                                       \
-    alignof(fd_epoch_leaders_t), sizeof(fd_epoch_leaders_t)    ),       \
-    FD_ED25519_PUB_SZ,           (pub_cnt  )*FD_ED25519_PUB_SZ ),       \
-    alignof(uint),               (sched_cnt)*sizeof(uint)      ),       \
-    FD_EPOCH_LEADERS_ALIGN                                     )
+    alignof(fd_epoch_leaders_t), sizeof(fd_epoch_leaders_t) ),          \
+    32UL,                        (pub_cnt  )*32UL           ),          \
+    alignof(uint),               (sched_cnt)*sizeof(uint)   ),          \
+    FD_EPOCH_LEADERS_ALIGN                                  )
 
 /* FIXME make position-independent? */
-
-/* fd_stake_weight_t assigns an Ed25519 public key (node identity) a
-   stake weight number measured in lamports. */
-
-struct fd_stake_weight {
-  fd_ed25519_pub_t pub;
-  ulong            stake;
-};
-typedef struct fd_stake_weight fd_stake_weight_t;
 
 /* fd_epoch_leaders_t contains the leader schedule of a Solana epoch. */
 
 struct fd_epoch_leaders {
   /* pub is a lookup table for node public keys with length pub_cnt */
-  fd_ed25519_pub_t * pub;
-  ulong              pub_cnt;
+  fd_pubkey_t * pub;
+  ulong         pub_cnt;
 
   /* sched contains the leader schedule in the form of indexes into
      the pub array.  For sched_cnt, refer to below. */
-  uint *             sched;
-  ulong              sched_cnt;
+  uint *        sched;
+  ulong         sched_cnt;
 };
 typedef struct fd_epoch_leaders fd_epoch_leaders_t;
 
 FD_PROTOTYPES_BEGIN
-
-/* fd_stake_weight_sort sorts the given array of stake weights with
-   length stakes_cnt by tuple (stake, pubkey) in descending order. */
-
-void
-fd_stake_weight_sort( fd_stake_weight_t * stakes,
-                      ulong               stakes_cnt );
 
 /* fd_epoch_leaders_{align,footprint} describe the required footprint
    and alignment of the leader schedule object.  pub_cnt is the number
@@ -133,10 +117,10 @@ fd_epoch_leaders_derive( fd_epoch_leaders_t *      leaders,
 /* fd_epoch_leaders_get returns a pointer to the selected public key
    given an index in the schedule.  sched_idx < leaders->sched_cnt */
 
-FD_FN_PURE static inline fd_ed25519_pub_t const *
+FD_FN_PURE static inline fd_pubkey_t const *
 fd_epoch_leaders_get( fd_epoch_leaders_t const * leaders,
                       ulong                      sched_idx ) {
-  return (fd_ed25519_pub_t const *)( leaders->pub + leaders->sched[ sched_idx ] );
+  return (fd_pubkey_t const *)( leaders->pub + leaders->sched[ sched_idx ] );
 }
 
 FD_PROTOTYPES_END
