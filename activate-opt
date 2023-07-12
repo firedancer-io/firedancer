@@ -6,6 +6,6 @@ export PKG_CONFIG_LIBDIR=""
 PKG_CONFIG_PATH="$(pwd)/opt/lib/pkgconfig:$(pwd)/opt/lib64/pkgconfig"
 export PKG_CONFIG_PATH
 
-PYTHONPATH="$PYTHONPATH:$(pwd)/src/wiredancer/py"
+PYTHONPATH="${PYTHONPATH:-}:$(pwd)/src/wiredancer/py"
 export PYTHONPATH
 
