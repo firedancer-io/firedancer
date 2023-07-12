@@ -20,4 +20,6 @@ void fd_webserver_method_generic(struct fd_web_replier* replier, struct json_val
 
 fd_textstream_t * fd_web_replier_textstream(struct fd_web_replier* replier);
 void fd_web_replier_done(struct fd_web_replier* replier);
-void fd_web_replier_error(struct fd_web_replier* replier, const char* message);
+
+void fd_web_replier_error( struct fd_web_replier* replier, const char* format, ... )
+  __attribute__ ((format (printf, 2, 3)));

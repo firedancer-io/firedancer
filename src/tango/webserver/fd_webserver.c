@@ -215,7 +215,7 @@ void fd_web_replier_done(struct fd_web_replier* r) {
   r->response = MHD_create_response_from_iovec((struct MHD_IoVec *)iov, (uint)numiov, NULL, NULL);
 }
 
-void fd_web_replier_error(struct fd_web_replier* r, const char* text) {
+void fd_web_replier_error( struct fd_web_replier* r, const char* format, ... ) {
 #define CRLF "\r\n"
   static const char* DOC1 =
 "<html>" CRLF
@@ -230,12 +230,19 @@ void fd_web_replier_error(struct fd_web_replier* r, const char* text) {
   static const char* DOC3 =
 "</pre></p>" CRLF
 "</body>" CRLF
-"</html>";
+"</html>" CRLF;
 
   fd_textstream_t * ts = &r->textstream;
   fd_textstream_clear(ts);
   fd_textstream_append(ts, DOC1, strlen(DOC1));
-  fd_textstream_append(ts, text, strlen(text));
+  char text[4096];
+  va_list ap;
+  va_start(ap, format);
+  /* Would be nice to vsnprintf directly into the textstream, but that's messy */
+  int x = vsnprintf(text, sizeof(text), format, ap);
+  va_end(ap);
+  if (x >= 0 && (uint)x < sizeof(text))
+    fd_textstream_append(ts, text, (uint)x);
   fd_textstream_append(ts, DOC2, strlen(DOC2));
   fd_textstream_append(ts, r->upload_data, r->upload_data_size);
   fd_textstream_append(ts, DOC3, strlen(DOC3));

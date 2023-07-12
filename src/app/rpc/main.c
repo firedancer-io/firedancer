@@ -57,13 +57,13 @@ int method_getAccountInfo(struct fd_web_replier* replier, struct json_values* va
   int err;
   void * val = fd_funk_val_cache(funk, rec, &err);
   if (val == NULL ) {
-    fd_web_replier_error(replier, "failed to load account data");
+    fd_web_replier_error(replier, "failed to load account data for %s", (const char*)arg);
     return 0;
   }
   ulong val_sz = fd_funk_val_sz(rec);
   fd_account_meta_t * metadata = (fd_account_meta_t *)val;
   if (val_sz < metadata->hlen) {
-    fd_web_replier_error(replier, "failed to load account data");
+    fd_web_replier_error(replier, "failed to load account data for %s", (const char*)arg);
     return 0;
   }
   val = (char*)val + metadata->hlen;
@@ -89,7 +89,7 @@ int method_getAccountInfo(struct fd_web_replier* replier, struct json_values* va
   else if (MATCH_STRING(enc_str, enc_str_sz, "jsonParsed"))
     enc = ENC_JSON;
   else {
-    fd_web_replier_error(replier, "invalid data encoding");
+    fd_web_replier_error(replier, "invalid data encoding %s", (const char*)enc_str);
     return 0;
   }
 
@@ -185,13 +185,13 @@ int method_getBalance(struct fd_web_replier* replier, struct json_values* values
   fd_funk_rec_key_t recid = fd_acc_mgr_key(&acct);
   fd_funk_rec_t const * rec = fd_funk_rec_query_global(funk, NULL, &recid);
   if (rec == NULL) {
-    fd_web_replier_error(replier, "account not found");
+    fd_web_replier_error(replier, "failed to load account data for %s", (const char*)arg);
     return 0;
   }
   int err;
   void * val = fd_funk_val_cache(funk, rec, &err);
   if (val == NULL ) {
-    fd_web_replier_error(replier, "failed to load account data");
+    fd_web_replier_error(replier, "failed to load account data for %s", (const char*)arg);
     return 0;
   }
   fd_account_meta_t * metadata = (fd_account_meta_t *)val;
@@ -252,12 +252,9 @@ void fd_webserver_method_generic(struct fd_web_replier* replier, struct json_val
     if (!method_getBalance(replier, values, call_id))
       return;
     break;
-  default: {
-    char msg[100];
-    snprintf(msg, sizeof(msg), "unknown or unimplemented method: %s", (const char*)arg);
-    fd_web_replier_error(replier, msg);
+  default:
+    fd_web_replier_error(replier, "unknown or unimplemented method %s", (const char*)arg);
     return;
-  }
   }
 
   /* Probably should make an error here */
