@@ -6,6 +6,8 @@ curl http://localhost:8899 -X POST -H 'content-type: application/json' --data '{
 
 curl http://localhost:8899 -H 'content-type: application/json' --data '{"jsonrpc":"2.0", "id":1234, "method":"getBalance", "params":["7cVfgArCheMR6Cs4t6vz5rfnqd56vZq4ndaBrY5xkxXy"]}'
 
+curl http://localhost:8899 -H 'content-type: application/json' --data '{"jsonrpc": "2.0","id":1,"method":"getBlock","params": [179248368,{"encoding": "json", "maxSupportedTransactionVersion":0, "transactionDetails":"full", "rewards":false}]}'
+
 ****/
 
 #include "../../util/fd_util.h"
@@ -20,6 +22,7 @@ curl http://localhost:8899 -H 'content-type: application/json' --data '{"jsonrpc
 #include "../../flamenco/runtime/fd_acc_mgr.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "keywords.h"
+#include "fd_block_to_json.h"
 
 #define CRLF "\r\n"
 #define MATCH_STRING(_text_,_text_sz_,_str_) (_text_sz_ == sizeof(_str_)-1 && memcmp(_text_, _str_, sizeof(_str_)-1) == 0)
@@ -202,6 +205,108 @@ int method_getBalance(struct fd_web_replier* replier, struct json_values* values
   return 0;
 }
 
+// Implementation of the "getBlock" method
+int method_getBlock(struct fd_web_replier* replier, struct json_values* values, long call_id) {
+  static const uint PATH_SLOT[3] = {
+    (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_PARAMS,
+    (JSON_TOKEN_LBRACKET<<16) | 0,
+    (JSON_TOKEN_INTEGER<<16)
+  };
+  static const uint PATH_ENCODING[4] = {
+    (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_PARAMS,
+    (JSON_TOKEN_LBRACKET<<16) | 1,
+    (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_ENCODING,
+    (JSON_TOKEN_STRING<<16)
+  };
+  static const uint PATH_MAXVERS[4] = {
+    (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_PARAMS,
+    (JSON_TOKEN_LBRACKET<<16) | 1,
+    (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_MAXSUPPORTEDTRANSACTIONVERSION,
+    (JSON_TOKEN_INTEGER<<16)
+  };
+  static const uint PATH_DETAIL[4] = {
+    (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_PARAMS,
+    (JSON_TOKEN_LBRACKET<<16) | 1,
+    (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_TRANSACTIONDETAILS,
+    (JSON_TOKEN_STRING<<16)
+  };
+  static const uint PATH_REWARDS[4] = {
+    (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_PARAMS,
+    (JSON_TOKEN_LBRACKET<<16) | 1,
+    (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_REWARDS,
+    (JSON_TOKEN_BOOL<<16)
+  };
+  
+  ulong slot_sz = 0;
+  const void* slot = json_get_value(values, PATH_SLOT, 3, &slot_sz);
+  if (slot == NULL) {
+    fd_web_replier_error(replier, "getBlock requires a slot number as first parameter");
+    return 0;
+  }
+  ulong slotn = (ulong)(*(long*)slot);
+
+  ulong enc_str_sz = 0;
+  const void* enc_str = json_get_value(values, PATH_ENCODING, 4, &enc_str_sz);
+  enum fd_block_encoding enc;
+  if (enc_str == NULL || MATCH_STRING(enc_str, enc_str_sz, "json"))
+    enc = FD_BLOCK_ENC_JSON;
+  else if (MATCH_STRING(enc_str, enc_str_sz, "base58"))
+    enc = FD_BLOCK_ENC_BASE58;
+  else if (MATCH_STRING(enc_str, enc_str_sz, "base64"))
+    enc = FD_BLOCK_ENC_BASE64;
+  else if (MATCH_STRING(enc_str, enc_str_sz, "jsonParsed"))
+    enc = FD_BLOCK_ENC_JSON_PARSED;
+  else {
+    fd_web_replier_error(replier, "invalid data encoding %s", (const char*)enc_str);
+    return 0;
+  }
+
+  ulong maxvers_sz = 0;
+  const void* maxvers = json_get_value(values, PATH_MAXVERS, 4, &maxvers_sz);
+  
+  ulong det_str_sz = 0;
+  const void* det_str = json_get_value(values, PATH_DETAIL, 4, &det_str_sz);
+  enum fd_block_detail det;
+  if (det_str == NULL || MATCH_STRING(det_str, det_str_sz, "full"))
+    det = FD_BLOCK_DETAIL_FULL;
+  else if (MATCH_STRING(det_str, det_str_sz, "accounts"))
+    det = FD_BLOCK_DETAIL_ACCTS;
+  else if (MATCH_STRING(det_str, det_str_sz, "signatures"))
+    det = FD_BLOCK_DETAIL_SIGS;
+  else if (MATCH_STRING(det_str, det_str_sz, "none"))
+    det = FD_BLOCK_DETAIL_NONE;
+  else {
+    fd_web_replier_error(replier, "invalid block detail %s", (const char*)det_str);
+    return 0;
+  }
+  
+  ulong rewards_sz = 0;
+  const void* rewards = json_get_value(values, PATH_REWARDS, 4, &rewards_sz);
+
+  fd_funk_rec_key_t recid = fd_runtime_block_key(slotn);
+  fd_funk_rec_t const * rec = fd_funk_rec_query_global(funk, NULL, &recid);
+  if (rec == NULL) {
+    fd_web_replier_error(replier, "failed to load block for slot %lu", slotn);
+    return 0;
+  }
+  int err;
+  void * val = fd_funk_val_cache(funk, rec, &err);
+  if (val == NULL ) {
+    fd_web_replier_error(replier, "failed to load block for slot %lu", slotn);
+    return 0;
+  }
+  fd_textstream_t * ts = fd_web_replier_textstream(replier);
+  if (fd_block_to_json(ts, call_id, val, fd_funk_val_sz(rec), enc,
+                       (maxvers == NULL ? 0 : *(const long*)maxvers),
+                       det,
+                       (rewards == NULL ? 1 : *(const int*)rewards))) {
+    fd_web_replier_error(replier, "failed to display block for slot %lu", slotn);
+    return 0;
+  }
+  fd_web_replier_done(replier);
+  return 0;
+}
+
 // Top level method dispatch function
 void fd_webserver_method_generic(struct fd_web_replier* replier, struct json_values* values) {
   static const uint PATH[2] = {
@@ -250,6 +355,10 @@ void fd_webserver_method_generic(struct fd_web_replier* replier, struct json_val
     break;
   case KEYW_RPCMETHOD_GETBALANCE:
     if (!method_getBalance(replier, values, call_id))
+      return;
+    break;
+  case KEYW_RPCMETHOD_GETBLOCK:
+    if (!method_getBlock(replier, values, call_id))
       return;
     break;
   default:

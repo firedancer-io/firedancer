@@ -1,3 +1,7 @@
+#ifndef HEADER_fd_src_tango_webserver_fd_webserver_h
+#define HEADER_fd_src_tango_webserver_fd_webserver_h
+
+#include "fd_methods.h"
 #include "../../util/textstream/fd_textstream.h"
 
 struct fd_webserver {
@@ -23,3 +27,5 @@ void fd_web_replier_done(struct fd_web_replier* replier);
 
 void fd_web_replier_error( struct fd_web_replier* replier, const char* format, ... )
   __attribute__ ((format (printf, 2, 3)));
+
+#endif /* HEADER_fd_src_tango_webserver_fd_webserver_h */

@@ -1,3 +1,6 @@
+#ifndef HEADER_fd_src_tango_webserver_fd_methods_h
+#define HEADER_fd_src_tango_webserver_fd_methods_h
+
 #include "json_lex.h"
 
 // Data structure describing a "path" to a value in json data. This is
@@ -55,3 +58,5 @@ const void* json_get_value(struct json_values* values, const uint* path, uint pa
 
 // Dump the values and paths to stdout
 void json_values_printout(struct json_values* values);
+
+#endif /* HEADER_fd_src_tango_webserver_fd_methods_h */
