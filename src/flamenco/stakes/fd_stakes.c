@@ -12,6 +12,12 @@ struct fd_stake_weight_ele {
 };
 typedef struct fd_stake_weight_ele fd_stake_weight_ele_t;
 
+long
+fd_stake_weights_compare( fd_stake_weight_ele_t * e0,
+                          fd_stake_weight_ele_t * e1) {
+  return (long)memcmp( &e0->ele.pub, &e1->ele.pub, 32UL );
+}
+
 #define REDBLK_NAME fd_stake_weights
 #define REDBLK_T    fd_stake_weight_ele_t
 #include "../../util/tmpl/fd_redblack.c"
@@ -101,9 +107,9 @@ FD_FN_CONST static int
 fd_stakes_sort_before( fd_stake_weight_t a,
                        fd_stake_weight_t b ) {
 
-  if( a.stake < b.stake ) return 1;
-  if( a.stake > b.stake ) return 0;
-  if( memcmp( &a.pub, &b.pub, 32UL )<0 ) return 1;
+  if( a.stake > b.stake ) return 1;
+  if( a.stake < b.stake ) return 0;
+  if( memcmp( &a.pub, &b.pub, 32UL )>0 ) return 1;
   return 0;
 }
 

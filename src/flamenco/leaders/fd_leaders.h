@@ -42,6 +42,8 @@
     alignof(uint),               (sched_cnt)*sizeof(uint)   ),          \
     FD_EPOCH_LEADERS_ALIGN                                  )
 
+#define FD_EPOCH_SLOTS_PER_ROTATION (4UL)
+
 /* FIXME make position-independent? */
 
 /* fd_epoch_leaders_t contains the leader schedule of a Solana epoch. */
@@ -104,14 +106,13 @@ fd_epoch_leaders_delete( void * shleaders );
    and stake weights.  leaders is a join to an epoch schedule object.
    stakes is an array of stake weights sorted by tuple (stake, pubkey)
    in descending order (as with fd_stake_weight_sort).  The length of
-   stakes equals leaders->pub_cnt.  scratch is uninitialized scratch
+   stakes equals leaders->pub_cnt.  Current scratch frame must have
    space sufficient to fit (leaders->pub_cnt + 1) ulongs.  epoch is used
    to seed the PRNG. */
 
 void
 fd_epoch_leaders_derive( fd_epoch_leaders_t *      leaders,
                          fd_stake_weight_t const * stakes,
-                         ulong *                   scratch,
                          ulong                     epoch );
 
 /* fd_epoch_leaders_get returns a pointer to the selected public key
