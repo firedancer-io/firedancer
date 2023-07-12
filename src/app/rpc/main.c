@@ -2,8 +2,7 @@
 
 build/linux/gcc/x86_64/bin/fd_rpc --wksp giant_wksp --gaddr 0xc7ce180
 
-curl http://localhost:8899 -X POST -H 'content-type: application/json' --data '{"jsonrpc":"2.0", "id":1234, "method":"getAccountInfo", "params":["2cMzyuUE7VgDDVspERn8zo6dyrVsFgWi
-7G46QewbMEyc",{"encoding":"base58"}]}'
+curl http://localhost:8899 -X POST -H 'content-type: application/json' --data '{"jsonrpc":"2.0", "id":1234, "method":"getAccountInfo", "params":["2cMzyuUE7VgDDVspERn8zo6dyrVsFgWi7G46QewbMEyc",{"encoding":"base58"}]}'
 
 curl http://localhost:8899 -H 'content-type: application/json' --data '{"jsonrpc":"2.0", "id":1234, "method":"getBalance", "params":["7cVfgArCheMR6Cs4t6vz5rfnqd56vZq4ndaBrY5xkxXy"]}'
 
@@ -46,10 +45,12 @@ int method_getAccountInfo(struct fd_web_replier* replier, struct json_values* va
   fd_base58_decode_32((const char *)arg, acct.uc);
   fd_funk_rec_key_t recid = fd_acc_mgr_key(&acct);
   fd_funk_rec_t const * rec = fd_funk_rec_query_global(funk, NULL, &recid);
-  char buf[1000];
+
+  fd_textstream_t * ts = fd_web_replier_textstream(replier);
   if (rec == NULL) {
-    long buflen = snprintf(buf, sizeof(buf), "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"1.14.19\",\"slot\":%lu},\"value\":null},\"id\":%lu}" CRLF, bank.slot, call_id);
-    fd_web_replier_reply(replier, buf, (uint)buflen);
+    fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"1.14.19\",\"slot\":%lu},\"value\":null},\"id\":%lu}" CRLF,
+                          bank.slot, call_id);
+    fd_web_replier_done(replier);
     return 0;
   }
   
@@ -129,27 +130,22 @@ int method_getAccountInfo(struct fd_web_replier* replier, struct json_values* va
       val_sz = (ulong)len;
   }
 
-  struct fd_iovec vec[3];
-  uint nvec = 0;
-  vec[nvec].iov_base = buf;
-  vec[nvec].iov_len = (ulong)snprintf(buf, sizeof(buf), "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"1.14.19\",\"slot\":%lu},\"value\":{\"data\":\"",
-                                      bank.slot);
-  vec[nvec].iov_base = fd_web_replier_temp_copy(replier, vec[nvec].iov_base, vec[nvec].iov_len);
-  ++nvec;
+  fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"1.14.19\",\"slot\":%lu},\"value\":{\"data\":\"",
+                        bank.slot);
 
   if (val_sz) {
     switch (enc) {
     case ENC_BASE58:
-      vec[nvec].iov_base = fd_web_replier_encode_base58(replier, val, val_sz, &vec[nvec].iov_len);
-      if (vec[nvec].iov_base == NULL) {
+      if (fd_textstream_encode_base58(ts, val, val_sz)) {
         fd_web_replier_error(replier, "failed to encode data in base58");
         return 0;
       }
-      ++nvec;
       break;
     case ENC_BASE64:
-      vec[nvec].iov_base = fd_web_replier_encode_base64(replier, val, val_sz, &vec[nvec].iov_len);
-      ++nvec;
+      if (fd_textstream_encode_base64(ts, val, val_sz)) {
+        fd_web_replier_error(replier, "failed to encode data in base64");
+        return 0;
+      }
       break;
     case ENC_BASE64_ZSTD:
       break;
@@ -160,18 +156,13 @@ int method_getAccountInfo(struct fd_web_replier* replier, struct json_values* va
   
   char owner[50];
   fd_base58_encode_32((uchar*)metadata->info.owner, 0, owner);
-  char buf2[1000];
-  vec[nvec].iov_base = buf2;
-  vec[nvec].iov_len = (ulong)snprintf(buf2, sizeof(buf2), "\",\"executable\":%s,\"lamports\":%lu,\"owner\":\"%s\",\"rentEpoch\":%lu}},\"id\":%lu}" CRLF,
-                                      (metadata->info.executable ? "true" : "false"),
-                                      metadata->info.lamports,
-                                      owner,
-                                      metadata->info.rent_epoch,
-                                      call_id);
-  vec[nvec].iov_base = fd_web_replier_temp_copy(replier, vec[nvec].iov_base, vec[nvec].iov_len);
-  ++nvec;
-  
-  fd_web_replier_reply_iov(replier, vec, nvec);
+  fd_textstream_sprintf(ts, "\",\"executable\":%s,\"lamports\":%lu,\"owner\":\"%s\",\"rentEpoch\":%lu}},\"id\":%lu}" CRLF,
+                        (metadata->info.executable ? "true" : "false"),
+                        metadata->info.lamports,
+                        owner,
+                        metadata->info.rent_epoch,
+                        call_id);
+  fd_web_replier_done(replier);
   return 0;
 }
 
@@ -204,9 +195,10 @@ int method_getBalance(struct fd_web_replier* replier, struct json_values* values
     return 0;
   }
   fd_account_meta_t * metadata = (fd_account_meta_t *)val;
-  char buf[1000];
-  long buflen = snprintf(buf, sizeof(buf), "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"1.14.19\",\"slot\":%lu},\"value\":%lu},\"id\":%lu}" CRLF, bank.slot, metadata->info.lamports, call_id);
-  fd_web_replier_reply(replier, fd_web_replier_temp_copy(replier, buf, (ulong)buflen), (uint)buflen);
+  fd_textstream_t * ts = fd_web_replier_textstream(replier);
+  fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"1.14.19\",\"slot\":%lu},\"value\":%lu},\"id\":%lu}" CRLF,
+                        bank.slot, metadata->info.lamports, call_id);
+  fd_web_replier_done(replier);
   return 0;
 }
 
@@ -268,8 +260,20 @@ int fd_webserver_method_generic(struct fd_web_replier* replier, struct json_valu
   }
   }
 
-  fd_webserver_reply_ok(replier);
-  return 1;
+  /* Probably should make an error here */
+  static const char* DOC=
+"<html>" CRLF
+"<head>" CRLF
+"<title>OK</title>" CRLF
+"</head>" CRLF
+"<body>" CRLF
+"</body>" CRLF
+"</html>";
+  fd_textstream_t * ts = fd_web_replier_textstream(replier);
+  fd_textstream_append(ts, DOC, strlen(DOC));
+  fd_web_replier_done(replier);
+
+  return 0;
 }
 
 // SIGINT signal handler

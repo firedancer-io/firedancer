@@ -187,10 +187,7 @@ struct fd_web_replier {
   size_t upload_data_size;
   unsigned int status_code;
   struct MHD_Response* response;
-  char* temp;
-  ulong temp_sz;
-  ulong temp_alloc;
-  char  temp_firstbuf[1024];
+  fd_textstream_t textstream;
 };
 
 struct fd_web_replier* fd_web_replier_new() {
@@ -199,157 +196,36 @@ struct fd_web_replier* fd_web_replier_new() {
   r->upload_data_size = 0;
   r->status_code = MHD_HTTP_OK;
   r->response = NULL;
-  r->temp = r->temp_firstbuf;
-  r->temp_sz = 0;
-  r->temp_alloc = sizeof(r->temp_firstbuf);
+  fd_textstream_new(&r->textstream, fd_libc_alloc_virtual(), 1UL<<18); // 256KB chunks
   return r;
 }
 
 void fd_web_replier_delete(struct fd_web_replier* r) {
   if (r->response != NULL)
     MHD_destroy_response(r->response);
-  for (void* t = r->temp; t != r->temp_firstbuf; ) {
-    void* next = *((void**)t);
-    free(t);
-    t = next;
-  }
+  fd_textstream_destroy(&r->textstream);
   free(r);
 }
 
-char* fd_web_replier_temp_alloc(struct fd_web_replier* r, ulong sz) {
-  // Get the new temp size
-  ulong new_sz = r->temp_sz + sz;
-  // Make sure there is enough room
-  if (new_sz > r->temp_alloc) {
-    // Add a new allocation to the linked list
-    ulong ta = (sz + (1lu<<14)) & ~((1lu<<13)-1);
-    void* t = malloc(ta);
-    *((void**)t) = r->temp;
-    r->temp = t;
-    r->temp_sz = sizeof(void*);
-    r->temp_alloc = ta;
-    new_sz = r->temp_sz + sz;
+fd_textstream_t * fd_web_replier_textstream(struct fd_web_replier* r) {
+  return &r->textstream;
+}
+
+void fd_web_replier_done(struct fd_web_replier* r) {
+  struct fd_iovec iov[100];
+  ulong numiov = fd_textstream_get_iov_count(&r->textstream);
+  if (numiov > 100 || fd_textstream_get_iov(&r->textstream, iov)) {
+    fd_web_replier_error(r, "failure in reply generator");
+    return;
   }
-  char* res = r->temp + r->temp_sz;
-  r->temp_sz = new_sz;
-  return res;
+  r->status_code = MHD_HTTP_OK;
+  if (r->response != NULL)
+    MHD_destroy_response(r->response);
+#pragma GCC diagnostic ignored "-Wstrict-aliasing"
+  r->response = MHD_create_response_from_iovec((struct MHD_IoVec *)iov, (uint)numiov, NULL, NULL);
 }
 
-char* fd_web_replier_temp_copy(struct fd_web_replier* r, const char* text, ulong sz) {
-  char* res = fd_web_replier_temp_alloc(r, sz);
-  fd_memcpy(res, text, sz);
-  return res;
-}
-
-void fd_web_replier_reply(struct fd_web_replier* replier, const char* out, uint out_sz) {
-  replier->status_code = MHD_HTTP_OK;
-  if (replier->response != NULL)
-    MHD_destroy_response(replier->response);
-  replier->response = MHD_create_response_from_buffer(out_sz, (void*)out, MHD_RESPMEM_PERSISTENT);
-}
-
-void fd_web_replier_reply_iov(struct fd_web_replier* replier, const struct fd_iovec* vec, uint nvec) {
-  replier->status_code = MHD_HTTP_BAD_REQUEST;
-  if (replier->response != NULL)
-    MHD_destroy_response(replier->response);
-  replier->response = MHD_create_response_from_iovec((struct MHD_IoVec*)vec, nvec, NULL, NULL);
-}
-
-static const char b58digits_ordered[] = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
-
-char* fd_web_replier_encode_base58(struct fd_web_replier* replier, const void* data, ulong data_sz, ulong* out_sz) {
-  /* Prevent explosive growth in computation */
-  if (data_sz > 256)
-    return NULL;
-
-  const uchar* bin = (const uchar*)data;
-  ulong carry;
-  ulong i, j, high, zcount = 0;
-  ulong size;
-
-  while (zcount < data_sz && !bin[zcount])
-    ++zcount;
-
-  size = (data_sz - zcount) * 138 / 100 + 1;
-  uchar buf[size];
-  fd_memset(buf, 0, size);
-
-  for (i = zcount, high = size - 1; i < data_sz; ++i, high = j) {
-    for (carry = bin[i], j = size - 1; (j > high) || carry; --j) {
-      carry += 256UL * (ulong)buf[j];
-      buf[j] = (uchar)(carry % 58);
-      carry /= 58UL;
-      if (!j) {
-        // Otherwise j wraps to maxint which is > high
-        break;
-      }
-    }
-  }
-
-  for (j = 0; j < size && !buf[j]; ++j) ;
-
-  *out_sz = zcount + size - j;
-  char* b58 = fd_web_replier_temp_alloc(replier, *out_sz);
-
-  if (zcount)
-    fd_memset(b58, '1', zcount);
-  for (i = zcount; j < size; ++i, ++j)
-    b58[i] = b58digits_ordered[buf[j]];
-  return b58;
-}
-
-static char base64_encoding_table[] = {
-  'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H',
-  'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P',
-  'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X',
-  'Y', 'Z', 'a', 'b', 'c', 'd', 'e', 'f',
-  'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n',
-  'o', 'p', 'q', 'r', 's', 't', 'u', 'v',
-  'w', 'x', 'y', 'z', '0', '1', '2', '3',
-  '4', '5', '6', '7', '8', '9', '+', '/'
-};
-
-char* fd_web_replier_encode_base64(struct fd_web_replier* replier, const void* data, ulong sz, ulong* out_sz) {
-  *out_sz = 4 * ((sz + 2) / 3);
-  char* out_data = fd_web_replier_temp_alloc(replier, *out_sz);
-  for (ulong i = 0, j = 0; i < sz; ) {
-    switch (sz - i) {
-    default: { /* 3 and above */
-      uint octet_a = ((uchar*)data)[i++];
-      uint octet_b = ((uchar*)data)[i++];
-      uint octet_c = ((uchar*)data)[i++];
-      uint triple = (octet_a << 0x10) + (octet_b << 0x08) + octet_c;
-      out_data[j++] = base64_encoding_table[(triple >> 3 * 6) & 0x3F];
-      out_data[j++] = base64_encoding_table[(triple >> 2 * 6) & 0x3F];
-      out_data[j++] = base64_encoding_table[(triple >> 1 * 6) & 0x3F];
-      out_data[j++] = base64_encoding_table[(triple >> 0 * 6) & 0x3F];
-      break;
-    }
-    case 2: {
-      uint octet_a = ((uchar*)data)[i++];
-      uint octet_b = ((uchar*)data)[i++];
-      uint triple = (octet_a << 0x10) + (octet_b << 0x08);
-      out_data[j++] = base64_encoding_table[(triple >> 3 * 6) & 0x3F];
-      out_data[j++] = base64_encoding_table[(triple >> 2 * 6) & 0x3F];
-      out_data[j++] = base64_encoding_table[(triple >> 1 * 6) & 0x3F];
-      out_data[j++] = '=';
-      break;
-    }
-    case 1: {
-      uint octet_a = ((uchar*)data)[i++];
-      uint triple = (octet_a << 0x10);
-      out_data[j++] = base64_encoding_table[(triple >> 3 * 6) & 0x3F];
-      out_data[j++] = base64_encoding_table[(triple >> 2 * 6) & 0x3F];
-      out_data[j++] = '=';
-      out_data[j++] = '=';
-      break;
-    }
-    }
-  }
-  return out_data;
-}
-
-void fd_web_replier_error(struct fd_web_replier* replier, const char* text) {
+void fd_web_replier_error(struct fd_web_replier* r, const char* text) {
 #define CRLF "\r\n"
   static const char* DOC1 =
 "<html>" CRLF
@@ -366,22 +242,25 @@ void fd_web_replier_error(struct fd_web_replier* replier, const char* text) {
 "</body>" CRLF
 "</html>";
 
-  struct MHD_IoVec iov[5];
-  iov[0].iov_base = (void*)DOC1;
-  iov[0].iov_len = strlen(DOC1);
-  iov[1].iov_base = fd_web_replier_temp_copy(replier, text, strlen(text));
-  iov[1].iov_len = strlen(text);
-  iov[2].iov_base = (void*)DOC2;
-  iov[2].iov_len = strlen(DOC2);
-  iov[3].iov_base = fd_web_replier_temp_copy(replier, replier->upload_data, replier->upload_data_size);
-  iov[3].iov_len = replier->upload_data_size;
-  iov[4].iov_base = (void*)DOC3;
-  iov[4].iov_len = strlen(DOC3);
+  fd_textstream_t * ts = &r->textstream;
+  fd_textstream_clear(ts);
+  fd_textstream_append(ts, DOC1, strlen(DOC1));
+  fd_textstream_append(ts, text, strlen(text));
+  fd_textstream_append(ts, DOC2, strlen(DOC2));
+  fd_textstream_append(ts, r->upload_data, r->upload_data_size);
+  fd_textstream_append(ts, DOC3, strlen(DOC3));
 
-  replier->status_code = MHD_HTTP_BAD_REQUEST;
-  if (replier->response != NULL)
-    MHD_destroy_response(replier->response);
-  replier->response = MHD_create_response_from_iovec(iov, 5, NULL, NULL);
+  struct fd_iovec iov[100];
+  ulong numiov = fd_textstream_get_iov_count(&r->textstream);
+  if (numiov > 100 || fd_textstream_get_iov(&r->textstream, iov)) {
+    FD_LOG_ERR(("failure in error reply generator"));
+    return;
+  }
+
+  r->status_code = MHD_HTTP_BAD_REQUEST;
+  if (r->response != NULL)
+    MHD_destroy_response(r->response);
+  r->response = MHD_create_response_from_iovec((struct MHD_IoVec *)iov, (uint)numiov, NULL, NULL);
 }
 
 /**
@@ -507,18 +386,4 @@ int fd_webserver_start(uint portno, fd_webserver_t * ws) {
 int fd_webserver_stop(fd_webserver_t * ws) {
   MHD_stop_daemon(ws->daemon);
   return 0;
-}
-
-// Generic reply sender. Eventually this should be removed when all
-// the methods send real replies.
-void fd_webserver_reply_ok(struct fd_web_replier* replier) {
-  static const char* DOC=
-"<html>" CRLF
-"<head>" CRLF
-"<title>OK</title>" CRLF
-"</head>" CRLF
-"<body>" CRLF
-"</body>" CRLF
-"</html>";
-  fd_web_replier_reply(replier, DOC, (uint)strlen(DOC));
 }

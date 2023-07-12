@@ -18,6 +18,8 @@ fd_textstream_t * fd_textstream_new( fd_textstream_t * strm,
                                      fd_valloc_t       valloc,
                                      ulong             alloc_sz);
 
+void fd_textstream_clear( fd_textstream_t * strm );
+
 void fd_textstream_destroy( fd_textstream_t * strm );
 
 int fd_textstream_append( fd_textstream_t * strm,

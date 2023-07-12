@@ -33,6 +33,18 @@ void fd_textstream_destroy( fd_textstream_t * strm ) {
   }
 }
 
+void fd_textstream_clear( fd_textstream_t * strm ) {
+  for ( fd_textstream_blk_t * blk = strm->first_blk->next; blk; ) {
+    fd_textstream_blk_t * next = blk->next;
+    fd_valloc_free(strm->valloc, blk);
+    blk = next;
+  }
+  fd_textstream_blk_t * blk = strm->first_blk;
+  blk->next = NULL;
+  blk->used = 0;
+  strm->last_blk = blk;
+}
+
 fd_textstream_blk_t * fd_textstream_new_blk( fd_textstream_t * strm ) {
   fd_textstream_blk_t * blk = (fd_textstream_blk_t *)
     fd_valloc_malloc(strm->valloc, alignof(fd_textstream_blk_t), sizeof(fd_textstream_blk_t) + strm->alloc_sz);
