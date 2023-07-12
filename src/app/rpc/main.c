@@ -1,5 +1,12 @@
 /****
-     build/linux/gcc/x86_64/bin/fd_rpc --wksp giant_wksp --gaddr 0xc7ce180
+
+build/linux/gcc/x86_64/bin/fd_rpc --wksp giant_wksp --gaddr 0xc7ce180
+
+curl http://localhost:8899 -X POST -H 'content-type: application/json' --data '{"jsonrpc":"2.0", "id":1234, "method":"getAccountInfo", "params":["2cMzyuUE7VgDDVspERn8zo6dyrVsFgWi
+7G46QewbMEyc",{"encoding":"base58"}]}'
+
+curl http://localhost:8899 -H 'content-type: application/json' --data '{"jsonrpc":"2.0", "id":1234, "method":"getBalance", "params":["7cVfgArCheMR6Cs4t6vz5rfnqd56vZq4ndaBrY5xkxXy"]}'
+
 ****/
 
 #include "../../util/fd_util.h"
