@@ -18,10 +18,14 @@
 typedef struct {
     uint64_t recv_cnt [2];
     uint64_t send_cnt;
-    uint64_t cnt__x86;
-    uint64_t cnt___wd;
-    uint64_t rate__x86;
-    uint64_t rate___wd;
+    uint64_t cnt_replay;
+    uint64_t cnt_parser;
+    uint64_t cnt_x86;
+    uint64_t cnt__wd;
+    uint64_t rate_replay;
+    uint64_t rate_parser;
+    uint64_t rate_x86;
+    uint64_t rate__wd;
     uint64_t sig_pass;
     uint64_t sig_fail;
     uint64_t cnt_checked;

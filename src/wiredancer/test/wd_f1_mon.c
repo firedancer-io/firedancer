@@ -101,9 +101,6 @@ void intHandler(int dummy) {
 
 
 
-
-
-
 char* ascii_chart[] = {
 "                                                   +------------------------------------+",
 "                                                   |             AWS-F1 x86             |",
@@ -144,13 +141,13 @@ char* ascii_chart[] = {
 uint32_t cnt_data[][7] = {
     // line, col, cnt_type, cnt_color, print_width, hw_cnt_idx, pcie_slot
     {125-105, 71-5, 5, 0, 0, 256, 0}, // x86 rate
-    // {120-108, 100-4, 4, 0, 0, 257, 0}, // x86 cnt
     {131-105, 71-5, 5, 0, 0, 258, 0}, // fpga rate
-    // {133-105, 70-5, 4, 0, 0, 259, 0}, // fpga cnt
     {133-105, 70-5, 4, 0, 0, 260, 0}, // cnt checked
     {134-105, 70-5, 4, 0, 0, 261, 0}, // sig_pass
     {135-105, 70-5, 4, 0, 0, 262, 0}, // sig_fail
-    
+    {112-105, 71-5, 7, 0, 0, 263, 0}, // replay rate
+    {119-105, 71-5, 5, 0, 0, 264, 0}, // parser rate
+
     {118-105,  34-1, 0, 0, 0,  10, 0}, // sw[0] to fpga-0
     {118-105, 101-1, 0, 0, 0,  10, 1}, // sw[0] to fpga-1
     {113-105,  24-1, 2, 0, 0,   0, 0}, // ext to sha_pre
@@ -163,15 +160,6 @@ uint32_t cnt_data[][7] = {
     {129-105, 101-1, 2, 0, 0,  13, 1}, // fpga-0 to sw[0]
     {131-105,  33-1, 4, 0, 0,  13, 0}, // fpga-0 to sw[0]
     {131-105,  99-1, 4, 0, 0,  13, 1}, // fpga-0 to sw[0]
-    // {116-105, 80-4, 0, 0, 0,  10, 0}, // sw[0] to fpga
-    // {118-105, 79-4, 4, 0, 0,  10, 0}, // pcie count
-    // {114-105, 42-4, 2, 0, 0,   0, 0}, // ext to sha_pre
-    // {109-105, 34-4, 2, 0, 0,   3, 0}, // sha to ecc
-    // {119-105, 22-4, 2, 0, 0,   4, 0}, // ecc to reorder
-    // {119-105, 58-4, 2, 0, 0,  17, 0}, // fpga to sw[0]
-    // {121-105, 57-4, 4, 0, 0,  17, 0}, // fpga to sw[0]
-    // {121-105, 46-4, 3, 0, 0,  15, 0}, // pcie drops
-    // {116-105, 46-4, 3, 0, 0,  12, 0}, // reorder drops
     {0, 0, 0, 0, 0, 0}, // end marker
 };
 
@@ -312,19 +300,23 @@ void* mon_thread(void* arg)
             if (cnt_data[i][5] < 100)
                 cnt = wd_rd_cntr(&state->wd, cnt_data[i][6], (uint32_t)cnt_data[i][5]);
             if (cnt_data[i][5] ==256 )
-                cnt = (uint)state->rate__x86;
+                cnt = (uint)state->rate_x86;
             if (cnt_data[i][5] ==257 )
-                cnt = (uint)state->cnt__x86;
+                cnt = (uint)state->cnt_x86;
             if (cnt_data[i][5] ==258 )
-                cnt = (uint)state->rate___wd;
+                cnt = (uint)state->rate__wd;
             if (cnt_data[i][5] ==259 )
-                cnt = (uint)state->cnt___wd;
+                cnt = (uint)state->cnt__wd;
             if (cnt_data[i][5] ==260 )
                 cnt = (uint)state->cnt_checked;
             if (cnt_data[i][5] ==261 )
                 cnt = (uint)state->sig_pass;
             if (cnt_data[i][5] ==262 )
                 cnt = (uint)state->sig_fail;
+            if (cnt_data[i][5] ==263 )
+                cnt = (uint)state->rate_replay;
+            if (cnt_data[i][5] ==264 )
+                cnt = (uint)state->rate_parser;
             cnts[1][i] = cnt;
         }
 
@@ -381,6 +373,20 @@ void* mon_thread(void* arg)
                 uint32_t cols[] = {3, 1, 1, 1, 1};
                 uint64_t cnt = cnts[0][ci];
                 int sel = pretty_num(cnt_st[ci], cnt, "Sps");
+                color = cols[sel];
+            }
+            else if (cnt_data[ci][2] == 6)
+            {
+                uint32_t cols[] = {3, 2, 1, 1, 1};
+                uint64_t cnt = cnts[0][ci] * 8; /* convert to bits per second */
+                int sel = pretty_num(cnt_st[ci], cnt, "bps");
+                color = cols[sel];
+            }
+            else if (cnt_data[ci][2] == 7)
+            {
+                uint32_t cols[] = {4, 4, 4, 4, 4}; /* basically a counter */
+                uint64_t cnt = cnts[0][ci];
+                int sel = pretty_num(cnt_st[ci], cnt, "Pps");
                 color = cols[sel];
             }
             cnt_data[ci][3] = color;

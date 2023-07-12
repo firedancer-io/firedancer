@@ -539,7 +539,7 @@ fd_replay_tile_loop(  fd_cnc_t *       cnc,
   fd_cnc_signal( cnc, FD_CNC_SIGNAL_RUN );
   long then = fd_tickcount();
   long now  = then;
-  FD_LOG_WARNING(("replay-loop running ..."));
+  FD_LOG_NOTICE(("replay-loop running ..."));
   for(;;) {
 
     /* FIXME remove when ready - debug only */
