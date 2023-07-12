@@ -8,29 +8,36 @@
 #pragma GCC optimize ("O0")
 #endif
 
-char * fd_rocksdb_init(fd_rocksdb_t *db, const char *db_name) {
+char *
+fd_rocksdb_init( fd_rocksdb_t * db,
+                 char const *   db_name ) {
   fd_memset(db, 0, sizeof(fd_rocksdb_t));
 
   db->opts = rocksdb_options_create();
-  db->cfgs[0] = "default";
-  db->cfgs[1] = "meta";
-  db->cfgs[2] = "root";
-  db->cfgs[3] = "data_shred";
-  db->cfgs[4] = "bank_hashes";
-  db->cf_options[0] = db->cf_options[1] = db->cf_options[2] = db->cf_options[3] = db->cf_options[4] = db->opts;
+  db->cfgs[ FD_ROCKSDB_CFIDX_DEFAULT     ] = "default";
+  db->cfgs[ FD_ROCKSDB_CFIDX_META        ] = "meta";
+  db->cfgs[ FD_ROCKSDB_CFIDX_ROOT        ] = "root";
+  db->cfgs[ FD_ROCKSDB_CFIDX_DATA_SHRED  ] = "data_shred";
+  db->cfgs[ FD_ROCKSDB_CFIDX_BANK_HASHES ] = "bank_hashes";
+  db->cfgs[ FD_ROCKSDB_CFIDX_TXN_STATUS  ] = "transaction_status";
+
+  rocksdb_options_t const * cf_options[ FD_ROCKSDB_CF_CNT ];
+  for( ulong i=0UL; i<FD_ROCKSDB_CF_CNT; i++ )
+    cf_options[ i ] = db->opts;
 
   char *err = NULL;
 
   db->db = rocksdb_open_for_read_only_column_families(
-    db->opts, db_name, FD_ROCKSDB_CF_CNT,
-      (const char * const *) db->cfgs,
-      (const rocksdb_options_t * const*) db->cf_options,
+      db->opts,
+      db_name,
+      FD_ROCKSDB_CF_CNT,
+      (char              const * const *)db->cfgs,
+      (rocksdb_options_t const * const *)cf_options,
       db->cf_handles,
-      false, &err);
+      false,
+      &err );
 
-  if (err != NULL) {
-    return err;
-  }
+  if( FD_UNLIKELY( err ) ) return err;
 
   db->ro = rocksdb_readoptions_create();
 
@@ -78,17 +85,20 @@ ulong fd_rocksdb_last_slot(fd_rocksdb_t *db, char **err) {
   return slot;
 }
 
-ulong fd_rocksdb_first_slot(fd_rocksdb_t *db, char **err) {
+ulong
+fd_rocksdb_first_slot( fd_rocksdb_t * db,
+                       char **        err ) {
+
   rocksdb_iterator_t* iter = rocksdb_create_iterator_cf(db->db, db->ro, db->cf_handles[2]);
   rocksdb_iter_seek_to_first(iter);
-  if (!rocksdb_iter_valid(iter)) {
+  if( FD_UNLIKELY( !rocksdb_iter_valid(iter) ) ) {
     *err = "db column for root is empty";
     return 0;
   }
 
-  size_t klen = 0;
-  const char *key = rocksdb_iter_key(iter, &klen); // There is no need to free key
-  unsigned long slot = fd_ulong_bswap(*((unsigned long *) key));
+  ulong klen = 0;
+  char const * key = rocksdb_iter_key( iter, &klen ); // There is no need to free key
+  ulong slot = fd_ulong_bswap( *((ulong *)key));
   rocksdb_iter_destroy(iter);
   return slot;
 }
@@ -144,7 +154,7 @@ fd_rocksdb_get_block( fd_rocksdb_t *   db,
   rocksdb_iter_seek(iter, (const char *) k, sizeof(k));
 
   ulong bufsize = m->consumed * 1500;
-  void* buf = fd_valloc_malloc( valloc, 1UL, bufsize);
+  void* buf = fd_valloc_malloc( valloc, 1UL, bufsize );
 
   fd_deshredder_t deshred;
   fd_deshredder_init(&deshred, buf, bufsize, NULL, 0);
@@ -231,21 +241,24 @@ fd_rocksdb_root_iter_seek( fd_rocksdb_root_iter_t * self,
                            fd_valloc_t              valloc ) {
   self->db = db;
 
-  if (NULL == self->iter)
+  if( FD_UNLIKELY( !self->iter ) )
     self->iter = rocksdb_create_iterator_cf(self->db->db, self->db->ro, self->db->cf_handles[2]);
 
-  ulong ks = fd_ulong_bswap(slot);
+  ulong ks = fd_ulong_bswap( slot );
 
-  rocksdb_iter_seek(self->iter, (char *) &ks, sizeof(ks));
-  if (!rocksdb_iter_valid(self->iter))
+  rocksdb_iter_seek( self->iter, (char const *)&ks, sizeof(ulong) );
+  if( FD_UNLIKELY( !rocksdb_iter_valid(self->iter) ) )
     return -1;
 
   size_t klen = 0;
-  const char *key = rocksdb_iter_key(self->iter, &klen); // There is no need to free key
-  unsigned long kslot = fd_ulong_bswap(*((unsigned long *) key));
+  char const * key = rocksdb_iter_key( self->iter, &klen ); // There is no need to free key
+  ulong kslot = fd_ulong_bswap( *((ulong *)key) );
 
-  if (kslot != slot)
+  if( FD_UNLIKELY( kslot != slot ) ) {
+    FD_LOG_WARNING(( "fd_rocksdb_root_iter_seek: wanted slot %lu, found %lu",
+                     slot, kslot ));
     return -2;
+  }
 
   return fd_rocksdb_get_meta( self->db, slot, m, valloc );
 }
@@ -338,6 +351,37 @@ fd_rocksdb_get_bank_hash( fd_rocksdb_t * self,
   retval = out;
 
 cleanup:
+  free( res );
   fd_scratch_pop();
   return retval;
+}
+
+void *
+fd_rocksdb_get_txn_status_raw( fd_rocksdb_t * self,
+                               ulong          slot,
+                               void const *   sig,
+                               ulong *        psz ) {
+
+  ulong slot_be = fd_ulong_bswap( slot );
+
+  /* Construct RocksDB query key */
+  char key[ 80 ];
+  memset( key,      0,        8UL );
+  memcpy( key+ 8UL, sig,     64UL );
+  memcpy( key+72UL, &slot_be, 8UL );
+
+  /* Query record */
+  char * err = NULL;
+  char * res = rocksdb_get_cf(
+      self->db, self->ro,
+      self->cf_handles[ FD_ROCKSDB_CFIDX_TXN_STATUS ],
+      key, 80UL,
+      psz,
+      &err );
+
+  if( FD_UNLIKELY( err ) ) {
+    free( err );
+    return NULL;
+  }
+  return res;
 }
