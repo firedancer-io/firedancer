@@ -673,6 +673,21 @@ extern FD_TLS ulong fd_alloca_check_private_sz;
 #endif /* FD_HAS_ASAN */
 #endif /* FD_HAS_ALLOCA */
 
+/* FD_SCRATCH_SCOPED_FRAME enters a new scratch frame that is
+   automatically destroyed when the scope it was declared in.
+   Uses a dummy variable with a cleanup attribute under the hood.
+   U.B. if scope is left abnormally (e.g. longjmp(), C++ exception,
+        abort(), etc.) */
+
+FD_FN_UNUSED static inline void
+fd_scratch_pop1( void * _unused ) { (void)_unused; fd_scratch_pop(); }
+
+#define FD_SCRATCH_SCOPED_FRAME               \
+  fd_scratch_push();                          \
+  int _scratch_guard ## __LINE__              \
+    __attribute__((cleanup(fd_scratch_pop1))) \
+    __attribute__((unused))
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_util_scratch_fd_scratch_h */

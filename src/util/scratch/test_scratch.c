@@ -161,6 +161,19 @@ main( int     argc,
     alloc_cnt++;
   }
 
+  fd_scratch_reset();
+  FD_TEST( fd_scratch_frame_used()==0UL );
+  for( ulong i=0; i<3UL; i++ ) {
+    FD_SCRATCH_SCOPED_FRAME;
+    ulong inner_cnt = fd_rng_ulong_roll( rng, 10UL );
+    for( ulong j=0; j < inner_cnt; j++ ) {
+      FD_SCRATCH_SCOPED_FRAME;
+      FD_TEST( fd_scratch_frame_used()==2UL );
+    }
+    FD_TEST( fd_scratch_frame_used()==1UL );
+  }
+  FD_TEST( fd_scratch_frame_used()==0UL );
+
   void * _fmem;
   FD_TEST( fd_scratch_detach( &_fmem )==smem );
   FD_TEST( _fmem==(void *)fmem );
