@@ -16,7 +16,7 @@ long fd_webserver_json_keyword(const char* keyw, size_t keyw_sz);
 const char* un_fd_webserver_json_keyword(long id);
 
 struct fd_web_replier;
-int fd_webserver_method_generic(struct fd_web_replier* replier, struct json_values* values);
+void fd_webserver_method_generic(struct fd_web_replier* replier, struct json_values* values);
 
 fd_textstream_t * fd_web_replier_textstream(struct fd_web_replier* replier);
 void fd_web_replier_done(struct fd_web_replier* replier);

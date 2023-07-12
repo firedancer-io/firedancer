@@ -158,28 +158,18 @@ int json_parse_params_value(struct fd_web_replier* replier, json_lex_state_t* le
 #undef CLEANUP
 
 // Parse the top level json request object
-int json_parse_root(struct fd_web_replier* replier, json_lex_state_t* lex) {
+void json_parse_root(struct fd_web_replier* replier, json_lex_state_t* lex) {
   struct json_values values;
   json_values_new(&values);
-  // Make sure we cleanup the values regardless of what path is taken
-#define CLEANUP json_values_delete(&values);
 
   struct json_path path;
   path.len = 0;
-  if (!json_parse_params_value(replier, lex, &values, &path)) {
-    CLEANUP;
-    return 0;
-  }
-  json_values_printout(&values);
-  if (!fd_webserver_method_generic(replier, &values)) {
-    CLEANUP;
-    return 0;
+  if (json_parse_params_value(replier, lex, &values, &path)) {
+    json_values_printout(&values);
+    fd_webserver_method_generic(replier, &values);
   }
 
-  CLEANUP;
-#undef CLEANUP
-
-  return 1;
+  json_values_delete(&values);
 }
 
 struct fd_web_replier {

@@ -203,7 +203,7 @@ int method_getBalance(struct fd_web_replier* replier, struct json_values* values
 }
 
 // Top level method dispatch function
-int fd_webserver_method_generic(struct fd_web_replier* replier, struct json_values* values) {
+void fd_webserver_method_generic(struct fd_web_replier* replier, struct json_values* values) {
   static const uint PATH[2] = {
     (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_JSONRPC,
     (JSON_TOKEN_STRING<<16)
@@ -212,11 +212,11 @@ int fd_webserver_method_generic(struct fd_web_replier* replier, struct json_valu
   const void* arg = json_get_value(values, PATH, 2, &arg_sz);
   if (arg == NULL) {
     fd_web_replier_error(replier, "missing jsonrpc member");
-    return 0;
+    return;
   }
   if (!MATCH_STRING(arg, arg_sz, "2.0")) {
     fd_web_replier_error(replier, "jsonrpc value must be 2.0");
-    return 0;
+    return;
   }
 
   static const uint PATH3[2] = {
@@ -227,7 +227,7 @@ int fd_webserver_method_generic(struct fd_web_replier* replier, struct json_valu
   arg = json_get_value(values, PATH3, 2, &arg_sz);
   if (arg == NULL) {
     fd_web_replier_error(replier, "missing id member");
-    return 0;
+    return;
   }
   long call_id = *(long*)arg;
 
@@ -239,24 +239,24 @@ int fd_webserver_method_generic(struct fd_web_replier* replier, struct json_valu
   arg = json_get_value(values, PATH2, 2, &arg_sz);
   if (arg == NULL) {
     fd_web_replier_error(replier, "missing method member");
-    return 0;
+    return;
   }
   long meth_id = fd_webserver_json_keyword((const char*)arg, arg_sz);
 
   switch (meth_id) {
   case KEYW_RPCMETHOD_GETACCOUNTINFO:
     if (!method_getAccountInfo(replier, values, call_id))
-      return 0;
+      return;
     break;
   case KEYW_RPCMETHOD_GETBALANCE:
     if (!method_getBalance(replier, values, call_id))
-      return 0;
+      return;
     break;
   default: {
     char msg[100];
     snprintf(msg, sizeof(msg), "unknown or unimplemented method: %s", (const char*)arg);
     fd_web_replier_error(replier, msg);
-    return 0;
+    return;
   }
   }
 
@@ -272,8 +272,6 @@ int fd_webserver_method_generic(struct fd_web_replier* replier, struct json_valu
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
   fd_textstream_append(ts, DOC, strlen(DOC));
   fd_web_replier_done(replier);
-
-  return 0;
 }
 
 // SIGINT signal handler

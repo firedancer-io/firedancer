@@ -111,6 +111,60 @@ int fd_textstream_get_iov( fd_textstream_t * strm,
   return 0;
 }
 
+int fd_textstream_encode_utf8( fd_textstream_t * strm,
+                               const uint *      chars,
+                               ulong             chars_sz ) {
+  ulong out_sz = 0;
+  for ( ulong i = 0; i < chars_sz; ++i ) {
+    uint ch = chars[i];
+    if (ch < 0x80)
+      out_sz += 1;
+    else if (ch < 0x800)
+      out_sz += 2;
+    else if (ch < 0x10000)
+      out_sz += 3;
+    else if (ch < 0x110000)
+      out_sz += 4;
+    else
+      return -1;
+  }
+
+  fd_textstream_blk_t * blk = strm->last_blk;
+  if ( FD_LIKELY( blk->used + out_sz <= strm->alloc_sz ) ) {
+    /* pass */
+  } else if ( out_sz > strm->alloc_sz ) {
+    return -1;
+  } else {
+    blk = fd_textstream_new_blk( strm );
+    if ( blk == NULL )
+      return -1;
+  }
+  char* dest = (char*)(blk + 1) + blk->used;
+
+  ulong j = 0;
+  for ( ulong i = 0; i < chars_sz; ++i ) {
+    uint ch = chars[i];
+    if (ch < 0x80) {
+      dest[j++] = (char)ch;
+    } else if (ch < 0x800) {
+      dest[j++] = (char)((ch>>6) | 0xC0);
+      dest[j++] = (char)((ch & 0x3F) | 0x80);
+    } else if (ch < 0x10000) {
+      dest[j++] = (char)((ch>>12) | 0xE0);
+      dest[j++] = (char)(((ch>>6) & 0x3F) | 0x80);
+      dest[j++] = (char)((ch & 0x3F) | 0x80);
+    } else if (ch < 0x110000) {
+      dest[j++] = (char)((ch>>18) | 0xF0);
+      dest[j++] = (char)(((ch>>12) & 0x3F) | 0x80);
+      dest[j++] = (char)(((ch>>6) & 0x3F) | 0x80);
+      dest[j++] = (char)((ch & 0x3F) | 0x80);
+    }
+  }
+
+  blk->used += j;
+  return 0;
+}
+
 static const char b58digits_ordered[] = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 
 int fd_textstream_encode_base58( fd_textstream_t * strm,
@@ -249,11 +303,11 @@ int fd_textstream_sprintf( fd_textstream_t * strm, const char* format, ... ) {
     blk->used += (uint)r;
     return 0;
   }
-  
+
   blk = fd_textstream_new_blk( strm );
   if ( blk == NULL )
     return -1;
-  
+
   remain = strm->alloc_sz;
   buf = (char*)(blk + 1);
   va_start(ap, format);

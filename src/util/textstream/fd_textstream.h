@@ -40,6 +40,10 @@ ulong fd_textstream_get_iov_count( fd_textstream_t * strm );
 int fd_textstream_get_iov( fd_textstream_t * strm,
                            struct fd_iovec * iov);
 
+int fd_textstream_encode_utf8( fd_textstream_t * strm,
+                               const uint *      chars,
+                               ulong             chars_sz );
+
 int fd_textstream_encode_base58( fd_textstream_t * strm,
                                  const void *      data,
                                  ulong             data_sz );
