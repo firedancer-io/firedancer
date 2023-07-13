@@ -6,7 +6,10 @@ curl http://localhost:8899 -X POST -H 'content-type: application/json' --data '{
 
 curl http://localhost:8899 -H 'content-type: application/json' --data '{"jsonrpc":"2.0", "id":1234, "method":"getBalance", "params":["7cVfgArCheMR6Cs4t6vz5rfnqd56vZq4ndaBrY5xkxXy"]}'
 
-curl http://localhost:8899 -H 'content-type: application/json' --data '{"jsonrpc": "2.0","id":1,"method":"getBlock","params": [179248368,{"encoding": "json", "maxSupportedTransactionVersion":0, "transactionDetails":"full", "rewards":false}]}'
+curl http://localhost:8899 -H 'content-type: application/json' --data '{"jsonrpc": "2.0","id":1,"method":"getBlock","params": [179248369,{"encoding": "json", "maxSupportedTransactionVersion":0, "transactionDetails":"full", "rewards":false}]}'
+
+curl https://try-rpc.mainnet.solana.blockdaemon.tech -X POST -H 'content-type: application/json' --data '{"jsonrpc":"2.0", "id":1, "method":"getBlock", "params":[179248369,{"maxSupportedTransactionVers
+ion":0}]}'
 
 ****/
 
