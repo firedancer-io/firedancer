@@ -199,7 +199,7 @@ struct __attribute__((packed, aligned(8UL))) fd_solana_account_hdr {
 };
 typedef struct fd_solana_account_hdr fd_solana_account_hdr_t;
 #define FD_SOLANA_ACCOUNT_HDR_FOOTPRINT sizeof(fd_solana_account_hdr_t)
-#define FD_SOLANA_ACCOUNT_HDR_ALIGN (8UL)
+#define FD_SOLANA_ACCOUNT_HDR_ALIGN (8UL)dw
 
 struct __attribute__((packed)) fd_account_meta {
   ushort magic;

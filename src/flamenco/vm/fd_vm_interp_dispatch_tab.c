@@ -329,7 +329,7 @@ JT_CASE_END
   pc += (register_file[instr.dst_reg] < instr.imm) ? instr.offset : 0;
 JT_CASE_END
 /* 0xa7 */ JT_CASE(0xa7) // FD_BPF_OP_XOR64_IMM
-  register_file[instr.dst_reg] ^= instr.imm;
+  *(long *)&register_file[instr.dst_reg] ^= (int)instr.imm;
 JT_CASE_END
 /* 0xac */ JT_CASE(0xac) // FD_BPF_XOR_REG
   register_file[instr.dst_reg] = (uint)((uint)register_file[instr.dst_reg] ^ (uint)register_file[instr.src_reg]);

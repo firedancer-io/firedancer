@@ -58,13 +58,6 @@ fd_vote_load_account( fd_vote_state_versioned_t * account,
   if( FD_UNLIKELY( 0!=fd_vote_state_versioned_decode( account, &decode ) ) )
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
 
-  char x[64];
-  sprintf(x, "%32J", address);
-  if (strcmp(x, "9fDyXmKS8Qgf9TNsRoDw8q2FJJL5J8LN7Y52sddigqyi")==0) {
-    FD_LOG_NOTICE(("HI MOM2: "));
-    fd_vote_state_versioned_walk((fd_vote_state_versioned_t *) account, fd_printer_walker, "fd_vote_state_versioned2", 0);
-  }
-
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
@@ -178,10 +171,6 @@ fd_vote_save_account( fd_vote_state_versioned_t const * account,
                       fd_account_meta_t *               meta,
                       fd_pubkey_t const *               address,
                       instruction_ctx_t                 ctx ) {
-  FD_LOG_NOTICE(("HI MOM: "));
-  fd_base58_print_32((uchar *) address);
-  fd_vote_state_versioned_walk((fd_vote_state_versioned_t *) account, fd_printer_walker, "fd_vote_state_versioned", 0);
-
   /* Derive size of vote account */
   ulong serialized_sz = fd_vote_state_versioned_size( account );
   ulong raw_acc_sz = serialized_sz;

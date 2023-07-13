@@ -151,10 +151,6 @@ void fd_calculate_stake_weighted_timestamp(
     fd_stake_state_t stake_state;
     int result = read_stake_state(global, &n->elem.pubkey, &stake_state);
     ulong stake_weight = (result == FD_EXECUTOR_INSTR_SUCCESS) ? stake_state.inner.stake.stake.delegation.stake : 0;
-    // TODO: REMOVE
-    if (n->elem.slot == 0) {
-      continue;
-    }
     FD_LOG_NOTICE(("stk: %lu %lu", stake_state.discriminant, stake_state.inner.stake.stake.delegation.stake));
     FD_LOG_NOTICE(("clk.slot: %lu, el.slot: %lu, el.ts: %lu, sl_dur: %lu stk_w: %lu, treap_sz: %lu, estimate = %lu", clock.slot, n->elem.slot, n->elem.timestamp, slot_duration, stake_weight, treap_ele_cnt( treap ), estimate));
     total_stake += stake_weight;

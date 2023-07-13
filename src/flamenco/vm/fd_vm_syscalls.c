@@ -73,8 +73,9 @@ fd_vm_syscall_abort(
     FD_FN_UNUSED ulong arg2,
     FD_FN_UNUSED ulong arg3,
     FD_FN_UNUSED ulong arg4,
-    FD_FN_UNUSED ulong * ret
+    ulong * ret
 ) {
+  *ret = 0;
   return FD_VM_SYSCALL_ERR_ABORT;
 }
 
@@ -946,6 +947,7 @@ fd_vm_syscall_sol_get_clock_sysvar(
   FD_TEST( ctx->instr_ctx.instr );  /* TODO */
 
   fd_sol_sysvar_clock_t clock;
+  fd_sol_sysvar_clock_new( &clock );
   fd_sysvar_clock_read( ctx->instr_ctx.global, &clock );
 
   void * out = fd_vm_translate_vm_to_host(
@@ -974,6 +976,7 @@ fd_vm_syscall_sol_get_epoch_schedule_sysvar(
   FD_TEST( ctx->instr_ctx.instr );  /* TODO */
 
   fd_epoch_schedule_t schedule;
+  fd_epoch_schedule_new( &schedule );
   fd_sysvar_epoch_schedule_read( ctx->instr_ctx.global, &schedule );
 
   void * out = fd_vm_translate_vm_to_host(
@@ -1002,6 +1005,7 @@ fd_vm_syscall_sol_get_fees_sysvar(
   FD_TEST( ctx->instr_ctx.instr );  /* TODO */
 
   fd_sysvar_fees_t fees;
+  fd_sysvar_fees_new( &fees );
   fd_sysvar_fees_read( ctx->instr_ctx.global, &fees );
 
   void * out = fd_vm_translate_vm_to_host(
@@ -1030,6 +1034,7 @@ fd_vm_syscall_sol_get_rent_sysvar(
   FD_TEST( ctx->instr_ctx.instr );  /* TODO */
 
   fd_rent_t rent;
+  fd_rent_new( &rent ); 
   fd_sysvar_rent_read( ctx->instr_ctx.global, &rent );
 
   void * out = fd_vm_translate_vm_to_host(
