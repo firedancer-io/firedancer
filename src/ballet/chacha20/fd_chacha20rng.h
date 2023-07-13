@@ -7,6 +7,12 @@
 
 #include "fd_chacha20.h"
 
+/* FD_CHACHA20RNG_DEBUG controls debug logging.  0 is off; 1 is on. */
+
+#ifndef FD_CHACHA20RNG_DEBUG
+#define FD_CHACHA20RNG_DEBUG 0
+#endif
+
 /* FD_CHACHA20RNG_BUFSZ is the internal buffer size of pre-generated
    ChaCha20 blocks.  Multiple of block size (64 bytes) and a power of 2. */
 
@@ -128,13 +134,20 @@ fd_chacha20rng_ulong( fd_chacha20rng_t * rng ) {
 static inline ulong
 fd_chacha20rng_ulong_roll( fd_chacha20rng_t * rng,
                            ulong              n ) {
-  ulong ints_to_reject = (ULONG_MAX-n+1) % n;
-  ulong zone           = ULONG_MAX - ints_to_reject;
-  for(;;) {
+  ulong const z    = (ULONG_MAX-n+1) % n;
+  ulong const zone = ULONG_MAX - z;
+  for( int i=0; 1; i++ ) {
     ulong   v   = fd_chacha20rng_ulong( rng );
     uint128 res = (uint128)v * (uint128)n;
     ulong   hi  = (ulong)(res>>64);
     ulong   lo  = (ulong) res;
+
+#   if FD_CHACHA20RNG_DEBUG
+    FD_LOG_DEBUG(( "roll (attempt %d): n=%016lx z: %016lx zone: %016lx v=%016lx lo=%016lx hi=%016lx", i, n, z, zone, v, lo, hi ));
+#   else
+    (void)i;
+#   endif /* FD_CHACHA20RNG_DEBUG */
+
     if( FD_LIKELY( lo<=zone ) ) return hi;
   }
 }
