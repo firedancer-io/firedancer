@@ -1,9 +1,7 @@
-#include "json_lex.h"
+#ifndef HEADER_fd_src_tango_webserver_fd_methods_h
+#define HEADER_fd_src_tango_webserver_fd_methods_h
 
-struct fd_web_replier;
-void fd_web_replier_reply(struct fd_web_replier* replier, const char* out, uint out_sz);
-void fd_web_replier_error(struct fd_web_replier* replier, const char* message);
-char* fd_web_replier_temp_copy(struct fd_web_replier* replier, const char* text, ulong sz);
+#include "json_lex.h"
 
 // Data structure describing a "path" to a value in json data. This is
 // basically a path through the syntax tree. A path element can be one
@@ -60,3 +58,5 @@ const void* json_get_value(struct json_values* values, const uint* path, uint pa
 
 // Dump the values and paths to stdout
 void json_values_printout(struct json_values* values);
+
+#endif /* HEADER_fd_src_tango_webserver_fd_methods_h */

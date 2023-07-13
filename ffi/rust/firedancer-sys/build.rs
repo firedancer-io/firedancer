@@ -12,23 +12,57 @@ fn main() {
 
     let (machine, build_dir) = if cfg!(feature = "fuzz-asan") {
         (
-            "linux_clang_fuzz_asan",
+            "linux_clang_x86_64_fuzz_asan",
             out_dir.join("build/linux/clang/fuzz_asan"),
         )
     } else {
         (
-            "linux_clang_x86_64_ffi",
-            out_dir.join("build/linux/clang/x86_64_ffi"),
+            "linux_gcc_x86_64_ffi",
+            out_dir.join("build/linux/gcc/x86_64_ffi"),
         )
     };
 
-    for lib in ["ballet", "disco", "tango", "util"] {
+    let prefix = if dir.join("staging").exists() {
+        // Make sure we're actually in `cargo package`, if not the
+        // `staging` directory shouldn't exist. See `publish.sh`
+        assert!(
+            env::var("CARGO_MANIFEST_DIR")
+                .unwrap()
+                .contains("package/firedancer-sys"),
+            "staging subdirectory exists but we not running in `cargo package` see `publish.sh`"
+        );
+
+        // We're in the packaged version, someone has already setup the
+        // staging subdirectory with all the C code and headers.
+        //
+        // No `rerun-if-changed`, the manifest include is correct.
+        "staging"
+    } else {
+        // Make sure we're not in `cargo package`, if we are, the
+        // `staging` subdirectory should exist.
+        assert!(!env::var("CARGO_MANIFEST_DIR")
+            .unwrap()
+            .contains("package/firedancer-sys"));
+
+        // There's no point emitting a `rerun-if-changed` for the Makefile
+        // or any build system related files, because Make itself can't
+        // detect changes in this, and think it's already built correctly.
+        //
+        // We would need to `cargo clean` if any Makefile changes, which
+        // isn't possible now.
+        println!("cargo:rerun-if-changed=../../../src");
+
+        "../../../"
+    };
+
+    for lib in ["util", "ballet", "tango", "disco"] {
         // Generate bindings to the header files
         let mut builder = bindgen::Builder::default()
             .wrap_static_fns(true)
             .wrap_static_fns_path(out_dir.join(&format!("gen_{lib}.c")))
             .allowlist_recursively(false)
             .default_non_copy_union_style(bindgen::NonCopyUnionStyle::ManuallyDrop)
+            .clang_arg(format!("-I{prefix}/"))
             .header(&format!("wrapper_{lib}.h"))
             .blocklist_type("schar|uchar|ushort|uint|ulong")
             .blocklist_item("SORT_QUICK_ORDER_STYLE|SORT_MERGE_THRESH|SORT_QUICK_THRESH|SORT_QUICK_ORDER_STYLE|SORT_QUICK_SWAP_MINIMIZE");
@@ -47,12 +81,12 @@ fn main() {
         // lookbehind so this is going to be pretty painful...
         //
         // It's annoying to debug as well. The easiest way I found is editing
-        // `context/item.rs` in the local bindgen crate source to add println!
+        // `ir/item.rs` in the local bindgen crate source to add println!
         // when it blocks or allows, and then scanning the build output file.
         // If one of the regular expressions is not valid, bingden will just
         // silently ignore all of the other blocklists and allow everything.
         //
-        // // context/item.rs:652
+        // // ir/item.rs:652
         // if let Some(filename) = file.name() {
         //     if ctx.options().blocklisted_files.matches(&filename) {
         //         println!("BLOCK true {}", filename);
@@ -60,26 +94,40 @@ fn main() {
         //     }
         //     println!("BLOCK false {}", filename);
         // }
-        //
-        // All of our headers and code are referenced like `./firedancer/src/..`
-        // so if something does not start with `./` it's a system header and we
-        // should block it. Both of these two rules check this.
-        builder = builder.blocklist_file("[^\\.].*");
-        builder = builder.blocklist_file("\\.[^/].*");
+
+        match prefix {
+            "staging" => {
+                // All of our headers and code are referenced like `staging/src/..`
+                // so if something does not start with `staging/` it's a system header
+                // and we should block it.
+                builder = builder.blocklist_file("[^s].*");
+                builder = builder.blocklist_file("s[^t].*");
+                builder = builder.blocklist_file("st[^a].*");
+                builder = builder.blocklist_file("sta[^g].*");
+                builder = builder.blocklist_file("stag[^i].*");
+                builder = builder.blocklist_file("stagi[^n].*");
+                builder = builder.blocklist_file("stagin[^g].*");
+                builder = builder.blocklist_file("staging[^/].*");
+            }
+            "../../../" => {
+                // Same but referenced like "../../../src.."
+                builder = builder.blocklist_file("[^\\.].*");
+                builder = builder.blocklist_file("\\.[^\\.].*");
+                builder = builder.blocklist_file("\\.\\.[^/].*");
+            }
+            _ => unreachable!(),
+        };
 
         // Now basically we want to say, if we are building `tango` we allow
-        // anything that looks like `./firedancer/src/tango/...`
+        // anything that looks like `staging/src/tango/...`
         //
         // To do this with the blocklist, we just look at all the directories
-        // in `./firedancer/src/` that are not `tango`, and block those.
-        for dir in std::fs::read_dir("firedancer/src").unwrap() {
+        // in `staging/src/` that are not `tango`, and block those.
+        for dir in std::fs::read_dir(format!("{prefix}/src")).unwrap() {
             let dir = dir.unwrap().file_name();
             let dir = dir.to_str().unwrap();
             if dir != lib {
-                // Block all top level uses of other libraries.
-                builder = builder.blocklist_file(&format!("\\.firedancer/src/{}/.*", dir));
-
-                // Most includes are actually going to look like `.firedancer/src/tango/../util/`
+                // Most includes are actually going to look like `staging/src/tango/../util/`
                 // so it's not enough to check the `src/other` path. We also need to check that
                 // there is no `../other` for these other libraries.
                 //
@@ -92,8 +140,8 @@ fn main() {
                     builder = builder.blocklist_file(&format!(".*/\\.\\./{}/.*", dir));
                 } else {
                     // For the other packages, block if it's not ending in `/tmpl/*`
-                    // ./firedancer/src/ballet/sbpf/../../util/tmpl/fd_map.c -> allow
-                    // ./firedancer/src/ballet/sbpf/../../util/fd_util_base.h -> deny
+                    // staging/src/ballet/sbpf/../../util/tmpl/fd_map.c -> allow
+                    // staging/src/ballet/sbpf/../../util/fd_util_base.h -> deny
                     builder = builder.blocklist_file(".*/\\.\\./util/[^/]+");
                     builder = builder.blocklist_file(".*/\\.\\./util/(.*/)?[^t][^/]+/[^/]+");
                     builder = builder.blocklist_file(".*/\\.\\./util/(.*/)?t[^m][^/]+/[^/]+");
@@ -105,7 +153,7 @@ fn main() {
                 // Only declare templates that are actually defined in this library,
                 // deny ones that come from some other include. Eg, below the template
                 // comes from util/math not ballet, so we don't want it.
-                // ./firedancer/src/ballet/../util/math/../tmpl/fd_sort.c -> deny
+                // staging/src/ballet/../util/math/../tmpl/fd_sort.c -> deny
                 builder = builder.blocklist_file(&format!(".*\\.\\./{}/.*/tmpl/[^/]+", dir));
             }
         }
@@ -117,26 +165,33 @@ fn main() {
             .expect("Failed to write bindings to file");
 
         // Build the Firedancer sources
-        let output = Command::new("make")
+        let mut command = Command::new("make");
+        command
             .arg("-j")
             .arg(format!("{}/lib/libfd_{lib}.a", build_dir.display()))
-            .current_dir(&dir.join("firedancer"))
-            .env("UTIL_STATIC_EXTERN_OBJECT", out_dir.join("gen_util.c"))
-            .env("TANGO_STATIC_EXTERN_OBJECT", out_dir.join("gen_tango.c"))
-            // No statics in disco yet so no extern wrapper file is produced
-            // .env("DISCO_STATIC_EXTERN_OBJECT", out_dir.join("gen_disco.c"))
-            .env("BALLET_STATIC_EXTERN_OBJECT", out_dir.join("gen_ballet.c"))
+            .current_dir(&dir.join(prefix))
             .env("MACHINE", machine)
-            .env("BASEDIR", out_dir.join("build"))
-            .output()
-            .unwrap_or_else(|_| {
-                panic!(
-                    "failed to execute `make`, does it exist? PATH {:#?}",
-                    std::env::var("PATH")
-                )
-            });
+            .env("BASEDIR", out_dir.join("build"));
+
+        // No statics in disco yet so no extern wrapper file is produced
+        if lib != "disco" {
+            let key = format!("{}_STATIC_EXTERN_OBJECT", lib.to_uppercase());
+            let value = out_dir.join(&format!("gen_{}.c", lib));
+            command.env(key, value);
+        }
+
+        let output = command.output().unwrap_or_else(|_| {
+            panic!(
+                "failed to execute `make`, does it exist? PATH {:#?}",
+                std::env::var("PATH")
+            )
+        });
         if !output.status.success() {
-            panic!("{}", String::from_utf8(output.stderr).unwrap());
+            panic!(
+                "{}\n{}",
+                String::from_utf8(output.stdout).unwrap(),
+                String::from_utf8(output.stderr).unwrap()
+            );
         }
     }
 
@@ -145,12 +200,6 @@ fn main() {
         "cargo:rustc-link-search=all={}",
         build_dir
             .join("lib")
-            .to_str()
-            .expect("failed to convert path to string")
-    );
-    println!(
-        "cargo:rerun-if-changed={}",
-        dir.join("firedancer")
             .to_str()
             .expect("failed to convert path to string")
     );

@@ -1,3 +1,5 @@
+BASEDIR?=build
+
 SHELL:=bash
 CPPFLAGS:=-isystem ./opt/include
 CC:=gcc

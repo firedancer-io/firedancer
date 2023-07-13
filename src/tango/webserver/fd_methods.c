@@ -5,8 +5,6 @@
 #include "fd_webserver.h"
 #include "../../util/fd_util.h"
 
-#define CRLF "\r\n"
-
 // Initialize a json_values
 void json_values_new(struct json_values* values) {
   values->num_values = 0;

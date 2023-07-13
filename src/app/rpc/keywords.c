@@ -33,6 +33,11 @@ long fd_webserver_json_keyword(const char* keyw, unsigned long keyw_sz) {
   break;
   case 6:
     switch (keyw[0]) {
+    case 'l':
+      if (((*(unsigned long*)&keyw[1] & 0xFFFFFFFFFFUL) == 0x6874676E65UL)) {
+        return KEYW_JSON_LENGTH; // "length"
+      }
+      break;
     case 'm':
       if (keyw[1] == 'e') {
         switch (keyw[2]) {
@@ -144,7 +149,7 @@ long fd_webserver_json_keyword(const char* keyw, unsigned long keyw_sz) {
       }
       break;
     case 'p':
-      if ((*(unsigned long*)&keyw[1] == 0x64496D6172676F72UL)) {
+      if (*(unsigned long*)&keyw[1] == 0x64496D6172676F72UL) {
         return KEYW_JSON_PROGRAMID; // "programId"
       }
       break;
@@ -189,12 +194,12 @@ long fd_webserver_json_keyword(const char* keyw, unsigned long keyw_sz) {
     if (((*(unsigned long*)&keyw[0] & 0xFFFFFFUL) == 0x746567UL)) {
       switch (keyw[3]) {
       case 'B':
-        if ((*(unsigned long*)&keyw[4] == 0x656D69546B636F6CUL)) {
+        if (*(unsigned long*)&keyw[4] == 0x656D69546B636F6CUL) {
           return KEYW_RPCMETHOD_GETBLOCKTIME; // "getBlockTime"
         }
         break;
       case 'E':
-        if ((*(unsigned long*)&keyw[4] == 0x6F666E4968636F70UL)) {
+        if (*(unsigned long*)&keyw[4] == 0x6F666E4968636F70UL) {
           return KEYW_RPCMETHOD_GETEPOCHINFO; // "getEpochInfo"
         }
         break;
@@ -610,6 +615,7 @@ const char* un_fd_webserver_json_keyword(long id) {
   case KEYW_JSON_EPOCH: return "epoch";
   case KEYW_JSON_FILTERS: return "filters";
   case KEYW_JSON_IDENTITY: return "identity";
+  case KEYW_JSON_LENGTH: return "length";
   case KEYW_JSON_LIMIT: return "limit";
   case KEYW_JSON_MAXSUPPORTEDTRANSACTIONVERSION: return "maxSupportedTransactionVersion";
   case KEYW_JSON_MEMCMP: return "memcmp";

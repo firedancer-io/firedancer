@@ -41,15 +41,15 @@ fn hexdump(buffer: &[u8]) -> String {
             out += &format!("{:02X} ", b);
         }
         for _ in parts.len()..16 {
-            out += &format!("   ");
+            out += "   ";
         }
-        out += &format!(" ");
+        out += " ";
         for b in parts {
             let ch = *b as char;
             if ch.is_ascii_graphic() {
                 out += &format!("{}", ch);
             } else {
-                out += &format!(".");
+                out += ".";
             }
         }
     }

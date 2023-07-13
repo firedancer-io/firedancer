@@ -108,7 +108,7 @@ checkout_gnuweb () {
     echo "[~] Skipping $1 fetch as \"$(pwd)/opt/gnuweb/$1\" already exists"
   else
     echo "[+] Cloning $1 from $2/$3.tar.gz"
-    wget -O - "$2/$3.tar.gz" | gunzip | tar xf - -C ./opt/gnuweb
+    curl -o - -L "$2/$3.tar.gz" | gunzip | tar xf - -C ./opt/gnuweb
     mv ./opt/gnuweb/$3 ./opt/gnuweb/$1
     echo
   fi
@@ -120,10 +120,11 @@ fetch () {
   checkout_repo zlib      https://github.com/madler/zlib            "v1.2.13"
   checkout_repo bzip2     https://sourceware.org/git/bzip2.git      "bzip2-1.0.8"
   checkout_repo zstd      https://github.com/facebook/zstd          "v1.5.4"
-  checkout_repo openssl   https://github.com/quictls/openssl        "OpenSSL_1_1_1t-quic1"
+  checkout_repo openssl   https://github.com/quictls/openssl        "openssl-3.0.9-quic1"
   checkout_repo rocksdb   https://github.com/facebook/rocksdb       "v7.10.2"
   checkout_repo secp256k1 https://github.com/bitcoin-core/secp256k1 "v0.3.2"
   checkout_repo nanopb    https://github.com/nanopb/nanopb          "0.4.7"
+  checkout_repo snappy    https://github.com/google/snappy          "1.1.10"
 
   mkdir -pv ./opt/gnuweb
   checkout_gnuweb libmicrohttpd https://ftp.gnu.org/gnu/libmicrohttpd/ "libmicrohttpd-0.9.77"
@@ -414,16 +415,74 @@ install_openssl () {
 
   echo "[+] Configuring OpenSSL"
   ./config \
+    -static \
     --prefix="$PREFIX" \
-    enable-quic
+    enable-quic \
+    no-engine \
+    no-static-engine \
+    no-weak-ssl-ciphers \
+    no-autoload-config \
+    no-tls1 \
+    no-tls1-method \
+    no-tls1_1 \
+    no-tls1_1-method \
+    no-tls1_2 \
+    no-tls1_2-method \
+    enable-tls1_3 \
+    no-shared \
+    no-legacy \
+    no-tests \
+    no-ui-console \
+    no-sctp \
+    no-ssl3 \
+    no-aria \
+    no-bf \
+    no-blake2 \
+    no-camellia \
+    no-cast \
+    no-cmac \
+    no-cmp \
+    no-cms \
+    no-comp \
+    no-ct \
+    no-des \
+    no-dh \
+    no-dsa \
+    no-dtls \
+    no-dtls1-method \
+    no-dtls1_2-method \
+    no-ecdsa \
+    no-fips \
+    no-gost \
+    no-idea \
+    no-ktls \
+    no-md4 \
+    no-nextprotoneg \
+    no-ocb \
+    no-ocsp \
+    no-rc2 \
+    no-rc4 \
+    no-rc5 \
+    no-rmd160 \
+    no-scrypt \
+    no-seed \
+    no-siphash \
+    no-siv \
+    no-sm3 \
+    no-sm4 \
+    no-srp \
+    no-srtp \
+    no-sock \
+    no-ts \
+    no-whirlpool
   echo "[+] Configured OpenSSL"
 
   echo "[+] Building OpenSSL"
-  "${MAKE[@]}"
+  "${MAKE[@]}" build_libs
   echo "[+] Successfully built OpenSSL"
 
   echo "[+] Installing OpenSSL to $PREFIX"
-  make install_sw -j
+  "${MAKE[@]}" install_dev
   echo "[+] Successfully installed OpenSSL"
 }
 
@@ -445,7 +504,7 @@ install_rocksdb () {
     -DWITH_GFLAGS=OFF \
     -DWITH_LIBURING=OFF \
     -DWITH_BZ2=OFF \
-    -DWITH_SNAPPY=OFF \
+    -DWITH_SNAPPY=ON \
     -DWITH_ZLIB=ON \
     -DWITH_ZSTD=ON \
     -DWITH_ALL_TESTS=OFF \
@@ -458,7 +517,9 @@ install_rocksdb () {
     -DZLIB_ROOT="$PREFIX" \
     -DBZIP2_LIBRARIES="$PREFIX/lib/libbz2.a" \
     -DBZIP2_INCLUDE_DIR="$PREFIX/include" \
-    -Dzstd_ROOT_DIR="$PREFIX"
+    -Dzstd_ROOT_DIR="$PREFIX" \
+    -DSnappy_LIBRARIES="$PREFIX/lib" \
+    -DSnappy_INCLUDE_DIRS="$PREFIX/include"
 
   local NJOBS
   NJOBS=$(( $(nproc) / 2 ))
@@ -512,7 +573,8 @@ install_nanopb () {
     -DBUILD_SHARED_LIBS=OFF \
     -DBUILD_STATIC_LIBS=ON \
     -Dnanopb_BUILD_RUNTIME=ON \
-    -Dnanopb_BUILD_GENERATOR=OFF
+    -Dnanopb_BUILD_GENERATOR=OFF \
+    -DCMAKE_C_FLAGS=-DPB_ENABLE_MALLOC
 
   make -j
   make install
@@ -531,6 +593,31 @@ EOF
   echo "[+] Successfully installed nanopb"
 }
 
+install_snappy () {
+  cd ./opt/git/snappy
+
+  echo "[+] Configuring snappy"
+  mkdir -p build
+  cd build
+  cmake .. \
+    -G"Unix Makefiles" \
+    -DCMAKE_INSTALL_PREFIX:PATH="" \
+    -DCMAKE_INSTALL_LIBDIR=lib \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DBUILD_SHARED_LIBS=ON \
+    -DSNAPPY_BUILD_TESTS=OFF \
+    -DSNAPPY_BUILD_BENCHMARKS=OFF
+  echo "[+] Configured snappy"
+
+  echo "[+] Building snappy"
+  make -j
+  echo "[+] Successfully built snappy"
+
+  echo "[+] Installing snappy to $PREFIX"
+  make install DESTDIR="$PREFIX"
+  echo "[+] Successfully installed snappy"
+}
+
 install () {
   export CC=`which gcc`
   export cc=`which gcc`
@@ -538,6 +625,7 @@ install () {
   ( install_bzip2     )
   ( install_zstd      )
   ( install_secp256k1 )
+  ( install_snappy    )
   ( install_rocksdb   )
   ( install_openssl   )
   ( install_libmicrohttpd )

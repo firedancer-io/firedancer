@@ -100,14 +100,6 @@ pub(crate) fn repermission<T: AsRef<str>>(path: T, uid: u32, gid: u32, perm: u32
     assert_eq!(0, unsafe { libc::chmod(path.as_ptr(), perm) });
 }
 
-pub(crate) fn remove_file_not_found_ok<P: AsRef<Path>>(path: P) -> std::io::Result<()> {
-    match std::fs::remove_file(path.as_ref()) {
-        Ok(()) => Ok(()),
-        Err(err) if err.kind() == ErrorKind::NotFound => Ok(()),
-        result => result,
-    }
-}
-
 pub(crate) fn remove_directory_not_found_ok<P: AsRef<Path>>(path: P) -> std::io::Result<()> {
     match std::fs::remove_dir(path.as_ref()) {
         Ok(()) => Ok(()),

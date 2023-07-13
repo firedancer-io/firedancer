@@ -16,14 +16,14 @@ package solana.storage.ConfirmedBlock;
 // contains interesting data about the side effects of transaction
 // execution that are highly useful for debugging.
 //
+// transaction_status
+//
 // ### Where do I get it from?
 //
 // If configured correctly, the Solana Labs validator will store
 // transaction metadata in this Protobuf format in a blockstore column
-// family.  If available, fd_frank_ledger will convert this data into a
-// Firedancer-internal format and store in the fd_funk database.  The
-// test_runtime program uses this data to check whether Firedancer's
-// replay results match.
+// family.  If available, test_runtime program uses this data to check
+// whether Firedancer's replay results match.
 //
 // ### nanopb
 //
@@ -73,17 +73,21 @@ message MessageAddressTableLookup {
 message Message {
     required MessageHeader header = 1;
     repeated bytes account_keys = 2
-        [(nanopb).max_size = 32, (nanopb).fixed_length = true];
+        [(nanopb).max_size = 32, (nanopb).fixed_length = true,
+         (nanopb).type = FT_POINTER];
     required bytes recent_blockhash = 3
         [(nanopb).max_size = 32, (nanopb).fixed_length = true];
-    repeated Instruction instructions = 4;
+    repeated Instruction instructions = 4
+        [(nanopb).type = FT_POINTER];
     required bool versioned = 5;
-    repeated MessageAddressTableLookup address_table_lookups = 6;
+    repeated MessageAddressTableLookup address_table_lookups = 6
+        [(nanopb).type = FT_POINTER];
 }
 
 message Transaction {
     repeated bytes signatures = 1
-        [(nanopb).max_size = 32, (nanopb).fixed_length = true];
+        [(nanopb).max_size = 32, (nanopb).fixed_length = true,
+         (nanopb).type = FT_POINTER];
     required Message message = 2;
 }
 
@@ -107,11 +111,13 @@ message InnerInstruction {
 
 message InnerInstructions {
     required uint32 index = 1;
-    repeated InnerInstruction instructions = 2;
+    repeated InnerInstruction instructions = 2
+        [(nanopb).type = FT_POINTER];
 }
 
 message TransactionError {
-    required bytes err = 1;
+    required bytes err = 1
+        [(nanopb).type = FT_POINTER];
 }
 
 message UiTokenAmount {
@@ -156,24 +162,33 @@ message ReturnData {
 }
 
 message TransactionStatusMeta {
-    required TransactionError err = 1;
+    optional TransactionError err = 1;
     required uint64 fee = 2;
-    repeated uint64 pre_balances = 3;
-    repeated uint64 post_balances = 4;
-    repeated InnerInstructions inner_instructions = 5;
-    required bool inner_instructions_none = 10;
-    repeated string log_messages = 6;
-    required bool log_messages_none = 11;
-    repeated TokenBalance pre_token_balances = 7;
-    repeated TokenBalance post_token_balances = 8;
-    repeated Reward rewards = 9;
-    repeated bytes loaded_writable_addresses = 12;
-    repeated bytes loaded_readonly_addresses = 13;
+    repeated uint64 pre_balances = 3
+        [(nanopb).type = FT_POINTER];
+    repeated uint64 post_balances = 4
+        [(nanopb).type = FT_POINTER];
+    repeated InnerInstructions inner_instructions = 5
+        [(nanopb).type = FT_POINTER];
+    optional bool inner_instructions_none = 10;
+    repeated string log_messages = 6
+        [(nanopb).type = FT_POINTER];
+    optional bool log_messages_none = 11;
+    repeated TokenBalance pre_token_balances = 7
+        [(nanopb).type = FT_POINTER];
+    repeated TokenBalance post_token_balances = 8
+        [(nanopb).type = FT_POINTER];
+    repeated Reward rewards = 9
+        [(nanopb).type = FT_POINTER];
+    repeated bytes loaded_writable_addresses = 12
+        [(nanopb).type = FT_POINTER];
+    repeated bytes loaded_readonly_addresses = 13
+        [(nanopb).type = FT_POINTER];
     optional ReturnData return_data = 14;
     optional bool return_data_none = 15;
 
     // Sum of compute units consumed by all instructions.
     // Available since Solana v1.10.35 / v1.11.6.
     // Set to `None` for txs executed on earlier versions.
-    optional uint64 compute_units_consumed = 16;
+    required uint64 compute_units_consumed = 16;
 }

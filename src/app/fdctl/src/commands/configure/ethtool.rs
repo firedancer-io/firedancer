@@ -1,3 +1,11 @@
+use std::ffi::CString;
+use std::{
+    mem,
+    ptr,
+};
+
+use libc::*;
+
 use super::*;
 use crate::security::*;
 use crate::utility::*;
@@ -50,28 +58,84 @@ fn step(config: &mut Config) {
     };
 }
 
-fn check1(device: &str, expected_channel_count: u32) -> CheckResult {
-    let output = run!("ethtool --show-channels {device}");
-    if let Some(position) = output.find("Current hardware settings:") {
-        if let Some(line) = output[position..]
-            .lines()
-            .find(|line| line.starts_with("Combined:"))
-        {
-            let count: u32 = line[9..].trim().parse().unwrap();
-            if count != expected_channel_count {
-                // We need exactly one channel per QUIC tile, otherwise the driver will forward
-                // packets to channels that we are not reading from.
-                return not_configured!(
-                    "device {device} does not have right number of channels, got {count}, \
-                     expected {expected_channel_count}"
-                );
-            } else {
-                return Ok(());
-            }
-        }
-    }
+#[repr(C)]
+#[derive(Debug)]
+pub struct ethtool_channels {
+    cmd: u32,
+    max_rx: u32,
+    max_tx: u32,
+    max_other: u32,
+    max_combined: u32,
+    rx_count: u32,
+    tx_count: u32,
+    other_count: u32,
+    combined_count: u32,
+}
 
-    not_configured!("couldn't parse combined channels from device in ethtool")
+const ETHTOOL_GCHANNELS: u32 = 0x0000003c;
+
+fn check1(device: &str, expected_channel_count: u32) -> CheckResult {
+    let (supports_channels, count) = unsafe {
+        let socket = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
+        assert!(socket >= 0);
+
+        let mut channels: ethtool_channels = mem::zeroed();
+        channels.cmd = ETHTOOL_GCHANNELS;
+
+        let mut ifr: ifreq = mem::zeroed();
+
+        let device_name = CString::new(device).unwrap();
+        let device_bytes = device_name.as_bytes_with_nul();
+
+        ptr::copy(
+            device_bytes.as_ptr() as *const c_char,
+            ifr.ifr_name.as_mut_ptr(),
+            device_bytes.len(),
+        );
+
+        ifr.ifr_ifru.ifru_data = &mut channels as *mut _ as *mut libc::c_char;
+
+        if 0 != ioctl(socket, SIOCETHTOOL, &mut ifr as *mut _) {
+            if *libc::__errno_location() == libc::EOPNOTSUPP {
+                assert_eq!(0, close(socket));
+
+                // Netowrk device doesn't support setting number of channels,
+                // so it must always be 1.
+                (false, 1)
+            } else {
+                panic!(
+                    "Couldn't get number of supported device channels: {}",
+                    std::io::Error::last_os_error()
+                );
+            }
+        } else {
+            assert_eq!(0, close(socket));
+            (true, channels.combined_count)
+        }
+    };
+
+    if count != expected_channel_count {
+        // We need exactly one channel per QUIC tile, otherwise the driver will forward
+        // packets to channels that we are not reading from.
+        if !supports_channels {
+            panic!(
+                "Network device `{device}` does not support setting number of channels, but you \
+                 are running with more than one QUIC tile (expected {expected_channel_count}), \
+                 and there must be one channel per tile. You can either use a NIC that supports \
+                 multiple channels, or run Firedancer with only one QUIC tile. You can configure \
+                 Firedancer to run with only one QUIC tile by setting `layout.verify_tile_count` \
+                 to 1 in your configuration file. It is not recommended to do this in production \
+                 as it will limit network performance."
+            );
+        } else {
+            not_configured!(
+                "device {device} does not have right number of channels, got {count}, expected \
+                 {expected_channel_count}"
+            )
+        }
+    } else {
+        Ok(())
+    }
 }
 
 fn check(config: &Config) -> CheckResult {

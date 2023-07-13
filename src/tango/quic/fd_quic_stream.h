@@ -60,6 +60,8 @@ struct fd_quic_stream {
 # define FD_QUIC_STREAM_STATE_TX_FIN (1u<<0u)
 # define FD_QUIC_STREAM_STATE_RX_FIN (1u<<1u)
 
+# define FD_QUIC_DEFAULT_INITIAL_RX_MAX_STREAM_DATA 1280  // IPv6 minimum MTU
+
   /* flow control */
   ulong  tx_max_stream_data; /* the limit on the number of bytes we are allowed to send
                                   to the peer on this stream
@@ -164,7 +166,7 @@ fd_quic_stream_align( void ) {
      rx_buf_sz    the size of the rx buffer */
 FD_FN_CONST
 ulong
-fd_quic_stream_footprint( ulong tx_buf_sz, ulong rx_buf_sz );
+fd_quic_stream_footprint( ulong tx_buf_sz );
 
 /* returns a newly initialized stream
 
@@ -174,7 +176,7 @@ fd_quic_stream_footprint( ulong tx_buf_sz, ulong rx_buf_sz );
      tx_buf_sz    the size of the tx buffer
      rx_buf_sz    the size of the rx buffer */
 fd_quic_stream_t *
-fd_quic_stream_new( void * mem, fd_quic_conn_t * conn,ulong tx_buf_sz, ulong rx_buf_sz );
+fd_quic_stream_new( void * mem, fd_quic_conn_t * conn, ulong tx_buf_sz );
 
 /* delete a stream
 
@@ -203,7 +205,9 @@ fd_quic_stream_set_context( fd_quic_stream_t * stream, void * context );
 void *
 fd_quic_stream_get_context( fd_quic_stream_t * stream );
 
+void
+fd_quic_stream_set_rx_max_stream_data( fd_quic_stream_t * stream, ulong rx_max_stream_data );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_tango_quic_fd_quic_stream_h */
-

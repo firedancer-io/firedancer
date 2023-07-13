@@ -1,6 +1,5 @@
 $(call make-lib,fd_tango)
 $(call add-hdrs,fd_tango_base.h fd_tango.h)
-$(call maybe-add-env-obj,TANGO_STATIC_EXTERN_OBJECT,fd_tango)
 $(call make-bin,fd_tango_ctl,fd_tango_ctl,fd_tango fd_util)
 $(call make-unit-test,test_tango_base,test_tango_base,fd_tango fd_util)
 $(call make-unit-test,test_meta_tx,test_meta_tx,fd_tango fd_util)
@@ -9,4 +8,3 @@ $(call make-unit-test,test_frag_tx,test_frag_tx,fd_tango fd_util)
 $(call make-unit-test,test_frag_rx,test_frag_rx,fd_tango fd_util)
 $(call make-unit-test,bench_frag_tx,bench_frag_tx,fd_tango fd_util)
 $(call add-test-scripts,test_tango_ctl test_ipc_init test_ipc_meta test_ipc_full test_ipc_fini)
-

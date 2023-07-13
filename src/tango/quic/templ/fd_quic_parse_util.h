@@ -166,7 +166,7 @@ fd_quic_encode_bits( uchar * buf, ulong cur_bit, ulong val, ulong bits ) {
     /* j == 1 is the leftmost bit, which is val bit (bits-2) */
     /* so we want to shift val right by ( bits-1-j ) */
 
-    buf[byte_offs] = cur_byte | (uchar) ( ( (val >> (bits-1u-j)) & 1u ) << ( 7u - bit_offs ) );
+    buf[byte_offs] = (uchar)((uchar)cur_byte | (uchar) ( ( (val >> (bits-1u-j)) & 1u ) << ( 7u - bit_offs ) ));
   }
 
   return 0;

@@ -50,52 +50,47 @@ fd_eth_fcs_append( uint         seed,
   return ~crc;
 }
 
+static inline ulong
+ascii_to_xdigit( char c ) {
+
+  /* '0'-'9' -> 0x30-0x39 ->  0- 9
+     'A'-'F' -> 0x41-0x46 -> 10-15
+     'a'-'f' -> 0x61-0x66 -> 10-15.
+     All other values map to 16.
+
+     Trick 1: We note that the span from '0' to 'f' covers 55
+     characters.  Thus suggests using a range test and bit field to
+     determine if c is a hexdigit.  We subtract c by 0 with unsigned
+     arithmetic (such that c below '0' map to values >=55and c above 'f'
+     map to values >=55).  We then branchlessly saturate the result to
+     [0,63] and quick lookup in a 64-bit table encoded as an ulong
+     whether or not 'c' is in range.
+
+     Trick 2: After filtering c to range of actual hexdigits, we note
+     the least significant nibble is the desired result d <= 9 and the
+     desired result minus 9 otherwise.
+
+     (Arguable that a simple table lookup might be faster.) */
+
+  ulong ul = (ulong)(uchar)c;
+  return fd_ulong_if( (int)((0x007e0000007e03ffUL >> fd_ulong_min( ul - (ulong)(uchar)'0', 63UL )) & 1UL), /* isxdigit */
+                      (ul & 15UL) + 9UL*(ulong)(ul>(ulong)(uchar)'9'),
+                      16UL );
+}
+
 uchar *
 fd_cstr_to_mac_addr( char const * s,
                      uchar      * mac ) {
 
-  if( FD_UNLIKELY( strnlen( s, 18UL ) !=17UL ) )
-    return NULL;
+  if( FD_UNLIKELY( (!s) | (!mac) ) ) return NULL;
 
-  ulong hi = fd_ulong_load_8( s     );
-  ulong lo = fd_ulong_load_8( s+9UL );
-
-  if( FD_UNLIKELY(
-         (hi&0x0000FF0000FF0000UL)!=0x00003a00003a0000UL
-      || (lo&0x0000FF0000FF0000UL)!=0x00003a00003a0000UL
-      || s[8]!=':' ) )
-    return NULL;
-
-  hi = ((hi>>16)&0xFFFF00000000)|((hi>>8)&0xFFFF0000)|(hi&0xFFFF);
-  lo = ((lo>>16)&0xFFFF00000000)|((lo>>8)&0xFFFF0000)|(lo&0xFFFF);
-
-  uint err = 0;
-
-# define HEX2BIN(out,_in) do {                                \
-    uint in = (uchar)_in;                                     \
-    out = fd_ulong_if( (in>='0'&&in<='9'), in-'0',            \
-          fd_ulong_if( (in>='A'&&in<='F')                     \
-                     ||(in>='a'&&in<='f'), (in&0xdfu)-'A'+10, \
-          ULONG_MAX ) );                                      \
-    err |= (uint)(out>>63UL);                                 \
-  } while(0);
-
-  ulong v0;
-  ulong v1;
-  for( int i=0; i<3; i++ ) {
-    HEX2BIN(v0,hi); hi >>= 8;
-    HEX2BIN(v1,hi); hi >>= 8;
-    mac[ i ]=(uchar)( v0<<4 | v1 );
+  for( ulong i=0UL; i<6UL; i++ ) {
+    ulong s1 = ascii_to_xdigit( s[0] ); if( FD_UNLIKELY( s1>15UL ) ) return NULL;
+    ulong s0 = ascii_to_xdigit( s[1] ); if( FD_UNLIKELY( s0>15UL ) ) return NULL;
+    if( (i<5UL) && FD_UNLIKELY( s[2]!=':' ) ) return NULL;
+    mac[i] = (uchar)((s1<<4) | s0);
+    s += 3;
   }
-  for( int i=3; i<6; i++ ) {
-    HEX2BIN(v0,lo); lo >>= 8;
-    HEX2BIN(v1,lo); lo >>= 8;
-    mac[ i ]=(uchar)( v0<<4 | v1 );
-  }
-# undef HEX2BIN
-
-  if( FD_UNLIKELY( err ) )
-    return NULL;
-
+  
   return mac;
 }

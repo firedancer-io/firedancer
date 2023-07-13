@@ -52,6 +52,9 @@ endif
 $(info Using MACHINE=$(MACHINE))
 $(info Using EXTRAS=$(EXTRAS))
 
+# Default target
+all:
+
 include config/$(MACHINE).mk
 include $(addprefix config/with-,$(addsuffix .mk,$(EXTRAS)))
 include config/everything.mk
@@ -64,6 +67,3 @@ include config/coverage.mk
 
 run-runtime-test:
 	export EXTRAS="asan" && export LSAN_OPTIONS="suppressions=`pwd`/lsan-suppressed.cc" && src/flamenco/runtime/run_ledger_tests.sh
-
-multi:
-	export EXTRAS="asan" && export LSAN_OPTIONS="suppressions=`pwd`/lsan-suppressed.cc" && src/flamenco/runtime/run_ledger_tests.sh -l multi-node-cluster-ledger

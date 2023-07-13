@@ -8,14 +8,20 @@
 #include "../../ballet/block/fd_microblock.h"
 #include <rocksdb/c.h>
 
-#define FD_ROCKSDB_CF_CNT (5UL)
+#define FD_ROCKSDB_CF_CNT (6UL)
+
+#define FD_ROCKSDB_CFIDX_DEFAULT     (0UL)
+#define FD_ROCKSDB_CFIDX_META        (1UL)
+#define FD_ROCKSDB_CFIDX_ROOT        (2UL)
+#define FD_ROCKSDB_CFIDX_DATA_SHRED  (3UL)
+#define FD_ROCKSDB_CFIDX_BANK_HASHES (4UL)
+#define FD_ROCKSDB_CFIDX_TXN_STATUS  (5UL)
 
 /* Solana rocksdb client */
 struct fd_rocksdb {
   rocksdb_t *                     db;
   const char *                    db_name;
   const char *                    cfgs      [ FD_ROCKSDB_CF_CNT ];
-  const rocksdb_options_t *       cf_options[ FD_ROCKSDB_CF_CNT ];
   rocksdb_column_family_handle_t* cf_handles[ FD_ROCKSDB_CF_CNT ];
   rocksdb_options_t *             opts;
   rocksdb_readoptions_t *         ro;
@@ -98,23 +104,21 @@ fd_rocksdb_destroy( fd_rocksdb_t * db );
 
    This uses the root column to discover the slot of the last root in
    the db.  If there is an error, this sets *err to a constant string
-   describing the error.  There is no need to free that string.
-*/
-ulong fd_rocksdb_last_slot(
-    fd_rocksdb_t *db,
-    char **err
-);
+   describing the error.  There is no need to free that string. */
+
+ulong
+fd_rocksdb_last_slot( fd_rocksdb_t * db,
+                      char **        err );
 
 /* fd_rocksdb_first_slot:  Returns the first slot in the db
 
    This uses the root column to discover the slot of the first root in
    the db.  If there is an error, this sets *err to a constant string
-   describing the error.  There is no need to free that string.
-*/
-ulong fd_rocksdb_first_slot(
-    fd_rocksdb_t *db,
-    char **err
-);
+   describing the error.  There is no need to free that string. */
+
+ulong
+fd_rocksdb_first_slot( fd_rocksdb_t * db,
+                       char **        err );
 
 /* fd_rocksdb_get_meta
 
@@ -144,6 +148,23 @@ void *
 fd_rocksdb_get_bank_hash( fd_rocksdb_t * self,
                           ulong          slot,
                           void *         out );
+
+/* fd_rocksdb_get_txn_status_raw queries transaction status metadata.
+   slot is the slot number of the block that contains the txn.  sig
+   points to the first signature of the txn.  Returns data==NULL if
+   record not found.  On success, creates a malloc-backed buffer to hold
+   return value, copies raw serialized status into buffer, sets *psz to
+   the byte size of the status and returns pointer to buffer.  Caller
+   must free() non-NULL returned region.  On failure, returns NULL and
+   content of *psz is undefined.  Value is Protobuf-encoded
+   TransactionStatusMeta.  Use fd_solblock nanopb API to deserialize
+   value. */
+
+void *
+fd_rocksdb_get_txn_status_raw( fd_rocksdb_t * self,
+                               ulong          slot,
+                               void const *   sig,
+                               ulong *        psz );
 
 FD_PROTOTYPES_END
 

@@ -5,8 +5,8 @@ use std::sync::Arc;
 use firedancer_sys::ballet::*;
 use solana_program_runtime::compute_budget::ComputeBudget;
 use solana_program_runtime::invoke_context::InvokeContext;
-use solana_rbpf::elf::Executable;
-use solana_rbpf::verifier::RequisiteVerifier;
+use solana_program_runtime::solana_rbpf::elf::Executable;
+use solana_program_runtime::solana_rbpf::verifier::RequisiteVerifier;
 use solana_sdk::pubkey::Pubkey;
 
 use crate::*;
@@ -122,7 +122,7 @@ pub fn load_program_labs(elf: &[u8]) -> Result<LoadedProgram, String> {
     let loader = Arc::new(loader);
 
     let executable: Executable<RequisiteVerifier, InvokeContext<'_>> =
-        solana_rbpf::elf::Executable::load(elf, loader).map_err(|e| format!("{:?}", e))?;
+        Executable::load(elf, loader).map_err(|e| format!("{:?}", e))?;
 
     let ro_section = executable.get_ro_section().to_vec();
     let (text_vaddr, text_section) = executable.get_text_bytes();

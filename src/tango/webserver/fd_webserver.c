@@ -76,7 +76,7 @@ int json_parse_params_value(struct fd_web_replier* replier, json_lex_state_t* le
       // Recursively parse the inner value
       if (!json_parse_params_value(replier, lex, values, path))
         return 0;
-      
+
       NEXT_TOKEN;
       if (token == JSON_TOKEN_RBRACE)
         break;
@@ -84,7 +84,7 @@ int json_parse_params_value(struct fd_web_replier* replier, json_lex_state_t* le
         SYNTAX_ERROR("expected comma at position %lu", prevpos);
     } while(1);
     break;
-      
+
   case JSON_TOKEN_LBRACKET: { // Start an array
     uint i = 0;
     do {
@@ -93,7 +93,7 @@ int json_parse_params_value(struct fd_web_replier* replier, json_lex_state_t* le
       // Recursively parse the array element
       if (!json_parse_params_value(replier, lex, values, path))
         return 0;
-      
+
       NEXT_TOKEN;
       if (token == JSON_TOKEN_RBRACKET)
         break;
@@ -104,7 +104,7 @@ int json_parse_params_value(struct fd_web_replier* replier, json_lex_state_t* le
     } while(1);
     break;
   }
-      
+
   case JSON_TOKEN_STRING: {
     // Append to the path
     *path_last = (JSON_TOKEN_STRING<<16);
@@ -158,28 +158,18 @@ int json_parse_params_value(struct fd_web_replier* replier, json_lex_state_t* le
 #undef CLEANUP
 
 // Parse the top level json request object
-int json_parse_root(struct fd_web_replier* replier, json_lex_state_t* lex) {
+void json_parse_root(struct fd_web_replier* replier, json_lex_state_t* lex) {
   struct json_values values;
   json_values_new(&values);
-  // Make sure we cleanup the values regardless of what path is taken
-#define CLEANUP json_values_delete(&values);
 
   struct json_path path;
   path.len = 0;
-  if (!json_parse_params_value(replier, lex, &values, &path)) {
-    CLEANUP;
-    return 0;
+  if (json_parse_params_value(replier, lex, &values, &path)) {
+    json_values_printout(&values);
+    fd_webserver_method_generic(replier, &values);
   }
-  json_values_printout(&values);
-  if (!fd_webserver_method_generic(replier, &values)) {
-    CLEANUP;
-    return 0;
-  }
-  
-  CLEANUP;
-#undef CLEANUP
-  
-  return 1;
+
+  json_values_delete(&values);
 }
 
 struct fd_web_replier {
@@ -187,10 +177,7 @@ struct fd_web_replier {
   size_t upload_data_size;
   unsigned int status_code;
   struct MHD_Response* response;
-  char* temp;
-  ulong temp_sz;
-  ulong temp_alloc;
-  char  temp_firstbuf[1024];
+  fd_textstream_t textstream;
 };
 
 struct fd_web_replier* fd_web_replier_new() {
@@ -199,50 +186,36 @@ struct fd_web_replier* fd_web_replier_new() {
   r->upload_data_size = 0;
   r->status_code = MHD_HTTP_OK;
   r->response = NULL;
-  r->temp = r->temp_firstbuf;
-  r->temp_sz = 0;
-  r->temp_alloc = sizeof(r->temp_firstbuf);
+  fd_textstream_new(&r->textstream, fd_libc_alloc_virtual(), 1UL<<18); // 256KB chunks
   return r;
 }
 
 void fd_web_replier_delete(struct fd_web_replier* r) {
   if (r->response != NULL)
     MHD_destroy_response(r->response);
-  if (r->temp != r->temp_firstbuf)
-    free(r->temp);
+  fd_textstream_destroy(&r->textstream);
   free(r);
 }
 
-char* fd_web_replier_temp_copy(struct fd_web_replier* r, const char* text, ulong sz) {
-  // Get the new temp size
-  ulong new_sz = r->temp_sz + sz;
-  // Make sure there is enough room
-  if (new_sz > r->temp_alloc) {
-    // Grow the allocation
-    do {
-      r->temp_alloc <<= 1;
-    } while (new_sz > r->temp_alloc);
-    char* oldtemp = r->temp;
-    r->temp = (char*)malloc(r->temp_alloc);
-    // Copy the old content to the new space
-    fd_memcpy(r->temp, oldtemp, r->temp_sz);
-    if (oldtemp != r->temp_firstbuf)
-      free(oldtemp);
+fd_textstream_t * fd_web_replier_textstream(struct fd_web_replier* r) {
+  return &r->textstream;
+}
+
+void fd_web_replier_done(struct fd_web_replier* r) {
+  struct fd_iovec iov[100];
+  ulong numiov = fd_textstream_get_iov_count(&r->textstream);
+  if (numiov > 100 || fd_textstream_get_iov(&r->textstream, iov)) {
+    fd_web_replier_error(r, "failure in reply generator");
+    return;
   }
-  char* res = r->temp + r->temp_sz;
-  fd_memcpy(res, text, sz);
-  r->temp_sz = new_sz;
-  return res;
+  r->status_code = MHD_HTTP_OK;
+  if (r->response != NULL)
+    MHD_destroy_response(r->response);
+#pragma GCC diagnostic ignored "-Wstrict-aliasing"
+  r->response = MHD_create_response_from_iovec((struct MHD_IoVec *)iov, (uint)numiov, NULL, NULL);
 }
 
-void fd_web_replier_reply(struct fd_web_replier* replier, const char* out, uint out_sz) {
-  replier->status_code = MHD_HTTP_OK;
-  if (replier->response != NULL)
-    MHD_destroy_response(replier->response);
-  replier->response = MHD_create_response_from_buffer(out_sz, (void*)out, MHD_RESPMEM_PERSISTENT);
-}
-
-void fd_web_replier_error(struct fd_web_replier* replier, const char* text) {
+void fd_web_replier_error( struct fd_web_replier* r, const char* format, ... ) {
 #define CRLF "\r\n"
   static const char* DOC1 =
 "<html>" CRLF
@@ -257,24 +230,34 @@ void fd_web_replier_error(struct fd_web_replier* replier, const char* text) {
   static const char* DOC3 =
 "</pre></p>" CRLF
 "</body>" CRLF
-"</html>";
+"</html>" CRLF;
 
-  struct MHD_IoVec iov[5];
-  iov[0].iov_base = (void*)DOC1;
-  iov[0].iov_len = strlen(DOC1);
-  iov[1].iov_base = fd_web_replier_temp_copy(replier, text, strlen(text));
-  iov[1].iov_len = strlen(text);
-  iov[2].iov_base = (void*)DOC2;
-  iov[2].iov_len = strlen(DOC2);
-  iov[3].iov_base = fd_web_replier_temp_copy(replier, replier->upload_data, replier->upload_data_size);
-  iov[3].iov_len = replier->upload_data_size;
-  iov[4].iov_base = (void*)DOC3;
-  iov[4].iov_len = strlen(DOC3);
+  fd_textstream_t * ts = &r->textstream;
+  fd_textstream_clear(ts);
+  fd_textstream_append(ts, DOC1, strlen(DOC1));
+  char text[4096];
+  va_list ap;
+  va_start(ap, format);
+  /* Would be nice to vsnprintf directly into the textstream, but that's messy */
+  int x = vsnprintf(text, sizeof(text), format, ap);
+  va_end(ap);
+  if (x >= 0 && (uint)x < sizeof(text))
+    fd_textstream_append(ts, text, (uint)x);
+  fd_textstream_append(ts, DOC2, strlen(DOC2));
+  fd_textstream_append(ts, r->upload_data, r->upload_data_size);
+  fd_textstream_append(ts, DOC3, strlen(DOC3));
 
-  replier->status_code = MHD_HTTP_BAD_REQUEST;
-  if (replier->response != NULL)
-    MHD_destroy_response(replier->response);
-  replier->response = MHD_create_response_from_iovec(iov, 5, NULL, NULL);
+  struct fd_iovec iov[100];
+  ulong numiov = fd_textstream_get_iov_count(&r->textstream);
+  if (numiov > 100 || fd_textstream_get_iov(&r->textstream, iov)) {
+    FD_LOG_ERR(("failure in error reply generator"));
+    return;
+  }
+
+  r->status_code = MHD_HTTP_BAD_REQUEST;
+  if (r->response != NULL)
+    MHD_destroy_response(r->response);
+  r->response = MHD_create_response_from_iovec((struct MHD_IoVec *)iov, (uint)numiov, NULL, NULL);
 }
 
 /**
@@ -358,7 +341,7 @@ static enum MHD_Result handler(void* cls,
     *con_cls = replier = fd_web_replier_new();
   else
     replier = (struct fd_web_replier*) (*con_cls);
-  
+
   size_t sz = *upload_data_size;
   if (sz) {
     replier->upload_data = upload_data;
@@ -400,18 +383,4 @@ int fd_webserver_start(uint portno, fd_webserver_t * ws) {
 int fd_webserver_stop(fd_webserver_t * ws) {
   MHD_stop_daemon(ws->daemon);
   return 0;
-}
-
-// Generic reply sender. Eventually this should be removed when all
-// the methods send real replies.
-void fd_webserver_reply_ok(struct fd_web_replier* replier) {
-  static const char* DOC=
-"<html>" CRLF
-"<head>" CRLF
-"<title>OK</title>" CRLF
-"</head>" CRLF
-"<body>" CRLF
-"</body>" CRLF
-"</html>";
-  fd_web_replier_reply(replier, DOC, (uint)strlen(DOC));
 }

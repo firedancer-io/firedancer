@@ -79,7 +79,6 @@ main( int     argc,
                       " --quic-handshakes %lu"
                       " --quic-inflight-pkts %lu"
                       " --quic-tx-buf-sz %lu"
-                      " --quic-rx-buf-sz %lu"
                       ": success",
                       cnt, cmd, _wksp,
                       limits.conn_cnt,
@@ -87,8 +86,7 @@ main( int     argc,
                       limits.stream_cnt[ FD_QUIC_STREAM_TYPE_UNI_CLIENT ],
                       limits.handshake_cnt,
                       limits.inflight_pkt_cnt,
-                      limits.tx_buf_sz,
-                      limits.rx_buf_sz ));
+                      limits.tx_buf_sz ));
       SHIFT( 1 );
 
     } else if( 0==strcmp( cmd, "delete-quic" ) ) {

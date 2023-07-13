@@ -68,6 +68,49 @@ fd_pcap_iter_next( fd_pcap_iter_t * iter,
                    ulong            pkt_max,
                    long *           _pkt_ts );
 
+/* fd_pcap_iter_next extracts the next packet from the pcap stream,
+   placing the packet headers in one output buffer and the packet
+   payload in another output buffer.  Returns 1 on success and 0 on
+   failure.  Failure reasons include normal end-of-file, fread failures,
+   pcap file corruption, pcap file contains truncated packets,
+   hdr_sz is too small for the packet's headers, and pld_sz is too small
+   for the packet's payload.  Details of all failures except normal
+   end-of-file are logged with a warning.
+
+   For the purposes of this function, Ethernet, IPv4 and UDP headers are
+   the only ones that are recognized as headers.  This function
+   considers all bytes not part of one of the listed header types as
+   payload.
+
+   When the function is called, hdr_buf must point the first byte of a
+   *hdr_sz byte-sized region of writable memory, and pld_buf must point
+   to the first byte of a *pld_sz byte-sized region of writable memory.
+
+   On successful return, the memory regions pointed to by hdr_buf and
+   pld_buf will respectively contain the packet's headers (starting with
+   the first byte of the Ethernet header) and the packet's payload
+   (ending with whatever was captured for that packet, which could
+   potentially include the Ethernet FCS).  The iterator's underlying
+   stream will advance one packet.
+   The ulongs pointed to by hdr_sz and pld_sz will be updated with the
+   number of bytes written to hdr_buf and pld_buf, respectively.
+   *_pkt_ts will contain the packet timestamp (assumes that the pcap
+   captured at nanosecond resolution).
+
+
+   If the underlying stream is at EOF when this function is called, it
+   will return 0, but not modify the contents of hdr_buf or pld_buf.  In
+   other failure cases, an indeterminate number of bytes between 0 and
+   *{hdr,pld}_sz bytes, inclusive, may be written to {hdr,pld}_buf,
+   respectively. */
+int
+fd_pcap_iter_next_split( fd_pcap_iter_t * iter,
+                         void *           hdr_buf,
+                         ulong *          hdr_sz,
+                         void *           pld_buf,
+                         ulong *          pld_sz,
+                         long *           _pkt_ts );
+
 /* fd_pcap_fwrite_hdr write a little endian 2.4 Ethernet pcap header to
    the stream pointed to by file.  Same semantics as fwrite (returns
    number of headers written, which should be 1 on success and 0 on

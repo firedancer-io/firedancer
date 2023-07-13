@@ -5,6 +5,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <ctype.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
 
 FD_IMPORT_CSTR( fd_pod_ctl_help, "src/util/pod/fd_pod_ctl_help" );
 
@@ -379,6 +383,54 @@ main( int     argc,
 
       FD_LOG_NOTICE(( "%i: %s %s %s %s %s: success", cnt, cmd, cstr, type, path, val ));
       SHIFT(4);
+
+    } else if( !strcmp( cmd, "insert-file" ) ) {
+
+      if( FD_UNLIKELY( argc<3 ) ) FD_LOG_ERR(( "%i: %s: too few arguments\n\tDo %s help for help", cnt, cmd, bin ));
+
+      char const * cstr = argv[0];
+      char const * path = argv[1];
+      char const * file = argv[2];
+
+      void * shmem = fd_wksp_map( cstr );
+      if( FD_UNLIKELY( !shmem ) )
+        FD_LOG_ERR(( "%i: %s: fd_wksp_map( \"%s\" ) failed\n\tDo %s help for help", cnt, cmd, cstr, bin ));
+
+      uchar * pod = fd_pod_join( shmem );
+      if( FD_UNLIKELY( !pod ) ) {
+        fd_wksp_unmap( shmem );
+        FD_LOG_ERR(( "%i: %s: fd_pod_join( \"%s\" ) failed\n\tDo %s help for help", cnt, cmd, cstr, bin ));
+      }
+
+      int fd = open( file, O_RDONLY );
+      if( FD_UNLIKELY( fd == -1 ) )
+        FD_LOG_ERR(( "%i: %s: open( \"%s\" ) failed\n\tDo %s help for help", cnt, cmd, file, bin ));
+
+      struct stat st;
+      if( FD_UNLIKELY( fstat( fd, &st ) == -1 ) )
+        FD_LOG_ERR(( "%i: %s: fstat( \"%s\" ) failed\n\tDo %s help for help", cnt, cmd, file, bin ));
+
+      size_t buf_sz = (size_t) st.st_size;
+      uchar * buf = malloc( buf_sz );
+      if( FD_UNLIKELY( !buf ) )
+        FD_LOG_ERR(( "%i: %s: malloc( %lu ) failed\n\tDo %s help for help", cnt, cmd, buf_sz, bin ));
+
+      if( FD_UNLIKELY( read( fd, buf, buf_sz ) == -1 ) )
+        FD_LOG_ERR(( "%i: %s: read( \"%s\" ) failed\n\tDo %s help for help", cnt, cmd, file, bin ));
+
+
+      ulong off = fd_pod_insert_buf( pod, path, buf, buf_sz );
+
+      close( fd );
+      free( buf );
+      fd_wksp_unmap( fd_pod_leave( pod ) );
+
+      if( FD_UNLIKELY( !off ) )
+        FD_LOG_ERR(( "%i: %s: fd_pod_insert_file( \"%s\", \"%s\", \"%s\" ) failed\n\tDo %s help for help",
+                     cnt, cmd, cstr, path, file, bin ));
+
+      FD_LOG_NOTICE(( "%i: %s %s %s %s: success", cnt, cmd, cstr, path, file ));
+      SHIFT(3);
 
     } else if( !strcmp( cmd, "remove" ) ) {
 

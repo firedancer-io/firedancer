@@ -32,7 +32,7 @@ fn explain_fini_permissions(_: &Config) -> Vec<Option<String>> {
     )]
 }
 
-fn try_defragment_memory() {
+pub(crate) fn try_defragment_memory() {
     std::fs::write("/proc/sys/vm/compact_memory", "1").unwrap();
     std::thread::sleep(std::time::Duration::from_millis(250));
 }
