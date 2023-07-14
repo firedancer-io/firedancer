@@ -6,6 +6,70 @@
 #include "../../flamenco/types/fd_types.h"
 #include "fd_block_to_json.h"
 
+#define EMIT_SIMPLE(_str_) fd_textstream_append(ts, _str_, sizeof(_str_)-1)
+
+int fd_txn_to_json( fd_textstream_t * ts,
+                    fd_txn_t* txn,
+                    const uchar* raw,
+                    enum fd_block_encoding encoding,
+                    long maxvers,
+                    enum fd_block_detail detail,
+                    int rewards ) {
+  (void)encoding;
+  (void)maxvers;
+  (void)detail;
+  (void)rewards;
+
+  EMIT_SIMPLE("\"transaction\":{\"message\":{\"accountKeys\":[");
+
+  ushort acct_cnt = txn->acct_addr_cnt;
+  const fd_pubkey_t * accts = (const fd_pubkey_t *)(raw + txn->acct_addr_off);
+  char buf32[FD_BASE58_ENCODED_32_SZ];
+  for (ushort idx = 0; idx < acct_cnt; idx++) {
+    fd_base58_encode_32(accts[idx].uc, NULL, buf32);
+    fd_textstream_sprintf(ts, "%s\"%s\"", (idx == 0 ? "" : ","), buf32);
+  }
+
+  fd_textstream_sprintf(ts, "],\"header\":{\"numReadonlySignedAccounts\":%u,\"numReadonlyUnsignedAccounts\":%u,\"numRequiredSignatures\":%u},\"instructions\":[",
+                        (uint)txn->readonly_signed_cnt, (uint)txn->readonly_unsigned_cnt, (uint)txn->signature_cnt);
+
+  ushort instr_cnt = txn->instr_cnt;
+  for (ushort idx = 0; idx < instr_cnt; idx++) {
+    fd_textstream_sprintf(ts, "%s{\"accounts\":[", (idx == 0 ? "" : ","));
+
+    fd_txn_instr_t * instr = &txn->instr[idx];
+    const uchar * instr_acc_idxs = raw + instr->acct_off;
+    for (ushort j = 0; j < instr->acct_cnt; j++)
+      fd_textstream_sprintf(ts, "%s%u", (j == 0 ? "" : ","), (uint)instr_acc_idxs[j]);
+
+    EMIT_SIMPLE("],\"data\":\"");
+    fd_textstream_encode_base58(ts, raw + instr->data_off, instr->data_sz);
+
+    fd_textstream_sprintf(ts, "\",\"programIdIndex\": %u}", (uint)instr->program_id);
+  }
+
+  const fd_hash_t * recent = (const fd_hash_t *)(raw + txn->recent_blockhash_off);
+  fd_base58_encode_32(recent->uc, NULL, buf32);
+  fd_textstream_sprintf(ts, "],\"recentBlockhash\":\"%s\"},\"signatures\":[", buf32);
+
+  fd_ed25519_sig_t const * sigs = (fd_ed25519_sig_t const *)(raw + txn->signature_off);
+  for ( uchar j = 0; j < txn->signature_cnt; j++ ) {
+    char buf64[FD_BASE58_ENCODED_64_SZ];
+    fd_base58_encode_64((const uchar*)&sigs[j], NULL, buf64);
+    fd_textstream_sprintf(ts, "%s\"%s\"", (j == 0 ? "" : ","), buf64);
+  }
+
+  const char* vers;
+  switch (txn->transaction_version) {
+  case FD_TXN_VLEGACY: vers = "legacy"; break;
+  case FD_TXN_V0:      vers = "0";      break;
+  default:             vers = "?";      break;
+  }
+  fd_textstream_sprintf(ts, "]},\"version\":\"%s\"", vers);
+
+  return 0;
+}
+
 int fd_block_to_json( fd_textstream_t * ts,
                       long call_id,
                       const void* block,
@@ -14,12 +78,6 @@ int fd_block_to_json( fd_textstream_t * ts,
                       long maxvers,
                       enum fd_block_detail detail,
                       int rewards ) {
-  (void)encoding;
-  (void)maxvers;
-  (void)detail;
-  (void)rewards;
-
-#define EMIT_SIMPLE(_str_) fd_textstream_append(ts, _str_, sizeof(_str_)-1)
   EMIT_SIMPLE("{\"jsonrpc\":\"2.0\",\"result\":{");
 
   EMIT_SIMPLE("\"transactions\":[");
@@ -54,55 +112,11 @@ int fd_block_to_json( fd_textstream_t * ts,
         } else
           EMIT_SIMPLE(",{");
 
-        fd_txn_t* txn = (fd_txn_t *)txn_out;
+        int r = fd_txn_to_json( ts, (fd_txn_t *)txn_out, raw, encoding, maxvers, detail, rewards );
+        if ( r ) return r;
 
-        EMIT_SIMPLE("\"transaction\":{\"message\":{\"accountKeys\":[");
-
-        ushort acct_cnt = txn->acct_addr_cnt;
-        const fd_pubkey_t * accts = (const fd_pubkey_t *)(raw + txn->acct_addr_off);
-        char buf32[FD_BASE58_ENCODED_32_SZ];
-        for (ushort idx = 0; idx < acct_cnt; idx++) {
-          fd_base58_encode_32(accts[idx].uc, NULL, buf32);
-          fd_textstream_sprintf(ts, "%s\"%s\"", (idx == 0 ? "" : ","), buf32);
-        }
-
-        fd_textstream_sprintf(ts, "],\"header\":{\"numReadonlySignedAccounts\":%u,\"numReadonlyUnsignedAccounts\":%u,\"numRequiredSignatures\":%u},\"instructions\":[",
-                              (uint)txn->readonly_signed_cnt, (uint)txn->readonly_unsigned_cnt, (uint)txn->signature_cnt);
-
-        ushort instr_cnt = txn->instr_cnt;
-        for (ushort idx = 0; idx < instr_cnt; idx++) {
-          fd_textstream_sprintf(ts, "%s{\"accounts\":[", (idx == 0 ? "" : ","));
-
-          fd_txn_instr_t * instr = &txn->instr[idx];
-          const uchar * instr_acc_idxs = raw + instr->acct_off;
-          for (ushort j = 0; j < instr->acct_cnt; j++)
-            fd_textstream_sprintf(ts, "%s%u", (j == 0 ? "" : ","), (uint)instr_acc_idxs[j]);
-
-          EMIT_SIMPLE("],\"data\":\"");
-          fd_textstream_encode_base58(ts, raw + instr->data_off, instr->data_sz);
-
-          fd_textstream_sprintf(ts, "\",\"programIdIndex\": %u}", (uint)instr->program_id);
-        }
-
-        const fd_hash_t * recent = (const fd_hash_t *)(raw + txn->recent_blockhash_off);
-        fd_base58_encode_32(recent->uc, NULL, buf32);
-        fd_textstream_sprintf(ts, "],\"recentBlockhash\":\"%s\"},\"signatures\":[", buf32);
-
-        fd_ed25519_sig_t const * sigs = (fd_ed25519_sig_t const *)(raw + txn->signature_off);
-        for ( uchar j = 0; j < txn->signature_cnt; j++ ) {
-          char buf64[FD_BASE58_ENCODED_64_SZ];
-          fd_base58_encode_64((const uchar*)&sigs[j], NULL, buf64);
-          fd_textstream_sprintf(ts, "%s\"%s\"", (j == 0 ? "" : ","), buf64);
-        }
-
-        const char* vers;
-        switch (txn->transaction_version) {
-        case FD_TXN_VLEGACY: vers = "legacy"; break;
-        case FD_TXN_V0:      vers = "0";      break;
-        default:             vers = "?";      break;
-        }
-        fd_textstream_sprintf(ts, "]},\"version\":\"%s\"}", vers);
-
+        EMIT_SIMPLE("}");
+        
         blockoff += pay_sz;
       }
     }

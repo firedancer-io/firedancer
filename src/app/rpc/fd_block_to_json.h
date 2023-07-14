@@ -2,6 +2,14 @@ enum fd_block_encoding { FD_BLOCK_ENC_BASE58, FD_BLOCK_ENC_BASE64, FD_BLOCK_ENC_
 
 enum fd_block_detail { FD_BLOCK_DETAIL_FULL, FD_BLOCK_DETAIL_ACCTS, FD_BLOCK_DETAIL_SIGS, FD_BLOCK_DETAIL_NONE };
 
+int fd_txn_to_json( fd_textstream_t * ts,
+                    fd_txn_t* txn,
+                    const uchar* raw,
+                    enum fd_block_encoding encoding,
+                    long maxvers,
+                    enum fd_block_detail detail,
+                    int rewards );
+
 int fd_block_to_json( fd_textstream_t * ts,
                       long call_id,
                       const void* block,
