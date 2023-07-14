@@ -21,7 +21,7 @@ int fd_block_to_json( fd_textstream_t * ts,
 
 #define EMIT_SIMPLE(_str_) fd_textstream_append(ts, _str_, sizeof(_str_)-1)
   EMIT_SIMPLE("{\"jsonrpc\":\"2.0\",\"result\":{");
-  
+
   EMIT_SIMPLE("\"transactions\":[");
 
   int first_txn = 1;
@@ -65,14 +65,14 @@ int fd_block_to_json( fd_textstream_t * ts,
           fd_base58_encode_32(accts[idx].uc, NULL, buf32);
           fd_textstream_sprintf(ts, "%s\"%s\"", (idx == 0 ? "" : ","), buf32);
         }
-        
+
         fd_textstream_sprintf(ts, "],\"header\":{\"numReadonlySignedAccounts\":%u,\"numReadonlyUnsignedAccounts\":%u,\"numRequiredSignatures\":%u},\"instructions\":[",
                               (uint)txn->readonly_signed_cnt, (uint)txn->readonly_unsigned_cnt, (uint)txn->signature_cnt);
 
         ushort instr_cnt = txn->instr_cnt;
         for (ushort idx = 0; idx < instr_cnt; idx++) {
           fd_textstream_sprintf(ts, "%s{\"accounts\":[", (idx == 0 ? "" : ","));
-          
+
           fd_txn_instr_t * instr = &txn->instr[idx];
           const uchar * instr_acc_idxs = raw + instr->acct_off;
           for (ushort j = 0; j < instr->acct_cnt; j++)
@@ -102,7 +102,7 @@ int fd_block_to_json( fd_textstream_t * ts,
         default:             vers = "?";      break;
         }
         fd_textstream_sprintf(ts, "]},\"version\":\"%s\"}", vers);
-        
+
         blockoff += pay_sz;
       }
     }
@@ -116,4 +116,3 @@ int fd_block_to_json( fd_textstream_t * ts,
 
   return 0;
 }
-
