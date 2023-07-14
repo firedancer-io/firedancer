@@ -133,6 +133,9 @@ serialize_aligned( instruction_ctx_t ctx, ulong * sz ) {
   for( ushort i = 0; i < ctx.instr->acct_cnt; i++ ) {
     uchar acc_idx = instr_acc_idxs[i];
 
+    fd_pubkey_t * acc = &txn_accs[acc_idx];
+    FD_LOG_WARNING(( "START OF ACC: %32J %x", acc, serialized_size ));
+    
     serialized_size++; // dup byte
     if( FD_UNLIKELY( acc_idx_seen[acc_idx] ) ) {
       serialized_size += 7; // pad to 64-bit alignment
@@ -143,6 +146,7 @@ serialize_aligned( instruction_ctx_t ctx, ulong * sz ) {
       int read_result = 0;
       uchar * raw_acc_data = (uchar *)fd_acc_mgr_view_data(ctx.global->acc_mgr, ctx.global->funk_txn, acc, NULL, &read_result);
       fd_account_meta_t * metadata = (fd_account_meta_t *)raw_acc_data;
+      FD_LOG_WARNING(( "START OF ACC 2: %d %d %d %d", !fd_account_is_sysvar( &ctx, acc ), fd_account_is_writable_idx(&ctx, i), i, instr_acc_idxs[i]));
       if ( read_result != FD_ACC_MGR_SUCCESS ) {
         FD_LOG_WARNING(( "failed to read account data - pubkey: %32J, err: %d", acc, read_result ));
         return NULL;
@@ -175,14 +179,14 @@ serialize_aligned( instruction_ctx_t ctx, ulong * sz ) {
   FD_STORE( ulong, serialized_params, ctx.instr->acct_cnt );
   serialized_params += sizeof(ulong);
 
-  for( ulong i = 0; i < ctx.instr->acct_cnt; i++ ) {
+  for( ushort i = 0; i < ctx.instr->acct_cnt; i++ ) {
     uchar acc_idx = instr_acc_idxs[i];
     fd_pubkey_t * acc = &txn_accs[acc_idx];
 
     if( FD_UNLIKELY( acc_idx_seen[acc_idx] && dup_acc_idx[acc_idx] != i ) ) {
       // Duplicate
       FD_STORE( ulong, serialized_params, 0 );
-      FD_STORE( uchar, serialized_params, (uchar)dup_acc_idx[i] );
+      FD_STORE( uchar, serialized_params, (uchar)dup_acc_idx[acc_idx] );
       serialized_params += sizeof(ulong);
     } else {
       FD_STORE( uchar, serialized_params, 0xFF );
@@ -197,7 +201,7 @@ serialize_aligned( instruction_ctx_t ctx, ulong * sz ) {
       FD_STORE( uchar, serialized_params, is_signer );
       serialized_params += sizeof(uchar);
 
-      uchar is_writable = (uchar)fd_account_is_writable_idx( &ctx, acc_idx );
+      uchar is_writable = (uchar)(fd_account_is_writable_idx( &ctx, acc_idx ) && !fd_account_is_sysvar( &ctx, acc ));
       FD_STORE( uchar, serialized_params, is_writable );
       serialized_params += sizeof(uchar);
 
@@ -435,27 +439,29 @@ int fd_executor_bpf_upgradeable_loader_program_execute_program_instruction( inst
 
   // TODO: make tracing an option!
   // FILE * trace_fd = fopen("trace.log", "w");
-  // for( ulong i = 0; i < trace_used; i++ ) {
-  //   fd_vm_trace_entry_t trace_ent = trace[i];
-  //   fprintf(trace_fd, "%5lu [%016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX] %5lu: ",
-  //       trace_ent.ic,
-  //       trace_ent.register_file[0],
-  //       trace_ent.register_file[1],
-  //       trace_ent.register_file[2],
-  //       trace_ent.register_file[3],
-  //       trace_ent.register_file[4],
-  //       trace_ent.register_file[5],
-  //       trace_ent.register_file[6],
-  //       trace_ent.register_file[7],
-  //       trace_ent.register_file[8],
-  //       trace_ent.register_file[9],
-  //       trace_ent.register_file[10],
-  //       trace_ent.pc+29 /* FIXME: THIS OFFSET IS FOR TESTING ONLY */
-  //     );
-  //   fd_vm_disassemble_instr(&vm_ctx.instrs[trace[i].pc], trace[i].pc, vm_ctx.syscall_map, vm_ctx.local_call_map, trace_fd);
+  
+  for( ulong i = 0; i < trace_used; i++ ) {
+    fd_vm_trace_entry_t trace_ent = trace[i];
+    fprintf(stderr, "%5lu [%016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX] %5lu: ",
+        trace_ent.ic,
+        trace_ent.register_file[0],
+        trace_ent.register_file[1],
+        trace_ent.register_file[2],
+        trace_ent.register_file[3],
+        trace_ent.register_file[4],
+        trace_ent.register_file[5],
+        trace_ent.register_file[6],
+        trace_ent.register_file[7],
+        trace_ent.register_file[8],
+        trace_ent.register_file[9],
+        trace_ent.register_file[10],
+        trace_ent.pc+29 // FIXME: THIS OFFSET IS FOR TESTING ONLY
+      );
+    fd_vm_disassemble_instr(&vm_ctx.instrs[trace[i].pc], trace[i].pc, vm_ctx.syscall_map, vm_ctx.local_call_map, stderr);
 
-  //   fprintf(trace_fd, "\n");
-  // }
+    fprintf(stderr, "\n");
+  }
+  
   // fclose(trace_fd);
   free(trace);
 

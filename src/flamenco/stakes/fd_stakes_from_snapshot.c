@@ -78,6 +78,7 @@ _get_stake_weights( fd_solana_manifest_t const * manifest,
   fd_vote_accounts_t const * vaccs = &stakes->stakes.vote_accounts;
 
   ulong vote_acc_cnt = fd_vote_accounts_pair_t_map_size( vaccs->vote_accounts_pool, vaccs->vote_accounts_root );
+  FD_LOG_NOTICE(( "vote_acc_cnt=%lu", vote_acc_cnt ));
   fd_stake_weight_t * weights = fd_scratch_alloc( alignof(fd_stake_weight_t), vote_acc_cnt * sizeof(fd_stake_weight_t) );
   if( FD_UNLIKELY( !weights ) ) FD_LOG_ERR(( "fd_scratch_alloc() failed" ));
 

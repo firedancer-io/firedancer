@@ -45,11 +45,13 @@ void fd_sysvar_rent_read( fd_global_ctx_t* global, fd_rent_t* result ) {
 void fd_sysvar_rent_init( fd_global_ctx_t* global ) {
   /* Defaults taken from https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/rent.rs#L22-L36 */
   /* TODO: handle non-default case */
-  fd_rent_t rent = {
-    .lamports_per_uint8_year = 3480,
-    .exemption_threshold = 2,
-    .burn_percent = 50,
-  };
+  fd_rent_t rent;
+  fd_rent_new(&rent);
+  
+  rent.lamports_per_uint8_year = 3480,
+  rent.exemption_threshold = 2,
+  rent.burn_percent = 50,
+
   write_rent( global, &rent );
 }
 

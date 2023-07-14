@@ -2,15 +2,17 @@ import argparse
 from collections import Counter
 import re
 from typing import Callable, List, Tuple
+import difflib
+import sys
 
 def str_list_to_hexdump(x):
   res0 = x[1:-1].split(", ")
   if res0[0] == '':
     return ""
-  res1 = [int(y) for y in res0]
   res2 = ""
   
-  for (i, z) in enumerate(res1):
+  for (i, z_str) in enumerate(res0):
+    z = int(z_str)
     if i % 32 == 0:
       res2 += "\n  {}  ".format(hex(i)[2:].rjust(8, "0")) 
     elif i % 4 == 0:
@@ -20,12 +22,16 @@ def str_list_to_hexdump(x):
 
 def display_firedancer_accounts_delta_hash_extra(log_line):
   res = re.findall(r"pubkey: (\w+), slot: (\d+), lamports: (\d+), owner: (\w+), executable: (\d+), rent_epoch: (\d+), data_len: (\d+), data: (\[[\d\s,]*\]) = (\w+)", log_line)[0]
-  res2 = (res[0], res[1], res[2], res[3], res[4], res[5], res[6], str_list_to_hexdump(res[7]), res[8])
+  res2 = [res[0], res[1], res[2], res[3], res[4], res[5], res[6], str_list_to_hexdump(res[7]), res[8]]
   return res2
 
 def display_solana_accounts_delta_hash_extra(log_line):
   res = re.findall(r"pubkey: (\w+) slot: (\d+) lamports: (\d+)  owner: (\w+)  executable: (\w+),  rent_epoch: (\d+), data_len: (\d+), data: (\[[\d\s,]*\]) = (\w+)", log_line)[0]
-  res2 = (res[0], res[1], res[2], res[3], res[4], res[5], res[6], str_list_to_hexdump(res[7]), res[8])
+  executable = "0"
+  if res[4] == "true":
+    executable = "1"
+
+  res2 = [res[0], res[1], res[2], res[3], executable, res[5], res[6], str_list_to_hexdump(res[7]), res[8]]
   return res2
 
 # print(str_list_to_hexdump('[1, 0, 0, 0, 6, 161, 236, 95, 109, 61, 176, 220, 100, 179, 152, 185, 127, 63, 240, 170, 166, 42, 118, 100, 242, 252, 76, 158, 148, 232, 138, 73, 102, 133, 73, 252, 234, 0, 182, 30, 163, 194, 135, 42, 246, 107, 91, 234, 12, 251, 211, 132, 101, 37, 231, 81, 74, 152, 183, 1, 206, 99, 188, 189, 73, 253, 58, 170, 7, 31, 0, 0, 0, 0, 0, 0, 0, 207, 28, 175, 10, 0, 0, 0, 0, 31, 0, 0, 0, 208, 28, 175, 10, 0, 0, 0, 0, 30, 0, 0, 0, 209, 28, 175, 10, 0, 0, 0, 0, 29, 0, 0, 0, 210, 28, 175, 10, 0, 0, 0, 0, 28, 0, 0, 0, 211, 28, 175, 10, 0, 0, 0, 0, 27, 0, 0, 0, 212, 28, 175, 10, 0, 0, 0, 0, 26, 0, 0, 0, 213, 28, 175, 10, 0]'))
@@ -81,11 +87,13 @@ class Breadcrumb:
     return tuple(self.firedancer_identifier(line)) if fd_flag else tuple(self.solana_identifier(line))
 
   @staticmethod
-  def extract_log_line(file_location: str, breadcrumbs: List[str], bakery: dict, fd_flag: bool) -> dict:
+  def extract_log_line(file_location: str, breadcrumbs: List[str], bakery: dict, fd_flag: bool, check_last_flag: bool) -> dict:
     results = dict()
-    with open(file_location, 'rb') as log_file:
-      for (i, raw_line) in enumerate(log_file):
-        line = raw_line.decode('utf-8')
+    for breadcrumb_name in breadcrumbs:
+      results.setdefault(breadcrumb_name, dict())
+    print(file_location)
+    with open(file_location, 'r') as log_file:
+      for (i, line) in enumerate(log_file):
         for breadcrumb_name in breadcrumbs:
           breadcrumb = bakery[breadcrumb_name]
           if breadcrumb._filter(line, fd_flag):
@@ -93,7 +101,10 @@ class Breadcrumb:
             val = breadcrumb._extract_values(line, fd_flag)
             if val is None:
               continue
-            results.setdefault(breadcrumb_name, dict()).setdefault(key, Counter()).update([val])
+            if check_last_flag:
+              results.setdefault(breadcrumb_name, dict())[key] = Counter([val])
+            else: 
+              results.setdefault(breadcrumb_name, dict()).setdefault(key, Counter()).update([val])
 
     return results
 
@@ -102,13 +113,16 @@ def main():
   argParser.add_argument("-b", "--breadcrumbs", nargs='+', help="Breadcrumbs to display", required=True)
   argParser.add_argument("-f", "--firedancer", help="Path to Firedancer test-runtime log file", required=True)
   argParser.add_argument("-s", "--solana", help="Path to Solana validator log file", required=True)
+  argParser.add_argument("-c", "--check-last", help="Only check last from solana against firedancer", action="store_true")
+  argParser.add_argument("-d", "--diff", help="Print info diff", action="store_true")
+  argParser.add_argument("-q", "--hide-full", help="Hide full output", action="store_true")
   args = argParser.parse_args()
 
   # Define all breadcrumbs
   BAKERY = {
     "bank_hash": Breadcrumb(
       identifiers=("slot"),
-      display_values=("hash"),
+      display_values=("slot", "hash"),
       solana_filter=lambda log_line: "bank frozen" in log_line,
       firedancer_filter=lambda log_line: "bank_hash" in log_line,
       solana_identifier=lambda log_line: re.findall(r"bank frozen: (\d+)", log_line),
@@ -118,7 +132,7 @@ def main():
     ),
     "accounts_delta_hash": Breadcrumb( 
       identifiers=("pubkey", "slot",),
-      display_values=("pubkey", "slot", "fee", "lamports", "owner", "executable", "rent_epoch", "data_len", "hash"),
+      display_values=("pubkey", "slot", "lamports", "owner", "executable", "rent_epoch", "data_len", "hash"),
       solana_filter=lambda log_line: "hash_account_data_compare" in log_line,
       firedancer_filter=lambda log_line: "account_delta_hash_compare" in log_line,
       solana_identifier=lambda log_line: re.findall(r"pubkey: \((\w+)\) slot: \((\d+)\)", log_line),
@@ -149,35 +163,73 @@ def main():
   }
 
   # Read in Solana log file
-  firedancer_results = Breadcrumb.extract_log_line(file_location=args.firedancer, breadcrumbs=args.breadcrumbs, bakery=BAKERY, fd_flag=1)
+  firedancer_results = Breadcrumb.extract_log_line(file_location=args.firedancer, breadcrumbs=args.breadcrumbs, bakery=BAKERY, fd_flag=1, check_last_flag=args.check_last)
 
-  solana_results = Breadcrumb.extract_log_line(file_location=args.solana, breadcrumbs=args.breadcrumbs, bakery=BAKERY, fd_flag=0)
+  solana_results = Breadcrumb.extract_log_line(file_location=args.solana, breadcrumbs=args.breadcrumbs, bakery=BAKERY, fd_flag=0, check_last_flag=args.check_last)
 
   for breadcrumb_name in args.breadcrumbs:
     print("##############################################################################################################################")
     print("results for " + breadcrumb_name)
+    total_diffs = 0
     for key in solana_results[breadcrumb_name]:
-      truth = solana_results[breadcrumb_name].get(key, Counter())
+      truth_pre = solana_results[breadcrumb_name].get(key, Counter())
+      truth = truth_pre
+      if args.check_last:
+        truth = Counter([list(truth.elements())[-1]])
       reality = firedancer_results[breadcrumb_name].get(key, Counter())
       if len(reality) == 0 or len(truth - reality) == 0:
         continue
+      total_diffs += 1
       print("----------------------------------------------------------------------------------------------------------------------------")
       print("identifier:", BAKERY[breadcrumb_name].identifiers)
       print("values:", BAKERY[breadcrumb_name].display_values)
-      print("Solana: (total: {})".format(len(list(truth.elements()))))
+      print("Solana: (total: {})".format(len(list(truth_pre.elements()))))
       values = BAKERY[breadcrumb_name].display_values
+
+      if args.hide_full:
+        for (ident_key, ident_val) in zip(BAKERY[breadcrumb_name].identifiers, key[0]):
+          print("{:<16}: {}".format(ident_key, ident_val))
+
+      truth_strs =[]
+      reality_strs = []
+
       for result in truth:
-        print("result: ")
+        if not args.hide_full:
+          print("result: ")
         for res_key, res_value in zip(values, result):
-          print("  {:<16}: {}".format(res_key, res_value))
-        print("count: {:>5}".format(truth[result]))
+          truth_str = "{:<16}: {}\n".format(res_key, res_value)
+          truth_strs.extend(truth_str.splitlines(keepends=True))
+          if not args.hide_full:
+            print("  {}".format(truth_str), end="")
+        count_str = "count: {:>5}\n".format(truth[result])
+        truth_strs.extend(count_str.splitlines(keepends=True))
+        if not args.hide_full:
+          print(count_str, end="")
+      
       print()
+      
       print("Firedancer: (total: {})".format(len(list(reality.elements()))))
       for result in reality:
-        print("result: ")
+        if not args.hide_full:
+          print("result: ")
         for res_key, res_value in zip(values, result):
-          print("  {:<16}: {}".format(res_key, res_value))
-        print("count: {:>5}".format(reality[result]))
+          reality_str = "{:<16}: {}\n".format(res_key, res_value)
+          reality_strs.extend(reality_str.splitlines(keepends=True))
+          if not args.hide_full:
+            print("  {}".format(reality_str), end="")
+        count_str = "count: {:>5}\n".format(reality[result])
+        reality_strs.extend(count_str.splitlines(keepends=True))
+        if not args.hide_full:
+          print(count_str, end="")
+
+      if args.diff:
+        print()
+        print("Diff: ")
+        diff = difflib.unified_diff(truth_strs, reality_strs, fromfile="Solana", tofile="Firedancer")
+        sys.stdout.writelines(diff)
+
+    print("----------------------------------------------------------------------------------------------------------------------------")
+    print("total results:", total_diffs)
 
 if __name__ == "__main__":
   main()

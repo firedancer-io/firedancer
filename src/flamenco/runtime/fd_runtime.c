@@ -880,7 +880,7 @@ fd_runtime_save_banks( fd_global_ctx_t * global ) {
     return -1;
   }
 
-  FD_LOG_WARNING(( "saved banks_hash %32J  poh_hash %32J", global->bank.banks_hash.hash, global->bank.poh.hash));
+  FD_LOG_NOTICE(( "saved banks_hash %32J  poh_hash %32J", global->bank.banks_hash.hash, global->bank.poh.hash));
 
   fd_funk_rec_persist(global->funk, rec);
 
@@ -943,11 +943,9 @@ fd_global_import_stakes(fd_global_ctx_t * global, fd_solana_manifest_t * manifes
       __builtin_unreachable();
     }
 
-    char key_str[FD_BASE58_ENCODED_32_SZ];
-    fd_base58_encode_32((uchar *) n->elem.key.hash, NULL, key_str);
-    FD_LOG_WARNING(( "adding vote account: key: %s, lamports: %lu, stake: %lu, ts: %lu, slot: %lu", key_str, n->elem.value.lamports, n->elem.stake, vote_state_timestamp.timestamp, vote_state_timestamp.slot ));
-
-    record_timestamp_vote_with_slot( global, &n->elem.key, vote_state_timestamp.timestamp, vote_state_timestamp.slot );
+    if( vote_state_timestamp.slot!=0 || n->elem.stake!=0 ) {
+      record_timestamp_vote_with_slot( global, &n->elem.key, vote_state_timestamp.timestamp, vote_state_timestamp.slot );
+    }
   }
 
   fd_valloc_free( global->valloc, raw_stakes );

@@ -130,20 +130,14 @@ fd_stake_weight_sort( fd_stake_weight_t * stakes,
 
 static ulong
 fd_stakes_export( fd_stake_weight_ele_t const * const in_pool,
+                  fd_stake_weight_ele_t const * const root,
                   fd_stake_weight_t *           const out ) {
 
-  /* Linear scan through pool backing rbtree.
-     TODO is ugly, should use rbtree iter instead? */
-
-  ulong in_cnt = fd_stake_weights_pool_max( in_pool );
   fd_stake_weight_t * out_end = out;
 
-  for( fd_stake_weight_ele_t const * ele = in_pool;
-       ele < in_pool+in_cnt;
-       ele++ )
-    if(   ( ele->redblack_color == 1 )
-        | ( ele->redblack_color == 2 ) )
-      *out_end++ = ele->ele;
+  for( fd_stake_weight_ele_t const * ele = fd_stake_weights_minimum( (fd_stake_weight_ele_t *)in_pool, (fd_stake_weight_ele_t *)root ); ele; ele = (fd_stake_weight_ele_t *)fd_stake_weights_successor( (fd_stake_weight_ele_t *)in_pool, (fd_stake_weight_ele_t *)ele ) ) {
+    *out_end++ = ele->ele;
+  }
 
   return (ulong)( out_end - out );
 }
@@ -184,11 +178,11 @@ fd_stake_weights_by_node( fd_vote_accounts_t const * accs,
 
   /* Accumulate stakes to rb tree */
 
-  fd_stakes_accum_by_node( accs, pool );
+  fd_stake_weight_ele_t const * root = fd_stakes_accum_by_node( accs, pool );
 
   /* Export to sorted list */
 
-  ulong weights_cnt = fd_stakes_export( pool, weights );
+  ulong weights_cnt = fd_stakes_export( pool, root, weights );
   fd_stake_weight_sort( weights, weights_cnt );
   return weights_cnt;
 }

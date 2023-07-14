@@ -111,6 +111,8 @@ fd_epoch_leaders_derive( fd_epoch_leaders_t *      leaders,
   }
   scratch[ pub_cnt ] = accum_stake;
 
+  FD_LOG_DEBUG(( "accum_stake=%016lx", accum_stake ));
+
   /* Create and seed ChaCha20Rng */
   fd_chacha20rng_t _rng[1];
   fd_chacha20rng_t * rng = fd_chacha20rng_join( fd_chacha20rng_new( _rng ) );

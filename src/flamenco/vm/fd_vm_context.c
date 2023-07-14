@@ -150,7 +150,6 @@ fd_vm_translate_vm_to_host_private( fd_vm_exec_context_t *  ctx,
                                     ulong                   vm_addr,
                                     ulong                   sz,
                                     int                     write ) {
-
   ulong mem_region = vm_addr & FD_VM_MEM_MAP_REGION_MASK;
   ulong start_addr = vm_addr & FD_VM_MEM_MAP_REGION_SZ;
   ulong end_addr = start_addr + sz;

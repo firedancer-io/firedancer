@@ -140,7 +140,8 @@ fd_execute_txn( fd_executor_t* executor, fd_txn_t * txn_descriptor, fd_rawtxn_b_
   //
   // The VERY first txn (at slot 2) happens to be a vote made by the very first schedule leader..
   if (!global->collector_set) {
-    fd_memcpy(global->bank.collector_id.key, tx_accs[0].key, sizeof(fd_pubkey_t));
+    fd_base58_decode_32("Frog1Fks1AVN8ywFH3HTFeYojq6LQqoEPzgQFx2Kz5Ch", global->bank.collector_id.key);
+    // fd_memcpy(global->bank.collector_id.key, tx_accs[0].key, sizeof(fd_pubkey_t));
     global->collector_set = 1;
   }
 
@@ -208,6 +209,15 @@ fd_execute_txn( fd_executor_t* executor, fd_txn_t * txn_descriptor, fd_rawtxn_b_
         FD_LOG_NOTICE(( "found BPF executable program account - program id: %s", program_id_str ));
 
         int exec_result = fd_executor_bpf_upgradeable_loader_program_execute_program_instruction(ctx);
+        if (exec_result != FD_EXECUTOR_INSTR_SUCCESS) {
+          fd_funk_txn_cancel(global->funk, txn, 0);
+          global->funk_txn = parent_txn;
+          return -1;
+        }
+      } else if ( fd_executor_bpf_loader_program_is_executable_program_account(executor->global, &tx_accs[instr->program_id]) == 0 ) {
+        FD_LOG_NOTICE(( "found BPF v2 executable program account - program id: %s", program_id_str ));
+
+        int exec_result = fd_executor_bpf_loader_program_execute_program_instruction(ctx);
         if (exec_result != FD_EXECUTOR_INSTR_SUCCESS) {
           fd_funk_txn_cancel(global->funk, txn, 0);
           global->funk_txn = parent_txn;
