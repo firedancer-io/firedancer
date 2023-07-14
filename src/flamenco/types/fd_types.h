@@ -199,7 +199,7 @@ struct __attribute__((packed, aligned(8UL))) fd_solana_account_hdr {
 };
 typedef struct fd_solana_account_hdr fd_solana_account_hdr_t;
 #define FD_SOLANA_ACCOUNT_HDR_FOOTPRINT sizeof(fd_solana_account_hdr_t)
-#define FD_SOLANA_ACCOUNT_HDR_ALIGN (8UL)dw
+#define FD_SOLANA_ACCOUNT_HDR_ALIGN (8UL)
 
 struct __attribute__((packed)) fd_account_meta {
   ushort magic;
@@ -988,6 +988,7 @@ struct fd_firedancer_banks {
   fd_rent_t rent;
   fd_pubkey_t collector_id;
   ulong collected;
+  fd_epoch_stakes_t epoch_stakes;
 };
 typedef struct fd_firedancer_banks fd_firedancer_banks_t;
 #define FD_FIREDANCER_BANKS_FOOTPRINT sizeof(fd_firedancer_banks_t)
