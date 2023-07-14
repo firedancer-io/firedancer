@@ -66,8 +66,8 @@ int fd_block_to_json( fd_textstream_t * ts,
           fd_textstream_sprintf(ts, "%s\"%s\"", (idx == 0 ? "" : ","), buf32);
         }
         
-        fd_textstream_sprintf(ts, "],\"header\":{\"numReadonlySignedAccounts\":%u,\"numReadonlyUnsignedAccounts\":%u},\"instructions\":[",
-                              (uint)txn->readonly_signed_cnt, (uint)txn->readonly_unsigned_cnt);
+        fd_textstream_sprintf(ts, "],\"header\":{\"numReadonlySignedAccounts\":%u,\"numReadonlyUnsignedAccounts\":%u,\"numRequiredSignatures\":%u},\"instructions\":[",
+                              (uint)txn->readonly_signed_cnt, (uint)txn->readonly_unsigned_cnt, (uint)txn->signature_cnt);
 
         ushort instr_cnt = txn->instr_cnt;
         for (ushort idx = 0; idx < instr_cnt; idx++) {
@@ -95,7 +95,13 @@ int fd_block_to_json( fd_textstream_t * ts,
           fd_textstream_sprintf(ts, "%s\"%s\"", (j == 0 ? "" : ","), buf64);
         }
 
-        fd_textstream_sprintf(ts, "]}}");
+        const char* vers;
+        switch (txn->transaction_version) {
+        case FD_TXN_VLEGACY: vers = "legacy"; break;
+        case FD_TXN_V0:      vers = "0";      break;
+        default:             vers = "?";      break;
+        }
+        fd_textstream_sprintf(ts, "]},\"version\":\"%s\"}", vers);
         
         blockoff += pay_sz;
       }
