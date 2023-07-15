@@ -112,6 +112,13 @@
     (FIELD_TYPE *)_field__laddr;                         \
   }))
 
+#define FD_TLS_SKIP_FIELDS( FIELD_TYPE, CNT ) (__extension__({ \
+    int valid = 1;                                             \
+    FD_TLS_SERDE_LOCATE( , , FIELD_TYPE, (CNT)   )             \
+    FD_TLS_SERDE_CHECK                                         \
+    (FIELD_TYPE *)_field__laddr;                               \
+  }))
+
 #define FD_TLS_DECODE_SUB( FUNC, OUT ) do {                      \
     long res = FUNC( (OUT), (void const *)wire_laddr, wire_sz ); \
     if( FD_UNLIKELY( res<0L ) ) return res;                      \
@@ -126,5 +133,32 @@
     wire_sz    -= (ulong)res;                             \
     (ulong)res;                                           \
   }))
+
+FD_PROTOTYPES_BEGIN
+
+/* fd_tls_u24_t is a 24-bit / 3 byte big-endian integer */
+
+struct fd_tls_u24 { uchar v[3]; };
+typedef struct fd_tls_u24 fd_tls_u24_t;
+typedef fd_tls_u24_t tls_u24;
+
+static inline fd_tls_u24_t
+fd_tls_u24_bswap( fd_tls_u24 x ) {
+  fd_tls_u24_t ret = {{ x.v[2], x.v[1], x.v[0] }};
+  return ret;
+}
+
+static inline uint
+fd_tls_u24_to_uint( fd_tls_u24_t x ) {
+  return fd_uint_load_3( x.v );
+}
+
+static inline fd_tls_u24_t
+fd_uint_to_tls_u24( uint x ) {
+  fd_tls_u24_t ret = { (uchar)x, (uchar)(x<<8), (uchar)(x<<16) };
+  return ret;
+}
+
+FD_PROTOTYPES_END
 
 #endif /* HEADER_src_ballet_tls_fd_tls_serde_h */
