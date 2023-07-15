@@ -1,38 +1,7 @@
 #include "fd_tls_proto.h"
 #include "fd_tls_serde.h"
 
-long
-fd_tls_decode_record_hdr( fd_tls_record_hdr_t * out,
-                          void const *          wire,
-                          ulong                 wire_sz ) {
-
-  if( FD_UNLIKELY( wire_sz<4UL ) )
-    return -(long)FD_TLS_ALERT_DECODE_ERROR;
-
-  uchar raw[ 4 ]; memcpy( raw, wire, 4UL );
-  out->type = raw[0];
-  out->sz   = 0xFFFFFFU &
-            ( ( ((uint)raw[1])<<16 )
-            + ( ((uint)raw[2])<< 8 )
-            + (  (uint)raw[3]      ) );
-  return 4L;
-}
-
-long
-fd_tls_encode_record_hdr( fd_tls_record_hdr_t const * in,
-                          void *                      wire,
-                          ulong                       wire_sz ) {
-
-  if( FD_UNLIKELY( wire_sz<4UL ) )
-    return -(long)FD_TLS_ALERT_INTERNAL_ERROR;
-
-  uchar raw[ 4 ] = { in->type,
-                     (uchar)( in->sz >> 16 ),
-                     (uchar)( in->sz >>  8 ),
-                     (uchar)( in->sz       ) };
-  memcpy( wire, raw, 4UL );
-  return 4L;
-}
+typedef struct fd_tls_u24 tls_u24;  /* code generator helper */
 
 #define FD_TLS_ENCODE_EXT_BEGIN( type )                         \
   do {                                                          \
@@ -229,18 +198,6 @@ fd_tls_encode_server_hello( fd_tls_server_hello_t * out,
 }
 
 long
-fd_tls_encode_server_ee( fd_tls_server_ee_t * out,
-                         void *               wire,
-                         ulong                wire_sz ) {
-
-  ulong wire_laddr = (ulong)wire;
-  ushort * extension_tot_sz = FD_TLS_SKIP_FIELD( ushort );
-  *extension_tot_sz = (ushort)0;
-  return (long)( wire_laddr - (ulong)wire );
-}
-
-
-long
 fd_tls_encode_server_cert_x509( void const * x509,
                                 ulong        x509_sz,
                                 void *       wire,
@@ -254,9 +211,9 @@ fd_tls_encode_server_cert_x509( void const * x509,
   /* TLS Certificate Message header preceding X.509 data */
 
   /* All size prefixes known in advance */
-  fd_tls_u24_t record_sz    = fd_uint_to_tls_u24( x509_sz + 9UL );
-  fd_tls_u24_t cert_list_sz = fd_uint_to_tls_u24( x509_sz + 5UL );
-  fd_tls_u24_t cert_sz      = fd_uint_to_tls_u24( x509_sz       );
+  fd_tls_u24_t record_sz    = fd_uint_to_tls_u24( (uint)( x509_sz + 9UL ) );
+  fd_tls_u24_t cert_list_sz = fd_uint_to_tls_u24( (uint)( x509_sz + 5UL ) );
+  fd_tls_u24_t cert_sz      = fd_uint_to_tls_u24( (uint)( x509_sz       ) );
 
   /* zero sz certificate_request_context
      (Server certificate never has a request context) */
