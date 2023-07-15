@@ -229,6 +229,62 @@ fd_tls_encode_server_hello( fd_tls_server_hello_t * out,
 }
 
 long
+fd_tls_encode_server_ee( fd_tls_server_ee_t * out,
+                         void *               wire,
+                         ulong                wire_sz ) {
+
+  ulong wire_laddr = (ulong)wire;
+  ushort * extension_tot_sz = FD_TLS_SKIP_FIELD( ushort );
+  *extension_tot_sz = (ushort)0;
+  return (long)( wire_laddr - (ulong)wire );
+}
+
+
+long
+fd_tls_encode_server_cert_x509( void const * x509,
+                                ulong        x509_sz,
+                                void *       wire,
+                                ulong        wire_sz ) {
+
+  ulong wire_laddr = (ulong)wire;
+
+  /* TLS Record Header */
+  uchar record_type = (uchar)FD_TLS_RECORD_CERT;
+
+  /* TLS Certificate Message header preceding X.509 data */
+
+  /* All size prefixes known in advance */
+  fd_tls_u24_t record_sz    = fd_uint_to_tls_u24( x509_sz + 9UL );
+  fd_tls_u24_t cert_list_sz = fd_uint_to_tls_u24( x509_sz + 5UL );
+  fd_tls_u24_t cert_sz      = fd_uint_to_tls_u24( x509_sz       );
+
+  /* zero sz certificate_request_context
+     (Server certificate never has a request context) */
+  uchar certificate_request_context_sz = (uchar)0;
+
+  /* TODO Ugly: Type cast required to make macro happy, though no
+          actual writes take place. */
+  uchar * _x509 = (uchar *)x509;
+
+  /* No certificate extensions */
+  ushort ext_sz = (ushort)0;
+
+  /* TODO Should use fd_memcpy() instead of memcpy() _x509 */
+# define FIELDS( FIELD )                                            \
+    FIELD( 0, &record_type,                      uchar,   1       ) \
+    FIELD( 1, &record_sz,                        tls_u24, 1       ) \
+      FIELD( 2, &certificate_request_context_sz, uchar,   1       ) \
+      FIELD( 3, &cert_list_sz,                   tls_u24, 1       ) \
+        FIELD( 4, &cert_sz,                      tls_u24, 1       ) \
+        FIELD( 5, _x509,                         uchar,   x509_sz ) \
+        FIELD( 6, &ext_sz,                       ushort,  1       )
+    FD_TLS_ENCODE_STATIC_BATCH( FIELDS )
+# undef FIELDS
+
+  return (long)( wire_laddr - (ulong)wire );
+}
+
+long
 fd_tls_decode_ext_server_name( fd_tls_ext_server_name_t * out,
                                void const *               wire,
                                ulong                      wire_sz ) {
@@ -387,3 +443,60 @@ fd_tls_decode_ext_key_share_client( fd_tls_ext_key_share_t * out,
   return (long)( wire_laddr - (ulong)wire );
 }
 
+long
+fd_tls_decode_ext_cert_type_list( fd_tls_ext_cert_type_list_t * out,
+                                  void const *                  wire,
+                                  ulong                         wire_sz ) {
+
+  ulong wire_laddr = (ulong)wire;
+
+  FD_TLS_DECODE_LIST_BEGIN( uchar, alignof(uchar) ) {
+    uchar cert_type;
+    FD_TLS_DECODE_FIELD( &cert_type, uchar );  /* is this really a uchar? */
+    switch( cert_type ) {
+    case FD_TLS_CERTTYPE_X509:       out->x509 = 1;       break;
+    case FD_TLS_CERTTYPE_RAW_PUBKEY: out->raw_pubkey = 1; break;
+    /* Add more cert types here */
+    }
+  }
+  FD_TLS_DECODE_LIST_END
+
+  return (long)( wire_laddr - (ulong)wire );
+}
+
+long
+fd_tls_encode_ext_cert_type_list( fd_tls_ext_cert_type_list_t in,
+                                  void const *                wire,
+                                  ulong                       wire_sz ) {
+
+  ulong wire_laddr = (ulong)wire;
+
+  /* Encode list size */
+  uchar cnt = (uchar)fd_uchar_popcnt( in.uc );
+  FD_TLS_ENCODE_FIELD( &cnt, uchar );
+
+  /* Encode list */
+  uchar * fields = FD_TLS_SKIP_FIELDS( uchar, cnt );
+  if( in.x509       ) *fields++ = FD_TLS_CERTTYPE_X509;
+  if( in.raw_pubkey ) *fields++ = FD_TLS_CERTTYPE_RAW_PUBKEY;
+
+  return (long)( wire_laddr - (ulong)wire );
+}
+
+long
+fd_tls_decode_ext_cert_type( fd_tls_ext_cert_type_t * out,
+                              void const *            wire,
+                              ulong                   wire_sz ) {
+  ulong wire_laddr = (ulong)wire;
+  FD_TLS_DECODE_FIELD( &out->cert_type, uchar );
+  return (long)( wire_laddr - (ulong)wire );
+}
+
+long
+fd_tls_encode_ext_cert_type( fd_tls_ext_cert_type_t in,
+                             void const *           wire,
+                             ulong                  wire_sz ) {
+  ulong wire_laddr = (ulong)wire;
+  FD_TLS_ENCODE_FIELD( &in.cert_type, uchar );
+  return (long)( wire_laddr - (ulong)wire );
+}
