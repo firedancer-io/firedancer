@@ -1,18 +1,29 @@
 #ifndef HEADER_src_ballet_tls_fd_tls_proto_h
 #define HEADER_src_ballet_tls_fd_tls_proto_h
 
-/* fd_tls_proto.h declares various TLS v1.3 data structures. */
+/* fd_tls_proto.h declares various TLS v1.3 data structures and provides
+   internal APIs to decode and encode them from/to wire format.
+
+   Most encodings in TLS v1.3 are laid out dynamically and cannot be
+   represented with packed C structs, such as variable-length lists and
+   "unions" (fields that may hold one of multiple data types).  For this
+   dynamic kind of data, fd_tls_proto declares custom structs and
+   provides an encode/decode API.
+
+   A small number of type encodings are laid out statically.  For these,
+   a packed C struct and a "bswap" (endianness conversion) function is
+   provided. */
 
 #include "../fd_tango_base.h"
 
-struct __attribute__((packed)) fd_tls_record_hdr {
-  uchar type;
-  uint  sz : 24;
+/* TLS Extensions *****************************************************/
+
+struct __attribute__((packed)) fd_tls_ext_hdr {
+  ushort type;
+  ushort sz;
 };
 
-typedef struct fd_tls_record_hdr fd_tls_record_hdr_t;
-
-/* TLS Extensions *****************************************************/
+typedef struct fd_tls_ext_hdr fd_tls_ext_hdr_t;
 
 /* Supported TLS versions (RFC 8446)
    Type: FD_TLS_EXT_TYPE_SUPPORTED_VERSIONS */
@@ -74,33 +85,28 @@ struct fd_tls_ext_cert_type {
 
 typedef struct fd_tls_ext_cert_type fd_tls_ext_cert_type_t;
 
-/* TLS v1.3 Client and Server Hello ************************************
+/* TLS Messages *******************************************************/
 
-   - legacy_version is always set to FD_TLS_VERSION_TLS12.
-     Other values raise FD_TLS_ALERT_PROTOCOL_VERSION.
+/* fd_tls_u24_t is a 24-bit / 3 byte big-endian integer.
+   Matches wire representation. */
 
-   - random contains 32 cryptographically secure random bytes.
-     The client and server independently generate them for their
-     respective hello messages.
+struct fd_tls_u24 { uchar v[3]; };
+typedef struct fd_tls_u24 fd_tls_u24_t;
 
-   - legacy_session_{id,id_echo}_sz is always zero.
-     Other values raise FD_TLS_ALERT_PROTOCOL_VERSION.
+/* TODO is record header the correct term for this? */
 
-   - The client presents a list of supported cipher suites in the
-     cipher_suites array.  cipher_suite_cnt sets the array count.
-     This array must contain at least one element and must contain
-     FD_TLS_CIPHER_SUITE_AES_128_GCM_SHA256.  Violations result in
-     FD_TLS_ALERT_HANDSHAKE_FAILURE.
+struct __attribute__((packed)) fd_tls_record_hdr {
+  uchar        type;   /* FD_TLS_RECORD_{...} */
+  fd_tls_u24_t sz;     /* Byte size of fields following this header */
+};
 
-   - The server picks one of the client's advertised cipher suites and
-     signals it via cipher_suite (singular).
+typedef struct fd_tls_record_hdr fd_tls_record_hdr_t;
 
-   - legacy_compression_method_cnt is always 1.
-     legacy_compression_methods[0] is always 0.
-     Violations result in FD_TLS_ALERT_ILLEGAL_PARAMETER. */
+/* fd_tls_client_hello_t describes a TLS v1.3 ClientHello (RFC 8446,
+   Section 4.1.2). */
 
 struct fd_tls_client_hello {
-  uchar  random[ 32 ];
+  uchar random[ 32 ];
 
   struct {
     uchar aes_128_gcm_sha256 : 1;
@@ -114,6 +120,11 @@ struct fd_tls_client_hello {
   fd_tls_ext_key_share_t            key_share;
 };
 
+typedef struct fd_tls_client_hello fd_tls_client_hello_t;
+
+/* fd_tls_server_hello_t describes a TLS v1.3 ServerHello (RFC 8446,
+   Section 4.1.3). */
+
 struct fd_tls_server_hello {
   uchar  random[ 32 ];
   ushort cipher_suite;
@@ -121,12 +132,35 @@ struct fd_tls_server_hello {
   fd_tls_ext_key_share_t key_share;
 };
 
-typedef struct fd_tls_client_hello fd_tls_client_hello_t;
 typedef struct fd_tls_server_hello fd_tls_server_hello_t;
 
-struct fd_tls_server_ee {};
+/* fd_tls_cert_verify_t matches the wire representation of
+   CertificateVerify (RFC 8446, Section 4.4.3).  Only supports TLS
+   signature algorithms with 64 byte signature size (e.g. Ed25519). */
 
-typedef struct fd_tls_server_ee fd_tls_server_ee_t;
+struct __attribute__((packed)) fd_tls_cert_verify {
+  fd_tls_record_hdr_t hdr;  /* hdr.sz == 0x44 */
+
+  ushort sig_alg;  /* FD_TLS_SIGNATURE_{...} */
+  ushort sig_sz;   /* 0x40 */
+  uchar  sig[ 64 ];
+};
+
+typedef struct fd_tls_cert_verify fd_tls_cert_verify_t;
+
+/* fd_tls_finished_t matches the wire representation of Finished (RFC
+   8446, Section 4.4.4).  Only supports TLS cipher suites with 32 byte
+   hash output size. */
+
+struct __attribute__((packed)) fd_tls_finished {
+  fd_tls_record_hdr_t hdr;  /* hdr.sz == 0x20 */
+
+  uchar verify[ 32 ];
+};
+
+typedef struct fd_tls_finished fd_tls_finished_t;
+
+/* Enums **************************************************************/
 
 /* TLS Legacy Version field */
 
@@ -177,11 +211,13 @@ typedef struct fd_tls_server_ee fd_tls_server_ee_t;
 
 /* TLS extension types */
 
-#define FD_TLS_EXT_TYPE_SERVER_NAME          ((ushort) 0)
-#define FD_TLS_EXT_TYPE_SUPPORTED_GROUPS     ((ushort)10)
-#define FD_TLS_EXT_TYPE_SIGNATURE_ALGORITHMS ((ushort)13)
-#define FD_TLS_EXT_TYPE_SUPPORTED_VERSIONS   ((ushort)43)
-#define FD_TLS_EXT_TYPE_KEY_SHARE            ((ushort)51)
+#define FD_TLS_EXT_TYPE_SERVER_NAME           ((ushort) 0)
+#define FD_TLS_EXT_TYPE_SUPPORTED_GROUPS      ((ushort)10)
+#define FD_TLS_EXT_TYPE_SIGNATURE_ALGORITHMS  ((ushort)13)
+#define FD_TLS_EXT_TYPE_ALPN                  ((ushort)16)
+#define FD_TLS_EXT_TYPE_SUPPORTED_VERSIONS    ((ushort)43)
+#define FD_TLS_EXT_TYPE_KEY_SHARE             ((ushort)51)
+#define FD_TLS_EXT_TYPE_QUIC_TRANSPORT_PARAMS ((ushort)57)
 
 /* TLS server_name extension */
 
@@ -222,21 +258,9 @@ typedef struct fd_tls_server_ee fd_tls_server_ee_t;
 
 /* Serialization related **********************************************/
 
-FD_PROTOTYPES_BEGIN
+/* ### Decode functions
 
-long
-fd_tls_decode_record_hdr( fd_tls_record_hdr_t * out,
-                          void const *          wire,
-                          ulong                 wire_sz );
-
-long
-fd_tls_encode_record_hdr( fd_tls_record_hdr_t const * in,
-                          void *                      wire,
-                          ulong                       wire_sz );
-
-/* Deserialization functions
-
-   All type deserializers follow the same prototype:
+   All deserializers follow the same prototype:
 
      long
      fd_tls_decode_TYPE( TYPE_t *     out,
@@ -251,7 +275,103 @@ fd_tls_encode_record_hdr( fd_tls_record_hdr_t const * in,
    code.
 
    Common reasons for failure include:  FD_TLS_ALERT_DECODE_ERROR
-   if input violates encoding rules.  ... TODO */
+   if input violates encoding rules.  ... TODO
+
+   ### Encode functions
+
+   ... TODO */
+
+FD_PROTOTYPES_BEGIN
+
+/* Methods for static layout types */
+
+/* Macro STATIC_SERDE defines decode/encode implementations for structs
+   that match their wire encoding */
+
+#define STATIC_SERDE( NAME, TYPE_T )                                   \
+  static inline long                                                   \
+  fd_tls_decode_##NAME ( TYPE_T *     out,                             \
+                         void const * wire,                            \
+                         ulong        wire_sz ) {                      \
+    if( FD_UNLIKELY( wire_sz < sizeof(TYPE_T) ) )                      \
+      return -(long)FD_TLS_ALERT_DECODE_ERROR;                         \
+    memcpy( out, wire, sizeof(TYPE_T) );                               \
+    fd_tls_##NAME##_bswap( out );                                      \
+    return (long)sizeof(TYPE_T);                                       \
+  }                                                                    \
+  static inline long                                                   \
+  fd_tls_encode_##NAME ( TYPE_T const * in,                            \
+                         void *         wire,                          \
+                         ulong          wire_sz ) {                    \
+    if( FD_UNLIKELY( wire_sz < sizeof(TYPE_T) ) )                      \
+      return -(long)FD_TLS_ALERT_DECODE_ERROR;                         \
+    TYPE_T * out = (TYPE_T *)wire;                                     \
+    memcpy( out, in, sizeof(TYPE_T) );                                 \
+    fd_tls_##NAME##_bswap( out );                                      \
+    return (long)sizeof(TYPE_T);                                       \
+  }
+
+/* End of STATIC_SERDE macro */
+
+/* Static serialization methods for fd_tls_u24_t */
+
+static inline fd_tls_u24_t
+fd_tls_u24_bswap( fd_tls_u24_t x ) {
+  fd_tls_u24_t ret = {{ x.v[2], x.v[1], x.v[0] }};
+  return ret;
+}
+
+static inline uint
+fd_tls_u24_to_uint( fd_tls_u24_t x ) {
+  return fd_uint_load_3( x.v );
+}
+
+static inline fd_tls_u24_t
+fd_uint_to_tls_u24( uint x ) {
+  fd_tls_u24_t ret = {{ (uchar)x, (uchar)(x<<8), (uchar)(x<<16) }};
+  return ret;
+}
+
+/* Static serde methods for fd_tls_ext_hdr_t */
+
+static inline void
+fd_tls_ext_hdr_bswap( fd_tls_ext_hdr_t * x ) {
+  x->type = fd_ushort_bswap( x->type );
+  x->sz   = fd_ushort_bswap( x->sz );
+}
+
+STATIC_SERDE( ext_hdr, fd_tls_ext_hdr_t )
+
+/* Static serde methods for fd_tls_record_hdr_t */
+
+static inline void
+fd_tls_record_hdr_bswap( fd_tls_record_hdr_t * x ) {
+  x->sz = fd_tls_u24_bswap( x->sz );
+}
+
+STATIC_SERDE( record_hdr, fd_tls_record_hdr_t )
+
+/* Static serde methods for fd_tls_cert_verify_t */
+
+static inline void
+fd_tls_cert_verify_bswap( fd_tls_cert_verify_t * x ) {
+  fd_tls_record_hdr_bswap( &x->hdr );
+  x->sig_alg = fd_ushort_bswap( x->sig_alg );
+  x->sig_sz  = fd_ushort_bswap( x->sig_sz );
+}
+
+STATIC_SERDE( cert_verify, fd_tls_cert_verify_t )
+
+/* Static serde methods for fd_tls_finished_t */
+
+static inline void
+fd_tls_finished_bswap( fd_tls_finished_t * x ) {
+  fd_tls_record_hdr_bswap( &x->hdr );
+}
+
+STATIC_SERDE( finished, fd_tls_finished_t )
+
+/* Methods for dynamic layout types */
 
 long
 fd_tls_decode_client_hello( fd_tls_client_hello_t * out,
@@ -267,11 +387,6 @@ long
 fd_tls_encode_server_hello( fd_tls_server_hello_t * in,
                             void *                  wire,
                             ulong                   wire_sz );
-
-long
-fd_tls_encode_server_ee( fd_tls_server_ee_t * in,
-                         void *               wire,
-                         ulong                wire_sz );
 
 long
 fd_tls_encode_server_cert_x509( void const * x509,
@@ -327,4 +442,5 @@ fd_tls_encode_ext_cert_type( fd_tls_ext_cert_type_t in,
 
 FD_PROTOTYPES_END
 
+#undef STATIC_SERDE
 #endif /* HEADER_src_ballet_tls_fd_tls_proto_h */

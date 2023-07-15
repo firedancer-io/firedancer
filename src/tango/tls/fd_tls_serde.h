@@ -34,14 +34,17 @@
   if( FD_UNLIKELY( !valid ) ) return -(long)FD_TLS_ALERT_DECODE_ERROR;
 
 /* FD_TLS_SERDE_DECODE generates a non-overlapping memory copy for the
-   given field.  Field should be bounds checked at this point. */
+   given field.  Field should be bounds checked at this point.
+
+   Note: We use __extension__ here because ISO C forbids casting a
+         non-scalar type to itself.  (as is the case with tls_u24). */
 
 #define FD_TLS_SERDE_DECODE( IDX, FIELD, FIELD_TYPE, FIELD_CNT ) \
   do {                                                           \
     memcpy( (FIELD), (void const *)_field_##IDX##_laddr, _field_##IDX##_sz ); \
     FIELD_TYPE * _field_##IDX##_ptr = (FIELD);                   \
     for( ulong i=0; i < (FIELD_CNT); i++ ) {                     \
-      *((_field_##IDX##_ptr)++) =                                \
+      *((_field_##IDX##_ptr)++) = __extension__                  \
         (FIELD_TYPE)fd_##FIELD_TYPE##_bswap( (FIELD)[i] );       \
     }                                                            \
   } while(0);
@@ -50,7 +53,7 @@
   do {                                                           \
     FIELD_TYPE * _field_##IDX##_ptr = (FIELD);                   \
     for( ulong i=0; i < (FIELD_CNT); i++ ) {                     \
-      *((_field_##IDX##_ptr)++) =                                \
+      *((_field_##IDX##_ptr)++) = __extension__                  \
         (FIELD_TYPE)fd_##FIELD_TYPE##_bswap( (FIELD)[i] );       \
     }                                                            \
     memcpy( (void *)_field_##IDX##_laddr, (FIELD), _field_##IDX##_sz ); \
@@ -133,32 +136,5 @@
     wire_sz    -= (ulong)res;                             \
     (ulong)res;                                           \
   }))
-
-FD_PROTOTYPES_BEGIN
-
-/* fd_tls_u24_t is a 24-bit / 3 byte big-endian integer */
-
-struct fd_tls_u24 { uchar v[3]; };
-typedef struct fd_tls_u24 fd_tls_u24_t;
-typedef fd_tls_u24_t tls_u24;
-
-static inline fd_tls_u24_t
-fd_tls_u24_bswap( fd_tls_u24 x ) {
-  fd_tls_u24_t ret = {{ x.v[2], x.v[1], x.v[0] }};
-  return ret;
-}
-
-static inline uint
-fd_tls_u24_to_uint( fd_tls_u24_t x ) {
-  return fd_uint_load_3( x.v );
-}
-
-static inline fd_tls_u24_t
-fd_uint_to_tls_u24( uint x ) {
-  fd_tls_u24_t ret = { (uchar)x, (uchar)(x<<8), (uchar)(x<<16) };
-  return ret;
-}
-
-FD_PROTOTYPES_END
 
 #endif /* HEADER_src_ballet_tls_fd_tls_serde_h */
