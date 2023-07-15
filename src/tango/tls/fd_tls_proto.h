@@ -58,6 +58,22 @@ struct fd_tls_ext_key_share {
 
 typedef struct fd_tls_ext_key_share fd_tls_ext_key_share_t;
 
+union fd_tls_ext_cert_type_list {
+  struct {
+    uchar x509       : 1;
+    uchar raw_pubkey : 1;
+  };
+  uchar uc;
+};
+
+typedef union fd_tls_ext_cert_type_list fd_tls_ext_cert_type_list_t;
+
+struct fd_tls_ext_cert_type {
+  uchar cert_type;
+};
+
+typedef struct fd_tls_ext_cert_type fd_tls_ext_cert_type_t;
+
 /* TLS v1.3 Client and Server Hello ************************************
 
    - legacy_version is always set to FD_TLS_VERSION_TLS12.
@@ -107,6 +123,10 @@ struct fd_tls_server_hello {
 
 typedef struct fd_tls_client_hello fd_tls_client_hello_t;
 typedef struct fd_tls_server_hello fd_tls_server_hello_t;
+
+struct fd_tls_server_ee {};
+
+typedef struct fd_tls_server_ee fd_tls_server_ee_t;
 
 /* TLS Legacy Version field */
 
@@ -186,9 +206,19 @@ typedef struct fd_tls_server_hello fd_tls_server_hello_t;
 
 /* TLS v1.3 record types */
 
-#define FD_TLS_RECORD_CLIENT_HELLO       ((uchar) 1)
-#define FD_TLS_RECORD_SERVER_HELLO       ((uchar) 2)
-#define FD_TLS_RECORD_NEW_SESSION_TICKET ((uchar) 4)
+#define FD_TLS_RECORD_CLIENT_HELLO       ((uchar)  1)
+#define FD_TLS_RECORD_SERVER_HELLO       ((uchar)  2)
+#define FD_TLS_RECORD_NEW_SESSION_TICKET ((uchar)  4)
+#define FD_TLS_RECORD_ENCRYPTED_EXT      ((uchar)  8)
+#define FD_TLS_RECORD_CERT               ((uchar) 11)
+#define FD_TLS_RECORD_CERT_REQ           ((uchar) 13)
+#define FD_TLS_RECORD_CERT_VERIFY        ((uchar) 15)
+#define FD_TLS_RECORD_FINISHED           ((uchar) 20)
+
+/* TLS certificate_type extension (RFC 7250) */
+
+#define FD_TLS_CERTTYPE_X509       ((uchar) 0)
+#define FD_TLS_CERTTYPE_RAW_PUBKEY ((uchar) 2)
 
 /* Serialization related **********************************************/
 
@@ -234,9 +264,20 @@ fd_tls_decode_server_hello( fd_tls_server_hello_t * out,
                             ulong                   wire_sz );
 
 long
-fd_tls_encode_server_hello( fd_tls_server_hello_t * out,
+fd_tls_encode_server_hello( fd_tls_server_hello_t * in,
                             void *                  wire,
                             ulong                   wire_sz );
+
+long
+fd_tls_encode_server_ee( fd_tls_server_ee_t * in,
+                         void *               wire,
+                         ulong                wire_sz );
+
+long
+fd_tls_encode_server_cert_x509( void const * x509,
+                                ulong        x509_sz,
+                                void *       wire,
+                                ulong        wire_sz );
 
 long
 fd_tls_decode_ext_server_name( fd_tls_ext_server_name_t * out,
@@ -262,6 +303,27 @@ long
 fd_tls_decode_ext_key_share_client( fd_tls_ext_key_share_t * out,
                                     void const *             wire,
                                     ulong                    wire_sz );
+
+long
+fd_tls_decode_ext_cert_type_list( fd_tls_ext_cert_type_list_t * out,
+                                  void const *                  wire,
+                                  ulong                         wire_sz );
+
+long
+fd_tls_encode_ext_cert_type_list( fd_tls_ext_cert_type_list_t in,
+                                  void const *                wire,
+                                  ulong                       wire_sz );
+
+
+long
+fd_tls_decode_ext_cert_type( fd_tls_ext_cert_type_t * out,
+                              void const *            wire,
+                              ulong                   wire_sz );
+
+long
+fd_tls_encode_ext_cert_type( fd_tls_ext_cert_type_t in,
+                             void const *           wire,
+                             ulong                  wire_sz );
 
 FD_PROTOTYPES_END
 

@@ -1,5 +1,8 @@
 #include "fd_tls_proto.h"
 
+FD_STATIC_ASSERT( sizeof( fd_tls_ext_cert_type_list_t )==1UL, layout );
+FD_STATIC_ASSERT( sizeof( fd_tls_ext_cert_type_t      )==1UL, layout );
+
 /* test_client_hello is an example TLS v1.3 ClientHello captured from
    a Solana Labs v1.14.8 TPU/QUIC client. */
 
