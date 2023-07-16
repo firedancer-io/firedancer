@@ -240,7 +240,7 @@ main( int     argc,
       if( FD_UNLIKELY( !shxsk ) )
         FD_LOG_ERR(( "%i: %s: fd_wksp_map(%s) failed\n\tDo %s help for help", cnt, cmd, _shxsk, bin ));
       if( FD_UNLIKELY( !fd_xsk_bind( shxsk, app_name, ifname, ifqueue ) ) )
-        FD_LOG_ERR(( "%i: %s: fd_xsk_unbind(%s,%s,%u) failed\n\tDo %s help for help",
+        FD_LOG_ERR(( "%i: %s: fd_xsk_bind(%s,%s,%u) failed\n\tDo %s help for help",
                      cnt, cmd, _shxsk, ifname, ifqueue, bin ));
       fd_wksp_unmap( shxsk );
 

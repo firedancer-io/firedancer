@@ -1,6 +1,5 @@
 #include "../fd_frank.h"
 
-#if FD_HAS_FRANK
 #include <math.h>
 
 int
@@ -14,7 +13,6 @@ fd_frank_verify_task( int     argc,
   /* Parse "command line" arguments */
 
   char const * pod_gaddr = argv[1];
-  char const * cfg_path  = FD_FRANK_CONFIGURATION_PREFIX;
 
   /* Load up the configuration for this frank instance */
 
@@ -451,16 +449,3 @@ fd_frank_verify_task( int     argc,
   fd_wksp_pod_detach( pod );
   return 0;
 }
-
-#else
-
-int
-fd_frank_verify_task( int     argc,
-                      char ** argv ) {
-  (void)argc; (void)argv;
-  FD_LOG_WARNING(( "unsupported for this build target" ));
-  return 1;
-}
-
-#endif
-

@@ -2,7 +2,7 @@ MAKEFLAGS += --no-builtin-rules
 MAKEFLAGS += --no-builtin-variables
 .SUFFIXES:
 .SUFFIXES: .h .hxx .c .cxx .o .a .d .S .i
-.PHONY: all bin include lib unit-test fuzz-test run-unit-test help clean distclean asm ppp show-deps lint check-lint
+.PHONY: all bin run monitor include lib unit-test fuzz-test run-unit-test help clean distclean asm ppp show-deps lint check-lint
 .SECONDARY:
 .SECONDEXPANSION:
 
@@ -81,6 +81,43 @@ check-lint:
 	# Checking lint in src/
 	#######################################################################
 	$(FIND) src/ -iname "*.c" -or -iname "*.h" | uncrustify -c lint.cfg -F - --check
+
+# If the first argument is "run"...
+ifeq (run,$(firstword $(MAKECMDGOALS)))
+	# use the rest as arguments for "run"
+	RUN_ARGS := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
+
+	# Set default RUN_ARGS if not already set
+	ifeq ($(RUN_ARGS),)
+		RUN_ARGS := --configure --sudo
+	endif
+
+	# ...and turn them into do-nothing targets
+	$(eval $(RUN_ARGS):;@:)
+endif
+
+# Set default RUN_ARGS if not already set
+RUN_ARGS ?= --configure --sudo
+
+run: bin
+	$(OBJDIR)/bin/fdctl $(RUN_ARGS)
+
+# If the first argument is "monitor"...
+ifeq (monitor,$(firstword $(MAKECMDGOALS)))
+	# use the rest as arguments for "monitor"
+	MONITOR_ARGS := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
+
+  # Set default RUN_ARGS if not already set
+	ifeq ($(MONITOR_ARGS),)
+		MONITOR_ARGS := --sudo
+	endif
+
+	# ...and turn them into do-nothing targets
+	$(eval $(MONITOR_ARGS):;@:)
+endif
+
+monitor: bin
+	$(OBJDIR)/bin/fdctl monitor $(MONITOR_ARGS)
 
 ##############################
 # Usage: $(call make-lib,name)
