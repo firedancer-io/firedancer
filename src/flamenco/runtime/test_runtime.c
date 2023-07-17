@@ -167,6 +167,17 @@ replay( global_state_t * state,
         fd_tpool_t *     tpool,
         ulong            max_workers) {
 
+  /* Create scratch allocator */
+
+  ulong  smax = 512 /*MiB*/ << 20;
+  void * smem = fd_wksp_alloc_laddr( state->global->wksp, fd_scratch_smem_align(), smax, 1UL );
+  if( FD_UNLIKELY( !smem ) ) FD_LOG_ERR(( "Failed to alloc scratch mem" ));
+  ulong  scratch_depth = 4UL;
+  void * fmem = fd_wksp_alloc_laddr( state->global->wksp, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( scratch_depth ), 2UL );
+  if( FD_UNLIKELY( !fmem ) ) FD_LOG_ERR(( "Failed to alloc scratch frames" ));
+
+  fd_scratch_attach( smem, fmem, smax, scratch_depth );
+
   fd_funk_rec_key_t key = fd_runtime_block_meta_key(ULONG_MAX);
   fd_funk_rec_t const * rec = fd_funk_rec_query( state->global->funk, NULL, &key );
   if (rec == NULL)
@@ -201,6 +212,40 @@ replay( global_state_t * state,
   /* Slot of next epoch boundary */
   ulong epoch           = fd_slot_to_epoch( &schedule, state->global->bank.slot+1, NULL );
   ulong last_epoch_slot = fd_epoch_slot0  ( &schedule, epoch+1UL );
+
+  /* Find epoch stakes for current epoch */
+  fd_epoch_stakes_t  const * epoch_stakes = &state->global->bank.epoch_stakes;
+  fd_vote_accounts_t const * epoch_vaccs  = &epoch_stakes->stakes.vote_accounts;
+
+  ulong stake_weight_cnt;
+  {
+    FD_SCRATCH_SCOPED_FRAME;
+
+    /* Derive node stake weights for epoch vote accounts */
+
+    FD_LOG_NOTICE(( "vote_accounts_pool=%p vote_accounts_root=%p",
+                    epoch_vaccs->vote_accounts_pool,
+                    epoch_vaccs->vote_accounts_root ));
+    ulong vote_acc_cnt = fd_vote_accounts_pair_t_map_size( epoch_vaccs->vote_accounts_pool, epoch_vaccs->vote_accounts_root );
+    fd_stake_weight_t * epoch_weights = fd_scratch_alloc( alignof(fd_stake_weight_t), vote_acc_cnt * sizeof(fd_stake_weight_t) );
+    if( FD_UNLIKELY( !epoch_weights ) ) FD_LOG_ERR(( "fd_scratch_alloc() failed" ));
+
+    stake_weight_cnt = fd_stake_weights_by_node( epoch_vaccs, epoch_weights );
+    if( FD_UNLIKELY( stake_weight_cnt==ULONG_MAX ) ) FD_LOG_ERR(( "fd_stake_weights_by_node() failed" ));
+
+    /* Derive leader schedule */
+    /* TODO This wksp alloc probably shouldn't be here */
+    ulong sched_cnt = fd_epoch_slot_cnt( &schedule, epoch ) / 4UL;  /* Every leader rotation lasts four slots - TODO remove hardcode */
+    FD_LOG_INFO(( "stake_weight_cnt=%lu sched_cnt=%lu", stake_weight_cnt, sched_cnt ));
+    ulong epoch_leaders_footprint = fd_epoch_leaders_footprint( stake_weight_cnt, sched_cnt );
+    FD_LOG_INFO(( "epoch_leaders_footprint=%lu", epoch_leaders_footprint ));
+    if( FD_LIKELY( epoch_leaders_footprint ) ) {
+      /* Only available when we are importing from snapshot */
+      void * epoch_leaders_mem = fd_wksp_alloc_laddr( state->global->wksp, fd_epoch_leaders_align(), epoch_leaders_footprint, 1UL );
+      state->global->leaders = fd_epoch_leaders_join( fd_epoch_leaders_new( epoch_leaders_mem, stake_weight_cnt, sched_cnt ) );
+      FD_TEST( state->global->leaders );
+    }
+  }
 
   for ( ulong slot = state->global->bank.slot+1; slot < state->end_slot; ++slot ) {
     state->global->bank.slot = slot;
@@ -254,7 +299,7 @@ replay( global_state_t * state,
                          slot,
                          known_bank_hash->hash,
                          state->global->bank.banks_hash.hash ));
-        return 1;
+        //return 1;
       }
     }
 
@@ -265,6 +310,9 @@ replay( global_state_t * state,
 
   // fd_funk_txn_publish( state->global->funk, state->global->funk_txn, 1);
 
+  FD_TEST( fd_scratch_frame_used()==0UL );
+  fd_wksp_free_laddr( fd_scratch_detach( NULL ) );
+  fd_wksp_free_laddr( fmem                      );
   return 0;
 }
 

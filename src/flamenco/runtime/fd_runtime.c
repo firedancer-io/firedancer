@@ -1,3 +1,4 @@
+#include "sysvar/fd_sysvar_epoch_schedule.h"
 #include "time.h"
 #include "fd_runtime.h"
 #include "fd_hashes.h"
@@ -984,6 +985,39 @@ int fd_global_import_solana_manifest(fd_global_ctx_t * global, fd_solana_manifes
   bank->rent = oldbank->rent_collector.rent;
   fd_memcpy(&bank->collector_id, &oldbank->collector_id, sizeof(oldbank->collector_id));
   bank->collected = oldbank->collected_rent;
+
+  /* Find EpochStakes for next slot */
+  {
+    FD_SCRATCH_SCOPED_FRAME;
+
+    ulong epoch = fd_slot_to_epoch( &bank->epoch_schedule, bank->slot, NULL );
+    fd_epoch_stakes_t const * stakes = NULL;
+    fd_epoch_epoch_stakes_pair_t const * epochs = oldbank->epoch_stakes;
+    for( ulong i=0; i < manifest->bank.epoch_stakes_len; i++ ) {
+      if( epochs[ i ].key==epoch ) {
+        stakes = &epochs[i].value;
+        break;
+      }
+    }
+    if( FD_UNLIKELY( !stakes ) )
+      FD_LOG_ERR(( "Snapshot missing EpochStakes for epoch %lu", epoch ));
+
+    /* TODO Hacky way to copy by serialize/deserialize :( */
+    uchar * buf = fd_scratch_alloc( 1UL, fd_epoch_stakes_size( stakes ) );
+    fd_bincode_encode_ctx_t encode_ctx = {
+      .data    = buf,
+      .dataend = (void *)( (ulong)buf + fd_epoch_stakes_size( stakes ) )
+    };
+    FD_TEST( fd_epoch_stakes_encode( stakes, &encode_ctx )
+             ==FD_BINCODE_SUCCESS );
+    fd_bincode_decode_ctx_t decode_ctx = {
+      .data    = buf,
+      .dataend = (void const *)( (ulong)buf + fd_epoch_stakes_size( stakes ) ),
+      .valloc  = global->valloc,
+    };
+    FD_TEST( fd_epoch_stakes_decode( &bank->epoch_stakes, &decode_ctx )
+             ==FD_BINCODE_SUCCESS );
+  }
 
   return fd_runtime_save_banks( global );
 }
