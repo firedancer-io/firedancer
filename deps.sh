@@ -526,6 +526,16 @@ install () {
   ( install_libmicrohttpd )
   ( install_nanopb    )
 
+  # Remove cmake and pkgconfig files, so we don't accidentally
+  # depend on them.
+  rm -rf ./opt/lib/cmake ./opt/lib/pkgconfig ./opt/lib64/pkgconfig
+
+  # Merge lib64 with lib
+  if [[ -d ./opt/lib64 ]]; then
+    find ./opt/lib64/ -mindepth 1 -exec mv -t ./opt/lib/ {} +
+    rm -rf ./opt/lib64
+  fi
+
   echo "[~] Done!"
 }
 
