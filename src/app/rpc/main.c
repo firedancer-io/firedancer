@@ -382,6 +382,125 @@ void fd_webserver_method_generic(struct fd_web_replier* replier, struct json_val
   fd_textstream_append(ts, DOC, strlen(DOC));
   fd_web_replier_done(replier);
 }
+struct txn_map_key {
+    fd_ed25519_sig_t v;
+};
+struct txn_map_elem {
+    struct txn_map_key key;
+    ulong slot;
+    ulong blockoff;
+    ulong next;
+};
+typedef struct txn_map_elem txn_map_elem_t;
+
+ulong fd_ed25519_quickhash(const struct txn_map_key * key, ulong seed) {
+  const ulong* x = (const ulong*)key;
+  for (ulong i = 0; i < sizeof(struct txn_map_key)/sizeof(ulong); ++i)
+    seed ^= x[i];
+  return seed;
+}
+
+void fd_ed25519_quickcpy(struct txn_map_key * keydest, const struct txn_map_key * keysrc) {
+  ulong* x = (ulong*)keydest;
+  const ulong* y = (const ulong*)keysrc;
+  for (ulong i = 0; i < sizeof(struct txn_map_key)/sizeof(ulong); ++i)
+    x[i] = y[i];
+}
+
+int fd_ed25519_quickeq(const struct txn_map_key * key1, const struct txn_map_key * key2) {
+  const ulong* x = (const ulong*)key1;
+  const ulong* y = (const ulong*)key2;
+  for (ulong i = 0; i < sizeof(struct txn_map_key)/sizeof(ulong); ++i)
+    if (x[i] != y[i]) return 0;
+  return 1;
+}
+
+#define MAP_KEY_T struct txn_map_key
+#define MAP_NAME  txn_map_elem
+#define MAP_T     txn_map_elem_t
+#define MAP_KEY_HASH(key,seed) fd_ed25519_quickhash(key, seed)
+#define MAP_KEY_COPY(keydest,keysrc) fd_ed25519_quickcpy(keydest, keysrc)
+#define MAP_KEY_EQ(k0,k1) fd_ed25519_quickeq(k0, k1)
+#include "../../util/tmpl/fd_map_giant.c"
+
+static txn_map_elem_t * txn_map = NULL;
+
+void prescan(void)  {
+  fd_funk_rec_key_t key = fd_runtime_block_meta_key(ULONG_MAX);
+  fd_funk_rec_t const * rec = fd_funk_rec_query( funk, NULL, &key );
+  if (rec == NULL)
+    FD_LOG_ERR(("missing meta record"));
+  fd_slot_meta_meta_t mm;
+  int err;
+  const void * val = fd_funk_val_cache( funk, rec, &err );
+  if (val == NULL)
+    FD_LOG_ERR(("corrupt meta record"));
+  fd_bincode_decode_ctx_t ctx2;
+  ctx2.data    = val;
+  ctx2.dataend = (uchar*)val + fd_funk_val_sz(rec);
+  ctx2.valloc  = fd_libc_alloc_virtual();
+  if ( fd_slot_meta_meta_decode( &mm, &ctx2 ) )
+    FD_LOG_ERR(("fd_slot_meta_meta_decode failed"));
+  FD_LOG_NOTICE(("scanning block %lu to %lu", mm.start_slot, mm.end_slot));
+
+  /* Estimate an upper bound for the number of transactions based on the number of blocks */
+  ulong key_max = 4000*(1 + mm.end_slot - mm.start_slot);
+  void* mem = fd_valloc_malloc(fd_libc_alloc_virtual(), txn_map_elem_align(), txn_map_elem_footprint(key_max));
+  txn_map = txn_map_elem_join(txn_map_elem_new(mem, key_max, 0));
+  
+  for (ulong slot = mm.start_slot; slot <= mm.end_slot; ++slot) {
+    fd_funk_rec_key_t recid = fd_runtime_block_key(slot);
+    rec = fd_funk_rec_query_global(funk, NULL, &recid);
+    if (rec == NULL)
+      continue;
+    int err;
+    const void * block = fd_funk_val_cache(funk, rec, &err);
+    if (block == NULL) {
+      FD_LOG_WARNING(("failed to load block for slot %lu", slot));
+      continue;
+    }
+    ulong blocklen = fd_funk_val_sz( rec );
+
+    /* Loop across batches */
+    ulong blockoff = 0;
+    while (blockoff < blocklen) {
+      if ( blockoff + sizeof(ulong) > blocklen )
+        FD_LOG_ERR(("premature end of block"));
+      ulong mcount = *(const ulong *)((const uchar *)block + blockoff);
+      blockoff += sizeof(ulong);
+
+      /* Loop across microblocks */
+      for (ulong mblk = 0; mblk < mcount; ++mblk) {
+        if ( blockoff + sizeof(fd_microblock_hdr_t) > blocklen )
+          FD_LOG_ERR(("premature end of block"));
+        fd_microblock_hdr_t * hdr = (fd_microblock_hdr_t *)((const uchar *)block + blockoff);
+        blockoff += sizeof(fd_microblock_hdr_t);
+
+        /* Loop across transactions */
+        for ( ulong txn_idx = 0; txn_idx < hdr->txn_cnt; txn_idx++ ) {
+          fd_txn_xray_result_t xray;
+          const uchar* raw = (const uchar *)block + blockoff;
+          ulong pay_sz = fd_txn_xray(raw, blocklen - blockoff, &xray);
+          if ( pay_sz == 0UL )
+            FD_LOG_ERR(("failed to parse transaction %lu in microblock %lu in slot %lu", txn_idx, mblk, slot));
+          
+          struct txn_map_key const * sigs = (struct txn_map_key const *)((ulong)raw + (ulong)xray.signature_off);
+          for ( ulong j = 0; j < xray.signature_cnt; j++ ) {
+            txn_map_elem_t * elem = txn_map_elem_insert( txn_map, sigs+j );
+            elem->slot = slot;
+            elem->blockoff = blockoff;
+          }
+          
+          blockoff += pay_sz;
+        }
+      }
+    }
+
+    if (blockoff != blocklen)
+      FD_LOG_ERR(("garbage at end of block"));
+  }
+  FD_LOG_NOTICE(("scanned %lu transactions", txn_map_elem_key_cnt( txn_map )));
+}
 
 // SIGINT signal handler
 volatile int stopflag = 0;
@@ -427,6 +546,8 @@ int main(int argc, char** argv)
     if ( fd_firedancer_banks_decode(&bank, &ctx ) )
       FD_LOG_ERR(("failed to read banks record"));
   }
+
+  prescan();
   
   signal(SIGINT, stop);
   signal(SIGPIPE, SIG_IGN);
