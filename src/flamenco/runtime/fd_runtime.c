@@ -22,7 +22,9 @@
 #endif
 
 void
-fd_runtime_init_bank_from_genesis( fd_global_ctx_t * global, fd_genesis_solana_t * genesis_block, uchar genesis_hash[FD_SHA256_HASH_SZ] ) {
+fd_runtime_init_bank_from_genesis( fd_global_ctx_t *     global,
+                                   fd_genesis_solana_t * genesis_block,
+                                   uchar                 genesis_hash[FD_SHA256_HASH_SZ] ) {
   global->bank.slot = 0;
 
   fd_memcpy(&global->bank.poh, genesis_hash, FD_SHA256_HASH_SZ);
@@ -58,6 +60,53 @@ fd_runtime_init_bank_from_genesis( fd_global_ctx_t * global, fd_genesis_solana_t
   elem->fee_calculator.lamports_per_signature = 0;
 
   global->signature_cnt = 0;
+
+  /* Derive epoch stakes */
+
+  ulong vote_acc_cnt = 0UL;
+  for( ulong i=0UL; i < genesis_block->accounts_len; i++ ) {
+    fd_pubkey_account_pair_t const * acc = &genesis_block->accounts[ i ];
+    if( 0==memcmp( acc->account.owner.key, global->solana_vote_program, sizeof(fd_pubkey_t) ) )
+      vote_acc_cnt++;
+  }
+
+  fd_vote_accounts_pair_t_mapnode_t * vacc_pool =
+    fd_vote_accounts_pair_t_map_alloc( fd_scratch_virtual(), vote_acc_cnt++ );
+  FD_TEST( vacc_pool );
+  fd_vote_accounts_pair_t_mapnode_t * vacc_root = NULL;
+
+  for( ulong i=0UL; i < genesis_block->accounts_len; i++ ) {
+    fd_pubkey_account_pair_t const * acc = &genesis_block->accounts[ i ];
+    if( 0!=memcmp( acc->account.owner.key, global->solana_vote_program, sizeof(fd_pubkey_t) ) )
+      continue;
+
+    fd_vote_accounts_pair_t_mapnode_t * node =
+      fd_vote_accounts_pair_t_map_acquire( vacc_pool );
+    FD_TEST( node );
+
+    memcpy( node->elem.key.key, acc->key.key, sizeof(fd_pubkey_t) );
+    node->elem.stake = acc->account.lamports;
+    node->elem.value = (fd_solana_account_t) {
+      .lamports   = acc->account.lamports,
+      .data_len   = acc->account.data_len,
+      .data       = fd_valloc_malloc( global->valloc, 1UL, acc->account.data_len ),
+      .owner      = acc->account.owner,
+      .executable = acc->account.executable,
+      .rent_epoch = acc->account.rent_epoch
+    };
+    fd_memcpy( node->elem.value.data, acc->account.data, acc->account.data_len );
+
+    fd_vote_accounts_pair_t_map_insert( vacc_pool, &vacc_root, node );
+
+    FD_LOG_INFO(( "Adding genesis vote account: key=%32J stake=%lu",
+                  node->elem.key.key,
+                  node->elem.stake ));
+  }
+
+  global->bank.epoch_stakes = (fd_vote_accounts_t) {
+    .vote_accounts_pool = vacc_pool,
+    .vote_accounts_root = vacc_root,
+  };
 }
 
 void
