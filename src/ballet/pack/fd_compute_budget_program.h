@@ -14,11 +14,6 @@
    coming from the transaction. */
 
 
-/* base58 decode of ComputeBudget111111111111111111111111111111 */
-static const uchar FD_COMPUTE_BUDGET_PROGRAM_ID[FD_TXN_ACCT_ADDR_SZ] = {
-  0x03,0x06,0x46,0x6f,0xe5,0x21,0x17,0x32,0xff,0xec,0xad,0xba,0x72,0xc3,0x9b,0xe7,
-  0xbc,0x8c,0xe5,0xbb,0xc5,0xf7,0x12,0x6b,0x2c,0x43,0x9b,0x3a,0x40,0x00,0x00,0x00
-};
 /* In general, compute budget instructions can occur at most once in a
    transaction.  If an instruction is duplicated, the transaction is malformed
    and fails.  However, there's an exception to this rule, which is that
@@ -32,6 +27,16 @@ static const uchar FD_COMPUTE_BUDGET_PROGRAM_ID[FD_TXN_ACCT_ADDR_SZ] = {
 #define FD_COMPUTE_BUDGET_PROGRAM_FLAG_SET_TOTAL_FEE      ((ushort)0x08) /* ... RequestUnitsDeprecated ... */
                                                                             /* ... so far? */
 
+
+/* NOTE: THE FOLLOWING CONSTANTS ARE CONSENSUS CRITICAL AND CANNOT BE
+   CHANGED WITHOUT COORDINATING WITH SOLANA LABS. */
+
+/* base58 decode of ComputeBudget111111111111111111111111111111 */
+static const uchar FD_COMPUTE_BUDGET_PROGRAM_ID[FD_TXN_ACCT_ADDR_SZ] = {
+  0x03,0x06,0x46,0x6f,0xe5,0x21,0x17,0x32,0xff,0xec,0xad,0xba,0x72,0xc3,0x9b,0xe7,
+  0xbc,0x8c,0xe5,0xbb,0xc5,0xf7,0x12,0x6b,0x2c,0x43,0x9b,0x3a,0x40,0x00,0x00,0x00
+};
+
 /* Any requests for larger heap frames must be a multiple of 1k or the
    transaction is malformed. */
 #define FD_COMPUTE_BUDGET_HEAP_FRAME_GRANULARITY          (1024UL)
@@ -41,6 +46,9 @@ static const uchar FD_COMPUTE_BUDGET_PROGRAM_ID[FD_TXN_ACCT_ADDR_SZ] = {
 
 #define FD_COMPUTE_BUDGET_DEFAULT_INSTR_CU_LIMIT         ( 200000UL)
 #define FD_COMPUTE_BUDGET_MAX_CU_LIMIT                   (1400000UL)
+
+/* ---- End consensus-critical constants */
+
 
 struct fd_compute_budget_program_private_state {
   /* flags: Which instructions have been parsed so far in this transaction? See

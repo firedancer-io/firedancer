@@ -12,6 +12,18 @@
 
 #define FD_PACK_ALIGN     (32UL)
 
+#define FD_PACK_MAX_GAP 64UL
+
+
+/* NOTE: THE FOLLOWING CONSTANTS ARE CONSENSUS CRITICAL AND CANNOT BE
+   CHANGED WITHOUT COORDINATING WITH SOLANA LABS. */
+#define FD_PACK_MAX_COST_PER_BLOCK      (48000000UL)
+#define FD_PACK_MAX_VOTE_COST_PER_BLOCK (36000000UL)
+#define FD_PACK_MAX_WRITE_COST_PER_ACCT (12000000UL)
+#define FD_PACK_FEE_PER_SIGNATURE           (5000UL) /* In lamports */
+
+/* ---- End consensus-critical constants */
+
 
 /* Is this structure useful in other parts of the codebase? Should this
    go somewhere else? */
@@ -24,7 +36,7 @@ struct fd_txn_p {
     uchar _[FD_TXN_MAX_SZ];
     fd_txn_t txn;
   }; */
-  /* Acces with TXN macro below */
+  /* Access with TXN macro below */
   uchar _[FD_TXN_MAX_SZ] __attribute__((aligned(alignof(fd_txn_t))));
 };
 typedef struct fd_txn_p fd_txn_p_t;
@@ -32,80 +44,45 @@ typedef struct fd_txn_p fd_txn_p_t;
 #define TXN(txn_p) ((fd_txn_t *)( (txn_p)->_ ))
 
 
-/* fd_pack_scheduled_txn_t is used as the return value for
-   fd_pack_schedule_next.  Normally, returning a struct is a bad idea,
-   but since it's 128b, it's returned in registers according to the ABI.
-   */
-struct fd_pack_scheduled_txn {
-  /* txn: A pointer into the pack object's txnmem to the transaction
-     that was scheduled.  See the note on fd_pack_schedule_next for the
-     lifetime of the pointer. */
-  fd_txn_p_t * txn;
-  /* bank: The bank chosen to execute this transaction.  In [0,
-     bank_cnt). */
-  uint         bank;
-  /* start: The "time" (measured in CUs from the start of the block)
-     when this transaction is estimated to start. */
-  uint         start;
-};
-typedef struct fd_pack_scheduled_txn fd_pack_scheduled_txn_t;
-
-
 /* Forward declare opaque handle */
 struct fd_pack_private;
 typedef struct fd_pack_private fd_pack_t;
 
-/* fd_pack's memory is split over two regions, the normal one, and
-   txnmem.  This is done to facilitate using a dcache as the txnmem,
-   which enables sending the results of scheduling operations to
-   consumers without a memcpy.
-
-   fd_pack_{,txnmem}_{align,footprint} return the alignment and
-   footprint in bytes required for the respective region of memory.
-
-   bank_cnt is the number of banks this tile will schedule transactions
-   for.
-
-   The pack structure guarantees that the memory it uses for a
-   transaction scheduled to a given bank will remain valid until at
-   least `bank_depth` additional transactions have been scheduled to
-   that bank.  Typically, this should be the same as the depth of the
-   mcache being used to communicate with the banking thread.
-   FIXME: This is not exactly true right now when bank_cnt>1, but can be
-   fixed without affecting the interface.
+/* fd_pack_{align,footprint} return the required alignment and
+   footprint in bytes for a region of memory to be used as a pack
+   object.
 
    pack_depth sets the maximum number of pending transactions that pack
-   stores and may eventually schedule. */
+   stores and may eventually schedule.
+
+   gap sets the number of microblocks between any two conflicting uses
+   of an account. For example, if gap==2, then if pack schedules a
+   transaction that writes to an account A, the following microblock
+   will not contain any transactions that read or write to A, but the
+   microblock after that one may.  gap must be in [1, FD_PACK_MAX_GAP].
+
+   max_txn_per_microblock sets the maximum number of transactions that
+   pack will schedule in a single microblock. */
 
 FD_FN_CONST static inline ulong fd_pack_align       ( void ) { return FD_PACK_ALIGN; }
-FD_FN_CONST static inline ulong fd_pack_txnmem_align( void ) { return 128UL;         }
-
-ulong /* FIXME: Not FD_FN_CONST because this logs errors (but probably shouldn't). */
-fd_pack_footprint( ulong bank_cnt,
-                   ulong bank_depth,
-                   ulong pack_depth );
 
 FD_FN_CONST ulong
-fd_pack_txnmem_footprint( ulong bank_cnt,
-                          ulong bank_depth,
-                          ulong pack_depth );
+fd_pack_footprint( ulong pack_depth,
+                   ulong gap,
+                   ulong max_txn_per_microblock );
+
 
 /* fd_pack_new formats a region of memory to be suitable for use as a
-   pack object.  mem and txnmem are non-NULL pointers to regions of
-   memory in the local address space with the respectively required
-   alignment and footprint.  est_tbl is a pointer to a locally joined
-   estimation table used to estimate CU usage for transactions.
-   bank_cnt, bank_depth, and pack_depth are as above. cu_limit sets the
-   maximum number of compute units worth of transactions that will be
-   scheduled to each bank in each block.  rng is a local join to a
-   random number generator used to perturb estimates.
+   pack object.  mem is a non-NULL pointer to a region of memory in the
+   local address space with the required alignment and footprint.
+   pack_depth, gap, and max_txn_per_microblock are as above.  rng is a
+   local join to a random number generator used to perturb estimates.
 
    Returns `mem` (which will be properly formatted as a pack object) on
    success and NULL on failure.  Logs details on failure.  The caller
    will not be joined to the pack object when this function returns. */
-void * fd_pack_new( void * mem, void * txnmem,
-    fd_est_tbl_t * est_tbl,
-    ulong bank_cnt, ulong bank_depth, ulong pack_depth, ulong cu_limit,
+void * fd_pack_new( void * mem,
+    ulong pack_depth, ulong gap, ulong max_txn_per_microblock,
     fd_rng_t * rng );
 
 /* fd_pack_join joins the caller to the pack object.  Every successful
@@ -113,19 +90,17 @@ void * fd_pack_new( void * mem, void * txnmem,
 fd_pack_t * fd_pack_join( void * mem );
 
 
-/* fd_pack_bank_cnt returns the value used for bank_cnt when the pack
-   object was created.  pack must be a valid local join of a pack object */
-
-FD_FN_PURE ulong
-fd_pack_bank_cnt( fd_pack_t * pack );
-
 /* fd_pack_avail_txn_cnt returns the number of transactions that this
    pack object has available to schedule but that have not been
    scheduled yet. pack must be a vaild local join.  The return value
    will be in [0, pack_depth). */
 
-FD_FN_PURE ulong
-fd_pack_avail_txn_cnt( fd_pack_t * pack );
+FD_FN_PURE ulong fd_pack_avail_txn_cnt( fd_pack_t * pack );
+
+/* fd_pack_gap: returns the value of gap provided in pack when the pack
+   object was initialized with fd_pack_new.  pack must be a valid local
+   join.  The result will be in [1, FD_PACK_MAX_GAP]. */
+FD_FN_PURE ulong fd_pack_gap( fd_pack_t * pack );
 
 /* fd_pack_insert_txn_{init,fini,cancel} execute the process of
    inserting a new transaction into the pool of available transactions
@@ -154,41 +129,42 @@ void         fd_pack_insert_txn_fini  ( fd_pack_t * pack, fd_txn_p_t * txn );
 void         fd_pack_insert_txn_cancel( fd_pack_t * pack, fd_txn_p_t * txn );
 
 
-/* fd_pack_schedule_next schedules a transaction to a bank.  pack must
-   be a local join of a pack object.  On success, returns the scheduled
-   transaction, which is in txnmem, along with a little metadata.  The
-   pointer  stored in the txn field of the return value is valid until
-   at least bank_depth more transactions have been scheduled to the same
-   bank.
+/* fd_pack_schedule_next_microblock schedules transactions to form a
+   microblock, which is a set of non-conflicting transactions.
 
-   On failure, the txn field of the return value is NULL.  This
-   typically happens if the pack object has no more transactions, but
-   can also happen if banking threads need to stall. */
-fd_pack_scheduled_txn_t fd_pack_schedule_next( fd_pack_t * pack );
+   pack must be a local join of a pack object.  Transactions part of the
+   scheduled microblock are copied to out in no particular order.  The
+   cumulative cost of these transactions will not excede total_cus, and
+   the number of transactions will not excede the value of
+   max_txn_per_microblock given in fd_pack_new.
+
+   The block will not contain more than
+   vote_fraction*max_txn_per_microblock votes, and votes in total will
+   not consume more than vote_fraction*total_cus of the microblock.
+
+   Returns the number of transactions in the scheduled microblock.  The
+   return value may be 0 if there are no eligible transactions at the
+   moment. */
+
+ulong fd_pack_schedule_next_microblock( fd_pack_t * pack, ulong total_cus, float vote_fraction, fd_txn_p_t * out );
+
+/* fd_pack_delete_txn removes a transaction (identified by its first
+   signature) from the pool of available transactions.  Returns 1 if the
+   transaction was found (and then removed) and 0 if not. */
+int fd_pack_delete_transaction( fd_pack_t * pack, fd_ed25519_sig_t const * sig0 );
+
+/* fd_pack_end_block resets some state to prepare for the next block.
+   Specifically, the per-block limits are cleared and transactions in
+   the microblocks scheduled after the call to this function are allowed
+   to conflict with transactions in microblocks scheduled before the
+   call to this function, even within gap microblocks. */
+void fd_pack_end_block( fd_pack_t * pack );
 
 
-
-/* fd_pack_drain_block returns transactions that were scheduled but
-   deferred and never returned from schedule_next.  Prior to calling
-   pack_clear, this should be called until it returns with a NULL txn
-   field.  Otherwise, transactions may be dropped.  Once you call
-   pack_drain, you should not call schedule_next until clearing to avoid
-   transactions coming out of order.
-
-   Summarizing,
-      * insert and schedule transactions
-      * drain the block until it returns null
-      * clear
-      * repeat for the next block
-   */
-fd_pack_scheduled_txn_t fd_pack_drain_block( fd_pack_t * pack );
-
-/* fd_pack_clear resets some associated with this pack object.  If
-   full_reset is 0, it only resets its knowledge of accounts that may be
-   in use on each bank.  If full_reset is non-zero, then it also clears
-   all pending transactions from its pool of available transactions.
-   pack must be a valid local join. */
-void fd_pack_clear( fd_pack_t * pack, int full_reset );
+/* fd_pack_clear_all resets the state associated with this pack object.
+   All pending transactions are removed from the pool of available
+   transactions and all limits are reset. */
+void fd_pack_clear_all( fd_pack_t * pack );
 
 
 /* fd_pack_leave leaves a local join of a pack object.  Returns pack.

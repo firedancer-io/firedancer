@@ -70,19 +70,21 @@ typedef struct fd_pack_builtin_prog_cost fd_pack_builtin_prog_cost_t;
 #define ED25519_SV_PROG_ID      0x03,0x7d,0x46,0xd6,0x7c,0x93,0xfb,0xbe,0x12,0xf9,0x42,0x8f,0x83,0x8d,0x40,0xff, \
                                 0x05,0x70,0x74,0x49,0x27,0xf4,0x8a,0x64,0xfc,0xca,0x70,0x44,0x80,0x00,0x00,0x00
 
+#define VOTE_PROG_COST 2100UL
+
 static const fd_pack_builtin_prog_cost_t fd_pack_builtin_table[16] = {
-  ADD_PROG( STAKE_PROG_ID,            750UL ),
-  ADD_PROG( CONFIG_PROG_ID,           450UL ),
-  ADD_PROG( VOTE_PROG_ID,            2100UL ),
-  ADD_PROG( SYS_PROG_ID,              150UL ),
-  ADD_PROG( COMPUTE_BUDGET_PROG_ID,   150UL ),
-  ADD_PROG( ADDR_LUT_PROG_ID,         750UL ),
-  ADD_PROG( BPF_UPGRADEABLE_PROG_ID, 2370UL ),
-  ADD_PROG( BPF_LOADER_1_PROG_ID,    1140UL ),
-  ADD_PROG( BPF_LOADER_2_PROG_ID,     570UL ),
-  ADD_PROG( LOADER_V4_PROG_ID,       2000UL ),
-  ADD_PROG( KECCAK_SECP_PROG_ID,      720UL ),
-  ADD_PROG( ED25519_SV_PROG_ID,       720UL )
+  ADD_PROG( STAKE_PROG_ID,                    750UL ),
+  ADD_PROG( CONFIG_PROG_ID,                   450UL ),
+  ADD_PROG( VOTE_PROG_ID,            VOTE_PROG_COST ),
+  ADD_PROG( SYS_PROG_ID,                      150UL ),
+  ADD_PROG( COMPUTE_BUDGET_PROG_ID,           150UL ),
+  ADD_PROG( ADDR_LUT_PROG_ID,                 750UL ),
+  ADD_PROG( BPF_UPGRADEABLE_PROG_ID,         2370UL ),
+  ADD_PROG( BPF_LOADER_1_PROG_ID,            1140UL ),
+  ADD_PROG( BPF_LOADER_2_PROG_ID,             570UL ),
+  ADD_PROG( LOADER_V4_PROG_ID,               2000UL ),
+  ADD_PROG( KECCAK_SECP_PROG_ID,              720UL ),
+  ADD_PROG( ED25519_SV_PROG_ID,               720UL )
 };
 
 
@@ -114,18 +116,33 @@ static const fd_pack_builtin_prog_cost_t fd_pack_builtin_table[16] = {
    transaction with cost this high can't fit in a block, so will never
    make it on chain, but that's not the job of this part of the code to
    know about. */
-#define FD_PACK_MAX_COST (156981760UL)
-FD_STATIC_ASSERT( FD_PACK_MAX_COST>= (
+#define FD_PACK_MAX_TXN_COST (156981760UL)
+FD_STATIC_ASSERT( FD_PACK_MAX_TXN_COST>= (
       ((ulong)FD_TXN_ACCT_ADDR_MAX*(720UL+300UL)) + /* writable signer are the most expensive */
       ((ulong)FD_TXN_INSTR_MAX*2370UL) + /* the most expensive built-in */
       (FD_TPU_MTU/INV_COST_PER_INSTR_DATA_BYTE) +
       (ulong)FD_COMPUTE_BUDGET_MAX_CU_LIMIT), fd_pack_max_cost );
-FD_STATIC_ASSERT( FD_PACK_MAX_COST < (ulong)UINT_MAX, fd_pack_max_cost );
+FD_STATIC_ASSERT( FD_PACK_MAX_TXN_COST < (ulong)UINT_MAX, fd_pack_max_cost );
 
+/* Every transaction has at least a fee payer, a writable signer. */
+#define FD_PACK_MIN_TXN_COST (COST_PER_SIGNATURE+COST_PER_WRITABLE_ACCT)
+
+/* A typical vote transaction has the authorized voter (writable
+   signer), the vote account (writable non-signer), clock sysvar, slot
+   hashes sysvar (both readonly), and the vote program (readonly).  Then
+   it has one instruction a built-in to the vote program, which is
+   typically 61 bytes (1 slot) or 69 bytes (2 slot) long.  The mean over
+   1000 slots of vote transactions is 69.3 bytes. */
+static const ulong FD_PACK_TYPICAL_VOTE_COST = ( COST_PER_SIGNATURE                +
+                                                 2UL*COST_PER_WRITABLE_ACCT        +
+                                                 69UL/INV_COST_PER_INSTR_DATA_BYTE +
+                                                 VOTE_PROG_COST );
+
+#undef VOTE_PROG_COST
 
 /* Computes the total cost for the specified transaction and whether the
    transaction is a Simple Vote transaction.  On success, returns the
-   cost, which is in [1020, TODO) and sets the value pointed to by
+   cost, which is in [1020, FD_PACK_MAX_COST] and sets the value pointed to by
    is_simple_vote to nonzero/zero depending on if it is a simple vote
    transaction.  On failure, returns 0 and does not modify the value
    pointed to by is_simple_vote. */
