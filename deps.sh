@@ -119,7 +119,6 @@ fetch () {
   checkout_repo openssl   https://github.com/quictls/openssl        "openssl-3.0.9-quic1"
   checkout_repo rocksdb   https://github.com/facebook/rocksdb       "v7.10.2"
   checkout_repo secp256k1 https://github.com/bitcoin-core/secp256k1 "v0.3.2"
-  checkout_repo nanopb    https://github.com/nanopb/nanopb          "0.4.7"
   checkout_repo snappy    https://github.com/google/snappy          "1.1.10"
 
   mkdir -pv ./opt/gnuweb
@@ -468,26 +467,6 @@ install_libmicrohttpd () {
   echo "[+] Successfully installed libmicrohttpd"
 }
 
-install_nanopb () {
-  cd ./opt/git/nanopb
-  mkdir -p build
-  cd build
-  cmake .. \
-    -G"Unix Makefiles" \
-    -DCMAKE_INSTALL_PREFIX:PATH="$PREFIX" \
-    -DCMAKE_INSTALL_LIBDIR="lib" \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DBUILD_SHARED_LIBS=OFF \
-    -DBUILD_STATIC_LIBS=ON \
-    -Dnanopb_BUILD_RUNTIME=ON \
-    -Dnanopb_BUILD_GENERATOR=OFF \
-    -DCMAKE_C_FLAGS=-DPB_ENABLE_MALLOC
-
-  make -j
-  make install
-  echo "[+] Successfully installed nanopb"
-}
-
 install_snappy () {
   cd ./opt/git/snappy
 
@@ -524,7 +503,6 @@ install () {
   ( install_rocksdb   )
   ( install_openssl   )
   ( install_libmicrohttpd )
-  ( install_nanopb    )
 
   # Remove cmake and pkgconfig files, so we don't accidentally
   # depend on them.
