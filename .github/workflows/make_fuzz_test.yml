@@ -6,9 +6,6 @@ on:
 jobs:
   make-fuzz-test:
     runs-on: [self-hosted, Linux, X64]
-    defaults:
-      run:
-        shell: sudo bash --noprofile --norc -eo pipefail -c "set -ex; source /home/runner/firedancer-opts/activate-opt && chmod +x {0} && {0}"
     steps:
       - uses: actions/checkout@v3
 

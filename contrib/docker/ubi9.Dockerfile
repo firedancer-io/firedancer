@@ -29,7 +29,7 @@ RUN dnf install -y \
 # Fetch and build source dependencies
 
 WORKDIR /firedancer
-COPY deps.sh activate-opt ./
+COPY deps.sh ./
 RUN scl run gcc-toolset-12 -- ./deps.sh install
 
 # Build source tree
@@ -37,8 +37,7 @@ RUN scl run gcc-toolset-12 -- ./deps.sh install
 COPY config ./config
 COPY src ./src
 COPY Makefile ./
-RUN source ./activate-opt \
- && scl run gcc-toolset-12 -- make -j all MACHINE=linux_gcc_x86_64 --output-sync=target
+RUN scl run gcc-toolset-12 -- make -j all --output-sync=target
 
 # Set up release container
 
