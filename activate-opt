@@ -1,7 +1,0 @@
-#!/bin/bash
-
-# Set pkg-config path to source libraries from ./opt
-export PKG_CONFIG_LIBDIR=""
-# Avoid masking return values -> https://www.shellcheck.net/wiki/SC2155
-PKG_CONFIG_PATH="$(pwd)/opt/lib/pkgconfig:$(pwd)/opt/lib64/pkgconfig"
-export PKG_CONFIG_PATH

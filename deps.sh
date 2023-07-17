@@ -6,9 +6,7 @@ set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
 REPO_ROOT="$(pwd)"
 
-# Fix pkg-config path and environment
-# shellcheck source=./activate-opt
-source activate-opt
+set -euo pipefail
 
 # Load OS information
 OS="$(uname -s)"
@@ -147,7 +145,7 @@ check_fedora_pkgs () {
 }
 
 check_debian_pkgs () {
-  local REQUIRED_DEBS=( perl autoconf gettext automake autopoint flex bison build-essential pkg-config gcc-multilib )
+  local REQUIRED_DEBS=( perl autoconf gettext automake autopoint flex bison build-essential gcc-multilib )
 
   echo "[~] Checking for required DEB packages"
 
@@ -180,7 +178,7 @@ check_debian_pkgs () {
 }
 
 check_alpine_pkgs () {
-  local REQUIRED_APKS=( perl autoconf gettext automake flex bison build-base pkgconf )
+  local REQUIRED_APKS=( perl autoconf gettext automake flex bison build-base )
 
   echo "[~] Checking for required APK packages"
 
@@ -213,7 +211,7 @@ check_alpine_pkgs () {
 }
 
 check_macos_pkgs () {
-  local REQUIRED_FORMULAE=( perl autoconf gettext automake flex bison pkg-config )
+  local REQUIRED_FORMULAE=( perl autoconf gettext automake flex bison )
 
   echo "[~] Checking for required brew formulae"
 
@@ -267,11 +265,6 @@ check () {
 }
 
 install_zlib () {
-  if pkg-config --exists zlib; then
-    echo "[~] zlib already installed at $(pkg-config --path zlib), skipping installation"
-    return 0
-  fi
-
   cd ./opt/git/zlib
 
   echo "[+] Configuring zlib"
@@ -289,64 +282,22 @@ install_zlib () {
 }
 
 install_bzip2 () {
-  if pkg-config --exists bzip2; then
-    echo "[~] bzip2 already installed at $(pkg-config --path bzip2), skipping installation"
-    return 0
-  fi
-
   cd ./opt/git/bzip2
 
   echo "[+] Installing bzip2 to $PREFIX"
   "${MAKE[@]}" PREFIX="$PREFIX" install
-cat <<EOF > "$PREFIX/lib/pkgconfig/bzip2.pc"
-prefix=$PREFIX
-libdir=$PREFIX/lib
-includedir=$PREFIX/include
-
-Name: bzip2
-Description: bzip2
-Version: $(git describe --tags --abbrev=0)
-Libs: -L\${libdir} -lbz2
-Cflags: -I\${includedir}
-EOF
   echo "[+] Successfully installed bzip2"
 }
 
 install_zstd () {
-  if pkg-config --exists libzstd; then
-    echo "[~] zstd already installed at $(pkg-config --path libzstd), skipping installation"
-    return 0
-  fi
-
   cd ./opt/git/zstd/lib
 
   echo "[+] Installing zstd to $PREFIX"
   "${MAKE[@]}" DESTDIR="$PREFIX" PREFIX="" install-pc install-static install-includes
   echo "[+] Successfully installed zstd"
-
-cat <<EOF > "$PREFIX/lib/pkgconfig/libzstd.pc"
-prefix=
-exec_prefix=\${prefix}
-includedir=$PREFIX/include
-libdir=$PREFIX/lib
-
-Name: zstd
-Description: fast lossless compression algorithm library
-URL: https://facebook.github.io/zstd/
-Version: 1.5.4
-Libs: \${libdir}/libzstd.a
-Libs.private: -pthread
-Cflags: -I\${includedir}
-EOF
-
 }
 
 install_secp256k1 () {
-  if pkg-config --exists secp256k1; then
-    echo "[~] secp256k1 already installed at $(pkg-config --path secp256k1), skipping installation"
-    return 0
-  fi
-
   cd ./opt/git/secp256k1
 
   echo "[+] Configuring secp256k1"
@@ -374,26 +325,10 @@ install_secp256k1 () {
 
   echo "[+] Installing secp256k1 to $PREFIX"
   make install
-  cat <<EOF > "$PREFIX/lib/pkgconfig/secp256k1.pc"
-prefix=$PREFIX
-libdir=$PREFIX/lib
-includedir=$PREFIX/include
-
-Name: secp256k1
-Description: secp256k1
-Version: $(git describe --tags --abbrev=0)
-Libs: -L\${libdir} -lsecp256k1
-Cflags: -I\${includedir}
-EOF
   echo "[+] Successfully installed secp256k1"
 }
 
 install_openssl () {
-  if pkg-config --exists openssl; then
-    echo "[~] openssl already installed at $(pkg-config --path openssl), skipping installation"
-    return 0
-  fi
-
   cd ./opt/git/openssl
 
   echo "[+] Configuring OpenSSL"
@@ -470,11 +405,6 @@ install_openssl () {
 }
 
 install_rocksdb () {
-  if pkg-config --exists rocksdb; then
-    echo "[~] RocksDB already installed at $(pkg-config --path rocksdb), skipping installation"
-    return 0
-  fi
-
   cd ./opt/git/rocksdb
   mkdir -p build
   cd build
@@ -519,9 +449,7 @@ install () {
   ( install_openssl   )
   #( install_rocksdb   )
 
-  echo "[~] Done! To wire up $(pwd)/opt with make, run:"
-  echo "    source activate-opt"
-  echo
+  echo "[~] Done!"
 }
 
 if [[ $# -eq 0 ]]; then

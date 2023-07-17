@@ -9,9 +9,6 @@ on:
 jobs:
   make-test:
     runs-on: [self-hosted, Linux, X64]
-    defaults:
-      run:
-        shell: sudo bash --noprofile --norc -eo pipefail -c "set -ex; source /home/runner/firedancer-opts/activate-opt && chmod +x {0} && {0}"
     steps:
       - uses: actions/checkout@v3
 
@@ -28,7 +25,7 @@ jobs:
     runs-on: [self-hosted, Linux, X64]
     defaults:
       run:
-        shell: sudo bash --noprofile --norc -eo pipefail -c "set -ex; export MACHINE=linux_clang_x86_64_asan; source /home/runner/firedancer-opts/activate-opt && chmod +x {0} && {0}"
+        shell: sudo bash --noprofile --norc -eo pipefail -c "set -ex; export MACHINE=linux_clang_x86_64_asan; chmod +x {0} && {0}"
     steps:
       - uses: actions/checkout@v3
 
@@ -40,7 +37,7 @@ jobs:
 
       - name: Run unit tests
         run: make -k -j4 --output-sync=target run-unit-test
-  
+
   make-test-ubsan:
     runs-on: [self-hosted, Linux, X64]
     strategy:
@@ -48,7 +45,7 @@ jobs:
         compiler: [gcc, clang]
     defaults:
       run:
-        shell: sudo bash --noprofile --norc -eo pipefail -c "set -ex; export MACHINE=linux_${{ matrix.compiler }}_x86_64_ubsan; source /home/runner/firedancer-opts/activate-opt && chmod +x {0} && {0}"
+        shell: sudo bash --noprofile --norc -eo pipefail -c "set -ex; export MACHINE=linux_${{ matrix.compiler }}_x86_64_ubsan; chmod +x {0} && {0}"
     steps:
       - uses: actions/checkout@v3
 

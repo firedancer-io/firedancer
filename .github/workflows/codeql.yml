@@ -28,7 +28,7 @@ jobs:
         # Learn more about CodeQL language support at https://aka.ms/codeql-docs/language-support
     defaults:
       run:
-        shell: bash --noprofile --norc -eo pipefail -c "set -ex; export MACHINE=linux_clang_x86_64; source /home/runner/firedancer-opts/activate-opt && chmod +x {0} && {0}"
+        shell: bash --noprofile --norc -eo pipefail -c "set -ex; export MACHINE=linux_clang_x86_64; chmod +x {0} && {0}"
     steps:
     - name: Checkout repository
       uses: actions/checkout@v3
