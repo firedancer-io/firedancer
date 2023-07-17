@@ -7,7 +7,7 @@ CFLAGS:=-std=c17
 CXX:=g++
 CXXFLAGS:=-std=c++17
 LD:=g++
-LDFLAGS:=-lm -L./opt/lib -L./opt/lib64
+LDFLAGS:=-lm -L./opt/lib -L./opt/lib64 -Wl,-rpath=$(shell pwd)/opt/lib
 AR:=ar
 ARFLAGS:=rv
 RANLIB:=ranlib
