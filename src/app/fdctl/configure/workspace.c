@@ -95,7 +95,7 @@ static void xsk_aio( void * pod, char * fmt, ulong tx_depth, ulong batch_count, 
             fd_xsk_aio_new      ( shmem,    tx_depth, batch_count ) );
 }
 
-static void alloc( void * pod, char * fmt, ulong align, ulong sz, ... ) {
+FD_FN_UNUSED static void alloc( void * pod, char * fmt, ulong align, ulong sz, ... ) {
   INSERTER( sz, align, sz, 1 );
 }
 
@@ -271,12 +271,8 @@ init( config_t * const config ) {
         break;
       case wksp_pack:
         cnc   ( pod, "cnc" );
-        ulong1( pod, "bank-cnt",             config->tiles.pack.solana_labs_bank_thread_count );
-        ulong1( pod, "txnq-sz",              config->tiles.pack.max_pending_transactions );
-        ulong1( pod, "cu-limit",             config->tiles.pack.solana_labs_bank_thread_compute_units_executed_per_second );
-        ulong1( pod, "cu-est-tbl.bin-cnt",   4096 );
-        ulong1( pod, "cu-est-tbl.footprint", 32 + 32 * 4096 );
-        alloc ( pod, "cu-est-tbl.memory",    32, 32 + 32 * 4096 );
+        ulong1( pod, "min-gap", config->layout.bank_tile_count - 1UL        );
+        ulong1( pod, "depth",   config->tiles.pack.max_pending_transactions );
         break;
     }
 

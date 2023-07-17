@@ -7,6 +7,84 @@
 
 #define FD_PACK_TAG 0x17ac1C711eUL
 
+#define MAX_MICROBLOCK_SZ USHORT_MAX /* in bytes.  Defined this way to
+                                        use the size field of mcache */
+
+/* Helper struct containing all the state associated with one output */
+typedef struct {
+  fd_frag_meta_t * out_mcache;
+  uchar          * out_dcache;
+  ulong          * out_fseq;
+  ulong          * out_sync;
+  ulong            out_seq;
+  ulong            out_chunk0;
+  ulong            out_wmark;
+  ulong            out_chunk;
+  ulong            out_cr_avail;
+  ulong            out_depth;
+  fd_fctl_t      * out_fctl;
+  uchar            _fctl_footprint[ FD_FCTL_FOOTPRINT( 1 ) ] __attribute__((aligned(FD_FCTL_ALIGN)));
+} out_state;
+
+
+#define FD_FRANK_PACK_MAX_OUT (16UL) /* About 1.5 kB on the stack */
+
+static void
+join_out( out_state * state,
+          uchar const * pod,
+          ulong         suffix ) {
+  char path[ 32 ];
+
+  FD_LOG_INFO(( "joining mcache%lu", suffix ));
+  snprintf( path, sizeof( path ), "mcache%lu", suffix );
+  fd_frag_meta_t * out_mcache = fd_mcache_join( fd_wksp_pod_map( pod, path ) );
+  if( FD_UNLIKELY( !out_mcache ) ) FD_LOG_ERR(( "fd_mcache_join failed" ));
+
+  FD_LOG_INFO(( "joining dcache%lu", suffix ));
+  snprintf( path, sizeof( path ), "dcache%lu", suffix );
+  uchar * out_dcache = fd_dcache_join( fd_wksp_pod_map( pod, path ) );
+  if( FD_UNLIKELY( !out_dcache ) ) FD_LOG_ERR(( "fd_dcache_join failed" ));
+
+  FD_LOG_INFO(( "joining fseq%lu", suffix ));
+  snprintf( path, sizeof( path ), "fseq%lu", suffix );
+  ulong * out_fseq = fd_fseq_join( fd_wksp_pod_map( pod, path) );
+  if( FD_UNLIKELY( !out_fseq ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
+
+  ulong * fseq_diag = (ulong *)fd_fseq_app_laddr( out_fseq );
+  if( FD_UNLIKELY( !fseq_diag ) ) FD_LOG_ERR(( "fd_cnc_app_laddr failed" ));
+
+  fd_wksp_t * wksp = fd_wksp_containing( out_dcache );
+
+  ulong * out_sync   = fd_mcache_seq_laddr( out_mcache );
+  ulong   out_seq    = fd_mcache_seq_query( out_sync   );
+  ulong   out_chunk0 = fd_dcache_compact_chunk0( wksp, out_dcache );
+  ulong   out_wmark  = fd_dcache_compact_wmark ( wksp, out_dcache, MAX_MICROBLOCK_SZ );
+  ulong   out_chunk  = out_chunk0;
+  ulong   out_cr_avail = 0UL;
+  ulong   out_depth = fd_mcache_depth( out_mcache );
+
+  fd_fctl_t * out_fctl = fd_fctl_cfg_done( fd_fctl_cfg_rx_add(
+                                      fd_fctl_join( fd_fctl_new( state->_fctl_footprint, 1UL ) ),
+                                      out_depth, out_fseq, &fseq_diag[ FD_FSEQ_DIAG_SLOW_CNT ] ),
+                                    1UL /*cr_burst*/, 0UL, 0UL, 0UL ); /* TODO: allow manual configuration of these? */
+
+  FD_LOG_INFO(( "using cr_burst %lu, cr_max %lu, cr_resume %lu, cr_refill %lu",
+        fd_fctl_cr_burst( out_fctl ), fd_fctl_cr_max( out_fctl ), fd_fctl_cr_resume( out_fctl ), fd_fctl_cr_refill( out_fctl ) ));
+
+  state->out_mcache   =  out_mcache;
+  state->out_dcache   =  out_dcache;
+  state->out_fseq     =  out_fseq;
+  state->out_sync     =  out_sync;
+  state->out_seq      =  out_seq;
+  state->out_chunk0   =  out_chunk0;
+  state->out_wmark    =  out_wmark;
+  state->out_chunk    =  out_chunk;
+  state->out_cr_avail =  out_cr_avail;
+  state->out_depth    =  out_depth;
+  state->out_fctl     =  out_fctl;
+}
+
+
 static void
 run( fd_frank_args_t * args ) {
   /* Join the IPC objects needed this tile instance */
@@ -51,51 +129,28 @@ run( fd_frank_args_t * args ) {
   ulong accum_ovrnp_cnt = 0UL;
   ulong accum_ovrnr_cnt = 0UL;
 
-  ulong cu_limit  = fd_pod_query_ulong( args->tile_pod, "cu-limit", 12000000U );
+  ulong gap = fd_pod_query_ulong( args->tile_pod, "min-gap", 0UL );
 
-  ulong bank_cnt = fd_pod_query_ulong( args->tile_pod, "bank-cnt", 0UL );
-  if( FD_UNLIKELY( !bank_cnt ) ) FD_LOG_ERR(( "pack.bank-cnt unset or set to zero" ));
+  ulong pack_depth = fd_pod_query_ulong( args->tile_pod, "depth", 0UL );
+  if( FD_UNLIKELY( !pack_depth ) ) FD_LOG_ERR(( "pack.depth unset or set to zero" ));
 
-  ulong txnq_sz = fd_pod_query_ulong( args->tile_pod, "txnq-sz", 0UL );
-  if( FD_UNLIKELY( !txnq_sz ) ) FD_LOG_ERR(( "pack.txnq-sz unset or set to zero" ));
+  /* Should these be allocated with alloca instead? */
+  out_state out[ FD_FRANK_PACK_MAX_OUT ];
 
-  uchar const * cu_est_pod = fd_pod_query_subpod( args->tile_pod, "cu-est-tbl" );
-  if( FD_UNLIKELY( !cu_est_pod ) ) FD_LOG_ERR(( "pack.cu-est-tbl unset" ));
+  /* FIXME: Plumb this through properly: */
+  ulong bank_cnt = fd_pod_cnt( args->out_pod ) / 3UL - 1UL; /* Skip bank 0 */
+  if( FD_UNLIKELY( bank_cnt>FD_FRANK_PACK_MAX_OUT ) ) FD_LOG_ERR(( "pack tile connects to too many banking tiles" ));
 
-  ulong bin_cnt    = fd_pod_query_ulong( cu_est_pod, "bin-cnt",     4096UL );
-  ulong hist_coeff = fd_pod_query_ulong( cu_est_pod, "history",     1000UL );
-  ulong default_cu = fd_pod_query_ulong( cu_est_pod, "default",   200000UL );
-  ulong footprint  = fd_pod_query_ulong( cu_est_pod, "footprint",      0UL );
+  /* Skip bank 0 */
+  for( ulong i=0UL; i<bank_cnt; i++ ) join_out( out+i, args->out_pod, i+1UL );
 
-  ulong footprint_rqd = fd_est_tbl_footprint( bin_cnt );
-  if( FD_UNLIKELY( footprint<footprint_rqd ) ) FD_LOG_ERR(( "pack.cu-est-tbl.memory too small. Needs %lu bytes", footprint_rqd ));
 
-  void * cu_est_mem = fd_wksp_pod_map( cu_est_pod, "memory" );
-  if( FD_UNLIKELY( !cu_est_mem ) ) FD_LOG_ERR(( "pack.cu-est-tbl.memory unset" ));
+  ulong max_txn_per_microblock = MAX_MICROBLOCK_SZ/sizeof(fd_txn_p_t);
 
-  fd_est_tbl_t * est_tbl = fd_est_tbl_join( fd_est_tbl_new( cu_est_mem, bin_cnt, hist_coeff, (uint)default_cu ) );
-  if( FD_UNLIKELY( !est_tbl ) ) FD_LOG_ERR(( "creating the CU estimation table failed" ));
+  ulong pack_footprint   = fd_pack_footprint( pack_depth, gap, max_txn_per_microblock );
 
-  FD_LOG_INFO(( "joining mcache%lu", args->tile_idx ));
-  char path[ 32 ];
-  snprintf( path, sizeof( path ), "mcache%lu", args->tile_idx );
-  fd_frag_meta_t * out_mcache = fd_mcache_join( fd_wksp_pod_map( args->out_pod, path ) );
-  if( FD_UNLIKELY( !out_mcache ) ) FD_LOG_ERR(( "fd_mcache_join failed" ));
-
-  FD_LOG_INFO(( "joining dcache%lu", args->tile_idx ));
-  snprintf( path, sizeof( path ), "dcache%lu", args->tile_idx );
-  uchar * out_dcache = fd_dcache_join( fd_wksp_pod_map( args->out_pod, path ) );
-  if( FD_UNLIKELY( !out_dcache ) ) FD_LOG_ERR(( "fd_dcache_join failed" ));
-  void * dcache_base = out_dcache;
-
-  ulong out_depth = fd_mcache_depth( out_mcache );
-
-  ulong pack_footprint   = fd_pack_footprint(        bank_cnt, out_depth, txnq_sz );
-  ulong txnmem_footprint = fd_pack_txnmem_footprint( bank_cnt, out_depth, txnq_sz );
-
-  if( FD_UNLIKELY( fd_dcache_data_sz( out_dcache )<txnmem_footprint ) )
-    FD_LOG_ERR(( "dcache too small. Data region must be at least %lu bytes. %lu %lu %lu", txnmem_footprint, bank_cnt, out_depth, txnq_sz ));
-
+  ulong cus_per_microblock = 1500000UL; /* 1.5 M cost units, enough for 1 max size transaction */
+  float vote_fraction = 0.75;
 
   /* Setup local objects used by this tile */
 
@@ -113,20 +168,15 @@ run( fd_frank_args_t * args ) {
   if( FD_UNLIKELY( !rng ) ) FD_LOG_ERR(( "fd_rng_join failed" ));
 
 
-  ulong pack_gaddr = fd_wksp_alloc( wksp, fd_pack_align(), pack_footprint, FD_PACK_TAG );
-  if( FD_UNLIKELY( !pack_gaddr ) ) FD_LOG_ERR(( "allocating memory for pack object failed" ));
-
-  void * pack_laddr = fd_wksp_laddr( wksp, pack_gaddr );
+  void * pack_laddr = fd_wksp_alloc_laddr( wksp, fd_pack_align(), pack_footprint, FD_PACK_TAG );
   if( FD_UNLIKELY( !pack_laddr ) ) FD_LOG_ERR(( "allocating memory for pack object failed" ));
 
-  fd_pack_t * pack = fd_pack_join( fd_pack_new( pack_laddr, out_dcache, est_tbl, bank_cnt, out_depth, txnq_sz, cu_limit, rng ) );
 
-  ulong * out_sync = fd_mcache_seq_laddr( out_mcache );
-  ulong   out_seq  = fd_mcache_seq_query( out_sync );
+  fd_pack_t * pack = fd_pack_join( fd_pack_new( pack_laddr, pack_depth, gap, max_txn_per_microblock, rng ) );
 
-  FD_LOG_INFO(( "packing blocks of %lu CUs with a max parallelism of %lu", cu_limit, bank_cnt ));
 
-  // const ulong lamports_per_signature = 5000UL;
+  FD_LOG_INFO(( "packing blocks of at most %lu transactions with a parallelism of %lu", max_txn_per_microblock, gap ));
+
   const ulong block_duration_ns      = 400UL*1000UL*1000UL; /* 400ms */
 
   long block_duration_ticks = (long)(args->tick_per_ns * (double)block_duration_ns);
@@ -144,18 +194,28 @@ run( fd_frank_args_t * args ) {
   long now            = fd_tickcount();
   long then           = now;            /* Do housekeeping on first iteration of run loop */
   long block_end      = now + block_duration_ticks;
-  long schedule_ready = now;
   for(;;) {
 
     /* Do housekeeping at a low rate in the background */
 
     if( FD_UNLIKELY( (now-then)>=0L ) ) {
 
-      /* Send synchronization info */
-      fd_mcache_seq_update( out_sync, out_seq );
-
       /* Send flow control credits */
       fd_fctl_rx_cr_return( fseq, seq );
+
+      /* TODO: It's not clear what the best way to do this is.  Should
+         we update them all in one housekeeping loop, or do like other
+         parts of the code and update a random one each housekeeping
+         loop? */
+      for( ulong i=0UL; i<bank_cnt; i++ ) {
+        out_state * o = out+i;
+
+        /* Send synchronization info */
+        fd_mcache_seq_update( o->out_sync, o->out_seq );
+
+        /* Receive flow control credits */
+        o->out_cr_avail = fd_fctl_tx_cr_update( o->out_fctl, o->out_cr_avail, o->out_seq );
+      }
 
       /* Send diagnostic info */
       fd_cnc_heartbeat( cnc, now );
@@ -183,33 +243,35 @@ run( fd_frank_args_t * args ) {
 
     /* Are we ready to end the block? */
     if( FD_UNLIKELY( (now-block_end)>=0L ) ) {
-      for( ulong i=0UL; i<bank_cnt; i++ ) {
-        fd_pack_scheduled_txn_t t = fd_pack_drain_block( pack );
-        if( t.txn ) {
-          ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
-          ulong chunk = fd_laddr_to_chunk( dcache_base, t.txn );
-          ulong sig = (((ulong)t.bank) << 32) | (ulong)t.start;
-          fd_mcache_publish( out_mcache, out_depth, out_seq, sig, chunk, sizeof(fd_txn_p_t), ctl, 0UL, tspub );
-        }
-        else break;
-      }
-      fd_pack_clear( pack, 0 );
+      fd_pack_end_block( pack );
       block_end += block_duration_ticks;
-      schedule_ready = now;
     }
 
-    /* Is it time to schedule the next transaction? */
-    /* FIXME: add flow control */
-    if( FD_LIKELY( !!fd_pack_avail_txn_cnt( pack ) ) & FD_LIKELY( (now-schedule_ready)>=0L ) ) {
-      fd_pack_scheduled_txn_t t = fd_pack_schedule_next( pack );
-      if( FD_LIKELY( t.txn ) ) {
-        ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
-        ulong chunk = fd_laddr_to_chunk( dcache_base, t.txn );
-        ulong sig = (((ulong)t.bank) << 32) | (ulong)t.start;
-        fd_mcache_publish( out_mcache, out_depth, out_seq, sig, chunk, sizeof(fd_txn_p_t), ctl, 0UL, tspub );
-        schedule_ready = block_end - block_duration_ticks + block_duration_ticks * (long)t.start / (long)cu_limit;
+    /* Is it time to schedule the next microblock? */
+    /* for each banking thread, if it has credits */
+    for( ulong i=0UL; i<bank_cnt; i++ ) {
+      out_state * o = out+i;
+      if( FD_LIKELY( o->out_cr_avail>0UL ) ) { /* optimize for the case we send a microblock */
+        void * microblock_dst = fd_chunk_to_laddr( wksp, o->out_chunk );
+        ulong schedule_cnt = fd_pack_schedule_next_microblock( pack, cus_per_microblock, vote_fraction, microblock_dst );
+        if( FD_LIKELY( schedule_cnt ) ) {
+          ulong tspub  = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
+          ulong chunk  = o->out_chunk;
+          ulong sig    = 0UL;
+          ulong msg_sz = schedule_cnt*sizeof(fd_txn_p_t);
+
+          fd_mcache_publish( o->out_mcache, o->out_depth, o->out_seq, sig, chunk, msg_sz, ctl, 0UL, tspub );
+
+          o->out_chunk = fd_dcache_compact_next( o->out_chunk, msg_sz, o->out_chunk0, o->out_wmark );
+          o->out_seq   = fd_seq_inc( o->out_seq, 1UL );
+          o->out_cr_avail--;
+        }
       }
     }
+    /* Normally, we have an "else, do housekeeping next iteration"
+       branch here, but because we're using extremely short queues, we
+       actually expect to spend a significant fraction of the time in
+       the "no transmit credits available" state.  */
 
 
     /* See if there are any transactions waiting to be packed */
