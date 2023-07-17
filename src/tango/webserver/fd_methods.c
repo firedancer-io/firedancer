@@ -27,8 +27,8 @@ void json_add_value(struct json_values* values, struct json_path* path, const vo
     return;
   }
 
-  // Get the new buffer size after we add the new data
-  ulong new_buf_sz = values->buf_sz + data_sz;
+  // Get the new buffer size after we add the new data (plus null terminator)
+  ulong new_buf_sz = values->buf_sz + data_sz + 1;
   new_buf_sz = ((new_buf_sz + 7UL) & ~7UL); // 8-byte align
   if (new_buf_sz > values->buf_alloc) {
     // Grow the allocation
@@ -52,6 +52,7 @@ void json_add_value(struct json_values* values, struct json_path* path, const vo
   ulong off = values->values[i].data_offset = values->buf_sz;
   values->values[i].data_sz = data_sz;
   fd_memcpy(values->buf + off, data, data_sz);
+  values->buf[off + data_sz] = '\0';
   values->buf_sz = new_buf_sz;
 }
 

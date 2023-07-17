@@ -1,6 +1,8 @@
 /****
 
-build/linux/gcc/x86_64/bin/fd_rpc --wksp giant_wksp --gaddr 0xc7ce180
+build/linux/gcc/x86_64/bin/fd_frank_ledger --wksp giant_wksp --reset true --cmd ingest --snapshotfile /home/jsiegel/mainnet-ledger/snapshot-179244882-2DyMb1qN8JuTijCjsW8w4G2tg1hWuAw2AopH7Bj9Qstu.tar.zst --rocksdb /home/jsiegel/mainnet-ledger/rocksdb --endslot 179249378 --backup /home/asiegel/mainnet_backup
+     
+build/linux/gcc/x86_64/bin/fd_rpc --wksp giant_wksp --gaddr 0x000000000d7ce580
 
 curl http://localhost:8899 -X POST -H 'content-type: application/json' --data '{"jsonrpc":"2.0", "id":1234, "method":"getAccountInfo", "params":["2cMzyuUE7VgDDVspERn8zo6dyrVsFgWi7G46QewbMEyc",{"encoding":"base58"}]}'
 
@@ -8,8 +10,9 @@ curl http://localhost:8899 -H 'content-type: application/json' --data '{"jsonrpc
 
 curl http://localhost:8899 -H 'content-type: application/json' --data '{"jsonrpc": "2.0","id":1,"method":"getBlock","params": [179248369,{"encoding": "json", "maxSupportedTransactionVersion":0, "transactionDetails":"full", "rewards":false}]}'
 
-curl https://try-rpc.mainnet.solana.blockdaemon.tech -X POST -H 'content-type: application/json' --data '{"jsonrpc":"2.0", "id":1, "method":"getBlock", "params":[179248369,{"maxSupportedTransactionVers
-ion":0}]}'
+curl https://try-rpc.mainnet.solana.blockdaemon.tech -X POST -H 'content-type: application/json' --data '{"jsonrpc":"2.0", "id":1, "method":"getBlock", "params":[179248369,{"maxSupportedTransactionVersion":0}]}'
+
+curl http://localhost:8899 -X POST -H "Content-Type: application/json" -d '{"jsonrpc": "2.0","id": 1,"method": "getTransaction","params": ["5uCzmkd9ymBN5vha4BPARWWNN9ebHC959XRAx7tdygomdjCzUY3J7u1zQ3XFmy1Z1DgE3KV1vx6mL8BpWwv8fzRU","json"]}'
 
 ****/
 
@@ -27,11 +30,55 @@ ion":0}]}'
 #include "keywords.h"
 #include "fd_block_to_json.h"
 
+#define API_VERSION "1.14.19"
+
 #define CRLF "\r\n"
 #define MATCH_STRING(_text_,_text_sz_,_str_) (_text_sz_ == sizeof(_str_)-1 && memcmp(_text_, _str_, sizeof(_str_)-1) == 0)
 
 static fd_funk_t* funk = NULL;
 static fd_firedancer_banks_t bank;
+
+struct txn_map_key {
+    fd_ed25519_sig_t v;
+};
+struct txn_map_elem {
+    struct txn_map_key key;
+    ulong slot;
+    ulong blockoff;
+    ulong next;
+};
+typedef struct txn_map_elem txn_map_elem_t;
+static txn_map_elem_t * txn_map = NULL;
+
+ulong fd_ed25519_quickhash(const struct txn_map_key * key, ulong seed) {
+  const ulong* x = (const ulong*)key;
+  for (ulong i = 0; i < sizeof(struct txn_map_key)/sizeof(ulong); ++i)
+    seed ^= x[i];
+  return seed;
+}
+
+void fd_ed25519_quickcpy(struct txn_map_key * keydest, const struct txn_map_key * keysrc) {
+  ulong* x = (ulong*)keydest;
+  const ulong* y = (const ulong*)keysrc;
+  for (ulong i = 0; i < sizeof(struct txn_map_key)/sizeof(ulong); ++i)
+    x[i] = y[i];
+}
+
+int fd_ed25519_quickeq(const struct txn_map_key * key1, const struct txn_map_key * key2) {
+  const ulong* x = (const ulong*)key1;
+  const ulong* y = (const ulong*)key2;
+  for (ulong i = 0; i < sizeof(struct txn_map_key)/sizeof(ulong); ++i)
+    if (x[i] != y[i]) return 0;
+  return 1;
+}
+
+#define MAP_KEY_T struct txn_map_key
+#define MAP_NAME  txn_map_elem
+#define MAP_T     txn_map_elem_t
+#define MAP_KEY_HASH(key,seed) fd_ed25519_quickhash(key, seed)
+#define MAP_KEY_COPY(keydest,keysrc) fd_ed25519_quickcpy(keydest, keysrc)
+#define MAP_KEY_EQ(k0,k1) fd_ed25519_quickeq(k0, k1)
+#include "../../util/tmpl/fd_map_giant.c"
 
 // Implementation of the "getAccountInfo" method
 int method_getAccountInfo(struct fd_web_replier* replier, struct json_values* values, long call_id) {
@@ -54,7 +101,7 @@ int method_getAccountInfo(struct fd_web_replier* replier, struct json_values* va
 
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
   if (rec == NULL) {
-    fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"1.14.19\",\"slot\":%lu},\"value\":null},\"id\":%lu}" CRLF,
+    fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" API_VERSION "\",\"slot\":%lu},\"value\":null},\"id\":%lu}" CRLF,
                           bank.slot, call_id);
     fd_web_replier_done(replier);
     return 0;
@@ -136,7 +183,7 @@ int method_getAccountInfo(struct fd_web_replier* replier, struct json_values* va
       val_sz = (ulong)len;
   }
 
-  fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"1.14.19\",\"slot\":%lu},\"value\":{\"data\":\"",
+  fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" API_VERSION "\",\"slot\":%lu},\"value\":{\"data\":\"",
                         bank.slot);
 
   if (val_sz) {
@@ -202,7 +249,7 @@ int method_getBalance(struct fd_web_replier* replier, struct json_values* values
   }
   fd_account_meta_t * metadata = (fd_account_meta_t *)val;
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
-  fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"1.14.19\",\"slot\":%lu},\"value\":%lu},\"id\":%lu}" CRLF,
+  fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" API_VERSION "\",\"slot\":%lu},\"value\":%lu},\"id\":%lu}" CRLF,
                         bank.slot, metadata->info.lamports, call_id);
   fd_web_replier_done(replier);
   return 0;
@@ -310,6 +357,85 @@ int method_getBlock(struct fd_web_replier* replier, struct json_values* values, 
   return 0;
 }
 
+// Implementation of the "getTransaction" method
+int method_getTransaction(struct fd_web_replier* replier, struct json_values* values, long call_id) {
+  static const uint PATH_SIG[3] = {
+    (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_PARAMS,
+    (JSON_TOKEN_LBRACKET<<16) | 0,
+    (JSON_TOKEN_STRING<<16)
+  };
+  static const uint PATH_ENCODING[3] = {
+    (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_PARAMS,
+    (JSON_TOKEN_LBRACKET<<16) | 1,
+    (JSON_TOKEN_STRING<<16)
+  };
+  
+  ulong sig_sz = 0;
+  const void* sig = json_get_value(values, PATH_SIG, 3, &sig_sz);
+  if (sig == NULL) {
+    fd_web_replier_error(replier, "getTransaction requires a signature as first parameter");
+    return 0;
+  }
+
+  ulong enc_str_sz = 0;
+  const void* enc_str = json_get_value(values, PATH_ENCODING, 3, &enc_str_sz);
+  enum fd_block_encoding enc;
+  if (enc_str == NULL || MATCH_STRING(enc_str, enc_str_sz, "json"))
+    enc = FD_BLOCK_ENC_JSON;
+  else if (MATCH_STRING(enc_str, enc_str_sz, "base58"))
+    enc = FD_BLOCK_ENC_BASE58;
+  else if (MATCH_STRING(enc_str, enc_str_sz, "base64"))
+    enc = FD_BLOCK_ENC_BASE64;
+  else if (MATCH_STRING(enc_str, enc_str_sz, "jsonParsed"))
+    enc = FD_BLOCK_ENC_JSON_PARSED;
+  else {
+    fd_web_replier_error(replier, "invalid data encoding %s", (const char*)enc_str);
+    return 0;
+  }
+
+  fd_textstream_t * ts = fd_web_replier_textstream(replier);
+
+  struct txn_map_key key;
+  if ( fd_base58_decode_64( sig, (uchar*)&key) == NULL ) {
+    fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":null,\"id\":%lu}" CRLF, call_id);
+    fd_web_replier_done(replier);
+    return 0;
+  }
+  txn_map_elem_t * elem = txn_map_elem_query( txn_map, &key, NULL );
+  if ( FD_UNLIKELY( NULL == elem ) ) {
+    fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":null,\"id\":%lu}" CRLF, call_id);
+    fd_web_replier_done(replier);
+    return 0;
+  }
+
+  fd_funk_rec_key_t recid = fd_runtime_block_key(elem->slot);
+  fd_funk_rec_t const * rec = fd_funk_rec_query_global(funk, NULL, &recid);
+  if (rec == NULL) {
+    fd_web_replier_error(replier, "failed to load block for slot %lu", elem->slot);
+    return 0;
+  }
+  int err;
+  void * val = fd_funk_val_cache(funk, rec, &err);
+  if (val == NULL ) {
+    fd_web_replier_error(replier, "failed to load block for slot %lu", elem->slot);
+    return 0;
+  }
+  ulong block_sz = fd_funk_val_sz(rec);
+
+  uchar txn_out[FD_TXN_MAX_SZ];
+  ulong pay_sz = 0;
+  const uchar* raw = (const uchar *)val + elem->blockoff;
+  ulong txn_sz = fd_txn_parse_core(raw, fd_ulong_min(block_sz - elem->blockoff, USHORT_MAX), txn_out, NULL, &pay_sz, 0);
+  if ( txn_sz == 0 || txn_sz > FD_TXN_MAX_SZ )
+    FD_LOG_ERR(("failed to parse transaction"));
+
+  fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" API_VERSION "\",\"slot\":%lu},\"slot\":%lu,", bank.slot, elem->slot);
+  fd_txn_to_json( ts, (fd_txn_t *)txn_out, raw, enc, 0, FD_BLOCK_DETAIL_FULL, 0 );
+  fd_textstream_sprintf(ts, "},\"id\":%lu}" CRLF, call_id);
+  fd_web_replier_done(replier);
+  return 0;
+}
+
 // Top level method dispatch function
 void fd_webserver_method_generic(struct fd_web_replier* replier, struct json_values* values) {
   static const uint PATH[2] = {
@@ -364,6 +490,10 @@ void fd_webserver_method_generic(struct fd_web_replier* replier, struct json_val
     if (!method_getBlock(replier, values, call_id))
       return;
     break;
+  case KEYW_RPCMETHOD_GETTRANSACTION:
+    if (!method_getTransaction(replier, values, call_id))
+      return;
+    break;
   default:
     fd_web_replier_error(replier, "unknown or unimplemented method %s", (const char*)arg);
     return;
@@ -382,49 +512,6 @@ void fd_webserver_method_generic(struct fd_web_replier* replier, struct json_val
   fd_textstream_append(ts, DOC, strlen(DOC));
   fd_web_replier_done(replier);
 }
-struct txn_map_key {
-    fd_ed25519_sig_t v;
-};
-struct txn_map_elem {
-    struct txn_map_key key;
-    ulong slot;
-    ulong blockoff;
-    ulong next;
-};
-typedef struct txn_map_elem txn_map_elem_t;
-
-ulong fd_ed25519_quickhash(const struct txn_map_key * key, ulong seed) {
-  const ulong* x = (const ulong*)key;
-  for (ulong i = 0; i < sizeof(struct txn_map_key)/sizeof(ulong); ++i)
-    seed ^= x[i];
-  return seed;
-}
-
-void fd_ed25519_quickcpy(struct txn_map_key * keydest, const struct txn_map_key * keysrc) {
-  ulong* x = (ulong*)keydest;
-  const ulong* y = (const ulong*)keysrc;
-  for (ulong i = 0; i < sizeof(struct txn_map_key)/sizeof(ulong); ++i)
-    x[i] = y[i];
-}
-
-int fd_ed25519_quickeq(const struct txn_map_key * key1, const struct txn_map_key * key2) {
-  const ulong* x = (const ulong*)key1;
-  const ulong* y = (const ulong*)key2;
-  for (ulong i = 0; i < sizeof(struct txn_map_key)/sizeof(ulong); ++i)
-    if (x[i] != y[i]) return 0;
-  return 1;
-}
-
-#define MAP_KEY_T struct txn_map_key
-#define MAP_NAME  txn_map_elem
-#define MAP_T     txn_map_elem_t
-#define MAP_KEY_HASH(key,seed) fd_ed25519_quickhash(key, seed)
-#define MAP_KEY_COPY(keydest,keysrc) fd_ed25519_quickcpy(keydest, keysrc)
-#define MAP_KEY_EQ(k0,k1) fd_ed25519_quickeq(k0, k1)
-#include "../../util/tmpl/fd_map_giant.c"
-
-static txn_map_elem_t * txn_map = NULL;
-
 void prescan(void)  {
   fd_funk_rec_key_t key = fd_runtime_block_meta_key(ULONG_MAX);
   fd_funk_rec_t const * rec = fd_funk_rec_query( funk, NULL, &key );
@@ -487,6 +574,10 @@ void prescan(void)  {
           struct txn_map_key const * sigs = (struct txn_map_key const *)((ulong)raw + (ulong)xray.signature_off);
           for ( ulong j = 0; j < xray.signature_cnt; j++ ) {
             txn_map_elem_t * elem = txn_map_elem_insert( txn_map, sigs+j );
+            if ( FD_UNLIKELY( NULL == elem ) ) {
+              FD_LOG_NOTICE(("scanned %lu transactions (reached max estimate)", txn_map_elem_key_cnt( txn_map )));
+              return;
+            }
             elem->slot = slot;
             elem->blockoff = blockoff;
           }
@@ -565,6 +656,9 @@ int main(int argc, char** argv)
   if (fd_webserver_stop(&ws))
     FD_LOG_ERR(("fd_webserver_stop failed"));
 
+  fd_valloc_free(fd_libc_alloc_virtual(), txn_map_elem_delete(txn_map_elem_leave(txn_map)));
+  txn_map = NULL;
+  
   {
     fd_bincode_destroy_ctx_t ctx;
     ctx.valloc = fd_libc_alloc_virtual();
