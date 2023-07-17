@@ -64,7 +64,7 @@ jobs:
           path: _site/coverage-report
 
       - name: Re-package coverage report
-        uses: actions/upload-pages-artifact@v1
+        uses: actions/upload-pages-artifact@v2
         with:
           path: _site
 
