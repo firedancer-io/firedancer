@@ -9,8 +9,7 @@ endif
 else
 
 CFLAGS += -DFD_HAS_LIBMICROHTTP=1
-CFLAGS += $(shell pkg-config --cflags-only-I libmicrohttpd)
-LDFLAGS += $(shell pkg-config --libs libmicrohttpd)
+LDFLAGS += -Wl,--push-state,-Bstatic -lmicrohttpd -Wl,--pop-state
 FD_HAS_LIBMICROHTTP:=1
 
 endif

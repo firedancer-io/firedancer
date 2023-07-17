@@ -43,7 +43,6 @@ the necessary `sudo` access.
   auditability, Firedancer tries to have minimal external dependencies
   and then only use external dependencies that are trivially installable
   on recent stock Linux distributions.  Current packages used include:
-    - pkg-config
     - xdp-tools
 
 - Configure the host for high performance by allowing users to lock

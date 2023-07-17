@@ -10,7 +10,7 @@ else
 
 # Use packaged libzstd if none manually installed
 CFLAGS += -DFD_HAS_ZSTD=1
-LDFLAGS += $(shell pkg-config --libs libzstd)
+LDFLAGS += -lzstd
 FD_HAS_ZSTD:=1
 
 endif
