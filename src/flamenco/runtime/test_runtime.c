@@ -240,6 +240,8 @@ replay( global_state_t * state,
       void * epoch_leaders_mem = fd_wksp_alloc_laddr( state->global->wksp, fd_epoch_leaders_align(), epoch_leaders_footprint, 1UL );
       state->global->leaders = fd_epoch_leaders_join( fd_epoch_leaders_new( epoch_leaders_mem, stake_weight_cnt, sched_cnt ) );
       FD_TEST( state->global->leaders );
+      /* Derive */
+      fd_epoch_leaders_derive( state->global->leaders, epoch_weights, epoch );
     }
   }
 
