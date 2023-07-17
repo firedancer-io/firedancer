@@ -988,7 +988,7 @@ struct fd_firedancer_banks {
   fd_rent_t rent;
   fd_pubkey_t collector_id;
   ulong collected;
-  fd_epoch_stakes_t epoch_stakes;
+  fd_vote_accounts_t epoch_stakes;
 };
 typedef struct fd_firedancer_banks fd_firedancer_banks_t;
 #define FD_FIREDANCER_BANKS_FOOTPRINT sizeof(fd_firedancer_banks_t)

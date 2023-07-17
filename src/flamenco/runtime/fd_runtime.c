@@ -1003,19 +1003,21 @@ int fd_global_import_solana_manifest(fd_global_ctx_t * global, fd_solana_manifes
       FD_LOG_ERR(( "Snapshot missing EpochStakes for epoch %lu", epoch ));
 
     /* TODO Hacky way to copy by serialize/deserialize :( */
-    uchar * buf = fd_scratch_alloc( 1UL, fd_epoch_stakes_size( stakes ) );
+    fd_vote_accounts_t const * vaccs = &stakes->stakes.vote_accounts;
+    ulong   bufsz = fd_vote_accounts_size( vaccs );
+    uchar * buf   = fd_scratch_alloc( 1UL, bufsz );
     fd_bincode_encode_ctx_t encode_ctx = {
       .data    = buf,
-      .dataend = (void *)( (ulong)buf + fd_epoch_stakes_size( stakes ) )
+      .dataend = (void *)( (ulong)buf + bufsz )
     };
-    FD_TEST( fd_epoch_stakes_encode( stakes, &encode_ctx )
+    FD_TEST( fd_vote_accounts_encode( vaccs, &encode_ctx )
              ==FD_BINCODE_SUCCESS );
     fd_bincode_decode_ctx_t decode_ctx = {
       .data    = buf,
-      .dataend = (void const *)( (ulong)buf + fd_epoch_stakes_size( stakes ) ),
+      .dataend = (void const *)( (ulong)buf + bufsz ),
       .valloc  = global->valloc,
     };
-    FD_TEST( fd_epoch_stakes_decode( &bank->epoch_stakes, &decode_ctx )
+    FD_TEST( fd_vote_accounts_decode( &bank->epoch_stakes, &decode_ctx )
              ==FD_BINCODE_SUCCESS );
   }
 

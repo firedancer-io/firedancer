@@ -214,8 +214,7 @@ replay( global_state_t * state,
   ulong last_epoch_slot = fd_epoch_slot0  ( &schedule, epoch+1UL );
 
   /* Find epoch stakes for current epoch */
-  fd_epoch_stakes_t  const * epoch_stakes = &state->global->bank.epoch_stakes;
-  fd_vote_accounts_t const * epoch_vaccs  = &epoch_stakes->stakes.vote_accounts;
+  fd_vote_accounts_t const * epoch_vaccs = &state->global->bank.epoch_stakes;
 
   ulong stake_weight_cnt;
   {
