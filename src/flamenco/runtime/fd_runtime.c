@@ -143,6 +143,13 @@ fd_runtime_init_program( fd_global_ctx_t * global ) {
 int
 fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_meta_t* m, const void* block, ulong blocklen ) {
   (void)m;
+
+  /* Get current leader */
+  ulong slot_rel;
+  fd_slot_to_epoch( &global->bank.epoch_schedule, m->slot, &slot_rel );
+  global->leader = fd_epoch_leaders_get( global->leaders, slot_rel/FD_EPOCH_SLOTS_PER_ROTATION );
+  FD_LOG_DEBUG(( "slot: %lu leader: %32J", m->slot, global->leader->key ));
+
   // TODO: move all these out to a fd_sysvar_update() call...
   fd_sysvar_clock_update( global);
   // It has to go into the current txn previous info but is not in slot 0
