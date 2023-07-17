@@ -1,2 +1,0 @@
-#!/bin/bash
-export LD_LIBRARY_PATH="$(pwd)/opt/lib:$(pwd)/opt/lib64:$LD_LIBRARY_PATH"
