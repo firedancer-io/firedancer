@@ -20,9 +20,6 @@ core.*.*
 opt/
 deps-bundle.tar.zst
 
-# Nix
-/result
-
 # Vimdiff
 *.orig
 
@@ -44,9 +41,14 @@ test-ledger*
 # Logs
 *.log
 
+# Clang
+.clangd
+compile_commands.json
+
 # Temp ... remove this
 actual.bin
 expected.bin
 before.bin
 v14-test-ledger
 testgaddr
+test_ledger_backup

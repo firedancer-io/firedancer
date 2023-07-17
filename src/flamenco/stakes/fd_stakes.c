@@ -12,7 +12,7 @@ struct fd_stake_weight_ele {
 };
 typedef struct fd_stake_weight_ele fd_stake_weight_ele_t;
 
-long
+FD_FN_PURE long
 fd_stake_weights_compare( fd_stake_weight_ele_t * e0,
                           fd_stake_weight_ele_t * e1) {
   return (long)memcmp( &e0->ele.pub, &e1->ele.pub, 32UL );

@@ -7,6 +7,7 @@
 #include "fd_features.h"
 #include "../../ballet/poh/fd_poh.h"
 #include "program/fd_builtin_programs.h"
+#include "../leaders/fd_leaders.h"
 
 #define FD_RUNTIME_EXECUTE_SUCCESS                               ( 0 )  /* Slot executed successfully */
 #define FD_RUNTIME_EXECUTE_GENERIC_ERR                          ( -1 ) /* The Slot execute returned an error */
@@ -68,6 +69,8 @@ struct __attribute__((aligned(FD_GLOBAL_CTX_ALIGN))) fd_global_ctx {
 
   uchar                      collector_set;
   uchar                      log_level;
+
+  fd_epoch_leaders_t *       leaders;  /* Current epoch only */
 };
 typedef struct fd_global_ctx fd_global_ctx_t;
 

@@ -232,7 +232,7 @@ fd_quic_create_context( int        is_server,
   EVP_PKEY * cert_pkey = fd_ed25519_pkey_from_private( cert_private_key );
   FD_TEST( cert_pkey );
 
-  X509 * cert = fd_x509_gen_solana_cert( cert_pkey, FD_IP4_ADDR( 127, 0, 0, 1 ) );
+  X509 * cert = fd_x509_gen_solana_cert( cert_pkey );
   FD_TEST( cert );
 
   FD_TEST( 1==SSL_CTX_use_certificate( ctx, cert ) );
