@@ -223,9 +223,6 @@ replay( global_state_t * state,
 
     /* Derive node stake weights for epoch vote accounts */
 
-    FD_LOG_NOTICE(( "vote_accounts_pool=%p vote_accounts_root=%p",
-                    epoch_vaccs->vote_accounts_pool,
-                    epoch_vaccs->vote_accounts_root ));
     ulong vote_acc_cnt = fd_vote_accounts_pair_t_map_size( epoch_vaccs->vote_accounts_pool, epoch_vaccs->vote_accounts_root );
     fd_stake_weight_t * epoch_weights = fd_scratch_alloc( alignof(fd_stake_weight_t), vote_acc_cnt * sizeof(fd_stake_weight_t) );
     if( FD_UNLIKELY( !epoch_weights ) ) FD_LOG_ERR(( "fd_scratch_alloc() failed" ));
