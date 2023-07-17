@@ -526,9 +526,7 @@ install () {
   ( install_libmicrohttpd )
   ( install_nanopb    )
 
-  echo "[~] Done! To wire up $(pwd)/opt with make, run:"
-  echo "    source activate-opt"
-  echo
+  echo "[~] Done!"
 }
 
 if [[ $# -eq 0 ]]; then
