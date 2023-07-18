@@ -12,6 +12,7 @@
 #include "../../util/fd_util.h"
 #include "../../util/archive/fd_tar.h"
 #include "../../flamenco/fd_flamenco.h"
+#include "../../flamenco/nanopb/pb_decode.h"
 #include "../../flamenco/runtime/fd_banks_solana.h"
 #include "../../flamenco/runtime/fd_hashes.h"
 #include "../../funk/fd_funk.h"
@@ -19,6 +20,7 @@
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_rocksdb.h"
 #include "../../ballet/base58/fd_base58.h"
+#include "../../flamenco/types/fd_solana_block.pb.h"
 
 static void usage(char const * progname) {
   fprintf(stderr, "USAGE: %s\n", progname);
@@ -319,6 +321,14 @@ ingest_txnstatus( fd_global_ctx_t * global,
           ulong status_sz;
           void * status = fd_rocksdb_get_txn_status_raw( rocks_db, m->slot, sigs, &status_sz );
           if ( status ) {
+            
+            fd_solblock_TransactionStatusMeta txn_status = {0};
+            pb_istream_t stream = pb_istream_from_buffer( status, status_sz );
+            if( FD_UNLIKELY( !pb_decode( &stream, fd_solblock_TransactionStatusMeta_fields, &txn_status ) ) ) {
+              FD_LOG_ERR(( "failed to decode txn status: %s", PB_GET_ERROR( &stream ) ));
+            }
+            pb_release( fd_solblock_TransactionStatusMeta_fields, &txn_status );
+
             for ( ulong i = 0; i < xray.signature_cnt; ++i) {
               fd_txnstatusidx_t idx;
               fd_memcpy(idx.sig, sigs + i, sizeof(fd_ed25519_sig_t));
