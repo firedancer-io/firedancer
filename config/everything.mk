@@ -82,38 +82,23 @@ check-lint:
 	#######################################################################
 	$(FIND) src/ -iname "*.c" -or -iname "*.h" | uncrustify -c lint.cfg -F - --check
 
-# If the first argument is "run"...
 ifeq (run,$(firstword $(MAKECMDGOALS)))
-	# use the rest as arguments for "run"
-	RUN_ARGS := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
-
-	# Set default RUN_ARGS if not already set
-	ifeq ($(RUN_ARGS),)
-		RUN_ARGS := --configure --sudo
-	endif
-
-	# ...and turn them into do-nothing targets
-	$(eval $(RUN_ARGS):;@:)
+  RUN_ARGS := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
+  ifeq ($(RUN_ARGS),)
+    RUN_ARGS := --configure --sudo
+  endif
+  $(eval $(RUN_ARGS):;@:)
 endif
-
-# Set default RUN_ARGS if not already set
-RUN_ARGS ?= --configure --sudo
 
 run: bin
 	$(OBJDIR)/bin/fdctl $(RUN_ARGS)
 
-# If the first argument is "monitor"...
 ifeq (monitor,$(firstword $(MAKECMDGOALS)))
-	# use the rest as arguments for "monitor"
-	MONITOR_ARGS := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
-
-  # Set default RUN_ARGS if not already set
-	ifeq ($(MONITOR_ARGS),)
-		MONITOR_ARGS := --sudo
-	endif
-
-	# ...and turn them into do-nothing targets
-	$(eval $(MONITOR_ARGS):;@:)
+  MONITOR_ARGS := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
+  ifeq ($(MONITOR_ARGS),)
+    MONITOR_ARGS := --sudo
+  endif
+  $(eval $(MONITOR_ARGS):;@:)
 endif
 
 monitor: bin
