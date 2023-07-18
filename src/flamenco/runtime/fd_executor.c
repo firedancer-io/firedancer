@@ -136,15 +136,6 @@ fd_execute_txn( fd_executor_t* executor, fd_txn_t * txn_descriptor, fd_rawtxn_b_
     return -1;
   }
 
-  // TODO:  HORRIBLE hack until we implement the schedule leader stuff...
-  //
-  // The VERY first txn (at slot 2) happens to be a vote made by the very first schedule leader..
-  if (!global->collector_set) {
-    //fd_base58_decode_32("Frog1Fks1AVN8ywFH3HTFeYojq6LQqoEPzgQFx2Kz5Ch", global->bank.collector_id.key);
-    fd_memcpy(global->bank.collector_id.key, tx_accs[0].key, sizeof(fd_pubkey_t));
-    global->collector_set = 1;
-  }
-
   if (FD_UNLIKELY(global->log_level > 2)) {
     FD_LOG_WARNING(( "fd_execute_txn: global->collected: %ld->%ld (%ld)", global->bank.collected, global->bank.collected + fee, fee));
     FD_LOG_WARNING(( "calling set_lamports to charge the fee %lu", fee));

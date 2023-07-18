@@ -4923,8 +4923,6 @@ int fd_firedancer_banks_decode(fd_firedancer_banks_t* self, fd_bincode_decode_ct
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_rent_decode(&self->rent, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_pubkey_decode(&self->collector_id, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
   err = fd_bincode_uint64_decode(&self->collected, ctx);
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   err = fd_vote_accounts_decode(&self->epoch_stakes, ctx);
@@ -4942,7 +4940,6 @@ void fd_firedancer_banks_new(fd_firedancer_banks_t* self) {
   fd_inflation_new(&self->inflation);
   fd_epoch_schedule_new(&self->epoch_schedule);
   fd_rent_new(&self->rent);
-  fd_pubkey_new(&self->collector_id);
   fd_vote_accounts_new(&self->epoch_stakes);
 }
 void fd_firedancer_banks_destroy(fd_firedancer_banks_t* self, fd_bincode_destroy_ctx_t * ctx) {
@@ -4955,7 +4952,6 @@ void fd_firedancer_banks_destroy(fd_firedancer_banks_t* self, fd_bincode_destroy
   fd_inflation_destroy(&self->inflation, ctx);
   fd_epoch_schedule_destroy(&self->epoch_schedule, ctx);
   fd_rent_destroy(&self->rent, ctx);
-  fd_pubkey_destroy(&self->collector_id, ctx);
   fd_vote_accounts_destroy(&self->epoch_stakes, ctx);
 }
 
@@ -4978,7 +4974,6 @@ void fd_firedancer_banks_walk(fd_firedancer_banks_t* self, fd_walk_fun_t fun, co
   fd_inflation_walk(&self->inflation, fun, "inflation", level + 1);
   fd_epoch_schedule_walk(&self->epoch_schedule, fun, "epoch_schedule", level + 1);
   fd_rent_walk(&self->rent, fun, "rent", level + 1);
-  fd_pubkey_walk(&self->collector_id, fun, "collector_id", level + 1);
   fun(&self->collected, "collected", 11, "ulong", level + 1);
   fd_vote_accounts_walk(&self->epoch_stakes, fun, "epoch_stakes", level + 1);
   fun(self, name, 33, "fd_firedancer_banks", --level);
@@ -5002,7 +4997,6 @@ ulong fd_firedancer_banks_size(fd_firedancer_banks_t const * self) {
   size += fd_inflation_size(&self->inflation);
   size += fd_epoch_schedule_size(&self->epoch_schedule);
   size += fd_rent_size(&self->rent);
-  size += fd_pubkey_size(&self->collector_id);
   size += sizeof(ulong);
   size += fd_vote_accounts_size(&self->epoch_stakes);
   return size;
@@ -5043,8 +5037,6 @@ int fd_firedancer_banks_encode(fd_firedancer_banks_t const * self, fd_bincode_en
   err = fd_epoch_schedule_encode(&self->epoch_schedule, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_rent_encode(&self->rent, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
-  err = fd_pubkey_encode(&self->collector_id, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_bincode_uint64_encode(&self->collected, ctx);
   if ( FD_UNLIKELY(err) ) return err;
