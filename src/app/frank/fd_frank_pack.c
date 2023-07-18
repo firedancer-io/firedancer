@@ -1,8 +1,6 @@
 #include "fd_frank.h"
 #include "../../ballet/pack/fd_pack.h"
 
-#if FD_HAS_FRANK
-
 #define FD_PACK_TAG 0x17ac1C711eUL
 
 int
@@ -15,25 +13,24 @@ fd_frank_pack_task( int     argc,
   /* Parse "command line" arguments */
 
   char const * pod_gaddr = argv[1];
-  char const * cfg_path  = FD_FRANK_CONFIGURATION_PREFIX;
 
   ulong tile_idx = fd_tile_idx();
   /* Load up the configuration for this frank instance */
 
-  FD_LOG_INFO(( "using configuration in pod %s at path %s", pod_gaddr, cfg_path ));
+  FD_LOG_INFO(( "using configuration in pod %s at path firedancer", pod_gaddr ));
   uchar const * pod     = fd_wksp_pod_attach( pod_gaddr );
-  uchar const * cfg_pod = fd_pod_query_subpod( pod, cfg_path );
+  uchar const * cfg_pod = fd_pod_query_subpod( pod, "firedancer" );
   if( FD_UNLIKELY( !cfg_pod ) ) FD_LOG_ERR(( "path not found" ));
 
   /* Join the IPC objects needed this tile instance */
 
-  FD_LOG_INFO(( "joining %s.pack.cnc", cfg_path ));
+  FD_LOG_INFO(( "joining firedancer.pack.cnc" ));
   fd_cnc_t * cnc = fd_cnc_join( fd_wksp_pod_map( cfg_pod, "pack.cnc" ) );
   if( FD_UNLIKELY( !cnc ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
   if( FD_UNLIKELY( fd_cnc_signal_query( cnc )!=FD_CNC_SIGNAL_BOOT ) ) FD_LOG_ERR(( "cnc not in boot state" ));
   /* FIXME: CNC DIAG REGION? */
 
-  FD_LOG_INFO(( "joining %s.dedup.mcache", cfg_path ));
+  FD_LOG_INFO(( "joining firedancer.dedup.mcache" ));
   fd_frag_meta_t const * mcache = fd_mcache_join( fd_wksp_pod_map( cfg_pod, "dedup.mcache" ) );
   if( FD_UNLIKELY( !mcache ) ) FD_LOG_ERR(( "fd_mcache_join failed" ));
   ulong         depth = fd_mcache_depth( mcache );
@@ -42,14 +39,14 @@ fd_frank_pack_task( int     argc,
 
   fd_frag_meta_t const * mline = mcache + fd_mcache_line_idx( seq, depth );
 
-  FD_LOG_INFO(( "joining %s.verify.*.dcache", cfg_path ));
+  FD_LOG_INFO(( "joining firedancer.verify.*.dcache" ));
   /* Note (chunks are referenced relative to the containing workspace
      currently and there is just one workspace).  (FIXME: VALIDATE
      COMMON WORKSPACE FOR THESE) */
   fd_wksp_t * wksp = fd_wksp_containing( mcache );
   if( FD_UNLIKELY( !wksp ) ) FD_LOG_ERR(( "fd_wksp_containing failed" ));
 
-  FD_LOG_INFO(( "joining %s.dedup.fseq", cfg_path ));
+  FD_LOG_INFO(( "joining firedancer.dedup.fseq" ));
   ulong * fseq = fd_fseq_join( fd_wksp_pod_map( cfg_pod, "dedup.fseq" ) );
   if( FD_UNLIKELY( !fseq ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
   /* Hook up to this pack's flow control diagnostics (will be stored in
@@ -92,11 +89,11 @@ fd_frank_pack_task( int     argc,
   fd_est_tbl_t * est_tbl = fd_est_tbl_join( fd_est_tbl_new( cu_est_mem, bin_cnt, hist_coeff, (uint)default_cu ) );
   if( FD_UNLIKELY( !est_tbl ) ) FD_LOG_ERR(( "creating the CU estimation table failed" ));
 
-  FD_LOG_INFO(( "joining %s.pack.out-mcache", cfg_path ));
+  FD_LOG_INFO(( "joining firedancer.pack.out-mcache" ));
   fd_frag_meta_t * out_mcache = fd_mcache_join( fd_wksp_pod_map( cfg_pod, "pack.out-mcache" ) );
   if( FD_UNLIKELY( !out_mcache ) ) FD_LOG_ERR(( "fd_mcache_join failed" ));
 
-  FD_LOG_INFO(( "joining %s.pack.out-dcache", cfg_path ));
+  FD_LOG_INFO(( "joining firedancer.pack.out-dcache" ));
   uchar * out_dcache = fd_dcache_join( fd_wksp_pod_map( cfg_pod, "pack.out-dcache" ) );
   if( FD_UNLIKELY( !out_dcache ) ) FD_LOG_ERR(( "fd_dcache_join failed" ));
   void * dcache_base = out_dcache;
@@ -113,14 +110,14 @@ fd_frank_pack_task( int     argc,
   /* Setup local objects used by this tile */
 
   long lazy = fd_pod_query_long( cfg_pod, "pack.lazy", 0L );
-  FD_LOG_INFO(( "configuring flow control (%s.pack.lazy %li)", cfg_path, lazy ));
+  FD_LOG_INFO(( "configuring flow control (firedancer.pack.lazy %li)", lazy ));
   if( lazy<=0L ) lazy = fd_tempo_lazy_default( depth );
   FD_LOG_INFO(( "using lazy %li ns", lazy ));
   ulong async_min = fd_tempo_async_min( lazy, 1UL /*event_cnt*/, (float)fd_tempo_tick_per_ns( NULL ) );
   if( FD_UNLIKELY( !async_min ) ) FD_LOG_ERR(( "bad lazy" ));
 
   uint seed = fd_pod_query_uint( cfg_pod, "pack.seed", (uint)fd_tile_id() ); /* use app tile_id as default */
-  FD_LOG_INFO(( "creating rng (%s.pack.seed %u)", cfg_path, seed ));
+  FD_LOG_INFO(( "creating rng (firedancer.pack.seed %u)", seed ));
   fd_rng_t _rng[ 1 ];
   fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, seed, 0UL ) );
   if( FD_UNLIKELY( !rng ) ) FD_LOG_ERR(( "fd_rng_join failed" ));
@@ -303,15 +300,3 @@ fd_frank_pack_task( int     argc,
   fd_wksp_pod_detach( pod );
   return 0;
 }
-
-#else
-
-int
-fd_frank_pack_task( int     argc,
-                    char ** argv ) {
-  (void)argc; (void)argv;
-  FD_LOG_WARNING(( "unsupported for this build target" ));
-  return 1;
-}
-
-#endif
