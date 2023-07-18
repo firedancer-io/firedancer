@@ -25,6 +25,7 @@ static void usage(char const * progname) {
   fprintf(stderr, " --cmd ingest --snapshotfile <file>               ingest solana snapshot file\n");
   fprintf(stderr, "              --incremental <file>                also ingest incremental snapshot file\n");
   fprintf(stderr, "              --rocksdb <file>                    also ingest a rocks database file\n");
+  fprintf(stderr, "                --txnstatus true                    also ingest transaction status from rocksdb\n");
   fprintf(stderr, "              --genesis <file>                    also ingest a genesis file\n");
   fprintf(stderr, " --cmd recover                                    recover in-memory database from persistence file\n");
   fprintf(stderr, " --cmd repersist                                  persist in-memory database to persistence file\n");
@@ -273,11 +274,92 @@ static void decompressBZ2(char const * fname, decompressCallback cb, void* arg) 
   close(fin);
 }
 
+struct fd_txnstatusidx {
+    fd_ed25519_sig_t sig;
+    ulong offset;
+    ulong status_sz;
+};
+typedef struct fd_txnstatusidx fd_txnstatusidx_t;
+
+#define VECT_NAME vec_fd_txnstatusidx
+#define VECT_ELEMENT fd_txnstatusidx_t
+#include "../../flamenco/runtime/fd_vector.h"
+
+void
+ingest_txnstatus( fd_rocksdb_t *    rocks_db,
+                  fd_slot_meta_t *  m,
+                  void const *      block,
+                  ulong             blocklen ) {
+
+  vec_fd_txnstatusidx_t vec_idx;
+  vec_fd_txnstatusidx_new(&vec_idx);
+  ulong datamax = 1UL<<20;
+  uchar* data = (uchar*)malloc(datamax);
+  ulong datalen = 0;
+  
+  /* Loop across batches */
+  ulong blockoff = 0;
+  while (blockoff < blocklen) {
+    if ( blockoff + sizeof(ulong) > blocklen )
+      FD_LOG_ERR(("premature end of block"));
+    ulong mcount = *(const ulong *)((const uchar *)block + blockoff);
+    blockoff += sizeof(ulong);
+
+    /* Loop across microblocks */
+    for (ulong mblk = 0; mblk < mcount; ++mblk) {
+      if ( blockoff + sizeof(fd_microblock_hdr_t) > blocklen )
+        FD_LOG_ERR(("premature end of block"));
+      fd_microblock_hdr_t * hdr = (fd_microblock_hdr_t *)((const uchar *)block + blockoff);
+      blockoff += sizeof(fd_microblock_hdr_t);
+
+      /* Loop across transactions */
+      for ( ulong txn_idx = 0; txn_idx < hdr->txn_cnt; txn_idx++ ) {
+        fd_txn_xray_result_t xray;
+        const uchar* raw = (const uchar *)block + blockoff;
+        ulong pay_sz = fd_txn_xray(raw, blocklen - blockoff, &xray);
+        if ( pay_sz == 0UL )
+          FD_LOG_ERR(("failed to parse transaction %lu in microblock %lu in slot %lu", txn_idx, mblk, m->slot));
+
+        if ( xray.signature_cnt ) {
+          fd_ed25519_sig_t const * sigs = (fd_ed25519_sig_t const *)((ulong)raw + (ulong)xray.signature_off);
+          ulong status_sz;
+          void * status = fd_rocksdb_get_txn_status_raw( rocks_db, m->slot, sigs, &status_sz );
+          if ( status ) {
+            for ( ulong i = 0; i < xray.signature_cnt; ++i) {
+              fd_txnstatusidx_t idx;
+              fd_memcpy(idx.sig, sigs + i, sizeof(fd_ed25519_sig_t));
+              idx.offset = datalen;
+              idx.status_sz = status_sz;
+              vec_fd_txnstatusidx_push(&vec_idx, idx);
+            }
+            
+            while (datalen + status_sz > datamax)
+              data = (uchar*)realloc(data, (datamax += 1UL<<20));
+            fd_memcpy(data + datalen, status, status_sz);
+            datalen += status_sz;
+          }
+        }
+        
+        blockoff += pay_sz;
+      }
+    }
+  }
+
+  if (blockoff != blocklen)
+    FD_LOG_ERR(("garbage at end of block"));
+
+  FD_LOG_NOTICE(("%lu offsets, %lu bytes", vec_idx.cnt, datalen));
+
+  vec_fd_txnstatusidx_destroy(&vec_idx);
+  free(data);
+}
+
 void
 ingest_rocksdb( fd_global_ctx_t * global,
                 char const *      file,
                 ulong             end_slot,
                 char const *      verifypoh,
+                char const *      txnstatus,
                 fd_tpool_t *      tpool,
                 ulong             max_workers ) {
 
@@ -390,6 +472,9 @@ ingest_rocksdb( fd_global_ctx_t * global,
       FD_LOG_DEBUG(( "slot=%lu bank_hash=%32J", slot, hash.hash ));
     }
 
+    if ( strcmp(txnstatus, "true") == 0 )
+      ingest_txnstatus( &rocks_db, &m, block, block_sz );
+
     // FD_LOG_NOTICE(("slot %lu: block size %lu", slot, block_sz));
     ++blk_cnt;
 
@@ -447,6 +532,7 @@ main( int     argc,
   char const * rocksdb_dir  = fd_env_strip_cmdline_cstr ( &argc, &argv, "--rocksdb",      NULL, NULL      );
   ulong        end_slot     = fd_env_strip_cmdline_ulong( &argc, &argv, "--endslot",      NULL, ULONG_MAX );
   char const * verifypoh    = fd_env_strip_cmdline_cstr ( &argc, &argv, "--verifypoh",    NULL, "false"   );
+  char const * txnstatus    = fd_env_strip_cmdline_cstr ( &argc, &argv, "--txnstatus",    NULL, "false"   );
   char const * verifyhash   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--verifyhash",   NULL, NULL      );
   char const * backup       = fd_env_strip_cmdline_cstr ( &argc, &argv, "--backup",       NULL, NULL      );
 
@@ -671,7 +757,7 @@ main( int     argc,
     }
 
     if( rocksdb_dir ) {
-      ingest_rocksdb( global, rocksdb_dir, end_slot, verifypoh, tpool, tcnt-1 );
+      ingest_rocksdb( global, rocksdb_dir, end_slot, verifypoh, txnstatus, tpool, tcnt-1 );
     }
 
   } else if (strcmp(cmd, "recover") == 0) {
