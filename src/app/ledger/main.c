@@ -331,6 +331,8 @@ ingest_txnstatus( fd_global_ctx_t * global,
               data = (uchar*)realloc(data, (datamax += 1UL<<20));
             fd_memcpy(data + datalen, status, status_sz);
             datalen += status_sz;
+
+            free(status);
           }
         }
         

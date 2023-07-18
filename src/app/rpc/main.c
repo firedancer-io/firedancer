@@ -25,11 +25,14 @@ curl http://localhost:8899 -X POST -H "Content-Type: application/json" -d '{"jso
 #include "../../tango/webserver/fd_webserver.h"
 #include "../../funk/fd_funk.h"
 #include "../../flamenco/types/fd_types.h"
+#include "../../flamenco/types/fd_solana_block.pb.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_acc_mgr.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "keywords.h"
 #include "fd_block_to_json.h"
+
+txn_map_elem_t * txn_map = NULL;
 
 #define API_VERSION "1.14.19"
 
@@ -38,51 +41,6 @@ curl http://localhost:8899 -X POST -H "Content-Type: application/json" -d '{"jso
 
 static fd_funk_t* funk = NULL;
 static fd_firedancer_banks_t bank;
-
-struct txn_map_key {
-    fd_ed25519_sig_t v;
-};
-struct txn_map_elem {
-    struct txn_map_key key;
-    ulong slot;
-    ulong txn_off;
-    ulong txn_sz;
-    ulong txn_stat_off;
-    ulong txn_stat_sz;
-    ulong next;
-};
-typedef struct txn_map_elem txn_map_elem_t;
-static txn_map_elem_t * txn_map = NULL;
-
-ulong fd_ed25519_quickhash(const struct txn_map_key * key, ulong seed) {
-  const ulong* x = (const ulong*)key;
-  for (ulong i = 0; i < sizeof(struct txn_map_key)/sizeof(ulong); ++i)
-    seed ^= x[i];
-  return seed;
-}
-
-void fd_ed25519_quickcpy(struct txn_map_key * keydest, const struct txn_map_key * keysrc) {
-  ulong* x = (ulong*)keydest;
-  const ulong* y = (const ulong*)keysrc;
-  for (ulong i = 0; i < sizeof(struct txn_map_key)/sizeof(ulong); ++i)
-    x[i] = y[i];
-}
-
-int fd_ed25519_quickeq(const struct txn_map_key * key1, const struct txn_map_key * key2) {
-  const ulong* x = (const ulong*)key1;
-  const ulong* y = (const ulong*)key2;
-  for (ulong i = 0; i < sizeof(struct txn_map_key)/sizeof(ulong); ++i)
-    if (x[i] != y[i]) return 0;
-  return 1;
-}
-
-#define MAP_KEY_T struct txn_map_key
-#define MAP_NAME  txn_map_elem
-#define MAP_T     txn_map_elem_t
-#define MAP_KEY_HASH(key,seed) fd_ed25519_quickhash(key, seed)
-#define MAP_KEY_COPY(keydest,keysrc) fd_ed25519_quickcpy(keydest, keysrc)
-#define MAP_KEY_EQ(k0,k1) fd_ed25519_quickeq(k0, k1)
-#include "../../util/tmpl/fd_map_giant.c"
 
 // Implementation of the "getAccountInfo" method
 int method_getAccountInfo(struct fd_web_replier* replier, struct json_values* values, long call_id) {
@@ -349,8 +307,23 @@ int method_getBlock(struct fd_web_replier* replier, struct json_values* values, 
     fd_web_replier_error(replier, "failed to load block for slot %lu", slotn);
     return 0;
   }
+  
+  fd_funk_rec_key_t recid2 = fd_runtime_block_txnstatus_key(slotn);
+  fd_funk_rec_t const * rec2 = fd_funk_rec_query_global(funk, NULL, &recid2);
+  void * val2 = NULL;
+  ulong val2_sz = 0;
+  if (rec2) {
+    int err;
+    val2 = fd_funk_val_cache(funk, rec2, &err);
+    if (val2 == NULL ) {
+      fd_web_replier_error(replier, "failed to load block for slot %lu", slotn);
+      return 0;
+    }
+    val2_sz = fd_funk_val_sz(rec2);
+  }
+  
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
-  if (fd_block_to_json(ts, call_id, val, fd_funk_val_sz(rec), enc,
+  if (fd_block_to_json(ts, call_id, val, fd_funk_val_sz(rec), val2, val2_sz, enc,
                        (maxvers == NULL ? 0 : *(const long*)maxvers),
                        det,
                        (rewards == NULL ? 1 : *(const int*)rewards))) {
@@ -425,6 +398,22 @@ int method_getTransaction(struct fd_web_replier* replier, struct json_values* va
     return 0;
   }
 
+  void * val2 = NULL;
+  ulong val2_sz = 0;
+  if (elem->txn_stat_off != ULONG_MAX) {
+    fd_funk_rec_key_t recid2 = fd_runtime_block_txnstatus_key(elem->slot);
+    fd_funk_rec_t const * rec2 = fd_funk_rec_query_global(funk, NULL, &recid2);
+    if (rec2) {
+      int err;
+      val2 = fd_funk_val_cache(funk, rec2, &err);
+      if (val2 == NULL ) {
+        fd_web_replier_error(replier, "failed to load block for slot %lu", elem->slot);
+        return 0;
+      }
+      val2_sz = fd_funk_val_sz(rec2);
+    }
+  }
+
   uchar txn_out[FD_TXN_MAX_SZ];
   ulong pay_sz = 0;
   const uchar* raw = (const uchar *)val + elem->txn_off;
@@ -433,7 +422,7 @@ int method_getTransaction(struct fd_web_replier* replier, struct json_values* va
     FD_LOG_ERR(("failed to parse transaction"));
 
   fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" API_VERSION "\",\"slot\":%lu},\"slot\":%lu,", bank.slot, elem->slot);
-  fd_txn_to_json( ts, (fd_txn_t *)txn_out, raw, enc, 0, FD_BLOCK_DETAIL_FULL, 0 );
+  fd_txn_to_json( ts, (fd_txn_t *)txn_out, raw, val2, val2_sz, enc, 0, FD_BLOCK_DETAIL_FULL, 0 );
   fd_textstream_sprintf(ts, "},\"id\":%lu}" CRLF, call_id);
   fd_web_replier_done(replier);
   return 0;
@@ -515,6 +504,7 @@ void fd_webserver_method_generic(struct fd_web_replier* replier, struct json_val
   fd_textstream_append(ts, DOC, strlen(DOC));
   fd_web_replier_done(replier);
 }
+
 void prescan(void)  {
   fd_funk_rec_key_t key = fd_runtime_block_meta_key(ULONG_MAX);
   fd_funk_rec_t const * rec = fd_funk_rec_query( funk, NULL, &key );

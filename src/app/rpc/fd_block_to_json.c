@@ -1,9 +1,12 @@
 #include "../../util/fd_util.h"
+#include "pb.h"
+#include "../../flamenco/nanopb/pb_decode.h"
 #include "../../tango/webserver/fd_webserver.h"
 #include "../../ballet/txn/fd_txn.h"
 #include "../../ballet/block/fd_microblock.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../../flamenco/types/fd_types.h"
+#include "../../flamenco/types/fd_solana_block.pb.h"
 #include "fd_block_to_json.h"
 
 #define EMIT_SIMPLE(_str_) fd_textstream_append(ts, _str_, sizeof(_str_)-1)
@@ -11,6 +14,8 @@
 int fd_txn_to_json( fd_textstream_t * ts,
                     fd_txn_t* txn,
                     const uchar* raw,
+                    const void * meta_raw,
+                    ulong meta_raw_sz,
                     enum fd_block_encoding encoding,
                     long maxvers,
                     enum fd_block_detail detail,
@@ -19,6 +24,38 @@ int fd_txn_to_json( fd_textstream_t * ts,
   (void)maxvers;
   (void)detail;
   (void)rewards;
+  (void)meta_raw;
+  (void)meta_raw_sz;
+
+  if (meta_raw) {
+    fd_solblock_TransactionStatusMeta txn_status = {0};
+    pb_istream_t stream = pb_istream_from_buffer( meta_raw, meta_raw_sz );
+    if( FD_UNLIKELY( !pb_decode( &stream, fd_solblock_TransactionStatusMeta_fields, &txn_status ) ) ) {
+      FD_LOG_ERR(( "failed to decode txn status: %s", PB_GET_ERROR( &stream ) ));
+    }
+
+    EMIT_SIMPLE("\"meta\":{\"err\":");
+    if (txn_status.has_err)
+      fd_textstream_sprintf(ts, "\"%s\"", txn_status.err.err);
+    else
+      EMIT_SIMPLE("null");
+    fd_textstream_sprintf(ts, ",\"fee\":%lu,\"innerInstructions\":[", txn_status.fee);
+    EMIT_SIMPLE("],\"loadedAddresses\":{\"readonly\":[");
+    EMIT_SIMPLE("],\"writable\":[");
+    EMIT_SIMPLE("]},\"logMessages\":[");
+    for (pb_size_t i = 0; i < txn_status.log_messages_count; ++i)
+      fd_textstream_sprintf(ts, "%s\"%s\"", (i == 0 ? "" : ","), txn_status.log_messages[i]);
+    EMIT_SIMPLE("],\"postBalances\":[");
+    for (pb_size_t i = 0; i < txn_status.post_balances_count; ++i)
+      fd_textstream_sprintf(ts, "%s%lu", (i == 0 ? "" : ","), txn_status.post_balances[i]);
+    EMIT_SIMPLE("],\"preTokenBalances\":[");
+    for (pb_size_t i = 0; i < txn_status.pre_balances_count; ++i)
+      fd_textstream_sprintf(ts, "%s%lu", (i == 0 ? "" : ","), txn_status.pre_balances[i]);
+    EMIT_SIMPLE("],\"rewards\":[");
+    EMIT_SIMPLE("],\"status\":{\"Ok\":null}},");
+
+    pb_release( fd_solblock_TransactionStatusMeta_fields, &txn_status );
+  }
 
   EMIT_SIMPLE("\"transaction\":{\"message\":{\"accountKeys\":[");
 
@@ -74,6 +111,8 @@ int fd_block_to_json( fd_textstream_t * ts,
                       long call_id,
                       const void* block,
                       ulong block_sz,
+                      const void* stat_block,
+                      ulong stat_block_sz,
                       enum fd_block_encoding encoding,
                       long maxvers,
                       enum fd_block_detail detail,
@@ -112,7 +151,20 @@ int fd_block_to_json( fd_textstream_t * ts,
         } else
           EMIT_SIMPLE(",{");
 
-        int r = fd_txn_to_json( ts, (fd_txn_t *)txn_out, raw, encoding, maxvers, detail, rewards );
+        const void * val2 = NULL;
+        ulong val2_sz = 0;
+        if ( stat_block ) {
+          fd_ed25519_sig_t const * sigs = (fd_ed25519_sig_t const *)(raw + ((fd_txn_t *)txn_out)->signature_off);
+          txn_map_elem_t * elem = txn_map_elem_query( txn_map, (const struct txn_map_key*)sigs, NULL );
+          if (elem && elem->txn_stat_off != ULONG_MAX) {
+            if (elem->txn_stat_off + elem->txn_stat_sz > stat_block_sz)
+              FD_LOG_ERR(("correct transaction index"));
+            val2 = (const uchar*)stat_block + elem->txn_stat_off;
+            val2_sz = elem->txn_stat_sz;
+          }
+        }
+        
+        int r = fd_txn_to_json( ts, (fd_txn_t *)txn_out, raw, val2, val2_sz, encoding, maxvers, detail, rewards );
         if ( r ) return r;
 
         EMIT_SIMPLE("}");
