@@ -45,7 +45,10 @@ struct txn_map_key {
 struct txn_map_elem {
     struct txn_map_key key;
     ulong slot;
-    ulong blockoff;
+    ulong txn_off;
+    ulong txn_sz;
+    ulong txn_stat_off;
+    ulong txn_stat_sz;
     ulong next;
 };
 typedef struct txn_map_elem txn_map_elem_t;
@@ -421,12 +424,11 @@ int method_getTransaction(struct fd_web_replier* replier, struct json_values* va
     fd_web_replier_error(replier, "failed to load block for slot %lu", elem->slot);
     return 0;
   }
-  ulong block_sz = fd_funk_val_sz(rec);
 
   uchar txn_out[FD_TXN_MAX_SZ];
   ulong pay_sz = 0;
-  const uchar* raw = (const uchar *)val + elem->blockoff;
-  ulong txn_sz = fd_txn_parse_core(raw, fd_ulong_min(block_sz - elem->blockoff, USHORT_MAX), txn_out, NULL, &pay_sz, 0);
+  const uchar* raw = (const uchar *)val + elem->txn_off;
+  ulong txn_sz = fd_txn_parse_core(raw, elem->txn_sz, txn_out, NULL, &pay_sz, 0);
   if ( txn_sz == 0 || txn_sz > FD_TXN_MAX_SZ )
     FD_LOG_ERR(("failed to parse transaction"));
 
@@ -580,7 +582,10 @@ void prescan(void)  {
               return;
             }
             elem->slot = slot;
-            elem->blockoff = blockoff;
+            elem->txn_off = blockoff;
+            elem->txn_sz = pay_sz;
+            elem->txn_stat_off = ULONG_MAX;
+            elem->txn_stat_sz = ULONG_MAX;
           }
           
           blockoff += pay_sz;
@@ -590,6 +595,31 @@ void prescan(void)  {
 
     if (blockoff != blocklen)
       FD_LOG_ERR(("garbage at end of block"));
+
+    key = fd_runtime_block_txnstatus_key(slot);
+    rec = fd_funk_rec_query( funk, NULL, &key );
+    if (rec == NULL)
+      continue;
+    val = fd_funk_val_cache( funk, rec, &err );
+    if (val == NULL)
+      continue;
+    ulong val_sz = fd_funk_val_sz( rec );
+    if (val_sz < sizeof(ulong))
+      FD_LOG_ERR(("garbage txn status block at slot %lu", slot));
+    ulong idx_cnt = *(ulong*)val;
+    ulong hdr_sz = sizeof(ulong) + idx_cnt*sizeof(fd_txnstatusidx_t);
+    if (val_sz < hdr_sz)
+      FD_LOG_ERR(("garbage txn status block at slot %lu", slot));
+    const fd_txnstatusidx_t * j = (const fd_txnstatusidx_t *)((const uchar*)val + sizeof(ulong));
+    for ( ulong i = 0; i < idx_cnt; ++i, ++j ) {
+      txn_map_elem_t * elem = txn_map_elem_query( txn_map, (const struct txn_map_key*)j->sig, NULL );
+      if ( FD_UNLIKELY( NULL == elem ) )
+        FD_LOG_ERR(("garbage txn status block at slot %lu", slot));
+      elem->txn_stat_off = hdr_sz + j->offset;
+      elem->txn_stat_sz = j->status_sz;
+      if (val_sz < elem->txn_stat_off + elem->txn_stat_sz)
+        FD_LOG_ERR(("garbage txn status block at slot %lu", slot));
+    }
   }
   FD_LOG_NOTICE(("scanned %lu transactions", txn_map_elem_key_cnt( txn_map )));
 }
