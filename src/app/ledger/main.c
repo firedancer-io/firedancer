@@ -274,19 +274,13 @@ static void decompressBZ2(char const * fname, decompressCallback cb, void* arg) 
   close(fin);
 }
 
-struct fd_txnstatusidx {
-    fd_ed25519_sig_t sig;
-    ulong offset;
-    ulong status_sz;
-};
-typedef struct fd_txnstatusidx fd_txnstatusidx_t;
-
 #define VECT_NAME vec_fd_txnstatusidx
 #define VECT_ELEMENT fd_txnstatusidx_t
 #include "../../flamenco/runtime/fd_vector.h"
 
 void
-ingest_txnstatus( fd_rocksdb_t *    rocks_db,
+ingest_txnstatus( fd_global_ctx_t * global,
+                  fd_rocksdb_t *    rocks_db,
                   fd_slot_meta_t *  m,
                   void const *      block,
                   ulong             blocklen ) {
@@ -348,7 +342,24 @@ ingest_txnstatus( fd_rocksdb_t *    rocks_db,
   if (blockoff != blocklen)
     FD_LOG_ERR(("garbage at end of block"));
 
-  FD_LOG_NOTICE(("%lu offsets, %lu bytes", vec_idx.cnt, datalen));
+  FD_LOG_NOTICE(("slot %lu txn status: %lu offsets, %lu bytes of raw data", m->slot, vec_idx.cnt, datalen));
+
+  ulong totsize = sizeof(ulong) + vec_idx.cnt*sizeof(fd_txnstatusidx_t) + datalen;
+  fd_funk_rec_key_t key = fd_runtime_block_txnstatus_key(m->slot);
+  int ret;
+  fd_funk_rec_t * rec = fd_funk_rec_modify( global->funk, fd_funk_rec_insert( global->funk, NULL, &key, &ret ) );
+  if( FD_UNLIKELY( !rec ) ) FD_LOG_ERR(( "fd_funk_rec_modify failed with code %d", ret ));
+  rec = fd_funk_val_truncate( rec, totsize, (fd_alloc_t *)global->valloc.self, global->wksp, &ret );
+  if( FD_UNLIKELY( !rec ) ) FD_LOG_ERR(( "fd_funk_val_truncate failed with code %d", ret ));
+  uchar * val = (uchar*) fd_funk_val( rec, global->wksp );
+  *(ulong*)val = vec_idx.cnt;
+  val += sizeof(ulong);
+  fd_memcpy(val, vec_idx.elems, vec_idx.cnt*sizeof(fd_txnstatusidx_t));
+  val += vec_idx.cnt*sizeof(fd_txnstatusidx_t);
+  fd_memcpy(val, data, datalen);
+    
+  fd_funk_rec_persist( global->funk, rec );
+  fd_funk_val_uncache( global->funk, rec );
 
   vec_fd_txnstatusidx_destroy(&vec_idx);
   free(data);
@@ -473,7 +484,7 @@ ingest_rocksdb( fd_global_ctx_t * global,
     }
 
     if ( strcmp(txnstatus, "true") == 0 )
-      ingest_txnstatus( &rocks_db, &m, block, block_sz );
+      ingest_txnstatus( global, &rocks_db, &m, block, block_sz );
 
     // FD_LOG_NOTICE(("slot %lu: block size %lu", slot, block_sz));
     ++blk_cnt;

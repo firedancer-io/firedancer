@@ -87,6 +87,9 @@ typedef struct fd_global_ctx fd_global_ctx_t;
 /* FD_BANK_HASH_TYPE stores the bank hash of each slot */
 #define FD_BANK_HASH_TYPE ((uchar)4)
 
+/* FD_BLOCK_TXNSTATUS_TYPE stores the transaction metadata for a block */
+#define FD_BLOCK_TXNSTATUS_TYPE ((uchar)5)
+
 FD_PROTOTYPES_BEGIN
 
 void *            fd_global_ctx_new        ( void * );
@@ -120,6 +123,14 @@ fd_runtime_bank_hash_key( ulong slot ) {
   fd_funk_rec_key_t id = {0};
   id.ul[ 0 ] = slot;
   id.c[ FD_FUNK_REC_KEY_FOOTPRINT - 1 ] = FD_BANK_HASH_TYPE;
+  return id;
+}
+
+static inline fd_funk_rec_key_t
+fd_runtime_block_txnstatus_key( ulong slot ) {
+  fd_funk_rec_key_t id = {0};
+  id.ul[ 0 ] = slot;
+  id.c[ FD_FUNK_REC_KEY_FOOTPRINT - 1 ] = FD_BLOCK_TXNSTATUS_TYPE;
   return id;
 }
 

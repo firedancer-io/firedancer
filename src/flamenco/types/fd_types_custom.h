@@ -3,6 +3,7 @@
 
 #include "../../ballet/fd_ballet_base.h"
 #include "fd_bincode.h"
+#include "../../ballet/ed25519/fd_ed25519.h"
 
 typedef void (*fd_walk_fun_t)(void *arg, const char* name, int type, const char *type_name, int level);
 
@@ -84,6 +85,14 @@ int fd_epoch_schedule_encode(fd_epoch_schedule_t const * self, fd_bincode_encode
 void fd_epoch_schedule_destroy(fd_epoch_schedule_t* self, fd_bincode_destroy_ctx_t * ctx);
 void fd_epoch_schedule_walk(fd_epoch_schedule_t* self, fd_walk_fun_t fun, const char *name, int level);
 ulong fd_epoch_schedule_size(fd_epoch_schedule_t const * self);
+
+/* Index structure needed for transaction status (metadata) blocks */
+struct fd_txnstatusidx {
+    fd_ed25519_sig_t sig;
+    ulong offset;
+    ulong status_sz;
+};
+typedef struct fd_txnstatusidx fd_txnstatusidx_t;
 
 FD_PROTOTYPES_END
 
