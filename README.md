@@ -26,33 +26,41 @@ setup instructions.
 $ git clone https://github.com/firedancer-io/firedancer.git
 $ cd firedancer
 $ ./deps.sh
-$ make -j
+$ make -j run
 ```
-
-## Running
 
 Firedancer uses several privileged operating system features to improve
 performance and security. These can be configured manually in your
-environment, but we also have a command line utility `fdctl` that lets a
-user set up and tear down the environment easily.
+environment, but we also provide a tool for automatic configuration.
+
+The default `make run` target will ensure your system is configured
+correctly before running Firedancer, using `sudo` to make privileged
+changes where necessary.
+
+## Running
+
+In production, it is recommended to configure the system immediately at
+boot time rather than when running Firedancer. This ensures we can
+allocate the contiguous memory we need, as over time memory may become
+fragmented.
 
 ```bash
-$ cargo run run --configure # Run the Firedancer program, configuring required system knobs
+$ fdctl configure init all
 ```
 
-When done, the environment can be returned to normal.
-
-```bash
-$ cargo run configure all fini # Remove any special configuration we installed
-```
-
-`fdctl` reads from a `FIREDANCER_CONFIG_TOML` environment variable to
-determine all options needed in configuring and running the program. A
-complete list of configuration options is provided in
+`fdctl` reads from an optional `FIREDANCER_CONFIG_TOML` environment
+variable to determine all configuration. A complete list of
+configuration options and their defaults are provided in
 [default.toml](src/app/fdctl/config/default.toml)
 
-Some of the privileged system configuration steps performed by `fdctl`
-are,
+Later, when you wish to start the validator, you can run
+
+```bash
+$ fdctl run
+```
+
+Some of the privileged system configuration steps performed by `fdctl
+configure` are,
 
 * **Huge pages** Memory needed for Firedancer must be pre-allocated
 before launching it. Firedancer uses `huge` and `gigantic` memory pages,
@@ -70,8 +78,9 @@ debugging when using XDP. Performing these initial restrictions can
 require additional capabilities.
 
 A good way to see what privileges are needed to configure the
-environment is to run `fdctl configure` as a non-privileged user, which
-will display information about the operations it wishes to perform.
+environment is to run `fdctl configure init all` as a non-privileged
+user, which will display information about the operations it wishes to
+perform.
 
 ## License
 Firedancer is available under the [Apache 2

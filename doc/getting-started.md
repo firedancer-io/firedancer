@@ -82,12 +82,12 @@ the necessary `sudo` access.
     ```
   This will do a parallel incremental build using all non-isolated cores
   and should be reasonably quick even when done from scratch (less than
-  a minute).  The default machine target will be
-  `MACHINE=linux_gcc_x86_64` (details of this machine can be found in
-  `config/linux_gcc_x86_64.mk`).  The build results will be in the
-  relative directory `build/linux/gcc/x86_64`.  `make` has many powers;
-  run `make help` for more info.  If building on a system with lots of
-  isolated cores, see `contrib/make-j`.
+  a minute).  The default machine target will be the native hardware
+  (details of this machine can be found in `config/native.mk`).  The
+  build results will be in the relative directory
+  `build/linux/gcc/x86_64`.  `make` has many powers; run `make help` for
+  more info.  If building on a system with lots of isolated cores, see
+  `contrib/make-j`.
 
 - Reserve host resources for application usage.  E.g.:
     ```
