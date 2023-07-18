@@ -789,9 +789,8 @@
         { "name": "inflation",             "type": "inflation" },
         { "name": "epoch_schedule",        "type": "epoch_schedule" },
         { "name": "rent",                  "type": "rent" },
-        { "name": "collector_id",          "type": "pubkey" },
         { "name": "collected",             "type": "ulong" },
-        { "name": "epoch_stakes",          "type": "epoch_stakes" }
+        { "name": "epoch_stakes",          "type": "vote_accounts" }
       ]
     },
     {

@@ -22,7 +22,9 @@
 #endif
 
 void
-fd_runtime_init_bank_from_genesis( fd_global_ctx_t * global, fd_genesis_solana_t * genesis_block, uchar genesis_hash[FD_SHA256_HASH_SZ] ) {
+fd_runtime_init_bank_from_genesis( fd_global_ctx_t *     global,
+                                   fd_genesis_solana_t * genesis_block,
+                                   uchar                 genesis_hash[FD_SHA256_HASH_SZ] ) {
   global->bank.slot = 0;
 
   fd_memcpy(&global->bank.poh, genesis_hash, FD_SHA256_HASH_SZ);
@@ -58,6 +60,53 @@ fd_runtime_init_bank_from_genesis( fd_global_ctx_t * global, fd_genesis_solana_t
   elem->fee_calculator.lamports_per_signature = 0;
 
   global->signature_cnt = 0;
+
+  /* Derive epoch stakes */
+
+  ulong vote_acc_cnt = 0UL;
+  for( ulong i=0UL; i < genesis_block->accounts_len; i++ ) {
+    fd_pubkey_account_pair_t const * acc = &genesis_block->accounts[ i ];
+    if( 0==memcmp( acc->account.owner.key, global->solana_vote_program, sizeof(fd_pubkey_t) ) )
+      vote_acc_cnt++;
+  }
+
+  fd_vote_accounts_pair_t_mapnode_t * vacc_pool =
+    fd_vote_accounts_pair_t_map_alloc( fd_scratch_virtual(), vote_acc_cnt++ );
+  FD_TEST( vacc_pool );
+  fd_vote_accounts_pair_t_mapnode_t * vacc_root = NULL;
+
+  for( ulong i=0UL; i < genesis_block->accounts_len; i++ ) {
+    fd_pubkey_account_pair_t const * acc = &genesis_block->accounts[ i ];
+    if( 0!=memcmp( acc->account.owner.key, global->solana_vote_program, sizeof(fd_pubkey_t) ) )
+      continue;
+
+    fd_vote_accounts_pair_t_mapnode_t * node =
+      fd_vote_accounts_pair_t_map_acquire( vacc_pool );
+    FD_TEST( node );
+
+    memcpy( node->elem.key.key, acc->key.key, sizeof(fd_pubkey_t) );
+    node->elem.stake = acc->account.lamports;
+    node->elem.value = (fd_solana_account_t) {
+      .lamports   = acc->account.lamports,
+      .data_len   = acc->account.data_len,
+      .data       = fd_valloc_malloc( global->valloc, 1UL, acc->account.data_len ),
+      .owner      = acc->account.owner,
+      .executable = acc->account.executable,
+      .rent_epoch = acc->account.rent_epoch
+    };
+    fd_memcpy( node->elem.value.data, acc->account.data, acc->account.data_len );
+
+    fd_vote_accounts_pair_t_map_insert( vacc_pool, &vacc_root, node );
+
+    FD_LOG_INFO(( "Adding genesis vote account: key=%32J stake=%lu",
+                  node->elem.key.key,
+                  node->elem.stake ));
+  }
+
+  global->bank.epoch_stakes = (fd_vote_accounts_t) {
+    .vote_accounts_pool = vacc_pool,
+    .vote_accounts_root = vacc_root,
+  };
 }
 
 void
@@ -94,6 +143,13 @@ fd_runtime_init_program( fd_global_ctx_t * global ) {
 int
 fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_meta_t* m, const void* block, ulong blocklen ) {
   (void)m;
+
+  /* Get current leader */
+  ulong slot_rel;
+  fd_slot_to_epoch( &global->bank.epoch_schedule, m->slot, &slot_rel );
+  global->leader = fd_epoch_leaders_get( global->leaders, slot_rel/FD_EPOCH_SLOTS_PER_ROTATION );
+  FD_LOG_DEBUG(( "slot: %lu leader: %32J", m->slot, global->leader->key ));
+
   // TODO: move all these out to a fd_sysvar_update() call...
   fd_sysvar_clock_update( global);
   // It has to go into the current txn previous info but is not in slot 0
@@ -582,19 +638,19 @@ fd_runtime_freeze( fd_global_ctx_t *global ) {
   fd_sysvar_recent_hashes_update ( global );
 
   // Look at collect_fees... I think this was where I saw the fee payout..
-  if (global->collector_set && global->bank.collected) {
 
+  if (global->bank.collected > 0) {
     if (FD_UNLIKELY(global->log_level > 2)) {
       FD_LOG_WARNING(( "fd_runtime_freeze: slot:%ld global->collected: %ld", global->bank.slot, global->bank.collected ));
     }
 
     fd_acc_lamports_t lamps;
-    int               ret = fd_acc_mgr_get_lamports ( global->acc_mgr, global->funk_txn, &global->bank.collector_id, &lamps);
+    int               ret = fd_acc_mgr_get_lamports ( global->acc_mgr, global->funk_txn, global->leader, &lamps);
     if (ret != FD_ACC_MGR_SUCCESS)
       FD_LOG_ERR(( "The collector_id is wrong?!" ));
 
     // TODO: half get burned?!
-    ret = fd_acc_mgr_set_lamports ( global->acc_mgr, global->funk_txn, global->bank.slot, &global->bank.collector_id, lamps + (global->bank.collected/2));
+    ret = fd_acc_mgr_set_lamports ( global->acc_mgr, global->funk_txn, global->bank.slot, global->leader, lamps + (global->bank.collected/2));
     if (ret != FD_ACC_MGR_SUCCESS)
       FD_LOG_ERR(( "lamport update failed" ));
 
@@ -983,7 +1039,6 @@ int fd_global_import_solana_manifest(fd_global_ctx_t * global, fd_solana_manifes
   bank->inflation = oldbank->inflation;
   bank->epoch_schedule = oldbank->rent_collector.epoch_schedule;
   bank->rent = oldbank->rent_collector.rent;
-  fd_memcpy(&bank->collector_id, &oldbank->collector_id, sizeof(oldbank->collector_id));
   bank->collected = oldbank->collected_rent;
 
   /* Find EpochStakes for next slot */
@@ -1003,19 +1058,21 @@ int fd_global_import_solana_manifest(fd_global_ctx_t * global, fd_solana_manifes
       FD_LOG_ERR(( "Snapshot missing EpochStakes for epoch %lu", epoch ));
 
     /* TODO Hacky way to copy by serialize/deserialize :( */
-    uchar * buf = fd_scratch_alloc( 1UL, fd_epoch_stakes_size( stakes ) );
+    fd_vote_accounts_t const * vaccs = &stakes->stakes.vote_accounts;
+    ulong   bufsz = fd_vote_accounts_size( vaccs );
+    uchar * buf   = fd_scratch_alloc( 1UL, bufsz );
     fd_bincode_encode_ctx_t encode_ctx = {
       .data    = buf,
-      .dataend = (void *)( (ulong)buf + fd_epoch_stakes_size( stakes ) )
+      .dataend = (void *)( (ulong)buf + bufsz )
     };
-    FD_TEST( fd_epoch_stakes_encode( stakes, &encode_ctx )
+    FD_TEST( fd_vote_accounts_encode( vaccs, &encode_ctx )
              ==FD_BINCODE_SUCCESS );
     fd_bincode_decode_ctx_t decode_ctx = {
       .data    = buf,
-      .dataend = (void const *)( (ulong)buf + fd_epoch_stakes_size( stakes ) ),
+      .dataend = (void const *)( (ulong)buf + bufsz ),
       .valloc  = global->valloc,
     };
-    FD_TEST( fd_epoch_stakes_decode( &bank->epoch_stakes, &decode_ctx )
+    FD_TEST( fd_vote_accounts_decode( &bank->epoch_stakes, &decode_ctx )
              ==FD_BINCODE_SUCCESS );
   }
 
