@@ -137,6 +137,7 @@ typedef struct _fd_solblock_TransactionStatusMeta {
     /* Sum of compute units consumed by all instructions.
  Available since Solana v1.10.35 / v1.11.6.
  Set to `None` for txs executed on earlier versions. */
+    bool has_compute_units_consumed;
     uint64_t compute_units_consumed;
 } fd_solblock_TransactionStatusMeta;
 
@@ -185,7 +186,7 @@ extern "C" {
 #define fd_solblock_TokenBalance_init_default    {0, "", fd_solblock_UiTokenAmount_init_default, "", ""}
 #define fd_solblock_Reward_init_default          {"", 0, 0, _fd_solblock_RewardType_MIN, {{NULL}, NULL}}
 #define fd_solblock_ReturnData_init_default      {{0}, {{NULL}, NULL}}
-#define fd_solblock_TransactionStatusMeta_init_default {false, fd_solblock_TransactionError_init_default, 0, 0, NULL, 0, NULL, 0, NULL, 0, NULL, 0, NULL, 0, NULL, 0, NULL, false, 0, false, 0, 0, NULL, 0, NULL, false, fd_solblock_ReturnData_init_default, false, 0, 0}
+#define fd_solblock_TransactionStatusMeta_init_default {false, fd_solblock_TransactionError_init_default, 0, 0, NULL, 0, NULL, 0, NULL, 0, NULL, 0, NULL, 0, NULL, 0, NULL, false, 0, false, 0, 0, NULL, 0, NULL, false, fd_solblock_ReturnData_init_default, false, 0, false, 0}
 #define fd_solblock_MessageHeader_init_zero      {0, 0, 0}
 #define fd_solblock_Instruction_init_zero        {0, {{NULL}, NULL}, {{NULL}, NULL}}
 #define fd_solblock_MessageAddressTableLookup_init_zero {{0}, {{NULL}, NULL}, {{NULL}, NULL}}
@@ -199,7 +200,7 @@ extern "C" {
 #define fd_solblock_TokenBalance_init_zero       {0, "", fd_solblock_UiTokenAmount_init_zero, "", ""}
 #define fd_solblock_Reward_init_zero             {"", 0, 0, _fd_solblock_RewardType_MIN, {{NULL}, NULL}}
 #define fd_solblock_ReturnData_init_zero         {{0}, {{NULL}, NULL}}
-#define fd_solblock_TransactionStatusMeta_init_zero {false, fd_solblock_TransactionError_init_zero, 0, 0, NULL, 0, NULL, 0, NULL, 0, NULL, 0, NULL, 0, NULL, 0, NULL, false, 0, false, 0, 0, NULL, 0, NULL, false, fd_solblock_ReturnData_init_zero, false, 0, 0}
+#define fd_solblock_TransactionStatusMeta_init_zero {false, fd_solblock_TransactionError_init_zero, 0, 0, NULL, 0, NULL, 0, NULL, 0, NULL, 0, NULL, 0, NULL, 0, NULL, false, 0, false, 0, 0, NULL, 0, NULL, false, fd_solblock_ReturnData_init_zero, false, 0, false, 0}
 
 /* Field tags (for use in manual encoding/decoding) */
 #define fd_solblock_MessageHeader_num_required_signatures_tag 1
@@ -380,7 +381,7 @@ X(a, POINTER,  REPEATED, BYTES,    loaded_writable_addresses,  12) \
 X(a, POINTER,  REPEATED, BYTES,    loaded_readonly_addresses,  13) \
 X(a, STATIC,   OPTIONAL, MESSAGE,  return_data,      14) \
 X(a, STATIC,   OPTIONAL, BOOL,     return_data_none,  15) \
-X(a, STATIC,   REQUIRED, UINT64,   compute_units_consumed,  16)
+X(a, STATIC,   OPTIONAL, UINT64,   compute_units_consumed,  16)
 #define fd_solblock_TransactionStatusMeta_CALLBACK NULL
 #define fd_solblock_TransactionStatusMeta_DEFAULT NULL
 #define fd_solblock_TransactionStatusMeta_err_MSGTYPE fd_solblock_TransactionError

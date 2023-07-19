@@ -190,5 +190,5 @@ message TransactionStatusMeta {
     // Sum of compute units consumed by all instructions.
     // Available since Solana v1.10.35 / v1.11.6.
     // Set to `None` for txs executed on earlier versions.
-    required uint64 compute_units_consumed = 16;
+    optional uint64 compute_units_consumed = 16;
 }
