@@ -255,6 +255,7 @@ init( config_t * const config ) {
   ushort1( pod, "firedancer.quic_cfg.listen_port",     config->tiles.quic.listen_port, 0 );
   buf    ( pod, "firedancer.quic_cfg.src_mac_addr",    config->tiles.quic.mac_addr, 6 );
   ulong1 ( pod, "firedancer.quic_cfg.idle_timeout_ms", 1000 );
+  ulong1 ( pod, "firedancer.quic_cfg.initial_rx_max_stream_data", 1<<15 );
 
   char const * main_cnc = fd_pod_query_cstr( pod, "firedancer.main.cnc", NULL );
   if( FD_UNLIKELY( !main_cnc) )
