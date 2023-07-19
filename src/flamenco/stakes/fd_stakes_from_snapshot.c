@@ -107,7 +107,7 @@ action_nodes( fd_solana_manifest_t const * manifest,
   for( ulong i=0UL; i<weight_cnt; i++ ) {
     fd_stake_weight_t const * w = weights + i;
     char keyB58[ FD_BASE58_ENCODED_32_SZ ];
-    fd_base58_encode_32( w->pub.key, NULL,  keyB58 );
+    fd_base58_encode_32( w->key.key, NULL,  keyB58 );
     printf( "%s,%lu\n", keyB58, w->stake );
   }
 

@@ -3,7 +3,7 @@
 
 #include "../../fd_flamenco_base.h"
 #include "../fd_executor.h"
-#include "../program/fd_stake_program.h"
+#include "../../stakes/fd_stake_program.h"
 
 #define SCRATCH_ALIGN     (128UL)
 #define SCRATCH_FOOTPRINT (102400UL)

@@ -249,6 +249,42 @@ typedef struct fd_vote_accounts fd_vote_accounts_t;
 #define FD_VOTE_ACCOUNTS_FOOTPRINT sizeof(fd_vote_accounts_t)
 #define FD_VOTE_ACCOUNTS_ALIGN (8UL)
 
+/* fd_stake_weight_t assigns an Ed25519 public key (node identity) a stake weight number measured in lamports */
+struct fd_stake_weight {
+  fd_pubkey_t key;
+  ulong stake;
+};
+typedef struct fd_stake_weight fd_stake_weight_t;
+#define FD_STAKE_WEIGHT_FOOTPRINT sizeof(fd_stake_weight_t)
+#define FD_STAKE_WEIGHT_ALIGN (8UL)
+
+typedef struct fd_stake_weight_t_mapnode fd_stake_weight_t_mapnode_t;
+#define REDBLK_T fd_stake_weight_t_mapnode_t
+#define REDBLK_NAME fd_stake_weight_t_map
+#define REDBLK_IMPL_STYLE 1
+#include "../../util/tmpl/fd_redblack.c"
+#undef REDBLK_T
+#undef REDBLK_NAME
+struct fd_stake_weight_t_mapnode {
+    fd_stake_weight_t elem;
+    ulong redblack_parent;
+    ulong redblack_left;
+    ulong redblack_right;
+    int redblack_color;
+};
+static inline fd_stake_weight_t_mapnode_t *
+fd_stake_weight_t_map_alloc( fd_valloc_t valloc, ulong len ) {
+  void * mem = fd_valloc_malloc( valloc, fd_stake_weight_t_map_align(), fd_stake_weight_t_map_footprint(len));
+  return fd_stake_weight_t_map_join(fd_stake_weight_t_map_new(mem, len));
+}
+struct fd_stake_weights {
+  fd_stake_weight_t_mapnode_t * stake_weights_pool;
+  fd_stake_weight_t_mapnode_t * stake_weights_root;
+};
+typedef struct fd_stake_weights fd_stake_weights_t;
+#define FD_STAKE_WEIGHTS_FOOTPRINT sizeof(fd_stake_weights_t)
+#define FD_STAKE_WEIGHTS_ALIGN (8UL)
+
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/state.rs#L303 */
 struct fd_delegation {
   fd_pubkey_t voter_pubkey;
@@ -1684,6 +1720,20 @@ int fd_vote_accounts_encode(fd_vote_accounts_t const * self, fd_bincode_encode_c
 void fd_vote_accounts_destroy(fd_vote_accounts_t* self, fd_bincode_destroy_ctx_t * ctx);
 void fd_vote_accounts_walk(fd_vote_accounts_t* self, fd_walk_fun_t fun, const char *name, int level);
 ulong fd_vote_accounts_size(fd_vote_accounts_t const * self);
+
+void fd_stake_weight_new(fd_stake_weight_t* self);
+int fd_stake_weight_decode(fd_stake_weight_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_stake_weight_encode(fd_stake_weight_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_stake_weight_destroy(fd_stake_weight_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_stake_weight_walk(fd_stake_weight_t* self, fd_walk_fun_t fun, const char *name, int level);
+ulong fd_stake_weight_size(fd_stake_weight_t const * self);
+
+void fd_stake_weights_new(fd_stake_weights_t* self);
+int fd_stake_weights_decode(fd_stake_weights_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_stake_weights_encode(fd_stake_weights_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_stake_weights_destroy(fd_stake_weights_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_stake_weights_walk(fd_stake_weights_t* self, fd_walk_fun_t fun, const char *name, int level);
+ulong fd_stake_weights_size(fd_stake_weights_t const * self);
 
 void fd_delegation_new(fd_delegation_t* self);
 int fd_delegation_decode(fd_delegation_t* self, fd_bincode_decode_ctx_t * ctx);

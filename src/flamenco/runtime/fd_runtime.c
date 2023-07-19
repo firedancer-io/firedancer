@@ -8,7 +8,7 @@
 #include "../../ballet/txn/fd_txn.h"
 #include "../../ballet/bmtree/fd_bmtree.h"
 
-#include "program/fd_stake_program.h"
+#include "../stakes/fd_stake_program.h"
 
 #include "program/fd_system_program.h"
 #include "program/fd_vote_program.h"

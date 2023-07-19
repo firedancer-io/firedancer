@@ -3,15 +3,9 @@
 
 #include "../fd_flamenco_base.h"
 #include "../types/fd_types.h"
+#include "../runtime/sysvar/fd_sysvar.h"
 
-/* fd_stake_weight_t assigns an Ed25519 public key (node identity) a
-   stake weight number measured in lamports. */
 
-struct __attribute__((aligned(8UL))) fd_stake_weight {
-  fd_pubkey_t pub;
-  ulong       stake;
-};
-typedef struct fd_stake_weight fd_stake_weight_t;
 
 FD_PROTOTYPES_BEGIN
 
@@ -35,5 +29,13 @@ fd_stake_weights_by_node( fd_vote_accounts_t const * accs,
                           fd_stake_weight_t *        weights );
 
 FD_PROTOTYPES_END
+
+void fd_stakes_init( fd_global_ctx_t * global, fd_stakes_t* stakes );
+
+void activate_epoch( fd_global_ctx_t * global, ulong next_epoch );
+
+fd_stake_history_entry_t stake_and_activating( fd_delegation_t const * delegation, ulong target_epoch, fd_stake_history_t * stake_history );
+
+fd_stake_history_entry_t stake_activating_and_deactivating( fd_delegation_t const * delegation, ulong target_epoch, fd_stake_history_t * stake_history );
 
 #endif /* HEADER_fd_src_flamenco_stakes_fd_stakes_h */

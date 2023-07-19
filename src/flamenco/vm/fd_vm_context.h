@@ -10,6 +10,7 @@
 
 #include "fd_vm_log_collector.h"
 #include "fd_vm_stack.h"
+#include "fd_vm_cpi.h"
 
 #include "../runtime/fd_executor.h"
 
@@ -67,6 +68,116 @@ struct fd_vm_heap_allocator {
 };
 typedef struct fd_vm_heap_allocator fd_vm_heap_allocator_t;
 
+struct fd_vm_exec_compute_budget {
+    /// Number of compute units that a transaction or individual instruction is
+    /// allowed to consume. Compute units are consumed by program execution,
+    /// resources they use, etc...
+    ulong compute_unit_limit;
+    /// Number of compute units consumed by a log_u64 call
+    ulong log_64_units;
+    /// Number of compute units consumed by a create_program_address call
+    ulong create_program_address_units;
+    /// Number of compute units consumed by an invoke call (not including the cost incurred by
+    /// the called program)
+    ulong invoke_units;
+    /// Maximum cross-program invocation depth allowed
+    ulong max_invoke_depth;
+    /// Base number of compute units consumed to call SHA256
+    ulong sha256_base_cost;
+    /// Incremental number of units consumed by SHA256 (based on bytes)
+    ulong sha256_byte_cost;
+    /// Maximum number of slices hashed per syscall
+    ulong sha256_max_slices;
+    /// Maximum BPF to BPF call depth
+    ulong max_call_depth;
+    /// Size of a stack frame in bytes, must match the size specified in the LLVM BPF backend
+    ulong stack_frame_size;
+    /// Number of compute units consumed by logging a `Pubkey`
+    ulong log_pubkey_units;
+    /// Maximum cross-program invocation instruction size
+    ulong max_cpi_instruction_size;
+    /// Number of account data bytes per compute unit charged during a cross-program invocation
+    ulong cpi_bytes_per_unit;
+    /// Base number of compute units consumed to get a sysvar
+    ulong sysvar_base_cost;
+    /// Number of compute units consumed to call secp256k1_recover
+    ulong secp256k1_recover_cost;
+    /// Number of compute units consumed to do a syscall without any work
+    ulong syscall_base_cost;
+    /// Number of compute units consumed to validate a curve25519 edwards point
+    ulong curve25519_edwards_validate_point_cost;
+    /// Number of compute units consumed to add two curve25519 edwards points
+    ulong curve25519_edwards_add_cost;
+    /// Number of compute units consumed to subtract two curve25519 edwards points
+    ulong curve25519_edwards_subtract_cost;
+    /// Number of compute units consumed to multiply a curve25519 edwards point
+    ulong curve25519_edwards_multiply_cost;
+    /// Number of compute units consumed for a multiscalar multiplication (msm) of edwards points.
+    /// The total cost is calculated as `msm_base_cost + (length - 1) * msm_incremental_cost`.
+    ulong curve25519_edwards_msm_base_cost;
+    /// Number of compute units consumed for a multiscalar multiplication (msm) of edwards points.
+    /// The total cost is calculated as `msm_base_cost + (length - 1) * msm_incremental_cost`.
+    ulong curve25519_edwards_msm_incremental_cost;
+    /// Number of compute units consumed to validate a curve25519 ristretto point
+    ulong curve25519_ristretto_validate_point_cost;
+    /// Number of compute units consumed to add two curve25519 ristretto points
+    ulong curve25519_ristretto_add_cost;
+    /// Number of compute units consumed to subtract two curve25519 ristretto points
+    ulong curve25519_ristretto_subtract_cost;
+    /// Number of compute units consumed to multiply a curve25519 ristretto point
+    ulong curve25519_ristretto_multiply_cost;
+    /// Number of compute units consumed for a multiscalar multiplication (msm) of ristretto points.
+    /// The total cost is calculated as `msm_base_cost + (length - 1) * msm_incremental_cost`.
+    ulong curve25519_ristretto_msm_base_cost;
+    /// Number of compute units consumed for a multiscalar multiplication (msm) of ristretto points.
+    /// The total cost is calculated as `msm_base_cost + (length - 1) * msm_incremental_cost`.
+    ulong curve25519_ristretto_msm_incremental_cost;
+    /// Optional program heap region size, if `None` then loader default
+    ulong heap_size;
+    /// Number of compute units per additional 32k heap above the default (~.5
+    /// us per 32k at 15 units/us rounded up)
+    ulong heap_cost;
+    /// Memory operation syscall base cost
+    ulong mem_op_base_cost;
+};
+typedef struct fd_vm_exec_compute_budget fd_vm_exec_compute_budget_t;
+
+#define MAX_COMPUTE_UNIT_LIMIT 1400000
+static const fd_vm_exec_compute_budget_t vm_compute_budget = {
+  .compute_unit_limit = MAX_COMPUTE_UNIT_LIMIT,
+  .log_64_units = 100,
+  .create_program_address_units = 1500,
+  .invoke_units = 1000,
+  .max_invoke_depth = 4,
+  .sha256_base_cost = 85,
+  .sha256_byte_cost = 1,
+  .sha256_max_slices = 20000,
+  .max_call_depth = 64,
+  .stack_frame_size = 4096,
+  .log_pubkey_units = 100,
+  .max_cpi_instruction_size = 1280, // IPv6 Min MTU size
+  .cpi_bytes_per_unit = 250,        // ~50MB at 200,000 units
+  .sysvar_base_cost = 100,
+  .secp256k1_recover_cost = 25000,
+  .syscall_base_cost = 100,
+  .curve25519_edwards_validate_point_cost = 159,
+  .curve25519_edwards_add_cost = 473,
+  .curve25519_edwards_subtract_cost = 475,
+  .curve25519_edwards_multiply_cost = 2177,
+  .curve25519_edwards_msm_base_cost = 2273,
+  .curve25519_edwards_msm_incremental_cost = 758,
+  .curve25519_ristretto_validate_point_cost = 169,
+  .curve25519_ristretto_add_cost = 521,
+  .curve25519_ristretto_subtract_cost = 519,
+  .curve25519_ristretto_multiply_cost = 2208,
+  .curve25519_ristretto_msm_base_cost = 2303,
+  .curve25519_ristretto_msm_incremental_cost = 788,
+  // .heap_size = NULL,
+  .heap_cost = 8,
+  .mem_op_base_cost = 10
+};
+
+
 // FIXME: THE HEAP IS RESIZEABLE AT INVOCATION ~~ugh~~
 /* The sBPF execution context. This is the primary data structure that is evolved before, during
    and after contract execution. */
@@ -79,13 +190,14 @@ struct fd_vm_exec_context {
   ulong                       instrs_sz;      /* The number of program instructions FIXME this should be _cnt, not _sz */
   ulong                       instrs_offset;  /* This is the relocation offset we must apply to indirect calls (callx/CALL_REGs) */
   uint                        check_align;    /* If non-zero, VM does alignment checks where necessary (syscalls) */
+  uint                        check_size;    /* If non-zero, VM does size checks where necessary (syscalls) */
 
   /* Writable VM parameters: */
   ulong                 register_file[11];    /* The sBPF register file */
   ulong                 program_counter;      /* The current instruction index being executed */
   ulong                 instruction_counter;  /* The number of instructions which have been executed */
   fd_vm_log_collector_t log_collector;        /* The log collector used by `sol_log_*` syscalls */
-  ulong                 compute_budget;       /* The remaining CUs left for the transaction */
+  ulong                 compute_meter;       /* The remaining CUs left for the transaction */
   ulong                 cond_fault;           /* If non-zero, indicates a fault occured during execution */
 
   /* Memory regions: */
@@ -151,8 +263,9 @@ fd_vm_translate_vm_to_host( fd_vm_exec_context_t * ctx,
                             ulong                  vm_addr,
                             ulong                  sz,
                             ulong                  align ) {
-  if( FD_UNLIKELY( !fd_ulong_is_aligned( vm_addr, align ) ) )
+  if( FD_UNLIKELY( ctx->check_align && !fd_ulong_is_aligned( vm_addr, align ) ) ) {
     return NULL;
+  }
   return (void *)fd_vm_translate_vm_to_host_private( ctx, vm_addr, sz, 1 );
 }
 
@@ -161,9 +274,32 @@ fd_vm_translate_vm_to_host_const( fd_vm_exec_context_t * ctx,
                                   ulong                  vm_addr,
                                   ulong                  sz,
                                   ulong                  align ) {
-  if( FD_UNLIKELY( !fd_ulong_is_aligned( vm_addr, align ) ) )
+  if( ctx->check_align && FD_UNLIKELY( !fd_ulong_is_aligned( vm_addr, align ) ) ) {
     return NULL;
+  }
   return (void const *)fd_vm_translate_vm_to_host_private( ctx, vm_addr, sz, 0 );
+}
+
+static inline fd_vm_vec_t *
+fd_vm_translate_slice_vm_to_host( fd_vm_exec_context_t * ctx,
+                                  ulong                  vm_addr,
+                                  ulong                  sz,
+                                  ulong                  align) {
+  if ( ctx->check_size  && FD_UNLIKELY(fd_ulong_sat_mul( sz, sizeof(fd_vm_vec_t) ) > LONG_MAX )) {
+    return NULL;
+  }
+  return (fd_vm_vec_t *) fd_vm_translate_vm_to_host(ctx, vm_addr, sz, align);
+}
+
+static inline fd_vm_vec_t const *
+fd_vm_translate_slice_vm_to_host_const( fd_vm_exec_context_t * ctx,
+                                  ulong                  vm_addr,
+                                  ulong                  sz,
+                                  ulong                  align) {
+  if ( ctx->check_size  && FD_UNLIKELY(fd_ulong_sat_mul( sz, sizeof(fd_vm_vec_t) ) > LONG_MAX )) {
+    return NULL;
+  }
+  return (fd_vm_vec_t const *) fd_vm_translate_vm_to_host_const(ctx, vm_addr, sz, align);
 }
 
 FD_PROTOTYPES_END

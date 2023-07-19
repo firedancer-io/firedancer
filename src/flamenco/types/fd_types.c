@@ -905,6 +905,108 @@ int fd_vote_accounts_encode(fd_vote_accounts_t const * self, fd_bincode_encode_c
   return FD_BINCODE_SUCCESS;
 }
 
+int fd_stake_weight_decode(fd_stake_weight_t* self, fd_bincode_decode_ctx_t * ctx) {
+  int err;
+  err = fd_pubkey_decode(&self->key, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_decode(&self->stake, ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_stake_weight_new(fd_stake_weight_t* self) {
+  fd_memset(self, 0, sizeof(fd_stake_weight_t));
+  fd_pubkey_new(&self->key);
+}
+void fd_stake_weight_destroy(fd_stake_weight_t* self, fd_bincode_destroy_ctx_t * ctx) {
+  fd_pubkey_destroy(&self->key, ctx);
+}
+
+void fd_stake_weight_walk(fd_stake_weight_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_stake_weight", level++);
+  fd_pubkey_walk(&self->key, fun, "key", level + 1);
+  fun(&self->stake, "stake", 11, "ulong", level + 1);
+  fun(self, name, 33, "fd_stake_weight", --level);
+}
+ulong fd_stake_weight_size(fd_stake_weight_t const * self) {
+  ulong size = 0;
+  size += fd_pubkey_size(&self->key);
+  size += sizeof(ulong);
+  return size;
+}
+
+int fd_stake_weight_encode(fd_stake_weight_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  err = fd_pubkey_encode(&self->key, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_encode(&self->stake, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+
+int fd_stake_weights_decode(fd_stake_weights_t* self, fd_bincode_decode_ctx_t * ctx) {
+  int err;
+  ulong stake_weights_len;
+  err = fd_bincode_uint64_decode(&stake_weights_len, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  self->stake_weights_pool = fd_stake_weight_t_map_alloc(ctx->valloc, stake_weights_len);
+  self->stake_weights_root = NULL;
+  for (ulong i = 0; i < stake_weights_len; ++i) {
+    fd_stake_weight_t_mapnode_t* node = fd_stake_weight_t_map_acquire(self->stake_weights_pool);
+    fd_stake_weight_new(&node->elem);
+    err = fd_stake_weight_decode(&node->elem, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    fd_stake_weight_t_map_insert(self->stake_weights_pool, &self->stake_weights_root, node);
+  }
+  return FD_BINCODE_SUCCESS;
+}
+void fd_stake_weights_new(fd_stake_weights_t* self) {
+  fd_memset(self, 0, sizeof(fd_stake_weights_t));
+}
+void fd_stake_weights_destroy(fd_stake_weights_t* self, fd_bincode_destroy_ctx_t * ctx) {
+  for ( fd_stake_weight_t_mapnode_t* n = fd_stake_weight_t_map_minimum(self->stake_weights_pool, self->stake_weights_root); n; n = fd_stake_weight_t_map_successor(self->stake_weights_pool, n) ) {
+    fd_stake_weight_destroy(&n->elem, ctx);
+  }
+  fd_valloc_free( ctx->valloc, fd_stake_weight_t_map_delete(fd_stake_weight_t_map_leave( self->stake_weights_pool) ) );
+  self->stake_weights_pool = NULL;
+  self->stake_weights_root = NULL;
+}
+
+void fd_stake_weights_walk(fd_stake_weights_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_stake_weights", level++);
+  //fun(&self->stake_weights, "stake_weights", 17, "map");
+  fun(self, name, 33, "fd_stake_weights", --level);
+}
+ulong fd_stake_weights_size(fd_stake_weights_t const * self) {
+  ulong size = 0;
+  if (self->stake_weights_root) {
+    size += sizeof(ulong);
+    for ( fd_stake_weight_t_mapnode_t* n = fd_stake_weight_t_map_minimum(self->stake_weights_pool, self->stake_weights_root); n; n = fd_stake_weight_t_map_successor(self->stake_weights_pool, n) ) {
+      size += fd_stake_weight_size(&n->elem);
+    }
+  } else {
+    size += sizeof(ulong);
+  }
+  return size;
+}
+
+int fd_stake_weights_encode(fd_stake_weights_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  if (self->stake_weights_root) {
+    ulong stake_weights_len = fd_stake_weight_t_map_size(self->stake_weights_pool, self->stake_weights_root);
+    err = fd_bincode_uint64_encode(&stake_weights_len, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    for ( fd_stake_weight_t_mapnode_t* n = fd_stake_weight_t_map_minimum(self->stake_weights_pool, self->stake_weights_root); n; n = fd_stake_weight_t_map_successor(self->stake_weights_pool, n) ) {
+      err = fd_stake_weight_encode(&n->elem, ctx);
+      if ( FD_UNLIKELY(err) ) return err;
+    }
+  } else {
+    ulong stake_weights_len = 0;
+    err = fd_bincode_uint64_encode(&stake_weights_len, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+  }
+  return FD_BINCODE_SUCCESS;
+}
+
 int fd_delegation_decode(fd_delegation_t* self, fd_bincode_decode_ctx_t * ctx) {
   int err;
   err = fd_pubkey_decode(&self->voter_pubkey, ctx);
@@ -9432,6 +9534,15 @@ long fd_stake_history_epochentry_pair_t_map_compare(fd_stake_history_epochentry_
 #undef REDBLK_T
 #undef REDBLK_NAME
 long fd_vote_accounts_pair_t_map_compare(fd_vote_accounts_pair_t_mapnode_t * left, fd_vote_accounts_pair_t_mapnode_t * right) {
+  return memcmp(left->elem.key.uc, right->elem.key.uc, sizeof(right->elem.key));
+}
+#define REDBLK_T fd_stake_weight_t_mapnode_t
+#define REDBLK_NAME fd_stake_weight_t_map
+#define REDBLK_IMPL_STYLE 2
+#include "../../util/tmpl/fd_redblack.c"
+#undef REDBLK_T
+#undef REDBLK_NAME
+long fd_stake_weight_t_map_compare(fd_stake_weight_t_mapnode_t * left, fd_stake_weight_t_mapnode_t * right) {
   return memcmp(left->elem.key.uc, right->elem.key.uc, sizeof(right->elem.key));
 }
 #define REDBLK_T fd_delegation_pair_t_mapnode_t

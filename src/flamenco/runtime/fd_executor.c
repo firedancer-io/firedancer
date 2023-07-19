@@ -3,7 +3,7 @@
 
 #include "program/fd_system_program.h"
 #include "program/fd_vote_program.h"
-#include "program/fd_stake_program.h"
+#include "../stakes/fd_stake_program.h"
 #include "program/fd_config_program.h"
 #include "program/fd_ed25519_program.h"
 #include "program/fd_secp256k1_program.h"

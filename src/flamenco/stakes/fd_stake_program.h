@@ -1,9 +1,10 @@
 #ifndef HEADER_fd_src_flamenco_runtime_program_fd_stake_program_h
 #define HEADER_fd_src_flamenco_runtime_program_fd_stake_program_h
 
-#include "../../fd_flamenco_base.h"
-#include "../fd_executor.h"
-#include "../fd_runtime.h"
+#include "../fd_flamenco_base.h"
+#include "../runtime/fd_executor.h"
+#include "../runtime/fd_runtime.h"
+#include "fd_stakes.h"
 
 FD_PROTOTYPES_BEGIN
 

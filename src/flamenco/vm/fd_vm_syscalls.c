@@ -19,6 +19,13 @@
 #pragma GCC diagnostic ignored "-Wsuggest-attribute=const"
 #endif
 
+static ulong
+fd_vm_syscall_consume(fd_vm_exec_context_t * ctx, ulong cost) {
+  int exceeded = ctx->compute_meter < cost;
+  ctx->compute_meter = fd_ulong_sat_sub(ctx->compute_meter, cost);
+  return (exceeded) ? FD_VM_SYSCALL_ERR_INSTR_ERR : FD_VM_SYSCALL_SUCCESS;
+}
+
 void
 fd_vm_register_syscall( fd_sbpf_syscalls_t *     syscalls,
                         char const *             name,
@@ -329,28 +336,71 @@ fd_vm_syscall_sol_log_pubkey(
 
 ulong
 fd_vm_syscall_sol_log_compute_units(
-    FD_FN_UNUSED void * _ctx,
+    void * _ctx,
     FD_FN_UNUSED ulong arg0,
     FD_FN_UNUSED ulong arg1,
     FD_FN_UNUSED ulong arg2,
     FD_FN_UNUSED ulong arg3,
     FD_FN_UNUSED ulong arg4,
-    FD_FN_UNUSED ulong * ret
+    FD_FN_UNUSED ulong * pr0
 ) {
-  return FD_VM_SYSCALL_ERR_UNIMPLEMENTED;
+  fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
+  if ( FD_UNLIKELY( !ctx)) {
+    return FD_VM_SYSCALL_ERR_INVOKE_CONTEXT_BORROW_FAILED;
+  }
+
+  ulong result = fd_vm_syscall_consume( ctx, vm_compute_budget.syscall_base_cost );
+  if (result != FD_VM_SYSCALL_SUCCESS) {
+    return result;
+  }
+
+  char msg[1024];
+  int msg_len = sprintf( msg, "Program consumption: %lu units remaining\n", ctx->compute_meter);
+
+  fd_vm_log_collector_log( &ctx->log_collector, msg, (ulong)msg_len );
+
+  *pr0 = 0UL;
+  return FD_VM_SYSCALL_SUCCESS;
 }
 
 ulong
 fd_vm_syscall_sol_log_data(
-    FD_FN_UNUSED void * _ctx,
-    FD_FN_UNUSED ulong arg0,
-    FD_FN_UNUSED ulong arg1,
+    void * _ctx,
+    ulong msg_vm_addr,
+    ulong msg_len,
     FD_FN_UNUSED ulong arg2,
     FD_FN_UNUSED ulong arg3,
     FD_FN_UNUSED ulong arg4,
     FD_FN_UNUSED ulong * ret
 ) {
-  return FD_VM_SYSCALL_ERR_UNIMPLEMENTED;
+  fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
+  if ( FD_UNLIKELY (!ctx) ) {
+    return FD_VM_SYSCALL_ERR_INVOKE_CONTEXT_BORROW_FAILED;
+  }
+
+  ulong result = fd_vm_syscall_consume( ctx, vm_compute_budget.syscall_base_cost );
+  if (result != FD_VM_SYSCALL_SUCCESS) {
+    return result;
+  }
+
+  fd_vm_vec_t const * msg_host_addr =
+      fd_vm_translate_slice_vm_to_host_const( ctx, msg_vm_addr, msg_len, alignof(uchar) );
+  if( FD_UNLIKELY( !msg_host_addr ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
+
+  // int result = fd_vm_syscall_consume( ctx, fd_ulong_sat_mul( vm_compute_budget.syscall_base_cost, msg_len) );
+  // if (result != FD_VM_SYSCALL_SUCCESS) {
+  //   return result;
+  // }
+
+  // int result = fd_vm_syscall_consume( ctx, fd_ulong_sat_mul( vm_compute_budget.syscall_base_cost, 100) );
+  // if (result != FD_VM_SYSCALL_SUCCESS) {
+  //   return result;
+  // }
+
+
+  // // *ret = 0UL;
+  return FD_VM_SYSCALL_SUCCESS;
+
 }
 
 ulong

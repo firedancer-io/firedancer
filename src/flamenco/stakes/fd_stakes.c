@@ -1,35 +1,12 @@
 #include "fd_stakes.h"
 
-/* fd_stake_weights is a rbtree of fd_stake_weight_t, ordered by stake
-   weight descending.  Keys can be node identities or vote accounts. */
-
-struct fd_stake_weight_ele {
-  fd_stake_weight_t ele;
-  ulong             redblack_parent;
-  ulong             redblack_left;
-  ulong             redblack_right;
-  int               redblack_color;
-};
-typedef struct fd_stake_weight_ele fd_stake_weight_ele_t;
-
-FD_FN_PURE long
-fd_stake_weights_compare( fd_stake_weight_ele_t * e0,
-                          fd_stake_weight_ele_t * e1) {
-  return (long)memcmp( &e0->ele.pub, &e1->ele.pub, 32UL );
-}
-
-#define REDBLK_NAME fd_stake_weights
-#define REDBLK_T    fd_stake_weight_ele_t
-#include "../../util/tmpl/fd_redblack.c"
-
-
 /* fd_stakes_accum_by_node converts Stakes (unordered list of (vote acc,
    active stake) tuples) to StakedNodes (rbtree mapping (node identity)
    => (active stake) ordered by node identity).  Returns the tree root. */
 
-static fd_stake_weight_ele_t *
+static fd_stake_weight_t_mapnode_t *
 fd_stakes_accum_by_node( fd_vote_accounts_t const * in,
-                         fd_stake_weight_ele_t *    out_pool ) {
+                         fd_stake_weight_t_mapnode_t *    out_pool ) {
 
   /* Stakes::staked_nodes(&self: Stakes) -> HashMap<Pubkey, u64> */
 
@@ -41,7 +18,7 @@ fd_stakes_accum_by_node( fd_vote_accounts_t const * in,
   /* For each active vote account, accumulate (node_identity, stake) by
      summing stake. */
 
-  fd_stake_weight_ele_t * out_root = NULL;
+  fd_stake_weight_t_mapnode_t * out_root = NULL;
 
   for( fd_vote_accounts_pair_t_mapnode_t * n = fd_vote_accounts_pair_t_map_minimum( in_pool, in_root );
                                            n;
@@ -79,20 +56,20 @@ fd_stakes_accum_by_node( fd_vote_accounts_t const * in,
     }
 
     /* Check if node identity was previously visited */
-    fd_stake_weight_ele_t * query = fd_stake_weights_acquire( out_pool );
+    fd_stake_weight_t_mapnode_t * query = fd_stake_weight_t_map_acquire( out_pool );
     FD_TEST( query );
-    query->ele.pub = *node_pubkey;
-    fd_stake_weight_ele_t * node = fd_stake_weights_find( out_pool, out_root, query );
+    query->elem.key = *node_pubkey;
+    fd_stake_weight_t_mapnode_t * node = fd_stake_weight_t_map_find( out_pool, out_root, query );
 
     if( FD_UNLIKELY( node ) ) {
       /* Accumulate to previously created entry */
-      fd_stake_weights_release( out_pool, query );
-      node->ele.stake += n->elem.stake;
+      fd_stake_weight_t_map_release( out_pool, query );
+      node->elem.stake += n->elem.stake;
     } else {
       /* Create new entry */
       node = query;
-      node->ele.stake = n->elem.stake;
-      fd_stake_weights_insert( out_pool, &out_root, node );
+      node->elem.stake = n->elem.stake;
+      fd_stake_weight_t_map_insert( out_pool, &out_root, node );
     }
 
   }
@@ -109,7 +86,7 @@ fd_stakes_sort_before( fd_stake_weight_t a,
 
   if( a.stake > b.stake ) return 1;
   if( a.stake < b.stake ) return 0;
-  if( memcmp( &a.pub, &b.pub, 32UL )>0 ) return 1;
+  if( memcmp( &a.key, &b.key, 32UL )>0 ) return 1;
   return 0;
 }
 
@@ -129,14 +106,14 @@ fd_stake_weight_sort( fd_stake_weight_t * stakes,
    a list of fd_stake_weights_t. */
 
 static ulong
-fd_stakes_export( fd_stake_weight_ele_t const * const in_pool,
-                  fd_stake_weight_ele_t const * const root,
+fd_stakes_export( fd_stake_weight_t_mapnode_t const * const in_pool,
+                  fd_stake_weight_t_mapnode_t const * const root,
                   fd_stake_weight_t *           const out ) {
 
   fd_stake_weight_t * out_end = out;
 
-  for( fd_stake_weight_ele_t const * ele = fd_stake_weights_minimum( (fd_stake_weight_ele_t *)in_pool, (fd_stake_weight_ele_t *)root ); ele; ele = (fd_stake_weight_ele_t *)fd_stake_weights_successor( (fd_stake_weight_ele_t *)in_pool, (fd_stake_weight_ele_t *)ele ) ) {
-    *out_end++ = ele->ele;
+  for( fd_stake_weight_t_mapnode_t const * ele = fd_stake_weight_t_map_minimum( (fd_stake_weight_t_mapnode_t *)in_pool, (fd_stake_weight_t_mapnode_t *)root ); ele; ele = (fd_stake_weight_t_mapnode_t *)fd_stake_weight_t_map_successor( (fd_stake_weight_t_mapnode_t *)in_pool, (fd_stake_weight_t_mapnode_t *)ele ) ) {
+    *out_end++ = ele->elem;
   }
 
   return (ulong)( out_end - out );
@@ -160,8 +137,8 @@ fd_stake_weights_by_node( fd_vote_accounts_t const * accs,
   /* TODO size is the wrong method name for this */
   ulong vote_acc_cnt = fd_vote_accounts_pair_t_map_size( accs->vote_accounts_pool, accs->vote_accounts_root );
 
-  ulong rb_align     = fd_stake_weights_align();
-  ulong rb_footprint = fd_stake_weights_footprint( vote_acc_cnt );
+  ulong rb_align     = fd_stake_weight_t_map_align();
+  ulong rb_footprint = fd_stake_weight_t_map_footprint( vote_acc_cnt );
 
   if( FD_UNLIKELY( !fd_scratch_alloc_is_safe( rb_align, rb_footprint ) ) ) {
     FD_LOG_WARNING(( "insufficient scratch space: need %lu align %lu footprint",
@@ -172,17 +149,279 @@ fd_stake_weights_by_node( fd_vote_accounts_t const * accs,
   /* Create rb tree */
 
   void * pool_mem = fd_scratch_alloc( rb_align, rb_footprint );
-         pool_mem = fd_stake_weights_new( pool_mem, vote_acc_cnt );
-  fd_stake_weight_ele_t * pool = fd_stake_weights_join( pool_mem );
+         pool_mem = fd_stake_weight_t_map_new( pool_mem, vote_acc_cnt );
+  fd_stake_weight_t_mapnode_t * pool = fd_stake_weight_t_map_join( pool_mem );
   if( FD_UNLIKELY( !pool_mem ) ) FD_LOG_CRIT(( "fd_stake_weights_new() failed" ));
 
   /* Accumulate stakes to rb tree */
 
-  fd_stake_weight_ele_t const * root = fd_stakes_accum_by_node( accs, pool );
+  fd_stake_weight_t_mapnode_t const * root = fd_stakes_accum_by_node( accs, pool );
 
   /* Export to sorted list */
 
   ulong weights_cnt = fd_stakes_export( pool, root, weights );
   fd_stake_weight_sort( weights, weights_cnt );
   return weights_cnt;
+}
+
+fd_stake_history_entry_t stake_and_activating( fd_delegation_t const * delegation, ulong target_epoch, fd_stake_history_t * stake_history ) {
+  ulong delegated_stake = delegation->stake;
+
+  fd_stake_history_entry_t * cluster_stake_at_activation_epoch = NULL;
+
+  fd_stake_history_epochentry_pair_t_mapnode_t k;
+  k.elem.epoch = target_epoch;
+  fd_stake_history_epochentry_pair_t_mapnode_t* n = fd_stake_history_epochentry_pair_t_map_find( stake_history->entries_pool, stake_history->entries_root, &k );
+
+  if (NULL != n)
+    cluster_stake_at_activation_epoch = &n->elem.entry;
+
+  if (delegation->activation_epoch == (ulong)-1) {
+    // if is bootstrap
+    fd_stake_history_entry_t entry = {
+      .effective = delegated_stake,
+      .activating = 0
+    };
+
+    return entry;
+  } else if (delegation->activation_epoch == delegation->deactivation_epoch) {
+    fd_stake_history_entry_t entry = {
+      .effective = 0,
+      .activating = 0
+    };
+
+    return entry;
+  } else if ( target_epoch == delegation->activation_epoch ) {
+    fd_stake_history_entry_t entry = {
+      .effective = 0,
+      .activating = delegated_stake
+    };
+
+    return entry;
+  } else if ( target_epoch < delegation->activation_epoch ) {
+    fd_stake_history_entry_t entry = {
+      .effective = 0,
+      .activating = 0
+    };
+    return entry;
+  }
+
+  else if (cluster_stake_at_activation_epoch != NULL) {
+    ulong prev_epoch = delegation->activation_epoch;
+    fd_stake_history_entry_t * prev_cluster_stake = cluster_stake_at_activation_epoch;
+
+    ulong current_epoch;
+    ulong current_effective_stake = 0;
+    for (;;) {
+      current_epoch = prev_epoch + 1;
+      if (prev_cluster_stake->activating == 0) {
+        break;
+      }
+
+      ulong remaining_activating_stake = delegated_stake - current_effective_stake;
+      double weight = (double)remaining_activating_stake / (double)prev_cluster_stake->activating;
+
+      double newly_effective_cluster_stake = (double)prev_cluster_stake->effective * delegation->warmup_cooldown_rate;
+      ulong newly_effective_stake = (ulong)(weight * newly_effective_cluster_stake);
+      newly_effective_stake = (newly_effective_stake == 0) ? 1 : newly_effective_stake;
+
+      current_effective_stake += newly_effective_stake;
+      if (current_effective_stake >= delegated_stake) {
+          current_effective_stake = delegated_stake;
+          break;
+      }
+
+      if (current_epoch >= target_epoch || current_epoch >= delegation->deactivation_epoch) {
+        break;
+      }
+
+      // Find the current epoch in history
+      fd_stake_history_epochentry_pair_t_mapnode_t k;
+      k.elem.epoch = current_epoch;
+      fd_stake_history_epochentry_pair_t_mapnode_t* n = fd_stake_history_epochentry_pair_t_map_find( stake_history->entries_pool, stake_history->entries_root, &k );
+
+      if (NULL != n) {
+        prev_epoch = current_epoch;
+        prev_cluster_stake = &n->elem.entry;
+      } else
+        break;
+    }
+
+    fd_stake_history_entry_t entry = {
+      .effective = current_effective_stake,
+      .activating = 0,
+      .deactivating = current_effective_stake
+    };
+    return entry;
+  } else {
+    fd_stake_history_entry_t entry = {
+      .effective = 0,
+      .activating = 0,
+      .deactivating = 0
+    };
+
+    return entry;
+  }
+}
+
+fd_stake_history_entry_t stake_activating_and_deactivating( fd_delegation_t const * delegation, ulong target_epoch, fd_stake_history_t * stake_history ) {
+  fd_stake_history_entry_t stake_and_activating_entry = stake_and_activating( delegation, target_epoch, stake_history );
+
+  ulong effective_stake = stake_and_activating_entry.effective;
+  ulong activating_stake = stake_and_activating_entry.activating;
+
+  fd_stake_history_entry_t * cluster_stake_at_activation_epoch = NULL;
+
+  fd_stake_history_epochentry_pair_t_mapnode_t k;
+  k.elem.epoch = target_epoch;
+  fd_stake_history_epochentry_pair_t_mapnode_t* n = fd_stake_history_epochentry_pair_t_map_find( stake_history->entries_pool, stake_history->entries_root, &k );
+
+  if (NULL != n)
+    cluster_stake_at_activation_epoch = &n->elem.entry;
+
+  if (target_epoch < delegation->deactivation_epoch) {
+    // if is bootstrap
+    if (activating_stake == 0) {
+      fd_stake_history_entry_t entry = {
+        .effective = effective_stake,
+        .deactivating = 0,
+        .activating = 0
+      };
+      return entry;
+    } else {
+      fd_stake_history_entry_t entry = {
+        .effective = effective_stake,
+        .deactivating = 0,
+        .activating = activating_stake
+      };
+      return entry;
+    }
+  } else if (target_epoch == delegation->deactivation_epoch) {
+    fd_stake_history_entry_t entry = {
+      .effective = effective_stake,
+      .deactivating = effective_stake,
+      .activating = 0
+    };
+    return entry;
+  } else if (cluster_stake_at_activation_epoch != NULL) {
+    ulong prev_epoch = delegation->activation_epoch;
+    fd_stake_history_entry_t * prev_cluster_stake = cluster_stake_at_activation_epoch;
+
+    ulong current_epoch;
+    ulong current_effective_stake = effective_stake;
+    for (;;) {
+      current_epoch = prev_epoch + 1;
+      if (prev_cluster_stake->deactivating == 0) {
+        break;
+      }
+
+      double weight = (double)current_effective_stake / (double)prev_cluster_stake->deactivating;
+
+      double newly_not_effective_cluster_stake = (double)prev_cluster_stake->effective * delegation->warmup_cooldown_rate;
+      ulong newly_not_effective_stake = (ulong)(weight * newly_not_effective_cluster_stake);
+      newly_not_effective_stake = (newly_not_effective_stake == 0) ? 1 : newly_not_effective_stake;
+
+      current_effective_stake = fd_ulong_sat_sub(current_effective_stake, newly_not_effective_stake);
+      if (current_effective_stake == 0) {
+          break;
+      }
+
+      if (current_epoch >= target_epoch) {
+        break;
+      }
+
+      // Find the current epoch in history
+      fd_stake_history_epochentry_pair_t_mapnode_t k;
+      k.elem.epoch = current_epoch;
+      fd_stake_history_epochentry_pair_t_mapnode_t* n = fd_stake_history_epochentry_pair_t_map_find( stake_history->entries_pool, stake_history->entries_root, &k );
+
+      if (NULL != n) {
+        prev_epoch = current_epoch;
+        prev_cluster_stake = &n->elem.entry;
+      } else
+        break;
+    }
+
+    fd_stake_history_entry_t entry = {
+      .effective = current_effective_stake,
+      .deactivating = current_effective_stake,
+      .activating = 0
+    };
+
+    return entry;
+  } else {
+     fd_stake_history_entry_t entry = {
+      .effective = 0,
+      .activating = 0,
+      .deactivating = 0
+    };
+
+    return entry;
+  }
+}
+
+/* Initializes the stakes cache in the Bank structure.
+   TODO: maybe we don't need this cache at all? */
+void fd_stakes_init( fd_global_ctx_t* global, fd_stakes_t* stakes ) {
+   /* TODO: handle non-zero epoch case */
+  stakes->epoch = 0;
+  stakes->stake_delegations_pool = fd_delegation_pair_t_map_alloc(global->valloc, 10000);
+}
+
+/* https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L169 */
+void activate_epoch( fd_global_ctx_t* global, ulong next_epoch ) {
+  
+  fd_stakes_t* stakes = &global->bank.stakes;
+
+  /* Current stake delegations: list of all current delegations in stake_delegations
+     https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L180 */
+  /* Add a new entry to the Stake History sysvar for the previous epoch
+     https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L181-L192 */
+
+  fd_stake_history_epochentry_pair_t_mapnode_t * acc = fd_stake_history_epochentry_pair_t_map_acquire( stakes->stake_history.entries_pool );
+  acc->elem.entry = (fd_stake_history_entry_t){
+    .effective = 0,
+    .activating = 0,
+    .deactivating = 0
+  };
+  acc->elem.epoch = stakes->epoch;
+
+  fd_stake_history_t history;
+  fd_sysvar_stake_history_read( global, &history);
+
+  for ( fd_delegation_pair_t_mapnode_t * n = fd_delegation_pair_t_map_minimum(stakes->stake_delegations_pool, stakes->stake_delegations_root); n; n = fd_delegation_pair_t_map_successor(stakes->stake_delegations_pool, n) ) {
+    fd_stake_history_entry_t new_entry = stake_activating_and_deactivating( &n->elem.delegation, stakes->epoch, &history );
+    acc->elem.entry.effective += new_entry.effective;
+    acc->elem.entry.activating += new_entry.activating;
+    acc->elem.entry.deactivating += new_entry.deactivating;
+  }
+  acc = fd_stake_history_epochentry_pair_t_map_insert( stakes->stake_history.entries_pool, &stakes->stake_history.entries_root, acc );
+
+  /* Update the current epoch value */
+  stakes->epoch = next_epoch;
+
+  /* Refresh the stake distribution of vote accounts for the next epoch,
+     using the updated Stake History.
+     https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L194-L216 */
+  fd_stake_weight_t_mapnode_t * pool = fd_stake_weight_t_map_alloc(global->valloc, 10000);
+  fd_stake_weight_t_mapnode_t * root = NULL;
+
+  for ( fd_delegation_pair_t_mapnode_t * n = fd_delegation_pair_t_map_minimum(stakes->stake_delegations_pool, stakes->stake_delegations_root); n; n = fd_delegation_pair_t_map_successor(stakes->stake_delegations_pool, n) ) {
+    ulong delegation_stake = stake_activating_and_deactivating( &n->elem.delegation, stakes->epoch, &history ).effective;
+    fd_stake_weight_t_mapnode_t temp;
+    memcpy(&temp.elem.key, &n->elem.delegation.voter_pubkey, sizeof(fd_pubkey_t));
+    fd_stake_weight_t_mapnode_t * entry  = fd_stake_weight_t_map_find(pool, root, &temp);
+    if (entry != NULL) {
+      entry->elem.stake += delegation_stake;
+    } else {
+      temp.elem.stake = delegation_stake;
+      fd_stake_weight_t_map_insert(pool, &root, &temp);
+    }
+  }
+  for ( fd_vote_accounts_pair_t_mapnode_t * n = fd_vote_accounts_pair_t_map_minimum(stakes->vote_accounts.vote_accounts_pool, stakes->vote_accounts.vote_accounts_root); n; n = fd_vote_accounts_pair_t_map_successor(stakes->vote_accounts.vote_accounts_pool, n) ) {
+    fd_stake_weight_t_mapnode_t temp;
+    memcpy(&temp.elem.key, &n->elem.key, sizeof(fd_pubkey_t));
+    fd_stake_weight_t_mapnode_t * entry = fd_stake_weight_t_map_find(pool, root, &temp);
+    n->elem.stake = (entry == NULL) ? 0 : entry->elem.stake;
+  }
 }

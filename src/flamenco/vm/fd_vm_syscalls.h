@@ -9,6 +9,8 @@
 #define FD_VM_SYSCALL_ERR_PANIC         (2UL)
 #define FD_VM_SYSCALL_ERR_MEM_OVERLAP   (3UL)
 #define FD_VM_SYSCALL_ERR_INVAL         (4UL)
+#define FD_VM_SYSCALL_ERR_INSTR_ERR     (5UL)
+#define FD_VM_SYSCALL_ERR_INVOKE_CONTEXT_BORROW_FAILED (6UL)
 #define FD_VM_SYSCALL_ERR_UNIMPLEMENTED (0xFFFFUL) /* TODO: remove when unused */
 
 #define FD_VM_SYSCALL_DECL(name) ulong fd_vm_syscall_##name ( \
