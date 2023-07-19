@@ -1,17 +1,3 @@
-
-ifneq ($(SECP256K1),)
-
-ifneq (,$(wildcard $(SECP256K1)/lib/libsecp256k1.a))
-CFLAGS += -I$(SECP256K1)/include -DFD_HAS_SECP256K1=1
-LDFLAGS += $(SECP256K1)/lib/libsecp256k1.a
 FD_HAS_SECP256K1:=1
-endif
-
-else
-
-CFLAGS += -DFD_HAS_SECP256K1=1
-LDFLAGS +=-lsecp256k1
-FD_HAS_SECP256K1:=1
-
-endif
-
+CFLAGS+=-DFD_HAS_SECP256K1=1
+LDFLAGS+=-Wl,--push-state,-Bstatic -lsecp256k1 -Wl,--pop-state
