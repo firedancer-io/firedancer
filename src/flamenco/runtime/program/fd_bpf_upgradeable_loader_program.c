@@ -142,7 +142,7 @@ serialize_aligned( instruction_ctx_t ctx, ulong * sz ) {
 
     fd_pubkey_t * acc = &txn_accs[acc_idx];
     FD_LOG_WARNING(( "START OF ACC: %32J %x", acc, serialized_size ));
-    
+
     serialized_size++; // dup byte
     if( FD_UNLIKELY( acc_idx_seen[acc_idx] ) ) {
       serialized_size += 7; // pad to 64-bit alignment
@@ -442,7 +442,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_program_instruction( inst
 
   // TODO: make tracing an option!
   // FILE * trace_fd = fopen("trace.log", "w");
-  
+
   for( ulong i = 0; i < trace_used; i++ ) {
     fd_vm_trace_entry_t trace_ent = trace[i];
     fprintf(stderr, "%5lu [%016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX] %5lu: ",
@@ -464,7 +464,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_program_instruction( inst
 
     fprintf(stderr, "\n");
   }
-  
+
   // fclose(trace_fd);
   free(trace);
 
