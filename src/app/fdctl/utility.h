@@ -30,17 +30,18 @@ snprintf1( char * s,
 /* RUN() executes the given string and formatting arguments as a
    subprocess, and waits for the child to complete. If the child does
    not exit successfully with code 0, the calling program is aborted. */
-#define RUN(...) do {                                     \
-    char cmd[ 4096 ];                                     \
-    snprintf1( cmd,                                       \
-               sizeof(cmd),                               \
-               __VA_ARGS__ );                             \
-    int ret = system( cmd );                              \
-    if( FD_UNLIKELY( !ret ) )                             \
-      FD_LOG_ERR(( "running command `%s` failed (%i-%s)", \
-                   cmd,                                   \
-                   errno,                                 \
-                   strerror( errno ) ));                  \
+#define RUN(...) do {                                                  \
+    char cmd[ 4096 ];                                                  \
+    snprintf1( cmd,                                                    \
+               sizeof(cmd),                                            \
+               __VA_ARGS__ );                                          \
+    int ret = system( cmd );                                           \
+    if( FD_UNLIKELY( ret ) )                                           \
+      FD_LOG_ERR(( "running command `%s` failed exit code=%d (%i-%s)", \
+                   cmd,                                                \
+                   ret,                                                \
+                   errno,                                              \
+                   strerror( errno ) ));                               \
   } while( 0 )
 
 /* OUTPUT() executes the given string and formatting arguments as a
