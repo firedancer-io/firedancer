@@ -2,6 +2,7 @@
 #define HEADER_fd_src_app_fdctl_fdctl_h
 
 #include "../../util/fd_util.h"
+#include "../../util/net/fd_ip4.h"
 
 #include "config.h"
 #include "security.h"
