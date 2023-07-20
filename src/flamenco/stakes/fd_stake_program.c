@@ -14,6 +14,7 @@
 #define MERGE_KIND_INACTIVE ( 0 )
 #define MERGE_KIND_ACTIVE_EPOCH ( 1 )
 #define MERGE_KIND_FULLY_ACTIVE ( 2 )
+#define MINIMUM_DELINQUENT_EPOCHS_FOR_DEACTIVATION ( 5 )
 
 fd_acc_lamports_t get_minimum_delegation( fd_global_ctx_t* global ) {
   if ( FD_FEATURE_ACTIVE(global, stake_raise_minimum_delegation_to_1_sol )) {
@@ -36,9 +37,34 @@ int authorized_check_signers(instruction_ctx_t* ctx, uchar * instr_acc_idxs, fd_
   return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
 }
 
+static int
+acceptable_reference_epoch_credits( fd_vote_epoch_credits_t * epoch_credits, ulong current_epoch ) {
+  ulong len = deq_fd_vote_epoch_credits_t_cnt(epoch_credits);
+  if (len < MINIMUM_DELINQUENT_EPOCHS_FOR_DEACTIVATION) {
+    return 0;
+  }
+  for (ulong idx = len - MINIMUM_DELINQUENT_EPOCHS_FOR_DEACTIVATION; idx < len; ++ idx) {
+    if (deq_fd_vote_epoch_credits_t_peek_index(epoch_credits, idx)->epoch != current_epoch) {
+      return 0; 
+    }
+    current_epoch --;
+  }
+  return 1;
+}
 
+static int
+eligible_for_deactivate_delinquent( fd_vote_epoch_credits_t * epoch_credits, ulong current_epoch ) {
+  fd_vote_epoch_credits_t * last = deq_fd_vote_epoch_credits_t_peek_tail(epoch_credits);
+  if (last == NULL) {
+    return 1;
+  }
+  if (current_epoch < MINIMUM_DELINQUENT_EPOCHS_FOR_DEACTIVATION) {
+    return 0;
+  }
+  return last->epoch <= (current_epoch - MINIMUM_DELINQUENT_EPOCHS_FOR_DEACTIVATION);
+}
 
-void write_stake_config( fd_global_ctx_t* global, fd_stake_config_t* stake_config) {
+void write_stake_config( fd_global_ctx_t* global, fd_stake_config_t* stake_config ) {
   ulong          sz = fd_stake_config_size( stake_config );
   unsigned char *enc = fd_alloca_check( 1, sz );
   memset( enc, 0, sz );
@@ -1203,58 +1229,51 @@ int fd_executor_stake_program_execute_instruction(
     fd_stake_state_t stake_state;
     int result = read_stake_state( ctx.global, stake_acc, &stake_state );
     if (result != FD_EXECUTOR_INSTR_SUCCESS) {
+      // FD_LOG_NOTICE (( "RESULT WRONG HERE = %d", result));
       return result;
     }
 
-    // /* Check that the Instruction Account 0 is the Clock Sysvar account */
-    // if ( memcmp( &txn_accs[instr_acc_idxs[0]], ctx.global->sysvar_clock, sizeof(fd_pubkey_t) ) != 0 ) {
-    //   return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
-    // }
-    // FD_LOG_NOTICE(("BEFORE CLOCK"));
-    // fd_sol_sysvar_clock_t clock;
-    // fd_sysvar_clock_read( ctx.global, &clock );
-    // FD_LOG_NOTICE(("AFTER CLOCK"));
     fd_pubkey_t * delinquent_vote_acc = &txn_accs[instr_acc_idxs[1]];
     fd_pubkey_t delinquent_vote_acc_owner;
     fd_acc_mgr_get_owner( ctx.global->acc_mgr, ctx.global->funk_txn, delinquent_vote_acc, &delinquent_vote_acc_owner );
     if ( memcmp( &delinquent_vote_acc_owner, ctx.global->solana_vote_program, sizeof(fd_pubkey_t) ) != 0 ) {
       return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
     }
-    // ulong delinquent_credits = 0;
-    // result = fd_vote_acc_credits( ctx.global, delinquent_vote_acc, &delinquent_credits );
-    // FD_LOG_NOTICE(("AFTER DELINQUENT CREDITS =%d", result));
-    // if( FD_UNLIKELY( result != FD_EXECUTOR_INSTR_SUCCESS ) ) {
-    //   return result;  /* FIXME leak */
-    // }
-    // let delinquent_vote_state = delinquent_vote_account
-    //     .get_state::<VoteStateVersions>()?
-    //     .convert_to_current();
 
-    fd_pubkey_t * reference_vote_acc = &txn_accs[instr_acc_idxs[2]];
+    /* Read vote account */
+    fd_account_meta_t         delinquent_vote_meta;
+    fd_vote_state_versioned_t delinquent_vote_state;
+
+    result = fd_vote_load_account( &delinquent_vote_state, &delinquent_vote_meta, ctx.global, delinquent_vote_acc );
+    if( FD_UNLIKELY( result != FD_EXECUTOR_INSTR_SUCCESS ) ) {
+      return result;
+    }
+
+    const fd_pubkey_t * reference_vote_acc = &txn_accs[instr_acc_idxs[2]];
     fd_pubkey_t reference_vote_acc_owner;
     fd_acc_mgr_get_owner( ctx.global->acc_mgr, ctx.global->funk_txn, reference_vote_acc, &reference_vote_acc_owner );
     if ( memcmp( &reference_vote_acc_owner, ctx.global->solana_vote_program, sizeof(fd_pubkey_t) ) != 0 ) {
       return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
     }
 
-    ulong reference_credits = 0;
-    result = fd_vote_acc_credits( ctx.global, reference_vote_acc, &reference_credits );
-    // if( FD_UNLIKELY( result != FD_EXECUTOR_INSTR_SUCCESS ) ) {
-    //   return result;  /* FIXME leak */
-    // }
-    // let reference_vote_state = reference_vote_account
-    //     .get_state::<VoteStateVersions>()?
-    //     .convert_to_current();
+    // reference_vote_state->inner.stake.meta.;
+    fd_sol_sysvar_clock_t clock;
+    fd_sysvar_clock_read( ctx.global, &clock );
+    // clock.epoch
 
+    /* Read vote account */
+    fd_account_meta_t         reference_vote_meta;
+    fd_vote_state_versioned_t reference_vote_state;
 
-    // if !acceptable_reference_epoch_credits(&reference_vote_state.epoch_credits, current_epoch) {
-    //     return Err(StakeError::InsufficientReferenceVotes.into());
-    // }
-    // if (!acceptable_reference_epoch_credits(0, 0)) {
-    //   ctx.txn_ctx->custom_err = 9;
-    //   return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
-    // }
+    result = fd_vote_load_account( &reference_vote_state, &reference_vote_meta, ctx.global, reference_vote_acc );
+    if( FD_UNLIKELY( result != FD_EXECUTOR_INSTR_SUCCESS ) ) {
+      return result;
+    }
 
+    if (!acceptable_reference_epoch_credits(reference_vote_state.inner.current.epoch_credits, clock.epoch)) {
+      ctx.txn_ctx->custom_err = 9;
+      return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR; // Err(StakeError::InsufficientReferenceVotes.into());
+    }
     if ( !fd_stake_state_is_stake( &stake_state ) ) {
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
     }
@@ -1264,14 +1283,22 @@ int fd_executor_stake_program_execute_instruction(
       return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR; // return Err(StakeError::VoteAddressMismatch.into());
     }
 
-    // // Deactivate the stake account if its delegated vote account has never voted or has not
-    // // voted in the last `MINIMUM_DELINQUENT_EPOCHS_FOR_DEACTIVATION`
-    // if eligible_for_deactivate_delinquent(&delinquent_vote_state.epoch_credits, current_epoch) {
-    //     stake.deactivate(current_epoch)?;
-    //     stake_account.set_state(&StakeState::Stake(meta, stake))
-    // } else {
-    //     Err(StakeError::MinimumDelinquentEpochsForDeactivationNotMet.into())
-    // }
+    // Deactivate the stake account if its delegated vote account has never voted or has not
+    // voted in the last `MINIMUM_DELINQUENT_EPOCHS_FOR_DEACTIVATION`
+    if ( !eligible_for_deactivate_delinquent( delinquent_vote_state.inner.current.epoch_credits, clock.epoch) ) {
+      ctx.txn_ctx->custom_err = 11;
+      return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR; //  Err(StakeError::MinimumDelinquentEpochsForDeactivationNotMet.into())
+    }
+
+    if (stake_state.inner.stake.stake.delegation.deactivation_epoch != ULONG_MAX) {
+      ctx.txn_ctx->custom_err = 2;
+      return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR; // Err(StakeError::AlreadyDeactivated)
+    }
+    stake_state.inner.stake.stake.delegation.deactivation_epoch = clock.epoch;
+    result = write_stake_state(ctx.global, stake_acc, &stake_state, 0);
+    if ( FD_UNLIKELY(result != FD_EXECUTOR_INSTR_SUCCESS ) ) {
+      return result;
+    }
   } // end of deactivate_delinquent, discriminant 14
   else {
     FD_LOG_NOTICE(( "unsupported StakeInstruction instruction: discriminant %d", instruction.discriminant ));
