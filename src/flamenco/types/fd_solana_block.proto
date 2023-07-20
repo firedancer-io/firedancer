@@ -122,7 +122,7 @@ message TransactionError {
 
 message UiTokenAmount {
     optional double ui_amount = 1;
-    required uint32 decimals = 2;
+    optional uint32 decimals = 2;
     required string amount = 3;
     required string ui_amount_string = 4;
 }
