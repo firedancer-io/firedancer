@@ -4999,6 +4999,8 @@ int fd_firedancer_banks_decode(fd_firedancer_banks_t* self, fd_bincode_decode_ct
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_bincode_uint64_decode(&self->slot, ctx);
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_uint64_decode(&self->prev_slot, ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   err = fd_hash_decode(&self->poh, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_hash_decode(&self->banks_hash, ctx);
@@ -5063,6 +5065,7 @@ void fd_firedancer_banks_walk(fd_firedancer_banks_t* self, fd_walk_fun_t fun, co
   fd_recent_block_hashes_walk(&self->recent_block_hashes, fun, "recent_block_hashes", level + 1);
   fd_clock_timestamp_votes_walk(&self->timestamp_votes, fun, "timestamp_votes", level + 1);
   fun(&self->slot, "slot", 11, "ulong", level + 1);
+  fun(&self->prev_slot, "prev_slot", 11, "ulong", level + 1);
   fd_hash_walk(&self->poh, fun, "poh", level + 1);
   fd_hash_walk(&self->banks_hash, fun, "banks_hash", level + 1);
   fd_fee_rate_governor_walk(&self->fee_rate_governor, fun, "fee_rate_governor", level + 1);
@@ -5085,6 +5088,7 @@ ulong fd_firedancer_banks_size(fd_firedancer_banks_t const * self) {
   size += fd_stakes_size(&self->stakes);
   size += fd_recent_block_hashes_size(&self->recent_block_hashes);
   size += fd_clock_timestamp_votes_size(&self->timestamp_votes);
+  size += sizeof(ulong);
   size += sizeof(ulong);
   size += fd_hash_size(&self->poh);
   size += fd_hash_size(&self->banks_hash);
@@ -5113,6 +5117,8 @@ int fd_firedancer_banks_encode(fd_firedancer_banks_t const * self, fd_bincode_en
   err = fd_clock_timestamp_votes_encode(&self->timestamp_votes, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_bincode_uint64_encode(&self->slot, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_encode(&self->prev_slot, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_hash_encode(&self->poh, ctx);
   if ( FD_UNLIKELY(err) ) return err;

@@ -16,9 +16,6 @@
 /* Do all intermediate calculations at nanosecond precision, to mirror Solana's behaviour. */
 #define NS_IN_S ( 1000000000 )
 
-/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/clock.rs#L10 */
-#define DEFAULT_TICKS_PER_SECOND ( 160 )
-
 /* The target tick duration, derived from the target tick rate.
  https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/src/poh_config.rs#L32
   */

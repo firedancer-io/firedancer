@@ -1,8 +1,8 @@
-#include "sysvar/fd_sysvar_epoch_schedule.h"
 #include "time.h"
 #include "fd_runtime.h"
 #include "fd_hashes.h"
 #include "sysvar/fd_sysvar_clock.h"
+#include "sysvar/fd_sysvar_epoch_schedule.h"
 #include "sysvar/fd_sysvar.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../../ballet/txn/fd_txn.h"
@@ -629,10 +629,124 @@ fd_runtime_calculate_fee( fd_global_ctx_t *global, transaction_ctx_t * txn_ctx, 
     return (ulong) fee;
 }
 
+//struct fd_rent_collection_cycle_params {
+//  ulong epoch;
+//  ulong slot_count;
+//  ulong base_epoch;
+//  ulong epoch_count_per_cycle;
+//};
+//typedef struct fd_rent_collection_cycle_params fd_rent_collection_cycle_params_t;
+
+static void
+fd_runtime_collect_rent( fd_global_ctx_t * global ) {
+  // Bank::collect_rent_eagerly (enter)
+
+  fd_epoch_schedule_t const * schedule = &global->bank.epoch_schedule;
+
+  // Bank::rent_collection_partitions              (enter)
+  // Bank::variable_cycle_partitions               (enter)
+  // Bank::variable_cycle_partitions_between_slots (enter)
+
+  ulong slot0 = global->bank.prev_slot;
+  ulong slot1 = global->bank.slot;
+
+  /* TODO For whatever reason, when replaying from genesis, our slot0 is
+     ULONG_MAX */
+  if( slot0==ULONG_MAX ) slot0 = 0UL;
+  FD_TEST( slot0<=slot1 );
+
+  ulong slot0_off;
+  ulong slot1_off;
+
+  ulong epoch0 = fd_slot_to_epoch( schedule, slot0, &slot0_off );
+  ulong epoch1 = fd_slot_to_epoch( schedule, slot1, &slot1_off );
+
+  if( epoch0 < epoch1 ) {
+    FD_LOG_WARNING(( "TODO don't yet support rent collection across epoch boundaries" ));
+    return;
+  }
+
+  // Bank::partition_from_normal_slot_indexes (enter)
+  // Bank::do_partition_from_slot_indexes     (enter)
+
+  // Bank::determine_collection_cycle_params  (enter)
+  ulong slot_cnt = fd_epoch_slot_cnt( schedule, epoch0 );
+
+  // Bank::use_multi_epoch_collection_cycle   (enter)
+  /* This is always false on mainnet.  For clusters with shorter epochs,
+     this feature extends rent collection to span multiple epochs. */
+  int use_multi_epoch_collection_cycle =
+      ( schedule->slots_per_epoch > 32UL       )
+    & ( schedule->slots_per_epoch < fd_slot_cnt_2day( global->bank.ticks_per_slot ) )
+    & ( epoch0 >= schedule->first_normal_epoch );
+  if( use_multi_epoch_collection_cycle ) {
+    FD_LOG_WARNING(( "TODO multi epoch rent collection is unsupported (trying using longer epochs)" ));
+    return;
+  }
+
+  // Bank::get_partition_from_slot_indexes (enter)
+  // Bank::partition_index_from_slot_index (enter)
+  ulong part0    = slot0_off;
+  ulong part1    = slot1_off;
+  ulong part_cnt = slot_cnt;
+
+  //int start_of_epoch  = ( part0==0UL ) & ( part1!=1UL );
+  //int middle_of_cycle =   part0> 0UL;
+
+  // Bank::partition_index_from_slot_index         (exit)
+  // Bank::get_partition_from_slot_indexes         (exit)
+  // Bank::do_partition_from_slot_indexes          (exit)
+  // Bank::partition_from_normal_slot_indexes      (exit)
+  // Bank::variable_cycle_partitions_between_slots (exit)
+  // Bank::variable_cycle_partitions               (exit)
+  // Bank::rent_collection_partitions              (exit)
+
+  // Bank::collect_rent_eagerly (cont)
+  // Bank::collect_rent_in_partition (enter)
+
+  // Bank::pubkey_range_from_partition (enter)
+  ulong prefix0 = 0UL;
+  ulong prefix1 = ULONG_MAX;
+  fd_pubkey_t key1;  memset( key1.uc, 0xFF, sizeof(fd_pubkey_t) );
+
+  if( FD_LIKELY( part_cnt>1UL ) ) {
+    ulong part_width = (ULONG_MAX - part_cnt + 1UL) / part_cnt + 1UL;
+
+    if( (part0==0UL) & (part1==0UL) ) prefix0 = 0UL;
+    else if( part0+1UL == part_cnt  ) prefix0 = ULONG_MAX;
+    else                              prefix0 = (part0+1UL) * part_width;
+    if( part1+1UL == part_cnt       ) prefix1 = ULONG_MAX;
+    else                              prefix1 = (part1+1UL) * part_width - 1UL;
+
+    if( ( part0!=0UL ) & ( part0==part1 ) ) {
+      /* ??? */
+      if( prefix1 == ULONG_MAX) prefix0 = prefix1;
+      else                      prefix1 = prefix0;
+    }
+
+    //ulong prefix0_be = fd_ulong_bswap( prefix0 );
+    //ulong prefix1_be = fd_ulong_bswap( prefix1 );
+
+    FD_LOG_DEBUG(( "Collecting rent from"
+                   " %016lx000000... to"
+                   " %016lxffffff...",
+                   prefix0, prefix1 ));
+  }
+  // Bank::pubkey_range_from_partition (exit)
+
+  // Bank::collect_rent_in_partition   (cont)
+  // Bank::collect_rent_in_range       (enter)
+
+  /* TODO iterate over pubkeys in range */
+
+  // Bank::collect_rent_in_range     (exit)
+  // Bank::collect_rent_in_partition (exit)
+}
+
 void
 fd_runtime_freeze( fd_global_ctx_t *global ) {
   // solana/runtime/src/bank.rs::freeze(....)
-  //self.collect_rent_eagerly();
+  fd_runtime_collect_rent( global );
   //self.collect_fees();
 
   fd_sysvar_recent_hashes_update ( global );
@@ -1024,6 +1138,7 @@ int fd_global_import_solana_manifest(fd_global_ctx_t * global, fd_solana_manifes
     fd_memcpy(&global->bank.poh, oldbank->blockhash_queue.last_hash, FD_SHA256_HASH_SZ);
   // bank->timestamp_votes = oldbank->timestamp_votes;
   bank->slot = oldbank->slot;
+  bank->prev_slot = oldbank->parent_slot;
   fd_memcpy(&bank->banks_hash, &oldbank->hash, sizeof(oldbank->hash));
   fd_memcpy(&bank->fee_rate_governor, &oldbank->fee_rate_governor, sizeof(oldbank->fee_rate_governor));
   bank->lamports_per_signature = oldbank->fee_calculator.lamports_per_signature;

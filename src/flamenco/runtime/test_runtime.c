@@ -245,8 +245,10 @@ replay( global_state_t * state,
     }
   }
 
+  ulong prev_slot = state->global->bank.slot;
   for ( ulong slot = state->global->bank.slot+1; slot < state->end_slot; ++slot ) {
-    state->global->bank.slot = slot;
+    state->global->bank.prev_slot = prev_slot;
+    state->global->bank.slot      = slot;
 
     FD_LOG_NOTICE(("reading slot %ld (epoch %lu)", slot, epoch));
 
@@ -304,6 +306,8 @@ replay( global_state_t * state,
     if( slot == last_epoch_slot ) {
       FD_LOG_NOTICE(( "EPOCH TRANSITION" ));
     }
+
+    prev_slot = slot;
   }
 
   // fd_funk_txn_publish( state->global->funk, state->global->funk_txn, 1);
@@ -466,8 +470,7 @@ int main(int argc, char **argv) {
     ctx2.data = val;
     ctx2.dataend = (uchar*)val + fd_funk_val_sz( rec );
     ctx2.valloc  = state.global->valloc;
-    if ( fd_firedancer_banks_decode(&state.global->bank, &ctx2 ) )
-      FD_LOG_ERR(("failed to read banks record"));
+    FD_TEST( fd_firedancer_banks_decode(&state.global->bank, &ctx2 )==FD_BINCODE_SUCCESS );
 
     FD_LOG_WARNING(( "decoded slot=%lu banks_hash=%32J poh_hash %32J",
                      state.global->bank.slot,
