@@ -9,7 +9,16 @@ on:
 jobs:
   make-test:
     runs-on: [self-hosted, Linux, X64]
+    defaults:
+      run:
+        shell: sudo bash --noprofile --norc -eo pipefail -c "set -ex; export MACHINE=linux_clang_x86_64; chmod +x {0} && {0}"
     steps:
+      - name: Print /mnt/.fd info
+        run: "cat /proc/mounts | grep '/mnt/.fd'"
+
+      - name: Print limits
+        run: "ulimit -a"
+
       - uses: actions/checkout@v3
 
       - name: Copy prebuilt deps

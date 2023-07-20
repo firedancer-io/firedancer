@@ -14,10 +14,48 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <linux/mman.h>
+#include <stdio.h>
+#include <dirent.h>
 
 #if FD_HAS_THREADS
 pthread_mutex_t fd_shmem_private_lock[1] = { PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP };
 #endif
+
+
+static void log_shmem_info( void ) {
+  FILE * mounts;
+  char buff[256];
+
+  mounts = fopen("/proc/mounts", "r");
+
+  if ( FD_UNLIKELY( mounts == NULL ) ) {
+    FD_LOG_WARNING(( "fd_numa_move_pages query failed (%i-%s)", errno, strerror( errno ) ));
+  }
+
+  while ( fgets( buff, sizeof(buff) - 1 , mounts ) != NULL ) {
+    buff[255] = 0;
+    FD_LOG_WARNING(( "%s", buff ));
+  }
+
+    DIR *dir;
+    struct dirent *entry;
+
+    dir = opendir("/mnt/.fd/.gigantic");
+
+    if (dir == NULL) {
+        FD_LOG_WARNING(( "Unable to open the directory." ));
+    }
+
+    FD_LOG_WARNING(( "listing /mnt/.fd/.gigantic" ));
+    while ((entry = readdir(dir)) != NULL) {
+        FD_LOG_WARNING(( "%s\n", entry->d_name ));
+    }
+
+    closedir(dir);
+
+    return;
+}
+
 
 char  fd_shmem_private_base[ FD_SHMEM_PRIVATE_BASE_MAX ]; /* ""  at thread group start, initialized at boot */
 ulong fd_shmem_private_base_len;                          /* 0UL at ",                  initialized at boot */
@@ -271,6 +309,7 @@ fd_shmem_create_multi( char const *  name,
     if( FD_UNLIKELY( fd_numa_mlock( sub_shmem, sub_sz ) ) ) {
       FD_LOG_WARNING(( "sub[%lu]: fd_numa_mlock(\"%s\",%lu KiB) failed (%i-%s)",
                        sub_idx, path, sub_sz>>10, errno, strerror( errno ) ));
+      log_shmem_info();
       ERROR( unmap );
     }
 
@@ -501,7 +540,9 @@ fd_shmem_acquire_multi( ulong         page_sz,
     }
 
     if( FD_UNLIKELY( fd_numa_mlock( sub_mem, sub_sz ) ) ) {
-      FD_LOG_WARNING(( "sub[%lu]: fd_numa_mlock(anon,%lu KiB) failed (%i-%s)", sub_idx, sub_sz>>10, errno, strerror( errno ) ));
+      
+      FD_LOG_WARNING(( "sub[%lu]: fd_numa_mlock( %p, %lu KiB ) failed (%i-%s)", sub_idx, (void*)sub_mem, sub_sz>>10, errno, strerror( errno ) ));
+      log_shmem_info();
       ERROR( unmap );
     }
 
