@@ -15,6 +15,8 @@ curl https://try-rpc.mainnet.solana.blockdaemon.tech -X POST -H 'content-type: a
 
 curl http://localhost:8899 -X POST -H "Content-Type: application/json" -d '{"jsonrpc": "2.0","id": 1,"method": "getTransaction","params": ["5uCzmkd9ymBN5vha4BPARWWNN9ebHC959XRAx7tdygomdjCzUY3J7u1zQ3XFmy1Z1DgE3KV1vx6mL8BpWwv8fzRU","json"]}'
 
+curl http://localhost:8899 -X POST -H "Content-Type: application/json" -d '{"jsonrpc": "2.0","id": 1,"method": "getTransaction","params": ["4BQ4bxhrjuSCiaTFxWY9bozBK8wYtoZdQ8Lvshavh4dELq4246kAiuTxyTgzRT6HssztsStAFvHxAiT19aiNdvkC","json"]}'
+
 ****/
 
 #include "../../util/fd_util.h"
@@ -410,7 +412,8 @@ int method_getTransaction(struct fd_web_replier* replier, struct json_values* va
         fd_web_replier_error(replier, "failed to load block for slot %lu", elem->slot);
         return 0;
       }
-      val2_sz = fd_funk_val_sz(rec2);
+      val2 = (uchar*)val2 + elem->txn_stat_off;
+      val2_sz = elem->txn_stat_sz;
     }
   }
 

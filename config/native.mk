@@ -77,4 +77,5 @@ include config/x86-64-gcc-flags.mk
 include config/x86-64-clang-flags.mk
 include config/with-clang.mk
 	endif
+include config/with-libmicrohttp.mk
 endif
