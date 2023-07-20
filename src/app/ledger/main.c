@@ -325,6 +325,12 @@ ingest_txnstatus( fd_global_ctx_t * global,
             fd_solblock_TransactionStatusMeta txn_status = {0};
             pb_istream_t stream = pb_istream_from_buffer( status, status_sz );
             if( FD_UNLIKELY( !pb_decode( &stream, fd_solblock_TransactionStatusMeta_fields, &txn_status ) ) ) {
+              unlink("pbdump");
+              FILE* fd = fopen("pbdump", "w");
+              fwrite(status, 1, status_sz, fd);
+              fclose(fd);
+              stream = pb_istream_from_buffer( status, status_sz );
+              pb_decode( &stream, fd_solblock_TransactionStatusMeta_fields, &txn_status );
               FD_LOG_ERR(( "failed to decode txn status for slot %lu signature %64J: %s", m->slot, sigs, PB_GET_ERROR( &stream ) ));
             }
             pb_release( fd_solblock_TransactionStatusMeta_fields, &txn_status );
