@@ -1128,6 +1128,8 @@ int fd_executor_stake_program_execute_instruction(
       if (instr_acc_idxs[0] >= ctx.txn_ctx->txn_descriptor->signature_cnt) {
         return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
       }
+    } else {
+      return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
     }
 
     ulong lamports_and_reserve = lamports + reserve_lamports;
@@ -1136,6 +1138,11 @@ int fd_executor_stake_program_execute_instruction(
     }
     // TODO: a bunch of stuff
     if( is_staked && lamports_and_reserve > stake_acc_metadata.info.lamports ) {
+      return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
+    }
+
+    if (lamports != stake_acc_metadata.info.lamports && lamports_and_reserve > stake_acc_metadata.info.lamports) {
+      // TODO: assert!(!is_staked)
       return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
     }
 
