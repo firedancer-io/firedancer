@@ -77,6 +77,7 @@ typedef struct _fd_solblock_TransactionError {
 } fd_solblock_TransactionError;
 
 typedef struct _fd_solblock_UiTokenAmount {
+    bool has_ui_amount;
     double ui_amount;
     uint32_t decimals;
     pb_callback_t amount;
@@ -182,7 +183,7 @@ extern "C" {
 #define fd_solblock_InnerInstruction_init_default {0, {{NULL}, NULL}, {{NULL}, NULL}, false, 0}
 #define fd_solblock_InnerInstructions_init_default {0, 0, NULL}
 #define fd_solblock_TransactionError_init_default {NULL}
-#define fd_solblock_UiTokenAmount_init_default   {0, 0, {{NULL}, NULL}, {{NULL}, NULL}}
+#define fd_solblock_UiTokenAmount_init_default   {false, 0, 0, {{NULL}, NULL}, {{NULL}, NULL}}
 #define fd_solblock_TokenBalance_init_default    {0, "", fd_solblock_UiTokenAmount_init_default, "", ""}
 #define fd_solblock_Reward_init_default          {"", 0, 0, _fd_solblock_RewardType_MIN, {{NULL}, NULL}}
 #define fd_solblock_ReturnData_init_default      {{0}, {{NULL}, NULL}}
@@ -196,7 +197,7 @@ extern "C" {
 #define fd_solblock_InnerInstruction_init_zero   {0, {{NULL}, NULL}, {{NULL}, NULL}, false, 0}
 #define fd_solblock_InnerInstructions_init_zero  {0, 0, NULL}
 #define fd_solblock_TransactionError_init_zero   {NULL}
-#define fd_solblock_UiTokenAmount_init_zero      {0, 0, {{NULL}, NULL}, {{NULL}, NULL}}
+#define fd_solblock_UiTokenAmount_init_zero      {false, 0, 0, {{NULL}, NULL}, {{NULL}, NULL}}
 #define fd_solblock_TokenBalance_init_zero       {0, "", fd_solblock_UiTokenAmount_init_zero, "", ""}
 #define fd_solblock_Reward_init_zero             {"", 0, 0, _fd_solblock_RewardType_MIN, {{NULL}, NULL}}
 #define fd_solblock_ReturnData_init_zero         {{0}, {{NULL}, NULL}}
@@ -333,7 +334,7 @@ X(a, POINTER,  REQUIRED, BYTES,    err,               1)
 #define fd_solblock_TransactionError_DEFAULT NULL
 
 #define fd_solblock_UiTokenAmount_FIELDLIST(X, a) \
-X(a, STATIC,   REQUIRED, DOUBLE,   ui_amount,         1) \
+X(a, STATIC,   OPTIONAL, DOUBLE,   ui_amount,         1) \
 X(a, STATIC,   REQUIRED, UINT32,   decimals,          2) \
 X(a, CALLBACK, REQUIRED, STRING,   amount,            3) \
 X(a, CALLBACK, REQUIRED, STRING,   ui_amount_string,   4)
