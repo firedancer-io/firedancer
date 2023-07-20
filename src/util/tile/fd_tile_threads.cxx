@@ -572,6 +572,11 @@ fd_tile_private_boot( int *    pargc,
     if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_tile: pthread_attr_init failed (%i-%s) for tile %lu.\n\t",
                                           err, strerror( err ), tile_idx ));
 
+    /* Set affinity ahead of time.  This is a GNU-specific extension
+       that is not available on musl.  On musl, we just skip this
+       step as we call sched_setaffinity(2) later on regardless. */
+
+#   if __GLIBC__
     if( fixed ) {
       cpu_set_t cpu_set[1];
       CPU_ZERO( cpu_set );
@@ -586,6 +591,7 @@ fd_tile_private_boot( int *    pargc,
                                                 "to eliminate this warning.",
                                                 err, strerror( err ), tile_idx, cpu_idx ));
     }
+#   endif /* __GLIBC__ */
 
     /* Create an optimized stack with guard regions if the build target
        is x86 (e.g. supports huge pages necessary to optimize TLB usage)
