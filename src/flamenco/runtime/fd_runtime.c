@@ -637,6 +637,78 @@ fd_runtime_calculate_fee( fd_global_ctx_t *global, transaction_ctx_t * txn_ctx, 
 //};
 //typedef struct fd_rent_collection_cycle_params fd_rent_collection_cycle_params_t;
 
+static int
+fd_runtime_collect_rent_range( fd_global_ctx_t * global,
+                               ulong             prefix0,
+                               ulong             prefix1,
+                               ulong             epoch ) {
+
+  fd_wksp_t *     wksp    = global->wksp;
+  fd_funk_t *     funk    = global->funk;
+  fd_funk_txn_t * txn     = global->funk_txn;
+  fd_acc_mgr_t *  acc_mgr = global->acc_mgr;
+
+  /* Iterate through all Funk records.
+      TODO This is obviously inefficient. */
+  fd_funk_rec_t * rec_map = fd_funk_rec_map( funk, wksp );
+  for( fd_funk_rec_map_iter_t iter = fd_funk_rec_map_iter_init( rec_map );
+        !fd_funk_rec_map_iter_done( rec_map, iter );
+        iter = fd_funk_rec_map_iter_next( rec_map, iter ) ) {
+    fd_funk_rec_t * rec = fd_funk_rec_map_iter_ele( rec_map, iter );
+
+    /* Filter for account records */
+    if( !fd_acc_mgr_is_key( rec->pair.key ) ) continue;
+
+    /* Lookup funk record through account manager.
+       Although we already have _a_ funk record at this point, this is
+       not necessarily the _right_ funk record.  It might be part of a
+       different in-flight transaction.  Thus, we resolve the key to
+       the current transaction record. */
+    fd_pubkey_t const * key = fd_type_pun_const( &rec->pair.key[0].uc );
+    fd_funk_rec_t const * rec_ro = NULL;
+    int err = FD_ACC_MGR_SUCCESS;
+    void const * acc_ro = fd_acc_mgr_view_data( acc_mgr, txn, key, &rec_ro, &err );
+    fd_account_meta_t const * meta_ro = (fd_account_meta_t const *)acc_ro;
+
+    /* Account might not exist anymore in the current world */
+    if( ( err==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) | (!acc_ro) ) continue;
+    if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+      FD_LOG_WARNING(( "fd_runtime_collect_rent_range: fd_acc_mgr_view_data failed (%d)", err ));
+      return err;
+    }
+
+    /* Check prefix */
+    ulong prefixX_be = key->ul[0];
+    ulong prefixX    = fd_ulong_bswap( prefixX_be );
+    if( ( prefix0 > prefixX ) | ( prefixX > prefix1 ) ) continue;
+
+    /* Filter accounts that we've already visited */
+    if( meta_ro->info.rent_epoch >= epoch ) continue;
+
+    /* Upgrade read-only handle to writable */
+    //fd_funk_rec_t * rec_rw = NULL;
+    //err = FD_ACC_MGR_SUCCESS;
+    //void * acc_rw = fd_acc_mgr_modify_data(
+    //    acc_mgr, txn, key,
+    //    /* do_create */ 0,
+    //    /* sz          */ NULL,
+    //    /* opt_con_rec */ rec_ro,
+    //    /* opt_out_rec */ &rec_rw,
+    //    &err );
+    //if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+    //  FD_LOG_WARNING(( "fd_runtime_collect_rent_range: fd_acc_mgr_modify_data failed (%d)", err ));
+    //  return err;
+    //}
+
+    /* Actually invoke rent collection */
+    //fd_account_meta_t * meta_rw = (fd_account_meta_t *)acc_rw;
+    FD_LOG_DEBUG(( "Collecting rent from %016lx %32J", prefixX, key->key ));
+    //meta_rw->info.rent_epoch = epoch;
+  }
+
+  return FD_ACC_MGR_SUCCESS;
+}
+
 static void
 fd_runtime_collect_rent( fd_global_ctx_t * global ) {
   // Bank::collect_rent_eagerly (enter)
@@ -690,6 +762,9 @@ fd_runtime_collect_rent( fd_global_ctx_t * global ) {
   ulong part1    = slot1_off;
   ulong part_cnt = slot_cnt;
 
+  /* TODO these conditions are used to detect a special case where
+          multi epoch rent collection is enabled, and there were skipped
+          slots across the epoch boundary. */
   //int start_of_epoch  = ( part0==0UL ) & ( part1!=1UL );
   //int middle_of_cycle =   part0> 0UL;
 
@@ -724,13 +799,13 @@ fd_runtime_collect_rent( fd_global_ctx_t * global ) {
       else                      prefix1 = prefix0;
     }
 
-    //ulong prefix0_be = fd_ulong_bswap( prefix0 );
-    //ulong prefix1_be = fd_ulong_bswap( prefix1 );
-
     FD_LOG_DEBUG(( "Collecting rent from"
                    " %016lx000000... to"
                    " %016lxffffff...",
                    prefix0, prefix1 ));
+
+    int err = fd_runtime_collect_rent_range( global, prefix0, prefix1, epoch0 );
+    FD_TEST( err==FD_ACC_MGR_SUCCESS );
   }
   // Bank::pubkey_range_from_partition (exit)
 
