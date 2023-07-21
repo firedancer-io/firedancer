@@ -40,14 +40,16 @@ int authorized_check_signers(instruction_ctx_t* ctx, uchar * instr_acc_idxs, fd_
 static int
 acceptable_reference_epoch_credits( fd_vote_epoch_credits_t * epoch_credits, ulong current_epoch ) {
   ulong len = deq_fd_vote_epoch_credits_t_cnt(epoch_credits);
+  FD_LOG_NOTICE(("len=%lu", len));
   if (len < MINIMUM_DELINQUENT_EPOCHS_FOR_DEACTIVATION) {
     return 0;
   }
   for (ulong idx = len - MINIMUM_DELINQUENT_EPOCHS_FOR_DEACTIVATION; idx < len; ++ idx) {
+    FD_LOG_NOTICE(("idx=%lu peek=%lu current_epoch=%lu", idx, deq_fd_vote_epoch_credits_t_peek_index(epoch_credits, idx)->epoch, current_epoch));
     if (deq_fd_vote_epoch_credits_t_peek_index(epoch_credits, idx)->epoch != current_epoch) {
-      return 0; 
+      return 0;
     }
-    current_epoch --;
+    current_epoch = fd_ulong_sat_sub(current_epoch, 1);
   }
   return 1;
 }
@@ -361,7 +363,6 @@ int fd_executor_stake_program_execute_instruction(
 
   /* TODO: check that the instruction account 0 owner is the stake program ID
      https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/stake/src/stake_instruction.rs#L37 */
-  FD_LOG_NOTICE(("discriminant=%d", instruction.discriminant));
   if ( fd_stake_instruction_is_initialize( &instruction ) ) {
     /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/stake/src/stake_instruction.rs#L43 */
 
@@ -1229,7 +1230,6 @@ int fd_executor_stake_program_execute_instruction(
     fd_stake_state_t stake_state;
     int result = read_stake_state( ctx.global, stake_acc, &stake_state );
     if (result != FD_EXECUTOR_INSTR_SUCCESS) {
-      // FD_LOG_NOTICE (( "RESULT WRONG HERE = %d", result));
       return result;
     }
 
