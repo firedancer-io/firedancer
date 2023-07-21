@@ -40,11 +40,10 @@ int authorized_check_signers(instruction_ctx_t* ctx, uchar * instr_acc_idxs, fd_
 static int
 acceptable_reference_epoch_credits( fd_vote_epoch_credits_t * epoch_credits, ulong current_epoch ) {
   ulong len = deq_fd_vote_epoch_credits_t_cnt(epoch_credits);
-  FD_LOG_NOTICE(("len=%lu", len));
   if (len < MINIMUM_DELINQUENT_EPOCHS_FOR_DEACTIVATION) {
     return 0;
   }
-  for (ulong idx = len - MINIMUM_DELINQUENT_EPOCHS_FOR_DEACTIVATION; idx < len; ++ idx) {
+  for (ulong idx = len - 1; idx >= len - MINIMUM_DELINQUENT_EPOCHS_FOR_DEACTIVATION; -- idx) {
     FD_LOG_NOTICE(("idx=%lu peek=%lu current_epoch=%lu", idx, deq_fd_vote_epoch_credits_t_peek_index(epoch_credits, idx)->epoch, current_epoch));
     if (deq_fd_vote_epoch_credits_t_peek_index(epoch_credits, idx)->epoch != current_epoch) {
       return 0;
@@ -1255,11 +1254,8 @@ int fd_executor_stake_program_execute_instruction(
     if ( memcmp( &reference_vote_acc_owner, ctx.global->solana_vote_program, sizeof(fd_pubkey_t) ) != 0 ) {
       return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
     }
-
-    // reference_vote_state->inner.stake.meta.;
     fd_sol_sysvar_clock_t clock;
     fd_sysvar_clock_read( ctx.global, &clock );
-    // clock.epoch
 
     /* Read vote account */
     fd_account_meta_t         reference_vote_meta;
@@ -1279,20 +1275,20 @@ int fd_executor_stake_program_execute_instruction(
     }
 
     if (memcmp(&stake_state.inner.stake.stake.delegation.voter_pubkey, delinquent_vote_acc, sizeof(fd_pubkey_t)) != 0) {
-      ctx.txn_ctx->custom_err = 10;
-      return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR; // return Err(StakeError::VoteAddressMismatch.into());
+      ctx.txn_ctx->custom_err = 10; // return Err(StakeError::VoteAddressMismatch.into());
+      return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
     }
 
     // Deactivate the stake account if its delegated vote account has never voted or has not
     // voted in the last `MINIMUM_DELINQUENT_EPOCHS_FOR_DEACTIVATION`
     if ( !eligible_for_deactivate_delinquent( delinquent_vote_state.inner.current.epoch_credits, clock.epoch) ) {
-      ctx.txn_ctx->custom_err = 11;
-      return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR; //  Err(StakeError::MinimumDelinquentEpochsForDeactivationNotMet.into())
+      ctx.txn_ctx->custom_err = 11; //  Err(StakeError::MinimumDelinquentEpochsForDeactivationNotMet.into())
+      return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
     }
 
     if (stake_state.inner.stake.stake.delegation.deactivation_epoch != ULONG_MAX) {
-      ctx.txn_ctx->custom_err = 2;
-      return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR; // Err(StakeError::AlreadyDeactivated)
+      ctx.txn_ctx->custom_err = 2; // Err(StakeError::AlreadyDeactivated)
+      return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
     }
     stake_state.inner.stake.stake.delegation.deactivation_epoch = clock.epoch;
     result = write_stake_state(ctx.global, stake_acc, &stake_state, 0);
