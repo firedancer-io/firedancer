@@ -59,8 +59,10 @@ message MessageHeader {
 
 message Instruction {
     required uint32 program_id_index = 1;
-    required bytes accounts = 2;
-    required bytes data = 3;
+    required bytes accounts = 2
+        [(nanopb).type = FT_POINTER];
+    required bytes data = 3
+        [(nanopb).type = FT_POINTER];
 }
 
 message MessageAddressTableLookup {
@@ -100,8 +102,10 @@ message ConfirmedTransaction {
 
 message InnerInstruction {
     required uint32 program_id_index = 1;
-    required bytes accounts = 2;
-    required bytes data = 3;
+    required bytes accounts = 2
+        [(nanopb).type = FT_POINTER];
+    required bytes data = 3
+        [(nanopb).type = FT_POINTER];
 
     // Invocation stack height of an inner instruction.
     // Available since Solana v1.14.6
@@ -123,8 +127,10 @@ message TransactionError {
 message UiTokenAmount {
     optional double ui_amount = 1;
     optional uint32 decimals = 2;
-    required string amount = 3;
-    required string ui_amount_string = 4;
+    required string amount = 3
+        [(nanopb).type = FT_POINTER];
+    required string ui_amount_string = 4
+        [(nanopb).type = FT_POINTER];
 }
 
 message TokenBalance {
@@ -152,7 +158,8 @@ message Reward {
     required int64 lamports = 2;
     required uint64 post_balance = 3;
     required RewardType reward_type = 4;
-    required string commission = 5;
+    required string commission = 5
+        [(nanopb).type = FT_POINTER];
 }
 
 message ReturnData {

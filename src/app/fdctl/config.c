@@ -1,4 +1,5 @@
 #include "fdctl.h"
+#include "../../util/net/fd_eth.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -168,8 +169,11 @@ replace( char *       in,
     if( FD_UNLIKELY( total_len >= PATH_MAX ) )
       FD_LOG_ERR(( "configuration scratch directory path too long: `%s`", in ));
 
-    fd_memcpy( replace + pat_len, replace + sub_len, in_len - (ulong)( replace - in ) - sub_len + 1 );
+    uchar after[PATH_MAX];
+    fd_memcpy( after, replace + pat_len, strlen( replace + pat_len ) );
     fd_memcpy( replace, sub, sub_len );
+    ulong after_len = strlen( ( const char * ) after );
+    fd_memcpy( replace + sub_len, after, after_len );
     in[ total_len ] = '\0';
   }
 }
@@ -318,9 +322,14 @@ config_parse( int *    pargc,
                    "[development.netns] functionality to run Firedancer in a network namespace "
                    "for development, the configuration file must specify that "
                    "[development.netns.interface0] is the same as [tiles.quic.interface]" ));
+
+    fd_cstr_to_ip4_addr( result.development.netns.interface0_addr, &result.tiles.quic.ip_addr );
+    fd_cstr_to_mac_addr( result.development.netns.interface0_mac, result.tiles.quic.mac_addr );
   } else {
     if( FD_UNLIKELY( !if_nametoindex( result.tiles.quic.interface ) ) )
       FD_LOG_ERR(( "configuration specifies network interface `%s` which does not exist", result.tiles.quic.interface ));
+    result.tiles.quic.ip_addr = listen_address( result.tiles.quic.interface );
+    mac_address( result.tiles.quic.interface, result.tiles.quic.mac_addr );
   }
 
   errno = 0;
@@ -335,9 +344,6 @@ config_parse( int *    pargc,
 
   replace( result.scratch_directory, "{user}", result.user );
   replace( result.scratch_directory, "{name}", result.name );
-
-  result.tiles.quic.ip_addr = listen_address( result.tiles.quic.interface );
-  mac_address( result.tiles.quic.interface, result.tiles.quic.mac_addr );
 
   return result;
 }
