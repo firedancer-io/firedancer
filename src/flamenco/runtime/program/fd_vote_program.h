@@ -48,6 +48,12 @@ fd_vote_acc_credits( fd_global_ctx_t * global,
                      fd_pubkey_t *     vote_acc,
                      ulong *           result );
 
+int
+fd_vote_load_account( fd_vote_state_versioned_t * account,
+                      fd_account_meta_t *         meta,
+                      fd_global_ctx_t *           global,
+                      fd_pubkey_t const *         address );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_program_fd_vote_program_h */
