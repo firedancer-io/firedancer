@@ -52,6 +52,10 @@ int fd_textstream_encode_base64( fd_textstream_t * strm,
                                  const void *      data,
                                  ulong             data_sz );
 
+int fd_textstream_encode_hex( fd_textstream_t * strm,
+                              const void *      data,
+                              ulong             data_sz );
+
 int fd_textstream_sprintf( fd_textstream_t * strm, const char* format, ... )
   __attribute__ ((format (printf, 2, 3)));
 

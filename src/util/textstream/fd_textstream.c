@@ -291,6 +291,35 @@ int fd_textstream_encode_base64( fd_textstream_t * strm,
   return 0;
 }
 
+static const char hex_encoding_table[] = "0123456789ABCDEF";
+
+int fd_textstream_encode_hex( fd_textstream_t * strm,
+                              const void *      data,
+                              ulong             data_sz ) {
+  ulong out_sz = 2 * data_sz;
+  fd_textstream_blk_t * blk = strm->last_blk;
+  if ( FD_LIKELY( blk->used + out_sz <= strm->alloc_sz ) ) {
+    /* pass */
+  } else if ( out_sz > strm->alloc_sz ) {
+    return -1;
+  } else {
+    blk = fd_textstream_new_blk( strm );
+    if ( blk == NULL )
+      return -1;
+  }
+  char* out_data = (char*)(blk + 1) + blk->used;
+
+  ulong j = 0;
+  for (ulong i = 0; i < data_sz; ) {
+    uint octet = ((uchar*)data)[i++];
+    out_data[j++] = hex_encoding_table[(octet >> 4) & 0xF];
+    out_data[j++] = hex_encoding_table[octet & 0xF];
+  }
+
+  blk->used += j;
+  return 0;
+}
+
 int fd_textstream_sprintf( fd_textstream_t * strm, const char* format, ... ) {
   fd_textstream_blk_t * blk = strm->last_blk;
   ulong remain = strm->alloc_sz - blk->used;

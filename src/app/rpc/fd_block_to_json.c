@@ -1,3 +1,5 @@
+#include <stdio.h>
+#include <unistd.h>
 #include "../../util/fd_util.h"
 #include "../../flamenco/nanopb/pb_decode.h"
 #include "../../tango/webserver/fd_webserver.h"
@@ -13,7 +15,7 @@
 void fd_tokenbalance_to_json( fd_textstream_t * ts, struct _fd_solblock_TokenBalance * b ) {
   fd_textstream_sprintf(ts, "{\"accountIndex\":%u,\"mint\":\"%s\",\"owner\":\"%s\",\"programId\":\"%u\",\"uiTokenAmount\":{",
                         b->account_index, b->mint, b->owner, b->program_id);
-  fd_textstream_sprintf(ts, "\"amount\":\"%s\",", "");
+  fd_textstream_sprintf(ts, "\"amount\":\"%s\",", b->ui_token_amount.amount);
   int dec;
   if (b->ui_token_amount.has_decimals) {
     fd_textstream_sprintf(ts, "\"decimals\":%u,", b->ui_token_amount.decimals);
@@ -22,7 +24,56 @@ void fd_tokenbalance_to_json( fd_textstream_t * ts, struct _fd_solblock_TokenBal
     dec = 0;
   if (b->ui_token_amount.has_ui_amount)
     fd_textstream_sprintf(ts, "\"uiAmount\":%.*f,", dec, b->ui_token_amount.ui_amount);
-  fd_textstream_sprintf(ts, "\"uiAmountString\":\"%s\"}}", "");
+  fd_textstream_sprintf(ts, "\"uiAmountString\":\"%s\"}}", b->ui_token_amount.ui_amount_string);
+}
+
+void fd_error_to_json( fd_textstream_t * ts,
+                       const uchar* bytes,
+                       ulong size ) {
+  /* I worked this out by brute force examination of actual cases */
+
+  const uchar* orig_bytes = bytes;
+  ulong orig_size = size;
+
+  if (size < sizeof(uint) || *(const uint*)bytes != 0x8) /* Always the same? */
+    goto dump_as_hex;
+  bytes += sizeof(uint);
+  size -= sizeof(uint);
+
+  if (size < 1)
+    goto dump_as_hex;
+  uint inum = *(bytes++); /* Instruction number? */
+  size--;
+
+  if (size < sizeof(uint))
+    goto dump_as_hex;
+  uint cnum =  *(const uint*)bytes;
+  bytes += sizeof(uint);
+  size -= sizeof(uint);
+
+  switch (cnum) {
+  case 0x19: { /* "custom" */
+    if (size < sizeof(uint))
+      goto dump_as_hex;
+    uint code =  *(const uint*)bytes; /* Custom code? */
+    fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,{\"Custom\":%u}]}", inum, code);
+    return;
+  }
+  case 0x0D:
+    fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"ExternalAccountDataModified\"]}", inum);
+    return;
+  case 0x25:
+    fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"ComputationalBudgetExceeded\"]}", inum);
+    return;
+  case 0x28:
+    fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"ProgramFailedToComplete\"]}", inum);
+    return;
+  }
+
+ dump_as_hex:
+  EMIT_SIMPLE("\"");
+  fd_textstream_encode_hex(ts, orig_bytes, orig_size);
+  EMIT_SIMPLE("\"");
 }
 
 int fd_txn_to_json( fd_textstream_t * ts,
@@ -40,6 +91,13 @@ int fd_txn_to_json( fd_textstream_t * ts,
   (void)rewards;
 
   if (meta_raw) {
+#if 0
+    unlink("pbdump");
+    FILE* fd = fopen("pbdump","w");
+    fwrite(meta_raw, 1, meta_raw_sz, fd);
+    fclose(fd);
+#endif
+    
     fd_solblock_TransactionStatusMeta txn_status = {0};
     pb_istream_t stream = pb_istream_from_buffer( meta_raw, meta_raw_sz );
     if( FD_UNLIKELY( !pb_decode( &stream, fd_solblock_TransactionStatusMeta_fields, &txn_status ) ) ) {
@@ -47,15 +105,31 @@ int fd_txn_to_json( fd_textstream_t * ts,
     }
 
     EMIT_SIMPLE("\"meta\":{\"err\":");
-    if (txn_status.has_err) {
-      EMIT_SIMPLE("\"");
-      fd_textstream_encode_base64(ts, txn_status.err.err->bytes, txn_status.err.err->size);
-      EMIT_SIMPLE("\"");
-    } else
+    if (txn_status.has_err)
+      fd_error_to_json(ts, txn_status.err.err->bytes, txn_status.err.err->size);
+    else
       EMIT_SIMPLE("null");
     fd_textstream_sprintf(ts, ",\"fee\":%lu,\"innerInstructions\":[", txn_status.fee);
     EMIT_SIMPLE("],\"loadedAddresses\":{\"readonly\":[");
+    for (pb_size_t i = 0; i < txn_status.loaded_readonly_addresses_count; ++i) {
+      pb_bytes_array_t * ba = txn_status.loaded_readonly_addresses[i];
+      if (ba->size == 32) {
+        char buf32[FD_BASE58_ENCODED_32_SZ];
+        fd_base58_encode_32(ba->bytes, NULL, buf32);
+        fd_textstream_sprintf(ts, "%s\"%s\"", (i == 0 ? "" : ","), buf32);
+      } else
+        fd_textstream_sprintf(ts, "%s\"\"", (i == 0 ? "" : ","));
+    }
     EMIT_SIMPLE("],\"writable\":[");
+    for (pb_size_t i = 0; i < txn_status.loaded_writable_addresses_count; ++i) {
+      pb_bytes_array_t * ba = txn_status.loaded_writable_addresses[i];
+      if (ba->size == 32) {
+        char buf32[FD_BASE58_ENCODED_32_SZ];
+        fd_base58_encode_32(ba->bytes, NULL, buf32);
+        fd_textstream_sprintf(ts, "%s\"%s\"", (i == 0 ? "" : ","), buf32);
+      } else
+        fd_textstream_sprintf(ts, "%s\"\"", (i == 0 ? "" : ","));
+    }
     EMIT_SIMPLE("]},\"logMessages\":[");
     for (pb_size_t i = 0; i < txn_status.log_messages_count; ++i)
       fd_textstream_sprintf(ts, "%s\"%s\"", (i == 0 ? "" : ","), txn_status.log_messages[i]);
@@ -122,11 +196,11 @@ int fd_txn_to_json( fd_textstream_t * ts,
 
   const char* vers;
   switch (txn->transaction_version) {
-  case FD_TXN_VLEGACY: vers = "legacy"; break;
-  case FD_TXN_V0:      vers = "0";      break;
-  default:             vers = "?";      break;
+  case FD_TXN_VLEGACY: vers = "\"legacy\""; break;
+  case FD_TXN_V0:      vers = "0";          break;
+  default:             vers = "\"?\"";      break;
   }
-  fd_textstream_sprintf(ts, "]},\"version\":\"%s\"", vers);
+  fd_textstream_sprintf(ts, "]},\"version\":%s", vers);
 
   return 0;
 }
