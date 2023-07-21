@@ -629,13 +629,116 @@ fd_runtime_calculate_fee( fd_global_ctx_t *global, transaction_ctx_t * txn_ctx, 
     return (ulong) fee;
 }
 
-//struct fd_rent_collection_cycle_params {
-//  ulong epoch;
-//  ulong slot_count;
-//  ulong base_epoch;
-//  ulong epoch_count_per_cycle;
-//};
-//typedef struct fd_rent_collection_cycle_params fd_rent_collection_cycle_params_t;
+/* sadness */
+
+//static double
+//fd_slots_per_year( ulong ticks_per_slot,
+//                   ulong ns_per_tick ) {
+//  return 365.242199 * 24.0 * 60.0 * 60.0
+//    * (1000000000.0 / (double)ns_per_tick)
+//    / (double)ticks_per_slot;
+//}
+
+#define FD_RENT_EXEMPT (-1L)
+
+static long
+fd_rent_due( fd_account_meta_t *         acc,
+             ulong                       epoch,
+             fd_rent_t const *           rent,
+             fd_epoch_schedule_t const * schedule,
+             double                      slots_per_year ) {
+
+  fd_solana_account_meta_t * info = &acc->info;
+
+  /* Nothing due if account is rent-exempt */
+
+  ulong min_balance = fd_rent_exempt_minimum_balance2( rent, acc->dlen );
+  if( info->lamports > min_balance ) return FD_RENT_EXEMPT;
+
+  /* Count the number of slots that have passed since last collection */
+
+  ulong slots_elapsed = 0UL;
+  if( FD_LIKELY( epoch >= schedule->first_normal_epoch ) )
+    slots_elapsed = (epoch - info->rent_epoch) * schedule->slots_per_epoch;
+  else
+    for( ulong i = info->rent_epoch; i<epoch; i++ )
+      slots_elapsed += fd_epoch_slot_cnt( schedule, i );
+
+  /* Consensus-critical use of doubles :( */
+
+  double years_elapsed;
+  if( FD_LIKELY( slots_per_year != 0.0 ) )
+    years_elapsed = (double)slots_elapsed / slots_per_year;
+  else
+    years_elapsed = 0.0;
+
+  ulong lamports_per_year = rent->lamports_per_uint8_year * (acc->dlen + 128UL);
+  return (long)(ulong)( years_elapsed * (double)lamports_per_year );
+}
+
+/* fd_runtime_collect_rent_account performs rent collection duties.
+   Although the Solana runtime prevents the creation of new accounts
+   that are subject to rent, some older accounts are still undergo the
+   rent collection process.  Updates the account's 'rent_epoch' if
+   needed. Returns 1 if the account was changed, and 0 if it is
+   unchanged. */
+
+static int
+fd_runtime_collect_rent_account( fd_global_ctx_t *   global,
+                                 fd_account_meta_t * acc,
+                                 fd_pubkey_t const * key,
+                                 ulong               epoch ) {
+
+  // RentCollector::collect_from_existing_account (enter)
+  // RentCollector::calculate_rent_result         (enter)
+
+  fd_solana_account_meta_t * info = &acc->info;
+
+  // RentCollector::can_skip_rent_collection (enter)
+  // RentCollector::should_collect_rent      (enter)
+
+  if( info->executable ) return 0;
+
+  /* TODO this is dumb */
+  fd_pubkey_t incinerator;
+  fd_base58_decode_32( "1nc1nerator11111111111111111111111111111111", incinerator.key );
+  if( 0==memcmp( key, &incinerator, sizeof(fd_pubkey_t) ) ) return 0;
+
+  // RentCollector::should_collect_rent      (exit)
+  // RentCollector::can_skip_rent_collection (exit)
+
+  // RentCollector::get_rent_due
+  long due = fd_rent_due( acc, epoch,
+      &global->bank.rent,
+      &global->bank.epoch_schedule,
+       global->bank.slots_per_year );
+  if( due == FD_RENT_EXEMPT ) {
+    if( global->features.preserve_rent_epoch_for_rent_exempt_accounts )
+      return 0;
+    info->rent_epoch = epoch;
+    return 1;
+  }
+
+  // RentCollector::calculate_rent_result (cont)
+
+  if( due == 0L ) return 0;
+
+  info->rent_epoch = epoch + 1UL;
+
+  // RentCollector::calculate_rent_result         (exit)
+  // RentCollector::collect_from_existing_account (cont)
+
+  ulong due_ = (ulong)due;
+  if( FD_UNLIKELY( due_ >= info->lamports ) ) {
+    acc->info.lamports = 0UL;
+    return 1;
+  }
+
+  info->lamports -= (ulong)due;
+  return 1;
+
+  // RentCollector::collect_from_existing_account (exit)
+}
 
 static int
 fd_runtime_collect_rent_range( fd_global_ctx_t * global,
@@ -686,24 +789,33 @@ fd_runtime_collect_rent_range( fd_global_ctx_t * global,
     if( meta_ro->info.rent_epoch >= epoch ) continue;
 
     /* Upgrade read-only handle to writable */
-    //fd_funk_rec_t * rec_rw = NULL;
-    //err = FD_ACC_MGR_SUCCESS;
-    //void * acc_rw = fd_acc_mgr_modify_data(
-    //    acc_mgr, txn, key,
-    //    /* do_create */ 0,
-    //    /* sz          */ NULL,
-    //    /* opt_con_rec */ rec_ro,
-    //    /* opt_out_rec */ &rec_rw,
-    //    &err );
-    //if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
-    //  FD_LOG_WARNING(( "fd_runtime_collect_rent_range: fd_acc_mgr_modify_data failed (%d)", err ));
-    //  return err;
-    //}
+    fd_funk_rec_t * rec_rw = NULL;
+    err = FD_ACC_MGR_SUCCESS;
+    void * acc_rw = fd_acc_mgr_modify_data(
+        acc_mgr, txn, key,
+        /* do_create */ 0,
+        /* sz          */ NULL,
+        /* opt_con_rec */ rec_ro,
+        /* opt_out_rec */ &rec_rw,
+        &err );
+    if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+      FD_LOG_WARNING(( "fd_runtime_collect_rent_range: fd_acc_mgr_modify_data failed (%d)", err ));
+      return err;
+    }
 
     /* Actually invoke rent collection */
-    //fd_account_meta_t * meta_rw = (fd_account_meta_t *)acc_rw;
+    fd_account_meta_t * meta_rw = (fd_account_meta_t *)acc_rw;
     FD_LOG_DEBUG(( "Collecting rent from %016lx %32J", prefixX, key->key ));
-    //meta_rw->info.rent_epoch = epoch;
+    int changed = fd_runtime_collect_rent_account( global, meta_rw, key, epoch );
+
+    /* Update hash */
+    if( changed ) {
+      err = fd_acc_mgr_commit_data( acc_mgr, rec, key, meta_rw, global->bank.slot, /* uncache */ 0 );
+      if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+        FD_LOG_WARNING(( "fd_runtime_collect_rent_range: fd_acc_mgr_commit_data failed (%d)", err ));
+        return err;
+      }
+    }
   }
 
   return FD_ACC_MGR_SUCCESS;
@@ -776,7 +888,7 @@ fd_runtime_collect_rent( fd_global_ctx_t * global ) {
   // Bank::variable_cycle_partitions               (exit)
   // Bank::rent_collection_partitions              (exit)
 
-  // Bank::collect_rent_eagerly (cont)
+  // Bank::collect_rent_eagerly      (cont)
   // Bank::collect_rent_in_partition (enter)
 
   // Bank::pubkey_range_from_partition (enter)
