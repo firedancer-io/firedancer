@@ -25,7 +25,13 @@
 #include <sched.h>
 #include <time.h>
 #include <syscall.h>
+
+#if __has_include( <execinfo.h> )
+#define FD_HAS_BACKTRACE 1
 #include <execinfo.h>
+#else
+#define FD_HAS_BACKTRACE 0
+#endif /* __has_include( <execinfo.h> ) */
 
 /* TEXT_* are quick-and-dirty color terminal hacks.  Probably should
    do something more robust longer term. */
@@ -918,6 +924,8 @@ fd_log_private_sig_abort( int         sig,
   /* Hopefully all out streams are idle now and we have flushed out
      all non-logging activity ... log a backtrace */
 
+# if FD_HAS_BACKTRACE
+
   void * btrace[128];
   int btrace_cnt = backtrace( btrace, 128 );
 
@@ -939,6 +947,23 @@ fd_log_private_sig_abort( int         sig,
   int fd = fileno( stderr );
   backtrace_symbols_fd( btrace, btrace_cnt, fd );
   fsync( fd );
+
+# else /* !FD_HAS_BACKTRACE */
+  
+  FILE * log_file = FD_VOLATILE_CONST( fd_log_private_file );
+  if( log_file ) {
+    fprintf( log_file, "Caught signal %i.\n", sig );
+#   if FD_LOG_FFLUSH_LOG_FILE
+    fflush( log_file );
+#   endif
+  }
+
+  fprintf( stderr, "\nCaught signal %i.\n", sig );
+# if FD_LOG_FFLUSH_STDERR
+  fflush( stderr );
+# endif
+
+# endif /* FD_HAS_BACKTRACE */
 
   /* Do final log cleanup */
 
@@ -1053,6 +1078,7 @@ fd_log_private_boot( int  *   pargc,
   int log_backtrace = fd_env_strip_cmdline_int( pargc, pargv, "--log-backtrace", "FD_LOG_BACKTRACE", 1 );
   if( log_backtrace ) {
 
+#   if FD_HAS_BACKTRACE
     /* If libgcc isn't already linked into the program when a trapped
        signal is received by an application, calls to backtrace and
        backtrace_symbols_fd within the signal handler can silently
@@ -1072,6 +1098,7 @@ fd_log_private_boot( int  *   pargc,
       if( FD_UNLIKELY( close( fd ) ) )
         fprintf( stderr, "close( \"/dev/null\" ) failed (%i-%s); attempting to continue\n", errno, strerror( errno ) );
     }
+#   endif /* FD_HAS_BACKTRACE */
 
     /* This is all overridable POSIX sigs whose default behavior is to
        abort the program.  It will backtrace and then fallback to the
