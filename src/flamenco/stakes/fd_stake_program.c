@@ -1176,7 +1176,7 @@ int fd_executor_stake_program_execute_instruction(
 
     if( stake_acc_metadata.info.lamports == lamports ) {
       stake_state.discriminant = fd_stake_state_enum_uninitialized;
-      int write_result = write_stake_state(ctx.global, stake_acc, &stake_state, 1);
+      int write_result = write_stake_state(ctx.global, stake_acc, &stake_state, 0);
       if ( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) ) {
         FD_LOG_WARNING(( "failed to write stake account" ));
         return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
