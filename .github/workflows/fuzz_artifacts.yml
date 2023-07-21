@@ -1,0 +1,34 @@
+name: Make Fuzz Artifacts
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+  merge_group:
+jobs:
+  make-with-sanitizer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set extras
+        run: |
+          echo "EXTRAS=static" >> "$GITHUB_ENV"
+
+      - name: Prepare asan
+        run: |
+          echo "MACHINE=linux_clang_x86_64_fuzz_asan" >> "$GITHUB_ENV"
+
+      - uses: firedancer-io/alpine-builder@main
+        name: Build with asan on Alpine
+
+      - uses: firedancer-io/clusterfuzz-action@main
+        if: ${{ github.ref == 'refs/heads/main' }}
+        name: Publish asan artifacts to ClusterFuzz
+        with:
+          bucket-name: firedancer-builds.isol-clusterfuzz.appspot.com
+          artifact-dir: build/linux/clang/x86_64_fuzz_asan/fuzz-test
+          object-prefix: main/libfuzzer-asan/firedancer
+          project-id: isol-clusterfuzz
+          service-account-credentials: ${{ secrets.FUZZ_SERVICE_ACCT_JSON_BUNDLE }}
