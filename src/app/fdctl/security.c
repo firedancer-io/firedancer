@@ -44,11 +44,11 @@ check_cap( security_t * security,
 }
 
 void
-check_res( security_t *        security,
-           const char *        name,
-           __rlimit_resource_t resource,
-           ulong               limit,
-           const char *        reason ) {
+check_res( security_t *    security,
+           const char *    name,
+           fd_rlimit_res_t resource,
+           ulong           limit,
+           const char *    reason ) {
   struct rlimit rlim;
   if( FD_UNLIKELY( getrlimit( resource, &rlim ) ) )
     FD_LOG_ERR(( "getrlimit failed (%i-%s)", errno, strerror( errno ) ));

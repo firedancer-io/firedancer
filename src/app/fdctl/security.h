@@ -22,6 +22,18 @@ typedef struct security {
   char  errors[ MAX_SECURITY_ERRORS ][ 256 ];
 } security_t;
 
+/* fd_rlimit_res_t is the appropriate type for RLIMIT_{...} for the
+   libc flavor in use.  glibc with GNU_SOURCE redefines the type of
+   the first arg to {get,set}rlimit(2), sigh ... */
+
+#ifdef __GLIBC__
+typedef __rlimit_resource_t fd_rlimit_res_t;
+#else /* non-glibc */
+typedef int fd_rlimit_res_t;
+#endif /* __GLIBC__ */
+
+FD_PROTOTYPES_BEGIN
+
 /* check_root() checks if the current process is running as the root
    user (uid 0). If it's not, an error entry is added to the security
    context with the given reason. */
@@ -44,10 +56,12 @@ check_cap( security_t * security,
    increase the resource itself (which it will do). If it cannot, an
    error entry is added to the security context with the given reason. */
 void
-check_res( security_t *        security,
-           const char *        name,
-           __rlimit_resource_t resource,
-           ulong               limit,
-           const char *        reason );
+check_res( security_t *    security,
+           const char *    name,
+           fd_rlimit_res_t resource,
+           ulong           limit,
+           const char *    reason );
+
+FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_app_fdctl_security_h */

@@ -10,6 +10,21 @@
 
 #define EMIT_SIMPLE(_str_) fd_textstream_append(ts, _str_, sizeof(_str_)-1)
 
+void fd_tokenbalance_to_json( fd_textstream_t * ts, struct _fd_solblock_TokenBalance * b ) {
+  fd_textstream_sprintf(ts, "{\"accountIndex\":%u,\"mint\":\"%s\",\"owner\":\"%s\",\"programId\":\"%u\",\"uiTokenAmount\":{",
+                        b->account_index, b->mint, b->owner, b->program_id);
+  fd_textstream_sprintf(ts, "\"amount\":\"%s\",", "");
+  int dec;
+  if (b->ui_token_amount.has_decimals) {
+    fd_textstream_sprintf(ts, "\"decimals\":%u,", b->ui_token_amount.decimals);
+    dec = (int)b->ui_token_amount.decimals;
+  } else
+    dec = 0;
+  if (b->ui_token_amount.has_ui_amount)
+    fd_textstream_sprintf(ts, "\"uiAmount\":%.*f,", dec, b->ui_token_amount.ui_amount);
+  fd_textstream_sprintf(ts, "\"uiAmountString\":\"%s\"}}", "");
+}
+
 int fd_txn_to_json( fd_textstream_t * ts,
                     fd_txn_t* txn,
                     const uchar* raw,
@@ -49,38 +64,16 @@ int fd_txn_to_json( fd_textstream_t * ts,
       fd_textstream_sprintf(ts, "%s%lu", (i == 0 ? "" : ","), txn_status.post_balances[i]);
     EMIT_SIMPLE("],\"postTokenBalances\":[");
     for (pb_size_t i = 0; i < txn_status.post_token_balances_count; ++i) {
-      struct _fd_solblock_TokenBalance * b = txn_status.post_token_balances + i;
-      fd_textstream_sprintf(ts, "%s{\"accountIndex\":%u,\"mint\":\"%s\",\"owner\":\"%s\",\"programId\":\"%u\",\"uiTokenAmount\":{",
-                            (i == 0 ? "" : ","), b->account_index, b->mint, b->owner, b->program_id);
-      fd_textstream_sprintf(ts, "\"amount\":\"%s\",", "");
-      int dec;
-      if (b->ui_token_amount.has_decimals) {
-        fd_textstream_sprintf(ts, "\"decimals\":%u,", b->ui_token_amount.decimals);
-        dec = (int)b->ui_token_amount.decimals;
-      } else
-        dec = 0;
-      if (b->ui_token_amount.has_ui_amount)
-        fd_textstream_sprintf(ts, "\"uiAmount\":%.*f,", dec, b->ui_token_amount.ui_amount);
-      fd_textstream_sprintf(ts, "\"uiAmountString\":\"%s\"}}", "");
+      if (i > 0) EMIT_SIMPLE(",");
+      fd_tokenbalance_to_json(ts, txn_status.post_token_balances + i);
     }
     EMIT_SIMPLE("],\"preBalances\":[");
     for (pb_size_t i = 0; i < txn_status.pre_balances_count; ++i)
       fd_textstream_sprintf(ts, "%s%lu", (i == 0 ? "" : ","), txn_status.pre_balances[i]);
     EMIT_SIMPLE("],\"preTokenBalances\":[");
     for (pb_size_t i = 0; i < txn_status.pre_token_balances_count; ++i) {
-      struct _fd_solblock_TokenBalance * b = txn_status.pre_token_balances + i;
-      fd_textstream_sprintf(ts, "%s{\"accountIndex\":%u,\"mint\":\"%s\",\"owner\":\"%s\",\"programId\":\"%u\",\"uiTokenAmount\":{",
-                            (i == 0 ? "" : ","), b->account_index, b->mint, b->owner, b->program_id);
-      fd_textstream_sprintf(ts, "\"amount\":\"%s\",", "");
-      int dec;
-      if (b->ui_token_amount.has_decimals) {
-        fd_textstream_sprintf(ts, "\"decimals\":%u,", b->ui_token_amount.decimals);
-        dec = (int)b->ui_token_amount.decimals;
-      } else
-        dec = 0;
-      if (b->ui_token_amount.has_ui_amount)
-        fd_textstream_sprintf(ts, "\"uiAmount\":%.*f,", dec, b->ui_token_amount.ui_amount);
-      fd_textstream_sprintf(ts, "\"uiAmountString\":\"%s\"}}", "");
+      if (i > 0) EMIT_SIMPLE(",");
+      fd_tokenbalance_to_json(ts, txn_status.pre_token_balances + i);
     }
     EMIT_SIMPLE("],\"rewards\":[");
     EMIT_SIMPLE("],\"status\":{\"Ok\":null}},");

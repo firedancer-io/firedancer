@@ -1119,6 +1119,7 @@ int fd_executor_stake_program_execute_instruction(
 
     ulong reserve_lamports = 0;
     uint is_staked = 0;
+    fd_stake_lockup_t lockup;
     if( fd_stake_state_is_stake( &stake_state ) ) {
       fd_pubkey_t * authorized_withdrawer_acc = &stake_state.inner.stake.meta.authorized.withdrawer;
       if( memcmp( authorized_withdrawer_acc, withdraw_authority_acc, sizeof(fd_pubkey_t) ) != 0 ) {
@@ -1141,18 +1142,46 @@ int fd_executor_stake_program_execute_instruction(
       }
 
       is_staked = staked_lamports != 0;
+      lockup = stake_state.inner.stake.meta.lockup;
     } else if ( fd_stake_state_is_initialized( &stake_state ) ) {
       fd_pubkey_t * authorized_withdrawer_acc = &stake_state.inner.stake.meta.authorized.withdrawer;
       if( memcmp( authorized_withdrawer_acc, withdraw_authority_acc, sizeof(fd_pubkey_t) ) != 0 ) {
         return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
       }
+      if ( FD_FEATURE_ACTIVE(ctx.global, stake_allow_zero_undelegated_amount) ) {
+        reserve_lamports = stake_state.inner.initialized.rent_exempt_reserve;
+      } else {
+        reserve_lamports = stake_state.inner.initialized.rent_exempt_reserve + get_minimum_delegation(ctx.global);
 
-      reserve_lamports = stake_state.inner.initialized.rent_exempt_reserve;
+        // checked add
+        if (reserve_lamports < stake_state.inner.initialized.rent_exempt_reserve ||
+            reserve_lamports < get_minimum_delegation(ctx.global)) {
+            return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;;
+        }
+      }
+
       is_staked = 0;
+      lockup = stake_state.inner.initialized.lockup;
     } else if ( fd_stake_state_is_uninitialized( &stake_state ) ) {
       /* Check that the Stake account is Uninitialized, if it is, then only stack account can withdraw */
       if (instr_acc_idxs[0] >= ctx.txn_ctx->txn_descriptor->signature_cnt) {
         return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+      }
+    } else {
+      return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+    }
+
+    fd_pubkey_t* custodian = NULL;
+    if (ctx.instr->acct_cnt >= 6) {
+      if(instr_acc_idxs[5] < ctx.txn_ctx->txn_descriptor->signature_cnt) {
+        custodian = &txn_accs[instr_acc_idxs[5]];
+      }
+    }
+
+    if (!custodian || memcmp(custodian, &lockup.custodian, sizeof(fd_pubkey_t)) != 0) {
+      if (lockup.unix_timestamp > clock.unix_timestamp || lockup.epoch > clock.epoch) {
+        ctx.txn_ctx->custom_err = 1;
+        return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
       }
     }
 
@@ -1162,6 +1191,11 @@ int fd_executor_stake_program_execute_instruction(
     }
     // TODO: a bunch of stuff
     if( is_staked && lamports_and_reserve > stake_acc_metadata.info.lamports ) {
+      return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
+    }
+
+    if (lamports != stake_acc_metadata.info.lamports && lamports_and_reserve > stake_acc_metadata.info.lamports) {
+      // TODO: assert!(!is_staked)
       return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
     }
 
@@ -1195,7 +1229,7 @@ int fd_executor_stake_program_execute_instruction(
 
     if( stake_acc_metadata.info.lamports == lamports ) {
       stake_state.discriminant = fd_stake_state_enum_uninitialized;
-      int write_result = write_stake_state(ctx.global, stake_acc, &stake_state, 1);
+      int write_result = write_stake_state(ctx.global, stake_acc, &stake_state, 0);
       if ( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) ) {
         FD_LOG_WARNING(( "failed to write stake account" ));
         return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
