@@ -5,6 +5,7 @@
 #include "../runtime/fd_executor.h"
 #include "../runtime/fd_runtime.h"
 #include "fd_stakes.h"
+#include "../runtime/program/fd_vote_program.h"
 
 FD_PROTOTYPES_BEGIN
 
