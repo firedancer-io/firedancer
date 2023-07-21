@@ -25,3 +25,4 @@ stubs: fd_types.json
 .PHONY: protobuf
 protobuf:
 	$(PYTHON) $(NANOPB) fd_solana_block.proto
+	sed -i 's/<pb.h>/\"..\/nanopb\/pb.h\"/g' fd_solana_block.pb.h
