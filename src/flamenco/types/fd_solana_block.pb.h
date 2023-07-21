@@ -3,7 +3,7 @@
 
 #ifndef PB_SOLANA_STORAGE_CONFIRMEDBLOCK_FD_SOLANA_BLOCK_PB_H_INCLUDED
 #define PB_SOLANA_STORAGE_CONFIRMEDBLOCK_FD_SOLANA_BLOCK_PB_H_INCLUDED
-#include <pb.h>
+#include "../nanopb/pb.h"
 
 #if PB_PROTO_HEADER_VERSION != 40
 #error Regenerate this file with the current version of nanopb generator.
