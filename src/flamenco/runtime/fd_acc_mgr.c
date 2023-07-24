@@ -344,7 +344,8 @@ int fd_acc_mgr_update_hash ( fd_acc_mgr_t * acc_mgr, fd_pubkey_hash_vector_t * d
   char buf[50];
   fd_base58_encode_32((uchar *) &hash, NULL, buf);
 
-  if (memcmp(&hash, m->hash, sizeof(hash))) {
+  if (memcmp(&hash, m->hash, sizeof(fd_hash_t)) != 0) {
+    fd_memcpy(m->hash, hash.hash, sizeof(fd_hash_t));
     int write_result = fd_acc_mgr_write_account_data( acc_mgr, txn, pubkey, m, sizeof(metadata), NULL, 0, 0 );
     if ( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) )
       return write_result;
@@ -358,7 +359,6 @@ int fd_acc_mgr_update_hash ( fd_acc_mgr_t * acc_mgr, fd_pubkey_hash_vector_t * d
       FD_LOG_WARNING(( "fd_acc_mgr_update_hash: %s slot: %ld lamports: %ld  owner: %s  executable: %s,  rent_epoch: %ld, data_len: %ld, data: %s = %s",
                        encoded_pubkey, slot, m->info.lamports, encoded_owner, m->info.executable ? "true" : "false", m->info.rent_epoch, m->dlen, "xx", buf));
     }
-
 
     fd_pubkey_hash_pair_t e;
     fd_memcpy(e.pubkey.key, pubkey, sizeof(e.pubkey.key));
