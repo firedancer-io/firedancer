@@ -67,7 +67,7 @@ fd_hash_account_deltas(fd_global_ctx_t *global, fd_pubkey_hash_pair_t * pairs, u
       fd_acc_mgr_get_owner( global->acc_mgr, global->funk_txn, &pairs[i].pubkey, &current_owner );
       char encoded_owner[50];
       fd_base58_encode_32((uchar *) &current_owner, 0, encoded_owner);
-      
+
       uchar * raw_acc_data = (uchar*) fd_acc_mgr_view_data(global->acc_mgr, global->funk_txn, (fd_pubkey_t *) &pairs[i].pubkey, NULL, NULL);
       if (NULL == raw_acc_data)
         return;
@@ -88,7 +88,7 @@ fd_hash_account_deltas(fd_global_ctx_t *global, fd_pubkey_hash_pair_t * pairs, u
 
       FD_LOG_NOTICE(( "account_delta_hash_compare pubkey: (%s) slot: (%lu) lamports: (%lu), owner: (%s), executable: (%d), rent_epoch: (%lu), data_len: (%ld), hash: (%s) ",  encoded_pubkey, global->bank.slot, metadata->info.lamports, encoded_owner, metadata->info.executable, metadata->info.rent_epoch, metadata->dlen, encoded_hash ));
       printf( "account_delta_hash pubkey: %s, slot: %lu, lamports: %lu, owner: %s, executable: %d, rent_epoch: %lu, data_len: %ld, data: [%s] = %s\n",  encoded_pubkey, global->bank.slot, metadata->info.lamports, encoded_owner, metadata->info.executable, metadata->info.rent_epoch, metadata->dlen, acc_data_str, encoded_hash );
-      
+
       free(acc_data_str);
     }
 
@@ -222,33 +222,116 @@ fd_hash_bank( fd_global_ctx_t *global, fd_hash_t * hash, fd_pubkey_hash_vector_t
 }
 
 
-int fd_update_hash_bank( fd_global_ctx_t * global, fd_hash_t * hash, ulong signature_cnt) {
+int
+fd_update_hash_bank( fd_global_ctx_t * global,
+                     fd_hash_t *       hash,
+                     ulong             signature_cnt ) {
+
+  fd_funk_t *     funk    = global->funk;
+  fd_acc_mgr_t *  acc_mgr = global->acc_mgr;
+  fd_funk_txn_t * txn     = global->funk_txn;
+  ulong           slot    = global->bank.slot;
+
+  /* Collect list of changed accounts to be added to bank hash */
+
   fd_pubkey_hash_vector_t dirty_keys;
   fd_pubkey_hash_vector_new(&dirty_keys);
-  for ( fd_funk_rec_t const * rec = fd_funk_txn_first_rec( global->funk, global->funk_txn );
-    NULL != rec;
-    rec = fd_funk_txn_next_rec( global->funk, rec ) ) {
-    if ( fd_acc_mgr_is_key( rec->pair.key ) &&
-         fd_funk_rec_is_modified( global->funk, rec ) ) { 
-      /* rehash for the dirty key and insert into dirty_keys vectors*/
-      fd_pubkey_t dirty_pubkey;
-      fd_memcpy( &dirty_pubkey, &rec->pair.key, sizeof(fd_pubkey_t) );
-      int result = fd_acc_mgr_update_hash( global->acc_mgr, &dirty_keys, NULL, global->funk_txn, global->bank.slot, &dirty_pubkey, NULL, 0 );
-      if (result != FD_EXECUTOR_INSTR_SUCCESS) {
-        return result;
-      }
+
+  /* Iterate over accounts that have been changed in the current
+     database transaction. */
+
+  for( fd_funk_rec_t const * rec = fd_funk_txn_first_rec( funk, txn );
+       NULL != rec;
+       rec = fd_funk_txn_next_rec( funk, rec ) ) {
+
+    if( !fd_acc_mgr_is_key( rec->pair.key  ) ) continue;
+    if( !fd_funk_rec_is_modified(funk, rec ) ) continue;
+
+    /* Get dirty account */
+
+    fd_pubkey_t const *   acc_key = fd_type_pun_const( rec->pair.key[0].uc );
+    fd_funk_rec_t const * rec     = NULL;
+    int                   err     = FD_ACC_MGR_SUCCESS;
+    uchar const *         acc_raw = fd_acc_mgr_view_data( acc_mgr, txn, acc_key, &rec, &err );
+
+    if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) return err;
+
+    fd_account_meta_t const * acc_meta = (fd_account_meta_t const *)acc_raw;
+    uchar const *             acc_data = acc_raw + acc_meta->hlen;
+
+    /* Hash account */
+
+    fd_hash_t acc_hash;
+    fd_hash_meta( acc_meta, slot, acc_key, acc_data, &acc_hash );
+
+    /* If hash didn't change, nothing to do */
+
+    if( 0==memcmp( acc_hash.hash, acc_meta->hash, sizeof(fd_hash_t) ) )
+      return 0;
+
+    /* Upgrade to writable record */
+
+    /*int*/ err       = FD_ACC_MGR_SUCCESS;
+    void *  acc_raw_w = fd_acc_mgr_modify_data(
+        acc_mgr, txn, acc_key,
+        /* do_create   */ 0,
+        /* sz          */ NULL,
+        /* opt_con_rec */ rec,
+        /* opt_out_rec */ NULL,
+        &err );
+
+    if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) return err;
+
+    fd_account_meta_t * acc_meta_w = (fd_account_meta_t *)acc_raw_w;
+
+    /* Update hash */
+
+    memcpy( acc_meta_w->hash, acc_hash.hash, sizeof(fd_hash_t) );
+
+    /* Logging ... */
+
+    if( FD_UNLIKELY( acc_mgr->global->log_level > 2 ) ) {
+      FD_LOG_WARNING(( "fd_acc_mgr_update_hash: %32J "
+                        "slot: %ld "
+                        "lamports: %ld  "
+                        "owner: %32J  "
+                        "executable: %s,  "
+                        "rent_epoch: %ld, "
+                        "data_len: %ld",
+                        acc_key,
+                        slot,
+                        acc_meta_w->info.lamports,
+                        acc_meta_w->info.owner,
+                        acc_meta_w->info.executable ? "true" : "false",
+                        acc_meta_w->info.rent_epoch,
+                        acc_meta_w->dlen ));
     }
+
+    /* Add account to "dirty keys" list, which will be added to the
+       bank hash. */
+
+    fd_pubkey_hash_pair_t dirty_entry;
+    memcpy( dirty_entry.pubkey.key, acc_key,       sizeof(fd_pubkey_t) );
+    memcpy( dirty_entry.hash.hash,  acc_hash.hash, sizeof(fd_hash_t  ) );
+    fd_pubkey_hash_vector_push( &dirty_keys, dirty_entry );
   }
-  ulong const dirty = dirty_keys.cnt;
-  if (FD_UNLIKELY(global->log_level > 2))
-    FD_LOG_WARNING(("slot %ld   dirty %ld", global->bank.slot, dirty));
-  if (dirty > 0) {
+
+  /* Sort and hash "dirty keys" to the accounts delta hash. */
+
+  if( FD_UNLIKELY(global->log_level > 2) )
+    FD_LOG_WARNING(("slot %ld   dirty %ld", global->bank.slot, dirty_keys.cnt));
+
+  if( dirty_keys.cnt > 0 ) {
     global->signature_cnt = signature_cnt;
     fd_hash_bank( global, hash, &dirty_keys );
   }
-  fd_pubkey_hash_vector_destroy(&dirty_keys);
+
+  fd_pubkey_hash_vector_destroy( &dirty_keys );
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
+
+/* TODO why is this called hash "meta"?
+        This computes the account hash. */
 
 void
 fd_hash_meta( fd_account_meta_t const * m, ulong slot, fd_pubkey_t const * pubkey, uchar const *data, fd_hash_t * hash ) {

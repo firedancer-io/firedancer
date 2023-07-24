@@ -314,61 +314,6 @@ int fd_acc_mgr_write_append_vec_account( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* t
   return ret;
 }
 
-int fd_acc_mgr_update_hash ( fd_acc_mgr_t * acc_mgr, fd_pubkey_hash_vector_t * dirty_keys, fd_account_meta_t * m, fd_funk_txn_t* txn, ulong slot, fd_pubkey_t const * pubkey, uchar const * data, ulong dlen ) {
-  fd_account_meta_t metadata;
-
-  if (NULL == m) {
-    int               read_result = fd_acc_mgr_get_metadata( acc_mgr, txn, pubkey, &metadata );
-    if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) )
-      return read_result;
-    m = &metadata;
-  }
-
-  if (dlen != 0)
-    m->dlen = dlen;
-
-  m->slot = slot;
-
-  if (NULL == data) {
-    uchar *           account_data = (uchar *) fd_alloca(8UL,  m->dlen);
-    int               read_result = fd_acc_mgr_get_account_data( acc_mgr, txn, pubkey, account_data, sizeof(fd_account_meta_t), m->dlen);
-    if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) )
-      return read_result;
-    data = account_data;
-  }
-
-  fd_hash_t hash;
-
-  fd_hash_meta(m, slot, pubkey, data, (fd_hash_t *) &hash);
-
-  char buf[50];
-  fd_base58_encode_32((uchar *) &hash, NULL, buf);
-
-  if (memcmp(&hash, m->hash, sizeof(fd_hash_t)) != 0) {
-    fd_memcpy(m->hash, hash.hash, sizeof(fd_hash_t));
-    int write_result = fd_acc_mgr_write_account_data( acc_mgr, txn, pubkey, m, sizeof(metadata), NULL, 0, 0 );
-    if ( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) )
-      return write_result;
-
-    if (FD_UNLIKELY(acc_mgr->global->log_level > 2)) {
-      char encoded_pubkey[50];
-      fd_base58_encode_32((uchar *) pubkey, 0, encoded_pubkey);
-      char encoded_owner[50];
-      fd_base58_encode_32((uchar *) m->info.owner, 0, encoded_owner);
-
-      FD_LOG_WARNING(( "fd_acc_mgr_update_hash: %s slot: %ld lamports: %ld  owner: %s  executable: %s,  rent_epoch: %ld, data_len: %ld, data: %s = %s",
-                       encoded_pubkey, slot, m->info.lamports, encoded_owner, m->info.executable ? "true" : "false", m->info.rent_epoch, m->dlen, "xx", buf));
-    }
-
-    fd_pubkey_hash_pair_t e;
-    fd_memcpy(e.pubkey.key, pubkey, sizeof(e.pubkey.key));
-    fd_memcpy(e.hash.hash, &hash, sizeof(e.hash.hash));
-    fd_pubkey_hash_vector_push(dirty_keys, e);
-  }
-
-  return 0;
-}
-
 void const *
 fd_acc_mgr_view_data(
   fd_acc_mgr_t*          acc_mgr,
