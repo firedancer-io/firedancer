@@ -2,7 +2,7 @@
 
 # this assumes the test_runtime has already been built
 
-LEDGER="v14-contract-ledger"
+LEDGER="v13-contract-ledger"
 VERBOSE=NO
 POSITION_ARGS=()
 
@@ -54,9 +54,9 @@ if [ $VERBOSE == "YES" ]; then
   set -x
 fi
 
-build/linux/gcc/x86_64/bin/fd_frank_ledger --rocksdb $LEDGER/rocksdb --genesis $LEDGER/genesis.bin --cmd ingest --indexmax 10000 --txnmax 100 --backup test_ledger_backup --network main --log_level 99
+build/linux/gcc/x86_64/bin/fd_frank_ledger --rocksdb $LEDGER/rocksdb --genesis $LEDGER/genesis.bin --cmd ingest --indexmax 10000 --txnmax 100 --backup test_ledger_backup  main --log_level 99
 
-build/linux/gcc/x86_64/unit-test/test_runtime --load test_ledger_backup --cmd replay --end-slot 22 --confirm_hash J1SVLicejnC67wzPpP3W3c7XqtSPj6JPSDDDuufsn2GQ    --confirm_signature 2  --confirm_last_block HyqLfiMCsXYwDTujyDLKwrTCDmkFtCoid5ehH6PDdzjt --validate true  --network main --log_level 99
+build/linux/gcc/x86_64/unit-test/test_runtime --load test_ledger_backup --cmd replay --end-slot 22 --confirm_hash J1SVLicejnC67wzPpP3W3c7XqtSPj6JPSDDDuufsn2GQ    --confirm_signature 2  --confirm_last_block HyqLfiMCsXYwDTujyDLKwrTCDmkFtCoid5ehH6PDdzjt --validate true   --log_level 99
 
 status=$?
 
