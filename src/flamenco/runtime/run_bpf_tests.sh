@@ -48,22 +48,26 @@ fi
 # sudo build/linux/gcc/x86_64/bin/fd_shmem_cfg alloc 64 gigantic 0
 # sudo build/linux/gcc/x86_64/bin/fd_shmem_cfg alloc 512 huge 0
 
-set -x
+# set -x
 
 if [ $VERBOSE == "YES" ]; then
   set -x
 fi
 
-build/linux/gcc/x86_64/bin/fd_frank_ledger --rocksdb $LEDGER/rocksdb --genesis $LEDGER/genesis.bin --cmd ingest --indexmax 10000 --txnmax 100 --backup test_ledger_backup  main --log_level 99
+# bank frozen: 21 hash: 7A1Zi63guF7kMWeoYPZmhKdg2H9Hvoc2DAQ2S1QFXtH parent_hash: 6zPf6DeMhrpiSBhqahu9qEkqgVNiPhhzTejKB85FiAmB  accounts_delta: 4ptz3mgFYHfsfiBUfPaCtM5TwPXvu8Ctxe346sTiq74x signature_count: 2 last_blockhash: HyqLfiMCsXYwDTujyDLKwrTCDmkFtCoid5ehH6PDdzjt capitalization: 503000502311969156
 
-build/linux/gcc/x86_64/unit-test/test_runtime --load test_ledger_backup --cmd replay --end-slot 22 --confirm_hash J1SVLicejnC67wzPpP3W3c7XqtSPj6JPSDDDuufsn2GQ    --confirm_signature 2  --confirm_last_block HyqLfiMCsXYwDTujyDLKwrTCDmkFtCoid5ehH6PDdzjt --validate true   --log_level 99
+build/linux/gcc/x86_64/bin/fd_frank_ledger --rocksdb $LEDGER/rocksdb --genesis $LEDGER/genesis.bin --cmd ingest --indexmax 10000 --txnmax 100 --backup test_ledger_backup  main
+
+build/linux/gcc/x86_64/unit-test/test_runtime --load test_ledger_backup --cmd replay --end-slot 22 --confirm_hash 7A1Zi63guF7kMWeoYPZmhKdg2H9Hvoc2DAQ2S1QFXtH    --confirm_signature 2  --confirm_last_block HyqLfiMCsXYwDTujyDLKwrTCDmkFtCoid5ehH6PDdzjt --validate true >& /tmp/bpf_log$$
 
 status=$?
 
 if [ $status -ne 0 ]
 then
-  echo 'ledger test failed'
+  tail -20 /tmp/bpf_log$$
+  echo 'bpf test failed'
+  echo /tmp/bpf_log$$
   exit $status
 fi
 
-echo 'all tests passed'
+echo 'bpf tests passed'
