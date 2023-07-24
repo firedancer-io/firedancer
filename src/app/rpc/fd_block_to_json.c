@@ -35,14 +35,15 @@ void fd_error_to_json( fd_textstream_t * ts,
   const uchar* orig_bytes = bytes;
   ulong orig_size = size;
 
-  if (size < sizeof(uint) || *(const uint*)bytes != 0x8) /* Always the same? */
+#define INSTRUCTION_ERROR 8
+  if (size < sizeof(uint) || *(const uint*)bytes != INSTRUCTION_ERROR) /* Always the same? */
     goto dump_as_hex;
   bytes += sizeof(uint);
   size -= sizeof(uint);
 
   if (size < 1)
     goto dump_as_hex;
-  uint inum = *(bytes++); /* Instruction number? */
+  uint index = *(bytes++); /* Instruction index */
   size--;
 
   if (size < sizeof(uint))
@@ -52,65 +53,65 @@ void fd_error_to_json( fd_textstream_t * ts,
   size -= sizeof(uint);
 
   switch (cnum) {
-  case 0x19: { /* "custom" */
+  case 25: { /* "Custom" */
     if (size < sizeof(uint))
       goto dump_as_hex;
     uint code =  *(const uint*)bytes; /* Custom code? */
-    fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,{\"Custom\":%u}]}", inum, code);
+    fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,{\"Custom\":%u}]}", index, code);
     return;
   }
 
-  case 0: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"GenericError\"]}", inum); return;
-  case 1: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"InvalidArgument\"]}", inum); return;
-  case 2: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"InvalidInstructionData\"]}", inum); return;
-  case 3: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"InvalidAccountData\"]}", inum); return;
-  case 4: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"AccountDataTooSmall\"]}", inum); return;
-  case 5: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"InsufficientFunds\"]}", inum); return;
-  case 6: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"IncorrectProgramId\"]}", inum); return;
-  case 7: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"MissingRequiredSignature\"]}", inum); return;
-  case 8: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"AccountAlreadyInitialized\"]}", inum); return;
-  case 9: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"UninitializedAccount\"]}", inum); return;
-  case 10: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"UnbalancedInstruction\"]}", inum); return;
-  case 11: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"ModifiedProgramId\"]}", inum); return;
-  case 12: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"ExternalAccountLamportSpend\"]}", inum); return;
-  case 13: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"ExternalAccountDataModified\"]}", inum); return;
-  case 14: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"ReadonlyLamportChange\"]}", inum); return;
-  case 15: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"ReadonlyDataModified\"]}", inum); return;
-  case 16: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"DuplicateAccountIndex\"]}", inum); return;
-  case 17: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"ExecutableModified\"]}", inum); return;
-  case 18: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"RentEpochModified\"]}", inum); return;
-  case 19: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"NotEnoughAccountKeys\"]}", inum); return;
-  case 20: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"AccountDataSizeChanged\"]}", inum); return;
-  case 21: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"AccountNotExecutable\"]}", inum); return;
-  case 22: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"AccountBorrowFailed\"]}", inum); return;
-  case 23: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"AccountBorrowOutstanding\"]}", inum); return;
-  case 24: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"DuplicateAccountOutOfSync\"]}", inum); return;
-  case 26: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"InvalidError\"]}", inum); return;
-  case 27: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"ExecutableDataModified\"]}", inum); return;
-  case 28: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"ExecutableLamportChange\"]}", inum); return;
-  case 29: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"ExecutableAccountNotRentExempt\"]}", inum); return;
-  case 30: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"UnsupportedProgramId\"]}", inum); return;
-  case 31: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"CallDepth\"]}", inum); return;
-  case 32: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"MissingAccount\"]}", inum); return;
-  case 33: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"ReentrancyNotAllowed\"]}", inum); return;
-  case 34: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"MaxSeedLengthExceeded\"]}", inum); return;
-  case 35: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"InvalidSeeds\"]}", inum); return;
-  case 36: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"InvalidRealloc\"]}", inum); return;
-  case 37: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"ComputationalBudgetExceeded\"]}", inum); return;
-  case 38: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"PrivilegeEscalation\"]}", inum); return;
-  case 39: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"ProgramEnvironmentSetupFailure\"]}", inum); return;
-  case 40: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"ProgramFailedToComplete\"]}", inum); return;
-  case 41: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"ProgramFailedToCompile\"]}", inum); return;
-  case 42: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"Immutable\"]}", inum); return;
-  case 43: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"IncorrectAuthority\"]}", inum); return;
-  case 44: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"BorshIoError(String::new())\"]}", inum); return;
-  case 45: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"AccountNotRentExempt\"]}", inum); return;
-  case 46: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"InvalidAccountOwner\"]}", inum); return;
-  case 47: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"ArithmeticOverflow\"]}", inum); return;
-  case 48: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"UnsupportedSysvar\"]}", inum); return;
-  case 49: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"IllegalOwner\"]}", inum); return;
-  case 50: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"MaxAccountsDataSizeExceeded\"]}", inum); return;
-  case 51: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"MaxAccountsExceeded\"]}", inum); return;
+  case 0: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"GenericError\"]}", index); return;
+  case 1: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"InvalidArgument\"]}", index); return;
+  case 2: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"InvalidInstructionData\"]}", index); return;
+  case 3: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"InvalidAccountData\"]}", index); return;
+  case 4: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"AccountDataTooSmall\"]}", index); return;
+  case 5: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"InsufficientFunds\"]}", index); return;
+  case 6: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"IncorrectProgramId\"]}", index); return;
+  case 7: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"MissingRequiredSignature\"]}", index); return;
+  case 8: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"AccountAlreadyInitialized\"]}", index); return;
+  case 9: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"UninitializedAccount\"]}", index); return;
+  case 10: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"UnbalancedInstruction\"]}", index); return;
+  case 11: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"ModifiedProgramId\"]}", index); return;
+  case 12: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"ExternalAccountLamportSpend\"]}", index); return;
+  case 13: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"ExternalAccountDataModified\"]}", index); return;
+  case 14: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"ReadonlyLamportChange\"]}", index); return;
+  case 15: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"ReadonlyDataModified\"]}", index); return;
+  case 16: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"DuplicateAccountIndex\"]}", index); return;
+  case 17: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"ExecutableModified\"]}", index); return;
+  case 18: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"RentEpochModified\"]}", index); return;
+  case 19: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"NotEnoughAccountKeys\"]}", index); return;
+  case 20: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"AccountDataSizeChanged\"]}", index); return;
+  case 21: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"AccountNotExecutable\"]}", index); return;
+  case 22: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"AccountBorrowFailed\"]}", index); return;
+  case 23: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"AccountBorrowOutstanding\"]}", index); return;
+  case 24: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"DuplicateAccountOutOfSync\"]}", index); return;
+  case 26: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"InvalidError\"]}", index); return;
+  case 27: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"ExecutableDataModified\"]}", index); return;
+  case 28: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"ExecutableLamportChange\"]}", index); return;
+  case 29: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"ExecutableAccountNotRentExempt\"]}", index); return;
+  case 30: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"UnsupportedProgramId\"]}", index); return;
+  case 31: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"CallDepth\"]}", index); return;
+  case 32: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"MissingAccount\"]}", index); return;
+  case 33: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"ReentrancyNotAllowed\"]}", index); return;
+  case 34: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"MaxSeedLengthExceeded\"]}", index); return;
+  case 35: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"InvalidSeeds\"]}", index); return;
+  case 36: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"InvalidRealloc\"]}", index); return;
+  case 37: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"ComputationalBudgetExceeded\"]}", index); return;
+  case 38: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"PrivilegeEscalation\"]}", index); return;
+  case 39: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"ProgramEnvironmentSetupFailure\"]}", index); return;
+  case 40: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"ProgramFailedToComplete\"]}", index); return;
+  case 41: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"ProgramFailedToCompile\"]}", index); return;
+  case 42: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"Immutable\"]}", index); return;
+  case 43: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"IncorrectAuthority\"]}", index); return;
+  case 44: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"BorshIoError(String::new())\"]}", index); return;
+  case 45: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"AccountNotRentExempt\"]}", index); return;
+  case 46: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"InvalidAccountOwner\"]}", index); return;
+  case 47: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"ArithmeticOverflow\"]}", index); return;
+  case 48: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"UnsupportedSysvar\"]}", index); return;
+  case 49: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"IllegalOwner\"]}", index); return;
+  case 50: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"MaxAccountsDataSizeExceeded\"]}", index); return;
+  case 51: fd_textstream_sprintf(ts, "{\"InstructionError\":[%u,\"MaxAccountsExceeded\"]}", index); return;
   }
 
  dump_as_hex:
@@ -120,8 +121,15 @@ void fd_error_to_json( fd_textstream_t * ts,
 }
 
 void fd_inner_instructions_to_json( fd_textstream_t * ts,
-                                    struct _fd_solblock_InnerInstructions * inst ) {
-  fd_textstream_sprintf(ts, "{\"index\":%u}", inst->index);
+                                    struct _fd_solblock_InnerInstructions * insts ) {
+  fd_textstream_sprintf(ts, "{\"index\":%u,\"instructions\":[", insts->index);
+  for ( pb_size_t i = 0; i < insts->instructions_count; ++i ) {
+    struct _fd_solblock_InnerInstruction * inst = insts->instructions + i;
+    fd_textstream_sprintf(ts, "%s{\"data\":\"", (i == 0 ? "" : ","));
+    fd_textstream_encode_base58(ts, inst->data->bytes, inst->data->size);
+    fd_textstream_sprintf(ts, "\",\"programIdIndex:\":%u}", inst->program_id_index);
+  }
+  EMIT_SIMPLE("]}");
 }
 
 int fd_txn_to_json( fd_textstream_t * ts,
