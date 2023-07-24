@@ -47,12 +47,12 @@ serialize_unaligned( instruction_ctx_t ctx, ulong * sz ) {
 
     fd_pubkey_t * acc = &txn_accs[acc_idx];
     FD_LOG_WARNING(( "START OF ACC: %32J %x", acc, serialized_size ));
-    
+
     serialized_size++; // dup byte
     if( FD_LIKELY( !acc_idx_seen[acc_idx] ) ) {
       acc_idx_seen[acc_idx] = 1;
       dup_acc_idx[acc_idx] = i;
-  
+
       fd_pubkey_t * acc = &txn_accs[acc_idx];
       int read_result = 0;
       uchar * raw_acc_data = (uchar *)fd_acc_mgr_view_data(ctx.global->acc_mgr, ctx.global->funk_txn, acc, NULL, &read_result);
@@ -81,7 +81,7 @@ serialize_unaligned( instruction_ctx_t ctx, ulong * sz ) {
       + ctx.instr->data_sz
       + sizeof(fd_pubkey_t);
 
-  uchar * serialized_params = malloc(serialized_size);
+  uchar * serialized_params = fd_valloc_malloc( ctx.global->valloc, 1UL, serialized_size);
   uchar * serialized_params_start = serialized_params;
 
   FD_STORE( ulong, serialized_params, ctx.instr->acct_cnt );
@@ -131,7 +131,7 @@ serialize_unaligned( instruction_ctx_t ctx, ulong * sz ) {
       fd_pubkey_t owner = *(fd_pubkey_t *)&metadata->info.owner;
       FD_STORE( fd_pubkey_t, serialized_params, owner );
       serialized_params += sizeof(fd_pubkey_t);
-  
+
       uchar is_executable = (uchar)metadata->info.executable;
       FD_STORE( uchar, serialized_params, is_executable );
       serialized_params += sizeof(uchar);
@@ -182,14 +182,14 @@ deserialize_unaligned( instruction_ctx_t ctx, uchar * input, FD_FN_UNUSED ulong 
       int modify_err;
 
       input_cursor += sizeof(uchar) + sizeof(uchar) + sizeof(fd_pubkey_t);
-      
+
 
       ulong lamports = FD_LOAD(ulong, input_cursor);
       input_cursor += sizeof(ulong);
 
       /* Consume data_len */
       input_cursor += sizeof(ulong);
-      
+
       uchar * post_data = input_cursor;
 
       void * raw_acc_data = fd_acc_mgr_modify_data(ctx.global->acc_mgr, ctx.global->funk_txn, acc, 0, NULL, NULL, &acc_data_rec, &modify_err);
@@ -197,7 +197,7 @@ deserialize_unaligned( instruction_ctx_t ctx, uchar * input, FD_FN_UNUSED ulong 
       uchar * acc_data = fd_account_get_data( metadata );
 
       input_cursor += metadata->dlen;
-      
+
       fd_pubkey_t * owner = (fd_pubkey_t *)input_cursor;
       input_cursor += sizeof(fd_pubkey_t);
 
@@ -215,7 +215,7 @@ deserialize_unaligned( instruction_ctx_t ctx, uchar * input, FD_FN_UNUSED ulong 
     }
   }
 
-  free(input);
+  fd_valloc_free( ctx.global->valloc, input);
 
   return 0;
 }
@@ -243,7 +243,7 @@ int fd_executor_bpf_loader_program_execute_program_instruction( instruction_ctx_
 
   /* Allocate rodata segment */
 
-  void * rodata = malloc( elf_info.rodata_footprint );
+  void * rodata = fd_valloc_malloc( ctx.global->valloc, 1UL,  elf_info.rodata_footprint );
   FD_TEST( rodata );
 
   /* Allocate program buffer */
@@ -270,9 +270,9 @@ int fd_executor_bpf_loader_program_execute_program_instruction( instruction_ctx_
   ulong input_sz = 0;
   uchar * input = serialize_unaligned(ctx, &input_sz);
   if( input==NULL ) {
-    free( fd_sbpf_program_delete( prog ) );
-    free( fd_sbpf_syscalls_delete( syscalls ) );
-    free(rodata);
+    fd_valloc_free( ctx.global->valloc,  fd_sbpf_program_delete( prog ) );
+    fd_valloc_free( ctx.global->valloc,  fd_sbpf_syscalls_delete( syscalls ) );
+    fd_valloc_free( ctx.global->valloc, rodata);
     return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
   }
   uchar * input_cpy = fd_valloc_malloc( ctx.global->valloc, 8UL, input_sz);
@@ -296,7 +296,7 @@ int fd_executor_bpf_loader_program_execute_program_instruction( instruction_ctx_
 
   ulong trace_sz = 1024 * 1024;
   ulong trace_used = 0;
-  fd_vm_trace_entry_t * trace = (fd_vm_trace_entry_t *) malloc(trace_sz * sizeof(fd_vm_trace_entry_t));
+  fd_vm_trace_entry_t * trace = (fd_vm_trace_entry_t *) fd_valloc_malloc( ctx.global->valloc, 1UL, trace_sz * sizeof(fd_vm_trace_entry_t));
 
   memset(vm_ctx.register_file, 0, sizeof(vm_ctx.register_file));
   vm_ctx.register_file[1] = FD_VM_MEM_MAP_INPUT_REGION_START;
@@ -317,7 +317,7 @@ int fd_executor_bpf_loader_program_execute_program_instruction( instruction_ctx_
 
   // TODO: make tracing an option!
   // FILE * trace_fd = fopen("trace.log", "w");
-  
+
   for( ulong i = 0; i < trace_used; i++ ) {
     fd_vm_trace_entry_t trace_ent = trace[i];
     fprintf(stderr, "%5lu [%016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX] %5lu: ",
@@ -339,25 +339,25 @@ int fd_executor_bpf_loader_program_execute_program_instruction( instruction_ctx_
 
     fprintf(stderr, "\n");
   }
-  
-  // fclose(trace_fd);
-  free(trace);
 
-  free( fd_sbpf_program_delete( prog ) );
-  free( fd_sbpf_syscalls_delete( syscalls ) );
-  free(rodata);
+  // fclose(trace_fd);
+  fd_valloc_free( ctx.global->valloc, trace);
+
+  fd_valloc_free( ctx.global->valloc,  fd_sbpf_program_delete( prog ) );
+  fd_valloc_free( ctx.global->valloc,  fd_sbpf_syscalls_delete( syscalls ) );
+  fd_valloc_free( ctx.global->valloc, rodata);
 
   FD_LOG_WARNING(( "fd_vm_interp_instrs() success: %lu, ic: %lu, pc: %lu, ep: %lu, r0: %lu, fault: %lu", interp_res, vm_ctx.instruction_counter, vm_ctx.program_counter, vm_ctx.entrypoint, vm_ctx.register_file[0], vm_ctx.cond_fault ));
   FD_LOG_WARNING(( "log coll: %s", vm_ctx.log_collector.buf ));
 
   if( vm_ctx.register_file[0]!=0 ) {
-    free(input);
+    fd_valloc_free( ctx.global->valloc, input);
     // TODO: vm should report this error
     return -1;
   }
 
   if( vm_ctx.cond_fault ) {
-    free(input);
+    fd_valloc_free( ctx.global->valloc, input);
     // TODO: vm should report this error
     return -1;
   }
