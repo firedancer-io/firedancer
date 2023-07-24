@@ -62,7 +62,9 @@ status=$?
 
 if [ $status -ne 0 ]
 then
-  echo 'ledger test failed'
+  tail -20 /tmp/ledger_log$$
+  echo 'ledger test failed:'
+  echo /tmp/ledger_log$$
   exit $status
 fi
 

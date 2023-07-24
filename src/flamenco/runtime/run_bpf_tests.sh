@@ -64,7 +64,9 @@ status=$?
 
 if [ $status -ne 0 ]
 then
+  tail -20 /tmp/bpf_log$$
   echo 'bpf test failed'
+  echo /tmp/bpf_log$$
   exit $status
 fi
 
