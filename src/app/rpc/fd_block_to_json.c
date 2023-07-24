@@ -119,6 +119,11 @@ void fd_error_to_json( fd_textstream_t * ts,
   EMIT_SIMPLE("\"");
 }
 
+void fd_inner_instructions_to_json( fd_textstream_t * ts,
+                                    struct _fd_solblock_InnerInstructions * inst ) {
+  fd_textstream_sprintf(ts, "{\"index\":%u}", inst->index);
+}
+
 int fd_txn_to_json( fd_textstream_t * ts,
                     fd_txn_t* txn,
                     const uchar* raw,
@@ -153,6 +158,12 @@ int fd_txn_to_json( fd_textstream_t * ts,
     else
       EMIT_SIMPLE("null");
     fd_textstream_sprintf(ts, ",\"fee\":%lu,\"innerInstructions\":[", txn_status.fee);
+    if (!txn_status.inner_instructions_none) {
+      for (pb_size_t i = 0; i < txn_status.inner_instructions_count; ++i) {
+        if ( i > 0 ) EMIT_SIMPLE(",");
+        fd_inner_instructions_to_json(ts, txn_status.inner_instructions + i);
+      }
+    }
     EMIT_SIMPLE("],\"loadedAddresses\":{\"readonly\":[");
     for (pb_size_t i = 0; i < txn_status.loaded_readonly_addresses_count; ++i) {
       pb_bytes_array_t * ba = txn_status.loaded_readonly_addresses[i];
