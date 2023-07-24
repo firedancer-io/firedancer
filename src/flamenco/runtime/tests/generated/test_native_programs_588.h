@@ -12,7 +12,7 @@ int test_588(fd_executor_test_suite_t *suite) {
   fd_memset( test_accs, 0, FD_EXECUTOR_TEST_ACC_FOOTPRINT * test_accs_len );
 
 
-  uchar disabled_features[] = { 77 };
+  uchar disabled_features[] = { 2 };
   test.disable_feature = disabled_features;
             
   fd_base58_decode_32( "Stake11111111111111111111111111111111111111",  (unsigned char *) &test.program_id);

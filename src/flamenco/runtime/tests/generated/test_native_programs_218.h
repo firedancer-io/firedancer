@@ -12,7 +12,7 @@ int test_218(fd_executor_test_suite_t *suite) {
   fd_memset( test_accs, 0, FD_EXECUTOR_TEST_ACC_FOOTPRINT * test_accs_len );
 
 
-  uchar disabled_features[] = { 89 };
+  uchar disabled_features[] = { 135 };
   test.disable_feature = disabled_features;
             
   fd_executor_test_acc_t* test_acc = test_accs;

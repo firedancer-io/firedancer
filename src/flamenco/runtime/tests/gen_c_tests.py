@@ -220,14 +220,14 @@ def main():
             for x in fs:
                 disabled_feature = base58.b58encode(bytearray(x)).decode("utf-8")
                 # Find index of feature given pubkey
-                feature_idx = next(
-                    (
-                        i
-                        for i, f in enumerate(feature_list)
-                        if f["pubkey"] == disabled_feature
-                    )
-                )
-                feature_idxs.append(str(feature_idx))
+                feature_idx = -1
+                for i, f in enumerate(feature_list):
+                    if f["pubkey"] == disabled_feature:
+                        feature_idx = i
+                if feature_idx != -1:
+                    feature_idxs.append(str(feature_idx))
+                else:
+                    print("Unknown feature " +disabled_feature, file=sys.stderr)
             feature_idxs = sorted(feature_idxs)
         bt = "".join(test_case["backtrace"].split("\n")[4:12])
 
@@ -289,6 +289,8 @@ def main():
         signer_pubkeys = set()
         num_signers = 0
         for account in test_case["instruction_accounts"]:
+            if "pubkey" not in account:
+                account["pubkey"] = test_case["transaction_accounts"][int(account["index_in_transaction"])]["pubkey"]
             if bool(account["is_signer"]) and (account["pubkey"] not in signer_pubkeys):
                 num_signers += 1
                 signer_pubkeys.add(account["pubkey"])

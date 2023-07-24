@@ -47,7 +47,7 @@ void fd_sysvar_rent_init( fd_global_ctx_t* global ) {
   /* TODO: handle non-default case */
   fd_rent_t rent;
   fd_rent_new(&rent);
-  
+
   rent.lamports_per_uint8_year = 3480,
   rent.exemption_threshold = 2,
   rent.burn_percent = 50,
@@ -57,10 +57,15 @@ void fd_sysvar_rent_init( fd_global_ctx_t* global ) {
 
 /* TODO: handle update */
 
+ulong
+fd_rent_exempt_minimum_balance2( fd_rent_t const * rent,
+                                 ulong             data_len ) {
+  /* https://github.com/solana-labs/solana/blob/792fafe0c25ac06868e3ac80a2b13f1a5b4a1ef8/sdk/program/src/rent.rs#L72 */
+  return (data_len + ACCOUNT_STORAGE_OVERHEAD) * ((ulong) ((double)rent->lamports_per_uint8_year * rent->exemption_threshold));
+}
+
 ulong fd_rent_exempt_minimum_balance( fd_global_ctx_t* global, ulong data_len ) {
   fd_rent_t rent;
   fd_sysvar_rent_read( global, &rent );
-
-  /* https://github.com/solana-labs/solana/blob/792fafe0c25ac06868e3ac80a2b13f1a5b4a1ef8/sdk/program/src/rent.rs#L72 */
-  return (data_len + ACCOUNT_STORAGE_OVERHEAD) * ((ulong) ((double)rent.lamports_per_uint8_year * rent.exemption_threshold));
+  return fd_rent_exempt_minimum_balance2( &rent, data_len );
 }

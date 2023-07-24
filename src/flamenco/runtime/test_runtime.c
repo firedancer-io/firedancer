@@ -299,7 +299,7 @@ replay( global_state_t * state,
                          slot,
                          known_bank_hash->hash,
                          state->global->bank.banks_hash.hash ));
-        //return 1;
+        return 1;
       }
     }
 

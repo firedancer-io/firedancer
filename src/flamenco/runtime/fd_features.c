@@ -77,10 +77,9 @@ void fd_enable_testnet(struct fd_features *f) {
   f->require_static_program_ids_in_transaction = 144812257; // require static program ids in versioned transactions
   f->preserve_rent_epoch_for_rent_exempt_accounts = 145676256; // preserve rent epoch for rent exempt accounts #26479
   f->prevent_crediting_accounts_that_end_rent_paying = 146972256; // prevent crediting rent paying accounts #26606
-  f->return_none_for_zero_lamport_accounts = 152588256; // return none for zero lamport accounts #27800
   f->disable_deprecated_loader = 158204260; // disable the deprecated BPF loader
   f->check_syscall_outputs_do_not_overlap = 165980260; // check syscall outputs do_not overlap #28600
-  f->bank_tranaction_count_fix = 168572256; // fixes Bank::transaction_count to include all committed transactions, not just successful ones
+  f->bank_transaction_count_fix = 168572256; // fixes Bank::transaction_count to include all committed transactions, not just successful ones
   f->reject_callx_r10 = 195356264; // Reject bpf callx r10 instructions
   f->stake_deactivate_delinquent_instruction = 195356264; // enable the deactivate delinquent stake instruction #23932
   f->libsecp256k1_fail_on_bad_count2 = 195356264; // fail libsec256k1_verify if count appears wrong
@@ -119,7 +118,6 @@ void fd_enable_devnet(struct fd_features *f) {
   f->no_overflow_rent_distribution = 18144000; // no overflow rent distribution
   f->pico_inflation = 19008000; // pico inflation
   f->filter_stake_delegation_accounts = 25056000; // filter stake_delegation_accounts #14062
-  f->full_inflation_mainnet_certusone_vote = 34560000; // community vote allowing Certus One to enable full inflation
   f->spl_token_v2_self_transfer_fix = 37152000; // spl-token self-transfer fix
   f->check_init_vote_data = 41472000; // check initialized Vote data
   f->require_custodian_for_locked_stake_authorize = 41472000; // require custodian to authorize withdrawer change for locked stake
@@ -190,7 +188,6 @@ void fd_enable_devnet(struct fd_features *f) {
   f->require_static_program_ids_in_transaction = 154656004; // require static program ids in versioned transactions
   f->blake3_syscall_enabled = 158976000; // blake3 syscall
   f->preserve_rent_epoch_for_rent_exempt_accounts = 160704000; // preserve rent epoch for rent exempt accounts #26479
-  f->return_none_for_zero_lamport_accounts = 164160000; // return none for zero lamport accounts #27800
   f->prevent_crediting_accounts_that_end_rent_paying = 166752000; // prevent crediting rent paying accounts #26606
   f->increase_tx_account_lock_limit = 166752000; // increase tx account lock limit to 128 #27241
   f->filter_votes_outside_slot_hashes = 167184000; // filter vote slots older than the slot hashes history
@@ -198,7 +195,7 @@ void fd_enable_devnet(struct fd_features *f) {
   f->stake_deactivate_delinquent_instruction = 182736000; // enable the deactivate delinquent stake instruction #23932
   f->add_get_minimum_delegation_instruction_to_stake_program = 183600000; // add GetMinimumDelegation instruction to stake program
   f->stake_allow_zero_undelegated_amount = 184032000; // Allow zero-lamport undelegated amount for initialized stakes #24670
-  f->bank_tranaction_count_fix = 184896000; // fixes Bank::transaction_count to include all committed transactions, not just successful ones
+  f->bank_transaction_count_fix = 184896000; // fixes Bank::transaction_count to include all committed transactions, not just successful ones
   f->credits_auto_rewind = 186624000; // Auto rewind stake's credits_observed if (accidental) vote recreation is detected #22546
   f->libsecp256k1_fail_on_bad_count2 = 187056000; // fail libsec256k1_verify if count appears wrong
   f->vote_state_update_root_fix = 187488000; // fix root in vote state updates #27361
@@ -232,7 +229,6 @@ void fd_enable_mainnet(struct fd_features *f) {
   f->deprecate_rewards_sysvar = 55728001; // deprecate unused rewards sysvar
   f->pico_inflation = 57456000; // pico inflation
   f->filter_stake_delegation_accounts = 57888004; // filter stake_delegation_accounts #14062
-  f->full_inflation_mainnet_certusone_enable = 64800004; // full inflation enabled by Certus One
   f->full_inflation_mainnet_certusone_vote = 64800004; // community vote allowing Certus One to enable full inflation
   f->spl_token_v2_self_transfer_fix = 66528004; // spl-token self-transfer fix
   f->warp_timestamp_again = 66528004; // warp timestamp again, adjust bounding to 25% fast 80% slow #15204
@@ -297,7 +293,6 @@ void fd_enable_mainnet(struct fd_features *f) {
   f->syscall_saturated_math = 150768000; // syscalls use saturated math
   f->merge_nonce_error_into_system_error = 151632012; // merge NonceError into SystemError
   f->instructions_sysvar_owned_by_sysvar = 152496000; // fix owner for instructions sysvar
-  f->return_none_for_zero_lamport_accounts = 152928008; // return none for zero lamport accounts #27800
   f->require_static_program_ids_in_transaction = 153360000; // require static program ids in versioned transactions
   f->include_account_index_in_rent_error = 154224000; // include account index in rent tx error #25190
   f->versioned_tx_message_enabled = 154656004; // enable versioned transaction message processing
@@ -306,7 +301,7 @@ void fd_enable_mainnet(struct fd_features *f) {
   f->prevent_crediting_accounts_that_end_rent_paying = 161136000; // prevent crediting rent paying accounts #26606
   f->disable_deprecated_loader = 167184008; // disable the deprecated BPF loader
   f->reject_vote_account_close_unless_zero_credit_epoch = 170640000; // fail vote account withdraw to 0 unless account earned 0 credits in last completed epoch
-  f->bank_tranaction_count_fix = 171072012; // fixes Bank::transaction_count to include all committed transactions, not just successful ones
+  f->bank_transaction_count_fix = 171072012; // fixes Bank::transaction_count to include all committed transactions, not just successful ones
   f->check_syscall_outputs_do_not_overlap = 174096000; // check syscall outputs do_not overlap #28600
   f->stake_deactivate_delinquent_instruction = 198720004; // enable the deactivate delinquent stake instruction #23932
   f->drop_redundant_turbine_path = 199152000; // drop redundant turbine path
@@ -323,7 +318,6 @@ void fd_enable_everything(struct fd_features *f) {
   f->deprecate_rewards_sysvar = 1; // deprecate unused rewards sysvar
   f->pico_inflation = 1; // pico inflation
   f->filter_stake_delegation_accounts = 1; // filter stake_delegation_accounts #14062
-  f->full_inflation_mainnet_certusone_enable = 1; // full inflation enabled by Certus One
   f->full_inflation_mainnet_certusone_vote = 1; // community vote allowing Certus One to enable full inflation
   f->spl_token_v2_self_transfer_fix = 1; // spl-token self-transfer fix
   f->warp_timestamp_again = 1; // warp timestamp again, adjust bounding to 25% fast 80% slow #15204
@@ -388,7 +382,6 @@ void fd_enable_everything(struct fd_features *f) {
   f->syscall_saturated_math = 1; // syscalls use saturated math
   f->merge_nonce_error_into_system_error = 1; // merge NonceError into SystemError
   f->instructions_sysvar_owned_by_sysvar = 1; // fix owner for instructions sysvar
-  f->return_none_for_zero_lamport_accounts = 1; // return none for zero lamport accounts #27800
   f->require_static_program_ids_in_transaction = 1; // require static program ids in versioned transactions
   f->include_account_index_in_rent_error = 1; // include account index in rent tx error #25190
   f->versioned_tx_message_enabled = 1; // enable versioned transaction message processing
@@ -397,7 +390,7 @@ void fd_enable_everything(struct fd_features *f) {
   f->prevent_crediting_accounts_that_end_rent_paying = 1; // prevent crediting rent paying accounts #26606
   f->disable_deprecated_loader = 1; // disable the deprecated BPF loader
   f->reject_vote_account_close_unless_zero_credit_epoch = 1; // fail vote account withdraw to 0 unless account earned 0 credits in last completed epoch
-  f->bank_tranaction_count_fix = 1; // fixes Bank::transaction_count to include all committed transactions, not just successful ones
+  f->bank_transaction_count_fix = 1; // fixes Bank::transaction_count to include all committed transactions, not just successful ones
   f->check_syscall_outputs_do_not_overlap = 1; // check syscall outputs do_not overlap #28600
   f->stake_deactivate_delinquent_instruction = 1; // enable the deactivate delinquent stake instruction #23932
   f->drop_redundant_turbine_path = 1; // drop redundant turbine path
@@ -421,7 +414,6 @@ void fd_enable_everything(struct fd_features *f) {
   f->enable_bpf_loader_extend_program_ix = 1; // enable bpf upgradeable loader ExtendProgram instruction #25234
   f->libsecp256k1_fail_on_bad_count = 1; // fail libsec256k1_verify if count appears wrong
   f->use_default_units_in_fee_calculation = 1; // use default units per instruction in fee calculation #26785
-  f->concurrent_replay_of_forks = 1; // Allow slots from different forks to be replayed concurrently #26465
   f->increase_tx_account_lock_limit = 1; // increase tx account lock limit to 128 #27241
   f->cap_bpf_program_instruction_accounts = 1; // enforce max number of accounts per bpf program instruction #26628
   f->stake_raise_minimum_delegation_to_1_sol = 1; // Raise minimum stake delegation to 1.0 SOL #24357
@@ -448,133 +440,164 @@ void fd_enable_everything(struct fd_features *f) {
   f->zk_token_sdk_enabled = 1; // enable Zk Token proof program and syscalls
 }
 void fd_update_features(fd_global_ctx_t * global) {
-  fd_update_feature(global, &global->features.secp256k1_program_enabled, "E3PHP7w8kB7np3CTQ1qQ2tW3KCtjRSXBQgW9vM2mWv2Y");
-  fd_update_feature(global, &global->features.spl_token_v2_multisig_fix, "E5JiFDQCwyC6QfT9REFyMpfK2mHcmv1GUDySU1Ue7TYv");
-  fd_update_feature(global, &global->features.no_overflow_rent_distribution, "4kpdyrcj5jS47CZb2oJGfVxjYbsMm2Kx97gFyZrxxwXz");
-  fd_update_feature(global, &global->features.deprecate_rewards_sysvar, "GaBtBJvmS4Arjj5W1NmFcyvPjsHN38UGYDq2MDwbs9Qu");
-  fd_update_feature(global, &global->features.pico_inflation, "4RWNif6C2WCNiKVW7otP4G7dkmkHGyKQWRpuZ1pxKU5m");
-  fd_update_feature(global, &global->features.filter_stake_delegation_accounts, "GE7fRxmW46K6EmCD9AMZSbnaJ2e3LfqCZzdHi9hmYAgi");
-  fd_update_feature(global, &global->features.full_inflation_mainnet_certusone_enable, "7XRJcS5Ud5vxGB54JbK9N2vBZVwnwdBNeJW1ibRgD9gx");
-  fd_update_feature(global, &global->features.full_inflation_mainnet_certusone_vote, "BzBBveUDymEYoYzcMWNQCx3cd4jQs7puaVFHLtsbB6fm");
-  fd_update_feature(global, &global->features.spl_token_v2_self_transfer_fix, "BL99GYhdjjcv6ys22C9wPgn2aTVERDbPHHo4NbS3hgp7");
-  fd_update_feature(global, &global->features.warp_timestamp_again, "GvDsGDkH5gyzwpDhxNixx8vtx1kwYHH13RiNAPw27zXb");
-  fd_update_feature(global, &global->features.check_init_vote_data, "3ccR6QpxGYsAbWyfevEtBNGfWV4xBffxRj2tD6A9i39F");
-  fd_update_feature(global, &global->features.require_custodian_for_locked_stake_authorize, "D4jsDcXaqdW8tDAWn8H4R25Cdns2YwLneujSL1zvjW6R");
-  fd_update_feature(global, &global->features.vote_stake_checked_instructions, "BcWknVcgvonN8sL4HE4XFuEVgfcee5MwxWPAgP6ZV89X");
-  fd_update_feature(global, &global->features.system_transfer_zero_check, "BrTR9hzw4WBGFP65AJMbpAo64DcA3U6jdPSga9fMV5cS");
-  fd_update_feature(global, &global->features.spl_token_v2_set_authority_fix, "FToKNBYyiF4ky9s8WsmLBXHCht17Ek7RXaLZGHzzQhJ1");
-  fd_update_feature(global, &global->features.demote_program_write_locks, "3E3jV7v9VcdJL8iYZUMax9DiDno8j7EWUVbhm9RtShj2");
-  fd_update_feature(global, &global->features.send_to_tpu_vote_port, "C5fh68nJ7uyKAuYZg2x9sEQ5YrVf3dkW6oojNBSc3Jvo");
-  fd_update_feature(global, &global->features.reduce_required_deploy_balance, "EBeznQDjcPG8491sFsKZYBi5S5jTVXMpAKNDJMQPS2kq");
-  fd_update_feature(global, &global->features.verify_tx_signatures_len, "EVW9B5xD9FFK7vw1SBARwMA4s5eRo5eKJdKpsBikzKBz");
-  fd_update_feature(global, &global->features.stake_program_advance_activating_credits_observed, "SAdVFw3RZvzbo6DvySbSdBnHN4gkzSTH9dSxesyKKPj");
-  fd_update_feature(global, &global->features.stake_merge_with_unmatched_credits_observed, "meRgp4ArRPhD3KtCY9c5yAf2med7mBLsjKTPeVUHqBL");
-  fd_update_feature(global, &global->features.secp256k1_recover_syscall_enabled, "6RvdSWHh8oh72Dp7wMTS2DBkf3fRPtChfNrAo3cZZoXJ");
-  fd_update_feature(global, &global->features.rent_for_sysvars, "BKCPBQQBZqggVnFso5nQ8rQ4RwwogYwjuUt9biBjxwNF");
-  fd_update_feature(global, &global->features.optimize_epoch_boundary_updates, "265hPS8k8xJ37ot82KEgjRunsUp5w4n4Q4VwwiN9i9ps");
-  fd_update_feature(global, &global->features.dedupe_config_program_signers, "8kEuAshXLsgkUEdcFVLqrjCGGHVWFW99ZZpxvAzzMtBp");
-  fd_update_feature(global, &global->features.libsecp256k1_0_5_upgrade_enabled, "DhsYfRjxfnh2g7HKJYSzT79r74Afa1wbHkAgHndrA1oy");
-  fd_update_feature(global, &global->features.stakes_remove_delegation_if_inactive, "HFpdDDNQjvcXnXKec697HDDsyk6tFoWS2o8fkxuhQZpL");
+  fd_update_feature(global, &global->features.account_hash_ignore_slot, "SVn36yVApPLYsa8koK3qUcy14zXDnqkNYWyUh1f4oK1");
   fd_update_feature(global, &global->features.add_compute_budget_program, "4d5AKtxoh93Dwm1vHXUU3iRATuMndx1c431KgT2td52r");
-  fd_update_feature(global, &global->features.reject_non_rent_exempt_vote_withdraws, "7txXZZD6Um59YoLMF7XUNimbMjsqsWhc7g2EniiTrmp1");
-  fd_update_feature(global, &global->features.evict_invalid_stakes_cache_entries, "EMX9Q7TVFAmQ9V1CggAkhMzhXSg8ECp7fHrWQX2G1chf");
-  fd_update_feature(global, &global->features.spl_token_v3_3_0_release, "Ftok2jhqAqxUWEiCVRrfRs9DPppWP8cgTB7NQNKL88mS");
-  fd_update_feature(global, &global->features.remove_native_loader, "HTTgmruMYRZEntyL3EdCDdnS6e4D5wRq1FA7kQsb66qq");
-  fd_update_feature(global, &global->features.ed25519_program_enabled, "6ppMXNYLhVd7GcsZ5uV11wQEW7spppiMVfqQv5SXhDpX");
-  fd_update_feature(global, &global->features.sol_log_data_syscall_enabled, "6uaHcKPGUy4J7emLBgUTeufhJdiwhngW6a1R9B7c2ob9");
-  fd_update_feature(global, &global->features.return_data_syscall_enabled, "DwScAzPUjuv65TMbDnFY7AgwmotzWy3xpEJMXM3hZFaB");
-  fd_update_feature(global, &global->features.spl_associated_token_account_v1_0_4, "FaTa4SpiaSNH44PGC4z8bnGVTkSRYaWvrBs3KTu8XQQq");
-  fd_update_feature(global, &global->features.leave_nonce_on_success, "E8MkiWZNNPGU6n55jkGzyj8ghUmjCHRmDFdYYFYHxWhQ");
-  fd_update_feature(global, &global->features.require_rent_exempt_accounts, "BkFDxiJQWZXGTZaJQxH7wVEHkAmwCgSEVkrvswFfRJPD");
-  fd_update_feature(global, &global->features.do_support_realloc, "75m6ysz33AfLA5DDEzWM1obBrnPQRSsdVQ2nRmc8Vuu1");
+  fd_update_feature(global, &global->features.add_get_minimum_delegation_instruction_to_stake_program, "St8k9dVXP97xT6faW24YmRSYConLbhsMJA4TJTBLmMT");
   fd_update_feature(global, &global->features.add_get_processed_sibling_instruction_syscall, "CFK1hRCNy8JJuAAY8Pb2GjLFNdCThS2qwZNe3izzBMgn");
-  fd_update_feature(global, &global->features.tx_wide_compute_cap, "5ekBxc8itEnPv4NzGJtr8BVVQLNMQuLMNQQj7pHoLNZ9");
-  fd_update_feature(global, &global->features.requestable_heap_size, "CCu4boMmfLuqcmfTLPHQiUo22ZdUsXjgzPAURYaWt1Bw");
-  fd_update_feature(global, &global->features.warp_timestamp_with_a_vengeance, "3BX6SBeEBibHaVQXywdkcgyUk6evfYZkHdztXiDtEpFS");
-  fd_update_feature(global, &global->features.nonce_must_be_writable, "BiCU7M5w8ZCMykVSyhZ7Q3m2SWoR2qrEQ86ERcDX77ME");
-  fd_update_feature(global, &global->features.reject_empty_instruction_without_program, "9kdtFSrXHQg3hKkbXkQ6trJ3Ja1xpJ22CTFSNAciEwmL");
+  fd_update_feature(global, &global->features.add_set_compute_unit_price_ix, "98std1NSHqXi9WYvFShfVepRdCoq1qvsp8fsR2XZtG8g");
+  fd_update_feature(global, &global->features.add_set_tx_loaded_accounts_data_size_instruction, "G6vbf1UBok8MWb8m25ex86aoQHeKTzDKzuZADHkShqm6");
   fd_update_feature(global, &global->features.add_shred_type_to_shred_seed, "Ds87KVeqhbv7Jw8W6avsS1mqz3Mw5J3pRTpPoDQ2QdiJ");
-  fd_update_feature(global, &global->features.fixed_memcpy_nonoverlapping_check, "36PRUK2Dz6HWYdG9SpjeAsF5F3KxnFCakA2BZMbtMhSb");
-  fd_update_feature(global, &global->features.nonce_must_be_advanceable, "3u3Er5Vc2jVcwz4xr2GJeSAXT3fAj6ADHZ4BJMZiScFd");
-  fd_update_feature(global, &global->features.enable_durable_nonce, "4EJQtF2pkRyawwcTVfQutzq4Sa5hRhibF6QAK1QXhtEX");
-  fd_update_feature(global, &global->features.separate_nonce_from_blockhash, "Gea3ZkK2N4pHuVZVxWcnAtS6UEDdyumdYt4pFcKjA3ar");
-  fd_update_feature(global, &global->features.nonce_must_be_authorized, "HxrEu1gXuH7iD3Puua1ohd5n4iUKJyFNtNxk9DVJkvgr");
-  fd_update_feature(global, &global->features.update_syscall_base_costs, "2h63t332mGCCsWK2nqqqHhN4U9ayyqhLVFvczznHDoTZ");
-  fd_update_feature(global, &global->features.vote_withdraw_authority_may_change_authorized_voter, "AVZS3ZsN4gi6Rkx2QUibYuSJG3S6QHib7xCYhG6vGJxU");
+  fd_update_feature(global, &global->features.allow_votes_to_directly_update_vote_state, "Ff8b1fBeB86q8cjq47ZhsQLgv5EkHu3G1C99zjUfAzrq");
+  fd_update_feature(global, &global->features.apply_cost_tracker_during_replay, "2ry7ygxiYURULZCrypHhveanvP5tzZ4toRwVp89oCNSj");
+  fd_update_feature(global, &global->features.bank_transaction_count_fix, "Vo5siZ442SaZBKPXNocthiXysNviW4UYPwRFggmbgAp");
+  fd_update_feature(global, &global->features.blake3_syscall_enabled, "HTW2pSyErTj4BV6KBM9NZ9VBUJVxt7sacNWcf76wtzb3");
+  fd_update_feature(global, &global->features.bpf_account_data_direct_mapping, "9gwzizfABsKUereT6phZZxbTzuAnovkgwpVVpdcSxv9h");
+  fd_update_feature(global, &global->features.cap_accounts_data_allocations_per_transaction, "9gxu85LYRAcZL38We8MYJ4A9AwgBBPtVBAqebMcT1241");
+  fd_update_feature(global, &global->features.cap_accounts_data_len, "capRxUrBjNkkCpjrJxPGfPaWijB7q3JoDfsWXAnt46r");
+  fd_update_feature(global, &global->features.cap_accounts_data_size_per_block, "qywiJyZmqTKspFg2LeuUHqcA5nNvBgobqb9UprywS9N");
+  fd_update_feature(global, &global->features.cap_bpf_program_instruction_accounts, "9k5ijzTbYPtjzu8wj2ErH9v45xecHzQ1x4PMYMMxFgdM");
+  fd_update_feature(global, &global->features.cap_transaction_accounts_data_size, "DdLwVYuvDz26JohmgSbA7mjpJFgX5zP2dkp8qsF2C33V");
+  fd_update_feature(global, &global->features.check_init_vote_data, "3ccR6QpxGYsAbWyfevEtBNGfWV4xBffxRj2tD6A9i39F");
+  fd_update_feature(global, &global->features.check_physical_overlapping, "nWBqjr3gpETbiaVj3CBJ3HFC5TMdnJDGt21hnvSTvVZ");
+  fd_update_feature(global, &global->features.check_slice_translation_size, "GmC19j9qLn2RFk5NduX6QXaDhVpGncVVBzyM8e9WMz2F");
+  fd_update_feature(global, &global->features.check_syscall_outputs_do_not_overlap, "3uRVPBpyEJRo1emLCrq38eLRFGcu6uKSpUXqGvU8T7SZ");
+  fd_update_feature(global, &global->features.checked_arithmetic_in_fee_validation, "5Pecy6ie6XGm22pc9d4P9W5c31BugcFBuy6hsP2zkETv");
+  fd_update_feature(global, &global->features.clean_up_delegation_errors, "Bj2jmUsM2iRhfdLLDSTkhM5UQRQvQHm57HSmPibPtEyu");
+  fd_update_feature(global, &global->features.commission_updates_only_allowed_in_first_half_of_epoch, "noRuG2kzACwgaY7TVmLRnUNPLKNVQE1fb7X55YWBehp");
+  fd_update_feature(global, &global->features.compact_vote_state_updates, "86HpNqzutEZwLcPxS6EHDcMNYWk6ikhteg9un7Y2PBKE");
+  fd_update_feature(global, &global->features.credits_auto_rewind, "BUS12ciZ5gCoFafUHWW8qaFMMtwFQGVxjsDheWLdqBE2");
+  fd_update_feature(global, &global->features.curve25519_syscall_enabled, "7rcw5UtqgDTBBv2EcynNfYckgdAaH1MAsCjKgXMkN7Ri");
+  fd_update_feature(global, &global->features.dedupe_config_program_signers, "8kEuAshXLsgkUEdcFVLqrjCGGHVWFW99ZZpxvAzzMtBp");
+  fd_update_feature(global, &global->features.default_units_per_instruction, "J2QdYx8crLbTVK8nur1jeLsmc3krDbfjoxoea2V1Uy5Q");
+  fd_update_feature(global, &global->features.delay_visibility_of_program_deployment, "GmuBvtFb2aHfSfMXpuFeWZGHyDeCLPS79s48fmCWCfM5");
+  fd_update_feature(global, &global->features.demote_program_write_locks, "3E3jV7v9VcdJL8iYZUMax9DiDno8j7EWUVbhm9RtShj2");
+  fd_update_feature(global, &global->features.deprecate_rewards_sysvar, "GaBtBJvmS4Arjj5W1NmFcyvPjsHN38UGYDq2MDwbs9Qu");
   fd_update_feature(global, &global->features.disable_bpf_deprecated_load_instructions, "3XgNukcZWf9o3HdA3fpJbm94XFc4qpvTXc8h1wxYwiPi");
   fd_update_feature(global, &global->features.disable_bpf_unresolved_symbols_at_runtime, "4yuaYAj2jGMGTh1sSmi4G2eFscsDq8qjugJXZoBN6YEa");
-  fd_update_feature(global, &global->features.executables_incur_cpi_data_cost, "7GUcYgq4tVtaqNCKT3dho9r4665Qp5TxCZ27Qgjx3829");
-  fd_update_feature(global, &global->features.max_tx_account_locks, "CBkDroRDqm8HwHe6ak9cguPjUomrASEkfmxEaZ5CNNxz");
-  fd_update_feature(global, &global->features.quick_bail_on_panic, "DpJREPyuMZ5nDfU6H3WTqSqUFSXAfw8u7xqmWtEwJDcP");
-  fd_update_feature(global, &global->features.default_units_per_instruction, "J2QdYx8crLbTVK8nur1jeLsmc3krDbfjoxoea2V1Uy5Q");
-  fd_update_feature(global, &global->features.record_instruction_in_transaction_context_push, "3aJdcZqxoLpSBxgeYGjPwaYS1zzcByxUDqJkbzWAH1Zb");
-  fd_update_feature(global, &global->features.add_set_compute_unit_price_ix, "98std1NSHqXi9WYvFShfVepRdCoq1qvsp8fsR2XZtG8g");
-  fd_update_feature(global, &global->features.limit_secp256k1_recovery_id, "7g9EUwj4j7CS21Yx1wvgWLjSZeh5aPq8x9kpoPwXM8n8");
-  fd_update_feature(global, &global->features.check_physical_overlapping, "nWBqjr3gpETbiaVj3CBJ3HFC5TMdnJDGt21hnvSTvVZ");
-  fd_update_feature(global, &global->features.prevent_calling_precompiles_as_programs, "4ApgRX3ud6p7LNMJmsuaAcZY5HWctGPr5obAsjB3A54d");
-  fd_update_feature(global, &global->features.spl_associated_token_account_v1_1_0, "FaTa17gVKoqbh38HcfiQonPsAaQViyDCCSg71AubYZw8");
-  fd_update_feature(global, &global->features.spl_token_v3_4_0, "Ftok4njE8b7tDffYkC5bAbCaQv5sL6jispYrprzatUwN");
-  fd_update_feature(global, &global->features.disable_fee_calculator, "2jXx2yDmGysmBKfKYNgLj2DQyAQv6mMk2BPh4eSbyB4H");
-  fd_update_feature(global, &global->features.vote_authorize_with_seed, "6tRxEYKuy2L5nnv5bgn7iT28MxUbYxp5h7F3Ncf1exrT");
-  fd_update_feature(global, &global->features.syscall_saturated_math, "HyrbKftCdJ5CrUfEti6x26Cj7rZLNe32weugk7tLcWb8");
-  fd_update_feature(global, &global->features.merge_nonce_error_into_system_error, "21AWDosvp3pBamFW91KB35pNoaoZVTM7ess8nr2nt53B");
-  fd_update_feature(global, &global->features.instructions_sysvar_owned_by_sysvar, "H3kBSaKdeiUsyHmeHqjJYNc27jesXZ6zWj3zWkowQbkV");
-  fd_update_feature(global, &global->features.return_none_for_zero_lamport_accounts, "7K5HFrS1WAq6ND7RQbShXZXbtAookyTfaDQPTJNuZpze");
-  fd_update_feature(global, &global->features.require_static_program_ids_in_transaction, "8FdwgyHFEjhAdjWfV2vfqk7wA1g9X3fQpKH7SBpEv3kC");
-  fd_update_feature(global, &global->features.include_account_index_in_rent_error, "2R72wpcQ7qV7aTJWUumdn8u5wmmTyXbK7qzEy7YSAgyY");
-  fd_update_feature(global, &global->features.versioned_tx_message_enabled, "3KZZ6Ks1885aGBQ45fwRcPXVBCtzUvxhUTkwKMR41Tca");
-  fd_update_feature(global, &global->features.preserve_rent_epoch_for_rent_exempt_accounts, "HH3MUYReL2BvqqA3oEcAa7txju5GY6G4nxJ51zvsEjEZ");
-  fd_update_feature(global, &global->features.filter_votes_outside_slot_hashes, "3gtZPqvPpsbXZVCx6hceMfWxtsmrjMzmg8C7PLKSxS2d");
-  fd_update_feature(global, &global->features.prevent_crediting_accounts_that_end_rent_paying, "812kqX67odAp5NFwM8D2N24cku7WTm9CHUTFUXaDkWPn");
-  fd_update_feature(global, &global->features.disable_deprecated_loader, "GTUMCZ8LTNxVfxdrw7ZsDFTxXb7TutYkzJnFwinpE6dg");
-  fd_update_feature(global, &global->features.reject_vote_account_close_unless_zero_credit_epoch, "ALBk3EWdeAg2WAGf6GPDUf1nynyNqCdEVmgouG7rpuCj");
-  fd_update_feature(global, &global->features.bank_tranaction_count_fix, "Vo5siZ442SaZBKPXNocthiXysNviW4UYPwRFggmbgAp");
-  fd_update_feature(global, &global->features.check_syscall_outputs_do_not_overlap, "3uRVPBpyEJRo1emLCrq38eLRFGcu6uKSpUXqGvU8T7SZ");
-  fd_update_feature(global, &global->features.stake_deactivate_delinquent_instruction, "437r62HoAdUb63amq3D7ENnBLDhHT2xY8eFkLJYVKK4x");
-  fd_update_feature(global, &global->features.drop_redundant_turbine_path, "4Di3y24QFLt5QEUPZtbnjyfQKfm6ZMTfa6Dw1psfoMKU");
-  fd_update_feature(global, &global->features.add_get_minimum_delegation_instruction_to_stake_program, "St8k9dVXP97xT6faW24YmRSYConLbhsMJA4TJTBLmMT");
-  fd_update_feature(global, &global->features.stake_allow_zero_undelegated_amount, "sTKz343FM8mqtyGvYWvbLpTThw3ixRM4Xk8QvZ985mw");
-  fd_update_feature(global, &global->features.credits_auto_rewind, "BUS12ciZ5gCoFafUHWW8qaFMMtwFQGVxjsDheWLdqBE2");
-  fd_update_feature(global, &global->features.libsecp256k1_fail_on_bad_count2, "54KAoNiUERNoWWUhTWWwXgym94gzoXFVnHyQwPA18V9A");
-  fd_update_feature(global, &global->features.incremental_snapshot_only_incremental_hash_calculation, "25vqsfjk7Nv1prsQJmA4Xu1bN61s8LXCBGUPp8Rfy1UF");
-  fd_update_feature(global, &global->features.update_rewards_from_cached_accounts, "28s7i3htzhahXQKqmS2ExzbEoUypg9krwvtK2M9UWXh9");
-  fd_update_feature(global, &global->features.stake_redelegate_instruction, "3EPmAX94PvVJCjMeFfRFvj4avqCPL8vv3TGsZQg7ydMx");
-  fd_update_feature(global, &global->features.reject_callx_r10, "3NKRSwpySNwD3TvP5pHnRmkAQRsdkXWRr1WaQh8p4PWX");
   fd_update_feature(global, &global->features.disable_builtin_loader_ownership_chains, "4UDcAfQ6EcA6bdcadkeHpkarkhZGJ7Bpq7wTAiRMjkoi");
-  fd_update_feature(global, &global->features.fix_recent_blockhashes, "6iyggb5MTcsvdcugX7bEKbHV8c6jdLbpHwkncrgLMhfo");
-  fd_update_feature(global, &global->features.move_serialized_len_ptr_in_cpi, "74CoWuBmt3rUVUrCb2JiSTvh6nXyBWUsK4SaMj3CtE3T");
+  fd_update_feature(global, &global->features.disable_cpi_setting_executable_and_rent_epoch, "B9cdB55u4jQsDNsdTK525yE9dmSc5Ga7YBaBrDFvEhM9");
   fd_update_feature(global, &global->features.disable_deploy_of_alloc_free_syscall, "79HWsX9rpnnJBPcdNURVqygpMAfxdrAirzAGAVmf92im");
-  fd_update_feature(global, &global->features.enable_early_verification_of_account_modifications, "7Vced912WrRnfjaiKRiNBcbuFw7RrnLv3E3z95Y4GTNc");
-  fd_update_feature(global, &global->features.curve25519_syscall_enabled, "7rcw5UtqgDTBBv2EcynNfYckgdAaH1MAsCjKgXMkN7Ri");
-  fd_update_feature(global, &global->features.error_on_syscall_bpf_function_hash_collisions, "8199Q2gMD2kwgfopK5qqVWuDbegLgpuFUFHCcUJQDN8b");
-  fd_update_feature(global, &global->features.drop_merkle_shreds, "84zy5N23Q9vTZuLc9h1HWUtyM9yCFV2SCmyP9W9C3yHZ");
-  fd_update_feature(global, &global->features.compact_vote_state_updates, "86HpNqzutEZwLcPxS6EHDcMNYWk6ikhteg9un7Y2PBKE");
-  fd_update_feature(global, &global->features.enable_bpf_loader_extend_program_ix, "8Zs9W7D9MpSEtUWSQdGniZk2cNmV22y6FLJwCx53asme");
-  fd_update_feature(global, &global->features.libsecp256k1_fail_on_bad_count, "8aXvSuopd1PUj7UhehfXJRg6619RHp8ZvwTyyJHdUYsj");
-  fd_update_feature(global, &global->features.use_default_units_in_fee_calculation, "8sKQrMQoUHtQSUP83SPG4ta2JDjSAiWs7t5aJ9uEd6To");
-  fd_update_feature(global, &global->features.concurrent_replay_of_forks, "9F2Dcu8xkBPKxiiy65XKPZYdCG3VZDpjDTuSmeYLozJe");
-  fd_update_feature(global, &global->features.increase_tx_account_lock_limit, "9LZdXeKGeBV6hRLdxS1rHbHoEUsKqesCC2ZAPTPKJAbK");
-  fd_update_feature(global, &global->features.cap_bpf_program_instruction_accounts, "9k5ijzTbYPtjzu8wj2ErH9v45xecHzQ1x4PMYMMxFgdM");
-  fd_update_feature(global, &global->features.stake_raise_minimum_delegation_to_1_sol, "9onWzzvCzNC2jfhxxeqRgs5q7nFAAKpCUvkj6T6GJK9i");
-  fd_update_feature(global, &global->features.clean_up_delegation_errors, "Bj2jmUsM2iRhfdLLDSTkhM5UQRQvQHm57HSmPibPtEyu");
-  fd_update_feature(global, &global->features.on_load_preserve_rent_epoch_for_rent_exempt_accounts, "CpkdQmspsaZZ8FVAouQTtTWZkc8eeQ7V3uj7dWz543rZ");
-  fd_update_feature(global, &global->features.vote_state_update_credit_per_dequeue, "CveezY6FDLVBToHDcvJRmtMouqzsmj4UXYh5ths5G5Uv");
-  fd_update_feature(global, &global->features.enable_turbine_fanout_experiments, "D31EFnLgdiysi84Woo3of4JMu7VmasUS3Z7j9HYXCeLY");
-  fd_update_feature(global, &global->features.full_inflation_devnet_and_testnet, "DT4n6ABDqs6w4bnfwrXT9rsprcPf6cdDga1egctaPkLC");
-  fd_update_feature(global, &global->features.disable_rehash_for_rent_epoch, "DTVTkmw3JSofd8CJVJte8PXEbxNQ2yZijvVr3pe2APPj");
-  fd_update_feature(global, &global->features.stake_minimum_delegation_for_rewards, "ELjxSXwNsyXGfAh8TqX8ih22xeT8huF6UngQirbLKYKH");
-  fd_update_feature(global, &global->features.stake_split_uses_rent_sysvar, "FQnc7U4koHqWgRvFaBJjZnV8VPg6L6wWK33yJeDp4yvV");
-  fd_update_feature(global, &global->features.allow_votes_to_directly_update_vote_state, "Ff8b1fBeB86q8cjq47ZhsQLgv5EkHu3G1C99zjUfAzrq");
-  fd_update_feature(global, &global->features.vote_state_update_root_fix, "G74BkWBzmsByZ1kxHy44H3wjwp5hp7JbrGRuDpco22tY");
-  fd_update_feature(global, &global->features.loosen_cpi_size_restriction, "GDH5TVdbTPUpRnXaRyQqiKUa7uZAbZ28Q2N9bhbKoMLm");
-  fd_update_feature(global, &global->features.check_slice_translation_size, "GmC19j9qLn2RFk5NduX6QXaDhVpGncVVBzyM8e9WMz2F");
-  fd_update_feature(global, &global->features.disable_turbine_fanout_experiments, "Gz1aLrbeQ4Q6PTSafCZcGWZXz91yVRi7ASFzFEr1U4sa");
-  fd_update_feature(global, &global->features.blake3_syscall_enabled, "HTW2pSyErTj4BV6KBM9NZ9VBUJVxt7sacNWcf76wtzb3");
-  fd_update_feature(global, &global->features.enable_request_heap_frame_ix, "Hr1nUA9b7NJ6eChS26o7Vi8gYYDDwWD3YeBfzJkTbU86");
-  fd_update_feature(global, &global->features.keep_merkle_shreds, "HyNQzc7TMNmRhpVHXqDGjpsHzeQie82mDQXSF9hj7nAH");
+  fd_update_feature(global, &global->features.disable_deprecated_loader, "GTUMCZ8LTNxVfxdrw7ZsDFTxXb7TutYkzJnFwinpE6dg");
+  fd_update_feature(global, &global->features.disable_fee_calculator, "2jXx2yDmGysmBKfKYNgLj2DQyAQv6mMk2BPh4eSbyB4H");
   fd_update_feature(global, &global->features.disable_fees_sysvar, "JAN1trEUEtZjgXYzNBYHU9DYd7GnThhXfFP7SzPXkPsG");
-  fd_update_feature(global, &global->features.cap_accounts_data_len, "capRxUrBjNkkCpjrJxPGfPaWijB7q3JoDfsWXAnt46r");
-  fd_update_feature(global, &global->features.commission_updates_only_allowed_in_first_half_of_epoch, "noRuG2kzACwgaY7TVmLRnUNPLKNVQE1fb7X55YWBehp");
-  fd_update_feature(global, &global->features.cap_accounts_data_size_per_block, "qywiJyZmqTKspFg2LeuUHqcA5nNvBgobqb9UprywS9N");
+  fd_update_feature(global, &global->features.disable_rehash_for_rent_epoch, "DTVTkmw3JSofd8CJVJte8PXEbxNQ2yZijvVr3pe2APPj");
+  fd_update_feature(global, &global->features.disable_turbine_fanout_experiments, "Gz1aLrbeQ4Q6PTSafCZcGWZXz91yVRi7ASFzFEr1U4sa");
+  fd_update_feature(global, &global->features.do_support_realloc, "75m6ysz33AfLA5DDEzWM1obBrnPQRSsdVQ2nRmc8Vuu1");
+  fd_update_feature(global, &global->features.drop_merkle_shreds, "84zy5N23Q9vTZuLc9h1HWUtyM9yCFV2SCmyP9W9C3yHZ");
+  fd_update_feature(global, &global->features.drop_redundant_turbine_path, "4Di3y24QFLt5QEUPZtbnjyfQKfm6ZMTfa6Dw1psfoMKU");
+  fd_update_feature(global, &global->features.ed25519_program_enabled, "6ppMXNYLhVd7GcsZ5uV11wQEW7spppiMVfqQv5SXhDpX");
+  fd_update_feature(global, &global->features.enable_alt_bn128_syscall, "A16q37opZdQMCbe5qJ6xpBB9usykfv8jZaMkxvZQi4GJ");
+  fd_update_feature(global, &global->features.enable_big_mod_exp_syscall, "EBq48m8irRKuE7ZnMTLvLg2UuGSqhe8s8oMqnmja1fJw");
+  fd_update_feature(global, &global->features.enable_bpf_loader_extend_program_ix, "8Zs9W7D9MpSEtUWSQdGniZk2cNmV22y6FLJwCx53asme");
+  fd_update_feature(global, &global->features.enable_bpf_loader_set_authority_checked_ix, "5x3825XS7M2A3Ekbn5VGGkvFoAg5qrRWkTrY4bARP1GL");
+  fd_update_feature(global, &global->features.enable_durable_nonce, "4EJQtF2pkRyawwcTVfQutzq4Sa5hRhibF6QAK1QXhtEX");
+  fd_update_feature(global, &global->features.enable_early_verification_of_account_modifications, "7Vced912WrRnfjaiKRiNBcbuFw7RrnLv3E3z95Y4GTNc");
+  fd_update_feature(global, &global->features.enable_partitioned_epoch_reward, "HCnE3xQoZtDz9dSVm3jKwJXioTb6zMRbgwCmGg3PHHk8");
+  fd_update_feature(global, &global->features.enable_program_redeployment_cooldown, "J4HFT8usBxpcF63y46t1upYobJgChmKyZPm5uTBRg25Z");
+  fd_update_feature(global, &global->features.enable_request_heap_frame_ix, "Hr1nUA9b7NJ6eChS26o7Vi8gYYDDwWD3YeBfzJkTbU86");
+  fd_update_feature(global, &global->features.enable_turbine_fanout_experiments, "D31EFnLgdiysi84Woo3of4JMu7VmasUS3Z7j9HYXCeLY");
+  fd_update_feature(global, &global->features.epoch_accounts_hash, "5GpmAKxaGsWWbPp4bNXFLJxZVvG92ctxf7jQnzTQjF3n");
+  fd_update_feature(global, &global->features.error_on_syscall_bpf_function_hash_collisions, "8199Q2gMD2kwgfopK5qqVWuDbegLgpuFUFHCcUJQDN8b");
+  fd_update_feature(global, &global->features.evict_invalid_stakes_cache_entries, "EMX9Q7TVFAmQ9V1CggAkhMzhXSg8ECp7fHrWQX2G1chf");
+  fd_update_feature(global, &global->features.executables_incur_cpi_data_cost, "7GUcYgq4tVtaqNCKT3dho9r4665Qp5TxCZ27Qgjx3829");
+  fd_update_feature(global, &global->features.filter_stake_delegation_accounts, "GE7fRxmW46K6EmCD9AMZSbnaJ2e3LfqCZzdHi9hmYAgi");
+  fd_update_feature(global, &global->features.filter_votes_outside_slot_hashes, "3gtZPqvPpsbXZVCx6hceMfWxtsmrjMzmg8C7PLKSxS2d");
+  fd_update_feature(global, &global->features.fix_recent_blockhashes, "6iyggb5MTcsvdcugX7bEKbHV8c6jdLbpHwkncrgLMhfo");
+  fd_update_feature(global, &global->features.fixed_memcpy_nonoverlapping_check, "36PRUK2Dz6HWYdG9SpjeAsF5F3KxnFCakA2BZMbtMhSb");
+  fd_update_feature(global, &global->features.full_inflation_devnet_and_testnet, "DT4n6ABDqs6w4bnfwrXT9rsprcPf6cdDga1egctaPkLC");
+  fd_update_feature(global, &global->features.full_inflation_mainnet_certusone_vote, "BzBBveUDymEYoYzcMWNQCx3cd4jQs7puaVFHLtsbB6fm");
+  fd_update_feature(global, &global->features.full_inflation_mainnet_certusoneenable, "7XRJcS5Ud5vxGB54JbK9N2vBZVwnwdBNeJW1ibRgD9gx");
+  fd_update_feature(global, &global->features.include_account_index_in_rent_error, "2R72wpcQ7qV7aTJWUumdn8u5wmmTyXbK7qzEy7YSAgyY");
+  fd_update_feature(global, &global->features.include_loaded_accounts_data_size_in_fee_calculation, "EaQpmC6GtRssaZ3PCUM5YksGqUdMLeZ46BQXYtHYakDS");
+  fd_update_feature(global, &global->features.increase_tx_account_lock_limit, "9LZdXeKGeBV6hRLdxS1rHbHoEUsKqesCC2ZAPTPKJAbK");
+  fd_update_feature(global, &global->features.incremental_snapshot_only_incremental_hash_calculation, "25vqsfjk7Nv1prsQJmA4Xu1bN61s8LXCBGUPp8Rfy1UF");
+  fd_update_feature(global, &global->features.instructions_sysvar_owned_by_sysvar, "H3kBSaKdeiUsyHmeHqjJYNc27jesXZ6zWj3zWkowQbkV");
+  fd_update_feature(global, &global->features.keep_merkle_shreds, "HyNQzc7TMNmRhpVHXqDGjpsHzeQie82mDQXSF9hj7nAH");
+  fd_update_feature(global, &global->features.last_restart_slot_sysvar, "HooKD5NC9QNxk25QuzCssB8ecrEzGt6eXEPBUxWp1LaR");
+  fd_update_feature(global, &global->features.leave_nonce_on_success, "E8MkiWZNNPGU6n55jkGzyj8ghUmjCHRmDFdYYFYHxWhQ");
+  fd_update_feature(global, &global->features.libsecp256k1_0_5_upgrade_enabled, "DhsYfRjxfnh2g7HKJYSzT79r74Afa1wbHkAgHndrA1oy");
+  fd_update_feature(global, &global->features.libsecp256k1_fail_on_bad_count, "8aXvSuopd1PUj7UhehfXJRg6619RHp8ZvwTyyJHdUYsj");
+  fd_update_feature(global, &global->features.libsecp256k1_fail_on_bad_count2, "54KAoNiUERNoWWUhTWWwXgym94gzoXFVnHyQwPA18V9A");
+  fd_update_feature(global, &global->features.limit_max_instruction_trace_length, "GQALDaC48fEhZGWRj9iL5Q889emJKcj3aCvHF7VCbbF4");
+  fd_update_feature(global, &global->features.limit_secp256k1_recovery_id, "7g9EUwj4j7CS21Yx1wvgWLjSZeh5aPq8x9kpoPwXM8n8");
+  fd_update_feature(global, &global->features.loosen_cpi_size_restriction, "GDH5TVdbTPUpRnXaRyQqiKUa7uZAbZ28Q2N9bhbKoMLm");
+  fd_update_feature(global, &global->features.max_tx_account_locks, "CBkDroRDqm8HwHe6ak9cguPjUomrASEkfmxEaZ5CNNxz");
+  fd_update_feature(global, &global->features.merge_nonce_error_into_system_error, "21AWDosvp3pBamFW91KB35pNoaoZVTM7ess8nr2nt53B");
+  fd_update_feature(global, &global->features.move_serialized_len_ptr_in_cpi, "74CoWuBmt3rUVUrCb2JiSTvh6nXyBWUsK4SaMj3CtE3T");
+  fd_update_feature(global, &global->features.native_programs_consume_cu, "8pgXCMNXC8qyEFypuwpXyRxLXZdpM4Qo72gJ6k87A6wL");
+  fd_update_feature(global, &global->features.no_overflow_rent_distribution, "4kpdyrcj5jS47CZb2oJGfVxjYbsMm2Kx97gFyZrxxwXz");
+  fd_update_feature(global, &global->features.nonce_must_be_advanceable, "3u3Er5Vc2jVcwz4xr2GJeSAXT3fAj6ADHZ4BJMZiScFd");
+  fd_update_feature(global, &global->features.nonce_must_be_authorized, "HxrEu1gXuH7iD3Puua1ohd5n4iUKJyFNtNxk9DVJkvgr");
+  fd_update_feature(global, &global->features.nonce_must_be_writable, "BiCU7M5w8ZCMykVSyhZ7Q3m2SWoR2qrEQ86ERcDX77ME");
+  fd_update_feature(global, &global->features.on_load_preserve_rent_epoch_for_rent_exempt_accounts, "CpkdQmspsaZZ8FVAouQTtTWZkc8eeQ7V3uj7dWz543rZ");
+  fd_update_feature(global, &global->features.optimize_epoch_boundary_updates, "265hPS8k8xJ37ot82KEgjRunsUp5w4n4Q4VwwiN9i9ps");
+  fd_update_feature(global, &global->features.pico_inflation, "4RWNif6C2WCNiKVW7otP4G7dkmkHGyKQWRpuZ1pxKU5m");
+  fd_update_feature(global, &global->features.preserve_rent_epoch_for_rent_exempt_accounts, "HH3MUYReL2BvqqA3oEcAa7txju5GY6G4nxJ51zvsEjEZ");
+  fd_update_feature(global, &global->features.prevent_calling_precompiles_as_programs, "4ApgRX3ud6p7LNMJmsuaAcZY5HWctGPr5obAsjB3A54d");
+  fd_update_feature(global, &global->features.prevent_crediting_accounts_that_end_rent_paying, "812kqX67odAp5NFwM8D2N24cku7WTm9CHUTFUXaDkWPn");
+  fd_update_feature(global, &global->features.prevent_rent_paying_rent_recipients, "Fab5oP3DmsLYCiQZXdjyqT3ukFFPrsmqhXU4WU1AWVVF");
+  fd_update_feature(global, &global->features.quick_bail_on_panic, "DpJREPyuMZ5nDfU6H3WTqSqUFSXAfw8u7xqmWtEwJDcP");
+  fd_update_feature(global, &global->features.record_instruction_in_transaction_context_push, "3aJdcZqxoLpSBxgeYGjPwaYS1zzcByxUDqJkbzWAH1Zb");
+  fd_update_feature(global, &global->features.reduce_required_deploy_balance, "EBeznQDjcPG8491sFsKZYBi5S5jTVXMpAKNDJMQPS2kq");
+  fd_update_feature(global, &global->features.reject_callx_r10, "3NKRSwpySNwD3TvP5pHnRmkAQRsdkXWRr1WaQh8p4PWX");
+  fd_update_feature(global, &global->features.reject_empty_instruction_without_program, "9kdtFSrXHQg3hKkbXkQ6trJ3Ja1xpJ22CTFSNAciEwmL");
+  fd_update_feature(global, &global->features.reject_non_rent_exempt_vote_withdraws, "7txXZZD6Um59YoLMF7XUNimbMjsqsWhc7g2EniiTrmp1");
+  fd_update_feature(global, &global->features.reject_vote_account_close_unless_zero_credit_epoch, "ALBk3EWdeAg2WAGf6GPDUf1nynyNqCdEVmgouG7rpuCj");
+  fd_update_feature(global, &global->features.relax_authority_signer_check_for_lookup_table_creation, "FKAcEvNgSY79RpqsPNUV5gDyumopH4cEHqUxyfm8b8Ap");
+  fd_update_feature(global, &global->features.remove_bpf_loader_incorrect_program_id, "2HmTkCj9tXuPE4ueHzdD7jPeMf9JGCoZh5AsyoATiWEe");
+  fd_update_feature(global, &global->features.remove_congestion_multiplier_from_fee_calculation, "A8xyMHZovGXFkorFqEmVH2PKGLiBip5JD7jt4zsUWo4H");
+  fd_update_feature(global, &global->features.remove_deprecated_request_unit_ix, "EfhYd3SafzGT472tYQDUc4dPd2xdEfKs5fwkowUgVt4W");
+  fd_update_feature(global, &global->features.remove_native_loader, "HTTgmruMYRZEntyL3EdCDdnS6e4D5wRq1FA7kQsb66qq");
+  fd_update_feature(global, &global->features.rent_for_sysvars, "BKCPBQQBZqggVnFso5nQ8rQ4RwwogYwjuUt9biBjxwNF");
+  fd_update_feature(global, &global->features.requestable_heap_size, "CCu4boMmfLuqcmfTLPHQiUo22ZdUsXjgzPAURYaWt1Bw");
+  fd_update_feature(global, &global->features.require_custodian_for_locked_stake_authorize, "D4jsDcXaqdW8tDAWn8H4R25Cdns2YwLneujSL1zvjW6R");
+  fd_update_feature(global, &global->features.require_rent_exempt_accounts, "BkFDxiJQWZXGTZaJQxH7wVEHkAmwCgSEVkrvswFfRJPD");
+  fd_update_feature(global, &global->features.require_static_program_ids_in_transaction, "8FdwgyHFEjhAdjWfV2vfqk7wA1g9X3fQpKH7SBpEv3kC");
+  fd_update_feature(global, &global->features.return_data_syscall_enabled, "DwScAzPUjuv65TMbDnFY7AgwmotzWy3xpEJMXM3hZFaB");
+  fd_update_feature(global, &global->features.round_up_heap_size, "CE2et8pqgyQMP2mQRg3CgvX8nJBKUArMu3wfiQiQKY1y");
+  fd_update_feature(global, &global->features.secp256k1_program_enabled, "E3PHP7w8kB7np3CTQ1qQ2tW3KCtjRSXBQgW9vM2mWv2Y");
+  fd_update_feature(global, &global->features.secp256k1_recover_syscall_enabled, "6RvdSWHh8oh72Dp7wMTS2DBkf3fRPtChfNrAo3cZZoXJ");
+  fd_update_feature(global, &global->features.send_to_tpu_vote_port, "C5fh68nJ7uyKAuYZg2x9sEQ5YrVf3dkW6oojNBSc3Jvo");
+  fd_update_feature(global, &global->features.separate_nonce_from_blockhash, "Gea3ZkK2N4pHuVZVxWcnAtS6UEDdyumdYt4pFcKjA3ar");
+  fd_update_feature(global, &global->features.set_exempt_rent_epoch_max, "5wAGiy15X1Jb2hkHnPDCM8oB9V42VNA9ftNVFK84dEgv");
+  fd_update_feature(global, &global->features.simplify_writable_program_account_check, "5ZCcFAzJ1zsFKe1KSZa9K92jhx7gkcKj97ci2DBo1vwj");
+  fd_update_feature(global, &global->features.skip_rent_rewrites, "CGB2jM8pwZkeeiXQ66kBMyBR6Np61mggL7XUsmLjVcrw");
+  fd_update_feature(global, &global->features.sol_log_data_syscall_enabled, "6uaHcKPGUy4J7emLBgUTeufhJdiwhngW6a1R9B7c2ob9");
+  fd_update_feature(global, &global->features.spl_associated_token_account_v1_0_4, "FaTa4SpiaSNH44PGC4z8bnGVTkSRYaWvrBs3KTu8XQQq");
+  fd_update_feature(global, &global->features.spl_associated_token_account_v1_1_0, "FaTa17gVKoqbh38HcfiQonPsAaQViyDCCSg71AubYZw8");
+  fd_update_feature(global, &global->features.spl_token_v2_multisig_fix, "E5JiFDQCwyC6QfT9REFyMpfK2mHcmv1GUDySU1Ue7TYv");
+  fd_update_feature(global, &global->features.spl_token_v2_self_transfer_fix, "BL99GYhdjjcv6ys22C9wPgn2aTVERDbPHHo4NbS3hgp7");
+  fd_update_feature(global, &global->features.spl_token_v2_set_authority_fix, "FToKNBYyiF4ky9s8WsmLBXHCht17Ek7RXaLZGHzzQhJ1");
+  fd_update_feature(global, &global->features.spl_token_v3_3_0_release, "Ftok2jhqAqxUWEiCVRrfRs9DPppWP8cgTB7NQNKL88mS");
+  fd_update_feature(global, &global->features.spl_token_v3_4_0, "Ftok4njE8b7tDffYkC5bAbCaQv5sL6jispYrprzatUwN");
+  fd_update_feature(global, &global->features.stake_allow_zero_undelegated_amount, "sTKz343FM8mqtyGvYWvbLpTThw3ixRM4Xk8QvZ985mw");
+  fd_update_feature(global, &global->features.stake_deactivate_delinquent_instruction, "437r62HoAdUb63amq3D7ENnBLDhHT2xY8eFkLJYVKK4x");
+  fd_update_feature(global, &global->features.stake_merge_with_unmatched_credits_observed, "meRgp4ArRPhD3KtCY9c5yAf2med7mBLsjKTPeVUHqBL");
+  fd_update_feature(global, &global->features.stake_minimum_delegation_for_rewards, "ELjxSXwNsyXGfAh8TqX8ih22xeT8huF6UngQirbLKYKH");
+  fd_update_feature(global, &global->features.stake_program_advance_activating_credits_observed, "SAdVFw3RZvzbo6DvySbSdBnHN4gkzSTH9dSxesyKKPj");
+  fd_update_feature(global, &global->features.stake_raise_minimum_delegation_to_1_sol, "GQXzC7YiSNkje6FFUk6sc2p53XRvKoaZ9VMktYzUMnpL");
+  fd_update_feature(global, &global->features.stake_redelegate_instruction, "3EPmAX94PvVJCjMeFfRFvj4avqCPL8vv3TGsZQg7ydMx");
+  fd_update_feature(global, &global->features.stake_split_uses_rent_sysvar, "FQnc7U4koHqWgRvFaBJjZnV8VPg6L6wWK33yJeDp4yvV");
+  fd_update_feature(global, &global->features.stakes_remove_delegation_if_inactive, "HFpdDDNQjvcXnXKec697HDDsyk6tFoWS2o8fkxuhQZpL");
+  fd_update_feature(global, &global->features.stop_sibling_instruction_search_at_parent, "EYVpEP7uzH1CoXzbD6PubGhYmnxRXPeq3PPsm1ba3gpo");
+  fd_update_feature(global, &global->features.stop_truncating_strings_in_syscalls, "16FMCmgLzCNNz6eTwGanbyN2ZxvTBSLuQ6DZhgeMshg");
+  fd_update_feature(global, &global->features.switch_to_new_elf_parser, "Cdkc8PPTeTNUPoZEfCY5AyetUrEdkZtNPMgz58nqyaHD");
+  fd_update_feature(global, &global->features.syscall_saturated_math, "HyrbKftCdJ5CrUfEti6x26Cj7rZLNe32weugk7tLcWb8");
+  fd_update_feature(global, &global->features.system_transfer_zero_check, "BrTR9hzw4WBGFP65AJMbpAo64DcA3U6jdPSga9fMV5cS");
+  fd_update_feature(global, &global->features.tx_wide_compute_cap, "5ekBxc8itEnPv4NzGJtr8BVVQLNMQuLMNQQj7pHoLNZ9");
+  fd_update_feature(global, &global->features.update_hashes_per_tick, "3uFHb9oKdGfgZGJK9EHaAXN4USvnQtAFC13Fh5gGFS5B");
+  fd_update_feature(global, &global->features.update_rewards_from_cached_accounts, "28s7i3htzhahXQKqmS2ExzbEoUypg9krwvtK2M9UWXh9");
+  fd_update_feature(global, &global->features.update_syscall_base_costs, "2h63t332mGCCsWK2nqqqHhN4U9ayyqhLVFvczznHDoTZ");
+  fd_update_feature(global, &global->features.use_default_units_in_fee_calculation, "8sKQrMQoUHtQSUP83SPG4ta2JDjSAiWs7t5aJ9uEd6To");
+  fd_update_feature(global, &global->features.verify_tx_signatures_len, "EVW9B5xD9FFK7vw1SBARwMA4s5eRo5eKJdKpsBikzKBz");
+  fd_update_feature(global, &global->features.versioned_tx_message_enabled, "3KZZ6Ks1885aGBQ45fwRcPXVBCtzUvxhUTkwKMR41Tca");
+  fd_update_feature(global, &global->features.vote_authorize_with_seed, "6tRxEYKuy2L5nnv5bgn7iT28MxUbYxp5h7F3Ncf1exrT");
+  fd_update_feature(global, &global->features.vote_stake_checked_instructions, "BcWknVcgvonN8sL4HE4XFuEVgfcee5MwxWPAgP6ZV89X");
+  fd_update_feature(global, &global->features.vote_state_add_vote_latency, "7axKe5BTYBDD87ftzWbk5DfzWMGyRvqmWTduuo22Yaqy");
+  fd_update_feature(global, &global->features.vote_state_update_credit_per_dequeue, "CveezY6FDLVBToHDcvJRmtMouqzsmj4UXYh5ths5G5Uv");
+  fd_update_feature(global, &global->features.vote_state_update_root_fix, "G74BkWBzmsByZ1kxHy44H3wjwp5hp7JbrGRuDpco22tY");
+  fd_update_feature(global, &global->features.vote_withdraw_authority_may_change_authorized_voter, "AVZS3ZsN4gi6Rkx2QUibYuSJG3S6QHib7xCYhG6vGJxU");
+  fd_update_feature(global, &global->features.warp_timestamp_again, "GvDsGDkH5gyzwpDhxNixx8vtx1kwYHH13RiNAPw27zXb");
+  fd_update_feature(global, &global->features.warp_timestamp_with_a_vengeance, "3BX6SBeEBibHaVQXywdkcgyUk6evfYZkHdztXiDtEpFS");
   fd_update_feature(global, &global->features.zk_token_sdk_enabled, "zk1snxsc6Fh3wsGNbbHAJNHiJoYgF29mMnTSusGx5EJ");
 }
