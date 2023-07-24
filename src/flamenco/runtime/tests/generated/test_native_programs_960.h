@@ -12,7 +12,7 @@ int test_960(fd_executor_test_suite_t *suite) {
   fd_memset( test_accs, 0, FD_EXECUTOR_TEST_ACC_FOOTPRINT * test_accs_len );
 
 
-  uchar disabled_features[] = { 103,105,106,108,109,110,111,112,113,114,116,117,118,120,121,122,123,124,125,126,127,128,15,2,24,26,27,29,30,33,55,56,61,62,75,76,77,78,79,80,82,83,87,89,90,92,98 };
+  uchar disabled_features[] = { 10,13,130,131,133,135,136,137,14,146,148,15,154,155,159,19,2,22,23,24,25,26,34,36,39,40,41,43,44,48,51,54,55,57,62,64,69,7,70,72,76,77,80,83,89,99 };
   test.disable_feature = disabled_features;
             
   fd_executor_test_acc_t* test_acc = test_accs;
