@@ -178,7 +178,7 @@ check_debian_pkgs () {
 }
 
 check_alpine_pkgs () {
-  local REQUIRED_APKS=( perl autoconf gettext automake flex bison build-base )
+  local REQUIRED_APKS=( perl autoconf gettext automake flex bison build-base linux-headers )
 
   echo "[~] Checking for required APK packages"
 

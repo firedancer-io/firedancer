@@ -143,6 +143,10 @@ fd_frank_quic_task( int     argc,
   if( FD_UNLIKELY( !idle_timeout_ms ) ) FD_LOG_ERR(( "firedancer.quic_cfg.idle_timeout_ms not set" ));
   quic_cfg->idle_timeout = idle_timeout_ms * 1000000UL;
 
+  ulong initial_rx_max_stream_data = fd_pod_query_ulong( quic_cfg_pod, "initial_rx_max_stream_data", 1<<15 );
+  if( FD_UNLIKELY( !initial_rx_max_stream_data ) ) FD_LOG_ERR(( "firedancer.quic_cfg.initial_rx_max_stream_data not set" ));
+  quic_cfg->initial_rx_max_stream_data = initial_rx_max_stream_data;
+
   /* Attach to XSK */
 
   fd_xsk_aio_set_rx     ( xsk_aio, fd_quic_get_aio_net_rx( quic    ) );
