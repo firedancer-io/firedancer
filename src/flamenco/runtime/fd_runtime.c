@@ -144,6 +144,8 @@ int
 fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_meta_t* m, const void* block, ulong blocklen ) {
   (void)m;
 
+  FD_TEST( 0==fd_solcap_write_set_slot( global->capture, m->slot ) );
+
   /* Get current leader */
   ulong slot_rel;
   fd_slot_to_epoch( &global->bank.epoch_schedule, m->slot, &slot_rel );
@@ -209,6 +211,8 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_meta_t* m, const void
   if (result != FD_EXECUTOR_INSTR_SUCCESS) {
     return result;
   }
+
+  fd_solcap_write_bank_hash( global->capture, global->bank.banks_hash.hash );
 
   return fd_runtime_save_banks( global );
 }
@@ -806,16 +810,16 @@ fd_runtime_collect_rent_range( fd_global_ctx_t * global,
     /* Actually invoke rent collection */
     fd_account_meta_t * meta_rw = (fd_account_meta_t *)acc_rw;
     FD_LOG_DEBUG(( "Collecting rent from %016lx %32J", prefixX, key->key ));
-    int changed = fd_runtime_collect_rent_account( global, meta_rw, key, epoch );
+    /*int changed = */fd_runtime_collect_rent_account( global, meta_rw, key, epoch );
 
     /* Update hash */
-    if( changed ) {
-      err = fd_acc_mgr_commit_data( acc_mgr, rec, key, meta_rw, global->bank.slot, /* uncache */ 0 );
-      if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
-        FD_LOG_WARNING(( "fd_runtime_collect_rent_range: fd_acc_mgr_commit_data failed (%d)", err ));
-        return err;
-      }
-    }
+    //if( changed ) {
+    //  err = fd_acc_mgr_commit_data( acc_mgr, rec, key, meta_rw, global->bank.slot, /* uncache */ 0 );
+    //  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+    //    FD_LOG_WARNING(( "fd_runtime_collect_rent_range: fd_acc_mgr_commit_data failed (%d)", err ));
+    //    return err;
+    //  }
+    //}
   }
 
   return FD_ACC_MGR_SUCCESS;

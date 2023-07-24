@@ -1,5 +1,7 @@
 #!/bin/bash -f
 
+set -e
+
 # this assumes the test_runtime has already been built
 
 LEDGER="test-ledger-4"

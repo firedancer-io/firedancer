@@ -203,6 +203,12 @@ fd_hash_bank( fd_global_ctx_t *global, fd_hash_t * hash, fd_pubkey_hash_vector_t
 
   fd_sha256_fini( &sha, hash->hash );
 
+  fd_solcap_write_bank_preimage(
+      global->capture,
+      global->prev_banks_hash.hash,
+      global->account_delta_hash.hash,
+      &global->bank.poh.hash );
+
   if (global->log_level > 0) {
     char encoded_hash[50];
     fd_base58_encode_32((uchar *) hash->hash, 0, encoded_hash);
@@ -227,10 +233,11 @@ fd_update_hash_bank( fd_global_ctx_t * global,
                      fd_hash_t *       hash,
                      ulong             signature_cnt ) {
 
-  fd_funk_t *     funk    = global->funk;
-  fd_acc_mgr_t *  acc_mgr = global->acc_mgr;
-  fd_funk_txn_t * txn     = global->funk_txn;
-  ulong           slot    = global->bank.slot;
+  fd_funk_t *          funk    = global->funk;
+  fd_acc_mgr_t *       acc_mgr = global->acc_mgr;
+  fd_funk_txn_t *      txn     = global->funk_txn;
+  ulong                slot    = global->bank.slot;
+  fd_solcap_writer_t * capture = global->capture;
 
   /* Collect list of changed accounts to be added to bank hash */
 
@@ -314,6 +321,20 @@ fd_update_hash_bank( fd_global_ctx_t * global,
     memcpy( dirty_entry.pubkey.key, acc_key,       sizeof(fd_pubkey_t) );
     memcpy( dirty_entry.hash.hash,  acc_hash.hash, sizeof(fd_hash_t  ) );
     fd_pubkey_hash_vector_push( &dirty_keys, dirty_entry );
+
+    /* Add to capture */
+
+    fd_solcap_account_t capture_acc = {
+      .lamports   = acc_meta_w->info.lamports,
+      .slot       = slot,
+      .rent_epoch = acc_meta_w->info.rent_epoch,
+      .executable = acc_meta_w->info.executable,
+    };
+    memcpy( capture_acc.key,   acc_key,                sizeof(fd_pubkey_t) );
+    memcpy( capture_acc.owner, acc_meta_w->info.owner, sizeof(fd_pubkey_t) );
+    memcpy( capture_acc.hash,  acc_hash.hash,          sizeof(fd_hash_t  ) );
+    err = fd_solcap_write_account( capture, &capture_acc, acc_data, acc_meta_w->dlen );
+    FD_TEST( err==0 );
   }
 
   /* Sort and hash "dirty keys" to the accounts delta hash. */
@@ -334,7 +355,12 @@ fd_update_hash_bank( fd_global_ctx_t * global,
         This computes the account hash. */
 
 void
-fd_hash_meta( fd_account_meta_t const * m, ulong slot, fd_pubkey_t const * pubkey, uchar const *data, fd_hash_t * hash ) {
+fd_hash_meta( fd_account_meta_t const * m,
+              ulong                     slot,
+              fd_pubkey_t const *       pubkey,
+              uchar const *             data,
+              fd_hash_t *               hash ) {
+
   if( m->info.lamports==0 ) {
     fd_memset(hash->hash, 0, sizeof(fd_hash_t));
     return;
@@ -342,10 +368,10 @@ fd_hash_meta( fd_account_meta_t const * m, ulong slot, fd_pubkey_t const * pubke
 
   fd_blake3_t sha;
   fd_blake3_init( &sha );
-  fd_blake3_append( &sha, (uchar const *) &m->info.lamports, sizeof( ulong ) );
-  fd_blake3_append( &sha, (uchar const *) &slot, sizeof( ulong ) );
-  fd_blake3_append( &sha, (uchar const *) &m->info.rent_epoch, sizeof( ulong ) );
-  fd_blake3_append( &sha, (uchar const *) data, m->dlen );
+  fd_blake3_append( &sha, &m->info.lamports, sizeof( ulong ) );
+  fd_blake3_append( &sha, &slot, sizeof( ulong ) );
+  fd_blake3_append( &sha, &m->info.rent_epoch, sizeof( ulong ) );
+  fd_blake3_append( &sha, data, m->dlen );
 
   uchar executable = m->info.executable & 0x1;
   fd_blake3_append( &sha, (uchar const *) &executable, sizeof( uchar ));

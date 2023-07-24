@@ -29,6 +29,7 @@ build/linux/gcc/x86_64/unit-test/test_runtime --wksp giant_wksp --gaddr 0xc7ce18
 ****/
 
 #include "../fd_flamenco.h"
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -73,20 +74,24 @@ struct global_state {
   char const *        net;
   char const *        reset;
   char const *        load;
+
+  FILE * capture_file;
 };
 typedef struct global_state global_state_t;
 
 static void usage(const char* progname) {
-  fprintf(stderr, "USAGE: %s\n", progname);
-  fprintf(stderr, " --wksp        <name>       workspace name\n");
-  fprintf(stderr, " --gaddr       <num>        global address of funky in the workspace\n");
-  fprintf(stderr, " --persist     <file>       funky persistence file\n");
-  fprintf(stderr, " --load        <file>       load funky backup file\n");
-  fprintf(stderr, " --end-slot    <num>        stop iterating at block...\n");
-  fprintf(stderr, " --cmd         <operation>  What operation should we test\n");
-  fprintf(stderr, " --index-max   <bool>       How big should the index table be?\n");
-  fprintf(stderr, " --validate    <bool>       Validate the funk db\n");
-  fprintf(stderr, " --reset       <bool>       Reset the workspace\n");
+  fprintf( stderr, "USAGE: %s\n", progname );
+  fprintf( stderr,
+      " --wksp        <name>       workspace name\n"
+      " --gaddr       <num>        global address of funky in the workspace\n"
+      " --persist     <file>       funky persistence file\n"
+      " --load        <file>       load funky backup file\n"
+      " --end-slot    <num>        stop iterating at block...\n"
+      " --cmd         <operation>  What operation should we test\n"
+      " --index-max   <bool>       How big should the index table be?\n"
+      " --validate    <bool>       Validate the funk db\n"
+      " --reset       <bool>       Reset the workspace\n"
+      " --capture     <file>       Write bank preimage to capture file\n" );
 }
 
 #define SORT_NAME sort_pubkey_hash_pair
@@ -299,7 +304,7 @@ replay( global_state_t * state,
                          slot,
                          known_bank_hash->hash,
                          state->global->bank.banks_hash.hash ));
-        return 1;
+        //return 1;
       }
     }
 
@@ -347,15 +352,16 @@ int main(int argc, char **argv) {
 
   state.pages               = fd_env_strip_cmdline_ulong ( &argc, &argv, "--pages",      NULL, 5);
 
-  const char *index_max_opt           = fd_env_strip_cmdline_cstr ( &argc, &argv, "--index-max",    NULL, NULL);
-  const char *validate_db             = fd_env_strip_cmdline_cstr ( &argc, &argv, "--validate",     NULL, NULL);
-  const char *log_level               = fd_env_strip_cmdline_cstr ( &argc, &argv, "--log_level",     NULL, NULL);
+  char const * index_max_opt           = fd_env_strip_cmdline_cstr ( &argc, &argv, "--index-max", NULL, NULL );
+  char const * validate_db             = fd_env_strip_cmdline_cstr ( &argc, &argv, "--validate",  NULL, NULL );
+  char const * log_level               = fd_env_strip_cmdline_cstr ( &argc, &argv, "--log_level", NULL, NULL );
+  char const * capture_fpath           = fd_env_strip_cmdline_cstr ( &argc, &argv, "--capture",   NULL, NULL );
 
-  const char *confirm_hash            = fd_env_strip_cmdline_cstr ( &argc, &argv, "--confirm_hash",          NULL, NULL);
-  const char *confirm_parent          = fd_env_strip_cmdline_cstr ( &argc, &argv, "--confirm_parent",        NULL, NULL);
-  const char *confirm_account_delta   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--confirm_account_delta", NULL, NULL);
-  const char *confirm_signature       = fd_env_strip_cmdline_cstr ( &argc, &argv, "--confirm_signature",     NULL, NULL);
-  const char *confirm_last_block      = fd_env_strip_cmdline_cstr ( &argc, &argv, "--confirm_last_block",    NULL, NULL);
+  char const * confirm_hash            = fd_env_strip_cmdline_cstr ( &argc, &argv, "--confirm_hash",          NULL, NULL);
+  char const * confirm_parent          = fd_env_strip_cmdline_cstr ( &argc, &argv, "--confirm_parent",        NULL, NULL);
+  char const * confirm_account_delta   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--confirm_account_delta", NULL, NULL);
+  char const * confirm_signature       = fd_env_strip_cmdline_cstr ( &argc, &argv, "--confirm_signature",     NULL, NULL);
+  char const * confirm_last_block      = fd_env_strip_cmdline_cstr ( &argc, &argv, "--confirm_last_block",    NULL, NULL);
 
   if (state.cmd == NULL) {
     usage(argv[0]);
@@ -456,6 +462,18 @@ int main(int argc, char **argv) {
     FD_LOG_WARNING(("finishing validate"));
   }
 
+  if( capture_fpath ) {
+    state.capture_file = fopen( capture_fpath, "w+" );
+    if( FD_UNLIKELY( !state.capture_file ) )
+      FD_LOG_ERR(( "fopen(%s) failed (%d-%s)", capture_fpath, errno, strerror( errno ) ));
+
+    void * capture_writer_mem = fd_alloc_malloc( alloc, fd_solcap_writer_align(), fd_solcap_writer_footprint() );
+    FD_TEST( capture_writer_mem );
+    state.global->capture = fd_solcap_writer_join( capture_writer_mem );
+
+    FD_TEST( fd_solcap_writer_init( state.global->capture, state.capture_file ) );
+  }
+
   {
     FD_LOG_NOTICE(("reading banks record"));
     fd_funk_rec_key_t id = fd_runtime_banks_key();
@@ -472,8 +490,8 @@ int main(int argc, char **argv) {
     ctx2.valloc  = state.global->valloc;
     FD_TEST( fd_firedancer_banks_decode(&state.global->bank, &ctx2 )==FD_BINCODE_SUCCESS );
 
-    FD_LOG_WARNING(( "decoded slot=%lu banks_hash=%32J poh_hash %32J",
-                     state.global->bank.slot,
+    FD_LOG_WARNING(( "decoded slot=%ld banks_hash=%32J poh_hash %32J",
+                     (long)state.global->bank.slot,
                      state.global->bank.banks_hash.hash,
                      state.global->bank.poh.hash ));
   }
@@ -526,6 +544,9 @@ int main(int argc, char **argv) {
     replay(&state, 1, tpool, tcnt-1);
   if (strcmp(state.cmd, "accounts_hash") == 0)
     accounts_hash(&state);
+
+  fd_alloc_free( alloc, fd_solcap_writer_delete( fd_solcap_writer_leave( fd_solcap_writer_fini( state.global->capture ) ) ) );
+  if( state.capture_file ) fclose( state.capture_file );
 
   fd_global_ctx_delete(fd_global_ctx_leave(state.global));
 

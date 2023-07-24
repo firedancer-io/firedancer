@@ -10,11 +10,11 @@ def str_list_to_hexdump(x):
   if res0[0] == '':
     return ""
   res2 = ""
-  
+
   for (i, z_str) in enumerate(res0):
     z = int(z_str)
     if i % 32 == 0:
-      res2 += "\n  {}  ".format(hex(i)[2:].rjust(8, "0")) 
+      res2 += "\n  {}  ".format(hex(i)[2:].rjust(8, "0"))
     elif i % 4 == 0:
       res2 += " "
     res2+=hex(z)[2:].rjust(2, "0")
@@ -74,7 +74,7 @@ class Breadcrumb:
   def _filter(self, line: str, fd_flag: bool) -> bool:
     if fd_flag:
       return self.firedancer_filter(line)
-    else: 
+    else:
       return self.solana_filter(line)
 
   def _extract_values(self, line: str, fd_flag: bool):
@@ -103,7 +103,7 @@ class Breadcrumb:
               continue
             if check_last_flag:
               results.setdefault(breadcrumb_name, dict())[key] = Counter([val])
-            else: 
+            else:
               results.setdefault(breadcrumb_name, dict()).setdefault(key, Counter()).update([val])
 
     return results
@@ -130,7 +130,7 @@ def main():
       solana_display=lambda log_line: re.findall(r"bank frozen: (\d+) hash: (\w+)", log_line),
       firedancer_display=lambda log_line: re.findall(r"slot: (\d+),  hash: (\w+)", log_line),
     ),
-    "accounts_delta_hash": Breadcrumb( 
+    "accounts_delta_hash": Breadcrumb(
       identifiers=("pubkey", "slot",),
       display_values=("pubkey", "slot", "lamports", "owner", "executable", "rent_epoch", "data_len", "hash"),
       solana_filter=lambda log_line: "hash_account_data_compare" in log_line,
@@ -140,7 +140,7 @@ def main():
       solana_display=lambda log_line: re.findall(r"pubkey: \((\w+)\) slot: \((\d+)\) lamports: \((\d+)\) owner: \((\w+)\) executable: \((\d+)\) rent_epoch: \((\d+)\) data_len: \((\d+)\) hash: \((\w+)\)", log_line),
       firedancer_display=lambda log_line: re.findall(r"pubkey: \((\w+)\) slot: \((\d+)\) lamports: \((\d+)\), owner: \((\w+)\), executable: \((\d+)\), rent_epoch: \((\d+)\), data_len: \((\d+)\), hash: \((\w+)\)", log_line),
     ),
-    "accounts_delta_hash_extra": Breadcrumb( 
+    "accounts_delta_hash_extra": Breadcrumb(
       identifiers=("pubkey", "slot",),
       display_values=("pubkey", "slot", "lamports", "owner", "executable", "rent_epoch", "data_len", "data", "hash"),
       solana_filter=lambda log_line: "hash_account_data:" in log_line,
@@ -205,9 +205,9 @@ def main():
         truth_strs.extend(count_str.splitlines(keepends=True))
         if not args.hide_full:
           print(count_str, end="")
-      
+
       print()
-      
+
       print("Firedancer: (total: {})".format(len(list(reality.elements()))))
       for result in reality:
         if not args.hide_full:

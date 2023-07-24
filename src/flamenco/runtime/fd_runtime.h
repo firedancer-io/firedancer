@@ -8,6 +8,7 @@
 #include "../../ballet/poh/fd_poh.h"
 #include "program/fd_builtin_programs.h"
 #include "../leaders/fd_leaders.h"
+#include "../capture/fd_solcap_writer.h"
 
 #define FD_RUNTIME_EXECUTE_SUCCESS                               ( 0 )  /* Slot executed successfully */
 #define FD_RUNTIME_EXECUTE_GENERIC_ERR                          ( -1 ) /* The Slot execute returned an error */
@@ -28,6 +29,8 @@ struct __attribute__((aligned(FD_GLOBAL_CTX_ALIGN))) fd_global_ctx {
   fd_funk_t*                 funk;
   fd_executor_t              executor;  // Amusingly, it is just a pointer to this...
   fd_rng_t*                  rng;
+
+  fd_solcap_writer_t *       capture;
 
   fd_features_t              features;
 
