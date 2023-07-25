@@ -17,10 +17,63 @@ typedef struct {
   char name[ NAME_SZ ];
   char user[ 256 ];
 
+  int is_live_cluster;
+
   uint uid;
   uint gid;
 
   char scratch_directory[ PATH_MAX ];
+
+  char dynamic_port_range[ 32 ];
+
+  struct {
+    char  path[ PATH_MAX ];
+    char  accounts_path[ PATH_MAX ];
+    uint  limit_size;
+    int   bigtable_storage;
+    ulong account_indexes_cnt;
+    char  account_indexes[ 4 ][ 32 ];
+    ulong account_index_exclude_keys_cnt;
+    char  account_index_exclude_keys[ 32 ][ 32 ];
+  } ledger;
+
+  struct {
+    ulong  entrypoints_cnt;
+    char   entrypoints[ 16 ][ 256 ];
+    int    port_check;
+    ushort port;
+    char   host[ 256 ];
+  } gossip;
+
+  struct {
+    char   identity_path[ PATH_MAX ];
+    char   vote_account_path[ PATH_MAX ];
+    int    snapshot_fetch;
+    int    genesis_fetch;
+    int    poh_speed_test;
+    char   expected_genesis_hash[ 32 ];
+    uint   wait_for_supermajority_at_slot;
+    char   expected_bank_hash[ 32 ];
+    ushort expected_shred_version;
+    int    wait_for_vote_to_start_leader;
+    ulong  hard_fork_at_slots_cnt;
+    uint   hard_fork_at_slots[ 32 ];
+    ulong  known_validators_cnt;
+    char   known_validators[ 16 ][ 256 ];
+  } consensus;
+
+  struct {
+    ushort port;
+    int    full_api;
+    int    private;
+    int    transaction_history;
+    int    extended_tx_metadata_storage;
+    int    only_known;
+    int    pubsub_enable_block_subscription;
+    int    pubsub_enable_vote_subscription;
+    int    incremental_snapshots;
+  } rpc;
+
   struct {
     char affinity[ AFFINITY_SZ ];
     uint         verify_tile_count;
@@ -120,6 +173,7 @@ dump_vars( config_t * const config,
    from a bash variable file that was dumped. */
 const char *
 load_var_pod( config_t * const config,
+              char *           name,
               char             line[4096] );
 
 #endif /* HEADER_fd_src_app_fdctl_config_h */

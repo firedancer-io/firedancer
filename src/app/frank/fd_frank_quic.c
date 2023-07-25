@@ -7,59 +7,59 @@
 
 #include <errno.h>
 
-static fd_xsk_t * preload_xsks[ FD_TILE_MAX ];
+#include <linux/unistd.h>
 
-void
-fd_frank_quic_task_preload( char const * pod_gaddr ) {
-  uchar const * pod       = fd_wksp_pod_attach( pod_gaddr );
-  uchar const * quic_pods = fd_pod_query_subpod( pod, "firedancer.quic" );
-  if( FD_UNLIKELY( !quic_pods ) ) FD_LOG_ERR(( "firedancer.quic path not found" ));
+#include <openssl/err.h>
+#include <openssl/ssl.h>
 
-  ulong idx = 0;
-  for( fd_pod_iter_t iter = fd_pod_iter_init( quic_pods ); !fd_pod_iter_done( iter ); iter = fd_pod_iter_next( iter ) ) {
-    fd_pod_info_t info = fd_pod_iter_info( iter );
-    if( FD_UNLIKELY( info.val_type!=FD_POD_VAL_TYPE_SUBPOD ) ) continue;
-    char const  * quic_name =                info.key;
-    uchar const * quic_pod  = (uchar const *)info.val;
+static long allow_syscalls[] = {
+  __NR_write,     /* logging */
+  __NR_futex,     /* logging, glibc fprintf unfortunately uses a futex internally */
+  __NR_fsync,     /* logging, WARNING and above fsync immediately */
+  __NR_nanosleep, /* fd_tempo_tick_per_ns calibration */
+  __NR_getpid,    /* OpenSSL RAND_bytes checks pid, temporarily used as part of quic_init to generate a certificate */
+  __NR_getrandom, /* OpenSSL RAND_bytes reads getrandom, temporarily used as part of quic_init to generate a certificate */
+};
 
-    if( FD_UNLIKELY( !quic_pod ) ) FD_LOG_ERR(( "%s.quic.%s path not found", "firedancer", quic_name ));
-    preload_xsks[ idx ] = fd_xsk_join( fd_wksp_pod_map( quic_pod, "xsk") );
-    if( FD_UNLIKELY( !preload_xsks[ idx ] ) ) FD_LOG_ERR(( "fd_xsk_join failed" ));
+static void
+init( fd_frank_args_t * args ) {
+  args->pod = fd_wksp_pod_attach( args->pod_gaddr );
+  args->close_fd_start = 4; /* stdin, stdout, stderr, logfile */
+  args->allow_syscalls_sz = sizeof(allow_syscalls)/sizeof(allow_syscalls[ 0 ]);
+  args->allow_syscalls = allow_syscalls;
 
-    idx++;
-  }
+  char quic_xsk[ 32 ];
+  snprintf( quic_xsk, 32, "firedancer.quic.quic%lu.xsk", args->idx );
+
+  FD_LOG_INFO(( "loading %s", quic_xsk ));
+  args->xsk = fd_xsk_join( fd_wksp_pod_map( args->pod, quic_xsk ) );
+  if( FD_UNLIKELY( !args->xsk ) ) FD_LOG_ERR(( "fd_xsk_join failed" ));
+
+  /* OpenSSL goes and tries to read files and allocate memory and
+     other dumb things on a thread local basis, so we need a special
+     initializer to do it before seccomp happens in the process. */
+  ERR_STATE * state = ERR_get_state();
+  if( FD_UNLIKELY( !state )) FD_LOG_ERR(( "ERR_get_state failed" ));
+  if( FD_UNLIKELY( !OPENSSL_init_ssl( OPENSSL_INIT_LOAD_SSL_STRINGS , NULL ) ) )
+    FD_LOG_ERR(( "OPENSSL_init_ssl failed" ));
+  if( FD_UNLIKELY( !OPENSSL_init_crypto( OPENSSL_INIT_LOAD_CRYPTO_STRINGS | OPENSSL_INIT_NO_LOAD_CONFIG , NULL ) ) )
+    FD_LOG_ERR(( "OPENSSL_init_crypto failed" ));
 }
 
-int
-fd_frank_quic_task( int     argc,
-                    char ** argv ) {
-  (void)argc;
-  fd_log_thread_set( argv[0] );
-  char const * quic_name = argv[0];
-  FD_LOG_INFO(( "quic.%s init", quic_name ));
-
-  /* Parse "command line" arguments */
-
-  char const * pod_gaddr = argv[1];
-  char const * idx_cstr  = argv[2];
-
-  char * endptr = NULL;
-  ulong idx = strtoul( idx_cstr, &endptr, 10 );
-  if( FD_UNLIKELY( *endptr!='\0' ) ) FD_LOG_ERR(( "idx %s not a number", idx_cstr ));
-  if( errno == ERANGE ) FD_LOG_ERR(( "idx %s out of range", idx_cstr ));
-  if( FD_UNLIKELY( idx>=FD_TILE_MAX ) ) FD_LOG_ERR(( "idx %lu out of range", idx ));
-  if( FD_UNLIKELY( !preload_xsks[ idx ] ) ) FD_LOG_ERR(( "preload_xsks[ %lu ] not set", idx ));
+static void
+run( fd_frank_args_t * args ) {
+  FD_LOG_INFO(( "quic.%lu init", args->idx ));
 
   /* Load up the configuration for this frank instance */
 
-  FD_LOG_INFO(( "using configuration in pod %s at path firedancer", pod_gaddr ));
-  uchar const * pod     = fd_wksp_pod_attach( pod_gaddr );
-  uchar const * cfg_pod = fd_pod_query_subpod( pod, "firedancer" );
+  uchar const * cfg_pod = fd_pod_query_subpod( args->pod, "firedancer" );
   if( FD_UNLIKELY( !cfg_pod ) ) FD_LOG_ERR(( "path firedancer not found" ));
 
   uchar const * quic_pods = fd_pod_query_subpod( cfg_pod, "quic" );
   if( FD_UNLIKELY( !quic_pods ) ) FD_LOG_ERR(( "firedancer.quic path not found" ));
 
+  char quic_name[ 32 ];
+  snprintf( quic_name, 32, "quic%lu", args->idx );
   uchar const * quic_pod = fd_pod_query_subpod( quic_pods, quic_name );
   if( FD_UNLIKELY( !quic_pod ) ) FD_LOG_ERR(( "firedancer.quic.%s path not found", quic_name ));
 
@@ -85,12 +85,8 @@ fd_frank_quic_task( int     argc,
   fd_quic_t * quic = fd_quic_join( fd_wksp_pod_map( quic_pod, "quic" ) );
   if( FD_UNLIKELY( !quic ) ) FD_LOG_ERR(( "fd_quic_join failed" ));
 
-  FD_LOG_INFO(( "loading firedancer.quic.%s.xsk", quic_name ));
-  fd_xsk_t * xsk = preload_xsks[ idx ];
-  if( FD_UNLIKELY( !xsk ) ) FD_LOG_ERR(( "fd_xsk_join failed" ));
-
   FD_LOG_INFO(( "loading firedancer.quic.%s.xsk_aio", quic_name ));
-  fd_xsk_aio_t * xsk_aio = fd_xsk_aio_join( fd_wksp_pod_map( quic_pod, "xsk_aio" ), xsk );
+  fd_xsk_aio_t * xsk_aio = fd_xsk_aio_join( fd_wksp_pod_map( quic_pod, "xsk_aio" ), args->xsk );
   if( FD_UNLIKELY( !xsk_aio ) ) FD_LOG_ERR(( "fd_xsk_aio_join failed" ));
 
   /* Setup local objects used by this tile */
@@ -157,17 +153,10 @@ fd_frank_quic_task( int     argc,
   FD_LOG_INFO(( "%s run", quic_name ));
   int err = fd_quic_tile( cnc, quic, xsk_aio, mcache, dcache, lazy, rng, scratch );
   if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_quic_tile failed (%i)", err ));
-
-  /* Clean up */
-
-  FD_LOG_INFO(( "%s fini", quic_name ));
-  fd_rng_delete    ( fd_rng_leave    ( rng     ) );
-  fd_wksp_pod_unmap(                   quic      );
-  fd_wksp_pod_unmap( fd_xsk_aio_leave( xsk_aio ) );
-  fd_wksp_pod_unmap( fd_xsk_leave    ( xsk     ) );
-  fd_wksp_pod_unmap( fd_mcache_leave ( mcache  ) );
-  fd_wksp_pod_unmap( fd_dcache_leave ( dcache  ) );
-  fd_wksp_pod_unmap( fd_cnc_leave    ( cnc     ) );
-  fd_wksp_pod_detach( pod );
-  return 0;
 }
+
+fd_frank_task_t quic = {
+  .name = "quic",
+  .init = init,
+  .run  = run,
+};
