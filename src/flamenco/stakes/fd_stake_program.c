@@ -1423,8 +1423,22 @@ int fd_executor_stake_program_execute_instruction(
   }
   else if ( fd_stake_instruction_is_get_minimum_delegation( &instruction ) ) {
     if ( !ctx.global->features.add_get_minimum_delegation_instruction_to_stake_program ) {
+      // still need to check if the first account is stake account
+      fd_pubkey_t* stake_acc         = &txn_accs[instr_acc_idxs[0]];
+      fd_pubkey_t stake_acc_owner;
+      fd_acc_mgr_get_owner( ctx.global->acc_mgr, ctx.global->funk_txn, stake_acc, &stake_acc_owner );
+      if ( memcmp( &stake_acc_owner, ctx.global->solana_stake_program, sizeof(fd_pubkey_t) ) != 0 ) {
+        return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
+      }
       return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
     }
+    // ulong minimum_delegation = get_minimum_delegation(ctx.global);
+
+    /* TODO: Fix this after CPI return data is implemented */
+    // let minimum_delegation = Vec::from(minimum_delegation.to_le_bytes());
+    // invoke_context
+    //     .transaction_context
+    //     .set_return_data(id(), minimum_delegation)
 
   }
   else if ( fd_stake_instruction_is_deactivate_delinquent( &instruction ) ) {
