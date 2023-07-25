@@ -12,16 +12,14 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
-      - name: Set extras
-        run: |
-          echo "EXTRAS=static" >> "$GITHUB_ENV"
-
       - name: Prepare asan
         run: |
           echo "MACHINE=linux_clang_x86_64_fuzz_asan" >> "$GITHUB_ENV"
 
       - uses: firedancer-io/alpine-builder@main
         name: Build with asan on Alpine
+        with:
+          command: make -j fuzz-test
 
       - uses: firedancer-io/clusterfuzz-action@main
         if: ${{ github.ref == 'refs/heads/main' }}
