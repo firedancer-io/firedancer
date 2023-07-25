@@ -126,6 +126,7 @@ fn step(config: &mut Config) {
         let xsk = run!("{bin}/fd_xdp_ctl new-xsk {workspace} 2048 {} {}", config.tiles.quic.xdp_rx_queue_size, config.tiles.quic.xdp_tx_queue_size);
         run!("{bin}/fd_xdp_ctl bind-xsk {xsk} {name} {interface} {i}");
         let xsk_aio = run!("{bin}/fd_xdp_ctl new-xsk-aio {workspace} {} {}", config.tiles.quic.xdp_tx_queue_size, config.tiles.quic.xdp_aio_depth);
+        let stake = run!("{bin}/fd_tango_ctl new-stake {workspace} {}", 16);  /* FIXME hardcode */
 
         run!("{bin}/fd_pod_ctl
             insert {pod} cstr {prefix}.quic.quic{i}.cnc {cnc} \
@@ -133,6 +134,7 @@ fn step(config: &mut Config) {
             insert {pod} cstr {prefix}.quic.quic{i}.dcache {dcache} \
             insert {pod} cstr {prefix}.quic.quic{i}.fseq {fseq} \
             insert {pod} cstr {prefix}.quic.quic{i}.quic {quic} \
+            insert {pod} cstr {prefix}.quic.quic{i}.stake {stake} \
             insert {pod} cstr {prefix}.quic.quic{i}.xsk {xsk} \
             insert {pod} cstr {prefix}.quic.quic{i}.xsk_aio {xsk_aio}",
             mcache=verify_mcache,

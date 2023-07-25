@@ -7,12 +7,10 @@
 #include "../stake/fd_stake.h"
 #include "fd_quic_common.h"
 #include "fd_quic_conn.h"
-#include "../stake/fd_stake.h"
 #include <openssl/x509.h>
 
-#define FD_QUIC_QOS_UNPRIV_CONN_LIST_ALIGN ( 128UL )
-#define FD_QUIC_QOS_UNPRIV_CONN_LRU_ALIGN  ( 128UL )
-#define FD_QUIC_QOS_ALIGN                  ( 128UL )
+#define FD_QUIC_QOS_UNPRIV_CONN_LRU_ALIGN ( 128UL )
+#define FD_QUIC_QOS_ALIGN                 ( 128UL )
 
 /* Default limits */
 #define FD_QUIC_QOS_DEFAULT_MIN_STREAMS   ( 1UL << 7 )
@@ -23,13 +21,11 @@
 
 /* Configurable limits */
 struct fd_quic_qos_limits {
-  /* clang-format off */
-  ulong min_streams;         /* the min # of concurrent streams that can be alloted to a single conn */
-  ulong max_streams;         /* the max # of concurrent streams that can be alloted to a single conn */
-  ulong total_streams;       /* the total # of streams that can be alloted across all conns */
-  ulong priv_conns;          /* the max # of "privileged" conns. stake-based eviction. */
-  ulong unpriv_conns;        /* the max # of "unprivileged" conns. LRU-based eviction. */
-  /* clang-format on */
+  ulong min_streams;     /* the min # of concurrent streams that can be alloted to a single conn */
+  ulong max_streams;     /* the max # of concurrent streams that can be alloted to a single conn */
+  ulong total_streams;   /* the total # of streams that can be alloted across all conns */
+  ulong lg_priv_conns;   /* the max # of "privileged" conns. stake-based eviction. */
+  ulong lg_unpriv_conns; /* the max # of "unprivileged" conns. LRU-based eviction. */
 };
 typedef struct fd_quic_qos_limits fd_quic_qos_limits_t;
 
@@ -44,23 +40,11 @@ typedef struct fd_quic_qos_priv_conn fd_quic_qos_priv_conn_t;
 #define MAP_T    fd_quic_qos_priv_conn_t
 #include "../../util/tmpl/fd_map_dynamic.c"
 
-typedef struct fd_quic_qos_unpriv_conn_ele fd_quic_qos_unpriv_conn_ele_t; /* forward decl */
-struct fd_quic_qos_unpriv_conn_ele {
-  fd_quic_conn_t *                conn;
-  fd_quic_qos_unpriv_conn_ele_t * prev;
-  fd_quic_qos_unpriv_conn_ele_t * next;
-};
-
-struct fd_quic_qos_unpriv_conn_list {
-  fd_quic_qos_unpriv_conn_ele_t * sentinel;
-};
-typedef struct fd_quic_qos_unpriv_conn_list fd_quic_qos_unpriv_conn_list_t;
-
 /* unstaked connections for O(1) lookup into LRU list */
 struct fd_quic_qos_unpriv_conn_map {
-  ulong                           key; /* conn_id */
-  uint                            hash;
-  fd_quic_qos_unpriv_conn_ele_t * ele;
+  ulong       key; /* conn_id */
+  uint        hash;
+  fd_list_t * list;
 };
 typedef struct fd_quic_qos_unpriv_conn_map fd_quic_qos_unpriv_conn_map_t;
 
@@ -69,16 +53,16 @@ typedef struct fd_quic_qos_unpriv_conn_map fd_quic_qos_unpriv_conn_map_t;
 #include "../../util/tmpl/fd_map_dynamic.c"
 
 struct fd_quic_qos_unpriv_conn_lru {
-  fd_quic_qos_unpriv_conn_list_t * used_list;
-  fd_quic_qos_unpriv_conn_list_t * free_list;
-  fd_quic_qos_unpriv_conn_map_t *  map;
-  ulong                            max;
+  ulong                           lg_max_sz;
+  fd_list_t *                     used_list;
+  fd_list_t *                     free_list;
+  fd_quic_qos_unpriv_conn_map_t * map;
 };
 typedef struct fd_quic_qos_unpriv_conn_lru fd_quic_qos_unpriv_conn_lru_t;
 
 struct fd_quic_qos {
   fd_quic_qos_limits_t            limits;
-  fd_stake_t * stake;
+  fd_stake_t *                    stake;
   fd_quic_qos_priv_conn_t *       priv_conn_map;
   fd_quic_qos_unpriv_conn_lru_t * unpriv_conn_lru;
   fd_rng_t *                      rng;
@@ -91,32 +75,16 @@ FD_PROTOTYPES_BEGIN
 int
 fd_quic_qos_pubkey_from_cert( fd_stake_pubkey_t * pubkey, X509 * cert );
 
-/* An element can insert itself, given a pointer to the previous element to insert after. */
-fd_quic_qos_unpriv_conn_ele_t *
-fd_quic_qos_unpriv_conn_ele_insert( fd_quic_qos_unpriv_conn_ele_t * prev,
-                                    fd_quic_qos_unpriv_conn_ele_t * ele );
-
-/* An element can remove itself. */
-fd_quic_qos_unpriv_conn_ele_t *
-fd_quic_qos_unpriv_conn_ele_remove( fd_quic_qos_unpriv_conn_ele_t * ele );
-
-fd_quic_qos_unpriv_conn_ele_t *
-fd_quic_qos_unpriv_conn_list_push_back( fd_quic_qos_unpriv_conn_list_t * list,
-                                        fd_quic_qos_unpriv_conn_ele_t *  curr );
-
-fd_quic_qos_unpriv_conn_ele_t *
-fd_quic_qos_unpriv_conn_list_pop_front( fd_quic_qos_unpriv_conn_list_t * list );
-
 ulong
 fd_quic_qos_unpriv_conn_lru_align( void );
 
 ulong
-fd_quic_qos_unpriv_conn_lru_footprint( ulong max );
+fd_quic_qos_unpriv_conn_lru_footprint( ulong lg_max_sz );
 
 void *
-fd_quic_qos_unpriv_conn_lru_new( void * mem );
+fd_quic_qos_unpriv_conn_lru_new( void * mem, ulong lg_max_sz );
 
-fd_quic_qos_t *
+fd_quic_qos_unpriv_conn_lru_t *
 fd_quic_qos_unpriv_conn_lru_join( void * mem );
 
 /* Upserts to an LRU cache with eviction if the cache is full.
@@ -131,7 +99,7 @@ ulong
 fd_quic_qos_footprint( fd_quic_qos_limits_t * limits );
 
 void *
-fd_quic_qos_new( void * mem );
+fd_quic_qos_new( void * mem, fd_quic_qos_limits_t * limits );
 
 fd_quic_qos_t *
 fd_quic_qos_join( void * mem );

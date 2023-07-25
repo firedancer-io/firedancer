@@ -157,11 +157,11 @@ main( int argc, char ** argv ) {
   fd_quic_qos_limits_t qos_limits = { .min_streams   = FD_QUIC_QOS_DEFAULT_MIN_STREAMS,
                                       .max_streams   = FD_QUIC_QOS_DEFAULT_MAX_STREAMS,
                                       .total_streams = FD_QUIC_QOS_DEFAULT_TOTAL_STREAMS,
-                                      .priv_conns    = 0,
-                                      .unpriv_conns  = 0 };
+                                      .lg_priv_conns    = 0,
+                                      .lg_unpriv_conns  = 0 };
   void *               mem =
       fd_wksp_alloc_laddr( wksp, fd_quic_qos_align(), fd_quic_qos_footprint( &qos_limits ), 42UL );
-  fd_quic_qos_t * qos = fd_quic_qos_join( fd_quic_qos_new( mem ) );
+  fd_quic_qos_t * qos = fd_quic_qos_join( fd_quic_qos_new( mem, &qos_limits ) );
   FD_TEST( qos );
 
   fd_stake_pubkey_t pubkey = {

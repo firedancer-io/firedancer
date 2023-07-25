@@ -28,6 +28,8 @@ struct test_cfg {
   long               tx_lazy;
   uint               tx_seed;
   fd_quic_t *        tx_quic;
+  // fd_quic_qos_t *    qos;
+  fd_stake_t *       stake;
   fd_quic_config_t * tx_quic_cfg;
 
   fd_cnc_t *       rx_cnc;
@@ -187,6 +189,8 @@ tx_tile_main( int     argc,
   FD_TEST( !fd_quic_tile(
       cfg->tx_cnc,
       cfg->tx_quic,
+      // cfg->qos,
+      cfg->stake,
       cfg->xsk_aio,
       cfg->tx_mcache,
       cfg->tx_dcache,
@@ -337,6 +341,8 @@ int main( int     argc,
   FD_LOG_NOTICE(( "Configuring QUIC "));
   fd_quic_config_t * quic_cfg = &cfg->tx_quic->config;
   FD_TEST( quic_cfg );
+
+  /* TODO set qos and stake */
 
   /* must set role first */
   quic_cfg->role = FD_QUIC_ROLE_SERVER;

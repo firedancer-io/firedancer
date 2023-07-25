@@ -256,14 +256,16 @@ fd_quic_tile_scratch_footprint( ulong depth ) {
 }
 
 int
-fd_quic_tile( fd_cnc_t *         cnc,
-              fd_quic_t *        quic,
-              fd_xsk_aio_t *     xsk_aio,
-              fd_frag_meta_t *   mcache,
-              uchar *            dcache,
-              long               lazy,
-              fd_rng_t *         rng,
-              void *             scratch ) {
+fd_quic_tile( fd_cnc_t *       cnc,
+              fd_quic_t *      quic,
+              // fd_quic_qos_t *  qos,
+              fd_stake_t *     stake,
+              fd_xsk_aio_t *   xsk_aio,
+              fd_frag_meta_t * mcache,
+              uchar *          dcache,
+              long             lazy,
+              fd_rng_t *       rng,
+              void *           scratch ) {
 
   /* cnc state */
   ulong * cnc_diag;
@@ -416,6 +418,55 @@ fd_quic_tile( fd_cnc_t *         cnc,
   long then = fd_tickcount();
   long now  = then;
   for(;;) {
+    // (void)qos;
+    // (void)stake;
+    FD_LOG_NOTICE(("total_stake %lu", stake->total_stake));
+    fd_stake_pubkey_t pubkey = {
+        .pubkey = {44, 174, 25, 39, 43, 255, 200, 81, 55, 73, 10, 113, 174, 91, 223, 80,
+                   50, 51, 102, 25, 63, 110, 36, 28, 51, 11, 174, 179, 110, 8, 25, 152}
+    };
+    FD_LOG_NOTICE(("staked_node is null %d", stake->staked_nodes == NULL));
+    for (ulong i = 0; i < (1UL << 16); i++) {
+      // FD_LOG_HEXDUMP_NOTICE(("staked node i", &stake->staked_nodes[i], 4));
+    }
+    // fd_stake_staked_node_t * node = fd_stake_staked_node_query( stake->staked_nodes, pubkey, NULL );
+    // if (node == NULL) {
+    //   FD_LOG_NOTICE(("node is NULL"));
+    // } else {
+    //   // FD_LOG_HEXDUMP_NOTICE(("node->key", &node->key, sizeof(fd_stake_pubkey_t)));
+    //   // FD_LOG_NOTICE(("node->stake %lu", node->stake));
+    // }
+    (void)pubkey;
+    // ulong read_seq = fd_mcache_seq_query(fd_mcache_seq_laddr_const(mcache));
+    // fd_frag_meta_t const * mline = mcache + fd_mcache_line_idx( read_seq, depth );
+    // ulong seq_found = fd_frag_meta_seq_query( mline );
+    // long  diff      = fd_seq_diff( seq_found, read_seq );
+    // if (!diff) {
+    //   FD_LOG_NOTICE(("seq_found %lu read_seq %lu diff %li", seq_found, read_seq, diff));
+    //   FD_LOG_NOTICE(("mline->chunk %u mline->tsorig %u", mline->chunk, mline->tsorig));
+    //   void * data = fd_chunk_to_laddr(base, mline->chunk );
+    //   FD_LOG_HEXDUMP_NOTICE(("data", data, mline->sz));
+    //   if (FD_UNLIKELY(mline->sz % 40 != 0)) {
+    //     FD_LOG_ERR(("Bad msg"));
+    //   }
+    //   /* TODO overrun check */
+    //   for (ulong i = 0; i < mline->sz; i += 40) {
+    //     uchar * bytes = (uchar *)data + i;
+    //     /* 32-byte aligned. dcache is 128-byte aligned. 128 % 32 = 0. */
+    //     fd_quic_qos_pubkey_t * pubkey = (fd_quic_qos_pubkey_t *) bytes;
+    //     /* 8-byte aligned. 32 + 8 = 40. 40 % 8 = 0. */
+    //     ulong * stake = (ulong *)(bytes + sizeof(fd_quic_qos_pubkey_t));
+    //     /* staked node */
+    //     fd_quic_qos_staked_node_t * staked_node =
+    //         fd_quic_qos_staked_node_insert( qos->staked_node_map, *pubkey );
+    //     staked_node->stake = *stake;
+    //     FD_LOG_HEXDUMP_NOTICE(("pubkey", pubkey, sizeof(fd_quic_qos_pubkey_t)));
+    //     FD_LOG_NOTICE(("stake %lu", *stake));
+    //     // FD_LOG_HEXDUMP_NOTICE(("pubkey", &staked_node->key, sizeof(fd_quic_qos_pubkey_t)));
+    //     // FD_LOG_NOTICE(("stakes %lu", staked_node->stake));
+    //   }
+    //   read_seq++;
+    // }
 
     /* Do housekeeping at a low rate in the background */
     if( FD_UNLIKELY( (now-then)>=0L ) ) {

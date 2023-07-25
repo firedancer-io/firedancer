@@ -65,7 +65,7 @@ fn main() {
             .clang_arg(format!("-I{prefix}/"))
             .header(&format!("wrapper_{lib}.h"))
             .blocklist_type("schar|uchar|ushort|uint|ulong")
-            .blocklist_item("SORT_QUICK_ORDER_STYLE|SORT_MERGE_THRESH|SORT_QUICK_THRESH|SORT_QUICK_ORDER_STYLE|SORT_QUICK_SWAP_MINIMIZE");
+            .blocklist_item("SORT_QUICK_ORDER_STYLE|SORT_MERGE_THRESH|SORT_QUICK_THRESH|SORT_QUICK_ORDER_STYLE|SORT_QUICK_SWAP_MINIMIZE|MAP_MEMOIZE|MAP_QUERY_OPT|MAP_KEY_EQUAL_IS_SLOW");
 
         // Well this is a complete mess. We want to only include, say, functions
         // declared in the `ballet` directory in the ballet bindgen output. If

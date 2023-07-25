@@ -1,6 +1,7 @@
 #include "fd_tango.h"
 #include "mcache/fd_mcache_private.h"
 #include "dcache/fd_dcache_private.h"
+#include "stake/fd_stake.h"
 
 #if FD_HAS_HOSTED
 
@@ -720,6 +721,52 @@ main( int     argc,
 
       FD_LOG_NOTICE(( "%i: %s %s: success", cnt, cmd, gaddr ));
       SHIFT( 1 );
+
+    } else if( !strcmp( cmd, "new-stake" ) ) {
+
+      if( FD_UNLIKELY( argc!=2 ) ) FD_LOG_ERR(( "%i: %s: wrong number of arguments\n\tDo %s help for help", cnt, cmd, bin ));
+
+      char const * _wksp   =                   argv[0];
+      ulong        lg_max_node_cnt     = fd_cstr_to_ulong( argv[1] );
+
+      fd_wksp_t * wksp = fd_wksp_attach( _wksp );
+      if( FD_UNLIKELY( !wksp ) ) {
+        FD_LOG_ERR(( "%i: %s: fd_wksp_attach( \"%s\" ) failed\n\tDo %s help for help", cnt, cmd, _wksp, bin ));
+      }
+
+      ulong align = fd_stake_align();
+      ulong footprint = fd_stake_footprint(lg_max_node_cnt);
+      // FD_LOG_ERR(("footprint %lu", footprint));
+      ulong gaddr = fd_wksp_alloc( wksp, align, footprint, tag );
+      if( FD_UNLIKELY( !gaddr ) ) {
+        fd_wksp_detach( wksp );
+        FD_LOG_ERR(( "%i: %s: fd_wksp_alloc( \"%s\", %lu, %lu, %lu ) failed\n\tDo %s help for help",
+                     cnt, cmd, _wksp, align, footprint, tag, bin ));
+      }
+
+      void * shmem = fd_wksp_laddr( wksp, gaddr );
+      // FD_LOG_HEXDUMP_ERR(("shmem", shmem, footprint ));
+      if( FD_UNLIKELY( !shmem ) ) {
+        fd_wksp_free( wksp, gaddr );
+        fd_wksp_detach( wksp );
+        FD_LOG_ERR(( "%i: %s: fd_wksp_laddr( \"%s\", %lu ) failed\n\tDo %s help for help", cnt, cmd, _wksp, gaddr, bin ));
+      }
+
+      void * shstake = fd_stake_new( shmem, lg_max_node_cnt );
+      if( FD_UNLIKELY( !shstake ) ) {
+        fd_wksp_free( wksp, gaddr );
+        fd_wksp_detach( wksp );
+        FD_LOG_ERR(( "%i: %s: fd_stake_new( %s:%lu, %lu ) failed\n\tDo %s help for help",
+                     cnt, cmd, _wksp, gaddr, lg_max_node_cnt, bin ));
+      }
+
+      char buf[ FD_WKSP_CSTR_MAX ];
+      printf( "%s\n", fd_wksp_cstr( wksp, gaddr, buf ) );
+
+      fd_wksp_detach( wksp );
+
+      FD_LOG_NOTICE(( "%i: %s %s %lu: success", cnt, cmd, _wksp, lg_max_node_cnt ));
+      SHIFT( 2 );
 
     } else {
 

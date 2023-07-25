@@ -86,6 +86,14 @@ fd_frank_quic_task( int     argc,
   fd_quic_t * quic = fd_quic_join( fd_wksp_pod_map( quic_pod, "quic" ) );
   if( FD_UNLIKELY( !quic ) ) FD_LOG_ERR(( "fd_quic_join failed" ));
 
+  // FD_LOG_INFO(( "loading %s.quic.%s.qos", cfg_path, quic_name ));
+  // fd_quic_qos_t * qos = fd_quic_qos_join( fd_wksp_pod_map( quic_pod, "qos" ) );
+  // if( FD_UNLIKELY( !qos ) ) FD_LOG_ERR(( "fd_quic_qos_join failed" ));
+
+  FD_LOG_INFO(( "loading %s.quic.%s.stake", cfg_path, quic_name ));
+  fd_stake_t * stake = fd_stake_join( fd_wksp_pod_map( quic_pod, "stake" ) );
+  if( FD_UNLIKELY( !stake ) ) FD_LOG_ERR(( "fd_stake_join failed" ));
+
   FD_LOG_INFO(( "loading %s.quic.%s.xsk", cfg_path, quic_name ));
   fd_xsk_t * xsk = preload_xsks[ idx ];
   if( FD_UNLIKELY( !xsk ) ) FD_LOG_ERR(( "fd_xsk_join failed" ));
@@ -114,7 +122,7 @@ fd_frank_quic_task( int     argc,
 
   FD_LOG_INFO(( "creating scratch" ));
   ulong footprint = fd_quic_tile_scratch_footprint( fd_mcache_depth( mcache ) );
-  if( FD_UNLIKELY( !footprint ) ) FD_LOG_ERR(( "fd_quic_tile_scratch_footprint failed" ));
+if( FD_UNLIKELY( !footprint ) ) FD_LOG_ERR(( "fd_quic_tile_scratch_footprint failed" ));
   void * scratch = fd_alloca( FD_QUIC_TILE_SCRATCH_ALIGN, footprint );
   if( FD_UNLIKELY( !scratch ) ) FD_LOG_ERR(( "fd_alloca failed" ));
 
@@ -155,7 +163,7 @@ fd_frank_quic_task( int     argc,
   /* Start serving */
 
   FD_LOG_INFO(( "%s run", quic_name ));
-  int err = fd_quic_tile( cnc, quic, xsk_aio, mcache, dcache, lazy, rng, scratch );
+  int err = fd_quic_tile( cnc, quic, /* qos , */ stake, xsk_aio, mcache, dcache, lazy, rng, scratch );
   if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_quic_tile failed (%i)", err ));
 
   /* Clean up */
