@@ -7,7 +7,7 @@
 configure_stage_t * STAGES[ CONFIGURE_STAGE_COUNT ] = {
   &large_pages,
   &shmem,
-  &netns,
+  &sysctl,
   &xdp,
   &xdp_leftover,
   &ethtool,
@@ -24,19 +24,19 @@ configure_cmd_args( int *    pargc,
   char * usage = "usage: configure <init|check|fini> <stage>...";
   if( FD_UNLIKELY( *pargc < 2 ) ) FD_LOG_ERR(( "%s", usage ));
 
-  if(      FD_LIKELY( !strcmp( *pargv[0], "check" ) ) ) args->configure.command = CONFIGURE_CMD_CHECK;
-  else if( FD_LIKELY( !strcmp( *pargv[0], "init"  ) ) ) args->configure.command = CONFIGURE_CMD_INIT;
-  else if( FD_LIKELY( !strcmp( *pargv[0], "fini"  ) ) ) args->configure.command = CONFIGURE_CMD_FINI;
+  if(      FD_LIKELY( !strcmp( *pargv[ 0 ], "check" ) ) ) args->configure.command = CONFIGURE_CMD_CHECK;
+  else if( FD_LIKELY( !strcmp( *pargv[ 0 ], "init"  ) ) ) args->configure.command = CONFIGURE_CMD_INIT;
+  else if( FD_LIKELY( !strcmp( *pargv[ 0 ], "fini"  ) ) ) args->configure.command = CONFIGURE_CMD_FINI;
   else FD_LOG_ERR(( "unrecognized command %s, %s", *pargv[0], usage ));
 
   (*pargc)--;
   (*pargv)++;
 
   for( int i=0; i<*pargc; i++ ) {
-    if( FD_UNLIKELY( !strcmp(*pargv[i], "all" ) ) ) {
+    if( FD_UNLIKELY( !strcmp(*pargv[ i ], "all" ) ) ) {
       (*pargc) -= i + 1;
       (*pargv) += i + 1;
-      for( int j=0; j<CONFIGURE_STAGE_COUNT; j++) args->configure.stages[j] = STAGES[j];
+      for( int j=0; j<CONFIGURE_STAGE_COUNT; j++) args->configure.stages[ j ] = STAGES[ j ];
       return;
     }
   }

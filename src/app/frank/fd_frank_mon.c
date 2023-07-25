@@ -357,23 +357,12 @@ printf_link( snap_t *      snap_prv,
 }
 
 int
-fd_frank_mon( int *        pargc,
-              char ***     pargv,
-              const char * pod_gaddr,
-              long         dt_min,
-              long         dt_max,
-              long         duration,
-              uint         seed ) {
-  if( FD_UNLIKELY( !fd_wksp_preload( pod_gaddr ) ) )
-    FD_LOG_ERR(( "unable to preload workspace" ));
-
-  fd_boot_secure2( pargc, pargv );
-
+fd_frank_mon( const uchar * pod,
+              long          dt_min,
+              long          dt_max,
+              long          duration,
+              uint          seed ) {
   /* Load up the configuration for this frank instance */
-
-  FD_LOG_INFO(( "using configuration in pod --pod %s at path firedancer", pod_gaddr ));
-
-  uchar const * pod     = fd_wksp_pod_attach( pod_gaddr );
   uchar const * cfg_pod = fd_pod_query_subpod( pod, "firedancer" );
   if( FD_UNLIKELY( !cfg_pod ) ) FD_LOG_ERR(( "path not found" ));
 

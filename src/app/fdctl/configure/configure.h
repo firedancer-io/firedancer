@@ -61,6 +61,7 @@ typedef struct configure_stage {
 
 extern configure_stage_t large_pages;
 extern configure_stage_t shmem;
+extern configure_stage_t sysctl;
 extern configure_stage_t netns;
 extern configure_stage_t xdp;
 extern configure_stage_t xdp_leftover;
@@ -68,6 +69,7 @@ extern configure_stage_t ethtool;
 extern configure_stage_t workspace_leftover;
 extern configure_stage_t workspace;
 extern configure_stage_t frank;
+extern configure_stage_t cluster;
 
 extern configure_stage_t * STAGES[];
 
@@ -81,6 +83,17 @@ typedef struct {
   configure_cmd_t      command;
   configure_stage_t ** stages;
 } configure_args_t;
+
+/* read_uint_file() reads a uint from the given path, or exits the
+   program with an error if any error was encountered. */
+uint
+read_uint_file( const char * path );
+
+/* write_uint_file() writes a uint to the given path, or exits the
+   program with an error if any error was encountered. */
+void
+write_uint_file( const char * path,
+                 uint         value );
 
 /* try_defragment_memory() tells the operating system to defragment
    memory allocations, it it is hint, and can be useful to call before

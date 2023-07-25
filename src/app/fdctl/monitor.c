@@ -30,25 +30,16 @@ monitor_cmd_perm( args_t *         args,
   check_cap( security, "monitor", CAP_SETGID, "switch gid by calling `setgid(2)`" );
 }
 
-void monitor_cmd_fn( args_t *         args,
-                     config_t * const config ) {
+void
+monitor_cmd_fn( args_t *         args,
+                config_t * const config ) {
   char line[ 4096 ];
-  const char * pod  = load_var_pod( config, line );
+  const char * pod_gaddr = load_var_pod( config, "POD", line );
+  const uchar * pod = fd_wksp_pod_attach( pod_gaddr );
 
-  char log_app[ NAME_SZ ];
-  strcpy( log_app, config->name );
+  fd_sandbox( 4, 0, NULL );
 
-  char * argv[] = {
-    "--log-app",    log_app,
-    "--log-thread", "mon",
-    NULL,
-  };
-
-  int     argc = sizeof(argv) / sizeof(argv[ 0 ]) - 1;
-  char ** pargv = argv;
-  fd_frank_mon( &argc,
-                &pargv,
-                pod,
+  fd_frank_mon( pod,
                 args->monitor.dt_min,
                 args->monitor.dt_max,
                 args->monitor.duration,

@@ -51,12 +51,12 @@ close_open_fds( void ) {
 
   TEST_FORK(
     FD_TEST( fcntl( fd, F_GETFD ) != -1 );
-    fd_sandbox_private_no_seccomp();
+    fd_sandbox_private_no_seccomp( 3 );
     FD_TEST( fcntl( fd, F_GETFD ) == -1 );
   );
 }
 
-/* close_open_fds_proc ensures that, after calling `fd_sandbox_private`, no FDs
+/* close_open_fds_proc ensures that, after calling `fd_sandbox_private_unthreaded`, no FDs
    beyond an allowed number are opened. Uses the /proc implementation
    directly. */
 void
@@ -66,18 +66,18 @@ close_open_fds2( void ) {
 
   TEST_FORK(
     FD_TEST( fcntl( fd, F_GETFD ) != -1 );
-    close_fds_proc();
+    close_fds_proc( 3 );
     FD_TEST( fcntl( fd, F_GETFD ) == -1 );
   );
 }
 
-/* resource_limits ensures that, after calling `fd_sandbox_private`,
+/* resource_limits ensures that, after calling `fd_sandbox_private_unthreaded`,
    the set limits cannot be exceeded. */
 void
 resource_limits( void ) {
   TEST_FORK(
     FD_TEST( -1 != open("/etc/passwd", O_RDONLY) );
-    fd_sandbox_private_no_seccomp();
+    fd_sandbox_private_no_seccomp( 3 );
     FD_TEST( -1 == open("/etc/passwd", O_RDONLY) );
     FD_TEST( EMFILE == errno );
   );
@@ -87,7 +87,7 @@ void
 not_dumpable( void ) {
   TEST_FORK(
     FD_TEST( prctl( PR_GET_DUMPABLE ) );
-    fd_sandbox_private_privileged( (int[]){0}, (char**[]){&(char*[]){NULL}[0]} );
+    fd_sandbox_private_unthreaded();
     FD_TEST( !prctl( PR_GET_DUMPABLE ) );
   );
 }
@@ -100,14 +100,14 @@ no_capabilities( void ) {
     FD_TEST( 0 == syscall( SYS_capget, &hdr, data ) );
     FD_TEST( data[0].effective || data[1].effective );
 
-    fd_sandbox_private_privileged( (int[]){0}, (char**[]){&(char*[]){NULL}[0]} );
+    fd_sandbox_private_unthreaded();
 
     FD_TEST( 0 == syscall( SYS_capget, &hdr, data ) );
     FD_TEST( !data[0].effective && !data[1].effective );
   );
 }
 
-/* change_userns ensures that, after calling `fd_sandbox_private_privileged`,
+/* change_userns ensures that, after calling `fd_sandbox_private_unthreaded`,
    the process' {real,effective}x{uid,gid} are matching the desired user's. */
 void
 change_userns( void ) {
@@ -117,7 +117,7 @@ change_userns( void ) {
   FD_TEST( getegid() != 65534 );
 
   TEST_FORK(
-    unshare_user( (int[]){0}, (char**[]){&(char*[]){NULL}[0]} );
+    unshare_user();
 
     // Inside the sandbox
     FD_TEST( getuid() == 0 );
@@ -138,7 +138,7 @@ change_userns( void ) {
   );
 }
 
-/* netns ensures that, after calling `fd_sandbox_private_privileged`,
+/* netns ensures that, after calling `fd_sandbox_private_unthreaded`,
    the process' view of the network interfaces is limited to the expected. */
 void
 netns( void ) {
@@ -146,7 +146,7 @@ netns( void ) {
     struct if_nameindex * ifs = if_nameindex();
     FD_TEST( ifs[1].if_name != NULL );
 
-    fd_sandbox_private_privileged( (int[]){0}, (char**[]){&(char*[]){NULL}[0]} );
+    fd_sandbox_private_unthreaded();
 
     ifs = if_nameindex();
     FD_TEST( !strcmp(ifs[0].if_name, "lo") );
@@ -154,12 +154,12 @@ netns( void ) {
   );
 }
 
-/* mountns_null ensures that, after calling `fd_sandbox_private`,
+/* mountns_null ensures that, after calling `fd_sandbox_private_unthreaded`,
    the root mount should be empty and belong to root. */
 void
 mountns_null( void ) {
   TEST_FORK(
-    fd_sandbox_private_privileged( (int[]){0}, (char**[]){&(char*[]){NULL}[0]} );
+    fd_sandbox_private_unthreaded();
     DIR * dir = opendir( "/" );
     FD_TEST( dir != NULL );
 
@@ -185,7 +185,7 @@ seccomp_default_filter( void ) {
     FD_TEST( -1 != waitpid( pid, &wstatus, WUNTRACED ) );
     FD_TEST( WIFSIGNALED( wstatus) && WTERMSIG( wstatus ) == SIGSYS );
   } else { // child
-    fd_sandbox_private( NULL, NULL );
+    fd_sandbox_private_threaded( 4, 0, NULL );
     // This should fail with SIGSYS
     execl( "/bin/true", "" );
     exit( EXIT_FAILURE );

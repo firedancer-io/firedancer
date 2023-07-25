@@ -834,15 +834,6 @@ void
 fd_wksp_cstr_memset( char const * cstr,
                      int          c );
 
-/* fd_wksp_preload maps a workspace into memory in the process and
-   then "forgets" about it. This might be needed due to the security
-   architecture, where a privileged section of code can initialize
-   the memory map, not release it, and then all subsequent joins
-   for that workspace (who can no longer open a file or call mmap)
-   may reuse the same already-mapped memory. */
-void *
-fd_wksp_preload( char const * gaddr );
-
 /* fd_wksp_map returns a pointer in the caller's address space to
    the wksp allocation specified by a cstr containing [name]:[gaddr].
    [name] is the name of the shared memory region holding the wksp.
