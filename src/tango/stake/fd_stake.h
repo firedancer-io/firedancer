@@ -44,10 +44,10 @@ ulong
 fd_stake_align( void );
 
 ulong
-fd_stake_footprint( ulong lg_max_node_cnt );
+fd_stake_footprint( ulong lg_slot_cnt );
 
 void *
-fd_stake_new( void * mem, ulong lg_max_node_cnt );
+fd_stake_new( void * mem, ulong lg_slot_cnt );
 
 fd_stake_t *
 fd_stake_join( void * mem );

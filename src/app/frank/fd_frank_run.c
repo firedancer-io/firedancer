@@ -1,7 +1,5 @@
 #include "fd_frank.h"
 
-#if FD_HAS_FRANK
-
 #include <stdio.h>
 #include <signal.h>
 
@@ -36,39 +34,34 @@ fd_frank_signal_trap( int sig ) {
 }
 
 int
-main( int     argc,
-      char ** argv ) {
+fd_frank_run( int *        pargc,
+              char ***     pargv,
+              const char * pod_gaddr ) {
   // After fd_boot_secure2 is called, the process will be completely sandboxed,
   // with no ability to make any system calls. We need to pre-stage resources
   // we need here.
 
-  // 1. Initialize logging and some shared memory information. This needs to
-  //    happen before any sandboxing.
-  fd_boot_secure1( &argc, &argv );
-
-  // 2. Load any resources we will need before sandboxing. Currently this just
+  // 1. Load any resources we will need before sandboxing. Currently this just
   //    mmaps the workspace.
-  char const * pod_gaddr = fd_env_strip_cmdline_cstr( &argc, &argv, "--pod", NULL, NULL );
-  if( FD_UNLIKELY( !pod_gaddr ) ) FD_LOG_ERR(( "--pod not specified" ));
   if( FD_UNLIKELY( !fd_wksp_preload( pod_gaddr ) ) )
     FD_LOG_ERR(( "unable to preload workspace" ));
 
   fd_frank_quic_task_preload( pod_gaddr );
 
-  // 3. Drop all privileges and finish boot process.
-  fd_boot_secure2( &argc, &argv );
+  // 2. Drop all privileges and finish boot process.
+  fd_boot_secure2( pargc, pargv );
 
-  // 4. Now run rest of the application sandboxed.
+  // 3. Now run rest of the application sandboxed.
   fd_tempo_tick_per_ns( NULL ); /* eat calibration cost at deterministic place */
 
   FD_LOG_NOTICE(( "app init" ));
 
   /* Load up the configuration for this frank instance */
 
-  FD_LOG_NOTICE(( "using configuration in pod --pod %s at path %s", pod_gaddr, FD_FRANK_CONFIGURATION_PREFIX ));
+  FD_LOG_NOTICE(( "using configuration in pod --pod %s at path firedancer", pod_gaddr ));
 
   uchar const * pod     = fd_wksp_pod_attach( pod_gaddr );
-  uchar const * cfg_pod = fd_pod_query_subpod( pod, FD_FRANK_CONFIGURATION_PREFIX );
+  uchar const * cfg_pod = fd_pod_query_subpod( pod, "firedancer" );
   if( FD_UNLIKELY( !cfg_pod ) ) FD_LOG_ERR(( "path not found" ));
 
   uchar const * verify_pods = fd_pod_query_subpod( cfg_pod, "verify" );
@@ -94,21 +87,21 @@ main( int     argc,
   do {
     ulong tile_idx = 0UL;
 
-    FD_LOG_NOTICE(( "joining %s.main.cnc", FD_FRANK_CONFIGURATION_PREFIX ));
+    FD_LOG_NOTICE(( "joining firedancer.main.cnc" ));
     tile_name[ tile_idx ] = "main";
     tile_cnc [ tile_idx ] = fd_cnc_join( fd_wksp_pod_map( cfg_pod, "main.cnc" ) );
     if( FD_UNLIKELY( !tile_cnc[ tile_idx ] ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
     if( FD_UNLIKELY( fd_cnc_app_sz( tile_cnc[ tile_idx ] )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
     tile_idx++;
 
-    FD_LOG_NOTICE(( "joining %s.pack.cnc", FD_FRANK_CONFIGURATION_PREFIX ));
+    FD_LOG_NOTICE(( "joining firedancer.pack.cnc" ));
     tile_name[ tile_idx ] = "pack";
     tile_cnc [ tile_idx ] = fd_cnc_join( fd_wksp_pod_map( cfg_pod, "pack.cnc" ) );
     if( FD_UNLIKELY( !tile_cnc[ tile_idx ] ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
     if( FD_UNLIKELY( fd_cnc_app_sz( tile_cnc[ tile_idx ] )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
     tile_idx++;
 
-    FD_LOG_NOTICE(( "joining %s.dedup.cnc", FD_FRANK_CONFIGURATION_PREFIX ));
+    FD_LOG_NOTICE(( "joining firedancer.dedup.cnc" ));
     tile_name[ tile_idx ] = "dedup";
     tile_cnc [ tile_idx ] = fd_cnc_join( fd_wksp_pod_map( cfg_pod, "dedup.cnc" ) );
     if( FD_UNLIKELY( !tile_cnc[ tile_idx ] ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
@@ -121,7 +114,7 @@ main( int     argc,
       char const  * verify_name =                info.key;
       uchar const * verify_pod  = (uchar const *)info.val;
 
-      FD_LOG_NOTICE(( "joining %s.verify.%s.cnc", FD_FRANK_CONFIGURATION_PREFIX, verify_name ));
+      FD_LOG_NOTICE(( "joining firedancer.verify.%s.cnc", verify_name ));
       tile_name[ tile_idx ] = verify_name;
       tile_cnc [ tile_idx ] = fd_cnc_join( fd_wksp_pod_map( verify_pod, "cnc" ) );
       if( FD_UNLIKELY( !tile_cnc[tile_idx] ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
@@ -135,7 +128,7 @@ main( int     argc,
       char const  * quic_name =                info.key;
       uchar const * quic_pod  = (uchar const *)info.val;
 
-      FD_LOG_NOTICE(( "joining %s.quic.%s.cnc", FD_FRANK_CONFIGURATION_PREFIX, quic_name ));
+      FD_LOG_NOTICE(( "joining firedancer.quic.%s.cnc", quic_name ));
       tile_name[ tile_idx ] = quic_name;
       tile_cnc [ tile_idx ] = fd_cnc_join( fd_wksp_pod_map( quic_pod, "cnc" ) );
       if( FD_UNLIKELY( !tile_cnc[tile_idx] ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
@@ -156,7 +149,7 @@ main( int     argc,
     fd_tile_task_t task;
     ulong          task_idx;
     switch( tile_idx ) {
-    case 0UL: task = main;                 task_idx = 0;  break;
+    case 0UL: task = NULL;                 task_idx = 0;  break;
     case 1UL: task = fd_frank_pack_task;   task_idx = 0;  break;
     case 2UL: task = fd_frank_dedup_task;  task_idx = 0;  break;
     default:
@@ -174,11 +167,10 @@ main( int     argc,
     if( 10 == snprintf( task_idx_str, 10, "%lu", task_idx ) )
       FD_LOG_ERR(( "task_idx_str overflow" ));
 
-    char * task_argv[5] = { 0 };
+    char * task_argv[4] = { 0 };
     task_argv[0] = (char *)tile_name[ tile_idx ];
     task_argv[1] = (char *)pod_gaddr;
-    task_argv[2] = (char *)FD_FRANK_CONFIGURATION_PREFIX;
-    task_argv[3] = task_idx_str;
+    task_argv[2] = task_idx_str;
     if( FD_UNLIKELY( !fd_tile_exec_new( tile_idx, task, 4, task_argv ) ) )
       FD_LOG_ERR(( "fd_tile_exec_new failed" ));
 
@@ -249,17 +241,3 @@ main( int     argc,
   fd_halt();
   return 0;
 }
-
-#else
-
-int
-main( int     argc,
-      char ** argv ) {
-  fd_boot( &argc, &argv );
-  FD_LOG_WARNING(( "unsupported for this build target" ));
-  fd_halt();
-  return 1;
-}
-
-#endif
-

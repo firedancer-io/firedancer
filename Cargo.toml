@@ -1,6 +1,5 @@
 [workspace]
-members = ["src/app/fdctl", "ffi/rust/firedancer-sys", "ffi/rust/firedancer-diff"]
-default-members = ["src/app/fdctl"]
+members = ["ffi/rust/firedancer-sys", "ffi/rust/firedancer-diff"]
 resolver = "2"
 
 [profile.dev]

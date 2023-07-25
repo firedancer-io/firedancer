@@ -9,7 +9,6 @@
 #include "tls/fd_quic_tls.h"
 
 #include <errno.h>
-#include <execinfo.h>
 #include <string.h>
 #include <fcntl.h>   /* for keylog open(2)  */
 #include <unistd.h>  /* for keylog close(2) */

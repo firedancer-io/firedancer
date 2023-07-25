@@ -2,7 +2,7 @@ MAKEFLAGS += --no-builtin-rules
 MAKEFLAGS += --no-builtin-variables
 .SUFFIXES:
 .SUFFIXES: .h .hxx .c .cxx .o .a .d .S .i
-.PHONY: all bin include lib unit-test fuzz-test run-unit-test help clean distclean asm ppp show-deps lint check-lint
+.PHONY: all bin run monitor include lib unit-test fuzz-test run-unit-test help clean distclean asm ppp show-deps lint check-lint
 .SECONDARY:
 .SECONDEXPANSION:
 
@@ -81,6 +81,28 @@ check-lint:
 	# Checking lint in src/
 	#######################################################################
 	$(FIND) src/ -iname "*.c" -or -iname "*.h" | uncrustify -c lint.cfg -F - --check
+
+ifeq (run,$(firstword $(MAKECMDGOALS)))
+  RUN_ARGS := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
+  ifeq ($(RUN_ARGS),)
+    RUN_ARGS := --configure --sudo
+  endif
+  $(eval $(RUN_ARGS):;@:)
+endif
+
+run: bin
+	$(OBJDIR)/bin/fdctl $(RUN_ARGS)
+
+ifeq (monitor,$(firstword $(MAKECMDGOALS)))
+  MONITOR_ARGS := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
+  ifeq ($(MONITOR_ARGS),)
+    MONITOR_ARGS := --sudo
+  endif
+  $(eval $(MONITOR_ARGS):;@:)
+endif
+
+monitor: bin
+	$(OBJDIR)/bin/fdctl monitor $(MONITOR_ARGS)
 
 ##############################
 # Usage: $(call make-lib,name)

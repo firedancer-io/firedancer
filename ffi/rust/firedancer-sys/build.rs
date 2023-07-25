@@ -16,10 +16,7 @@ fn main() {
             out_dir.join("build/linux/clang/fuzz_asan"),
         )
     } else {
-        (
-            "linux_gcc_x86_64_ffi",
-            out_dir.join("build/linux/gcc/x86_64_ffi"),
-        )
+        ("native_ffi", out_dir.join("build/linux/gcc/x86_64_ffi"))
     };
 
     let prefix = if dir.join("staging").exists() {
@@ -171,6 +168,7 @@ fn main() {
             .arg(format!("{}/lib/libfd_{lib}.a", build_dir.display()))
             .current_dir(&dir.join(prefix))
             .env("MACHINE", machine)
+            .env("CC", "gcc") // Always use GCC for building FFI
             .env("BASEDIR", out_dir.join("build"));
 
         // No statics in disco yet so no extern wrapper file is produced

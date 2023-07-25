@@ -16,7 +16,7 @@
 #include <linux/mman.h>
 
 #if FD_HAS_THREADS
-pthread_mutex_t fd_shmem_private_lock[1] = { PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP };
+pthread_mutex_t fd_shmem_private_lock[1];
 #endif
 
 char  fd_shmem_private_base[ FD_SHMEM_PRIVATE_BASE_MAX ]; /* ""  at thread group start, initialized at boot */
@@ -651,6 +651,16 @@ void
 fd_shmem_private_boot( int *    pargc,
                        char *** pargv ) {
   FD_LOG_INFO(( "fd_shmem: booting" ));
+
+  /* Initialize the phtread mutex */
+
+# if FD_HAS_THREADS
+  pthread_mutexattr_t lockattr[1];
+  pthread_mutexattr_init( lockattr );
+  pthread_mutexattr_settype( lockattr, PTHREAD_MUTEX_RECURSIVE );
+  pthread_mutex_init( fd_shmem_private_lock, lockattr );
+  pthread_mutexattr_destroy( lockattr );
+# endif /* FD_HAS_THREADS */
 
   /* Cache the numa topology for this thread group's host for
      subsequent fast use by the application. */

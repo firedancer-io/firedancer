@@ -2,7 +2,7 @@
 #
 #  make -j
 #
-# will do a parallel make all targets for the default machine.
+# will do a parallel make all targets for the native machine.
 #
 # The environment variable MACHINE allows building for different
 # machines.  As such, the above is equivalent to running:
@@ -45,8 +45,7 @@
 # help building efficiently on systems with cpu isolation enabled.
 
 ifndef MACHINE
-$(warning MACHINE not specified, using default, run make help for more info)
-MACHINE=linux_gcc_x86_64
+MACHINE=native
 endif
 
 $(info Using MACHINE=$(MACHINE))
