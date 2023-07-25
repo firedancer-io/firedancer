@@ -171,10 +171,7 @@ fd_stake_history_entry_t stake_and_activating( fd_delegation_t const * delegatio
 
   fd_stake_history_epochentry_pair_t_mapnode_t k;
   k.elem.epoch = target_epoch;
-  fd_stake_history_epochentry_pair_t_mapnode_t* n = fd_stake_history_epochentry_pair_t_map_find( stake_history->entries_pool, stake_history->entries_root, &k );
 
-  if (NULL != n)
-    cluster_stake_at_activation_epoch = &n->elem.entry;
 
   if (delegation->activation_epoch == (ulong)-1) {
     // if is bootstrap
@@ -205,8 +202,12 @@ fd_stake_history_entry_t stake_and_activating( fd_delegation_t const * delegatio
     };
     return entry;
   }
+  else if (stake_history != NULL && cluster_stake_at_activation_epoch != NULL) {
+    fd_stake_history_epochentry_pair_t_mapnode_t* n = fd_stake_history_epochentry_pair_t_map_find( stake_history->entries_pool, stake_history->entries_root, &k );
 
-  else if (cluster_stake_at_activation_epoch != NULL) {
+    if (NULL != n)
+      cluster_stake_at_activation_epoch = &n->elem.entry;
+
     ulong prev_epoch = delegation->activation_epoch;
     fd_stake_history_entry_t * prev_cluster_stake = cluster_stake_at_activation_epoch;
 
@@ -254,10 +255,10 @@ fd_stake_history_entry_t stake_and_activating( fd_delegation_t const * delegatio
     };
     return entry;
   } else {
+    // no history or I've dropped out of history, so assume fully effective
     fd_stake_history_entry_t entry = {
-      .effective = 0,
+      .effective = delegated_stake,
       .activating = 0,
-      .deactivating = 0
     };
 
     return entry;
@@ -265,6 +266,7 @@ fd_stake_history_entry_t stake_and_activating( fd_delegation_t const * delegatio
 }
 
 fd_stake_history_entry_t stake_activating_and_deactivating( fd_delegation_t const * delegation, ulong target_epoch, fd_stake_history_t * stake_history ) {
+
   fd_stake_history_entry_t stake_and_activating_entry = stake_and_activating( delegation, target_epoch, stake_history );
 
   ulong effective_stake = stake_and_activating_entry.effective;
@@ -274,10 +276,6 @@ fd_stake_history_entry_t stake_activating_and_deactivating( fd_delegation_t cons
 
   fd_stake_history_epochentry_pair_t_mapnode_t k;
   k.elem.epoch = target_epoch;
-  fd_stake_history_epochentry_pair_t_mapnode_t* n = fd_stake_history_epochentry_pair_t_map_find( stake_history->entries_pool, stake_history->entries_root, &k );
-
-  if (NULL != n)
-    cluster_stake_at_activation_epoch = &n->elem.entry;
 
   if (target_epoch < delegation->deactivation_epoch) {
     // if is bootstrap
@@ -303,7 +301,12 @@ fd_stake_history_entry_t stake_activating_and_deactivating( fd_delegation_t cons
       .activating = 0
     };
     return entry;
-  } else if (cluster_stake_at_activation_epoch != NULL) {
+  } else if (stake_history != NULL && cluster_stake_at_activation_epoch != NULL) {
+    fd_stake_history_epochentry_pair_t_mapnode_t* n = fd_stake_history_epochentry_pair_t_map_find( stake_history->entries_pool, stake_history->entries_root, &k );
+
+    if (NULL != n) {
+      cluster_stake_at_activation_epoch = &n->elem.entry;
+    }
     ulong prev_epoch = delegation->activation_epoch;
     fd_stake_history_entry_t * prev_cluster_stake = cluster_stake_at_activation_epoch;
 
@@ -359,6 +362,7 @@ fd_stake_history_entry_t stake_activating_and_deactivating( fd_delegation_t cons
     return entry;
   }
 }
+
 
 /* Initializes the stakes cache in the Bank structure.
    TODO: maybe we don't need this cache at all? */
@@ -424,4 +428,48 @@ void activate_epoch( fd_global_ctx_t* global, ulong next_epoch ) {
     fd_stake_weight_t_mapnode_t * entry = fd_stake_weight_t_map_find(pool, root, &temp);
     n->elem.stake = (entry == NULL) ? 0 : entry->elem.stake;
   }
+}
+
+int write_stake_state(
+    fd_global_ctx_t* global,
+    fd_pubkey_t* stake_acc,
+    fd_stake_state_t* stake_state,
+    ushort is_new_account
+) {
+    fd_account_meta_t metadata;
+    int read_result = fd_acc_mgr_get_metadata( global->acc_mgr, global->funk_txn, stake_acc, &metadata );
+    if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
+      FD_LOG_WARNING(( "failed to read account metadata" ));
+      return read_result;
+    }
+
+    ulong encoded_stake_state_size = (is_new_account) ? STAKE_ACCOUNT_SIZE : fd_stake_state_size(stake_state);
+    uchar* encoded_stake_state = fd_valloc_malloc( global->valloc, 8UL, encoded_stake_state_size );
+    if (is_new_account) {
+      fd_memset( encoded_stake_state, 0, encoded_stake_state_size );
+    }
+
+    fd_bincode_encode_ctx_t ctx3;
+    ctx3.data = encoded_stake_state;
+    ctx3.dataend = encoded_stake_state + encoded_stake_state_size;
+    if ( fd_stake_state_encode( stake_state, &ctx3 ) )
+      FD_LOG_ERR(("fd_stake_state_encode failed"));
+
+    fd_solana_account_t structured_account;
+    structured_account.data = encoded_stake_state;
+    structured_account.data_len = encoded_stake_state_size;
+    structured_account.executable = 0;
+    structured_account.rent_epoch = 0;
+    memcpy( &structured_account.owner, global->solana_stake_program, sizeof(fd_pubkey_t) );
+
+    int write_result = fd_acc_mgr_write_structured_account( global->acc_mgr, global->funk_txn, global->bank.slot, stake_acc, &structured_account );
+    if ( write_result != FD_ACC_MGR_SUCCESS ) {
+      FD_LOG_WARNING(( "failed to write account data" ));
+      return write_result;
+    }
+    metadata.dlen = (is_new_account) ? STAKE_ACCOUNT_SIZE : metadata.dlen;
+
+    fd_acc_mgr_set_metadata( global->acc_mgr, global->funk_txn, stake_acc, &metadata);
+
+    return FD_EXECUTOR_INSTR_SUCCESS;
 }
