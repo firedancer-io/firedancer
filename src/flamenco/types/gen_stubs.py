@@ -756,7 +756,22 @@ def do_deque_body_walk(n, f):
 #    print('  }', file=body)
 
 def do_map_body_walk(n, f):
-    print(f'  //fun(&self->{f["name"]}, "{f["name"]}", 17, "map");', file=body),
+    element_type = deque_elem_type(n, f)
+    mapname = element_type + "_map"
+    nodename = element_type + "_mapnode_t"
+    print(f'  if (self->{f["name"]}_root) {{', file=body)
+    print(f'    for ( {nodename}* n = {mapname}_minimum(self->{f["name"]}_pool, self->{f["name"]}_root); n; n = {mapname}_successor(self->{f["name"]}_pool, n) ) {{', file=body);
+
+    if f["element"] == "uchar":
+        print('      fun(&n->elem, "ele", 1, "long", level + 1);', file=body),
+    elif f["element"] == "ulong":
+        print('      fun(&n->elem, "ele", 6, "long", level + 1);', file=body),
+    elif f["element"] == "uint":
+        print('      fun(&n->elem, "ele", 7, "uint", level + 1);', file=body),
+    else:
+        print(f'      {n}_{f["element"]}_walk(&n->elem, fun, "{f["name"]}", level + 1);', file=body)
+    print(f'    }}', file=body)
+    print(f'  }}', file=body)
 
 #    element_type = deque_elem_type(n, f)
 #    mapname = element_type + "_map"
