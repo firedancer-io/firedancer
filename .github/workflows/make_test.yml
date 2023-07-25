@@ -11,9 +11,13 @@ jobs:
     runs-on: [self-hosted, Linux, X64]
     defaults:
       run:
-        shell: sudo bash --noprofile --norc -eo pipefail -c "set -ex; export MACHINE=linux_clang_x86_64; chmod +x {0} && {0}"
+        shell: sudo --preserve-env=PATH bash --noprofile --norc -eo pipefail -c "set -ex; export MACHINE=linux_clang_x86_64; chmod +x {0} && {0}"
     steps:
       - uses: actions/checkout@v3
+        with:
+          submodules: recursive
+
+      - uses: dtolnay/rust-toolchain@1.69.0
 
       - name: Copy prebuilt deps
         run: "cp -r /home/runner/firedancer-opts/opt . && ls -lah opt"
@@ -28,9 +32,13 @@ jobs:
     runs-on: [self-hosted, Linux, X64]
     defaults:
       run:
-        shell: sudo bash --noprofile --norc -eo pipefail -c "set -ex; export MACHINE=linux_clang_x86_64_asan; chmod +x {0} && {0}"
+        shell: sudo --preserve-env=PATH bash --noprofile --norc -eo pipefail -c "set -ex; export MACHINE=linux_clang_x86_64_asan; chmod +x {0} && {0}"
     steps:
       - uses: actions/checkout@v3
+        with:
+          submodules: recursive
+
+      - uses: dtolnay/rust-toolchain@1.69.0
 
       - name: Copy prebuilt deps
         run: "cp -r /home/runner/firedancer-opts/opt . && ls -lah opt"
@@ -48,9 +56,13 @@ jobs:
         compiler: [gcc, clang]
     defaults:
       run:
-        shell: sudo bash --noprofile --norc -eo pipefail -c "set -ex; export MACHINE=linux_${{ matrix.compiler }}_x86_64_ubsan; chmod +x {0} && {0}"
+        shell: sudo --preserve-env=PATH bash --noprofile --norc -eo pipefail -c "set -ex; export MACHINE=linux_${{ matrix.compiler }}_x86_64_ubsan; chmod +x {0} && {0};"
     steps:
       - uses: actions/checkout@v3
+        with:
+          submodules: recursive
+
+      - uses: dtolnay/rust-toolchain@1.69.0
 
       - name: Copy prebuilt deps
         run: "cp -r /home/runner/firedancer-opts/opt . && ls -lah opt"
@@ -60,4 +72,3 @@ jobs:
 
       - name: Run unit tests
         run: make -k -j2 --output-sync=target run-unit-test
-

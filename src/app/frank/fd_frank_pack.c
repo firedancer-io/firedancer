@@ -1,25 +1,32 @@
 #include "fd_frank.h"
 #include "../../ballet/pack/fd_pack.h"
 
+#include <linux/unistd.h>
+
+static long allow_syscalls[] = {
+  __NR_write,     /* logging */
+  __NR_futex,     /* logging, glibc fprintf unfortunately uses a futex internally */
+  __NR_fsync,     /* logging, WARNING and above fsync immediately */
+  __NR_nanosleep, /* fd_tempo_tick_per_ns calibration */
+};
+
 #define FD_PACK_TAG 0x17ac1C711eUL
 
-int
-fd_frank_pack_task( int     argc,
-                    char ** argv ) {
-  (void)argc;
-  fd_log_thread_set( argv[0] );
+static void
+init( fd_frank_args_t * args ) {
+  args->pod = fd_wksp_pod_attach( args->pod_gaddr );
+  args->close_fd_start = 4; /* stdin, stdout, stderr, logfile */
+  args->allow_syscalls_sz = sizeof(allow_syscalls)/sizeof(allow_syscalls[ 0 ]);
+  args->allow_syscalls = allow_syscalls;
+}
+
+static void
+run( fd_frank_args_t * args ) {
   FD_LOG_INFO(( "pack init" ));
 
-  /* Parse "command line" arguments */
-
-  char const * pod_gaddr = argv[1];
-
-  ulong tile_idx = fd_tile_idx();
   /* Load up the configuration for this frank instance */
 
-  FD_LOG_INFO(( "using configuration in pod %s at path firedancer", pod_gaddr ));
-  uchar const * pod     = fd_wksp_pod_attach( pod_gaddr );
-  uchar const * cfg_pod = fd_pod_query_subpod( pod, "firedancer" );
+  uchar const * cfg_pod = fd_pod_query_subpod( args->pod, "firedancer" );
   if( FD_UNLIKELY( !cfg_pod ) ) FD_LOG_ERR(( "path not found" ));
 
   /* Join the IPC objects needed this tile instance */
@@ -144,7 +151,7 @@ fd_frank_pack_task( int     argc,
   int ctl_som = 1;
   int ctl_eom = 1;
   int ctl_err = 0;
-  ulong   ctl    = fd_frag_meta_ctl( tile_idx, ctl_som, ctl_eom, ctl_err );
+  ulong   ctl    = fd_frag_meta_ctl( args->tile_idx, ctl_som, ctl_eom, ctl_err );
   /* Start packing */
 
 
@@ -286,17 +293,10 @@ fd_frank_pack_task( int     argc,
     seq   = fd_seq_inc( seq, 1UL );
     mline = mcache + fd_mcache_line_idx( seq, depth );
   }
-
-  /* Clean up */
-  fd_pack_delete( fd_pack_leave( pack ) );
-  fd_wksp_free( wksp, pack_gaddr );
-
-  fd_cnc_signal( cnc, FD_CNC_SIGNAL_BOOT );
-  FD_LOG_INFO(( "pack fini" ));
-  fd_rng_delete    ( fd_rng_leave   ( rng    ) );
-  fd_wksp_pod_unmap( fd_fseq_leave  ( fseq   ) );
-  fd_wksp_pod_unmap( fd_mcache_leave( mcache ) );
-  fd_wksp_pod_unmap( fd_cnc_leave   ( cnc    ) );
-  fd_wksp_pod_detach( pod );
-  return 0;
 }
+
+fd_frank_task_t pack = {
+  .name = "pack",
+  .init = init,
+  .run  = run,
+};

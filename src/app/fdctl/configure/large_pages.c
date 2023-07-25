@@ -9,7 +9,7 @@ init_perm( security_t *     security,
   check_root( security, "large-pages", "write to a system control file `/proc/sys/vm/nr_hugepages`" );
 }
 
-static uint
+uint
 read_uint_file( const char * path ) {
   FILE * fp = fopen( path, "r" );
   if( FD_UNLIKELY( !fp ) ) FD_LOG_ERR(( "fopen failed `%s` (%i-%s)", path, errno, strerror( errno ) ));
@@ -21,7 +21,7 @@ read_uint_file( const char * path ) {
   return value;
 }
 
-static void
+void
 write_uint_file( const char * path,
                  uint         value ) {
   FILE * fp = fopen( path, "w" );
