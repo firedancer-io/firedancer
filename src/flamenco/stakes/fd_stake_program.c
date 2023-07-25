@@ -339,6 +339,125 @@ int get_if_mergeable( instruction_ctx_t* ctx, fd_stake_state_t* stake_state, fd_
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
+int authorize(instruction_ctx_t ctx,
+              uchar * instr_acc_idxs,
+              fd_pubkey_t * txn_accs,
+              fd_stake_authorize_t * stake_authorize,
+              fd_pubkey_t * new_authority,
+              fd_stake_state_t stake_state,
+              fd_pubkey_t * stake_acc,
+              fd_sol_sysvar_clock_t clock,
+              fd_pubkey_t * custodian,
+              bool require_custodian_for_locked_stake_authorize,
+              fd_pubkey_t * signers) {
+
+  fd_pubkey_t * staker = fd_stake_state_is_stake( &stake_state ) ? &stake_state.inner.stake.meta.authorized.staker : &stake_state.inner.initialized.authorized.staker;
+  fd_pubkey_t * withdrawer = fd_stake_state_is_stake( &stake_state ) ? &stake_state.inner.stake.meta.authorized.withdrawer : &stake_state.inner.initialized.authorized.withdrawer;
+  if ( fd_stake_authorize_is_staker( stake_authorize ) ) {
+      uchar authorized_staker_signed = 0;
+      uchar authorized_withdrawer_signed = 0;
+
+      if ( signers ) {
+        if ( !memcmp( signers, staker, sizeof(fd_pubkey_t) ) ) {
+          authorized_staker_signed = 1;
+        }
+        if ( !memcmp( signers, withdrawer, sizeof(fd_pubkey_t) ) ) {
+          authorized_withdrawer_signed = 1;
+        }
+      } else {
+        for ( ulong i = 0; i < ctx.instr->acct_cnt; i++ ) {
+          if ( instr_acc_idxs[i] < ctx.txn_ctx->txn_descriptor->signature_cnt ) {
+            fd_pubkey_t * signer = &txn_accs[instr_acc_idxs[i]];
+            if ( !memcmp( signer, staker, sizeof(fd_pubkey_t) ) ) {
+              authorized_staker_signed = 1;
+            }
+            if ( !memcmp( signer, withdrawer, sizeof(fd_pubkey_t) ) ) {
+              authorized_withdrawer_signed = 1;
+            }
+          }
+        }
+      }
+
+      if (!authorized_staker_signed && !authorized_withdrawer_signed) {
+        return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+      }
+
+      memcpy(staker, new_authority, sizeof(fd_pubkey_t));
+    } else {
+      if ( require_custodian_for_locked_stake_authorize ) {
+        fd_stake_lockup_t * lockup = fd_stake_state_is_stake( &stake_state ) ? &stake_state.inner.stake.meta.lockup : &stake_state.inner.initialized.lockup;
+        if ( lockup->unix_timestamp > clock.unix_timestamp || lockup->epoch > clock.epoch ) {
+          if ( custodian ) {
+            uchar custodian_signed = 0;
+
+            if ( signers ) {
+              if ( !memcmp( signers, custodian, sizeof(fd_pubkey_t) ) ) {
+                custodian_signed = 1;
+              }
+            } else {
+              for ( ulong i = 0; i < ctx.instr->acct_cnt; i++ ) {
+                if ( instr_acc_idxs[i] < ctx.txn_ctx->txn_descriptor->signature_cnt ) {
+                  fd_pubkey_t * signer = &txn_accs[instr_acc_idxs[i]];
+                  if ( !memcmp( signer, custodian, sizeof(fd_pubkey_t) ) ) {
+                    custodian_signed = 1;
+                  }
+                }
+              }
+            }
+
+            if ( !custodian_signed) {
+              return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+            }
+
+            if ( memcmp(&lockup->custodian, custodian, sizeof(fd_pubkey_t)) != 0) {
+              // return Err(StakeError::CustodianSignatureMissing.into());
+              ctx.txn_ctx->custom_err = 8;
+              return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+            }
+
+            if ( lockup->unix_timestamp > clock.unix_timestamp || lockup->epoch > clock.epoch ) {
+              // return Err(StakeError::LockupInForce.into());
+              ctx.txn_ctx->custom_err = 1;
+              return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+            }
+          } else {
+            // return Err(StakeError::CustodianMissing.into());
+            ctx.txn_ctx->custom_err = 7;
+            return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+          }
+        }
+      }
+      uchar authorized_withdrawer_signed = 0;
+
+      if ( signers ) {
+        if ( !memcmp( signers, withdrawer, sizeof(fd_pubkey_t) ) ) {
+          authorized_withdrawer_signed = 1;
+        }
+      } else {
+        for ( ulong i = 0; i < ctx.instr->acct_cnt; i++ ) {
+          if ( instr_acc_idxs[i] < ctx.txn_ctx->txn_descriptor->signature_cnt ) {
+            fd_pubkey_t * signer = &txn_accs[instr_acc_idxs[i]];
+            if ( !memcmp( signer, withdrawer, sizeof(fd_pubkey_t) ) ) {
+              authorized_withdrawer_signed = 1;
+            }
+          }
+        }
+      }
+
+      if ( !authorized_withdrawer_signed) {
+        return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+      }
+      memcpy(withdrawer, new_authority, sizeof(fd_pubkey_t));
+    }
+
+    int write_result = write_stake_state(ctx.global, stake_acc, &stake_state, 0);
+    if ( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) ) {
+      FD_LOG_WARNING(( "failed to write stake account" ));
+      return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
+    }
+    return 0;
+}
+
 
 int fd_executor_stake_program_execute_instruction(
   FD_FN_UNUSED instruction_ctx_t ctx
@@ -449,21 +568,17 @@ int fd_executor_stake_program_execute_instruction(
   } // end of fd_stake_instruction_is_initialize
   else if ( fd_stake_instruction_is_authorize( &instruction ) ) { //authorize, discriminant 1
     // https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/stake/src/stake_instruction.rs#L50
-    fd_pubkey_t* stake_acc = &txn_accs[instr_acc_idxs[0]];
+    fd_pubkey_t * stake_acc = &txn_accs[instr_acc_idxs[0]];
 
     /* Read the current State State from the Stake account */
     fd_stake_state_t stake_state;
     read_stake_state( ctx.global, stake_acc, &stake_state );
 
-    if ( !fd_stake_state_is_stake( &stake_state ) && !fd_stake_state_is_initialized( &stake_state) ) {
-      return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
-    }
-
-    fd_stake_authorize_t stake_authorize = instruction.inner.authorize.stake_authorize;
-    fd_pubkey_t new_authority = instruction.inner.authorize.pubkey;
+    fd_stake_authorize_t * stake_authorize = &instruction.inner.authorize.stake_authorize;
+    fd_pubkey_t * new_authority = &instruction.inner.authorize.pubkey;
     fd_sol_sysvar_clock_t clock;
     bool require_custodian_for_locked_stake_authorize = FD_FEATURE_ACTIVE(ctx.global, require_custodian_for_locked_stake_authorize);
-    fd_pubkey_t* custodian = NULL;
+    fd_pubkey_t * custodian = NULL;
 
     if ( require_custodian_for_locked_stake_authorize ) {
       if ( memcmp( &txn_accs[instr_acc_idxs[1]], ctx.global->sysvar_clock, sizeof(fd_pubkey_t) ) != 0 ) {
@@ -479,92 +594,62 @@ int fd_executor_stake_program_execute_instruction(
       }
     }
 
-    fd_pubkey_t* staker = fd_stake_state_is_stake( &stake_state ) ? &stake_state.inner.stake.meta.authorized.staker : &stake_state.inner.initialized.authorized.staker;
-    fd_pubkey_t* withdrawer = fd_stake_state_is_stake( &stake_state ) ? &stake_state.inner.stake.meta.authorized.withdrawer : &stake_state.inner.initialized.authorized.withdrawer;
-
-    if ( fd_stake_authorize_is_staker( &stake_authorize ) ) {
-      uchar authorized_staker_signed = 0;
-      uchar authorized_withdrawer_signed = 0;
-
-      for ( ulong i = 0; i < ctx.instr->acct_cnt; i++ ) {
-        if ( instr_acc_idxs[i] < ctx.txn_ctx->txn_descriptor->signature_cnt ) {
-          fd_pubkey_t * signer = &txn_accs[instr_acc_idxs[i]];
-          if ( !memcmp( signer, staker, sizeof(fd_pubkey_t) ) ) {
-            authorized_staker_signed = 1;
-          }
-          if ( !memcmp( signer, withdrawer, sizeof(fd_pubkey_t) ) ) {
-            authorized_withdrawer_signed = 1;
-          }
-        }
-      }
-
-      if (!authorized_staker_signed && !authorized_withdrawer_signed) {
-        return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
-      }
-
-      *staker = new_authority;
-    } else {
-      if ( require_custodian_for_locked_stake_authorize ) {
-        fd_stake_lockup_t* lockup = fd_stake_state_is_stake( &stake_state ) ? &stake_state.inner.stake.meta.lockup : &stake_state.inner.initialized.lockup;
-        if ( lockup->unix_timestamp > clock.unix_timestamp || lockup->epoch > clock.epoch ) {
-          if ( custodian ) {
-            uchar custodian_signed = 0;
-
-            for ( ulong i = 0; i < ctx.instr->acct_cnt; i++ ) {
-              if ( instr_acc_idxs[i] < ctx.txn_ctx->txn_descriptor->signature_cnt ) {
-                fd_pubkey_t * signer = &txn_accs[instr_acc_idxs[i]];
-                if ( !memcmp( signer, custodian, sizeof(fd_pubkey_t) ) ) {
-                  custodian_signed = 1;
-                }
-              }
-            }
-
-            if ( !custodian_signed) {
-              return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
-            }
-
-            if ( memcmp(&lockup->custodian, custodian, sizeof(fd_pubkey_t)) != 0) {
-              // return Err(StakeError::CustodianSignatureMissing.into());
-              ctx.txn_ctx->custom_err = 8;
-              return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
-            }
-
-            if ( lockup->unix_timestamp > clock.unix_timestamp || lockup->epoch > clock.epoch ) {
-              // return Err(StakeError::LockupInForce.into());
-              ctx.txn_ctx->custom_err = 1;
-              return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
-            }
-          } else {
-            // return Err(StakeError::CustodianMissing.into());
-            ctx.txn_ctx->custom_err = 7;
-            return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
-          }
-        }
-      }
-      uchar authorized_withdrawer_signed = 0;
-
-      for ( ulong i = 0; i < ctx.instr->acct_cnt; i++ ) {
-        if ( instr_acc_idxs[i] < ctx.txn_ctx->txn_descriptor->signature_cnt ) {
-          fd_pubkey_t * signer = &txn_accs[instr_acc_idxs[i]];
-          if ( !memcmp( signer, withdrawer, sizeof(fd_pubkey_t) ) ) {
-            authorized_withdrawer_signed = 1;
-          }
-        }
-      }
-
-      if ( !authorized_withdrawer_signed) {
-        return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
-      }
-      *withdrawer = new_authority;
+    if ( !fd_stake_state_is_stake( &stake_state ) && !fd_stake_state_is_initialized( &stake_state) ) {
+      return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
     }
-
-    int write_result = write_stake_state(ctx.global, stake_acc, &stake_state, 0);
-    if ( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) ) {
-      FD_LOG_WARNING(( "failed to write stake account" ));
-      return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
-    }
+    int res = authorize(ctx, instr_acc_idxs, txn_accs, stake_authorize, new_authority, stake_state, stake_acc, clock, custodian, require_custodian_for_locked_stake_authorize, NULL);
+    if ( res != 0 )
+      return res;
 
   } // end of fd_stake_instruction_is_authorize, discriminant 1
+  else if ( fd_stake_instruction_is_authorize_with_seed( &instruction ) ) {
+    fd_pubkey_t * stake_acc = &txn_accs[instr_acc_idxs[0]];
+
+    /* Read the current State State from the Stake account */
+    fd_stake_state_t stake_state;
+    read_stake_state( ctx.global, stake_acc, &stake_state );
+
+    fd_stake_authorize_t * stake_authorize = &instruction.inner.authorize_with_seed.stake_authorize;
+    fd_pubkey_t * new_authority = &instruction.inner.authorize_with_seed.new_authorized_pubkey;
+    char * authority_seed = instruction.inner.authorize_with_seed.authority_seed;
+    fd_pubkey_t authority_owner = instruction.inner.authorize_with_seed.authority_owner;
+
+    fd_sol_sysvar_clock_t clock;
+    bool require_custodian_for_locked_stake_authorize = FD_FEATURE_ACTIVE(ctx.global, require_custodian_for_locked_stake_authorize);
+    fd_pubkey_t * custodian = NULL;
+
+    if (ctx.txn_ctx->txn_descriptor->acct_addr_cnt < 2) {
+      return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+    }
+
+    if ( require_custodian_for_locked_stake_authorize ) {
+      if ( memcmp( &txn_accs[instr_acc_idxs[2]], ctx.global->sysvar_clock, sizeof(fd_pubkey_t) ) != 0 ) {
+        return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+      }
+      fd_sysvar_clock_read( ctx.global, &clock );
+
+      if ( ctx.txn_ctx->txn_descriptor->acct_addr_cnt > 3 ) {
+        custodian = &txn_accs[instr_acc_idxs[3]];
+      }
+    }
+
+    if ( !fd_stake_state_is_stake( &stake_state ) && !fd_stake_state_is_initialized( &stake_state) ) {
+      return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+    }
+
+    fd_pubkey_t signer;
+    uchar single_signer = 0;
+    if ( instr_acc_idxs[1] < ctx.txn_ctx->txn_descriptor->signature_cnt ) {
+      fd_pubkey_t * base_pubkey = &txn_accs[instr_acc_idxs[1]];
+      fd_pubkey_create_with_seed(base_pubkey, authority_seed, &authority_owner, &signer);
+      single_signer = 1;
+    }
+    fd_pubkey_t * signers = single_signer ? &signer : NULL;
+    int res = authorize(ctx, instr_acc_idxs, txn_accs, stake_authorize, new_authority, stake_state, stake_acc, clock, custodian, require_custodian_for_locked_stake_authorize, signers);
+    if ( res != 0 )
+      return res;
+
+  } // end of fd_stake_instruction_is_authorize_with_seed
   else if ( fd_stake_instruction_is_delegate_stake( &instruction ) ) {
     /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/stake/src/stake_instruction.rs#L126 */
 
