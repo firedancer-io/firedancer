@@ -690,7 +690,11 @@ void fd_stake_history_destroy(fd_stake_history_t* self, fd_bincode_destroy_ctx_t
 
 void fd_stake_history_walk(fd_stake_history_t* self, fd_walk_fun_t fun, const char *name, int level) {
   fun(self, name, 32, "fd_stake_history", level++);
-  //fun(&self->entries, "entries", 17, "map");
+  if (self->entries_root) {
+    for ( fd_stake_history_epochentry_pair_t_mapnode_t* n = fd_stake_history_epochentry_pair_t_map_minimum(self->entries_pool, self->entries_root); n; n = fd_stake_history_epochentry_pair_t_map_successor(self->entries_pool, n) ) {
+      fd_stake_history_epochentry_pair_walk(&n->elem, fun, "entries", level + 1);
+    }
+  }
   fun(self, name, 33, "fd_stake_history", --level);
 }
 ulong fd_stake_history_size(fd_stake_history_t const * self) {
@@ -871,7 +875,11 @@ void fd_vote_accounts_destroy(fd_vote_accounts_t* self, fd_bincode_destroy_ctx_t
 
 void fd_vote_accounts_walk(fd_vote_accounts_t* self, fd_walk_fun_t fun, const char *name, int level) {
   fun(self, name, 32, "fd_vote_accounts", level++);
-  //fun(&self->vote_accounts, "vote_accounts", 17, "map");
+  if (self->vote_accounts_root) {
+    for ( fd_vote_accounts_pair_t_mapnode_t* n = fd_vote_accounts_pair_t_map_minimum(self->vote_accounts_pool, self->vote_accounts_root); n; n = fd_vote_accounts_pair_t_map_successor(self->vote_accounts_pool, n) ) {
+      fd_vote_accounts_pair_walk(&n->elem, fun, "vote_accounts", level + 1);
+    }
+  }
   fun(self, name, 33, "fd_vote_accounts", --level);
 }
 ulong fd_vote_accounts_size(fd_vote_accounts_t const * self) {
@@ -973,7 +981,11 @@ void fd_stake_weights_destroy(fd_stake_weights_t* self, fd_bincode_destroy_ctx_t
 
 void fd_stake_weights_walk(fd_stake_weights_t* self, fd_walk_fun_t fun, const char *name, int level) {
   fun(self, name, 32, "fd_stake_weights", level++);
-  //fun(&self->stake_weights, "stake_weights", 17, "map");
+  if (self->stake_weights_root) {
+    for ( fd_stake_weight_t_mapnode_t* n = fd_stake_weight_t_map_minimum(self->stake_weights_pool, self->stake_weights_root); n; n = fd_stake_weight_t_map_successor(self->stake_weights_pool, n) ) {
+      fd_stake_weight_walk(&n->elem, fun, "stake_weights", level + 1);
+    }
+  }
   fun(self, name, 33, "fd_stake_weights", --level);
 }
 ulong fd_stake_weights_size(fd_stake_weights_t const * self) {
@@ -1146,7 +1158,11 @@ void fd_stakes_destroy(fd_stakes_t* self, fd_bincode_destroy_ctx_t * ctx) {
 void fd_stakes_walk(fd_stakes_t* self, fd_walk_fun_t fun, const char *name, int level) {
   fun(self, name, 32, "fd_stakes", level++);
   fd_vote_accounts_walk(&self->vote_accounts, fun, "vote_accounts", level + 1);
-  //fun(&self->stake_delegations, "stake_delegations", 17, "map");
+  if (self->stake_delegations_root) {
+    for ( fd_delegation_pair_t_mapnode_t* n = fd_delegation_pair_t_map_minimum(self->stake_delegations_pool, self->stake_delegations_root); n; n = fd_delegation_pair_t_map_successor(self->stake_delegations_pool, n) ) {
+      fd_delegation_pair_walk(&n->elem, fun, "stake_delegations", level + 1);
+    }
+  }
   fun(&self->unused, "unused", 11, "ulong", level + 1);
   fun(&self->epoch, "epoch", 11, "ulong", level + 1);
   fd_stake_history_walk(&self->stake_history, fun, "stake_history", level + 1);
@@ -2211,7 +2227,11 @@ void fd_slot_account_pair_destroy(fd_slot_account_pair_t* self, fd_bincode_destr
 void fd_slot_account_pair_walk(fd_slot_account_pair_t* self, fd_walk_fun_t fun, const char *name, int level) {
   fun(self, name, 32, "fd_slot_account_pair", level++);
   fun(&self->slot, "slot", 11, "ulong", level + 1);
-  //fun(&self->accounts, "accounts", 17, "map");
+  if (self->accounts_root) {
+    for ( fd_serializable_account_storage_entry_t_mapnode_t* n = fd_serializable_account_storage_entry_t_map_minimum(self->accounts_pool, self->accounts_root); n; n = fd_serializable_account_storage_entry_t_map_successor(self->accounts_pool, n) ) {
+      fd_serializable_account_storage_entry_walk(&n->elem, fun, "accounts", level + 1);
+    }
+  }
   fun(self, name, 33, "fd_slot_account_pair", --level);
 }
 ulong fd_slot_account_pair_size(fd_slot_account_pair_t const * self) {
@@ -2357,7 +2377,11 @@ void fd_solana_accounts_db_fields_destroy(fd_solana_accounts_db_fields_t* self, 
 
 void fd_solana_accounts_db_fields_walk(fd_solana_accounts_db_fields_t* self, fd_walk_fun_t fun, const char *name, int level) {
   fun(self, name, 32, "fd_solana_accounts_db_fields", level++);
-  //fun(&self->storages, "storages", 17, "map");
+  if (self->storages_root) {
+    for ( fd_slot_account_pair_t_mapnode_t* n = fd_slot_account_pair_t_map_minimum(self->storages_pool, self->storages_root); n; n = fd_slot_account_pair_t_map_successor(self->storages_pool, n) ) {
+      fd_slot_account_pair_walk(&n->elem, fun, "storages", level + 1);
+    }
+  }
   fun(&self->version, "version", 11, "ulong", level + 1);
   fun(&self->slot, "slot", 11, "ulong", level + 1);
   fd_bank_hash_info_walk(&self->bank_hash_info, fun, "bank_hash_info", level + 1);
@@ -4813,7 +4837,11 @@ void fd_clock_timestamp_votes_destroy(fd_clock_timestamp_votes_t* self, fd_binco
 
 void fd_clock_timestamp_votes_walk(fd_clock_timestamp_votes_t* self, fd_walk_fun_t fun, const char *name, int level) {
   fun(self, name, 32, "fd_clock_timestamp_votes", level++);
-  //fun(&self->votes, "votes", 17, "map");
+  if (self->votes_root) {
+    for ( fd_clock_timestamp_vote_t_mapnode_t* n = fd_clock_timestamp_vote_t_map_minimum(self->votes_pool, self->votes_root); n; n = fd_clock_timestamp_vote_t_map_successor(self->votes_pool, n) ) {
+      fd_clock_timestamp_vote_walk(&n->elem, fun, "votes", level + 1);
+    }
+  }
   fun(self, name, 33, "fd_clock_timestamp_votes", --level);
 }
 ulong fd_clock_timestamp_votes_size(fd_clock_timestamp_votes_t const * self) {
