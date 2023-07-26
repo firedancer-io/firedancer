@@ -111,6 +111,7 @@ fd_quic_stream_spam_service( fd_quic_conn_t *        conn,
 
   /* Create new streams
      Stop when QUIC quota runs out or stack limit reached */
+   ulong streams = 0;
 
   for( ulong avail=spam_pending_avail( pending ); avail>0; avail-- ) {
     fd_quic_stream_t * stream = fd_quic_conn_new_stream( conn, FD_QUIC_TYPE_UNIDIR );
@@ -119,6 +120,7 @@ fd_quic_stream_spam_service( fd_quic_conn_t *        conn,
     /* Insert stream into stack, set back reference */
     spam_pending_push( pending, stream );
     stream->context = &pending[ spam_pending_cnt( pending )-1UL ];
+    streams++;
   }
 
   /* Send streams */
@@ -166,8 +168,6 @@ fd_quic_stream_spam_notify( fd_quic_stream_t * stream,
 
   (void)stream;
   (void)notify_type;
-
-  //FD_LOG_DEBUG(( "client notify stream=%lu notify_type=%d", stream->stream_id, notify_type ));
 
   /* Nothing to do for completed streams */
   if( FD_LIKELY( !stream_ctx ) ) return;

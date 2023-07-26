@@ -473,13 +473,15 @@ main( int argc, char ** argv ) {
   FD_TEST( wksp );
 
   fd_quic_limits_t const quic_limits = {
-    .conn_cnt         = 10,
-    .conn_id_cnt      = 10,
-    .conn_id_sparsity = 4.0,
-    .handshake_cnt    = 10,
-    .stream_cnt       = { 0, 0, 10, 0 },
-    .inflight_pkt_cnt = 1024,
-    .tx_buf_sz        = 1<<14
+    .conn_cnt           = 10,
+    .conn_id_cnt        = 10,
+    .conn_id_sparsity   = 4.0,
+    .handshake_cnt      = 10,
+    .stream_cnt         = { 0, 0, 10, 0 },
+    .initial_stream_cnt = { 0, 0, 10, 0 },
+    .stream_pool_cnt    = 512,
+    .inflight_pkt_cnt   = 1024,
+    .tx_buf_sz          = 1<<14
   };
 
   ulong quic_footprint = fd_quic_footprint( &quic_limits );
@@ -496,6 +498,7 @@ main( int argc, char ** argv ) {
 
   fd_quic_config_t * client_config = &client_quic->config;
   client_config->idle_timeout = 5e9;
+  client_config->service_interval = 1e6;
 
   client_quic->cb.conn_hs_complete = my_handshake_complete;
   client_quic->cb.stream_receive   = my_stream_receive_cb;
@@ -509,6 +512,7 @@ main( int argc, char ** argv ) {
 
   fd_quic_config_t * server_config = &server_quic->config;
   server_config->idle_timeout = 5e9;
+  server_config->service_interval = 1e6;
 
   server_quic->cb.conn_new       = my_connection_new;
   server_quic->cb.stream_receive = my_stream_receive_cb;

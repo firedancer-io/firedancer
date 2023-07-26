@@ -241,13 +241,15 @@ main( int argc, char ** argv ) {
   fd_quic_limits_from_env( &argc, &argv, &quic_limits);
 #else
   fd_quic_limits_t const quic_limits = {
-    .conn_cnt         = 10,
-    .conn_id_cnt      = 10,
-    .conn_id_sparsity = 4.0,
-    .handshake_cnt    = 10,
-    .stream_cnt       = { 2, 2, 2, 2 },
-    .inflight_pkt_cnt = 1024,
-    .tx_buf_sz        = 1<<14,
+    .conn_cnt           = 10,
+    .conn_id_cnt        = 10,
+    .conn_id_sparsity   = 4.0,
+    .handshake_cnt      = 10,
+    .stream_cnt         = { 2, 2, 2, 2 },
+    .initial_stream_cnt = { 2, 2, 2, 2 },
+    .stream_pool_cnt    = 100,
+    .inflight_pkt_cnt   = 1024,
+    .tx_buf_sz          = 1<<14,
   };
 #endif
 

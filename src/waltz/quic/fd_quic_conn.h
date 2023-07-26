@@ -71,6 +71,10 @@ struct fd_quic_ack {
 };
 
 struct fd_quic_conn {
+  ulong              conn_idx;            /* connection index */
+                                          /* connections are sized at runtime */
+                                          /* storing the index avoids a division */
+
   fd_quic_t *        quic;
   void *             context;             /* user context */
 
@@ -146,11 +150,86 @@ struct fd_quic_conn {
                                            value of keys */
   uint                     key_phase_upd; /* set to 1 if we're undertaking a key update */
 
-  ulong                    tot_num_streams;
-  fd_quic_stream_t **      streams;           /* array of stream pointers */
-  fd_quic_stream_t         send_streams[1];   /* sentinel of list of streams needing action */
-  fd_quic_stream_t         unused_streams[1]; /* sentinel of list of unused streams */
-  fd_quic_stream_map_t *   stream_map;        /* map stream_id -> stream */
+  fd_quic_stream_t         send_streams[1];      /* sentinel of list of streams needing action */
+  fd_quic_stream_t         used_streams[1];      /* sentinel of list of used streams */
+  /* invariant: an allocated stream must be in exactly one of the following lists:
+     send_streams
+     used_streams */
+
+  /* stream id members */
+  ulong next_stream_id[4];      /* next unused stream id by type - see rfc9000 2.1 */
+                                /* next_stream_id is used for streams coming from the stream pool */
+
+  /* use of supremum here:
+       this is the smallest stream id greater than all the allowed stream ids
+       so stream_id is valid if stream_id < sup_stream_id
+       so sup_stream_id = max_stream_id + 4 */
+
+  /* min_stream_id, sup_stream_id represent the "current range" */
+  /* stream_ids within this range have been allocated to the connection */
+  /* they may have been closed and deallocated */
+  ulong min_stream_id[4];       /* minimum stream id by type */
+  ulong sup_stream_id[4];       /* supremum stream id by type */
+      /* sup_stream_id[j] == min_stream_id[j] implies no available stream_ids */
+      /* valid range of stream ids is:                                        */
+      /*     ( min_stream_id[j], sup_stream_id[j] ]                           */
+      /* number of streams in valid range is:                                 */
+      /* ( sup_stream_id[j] - min_stream_id[j]] ) / 4                         */
+
+  /* peer_sup_stream_id[type] represents the peer imposed limit on self initiated */
+  /* streams. */
+  /* tgt_sup_stream_id[type] represents our limit on the stream_id of peer initiated */
+  /* stream_ids */
+  /* tgt_sup_stream_id is derived from max_concur_streams, cur_stream_cnt */
+  /* and sup_stream_id thus: */
+  /* tgt_sup_stream_id = sup_stream_id + ( max_concur_streams - cur_stream_cnt ) * 4 */
+  ulong peer_sup_stream_id[4];  /* peer imposed supremum over stream_ids            */
+  ulong tgt_sup_stream_id[4];   /* target value for sup_stream_id by type           */
+                                /* sup_stream_id cannot drop                        */
+
+  ulong max_concur_streams[4];  /* user set concurrent max */
+  ulong cur_stream_cnt[4];      /* current number of streams by type */
+
+  /* stream id limits */
+  /* limits->stream_cnt */
+  /*   used to size stream_map, and provides an upper limit on the temporary limits */
+  /*   on streams */
+
+  /* max_concur_streams */
+  /*   temporary limit on the number of streams */
+  /*   currently only applies to peers */
+  /*   may be adjusted via fd_quic_conn_set_max_streams */
+
+  /* limits->initial_stream_cnt */
+  /*   new connections attempt to assign initial_stream_cnt streams from the pool */
+  /*   for peer initiated streams */
+  /*   however many streams are assigned at this point becomes the limit imposed */
+  /*   on the peer */
+
+  /* peer initiated streams */
+  /* the peer will create streams at will up to our imposed limit via max_streams */
+  /* frames */
+  /* max_streams frames are derived from changes to sup_stream_id */
+  /* fd_quic_assign_streams assigns streams to connections in preparation for use */
+  /* upon assignment, sup_stream_id and cur_stream_cnt are adjusted */
+
+  /* self initiated streams */
+  /* we can create streams at will up to the peer imposed limit in peer_sup_stream_id */
+  /* these streams also come from the stream pool, and so the size of the stream pool */
+  /* also imposes a limit on self initiated streams */
+
+  /* rfc9000:
+       19.11 Note that these frames (and the corresponding transport parameters)
+               do not describe the number of streams that can be opened concurrently.
+        4.6  Only streams with a stream ID less than
+               (max_streams * 4 + first_stream_id_of_type) can be opened
+        2.1  Stream types:
+             0x00 Client-Initiated, Bidirectional
+             0x01 Server-Initiated, Bidirectional
+             0x02 Client-Initiated, Unidirectional
+             0x03 Server-Initiated, Unidirectional */
+
+  fd_quic_stream_map_t *  stream_map;           /* map stream_id -> stream */
 
   /* packet number info
      each encryption level maps to a packet number space
@@ -187,39 +266,6 @@ struct fd_quic_conn {
   uint reason;     /* quic reason for closing. see FD_QUIC_CONN_REASON_* */
   uint app_reason; /* application reason for closing */
 
-  /* sent packet metadata */
-  /* TODO */
-  /* 3 linked lists of packet metadata for tracking what data was sent
-     one for each packet space:
-       initial
-       handshake
-       app data */
-  /* once a packet is ready to send, a metadata structure is added
-     here, to the end of the relevant list
-     if no metadata is available, we can defer, or do a reclaim/resend */
-  /* we keep metadata for the following:
-       sent stream offset range
-         streams include:
-           data streams
-           crypto streams - one for each enc_level
-       acks sent */
-
-  ulong next_stream_id[4];      /* next stream id by type - see rfc9000 2.1 */
-
-  uint  max_concur_streams;     /* configured max concurrent streams by connection and type */
-  ulong max_streams[4];         /* maximum stream id by type */
-  /* rfc9000:
-       19.11 Note that these frames (and the corresponding transport parameters)
-               do not describe the number of streams that can be opened concurrently.
-        4.6  Only streams with a stream ID less than
-               (max_streams * 4 + first_stream_id_of_type) can be opened
-        2.1  Stream types:
-             0x00 Client-Initiated, Bidirectional
-             0x01 Server-Initiated, Bidirectional
-             0x02 Client-Initiated, Unidirectional
-             0x03 Server-Initiated, Unidirectional */
-
-  ulong num_streams[4];         /* current number of streams of each type */
 
   /* TODO find better name than pool */
   fd_quic_pkt_meta_pool_t pkt_meta_pool;
@@ -290,14 +336,6 @@ struct fd_quic_conn {
   fd_quic_conn_t *     next;
   ulong token_len;
   uchar token[FD_QUIC_TOKEN_SZ_MAX];
-
-  /* are we waiting for routing/ARP to complete? */
-# define FD_ARP_STATUS_NONE     0
-# define FD_ARP_STATUS_RESOLVED 1
-# define FD_ARP_STATUS_REQUIRED 2
-# define FD_ARP_STATUS_WAITING  3
-  int   arp_status;
-  ulong arp_update; /* last time ARP was updated */
 };
 
 FD_PROTOTYPES_BEGIN
@@ -335,20 +373,31 @@ fd_quic_handshake_complete( fd_quic_conn_t * conn ) {
   return conn->handshake_complete;
 }
 
-//static inline void
-//fd_quic_conn_set_next( fd_quic_conn_t * conn,
-//                       fd_quic_conn_t * next ) {
-//  if( next == NULL ) conn->next_off == 0L;
-//  else               conn->next_off = (long)((ulong)next - (ulong)conn);
-//  /* TODO assumes two's complement */
-//}
-//
-//FD_FN_PURE static inline fd_quic_conn_t *
-//fd_quic_conn_get_next( fd_quic_conn_t const * conn ) {
-//  if( conn->next_off == 0L ) return NULL;
-//
-//  return (fd_quic_conn_t *)((uchar *)conn + conn->next_off);
-//}
+
+/* set the max concurrent streams value for the specified type
+   This is used to flow control the peer.
+
+   type is one of:
+     FD_QUIC_CONN_MAX_STREAM_TYPE_UNIDIR
+     FD_QUIC_CONN_MAX_STREAM_TYPE_BIDIR */
+FD_QUIC_API void
+fd_quic_conn_set_max_streams( fd_quic_conn_t * conn, uint type, ulong stream_cnt );
+
+
+/* get the current value for the concurrent streams for the specified type
+
+   type is one of:
+     FD_QUIC_CONN_MAX_STREAM_TYPE_UNIDIR
+     FD_QUIC_CONN_MAX_STREAM_TYPE_BIDIR */
+FD_QUIC_API ulong
+fd_quic_conn_get_max_streams( fd_quic_conn_t * conn, uint type );
+
+
+/* update the tree weight
+   called whenever weight may have changed */
+void
+fd_quic_conn_update_weight( fd_quic_conn_t * conn, uint dirtype );
+
 
 FD_PROTOTYPES_END
 

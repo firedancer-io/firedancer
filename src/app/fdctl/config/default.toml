@@ -674,6 +674,16 @@ dynamic_port_range = "8900-9000"
         # of kilobytes per stream, per connection.
         max_concurrent_streams_per_connection = 16
 
+        # QUIC uses a fixed-size pool of streams to use for all the
+        # connections in the QUIC instance.  When a new connection is
+        # established, QUIC attempts to allocate stream objects to it for
+        # incoming peer-initiated streams. Locally-initiated streams are
+        # allocated explicitly.  One stream per connection is reserved, so
+        # every connection can be used.  This means that this value MUST
+        # be at least as high as max_concurrent_connections.
+        # The size of the pool is defined here:
+        stream_pool_cnt = 8192
+
         # Controls how much transactions coming in via TPU can be
         # reassembled at the same time.  Reassembly is required for user
         # transactions larger than ca ~1200 bytes, as these arrive
