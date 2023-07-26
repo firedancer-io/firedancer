@@ -18,6 +18,8 @@ curl http://localhost:8899 -X POST -H "Content-Type: application/json" -d '{"jso
 
 curl https://try-rpc.mainnet.solana.blockdaemon.tech -X POST -H 'content-type: application/json' --data '{"jsonrpc": "2.0","id": 1,"method": "getTransaction","params": ["4BQ4bxhrjuSCiaTFxWY9bozBK8wYtoZdQ8Lvshavh4dELq4246kAiuTxyTgzRT6HssztsStAFvHxAiT19aiNdvkC",{"maxSupportedTransactionVersion":0,"encoding":"json"}]}'
 
+build/native/gcc/bin/fd_frank_ledger --wksp giant_wksp --reset true --cmd ingest --snapshotfile /data/asiegel/ledger/snapshot-207477280-5HAfuS3S1FWJmocaNMZXz7s7AZoXSsY6moFPK2VnzEu1.tar.zst --rocksdb /data/asiegel/ledger/rocksdb --txnstatus true
+
 ****/
 
 #include "../../util/fd_util.h"
