@@ -209,6 +209,7 @@ setup_wksp() {
         printf "\n     Failed running \"${BUILD_DIR}/bin/fd_tguard_init  ${APP_NAME} ${CPU_AFFINITY} ${BUILD_DIR}\"\n\n"
         return # exit 1
     fi
+    sudo chown ${USER} /mnt/.fd/.gigantic/tguard.wksp
     
     # report wksp stats
     report_wksp_stats
