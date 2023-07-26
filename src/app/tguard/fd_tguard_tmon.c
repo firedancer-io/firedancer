@@ -508,7 +508,7 @@ fd_tguard_tmon_task(
   }
   
   // compile the filter expression
-  if(pcap_compile(pcap, &bpfpgm_fd, "udp", 0, ip_addr) == -1) {
+  if(pcap_compile(pcap, &bpfpgm_fd, FD_TGUARD_LOCAL_SHRED_FILTER, 0, ip_addr) == -1) {
       FD_LOG_ERR(( "pcap_compile() failed\n" ));
   }
   
