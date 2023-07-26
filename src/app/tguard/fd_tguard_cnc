@@ -188,7 +188,8 @@ setup_wksp() {
     sudo ${BUILD_DIR}/bin/fd_shmem_cfg init 0700 ${USER} ""
 
     # allocate shm for wksp
-    sudo ${BUILD_DIR}/bin/fd_shmem_cfg   alloc 8 gigantic 0   alloc 8 gigantic 1   alloc 512 huge 0   alloc 512 huge 1
+    #    allocated pages for NUMA 0
+    sudo ${BUILD_DIR}/bin/fd_shmem_cfg   alloc 8 gigantic 0   alloc 512 huge 0
     if [ "$?" != "0" ]; then
         printf "\n     'fd_shmem_cfg alloc...' failed.\n"
         printf "          likely it is due to some rogue process hogging to the hugepages\n"
@@ -197,6 +198,8 @@ setup_wksp() {
         printf "         then rerun shmem alloc after killing the rogue process.\n\n"
         return # exit 1
     fi
+    #    allocated pages for NUMA 1, OK to fail as some nodes have only 1 NUMA
+    sudo ${BUILD_DIR}/bin/fd_shmem_cfg   alloc 8 gigantic 1   alloc 512 huge 1
 
     # create wksp
     check_file_exist ${BUILD_DIR}/bin/fd_tguard_init || return 1
