@@ -261,17 +261,22 @@ main( int argc,
   FD_TEST( wksp );
 
   fd_quic_limits_t quic_limits = {
-     .conn_cnt         = 1024UL,
-     .handshake_cnt    = 256UL,
-     .conn_id_cnt      = 16UL,
-     .conn_id_sparsity = 4.0,
-     .stream_cnt = { 0UL,   // FD_QUIC_STREAM_TYPE_BIDI_CLIENT
-                     0UL,   // FD_QUIC_STREAM_TYPE_BIDI_SERVER
-                     2UL,   // FD_QUIC_STREAM_TYPE_UNI_CLIENT
-                     0UL }, // FD_QUIC_STREAM_TYPE_UNI_SERVER
-     .stream_sparsity  = 4.0,
-     .inflight_pkt_cnt = 64UL,
-     .tx_buf_sz        = 1UL<<15UL
+     .conn_cnt           = 1024UL,
+     .handshake_cnt      = 256UL,
+     .conn_id_cnt        = 16UL,
+     .conn_id_sparsity   = 4.0,
+     .stream_cnt         = { 0UL,   // FD_QUIC_STREAM_TYPE_BIDI_CLIENT
+                             0UL,   // FD_QUIC_STREAM_TYPE_BIDI_SERVER
+                             2UL,   // FD_QUIC_STREAM_TYPE_UNI_CLIENT
+                             0UL }, // FD_QUIC_STREAM_TYPE_UNI_SERVER
+     .initial_stream_cnt = { 0UL,   // FD_QUIC_STREAM_TYPE_BIDI_CLIENT
+                             0UL,   // FD_QUIC_STREAM_TYPE_BIDI_SERVER
+                             2UL,   // FD_QUIC_STREAM_TYPE_UNI_CLIENT
+                             0UL }, // FD_QUIC_STREAM_TYPE_UNI_SERVER
+     .stream_pool_cnt    = 2048UL,
+     .stream_sparsity    = 4.0,
+     .inflight_pkt_cnt   = 64UL,
+     .tx_buf_sz          = 1UL<<15UL
   };
   ulong quic_footprint = fd_quic_footprint( &quic_limits );
   FD_TEST( quic_footprint );
