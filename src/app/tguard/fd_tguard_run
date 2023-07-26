@@ -14,4 +14,5 @@ shift 2
 CONF=tmp/$APP.cfg
 . "$CONF" || exit $?
 
+sudo \
 "$BUILD"/bin/fd_tguard_run.bin $RUN_ARGS --tile-cpus f,"$RESERVED_CPUS" "$@"
