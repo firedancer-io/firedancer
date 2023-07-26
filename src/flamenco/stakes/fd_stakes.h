@@ -23,6 +23,7 @@ FD_PROTOTYPES_BEGIN
    Returns the number of items in weights (which is <= no of vote accs).
    On failure returns ULONG_MAX.  Reasons for failure include not enough
    scratch space available. */
+#define STAKE_ACCOUNT_SIZE ( 200 )
 
 ulong
 fd_stake_weights_by_node( fd_vote_accounts_t const * accs,
@@ -38,4 +39,10 @@ fd_stake_history_entry_t stake_and_activating( fd_delegation_t const * delegatio
 
 fd_stake_history_entry_t stake_activating_and_deactivating( fd_delegation_t const * delegation, ulong target_epoch, fd_stake_history_t * stake_history );
 
+int write_stake_state(
+    fd_global_ctx_t* global,
+    fd_pubkey_t* stake_acc,
+    fd_stake_state_t* stake_state,
+    ushort is_new_account
+);
 #endif /* HEADER_fd_src_flamenco_stakes_fd_stakes_h */
