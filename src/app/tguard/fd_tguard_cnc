@@ -177,7 +177,7 @@ report_wksp_stats() {
 setup_wksp() {
     # cleanup just in case
     check_file_exist ${BUILD_DIR}/bin/fd_tguard_fini || return 1
-    ${BUILD_DIR}/bin/fd_tguard_fini ${APP_NAME}
+    sudo ${BUILD_DIR}/bin/fd_tguard_fini ${APP_NAME}
 
     check_file_exist ${BUILD_DIR}/bin/fd_shmem_cfg
     sudo ${BUILD_DIR}/bin/fd_shmem_cfg reset
@@ -200,7 +200,7 @@ setup_wksp() {
 
     # create wksp
     check_file_exist ${BUILD_DIR}/bin/fd_tguard_init || return 1
-    ${BUILD_DIR}/bin/fd_tguard_init  ${APP_NAME} ${CPU_AFFINITY} ${BUILD_DIR}
+    sudo ${BUILD_DIR}/bin/fd_tguard_init  ${APP_NAME} ${CPU_AFFINITY} ${BUILD_DIR}
     if [ "$?" != "0" ]; then
         printf "\n     Failed running \"${BUILD_DIR}/bin/fd_tguard_init  ${APP_NAME} ${CPU_AFFINITY} ${BUILD_DIR}\"\n\n"
         return # exit 1
@@ -212,10 +212,10 @@ setup_wksp() {
 
 reset_wksp() {
     check_file_exist ${BUILD_DIR}/bin/fd_tguard_fini || return 1
-    ${BUILD_DIR}/bin/fd_tguard_fini ${APP_NAME}
+    sudo ${BUILD_DIR}/bin/fd_tguard_fini ${APP_NAME}
     
     check_file_exist ${BUILD_DIR}/bin/fd_tguard_init || return 1
-    ${BUILD_DIR}/bin/fd_tguard_init  ${APP_NAME} ${CPU_AFFINITY} ${BUILD_DIR}
+    sudo ${BUILD_DIR}/bin/fd_tguard_init  ${APP_NAME} ${CPU_AFFINITY} ${BUILD_DIR}
 }
 
 run_tguard_monitor() {
