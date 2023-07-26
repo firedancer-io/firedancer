@@ -185,6 +185,7 @@ typedef struct {
       uint txn_reassembly_count;
       uint max_concurrent_connections;
       uint max_concurrent_streams_per_connection;
+      uint stream_pool_cnt;
       uint max_concurrent_handshakes;
       uint max_inflight_quic_packets;
       uint tx_buf_size;

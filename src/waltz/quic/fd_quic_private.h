@@ -8,6 +8,7 @@
 #include "fd_quic_pkt_meta.h"
 #include "crypto/fd_quic_crypto_suites.h"
 #include "tls/fd_quic_tls.h"
+#include "fd_quic_stream_pool.h"
 
 #include "../../util/net/fd_eth.h"
 #include "../../util/net/fd_ip4.h"
@@ -44,10 +45,21 @@ struct fd_quic_event {
 };
 typedef struct fd_quic_event fd_quic_event_t;
 
+/* structure for a cummulative summation tree */
+struct fd_quic_cs_tree {
+  ulong cnt;
+  ulong values[];
+};
+typedef struct fd_quic_cs_tree fd_quic_cs_tree_t;
+
 /* fd_quic_state_t is the internal state of an fd_quic_t.  Valid for
    lifetime of join. */
 
 struct __attribute__((aligned(16UL))) fd_quic_state_private {
+  /* Flags */
+  ulong flags;
+# define FD_QUIC_FLAGS_ASSIGN_STREAMS (1ul<<1ul)
+
   /* Pointer to TLS state (part of quic memory region) */
 
   fd_quic_tls_t * tls;
@@ -67,15 +79,26 @@ struct __attribute__((aligned(16UL))) fd_quic_state_private {
 
   /* Various internal state */
 
-  fd_quic_conn_t *       conns;          /* free list of unused connections */
-  fd_quic_conn_map_t *   conn_map;       /* map connection ids -> connection */
-  fd_quic_event_t *      service_queue;  /* priority queue of connections by service time */
+  fd_quic_conn_t *        conns;          /* free list of unused connections */
+  ulong                   free_conns;     /* count of free connections */
+  fd_quic_conn_map_t *    conn_map;       /* map connection ids -> connection */
+  fd_quic_event_t *       service_queue;  /* priority queue of connections by service time */
+  fd_quic_stream_pool_t * stream_pool;    /* stream pool */
+
+  fd_quic_cs_tree_t *     cs_tree;        /* cummulative summation tree */
+  fd_rng_t *              rng;            /* random number generator */
+
+  /* need to be able to access connections by index */
+  ulong                   conn_base;      /* address of array of all connections */
+                                          /* not using fd_quic_conn_t* to avoid confusion */
+                                          /* use fd_quic_conn_at_idx instead */
+  ulong                   conn_sz;        /* size of one connection element */
 
   /* crypto members */
-  fd_quic_crypto_ctx_t   crypto_ctx[1];  /* crypto context */
+  fd_quic_crypto_ctx_t    crypto_ctx[1];  /* crypto context */
 
-  fd_quic_pkt_meta_t *   pkt_meta;       /* records the metadata for the contents
-                                            of each sent packet */
+  fd_quic_pkt_meta_t *    pkt_meta;       /* records the metadata for the contents
+                                             of each sent packet */
 
   /* flow control - configured initial limits */
   ulong initial_max_data;           /* directly from transport params */
@@ -174,7 +197,7 @@ fd_quic_stream_free( fd_quic_t *        quic,
                      int                code );
 
 void
-fd_quic_stream_reclaim( fd_quic_conn_t * conn );
+fd_quic_stream_reclaim( fd_quic_conn_t * conn, uint stream_type );
 
 /* Callbacks provided by fd_quic **************************************/
 
@@ -324,6 +347,70 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *      quic,
                            fd_quic_pkt_t *  pkt,
                            uchar const *    cur_ptr,
                            ulong            cur_sz );
+
+/* fd_quic_assign_streams attempts to distribute streams across         */
+/* connections fairly                                                   */
+/* The user sets a target number of concurrently usable streams to each */
+/* connection. Across all the connections, it is possible that this     */
+/* target cannot be reached. So we use a policy that assigns available  */
+/* streams randomly by weight, where the weight is the difference       */
+/* between the current number of valid streams and the target.          */
+/* The result is that if the targets can be fulfullied, they will be,   */
+/* otherwise, they will be distributed fairly                           */
+/* The user may terminate connections to free up streams for higher     */
+/* priority connections.                                                */
+void
+fd_quic_assign_streams( fd_quic_t * quic );
+
+/* fd_quic_assign_stream assigns the given stream to the specified connection */
+int
+fd_quic_assign_stream( fd_quic_conn_t * conn, ulong stream_type, fd_quic_stream_t * stream );
+
+/* fd_quic_update_cs_tree updates the specified cummulative summation tree  */
+/* This tree allows a weighted random index to be selected in O(log N) time */
+/* This function updates the value in the tree with the given value and     */
+/* updates the rest of its internal state for quick queries                 */
+void
+fd_quic_cs_tree_update( fd_quic_cs_tree_t * cs_tree, ulong idx, ulong new_value );
+
+/* returns the weight for a particular idx */
+ulong
+fd_quic_cs_tree_get_weight( fd_quic_cs_tree_t * cs_tree, ulong idx );
+
+/* fd_quic_choose_weighted_index chooses an index in a random way by weight */
+ulong
+fd_quic_choose_weighted_index( fd_quic_cs_tree_t * cs_tree, fd_rng_t * rng );
+
+/* fd_quic_cs_tree_total returns the total value across all the leaves in */
+/* the supplied cs_tree                                                   */
+ulong
+fd_quic_cs_tree_total( fd_quic_cs_tree_t * cs_tree );
+
+/* fd_quic_cs_tree_footprint returns the amount of memory required for a  */
+/* cs_tree over cnt elements                                              */
+ulong
+fd_quic_cs_tree_footprint( ulong cnt );
+
+/* fd_quic_cs_tree_align returns the alignment of fd_quic_cs_tree_t */
+FD_FN_CONST static inline
+ulong
+fd_quic_cs_tree_align( void ) {
+  return alignof( fd_quic_cs_tree_t );
+}
+
+void
+fd_quic_cs_tree_init( fd_quic_cs_tree_t * cs_tree, ulong cnt );
+
+static inline
+fd_quic_conn_t *
+fd_quic_conn_at_idx( fd_quic_state_t * quic_state, ulong idx ) {
+  ulong addr = quic_state->conn_base;
+  ulong sz   = quic_state->conn_sz;
+  return (fd_quic_conn_t*)( addr + idx * sz );
+}
+
+void
+fd_quic_conn_update_max_streams( fd_quic_conn_t * conn, uint dirtype );
 
 FD_PROTOTYPES_END
 
