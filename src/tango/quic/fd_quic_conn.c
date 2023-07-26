@@ -2,6 +2,7 @@
 #include "fd_quic_common.h"
 #include "../../util/fd_util.h"
 #include "fd_quic_pkt_meta.h"
+#include "fd_quic_private.h"
 
 /* define a map for stream_id -> stream* */
 #define MAP_NAME              fd_quic_stream_map
@@ -17,7 +18,6 @@ struct fd_quic_conn_layout {
   ulong stream_cnt;
   ulong stream_ptr_off;
   ulong stream_footprint;
-  ulong stream_off;
   int   stream_map_lg;
   ulong stream_map_off;
   ulong pkt_meta_off;
@@ -69,14 +69,6 @@ fd_quic_conn_footprint_ext( fd_quic_limits_t const * limits,
   off                     = fd_ulong_align_up( off, alignof(void *) );
   layout->stream_ptr_off  = off;
   off                    += stream_cnt * sizeof(void *);
-
-  /* allocate space for stream instances */
-  ulong   stream_footprint = fd_quic_stream_footprint( tx_buf_sz );
-  layout->stream_footprint = stream_footprint;
-
-  off                 = fd_ulong_align_up( off, fd_quic_stream_align() );
-  layout->stream_off  = off;
-  off                += stream_cnt*stream_footprint;
 
   /* allocate space for stream hash map */
   ulong lg = 0;
@@ -155,35 +147,13 @@ fd_quic_conn_new( void *                   mem,
   conn->tot_num_streams  = layout.stream_cnt;
   conn->state            = FD_QUIC_CONN_STATE_INVALID;
 
-  /* Initialize stream pointers */
-
-  conn->streams = (fd_quic_stream_t **)( (ulong)mem + layout.stream_ptr_off );
-
   /* Initialize streams */
 
   FD_QUIC_STREAM_LIST_SENTINEL( conn->send_streams );
-  FD_QUIC_STREAM_LIST_SENTINEL( conn->unused_streams );
-
-  fd_quic_stream_t * unused_streams = conn->unused_streams;
-
-  ulong stream_laddr = (ulong)mem + layout.stream_off;
-  for( ulong j=0; j < layout.stream_cnt; j++ ) {
-    fd_quic_stream_t * stream = fd_quic_stream_new(
-        (void *)stream_laddr, conn, limits->tx_buf_sz );
-    if( FD_UNLIKELY( !stream ) ) return NULL;
-
-    conn->streams[j] = stream;
-
-    /* insert into unused list */
-    FD_QUIC_STREAM_LIST_INSERT_BEFORE( unused_streams, stream );
-
-    stream_laddr += layout.stream_footprint;
-  }
 
   /* Initialize stream hash map */
 
   ulong stream_map_laddr = (ulong)mem + layout.stream_map_off;
-  FD_TEST( stream_laddr <= stream_map_laddr );
   conn->stream_map = fd_quic_stream_map_join( fd_quic_stream_map_new( (void *)stream_map_laddr, layout.stream_map_lg ) );
   if( FD_UNLIKELY( !conn->stream_map ) ) return NULL;
 
@@ -225,3 +195,78 @@ void *
 fd_quic_conn_get_context( fd_quic_conn_t * conn ) {
   return conn->context;
 }
+
+
+/* set the max concurrent streams value for the specified type
+   This is used to flow control the peer. 
+
+   type is one of:
+     FD_QUIC_TYPE_UNIDIR
+     FD_QUIC_TYPE_BIDIR */
+FD_QUIC_API void
+fd_quic_conn_set_max_stream( fd_quic_conn_t * conn, int dirtype, ulong stream_cnt ) {
+  if( FD_UNLIKELY( dirtype != FD_QUIC_TYPE_UNIDIR
+                && dirtype != FD_QUIC_TYPE_BIDIR ) ) {
+    FD_LOG_ERR(( "fd_quic_conn_set_max_stream called with invalid type" ));
+    return;
+  }
+
+  fd_quic_t *       quic  = conn->quic;
+  fd_quic_state_t * state = fd_quic_get_state( quic );
+
+  /* TODO align usage of "type" and "dirtype"
+     perhaps:
+       dir        - direction: bidir or unidir
+       role       - client or server
+       type       - dir | role */
+  uint server = (uint)conn->server;
+  uint type   = server + ( (uint)dirtype << 1u );
+
+  /* store the desired value */
+  conn->tgt_max_streams[type] = stream_cnt;
+
+  /* if we're decreasing the max streams value, we simply set the target
+       to lower the value, we have to wait until streams are freed
+     if we're increasing, we try to allocate more streams from the pool
+       to satisfy the request */
+  if( stream_cnt > conn->alloc_streams[type] ) {
+
+    /* load the currently allocated streams */
+    ulong alloc_streams   = conn->alloc_streams[type];
+    ulong tgt_max_streams = conn->tgt_max_streams[type];
+
+    fd_quic_stream_t * unused_streams = conn->unused_streams[type];
+
+    /* allocate streams from the pool to the connection */
+    for( ulong j = alloc_streams; j < tgt_max_streams; ++j ) {
+      fd_quic_stream_t * stream = fd_quic_stream_pool_alloc( state->stream_pool );
+
+      /* best effort */
+      if( FD_UNLIKELY( !stream ) ) break;
+
+      /* insert into unused list */
+      FD_QUIC_STREAM_LIST_INSERT_BEFORE( unused_streams, stream );
+      stream->list_memb = FD_QUIC_STREAM_LIST_MEMB_UNUSED;
+
+      /* adjust alloc_streams to match */
+      alloc_streams++;
+    }
+
+    /* store alloc_streams */
+    conn->alloc_streams[type] = alloc_streams;
+  }
+}
+
+
+/* get the current value for the concurrent streams for the specified type
+
+   type is one of:
+     FD_QUIC_TYPE_UNIDIR
+     FD_QUIC_TYPE_BIDIR */
+FD_QUIC_API ulong
+fd_quic_conn_get_max_streams( fd_quic_conn_t * conn, int dirtype ) {
+  uint server = (uint)conn->server;
+  uint type   = server + ( (uint)dirtype << 1u );
+  return conn->tgt_max_streams[type];
+}
+
