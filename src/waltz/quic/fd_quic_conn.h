@@ -8,6 +8,7 @@
 #include "templ/fd_quic_transport_params.h"
 #include "fd_quic_pkt_meta.h"
 #include "templ/fd_quic_union.h"
+#include "fd_quic_stream_pool.h"
 
 #define FD_QUIC_CONN_STATE_INVALID            0 /* dead object / freed */
 #define FD_QUIC_CONN_STATE_HANDSHAKE          1 /* currently doing handshaking with peer */
@@ -147,10 +148,15 @@ struct fd_quic_conn {
   uint                     key_phase_upd; /* set to 1 if we're undertaking a key update */
 
   ulong                    tot_num_streams;
-  fd_quic_stream_t **      streams;           /* array of stream pointers */
-  fd_quic_stream_t         send_streams[1];   /* sentinel of list of streams needing action */
-  fd_quic_stream_t         unused_streams[1]; /* sentinel of list of unused streams */
-  fd_quic_stream_map_t *   stream_map;        /* map stream_id -> stream */
+  fd_quic_stream_t         send_streams[1];      /* sentinel of list of streams needing action */
+  fd_quic_stream_t         unused_streams[4][1]; /* sentinel of list of unused streams */
+  fd_quic_stream_t         used_streams[1];      /* sentinel of list of used streams */
+  /* invariant: an allocated stream must be in exactly one of the following lists:
+     send_streams
+     unused_streams
+     used_streams */
+  fd_quic_stream_map_t *   stream_map;           /* map stream_id -> stream */
+  ulong                    tgt_max_streams[4];   /* target value for max_streams by type */
 
   /* packet number info
      each encryption level maps to a packet number space
@@ -204,9 +210,8 @@ struct fd_quic_conn {
            crypto streams - one for each enc_level
        acks sent */
 
-  ulong next_stream_id[4];      /* next stream id by type - see rfc9000 2.1 */
+  ulong next_stream_id[4];      /* next unused stream id by type - see rfc9000 2.1 */
 
-  uint  max_concur_streams;     /* configured max concurrent streams by connection and type */
   ulong max_streams[4];         /* maximum stream id by type */
   /* rfc9000:
        19.11 Note that these frames (and the corresponding transport parameters)
@@ -219,7 +224,10 @@ struct fd_quic_conn {
              0x02 Client-Initiated, Unidirectional
              0x03 Server-Initiated, Unidirectional */
 
+  /* TODO remove this if unused: */
   ulong num_streams[4];         /* current number of streams of each type */
+
+  ulong alloc_streams[4];       /* current number of streams allocated by type */
 
   /* TODO find better name than pool */
   fd_quic_pkt_meta_pool_t pkt_meta_pool;
@@ -291,13 +299,16 @@ struct fd_quic_conn {
   ulong token_len;
   uchar token[FD_QUIC_TOKEN_SZ_MAX];
 
-  /* are we waiting for routing/ARP to complete? */
-# define FD_ARP_STATUS_NONE     0
-# define FD_ARP_STATUS_RESOLVED 1
-# define FD_ARP_STATUS_REQUIRED 2
-# define FD_ARP_STATUS_WAITING  3
-  int   arp_status;
-  ulong arp_update; /* last time ARP was updated */
+  /* stream pool */
+  /* when do we assign streams to connections?
+     can't increase max_stream_data until we have streams
+     Easiest to put under user control
+     
+     Maybe:
+       Assign N at initial connection creation
+       Add more via api call
+  */
+  fd_quic_stream_pool_t * stream_pool;
 };
 
 FD_PROTOTYPES_BEGIN
@@ -334,6 +345,26 @@ FD_QUIC_API FD_FN_PURE inline int
 fd_quic_handshake_complete( fd_quic_conn_t * conn ) {
   return conn->handshake_complete;
 }
+
+
+/* set the max concurrent streams value for the specified type
+   This is used to flow control the peer. 
+
+   type is one of:
+     FD_QUIC_CONN_MAX_STREAM_TYPE_UNIDIR
+     FD_QUIC_CONN_MAX_STREAM_TYPE_BIDIR */
+FD_QUIC_API void
+fd_quic_conn_set_max_stream( fd_quic_conn_t * conn, int type, ulong stream_cnt );
+
+
+/* get the current value for the concurrent streams for the specified type
+
+   type is one of:
+     FD_QUIC_CONN_MAX_STREAM_TYPE_UNIDIR
+     FD_QUIC_CONN_MAX_STREAM_TYPE_BIDIR */
+FD_QUIC_API ulong
+fd_quic_conn_get_max_streams( fd_quic_conn_t * conn, int type );
+
 
 //static inline void
 //fd_quic_conn_set_next( fd_quic_conn_t * conn,

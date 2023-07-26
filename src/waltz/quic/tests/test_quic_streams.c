@@ -103,7 +103,8 @@ main( int     argc,
     .handshake_cnt    = 10,
     .stream_cnt       = { 0, 0, 20, 0 },
     .inflight_pkt_cnt = 100,
-    .tx_buf_sz        = 1<<15
+    .tx_buf_sz        = 1<<15,
+    .stream_pool_sz   = 128
   };
   fd_quic_t * server_quic = fd_quic_new_anonymous( wksp, &quic_server_limits, FD_QUIC_ROLE_SERVER, rng );
   FD_TEST( server_quic );

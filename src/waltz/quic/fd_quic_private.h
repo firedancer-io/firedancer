@@ -67,15 +67,16 @@ struct __attribute__((aligned(16UL))) fd_quic_state_private {
 
   /* Various internal state */
 
-  fd_quic_conn_t *       conns;          /* free list of unused connections */
-  fd_quic_conn_map_t *   conn_map;       /* map connection ids -> connection */
-  fd_quic_event_t *      service_queue;  /* priority queue of connections by service time */
+  fd_quic_conn_t *        conns;          /* free list of unused connections */
+  fd_quic_conn_map_t *    conn_map;       /* map connection ids -> connection */
+  fd_quic_event_t *       service_queue;  /* priority queue of connections by service time */
+  fd_quic_stream_pool_t * stream_pool;    /* stream pool */
 
   /* crypto members */
-  fd_quic_crypto_ctx_t   crypto_ctx[1];  /* crypto context */
+  fd_quic_crypto_ctx_t    crypto_ctx[1];  /* crypto context */
 
-  fd_quic_pkt_meta_t *   pkt_meta;       /* records the metadata for the contents
-                                            of each sent packet */
+  fd_quic_pkt_meta_t *    pkt_meta;       /* records the metadata for the contents
+                                             of each sent packet */
 
   /* flow control - configured initial limits */
   ulong initial_max_data;           /* directly from transport params */

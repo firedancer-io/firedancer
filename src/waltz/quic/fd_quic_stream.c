@@ -152,6 +152,9 @@ fd_quic_stream_new( void * mem, fd_quic_conn_t * conn, ulong tx_buf_sz ) {
   stream->conn      = conn;
   stream->stream_id = FD_QUIC_STREAM_ID_UNUSED;
 
+  /* stream pointing to itself is not a member of any list */
+  stream->next = stream->prev = stream;
+
   return stream;
 }
 
@@ -161,8 +164,10 @@ fd_quic_stream_new( void * mem, fd_quic_conn_t * conn, ulong tx_buf_sz ) {
      stream       the stream to free */
 void
 fd_quic_stream_delete( fd_quic_stream_t * stream ) {
-  /* nothing to do */
-  (void)stream;
+  /* stream pointing to itself is not a member of any list */
+  stream->next = stream->prev = stream;
+  stream->list_memb = FD_QUIC_STREAM_LIST_MEMB_NONE;
+  stream->flags = 0u;
 }
 
 
@@ -187,4 +192,15 @@ fd_quic_stream_set_context( fd_quic_stream_t * stream, void * context ) {
 void *
 fd_quic_stream_get_context( fd_quic_stream_t * stream ) {
   return stream->context;
+}
+
+
+/* set stream connection
+
+   args
+     stream      the stream to change
+     conn        the connection to set on the stream or NULL to remove the connection */
+void
+fd_quic_stream_set_conn( fd_quic_stream_t * stream, fd_quic_conn_t * conn ) {
+  stream->conn = conn;
 }

@@ -74,6 +74,12 @@ struct fd_quic_stream {
 
 # define FD_QUIC_DEFAULT_INITIAL_RX_MAX_STREAM_DATA 1280  // IPv6 minimum MTU
 
+  uint list_memb; /* list membership */
+# define FD_QUIC_STREAM_LIST_MEMB_NONE   0
+# define FD_QUIC_STREAM_LIST_MEMB_UNUSED 1
+# define FD_QUIC_STREAM_LIST_MEMB_USED   2
+# define FD_QUIC_STREAM_LIST_MEMB_SEND   3
+
   /* flow control */
   ulong  tx_max_stream_data; /* the limit on the number of bytes we are allowed to send
                                   to the peer on this stream
@@ -132,7 +138,9 @@ struct fd_quic_stream {
     FD_QUIC_STREAM_LIST_LINK( stream_prev, new_stream );        \
   } while(0)
 
-/* remove stream from list */
+/* remove stream from list
+
+   a stream pointing to itself is not in a list */
 #define FD_QUIC_STREAM_LIST_REMOVE( stream )                    \
   do {                                                          \
     fd_quic_stream_t * stream_prev = (stream)->prev;            \
@@ -218,8 +226,25 @@ fd_quic_stream_set_context( fd_quic_stream_t * stream, void * context );
 void *
 fd_quic_stream_get_context( fd_quic_stream_t * stream );
 
+/* set rx max stream data
+
+   This allows the peer to send more data on this stream
+
+   args
+     stream               the stream to change
+     rx_max_stream_data   the new max_stream_data to set on the stream */
 void
 fd_quic_stream_set_rx_max_stream_data( fd_quic_stream_t * stream, ulong rx_max_stream_data );
+
+
+/* set stream connection
+
+   args
+     stream      the stream to change
+     conn        the connection to set on the stream or NULL to remove the connection */
+void
+fd_quic_stream_set_conn( fd_quic_stream_t * stream, fd_quic_conn_t * conn );
+
 
 FD_PROTOTYPES_END
 
