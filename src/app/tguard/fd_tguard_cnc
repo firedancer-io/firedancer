@@ -25,7 +25,7 @@ SCRIPT_PATH="$( cd -- "$(dirname "$SCRIPT")" >/dev/null 2>&1 ; pwd -P )"
 
 APP_NAME="tguard"
 CPU_AFFINITY="0-4/2"
-CPU_MONITOR="1"
+CPU_MONITOR="6"
 
 SRC1=src/app/tguard
 SRC2=build/linux/gcc/x86_64/bin
@@ -209,7 +209,7 @@ setup_wksp() {
         printf "\n     Failed running \"${BUILD_DIR}/bin/fd_tguard_init  ${APP_NAME} ${CPU_AFFINITY} ${BUILD_DIR}\"\n\n"
         return # exit 1
     fi
-    sudo chown ${USER} /mnt/.fd/.gigantic/tguard.wksp
+    sudo chown ${USER} /mnt/.fd/.gigantic/${APP_NAME}.wksp
     
     # report wksp stats
     report_wksp_stats
@@ -221,6 +221,7 @@ reset_wksp() {
     
     check_file_exist ${BUILD_DIR}/bin/fd_tguard_init || return 1
     sudo ${BUILD_DIR}/bin/fd_tguard_init  ${APP_NAME} ${CPU_AFFINITY} ${BUILD_DIR}
+    sudo chown ${USER} /mnt/.fd/.gigantic/${APP_NAME}.wksp
 }
 
 run_tguard_monitor() {
