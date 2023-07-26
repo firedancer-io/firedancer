@@ -25,6 +25,7 @@ SCRIPT_PATH="$( cd -- "$(dirname "$SCRIPT")" >/dev/null 2>&1 ; pwd -P )"
 
 APP_NAME="tguard"
 CPU_AFFINITY="0-4/2"
+CPU_MONITOR="1"
 
 SRC1=src/app/tguard
 SRC2=build/linux/gcc/x86_64/bin
@@ -235,7 +236,7 @@ run_tguard_monitor() {
     # fi
     export FD_LOG_PATH="" # always disable logging for monitor to simplify running while avoiding disk out of space
 
-    taskset -c 1 ${BUILD_DIR}/bin/fd_tguard_mon ${APP_NAME} --duration 250000000000000000 # --dt-min 100000000 --dt-max 100000000
+    taskset -c ${CPU_MONITOR} ${BUILD_DIR}/bin/fd_tguard_mon ${APP_NAME} --duration 250000000000000000 # --dt-min 100000000 --dt-max 100000000
 }
 
 run_tguard() {
