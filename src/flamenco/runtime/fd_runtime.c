@@ -764,30 +764,36 @@ fd_runtime_collect_rent_range( fd_global_ctx_t * global,
     fd_funk_rec_t * rec = fd_funk_rec_map_iter_ele( rec_map, iter );
 
     /* Filter for account records */
-    if( !fd_acc_mgr_is_key( rec->pair.key ) ) continue;
+    if( !fd_acc_mgr_is_key( rec->pair.key ) ) 
+      continue;
+
+    fd_pubkey_t const * key = fd_type_pun_const( &rec->pair.key[0].uc );
+    
+    /* Check prefix */
+    ulong prefixX_be = key->ul[0];
+    ulong prefixX    = fd_ulong_bswap( prefixX_be );
+    if( ( prefix0 > prefixX ) | ( prefixX > prefix1 ) ) {
+      continue;
+    }
 
     /* Lookup funk record through account manager.
        Although we already have _a_ funk record at this point, this is
        not necessarily the _right_ funk record.  It might be part of a
        different in-flight transaction.  Thus, we resolve the key to
        the current transaction record. */
-    fd_pubkey_t const * key = fd_type_pun_const( &rec->pair.key[0].uc );
     fd_funk_rec_t const * rec_ro = NULL;
     int err = FD_ACC_MGR_SUCCESS;
     void const * acc_ro = fd_acc_mgr_view_data( acc_mgr, txn, key, &rec_ro, &err );
     fd_account_meta_t const * meta_ro = (fd_account_meta_t const *)acc_ro;
 
     /* Account might not exist anymore in the current world */
-    if( ( err==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) | (!acc_ro) ) continue;
+    if( ( err==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) | (!acc_ro) ) {
+      continue;
+    }
     if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
       FD_LOG_WARNING(( "fd_runtime_collect_rent_range: fd_acc_mgr_view_data failed (%d)", err ));
       return err;
     }
-
-    /* Check prefix */
-    ulong prefixX_be = key->ul[0];
-    ulong prefixX    = fd_ulong_bswap( prefixX_be );
-    if( ( prefix0 > prefixX ) | ( prefixX > prefix1 ) ) continue;
 
     /* Filter accounts that we've already visited */
     if( meta_ro->info.rent_epoch >= epoch ) continue;
@@ -898,17 +904,27 @@ fd_runtime_collect_rent( fd_global_ctx_t * global ) {
   // Bank::pubkey_range_from_partition (enter)
   ulong prefix0 = 0UL;
   ulong prefix1 = ULONG_MAX;
-  fd_pubkey_t key1;  memset( key1.uc, 0xFF, sizeof(fd_pubkey_t) );
+  
+  fd_pubkey_t key1;
+  memset( key1.uc, 0xFF, sizeof(fd_pubkey_t) );
 
   if( FD_LIKELY( part_cnt>1UL ) ) {
     ulong part_width = (ULONG_MAX - part_cnt + 1UL) / part_cnt + 1UL;
 
-    if( (part0==0UL) & (part1==0UL) ) prefix0 = 0UL;
-    else if( part0+1UL == part_cnt  ) prefix0 = ULONG_MAX;
-    else                              prefix0 = (part0+1UL) * part_width;
-    if( part1+1UL == part_cnt       ) prefix1 = ULONG_MAX;
-    else                              prefix1 = (part1+1UL) * part_width - 1UL;
-
+    if( (part0==0UL) & (part1==0UL) ) {
+      prefix0 = 0UL;
+    } else if( part0+1UL == part_cnt  ) {
+      prefix0 = ULONG_MAX;
+    } else {
+      prefix0 = (part0+1UL) * part_width;
+    }
+    
+    if( part1+1UL == part_cnt       ) {
+      prefix1 = ULONG_MAX;
+    } else {
+      prefix1 = (part1+1UL) * part_width - 1UL;
+    }
+    
     if( ( part0!=0UL ) & ( part0==part1 ) ) {
       /* ??? */
       if( prefix1 == ULONG_MAX) prefix0 = prefix1;
@@ -1251,6 +1267,17 @@ fd_runtime_save_banks( fd_global_ctx_t * global ) {
 
 static int
 fd_global_import_stakes(fd_global_ctx_t * global, fd_solana_manifest_t * manifest) {
+  // ulong epoch = fd_slot_to_epoch( &global->bank.epoch_schedule, global->bank.slot, NULL );
+  // fd_epoch_stakes_t const * stakes = NULL;
+  // fd_epoch_epoch_stakes_pair_t const * epochs = manifest->bank.epoch_stakes;
+  // for( ulong i=0; i < manifest->bank.epoch_stakes_len; i++ ) {
+  //   if( epochs[ i ].key==epoch ) {
+  //     stakes = &epochs[i].value;
+  //     break;
+  //   }
+  // }
+
+
   ulong raw_stakes_sz = fd_stakes_size( &manifest->bank.stakes );
   void * raw_stakes = fd_valloc_malloc( global->valloc, 1UL, raw_stakes_sz );
   fd_memset( raw_stakes, 0, raw_stakes_sz );
@@ -1360,6 +1387,7 @@ int fd_global_import_solana_manifest(fd_global_ctx_t * global, fd_solana_manifes
         break;
       }
     }
+
     if( FD_UNLIKELY( !stakes ) )
       FD_LOG_ERR(( "Snapshot missing EpochStakes for epoch %lu", epoch ));
 
@@ -1381,7 +1409,7 @@ int fd_global_import_solana_manifest(fd_global_ctx_t * global, fd_solana_manifes
     FD_TEST( fd_vote_accounts_decode( &bank->epoch_stakes, &decode_ctx )
              ==FD_BINCODE_SUCCESS );
   }
-
+  
   return fd_runtime_save_banks( global );
 }
 
