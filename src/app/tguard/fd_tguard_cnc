@@ -24,8 +24,15 @@ SCRIPT=$(realpath "$0") # so that go through softlink to true path
 SCRIPT_PATH="$( cd -- "$(dirname "$SCRIPT")" >/dev/null 2>&1 ; pwd -P )"
 
 APP_NAME="tguard"
-CPU_AFFINITY="0-4/2"
-CPU_MONITOR="6"
+
+NUMA_NUM=$(lscpu | grep "NUMA node(s):" | sed  -E "s/.*([0-9]+).*/\1/g")
+if [[ $INTERACTIVE -gt "1" ]]; then
+    CPU_AFFINITY="4-8/2"
+    CPU_MONITOR="2"
+else
+    CPU_AFFINITY="2-4/1"
+    CPU_MONITOR="1"
+fi
 
 SRC1=src/app/tguard
 SRC2=build/linux/gcc/x86_64/bin
