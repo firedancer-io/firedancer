@@ -59,6 +59,10 @@ $(call map-define,FD_HAS_SSE, __SSE4_2__)
 $(call map-define,FD_HAS_AVX, __AVX2__)
 $(call map-define,FD_HAS_GFNI, __GFNI__)
 
+ifneq ($(DISABLE_OPTIMIZATION),)
+CPPFLAGS+=-D_DISABLE_OPTIMIZATION
+endif
+
 $(info Using FD_HAS_SSE=$(FD_HAS_SSE))
 $(info Using FD_HAS_AVX=$(FD_HAS_AVX))
 $(info Using FD_HAS_GFNI=$(FD_HAS_GFNI))
