@@ -45,8 +45,8 @@ serialize_unaligned( instruction_ctx_t ctx, ulong * sz ) {
   for( ushort i = 0; i < ctx.instr->acct_cnt; i++ ) {
     uchar acc_idx = instr_acc_idxs[i];
 
-    fd_pubkey_t * acc = &txn_accs[acc_idx];
-    FD_LOG_WARNING(( "START OF ACC: %32J %x", acc, serialized_size ));
+    // fd_pubkey_t * acc = &txn_accs[acc_idx];
+    // FD_LOG_WARNING(( "START OF ACC: %32J %x", acc, serialized_size ));
 
     serialized_size++; // dup byte
     if( FD_LIKELY( !acc_idx_seen[acc_idx] ) ) {
@@ -57,13 +57,13 @@ serialize_unaligned( instruction_ctx_t ctx, ulong * sz ) {
       int read_result = FD_ACC_MGR_SUCCESS;
       uchar * raw_acc_data = (uchar *)fd_acc_mgr_view_data(ctx.global->acc_mgr, ctx.global->funk_txn, acc, NULL, &read_result);
       fd_account_meta_t * metadata = (fd_account_meta_t *)raw_acc_data;
-      FD_LOG_WARNING(( "START OF ACC 2: %d %d %d %d", !fd_account_is_sysvar( &ctx, acc ), fd_account_is_writable_idx(&ctx, i), i, instr_acc_idxs[i]));
+      // FD_LOG_WARNING(( "START OF ACC 2: %d %d %d %d", !fd_account_is_sysvar( &ctx, acc ), fd_account_is_writable_idx(&ctx, i), i, instr_acc_idxs[i]));
 
       ulong acc_data_len = 0;
       if ( FD_LIKELY( read_result == FD_ACC_MGR_SUCCESS ) ) {
         acc_data_len = metadata->dlen;
       } else if ( FD_UNLIKELY( read_result == FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) ) {
-        FD_LOG_WARNING(( "START OF ACC 3: %d %d %d %d", !fd_account_is_sysvar( &ctx, acc ), fd_account_is_writable_idx(&ctx, i), i, instr_acc_idxs[i]));
+        // FD_LOG_WARNING(( "START OF ACC 3: %d %d %d %d", !fd_account_is_sysvar( &ctx, acc ), fd_account_is_writable_idx(&ctx, i), i, instr_acc_idxs[i]));
         acc_data_len = 0;
       } else {
         FD_LOG_WARNING(( "failed to read account data - pubkey: %32J, err: %d", acc, read_result ));
@@ -187,7 +187,7 @@ serialize_unaligned( instruction_ctx_t ctx, ulong * sz ) {
   FD_STORE( fd_pubkey_t, serialized_params, txn_accs[ctx.instr->program_id] );
   serialized_params += sizeof(fd_pubkey_t);
 
-  FD_LOG_NOTICE(( "SERIALIZE (UNALIGNED) - sz: %lu, diff: %lu", serialized_size, serialized_params - serialized_params_start ));
+  // FD_LOG_NOTICE(( "SERIALIZE (UNALIGNED) - sz: %lu, diff: %lu", serialized_size, serialized_params - serialized_params_start ));
   *sz = serialized_size;
   return serialized_params_start;
 }
@@ -284,13 +284,12 @@ int fd_executor_bpf_loader_program_execute_program_instruction( instruction_ctx_
 
   ulong  prog_align     = fd_sbpf_program_align();
   ulong  prog_footprint = fd_sbpf_program_footprint( &elf_info );
-  fd_sbpf_program_t * prog = fd_sbpf_program_new( aligned_alloc( prog_align, prog_footprint ), &elf_info, rodata );
+  fd_sbpf_program_t * prog = fd_sbpf_program_new( fd_valloc_malloc( ctx.global->valloc, prog_align, prog_footprint ), &elf_info, rodata );
   FD_TEST( prog );
 
   /* Allocate syscalls */
 
-  fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new(
-      aligned_alloc( fd_sbpf_syscalls_align(), fd_sbpf_syscalls_footprint() ) );
+  fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new( fd_valloc_malloc( ctx.global->valloc, fd_sbpf_syscalls_align(), fd_sbpf_syscalls_footprint() ) );
   FD_TEST( syscalls );
 
   fd_vm_syscall_register_all( syscalls );

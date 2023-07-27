@@ -723,7 +723,6 @@ main( int     argc,
 
       fd_recent_block_hashes_decode( &global->bank.recent_block_hashes, &ctx );
 
-      // fd_recent_block_hashes_walk(&global->bank.recent_block_hashes, fd_printer_walker, "recent_block_hashes", 0);
       fd_runtime_save_banks( global );
     }
 

@@ -1026,7 +1026,7 @@ int fd_executor_stake_program_execute_instruction(
         return result;
       }
     }
-    fd_stake_state_walk(&stake_state, fd_printer_walker, "stake_state", 0);
+
     // fd_stake_instruction_initialize_t* initialize_instruction = &instruction.inner.initialize;
     // stake_state.inner.stake.meta.lockup.unix_timestamp = initialize_instruction->lockup.unix_timestamp;
     // stake_state.inner.stake.meta.lockup.epoch = initialize_instruction->lockup.epoch;

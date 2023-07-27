@@ -623,8 +623,7 @@ fd_runtime_calculate_fee( fd_global_ctx_t *global, transaction_ctx_t * txn_ctx, 
   double fee = (prioritization_fee + signature_fee + write_lock_fee + compute_fee) * congestion_multiplier;
 
   if (FD_UNLIKELY(global->log_level > 2)) {
-      FD_LOG_WARNING(( "fd_runtime_calculate_fee_compare: slot=%ld fee(%lf) = (prioritization_fee(%f) + signature_fee(%f) + write_lock_fee(%f) + compute_fee(%f)) * congestion_multiplier(%f)", global->bank.slot, fee, prioritization_fee, signature_fee, write_lock_fee, compute_fee, congestion_multiplier));
-      FD_LOG_WARNING(( "fd_rcfc2: lps: %lu, pp: %lu, pf: %lu, cul: %lu, cup: %lu, pft: %u", lamports_per_signature, priority, priority_fee, txn_ctx->compute_unit_limit, txn_ctx->compute_unit_price, txn_ctx->prioritization_fee_type));
+    FD_LOG_DEBUG(( "fd_runtime_calculate_fee_compare: slot=%ld fee(%lf) = (prioritization_fee(%f) + signature_fee(%f) + write_lock_fee(%f) + compute_fee(%f)) * congestion_multiplier(%f)", global->bank.slot, fee, prioritization_fee, signature_fee, write_lock_fee, compute_fee, congestion_multiplier));
   }
 
   if (fee >= (double)ULONG_MAX)

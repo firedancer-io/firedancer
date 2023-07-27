@@ -138,7 +138,7 @@ fd_execute_txn( fd_executor_t* executor, fd_txn_t * txn_descriptor, fd_rawtxn_b_
 
   if (FD_UNLIKELY(global->log_level > 2)) {
     FD_LOG_WARNING(( "fd_execute_txn: global->collected: %ld->%ld (%ld)", global->bank.collected, global->bank.collected + fee, fee));
-    FD_LOG_WARNING(( "calling set_lamports to charge the fee %lu", fee));
+    FD_LOG_DEBUG(( "calling set_lamports to charge the fee %lu", fee));
   }
 
   // TODO: I BELIEVE we charge for the fee BEFORE we create the funk_txn fork
@@ -197,7 +197,7 @@ fd_execute_txn( fd_executor_t* executor, fd_txn_t * txn_descriptor, fd_rawtxn_b_
       char program_id_str[FD_BASE58_ENCODED_32_SZ];
       fd_base58_encode_32((uchar *)&tx_accs[instr->program_id], NULL, program_id_str);
       if (fd_executor_lookup_program(executor->global, &tx_accs[instr->program_id]) == 0 ) {
-        FD_LOG_NOTICE(( "found BPF executable program account - program id: %s", program_id_str ));
+        FD_LOG_NOTICE(( "found BPF upgradeable executable program account - program id: %s", program_id_str ));
 
         int exec_result = fd_executor_bpf_upgradeable_loader_program_execute_program_instruction(ctx);
         if (exec_result != FD_EXECUTOR_INSTR_SUCCESS) {

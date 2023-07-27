@@ -37,7 +37,8 @@ fd_funk_rec_key_t fd_acc_mgr_key( fd_pubkey_t const * pubkey ) {
   return id;
 }
 
-int fd_acc_mgr_is_key( fd_funk_rec_key_t const* id ) {
+inline int
+fd_acc_mgr_is_key( fd_funk_rec_key_t const* id ) {
   return id->c[ FD_FUNK_REC_KEY_FOOTPRINT - 1 ] == FD_ACC_MGR_KEY_TYPE;
 }
 
@@ -172,11 +173,7 @@ int fd_acc_mgr_set_lamports( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, ulong sl
   fd_account_meta_t *metadata = (fd_account_meta_t *) data;
   metadata->info.lamports = lamports;
 
-  if (FD_UNLIKELY(acc_mgr->global->log_level > 2)) {
-    char encoded_pubkey[50];
-    fd_base58_encode_32((uchar *) pubkey, 0, encoded_pubkey);
-    FD_LOG_WARNING(( "set_lamports: %ld:%s: %ld->%ld (%ld)", slot, encoded_pubkey, metadata->info.lamports, lamports, lamports - metadata->info.lamports ));
-  }
+  FD_LOG_DEBUG(( "set_lamports: %ld:%32J: %ld->%ld (%ld)", slot, pubkey, metadata->info.lamports, lamports, lamports - metadata->info.lamports ));
 
   fd_acc_mgr_commit_data( acc_mgr, rec, pubkey, data, slot, 0);
 
@@ -409,7 +406,7 @@ fd_acc_mgr_commit_data( fd_acc_mgr_t* acc_mgr, fd_funk_rec_t *rec, fd_pubkey_t c
       char buf[50];
       fd_base58_encode_32((uchar *) &hash, NULL, buf);
 
-      FD_LOG_WARNING(( "fd_acc_mgr_commit_data: %s slot: %ld lamports: %ld  owner: %s  executable: %s,  rent_epoch: %ld, data_len: %ld, data: %s = %s",
+      FD_LOG_DEBUG(( "fd_acc_mgr_commit_data: %s slot: %ld lamports: %ld  owner: %s  executable: %s,  rent_epoch: %ld, data_len: %ld, data: %s = %s",
                        encoded_pubkey, slot, m->info.lamports, encoded_owner, m->info.executable ? "true" : "false", m->info.rent_epoch, m->dlen, "xx", buf));
     }
 
