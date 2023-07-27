@@ -293,7 +293,7 @@ struct fd_quic_conn {
   /* when do we assign streams to connections?
      can't increase max_stream_data until we have streams
      Easiest to put under user control
-     
+
      Maybe:
        Assign N at initial connection creation
        Add more via api call
@@ -341,7 +341,7 @@ fd_quic_handshake_complete( fd_quic_conn_t * conn ) {
 
 
 /* set the max concurrent streams value for the specified type
-   This is used to flow control the peer. 
+   This is used to flow control the peer.
 
    type is one of:
      FD_QUIC_CONN_MAX_STREAM_TYPE_UNIDIR

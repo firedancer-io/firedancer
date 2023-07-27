@@ -52,7 +52,7 @@ fd_quic_stream_pool_new( void * mem, ulong count, ulong tx_buf_sz );
 void
 fd_quic_stream_pool_delete( fd_quic_stream_pool_t * stream_pool );
 
-/* allocates a stream from the pool 
+/* allocates a stream from the pool
 
    args
      stream_pool  the pool from which to obtain the stream
@@ -73,4 +73,3 @@ fd_quic_stream_pool_free( fd_quic_stream_pool_t * pool, fd_quic_stream_t * strea
 FD_PROTOTYPES_END
 
 #endif
-

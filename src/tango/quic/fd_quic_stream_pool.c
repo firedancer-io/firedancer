@@ -72,7 +72,7 @@ fd_quic_stream_pool_delete( fd_quic_stream_pool_t * stream_pool ) {
 }
 
 
-/* allocates a stream from the pool 
+/* allocates a stream from the pool
 
    args
      stream_pool  the pool from which to obtain the stream
@@ -107,5 +107,4 @@ fd_quic_stream_pool_free( fd_quic_stream_pool_t * pool,
   FD_QUIC_STREAM_LIST_INSERT_BEFORE( pool->head, stream );
   pool->cur_cnt++;
 }
-
 

@@ -198,7 +198,7 @@ fd_quic_conn_get_context( fd_quic_conn_t * conn ) {
 
 
 /* set the max concurrent streams value for the specified type
-   This is used to flow control the peer. 
+   This is used to flow control the peer.
 
    type is one of:
      FD_QUIC_TYPE_UNIDIR
@@ -269,4 +269,3 @@ fd_quic_conn_get_max_streams( fd_quic_conn_t * conn, int dirtype ) {
   uint type   = server + ( (uint)dirtype << 1u );
   return conn->tgt_max_streams[type];
 }
-
