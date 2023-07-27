@@ -1,13 +1,31 @@
+#ifdef _DISABLE_OPTIMIZATION
+#pragma GCC optimize ("O0")
+#endif
+
 #include "fd_sbpf_loader.h"
+#include "fd_sbpf_maps.c"
 #include "fd_sbpf_opcodes.h"
 #include "../../util/fd_util.h"
 #include "../../util/bits/fd_sat.h"
 #include "../murmur3/fd_murmur3.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 
-#include "fd_sbpf_maps.c"
+#define FD_PROGRAM_COUNTER_MAX (10 * 1024 * 1024 / 8)
+uint * fd_murmur_lookup_table;
+void __attribute__ ((constructor))
+fd_murmur3_generate_default() {
+  fd_murmur_lookup_table = malloc(sizeof(uint) * FD_PROGRAM_COUNTER_MAX);
+  for (ulong pc = 0; pc < FD_PROGRAM_COUNTER_MAX; ++pc) {
+    fd_murmur_lookup_table[pc] = fd_murmur3_32(&pc, 8UL, 0U);
+  }
+}
 
+void __attribute__ ((destructor))
+fd_murmur3_destroy_default() {
+  free(fd_murmur_lookup_table);
+}
 /* Error handling *****************************************************/
 
 /* Thread local storage last error value */
@@ -998,7 +1016,7 @@ fd_sbpf_hash_calls( fd_sbpf_loader_t *    loader,
   ulong   insn_cnt = shtext->sh_type!=FD_ELF_SHT_NULL ? shtext->sh_size / 8UL : 0UL;
 
   for( ulong i=0; i<insn_cnt; i++, ptr+=8UL ) {
-    ulong insn = FD_LOAD( ulong, ptr );
+    ulong insn = *((ulong *) ptr);
 
     /* Check for call instruction.  If immediate is UINT_MAX, assume
        that compiler generated a relocation instead. */
@@ -1015,7 +1033,7 @@ fd_sbpf_hash_calls( fd_sbpf_loader_t *    loader,
 
     /* Derive hash and insert */
     /* FIXME encrypt target_pc before insert */
-    uint hash = fd_murmur3_32( &target_pc, 8UL, 0U );
+    uint hash = (target_pc < FD_PROGRAM_COUNTER_MAX) ? fd_murmur_lookup_table[target_pc] : fd_murmur3_32( &target_pc, 8UL, 0U );
     REQUIRE( fd_sbpf_calldests_upsert( calldests, hash, target_pc ) );
 
     /* Replace immediate with hash */
