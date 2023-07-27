@@ -130,7 +130,10 @@ view_test_rpt() {
 
 run_compile() {
     source ./activate-opt
-    source ./activate-gcc 
+
+    HOSTDOMAIN=$(hostname -d)
+    [[ "$HOSTDOMAIN" =~ ^.*\.jumptrading\.com$ ]] && source ./activate-gcc
+
     MACHINE=linux_gcc_x86_64 COMPILER=gcc EXTRAS=libpcap make -j
 }
 
