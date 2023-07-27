@@ -483,12 +483,12 @@ int fd_executor_bpf_upgradeable_loader_program_execute_program_instruction( inst
   vm_ctx.register_file[10] = FD_VM_MEM_MAP_STACK_REGION_START + 0x1000;
 
 
-  ulong validate_result = fd_vm_context_validate( &vm_ctx );
-  if (validate_result != FD_VM_SBPF_VALIDATE_SUCCESS) {
-    FD_LOG_ERR(( "fd_vm_context_validate() failed: %lu", validate_result ));
-  }
+  // ulong validate_result = fd_vm_context_validate( &vm_ctx );
+  // if (validate_result != FD_VM_SBPF_VALIDATE_SUCCESS) {
+  //   FD_LOG_ERR(( "fd_vm_context_validate() failed: %lu", validate_result ));
+  // }
 
-  FD_LOG_WARNING(( "fd_vm_context_validate() success" ));
+  // FD_LOG_WARNING(( "fd_vm_context_validate() success" ));
 
   ulong interp_res = fd_vm_interp_instrs_trace( &vm_ctx, trace, trace_sz, &trace_used );
   if( interp_res != 0 ) {

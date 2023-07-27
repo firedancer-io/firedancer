@@ -402,6 +402,10 @@ ingest_rocksdb( fd_global_ctx_t * global,
     end_slot = last_slot;
 
   ulong start_slot = global->bank.slot+1;
+  if ( last_slot < start_slot ) {
+    FD_LOG_ERR(("rocksdb blocks are older than snapshot. first=%lu last=%lu wanted=%lu",
+                fd_rocksdb_first_slot(&rocks_db, &err), last_slot, start_slot));
+  }
 
   FD_LOG_NOTICE(("ingesting rocksdb from start=%lu to end=%lu", start_slot, end_slot));
 

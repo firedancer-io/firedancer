@@ -1,3 +1,7 @@
+#ifdef _DISABLE_OPTIMIZATION
+#pragma GCC optimize ("O0")
+#endif
+
 #include "fd_murmur3.h"
 
 uint
