@@ -26,7 +26,7 @@ SCRIPT_PATH="$( cd -- "$(dirname "$SCRIPT")" >/dev/null 2>&1 ; pwd -P )"
 APP_NAME="tguard"
 
 NUMA_NUM=$(lscpu | grep "NUMA node(s):" | sed  -E "s/.*([0-9]+).*/\1/g")
-if [[ $INTERACTIVE -gt "1" ]]; then
+if [[ $NUMA_NUM -gt "1" ]]; then
     CPU_AFFINITY="4-8/2"
     CPU_MONITOR="2"
 else
