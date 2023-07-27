@@ -9,7 +9,7 @@
 
 /* the network interafce name for the turbine egress traffic */
 /*     replace the network interface with one that carries  */
-/*     above validator IP address as shown by `ifconfig`   ß */
+/*     above validator IP address as shown from `ifconfig`  */
 #define FD_TGUARD_IFNAME ("bond0")
 
 /* Max bandwidth in Mbps available for tguide operation */
