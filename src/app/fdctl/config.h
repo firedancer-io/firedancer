@@ -10,6 +10,23 @@
 /* Maximum size of the string describing the CPU affinity of Firedancer */
 #define AFFINITY_SZ 256
 
+typedef struct {
+  enum {
+    wksp_quic_verify,
+    wksp_verify_dedup,
+    wksp_dedup_pack,
+    wksp_pack_bank,
+    wksp_quic,
+    wksp_verify,
+    wksp_dedup,
+    wksp_pack,
+  } kind;
+  char * name;
+  ulong kind_idx;
+  ulong page_size;
+  ulong num_pages;
+} workspace_config_t;
+
 /* config_t represents all available configuration options that could be
    set in a user defined configuration toml file. For information about
    the options, see the `default.toml` file provided. */
@@ -76,18 +93,16 @@ typedef struct {
 
   struct {
     char affinity[ AFFINITY_SZ ];
-    uint         verify_tile_count;
+    uint verify_tile_count;
+    uint bank_tile_count;
   } layout;
 
   struct {
     char gigantic_page_mount_path[ PATH_MAX ];
     char huge_page_mount_path[ PATH_MAX ];
 
-    uint min_kernel_gigantic_pages;
-    uint min_kernel_huge_pages;
-
-    char workspace_page_size[ 32 ];
-    uint workspace_page_count;
+    ulong workspaces_cnt;
+    workspace_config_t workspaces[ 256 ];
   } shmem;
 
   struct {
@@ -138,16 +153,23 @@ typedef struct {
     } pack;
 
     struct {
+      uint receive_buffer_size;
+    } bank;
+
+    struct {
       uint signature_cache_size;
     } dedup;
   } tiles;
 } config_t;
 
-/* workspace_bytes() returns the size in bytes of the workspace specified in
-   the configuration. For a workspace backed by gigantic pages, this is
-   1GiB multiplied by the number of gigantic pages used. */
+/* memlock_max_bytes() returns, for the entire Firedancer application,
+   what the maximum total amount of `mlock()`ed memory will be in any
+   one process, aka. what the RLIMIT_MLOCK must be set to so that all
+   `mlock()` calls we wish to make will always succeed. The upper
+   bound here is the sum of all workspace sizes, but the real number
+   is lower because no process uses all of the workspaces at once. */
 ulong
-workspace_bytes( config_t * const config );
+memlock_max_bytes( config_t * const config );
 
 /* config_parse() loads a full configuration object from the provided
    arguments or the environment. First, the `default.toml` file is
@@ -159,21 +181,5 @@ workspace_bytes( config_t * const config );
 config_t
 config_parse( int *    pargc,
               char *** pargv );
-
-/* dump_vars() prints a bash file to the scratch directory. This bash
-   file has variables set to locate the pod and main cnc structure. This
-   is so that other processes know where to find our pod and data
-   structures. */
-void
-dump_vars( config_t * const config,
-           const char *     pod,
-           const char *     main_cnc );
-
-/* load_var_pod() reads the location of the pod in the workspace file
-   from a bash variable file that was dumped. */
-const char *
-load_var_pod( config_t * const config,
-              char *           name,
-              char             line[4096] );
 
 #endif /* HEADER_fd_src_app_fdctl_config_h */

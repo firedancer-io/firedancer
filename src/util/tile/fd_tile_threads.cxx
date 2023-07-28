@@ -94,9 +94,6 @@ fd_tile_private_cpu_restore( fd_tile_private_cpu_config_t * save ) {
     FD_LOG_WARNING(( "fd_tile: setpriority failed (%i-%s); attempting to continue", errno, strerror( errno ) ));
 }
 
-/* TODO: Allow this to be run-time configured (e.g. match ulimit -s)? */
-#define FD_TILE_PRIVATE_STACK_SZ (8UL<<20) /* Should be a multiple of HUGE (and NORMAL) page sizes */
-
 void *
 fd_tile_private_stack_new( int   optimize,
                            ulong cpu_idx ) { /* Ignored if optimize is not requested */

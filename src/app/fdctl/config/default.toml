@@ -298,6 +298,12 @@ dynamic_port_range = "8000-10000"
     # QUIC tiles to run. QUIC and verify tiles are connected 1:1.
     verify_tile_count = 4
 
+    # How many bank tiles to run. Multiple banks can run in parallel, if they
+    # are not writing to the same accounts at the same time. Bank tile 0 is not
+    # managed by Firedancer, it is the Solana Labs thread receiving gossiped
+    # transactions.
+    bank_tile_count = 4
+
 # All memory that will be used in Firedancer is pre-allocated in two kinds of
 # pages: huge and gigantic. Huge pages are 2MB and gigantic pages are 1GB. This
 # is done to prevent TLB misses which can have a high performance cost. There
@@ -342,21 +348,11 @@ dynamic_port_range = "8000-10000"
     # privileged programs. This should be at least as many as will be needed by
     # the Firedancer instance. If the kernel has less pages than needed `fdctl
     # configure` will attempt to raise it to meet this requirement.
-    min_kernel_gigantic_pages = 2
+    min_kernel_gigantic_pages = 5
 
     # Minimum number of huge pages the kernel should pre-allocate for privileged
     # programs. Same as above.
     min_kernel_huge_pages = 512
-
-    # Which mount to create the Firedancer workspace inside. Must be either
-    # "gigantic" or "huge". It is strongly recommended to create the workspace
-    # on "gigantic" pages to reduce TLB misses.
-    workspace_page_size = "gigantic"
-
-    # How many of these pages should be used when creating a Firedancer
-    # workspace. Two gigantic pages would mean that the workspace is 2GB in
-    # size.
-    workspace_page_count = 2
 
 # Tiles are described in detail in the layout section above. While the layout
 # configuration determines how many of each tile to place on which CPU core to
@@ -554,6 +550,11 @@ dynamic_port_range = "8000-10000"
         # TODO: This should be removed, we should just use a standard
         # backpressure mechanism here.
         solana_labs_bank_thread_compute_units_executed_per_second = 12000001
+
+    # The bank tile is what executes transactions and updates the accounting
+    # state as a result of any operations performed by the transactions.
+    [tiles.bank]
+        receive_buffer_size = 128
 
     # All transactions entering into the validator are deduplicated after their
     # signature is verified, to ensure the same transaction is not repeated

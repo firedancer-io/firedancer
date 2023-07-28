@@ -31,8 +31,8 @@ void nanosleep1( uint secs, uint nanos );
 
 /* snprintf1() functions like snprintf except if the buffer is not
    large enough or there is some other error printing, it logs an
-   error and exits the program. */
-void
+   error and exits the program. returns s. */
+char *
 snprintf1( char * s,
            ulong  maxlen,
            char * format,

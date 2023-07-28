@@ -68,7 +68,6 @@ extern configure_stage_t xdp_leftover;
 extern configure_stage_t ethtool;
 extern configure_stage_t workspace_leftover;
 extern configure_stage_t workspace;
-extern configure_stage_t frank;
 extern configure_stage_t cluster;
 
 extern configure_stage_t * STAGES[];
@@ -104,6 +103,9 @@ void try_defragment_memory( void );
    process. If this call succeeds the process is now inside the
    namespace. */
 void enter_network_namespace( config_t * const config );
+
+void
+expected_pages( config_t * const  config, uint out[2] );
 
 /* Checks if a directory exists and is configured with the given uid,
    gid, and access mode. */

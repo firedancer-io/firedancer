@@ -129,7 +129,7 @@ nanosleep1( uint secs, uint nanos ) {
   }
 }
 
-void
+char *
 snprintf1( char * s,
            ulong  maxlen,
            char * format,
@@ -142,6 +142,7 @@ snprintf1( char * s,
     FD_LOG_ERR(( "vsnprintf failed (%i-%s)", errno, strerror( errno ) ));
   if( FD_UNLIKELY( (ulong)len >= maxlen ) )
     FD_LOG_ERR(( "vsnprintf truncated output (maxlen=%lu)", maxlen ));
+  return s;
 }
 
 void
