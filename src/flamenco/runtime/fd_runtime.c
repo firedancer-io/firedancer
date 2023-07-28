@@ -744,90 +744,50 @@ fd_runtime_collect_rent_account( fd_global_ctx_t *   global,
 }
 
 static int
-fd_runtime_collect_rent_range( fd_global_ctx_t * global,
-                               ulong             prefix0,
-                               ulong             prefix1,
-                               ulong             epoch ) {
+fd_runtime_collect_rent_cb( fd_funk_rec_t const * rec_ro,
+                            void * arg ) {
+  fd_global_ctx_t * global = (fd_global_ctx_t *)arg;
+  fd_funk_txn_t * txn      = global->funk_txn;
+  fd_acc_mgr_t *  acc_mgr  = global->acc_mgr;
 
-  fd_wksp_t *     wksp    = global->wksp;
-  fd_funk_t *     funk    = global->funk;
-  fd_funk_txn_t * txn     = global->funk_txn;
-  fd_acc_mgr_t *  acc_mgr = global->acc_mgr;
+  int err = FD_ACC_MGR_SUCCESS;
+  fd_pubkey_t const * key = fd_type_pun_const( &rec_ro->pair.key[0].uc );
+  void const * acc_ro = fd_acc_mgr_view_data( acc_mgr, txn, key, &rec_ro, &err );
+  fd_account_meta_t const * meta_ro = (fd_account_meta_t const *)acc_ro;
+  
+  /* Account might not exist anymore in the current world */
+  if( ( err==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) | (!acc_ro) ) {
+    return 0; /* Don't walk again */
+  }
+  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+    FD_LOG_WARNING(( "fd_runtime_collect_rent_cb: fd_acc_mgr_view_data failed (%d)", err ));
+    return 0; /* Don't walk again */
+  }
+  
+  /* Filter accounts that we've already visited */
+  ulong epoch = global->rent_epoch;
+  if( meta_ro->info.rent_epoch >= epoch ) return 1;
 
-  /* Iterate through all Funk records.
-      TODO This is obviously inefficient. */
-  fd_funk_rec_t * rec_map = fd_funk_rec_map( funk, wksp );
-  for( fd_funk_rec_map_iter_t iter = fd_funk_rec_map_iter_init( rec_map );
-        !fd_funk_rec_map_iter_done( rec_map, iter );
-        iter = fd_funk_rec_map_iter_next( rec_map, iter ) ) {
-    fd_funk_rec_t * rec = fd_funk_rec_map_iter_ele( rec_map, iter );
-
-    /* Filter for account records */
-    if( !fd_acc_mgr_is_key( rec->pair.key ) ) 
-      continue;
-
-    fd_pubkey_t const * key = fd_type_pun_const( &rec->pair.key[0].uc );
-    
-    /* Check prefix */
-    ulong prefixX_be = key->ul[0];
-    ulong prefixX    = fd_ulong_bswap( prefixX_be );
-    if( ( prefix0 > prefixX ) | ( prefixX > prefix1 ) ) {
-      continue;
-    }
-
-    /* Lookup funk record through account manager.
-       Although we already have _a_ funk record at this point, this is
-       not necessarily the _right_ funk record.  It might be part of a
-       different in-flight transaction.  Thus, we resolve the key to
-       the current transaction record. */
-    fd_funk_rec_t const * rec_ro = NULL;
-    int err = FD_ACC_MGR_SUCCESS;
-    void const * acc_ro = fd_acc_mgr_view_data( acc_mgr, txn, key, &rec_ro, &err );
-    fd_account_meta_t const * meta_ro = (fd_account_meta_t const *)acc_ro;
-
-    /* Account might not exist anymore in the current world */
-    if( ( err==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) | (!acc_ro) ) {
-      continue;
-    }
-    if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
-      FD_LOG_WARNING(( "fd_runtime_collect_rent_range: fd_acc_mgr_view_data failed (%d)", err ));
-      return err;
-    }
-
-    /* Filter accounts that we've already visited */
-    if( meta_ro->info.rent_epoch >= epoch ) continue;
-
-    /* Upgrade read-only handle to writable */
-    fd_funk_rec_t * rec_rw = NULL;
-    err = FD_ACC_MGR_SUCCESS;
-    void * acc_rw = fd_acc_mgr_modify_data(
-        acc_mgr, txn, key,
-        /* do_create */ 0,
-        /* sz          */ NULL,
-        /* opt_con_rec */ rec_ro,
-        /* opt_out_rec */ &rec_rw,
-        &err );
-    if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
-      FD_LOG_WARNING(( "fd_runtime_collect_rent_range: fd_acc_mgr_modify_data failed (%d)", err ));
-      return err;
-    }
-
-    /* Actually invoke rent collection */
-    fd_account_meta_t * meta_rw = (fd_account_meta_t *)acc_rw;
-    FD_LOG_DEBUG(( "Collecting rent from %016lx %32J", prefixX, key->key ));
-    /*int changed = */fd_runtime_collect_rent_account( global, meta_rw, key, epoch );
-
-    /* Update hash */
-    //if( changed ) {
-    //  err = fd_acc_mgr_commit_data( acc_mgr, rec, key, meta_rw, global->bank.slot, /* uncache */ 0 );
-    //  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
-    //    FD_LOG_WARNING(( "fd_runtime_collect_rent_range: fd_acc_mgr_commit_data failed (%d)", err ));
-    //    return err;
-    //  }
-    //}
+  /* Upgrade read-only handle to writable */
+  fd_funk_rec_t * rec_rw = NULL;
+  err = FD_ACC_MGR_SUCCESS;
+  void * acc_rw = fd_acc_mgr_modify_data(
+    acc_mgr, txn, key,
+      /* do_create */ 0,
+      /* sz          */ NULL,
+      /* opt_con_rec */ rec_ro,
+      /* opt_out_rec */ &rec_rw,
+      &err );
+  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+    FD_LOG_WARNING(( "fd_runtime_collect_rent_range: fd_acc_mgr_modify_data failed (%d)", err ));
+    return err;
   }
 
-  return FD_ACC_MGR_SUCCESS;
+  /* Actually invoke rent collection */
+  fd_account_meta_t * meta_rw = (fd_account_meta_t *)acc_rw;
+  /*int changed = */fd_runtime_collect_rent_account( global, meta_rw, key, epoch );
+
+  return 1;
 }
 
 static void
@@ -848,105 +808,20 @@ fd_runtime_collect_rent( fd_global_ctx_t * global ) {
   if( slot0==ULONG_MAX ) slot0 = 0UL;
   FD_TEST( slot0<=slot1 );
 
-  ulong slot0_off;
-  ulong slot1_off;
+  for ( ulong s = slot0+1; s <= slot1; ++s) {
+    ulong off;
+    ulong epoch = fd_slot_to_epoch( schedule, s, &off );
 
-  ulong epoch0 = fd_slot_to_epoch( schedule, slot0, &slot0_off );
-  ulong epoch1 = fd_slot_to_epoch( schedule, slot1, &slot1_off );
-
-  if( epoch0 < epoch1 ) {
-    FD_LOG_WARNING(( "TODO don't yet support rent collection across epoch boundaries" ));
-    return;
-  }
-
-  // Bank::partition_from_normal_slot_indexes (enter)
-  // Bank::do_partition_from_slot_indexes     (enter)
-
-  // Bank::determine_collection_cycle_params  (enter)
-  ulong slot_cnt = fd_epoch_slot_cnt( schedule, epoch0 );
-
-  // Bank::use_multi_epoch_collection_cycle   (enter)
-  /* This is always false on mainnet.  For clusters with shorter epochs,
-     this feature extends rent collection to span multiple epochs. */
-  int use_multi_epoch_collection_cycle =
-      ( schedule->slots_per_epoch > 32UL       )
-    & ( schedule->slots_per_epoch < fd_slot_cnt_2day( global->bank.ticks_per_slot ) )
-    & ( epoch0 >= schedule->first_normal_epoch );
-  if( use_multi_epoch_collection_cycle ) {
-    FD_LOG_WARNING(( "TODO multi epoch rent collection is unsupported (trying using longer epochs)" ));
-    return;
-  }
-
-  // Bank::get_partition_from_slot_indexes (enter)
-  // Bank::partition_index_from_slot_index (enter)
-  ulong part0    = slot0_off;
-  ulong part1    = slot1_off;
-  ulong part_cnt = slot_cnt;
-
-  /* TODO these conditions are used to detect a special case where
-          multi epoch rent collection is enabled, and there were skipped
-          slots across the epoch boundary. */
-  //int start_of_epoch  = ( part0==0UL ) & ( part1!=1UL );
-  //int middle_of_cycle =   part0> 0UL;
-
-  // Bank::partition_index_from_slot_index         (exit)
-  // Bank::get_partition_from_slot_indexes         (exit)
-  // Bank::do_partition_from_slot_indexes          (exit)
-  // Bank::partition_from_normal_slot_indexes      (exit)
-  // Bank::variable_cycle_partitions_between_slots (exit)
-  // Bank::variable_cycle_partitions               (exit)
-  // Bank::rent_collection_partitions              (exit)
-
-  // Bank::collect_rent_eagerly      (cont)
-  // Bank::collect_rent_in_partition (enter)
-
-  // Bank::pubkey_range_from_partition (enter)
-  ulong prefix0 = 0UL;
-  ulong prefix1 = ULONG_MAX;
-  
-  fd_pubkey_t key1;
-  memset( key1.uc, 0xFF, sizeof(fd_pubkey_t) );
-
-  if( FD_LIKELY( part_cnt>1UL ) ) {
-    ulong part_width = (ULONG_MAX - part_cnt + 1UL) / part_cnt + 1UL;
-
-    if( (part0==0UL) & (part1==0UL) ) {
-      prefix0 = 0UL;
-    } else if( part0+1UL == part_cnt  ) {
-      prefix0 = ULONG_MAX;
-    } else {
-      prefix0 = (part0+1UL) * part_width;
+    /* Reconstruct rent lists if the number of slots per epoch changes */
+    if ( fd_rent_lists_get_slots_per_epoch( global->rentlists ) != fd_epoch_slot_cnt( schedule, epoch ) ) {
+      fd_rent_lists_delete(global->rentlists);
+      global->rentlists = fd_rent_lists_new(fd_epoch_slot_cnt( schedule, epoch ));
+      fd_funk_set_notify(global->funk, fd_rent_lists_cb, global->rentlists);
     }
     
-    if( part1+1UL == part_cnt       ) {
-      prefix1 = ULONG_MAX;
-    } else {
-      prefix1 = (part1+1UL) * part_width - 1UL;
-    }
-    
-    if( ( part0!=0UL ) & ( part0==part1 ) ) {
-      /* ??? */
-      if( prefix1 == ULONG_MAX) prefix0 = prefix1;
-      else                      prefix1 = prefix0;
-    }
-
-    FD_LOG_DEBUG(( "Collecting rent from"
-                   " %016lx000000... to"
-                   " %016lxffffff...",
-                   prefix0, prefix1 ));
-
-    int err = fd_runtime_collect_rent_range( global, prefix0, prefix1, epoch0 );
-    FD_TEST( err==FD_ACC_MGR_SUCCESS );
+    global->rent_epoch = epoch;
+    fd_rent_lists_walk( global->rentlists, off, fd_runtime_collect_rent_cb, global );
   }
-  // Bank::pubkey_range_from_partition (exit)
-
-  // Bank::collect_rent_in_partition   (cont)
-  // Bank::collect_rent_in_range       (enter)
-
-  /* TODO iterate over pubkeys in range */
-
-  // Bank::collect_rent_in_range     (exit)
-  // Bank::collect_rent_in_partition (exit)
 }
 
 void

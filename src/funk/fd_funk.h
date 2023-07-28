@@ -161,6 +161,10 @@
 
 #define FD_FUNK_MAGIC (0xf17eda2ce7fc2c00UL) /* firedancer funk version 0 */
 
+typedef void (*fd_funk_notify_cb_t)( fd_funk_rec_t const * updated,
+                                     fd_funk_rec_t const * removed,
+                                     void *                arg );
+
 struct __attribute__((aligned(FD_FUNK_ALIGN))) fd_funk_private {
 
   /* Metadata */
@@ -263,6 +267,11 @@ struct __attribute__((aligned(FD_FUNK_ALIGN))) fd_funk_private {
   ulong persist_frees_gaddr; /* Address of free list tree */
   long persist_frees_root;   /* Index of root of free list tree */
 
+  /* Callback used to notify application that a new record was
+     created/updated/removed. */
+  fd_funk_notify_cb_t notify_cb;
+  void * notify_cb_arg;
+    
   /* Padding to FD_FUNK_ALIGN here */
 };
 
@@ -523,6 +532,15 @@ fd_funk_last_publish_descendant( fd_funk_t *     funk,
   if( fd_funk_txn_idx_is_null( child_idx ) ) return NULL;
   return fd_funk_txn_descendant( txn_map + child_idx, txn_map );
 }
+
+/* Set the new record callback notification function. This is called
+   whenever a new record is created/updated/removed, allowing the
+   application to track the latest version. fd_funk_set_notify calls
+   the function immediately on all existing records. */
+void
+fd_funk_set_notify( fd_funk_t *         funk,
+                    fd_funk_notify_cb_t notify_cb,
+                    void *              notify_cb_arg);
 
 /* Misc */
 

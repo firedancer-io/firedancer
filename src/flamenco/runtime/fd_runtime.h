@@ -5,6 +5,7 @@
 #include "fd_acc_mgr.h"
 #include "fd_executor.h"
 #include "fd_features.h"
+#include "fd_rent_lists.h"
 #include "../../ballet/poh/fd_poh.h"
 #include "program/fd_builtin_programs.h"
 #include "../leaders/fd_leaders.h"
@@ -74,6 +75,9 @@ struct __attribute__((aligned(FD_GLOBAL_CTX_ALIGN))) fd_global_ctx {
 
   fd_epoch_leaders_t *       leaders;  /* Current epoch only */
   fd_pubkey_t const *        leader;   /* Current leader */
+
+  fd_rent_lists_t *          rentlists;
+  ulong                      rent_epoch;
 };
 typedef struct fd_global_ctx fd_global_ctx_t;
 

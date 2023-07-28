@@ -221,6 +221,9 @@ replay( global_state_t * state,
   /* Find epoch stakes for current epoch */
   fd_vote_accounts_t const * epoch_vaccs = &state->global->bank.epoch_stakes;
 
+  state->global->rentlists = fd_rent_lists_new(fd_epoch_slot_cnt( &schedule, epoch ));
+  fd_funk_set_notify(state->global->funk, fd_rent_lists_cb, state->global->rentlists);
+
   ulong stake_weight_cnt;
   {
     FD_SCRATCH_SCOPED_FRAME;
@@ -316,6 +319,9 @@ replay( global_state_t * state,
   }
 
   // fd_funk_txn_publish( state->global->funk, state->global->funk_txn, 1);
+
+  fd_rent_lists_delete(state->global->rentlists);
+  state->global->rentlists = NULL;
 
   FD_TEST( fd_scratch_frame_used()==0UL );
   fd_wksp_free_laddr( fd_scratch_detach( NULL ) );
