@@ -235,7 +235,7 @@ long json_lex_parse_string(struct json_lex_state* state, const char* start_pos) 
         }
       }
       // Fall through to error case
-      
+      __attribute__((fallthrough)); 
     default:
       state->pos = (ulong)(start_pos - state->json);
       fd_quickstring_sprintf(&state->last_str, "invalid character literal at position %ld in json", pos - state->json);

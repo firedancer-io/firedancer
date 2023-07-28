@@ -154,8 +154,11 @@ fd_rent_lists_quickSort(fd_funk_rec_t const ** arr, ulong low, ulong high) {
     ulong pi = fd_rent_lists_partition(arr, low, high);
     // Separately sort elements before
     // partition and after partition
-    fd_rent_lists_quickSort(arr, low, pi - 1U);
-    fd_rent_lists_quickSort(arr, pi + 1U, high);
+
+    if (pi - low > 1) 
+      fd_rent_lists_quickSort(arr, low, pi - 1U);
+    if (high - pi > 1)
+      fd_rent_lists_quickSort(arr, pi + 1U, high);
   }
 }
 

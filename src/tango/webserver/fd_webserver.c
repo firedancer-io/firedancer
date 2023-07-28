@@ -180,7 +180,7 @@ struct fd_web_replier {
   fd_textstream_t textstream;
 };
 
-struct fd_web_replier* fd_web_replier_new() {
+struct fd_web_replier* fd_web_replier_new(void) {
   struct fd_web_replier* r = (struct fd_web_replier*)malloc(sizeof(struct fd_web_replier));
   r->upload_data = NULL;
   r->upload_data_size = 0;
