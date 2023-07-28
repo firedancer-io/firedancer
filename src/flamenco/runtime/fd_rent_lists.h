@@ -6,6 +6,8 @@ fd_rent_lists_t * fd_rent_lists_new( ulong slots_per_epoch );
 
 void fd_rent_lists_delete( fd_rent_lists_t * lists );
 
+void fd_rent_lists_startup_done( fd_rent_lists_t * lists );
+
 ulong fd_rent_lists_get_slots_per_epoch( fd_rent_lists_t * lists );
 
 /* Hook into funky */

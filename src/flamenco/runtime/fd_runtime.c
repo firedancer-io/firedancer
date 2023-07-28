@@ -817,6 +817,7 @@ fd_runtime_collect_rent( fd_global_ctx_t * global ) {
       fd_rent_lists_delete(global->rentlists);
       global->rentlists = fd_rent_lists_new(fd_epoch_slot_cnt( schedule, epoch ));
       fd_funk_set_notify(global->funk, fd_rent_lists_cb, global->rentlists);
+      fd_rent_lists_startup_done(global->rentlists);
     }
     
     global->rent_epoch = epoch;

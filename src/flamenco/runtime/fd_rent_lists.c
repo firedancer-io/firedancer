@@ -24,9 +24,10 @@ struct fd_rent_pause_line {
 typedef struct fd_rent_pause_line fd_rent_pause_line_t;
 
 struct fd_rent_lists {
+    int startup;
+    int paused;
     ulong slots_per_epoch;
     ulong part_width;
-    int paused;
     ulong pause_len;
     ulong pause_max;
     fd_rent_pause_line_t * pause_queue;
@@ -36,6 +37,7 @@ struct fd_rent_lists {
 fd_rent_lists_t *
 fd_rent_lists_new( ulong slots_per_epoch ) {
   fd_rent_lists_t * lists = (fd_rent_lists_t *)malloc(sizeof(fd_rent_lists_t) + sizeof(fd_rent_list_t *)*(slots_per_epoch - 1UL));
+  lists->startup = 1;
   lists->slots_per_epoch = slots_per_epoch;
   lists->part_width = (ULONG_MAX - slots_per_epoch + 1UL) / slots_per_epoch + 1UL;
   fd_rent_list_t ** end = lists->lists + slots_per_epoch;
@@ -162,6 +164,18 @@ fd_rent_lists_quickSort(fd_funk_rec_t const ** arr, ulong low, ulong high) {
   }
 }
 
+void
+fd_rent_lists_startup_done( fd_rent_lists_t * lists ) {
+  FD_TEST( lists->startup );
+  fd_rent_list_t ** end = lists->lists + lists->slots_per_epoch;
+  for ( fd_rent_list_t ** i = lists->lists; i != end; ++i ) {
+    fd_rent_list_t * j = *i;
+    if ( j && j->num_sorted > 1 )
+      fd_rent_lists_quickSort(j->sorted, 0, j->num_sorted - 1U);
+  }
+  lists->startup = 0;
+}
+
 static void
 fd_rent_lists_compact_and_sort( fd_rent_list_t ** listp ) {
   fd_rent_list_t * list = *listp;
@@ -206,6 +220,26 @@ fd_rent_lists_cb( fd_funk_rec_t const * updated,
                   void *                arg ) { /* fd_rent_lists_t */
   fd_rent_lists_t * lists = (fd_rent_lists_t *)arg;
 
+  if ( lists->startup ) {
+    /* Assume all updates are unique and we can sort later */
+    FD_TEST( updated && !removed );
+    
+    fd_rent_list_t ** listp = fd_rent_lists_key_to_bucket( lists, updated );
+    fd_rent_list_t * list = *listp;
+    if ( list == NULL ) {
+      /* Allocate a fresh list */
+      list = *listp = (fd_rent_list_t *)malloc(sizeof(fd_rent_list_t) + sizeof(fd_funk_rec_t const *)*(FD_RENT_LIST_INC_SORTED - 1UL));
+      list->num_unsorted = 0;
+      list->num_sorted = 0;
+      list->max_sorted = FD_RENT_LIST_INC_SORTED;
+    } else if ( list->num_sorted == list->max_sorted ) {
+      list->max_sorted += FD_RENT_LIST_INC_SORTED;
+      list = *listp = (fd_rent_list_t *)realloc(list, sizeof(fd_rent_list_t) + sizeof(fd_funk_rec_t const *)*(list->max_sorted - 1UL));
+    }
+    list->sorted[list->num_sorted ++] = updated;
+    return;
+  }
+  
   if ( lists->paused ) {
     /* We are currently walking a list. Just hold onto the callback
        for now to prevent crazy corruption and recursion. */
