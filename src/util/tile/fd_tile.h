@@ -22,6 +22,9 @@ typedef int (*fd_tile_task_t)( int argc, char ** argv );
 struct fd_tile_exec_private;
 typedef struct fd_tile_exec_private fd_tile_exec_t;
 
+/* TODO: Allow this to be run-time configured (e.g. match ulimit -s)? */
+#define FD_TILE_PRIVATE_STACK_SZ (8UL<<20) /* Should be a multiple of HUGE (and NORMAL) page sizes */
+
 FD_PROTOTYPES_BEGIN
 
 /* fd_tile_{id0,id1,id,idx,cnt} return various information about the

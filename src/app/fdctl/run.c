@@ -1,12 +1,17 @@
 #define _GNU_SOURCE
 #include "run.h"
 
+#include "configure/configure.h"
+
 #include <stdio.h>
 #include <sched.h>
 #include <sys/wait.h>
 #include <sys/prctl.h>
+#include <sys/xattr.h>
 #include <linux/capability.h>
 #include <linux/unistd.h>
+
+#include "../../util/wksp/fd_wksp_private.h"
 
 void
 run_cmd_perm( args_t *         args,
@@ -14,7 +19,7 @@ run_cmd_perm( args_t *         args,
               config_t * const config ) {
   (void)args;
 
-  ulong limit = workspace_bytes( config );
+  ulong limit = memlock_max_bytes( config );
   check_res( security, "run", RLIMIT_MEMLOCK, limit, "increase `RLIMIT_MEMLOCK` to lock the workspace in memory with `mlock(2)`" );
   check_res( security, "run", RLIMIT_NICE, 40, "call `setpriority(2)` to increase thread priorities" );
   check_res( security, "run", RLIMIT_NOFILE, 1024000, "increase `RLIMIT_NOFILE` to allow more open files for Solana Labs" );
@@ -45,37 +50,64 @@ install_tile_signals( void ) {
 }
 
 typedef struct {
+  char * app_name;
   ulong idx;
   ushort * tile_to_cpu;
   cpu_set_t * floating_cpu_set;
   int sandbox;
-  const char * pod_gaddr;
   pid_t child_pids[ FD_TILE_MAX + 1 ];
   char  child_names[ FD_TILE_MAX + 1 ][ 32 ];
   uid_t uid;
   gid_t gid;
 } tile_spawner_t;
 
+const uchar *
+workspace_pod_join( char * app_name,
+                    char * tile_name,
+                    ulong tile_idx ) {
+  char name[ FD_WKSP_CSTR_MAX ];
+  snprintf( name, FD_WKSP_CSTR_MAX, "%s_%s%lu.wksp", app_name, tile_name, tile_idx );
+
+  fd_wksp_t * wksp = fd_wksp_attach( name );
+  if( FD_UNLIKELY( !wksp ) ) FD_LOG_ERR(( "could not attach to workspace `%s`", name ));
+
+  void * laddr = fd_wksp_laddr( wksp, wksp->gaddr_lo );
+  if( FD_UNLIKELY( !laddr ) ) FD_LOG_ERR(( "could not get gaddr_low from workspace `%s`", name ));
+
+  uchar const * pod = fd_pod_join( laddr );
+  if( FD_UNLIKELY( !pod ) ) FD_LOG_ERR(( "fd_pod_join to pod at gaddr_lo failed" ));
+  return pod;
+}
+
 int
 tile_main( void * _args ) {
   tile_main_args_t * args = _args;
 
+  fd_log_thread_set( args->tile->name );
+
   install_tile_signals();
   fd_frank_args_t frank_args = {
-    .pod_gaddr = args->pod_gaddr,
     .tile_idx = args->tile_idx,
     .idx = args->idx,
-    .allow_syscalls_sz = 0,
-    .close_fd_start = 0,
+    .app_name = args->app_name,
+    .tile_name = args->tile->name,
+    .in_pod = NULL,
+    .out_pod = NULL,
   };
-  args->tile->init( &frank_args );
 
-  if( args->sandbox ) fd_sandbox( args->uid,
-                                  args->gid,
-                                  frank_args.close_fd_start,
-                                  frank_args.allow_syscalls_sz,
-                                  frank_args.allow_syscalls );
-  fd_log_thread_set( frank_args.name );
+  frank_args.tile_pod = workspace_pod_join( args->app_name, args->tile->name, args->tile_idx );
+  if( FD_LIKELY( args->tile->in_wksp ) )
+    frank_args.in_pod = workspace_pod_join( args->app_name, args->tile->in_wksp, 0 );
+  if( FD_LIKELY( args->tile->out_wksp ) )
+    frank_args.out_pod = workspace_pod_join( args->app_name, args->tile->out_wksp, 0 );
+
+  if( FD_UNLIKELY( args->tile->init ) ) args->tile->init( &frank_args );
+
+  if( FD_LIKELY( args->sandbox ) ) fd_sandbox( args->uid,
+                                               args->gid,
+                                               args->tile->close_fd_start,
+                                               args->tile->allow_syscalls_sz,
+                                               args->tile->allow_syscalls );
   args->tile->run( &frank_args );
   return 0;
 }
@@ -84,7 +116,7 @@ static void
 clone_tile( tile_spawner_t * spawn, fd_frank_task_t * task, ulong idx ) {
   ushort cpu_idx = spawn->tile_to_cpu[ spawn->idx ];
   cpu_set_t cpu_set[1];
-  if( cpu_idx<65535UL  ) {
+  if( FD_LIKELY( cpu_idx<65535UL ) ) {
       /* set the thread affinity before we clone the new process to ensure
          kernel first touch happens on the desired thread. */
       cpu_set_t cpu_set[1];
@@ -111,10 +143,10 @@ clone_tile( tile_spawner_t * spawn, fd_frank_task_t * task, ulong idx ) {
   FD_LOG_NOTICE(( "booting tile %s(%lu)", task->name, idx ));
 
   tile_main_args_t args = {
-    .tile_idx = spawn->idx,
-    .idx  = idx,
+    .app_name = spawn->app_name,
+    .tile_idx = idx,
+    .idx  = spawn->idx,
     .tile = task,
-    .pod_gaddr = spawn->pod_gaddr,
     .sandbox = spawn->sandbox,
     .uid = spawn->uid,
     .gid = spawn->gid,
@@ -258,6 +290,16 @@ static int
 main_pid_namespace( void * args ) {
   config_t * const config = args;
 
+  /* remove the signal handlers installed for SIGTERM and SIGINT by the parent,
+     to end the process SIGINT will be sent to the parent, which will terminate
+     SIGKILL us. */
+  struct sigaction sa[1];
+  sa->sa_handler = SIG_DFL;
+  sa->sa_flags = 0;
+  if( sigemptyset( &sa->sa_mask ) ) FD_LOG_ERR(( "sigemptyset() failed (%i-%s)", errno, strerror( errno ) ));
+  if( sigaction( SIGTERM, sa, NULL ) ) FD_LOG_ERR(( "sigaction() failed (%i-%s)", errno, strerror( errno ) ));
+  if( sigaction( SIGINT, sa, NULL ) ) FD_LOG_ERR(( "sigaction() failed (%i-%s)", errno, strerror( errno ) ));
+
   /* change pgid so controlling terminal generates interrupt only to the parent */
   if( FD_UNLIKELY( setpgid( 0, 0 ) ) ) FD_LOG_ERR(( "setpgid() failed (%i-%s)", errno, strerror( errno ) ));
 
@@ -276,23 +318,20 @@ main_pid_namespace( void * args ) {
   if( FD_UNLIKELY( sched_getaffinity( 0, sizeof(cpu_set_t), floating_cpu_set ) ) )
     FD_LOG_ERR(( "sched_getaffinity (%i-%s)", errno, strerror( errno ) ));
 
-  char line[ 4096 ];
-  const char * pod_gaddr = load_var_pod( config, "POD", line );
-
   tile_spawner_t spawner = {
+    .app_name = config->name,
     .idx = 0,
     .tile_to_cpu = tile_to_cpu,
     .floating_cpu_set = floating_cpu_set,
-    .pod_gaddr = pod_gaddr,
     .sandbox = config->development.sandbox,
     .uid = config->uid,
     .gid = config->gid,
   };
 
-  clone_tile( &spawner, &dedup, 0 );
-  clone_tile( &spawner, &pack , 0 );
-  for( ulong i=0; i<config->layout.verify_tile_count; i++ ) clone_tile( &spawner, &verify, i );
-  for( ulong i=0; i<config->layout.verify_tile_count; i++ ) clone_tile( &spawner, &quic, i );
+  clone_tile( &spawner, &frank_dedup, 0 );
+  clone_tile( &spawner, &frank_pack , 0 );
+  for( ulong i=0; i<config->layout.verify_tile_count; i++ ) clone_tile( &spawner, &frank_verify, i );
+  for( ulong i=0; i<config->layout.verify_tile_count; i++ ) clone_tile( &spawner, &frank_quic, i );
 
   if( FD_UNLIKELY( sched_setaffinity( 0, sizeof(cpu_set_t), floating_cpu_set ) ) )
     FD_LOG_ERR(( "sched_setaffinity (%i-%s)", errno, strerror( errno ) ));
@@ -363,13 +402,17 @@ install_parent_signals( void ) {
 
 void
 run_firedancer( config_t * const config ) {
+  enter_network_namespace( config );
+
   void * stack = fd_tile_private_stack_new( 0, 65535UL );
   if( FD_UNLIKELY( !stack ) ) FD_LOG_ERR(( "unable to create a stack for boot process" ));
 
+  /* install signal handler to kill child before cloning it, to prevent
+     race condition. child will clear the handlers. */
+  install_parent_signals();
+
   /* clone into a pid namespace */
   pid_namespace = clone( main_pid_namespace, (uchar *)stack + (8UL<<20), CLONE_NEWPID, config );
-
-  install_parent_signals();
 
   long allow_syscalls[] = {
     __NR_write,      /* logging */
@@ -386,7 +429,7 @@ run_firedancer( config_t * const config ) {
 
   int wstatus;
   pid_t pid2 = wait4( pid_namespace, &wstatus, (int)__WCLONE, NULL );
-  fprintf( stderr, "Log at \"%s\"", fd_log_private_path );
+  fprintf( stderr, "Log at \"%s\"\n", fd_log_private_path );
   if( FD_UNLIKELY( pid2 == -1 ) ) exit_group( 1 );
   if( FD_UNLIKELY( !WIFEXITED( wstatus ) ) ) exit_group( WTERMSIG( wstatus ) );
   exit_group( WEXITSTATUS( wstatus ) );

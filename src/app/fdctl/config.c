@@ -1,5 +1,6 @@
 #include "fdctl.h"
 
+#include "../frank/fd_frank.h"
 #include "../../util/net/fd_eth.h"
 
 #include <stdio.h>
@@ -14,16 +15,60 @@
 
 FD_IMPORT_CSTR( default_config, "src/app/fdctl/config/default.toml" );
 
+static workspace_config_t *
+find_wksp( config_t * const config,
+           char * name ) {
+  for( ulong i=0; i<config->shmem.workspaces_cnt; i++ ) {
+    workspace_config_t * wksp = &config->shmem.workspaces[ i ];
+    if( FD_UNLIKELY( !strcmp( wksp->name, name ) ) ) return wksp;
+  }
+  FD_LOG_ERR(( "no workspace with name `%s` found", name ));
+}
+
 ulong
-workspace_bytes( config_t * const config ) {
-  ulong workspace_bytes = 0;
-  if( FD_LIKELY( !strcmp( config->shmem.workspace_page_size, "gigantic" ) ) )
-    workspace_bytes = config->shmem.workspace_page_count * 1024 * 1024 * 1024;
-  else if( FD_LIKELY( !strcmp( config->shmem.workspace_page_size, "huge" ) ) )
-    workspace_bytes = config->shmem.workspace_page_count * 2 * 1024 * 1024;
-  else
-    FD_LOG_ERR(( "invalid workspace_page_size: `%s`", config->shmem.workspace_page_size ));
-  return workspace_bytes;
+memlock_max_bytes( config_t * const config ) {
+  ulong memlock_max_bytes = 0;
+  for( ulong j=0; j<config->shmem.workspaces_cnt; j++ ) {
+    workspace_config_t * wksp = &config->shmem.workspaces[ j ];
+
+#define TILE_MAX( tile ) do {                                                                     \
+    ulong in_bytes = 0, out_bytes = 0;                                                            \
+    if( FD_LIKELY( tile.in_wksp ) ) {                                                             \
+      workspace_config_t * in_wksp = find_wksp( config, tile.in_wksp );                           \
+      in_bytes = in_wksp->num_pages * in_wksp->page_size;                                         \
+    }                                                                                             \
+    if( FD_LIKELY( tile.out_wksp ) ) {                                                            \
+      workspace_config_t * out_wksp = find_wksp( config, tile.out_wksp );                         \
+      out_bytes = out_wksp->num_pages * out_wksp->page_size;                                      \
+    }                                                                                             \
+    memlock_max_bytes = fd_ulong_max( memlock_max_bytes,                                          \
+                                      wksp->page_size * wksp->num_pages + in_bytes + out_bytes ); \
+  } while(0)
+
+    switch ( wksp->kind ) {
+      case wksp_quic_verify:
+      case wksp_verify_dedup:
+      case wksp_dedup_pack:
+      case wksp_pack_bank:
+        break;
+      case wksp_quic:
+        TILE_MAX( frank_quic );
+        break;
+      case wksp_verify:
+        TILE_MAX( frank_verify );
+        break;
+      case wksp_dedup:
+        TILE_MAX( frank_dedup );
+        break;
+      case wksp_pack:
+        TILE_MAX( frank_pack );
+        break;
+    }
+  }
+
+  /* each process only has one thread, so there's only one set of stack pages mlocked */
+  ulong stack_pages = (FD_TILE_PRIVATE_STACK_SZ/FD_SHMEM_HUGE_PAGE_SZ)+2UL;
+  return memlock_max_bytes + FD_SHMEM_HUGE_PAGE_SZ * stack_pages;
 }
 
 static char *
@@ -195,13 +240,10 @@ static void parse_key_value( config_t *   config,
 
   ENTRY_STR   ( ., layout,              affinity                                                  );
   ENTRY_UINT  ( ., layout,              verify_tile_count                                         );
+  ENTRY_UINT  ( ., layout,              bank_tile_count                                           );
 
   ENTRY_STR   ( ., shmem,               gigantic_page_mount_path                                  );
   ENTRY_STR   ( ., shmem,               huge_page_mount_path                                      );
-  ENTRY_UINT  ( ., shmem,               min_kernel_gigantic_pages                                 );
-  ENTRY_UINT  ( ., shmem,               min_kernel_huge_pages                                     );
-  ENTRY_STR   ( ., shmem,               workspace_page_size                                       );
-  ENTRY_UINT  ( ., shmem,               workspace_page_count                                      );
 
   ENTRY_BOOL  ( ., development,         sandbox                                                   );
   ENTRY_BOOL  ( ., development,         sudo                                                      );
@@ -236,6 +278,8 @@ static void parse_key_value( config_t *   config,
   ENTRY_UINT  ( ., tiles.pack,          compute_unit_estimator_ema_default                        );
   ENTRY_UINT  ( ., tiles.pack,          solana_labs_bank_thread_count                             );
   ENTRY_UINT  ( ., tiles.pack,          solana_labs_bank_thread_compute_units_executed_per_second );
+
+  ENTRY_UINT  ( ., tiles.bank,          receive_buffer_size                                       );
 
   ENTRY_UINT  ( ., tiles.dedup,         signature_cache_size                                      );
 }
@@ -408,6 +452,66 @@ mac_address( const char * interface,
   fd_memcpy( mac, ifr.ifr_hwaddr.sa_data, 6 );
 }
 
+static void
+init_workspaces( config_t * config ) {
+  ulong idx = 0;
+
+  config->shmem.workspaces[ idx ].kind      = wksp_quic_verify;
+  config->shmem.workspaces[ idx ].name      = "quic_verify";
+  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
+  config->shmem.workspaces[ idx ].num_pages = 1;
+
+  idx++;
+  config->shmem.workspaces[ idx ].kind      = wksp_verify_dedup;
+  config->shmem.workspaces[ idx ].name      = "verify_dedup";
+  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
+  config->shmem.workspaces[ idx ].num_pages = 1;
+
+  idx++;
+  config->shmem.workspaces[ idx ].kind      = wksp_dedup_pack;
+  config->shmem.workspaces[ idx ].name      = "dedup_pack";
+  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
+  config->shmem.workspaces[ idx ].num_pages = 1;
+
+  idx++;
+  config->shmem.workspaces[ idx ].kind      = wksp_pack_bank;
+  config->shmem.workspaces[ idx ].name      = "pack_bank";
+  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
+  config->shmem.workspaces[ idx ].num_pages = 1;
+
+  idx++;
+  for( ulong i=0; i<config->layout.verify_tile_count; i++ ) {
+    config->shmem.workspaces[ idx ].kind      = wksp_quic;
+    config->shmem.workspaces[ idx ].name      = "quic";
+    config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
+    config->shmem.workspaces[ idx ].num_pages = 1;
+    config->shmem.workspaces[ idx ].kind_idx  = i;
+    idx++;
+  }
+
+  for( ulong i=0; i<config->layout.verify_tile_count; i++ ) {
+    config->shmem.workspaces[ idx ].kind      = wksp_verify;
+    config->shmem.workspaces[ idx ].name      = "verify";
+    config->shmem.workspaces[ idx ].page_size = FD_SHMEM_HUGE_PAGE_SZ;
+    config->shmem.workspaces[ idx ].num_pages = 1;
+    config->shmem.workspaces[ idx ].kind_idx  = i;
+    idx++;
+  }
+
+  config->shmem.workspaces[ idx ].kind      = wksp_dedup;
+  config->shmem.workspaces[ idx ].name      = "dedup";
+  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
+  config->shmem.workspaces[ idx ].num_pages = 1;
+
+  idx++;
+  config->shmem.workspaces[ idx ].kind      = wksp_pack;
+  config->shmem.workspaces[ idx ].name      = "pack";
+  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_HUGE_PAGE_SZ;
+  config->shmem.workspaces[ idx ].num_pages = 1;
+
+  config->shmem.workspaces_cnt = idx + 1;
+}
+
 config_t
 config_parse( int *    pargc,
               char *** pargv ) {
@@ -543,77 +647,7 @@ config_parse( int *    pargc,
       FD_LOG_ERR(( "trying to join a live cluster, but configuration enables [development.netns] which is a development only feature" ));
   }
 
+  init_workspaces( &result );
+
   return result;
-}
-
-void
-dump_vars( config_t * const config,
-           const char *     pod,
-           const char *     main_cnc ) {
-  char path[ PATH_MAX ];
-  snprintf1( path, PATH_MAX, "%s/config.cfg", config->scratch_directory );
-
-  mkdir_all( config->scratch_directory, config->uid, config->gid );
-
-  /* switch to non-root uid/gid for file creation. permissions checks still done as root. */
-  gid_t gid = getgid();
-  uid_t uid = getuid();
-  if( FD_LIKELY( gid == 0 && setegid( config->gid ) ) )
-    FD_LOG_ERR(( "setegid() failed (%i-%s)", errno, strerror( errno ) ));
-  if( FD_LIKELY( uid == 0 && seteuid( config->uid ) ) )
-    FD_LOG_ERR(( "seteuid() failed (%i-%s)", errno, strerror( errno ) ));
-
-  FILE * fp = fopen( path, "w" );
-  if( FD_UNLIKELY( !fp ) ) FD_LOG_ERR(( "failed to open `%s` for writing: %s", path, strerror( errno ) ));
-
-  int err = fprintf( fp,
-                     "#!/bin/bash\n"
-                     "# AUTOGENERATED\n"
-                     "WKSP=%s.wksp\n"
-                     "AFFINITY=%s\n"
-                     "APP=%s\n"
-                     "POD=%s\n"
-                     "MAIN_CNC=%s.wksp:%s\n"
-                     "IFACE=%s\n",
-                     config->name,
-                     config->layout.affinity,
-                     config->name,
-                     pod,
-                     config->name,
-                     main_cnc,
-                     config->tiles.quic.interface );
-  if( FD_UNLIKELY( err < 0 ) ) FD_LOG_ERR(( "fprintf failed (%i-%s)", errno, strerror( errno ) ));
-  if( FD_UNLIKELY( fclose( fp ) ) ) FD_LOG_ERR(( "fclose failed `%s` (%d-%s)", path, errno, strerror( errno ) ));
-
-  if( FD_UNLIKELY( seteuid( uid ) ) ) FD_LOG_ERR(( "seteuid() failed (%i-%s)", errno, strerror( errno ) ));
-  if( FD_UNLIKELY( setegid( gid ) ) ) FD_LOG_ERR(( "setegid() failed (%i-%s)", errno, strerror( errno ) ));
-}
-
-const char *
-load_var_pod( config_t * const config,
-              char * name,
-              char line[4096] ) {
-  char path[ PATH_MAX ];
-  snprintf1( path, sizeof(path), "%s/config.cfg", config->scratch_directory );
-
-  FILE * fp = fopen( path, "r" );
-  if( FD_UNLIKELY( !fp ) ) FD_LOG_ERR(( "failed to open %s: (%d-%s)", path, errno, strerror( errno ) ));
-
-  ulong i = 0;
-  while( FD_LIKELY( fgets( line, 4096, fp ) ) ) {
-    if( FD_UNLIKELY( strlen( line ) == 4095 ) ) FD_LOG_ERR(( "line too long in `%s`", path ));
-    if( FD_UNLIKELY( i++<2 ) ) continue;
-
-    char * eq = strchr( line, '=' );
-    if( FD_UNLIKELY( !eq ) ) FD_LOG_ERR(( "malformed config.cfg (expected `=`): `%s`", line ));
-
-    *eq++ = '\0';
-    eq[ strlen( eq ) - 1 ] = '\0';
-    if( FD_UNLIKELY( !strcmp( line, name ) ) ) {
-      if( FD_UNLIKELY( fclose( fp ) ) ) FD_LOG_ERR(( "close failed (%d-%s)", errno, strerror( errno ) ));
-      return eq;
-    }
-  }
-
-  FD_LOG_ERR(( "malformed config.cfg (expected to find `%s=`): `%s`", name, path ));
 }

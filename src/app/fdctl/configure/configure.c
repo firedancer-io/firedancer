@@ -13,7 +13,6 @@ configure_stage_t * STAGES[ CONFIGURE_STAGE_COUNT ] = {
   &ethtool,
   &workspace_leftover,
   &workspace,
-  &frank,
   NULL,
 };
 

@@ -25,38 +25,30 @@
 #define FD_FRANK_CNC_DIAG_SV_FILT_SZ  (5UL)                 /* " */
 
 typedef struct {
-   char          name[ 32 ];
+   char *        app_name;
+   char *        tile_name;
    ulong         tile_idx;
    ulong         idx;
-   char const *  pod_gaddr;
-   uchar const * pod;
+   uchar const * tile_pod;
+   uchar const * in_pod;
+   uchar const * out_pod;
    fd_xsk_t    * xsk;
-   uint          close_fd_start;
-   ushort        allow_syscalls_sz;
-   long *        allow_syscalls;
 } fd_frank_args_t;
 
 typedef struct {
    char * name;
+   char * in_wksp;
+   char * out_wksp;
+   uint   close_fd_start;
+   ushort allow_syscalls_sz;
+   long * allow_syscalls;
    void (*init)( fd_frank_args_t * args );
    void (*run )( fd_frank_args_t * args );
 } fd_frank_task_t;
 
-extern fd_frank_task_t verify;
-extern fd_frank_task_t dedup;
-extern fd_frank_task_t quic;
-extern fd_frank_task_t pack;
-
-FD_PROTOTYPES_BEGIN
-
-void
-fd_frank_mon( const uchar * pod,
-              long          dt_min,
-              long          dt_max,
-              long          duration,
-              uint          seed );
-
-FD_PROTOTYPES_END
+extern fd_frank_task_t frank_verify;
+extern fd_frank_task_t frank_dedup;
+extern fd_frank_task_t frank_quic;
+extern fd_frank_task_t frank_pack;
 
 #endif /* HEADER_fd_src_app_frank_fd_frank_h */
-

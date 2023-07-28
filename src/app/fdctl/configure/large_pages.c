@@ -40,15 +40,29 @@ try_defragment_memory( void ) {
   nanosleep1( 0, 250000000 );
 }
 
+void
+expected_pages( config_t * const  config, uint out[2] ) {
+  for( ulong i=0; i<config->shmem.workspaces_cnt; i++ ) {
+    switch( config->shmem.workspaces[ i ].page_size ) {
+      case FD_SHMEM_GIGANTIC_PAGE_SZ:
+        out[ 1 ] += (uint)config->shmem.workspaces[ i ].num_pages;
+        break;
+      case FD_SHMEM_HUGE_PAGE_SZ:
+        out[ 0 ] += (uint)config->shmem.workspaces[ i ].num_pages;
+        break;
+      default:
+        break;
+    }
+  }
+}
+
 static void init( config_t * const config ) {
   char * paths[ 2 ] = {
     "/sys/devices/system/node/node0/hugepages/hugepages-2048kB/nr_hugepages",
     "/sys/devices/system/node/node0/hugepages/hugepages-1048576kB/nr_hugepages",
   };
-  uint expected[ 2 ] = {
-    config->shmem.min_kernel_huge_pages,
-    config->shmem.min_kernel_gigantic_pages,
-  };
+  uint expected[ 2 ] = { 0 };
+  expected_pages( config, expected );
 
   for( int i=0; i<2; i++ ) {
     uint actual = read_uint_file( paths[ i ] );
@@ -64,10 +78,8 @@ static configure_result_t check( config_t * const config ) {
     "/sys/devices/system/node/node0/hugepages/hugepages-2048kB/nr_hugepages",
     "/sys/devices/system/node/node0/hugepages/hugepages-1048576kB/nr_hugepages",
   };
-  uint expected[ 2 ] = {
-    config->shmem.min_kernel_huge_pages,
-    config->shmem.min_kernel_gigantic_pages,
-  };
+  uint expected[ 2 ] = { 0 };
+  expected_pages( config, expected );
 
   for( int i=0; i<2; i++ ) {
     uint actual = read_uint_file( paths[i] );
