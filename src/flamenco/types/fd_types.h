@@ -1342,6 +1342,7 @@ union fd_stake_instruction_inner {
   fd_stake_authorize_t authorize_checked;
   fd_authorize_checked_with_seed_args_t authorize_checked_with_seed;
   fd_lockup_checked_args_t set_lockup_checked;
+  fd_lockup_args_t set_lockup;
 };
 typedef union fd_stake_instruction_inner fd_stake_instruction_inner_t;
 
