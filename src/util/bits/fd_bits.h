@@ -58,8 +58,10 @@ FD_PROTOTYPES_BEGIN
    fd_ulong_find_msb          ( x    ) returns the index of the most significant bit set in x, in [0,64).  U.B. if x is zero.
    fd_ulong_find_msb_w_default( x, d ) returns the index of the most significant bit set in x, in [0,64).  d if x is zero.
    fd_ulong_bswap             ( x    ) returns x with its bytes swapped
-   fd_ulong_pow2_up           ( x    ) returns y mod 2^64 where y is the smallest integer power of 2 >= x.
-                                       x returns 0 (U.B. behavior or 1 might arguable alternatives here)
+   fd_ulong_pow2_up           ( x    ) returns y mod 2^64 where y is the smallest integer power of 2 >= x.  U.B. if x is zero.
+                                       (current implementation returns 0 if x==0).
+   fd_ulong_pow2_dn           ( x    ) returns the largest integer power of 2 <= x.  U.B. if x is zero.
+                                       (current implementation returns 1 if x==0).
 
    Similarly for uchar,ushort,uint,uint128.  Note that the signed
    versions of shift_left, rotate_left, rotate_right operate on the bit
@@ -244,12 +246,25 @@ fd_uint128_bswap( uint128 x ) {
 }
 #endif
 
-/* FIXME: CONSIDER FIND_MSB BASED SOLUTION? */
+/* FIXME: consider find_msb based solution (probably not as the combination
+   of FD_FN_CONST and the use of inline asm for find_msb on some targets
+   is probably less than ideal). */
 
 FD_FN_CONST static inline uchar
 fd_uchar_pow2_up( uchar _x ) {
   uint x = (uint)_x;
   x--;
+  x |= (x>> 1);
+  x |= (x>> 2);
+  x |= (x>> 4);
+  x++;
+  return (uchar)x;
+}
+
+FD_FN_CONST static inline uchar
+fd_uchar_pow2_dn( uchar _x ) {
+  uint x = (uint)_x;
+  x >>= 1;
   x |= (x>> 1);
   x |= (x>> 2);
   x |= (x>> 4);
@@ -269,9 +284,33 @@ fd_ushort_pow2_up( ushort _x ) {
   return (ushort)x;
 }
 
+FD_FN_CONST static inline ushort
+fd_ushort_pow2_dn( ushort _x ) {
+  uint x = (uint)_x;
+  x >>= 1;
+  x |= (x>> 1);
+  x |= (x>> 2);
+  x |= (x>> 4);
+  x |= (x>> 8);
+  x++;
+  return (ushort)x;
+}
+
 FD_FN_CONST static inline uint
 fd_uint_pow2_up( uint x ) {
   x--;
+  x |= (x>> 1);
+  x |= (x>> 2);
+  x |= (x>> 4);
+  x |= (x>> 8);
+  x |= (x>>16);
+  x++;
+  return x;
+}
+
+FD_FN_CONST static inline uint
+fd_uint_pow2_dn( uint x ) {
+  x >>= 1;
   x |= (x>> 1);
   x |= (x>> 2);
   x |= (x>> 4);
@@ -294,10 +333,37 @@ fd_ulong_pow2_up( ulong x ) {
   return x;
 }
 
+FD_FN_CONST static inline ulong
+fd_ulong_pow2_dn( ulong x ) {
+  x >>= 1;
+  x |= (x>> 1);
+  x |= (x>> 2);
+  x |= (x>> 4);
+  x |= (x>> 8);
+  x |= (x>>16);
+  x |= (x>>32);
+  x++;
+  return x;
+}
+
 #if FD_HAS_INT128
 FD_FN_CONST static inline uint128
 fd_uint128_pow2_up( uint128 x ) {
   x--;
+  x |= (x>> 1);
+  x |= (x>> 2);
+  x |= (x>> 4);
+  x |= (x>> 8);
+  x |= (x>>16);
+  x |= (x>>32);
+  x |= (x>>64);
+  x++;
+  return x;
+}
+
+FD_FN_CONST static inline uint128
+fd_uint128_pow2_dn( uint128 x ) {
+  x >>= 1;
   x |= (x>> 1);
   x |= (x>> 2);
   x |= (x>> 4);
