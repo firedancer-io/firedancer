@@ -467,7 +467,7 @@ fd_log_wait_until( long then ) {
 
 /* LOG APIS ***********************************************************/
 
-static char   fd_log_private_path[ 1024 ]; /* empty string on start */
+char          fd_log_private_path[ 1024 ]; /* empty string on start */
 static FILE * fd_log_private_file;         /* NULL on start */
 static int    fd_log_private_dedup;        /* 0 on start */
 
@@ -769,7 +769,11 @@ fd_log_private_2( int          level,
                   char const * msg ) {
   fd_log_private_1( level, now, file, line, func, msg );
 
+# if FD_LOG_UNCLEAN_EXIT
+  if( level<fd_log_level_core() ) syscall(SYS_exit_group, 1);
+# else
   if( level<fd_log_level_core() ) exit(1); /* atexit will call fd_log_private_cleanup implicitly */
+# endif
 
   abort();
 }
@@ -911,6 +915,7 @@ fd_log_private_cleanup( void ) {
   } FD_ONCE_END;
 }
 
+#ifndef FD_LOG_UNCLEAN_EXIT
 static void
 fd_log_private_sig_abort( int         sig,
                           siginfo_t * info,
@@ -984,6 +989,7 @@ fd_log_private_sig_trap( int sig ) {
   act->sa_flags = (int)(SA_SIGINFO | SA_RESETHAND);
   if( sigaction( sig, act, NULL ) ) FD_LOG_ERR(( "unable to override signal %i", sig ));
 }
+#endif
 
 void
 fd_log_private_boot( int  *   pargc,
@@ -1103,6 +1109,7 @@ fd_log_private_boot( int  *   pargc,
     /* This is all overridable POSIX sigs whose default behavior is to
        abort the program.  It will backtrace and then fallback to the
        default behavior. */
+#ifndef FD_LOG_UNCLEAN_EXIT
     fd_log_private_sig_trap( SIGABRT   );
     fd_log_private_sig_trap( SIGALRM   );
     fd_log_private_sig_trap( SIGFPE    );
@@ -1123,6 +1130,7 @@ fd_log_private_boot( int  *   pargc,
     fd_log_private_sig_trap( SIGVTALRM );
     fd_log_private_sig_trap( SIGXCPU   );
     fd_log_private_sig_trap( SIGXFSZ   );
+#endif
   }
 
   /* Hook up the permanent log */

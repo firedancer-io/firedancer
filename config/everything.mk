@@ -2,7 +2,7 @@ MAKEFLAGS += --no-builtin-rules
 MAKEFLAGS += --no-builtin-variables
 .SUFFIXES:
 .SUFFIXES: .h .hxx .c .cxx .o .a .d .S .i
-.PHONY: all bin run monitor include lib unit-test fuzz-test run-unit-test help clean distclean asm ppp show-deps lint check-lint
+.PHONY: all bin fdctl fddev run monitor include lib unit-test fuzz-test run-unit-test help clean distclean asm ppp show-deps lint check-lint cargo
 .SECONDARY:
 .SECONDEXPANSION:
 
@@ -60,14 +60,14 @@ clean:
 	#######################################################################
 	# Cleaning $(OBJDIR)
 	#######################################################################
-	$(RMDIR) $(OBJDIR) && \
+	$(RMDIR) $(OBJDIR) && $(RMDIR) $(BASEDIR)/target && $(RMDIR) $(BASEDIR)/solana/target && \
 $(SCRUB)
 
 distclean:
 	#######################################################################
 	# Cleaning $(BASEDIR)
 	#######################################################################
-	$(RMDIR) $(BASEDIR) && \
+	$(RMDIR) $(BASEDIR) && $(RMDIR) $(BASEDIR)/target && $(RMDIR) $(BASEDIR)/solana/target && \
 $(SCRUB)
 
 lint:
@@ -85,24 +85,37 @@ check-lint:
 ifeq (run,$(firstword $(MAKECMDGOALS)))
   RUN_ARGS := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
   ifeq ($(RUN_ARGS),)
-    RUN_ARGS := --configure --sudo
+    RUN_ARGS := dev
   endif
   $(eval $(RUN_ARGS):;@:)
 endif
 
-run: bin
-	$(OBJDIR)/bin/fdctl $(RUN_ARGS)
+# Phony target to always rerun cargo build ... it will detect if anything
+# changed on the library side.
+cargo:
+
+solana/target/release/libsolana_validator_fd.a: cargo
+	cd ./solana && ./cargo build --release -p solana-validator-fd
+
+$(OBJDIR)/lib/libsolana_validator_fd.a: solana/target/release/libsolana_validator_fd.a
+	$(MKDIR) $(dir $@) && cp solana/target/release/libsolana_validator_fd.a $@
+
+run: $(OBJDIR)/bin/fddev
+	$(OBJDIR)/bin/fddev $(RUN_ARGS)
+
+fdctl: $(OBJDIR)/bin/fdctl
+fddev: $(OBJDIR)/bin/fddev
 
 ifeq (monitor,$(firstword $(MAKECMDGOALS)))
   MONITOR_ARGS := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
   ifeq ($(MONITOR_ARGS),)
-    MONITOR_ARGS := --sudo
+    MONITOR_ARGS :=
   endif
   $(eval $(MONITOR_ARGS):;@:)
 endif
 
 monitor: bin
-	$(OBJDIR)/bin/fdctl monitor $(MONITOR_ARGS)
+	$(OBJDIR)/bin/fddev monitor $(MONITOR_ARGS)
 
 ##############################
 # Usage: $(call make-lib,name)

@@ -32,6 +32,10 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@v3
+      with:
+        submodules: recursive
+
+    - uses: dtolnay/rust-toolchain@1.69.0
 
     - name: Copy prebuilt deps
       run: "cp -r /home/runner/firedancer-opts/opt . && ls -lah opt"
