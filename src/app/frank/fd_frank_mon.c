@@ -9,7 +9,6 @@
    do something more robust longer term. */
 
 #define TEXT_ALTBUF_ENABLE  "\033[?1049h"
-#define TEXT_ALTBUF_DISABLE "\033[?1049l"
 #define TEXT_CUP_HOME       "\033[H"
 #define TEXT_ED             "\033[J"
 #define TEXT_EL             "\033[K"
@@ -356,24 +355,13 @@ printf_link( snap_t *      snap_prv,
   printf( TEXT_NEWLINE );
 }
 
-int
-fd_frank_mon( int *        pargc,
-              char ***     pargv,
-              const char * pod_gaddr,
-              long         dt_min,
-              long         dt_max,
-              long         duration,
-              uint         seed ) {
-  if( FD_UNLIKELY( !fd_wksp_preload( pod_gaddr ) ) )
-    FD_LOG_ERR(( "unable to preload workspace" ));
-
-  fd_boot_secure2( pargc, pargv );
-
+void
+fd_frank_mon( const uchar * pod,
+              long          dt_min,
+              long          dt_max,
+              long          duration,
+              uint          seed ) {
   /* Load up the configuration for this frank instance */
-
-  FD_LOG_INFO(( "using configuration in pod --pod %s at path firedancer", pod_gaddr ));
-
-  uchar const * pod     = fd_wksp_pod_attach( pod_gaddr );
   uchar const * cfg_pod = fd_pod_query_subpod( pod, "firedancer" );
   if( FD_UNLIKELY( !cfg_pod ) ) FD_LOG_ERR(( "path not found" ));
 
@@ -597,19 +585,4 @@ fd_frank_mon( int *        pargc,
     then = now; tic = toc;
     snap_t * tmp = snap_prv; snap_prv = snap_cur; snap_cur = tmp;
   }
-
-  /* Monitoring done ... clean up */
-
-  printf( TEXT_ALTBUF_DISABLE );
-
-  FD_LOG_NOTICE(( "cleaning up" ));
-  fd_rng_delete( fd_rng_leave( rng ) );
-  for( ulong tile_idx=tile_cnt; tile_idx; tile_idx-- ) {
-    if( FD_LIKELY( tile_fseq  [ tile_idx-1UL ] ) ) fd_wksp_pod_unmap( fd_fseq_leave  ( tile_fseq  [ tile_idx-1UL ] ) );
-    if( FD_LIKELY( tile_mcache[ tile_idx-1UL ] ) ) fd_wksp_pod_unmap( fd_mcache_leave( tile_mcache[ tile_idx-1UL ] ) );
-    if( FD_LIKELY( tile_cnc   [ tile_idx-1UL ] ) ) fd_wksp_pod_unmap( fd_cnc_leave   ( tile_cnc   [ tile_idx-1UL ] ) );
-  }
-  fd_wksp_pod_detach( pod );
-  fd_halt();
-  return 0;
 }

@@ -51,26 +51,6 @@ read_mem_total( void ) {
 }
 
 static void
-mkdir_all( const char * _path ) {
-  char path[ PATH_MAX + 1 ] = {0};
-  strncpy( path, _path, PATH_MAX );
-
-  char * p = path;
-  if( FD_LIKELY( *p == '/' ) ) p++;
-  while( FD_LIKELY( *p ) ) {
-    if( FD_UNLIKELY( *p == '/' ) ) {
-      *p = '\0';
-      if( FD_UNLIKELY( mkdir( path, 0777 ) && errno != EEXIST ) )
-        FD_LOG_ERR(( "mkdir( `%s` ) failed (%i-%s)", path, errno, strerror( errno ) ) );
-      *p = '/';
-    }
-    p++;
-  }
-  if( FD_UNLIKELY( mkdir( path, 0777 ) && errno != EEXIST ) )
-    FD_LOG_ERR(( "mkdir( `%s` ) failed (%i-%s)", path, errno, strerror( errno ) ) );
-}
-
-static void
 init( config_t * const config ) {
   const char * mount_path[ 2 ] = {
     config->shmem.gigantic_page_mount_path,
@@ -81,7 +61,7 @@ init( config_t * const config ) {
 
   try_defragment_memory();
   for( int i=0; i<2; i++ ) {
-    mkdir_all( mount_path[ i ] );
+    mkdir_all( mount_path[ i ], config->uid, config->gid );
     ulong mount_size = page_size[ i ] * (mem_total / page_size[ i ] );
     char options[ 256 ];
     snprintf1( options, sizeof(options), "pagesize=%lu,size=%lu", page_size[ i ], mount_size );

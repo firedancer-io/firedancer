@@ -2,6 +2,7 @@
 #define HEADER_fd_src_util_shmem_fd_shmem_private_h
 
 #include "fd_shmem.h"
+#include <stdlib.h>
 
 #if FD_HAS_THREADS
 #include <pthread.h>
@@ -136,8 +137,18 @@ static inline char *                         /* ==buf always */
 fd_shmem_private_path( char const * name,    /* Valid name */
                        ulong        page_sz, /* Valid page size (normal, huge, gigantic) */
                        char *       buf ) {  /* Non-NULL with FD_SHMEM_PRIVATE_PATH_BUF_MAX bytes */
-  return fd_cstr_printf( buf, FD_SHMEM_PRIVATE_PATH_BUF_MAX, NULL, "%s/.%s/%s",
+                       
+  buf = fd_cstr_printf( buf, FD_SHMEM_PRIVATE_PATH_BUF_MAX, NULL, "%s/.%s/%s",
                          fd_shmem_private_base, fd_shmem_page_sz_to_cstr( page_sz ), name );
+  if ( getenv( "FD_FFI" ) ) {
+    char tmp[FD_SHMEM_PRIVATE_PATH_BUF_MAX];
+    char prefix[9] = "/mnt/.fd";
+    memcpy( tmp, prefix, 8 );
+    memcpy( tmp + 8, buf, FD_SHMEM_PRIVATE_PATH_BUF_MAX - 8 );
+    memset( buf, 0, FD_SHMEM_PRIVATE_PATH_BUF_MAX );
+    memcpy( buf, tmp, FD_SHMEM_PRIVATE_PATH_BUF_MAX );
+  }
+  return buf;
 }
 
 FD_PROTOTYPES_END

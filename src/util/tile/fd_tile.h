@@ -164,6 +164,14 @@ fd_tile_private_boot( int *    pargc,
 void
 fd_tile_private_halt( void );
 
+void *
+fd_tile_private_stack_new( int   optimize,
+                           ulong cpu_idx );
+
+ulong
+fd_tile_private_cpus_parse( char const * cstr,
+                            ushort *     tile_to_cpu );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_util_tile_fd_tile_h */

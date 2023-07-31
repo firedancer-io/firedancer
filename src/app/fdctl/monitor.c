@@ -2,6 +2,9 @@
 
 #include "../frank/fd_frank.h"
 
+#include <stdio.h>
+#include <signal.h>
+#include <sys/syscall.h>
 #include <linux/capability.h>
 
 void
@@ -26,31 +29,57 @@ monitor_cmd_perm( args_t *         args,
 
   ulong limit = workspace_bytes( config );
   check_res( security, "monitor", RLIMIT_MEMLOCK, limit, "increase `RLIMIT_MEMLOCK` to lock the workspace in memory with `mlock(2)`" );
-  check_cap( security, "monitor", CAP_SETUID, "switch uid by calling `setuid(2)`" );
-  check_cap( security, "monitor", CAP_SETGID, "switch gid by calling `setgid(2)`" );
+  if( getuid() != config->uid )
+    check_cap( security, "monitor", CAP_SETUID, "switch uid by calling `setuid(2)`" );
+  if( getgid() != config->gid )
+    check_cap( security, "monitor", CAP_SETGID, "switch gid by calling `setgid(2)`" );
 }
 
-void monitor_cmd_fn( args_t *         args,
-                     config_t * const config ) {
+#define TEXT_ALTBUF_DISABLE "\033[?1049l"
+
+static void
+signal1( int sig ) {
+  (void)sig;
+  printf( TEXT_ALTBUF_DISABLE );
+  exit_group( 0 );
+}
+
+void
+monitor_cmd_fn( args_t *         args,
+                config_t * const config ) {
   char line[ 4096 ];
-  const char * pod  = load_var_pod( config, line );
+  const char * pod_gaddr = load_var_pod( config, "POD", line );
+  const uchar * pod = fd_wksp_pod_attach( pod_gaddr );
 
-  char log_app[ NAME_SZ ];
-  strcpy( log_app, config->name );
-
-  char * argv[] = {
-    "--log-app",    log_app,
-    "--log-thread", "mon",
-    NULL,
+  struct sigaction sa = {
+    .sa_handler = signal1,
+    .sa_flags   = 0,
   };
+  if( FD_UNLIKELY( sigaction( SIGTERM, &sa, NULL ) ) )
+    FD_LOG_ERR(( "sigaction(SIGTERM) failed (%i-%s)", errno, strerror( errno ) ));
+  if( FD_UNLIKELY( sigaction( SIGINT, &sa, NULL ) ) )
+    FD_LOG_ERR(( "sigaction(SIGINT) failed (%i-%s)", errno, strerror( errno ) ));
 
-  int     argc = sizeof(argv) / sizeof(argv[ 0 ]) - 1;
-  char ** pargv = argv;
-  fd_frank_mon( &argc,
-                &pargv,
-                pod,
+  long allow_syscalls[] = {
+    __NR_write,       /* logging */
+    __NR_futex,       /* logging, glibc fprintf unfortunately uses a futex internally */
+    __NR_nanosleep,   /* fd_log_wait_until */
+    __NR_sched_yield, /* fd_log_wait_until */
+    __NR_exit_group,  /* exit process */
+  };
+  if( config->development.sandbox )
+    fd_sandbox( config->uid,
+                config->gid,
+                4, /* stdin, stdout, stderr, logfile */
+                sizeof(allow_syscalls)/sizeof(allow_syscalls[0]),
+                allow_syscalls );
+
+  fd_frank_mon( pod,
                 args->monitor.dt_min,
                 args->monitor.dt_max,
                 args->monitor.duration,
                 args->monitor.seed );
+
+  printf( TEXT_ALTBUF_DISABLE );
+  exit_group( 0 );
 }

@@ -97,7 +97,7 @@ fd_tile_private_cpu_restore( fd_tile_private_cpu_config_t * save ) {
 /* TODO: Allow this to be run-time configured (e.g. match ulimit -s)? */
 #define FD_TILE_PRIVATE_STACK_SZ (8UL<<20) /* Should be a multiple of HUGE (and NORMAL) page sizes */
 
-static void *
+void *
 fd_tile_private_stack_new( int   optimize,
                            ulong cpu_idx ) { /* Ignored if optimize is not requested */
 
@@ -442,7 +442,7 @@ fd_tile_exec_done( fd_tile_exec_t const * exec ) {
 
 FD_STATIC_ASSERT( CPU_SETSIZE<65535, update_tile_to_cpu_type );
 
-static ulong
+ulong
 fd_tile_private_cpus_parse( char const * cstr,
                             ushort *     tile_to_cpu ) {
   if( !cstr ) return 0UL;

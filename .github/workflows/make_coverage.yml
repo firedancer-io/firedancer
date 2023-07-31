@@ -10,9 +10,13 @@ jobs:
     runs-on: [self-hosted, Linux, X64]
     defaults:
       run:
-        shell: sudo bash --noprofile --norc -eo pipefail -c "export CC=clang; export EXTRAS=llvm-cov; set -ex; chmod +x {0} && {0}"
+        shell: sudo --preserve-env=PATH bash --noprofile --norc -eo pipefail -c "export CC=clang; export EXTRAS=llvm-cov; set -ex; chmod +x {0} && {0}"
     steps:
       - uses: actions/checkout@v3
+        with:
+          submodules: recursive
+
+      - uses: dtolnay/rust-toolchain@1.69.0
 
       - name: Copy prebuilt deps
         run: "cp -r /home/runner/firedancer-opts/opt . && ls -lah opt"

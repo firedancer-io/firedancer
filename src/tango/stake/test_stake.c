@@ -1,8 +1,8 @@
 #include "../../util/fd_util.h"
 #include "fd_stake.h"
 
-#define LG_MAX_NODE_CNT 10
-#define MAX_NODE_CNT    ( 1UL << LG_MAX_NODE_CNT )
+#define LG_SLOT_CNT 10
+#define MAX_NODE_CNT    ( 1UL << LG_SLOT_CNT )
 #define NUM_PUBKEYS     4
 
 fd_stake_pubkey_t pubkeys[NUM_PUBKEYS] = {
@@ -21,24 +21,18 @@ test_stake( void ) {
       FD_SHMEM_GIGANTIC_PAGE_SZ, 1, fd_shmem_cpu_idx( fd_shmem_numa_idx( 0 ) ), "wksp", 0UL );
   FD_TEST( wksp );
   void * mem =
-      fd_wksp_alloc_laddr( wksp, fd_stake_align(), fd_stake_footprint( LG_MAX_NODE_CNT ), 42UL );
+      fd_wksp_alloc_laddr( wksp, fd_stake_align(), fd_stake_footprint( LG_SLOT_CNT ), 42UL );
 
-  fd_stake_t * stake = fd_stake_join( fd_stake_new( mem, LG_MAX_NODE_CNT ) );
+  fd_stake_t *      stake        = fd_stake_join( fd_stake_new( mem, LG_SLOT_CNT ) );
+  fd_stake_node_t * staked_nodes = fd_stake_nodes_laddr( stake );
+
   for ( ulong i = 0; i < NUM_PUBKEYS; i++ ) {
-    fd_stake_staked_node_t * staked_node =
-        fd_stake_staked_node_insert( stake->staked_nodes, pubkeys[i] );
-    FD_LOG_NOTICE( ( "uint %u", fd_uint_load_4( &pubkeys[i].pubkey ) ) );
-    FD_LOG_HEXDUMP_NOTICE( ( "pubkey", &pubkeys[i].pubkey, sizeof( pubkeys[i].pubkey ) ) );
-    FD_LOG_HEXDUMP_NOTICE(("tag", staked_node, 4));
-    staked_node->stake = i;
+    fd_stake_node_t * staked_node = fd_stake_node_insert( staked_nodes, pubkeys[i] );
+    staked_node->stake            = i;
     FD_TEST( staked_node );
   }
   for ( ulong i = 0; i < NUM_PUBKEYS; i++ ) {
-    fd_stake_staked_node_t * staked_node =
-        fd_stake_staked_node_query( stake->staked_nodes, pubkeys[i], NULL );
-    // FD_LOG_NOTICE(("uint %u", fd_uint_load_4( &pubkeys[i].pubkey )));
-    // FD_LOG_HEXDUMP_NOTICE(("tag", &staked_node->key, 32));
-    // FD_LOG_HEXDUMP_NOTICE(("pubkey", &pubkeys[i].pubkey, sizeof(pubkeys[i].pubkey)));
+    fd_stake_node_t * staked_node = fd_stake_node_query( staked_nodes, pubkeys[i], NULL );
     FD_TEST( staked_node );
     FD_TEST( staked_node->stake == i );
   }

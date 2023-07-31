@@ -1,27 +1,35 @@
 #include "fd_frank.h"
 
-int
-fd_frank_verify_task( int     argc,
-                      char ** argv ) {
-  (void)argc;
-  fd_log_thread_set( argv[0] );
-  char const * verify_name = argv[0];
-  FD_LOG_INFO(( "verify.%s init", verify_name ));
-  
-  /* Parse "command line" arguments */
+#include <stdio.h>
 
-  char const * pod_gaddr = argv[1];
+#include <linux/unistd.h>
 
+static long allow_syscalls[] = {
+  __NR_write,     /* logging */
+  __NR_futex,     /* logging, glibc fprintf unfortunately uses a futex internally */
+  __NR_fsync,     /* logging, WARNING and above fsync immediately */
+  __NR_nanosleep, /* fd_tempo_tick_per_ns calibration */
+};
+
+static void
+init( fd_frank_args_t * args ) {
+  args->pod = fd_wksp_pod_attach( args->pod_gaddr );
+  args->close_fd_start = 4; /* stdin, stdout, stderr, logfile */
+  args->allow_syscalls_sz = sizeof(allow_syscalls)/sizeof(allow_syscalls[ 0 ]);
+  args->allow_syscalls = allow_syscalls;
+}
+
+static void
+run( fd_frank_args_t * args ) {
   /* Load up the configuration for this frank instance */
-
-  FD_LOG_INFO(( "using configuration in pod %s at path firedancer", pod_gaddr ));
-  uchar const * pod     = fd_wksp_pod_attach( pod_gaddr );
-  uchar const * cfg_pod = fd_pod_query_subpod( pod, "firedancer" );
+  uchar const * cfg_pod = fd_pod_query_subpod( args->pod, "firedancer" );
   if( FD_UNLIKELY( !cfg_pod ) ) FD_LOG_ERR(( "path not found" ));
 
   uchar const * verify_pods = fd_pod_query_subpod( cfg_pod, "verify" );
   if( FD_UNLIKELY( !verify_pods ) ) FD_LOG_ERR(( "firedancer.verify path not found" ));
 
+  char verify_name[ 32 ];
+  snprintf( verify_name, 32, "v%lu", args->idx );
   uchar const * verify_pod = fd_pod_query_subpod( verify_pods, verify_name );
   if( FD_UNLIKELY( !verify_pod ) ) FD_LOG_ERR(( "firedancer.verify.%s path not found", verify_name ));
 
@@ -193,21 +201,11 @@ fd_frank_verify_task( int     argc,
     (void)chunk;
     (void)wmark;
     now = fd_tickcount();
-
   }
-
-  /* Clean up */
-
-  fd_cnc_signal( cnc, FD_CNC_SIGNAL_BOOT );
-  FD_LOG_INFO(( "verify.%s fini", verify_name ));
-  fd_sha512_delete ( fd_sha512_leave( sha    ) );
-  fd_tcache_delete ( fd_tcache_leave( tcache ) );
-  fd_rng_delete    ( fd_rng_leave   ( rng    ) );
-  fd_fctl_delete   ( fd_fctl_leave  ( fctl   ) );
-  fd_wksp_pod_unmap( fd_fseq_leave  ( fseq   ) );
-  fd_wksp_pod_unmap( fd_dcache_leave( dcache ) );
-  fd_wksp_pod_unmap( fd_mcache_leave( mcache ) );
-  fd_wksp_pod_unmap( fd_cnc_leave   ( cnc    ) );
-  fd_wksp_pod_detach( pod );
-  return 0;
 }
+
+fd_frank_task_t verify = {
+  .name = "verify",
+  .init = init,
+  .run  = run,
+};
