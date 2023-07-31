@@ -19,7 +19,7 @@ jobs:
         with:
           submodules: recursive
 
-      - uses: dtolnay/rust-toolchain@1.69.0
+      - uses: dtolnay/rust-toolchain@1.80.0
 
       - name: Copy prebuilt deps
         run: "cp -r /home/runner/firedancer-opts/opt . && ls -lah opt"
