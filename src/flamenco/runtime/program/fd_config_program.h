@@ -9,6 +9,7 @@ https://github.com/solana-labs/solana/blob/a03ae63daff987912c48ee286eb8ee7e8a84b
 
 #include "../../fd_flamenco_base.h"
 #include "../fd_executor.h"
+#include "../fd_account.h"
 
 FD_PROTOTYPES_BEGIN
 

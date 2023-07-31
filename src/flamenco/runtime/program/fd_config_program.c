@@ -8,7 +8,6 @@ int fd_executor_config_program_execute_instruction( instruction_ctx_t ctx ) {
   uchar cleanup_config_account_state = 0;
   uchar cleanup_instruction = 0;
   uchar *config_acc_data = NULL;
-  uchar *new_data = NULL;
   fd_bincode_destroy_ctx_t destroy_ctx;
 
    /* Deserialize the Config Program instruction data, which consists only of the ConfigKeys
@@ -23,7 +22,8 @@ int fd_executor_config_program_execute_instruction( instruction_ctx_t ctx ) {
    int decode_result = fd_config_keys_decode( &instruction, &instruction_decode_context );
    if ( decode_result != FD_BINCODE_SUCCESS ) {
       FD_LOG_WARNING(("fd_config_keys_decode failed: %d", decode_result));
-      return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+      ret = FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+      goto config_program_execute_instruction_cleanup;
    }
 
    cleanup_instruction = 1;
@@ -42,15 +42,16 @@ int fd_executor_config_program_execute_instruction( instruction_ctx_t ctx ) {
    /* Deserialize the config account data, which must already be a valid ConfigKeys map (zeroed accounts pass this check)
       https://github.com/solana-labs/solana/blob/a03ae63daff987912c48ee286eb8ee7e8a84bf01/programs/config/src/config_processor.rs#L28-L42 */
    /* Read the data from the config account */
-   fd_account_meta_t metadata;
-   int read_result = fd_acc_mgr_get_metadata( ctx.global->acc_mgr, ctx.global->funk_txn, config_acc, &metadata );
-   if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
-      FD_LOG_WARNING(( "failed to read account metadata" ));
-      ret = read_result;
+   int err = 0;
+   char * raw_acc_data = (char*) fd_acc_mgr_view_data(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) config_acc, NULL, &err);
+   if (NULL == raw_acc_data) {
+      ret = err;
       goto config_program_execute_instruction_cleanup;
    }
-   config_acc_data = fd_valloc_malloc( ctx.global->valloc, 8UL, metadata.dlen);
-   read_result = fd_acc_mgr_get_account_data( ctx.global->acc_mgr, ctx.global->funk_txn, config_acc, (uchar*)config_acc_data, sizeof(fd_account_meta_t), metadata.dlen );
+   fd_account_meta_t * metadata = (fd_account_meta_t *) raw_acc_data;
+
+   config_acc_data = fd_valloc_malloc( ctx.global->valloc, 8UL, metadata->dlen);
+   int read_result = fd_acc_mgr_get_account_data( ctx.global->acc_mgr, ctx.global->funk_txn, config_acc, (uchar*)config_acc_data, sizeof(fd_account_meta_t), metadata->dlen );
    if ( read_result != FD_ACC_MGR_SUCCESS ) {
       FD_LOG_WARNING(( "failed to read account data" ));
       ret = read_result;
@@ -58,7 +59,7 @@ int fd_executor_config_program_execute_instruction( instruction_ctx_t ctx ) {
    }
 
    /* Check that the account owner is correct */
-   if ( memcmp( &metadata.info.owner, &ctx.global->solana_config_program, sizeof(fd_pubkey_t) ) != 0 ) {
+   if ( memcmp( &metadata->info.owner, &ctx.global->solana_config_program, sizeof(fd_pubkey_t) ) != 0 ) {
       ret = FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
       goto config_program_execute_instruction_cleanup;
    }
@@ -67,7 +68,7 @@ int fd_executor_config_program_execute_instruction( instruction_ctx_t ctx ) {
    fd_bincode_decode_ctx_t config_acc_state_decode_context = {
       .valloc  = ctx.global->valloc,
       .data    = config_acc_data,
-      .dataend = &config_acc_data[metadata.dlen],
+      .dataend = &config_acc_data[metadata->dlen],
    };
    fd_config_keys_t config_account_state;
    decode_result = fd_config_keys_decode( &config_account_state, &config_acc_state_decode_context );
@@ -81,16 +82,7 @@ int fd_executor_config_program_execute_instruction( instruction_ctx_t ctx ) {
 
    /* If we have no keys in the account, require the config account to have signed the transaction
       https://github.com/solana-labs/solana/blob/a03ae63daff987912c48ee286eb8ee7e8a84bf01/programs/config/src/config_processor.rs#L50-L56 */
-   uchar config_acc_signed = 0;
-   for ( ulong i = 0; i < ctx.instr->acct_cnt; i++ ) {
-      if ( instr_acc_idxs[i] < ctx.txn_ctx->txn_descriptor->signature_cnt ) {
-         fd_pubkey_t * signer = &txn_accs[instr_acc_idxs[i]];
-         if ( !memcmp( signer, config_acc, sizeof(fd_pubkey_t) ) ) {
-            config_acc_signed = 1;
-            break;
-         }
-      }
-   }
+   int config_acc_signed = fd_account_is_signer(&ctx, config_acc);
    if ( config_account_state.keys_len == 0 ) {
       if ( !config_acc_signed ) {
          ret = FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
@@ -202,7 +194,7 @@ int fd_executor_config_program_execute_instruction( instruction_ctx_t ctx ) {
 
    /* Check that the config account can fit the new ConfigKeys map
       https://github.com/solana-labs/solana/blob/a03ae63daff987912c48ee286eb8ee7e8a84bf01/programs/config/src/config_processor.rs#L128-L131 */
-   if ( ctx.instr->data_sz > metadata.dlen ) {
+   if ( ctx.instr->data_sz > metadata->dlen ) {
      ret = FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
      goto config_program_execute_instruction_cleanup;
    }
@@ -219,23 +211,19 @@ int fd_executor_config_program_execute_instruction( instruction_ctx_t ctx ) {
       This mimics the semantics of Solana's config_account.get_data_mut()?[..data.len()].copy_from_slice(data)
       (although this can obviously be optimised)
    */
-   ulong new_data_size = fd_ulong_max( ctx.instr->data_sz, metadata.dlen );
-   new_data = fd_valloc_malloc( ctx.global->valloc, 8UL, new_data_size);
-   fd_memcpy( new_data, config_acc_data, metadata.dlen );
-   fd_memcpy( new_data, data, ctx.instr->data_sz );
-
-   fd_solana_account_t structured_account;
-   structured_account.lamports = metadata.info.lamports;
-   structured_account.data = new_data;
-   structured_account.data_len = new_data_size;
-   structured_account.executable = 0;
-   structured_account.rent_epoch = 0;
-   memcpy( &structured_account.owner, ctx.global->solana_config_program, sizeof(fd_pubkey_t) );
-
-   int write_result = fd_acc_mgr_write_structured_account( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.slot, config_acc, &structured_account );
-   if ( write_result != FD_ACC_MGR_SUCCESS ) {
+   ulong new_data_size = fd_ulong_max( ctx.instr->data_sz, metadata->dlen );
+   ulong acc_sz = sizeof(fd_account_meta_t) + new_data_size;
+   fd_funk_rec_t * acc_data_rec = NULL;
+   char* raw_acc_to_modify = fd_acc_mgr_modify_data(ctx.global->acc_mgr, ctx.global->funk_txn, config_acc, 1, &acc_sz, NULL, &acc_data_rec, &err);
+   fd_account_meta_t *m = (fd_account_meta_t *) raw_acc_to_modify;
+   fd_memcpy( raw_acc_to_modify + sizeof(fd_account_meta_t), data, ctx.instr->data_sz);
+   m->info.rent_epoch = 0;
+   m->info.executable = 0;
+   m->dlen = new_data_size;
+   err = fd_acc_mgr_commit_data(ctx.global->acc_mgr, acc_data_rec, config_acc, raw_acc_to_modify, ctx.global->bank.slot, 0);
+   if ( err != FD_ACC_MGR_SUCCESS) {
       FD_LOG_WARNING(( "failed to write account data" ));
-      ret = write_result;
+      ret = err;
    }
 
 config_program_execute_instruction_cleanup:
@@ -247,7 +235,5 @@ config_program_execute_instruction_cleanup:
      fd_config_keys_destroy( &instruction, &destroy_ctx );
    if (NULL != config_acc_data)
      fd_valloc_free( ctx.global->valloc, config_acc_data );
-   if (NULL != new_data)
-      fd_valloc_free( ctx.global->valloc, new_data );
    return ret;
 }
