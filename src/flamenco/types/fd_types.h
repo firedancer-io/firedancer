@@ -1064,7 +1064,7 @@ typedef struct fd_vote_init fd_vote_init_t;
 #define FD_VOTE_INIT_ALIGN (8UL)
 
 union fd_vote_authorize_inner {
-  uchar nonempty; /* Hack to support enums with no inner structures */
+  uchar nonempty; /* Hack to support enums with no inner structures */ 
 };
 typedef union fd_vote_authorize_inner fd_vote_authorize_inner_t;
 
@@ -1229,7 +1229,7 @@ typedef struct fd_system_program_instruction fd_system_program_instruction_t;
 #define FD_SYSTEM_PROGRAM_INSTRUCTION_ALIGN (8UL)
 
 union fd_system_error_inner {
-  uchar nonempty; /* Hack to support enums with no inner structures */
+  uchar nonempty; /* Hack to support enums with no inner structures */ 
 };
 typedef union fd_system_error_inner fd_system_error_inner_t;
 
@@ -1271,7 +1271,7 @@ typedef struct fd_stake_instruction_initialize fd_stake_instruction_initialize_t
 #define FD_STAKE_INSTRUCTION_INITIALIZE_ALIGN (8UL)
 
 union fd_stake_authorize_inner {
-  uchar nonempty; /* Hack to support enums with no inner structures */
+  uchar nonempty; /* Hack to support enums with no inner structures */ 
 };
 typedef union fd_stake_authorize_inner fd_stake_authorize_inner_t;
 
@@ -2008,7 +2008,7 @@ FD_FN_PURE uchar fd_vote_state_versioned_is_current(fd_vote_state_versioned_t co
 enum {
 fd_vote_state_versioned_enum_v0_23_5 = 0,
 fd_vote_state_versioned_enum_current = 1,
-};
+}; 
 void fd_vote_state_update_new(fd_vote_state_update_t* self);
 int fd_vote_state_update_decode(fd_vote_state_update_t* self, fd_bincode_decode_ctx_t * ctx);
 int fd_vote_state_update_encode(fd_vote_state_update_t const * self, fd_bincode_encode_ctx_t * ctx);
@@ -2162,7 +2162,7 @@ FD_FN_PURE uchar fd_vote_authorize_is_withdrawer(fd_vote_authorize_t const * sel
 enum {
 fd_vote_authorize_enum_voter = 0,
 fd_vote_authorize_enum_withdrawer = 1,
-};
+}; 
 void fd_vote_authorize_pubkey_new(fd_vote_authorize_pubkey_t* self);
 int fd_vote_authorize_pubkey_decode(fd_vote_authorize_pubkey_t* self, fd_bincode_decode_ctx_t * ctx);
 int fd_vote_authorize_pubkey_encode(fd_vote_authorize_pubkey_t const * self, fd_bincode_encode_ctx_t * ctx);
@@ -2235,7 +2235,7 @@ fd_vote_instruction_enum_authorize_with_seed = 10,
 fd_vote_instruction_enum_authorize_checked_with_seed = 11,
 fd_vote_instruction_enum_compact_update_vote_state = 12,
 fd_vote_instruction_enum_compact_update_vote_state_switch = 13,
-};
+}; 
 void fd_system_program_instruction_create_account_new(fd_system_program_instruction_create_account_t* self);
 int fd_system_program_instruction_create_account_decode(fd_system_program_instruction_create_account_t* self, fd_bincode_decode_ctx_t * ctx);
 int fd_system_program_instruction_create_account_encode(fd_system_program_instruction_create_account_t const * self, fd_bincode_encode_ctx_t * ctx);
@@ -2306,7 +2306,7 @@ fd_system_program_instruction_enum_allocate_with_seed = 9,
 fd_system_program_instruction_enum_assign_with_seed = 10,
 fd_system_program_instruction_enum_transfer_with_seed = 11,
 fd_system_program_instruction_enum_upgrade_nonce_account = 12,
-};
+}; 
 void fd_system_error_new_disc(fd_system_error_t* self, uint discriminant);
 void fd_system_error_new(fd_system_error_t* self);
 int fd_system_error_decode(fd_system_error_t* self, fd_bincode_decode_ctx_t * ctx);
@@ -2334,7 +2334,7 @@ fd_system_error_enum_address_with_seed_mismatch = 5,
 fd_system_error_enum_nonce_no_recent_blockhashes = 6,
 fd_system_error_enum_nonce_blockhash_not_expired = 7,
 fd_system_error_enum_nonce_unexpected_blockhash_value = 8,
-};
+}; 
 void fd_stake_authorized_new(fd_stake_authorized_t* self);
 int fd_stake_authorized_decode(fd_stake_authorized_t* self, fd_bincode_decode_ctx_t * ctx);
 int fd_stake_authorized_encode(fd_stake_authorized_t const * self, fd_bincode_encode_ctx_t * ctx);
@@ -2369,7 +2369,7 @@ FD_FN_PURE uchar fd_stake_authorize_is_withdrawer(fd_stake_authorize_t const * s
 enum {
 fd_stake_authorize_enum_staker = 0,
 fd_stake_authorize_enum_withdrawer = 1,
-};
+}; 
 void fd_stake_instruction_authorize_new(fd_stake_instruction_authorize_t* self);
 int fd_stake_instruction_authorize_decode(fd_stake_instruction_authorize_t* self, fd_bincode_decode_ctx_t * ctx);
 int fd_stake_instruction_authorize_encode(fd_stake_instruction_authorize_t const * self, fd_bincode_encode_ctx_t * ctx);
@@ -2446,7 +2446,7 @@ fd_stake_instruction_enum_set_lockup_checked = 12,
 fd_stake_instruction_enum_get_minimum_delegation = 13,
 fd_stake_instruction_enum_deactivate_delinquent = 14,
 fd_stake_instruction_enum_redelegate = 15,
-};
+}; 
 void fd_stake_state_meta_new(fd_stake_state_meta_t* self);
 int fd_stake_state_meta_decode(fd_stake_state_meta_t* self, fd_bincode_decode_ctx_t * ctx);
 int fd_stake_state_meta_encode(fd_stake_state_meta_t const * self, fd_bincode_encode_ctx_t * ctx);
@@ -2485,7 +2485,7 @@ fd_stake_state_enum_uninitialized = 0,
 fd_stake_state_enum_initialized = 1,
 fd_stake_state_enum_stake = 2,
 fd_stake_state_enum_rewards_pool = 3,
-};
+}; 
 void fd_nonce_data_new(fd_nonce_data_t* self);
 int fd_nonce_data_decode(fd_nonce_data_t* self, fd_bincode_decode_ctx_t * ctx);
 int fd_nonce_data_encode(fd_nonce_data_t const * self, fd_bincode_encode_ctx_t * ctx);
@@ -2506,7 +2506,7 @@ FD_FN_PURE uchar fd_nonce_state_is_initialized(fd_nonce_state_t const * self);
 enum {
 fd_nonce_state_enum_uninitialized = 0,
 fd_nonce_state_enum_initialized = 1,
-};
+}; 
 void fd_nonce_state_versions_new_disc(fd_nonce_state_versions_t* self, uint discriminant);
 void fd_nonce_state_versions_new(fd_nonce_state_versions_t* self);
 int fd_nonce_state_versions_decode(fd_nonce_state_versions_t* self, fd_bincode_decode_ctx_t * ctx);
@@ -2520,7 +2520,7 @@ FD_FN_PURE uchar fd_nonce_state_versions_is_current(fd_nonce_state_versions_t co
 enum {
 fd_nonce_state_versions_enum_legacy = 0,
 fd_nonce_state_versions_enum_current = 1,
-};
+}; 
 void fd_compute_budget_program_instruction_request_units_deprecated_new(fd_compute_budget_program_instruction_request_units_deprecated_t* self);
 int fd_compute_budget_program_instruction_request_units_deprecated_decode(fd_compute_budget_program_instruction_request_units_deprecated_t* self, fd_bincode_decode_ctx_t * ctx);
 int fd_compute_budget_program_instruction_request_units_deprecated_encode(fd_compute_budget_program_instruction_request_units_deprecated_t const * self, fd_bincode_encode_ctx_t * ctx);
@@ -2545,7 +2545,7 @@ fd_compute_budget_program_instruction_enum_request_units_deprecated = 0,
 fd_compute_budget_program_instruction_enum_request_heap_frame = 1,
 fd_compute_budget_program_instruction_enum_set_compute_unit_limit = 2,
 fd_compute_budget_program_instruction_enum_set_compute_unit_price = 3,
-};
+}; 
 void fd_config_keys_new(fd_config_keys_t* self);
 int fd_config_keys_decode(fd_config_keys_t* self, fd_bincode_decode_ctx_t * ctx);
 int fd_config_keys_encode(fd_config_keys_t const * self, fd_bincode_encode_ctx_t * ctx);
@@ -2573,7 +2573,7 @@ FD_FN_PURE uchar fd_bpf_loader_program_instruction_is_finalize(fd_bpf_loader_pro
 enum {
 fd_bpf_loader_program_instruction_enum_write = 0,
 fd_bpf_loader_program_instruction_enum_finalize = 1,
-};
+}; 
 void fd_bpf_upgradeable_loader_program_instruction_write_new(fd_bpf_upgradeable_loader_program_instruction_write_t* self);
 int fd_bpf_upgradeable_loader_program_instruction_write_decode(fd_bpf_upgradeable_loader_program_instruction_write_t* self, fd_bincode_decode_ctx_t * ctx);
 int fd_bpf_upgradeable_loader_program_instruction_write_encode(fd_bpf_upgradeable_loader_program_instruction_write_t const * self, fd_bincode_encode_ctx_t * ctx);
@@ -2618,7 +2618,7 @@ fd_bpf_upgradeable_loader_program_instruction_enum_upgrade = 3,
 fd_bpf_upgradeable_loader_program_instruction_enum_set_authority = 4,
 fd_bpf_upgradeable_loader_program_instruction_enum_close = 5,
 fd_bpf_upgradeable_loader_program_instruction_enum_extend_program = 6,
-};
+}; 
 void fd_bpf_upgradeable_loader_state_buffer_new(fd_bpf_upgradeable_loader_state_buffer_t* self);
 int fd_bpf_upgradeable_loader_state_buffer_decode(fd_bpf_upgradeable_loader_state_buffer_t* self, fd_bincode_decode_ctx_t * ctx);
 int fd_bpf_upgradeable_loader_state_buffer_encode(fd_bpf_upgradeable_loader_state_buffer_t const * self, fd_bincode_encode_ctx_t * ctx);
@@ -2657,7 +2657,7 @@ fd_bpf_upgradeable_loader_state_enum_uninitialized = 0,
 fd_bpf_upgradeable_loader_state_enum_buffer = 1,
 fd_bpf_upgradeable_loader_state_enum_program = 2,
 fd_bpf_upgradeable_loader_state_enum_program_data = 3,
-};
+}; 
 void fd_frozen_hash_status_new(fd_frozen_hash_status_t* self);
 int fd_frozen_hash_status_decode(fd_frozen_hash_status_t* self, fd_bincode_decode_ctx_t * ctx);
 int fd_frozen_hash_status_encode(fd_frozen_hash_status_t const * self, fd_bincode_encode_ctx_t * ctx);
@@ -2676,7 +2676,7 @@ ulong fd_frozen_hash_versioned_size(fd_frozen_hash_versioned_t const * self);
 FD_FN_PURE uchar fd_frozen_hash_versioned_is_current(fd_frozen_hash_versioned_t const * self);
 enum {
 fd_frozen_hash_versioned_enum_current = 0,
-};
+}; 
 FD_PROTOTYPES_END
 
 #endif // HEADER_FD_RUNTIME_TYPES
