@@ -7573,7 +7573,7 @@ int fd_stake_instruction_inner_decode(fd_stake_instruction_inner_t* self, uint d
     return FD_BINCODE_SUCCESS;
   }
   case 6: {
-    return FD_BINCODE_SUCCESS;
+    return fd_lockup_args_decode(&self->set_lockup, ctx);
   }
   case 7: {
     return FD_BINCODE_SUCCESS;
@@ -7633,6 +7633,7 @@ void fd_stake_instruction_inner_new(fd_stake_instruction_inner_t* self, uint dis
     break;
   }
   case 6: {
+    fd_lockup_args_new(&self->set_lockup);
     break;
   }
   case 7: {
@@ -7699,6 +7700,7 @@ void fd_stake_instruction_inner_destroy(fd_stake_instruction_inner_t* self, uint
     break;
   }
   case 6: {
+    fd_lockup_args_destroy(&self->set_lockup, ctx);
     break;
   }
   case 7: {
@@ -7759,6 +7761,10 @@ void fd_stake_instruction_walk(fd_stake_instruction_t* self, fd_walk_fun_t fun, 
   fun(&self->inner.withdraw, "withdraw", 11, "ulong", level + 1);
     break;
   }
+  case 6: {
+    fd_lockup_args_walk(&self->inner.set_lockup, fun, "set_lockup", level + 1);
+    break;
+  }
   case 8: {
     fd_authorize_with_seed_args_walk(&self->inner.authorize_with_seed, fun, "authorize_with_seed", level + 1);
     break;
@@ -7796,6 +7802,10 @@ ulong fd_stake_instruction_size(fd_stake_instruction_t const * self) {
   }
   case 4: {
     size += sizeof(ulong);
+    break;
+  }
+  case 6: {
+    size += fd_lockup_args_size(&self->inner.set_lockup);
     break;
   }
   case 8: {
@@ -7839,6 +7849,11 @@ int fd_stake_instruction_inner_encode(fd_stake_instruction_inner_t const * self,
   case 4: {
     err = fd_bincode_uint64_encode(&self->withdraw, ctx);
   if ( FD_UNLIKELY(err) ) return err;
+    break;
+  }
+  case 6: {
+    err = fd_lockup_args_encode(&self->set_lockup, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
     break;
   }
   case 8: {

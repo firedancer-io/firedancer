@@ -1338,6 +1338,7 @@ union fd_stake_instruction_inner {
   fd_stake_instruction_authorize_t authorize;
   ulong split;
   ulong withdraw;
+  fd_lockup_args_t set_lockup;
   fd_authorize_with_seed_args_t authorize_with_seed;
   fd_stake_authorize_t authorize_checked;
   fd_authorize_checked_with_seed_args_t authorize_checked_with_seed;

@@ -1094,7 +1094,7 @@
         { "name": "split", "type": "ulong" },
         { "name": "withdraw", "type": "ulong" },
         { "name": "deactivate" },
-        { "name": "set_lockup" },
+        { "name": "set_lockup", "type": "lockup_args" },
         { "name": "merge" },
         { "name": "authorize_with_seed", "type": "authorize_with_seed_args" },
         { "name": "initialize_checked" },
