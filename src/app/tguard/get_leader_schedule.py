@@ -7,7 +7,7 @@ import sys
 
 DBGLVL = 0
 
-def print_coming_leader_slots ( url, vid, show_cnt ):
+def print_coming_leader_slots ( url, vid, show_cnt, offset ):
     leader_slots = get_leader_schedule( url, vid )
     dt_now = datetime.now()
     (curr_slot_index, curr_absslot) = get_curr_slot( url )
@@ -20,10 +20,10 @@ def print_coming_leader_slots ( url, vid, show_cnt ):
         else:
             show_cnt -= 1
             absslot = curr_absslot - curr_slot_index + slot
-            delta_seconds = (slot - curr_slot_index)*0.4
+            delta_seconds = (slot - curr_slot_index + offset)*0.4
             scheduled_time = dt_now + timedelta( seconds = delta_seconds )
             print(f"     Coming     slotIndex: {slot:9d}     absoluteSlot: {absslot:9d}       expected time: {scheduled_time}")
-    print("");
+    print("")
 
 def get_curr_slot( url ):
     epoch_info_json = get_epoch_info( url )
@@ -118,11 +118,12 @@ def main():
     vid      =     sys.argv[1]  if len(sys.argv) > 1 else f"Ft5fbkqNa76vnsjYNwjDZUXoTWpP7VYm3mtsaQckQADN"
     solnet   =     sys.argv[2]  if len(sys.argv) > 2 else "testnet" # choice of mainnet-beta, devnet, testnet
     show_cnt = int(sys.argv[3]) if len(sys.argv) > 3 and int(sys.argv[3]) > 20 else 20
+    offset   = int(sys.argv[4]) if len(sys.argv) > 4                           else  0
 
     url = f"http://api.{solnet}.solana.com"
     # get_epoch_info(url)
     # get_leader_schedule(url, vid)
-    print_coming_leader_slots ( url, vid, show_cnt )
+    print_coming_leader_slots ( url, vid, show_cnt, offset )
 
 if __name__ == "__main__":
     main()
