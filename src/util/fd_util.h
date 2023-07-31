@@ -19,7 +19,6 @@
 #include "tpool/fd_tpool.h"         /* includes tile/fd_tile.h and scratch/fd_scratch.h */
 #include "alloc/fd_alloc.h"         /* includes wksp/fd_wksp.h */
 #include "sandbox/fd_sandbox.h"
-#include "list/fd_list.h"
 
 /* Additional fd_util APIs that are not included by default */
 

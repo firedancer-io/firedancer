@@ -344,7 +344,7 @@ fd_tcache_remove( ulong * map,
 /* FD_TCACHE_INSERT inserts tag into the tcache in fast O(1) operations.
    On return, if dup is non-zero, tag is already in the tcache and the
    tcache in unchanged.  If dup is zero, tag was inserted and, if the
-   tcache was full (e.g. has had depth values previously inserted), the
+   tcache was full (i.e. had already contained depth values), the
    oldest tag in the tcache will have been evicted.
 
    This is implemented as a macro to support multiple return values (dup

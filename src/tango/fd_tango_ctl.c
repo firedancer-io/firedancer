@@ -727,7 +727,7 @@ main( int     argc,
       if( FD_UNLIKELY( argc!=2 ) ) FD_LOG_ERR(( "%i: %s: wrong number of arguments\n\tDo %s help for help", cnt, cmd, bin ));
 
       char const * _wksp   =                   argv[0];
-      ulong        lg_max_node_cnt     = fd_cstr_to_ulong( argv[1] );
+      int          lg_slot_cnt = fd_cstr_to_int( argv[1] );
 
       fd_wksp_t * wksp = fd_wksp_attach( _wksp );
       if( FD_UNLIKELY( !wksp ) ) {
@@ -735,7 +735,7 @@ main( int     argc,
       }
 
       ulong align = fd_stake_align();
-      ulong footprint = fd_stake_footprint(lg_max_node_cnt);
+      ulong footprint = fd_stake_footprint(lg_slot_cnt);
       // FD_LOG_ERR(("footprint %lu", footprint));
       ulong gaddr = fd_wksp_alloc( wksp, align, footprint, tag );
       if( FD_UNLIKELY( !gaddr ) ) {
@@ -752,12 +752,12 @@ main( int     argc,
         FD_LOG_ERR(( "%i: %s: fd_wksp_laddr( \"%s\", %lu ) failed\n\tDo %s help for help", cnt, cmd, _wksp, gaddr, bin ));
       }
 
-      void * shstake = fd_stake_new( shmem, lg_max_node_cnt );
+      void * shstake = fd_stake_new( shmem, lg_slot_cnt );
       if( FD_UNLIKELY( !shstake ) ) {
         fd_wksp_free( wksp, gaddr );
         fd_wksp_detach( wksp );
-        FD_LOG_ERR(( "%i: %s: fd_stake_new( %s:%lu, %lu ) failed\n\tDo %s help for help",
-                     cnt, cmd, _wksp, gaddr, lg_max_node_cnt, bin ));
+        FD_LOG_ERR(( "%i: %s: fd_stake_new( %s:%lu, %d ) failed\n\tDo %s help for help",
+                     cnt, cmd, _wksp, gaddr, lg_slot_cnt, bin ));
       }
 
       char buf[ FD_WKSP_CSTR_MAX ];
@@ -765,7 +765,7 @@ main( int     argc,
 
       fd_wksp_detach( wksp );
 
-      FD_LOG_NOTICE(( "%i: %s %s %lu: success", cnt, cmd, _wksp, lg_max_node_cnt ));
+      FD_LOG_NOTICE(( "%i: %s %s %d: success", cnt, cmd, _wksp, lg_slot_cnt ));
       SHIFT( 2 );
 
     } else {

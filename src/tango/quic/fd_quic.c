@@ -140,6 +140,7 @@ fd_quic_new( void * mem,
 
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
+    __asm__("int $3");
     return NULL;
   }
 

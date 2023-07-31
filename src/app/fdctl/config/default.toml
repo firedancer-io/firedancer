@@ -151,9 +151,12 @@ scratch_directory = "/home/{user}/.firedancer/{name}"
         # Which port to listen on.
         listen_port = 9001
 
-        # Maximum number of simultaneous QUIC connections which can be open. New connections which
-        # would exceed this limit will not be accepted.
-        max_concurrent_connections = 32
+        # Maximum number of staked QUIC connections which can be open. This is a hard limit on the
+        # number of connections QUIC can maintain, but the QoS component of the TPU will execute
+        # eviction logic when new connections are opened once this limit is reached.
+        #
+        # This should be a power of 2.
+        max_concurrent_connections = 1024
 
         # While in TCP a connection is identified by (Source IP, Source Port, Dest IP, Dest Port)
         # in QUIC a connection is uniquely identified by a connection ID. Because this isn't
@@ -171,11 +174,14 @@ scratch_directory = "/home/{user}/.firedancer/{name}"
 
         # QUIC allows for multiple streams to be multiplexed over a single connection. This
         # option sets the maximum number of simultaneous streams per connection supported by our
-        # protocol implementation. This is an initial value per connection and may be lowered
-        # further during the connection by the peer.
+        # protocol implementation. This is an initial value per connection and may be increased
+        # or decreased by the Firedancer QUIC server. This logic is controlled by the QoS component
+        # and currently based on each peer's stake-weight associated with their public key.
+        #
+        #
         #
         # If the peer has this many simultaneous streams open and wishes to initiate another stream,
-        # they must first retire an existing stream.
+        # they must receive a new MAX_STREAMS frame containing.
         #
         # The Solana protocol uses one stream per transaction. If the expected round trip latency to
         # peers is high, transaction throughput could be constrained by this option rather than the

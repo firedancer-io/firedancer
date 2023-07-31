@@ -28,12 +28,16 @@ int server_complete = 0;
 
 void
 conn_new( fd_quic_conn_t * conn, void * ctx ) {
-  fd_quic_qos_conn_new( (fd_quic_qos_t *)ctx, conn );
+  (void)conn;
+  (void)ctx;
+  // fd_quic_qos_conn_new( (fd_quic_qos_t *)ctx, conn );
 }
 
 void
 conn_evict( fd_quic_conn_t * conn, void * ctx ) {
-  fd_quic_qos_conn_new( (fd_quic_qos_t *)ctx, conn );
+  (void)conn;
+  (void)ctx;
+  // fd_quic_qos_conn_new( (fd_quic_qos_t *)ctx, conn );
 }
 
 int
@@ -48,7 +52,7 @@ save_x509_cert_to_pem_file( X509 * cert, const char * pem_file ) {
 EVP_PKEY *
 get_public_key_from_pem( const char * filename ) {
   BIO * bio = BIO_new_file( filename, "r" );
-  if ( bio == NULL ) { return NULL; }
+if ( bio == NULL ) { return NULL; }
 
   X509 * x509 = PEM_read_bio_X509( bio, NULL, NULL, NULL );
   if ( x509 == NULL ) {
@@ -154,31 +158,31 @@ main( int argc, char ** argv ) {
   FD_LOG_NOTICE( ( "Initializing QUIC" ) );
   FD_TEST( fd_quic_init( quic ) );
 
-  fd_quic_qos_limits_t qos_limits = { .min_streams   = FD_QUIC_QOS_DEFAULT_MIN_STREAMS,
-                                      .max_streams   = FD_QUIC_QOS_DEFAULT_MAX_STREAMS,
-                                      .total_streams = FD_QUIC_QOS_DEFAULT_TOTAL_STREAMS,
-                                      .lg_priv_conns    = 0,
-                                      .lg_unpriv_conns  = 0 };
-  void *               mem =
-      fd_wksp_alloc_laddr( wksp, fd_quic_qos_align(), fd_quic_qos_footprint( &qos_limits ), 42UL );
-  fd_quic_qos_t * qos = fd_quic_qos_join( fd_quic_qos_new( mem, &qos_limits ) );
-  FD_TEST( qos );
+  // fd_quic_qos_limits_t qos_limits = { .min_streams   = FD_QUIC_QOS_DEFAULT_MIN_STREAMS,
+  //                                     .max_streams   = FD_QUIC_QOS_DEFAULT_MAX_STREAMS,
+  //                                     .total_streams = FD_QUIC_QOS_DEFAULT_TOTAL_STREAMS,
+  //                                     .pq_lg_slot_cnt    = 0,
+  //                                     .lru_lg_slot_cnt  = 0 };
+  // void *               mem =
+  //     fd_wksp_alloc_laddr( wksp, fd_quic_qos_align(), fd_quic_qos_footprint( &qos_limits ), 42UL );
+  // fd_quic_qos_t * qos = fd_quic_qos_join( fd_quic_qos_new( mem, &qos_limits ) );
+  // FD_TEST( qos );
 
-  fd_stake_pubkey_t pubkey = {
-      .pubkey = {44, 174, 25, 39, 43, 255, 200, 81, 55, 73, 10, 113, 174, 91, 223, 80,
-                 50, 51, 102, 25, 63, 110, 36, 28, 51, 11, 174, 179, 110, 8, 25, 152}
-  };
-  fd_stake_staked_node_t * staked_node =
-      fd_stake_staked_node_insert( qos->stake->staked_nodes, pubkey );
-  staked_node->stake = 1;
+  // fd_stake_pubkey_t pubkey = {
+  //     .pubkey = {44, 174, 25, 39, 43, 255, 200, 81, 55, 73, 10, 113, 174, 91, 223, 80,
+  //                50, 51, 102, 25, 63, 110, 36, 28, 51, 11, 174, 179, 110, 8, 25, 152}
+  // };
+  // fd_stake_node_t * staked_node =
+  //     fd_stake_node_insert( fd_stake_nodes_laddr(qos->stake), pubkey );
+  // staked_node->stake = 1;
 
-  fd_stake_pubkey_t pubkey2 = {
-      .pubkey = {250, 56, 248, 84, 190, 46, 154, 76, 15, 72, 181, 205, 32, 96, 128, 213,
-                 158, 33, 81, 193, 63, 154, 93, 254, 15, 81, 32, 175, 54, 60, 179, 224}
-  };
-  fd_stake_staked_node_t * staked_node2 =
-      fd_stake_staked_node_insert( qos->stake->staked_nodes, pubkey2 );
-  staked_node2->stake = 2;
+  // fd_stake_pubkey_t pubkey2 = {
+  //     .pubkey = {250, 56, 248, 84, 190, 46, 154, 76, 15, 72, 181, 205, 32, 96, 128, 213,
+  //                158, 33, 81, 193, 63, 154, 93, 254, 15, 81, 32, 175, 54, 60, 179, 224}
+  // };
+  // fd_stake_node_t * staked_node2 =
+  //     fd_stake_node_insert( fd_stake_nodes_laddr(qos->stake), pubkey2 );
+  // staked_node2->stake = 2;
 
   // conn_evict()
 

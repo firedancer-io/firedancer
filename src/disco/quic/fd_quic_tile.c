@@ -419,24 +419,42 @@ fd_quic_tile( fd_cnc_t *       cnc,
   long now  = then;
   for(;;) {
     // (void)qos;
-    // (void)stake;
-    FD_LOG_NOTICE(("total_stake %lu", stake->total_stake));
-    fd_stake_pubkey_t pubkey = {
-        .pubkey = {44, 174, 25, 39, 43, 255, 200, 81, 55, 73, 10, 113, 174, 91, 223, 80,
-                   50, 51, 102, 25, 63, 110, 36, 28, 51, 11, 174, 179, 110, 8, 25, 152}
-    };
-    FD_LOG_NOTICE(("staked_node is null %d", stake->staked_nodes == NULL));
-    for (ulong i = 0; i < (1UL << 16); i++) {
-      // FD_LOG_HEXDUMP_NOTICE(("staked node i", &stake->staked_nodes[i], 4));
-    }
-    // fd_stake_staked_node_t * node = fd_stake_staked_node_query( stake->staked_nodes, pubkey, NULL );
-    // if (node == NULL) {
-    //   FD_LOG_NOTICE(("node is NULL"));
-    // } else {
-    //   // FD_LOG_HEXDUMP_NOTICE(("node->key", &node->key, sizeof(fd_stake_pubkey_t)));
-    //   // FD_LOG_NOTICE(("node->stake %lu", node->stake));
+    (void)stake;
+    // FD_LOG_NOTICE(("total_stake %lu", stake->total_stake));
+    // fd_stake_pubkey_t pubkey = {
+    //     .pubkey = {44, 174, 25, 39, 43, 255, 200, 81, 55, 73, 10, 113, 174, 91, 223, 80,
+    //                50, 51, 102, 25, 63, 110, 36, 28, 51, 11, 174, 179, 110, 8, 25, 152}
+    // };
+    fd_stake_dump( stake );
+    // FD_LOG_NOTICE(("staked_node is null %d", stake->staked_nodes == NULL));
+    // FD_LOG_HEXDUMP_NOTICE(("staked node i", &stake->staked_nodes[0], 4));
+    // for (ulong i = 0; i < (1UL << 16); i++) {
+    //   FD_LOG_HEXDUMP_NOTICE(("staked node i", &stake->staked_nodes[i], 4));
     // }
-    (void)pubkey;
+    // fd_stake_update(stake, NULL, 0);
+    // fd_stake_node_private_t * hdr =
+    //       fd_stake_node_private_from_slot( stake->staked_nodes );
+    // FD_LOG_NOTICE(("hdr slot cnt %lu", hdr->key_cnt));
+    // FD_LOG_NOTICE(("hdr slot cnt %d", hdr->lg_slot_cnt));
+    // fd_stake_node_t * node = fd_stake_node_query( fd_stake_nodes_laddr(stake), pubkey, NULL );
+    // FD_LOG_HEXDUMP_NOTICE(("stake", stake, sizeof(fd_stake_t)));
+    // FD_LOG_HEXDUMP_NOTICE(("staked nodes", stake->staked_nodes, 8));
+    // __asm__("int $3");
+    // if (node != NULL) {
+    //   FD_LOG_NOTICE(("got stake %lu", node->stake));
+      // __asm__("int $3");
+      // fd_stake_node_private_t * hdr =
+      //     fd_stake_node_private_from_slot( stake->staked_nodes );
+      // FD_LOG_NOTICE( ( "hdr null? %d", hdr == NULL ) );
+      // if ( fd_stake_node_key_inval( node->key ) ) {
+      //   FD_LOG_NOTICE(("key is NULL"));
+      // } else {
+      //   FD_LOG_NOTICE(("key is null %d", memcmp(&node->key, &pubkey_null, sizeof(fd_stake_pubkey_t))));
+      //   FD_LOG_HEXDUMP_NOTICE( ( "node->key", &node->key, sizeof( fd_stake_pubkey_t ) ) );
+      //   FD_LOG_NOTICE( ( "node->stake %lu", node->stake ) );
+      // }
+    // }
+    // (void)pubkey;
     // ulong read_seq = fd_mcache_seq_query(fd_mcache_seq_laddr_const(mcache));
     // fd_frag_meta_t const * mline = mcache + fd_mcache_line_idx( read_seq, depth );
     // ulong seq_found = fd_frag_meta_seq_query( mline );

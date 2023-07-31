@@ -11,6 +11,7 @@
 #include "tcache/fd_tcache.h" /* Includes fd_tango_base.h */
 #include "aio/fd_aio.h"       /* Includes fd_tango_base.h */
 #include "stake/fd_stake.h"   /* Includes fd_tango_base.h */
+#include "lru/fd_lru.h"
 
 #endif /* HEADER_fd_src_tango_fd_tango_h */
 

@@ -537,7 +537,7 @@ fd_double_eq( double x,
 
 #ifndef FD_UNALIGNED_ACCESS_STYLE
 #if FD_HAS_X86
-#define FD_UNALIGNED_ACCESS_STYLE 1
+#define FD_UNALIGNED_ACCESS_STYLE 0
 #else
 #define FD_UNALIGNED_ACCESS_STYLE 0
 #endif

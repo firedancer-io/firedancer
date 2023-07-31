@@ -81,6 +81,38 @@ fd_frank_quic_task( int     argc,
   uchar * dcache = fd_dcache_join( fd_wksp_pod_map( quic_pod, "dcache" ) );
   if( FD_UNLIKELY( !dcache ) ) FD_LOG_ERR(( "fd_dcache_join failed" ));
 
+  FD_LOG_INFO(( "loading firedancer.quic.%s.stake", quic_name ));
+  fd_stake_t * stake = fd_stake_join( fd_wksp_pod_map( quic_pod, "stake" ) );
+  if( FD_UNLIKELY( !stake ) ) FD_LOG_ERR(( "fd_stake_join failed" ));
+  // fd_stake_pubkey_t pubkey = {
+  //     .pubkey = {44, 174, 25, 39, 43, 255, 200, 81, 55, 73, 10, 113, 174, 91, 223, 80,
+  //                50, 51, 102, 25, 63, 110, 36, 28, 51, 11, 174, 179, 110, 8, 25, 152}
+  // };
+  // fd_stake_update(stake, NULL, 0);
+  // fd_stake_node_t * node = fd_stake_node_query( stake->staked_nodes, pubkey, NULL );
+  // if ( node != NULL ) {
+  //   if ( fd_stake_node_key_inval( node->key ) ) {
+  //     FD_LOG_NOTICE( ( "key is NULL" ) );
+  //   } else {
+  //     FD_LOG_NOTICE(
+  //         ( "key is null %d", memcmp( &node->key, &pubkey_null, sizeof( fd_stake_pubkey_t ) ) ) );
+  //     FD_LOG_HEXDUMP_NOTICE( ( "node->key", &node->key, sizeof( fd_stake_pubkey_t ) ) );
+  //     FD_LOG_NOTICE( ( "node->stake %lu", node->stake ) );
+  //   }
+  // } else {
+  //   FD_LOG_NOTICE(("null"));
+  // }
+  // FD_LOG_NOTICE(("staked_node null? %d", staked_node == NULL));
+  // fd_stake_pubkey_t pubkey = { .pubkey = { 44, 174, 25,  39, 43, 255, 200, 81, 55, 73, 10,  113, 174, 91, 223, 80,
+  //               50, 51,  102, 25, 63, 110, 36,  28, 51, 11, 174, 179, 110, 8,  25,  152 } };
+  // fd_stake_node_t * staked_node =
+  //   fd_stake_node_insert( stake->staked_nodes, pubkey );
+  // fd_stake_node_private_t * hdr = fd_stake_node_private_from_slot( stake->staked_nodes );
+  // FD_LOG_NOTICE(("slot cnt %d", hdr->lg_slot_cnt));
+  // FD_LOG_HEXDUMP_NOTICE(("staked_node", staked_node, 32));
+  // FD_LOG_HEXDUMP_NOTICE(("pubkey", &staked_node->stake, 8));
+  // FD_LOG_HEXDUMP_NOTICE(("pubkey", &staked_node->key, 32));
+
   FD_LOG_INFO(( "loading firedancer.quic.%s.quic", quic_name ));
   fd_quic_t * quic = fd_quic_join( fd_wksp_pod_map( quic_pod, "quic" ) );
   if( FD_UNLIKELY( !quic ) ) FD_LOG_ERR(( "fd_quic_join failed" ));
@@ -155,7 +187,10 @@ fd_frank_quic_task( int     argc,
   /* Start serving */
 
   FD_LOG_INFO(( "%s run", quic_name ));
-  int err = fd_quic_tile( cnc, quic, xsk_aio, mcache, dcache, lazy, rng, scratch );
+  // fd_stake_t stake = {
+  //     .version = 0,
+  // };
+  int err = fd_quic_tile( cnc, quic, /* qos , */ stake, xsk_aio, mcache, dcache, lazy, rng, scratch );
   if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_quic_tile failed (%i)", err ));
 
   /* Clean up */
