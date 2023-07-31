@@ -292,7 +292,7 @@ ingest_txnstatus( fd_global_ctx_t * global,
   ulong datamax = 1UL<<20;
   uchar* data = (uchar*)malloc(datamax);
   ulong datalen = 0;
-  
+
   /* Loop across batches */
   ulong blockoff = 0;
   while (blockoff < blocklen) {
@@ -338,7 +338,7 @@ ingest_txnstatus( fd_global_ctx_t * global,
               idx.status_sz = status_sz;
               vec_fd_txnstatusidx_push(&vec_idx, idx);
             }
-            
+
             while (datalen + status_sz > datamax)
               data = (uchar*)realloc(data, (datamax += 1UL<<20));
             fd_memcpy(data + datalen, status, status_sz);
@@ -347,7 +347,7 @@ ingest_txnstatus( fd_global_ctx_t * global,
             free(status);
           }
         }
-        
+
         blockoff += pay_sz;
       }
     }
@@ -371,7 +371,7 @@ ingest_txnstatus( fd_global_ctx_t * global,
   fd_memcpy(val, vec_idx.elems, vec_idx.cnt*sizeof(fd_txnstatusidx_t));
   val += vec_idx.cnt*sizeof(fd_txnstatusidx_t);
   fd_memcpy(val, data, datalen);
-    
+
   fd_funk_rec_persist( global->funk, rec );
   fd_funk_val_uncache( global->funk, rec );
 

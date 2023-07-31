@@ -157,7 +157,7 @@ fd_rent_lists_quickSort(fd_funk_rec_t const ** arr, ulong low, ulong high) {
     // Separately sort elements before
     // partition and after partition
 
-    if (pi - low > 1) 
+    if (pi - low > 1)
       fd_rent_lists_quickSort(arr, low, pi - 1U);
     if (high - pi > 1)
       fd_rent_lists_quickSort(arr, pi + 1U, high);
@@ -179,7 +179,7 @@ fd_rent_lists_startup_done( fd_rent_lists_t * lists ) {
 static void
 fd_rent_lists_compact_and_sort( fd_rent_list_t ** listp ) {
   fd_rent_list_t * list = *listp;
-  
+
   /* Eliminate nulls first */
   fd_funk_rec_t const ** end = list->sorted + list->num_sorted;
   fd_funk_rec_t const ** j = list->sorted;
@@ -223,7 +223,7 @@ fd_rent_lists_cb( fd_funk_rec_t const * updated,
   if ( lists->startup ) {
     /* Assume all updates are unique and we can sort later */
     FD_TEST( updated && !removed );
-    
+
     fd_rent_list_t ** listp = fd_rent_lists_key_to_bucket( lists, updated );
     fd_rent_list_t * list = *listp;
     if ( list == NULL ) {
@@ -239,7 +239,7 @@ fd_rent_lists_cb( fd_funk_rec_t const * updated,
     list->sorted[list->num_sorted ++] = updated;
     return;
   }
-  
+
   if ( lists->paused ) {
     /* We are currently walking a list. Just hold onto the callback
        for now to prevent crazy corruption and recursion. */
@@ -318,8 +318,12 @@ fd_rent_lists_walk( fd_rent_lists_t * lists,
   /* Prevent changes to this list while I'm walking it */
   lists->paused = 1;
   lists->pause_len = 0;
-  
+
   fd_rent_list_t ** listp = &lists->lists[offset];
+  if (NULL == *listp) {
+    lists->paused = 0;
+    return;
+  }
   fd_rent_lists_compact_and_sort(listp);
   fd_rent_list_t * list = *listp;
   for ( ulong i = 0; i < list->num_sorted; ++i )

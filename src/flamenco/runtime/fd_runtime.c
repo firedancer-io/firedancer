@@ -71,7 +71,7 @@ fd_runtime_init_bank_from_genesis( fd_global_ctx_t *     global,
   }
 
   fd_vote_accounts_pair_t_mapnode_t * vacc_pool =
-    fd_vote_accounts_pair_t_map_alloc( fd_scratch_virtual(), vote_acc_cnt++ );
+    fd_vote_accounts_pair_t_map_alloc( global->valloc, vote_acc_cnt++ );
   FD_TEST( vacc_pool );
   fd_vote_accounts_pair_t_mapnode_t * vacc_root = NULL;
 
@@ -754,7 +754,7 @@ fd_runtime_collect_rent_cb( fd_funk_rec_t const * rec_ro,
   fd_pubkey_t const * key = fd_type_pun_const( &rec_ro->pair.key[0].uc );
   void const * acc_ro = fd_acc_mgr_view_data( acc_mgr, txn, key, &rec_ro, &err );
   fd_account_meta_t const * meta_ro = (fd_account_meta_t const *)acc_ro;
-  
+
   /* Account might not exist anymore in the current world */
   if( ( err==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) | (!acc_ro) ) {
     return 0; /* Don't walk again */
@@ -763,7 +763,7 @@ fd_runtime_collect_rent_cb( fd_funk_rec_t const * rec_ro,
     FD_LOG_WARNING(( "fd_runtime_collect_rent_cb: fd_acc_mgr_view_data failed (%d)", err ));
     return 0; /* Don't walk again */
   }
-  
+
   /* Filter accounts that we've already visited */
   ulong epoch = global->rent_epoch;
   if( meta_ro->info.rent_epoch >= epoch ) return 1;
@@ -819,7 +819,7 @@ fd_runtime_collect_rent( fd_global_ctx_t * global ) {
       fd_funk_set_notify(global->funk, fd_rent_lists_cb, global->rentlists);
       fd_rent_lists_startup_done(global->rentlists);
     }
-    
+
     global->rent_epoch = epoch;
     fd_rent_lists_walk( global->rentlists, off, fd_runtime_collect_rent_cb, global );
   }
@@ -1284,7 +1284,7 @@ int fd_global_import_solana_manifest(fd_global_ctx_t * global, fd_solana_manifes
     FD_TEST( fd_vote_accounts_decode( &bank->epoch_stakes, &decode_ctx )
              ==FD_BINCODE_SUCCESS );
   }
-  
+
   return fd_runtime_save_banks( global );
 }
 
