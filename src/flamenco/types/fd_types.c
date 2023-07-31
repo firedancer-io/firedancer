@@ -7573,7 +7573,7 @@ int fd_stake_instruction_inner_decode(fd_stake_instruction_inner_t* self, uint d
     return FD_BINCODE_SUCCESS;
   }
   case 6: {
-    return fd_lockup_args_decode(&self->set_lockup, ctx);
+    return FD_BINCODE_SUCCESS;
   }
   case 7: {
     return FD_BINCODE_SUCCESS;
