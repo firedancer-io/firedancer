@@ -264,6 +264,11 @@ fd_tguard_pcap_cb(
 
   ulong shred_is_code   = shred->variant & 0x80 ? 0UL : 1UL;
   ulong store_idx = fd_tguard_get_storeidx(shred->slot, (ulong)shred->idx, shred_is_code);
+  /* 16-bit shred->idx supports 2**16*4/0.4 = 0.65MTPS */
+  /* 8*8-17 bit slot support slots up to 10^14, sufficient for current slot# = ~2e8^*/
+  ulong dedup_tag = (shred->slot                  << 17UL ) | 
+                    (((ulong)shred->idx & 0xFFFF) <<  1UL ) | 
+                    (shred_is_code      &    0x1  <<  0UL ) ;
 
   int is_dup;
   #if FD_TGUARD_SHRED_DEDUP_ENA > 0
@@ -274,7 +279,7 @@ fd_tguard_pcap_cb(
     *wormhole->tcache_depth, 
     *wormhole->tcache_map_p, 
     *wormhole->tcache_map_cnt, 
-    store_idx /* dedup based on store_idx not meta_sig, as storage is based on store_idx */
+    dedup_tag /* dedup longer dedup_tag rather than shorter store_idx */
   );
   #else
     is_dup = 0;
