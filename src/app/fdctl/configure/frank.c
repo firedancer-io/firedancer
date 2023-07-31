@@ -2,6 +2,7 @@
 
 #include "../../../tango/fd_tango.h"
 #include "../../../tango/quic/fd_quic.h"
+#include "../../../tango/stake/fd_stake.h"
 #include "../../../tango/xdp/fd_xsk_aio.h"
 
 #include <linux/capability.h>
@@ -119,6 +120,13 @@ static void quic( void * pod, char * fmt, fd_quic_limits_t * limits, ... ) {
             fd_quic_new      ( shmem, limits ) );
 }
 
+static void stake( void * pod, char * fmt, int lg_slot_cnt, ... ) {
+  INSERTER( lg_slot_cnt,
+            fd_stake_align    (                    ),
+            fd_stake_footprint( lg_slot_cnt        ),
+            fd_stake_new      ( shmem, lg_slot_cnt ) );
+}
+
 static void xsk( void * pod, char * fmt, ulong frame_sz, ulong rx_depth, ulong tx_depth, ... ) {
   INSERTER( tx_depth,
             fd_xsk_align    (                                                            ),
@@ -212,6 +220,8 @@ init( config_t * const config ) {
   mcache( pod, "firedancer.dedup.mcache",              config->tiles.verify.receive_buffer_size );
   fseq  ( pod, "firedancer.dedup.fseq" );
 
+  config->layout.verify_tile_count = 1;
+
   for( uint i=0; i<config->layout.verify_tile_count; i++ ) {
     mcache2( pod, "firedancer.verifyin.v%uin.mcache",  "firedancer.quic.quic%u.mcache", config->tiles.verify.receive_buffer_size, i );
     dcache2( pod, "firedancer.verifyin.v%uin.dcache",  "firedancer.quic.quic%u.dcache", config->tiles.verify.mtu, config->tiles.verify.receive_buffer_size, config->tiles.verify.receive_buffer_size * 32, i );
@@ -239,6 +249,7 @@ init( config_t * const config ) {
   for( uint i=0; i<config->layout.verify_tile_count; i++) {
     cnc    ( pod, "firedancer.quic.quic%u.cnc",     i );
     quic   ( pod, "firedancer.quic.quic%u.quic",    &limits, i );
+    stake  ( pod, "firedancer.quic.quic%u.stake",    16, i );  /* FIXME configurable */
     xsk    ( pod, "firedancer.quic.quic%u.xsk",     2048, config->tiles.quic.xdp_rx_queue_size, config->tiles.quic.xdp_tx_queue_size, i );
     xsk_aio( pod, "firedancer.quic.quic%u.xsk_aio", config->tiles.quic.xdp_tx_queue_size, config->tiles.quic.xdp_aio_depth, i );
 
