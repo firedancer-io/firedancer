@@ -330,7 +330,10 @@ fd_acc_mgr_view_data(
   }
   if (NULL != orec)
     *orec = rec;
-  return fd_funk_val_cache( funk, rec, opt_err );
+  void const * data = fd_funk_val_cache( funk, rec, opt_err );
+  fd_account_meta_t const *metadata = (fd_account_meta_t const *) data;
+  FD_TEST( metadata->magic == FD_ACCOUNT_META_MAGIC );
+  return data;
 }
 
 void *
@@ -362,6 +365,9 @@ fd_acc_mgr_modify_data(
 
   if (do_create && ((fd_account_meta_t *) ret)->magic == 0)
     fd_account_meta_init(((fd_account_meta_t *) ret));
+  else {
+    FD_TEST( ((fd_account_meta_t *) ret)->magic == FD_ACCOUNT_META_MAGIC );
+  }
 
   return ret;
 }
