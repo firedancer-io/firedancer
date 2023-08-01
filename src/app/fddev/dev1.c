@@ -58,6 +58,9 @@ dev1_cmd_fn( args_t *         args,
   config->consensus.wait_for_vote_to_start_leader = 0;
 
   tile_main_args_t tile_args = {
+    .app_name = config->name,
+    .uid = config->uid,
+    .gid = config->gid,
     .tile_idx = 0,
     .idx = 0,
     .sandbox = config->development.sandbox,
