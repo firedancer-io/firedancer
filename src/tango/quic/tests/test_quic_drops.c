@@ -290,7 +290,7 @@ client_fibre_fn( void * vp_arg ) {
     if( !conn ) {
       rcvd = sent = 0;
 
-      conn = fd_quic_connect( quic, 
+      conn = fd_quic_connect( quic,
               server_quic->config.net.ip_addr,
               server_quic->config.net.listen_udp_port,
               server_quic->config.sni );
@@ -549,4 +549,3 @@ main( int argc, char ** argv ) {
   fd_halt();
   return 0;
 }
-
