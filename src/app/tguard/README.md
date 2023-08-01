@@ -42,7 +42,7 @@ Turbine Guard is a [BITW](https://en.wikipedia.org/wiki/Bump-in-the-wire) that i
 
 Moreover, this is a body guard with high capacity, one Turbine Guard is sufficient to have multiple validators under its protection umbrella at the same time.
 
-Running Turnine Guard is as simple as typing in 1,2,3..., literally. First let's lauch the command-n-control interactive panel:
+Running Turbine Guard is as simple as typing in 1,2,3..., literally. First let's lauch the command-n-control interactive panel:
 ```
   $ cd firedancer      # the repo root if you are not there already
   $ cd src/app/tguard  # the tguard src diretory
