@@ -16,6 +16,7 @@
     - You have a much much (orders of magnitude) better chance that each box has more than 1/2 of the cookies survived 
     - Hence you will make good deliveries with much much higher probability
       - So you can be sure your delvery effort will unlikely go wasted
+- Expect Solana will eventually adopt this transmission protection technique. But before that happens, you can get the protection from the standalone Firedancer Turbine Guard.
 ### Analytical answer for the numerically minded
 - Optimization Objective: minimize the odds of the loss of shreds from the same FEC set that exceeds the capability of the FEC recovery capablity.
   - This can be achieved by ***maximizing the minimum spacing betweeen any two originally adjacent shreds*** in a new transmission sequence that Turbine Guard produces.
