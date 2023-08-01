@@ -2,41 +2,15 @@
 
 #include <stdio.h>
 
+#include <sys/stat.h>
 #include <linux/unistd.h>
-
-static long allow_syscalls[] = {
-  __NR_write,     /* logging */
-  __NR_futex,     /* logging, glibc fprintf unfortunately uses a futex internally */
-  __NR_fsync,     /* logging, WARNING and above fsync immediately */
-  __NR_nanosleep, /* fd_tempo_tick_per_ns calibration */
-};
-
-static void
-init( fd_frank_args_t * args ) {
-  args->pod = fd_wksp_pod_attach( args->pod_gaddr );
-  args->close_fd_start = 4; /* stdin, stdout, stderr, logfile */
-  args->allow_syscalls_sz = sizeof(allow_syscalls)/sizeof(allow_syscalls[ 0 ]);
-  args->allow_syscalls = allow_syscalls;
-}
 
 static void
 run( fd_frank_args_t * args ) {
-  /* Load up the configuration for this frank instance */
-  uchar const * cfg_pod = fd_pod_query_subpod( args->pod, "firedancer" );
-  if( FD_UNLIKELY( !cfg_pod ) ) FD_LOG_ERR(( "path not found" ));
-
-  uchar const * verify_pods = fd_pod_query_subpod( cfg_pod, "verify" );
-  if( FD_UNLIKELY( !verify_pods ) ) FD_LOG_ERR(( "firedancer.verify path not found" ));
-
-  char verify_name[ 32 ];
-  snprintf( verify_name, 32, "v%lu", args->idx );
-  uchar const * verify_pod = fd_pod_query_subpod( verify_pods, verify_name );
-  if( FD_UNLIKELY( !verify_pod ) ) FD_LOG_ERR(( "firedancer.verify.%s path not found", verify_name ));
-
   /* Join the IPC objects needed this tile instance */
 
-  FD_LOG_INFO(( "joining firedancer.verify.%s.cnc", verify_name ));
-  fd_cnc_t * cnc = fd_cnc_join( fd_wksp_pod_map( verify_pod, "cnc" ) );
+  FD_LOG_INFO(( "joining cnc" ));
+  fd_cnc_t * cnc = fd_cnc_join( fd_wksp_pod_map( args->tile_pod, "cnc" ) );
   if( FD_UNLIKELY( !cnc ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
   if( FD_UNLIKELY( fd_cnc_signal_query( cnc )!=FD_CNC_SIGNAL_BOOT ) ) FD_LOG_ERR(( "cnc not in boot state" ));
   ulong * cnc_diag = (ulong *)fd_cnc_app_laddr( cnc );
@@ -52,15 +26,18 @@ run( fd_frank_args_t * args ) {
   FD_VOLATILE( cnc_diag[ FD_FRANK_CNC_DIAG_SV_FILT_SZ  ] ) = 0UL;
   FD_COMPILER_MFENCE();
 
-  FD_LOG_INFO(( "joining firedancer.verify.%s.mcache", verify_name ));
-  fd_frag_meta_t * mcache = fd_mcache_join( fd_wksp_pod_map( verify_pod, "mcache" ) );
+  FD_LOG_INFO(( "joining mcache%lu", args->tile_idx ));
+  char path[ 32 ];
+  snprintf( path, sizeof(path), "mcache%lu", args->tile_idx );
+  fd_frag_meta_t * mcache = fd_mcache_join( fd_wksp_pod_map( args->in_pod, path ) );
   if( FD_UNLIKELY( !mcache ) ) FD_LOG_ERR(( "fd_mcache_join failed" ));
   ulong   depth = fd_mcache_depth( mcache );
   ulong * sync  = fd_mcache_seq_laddr( mcache );
   ulong   seq   = fd_mcache_seq_query( sync );
 
-  FD_LOG_INFO(( "joining firedancer.verify.%s.dcache", verify_name ));
-  uchar * dcache = fd_dcache_join( fd_wksp_pod_map( verify_pod, "dcache" ) );
+  FD_LOG_INFO(( "joining dcache%lu", args->tile_idx ));
+  snprintf( path, sizeof(path), "dcache%lu", args->tile_idx );
+  uchar * dcache = fd_dcache_join( fd_wksp_pod_map( args->in_pod, path ) );
   if( FD_UNLIKELY( !dcache ) ) FD_LOG_ERR(( "fd_dcache_join failed" ));
   fd_wksp_t * wksp = fd_wksp_containing( dcache ); /* chunks are referenced relative to the containing workspace */
   if( FD_UNLIKELY( !wksp ) ) FD_LOG_ERR(( "fd_wksp_containing failed" ));
@@ -68,8 +45,9 @@ run( fd_frank_args_t * args ) {
   ulong   wmark  = fd_dcache_compact_wmark ( wksp, dcache, 1542UL ); /* FIXME: MTU? SAFETY CHECK THE FOOTPRINT? */
   ulong   chunk  = chunk0;
 
-  FD_LOG_INFO(( "joining firedancer.verify.%s.fseq", verify_name ));
-  ulong * fseq = fd_fseq_join( fd_wksp_pod_map( verify_pod, "fseq" ) );
+  FD_LOG_INFO(( "joining fseq%lu", args->tile_idx ));
+  snprintf( path, sizeof(path), "fseq%lu", args->tile_idx );
+  ulong * fseq = fd_fseq_join( fd_wksp_pod_map( args->in_pod, path ) );
   if( FD_UNLIKELY( !fseq ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
   ulong * fseq_diag = (ulong *)fd_fseq_app_laddr( fseq );
   if( FD_UNLIKELY( !fseq_diag ) ) FD_LOG_ERR(( "fd_fseq_app_laddr failed" ));
@@ -78,14 +56,14 @@ run( fd_frank_args_t * args ) {
   /* Setup local objects used by this tile */
 
   FD_LOG_INFO(( "configuring flow control" ));
-  ulong cr_max    = fd_pod_query_ulong( verify_pod, "cr_max",    0UL );
-  ulong cr_resume = fd_pod_query_ulong( verify_pod, "cr_resume", 0UL );
-  ulong cr_refill = fd_pod_query_ulong( verify_pod, "cr_refill", 0UL );
-  long  lazy      = fd_pod_query_long ( verify_pod, "lazy",      0L  );
-  FD_LOG_INFO(( "firedancer.verify.%s.cr_max    %lu", verify_name, cr_max    ));
-  FD_LOG_INFO(( "firedancer.verify.%s.cr_resume %lu", verify_name, cr_resume ));
-  FD_LOG_INFO(( "firedancer.verify.%s.cr_refill %lu", verify_name, cr_refill ));
-  FD_LOG_INFO(( "firedancer.verify.%s.lazy      %li", verify_name, lazy      ));
+  ulong cr_max    = fd_pod_query_ulong( args->tile_pod, "cr_max",    0UL );
+  ulong cr_resume = fd_pod_query_ulong( args->tile_pod, "cr_resume", 0UL );
+  ulong cr_refill = fd_pod_query_ulong( args->tile_pod, "cr_refill", 0UL );
+  long  lazy      = fd_pod_query_long ( args->tile_pod, "lazy",      0L  );
+  FD_LOG_INFO(( "cr_max    %lu", cr_max    ));
+  FD_LOG_INFO(( "cr_resume %lu", cr_resume ));
+  FD_LOG_INFO(( "cr_refill %lu", cr_refill ));
+  FD_LOG_INFO(( "lazy      %li", lazy      ));
 
   fd_fctl_t * fctl = fd_fctl_cfg_done( fd_fctl_cfg_rx_add( fd_fctl_join( fd_fctl_new( fd_alloca( FD_FCTL_ALIGN,
                                                                                                  fd_fctl_footprint( 1UL ) ),
@@ -103,8 +81,8 @@ run( fd_frank_args_t * args ) {
   ulong async_min = fd_tempo_async_min( lazy, 1UL /*event_cnt*/, (float)fd_tempo_tick_per_ns( NULL ) );
   if( FD_UNLIKELY( !async_min ) ) FD_LOG_ERR(( "bad lazy" ));
 
-  uint seed = fd_pod_query_uint( verify_pod, "seed", (uint)fd_tile_id() ); /* use app tile_id as default */
-  FD_LOG_INFO(( "creating rng (firedancer.verify.%s.seed %u)", verify_name, seed ));
+  uint seed = fd_pod_query_uint( args->tile_pod, "seed", (uint)fd_tile_id() ); /* use app tile_id as default */
+  FD_LOG_INFO(( "creating rng (seed %u)", seed ));
   fd_rng_t _rng[ 1 ];
   fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, seed, 0UL ) );
   if( FD_UNLIKELY( !rng ) ) FD_LOG_ERR(( "fd_rng_join failed" ));
@@ -131,7 +109,7 @@ run( fd_frank_args_t * args ) {
 
   /* Start verifying */
 
-  FD_LOG_INFO(( "verify.%s run", verify_name ));
+  FD_LOG_INFO(( "verify(%lu) run", args->tile_idx ));
 
   long now  = fd_tickcount();
   long then = now;            /* Do housekeeping on first iteration of run loop */
@@ -204,8 +182,20 @@ run( fd_frank_args_t * args ) {
   }
 }
 
-fd_frank_task_t verify = {
-  .name = "verify",
-  .init = init,
+static long allow_syscalls[] = {
+  __NR_write,     /* logging */
+  __NR_futex,     /* logging, glibc fprintf unfortunately uses a futex internally */
+  __NR_fsync,     /* logging, WARNING and above fsync immediately */
+  __NR_nanosleep, /* fd_tempo_tick_per_ns calibration */
+};
+
+fd_frank_task_t frank_verify = {
+  .name     = "verify",
+  .in_wksp  = "quic_verify",
+  .out_wksp = "verify_dedup",
+  .close_fd_start = 4, /* stdin, stdout, stderr, logfile */
+  .allow_syscalls_sz = sizeof(allow_syscalls)/sizeof(allow_syscalls[ 0 ]),
+  .allow_syscalls = allow_syscalls,
+  .init = NULL,
   .run  = run,
 };

@@ -8,11 +8,16 @@ typedef struct {
   fd_frank_task_t * tile;
   ulong tile_idx;
   ulong idx;
-  const char * pod_gaddr;
   int sandbox;
   uid_t uid;
   gid_t gid;
+  char * app_name;
 } tile_main_args_t;
+
+const uchar *
+workspace_pod_join( char * app_name,
+                    char * tile_name,
+                    ulong tile_idx );
 
 int
 solana_labs_main( void * args );

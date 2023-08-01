@@ -24,14 +24,15 @@ execve_as_root( int     argc,
   char self_exe_path[ PATH_MAX ];
   self_exe( self_exe_path );
 
-  char * args[ MAX_ARGC+3 ];
-  for( int i=2; i<=argc; i++ ) args[i] = argv[i-1];
+  char * args[ MAX_ARGC+4 ];
+  for( int i=3; i<=argc; i++ ) args[i] = argv[i-2];
   args[ 0 ]      = "sudo";
-  args[ 1 ]      = self_exe_path;
+  args[ 1 ]      = "-E";
+  args[ 2 ]      = self_exe_path;
   /* always override the log path to use the same one we just opened for ourselves */
-  args[ argc+1 ] = "--log-path";
-  args[ argc+2 ] = fd_log_private_path;
-  args[ argc+3 ] = NULL;
+  args[ argc+2 ] = "--log-path";
+  args[ argc+3 ] = fd_log_private_path;
+  args[ argc+4 ] = NULL;
 
   /* ok to leak these dynamic strings because we are about to execve anyway */
   char * envp[ 3 ] = {0};

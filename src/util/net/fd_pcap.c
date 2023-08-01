@@ -368,8 +368,8 @@ fd_pcap_fwrite_pkt( long         ts,
   pcap->incl_len = (uint)( pkt_sz - sizeof(fd_pcap_pkt_hdr_t) );
   pcap->orig_len = (uint)( pkt_sz - sizeof(fd_pcap_pkt_hdr_t) );
 
-  memcpy( hdr,     _hdr,     hdr_sz     );
-  memcpy( payload, _payload, payload_sz );
+  fd_memcpy( hdr,     _hdr,     hdr_sz     );
+  fd_memcpy( payload, _payload, payload_sz );
   fcs[0] = _fcs;
 
   if( FD_UNLIKELY( fwrite( pkt, pkt_sz, 1UL, (FILE *)file )!=1UL ) ) { FD_LOG_WARNING(( "fwrite failed" )); return 0UL; }

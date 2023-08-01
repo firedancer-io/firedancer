@@ -11,7 +11,7 @@
 #include <unistd.h>
 #include <errno.h>
 
-#define CONFIGURE_STAGE_COUNT 10
+#define CONFIGURE_STAGE_COUNT 9
 struct configure_stage;
 
 typedef union {

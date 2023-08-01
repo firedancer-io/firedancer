@@ -57,21 +57,17 @@ dev1_cmd_fn( args_t *         args,
      validator will get stuck forever. */
   config->consensus.wait_for_vote_to_start_leader = 0;
 
-  char line[ 4096 ];
-  const char * pod_gaddr = load_var_pod( config, "POD", line );
-
   tile_main_args_t tile_args = {
     .tile_idx = 0,
     .idx = 0,
-    .pod_gaddr = pod_gaddr,
     .sandbox = config->development.sandbox,
   };
 
   switch( args->run1.tile ) {
-    case 0: tile_args.tile = &pack; break;
-    case 1: tile_args.tile = &dedup; break;
-    case 2: tile_args.tile = &verify; break;
-    case 3: tile_args.tile = &quic; break;
+    case 0: tile_args.tile = &frank_pack; break;
+    case 1: tile_args.tile = &frank_dedup; break;
+    case 2: tile_args.tile = &frank_verify; break;
+    case 3: tile_args.tile = &frank_quic; break;
     case 4: break;
     default: FD_LOG_ERR(( "unknown tile %d", args->run1.tile ));
   }
