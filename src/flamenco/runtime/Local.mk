@@ -13,6 +13,7 @@ $(call add-objs,program/fd_system_program program/fd_nonce_program program/fd_vo
 
 $(call make-unit-test,test_runtime,test_runtime,fd_ballet fd_funk fd_util fd_flamenco)
 $(call make-unit-test,test_sysvar_epoch_schedule,sysvar/test_sysvar_epoch_schedule,fd_flamenco fd_funk fd_ballet fd_util)
+$(call make-unit-test,test_rent_lists,test_rent_lists,fd_flamenco fd_funk fd_ballet fd_util)
 
 else
 

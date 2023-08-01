@@ -39,7 +39,7 @@ fd_rent_lists_new( ulong slots_per_epoch ) {
   fd_rent_lists_t * lists = (fd_rent_lists_t *)malloc(sizeof(fd_rent_lists_t) + sizeof(fd_rent_list_t *)*(slots_per_epoch - 1UL));
   lists->startup = 1;
   lists->slots_per_epoch = slots_per_epoch;
-  lists->part_width = (ULONG_MAX - slots_per_epoch + 1UL) / slots_per_epoch + 1UL;
+  lists->part_width      = fd_rent_partition_width( slots_per_epoch );
   fd_rent_list_t ** end = lists->lists + slots_per_epoch;
   for ( fd_rent_list_t ** i = lists->lists; i != end; ++i )
     *i = NULL;
@@ -210,7 +210,7 @@ fd_rent_lists_key_to_bucket( fd_rent_lists_t * lists,
   fd_pubkey_t const * key = fd_type_pun_const( &rec->pair.key[0].uc );
   ulong prefixX_be = key->ul[0];
   ulong prefixX    = fd_ulong_bswap( prefixX_be );
-  return lists->lists + fd_ulong_min( prefixX/lists->part_width, lists->slots_per_epoch-1U );
+  return lists->lists + fd_rent_key_to_partition( prefixX, lists->part_width, lists->slots_per_epoch );
 }
 
 /* Hook into funky */
