@@ -331,16 +331,25 @@ deserialize_aligned( instruction_ctx_t ctx, uchar * input, FD_FN_UNUSED ulong in
 
       ulong acc_sz = sizeof(fd_account_meta_t) + post_data_len;
 
-      fd_funk_rec_t * acc_data_rec = NULL;
-      int modify_err = FD_ACC_MGR_SUCCESS;
-      void * raw_acc_data = fd_acc_mgr_modify_data(ctx.global->acc_mgr, ctx.global->funk_txn, acc, 0, &acc_sz, NULL, &acc_data_rec, &modify_err);
-      
-      if ( modify_err == FD_ACC_MGR_SUCCESS ) {
-        fd_account_meta_t * metadata = (fd_account_meta_t *)raw_acc_data;
+      fd_funk_rec_t const * acc_const_data_rec = NULL;
+      int view_err = FD_ACC_MGR_SUCCESS;
+      void const * raw_data = fd_acc_mgr_view_data(ctx.global->acc_mgr, ctx.global->funk_txn, acc, &acc_const_data_rec, &view_err);
+
+      if ( view_err == FD_ACC_MGR_SUCCESS ) {
+        fd_account_meta_t * metadata = (fd_account_meta_t *)raw_data;
         if ( fd_ulong_sat_sub( post_data_len, metadata->dlen ) > MAX_PERMITTED_DATA_INCREASE || post_data_len > MAX_PERMITTED_DATA_LENGTH ) {
           fd_valloc_free( ctx.global->valloc, input );
           return -1;
         }
+
+        fd_funk_rec_t * acc_data_rec = NULL;  
+        int modify_err = FD_ACC_MGR_SUCCESS;
+        void * raw_acc_data = fd_acc_mgr_modify_data(ctx.global->acc_mgr, ctx.global->funk_txn, acc, 0, &acc_sz, acc_const_data_rec, &acc_data_rec, &modify_err);
+        if ( modify_err != FD_ACC_MGR_SUCCESS ) {
+          fd_valloc_free( ctx.global->valloc, input );
+          return -1;
+        }
+        metadata = (fd_account_meta_t *)raw_acc_data;
         
         uchar * acc_data = fd_account_get_data( metadata );
         input_cursor += fd_ulong_align_up(metadata->dlen, 8);
@@ -352,7 +361,7 @@ deserialize_aligned( instruction_ctx_t ctx, uchar * input, FD_FN_UNUSED ulong in
         fd_memcpy( acc_data, post_data, post_data_len );
 
         fd_acc_mgr_commit_data(ctx.global->acc_mgr, acc_data_rec, acc, raw_acc_data, ctx.global->bank.slot, 0);
-      } else if ( modify_err == FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
+      } else if ( view_err == FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
         // no-op
       } else {
         fd_valloc_free( ctx.global->valloc, input );
