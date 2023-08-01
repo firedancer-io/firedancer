@@ -87,7 +87,7 @@ fd_fibre_start( void * mem, ulong stack_sz, fd_fibre_fn_t fn, void * arg ) {
 
   ulong l_mem = (ulong)mem;
 
-  void * stack = (void*)( l_mem + 
+  void * stack = (void*)( l_mem +
       fd_ulong_align_up( sizeof( fd_fibre_t ), FD_FIBRE_ALIGN  ) );
 
   fd_fibre_t * fibre = (fd_fibre_t*)mem;
@@ -396,7 +396,7 @@ fd_fibre_pipe_read( fd_fibre_pipe_t * pipe, ulong *value, long timeout ) {
   /* loop until we have a value to be read, or until we time out */
   while(1) {
     used = pipe->head - pipe->tail;
-    
+
     /* is data available? */
     if( used ) break;
 
@@ -448,4 +448,3 @@ fd_fibre_pipe_read( fd_fibre_pipe_t * pipe, ulong *value, long timeout ) {
   /* return success */
   return 0;
 }
-
