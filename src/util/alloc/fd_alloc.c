@@ -1,6 +1,6 @@
 #include "fd_alloc.h"
 #include "fd_alloc_cfg.h"
-
+#include "../sanitize/fd_asan.h"
 /* Note: this will still compile on platforms without FD_HAS_ATOMIC.  It
    should only be used single threaded in those use cases.  (The code
    does imitate at a very low level the operations required by
@@ -454,6 +454,11 @@ fd_alloc_footprint( void ) {
   return sizeof(fd_alloc_t);
 }
 
+ulong
+fd_alloc_superblock_footprint(void){
+  return sizeof(fd_alloc_superblock_t);
+}
+
 void *
 fd_alloc_new( void * shmem,
               ulong  tag ) {
@@ -497,7 +502,7 @@ fd_alloc_new( void * shmem,
 fd_alloc_t *
 fd_alloc_join( void * shalloc,
                ulong  cgroup_hint ) {
-  fd_alloc_t * alloc = (fd_alloc_t *)shalloc;
+  fd_alloc_t * alloc = shalloc;
 
   if( FD_UNLIKELY( !alloc ) ) {
     FD_LOG_WARNING(( "NULL shalloc" ));
@@ -513,7 +518,9 @@ fd_alloc_join( void * shalloc,
     FD_LOG_WARNING(( "bad magic" ));
     return NULL;
   }
-
+  #ifdef FD_WKSP_ASAN
+    fd_asan_poison(alloc, fd_alloc_footprint());
+  #endif
   return fd_alloc_join_cgroup_hint_set( alloc, cgroup_hint );
 }
 
@@ -524,7 +531,9 @@ fd_alloc_leave( fd_alloc_t * join ) {
     FD_LOG_WARNING(( "NULL join" ));
     return NULL;
   }
-
+  #ifdef FD_WKSP_ASAN
+   fd_asan_unpoison(join, fd_alloc_footprint());
+  #endif
   return fd_alloc_private_join_alloc( join );
 }
 
@@ -611,7 +620,7 @@ fd_alloc_malloc_at_least( fd_alloc_t * join,
      need to do elaborate overflow checking. */
 
   fd_alloc_t * alloc = fd_alloc_private_join_alloc( join );
-
+ 
   align = fd_ulong_if( !align, FD_ALLOC_MALLOC_ALIGN_DEFAULT, align );
 
   ulong footprint = sz + sizeof(fd_alloc_hdr_t) + align - 1UL;
@@ -620,7 +629,9 @@ fd_alloc_malloc_at_least( fd_alloc_t * join,
     *max = 0UL;
     return NULL;
   }
-
+  #ifdef FD_WKSP_ASAN
+   fd_asan_unpoison(alloc,footprint);
+  #endif
   fd_wksp_t * wksp = fd_alloc_private_wksp( alloc );
 
   /* At this point, alloc is non-NULL and backed by wksp, align is a
@@ -705,6 +716,9 @@ fd_alloc_malloc_at_least( fd_alloc_t * join,
         superblock_gaddr = fd_ulong_align_up( wksp_gaddr + sizeof(fd_alloc_hdr_t), FD_ALLOC_SUPERBLOCK_ALIGN );
         superblock       = (fd_alloc_superblock_t *)
           fd_alloc_hdr_store_large( fd_wksp_laddr_fast( wksp, superblock_gaddr ), 1 /* sb */ );
+        #ifdef FD_WKSP_ASAN
+          fd_asan_unpoison(superblock,superblock_footprint);
+        #endif
 
       } else {
 
@@ -828,6 +842,9 @@ fd_alloc_malloc_at_least( fd_alloc_t * join,
   ulong alloc_laddr     = fd_ulong_align_up( block_laddr + sizeof(fd_alloc_hdr_t), align );
 
   *max = block_footprint - (alloc_laddr - block_laddr);
+  #ifdef FD_WKSP_ASAN
+   fd_asan_poison(superblock,fd_alloc_superblock_footprint());
+  #endif
   return fd_alloc_hdr_store( (void *)alloc_laddr, superblock, block_idx, sizeclass );
 }
 
@@ -852,6 +869,9 @@ fd_alloc_free( fd_alloc_t * join,
   if( FD_UNLIKELY( sizeclass==FD_ALLOC_SIZECLASS_LARGE ) ) {
     fd_wksp_t * wksp = fd_alloc_private_wksp( alloc );
     fd_wksp_free( wksp, fd_wksp_gaddr_fast( wksp, laddr ) );
+    #ifdef FD_WKSP_ASAN
+     fd_asan_poison(alloc,fd_alloc_footprint());
+    #endif
     return;
   }
 
@@ -862,6 +882,10 @@ fd_alloc_free( fd_alloc_t * join,
   ulong                   block_idx   = fd_alloc_hdr_block_idx( hdr );
   fd_alloc_block_set_t    block       = fd_alloc_block_set_ele( block_idx );
   fd_alloc_block_set_t    free_blocks = fd_alloc_block_set_add( &superblock->free_blocks, block );
+  
+  #ifdef FD_WKSP_ASAN
+   fd_asan_unpoison(superblock,fd_alloc_superblock_footprint());
+  #endif
 
   /* At this point, free_blocks is the set of free blocks just before
      the free. */
@@ -937,6 +961,10 @@ fd_alloc_free( fd_alloc_t * join,
     if( FD_UNLIKELY( displaced_superblock_gaddr ) )
       fd_alloc_private_inactive_stack_push( alloc->inactive_stack + sizeclass, wksp, displaced_superblock_gaddr );
 
+    #ifdef FD_WKSP_ASAN
+      fd_asan_poison(alloc,fd_alloc_footprint());
+      fd_asan_poison(superblock,fd_alloc_superblock_footprint()); 
+    #endif
     return;
   }
 
@@ -998,6 +1026,10 @@ fd_alloc_free( fd_alloc_t * join,
        is wide enough to make that risk zero on any practical
        timescale.) */
 
+    #ifdef FD_WKSP_ASAN
+      fd_asan_poison(alloc,fd_alloc_footprint());
+      fd_asan_poison(superblock,fd_alloc_superblock_footprint());
+    #endif
     fd_wksp_t * wksp                     = fd_alloc_private_wksp( alloc );
     ulong       deletion_candidate_gaddr = fd_alloc_private_inactive_stack_pop( alloc->inactive_stack + sizeclass, wksp );
 
