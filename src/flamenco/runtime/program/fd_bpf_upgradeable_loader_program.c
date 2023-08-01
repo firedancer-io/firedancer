@@ -337,6 +337,11 @@ deserialize_aligned( instruction_ctx_t ctx, uchar * input, FD_FN_UNUSED ulong in
       
       if ( modify_err == FD_ACC_MGR_SUCCESS ) {
         fd_account_meta_t * metadata = (fd_account_meta_t *)raw_acc_data;
+        if ( fd_ulong_sat_sub( post_data_len, metadata->dlen ) > MAX_PERMITTED_DATA_INCREASE || post_data_len > MAX_PERMITTED_DATA_LENGTH ) {
+          fd_valloc_free( ctx.global->valloc, input );
+          return -1;
+        }
+        
         uchar * acc_data = fd_account_get_data( metadata );
         input_cursor += fd_ulong_align_up(metadata->dlen, 8);
 
@@ -350,6 +355,7 @@ deserialize_aligned( instruction_ctx_t ctx, uchar * input, FD_FN_UNUSED ulong in
       } else if ( modify_err == FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
         // no-op
       } else {
+        fd_valloc_free( ctx.global->valloc, input );
         return -1;
       }
 
@@ -476,7 +482,8 @@ int fd_executor_bpf_upgradeable_loader_program_execute_program_instruction( inst
 
   ulong trace_sz = 16 * 1024 * 1024;
   ulong trace_used = 0;
-  fd_vm_trace_entry_t * trace = (fd_vm_trace_entry_t *) fd_valloc_malloc( ctx.global->valloc, 1UL, trace_sz * sizeof(fd_vm_trace_entry_t));
+  // fd_vm_trace_entry_t * trace = (fd_vm_trace_entry_t *)fd_valloc_malloc( ctx.global->valloc, 1UL, trace_sz * sizeof(fd_vm_trace_entry_t));
+  fd_vm_trace_entry_t * trace = (fd_vm_trace_entry_t *)malloc( trace_sz * sizeof(fd_vm_trace_entry_t));
 
   memset(vm_ctx.register_file, 0, sizeof(vm_ctx.register_file));
   vm_ctx.register_file[1] = FD_VM_MEM_MAP_INPUT_REGION_START;
@@ -498,30 +505,31 @@ int fd_executor_bpf_upgradeable_loader_program_execute_program_instruction( inst
   // TODO: make tracing an option!
   // FILE * trace_fd = fopen("trace.log", "w");
 
-  // for( ulong i = 0; i < trace_used; i++ ) {
-  //   fd_vm_trace_entry_t trace_ent = trace[i];
-  //   fprintf(stderr, "%5lu [%016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX] %5lu: ",
-  //       trace_ent.ic,
-  //       trace_ent.register_file[0],
-  //       trace_ent.register_file[1],
-  //       trace_ent.register_file[2],
-  //       trace_ent.register_file[3],
-  //       trace_ent.register_file[4],
-  //       trace_ent.register_file[5],
-  //       trace_ent.register_file[6],
-  //       trace_ent.register_file[7],
-  //       trace_ent.register_file[8],
-  //       trace_ent.register_file[9],
-  //       trace_ent.register_file[10],
-  //       trace_ent.pc+29 // FIXME: THIS OFFSET IS FOR TESTING ONLY
-  //     );
-  //   fd_vm_disassemble_instr(&vm_ctx.instrs[trace[i].pc], trace[i].pc, vm_ctx.syscall_map, vm_ctx.local_call_map, stderr);
+  for( ulong i = 0; i < trace_used; i++ ) {
+    fd_vm_trace_entry_t trace_ent = trace[i];
+    fprintf(stderr, "%5lu [%016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX] %5lu: ",
+        trace_ent.ic,
+        trace_ent.register_file[0],
+        trace_ent.register_file[1],
+        trace_ent.register_file[2],
+        trace_ent.register_file[3],
+        trace_ent.register_file[4],
+        trace_ent.register_file[5],
+        trace_ent.register_file[6],
+        trace_ent.register_file[7],
+        trace_ent.register_file[8],
+        trace_ent.register_file[9],
+        trace_ent.register_file[10],
+        trace_ent.pc+29 // FIXME: THIS OFFSET IS FOR TESTING ONLY
+      );
+    fd_vm_disassemble_instr(&vm_ctx.instrs[trace[i].pc], trace[i].pc, vm_ctx.syscall_map, vm_ctx.local_call_map, stderr);
 
-  //   fprintf(stderr, "\n");
-  // }
+    fprintf(stderr, "\n");
+  }
 
   // fclose(trace_fd);
-  fd_valloc_free( ctx.global->valloc, trace);
+  free(trace);
+  // fd_valloc_free( ctx.global->valloc, trace);
 
   fd_valloc_free( ctx.global->valloc, fd_sbpf_program_delete( prog ) );
   fd_valloc_free( ctx.global->valloc, fd_sbpf_syscalls_delete( syscalls ) );
@@ -542,7 +550,9 @@ int fd_executor_bpf_upgradeable_loader_program_execute_program_instruction( inst
     return -1;
   }
 
-  deserialize_aligned(ctx, input, input_sz);
+  if( deserialize_aligned(ctx, input, input_sz) != 0 ) {
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+  }
 
   return 0;
 }
@@ -694,7 +704,6 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
     }
 
     // FIXME: Do checked addition
-    FD_LOG_WARNING(("EEEEE: %lu", buffer_acc_metadata.info.lamports ));
     payer_acc_metadata.info.lamports += buffer_acc_metadata.info.lamports;
     buffer_acc_metadata.info.lamports = 0;
 
@@ -733,8 +742,6 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
     meta->info.lamports = fd_rent_exempt_minimum_balance(ctx.global, meta->dlen);
     meta->info.rent_epoch = 0;
 
-    FD_LOG_WARNING(("FFFFF: %lu", buffer_acc_metadata.info.lamports ));
-
     payer_acc_metadata.info.lamports += buffer_acc_metadata.info.lamports;
     payer_acc_metadata.info.lamports -= meta->info.lamports;
     ulong buffer_data_len = fd_ulong_sat_sub(buffer_acc_metadata.dlen, BUFFER_METADATA_SIZE);
@@ -742,7 +749,6 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
     uchar * raw_acc_data = (uchar *)fd_acc_mgr_view_data(ctx.global->acc_mgr, ctx.global->funk_txn, buffer_acc, NULL, &read_result);
     fd_memcpy( acct_data+PROGRAMDATA_METADATA_SIZE, raw_acc_data+BUFFER_METADATA_SIZE+sizeof(fd_account_meta_t), buffer_data_len );
     // fd_memset( acct_data+PROGRAMDATA_METADATA_SIZE+buffer_data_len, 0, instruction.inner.deploy_with_max_data_len.max_data_len-buffer_data_len );
-    FD_LOG_WARNING(("QQQQQQ: %lu %lu %lu %lu %32J %32J", buffer_data_len, instruction.inner.deploy_with_max_data_len.max_data_len, fd_bpf_upgradeable_loader_state_size(&program_data_acc_loader_state), PROGRAMDATA_METADATA_SIZE, payer_acc, buffer_acc));
       // FD_LOG_WARNING(("AAA: %x", *(acct_data+meta->dlen-3)));
     fd_acc_mgr_commit_data(ctx.global->acc_mgr, program_data_rec, programdata_acc, program_data_raw, ctx.global->bank.slot, 0);
 
