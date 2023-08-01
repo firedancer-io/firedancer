@@ -3,19 +3,19 @@
 
 
 cmds=(\
-     "Cancel/None         : exit command-n-control  " \
-     "edit_tguide_cfg     : vi review/edit config   " \
-     "build_firedancer    : gen/updt executables    " \
-     "setup_wksp          : setup data stores       " \
-     "reset_wksp          : refresh data stores     " \
-     "report_wksp_stats   : shm/wskp stats          " \
-     "run_tguard_monitor  : tguard activities       " \
-     "run_tguard          : run tmon & tqos         " \
-     "halt_tmon           : halt turbine monitor    " \
-     "halt_tqos           : halt turbine qos daemon " \
-     "halt_main           : halt fd_tguard_run.bin  " \
-     "stress_test         : blast pcaps at tguide   " \
-     "view_test_rpt       : less test log abstract  " \
+     "Cancel/None         : exit command-n-control      " \
+     "edit_tguide_cfg     : vi review/edit config       " \
+     "build_firedancer    : gen/updt executables        " \
+     "setup_wksp          : setup data stores           " \
+     "reset_wksp          : refresh data stores         " \
+     "report_wksp_stats   : shm/wskp stats              " \
+     "run_tguard_monitor  : tguard activities           " \
+     "run_tguard          : run tmon & tqos             " \
+     "halt_tmon           : halt turbine monitor        " \
+     "halt_tqos           : halt turbine qos daemon     " \
+     "halt_main           : halt fd_tguard_run.bin      " \
+     "stress_test         : blast pcaps at tguide       " \
+     "view_log_excerpt    : less stats excerpt from log " \
 )
 
 
@@ -115,7 +115,7 @@ stress_test() {
     tcpreplay --preload-pcap ${replay_speed} --loop=${loop_cnt} --loopdelay-ms=0 -i ${ifname} ${pcapfile}
 }
 
-view_test_rpt() {
+view_log_excerpt() {
     ls -lrt  /tmp/fd*                      |\
     tail -n1                               |\
     rev                                    |\
