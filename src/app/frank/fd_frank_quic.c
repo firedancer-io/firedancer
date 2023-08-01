@@ -117,8 +117,12 @@ run( fd_frank_args_t * args ) {
   fd_quic_t * quic = fd_quic_join( fd_wksp_pod_map( quic_pod, "quic" ) );
   if( FD_UNLIKELY( !quic ) ) FD_LOG_ERR(( "fd_quic_join failed" ));
 
-  FD_LOG_INFO(( "loading firedancer.quic.%s.xsk_aio", quic_name ));
-  fd_xsk_aio_t * xsk_aio = fd_xsk_aio_join( fd_wksp_pod_map( quic_pod, "xsk_aio" ), args->xsk );
+  FD_LOG_INFO(( "loading stake" ));
+  fd_stake_t * stake = fd_stake_join( fd_wksp_pod_map( args->tile_pod, "stake" ) );
+  if( FD_UNLIKELY( !stake ) ) FD_LOG_ERR(( "fd_stake_join failed" ));
+
+  FD_LOG_INFO(( "loading xsk_aio" ));
+  fd_xsk_aio_t * xsk_aio = fd_xsk_aio_join( fd_wksp_pod_map( args->tile_pod, "xsk_aio" ), args->xsk );
   if( FD_UNLIKELY( !xsk_aio ) ) FD_LOG_ERR(( "fd_xsk_aio_join failed" ));
 
   /* Setup local objects used by this tile */

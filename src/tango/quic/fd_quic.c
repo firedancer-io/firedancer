@@ -4459,6 +4459,19 @@ fd_quic_conn_service( fd_quic_t * quic, fd_quic_conn_t * conn, ulong now ) {
             conn->state = FD_QUIC_CONN_STATE_ACTIVE;
 
             /* user callback */
+            if ( !fd_quic_get_state(quic)->conns ) {
+              /* attempt to gracefully close by sending an abort */
+              fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_NO_ERROR );
+              fd_quic_conn_tx( quic, conn );
+              /* FIXME this will forcefully close regardless of the above. The reason we need to do
+               * this is because the connection needs to be free before proceeding. */
+              conn->state = FD_QUIC_CONN_STATE_DEAD;
+              quic->metrics.conn_aborted_cnt++;
+              fd_quic_cb_conn_final( quic, conn ); /* inform user before freeing */
+              fd_quic_conn_free( quic, conn );
+              
+        fd_quic_conn_free( quic, conn );
+            }
             fd_quic_cb_conn_new( quic, conn );
           }
         }
