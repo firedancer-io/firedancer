@@ -133,13 +133,14 @@ static long allow_syscalls[] = {
   __NR_nanosleep, /* fd_tempo_tick_per_ns calibration */
   __NR_getpid,    /* OpenSSL RAND_bytes checks pid, temporarily used as part of quic_init to generate a certificate */
   __NR_getrandom, /* OpenSSL RAND_bytes reads getrandom, temporarily used as part of quic_init to generate a certificate */
+  __NR_sendto,    /* fd_xsk requires sendto */
 };
 
 fd_frank_task_t frank_quic = {
   .name     = "quic",
   .in_wksp  = NULL,
   .out_wksp = "quic_verify",
-  .close_fd_start = 4, /* stdin, stdout, stderr, logfile */
+  .close_fd_start = 5, /* stdin, stdout, stderr, logfile, xsk->xsk_fd */
   .allow_syscalls_sz = sizeof(allow_syscalls)/sizeof(allow_syscalls[ 0 ]),
   .allow_syscalls = allow_syscalls,
   .init = init,

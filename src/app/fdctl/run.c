@@ -331,6 +331,17 @@ main_pid_namespace( void * args ) {
     .gid = config->gid,
   };
 
+  if( FD_UNLIKELY( config->development.netns.enabled ) ) {
+    leave_network_namespace();
+  }
+
+  clone_solana_labs( &spawner, config );
+
+  if( FD_UNLIKELY( config->development.netns.enabled ) )  {
+    enter_network_namespace( config->tiles.quic.interface );
+    close_network_namespace_original_fd();
+  }
+
   clone_tile( &spawner, &frank_dedup, 0 );
   clone_tile( &spawner, &frank_pack , 0 );
   for( ulong i=0; i<config->layout.verify_tile_count; i++ ) clone_tile( &spawner, &frank_verify, i );
@@ -339,7 +350,6 @@ main_pid_namespace( void * args ) {
   if( FD_UNLIKELY( sched_setaffinity( 0, sizeof(cpu_set_t), floating_cpu_set ) ) )
     FD_LOG_ERR(( "sched_setaffinity (%i-%s)", errno, strerror( errno ) ));
 
-  clone_solana_labs( &spawner, config );
 
   long allow_syscalls[] = {
     __NR_write,      /* logging */
@@ -405,8 +415,6 @@ install_parent_signals( void ) {
 
 void
 run_firedancer( config_t * const config ) {
-  enter_network_namespace( config );
-
   void * stack = fd_tile_private_stack_new( 0, 65535UL );
   if( FD_UNLIKELY( !stack ) ) FD_LOG_ERR(( "unable to create a stack for boot process" ));
 
