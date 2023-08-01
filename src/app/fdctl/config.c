@@ -416,8 +416,12 @@ config_parse_file( const char * path,
   char section[ 4096 ];
   while( FD_LIKELY( fgets( line, 4096, fp ) ) ) {
     lineno++;
-    if( FD_UNLIKELY( strlen( line ) == 4095 ) ) FD_LOG_ERR(( "line too long in `%s`", path ));
-    config_parse_line( lineno, line, section, &in_array, key, out );
+    ulong len = strlen( line );
+    if( FD_UNLIKELY( len==4095UL ) ) FD_LOG_ERR(( "line %u too long in `%s`", lineno, path ));
+    if( FD_LIKELY( len ) ) {
+      line[ len-1UL ] = '\0'; /* chop off newline */
+      config_parse_line( lineno, line, section, &in_array, key, out );
+    }
   }
   if( FD_UNLIKELY( ferror( fp ) ) )
     FD_LOG_ERR(( "error reading `%s` (%i-%s)", path, errno, strerror( errno ) ));
@@ -522,7 +526,7 @@ config_parse( int *    pargc,
       pargc,
       pargv,
       "--config",
-      "FIREDANCER_CONFIG_FILE",
+      "FIREDANCER_CONFIG_TOML",
       NULL );
 
   if( FD_LIKELY( user_config ) ) {

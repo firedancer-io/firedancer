@@ -268,6 +268,9 @@ solana_labs_main( void * args ) {
   if( FD_UNLIKELY( setenv("RUST_LOG", "solana=info,solana_metrics::metrics=warn", 1) ) )
     FD_LOG_ERR(( "setenv() failed (%i-%s)", errno, strerror( errno ) ));
 
+  FD_LOG_INFO(( "Running Solana Labs Validator with the following arguments:" ));
+  for( ulong j=0UL; j<idx; j++ ) FD_LOG_INFO(( "%s", argv[j] ));
+
   /* solana labs main will exit(1) if it fails, so no return code */
   solana_validator_main( (const char **)argv );
   return 0;
