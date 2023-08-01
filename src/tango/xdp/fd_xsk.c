@@ -758,7 +758,7 @@ fd_xsk_tx_enqueue( fd_xsk_t *            xsk,
     if( fd_xsk_tx_need_wakeup( xsk ) ) {
       if( FD_UNLIKELY( -1==sendto( xsk->xsk_fd, NULL, 0, MSG_DONTWAIT, NULL, 0 ) ) ) {
         if( FD_UNLIKELY( errno!=EAGAIN ) ) {
-          FD_LOG_WARNING(( "xsk sendto failed (%d-%s)", errno, strerror( errno ) ));
+          FD_LOG_WARNING(( "xsk sendto failed xsk_fd=%d (%d-%s)", xsk->xsk_fd, errno, strerror( errno ) ));
         }
       }
     }

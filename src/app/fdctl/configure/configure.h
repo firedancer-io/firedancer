@@ -102,7 +102,11 @@ void try_defragment_memory( void );
 /* Enter the network namespace given in the configuration in this
    process. If this call succeeds the process is now inside the
    namespace. */
-void enter_network_namespace( config_t * const config );
+void enter_network_namespace( const char * interface );
+
+void leave_network_namespace( void );
+
+void close_network_namespace_original_fd( void );
 
 void
 expected_pages( config_t * const  config, uint out[2] );

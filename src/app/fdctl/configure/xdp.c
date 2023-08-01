@@ -27,7 +27,9 @@ FD_IMPORT_BINARY( fd_xdp_redirect_prog, "src/tango/xdp/fd_xdp_redirect_prog.o" )
 
 static void
 init( config_t * const config ) {
-  enter_network_namespace( config );
+  if( FD_UNLIKELY( config->development.netns.enabled ) )  {
+    enter_network_namespace( config->tiles.quic.interface );
+  }
 
   uint mode = 0;
   if(      FD_LIKELY( !strcmp( config->tiles.quic.xdp_mode, "skb" ) ) ) mode = XDP_FLAGS_SKB_MODE;

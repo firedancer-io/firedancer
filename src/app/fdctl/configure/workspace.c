@@ -186,7 +186,9 @@ static void
 init( config_t * const config ) {
   /* enter network namespace for bind. this is only needed for a check
      that the interface exists.. we can probably skip that */
-  enter_network_namespace( config );
+  if( FD_UNLIKELY( config->development.netns.enabled ) )  {
+    enter_network_namespace( config->tiles.quic.interface );
+  }
 
   /* switch to non-root uid/gid for workspace creation. permissions checks still done as root. */
   gid_t gid = getgid();
