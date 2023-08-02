@@ -207,7 +207,7 @@ fd_fibre_pipe_write( fd_fibre_pipe_t * pipe, ulong value, long timeout );
    pipe        the pipe to write to
    value       a pointer to the ulong to receive the value
    timeout     number of nanoseconds to wait for a value
-               
+
    returns     0 successfully read a value from the pipe
                1 timed out without receiving data */
 int
@@ -218,4 +218,3 @@ FD_PROTOTYPES_END
 
 
 #endif /* HEADER_fd_src_util_fibre_fd_fibre_h */
-
