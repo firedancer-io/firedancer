@@ -84,6 +84,7 @@ int
 tile_main( void * _args ) {
   tile_main_args_t * args = _args;
 
+  fd_log_private_tid_set( args->idx );
   fd_log_thread_set( args->tile->name );
 
   install_tile_signals();
@@ -357,7 +358,6 @@ main_pid_namespace( void * args ) {
 
   long allow_syscalls[] = {
     __NR_write,      /* logging */
-    __NR_futex,      /* logging, glibc fprintf unfortunately uses a futex internally */
     __NR_wait4,      /* wait for children */
     __NR_exit_group, /* exit process */
   };
@@ -386,10 +386,10 @@ main_pid_namespace( void * args ) {
   }
 
   if( FD_UNLIKELY( !WIFEXITED( wstatus ) ) ) {
-    fprintf( stderr, "tile %lu (%s) exited with signal %d (%s)\n", tile_idx, name, WTERMSIG( wstatus ), strsignal( WTERMSIG( wstatus ) ) );
+    fd_log_private_fprintf_0( STDERR_FILENO, "tile %lu (%s) exited with signal %d (%s)\n", tile_idx, name, WTERMSIG( wstatus ), strsignal( WTERMSIG( wstatus ) ) );
     exit_group( WTERMSIG( wstatus ) );
   }
-  fprintf( stderr, "tile %lu (%s) exited with code %d\n", tile_idx, name, WEXITSTATUS( wstatus ) );
+  fd_log_private_fprintf_0( STDERR_FILENO, "tile %lu (%s) exited with code %d\n", tile_idx, name, WEXITSTATUS( wstatus ) );
   exit_group( WEXITSTATUS( wstatus ) );
   return 0;
 }
@@ -401,7 +401,7 @@ static void
 parent_signal( int sig ) {
   (void)sig;
   if( pid_namespace ) kill( pid_namespace, SIGKILL );
-  fprintf( stderr, "Log at \"%s\"", fd_log_private_path );
+  fd_log_private_fprintf_0( STDERR_FILENO, "Log at \"%s\"", fd_log_private_path );
   exit_group( 0 );
 }
 
@@ -431,7 +431,6 @@ run_firedancer( config_t * const config ) {
 
   long allow_syscalls[] = {
     __NR_write,      /* logging */
-    __NR_futex,      /* logging, glibc fprintf unfortunately uses a futex internally */
     __NR_wait4,      /* wait for children */
     __NR_exit_group, /* exit process */
     __NR_kill,       /* kill the pid namespaced child process */
@@ -444,7 +443,7 @@ run_firedancer( config_t * const config ) {
 
   int wstatus;
   pid_t pid2 = wait4( pid_namespace, &wstatus, (int)__WCLONE, NULL );
-  fprintf( stderr, "Log at \"%s\"\n", fd_log_private_path );
+  fd_log_private_fprintf_0( STDERR_FILENO, "Log at \"%s\"\n", fd_log_private_path );
   if( FD_UNLIKELY( pid2 == -1 ) ) exit_group( 1 );
   if( FD_UNLIKELY( !WIFEXITED( wstatus ) ) ) exit_group( WTERMSIG( wstatus ) );
   exit_group( WEXITSTATUS( wstatus ) );

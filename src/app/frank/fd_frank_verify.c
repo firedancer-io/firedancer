@@ -184,7 +184,6 @@ run( fd_frank_args_t * args ) {
 
 static long allow_syscalls[] = {
   __NR_write,     /* logging */
-  __NR_futex,     /* logging, glibc fprintf unfortunately uses a futex internally */
   __NR_fsync,     /* logging, WARNING and above fsync immediately */
 };
 

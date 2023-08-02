@@ -393,7 +393,6 @@ monitor_cmd_fn( args_t *         args,
 
   long allow_syscalls[] = {
     __NR_write,       /* logging */
-    __NR_futex,       /* logging, glibc fprintf unfortunately uses a futex internally */
     __NR_nanosleep,   /* fd_log_wait_until */
     __NR_sched_yield, /* fd_log_wait_until */
     __NR_exit_group,  /* exit process */
