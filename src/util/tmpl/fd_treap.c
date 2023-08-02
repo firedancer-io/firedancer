@@ -262,12 +262,12 @@
      //
      //     ... process i (or e) here
      //
-     //     ... Do not insert / remove any elements from treap and do
-     //     ... not change the element's parent, left, right, prio or
-     //     ... queries here.  It is fine to run queries and other
-     //     ... iterations concurrently.  Other fields are free to
-     //     ... modify (from the treap's POV, the application manages
-     //     ... concurrency for other fields).
+     //     ... Do not remove the element the iterator is currently
+     //     ... pointing to, and do not change the element's parent,
+     //     ... left, right, prio or queries here.  It is fine to run
+     //     ... queries and other iterations concurrently.  Other fields
+     //     ... are free to modify (from the treap's POV, the
+     //     ... application manages concurrency for other fields).
      //  }
      //
      // pool is a pointer in the caller's address space to the ele_max

@@ -58,6 +58,122 @@ dump_treap( ulong         i,
 }
 #endif
 
+/* Returns the index to delete when you're at the index passed in the
+   first parameter, or -1 to not delete anything. */
+typedef int(delfn_t)(int);
+
+static void
+test_iteration( delfn_t del ) {
+  treap_t _treap[1];
+
+  /* Forward direction */
+  if( 1 ) {
+    treap_t * treap = treap_join( treap_new( _treap, 64UL ) );
+    ele_t * pool = pool_join( pool_new( scratch, 64UL ) );
+
+    for( ulong i=0UL; i<64UL; i++ ) {
+      ulong idx = pool_idx_acquire( pool );
+      pool[ idx ].val  = (schar)i;
+      pool[ idx ].prio_cidx = (uchar)(i^36UL);
+      treap_idx_insert( treap, idx, pool );
+    }
+
+    ulong seen = 0UL; /* bitflag */
+    int largest = -1;
+    treap_fwd_iter_t next;
+    for( treap_fwd_iter_t iter = treap_fwd_iter_init( treap, pool ); !treap_fwd_iter_done( iter ); iter = next ) {
+      next = treap_fwd_iter_next( iter, pool );
+      int next_idx = treap_fwd_iter_done( next ) ? -2 : (int)treap_fwd_iter_idx( next );
+
+      int i = treap_fwd_iter_ele( iter, pool )->val;
+
+      FD_TEST( !(seen & (1UL<<i)) );          seen |= (1UL<<i);
+      FD_TEST( i>largest          );          largest = i;
+
+      int delete_idx = del( i );
+      if( delete_idx != -1 ) {
+        treap_idx_remove( treap, (ulong)delete_idx, pool );
+        seen |= (1UL<<delete_idx);
+      }
+
+      if( delete_idx == next_idx ) next = treap_fwd_iter_next( iter, pool );
+    }
+    FD_TEST( seen == ~0UL );
+
+    treap_delete( treap_leave( treap ) );
+    pool_delete ( pool_leave ( pool  ) );
+  }
+
+  if( 1 ) {
+    treap_t * treap = treap_join( treap_new( _treap, 64UL ) );
+    ele_t * pool = pool_join( pool_new( scratch, 64UL ) );
+
+    for( ulong i=0UL; i<64UL; i++ ) {
+      ulong idx = pool_idx_acquire( pool );
+      pool[ idx ].val  = (schar)i;
+      pool[ idx ].prio_cidx = (uchar)(i^36UL);
+      treap_idx_insert( treap, idx, pool );
+    }
+
+    ulong seen = 0UL; /* bitflag */
+    int smallest = 64;
+    treap_rev_iter_t prev;
+    for( treap_rev_iter_t iter = treap_rev_iter_init( treap, pool ); !treap_rev_iter_done( iter ); iter = prev ) {
+      prev = treap_rev_iter_next( iter, pool );
+      int prev_idx = treap_rev_iter_done( prev ) ? -2 : (int)treap_rev_iter_idx( prev );
+
+      int i = treap_rev_iter_ele( iter, pool )->val;
+
+      FD_TEST( !(seen & (1UL<<i)) );          seen |= (1UL<<i);
+      FD_TEST( i<smallest         );          smallest = i;
+
+      int delete_idx = del( i );
+      if( delete_idx != -1 ) {
+        treap_idx_remove( treap, (ulong)delete_idx, pool );
+        seen |= (1UL<<delete_idx);
+      }
+
+      if( delete_idx == prev_idx ) prev = treap_rev_iter_next( iter, pool );
+    }
+    FD_TEST( seen == ~0UL );
+
+    treap_delete( treap_leave( treap ) );
+    pool_delete ( pool_leave ( pool  ) );
+  }
+}
+
+static int del_fn_self_0( int i ) { (void)i; return          -1; }
+static int del_fn_self_1( int i ) { return (( i&1)       )?i:-1; }
+static int del_fn_self_2( int i ) { return ((~i&1)       )?i:-1; }
+static int del_fn_self_3( int i ) { return (( i&1)&(i<32))?i:-1; }
+static int del_fn_self_4( int i ) { return ((~i&1)&(i<32))?i:-1; }
+static int del_fn_self_5( int i ) { return (( i&1)&(i>31))?i:-1; }
+static int del_fn_self_6( int i ) { return ((~i&1)&(i>31))?i:-1; }
+static int del_fn_self_7( int i ) { return                 i;    }
+
+static int del_fn_next  ( int i ) { return  i<63?i+1:-1; }
+static int del_fn_prev  ( int i ) { return  i> 0?i-1:-1; }
+static int del_fn_3     ( int i ) { return  (i*3)%64;    }
+static int del_fn_5     ( int i ) { return  (i*5)%64;    }
+
+static void
+test_iteration_all( void ) {
+  test_iteration( del_fn_self_0 );
+  test_iteration( del_fn_self_1 );
+  test_iteration( del_fn_self_2 );
+  test_iteration( del_fn_self_3 );
+  test_iteration( del_fn_self_4 );
+  test_iteration( del_fn_self_5 );
+  test_iteration( del_fn_self_6 );
+  test_iteration( del_fn_self_7 );
+
+  test_iteration( del_fn_next );
+  test_iteration( del_fn_prev );
+  test_iteration( del_fn_3    );
+  test_iteration( del_fn_5    );
+}
+
+
 int
 main( int     argc,
       char ** argv ) {
@@ -69,7 +185,7 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "Testing with --max %lu --seed %lu", ele_max, seed ));
 
-  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) ); 
+  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
   ulong align     = pool_align();
   ulong footprint = pool_footprint( ele_max );
@@ -259,6 +375,8 @@ main( int     argc,
   pool_delete( pool_leave( pool ) );
 
   fd_rng_delete( fd_rng_leave( rng ) );
+
+  test_iteration_all();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
