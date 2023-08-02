@@ -1,3 +1,4 @@
+// This is an auto-generated file. To add entries, edit fd_types.json
 #include "fd_types.h"
 #pragma GCC diagnostic ignored "-Wunused-parameter"
 #pragma GCC diagnostic ignored "-Wunused-variable"

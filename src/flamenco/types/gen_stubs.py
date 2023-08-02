@@ -11,7 +11,8 @@ body = open(sys.argv[2], "w")
 
 namespace = json_object["namespace"]
 entries = json_object["entries"]
-
+print("// This is an auto-generated file. To add entries, edit fd_types.json", file=header)
+print("// This is an auto-generated file. To add entries, edit fd_types.json", file=body)
 print("#ifndef HEADER_" + json_object["name"].upper(), file=header)
 print("#define HEADER_" + json_object["name"].upper(), file=header)
 print("", file=header)

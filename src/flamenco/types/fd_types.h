@@ -1,3 +1,4 @@
+// This is an auto-generated file. To add entries, edit fd_types.json
 #ifndef HEADER_FD_RUNTIME_TYPES
 #define HEADER_FD_RUNTIME_TYPES
 
