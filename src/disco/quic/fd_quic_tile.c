@@ -263,7 +263,8 @@ fd_quic_tile( fd_cnc_t *         cnc,
               uchar *            dcache,
               long               lazy,
               fd_rng_t *         rng,
-              void *             scratch ) {
+              void *             scratch,
+              double             tick_per_ns ) {
 
   /* cnc state */
   ulong * cnc_diag;
@@ -404,7 +405,7 @@ fd_quic_tile( fd_cnc_t *         cnc,
     if( lazy<=0L ) lazy = fd_tempo_lazy_default( depth );
     FD_LOG_INFO(( "Configuring housekeeping (lazy %li ns)", lazy ));
 
-    async_min = fd_tempo_async_min( lazy, 1UL /*event_cnt*/, (float)fd_tempo_tick_per_ns( NULL ) );
+    async_min = fd_tempo_async_min( lazy, 1UL /*event_cnt*/, (float)tick_per_ns );
     if( FD_UNLIKELY( !async_min ) ) { FD_LOG_WARNING(( "bad lazy" )); return 1; }
 
   } while(0);

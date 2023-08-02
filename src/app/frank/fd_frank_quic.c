@@ -122,7 +122,7 @@ run( fd_frank_args_t * args ) {
   /* Start serving */
 
   FD_LOG_INFO(( "%s(%lu) run", args->tile_name, args->tile_idx ));
-  int err = fd_quic_tile( cnc, quic, xsk_aio, mcache, dcache, lazy, rng, scratch );
+  int err = fd_quic_tile( cnc, quic, xsk_aio, mcache, dcache, lazy, rng, scratch, args->tick_per_ns );
   if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_quic_tile failed (%i)", err ));
 }
 
@@ -130,7 +130,6 @@ static long allow_syscalls[] = {
   __NR_write,     /* logging */
   __NR_futex,     /* logging, glibc fprintf unfortunately uses a futex internally */
   __NR_fsync,     /* logging, WARNING and above fsync immediately */
-  __NR_nanosleep, /* fd_tempo_tick_per_ns calibration */
   __NR_getpid,    /* OpenSSL RAND_bytes checks pid, temporarily used as part of quic_init to generate a certificate */
   __NR_getrandom, /* OpenSSL RAND_bytes reads getrandom, temporarily used as part of quic_init to generate a certificate */
   __NR_sendto,    /* fd_xsk requires sendto */

@@ -59,6 +59,7 @@ typedef struct {
   char  child_names[ FD_TILE_MAX + 1 ][ 32 ];
   uid_t uid;
   gid_t gid;
+  double tick_per_ns;
 } tile_spawner_t;
 
 const uchar *
@@ -93,6 +94,7 @@ tile_main( void * _args ) {
     .tile_name = args->tile->name,
     .in_pod = NULL,
     .out_pod = NULL,
+    .tick_per_ns = args->tick_per_ns,
   };
 
   frank_args.tile_pod = workspace_pod_join( args->app_name, args->tile->name, args->tile_idx );
@@ -150,6 +152,7 @@ clone_tile( tile_spawner_t * spawn, fd_frank_task_t * task, ulong idx ) {
     .sandbox = spawn->sandbox,
     .uid = spawn->uid,
     .gid = spawn->gid,
+    .tick_per_ns = spawn->tick_per_ns,
   };
 
   /* also spawn tiles into pid namespaces so they cannot signal each other or the parent */
@@ -314,7 +317,7 @@ main_pid_namespace( void * args ) {
   if( FD_UNLIKELY( affinity_tile_cnt>tile_cnt ) ) FD_LOG_WARNING(( "only %lu tiles required for this config", tile_cnt ));
 
   /* eat calibration cost at deterministic place */
-  fd_tempo_tick_per_ns( NULL );
+  double tick_per_ns = fd_tempo_tick_per_ns( NULL );
 
   /* Save the current affinity, it will be restored after creating any child tiles */
   cpu_set_t floating_cpu_set[1];
@@ -329,6 +332,7 @@ main_pid_namespace( void * args ) {
     .sandbox = config->development.sandbox,
     .uid = config->uid,
     .gid = config->gid,
+    .tick_per_ns = tick_per_ns,
   };
 
   if( FD_UNLIKELY( config->development.netns.enabled ) ) {

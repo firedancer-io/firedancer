@@ -87,7 +87,7 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "Run" ));
 
-  int err = fd_dedup_tile( cnc, in_cnt, in_mcache, in_fseq, tcache, mcache, out_cnt, out_fseq, cr_max, lazy, rng, scratch );
+  int err = fd_dedup_tile( cnc, in_cnt, in_mcache, in_fseq, tcache, mcache, out_cnt, out_fseq, cr_max, lazy, rng, scratch, fd_tempo_tick_per_ns( NULL ) );
   if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_dedup_tile failed (%i)", err ));
 
   FD_LOG_NOTICE(( "Fini" ));

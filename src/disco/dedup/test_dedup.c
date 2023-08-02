@@ -290,7 +290,7 @@ dedup_tile_main( int     argc,
   fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, cfg->dedup_seed, 0UL ) );
 
   int err = fd_dedup_tile( cnc, cfg->tx_cnt, tx_mcache, tx_fseq, dedup_tcache, dedup_mcache, cfg->rx_cnt, rx_fseq,
-                           cfg->dedup_cr_max, cfg->dedup_lazy, rng, cfg->dedup_scratch_mem );
+                           cfg->dedup_cr_max, cfg->dedup_lazy, rng, cfg->dedup_scratch_mem, fd_tempo_tick_per_ns( NULL ) );
   if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_dedup_tile failed (%i)", err ));
 
   fd_rng_delete( fd_rng_leave( rng ) );
