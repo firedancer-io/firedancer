@@ -19,11 +19,9 @@
         Serial Number:
             ee:c3:85:8c:ec:a9:7b:45
         Signature Algorithm: ED25519
-        Issuer: CN=Solana node
         Validity
             Not Before: Jan  1 00:00:00 1975 GMT
             Not After : Jan  1 00:00:00 4096 GMT
-        Subject: CN=Solana node
         Subject Public Key Info:
             Public Key Algorithm: ED25519
                 ED25519 Public-Key:
@@ -33,7 +31,7 @@
                     da:7e
         X509v3 extensions:
             X509v3 Subject Alternative Name:
-                IP Address:127.0.0.1
+                DNS:localhost
     Signature Algorithm: ED25519
          ee:28:ca:94:37:db:c6:b8:cf:9e:32:ef:c4:ca:f0:5d:5b:2e:
          94:e0:49:6f:4d:da:06:26:d9:87:9b:bd:d5:64:7b:6f:de:ca:
@@ -41,9 +39,7 @@
          42:3d:14:4f:95:c8:e9:6f:3d:0d */
 
 X509 *
-fd_x509_gen_solana_cert( EVP_PKEY * pkey,
-                         uint       ip_address ) {
-
+fd_x509_gen_solana_cert( EVP_PKEY * pkey ) {
   X509 * x = X509_new();
   if( FD_UNLIKELY( !x ) ) {
     FD_LOG_WARNING(( "X509_new() failed" ));
@@ -69,14 +65,8 @@ fd_x509_gen_solana_cert( EVP_PKEY * pkey,
   long not_after  = 67090118400L;  /* Jan  1 00:00:00 4096 GMT */
   X509_time_adj( X509_getm_notAfter ( x ), 0, &not_after  );
 
-  /* Set dummy common name */
-  X509_NAME * name = X509_get_subject_name( x );
-  X509_NAME_add_entry_by_txt( name, "CN", MBSTRING_ASC, (uchar const *)"Solana node", -1, -1, 0 );
-
-  /* Set current IP as SAN */
-  char ip_san_cstr[ 20 ];
-  fd_cstr_printf( ip_san_cstr, 20UL, NULL, "IP: " FD_IP4_ADDR_FMT, FD_IP4_ADDR_FMT_ARGS( ip_address ) );
-  X509_EXTENSION * san = X509V3_EXT_conf_nid( NULL, NULL, NID_subject_alt_name, ip_san_cstr );
+  /* Set SAN to localhost */
+  X509_EXTENSION * san = X509V3_EXT_conf_nid( NULL, NULL, NID_subject_alt_name, "DNS: localhost" );
   if( FD_UNLIKELY( !san ) ) {
     FD_LOG_WARNING(( "X509V3_EXT_conf_nid(NID_subject_alt_name) failed" ));
     goto cleanup1;
@@ -106,4 +96,3 @@ cleanup1:
 cleanup0:
   return NULL;
 }
-

@@ -1,13 +1,9 @@
 #ifndef HEADER_fd_src_app_frank_fd_frank_h
 #define HEADER_fd_src_app_frank_fd_frank_h
 
-/* FD_HAS_FRANK indicates whether or not the build target supports the
-   fd_frank application. */
-
-#define FD_HAS_FRANK FD_HAS_HOSTED && FD_HAS_ALLOCA && FD_HAS_X86
-
 #include "../../disco/fd_disco.h"
 #include "../../ballet/fd_ballet.h" /* FIXME: CONSIDER HAVING THIS IN DISCO_BASE */
+#include "../../tango/xdp/fd_xsk.h"
 
 /* FD_FRANK_CNC_DIAG_* are FD_CNC_DIAG_* style diagnostics and thus the
    same considerations apply.  Further they are harmonized with the
@@ -28,46 +24,31 @@
 #define FD_FRANK_CNC_DIAG_SV_FILT_CNT (4UL)                 /* ", ideally never */
 #define FD_FRANK_CNC_DIAG_SV_FILT_SZ  (5UL)                 /* " */
 
-/* FD_FRANK_CONFIGURATION_PREFIX is a fixed prefix that we should
-   prepend when looking up our configuration. */
-extern char const * FD_FRANK_CONFIGURATION_PREFIX;
+typedef struct {
+   char *        app_name;
+   char *        tile_name;
+   ulong         tile_idx;
+   ulong         idx;
+   uchar const * tile_pod;
+   uchar const * in_pod;
+   uchar const * out_pod;
+   fd_xsk_t    * xsk;
+} fd_frank_args_t;
 
-FD_PROTOTYPES_BEGIN
+typedef struct {
+   char * name;
+   char * in_wksp;
+   char * out_wksp;
+   uint   close_fd_start;
+   ushort allow_syscalls_sz;
+   long * allow_syscalls;
+   void (*init)( fd_frank_args_t * args );
+   void (*run )( fd_frank_args_t * args );
+} fd_frank_task_t;
 
-/* fd_frank_{verify,dedup,pack}_task is a fd_tile_task_t compatible
-   function whose task is to run a {verify,dedup,pack} tile.  argc is
-   ignored, argv[0] points to a cstr with the tile name (for a verify,
-   this is also used to find the specific verify configuration in the
-   frank instance's configuration), argv[1] points to a cstr with the
-   gaddr of the pod containing the frank instance's configuration and
-   argv[2] points to a cstr with the path to the frank instance's
-   configuration.  The lifetime of these cstr should be longer than the
-   tile execution.  The argv array used to pass these cstr will not be
-   used after the tile has successfully booted.  Aborts the thread group
-   on error.  Returns 0 on success and non-zero on failure (logs
-   details, given abortive behavior, only reason for a failure return is
-   build target is without FD_HAS_FRANK). */
-
-int
-fd_frank_verify_task( int     argc,
-                      char ** argv );
-
-int
-fd_frank_dedup_task( int     argc,
-                     char ** argv );
-
-int
-fd_frank_pack_task( int     argc,
-                    char ** argv );
-
-void
-fd_frank_quic_task_preload( char const * pod_gaddr );
-
-int
-fd_frank_quic_task( int     argc,
-                    char ** argv );
-
-FD_PROTOTYPES_END
+extern fd_frank_task_t frank_verify;
+extern fd_frank_task_t frank_dedup;
+extern fd_frank_task_t frank_quic;
+extern fd_frank_task_t frank_pack;
 
 #endif /* HEADER_fd_src_app_frank_fd_frank_h */
-

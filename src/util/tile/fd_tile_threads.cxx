@@ -94,10 +94,7 @@ fd_tile_private_cpu_restore( fd_tile_private_cpu_config_t * save ) {
     FD_LOG_WARNING(( "fd_tile: setpriority failed (%i-%s); attempting to continue", errno, strerror( errno ) ));
 }
 
-/* TODO: Allow this to be run-time configured (e.g. match ulimit -s)? */
-#define FD_TILE_PRIVATE_STACK_SZ (8UL<<20) /* Should be a multiple of HUGE (and NORMAL) page sizes */
-
-static void *
+void *
 fd_tile_private_stack_new( int   optimize,
                            ulong cpu_idx ) { /* Ignored if optimize is not requested */
 
@@ -442,7 +439,7 @@ fd_tile_exec_done( fd_tile_exec_t const * exec ) {
 
 FD_STATIC_ASSERT( CPU_SETSIZE<65535, update_tile_to_cpu_type );
 
-static ulong
+ulong
 fd_tile_private_cpus_parse( char const * cstr,
                             ushort *     tile_to_cpu ) {
   if( !cstr ) return 0UL;
@@ -572,6 +569,11 @@ fd_tile_private_boot( int *    pargc,
     if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_tile: pthread_attr_init failed (%i-%s) for tile %lu.\n\t",
                                           err, strerror( err ), tile_idx ));
 
+    /* Set affinity ahead of time.  This is a GNU-specific extension
+       that is not available on musl.  On musl, we just skip this
+       step as we call sched_setaffinity(2) later on regardless. */
+
+#   if __GLIBC__
     if( fixed ) {
       cpu_set_t cpu_set[1];
       CPU_ZERO( cpu_set );
@@ -586,6 +588,7 @@ fd_tile_private_boot( int *    pargc,
                                                 "to eliminate this warning.",
                                                 err, strerror( err ), tile_idx, cpu_idx ));
     }
+#   endif /* __GLIBC__ */
 
     /* Create an optimized stack with guard regions if the build target
        is x86 (e.g. supports huge pages necessary to optimize TLB usage)

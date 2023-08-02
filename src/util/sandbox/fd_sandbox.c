@@ -31,11 +31,6 @@
 
 #define X32_SYSCALL_BIT 0x40000000
 
-#define ALLOW_SYSCALL(name)                                \
-  /* If the syscall does not match, jump over RET_ALLOW */ \
-  BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_##name, 0, 1),  \
-  BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW)
-
 #if defined(__i386__)
 # define ARCH_NR  AUDIT_ARCH_I386
 #elif defined(__x86_64__)
@@ -78,7 +73,7 @@ setup_mountns( void ) {
 #define CLOSE_RANGE_UNSHARE (1U << 1)
 
 static void
-close_fds_proc( void ) {
+close_fds_proc( uint close_from ) {
   DIR * dir = opendir( "/proc/self/fd" );
   FD_TESTV( NULL != dir );
   int dirfd1 = dirfd( dir );
@@ -93,7 +88,7 @@ close_fds_proc( void ) {
       continue;
     }
 
-    if ( fd >= 3 && fd != dirfd1 ) {
+    if ( fd >= close_from && fd != dirfd1 ) {
       FD_TESTV( 0 == close( (int)fd ) );
     }
   }
@@ -109,61 +104,51 @@ close_fds_proc( void ) {
 #endif
 
 static void
-close_fds( void ) {
-  if( syscall( SYS_close_range, 3, UINT_MAX, CLOSE_RANGE_UNSHARE ) ) {
+close_fds( uint close_from ) {
+  if( syscall( SYS_close_range, close_from, UINT_MAX, CLOSE_RANGE_UNSHARE ) ) {
     // No SYS_close_range, close one by one
     FD_TESTV( errno == ENOSYS );
-    close_fds_proc();
+    close_fds_proc( close_from );
   }
+
+  /* always close stdin and stdout */
+  if( close_from > 0 ) FD_TESTV( 0 == close( 0 ) );
+  if( close_from > 1 ) FD_TESTV( 0 == close( 1 ) );
 }
 
 static void
-install_seccomp( void ) {
-  struct sock_filter filter [] = {
-    // [0] Validate architecture
-    // Load the arch number
+install_seccomp( ushort allow_syscalls_sz, long * allow_syscalls ) {
+  FD_TEST( allow_syscalls_sz < 32 - 5 );
+
+  struct sock_filter filter [ 128 ] = {
+    /* validate architecture, load the arch number */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, ( offsetof( struct seccomp_data, arch ) ) ),
-    // Do not jump (and die) if the compile arch is neq the runtime arch.
-    // Otherwise, jump over the SECCOMP_RET_KILL_PROCESS statement.
+
+    /* do not jump (and die) if the compile arch is neq the runtime arch.
+       Otherwise, jump over the SECCOMP_RET_KILL_PROCESS statement. */
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ARCH_NR, 1, 0 ),
     BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_ALLOW ),
 
-    // [1] Verify that the syscall is allowed
-    // Load the syscall
+    /* verify that the syscall is allowed, oad the syscall */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, ( offsetof( struct seccomp_data, nr ) ) ),
-
-    // Attempt to sort syscalls by call frequency.
-    ALLOW_SYSCALL( writev       ),
-    ALLOW_SYSCALL( write        ),
-    ALLOW_SYSCALL( fsync        ),
-    ALLOW_SYSCALL( gettimeofday ),
-    ALLOW_SYSCALL( futex        ),
-    // sched_yield is useful for both floating threads and hyperthreaded pairs.
-    ALLOW_SYSCALL( sched_yield  ),
-    // The rules under this line are expected to be used in fewer occasions.
-    // exit is needed to let tiles exit gracefully.
-    ALLOW_SYSCALL( exit         ),
-    // exit_group is needed to let any tile crash the whole group.
-    ALLOW_SYSCALL( exit_group   ),
-    // munmap is needed for a clean exit.
-    ALLOW_SYSCALL( munmap       ),
-    // nanosleep is needed for a clean exit.
-    ALLOW_SYSCALL( nanosleep    ),
-    ALLOW_SYSCALL( rt_sigaction ),
-    ALLOW_SYSCALL( rt_sigreturn ),
-    ALLOW_SYSCALL( sync         ),
-    // close is needed for a clean exit and for closing logs.
-    ALLOW_SYSCALL( close        ),
-    ALLOW_SYSCALL( sendto       ),
-
-    // [2] None of the syscalls approved were matched: die
-    BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS),
   };
+
+  for( ulong i=0; i<allow_syscalls_sz; i++ ) {
+    /* If the syscall does not match, jump over RET_ALLOW */
+    struct sock_filter jmp = BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, (uint)allow_syscalls[i], 0, 1);
+    struct sock_filter ret = BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW);
+    filter[ 4+(i*2)   ] = jmp;
+    filter[ 4+(i*2)+1 ] = ret;
+  }
+
+  /* none of the syscalls approved were matched: die */
+  struct sock_filter kill = BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS);
+  filter[ 4+(allow_syscalls_sz*2) ] = kill;
 
   FD_TESTV( 0 == prctl( PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0 ) );
 
   struct sock_fprog default_prog = {
-    .len = ARRAY_SIZE( filter ),
+    .len = (ushort)(5+(allow_syscalls_sz*2)),
     .filter = filter,
   };
   FD_TESTV( 0 == syscall( SYS_seccomp, SECCOMP_SET_MODE_FILTER, 0, &default_prog ) );
@@ -185,19 +170,6 @@ drop_capabilities( void ) {
   FD_TESTV( 0 == prctl( PR_CAP_AMBIENT, PR_CAP_AMBIENT_CLEAR_ALL, 0, 0, 0 ) );
 }
 
-static uint overflow_id(const char * path) {
-  int fd = open( path, O_RDONLY );
-  FD_TESTV( fd >= 0 );
-  char buf[16];
-  ssize_t len = read( fd, buf, sizeof(buf) );
-  FD_TESTV( len > 0 );
-  close( fd );
-  buf[len] = '\0';
-  int result = atoi( buf );
-  FD_TESTV( result >= 0 );
-  return (uint)result;
-}
-
 static void userns_map( uint id, const char * map ) {
   char path[64];
   FD_TESTV( sprintf( path, "/proc/self/%s", map ) > 0);
@@ -216,23 +188,15 @@ static void deny_setgroups( void ) {
   FD_TESTV( 0 == close( fd ) );
 }
 
-static void unshare_user( int *    pargc,
-                          char *** pargv ) {
-  uint overflow_uid = overflow_id( "/proc/sys/kernel/overflowuid" );
-  uint overflow_gid = overflow_id( "/proc/sys/kernel/overflowgid" );
-  uint uid = fd_env_strip_cmdline_uint( pargc, pargv, "--uid", "FD_UID", overflow_uid );
-  uint gid = fd_env_strip_cmdline_uint( pargc, pargv, "--gid", "FD_GID", overflow_gid );
-
-  FD_TESTV( uid != 0 && gid != 0 );
-
+static void unshare_user( uint uid, uint gid ) {
   FD_TESTV( 0 == setresgid( gid, gid, gid ) );
   FD_TESTV( 0 == setresuid( uid, uid, uid ) );
   FD_TESTV( 0 == prctl( PR_SET_DUMPABLE, 1, 0, 0, 0 ) );
 
   FD_TESTV( 0 == unshare( CLONE_NEWUSER | CLONE_NEWNS | CLONE_NEWNET ) );
   deny_setgroups();
-  userns_map( getuid(), "uid_map" );
-  userns_map( getgid(), "gid_map" );
+  userns_map( uid, "uid_map" );
+  userns_map( gid, "gid_map" );
 
   FD_TESTV( 0 == prctl( PR_SET_DUMPABLE, 0, 0, 0, 0 ) );
   for ( int cap = 0; cap <= CAP_LAST_CAP; cap++ ) {
@@ -241,36 +205,35 @@ static void unshare_user( int *    pargc,
 }
 
 void
-fd_sandbox_private_privileged( int *    pargc,
-                               char *** pargv ) {
-  (void) pargc;
-  for( char ** argv = *pargv; *argv; argv++ ) {
-    if( !strcmp( *argv, "--no-sandbox" ) ) {
-      return;
-    }
-  }
-
-  unshare_user( pargc, pargv );
+fd_sandbox_private_unthreaded( uint uid, uint gid ) {
+  unshare_user( uid, gid );
   setup_mountns();
   drop_capabilities();
   secure_clear_environment();
 }
 
 void
-fd_sandbox_private( int *    pargc,
-                    char *** pargv ) {
-  if( fd_env_strip_cmdline_contains( pargc, pargv, "--no-sandbox" ) ) {
-    return;
-  }
-
-  fd_sandbox_private_no_seccomp();
-  install_seccomp();
+fd_sandbox_private_threaded( uint close_fd_start,
+                             ushort allow_syscalls_sz,
+                             long * allow_syscalls ) {
+  fd_sandbox_private_no_seccomp( close_fd_start );
+  install_seccomp( allow_syscalls_sz, allow_syscalls );
 }
 
 void
-fd_sandbox_private_no_seccomp( void ) {
+fd_sandbox( uint uid,
+            uint gid,
+            uint close_fd_start,
+            ushort allow_syscalls_sz,
+            long * allow_syscalls ) {
+  fd_sandbox_private_unthreaded( uid, gid );
+  fd_sandbox_private_threaded( close_fd_start, allow_syscalls_sz, allow_syscalls );
+}
+
+void
+fd_sandbox_private_no_seccomp( uint close_fd_start ) {
   struct rlimit limit = { .rlim_cur = 0, .rlim_max = 0 };
   FD_TESTV( 0 == setrlimit( RLIMIT_NOFILE, &limit ));
 
-  close_fds();
+  close_fds( close_fd_start );
 }

@@ -13,6 +13,9 @@
 #include "../../xdp/fd_xsk_aio.h"
 #include "../../xdp/fd_xdp_redirect_user.h"
 
+#include "../../../ballet/ed25519/fd_ed25519_openssl.h"
+#include "../../../ballet/x509/fd_x509.h"
+
 int server_complete = 0;
 
 /* server connection received in callback */
@@ -77,6 +80,16 @@ main( int argc, char ** argv ) {
   quic_config->net.ip_addr         = udpsock->listen_ip;
   quic_config->net.listen_udp_port = udpsock->listen_port;
   fd_quic_set_aio_net_tx( quic, udpsock->aio );
+  uchar pkey[32]        = {
+      137, 115, 254, 55, 116, 55, 118, 19,  151, 66,  229, 24, 188, 62,  99,  209,
+      162, 16,  6,   7,  24,  81, 152, 128, 139, 234, 170, 93, 88,  204, 245, 205,
+  };
+  uchar pubkey[32]      = { 44, 174, 25,  39, 43, 255, 200, 81, 55, 73, 10,  113, 174, 91, 223, 80,
+                            50, 51,  102, 25, 63, 110, 36,  28, 51, 11, 174, 179, 110, 8,  25,  152 };
+  FD_LOG_HEXDUMP_NOTICE(( "Solana private key", pkey, 32 ));  /* TODO use base-58 format specifier */
+  FD_LOG_HEXDUMP_NOTICE(( "Solana public key", pubkey, 32 ));  /* TODO use base-58 format specifier */
+  quic->cert_key_object = fd_ed25519_pkey_from_private( pkey );
+  quic->cert_object     = fd_x509_gen_solana_cert( quic->cert_key_object );
 
   if( FD_UNLIKELY( argc>1 ) ) FD_LOG_ERR(( "unrecognized argument: %s", argv[ 1 ] ));
 

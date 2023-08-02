@@ -25,7 +25,13 @@
 #include <sched.h>
 #include <time.h>
 #include <syscall.h>
+
+#if __has_include( <execinfo.h> )
+#define FD_HAS_BACKTRACE 1
 #include <execinfo.h>
+#else
+#define FD_HAS_BACKTRACE 0
+#endif /* __has_include( <execinfo.h> ) */
 
 /* TEXT_* are quick-and-dirty color terminal hacks.  Probably should
    do something more robust longer term. */
@@ -461,7 +467,7 @@ fd_log_wait_until( long then ) {
 
 /* LOG APIS ***********************************************************/
 
-static char   fd_log_private_path[ 1024 ]; /* empty string on start */
+char          fd_log_private_path[ 1024 ]; /* empty string on start */
 static FILE * fd_log_private_file;         /* NULL on start */
 static int    fd_log_private_dedup;        /* 0 on start */
 
@@ -763,7 +769,11 @@ fd_log_private_2( int          level,
                   char const * msg ) {
   fd_log_private_1( level, now, file, line, func, msg );
 
+# if FD_LOG_UNCLEAN_EXIT
+  if( level<fd_log_level_core() ) syscall(SYS_exit_group, 1);
+# else
   if( level<fd_log_level_core() ) exit(1); /* atexit will call fd_log_private_cleanup implicitly */
+# endif
 
   abort();
 }
@@ -905,6 +915,7 @@ fd_log_private_cleanup( void ) {
   } FD_ONCE_END;
 }
 
+#ifndef FD_LOG_UNCLEAN_EXIT
 static void
 fd_log_private_sig_abort( int         sig,
                           siginfo_t * info,
@@ -917,6 +928,8 @@ fd_log_private_sig_abort( int         sig,
 
   /* Hopefully all out streams are idle now and we have flushed out
      all non-logging activity ... log a backtrace */
+
+# if FD_HAS_BACKTRACE
 
   void * btrace[128];
   int btrace_cnt = backtrace( btrace, 128 );
@@ -940,6 +953,23 @@ fd_log_private_sig_abort( int         sig,
   backtrace_symbols_fd( btrace, btrace_cnt, fd );
   fsync( fd );
 
+# else /* !FD_HAS_BACKTRACE */
+  
+  FILE * log_file = FD_VOLATILE_CONST( fd_log_private_file );
+  if( log_file ) {
+    fprintf( log_file, "Caught signal %i.\n", sig );
+#   if FD_LOG_FFLUSH_LOG_FILE
+    fflush( log_file );
+#   endif
+  }
+
+  fprintf( stderr, "\nCaught signal %i.\n", sig );
+# if FD_LOG_FFLUSH_STDERR
+  fflush( stderr );
+# endif
+
+# endif /* FD_HAS_BACKTRACE */
+
   /* Do final log cleanup */
 
   fd_log_private_cleanup();
@@ -959,6 +989,7 @@ fd_log_private_sig_trap( int sig ) {
   act->sa_flags = (int)(SA_SIGINFO | SA_RESETHAND);
   if( sigaction( sig, act, NULL ) ) FD_LOG_ERR(( "unable to override signal %i", sig ));
 }
+#endif
 
 void
 fd_log_private_boot( int  *   pargc,
@@ -1053,6 +1084,7 @@ fd_log_private_boot( int  *   pargc,
   int log_backtrace = fd_env_strip_cmdline_int( pargc, pargv, "--log-backtrace", "FD_LOG_BACKTRACE", 1 );
   if( log_backtrace ) {
 
+#   if FD_HAS_BACKTRACE
     /* If libgcc isn't already linked into the program when a trapped
        signal is received by an application, calls to backtrace and
        backtrace_symbols_fd within the signal handler can silently
@@ -1072,10 +1104,12 @@ fd_log_private_boot( int  *   pargc,
       if( FD_UNLIKELY( close( fd ) ) )
         fprintf( stderr, "close( \"/dev/null\" ) failed (%i-%s); attempting to continue\n", errno, strerror( errno ) );
     }
+#   endif /* FD_HAS_BACKTRACE */
 
     /* This is all overridable POSIX sigs whose default behavior is to
        abort the program.  It will backtrace and then fallback to the
        default behavior. */
+#ifndef FD_LOG_UNCLEAN_EXIT
     fd_log_private_sig_trap( SIGABRT   );
     fd_log_private_sig_trap( SIGALRM   );
     fd_log_private_sig_trap( SIGFPE    );
@@ -1096,6 +1130,7 @@ fd_log_private_boot( int  *   pargc,
     fd_log_private_sig_trap( SIGVTALRM );
     fd_log_private_sig_trap( SIGXCPU   );
     fd_log_private_sig_trap( SIGXFSZ   );
+#endif
   }
 
   /* Hook up the permanent log */

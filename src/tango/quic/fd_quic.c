@@ -9,7 +9,6 @@
 #include "tls/fd_quic_tls.h"
 
 #include <errno.h>
-#include <execinfo.h>
 #include <string.h>
 #include <fcntl.h>   /* for keylog open(2)  */
 #include <unistd.h>  /* for keylog close(2) */
@@ -339,7 +338,7 @@ fd_quic_init( fd_quic_t * quic ) {
     FD_TEST( cert_pkey );
 
     /* Generate X509 certificate */
-    X509 * cert = fd_x509_gen_solana_cert( cert_pkey, config->net.ip_addr );
+    X509 * cert = fd_x509_gen_solana_cert( cert_pkey );
     FD_TEST( cert );
 
     quic->cert_key_object = cert_pkey;
