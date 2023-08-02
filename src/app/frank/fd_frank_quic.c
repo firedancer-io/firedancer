@@ -128,7 +128,6 @@ run( fd_frank_args_t * args ) {
 
 static long allow_syscalls[] = {
   __NR_write,     /* logging */
-  __NR_futex,     /* logging, glibc fprintf unfortunately uses a futex internally */
   __NR_fsync,     /* logging, WARNING and above fsync immediately */
   __NR_nanosleep, /* fd_tempo_tick_per_ns calibration */
   __NR_getpid,    /* OpenSSL RAND_bytes checks pid, temporarily used as part of quic_init to generate a certificate */

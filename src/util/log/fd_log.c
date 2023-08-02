@@ -25,6 +25,7 @@
 #include <sched.h>
 #include <time.h>
 #include <syscall.h>
+#include <sys/mman.h>
 
 #if __has_include( <execinfo.h> )
 #define FD_HAS_BACKTRACE 1
@@ -45,41 +46,6 @@
 #define TEXT_GREEN     "\033[32m"
 #define TEXT_YELLOW    "\033[93m"
 #define TEXT_RED       "\033[31m"
-
-/* If FD_LOG_FLUSH_{STDOUT,STDERR,LOG_FILE} are non-zero, fd_log_boot
-   will not change the buffering modes for stdout (typically line
-   buffered), stderr (typically unbuffered) and log_file (typically
-   fully buffered but potentially line buffered if the application
-   requested to stdout for the permanent log).  While faster in normal
-   operation, at abnormal program termination, the most critical
-   messages (e.g. diagnostic I/O immediately preceeding a crash) to the
-   operator at a terminal / permanent archive / etc might be lost due to
-   buffering.
-
-   Ideally this would be handled by flushing and closing the streams as
-   appropriate in a signal handler run at abnormal program termination.
-   But functions like fflush and fclose are technically AS-unsafe.
-
-   By defining any of these to zero, fd_log will configure the
-   corresponding stream to be unbuffered.  While slower in normal
-   operation (and maybe slightly more surprising but more predictable
-   from a user POV), this should eliminate the need to flush and close
-   streams at abnormal program termination.  This in turn then improves
-   signal handler async safety.  (See lengthy note in the
-   fd_log_private_sig_abort below for more details and hat tip to Robert
-   Chen for pointing out the setbuf API.) */
-
-#ifndef FD_LOG_FFLUSH_STDOUT
-#define FD_LOG_FFLUSH_STDOUT 0
-#endif
-
-#ifndef FD_LOG_FFLUSH_STDERR
-#define FD_LOG_FFLUSH_STDERR 0
-#endif
-
-#ifndef FD_LOG_FFLUSH_LOG_FILE
-#define FD_LOG_FFLUSH_LOG_FILE 0
-#endif
 
 /* APPLICATION LOGICAL ID APIS ****************************************/
 
@@ -468,21 +434,15 @@ fd_log_wait_until( long then ) {
 /* LOG APIS ***********************************************************/
 
 char          fd_log_private_path[ 1024 ]; /* empty string on start */
-static FILE * fd_log_private_file;         /* NULL on start */
+static int    fd_log_private_fileno;
 static int    fd_log_private_dedup;        /* 0 on start */
 
 void
 fd_log_flush( void ) {
-  FILE * log_file = FD_VOLATILE_CONST( fd_log_private_file );
-  if( log_file ) {
-#   if FD_LOG_FFLUSH_LOG_FILE
-    fflush( log_file );
-#   endif
-    fsync( fileno( log_file ) );
+  int log_fileno = FD_VOLATILE_CONST( fd_log_private_fileno );
+  if( log_fileno ) {
+    fsync( log_fileno );
   }
-# if FD_LOG_FFLUSH_STDERR
-  fflush( stderr );
-# endif
 }
 
 static int fd_log_private_colorize;      /* 0 outside boot/halt, init at boot */
@@ -510,6 +470,7 @@ void fd_log_level_core_set   ( int level ) { FD_VOLATILE( fd_log_private_level_c
 /* Log buffer, used by fd_log_private_0 and fd_log_private_hexdump_msg */
 
 static FD_TLS char fd_log_private_log_msg[ FD_LOG_BUF_SZ ];
+static FD_TLS char fd_log_private_log_msg0[ FD_LOG_BUF_SZ ];
 
 char const *
 fd_log_private_0( char const * fmt, ... ) {
@@ -521,6 +482,36 @@ fd_log_private_0( char const * fmt, ... ) {
   fd_log_private_log_msg[ len ] = '\0';
   va_end( ap );
   return fd_log_private_log_msg;
+}
+
+/* Lock to sequence writes between different threads */
+
+static int * fd_log_private_shared_lock = NULL;
+
+void
+fd_log_private_fprintf_0( int fd, char const * fmt, ... ) {
+  va_list ap;
+  va_start( ap, fmt );
+  int len = vsnprintf( fd_log_private_log_msg0, FD_LOG_BUF_SZ, fmt, ap );
+  if( len<0    ) len = 0;    /* cmov */
+  if( len>(int)FD_LOG_BUF_SZ-1 ) len = FD_LOG_BUF_SZ-1; /* cmov */
+  fd_log_private_log_msg0[ len ] = '\0';
+  va_end( ap );
+
+  while(( FD_LIKELY( FD_ATOMIC_CAS( fd_log_private_shared_lock, 0, 1 ) ) )) ;
+
+  FD_COMPILER_MFENCE();
+
+  ulong written = 0;
+  for(;;) {
+    long cnt = write( fd, fd_log_private_log_msg0 + written, (ulong)len - written );
+    if( FD_LIKELY( cnt == len || cnt < 0 ) ) break;
+    written += (ulong)cnt;
+  }
+
+  FD_COMPILER_MFENCE();
+
+  *fd_log_private_shared_lock = 0;
 }
 
 char const * 
@@ -630,8 +621,8 @@ fd_log_private_1( int          level,
   char const * cpu    = fd_log_cpu();
   ulong        tid    = fd_log_tid();
 
-  FILE * log_file   = FD_VOLATILE_CONST( fd_log_private_file );
-  int    to_logfile = (!!log_file);
+  int    log_fileno = FD_VOLATILE_CONST( fd_log_private_fileno );
+  int    to_logfile = !!log_fileno;
   int    to_stderr  = (level>=fd_log_level_stderr());
   if( !(to_logfile | to_stderr) ) return;
 
@@ -670,15 +661,15 @@ fd_log_private_1( int          level,
         char then_cstr[ FD_LOG_WALLCLOCK_CSTR_BUF_SZ ];
         fd_log_wallclock_cstr( then, then_cstr );
 
-        if( to_logfile ) fprintf( log_file, "SNIP    %s %6lu:%-6lu %s:%s:%-4s %s:%s:%-4s "
-                                  "stopped repeating (%lu identical messages)\n",
-                                  then_cstr, fd_log_group_id(),tid, fd_log_user(),fd_log_host(),cpu,
-                                  fd_log_app(),fd_log_group(),thread, dedup_cnt+1UL );
+        if( to_logfile ) fd_log_private_fprintf_0( log_fileno, "SNIP    %s %6lu:%-6lu %s:%s:%-4s %s:%s:%-4s "
+                                                   "stopped repeating (%lu identical messages)\n",
+                                                   then_cstr, fd_log_group_id(),tid, fd_log_user(),fd_log_host(),cpu,
+                                                   fd_log_app(),fd_log_group(),thread, dedup_cnt+1UL );
 
         if( to_stderr ) {
           char * then_short_cstr = then_cstr+5; then_short_cstr[21] = '\0'; /* Lop off the year, ns resolution and timezone */
-          fprintf( stderr, "SNIP    %s %-6lu %-4s %-4s stopped repeating (%lu identical messages)\n",
-                           then_short_cstr, tid,cpu,thread, dedup_cnt+1UL );
+          fd_log_private_fprintf_0( STDERR_FILENO, "SNIP    %s %-6lu %-4s %-4s stopped repeating (%lu identical messages)\n",
+                                    then_short_cstr, tid,cpu,thread, dedup_cnt+1UL );
         }
 
         in_dedup = 0;
@@ -702,13 +693,13 @@ fd_log_private_1( int          level,
       if( (now-dedup_last) >= dedup_throttle ) {
         char now_cstr[ FD_LOG_WALLCLOCK_CSTR_BUF_SZ ];
         fd_log_wallclock_cstr( now, now_cstr );
-        if( to_logfile ) fprintf( log_file, "SNIP    %s %6lu:%-6lu %s:%s:%-4s %s:%s:%-4s repeating (%lu identical messages)\n",
-                                  now_cstr, fd_log_group_id(),tid, fd_log_user(),fd_log_host(),cpu,
-                                  fd_log_app(),fd_log_group(),thread, dedup_cnt+1UL );
+        if( to_logfile ) fd_log_private_fprintf_0( log_fileno, "SNIP    %s %6lu:%-6lu %s:%s:%-4s %s:%s:%-4s repeating (%lu identical messages)\n",
+                                                   now_cstr, fd_log_group_id(),tid, fd_log_user(),fd_log_host(),cpu,
+                                                   fd_log_app(),fd_log_group(),thread, dedup_cnt+1UL );
         if( to_stderr ) {
           char * now_short_cstr = now_cstr+5; now_short_cstr[21] = '\0'; /* Lop off the year, ns resolution and timezone */
-          fprintf( stderr, "SNIP    %s %-6lu %-4s %-4s repeating (%lu identical messages)\n",
-                   now_short_cstr, tid,cpu,thread, dedup_cnt+1UL );
+          fd_log_private_fprintf_0( STDERR_FILENO, "SNIP    %s %-6lu %-4s %-4s repeating (%lu identical messages)\n",
+                                    now_short_cstr, tid,cpu,thread, dedup_cnt+1UL );
         }
         dedup_last = now;
       }
@@ -735,9 +726,9 @@ fd_log_private_1( int          level,
     /* 7 */ "EMERG  "
   };
 
-  if( to_logfile ) fprintf( log_file, "%s %s %6lu:%-6lu %s:%s:%-4s %s:%s:%-4s %s(%i)[%s]: %s\n",
-                            level_cstr[level], now_cstr, fd_log_group_id(),tid, fd_log_user(),fd_log_host(),cpu,
-                            fd_log_app(),fd_log_group(),thread, file,line,func, msg );
+  if( to_logfile ) fd_log_private_fprintf_0( log_fileno, "%s %s %6lu:%-6lu %s:%s:%-4s %s:%s:%-4s %s(%i)[%s]: %s\n",
+                                             level_cstr[level], now_cstr, fd_log_group_id(),tid, fd_log_user(),fd_log_host(),cpu,
+                                             fd_log_app(),fd_log_group(),thread, file,line,func, msg );
 
   if( to_stderr ) {
     static char const * color_level_cstr[] = {
@@ -751,8 +742,8 @@ fd_log_private_1( int          level,
       /* 7 */ TEXT_RED TEXT_BOLD TEXT_UNDERLINE TEXT_BLINK "EMERG  " TEXT_NORMAL
     };
     char * now_short_cstr = now_cstr+5; now_short_cstr[21] = '\0'; /* Lop off the year, ns resolution and timezone */
-    fprintf( stderr, "%s %s %-6lu %-4s %-4s %s(%i): %s\n", fd_log_private_colorize ? color_level_cstr[level] : level_cstr[level],
-             now_short_cstr, tid,cpu,thread, file, line, msg );
+    fd_log_private_fprintf_0( STDERR_FILENO, "%s %s %-6lu %-4s %-4s %s(%i): %s\n", fd_log_private_colorize ? color_level_cstr[level] : level_cstr[level],
+                              now_short_cstr, tid,cpu,thread, file, line, msg );
   }
 
   if( level<fd_log_level_flush() ) return;
@@ -802,9 +793,9 @@ fd_log_private_cleanup( void ) {
      has completed cleanup. */
 
   FD_ONCE_BEGIN {
-    FILE * log_file = FD_VOLATILE_CONST( fd_log_private_file );
-    if(      !log_file                           ) fprintf( stderr, "No log\n" );
-    else if( !strcmp( fd_log_private_path, "-" ) ) fprintf( stderr, "Log to stdout\n" );
+    int log_fileno = FD_VOLATILE_CONST( fd_log_private_fileno );
+    if(      !log_fileno                             ) fd_log_private_fprintf_0( STDERR_FILENO, "No log\n" );
+    else if( !strcmp( fd_log_private_path, "-" ) ) fd_log_private_fprintf_0( STDERR_FILENO, "Log to stdout\n" );
     else {
 #     if FD_HAS_THREADS
       if( fd_log_private_thread_id_ctr>1UL ) { /* There are potentially other log users running */
@@ -821,97 +812,18 @@ fd_log_private_cleanup( void ) {
            RISK. */
         usleep( (useconds_t)40000 ); /* Give potentially concurrent users a chance to get their dying messages out */
         FD_COMPILER_MFENCE();
-        FD_VOLATILE( fd_log_private_file ) = NULL; /* Turn off the permanent log for concurrent users */
+        FD_VOLATILE( fd_log_private_fileno ) = 0; /* Turn off the permanent log for concurrent users */
         FD_COMPILER_MFENCE();
         usleep( (useconds_t)40000 ); /* Give any concurrent log operations progress at turn off a chance to wrap */
       }
 #     else
-      FD_VOLATILE( fd_log_private_file ) = NULL;
+      FD_VOLATILE( fd_log_private_fileno ) = 0;
 #     endif
 
-      /* IMPORTANT!  fclose is AS-unsafe (and so is fflush for that
-         matter).  For example, fclose implementations will frequently
-         have a per-file handle lock to support thread safe usage.  For
-         such an implementation, if a signal handler is invoked on a
-         thread that is in the middle of a log_file operation, the
-         fclose here will deadlock.  (If another thread is the middle of
-         a file operation, this is fine as the fclose here will proceed
-         once the other thread releases the lock and, if multiple
-         threads hit this signal handler concurrently, the ONCE block
-         above will prevent this code path from being executed more than
-         once as described above.)
-
-         At the same time, normal kill and Ctrl-C are common operational
-         patterns that invoke signal handling and signal handling is
-         also often invoked on abnormal program termination (e.g. seg
-         fault).  In these circumstances, it is critical for both
-         debugging and archival reasons to make a best effort to get any
-         final log messages committed to permanent storage.  Another
-         common operational process termination pattern is to attempt a
-         normal kill of the process and, if the process has gone off the
-         rails and does not shutdown in a timely fashion, do a more
-         brutal "kill -9".
-
-         Lacking non-blocking variants of fclose / fflush (maybe a UNIX
-         guru can show the one true way here), we are presented with a
-         dilemma.  We can cleanup the open log_file here or we can
-         terminate without closing it.
-
-         Closing the log_file here means that we usually have better
-         debugging diagnostics at program termination and keep people
-         like regulators happy because there is less risk of loss in the
-         archival record of what happened at the time they are most
-         likely to be interested (e.g. when things are behaving
-         abnormally).  But this creates potential deadlock risk (which
-         typically will be cleaned up via the operational patterns
-         described above).  This deadlock risk can make automated tools
-         like thread sanitizers unhappy.
-
-         Not closing has the converse tradoff: sanitizers will be happy
-         but debugging will be harder and regulators might be irritated.
-
-         Big picture, when this code path is encountered by a signal
-         handler, this is in the "the plane is going down and we are
-         trying our best to get all diagnostics into the black box
-         flight data recorder for crash investigators to prevent this in
-         the future" code path.  Thus, we know already not executing
-         normally and all bets are off regardless.  Likewise, the fact
-         that there doesn't seem to be a robust way to clean up open
-         file handles in a signal handler is more sign that standards
-         around UNIX signal handling and stdio file I/O are critically
-         botched in real world situations.
-
-         TL;DR The current choice is to make debugging easier and
-         regulators happy.  Free feel to comment out the fclose here to
-         make sanitizers happy though.
-
-         (Hat tip to runtimeverification for useful discussions here.)
-
-         As an alternative, if FD_LOG_FFLUSH_{STDOUT,STDERR,LOG_FILE}
-         are set to zero, the log will turn off I/O buffering for
-         {stdout,stderr,log_file}.  This implies that there is no need
-         to use fflush on the stream and that we shouldn't lose anything
-         if the file stream isn't closed on abnormal program termination
-         (we still do a fsync on the underlying file handle to be on the
-         safe side).
-
-         FIXME: consider instead avoiding stdio file handles entirely
-         and using POSIX file I/O directly along with dprintf and hand
-         rolled buffering as an alternative implementation. */
-
-#     if FD_LOG_FFLUSH_LOG_FILE
-      fflush( log_file );
-#     endif
-      fsync( fileno( log_file ) );
-#     if FD_LOG_FFLUSH_LOG_FILE
-      fclose( log_file );
-#     endif
+      fsync( log_fileno );
       sync();
-      fprintf( stderr, "Log at \"%s\"\n", fd_log_private_path );
+      fd_log_private_fprintf_0( STDERR_FILENO, "Log at \"%s\"\n", fd_log_private_path );
     }
-#   if FD_LOG_FFLUSH_STDERR
-    fflush( stderr );
-#   endif
   } FD_ONCE_END;
 }
 
@@ -922,10 +834,6 @@ fd_log_private_sig_abort( int         sig,
                           void *      context ) {
   (void)info; (void)context;
 
-# if FD_LOG_FFLUSH_STDOUT
-  fflush( stdout );
-# endif
-
   /* Hopefully all out streams are idle now and we have flushed out
      all non-logging activity ... log a backtrace */
 
@@ -934,39 +842,23 @@ fd_log_private_sig_abort( int         sig,
   void * btrace[128];
   int btrace_cnt = backtrace( btrace, 128 );
 
-  FILE * log_file = FD_VOLATILE_CONST( fd_log_private_file );
-  if( log_file ) {
-    fprintf( log_file, "Caught signal %i, backtrace:\n", sig );
-#   if FD_LOG_FFLUSH_LOG_FILE
-    fflush( log_file );
-#   endif
-    int fd = fileno( log_file );
-    backtrace_symbols_fd( btrace, btrace_cnt, fd );
-    fsync( fd );
+  int log_fileno = FD_VOLATILE_CONST( fd_log_private_fileno );
+  if( log_fileno ) {
+    fd_log_private_fprintf_0( log_fileno, "Caught signal %i, backtrace:\n", sig );
+    backtrace_symbols_fd( btrace, btrace_cnt, log_fileno );
+    fsync( log_fileno );
   }
 
-  fprintf( stderr, "\nCaught signal %i, backtrace:\n", sig );
-# if FD_LOG_FFLUSH_STDERR
-  fflush( stderr );
-# endif
-  int fd = fileno( stderr );
-  backtrace_symbols_fd( btrace, btrace_cnt, fd );
-  fsync( fd );
+  fd_log_private_fprintf_0( STDERR_FILENO, "\nCaught signal %i, backtrace:\n", sig );
+  backtrace_symbols_fd( btrace, btrace_cnt, STDERR_FILENO );
+  fsync( STDERR_FILENO );
 
 # else /* !FD_HAS_BACKTRACE */
   
-  FILE * log_file = FD_VOLATILE_CONST( fd_log_private_file );
-  if( log_file ) {
-    fprintf( log_file, "Caught signal %i.\n", sig );
-#   if FD_LOG_FFLUSH_LOG_FILE
-    fflush( log_file );
-#   endif
-  }
+  int log_fileno = FD_VOLATILE_CONST( fd_log_private_fileno );
+  if( log_fileno ) fd_log_private_fprintf_0( log_fileno, "Caught signal %i.\n", sig );
 
-  fprintf( stderr, "\nCaught signal %i.\n", sig );
-# if FD_LOG_FFLUSH_STDERR
-  fflush( stderr );
-# endif
+  fd_log_private_fprintf_0( STDERR_FILENO, "\nCaught signal %i.\n", sig );
 
 # endif /* FD_HAS_BACKTRACE */
 
@@ -997,6 +889,15 @@ fd_log_private_boot( int  *   pargc,
 //FD_LOG_INFO(( "fd_log: booting" )); /* Log not online yet */
 
   char buf[ FD_LOG_NAME_MAX ];
+
+  fd_log_private_shared_lock = (int*)mmap( NULL, sizeof(int), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, (off_t)0 );
+
+  if( FD_UNLIKELY( !fd_log_private_shared_lock ) ) {
+    int lock = 0;
+    fd_log_private_shared_lock = &lock;
+    fd_log_private_fprintf_0( STDERR_FILENO, "open( \"/dev/null\", O_WRONLY | O_APPEND ) failed (%i-%s); attempting to continue\n", errno, strerror( errno ) );
+    exit(1);
+  }
 
   /* Init our our application logical ids */
   /* FIXME: CONSIDER EXPLICIT SPECIFICATION OF RANGE OF THREADS
@@ -1098,11 +999,11 @@ fd_log_private_boot( int  *   pargc,
     int btrace_cnt = backtrace( btrace, 128 );
     int fd = open( "/dev/null", O_WRONLY | O_APPEND );
     if( FD_UNLIKELY( fd==-1 ) )
-      fprintf( stderr, "open( \"/dev/null\", O_WRONLY | O_APPEND ) failed (%i-%s); attempting to continue\n", errno, strerror( errno ) );
+      fd_log_private_fprintf_0( STDERR_FILENO, "open( \"/dev/null\", O_WRONLY | O_APPEND ) failed (%i-%s); attempting to continue\n", errno, strerror( errno ) );
     else {
       backtrace_symbols_fd( btrace, btrace_cnt, fd );
       if( FD_UNLIKELY( close( fd ) ) )
-        fprintf( stderr, "close( \"/dev/null\" ) failed (%i-%s); attempting to continue\n", errno, strerror( errno ) );
+        fd_log_private_fprintf_0( STDERR_FILENO, "close( \"/dev/null\" ) failed (%i-%s); attempting to continue\n", errno, strerror( errno ) );
     }
 #   endif /* FD_HAS_BACKTRACE */
 
@@ -1145,55 +1046,33 @@ fd_log_private_boot( int  *   pargc,
     ulong len; fd_cstr_printf( fd_log_private_path, 1024UL, &len, "/tmp/fd-%i.%i.%i_%lu_%s_%s_%s",
                                FD_VERSION_MAJOR, FD_VERSION_MINOR, FD_VERSION_PATCH,
                                fd_log_group_id(), fd_log_user(), fd_log_host(), tag );
-    if( len==1023UL ) { fprintf( stderr, "default log path too long; unable to boot\n" ); exit(1); }
+    if( len==1023UL ) { fd_log_private_fprintf_0( STDERR_FILENO, "default log path too long; unable to boot\n" ); exit(1); }
   }
   else if( log_path_sz==1UL    ) fd_log_private_path[0] = '\0'; /* User disabled */
   else if( log_path_sz<=1024UL ) fd_memcpy( fd_log_private_path, log_path, log_path_sz ); /* User specified */
-  else                           { fprintf( stderr, "--log-path too long; unable to boot\n" ); exit(1); } /* Invalid */
+  else                          { fd_log_private_fprintf_0( STDERR_FILENO, "--log-path too long; unable to boot\n" ); exit(1); } /* Invalid */
 
-  FILE * log_file;
+  int log_fileno;
   if( fd_log_private_path[0]=='\0' ) {
-    fprintf( stderr, "--log-path \"\"\nNo log\n" );
-    log_file = NULL;
+    fd_log_private_fprintf_0( STDERR_FILENO, "--log-path \"\"\nNo log\n" );
+    log_fileno = 0;
   } else if( !strcmp( fd_log_private_path, "-" ) ) {
-    fprintf( stderr, "--log-path \"-\"\nLog to stdout\n" );
-    log_file = stdout;
+    fd_log_private_fprintf_0( STDERR_FILENO, "--log-path \"-\"\nLog to stdout\n" );
+    log_fileno = STDOUT_FILENO;
   } else {
-    if( !log_path_sz ) fprintf( stderr, "--log-path not specified; using autogenerated path\n" );
-    log_file = fopen( fd_log_private_path, "a" );
-    if( !log_file ) {
-      fprintf( stderr, "fopen failed (--log-path \"%s\"); unable to boot\n", fd_log_private_path );
+    if( !log_path_sz ) fd_log_private_fprintf_0( STDERR_FILENO, "--log-path not specified; using autogenerated path\n" );
+    log_fileno = open( fd_log_private_path, O_WRONLY | O_CREAT | O_APPEND, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH );
+    if( log_fileno == -1 ) {
+      fd_log_private_fprintf_0( STDERR_FILENO, "fopen failed (--log-path \"%s\"); unable to boot\n", fd_log_private_path );
       exit(1);
     }
-    fprintf( stderr, "Log at \"%s\"\n", fd_log_private_path );
+    fd_log_private_fprintf_0( STDERR_FILENO, "Log at \"%s\"\n", fd_log_private_path );
   }
-  FD_VOLATILE( fd_log_private_file ) = log_file;
+  FD_VOLATILE( fd_log_private_fileno ) = log_fileno;
 
-  /* Adjust buffering status of stdout, stderr and/or log file as appropriate */
-
-# if !FD_LOG_FFLUSH_STDOUT
-  if( setvbuf( stdout, NULL, _IONBF, 0UL ) ) {
-    fprintf( stderr, "setvbuf( stdout, NULL, _IONBF, 0UL ) failed; unable to boot\n" );
-    exit(1);
-  }
-# endif
-# if !FD_LOG_FFLUSH_STDERR
-  if( setvbuf( stderr, NULL, _IONBF, 0UL ) ) {
-    fprintf( stderr, "setvbuf( stderr, NULL, _IONBF, 0UL ) failed; unable to boot\n" );
-    exit(1);
-  }
-# endif
-# if !FD_LOG_FFLUSH_LOG_FILE
-  if( log_file && log_file!=stdout && setvbuf( log_file, NULL, _IONBF, 0UL ) ) {
-    fprintf( stderr, "setvbuf( log_file, NULL, _IONBF, 0UL ) failed; unable to boot\n" );
-    exit(1);
-  }
-# endif
-
-  if( atexit( fd_log_private_cleanup ) ) { fprintf( stderr, "atexit failed; unable to boot\n" ); exit(1); }
+  if( atexit( fd_log_private_cleanup ) ) { fd_log_private_fprintf_0( STDERR_FILENO, "atexit failed; unable to boot\n" ); exit(1); }
 
   /* At this point, logging online */
-
   FD_LOG_INFO(( "fd_log: --log-path          %s",  fd_log_private_path    ));
   FD_LOG_INFO(( "fd_log: --log-dedup         %i",  fd_log_private_dedup   ));
   FD_LOG_INFO(( "fd_log: --log-colorize      %i",  fd_log_colorize()      ));
@@ -1222,15 +1101,7 @@ void
 fd_log_private_halt( void ) {
   FD_LOG_INFO(( "fd_log: halting" ));
 
-# if !FD_LOG_FFLUSH_LOG_FILE
-  FILE * log_file = FD_VOLATILE_CONST( fd_log_private_file );
-# endif
-
   fd_log_private_cleanup();
-
-# if !FD_LOG_FFLUSH_LOG_FILE
-  if( log_file && log_file!=stdout ) fclose( log_file );
-# endif
 
   /* At this point, log is offline */
 
