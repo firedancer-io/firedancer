@@ -175,6 +175,9 @@ fd_funk_join( void * shfunk ) {
   }
 
   fd_funk_persist_join( funk );
+
+  funk->notify_cb = NULL;
+  funk->notify_cb_arg = NULL;
   
   return funk;
 }

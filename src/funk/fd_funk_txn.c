@@ -207,6 +207,9 @@ fd_funk_txn_cancel_childless( fd_funk_t *     funk,
 
     fd_funk_val_flush( &rec_map[ rec_idx ], alloc, wksp );
 
+    if ( funk->notify_cb )
+      (*funk->notify_cb)( NULL, &rec_map[ rec_idx ], funk->notify_cb_arg );
+
     fd_funk_rec_map_remove( rec_map, fd_funk_rec_pair( &rec_map[ rec_idx ] ) );
 
     rec_idx = next_idx;
@@ -612,6 +615,9 @@ fd_funk_txn_update( fd_funk_t *               funk,
         if( FD_UNLIKELY( fd_funk_rec_idx_is_null( next_idx ) ) ) *_dst_rec_tail_idx           = prev_idx;
         else                                                     rec_map[ next_idx ].prev_idx = prev_idx;
 
+        if ( funk->notify_cb )
+          (*funk->notify_cb)( NULL, dst_rec, funk->notify_cb_arg );
+
         fd_funk_rec_map_remove( rec_map, dst_pair );
 
       }
@@ -630,6 +636,9 @@ fd_funk_txn_update( fd_funk_t *               funk,
       ulong val_sz    = (ulong)rec_map[ rec_idx ].val_sz;
       ulong val_max   = (ulong)rec_map[ rec_idx ].val_max;
       ulong val_gaddr = rec_map[ rec_idx ].val_gaddr;
+
+      if ( funk->notify_cb )
+        (*funk->notify_cb)( NULL, &rec_map[ rec_idx ], funk->notify_cb_arg );
 
       fd_funk_rec_map_remove( rec_map, fd_funk_rec_pair( &rec_map[ rec_idx ] ) );
 
@@ -663,6 +672,9 @@ fd_funk_txn_update( fd_funk_t *               funk,
       dst_rec->val_sz    = (uint)val_sz;
       dst_rec->val_max   = (uint)val_max;
       dst_rec->val_gaddr = val_gaddr;
+
+      if ( funk->notify_cb )
+        (*funk->notify_cb)( dst_rec, NULL, funk->notify_cb_arg );
 
       if ( FD_LIKELY( fd_funk_txn_idx_is_null( dst_txn_idx ) ) ) {
         int err = fd_funk_rec_persist_unsafe( funk, dst_rec );

@@ -762,7 +762,7 @@ fd_funk_txn_persist_writeahead( fd_funk_t *     funk,
                                 fd_funk_txn_t * map,
                                 ulong           txn_idx,
                                 ulong *         wa_pos,
-                                ulong *         wa_alloc) {
+                                ulong *         wa_alloc ) {
   /* Initialize the result values just to be safe */
   *wa_pos = FD_FUNK_REC_IDX_NULL;
   *wa_alloc = FD_FUNK_REC_IDX_NULL;
