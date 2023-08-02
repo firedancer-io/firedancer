@@ -48,5 +48,11 @@ dev_cmd_fn( args_t *         args,
      validator will get stuck forever. */
   config->consensus.wait_for_vote_to_start_leader = 0;
 
+  if( FD_UNLIKELY( config->development.netns.enabled ) ) {
+    /* if we entered a network namespace during configuration, leave it
+       so that `run_firedancer` starts from a clean namespace */
+    leave_network_namespace();
+  }
+
   run_firedancer( config );
 }

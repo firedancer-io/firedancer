@@ -25,7 +25,7 @@ execve_as_root( int     argc,
   self_exe( self_exe_path );
 
   char * args[ MAX_ARGC+4 ];
-  for( int i=3; i<=argc; i++ ) args[i] = argv[i-2];
+  for( int i=1; i<argc; i++ ) args[i+2] = argv[i];
   args[ 0 ]      = "sudo";
   args[ 1 ]      = "-E";
   args[ 2 ]      = self_exe_path;
@@ -65,6 +65,7 @@ main( int     argc,
 
   /* initialize logging */
   fd_boot( &argc, &argv );
+  fd_log_thread_set( "main" );
 
   argc--; argv++;
 
