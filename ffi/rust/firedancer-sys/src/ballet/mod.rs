@@ -1,3 +1,4 @@
+mod bmtree;
 mod ed25519;
 mod sbpf;
 mod sha256;
@@ -5,6 +6,7 @@ mod sha512;
 mod shred;
 mod txn;
 
+pub use bmtree::*;
 pub use ed25519::*;
 pub use sbpf::*;
 pub use sha256::*;
