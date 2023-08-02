@@ -75,7 +75,7 @@ run( fd_frank_args_t * args ) {
   /* Start deduping */
 
   FD_LOG_INFO(( "dedup run" ));
-  int err = fd_dedup_tile( cnc, in_cnt, in_mcache, in_fseq, tcache, mcache, 1UL, &out_fseq, cr_max, lazy, rng, scratch );
+  int err = fd_dedup_tile( cnc, in_cnt, in_mcache, in_fseq, tcache, mcache, 1UL, &out_fseq, cr_max, lazy, rng, scratch, args->tick_per_ns );
   if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_dedup_tile failed (%i)", err ));
 }
 
@@ -83,7 +83,6 @@ static long allow_syscalls[] = {
   __NR_write,     /* logging */
   __NR_futex,     /* logging, glibc fprintf unfortunately uses a futex internally */
   __NR_fsync,     /* logging, WARNING and above fsync immediately */
-  __NR_nanosleep, /* fd_tempo_tick_per_ns calibration */
 };
 
 fd_frank_task_t frank_dedup = {

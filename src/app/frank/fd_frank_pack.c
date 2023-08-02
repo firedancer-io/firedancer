@@ -103,7 +103,7 @@ run( fd_frank_args_t * args ) {
   FD_LOG_INFO(( "configuring flow control (lazy %li)", lazy ));
   if( lazy<=0L ) lazy = fd_tempo_lazy_default( depth );
   FD_LOG_INFO(( "using lazy %li ns", lazy ));
-  ulong async_min = fd_tempo_async_min( lazy, 1UL /*event_cnt*/, (float)fd_tempo_tick_per_ns( NULL ) );
+  ulong async_min = fd_tempo_async_min( lazy, 1UL /*event_cnt*/, (float)args->tick_per_ns );
   if( FD_UNLIKELY( !async_min ) ) FD_LOG_ERR(( "bad lazy" ));
 
   uint seed = fd_pod_query_uint( args->tile_pod, "seed", (uint)fd_tile_id() ); /* use app tile_id as default */
@@ -129,7 +129,7 @@ run( fd_frank_args_t * args ) {
   // const ulong lamports_per_signature = 5000UL;
   const ulong block_duration_ns      = 400UL*1000UL*1000UL; /* 400ms */
 
-  long block_duration_ticks = (long)(fd_tempo_tick_per_ns( NULL ) * (double)block_duration_ns);
+  long block_duration_ticks = (long)(args->tick_per_ns * (double)block_duration_ns);
 
   int ctl_som = 1;
   int ctl_eom = 1;
@@ -282,7 +282,6 @@ static long allow_syscalls[] = {
   __NR_write,     /* logging */
   __NR_futex,     /* logging, glibc fprintf unfortunately uses a futex internally */
   __NR_fsync,     /* logging, WARNING and above fsync immediately */
-  __NR_nanosleep, /* fd_tempo_tick_per_ns calibration */
 };
 
 fd_frank_task_t frank_pack = {
