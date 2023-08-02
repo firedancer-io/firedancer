@@ -785,6 +785,15 @@
       "comment2": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/config/src/lib.rs#L18"
     },
     {
+      "name": "feature_entry",
+      "type": "struct",
+      "fields": [
+        { "name": "pubkey", "type": "pubkey" },
+        { "name": "description", "type": "char*" },
+        { "name": "since_slot", "type": "ulong" }
+      ]
+    },
+    {
       "name": "firedancer_banks",
       "type": "struct",
       "fields": [

@@ -709,6 +709,14 @@ main( int     argc,
         fd_enable_testnet(&global->features);
       if (!strcmp(net, "dev"))
         fd_enable_devnet(&global->features);
+      if (!strcmp(net, "v13"))
+        fd_enable_v13(&global->features);
+      if (!strcmp(net, "v14"))
+        fd_enable_v14(&global->features);
+      if (!strcmp(net, "v16"))
+        fd_enable_v16(&global->features);
+      if (!strcmp(net, "v17"))
+        fd_enable_v17(&global->features);
     } else
       fd_enable_everything(&global->features);
 

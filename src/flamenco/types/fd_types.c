@@ -5017,6 +5017,62 @@ int fd_stake_config_encode(fd_stake_config_t const * self, fd_bincode_encode_ctx
   return FD_BINCODE_SUCCESS;
 }
 
+int fd_feature_entry_decode(fd_feature_entry_t* self, fd_bincode_decode_ctx_t * ctx) {
+  int err;
+  err = fd_pubkey_decode(&self->pubkey, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  ulong slen;
+  err = fd_bincode_uint64_decode( &slen, ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  self->description = fd_valloc_malloc( ctx->valloc, 1, slen + 1 );
+  err = fd_bincode_bytes_decode( (uchar *)self->description, slen, ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  self->description[slen] = '\0';
+  err = fd_bincode_uint64_decode(&self->since_slot, ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_feature_entry_new(fd_feature_entry_t* self) {
+  fd_memset(self, 0, sizeof(fd_feature_entry_t));
+  fd_pubkey_new(&self->pubkey);
+}
+void fd_feature_entry_destroy(fd_feature_entry_t* self, fd_bincode_destroy_ctx_t * ctx) {
+  fd_pubkey_destroy(&self->pubkey, ctx);
+  if (NULL != self->description) {
+    fd_valloc_free( ctx->valloc, self->description);
+    self->description = NULL;
+  }
+}
+
+void fd_feature_entry_walk(fd_feature_entry_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_feature_entry", level++);
+  fd_pubkey_walk(&self->pubkey, fun, "pubkey", level + 1);
+  fun(self->description, "description", 2, "char*", level + 1);
+  fun(&self->since_slot, "since_slot", 11, "ulong", level + 1);
+  fun(self, name, 33, "fd_feature_entry", --level);
+}
+ulong fd_feature_entry_size(fd_feature_entry_t const * self) {
+  ulong size = 0;
+  size += fd_pubkey_size(&self->pubkey);
+  size += sizeof(ulong) + strlen(self->description);
+  size += sizeof(ulong);
+  return size;
+}
+
+int fd_feature_entry_encode(fd_feature_entry_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  err = fd_pubkey_encode(&self->pubkey, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  ulong slen = strlen( (char *) self->description );
+  err = fd_bincode_uint64_encode(&slen, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_bytes_encode((uchar *) self->description, slen, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_encode(&self->since_slot, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+
 int fd_firedancer_banks_decode(fd_firedancer_banks_t* self, fd_bincode_decode_ctx_t * ctx) {
   int err;
   err = fd_stakes_decode(&self->stakes, ctx);

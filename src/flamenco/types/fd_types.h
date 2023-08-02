@@ -1004,6 +1004,15 @@ typedef struct fd_stake_config fd_stake_config_t;
 #define FD_STAKE_CONFIG_FOOTPRINT sizeof(fd_stake_config_t)
 #define FD_STAKE_CONFIG_ALIGN (8UL)
 
+struct fd_feature_entry {
+  fd_pubkey_t pubkey;
+  char* description;
+  ulong since_slot;
+};
+typedef struct fd_feature_entry fd_feature_entry_t;
+#define FD_FEATURE_ENTRY_FOOTPRINT sizeof(fd_feature_entry_t)
+#define FD_FEATURE_ENTRY_ALIGN (8UL)
+
 struct fd_firedancer_banks {
   fd_stakes_t stakes;
   fd_recent_block_hashes_t recent_block_hashes;
@@ -2128,6 +2137,13 @@ int fd_stake_config_encode(fd_stake_config_t const * self, fd_bincode_encode_ctx
 void fd_stake_config_destroy(fd_stake_config_t* self, fd_bincode_destroy_ctx_t * ctx);
 void fd_stake_config_walk(fd_stake_config_t* self, fd_walk_fun_t fun, const char *name, int level);
 ulong fd_stake_config_size(fd_stake_config_t const * self);
+
+void fd_feature_entry_new(fd_feature_entry_t* self);
+int fd_feature_entry_decode(fd_feature_entry_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_feature_entry_encode(fd_feature_entry_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_feature_entry_destroy(fd_feature_entry_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_feature_entry_walk(fd_feature_entry_t* self, fd_walk_fun_t fun, const char *name, int level);
+ulong fd_feature_entry_size(fd_feature_entry_t const * self);
 
 void fd_firedancer_banks_new(fd_firedancer_banks_t* self);
 int fd_firedancer_banks_decode(fd_firedancer_banks_t* self, fd_bincode_decode_ctx_t * ctx);

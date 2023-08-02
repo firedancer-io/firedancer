@@ -382,6 +382,14 @@ int main(int argc, char **argv) {
       fd_enable_testnet(&state.global->features);
     if (!strcmp(state.net, "dev"))
       fd_enable_devnet(&state.global->features);
+    if (!strcmp(state.net, "v13"))
+      fd_enable_v13(&state.global->features);
+    if (!strcmp(state.net, "v14"))
+      fd_enable_v14(&state.global->features);
+    if (!strcmp(state.net, "v16"))
+      fd_enable_v16(&state.global->features);
+    if (!strcmp(state.net, "v17"))
+      fd_enable_v17(&state.global->features);
   } else
     fd_enable_everything(&state.global->features);
 
