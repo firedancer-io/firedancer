@@ -70,7 +70,7 @@ then
   exit $status
 fi
 
-build/native/gcc/unit-test/test_native_programs --filter 'vote|system|config' >& native.log
+build/native/gcc/unit-test/test_native_programs --ignore_fail_file src/flamenco/runtime/tests/ignore_fail >& native.log
 
 status=$?
 

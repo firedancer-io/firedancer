@@ -15,6 +15,7 @@
 #   black gen_c_tests.py
 
 import argparse
+import random
 import base58
 import json
 import os
@@ -67,6 +68,7 @@ def read_test_cases(path):
     for file in files:
         if file.endswith(".json"):
             with open(path+'/'+file, "r") as f:
+                print(file)
                 data = json.loads('[' + f.read()[:-2] + ']')
                 tests = tests + data
     return tests
@@ -202,7 +204,7 @@ def main():
 
     json_test_cases = read_test_cases(args.json)
 
-    feature_list = json.load(open("../feature_map.json", "r"))
+    feature_list = json.load(open("../../features/feature_map.json", "r"))
 
     generated_dir = Path(__file__).parent / "generated"
     generated_dir.mkdir(exist_ok=True)
@@ -230,7 +232,7 @@ def main():
                     print("Unknown feature " +disabled_feature, file=sys.stderr)
             feature_idxs = sorted(feature_idxs)
         bt = "".join(test_case["backtrace"].split("\n")[4:12])
-
+        # TODO: recent block hashes sys var is too long
         print(
             f"""int test_{test_case_idx}(fd_executor_test_suite_t *suite) {{
   fd_executor_test_t test;
@@ -239,6 +241,14 @@ def main():
   test.bt = "{bt}";
   test.test_name = "{test_case["name"]}";
   test.test_number = {test_case_idx};
+  test.sysvar_cache.clock = "{test_case["sysvar_cache"]["clock"]}";
+  test.sysvar_cache.epoch_schedule = "{test_case["sysvar_cache"]["epoch_schedule"]}";
+  test.sysvar_cache.epoch_rewards = "{test_case["sysvar_cache"]["epoch_rewards"]}";
+  test.sysvar_cache.fees = "{test_case["sysvar_cache"]["fees"]}";
+  test.sysvar_cache.rent = "{test_case["sysvar_cache"]["rent"]}";
+  test.sysvar_cache.slot_hashes = "{test_case["sysvar_cache"]["slot_hashes"]}";
+  test.sysvar_cache.stake_history = "{test_case["sysvar_cache"]["stake_history"]}";
+  test.sysvar_cache.slot_history = "{test_case["sysvar_cache"]["last_restart_slot"]}";
   if (fd_executor_test_suite_check_filter(suite, &test)) return -9999;
   ulong test_accs_len = {len(test_case["transaction_accounts"])};
   fd_executor_test_acc_t* test_accs = fd_alloca( 1UL, FD_EXECUTOR_TEST_ACC_FOOTPRINT * test_accs_len );
@@ -252,6 +262,10 @@ def main():
   test.disable_feature = disabled_features;
             """
         )
+
+        if "sysvar_cache" in test_case:
+            svc = test_case["sysvar_cache"]
+            print(f" // {svc}")
 
         if len(test_case["transaction_accounts"]) > 0:
             print("  fd_executor_test_acc_t* test_acc = test_accs;")
@@ -290,7 +304,12 @@ def main():
         num_signers = 0
         for account in test_case["instruction_accounts"]:
             if "pubkey" not in account:
-                account["pubkey"] = test_case["transaction_accounts"][int(account["index_in_transaction"])]["pubkey"]
+                idx = int(account["index_in_transaction"])
+                if idx < len(test_case["transaction_accounts"]):
+                    account["pubkey"] = test_case["transaction_accounts"][int(account["index_in_transaction"])]["pubkey"]
+                else:
+                    pkey = bytearray(random.getrandbits(8) for _ in range(0, 32))
+                    account["pubkey"] = base58.b58encode(pkey).decode("utf-8")
             if bool(account["is_signer"]) and (account["pubkey"] not in signer_pubkeys):
                 num_signers += 1
                 signer_pubkeys.add(account["pubkey"])

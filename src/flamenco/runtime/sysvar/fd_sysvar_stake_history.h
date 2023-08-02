@@ -10,7 +10,6 @@
 void fd_sysvar_stake_history_init( fd_global_ctx_t* global );
 
 /* Reads the current value of the stake history sysvar */
-void fd_sysvar_stake_history_read( fd_global_ctx_t* global, fd_stake_history_t* result );
+int fd_sysvar_stake_history_read( fd_global_ctx_t* global, fd_stake_history_t* result );
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_sysvar_stake_history_h */
-

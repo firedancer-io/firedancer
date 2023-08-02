@@ -29,6 +29,20 @@ struct fd_executor_test_acc {
 typedef struct fd_executor_test_acc fd_executor_test_acc_t;
 #define FD_EXECUTOR_TEST_ACC_FOOTPRINT ( sizeof(fd_executor_test_acc_t) )
 
+struct fd_test_sysvar_cache {
+  char * clock;
+  char * epoch_schedule;
+  char * epoch_rewards;
+  char * fees;
+  char * rent;
+  char * slot_hashes;
+  char * recent_block_hashes;
+  char * stake_history;
+  char * slot_history;
+};
+typedef struct fd_test_sysvar_cache fd_test_sysvar_cache_t;
+#define FD_TEST_SYSVAR_CACHE_FOOTPRINT ( sizeof(fd_test_sysvar_cache_t) )
+
 struct fd_executor_test {
   char*                   test_name;
   int                     test_number;
@@ -43,6 +57,7 @@ struct fd_executor_test {
   int                     expected_result;
   uint                    custom_err;
   ulong                   nonce;
+  fd_test_sysvar_cache_t  sysvar_cache;
 };
 typedef struct fd_executor_test fd_executor_test_t;
 #define FD_EXECUTOR_TEST_FOOTPRINT ( sizeof(fd_executor_test_t) )
@@ -54,6 +69,7 @@ struct fd_executor_test_suite {
   regex_t        filter_ex;
   const char *   filter;
   fd_features_t  features;
+  char           ignore_fail[5000];
 };
 typedef struct fd_executor_test_suite fd_executor_test_suite_t;
 #define FD_EXECUTOR_TEST_SUITE_FOOTPRINT ( sizeof(fd_executor_test_suite_t) )

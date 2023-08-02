@@ -680,7 +680,7 @@ int fd_executor_stake_program_execute_instruction(
 
       ulong credits = 0;
       int acc_res = fd_vote_acc_credits( ctx.global, vote_acc, &credits );
-      if( FD_UNLIKELY( !acc_res ) )
+      if( FD_UNLIKELY( acc_res != FD_EXECUTOR_INSTR_SUCCESS ) )
         return acc_res;  /* FIXME leak */
       stake_state_stake->stake.credits_observed = credits;
     } else {
@@ -696,7 +696,7 @@ int fd_executor_stake_program_execute_instruction(
           return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
         }
       }
-      
+
       stake_state.discriminant = fd_stake_state_enum_stake;
       fd_stake_state_stake_t* stake_state_stake = &stake_state.inner.stake;
       fd_memcpy( &stake_state_stake->meta, meta, FD_STAKE_STATE_META_FOOTPRINT );
@@ -707,7 +707,7 @@ int fd_executor_stake_program_execute_instruction(
 
       ulong credits = 0;
       int acc_res = fd_vote_acc_credits( ctx.global, vote_acc, &credits );
-      if( FD_UNLIKELY( !acc_res ) )
+      if( FD_UNLIKELY( acc_res != FD_EXECUTOR_INSTR_SUCCESS ) )
         return acc_res;  /* FIXME leak */
       stake_state_stake->stake.credits_observed = credits;
     }
@@ -1210,8 +1210,8 @@ int fd_executor_stake_program_execute_instruction(
     result = write_stake_state( ctx.global, stake_acc, &stake_state, 0);
     if (result != FD_EXECUTOR_INSTR_SUCCESS) {
       return result;
-    } 
- 
+    }
+
   } // end of set_lockup, discriminant 6
   else if ( fd_stake_instruction_is_merge( &instruction )) { // merge, discriminant 7
     // https://github.com/firedancer-io/solana/blob/56bd357f0dfdb841b27c4a346a58134428173f42/programs/stake/src/stake_instruction.rs#L206
@@ -1860,21 +1860,28 @@ int fd_executor_stake_program_execute_instruction(
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
     }
     fd_sol_sysvar_clock_t clock;
-    clock.epoch = 100;
-    // result = fd_sysvar_clock_read( ctx.global, &clock );
-    // if( FD_UNLIKELY( result != FD_EXECUTOR_INSTR_SUCCESS ) ) {
-    //   return result;
-    // }
+    result = fd_sysvar_clock_read( ctx.global, &clock );
+    if( FD_UNLIKELY( result != FD_EXECUTOR_INSTR_SUCCESS ) ) {
+      return result;
+    }
 
-    fd_stake_history_t * history = NULL;
-    fd_sysvar_stake_history_read( ctx.global, history);
+    fd_stake_history_t history;
+    result = fd_sysvar_stake_history_read( ctx.global, &history);
+    if (result != FD_EXECUTOR_INSTR_SUCCESS)
+      return result;
 
-    fd_stake_history_entry_t entry = stake_activating_and_deactivating(&stake_state.inner.stake.stake.delegation, clock.epoch, history);
+    fd_stake_history_entry_t entry = stake_activating_and_deactivating(&stake_state.inner.stake.stake.delegation, clock.epoch, &history);
     if ( (entry.effective == 0) || (entry.activating != 0) || (entry.deactivating != 0)) {
       FD_LOG_WARNING(("stake is not active"));
       ctx.txn_ctx->custom_err = 13; // Err(StakeError::RedelegateTransientOrInactiveStake.into())
+      fd_bincode_destroy_ctx_t ctx3 = { .valloc = ctx.global->valloc };
+      fd_stake_history_destroy(&history, &ctx3);
       return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
     }
+
+    fd_bincode_destroy_ctx_t ctx3 = { .valloc = ctx.global->valloc };
+    fd_stake_history_destroy(&history, &ctx3);
+
     /* Deny redelegating to the same vote account. This is nonsensical and could be used to grief the global stake warm-up/cool-down rate */
     if ( memcmp(&stake_state.inner.stake.stake.delegation.voter_pubkey, vote_acc, sizeof(fd_pubkey_t)) == 0 ) {
       FD_LOG_WARNING(("redelegating to the same vote account not permitted"));
@@ -1927,7 +1934,6 @@ int fd_executor_stake_program_execute_instruction(
     uninitialized_stake_state.inner.stake.stake.delegation.warmup_cooldown_rate = stake_config.warmup_cooldown_rate;
     uninitialized_stake_state.inner.stake.stake.credits_observed = vote_state.inner.current.epoch_credits->credits;
     write_stake_state(ctx.global, uninitialized_stake_acc, &uninitialized_stake_state, 1);
-
   }
   else {
     FD_LOG_NOTICE(( "unsupported StakeInstruction instruction: discriminant %d", instruction.discriminant ));

@@ -97,4 +97,3 @@ typedef struct fd_txnstatusidx fd_txnstatusidx_t;
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_types_custom */
-

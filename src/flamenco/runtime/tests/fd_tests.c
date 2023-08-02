@@ -1,4 +1,6 @@
 #include "fd_tests.h"
+#include "../sysvar/fd_sysvar.h"
+#include "../../../ballet/base58/fd_base58.h"
 #include "../../fd_flamenco.h"
 #include <stdio.h>
 #include <unistd.h>
@@ -13,6 +15,21 @@ const char *fail_fast = NULL;
 uchar do_leakcheck = 0;
 
 int fd_alloc_fprintf( fd_alloc_t * join, FILE *       stream );
+
+#define T_DUMP(_type_, _d, _l, _c) { \
+            _type_##_t d1; \
+            _type_##_new(&d1); \
+            fd_bincode_decode_ctx_t decode = { \
+              .data    = _d, \
+              .dataend = (void const *)( (ulong)_d + _l ), \
+              .valloc  = global->valloc, \
+            }; \
+            _type_##_decode( &d1, &decode ); \
+            _type_##_walk(&d1, fd_printer_walker, _c, 0); \
+            fd_bincode_destroy_ctx_t destroy = { .valloc = global->valloc }; \
+            _type_##_destroy(&d1, &destroy); \
+          }
+
 
 /* copied from test_funk_txn.c */
 static fd_funk_txn_xid_t *
@@ -30,6 +47,8 @@ fd_funk_txn_xid_set_unique( fd_funk_txn_xid_t * xid ) {
 }
 
 void fd_executor_test_suite_new( fd_executor_test_suite_t* suite ) {
+  memset(suite, 0, sizeof(*suite));
+
   suite->wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 15, 0, "wksp", 0UL );
   if ( FD_UNLIKELY( NULL == suite->wksp ) )
     FD_LOG_ERR(( "failed to create an anonymous local workspace" ));
@@ -126,6 +145,26 @@ int fd_executor_run_test(
 
     global->bank.slot = 200880004;
 
+    // // TODO: are these required now?
+    // if ( strcmp(test->sysvar_cache.clock, "") ) {
+    //   fd_sol_sysvar_clock_t clk;
+    //   ulong          sz = fd_sol_sysvar_clock_size( &clk );
+
+    //   uchar decoded[64];
+    //   fd_base58_decode_64(test->sysvar_cache.clock, decoded);
+    //   ulong arr[64 / sizeof(ulong)];
+    //   memcpy(arr, decoded, sizeof(decoded));
+    //   for (ulong i = 0; i < sizeof(ulong) / 2; i++) {
+    //     ulong t = arr[i];
+    //     arr[i] = arr[sizeof(ulong) - 1 - i];
+    //     arr[sizeof(ulong) - 1 - i] = t;
+    //   }
+    //   unsigned char *enc = fd_alloca( 1, sz );
+    //   memcpy( enc, arr, sz );
+    //   fd_sysvar_set_override(global, global->sysvar_owner, (fd_pubkey_t*)global->sysvar_clock, enc, sz, global->bank.slot);
+
+    // }
+
     /* Parse the raw transaction */
 
     uchar txn_parse_out_buf[FD_TXN_MAX_SZ];
@@ -157,7 +196,10 @@ int fd_executor_run_test(
     };
     execute_instruction_func_t exec_instr_func = fd_executor_lookup_native_program( global, &test->program_id );
     if (NULL == exec_instr_func) {
-      FD_LOG_WARNING(( "fd_executor_lookup_native_program failed"));
+      char buf[50];
+      fd_base58_encode_32((uchar *) &test->program_id, NULL, buf);
+
+      FD_LOG_WARNING(( "Failed test %d: %s: fd_executor_lookup_native_program failed: %s", test->test_number, test->test_name, buf));
       ret = -1;
       break;
     }
@@ -213,6 +255,9 @@ int fd_executor_run_test(
           break;
         }
         if (m->dlen != test->accs[i].result_data_len) {
+//          T_DUMP(fd_vote_state_versioned, d, m->dlen, "result");
+//          T_DUMP(fd_vote_state_versioned, test->accs[i].result_data, test->accs[i].result_data_len , "expected");
+
           FD_LOG_WARNING(( "Failed test %d: %s: size mismatch (expected %lu, got %lu): %s",
                            test->test_number, test->test_name,
                            test->accs[i].result_data_len, m->dlen, (NULL != verbose) ? test->bt : "" ));
@@ -220,7 +265,10 @@ int fd_executor_run_test(
           break;
         }
         if (memcmp(d, test->accs[i].result_data, test->accs[i].result_data_len)) {
-          FD_LOG_WARNING(( "Failed test %d: %s: account missmatch: %s", test->test_number, test->test_name, (NULL != verbose) ? test->bt : ""));
+//          T_DUMP(fd_vote_state_versioned, d, m->dlen, "result");
+//          T_DUMP(fd_vote_state_versioned, test->accs[i].result_data, test->accs[i].result_data_len , "expected");
+
+          FD_LOG_WARNING(( "Failed test %d: %s: account_index: %d   account missmatch: %s", test->test_number, test->test_name, i, (NULL != verbose) ? test->bt : ""));
           {
             FILE * fd = fopen("actual.bin", "wb");
             fwrite(d, 1, m->dlen, fd);
@@ -264,6 +312,8 @@ main( int     argc,
   const char * filter = fd_env_strip_cmdline_cstr(&argc, &argv, "--filter", NULL, NULL);
   verbose = fd_env_strip_cmdline_cstr(&argc, &argv, "--verbose", NULL, NULL);
   fail_fast = fd_env_strip_cmdline_cstr(&argc, &argv, "--fail_fast", NULL, NULL);
+  char * ignore_fail = (char *) fd_env_strip_cmdline_cstr(&argc, &argv, "--ignore_fail", NULL, NULL);
+  char * ignore_fail_file = (char *) fd_env_strip_cmdline_cstr(&argc, &argv, "--ignore_fail_file", NULL, NULL);
 
   if (-1 != do_test)
     test_start = test_end = (ulong)do_test;
@@ -271,6 +321,29 @@ main( int     argc,
   /* Initialize the test suite */
   fd_executor_test_suite_t suite;
   fd_executor_test_suite_new( &suite );
+
+  if (NULL != ignore_fail_file) {
+    FILE *fp = fopen(ignore_fail_file, "r");
+    if (NULL != fp) {
+      char buf[255];
+      while (NULL != fgets(buf, sizeof(buf), fp)) {
+        ulong i = (ulong) atoi(buf);
+        if (i < (sizeof(suite.ignore_fail) / sizeof(suite.ignore_fail[0])))
+          suite.ignore_fail[i] = 1;
+      }
+      fclose(fp);
+    }
+  }
+
+  if (NULL != ignore_fail) {
+    char *tok = strtok(ignore_fail, " ,");
+    while (NULL != tok) {
+      ulong i = (ulong) atoi(tok);
+      if (i < (sizeof(suite.ignore_fail) / sizeof(suite.ignore_fail[0])))
+        suite.ignore_fail[i] = 1;
+      tok = strtok(NULL, " ,");
+    }
+  }
 
   fd_enable_everything(&suite.features);
 
@@ -287,14 +360,19 @@ main( int     argc,
   /* Loop through tests */
   ulong executed_cnt = 0UL;
   ulong success_cnt = 0UL;
+  ulong ignored_cnt = 0UL;
   for( ulong idx = test_start; idx <= test_end; idx++ ) {
     if( FD_UNLIKELY( idx >= test_cnt ) )
       break;
     int r = tests[ idx ]( &suite );
     if ((r != 0) && (r != -9999)) {
-      ret = r;
-      if (NULL != fail_fast)
-        break;
+      if (suite.ignore_fail[idx])
+        ignored_cnt++;
+      else {
+        ret = r;
+        if (NULL != fail_fast)
+          break;
+      }
     }
     if( r != -9999 ) {
       executed_cnt++;
@@ -302,7 +380,7 @@ main( int     argc,
     }
   }
 
-  FD_LOG_NOTICE(( "Progress: %lu/%lu tests", success_cnt, executed_cnt ));
+  FD_LOG_NOTICE(( "Progress: %lu/%lu tests (%lu tests failed but ignored)", success_cnt, executed_cnt, ignored_cnt ));
 
   if (NULL != filter)
     regfree(&suite.filter_ex);

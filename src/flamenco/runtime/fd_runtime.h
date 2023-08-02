@@ -146,6 +146,10 @@ int               fd_pubkey_create_with_seed(fd_pubkey_t const * base, char cons
 int               fd_runtime_save_banks    ( fd_global_ctx_t *global );
 int               fd_global_import_solana_manifest(fd_global_ctx_t *global, fd_solana_manifest_t* manifest);
 
+static inline ulong fd_rent_exempt(fd_global_ctx_t *global, ulong sz) {
+  return (sz + 128) * ((ulong) ((double)global->bank.rent.lamports_per_uint8_year * global->bank.rent.exemption_threshold));
+}
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_runtime_h */

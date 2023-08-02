@@ -48,9 +48,9 @@ fd_stakes_accum_by_node( fd_vote_accounts_t const * in,
     fd_pubkey_t const * node_pubkey;
     switch( vote_state_versioned.discriminant ) {
     case fd_vote_state_versioned_enum_v0_23_5:
-      node_pubkey = &vote_state_versioned.inner.v0_23_5.voting_node; break;
+      node_pubkey = &vote_state_versioned.inner.v0_23_5.node_pubkey; break;
     case fd_vote_state_versioned_enum_current:
-      node_pubkey = &vote_state_versioned.inner.current.voting_node; break;
+      node_pubkey = &vote_state_versioned.inner.current.node_pubkey; break;
     default:
       __builtin_unreachable();
     }
@@ -374,7 +374,7 @@ void fd_stakes_init( fd_global_ctx_t* global, fd_stakes_t* stakes ) {
 
 /* https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L169 */
 void activate_epoch( fd_global_ctx_t* global, ulong next_epoch ) {
-  
+
   fd_stakes_t* stakes = &global->bank.stakes;
 
   /* Current stake delegations: list of all current delegations in stake_delegations

@@ -1,7 +1,10 @@
 
-# solana feature status -u mainnet-beta --output json --display-all > mainnet-beta.jsno
+# solana feature status -u mainnet-beta --output json --display-all > mainnet-beta.json
 # solana feature status -u devnet --output json --display-all > devnet.json
 # solana feature status -u testnet --output json --display-all > testnet.json
+
+# python3.8 gen_features.py fd_features.h fd_features.c
+# uncrustify  -c /home/jsiegel/repos/firedancer/lint.cfg --no-backup --replace fd_features.c
 
 import json
 import sys
@@ -117,8 +120,8 @@ print ("}", file=body)
 
 print ("void fd_enable_everything(struct fd_features *f) {", file=body)
 print ("fd_memset(f, 0, sizeof(*f));", file=body)
-for x in mainnet["features"]:
-    print("f->{} = 1; // {}".format(rmap[x["id"]], x["description"]), file=body)
+for x in fm:
+    print("f->{} = 1; // {}".format(x["name"], x["pubkey"]), file=body)
 print ("}", file=body)
 
 print ("void fd_update_features(fd_global_ctx_t * global) {", file=body)

@@ -410,7 +410,7 @@ int fd_account_set_data_length(instruction_ctx_t *ctx, fd_account_meta_t * acct,
 //    /// Returns whether this account is a signer (instruction wide)
 
 static inline
-int fd_account_is_signer(instruction_ctx_t const *ctx, fd_pubkey_t * account) {
+int fd_account_is_signer(instruction_ctx_t const *ctx, fd_pubkey_t const * account) {
   uchar *       instr_acc_idxs = ((uchar *)ctx->txn_ctx->txn_raw->raw + ctx->instr->acct_off);
   fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx->txn_ctx->txn_raw->raw + ctx->txn_ctx->txn_descriptor->acct_addr_off);
 

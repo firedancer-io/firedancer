@@ -1198,10 +1198,13 @@ fd_global_import_stakes(fd_global_ctx_t * global, fd_solana_manifest_t * manifes
     fd_vote_block_timestamp_t vote_state_timestamp;
     switch( vote_state_versioned.discriminant ) {
     case fd_vote_state_versioned_enum_current:
-      vote_state_timestamp = vote_state_versioned.inner.current.latest_timestamp;
+      vote_state_timestamp = vote_state_versioned.inner.current.last_timestamp;
       break;
     case fd_vote_state_versioned_enum_v0_23_5:
-      vote_state_timestamp = vote_state_versioned.inner.v0_23_5.latest_timestamp;
+      vote_state_timestamp = vote_state_versioned.inner.v0_23_5.last_timestamp;
+      break;
+    case fd_vote_state_versioned_enum_v1_14_11:
+      vote_state_timestamp = vote_state_versioned.inner.v1_14_11.last_timestamp;
       break;
     default:
       __builtin_unreachable();
