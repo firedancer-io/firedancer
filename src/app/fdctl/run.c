@@ -106,9 +106,15 @@ tile_main( void * _args ) {
 
   if( FD_UNLIKELY( args->tile->init ) ) args->tile->init( &frank_args );
 
+  int allow_fds[ 32 ];
+  ulong allow_fds_sz = args->tile->allow_fds( &frank_args,
+                                              sizeof(allow_fds)/sizeof(allow_fds[0]),
+                                              allow_fds );
+
   if( FD_LIKELY( args->sandbox ) ) fd_sandbox( args->uid,
                                                args->gid,
-                                               args->tile->close_fd_start,
+                                               allow_fds_sz,
+                                               allow_fds,
                                                args->tile->allow_syscalls_sz,
                                                args->tile->allow_syscalls );
   args->tile->run( &frank_args );
@@ -269,10 +275,10 @@ solana_labs_main( void * args ) {
   argv[ idx ] = NULL;
 
   /* silence a bunch of solana_metrics INFO spam */
-  if( FD_UNLIKELY( setenv("RUST_LOG", "solana=info,solana_metrics::metrics=warn", 1) ) )
+  if( FD_UNLIKELY( setenv( "RUST_LOG", "solana=info,solana_metrics::metrics=warn", 1 ) ) )
     FD_LOG_ERR(( "setenv() failed (%i-%s)", errno, strerror( errno ) ));
 
-  FD_LOG_INFO(( "Running Solana Labs Validator with the following arguments:" ));
+  FD_LOG_INFO(( "Running Solana Labs validator with the following arguments:" ));
   for( ulong j=0UL; j<idx; j++ ) FD_LOG_INFO(( "%s", argv[j] ));
 
   /* solana labs main will exit(1) if it fails, so no return code */
@@ -295,6 +301,8 @@ clone_solana_labs( tile_spawner_t * spawner, config_t * const config ) {
 
 static int
 main_pid_namespace( void * args ) {
+  fd_log_thread_set( "pidns" );
+
   config_t * const config = args;
 
   /* remove the signal handlers installed for SIGTERM and SIGINT by the parent,
@@ -336,10 +344,6 @@ main_pid_namespace( void * args ) {
     .tick_per_ns = tick_per_ns,
   };
 
-  if( FD_UNLIKELY( config->development.netns.enabled ) ) {
-    leave_network_namespace();
-  }
-
   clone_solana_labs( &spawner, config );
 
   if( FD_UNLIKELY( config->development.netns.enabled ) )  {
@@ -361,10 +365,17 @@ main_pid_namespace( void * args ) {
     __NR_wait4,      /* wait for children */
     __NR_exit_group, /* exit process */
   };
+
+  int allow_fds[] = {
+    2, /* stderr */
+    3, /* logfile */
+  };
+
   if( config->development.sandbox )
     fd_sandbox( config->uid,
                 config->gid,
-                3, /* stdin, stdout, stderr */
+                sizeof(allow_fds)/sizeof(allow_fds[ 0 ]),
+                allow_fds,
                 sizeof(allow_syscalls)/sizeof(allow_syscalls[0]),
                 allow_syscalls );
 
@@ -426,6 +437,9 @@ run_firedancer( config_t * const config ) {
      race condition. child will clear the handlers. */
   install_parent_signals();
 
+  if( FD_UNLIKELY( close( 0 ) ) ) FD_LOG_ERR(( "close(0) failed (%i-%s)", errno, strerror( errno ) ));
+  if( FD_UNLIKELY( close( 1 ) ) ) FD_LOG_ERR(( "close(1) failed (%i-%s)", errno, strerror( errno ) ));
+
   /* clone into a pid namespace */
   pid_namespace = clone( main_pid_namespace, (uchar *)stack + (8UL<<20), CLONE_NEWPID, config );
 
@@ -435,9 +449,16 @@ run_firedancer( config_t * const config ) {
     __NR_exit_group, /* exit process */
     __NR_kill,       /* kill the pid namespaced child process */
   };
+
+  int allow_fds[] = {
+    2, /* stderr */
+    3, /* logfile */
+  };
+
   fd_sandbox( config->uid,
               config->gid,
-              3, /* stdin, stdout, stderr */
+              sizeof(allow_fds)/sizeof(allow_fds[ 0 ]),
+              allow_fds,
               sizeof(allow_syscalls)/sizeof(allow_syscalls[0]),
               allow_syscalls );
 

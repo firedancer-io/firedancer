@@ -11,6 +11,7 @@ int
 main1( int     argc,
       char ** _argv ) {
   fd_boot( &argc, &_argv );
+  fd_log_thread_set( "main" );
 
   char ** argv = _argv;
   argc--; argv++;

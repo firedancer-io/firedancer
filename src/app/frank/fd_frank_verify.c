@@ -407,13 +407,24 @@ static long allow_syscalls[] = {
   __NR_fsync,     /* logging, WARNING and above fsync immediately */
 };
 
+static ulong
+allow_fds( fd_frank_args_t * args,
+           ulong out_fds_sz,
+           int * out_fds ) {
+  (void)args;
+  if( FD_UNLIKELY( out_fds_sz < 2 ) ) FD_LOG_ERR(( "out_fds_sz %lu", out_fds_sz ));
+  out_fds[ 0 ] = 2; /* stderr */
+  out_fds[ 1 ] = 3; /* logfile */
+  return 2;
+}
+
 fd_frank_task_t frank_verify = {
-  .name     = "verify",
-  .in_wksp  = "quic_verify",
-  .out_wksp = "verify_dedup",
-  .close_fd_start = 4, /* stdin, stdout, stderr, logfile */
+  .name              = "verify",
+  .in_wksp           = "quic_verify",
+  .out_wksp          = "verify_dedup",
   .allow_syscalls_sz = sizeof(allow_syscalls)/sizeof(allow_syscalls[ 0 ]),
-  .allow_syscalls = allow_syscalls,
-  .init = NULL,
-  .run  = run,
+  .allow_syscalls    = allow_syscalls,
+  .allow_fds         = allow_fds,
+  .init              = NULL,
+  .run               = run,
 };

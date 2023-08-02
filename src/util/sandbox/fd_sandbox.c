@@ -59,28 +59,31 @@ setup_mountns( void ) {
   FD_TESTV( unshare ( CLONE_NEWNS ) == 0 );
 
   char temp_dir [] = "/tmp/fd-sandbox-XXXXXX";
-  FD_TESTV( NULL != mkdtemp( temp_dir ) );
-  FD_TESTV( 0 == mount( NULL, "/", NULL, MS_SLAVE | MS_REC, NULL ) );
-  FD_TESTV( 0 == mount( temp_dir, temp_dir, NULL, MS_BIND | MS_REC, NULL ) );
-  FD_TESTV( 0 == chdir( temp_dir ) );
-  FD_TESTV( 0 == mkdir( "old-root", S_IRUSR | S_IWUSR ));
-  FD_TESTV( 0 == syscall( SYS_pivot_root, ".", "old-root" ) );
-  FD_TESTV( 0 == chdir( "/" ) );
-  FD_TESTV( 0 == umount2( "old-root", MNT_DETACH ) );
-  FD_TESTV( 0 == rmdir( "old-root" ) );
+  FD_TESTV( mkdtemp( temp_dir ) );
+  FD_TESTV( !mount( NULL, "/", NULL, MS_SLAVE | MS_REC, NULL ) );
+  FD_TESTV( !mount( temp_dir, temp_dir, NULL, MS_BIND | MS_REC, NULL ) );
+  FD_TESTV( !chdir( temp_dir ) );
+  FD_TESTV( !mkdir( "old-root", S_IRUSR | S_IWUSR ));
+  FD_TESTV( !syscall( SYS_pivot_root, ".", "old-root" ) );
+  FD_TESTV( !chdir( "/" ) );
+  FD_TESTV( !umount2( "old-root", MNT_DETACH ) );
+  FD_TESTV( !rmdir( "old-root" ) );
 }
 
-#define CLOSE_RANGE_UNSHARE (1U << 1)
-
 static void
-close_fds_proc( uint close_from ) {
+check_fds( ulong allow_fds_sz,
+           int * allow_fds ) {
   DIR * dir = opendir( "/proc/self/fd" );
-  FD_TESTV( NULL != dir );
+  FD_TESTV( dir );
   int dirfd1 = dirfd( dir );
   FD_TESTV( dirfd1 >= 0 );
 
   struct dirent *dp;
-  while( ( dp = readdir( dir ) ) != NULL ) {
+
+  int seen_fds[ 256 ] = {0};
+  FD_TESTV( allow_fds_sz < 256 );
+
+  while( ( dp = readdir( dir ) ) ) {
     char *end;
     long fd = strtol( dp->d_name, &end, 10 );
     FD_TESTV( fd < INT_MAX && fd > INT_MIN );
@@ -88,32 +91,38 @@ close_fds_proc( uint close_from ) {
       continue;
     }
 
-    if ( fd >= close_from && fd != dirfd1 ) {
-      FD_TESTV( 0 == close( (int)fd ) );
+    if( FD_LIKELY( fd == dirfd1 ) ) continue;
+
+    int found = 0;
+    for( ulong i=0; i<allow_fds_sz; i++ ) {
+      if ( FD_LIKELY( fd==allow_fds[ i ] ) ) {
+        seen_fds[ i ] = 1;
+        found = 1;
+        break;
+      }
+    }
+
+    if( !found ) {
+      char path[ PATH_MAX ];
+      int len = snprintf( path, PATH_MAX, "/proc/self/fd/%ld", fd );
+      FD_TEST( len>0 && len < PATH_MAX );
+      char target[ PATH_MAX ];
+      long count = readlink( path, target, PATH_MAX );
+      if( FD_UNLIKELY( count < 0 ) ) FD_LOG_ERR(( "readlink(%s) failed (%i-%s)", target, errno, strerror( errno ) ));
+      if( FD_UNLIKELY( count >= PATH_MAX ) ) FD_LOG_ERR(( "readlink(%s) returned truncated path", path ));
+      target[ count ] = '\0';
+
+      FD_LOG_ERR(( "unexpected file descriptor %ld open %s", fd, target ));
     }
   }
 
-  FD_TESTV( 0 == closedir( dir ) );
-}
-
-// Older kernels might not have SYS_close_range
-#if FD_HAS_X86
-#ifndef SYS_close_range
-#define SYS_close_range 436
-#endif
-#endif
-
-static void
-close_fds( uint close_from ) {
-  if( syscall( SYS_close_range, close_from, UINT_MAX, CLOSE_RANGE_UNSHARE ) ) {
-    // No SYS_close_range, close one by one
-    FD_TESTV( errno == ENOSYS );
-    close_fds_proc( close_from );
+  for( ulong i=0; i<allow_fds_sz; i++ ) {
+    if( FD_UNLIKELY( !seen_fds[ i ] ) ) {
+      FD_LOG_ERR(( "allowed file descriptor %d not present", allow_fds[ i ] ));
+    }
   }
 
-  /* always close stdin and stdout */
-  if( close_from > 0 ) FD_TESTV( 0 == close( 0 ) );
-  if( close_from > 1 ) FD_TESTV( 0 == close( 1 ) );
+  FD_TESTV( !closedir( dir ) );
 }
 
 static void
@@ -170,7 +179,8 @@ drop_capabilities( void ) {
   FD_TESTV( 0 == prctl( PR_CAP_AMBIENT, PR_CAP_AMBIENT_CLEAR_ALL, 0, 0, 0 ) );
 }
 
-static void userns_map( uint id, const char * map ) {
+static void
+userns_map( uint id, const char * map ) {
   char path[64];
   FD_TESTV( sprintf( path, "/proc/self/%s", map ) > 0);
   int fd = open( path, O_WRONLY );
@@ -178,62 +188,61 @@ static void userns_map( uint id, const char * map ) {
   char line[64];
   FD_TESTV( sprintf( line, "0 %u 1\n", id ) > 0 );
   FD_TESTV( write( fd, line, strlen( line ) ) > 0 );
-  FD_TESTV( 0 == close( fd ) );
+  FD_TESTV( !close( fd ) );
 }
 
-static void deny_setgroups( void ) {
+static void
+deny_setgroups( void ) {
   int fd = open( "/proc/self/setgroups", O_WRONLY );
   FD_TESTV( fd >= 0 );
   FD_TESTV( write( fd, "deny", strlen( "deny" ) ) > 0 );
-  FD_TESTV( 0 == close( fd ) );
+  FD_TESTV( !close( fd ) );
 }
 
-static void unshare_user( uint uid, uint gid ) {
-  FD_TESTV( 0 == setresgid( gid, gid, gid ) );
-  FD_TESTV( 0 == setresuid( uid, uid, uid ) );
-  FD_TESTV( 0 == prctl( PR_SET_DUMPABLE, 1, 0, 0, 0 ) );
+static void
+unshare_user( uint uid, uint gid ) {
+  FD_TESTV( !setresgid( gid, gid, gid ) );
+  FD_TESTV( !setresuid( uid, uid, uid ) );
+  FD_TESTV( !prctl( PR_SET_DUMPABLE, 1, 0, 0, 0 ) );
 
-  FD_TESTV( 0 == unshare( CLONE_NEWUSER | CLONE_NEWNS | CLONE_NEWNET ) );
+  FD_TESTV( !unshare( CLONE_NEWUSER | CLONE_NEWNS | CLONE_NEWNET ) );
   deny_setgroups();
   userns_map( uid, "uid_map" );
   userns_map( gid, "gid_map" );
 
-  FD_TESTV( 0 == prctl( PR_SET_DUMPABLE, 0, 0, 0, 0 ) );
+  FD_TESTV( !prctl( PR_SET_DUMPABLE, 0, 0, 0, 0 ) );
   for ( int cap = 0; cap <= CAP_LAST_CAP; cap++ ) {
-    FD_TESTV( 0 == prctl( PR_CAPBSET_DROP, cap, 0, 0, 0 ) );
+    FD_TESTV( !prctl( PR_CAPBSET_DROP, cap, 0, 0, 0 ) );
   }
 }
 
-void
-fd_sandbox_private_unthreaded( uint uid, uint gid ) {
+/* Sandbox the current process by dropping all privileges and entering various
+   restricted namespaces, but leave it able to make system calls. This should be
+   done as a first step before later calling`install_seccomp`.
+
+   You should call `unthreaded` before creating any threads in the process, and
+   then install the seccomp profile afterwards. */
+static void
+sandbox_unthreaded( ulong allow_fds_sz,
+                    int * allow_fds,
+                    uint uid,
+                    uint gid ) {
+  check_fds( allow_fds_sz, allow_fds );
   unshare_user( uid, gid );
+  struct rlimit limit = { .rlim_cur = 0, .rlim_max = 0 };
+  FD_TESTV( !setrlimit( RLIMIT_NOFILE, &limit ));
   setup_mountns();
   drop_capabilities();
   secure_clear_environment();
 }
 
 void
-fd_sandbox_private_threaded( uint close_fd_start,
-                             ushort allow_syscalls_sz,
-                             long * allow_syscalls ) {
-  fd_sandbox_private_no_seccomp( close_fd_start );
-  install_seccomp( allow_syscalls_sz, allow_syscalls );
-}
-
-void
-fd_sandbox( uint uid,
-            uint gid,
-            uint close_fd_start,
+fd_sandbox( uint   uid,
+            uint   gid,
+            ulong  allow_fds_sz,
+            int *  allow_fds,
             ushort allow_syscalls_sz,
             long * allow_syscalls ) {
-  fd_sandbox_private_unthreaded( uid, gid );
-  fd_sandbox_private_threaded( close_fd_start, allow_syscalls_sz, allow_syscalls );
-}
-
-void
-fd_sandbox_private_no_seccomp( uint close_fd_start ) {
-  struct rlimit limit = { .rlim_cur = 0, .rlim_max = 0 };
-  FD_TESTV( 0 == setrlimit( RLIMIT_NOFILE, &limit ));
-
-  close_fds( close_fd_start );
+  sandbox_unthreaded( allow_fds_sz, allow_fds, uid, gid );
+  install_seccomp( allow_syscalls_sz, allow_syscalls );
 }

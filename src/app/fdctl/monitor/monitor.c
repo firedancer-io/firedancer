@@ -242,7 +242,7 @@ run_monitor( config_t * const config,
         break;
       case wksp_dedup:
         tile_name[ tile_idx ] = "dedup";
-        tile_cnc[ tile_idx ] = fd_cnc_join( fd_wksp_pod_map( pod, "dedup.cnc" ) );
+        tile_cnc[ tile_idx ] = fd_cnc_join( fd_wksp_pod_map( pod, "cnc" ) );
         if( FD_UNLIKELY( !tile_cnc[ tile_idx ] ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
         if( FD_UNLIKELY( fd_cnc_app_sz( tile_cnc[ tile_idx ] )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
         tile_mcache[ tile_idx ] = fd_mcache_join( fd_wksp_pod_map( FIND(wksp_dedup_pack), "mcache" ) );
@@ -260,7 +260,7 @@ run_monitor( config_t * const config,
         tile_mcache[ tile_idx ] = NULL; /* pack currently has no mcache */
         // if( FD_UNLIKELY( !tile_mcache[ tile_idx ] ) ) FD_LOG_ERR(( "fd_mcache_join failed" ));
         tile_fseq[ tile_idx ] = NULL; /* pack currently has no fseq */
-        if( FD_UNLIKELY( !tile_fseq[ tile_idx ] ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
+        // if( FD_UNLIKELY( !tile_fseq[ tile_idx ] ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
         tile_idx++;
         break;
     }
@@ -398,10 +398,18 @@ monitor_cmd_fn( args_t *         args,
     __NR_exit_group,  /* exit process */
   };
 
+  int allow_fds[] = {
+    1, /* stdout */
+    2, /* stderr */
+    3, /* logfile */
+  };
+
+  if( FD_UNLIKELY( close( 0 ) ) ) FD_LOG_ERR(( "close(0) failed (%i-%s)", errno, strerror( errno ) ));
   if( config->development.sandbox )
     fd_sandbox( config->uid,
                 config->gid,
-                4, /* stdin, stdout, stderr, logfile */
+                sizeof(allow_fds)/sizeof(allow_fds[ 0 ]),
+                allow_fds,
                 sizeof(allow_syscalls)/sizeof(allow_syscalls[0]),
                 allow_syscalls );
 
