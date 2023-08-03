@@ -452,11 +452,7 @@ int main(int argc, char **argv) {
   if( FD_UNLIKELY( !alloc ) ) FD_LOG_ERR(( "fd_alloc_join(gaddr=%#lx) failed", state.global->funk->alloc_gaddr ));
 
   state.global->wksp = wksp;
-#ifdef MALLOC_NOT_FDALLOC
   state.global->valloc = fd_libc_alloc_virtual();
-#else
-  state.global->valloc = fd_alloc_virtual( alloc );
-#endif
 
   if (NULL != state.persist) {
     FD_LOG_NOTICE(("using %s for persistence", state.persist));

@@ -2330,7 +2330,7 @@ int fd_solana_accounts_db_fields_decode(fd_solana_accounts_db_fields_t* self, fd
   err = fd_bincode_uint64_decode(&self->historical_roots_len, ctx);
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   if (self->historical_roots_len != 0) {
-    self->historical_roots = fd_valloc_malloc( ctx->valloc, 8UL, self->historical_roots_len );
+    self->historical_roots = fd_valloc_malloc( ctx->valloc, 8UL, sizeof(ulong)*self->historical_roots_len );
     for( ulong i = 0; i < self->historical_roots_len; ++i) {
       err = fd_bincode_uint64_decode(self->historical_roots + i, ctx);
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
@@ -4536,7 +4536,7 @@ int fd_slot_history_inner_decode(fd_slot_history_inner_t* self, fd_bincode_decod
   err = fd_bincode_uint64_decode(&self->blocks_len, ctx);
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   if (self->blocks_len != 0) {
-    self->blocks = fd_valloc_malloc( ctx->valloc, 8UL, self->blocks_len );
+    self->blocks = fd_valloc_malloc( ctx->valloc, 8UL, sizeof(ulong)*self->blocks_len );
     for( ulong i = 0; i < self->blocks_len; ++i) {
       err = fd_bincode_uint64_decode(self->blocks + i, ctx);
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
@@ -4924,7 +4924,7 @@ int fd_slot_meta_decode(fd_slot_meta_t* self, fd_bincode_decode_ctx_t * ctx) {
   err = fd_bincode_uint64_decode(&self->next_slot_len, ctx);
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   if (self->next_slot_len != 0) {
-    self->next_slot = fd_valloc_malloc( ctx->valloc, 8UL, self->next_slot_len );
+    self->next_slot = fd_valloc_malloc( ctx->valloc, 8UL, sizeof(ulong)*self->next_slot_len );
     for( ulong i = 0; i < self->next_slot_len; ++i) {
       err = fd_bincode_uint64_decode(self->next_slot + i, ctx);
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;

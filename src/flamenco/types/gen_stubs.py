@@ -132,9 +132,11 @@ def do_vector_body_decode(n, f):
 
     else:
         if f["element"] == "ulong":
-            print(f'    self->{f["name"]} = fd_valloc_malloc( ctx->valloc, 8UL, self->{f["name"]}_len );', file=body)
+            print(f'    self->{f["name"]} = fd_valloc_malloc( ctx->valloc, 8UL, sizeof(ulong)*self->{f["name"]}_len );', file=body)
         elif f["element"] == "uint":
             print(f'    self->{f["name"]} = fd_valloc_malloc( ctx->valloc, 8UL, sizeof(uint)*self->{f["name"]}_len );', file=body)
+        elif f["element"] == "ushort":
+            print(f'    self->{f["name"]} = fd_valloc_malloc( ctx->valloc, 8UL, sizeof(ushort)*self->{f["name"]}_len );', file=body)
         else:
             print(f'    self->{f["name"]} = ({n}_{f["element"]}_t *)fd_valloc_malloc( ctx->valloc, {el}_ALIGN, {el}_FOOTPRINT*self->{f["name"]}_len);', file=body)
 
