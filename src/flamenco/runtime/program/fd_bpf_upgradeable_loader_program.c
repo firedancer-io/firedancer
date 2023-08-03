@@ -199,9 +199,9 @@ serialize_aligned( instruction_ctx_t ctx, ulong * sz ) {
       uchar * raw_acc_data = (uchar *)fd_acc_mgr_view_data(ctx.global->acc_mgr, ctx.global->funk_txn, acc, NULL, &read_result);
       if ( FD_UNLIKELY( read_result == FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) ) {
           fd_memset( serialized_params, 0, sizeof(uchar)  // is_signer
-          + sizeof(uchar)                     // is_writable
-          + sizeof(uchar)                     // is_executable
-          + sizeof(uint));                    // original_data_len);
+          + sizeof(uchar)                                 // is_writable
+          + sizeof(uchar)                                 // is_executable
+          + sizeof(uint));                                // original_data_len
           
           serialized_params += sizeof(uchar)  // is_signer
           + sizeof(uchar)                     // is_writable
@@ -213,11 +213,11 @@ serialize_aligned( instruction_ctx_t ctx, ulong * sz ) {
           serialized_params += sizeof(fd_pubkey_t);
 
           fd_memset( serialized_params, 0, sizeof(fd_pubkey_t)  // owner
-          + sizeof(ulong)                           // lamports
-          + sizeof(ulong)                           // data_len
-          + 0                                       // data
+          + sizeof(ulong)                                       // lamports
+          + sizeof(ulong)                                       // data_len
+          + 0                                                   // data
           + MAX_PERMITTED_DATA_INCREASE
-          + sizeof(ulong));                         // rent_epoch
+          + sizeof(ulong));                                     // rent_epoch
           serialized_params += sizeof(fd_pubkey_t)  // owner
           + sizeof(ulong)                           // lamports
           + sizeof(ulong)                           // data_len
@@ -319,7 +319,13 @@ deserialize_aligned( instruction_ctx_t ctx, uchar * input, ulong input_sz ) {
     if ( FD_UNLIKELY( acc_idx_seen[acc_idx] ) ) {
       input_cursor += 7;
     } else if ( fd_account_is_writable_idx( &ctx, acc_idx ) && !fd_account_is_sysvar( &ctx, acc ) ) {
-      input_cursor += sizeof(uchar) + sizeof(uchar) + sizeof(uchar) + sizeof(uint) + sizeof(fd_pubkey_t);
+      acc_idx_seen[acc_idx] = 1;
+      input_cursor += sizeof(uchar) // is_signer
+          + sizeof(uchar)           // is_writable
+          + sizeof(uchar)           // executable
+          + sizeof(uint)            // original_data_len
+          + sizeof(fd_pubkey_t);    // key
+
       fd_pubkey_t * owner = (fd_pubkey_t *)input_cursor;
       input_cursor += sizeof(fd_pubkey_t);
 
@@ -374,18 +380,23 @@ deserialize_aligned( instruction_ctx_t ctx, uchar * input, ulong input_sz ) {
       
       input_cursor += sizeof(ulong);
     } else {
+      acc_idx_seen[acc_idx] = 1;
       // Account is not writable, skip over
-      input_cursor += sizeof(uchar) + sizeof(uchar) + sizeof(uchar) + sizeof(uint) + sizeof(fd_pubkey_t);
-      input_cursor += sizeof(fd_pubkey_t);
-      input_cursor += sizeof(ulong);
-      input_cursor += sizeof(ulong);
+      input_cursor += sizeof(uchar)         // is_signer
+          + sizeof(uchar)                   // is_writable
+          + sizeof(uchar)                   // executable
+          + sizeof(uint)                    // original_data_len
+          + sizeof(fd_pubkey_t);            // key
+      input_cursor += sizeof(fd_pubkey_t);  // owner
+      input_cursor += sizeof(ulong);        // lamports
+      input_cursor += sizeof(ulong);        // data_len
       
       int view_err = FD_ACC_MGR_SUCCESS;
       void const * raw_acc_data = fd_acc_mgr_view_data(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t const *)acc, NULL, &view_err);
       fd_account_meta_t * metadata = (fd_account_meta_t *)raw_acc_data;
 
       if ( view_err == FD_ACC_MGR_SUCCESS ) {
-        input_cursor += fd_ulong_align_up(metadata->dlen, 8);
+        input_cursor += fd_ulong_align_up(metadata->dlen, 8); 
       }
       input_cursor += MAX_PERMITTED_DATA_INCREASE;
 
