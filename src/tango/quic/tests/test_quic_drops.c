@@ -23,7 +23,7 @@ ulong tot_rcvd = 0;
 
 typedef float rng_t;
 
-rng_t rnd() {
+rng_t rnd( void ) {
   static uint seed = 0;
 
   ulong l = fd_rng_private_expand( seed++ );

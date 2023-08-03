@@ -112,7 +112,7 @@ fd_fibre_start( void * mem, ulong stack_sz, fd_fibre_fn_t fn, void * arg ) {
   fibre->ctx.uc_stack.ss_size = stack_sz;
 
   /* make a new context */
-  makecontext( &fibre->ctx, (void(*)())fd_fibre_run_fn, 1, fibre );
+  makecontext( &fibre->ctx, (void(*)(void))fd_fibre_run_fn, 1, fibre );
 
   return fibre;
 }
@@ -265,7 +265,7 @@ fd_fibre_schedule( fd_fibre_t * fibre ) {
    returns the time of the next ready fibre
    returns -1 if there are no fibres in the schedule */
 long
-fd_fibre_schedule_run() {
+fd_fibre_schedule_run( void ) {
   /* set the currently running fibre as the scheduler */
   fd_fibre_scheduler = fd_fibre_current;
 
