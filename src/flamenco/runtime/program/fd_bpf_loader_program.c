@@ -193,7 +193,7 @@ serialize_unaligned( instruction_ctx_t ctx, ulong * sz ) {
 }
 
 int
-deserialize_unaligned( instruction_ctx_t ctx, uchar * input, FD_FN_UNUSED ulong input_sz ) {
+deserialize_unaligned( instruction_ctx_t ctx, uchar * input, ulong input_sz ) {
   uchar * input_cursor = input;
 
   uchar acc_idx_seen[256];
@@ -248,6 +248,8 @@ deserialize_unaligned( instruction_ctx_t ctx, uchar * input, FD_FN_UNUSED ulong 
       input_cursor += sizeof(ulong);
     }
   }
+
+  FD_TEST( input_cursor <= input + input_sz );
 
   fd_valloc_free( ctx.global->valloc, input);
 

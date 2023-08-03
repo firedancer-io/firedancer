@@ -292,13 +292,15 @@ serialize_aligned( instruction_ctx_t ctx, ulong * sz ) {
   FD_STORE( fd_pubkey_t, serialized_params, txn_accs[ctx.instr->program_id] );
   serialized_params += sizeof(fd_pubkey_t);
 
+  FD_TEST( serialized_params == serialized_params_start + serialized_size );
+
   // FD_LOG_NOTICE(( "SERIALIZE - sz: %lu, diff: %lu", serialized_size, serialized_params - serialized_params_start ));
   *sz = serialized_size;
   return serialized_params_start;
 }
 
 int
-deserialize_aligned( instruction_ctx_t ctx, uchar * input, FD_FN_UNUSED ulong input_sz ) {
+deserialize_aligned( instruction_ctx_t ctx, uchar * input, ulong input_sz ) {
   uchar * input_cursor = input;
 
   uchar acc_idx_seen[256];
@@ -390,6 +392,8 @@ deserialize_aligned( instruction_ctx_t ctx, uchar * input, FD_FN_UNUSED ulong in
       input_cursor += sizeof(ulong);
     }
   }
+
+  FD_TEST( input_cursor <= input + input_sz );
 
   fd_valloc_free( ctx.global->valloc, input );
 
