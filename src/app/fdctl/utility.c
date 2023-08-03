@@ -23,7 +23,6 @@ enter_network_namespace( const char * interface ) {
 
   if( FD_LIKELY( !namespace_original_fd ) ) {
     namespace_original_fd = open( "/proc/self/ns/net", O_RDONLY | O_CLOEXEC );
-    FD_LOG_NOTICE(("enter_network_namespace original %d", namespace_original_fd));
     if( FD_UNLIKELY( namespace_original_fd < 0 ) ) FD_LOG_ERR(( "failed to open /proc/self/ns/net (%i-%s)", errno, strerror( errno ) ));
   }
 
@@ -43,7 +42,6 @@ close_network_namespace_original_fd( void ) {
 void
 leave_network_namespace( void ) {
   if( FD_UNLIKELY( !namespace_original_fd ) ) {
-    FD_LOG_NOTICE(( "leave_network_namespace break early"));
     return;
   }
 
