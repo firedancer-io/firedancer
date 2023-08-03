@@ -20,6 +20,8 @@
   THE SOFTWARE.
 */
 
+#pragma GCC diagnostic ignored "-Wstrict-aliasing"
+
 /* cJSON */
 /* JSON parser in C. */
 
