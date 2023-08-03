@@ -112,8 +112,10 @@ wf_exch_adj_quad( wf_t f ) { /* [ f4 f5 f6 f7 f0 f1 f2 f3 ] */
    ALTERNATIVELY, IT IS WORTHWHILE TO SPECIAL CASE 0 AND 4 EXTRACTION AS
    PER THE BELOW? */
 
-#if FD_USING_CLANG /* Sigh ... clang is sad and can't handle passing compile time const expressions through a static inline */
+#if FD_USING_CLANG || !FD_HAS_OPTIMIZATION
 
+/* Sigh ... clang is sad and can't handle passing compile time const
+   expressions through a static inline */
 static inline float
 wf_extract( wf_t a, int imm ) {
   union { float f[8]; __m256 v[1]; } t[1];
