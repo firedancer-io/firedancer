@@ -2327,8 +2327,6 @@ fd_quic_ack_pkt( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_pkt_t * pkt ) 
     ack_time = now + quic->config.service_interval; /* randomize */
   }
 
-  //DEBUG( return; )
-
   /* algo:
      if there exists a last unsent ack, and the last ack refers to the prior packet
        simply extend it
@@ -3386,10 +3384,17 @@ fd_quic_pkt_hdr_populate( fd_quic_pkt_hdr_t * pkt_hdr,
       pkt_hdr->quic_pkt.handshake.version          = conn->version;
 
       /* destination */
-      fd_memcpy( pkt_hdr->quic_pkt.handshake.dst_conn_id,
-              peer_conn_id->conn_id,
-              peer_conn_id->sz );
-      pkt_hdr->quic_pkt.handshake.dst_conn_id_len = peer_conn_id->sz;
+      if( initial ) {
+        fd_memcpy( pkt_hdr->quic_pkt.initial.dst_conn_id,
+                conn->orig_dst_conn_id.conn_id,
+                conn->orig_dst_conn_id.sz );
+        pkt_hdr->quic_pkt.initial.dst_conn_id_len = conn->orig_dst_conn_id.sz;
+      } else {
+        fd_memcpy( pkt_hdr->quic_pkt.initial.dst_conn_id,
+                peer_conn_id->conn_id,
+                peer_conn_id->sz );
+        pkt_hdr->quic_pkt.initial.dst_conn_id_len = peer_conn_id->sz;
+      }
 
       /* source */
       fd_memcpy( pkt_hdr->quic_pkt.handshake.src_conn_id,
@@ -6218,7 +6223,7 @@ fd_quic_frame_handle_new_conn_id_frame(
   context.pkt->ack_flag |= ACK_FLAG_RQD;
 
 
-  DEBUG( FD_LOG_DEBUG(( "new_conn_id requested" )); )
+  FD_DEBUG( FD_LOG_DEBUG(( "new_conn_id requested" )); )
   return 0;
 }
 
