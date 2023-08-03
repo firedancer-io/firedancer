@@ -98,9 +98,8 @@ serialize_unaligned( instruction_ctx_t ctx, ulong * sz ) {
 
     if( FD_UNLIKELY( acc_idx_seen[acc_idx] && dup_acc_idx[acc_idx] != i ) ) {
       // Duplicate
-      FD_STORE( ulong, serialized_params, 0 );
       FD_STORE( uchar, serialized_params, (uchar)dup_acc_idx[acc_idx] );
-      serialized_params += sizeof(ulong);
+      serialized_params += sizeof(uchar);
     } else {
       FD_STORE( uchar, serialized_params, 0xFF );
       serialized_params += sizeof(uchar);
@@ -187,6 +186,7 @@ serialize_unaligned( instruction_ctx_t ctx, ulong * sz ) {
   FD_STORE( fd_pubkey_t, serialized_params, txn_accs[ctx.instr->program_id] );
   serialized_params += sizeof(fd_pubkey_t);
 
+  FD_TEST( serialized_params == serialized_params_start + serialized_size );
   // FD_LOG_NOTICE(( "SERIALIZE (UNALIGNED) - sz: %lu, diff: %lu", serialized_size, serialized_params - serialized_params_start ));
   *sz = serialized_size;
   return serialized_params_start;
