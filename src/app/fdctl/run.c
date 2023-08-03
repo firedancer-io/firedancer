@@ -25,10 +25,12 @@ run_cmd_perm( args_t *         args,
   check_res( security, "run", RLIMIT_NOFILE, 1024000, "increase `RLIMIT_NOFILE` to allow more open files for Solana Labs" );
   check_cap( security, "run", CAP_NET_RAW, "call `bind(2)` to bind to a socket with `SOCK_RAW`" );
   check_cap( security, "run", CAP_SYS_ADMIN, "initialize XDP by calling `bpf_obj_get`" );
-  if( getuid() != config->uid )
+  if( FD_LIKELY( getuid() != config->uid ) )
     check_cap( security, "run", CAP_SETUID, "switch uid by calling `setuid(2)`" );
-  if( getgid() != config->gid )
+  if( FD_LIKELY( getgid() != config->gid ) )
     check_cap( security, "run", CAP_SETGID, "switch gid by calling `setgid(2)`" );
+  if( FD_UNLIKELY( config->development.netns.enabled ) )
+    check_cap( security, "run", CAP_SYS_ADMIN, "enter a network namespace by calling `setns(2)`" );
 }
 
 static void
@@ -221,6 +223,8 @@ solana_labs_main( void * args ) {
 
   ADD1( "fdctl" );
   ADD( "--log", "-" );
+
+  ADD( "--firedancer-app-name", config->name );
 
   ADD( "--dynamic-port-range", config->dynamic_port_range );
 

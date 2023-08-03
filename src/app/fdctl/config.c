@@ -577,6 +577,14 @@ config_parse( int *    pargc,
     config_parse_file( user_config, &result );
   }
 
+  int netns = fd_env_strip_cmdline_contains( pargc, pargv, "--netns" );
+  if( FD_UNLIKELY( netns ) ) {
+    result.development.netns.enabled = 1;
+    strncpy( result.tiles.quic.interface,
+             result.development.netns.interface0,
+             sizeof(result.tiles.quic.interface) );
+  }
+
   if( FD_UNLIKELY( !strcmp( result.user, "" ) ) ) {
     const char * user = default_user();
     if( FD_UNLIKELY( strlen( user ) >= sizeof( result.user ) ) )
@@ -606,6 +614,7 @@ config_parse( int *    pargc,
                    "[development.netns.interface0] is the same as [tiles.quic.interface]" ));
 
     fd_cstr_to_ip4_addr( result.development.netns.interface0_addr, &result.tiles.quic.ip_addr );
+    FD_LOG_NOTICE(( "parsed addr %s into %u", result.development.netns.interface0_addr, result.tiles.quic.ip_addr ));
     fd_cstr_to_mac_addr( result.development.netns.interface0_mac, result.tiles.quic.mac_addr );
   } else {
     if( FD_UNLIKELY( !if_nametoindex( result.tiles.quic.interface ) ) )

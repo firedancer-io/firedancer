@@ -1,0 +1,11 @@
+[package]
+name = "firedancer"
+version = "0.1.0"
+edition = "2021"
+authors = ["Firedancer Contributors <firedancer-devs@jumptrading.com>"]
+description = "Safe high level wrappers for Firedancer"
+license = "Apache-2.0"
+
+[dependencies]
+paste = "1.0.12"
+firedancer-sys = { path = "../firedancer-sys" }

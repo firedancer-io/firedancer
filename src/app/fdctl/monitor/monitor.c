@@ -219,6 +219,14 @@ run_monitor( config_t * const config,
           links[ link_idx ].fseq = fd_fseq_join( fd_wksp_pod_map( pods[ j ], snprintf1( buf, 64, "fseq%lu", i ) ) );
           if( FD_UNLIKELY( !links[ link_idx ].fseq ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
           link_idx++;
+
+          links[ link_idx ].src_name = "bank";
+          links[ link_idx ].dst_name = "pack";
+          links[ link_idx ].mcache = fd_mcache_join( fd_wksp_pod_map( pods[ j ], snprintf1( buf, 64, "mcache-back%lu", i ) ) );
+          if( FD_UNLIKELY( !links[ link_idx ].mcache ) ) FD_LOG_ERR(( "fd_mcache_join failed" ));
+          links[ link_idx ].fseq = fd_fseq_join( fd_wksp_pod_map( pods[ j ], snprintf1( buf, 64, "fseq-back%lu", i ) ) );
+          if( FD_UNLIKELY( !links[ link_idx ].fseq ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
+          link_idx++;
         }
         break;
       case wksp_bank_shred:

@@ -22,6 +22,7 @@ dev1_cmd_args( int *    pargc,
   else if( FD_LIKELY( !strcmp( *pargv[ 0 ], "quic" ) ) ) args->run1.tile = 3;
   else if( FD_LIKELY( !strcmp( *pargv[ 0 ], "bank" ) ) ) args->run1.tile = 4;
   else if( FD_LIKELY( !strcmp( *pargv[ 0 ], "labs" ) ) ) args->run1.tile = 4;
+  else if( FD_LIKELY( !strcmp( *pargv[ 0 ], "solana" ) ) ) args->run1.tile = 4;
   else if( FD_LIKELY( !strcmp( *pargv[ 0 ], "solana-labs" ) ) ) args->run1.tile = 4;
   else FD_LOG_ERR(( "unrecognized tile %s", *pargv[0] ));
 

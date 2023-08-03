@@ -138,12 +138,11 @@ run( fd_frank_args_t * args ) {
   out_state out[ FD_FRANK_PACK_MAX_OUT ];
 
   /* FIXME: Plumb this through properly: */
-  ulong bank_cnt = fd_pod_cnt( args->out_pod ) / 3UL - 1UL; /* Skip bank 0 */
+  ulong bank_cnt = fd_pod_query_ulong( args->out_pod, "num_tiles", 0UL );
+  if( FD_UNLIKELY( !bank_cnt ) ) FD_LOG_ERR(( "pack.num_tiles unset or set to zero" ));
   if( FD_UNLIKELY( bank_cnt>FD_FRANK_PACK_MAX_OUT ) ) FD_LOG_ERR(( "pack tile connects to too many banking tiles" ));
 
-  /* Skip bank 0 */
-  for( ulong i=0UL; i<bank_cnt; i++ ) join_out( out+i, args->out_pod, i+1UL );
-
+  for( ulong i=0UL; i<bank_cnt; i++ ) join_out( out+i, args->out_pod, i );
 
   ulong max_txn_per_microblock = MAX_MICROBLOCK_SZ/sizeof(fd_txn_p_t);
 
