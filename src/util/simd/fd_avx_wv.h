@@ -312,9 +312,10 @@ wv_max_all( wv_t x ) { /* Returns wv_bcast( max( x ) ) */
    type mismatch issue. */
 
 static inline wv_t wv_gather( ulong const * b, wi_t i, int imm_hi ) {
-  return _mm256_i32gather_epi64( (long long const *)b,
-                                 imm_hi ?  _mm256_extractf128_si256( i, 1 ) : _mm256_extractf128_si256( i, 0 ) /* compile time */,
-                                 8 );
+  /* A compile time branch, but older versions of GCC can't handle the
+     ternary operator with -O0 */
+  if( imm_hi ) return _mm256_i32gather_epi64( (long long const *)b, _mm256_extractf128_si256( i, 1 ), 8 );
+  else         return _mm256_i32gather_epi64( (long long const *)b, _mm256_extractf128_si256( i, 0 ), 8 );
 }
 
 /* wv_transpose_4x4 transposes the 4x4 matrix stored in wv_t r0,r1,r2,r3
