@@ -405,6 +405,7 @@ main( int     argc,
   fd_wksp_free_laddr( fd_scratch_detach( NULL ) );
   fd_wksp_free_laddr( fmem                      );
   fclose( file );
+  fd_flamenco_halt();
   fd_halt();
   return 0;
 }
