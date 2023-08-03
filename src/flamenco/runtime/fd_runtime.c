@@ -212,8 +212,6 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_meta_t* m, const void
     return result;
   }
 
-  fd_solcap_write_bank_hash( global->capture, global->bank.banks_hash.hash );
-
   return fd_runtime_save_banks( global );
 }
 

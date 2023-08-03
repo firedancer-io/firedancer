@@ -3,77 +3,135 @@
 
 #include "../fd_flamenco_base.h"
 
-/* fd_solcap provides APIs for Solana runtime capture data.
-   Byte order is little endian. */
+/* fd_solcap_proto defines the capture data format "solcap".
 
-/* TODO allow storing account data separately */
+   solcap is a portable file format for capturing Solana runtime data
+   suitable for replay and debugging.  It is laid out as follows:
 
-/* fd_solcap_fhdr is the file header of a capture file */
+     File Header
+     File Protobuf Object
+     Chunk 0
+       Chunk Header
+       Chunk Protobuf Object
+       Data ...
+     Chunk 1
+       Chunk Header
+       Chunk Protobuf Object
+       Data ...
+     Chunk N ...
 
-#define FD_SOLCAP_MAGIC (0x805fe7580b1da4b7UL)
+   The file header briefly describes the file's content type and points
+   to the first chunk.  Additional metadata, such as slot bounds, are
+   stored in a Protobuf blob following the header.  Currently, the
+   following content types are implemented:
 
-struct fd_solcap_fhdr_v0 {
-  ulong slot0;
-  ulong slot_cnt;
+     SOLCAP_V1_BANK:  Bank pre-image, version 0
+                      (assumed to only contain SOLCAP_V1_BANK chunks)
 
-  ulong bank_hash_off;
-  ulong bank_preimage_off;
-};
+   Capture content is divided into variable-length chunks.  The size of
+   a chunk should be no larger than 128 MiB.  Each chunk contains a
+   fixed-size binary header containing type and length information.
+   Following the header is a serialized Protobuf object with chunk-
+   specific information.
 
-typedef struct fd_solcap_fhdr_v0 fd_solcap_fhdr_v0_t;
+   Typically, readers sequentially read in chunks, loading one chunk
+   into memory at a time.  Within a chunk, data structures are laid out
+   in arbitrary order which requires random access.  Random access out-
+   side of chunks is rarely required.  Readers should ignore chunks of
+   unknown content type.
+
+   Furthermore:
+   - Byte order is little endian
+   - There should be no gaps between slots
+   - Suffix `_foff` ("file offset") refers to an offset from the
+     beginning of a stream
+   - Suffix `_coff` ("chunk offset") refers to an offset from the first
+     byte of the header of the current chunk
+
+   Why a mix of C structs and Protobufs?  We prefer the use of Protobuf
+   to easily support additions to the schema.  Fixed-size/fixed-offset
+   structures are only used to support navigating the file. */
+
+/* TODO Pending features:
+   - Fork support
+   - Compression
+   - Chunk Table */
+
+/* FD_SOLCAP_V1_FILE_MAGIC identifies a solcap version 0 file. */
+
+#define FD_SOLCAP_V1_FILE_MAGIC (0x806fe7581b1da4b7UL)
+
+/* fd_solcap_fhdr_t is the file header of a capture file. */
 
 struct fd_solcap_fhdr {
-  ulong magic;    /* ==FD_SOLCAP_MAGIC */
-  ulong version;  /* ==0UL */
-  ulong total_sz;
+  /* 0x00 */ ulong magic;        /* ==FD_SOLCAP_V1_NULL_MAGIC */
+  /* 0x08 */ ulong chunk0_foff;  /* Offset of first chunk from begin of stream */
 
-  union {
-    fd_solcap_fhdr_v0_t v0;
-  };
+  /* Metadata;  Protobuf fd_solcap_FileMeta */
+  /* 0x10 */ uint meta_sz;
+  /* 0x14 */ uint _pad14[3];
 };
 
 typedef struct fd_solcap_fhdr fd_solcap_fhdr_t;
 
-struct fd_solcap_bank_hash {
-  uchar hash[ 32 ];
+/* FD_SOLCAP_V1_{...}_MAGIC identifies a chunk type.
+
+     NULL: ignored chunk -- can be used to patch out existing chunks
+     ACCT: account chunk
+     ACTB: account table chunk
+     BANK: bank hash preimage capture
+           Metadata Protobuf type fd_solcap_BankChunk */
+
+#define FD_SOLCAP_V1_MAGIC_MASK (0xfffffffffffff000UL)
+#define FD_SOLCAP_V1_NULL_MAGIC (0x805fe7580b1da000UL)
+#define FD_SOLCAP_V1_ACCT_MAGIC (0x805fe7580b1da4bAUL)
+#define FD_SOLCAP_V1_ACTB_MAGIC (0x805fe7580b1da4bBUL)
+#define FD_SOLCAP_V1_BANK_MAGIC (0x805fe7580b1da4b8UL)
+
+FD_PROTOTYPES_BEGIN
+
+static inline int
+fd_solcap_is_chunk_magic( ulong magic ) {
+  return (magic & FD_SOLCAP_V1_MAGIC_MASK) == FD_SOLCAP_V1_NULL_MAGIC;
+}
+
+FD_PROTOTYPES_END
+
+/* fd_solcap_chunk_t is the fixed size header of a chunk.  A "chunk
+   offset" points to the first byte of this structure.  Immediately
+   following this structure is a serialized Protobuf blob, the type of
+   which is decided by the chunk's magic.  meta_sz indicates the size
+   of such blob. */
+
+struct fd_solcap_chunk {
+  /* 0x00 */ ulong magic;
+  /* 0x08 */ ulong total_sz;
+  /* 0x10 */ uint  meta_coff;
+  /* 0x14 */ uint  meta_sz;
+  /* 0x18 */ ulong _pad18;
+  /* 0x20 */
 };
 
-typedef struct fd_solcap_bank_hash fd_solcap_bank_hash_t;
+typedef struct fd_solcap_chunk fd_solcap_chunk_t;
 
-/* Convert this to Protobuf */
+/* fd_solcap_account_tbl_t is an entry of the table of accounts that
+   were changed in a block.  meta_coff points to the chunk offset of a
+   Protobuf-serialized fd_solcap_AccountMeta object, with serialized
+   size meta_sz.  key is the account address.  hash is the account hash
+   (a leaf of the accounts delta accumulator).  data_coff points to the
+   chunk offset of the account's data, with size data_sz.
 
-struct fd_solcap_bank_preimage {
-  /* 0x00 */ uchar prev_bank_hash[ 32 ];
-  /* 0x20 */ uchar account_delta_hash[ 32 ];
-  /* 0x40 */ uchar poh_hash[ 32 ];
-  /* 0x60 */ ulong signature_cnt;
+   The table of accounts should ideally be sorted to match the order of
+   accounts in the accounts delta vector. */
 
-  /* 0x68 */ ulong account_cnt;
-  /* 0x70 */ ulong account_off;
-  /* 0x78 */ uchar skipped_slot;
-  /* 0x79 */ uchar _pad78[ 7 ];
-  /* 0x80 */
+struct fd_solcap_account_tbl {
+  /* 0x00 */ uchar key  [ 32 ];
+  /* 0x20 */ uchar hash [ 32 ];
+  /* 0x40 */ long  acc_coff;  /* chunk offset to account chunk */
+  /* 0x48 */ ulong _pad48[3];
+  /* 0x60 */
 };
 
-typedef struct fd_solcap_bank_preimage fd_solcap_bank_preimage_t;
-
-struct fd_solcap_account {
-  /* 0x00 */ ulong footprint;
-  /* 0x08 */ ulong lamports;
-  /* 0x10 */ ulong slot;
-  /* 0x18 */ ulong rent_epoch;
-
-  /* 0x20 */ uchar key  [ 32 ];
-  /* 0x40 */ uchar owner[ 32 ];
-  /* 0x60 */ uchar hash [ 32 ];
-
-  /* 0x80 */ char  executable;
-  /* 0x81 */ uchar _pad61[7];
-
-  /* 0x88 */
-  /* Variable-length data follows */
-};
-
-typedef struct fd_solcap_account fd_solcap_account_t;
+typedef struct fd_solcap_account_tbl fd_solcap_account_tbl_t;
 
 #endif /* HEADER_fd_src_flamenco_capture_fd_solcap_proto_h */

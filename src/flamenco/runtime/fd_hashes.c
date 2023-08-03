@@ -205,9 +205,11 @@ fd_hash_bank( fd_global_ctx_t *global, fd_hash_t * hash, fd_pubkey_hash_vector_t
 
   fd_solcap_write_bank_preimage(
       global->capture,
+      hash->hash,
       global->prev_banks_hash.hash,
       global->account_delta_hash.hash,
-      &global->bank.poh.hash );
+      &global->bank.poh.hash,
+      global->signature_cnt );
 
   if (global->log_level > 0) {
     char encoded_hash[50];
@@ -324,16 +326,13 @@ fd_update_hash_bank( fd_global_ctx_t * global,
 
     /* Add to capture */
 
-    fd_solcap_account_t capture_acc = {
-      .lamports   = acc_meta_w->info.lamports,
-      .slot       = slot,
-      .rent_epoch = acc_meta_w->info.rent_epoch,
-      .executable = acc_meta_w->info.executable,
-    };
-    memcpy( capture_acc.key,   acc_key,                sizeof(fd_pubkey_t) );
-    memcpy( capture_acc.owner, acc_meta_w->info.owner, sizeof(fd_pubkey_t) );
-    memcpy( capture_acc.hash,  acc_hash.hash,          sizeof(fd_hash_t  ) );
-    err = fd_solcap_write_account( capture, &capture_acc, acc_data, acc_meta_w->dlen );
+    err = fd_solcap_write_account(
+        capture,
+        acc_key->uc,
+        &acc_meta_w->info,
+        acc_data,
+        acc_meta_w->dlen,
+        acc_hash.hash );
     FD_TEST( err==0 );
   }
 
