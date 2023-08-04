@@ -469,6 +469,9 @@ fd_solcap_write_account( fd_solcap_writer_t *             writer,
 int
 fd_solcap_write_set_slot( fd_solcap_writer_t * writer,
                           ulong                slot ) {
+
+  if( FD_LIKELY( !writer ) ) return 0;
+
   /* Discard account table buffer */
   writer->account_idx = 0UL;
   writer->slot        = slot;
@@ -482,6 +485,8 @@ fd_solcap_write_bank_preimage( fd_solcap_writer_t * writer,
                                void const *         account_delta_hash,
                                void const *         poh_hash,
                                ulong                signature_cnt ) {
+
+  if( FD_LIKELY( !writer ) ) return 0;
 
   int err = fd_solcap_flush_account_table( writer );
   if( FD_UNLIKELY( err!=0 ) ) return err;
