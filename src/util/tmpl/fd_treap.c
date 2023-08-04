@@ -294,6 +294,16 @@
      myele_t *          mytreap_rev_iter_ele      ( mytreap_rev_iter_t iter, myele_t *       pool );
      myele_t const *    mytreap_rev_iter_ele_const( mytreap_rev_iter_t iter, myele_t const * pool );
 
+     // mytreap_merge merges two treaps backed by the same pool into a
+     // single treap.  Merge is equivalent to removing each element from
+     // treap_b and inserting it into treap_a, but merging the heaps is
+     // asympotically slightly better.  Returns treap_a, which now
+     // additionally contains the elements from treap_b.  Requires that
+     // the treap does not use the maximum priority element (see the
+     // note above about PRIO_MAX).
+
+     mytreap * mytreap_merge( mytreap * treap_a, mytreap * treap_b, myele_t * pool );
+
      // mytreap_verify returns 0 if the mytreap is not obviously corrupt
      // or a -1 (i.e. ERR_INVAL) if it is (logs details).  treap is
      // current local join to a mytreap.  pool is a pointer in the
@@ -356,6 +366,7 @@
 #ifndef TREAP_IDX_T
 #define TREAP_IDX_T ulong
 #endif
+
 
 /* TREAP_{PARENT,LEFT,RIGHT,PRIO} is the name the treap element parent /
    left / right / prio fields.  Defaults to parent / left / right /
@@ -440,11 +451,13 @@ TREAP_STATIC FD_FN_PURE ulong TREAP_(idx_query)( TREAP_(t) const * treap, TREAP_
 TREAP_STATIC TREAP_(t) * TREAP_(idx_insert)( TREAP_(t) * treap, ulong n, TREAP_T * pool );
 TREAP_STATIC TREAP_(t) * TREAP_(idx_remove)( TREAP_(t) * treap, ulong d, TREAP_T * pool );
 
-TREAP_STATIC FD_FN_PURE TREAP_(fwd_iter_t) TREAP_(fwd_iter_init)( TREAP_(t) const * treap, TREAP_T const * pool ); 
+TREAP_STATIC FD_FN_PURE TREAP_(fwd_iter_t) TREAP_(fwd_iter_init)( TREAP_(t) const * treap, TREAP_T const * pool );
 TREAP_STATIC FD_FN_PURE TREAP_(rev_iter_t) TREAP_(rev_iter_init)( TREAP_(t) const * treap, TREAP_T const * pool );
 
 TREAP_STATIC FD_FN_PURE TREAP_(fwd_iter_t) TREAP_(fwd_iter_next)( TREAP_(fwd_iter_t) i, TREAP_T const * pool );
 TREAP_STATIC FD_FN_PURE TREAP_(rev_iter_t) TREAP_(rev_iter_next)( TREAP_(rev_iter_t) i, TREAP_T const * pool );
+
+TREAP_STATIC TREAP_(t) * TREAP_(merge)( TREAP_(t) * treap_a, TREAP_(t) * treap_b, TREAP_T * pool );
 
 TREAP_STATIC FD_FN_PURE int TREAP_(verify)( TREAP_(t) const * treap, TREAP_T const * pool );
 
@@ -776,6 +789,292 @@ TREAP_(idx_remove)( TREAP_(t) * treap,
   return treap;
 }
 
+static inline void
+TREAP_(private_split)( TREAP_IDX_T   idx_node,    /* Tree to split */
+                       TREAP_T *     key,         /* Element whose key is not in the treap rooted at idx_node */
+                       TREAP_IDX_T * _idx_left,   /* Where to store the left tree root */
+                       TREAP_IDX_T * _idx_right,  /* Where to store the right tree root */
+                       TREAP_T *     pool ) {     /* Underlying pool */
+
+  TREAP_IDX_T idx_parent_left  = TREAP_IDX_NULL;
+  TREAP_IDX_T idx_parent_right = TREAP_IDX_NULL;
+
+  while( !TREAP_IDX_IS_NULL( idx_node ) ) {
+
+    /* At this point we have a non-empty subtree to split whose root is
+       node and we should store roots of the split trees at *_idx_left
+       and *_idx_right. */
+
+    if( TREAP_LT( &pool[ idx_node ], key ) ) {
+
+      /* node is left of key which, by the BST property, means all
+         elements in node's left subtree are also left of key.  We don't
+         know if node's right subtree contains any elements left of key.
+         If it does, these elements should be attached to node's right
+         subtree to preserve the BST property of the left split.
+
+         As such, we attach node and node's left subtree to the
+         left split, update the attach point for the left split to
+         node's right subtree and then recurse on the node's right
+         subtree.
+
+         Note that this operation does not do any reordering of
+         priorities (e.g. if element B was a descendant of element A
+         before the split and both B and A belong on the left split, B
+         will still be a descendant of A). */
+
+      /* Attach node and node's left subtree to the left split */
+      pool[ idx_node ].TREAP_PARENT = idx_parent_left;
+      *_idx_left = idx_node;
+
+      /* The next left split attach is at node's right subtree */
+      idx_parent_left = idx_node;
+      _idx_left = &pool[ idx_node ].TREAP_RIGHT;
+
+      /* Recurse on the right subtree */
+      idx_node = pool[ idx_node ].TREAP_RIGHT;
+
+    } else { /* Mirror image of the above */
+
+      pool[ idx_node ].TREAP_PARENT = idx_parent_right;
+      *_idx_right = idx_node;
+
+      idx_parent_right = idx_node;
+      _idx_right = &pool[ idx_node ].TREAP_LEFT;
+
+      idx_node = pool[ idx_node ].TREAP_LEFT;
+
+    }
+  }
+
+  /* At this point, we have an empty tree to split */
+
+  *_idx_left  = TREAP_IDX_NULL;
+  *_idx_right = TREAP_IDX_NULL;
+}
+
+static inline void
+TREAP_(private_join)( TREAP_IDX_T    idx_left,   /* Keys in left treap < keys in right treap */
+                      TREAP_IDX_T    idx_right,
+                      TREAP_IDX_T *  _idx_join,
+                      TREAP_T     *  pool ) {
+
+  TREAP_IDX_T idx_join_parent = TREAP_IDX_NULL;
+
+  for(;;) {
+
+    if( TREAP_IDX_IS_NULL( idx_left ) ) { /* Left treap empty */
+      /* join is the right treap (or empty if both left and right empty) */
+      if( !TREAP_IDX_IS_NULL( idx_right ) ) pool[ idx_right ].TREAP_PARENT = idx_join_parent;
+      *_idx_join = idx_right;
+      break;
+    }
+
+    if( TREAP_IDX_IS_NULL( idx_right ) ) { /* Right treap empty */
+      /* join is the left treap */
+      pool[ idx_left ].TREAP_PARENT = idx_join_parent;
+      *_idx_join = idx_left;
+      break;
+    }
+
+    /* At this point, we have two non empty treaps to join and elements
+       in the left treap have keys before elements in the right treap. */
+
+    if( ( pool[ idx_left ].TREAP_PRIO> pool[ idx_right ].TREAP_PRIO) |
+        ((pool[ idx_left ].TREAP_PRIO==pool[ idx_right ].TREAP_PRIO) & (idx_left^idx_right)) ) {
+
+      /* At this point, the left treap root has higher priority than the
+         right treap root.  So we attach the left treap root and left
+         treap left subtree to the join to preserve the heap property.
+         We know that the left treap right subtree is to the right of
+         these and that the right treap is to the right of that.  So our
+         next join attachment point should be at the left treap right
+         subtree and we should recurse on the left treap right subtree
+         and the right treap. */
+
+      /* Attach left's root and left's left subtree to the join */
+      pool[ idx_left ].TREAP_PARENT = idx_join_parent;
+      *_idx_join = idx_left;
+
+      /* The next join attach should be left's right subtree */
+      idx_join_parent = idx_left;
+      _idx_join = &pool[ idx_left ].TREAP_LEFT;
+
+      /* Recurse on left's right subtree and right treap */
+      idx_left = pool[ idx_left ].TREAP_RIGHT;
+
+    } else { /* Mirror image of the above */
+
+      pool[ idx_right ].TREAP_PARENT = idx_join_parent;
+      *_idx_join = idx_right;
+
+      idx_join_parent = idx_right;
+      _idx_join = &pool[ idx_right ].TREAP_RIGHT;
+
+      idx_right = pool[ idx_right ].TREAP_LEFT;
+
+    }
+  }
+}
+
+
+TREAP_(t) *
+TREAP_(merge)( TREAP_(t) * treap_a,  /* Assumes a and b have no common elements */
+               TREAP_(t) * treap_b,
+               TREAP_T *   pool ) {
+
+  TREAP_IDX_T idx_a = treap_a->root;
+  TREAP_IDX_T idx_b = treap_b->root;
+  TREAP_IDX_T new_root = TREAP_IDX_NULL;
+  TREAP_IDX_T * _idx_merge = &new_root;
+
+# define STACK_MAX (128UL)
+
+  struct { TREAP_IDX_T idx_merge_parent; TREAP_IDX_T * _idx_merge; TREAP_IDX_T idx_a; TREAP_IDX_T idx_b; } stack[ STACK_MAX ];
+  ulong stack_top = 0UL;
+
+# define STACK_IS_EMPTY (!stack_top)
+# define STACK_IS_FULL  (stack_top>=STACK_MAX)
+# define STACK_PUSH( imp, im, ia, ib ) do {      \
+    stack[ stack_top ].idx_merge_parent = (imp); \
+    stack[ stack_top ]._idx_merge       = (im);  \
+    stack[ stack_top ].idx_a            = (ia);  \
+    stack[ stack_top ].idx_b            = (ib);  \
+    stack_top++;                                 \
+  } while(0)
+# define STACK_POP( imp, im, ia, ib ) do {       \
+    stack_top--;                                 \
+    (imp) = stack[ stack_top ].idx_merge_parent; \
+    (im)  = stack[ stack_top ]._idx_merge;       \
+    (ia)  = stack[ stack_top ].idx_a;            \
+    (ib)  = stack[ stack_top ].idx_b;            \
+  } while(0)
+
+  TREAP_IDX_T idx_merge_parent = TREAP_IDX_NULL;
+
+  for(;;) {
+    /* At this point, we are to merge the treaps rooted at idx_a and
+       idx_b.  The result should be attached to the output treap at node
+       idx_merge_parent via the link *idx_merge.  (On the first
+       iteration, the idx_merge_parent will be idx_null and *_idx_merge
+       will be where to store the root of the output treap.) */
+
+    int idx_a_is_null = TREAP_IDX_IS_NULL( idx_a );
+    int idx_b_is_null = TREAP_IDX_IS_NULL( idx_b );
+    if( idx_a_is_null | idx_b_is_null ) {
+
+      /* At this point, at least one of the treaps to merge is empty.
+         Attach the non-empty treap (if any) accordingly.  If both are
+         empty, we attach NULL and there is no parent field to update. */
+
+      TREAP_IDX_T idx_tmp;
+      *fd_ptr_if( idx_b_is_null, fd_ptr_if( idx_a_is_null, &idx_tmp,
+                                                           &pool[ idx_a ].TREAP_PARENT ),
+                                                           &pool[ idx_b ].TREAP_PARENT ) = idx_merge_parent;
+      *_idx_merge = (TREAP_IDX_T)fd_ulong_if( idx_b_is_null, (ulong)idx_a, (ulong)idx_b );
+
+      /* Pop the stack to get the next merge to do.  If the stack is
+         empty, we are done. */
+
+      if( STACK_IS_EMPTY ) break;
+      STACK_POP( idx_merge_parent, _idx_merge, idx_a, idx_b );
+      continue;
+    }
+
+    /* If the stack is full, it appears we have an exceedingly poorly
+       balanced set of treaps to merge.  To mitigate stack overflow
+       risk from the recursion, we fall back on marginally
+       less efficient brute force non-recursive algorithm for the merge.
+       FIXME: consider doing this post swap for statistical reasons
+       (i.e. the treap with the higher root priority is likely to be the
+       larger treap and such might have some performance implications
+       for the below loop). */
+
+    if( FD_UNLIKELY( STACK_IS_FULL ) ) {
+
+      /* Remove elements from B one-by-one and insert them into A.
+         O(B lg B) for the removes, O(B lg(A + B)) for the inserts. */
+
+      TREAP_(t) temp_treap_a = { .ele_max = treap_a->ele_max, .ele_cnt = 0UL, .root = idx_a };
+      TREAP_(t) temp_treap_b = { .ele_max = treap_b->ele_max, .ele_cnt = 0UL, .root = idx_b };
+      pool[ idx_a ].TREAP_PARENT = TREAP_IDX_NULL;
+      pool[ idx_b ].TREAP_PARENT = TREAP_IDX_NULL;
+      do {
+        TREAP_IDX_T idx_tmp = temp_treap_b.root;
+        TREAP_(idx_remove)( &temp_treap_b, idx_tmp, pool );
+        TREAP_(idx_insert)( &temp_treap_a, idx_tmp, pool );
+      } while( !TREAP_IDX_IS_NULL( temp_treap_b.root ) );
+
+      idx_b = TREAP_IDX_NULL;
+      idx_a = temp_treap_a.root;
+
+      /* Attach the merged treap to the output */
+
+      pool[ idx_a ].TREAP_PARENT = idx_merge_parent;
+      *_idx_merge = idx_a;
+
+      /* Pop the stack to get the next merge to do.  If the stack is
+         empty, we are done. */
+
+      if( STACK_IS_EMPTY ) break;
+      STACK_POP( idx_merge_parent, _idx_merge, idx_a, idx_b );
+      continue;
+    }
+
+    /* At this point, we have two non-empty treaps A and B to merge.  If
+       A's root priority is below B's root priority, swap A and B. */
+    TREAP_IDX_T prio_a = pool[ idx_a ].TREAP_PRIO;
+    TREAP_IDX_T prio_b = pool[ idx_b ].TREAP_PRIO;
+    fd_swap_if( (prio_a < prio_b) | ((prio_a==prio_b) & (int)((idx_a ^ idx_b) & 1UL)), idx_a, idx_b );
+
+    /* At this point, we have two non-empty treaps to merge and A's root
+       priority is higher than B's root priority.  So, we know the root
+       of the merged treaps is A's root and can attach it to the output
+       treap accordingly. */
+
+    pool[ idx_a ].TREAP_PARENT = idx_merge_parent;
+    *_idx_merge = idx_a;
+
+    /* Get A's left and right subtrees */
+
+    TREAP_IDX_T idx_a_left  = pool[ idx_a ].TREAP_LEFT;
+    TREAP_IDX_T idx_a_right = pool[ idx_a ].TREAP_RIGHT;
+
+    /* Split B by A's root key */
+
+    TREAP_IDX_T idx_b_left;
+    TREAP_IDX_T idx_b_right;
+    TREAP_(private_split)( idx_b, &pool[ idx_a ], &idx_b_left, &idx_b_right, pool );
+
+    /* At this point, A's left subtree and B's left split are all keys
+       to the left of A's root and A's right subtree.  Similarly, B's
+       right split are all keys to the right of A's root.  We can't do
+       join on A's left/right subtree and B's left/right split though as
+       these have no particular mutual ordering.  Instead, we recurse on
+       the left trees and save the right trees for later consideration. */
+
+    STACK_PUSH( idx_a, &pool[ idx_a ].TREAP_RIGHT, idx_a_right, idx_b_right );
+
+    idx_merge_parent = idx_a;
+    _idx_merge       = &pool[ idx_a ].TREAP_LEFT;
+    idx_a            = idx_a_left;
+    idx_b            = idx_b_left;
+  }
+
+  treap_a->root     = new_root;
+  treap_b->root     = TREAP_IDX_NULL;
+  treap_a->ele_cnt += treap_b->ele_cnt;
+  treap_b->ele_cnt  = 0UL;
+
+  return treap_a;
+
+# undef STACK_POP
+# undef STACK_PUSH
+# undef STACK_IS_FULL
+# undef STACK_IS_EMPTY
+# undef STACK_MAX
+}
+
 TREAP_STATIC TREAP_(fwd_iter_t)
 TREAP_(fwd_iter_init)( TREAP_(t) const * treap,
                        TREAP_T const *   pool ) {
@@ -836,7 +1135,7 @@ TREAP_(rev_iter_next)( TREAP_(rev_iter_t) i,
 
   i = l;
   for(;;) {
-    ulong r = (ulong)pool[ i ].TREAP_RIGHT; 
+    ulong r = (ulong)pool[ i ].TREAP_RIGHT;
     if( TREAP_IDX_IS_NULL( r ) ) break;
     i = r;
   }

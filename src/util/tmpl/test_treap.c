@@ -33,7 +33,7 @@ typedef struct ele ele_t;
 #include "fd_treap.c"
 
 #define SCRATCH_ALIGN     (128UL)
-#define SCRATCH_FOOTPRINT (1024UL)
+#define SCRATCH_FOOTPRINT (2048UL)
 static uchar scratch[ SCRATCH_FOOTPRINT ] __attribute__((aligned(SCRATCH_ALIGN)));
 
 #if 0
@@ -171,6 +171,86 @@ test_iteration_all( void ) {
   test_iteration( del_fn_prev );
   test_iteration( del_fn_3    );
   test_iteration( del_fn_5    );
+}
+
+static void
+test_merge( fd_rng_t * rng ) {
+  treap_t _treap[2];
+  ulong ele_max = 254UL;
+
+  ele_t * pool = pool_join( pool_new( scratch,   ele_max ) );
+  treap_t * a = treap_join( treap_new( _treap+0, ele_max ) );
+  treap_t * b = treap_join( treap_new( _treap+1, ele_max ) );
+
+  fd_asan_poison( pool+ele_max, (ulong)((scratch+SCRATCH_FOOTPRINT) - (uchar*)(pool+ele_max)) );
+  for( ulong i=0UL; i<=ele_max; i++ ) {
+    treap_seed( pool, ele_max, i );
+
+    /* [0, i) in a, [i, ele_max) in b */
+    for( ulong j=0UL; j<ele_max; j++ ) {
+      ulong idx = pool_idx_acquire( pool );
+      pool[ idx ].val = (schar)j;
+      treap_idx_insert( j<i?a:b, idx, pool );
+    }
+    FD_TEST( treap_ele_cnt( a )==i         );
+    FD_TEST( treap_ele_cnt( b )==ele_max-i );
+
+    treap_t * merged = treap_merge( a, b, pool );
+
+    FD_TEST( merged==a );
+    FD_TEST( treap_ele_cnt( a )==ele_max );
+    FD_TEST( treap_ele_cnt( b )==0UL     );
+    FD_TEST( !treap_verify( merged, pool ) );
+
+    for( ulong j=0UL; j<ele_max; j++ ) {
+      treap_idx_remove( merged, j, pool );
+      pool_idx_release( pool, j );
+    }
+  }
+
+  /* Now distribute the nodes randomly between the two heaps */
+  for( ulong i=0UL; i<100UL; i++ ) {
+    treap_seed( pool, ele_max, fd_ulong_hash( i ) );
+
+    for( ulong j=0UL; j<ele_max; j++ ) {
+      ulong idx = pool_idx_acquire( pool );
+      pool[ idx ].val = (schar)j;
+      treap_idx_insert( fd_rng_uint_roll( rng, 2U )?a:b, idx, pool );
+    }
+    treap_t * merged = treap_merge( a, b, pool );
+
+    FD_TEST( treap_ele_cnt( merged )==ele_max );
+    FD_TEST( !treap_verify( merged, pool ) );
+
+    for( ulong j=0UL; j<ele_max; j++ ) {
+      treap_idx_remove( merged, j, pool );
+      pool_idx_release( pool, j );
+    }
+  }
+
+  /* Exercise the degenerate case when the internal stack fills up */
+  for( ulong i=0UL; i<4000UL; i++ ) {
+    for( ulong j=0UL; j<ele_max; j++ ) {
+      ulong idx = pool_idx_acquire( pool );
+      pool[ idx ].val = (schar)j;
+      pool[ idx ].prio_cidx = (uchar)( (long)(schar)j + 128L );
+      treap_idx_insert( fd_rng_uint_roll( rng, 4U )?a:b, idx, pool );
+    }
+    treap_t * merged = treap_merge( a, b, pool );
+
+    FD_TEST( treap_ele_cnt( merged )==ele_max );
+    FD_TEST( !treap_verify( merged, pool ) );
+
+    for( ulong j=0UL; j<ele_max; j++ ) {
+      treap_idx_remove( merged, j, pool );
+      pool_idx_release( pool, j );
+    }
+  }
+
+  fd_asan_unpoison( pool+ele_max, (ulong)((scratch+SCRATCH_FOOTPRINT) - (uchar*)(pool+ele_max)) );
+  treap_delete( treap_leave( a    ) );
+  treap_delete( treap_leave( b    ) );
+  pool_delete ( pool_leave ( pool ) );
 }
 
 
@@ -373,6 +453,8 @@ main( int     argc,
   FD_TEST( treap_delete( shtreap )==(void *)shmem );
 
   pool_delete( pool_leave( pool ) );
+
+  test_merge( rng );
 
   fd_rng_delete( fd_rng_leave( rng ) );
 
