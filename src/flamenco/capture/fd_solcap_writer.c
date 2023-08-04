@@ -409,7 +409,8 @@ fd_solcap_write_account( fd_solcap_writer_t *             writer,
     .slot       = writer->slot,
     .rent_epoch = meta->rent_epoch,
     .executable = meta->executable,
-    .data_coff  = data_coff,
+    .data_coff  = (long)data_coff,
+    .data_sz    = data_sz,
   }};
   memcpy( meta_pb->owner, meta->owner, 32UL );
 

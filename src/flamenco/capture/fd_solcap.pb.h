@@ -61,7 +61,8 @@ typedef struct _fd_solcap_AccountMeta {
     pb_byte_t owner[32];
     bool executable;
     /* data_coff is the chunk offset to account data. */
-    uint64_t data_coff;
+    int64_t data_coff;
+    uint64_t data_sz;
 } fd_solcap_AccountMeta;
 
 
@@ -73,11 +74,11 @@ extern "C" {
 #define fd_solcap_FileMeta_init_default          {0, 0, 0}
 #define fd_solcap_BankPreimage_init_default      {0, {0}, {0}, {0}, {0}, 0, 0, 0}
 #define fd_solcap_AccountTableMeta_init_default  {0, 0, 0}
-#define fd_solcap_AccountMeta_init_default       {0, 0, 0, {0}, 0, 0}
+#define fd_solcap_AccountMeta_init_default       {0, 0, 0, {0}, 0, 0, 0}
 #define fd_solcap_FileMeta_init_zero             {0, 0, 0}
 #define fd_solcap_BankPreimage_init_zero         {0, {0}, {0}, {0}, {0}, 0, 0, 0}
 #define fd_solcap_AccountTableMeta_init_zero     {0, 0, 0}
-#define fd_solcap_AccountMeta_init_zero          {0, 0, 0, {0}, 0, 0}
+#define fd_solcap_AccountMeta_init_zero          {0, 0, 0, {0}, 0, 0, 0}
 
 /* Field tags (for use in manual encoding/decoding) */
 #define fd_solcap_FileMeta_first_slot_tag        1
@@ -100,6 +101,7 @@ extern "C" {
 #define fd_solcap_AccountMeta_owner_tag          4
 #define fd_solcap_AccountMeta_executable_tag     5
 #define fd_solcap_AccountMeta_data_coff_tag      6
+#define fd_solcap_AccountMeta_data_sz_tag        7
 
 /* Struct field encoding specification for nanopb */
 #define fd_solcap_FileMeta_FIELDLIST(X, a) \
@@ -134,7 +136,8 @@ X(a, STATIC,   SINGULAR, UINT64,   slot,              2) \
 X(a, STATIC,   SINGULAR, UINT64,   rent_epoch,        3) \
 X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, owner,             4) \
 X(a, STATIC,   SINGULAR, BOOL,     executable,        5) \
-X(a, STATIC,   SINGULAR, UINT64,   data_coff,         6)
+X(a, STATIC,   SINGULAR, INT64,    data_coff,         6) \
+X(a, STATIC,   SINGULAR, UINT64,   data_sz,           7)
 #define fd_solcap_AccountMeta_CALLBACK NULL
 #define fd_solcap_AccountMeta_DEFAULT NULL
 
@@ -150,7 +153,7 @@ extern const pb_msgdesc_t fd_solcap_AccountMeta_msg;
 #define fd_solcap_AccountMeta_fields &fd_solcap_AccountMeta_msg
 
 /* Maximum encoded size of messages (where known) */
-#define fd_solcap_AccountMeta_size               80
+#define fd_solcap_AccountMeta_size               91
 #define fd_solcap_AccountTableMeta_size          33
 #define fd_solcap_BankPreimage_size              180
 #define fd_solcap_FileMeta_size                  31

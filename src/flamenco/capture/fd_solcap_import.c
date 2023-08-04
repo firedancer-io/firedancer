@@ -1,8 +1,10 @@
 #include "../fd_flamenco.h"
 #include "fd_solcap.pb.h"
+#include "fd_solcap_proto.h"
 #include "fd_solcap_writer.h"
 #include "../cjson/cJSON.h"
 #include "../../ballet/base58/fd_base58.h"
+#include "../../ballet/base64/fd_base64.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -104,14 +106,100 @@ read_json_file( fd_wksp_t *  wksp,
   return json;
 }
 
+/* unmarshal_hash interprets given JSON node as a string containing
+   the Base58 encoding of 32 bytes.  Copies the bytes out to out_buf.
+   Returns NULL if json is NULL, json is not string, or is not a valid
+   32-byte Base58 encoding.  Returns out_buf on success. */
+
 static uchar *
-json_get_hash_value( cJSON * json,
-                     uchar * out_buf ) {
+unmarshal_hash( cJSON const * json,
+                uchar         out_buf[static 32] ) {
 
   char const * str = cJSON_GetStringValue( json );
   if( FD_UNLIKELY( !str ) ) return NULL;
 
   return fd_base58_decode_32( str, out_buf );
+}
+
+/* unmarshal_bank_preimage reads top-level bank preimage information
+   from given JSON dictionary.   Copies values into given out struct.
+   Aborts application via error log on failure. */
+
+static void
+unmarshal_bank_preimage( cJSON const *            json,
+                         fd_solcap_BankPreimage * out ) {
+
+  double slot_f = cJSON_GetNumberValue( cJSON_GetObjectItem( json, "slot" ) );
+  FD_TEST( isfinite( slot_f ) );
+  out->slot = (ulong)slot_f;
+
+  FD_TEST( unmarshal_hash( cJSON_GetObjectItem( json, "hash"                ), out->bank_hash          ) );
+  FD_TEST( unmarshal_hash( cJSON_GetObjectItem( json, "parent_hash"         ), out->prev_bank_hash     ) );
+  FD_TEST( unmarshal_hash( cJSON_GetObjectItem( json, "accounts_delta_hash" ), out->account_delta_hash ) );
+  FD_TEST( unmarshal_hash( cJSON_GetObjectItem( json, "last_blockhash"      ), out->poh_hash           ) );
+
+  double sig_cnt_f = cJSON_GetNumberValue( cJSON_GetObjectItem( json, "signature_count" ) );
+  FD_TEST( isfinite( sig_cnt_f ) );
+  out->signature_cnt = (ulong)sig_cnt_f;
+
+  cJSON * accs = cJSON_GetObjectItem( json, "accounts" );
+  FD_TEST( accs );
+  out->account_cnt = (ulong)cJSON_GetArraySize( accs );
+}
+
+/* unmarshal_account reads account meta/data from given JSON object.
+   Object should be a dictionary and is found as an element of the
+   "accounts" array.  On success, returns pointer to account data
+   (allocated in current scratch frame), and copies metadata to given
+   out structs.  On failure, aborts application via error log. */
+
+static void *
+unmarshal_account( cJSON const *             json,
+                   fd_solcap_account_tbl_t * rec,
+                   fd_solcap_AccountMeta *   meta ) {
+
+  /* TODO !!! THIS IS OBVIOUSLY UNSAFE
+     Representing lamports as double causes precision-loss for values
+     exceeding 2^53-1.  This appears to be a limitation of the cJSON
+     library. */
+  double lamports_f = cJSON_GetNumberValue( cJSON_GetObjectItem( json, "lamports" ) );
+  FD_TEST( isfinite( lamports_f ) );
+  meta->lamports = (ulong)lamports_f;
+
+  double rent_epoch_f = cJSON_GetNumberValue( cJSON_GetObjectItem( json, "rent_epoch" ) );
+  FD_TEST( isfinite( rent_epoch_f ) );
+  meta->rent_epoch = (ulong)rent_epoch_f;
+
+  cJSON * executable_o = cJSON_GetObjectItem( json, "executable" );
+  FD_TEST( executable_o );
+  meta->executable = cJSON_IsBool( executable_o ) & cJSON_IsTrue( executable_o );
+
+  FD_TEST( unmarshal_hash( cJSON_GetObjectItem( json, "pubkey" ), rec->key  ) );
+  FD_TEST( unmarshal_hash( cJSON_GetObjectItem( json, "hash"   ), rec->hash ) );
+
+  /* Data handling ... Base64 decode */
+
+  char const * data_b64 = cJSON_GetStringValue( cJSON_GetObjectItem( json, "data" ) );
+  FD_TEST( data_b64 );
+
+  /* sigh ... cJSON doesn't remember string length, although it
+     obviously had this information while parsing. */
+  ulong data_b64_len = strlen( data_b64 );
+
+  /* Very rough upper bound for decoded data sz.
+     Could do better here, but better to be on the safe side. */
+  ulong approx_data_sz = 3UL + data_b64_len/2UL;
+
+  /* Grab scratch memory suitable for storing account data */
+  void * data = fd_scratch_alloc( /* align */ 1UL, /* sz */ approx_data_sz );
+  FD_TEST( data );
+
+  /* Base64 decode */
+  long data_sz = fd_base64_decode( data, data_b64, data_b64_len );
+  FD_TEST( data_sz>=0L ); /* check for corruption */
+  meta->data_sz = (ulong)data_sz;
+
+  return data;
 }
 
 int
@@ -170,25 +258,21 @@ main( int     argc,
   /* Read bank preimage */
 
   fd_solcap_BankPreimage preimg[1] = {{0}};
+  unmarshal_bank_preimage( json, preimg );
 
-  double slot_f = cJSON_GetNumberValue( cJSON_GetObjectItem( json, "slot" ) );
-  FD_TEST( !isnan( slot_f ) );
-  preimg->slot = (ulong)slot_f;
+  cJSON * json_acc = cJSON_GetObjectItem( json, "accounts" );
+  int n = cJSON_GetArraySize( json_acc );
+  for( int i=0; i<n; i++ ) {
+    fd_scratch_push();
 
-  FD_TEST( json_get_hash_value( cJSON_GetObjectItem( json, "hash"                ), preimg->bank_hash          ) );
-  FD_TEST( json_get_hash_value( cJSON_GetObjectItem( json, "parent_hash"         ), preimg->prev_bank_hash     ) );
-  FD_TEST( json_get_hash_value( cJSON_GetObjectItem( json, "accounts_delta_hash" ), preimg->account_delta_hash ) );
-  FD_TEST( json_get_hash_value( cJSON_GetObjectItem( json, "last_blockhash"      ), preimg->poh_hash           ) );
+    cJSON * acc = cJSON_GetArrayItem( json_acc, i );
+    fd_solcap_account_tbl_t rec[1];  memset( rec,  0, sizeof(fd_solcap_account_tbl_t) );
+    fd_solcap_AccountMeta   meta[1]; memset( meta, 0, sizeof(fd_solcap_AccountMeta  ) );
+    void * data = unmarshal_account( acc, rec, meta );
+    (void)data;
 
-  double sig_cnt_f = cJSON_GetNumberValue( cJSON_GetObjectItem( json, "signature_count" ) );
-  FD_TEST( !isnan( sig_cnt_f ) );
-  preimg->signature_cnt = (ulong)sig_cnt_f;
-
-  cJSON * accs = cJSON_GetObjectItem( json, "accounts" );
-  FD_TEST( accs );
-  preimg->account_cnt = (ulong)cJSON_GetArraySize( accs );
-
-  /* TODO */
+    fd_scratch_pop();
+  }
 
   /* Cleanup */
 

@@ -72,5 +72,6 @@ message AccountMeta {
     bool executable = 5;
 
     // data_coff is the chunk offset to account data.
-    uint64 data_coff = 6;
+    int64 data_coff = 6;
+    uint64 data_sz = 7;
 }
