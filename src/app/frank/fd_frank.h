@@ -33,6 +33,7 @@ typedef struct {
    uchar const * in_pod;
    uchar const * out_pod;
    fd_xsk_t    * xsk;
+   double        tick_per_ns;
 } fd_frank_args_t;
 
 typedef struct {

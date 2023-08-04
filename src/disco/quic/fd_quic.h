@@ -118,14 +118,15 @@ FD_FN_CONST ulong
 fd_quic_tile_scratch_footprint( ulong depth );
 
 int
-fd_quic_tile( fd_cnc_t *         cnc,        /* Local join to the tile's command-and-control */
-              fd_quic_t *        quic,       /* QUIC without active join */
-              fd_xsk_aio_t *     xsk_aio,    /* Local join to QUIC XSK aio */
-              fd_frag_meta_t *   mcache,     /* Local join to the tile's txn output mcache */
-              uchar *            dcache,     /* Local join to the tile's txn output dcache */
-              long               lazy,       /* Laziness, <=0 means use a reasonable default */
-              fd_rng_t *         rng,        /* Local join to the rng this tile should use */
-              void *             scratch );  /* Tile scratch memory */
+fd_quic_tile( fd_cnc_t *         cnc,           /* Local join to the tile's command-and-control */
+              fd_quic_t *        quic,          /* QUIC without active join */
+              fd_xsk_aio_t *     xsk_aio,       /* Local join to QUIC XSK aio */
+              fd_frag_meta_t *   mcache,        /* Local join to the tile's txn output mcache */
+              uchar *            dcache,        /* Local join to the tile's txn output dcache */
+              long               lazy,          /* Laziness, <=0 means use a reasonable default */
+              fd_rng_t *         rng,           /* Local join to the rng this tile should use */
+              void *             scratch,       /* Tile scratch memory */
+              double             tick_per_ns ); /* Result of fd_tempo_tick_per_ns( NULL ) */
 
 FD_PROTOTYPES_END
 

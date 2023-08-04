@@ -273,11 +273,6 @@ static void parse_key_value( config_t *   config,
   ENTRY_UINT  ( ., tiles.verify,        mtu                                                       );
 
   ENTRY_UINT  ( ., tiles.pack,          max_pending_transactions                                  );
-  ENTRY_UINT  ( ., tiles.pack,          compute_unit_estimator_table_size                         );
-  ENTRY_UINT  ( ., tiles.pack,          compute_unit_estimator_ema_history                        );
-  ENTRY_UINT  ( ., tiles.pack,          compute_unit_estimator_ema_default                        );
-  ENTRY_UINT  ( ., tiles.pack,          solana_labs_bank_thread_count                             );
-  ENTRY_UINT  ( ., tiles.pack,          solana_labs_bank_thread_compute_units_executed_per_second );
 
   ENTRY_UINT  ( ., tiles.bank,          receive_buffer_size                                       );
 

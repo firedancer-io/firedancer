@@ -145,11 +145,6 @@ typedef struct {
 
     struct {
       uint max_pending_transactions;
-      uint compute_unit_estimator_table_size;
-      uint compute_unit_estimator_ema_history;
-      uint compute_unit_estimator_ema_default;
-      uint solana_labs_bank_thread_count;
-      uint solana_labs_bank_thread_compute_units_executed_per_second;
     } pack;
 
     struct {

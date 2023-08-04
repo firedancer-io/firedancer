@@ -1,190 +1,265 @@
+#define FD_UNALIGNED_ACCESS_STYLE 0
 #include "fd_pack.h"
+#include "fd_pack_cost.h"
 #include "fd_compute_budget_program.h"
 #include <math.h> /* for sqrt */
-
-#define MAX_SEARCH_DEPTH (7UL)
-#define FD_PACK_MIN_COMPUTE (100UL)
+#include <stddef.h> /* for offsetof */
 
 
 /* Declare a bunch of helper structs used for pack-internal data
    structures. */
 
-struct fd_pack_private_orderable_txn {
+
+/* fd_pack_ord_txn_t: An fd_txn_p_t with information required to order
+   it by priority */
+struct fd_pack_private_ord_txn {
+  /* It's important that there be no padding here (asserted below)
+     because the code casts back and forth from pointers to this element
+     to pointers to the whole struct. */
+  fd_txn_p_t   txn[1];
   /* We want rewards*compute_est to fit in a ulong so that r1/c1 < r2/c2 can be
      computed as r1*c2 < r2*c1, with the product fitting in a ulong.
      compute_est has a small natural limit of mid-20 bits. rewards doesn't have
      a natural limit, so there is some argument to be made for raising the
      limit for rewards to 40ish bits. The struct has better packing with
      uint/uint though. */
-  uint         rewards; /* in Lamports */
+  uint         rewards;     /* in Lamports */
   uint         compute_est; /* in compute units */
-  uint         compute_max;
-  float        compute_var; /* An estimate of the variance associated with compute_est */
-  fd_txn_p_t * txnp;
-  ulong        __padding_reserved;
+
+  /* The Red-Black tree fields */
+  ulong redblack_parent;
+  ulong redblack_left;
+  ulong redblack_right;
+  int   redblack_color;
+
+  /* Since this struct can be in one of several trees, it's helpful to
+     store which tree.  This should be one of the FD_ORD_TXN_ROOT_*
+     values. */
+  int root;
 };
-typedef struct fd_pack_private_orderable_txn fd_pack_orderable_txn_t;
+typedef struct fd_pack_private_ord_txn fd_pack_ord_txn_t;
 
+/* What we want is that the payload starts at byte 0 of
+   fd_pack_ord_txn_t so taht the trick with the signature map works
+   properly.  GCC and Clang seem to disagree on the rules of offsetof.
+   */
+FD_STATIC_ASSERT( offsetof( fd_pack_ord_txn_t, txn )==0UL, fd_pack_ord_txn_t );
+#if FD_USING_CLANG
+FD_STATIC_ASSERT( offsetof( fd_txn_p_t, payload )==0UL, fd_pack_ord_txn_t );
+#else
+FD_STATIC_ASSERT( offsetof( fd_pack_ord_txn_t, txn->payload )==0UL, fd_pack_ord_txn_t );
+#endif
 
+#define FD_ORD_TXN_ROOT_FREE 0
+#define FD_ORD_TXN_ROOT_PENDING 1
+#define FD_ORD_TXN_ROOT_PENDING_VOTE 2
+#define FD_ORD_TXN_ROOT_DELAYED_BASE 3 /* [3, 3+FD_PACK_MAX_GAP) */
 
+/* fd_pack_addr_use_t: Used for two distinct purposes: to record that an
+   address is in use and can't be used again until the nth microblock,
+   and to keep track of the cost of all transactions that write to the
+   specified account.  If these were different structs, they'd have
+   identical shape and result in two fd_map_dynamic sets of functions
+   with identical code.  It doesn't seem like the compiler is very good
+   at merging code like that, so in order to reduce code bloat, we'll
+   just combine them. */
 struct fd_pack_private_addr_use_record {
-  uchar * key; /* Pointer to account address */
-  uint    hash; /* First 32 bits of account address */
-  uint    in_use_until;
-  ulong   in_use_until_var; /* FIXME: Test if 64bit hash, float var is better */
-  uchar   in_use_for_bank;
-  uchar   _padding[7];
+  fd_acct_addr_t key; /* account address */
+  union{
+    ulong          in_use_until; /* In microblocks */
+    ulong          total_cost; /* In cost units/CUs */
+  };
 };
 typedef struct fd_pack_private_addr_use_record fd_pack_addr_use_t;
 
 
-
-
-struct fd_pack_private_bank_status {
-  int                     done;
-  uint                    in_use_until;
-  ulong                   in_use_until_var;
-  fd_pack_orderable_txn_t last_scheduled[1];
+/* fd_pack_sig_to_entry_t: An element of an fd_map that maps the first
+   transaction signature to the corresponding fd_pack_ord_txn_t so that
+   pending transactions can be deleted by signature.  Note: this
+   implicitly relies on the fact that for Solana transactions the
+   signature_offset is always 1.  If that fact changes, this will need
+   to become a real struct. */
+struct fd_pack_sig_to_txn {
+  fd_ed25519_sig_t const * key;
 };
-typedef struct fd_pack_private_bank_status fd_pack_bank_status_t;
-
+typedef struct fd_pack_sig_to_txn fd_pack_sig_to_txn_t;
 
 /* Finally, we can now declare the main pack data structure */
 struct fd_pack_private {
-  ulong           bank_cnt;
-  ulong           bank_depth;
-  ulong           pack_depth;
-  ulong           cu_limit;
-  fd_est_tbl_t *  est_tbl;
-  fd_rng_t     *  rng;
+  ulong      pack_depth;
+  ulong      gap;
+  ulong      max_txn_per_microblock;
 
-  /* The actual footprint for the following data structures is allocated
+  ulong      pending_txn_cnt;
+  ulong      microblock_cnt; /* How many microblocks have we
+                                generated in this block? */
+  fd_rng_t * rng;
+
+  ulong      cumulative_block_cost;
+  ulong      cumulative_vote_cost;
+
+  /* The actual footprint for the pool and maps is allocated
      in the same order in which they are declared immediately following
      the struct.  I.e. these pointers point to memory not far after the
-     struct. */
-  fd_pack_bank_status_t   * bank_status;       /* indexed [0, bank_cnt) */
-  fd_pack_scheduled_txn_t * outq;              /* an fd_prq. Use outq_* to access */
-  fd_pack_orderable_txn_t * txnq;              /* an fd_prq. Use txnq_* to access */
-  fd_txn_p_t            * * freelist;          /* an fd_deque_dynamic. Use freelist_* to access */
-  fd_pack_addr_use_t      * acct_uses_read;    /* an fd_map_dynamic. Use acct_uses_* to access */
-  fd_pack_addr_use_t      * acct_uses_write;   /* an fd_map_dynamic. Use acct_uses_* to access */
+     struct.  The trees are just pointers into the pool so don't take up
+     more space. */
+
+  fd_pack_ord_txn_t * pool;
+
+  /* Transactions in the pool can be in one of various trees.  The
+     default situation is that the transaction is in pending
+     pending_votes, depending on whether it is a vote or not.
+
+     If this were the only storage for transactions though, in the case
+     that there are a lot of transactions that conflict, we'd end up
+     going through transactions a bunch of times.  To optimize that,
+     when we know that we won't be able to consider a transaction until
+     at least the kth microblock in the future, we stick it in a "data
+     structure" like a bucket queue based on when it will become
+     available.
+
+     This is just a performance optimization and done on a best effort
+     basis; a transaction coming out of delayed might still not be
+     available because of new conflicts.  Transactions in pending might
+     have conflicts we just haven't discovered yet.  The authoritative
+     source for conflicts is acct_uses_{read,write}.
+
+     Unlike typical bucket queues, the buckets here form a ring, and
+     each element of the ring is a tree. */
+
+  fd_pack_ord_txn_t * pending;
+  fd_pack_ord_txn_t * pending_votes;
+  fd_pack_ord_txn_t * delayed[ FD_PACK_MAX_GAP ]; /* bucket queue */
+
+  fd_pack_addr_use_t   * read_in_use; /* Map from account address to microblock when it can be used */
+  fd_pack_addr_use_t   * write_in_use;
+  fd_pack_addr_use_t   * writer_costs;
+  fd_pack_sig_to_txn_t * signature_map; /* Stores pointers into pool for deleting by signature */
 };
 
 typedef struct fd_pack_private fd_pack_t;
 
 /* Declare all the data structures */
 
-#define DEQUE_NAME freelist
-#define DEQUE_T    fd_txn_p_t *
-#include "../../util/tmpl/fd_deque_dynamic.c"
 
-/* Define the big max-heap that we pull transactions off to schedule. The
-   priority is given by reward/compute.  We may want to add in some additional
-   terms at a later point. */
+/* Define the big max-"heap" that we pull transactions off to schedule.
+   The priority is given by reward/compute.  We may want to add in some
+   additional terms at a later point.  In order to cheaply remove nodes,
+   we actually use a red-black tree.  */
+
+#define REDBLK_T fd_pack_ord_txn_t
+#define REDBLK_NAME rb
+#include "../../util/tmpl/fd_redblack.c"
 
 /* Returns 1 if x.rewards/x.compute < y.rewards/y.compute. Not robust. */
-#define COMPARE_WORSE(x,y) ( ((ulong)((x).rewards)*(ulong)((y).compute_est)) < ((ulong)((y).rewards)*(ulong)((x).compute_est)) )
+#define COMPARE_WORSE(x,y) ( ((ulong)((x)->rewards)*(ulong)((y)->compute_est)) < ((ulong)((y)->rewards)*(ulong)((x)->compute_est)) )
 
-#define PRQ_NAME             txnq
-#define PRQ_T                fd_pack_orderable_txn_t
-#define PRQ_EXPLICIT_TIMEOUT 0
-#define PRQ_AFTER(x,y)       COMPARE_WORSE(x,y)
-#include "../../util/tmpl/fd_prq.c"
+long
+rb_compare( fd_pack_ord_txn_t * l,
+            fd_pack_ord_txn_t * r ) {
+  /* This depends on {l,r}->compute_est <= 1.4M, which is much less than
+     INT_MAX.  UINT_MAX*INT_MAX < LONG_MAX. */
+  return (long)l->rewards*(long)r->compute_est - (long)r->rewards*(long)l->compute_est;
+}
 
-/* Define a small min-heap for transactions we've scheduled but not
-   outputted yet. */
-#define PRQ_NAME        outq
-#define PRQ_T           fd_pack_scheduled_txn_t
-#define PRQ_TIMEOUT_T   uint
-#define PRQ_TIMEOUT     start
-#include "../../util/tmpl/fd_prq.c"
+/* Define a strange map where key and value are kind of the same
+   variable.  Essentially, it maps the contents to which the pointer
+   points to the value of the pointer. */
+#define MAP_NAME              sig2txn
+#define MAP_T                 fd_pack_sig_to_txn_t
+#define MAP_KEY_T             fd_ed25519_sig_t const *
+#define MAP_KEY_NULL          NULL
+#define MAP_KEY_INVAL(k)      !(k)
+#define MAP_MEMOIZE           0
+#define MAP_KEY_EQUAL(k0,k1)  (((!!(k0))&(!!(k1)))&&(!memcmp((k0),(k1), FD_TXN_SIGNATURE_SZ)))
+#define MAP_KEY_EQUAL_IS_SLOW 1
+#define MAP_KEY_HASH(key)     fd_uint_load_4( (key) ) /* first 4 bytes of signature */
+#include "../../util/tmpl/fd_map_dynamic.c"
 
+
+static const fd_acct_addr_t null_addr = { 0 };
 
 #define MAP_NAME              acct_uses
 #define MAP_T                 fd_pack_addr_use_t
-#define MAP_KEY_T             uchar *
-#define MAP_KEY_NULL          NULL
-#define MAP_KEY_INVAL(k)      !(k)
-#define MAP_KEY_EQUAL(k0,k1)  (((!!(k0))&(!!(k1)))&&(!memcmp((k0),(k1), FD_TXN_ACCT_ADDR_SZ)))
+#define MAP_KEY_T             fd_acct_addr_t
+#define MAP_KEY_NULL          null_addr
+#define MAP_KEY_INVAL(k)      MAP_KEY_EQUAL(k, null_addr)
+#define MAP_KEY_EQUAL(k0,k1)  (!memcmp((k0).b,(k1).b, FD_TXN_ACCT_ADDR_SZ))
 #define MAP_KEY_EQUAL_IS_SLOW 1
-#define MAP_KEY_HASH(key)     (*(uint*)(key))
+#define MAP_MEMOIZE           0
+#define MAP_KEY_HASH(key)     ((uint)fd_ulong_hash( fd_ulong_load_8( (key).b ) ))
 #include "../../util/tmpl/fd_map_dynamic.c"
 
 ulong
-fd_pack_footprint( ulong bank_cnt,
-                   ulong bank_depth,
-                   ulong pack_depth ) {
-  if( FD_UNLIKELY( bank_cnt>=256UL ) ) { FD_LOG_WARNING(( "bank_cnt too large" )); return 0UL; }
+fd_pack_footprint( ulong pack_depth,
+                   ulong gap,
+                   ulong max_txn_per_microblock ) {
+  if( FD_UNLIKELY( (gap==0) | (gap>FD_PACK_MAX_GAP) ) ) return 0UL;
 
   ulong l;
-  int lg_uses_tbl_sz  = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*FD_TXN_ACCT_ADDR_MAX*bank_cnt ) );
-  ulong freelist_cnt = bank_depth*bank_cnt + pack_depth + bank_cnt;
+  ulong max_acct_in_flight = FD_TXN_ACCT_ADDR_MAX * (gap+1UL) * max_txn_per_microblock;
+  ulong max_txn_per_block  = FD_PACK_MAX_COST_PER_BLOCK / FD_PACK_MIN_TXN_COST;
+
+  /* log base 2, but with a 2* so that the hash table stays sparse */
+  int lg_uses_tbl_sz = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*max_acct_in_flight ) );
+  int lg_max_txn     = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*max_txn_per_block  ) );
+  int lg_depth       = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*pack_depth         ) );
+
   l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, FD_PACK_ALIGN,                  sizeof(fd_pack_t)                      );
-  l = FD_LAYOUT_APPEND( l, alignof(fd_pack_bank_status_t), sizeof(fd_pack_bank_status_t)*bank_cnt );
-  l = FD_LAYOUT_APPEND( l, outq_align(),                   outq_footprint( bank_cnt )             );
-  l = FD_LAYOUT_APPEND( l, txnq_align(),                   txnq_footprint( pack_depth )           );
-  l = FD_LAYOUT_APPEND( l, freelist_align(),               freelist_footprint( freelist_cnt )     );
-  l = FD_LAYOUT_APPEND( l, acct_uses_align(),              acct_uses_footprint( lg_uses_tbl_sz )  );
-  l = FD_LAYOUT_APPEND( l, acct_uses_align(),              acct_uses_footprint( lg_uses_tbl_sz )  );
+  l = FD_LAYOUT_APPEND( l, FD_PACK_ALIGN,      sizeof(fd_pack_t)                      );
+  l = FD_LAYOUT_APPEND( l, rb_align(),         rb_footprint( pack_depth+1UL )         );
+  l = FD_LAYOUT_APPEND( l, acct_uses_align(),  acct_uses_footprint( lg_uses_tbl_sz )  );
+  l = FD_LAYOUT_APPEND( l, acct_uses_align(),  acct_uses_footprint( lg_uses_tbl_sz )  );
+  l = FD_LAYOUT_APPEND( l, acct_uses_align(),  acct_uses_footprint( lg_max_txn     )  );
+  l = FD_LAYOUT_APPEND( l, sig2txn_align(),    sig2txn_footprint( lg_depth )          );
   return FD_LAYOUT_FINI( l, FD_PACK_ALIGN );
 }
 
-ulong
-fd_pack_txnmem_footprint( ulong bank_cnt,
-                          ulong bank_depth,
-                          ulong pack_depth ) {
-  ulong freelist_cnt = bank_depth*bank_cnt + pack_depth + bank_cnt;
-  /* Harmonized with the way dcache allocates chunks */
-  return freelist_cnt * fd_ulong_align_up( sizeof(fd_txn_p_t), fd_pack_txnmem_align() );
-}
 
 void *
-fd_pack_new( void         * mem,
-             void         * txnmem,
-             fd_est_tbl_t * est_tbl,
-             ulong          bank_cnt,
-             ulong          bank_depth,
-             ulong          pack_depth,
-             ulong          cu_limit,
-             fd_rng_t     * rng ) {
-  ulong freelist_cnt   = bank_depth*bank_cnt + pack_depth + bank_cnt;
-  int   lg_uses_tbl_sz = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*FD_TXN_ACCT_ADDR_MAX*bank_cnt ) );
+fd_pack_new( void *     mem,
+             ulong      pack_depth,
+             ulong      gap,
+             ulong      max_txn_per_microblock,
+             fd_rng_t * rng                     ) {
+
+  ulong max_acct_in_flight = FD_TXN_ACCT_ADDR_MAX * (gap+1UL) * max_txn_per_microblock;
+  ulong max_txn_per_block  = FD_PACK_MAX_COST_PER_BLOCK / FD_PACK_MIN_TXN_COST;
+
+  /* log base 2, but with a 2* so that the hash table stays sparse */
+  int lg_uses_tbl_sz = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*max_acct_in_flight ) );
+  int lg_max_txn     = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*max_txn_per_block  ) );
+  int lg_depth       = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*pack_depth         ) );
 
   FD_SCRATCH_ALLOC_INIT( l, mem );
-  fd_pack_t * pack   = FD_SCRATCH_ALLOC_APPEND( l, FD_PACK_ALIGN,                  sizeof(fd_pack_t)                      );
-  void * _bank_status= FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_pack_bank_status_t), sizeof(fd_pack_bank_status_t)*bank_cnt );
-  void * _outq       = FD_SCRATCH_ALLOC_APPEND( l, outq_align(),                   outq_footprint( bank_cnt )             );
-  void * _txnq       = FD_SCRATCH_ALLOC_APPEND( l, txnq_align(),                   txnq_footprint( pack_depth )           );
-  void * _freelist   = FD_SCRATCH_ALLOC_APPEND( l, freelist_align(),               freelist_footprint( freelist_cnt )     );
-  void * _uses_read  = FD_SCRATCH_ALLOC_APPEND( l, acct_uses_align(),              acct_uses_footprint( lg_uses_tbl_sz )  );
-  void * _uses_write = FD_SCRATCH_ALLOC_APPEND( l, acct_uses_align(),              acct_uses_footprint( lg_uses_tbl_sz )  );
+  /* The pool has one extra element that is used between insert_init and
+     cancel/fini. */
+  fd_pack_t * pack   = FD_SCRATCH_ALLOC_APPEND( l,  FD_PACK_ALIGN,                  sizeof(fd_pack_t)                     );
+  void * _pool       = FD_SCRATCH_ALLOC_APPEND( l,  rb_align(),                     rb_footprint( pack_depth+1UL )        );
+  void * _uses_read  = FD_SCRATCH_ALLOC_APPEND( l,  acct_uses_align(),              acct_uses_footprint( lg_uses_tbl_sz ) );
+  void * _uses_write = FD_SCRATCH_ALLOC_APPEND( l,  acct_uses_align(),              acct_uses_footprint( lg_uses_tbl_sz ) );
+  void * _writer_cost= FD_SCRATCH_ALLOC_APPEND( l,  acct_uses_align(),              acct_uses_footprint( lg_max_txn     ) );
+  void * _sig_map    = FD_SCRATCH_ALLOC_APPEND( l,  sig2txn_align(),                sig2txn_footprint( lg_depth )         );
 
-  pack->bank_cnt   = bank_cnt;
-  pack->bank_depth = bank_depth;
-  pack->pack_depth = pack_depth;
-  pack->cu_limit   = cu_limit;
-  pack->est_tbl    = est_tbl;
-  pack->rng        = rng;
+  pack->pack_depth             = pack_depth;
+  pack->gap                    = gap;
+  pack->max_txn_per_microblock = max_txn_per_microblock;
+  pack->pending_txn_cnt        = 0UL;
+  pack->microblock_cnt         = 0UL;
+  pack->rng                    = rng;
+  pack->cumulative_block_cost  = 0UL;
+  pack->cumulative_vote_cost   = 0UL;
 
-  fd_memset( _bank_status, 0, sizeof(fd_pack_bank_status_t)*bank_cnt );
-
-  outq_new(      _outq,       bank_cnt       );
-  txnq_new(      _txnq,       pack_depth     );
-  freelist_new(  _freelist,   freelist_cnt   );
-  acct_uses_new( _uses_read,  lg_uses_tbl_sz );
-  acct_uses_new( _uses_write, lg_uses_tbl_sz );
+  pack->pending = NULL;
+  pack->pending_votes = NULL;
+  fd_memset( pack->delayed, 0, sizeof(fd_pack_ord_txn_t*)*FD_PACK_MAX_GAP );
 
 
-  /* Populate the freelist */
-  fd_txn_p_t * * freelist = freelist_join( _freelist );
-  ulong ptr = (ulong)txnmem;
-  for( ulong i=0UL; i<freelist_cnt; i++ ) {
-    ptr = fd_ulong_align_up( ptr, fd_pack_txnmem_align() );
-    freelist_push_tail( freelist, (fd_txn_p_t *)ptr );
-    ptr += sizeof(fd_txn_p_t);
-  }
-  freelist_leave( freelist );
+  rb_new(        _pool,        pack_depth+1UL );
+  acct_uses_new( _uses_read,   lg_uses_tbl_sz );
+  acct_uses_new( _uses_write,  lg_uses_tbl_sz );
+  acct_uses_new( _writer_cost, lg_max_txn     );
+  sig2txn_new(   _sig_map,     lg_depth       );
 
   return mem;
 }
@@ -193,132 +268,63 @@ fd_pack_t *
 fd_pack_join( void * mem ) {
   FD_SCRATCH_ALLOC_INIT( l, mem );
   fd_pack_t * pack  = FD_SCRATCH_ALLOC_APPEND( l, FD_PACK_ALIGN, sizeof(fd_pack_t) );
-  ulong bank_cnt   = pack->bank_cnt;
-  ulong bank_depth = pack->bank_depth;
-  ulong pack_depth = pack->pack_depth;
 
-  ulong freelist_cnt   = bank_depth*bank_cnt + pack_depth + bank_cnt;
-  int   lg_uses_tbl_sz = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*FD_TXN_ACCT_ADDR_MAX*bank_cnt ) );
+  ulong pack_depth             = pack->pack_depth;
+  ulong gap                    = pack->gap;
+  ulong max_txn_per_microblock = pack->max_txn_per_microblock;
 
-  const ulong bank_status_align = alignof(fd_pack_bank_status_t);
-  pack->bank_status     =                 FD_SCRATCH_ALLOC_APPEND( l, bank_status_align, sizeof(fd_pack_bank_status_t)*bank_cnt );
-  pack->outq            = outq_join(      FD_SCRATCH_ALLOC_APPEND( l, outq_align(),      outq_footprint( bank_cnt )           ) );
-  pack->txnq            = txnq_join(      FD_SCRATCH_ALLOC_APPEND( l, txnq_align(),      txnq_footprint( pack_depth )         ) );
-  pack->freelist        = freelist_join(  FD_SCRATCH_ALLOC_APPEND( l, freelist_align(),  freelist_footprint( freelist_cnt )   ) );
-  pack->acct_uses_read  = acct_uses_join( FD_SCRATCH_ALLOC_APPEND( l, acct_uses_align(), acct_uses_footprint( lg_uses_tbl_sz )) );
-  pack->acct_uses_write = acct_uses_join( FD_SCRATCH_ALLOC_APPEND( l, acct_uses_align(), acct_uses_footprint( lg_uses_tbl_sz )) );
+  ulong max_acct_in_flight = FD_TXN_ACCT_ADDR_MAX * (gap+1UL) * max_txn_per_microblock;
+  ulong max_txn_per_block  = FD_PACK_MAX_COST_PER_BLOCK / FD_PACK_MIN_TXN_COST;
+  int lg_uses_tbl_sz = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*max_acct_in_flight ) );
+  int lg_max_txn     = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*max_txn_per_block  ) );
+  int lg_depth       = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*pack_depth         ) );
+
+
+  pack->pool          = rb_join(        FD_SCRATCH_ALLOC_APPEND( l,  rb_align(),        rb_footprint( pack_depth+1UL )        ) );
+  pack->read_in_use   = acct_uses_join( FD_SCRATCH_ALLOC_APPEND( l,  acct_uses_align(), acct_uses_footprint( lg_uses_tbl_sz ) ) );
+  pack->write_in_use  = acct_uses_join( FD_SCRATCH_ALLOC_APPEND( l,  acct_uses_align(), acct_uses_footprint( lg_uses_tbl_sz ) ) );
+  pack->writer_costs  = acct_uses_join( FD_SCRATCH_ALLOC_APPEND( l,  acct_uses_align(), acct_uses_footprint( lg_max_txn     ) ) );
+  pack->signature_map = sig2txn_join(   FD_SCRATCH_ALLOC_APPEND( l,  sig2txn_align(),   sig2txn_footprint( lg_depth )         ) );
 
   return pack;
 }
 
-ulong fd_pack_bank_cnt( fd_pack_t * pack ) { return pack->bank_cnt; }
 
-ulong fd_pack_avail_txn_cnt( fd_pack_t * pack ) { return outq_cnt( pack->outq ); }
-
-
-/* Helper function that determines whether a transaction is considered a
-   "simple vote" transaction.  Simple vote transactions are scheduled to a
-   special vote banking thread and don't go through the normal prioritization
-   logic.  A simple vote transaction has exactly 1 instruction that invokes the
-   vote program and has "Vote" in its name.  This function is designed for high
-   performance and does very minimal validation that the vote instruction is
-   well-formed.  Returns 1 if the transaction is a simple vote transaction and
-   0 otherwise. */
-/* FIXME: This function does not belong here, but where does it belong? */
-// static int
-// fd_pack_is_simple_vote( fd_txn_t  * txn,
-//                         uchar     * payload ) {
-//   /* "Vote" is the smallest instruction.  It has a 4B tag, a vector (8B length
-//      prefix), a 32B hash, and an optional ulong timestamp.  The minimum size is
-//      when the vector is empty and the timestamp is not present.  Thus,
-//      4+8+32+1=45. */
-//   const ulong min_simple_vote_instr_data_len = 45UL;
-//   /* base58 decode of Vote111111111111111111111111111111111111111 */
-//   const uchar FD_VOTE_PROGRAM_ID[FD_TXN_ACCT_ADDR_SZ] = {
-//     0x07,0x61,0x48,0x1d,0x35,0x74,0x74,0xbb,0x7c,0x4d,0x76,0x24,0xeb,0xd3,0xbd,0xb3,
-//     0xd8,0x35,0x5e,0x73,0xd1,0x10,0x43,0xfc,0x0d,0xa3,0x53,0x80,0x00,0x00,0x00,0x00
-//   };
-//   if( FD_UNLIKELY( txn->transaction_version != FD_TXN_VLEGACY )                     ) return 0;
-//   if( FD_UNLIKELY( txn->instr_cnt != 1 )                                            ) return 0;
-//   uchar * program_id = payload + txn->acct_addr_cnt + FD_TXN_ACCT_ADDR_SZ*txn->instr[ 0 ].program_id;
-//   if( FD_UNLIKELY( !memcmp( program_id, FD_VOTE_PROGRAM_ID, FD_TXN_ACCT_ADDR_SZ ) ) ) return 0;
-//   if( FD_UNLIKELY( txn->instr[ 0 ].data_sz < min_simple_vote_instr_data_len )       ) return 0;
-//   uint instr_tag = *(uint*)(payload + txn->instr[ 0 ].data_off);
-//   if( FD_LIKELY( instr_tag == 2U ) ) /* Corresponds to Vote */                        return 1;
-//   /* All the other exotic variants that are still recognized as simple votes */
-// /* FIXME: Replace these magic numbers with constants when we write the full
-//    vote parsing code. */
-//   return (int)FD_UNLIKELY( (instr_tag==6U) | (instr_tag==8U) | (instr_tag==9U) | (instr_tag==12U) | (instr_tag==13U) );
-// }
-
-#define ITERATE_WRITABLE_ACCOUNTS( acct_addr, txnp, body )                                                                    \
-  do {                                                                                                                        \
-    fd_txn_p_t * _txnp = (txnp);                                                                                              \
-    fd_txn_t   * _txn  = TXN(_txnp);                                                                                          \
-    for( ulong i=0UL; i<(((ulong)(_txn->signature_cnt))-((ulong)(_txn->readonly_signed_cnt))); i++ ) {                        \
-      uchar * acct_addr = _txnp->payload + _txn->acct_addr_off + i*FD_TXN_ACCT_ADDR_SZ;                                       \
-      body                                                                                                                    \
-    }                                                                                                                         \
-    for( ulong i=(ulong)(_txn->signature_cnt); i<((ulong)(_txn->acct_addr_cnt)-(ulong)(_txn->readonly_unsigned_cnt)); i++ ) { \
-      uchar * acct_addr = _txnp->payload + _txn->acct_addr_off + i*FD_TXN_ACCT_ADDR_SZ;                                       \
-      body                                                                                                                    \
-    }                                                                                                                         \
-  } while( 0 )
-
-#define ITERATE_READONLY_ACCOUNTS( acct_addr, txnp, body )                                                                      \
-  do {                                                                                                                          \
-    fd_txn_p_t * _txnp = (txnp);                                                                                                \
-    fd_txn_t   * _txn  = TXN(_txnp);                                                                                            \
-    for( ulong i=(ulong)(_txn->signature_cnt)-(ulong)(_txn->readonly_signed_cnt); i<((ulong)(_txn->signature_cnt)); i++ ) {     \
-      uchar * acct_addr = _txnp->payload + _txn->acct_addr_off + i*FD_TXN_ACCT_ADDR_SZ;                                         \
-      body                                                                                                                      \
-    }                                                                                                                           \
-    for( ulong i=((ulong)(_txn->acct_addr_cnt)-(ulong)(_txn->readonly_unsigned_cnt)); i<((ulong)(_txn->acct_addr_cnt)); i++ ) { \
-      uchar * acct_addr = _txnp->payload + _txn->acct_addr_off + i*FD_TXN_ACCT_ADDR_SZ;                                         \
-      body                                                                                                                      \
-    }                                                                                                                           \
-  } while( 0 )
 
 static int
-fd_pack_estimate_rewards_and_compute( fd_txn_p_t              * txnp,
-                                      ulong                     lamports_per_signature,
-                                      fd_est_tbl_t const      * cu_estimation_tbl,
-                                      fd_pack_orderable_txn_t * out ) {
+fd_pack_estimate_rewards_and_compute( fd_txn_p_t        * txnp,
+                                      fd_pack_ord_txn_t * out ) {
   fd_txn_t * txn = TXN(txnp);
-  ulong sig_rewards = lamports_per_signature * txn->signature_cnt;
+  ulong sig_rewards = FD_PACK_FEE_PER_SIGNATURE * txn->signature_cnt;
+
+  int is_simple_vote[1] = {0};
+  ulong cost = fd_pack_compute_cost( txnp, is_simple_vote );
+
+  if( FD_UNLIKELY( !cost ) ) return 0;
+
   fd_compute_budget_program_state_t cb_prog_st = {0};
-  ulong compute_expected = 0UL;
-  float compute_variance = 0.0f;
+
+  /* TODO: Refactor so that this doesn't scan all the instructions a
+     second time after scanning them in fd_pack_compute_cost. */
   for( ulong i=0UL; i<(ulong)txn->instr_cnt; i++ ) {
     uchar prog_id_idx = txn->instr[ i ].program_id;
-    if( FD_UNLIKELY( prog_id_idx>=txn->acct_addr_cnt ) ) return 0; /* FIXME: Support txn v0 and address tables */
-    uchar* acct_addr = txnp->payload + txn->acct_addr_off + (ulong)prog_id_idx*FD_TXN_ACCT_ADDR_SZ;
+    fd_acct_addr_t const * acct_addr = fd_txn_get_acct_addrs( txn, txnp->payload ) + (ulong)prog_id_idx;
+
     if( FD_UNLIKELY( !memcmp( acct_addr, FD_COMPUTE_BUDGET_PROGRAM_ID, FD_TXN_ACCT_ADDR_SZ ) ) ) {
       /* Parse the compute budget program instruction */
       if( FD_UNLIKELY( !fd_compute_budget_program_parse( txnp->payload+txn->instr[ i ].data_off, txn->instr[ i ].data_sz, &cb_prog_st )))
         return 0;
     } else {
-      /* Lookup (first 15 bytes of program ID followed by first byte of instr data) in hash table */
-      ulong word1 = *(ulong*)acct_addr;
-      ulong word2 = (*(ulong*)(acct_addr + sizeof(ulong))) & 0xFFFFFFFFFFFFFF00UL;
-      /* Set last byte of word2 to first byte of instruction data (or 0 if there's no instruction data). */
-      if( FD_LIKELY( txn->instr[ i ].data_sz ) ) word2 ^= (ulong)txnp->payload[ txn->instr[ i ].data_off ];
-      ulong hash = (fd_ulong_hash( word1 ) ^ fd_ulong_hash( word2 ));
-      double out_var = 0.0;
-      compute_expected += (ulong)(0.5 + fd_est_tbl_estimate( cu_estimation_tbl, hash, &out_var ));
-      /* Assuming statistical independence, so Var[a+b] = Var[a]+Var[b] */
-      compute_variance += (float)out_var;
+      /* No fancy CU estimation in this version of pack */
     }
   }
-  compute_expected = fd_ulong_max( compute_expected, FD_PACK_MIN_COMPUTE );
   ulong adtl_rewards = 0UL;
   uint  compute_max  = 0UL;
   fd_compute_budget_program_finalize( &cb_prog_st, txn->instr_cnt, &adtl_rewards, &compute_max );
   out->rewards     = (adtl_rewards < (UINT_MAX - sig_rewards)) ? (uint)(sig_rewards + adtl_rewards) : UINT_MAX;
-  out->compute_est = (uint)compute_expected;
-  out->compute_var = compute_variance;
-  out->compute_max = compute_max;
-  out->txnp        = txnp;
+  out->compute_est = (uint)cost;
+
+  out->root = *is_simple_vote ? FD_ORD_TXN_ROOT_PENDING_VOTE : FD_ORD_TXN_ROOT_PENDING;
 
 #if DETAILED_LOGGING
   FD_LOG_NOTICE(( "TXN estimated compute %lu+-%f. Rewards: %lu + %lu", compute_expected, (double)compute_variance, sig_rewards, adtl_rewards ));
@@ -327,14 +333,15 @@ fd_pack_estimate_rewards_and_compute( fd_txn_p_t              * txnp,
   return 1;
 }
 
-/* Can the fee payer afford to pay a transaction with the specified price?
-   Returns 1 if so, 0 otherwise.  This is just a stub that always returns 1 for
-   now.  In general, this function can't be totally accurate, because the
-   transactions immediately prior to this one can affect the balance of this
-   fee payer, but a simple check here may be helpful for reducing spam. */
+/* Can the fee payer afford to pay a transaction with the specified
+   price?  Returns 1 if so, 0 otherwise.  This is just a stub that
+   always returns 1 for now.  In general, this function can't be totally
+   accurate, because the transactions immediately prior to this one can
+   affect the balance of this fee payer, but a simple check here may be
+   helpful for reducing spam. */
 static int
-fd_pack_can_fee_payer_afford( uchar const * acct_addr,
-                              ulong         price /* in lamports */) {
+fd_pack_can_fee_payer_afford( fd_acct_addr_t const * acct_addr,
+                              ulong                  price /* in lamports */) {
   (void)acct_addr;
   (void)price;
   return 1;
@@ -344,263 +351,333 @@ fd_pack_can_fee_payer_afford( uchar const * acct_addr,
 
 
 
-fd_txn_p_t * fd_pack_insert_txn_init(   fd_pack_t * pack                   ) { return freelist_pop_head( pack->freelist ); }
-void         fd_pack_insert_txn_cancel( fd_pack_t * pack, fd_txn_p_t * txn ) { freelist_push_head( pack->freelist, txn );  }
+fd_txn_p_t * fd_pack_insert_txn_init(   fd_pack_t * pack                   ) { return rb_acquire( pack->pool )->txn; }
+void         fd_pack_insert_txn_cancel( fd_pack_t * pack, fd_txn_p_t * txn ) { rb_release( pack->pool, (fd_pack_ord_txn_t*)txn ); }
 
 void
 fd_pack_insert_txn_fini( fd_pack_t  * pack,
                          fd_txn_p_t * txnp ) {
-  ulong lamports_per_signature = 5000UL;
 
-  ulong                     cu_limit   = pack->cu_limit;
-  fd_est_tbl_t            * cu_est_tbl = pack->est_tbl;
-  fd_txn_p_t            * * freelist   = pack->freelist;
-  fd_pack_orderable_txn_t * txnq       = pack->txnq;
-  fd_rng_t                * rng        = pack->rng;
+  fd_pack_ord_txn_t * ord = (fd_pack_ord_txn_t *)txnp;
 
-  fd_txn_t * txn = TXN(txnp);
+  fd_txn_t * txn   = TXN(txnp);
   uchar * payload  = txnp->payload;
 
-  fd_pack_orderable_txn_t to_insert;
+  fd_acct_addr_t const * accts = fd_txn_get_acct_addrs( txn, payload );
 
-  if( FD_UNLIKELY( !fd_pack_estimate_rewards_and_compute( txnp, lamports_per_signature, cu_est_tbl, &to_insert) ) )
+  if( FD_UNLIKELY( !fd_pack_estimate_rewards_and_compute( txnp, ord ) ) ) {
+    rb_release( pack->pool, ord );
     return;
+  }
   /* Throw out transactions ... */
   /*           ... that are unfunded */
-  if( FD_UNLIKELY( !fd_pack_can_fee_payer_afford( payload + txn->acct_addr_off, to_insert.rewards )) ) return;
+  if( FD_UNLIKELY( !fd_pack_can_fee_payer_afford( accts, ord->rewards ) ) ) { rb_release( pack->pool, ord ); return; }
   /*           ... that are so big they'll never run */
-  if( FD_UNLIKELY( to_insert.compute_est >= cu_limit                                               ) ) return;
+  if( FD_UNLIKELY( ord->compute_est >= FD_PACK_MAX_COST_PER_BLOCK       ) ) { rb_release( pack->pool, ord ); return; }
 
-  /* Add a random perturbation to prevent some worst-case scenarios */
-  int delta = (int)(0.5f + fd_rng_float_norm( rng ) * 0.25f * sqrtf( to_insert.compute_var ));
-  /* Clamp delta to the range [-compute_est + 1, compute_max - compute_est ]
-     so that compute_est in [1, compute_max]. */
-  delta = fd_int_max( 1-(int)to_insert.compute_est, fd_int_min( (int)to_insert.compute_max-(int)to_insert.compute_est, delta ));
-  to_insert.compute_est = (uint)((int)to_insert.compute_est + delta);
+  /* TODO: Add recent blockhash based expiry here */
 
-
-  if( FD_UNLIKELY( txnq_cnt( txnq ) == txnq_max( txnq ) ) ) {
-    /* If the heap is full, we'll pick a random element from near the bottom
-       of the heap. If the new transaction is better than that one, we'll
-       delete it and insert the new transaction. Otherwise, we'll throw away
-       this transaction. */
+  if( FD_UNLIKELY( pack->pending_txn_cnt == pack->pack_depth ) ) {
+    /* If the tree is full, we'll double check to make sure this is
+       better than the worst element in the tree before inserting.  If
+       the new transaction is better than that one, we'll delete it and
+       insert the new transaction. Otherwise, we'll throw away this
+       transaction. */
     /* TODO: Increment a counter to mark this is happening */
-    ulong txnq_sz = txnq_max( txnq );
-    ulong victim_idx = txnq_sz/2UL + fd_rng_ulong_roll( rng, txnq_sz/2UL ); /* in [txnq_sz/2, txnq_sz) */
-    if( FD_UNLIKELY( !COMPARE_WORSE( txnq[ victim_idx ], to_insert ) ) ) {
-      /* What we have in the queue is better than this transaction, so just
-         pretend this transaction never happened */
-      freelist_push_head( freelist, txnp );
+    fd_pack_ord_txn_t * worst = rb_minimum( pack->pool, pack->pending );
+    if( FD_UNLIKELY( !worst ) ) {
+      /* We have nothing to sacrifice because they're all in other
+         trees. */
+      rb_release( pack->pool, ord );
       return;
     }
-    freelist_push_head( freelist, txnq[ victim_idx ].txnp );
-    txnq_remove( txnq, victim_idx );
+    else if( !COMPARE_WORSE( worst, ord ) ) {
+      /* What we have in the tree is better than this transaction, so just
+         pretend this transaction never happened */
+      rb_release( pack->pool, ord );
+      return;
+    } else {
+      /* Remove the worst from the tree */
+      fd_ed25519_sig_t const * worst_sig = fd_txn_get_signatures( TXN( worst->txn ), worst->txn->payload );
+      sig2txn_remove( pack->signature_map, sig2txn_query( pack->signature_map, worst_sig, NULL ) );
+
+      rb_release( pack->pool, rb_remove( pack->pool, &pack->pending, worst ) );
+      pack->pending_txn_cnt--;
+    }
   }
-  txnq_insert( txnq, &to_insert );
+
+  pack->pending_txn_cnt++;
+
+  sig2txn_insert( pack->signature_map, fd_txn_get_signatures( txn, payload ) );
+
+  if( FD_LIKELY( ord->root == FD_ORD_TXN_ROOT_PENDING_VOTE ) )
+    rb_insert( pack->pool, &pack->pending_votes, ord );
+  else
+    rb_insert( pack->pool, &pack->pending,       ord );
+}
+
+typedef struct {
+  ulong cus_scheduled;
+  ulong txns_scheduled;
+} sched_return_t;
+
+static inline sched_return_t
+fd_pack_schedule_next_microblock_impl( fd_pack_t         * pack,
+                                       fd_pack_ord_txn_t** root_ptr,
+                                       int                 move_delayed,
+                                       ulong               cu_limit,
+                                       ulong               txn_limit,
+                                       fd_txn_p_t        * out ) {
+
+  ulong                gap          = pack->gap;
+  fd_pack_ord_txn_t  * pool         = pack->pool;
+  fd_pack_addr_use_t * read_in_use  = pack->read_in_use;
+  fd_pack_addr_use_t * write_in_use = pack->write_in_use;
+  fd_pack_addr_use_t * writer_costs = pack->writer_costs;
+
+  ulong txns_scheduled = 0UL;
+  ulong cus_scheduled  = 0UL;
+
+  fd_pack_ord_txn_t * cur = rb_maximum( pool, *root_ptr );
+  fd_pack_ord_txn_t * prev;
+  for(; !!cur & (cu_limit>=FD_PACK_MIN_TXN_COST) & (txn_limit>0); cur=prev ) {
+    prev = rb_predecessor( pool, cur );
+
+    fd_txn_t * txn = TXN(cur->txn);
+    fd_acct_addr_t const * acct = fd_txn_get_acct_addrs( txn, cur->txn->payload );
+
+    ulong delay_until = pack->microblock_cnt;
+
+    if( cur->compute_est>cu_limit ) {
+      /* Too big to be scheduled at the moment, but might be okay for
+         the next microblock, so we don't want to delay it. */
+      continue;
+    }
+
+    fd_txn_acct_iter_t ctrl[1];
+    /* Check conflicts between this transactions's writable accounts and
+       current readers */
+    for( ulong i=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE & FD_TXN_ACCT_CAT_IMM, ctrl ); i<fd_txn_acct_iter_end();
+        i=fd_txn_acct_iter_next( i, ctrl ) ) {
+
+      fd_pack_addr_use_t * in_wcost_table = acct_uses_query( writer_costs, acct[i], NULL );
+      if( in_wcost_table && in_wcost_table->total_cost+cur->compute_est > FD_PACK_MAX_WRITE_COST_PER_ACCT ) {
+        /* Can't be scheduled until the next block */
+        delay_until = ULONG_MAX;
+        break;
+      }
+
+      fd_pack_addr_use_t * in_r_table = acct_uses_query( read_in_use, acct[i], NULL );
+      if( in_r_table ) { delay_until = fd_ulong_max( delay_until, in_r_table->in_use_until );
+#if DETAILED_LOGGING
+        FD_LOG_NOTICE(( "Stalling transaction until >= %lu because it writes %i which another transaction taken reads", delay_until, (int)acct[i].b[0] ));
+#endif
+      }
+    }
+
+    /* Check conflicts between all of this transactions's accounts and
+       current writers */
+    for( ulong i=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_IMM, ctrl ); i<fd_txn_acct_iter_end();
+        i=fd_txn_acct_iter_next( i, ctrl ) ) {
+
+      fd_pack_addr_use_t * in_w_table = acct_uses_query( write_in_use,  acct[i], NULL );
+      if( in_w_table ) { delay_until = fd_ulong_max( delay_until, in_w_table->in_use_until );
+#if DETAILED_LOGGING
+        FD_LOG_NOTICE(( "Stalling transaction until >= %lu because it reads or writes %i which another transaction taken writes", delay_until, (int)acct[i].b[0] ));
+#endif
+      }
+    }
+
+    if( delay_until==pack->microblock_cnt ) {
+      /* Include this transaction in the microblock! */
+      txns_scheduled++;
+      cus_scheduled += cur->compute_est;
+      cu_limit -= cur->compute_est;
+      txn_limit--;
+
+      *out++ = *cur->txn; /* TODO: this copies more bytes than necessary in most cases */
+
+      ulong in_use_until = pack->microblock_cnt + gap;
+
+      for( ulong i=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE & FD_TXN_ACCT_CAT_IMM, ctrl ); i<fd_txn_acct_iter_end();
+          i=fd_txn_acct_iter_next( i, ctrl ) ) {
+        fd_acct_addr_t acct_addr = acct[i];
+
+        fd_pack_addr_use_t * in_wcost_table = acct_uses_query( writer_costs, acct_addr, NULL );
+        if( !in_wcost_table ) { in_wcost_table = acct_uses_insert( writer_costs, acct_addr );   in_wcost_table->total_cost = 0UL; }
+        in_wcost_table->total_cost += cur->compute_est;
+
+        fd_pack_addr_use_t * in_w_table = acct_uses_query( write_in_use,  acct_addr, NULL );
+        if( !in_w_table ) in_w_table = acct_uses_insert( write_in_use, acct_addr );
+        in_w_table->in_use_until = in_use_until;
+
+      }
+      for( ulong i=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_READONLY & FD_TXN_ACCT_CAT_IMM, ctrl ); i<fd_txn_acct_iter_end();
+          i=fd_txn_acct_iter_next( i, ctrl ) ) {
+        fd_acct_addr_t acct_addr = acct[i];
+
+        fd_pack_addr_use_t * in_r_table = acct_uses_query( read_in_use, acct_addr, NULL );
+        if( !in_r_table ) in_r_table = acct_uses_insert( read_in_use, acct_addr );
+        in_r_table->in_use_until = in_use_until;
+      }
+
+      fd_ed25519_sig_t const * sig0 = fd_txn_get_signatures( txn, cur->txn->payload );
+      fd_pack_sig_to_txn_t * in_tbl = sig2txn_query( pack->signature_map, sig0, NULL );
+      sig2txn_remove( pack->signature_map, in_tbl );
+
+      rb_remove( pool, root_ptr, cur );
+      rb_release( pool, cur );
+      pack->pending_txn_cnt--;
+
+    } else if( move_delayed ) {
+      delay_until = fd_ulong_min( delay_until, pack->microblock_cnt+FD_PACK_MAX_GAP );
+      cur->root = FD_ORD_TXN_ROOT_DELAYED_BASE + (int)delay_until;
+
+      rb_remove( pool, root_ptr, cur );
+      rb_insert( pool, pack->delayed+(delay_until % FD_PACK_MAX_GAP), cur );
+    }
+  }
+
+
+  sched_return_t to_return = { .cus_scheduled = cus_scheduled, .txns_scheduled = txns_scheduled };
+  return to_return;
+}
+
+static fd_pack_ord_txn_t *
+rb_merge( fd_pack_ord_txn_t * pool,
+          fd_pack_ord_txn_t ** dst_root,
+          fd_pack_ord_txn_t ** src_root ) {
+  /* TODO: Move this to fd_redblack and switch to the O(n)
+     implementation. */
+  fd_pack_ord_txn_t * nn;
+  for ( fd_pack_ord_txn_t* n = rb_minimum( pool, *src_root ); n; n = nn ) {
+    nn = rb_successor( pool, n );
+
+    rb_remove( pool, src_root, n );
+    rb_insert( pool, dst_root, n );
+  }
+
+  return *dst_root;
 }
 
 
-fd_pack_scheduled_txn_t
-fd_pack_schedule_next( fd_pack_t * pack ) {
+ulong
+fd_pack_schedule_next_microblock( fd_pack_t *  pack,
+                                  ulong        total_cus,
+                                  float        vote_fraction,
+                                  fd_txn_p_t * out ) {
 
-  ulong bank_cnt = pack->bank_cnt;
-  ulong cu_limit = pack->cu_limit;
 
-  fd_pack_bank_status_t   * bank_status       = pack->bank_status;
-  fd_pack_scheduled_txn_t * outq              = pack->outq;
-  fd_pack_orderable_txn_t * txnq              = pack->txnq;
-  fd_txn_p_t            * * freelist          = pack->freelist;
-  fd_pack_addr_use_t      * acct_uses_read  = pack->acct_uses_read;
-  fd_pack_addr_use_t      * acct_uses_write = pack->acct_uses_write;
+  /* Move all the transactions that were delayed until now back into
+     pending so they'll be reconsidered. */
+  rb_merge( pack->pool, &pack->pending, pack->delayed+(pack->microblock_cnt % FD_PACK_MAX_GAP) );
 
-  /* Find first non-done thread */
-  /* TODO: Consider replacing this with another small heap */
-  ulong t = bank_cnt;
-  ulong t_score = cu_limit;
-  for( ulong i = 0; i<bank_cnt; i++ ) {
-    if( !bank_status[ i ].done & (bank_status[ i ].in_use_until<t_score) ) {
-      t = i;
-      t_score = bank_status[ i ].in_use_until;
-    }
-  }
-  ulong now = t_score;
 
-  /* Emit any transactions that are scheduled to start in the past */
-  if( FD_UNLIKELY( outq_cnt( outq ) > 0UL ) && FD_LIKELY( outq->start <= now ) ) {
-    fd_pack_scheduled_txn_t to_return = *outq;
-    freelist_push_tail( freelist, to_return.txn );
-    outq_remove_min( outq );
-    return to_return;
-  }
+  /* TODO: Decide if these are exactly how we want to handle limits */
+  total_cus = fd_ulong_min( total_cus, FD_PACK_MAX_COST_PER_BLOCK - pack->cumulative_block_cost );
+  ulong vote_cus = fd_ulong_min( (ulong)((float)total_cus * vote_fraction), FD_PACK_MAX_VOTE_COST_PER_BLOCK - pack->cumulative_vote_cost );
+  ulong vote_reserved_txns = fd_ulong_min( vote_cus/FD_PACK_TYPICAL_VOTE_COST,
+                                           (ulong)((float)pack->max_txn_per_microblock * vote_fraction) );
 
-  /* Find the best transaction, sorted by rewards/(compute + stall time). We
-     assume stall time is normally small so that we are likely to find the
-     best by looking at the transactions sorted by rewards/compute. */
-  ulong best_found_at = MAX_SEARCH_DEPTH;
-  fd_pack_orderable_txn_t best = { .rewards = 0U, .compute_est = 2U, .txnp = NULL };
-  ulong best_stall = 0U; /* Stall time for the best transaction (already added
-                            into compute_est */
-  int best_would_read_after_write = 0;
-  for( ulong q = 0; q<fd_ulong_min(MAX_SEARCH_DEPTH, txnq_cnt( txnq )); q++ ) {
-    ulong start_at = now;
-    /* Check the accounts that txnq[ q ] uses to see when they are
-       first available */
-    fd_pack_orderable_txn_t temp = txnq[ q ];
-    /* Can't aquire a write lock while another transaction has either a read
-       or write lock */
-    ITERATE_WRITABLE_ACCOUNTS( acct_addr, temp.txnp,
-      fd_pack_addr_use_t * in_w_table = acct_uses_query( acct_uses_write, acct_addr, NULL );
-      if( in_w_table ) start_at = fd_ulong_max( start_at, in_w_table->in_use_until );
-      fd_pack_addr_use_t * in_r_table = acct_uses_query( acct_uses_read, acct_addr, NULL );
-      if( in_r_table ) start_at = fd_ulong_max( start_at, in_r_table->in_use_until );
-    );
-    /* If this transaction reads an account that another transaction is
-       reading, it's fine except for in one case: if we've scheduled a write
-       transaction for the future and this transaction won't finish before
-       the write transaction is scheduled to start.  We know that we're in
-       this case if the account is in the read list and the write list.  The
-       read/write "in use until" table structure is not flexible enough to
-       describe arbitrtary patterns of read and write, so this (read followed
-       by write) is the only one we allow.  In the problem case, we just
-       stall the thread until it would start.  Next time this thread is up
-       for scheduling, it can revisit the situation. */
-    int would_read_after_write = 0;
-    ITERATE_READONLY_ACCOUNTS( acct_addr, temp.txnp,
-      fd_pack_addr_use_t * in_w_table = acct_uses_query( acct_uses_write, acct_addr, NULL );
-      if( in_w_table && (in_w_table->in_use_until > start_at) ) {
-        fd_pack_addr_use_t * in_r_table = acct_uses_query( acct_uses_read, acct_addr, NULL );
-        /* Is there no "read shadow" or does this not fit in it? */
-        if( !in_r_table || ((start_at + temp.compute_est) > in_r_table->in_use_until) ) {
-          would_read_after_write = 1;
-          start_at = fd_ulong_max( start_at, in_w_table->in_use_until );
-        }
-      }
-    );
-    if( FD_UNLIKELY( start_at + temp.compute_est > cu_limit ) ) continue;
-    temp.compute_est += (uint)(start_at - now); /* Charge it for stall */
-    if( COMPARE_WORSE(best, temp) ) {
-      best = temp;
-      best_found_at = q;
-      best_would_read_after_write = would_read_after_write;
-      best_stall = start_at - now;
-    }
-  }
-  fd_pack_scheduled_txn_t null_return = {
-    .txn   = NULL,
-    .bank  = 0U,
-    .start = 0U,
-  };
-  /* Were any valid transactions found? */
-  if( FD_UNLIKELY( best_found_at == MAX_SEARCH_DEPTH ) ) {
-    return null_return;
-  }
-  if( FD_UNLIKELY( best_would_read_after_write ) ) {
-    bank_status[ t ].in_use_until += (uint)best_stall;
-    return null_return;
-    /* Don't actually schedule the transaction */
-  }
+  ulong cu_limit  = total_cus - vote_cus;
+  ulong txn_limit = pack->max_txn_per_microblock - vote_reserved_txns;
+  ulong scheduled = 0UL;
 
-  txnq_remove( txnq, best_found_at );
+  sched_return_t status;
 
-  fd_pack_scheduled_txn_t scheduled = {
-    .txn   = best.txnp,
-    .bank  = (uint)t,
-    .start = (uint)(now+best_stall),
-  };
-  if( FD_LIKELY( !best_stall ) ) {
-    freelist_push_tail( freelist, best.txnp );
-  } else {
-    outq_insert( outq, &scheduled );
-    scheduled = null_return; /* don't actually return it */
-  }
+  /* Try to schedule non-vote transactions */
+  status = fd_pack_schedule_next_microblock_impl( pack, &pack->pending,       1, cu_limit, txn_limit,          out+scheduled );
 
-  /* Schedule txn on thread t, ending at now+best.compute_est */
-  uint txn_end_time = (uint)(now + best.compute_est);
-  bank_status[ t ].in_use_until = txn_end_time;
-  /* iterate over accounts it uses and update to txn_end_time */
-  ITERATE_WRITABLE_ACCOUNTS( acct_addr, best.txnp,
-      fd_pack_addr_use_t * in_table = acct_uses_query( acct_uses_write, acct_addr, NULL );
-      if( !in_table ) { in_table = acct_uses_insert( acct_uses_write, acct_addr ); in_table->in_use_until = 0UL; }
-      in_table->in_use_until = fd_uint_max( in_table->in_use_until, txn_end_time );
-  );
-  /* Iterate over accounts that last_scheduled[ t ] used that are
-     prior to now and delete them from the hash table. */
-  if( FD_LIKELY( bank_status[ t ].last_scheduled->txnp ) ) {
-    ITERATE_WRITABLE_ACCOUNTS( acct_addr, bank_status[ t ].last_scheduled->txnp,
-      fd_pack_addr_use_t * in_table = acct_uses_query( acct_uses_write, acct_addr, NULL );
-      if( FD_LIKELY(in_table && in_table->in_use_until<=now ) ) acct_uses_remove( acct_uses_write, in_table );
-    );
-  }
-  /* Same for readonly accounts */
-  ITERATE_READONLY_ACCOUNTS( acct_addr, best.txnp,
-      fd_pack_addr_use_t * in_table = acct_uses_query( acct_uses_read, acct_addr, NULL );
-      if( !in_table ) { in_table = acct_uses_insert( acct_uses_read, acct_addr ); in_table->in_use_until = 0UL; }
-      in_table->in_use_until = fd_uint_max( in_table->in_use_until, txn_end_time );
-  );
-  /* Iterate over accounts that state->last_scheduled[ t ] used that are
-     prior to now and delete them from the hash table. */
-  if( FD_LIKELY( bank_status[ t ].last_scheduled->txnp ) ) {
-    ITERATE_READONLY_ACCOUNTS( acct_addr, bank_status[ t ].last_scheduled->txnp,
-      fd_pack_addr_use_t * in_table = acct_uses_query( acct_uses_read, acct_addr, NULL );
-      if( FD_LIKELY(in_table && in_table->in_use_until<=now ) ) acct_uses_remove( acct_uses_read, in_table );
-    );
-  }
-  bank_status[ t ].last_scheduled[ 0 ] = best;
+  scheduled += status.txns_scheduled;
+  txn_limit -= status.txns_scheduled;
+  cu_limit  -= status.cus_scheduled;
+  pack->cumulative_block_cost += status.cus_scheduled;
+
+
+  /* Schedule vote transactions */
+  status = fd_pack_schedule_next_microblock_impl( pack, &pack->pending_votes, 0, vote_cus, vote_reserved_txns, out+scheduled );
+
+  scheduled                   += status.txns_scheduled;
+  pack->cumulative_vote_cost  += status.cus_scheduled;
+  pack->cumulative_block_cost += status.cus_scheduled;
+  /* Add any remaining CUs/txns to the non-vote limits */
+  txn_limit += vote_reserved_txns - status.txns_scheduled;
+  cu_limit  += vote_cus - status.cus_scheduled;
+
+
+  /* Fill any remaining space with non-vote transactions */
+  status = fd_pack_schedule_next_microblock_impl( pack, &pack->pending,       1, cu_limit, txn_limit,          out+scheduled );
+
+  scheduled                   += status.txns_scheduled;
+  pack->cumulative_block_cost += status.cus_scheduled;
+
+  pack->microblock_cnt++;
+
   return scheduled;
 }
 
-fd_pack_scheduled_txn_t
-fd_pack_drain_block( fd_pack_t * pack ) {
-  if( FD_LIKELY( outq_cnt( pack->outq ) > 0UL ) ) {
-    fd_pack_scheduled_txn_t to_return = *pack->outq;
-    freelist_push_tail( pack->freelist, to_return.txn );
-    outq_remove_min( pack->outq );
-    return to_return;
-  }
+ulong fd_pack_avail_txn_cnt( fd_pack_t * pack ) { return pack->pending_txn_cnt; }
+ulong fd_pack_gap          ( fd_pack_t * pack ) { return pack->gap;             }
 
-  fd_pack_scheduled_txn_t null_return = {
-    .txn   = NULL,
-    .bank  = 0U,
-    .start = 0U,
-  };
-  return null_return;
+void
+fd_pack_end_block( fd_pack_t * pack ) {
+  pack->microblock_cnt        = 0UL;
+  pack->cumulative_block_cost = 0UL;
+  pack->cumulative_vote_cost  = 0UL;
+
+  for( ulong i=0UL; i<FD_PACK_MAX_GAP; i++ ) rb_merge( pack->pool, &pack->pending, pack->delayed+i );
+
+  acct_uses_clear( pack->read_in_use  );
+  acct_uses_clear( pack->write_in_use );
+  acct_uses_clear( pack->writer_costs );
 }
 
 void
-fd_pack_clear( fd_pack_t * pack,
-               int         full_reset ) {
+fd_pack_clear_all( fd_pack_t * pack ) {
+  pack->pending_txn_cnt       = 0UL;
+  pack->microblock_cnt        = 0UL;
+  pack->cumulative_block_cost = 0UL;
+  pack->cumulative_vote_cost  = 0UL;
 
-  ulong                     bank_cnt          = pack->bank_cnt;
-  fd_pack_bank_status_t   * bank_status       = pack->bank_status;
-  fd_pack_scheduled_txn_t * outq              = pack->outq;
-  fd_pack_orderable_txn_t * txnq              = pack->txnq;
-  fd_txn_p_t            * * freelist          = pack->freelist;
-  fd_pack_addr_use_t      * acct_uses_read  = pack->acct_uses_read;
-  fd_pack_addr_use_t      * acct_uses_write = pack->acct_uses_write;
-
-  fd_memset( bank_status, 0, sizeof(fd_pack_bank_status_t)*bank_cnt );
-
-  /* Easiest way to clear the accts_in_use tables... */
-  int lg_slot_cnt;
-  lg_slot_cnt = acct_uses_lg_slot_cnt( acct_uses_read );
-  acct_uses_join( acct_uses_new( acct_uses_leave( acct_uses_read  ), lg_slot_cnt ) ); /* Documented to return acct_uses_read */
-  lg_slot_cnt = acct_uses_lg_slot_cnt( acct_uses_write );
-  acct_uses_join( acct_uses_new( acct_uses_leave( acct_uses_write ), lg_slot_cnt ) );
-
-  ulong cnt = outq_cnt( outq );
-  for( ulong i=0UL; i<cnt; i++ ) {
-    freelist_push_head( freelist, outq[ i ].txn );
+  rb_release_tree( pack->pool, pack->pending       );  pack->pending       = NULL;
+  rb_release_tree( pack->pool, pack->pending_votes );  pack->pending_votes = NULL;
+  for( ulong i=0UL; i<FD_PACK_MAX_GAP; i++ ) {
+    rb_release_tree( pack->pool, pack->delayed[i] );
+    pack->delayed[i] = NULL;
   }
-  outq_remove_all( outq );
 
-  if( FD_LIKELY( !full_reset ) ) return;
+  acct_uses_clear( pack->read_in_use  );
+  acct_uses_clear( pack->write_in_use );
+  acct_uses_clear( pack->writer_costs );
 
+  sig2txn_clear( pack->signature_map );
+}
 
-  cnt = txnq_cnt( txnq );
-  for( ulong i=0UL; i<cnt; i++ ) {
-    freelist_push_head( freelist, txnq[ i ].txnp );
+int
+fd_pack_delete_transaction( fd_pack_t              * pack,
+                            fd_ed25519_sig_t const * txn ) {
+  fd_pack_sig_to_txn_t * in_tbl = sig2txn_query( pack->signature_map, txn, NULL );
+
+  if( !in_tbl )
+    return 0;
+
+  /* The static asserts enforce that the payload of the transaction is
+     the first element of the fd_pack_ord_txn_t struct.  The signature
+     we insert is 1 byte into the start of the payload. */
+  fd_pack_ord_txn_t * containing = (fd_pack_ord_txn_t *)( (uchar*)in_tbl->key - 1UL );
+  fd_pack_ord_txn_t ** root = NULL;
+  int root_idx = containing->root;
+  switch( root_idx ) {
+    case FD_ORD_TXN_ROOT_FREE:          /* Should be impossible */                                    return 0;
+    case FD_ORD_TXN_ROOT_PENDING:       root = &pack->pending;                                        break;
+    case FD_ORD_TXN_ROOT_PENDING_VOTE:  root = &pack->pending_votes;                                  break;
+    default:                            root = pack->delayed+(root_idx-FD_ORD_TXN_ROOT_DELAYED_BASE); break;
   }
-  txnq_remove_all( txnq );
+  rb_remove( pack->pool, root, containing );
+  sig2txn_remove( pack->signature_map, in_tbl );
+  pack->pending_txn_cnt--;
+
+  return 1;
 }
 
 

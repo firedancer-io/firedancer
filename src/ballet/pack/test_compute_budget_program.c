@@ -242,9 +242,9 @@ test_duplicate( ulong request_units_deprecated_cnt,
                 ulong request_heap_frame_cnt,
                 ulong set_compute_unit_limit_cnt,
                 ulong set_compute_unit_price_cnt ) {
-  uchar const request_units_deprecated[ 9UL ] = { 0, 4,3,2,1, 8,7,6,5 };
+  uchar const request_units_deprecated[ 9UL ] = { 0, 4,3,2,0, 8,7,6,5 };
   uchar const request_heap_frame      [ 5UL ] = { 1, 0,0,1,0          };
-  uchar const set_compute_unit_limit  [ 5UL ] = { 2, 4,3,2,1          };
+  uchar const set_compute_unit_limit  [ 5UL ] = { 2, 4,3,2,0          };
   uchar const set_compute_unit_price  [ 9UL ] = { 3, 8,7,6,5,4,3,2,1  };
   fd_compute_budget_program_state_t state;
   fd_compute_budget_program_init( &state );
@@ -275,11 +275,11 @@ main( int     argc,
 
   uint  * cu_limit  = (uint  *) &txn2[ 260 ];
   ulong * ulamports = (ulong *) &txn2[ 268 ];
-  *cu_limit = 1000000U; *ulamports = 1000000UL;    test_txn( txn2, sizeof(txn2), 1000000UL, 1000000UL       ); /* No overflow  */
-  *cu_limit = 1000000U; *ulamports = ULONG_MAX>>1; test_txn( txn2, sizeof(txn2), 1000000UL, ULONG_MAX>>1    ); /* Product>2^64 */
-  *cu_limit = 2000000U; *ulamports = ULONG_MAX;    test_txn( txn2, sizeof(txn2), 2000000UL, ULONG_MAX       ); /* Result>2^64  */
-  *cu_limit = 9000000U; *ulamports = 1UL<<40;      test_txn( txn2, sizeof(txn2), 9000000UL, 9895604649984UL ); /* Product<2^64 */
-  *cu_limit =       1U; *ulamports = 1UL;          test_txn( txn2, sizeof(txn2),       1UL, 1UL             ); /* Test ceil    */
+  *cu_limit = 1000000U; *ulamports = 1000000UL;    test_txn( txn2, sizeof(txn2), 1000000UL, 1000000UL        ); /* No overflow  */
+  *cu_limit = 1000000U; *ulamports = ULONG_MAX>>1; test_txn( txn2, sizeof(txn2), 1000000UL, ULONG_MAX>>1     ); /* Product>2^64 */
+  *cu_limit = 1400000U; *ulamports = ULONG_MAX;    test_txn( txn2, sizeof(txn2), 1400000UL, ULONG_MAX        ); /* Result>2^64  */
+  *cu_limit = 1400000U; *ulamports = 1UL<<44;      test_txn( txn2, sizeof(txn2), 1400000UL, 24629060462183UL ); /* Product<2^64 */
+  *cu_limit =       1U; *ulamports = 1UL;          test_txn( txn2, sizeof(txn2),       1UL, 1UL              ); /* Test ceil    */
 
   FD_TEST( test_duplicate( 1, 1, 0, 0 ) == 1 );
   FD_TEST( test_duplicate( 2, 0, 0, 0 ) == 0 );
