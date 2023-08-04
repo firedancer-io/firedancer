@@ -250,8 +250,7 @@ fd_stake_history_entry_t stake_and_activating( fd_delegation_t const * delegatio
 
     fd_stake_history_entry_t entry = {
       .effective = current_effective_stake,
-      .activating = 0,
-      .deactivating = current_effective_stake
+      .activating = delegated_stake - current_effective_stake,
     };
     return entry;
   } else {

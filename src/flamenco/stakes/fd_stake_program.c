@@ -69,7 +69,7 @@ deactivate(fd_stake_state_t* stake_state, fd_pubkey_t* stake_acc, instruction_ct
 static int
 validate_delegated_amount( instruction_ctx_t* ctx, fd_acc_lamports_t account_lamports, fd_acc_lamports_t rent_exempt_reserve, fd_acc_lamports_t * stake_amount) {
   *stake_amount = fd_ulong_sat_sub( account_lamports, rent_exempt_reserve);
-  if ((ctx->global->features.stake_allow_zero_undelegated_amount || ctx->global->features.stake_raise_minimum_delegation_to_1_sol) && (*stake_amount < get_minimum_delegation(ctx->global))) {
+  if (*stake_amount < get_minimum_delegation(ctx->global)) {
     ctx->txn_ctx->custom_err = 12; // Err(StakeError::InsufficientDelegation.into());
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
@@ -584,7 +584,9 @@ int fd_executor_stake_program_execute_instruction(
   } // end of fd_stake_instruction_is_authorize, discriminant 1
   else if ( fd_stake_instruction_is_delegate_stake( &instruction ) ) {
     /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/stake/src/stake_instruction.rs#L126 */
-
+    if ( ctx.txn_ctx->txn_descriptor->acct_addr_cnt < 2 ) {
+      return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+    }
     /* Check that the instruction accounts are correct
       https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/stake/src/stake_instruction.rs#L127-L142 */
     fd_pubkey_t* stake_acc         = &txn_accs[instr_acc_idxs[0]];
@@ -602,6 +604,10 @@ int fd_executor_stake_program_execute_instruction(
     }
     fd_stake_history_t history;
     fd_sysvar_stake_history_read( ctx.global, &history);
+
+    if ( ctx.txn_ctx->txn_descriptor->acct_addr_cnt < 5 ) {
+      return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+    }
 
     /* Check that Instruction Account 4 is the Stake Config Program account */
     if ( memcmp( &txn_accs[instr_acc_idxs[4]], ctx.global->solana_stake_program_config, sizeof(fd_pubkey_t) ) != 0 ) {
@@ -718,7 +724,7 @@ int fd_executor_stake_program_execute_instruction(
       FD_LOG_WARNING(( "failed to write stake account state: %d", result ));
       return result;
     }
-  } // end of fd_stake_instruction_is_delegate_stake
+  } // end of fd_stake_instruction_is_delegate_stake, discriminant 2
   else if ( fd_stake_instruction_is_split( &instruction )) { // discriminant 3
     FD_LOG_NOTICE(( "stake_split_uses_rent_sysvar=%ld", ctx.global->features.stake_split_uses_rent_sysvar ));
     FD_LOG_NOTICE(( "stake_allow_zero_undelegated_amount=%ld", ctx.global->features.stake_allow_zero_undelegated_amount ));
@@ -1786,6 +1792,10 @@ int fd_executor_stake_program_execute_instruction(
     }
   } // end of deactivate_delinquent, discriminant 14
   else if ( fd_stake_instruction_is_redelegate( &instruction ) ) {
+    if ( !FD_FEATURE_ACTIVE( ctx.global, stake_redelegate_instruction ) ) {
+      return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+    }
+    
     /* Read the current State State from the Stake account */
     fd_pubkey_t* stake_acc         = &txn_accs[instr_acc_idxs[0]];
     fd_stake_state_t stake_state;
@@ -1912,8 +1922,7 @@ int fd_executor_stake_program_execute_instruction(
     fd_acc_mgr_set_lamports( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.slot, stake_acc, stake_acc_metadata.info.lamports - entry.effective);
 
     // initialize and schedule `uninitialized_stake_account` for activation
-    // uninitialized_stake_state = stake_state;
-    // uninitialized_stake_acc_metadata = stake_acc_metadata;
+    uninitialized_stake_state = stake_state;
     fd_rent_t rent;
     rent.lamports_per_uint8_year = 3480;
     rent.exemption_threshold = 2.0;
@@ -1921,7 +1930,7 @@ int fd_executor_stake_program_execute_instruction(
     uninitialized_stake_state.inner.stake.meta.rent_exempt_reserve = fd_rent_exempt_minimum_balance2( &rent, uninitialized_stake_acc_metadata.dlen );
 
     fd_acc_lamports_t stake_amount;
-    result = validate_delegated_amount( &ctx, stake_acc_metadata.info.lamports - entry.effective, uninitialized_stake_state.inner.stake.meta.rent_exempt_reserve, &stake_amount);
+    result = validate_delegated_amount( &ctx, uninitialized_stake_acc_metadata.info.lamports + entry.effective, uninitialized_stake_state.inner.stake.meta.rent_exempt_reserve, &stake_amount);
     if ( result != FD_EXECUTOR_INSTR_SUCCESS ) {
       return result;
     }
@@ -1930,7 +1939,7 @@ int fd_executor_stake_program_execute_instruction(
     uninitialized_stake_state.discriminant = fd_stake_state_enum_stake;
     memcpy(&uninitialized_stake_state.inner.stake.stake.delegation.voter_pubkey, vote_acc, sizeof(fd_pubkey_t));
     uninitialized_stake_state.inner.stake.stake.delegation.activation_epoch = clock.epoch;
-    uninitialized_stake_state.inner.stake.stake.delegation.deactivation_epoch = stake_state.inner.stake.stake.delegation.deactivation_epoch;
+    uninitialized_stake_state.inner.stake.stake.delegation.deactivation_epoch = ULONG_MAX;
     uninitialized_stake_state.inner.stake.stake.delegation.warmup_cooldown_rate = stake_config.warmup_cooldown_rate;
     uninitialized_stake_state.inner.stake.stake.credits_observed = vote_state.inner.current.epoch_credits->credits;
     write_stake_state(ctx.global, uninitialized_stake_acc, &uninitialized_stake_state, 1);
