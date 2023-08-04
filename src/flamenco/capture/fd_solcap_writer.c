@@ -461,7 +461,7 @@ fd_solcap_write_account( fd_solcap_writer_t *             writer,
 
   /* Wind up for next iteration */
 
-  writer->account_idx += 1UL;
+  writer->account_idx += 1U;
 
   return 0;
 }
