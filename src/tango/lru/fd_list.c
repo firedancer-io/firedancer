@@ -26,6 +26,11 @@ fd_list_new( void * mem, ulong max ) {
     fd_list_insert( curr, new );
     curr = new;
   }
+  curr = sentinel;
+  curr = fd_list_head( sentinel );
+  while (curr != sentinel) {
+    curr = fd_list_next(curr);
+  }
   return mem;
 }
 
@@ -52,13 +57,13 @@ fd_list_sentinel( fd_list_t * list ) {
 fd_list_t *
 fd_list_head( fd_list_t * list ) {
   fd_list_t * sentinel = fd_list_sentinel( list );
-  return sentinel + sentinel->next;
+  return fd_list_next( sentinel );
 }
 
 fd_list_t *
 fd_list_tail( fd_list_t * list ) {
   fd_list_t * sentinel = fd_list_sentinel( list );
-  return sentinel + sentinel->prev;
+  return fd_list_prev( sentinel );
 }
 
 int

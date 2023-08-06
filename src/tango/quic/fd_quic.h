@@ -216,6 +216,12 @@ typedef struct fd_quic_config fd_quic_config_t;
    may only invoke fd_quic API methods labelled CB-safe.  Callbacks are
    not re-entrant. */
 
+/* fd_quic_conn_evict_t: server received a new conn when there are
+   no available connections and needs to evict one. */
+typedef void
+(* fd_quic_cb_conn_evict_t)( fd_quic_conn_t * conn,
+                             void * quic_ctx );
+
 /* fd_quic_cb_conn_new_t: server received a new conn and completed
    handshakes. */
 typedef void
@@ -284,13 +290,6 @@ typedef void
 typedef void
 (* fd_quic_cb_tls_keylog_t)( void *       quic_ctx,
                              char const * line );
-
-/* fd_quic_conn_evict is called when there are no available connections
-   to determine which to evict. */
-
-typedef void
-(* fd_quic_cb_conn_evict_t)( void * quic_ctx );
-
 
 /* fd_quic_callbacks_t defines the set of user-provided callbacks that
    are invoked by the QUIC library.  Resets on leave. */
@@ -563,6 +562,8 @@ fd_quic_conn_new_stream( fd_quic_conn_t * conn,
    Use fd_quic_conn_new_stream to create a new stream for sending
    or use the new stream callback to obtain a stream for replying.
 
+   "On the sending part of a stream, an application protocol can write data..."
+
    args
      stream         the stream to send on
      batch          a pointer to an array of buffers
@@ -587,14 +588,20 @@ fd_quic_stream_send( fd_quic_stream_t *  stream,
    no more data will be sent to self-to-peer flow of stream.  Peer may
    continue sending data on their side of the stream.  Caller should
    only call stream_fin once per stream, except when fin was already
-   indicated via stream_send. */
+   indicated via stream_send. 
 
+   "On the sending part of a stream, an application protocol can end the stream
+   (clean termination)..." */
 FD_QUIC_API void
 fd_quic_stream_fin( fd_quic_stream_t * stream );
 
-/* TODO: fd_quic_stream_close */
-//void
-//fd_quic_stream_close( fd_quic_stream_t * stream, int direction_flags );
+/* fd_quic_stream_close: close a stream.  Called to signal no more data
+   will be read in the peer-to-self flow of stream and request stream closure.  
+
+   "On the receiving part of a stream, an application protocol can abort
+   reading of the stream and request closure..." */
+FD_QUIC_API void
+fd_quic_stream_close( fd_quic_stream_t * stream );
 
 /* Flow Control API ***************************************************/
 

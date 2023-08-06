@@ -15,12 +15,11 @@ fd_lru_footprint( ulong depth,
 
   if( FD_UNLIKELY( (!depth) | (map_cnt<(depth+2UL)) | (!fd_ulong_is_pow2( map_cnt )) ) ) return 0UL; /* Invalid depth / max_cnt */
 
-  ulong depth_mul = (depth + 1) * (sizeof(fd_list_t) / sizeof(ulong));
-  ulong cnt = 4UL+depth_mul * sizeof(ulong); if( FD_UNLIKELY( cnt<depth   ) ) return 0UL; /* overflow */
-  cnt += map_cnt;        if( FD_UNLIKELY( cnt<map_cnt ) ) return 0UL; /* overflow */
-  if( FD_UNLIKELY( cnt>(ULONG_MAX/sizeof(ulong)) ) ) return 0UL; /* overflow */
-  cnt *= sizeof(ulong); /* no overflow */
-  ulong footprint = fd_ulong_align_up( cnt, FD_LRU_ALIGN ); if( FD_UNLIKELY( footprint<cnt ) ) return 0UL; /* overflow */
+  /* TODO overflow checks*/
+  ulong footprint = sizeof(fd_lru_t);
+  footprint += (depth + 1) * sizeof(fd_list_t);
+  footprint += map_cnt * sizeof( ulong ); /* pointer-size */
+  footprint = fd_ulong_align_up( footprint, fd_lru_align() );
   return footprint;
 }
 
@@ -54,6 +53,8 @@ fd_lru_new( void * shmem,
   lru->free_top = 1UL;
   lru->map_cnt = map_cnt;
   fd_list_new( fd_lru_list_laddr( lru ), depth );
+
+  // FD_LOG_HEXDUMP_NOTICE(("lru", lru, footprint));
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( lru->magic ) = FD_LRU_MAGIC;

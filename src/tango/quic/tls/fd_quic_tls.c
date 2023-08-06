@@ -403,6 +403,7 @@ fd_quic_tls_process( fd_quic_tls_hs_t * self ) {
     }
   } else {
     // handle post-handshake messages
+    /* A server MUST NOT use post-handshake client authentication */
     switch( SSL_process_quic_post_handshake( self->ssl ) ) {
       case 0: // failed
         {
@@ -851,4 +852,15 @@ fd_quic_tls_get_peer_transport_params( fd_quic_tls_hs_t * self,
                                        uchar const **     transport_params,
                                        ulong *           transport_params_sz ) {
   SSL_get_peer_quic_transport_params( self->ssl, transport_params, transport_params_sz );
+}
+
+int
+fd_quic_tls_get_pubkey( fd_quic_tls_hs_t * self, uchar * pubkey, ulong pubkey_sz ) {
+  EVP_PKEY * pubkey_ = X509_get_pubkey( SSL_get_peer_certificate( self->ssl ) );
+  FD_TEST( pubkey_ != NULL );
+  if ( FD_LIKELY( EVP_PKEY_get_raw_public_key( pubkey_, pubkey, &pubkey_sz ) ) ) {
+    EVP_PKEY_free( pubkey_ );
+    return FD_QUIC_TLS_SUCCESS;
+  };
+  return FD_QUIC_TLS_FAILED;
 }

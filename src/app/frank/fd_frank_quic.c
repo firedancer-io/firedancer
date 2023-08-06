@@ -56,6 +56,10 @@ run( fd_frank_args_t * args ) {
   fd_quic_t * quic = fd_quic_join( fd_wksp_pod_map( args->tile_pod, "quic" ) );
   if( FD_UNLIKELY( !quic ) ) FD_LOG_ERR(( "fd_quic_join failed" ));
 
+  FD_LOG_INFO(( "loading stake" ));
+  fd_stake_t * stake = fd_stake_join( fd_wksp_pod_map( args->tile_pod, "stake" ) );
+  if( FD_UNLIKELY( !stake ) ) FD_LOG_ERR(( "fd_stake_join failed" ));
+
   FD_LOG_INFO(( "loading xsk_aio" ));
   fd_xsk_aio_t * xsk_aio = fd_xsk_aio_join( fd_wksp_pod_map( args->tile_pod, "xsk_aio" ), args->xsk );
   if( FD_UNLIKELY( !xsk_aio ) ) FD_LOG_ERR(( "fd_xsk_aio_join failed" ));
@@ -122,7 +126,7 @@ run( fd_frank_args_t * args ) {
   /* Start serving */
 
   FD_LOG_INFO(( "%s(%lu) run", args->tile_name, args->tile_idx ));
-  int err = fd_quic_tile( cnc, quic, xsk_aio, mcache, dcache, lazy, rng, scratch );
+  int err = fd_quic_tile( cnc, quic, stake, xsk_aio, mcache, dcache, lazy, rng, scratch );
   if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_quic_tile failed (%i)", err ));
 }
 

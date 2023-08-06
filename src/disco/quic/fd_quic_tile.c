@@ -45,7 +45,6 @@ fd_quic_dcache_msg_ctx( uchar * app_laddr,
 
 struct fd_quic_tpu_ctx {
   /* dcache */
-
   uchar * base;        /* dcache chunk region */
   uchar * dcache_app;  /* dcache app region */
   ulong   chunk0;
@@ -60,11 +59,15 @@ struct fd_quic_tpu_ctx {
   ulong            depth;
 
   /* publish stack */
-
   fd_quic_tpu_msg_ctx_t ** pubq;
 
-  /* meta */
+  /* stake */
+  fd_stake_t * stake;
 
+  /* qos */
+  fd_quic_qos_t * qos;
+
+  /* meta */
   ulong   cnc_diag_tpu_conn_live_cnt;
   ulong   cnc_diag_tpu_conn_seq;
 };
@@ -84,8 +87,8 @@ fd_tpu_now( void * ctx ) {
 
 /* fd_tpu_conn_create implements fd_quic_cb_conn_new_t */
 static void
-fd_tpu_conn_create( fd_quic_conn_t * conn,
-                    void *           _ctx ) {
+fd_tpu_conn_new( fd_quic_conn_t * conn,
+                 void *           _ctx ) {
 
   conn->local_conn_id = ++conn_seq;
 
@@ -96,8 +99,8 @@ fd_tpu_conn_create( fd_quic_conn_t * conn,
 
 /* fd_tpu_conn_destroy implements fd_quic_cb_conn_final_t */
 static void
-fd_tpu_conn_destroy( fd_quic_conn_t * conn,
-                     void *           _ctx ) {
+fd_tpu_conn_final( fd_quic_conn_t * conn,
+                   void *           _ctx ) {
   (void)conn;
 
   fd_quic_tpu_ctx_t * ctx = (fd_quic_tpu_ctx_t *)_ctx;
@@ -106,7 +109,7 @@ fd_tpu_conn_destroy( fd_quic_conn_t * conn,
 
 /* fd_tpu_stream_create implements fd_quic_cb_stream_new_t */
 static void
-fd_tpu_stream_create( fd_quic_stream_t * stream,
+fd_tpu_stream_new( fd_quic_stream_t * stream,
                       void *             _ctx,
                       int                type ) {
 
@@ -189,7 +192,7 @@ fd_tpu_stream_receive( fd_quic_stream_t * stream,
 
   ulong total_sz = offset+data_sz;
   if( FD_UNLIKELY( total_sz>FD_TPU_MTU || total_sz<offset ) ) {
-    //fd_quic_stream_close( stream, 0x03 ); /* FIXME fd_quic_stream_close not implemented */
+    fd_quic_stream_close( stream );
     return;  /* oversz stream */
   }
 
@@ -375,10 +378,10 @@ fd_quic_tile( fd_cnc_t *       cnc,
     fd_quic_callbacks_t * quic_cb = &quic->cb;
     if( FD_UNLIKELY( !quic_cb ) ) { FD_LOG_WARNING(( "NULL quic callbacks") ); return 1; }
 
-    quic_cb->conn_new         = fd_tpu_conn_create;
+    quic_cb->conn_new         = fd_tpu_conn_new;
     quic_cb->conn_hs_complete = NULL;
-    quic_cb->conn_final       = fd_tpu_conn_destroy;
-    quic_cb->stream_new       = fd_tpu_stream_create;
+    quic_cb->conn_final       = fd_tpu_conn_final;
+    quic_cb->stream_new       = fd_tpu_stream_new;
     quic_cb->stream_notify    = fd_tpu_stream_notify;
     quic_cb->stream_receive   = fd_tpu_stream_receive;
 
@@ -419,13 +422,14 @@ fd_quic_tile( fd_cnc_t *       cnc,
   long now  = then;
   for(;;) {
     // (void)qos;
-    (void)stake;
+    if (fd_stake_read(stake)) {
+      fd_stake_dump( stake );
+    }
     // FD_LOG_NOTICE(("total_stake %lu", stake->total_stake));
     // fd_stake_pubkey_t pubkey = {
     //     .pubkey = {44, 174, 25, 39, 43, 255, 200, 81, 55, 73, 10, 113, 174, 91, 223, 80,
     //                50, 51, 102, 25, 63, 110, 36, 28, 51, 11, 174, 179, 110, 8, 25, 152}
     // };
-    fd_stake_dump( stake );
     // FD_LOG_NOTICE(("staked_node is null %d", stake->staked_nodes == NULL));
     // FD_LOG_HEXDUMP_NOTICE(("staked node i", &stake->staked_nodes[0], 4));
     // for (ulong i = 0; i < (1UL << 16); i++) {

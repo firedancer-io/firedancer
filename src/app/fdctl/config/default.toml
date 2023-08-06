@@ -377,7 +377,7 @@ dynamic_port_range = "8000-10000"
 
         # Maximum number of simultaneous QUIC connections which can be open. New
         # connections which would exceed this limit will not be accepted.
-        max_concurrent_connections = 32
+        max_concurrent_connections = 4096
 
         # While in TCP a connection is identified by (Source IP, Source Port,
         # Dest IP, Dest Port) in QUIC a connection is uniquely identified by a
@@ -393,7 +393,9 @@ dynamic_port_range = "8000-10000"
         #
         # Currently this option does nothing, as we do not support creating
         # additional connection IDs.
-        max_concurrent_connection_ids_per_connection = 16
+        #
+        # Should be in sync with `fd_quic_conn.h`.
+        max_concurrent_connection_ids_per_connection = 4
 
         # QUIC allows for multiple streams to be multiplexed over a single
         # connection. This option sets the maximum number of simultaneous
@@ -437,6 +439,9 @@ dynamic_port_range = "8000-10000"
         # TODO: This should be removed. We never transmit stream data so this
         # should be unused.
         tx_buf_size = 4096
+
+        # Lg number of stake nodes to track
+        stake_lg_slot_cnt = 10
 
         # Firedancer uses XDP for fast packet processing. XDP supports two
         # modes, XDP_SKB and XDP_DRV. XDP_DRV is preferred as it is faster, but

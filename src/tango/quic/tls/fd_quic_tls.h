@@ -349,5 +349,10 @@ fd_quic_tls_get_peer_transport_params( fd_quic_tls_hs_t * self,
                                        uchar const **     transport_params,
                                        ulong *            transport_params_sz );
 
+/* get pubkey */
+int
+fd_quic_tls_get_pubkey( fd_quic_tls_hs_t * self, uchar * pubkey, ulong pubkey_sz );
+
 #endif /* HEADER_fd_src_tango_quic_tls_fd_quic_tls_h */
+
 

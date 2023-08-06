@@ -81,6 +81,13 @@ static void quic( void * pod, char * fmt, fd_quic_limits_t * limits, ... ) {
             fd_quic_new      ( shmem, limits ) );
 }
 
+static void stake( void * pod, char * fmt, int lg_slot_cnt, ... ) {
+  INSERTER( lg_slot_cnt,
+            fd_stake_align    (                    ),
+            fd_stake_footprint( lg_slot_cnt        ),
+            fd_stake_new      ( shmem, lg_slot_cnt ) );
+}
+
 static void xsk( void * pod, char * fmt, ulong frame_sz, ulong rx_depth, ulong tx_depth, ... ) {
   INSERTER( tx_depth,
             fd_xsk_align    (                                                            ),
@@ -245,6 +252,8 @@ init( config_t * const config ) {
       case wksp_quic:
         cnc    ( pod, "cnc" );
         quic   ( pod, "quic",    &limits );
+        FD_LOG_NOTICE(("config->tiles.quic.stake_lg_slot_cnt: %d", config->tiles.quic.stake_lg_slot_cnt));
+        stake  ( pod, "stake",   10 );  // FIXME this not getting parsed
         xsk    ( pod, "xsk",     2048, config->tiles.quic.xdp_rx_queue_size, config->tiles.quic.xdp_tx_queue_size );
         xsk_aio( pod, "xsk_aio", config->tiles.quic.xdp_tx_queue_size, config->tiles.quic.xdp_aio_depth );
 

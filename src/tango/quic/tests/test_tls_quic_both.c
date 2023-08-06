@@ -252,6 +252,8 @@ fd_quic_create_context( int        is_server,
 
     // set callback for client hello
     SSL_CTX_set_client_hello_cb(ctx, fd_quic_ssl_client_hello, NULL);
+
+    // SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER | SSL_VERIFY_CLIENT_CERT, NULL )
   }
 
   return ctx;

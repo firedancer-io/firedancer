@@ -8,6 +8,7 @@
 #include "templ/fd_quic_transport_params.h"
 #include "fd_quic_pkt_meta.h"
 #include "fd_quic_stream_pool.h"
+#include "../../ballet/txn/fd_txn.h"
 
 #define FD_QUIC_CONN_STATE_INVALID            0 /* dead object / freed */
 #define FD_QUIC_CONN_STATE_HANDSHAKE          1 /* currently doing handshaking with peer */

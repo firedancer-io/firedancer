@@ -73,8 +73,7 @@ main( int argc, char ** argv ) {
   fd_list_t ** map = fd_lru_map_laddr( lru );
   for ( ulong tag = 1; tag <= depth; tag++ ) {
     FD_TEST( fd_lru_free_top( lru ) == tag );
-    int         dup;
-    fd_list_t * upsert = fd_lru_upsert( lru, tag, &dup );
+    fd_list_t * upsert = fd_lru_upsert( lru, tag );
     int         found;
     ulong       map_idx;
     FD_LRU_QUERY( found, map_idx, map, map_cnt, tag );
@@ -101,8 +100,7 @@ main( int argc, char ** argv ) {
     ulong map_idx;
     FD_LRU_QUERY( found, map_idx, map, map_cnt, tag );
     FD_TEST( !found );
-    int dup;
-    fd_lru_upsert( lru, tag, &dup );
+    fd_lru_upsert( lru, tag );
     FD_LRU_QUERY( found, map_idx, map, map_cnt, tag );
     FD_TEST( found );
     FD_TEST( map[map_idx] );
@@ -113,8 +111,7 @@ main( int argc, char ** argv ) {
 
   /* already present */
   do {
-    int dup;
-    fd_lru_upsert( lru, depth + 1, &dup );
+    fd_lru_upsert( lru, depth + 1 );
     int   found;
     ulong map_idx;
     ulong tag = depth + 1;
@@ -132,8 +129,7 @@ main( int argc, char ** argv ) {
     ulong map_idx;
     FD_LRU_QUERY( found, map_idx, map, map_cnt, tag );
     FD_TEST( found );
-    int dup;
-    fd_lru_upsert( lru, tag, &dup );
+    fd_lru_upsert( lru, tag );
     FD_LRU_QUERY( found, map_idx, map, map_cnt, tag );
     FD_TEST( found );
     FD_TEST( map[map_idx] );
@@ -145,14 +141,12 @@ main( int argc, char ** argv ) {
     ushort n = fd_rng_ushort( rng ); /* assumes depth = USHORT_MAX */
     int    found;
     ulong  map_idx;
-    int    dup;
     if ( n < ( fd_rng_uchar( rng ) >= ( 1 << 7 ) ) ) {
       ulong tag = (ulong)n + depth + 1;
       FD_LRU_QUERY( found, map_idx, map, lru->map_cnt, tag );
-      fd_list_t * evicted = fd_lru_upsert( lru, tag, &dup );
+      fd_list_t * evicted = fd_lru_upsert( lru, tag );
       FD_TEST( found );
       FD_TEST( evicted == NULL );
-      FD_TEST( dup );
     } else {
       ulong tag = (ulong)n;
       FD_LRU_QUERY( found, map_idx, map, lru->map_cnt, tag );

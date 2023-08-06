@@ -124,7 +124,7 @@ fd_lru_map_cnt_default( ulong depth ) {
 }
 
 /* fd_lru_{align,footprint} return the required alignment and
-   footprint of a memory region suitable for use as a lru.
+   footprint of a memory region suitable for use as an lru.
    fd_lru_align returns FD_LRU_ALIGN.  For fd_lru_footprint, a
    map_cnt of 0 indicates to use fd_lru_map_cnt_default above.  If
    depth is not positive, map_cnt is not a power of 2 of at least
@@ -139,7 +139,7 @@ fd_lru_align( void );
 FD_FN_CONST ulong
 fd_lru_footprint( ulong depth, ulong map_cnt );
 
-/* fd_lru_new formats an unused memory region for use as a lru.
+/* fd_lru_new formats an unused memory region for use as an lru.
    shmem is a non-NULL pointer to this region in the local address space
    with the required footprint and alignment.  depth is the number of
    unique tags that can be stored in the lru and should be positive
@@ -178,7 +178,7 @@ fd_lru_join( void * _lru );
 void *
 fd_lru_leave( fd_lru_t * lru );
 
-/* fd_lru_delete unformats a memory region used as a lru.  Assumes
+/* fd_lru_delete unformats a memory region used as an lru.  Assumes
    nobody is joined to the region.  Returns a pointer to the underlying
    shared memory region or NULL if used obviously in error (e.g.
    _lru is obviously not a lru ... logs details).  The ownership
@@ -211,13 +211,12 @@ fd_lru_map_cnt( fd_lru_t const * lru ) {
 
 FD_FN_CONST static inline fd_list_t *
 fd_lru_list_laddr( fd_lru_t * lru ) {
-  return ( (fd_list_t *)fd_type_pun( lru ) ) + 1UL;
-} /* both metadata and fd_list_t are 32-byte */
+  return (fd_list_t *)fd_type_pun( lru + 1UL ); /* both metadata and fd_list_t are 32-byte */
+}
 
 FD_FN_PURE static inline fd_list_t **
 fd_lru_map_laddr( fd_lru_t * lru ) {
-  return (fd_list_t **)fd_type_pun( ( (fd_list_t *)lru ) + 1UL /*metadata*/ + 1UL /*sentinel*/ +
-                                    lru->depth );
+  return (fd_list_t **)fd_type_pun( fd_lru_list_laddr( lru ) + lru->depth + 1UL );
 }
 
 /* fd_lru_tag_is_null returns non-zero if tag is FD_LRU_TAG_NULL
@@ -226,20 +225,6 @@ fd_lru_map_laddr( fd_lru_t * lru ) {
 FD_FN_CONST static inline int
 fd_lru_tag_is_null( ulong tag ) {
   return tag == FD_LRU_TAG_NULL;
-}
-
-/* fd_lru_reset resets a lru to empty, the same state the lru
-   was in at creation.  For performance critical usage, does no input
-   argument checking, uses the unpacked lru fields and returns the
-   value to use for oldest. */
-
-static inline ulong
-fd_lru_reset( ulong * list, ulong depth, ulong * map, ulong map_cnt ) {
-  for ( ulong list_idx = 0UL; list_idx < depth; list_idx++ )
-    list[list_idx] = FD_LRU_TAG_NULL;
-  for ( ulong map_idx = 0UL; map_idx < map_cnt; map_idx++ )
-    map[map_idx] = FD_LRU_TAG_NULL;
-  return 0UL; /* list_oldest */
 }
 
 /* fd_lru_map_start returns the location in a lru map to start
@@ -274,7 +259,7 @@ fd_lru_map_next( ulong idx, ulong map_cnt ) {
    This is implemented as a macro to support multiple return values
    (found and map_idx), especially as this is used in performance
    critical contexts.  Similarly, does no input argument checking and
-   uses the unpacked fields of a lru.  Assumes map is non-NULL, map
+   uses the unpacked fields of an lru.  Assumes map is non-NULL, map
    is indexed [0,map_cnt), map_cnt is a positive integer power-of-two
    and tag is not null.
 
@@ -305,7 +290,7 @@ fd_lru_map_next( ulong idx, ulong map_cnt ) {
    O(1).  This does not remove tag from the list, so the user is responsible
    for the removing the value from the list.  As this is used in performance
    critical contexts, does no input argument checking and uses the
-   unpacked fields of a lru.  Assumes map is non-NULL, map is indexed
+   unpacked fields of an lru.  Assumes map is non-NULL, map is indexed
    [0,map_cnt) and map_cnt is a positive integer power-of-two.  Does
    nothing if tag is null or if tag is not currently in the map. */
 
@@ -390,24 +375,27 @@ fd_lru_list_tail( fd_lru_t * lru ) {
    unique tag insert). */
 
 static inline fd_list_t *
-fd_lru_upsert( fd_lru_t * lru, ulong tag, int * dup ) {
+fd_lru_upsert( fd_lru_t * lru, ulong tag) {
   ulong        map_idx;
   fd_list_t ** map = fd_lru_map_laddr( lru );
   int          found;
+  // FD_LOG_NOTICE(("fd_lru(lru) %p", (void *)lru));
+  // FD_LOG_NOTICE(("fd_lru_list_laddr(lru) %p", (void *)fd_lru_list_laddr(lru)));
+  // FD_LOG_NOTICE(("fd_lru_map_laddr(lru) %p", (void *)fd_lru_map_laddr(lru)));
   FD_LRU_QUERY( found, map_idx, map, lru->map_cnt, tag );
-  *dup                = found;
-  fd_list_t * evicted = NULL;
+  fd_list_t * evict = NULL;
 
-  /* LRU insert*/
-  if ( !*dup ) { /* application dependent branch probability */
+  /* lru insert */
+  if ( !found ) { /* application dependent branch probability */
     /* Evict oldest tag / insert tag into list */
     if ( FD_LIKELY( lru->free_top == 0 ) ) {
       fd_list_t * remove = fd_list_remove( fd_lru_list_head( lru ) );
       fd_lru_list_release( lru, remove );
       fd_lru_remove( lru, remove->tag );
-      evicted = remove;
+      evict = remove;
     }
     fd_list_t * insert = fd_lru_list_acquire( lru );
+    if ( insert == NULL ) FD_LOG_ERR( ( "fd_lru_list_acquire failed. lru invariant violation: should have evicted when lru was full." ) );
     insert->tag        = tag;
     fd_list_insert( fd_lru_list_tail( lru ), insert );
 
@@ -416,11 +404,11 @@ fd_lru_upsert( fd_lru_t * lru, ulong tag, int * dup ) {
     map[map_idx] = insert;
     /* map has at most map_cnt-1 entries here */
 
-    /* LRU update */
+    /* lru update */
   } else {
     fd_list_insert( fd_lru_list_tail( lru ), fd_list_remove( map[map_idx] ) );
   }
-  return evicted;
+  return evict;
 }
 
 FD_PROTOTYPES_END

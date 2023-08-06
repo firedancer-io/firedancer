@@ -1065,8 +1065,18 @@ fd_quic_stream_fin( fd_quic_stream_t * stream ) {
 }
 
 void
+fd_quic_stream_close( fd_quic_stream_t * stream ) {
+  /* TODO implement STOP_SENDING
+  
+     If the stream is in the "Recv" or "Size Known" state, the transport SHOULD
+     signal this by sending a STOP_SENDING frame to prompt closure of the stream
+     in the opposite direction. */
+  fd_quic_stream_free( stream->conn->quic, stream->conn, stream, FD_QUIC_NOTIFY_ABORT );
+}
+
+void
 fd_quic_conn_set_max_streams( fd_quic_conn_t * conn, int dirtype, ulong max_streams ) {
-  int type = ((dirtype & 1) << 1) + conn->server;  /* `dirtype & 1` clamps to 0 or 1 */
+  int type = ((dirtype & 1) << 1) + !conn->server;  /* `dirtype & 1` clamps to 0 or 1 */
   conn->max_streams[(ulong)type] = max_streams;
 }
 
@@ -4469,8 +4479,6 @@ fd_quic_conn_service( fd_quic_t * quic, fd_quic_conn_t * conn, ulong now ) {
               quic->metrics.conn_aborted_cnt++;
               fd_quic_cb_conn_final( quic, conn ); /* inform user before freeing */
               fd_quic_conn_free( quic, conn );
-              
-        fd_quic_conn_free( quic, conn );
             }
             fd_quic_cb_conn_new( quic, conn );
           }
