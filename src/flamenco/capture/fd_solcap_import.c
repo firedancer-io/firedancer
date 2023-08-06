@@ -23,6 +23,7 @@ usage( void ) {
     "Options:\n"
     "  --page-sz      {gigantic|huge|normal}    Page size\n"
     "  --page-cnt     {count}                   Page count\n"
+    "  --scratch-mb   1024                      Scratch mem MiB\n"
     "\n" );
   return 0;
 }

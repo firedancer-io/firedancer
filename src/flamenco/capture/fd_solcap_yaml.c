@@ -381,6 +381,7 @@ main( int     argc,
 
   fd_solcap_chunk_iter_t iter[1];
   fd_solcap_chunk_iter_new( iter, file );
+  /* TODO replace this with fd_solcap_chunk_iter_find */
   for(;;) {
     long chunk_gaddr = fd_solcap_chunk_iter_next( iter );
     if( FD_UNLIKELY( chunk_gaddr<0L ) ) {

@@ -1,15 +1,19 @@
 #include "fd_solcap_reader.h"
 #include "fd_solcap_proto.h"
+#include "../nanopb/pb_decode.h"
 
 #if !FD_HAS_HOSTED
 #error "fd_solcap_reader requires FD_HAS_HOSTED"
 #endif
 
 #include <errno.h>
+#include <stdio.h>
 
 fd_solcap_chunk_iter_t *
 fd_solcap_chunk_iter_new( fd_solcap_chunk_iter_t * iter,
-                          FILE *                   stream ) {
+                          void *                   _stream ) {
+
+  FILE * stream = (FILE *)_stream;
 
   long pos = ftell( stream );
   if( FD_UNLIKELY( pos<0L ) ) {
@@ -18,9 +22,10 @@ fd_solcap_chunk_iter_new( fd_solcap_chunk_iter_t * iter,
   }
 
   *iter = (fd_solcap_chunk_iter_t) {
-    .stream     = stream,
-    .chunk      = {0},
-    .next_chunk = (ulong)pos,
+    .stream    = stream,
+    .chunk     = {0},
+    .chunk_off = 0UL,
+    .chunk_end = (ulong)pos,
   };
   return iter;
 }
@@ -28,20 +33,15 @@ fd_solcap_chunk_iter_new( fd_solcap_chunk_iter_t * iter,
 long
 fd_solcap_chunk_iter_next( fd_solcap_chunk_iter_t * iter ) {
 
-  FILE * stream = iter->stream;
+  FILE * stream = (FILE *)iter->stream;
 
-  if( FD_UNLIKELY( 0!=fseek( iter->stream, (long)iter->next_chunk, SEEK_SET ) ) ) {
+  long chunk_gaddr = (long)iter->chunk_end;
+  if( FD_UNLIKELY( 0!=fseek( iter->stream, chunk_gaddr, SEEK_SET ) ) ) {
     FD_LOG_WARNING(( "fseek failed (%d-%s)", errno, strerror( errno ) ));
     iter->err = errno;
     return -1L;
   }
-
-  long chunk_gaddr = ftell( stream );
-  if( FD_UNLIKELY( chunk_gaddr<0L ) ) {
-    FD_LOG_WARNING(( "ftell failed (%d-%s)", errno, strerror( errno ) ));
-    iter->err = errno;
-    return -1L;
-  }
+  iter->chunk_off = (ulong)chunk_gaddr;
 
   ulong n = fread( &iter->chunk, sizeof(fd_solcap_chunk_t), 1UL, stream );
   if( FD_UNLIKELY( n!=1UL ) ) {
@@ -50,6 +50,7 @@ fd_solcap_chunk_iter_next( fd_solcap_chunk_iter_t * iter ) {
       FD_LOG_WARNING(( "fread failed (%d-%s)", errno, strerror( errno ) ));
       iter->err = err;
     }
+    iter->err = 0;
     return -1L;
   }
 
@@ -61,7 +62,44 @@ fd_solcap_chunk_iter_next( fd_solcap_chunk_iter_t * iter ) {
     return -1L;
   }
 
-  iter->next_chunk = (ulong)chunk_gaddr + iter->chunk.total_sz;
+  iter->chunk_end = (ulong)chunk_gaddr + iter->chunk.total_sz;
 
   return chunk_gaddr;
+}
+
+int
+fd_solcap_chunk_iter_done( fd_solcap_chunk_iter_t const * iter ) {
+  return feof( (FILE *)iter->stream ) || fd_solcap_chunk_iter_err( iter );
+}
+
+
+int
+fd_solcap_read_bank_preimage( void *                    _file,
+                              ulong                     chunk_goff,
+                              fd_solcap_BankPreimage *  preimage,
+                              fd_solcap_chunk_t const * hdr ) {
+
+  if( FD_UNLIKELY( hdr->magic != FD_SOLCAP_V1_BANK_MAGIC ) )
+    return EPROTO;
+
+  /* Seek to Protobuf */
+  FILE * file = (FILE *)_file;
+  if( FD_UNLIKELY( 0!=fseek( file, (long)chunk_goff + hdr->meta_coff, SEEK_SET ) ) )
+    return errno;
+
+  /* Read into stack buffer */
+  uchar buf[ FD_SOLCAP_BANK_PREIMAGE_FOOTPRINT ];
+  if( FD_UNLIKELY( hdr->meta_sz > FD_SOLCAP_BANK_PREIMAGE_FOOTPRINT ) )
+    return ENOMEM;
+  if( FD_UNLIKELY( hdr->meta_sz != fread( buf, 1UL, hdr->meta_sz, file ) ) )
+    return ferror( file );
+
+  /* Decode */
+  pb_istream_t stream = pb_istream_from_buffer( buf, hdr->meta_sz );
+  if( FD_UNLIKELY( !pb_decode( &stream, fd_solcap_BankPreimage_fields, preimage ) ) ) {
+    FD_LOG_WARNING(( "pb_decode failed (%s)", PB_GET_ERROR(&stream) ));
+    return EPROTO;
+  }
+
+  return 0;
 }

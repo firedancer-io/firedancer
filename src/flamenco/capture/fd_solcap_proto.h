@@ -134,4 +134,36 @@ struct fd_solcap_account_tbl {
 
 typedef struct fd_solcap_account_tbl fd_solcap_account_tbl_t;
 
+/* Hardcoded limits ***************************************************/
+
+/* FD_SOLCAP_FHDR_SZ is the number of bytes occupied by the file header.
+   Immediately after the file header is the first chunk. */
+
+#define FD_SOLCAP_FHDR_SZ (256UL)
+
+/* FD_SOLCAP_ACC_TBL_CNT is the number of entries that fit in the in-
+   memory buffer for the account table. */
+
+#define FD_SOLCAP_ACC_TBL_CNT (4096U)
+
+/* FD_SOLCAP_FILE_META_FOOTPRINT is the max size of the FileMeta
+   Protobuf struct. */
+
+#define FD_SOLCAP_FILE_META_FOOTPRINT (1024U)
+
+/* FD_SOLCAP_ACTB_META_FOOTPRINT is the max size of the
+   AccountChunkMeta Protobuf struct. */
+
+#define FD_SOLCAP_ACTB_META_FOOTPRINT (128UL)
+
+/* FD_SOLCAP_ACCOUNT_META_FOOTPRINT is the max size of the AccountMeta
+   Protobuf struct. */
+
+#define FD_SOLCAP_ACCOUNT_META_FOOTPRINT (1024UL)
+
+/* FD_SOLCAP_BANK_PREIMAGE_FOOTPRINT is the max size of the BankPreimage
+   Protobuf struct. */
+
+#define FD_SOLCAP_BANK_PREIMAGE_FOOTPRINT (512UL)
+
 #endif /* HEADER_fd_src_flamenco_capture_fd_solcap_proto_h */

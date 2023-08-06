@@ -15,36 +15,6 @@
     foff: file offset from beginning of solcap stream
     coff: file offset from beginning of current chunk */
 
-/* FD_SOLCAP_FHDR_SZ is the number of bytes occupied by the file header.
-   Immediately after the file header is the first chunk. */
-
-#define FD_SOLCAP_FHDR_SZ (256UL)
-
-/* FD_SOLCAP_ACC_TBL_CNT is the number of entries that fit in the in-
-   memory buffer for the account table. */
-
-#define FD_SOLCAP_ACC_TBL_CNT (4096U)
-
-/* FD_SOLCAP_FILE_META_FOOTPRINT is the max size of the FileMeta
-   Protobuf struct. */
-
-#define FD_SOLCAP_FILE_META_FOOTPRINT (1024U)
-
-/* FD_SOLCAP_ACTB_META_FOOTPRINT is the max size of the
-   AccountChunkMeta Protobuf struct. */
-
-#define FD_SOLCAP_ACTB_META_FOOTPRINT (128UL)
-
-/* FD_SOLCAP_ACCOUNT_META_FOOTPRINT is the max size of the AccountMeta
-   Protobuf struct. */
-
-#define FD_SOLCAP_ACCOUNT_META_FOOTPRINT (1024UL)
-
-/* FD_SOLCAP_BANK_PREIMAGE_FOOTPRINT is the max size of the BankPreimage
-   Protobuf struct. */
-
-#define FD_SOLCAP_BANK_PREIMAGE_FOOTPRINT (512UL)
-
 /* fd_solcap_writer is the state of a capture writer.  Currently, it
    is only able to capture the bank hash pre-image and chagned accounts.
 
