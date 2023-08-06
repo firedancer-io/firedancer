@@ -82,11 +82,11 @@ fd_solcap_writer_fini( fd_solcap_writer_t * writer );
      - write_bank_preimage
      - write_bank_hash */
 
-/* fd_solcap_write_set_slot starts a new slot record.  Finishes any
+/* fd_solcap_writer_set_slot starts a new slot record.  Finishes any
    previous slot record.  slot numbers must be monotonically increasing. */
 
-int
-fd_solcap_write_set_slot( fd_solcap_writer_t * writer,
+void
+fd_solcap_writer_set_slot( fd_solcap_writer_t * writer,
                           ulong                slot );
 
 /* fd_solcap_write_account appends a copy of the given account (key,
@@ -102,6 +102,13 @@ fd_solcap_write_account( fd_solcap_writer_t *             writer,
                          ulong                            data_sz,
                          void const *                     hash );
 
+int
+fd_solcap_write_account2( fd_solcap_writer_t *             writer,
+                          fd_solcap_account_tbl_t const *  tbl,
+                          fd_solcap_AccountMeta *          meta_pb,
+                          void const *                     data,
+                          ulong                            data_sz );
+
 /* fd_solcap_write_bank_preimage sets additional fields that are part
    of the current slot's bank hash preimage.  prev_bank_hash is the
    bank hash of the previous block.  account_delta_hash is the Merkle
@@ -116,6 +123,10 @@ fd_solcap_write_bank_preimage( fd_solcap_writer_t * writer,
                                void const *         account_delta_hash,
                                void const *         poh_hash,
                                ulong                signature_cnt );
+
+int
+fd_solcap_write_bank_preimage2( fd_solcap_writer_t *     writer,
+                                fd_solcap_BankPreimage * preimg );
 
 FD_PROTOTYPES_END
 

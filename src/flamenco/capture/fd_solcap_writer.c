@@ -22,7 +22,7 @@
 
    Typically, the order is the following:
 
-   - fd_solcap_write_set_slot advances to the next slot.  If there was
+   - fd_solcap_writer_set_slot advances to the next slot.  If there was
      a previous slot in progress but not finished, discards buffers.
    - fd_solcap_write_account writes an account chunk and buffers an
      entry for the accounts table.
@@ -359,6 +359,31 @@ fd_solcap_write_account( fd_solcap_writer_t *             writer,
 
   if( FD_LIKELY( !writer ) ) return 0;
 
+  fd_solcap_account_tbl_t rec[1];
+  memset( rec, 0, sizeof(fd_solcap_account_tbl_t) );
+  memcpy( rec->key,  key,  32UL );
+  memcpy( rec->hash, hash, 32UL );
+
+  fd_solcap_AccountMeta meta_pb[1] = {{
+    .lamports   = meta->lamports,
+    .rent_epoch = meta->rent_epoch,
+    .executable = meta->executable,
+    .data_sz    = data_sz,
+  }};
+  memcpy( meta_pb->owner, meta->owner, 32UL );
+
+  return fd_solcap_write_account2( writer, rec, meta_pb, data, data_sz );
+}
+
+int
+fd_solcap_write_account2( fd_solcap_writer_t *             writer,
+                          fd_solcap_account_tbl_t const *  tbl,
+                          fd_solcap_AccountMeta *          meta_pb,
+                          void const *                     data,
+                          ulong                            data_sz ) {
+
+  if( FD_LIKELY( !writer ) ) return 0;
+
   /* Locate chunk */
 
   ulong chunk_goff = FTELL_BAIL( writer->file );
@@ -374,15 +399,9 @@ fd_solcap_write_account( fd_solcap_writer_t *             writer,
 
   ulong meta_goff = FTELL_BAIL( writer->file );
 
-  fd_solcap_AccountMeta meta_pb[1] = {{
-    .lamports   = meta->lamports,
-    .slot       = writer->slot,
-    .rent_epoch = meta->rent_epoch,
-    .executable = meta->executable,
-    .data_coff  = (long)data_coff,
-    .data_sz    = data_sz,
-  }};
-  memcpy( meta_pb->owner, meta->owner, 32UL );
+  meta_pb->slot      = writer->slot;
+  meta_pb->data_coff = (long)data_coff;
+  meta_pb->data_sz   = data_sz;
 
   uchar meta_pb_enc[ FD_SOLCAP_ACCOUNT_META_FOOTPRINT ];
   pb_ostream_t stream = pb_ostream_from_buffer( meta_pb_enc, sizeof(meta_pb_enc) );
@@ -398,15 +417,12 @@ fd_solcap_write_account( fd_solcap_writer_t *             writer,
 
   if( writer->account_idx < FD_SOLCAP_ACC_TBL_CNT ) {
     fd_solcap_account_tbl_t * account = &writer->accounts[ writer->account_idx ];
-    memset( account, 0, sizeof(fd_solcap_account_tbl_t) );
+    memcpy( account, tbl, sizeof(fd_solcap_account_tbl_t) );
 
     /* Since we don't yet know the final position of the account table,
        we temporarily store a global offset.  This will later get
        converted into a chunk offset. */
     account->acc_coff = (long)chunk_goff;
-
-    memcpy( account->key,  key,  32UL );
-    memcpy( account->hash, hash, 32UL );
   }
 
   /* Serialize chunk header */
@@ -436,16 +452,16 @@ fd_solcap_write_account( fd_solcap_writer_t *             writer,
   return 0;
 }
 
-int
-fd_solcap_write_set_slot( fd_solcap_writer_t * writer,
+void
+fd_solcap_writer_set_slot( fd_solcap_writer_t * writer,
                           ulong                slot ) {
 
-  if( FD_LIKELY( !writer ) ) return 0;
+  if( FD_LIKELY( !writer ) ) return;
 
   /* Discard account table buffer */
-  writer->account_idx = 0UL;
-  writer->slot        = slot;
-  return 0;
+  writer->account_table_goff = 0UL;
+  writer->account_idx        = 0UL;
+  writer->slot               = slot;
 }
 
 int
@@ -458,6 +474,23 @@ fd_solcap_write_bank_preimage( fd_solcap_writer_t * writer,
 
   if( FD_LIKELY( !writer ) ) return 0;
 
+  fd_solcap_BankPreimage preimage_pb[1] = {{0}};
+  preimage_pb->signature_cnt = signature_cnt;
+  memcpy( preimage_pb->bank_hash,          bank_hash,          32UL );
+  memcpy( preimage_pb->prev_bank_hash,     prev_bank_hash,     32UL );
+  memcpy( preimage_pb->account_delta_hash, account_delta_hash, 32UL );
+  memcpy( preimage_pb->poh_hash,           poh_hash,           32UL );
+
+  return fd_solcap_write_bank_preimage2( writer, preimage_pb );
+}
+
+
+int
+fd_solcap_write_bank_preimage2( fd_solcap_writer_t *     writer,
+                                fd_solcap_BankPreimage * preimage_pb ) {
+
+  if( FD_LIKELY( !writer ) ) return 0;
+
   int err = fd_solcap_flush_account_table( writer );
   if( FD_UNLIKELY( err!=0 ) ) return err;
 
@@ -466,18 +499,15 @@ fd_solcap_write_bank_preimage( fd_solcap_writer_t * writer,
   ulong chunk_goff = FTELL_BAIL( writer->file );
   FSKIP_BAIL( writer->file, sizeof(fd_solcap_chunk_t) );
 
-  /* Serialize bank preimage */
+  /* Fixup predefined entries */
 
-  fd_solcap_BankPreimage preimage_pb[1] = {{
-    .slot               = writer->slot,
-    .signature_cnt      = signature_cnt,
-    .account_cnt        = writer->account_idx,
-    .account_table_coff = (long)writer->account_table_goff - (long)chunk_goff,
-  }};
-  memcpy( preimage_pb->bank_hash,          bank_hash,          32UL );
-  memcpy( preimage_pb->prev_bank_hash,     prev_bank_hash,     32UL );
-  memcpy( preimage_pb->account_delta_hash, account_delta_hash, 32UL );
-  memcpy( preimage_pb->poh_hash,           poh_hash,           32UL );
+  preimage_pb->slot               = writer->slot;
+  if( writer->account_table_goff ) {
+    preimage_pb->account_cnt        = writer->account_idx;
+    preimage_pb->account_table_coff = (long)writer->account_table_goff - (long)chunk_goff;
+  }
+
+  /* Serialize bank preimage */
 
   uchar preimage_pb_enc[ FD_SOLCAP_BANK_PREIMAGE_FOOTPRINT ] = {0};
   pb_ostream_t stream = pb_ostream_from_buffer( preimage_pb_enc, sizeof(preimage_pb_enc) );

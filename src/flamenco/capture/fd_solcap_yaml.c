@@ -339,6 +339,11 @@ process_bank( fd_solcap_chunk_t const * chunk,
   /* Accounts */
 
   if( verbose >= 2 ) {
+    if( meta.account_table_coff==0L ) {
+      FD_LOG_WARNING(( "Capture does not include account info" ));
+      return 0;
+    }
+
     if( FD_UNLIKELY( 0!=fseek( file, chunk_gaddr + (long)meta.account_table_coff, SEEK_SET ) ) ) {
       FD_LOG_ERR(( "fseek to account table failed (%d-%s)", errno, strerror( errno ) ));
       return errno;
