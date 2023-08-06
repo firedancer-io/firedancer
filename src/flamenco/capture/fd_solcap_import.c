@@ -134,8 +134,8 @@ unmarshal_bank_preimage( cJSON const *            json,
   FD_TEST( isfinite( slot_f ) );
   out->slot = (ulong)slot_f;
 
-  FD_TEST( unmarshal_hash( cJSON_GetObjectItem( json, "hash"                ), out->bank_hash          ) );
-  FD_TEST( unmarshal_hash( cJSON_GetObjectItem( json, "parent_hash"         ), out->prev_bank_hash     ) );
+  FD_TEST( unmarshal_hash( cJSON_GetObjectItem( json, "bank_hash"           ), out->bank_hash          ) );
+  FD_TEST( unmarshal_hash( cJSON_GetObjectItem( json, "parent_bank_hash"    ), out->prev_bank_hash     ) );
   FD_TEST( unmarshal_hash( cJSON_GetObjectItem( json, "accounts_delta_hash" ), out->account_delta_hash ) );
   FD_TEST( unmarshal_hash( cJSON_GetObjectItem( json, "last_blockhash"      ), out->poh_hash           ) );
 
