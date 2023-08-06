@@ -98,6 +98,27 @@ fd_solcap_differ_sync( fd_solcap_differ_t * diff ) {
   return 0;
 }
 
+/* fd_solcap_differ_diff detects bank hash mismatches and prints a
+   human-readable description of the root cause to stdout.  Returns 0
+   if bank hashes match, 1 if a mismatch was detected. */
+
+static int
+fd_solcap_differ_diff( fd_solcap_differ_t * diff ) {
+
+  FD_TEST( diff->preimage[0].slot == diff->preimage[1].slot );
+  if( 0==memcmp( &diff->preimage[0], &diff->preimage[1], sizeof(fd_solcap_BankPreimage) ) )
+    return 0;
+
+  printf( "Slot % 10lu: Bank hash mismatch\n"
+          "  -%32J\n"
+          "  +%32J\n",
+          diff->preimage[0].slot,
+          diff->preimage[0].bank_hash,
+          diff->preimage[1].bank_hash );
+
+  return 1;
+}
+
 
 static void
 usage( void ) {
@@ -184,6 +205,22 @@ main( int     argc,
   if( res <0 ) FD_LOG_ERR(( "fd_solcap_differ_sync failed (%d-%s)",
                             -res, strerror( -res ) ));
   if( res==0 ) FD_LOG_ERR(( "Captures don't share any slots" ));
+
+  /* Diff each block */
+
+  for(;;) {
+    /* TODO probably should return an error code on mismatch */
+    if( FD_UNLIKELY( fd_solcap_differ_diff( diff ) ) ) break;
+    printf( "Slot % 10lu: OK\n", diff->preimage[0].slot );
+    /* Advance to next slot.
+       TODO probably should log if a slot gets skipped on one capture,
+            but not the other. */
+    int res = fd_solcap_differ_sync( diff );
+    if( FD_UNLIKELY( res<0 ) )
+      FD_LOG_ERR(( "fd_solcap_differ_sync failed (%d-%s)",
+                   -res, strerror( -res ) ));
+    if( res==0 ) break;
+  }
 
   /* Cleanup */
 
