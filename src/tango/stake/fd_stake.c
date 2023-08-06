@@ -1,3 +1,4 @@
+#include "../mvcc/fd_mvcc.h"
 #include "fd_stake.h"
 
 ulong
@@ -8,11 +9,8 @@ fd_stake_align( void ) {
 ulong
 fd_stake_footprint( int lg_slot_cnt ) {
   if ( lg_slot_cnt <= 0 ) { return 0UL; }
-  ulong l;
-  l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, fd_stake_align(), sizeof( fd_stake_t ) );
-  l = FD_LAYOUT_APPEND( l, fd_stake_node_align(), fd_stake_node_footprint( (int)lg_slot_cnt ) );
-  return FD_LAYOUT_FINI( l, fd_stake_align() );
+  return fd_ulong_align_up( sizeof( fd_stake_t ) + fd_stake_node_footprint( lg_slot_cnt ),
+                            fd_stake_align() );
 }
 
 void *
@@ -24,6 +22,7 @@ fd_stake_new( void * shmem, int lg_slot_cnt ) {
   }
 
   if ( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shmem, fd_stake_align() ) ) ) {
+    FD_LOG_NOTICE(("unaligned"));
     FD_LOG_WARNING( ( "misaligned shmem" ) );
     return NULL;
   }
@@ -42,9 +41,7 @@ fd_stake_new( void * shmem, int lg_slot_cnt ) {
   stake->total_stake = 0;
   /* note the map join happens inside `new`, because the offset from the start of the stake region
    * to map slot0 is stable across joins */
-  fd_stake_node_t * staked_nodes =
-      fd_stake_node_join( fd_stake_node_new( stake + sizeof( fd_stake_t ), lg_slot_cnt ) );
-  stake->nodes_off = (ulong)staked_nodes - (ulong)stake;
+  fd_stake_node_new( (uchar *)stake + sizeof( fd_stake_t ), lg_slot_cnt );
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( stake->magic ) = FD_STAKE_MAGIC;
@@ -55,6 +52,7 @@ fd_stake_new( void * shmem, int lg_slot_cnt ) {
 
 fd_stake_t *
 fd_stake_join( void * shstake ) {
+  FD_TEST(shstake);
 
   if ( FD_UNLIKELY( !shstake ) ) {
     FD_LOG_WARNING( ( "NULL shstake" ) );
@@ -72,21 +70,11 @@ fd_stake_join( void * shstake ) {
     return NULL;
   }
 
-  fd_stake_node_t * map_ptr = fd_stake_nodes_laddr( stake );
-  fd_stake_node_join( map_ptr );
+  uchar * shmap = (uchar *)shstake + sizeof( fd_stake_t );
+  fd_stake_node_t * stake_node = fd_stake_node_join( shmap );
+  stake->nodes_off = (ulong)stake_node - (ulong)stake;
 
   return stake;
-}
-
-ulong
-fd_stake_version( fd_stake_t * stake ) {
-  FD_COMPILER_MFENCE();
-  return stake->version;
-}
-
-ulong *
-fd_stake_version_laddr( fd_stake_t * stake ) {
-  return &stake->version;
 }
 
 fd_stake_node_t *
@@ -94,21 +82,18 @@ fd_stake_nodes_laddr( fd_stake_t * stake ) {
   return (fd_stake_node_t *)( (ulong)stake + stake->nodes_off );
 }
 
-/* fd_stake_version performs a fenced read of the version number. `fd_stake_t` is a single-producer,
- * multiple-consumer concurrency structure and an odd version number indicates the writer is
- * currently writing to the structure. */
 void
-fd_stake_update( fd_stake_t * stake, uchar * staked_nodes_ser, ulong sz ) {
+fd_stake_write( fd_stake_t * stake, uchar * data, ulong sz ) {
   fd_mvcc_begin_write( &stake->mvcc );
 
   fd_stake_node_t * staked_nodes = fd_stake_nodes_laddr( stake );
   fd_stake_node_clear( staked_nodes );
   for ( ulong off = 0; off < sz; off += 40 ) {
     /* 32-byte aligned. dcache is 128-byte aligned. 128 % 32 = 0. */
-    fd_stake_pubkey_t * pubkey = (fd_stake_pubkey_t *)( fd_type_pun( staked_nodes_ser + off ) );
+    fd_stake_pubkey_t * pubkey = (fd_stake_pubkey_t *)( fd_type_pun( data + off ) );
     /* 8-byte aligned. 32 + 8 = 40. 40 % 8 = 0. */
     ulong * stake =
-        (ulong *)( fd_type_pun( staked_nodes_ser + off + sizeof( fd_stake_pubkey_t ) ) );
+        (ulong *)( fd_type_pun( data + off + sizeof( fd_stake_pubkey_t ) ) );
     fd_stake_node_t * staked_node = fd_stake_node_insert( staked_nodes, *pubkey );
     if ( staked_node == NULL ) staked_node = fd_stake_node_query( staked_nodes, *pubkey, NULL );
     if ( staked_node == NULL ) {
@@ -119,6 +104,26 @@ fd_stake_update( fd_stake_t * stake, uchar * staked_nodes_ser, ulong sz ) {
   }
 
   fd_mvcc_end_write( &stake->mvcc );
+}
+
+fd_stake_t *
+fd_stake_read( fd_stake_t * stake ) {
+  ulong begin = fd_mvcc_begin_read( &stake->mvcc );
+  return fd_ptr_if(begin % 2, NULL, stake);
+
+  // /* TODO maintain old/new */
+  // fd_stake_t * read;
+  // fd_ptr_if(begin % 1 == 0, stake->old, stake->new)
+  // if (begin % 1 == 0) {
+  //   read =
+  // } else {
+
+  // }
+  // ulong end = fd_mvcc_end_read( &stake->mvcc );
+  // if (end != begin) {
+  //   return NULL;
+  // }
+  // return read;
 }
 
 void
