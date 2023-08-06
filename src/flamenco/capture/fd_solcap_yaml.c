@@ -3,6 +3,7 @@
 #include "fd_solcap_reader.h"
 #include "fd_solcap.pb.h"
 #include "../nanopb/pb_decode.h"
+#include "../../util/textstream/fd_textstream.h"
 
 #include <errno.h>
 #include <stdio.h>
@@ -66,33 +67,24 @@ process_account( FILE * file,
 
     uchar meta_buf[ 512UL ];
     ulong meta_sz = chunk->meta_sz;
-    if( FD_UNLIKELY( meta_sz > sizeof(meta_buf ) ) ) {
+    if( FD_UNLIKELY( meta_sz > sizeof(meta_buf ) ) )
       FD_LOG_ERR(( "invalid account meta size (%lu)", meta_sz ));
-      return 0;
-    }
 
-    if( FD_UNLIKELY( 0!=fseek( file, (long)chunk->meta_coff - (long)sizeof(fd_solcap_chunk_t), SEEK_CUR ) ) ) {
+    if( FD_UNLIKELY( 0!=fseek( file, (long)chunk->meta_coff - (long)sizeof(fd_solcap_chunk_t), SEEK_CUR ) ) )
       FD_LOG_ERR(( "fseek to account meta failed (%d-%s)", errno, strerror( errno ) ));
-      return 0;
-    }
 
-    if( FD_UNLIKELY( meta_sz != fread( meta_buf, 1UL, meta_sz, file ) ) ) {
+    if( FD_UNLIKELY( meta_sz != fread( meta_buf, 1UL, meta_sz, file ) ) )
       FD_LOG_ERR(( "fread account meta failed (%d-%s)", errno, strerror( errno ) ));
-      return 0;
-    }
 
     pb_istream_t stream = pb_istream_from_buffer( meta_buf, meta_sz );
     if( FD_UNLIKELY( !pb_decode( &stream, fd_solcap_AccountMeta_fields, meta ) ) ) {
       FD_LOG_HEXDUMP_DEBUG(( "account meta", meta_buf, meta_sz ));
       FD_LOG_ERR(( "pb_decode account meta failed (%s)", PB_GET_ERROR(&stream) ));
-      return 0;
     }
 
     long rewind = (long)chunk->meta_coff + (long)meta_sz;
-    if( FD_UNLIKELY( 0!=fseek( file, -rewind, SEEK_CUR ) ) ) {
+    if( FD_UNLIKELY( 0!=fseek( file, -rewind, SEEK_CUR ) ) )
       FD_LOG_ERR(( "fseek failed (%d-%s)", errno, strerror( errno ) ));
-      return 0;
-    }
 
   } while(0);
 
@@ -109,7 +101,55 @@ process_account( FILE * file,
   /* Optionally print account data */
 
   if( verbose>4 ) {
-    /* TODO */
+    printf( "      data: '" );
+
+    /* Seek to account data */
+    if( FD_UNLIKELY( 0!=fseek( file, goff + meta->data_coff, SEEK_SET ) ) )
+      FD_LOG_ERR(( "fseek to account data failed (%d-%s)", errno, strerror( errno ) ));
+
+    /* Streaming Base64 encode.
+
+       Process inputs in "parts" with length divided by 3, 4 such that
+       no padding is in the middle of the encoding.  Technically Base64
+       allows padding in the middle, but it's cleaner to only have
+       padding at the end of the message. */
+#   define PART_RAW_SZ (720UL)
+#   define PART_BLK_SZ (4UL*(PART_RAW_SZ+2UL)/3UL)  /* see fd_textstream_encode_base64 */
+    ulong data_sz = meta->data_sz;
+    while( data_sz>0UL ) {
+      ulong n = fd_ulong_min( data_sz, PART_RAW_SZ );
+
+      /* Read chunk */
+      uchar buf[ PART_RAW_SZ ];
+      if( FD_UNLIKELY( 1UL!=fread( buf, n, 1UL, file ) ) )
+        FD_LOG_ERR(( "fread account data failed (%d-%s)", errno, strerror( errno ) ));
+
+      /* Encode chunk */
+      fd_valloc_t valloc = fd_scratch_virtual();
+      fd_scratch_push();
+
+      fd_textstream_t  _data_out[1];
+      fd_textstream_t * data_out = fd_textstream_new( _data_out, valloc, PART_BLK_SZ );
+      fd_textstream_encode_base64( data_out, buf, n );
+
+      /* Get pointer to encoded chunk */
+      FD_TEST( 1UL==fd_textstream_get_iov_count( data_out ) );
+      struct fd_iovec iov[1];
+      FD_TEST( 0  ==fd_textstream_get_iov( data_out, iov ) );
+
+      /* Print encoded chunk */
+      FD_TEST( 1UL==fwrite( iov[0].iov_base, iov[0].iov_len, 1UL, stdout ) );
+
+      /* Wind up for next iteration */
+      data_sz -= n;
+      fd_textstream_destroy( data_out );  /* technically noop */
+      fd_scratch_pop();
+    }
+#   undef PART_RAW_SZ
+#   undef PART_BLK_SZ
+
+    /* Finish YAML entry */
+    printf( "'\n" );
   }
 
   /* Restore cursor */
