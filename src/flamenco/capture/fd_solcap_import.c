@@ -259,7 +259,10 @@ main( int     argc,
   /* Create output file */
 
   FILE * out_file = fopen( argv[2], "wb" );
-  if( FD_UNLIKELY( !out_file ) ) FD_LOG_ERR(( "Failed to open output file" ));
+  if( FD_UNLIKELY( !out_file ) )
+    FD_LOG_ERR(( "fopen(%s) failed (%d-%s)", argv[2], errno, strerror( errno ) ));
+  if( FD_UNLIKELY( 0!=ftruncate( fileno( out_file ), 0L ) ) )
+    FD_LOG_ERR(( "ftruncate failed (%d-%s)", errno, strerror( errno ) ));
 
   /* Create solcap writer */
 

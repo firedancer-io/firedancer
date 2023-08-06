@@ -105,16 +105,52 @@ fd_solcap_differ_sync( fd_solcap_differ_t * diff ) {
 static int
 fd_solcap_differ_diff( fd_solcap_differ_t * diff ) {
 
-  FD_TEST( diff->preimage[0].slot == diff->preimage[1].slot );
-  if( 0==memcmp( &diff->preimage[0], &diff->preimage[1], sizeof(fd_solcap_BankPreimage) ) )
+  fd_solcap_BankPreimage const * pre = diff->preimage;
+
+  FD_TEST( pre[0].slot == pre[1].slot );
+  if( 0==memcmp( &pre[0], &pre[1], sizeof(fd_solcap_BankPreimage) ) )
     return 0;
 
   printf( "Slot % 10lu: Bank hash mismatch\n"
-          "  -%32J\n"
-          "  +%32J\n",
-          diff->preimage[0].slot,
-          diff->preimage[0].bank_hash,
-          diff->preimage[1].bank_hash );
+          "\n"
+          "-bank_hash: %32J\n"
+          "+bank_hash: %32J\n",
+          pre[0].slot,
+          pre[0].bank_hash,
+          pre[1].bank_hash );
+
+  /* Investigate reason for mismatch */
+
+  if( 0!=memcmp( pre[0].prev_bank_hash, pre[1].prev_bank_hash, 32UL ) ) {
+    printf( "-prev_bank_hash:     %32J\n"
+            "+prev_bank_hash:     %32J\n",
+            pre[0].prev_bank_hash,
+            pre[1].prev_bank_hash );
+  }
+  if( 0!=memcmp( pre[0].account_delta_hash, pre[1].account_delta_hash, 32UL ) ) {
+    printf( "-account_delta_hash: %32J\n"
+            "+account_delta_hash: %32J\n",
+            pre[0].account_delta_hash,
+            pre[1].account_delta_hash );
+  }
+  if( 0!=memcmp( pre[0].poh_hash, pre[1].poh_hash, 32UL ) ) {
+    printf( "-poh_hash:           %32J\n"
+            "+poh_hash:           %32J\n",
+            pre[0].poh_hash,
+            pre[1].poh_hash );
+  }
+  if( pre[0].signature_cnt != pre[1].signature_cnt ) {
+    printf( "-signature_cnt:      %lu\n"
+            "+signature_cnt:      %lu\n",
+            pre[0].signature_cnt,
+            pre[1].signature_cnt );
+  }
+  if( pre[0].account_cnt != pre[1].account_cnt ) {
+    printf( "-account_cnt:        %lu\n"
+            "+account_cnt:        %lu\n",
+            pre[0].account_cnt,
+            pre[1].account_cnt );
+  }
 
   return 1;
 }
