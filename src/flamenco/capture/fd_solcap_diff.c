@@ -1,9 +1,22 @@
 #include "../fd_flamenco.h"
+#include "fd_solcap_proto.h"
 #include "fd_solcap_reader.h"
 #include "fd_solcap.pb.h"
 
 #include <errno.h>
 #include <stdio.h>
+
+
+/* Account table sorting */
+static inline int
+fd_solcap_account_tbl_lt( fd_solcap_account_tbl_t const * a,
+                          fd_solcap_account_tbl_t const * b ) {
+  return memcmp( a->key, b->key, 32UL ) < 0;
+}
+#define SORT_NAME        sort_account_tbl
+#define SORT_KEY_T       fd_solcap_account_tbl_t
+#define SORT_BEFORE(a,b) fd_solcap_account_tbl_lt( &(a), &(b) )
+#include "../../util/tmpl/fd_sort.c"
 
 /* TODO this differ is currently a separate file, but it would make
         sense to move/copy it to test_runtime.  Doing so would enable
@@ -98,12 +111,100 @@ fd_solcap_differ_sync( fd_solcap_differ_t * diff ) {
   return 0;
 }
 
-/* fd_solcap_differ_diff detects bank hash mismatches and prints a
+static void
+fd_solcap_diff_accounts( fd_solcap_differ_t * diff ) {
+
+  /* Read and sort tables */
+
+  fd_solcap_account_tbl_t * tbl    [2];
+  fd_solcap_account_tbl_t * tbl_end[2];
+  for( ulong i=0UL; i<2UL; i++ ) {
+    if( diff->preimage[i].account_table_coff == 0L ) {
+      FD_LOG_WARNING(( "Missing accounts table in capture" ));
+      return;
+    }
+
+    /* Read table meta and seek to table */
+    FILE * stream = diff->iter[i].stream;
+    fd_solcap_AccountTableMeta meta[1];
+    int err = fd_solcap_read_account_table( stream, meta, &diff->preimage[i], diff->iter[i].chunk_off );
+    FD_TEST( err==0 );
+
+    if( FD_UNLIKELY( meta->account_table_cnt > INT_MAX ) ) {
+      FD_LOG_WARNING(( "Too many accounts in capture" ));
+      return;
+    }
+
+    /* Allocate table */
+    ulong tbl_cnt   = meta->account_table_cnt;
+    ulong tbl_align = alignof(fd_solcap_account_tbl_t);
+    ulong tbl_sz    = tbl_cnt * sizeof(fd_solcap_account_tbl_t);
+    FD_TEST( fd_scratch_alloc_is_safe( tbl_align, tbl_sz ) );
+    tbl    [i] = fd_scratch_alloc( tbl_align, tbl_sz );
+    tbl_end[i] = tbl[i] + tbl_cnt;
+
+    /* Read table */
+    FD_TEST( tbl_cnt==fread( tbl[i], sizeof(fd_solcap_account_tbl_t), tbl_cnt, stream ) );
+
+    /* Sort table */
+    sort_account_tbl_inplace( tbl[i], tbl_cnt );
+  }
+
+  /* Walk tables in parallel */
+
+  for(;;) {
+    fd_solcap_account_tbl_t * a = tbl[0];
+    fd_solcap_account_tbl_t * b = tbl[1];
+
+    if( a==tbl_end[0] ) break;
+    if( b==tbl_end[1] ) break;
+
+    int key_cmp = memcmp( a->key, b->key, 32UL );
+    if( key_cmp==0 ) {
+      int hash_cmp = memcmp( a->hash, b->hash, 32UL );
+      if( hash_cmp!=0 ) {
+        printf( "   account: %32J\n"
+                "    -hash:    %32J\n"
+                "    +hash:    %32J\n",
+                a->key,
+                a->hash,
+                b->hash );
+      }
+
+      tbl[0]++;
+      tbl[1]++;
+      continue;
+    }
+
+    if( key_cmp<0 ) {
+      printf( "  -account: %32J\n", a->key );
+      tbl[0]++;
+      continue;
+    }
+
+    if( key_cmp>0 ) {
+      printf( "  +account: %32J\n", b->key );
+      tbl[1]++;
+      continue;
+    }
+  }
+  while( tbl[0]!=tbl_end[0] ) {
+    printf( "  -account: %32J\n", tbl[0]->key );
+    tbl[0]++;
+  }
+  while( tbl[1]!=tbl_end[1] ) {
+    printf( "  +account: %32J\n", tbl[1]->key );
+    tbl[1]++;
+  }
+
+}
+
+/* fd_solcap_diff_bank detects bank hash mismatches and prints a
    human-readable description of the root cause to stdout.  Returns 0
    if bank hashes match, 1 if a mismatch was detected. */
 
 static int
-fd_solcap_differ_diff( fd_solcap_differ_t * diff ) {
+fd_solcap_diff_bank( fd_solcap_differ_t * diff ) {
 
   fd_solcap_BankPreimage const * pre = diff->preimage;
 
@@ -121,25 +222,30 @@ fd_solcap_differ_diff( fd_solcap_differ_t * diff ) {
 
   /* Investigate reason for mismatch */
 
-  if( 0!=memcmp( pre[0].prev_bank_hash, pre[1].prev_bank_hash, 32UL ) ) {
-    printf( "-prev_bank_hash:     %32J\n"
-            "+prev_bank_hash:     %32J\n",
-            pre[0].prev_bank_hash,
-            pre[1].prev_bank_hash );
-  }
+  int only_account_mismatch = 0;
   if( 0!=memcmp( pre[0].account_delta_hash, pre[1].account_delta_hash, 32UL ) ) {
+    only_account_mismatch = 1;
     printf( "-account_delta_hash: %32J\n"
             "+account_delta_hash: %32J\n",
             pre[0].account_delta_hash,
             pre[1].account_delta_hash );
   }
+  if( 0!=memcmp( pre[0].prev_bank_hash, pre[1].prev_bank_hash, 32UL ) ) {
+    only_account_mismatch = 0;
+    printf( "-prev_bank_hash:     %32J\n"
+            "+prev_bank_hash:     %32J\n",
+            pre[0].prev_bank_hash,
+            pre[1].prev_bank_hash );
+  }
   if( 0!=memcmp( pre[0].poh_hash, pre[1].poh_hash, 32UL ) ) {
+    only_account_mismatch = 0;
     printf( "-poh_hash:           %32J\n"
             "+poh_hash:           %32J\n",
             pre[0].poh_hash,
             pre[1].poh_hash );
   }
   if( pre[0].signature_cnt != pre[1].signature_cnt ) {
+    only_account_mismatch = 0;
     printf( "-signature_cnt:      %lu\n"
             "+signature_cnt:      %lu\n",
             pre[0].signature_cnt,
@@ -150,6 +256,12 @@ fd_solcap_differ_diff( fd_solcap_differ_t * diff ) {
             "+account_cnt:        %lu\n",
             pre[0].account_cnt,
             pre[1].account_cnt );
+  }
+
+  if( only_account_mismatch ) {
+    fd_scratch_push();
+    fd_solcap_diff_accounts( diff );
+    fd_scratch_pop();
   }
 
   return 1;
@@ -246,7 +358,7 @@ main( int     argc,
 
   for(;;) {
     /* TODO probably should return an error code on mismatch */
-    if( FD_UNLIKELY( fd_solcap_differ_diff( diff ) ) ) break;
+    if( FD_UNLIKELY( fd_solcap_diff_bank( diff ) ) ) break;
     printf( "Slot % 10lu: OK\n", diff->preimage[0].slot );
     /* Advance to next slot.
        TODO probably should log if a slot gets skipped on one capture,

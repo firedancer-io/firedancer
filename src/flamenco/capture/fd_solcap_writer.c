@@ -476,6 +476,7 @@ fd_solcap_write_bank_preimage( fd_solcap_writer_t * writer,
 
   fd_solcap_BankPreimage preimage_pb[1] = {{0}};
   preimage_pb->signature_cnt = signature_cnt;
+  preimage_pb->account_cnt   = writer->account_idx;
   memcpy( preimage_pb->bank_hash,          bank_hash,          32UL );
   memcpy( preimage_pb->prev_bank_hash,     prev_bank_hash,     32UL );
   memcpy( preimage_pb->account_delta_hash, account_delta_hash, 32UL );

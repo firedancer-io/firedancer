@@ -100,6 +100,12 @@ fd_solcap_read_bank_preimage( void *                    stream,
                               fd_solcap_BankPreimage *  preimage,
                               fd_solcap_chunk_t const * hdr );
 
+int
+fd_solcap_read_account_table( void *                         _file,
+                              fd_solcap_AccountTableMeta *   meta,
+                              fd_solcap_BankPreimage const * preimage,
+                              ulong                          preimage_goff );
+
 FD_PROTOTYPES_END
 
 #endif /* FD_HAS_HOSTED */
