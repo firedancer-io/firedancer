@@ -480,7 +480,7 @@ int main(int argc, char **argv) {
 
     void * capture_writer_mem = fd_alloc_malloc( alloc, fd_solcap_writer_align(), fd_solcap_writer_footprint() );
     FD_TEST( capture_writer_mem );
-    state.global->capture = fd_solcap_writer_join( capture_writer_mem );
+    state.global->capture = fd_solcap_writer_new( capture_writer_mem );
 
     FD_TEST( fd_solcap_writer_init( state.global->capture, state.capture_file ) );
   }
@@ -556,7 +556,7 @@ int main(int argc, char **argv) {
   if (strcmp(state.cmd, "accounts_hash") == 0)
     accounts_hash(&state);
 
-  fd_alloc_free( alloc, fd_solcap_writer_delete( fd_solcap_writer_leave( fd_solcap_writer_fini( state.global->capture ) ) ) );
+  fd_alloc_free( alloc, fd_solcap_writer_delete( fd_solcap_writer_fini( state.global->capture ) ) );
   if( state.capture_file ) fclose( state.capture_file );
 
   fd_global_ctx_delete(fd_global_ctx_leave(state.global));

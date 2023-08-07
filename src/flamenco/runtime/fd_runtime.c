@@ -144,7 +144,7 @@ int
 fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_meta_t* m, const void* block, ulong blocklen ) {
   (void)m;
 
-  FD_TEST( 0==fd_solcap_write_set_slot( global->capture, m->slot ) );
+  fd_solcap_writer_set_slot( global->capture, m->slot );
 
   /* Get current leader */
   ulong slot_rel;
@@ -211,8 +211,6 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_meta_t* m, const void
   if (result != FD_EXECUTOR_INSTR_SUCCESS) {
     return result;
   }
-
-  fd_solcap_write_bank_hash( global->capture, global->bank.banks_hash.hash );
 
   return fd_runtime_save_banks( global );
 }

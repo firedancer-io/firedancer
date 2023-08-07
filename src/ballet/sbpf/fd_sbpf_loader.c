@@ -15,7 +15,7 @@
 #define FD_PROGRAM_COUNTER_MAX (10 * 1024 * 1024 / 8)
 uint * fd_murmur_lookup_table;
 void __attribute__ ((constructor))
-fd_murmur3_generate_default() {
+fd_murmur3_generate_default( void ) {
   fd_murmur_lookup_table = malloc(sizeof(uint) * FD_PROGRAM_COUNTER_MAX);
   for (ulong pc = 0; pc < FD_PROGRAM_COUNTER_MAX; ++pc) {
     fd_murmur_lookup_table[pc] = fd_murmur3_32(&pc, 8UL, 0U);
@@ -23,7 +23,7 @@ fd_murmur3_generate_default() {
 }
 
 void __attribute__ ((destructor))
-fd_murmur3_destroy_default() {
+fd_murmur3_destroy_default( void ) {
   free(fd_murmur_lookup_table);
 }
 /* Error handling *****************************************************/
