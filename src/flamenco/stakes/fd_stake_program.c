@@ -969,11 +969,6 @@ int fd_executor_stake_program_execute_instruction(
       return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
     }
 
-    /* Check that the Instruction Account 3 is the Stake History Sysvar account */
-    if ( memcmp( &txn_accs[instr_acc_idxs[3]], ctx.global->sysvar_stake_history, sizeof(fd_pubkey_t) ) != 0 ) {
-      return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
-    }
-
     /* Check that Instruction Account 4 is a signer */
     if(instr_acc_idxs[4] >= ctx.txn_ctx->txn_descriptor->signature_cnt) {
       return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
@@ -1042,17 +1037,7 @@ int fd_executor_stake_program_execute_instruction(
       if( memcmp( authorized_withdrawer_acc, withdraw_authority_acc, sizeof(fd_pubkey_t) ) != 0 ) {
         return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
       }
-      if ( FD_FEATURE_ACTIVE(ctx.global, stake_allow_zero_undelegated_amount) ) {
-        reserve_lamports = stake_state.inner.initialized.rent_exempt_reserve;
-      } else {
-        reserve_lamports = stake_state.inner.initialized.rent_exempt_reserve + get_minimum_delegation(ctx.global);
-
-        // checked add
-        if (reserve_lamports < stake_state.inner.initialized.rent_exempt_reserve ||
-            reserve_lamports < get_minimum_delegation(ctx.global)) {
-            return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;;
-        }
-      }
+      reserve_lamports = stake_state.inner.initialized.rent_exempt_reserve;
 
       is_staked = 0;
       lockup = stake_state.inner.initialized.lockup;
@@ -1229,12 +1214,6 @@ int fd_executor_stake_program_execute_instruction(
     uchar * instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
     fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
 
-
-    /* Close the stake account-reference loophole */
-    if (instr_acc_idxs[0] == instr_acc_idxs[1]) {
-      return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
-    }
-
     /* Check that the Instruction Account 2 is the Clock Sysvar account */
     if ( memcmp( &txn_accs[instr_acc_idxs[2]], ctx.global->sysvar_clock, sizeof(fd_pubkey_t) ) != 0 ) {
       return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
@@ -1258,6 +1237,11 @@ int fd_executor_stake_program_execute_instruction(
     fd_acc_mgr_get_owner( ctx.global->acc_mgr, ctx.global->funk_txn, source_acc, &source_acc_owner );
     if ( memcmp( &source_acc_owner, ctx.global->solana_stake_program, sizeof(fd_pubkey_t) ) != 0 ) {
       return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
+    }
+
+    /* Close the stake account-reference loophole */
+    if (instr_acc_idxs[0] == instr_acc_idxs[1]) {
+      return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
     }
 
     fd_account_meta_t source_metadata;
@@ -1320,7 +1304,9 @@ int fd_executor_stake_program_execute_instruction(
     }
     /* Merging stake accounts */
     // metas_can_merge
-    uint can_merge_lockups = memcmp(&source_state.inner.stake.meta.lockup, &stake_state.inner.stake.meta.lockup, sizeof(fd_stake_lockup_t)) == 0;
+    uint is_not_lockup = !(source_state.inner.stake.meta.lockup.epoch > clock.epoch || source_state.inner.stake.meta.lockup.unix_timestamp > clock.unix_timestamp) && 
+                         !(stake_state.inner.stake.meta.lockup.epoch > clock.epoch || stake_state.inner.stake.meta.lockup.unix_timestamp > clock.unix_timestamp);
+    uint can_merge_lockups = memcmp(&source_state.inner.stake.meta.lockup, &stake_state.inner.stake.meta.lockup, sizeof(fd_stake_lockup_t)) == 0 || is_not_lockup;
     uint can_merge_authorized = memcmp(&stake_state.inner.stake.meta.authorized, &source_state.inner.stake.meta.authorized, sizeof(fd_stake_lockup_t)) == 0;
     if (!can_merge_lockups || !can_merge_authorized) {
       FD_LOG_WARNING(("Unable to merge due to metadata mismatch"));
@@ -1328,24 +1314,22 @@ int fd_executor_stake_program_execute_instruction(
       return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR; // Err(StakeError::MergeMismatch.into())
     }
 
-    if (source_merge_kind.is_active_stake && stake_merge_kind.is_active_stake && FD_FEATURE_ACTIVE(ctx.global, stake_merge_with_unmatched_credits_observed)) {
+    if (source_merge_kind.is_active_stake && stake_merge_kind.is_active_stake) {
       // active_delegations_can_merge
       if (memcmp(&source_state.inner.stake.stake.delegation.voter_pubkey, &stake_state.inner.stake.stake.delegation.voter_pubkey, sizeof(fd_pubkey_t)) != 0) {
         FD_LOG_WARNING(( "Unable to merge due to voter mismatch" ));
         ctx.txn_ctx->custom_err = 6;
         return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR; //  Err(StakeError::MergeMismatch.into())
-      }
-      if ( fd_double_abs(stake_state.inner.stake.stake.delegation.warmup_cooldown_rate - source_state.inner.stake.stake.delegation.warmup_cooldown_rate) >= DBL_EPSILON
-      || stake_state.inner.stake.stake.delegation.deactivation_epoch != ULONG_MAX
-      || source_state.inner.stake.stake.delegation.deactivation_epoch != ULONG_MAX) {
-          FD_LOG_WARNING(( "Unable to merge due to stake deactivation %lu %lu", stake_state.inner.stake.stake.delegation.deactivation_epoch, source_state.inner.stake.stake.delegation.deactivation_epoch));
-          ctx.txn_ctx->custom_err = 6;
-          return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR; // Err(StakeError::MergeMismatch.into())
+      } else if ( fd_double_abs(stake_state.inner.stake.stake.delegation.warmup_cooldown_rate - source_state.inner.stake.stake.delegation.warmup_cooldown_rate) < DBL_EPSILON
+      && stake_state.inner.stake.stake.delegation.deactivation_epoch == ULONG_MAX
+      && source_state.inner.stake.stake.delegation.deactivation_epoch == ULONG_MAX) {
+      } else {
+        FD_LOG_WARNING(( "Unable to merge due to stake deactivation %lu %lu", stake_state.inner.stake.stake.delegation.deactivation_epoch, source_state.inner.stake.stake.delegation.deactivation_epoch));
+        ctx.txn_ctx->custom_err = 6;
+        return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR; // Err(StakeError::MergeMismatch.into())
       }
 
-    } else {
-      // active_stakes_can_merge
-      if (source_state.inner.stake.stake.credits_observed != stake_state.inner.stake.stake.credits_observed) {
+      if (!FD_FEATURE_ACTIVE(ctx.global, stake_merge_with_unmatched_credits_observed) && stake_state.inner.stake.stake.credits_observed != source_state.inner.stake.stake.credits_observed) {
         FD_LOG_WARNING(("Unable to merge due to credits observed mismatch"));
         ctx.txn_ctx->custom_err = 6;
         return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR; // Err(StakeError::MergeMismatch.into())
