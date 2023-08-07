@@ -7,7 +7,9 @@
 #include <stdio.h>
 
 
-/* Account table sorting */
+/* Define routines for sorting the bank hash account delta accounts.
+   The solcap format does not mandate accounts to be sorted. */
+
 static inline int
 fd_solcap_account_tbl_lt( fd_solcap_account_tbl_t const * a,
                           fd_solcap_account_tbl_t const * b ) {
@@ -27,6 +29,7 @@ fd_solcap_account_tbl_lt( fd_solcap_account_tbl_t const * a,
 struct fd_solcap_differ {
   fd_solcap_chunk_iter_t iter    [2];
   fd_solcap_BankPreimage preimage[2];
+  int                    verbose;
 };
 
 typedef struct fd_solcap_differ fd_solcap_differ_t;
@@ -111,23 +114,86 @@ fd_solcap_differ_sync( fd_solcap_differ_t * diff ) {
   return 0;
 }
 
+/* fd_solcap_diff_account prints further details about a mismatch
+   between two accounts.  Preserves stream cursors. */
+
 static void
-fd_solcap_diff_accounts( fd_solcap_differ_t * diff ) {
+fd_solcap_diff_account( fd_solcap_differ_t *                  diff,
+                        fd_solcap_account_tbl_t const * const entry       [ static 2 ],
+                        ulong const                           acc_tbl_goff[ static 2 ] ) {
+
+  /* Remember current file offsets  (should probably just use readat) */
+  long orig_off[ 2 ];
+  for( ulong i=0UL; i<2UL; i++ ) {
+    orig_off[ i ] = ftell( diff->iter[ i ].stream );
+    if( FD_UNLIKELY( orig_off[ i ]<0L ) )
+      FD_LOG_ERR(( "ftell failed (%d-%s)", errno, strerror( errno ) ));
+  }
+
+  /* Read account meta */
+  fd_solcap_AccountMeta meta[2];
+  for( ulong i=0UL; i<2UL; i++ ) {
+    FILE * stream = diff->iter[ i ].stream;
+    int err = fd_solcap_find_account( stream, meta+i, entry[i], acc_tbl_goff[i] );
+    FD_TEST( err==0 );
+    /* TODO pretty print data */
+  }
+
+  if( meta[0].lamports != meta[1].lamports )
+    printf( "    -lamports:   %lu\n"
+            "    +lamports:   %lu\n",
+            meta[0].lamports,
+            meta[1].lamports );
+  if( meta[0].data_sz != meta[1].data_sz )
+    printf( "    -data_sz:    %lu\n"
+            "    +data_sz:    %lu\n",
+            meta[0].data_sz,
+            meta[1].data_sz );
+  if( 0!=memcmp( meta[0].owner, meta[1].owner, 32UL ) )
+    printf( "    -owner:      %32J\n"
+            "    +owner:      %32J\n",
+            meta[0].owner,
+            meta[1].owner );
+  if( meta[0].slot != meta[1].slot )
+    printf( "    -slot:       %lu\n"
+            "    +slot:       %lu\n",
+            meta[0].slot,
+            meta[1].slot );
+  if( meta[0].rent_epoch != meta[1].rent_epoch )
+    printf( "    -rent_epoch: %lu\n"
+            "    +rent_epoch: %lu\n",
+            meta[0].rent_epoch,
+            meta[1].rent_epoch );
+
+  /* Restore file offsets */
+  for( ulong i=0UL; i<2UL; i++ ) {
+    if( FD_UNLIKELY( 0!=fseek( diff->iter[ i ].stream, orig_off[ i ], SEEK_SET ) ) )
+      FD_LOG_ERR(( "fseek failed (%d-%s)", errno, strerror( errno ) ));
+  }
+}
+
+/* fd_solcap_diff_account_tbl detects and prints differences in the
+   accounts that were hashed into the account delta hash. */
+
+static void
+fd_solcap_diff_account_tbl( fd_solcap_differ_t * diff ) {
 
   /* Read and sort tables */
 
   fd_solcap_account_tbl_t * tbl    [2];
   fd_solcap_account_tbl_t * tbl_end[2];
+  ulong                     chunk_goff[2];
   for( ulong i=0UL; i<2UL; i++ ) {
     if( diff->preimage[i].account_table_coff == 0L ) {
       FD_LOG_WARNING(( "Missing accounts table in capture" ));
       return;
     }
+    chunk_goff[i] = (ulong)( (long)diff->iter[i].chunk_off + diff->preimage[i].account_table_coff );
 
     /* Read table meta and seek to table */
     FILE * stream = diff->iter[i].stream;
     fd_solcap_AccountTableMeta meta[1];
-    int err = fd_solcap_read_account_table( stream, meta, &diff->preimage[i], diff->iter[i].chunk_off );
+    int err = fd_solcap_find_account_table( stream, meta, chunk_goff[i] );
     FD_TEST( err==0 );
 
     if( FD_UNLIKELY( meta->account_table_cnt > INT_MAX ) ) {
@@ -164,11 +230,14 @@ fd_solcap_diff_accounts( fd_solcap_differ_t * diff ) {
       int hash_cmp = memcmp( a->hash, b->hash, 32UL );
       if( hash_cmp!=0 ) {
         printf( "   account: %32J\n"
-                "    -hash:    %32J\n"
-                "    +hash:    %32J\n",
+                "    -hash:       %32J\n"
+                "    +hash:       %32J\n",
                 a->key,
                 a->hash,
                 b->hash );
+
+        if( diff->verbose >= 3 )
+          fd_solcap_diff_account( diff, (fd_solcap_account_tbl_t const * const *)tbl, chunk_goff );
       }
 
       tbl[0]++;
@@ -258,9 +327,9 @@ fd_solcap_diff_bank( fd_solcap_differ_t * diff ) {
             pre[1].account_cnt );
   }
 
-  if( only_account_mismatch ) {
+  if( only_account_mismatch && diff->verbose >= 2 ) {
     fd_scratch_push();
-    fd_solcap_diff_accounts( diff );
+    fd_solcap_diff_account_tbl( diff );
     fd_scratch_pop();
   }
 
@@ -279,6 +348,7 @@ usage( void ) {
     "  --page-sz      {gigantic|huge|normal}    Page size\n"
     "  --page-cnt     {count}                   Page count\n"
     "  --scratch-mb   1024                      Scratch mem MiB\n"
+    "  -v             1                         Diff verbosity\n"
     //"  --slots        (null)                    Slot range\n"
     "\n" );
 }
@@ -301,6 +371,7 @@ main( int     argc,
   char const * _page_sz   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",    NULL, "gigantic" );
   ulong        page_cnt   = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt",   NULL, 2UL        );
   ulong        scratch_mb = fd_env_strip_cmdline_ulong( &argc, &argv, "--scratch-mb", NULL, 1024UL     );
+  int          verbose    = fd_env_strip_cmdline_int  ( &argc, &argv, "-v",           NULL, 1          );
 
   ulong page_sz = fd_cstr_to_shmem_page_sz( _page_sz );
   if( FD_UNLIKELY( !page_sz ) ) FD_LOG_ERR(( "unsupported --page-sz" ));
@@ -349,6 +420,7 @@ main( int     argc,
   fd_solcap_differ_t diff[1];
   if( FD_UNLIKELY( !fd_solcap_differ_new( diff, cap_file ) ) )
     return 1;
+  diff->verbose = verbose;
   int res = fd_solcap_differ_sync( diff );
   if( res <0 ) FD_LOG_ERR(( "fd_solcap_differ_sync failed (%d-%s)",
                             -res, strerror( -res ) ));

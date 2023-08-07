@@ -93,6 +93,10 @@ fd_solcap_chunk_iter_find( fd_solcap_chunk_iter_t * iter,
   }
 }
 
+/* fd_solcap_read_bank_preimage reads and parses the bank preimage
+   metadata blob.  chunk_goff is the file offset of the chunk containing
+   the bank preimage.  hdr points to a copy of the corresponding chunk
+   header. */
 
 int
 fd_solcap_read_bank_preimage( void *                    stream,
@@ -100,11 +104,38 @@ fd_solcap_read_bank_preimage( void *                    stream,
                               fd_solcap_BankPreimage *  preimage,
                               fd_solcap_chunk_t const * hdr );
 
+/* fd_solcap_find_account_table reads an account table meta and seeks
+   the given (FILE *) like stream to the first account table row.
+   acc_tbl_goff is the file offset of the chunk containing the account
+   table.  On success, writes the account meta to *meta and returns 0.
+   On failure, returns errno-like error code. */
+
 int
-fd_solcap_read_account_table( void *                         _file,
-                              fd_solcap_AccountTableMeta *   meta,
-                              fd_solcap_BankPreimage const * preimage,
-                              ulong                          preimage_goff );
+fd_solcap_find_account_table( void *                       _file,
+                              fd_solcap_AccountTableMeta * meta,
+                              ulong                        acc_tbl_goff );
+
+/* fd_solcap_includes_account_data returns 1 if a capture account chunk
+   includes account data, and 0 otherwise.  Reasons for missing account
+   data are that capture program deliberately excluded them, or that
+   account data size is zero. */
+
+static inline int
+fd_solcap_includes_account_data( fd_solcap_AccountMeta const * meta ) {
+  return (!!meta->data_coff) & (!!meta->data_sz);
+}
+
+/* fd_solcap_find_account reads an account meta and seeks the given
+   (FILE *) like stream to the account data.  If account data size is
+   zero or the capture does not include account data, the stream cursor
+   is undefined.  (Use fd_solcap_includes_account_data to check) */
+
+int
+fd_solcap_find_account( void *                          _file,
+                        fd_solcap_AccountMeta *         meta,
+                        fd_solcap_account_tbl_t const * rec,
+                        ulong                           acc_tbl_goff );
+
 
 FD_PROTOTYPES_END
 

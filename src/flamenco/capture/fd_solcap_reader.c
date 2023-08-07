@@ -105,13 +105,12 @@ fd_solcap_read_bank_preimage( void *                    _file,
 }
 
 int
-fd_solcap_read_account_table( void *                         _file,
-                              fd_solcap_AccountTableMeta *   meta,
-                              fd_solcap_BankPreimage const * preimage,
-                              ulong                          preimage_goff ) {
+fd_solcap_find_account_table( void *                       _file,
+                              fd_solcap_AccountTableMeta * meta,
+                              ulong                        _chunk_goff ) {
 
   /* Read account table chunk header */
-  long chunk_goff = (long)preimage_goff + preimage->account_table_coff;
+  long chunk_goff = (long)_chunk_goff;
   fd_solcap_chunk_t hdr[1];
   FILE * file = (FILE *)_file;
   if( FD_UNLIKELY( 0!=fseek( file, chunk_goff, SEEK_SET ) ) )
@@ -142,6 +141,50 @@ fd_solcap_read_account_table( void *                         _file,
   /* Seek to table */
   if( meta->account_table_coff ) {
     if( FD_UNLIKELY( 0!=fseek( file, chunk_goff + (long)meta->account_table_coff, SEEK_SET ) ) )
+      return errno;
+  }
+
+  return 0;
+}
+
+int
+fd_solcap_find_account( void *                          _file,
+                        fd_solcap_AccountMeta *         meta,
+                        fd_solcap_account_tbl_t const * rec,
+                        ulong                           acc_tbl_goff ) {
+
+  /* Read account chunk header */
+  long chunk_goff = (long)acc_tbl_goff + rec->acc_coff;
+  fd_solcap_chunk_t hdr[1];
+  FILE * file = (FILE *)_file;
+  if( FD_UNLIKELY( 0!=fseek( file, chunk_goff, SEEK_SET ) ) )
+    return errno;
+  if( FD_UNLIKELY( 1UL != fread( hdr, sizeof(fd_solcap_chunk_t), 1UL, file ) ) )
+    return ferror( file );
+  if( FD_UNLIKELY( hdr->magic != FD_SOLCAP_V1_ACCT_MAGIC ) )
+    return EPROTO;
+
+  /* Seek to Protobuf */
+  if( FD_UNLIKELY( 0!=fseek( file, chunk_goff + hdr->meta_coff, SEEK_SET ) ) )
+    return errno;
+
+  /* Read into stack buffer */
+  uchar buf[ FD_SOLCAP_ACCOUNT_META_FOOTPRINT ];
+  if( FD_UNLIKELY( hdr->meta_sz > FD_SOLCAP_ACCOUNT_META_FOOTPRINT ) )
+    return ENOMEM;
+  if( FD_UNLIKELY( hdr->meta_sz != fread( buf, 1UL, hdr->meta_sz, file ) ) )
+    return ferror( file );
+
+  /* Decode */
+  pb_istream_t stream = pb_istream_from_buffer( buf, hdr->meta_sz );
+  if( FD_UNLIKELY( !pb_decode( &stream, fd_solcap_AccountMeta_fields, meta ) ) ) {
+    FD_LOG_WARNING(( "pb_decode failed (%s)", PB_GET_ERROR(&stream) ));
+    return EPROTO;
+  }
+
+  /* Seek to account data */
+  if( fd_solcap_includes_account_data( meta ) ) {
+    if( FD_UNLIKELY( 0!=fseek( file, chunk_goff + (long)meta->data_coff, SEEK_SET ) ) )
       return errno;
   }
 

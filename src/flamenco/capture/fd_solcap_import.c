@@ -130,7 +130,7 @@ static void
 unmarshal_bank_preimage( cJSON const *            json,
                          fd_solcap_BankPreimage * out ) {
 
-  double slot_f = cJSON_GetNumberValue( cJSON_GetObjectItem( json, "slot" ) );
+  double slot_f = cJSON_GetNumberValue( cJSON_GetObjectItem( json, "slot", "..." ) );
   FD_TEST( isfinite( slot_f ) );
   out->slot = (ulong)slot_f;
 
