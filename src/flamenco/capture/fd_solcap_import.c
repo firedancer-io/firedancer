@@ -130,7 +130,7 @@ static void
 unmarshal_bank_preimage( cJSON const *            json,
                          fd_solcap_BankPreimage * out ) {
 
-  double slot_f = cJSON_GetNumberValue( cJSON_GetObjectItem( json, "slot", "..." ) );
+  double slot_f = cJSON_GetNumberValue( cJSON_GetObjectItem( json, "slot" ) );
   FD_TEST( isfinite( slot_f ) );
   out->slot = (ulong)slot_f;
 
@@ -175,8 +175,9 @@ unmarshal_account( cJSON const *             json,
   FD_TEST( executable_o );
   meta->executable = cJSON_IsBool( executable_o ) & cJSON_IsTrue( executable_o );
 
-  FD_TEST( unmarshal_hash( cJSON_GetObjectItem( json, "pubkey" ), rec->key  ) );
-  FD_TEST( unmarshal_hash( cJSON_GetObjectItem( json, "hash"   ), rec->hash ) );
+  FD_TEST( unmarshal_hash( cJSON_GetObjectItem( json, "pubkey" ), rec->key    ) );
+  FD_TEST( unmarshal_hash( cJSON_GetObjectItem( json, "hash"   ), rec->hash   ) );
+  FD_TEST( unmarshal_hash( cJSON_GetObjectItem( json, "owner"  ), meta->owner ) );
 
   /* Data handling ... Base64 decode */
 
