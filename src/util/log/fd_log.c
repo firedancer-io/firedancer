@@ -498,9 +498,11 @@ fd_log_private_fprintf_0( int fd, char const * fmt, ... ) {
   fd_log_private_log_msg0[ len ] = '\0';
   va_end( ap );
 
-  while(( FD_LIKELY( FD_ATOMIC_CAS( fd_log_private_shared_lock, 0, 1 ) ) )) ;
-
+# if FD_HAS_ATOMIC
   FD_COMPILER_MFENCE();
+  while(( FD_LIKELY( FD_ATOMIC_CAS( fd_log_private_shared_lock, 0, 1 ) ) )) ;
+  FD_COMPILER_MFENCE();
+# endif
 
   ulong written = 0;
   for(;;) {
@@ -509,9 +511,11 @@ fd_log_private_fprintf_0( int fd, char const * fmt, ... ) {
     written += (ulong)cnt;
   }
 
+# if FD_HAS_ATOMIC
   FD_COMPILER_MFENCE();
-
   *fd_log_private_shared_lock = 0;
+  FD_COMPILER_MFENCE();
+# endif
 }
 
 char const * 
