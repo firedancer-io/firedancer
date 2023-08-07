@@ -584,7 +584,6 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
   }
 
 //  fd_vote_instruction_walk(&instruction, fd_printer_walker, "vote", 0);
-
   switch( instruction.discriminant ) {
   case fd_vote_instruction_enum_initialize_account: {
     /* VoteInstruction::InitializeAccount instruction
@@ -714,7 +713,7 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
     /* Create a new vote account state structure */
     /* TODO: create constructors in fd_types */
     fd_vote_state_versioned_t vote_state_versioned;
-    fd_vote_state_versioned_new_disc(&vote_state_versioned, 1);
+    fd_vote_state_versioned_new_disc(&vote_state_versioned, fd_vote_state_versioned_enum_current);
     fd_vote_state_t*       vote_state = &vote_state_versioned.inner.current;
     fd_vote_prior_voters_t prior_voters = {
       .idx = 31,

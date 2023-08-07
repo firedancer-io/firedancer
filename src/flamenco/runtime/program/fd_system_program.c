@@ -284,64 +284,68 @@ static int create_account(
       return fd_system_error_enum_address_with_seed_mismatch;
   }
 
-  // https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/system_instruction_processor.rs#L33
+  // https://github.com/solana-labs/solana/blob/b9a2030537ba440c0378cc1ed02af7cff3f35141/programs/system/src/system_processor.rs#L146-L181
 
   if (!fd_account_is_signer(&ctx, from))
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   if (!fd_account_is_signer(&ctx, base))
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
 
-  fd_account_meta_t metadata;
-  int               read_result = fd_acc_mgr_get_metadata( ctx.global->acc_mgr, ctx.global->funk_txn, from, &metadata );
-  if ( read_result == FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
-    /* TODO: propagate SystemError::AccountAlreadyInUse enum variant */
-    return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+  char * raw_acc_data_from = (char*) fd_acc_mgr_view_data(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) from, NULL, &err);
+    if (err == FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
+      ctx.txn_ctx->custom_err = 0; /* SystemError::AccountAlreadyInUse */
+      return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+    }
+
+  fd_account_meta_t *metadata = (fd_account_meta_t *) raw_acc_data_from;
+  if (metadata->dlen > 0) {
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
   }
 
-  if (metadata.dlen > 0)
-    return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
-
-  fd_acc_lamports_t sender_lamports = metadata.info.lamports;
+  fd_acc_lamports_t sender_lamports = metadata->info.lamports;
 
   if ( FD_UNLIKELY( sender_lamports < lamports ) ) {
-    ctx.txn_ctx->custom_err = 1;
+    ctx.txn_ctx->custom_err = 1; /* SystemError::ResultWithNegativeLamports */
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
+  ulong sz_hint = sizeof(fd_account_meta_t);
+  raw_acc_data_from = fd_acc_mgr_modify_data(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) from, 0, &sz_hint, NULL, NULL, &err);
+  ((fd_account_meta_t *) raw_acc_data_from)->info.lamports = sender_lamports - lamports;
   /* Execute the transfer */
-  int write_result = fd_acc_mgr_set_lamports( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.slot , from, sender_lamports - lamports );
+  int write_result = fd_acc_mgr_commit_data( ctx.global->acc_mgr, NULL, from, raw_acc_data_from, ctx.global->bank.slot, 0);
   if ( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) ) {
     return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
   }
 
   /* Check to see if the account is already in use */
-  read_result = fd_acc_mgr_get_metadata( ctx.global->acc_mgr, ctx.global->funk_txn, to, &metadata );
-  if ( read_result != FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
-    /* TODO: propagate SystemError::AccountAlreadyInUse enum variant */
+  char * raw_acc_data_to = (char *) fd_acc_mgr_view_data(ctx.global->acc_mgr, ctx.global->funk_txn, to, NULL, &err);
+  if (err != FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
+    ctx.txn_ctx->custom_err = 0;     /* SystemError::AccountAlreadyInUse */
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
-
+  raw_acc_data_to = (char*) fd_acc_mgr_modify_data(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) to, 1, &space, NULL, NULL, &err);
   /* Check that we are not exceeding the MAX_PERMITTED_DATA_LENGTH account size */
   if ( space > MAX_PERMITTED_DATA_LENGTH ) {
-    ctx.txn_ctx->custom_err = 3;
+    ctx.txn_ctx->custom_err = 3;     /* SystemError::InvalidAccountDataLength */
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
-  /* Initialize the account with all zeroed data and the correct owner */
+  if (!ctx.global->features.system_transfer_zero_check && lamports == 0) {
+    return FD_EXECUTOR_INSTR_SUCCESS;
+  }
 
-  uchar * data = fd_valloc_malloc( ctx.global->valloc, 1, space );
-  memset( data, 0, space );
-  fd_solana_account_t account = {
-    .lamports = lamports,
-    .data_len = space,
-    .data = data,
-    .owner = *owner,
-    .executable = 0,
-    .rent_epoch = 0,   /* TODO */
-  };
-  write_result = fd_acc_mgr_write_structured_account(ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.slot, to, &account);
-  fd_valloc_free( ctx.global->valloc, data );
-  if ( write_result != FD_ACC_MGR_SUCCESS ) {
+  metadata = (fd_account_meta_t *) raw_acc_data_to;
+  metadata->info.lamports = lamports;
+  metadata->dlen = space;
+  metadata->info.executable = 0;
+  metadata->info.rent_epoch = 0;
+  /* Initialize the account with all zeroed data and the correct owner */
+  fd_memcpy( &metadata->info.owner, owner, sizeof(fd_pubkey_t) );
+  memset( raw_acc_data_to + metadata->hlen, 0, space );
+
+  write_result = fd_acc_mgr_commit_data( ctx.global->acc_mgr, NULL, to, raw_acc_data_to, ctx.global->bank.slot, 0);
+  if ( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) ) {
     FD_LOG_NOTICE(( "failed to create account: %d", write_result ));
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
