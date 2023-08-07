@@ -629,6 +629,14 @@ typedef struct fd_sol_sysvar_clock fd_sol_sysvar_clock_t;
 #define FD_SOL_SYSVAR_CLOCK_FOOTPRINT sizeof(fd_sol_sysvar_clock_t)
 #define FD_SOL_SYSVAR_CLOCK_ALIGN (8UL)
 
+/* https://github.com/solana-labs/solana/blob/30531d7a5b74f914dde53bfbb0bc2144f2ac92bb/sdk/program/src/last_restart_slot.rs#L7 */
+struct fd_sol_sysvar_last_restart_slot {
+  ulong slot;
+};
+typedef struct fd_sol_sysvar_last_restart_slot fd_sol_sysvar_last_restart_slot_t;
+#define FD_SOL_SYSVAR_LAST_RESTART_SLOT_FOOTPRINT sizeof(fd_sol_sysvar_last_restart_slot_t)
+#define FD_SOL_SYSVAR_LAST_RESTART_SLOT_ALIGN (8UL)
+
 struct fd_vote_lockout {
   ulong slot;
   uint confirmation_count;
@@ -1959,6 +1967,13 @@ int fd_sol_sysvar_clock_encode(fd_sol_sysvar_clock_t const * self, fd_bincode_en
 void fd_sol_sysvar_clock_destroy(fd_sol_sysvar_clock_t* self, fd_bincode_destroy_ctx_t * ctx);
 void fd_sol_sysvar_clock_walk(fd_sol_sysvar_clock_t* self, fd_walk_fun_t fun, const char *name, int level);
 ulong fd_sol_sysvar_clock_size(fd_sol_sysvar_clock_t const * self);
+
+void fd_sol_sysvar_last_restart_slot_new(fd_sol_sysvar_last_restart_slot_t* self);
+int fd_sol_sysvar_last_restart_slot_decode(fd_sol_sysvar_last_restart_slot_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_sol_sysvar_last_restart_slot_encode(fd_sol_sysvar_last_restart_slot_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_sol_sysvar_last_restart_slot_destroy(fd_sol_sysvar_last_restart_slot_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_sol_sysvar_last_restart_slot_walk(fd_sol_sysvar_last_restart_slot_t* self, fd_walk_fun_t fun, const char *name, int level);
+ulong fd_sol_sysvar_last_restart_slot_size(fd_sol_sysvar_last_restart_slot_t const * self);
 
 void fd_vote_lockout_new(fd_vote_lockout_t* self);
 int fd_vote_lockout_decode(fd_vote_lockout_t* self, fd_bincode_decode_ctx_t * ctx);

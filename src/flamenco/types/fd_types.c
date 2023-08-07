@@ -2978,6 +2978,36 @@ int fd_sol_sysvar_clock_encode(fd_sol_sysvar_clock_t const * self, fd_bincode_en
   return FD_BINCODE_SUCCESS;
 }
 
+int fd_sol_sysvar_last_restart_slot_decode(fd_sol_sysvar_last_restart_slot_t* self, fd_bincode_decode_ctx_t * ctx) {
+  int err;
+  err = fd_bincode_uint64_decode(&self->slot, ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_sol_sysvar_last_restart_slot_new(fd_sol_sysvar_last_restart_slot_t* self) {
+  fd_memset(self, 0, sizeof(fd_sol_sysvar_last_restart_slot_t));
+}
+void fd_sol_sysvar_last_restart_slot_destroy(fd_sol_sysvar_last_restart_slot_t* self, fd_bincode_destroy_ctx_t * ctx) {
+}
+
+void fd_sol_sysvar_last_restart_slot_walk(fd_sol_sysvar_last_restart_slot_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_sol_sysvar_last_restart_slot", level++);
+  fun(&self->slot, "slot", 11, "ulong", level + 1);
+  fun(self, name, 33, "fd_sol_sysvar_last_restart_slot", --level);
+}
+ulong fd_sol_sysvar_last_restart_slot_size(fd_sol_sysvar_last_restart_slot_t const * self) {
+  ulong size = 0;
+  size += sizeof(ulong);
+  return size;
+}
+
+int fd_sol_sysvar_last_restart_slot_encode(fd_sol_sysvar_last_restart_slot_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  err = fd_bincode_uint64_encode(&self->slot, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+
 int fd_vote_lockout_decode(fd_vote_lockout_t* self, fd_bincode_decode_ctx_t * ctx) {
   int err;
   err = fd_bincode_uint64_decode(&self->slot, ctx);

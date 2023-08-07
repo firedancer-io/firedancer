@@ -500,6 +500,14 @@
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/clock.rs#L114"
     },
     {
+      "name": "sol_sysvar_last_restart_slot",
+      "type": "struct",
+      "fields": [
+        { "name": "slot", "type": "ulong" }
+      ],
+      "comment": "https://github.com/solana-labs/solana/blob/30531d7a5b74f914dde53bfbb0bc2144f2ac92bb/sdk/program/src/last_restart_slot.rs#L7"
+    },
+    {
       "name": "vote_lockout",
       "type": "struct",
       "fields": [
@@ -842,7 +850,6 @@
         { "name": "epoch_schedule",        "type": "epoch_schedule" },
         { "name": "rent",                  "type": "rent" },
         { "name": "collected",             "type": "ulong" },
-        { "name": "epoch_stakes",          "type": "vote_accounts" }
       ]
     },
     {
