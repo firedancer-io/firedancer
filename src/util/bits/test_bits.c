@@ -155,6 +155,10 @@ main( int     argc,
 
       uchar z = x; fd_uchar_store_if( c, &z, y ); FD_TEST( z==(c ? y : x) );
 
+      uchar xx; uchar yy;
+      xx = x; yy = y; fd_swap( xx, yy );       FD_TEST( (xx==y)           & (yy==x)           );
+      xx = x; yy = y; fd_swap_if( c, xx, yy ); FD_TEST( (xx==(c ? y : x)) & (yy==(c ? x : y)) );
+
       int n = (int)fd_rng_uint( rng );
       int s = n & 15;
       FD_TEST( fd_uchar_shift_left  ( x, s )==((s>7) ? ((uchar)0) : (uchar)(x<<s)) );
@@ -293,6 +297,12 @@ main( int     argc,
       FD_TEST( fd_ushort_abs  ( x       )==x                             );
       FD_TEST( fd_ushort_min  ( x, y    )==((x<y) ? x : y)               );
       FD_TEST( fd_ushort_max  ( x, y    )==((x>y) ? x : y)               );
+
+      ushort z = x; fd_ushort_store_if( c, &z, y ); FD_TEST( z==(c ? y : x) );
+
+      ushort xx; ushort yy;
+      xx = x; yy = y; fd_swap( xx, yy );       FD_TEST( (xx==y)           & (yy==x)           );
+      xx = x; yy = y; fd_swap_if( c, xx, yy ); FD_TEST( (xx==(c ? y : x)) & (yy==(c ? x : y)) );
 
       int n = (int)fd_rng_uint( rng );
       int s = n & 31;
@@ -434,6 +444,10 @@ main( int     argc,
       FD_TEST( fd_uint_max  ( x, y    )==((x>y) ? x : y)               );
 
       uint z = x; fd_uint_store_if( c, &z, y ); FD_TEST( z==(c ? y : x) );
+
+      uint xx; uint yy;
+      xx = x; yy = y; fd_swap( xx, yy );       FD_TEST( (xx==y)           & (yy==x)           );
+      xx = x; yy = y; fd_swap_if( c, xx, yy ); FD_TEST( (xx==(c ? y : x)) & (yy==(c ? x : y)) );
 
       int n = (int)y;
       int s = n & 63;
@@ -579,6 +593,10 @@ main( int     argc,
       FD_TEST( fd_ulong_max  ( x, y    )==((x>y) ? x : y)               );
 
       ulong z = x; fd_ulong_store_if( c, &z, y ); FD_TEST( z==(c ? y : x) );
+
+      ulong xx; ulong yy;
+      xx = x; yy = y; fd_swap( xx, yy );       FD_TEST( (xx==y)           & (yy==x)           );
+      xx = x; yy = y; fd_swap_if( c, xx, yy ); FD_TEST( (xx==(c ? y : x)) & (yy==(c ? x : y)) );
 
       FD_TEST( fd_ptr_if( c, (uchar *)x, (uchar *)y )==(uchar *)(c ? x : y) );
 
@@ -746,6 +764,10 @@ main( int     argc,
 
       uint128 z = x; fd_uint128_store_if( c, &z, y ); FD_TEST( z==(c ? y : x) );
 
+      uint128 xx; uint128 yy;
+      xx = x; yy = y; fd_swap( xx, yy );       FD_TEST( (xx==y)           & (yy==x)           );
+      xx = x; yy = y; fd_swap_if( c, xx, yy ); FD_TEST( (xx==(c ? y : x)) & (yy==(c ? x : y)) );
+
       int n = (int)(uint)y;
       int s = n & 255;
       FD_TEST( fd_uint128_shift_left  ( x, s )==((s>127) ? (uint128)0 : (uint128)(x<<s)) );
@@ -759,10 +781,16 @@ main( int     argc,
   if( 1 ) {
     FD_LOG_NOTICE(( "Testing char" ));
     for( int iter=0; iter<16777216; iter++ ) {
-      int c = (int)(fd_rng_ulong( rng ) & 1UL);
-      schar x = (schar)fd_rng_ulong( rng );
-      schar y = (schar)fd_rng_ulong( rng );
-      FD_TEST( fd_schar_if( c, x, y )==(c ? x : y) );
+      int  c = (int)(fd_rng_ulong( rng ) & 1UL);
+      char x = (char)fd_rng_ulong( rng );
+      char y = (char)fd_rng_ulong( rng );
+      FD_TEST( fd_char_if( c, x, y )==(c ? x : y) );
+
+      char z = x; fd_char_store_if( c, &z, y ); FD_TEST( z==(c ? y : x) );
+
+      char xx; char yy;
+      xx = x; yy = y; fd_swap( xx, yy );       FD_TEST( (xx==y)           & (yy==x)           );
+      xx = x; yy = y; fd_swap_if( c, xx, yy ); FD_TEST( (xx==(c ? y : x)) & (yy==(c ? x : y)) );
     }
   }
 
@@ -784,6 +812,10 @@ main( int     argc,
       FD_TEST( fd_schar_max( x, y    )==((x>y) ? x : y)                         );
 
       schar z = x; fd_schar_store_if( c, &z, y ); FD_TEST( z==(c ? y : x) );
+
+      schar xx; schar yy;
+      xx = x; yy = y; fd_swap( xx, yy );       FD_TEST( (xx==y)           & (yy==x)           );
+      xx = x; yy = y; fd_swap_if( c, xx, yy ); FD_TEST( (xx==(c ? y : x)) & (yy==(c ? x : y)) );
 
       int   n = (int)fd_rng_uint( rng );
       int   s = n & 15;
@@ -826,6 +858,10 @@ main( int     argc,
 
       short z = x; fd_short_store_if( c, &z, y ); FD_TEST( z==(c ? y : x) );
 
+      short xx; short yy;
+      xx = x; yy = y; fd_swap( xx, yy );       FD_TEST( (xx==y)           & (yy==x)           );
+      xx = x; yy = y; fd_swap_if( c, xx, yy ); FD_TEST( (xx==(c ? y : x)) & (yy==(c ? x : y)) );
+
       int    n = (int)fd_rng_uint( rng );
       int    s = n & 31;
       ushort m = (ushort)-(((ushort)x) >> 15);
@@ -866,6 +902,10 @@ main( int     argc,
       FD_TEST( fd_int_max( x, y    )==((x>y) ? x : y)                    );
 
       int z = x; fd_int_store_if( c, &z, y ); FD_TEST( z==(c ? y : x) );
+
+      int xx; int yy;
+      xx = x; yy = y; fd_swap( xx, yy );       FD_TEST( (xx==y)           & (yy==x)           );
+      xx = x; yy = y; fd_swap_if( c, xx, yy ); FD_TEST( (xx==(c ? y : x)) & (yy==(c ? x : y)) );
 
       int  n = (int)fd_rng_uint( rng );
       int  s = n & 63;
@@ -908,6 +948,10 @@ main( int     argc,
 
       long z = x; fd_long_store_if( c, &z, y ); FD_TEST( z==(c ? y : x) );
 
+      long xx; long yy;
+      xx = x; yy = y; fd_swap( xx, yy );       FD_TEST( (xx==y)           & (yy==x)           );
+      xx = x; yy = y; fd_swap_if( c, xx, yy ); FD_TEST( (xx==(c ? y : x)) & (yy==(c ? x : y)) );
+
       int   n = (int)fd_rng_uint( rng );
       int   s = n & 127;
       ulong m = (ulong)-(((ulong)x) >> 63);
@@ -949,6 +993,10 @@ main( int     argc,
       FD_TEST( fd_int128_max( x, y    )==((x>y) ? x : y)                   );
 
       int128 z = x; fd_int128_store_if( c, &z, y ); FD_TEST( z==(c ? y : x) );
+
+      int128 xx; int128 yy;
+      xx = x; yy = y; fd_swap( xx, yy );       FD_TEST( (xx==y)           & (yy==x)           );
+      xx = x; yy = y; fd_swap_if( c, xx, yy ); FD_TEST( (xx==(c ? y : x)) & (yy==(c ? x : y)) );
 
       int     n = (int)fd_rng_uint( rng );
       int     s = n & 255;
@@ -1015,6 +1063,10 @@ main( int     argc,
       FD_TEST( float_as_uint( fd_float_abs( x ) )==(((float_as_uint( x ))<<1)>>1) );
 
       float z = x; fd_float_store_if( c, &z, y ); FD_TEST( fd_float_eq( z, (c ? y : x) ) );
+
+      float xx; float yy;
+      xx = x; yy = y; fd_swap( xx, yy );       FD_TEST( (xx==y)           & (yy==x)           );
+      xx = x; yy = y; fd_swap_if( c, xx, yy ); FD_TEST( (xx==(c ? y : x)) & (yy==(c ? x : y)) );
     }
   }
 
@@ -1061,6 +1113,10 @@ main( int     argc,
       FD_TEST( double_as_ulong( fd_double_abs( x ) )==(((double_as_ulong( x ))<<1)>>1) );
 
       double z = x; fd_double_store_if( c, &z, y ); FD_TEST( fd_double_eq( z, (c ? y : x) ) );
+
+      double xx; double yy;
+      xx = x; yy = y; fd_swap( xx, yy );       FD_TEST( (xx==y)           & (yy==x)           );
+      xx = x; yy = y; fd_swap_if( c, xx, yy ); FD_TEST( (xx==(c ? y : x)) & (yy==(c ? x : y)) );
     }
   }
 # endif

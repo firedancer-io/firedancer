@@ -426,10 +426,12 @@ FD_SRC_UTIL_BITS_FD_BITS_IMPL(int128,uint128,128)
    can't provide a char_min/char_max between platforms as they don't
    necessarily produce the same results.  Likewise, we don't provide a
    fd_char_abs because it will not produce equivalent results between
-   platforms.  But it is useful to have a char_if to help with making
-   branchless string operation implementations. */
+   platforms.  But it is useful to have a char_if and char_store_if to
+   help with making branchless string operation implementations. */
 
 FD_FN_CONST static inline char fd_char_if( int c, char t, char f ) { return c ? t : f; }
+
+static inline void fd_char_store_if( int c, char * p, char v ) { char _[ 1 ]; *( c ? p : _ ) = v; /* cmov */ }
 
 /* FIXME: ADD HASHING PAIRS FOR UCHAR AND USHORT? */
 
@@ -549,6 +551,31 @@ fd_double_eq( double x,
   return tx.u==ty.u;
 }
 #endif
+
+/* fd_swap swaps the values in a and b.  Assumes a and b have the same
+   plain-old-data type.  Best if a and b are primitive types (e.g.
+   ulong).  This macro is robust (it evaluates a and b the minimal
+   number of times).  Note that compilers are pretty good about identify
+   swap operations and replacing them with more optimal assembly for
+   types and architectures where alternative implementations (like xor
+   tricks) might be faster. */
+
+#define fd_swap(a,b) do { __typeof__((a)) _fd_swap_tmp = (a); (a) = (b); (b) = _fd_swap_tmp; } while(0)
+
+/* fd_swap_if swaps the values in a and b if c is non-zero and leaves
+   them unchanged otherwise.  Assumes a and b have the same
+   plain-old-data type.  Best if a and b are primitive types (e.g.
+   ulong) as the compiler will likely replace the trinaries below with
+   cmovs, making this branchless.  This macro is robust (it evalutes a,
+   b and c the minimal number of times). */
+
+#define fd_swap_if(c,a,b) do {                                      \
+    int             _fd_swap_if_c = (c);                            \
+    __typeof__((a)) _fd_swap_if_a = (a);                            \
+    __typeof__((b)) _fd_swap_if_b = (b);                            \
+    (a) = _fd_swap_if_c ? _fd_swap_if_b : _fd_swap_if_a; /* cmov */ \
+    (b) = _fd_swap_if_c ? _fd_swap_if_a : _fd_swap_if_b; /* cmov */ \
+  } while(0)
 
 /* fd_ptr_if is a generic version of the above for pointers.  This macro
    is robust.
