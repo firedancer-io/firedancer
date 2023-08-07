@@ -260,6 +260,23 @@ static void *
 fd_tile_private_manager( void * _args ) {
   fd_tile_private_manager_args_t * args = (fd_tile_private_manager_args_t *)_args;
 
+# if !__GLIBC__
+  if( args->cpu_idx<65535UL ) {
+    cpu_set_t cpu_set[1];
+    CPU_ZERO( cpu_set );
+    CPU_SET( args->cpu_idx, cpu_set );
+    int err = sched_setaffinity( (pid_t)0, sizeof(cpu_set_t), cpu_set );
+    if( FD_UNLIKELY( err ) )
+      FD_LOG_WARNING(( "fd_tile: sched_setaffinity_failed (%i-%s)\n\t"
+                       "Unable to set the thread affinity for tile %lu to cpu %lu.  Attempting to\n\t"
+                       "continue without explicitly specifying this tile's cpu affinity but it\n\t"
+                       "is likely this thread group's performance and stability are compromised\n\t"
+                       "(possibly catastrophically so).  Update --tile-cpus to specify a set of\n\t"
+                       "allowed cpus that have been reserved for this thread group on this host\n\t"
+                       "to eliminate this warning.", err, strerror( err ), args->idx, args->cpu_idx ));
+  }
+# endif /* !__GLIBC__ */
+
   ulong  id       = args->id;
   ulong  idx      = args->idx;
   void * stack    = args->stack;
