@@ -44,6 +44,7 @@ struct __attribute__((aligned(FD_GLOBAL_CTX_ALIGN))) fd_global_ctx {
   unsigned char              sysvar_rent[32];
   unsigned char              sysvar_stake_history[32];
   unsigned char              sysvar_owner[32];
+  unsigned char              sysvar_last_restart_slot[32];
   unsigned char              solana_native_loader[32];
   unsigned char              solana_config_program[32];
   unsigned char              solana_stake_program[32];

@@ -119,6 +119,7 @@ fd_runtime_init_program( fd_global_ctx_t * global ) {
   fd_sysvar_fees_init( global );
   fd_sysvar_rent_init( global );
   fd_sysvar_stake_history_init( global );
+//  fd_sysvar_last_restart_slot_init( global );
 
   fd_builtin_programs_init( global );
   fd_stake_program_config_init( global );
@@ -888,6 +889,7 @@ fd_global_ctx_new        ( void * mem ) {
   fd_base58_decode_32( "SysvarFees111111111111111111111111111111111",  (unsigned char *) self->sysvar_fees);
   fd_base58_decode_32( "SysvarRent111111111111111111111111111111111",  (unsigned char *) self->sysvar_rent);
   fd_base58_decode_32( "SysvarStakeHistory1111111111111111111111111",  (unsigned char *) self->sysvar_stake_history);
+  fd_base58_decode_32( "SysvarLastRestartS1ot1111111111111111111111",  (unsigned char *) self->sysvar_last_restart_slot);
 
   fd_base58_decode_32( "NativeLoader1111111111111111111111111111111",  (unsigned char *) self->solana_native_loader);
   fd_base58_decode_32( "Config1111111111111111111111111111111111111",  (unsigned char *) self->solana_config_program);

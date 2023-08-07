@@ -1081,6 +1081,7 @@ struct fd_firedancer_banks {
   fd_rent_t rent;
   ulong collected;
   fd_vote_accounts_t epoch_stakes;
+  fd_sol_sysvar_last_restart_slot_t last_restart_slot;
 };
 typedef struct fd_firedancer_banks fd_firedancer_banks_t;
 #define FD_FIREDANCER_BANKS_FOOTPRINT sizeof(fd_firedancer_banks_t)

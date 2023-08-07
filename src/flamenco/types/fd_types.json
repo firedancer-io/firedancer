@@ -850,7 +850,8 @@
         { "name": "epoch_schedule",        "type": "epoch_schedule" },
         { "name": "rent",                  "type": "rent" },
         { "name": "collected",             "type": "ulong" },
-        { "name": "epoch_stakes",          "type": "vote_accounts" }
+        { "name": "epoch_stakes",          "type": "vote_accounts" },
+        { "name": "last_restart_slot",     "type": "sol_sysvar_last_restart_slot" }
       ]
     },
     {

@@ -100,6 +100,8 @@ int fd_account_is_writable_idx(instruction_ctx_t * ctx, int idx) {
 
   return fd_txn_is_writable(ctx->txn_ctx->txn_descriptor, idx);
 }
+
+/* TODO just check the owner ... */
 static inline
 int fd_account_is_sysvar(instruction_ctx_t * ctx, fd_pubkey_t * acct) {
   if (memcmp(acct, ctx->global->sysvar_owner, sizeof(fd_pubkey_t)) == 0) return 1;
@@ -111,6 +113,7 @@ int fd_account_is_sysvar(instruction_ctx_t * ctx, fd_pubkey_t * acct) {
   if (memcmp(acct, ctx->global->sysvar_fees, sizeof(fd_pubkey_t)) == 0) return 1;
   if (memcmp(acct, ctx->global->sysvar_rent, sizeof(fd_pubkey_t)) == 0) return 1;
   if (memcmp(acct, ctx->global->sysvar_stake_history, sizeof(fd_pubkey_t)) == 0) return 1;
+  if (memcmp(acct, ctx->global->sysvar_last_restart_slot, sizeof(fd_pubkey_t)) == 0) return 1;
   return 0;
 }
 
