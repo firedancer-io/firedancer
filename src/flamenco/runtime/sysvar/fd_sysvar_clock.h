@@ -3,7 +3,6 @@
 
 #include "../../fd_flamenco_base.h"
 #include "../fd_executor.h"
-#include "../../stakes/fd_stake_program.h"
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/clock.rs#L10 */
 #define DEFAULT_TICKS_PER_SECOND ( 160UL )

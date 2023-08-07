@@ -52,6 +52,7 @@ build/linux/gcc/x86_64/unit-test/test_runtime --wksp giant_wksp --gaddr 0xc7ce18
 #include "sysvar/fd_sysvar.h"
 #include "fd_runtime.h"
 #include "sysvar/fd_sysvar_epoch_schedule.h"
+#include "../stakes/fd_stake_program.h"
 
 #include <dirent.h>
 
