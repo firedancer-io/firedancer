@@ -325,7 +325,7 @@ fd_stake_history_entry_t stake_activating_and_deactivating( fd_delegation_t cons
 
       return entry;
     }
-    ulong prev_epoch = delegation->activation_epoch;
+    ulong prev_epoch = delegation->deactivation_epoch;
     fd_stake_history_entry_t * prev_cluster_stake = cluster_stake_at_activation_epoch;
 
     ulong current_epoch;
