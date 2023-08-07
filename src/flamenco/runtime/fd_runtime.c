@@ -119,7 +119,7 @@ fd_runtime_init_program( fd_global_ctx_t * global ) {
   fd_sysvar_fees_init( global );
   fd_sysvar_rent_init( global );
   fd_sysvar_stake_history_init( global );
-//  fd_sysvar_last_restart_slot_init( global );
+  fd_sysvar_last_restart_slot_init( global );
 
   fd_builtin_programs_init( global );
   fd_stake_program_config_init( global );

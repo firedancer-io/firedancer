@@ -4,6 +4,12 @@
 
 void
 fd_sysvar_last_restart_slot_init( fd_global_ctx_t * global ) {
+
+  if( !global->features.last_restart_slot_sysvar ) {
+    FD_LOG_INFO(( "sysvar LastRestartSlot not supported by this ledger version!" ));
+    return;
+  }
+
   fd_sol_sysvar_last_restart_slot_t const * sysvar = &global->bank.last_restart_slot;
 
   ulong sz = fd_sol_sysvar_last_restart_slot_size( sysvar );
@@ -24,11 +30,9 @@ fd_sysvar_last_restart_slot_init( fd_global_ctx_t * global ) {
                  global->bank.slot );
 }
 
-void
-fd_sysvar_last_restart_slot_read( fd_global_ctx_t *                   global,
+int
+fd_sysvar_last_restart_slot_read( fd_global_ctx_t const *             global,
                                   fd_sol_sysvar_last_restart_slot_t * result ) {
-
-  /* TODO This syvar should not exist in pre-1.17 ledgers! */
 
   int err = 0;
   uchar const * raw_acc_data = fd_acc_mgr_view_data(
@@ -38,8 +42,8 @@ fd_sysvar_last_restart_slot_read( fd_global_ctx_t *                   global,
       /* out_rec */ NULL,
       &err );
 
-  if( FD_UNLIKELY( !raw_acc_data ) )
-    FD_LOG_ERR(( "sysvar LastRestartSlot not found!" ));
+  if( !raw_acc_data )
+    return err;
 
   fd_account_meta_t const * m = fd_type_pun_const( raw_acc_data );
 
@@ -51,4 +55,6 @@ fd_sysvar_last_restart_slot_read( fd_global_ctx_t *                   global,
   };
   err = fd_sol_sysvar_last_restart_slot_decode( result, &decode );
   FD_TEST( err==FD_BINCODE_SUCCESS );
+
+  return FD_ACC_MGR_SUCCESS;
 }
