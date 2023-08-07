@@ -27,7 +27,23 @@ list pod
 insert pod type path val
 - Inserts type into the pod at path with value val.  Fails if path
   already exists in the pod.  This might change the locations of
-  existing values in the pod.
+  existing values in the pod.  If type is cstr, val is converted to a
+  c-style string and inserted into pod.  Similarly:
+    char  -> single character,
+    schar ->  8-bit signed integer (twos complement), uchar  ->  8-bit unsigned integer,
+    short -> 16-bit signed integer (twos complement), ushort -> 16-bit unsigned integer,
+    int   -> 32-bit signed integer (twos complement), uint   -> 32-bit unsigned integer,
+    long  -> 64-bit signed integer (twos complement), ulong  -> 64-bit unsigned integer,
+    float -> 32-bit real (IEEE-754),                  double -> 64-bit real (IEEE-754)
+
+insert-file pod path file
+- Inserts a "buf" type into the pod at path.  The buffer will contain the
+  entire contents of the file at path "file" into the pod.  Fails if
+  path already exists in the pod.  This might change the locations of
+  existing values in the pod.  The size of the buffer will be number of
+  bytes in the file and it is fine to insert a zero sized file into the
+  pod.  TODO: consider allowing users to specify other types and/or
+  regions of the file?
 
 remove pod path
 - Remove the path (and any path.*) from the pod.  Fails if path does not
