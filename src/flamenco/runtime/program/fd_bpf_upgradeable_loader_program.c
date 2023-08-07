@@ -887,7 +887,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
     fd_account_meta_t buffer_acc_metadata;
 
     read_result = fd_acc_mgr_get_metadata( ctx.global->acc_mgr, ctx.global->funk_txn, buffer_acc, &buffer_acc_metadata );
-    if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
+    if( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
       FD_LOG_WARNING(( "failed to read account metadata" ));
       return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
     }
@@ -903,6 +903,14 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
     ulong sz = PROGRAMDATA_METADATA_SIZE + instruction.inner.deploy_with_max_data_len.max_data_len + sizeof(fd_account_meta_t);
     err = 0;
     void * program_data_raw = fd_acc_mgr_modify_data(ctx.global->acc_mgr, ctx.global->funk_txn, programdata_acc, 1, &sz, NULL, NULL, &err);
+    if( err != FD_ACC_MGR_SUCCESS ) {
+      return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
+    }
+
+    if( program_data_raw == NULL ) {
+      return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
+    }
+
     fd_account_meta_t * programdata_acc_metadata = (fd_account_meta_t *)program_data_raw;
     uchar * programdata_acc_data = fd_account_get_data(programdata_acc_metadata);
 
