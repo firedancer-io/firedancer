@@ -28,6 +28,8 @@ void
 fd_sysvar_last_restart_slot_read( fd_global_ctx_t *                   global,
                                   fd_sol_sysvar_last_restart_slot_t * result ) {
 
+  /* TODO This syvar should not exist in pre-1.17 ledgers! */
+
   int err = 0;
   uchar const * raw_acc_data = fd_acc_mgr_view_data(
       global->acc_mgr,

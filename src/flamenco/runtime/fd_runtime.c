@@ -1252,6 +1252,31 @@ int fd_global_import_solana_manifest(fd_global_ctx_t * global, fd_solana_manifes
   bank->rent = oldbank->rent_collector.rent;
   bank->collected = oldbank->collected_rent;
 
+  /* Update last restart slot
+     https://github.com/solana-labs/solana/blob/30531d7a5b74f914dde53bfbb0bc2144f2ac92bb/runtime/src/bank.rs#L2152
+
+     oldbank->hard_forks is sorted ascending by slot number.
+     To find the last restart slot, take the highest hard fork slot
+     number that is less or equal than the current slot number.
+     (There might be some hard forks in the future, ignore these) */
+  do {
+    bank->last_restart_slot.slot = 0UL;
+    if( FD_UNLIKELY( oldbank->hard_forks.hard_forks_len==0 ) ) {
+      FD_LOG_WARNING(( "Snapshot missing hard forks. What is the correct 'last restart slot' value?" ));
+      break;
+    }
+
+    fd_slot_pair_t const * head = oldbank->hard_forks.hard_forks;
+    fd_slot_pair_t const * tail = head + oldbank->hard_forks.hard_forks_len - 1UL;
+
+    for( fd_slot_pair_t const * pair = tail; pair >= head; pair-- ) {
+      if( pair->slot <= bank->slot ) {
+        bank->last_restart_slot.slot = pair->slot;
+        break;
+      }
+    }
+  } while(0);
+
   /* Find EpochStakes for next slot */
   {
     FD_SCRATCH_SCOPED_FRAME;
