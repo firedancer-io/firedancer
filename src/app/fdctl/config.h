@@ -16,10 +16,12 @@ typedef struct {
     wksp_verify_dedup,
     wksp_dedup_pack,
     wksp_pack_bank,
+    wksp_bank_shred,
     wksp_quic,
     wksp_verify,
     wksp_dedup,
     wksp_pack,
+    wksp_bank,
   } kind;
   char * name;
   ulong kind_idx;

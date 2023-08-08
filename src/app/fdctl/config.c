@@ -24,6 +24,12 @@ find_wksp( config_t * const config,
   FD_LOG_ERR(( "no workspace with name `%s` found", name ));
 }
 
+/* partial frank_bank definition since the tile doesn't really exist */
+static fd_frank_task_t frank_bank = {
+   .in_wksp = "pack_bank",
+   .out_wksp = "bank_shred",
+};
+
 ulong
 memlock_max_bytes( config_t * const config ) {
   ulong memlock_max_bytes = 0;
@@ -49,6 +55,7 @@ memlock_max_bytes( config_t * const config ) {
       case wksp_verify_dedup:
       case wksp_dedup_pack:
       case wksp_pack_bank:
+      case wksp_bank_shred:
         break;
       case wksp_quic:
         TILE_MAX( frank_quic );
@@ -61,6 +68,9 @@ memlock_max_bytes( config_t * const config ) {
         break;
       case wksp_pack:
         TILE_MAX( frank_pack );
+        break;
+      case wksp_bank:
+        TILE_MAX( frank_bank );
         break;
     }
   }
@@ -453,26 +463,32 @@ init_workspaces( config_t * config ) {
   config->shmem.workspaces[ idx ].name      = "quic_verify";
   config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
   config->shmem.workspaces[ idx ].num_pages = 1;
-
   idx++;
+
   config->shmem.workspaces[ idx ].kind      = wksp_verify_dedup;
   config->shmem.workspaces[ idx ].name      = "verify_dedup";
   config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
   config->shmem.workspaces[ idx ].num_pages = 1;
-
   idx++;
+
   config->shmem.workspaces[ idx ].kind      = wksp_dedup_pack;
   config->shmem.workspaces[ idx ].name      = "dedup_pack";
   config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
   config->shmem.workspaces[ idx ].num_pages = 1;
-
   idx++;
+
   config->shmem.workspaces[ idx ].kind      = wksp_pack_bank;
   config->shmem.workspaces[ idx ].name      = "pack_bank";
   config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
   config->shmem.workspaces[ idx ].num_pages = 1;
-
   idx++;
+
+  config->shmem.workspaces[ idx ].kind      = wksp_bank_shred;
+  config->shmem.workspaces[ idx ].name      = "bank_shred";
+  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
+  config->shmem.workspaces[ idx ].num_pages = 1;
+  idx++;
+
   for( ulong i=0; i<config->layout.verify_tile_count; i++ ) {
     config->shmem.workspaces[ idx ].kind      = wksp_quic;
     config->shmem.workspaces[ idx ].name      = "quic";
@@ -495,14 +511,24 @@ init_workspaces( config_t * config ) {
   config->shmem.workspaces[ idx ].name      = "dedup";
   config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
   config->shmem.workspaces[ idx ].num_pages = 1;
-
   idx++;
+
   config->shmem.workspaces[ idx ].kind      = wksp_pack;
   config->shmem.workspaces[ idx ].name      = "pack";
   config->shmem.workspaces[ idx ].page_size = FD_SHMEM_HUGE_PAGE_SZ;
   config->shmem.workspaces[ idx ].num_pages = 1;
+  idx++;
 
-  config->shmem.workspaces_cnt = idx + 1;
+  for( ulong i=0; i<config->layout.bank_tile_count; i++ ) {
+    config->shmem.workspaces[ idx ].kind      = wksp_bank;
+    config->shmem.workspaces[ idx ].name      = "bank";
+    config->shmem.workspaces[ idx ].page_size = FD_SHMEM_HUGE_PAGE_SZ;
+    config->shmem.workspaces[ idx ].num_pages = 1;
+    config->shmem.workspaces[ idx ].kind_idx  = i;
+    idx++;
+  }
+
+  config->shmem.workspaces_cnt = idx;
 }
 
 static uint
