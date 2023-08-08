@@ -59,6 +59,7 @@ typedef struct {
   char  child_names[ FD_TILE_MAX + 1 ][ 32 ];
   uid_t uid;
   gid_t gid;
+  double tick_per_ns;
 } tile_spawner_t;
 
 const uchar *
@@ -83,6 +84,7 @@ int
 tile_main( void * _args ) {
   tile_main_args_t * args = _args;
 
+  fd_log_private_tid_set( args->idx );
   fd_log_thread_set( args->tile->name );
 
   install_tile_signals();
@@ -93,6 +95,7 @@ tile_main( void * _args ) {
     .tile_name = args->tile->name,
     .in_pod = NULL,
     .out_pod = NULL,
+    .tick_per_ns = args->tick_per_ns,
   };
 
   frank_args.tile_pod = workspace_pod_join( args->app_name, args->tile->name, args->tile_idx );
@@ -103,9 +106,15 @@ tile_main( void * _args ) {
 
   if( FD_UNLIKELY( args->tile->init ) ) args->tile->init( &frank_args );
 
+  int allow_fds[ 32 ];
+  ulong allow_fds_sz = args->tile->allow_fds( &frank_args,
+                                              sizeof(allow_fds)/sizeof(allow_fds[0]),
+                                              allow_fds );
+
   if( FD_LIKELY( args->sandbox ) ) fd_sandbox( args->uid,
                                                args->gid,
-                                               args->tile->close_fd_start,
+                                               allow_fds_sz,
+                                               allow_fds,
                                                args->tile->allow_syscalls_sz,
                                                args->tile->allow_syscalls );
   args->tile->run( &frank_args );
@@ -150,6 +159,7 @@ clone_tile( tile_spawner_t * spawn, fd_frank_task_t * task, ulong idx ) {
     .sandbox = spawn->sandbox,
     .uid = spawn->uid,
     .gid = spawn->gid,
+    .tick_per_ns = spawn->tick_per_ns,
   };
 
   /* also spawn tiles into pid namespaces so they cannot signal each other or the parent */
@@ -265,10 +275,10 @@ solana_labs_main( void * args ) {
   argv[ idx ] = NULL;
 
   /* silence a bunch of solana_metrics INFO spam */
-  if( FD_UNLIKELY( setenv("RUST_LOG", "solana=info,solana_metrics::metrics=warn", 1) ) )
+  if( FD_UNLIKELY( setenv( "RUST_LOG", "solana=info,solana_metrics::metrics=warn", 1 ) ) )
     FD_LOG_ERR(( "setenv() failed (%i-%s)", errno, strerror( errno ) ));
 
-  FD_LOG_INFO(( "Running Solana Labs Validator with the following arguments:" ));
+  FD_LOG_INFO(( "Running Solana Labs validator with the following arguments:" ));
   for( ulong j=0UL; j<idx; j++ ) FD_LOG_INFO(( "%s", argv[j] ));
 
   /* solana labs main will exit(1) if it fails, so no return code */
@@ -291,6 +301,8 @@ clone_solana_labs( tile_spawner_t * spawner, config_t * const config ) {
 
 static int
 main_pid_namespace( void * args ) {
+  fd_log_thread_set( "pidns" );
+
   config_t * const config = args;
 
   /* remove the signal handlers installed for SIGTERM and SIGINT by the parent,
@@ -314,7 +326,7 @@ main_pid_namespace( void * args ) {
   if( FD_UNLIKELY( affinity_tile_cnt>tile_cnt ) ) FD_LOG_WARNING(( "only %lu tiles required for this config", tile_cnt ));
 
   /* eat calibration cost at deterministic place */
-  fd_tempo_tick_per_ns( NULL );
+  double tick_per_ns = fd_tempo_tick_per_ns( NULL );
 
   /* Save the current affinity, it will be restored after creating any child tiles */
   cpu_set_t floating_cpu_set[1];
@@ -329,7 +341,15 @@ main_pid_namespace( void * args ) {
     .sandbox = config->development.sandbox,
     .uid = config->uid,
     .gid = config->gid,
+    .tick_per_ns = tick_per_ns,
   };
+
+  clone_solana_labs( &spawner, config );
+
+  if( FD_UNLIKELY( config->development.netns.enabled ) )  {
+    enter_network_namespace( config->tiles.quic.interface );
+    close_network_namespace_original_fd();
+  }
 
   clone_tile( &spawner, &frank_dedup, 0 );
   clone_tile( &spawner, &frank_pack , 0 );
@@ -339,18 +359,23 @@ main_pid_namespace( void * args ) {
   if( FD_UNLIKELY( sched_setaffinity( 0, sizeof(cpu_set_t), floating_cpu_set ) ) )
     FD_LOG_ERR(( "sched_setaffinity (%i-%s)", errno, strerror( errno ) ));
 
-  clone_solana_labs( &spawner, config );
 
   long allow_syscalls[] = {
     __NR_write,      /* logging */
-    __NR_futex,      /* logging, glibc fprintf unfortunately uses a futex internally */
     __NR_wait4,      /* wait for children */
     __NR_exit_group, /* exit process */
   };
+
+  int allow_fds[] = {
+    2, /* stderr */
+    3, /* logfile */
+  };
+
   if( config->development.sandbox )
     fd_sandbox( config->uid,
                 config->gid,
-                3, /* stdin, stdout, stderr */
+                sizeof(allow_fds)/sizeof(allow_fds[ 0 ]),
+                allow_fds,
                 sizeof(allow_syscalls)/sizeof(allow_syscalls[0]),
                 allow_syscalls );
 
@@ -372,10 +397,10 @@ main_pid_namespace( void * args ) {
   }
 
   if( FD_UNLIKELY( !WIFEXITED( wstatus ) ) ) {
-    fprintf( stderr, "tile %lu (%s) exited with signal %d (%s)\n", tile_idx, name, WTERMSIG( wstatus ), strsignal( WTERMSIG( wstatus ) ) );
+    fd_log_private_fprintf_0( STDERR_FILENO, "tile %lu (%s) exited with signal %d (%s)\n", tile_idx, name, WTERMSIG( wstatus ), strsignal( WTERMSIG( wstatus ) ) );
     exit_group( WTERMSIG( wstatus ) );
   }
-  fprintf( stderr, "tile %lu (%s) exited with code %d\n", tile_idx, name, WEXITSTATUS( wstatus ) );
+  fd_log_private_fprintf_0( STDERR_FILENO, "tile %lu (%s) exited with code %d\n", tile_idx, name, WEXITSTATUS( wstatus ) );
   exit_group( WEXITSTATUS( wstatus ) );
   return 0;
 }
@@ -387,7 +412,7 @@ static void
 parent_signal( int sig ) {
   (void)sig;
   if( pid_namespace ) kill( pid_namespace, SIGKILL );
-  fprintf( stderr, "Log at \"%s\"", fd_log_private_path );
+  fd_log_private_fprintf_0( STDERR_FILENO, "Log at \"%s\"", fd_log_private_path );
   exit_group( 0 );
 }
 
@@ -405,8 +430,6 @@ install_parent_signals( void ) {
 
 void
 run_firedancer( config_t * const config ) {
-  enter_network_namespace( config );
-
   void * stack = fd_tile_private_stack_new( 0, 65535UL );
   if( FD_UNLIKELY( !stack ) ) FD_LOG_ERR(( "unable to create a stack for boot process" ));
 
@@ -414,25 +437,34 @@ run_firedancer( config_t * const config ) {
      race condition. child will clear the handlers. */
   install_parent_signals();
 
+  if( FD_UNLIKELY( close( 0 ) ) ) FD_LOG_ERR(( "close(0) failed (%i-%s)", errno, strerror( errno ) ));
+  if( FD_UNLIKELY( close( 1 ) ) ) FD_LOG_ERR(( "close(1) failed (%i-%s)", errno, strerror( errno ) ));
+
   /* clone into a pid namespace */
   pid_namespace = clone( main_pid_namespace, (uchar *)stack + (8UL<<20), CLONE_NEWPID, config );
 
   long allow_syscalls[] = {
     __NR_write,      /* logging */
-    __NR_futex,      /* logging, glibc fprintf unfortunately uses a futex internally */
     __NR_wait4,      /* wait for children */
     __NR_exit_group, /* exit process */
     __NR_kill,       /* kill the pid namespaced child process */
   };
+
+  int allow_fds[] = {
+    2, /* stderr */
+    3, /* logfile */
+  };
+
   fd_sandbox( config->uid,
               config->gid,
-              3, /* stdin, stdout, stderr */
+              sizeof(allow_fds)/sizeof(allow_fds[ 0 ]),
+              allow_fds,
               sizeof(allow_syscalls)/sizeof(allow_syscalls[0]),
               allow_syscalls );
 
   int wstatus;
   pid_t pid2 = wait4( pid_namespace, &wstatus, (int)__WCLONE, NULL );
-  fprintf( stderr, "Log at \"%s\"\n", fd_log_private_path );
+  fd_log_private_fprintf_0( STDERR_FILENO, "Log at \"%s\"\n", fd_log_private_path );
   if( FD_UNLIKELY( pid2 == -1 ) ) exit_group( 1 );
   if( FD_UNLIKELY( !WIFEXITED( wstatus ) ) ) exit_group( WTERMSIG( wstatus ) );
   exit_group( WEXITSTATUS( wstatus ) );

@@ -656,10 +656,18 @@ fd_shmem_private_boot( int *    pargc,
 
 # if FD_HAS_THREADS
   pthread_mutexattr_t lockattr[1];
-  pthread_mutexattr_init( lockattr );
-  pthread_mutexattr_settype( lockattr, PTHREAD_MUTEX_RECURSIVE );
-  pthread_mutex_init( fd_shmem_private_lock, lockattr );
-  pthread_mutexattr_destroy( lockattr );
+
+  if( FD_UNLIKELY( pthread_mutexattr_init( lockattr ) ) )
+    FD_LOG_ERR(( "fd_shmem: pthread_mutexattr_init failed" ));
+
+  if( FD_UNLIKELY( pthread_mutexattr_settype( lockattr, PTHREAD_MUTEX_RECURSIVE ) ) )
+    FD_LOG_ERR(( "fd_shmem: pthread_mutexattr_settype failed" ));
+
+  if( FD_UNLIKELY( pthread_mutex_init( fd_shmem_private_lock, lockattr ) ) )
+    FD_LOG_ERR(( "fd_shmem: pthread_mutex_init failed" ));
+
+  if( FD_UNLIKELY( pthread_mutexattr_destroy( lockattr ) ) )
+    FD_LOG_WARNING(( "fd_shmem: pthread_mutexattr_destroy failed; attempting to continue" ));
 # endif /* FD_HAS_THREADS */
 
   /* Cache the numa topology for this thread group's host for
@@ -714,6 +722,11 @@ fd_shmem_private_halt( void ) {
 
   fd_shmem_private_base[0] = '\0';
   fd_shmem_private_base_len = 0UL;
+
+# if FD_HAS_THREADS
+  if( FD_UNLIKELY( pthread_mutex_destroy( fd_shmem_private_lock ) ) )
+    FD_LOG_WARNING(( "fd_shmem: pthread_mutex_destory failed; attempting to continue" ));
+# endif /* FD_HAS_THREADS */
 
   FD_LOG_INFO(( "fd_shmem: halt success" ));
 }

@@ -20,6 +20,7 @@ typedef union {
     long dt_max;
     long duration;
     uint seed;
+    double ns_per_tic;
   } monitor;
   struct {
     int                      command;

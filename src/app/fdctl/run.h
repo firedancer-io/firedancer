@@ -12,6 +12,7 @@ typedef struct {
   uid_t uid;
   gid_t gid;
   char * app_name;
+  double tick_per_ns;
 } tile_main_args_t;
 
 const uchar *

@@ -102,7 +102,8 @@ fd_dedup_tile( fd_cnc_t *              cnc,
                ulong                   cr_max,
                long                    lazy,
                fd_rng_t *              rng,
-               void *                  scratch ) {
+               void *                  scratch,
+               double                  tick_per_ns ) {
 
   /* cnc state */
   ulong * cnc_diag;           /* ==fd_cnc_app_laddr( cnc ), local address of the dedup tile cnc diagnostic region */
@@ -319,7 +320,7 @@ fd_dedup_tile( fd_cnc_t *              cnc,
     for( ulong out_idx=0UL; out_idx<out_cnt; out_idx++ ) event_map[ event_seq++ ] = (ushort)out_idx;
     event_seq = 0UL;
 
-    async_min = fd_tempo_async_min( lazy, event_cnt, (float)fd_tempo_tick_per_ns( NULL ) );
+    async_min = fd_tempo_async_min( lazy, event_cnt, (float)tick_per_ns );
     if( FD_UNLIKELY( !async_min ) ) { FD_LOG_WARNING(( "bad lazy" )); return 1; }
 
   } while(0);

@@ -163,7 +163,7 @@ static inline void wb_stu( uchar * p, wb_t i ) { _mm256_storeu_si256( (__m256i *
    Note: C99 TC3 allows type punning through a union. */
 
 #define wb_extract(a,imm)  ((uchar)_mm256_extract_epi8( (a), (imm) ))
-#define wb_insert(a,imm,v) _mm256_insert_epi8( (a), (v), (imm) )
+#define wb_insert(a,imm,v) _mm256_insert_epi8( (a), (char)(v), (imm) )
 
 static inline uchar
 wb_extract_variable( wb_t a, int n ) {

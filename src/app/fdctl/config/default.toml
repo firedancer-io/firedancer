@@ -506,50 +506,6 @@ dynamic_port_range = "8000-10000"
         # first. Here the profitability is given by fees generated per compute
         # time spent. A high fee, but fast to execute transaction is an ideal
         # one.
-        #
-        # Fees are provided on the transaction and easy to retrieve, but
-        # determining how costly a transaction will be to run is a difficult
-        # problem. We estimate it by maintaining an EMA for each unique program,
-        # updating it each time the program is executed with a new observation.
-        #
-        # There are many programs and we cannot track all of them individually.
-        # Instead, we bucket programs randomly into groups, and track an EMA for
-        # each group.
-        #
-        # The below option specifies how many unique groups we keep track of. If
-        # a lot of memory is available, it may generate slightly more fees to
-        # set a larger table size so programs can be estimated more accurately.
-        compute_unit_estimator_table_size = 1024
-
-        # How the EMA of expected value and variance decays over time.
-        compute_unit_estimator_ema_history = 1000
-
-        # The default value for the compute unit estimator of a bucket of
-        # programs.
-        compute_unit_estimator_ema_default = 200000
-
-        # The pack tile currently has no way of knowing how fast the Solana Labs
-        # bank stage is running and if it is falling behind. If the stage did
-        # fall behind, we could potentially cause it to drop profitable
-        # transactions that have not been executed yet by overwriting them with
-        # new ones. To attempt to prevent this, the pack tile estimates how fast
-        # the bank stage should be running and will not feed it transactions
-        # faster than that rate.
-        #
-        # The first part of this estimator is how many bank stage threads are
-        # running at once.
-        #
-        # TODO: This should be removed, we should just use a standard
-        # backpressure mechanism here.
-        solana_labs_bank_thread_count = 4
-
-        # The second part of the banking stage speed estimator is a simple
-        # constant describing how fast we think the stage can execute compute
-        # units.
-        #
-        # TODO: This should be removed, we should just use a standard
-        # backpressure mechanism here.
-        solana_labs_bank_thread_compute_units_executed_per_second = 12000001
 
     # The bank tile is what executes transactions and updates the accounting
     # state as a result of any operations performed by the transactions.

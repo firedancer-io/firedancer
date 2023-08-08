@@ -2,6 +2,7 @@
 
 #include "../../disco/quic/fd_quic.h"
 #include "../../tango/xdp/fd_xdp.h"
+#include "../../tango/xdp/fd_xsk_private.h"
 #include "../../util/net/fd_eth.h"
 #include "../../util/net/fd_ip4.h"
 
@@ -122,26 +123,37 @@ run( fd_frank_args_t * args ) {
   /* Start serving */
 
   FD_LOG_INFO(( "%s(%lu) run", args->tile_name, args->tile_idx ));
-  int err = fd_quic_tile( cnc, quic, xsk_aio, mcache, dcache, lazy, rng, scratch );
+  int err = fd_quic_tile( cnc, quic, xsk_aio, mcache, dcache, lazy, rng, scratch, args->tick_per_ns );
   if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_quic_tile failed (%i)", err ));
 }
 
 static long allow_syscalls[] = {
   __NR_write,     /* logging */
-  __NR_futex,     /* logging, glibc fprintf unfortunately uses a futex internally */
   __NR_fsync,     /* logging, WARNING and above fsync immediately */
-  __NR_nanosleep, /* fd_tempo_tick_per_ns calibration */
   __NR_getpid,    /* OpenSSL RAND_bytes checks pid, temporarily used as part of quic_init to generate a certificate */
   __NR_getrandom, /* OpenSSL RAND_bytes reads getrandom, temporarily used as part of quic_init to generate a certificate */
+  __NR_madvise,   /* OpenSSL SSL_do_handshake () uses an arena which eventually calls _rjem_je_pages_purge_forced */
+  __NR_sendto,    /* fd_xsk requires sendto */
 };
 
+static ulong
+allow_fds( fd_frank_args_t * args,
+           ulong out_fds_sz,
+           int * out_fds ) {
+  if( FD_UNLIKELY( out_fds_sz < 3 ) ) FD_LOG_ERR(( "out_fds_sz %lu", out_fds_sz ));
+  out_fds[ 0 ] = 2; /* stderr */
+  out_fds[ 1 ] = 3; /* logfile */
+  out_fds[ 2 ] = args->xsk->xsk_fd;
+  return 3;
+}
+
 fd_frank_task_t frank_quic = {
-  .name     = "quic",
-  .in_wksp  = NULL,
-  .out_wksp = "quic_verify",
-  .close_fd_start = 4, /* stdin, stdout, stderr, logfile */
+  .name              = "quic",
+  .in_wksp           = NULL,
+  .out_wksp          = "quic_verify",
   .allow_syscalls_sz = sizeof(allow_syscalls)/sizeof(allow_syscalls[ 0 ]),
-  .allow_syscalls = allow_syscalls,
-  .init = init,
-  .run  = run,
+  .allow_syscalls    = allow_syscalls,
+  .allow_fds         = allow_fds,
+  .init              = init,
+  .run               = run,
 };

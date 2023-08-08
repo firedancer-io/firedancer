@@ -13,10 +13,11 @@ void
 monitor_cmd_args( int *    pargc,
                   char *** pargv,
                   args_t * args ) {
-  args->monitor.dt_min   = fd_env_strip_cmdline_long( pargc, pargv, "--dt-min",   NULL,   66666667.          );
-  args->monitor.dt_max   = fd_env_strip_cmdline_long( pargc, pargv, "--dt-max",   NULL, 1333333333.          );
-  args->monitor.duration = fd_env_strip_cmdline_long( pargc, pargv, "--duration", NULL,          0.          );
-  args->monitor.seed     = fd_env_strip_cmdline_uint( pargc, pargv, "--seed",     NULL, (uint)fd_tickcount() );
+  args->monitor.dt_min     = fd_env_strip_cmdline_long( pargc, pargv, "--dt-min",   NULL,   66666667.          );
+  args->monitor.dt_max     = fd_env_strip_cmdline_long( pargc, pargv, "--dt-max",   NULL, 1333333333.          );
+  args->monitor.duration   = fd_env_strip_cmdline_long( pargc, pargv, "--duration", NULL,          0.          );
+  args->monitor.seed       = fd_env_strip_cmdline_uint( pargc, pargv, "--seed",     NULL, (uint)fd_tickcount() );
+  args->monitor.ns_per_tic = 1./fd_tempo_tick_per_ns( NULL ); /* calibrate during init */
 
   if( FD_UNLIKELY( args->monitor.dt_min<0L                   ) ) FD_LOG_ERR(( "--dt-min should be positive"          ));
   if( FD_UNLIKELY( args->monitor.dt_max<args->monitor.dt_min ) ) FD_LOG_ERR(( "--dt-max should be at least --dt-min" ));
@@ -181,7 +182,8 @@ run_monitor( config_t * const config,
              long             dt_min,
              long             dt_max,
              long             duration,
-             uint             seed ) {
+             uint             seed,
+             double           ns_per_tic ) {
   /* tile indices */
   ulong tile_pack_idx    = 0UL;
   ulong tile_dedup_idx   = tile_pack_idx +1UL;
@@ -240,7 +242,7 @@ run_monitor( config_t * const config,
         break;
       case wksp_dedup:
         tile_name[ tile_idx ] = "dedup";
-        tile_cnc[ tile_idx ] = fd_cnc_join( fd_wksp_pod_map( pod, "dedup.cnc" ) );
+        tile_cnc[ tile_idx ] = fd_cnc_join( fd_wksp_pod_map( pod, "cnc" ) );
         if( FD_UNLIKELY( !tile_cnc[ tile_idx ] ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
         if( FD_UNLIKELY( fd_cnc_app_sz( tile_cnc[ tile_idx ] )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
         tile_mcache[ tile_idx ] = fd_mcache_join( fd_wksp_pod_map( FIND(wksp_dedup_pack), "mcache" ) );
@@ -258,7 +260,7 @@ run_monitor( config_t * const config,
         tile_mcache[ tile_idx ] = NULL; /* pack currently has no mcache */
         // if( FD_UNLIKELY( !tile_mcache[ tile_idx ] ) ) FD_LOG_ERR(( "fd_mcache_join failed" ));
         tile_fseq[ tile_idx ] = NULL; /* pack currently has no fseq */
-        if( FD_UNLIKELY( !tile_fseq[ tile_idx ] ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
+        // if( FD_UNLIKELY( !tile_fseq[ tile_idx ] ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
         tile_idx++;
         break;
     }
@@ -279,8 +281,6 @@ run_monitor( config_t * const config,
   /* Monitor for duration ns.  Note that for duration==0, this
      will still do exactly one pretty print. */
   FD_LOG_NOTICE(( "monitoring --dt-min %li ns, --dt-max %li ns, --duration %li ns, --seed %u", dt_min, dt_max, duration, seed ));
-
-  double ns_per_tic = 1./fd_tempo_tick_per_ns( NULL ); /* calibrate during first wait */
 
   /* Setup TTY */
   printf( TEXT_CUP_HOME );
@@ -393,16 +393,23 @@ monitor_cmd_fn( args_t *         args,
 
   long allow_syscalls[] = {
     __NR_write,       /* logging */
-    __NR_futex,       /* logging, glibc fprintf unfortunately uses a futex internally */
     __NR_nanosleep,   /* fd_log_wait_until */
     __NR_sched_yield, /* fd_log_wait_until */
     __NR_exit_group,  /* exit process */
   };
 
+  int allow_fds[] = {
+    1, /* stdout */
+    2, /* stderr */
+    3, /* logfile */
+  };
+
+  if( FD_UNLIKELY( close( 0 ) ) ) FD_LOG_ERR(( "close(0) failed (%i-%s)", errno, strerror( errno ) ));
   if( config->development.sandbox )
     fd_sandbox( config->uid,
                 config->gid,
-                4, /* stdin, stdout, stderr, logfile */
+                sizeof(allow_fds)/sizeof(allow_fds[ 0 ]),
+                allow_fds,
                 sizeof(allow_syscalls)/sizeof(allow_syscalls[0]),
                 allow_syscalls );
 
@@ -411,7 +418,8 @@ monitor_cmd_fn( args_t *         args,
                args->monitor.dt_min,
                args->monitor.dt_max,
                args->monitor.duration,
-               args->monitor.seed );
+               args->monitor.seed,
+               args->monitor.ns_per_tic );
 
   printf( TEXT_ALTBUF_DISABLE );
   exit_group( 0 );

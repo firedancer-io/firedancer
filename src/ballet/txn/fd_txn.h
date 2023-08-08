@@ -357,7 +357,10 @@ fd_txn_get_address_tables( fd_txn_t * txn ) {
 /* fd_acct_addr_t: An Solana account address, which may be an Ed25519
    public key, a SHA256 hash from a program derived address, a hardcoded
    sysvar, etc.  This type does not imply any alignment. */
-typedef uchar fd_acct_addr_t[FD_TXN_ACCT_ADDR_SZ];
+union fd_acct_addr {
+  uchar b[FD_TXN_ACCT_ADDR_SZ];
+};
+typedef union fd_acct_addr fd_acct_addr_t;
 
 /* fd_txn_get_{signatures, acct_addrs}: Returns the array of Ed25519
    signatures or account addresses (commonly, yet imprecisely called
@@ -464,10 +467,10 @@ fd_txn_account_cnt( fd_txn_t * txn,
 
    Example usage:
 
-   fd_txn_acct_addr const * acct = fd_txn_get_acct_addrs( txn, payload );
-   fd_txn_acct_iter_t ctrl;
-   for( ulong i=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE, &ctrl );
-         i<fd_txn_acct_iter_end(); i=fd_txn_acct_iter_next( i, &ctrl ) ) {
+   fd_txn_acct_addr_t const * acct = fd_txn_get_acct_addrs( txn, payload );
+   fd_txn_acct_iter_t ctrl[1];
+   for( ulong i=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE, ctrl );
+         i<fd_txn_acct_iter_end(); i=fd_txn_acct_iter_next( i, ctrl ) ) {
      // Do something with acct[ i ]
    }
 

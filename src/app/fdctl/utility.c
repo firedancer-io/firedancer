@@ -14,19 +14,42 @@
 #include <linux/netlink.h>
 #include <linux/rtnetlink.h>
 
-static int entered = 0;
+static int namespace_original_fd = 0;
 
 void
-enter_network_namespace( config_t * const config ) {
-  if( FD_LIKELY( !config->development.netns.enabled || entered ) ) return;
-  entered = 1;
-
+enter_network_namespace( const char * interface ) {
   char path[ PATH_MAX ];
-  snprintf1( path, PATH_MAX, "/var/run/netns/%s", config->tiles.quic.interface );
+  snprintf1( path, PATH_MAX, "/var/run/netns/%s", interface );
+
+  if( FD_LIKELY( !namespace_original_fd ) ) {
+    namespace_original_fd = open( "/proc/self/ns/net", O_RDONLY | O_CLOEXEC );
+    if( FD_UNLIKELY( namespace_original_fd < 0 ) ) FD_LOG_ERR(( "failed to open /proc/self/ns/net (%i-%s)", errno, strerror( errno ) ));
+  }
 
   int fd = open( path, O_RDONLY | O_CLOEXEC );
   if( FD_UNLIKELY( fd < 0 ) ) FD_LOG_ERR(( "failed to open `%s` (%i-%s)", path, errno, strerror( errno ) ));
   if( FD_UNLIKELY( setns( fd, CLONE_NEWNET ) ) ) FD_LOG_ERR(( "failed to enter network namespace `%s` (%i-%s)", path, errno, strerror( errno ) ));
+  int ret = close( fd );
+  if( FD_UNLIKELY( ret ) ) FD_LOG_ERR(( "enter_network_namespace %d (%i-%s)", ret, errno, strerror( errno ) ));
+}
+
+void
+close_network_namespace_original_fd( void ) {
+  int ret = close( namespace_original_fd );
+  if( FD_UNLIKELY( ret ) ) FD_LOG_ERR(( "leave_network_namespace %d (%i-%s)", ret, errno, strerror( errno ) ));
+}
+
+void
+leave_network_namespace( void ) {
+  if( FD_UNLIKELY( !namespace_original_fd ) ) {
+    return;
+  }
+
+  if( FD_UNLIKELY( setns( namespace_original_fd, CLONE_NEWNET ) ) ) FD_LOG_ERR(( "failed to enter original network namespace `%d` (%i-%s)", namespace_original_fd, errno, strerror( errno ) ));
+
+  int ret = close( namespace_original_fd );
+  if( FD_UNLIKELY( ret ) ) FD_LOG_ERR(( "leave_network_namespace %d (%i-%s)", ret, errno, strerror( errno ) ));
+  namespace_original_fd = 0;
 }
 
 void
