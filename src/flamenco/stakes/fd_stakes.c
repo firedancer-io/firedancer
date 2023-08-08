@@ -491,3 +491,10 @@ int write_stake_state(
 
     return FD_EXECUTOR_INSTR_SUCCESS;
 }
+
+ /// Sum the lamports of the vote accounts and the delegated stake
+ulong vote_balance_and_staked(fd_stakes_t * stakes) {
+  /* TODO: implement pub(crate) fn vote_balance_and_staked*/
+  (void) stakes;
+  return 0;
+}

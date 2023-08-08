@@ -1069,6 +1069,7 @@ struct fd_firedancer_banks {
   fd_hash_t poh;
   fd_hash_t banks_hash;
   fd_fee_rate_governor_t fee_rate_governor;
+  ulong capitalization;
   ulong lamports_per_signature;
   ulong hashes_per_tick;
   ulong ticks_per_slot;
@@ -1207,6 +1208,20 @@ struct fd_vote_instruction {
 typedef struct fd_vote_instruction fd_vote_instruction_t;
 #define FD_VOTE_INSTRUCTION_FOOTPRINT sizeof(fd_vote_instruction_t)
 #define FD_VOTE_INSTRUCTION_ALIGN (8UL)
+
+union fd_reward_type_inner {
+  uchar nonempty; /* Hack to support enums with no inner structures */ 
+};
+typedef union fd_reward_type_inner fd_reward_type_inner_t;
+
+/* https://github.com/firedancer-io/solana/blob/de02601d73d626edf98ef63efd772824746f2f33/sdk/src/reward_type.rs#L5-L11 */
+struct fd_reward_type {
+  uint discriminant;
+  fd_reward_type_inner_t inner;
+};
+typedef struct fd_reward_type fd_reward_type_t;
+#define FD_REWARD_TYPE_FOOTPRINT sizeof(fd_reward_type_t)
+#define FD_REWARD_TYPE_ALIGN (8UL)
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/system_instruction.rs#L158 */
 struct fd_system_program_instruction_create_account {
@@ -2323,6 +2338,24 @@ fd_vote_instruction_enum_authorize_with_seed = 10,
 fd_vote_instruction_enum_authorize_checked_with_seed = 11,
 fd_vote_instruction_enum_compact_update_vote_state = 12,
 fd_vote_instruction_enum_compact_update_vote_state_switch = 13,
+}; 
+void fd_reward_type_new_disc(fd_reward_type_t* self, uint discriminant);
+void fd_reward_type_new(fd_reward_type_t* self);
+int fd_reward_type_decode(fd_reward_type_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_reward_type_encode(fd_reward_type_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_reward_type_destroy(fd_reward_type_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_reward_type_walk(fd_reward_type_t* self, fd_walk_fun_t fun, const char *name, int level);
+ulong fd_reward_type_size(fd_reward_type_t const * self);
+
+FD_FN_PURE uchar fd_reward_type_is_fee(fd_reward_type_t const * self);
+FD_FN_PURE uchar fd_reward_type_is_rent(fd_reward_type_t const * self);
+FD_FN_PURE uchar fd_reward_type_is_staking(fd_reward_type_t const * self);
+FD_FN_PURE uchar fd_reward_type_is_voting(fd_reward_type_t const * self);
+enum {
+fd_reward_type_enum_fee = 0,
+fd_reward_type_enum_rent = 1,
+fd_reward_type_enum_staking = 2,
+fd_reward_type_enum_voting = 3,
 }; 
 void fd_system_program_instruction_create_account_new(fd_system_program_instruction_create_account_t* self);
 int fd_system_program_instruction_create_account_decode(fd_system_program_instruction_create_account_t* self, fd_bincode_decode_ctx_t * ctx);

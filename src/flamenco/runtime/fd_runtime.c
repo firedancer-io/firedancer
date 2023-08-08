@@ -1241,6 +1241,7 @@ int fd_global_import_solana_manifest(fd_global_ctx_t * global, fd_solana_manifes
   bank->epoch_schedule = oldbank->rent_collector.epoch_schedule;
   bank->rent = oldbank->rent_collector.rent;
   bank->collected = oldbank->collected_rent;
+  bank->capitalization = oldbank->capitalization;
 
   /* Update last restart slot
      https://github.com/solana-labs/solana/blob/30531d7a5b74f914dde53bfbb0bc2144f2ac92bb/runtime/src/bank.rs#L2152

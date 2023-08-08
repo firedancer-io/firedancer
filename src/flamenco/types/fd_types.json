@@ -839,6 +839,7 @@
         { "name": "poh",                   "type": "hash" },
         { "name": "banks_hash",            "type": "hash" },
         { "name": "fee_rate_governor",     "type": "fee_rate_governor" },
+        { "name": "capitalization",        "type": "ulong" },
         { "name": "lamports_per_signature","type": "ulong" },
         { "name": "hashes_per_tick",       "type": "ulong" },
         { "name": "ticks_per_slot",        "type": "ulong" },
@@ -952,6 +953,17 @@
         { "name": "compact_update_vote_state_switch", "type": "compact_vote_state_update_switch"}
       ],
       "comment": "https://github.com/firedancer-io/solana/blob/53a4e5d6c58b2ffe89b09304e4437f8ca198dadd/programs/vote/src/vote_instruction.rs#L21"
+    },
+    {
+      "name": "reward_type",
+      "type": "enum",
+      "variants": [
+        { "name": "fee" },
+        { "name": "rent" },
+        { "name": "staking" },
+        { "name": "voting" }
+      ],
+      "comment": "https://github.com/firedancer-io/solana/blob/de02601d73d626edf98ef63efd772824746f2f33/sdk/src/reward_type.rs#L5-L11"
     },
     {
       "name": "system_program_instruction_create_account",
