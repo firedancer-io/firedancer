@@ -45,4 +45,7 @@ int write_stake_state(
     fd_stake_state_t* stake_state,
     ushort is_new_account
 );
+
+ulong fd_stakes_vote_balance_and_staked(fd_stakes_t * stakes);
+
 #endif /* HEADER_fd_src_flamenco_stakes_fd_stakes_h */

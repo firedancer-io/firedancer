@@ -1,19 +1,24 @@
 #include "fd_rewards.h"
 #include "math.h"
 
-static double total(fd_inflation_t* inflation, double year) {
+static double
+total(fd_inflation_t* inflation, double year) {
     double tapered = inflation->initial * pow((1.0 - inflation->taper), year);
     return (tapered > inflation->terminal) ? tapered : inflation->terminal;
 }
-static double foundation(fd_inflation_t* inflation, double year) {
+
+static double
+foundation(fd_inflation_t* inflation, double year) {
     return (year < inflation->foundation_term) ? inflation->foundation * total(inflation, year) : 0.0;
 }
 
-static double validator(fd_inflation_t *inflation, double year) {
+static double
+validator(fd_inflation_t *inflation, double year) {
     return total(inflation, year) - foundation(inflation, year);
 }
 
-static ulong get_inflation_start_slot() {
+static ulong
+get_inflation_start_slot() {
     /*
         https://github.com/firedancer-io/solana/blob/de02601d73d626edf98ef63efd772824746f2f33/runtime/src/bank.rs#L2313-L2331
 
@@ -31,7 +36,8 @@ static ulong get_inflation_start_slot() {
     return 1;
 }
 
-static ulong get_inflation_num_slots(fd_firedancer_banks_t * bank) {
+static ulong
+get_inflation_num_slots(fd_firedancer_banks_t * bank) {
     /* https://github.com/firedancer-io/solana/blob/de02601d73d626edf98ef63efd772824746f2f33/runtime/src/bank.rs#L2333-L2342 */
     ulong inflaction_activation_slot = get_inflation_start_slot();
     ulong inflation_start_slot = fd_sysvar_epoch_schedule_get_first_slot_in_epoch(
@@ -49,7 +55,8 @@ static ulong get_inflation_num_slots(fd_firedancer_banks_t * bank) {
 
 
 
-static double epoch_duration_in_years(
+static double
+epoch_duration_in_years(
     fd_firedancer_banks_t * bank,
     ulong prev_epoch
 ) {
@@ -88,20 +95,30 @@ void calculate_reward_points_partitioned() {
 }
 
 /// Calculate epoch reward and return vote and stake rewards.
-void calculate_validator_rewards() {
-
+void calculate_validator_rewards(
+    ulong prev_epoch,
+    ulong validator_rewards
+) {
+    (void)prev_epoch;
+    (void)validator_rewards;
 }
 
-/// Calculate rewards from previous epoch to prepare for partitioned distribution.
-// void calculate_rewards_for_partitioning(
-//     fd_firedancer_banks_t * bank,
-//     ulong prev_epoch,
-//     partitioned_rewards_calculation_t * partitioned_rewards
-// ) {
-//     ulong prev_epoch_capitalization;
-//     prev_epoch_inflation_rewards_t rewards; 
-//     calculate_previous_epoch_inflation_rewards(bank, prev_epoch_capitalization, prev_epoch, &rewards);
-// }
+// Calculate rewards from previous epoch to prepare for partitioned distribution.
+void calculate_rewards_for_partitioning(
+    fd_firedancer_banks_t * bank,
+    ulong prev_epoch,
+    partitioned_rewards_calculation_t * partitioned_rewards
+) {
+    prev_epoch_inflation_rewards_t rewards;
+    calculate_previous_epoch_inflation_rewards(bank, bank->capitalization, prev_epoch, &rewards);
+
+    ulong old_vote_balance_and_staked = fd_stakes_vote_balance_and_staked(&bank->stakes);
+    (void) old_vote_balance_and_staked;
+
+    calculate_validator_rewards(prev_epoch, rewards.validator_rewards);
+    (void) partitioned_rewards;
+
+}
 
 //calculate_rewards_for_partitioning
 
