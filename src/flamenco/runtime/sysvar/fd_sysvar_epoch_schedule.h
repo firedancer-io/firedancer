@@ -42,6 +42,8 @@
 
 #define FD_EPOCH_LEN_MIN (32UL)
 
+/* FD_EPOCH_LEN_MIN_TRA*/
+#define FD_EPOCH_LEN_MIN_TRAILING_ZERO (5UL)
 /* FD_EPOCH_LEN_MAX is an implementation-defined epoch size limit.
    Technically, there is no epoch length limit (other than the max slot
    number ULONG_MAX).  We enforce a limit regardless to prevent overflow
@@ -106,6 +108,9 @@ ulong
 fd_slot_to_epoch( fd_epoch_schedule_t const * schedule,
                   ulong                       slot,
                   ulong *                     out_offset_opt );
+
+
+ulong fd_sysvar_epoch_schedule_get_first_slot_in_epoch(fd_epoch_schedule_t * schedule, ulong epoch);
 
 FD_PROTOTYPES_END
 

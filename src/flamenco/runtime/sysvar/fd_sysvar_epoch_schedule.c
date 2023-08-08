@@ -1,6 +1,7 @@
 #include "fd_sysvar_epoch_schedule.h"
 #include "../../../flamenco/types/fd_types.h"
 #include "fd_sysvar.h"
+#include "math.h"
 
 fd_epoch_schedule_t *
 fd_epoch_schedule_derive( fd_epoch_schedule_t * schedule,
@@ -156,3 +157,15 @@ fd_slot_to_epoch( fd_epoch_schedule_t const * schedule,
   return epoch;
 }
 
+ulong fd_sysvar_epoch_schedule_get_first_slot_in_epoch(fd_epoch_schedule_t * schedule, ulong epoch) {
+  return (epoch < schedule->first_normal_epoch) ?
+      fd_ulong_sat_mul(
+        fd_ulong_sat_sub((1UL<<epoch), 1UL),
+        FD_EPOCH_LEN_MIN
+        ) :
+     fd_ulong_sat_add(
+      fd_ulong_sat_mul(
+        fd_ulong_sat_sub(epoch, schedule->first_normal_epoch), schedule->slots_per_epoch),
+      schedule->first_normal_slot
+      );
+}
