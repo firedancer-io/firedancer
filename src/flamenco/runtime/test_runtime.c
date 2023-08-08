@@ -405,14 +405,12 @@ int main(int argc, char **argv) {
   } else {
     FD_LOG_NOTICE(( "--wksp not specified, using an anonymous workspace with %lu pages", state.pages ));
     wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, state.pages, 0, "wksp", 0UL );
-    state.gaddr = 0;
   }
   if ( FD_UNLIKELY( !wksp ) )
     FD_LOG_ERR(( "Unable to attach to wksp" ));
 
   if ( state.reset && strcmp(state.reset, "true") == 0 ) {
     fd_wksp_reset( wksp, (uint)hashseed);
-    state.gaddr = 0;
   }
 
   if (NULL != state.load) {
