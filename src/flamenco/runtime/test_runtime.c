@@ -436,6 +436,8 @@ int main(int argc, char **argv) {
 
   void* shmem;
   if( !state.gaddr ) {
+    if (NULL != state.load)
+      FD_LOG_ERR(( "when you load a backup, you still need a --gaddr" ));
     shmem = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint(), 1 );
     if (shmem == NULL)
       FD_LOG_ERR(( "failed to allocate a funky" ));
