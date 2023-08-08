@@ -6,7 +6,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include <pwd.h>
 #include <sys/stat.h>
 #include <sys/ioctl.h>
 #include <net/if.h>
@@ -511,6 +510,32 @@ init_workspaces( config_t * config ) {
   config->shmem.workspaces_cnt = idx + 1;
 }
 
+static uint
+username_to_uid( char * username ) {
+  FILE * fp = fopen( "/etc/passwd", "rb" );
+  if( FD_UNLIKELY( !fp) ) FD_LOG_ERR(( "could not open /etc/passwd (%d-%s)", errno, strerror( errno ) ));
+
+  char line[ 4096 ];
+  while( FD_LIKELY( fgets( line, 4096, fp ) ) ) {
+    if( FD_UNLIKELY( strlen( line ) == 4095 ) ) FD_LOG_ERR(( "line too long in /etc/passwd" ));
+    char * s = strchr( line, ':' );
+    if( FD_UNLIKELY( !s ) ) continue;
+    *s = 0;
+    if( FD_LIKELY( strcmp( line, username ) ) ) continue;
+
+    s = strchr( s + 1, ':' );
+    if( FD_UNLIKELY( !s ) ) continue;
+
+    if( FD_UNLIKELY( fclose( fp ) ) ) FD_LOG_ERR(( "could not close /etc/passwd (%d-%s)", errno, strerror( errno ) ));
+    char * endptr;
+    ulong uid = strtoul( s + 1, &endptr, 10 );
+    if( FD_UNLIKELY( *endptr != ':' || uid > UINT_MAX ) ) FD_LOG_ERR(( "could not parse uid in /etc/passwd"));
+    return (uint)uid;
+  }
+
+  FD_LOG_ERR(( "configuration file wants firedancer to run as user `%s` but it does not exist", username ));
+}
+
 config_t
 config_parse( int *    pargc,
               char *** pargv ) {
@@ -565,15 +590,9 @@ config_parse( int *    pargc,
     mac_address( result.tiles.quic.interface, result.tiles.quic.mac_addr );
   }
 
-  errno = 0;
-  struct passwd * passwd = getpwnam( result.user );
-  if( FD_UNLIKELY( !passwd && !errno ))
-    FD_LOG_ERR(( "configuration file wants firedancer to run as user `%s` but it does not exist", result.user ));
-  else if( FD_UNLIKELY( !passwd ) )
-    FD_LOG_ERR(( "getpwnam failed (%i-%s)", errno, strerror( errno ) ) );
-
-  result.uid = passwd->pw_uid;
-  result.gid = passwd->pw_uid;
+  uint uid = username_to_uid( result.user );
+  result.uid = uid;
+  result.gid = uid;
 
   if( result.uid == 0 || result.gid == 0 )
     FD_LOG_ERR(( "firedancer cannot run as root. please specify a non-root user in the configuration file" ));
