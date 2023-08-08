@@ -1327,8 +1327,11 @@ fd_update_feature( fd_global_ctx_t * global,
   if ( fd_feature_decode( &feature, &ctx ) )
     return;
 
-  if (NULL != feature.activated_at)
-    *f = *feature.activated_at;
+  /* Careful: In test ledgers, features can get activated at genesis
+     (meaning slot number 0).  However, we interpret 0 as "not activated
+     and not scheduled for activation". */
+  if( NULL != feature.activated_at )
+    *f = fd_ulong_max( 1UL, *feature.activated_at );
 
   fd_bincode_destroy_ctx_t destroy = { .valloc = global->valloc };
   fd_feature_destroy( &feature, &destroy );

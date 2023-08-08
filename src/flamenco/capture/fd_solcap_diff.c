@@ -237,6 +237,9 @@ fd_solcap_diff_account( fd_solcap_differ_t *                  diff,
             "    +owner:      %32J\n",
             meta[0].owner,
             meta[1].owner );
+  else
+    printf( "     owner:      %32J\n", meta[0].owner );
+    /* Even if the owner matches, still print it for convenience */
   if( meta[0].slot != meta[1].slot )
     printf( "    -slot:       %lu\n"
             "    +slot:       %lu\n",
