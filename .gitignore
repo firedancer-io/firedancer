@@ -53,3 +53,6 @@ v14-test-ledger
 testgaddr
 test_ledger_backup
 v13-contract-ledger
+dump/
+*.solcap
+/*.json
