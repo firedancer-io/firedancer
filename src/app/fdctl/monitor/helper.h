@@ -12,6 +12,9 @@
 #define TEXT_EL             "\033[K"
 #define TEXT_NEWLINE         TEXT_EL "\n"
 
+#define TEXT_NOCURSOR "\033[?25l"
+#define TEXT_CURSOR   "\033[?25h"
+
 #define TEXT_NORMAL "\033[0m"
 #define TEXT_BLUE   "\033[34m"
 #define TEXT_GREEN  "\033[32m"
@@ -22,19 +25,25 @@
    char wide.  Since pretty printing this value will often require
    rounding it, the rounding is in a round toward zero sense. */
 void
-printf_age( long _dt );
+printf_age( char ** buf,
+            ulong * buf_sz,
+            long _dt );
 
 /* printf_stale is printf_age with the tweak that ages less than or
    equal to expire (in ns) will be suppressed to limit visual chatter.
    Will be exactly 10 char wide and color coded. */
 void
-printf_stale( long age,
+printf_stale( char ** buf,
+              ulong * buf_sz,
+              long age,
               long expire );
 
 /* printf_heart will print to stdout whether or not a heartbeat was
    detected.  Will be exactly 5 char wide and color coded. */
 void
-printf_heart( long hb_now,
+printf_heart( char ** buf,
+              ulong * buf_sz,
+              long hb_now,
               long hb_then );
 
 char const *
@@ -43,25 +52,33 @@ sig_color( ulong sig );
 /* printf_sig will print the current and previous value of a cnc signal.
    to stdout.  Will be exactly 10 char wide and color coded. */
 void
-printf_sig( ulong sig_now,
+printf_sig( char ** buf,
+            ulong * buf_sz,
+            ulong sig_now,
             ulong sig_then );
 
 /* printf_err_bool will print to stdout a boolean flag that indicates
    if error condition was present now and then.  Will be exactly 12 char
    wide and color coded. */
 void
-printf_err_bool( ulong err_now,
+printf_err_bool( char ** buf,
+                 ulong * buf_sz,
+                 ulong err_now,
                  ulong err_then );
 
 void
-printf_err_cnt( ulong cnt_now,
+printf_err_cnt( char ** buf,
+                ulong * buf_sz,
+                ulong cnt_now,
                 ulong cnt_then );
 
 /* printf_seq will print to stdout a 64-bit sequence number and how it
    has changed between now and then.  Will be exactly 25 char wide and
    color coded. */
 void
-printf_seq( ulong seq_now,
+printf_seq( char ** buf,
+            ulong * buf_sz,
+            ulong seq_now,
             ulong seq_then );
 
 /* printf_rate prints to stdout:
@@ -77,14 +94,18 @@ printf_seq( ulong seq_now,
    rate*=1e-3 used below is not exact, but this is more than adequate
    for a quick-and-dirty low precision diagnostic. */
 void
-printf_rate( double cvt,
+printf_rate( char ** buf,
+             ulong * buf_sz,
+             double cvt,
              double overhead,
              ulong  cnt_now,
              ulong  cnt_then,
              long   dt  );
 
 void
-printf_pct( ulong  num_now,
+printf_pct( char ** buf,
+            ulong * buf_sz,
+            ulong  num_now,
             ulong  num_then,
             double lhopital_num,
             ulong  den_now,

@@ -299,9 +299,7 @@ dynamic_port_range = "8000-10000"
     verify_tile_count = 4
 
     # How many bank tiles to run. Multiple banks can run in parallel, if they
-    # are not writing to the same accounts at the same time. Bank tile 0 is not
-    # managed by Firedancer, it is the Solana Labs thread receiving gossiped
-    # transactions.
+    # are not writing to the same accounts at the same time.
     bank_tile_count = 4
 
 # All memory that will be used in Firedancer is pre-allocated in two kinds of
