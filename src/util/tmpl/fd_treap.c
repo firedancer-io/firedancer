@@ -805,7 +805,7 @@ TREAP_(private_split)( TREAP_IDX_T   idx_node,    /* Tree to split */
        node and we should attach the left and right split trees at
        idx_parent_left / *_idx_left and idx_parent_right / *_idx_right.
        (On the first attach, idx_parent_left/right will be idx_null and
-       *_idx_left/*_idx_right are locations where to store the output
+       *_idx_left / *_idx_right are locations where to store the output
        split treaps.) */
 
     if( TREAP_LT( &pool[ idx_node ], key ) ) {
