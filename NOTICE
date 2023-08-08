@@ -228,3 +228,22 @@ PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIG
 HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+=======================================================================
+
+The SipHash implementation in src/ballet/siphash13 is derived from
+https://github.com/antirez/siphash
+
+Copyright (c) 2012-2016 Jean-Philippe Aumasson
+<jeanphilippe.aumasson@gmail.com>
+Copyright (c) 2012-2014 Daniel J. Bernstein <djb@cr.yp.to>
+Copyright (c) 2017 Salvatore Sanfilippo <antirez@gmail.com>
+Modified 2023 by Firedancer Contributors
+
+To the extent possible under law, the author(s) have dedicated all copyright
+and related and neighboring rights to this software to the public domain
+worldwide. This software is distributed without any warranty.
+
+You should have received a copy of the CC0 Public Domain Dedication along
+with this software. If not, see
+<http://creativecommons.org/publicdomain/zero/1.0/>.
