@@ -300,7 +300,8 @@
      // asympotically slightly better.  Returns treap_a, which now
      // additionally contains the elements from treap_b.  Requires that
      // the treap does not use the maximum priority element (see the
-     // note above about PRIO_MAX).
+     // note above about PRIO_MAX).  Assumes the A and B treaps contain
+     // no common keys.
 
      mytreap * mytreap_merge( mytreap * treap_a, mytreap * treap_b, myele_t * pool );
 
@@ -366,7 +367,6 @@
 #ifndef TREAP_IDX_T
 #define TREAP_IDX_T ulong
 #endif
-
 
 /* TREAP_{PARENT,LEFT,RIGHT,PRIO} is the name the treap element parent /
    left / right / prio fields.  Defaults to parent / left / right /
@@ -802,8 +802,11 @@ TREAP_(private_split)( TREAP_IDX_T   idx_node,    /* Tree to split */
   while( !TREAP_IDX_IS_NULL( idx_node ) ) {
 
     /* At this point we have a non-empty subtree to split whose root is
-       node and we should store roots of the split trees at *_idx_left
-       and *_idx_right. */
+       node and we should attach the left and right split trees at
+       idx_parent_left / *_idx_left and idx_parent_right / *_idx_right.
+       (On the first attach, idx_parent_left/right will be idx_null and
+       *_idx_left/*_idx_right are locations where to store the output
+       split treaps.) */
 
     if( TREAP_LT( &pool[ idx_node ], key ) ) {
 
@@ -827,7 +830,7 @@ TREAP_(private_split)( TREAP_IDX_T   idx_node,    /* Tree to split */
       pool[ idx_node ].TREAP_PARENT = idx_parent_left;
       *_idx_left = idx_node;
 
-      /* The next left split attach is at node's right subtree */
+      /* The next left split attach is node's right child */
       idx_parent_left = idx_node;
       _idx_left = &pool[ idx_node ].TREAP_RIGHT;
 
@@ -854,14 +857,16 @@ TREAP_(private_split)( TREAP_IDX_T   idx_node,    /* Tree to split */
 }
 
 static inline void
-TREAP_(private_join)( TREAP_IDX_T    idx_left,   /* Keys in left treap < keys in right treap */
-                      TREAP_IDX_T    idx_right,
-                      TREAP_IDX_T *  _idx_join,
-                      TREAP_T     *  pool ) {
+TREAP_(private_join)( TREAP_IDX_T    idx_left,  /* Root of the left treap */
+                      TREAP_IDX_T    idx_right, /* Root of the right treap, keys in left treap < keys in right treap */
+                      TREAP_IDX_T *  _idx_join, /* Where to store root of joined treaps */
+                      TREAP_T     *  pool ) {   /* Underlying pool */
 
   TREAP_IDX_T idx_join_parent = TREAP_IDX_NULL;
 
   for(;;) {
+
+    /* TODO: consolidate these cases into a single branch. */
 
     if( TREAP_IDX_IS_NULL( idx_left ) ) { /* Left treap empty */
       /* join is the right treap (or empty if both left and right empty) */
@@ -880,8 +885,9 @@ TREAP_(private_join)( TREAP_IDX_T    idx_left,   /* Keys in left treap < keys in
     /* At this point, we have two non empty treaps to join and elements
        in the left treap have keys before elements in the right treap. */
 
-    if( ( pool[ idx_left ].TREAP_PRIO> pool[ idx_right ].TREAP_PRIO) |
-        ((pool[ idx_left ].TREAP_PRIO==pool[ idx_right ].TREAP_PRIO) & (idx_left^idx_right)) ) {
+    ulong prio_left  = (ulong)pool[ idx_left  ].TREAP_PRIO;
+    ulong prio_right = (ulong)pool[ idx_right ].TREAP_PRIO;
+    if( (prio_left>prio_right) | ((prio_left==prio_right) & (int)(idx_left^idx_right)) ) {
 
       /* At this point, the left treap root has higher priority than the
          right treap root.  So we attach the left treap root and left
@@ -917,15 +923,14 @@ TREAP_(private_join)( TREAP_IDX_T    idx_left,   /* Keys in left treap < keys in
   }
 }
 
-
 TREAP_(t) *
-TREAP_(merge)( TREAP_(t) * treap_a,  /* Assumes a and b have no common elements */
+TREAP_(merge)( TREAP_(t) * treap_a,
                TREAP_(t) * treap_b,
                TREAP_T *   pool ) {
 
-  TREAP_IDX_T idx_a = treap_a->root;
-  TREAP_IDX_T idx_b = treap_b->root;
-  TREAP_IDX_T new_root = TREAP_IDX_NULL;
+  TREAP_IDX_T   idx_a      = treap_a->root;
+  TREAP_IDX_T   idx_b      = treap_b->root;
+  TREAP_IDX_T   new_root   = TREAP_IDX_NULL;
   TREAP_IDX_T * _idx_merge = &new_root;
 
 # define STACK_MAX (128UL)
@@ -953,6 +958,7 @@ TREAP_(merge)( TREAP_(t) * treap_a,  /* Assumes a and b have no common elements 
   TREAP_IDX_T idx_merge_parent = TREAP_IDX_NULL;
 
   for(;;) {
+
     /* At this point, we are to merge the treaps rooted at idx_a and
        idx_b.  The result should be attached to the output treap at node
        idx_merge_parent via the link *idx_merge.  (On the first
@@ -981,14 +987,14 @@ TREAP_(merge)( TREAP_(t) * treap_a,  /* Assumes a and b have no common elements 
       continue;
     }
 
-    /* If the stack is full, it appears we have an exceedingly poorly
-       balanced set of treaps to merge.  To mitigate stack overflow
-       risk from the recursion, we fall back on marginally
-       less efficient brute force non-recursive algorithm for the merge.
-       FIXME: consider doing this post swap for statistical reasons
-       (i.e. the treap with the higher root priority is likely to be the
-       larger treap and such might have some performance implications
-       for the below loop). */
+    /* If the stack is full, it appears we have exceedingly poorly
+       balanced treaps to merge.  To mitigate stack overflow risk from
+       the recursion, we fall back on a marginally less efficient brute
+       force non-recursive algorithm for the merge.  FIXME: consider
+       doing this post swap for statistical reasons (i.e. the treap with
+       the higher root priority is likely to be the larger treap and
+       such might have some performance implications for the below
+       loop). */
 
     if( FD_UNLIKELY( STACK_IS_FULL ) ) {
 
@@ -1021,11 +1027,13 @@ TREAP_(merge)( TREAP_(t) * treap_a,  /* Assumes a and b have no common elements 
       continue;
     }
 
-    /* At this point, we have two non-empty treaps A and B to merge.  If
+    /* At this point, we have two non-empty treaps A and B to merge and
+       we have stack space so we can use a fast recursive algorithm.  If
        A's root priority is below B's root priority, swap A and B. */
+
     TREAP_IDX_T prio_a = pool[ idx_a ].TREAP_PRIO;
     TREAP_IDX_T prio_b = pool[ idx_b ].TREAP_PRIO;
-    fd_swap_if( (prio_a < prio_b) | ((prio_a==prio_b) & (int)((idx_a ^ idx_b) & 1UL)), idx_a, idx_b );
+    fd_swap_if( (prio_a<prio_b) | ((prio_a==prio_b) & (int)(idx_a ^ idx_b)), idx_a, idx_b );
 
     /* At this point, we have two non-empty treaps to merge and A's root
        priority is higher than B's root priority.  So, we know the root
@@ -1048,10 +1056,13 @@ TREAP_(merge)( TREAP_(t) * treap_a,  /* Assumes a and b have no common elements 
 
     /* At this point, A's left subtree and B's left split are all keys
        to the left of A's root and A's right subtree.  Similarly, B's
-       right split are all keys to the right of A's root.  We can't do
-       join on A's left/right subtree and B's left/right split though as
-       these have no particular mutual ordering.  Instead, we recurse on
-       the left trees and save the right trees for later consideration. */
+       right split are all keys to the right of A's root and A's left
+       subtree.  We can't do a fast join on A's left/right subtree and B's
+       left/right split though as theses are not guaranteed to already
+       have their keys distributed as required by join.  We instead
+       recursively merge the left side and right side.  We do the left
+       side first and the right side later (making this a cache oblivious
+       algorithm too). */
 
     STACK_PUSH( idx_a, &pool[ idx_a ].TREAP_RIGHT, idx_a_right, idx_b_right );
 
