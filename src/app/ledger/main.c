@@ -710,21 +710,21 @@ main( int     argc,
 
     if (NULL != net) {
       if (!strncmp(net, "main", 4))
-        fd_enable_mainnet(&global->features);
+        fd_features_enable_mainnet(&global->features);
       if (!strcmp(net, "test"))
-        fd_enable_testnet(&global->features);
+        fd_features_enable_testnet(&global->features);
       if (!strcmp(net, "dev"))
-        fd_enable_devnet(&global->features);
+        fd_features_enable_devnet(&global->features);
       if (!strcmp(net, "v13"))
-        fd_enable_v13(&global->features);
+        fd_features_enable_v13(&global->features);
       if (!strcmp(net, "v14"))
-        fd_enable_v14(&global->features);
+        fd_features_enable_v14(&global->features);
       if (!strcmp(net, "v16"))
-        fd_enable_v16(&global->features);
+        fd_features_enable_v16(&global->features);
       if (!strcmp(net, "v17"))
-        fd_enable_v17(&global->features);
+        fd_features_enable_v17(&global->features);
     } else
-      fd_enable_everything(&global->features);
+      fd_features_enable_all(&global->features);
 
     if (snapshot_used) {
       int err = 0;

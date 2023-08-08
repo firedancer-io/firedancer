@@ -1306,9 +1306,10 @@ int fd_global_import_solana_manifest(fd_global_ctx_t * global, fd_solana_manifes
   return fd_runtime_save_banks( global );
 }
 
-void fd_update_feature(FD_FN_UNUSED fd_global_ctx_t * global, ulong * f, const char *key) {
-  unsigned char              acct[32];
-  fd_base58_decode_32( key,  (unsigned char *) acct);
+void
+fd_update_feature( fd_global_ctx_t * global,
+                   ulong *           f,
+                   uchar const       acct[ static 32 ] ) {
 
   char * raw_acc_data = (char*) fd_acc_mgr_view_data(global->acc_mgr, global->funk_txn, (fd_pubkey_t *) acct, NULL, NULL);
   if (NULL == raw_acc_data)
@@ -1331,4 +1332,15 @@ void fd_update_feature(FD_FN_UNUSED fd_global_ctx_t * global, ulong * f, const c
 
   fd_bincode_destroy_ctx_t destroy = { .valloc = global->valloc };
   fd_feature_destroy( &feature, &destroy );
+}
+
+void
+fd_update_features( fd_global_ctx_t * global ) {
+  for( fd_feature_id_t const * id = fd_feature_iter_init();
+                                   !fd_feature_iter_done( id );
+                               id = fd_feature_iter_next( id ) ) {
+
+    ulong * feature_ptr = (ulong *)( (ulong)&global->features + id->offset );
+    fd_update_feature( global, feature_ptr, id->id.key );
+  }
 }

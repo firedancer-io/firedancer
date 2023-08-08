@@ -4,7 +4,7 @@
 #include "fd_rocksdb.h"
 #include "fd_acc_mgr.h"
 #include "fd_executor.h"
-#include "fd_features.h"
+#include "../features/fd_features.h"
 #include "fd_rent_lists.h"
 #include "../../ballet/poh/fd_poh.h"
 #include "program/fd_builtin_programs.h"
@@ -80,7 +80,6 @@ struct __attribute__((aligned(FD_GLOBAL_CTX_ALIGN))) fd_global_ctx {
   fd_rent_lists_t *          rentlists;
   ulong                      rent_epoch;
 };
-typedef struct fd_global_ctx fd_global_ctx_t;
 
 #define FD_GLOBAL_CTX_FOOTPRINT ( sizeof(fd_global_ctx_t) )
 #define FD_GLOBAL_CTX_MAGIC (0xBBB3CB3B91A2FB96UL) /* random */
@@ -146,6 +145,9 @@ int               fd_pubkey_create_with_seed(fd_pubkey_t const * base, char cons
 
 int               fd_runtime_save_banks    ( fd_global_ctx_t *global );
 int               fd_global_import_solana_manifest(fd_global_ctx_t *global, fd_solana_manifest_t* manifest);
+
+void
+fd_update_features( fd_global_ctx_t * global );
 
 static inline ulong fd_rent_exempt(fd_global_ctx_t *global, ulong sz) {
   return (sz + 128) * ((ulong) ((double)global->bank.rent.lamports_per_uint8_year * global->bank.rent.exemption_threshold));

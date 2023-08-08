@@ -76,7 +76,7 @@ void fd_executor_test_suite_new( fd_executor_test_suite_t* suite ) {
     suite->valloc = fd_alloc_virtual( alloc );
   }
 
-  fd_enable_everything(&suite->features);
+  fd_features_enable_all(&suite->features);
 }
 
 int fd_executor_run_test(
@@ -345,7 +345,7 @@ main( int     argc,
     }
   }
 
-  fd_enable_everything(&suite.features);
+  fd_features_enable_all(&suite.features);
 
   if (NULL != filter) {
     suite.filter = filter;

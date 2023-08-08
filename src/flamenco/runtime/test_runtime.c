@@ -378,21 +378,21 @@ int main(int argc, char **argv) {
 
   if (NULL != state.net) {
     if (!strncmp(state.net, "main", 4))
-      fd_enable_mainnet(&state.global->features);
+      fd_features_enable_mainnet(&state.global->features);
     if (!strcmp(state.net, "test"))
-      fd_enable_testnet(&state.global->features);
+      fd_features_enable_testnet(&state.global->features);
     if (!strcmp(state.net, "dev"))
-      fd_enable_devnet(&state.global->features);
+      fd_features_enable_devnet(&state.global->features);
     if (!strcmp(state.net, "v13"))
-      fd_enable_v13(&state.global->features);
+      fd_features_enable_v13(&state.global->features);
     if (!strcmp(state.net, "v14"))
-      fd_enable_v14(&state.global->features);
+      fd_features_enable_v14(&state.global->features);
     if (!strcmp(state.net, "v16"))
-      fd_enable_v16(&state.global->features);
+      fd_features_enable_v16(&state.global->features);
     if (!strcmp(state.net, "v17"))
-      fd_enable_v17(&state.global->features);
+      fd_features_enable_v17(&state.global->features);
   } else
-    fd_enable_everything(&state.global->features);
+    fd_features_enable_all(&state.global->features);
 
   char hostname[64];
   gethostname(hostname, sizeof(hostname));
