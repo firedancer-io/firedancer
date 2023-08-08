@@ -1982,7 +1982,7 @@ fd_quic_handle_v1_one_rtt( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_pkt_
   ulong rc = fd_quic_decode_one_rtt( one_rtt, cur_ptr, cur_sz );
   if( rc == FD_QUIC_PARSE_FAIL ) {
     FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_decode_one_rtt failed" )) );
-    return 0;
+    return FD_QUIC_PARSE_FAIL;
   }
 
   /* generate one_rtt secrets, keys etc */
@@ -2193,7 +2193,7 @@ fd_quic_handle_v1_one_rtt( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_pkt_
   uint pn_space = fd_quic_enc_level_to_pn_space( enc_level );
   conn->exp_pkt_number[pn_space] = pkt_number + 1u;
 
-  return 0;
+  return tot_sz;
 }
 
 
@@ -4781,11 +4781,6 @@ fd_quic_connect( fd_quic_t *  quic,
        so simply clean up and fail */
     goto fail_tls_hs;
   }
-
-  FD_DEBUG(
-      fd_quic_tls_hs_data_t const * hs_data = fd_quic_tls_get_hs_data( tls_hs, 0 );
-      printf( "hs_data @ enc_level 0: %p\n", (void*)hs_data );
-      );
 
   conn->tls_hs = tls_hs;
 
