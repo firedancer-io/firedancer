@@ -55,7 +55,7 @@ static double epoch_duration_in_years(
 ) {
     /* get_slots_in_epoch */
     ulong slots_in_epoch = (prev_epoch < bank->epoch_schedule.first_normal_epoch) ?
-        1UL << fd_ulong_sat_add(prev_epoch, MINIMUM_SLOTS_PER_EPOCH_BIT) :
+        1UL << fd_ulong_sat_add(prev_epoch, FD_EPOCH_LEN_MIN_TRAILING_ZERO) :
         bank->epoch_schedule.slots_per_epoch;
     return (double)slots_in_epoch / bank->slots_per_year;
 }

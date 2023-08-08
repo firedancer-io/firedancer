@@ -8,9 +8,6 @@
 
 FD_PROTOTYPES_BEGIN
 
-#define MINIMUM_SLOTS_PER_EPOCH 32
-#define MINIMUM_SLOTS_PER_EPOCH_BIT 5
-
 struct prev_epoch_inflation_rewards {
     ulong validator_rewards;
     double prev_epoch_duration_in_years;
