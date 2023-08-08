@@ -523,6 +523,7 @@ ingest_rocksdb( fd_global_ctx_t * global,
       FD_LOG_ERR(("fd_rocksdb_root_iter_seek returned %d", ret));
   } while (1);
 
+  fd_rocksdb_root_iter_destroy( &iter );
   fd_rocksdb_destroy(&rocks_db);
 
   /* Verify messes with the poh */
