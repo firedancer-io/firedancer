@@ -170,10 +170,10 @@ fd_stake_history_entry_t stake_and_activating( fd_delegation_t const * delegatio
   fd_stake_history_entry_t * cluster_stake_at_activation_epoch = NULL;
 
   fd_stake_history_epochentry_pair_t_mapnode_t k;
-  k.elem.epoch = target_epoch;
+  k.elem.epoch = delegation->activation_epoch;
 
 
-  if (delegation->activation_epoch == (ulong)-1) {
+  if (delegation->activation_epoch == ULONG_MAX) {
     // if is bootstrap
     fd_stake_history_entry_t entry = {
       .effective = delegated_stake,
@@ -202,11 +202,20 @@ fd_stake_history_entry_t stake_and_activating( fd_delegation_t const * delegatio
     };
     return entry;
   }
-  else if (stake_history != NULL && cluster_stake_at_activation_epoch != NULL) {
+  else if (stake_history != NULL) {
     fd_stake_history_epochentry_pair_t_mapnode_t* n = fd_stake_history_epochentry_pair_t_map_find( stake_history->entries_pool, stake_history->entries_root, &k );
 
     if (NULL != n)
       cluster_stake_at_activation_epoch = &n->elem.entry;
+    
+    if (cluster_stake_at_activation_epoch == NULL) {
+      fd_stake_history_entry_t entry = {
+        .effective = delegated_stake,
+        .activating = 0,
+      };
+
+      return entry;
+    }
 
     ulong prev_epoch = delegation->activation_epoch;
     fd_stake_history_entry_t * prev_cluster_stake = cluster_stake_at_activation_epoch;
@@ -274,7 +283,7 @@ fd_stake_history_entry_t stake_activating_and_deactivating( fd_delegation_t cons
   fd_stake_history_entry_t * cluster_stake_at_activation_epoch = NULL;
 
   fd_stake_history_epochentry_pair_t_mapnode_t k;
-  k.elem.epoch = target_epoch;
+  k.elem.epoch = delegation->deactivation_epoch;
 
   if (target_epoch < delegation->deactivation_epoch) {
     // if is bootstrap
@@ -300,13 +309,23 @@ fd_stake_history_entry_t stake_activating_and_deactivating( fd_delegation_t cons
       .activating = 0
     };
     return entry;
-  } else if (stake_history != NULL && cluster_stake_at_activation_epoch != NULL) {
+  } else if (stake_history != NULL) {
     fd_stake_history_epochentry_pair_t_mapnode_t* n = fd_stake_history_epochentry_pair_t_map_find( stake_history->entries_pool, stake_history->entries_root, &k );
 
     if (NULL != n) {
       cluster_stake_at_activation_epoch = &n->elem.entry;
     }
-    ulong prev_epoch = delegation->activation_epoch;
+
+    if (cluster_stake_at_activation_epoch == NULL) {
+      fd_stake_history_entry_t entry = {
+        .effective = 0,
+        .activating = 0,
+        .deactivating = 0
+      };
+
+      return entry;
+    }
+    ulong prev_epoch = delegation->deactivation_epoch;
     fd_stake_history_entry_t * prev_cluster_stake = cluster_stake_at_activation_epoch;
 
     ulong current_epoch;

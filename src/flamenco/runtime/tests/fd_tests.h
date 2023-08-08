@@ -3,7 +3,7 @@
 
 #include "../fd_runtime.h"
 #include <regex.h>
-#include "../fd_features.h"
+#include "../../features/fd_features.h"
 
 /* Framework for running Solana's native program tests in our runtime */
 

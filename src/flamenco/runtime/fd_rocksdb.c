@@ -45,35 +45,35 @@ fd_rocksdb_init( fd_rocksdb_t * db,
 }
 
 void fd_rocksdb_destroy(fd_rocksdb_t *db) {
-  if (db->db != NULL) {
-    rocksdb_close(db->db);
-    db->db = NULL;
+
+  for( ulong i=0UL; i<FD_ROCKSDB_CF_CNT; i++ ) {
+    if( db->cf_handles[i] ) {
+      rocksdb_column_family_handle_destroy( db->cf_handles[i] );
+      db->cf_handles[i] = NULL;
+    }
   }
 
-  if (db->ro != NULL) {
-    rocksdb_readoptions_destroy(db->ro);
+  if( db->ro ) {
+    rocksdb_readoptions_destroy( db->ro );
     db->ro = NULL;
   }
 
-  if (db->opts != NULL) {
-    rocksdb_options_destroy(db->opts);
+  if( db->opts ) {
+    rocksdb_options_destroy( db->opts );
     db->opts = NULL;
   }
 
-  // This C wrapper is destroying too deeply..   We will accept the leak for now
-
-  //  for (int i = 0; i < 4; i++) {
-  //    if (NULL != db->cf_handles[i]) {
-  //      rocksdb_column_family_handle_destroy(db->cf_handles[i]);
-  //      db->cf_handles[i] = NULL;
-  //    }
-  //  }
+  if( db->db ) {
+    rocksdb_close( db->db );
+    db->db = NULL;
+  }
 }
 
 ulong fd_rocksdb_last_slot(fd_rocksdb_t *db, char **err) {
   rocksdb_iterator_t* iter = rocksdb_create_iterator_cf(db->db, db->ro, db->cf_handles[2]);
   rocksdb_iter_seek_to_last(iter);
   if (!rocksdb_iter_valid(iter)) {
+    rocksdb_iter_destroy(iter);
     *err = "db column for root is empty";
     return 0;
   }
@@ -92,6 +92,7 @@ fd_rocksdb_first_slot( fd_rocksdb_t * db,
   rocksdb_iterator_t* iter = rocksdb_create_iterator_cf(db->db, db->ro, db->cf_handles[2]);
   rocksdb_iter_seek_to_first(iter);
   if( FD_UNLIKELY( !rocksdb_iter_valid(iter) ) ) {
+    rocksdb_iter_destroy(iter);
     *err = "db column for root is empty";
     return 0;
   }
