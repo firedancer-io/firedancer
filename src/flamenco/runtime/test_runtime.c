@@ -415,6 +415,25 @@ int main(int argc, char **argv) {
     state.gaddr = 0;
   }
 
+  if (NULL != state.load) {
+    FD_LOG_NOTICE(("loading %s", state.load));
+    int fd = open(state.load, O_RDONLY);
+    if (fd == -1)
+      FD_LOG_ERR(("restore failed: %s", strerror(errno)));
+    struct stat statbuf;
+    if (fstat(fd, &statbuf) == -1)
+      FD_LOG_ERR(("restore failed: %s", strerror(errno)));
+    uchar* p = (uchar*)wksp;
+    uchar* pend = p + statbuf.st_size;
+    while ( p < pend ) {
+      ulong sz = fd_ulong_min((ulong)(pend - p), 4UL<<20);
+      if ( read(fd, p, sz) < 0 )
+        FD_LOG_ERR(("restore failed: %s", strerror(errno)));
+      p += sz;
+    }
+    close(fd);
+  }
+
   void* shmem;
   if( !state.gaddr ) {
     shmem = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint(), 1 );
@@ -459,25 +478,6 @@ int main(int argc, char **argv) {
     FD_LOG_NOTICE(("using %s for persistence", state.persist));
     if ( fd_funk_persist_open_fast( state.global->funk, state.persist ) != FD_FUNK_SUCCESS )
       FD_LOG_ERR(("failed to open persistence file"));
-  }
-
-  if (NULL != state.load) {
-    FD_LOG_NOTICE(("loading %s", state.load));
-    int fd = open(state.load, O_RDONLY);
-    if (fd == -1)
-      FD_LOG_ERR(("restore failed: %s", strerror(errno)));
-    struct stat statbuf;
-    if (fstat(fd, &statbuf) == -1)
-      FD_LOG_ERR(("restore failed: %s", strerror(errno)));
-    uchar* p = (uchar*)wksp;
-    uchar* pend = p + statbuf.st_size;
-    while ( p < pend ) {
-      ulong sz = fd_ulong_min((ulong)(pend - p), 4UL<<20);
-      if ( read(fd, p, sz) < 0 )
-        FD_LOG_ERR(("restore failed: %s", strerror(errno)));
-      p += sz;
-    }
-    close(fd);
   }
 
   if ((validate_db != NULL) && (strcmp(validate_db, "true") == 0)) {
