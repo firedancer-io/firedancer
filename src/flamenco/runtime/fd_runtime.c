@@ -302,7 +302,7 @@ static void fd_runtime_block_verify_task( void * tpool,
                                           ulong  l0,     ulong l1,
                                           ulong  m0,     ulong m1,
                                           ulong  n0,     ulong n1 ) {
-  struct fd_runtime_block_micro * micro = (struct fd_runtime_block_micro *)tpool;
+  struct fd_runtime_block_micro * micro = (struct fd_runtime_block_micro *)tpool + m0;
   (void)t0;
   (void)t1;
   (void)args;
@@ -353,6 +353,10 @@ static void fd_runtime_block_verify_task( void * tpool,
   }
 
   micro->failed = (memcmp(hdr->hash, &micro->poh, sizeof(micro->poh)) ? 1 : 0);
+
+  if (micro->failed)
+    FD_LOG_ERR(( "poh missmatch at slot %ld, microblock %lu", stride, m0));
+
 }
 
 int fd_runtime_block_verify_tpool( fd_global_ctx_t *global, fd_slot_meta_t *m, const void* block, ulong blocklen, fd_tpool_t * tpool, ulong max_workers ) {
@@ -391,6 +395,7 @@ int fd_runtime_block_verify_tpool( fd_global_ctx_t *global, fd_slot_meta_t *m, c
       for ( ulong txn_idx = 0; txn_idx < hdr->txn_cnt; txn_idx++ ) {
         fd_txn_xray_result_t xray;
         const uchar* raw = (const uchar *)block + blockoff;
+        // parallel prefix-sum ?
         ulong pay_sz = fd_txn_xray(raw, blocklen - blockoff, &xray);
         if ( pay_sz == 0UL )
           FD_LOG_ERR(("failed to parse transaction %lu in microblock %lu in slot %lu", txn_idx, mblk, m->slot));
@@ -401,25 +406,10 @@ int fd_runtime_block_verify_tpool( fd_global_ctx_t *global, fd_slot_meta_t *m, c
   if (blockoff != blocklen)
     FD_LOG_ERR(("garbage at end of block"));
 
-  /* Spawn jobs to thread pool */
-  for (ulong mblk = 0; mblk < num_micros; ++mblk) {
-    ulong i = mblk%max_workers + 1UL; /* Do not use thread 0 */
-    if ( i != mblk+1UL ) {
-      /* Wrapped around. Wait for the previous job to finish */
-      fd_tpool_wait( tpool, i );
-    }
-    fd_tpool_exec( tpool, i, fd_runtime_block_verify_task, micros + mblk,
-                   0, 0, NULL, NULL, 0, 0, 0, 0, 0, 0, 0 );
-  }
-  /* Wait for everything to finish */
-  for (ulong i = 1; i < max_workers; ++i)
-    fd_tpool_wait( tpool, i );
-
-  /* Loop across microblocks, perform final hashing */
-  for (ulong mblk = 0; mblk < num_micros; ++mblk) {
-    if ( micros[mblk].failed )
-      FD_LOG_ERR(( "poh missmatch at slot %ld, microblock %lu", m->slot, mblk));
-  }
+  /* Spawn jobs to thread pool
+    Note here: we repurposed the usage of `stride` variable here for the slot number `m->slot` to get out the same error message as before
+   */
+  fd_tpool_exec_all_taskq( tpool, 0, max_workers, fd_runtime_block_verify_task, micros, NULL, NULL, m->slot, 0, num_micros);
 
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
