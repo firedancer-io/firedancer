@@ -244,7 +244,7 @@ fd_update_hash_bank( fd_global_ctx_t * global,
 
   /* Collect list of changed accounts to be added to bank hash */
 
-  fd_pubkey_hash_vector_t dirty_keys;
+  fd_pubkey_hash_vector_t dirty_keys __attribute__ ((cleanup(fd_pubkey_hash_vector_destroy)));
   fd_pubkey_hash_vector_new(&dirty_keys);
 
   /* Iterate over accounts that have been changed in the current
@@ -264,7 +264,8 @@ fd_update_hash_bank( fd_global_ctx_t * global,
     int                   err     = FD_ACC_MGR_SUCCESS;
     uchar const *         acc_raw = fd_acc_mgr_view_data( acc_mgr, txn, acc_key, &rec, &err );
 
-    if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) return err;
+    if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) )
+      return err;
 
     fd_account_meta_t const * acc_meta = (fd_account_meta_t const *)acc_raw;
     uchar const *             acc_data = acc_raw + acc_meta->hlen;
@@ -347,7 +348,6 @@ fd_update_hash_bank( fd_global_ctx_t * global,
     fd_hash_bank( global, hash, &dirty_keys );
   }
 
-  fd_pubkey_hash_vector_destroy( &dirty_keys );
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 

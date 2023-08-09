@@ -902,6 +902,7 @@ main( int     argc,
     }
     close(fd);
   }
+  FD_LOG_NOTICE(( "funky at global address 0x%016lx", fd_wksp_gaddr_fast( wksp, shmem ) ));
 
   fd_global_ctx_delete( fd_global_ctx_leave( global ) );
   fd_funk_leave( funk );
