@@ -131,6 +131,7 @@ void fd_calculate_stake_weighted_timestamp(
  ) {
   fd_clock_timestamp_votes_t * unique_timestamps = &global->bank.timestamp_votes;
   ulong slot_duration = (ulong)ns_per_slot( global->bank.ticks_per_slot );
+  FD_LOG_WARNING(( "slot duration: %lu", slot_duration ));
   fd_sol_sysvar_clock_t clock;
   fd_sysvar_clock_read( global, &clock );
   // get the unique timestamps
@@ -142,15 +143,19 @@ void fd_calculate_stake_weighted_timestamp(
   ele_t * pool = pool_join( pool_new( scratch, 10240UL ) );
   ulong total_stake = 0;
 
-  for ( fd_clock_timestamp_vote_t_mapnode_t* n = fd_clock_timestamp_vote_t_map_minimum(unique_timestamps->votes_pool, unique_timestamps->votes_root); n; n = fd_clock_timestamp_vote_t_map_successor(unique_timestamps->votes_pool, n) ) {
-    long estimate = n->elem.timestamp + ((long)clock.slot - (long)n->elem.slot) * (long)slot_duration;
-    
+  for(
+    fd_clock_timestamp_vote_t_mapnode_t* n = fd_clock_timestamp_vote_t_map_minimum(unique_timestamps->votes_pool, unique_timestamps->votes_root); 
+    n;
+    n = fd_clock_timestamp_vote_t_map_successor(unique_timestamps->votes_pool, n)
+  ) {
+    long estimate = n->elem.timestamp + ((((long)clock.slot - (long)n->elem.slot) * (long)slot_duration) / 1000000000L );
     /* get stake */
     fd_vote_accounts_pair_t_mapnode_t key;
     key.elem.key = n->elem.pubkey;
     fd_vote_accounts_pair_t_mapnode_t * value = fd_vote_accounts_pair_t_map_find(global->bank.stakes.vote_accounts.vote_accounts_pool, global->bank.stakes.vote_accounts.vote_accounts_root, &key);
     // int result = fd_vote_load_account( &refvote_state, &, ctx.global, reference_vote_acc );
     ulong stake_weight = (value != NULL) ? value->elem.stake : 0;
+    FD_LOG_WARNING(( "estimate: %32J, est: %ld elem.slot: %lu elem.ts: %lu clock.slot %lu, sw: %lu",  &n->elem.pubkey, estimate, n->elem.slot, n->elem.timestamp, clock.slot, stake_weight ));
     // FD_LOG_NOTICE(("stk: %32J %lu %lu",&n->elem.pubkey, stake_state.discriminant, stake_state.inner.stake.stake.delegation.stake));
     // FD_LOG_NOTICE(("clk.slot: %lu, el.slot: %lu, el.ts: %lu, sl_dur: %lu stk_w: %lu, treap_sz: %lu, estimate = %lu", clock.slot, n->elem.slot, n->elem.timestamp, slot_duration, stake_weight, treap_ele_cnt( treap ), estimate));
     total_stake += stake_weight;
@@ -177,6 +182,9 @@ void fd_calculate_stake_weighted_timestamp(
       break;
     }
   }
+  
+  FD_LOG_NOTICE(( "stake weighted timestamp: %lu", *result_timestamp ));
+
   // Bound estimate by `max_allowable_drift` since the start of the epoch
   fd_epoch_schedule_t schedule;
   fd_sysvar_epoch_schedule_read( global, &schedule );
@@ -191,6 +199,9 @@ void fd_calculate_stake_weighted_timestamp(
   } else if (estimate_offset < poh_estimate_offset && fd_ulong_sat_sub(poh_estimate_offset, estimate_offset) > max_delta_fast) {
     *result_timestamp = clock.epoch_start_timestamp + (long)poh_estimate_offset / NS_IN_S - (long)max_delta_fast / NS_IN_S;
   }
+
+  FD_LOG_NOTICE(( "corrected stake weighted timestamp: %lu", *result_timestamp ));
+
   return;
 }
 
@@ -213,13 +224,14 @@ int fd_sysvar_clock_update( fd_global_ctx_t* global ) {
     FD_LOG_ERR(("fd_sol_sysvar_clock_decode failed"));
 
   if (global->bank.slot != 0) {
-      FD_LOG_WARNING(("SLOT IS NOT ZERO!"));
+    FD_LOG_WARNING(("SLOT IS NOT ZERO!"));
     fd_calculate_stake_weighted_timestamp(global, &clock.unix_timestamp, (uint)global->features.warp_timestamp_again);
   } else {
     FD_LOG_WARNING(("SLOT IS ZERO!"));
   }
 
   if (0 == clock.unix_timestamp) {
+    FD_LOG_WARNING(("UNIX TIMESTAMP IS ZERO!"));
     /* generate timestamp for genesis */
     long timestamp_estimate         = estimate_timestamp( global, ns_per_slot( global->bank.ticks_per_slot ) );
     long bounded_timestamp_estimate = bound_timestamp_estimate( global, timestamp_estimate, clock.epoch_start_timestamp );

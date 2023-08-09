@@ -73,6 +73,7 @@ struct __attribute__((aligned(FD_GLOBAL_CTX_ALIGN))) fd_global_ctx {
   fd_hash_t                  prev_banks_hash;
 
   uchar                      log_level;
+  uchar                      abort_on_mismatch;
 
   fd_epoch_leaders_t *       leaders;  /* Current epoch only */
   fd_pubkey_t const *        leader;   /* Current leader */

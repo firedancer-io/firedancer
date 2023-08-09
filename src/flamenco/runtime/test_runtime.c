@@ -92,7 +92,8 @@ static void usage(const char* progname) {
       " --index-max   <bool>       How big should the index table be?\n"
       " --validate    <bool>       Validate the funk db\n"
       " --reset       <bool>       Reset the workspace\n"
-      " --capture     <file>       Write bank preimage to capture file\n" );
+      " --capture     <file>       Write bank preimage to capture file\n"
+      " --abort-on-mismatch {0,1}  If 1, stop on bank hash mismatch\n" );
 }
 
 #define SORT_NAME sort_pubkey_hash_pair
@@ -309,7 +310,7 @@ replay( global_state_t * state,
                          slot,
                          known_bank_hash->hash,
                          state->global->bank.banks_hash.hash ));
-        //return 1;
+        if( state->global->abort_on_mismatch ) return 1;
       }
     }
 
@@ -370,6 +371,8 @@ int main(int argc, char **argv) {
   char const * confirm_account_delta   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--confirm_account_delta", NULL, NULL);
   char const * confirm_signature       = fd_env_strip_cmdline_cstr ( &argc, &argv, "--confirm_signature",     NULL, NULL);
   char const * confirm_last_block      = fd_env_strip_cmdline_cstr ( &argc, &argv, "--confirm_last_block",    NULL, NULL);
+
+  state.global->abort_on_mismatch = (uchar)fd_env_strip_cmdline_int( &argc, &argv, "--abort-on-mismatch", NULL, 0 );
 
   if (state.cmd == NULL) {
     usage(argv[0]);

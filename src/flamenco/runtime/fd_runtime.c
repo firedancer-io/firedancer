@@ -158,6 +158,7 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_meta_t* m, const void
   // It has to go into the current txn previous info but is not in slot 0
   if (global->bank.slot != 0)
     fd_sysvar_slot_hashes_update( global );
+  fd_sysvar_last_restart_slot_update( global );
 
   ulong signature_cnt = 0;
   ulong blockoff = 0;
