@@ -79,6 +79,9 @@ main( int     argc,
   ulong k0 = 0x0706050403020100UL;
   ulong k1 = 0x0f0e0d0c0b0a0908UL;
 
+  fd_siphash13_t  _sip[1];
+  fd_siphash13_t * sip = fd_siphash13_init( _sip, k0, k1 );
+
   uchar buf[ 64 ];
   for( ulong i=0UL; i<FD_SIPHASH13_TEST_CNT; i++ ) {
     uchar const * msg   = buf;
@@ -87,8 +90,75 @@ main( int     argc,
     ulong hash = fd_siphash13_hash( msg, msgsz, k0, k1 );
     FD_TEST( hash == fd_siphash13_test_vector[ i ] );
 
+    fd_siphash13_t sip2 = *sip;
+    ulong hash2 = fd_siphash13_fini( &sip2 );
+    FD_TEST( hash==hash2 );
+
     buf[ i ] = (uchar)i;
+    fd_siphash13_append( sip, (uchar const *)&i, 1UL );
   }
+
+  FD_LOG_NOTICE(( "Benchmarking incremental" ));
+
+  sip = fd_siphash13_init( _sip, k0, k1 );
+  uchar msg[ 32 ] = {0};
+  do {
+    ulong sz = 32UL;
+
+    /* warmup */
+    for( ulong rem=10000UL; rem; rem-- ) fd_siphash13_fini( fd_siphash13_append( sip, msg, sz ) );
+
+    /* for real */
+    ulong iter = 10000000UL;
+    long  dt   = -fd_log_wallclock();
+    for( ulong rem=iter; rem; rem-- ) fd_siphash13_fini( fd_siphash13_append( sip, msg, sz ) );
+    dt += fd_log_wallclock();
+    float gbps = ((float)(8UL*sz*iter)) / ((float)dt);
+    FD_LOG_NOTICE(( "~%6.3f Gbps throughput / core (sz 32UL)", (double)gbps ));
+  } while(0);
+
+  FD_LOG_NOTICE(( "Benchmarking incremental (fast)" ));
+
+  sip = fd_siphash13_init( _sip, k0, k1 );
+  do {
+    ulong sz = 32UL;
+
+    /* warmup */
+    for( ulong rem=10000UL; rem; rem-- ) fd_siphash13_fini( fd_siphash13_append_fast( sip, msg, sz ) );
+
+    /* for real */
+    ulong iter = 10000000UL;
+    long  dt   = -fd_log_wallclock();
+    for( ulong rem=iter; rem; rem-- ) fd_siphash13_fini( fd_siphash13_append_fast( sip, msg, sz ) );
+    dt += fd_log_wallclock();
+    float gbps = ((float)(8UL*sz*iter)) / ((float)dt);
+    FD_LOG_NOTICE(( "~%6.3f Gbps throughput / core (sz 32UL)", (double)gbps ));
+  } while(0);
+
+  FD_LOG_NOTICE(( "Benchmarking streamlined" ));
+  do {
+    ulong sz = 32UL;
+
+    /* warmup */
+    ulong x = 0;
+    for( ulong rem=10000UL; rem; rem-- ) {
+      x += fd_siphash13_hash( msg, 32UL, k0, k1 );
+      msg[0]++;
+    }
+
+    /* for real */
+    ulong iter = 100000UL;
+    long  dt   = -fd_log_wallclock();
+    for( ulong rem=iter; rem; rem-- ) {
+      x += fd_siphash13_hash( msg, 32UL, k0, k1 );
+      msg[0]++;
+    }
+    FD_COMPILER_UNPREDICTABLE( x );
+
+    dt += fd_log_wallclock();
+    float gbps = ((float)(8UL*sz*iter)) / ((float)dt);
+    FD_LOG_NOTICE(( "~%6.3f Gbps throughput / core (sz 32UL)", (double)gbps ));
+  } while(0);
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
