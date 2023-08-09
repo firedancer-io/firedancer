@@ -1300,6 +1300,8 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
       break;
     }
 
+    FD_SCRATCH_SCOPED_FRAME;
+
     fd_slot_hashes_t slot_hashes;
     fd_slot_hashes_new( &slot_hashes );
     fd_sysvar_slot_hashes_read( ctx.global, &slot_hashes );
