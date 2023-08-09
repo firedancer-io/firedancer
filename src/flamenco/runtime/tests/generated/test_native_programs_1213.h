@@ -2,7 +2,7 @@
 int test_1213(fd_executor_test_suite_t *suite) {
   fd_executor_test_t test;
   fd_memset( &test, 0, FD_EXECUTOR_TEST_FOOTPRINT );
-  test.disable_cnt = 47;
+  test.disable_cnt = 46;
   test.bt = "   2: solana_loader_v4_program::tests::test_loader_instruction_retract             at ./src/lib.rs:1297:24   3: solana_loader_v4_program::tests::test_loader_instruction_retract::{{closure}}             at ./src/lib.rs:1270:42   4: core::ops::function::FnOnce::call_once             at /rustc/84c898d65adf2f39a5a98507f1fe0ce10a2b8dbc/library/core/src/ops/function.rs:250:5   5: core::ops::function::FnOnce::call_once             at /rustc/84c898d65adf2f39a5a98507f1fe0ce10a2b8dbc/library/core/src/ops/function.rs:250:5";
   test.test_name = "tests::test_loader_instruction_retract";
   test.test_number = 1213;

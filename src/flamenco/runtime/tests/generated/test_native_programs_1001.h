@@ -2,7 +2,7 @@
 int test_1001(fd_executor_test_suite_t *suite) {
   fd_executor_test_t test;
   fd_memset( &test, 0, FD_EXECUTOR_TEST_FOOTPRINT );
-  test.disable_cnt = 47;
+  test.disable_cnt = 46;
   test.bt = "   2: solana_vote_program::vote_processor::tests::process_instruction_as_one_arg             at ./src/vote_processor.rs:409:9   3: solana_vote_program::vote_processor::tests::test_spoofed_vote             at ./src/vote_processor.rs:1768:9   4: solana_vote_program::vote_processor::tests::test_spoofed_vote::{{closure}}             at ./src/vote_processor.rs:1751:28   5: core::ops::function::FnOnce::call_once             at /rustc/84c898d65adf2f39a5a98507f1fe0ce10a2b8dbc/library/core/src/ops/function.rs:250:5";
   test.test_name = "vote_processor::tests::test_spoofed_vote";
   test.test_number = 1001;

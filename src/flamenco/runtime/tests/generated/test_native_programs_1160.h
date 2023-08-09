@@ -2,7 +2,7 @@
 int test_1160(fd_executor_test_suite_t *suite) {
   fd_executor_test_t test;
   fd_memset( &test, 0, FD_EXECUTOR_TEST_FOOTPRINT );
-  test.disable_cnt = 47;
+  test.disable_cnt = 46;
   test.bt = "   2: solana_config_program::config_processor::tests::create_config_account             at ./src/config_processor.rs:218:24   3: solana_config_program::config_processor::tests::test_config_initialize_no_panic             at ./src/config_processor.rs:809:36   4: solana_config_program::config_processor::tests::test_config_initialize_no_panic::{{closure}}             at ./src/config_processor.rs:806:42   5: core::ops::function::FnOnce::call_once             at /rustc/84c898d65adf2f39a5a98507f1fe0ce10a2b8dbc/library/core/src/ops/function.rs:250:5";
   test.test_name = "config_processor::tests::test_config_initialize_no_panic";
   test.test_number = 1160;

@@ -2,7 +2,7 @@
 int test_1030(fd_executor_test_suite_t *suite) {
   fd_executor_test_t test;
   fd_memset( &test, 0, FD_EXECUTOR_TEST_FOOTPRINT );
-  test.disable_cnt = 47;
+  test.disable_cnt = 46;
   test.bt = "   2: solana_vote_program::vote_processor::tests::test_voter_base_key_can_not_authorize_new_withdrawer             at ./src/vote_processor.rs:1585:9   3: solana_vote_program::vote_processor::tests::test_voter_base_key_can_not_authorize_new_withdrawer::{{closure}}             at ./src/vote_processor.rs:1546:63   4: core::ops::function::FnOnce::call_once             at /rustc/84c898d65adf2f39a5a98507f1fe0ce10a2b8dbc/library/core/src/ops/function.rs:250:5   5: core::ops::function::FnOnce::call_once             at /rustc/84c898d65adf2f39a5a98507f1fe0ce10a2b8dbc/library/core/src/ops/function.rs:250:5";
   test.test_name = "vote_processor::tests::test_voter_base_key_can_not_authorize_new_withdrawer";
   test.test_number = 1030;

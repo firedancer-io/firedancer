@@ -237,7 +237,7 @@ def main():
             f"""int test_{test_case_idx}(fd_executor_test_suite_t *suite) {{
   fd_executor_test_t test;
   fd_memset( &test, 0, FD_EXECUTOR_TEST_FOOTPRINT );
-  test.disable_cnt = {len(fs)};
+  test.disable_cnt = {len(feature_idxs)};
   test.bt = "{bt}";
   test.test_name = "{test_case["name"]}";
   test.test_number = {test_case_idx};
