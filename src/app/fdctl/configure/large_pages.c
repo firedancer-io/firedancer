@@ -12,7 +12,10 @@ init_perm( security_t *     security,
 uint
 read_uint_file( const char * path ) {
   FILE * fp = fopen( path, "r" );
-  if( FD_UNLIKELY( !fp ) ) FD_LOG_ERR(( "fopen failed `%s` (%i-%s)", path, errno, strerror( errno ) ));
+  if( FD_UNLIKELY( !fp ) ) {
+    if( errno == ENOENT) FD_LOG_ERR(( "please confirm your host is configured for gigantic pages! fopen failed `%s` (%i-%s)", path, errno, strerror( errno ) ));
+    else FD_LOG_ERR(( "fopen failed `%s` (%i-%s)", path, errno, strerror( errno ) ));
+  }
   uint value = 0;
   if( FD_UNLIKELY( fscanf( fp, "%u\n", &value ) != 1 ) )
     FD_LOG_ERR(( "failed to read uint from `%s`", path ));
