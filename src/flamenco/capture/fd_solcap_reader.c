@@ -150,6 +150,7 @@ fd_solcap_find_account_table( void *                       _file,
 int
 fd_solcap_find_account( void *                          _file,
                         fd_solcap_AccountMeta *         meta,
+                        ulong *                         opt_data_off,
                         fd_solcap_account_tbl_t const * rec,
                         ulong                           acc_tbl_goff ) {
 
@@ -183,10 +184,8 @@ fd_solcap_find_account( void *                          _file,
   }
 
   /* Seek to account data */
-  if( fd_solcap_includes_account_data( meta ) ) {
-    if( FD_UNLIKELY( 0!=fseek( file, chunk_goff + (long)meta->data_coff, SEEK_SET ) ) )
-      return errno;
-  }
+  if( fd_solcap_includes_account_data( meta ) && opt_data_off )
+    *opt_data_off = (ulong)( chunk_goff + (long)meta->data_coff );
 
   return 0;
 }

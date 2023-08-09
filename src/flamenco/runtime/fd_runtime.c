@@ -302,7 +302,7 @@ static void fd_runtime_block_verify_task( void * tpool,
                                           ulong  l0,     ulong l1,
                                           ulong  m0,     ulong m1,
                                           ulong  n0,     ulong n1 ) {
-  struct fd_runtime_block_micro * micro = (struct fd_runtime_block_micro *)tpool;
+  struct fd_runtime_block_micro * micro = (struct fd_runtime_block_micro *)tpool + m0;
   (void)t0;
   (void)t1;
   (void)args;
@@ -353,6 +353,10 @@ static void fd_runtime_block_verify_task( void * tpool,
   }
 
   micro->failed = (memcmp(hdr->hash, &micro->poh, sizeof(micro->poh)) ? 1 : 0);
+
+  if (micro->failed)
+    FD_LOG_ERR(( "poh missmatch at slot %ld, microblock %lu", stride, m0));
+
 }
 
 int fd_runtime_block_verify_tpool( fd_global_ctx_t *global, fd_slot_meta_t *m, const void* block, ulong blocklen, fd_tpool_t * tpool, ulong max_workers ) {
@@ -391,6 +395,7 @@ int fd_runtime_block_verify_tpool( fd_global_ctx_t *global, fd_slot_meta_t *m, c
       for ( ulong txn_idx = 0; txn_idx < hdr->txn_cnt; txn_idx++ ) {
         fd_txn_xray_result_t xray;
         const uchar* raw = (const uchar *)block + blockoff;
+        // parallel prefix-sum ?
         ulong pay_sz = fd_txn_xray(raw, blocklen - blockoff, &xray);
         if ( pay_sz == 0UL )
           FD_LOG_ERR(("failed to parse transaction %lu in microblock %lu in slot %lu", txn_idx, mblk, m->slot));
@@ -401,25 +406,10 @@ int fd_runtime_block_verify_tpool( fd_global_ctx_t *global, fd_slot_meta_t *m, c
   if (blockoff != blocklen)
     FD_LOG_ERR(("garbage at end of block"));
 
-  /* Spawn jobs to thread pool */
-  for (ulong mblk = 0; mblk < num_micros; ++mblk) {
-    ulong i = mblk%max_workers + 1UL; /* Do not use thread 0 */
-    if ( i != mblk+1UL ) {
-      /* Wrapped around. Wait for the previous job to finish */
-      fd_tpool_wait( tpool, i );
-    }
-    fd_tpool_exec( tpool, i, fd_runtime_block_verify_task, micros + mblk,
-                   0, 0, NULL, NULL, 0, 0, 0, 0, 0, 0, 0 );
-  }
-  /* Wait for everything to finish */
-  for (ulong i = 1; i < max_workers; ++i)
-    fd_tpool_wait( tpool, i );
-
-  /* Loop across microblocks, perform final hashing */
-  for (ulong mblk = 0; mblk < num_micros; ++mblk) {
-    if ( micros[mblk].failed )
-      FD_LOG_ERR(( "poh missmatch at slot %ld, microblock %lu", m->slot, mblk));
-  }
+  /* Spawn jobs to thread pool
+    Note here: we repurposed the usage of `stride` variable here for the slot number `m->slot` to get out the same error message as before
+   */
+  fd_tpool_exec_all_taskq( tpool, 0, max_workers, fd_runtime_block_verify_task, micros, NULL, NULL, m->slot, 0, num_micros);
 
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
@@ -1251,6 +1241,7 @@ int fd_global_import_solana_manifest(fd_global_ctx_t * global, fd_solana_manifes
   bank->epoch_schedule = oldbank->rent_collector.epoch_schedule;
   bank->rent = oldbank->rent_collector.rent;
   bank->collected = oldbank->collected_rent;
+  bank->capitalization = oldbank->capitalization;
 
   /* Update last restart slot
      https://github.com/solana-labs/solana/blob/30531d7a5b74f914dde53bfbb0bc2144f2ac92bb/runtime/src/bank.rs#L2152
@@ -1316,9 +1307,10 @@ int fd_global_import_solana_manifest(fd_global_ctx_t * global, fd_solana_manifes
   return fd_runtime_save_banks( global );
 }
 
-void fd_update_feature(FD_FN_UNUSED fd_global_ctx_t * global, ulong * f, const char *key) {
-  unsigned char              acct[32];
-  fd_base58_decode_32( key,  (unsigned char *) acct);
+void
+fd_update_feature( fd_global_ctx_t * global,
+                   ulong *           f,
+                   uchar const       acct[ static 32 ] ) {
 
   char * raw_acc_data = (char*) fd_acc_mgr_view_data(global->acc_mgr, global->funk_txn, (fd_pubkey_t *) acct, NULL, NULL);
   if (NULL == raw_acc_data)
@@ -1336,9 +1328,23 @@ void fd_update_feature(FD_FN_UNUSED fd_global_ctx_t * global, ulong * f, const c
   if ( fd_feature_decode( &feature, &ctx ) )
     return;
 
-  if (NULL != feature.activated_at)
-    *f = *feature.activated_at;
+  /* Careful: In test ledgers, features can get activated at genesis
+     (meaning slot number 0).  However, we interpret 0 as "not activated
+     and not scheduled for activation". */
+  if( NULL != feature.activated_at )
+    *f = fd_ulong_max( 1UL, *feature.activated_at );
 
   fd_bincode_destroy_ctx_t destroy = { .valloc = global->valloc };
   fd_feature_destroy( &feature, &destroy );
+}
+
+void
+fd_update_features( fd_global_ctx_t * global ) {
+  for( fd_feature_id_t const * id = fd_feature_iter_init();
+                                   !fd_feature_iter_done( id );
+                               id = fd_feature_iter_next( id ) ) {
+
+    ulong * feature_ptr = (ulong *)( (ulong)&global->features + id->offset );
+    fd_update_feature( global, feature_ptr, id->id.key );
+  }
 }

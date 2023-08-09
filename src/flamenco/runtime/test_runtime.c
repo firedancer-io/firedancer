@@ -1,30 +1,30 @@
 /****
 
-build/linux/gcc/x86_64/bin/fd_frank_ledger --rocksdb $LEDGER/rocksdb --genesis $LEDGER/genesis.bin --cmd ingest --indexmax 10000 --txnmax 100 --backup test_ledger_backup
+build/native/gcc/bin/fd_frank_ledger --rocksdb $LEDGER/rocksdb --genesis $LEDGER/genesis.bin --cmd ingest --indexmax 10000 --txnmax 100 --backup test_ledger_backup
 
-build/linux/gcc/x86_64/unit-test/test_runtime --load test_ledger_backup --cmd replay --end-slot 25 --confirm_hash AsHedZaZkabNtB8XBiKWQkKwaeLy2y4Hrqm6MkQALT5h --confirm_parent CvgPeR54qpVRZGBuiQztGXecxSXREPfTF8wALujK4WdE --confirm_account_delta 7PL6JZgcNy5vkPSc6JsMHET9dvpvsFMWR734VtCG29xN  --confirm_signature 2  --confirm_last_block G4YL2SieHDGNZGjiwBsJESK7jMDfazg33ievuCwbkjrv --validate true
+build/native/gcc/unit-test/test_runtime --load test_ledger_backup --cmd replay --end-slot 25 --confirm_hash AsHedZaZkabNtB8XBiKWQkKwaeLy2y4Hrqm6MkQALT5h --confirm_parent CvgPeR54qpVRZGBuiQztGXecxSXREPfTF8wALujK4WdE --confirm_account_delta 7PL6JZgcNy5vkPSc6JsMHET9dvpvsFMWR734VtCG29xN  --confirm_signature 2  --confirm_last_block G4YL2SieHDGNZGjiwBsJESK7jMDfazg33ievuCwbkjrv --validate true
 
-build/linux/gcc/x86_64/bin/fd_shmem_cfg reset
+build/native/gcc/bin/fd_shmem_cfg reset
 
-build/linux/gcc/x86_64/bin/fd_wksp_ctl new giant_wksp 200 gigantic 32-127 0666
+build/native/gcc/bin/fd_wksp_ctl new giant_wksp 200 gigantic 32-127 0666
 
-build/linux/gcc/x86_64/bin/fd_frank_ledger --wksp giant_wksp --reset true --cmd ingest --snapshotfile /home/jsiegel/mainnet-ledger/snapshot-179244882-2DyMb1qN8JuTijCjsW8w4G2tg1hWuAw2AopH7Bj9Qstu.tar.zst --incremental /home/jsiegel/mainnet-ledger/incremental-snapshot-179244882-179248368-6TprbHABozQQLjjc1HBeQ2p4AigMC7rhHJS2Q5WLcbyw.tar.zst --rocksdb /home/jsiegel/mainnet-ledger/rocksdb --endslot 179249378 --backup /home/asiegel/mainnet_backup
+build/native/gcc/bin/fd_frank_ledger --wksp giant_wksp --reset true --cmd ingest --snapshotfile /home/jsiegel/mainnet-ledger/snapshot-179244882-2DyMb1qN8JuTijCjsW8w4G2tg1hWuAw2AopH7Bj9Qstu.tar.zst --incremental /home/jsiegel/mainnet-ledger/incremental-snapshot-179244882-179248368-6TprbHABozQQLjjc1HBeQ2p4AigMC7rhHJS2Q5WLcbyw.tar.zst --rocksdb /home/jsiegel/mainnet-ledger/rocksdb --endslot 179249378 --backup /home/asiegel/mainnet_backup
 
-build/linux/gcc/x86_64/unit-test/test_runtime --wksp giant_wksp --reset true --load /home/asiegel/mainnet_backup --cmd replay --index-max 350000000
+build/native/gcc/unit-test/test_runtime --wksp giant_wksp --reset true --load /home/asiegel/mainnet_backup --cmd replay --index-max 350000000
 
-build/linux/gcc/x86_64/unit-test/test_runtime --wksp giant_wksp --gaddr 0xc7ce180 --cmd replay
+build/native/gcc/unit-test/test_runtime --wksp giant_wksp --gaddr 0xc7ce180 --cmd replay
   NOTE: gaddr argument may be different
 
-build/linux/gcc/x86_64/bin/fd_frank_ledger --wksp giant_wksp --reset true --cmd ingest --snapshotfile /data/jsiegel/mainnet-ledger/snapshot-179244882-2DyMb1qN8JuTijCjsW8w4G2tg1hWuAw2AopH7Bj9Qstu.tar.zst --incremental /data/jsiegel/mainnet-ledger/incremental-snapshot-179244882-179248368-6TprbHABozQQLjjc1HBeQ2p4AigMC7rhHJS2Q5WLcbyw.tar.zst --rocksdb /data/jsiegel/mainnet-ledger/rocksdb --endslot 179248378 --backup /data/jsiegel/mainnet_backup
+build/native/gcc/bin/fd_frank_ledger --wksp giant_wksp --reset true --cmd ingest --snapshotfile /data/jsiegel/mainnet-ledger/snapshot-179244882-2DyMb1qN8JuTijCjsW8w4G2tg1hWuAw2AopH7Bj9Qstu.tar.zst --incremental /data/jsiegel/mainnet-ledger/incremental-snapshot-179244882-179248368-6TprbHABozQQLjjc1HBeQ2p4AigMC7rhHJS2Q5WLcbyw.tar.zst --rocksdb /data/jsiegel/mainnet-ledger/rocksdb --endslot 179248378 --backup /data/jsiegel/mainnet_backup
 
-build/linux/gcc/x86_64/unit-test/test_runtime --wksp giant_wksp --gaddr 0x000000000c7ce180 --cmd replay
+build/native/gcc/unit-test/test_runtime --wksp giant_wksp --gaddr 0x000000000c7ce180 --cmd replay
 
 /data/jsiegel/mainnet-ledger/snapshot-179244882-2DyMb1qN8JuTijCjsW8w4G2tg1hWuAw2AopH7Bj9Qstu.tar.zst
 /data/jsiegel/mainnet-ledger/incremental-snapshot-179244882-179248368-6TprbHABozQQLjjc1HBeQ2p4AigMC7rhHJS2Q5WLcbyw.tar.zst
 
-build/linux/gcc/x86_64/unit-test/test_runtime --wksp giant_wksp --gaddr 0xc7ce180 --cmd verifyonly
+build/native/gcc/unit-test/test_runtime --wksp giant_wksp --gaddr 0xc7ce180 --cmd verifyonly
 
-build/linux/gcc/x86_64/unit-test/test_runtime --wksp giant_wksp --gaddr 0xc7ce180 --cmd verifyonly --tile-cpus 32-100
+build/native/gcc/unit-test/test_runtime --wksp giant_wksp --gaddr 0xc7ce180 --cmd verifyonly --tile-cpus 32-100
 
 ****/
 
@@ -378,21 +378,21 @@ int main(int argc, char **argv) {
 
   if (NULL != state.net) {
     if (!strncmp(state.net, "main", 4))
-      fd_enable_mainnet(&state.global->features);
+      fd_features_enable_mainnet(&state.global->features);
     if (!strcmp(state.net, "test"))
-      fd_enable_testnet(&state.global->features);
+      fd_features_enable_testnet(&state.global->features);
     if (!strcmp(state.net, "dev"))
-      fd_enable_devnet(&state.global->features);
+      fd_features_enable_devnet(&state.global->features);
     if (!strcmp(state.net, "v13"))
-      fd_enable_v13(&state.global->features);
+      fd_features_enable_v13(&state.global->features);
     if (!strcmp(state.net, "v14"))
-      fd_enable_v14(&state.global->features);
+      fd_features_enable_v14(&state.global->features);
     if (!strcmp(state.net, "v16"))
-      fd_enable_v16(&state.global->features);
+      fd_features_enable_v16(&state.global->features);
     if (!strcmp(state.net, "v17"))
-      fd_enable_v17(&state.global->features);
+      fd_features_enable_v17(&state.global->features);
   } else
-    fd_enable_everything(&state.global->features);
+    fd_features_enable_all(&state.global->features);
 
   char hostname[64];
   gethostname(hostname, sizeof(hostname));
@@ -405,18 +405,37 @@ int main(int argc, char **argv) {
   } else {
     FD_LOG_NOTICE(( "--wksp not specified, using an anonymous workspace with %lu pages", state.pages ));
     wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, state.pages, 0, "wksp", 0UL );
-    state.gaddr = 0;
   }
   if ( FD_UNLIKELY( !wksp ) )
     FD_LOG_ERR(( "Unable to attach to wksp" ));
 
   if ( state.reset && strcmp(state.reset, "true") == 0 ) {
     fd_wksp_reset( wksp, (uint)hashseed);
-    state.gaddr = 0;
+  }
+
+  if (NULL != state.load) {
+    FD_LOG_NOTICE(("loading %s", state.load));
+    int fd = open(state.load, O_RDONLY);
+    if (fd == -1)
+      FD_LOG_ERR(("restore failed: %s", strerror(errno)));
+    struct stat statbuf;
+    if (fstat(fd, &statbuf) == -1)
+      FD_LOG_ERR(("restore failed: %s", strerror(errno)));
+    uchar* p = (uchar*)wksp;
+    uchar* pend = p + statbuf.st_size;
+    while ( p < pend ) {
+      ulong sz = fd_ulong_min((ulong)(pend - p), 4UL<<20);
+      if ( read(fd, p, sz) < 0 )
+        FD_LOG_ERR(("restore failed: %s", strerror(errno)));
+      p += sz;
+    }
+    close(fd);
   }
 
   void* shmem;
   if( !state.gaddr ) {
+    if (NULL != state.load)
+      FD_LOG_ERR(( "when you load a backup, you still need a --gaddr" ));
     shmem = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint(), 1 );
     if (shmem == NULL)
       FD_LOG_ERR(( "failed to allocate a funky" ));
@@ -459,12 +478,6 @@ int main(int argc, char **argv) {
     FD_LOG_NOTICE(("using %s for persistence", state.persist));
     if ( fd_funk_persist_open_fast( state.global->funk, state.persist ) != FD_FUNK_SUCCESS )
       FD_LOG_ERR(("failed to open persistence file"));
-  }
-
-  if (NULL != state.load) {
-    FD_LOG_NOTICE(("loading %s", state.load));
-    if ( fd_funk_load_backup( state.global->funk, state.load, 0 ) != FD_FUNK_SUCCESS )
-      FD_LOG_ERR(("failed to open backup file"));
   }
 
   if ((validate_db != NULL) && (strcmp(validate_db, "true") == 0)) {
@@ -515,14 +528,14 @@ int main(int argc, char **argv) {
     tpool = fd_tpool_init(tpool_mem, tcnt);
     if ( tpool == NULL )
       FD_LOG_ERR(("failed to create thread pool"));
-    for ( ulong i = 1; i <= tcnt-1; ++i ) {
+    for ( ulong i = 1; i < tcnt; ++i ) {
       if ( fd_tpool_worker_push( tpool, i, NULL, 0UL ) == NULL )
         FD_LOG_ERR(("failed to launch worker"));
     }
   }
 
   if (strcmp(state.cmd, "replay") == 0) {
-    replay(&state, 0, tpool, tcnt-1);
+    replay(&state, 0, tpool, tcnt);
 
     if (NULL != confirm_hash) {
       uchar h[32];
@@ -553,7 +566,7 @@ int main(int argc, char **argv) {
 
   }
   if (strcmp(state.cmd, "verifyonly") == 0)
-    replay(&state, 1, tpool, tcnt-1);
+    replay(&state, 1, tpool, tcnt);
   if (strcmp(state.cmd, "accounts_hash") == 0)
     accounts_hash(&state);
 

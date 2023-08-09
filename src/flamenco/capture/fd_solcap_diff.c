@@ -2,9 +2,13 @@
 #include "fd_solcap_proto.h"
 #include "fd_solcap_reader.h"
 #include "fd_solcap.pb.h"
+#include "../../ballet/base58/fd_base58.h"
 
 #include <errno.h>
 #include <stdio.h>
+#include <sys/stat.h> /* mkdir(2) */
+#include <fcntl.h>    /* open(2) */
+#include <unistd.h>   /* close(2) */
 
 
 /* Define routines for sorting the bank hash account delta accounts.
@@ -29,7 +33,10 @@ fd_solcap_account_tbl_lt( fd_solcap_account_tbl_t const * a,
 struct fd_solcap_differ {
   fd_solcap_chunk_iter_t iter    [2];
   fd_solcap_BankPreimage preimage[2];
-  int                    verbose;
+
+  int          verbose;
+  int          dump_dir_fd;
+  char const * dump_dir;
 };
 
 typedef struct fd_solcap_differ fd_solcap_differ_t;
@@ -114,6 +121,82 @@ fd_solcap_differ_sync( fd_solcap_differ_t * diff ) {
   return 0;
 }
 
+static void
+fd_solcap_diff_account_data( fd_solcap_differ_t *                  diff,
+                             fd_solcap_AccountMeta   const         meta     [ static 2 ],
+                             fd_solcap_account_tbl_t const * const entry    [ static 2 ],
+                             ulong const                           data_goff[ static 2 ] ) {
+
+  /* Streaming diff */
+  int data_eq = meta[0].data_sz == meta[1].data_sz;
+  if( data_eq ) {
+    for( ulong i=0UL; i<2UL; i++ )
+      FD_TEST( 0==fseek( diff->iter[ i ].stream, (long)data_goff[i], SEEK_SET ) );
+
+    for( ulong off=0UL; off<meta[0].data_sz; ) {
+#     define BUFSZ (512UL)
+
+      /* Read chunks */
+      uchar buf[2][ BUFSZ ];
+      ulong sz = fd_ulong_min( BUFSZ, meta[0].data_sz-off );
+      for( ulong i=0UL; i<2UL; i++ )
+        FD_TEST( sz==fread( &buf[i], 1UL, sz, diff->iter[i].stream ) );
+
+      /* Compare chunks */
+      data_eq = 0==memcmp( buf[0], buf[1], sz );
+      if( !data_eq ) break;
+
+      off += sz;
+#     undef BUFSZ
+    }
+  }
+  if( data_eq ) return;
+
+  /* Dump account data to file */
+  if( diff->verbose >= 4 ) {
+    for( ulong i=0UL; i<2UL; i++ ) {
+      /* Rewind capture stream */
+      FD_TEST( 0==fseek( diff->iter[ i ].stream, (long)data_goff[i], SEEK_SET ) );
+
+      /* Create dump file */
+      char path[ FD_BASE58_ENCODED_32_LEN+1+FD_BASE58_ENCODED_32_LEN+4+1 ];
+      int res = snprintf( path, sizeof(path), "%32J-%32J.bin", entry[i]->key, entry[i]->hash );
+      FD_TEST( (res>0) & (res<(int)sizeof(path)) );
+      int fd = openat( diff->dump_dir_fd, path, O_CREAT|O_WRONLY|O_TRUNC, 0666 );
+      if( FD_UNLIKELY( fd<0 ) )
+        FD_LOG_ERR(( "openat(%d,%s) failed (%d-%s)",
+                    diff->dump_dir_fd, path, errno, strerror( errno ) ));
+      FILE * file = fdopen( fd, "wb" );
+
+      /* Copy */
+      for( ulong off=0UL; off<meta[i].data_sz; ) {
+#       define BUFSZ (512UL)
+
+        /* Copy chunks */
+        uchar buf[2][ BUFSZ ];
+        ulong sz = fd_ulong_min( BUFSZ, meta[i].data_sz-off );
+        FD_TEST( sz==fread ( buf[i], 1UL, sz, diff->iter[i].stream ) );
+        FD_TEST( sz==fwrite( buf[i], 1UL, sz, file                 ) );
+
+        off += sz;
+#       undef BUFSZ
+      }
+
+      /* Save dump file */
+      fclose( file );
+    }
+
+    /* Inform user */
+    printf( "    -data:       %s/%32J-%32J.bin\n"
+            "    +data:       %s/%32J-%32J.bin\n"
+            "                 vimdiff <(xxd '%s/%32J-%32J.bin') <(xxd '%s/%32J-%32J.bin')\n",
+            diff->dump_dir, entry[0]->key, entry[0]->hash,
+            diff->dump_dir, entry[1]->key, entry[1]->hash,
+            diff->dump_dir, entry[0]->key, entry[0]->hash,
+            diff->dump_dir, entry[1]->key, entry[1]->hash );
+  }
+}
+
 /* fd_solcap_diff_account prints further details about a mismatch
    between two accounts.  Preserves stream cursors. */
 
@@ -132,11 +215,11 @@ fd_solcap_diff_account( fd_solcap_differ_t *                  diff,
 
   /* Read account meta */
   fd_solcap_AccountMeta meta[2];
+  ulong                 data_goff[2];
   for( ulong i=0UL; i<2UL; i++ ) {
     FILE * stream = diff->iter[ i ].stream;
-    int err = fd_solcap_find_account( stream, meta+i, entry[i], acc_tbl_goff[i] );
+    int err = fd_solcap_find_account( stream, meta+i, &data_goff[i], entry[i], acc_tbl_goff[i] );
     FD_TEST( err==0 );
-    /* TODO pretty print data */
   }
 
   if( meta[0].lamports != meta[1].lamports )
@@ -154,6 +237,9 @@ fd_solcap_diff_account( fd_solcap_differ_t *                  diff,
             "    +owner:      %32J\n",
             meta[0].owner,
             meta[1].owner );
+  else
+    printf( "     owner:      %32J\n", meta[0].owner );
+    /* Even if the owner matches, still print it for convenience */
   if( meta[0].slot != meta[1].slot )
     printf( "    -slot:       %lu\n"
             "    +slot:       %lu\n",
@@ -164,6 +250,14 @@ fd_solcap_diff_account( fd_solcap_differ_t *                  diff,
             "    +rent_epoch: %lu\n",
             meta[0].rent_epoch,
             meta[1].rent_epoch );
+  if( meta[0].executable != meta[1].executable )
+    printf( "    -executable: %d\n"
+            "    +executable: %d\n",
+            meta[0].executable,
+            meta[1].executable );
+  if( ( (meta[0].data_sz == 0UL) | fd_solcap_includes_account_data( &meta[0] ) )
+    & ( (meta[1].data_sz == 0UL) | fd_solcap_includes_account_data( &meta[1] ) ) )
+        fd_solcap_diff_account_data( diff, meta, entry, data_goff );
 
   /* Restore file offsets */
   for( ulong i=0UL; i<2UL; i++ ) {
@@ -372,6 +466,7 @@ main( int     argc,
   ulong        page_cnt   = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt",   NULL, 2UL        );
   ulong        scratch_mb = fd_env_strip_cmdline_ulong( &argc, &argv, "--scratch-mb", NULL, 1024UL     );
   int          verbose    = fd_env_strip_cmdline_int  ( &argc, &argv, "-v",           NULL, 1          );
+  char const * dump_dir   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--dump-dir",   NULL, "dump"     );
 
   ulong page_sz = fd_cstr_to_shmem_page_sz( _page_sz );
   if( FD_UNLIKELY( !page_sz ) ) FD_LOG_ERR(( "unsupported --page-sz" ));
@@ -415,12 +510,22 @@ main( int     argc,
   if( FD_UNLIKELY( (!cap_file[0]) | (!cap_file[1]) ) )
     FD_LOG_ERR(( "fopen failed (%d-%s)", errno, strerror( errno ) ));
 
+  /* Create dump dir */
+
+  if( mkdir( dump_dir, 0777 )<0 && errno!=EEXIST )
+    FD_LOG_ERR(( "mkdir failed (%d-%s)", errno, strerror( errno ) ));
+  int dump_dir_fd = open( dump_dir, O_DIRECTORY );
+  if( FD_UNLIKELY( dump_dir_fd<0 ) )
+    FD_LOG_ERR(( "open(%s) failed (%d-%s)", dump_dir, errno, strerror( errno ) ));
+
   /* Create differ */
 
   fd_solcap_differ_t diff[1];
   if( FD_UNLIKELY( !fd_solcap_differ_new( diff, cap_file ) ) )
     return 1;
-  diff->verbose = verbose;
+  diff->verbose     = verbose;
+  diff->dump_dir    = dump_dir;
+  diff->dump_dir_fd = dump_dir_fd;
   int res = fd_solcap_differ_sync( diff );
   if( res <0 ) FD_LOG_ERR(( "fd_solcap_differ_sync failed (%d-%s)",
                             -res, strerror( -res ) ));
@@ -444,6 +549,7 @@ main( int     argc,
 
   /* Cleanup */
 
+  close( dump_dir_fd );
   fclose( cap_file[1] );
   fclose( cap_file[0] );
   FD_TEST( fd_scratch_frame_used()==0UL );

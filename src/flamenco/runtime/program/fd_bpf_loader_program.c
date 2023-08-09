@@ -310,8 +310,6 @@ int fd_executor_bpf_loader_program_execute_program_instruction( instruction_ctx_
     fd_valloc_free( ctx.global->valloc, rodata);
     return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
   }
-  uchar * input_cpy = fd_valloc_malloc( ctx.global->valloc, 8UL, input_sz);
-  fd_memcpy(input_cpy, input, input_sz);
   fd_vm_exec_context_t vm_ctx = {
     .entrypoint          = (long)prog->entry_pc,
     .program_counter     = 0,

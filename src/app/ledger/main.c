@@ -523,6 +523,7 @@ ingest_rocksdb( fd_global_ctx_t * global,
       FD_LOG_ERR(("fd_rocksdb_root_iter_seek returned %d", ret));
   } while (1);
 
+  fd_rocksdb_root_iter_destroy( &iter );
   fd_rocksdb_destroy(&rocks_db);
 
   /* Verify messes with the poh */
@@ -566,10 +567,16 @@ main( int     argc,
   char const * backup       = fd_env_strip_cmdline_cstr ( &argc, &argv, "--backup",       NULL, NULL      );
 
   fd_wksp_t* wksp;
+  ulong wkspsize;
   if (wkspname == NULL) {
     FD_LOG_NOTICE(( "--wksp not specified, using an anonymous local workspace" ));
     wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, pages, 0, "wksp", 0UL );
+    wkspsize = FD_SHMEM_GIGANTIC_PAGE_SZ * pages;
   } else {
+    fd_shmem_info_t shmem_info[1];
+    if ( FD_UNLIKELY( fd_shmem_info( wkspname, 0UL, shmem_info ) ) )
+      FD_LOG_ERR(( "unable to query region \"%s\"\n\tprobably does not exist or bad permissions", wkspname ));
+    wkspsize = shmem_info->page_sz * shmem_info->page_cnt;
     wksp = fd_wksp_attach(wkspname);
   }
   if (wksp == NULL)
@@ -704,21 +711,21 @@ main( int     argc,
 
     if (NULL != net) {
       if (!strncmp(net, "main", 4))
-        fd_enable_mainnet(&global->features);
+        fd_features_enable_mainnet(&global->features);
       if (!strcmp(net, "test"))
-        fd_enable_testnet(&global->features);
+        fd_features_enable_testnet(&global->features);
       if (!strcmp(net, "dev"))
-        fd_enable_devnet(&global->features);
+        fd_features_enable_devnet(&global->features);
       if (!strcmp(net, "v13"))
-        fd_enable_v13(&global->features);
+        fd_features_enable_v13(&global->features);
       if (!strcmp(net, "v14"))
-        fd_enable_v14(&global->features);
+        fd_features_enable_v14(&global->features);
       if (!strcmp(net, "v16"))
-        fd_enable_v16(&global->features);
+        fd_features_enable_v16(&global->features);
       if (!strcmp(net, "v17"))
-        fd_enable_v17(&global->features);
+        fd_features_enable_v17(&global->features);
     } else
-      fd_enable_everything(&global->features);
+      fd_features_enable_all(&global->features);
 
     if (snapshot_used) {
       int err = 0;
@@ -880,10 +887,22 @@ main( int     argc,
     fd_tpool_fini( tpool );
 
   if (backup) {
+    /* Copy the entire workspace into a file in the most naive way */
     FD_LOG_NOTICE(("writing %s", backup));
-    if ( fd_funk_make_backup( funk, backup ) )
-      FD_LOG_ERR(("backup failed"));
+    int fd = open(backup, O_RDWR|O_CREAT|O_TRUNC, 0666);
+    if (fd == -1)
+      FD_LOG_ERR(("backup failed: %s", strerror(errno)));
+    const uchar* p = (const uchar*)wksp;
+    const uchar* pend = p + wkspsize;
+    while ( p < pend ) {
+      ulong sz = fd_ulong_min((ulong)(pend - p), 4UL<<20);
+      if ( write(fd, p, sz) < 0 )
+        FD_LOG_ERR(("backup failed: %s", strerror(errno)));
+      p += sz;
+    }
+    close(fd);
   }
+  FD_LOG_NOTICE(( "funky at global address 0x%016lx", fd_wksp_gaddr_fast( wksp, shmem ) ));
 
   fd_global_ctx_delete( fd_global_ctx_leave( global ) );
   fd_funk_leave( funk );

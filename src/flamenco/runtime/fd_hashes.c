@@ -235,15 +235,16 @@ fd_update_hash_bank( fd_global_ctx_t * global,
                      fd_hash_t *       hash,
                      ulong             signature_cnt ) {
 
-  fd_funk_t *          funk    = global->funk;
-  fd_acc_mgr_t *       acc_mgr = global->acc_mgr;
-  fd_funk_txn_t *      txn     = global->funk_txn;
-  ulong                slot    = global->bank.slot;
-  fd_solcap_writer_t * capture = global->capture;
+  fd_funk_t *           funk     = global->funk;
+  fd_acc_mgr_t *        acc_mgr  = global->acc_mgr;
+  fd_funk_txn_t *       txn      = global->funk_txn;
+  ulong                 slot     = global->bank.slot;
+  fd_features_t const * features = &global->features;
+  fd_solcap_writer_t *  capture  = global->capture;
 
   /* Collect list of changed accounts to be added to bank hash */
 
-  fd_pubkey_hash_vector_t dirty_keys;
+  fd_pubkey_hash_vector_t dirty_keys __attribute__ ((cleanup(fd_pubkey_hash_vector_destroy)));
   fd_pubkey_hash_vector_new(&dirty_keys);
 
   /* Iterate over accounts that have been changed in the current
@@ -263,19 +264,20 @@ fd_update_hash_bank( fd_global_ctx_t * global,
     int                   err     = FD_ACC_MGR_SUCCESS;
     uchar const *         acc_raw = fd_acc_mgr_view_data( acc_mgr, txn, acc_key, &rec, &err );
 
-    if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) return err;
+    if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) )
+      return err;
 
     fd_account_meta_t const * acc_meta = (fd_account_meta_t const *)acc_raw;
     uchar const *             acc_data = acc_raw + acc_meta->hlen;
 
     /* Hash account */
 
-    fd_hash_t acc_hash;
-    fd_hash_meta( acc_meta, slot, acc_key, acc_data, &acc_hash );
+    fd_hash_t acc_hash[1];
+    fd_hash_account_current( acc_hash->hash, acc_meta, acc_key->key, acc_data, features, slot );
 
     /* If hash didn't change, nothing to do */
 
-    if( 0==memcmp( acc_hash.hash, acc_meta->hash, sizeof(fd_hash_t) ) )
+    if( 0==memcmp( acc_hash->hash, acc_meta->hash, sizeof(fd_hash_t) ) )
       return 0;
 
     /* Upgrade to writable record */
@@ -295,7 +297,7 @@ fd_update_hash_bank( fd_global_ctx_t * global,
 
     /* Update hash */
 
-    memcpy( acc_meta_w->hash, acc_hash.hash, sizeof(fd_hash_t) );
+    memcpy( acc_meta_w->hash, acc_hash->hash, sizeof(fd_hash_t) );
 
     /* Logging ... */
 
@@ -320,8 +322,8 @@ fd_update_hash_bank( fd_global_ctx_t * global,
        bank hash. */
 
     fd_pubkey_hash_pair_t dirty_entry;
-    memcpy( dirty_entry.pubkey.key, acc_key,       sizeof(fd_pubkey_t) );
-    memcpy( dirty_entry.hash.hash,  acc_hash.hash, sizeof(fd_hash_t  ) );
+    memcpy( dirty_entry.pubkey.key, acc_key,        sizeof(fd_pubkey_t) );
+    memcpy( dirty_entry.hash.hash,  acc_hash->hash, sizeof(fd_hash_t  ) );
     fd_pubkey_hash_vector_push( &dirty_keys, dirty_entry );
 
     /* Add to capture */
@@ -332,7 +334,7 @@ fd_update_hash_bank( fd_global_ctx_t * global,
         &acc_meta_w->info,
         acc_data,
         acc_meta_w->dlen,
-        acc_hash.hash );
+        acc_hash->hash );
     FD_TEST( err==0 );
   }
 
@@ -346,37 +348,53 @@ fd_update_hash_bank( fd_global_ctx_t * global,
     fd_hash_bank( global, hash, &dirty_keys );
   }
 
-  fd_pubkey_hash_vector_destroy( &dirty_keys );
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
-/* TODO why is this called hash "meta"?
-        This computes the account hash. */
+void const *
+fd_hash_account_v0( uchar                     hash[ static 32 ],
+                    fd_account_meta_t const * m,
+                    uchar const               pubkey[ static 32 ],
+                    uchar const             * data,
+                    ulong                     slot ) {
 
-void
-fd_hash_meta( fd_account_meta_t const * m,
-              ulong                     slot,
-              fd_pubkey_t const *       pubkey,
-              uchar const *             data,
-              fd_hash_t *               hash ) {
+  ulong         lamports   = m->info.lamports;  /* >0UL */
+  ulong         rent_epoch = m->info.rent_epoch;
+  uchar         executable = m->info.executable & 0x1;
+  uchar const * owner      = (uchar const *)m->info.owner;
 
-  if( m->info.lamports==0 ) {
-    fd_memset(hash->hash, 0, sizeof(fd_hash_t));
-    return;
-  }
+  fd_blake3_t b3[1];
+  fd_blake3_init  ( b3 );
+  fd_blake3_append( b3, &lamports,   sizeof( ulong ) );
+  fd_blake3_append( b3, &slot,       sizeof( ulong ) );
+  fd_blake3_append( b3, &rent_epoch, sizeof( ulong ) );
+  fd_blake3_append( b3, data,        m->dlen         );
+  fd_blake3_append( b3, &executable, sizeof( uchar ) );
+  fd_blake3_append( b3, owner,       32UL            );
+  fd_blake3_append( b3, pubkey,      32UL            );
+  fd_blake3_fini  ( b3, hash );
+  return hash;
+}
 
-  fd_blake3_t sha;
-  fd_blake3_init( &sha );
-  fd_blake3_append( &sha, &m->info.lamports, sizeof( ulong ) );
-  fd_blake3_append( &sha, &slot, sizeof( ulong ) );
-  fd_blake3_append( &sha, &m->info.rent_epoch, sizeof( ulong ) );
-  fd_blake3_append( &sha, data, m->dlen );
+void const *
+fd_hash_account_v1( uchar                     hash[ static 32 ],
+                    fd_account_meta_t const * m,
+                    uchar const               pubkey[ static 32 ],
+                    uchar const             * data ) {
 
-  uchar executable = m->info.executable & 0x1;
-  fd_blake3_append( &sha, (uchar const *) &executable, sizeof( uchar ));
+  ulong         lamports   = m->info.lamports;  /* >0UL */
+  ulong         rent_epoch = m->info.rent_epoch;
+  uchar         executable = m->info.executable & 0x1;
+  uchar const * owner      = (uchar const *)m->info.owner;
 
-  fd_blake3_append( &sha, (uchar const *) m->info.owner, 32 );
-  fd_blake3_append( &sha, (uchar const *) pubkey->key, 32 );
-
-  fd_blake3_fini( &sha, hash->hash );
+  fd_blake3_t b3[1];
+  fd_blake3_init  ( b3 );
+  fd_blake3_append( b3, &lamports,   sizeof( ulong ) );
+  fd_blake3_append( b3, &rent_epoch, sizeof( ulong ) );
+  fd_blake3_append( b3, data,        m->dlen         );
+  fd_blake3_append( b3, &executable, sizeof( uchar ) );
+  fd_blake3_append( b3, owner,       32UL            );
+  fd_blake3_append( b3, pubkey,      32UL            );
+  fd_blake3_fini  ( b3, hash );
+  return hash;
 }

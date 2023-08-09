@@ -390,17 +390,22 @@ fd_acc_mgr_resize(fd_acc_mgr_t* acc_mgr, fd_funk_rec_t *rec, ulong sz)  {
 }
 
 int
-fd_acc_mgr_commit_data( fd_acc_mgr_t* acc_mgr, fd_funk_rec_t *rec, fd_pubkey_t const * pubkey, void *data, ulong slot, int uncache) {
-  fd_funk_t            *funk     = acc_mgr->global->funk;
+fd_acc_mgr_commit_data( fd_acc_mgr_t *      acc_mgr,
+                        fd_funk_rec_t *     rec,
+                        fd_pubkey_t const * pubkey,
+                        void *              raw_acc,
+                        ulong               slot,
+                        int                 uncache ) {
 
-  fd_account_meta_t * m = (fd_account_meta_t *) data;
+  fd_funk_t *           funk     = acc_mgr->global->funk;
+  fd_account_meta_t *   m        = (fd_account_meta_t *)raw_acc;
+  void const *          data     = (void const *)( (ulong)raw_acc + m->hlen );
+  fd_features_t const * features = &acc_mgr->global->features;
 
   m->slot = slot;
 
-  void *p = ((char *) data) + m->hlen;
-
-  fd_hash_t hash;
-  fd_hash_meta(m, slot, pubkey, p, (fd_hash_t *) &hash);
+  fd_hash_t hash[1];
+  fd_hash_account_current( hash->hash, m, pubkey->key, data, features, slot );
 
   if (memcmp(&hash, m->hash, sizeof(hash))) {
     if (FD_UNLIKELY(acc_mgr->global->log_level > 2)) {

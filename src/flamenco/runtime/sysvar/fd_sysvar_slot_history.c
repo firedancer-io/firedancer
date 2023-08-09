@@ -106,8 +106,8 @@ int fd_sysvar_slot_history_update( fd_global_ctx_t* global ) {
 
   err = fd_acc_mgr_commit_data(global->acc_mgr, acc_data_rec, (fd_pubkey_t *) global->sysvar_slot_history, raw_acc_data, global->bank.slot, 0);
 
-  // fd_bincode_destroy_ctx_t ctx_d = { .valloc = global->valloc };
-  // fd_slot_history_destroy( &history, &ctx_d );
+  fd_bincode_destroy_ctx_t ctx_d = { .valloc = global->valloc };
+  fd_slot_history_destroy( &history, &ctx_d );
 
   return err;
 }

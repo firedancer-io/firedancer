@@ -125,14 +125,16 @@ fd_solcap_includes_account_data( fd_solcap_AccountMeta const * meta ) {
   return (!!meta->data_coff) & (!!meta->data_sz);
 }
 
-/* fd_solcap_find_account reads an account meta and seeks the given
-   (FILE *) like stream to the account data.  If account data size is
-   zero or the capture does not include account data, the stream cursor
-   is undefined.  (Use fd_solcap_includes_account_data to check) */
+/* fd_solcap_find_account reads an account meta.  If opt_data_off, sets
+   *opt_data_off to the file offset to account data.  If account data
+   size is zero or the capture does not include account data,
+   *opt_data_off is undefined.  (Use fd_solcap_includes_account_data to
+   check).  Returns 0 on success or errno-like on failure. */
 
 int
 fd_solcap_find_account( void *                          _file,
                         fd_solcap_AccountMeta *         meta,
+                        ulong *                         opt_data_off,
                         fd_solcap_account_tbl_t const * rec,
                         ulong                           acc_tbl_goff );
 
