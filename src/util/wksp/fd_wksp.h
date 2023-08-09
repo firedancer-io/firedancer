@@ -47,7 +47,7 @@
      fd_wksp_free( wksp, gaddr );
 
    Any join can free any allocation regardless of who made it.
-   
+
    When the application is done using a wksp, it should leave it.  The
    workspace will continue to exist (it just is no longer safe to access
    in the caller's address space).  E.g.
@@ -195,7 +195,7 @@ fd_wksp_data_max_est( ulong footprint,
    Reasons for failure include zero part_max, part_max too large for
    this implementation, zero data_max, part_max/data_max requires a
    footprint that overflows a ULONG_MAX. */
-   
+
 FD_FN_CONST ulong
 fd_wksp_align( void );
 
@@ -503,6 +503,31 @@ ulong
 fd_wksp_tag( fd_wksp_t * wksp,
              ulong       gaddr );
 
+/* fd_wksp_tag_query queries the workspace for all partitions that match
+   one of the given tags.  The tag array is indexed [0,tag_cnt).
+   Returns info_cnt, the number of matching partitions.  Further, if
+   info_max is non-zero, will return detailed information for the first
+   (from low to high gaddr) min(info_cnt,info_max).  Returns 0 if no
+   partitions match any tags.  If any wonkiness encountered (e.g. wksp
+   is NULL, tag is not in postive, etc) returns 0 and logs details.
+   This is O(wksp_alloc_cnt*tag_cnt) currently (but could be made
+   O(wksp_alloc_cnt) with some additional work). */
+
+struct fd_wksp_tag_query_info {
+  ulong gaddr_lo; /* Partition covers workspace global addresses [gaddr_lo,gaddr_hi) */
+  ulong gaddr_hi; /* 0<gaddr_lo<gaddr_hi */
+  ulong tag;      /* Partition tag */
+};
+
+typedef struct fd_wksp_tag_query_info fd_wksp_tag_query_info_t;
+
+ulong
+fd_wksp_tag_query( fd_wksp_t *                wksp,
+                   ulong const *              tag,
+                   ulong                      tag_cnt,
+                   fd_wksp_tag_query_info_t * info,
+                   ulong                      info_max );
+
 /* fd_wksp_tag_free frees all allocations in wksp that match one of the
    given tags.  The tag array is indexed [0,tag_cnt).  Logs details if
    any wonkiness encountered (e.g. wksp is NULL, tag is not in postive.
@@ -647,7 +672,7 @@ fd_wksp_new_anon( char const *  name,
                   ulong         page_sz,
                   ulong         sub_cnt,
                   ulong const * sub_page_cnt,
-                  ulong const * sub_cpu_idx, 
+                  ulong const * sub_cpu_idx,
                   uint          seed,
                   ulong         opt_part_max );
 

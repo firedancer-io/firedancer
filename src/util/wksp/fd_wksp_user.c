@@ -13,12 +13,12 @@
 
    This will pop the idle stack once to assign the index of the newly
    created partition.  Assumes the caller knows the idle stack is not
-   empty. 
+   empty.
 
    Assumes the original partition is in the partitioning with a zero
    tag.  Further assumes the original partition is not in the idle
    stack, used treap or free treap.
-   
+
    fd_wksp_private_split_after is identical except the partition created
    by the split is after the original partition. */
 
@@ -362,6 +362,58 @@ fd_wksp_tag( fd_wksp_t * wksp,
   return tag;
 }
 
+ulong
+fd_wksp_tag_query( fd_wksp_t *                wksp,
+                   ulong const *              tag,
+                   ulong                      tag_cnt,
+                   fd_wksp_tag_query_info_t * info,
+                   ulong                      info_max ) {
+
+  if( FD_UNLIKELY( !tag_cnt ) ) return 0UL; /* No tags to query */
+
+  if( FD_UNLIKELY( !wksp ) ) { FD_LOG_WARNING(( "NULL wksp" )); return 0UL; }
+  if( FD_UNLIKELY( !tag  ) ) { FD_LOG_WARNING(( "bad tag" ));   return 0UL; }
+
+  if( FD_UNLIKELY( (!!info_max) & (!info) ) ) { FD_LOG_WARNING(( "NULL info" )); return 0UL; }
+
+  ulong                     part_max = wksp->part_max;
+  fd_wksp_private_pinfo_t * pinfo    = fd_wksp_private_pinfo( wksp );
+
+  ulong info_cnt = 0UL;
+
+  if( FD_UNLIKELY( fd_wksp_private_lock( wksp ) ) ) return 0UL; /* logs details */
+
+  ulong cycle_tag = wksp->cycle_tag++;
+
+  ulong i = fd_wksp_private_pinfo_idx( wksp->part_head_cidx );
+  while( !fd_wksp_private_pinfo_idx_is_null( i ) ) {
+    if( FD_UNLIKELY( i>=part_max ) || FD_UNLIKELY( pinfo[ i ].cycle_tag==cycle_tag ) ) {
+      fd_wksp_private_unlock( wksp );
+      FD_LOG_WARNING(( "corrupt wksp detected" ));
+      return 0UL;
+    }
+    pinfo[ i ].cycle_tag = cycle_tag; /* mark i as visited */
+
+    ulong _tag = pinfo[ i ].tag;
+    for( ulong tag_idx=0UL; tag_idx<tag_cnt; tag_idx++ ) { /* TODO: USE BETTER MATCHER */
+      if( tag[ tag_idx ]==_tag ) {
+        if( FD_LIKELY( info_cnt<info_max ) ) {
+          info[ info_cnt ].gaddr_lo = pinfo[ i ].gaddr_lo;
+          info[ info_cnt ].gaddr_hi = pinfo[ i ].gaddr_hi;
+          info[ info_cnt ].tag      = pinfo[ i ].tag;
+        }
+        info_cnt++;
+        break;
+      }
+    }
+
+    i = fd_wksp_private_pinfo_idx( pinfo[ i ].next_cidx );
+  }
+
+  fd_wksp_private_unlock( wksp );
+  return info_cnt;
+}
+
 void
 fd_wksp_tag_free( fd_wksp_t *   wksp,
                   ulong const * tag,
@@ -384,8 +436,11 @@ fd_wksp_tag_free( fd_wksp_t *   wksp,
 
   ulong i = fd_wksp_private_pinfo_idx( wksp->part_head_cidx );
   while( !fd_wksp_private_pinfo_idx_is_null( i ) ) {
-    if( FD_UNLIKELY( i>=part_max                     ) ) { FD_LOG_WARNING(( "corrupt wksp detected" )); return; }
-    if( FD_UNLIKELY( pinfo[ i ].cycle_tag==cycle_tag ) ) { FD_LOG_WARNING(( "corrupt wksp detected" )); return; }
+    if( FD_UNLIKELY( i>=part_max ) || FD_UNLIKELY( pinfo[ i ].cycle_tag==cycle_tag ) ) {
+      fd_wksp_private_unlock( wksp );
+      FD_LOG_WARNING(( "corrupt wksp detected" ));
+      return;
+    }
     pinfo[ i ].cycle_tag = cycle_tag; /* mark i as visited */
 
     ulong _tag = pinfo[ i ].tag;
@@ -481,8 +536,11 @@ fd_wksp_usage( fd_wksp_t *       wksp,
 
   ulong i = fd_wksp_private_pinfo_idx( wksp->part_head_cidx );
   while( !fd_wksp_private_pinfo_idx_is_null( i ) ) {
-    if( FD_UNLIKELY( i>=part_max                     ) ) { FD_LOG_WARNING(( "corrupt wksp detected" )); goto fail; }
-    if( FD_UNLIKELY( pinfo[ i ].cycle_tag==cycle_tag ) ) { FD_LOG_WARNING(( "corrupt wksp detected" )); goto fail; }
+    if( FD_UNLIKELY( i>=part_max ) || FD_UNLIKELY( pinfo[ i ].cycle_tag==cycle_tag ) ) {
+      fd_wksp_private_unlock( wksp );
+      FD_LOG_WARNING(( "corrupt wksp detected" ));
+      fd_memset( usage, 0, sizeof(fd_wksp_usage_t) );
+    }
     pinfo[ i ].cycle_tag = cycle_tag; /* mark i as visited */
 
     ulong part_sz  = fd_wksp_private_pinfo_sz( pinfo + i );
@@ -503,10 +561,4 @@ fd_wksp_usage( fd_wksp_t *       wksp,
 
   fd_wksp_private_unlock( wksp );
   return usage;
-
-fail:
-  fd_wksp_private_unlock( wksp );
-  fd_memset( usage, 0, sizeof(fd_wksp_usage_t) );
-  return usage;
 }
-
