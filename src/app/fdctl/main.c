@@ -38,7 +38,9 @@ main1( int     argc,
 
   /* check if we are appropriate permissioned to run the desired command */
   if( FD_LIKELY( action->perm ) ) {
-    security_t security;
+    security_t security = {
+      .idx = 0,
+    };
     action->perm( &args, &security, &config );
     if( FD_UNLIKELY( security.idx ) ) {
       for( ulong i=0; i<security.idx; i++ ) FD_LOG_WARNING(( "%s", security.errors[ i ] ));

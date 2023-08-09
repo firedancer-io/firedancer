@@ -163,7 +163,8 @@ clone_tile( tile_spawner_t * spawn, fd_frank_task_t * task, ulong idx ) {
   };
 
   /* also spawn tiles into pid namespaces so they cannot signal each other or the parent */
-  pid_t pid = clone( tile_main, (uchar *)stack + (8UL<<20), CLONE_NEWPID, &args );
+  int flags = spawn->sandbox ? CLONE_NEWPID : 0;
+  pid_t pid = clone( tile_main, (uchar *)stack + (8UL<<20), flags, &args );
   if( FD_UNLIKELY( pid<0 ) ) FD_LOG_ERR(( "clone() failed (%i-%s)", errno, strerror( errno ) ));
 
   spawn->child_pids[ spawn->idx ] = pid;
@@ -292,7 +293,8 @@ clone_solana_labs( tile_spawner_t * spawner, config_t * const config ) {
   if( FD_UNLIKELY( !stack ) ) FD_LOG_ERR(( "unable to create a stack for boot process" ));
 
   /* clone into a pid namespace */
-  pid_t pid = clone( solana_labs_main, (uchar *)stack + (8UL<<20), CLONE_NEWPID, config );
+  int flags = config->development.sandbox ? CLONE_NEWPID : 0;
+  pid_t pid = clone( solana_labs_main, (uchar *)stack + (8UL<<20), flags, config );
   if( FD_UNLIKELY( pid<0 ) ) FD_LOG_ERR(( "clone() failed (%i-%s)", errno, strerror( errno ) ));
   spawner->child_pids[ spawner->idx ] = pid;
   strncpy( spawner->child_names[ spawner->idx ], "solana-labs", 32 );
@@ -441,7 +443,8 @@ run_firedancer( config_t * const config ) {
   if( FD_UNLIKELY( close( 1 ) ) ) FD_LOG_ERR(( "close(1) failed (%i-%s)", errno, strerror( errno ) ));
 
   /* clone into a pid namespace */
-  pid_namespace = clone( main_pid_namespace, (uchar *)stack + (8UL<<20), CLONE_NEWPID, config );
+  int flags = config->development.sandbox ? CLONE_NEWPID : 0;
+  pid_namespace = clone( main_pid_namespace, (uchar *)stack + (8UL<<20), flags, config );
 
   long allow_syscalls[] = {
     __NR_write,      /* logging */
@@ -455,12 +458,13 @@ run_firedancer( config_t * const config ) {
     3, /* logfile */
   };
 
-  fd_sandbox( config->uid,
-              config->gid,
-              sizeof(allow_fds)/sizeof(allow_fds[ 0 ]),
-              allow_fds,
-              sizeof(allow_syscalls)/sizeof(allow_syscalls[0]),
-              allow_syscalls );
+  if( config->development.sandbox )
+    fd_sandbox( config->uid,
+                config->gid,
+                sizeof(allow_fds)/sizeof(allow_fds[ 0 ]),
+                allow_fds,
+                sizeof(allow_syscalls)/sizeof(allow_syscalls[0]),
+                allow_syscalls );
 
   int wstatus;
   pid_t pid2 = wait4( pid_namespace, &wstatus, (int)__WCLONE, NULL );
