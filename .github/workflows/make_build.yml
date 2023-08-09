@@ -12,6 +12,7 @@ jobs:
     strategy:
       matrix:
         compiler: [gcc, clang]
+    runs-on: ubuntu-22.04
     env:
       CC: ${{ matrix.compiler }}
     steps:
