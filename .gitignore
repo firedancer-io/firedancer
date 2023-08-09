@@ -51,6 +51,7 @@ expected.bin
 before.bin
 v14-test-ledger
 testgaddr
+gaddr
 test_ledger_backup
 v13-contract-ledger
 dump/
