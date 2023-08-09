@@ -207,6 +207,10 @@ int fd_executor_run_test(
       .instr          = instr,
       .txn_ctx        = &txn_ctx,
     };
+    if (ctx.txn_ctx->txn_descriptor->acct_addr_cnt == test->accs_len + 1) {
+      ctx.txn_ctx->txn_descriptor->acct_addr_cnt = (ushort)test->accs_len;
+    }
+
     execute_instruction_func_t exec_instr_func = fd_executor_lookup_native_program( global, &test->program_id );
     if (NULL == exec_instr_func) {
       char buf[50];
