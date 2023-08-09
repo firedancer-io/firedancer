@@ -18,7 +18,7 @@ validator(fd_inflation_t *inflation, double year) {
 }
 
 static ulong
-get_inflation_start_slot() {
+get_inflation_start_slot( void ) {
     /*
         https://github.com/firedancer-io/solana/blob/de02601d73d626edf98ef63efd772824746f2f33/runtime/src/bank.rs#L2313-L2331
 
@@ -77,7 +77,7 @@ calculate_previous_epoch_inflation_rewards(
     /* https://github.com/firedancer-io/solana/blob/de02601d73d626edf98ef63efd772824746f2f33/runtime/src/bank.rs#L2351-L2376 */
 
 
-    /* slot_in_year_for_inflation 
+    /* slot_in_year_for_inflation
     https://github.com/firedancer-io/solana/blob/de02601d73d626edf98ef63efd772824746f2f33/runtime/src/bank.rs#L2344-L2349
     */
     ulong num_slots = get_inflation_num_slots(bank);
@@ -90,7 +90,7 @@ calculate_previous_epoch_inflation_rewards(
 
 /// Calculates epoch reward points from stake/vote accounts.
 /// Returns reward lamports and points for the epoch or none if points == 0.
-void calculate_reward_points_partitioned() {
+void calculate_reward_points_partitioned( void ) {
 
 }
 
