@@ -462,6 +462,8 @@ main( int argc, char ** argv ) {
   client_quic->cb.now     = test_clock;
   client_quic->cb.now_ctx = NULL;
 
+  client_quic->config.initial_rx_max_stream_data = 1<<15;
+
   fd_quic_config_t * server_config = &server_quic->config;
   server_config->idle_timeout = 5e9;
 
@@ -473,6 +475,8 @@ main( int argc, char ** argv ) {
 
   server_quic->cb.now     = test_clock;
   server_quic->cb.now_ctx = NULL;
+
+  server_quic->config.initial_rx_max_stream_data = 1<<15;
 
   /* pcap */
   FILE * pcap_file = fopen( "test_quic_drops.pcapng", "wb" );
