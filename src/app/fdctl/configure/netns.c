@@ -99,7 +99,8 @@ fini( config_t * const config ) {
 
   char cmd[ 256 ];
   snprintf1( cmd, sizeof(cmd), "ip link del dev %s", interface0 );
-  system( cmd ); // Destroys interface1 as well, no need to check failure
+  /* TODO handle return value */
+  (void)system( cmd ); // Destroys interface1 as well, no need to check failure
 
   snprintf1( cmd, sizeof(cmd), "ip netns delete %s", interface0 );
   int status1 = system( cmd );
