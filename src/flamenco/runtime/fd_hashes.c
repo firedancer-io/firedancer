@@ -212,20 +212,8 @@ fd_hash_bank( fd_global_ctx_t *global, fd_hash_t * hash, fd_pubkey_hash_vector_t
       global->signature_cnt );
 
   if (global->log_level > 0) {
-    char encoded_hash[50];
-    fd_base58_encode_32((uchar *) hash->hash, 0, encoded_hash);
-
-    char encoded_parent[50];
-    fd_base58_encode_32((uchar *) global->prev_banks_hash.hash, 0, encoded_parent);
-
-    char encoded_account_delta[50];
-    fd_base58_encode_32((uchar *) global->account_delta_hash.hash, 0, encoded_account_delta);
-
-    char encoded_last_block_hash[50];
-    fd_base58_encode_32((uchar *) &global->bank.poh, 0, encoded_last_block_hash);
-
-    FD_LOG_NOTICE(( "bank_hash slot: %lu,  hash: %s,  parent_hash: %s,  accounts_delta: %s,  signature_count: %ld,  last_blockhash: %s",
-        global->bank.slot, encoded_hash, encoded_parent, encoded_account_delta, global->signature_cnt, encoded_last_block_hash));
+    FD_LOG_NOTICE(( "bank_hash slot: %lu,  hash: %32J,  parent_hash: %32J,  accounts_delta: %32J,  signature_count: %ld,  last_blockhash: %32J",
+        global->bank.slot, hash->hash, global->prev_banks_hash.hash, global->account_delta_hash.hash, global->signature_cnt, global->bank.poh.hash ));
   }
 }
 
@@ -278,7 +266,7 @@ fd_update_hash_bank( fd_global_ctx_t * global,
     /* If hash didn't change, nothing to do */
 
     if( 0==memcmp( acc_hash->hash, acc_meta->hash, sizeof(fd_hash_t) ) )
-      return 0;
+      continue;
 
     /* Upgrade to writable record */
 
@@ -343,10 +331,8 @@ fd_update_hash_bank( fd_global_ctx_t * global,
   if( FD_UNLIKELY(global->log_level > 2) )
     FD_LOG_WARNING(("slot %ld   dirty %ld", global->bank.slot, dirty_keys.cnt));
 
-  if( dirty_keys.cnt > 0 ) {
-    global->signature_cnt = signature_cnt;
-    fd_hash_bank( global, hash, &dirty_keys );
-  }
+  global->signature_cnt = signature_cnt;
+  fd_hash_bank( global, hash, &dirty_keys );
 
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
