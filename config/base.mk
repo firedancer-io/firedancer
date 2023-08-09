@@ -3,11 +3,11 @@ BASEDIR?=build
 SHELL:=bash
 CPPFLAGS:=-isystem ./opt/include
 CC:=gcc
-CFLAGS:=-std=c17
+CFLAGS:=-std=c17 -fPIE
 CXX:=g++
 CXXFLAGS:=-std=c++17
 LD:=g++
-LDFLAGS:=-lm -L./opt/lib -Wl,-rpath=$(shell pwd)/opt/lib
+LDFLAGS:=-lm -L./opt/lib -Wl,-rpath=$(shell pwd)/opt/lib -fPIE
 AR:=ar
 ARFLAGS:=rv
 RANLIB:=ranlib
