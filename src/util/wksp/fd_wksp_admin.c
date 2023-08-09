@@ -227,7 +227,7 @@ fd_wksp_leave( fd_wksp_t * wksp ) {
     FD_LOG_WARNING(( "NULL wksp" ));
     return NULL;
   }
-  
+
   return (void *)wksp;
 }
 
@@ -259,7 +259,7 @@ fd_wksp_delete( void * shwksp ) {
   return wksp;
 }
 
-char const * fd_wksp_name    ( fd_wksp_t const * wksp ) { return wksp->name;     } 
+char const * fd_wksp_name    ( fd_wksp_t const * wksp ) { return wksp->name;     }
 uint         fd_wksp_seed    ( fd_wksp_t const * wksp ) { return wksp->seed;     }
 ulong        fd_wksp_part_max( fd_wksp_t const * wksp ) { return wksp->part_max; }
 ulong        fd_wksp_data_max( fd_wksp_t const * wksp ) { return wksp->data_max; }
@@ -316,7 +316,7 @@ fd_wksp_verify( fd_wksp_t * wksp ) {
   /* Clear out cycle tags */
 
   for( ulong i=0UL; i<part_max; i++ ) pinfo[ i ].cycle_tag = 0UL;
-  
+
   /* Verify the idle stack */
 
   ulong idle_cnt = 0UL;
@@ -348,6 +348,8 @@ fd_wksp_verify( fd_wksp_t * wksp ) {
     ulong i = fd_wksp_private_pinfo_idx( wksp->part_head_cidx );
     ulong g = gaddr_lo;
 
+    int last_free = 0;
+
     while( !fd_wksp_private_pinfo_idx_is_null( i ) ) {
 
       /* At this point, we last visited j.  Visit i.  Note that j has
@@ -362,10 +364,13 @@ fd_wksp_verify( fd_wksp_t * wksp ) {
 
       g = pinfo[ i ].gaddr_hi;                                      /* Extract where the next partition should start */
       int is_free = !pinfo[ i ].tag;                                /* Determine if this partition is free or used */
+      TEST( !(last_free & is_free) );                               /* Make sure no adjacent free partitions */
       free_cnt += (ulong) is_free;                                  /* Update the free cnt */
       used_cnt += (ulong)!is_free;                                  /* Update the used cnt */
 
       /* Advance to the next partition */
+
+      last_free = is_free;
 
       j = i;
       i = fd_wksp_private_pinfo_idx( pinfo[ i ].next_cidx );
@@ -403,7 +408,7 @@ fd_wksp_verify( fd_wksp_t * wksp ) {
         s = fd_wksp_private_pinfo_idx( pinfo[ i ].stack_cidx );
 
         /* Visit i */
-        
+
         ulong p = fd_wksp_private_pinfo_idx( pinfo[ i ].parent_cidx ); /* Extract the parent */
 
         TEST( pinfo[ i ].gaddr_lo>=g    );            /* Make sure this starts after last visited */
@@ -590,7 +595,7 @@ fd_wksp_rebuild( fd_wksp_t * wksp,
      some form and we don't have enough info to resolve a conflict
      without potentially making the situation worse).  We do the scan in
      reverse order to rebuild the idle stack in forward order.
-     
+
      Note that we don't ever change the gaddr_lo,gaddr_hi of any tagged
      partitions such that operation is guaranteed to never change the
      single source of truth.  As such, this operation can be interrupted
@@ -627,7 +632,7 @@ fd_wksp_rebuild( fd_wksp_t * wksp,
 
       pinfo[ i ].prev_cidx = fd_wksp_private_pinfo_cidx( FD_WKSP_PRIVATE_PINFO_IDX_NULL );
       pinfo[ i ].next_cidx = fd_wksp_private_pinfo_cidx( FD_WKSP_PRIVATE_PINFO_IDX_NULL );
-      
+
       if( FD_UNLIKELY( fd_wksp_private_used_treap_insert( i, wksp, pinfo ) ) ) return FD_WKSP_ERR_CORRUPT; /* Logs details */
     }
   } while(0);
@@ -681,7 +686,7 @@ fd_wksp_rebuild( fd_wksp_t * wksp,
           if( FD_UNLIKELY( fd_wksp_private_idle_stack_is_empty( wksp ) ) ) {
             FD_LOG_WARNING(( "part_max (%lu) too small to fill gap before partition %lu (tag %lu gaddr_lo %lu gaddr_hi %lu)",
                              part_max, i, pinfo[i].tag, pinfo[i].gaddr_lo, pinfo[i].gaddr_hi ));
-            return FD_WKSP_ERR_CORRUPT; 
+            return FD_WKSP_ERR_CORRUPT;
           }
           ulong k = fd_wksp_private_idle_stack_pop( wksp, pinfo );
 
@@ -732,7 +737,7 @@ fd_wksp_rebuild( fd_wksp_t * wksp,
 
       if( FD_UNLIKELY( fd_wksp_private_idle_stack_is_empty( wksp ) ) ) {
         FD_LOG_WARNING(( "part_max (%lu) too small to complete partitioning", part_max ));
-        return FD_WKSP_ERR_CORRUPT; 
+        return FD_WKSP_ERR_CORRUPT;
       }
       ulong k = fd_wksp_private_idle_stack_pop( wksp, pinfo );
 
@@ -753,4 +758,3 @@ fd_wksp_rebuild( fd_wksp_t * wksp,
 
   return FD_WKSP_SUCCESS;
 }
-
