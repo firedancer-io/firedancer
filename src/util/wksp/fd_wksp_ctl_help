@@ -25,6 +25,14 @@ alloc wksp align sz
   default alignment.  Prints the wksp cstr address of the allocation to
   stdout on success.
 
+info wksp tag
+- Prints the wksp_gaddr and sz of the wksp allocation matching tag to
+  stdout in the form "[wksp_gaddr] [sz]".  If there are multiple
+  allocations with the same tag, prints the allocation with the lowest
+  gaddr.  If there no allocations that match tag, prints "- 0".
+  Technically speaking, this always succeeds but logs any weirdness
+  detected.
+
 free wksp_gaddr
 - Free allocation pointed to by wksp cstr address wksp_gaddr.
   wksp_gaddr can point at any byte in the allocation.  Technically
