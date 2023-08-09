@@ -41,4 +41,3 @@ $(call run-unit-test,test_stack,)
 $(call run-unit-test,test_treap,)
 $(call run-unit-test,test_vec,)
 $(call run-unit-test,test_voff,)
-

@@ -20,7 +20,7 @@
 
      struct myele {
        ulong key;  // Technically "MAP_KEY_T MAP_KEY"  (default is ulong key),  do not modify while the element is in the map
-       ulong next; // Technically "MAP_IDX_T MAP_NEXT" (default is ulong next), do not modify while the element is in the map 
+       ulong next; // Technically "MAP_IDX_T MAP_NEXT" (default is ulong next), do not modify while the element is in the map
        ... key and next can be located arbitrarily in the element and
        ... can be reused for other purposes when the element is not in a
        ... map.  The mapping of a key to an element storage index is
@@ -39,22 +39,22 @@
 
      // mymap_ele_max returns the theoretical maximum number of elements
      // that can be mapped by a mymap.
- 
+
      ulong mymap_ele_max( void );
- 
+
      // mymap_chain_max returns the theoretical maximum number possible
      // chains in a mymap.  Will be an integer power-of-two.
- 
+
      ulong mymap_chain_max( void );
- 
+
      // mymap_chain_cnt_est returns a reasonable number of chains to use
      // for a map that is expected to hold up to ele_max_est elements.
      // ele_max_est will be clamped to be in [1,mymap_ele_max()] and the
      // return value will be a integer power-of-two in
      // [1,mymap_chain_max()].
- 
+
      ulong mymap_chain_cnt_est( ulong ele_max_est );
- 
+
      // mymap_{align,footprint} returns the alignment and footprint
      // needed for a memory region to be used as a mymap.  align will be
      // an integer power-of-two and footprint will be a multiple of
@@ -82,21 +82,21 @@
      // space formatted as a mymap, that there are no joins to the mymap
      // and that any application cleanup of the entries has already been
      // done.  Returns shmap on success and NULL on failure.
- 
+
      ulong     mymap_align    ( void );
      ulong     mymap_footprint( ulong chain_cnt );
      void *    mymap_new      ( void * shmem, ulong chain_cnt, ulong seed );
      mymap_t * mymap_join     ( void * shmap );
      void *    mymap_leave    ( mymap_t * join  );
      void *    mymap_delete   ( void * shmap );
- 
+
      // mymap_{chain_cnt,seed} return the values used to construct the
      // map.  They assume join is a current local join.  The values will
      // be constant for the map lifetime.
- 
+
      ulong mymap_chain_cnt( mymap_t const * join );
      ulong mymap_seed     ( mymap_t const * join );
- 
+
      // mymap_key_{eq,hash} expose the provided MAP_KEY_{EQ,HASH} macros
      // as inline functions with strict semantics.  They assume that the
      // provided pointers are in the caller's address space to keys that
@@ -110,34 +110,34 @@
      // ulong but this depends on what the user actually passed in for
      // MAP_KEY_HASH.  The seed used by a particular instance of a map
      // can be obtained above.
- 
+
      int   mymap_key_eq  ( ulong * k0,  ulong * k1 );
      ulong mymap_key_hash( ulong * key, ulong seed );
- 
+
      // mymap_idx_insert inserts an element into the map.  The caller
      // promises the element is not currently in the map and that
      // element key is not equal to the key of any other element
      // currently in the map.  Assumes there are no concurrent
      // operations on the map.  This always succeeds.
- 
+
      mymap_t *                            // Returns join
      mymap_idx_insert( mymap_t * join,    // Current local join to element map
                        ulong     ele_idx, // Index of element to insert
                        myele_t * pool );  // Current local join to element storage
- 
+
      // mymap_idx_remove removes the mapping of a key to an element.
      // Assumes there are no concurrent operations on the map and that
      // *key will not be modified during the remove.  The map retains no
      // interest in key.  On success, the map will no longer have an
      // interest in the returned element.  On failure, the returned
      // index lifetime will be that of the sentinel.
-     
+
      ulong                                     // Index of removed element on success, sentinel on failure
      mymap_idx_remove( mymap_t *     join,     // Current local join to element map
                        ulong const * key,      // Points to the key to remove in the caller's address space
                        ulong         sentinel, // Value to return if key not in map
                        myele_t *     pool );   // Current local join to element storage
- 
+
      // mymap_idx_query finds the element corresponding to key.  Assumes
      // there are no concurrent operations on the map and that *key will
      // not be modified during the query.  The map retains no interest
@@ -145,53 +145,53 @@
      // least as long as the corresponding element is still in the map.
      // On failure, the returned index lifetime will be that of the
      // sentinel.
- 
+
      ulong                                    // Index of found element on success, sentinel on failure
      mymap_idx_query( mymap_t *     join,     // Current local join to the element map
                       ulong const * key,      // Points to the key to find in the caller's address space
                       ulong         sentinel, // Value to return on failure
                       myele_t *     pool );   // Current local join to element storage
- 
+
      // mymap_idx_query_const is the same as mymap_idx_query but
      // supports concurrent queries so long as there no concurrently
      // running insert/remove/query operations.  The value fields of the
      // element returned by this function can be changed by the
      // application but it is up to the application to manage
      // concurrency between different users modifying the same element.
- 
+
      ulong                                            // Index of found element on success, sentinel on failure
      mymap_idx_query_const( mymap_t const * join,     // Current local join to element map
                             ulong const *   key,      // Points to the key to find in the caller's address space
                             ulong           sentinel, // Value to return on failure
                             myele_t const * pool );   // Current local join to element storage
- 
+
      // The mymap_ele_{insert,remove,query,query_const} variants are the
      // same as the above but use pointers in the caller's address
      // instead of pool element storage indices.
- 
+
      mymap_t *                           // Returns join
      mymap_ele_insert( mymap_t * join,   // Current local join to element map
                        myele_t * ele,    // Element to insert (assumed to be in pool)
                        myele_t * pool ); // Current local join to element storage
- 
+
      myele_t *                                 // Removed element on success (will be from pool), sentinel on failure
      mymap_ele_remove( mymap_t *     join,     // Current local join to element map
                        ulong const * key,      // Points to the key to remove in the caller's address space
                        myele_t *     sentinel, // Value to return if key not in map
                        myele_t *     pool );   // Current local join to element storage
- 
+
      myele_t *                                // Found element on success (will be from pool), sentinel on failure
      mymap_ele_query( mymap_t *     join,     // Current local join to element map
                       ulong const * key,      // Points to the key to find in the caller's address space
                       myele_t *     sentinel, // Value to return if key not in map
                       myele_t *     pool );   // Current local join to element storage
- 
+
      myele_t const *                                  // Found element on success (will be from pool), sentinel on failure
      mymap_ele_query_const( mymap_t const * join,     // Current local join to element map
                             ulong const *   key,      // Points to the key to find in the caller's address space
                             myele_t const * sentinel, // Value to return if key not in map
                             myele_t const * pool );   // Current local join to element storage
- 
+
      // mymap_iter_* support fast iteration over all the elements in a
      // map.  The iteration will be in a random order but the order will
      // be identical if repeated with no insert/remove/query operations
@@ -208,25 +208,25 @@
      //     ... IMPORTANT!  It is _not_ _safe_ to insert, remove
      //     ... or query here (query_const is fine).
      //   }
- 
+
      struct mymap_iter_private { ... internal use only ... };
      typedef struct mymap_iter_private mymap_iter_t;
- 
+
      mymap_iter_t    mymap_iter_init     (                    mymap_t const * join, myele_t const * pool );
      int             mymap_iter_done     ( mymap_iter_t iter, mymap_t const * join, myele_t const * pool );
      mymap_iter_t    mymap_iter_next     ( mymap_iter_t iter, mymap_t const * join, myele_t const * pool ); // assumes not done
      ulong           mymap_iter_idx      ( mymap_iter_t iter, mymap_t const * join, myele_t const * pool ); // assumes not done
      myele_t *       mymap_iter_ele      ( mymap_iter_t iter, mymap_t const * join, myele_t *       pool ); // assumes not done
      myele_t const * mymap_iter_ele_const( mymap_iter_t iter, mymap_t const * join, myele_t const * pool ); // assumes not done
- 
+
      // mymap_verify returns 0 if the mymap is not obviously corrupt or
      // -1 (i.e. ERR_INVAL) otherwse (logs details).
- 
+
      int
-     mymap_verify( mymap_t const * join,    // Current local join to a mymap.  
+     mymap_verify( mymap_t const * join,    // Current local join to a mymap.
                    ulong           ele_cnt, // Element storage size, in [0,mymap_ele_max()]
                    myele_t const * pool );  // Current local join to element storage, indexed [0,ele_cnt)
- 
+
    You can do this as often as you like in a compilation unit to get
    different types of maps.  Variants exist for making header prototypes
    only and/or implementations if doing a library with multiple
@@ -407,7 +407,7 @@ MAP_(chain_cnt_est)( ulong ele_max_est ) {
      the map is guaranteed to hold at most ele_max keys). */
 
   ele_max_est = fd_ulong_min( fd_ulong_max( ele_max_est, 1UL ), MAP_(ele_max)() );
-  
+
   /* Compute the number of chains as the power of 2 that makes the
      average chain length between ~1 and ~2 when ele_max_est are stored
      in the map and then clamp to the chain max. */
@@ -471,14 +471,14 @@ MAP_(iter_next)( MAP_(iter_t)      iter,
                  MAP_ELE_T const * pool ) {
   ulong chain_rem = iter.chain_rem;
   ulong ele_idx   = iter.ele_idx;
-  
+
   /* At this point, we are just finished iterating over element ele_idx
      on chain chain_rem-1 and we already iterated over all elements in
      chains (chain_rem,chain_cnt] and all elements in chain chain_rem-1
      before this element.  As such, ele_idx is in [0,ele_cnt) and
      chain_rem is in (0,chain_cnt].  Get the next element in the chain
      chain_rem-1. */
-  
+
   ele_idx = MAP_(private_unbox)( pool[ ele_idx ].MAP_NEXT );
   if( MAP_(private_idx_is_null)( ele_idx ) ) {
 
@@ -505,7 +505,7 @@ MAP_(iter_idx)( MAP_(iter_t)    iter,
                 MAP_ELE_T *     pool ) {
   (void)join; (void)pool;
   return iter.ele_idx;
-} 
+}
 
 FD_FN_CONST static inline MAP_ELE_T *
 MAP_(iter_ele)( MAP_(iter_t)    iter,
@@ -618,7 +618,7 @@ MAP_(new)( void * shmap,
 
   MAP_IDX_T * chain = MAP_(private_chain)( map );
   for( ulong chain_idx=0UL; chain_idx<chain_cnt; chain_idx++ ) chain[ chain_idx ] = MAP_(private_box)( MAP_(private_idx_null)() );
-  
+
   FD_COMPILER_MFENCE();
   FD_VOLATILE( map->magic ) = MAP_MAGIC;
   FD_COMPILER_MFENCE();

@@ -186,9 +186,9 @@ main( int     argc,
       FD_TEST( map_ele_query_const( map, &ki, (pair_t *)1UL, pool )==(pair_t *)1UL );
 
       /* Insert the value */
-      pair_t * p = pool_ele_acquire( pool ); 
+      pair_t * p = pool_ele_acquire( pool );
       p->mykey  = ki;
-    //p->mynext = d/c ... managed pool and map 
+    //p->mynext = d/c ... managed pool and map
       p->val    = vi;
       p->tag    = tag;
       FD_TEST( map_ele_insert( map, p, pool )==map );
@@ -275,4 +275,3 @@ main( int     argc,
   fd_halt();
   return 0;
 }
-
