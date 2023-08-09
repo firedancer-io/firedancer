@@ -595,7 +595,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
 
   int decode_err;
   if ( ( decode_err = fd_bpf_upgradeable_loader_program_instruction_decode( &instruction, &decode_ctx ) ) ) {
-    FD_LOG_WARNING(("fd_bpf_upgradeable_loader_program_instruction_decode failed: err code: %d, %d %x", decode_err, ctx.instr->data_sz, ((uint*)data)[0]));
+    FD_LOG_WARNING(("fd_bpf_upgradeable_loader_program_instruction_decode failed: err code: %d, %ld", decode_err, ctx.instr->data_sz));
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
 
