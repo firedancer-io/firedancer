@@ -26,11 +26,11 @@ struct fd_pack_private_ord_txn {
   uint         rewards;     /* in Lamports */
   uint         compute_est; /* in compute units */
 
-  /* The Red-Black tree fields */
-  ulong redblack_parent;
-  ulong redblack_left;
-  ulong redblack_right;
-  int   redblack_color;
+  /* The treap fields */
+  ulong parent;
+  ulong left;
+  ulong right;
+  ulong prio;
 
   /* Since this struct can be in one of several trees, it's helpful to
      store which tree.  This should be one of the FD_ORD_TXN_ROOT_*
@@ -40,7 +40,7 @@ struct fd_pack_private_ord_txn {
 typedef struct fd_pack_private_ord_txn fd_pack_ord_txn_t;
 
 /* What we want is that the payload starts at byte 0 of
-   fd_pack_ord_txn_t so taht the trick with the signature map works
+   fd_pack_ord_txn_t so that the trick with the signature map works
    properly.  GCC and Clang seem to disagree on the rules of offsetof.
    */
 FD_STATIC_ASSERT( offsetof( fd_pack_ord_txn_t, txn )==0UL, fd_pack_ord_txn_t );
@@ -83,6 +83,60 @@ struct fd_pack_sig_to_txn {
   fd_ed25519_sig_t const * key;
 };
 typedef struct fd_pack_sig_to_txn fd_pack_sig_to_txn_t;
+
+
+/* Returns 1 if x.rewards/x.compute < y.rewards/y.compute. Not robust. */
+#define COMPARE_WORSE(x,y) ( ((ulong)((x)->rewards)*(ulong)((y)->compute_est)) < ((ulong)((y)->rewards)*(ulong)((x)->compute_est)) )
+
+/* Declare all the data structures */
+
+
+/* Define the big max-"heap" that we pull transactions off to schedule.
+   The priority is given by reward/compute.  We may want to add in some
+   additional terms at a later point.  In order to cheaply remove nodes,
+   we actually use a treap.  */
+#define POOL_NAME       trp_pool
+#define POOL_T          fd_pack_ord_txn_t
+#define POOL_NEXT       parent
+#include "../../util/tmpl/fd_pool.c"
+
+#define TREAP_T         fd_pack_ord_txn_t
+#define TREAP_NAME      treap
+#define TREAP_QUERY_T   void *                                         /* We don't use query ... */
+#define TREAP_CMP(a,b)  (__extension__({ (void)(a); (void)(b); -1; })) /* which means we don't need to give a real
+                                                                          implementation to cmp either */
+#define TREAP_LT        COMPARE_WORSE
+#include "../../util/tmpl/fd_treap.c"
+
+
+/* Define a strange map where key and value are kind of the same
+   variable.  Essentially, it maps the contents to which the pointer
+   points to the value of the pointer. */
+#define MAP_NAME              sig2txn
+#define MAP_T                 fd_pack_sig_to_txn_t
+#define MAP_KEY_T             fd_ed25519_sig_t const *
+#define MAP_KEY_NULL          NULL
+#define MAP_KEY_INVAL(k)      !(k)
+#define MAP_MEMOIZE           0
+#define MAP_KEY_EQUAL(k0,k1)  (((!!(k0))&(!!(k1)))&&(!memcmp((k0),(k1), FD_TXN_SIGNATURE_SZ)))
+#define MAP_KEY_EQUAL_IS_SLOW 1
+#define MAP_KEY_HASH(key)     fd_uint_load_4( (key) ) /* first 4 bytes of signature */
+#include "../../util/tmpl/fd_map_dynamic.c"
+
+
+static const fd_acct_addr_t null_addr = { 0 };
+
+#define MAP_NAME              acct_uses
+#define MAP_T                 fd_pack_addr_use_t
+#define MAP_KEY_T             fd_acct_addr_t
+#define MAP_KEY_NULL          null_addr
+#define MAP_KEY_INVAL(k)      MAP_KEY_EQUAL(k, null_addr)
+#define MAP_KEY_EQUAL(k0,k1)  (!memcmp((k0).b,(k1).b, FD_TXN_ACCT_ADDR_SZ))
+#define MAP_KEY_EQUAL_IS_SLOW 1
+#define MAP_MEMOIZE           0
+#define MAP_KEY_HASH(key)     ((uint)fd_ulong_hash( fd_ulong_load_8( (key).b ) ))
+#include "../../util/tmpl/fd_map_dynamic.c"
+
 
 /* Finally, we can now declare the main pack data structure */
 struct fd_pack_private {
@@ -127,9 +181,9 @@ struct fd_pack_private {
      Unlike typical bucket queues, the buckets here form a ring, and
      each element of the ring is a tree. */
 
-  fd_pack_ord_txn_t * pending;
-  fd_pack_ord_txn_t * pending_votes;
-  fd_pack_ord_txn_t * delayed[ FD_PACK_MAX_GAP ]; /* bucket queue */
+  treap_t pending[1];
+  treap_t pending_votes[1];
+  treap_t delayed[ FD_PACK_MAX_GAP ]; /* bucket queue */
 
   fd_pack_addr_use_t   * read_in_use; /* Map from account address to microblock when it can be used */
   fd_pack_addr_use_t   * write_in_use;
@@ -138,57 +192,6 @@ struct fd_pack_private {
 };
 
 typedef struct fd_pack_private fd_pack_t;
-
-/* Declare all the data structures */
-
-
-/* Define the big max-"heap" that we pull transactions off to schedule.
-   The priority is given by reward/compute.  We may want to add in some
-   additional terms at a later point.  In order to cheaply remove nodes,
-   we actually use a red-black tree.  */
-
-#define REDBLK_T fd_pack_ord_txn_t
-#define REDBLK_NAME rb
-#include "../../util/tmpl/fd_redblack.c"
-
-/* Returns 1 if x.rewards/x.compute < y.rewards/y.compute. Not robust. */
-#define COMPARE_WORSE(x,y) ( ((ulong)((x)->rewards)*(ulong)((y)->compute_est)) < ((ulong)((y)->rewards)*(ulong)((x)->compute_est)) )
-
-long
-rb_compare( fd_pack_ord_txn_t * l,
-            fd_pack_ord_txn_t * r ) {
-  /* This depends on {l,r}->compute_est <= 1.4M, which is much less than
-     INT_MAX.  UINT_MAX*INT_MAX < LONG_MAX. */
-  return (long)l->rewards*(long)r->compute_est - (long)r->rewards*(long)l->compute_est;
-}
-
-/* Define a strange map where key and value are kind of the same
-   variable.  Essentially, it maps the contents to which the pointer
-   points to the value of the pointer. */
-#define MAP_NAME              sig2txn
-#define MAP_T                 fd_pack_sig_to_txn_t
-#define MAP_KEY_T             fd_ed25519_sig_t const *
-#define MAP_KEY_NULL          NULL
-#define MAP_KEY_INVAL(k)      !(k)
-#define MAP_MEMOIZE           0
-#define MAP_KEY_EQUAL(k0,k1)  (((!!(k0))&(!!(k1)))&&(!memcmp((k0),(k1), FD_TXN_SIGNATURE_SZ)))
-#define MAP_KEY_EQUAL_IS_SLOW 1
-#define MAP_KEY_HASH(key)     fd_uint_load_4( (key) ) /* first 4 bytes of signature */
-#include "../../util/tmpl/fd_map_dynamic.c"
-
-
-static const fd_acct_addr_t null_addr = { 0 };
-
-#define MAP_NAME              acct_uses
-#define MAP_T                 fd_pack_addr_use_t
-#define MAP_KEY_T             fd_acct_addr_t
-#define MAP_KEY_NULL          null_addr
-#define MAP_KEY_INVAL(k)      MAP_KEY_EQUAL(k, null_addr)
-#define MAP_KEY_EQUAL(k0,k1)  (!memcmp((k0).b,(k1).b, FD_TXN_ACCT_ADDR_SZ))
-#define MAP_KEY_EQUAL_IS_SLOW 1
-#define MAP_MEMOIZE           0
-#define MAP_KEY_HASH(key)     ((uint)fd_ulong_hash( fd_ulong_load_8( (key).b ) ))
-#include "../../util/tmpl/fd_map_dynamic.c"
 
 ulong
 fd_pack_footprint( ulong pack_depth,
@@ -207,11 +210,11 @@ fd_pack_footprint( ulong pack_depth,
 
   l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, FD_PACK_ALIGN,      sizeof(fd_pack_t)                      );
-  l = FD_LAYOUT_APPEND( l, rb_align(),         rb_footprint( pack_depth+1UL )         );
+  l = FD_LAYOUT_APPEND( l, trp_pool_align (),  trp_pool_footprint ( pack_depth+1UL )  );
   l = FD_LAYOUT_APPEND( l, acct_uses_align(),  acct_uses_footprint( lg_uses_tbl_sz )  );
   l = FD_LAYOUT_APPEND( l, acct_uses_align(),  acct_uses_footprint( lg_uses_tbl_sz )  );
   l = FD_LAYOUT_APPEND( l, acct_uses_align(),  acct_uses_footprint( lg_max_txn     )  );
-  l = FD_LAYOUT_APPEND( l, sig2txn_align(),    sig2txn_footprint( lg_depth )          );
+  l = FD_LAYOUT_APPEND( l, sig2txn_align  (),  sig2txn_footprint  ( lg_depth       )  );
   return FD_LAYOUT_FINI( l, FD_PACK_ALIGN );
 }
 
@@ -235,11 +238,11 @@ fd_pack_new( void *     mem,
   /* The pool has one extra element that is used between insert_init and
      cancel/fini. */
   fd_pack_t * pack   = FD_SCRATCH_ALLOC_APPEND( l,  FD_PACK_ALIGN,                  sizeof(fd_pack_t)                     );
-  void * _pool       = FD_SCRATCH_ALLOC_APPEND( l,  rb_align(),                     rb_footprint( pack_depth+1UL )        );
+  void * _pool       = FD_SCRATCH_ALLOC_APPEND( l,  trp_pool_align(),               trp_pool_footprint ( pack_depth+1UL ) );
   void * _uses_read  = FD_SCRATCH_ALLOC_APPEND( l,  acct_uses_align(),              acct_uses_footprint( lg_uses_tbl_sz ) );
   void * _uses_write = FD_SCRATCH_ALLOC_APPEND( l,  acct_uses_align(),              acct_uses_footprint( lg_uses_tbl_sz ) );
   void * _writer_cost= FD_SCRATCH_ALLOC_APPEND( l,  acct_uses_align(),              acct_uses_footprint( lg_max_txn     ) );
-  void * _sig_map    = FD_SCRATCH_ALLOC_APPEND( l,  sig2txn_align(),                sig2txn_footprint( lg_depth )         );
+  void * _sig_map    = FD_SCRATCH_ALLOC_APPEND( l,  sig2txn_align(),                sig2txn_footprint  ( lg_depth       ) );
 
   pack->pack_depth             = pack_depth;
   pack->gap                    = gap;
@@ -250,16 +253,20 @@ fd_pack_new( void *     mem,
   pack->cumulative_block_cost  = 0UL;
   pack->cumulative_vote_cost   = 0UL;
 
-  pack->pending = NULL;
-  pack->pending_votes = NULL;
-  fd_memset( pack->delayed, 0, sizeof(fd_pack_ord_txn_t*)*FD_PACK_MAX_GAP );
+  treap_new( (void*)pack->pending,       pack_depth );
+  treap_new( (void*)pack->pending_votes, pack_depth );
+  for( ulong i=0UL; i<FD_PACK_MAX_GAP; i++ ) treap_new( (void*)(pack->delayed+i), pack_depth );
 
 
-  rb_new(        _pool,        pack_depth+1UL );
+  trp_pool_new(  _pool,        pack_depth+1UL );
   acct_uses_new( _uses_read,   lg_uses_tbl_sz );
   acct_uses_new( _uses_write,  lg_uses_tbl_sz );
   acct_uses_new( _writer_cost, lg_max_txn     );
   sig2txn_new(   _sig_map,     lg_depth       );
+
+  fd_pack_ord_txn_t * pool = trp_pool_join( _pool );
+  treap_seed( pool, pack_depth+1UL, fd_rng_ulong( rng ) );
+  (void)trp_pool_leave( pool );
 
   return mem;
 }
@@ -280,11 +287,11 @@ fd_pack_join( void * mem ) {
   int lg_depth       = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*pack_depth         ) );
 
 
-  pack->pool          = rb_join(        FD_SCRATCH_ALLOC_APPEND( l,  rb_align(),        rb_footprint( pack_depth+1UL )        ) );
+  pack->pool          = trp_pool_join(  FD_SCRATCH_ALLOC_APPEND( l,  trp_pool_align(),  trp_pool_footprint ( pack_depth+1UL ) ) );
   pack->read_in_use   = acct_uses_join( FD_SCRATCH_ALLOC_APPEND( l,  acct_uses_align(), acct_uses_footprint( lg_uses_tbl_sz ) ) );
   pack->write_in_use  = acct_uses_join( FD_SCRATCH_ALLOC_APPEND( l,  acct_uses_align(), acct_uses_footprint( lg_uses_tbl_sz ) ) );
   pack->writer_costs  = acct_uses_join( FD_SCRATCH_ALLOC_APPEND( l,  acct_uses_align(), acct_uses_footprint( lg_max_txn     ) ) );
-  pack->signature_map = sig2txn_join(   FD_SCRATCH_ALLOC_APPEND( l,  sig2txn_align(),   sig2txn_footprint( lg_depth )         ) );
+  pack->signature_map = sig2txn_join(   FD_SCRATCH_ALLOC_APPEND( l,  sig2txn_align(),   sig2txn_footprint  ( lg_depth       ) ) );
 
   return pack;
 }
@@ -351,8 +358,8 @@ fd_pack_can_fee_payer_afford( fd_acct_addr_t const * acct_addr,
 
 
 
-fd_txn_p_t * fd_pack_insert_txn_init(   fd_pack_t * pack                   ) { return rb_acquire( pack->pool )->txn; }
-void         fd_pack_insert_txn_cancel( fd_pack_t * pack, fd_txn_p_t * txn ) { rb_release( pack->pool, (fd_pack_ord_txn_t*)txn ); }
+fd_txn_p_t * fd_pack_insert_txn_init(   fd_pack_t * pack                   ) { return trp_pool_ele_acquire( pack->pool )->txn; }
+void         fd_pack_insert_txn_cancel( fd_pack_t * pack, fd_txn_p_t * txn ) { trp_pool_ele_release( pack->pool, (fd_pack_ord_txn_t*)txn ); }
 
 void
 fd_pack_insert_txn_fini( fd_pack_t  * pack,
@@ -366,14 +373,14 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
   fd_acct_addr_t const * accts = fd_txn_get_acct_addrs( txn, payload );
 
   if( FD_UNLIKELY( !fd_pack_estimate_rewards_and_compute( txnp, ord ) ) ) {
-    rb_release( pack->pool, ord );
+    trp_pool_ele_release( pack->pool, ord );
     return;
   }
   /* Throw out transactions ... */
   /*           ... that are unfunded */
-  if( FD_UNLIKELY( !fd_pack_can_fee_payer_afford( accts, ord->rewards ) ) ) { rb_release( pack->pool, ord ); return; }
+  if( FD_UNLIKELY( !fd_pack_can_fee_payer_afford( accts, ord->rewards ) ) ) { trp_pool_ele_release( pack->pool, ord ); return; }
   /*           ... that are so big they'll never run */
-  if( FD_UNLIKELY( ord->compute_est >= FD_PACK_MAX_COST_PER_BLOCK       ) ) { rb_release( pack->pool, ord ); return; }
+  if( FD_UNLIKELY( ord->compute_est >= FD_PACK_MAX_COST_PER_BLOCK       ) ) { trp_pool_ele_release( pack->pool, ord ); return; }
 
   /* TODO: Add recent blockhash based expiry here */
 
@@ -384,24 +391,25 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
        insert the new transaction. Otherwise, we'll throw away this
        transaction. */
     /* TODO: Increment a counter to mark this is happening */
-    fd_pack_ord_txn_t * worst = rb_minimum( pack->pool, pack->pending );
+    fd_pack_ord_txn_t * worst = treap_fwd_iter_ele( treap_fwd_iter_init( pack->pending, pack->pool ), pack->pool );
     if( FD_UNLIKELY( !worst ) ) {
       /* We have nothing to sacrifice because they're all in other
          trees. */
-      rb_release( pack->pool, ord );
+      trp_pool_ele_release( pack->pool, ord );
       return;
     }
     else if( !COMPARE_WORSE( worst, ord ) ) {
       /* What we have in the tree is better than this transaction, so just
          pretend this transaction never happened */
-      rb_release( pack->pool, ord );
+      trp_pool_ele_release( pack->pool, ord );
       return;
     } else {
       /* Remove the worst from the tree */
       fd_ed25519_sig_t const * worst_sig = fd_txn_get_signatures( TXN( worst->txn ), worst->txn->payload );
       sig2txn_remove( pack->signature_map, sig2txn_query( pack->signature_map, worst_sig, NULL ) );
 
-      rb_release( pack->pool, rb_remove( pack->pool, &pack->pending, worst ) );
+      treap_ele_remove    ( pack->pending, worst, pack->pool );
+      trp_pool_ele_release( pack->pool,    worst             );
       pack->pending_txn_cnt--;
     }
   }
@@ -411,9 +419,9 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
   sig2txn_insert( pack->signature_map, fd_txn_get_signatures( txn, payload ) );
 
   if( FD_LIKELY( ord->root == FD_ORD_TXN_ROOT_PENDING_VOTE ) )
-    rb_insert( pack->pool, &pack->pending_votes, ord );
+    treap_ele_insert( pack->pending_votes, ord, pack->pool );
   else
-    rb_insert( pack->pool, &pack->pending,       ord );
+    treap_ele_insert( pack->pending,       ord, pack->pool );
 }
 
 typedef struct {
@@ -422,12 +430,12 @@ typedef struct {
 } sched_return_t;
 
 static inline sched_return_t
-fd_pack_schedule_next_microblock_impl( fd_pack_t         * pack,
-                                       fd_pack_ord_txn_t** root_ptr,
-                                       int                 move_delayed,
-                                       ulong               cu_limit,
-                                       ulong               txn_limit,
-                                       fd_txn_p_t        * out ) {
+fd_pack_schedule_next_microblock_impl( fd_pack_t  * pack,
+                                       treap_t    * sched_from,
+                                       int          move_delayed,
+                                       ulong        cu_limit,
+                                       ulong        txn_limit,
+                                       fd_txn_p_t * out ) {
 
   ulong                gap          = pack->gap;
   fd_pack_ord_txn_t  * pool         = pack->pool;
@@ -438,10 +446,12 @@ fd_pack_schedule_next_microblock_impl( fd_pack_t         * pack,
   ulong txns_scheduled = 0UL;
   ulong cus_scheduled  = 0UL;
 
-  fd_pack_ord_txn_t * cur = rb_maximum( pool, *root_ptr );
-  fd_pack_ord_txn_t * prev;
-  for(; !!cur & (cu_limit>=FD_PACK_MIN_TXN_COST) & (txn_limit>0); cur=prev ) {
-    prev = rb_predecessor( pool, cur );
+  treap_rev_iter_t prev;
+  for( treap_rev_iter_t _cur=treap_rev_iter_init( sched_from, pool );
+      (cu_limit>=FD_PACK_MIN_TXN_COST) & (txn_limit>0) & !treap_rev_iter_done( _cur ); _cur=prev ) {
+    prev = treap_rev_iter_next( _cur, pool );
+
+    fd_pack_ord_txn_t * cur = treap_rev_iter_ele( _cur, pool );
 
     fd_txn_t * txn = TXN(cur->txn);
     fd_acct_addr_t const * acct = fd_txn_get_acct_addrs( txn, cur->txn->payload );
@@ -525,16 +535,16 @@ fd_pack_schedule_next_microblock_impl( fd_pack_t         * pack,
       fd_pack_sig_to_txn_t * in_tbl = sig2txn_query( pack->signature_map, sig0, NULL );
       sig2txn_remove( pack->signature_map, in_tbl );
 
-      rb_remove( pool, root_ptr, cur );
-      rb_release( pool, cur );
+      treap_ele_remove( sched_from, cur, pool );
+      trp_pool_ele_release( pool, cur );
       pack->pending_txn_cnt--;
 
     } else if( move_delayed ) {
       delay_until = fd_ulong_min( delay_until, pack->microblock_cnt+FD_PACK_MAX_GAP );
       cur->root = FD_ORD_TXN_ROOT_DELAYED_BASE + (int)delay_until;
 
-      rb_remove( pool, root_ptr, cur );
-      rb_insert( pool, pack->delayed+(delay_until % FD_PACK_MAX_GAP), cur );
+      treap_ele_remove( sched_from,                                    cur, pool );
+      treap_ele_insert( pack->delayed+(delay_until % FD_PACK_MAX_GAP), cur, pool );
     }
   }
 
@@ -543,22 +553,6 @@ fd_pack_schedule_next_microblock_impl( fd_pack_t         * pack,
   return to_return;
 }
 
-static fd_pack_ord_txn_t *
-rb_merge( fd_pack_ord_txn_t * pool,
-          fd_pack_ord_txn_t ** dst_root,
-          fd_pack_ord_txn_t ** src_root ) {
-  /* TODO: Move this to fd_redblack and switch to the O(n)
-     implementation. */
-  fd_pack_ord_txn_t * nn;
-  for ( fd_pack_ord_txn_t* n = rb_minimum( pool, *src_root ); n; n = nn ) {
-    nn = rb_successor( pool, n );
-
-    rb_remove( pool, src_root, n );
-    rb_insert( pool, dst_root, n );
-  }
-
-  return *dst_root;
-}
 
 
 ulong
@@ -570,7 +564,7 @@ fd_pack_schedule_next_microblock( fd_pack_t *  pack,
 
   /* Move all the transactions that were delayed until now back into
      pending so they'll be reconsidered. */
-  rb_merge( pack->pool, &pack->pending, pack->delayed+(pack->microblock_cnt % FD_PACK_MAX_GAP) );
+  treap_merge( pack->pending, pack->delayed+(pack->microblock_cnt % FD_PACK_MAX_GAP), pack->pool );
 
 
   /* TODO: Decide if these are exactly how we want to handle limits */
@@ -586,7 +580,7 @@ fd_pack_schedule_next_microblock( fd_pack_t *  pack,
   sched_return_t status;
 
   /* Try to schedule non-vote transactions */
-  status = fd_pack_schedule_next_microblock_impl( pack, &pack->pending,       1, cu_limit, txn_limit,          out+scheduled );
+  status = fd_pack_schedule_next_microblock_impl( pack, pack->pending,       1, cu_limit, txn_limit,          out+scheduled );
 
   scheduled += status.txns_scheduled;
   txn_limit -= status.txns_scheduled;
@@ -595,7 +589,7 @@ fd_pack_schedule_next_microblock( fd_pack_t *  pack,
 
 
   /* Schedule vote transactions */
-  status = fd_pack_schedule_next_microblock_impl( pack, &pack->pending_votes, 0, vote_cus, vote_reserved_txns, out+scheduled );
+  status = fd_pack_schedule_next_microblock_impl( pack, pack->pending_votes, 0, vote_cus, vote_reserved_txns, out+scheduled );
 
   scheduled                   += status.txns_scheduled;
   pack->cumulative_vote_cost  += status.cus_scheduled;
@@ -606,7 +600,7 @@ fd_pack_schedule_next_microblock( fd_pack_t *  pack,
 
 
   /* Fill any remaining space with non-vote transactions */
-  status = fd_pack_schedule_next_microblock_impl( pack, &pack->pending,       1, cu_limit, txn_limit,          out+scheduled );
+  status = fd_pack_schedule_next_microblock_impl( pack, pack->pending,       1, cu_limit, txn_limit,          out+scheduled );
 
   scheduled                   += status.txns_scheduled;
   pack->cumulative_block_cost += status.cus_scheduled;
@@ -625,11 +619,23 @@ fd_pack_end_block( fd_pack_t * pack ) {
   pack->cumulative_block_cost = 0UL;
   pack->cumulative_vote_cost  = 0UL;
 
-  for( ulong i=0UL; i<FD_PACK_MAX_GAP; i++ ) rb_merge( pack->pool, &pack->pending, pack->delayed+i );
+  for( ulong i=0UL; i<FD_PACK_MAX_GAP; i++ ) treap_merge( pack->pending, pack->delayed+i, pack->pool );
 
   acct_uses_clear( pack->read_in_use  );
   acct_uses_clear( pack->write_in_use );
   acct_uses_clear( pack->writer_costs );
+}
+
+static void
+release_tree( treap_t           * treap,
+              fd_pack_ord_txn_t * pool ) {
+  treap_fwd_iter_t next;
+  for( treap_fwd_iter_t it=treap_fwd_iter_init( treap, pool ); !treap_fwd_iter_idx( it ); it=next ) {
+    next = treap_fwd_iter_next( it, pool );
+    ulong idx = treap_fwd_iter_idx( it );
+    treap_idx_remove    ( treap, idx, pool );
+    trp_pool_idx_release( pool,  idx       );
+  }
 }
 
 void
@@ -639,12 +645,9 @@ fd_pack_clear_all( fd_pack_t * pack ) {
   pack->cumulative_block_cost = 0UL;
   pack->cumulative_vote_cost  = 0UL;
 
-  rb_release_tree( pack->pool, pack->pending       );  pack->pending       = NULL;
-  rb_release_tree( pack->pool, pack->pending_votes );  pack->pending_votes = NULL;
-  for( ulong i=0UL; i<FD_PACK_MAX_GAP; i++ ) {
-    rb_release_tree( pack->pool, pack->delayed[i] );
-    pack->delayed[i] = NULL;
-  }
+  release_tree( pack->pending,       pack->pool );
+  release_tree( pack->pending_votes, pack->pool );
+  for( ulong i=0UL; i<FD_PACK_MAX_GAP; i++ ) { release_tree( pack->delayed+i, pack->pool ); }
 
   acct_uses_clear( pack->read_in_use  );
   acct_uses_clear( pack->write_in_use );
@@ -665,15 +668,16 @@ fd_pack_delete_transaction( fd_pack_t              * pack,
      the first element of the fd_pack_ord_txn_t struct.  The signature
      we insert is 1 byte into the start of the payload. */
   fd_pack_ord_txn_t * containing = (fd_pack_ord_txn_t *)( (uchar*)in_tbl->key - 1UL );
-  fd_pack_ord_txn_t ** root = NULL;
+  treap_t * root = NULL;
   int root_idx = containing->root;
   switch( root_idx ) {
     case FD_ORD_TXN_ROOT_FREE:          /* Should be impossible */                                    return 0;
-    case FD_ORD_TXN_ROOT_PENDING:       root = &pack->pending;                                        break;
-    case FD_ORD_TXN_ROOT_PENDING_VOTE:  root = &pack->pending_votes;                                  break;
+    case FD_ORD_TXN_ROOT_PENDING:       root = pack->pending;                                        break;
+    case FD_ORD_TXN_ROOT_PENDING_VOTE:  root = pack->pending_votes;                                  break;
     default:                            root = pack->delayed+(root_idx-FD_ORD_TXN_ROOT_DELAYED_BASE); break;
   }
-  rb_remove( pack->pool, root, containing );
+  treap_ele_remove( root, containing, pack->pool );
+  trp_pool_ele_release( pack->pool, containing );
   sig2txn_remove( pack->signature_map, in_tbl );
   pack->pending_txn_cnt--;
 
