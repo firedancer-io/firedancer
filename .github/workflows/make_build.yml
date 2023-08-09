@@ -12,7 +12,6 @@ jobs:
     strategy:
       matrix:
         compiler: [gcc, clang]
-    runs-on: [self-hosted, Linux, X64]
     env:
       CC: ${{ matrix.compiler }}
     steps:
