@@ -93,6 +93,19 @@ GADDR1=$("$BIN"/fd_wksp_ctl tag 1234 alloc "$WKSP" 4096 4096 || fail alloc $?)
 GADDR2=$("$BIN"/fd_wksp_ctl tag 1234 alloc "$WKSP" 4096 4096 || fail alloc $?)
 GADDR3=$("$BIN"/fd_wksp_ctl tag 2345 alloc "$WKSP" 4096 4096 || fail alloc $?)
 
+echo Testing info
+
+"$BIN"/fd_wksp_ctl info         && fail info $?
+"$BIN"/fd_wksp_ctl info "$WKSP" && fail info $?
+"$BIN"/fd_wksp_ctl info bad     1234 \
+                   info "$WKSP"    0 \
+                   info "$WKSP" 4096 \
+                   info "$WKSP"    2 \
+                   info "$WKSP" 1234 \
+                   info "$WKSP" 2345 \
+                   info "$WKSP" 1234 \
+|| fail info $? # Yes ... a fail here is success from cmd exec POV (fail is logged)
+
 echo Testing memset
 
 "$BIN"/fd_wksp_ctl memset              && fail memset $?
@@ -193,4 +206,3 @@ echo Testing multi
 echo pass
 echo Log N/A
 exit 0
-

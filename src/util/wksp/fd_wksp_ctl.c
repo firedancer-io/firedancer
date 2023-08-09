@@ -50,15 +50,15 @@ fprintf_wksp( FILE *      file,
      integrity checks */
 
   ulong cnt = 0UL;
- 
+
   if( FD_UNLIKELY( fd_wksp_private_lock( wksp ) ) ) { cnt++; TRAP( fprintf( file, "\tlock err\n" ) ); }
   else {
     ulong used_cnt = 0UL; ulong free_cnt = 0UL;
     ulong used_sz  = 0UL; ulong free_sz  = 0UL;
     ulong used_max = 0UL; ulong free_max = 0UL;
- 
+
     ulong cycle_tag = wksp->cycle_tag++;
- 
+
     ulong last_i  = FD_WKSP_PRIVATE_PINFO_IDX_NULL;
     ulong last_hi = gaddr_lo;
     ulong i       = fd_wksp_private_pinfo_idx( wksp->part_head_cidx );
@@ -66,13 +66,13 @@ fprintf_wksp( FILE *      file,
       if( FD_UNLIKELY( i>=part_max                     ) ) { cnt++; TRAP( fprintf( file, "\tindex err\n" ) ); break; }
       if( FD_UNLIKELY( pinfo[ i ].cycle_tag==cycle_tag ) ) { cnt++; TRAP( fprintf( file, "\tcycle err\n" ) ); break; }
       pinfo[ i ].cycle_tag = cycle_tag;
- 
+
       ulong lo  = pinfo[ i ].gaddr_lo;
       ulong hi  = pinfo[ i ].gaddr_hi;
       ulong tag = pinfo[ i ].tag;
       ulong sz  = hi - lo;
       ulong h   = fd_wksp_private_pinfo_idx( pinfo[ i ].prev_cidx );
- 
+
       int used = !!tag;
       if( used ) {
         used_cnt++;
@@ -83,22 +83,22 @@ fprintf_wksp( FILE *      file,
         free_sz += sz;
         if( sz>free_max ) free_max = sz;
       }
- 
+
       TRAP( fprintf( file, "\tpartition [0x%016lx,0x%016lx) sz %20lu tag %20lu idx %lu", lo, hi, sz, tag, i ) );
       if( FD_UNLIKELY( h !=last_i  ) ) { cnt++; TRAP( fprintf( file, ", link_err"     ) ); }
       if( FD_UNLIKELY( lo!=last_hi ) ) { cnt++; TRAP( fprintf( file, ", adjacent_err" ) ); }
       if( FD_UNLIKELY( lo>=hi      ) ) { cnt++; TRAP( fprintf( file, ", size_err"     ) ); }
       TRAP( fprintf( file, "\n" ) );
- 
+
       last_i  = i;
       last_hi = hi;
       i       = fd_wksp_private_pinfo_idx( pinfo[ i ].next_cidx );
     }
- 
+
     ulong j = fd_wksp_private_pinfo_idx( wksp->part_tail_cidx );
     if( FD_UNLIKELY(        j!=last_i  ) ) { cnt++; TRAP( fprintf( file, "\ttail err\n"       ) ); }
     if( FD_UNLIKELY( gaddr_hi!=last_hi ) ) { cnt++; TRAP( fprintf( file, "\tincomplete err\n" ) ); }
- 
+
     TRAP( fprintf( file, "\t%20lu bytes used (%20lu alloc(s), largest %20lu bytes)\n", used_sz, used_cnt, used_max ) );
     TRAP( fprintf( file, "\t%20lu bytes free (%20lu block(s), largest %20lu bytes)\n", free_sz, free_cnt, free_max ) );
 
@@ -213,6 +213,25 @@ main( int     argc,
 
       FD_LOG_NOTICE(( "%i: %s %s %lu %lu: success", cnt, cmd, name, align, sz ));
       SHIFT(3);
+
+    } else if( !strcmp( cmd, "info" ) ) {
+
+      if( FD_UNLIKELY( argc<2 ) ) FD_LOG_ERR(( "%i: %s: too few arguments\n\tDo %s help for help", cnt, cmd, bin ));
+
+      char const * name =                   argv[0];
+      ulong        tag  = fd_cstr_to_ulong( argv[1] );
+
+      fd_wksp_t * wksp = fd_wksp_attach( name ); /* logs details */
+      if( FD_LIKELY( wksp ) ) {
+        fd_wksp_tag_query_info_t info[1];
+        ulong tag_cnt = tag ? fd_wksp_tag_query( wksp, &tag, 1UL, info, 1UL ) : 0UL; /* logs details */
+        if( tag_cnt ) printf( "%s:%lu %lu\n", name, info->gaddr_lo, info->gaddr_hi - info->gaddr_lo );
+        else          printf( "- 0\n" );
+        fd_wksp_detach( wksp ); /* logs details */
+      }
+
+      FD_LOG_NOTICE(( "%i: %s %s %lu: success", cnt, cmd, name, tag ));
+      SHIFT(2);
 
     } else if( !strcmp( cmd, "free" ) ) {
 
@@ -410,4 +429,3 @@ main( int     argc,
 }
 
 #endif
-
