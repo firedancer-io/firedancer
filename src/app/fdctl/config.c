@@ -293,16 +293,11 @@ replace( char *       in,
     if( FD_UNLIKELY( total_len >= PATH_MAX ) )
       FD_LOG_ERR(( "configuration scratch directory path too long: `%s`", in ));
 
-    uchar after[PATH_MAX];
-    fd_memcpy( after, replace + pat_len, strlen( replace + pat_len ) );
+    fd_memcpy( replace + pat_len, replace + sub_len, in_len - (ulong)( replace - in ) - sub_len + 1 );
     fd_memcpy( replace, sub, sub_len );
-    ulong after_len = strlen( ( const char * ) after );
-    fd_memcpy( replace + sub_len, after, after_len );
     in[ total_len ] = '\0';
   }
 }
-
-
 
 static void
 config_parse_array( config_t * config,
@@ -374,7 +369,7 @@ config_parse_line( uint       lineno,
 static void
 config_parse1( const char * config,
                config_t *   out ) {
-  char section[ 4096 ];
+  char section[ 4096 ] = {0};
   char key[ 4096 ];
   uint lineno = 0;
   int in_array = 0;
@@ -407,7 +402,7 @@ config_parse_file( const char * path,
   char line[ 4096 ];
   char key[ 4096 ];
   int in_array = 0;
-  char section[ 4096 ];
+  char section[ 4096 ] = {0};
   while( FD_LIKELY( fgets( line, 4096, fp ) ) ) {
     lineno++;
     ulong len = strlen( line );
