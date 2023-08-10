@@ -31,6 +31,7 @@ struct fd_txn_p {
   uchar payload[FD_TPU_MTU];
   ulong payload_sz;
   ulong meta;
+  int   is_simple_vote; /* Populated by pack */
   /* union {
     This would be ideal but doesn't work because of the flexible array member
     uchar _[FD_TXN_MAX_SZ];

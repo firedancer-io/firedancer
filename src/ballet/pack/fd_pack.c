@@ -304,8 +304,7 @@ fd_pack_estimate_rewards_and_compute( fd_txn_p_t        * txnp,
   fd_txn_t * txn = TXN(txnp);
   ulong sig_rewards = FD_PACK_FEE_PER_SIGNATURE * txn->signature_cnt;
 
-  int is_simple_vote[1] = {0};
-  ulong cost = fd_pack_compute_cost( txnp, is_simple_vote );
+  ulong cost = fd_pack_compute_cost( txnp, &txnp->is_simple_vote );
 
   if( FD_UNLIKELY( !cost ) ) return 0;
 
@@ -331,7 +330,7 @@ fd_pack_estimate_rewards_and_compute( fd_txn_p_t        * txnp,
   out->rewards     = (adtl_rewards < (UINT_MAX - sig_rewards)) ? (uint)(sig_rewards + adtl_rewards) : UINT_MAX;
   out->compute_est = (uint)cost;
 
-  out->root = *is_simple_vote ? FD_ORD_TXN_ROOT_PENDING_VOTE : FD_ORD_TXN_ROOT_PENDING;
+  out->root = txnp->is_simple_vote ? FD_ORD_TXN_ROOT_PENDING_VOTE : FD_ORD_TXN_ROOT_PENDING;
 
 #if DETAILED_LOGGING
   FD_LOG_NOTICE(( "TXN estimated compute %lu+-%f. Rewards: %lu + %lu", compute_expected, (double)compute_variance, sig_rewards, adtl_rewards ));
