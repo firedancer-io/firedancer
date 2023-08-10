@@ -111,7 +111,7 @@ fetch () {
 }
 
 check_fedora_pkgs () {
-  local REQUIRED_RPMS=( perl autoconf gettext-devel automake flex bison cmake )
+  local REQUIRED_RPMS=( perl autoconf gettext-devel automake flex bison cmake clang )
 
   echo "[~] Checking for required RPM packages"
 
@@ -304,6 +304,7 @@ install_openssl () {
   ./config \
     -static \
     --prefix="$PREFIX" \
+    --libdir=lib \
     enable-quic \
     no-engine \
     no-static-engine \
@@ -419,6 +420,10 @@ install () {
   #( install_secp256k1 )
   ( install_openssl   )
   #( install_rocksdb   )
+
+  # Remove cmake and pkgconfig files, so we don't accidentally
+  # depend on them.
+  rm -rf ./opt/lib/cmake ./opt/lib/pkgconfig
 
   echo "[~] Done!"
 }
