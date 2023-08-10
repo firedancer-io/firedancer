@@ -904,7 +904,7 @@ int fd_quic_retry_token_decrypt(
 ) {
   /* Regenerate the AEAD key (the HKDF key is the first 32 bytes of the token). */
   uchar * hkdf_key = retry_token;
-  uchar   aead_key[FD_QUIC_RETRY_TOKEN_AEAD_KEY_SZ];
+  uchar   aead_key[FD_QUIC_RETRY_TOKEN_AEAD_KEY_SZ] = { 0 };
   fd_quic_hkdf_expand_label(
       aead_key,
       FD_QUIC_RETRY_TOKEN_AEAD_KEY_SZ,
@@ -919,6 +919,7 @@ int fd_quic_retry_token_decrypt(
   uchar * ciphertext = hkdf_key + FD_QUIC_RETRY_TOKEN_HKDF_KEY_SZ;
   ulong   aad_sz     = (ulong)FD_QUIC_RETRY_TOKEN_AAD_PREFIX_SZ + retry_src_conn_id->sz;
   uchar   aad[aad_sz];
+  memset( aad, 0, aad_sz );
   memcpy( aad, &ip_addr, sizeof( uint ) );
   memcpy( aad + sizeof( uint ), &udp_port, sizeof( ushort ) );
   memcpy( aad + sizeof( uint ) + sizeof( ushort ), &retry_src_conn_id->sz, sizeof( uchar ) );
@@ -931,7 +932,7 @@ int fd_quic_retry_token_decrypt(
   }
   uchar   iv[FD_QUIC_NONCE_SZ] = { 0 };
   uchar * tag                  = ciphertext + FD_QUIC_RETRY_TOKEN_CIPHERTEXT_SZ;
-  uchar   plaintext[FD_QUIC_RETRY_TOKEN_PLAINTEXT_SZ];
+  uchar   plaintext[FD_QUIC_RETRY_TOKEN_PLAINTEXT_SZ] = { 0 };
   if ( FD_UNLIKELY(
            gcm_decrypt(
                EVP_aes_256_gcm(),
