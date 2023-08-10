@@ -1422,6 +1422,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
         ulong issued;
         if (FD_UNLIKELY(fd_quic_retry_token_decrypt((uchar *) initial->token, &retry_src_conn_id, dst_ip_addr, dst_udp_port, &retry_odcid, &issued))) {
           quic->metrics.conn_err_retry_fail_cnt++;
+          fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_INVALID_TOKEN );
           return FD_QUIC_PARSE_FAIL;
         };
         tp->original_destination_connection_id_len     = retry_odcid.sz;
@@ -1431,6 +1432,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
         ulong now = fd_quic_now(quic);
         if ( FD_UNLIKELY( now < issued || ( now - issued ) > FD_QUIC_RETRY_TOKEN_LIFETIME ) ) {
           quic->metrics.conn_err_retry_fail_cnt++;
+          fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_INVALID_TOKEN );
           return FD_QUIC_PARSE_FAIL;
         }
         quic->metrics.conn_retry_cnt++;
