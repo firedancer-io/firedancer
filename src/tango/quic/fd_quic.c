@@ -1183,8 +1183,20 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
   ulong rc = fd_quic_decode_initial( initial, cur_ptr, cur_sz );
   if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) return FD_QUIC_PARSE_FAIL;
 
-  if ( FD_UNLIKELY( ( quic->config.role == FD_QUIC_ROLE_CLIENT || !quic->config.retry ) &&
-                    initial->token_len > 0 ) ) {
+  /* Check it is valid for a token to be present in an initial packet in the current context.
+
+     quic->config.role == FD_QUIC_ROLE_CLIENT
+     - Indicates the client received an initial packet with a token from a server. "Initial packets
+     sent by the server MUST set the Token Length field to 0; clients that receive an Initial packet
+     with a non-zero Token Length field MUST either discard the packet or generate a connection
+     error of type PROTOCOL_VIOLATION (RFC 9000, Section 17.2.2)"
+
+     quic->config.retry == false
+     - Indicates the server is not configured to retry, but a client attached a token to this
+     initial packet. NEW_TOKEN frames are not supported, so this implementation treats the presence
+     of a token when retry is disabled as an error. */
+  if ( FD_UNLIKELY( initial->token_len > 0 &&
+                    ( quic->config.role == FD_QUIC_ROLE_CLIENT || !quic->config.retry ) ) ) {
     return FD_QUIC_PARSE_FAIL;
   }
 
