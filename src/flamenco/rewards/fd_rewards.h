@@ -6,6 +6,8 @@
 #include "../runtime/sysvar/fd_sysvar.h"
 #include "../runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../stakes/fd_stakes.h"
+#include "../stakes/fd_stake_program.h"
+#include "../runtime/program/fd_vote_program.h"
 
 FD_PROTOTYPES_BEGIN
 
@@ -50,6 +52,26 @@ struct partitioned_rewards_calculation {
     ulong capitalization;
 };
 typedef struct partitioned_rewards_calculation partitioned_rewards_calculation_t;
+
+struct fd_point_value {
+  ulong rewards;
+  __uint128_t points;
+};
+typedef struct fd_point_value fd_point_value_t;
+
+struct fd_calculated_stake_rewards{
+  ulong staker_rewards;
+  ulong voter_rewards;
+  ulong new_credits_observed;
+};
+typedef struct fd_calculated_stake_rewards fd_calculated_stake_rewards_t;
+
+struct fd_calculate_stake_points {
+  __uint128_t points;
+  ulong new_credits_observed;
+  uint force_credits_update_with_skipped_reward;
+};
+typedef struct fd_calculate_stake_points fd_calculate_stake_points_t;
 
 FD_PROTOTYPES_END
 
