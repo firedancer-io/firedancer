@@ -42,8 +42,9 @@
 
 #define FD_EPOCH_LEN_MIN (32UL)
 
-/* FD_EPOCH_LEN_MIN_TRA*/
+/* FD_EPOCH_LEN_MIN_TRAILING_ZERO stores the number of trailing zeroes of FD_EPOCH_LEN_MIN */
 #define FD_EPOCH_LEN_MIN_TRAILING_ZERO (5UL)
+
 /* FD_EPOCH_LEN_MAX is an implementation-defined epoch size limit.
    Technically, there is no epoch length limit (other than the max slot
    number ULONG_MAX).  We enforce a limit regardless to prevent overflow

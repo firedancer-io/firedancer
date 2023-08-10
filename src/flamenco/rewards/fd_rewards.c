@@ -90,7 +90,15 @@ calculate_previous_epoch_inflation_rewards(
 
 /// Calculates epoch reward points from stake/vote accounts.
 /// Returns reward lamports and points for the epoch or none if points == 0.
-void calculate_reward_points_partitioned() {
+void calculate_reward_points_partitioned(
+    fd_global_ctx_t * global,
+    fd_firedancer_banks_t * bank,
+    ulong rewards
+) {
+    // global->solana_vote_program
+    (void) global;
+    (void) bank;
+    (void) rewards;
 
 }
 

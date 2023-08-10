@@ -1870,3 +1870,29 @@ fd_vote_acc_credits( fd_global_ctx_t* global, fd_pubkey_t * vote_acc, ulong* res
 
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
+
+/// returns commission split as (voter_portion, staker_portion, was_split) tuple
+///
+///  if commission calculation is 100% one way or other, indicate with false for was_split
+void fd_vote_commission_split(
+  fd_vote_state_t * vote_state,
+  ulong on,
+  fd_commission_split_t * result
+) {
+  uint commission = fd_uint_min(*((uint *) (&vote_state->commission)), 100);
+  result->is_split = (commission != 0 && commission !=100);
+  if (commission == 0) {
+    result->voter_portion = 0;
+    result->staker_portion = on;
+    return;
+  }
+  if (commission == 100) {
+    result->voter_portion = on;
+    result->staker_portion = 0;
+    return;
+  }
+  /* Note: order of operations may matter for int division. That's why I didn't make the optimization of getting out the common calculations */
+  result->voter_portion = (ulong)( (__uint128_t)on * (__uint128_t) commission / (__uint128_t)100 );
+  result->staker_portion = (ulong)( (__uint128_t)on * (__uint128_t) (100-commission) / (__uint128_t)100 );
+  return;
+}

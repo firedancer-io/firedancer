@@ -54,6 +54,19 @@ fd_vote_load_account( fd_vote_state_versioned_t * account,
                       fd_global_ctx_t *           global,
                       fd_pubkey_t const *         address );
 
+struct fd_commission_split {
+    ulong voter_portion;
+    ulong staker_portion;
+    uint is_split;
+};
+typedef struct fd_commission_split fd_commission_split_t;
+
+void fd_vote_commission_split(
+  fd_vote_state_t * vote_state,
+  ulong on,
+  fd_commission_split_t * result
+);
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_program_fd_vote_program_h */
