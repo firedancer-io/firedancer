@@ -95,6 +95,10 @@ typedef void
                                          void *             context  );
 
 typedef void
+(* fd_quic_tls_cb_verify_t)( int        preverify_ok,
+                             X509_STORE_CTX *   ctx );
+
+typedef void
 (* fd_quic_tls_cb_keylog_t)( fd_quic_tls_hs_t * hs,
                              char const *       line );
 
@@ -112,6 +116,7 @@ struct fd_quic_tls_cfg {
   fd_quic_tls_cb_alert_t               alert_cb;
   fd_quic_tls_cb_secret_t              secret_cb;
   fd_quic_tls_cb_handshake_complete_t  handshake_complete_cb;
+  fd_quic_tls_cb_verify_t              verify_cb;
   fd_quic_tls_cb_keylog_t              keylog_cb;
 
   ulong          max_concur_handshakes;
@@ -125,6 +130,12 @@ struct fd_quic_tls_cfg {
 
   uchar const *  alpns;                 /* ALPNs */
   uint           alpns_sz;              /* number of bytes... see ALPN spec */
+
+  /* see `fd_quic.h` or `fd_quic_tls_verify_cb` for docs on these verify params  */
+  int verify_peer; 
+  int verify_depth;
+  int verify_strict;
+  int verify_self_signed;
 };
 
 /* structure for organising handshake data */
@@ -150,6 +161,14 @@ struct fd_quic_tls {
   fd_quic_tls_cb_handshake_complete_t  handshake_complete_cb;
   fd_quic_tls_cb_keylog_t              keylog_cb;
 
+  int keylog_fd; /* Regular file descriptor for key logging. Owned by fd_quic. */
+
+  /* see `fd_quic.h` or `fd_quic_tls_verify_cb` for docs on these verify params  */
+  int verify_peer; 
+  int verify_depth;
+  int verify_strict;
+  int verify_self_signed;
+
   ulong                                max_concur_handshakes;
 
   /* array of (max_concur_handshakes) pre-allocated handshakes */
@@ -159,9 +178,6 @@ struct fd_quic_tls {
   /* ssl related */
   SSL_CTX *                            ssl_ctx;
 
-  /* Regular file descriptor for key logging.
-     Owned by fd_quic. */
-  int keylog_fd;
 
   /* ALPNs in OpenSSL length-prefixed list format */
   uchar const * alpns;
@@ -349,10 +365,33 @@ fd_quic_tls_get_peer_transport_params( fd_quic_tls_hs_t * self,
                                        uchar const **     transport_params,
                                        ulong *            transport_params_sz );
 
-/* get pubkey */
+/* fd_quic_tls_get_pubkey
+   
+   get the pubkey from an X509 certificate, checking it for validity, and
+   returns the OpenSSL SSL_get_verify_result return code.
+
+   the application can decide how to process the return code accordingly.
+   for example, X509_V_ERR_DEPTH_ZERO_SELF_SIGNED_CERT is treated as an error
+   by OpenSSL, but the application can choose to make it allowable. */
 int
-fd_quic_tls_get_pubkey( fd_quic_tls_hs_t * self, uchar * pubkey, ulong pubkey_sz );
+fd_quic_tls_get_pubkey( fd_quic_tls_hs_t * self,
+                        uchar * pubkey,
+                        ulong pubkey_sz );
+
+/* fd_quic_tls_verify_cb is called by OpenSSL when verifying the peer cert.
+
+   By default, OpenSSL will fail the handshake of verify fails. This will
+   instead continue the handshake even if verify fails.
+   
+   This is useful, for example, for an application that wants to treat
+   unverified connections as unauthenticated).
+
+   verify_peer   sets SSL_VERIFY_PEER flag. if server, sends a client cert request.
+   verify_depth  sets the maximum allowable depth of a cert chain when verifying.
+   verify_strict sets whether to fail the handshake if cert verification fails. 
+ */
+int
+fd_quic_tls_always_continue_verify_cb( int preverify_ok,
+                                       X509_STORE_CTX * ctx );
 
 #endif /* HEADER_fd_src_tango_quic_tls_fd_quic_tls_h */
-
-

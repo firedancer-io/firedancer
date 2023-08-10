@@ -1,12 +1,16 @@
 #include "fd_quic_tls.h"
 #include "../fd_quic_private.h"
 #include "../../../util/fd_util.h"
+#include "fd_quic_tls_enum.h"
 
+#include <complex.h>
 #include <openssl/ssl.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/uio.h>
 #include <openssl/err.h>
+
+#define FD_DEBUG_MODE 1
 
 /* internal callbacks */
 int
@@ -159,6 +163,11 @@ fd_quic_tls_new( void *              mem,
   /* keep pointer to ALPNs */
   self->alpns    = cfg->alpns;
   self->alpns_sz = cfg->alpns_sz;
+
+  self->verify_peer        = cfg->verify_peer;
+  self->verify_depth       = cfg->verify_depth;
+  self->verify_strict      = cfg->verify_strict;
+  self->verify_self_signed = cfg->verify_self_signed;
 
   return self;
 }
@@ -749,8 +758,19 @@ fd_quic_create_context( fd_quic_tls_t * quic_tls,
   }
   EVP_PKEY_free( pkey );
 
-  /* set verification */
-  //SSL_CTX_set_verify( ctx, SSL_VERIFY_PEER, NULL );
+  /* Set verify.
+  
+     For a client, verifies the server cert.
+     For a server, sends a client cert request and verifies.
+     
+     See: https://www.openssl.org/docs/man3.0/man3/SSL_CTX_set_verify.html */
+  // SSL_CTX_set_verify( ctx, SSL_VERIFY_PEER | SSL_VERIFY_CLIENT_ONCE, NULL );
+  SSL_CTX_set_verify( ctx, SSL_VERIFY_PEER | SSL_VERIFY_CLIENT_ONCE, fd_quic_tls_always_continue_verify_cb );
+  // if (quic_tls->verify_peer) {
+  //   if (quic_tls->verify_strict) SSL_CTX_set_verify( ctx, SSL_VERIFY_PEER | SSL_VERIFY_CLIENT_ONCE, NULL );
+  //   else SSL_CTX_set_verify( ctx, SSL_VERIFY_PEER | SSL_VERIFY_CLIENT_ONCE, fd_quic_tls_always_continue_verify_cb );
+  //   SSL_CTX_set_verify_depth( ctx, quic_tls->verify_depth + 1 ); /* OpenSSL default is 100 */
+  // }
 
   /* solana actual: "solana-tpu" */
   ERR_clear_error();
@@ -856,11 +876,40 @@ fd_quic_tls_get_peer_transport_params( fd_quic_tls_hs_t * self,
 
 int
 fd_quic_tls_get_pubkey( fd_quic_tls_hs_t * self, uchar * pubkey, ulong pubkey_sz ) {
-  EVP_PKEY * pubkey_ = X509_get_pubkey( SSL_get_peer_certificate( self->ssl ) );
-  FD_TEST( pubkey_ != NULL );
-  if ( FD_LIKELY( EVP_PKEY_get_raw_public_key( pubkey_, pubkey, &pubkey_sz ) ) ) {
-    EVP_PKEY_free( pubkey_ );
-    return FD_QUIC_TLS_SUCCESS;
-  };
-  return FD_QUIC_TLS_FAILED;
+  X509 * client_cert   = SSL_get_peer_certificate( self->ssl );
+  if ( FD_LIKELY( client_cert ) ) { /* optimize for peers that present cert */
+    EVP_PKEY * pubkey_ = X509_get_pubkey( client_cert );
+    if ( FD_LIKELY( pubkey_ && EVP_PKEY_get_raw_public_key( pubkey_, pubkey, &pubkey_sz ) ) ) {
+      EVP_PKEY_free( pubkey_ );
+    }
+    FD_DEBUG(
+        else { FD_LOG_WARNING( ( "Failed to get public key %s", fd_quic_tls_strerror() ) ); } );
+  }
+  FD_DEBUG(
+      else { FD_LOG_WARNING( ( "Failed to get peer certificate %s", fd_quic_tls_strerror() ) ); } );
+  return (int)SSL_get_verify_result( self->ssl );
+}
+
+int
+fd_quic_tls_always_continue_verify_cb( int preverify_ok,
+                                       X509_STORE_CTX * ctx ) {
+  int err   = X509_STORE_CTX_get_error( ctx );
+  int depth = X509_STORE_CTX_get_error_depth( ctx );
+
+  /* clang-format off */
+    if ( FD_UNLIKELY( !preverify_ok ) ) {
+      FD_DEBUG( FD_LOG_WARNING( ( "client verification failed: num=%d reason=%s depth=%d. continuing anyways.",
+                                  err,
+                                  X509_verify_cert_error_string( err ),
+                                  depth ) ) );
+    }
+
+    if ( depth > 0 ) {
+      FD_DEBUG( FD_LOG_WARNING(
+          ( "client certificate verify depth: %d too long. certificates should be self-signed",
+            depth ) ) );
+      X509_STORE_CTX_set_error( ctx, X509_V_ERR_CERT_CHAIN_TOO_LONG );
+    }
+  /* clang-format on */
+  return 1; /* always continue even if client verify fails; just treat the connection as 0 stake */
 }
