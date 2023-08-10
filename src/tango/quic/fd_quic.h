@@ -86,6 +86,7 @@
 
 #include "../aio/fd_aio.h"
 #include "../../util/fd_util.h"
+#include <openssl/types.h>
 
 /* FD_QUIC_API marks public API declarations.  No-op for now. */
 #define FD_QUIC_API
@@ -178,6 +179,11 @@ struct __attribute__((aligned(16UL))) fd_quic_config {
 
   ulong initial_rx_max_stream_data; /* per-stream, rx buf sz in bytes, set by the user. */
 
+  int verify_peer;        /* sets SSL_VERIFY_PEER flag. if server, sends a client cert request. */
+  int verify_depth;       /* sets the maximum allowable depth of a cert chain when verifying. */
+  int verify_strict;      /* sets whether to fail the handshake if cert verification fails.  */
+  int verify_self_signed; /* sets whether to allow self-signed certs */
+
   /* Network config ****************************************/
 
   struct { /* Link layer config */
@@ -215,12 +221,6 @@ typedef struct fd_quic_config fd_quic_config_t;
 /* Note: QUIC library invokes callbacks during RX or service.  Callback
    may only invoke fd_quic API methods labelled CB-safe.  Callbacks are
    not re-entrant. */
-
-/* fd_quic_conn_evict_t: server received a new conn when there are
-   no available connections and needs to evict one. */
-typedef void
-(* fd_quic_cb_conn_evict_t)( fd_quic_conn_t * conn,
-                             void * quic_ctx );
 
 /* fd_quic_cb_conn_new_t: server received a new conn and completed
    handshakes. */
@@ -328,14 +328,14 @@ struct fd_quic_metrics {
   ulong net_tx_byte_cnt; /* total bytes sent */
 
   /* Conn metrics */
-  long  conn_active_cnt;         /* number of active conns */
-  ulong conn_created_cnt;        /* number of conns created */
-  ulong conn_closed_cnt;         /* number of conns gracefully closed */
-  ulong conn_aborted_cnt;        /* number of conns aborted */
-  ulong conn_retry_cnt;          /* number of conns established with retry */
-  ulong conn_err_no_slots_cnt;   /* number of conns that failed to create due to lack of slots */
-  ulong conn_err_tls_fail_cnt;   /* number of conns that aborted due to TLS failure */
-  ulong conn_err_retry_fail_cnt; /* number of conns that failed during retry (e.g. invalid token) */
+  long  conn_active_cnt;          /* number of active conns */
+  ulong conn_created_cnt;         /* number of conns created */
+  ulong conn_closed_cnt;          /* number of conns gracefully closed */
+  ulong conn_aborted_cnt;         /* number of conns aborted */
+  ulong conn_retry_cnt;           /* number of conns established with retry */
+  ulong conn_err_no_slots_cnt;    /* number of conns that failed to create due to lack of slots */
+  ulong conn_err_tls_fail_cnt;    /* number of conns that aborted due to TLS failure */
+  ulong conn_err_retry_fail_cnt;  /* number of conns that failed during retry (e.g. invalid token) */
 
   /* Handshake metrics */
   ulong hs_created_cnt;          /* number of handshake flows created */

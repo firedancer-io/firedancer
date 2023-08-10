@@ -22,21 +22,48 @@
 
 /* Configurable limits */
 struct fd_quic_qos_limits {
-  ulong min_streams;    /* the min # of concurrent streams that can be alloted to a single conn */
-  ulong max_streams;    /* the max # of concurrent streams that can be alloted to a single conn */
-  ulong total_streams;  /* the total # of streams that can be alloted across all conns */
-  int   pq_lg_slot_cnt; /* the lg max # of "prioritized" conns. stake-based (priority) eviction. */
-  ulong lru_depth;      /* the lg max # of "unprioritzed" conns. LRU eviction. */
+  ulong min_streams;     /* the min # of concurrent streams that can be alloted to a single conn */
+  ulong max_streams;     /* the max # of concurrent streams that can be alloted to a single conn */
+  ulong total_streams;   /* the total # of streams that can be alloted across all conns */
+  int   pq_lg_slot_cnt;  /* the lg max # of "prioritized" conns. stake-based (priority) eviction. */
+  ulong lru_depth;       /* the lg max # of "unprioritzed" conns. LRU eviction. */
+  int   cnt_lg_slot_cnt; /* the lg max # of origins (pubkey or IpV4) we track conn cnts. */
+  ulong cnt_max_conns;   /* the max # of conns allowed per conn origin key. */
 };
 typedef struct fd_quic_qos_limits fd_quic_qos_limits_t;
 
 struct fd_quic_qos_pq {
-  ulong            key; /* local pointer to conn */
-  uint             hash;
+  ulong             key; /* conn->local_conn_id */
+  uint              hash;
+  fd_quic_conn_t *  conn;
+  fd_stake_pubkey_t pubkey;
 };
 typedef struct fd_quic_qos_pq fd_quic_qos_pq_t;
 #define MAP_NAME fd_quic_qos_pq
 #define MAP_T    fd_quic_qos_pq_t
+#include "../../util/tmpl/fd_map_dynamic.c"
+
+union fd_quic_qos_cnt_key {
+  fd_stake_pubkey_t pubkey;
+  uint              ip4_addr;
+};
+typedef union fd_quic_qos_cnt_key fd_quic_qos_cnt_key_t;
+static fd_quic_qos_cnt_key_t      cnt_key_null = { 0 };
+
+struct fd_quic_qos_cnt {
+  fd_quic_qos_cnt_key_t key;
+  uint                  hash;
+  ulong                 count;
+};
+typedef struct fd_quic_qos_cnt fd_quic_qos_cnt_t;
+#define MAP_NAME                fd_quic_qos_cnt
+#define MAP_T                   fd_quic_qos_cnt_t
+#define MAP_KEY_T               fd_quic_qos_cnt_key_t
+#define MAP_KEY_NULL            cnt_key_null
+#define MAP_KEY_INVAL( k )      !( memcmp( &k, &cnt_key_null, sizeof( fd_quic_qos_cnt_key_t ) ) )
+#define MAP_KEY_EQUAL( k0, k1 ) !( memcmp( ( &k0 ), ( &k1 ), sizeof( fd_quic_qos_cnt_key_t ) ) )
+#define MAP_KEY_EQUAL_IS_SLOW   1
+#define MAP_KEY_HASH( key )     ( (uint)( fd_hash( 0UL, &key, sizeof( fd_quic_qos_cnt_key_t ) ) ) )
 #include "../../util/tmpl/fd_map_dynamic.c"
 
 struct fd_quic_qos {
@@ -51,6 +78,8 @@ struct fd_quic_qos {
    * it is not strictly the case: a staked connection will end up in the LRU if it doesn't meet the
    * threshold to evict from the pq. */
   fd_lru_t * lru;
+  /* counter of connections for a given pubkey / IPv4 address */
+  fd_quic_qos_cnt_t * cnt;
 };
 typedef struct fd_quic_qos fd_quic_qos_t;
 
@@ -72,7 +101,11 @@ fd_quic_qos_join( void * mem );
  streams (client-initiated, unidirectional) to allocate to this conn. It is designed to work with
  fd_quic's conn_new callback */
 void
-fd_quic_qos_conn_new( fd_quic_qos_t * qos, fd_stake_t * stake, fd_rng_t * rng, fd_quic_conn_t * conn );
+fd_quic_qos_conn_new( fd_quic_qos_t *     qos,
+                      fd_stake_t *        stake,
+                      fd_rng_t *          rng,
+                      fd_quic_conn_t *    conn,
+                      fd_stake_pubkey_t * pubkey );
 
 /* fd_quic_qos_pq_upsert upserts conn into the pq map.
 
@@ -82,7 +115,11 @@ fd_quic_qos_conn_new( fd_quic_qos_t * qos, fd_stake_t * stake, fd_rng_t * rng, f
      - If it finds a candidate, it will evict and return candidate, and insert the incoming conn.
      - Otherwise, it will return the incoming conn itself. */
 fd_quic_conn_t *
-fd_quic_qos_pq_conn_upsert( fd_quic_qos_t * qos, fd_stake_t * stake, fd_rng_t * rng, fd_quic_conn_t * conn );
+fd_quic_qos_pq_conn_upsert( fd_quic_qos_t *     qos,
+                            fd_stake_t *        stake,
+                            fd_rng_t *          rng,
+                            fd_quic_conn_t *    conn,
+                            fd_stake_pubkey_t * pubkey );
 
 FD_PROTOTYPES_END
 

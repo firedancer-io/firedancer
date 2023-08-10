@@ -1,3 +1,4 @@
+#include "fd_quic_common.h"
 #include "fd_quic_private.h"
 #include "fd_quic_conn.h"
 #include "fd_quic_conn_map.h"
@@ -270,7 +271,6 @@ fd_quic_set_aio_net_tx( fd_quic_t *      quic,
   }
 }
 
-
 /* initialize everything that mutates during runtime */
 static void
 fd_quic_stream_init( fd_quic_stream_t * stream ) {
@@ -486,11 +486,11 @@ fd_quic_init( fd_quic_t * quic ) {
     .handshake_complete_cb = fd_quic_tls_cb_handshake_complete,
     .keylog_cb             = fd_quic_tls_cb_keylog,
 
+    .keylog_fd             = keylog_fd,
+
     /* set up alpn */
     .alpns                 = (uchar const *)config->alpns,
     .alpns_sz              = config->alpns_sz,
-
-    .keylog_fd             = keylog_fd
   };
   tls_cfg.cert     = (X509 *)    quic->cert_object;     quic->cert_object     = NULL;
   tls_cfg.cert_key = (EVP_PKEY *)quic->cert_key_object; quic->cert_key_object = NULL;
@@ -1270,8 +1270,13 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
       }
 
       /* Early check: Is conn free? */
-
-      if( !state->conns ) {
+      if ( FD_UNLIKELY( !state->conns ) ) {
+        /* attempt to service any pending closes to free a conn. for example, an application may
+           have evicted an old conn as part of cb.conn_new */
+        FD_DEBUG( FD_LOG_DEBUG( ( "fd_quic_conn_create: no free conn slots so calling service" ) ) );
+        fd_quic_service( quic );
+      }
+      if ( FD_UNLIKELY( !state->conns ) ) {
         FD_DEBUG( FD_LOG_DEBUG(( "ignoring conn request: no free conn slots" )) );
         quic->metrics.conn_err_no_slots_cnt++;
         return FD_QUIC_PARSE_FAIL; /* FIXME better error code? */
@@ -4469,17 +4474,7 @@ fd_quic_conn_service( fd_quic_t * quic, fd_quic_conn_t * conn, ulong now ) {
             conn->state = FD_QUIC_CONN_STATE_ACTIVE;
 
             /* user callback */
-            if ( !fd_quic_get_state(quic)->conns ) {
-              /* attempt to gracefully close by sending an abort */
-              fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_NO_ERROR );
-              fd_quic_conn_tx( quic, conn );
-              /* FIXME this will forcefully close regardless of the above. The reason we need to do
-               * this is because the connection needs to be free before proceeding. */
-              conn->state = FD_QUIC_CONN_STATE_DEAD;
-              quic->metrics.conn_aborted_cnt++;
-              fd_quic_cb_conn_final( quic, conn ); /* inform user before freeing */
-              fd_quic_conn_free( quic, conn );
-            }
+            FD_LOG_NOTICE(("conn acquire %p", (void *)conn));
             fd_quic_cb_conn_new( quic, conn );
           }
         }
@@ -4622,6 +4617,7 @@ fd_quic_conn_free( fd_quic_t *      quic,
   }
 
   /* put connection back in free list */
+  FD_LOG_NOTICE(("conn release %p", (void *)conn));
   conn->next   = state->conns;
   state->conns = conn;
   conn->state  = FD_QUIC_CONN_STATE_INVALID;
@@ -4823,8 +4819,9 @@ fd_quic_conn_create( fd_quic_t *               quic,
 
   /* fetch top of connection free list */
   fd_quic_conn_t * conn = state->conns;
-  if( FD_UNLIKELY( !conn ) ) {
-    FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_conn_create failed: no free conn slots" )) );
+
+  if ( FD_UNLIKELY( !conn ) ) { /* should have been caught by the early check in `handle_initial` */
+    FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_conn_create failed: no free conn slots and failed to evict" )) );
     quic->metrics.conn_err_no_slots_cnt++;
     return NULL;
   }
