@@ -92,11 +92,13 @@ process_account( FILE * file,
     "      lamports:   %lu\n"
     "      slot:       %lu\n"
     "      rent_epoch: %lu\n"
-    "      executable: %s\n",
+    "      executable: %s\n"
+    "      data_sz:    %lu\n",
     meta->lamports,
     meta->slot,
     meta->rent_epoch,
-    meta->executable ? "true" : "false" );
+    meta->executable ? "true" : "false",
+    meta->data_sz );
 
   /* Optionally print account data */
 
