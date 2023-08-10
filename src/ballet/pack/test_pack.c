@@ -320,6 +320,8 @@ void test_vote( void ) {
 
   schedule_validate_microblock( pack, 30000UL, 1.0f, 3UL, 0UL, &outcome );
   FD_TEST( fd_pack_avail_txn_cnt( pack ) == 0UL );
+
+  for( ulong j=0UL; j<3UL; j++ ) FD_TEST( outcome.results[ j ].is_simple_vote );
 }
 
 static void
