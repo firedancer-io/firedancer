@@ -6,11 +6,15 @@
 #include "../tls/fd_quic_tls.h"
 #include "fd_quic_test_helpers.h"
 
+#define FD_DEBUG_MODE 1
+
 #define PQ_LG_SLOT_CNT    6UL
-#define PQ_SLOT_CNT       1UL << PQ_LG_SLOT_CNT
-#define LRU_DEPTH         1UL << PQ_LG_SLOT_CNT
-#define STAKE_LG_SLOT_CNT PQ_LG_SLOT_CNT + 2UL
-#define PUBKEY_CNT        1UL << ( PQ_LG_SLOT_CNT + 1UL )
+#define PQ_SLOT_CNT       ( 1UL << PQ_LG_SLOT_CNT )
+#define LRU_DEPTH         ( 1UL << PQ_LG_SLOT_CNT )
+#define CNT_LG_SLOT_CNT   ( PQ_LG_SLOT_CNT + 2UL )
+#define STAKE_LG_SLOT_CNT CNT_LG_SLOT_CNT
+#define PUBKEY_CNT        ( 1UL << ( PQ_LG_SLOT_CNT + 1UL ) )
+#define CONN_CNT          ( 46 )
 
 int
 main( int argc, char ** argv ) {
@@ -48,11 +52,13 @@ main( int argc, char ** argv ) {
   FD_LOG_NOTICE( ( "  ->staked_nodes: %p", (void *)staked_nodes ) );
 
   fd_quic_qos_limits_t limits = {
-      .min_streams    = FD_QUIC_QOS_DEFAULT_MIN_STREAMS,
-      .max_streams    = FD_QUIC_QOS_DEFAULT_MAX_STREAMS,
-      .total_streams  = FD_QUIC_QOS_DEFAULT_TOTAL_STREAMS,
-      .pq_lg_slot_cnt = PQ_LG_SLOT_CNT,
-      .lru_depth      = LRU_DEPTH,
+      .min_streams     = FD_QUIC_QOS_DEFAULT_MIN_STREAMS,
+      .max_streams     = FD_QUIC_QOS_DEFAULT_MAX_STREAMS,
+      .total_streams   = FD_QUIC_QOS_DEFAULT_TOTAL_STREAMS,
+      .pq_lg_slot_cnt  = PQ_LG_SLOT_CNT,
+      .lru_depth       = LRU_DEPTH,
+      .cnt_lg_slot_cnt = CNT_LG_SLOT_CNT,
+      .cnt_max_conns   = 42,
   };
   ulong   qos_footprint = fd_quic_qos_footprint( &limits );
   uchar * qos_mem = (uchar *)fd_wksp_alloc_laddr( wksp, fd_quic_qos_align(), qos_footprint, 1UL );
@@ -61,9 +67,11 @@ main( int argc, char ** argv ) {
   FD_TEST( qos );
   FD_TEST( qos->pq );
   FD_TEST( qos->lru );
+  FD_TEST( qos->cnt );
   FD_LOG_NOTICE( ( "qos: %p, footprint %lu", (void *)qos_mem, qos_footprint ) );
   FD_LOG_NOTICE( ( "  ->pq:  %p", (void *)qos->pq ) );
   FD_LOG_NOTICE( ( "  ->lru: %p", (void *)qos->lru ) );
+  FD_LOG_NOTICE( ( "  ->cnt: %p", (void *)qos->cnt ) );
 
   /* initialize stakes*/
   ulong stakes[PUBKEY_CNT] = { [PUBKEY_CNT >> 2] = 1UL << 15, 1UL << 14, 1UL << 13, 1UL << 13 };
@@ -89,22 +97,38 @@ main( int argc, char ** argv ) {
   }
 
   /* initialize mock conns */
-  fd_quic_conn_t conns[PUBKEY_CNT];
-  for ( ulong i = 0; i < PUBKEY_CNT; i++ ) {
+  fd_quic_conn_t conns[CONN_CNT];
+  for ( ulong i = 0; i < CONN_CNT; i++ ) {
     memset( &conns[i], 0, sizeof( fd_quic_conn_t ) );
-    conns[i].context       = &pubkeys[i];
-    conns[i].local_conn_id = i + 1;
-    conns[i].server        = 1;
-    conns[i].quic          = quic;
+    conns[i].local_conn_id       = i + 1;
+    conns[i].server              = 1;
+    conns[i].quic                = quic;
+    conns[i].cur_peer_idx        = 0;
+    conns[i].peer[0].net.ip_addr = 0x0100007f;
   }
+
+  ulong x = 1;
+  FD_TEST( !--x );
 
   fd_rng_t   _rng[1];
   fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
+  (void)rng;
 
-  for ( ulong i = 0; i < PUBKEY_CNT; i++ ) {
+  for ( ulong i = 0; i < CONN_CNT; i++ ) {
     FD_TEST( &conns[i] );
-    fd_quic_qos_conn_new( qos, stake, rng, &conns[i] );
+    fd_quic_qos_conn_new( qos, stake, rng, &conns[i], &pubkeys[i] );
   }
+
+  fd_quic_qos_cnt_key_t key;
+  key.ip4_addr              = 0x0100007f;
+  fd_quic_qos_cnt_t * query = fd_quic_qos_cnt_query( qos->cnt, key, NULL );
+  for ( ulong i = 0; i < fd_quic_qos_cnt_slot_cnt( qos->cnt ); i++ ) {
+    if ( !fd_quic_qos_cnt_key_inval( qos->cnt[i].key ) ) {
+      FD_LOG_NOTICE( ( "%u: %lu", qos->cnt[i].key.ip4_addr, qos->cnt[i].count ) );
+    }
+  }
+  FD_TEST( query );
+  FD_TEST( query->count == 42 );
 
   FD_LOG_NOTICE( ( "pass" ) );
   fd_halt();
