@@ -37,8 +37,7 @@ jobs:
 
     - uses: dtolnay/rust-toolchain@1.69.0
 
-    - name: Copy prebuilt deps
-      run: "cp -r /home/runner/firedancer-opts/opt . && ls -lah opt"
+    - uses: ./.github/actions/deps
 
     # Initializes the CodeQL tools for scanning.
     - name: Initialize CodeQL
