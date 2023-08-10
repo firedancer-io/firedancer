@@ -113,6 +113,9 @@ fd_slot_to_epoch( fd_epoch_schedule_t const * schedule,
 
 ulong fd_sysvar_epoch_schedule_get_first_slot_in_epoch(fd_epoch_schedule_t * schedule, ulong epoch);
 
+
+ulong fd_sysvar_epoch_schedule_get_first_slot_in_epoch(fd_epoch_schedule_t * schedule, ulong epoch);
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_sysvar_epoch_schedule_h */

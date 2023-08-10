@@ -66,6 +66,7 @@ fd_rent_exempt_minimum_balance2( fd_rent_t const * rent,
 
 ulong fd_rent_exempt_minimum_balance( fd_global_ctx_t* global, ulong data_len ) {
   fd_rent_t rent;
+  fd_rent_new( &rent );
   fd_sysvar_rent_read( global, &rent );
   return fd_rent_exempt_minimum_balance2( &rent, data_len );
 }

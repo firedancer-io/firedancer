@@ -1,1 +1,1 @@
-CPPFLAGS+=-fomit-frame-pointer -mfpmath=sse
+CPPFLAGS+=-mfpmath=sse

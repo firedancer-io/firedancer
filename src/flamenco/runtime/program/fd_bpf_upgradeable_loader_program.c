@@ -440,9 +440,11 @@ int fd_executor_bpf_upgradeable_loader_program_execute_program_instruction( inst
   FD_LOG_NOTICE(("BPF PROG INSTR RUN! - slot: %lu, addr: %32J", ctx.global->bank.slot, &txn_accs[ctx.instr->program_id]));
 
   if( !fd_bpf_upgradeable_loader_state_is_program_data( &programdata_loader_state ) ) {
+    fd_bpf_upgradeable_loader_state_destroy( &programdata_loader_state, &ctx_d );
     fd_bpf_upgradeable_loader_state_destroy( &program_loader_state, &ctx_d );
     return -1;
   }
+  fd_bpf_upgradeable_loader_state_destroy( &programdata_loader_state, &ctx_d );
 
   ulong program_data_len = programdata_metadata->dlen - PROGRAMDATA_METADATA_SIZE;
   uchar * program_data = ptr + programdata_metadata->hlen + PROGRAMDATA_METADATA_SIZE;
@@ -485,8 +487,6 @@ int fd_executor_bpf_upgradeable_loader_program_execute_program_instruction( inst
     fd_valloc_free( ctx.global->valloc, rodata);
     return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
   }
-  uchar * input_cpy = fd_valloc_malloc( ctx.global->valloc, 8UL, input_sz);
-  fd_memcpy(input_cpy, input, input_sz);
   fd_vm_exec_context_t vm_ctx = {
     .entrypoint          = (long)prog->entry_pc,
     .program_counter     = 0,
@@ -595,7 +595,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
 
   int decode_err;
   if ( ( decode_err = fd_bpf_upgradeable_loader_program_instruction_decode( &instruction, &decode_ctx ) ) ) {
-    FD_LOG_WARNING(("fd_bpf_upgradeable_loader_program_instruction_decode failed: err code: %d, %d %x", decode_err, ctx.instr->data_sz, ((uint*)data)[0]));
+    FD_LOG_WARNING(("fd_bpf_upgradeable_loader_program_instruction_decode failed: err code: %d, %ld", decode_err, ctx.instr->data_sz));
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
 

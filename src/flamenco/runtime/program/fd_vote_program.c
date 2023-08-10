@@ -81,12 +81,16 @@ fd_vote_load_account( fd_vote_state_versioned_t * account,
 static void
 fd_vote_upgrade_account( fd_vote_state_versioned_t * account,
                          fd_global_ctx_t *           global ) {
-
   switch( account->discriminant ) {
   case fd_vote_state_versioned_enum_current:
     /* Nothing to do */
     return;
   case fd_vote_state_versioned_enum_v0_23_5: {
+    if( !global->features.vote_state_add_vote_latency ) {
+      FD_LOG_ERR(("unimplemented vote state upgrade to v14"));
+      // FIXME: Implement v14 upgrade.
+      return;
+    }
     fd_vote_state_0_23_5_t * old = &account->inner.v0_23_5;
     /* Object to hold upgraded state version
        (Cannot do this in place, both variants are stored in a union) */
@@ -144,6 +148,9 @@ fd_vote_upgrade_account( fd_vote_state_versioned_t * account,
     return;
   }
   case fd_vote_state_versioned_enum_v1_14_11: {
+    if( !global->features.vote_state_add_vote_latency ) {
+      return;
+    }
     fd_vote_state_1_14_11_t * old = &account->inner.v1_14_11;
     /* Object to hold upgraded state version
        (Cannot do this in place, both variants are stored in a union) */
@@ -308,8 +315,35 @@ fd_vote_save_account(
    is part of the list of signers over the current instruction. */
 
 static int
-fd_vote_verify_authority( fd_vote_state_t const *   vote_state,
+fd_vote_verify_authority_current( fd_vote_state_t const *   vote_state,
                           instruction_ctx_t const * ctx ) {
+
+  /* Check that the vote state account is initialized
+     Assuming here that authorized voters is not empty */
+  fd_vote_historical_authorized_voter_t * authorized_voters = vote_state->authorized_voters;
+
+  fd_sol_sysvar_clock_t clock;
+  fd_sysvar_clock_read( ctx->global, &clock );
+
+  /* Get the current authorized voter for the current epoch */
+  for ( deq_fd_vote_historical_authorized_voter_t_iter_t iter = deq_fd_vote_historical_authorized_voter_t_iter_init( authorized_voters );
+        !deq_fd_vote_historical_authorized_voter_t_iter_done( authorized_voters, iter );
+        iter = deq_fd_vote_historical_authorized_voter_t_iter_next( authorized_voters, iter ) ) {
+    fd_vote_historical_authorized_voter_t * ele = deq_fd_vote_historical_authorized_voter_t_iter_ele( authorized_voters, iter );
+    if (ele->epoch != clock.epoch)
+      continue; // ignore old voters
+    fd_pubkey_t * authorized_voter = &ele->pubkey;
+    /* Check that the authorized voter for this epoch has signed the vote transaction
+       https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L1265 */
+    if( fd_account_is_signer(ctx, authorized_voter) )
+      return FD_EXECUTOR_INSTR_SUCCESS;
+  }
+  return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+}
+
+static int
+fd_vote_verify_authority_v1_14_11( fd_vote_state_1_14_11_t const *   vote_state,
+                                   instruction_ctx_t const * ctx ) {
 
   /* Check that the vote state account is initialized
      Assuming here that authorized voters is not empty */
@@ -368,6 +402,481 @@ void record_timestamp_vote_with_slot( fd_global_ctx_t *   global,
     fd_clock_timestamp_vote_t_map_insert(pool, &root, node);
     global->bank.timestamp_votes.votes_root = root;
   }
+}
+
+static int
+vote_process_vote_current( instruction_ctx_t ctx,
+                           fd_vote_t const * vote,
+                           fd_vote_state_versioned_t * vote_state_versioned,
+                           fd_slot_hashes_t * slot_hashes ) {
+  fd_vote_state_t * vote_state = &vote_state_versioned->inner.current;
+
+  /* Purge stale authorized voters */
+
+  fd_vote_historical_authorized_voter_t * authorized_voters = vote_state->authorized_voters;
+
+  fd_sol_sysvar_clock_t clock;
+  fd_sysvar_clock_read( ctx.global, &clock );
+
+  for(;;) {
+    fd_vote_historical_authorized_voter_t * ele =
+      deq_fd_vote_historical_authorized_voter_t_peek_head( authorized_voters );
+
+    if( FD_UNLIKELY( !ele ) ) break;
+    if( FD_UNLIKELY( ele->epoch >= clock.epoch ) ) break;
+
+    deq_fd_vote_historical_authorized_voter_t_pop_head_nocopy( authorized_voters );
+  }
+
+  /* Verify vote authority */
+  int authorize_res = fd_vote_verify_authority_current( vote_state, &ctx );
+  if( FD_UNLIKELY( 0!=authorize_res ) ) {
+    return authorize_res;
+  }
+
+  /* Process the vote
+      https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L902 */
+
+  /* Check that the vote slots aren't empty */
+  if( FD_UNLIKELY( deq_ulong_empty( vote->slots ) ) ) {
+    /* TODO: propagate custom error code FD_VOTE_EMPTY_SLOTS */
+    return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+  }
+
+  ulong earliest_slot_in_history = 0;
+  if( FD_UNLIKELY( !deq_fd_slot_hash_t_empty( slot_hashes->hashes ) ) ) {
+    earliest_slot_in_history = deq_fd_slot_hash_t_peek_tail_const( slot_hashes->hashes )->slot;
+  }
+
+  ulong   vote_slots_cnt = deq_ulong_cnt( vote->slots );
+  ulong * vote_slots     = (ulong *)fd_alloca_check( alignof(ulong), sizeof(ulong) * vote_slots_cnt );
+  ulong   vote_slots_new_cnt = 0UL;
+  for( deq_ulong_iter_t iter = deq_ulong_iter_init( vote->slots );
+        !deq_ulong_iter_done( vote->slots, iter );
+        iter = deq_ulong_iter_next( vote->slots, iter ) ) {
+    ulong slot = *deq_ulong_iter_ele_const( vote->slots, iter );
+    if( slot >= earliest_slot_in_history )
+      vote_slots[ vote_slots_new_cnt++ ] = slot;
+  }
+
+  if( vote_slots_new_cnt == 0 ) {
+    /* TODO: propagate custom error code FD_VOTE_VOTES_TOO_OLD_ALL_FILTERED */
+    return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+  }
+
+  /* Check that all the slots in the vote tower are present in the slot hashes,
+      in the same order they are present in the vote tower.
+
+      https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L658
+    */
+  ulong vote_idx = 0;
+  ulong slot_hash_idx = deq_fd_slot_hash_t_cnt( slot_hashes->hashes );
+  while ( vote_idx < vote_slots_new_cnt && slot_hash_idx > 0 ) {
+
+    /* Skip to the smallest vote slot that is newer than the last slot we previously voted on.  */
+    if(    ( !deq_fd_landed_vote_t_empty( vote_state->votes ) )
+            && ( vote_slots[ vote_idx ] <= deq_fd_landed_vote_t_peek_tail_const( vote_state->votes )->lockout.slot ) ) {
+      vote_idx += 1;
+      continue;
+    }
+
+    /* Find the corresponding slot hash entry for that slot. */
+    if( vote_slots[ vote_idx ] != deq_fd_slot_hash_t_peek_index_const( slot_hashes->hashes, slot_hash_idx - 1 )->slot ) {
+      slot_hash_idx -= 1;
+      continue;
+    }
+
+    /* When we have found a hash for that slot, move on to the next proposed slot. */
+    vote_idx      += 1;
+    slot_hash_idx -= 1;
+  }
+
+  /* Check that there does exist a proposed vote slot newer than the last slot we previously voted on:
+      if so, we would have made some progress through the slot hashes. */
+  if( slot_hash_idx == deq_fd_slot_hash_t_cnt( slot_hashes->hashes ) ) {
+    ulong previously_voted_on = deq_fd_landed_vote_t_peek_tail_const( vote_state->votes )->lockout.slot;
+    ulong most_recent_proposed_vote_slot = *deq_ulong_peek_tail_const( vote->slots );
+    FD_LOG_INFO(( "vote instruction too old (%lu <= %lu): discarding", most_recent_proposed_vote_slot, previously_voted_on ));
+    ctx.txn_ctx->custom_err = FD_VOTE_VOTE_TOO_OLD;
+    return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+  }
+
+  /* Check that for each slot in the vote tower, we found a slot in the slot hashes:
+      if so, we would have got to the end of the vote tower. */
+  if ( vote_idx != vote_slots_new_cnt ) {
+    FD_LOG_WARNING(( "vote_idx != vote_slots_new_cnt" ));
+    ctx.txn_ctx->custom_err = FD_VOTE_SLOTS_MISMATCH;
+    return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+  }
+
+  /* Check that the vote hash, which is the hash for the slot at the top of the vote tower,
+      matches the slot hashes hash for that slot. */
+  fd_slot_hash_t const * hash = deq_fd_slot_hash_t_peek_index_const( slot_hashes->hashes, slot_hash_idx );
+  if ( memcmp( &hash->hash, &vote->hash, sizeof(fd_hash_t) ) != 0 ) {
+    FD_LOG_WARNING(( "hash mismatch: slot: %lu slot_hash: %32J vote_hash: %32J", hash->slot, hash->hash.uc, vote->hash.uc ));
+    /* FIXME: re-visit when bank hashes are confirmed to be good */
+    ctx.txn_ctx->custom_err = FD_VOTE_SLOT_HASH_MISMATCH;
+    return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+  }
+
+  /* Process each vote slot, pushing any new slots in the vote onto our lockout tower.
+      https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L941
+    */
+  for ( ulong i = 0; i < vote_slots_new_cnt; i++ ) {
+    ulong vote_slot = vote_slots[i];
+
+    /* Skip the slot if it is older than the the last slot we previously voted on. */
+    if(    ( !deq_fd_landed_vote_t_empty( vote_state->votes ) )
+            && ( vote_slot <= deq_fd_landed_vote_t_peek_tail_const( vote_state->votes )->lockout.slot ) ) {
+      continue;
+    }
+
+    /* Pop all recent votes that are not locked out at the next vote slot. This has two effects:
+        - Allows validators to switch forks after their lockout period has expired.
+        - Allows validators to continue voting on recent blocks in the same fork without increasing their lockouts.
+
+        https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L1135
+    */
+    while( !deq_fd_landed_vote_t_empty( vote_state->votes ) ) {
+      fd_landed_vote_t const * lockout = deq_fd_landed_vote_t_peek_tail_const( vote_state->votes );
+      if ( ( ( lockout->lockout.slot + (ulong)pow( INITIAL_LOCKOUT, lockout->lockout.confirmation_count ) ) < vote_slot ) ) {
+        deq_fd_landed_vote_t_pop_head( vote_state->votes );
+      } else {
+        break;
+      }
+    }
+
+    /* Check if the lockout stack is full: we have committed to a fork. */
+    if( deq_fd_landed_vote_t_cnt( vote_state->votes ) == MAX_LOCKOUT_HISTORY ) {
+
+      /* Update the root slot to be the oldest lockout. */
+      if ( !vote_state->root_slot )
+        vote_state->root_slot = (ulong *)fd_valloc_malloc( ctx.global->valloc, 8, sizeof(ulong));
+      *vote_state->root_slot = deq_fd_landed_vote_t_peek_head_const( vote_state->votes )->lockout.slot;
+
+      /* Give this validator a credit for committing to a slot. */
+      if( deq_fd_vote_epoch_credits_t_empty( vote_state->epoch_credits ) ) {
+        fd_vote_epoch_credits_t epoch_credits = {
+          .epoch = 0,
+          .credits = 0,
+          .prev_credits = 0,
+        };
+        FD_TEST( !deq_fd_vote_epoch_credits_t_full( vote_state->epoch_credits ) );
+        deq_fd_vote_epoch_credits_t_push_tail( vote_state->epoch_credits, epoch_credits );
+      }
+      deq_fd_vote_epoch_credits_t_peek_tail( vote_state->epoch_credits )->credits += 1UL;
+
+      /* Pop the oldest slot from the lockout tower. */
+      FD_TEST( !deq_fd_landed_vote_t_empty( vote_state->votes ) );
+      deq_fd_landed_vote_t_pop_head( vote_state->votes );
+    }
+
+    /* Push the current vote onto the lockouts stack. */
+    fd_landed_vote_t vote_lockout = {
+      .latency = 0, // TODO
+      .lockout = {
+        .slot = vote_slot,
+        .confirmation_count = 1,
+      },
+    };
+    FD_TEST( !deq_fd_landed_vote_t_full( vote_state->votes ) );
+    deq_fd_landed_vote_t_push_tail( vote_state->votes, vote_lockout );
+
+    /* Because we add a new vote to the tower, double the lockouts of existing votes in the tower.
+        https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L1145
+    */
+    {
+      ulong j = 0UL;
+      for( deq_fd_landed_vote_t_iter_t iter = deq_fd_landed_vote_t_iter_init( vote_state->votes );
+            !deq_fd_landed_vote_t_iter_done( vote_state->votes, iter );
+            iter = deq_fd_landed_vote_t_iter_next( vote_state->votes, iter ),
+            j++ ) {
+        fd_landed_vote_t * vote = deq_fd_landed_vote_t_iter_ele( vote_state->votes, iter );
+        /* Double the lockout for this vote slot if our lockout stack is now deeper than the largest number of confirmations this vote slot has seen. */
+        ulong confirmations = j + vote->lockout.confirmation_count;
+        /* cache the lockount cnt thing? */
+        if( deq_fd_landed_vote_t_cnt( vote_state->votes ) > confirmations ) {
+          /* Increment the confirmation count, implicitly doubling the lockout. */
+          vote->lockout.confirmation_count += 1;
+        }
+      }
+    }
+  }
+
+  /* Check that the vote tower is now non-empty. */
+  if( FD_UNLIKELY( deq_fd_landed_vote_t_empty( vote_state->votes ) ) ) {
+    /* TODO: propagate custom error code FD_VOTE_EMPTY_SLOTS */
+    return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+  }
+
+  /* Check that the vote is new enough, and if so update the timestamp.
+      https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L1386-L1392
+  */
+  if( vote->timestamp != NULL ) {
+    ulong highest_vote_slot = 0;
+    for( deq_ulong_iter_t iter = deq_ulong_iter_init( vote->slots );
+          !deq_ulong_iter_done( vote->slots, iter );
+          iter = deq_ulong_iter_next( vote->slots, iter ) ) {
+      /* TODO: can maybe just use vote at top of tower? Seems safer to use same logic as Solana though. */
+      ulong slot = *deq_ulong_iter_ele_const( vote->slots, iter );
+      highest_vote_slot = fd_ulong_max( highest_vote_slot, slot );
+    }
+    /* Reject if slot/timestamp rewinds, or if timestamp changed. */
+
+    if( FD_UNLIKELY(
+          (    highest_vote_slot  < vote_state->last_timestamp.slot
+                || *vote->timestamp   < vote_state->last_timestamp.timestamp )
+          || ( highest_vote_slot == vote_state->last_timestamp.slot
+                && *vote->timestamp  != vote_state->last_timestamp.timestamp
+                && vote_state->last_timestamp.timestamp != 0 ) ) ) {
+      ctx.txn_ctx->custom_err = FD_VOTE_TIMESTAMP_TOO_OLD;
+      return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+    }
+
+    /* Remember timestamp update */
+    vote_state->last_timestamp = (fd_vote_block_timestamp_t) {
+      .slot      = highest_vote_slot,
+      .timestamp = *vote->timestamp,
+    };
+  }
+
+  return FD_EXECUTOR_INSTR_SUCCESS;
+}
+
+static int
+vote_process_vote_v1_14_11( instruction_ctx_t ctx,
+                            fd_vote_t const * vote,
+                            fd_vote_state_versioned_t * vote_state_versioned,
+                            fd_slot_hashes_t * slot_hashes ) {
+  fd_vote_state_1_14_11_t * vote_state = &vote_state_versioned->inner.v1_14_11;
+
+  /* Purge stale authorized voters */
+
+  fd_vote_historical_authorized_voter_t * authorized_voters = vote_state->authorized_voters;
+
+  fd_sol_sysvar_clock_t clock;
+  fd_sysvar_clock_read( ctx.global, &clock );
+
+  for(;;) {
+    fd_vote_historical_authorized_voter_t * ele =
+      deq_fd_vote_historical_authorized_voter_t_peek_head( authorized_voters );
+
+    if( FD_UNLIKELY( !ele ) ) break;
+    if( FD_UNLIKELY( ele->epoch >= clock.epoch ) ) break;
+
+    deq_fd_vote_historical_authorized_voter_t_pop_head_nocopy( authorized_voters );
+  }
+
+  /* Verify vote authority */
+  int authorize_res = fd_vote_verify_authority_v1_14_11( vote_state, &ctx );
+  if( FD_UNLIKELY( 0!=authorize_res ) ) {
+    return authorize_res;
+  }
+
+  /* Process the vote
+      https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L902 */
+
+  /* Check that the vote slots aren't empty */
+  if( FD_UNLIKELY( deq_ulong_empty( vote->slots ) ) ) {
+    /* TODO: propagate custom error code FD_VOTE_EMPTY_SLOTS */
+    return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+  }
+
+  ulong earliest_slot_in_history = 0;
+  if( FD_UNLIKELY( !deq_fd_slot_hash_t_empty( slot_hashes->hashes ) ) ) {
+    earliest_slot_in_history = deq_fd_slot_hash_t_peek_tail_const( slot_hashes->hashes )->slot;
+  }
+
+  ulong   vote_slots_cnt = deq_ulong_cnt( vote->slots );
+  ulong * vote_slots     = (ulong *)fd_alloca_check( alignof(ulong), sizeof(ulong) * vote_slots_cnt );
+  ulong   vote_slots_new_cnt = 0UL;
+  for( deq_ulong_iter_t iter = deq_ulong_iter_init( vote->slots );
+        !deq_ulong_iter_done( vote->slots, iter );
+        iter = deq_ulong_iter_next( vote->slots, iter ) ) {
+    ulong slot = *deq_ulong_iter_ele_const( vote->slots, iter );
+    if( slot >= earliest_slot_in_history )
+      vote_slots[ vote_slots_new_cnt++ ] = slot;
+  }
+
+  if( vote_slots_new_cnt == 0 ) {
+    /* TODO: propagate custom error code FD_VOTE_VOTES_TOO_OLD_ALL_FILTERED */
+    return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+  }
+
+  /* Check that all the slots in the vote tower are present in the slot hashes,
+      in the same order they are present in the vote tower.
+
+      https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L658
+    */
+  ulong vote_idx = 0;
+  ulong slot_hash_idx = deq_fd_slot_hash_t_cnt( slot_hashes->hashes );
+  while ( vote_idx < vote_slots_new_cnt && slot_hash_idx > 0 ) {
+
+    /* Skip to the smallest vote slot that is newer than the last slot we previously voted on.  */
+    if(    ( !deq_fd_vote_lockout_t_empty( vote_state->votes ) )
+            && ( vote_slots[ vote_idx ] <= deq_fd_vote_lockout_t_peek_tail_const( vote_state->votes )->slot ) ) {
+      vote_idx += 1;
+      continue;
+    }
+
+    /* Find the corresponding slot hash entry for that slot. */
+    if( vote_slots[ vote_idx ] != deq_fd_slot_hash_t_peek_index_const( slot_hashes->hashes, slot_hash_idx - 1 )->slot ) {
+      slot_hash_idx -= 1;
+      continue;
+    }
+
+    /* When we have found a hash for that slot, move on to the next proposed slot. */
+    vote_idx      += 1;
+    slot_hash_idx -= 1;
+  }
+
+  /* Check that there does exist a proposed vote slot newer than the last slot we previously voted on:
+      if so, we would have made some progress through the slot hashes. */
+  if( slot_hash_idx == deq_fd_slot_hash_t_cnt( slot_hashes->hashes ) ) {
+    ulong previously_voted_on = deq_fd_vote_lockout_t_peek_tail_const( vote_state->votes )->slot;
+    ulong most_recent_proposed_vote_slot = *deq_ulong_peek_tail_const( vote->slots );
+    FD_LOG_INFO(( "vote instruction too old (%lu <= %lu): discarding", most_recent_proposed_vote_slot, previously_voted_on ));
+    ctx.txn_ctx->custom_err = FD_VOTE_VOTE_TOO_OLD;
+    return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+  }
+
+  /* Check that for each slot in the vote tower, we found a slot in the slot hashes:
+      if so, we would have got to the end of the vote tower. */
+  if ( vote_idx != vote_slots_new_cnt ) {
+    FD_LOG_WARNING(( "vote_idx != vote_slots_new_cnt" ));
+    ctx.txn_ctx->custom_err = FD_VOTE_SLOTS_MISMATCH;
+    return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+  }
+
+  /* Check that the vote hash, which is the hash for the slot at the top of the vote tower,
+      matches the slot hashes hash for that slot. */
+  fd_slot_hash_t const * hash = deq_fd_slot_hash_t_peek_index_const( slot_hashes->hashes, slot_hash_idx );
+  if ( memcmp( &hash->hash, &vote->hash, sizeof(fd_hash_t) ) != 0 ) {
+    FD_LOG_WARNING(( "hash mismatch: slot: %lu slot_hash: %32J vote_hash: %32J", hash->slot, hash->hash.uc, vote->hash.uc ));
+    /* FIXME: re-visit when bank hashes are confirmed to be good */
+    ctx.txn_ctx->custom_err = FD_VOTE_SLOT_HASH_MISMATCH;
+    return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+  }
+
+  /* Process each vote slot, pushing any new slots in the vote onto our lockout tower.
+      https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L941
+    */
+  for ( ulong i = 0; i < vote_slots_new_cnt; i++ ) {
+    ulong vote_slot = vote_slots[i];
+
+    /* Skip the slot if it is older than the the last slot we previously voted on. */
+    if(    ( !deq_fd_vote_lockout_t_empty( vote_state->votes ) )
+            && ( vote_slot <= deq_fd_vote_lockout_t_peek_tail_const( vote_state->votes )->slot ) ) {
+      continue;
+    }
+
+    /* Pop all recent votes that are not locked out at the next vote slot. This has two effects:
+        - Allows validators to switch forks after their lockout period has expired.
+        - Allows validators to continue voting on recent blocks in the same fork without increasing their lockouts.
+
+        https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L1135
+    */
+    while( !deq_fd_vote_lockout_t_empty( vote_state->votes ) ) {
+      fd_vote_lockout_t const * lockout = deq_fd_vote_lockout_t_peek_tail_const( vote_state->votes );
+      if ( ( ( lockout->slot + (ulong)pow( INITIAL_LOCKOUT, lockout->confirmation_count ) ) < vote_slot ) ) {
+        deq_fd_vote_lockout_t_pop_head( vote_state->votes );
+      } else {
+        break;
+      }
+    }
+
+    /* Check if the lockout stack is full: we have committed to a fork. */
+    if( deq_fd_vote_lockout_t_cnt( vote_state->votes ) == MAX_LOCKOUT_HISTORY ) {
+
+      /* Update the root slot to be the oldest lockout. */
+      if ( !vote_state->root_slot )
+        vote_state->root_slot = (ulong *)fd_valloc_malloc( ctx.global->valloc, 8, sizeof(ulong));
+      *vote_state->root_slot = deq_fd_vote_lockout_t_peek_head_const( vote_state->votes )->slot;
+
+      /* Give this validator a credit for committing to a slot. */
+      if( deq_fd_vote_epoch_credits_t_empty( vote_state->epoch_credits ) ) {
+        fd_vote_epoch_credits_t epoch_credits = {
+          .epoch = 0,
+          .credits = 0,
+          .prev_credits = 0,
+        };
+        FD_TEST( !deq_fd_vote_epoch_credits_t_full( vote_state->epoch_credits ) );
+        deq_fd_vote_epoch_credits_t_push_tail( vote_state->epoch_credits, epoch_credits );
+      }
+      deq_fd_vote_epoch_credits_t_peek_tail( vote_state->epoch_credits )->credits += 1UL;
+
+      /* Pop the oldest slot from the lockout tower. */
+      FD_TEST( !deq_fd_vote_lockout_t_empty( vote_state->votes ) );
+      deq_fd_vote_lockout_t_pop_head( vote_state->votes );
+    }
+
+    /* Push the current vote onto the lockouts stack. */
+    fd_vote_lockout_t vote_lockout = {
+      .slot = vote_slot,
+      .confirmation_count = 1,
+    };
+    FD_TEST( !deq_fd_vote_lockout_t_full( vote_state->votes ) );
+    deq_fd_vote_lockout_t_push_tail( vote_state->votes, vote_lockout );
+
+    /* Because we add a new vote to the tower, double the lockouts of existing votes in the tower.
+        https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L1145
+    */
+    {
+      ulong j = 0UL;
+      for( deq_fd_vote_lockout_t_iter_t iter = deq_fd_vote_lockout_t_iter_init( vote_state->votes );
+            !deq_fd_vote_lockout_t_iter_done( vote_state->votes, iter );
+            iter = deq_fd_vote_lockout_t_iter_next( vote_state->votes, iter ),
+            j++ ) {
+        fd_vote_lockout_t * vote = deq_fd_vote_lockout_t_iter_ele( vote_state->votes, iter );
+        /* Double the lockout for this vote slot if our lockout stack is now deeper than the largest number of confirmations this vote slot has seen. */
+        ulong confirmations = j + vote->confirmation_count;
+        /* cache the lockount cnt thing? */
+        if( deq_fd_vote_lockout_t_cnt( vote_state->votes ) > confirmations ) {
+          /* Increment the confirmation count, implicitly doubling the lockout. */
+          vote->confirmation_count += 1;
+        }
+      }
+    }
+  }
+
+  /* Check that the vote tower is now non-empty. */
+  if( FD_UNLIKELY( deq_fd_vote_lockout_t_empty( vote_state->votes ) ) ) {
+    /* TODO: propagate custom error code FD_VOTE_EMPTY_SLOTS */
+    return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+  }
+
+  /* Check that the vote is new enough, and if so update the timestamp.
+      https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L1386-L1392
+  */
+  if( vote->timestamp != NULL ) {
+    ulong highest_vote_slot = 0;
+    for( deq_ulong_iter_t iter = deq_ulong_iter_init( vote->slots );
+          !deq_ulong_iter_done( vote->slots, iter );
+          iter = deq_ulong_iter_next( vote->slots, iter ) ) {
+      /* TODO: can maybe just use vote at top of tower? Seems safer to use same logic as Solana though. */
+      ulong slot = *deq_ulong_iter_ele_const( vote->slots, iter );
+      highest_vote_slot = fd_ulong_max( highest_vote_slot, slot );
+    }
+    /* Reject if slot/timestamp rewinds, or if timestamp changed. */
+
+    if( FD_UNLIKELY(
+          (    highest_vote_slot  < vote_state->last_timestamp.slot
+                || *vote->timestamp   < vote_state->last_timestamp.timestamp )
+          || ( highest_vote_slot == vote_state->last_timestamp.slot
+                && *vote->timestamp  != vote_state->last_timestamp.timestamp
+                && vote_state->last_timestamp.timestamp != 0 ) ) ) {
+      ctx.txn_ctx->custom_err = FD_VOTE_TIMESTAMP_TOO_OLD;
+      return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+    }
+
+    /* Remember timestamp update */
+    vote_state->last_timestamp = (fd_vote_block_timestamp_t) {
+      .slot      = highest_vote_slot,
+      .timestamp = *vote->timestamp,
+    };
+  }
+
+  return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
 static int
@@ -713,7 +1222,11 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
     /* Create a new vote account state structure */
     /* TODO: create constructors in fd_types */
     fd_vote_state_versioned_t vote_state_versioned;
-    fd_vote_state_versioned_new_disc(&vote_state_versioned, fd_vote_state_versioned_enum_current);
+    if( ctx.global->features.vote_state_add_vote_latency ) {
+      fd_vote_state_versioned_new_disc(&vote_state_versioned, fd_vote_state_versioned_enum_current);
+    } else {
+      fd_vote_state_versioned_new_disc(&vote_state_versioned, fd_vote_state_versioned_enum_v1_14_11);
+    }
     fd_vote_state_t*       vote_state = &vote_state_versioned.inner.current;
     fd_vote_prior_voters_t prior_voters = {
       .idx = 31,
@@ -787,267 +1300,35 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
       break;
     }
 
-    // fd_vote_state_versioned_walk(&vote_state_versioned, fd_printer_walker, "fd_vote_state_versioned", 0);
+    FD_SCRATCH_SCOPED_FRAME;
 
-    fd_vote_state_t * vote_state = &vote_state_versioned.inner.current;
-
-    /* Purge stale authorized voters */
-
-    fd_vote_historical_authorized_voter_t * authorized_voters = vote_state->authorized_voters;
-
-    fd_sol_sysvar_clock_t clock;
-    fd_sysvar_clock_read( ctx.global, &clock );
-
-    for(;;) {
-      fd_vote_historical_authorized_voter_t * ele =
-        deq_fd_vote_historical_authorized_voter_t_peek_head( authorized_voters );
-
-      if( FD_UNLIKELY( !ele ) ) break;
-      if( FD_UNLIKELY( ele->epoch >= clock.epoch ) ) break;
-
-      deq_fd_vote_historical_authorized_voter_t_pop_head_nocopy( authorized_voters );
-    }
-
-    /* Verify vote authority */
-    int authorize_res = fd_vote_verify_authority( vote_state, &ctx );
-    if( FD_UNLIKELY( 0!=authorize_res ) ) {
-      ret = authorize_res;
-      fd_vote_state_versioned_destroy(&vote_state_versioned, &destroy);
-      break;
-    }
-
-    /* Process the vote
-       https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L902 */
-
-    /* Check that the vote slots aren't empty */
-    if( FD_UNLIKELY( deq_ulong_empty( vote->slots ) ) ) {
-      /* TODO: propagate custom error code FD_VOTE_EMPTY_SLOTS */
-      fd_vote_state_versioned_destroy(&vote_state_versioned, &destroy);
-      ret = FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
-      break;
-    }
-
-    /* Filter out vote slots older than the earliest slot present in the slot hashes history.
-       https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L912-L926 */
     fd_slot_hashes_t slot_hashes;
     fd_slot_hashes_new( &slot_hashes );
     fd_sysvar_slot_hashes_read( ctx.global, &slot_hashes );
 
-//    fd_slot_hashes_walk(&slot_hashes, fd_printer_walker, "slot_hashes", 0);
-
-    ulong earliest_slot_in_history = 0;
-    if( FD_UNLIKELY( !deq_fd_slot_hash_t_empty( slot_hashes.hashes ) ) ) {
-      earliest_slot_in_history = deq_fd_slot_hash_t_peek_tail_const( slot_hashes.hashes )->slot;
-    }
-
-    ulong   vote_slots_cnt = deq_ulong_cnt( vote->slots );
-    ulong * vote_slots     = (ulong *)fd_alloca_check( alignof(ulong), sizeof(ulong) * vote_slots_cnt );
-    ulong   vote_slots_new_cnt = 0UL;
-    for( deq_ulong_iter_t iter = deq_ulong_iter_init( vote->slots );
-         !deq_ulong_iter_done( vote->slots, iter );
-         iter = deq_ulong_iter_next( vote->slots, iter ) ) {
-      ulong slot = *deq_ulong_iter_ele_const( vote->slots, iter );
-      if( slot >= earliest_slot_in_history )
-        vote_slots[ vote_slots_new_cnt++ ] = slot;
-    }
-
-    if( vote_slots_new_cnt == 0 ) {
-      /* TODO: propagate custom error code FD_VOTE_VOTES_TOO_OLD_ALL_FILTERED */
-      fd_vote_state_versioned_destroy(&vote_state_versioned, &destroy);
-      fd_slot_hashes_destroy( &slot_hashes, &destroy );
-      ret = FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
-      break;
-    }
-
-    /* Check that all the slots in the vote tower are present in the slot hashes,
-       in the same order they are present in the vote tower.
-
-       https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L658
-     */
-    ulong vote_idx = 0;
-    ulong slot_hash_idx = deq_fd_slot_hash_t_cnt( slot_hashes.hashes );
-    while ( vote_idx < vote_slots_new_cnt && slot_hash_idx > 0 ) {
-
-      /* Skip to the smallest vote slot that is newer than the last slot we previously voted on.  */
-      if(    ( !deq_fd_landed_vote_t_empty( vote_state->votes ) )
-             && ( vote_slots[ vote_idx ] <= deq_fd_landed_vote_t_peek_tail_const( vote_state->votes )->lockout.slot ) ) {
-        vote_idx += 1;
-        continue;
-      }
-
-      /* Find the corresponding slot hash entry for that slot. */
-      if( vote_slots[ vote_idx ] != deq_fd_slot_hash_t_peek_index_const( slot_hashes.hashes, slot_hash_idx - 1 )->slot ) {
-        slot_hash_idx -= 1;
-        continue;
-      }
-
-      /* When we have found a hash for that slot, move on to the next proposed slot. */
-      vote_idx      += 1;
-      slot_hash_idx -= 1;
-    }
-
-    /* Check that there does exist a proposed vote slot newer than the last slot we previously voted on:
-       if so, we would have made some progress through the slot hashes. */
-    if( slot_hash_idx == deq_fd_slot_hash_t_cnt( slot_hashes.hashes ) ) {
-      ulong previously_voted_on = deq_fd_landed_vote_t_peek_tail_const( vote_state->votes )->lockout.slot;
-      ulong most_recent_proposed_vote_slot = *deq_ulong_peek_tail_const( vote->slots );
-      FD_LOG_INFO(( "vote instruction too old (%lu <= %lu): discarding", most_recent_proposed_vote_slot, previously_voted_on ));
-      ctx.txn_ctx->custom_err = FD_VOTE_VOTE_TOO_OLD;
-      ret = FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
-      fd_vote_state_versioned_destroy(&vote_state_versioned, &destroy);
-      fd_slot_hashes_destroy( &slot_hashes, &destroy );
-      break;
-    }
-
-    /* Check that for each slot in the vote tower, we found a slot in the slot hashes:
-       if so, we would have got to the end of the vote tower. */
-    if ( vote_idx != vote_slots_new_cnt ) {
-      FD_LOG_WARNING(( "vote_idx != vote_slots_new_cnt" ));
-      ctx.txn_ctx->custom_err = FD_VOTE_SLOTS_MISMATCH;
-      ret = FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
-      fd_vote_state_versioned_destroy(&vote_state_versioned, &destroy);
-      fd_slot_hashes_destroy( &slot_hashes, &destroy );
-      break;
-    }
-
-    /* Check that the vote hash, which is the hash for the slot at the top of the vote tower,
-       matches the slot hashes hash for that slot. */
-    fd_slot_hash_t const * hash = deq_fd_slot_hash_t_peek_index_const( slot_hashes.hashes, slot_hash_idx );
-    if ( memcmp( &hash->hash, &vote->hash, sizeof(fd_hash_t) ) != 0 ) {
-      FD_LOG_WARNING(( "hash mismatch: slot: %lu slot_hash: %32J vote_hash: %32J", hash->slot, hash->hash.uc, vote->hash.uc ));
-      /* FIXME: re-visit when bank hashes are confirmed to be good */
-      ctx.txn_ctx->custom_err = FD_VOTE_SLOT_HASH_MISMATCH;
-      ret = FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
-      fd_vote_state_versioned_destroy(&vote_state_versioned, &destroy);
-      fd_slot_hashes_destroy( &slot_hashes, &destroy );
-      break;
-    }
-
-    /* Process each vote slot, pushing any new slots in the vote onto our lockout tower.
-       https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L941
-     */
-    for ( ulong i = 0; i < vote_slots_new_cnt; i++ ) {
-      ulong vote_slot = vote_slots[i];
-
-      /* Skip the slot if it is older than the the last slot we previously voted on. */
-      if(    ( !deq_fd_landed_vote_t_empty( vote_state->votes ) )
-             && ( vote_slot <= deq_fd_landed_vote_t_peek_tail_const( vote_state->votes )->lockout.slot ) ) {
-        continue;
-      }
-
-      /* Pop all recent votes that are not locked out at the next vote slot. This has two effects:
-         - Allows validators to switch forks after their lockout period has expired.
-         - Allows validators to continue voting on recent blocks in the same fork without increasing their lockouts.
-
-         https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L1135
-      */
-      while( !deq_fd_landed_vote_t_empty( vote_state->votes ) ) {
-        fd_landed_vote_t const * lockout = deq_fd_landed_vote_t_peek_tail_const( vote_state->votes );
-        if ( ( ( lockout->lockout.slot + (ulong)pow( INITIAL_LOCKOUT, lockout->lockout.confirmation_count ) ) < vote_slot ) ) {
-          deq_fd_landed_vote_t_pop_head( vote_state->votes );
-        } else {
-          break;
-        }
-      }
-
-      /* Check if the lockout stack is full: we have committed to a fork. */
-      if( deq_fd_landed_vote_t_cnt( vote_state->votes ) == MAX_LOCKOUT_HISTORY ) {
-
-        /* Update the root slot to be the oldest lockout. */
-        if ( !vote_state->root_slot )
-          vote_state->root_slot = (ulong *)fd_valloc_malloc( ctx.global->valloc, 8, sizeof(ulong));
-        *vote_state->root_slot = deq_fd_landed_vote_t_peek_head_const( vote_state->votes )->lockout.slot;
-
-        /* Give this validator a credit for committing to a slot. */
-        if( deq_fd_vote_epoch_credits_t_empty( vote_state->epoch_credits ) ) {
-          fd_vote_epoch_credits_t epoch_credits = {
-            .epoch = 0,
-            .credits = 0,
-            .prev_credits = 0,
-          };
-          FD_TEST( !deq_fd_vote_epoch_credits_t_full( vote_state->epoch_credits ) );
-          deq_fd_vote_epoch_credits_t_push_tail( vote_state->epoch_credits, epoch_credits );
-        }
-        deq_fd_vote_epoch_credits_t_peek_tail( vote_state->epoch_credits )->credits += 1UL;
-
-        /* Pop the oldest slot from the lockout tower. */
-        FD_TEST( !deq_fd_landed_vote_t_empty( vote_state->votes ) );
-        deq_fd_landed_vote_t_pop_head( vote_state->votes );
-      }
-
-      /* Push the current vote onto the lockouts stack. */
-      fd_landed_vote_t vote_lockout = {
-        .latency = 0, // TODO
-        .lockout = {
-          .slot = vote_slot,
-          .confirmation_count = 1,
-        },
-      };
-      FD_TEST( !deq_fd_landed_vote_t_full( vote_state->votes ) );
-      deq_fd_landed_vote_t_push_tail( vote_state->votes, vote_lockout );
-
-      /* Because we add a new vote to the tower, double the lockouts of existing votes in the tower.
-         https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L1145
-      */
-      {
-        ulong j = 0UL;
-        for( deq_fd_landed_vote_t_iter_t iter = deq_fd_landed_vote_t_iter_init( vote_state->votes );
-             !deq_fd_landed_vote_t_iter_done( vote_state->votes, iter );
-             iter = deq_fd_landed_vote_t_iter_next( vote_state->votes, iter ),
-             j++ ) {
-          fd_landed_vote_t * vote = deq_fd_landed_vote_t_iter_ele( vote_state->votes, iter );
-          /* Double the lockout for this vote slot if our lockout stack is now deeper than the largest number of confirmations this vote slot has seen. */
-          ulong confirmations = j + vote->lockout.confirmation_count;
-          /* cache the lockount cnt thing? */
-          if( deq_fd_landed_vote_t_cnt( vote_state->votes ) > confirmations ) {
-            /* Increment the confirmation count, implicitly doubling the lockout. */
-            vote->lockout.confirmation_count += 1;
-          }
-        }
-      }
-    }
-
-    /* Check that the vote tower is now non-empty. */
-    if( FD_UNLIKELY( deq_fd_landed_vote_t_empty( vote_state->votes ) ) ) {
-      /* TODO: propagate custom error code FD_VOTE_EMPTY_SLOTS */
-      fd_vote_state_versioned_destroy(&vote_state_versioned, &destroy);
-      fd_slot_hashes_destroy( &slot_hashes, &destroy );
-      ret = FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
-      break;
-    }
-
-    /* Check that the vote is new enough, and if so update the timestamp.
-       https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L1386-L1392
-    */
-    if( vote->timestamp != NULL ) {
-      ulong highest_vote_slot = 0;
-      for( deq_ulong_iter_t iter = deq_ulong_iter_init( vote->slots );
-           !deq_ulong_iter_done( vote->slots, iter );
-           iter = deq_ulong_iter_next( vote->slots, iter ) ) {
-        /* TODO: can maybe just use vote at top of tower? Seems safer to use same logic as Solana though. */
-        ulong slot = *deq_ulong_iter_ele_const( vote->slots, iter );
-        highest_vote_slot = fd_ulong_max( highest_vote_slot, slot );
-      }
-      /* Reject if slot/timestamp rewinds, or if timestamp changed. */
-
-      if( FD_UNLIKELY(
-            (    highest_vote_slot  < vote_state->last_timestamp.slot
-                 || *vote->timestamp   < vote_state->last_timestamp.timestamp )
-            || ( highest_vote_slot == vote_state->last_timestamp.slot
-                 && *vote->timestamp  != vote_state->last_timestamp.timestamp
-                 && vote_state->last_timestamp.timestamp != 0 ) ) ) {
-        fd_vote_state_versioned_destroy(&vote_state_versioned, &destroy);
-        fd_slot_hashes_destroy( &slot_hashes, &destroy );
-        ret = FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
-        ctx.txn_ctx->custom_err = FD_VOTE_TIMESTAMP_TOO_OLD;
+    int process_vote_res = FD_EXECUTOR_INSTR_SUCCESS;
+    switch( vote_state_versioned.discriminant ) {
+      case fd_vote_state_versioned_enum_current: {
+        FD_TEST( ctx.global->features.vote_state_add_vote_latency );
+        process_vote_res = vote_process_vote_current( ctx, vote, &vote_state_versioned, &slot_hashes );
         break;
       }
+      case fd_vote_state_versioned_enum_v1_14_11: {
+        FD_TEST( !ctx.global->features.vote_state_add_vote_latency );
+        process_vote_res = vote_process_vote_v1_14_11( ctx, vote, &vote_state_versioned, &slot_hashes );
+        break;
+      }
+      default: {
+        FD_LOG_ERR(( "unsupported vote state version" ));
+        break;
+      }
+    }
 
-      /* Remember timestamp update */
-      vote_state->last_timestamp = (fd_vote_block_timestamp_t) {
-        .slot      = highest_vote_slot,
-        .timestamp = *vote->timestamp,
-      };
+    if( process_vote_res != FD_EXECUTOR_INSTR_SUCCESS ) {
+      fd_vote_state_versioned_destroy(&vote_state_versioned, &destroy);
+      fd_slot_hashes_destroy( &slot_hashes, &destroy );
+      ret = process_vote_res;
+      break;
     }
 
     /* Write the new vote account back to the database */
@@ -1102,8 +1383,9 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
     }
     fd_vote_state_t * vote_state = &vote_state_versioned.inner.current;
 
+    // FIXME: support v1_14_11 votes!!
     /* Verify vote authority */
-    int authorize_res = fd_vote_verify_authority( vote_state, &ctx );
+    int authorize_res = fd_vote_verify_authority_current( vote_state, &ctx );
     if( FD_UNLIKELY( 0!=authorize_res ) ) {
       ret = authorize_res;
       break;
@@ -1761,9 +2043,10 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
       break;
     }
     fd_vote_state_t * vote_state = &vote_state_versioned.inner.current;
+    // FIXME: Support v1_14_11 votes
 
     /* Verify vote authority */
-    int authorize_res = fd_vote_verify_authority( vote_state, &ctx );
+    int authorize_res = fd_vote_verify_authority_current( vote_state, &ctx );
     if( FD_UNLIKELY( 0!=authorize_res ) ) {
       ret = authorize_res;
       break;

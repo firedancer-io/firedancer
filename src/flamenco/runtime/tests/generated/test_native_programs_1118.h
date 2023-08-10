@@ -2,7 +2,7 @@
 int test_1118(fd_executor_test_suite_t *suite) {
   fd_executor_test_t test;
   fd_memset( &test, 0, FD_EXECUTOR_TEST_FOOTPRINT );
-  test.disable_cnt = 47;
+  test.disable_cnt = 46;
   test.bt = "   2: solana_bpf_loader_program::tests::test_bpf_loader_upgradeable_set_upgrade_authority_checked             at ./src/lib.rs:3166:9   3: solana_bpf_loader_program::tests::test_bpf_loader_upgradeable_set_upgrade_authority_checked::{{closure}}             at ./src/lib.rs:3060:68   4: core::ops::function::FnOnce::call_once             at /rustc/84c898d65adf2f39a5a98507f1fe0ce10a2b8dbc/library/core/src/ops/function.rs:250:5   5: core::ops::function::FnOnce::call_once             at /rustc/84c898d65adf2f39a5a98507f1fe0ce10a2b8dbc/library/core/src/ops/function.rs:250:5";
   test.test_name = "tests::test_bpf_loader_upgradeable_set_upgrade_authority_checked";
   test.test_number = 1118;

@@ -58,3 +58,16 @@ fd_sysvar_last_restart_slot_read( fd_global_ctx_t const *             global,
 
   return FD_ACC_MGR_SUCCESS;
 }
+
+void
+fd_sysvar_last_restart_slot_update( fd_global_ctx_t * global ) {
+  if( !global->features.last_restart_slot_sysvar ) return;
+
+  /* Set this every slot? */
+  uchar data[ 8 ];
+  memcpy( data, &global->bank.last_restart_slot, 8 );
+  fd_sysvar_set( global, global->sysvar_owner,
+                 (fd_pubkey_t const *)global->sysvar_last_restart_slot,
+                 data, sizeof(global->bank.last_restart_slot),
+                 global->bank.slot );
+}

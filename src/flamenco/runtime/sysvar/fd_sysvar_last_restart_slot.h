@@ -25,6 +25,12 @@ int
 fd_sysvar_last_restart_slot_read( fd_global_ctx_t const *             global,
                                   fd_sol_sysvar_last_restart_slot_t * result );
 
+/* fd_sysvar_last_restart_slot_update performs a sysvar update before
+   transaction processing.  TODO not completely implemented. */
+
+void
+fd_sysvar_last_restart_slot_update( fd_global_ctx_t * global );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_sysvar_last_restart_slot_h */

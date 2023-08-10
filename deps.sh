@@ -350,6 +350,7 @@ install_openssl () {
     -static \
     --prefix="$PREFIX" \
     enable-quic \
+    enable-pic \
     no-engine \
     no-static-engine \
     no-weak-ssl-ciphers \

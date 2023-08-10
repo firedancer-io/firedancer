@@ -499,6 +499,7 @@ ulong vote_balance_and_staked(fd_stakes_t * stakes) {
   return 0;
 }
 
+
 /// for a given stake and vote_state, calculate how many
 ///   points were earned (credits * stake) and new value
 ///   for credits_observed were the points paid

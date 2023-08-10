@@ -2,7 +2,7 @@
 int test_1163(fd_executor_test_suite_t *suite) {
   fd_executor_test_t test;
   fd_memset( &test, 0, FD_EXECUTOR_TEST_FOOTPRINT );
-  test.disable_cnt = 47;
+  test.disable_cnt = 46;
   test.bt = "   2: solana_config_program::config_processor::tests::test_config_update_contains_duplicates_fails             at ./src/config_processor.rs:655:24   3: solana_config_program::config_processor::tests::test_config_update_contains_duplicates_fails::{{closure}}             at ./src/config_processor.rs:638:55   4: core::ops::function::FnOnce::call_once             at /rustc/84c898d65adf2f39a5a98507f1fe0ce10a2b8dbc/library/core/src/ops/function.rs:250:5   5: core::ops::function::FnOnce::call_once             at /rustc/84c898d65adf2f39a5a98507f1fe0ce10a2b8dbc/library/core/src/ops/function.rs:250:5";
   test.test_name = "config_processor::tests::test_config_update_contains_duplicates_fails";
   test.test_number = 1163;
