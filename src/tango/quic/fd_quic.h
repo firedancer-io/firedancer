@@ -650,7 +650,6 @@ uint fd_quic_tx_buffered_raw(fd_quic_t *quic,
 /* Convenience exports for consumers of API */
 #include "fd_quic_conn.h"
 #include "fd_quic_stream.h"
-#include "fd_quic_qos.h"
 
 /* FD_DEBUG_MODE: set to enable debug-only code
    TODO move to util? */

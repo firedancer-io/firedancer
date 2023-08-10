@@ -38,6 +38,7 @@
 
 #include "../fd_disco_base.h"
 #include "../../tango/quic/fd_quic.h"
+#include "../../tango/quic/fd_quic_qos.h"
 #include "../../tango/quic/tls/fd_quic_tls.h"
 #include "../../tango/xdp/fd_xdp.h"
 #include "../../tango/udpsock/fd_udpsock.h"

@@ -2,6 +2,7 @@
 
 #include "../../../tango/fd_tango.h"
 #include "../../../tango/quic/fd_quic.h"
+#include "../../../tango/quic/fd_quic_qos.h"
 #include "../../../tango/xdp/fd_xsk_aio.h"
 #include "../../../tango/udpsock/fd_udpsock.h"
 

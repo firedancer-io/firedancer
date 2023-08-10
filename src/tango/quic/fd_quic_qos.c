@@ -73,7 +73,6 @@ fd_quic_qos_conn_new( fd_quic_qos_t *     qos,
   }
   for ( ulong i = 0; i < 2; i++ ) {
     fd_quic_qos_cnt_t * query = fd_quic_qos_cnt_query( qos->cnt, check_cnt_keys[i], NULL );
-    FD_LOG_NOTICE( ( "query is null? %d", query == NULL ) );
     if ( FD_UNLIKELY( query && query->count >= qos->limits.cnt_max_conns ) ) {
       fd_quic_conn_close( conn, FD_QUIC_CONN_REASON_CONNECTION_REFUSED );
       return;

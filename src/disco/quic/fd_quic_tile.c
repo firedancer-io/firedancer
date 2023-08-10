@@ -1,5 +1,4 @@
 #include "fd_quic.h"
-#include "../../tango/quic/fd_quic_private.h"
 #include "../../util/net/fd_ip4.h"
 #include <errno.h>
 #include <stdlib.h>
