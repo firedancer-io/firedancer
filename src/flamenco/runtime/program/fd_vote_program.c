@@ -1304,7 +1304,8 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
 
     fd_slot_hashes_t slot_hashes;
     fd_slot_hashes_new( &slot_hashes );
-    fd_sysvar_slot_hashes_read( ctx.global, &slot_hashes );
+    result = fd_sysvar_slot_hashes_read( ctx.global, &slot_hashes );
+    FD_TEST( result==0 );
 
     int process_vote_res = FD_EXECUTOR_INSTR_SUCCESS;
     switch( vote_state_versioned.discriminant ) {
