@@ -462,7 +462,7 @@ int fd_executor_stake_program_execute_instruction(
   ctx2.valloc  = ctx.global->valloc;
   if ( fd_stake_instruction_decode( &instruction, &ctx2 ) ) {
     FD_LOG_WARNING(("fd_stake_instruction_decode failed"));
-    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+    return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
   int res;
 
@@ -631,7 +631,7 @@ int fd_executor_stake_program_execute_instruction(
       return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
     }
     fd_stake_history_t history;
-    fd_sysvar_stake_history_read( ctx.global, &history);
+    fd_sysvar_stake_history_read( ctx.global, &history );
 
     if ( ctx.txn_ctx->txn_descriptor->acct_addr_cnt < 5 ) {
       return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
@@ -691,13 +691,10 @@ int fd_executor_stake_program_execute_instruction(
       FD_LOG_WARNING(( "failed to read stake account data" ));
       return read_result;
     }
-    if ( lamports > meta->rent_exempt_reserve ) {
-      stake_amount = lamports - meta->rent_exempt_reserve;
-    }
 
-    if ((ctx.global->features.stake_allow_zero_undelegated_amount || ctx.global->features.stake_raise_minimum_delegation_to_1_sol) && stake_amount < get_minimum_delegation(ctx.global)) {
-      ctx.txn_ctx->custom_err = 12;
-      return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+    res = validate_delegated_amount(&ctx, lamports, meta->rent_exempt_reserve, &stake_amount);
+    if (res != FD_EXECUTOR_INSTR_SUCCESS) {
+      return res;
     }
 
     if ( fd_stake_state_is_initialized( &stake_state ) ) {
@@ -736,6 +733,7 @@ int fd_executor_stake_program_execute_instruction(
       fd_memcpy( &stake_state_stake->meta, meta, FD_STAKE_STATE_META_FOOTPRINT );
       stake_state_stake->stake.delegation.activation_epoch = clock.epoch;
       stake_state_stake->stake.delegation.stake = stake_amount;
+      stake_state_stake->stake.delegation.deactivation_epoch = ULONG_MAX;
       fd_memcpy( &stake_state_stake->stake.delegation.voter_pubkey, vote_acc, sizeof(fd_pubkey_t) );
       stake_state_stake->stake.delegation.warmup_cooldown_rate = stake_config.warmup_cooldown_rate;
 
@@ -1084,6 +1082,7 @@ int fd_executor_stake_program_execute_instruction(
       if (instr_acc_idxs[0] >= ctx.txn_ctx->txn_descriptor->signature_cnt) {
         return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
       }
+      memset(&lockup, 0, sizeof(fd_stake_lockup_t));
     } else {
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
     }
@@ -1168,6 +1167,13 @@ int fd_executor_stake_program_execute_instruction(
       return res;
     }
 
+    /* Check that the Instruction Account 1 is the Clock Sysvar account */
+    if ( memcmp( &txn_accs[instr_acc_idxs[1]], ctx.global->sysvar_clock, sizeof(fd_pubkey_t) ) != 0 ) {
+      return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+    }
+    fd_sol_sysvar_clock_t clock;
+    fd_sysvar_clock_read( ctx.global, &clock );
+
     fd_stake_state_t stake_state;
     int result = read_stake_state( ctx.global, stake_acc, &stake_state );
     if (result != FD_EXECUTOR_INSTR_SUCCESS) {
@@ -1177,13 +1183,6 @@ int fd_executor_stake_program_execute_instruction(
     if (!fd_stake_state_is_stake( &stake_state )) {
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
     }
-
-    /* Check that the Instruction Account 1 is the Clock Sysvar account */
-    if ( memcmp( &txn_accs[instr_acc_idxs[1]], ctx.global->sysvar_clock, sizeof(fd_pubkey_t) ) != 0 ) {
-      return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
-    }
-    fd_sol_sysvar_clock_t clock;
-    fd_sysvar_clock_read( ctx.global, &clock );
 
     // meta.authorized.check(signers, StakeAuthorize::Staker)?;
     result = authorized_check_signers(&ctx, instr_acc_idxs, txn_accs, &stake_state.inner.stake.meta.authorized.staker);
