@@ -12,6 +12,8 @@
 const char *verbose = NULL;
 const char *fail_fast = NULL;
 
+static ulong scratch_mb = 0UL;
+
 uchar do_leakcheck = 0;
 
 int fd_alloc_fprintf( fd_alloc_t * join, FILE *       stream );
@@ -66,6 +68,17 @@ void fd_executor_test_suite_new( fd_executor_test_suite_t* suite ) {
     fd_wksp_free_laddr(shmem);
     FD_LOG_ERR(( "failed to allocate a funky" ));
   }
+
+  /* Create scratch allocator */
+
+  ulong  smax = scratch_mb << 20;
+  void * smem = fd_wksp_alloc_laddr( suite->wksp, fd_scratch_smem_align(), smax, 1UL );
+  if( FD_UNLIKELY( !smem ) ) FD_LOG_ERR(( "Failed to alloc scratch mem" ));
+
+# define SCRATCH_DEPTH (4UL)
+  static ulong fmem[ SCRATCH_DEPTH ] __attribute((aligned(FD_SCRATCH_FMEM_ALIGN)));
+
+  fd_scratch_attach( smem, fmem, smax, SCRATCH_DEPTH );
 
   /* Set up allocators */
   if (do_leakcheck) {
@@ -314,6 +327,7 @@ main( int     argc,
                fail_fast        = fd_env_strip_cmdline_cstr ( &argc, &argv, "--fail_fast",        NULL, NULL      );
   char *       ignore_fail      = (char *)fd_env_strip_cmdline_cstr ( &argc, &argv, "--ignore_fail",      NULL, NULL      ); /* UGLY!!! */
   char const * ignore_fail_file = fd_env_strip_cmdline_cstr ( &argc, &argv, "--ignore_fail_file", NULL, NULL      );
+               scratch_mb       = fd_env_strip_cmdline_ulong( &argc, &argv, "--scratch-mb",       NULL, 1024      );
 
   if (-1 != do_test)
     test_start = test_end = (ulong)do_test;
@@ -384,6 +398,9 @@ main( int     argc,
 
   if (NULL != filter)
     regfree(&suite.filter_ex);
+
+  /* Free test suite */
+  fd_wksp_free_laddr( fd_scratch_detach( NULL ) );
 
   fd_log_flush();
   fd_flamenco_halt();
