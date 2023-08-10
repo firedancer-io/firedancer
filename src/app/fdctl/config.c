@@ -303,8 +303,11 @@ replace( char *       in,
     if( FD_UNLIKELY( total_len >= PATH_MAX ) )
       FD_LOG_ERR(( "configuration scratch directory path too long: `%s`", in ));
 
-    fd_memcpy( replace + pat_len, replace + sub_len, in_len - (ulong)( replace - in ) - sub_len + 1 );
+    uchar after[PATH_MAX] = {0};
+    fd_memcpy( after, replace + pat_len, strlen( replace + pat_len ) );
     fd_memcpy( replace, sub, sub_len );
+    ulong after_len = strlen( ( const char * ) after );
+    fd_memcpy( replace + sub_len, after, after_len );
     in[ total_len ] = '\0';
   }
 }
