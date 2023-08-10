@@ -855,7 +855,7 @@ int fd_quic_retry_token_encrypt(
   uchar iv[FD_QUIC_NONCE_SZ] = { 0 };
 
   /* The AAD is the client IPv4 address, UDP port, and retry source connection id. */
-  ulong aad_sz = (ulong)FD_QUIC_RETRY_TOKEN_AAD_SZ + retry_src_conn_id->sz;
+  ulong aad_sz = (ulong)FD_QUIC_RETRY_TOKEN_AAD_PREFIX_SZ + retry_src_conn_id->sz;
   uchar aad[aad_sz];
   memcpy( aad, &ip_addr, sizeof( uint ) );
   memcpy( aad + sizeof( uint ), &udp_port, sizeof( ushort ) );
@@ -917,7 +917,7 @@ int fd_quic_retry_token_decrypt(
   );
 
   uchar * ciphertext = hkdf_key + FD_QUIC_RETRY_TOKEN_HKDF_KEY_SZ;
-  ulong   aad_sz     = (ulong)FD_QUIC_RETRY_TOKEN_AAD_SZ + retry_src_conn_id->sz;
+  ulong   aad_sz     = (ulong)FD_QUIC_RETRY_TOKEN_AAD_PREFIX_SZ + retry_src_conn_id->sz;
   uchar   aad[aad_sz];
   memcpy( aad, &ip_addr, sizeof( uint ) );
   memcpy( aad + sizeof( uint ), &udp_port, sizeof( ushort ) );
@@ -957,7 +957,7 @@ int fd_quic_retry_token_decrypt(
 int fd_quic_retry_integrity_tag_encrypt(
     uchar * retry_pseudo_pkt,
     int     retry_pseudo_pkt_len,
-    uchar   retry_integrity_tag[static FD_QUIC_CRYPTO_TAG_SZ]
+    uchar   retry_integrity_tag[static FD_QUIC_RETRY_INTEGRITY_TAG_SZ]
 ) {
   int ciphertext_len = gcm_encrypt(
       EVP_aes_128_gcm(),
@@ -979,7 +979,7 @@ int fd_quic_retry_integrity_tag_encrypt(
 int fd_quic_retry_integrity_tag_decrypt(
     uchar * retry_pseudo_pkt,
     int     retry_pseudo_pkt_len,
-    uchar   retry_integrity_tag[static FD_QUIC_CRYPTO_TAG_SZ]
+    uchar   retry_integrity_tag[static FD_QUIC_RETRY_INTEGRITY_TAG_SZ]
 ) {
   int plaintext_len = gcm_decrypt(
       EVP_aes_128_gcm(),
