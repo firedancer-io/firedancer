@@ -89,11 +89,13 @@ process_account( FILE * file,
   } while(0);
 
   printf(
+    "      owner:      %32J\n"
     "      lamports:   %lu\n"
     "      slot:       %lu\n"
     "      rent_epoch: %lu\n"
     "      executable: %s\n"
     "      data_sz:    %lu\n",
+    meta->owner,
     meta->lamports,
     meta->slot,
     meta->rent_epoch,
