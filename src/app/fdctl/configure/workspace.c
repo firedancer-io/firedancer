@@ -3,11 +3,19 @@
 #include "../../../tango/fd_tango.h"
 #include "../../../tango/quic/fd_quic.h"
 #include "../../../tango/xdp/fd_xsk_aio.h"
+#include "../../../tango/udpsock/fd_udpsock.h"
 
 #include <sys/stat.h>
 #include <linux/capability.h>
+#include <errno.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <sys/socket.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
 
 #define NAME "workspace"
+#define FD_HAS_XDP 0
 
 static void
 init_perm( security_t *     security,
@@ -81,6 +89,13 @@ static void quic( void * pod, char * fmt, fd_quic_limits_t * limits, ... ) {
             fd_quic_new      ( shmem, limits ) );
 }
 
+static void quic_qos( void * pod, char * fmt, fd_quic_qos_limits_t * limits, ... ) {
+  INSERTER( limits,
+            fd_quic_qos_align    (               ),
+            fd_quic_qos_footprint( limits        ),
+            fd_quic_qos_new      ( shmem, limits ) );
+}
+
 static void stake( void * pod, char * fmt, int lg_slot_cnt, ... ) {
   INSERTER( lg_slot_cnt,
             fd_stake_align    (                    ),
@@ -100,6 +115,13 @@ static void xsk_aio( void * pod, char * fmt, ulong tx_depth, ulong batch_count, 
             fd_xsk_aio_align    (                                 ),
             fd_xsk_aio_footprint( tx_depth, batch_count           ),
             fd_xsk_aio_new      ( shmem,    tx_depth, batch_count ) );
+}
+
+static void udpsock( void * pod, char * fmt, ulong frame_sz, ulong rx_depth, ulong tx_depth, ... ) {
+  INSERTER( tx_depth,
+            fd_udpsock_align    (                                     ),
+            fd_udpsock_footprint( frame_sz, rx_depth, tx_depth        ),
+            fd_udpsock_new      ( shmem, frame_sz, rx_depth, tx_depth ) );
 }
 
 static void alloc( void * pod, char * fmt, ulong align, ulong sz, ... ) {
@@ -203,19 +225,6 @@ init( config_t * const config ) {
   if( FD_LIKELY( uid == 0 && seteuid( config->uid ) ) )
     FD_LOG_ERR(( "seteuid() failed (%i-%s)", errno, strerror( errno ) ));
 
-  fd_quic_limits_t limits = {
-    .conn_cnt                                      = config->tiles.quic.max_concurrent_connections,
-    .handshake_cnt                                 = config->tiles.quic.max_concurrent_handshakes,
-    .conn_id_cnt                                   = config->tiles.quic.max_concurrent_connection_ids_per_connection,
-    .conn_id_sparsity                              = 0.0,
-    .inflight_pkt_cnt                              = config->tiles.quic.max_inflight_quic_packets,
-    .tx_buf_sz                                     = config->tiles.quic.tx_buf_size,
-    .stream_cnt[ FD_QUIC_STREAM_TYPE_BIDI_CLIENT ] = 0,
-    .stream_cnt[ FD_QUIC_STREAM_TYPE_BIDI_SERVER ] = 0,
-    .stream_cnt[ FD_QUIC_STREAM_TYPE_UNI_CLIENT  ] = config->tiles.quic.max_concurrent_streams_per_connection,
-    .stream_cnt[ FD_QUIC_STREAM_TYPE_UNI_SERVER  ] = 0,
-  };
-
   for( ulong j=0; j<config->shmem.workspaces_cnt; j++ ) {
     workspace_config_t * wksp1 = &config->shmem.workspaces[ j ];
     WKSP_BEGIN( config, wksp1, 0 );
@@ -249,19 +258,64 @@ init( config_t * const config ) {
           fseq  ( pod, "fseq%lu", i );
         }
         break;
-      case wksp_quic:
-        cnc    ( pod, "cnc" );
-        quic   ( pod, "quic",    &limits );
-        FD_LOG_NOTICE(("config->tiles.quic.stake_lg_slot_cnt: %d", config->tiles.quic.stake_lg_slot_cnt));
-        stake  ( pod, "stake",   10 );  // FIXME this not getting parsed
-        xsk    ( pod, "xsk",     2048, config->tiles.quic.xdp_rx_queue_size, config->tiles.quic.xdp_tx_queue_size );
-        xsk_aio( pod, "xsk_aio", config->tiles.quic.xdp_tx_queue_size, config->tiles.quic.xdp_aio_depth );
+      case wksp_quic:;
+        fd_quic_limits_t quic_limits = {
+          .conn_cnt                                      = config->tiles.quic.max_concurrent_connections,
+          .handshake_cnt                                 = config->tiles.quic.max_concurrent_handshakes,
+          .conn_id_cnt                                   = config->tiles.quic.max_concurrent_connection_ids_per_connection,
+          .conn_id_sparsity                              = 0.0,
+          .inflight_pkt_cnt                              = config->tiles.quic.max_inflight_quic_packets,
+          .tx_buf_sz                                     = config->tiles.quic.tx_buf_size,
+          .stream_cnt[ FD_QUIC_STREAM_TYPE_BIDI_CLIENT ] = 0,
+          .stream_cnt[ FD_QUIC_STREAM_TYPE_BIDI_SERVER ] = 0,
+          .stream_cnt[ FD_QUIC_STREAM_TYPE_UNI_CLIENT  ] = config->tiles.quic.max_concurrent_streams_per_connection,
+          .stream_cnt[ FD_QUIC_STREAM_TYPE_UNI_SERVER  ] = 0,
+        };
 
+        int lg_max_conns = fd_ulong_find_msb( config->tiles.quic.max_concurrent_connections );
+        if ( lg_max_conns < 1 ) FD_LOG_ERR( ( "max_concurrent_connections must be at least 2." ) );
+        fd_quic_qos_limits_t quic_qos_limits = {
+            .min_streams    = FD_QUIC_QOS_DEFAULT_MIN_STREAMS,
+            .max_streams    = FD_QUIC_QOS_DEFAULT_MAX_STREAMS,
+            .total_streams  = FD_QUIC_QOS_DEFAULT_TOTAL_STREAMS,
+            .pq_lg_slot_cnt = lg_max_conns - 1,
+            .lru_depth      = config->tiles.quic.max_concurrent_connections >> 1,
+        };
+
+        cnc     ( pod, "cnc" );
+        quic    ( pod, "quic",    &quic_limits );
+        quic_qos( pod, "quic_qos", &quic_qos_limits );
+        stake   ( pod, "stake",   10 );  // FIXME slot cnt is not getting parsed
+
+        #if FD_HAS_XDP
+        (void)udpsock;
+        xsk     ( pod, "xsk",     2048, config->tiles.quic.xdp_rx_queue_size, config->tiles.quic.xdp_tx_queue_size );
+        xsk_aio ( pod, "xsk_aio", config->tiles.quic.xdp_tx_queue_size, config->tiles.quic.xdp_aio_depth );
         char const * quic_xsk_gaddr = fd_pod_query_cstr( pod, "xsk", NULL );
         void *       shmem          = fd_wksp_map      ( quic_xsk_gaddr );
         if( FD_UNLIKELY( !fd_xsk_bind( shmem, config->name, config->tiles.quic.interface, (uint)wksp1->kind_idx ) ) )
           FD_LOG_ERR(( "failed to bind xsk for quic tile %lu", wksp1->kind_idx ));
         fd_wksp_unmap( shmem );
+        #else
+        (void)xsk;
+        (void)xsk_aio;
+        int sock_fd = socket( AF_INET, SOCK_DGRAM, IPPROTO_UDP );
+        if( FD_UNLIKELY( sock_fd<0 ) ) {
+          FD_LOG_ERR( (
+              "socket(AF_INET,SOCK_DGRAM,IPPROTO_UDP) failed (%d-%s)", errno, strerror( errno ) ) );
+        }
+        struct sockaddr_in listen_addr = {
+          .sin_family = AF_INET,
+          .sin_addr   = { .s_addr = FD_IP4_ADDR(127, 0, 0, 1) },
+          .sin_port   = (ushort)fd_ushort_bswap( 8004 ),
+        };
+        if( FD_UNLIKELY( 0!=bind( sock_fd, (struct sockaddr const *)fd_type_pun_const( &listen_addr ), sizeof(struct sockaddr_in) ) ) ) {
+          close( sock_fd );
+          FD_LOG_ERR( ( "bind(sock_fd) failed (%d-%s)", errno, strerror( errno ) ) );
+        }
+        udpsock ( pod, "udpsock",     2048, config->tiles.quic.xdp_rx_queue_size, config->tiles.quic.xdp_tx_queue_size );
+        #endif
+
 
         uint1  ( pod, "ip_addr",                    config->tiles.quic.ip_addr );
         ushort1( pod, "listen_port",                config->tiles.quic.listen_port, 0 );

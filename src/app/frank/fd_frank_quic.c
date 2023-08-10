@@ -56,6 +56,10 @@ run( fd_frank_args_t * args ) {
   fd_quic_t * quic = fd_quic_join( fd_wksp_pod_map( args->tile_pod, "quic" ) );
   if( FD_UNLIKELY( !quic ) ) FD_LOG_ERR(( "fd_quic_join failed" ));
 
+  FD_LOG_INFO(( "loading quic" ));
+  fd_quic_qos_t * quic_qos = fd_quic_qos_join( fd_wksp_pod_map( args->tile_pod, "quic_qos" ) );
+  if( FD_UNLIKELY( !quic_qos ) ) FD_LOG_ERR(( "fd_quic_qos_join failed" ));
+
   FD_LOG_INFO(( "loading stake" ));
   fd_stake_t * stake = fd_stake_join( fd_wksp_pod_map( args->tile_pod, "stake" ) );
   if( FD_UNLIKELY( !stake ) ) FD_LOG_ERR(( "fd_stake_join failed" ));
@@ -126,7 +130,12 @@ run( fd_frank_args_t * args ) {
   /* Start serving */
 
   FD_LOG_INFO(( "%s(%lu) run", args->tile_name, args->tile_idx ));
-  int err = fd_quic_tile( cnc, quic, stake, xsk_aio, mcache, dcache, lazy, rng, scratch );
+  #if FD_HAS_XDP
+  #define SOCK args->xsk
+  #else
+  #define SOCK args->udpsock
+  #endif
+  int err = fd_quic_tile( cnc, quic, quic_qos, stake, SOCK, mcache, dcache, lazy, rng, scratch );
   if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_quic_tile failed (%i)", err ));
 }
 

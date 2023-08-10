@@ -377,7 +377,9 @@ dynamic_port_range = "8000-10000"
 
         # Maximum number of simultaneous QUIC connections which can be open. New
         # connections which would exceed this limit will not be accepted.
-        max_concurrent_connections = 4096
+        #
+        # Must be >=2 and a power of 2.
+        max_concurrent_connections = 32
 
         # While in TCP a connection is identified by (Source IP, Source Port,
         # Dest IP, Dest Port) in QUIC a connection is uniquely identified by a

@@ -4,6 +4,7 @@
 #include "../../disco/fd_disco.h"
 #include "../../ballet/fd_ballet.h" /* FIXME: CONSIDER HAVING THIS IN DISCO_BASE */
 #include "../../tango/xdp/fd_xsk.h"
+#include "../../tango/udpsock/fd_udpsock.h"
 
 /* FD_FRANK_CNC_DIAG_* are FD_CNC_DIAG_* style diagnostics and thus the
    same considerations apply.  Further they are harmonized with the
@@ -29,10 +30,11 @@ typedef struct {
    char *        tile_name;
    ulong         tile_idx;
    ulong         idx;
-   uchar const * tile_pod;
-   uchar const * in_pod;
-   uchar const * out_pod;
-   fd_xsk_t    * xsk;
+   uchar const  * tile_pod;
+   uchar const  * in_pod;
+   uchar const  * out_pod;
+   fd_xsk_t     * xsk;
+   fd_udpsock_t * udpsock;
 } fd_frank_args_t;
 
 typedef struct {
