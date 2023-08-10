@@ -1,4 +1,12 @@
 #include "fd_quic.h"
+#include "../../tango/quic/fd_quic_private.h"
+#include "../../util/net/fd_ip4.h"
+#include <errno.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <sys/socket.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
 
 #if !FD_HAS_HOSTED
 #error "fd_quic tile requires FD_HAS_HOSTED"
@@ -65,7 +73,10 @@ struct fd_quic_tpu_ctx {
   fd_stake_t * stake;
 
   /* qos */
-  fd_quic_qos_t * qos;
+  fd_quic_qos_t * quic_qos;
+
+  /* rng */
+  fd_rng_t * rng;
 
   /* meta */
   ulong   cnc_diag_tpu_conn_live_cnt;
@@ -85,25 +96,41 @@ fd_tpu_now( void * ctx ) {
   return (ulong)fd_log_wallclock();
 }
 
-/* fd_tpu_conn_create implements fd_quic_cb_conn_new_t */
+/* fd_tpu_conn_new implements fd_quic_cb_conn_new_t
+
+   calls `fd_quic_qos_conn_new to implement connection prioritization and flow
+   control logic */
 static void
 fd_tpu_conn_new( fd_quic_conn_t * conn,
                  void *           _ctx ) {
 
   conn->local_conn_id = ++conn_seq;
 
+  fd_stake_pubkey_t   pubkey     = { 0 };
+  fd_stake_pubkey_t * pubkey_ptr = &pubkey;
+  int verify_result = fd_quic_tls_get_pubkey( conn->tls_hs, pubkey.pubkey, FD_STAKE_PUBKEY_SZ );
+  /* we only care about self-signed certs identifying the connection's associated Solana pubkey */
+  if ( FD_UNLIKELY( verify_result != X509_V_ERR_DEPTH_ZERO_SELF_SIGNED_CERT ) ) {
+    FD_DEBUG( FD_LOG_WARNING( ( "Failed to get conn: %lu's pubkey", conn->local_conn_id ) ) );
+    pubkey_ptr = NULL;
+  }
   fd_quic_tpu_ctx_t * ctx = (fd_quic_tpu_ctx_t *)_ctx;
+  fd_quic_qos_conn_new( ctx->quic_qos, ctx->stake, ctx->rng, conn, pubkey_ptr );
+
   ctx->cnc_diag_tpu_conn_seq = conn_seq;
   ctx->cnc_diag_tpu_conn_live_cnt++;
 }
 
-/* fd_tpu_conn_destroy implements fd_quic_cb_conn_final_t */
+/* fd_tpu_conn_final implements fd_quic_cb_conn_final_t */
 static void
 fd_tpu_conn_final( fd_quic_conn_t * conn,
                    void *           _ctx ) {
-  (void)conn;
-
   fd_quic_tpu_ctx_t * ctx = (fd_quic_tpu_ctx_t *)_ctx;
+  fd_quic_qos_pq_t * pq = ctx->quic_qos->pq;
+  fd_quic_qos_pq_t * query = fd_quic_qos_pq_query( pq, conn->local_conn_id, NULL );
+  if ( FD_UNLIKELY( (query) ) ) {  /* most connections likely unstaked */
+    fd_quic_qos_pq_remove( pq, query );
+  }
   ctx->cnc_diag_tpu_conn_live_cnt--;
 }
 
@@ -261,9 +288,13 @@ fd_quic_tile_scratch_footprint( ulong depth ) {
 int
 fd_quic_tile( fd_cnc_t *       cnc,
               fd_quic_t *      quic,
-              // fd_quic_qos_t *  qos,
+              fd_quic_qos_t *  quic_qos,
               fd_stake_t *     stake,
-              fd_xsk_aio_t *   xsk_aio,
+              #if FD_HAS_XDP
+              fd_xsk_aio_t *   xsk_aio, /* Local join to QUIC XSK aio */
+              #else
+              fd_udpsock_t *   udpsock, /* Local join to QUIC udp sock */
+              #endif
               fd_frag_meta_t * mcache,
               uchar *          dcache,
               long             lazy,
@@ -399,6 +430,8 @@ fd_quic_tile( fd_cnc_t *       cnc,
     quic_ctx.mcache     = mcache;
     quic_ctx.depth      = depth;
     quic_ctx.inflight_streams = 0UL;
+    quic_ctx.quic_qos   = quic_qos;
+    quic_ctx.stake      = stake;
 
     quic_cb->quic_ctx = &quic_ctx;
 
@@ -421,74 +454,6 @@ fd_quic_tile( fd_cnc_t *       cnc,
   long then = fd_tickcount();
   long now  = then;
   for(;;) {
-    // (void)qos;
-    if (fd_stake_read(stake)) {
-      fd_stake_dump( stake );
-    }
-    // FD_LOG_NOTICE(("total_stake %lu", stake->total_stake));
-    // fd_stake_pubkey_t pubkey = {
-    //     .pubkey = {44, 174, 25, 39, 43, 255, 200, 81, 55, 73, 10, 113, 174, 91, 223, 80,
-    //                50, 51, 102, 25, 63, 110, 36, 28, 51, 11, 174, 179, 110, 8, 25, 152}
-    // };
-    // FD_LOG_NOTICE(("staked_node is null %d", stake->staked_nodes == NULL));
-    // FD_LOG_HEXDUMP_NOTICE(("staked node i", &stake->staked_nodes[0], 4));
-    // for (ulong i = 0; i < (1UL << 16); i++) {
-    //   FD_LOG_HEXDUMP_NOTICE(("staked node i", &stake->staked_nodes[i], 4));
-    // }
-    // fd_stake_update(stake, NULL, 0);
-    // fd_stake_node_private_t * hdr =
-    //       fd_stake_node_private_from_slot( stake->staked_nodes );
-    // FD_LOG_NOTICE(("hdr slot cnt %lu", hdr->key_cnt));
-    // FD_LOG_NOTICE(("hdr slot cnt %d", hdr->lg_slot_cnt));
-    // fd_stake_node_t * node = fd_stake_node_query( fd_stake_nodes_laddr(stake), pubkey, NULL );
-    // FD_LOG_HEXDUMP_NOTICE(("stake", stake, sizeof(fd_stake_t)));
-    // FD_LOG_HEXDUMP_NOTICE(("staked nodes", stake->staked_nodes, 8));
-    // __asm__("int $3");
-    // if (node != NULL) {
-    //   FD_LOG_NOTICE(("got stake %lu", node->stake));
-      // __asm__("int $3");
-      // fd_stake_node_private_t * hdr =
-      //     fd_stake_node_private_from_slot( stake->staked_nodes );
-      // FD_LOG_NOTICE( ( "hdr null? %d", hdr == NULL ) );
-      // if ( fd_stake_node_key_inval( node->key ) ) {
-      //   FD_LOG_NOTICE(("key is NULL"));
-      // } else {
-      //   FD_LOG_NOTICE(("key is null %d", memcmp(&node->key, &pubkey_null, sizeof(fd_stake_pubkey_t))));
-      //   FD_LOG_HEXDUMP_NOTICE( ( "node->key", &node->key, sizeof( fd_stake_pubkey_t ) ) );
-      //   FD_LOG_NOTICE( ( "node->stake %lu", node->stake ) );
-      // }
-    // }
-    // (void)pubkey;
-    // ulong read_seq = fd_mcache_seq_query(fd_mcache_seq_laddr_const(mcache));
-    // fd_frag_meta_t const * mline = mcache + fd_mcache_line_idx( read_seq, depth );
-    // ulong seq_found = fd_frag_meta_seq_query( mline );
-    // long  diff      = fd_seq_diff( seq_found, read_seq );
-    // if (!diff) {
-    //   FD_LOG_NOTICE(("seq_found %lu read_seq %lu diff %li", seq_found, read_seq, diff));
-    //   FD_LOG_NOTICE(("mline->chunk %u mline->tsorig %u", mline->chunk, mline->tsorig));
-    //   void * data = fd_chunk_to_laddr(base, mline->chunk );
-    //   FD_LOG_HEXDUMP_NOTICE(("data", data, mline->sz));
-    //   if (FD_UNLIKELY(mline->sz % 40 != 0)) {
-    //     FD_LOG_ERR(("Bad msg"));
-    //   }
-    //   /* TODO overrun check */
-    //   for (ulong i = 0; i < mline->sz; i += 40) {
-    //     uchar * bytes = (uchar *)data + i;
-    //     /* 32-byte aligned. dcache is 128-byte aligned. 128 % 32 = 0. */
-    //     fd_quic_qos_pubkey_t * pubkey = (fd_quic_qos_pubkey_t *) bytes;
-    //     /* 8-byte aligned. 32 + 8 = 40. 40 % 8 = 0. */
-    //     ulong * stake = (ulong *)(bytes + sizeof(fd_quic_qos_pubkey_t));
-    //     /* staked node */
-    //     fd_quic_qos_staked_node_t * staked_node =
-    //         fd_quic_qos_staked_node_insert( qos->staked_node_map, *pubkey );
-    //     staked_node->stake = *stake;
-    //     FD_LOG_HEXDUMP_NOTICE(("pubkey", pubkey, sizeof(fd_quic_qos_pubkey_t)));
-    //     FD_LOG_NOTICE(("stake %lu", *stake));
-    //     // FD_LOG_HEXDUMP_NOTICE(("pubkey", &staked_node->key, sizeof(fd_quic_qos_pubkey_t)));
-    //     // FD_LOG_NOTICE(("stakes %lu", staked_node->stake));
-    //   }
-    //   read_seq++;
-    // }
 
     /* Do housekeeping at a low rate in the background */
     if( FD_UNLIKELY( (now-then)>=0L ) ) {
@@ -517,9 +482,15 @@ fd_quic_tile( fd_cnc_t *       cnc,
       /* Reload housekeeping timer */
       then = now + (long)fd_tempo_async_reload( rng, async_min );
     }
+    
+    
 
     /* Poll network backend */
+    #if FD_HAS_XDP
     fd_xsk_aio_service( xsk_aio );
+    #else
+    fd_udpsock_service( udpsock );
+    #endif
 
     /* Service QUIC clients */
     fd_quic_service( quic );

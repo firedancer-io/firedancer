@@ -1,6 +1,7 @@
 #include "../../util/fd_util.h"
 
 #if FD_HAS_HOSTED && FD_HAS_X86 && FD_HAS_OPENSSL
+#define FD_HAS_XDP 1
 
 #include "fd_quic.h"
 #include "../../tango/xdp/fd_xdp.h"
@@ -28,7 +29,7 @@ struct test_cfg {
   long               tx_lazy;
   uint               tx_seed;
   fd_quic_t *        tx_quic;
-  // fd_quic_qos_t *    qos;
+  fd_quic_qos_t *    qos;
   fd_stake_t *       stake;
   fd_quic_config_t * tx_quic_cfg;
 
@@ -189,7 +190,7 @@ tx_tile_main( int     argc,
   FD_TEST( !fd_quic_tile(
       cfg->tx_cnc,
       cfg->tx_quic,
-      // cfg->qos,
+      cfg->qos,
       cfg->stake,
       cfg->xsk_aio,
       cfg->tx_mcache,

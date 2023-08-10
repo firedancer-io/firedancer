@@ -38,7 +38,9 @@
 
 #include "../fd_disco_base.h"
 #include "../../tango/quic/fd_quic.h"
+#include "../../tango/quic/tls/fd_quic_tls.h"
 #include "../../tango/xdp/fd_xdp.h"
+#include "../../tango/udpsock/fd_udpsock.h"
 #include "../../ballet/txn/fd_txn.h"
 
 #if FD_HAS_HOSTED
@@ -120,9 +122,13 @@ fd_quic_tile_scratch_footprint( ulong depth );
 int
 fd_quic_tile( fd_cnc_t *       cnc,  /* Local join to the tile's command-and-control */
               fd_quic_t *      quic, /* QUIC without active join */
-            //   fd_quic_qos_t *  qos,  /* Local join to QoS */
+              fd_quic_qos_t *  quic_qos,  /* Local join to QoS */
               fd_stake_t *     stake,
+              #if FD_HAS_XDP
               fd_xsk_aio_t *   xsk_aio, /* Local join to QUIC XSK aio */
+              #else
+              fd_udpsock_t *   udpsock, /* Local join to QUIC udp sock */
+              #endif
               fd_frag_meta_t * mcache,  /* Local join to the tile's txn output mcache */
               uchar *          dcache,  /* Local join to the tile's txn output dcache */
               long             lazy,    /* Laziness, <=0 means use a reasonable default */
