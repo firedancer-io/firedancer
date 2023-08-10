@@ -866,7 +866,7 @@ int fd_quic_retry_token_encrypt(
       retry_src_conn_id->sz
   );
 
-  uchar plaintext[FD_QUIC_RETRY_TOKEN_PLAINTEXT_SZ];
+  uchar plaintext[FD_QUIC_RETRY_TOKEN_PLAINTEXT_SZ] = { 0 };
   memcpy( plaintext, &orig_dst_conn_id->sz, sizeof( uchar ) );
   memcpy( plaintext + 1, orig_dst_conn_id->conn_id, orig_dst_conn_id->sz );
   memcpy( plaintext + 1 + orig_dst_conn_id->sz, &now, sizeof( ulong ) );
