@@ -241,6 +241,9 @@ init( config_t * const config ) {
           mcache( pod, "mcache%lu", config->tiles.bank.receive_buffer_size, i );
           dcache( pod, "dcache%lu", USHORT_MAX, config->layout.bank_tile_count * (ulong)config->tiles.bank.receive_buffer_size, 0, i );
           fseq  ( pod, "fseq%lu", i );
+          mcache( pod, "mcache-back%lu", config->tiles.bank.receive_buffer_size, i );
+          mcache( pod, "dcache-back%lu", USHORT_MAX, config->layout.bank_tile_count * (ulong)config->tiles.bank.receive_buffer_size, 0, i );
+          fseq  ( pod, "fseq-back%lu", i );
         }
         break;
       case wksp_bank_shred:
