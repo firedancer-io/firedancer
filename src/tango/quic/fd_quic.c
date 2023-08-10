@@ -1855,6 +1855,10 @@ ulong fd_quic_handle_v1_retry(
     ulong                 cur_sz
 ) {
   (void)pkt;
+  if ( FD_UNLIKELY ( quic->config.role == FD_QUIC_ROLE_SERVER ) ) {
+    fd_quic_conn_close( conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION );
+    return FD_QUIC_PARSE_FAIL;
+  }
   fd_quic_retry_t retry_pkt;
   fd_quic_decode_retry(&retry_pkt, cur_ptr, cur_sz);
 
