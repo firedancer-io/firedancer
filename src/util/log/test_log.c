@@ -53,6 +53,14 @@ main( int     argc,
   FD_LOG_NOTICE(( "fd_log_group         %s",  fd_log_group()         ));
   FD_LOG_NOTICE(( "fd_log_user          %s",  fd_log_user()          ));
 
+  /* Make sure build info is a proper cstr */
+  FD_TEST( fd_log_build_info_sz>0UL                              );
+  FD_TEST( !fd_log_build_info[ fd_log_build_info_sz-1UL ]        );
+  FD_TEST( (strlen(fd_log_build_info)+1UL)==fd_log_build_info_sz );
+
+  if( FD_LIKELY( fd_log_build_info_sz>1UL ) ) FD_LOG_NOTICE(( "fd_log_build_info:\n%s", fd_log_build_info ));
+  else                                        FD_LOG_NOTICE(( "fd_log_build_info not available" ));
+
   if( cmode ) {
     fd_log_colorize_set( 0 );
     FD_LOG_NOTICE(( "disabled colorize" ));
@@ -192,4 +200,3 @@ main( int     argc,
   fd_halt();
   return 0;
 }
-

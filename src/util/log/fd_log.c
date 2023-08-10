@@ -34,6 +34,13 @@
 #define FD_HAS_BACKTRACE 0
 #endif /* __has_include( <execinfo.h> ) */
 
+#ifdef FD_BUILD_INFO
+FD_IMPORT_CSTR( fd_log_build_info, FD_BUILD_INFO );
+#else
+char const  fd_log_build_info[1] __attribute__((aligned(1))) = { '\0' };
+ulong const fd_log_build_info_sz                             = 1UL;
+#endif
+
 /* TEXT_* are quick-and-dirty color terminal hacks.  Probably should
    do something more robust longer term. */
 
@@ -518,7 +525,7 @@ fd_log_private_fprintf_0( int fd, char const * fmt, ... ) {
 # endif
 }
 
-char const * 
+char const *
 fd_log_private_hexdump_msg ( char const * descr,
                              void const * mem,
                              ulong        sz ) {
@@ -858,7 +865,7 @@ fd_log_private_sig_abort( int         sig,
   fsync( STDERR_FILENO );
 
 # else /* !FD_HAS_BACKTRACE */
-  
+
   int log_fileno = FD_VOLATILE_CONST( fd_log_private_fileno );
   if( log_fileno ) fd_log_private_fprintf_0( log_fileno, "Caught signal %i.\n", sig );
 
@@ -1077,6 +1084,8 @@ fd_log_private_boot( int  *   pargc,
   if( atexit( fd_log_private_cleanup ) ) { fd_log_private_fprintf_0( STDERR_FILENO, "atexit failed; unable to boot\n" ); exit(1); }
 
   /* At this point, logging online */
+  if( fd_log_build_info_sz>1UL ) FD_LOG_INFO(( "fd_log: build info:\n%s", fd_log_build_info ));
+  else                           FD_LOG_INFO(( "fd_log: build info not available"           ));
   FD_LOG_INFO(( "fd_log: --log-path          %s",  fd_log_private_path    ));
   FD_LOG_INFO(( "fd_log: --log-dedup         %i",  fd_log_private_dedup   ));
   FD_LOG_INFO(( "fd_log: --log-colorize      %i",  fd_log_colorize()      ));

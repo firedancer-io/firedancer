@@ -457,6 +457,30 @@ int fd_log_group_id_query( ulong group_id );
 
 /* FIXME: TID DESC? UID? UID_SET? */
 
+/* Build info APIs ****************************************************/
+
+/* fd_log_build_info points in the caller's address space to the first
+   byte of a memory region of size fd_log_build_info_sz containing a
+   cstr with information about the environment in which the calling code
+   was built.
+
+   If build information was not available at compile time, the build
+   info will be the empty string and size will be one.
+
+   The value in this field is the last time the build info file was
+   generated (such that, in a development compile-execute-debug
+   iteration, the build info reflect the build environment since the
+   last "make clean" or the developer manually deleted the build info).
+
+   Code that is meant to be general purpose should not assume any
+   particular format, contents, length, etc.  The build system,
+   packaging magner, distribution manager, etc might external impose
+   additional requirements on this string for application specific code
+   though. */
+
+extern char const  fd_log_build_info[] __attribute__((aligned(1)));
+extern ulong const fd_log_build_info_sz; /* == strlen( fd_log_build_info ) + 1UL */
+
 /* Logging helper APIs ************************************************/
 
 /* fd_log_wallclock() reads the host's wallclock as ns since the UNIX
@@ -601,4 +625,3 @@ void fd_log_private_user_set ( char const * user  ); /* Not thread safe */
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_util_log_fd_log_h */
-

@@ -1,17 +1,19 @@
 MAKEFLAGS += --no-builtin-rules
 MAKEFLAGS += --no-builtin-variables
 .SUFFIXES:
-.PHONY: all bin fdctl fddev run monitor include lib unit-test fuzz-test run-unit-test help clean distclean asm ppp show-deps lint check-lint cargo
+.PHONY: all info bin fdctl fddev run monitor include lib unit-test fuzz-test run-unit-test help clean distclean asm ppp show-deps lint check-lint cargo
 .SECONDARY:
 .SECONDEXPANSION:
 
 OBJDIR:=$(BASEDIR)/$(BUILDDIR)
 CORPUSDIR:=corpus
 
+CPPFLAGS+=-DFD_BUILD_INFO=\"$(OBJDIR)/info\"
+
 # Auxiliarily rules that should not set up depenencies
 AUX_RULES:=clean distclean help show-deps lint check-lint run-unit-test
 
-all: bin include lib unit-test
+all: info bin include lib unit-test
 
 help:
 	# Configuration
@@ -40,6 +42,7 @@ help:
 	# FUZZFLAGS = $(FUZZFLAGS)
 	# Explicit goals are: all bin include lib unit-test help clean distclean asm ppp
 	# "make all" is equivalent to "make bin include lib unit-test"
+	# "make info" makes build info $(OBJDIR)/info for the current platform (if not already made)
 	# "make bin" makes all binaries for the current platform
 	# "make include" makes all include files for the current platform
 	# "make lib" makes all libraries for the current platform
@@ -59,6 +62,8 @@ help:
 	#   "make run-fuzz-test" re-runs all fuzz tests over existing corpora
 	#   "make fuzz_TARGET_unit" re-runs a specific fuzz-test over the existing corpus
 	#   "make fuzz_TARGET_run" runs a specific fuzz-test in explore mode for 600 seconds
+
+info: $(OBJDIR)/info
 
 clean:
 	#######################################################################
@@ -278,7 +283,19 @@ endif
 ##############################
 ## GENERIC RULES
 
-$(OBJDIR)/obj/%.d : src/%.c
+$(OBJDIR)/info :
+	#######################################################################
+	# Saving build info to $(OBJDIR)/info
+	#######################################################################
+	$(MKDIR) $(dir $@) && \
+echo -e \
+"# date     `date +'%Y-%m-%d %H:%M:%S %z'`\n"\
+"# source   `whoami`@`hostname`:`pwd`\n"\
+"# machine  $(MACHINE)\n"\
+"# extras   $(EXTRAS)" > $(OBJDIR)/info && \
+git status --porcelain=2 --branch >> $(OBJDIR)/info
+
+$(OBJDIR)/obj/%.d : src/%.c $(OBJDIR)/info
 	#######################################################################
 	# Generating dependencies for C source $< to $@
 	#######################################################################
@@ -287,7 +304,7 @@ $(CC) $(CPPFLAGS) $(CFLAGS) -M -MP $< -o $@.tmp && \
 $(SED) 's,\($(notdir $*)\)\.o[ :]*,$(OBJDIR)/obj/$*.o $(OBJDIR)/obj/$*.S $(OBJDIR)/obj/$*.i $@ : ,g' < $@.tmp > $@ && \
 $(RM) $@.tmp
 
-$(OBJDIR)/obj/%.d : src/%.cxx
+$(OBJDIR)/obj/%.d : src/%.cxx $(OBJDIR)/info
 	#######################################################################
 	# Generating dependencies for C++ source $< to $@
 	#######################################################################
@@ -296,28 +313,28 @@ $(CXX) $(CPPFLAGS) $(CXXFLAGS) -M -MP $< -o $@.tmp && \
 $(SED) 's,\($(notdir $*)\)\.o[ :]*,$(OBJDIR)/obj/$*.o $(OBJDIR)/obj/$*.S $(OBJDIR)/obj/$*.i $@ : ,g' < $@.tmp > $@ && \
 $(RM) $@.tmp
 
-$(OBJDIR)/obj/%.o : src/%.c
+$(OBJDIR)/obj/%.o : src/%.c $(OBJDIR)/info
 	#######################################################################
 	# Compiling C source $< to $@
 	#######################################################################
 	$(MKDIR) $(dir $@) && \
 $(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
-$(OBJDIR)/obj/%.o : src/%.cxx
+$(OBJDIR)/obj/%.o : src/%.cxx $(OBJDIR)/info
 	#######################################################################
 	# Compiling C++ source $< to $@
 	#######################################################################
 	$(MKDIR) $(dir $@) && \
 $(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
 
-$(OBJDIR)/obj/%.o : src/%.S
+$(OBJDIR)/obj/%.o : src/%.S $(OBJDIR)/info
 	#######################################################################
 	# Compiling asm source $< to $@
 	#######################################################################
 	$(MKDIR) $(dir $@) && \
 $(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
-$(OBJDIR)/obj/%.S : src/%.c
+$(OBJDIR)/obj/%.S : src/%.c $(OBJDIR)/info
 	#######################################################################
 	# Compiling C source $< to assembly $@
 	#######################################################################
@@ -326,7 +343,7 @@ $(CC) $(patsubst -g,,$(CPPFLAGS) $(CFLAGS)) -S -fverbose-asm $< -o $@.tmp && \
 $(SED) 's,^#,                                                                                               #,g' < $@.tmp > $@ && \
 $(RM) $@.tmp
 
-$(OBJDIR)/obj/%.S : src/%.cxx
+$(OBJDIR)/obj/%.S : src/%.cxx $(OBJDIR)/info
 	#######################################################################
 	# Compiling C++ source $< to assembly $@
 	#######################################################################
@@ -335,14 +352,14 @@ $(CXX) $(patsubst -g,,$(CPPFLAGS) $(CXXFLAGS)) -S -fverbose-asm $< -o $@.tmp && 
 $(SED) 's,^#,                                                                                               #,g' < $@.tmp > $@ && \
 $(RM) $@.tmp
 
-$(OBJDIR)/obj/%.i : src/%.c
+$(OBJDIR)/obj/%.i : src/%.c $(OBJDIR)/info
 	#######################################################################
 	# Preprocessing C source $< to $@
 	#######################################################################
 	$(MKDIR) $(dir $@) && \
 $(CC) $(CPPFLAGS) $(CFLAGS) -E $< -o $@
 
-$(OBJDIR)/obj/%.i : src/%.cxx
+$(OBJDIR)/obj/%.i : src/%.cxx $(OBJDIR)/info
 	#######################################################################
 	# Preprocessing C++ source $< to $@
 	#######################################################################
@@ -406,4 +423,3 @@ asm: $(DEPFILES:.d=.S)
 ppp: $(DEPFILES:.d=.i)
 
 endif
-
