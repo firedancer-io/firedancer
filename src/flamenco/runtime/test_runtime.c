@@ -310,7 +310,10 @@ replay( global_state_t * state,
                          slot,
                          known_bank_hash->hash,
                          state->global->bank.banks_hash.hash ));
-        if( state->global->abort_on_mismatch ) return 1;
+        if( state->global->abort_on_mismatch ) {
+          fd_solcap_writer_fini( state->global->capture );
+          return 1;
+        }
       }
     }
 

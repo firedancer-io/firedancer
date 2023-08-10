@@ -332,17 +332,20 @@ process_bank( fd_solcap_chunk_t const * chunk,
     printf(
       "  prev_bank_hash:     %32J\n"
       "  account_delta_hash: %32J\n"
-      "  poh_hash:           %32J\n",
+      "  poh_hash:           %32J\n"
+      "  signature_cnt:      %lu\n",
       meta.prev_bank_hash,
       meta.account_delta_hash,
-      meta.poh_hash );
+      meta.poh_hash,
+      meta.signature_cnt );
   }
 
   /* Accounts */
 
   if( verbose >= 2 ) {
     if( meta.account_table_coff==0L ) {
-      FD_LOG_WARNING(( "Capture does not include account info" ));
+      if( meta.account_cnt > 0UL )
+        FD_LOG_WARNING(( "Capture does not include account info" ));
       return 0;
     }
 
