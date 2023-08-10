@@ -1,17 +1,19 @@
 #ifndef HEADER_fd_src_tango_stake_fd_stake_h
 #define HEADER_fd_src_tango_stake_fd_stake_h
 
-#include "../../ballet/txn/fd_txn.h"
 #include "../mvcc/fd_mvcc.h"
 
 /* double cache line */
-#define FD_STAKE_ALIGN ( 128 )
+#define FD_STAKE_ALIGN 128UL
 
 /* maximum lg # of staked nodes we can track */
-#define FD_STAKE_LG_SLOT_CNT ( 16 )
+#define FD_STAKE_LG_SLOT_CNT 16UL
+
+/* 32-bytes, as with all Solana pubkeys */
+#define FD_STAKE_PUBKEY_SZ 32UL
 
 /* opaque */
-#define FD_STAKE_MAGIC ( 0xF17EDA2CE757A1E0 ) /* FIREDANCER STAKE V0 */
+#define FD_STAKE_MAGIC 0xF17EDA2CE757A1E0 /* FIREDANCER STAKE V0 */
 
 struct fd_stake_private {
   ulong     magic; /* == FD_STAKE_MAGIC */
@@ -22,7 +24,7 @@ struct fd_stake_private {
 typedef struct fd_stake_private fd_stake_t;
 
 struct fd_stake_pubkey {
-  uchar pubkey[FD_TXN_PUBKEY_SZ];
+  uchar pubkey[FD_STAKE_PUBKEY_SZ];
 };
 
 typedef struct fd_stake_pubkey fd_stake_pubkey_t;
@@ -41,13 +43,9 @@ typedef struct fd_stake_node fd_stake_node_t;
 #define MAP_KEY_T               fd_stake_pubkey_t
 #define MAP_KEY_NULL            pubkey_null
 #define MAP_KEY_INVAL( k )      !( memcmp( &k, &pubkey_null, sizeof( fd_stake_pubkey_t ) ) )
-#define MAP_KEY_EQUAL( k0, k1 ) !( memcmp( ( k0.pubkey ), ( k1.pubkey ), FD_TXN_PUBKEY_SZ ) )
-// #define MAP_KEY_EQUAL( k0, k1 ) map_key_equal(k0, k1)
-// #define MAP_KEY_EQUAL( k0, k1 ) (sizeof(k0.pubkey) == sizeof(k1.pubkey))
+#define MAP_KEY_EQUAL( k0, k1 ) !( memcmp( ( k0.pubkey ), ( k1.pubkey ), FD_STAKE_PUBKEY_SZ ) )
 #define MAP_KEY_EQUAL_IS_SLOW 1
-#define MAP_KEY_HASH( key )   ( (uint)( fd_hash( 0UL, key.pubkey, FD_TXN_PUBKEY_SZ ) ) )
-// #define MAP_KEY_HASH( key ) ( fd_uint_load_4( fd_type_pun( &key.pubkey ) ) )
-// #define MAP_KEY_HASH( key )     ( *(uint *)( fd_type_pun( &key.pubkey ) ) )  /* FIXME UB */
+#define MAP_KEY_HASH( key )   ( (uint)( fd_hash( 0UL, key.pubkey, FD_STAKE_PUBKEY_SZ ) ) )
 #include "../../util/tmpl/fd_map_dynamic.c"
 
 ulong
@@ -127,7 +125,7 @@ fd_stake_read( fd_stake_t * stake);
    ...
    ----------- */
 void
-fd_stake_write( fd_stake_t * stake, uchar * data, ulong sz );
+fd_stake_deser( fd_stake_t * stake, uchar * data, ulong sz );
 
 void
 fd_stake_dump( fd_stake_t * stake );

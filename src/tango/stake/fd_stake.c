@@ -1,5 +1,6 @@
 #include "../mvcc/fd_mvcc.h"
 #include "fd_stake.h"
+#include <stdio.h>
 
 ulong
 fd_stake_align( void ) {
@@ -83,47 +84,31 @@ fd_stake_nodes_laddr( fd_stake_t * stake ) {
 }
 
 void
-fd_stake_write( fd_stake_t * stake, uchar * data, ulong sz ) {
+fd_stake_deser( fd_stake_t * stake, uchar * data, ulong sz ) {
   fd_mvcc_begin_write( &stake->mvcc );
 
   fd_stake_node_t * staked_nodes = fd_stake_nodes_laddr( stake );
   fd_stake_node_clear( staked_nodes );
+  ulong total_stake = 0;
   for ( ulong off = 0; off < sz; off += 40 ) {
     /* 32-byte aligned. dcache is 128-byte aligned. 128 % 32 = 0. */
     fd_stake_pubkey_t * pubkey = (fd_stake_pubkey_t *)( fd_type_pun( data + off ) );
     /* 8-byte aligned. 32 + 8 = 40. 40 % 8 = 0. */
-    ulong * stake =
-        (ulong *)( fd_type_pun( data + off + sizeof( fd_stake_pubkey_t ) ) );
+    ulong stake =
+        *(ulong *)( fd_type_pun( data + off + sizeof( fd_stake_pubkey_t ) ) );
     fd_stake_node_t * staked_node = fd_stake_node_insert( staked_nodes, *pubkey );
     if ( staked_node == NULL ) staked_node = fd_stake_node_query( staked_nodes, *pubkey, NULL );
     if ( staked_node == NULL ) {
       FD_LOG_HEXDUMP_WARNING( ( "failed to insert pubkey", pubkey, sizeof( fd_stake_pubkey_t ) ) );
       continue;
     }
-    staked_node->stake = *stake;
+    staked_node->stake = stake;
+    total_stake += stake;
   }
+  printf("writing total stake %lu\n", stake->total_stake);
+  stake->total_stake = total_stake;
 
   fd_mvcc_end_write( &stake->mvcc );
-}
-
-fd_stake_t *
-fd_stake_read( fd_stake_t * stake ) {
-  ulong begin = fd_mvcc_begin_read( &stake->mvcc );
-  return fd_ptr_if(begin % 2, NULL, stake);
-
-  // /* TODO maintain old/new */
-  // fd_stake_t * read;
-  // fd_ptr_if(begin % 1 == 0, stake->old, stake->new)
-  // if (begin % 1 == 0) {
-  //   read =
-  // } else {
-
-  // }
-  // ulong end = fd_mvcc_end_read( &stake->mvcc );
-  // if (end != begin) {
-  //   return NULL;
-  // }
-  // return read;
 }
 
 void
