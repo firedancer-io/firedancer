@@ -1,3 +1,5 @@
+#include "fd_quic.h"
+#include "fd_quic_common.h"
 #include "fd_quic_private.h"
 #include "fd_quic_conn.h"
 #include "fd_quic_conn_map.h"
@@ -1180,6 +1182,11 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
   fd_quic_initial_t initial[1];
   ulong rc = fd_quic_decode_initial( initial, cur_ptr, cur_sz );
   if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) return FD_QUIC_PARSE_FAIL;
+
+  if ( FD_UNLIKELY( ( quic->config.role == FD_QUIC_ROLE_CLIENT || !quic->config.retry ) &&
+                    initial->token_len > 0 ) ) {
+    return FD_QUIC_PARSE_FAIL;
+  }
 
   /* Initial packets have explicitly encoded conn ID lengths. */
 
