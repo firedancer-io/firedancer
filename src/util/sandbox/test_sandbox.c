@@ -26,6 +26,8 @@
 
 #include "fd_sandbox.c"
 
+#define SIZEOFA(arr) sizeof( arr ) / sizeof ( arr[0] )
+
 #define TEST_FORK_OK(child) do {                                    \
     pid_t pid = fork();                                             \
     if ( pid ) {                                                    \
@@ -56,23 +58,38 @@
     }                                                               \
 } while( 0 )
 
+#define TEST_FORK_EXIT_NON_0(child) do {                            \
+    pid_t pid = fork();                                             \
+    if ( pid ) {                                                    \
+      int wstatus;                                                  \
+      FD_TEST( -1 != waitpid( pid, &wstatus, WUNTRACED ) );         \
+      FD_TEST( WIFEXITED( wstatus ) );                              \
+      FD_TEST( !WIFSIGNALED( wstatus ) );                           \
+      FD_TEST( !WIFSTOPPED( wstatus ) );                            \
+      FD_TEST( WEXITSTATUS( wstatus ) != 0 );                       \
+    } else {                                                        \
+      do { child } while ( 0 );                                     \
+      exit( EXIT_SUCCESS );                                         \
+    }                                                               \
+} while( 0 )
+
 
 /* check_open_fds ensures that `sandbox_unthreaded` verifies
    the file descriptors we allow are exactly those that are matched. */
 void
 check_open_fds( void ) {
-  TEST_FORK_SIG(
+  TEST_FORK_EXIT_NON_0(
     sandbox_unthreaded( 0, NULL, getuid(), getgid() );
   );
 
-  int fds[ 4 ] = { 0, 1, 2, 101 };
-  TEST_FORK_SIG(
-    sandbox_unthreaded( 4, fds, getuid(), getgid() );
+  int fds[ 5 ] = { 0, 1, 2, 3, 101 };
+  TEST_FORK_EXIT_NON_0(
+    sandbox_unthreaded( SIZEOFA( fds ), fds, getuid(), getgid() );
   );
 
-  int fds2[ 3 ] = { 0, 1, 2 };
+  int fds2[ 4 ] = { 0, 1, 2, 3 };
   TEST_FORK_OK(
-    sandbox_unthreaded( 3, fds2, getuid(), getgid() );
+    sandbox_unthreaded( SIZEOFA( fds2 ), fds2, getuid(), getgid() );
   );
 }
 
@@ -80,12 +97,12 @@ check_open_fds( void ) {
    the set limits cannot be exceeded. */
 void
 resource_limits( void ) {
-  int fds[ 3 ] = { 0, 1, 2 };
+  int fds[ 4 ] = { 0, 1, 2, 3 };
   TEST_FORK_OK(
     FD_TEST( -1 != open( "/etc/passwd", O_RDONLY ) );
   );
   TEST_FORK_OK(
-    sandbox_unthreaded( 3, fds, getuid(), getgid() );
+    sandbox_unthreaded( SIZEOFA( fds ), fds, getuid(), getgid() );
     FD_TEST( -1 == open( "/etc/passwd", O_RDONLY ) );
     FD_TEST( EMFILE == errno );
   );
@@ -93,10 +110,10 @@ resource_limits( void ) {
 
 void
 not_dumpable( void ) {
-  int fds[ 3 ] = { 0, 1, 2 };
+  int fds[ 4 ] = { 0, 1, 2, 3 };
   TEST_FORK_OK(
     FD_TEST( prctl( PR_GET_DUMPABLE ) );
-    sandbox_unthreaded( 3, fds, getuid(), getgid() );
+    sandbox_unthreaded( SIZEOFA( fds ), fds, getuid(), getgid() );
     FD_TEST( !prctl( PR_GET_DUMPABLE ) );
   );
 }
@@ -105,12 +122,12 @@ void
 no_capabilities( void ) {
   struct __user_cap_header_struct hdr = { _LINUX_CAPABILITY_VERSION_3, 0 };
   struct __user_cap_data_struct   data[2] = { { 0 } };
-  int fds[ 3 ] = { 0, 1, 2 };
+  int fds[ 4 ] = { 0, 1, 2, 3 };
   TEST_FORK_OK(
     FD_TEST( 0 == syscall( SYS_capget, &hdr, data ) );
     FD_TEST( data[0].effective || data[1].effective );
 
-    sandbox_unthreaded( 3, fds, getuid(), getgid() );
+    sandbox_unthreaded( SIZEOFA( fds ), fds, getuid(), getgid() );
 
     FD_TEST( 0 == syscall( SYS_capget, &hdr, data ) );
     FD_TEST( !data[0].effective && !data[1].effective );
@@ -191,14 +208,14 @@ mountns_null( void ) {
    seccomp is effective. */
 void
 seccomp_default_filter( void ) {
-  int fds[ 3 ] = { 0, 1, 2 };
+  int fds[ 4 ] = { 0, 1, 2, 3 };
   pid_t pid = fork();
   if ( pid ) {
     int wstatus;
     FD_TEST( -1 != waitpid( pid, &wstatus, WUNTRACED ) );
-    FD_TEST( WIFSIGNALED( wstatus) && WTERMSIG( wstatus ) == SIGSYS );
+    FD_TEST( WIFSIGNALED( wstatus ) && WTERMSIG( wstatus ) == SIGSYS );
   } else { // child
-    fd_sandbox( getuid(), getgid(), 3, fds, 0, NULL );
+    fd_sandbox( getuid(), getgid(), SIZEOFA( fds ), fds, 0, NULL );
     // This should fail with SIGSYS
     execl( "/bin/true", "" );
     exit( EXIT_FAILURE );
@@ -210,6 +227,8 @@ main( int     argc,
       char ** argv ) {
   (void) argc;
   (void) argv;
+
+  fd_log_private_boot  ( &argc, &argv );
 
   check_open_fds();
   resource_limits();
