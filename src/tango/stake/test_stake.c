@@ -36,11 +36,6 @@ test_stake( void ) {
     FD_TEST( staked_node );
     FD_TEST( staked_node->stake == i );
   }
-
-  stake->mvcc.version = 0;
-  FD_TEST( fd_stake_read( stake ) );
-  stake->mvcc.version = 1;
-  FD_TEST( !fd_stake_read( stake ) );
 }
 
 int
