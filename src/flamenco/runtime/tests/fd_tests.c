@@ -306,14 +306,14 @@ main( int     argc,
   fd_boot         ( &argc, &argv );
   fd_flamenco_boot( &argc, &argv );
 
-  ulong        test_start = fd_env_strip_cmdline_ulong(&argc, &argv, "--start", NULL, 0UL);
-  ulong        test_end = fd_env_strip_cmdline_ulong(&argc, &argv, "--end", NULL, ULONG_MAX);
-  long         do_test = fd_env_strip_cmdline_long(&argc, &argv, "--test", NULL, -1);
-  const char * filter = fd_env_strip_cmdline_cstr(&argc, &argv, "--filter", NULL, NULL);
-  verbose = fd_env_strip_cmdline_cstr(&argc, &argv, "--verbose", NULL, NULL);
-  fail_fast = fd_env_strip_cmdline_cstr(&argc, &argv, "--fail_fast", NULL, NULL);
-  char * ignore_fail = (char *) fd_env_strip_cmdline_cstr(&argc, &argv, "--ignore_fail", NULL, NULL);
-  char * ignore_fail_file = (char *) fd_env_strip_cmdline_cstr(&argc, &argv, "--ignore_fail_file", NULL, NULL);
+  ulong        test_start       = fd_env_strip_cmdline_ulong( &argc, &argv, "--start",            NULL, 0UL       );
+  ulong        test_end         = fd_env_strip_cmdline_ulong( &argc, &argv, "--end",              NULL, ULONG_MAX );
+  long         do_test          = fd_env_strip_cmdline_long ( &argc, &argv, "--test",             NULL, -1        );
+  char const * filter           = fd_env_strip_cmdline_cstr ( &argc, &argv, "--filter",           NULL, NULL      );
+               verbose          = fd_env_strip_cmdline_cstr ( &argc, &argv, "--verbose",          NULL, NULL      );
+               fail_fast        = fd_env_strip_cmdline_cstr ( &argc, &argv, "--fail_fast",        NULL, NULL      );
+  char *       ignore_fail      = (char *)fd_env_strip_cmdline_cstr ( &argc, &argv, "--ignore_fail",      NULL, NULL      ); /* UGLY!!! */
+  char const * ignore_fail_file = fd_env_strip_cmdline_cstr ( &argc, &argv, "--ignore_fail_file", NULL, NULL      );
 
   if (-1 != do_test)
     test_start = test_end = (ulong)do_test;
