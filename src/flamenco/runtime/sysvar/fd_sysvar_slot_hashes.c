@@ -34,7 +34,17 @@ void fd_sysvar_slot_hashes_update( fd_global_ctx_t* global ) {
   FD_SCRATCH_SCOPED_FRAME;
 
   fd_slot_hashes_t slot_hashes;
-  fd_sysvar_slot_hashes_read( global, &slot_hashes );
+  int err = fd_sysvar_slot_hashes_read( global, &slot_hashes );
+  switch( err ) {
+  case 0: break;
+  case FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT:
+    slot_hashes.hashes = deq_fd_slot_hash_t_alloc( global->valloc );
+    FD_TEST( slot_hashes.hashes );
+    break;
+  default:
+    FD_LOG_ERR(( "fd_sysvar_slot_hashes_read failed (%d)", err ));
+  }
+
   fd_slot_hash_t * hashes = slot_hashes.hashes;
 
   uchar found = 0;
@@ -72,7 +82,7 @@ void fd_sysvar_slot_hashes_update( fd_global_ctx_t* global ) {
   fd_slot_hashes_destroy( &slot_hashes, &ctx );
 }
 
-void
+int
 fd_sysvar_slot_hashes_read( fd_global_ctx_t *  global,
                             fd_slot_hashes_t * result ) {
 
@@ -80,8 +90,7 @@ fd_sysvar_slot_hashes_read( fd_global_ctx_t *  global,
 
   int err = 0;
   uchar const * raw_acc_data = fd_acc_mgr_view_data( global->acc_mgr, global->funk_txn, (fd_pubkey_t const *)global->sysvar_slot_hashes, NULL, &err );
-  if( FD_UNLIKELY( !raw_acc_data ) )
-    FD_LOG_ERR(( "failed to read account data: %d", err ));
+  if( FD_UNLIKELY( !raw_acc_data ) ) return err;
 
   fd_account_meta_t const * metadata = (fd_account_meta_t const *)raw_acc_data;
   uchar const *             data     = raw_acc_data + metadata->hlen;
@@ -91,6 +100,8 @@ fd_sysvar_slot_hashes_read( fd_global_ctx_t *  global,
     .dataend = data + metadata->dlen,
     .valloc  = global->valloc /* !!! There is no reason to place this on the global heap.  Use scratch instead. */
   };
-  if( FD_UNLIKELY( fd_slot_hashes_decode( result, &decode )!=FD_BINCODE_SUCCESS ) )
-    FD_LOG_ERR(("fd_slot_hashes_decode failed"));
+  err = fd_slot_hashes_decode( result, &decode );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+
+  return 0;
 }

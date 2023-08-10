@@ -13,8 +13,10 @@
 void fd_sysvar_slot_hashes_update( fd_global_ctx_t* global);
 
 /* fd_sysvar_slot_hashes_read reads the slot hashes sysvar from the
-   accounts manager, and writes deserialized value into *result. */
-void
+   accounts manager.  On success, returns 0 and writes deserialized
+   value into *result.  On failure, returns the bincode/acc_mgr error
+   code. */
+int
 fd_sysvar_slot_hashes_read( fd_global_ctx_t *  global,
                             fd_slot_hashes_t * result );
 
