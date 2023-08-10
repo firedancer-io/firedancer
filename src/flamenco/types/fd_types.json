@@ -615,7 +615,7 @@
           { "name": "prior_voters", "type": "vote_prior_voters_0_23_5" },
           { "name": "authorized_withdrawer", "type": "pubkey" },
           { "name": "commission", "type": "uchar" },
-          { "name": "votes", "type": "deque", "element": "vote_lockout", "max":35 },
+          { "name": "votes", "type": "deque", "element": "vote_lockout", "max":100 },
           { "name": "root_slot", "type": "option", "element": "ulong" },
           { "name": "epoch_credits", "type": "deque", "element": "vote_epoch_credits", "max":100 },
           { "name": "last_timestamp", "type": "vote_block_timestamp" }
