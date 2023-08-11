@@ -591,6 +591,9 @@ int main(int argc, char **argv) {
 
   fd_global_ctx_delete(fd_global_ctx_leave(state.global));
 
+  FD_TEST(fd_alloc_is_empty(alloc));
+  fd_wksp_free_laddr( fd_alloc_delete( fd_alloc_leave( alloc ) ) );
+  
   fd_wksp_delete_anonymous( state.global->local_wksp );
   if( state.name )
     fd_wksp_detach( state.global->funk_wksp );
