@@ -4,7 +4,7 @@ set -e
 
 # this assumes the test_runtime has already been built
 
-LEDGER="test-ledger-4"
+LEDGER="v17-test-ledger"
 VERBOSE=NO
 POSITION_ARGS=()
 
@@ -63,15 +63,8 @@ build/native/gcc/unit-test/test_runtime \
   --cmd replay \
   --gaddr `cat gaddr` \
   --pages 1 \
-  --end-slot 25 \
-  --confirm_hash AsHedZaZkabNtB8XBiKWQkKwaeLy2y4Hrqm6MkQALT5h \
-  --confirm_parent CvgPeR54qpVRZGBuiQztGXecxSXREPfTF8wALujK4WdE \
-  --confirm_account_delta 7PL6JZgcNy5vkPSc6JsMHET9dvpvsFMWR734VtCG29xN \
-  --confirm_signature 2  \
-  --confirm_last_block G4YL2SieHDGNZGjiwBsJESK7jMDfazg33ievuCwbkjrv \
   --validate true \
   --abort-on-mismatch 1 \
-  --net v13 \
   --capture test.solcap \
   >& /tmp/ledger_log$$
 
