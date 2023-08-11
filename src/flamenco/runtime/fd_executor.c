@@ -98,6 +98,7 @@ fd_set_exempt_rent_epoch_max( fd_global_ctx_t * global,
   FD_TEST( raw_data && err==FD_ACC_MGR_SUCCESS );
 
   fd_account_meta_t const * meta_r = (fd_account_meta_t const *)raw_data;
+  if( meta_r->info.lamports < fd_rent_exempt_minimum_balance( global, meta_r->dlen ) ) return;
   if( meta_r->info.rent_epoch == ULONG_MAX ) return;
 
   uchar * raw_data_w = fd_acc_mgr_modify_data( global->acc_mgr, global->funk_txn, (fd_pubkey_t const *)addr, 0, NULL, rrec, NULL, &err );
