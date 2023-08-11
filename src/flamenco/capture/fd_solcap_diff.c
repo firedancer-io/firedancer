@@ -113,7 +113,7 @@ fd_solcap_differ_sync( fd_solcap_differ_t * diff ) {
 
     if( slot0==slot1 ) return 1;
 
-    ulong idx = slot0<slot1;
+    ulong idx = slot0>slot1;
     int res = fd_solcap_differ_advance( diff, idx );
     if( FD_UNLIKELY( res<=0 ) ) return res;
   }
