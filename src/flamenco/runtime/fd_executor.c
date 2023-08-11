@@ -100,8 +100,7 @@ fd_set_exempt_rent_epoch_max( fd_global_ctx_t * global,
   fd_account_meta_t const * meta_r = (fd_account_meta_t const *)raw_data;
   if( meta_r->info.rent_epoch == ULONG_MAX ) return;
 
-  ulong sz = meta_r->dlen;
-  uchar * raw_data_w = fd_acc_mgr_modify_data( global->acc_mgr, global->funk_txn, (fd_pubkey_t const *)addr, 0, &sz, rrec, NULL, &err );
+  uchar * raw_data_w = fd_acc_mgr_modify_data( global->acc_mgr, global->funk_txn, (fd_pubkey_t const *)addr, 0, NULL, rrec, NULL, &err );
   FD_LOG_NOTICE(( "fd_acc_mgr_modify %32J returned %d", addr, err ));
   FD_TEST( raw_data_w );
 
