@@ -130,18 +130,15 @@ static void
 unmarshal_bank_preimage( cJSON const *            json,
                          fd_solcap_BankPreimage * out ) {
 
-  double slot_f = cJSON_GetNumberValue( cJSON_GetObjectItem( json, "slot" ) );
-  FD_TEST( isfinite( slot_f ) );
-  out->slot = (ulong)slot_f;
+  cJSON * slot = cJSON_GetObjectItem( json, "slot" );
+  out->slot = slot ? slot->valueulong : 0UL;
 
   FD_TEST( unmarshal_hash( cJSON_GetObjectItem( json, "bank_hash"           ), out->bank_hash          ) );
   FD_TEST( unmarshal_hash( cJSON_GetObjectItem( json, "parent_bank_hash"    ), out->prev_bank_hash     ) );
   FD_TEST( unmarshal_hash( cJSON_GetObjectItem( json, "accounts_delta_hash" ), out->account_delta_hash ) );
   FD_TEST( unmarshal_hash( cJSON_GetObjectItem( json, "last_blockhash"      ), out->poh_hash           ) );
 
-  double sig_cnt_f = cJSON_GetNumberValue( cJSON_GetObjectItem( json, "signature_count" ) );
-  FD_TEST( isfinite( sig_cnt_f ) );
-  out->signature_cnt = (ulong)sig_cnt_f;
+  out->signature_cnt = cJSON_GetObjectItem( json, "signature_count" )->valueulong;
 
   cJSON * accs = cJSON_GetObjectItem( json, "accounts" );
   FD_TEST( accs );
@@ -163,13 +160,9 @@ unmarshal_account( cJSON const *             json,
      Representing lamports as double causes precision-loss for values
      exceeding 2^53-1.  This appears to be a limitation of the cJSON
      library. */
-  double lamports_f = cJSON_GetNumberValue( cJSON_GetObjectItem( json, "lamports" ) );
-  FD_TEST( isfinite( lamports_f ) );
-  meta->lamports = (ulong)lamports_f;
+  meta->lamports = cJSON_GetObjectItem( json, "lamports" )->valueulong;
 
-  double rent_epoch_f = cJSON_GetNumberValue( cJSON_GetObjectItem( json, "rent_epoch" ) );
-  FD_TEST( isfinite( rent_epoch_f ) );
-  meta->rent_epoch = (ulong)rent_epoch_f;
+  meta->rent_epoch = cJSON_GetObjectItem( json, "rent_epoch" )->valueulong;
 
   cJSON * executable_o = cJSON_GetObjectItem( json, "executable" );
   FD_TEST( executable_o );
