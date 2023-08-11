@@ -106,9 +106,10 @@ int fd_executor_run_test(
   fd_firedancer_banks_new(&global->bank);
 
   int ret = 0;
-  global->valloc = suite->valloc;
-  global->funk   = suite->funk;
-  global->wksp   = suite->wksp;
+  global->valloc     = suite->valloc;
+  global->funk       = suite->funk;
+  global->funk_wksp  = suite->wksp;
+  global->local_wksp = suite->wksp;
 
   memcpy(&global->features, &suite->features, sizeof(suite->features));
   if (test->disable_cnt > 0) {

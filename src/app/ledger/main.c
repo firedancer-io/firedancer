@@ -363,9 +363,9 @@ ingest_txnstatus( fd_global_ctx_t * global,
   int ret;
   fd_funk_rec_t * rec = fd_funk_rec_modify( global->funk, fd_funk_rec_insert( global->funk, NULL, &key, &ret ) );
   if( FD_UNLIKELY( !rec ) ) FD_LOG_ERR(( "fd_funk_rec_modify failed with code %d", ret ));
-  rec = fd_funk_val_truncate( rec, totsize, (fd_alloc_t *)global->valloc.self, global->wksp, &ret );
+  rec = fd_funk_val_truncate( rec, totsize, (fd_alloc_t *)global->valloc.self, global->funk_wksp, &ret );
   if( FD_UNLIKELY( !rec ) ) FD_LOG_ERR(( "fd_funk_val_truncate failed with code %d", ret ));
-  uchar * val = (uchar*) fd_funk_val( rec, global->wksp );
+  uchar * val = (uchar*) fd_funk_val( rec, global->funk_wksp );
   *(ulong*)val = vec_idx.cnt;
   val += sizeof(ulong);
   fd_memcpy(val, vec_idx.elems, vec_idx.cnt*sizeof(fd_txnstatusidx_t));
@@ -422,10 +422,10 @@ ingest_rocksdb( fd_global_ctx_t * global,
   if (rec == NULL)
     FD_LOG_ERR(("funky insert failed with code %d", ret));
   ulong sz = fd_slot_meta_meta_size(&mm);
-  rec = fd_funk_val_truncate( rec, sz, (fd_alloc_t *)global->valloc.self, global->wksp, &ret );
+  rec = fd_funk_val_truncate( rec, sz, (fd_alloc_t *)global->valloc.self, global->funk_wksp, &ret );
   if (rec == NULL)
     FD_LOG_ERR(("funky insert failed with code %d", ret));
-  void * val = fd_funk_val( rec, global->wksp );
+  void * val = fd_funk_val( rec, global->funk_wksp );
   fd_bincode_encode_ctx_t ctx;
   ctx.data = val;
   ctx.dataend = (uchar *)val + sz;
@@ -455,9 +455,9 @@ ingest_rocksdb( fd_global_ctx_t * global,
     rec = fd_funk_rec_modify( global->funk, fd_funk_rec_insert( global->funk, NULL, &key, &ret ) );
     if( FD_UNLIKELY( !rec ) ) FD_LOG_ERR(( "fd_funk_rec_modify failed with code %d", ret ));
     sz  = fd_slot_meta_size(&m);
-    rec = fd_funk_val_truncate( rec, sz, (fd_alloc_t *)global->valloc.self, global->wksp, &ret );
+    rec = fd_funk_val_truncate( rec, sz, (fd_alloc_t *)global->valloc.self, global->funk_wksp, &ret );
     if( FD_UNLIKELY( !rec ) ) FD_LOG_ERR(( "fd_funk_val_truncate failed with code %d", ret ));
-    val = fd_funk_val( rec, global->wksp );
+    val = fd_funk_val( rec, global->funk_wksp );
     fd_bincode_encode_ctx_t ctx2;
     ctx2.data = val;
     ctx2.dataend = (uchar *)val + sz;
@@ -476,9 +476,9 @@ ingest_rocksdb( fd_global_ctx_t * global,
     rec = fd_funk_rec_modify( global->funk, fd_funk_rec_insert( global->funk, NULL, &key, &ret ) );
     if( FD_UNLIKELY( !rec ) ) FD_LOG_ERR(( "fd_funk_rec_modify failed with code %d", ret ));
     /* TODO messy valloc => alloc upcast */
-    rec = fd_funk_val_truncate( rec, block_sz, global->valloc.self, global->wksp, &ret );
+    rec = fd_funk_val_truncate( rec, block_sz, global->valloc.self, global->funk_wksp, &ret );
     if( FD_UNLIKELY( !rec ) ) FD_LOG_ERR(( "fd_funk_val_truncate failed with code %d", ret ));
-    fd_memcpy( fd_funk_val( rec, global->wksp ), block, block_sz );
+    fd_memcpy( fd_funk_val( rec, global->funk_wksp ), block, block_sz );
     fd_funk_rec_persist( global->funk, rec );
     fd_funk_val_uncache( global->funk, rec );
 
@@ -493,9 +493,9 @@ ingest_rocksdb( fd_global_ctx_t * global,
       rec = fd_funk_rec_modify( global->funk, fd_funk_rec_insert( global->funk, NULL, &key, &ret ) );
       if( FD_UNLIKELY( !rec ) ) FD_LOG_ERR(( "fd_funk_rec_modify failed with code %d", ret ));
       sz  = sizeof(fd_hash_t);
-      rec = fd_funk_val_truncate( rec, sz, (fd_alloc_t *)global->valloc.self, global->wksp, &ret );
+      rec = fd_funk_val_truncate( rec, sz, (fd_alloc_t *)global->valloc.self, global->funk_wksp, &ret );
       if( FD_UNLIKELY( !rec ) ) FD_LOG_ERR(( "fd_funk_val_truncate failed with code %d", ret ));
-      memcpy( fd_funk_val( rec, global->wksp ), hash.hash, sizeof(fd_hash_t) );
+      memcpy( fd_funk_val( rec, global->funk_wksp ), hash.hash, sizeof(fd_hash_t) );
       fd_funk_rec_persist( global->funk, rec );
       fd_funk_val_uncache( global->funk, rec );
       FD_LOG_DEBUG(( "slot=%lu bank_hash=%32J", slot, hash.hash ));
@@ -647,7 +647,8 @@ main( int     argc,
   if( FD_UNLIKELY( !alloc ) ) FD_LOG_ERR(( "fd_alloc_join(gaddr=%#lx) failed", funk->alloc_gaddr ));
   /* TODO leave */
 
-  global->wksp = wksp;
+  global->funk_wksp = wksp;
+  global->local_wksp = NULL;
   global->funk = funk;
   global->valloc = fd_alloc_virtual( alloc );
 
