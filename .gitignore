@@ -57,6 +57,7 @@ v13-contract-ledger
 dump/
 *.solcap
 /*.json
+v17-test-ledger
 
 # RocksDB
 LOG*
