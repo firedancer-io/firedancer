@@ -26,8 +26,9 @@ struct __attribute__((aligned(FD_GLOBAL_CTX_ALIGN))) fd_global_ctx {
 
   fd_rng_t                   rnd_mem;
 
-  fd_wksp_t *                wksp;
+  fd_wksp_t *                funk_wksp; // Workspace dedicated to funk, KEEP YOUR GRUBBY MITS OFF!
   fd_funk_t*                 funk;
+  fd_wksp_t *                local_wksp; // Workspace for allocs local to this process
   fd_executor_t              executor;  // Amusingly, it is just a pointer to this...
   fd_rng_t*                  rng;
 
@@ -46,14 +47,15 @@ struct __attribute__((aligned(FD_GLOBAL_CTX_ALIGN))) fd_global_ctx {
   unsigned char              sysvar_owner[32];
   unsigned char              sysvar_last_restart_slot[32];
   unsigned char              solana_native_loader[32];
+  unsigned char              solana_feature_program[32];
   unsigned char              solana_config_program[32];
   unsigned char              solana_stake_program[32];
   unsigned char              solana_stake_program_config[32];
   unsigned char              solana_system_program[32];
   unsigned char              solana_vote_program[32];
   unsigned char              solana_bpf_loader_deprecated_program[32];
-  unsigned char              solana_bpf_loader_program_with_jit[32];
-  unsigned char              solana_bpf_loader_upgradeable_program_with_jit[32];
+  unsigned char              solana_bpf_loader_program[32];
+  unsigned char              solana_bpf_loader_upgradeable_program[32];
   unsigned char              solana_ed25519_sig_verify_program[32];
   unsigned char              solana_keccak_secp_256k_program[32];
   unsigned char              solana_compute_budget_program[32];
@@ -147,8 +149,12 @@ int               fd_pubkey_create_with_seed(fd_pubkey_t const * base, char cons
 int               fd_runtime_save_banks    ( fd_global_ctx_t *global );
 int               fd_global_import_solana_manifest(fd_global_ctx_t *global, fd_solana_manifest_t* manifest);
 
+/* fd_features_restore loads all known feature accounts from the
+   accounts database.  This is used when initializing bank from a
+   snapshot. */
+
 void
-fd_update_features( fd_global_ctx_t * global );
+fd_features_restore( fd_global_ctx_t * global );
 
 static inline ulong fd_rent_exempt(fd_global_ctx_t *global, ulong sz) {
   return (sz + 128) * ((ulong) ((double)global->bank.rent.lamports_per_uint8_year * global->bank.rent.exemption_threshold));

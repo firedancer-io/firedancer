@@ -57,3 +57,19 @@ v13-contract-ledger
 dump/
 *.solcap
 /*.json
+v17-test-ledger
+
+# RocksDB
+LOG*
+LOCK
+*.sst
+MANIFEST-*
+OPTIONS-*
+CURRENT
+IDENTITY
+
+# Solana Labs
+*-keypair.json
+tower-*.bin
+genesis.bin
+genesis.tar.bz2

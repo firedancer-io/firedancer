@@ -235,6 +235,38 @@ fd_update_hash_bank( fd_global_ctx_t * global,
   fd_pubkey_hash_vector_t dirty_keys __attribute__ ((cleanup(fd_pubkey_hash_vector_destroy)));
   fd_pubkey_hash_vector_new(&dirty_keys);
 
+  /* Bug: For some reason, the last restart slot is included in every
+          bank hash. */
+  if( global->bank.slot > 0UL && global->features.last_restart_slot_sysvar ) {
+    fd_pubkey_t const * acc_key = fd_type_pun_const( global->sysvar_last_restart_slot );
+    int                 err     = FD_ACC_MGR_SUCCESS;
+    uchar const *       acc_raw = fd_acc_mgr_view_data( acc_mgr, txn, acc_key, NULL, &err );
+
+    if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) return err;
+
+    fd_account_meta_t const * acc_meta = (fd_account_meta_t const *)acc_raw;
+    uchar const *             acc_data = acc_raw + acc_meta->hlen;
+
+    fd_hash_t acc_hash[1];
+    fd_hash_account_current( acc_hash->hash, acc_meta, acc_key->key, acc_data, features, slot );
+
+    fd_pubkey_hash_pair_t dirty_entry;
+    memcpy( dirty_entry.pubkey.key, acc_key,        sizeof(fd_pubkey_t) );
+    memcpy( dirty_entry.hash.hash,  acc_hash->hash, sizeof(fd_hash_t  ) );
+    fd_pubkey_hash_vector_push( &dirty_keys, dirty_entry );
+
+    /* Add to capture */
+
+    err = fd_solcap_write_account(
+        capture,
+        acc_key->uc,
+        &acc_meta->info,
+        acc_data,
+        acc_meta->dlen,
+        acc_hash->hash );
+    FD_TEST( err==0 );
+  }
+
   /* Iterate over accounts that have been changed in the current
      database transaction. */
 

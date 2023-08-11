@@ -238,7 +238,7 @@ epoch_duration_in_years(
     return (double)slots_in_epoch / bank->slots_per_year;
 }
 
-void
+static void
 calculate_previous_epoch_inflation_rewards(
     fd_firedancer_banks_t * bank,
     ulong prev_epoch_capitalization,
@@ -261,7 +261,8 @@ calculate_previous_epoch_inflation_rewards(
 
 
 /// Sum the lamports of the vote accounts and the delegated stake
-ulong vote_balance_and_staked(fd_stakes_t * stakes) {
+static ulong
+vote_balance_and_staked(fd_stakes_t * stakes) {
     ulong result = 0;
     for ( fd_vote_accounts_pair_t_mapnode_t * n = fd_vote_accounts_pair_t_map_minimum( stakes->vote_accounts.vote_accounts_pool, stakes->vote_accounts.vote_accounts_root ); n; n = fd_vote_accounts_pair_t_map_successor( stakes->vote_accounts.vote_accounts_pool, n ) ) {
         result += n->elem.value.lamports;
@@ -274,10 +275,9 @@ ulong vote_balance_and_staked(fd_stakes_t * stakes) {
     return result;
 }
 
-void calculate_reward_points_partitioned(
+static void
+calculate_reward_points_partitioned(
     instruction_ctx_t * ctx,
-    fd_global_ctx_t * global,
-    fd_firedancer_banks_t * bank,
     ulong rewards,
     fd_point_value_t * result
 ) {
@@ -285,6 +285,7 @@ void calculate_reward_points_partitioned(
     fd_sysvar_stake_history_read( ctx->global, &stake_history);
 
     __uint128_t points = 0;
+    fd_firedancer_banks_t * bank = &ctx->global->bank;
     for ( fd_delegation_pair_t_mapnode_t * n = fd_delegation_pair_t_map_minimum( bank->stakes.stake_delegations_pool, bank->stakes.stake_delegations_root ); n; n = fd_delegation_pair_t_map_successor( bank->stakes.stake_delegations_pool, n ) ) {
         fd_pubkey_t * voter_acc = &n->elem.delegation.voter_pubkey;
         fd_pubkey_t * stake_acc = &n->elem.account;
@@ -294,12 +295,12 @@ void calculate_reward_points_partitioned(
         if (fd_vote_accounts_pair_t_map_find(bank->stakes.vote_accounts.vote_accounts_pool, bank->stakes.vote_accounts.vote_accounts_root, &key) != NULL) {
             continue;
         }
-        if ( fd_memcpy(voter_acc, global->solana_vote_program, sizeof(fd_pubkey_t)) != 0) {
+        if ( fd_memcpy(voter_acc, ctx->global->solana_vote_program, sizeof(fd_pubkey_t)) != 0) {
             continue;
         }
         fd_vote_state_versioned_t * vote_state = NULL;
         fd_account_meta_t * meta = NULL;
-        if (fd_vote_load_account(vote_state, meta, global, &n->elem.delegation.voter_pubkey) != 0) {
+        if (fd_vote_load_account(vote_state, meta, ctx->global, &n->elem.delegation.voter_pubkey) != 0) {
             continue;
         }
 
@@ -319,21 +320,42 @@ void calculate_reward_points_partitioned(
     }
     return;    
 }
-/// Calculate epoch reward and return vote and stake rewards.
-void calculate_validator_rewards(
-    fd_firedancer_banks_t * bank,
+
+/* 
+Calculates epoch rewards for stake/vote accounts
+Returns vote rewards, stake rewards, and the sum of all stake rewards in lamports
+*/
+static void
+calculate_stake_vote_rewards(
+   instruction_ctx_t * ctx,
+   ulong rewarded_epoch,
+   fd_point_value_t * point_value 
+) {
+    (void) ctx;
+    (void) rewarded_epoch;
+    (void) point_value;
+}
+
+/* Calculate epoch reward and return vote and stake rewards. */
+static void
+calculate_validator_rewards(
+    instruction_ctx_t * ctx,
     ulong rewarded_epoch,
     ulong rewards
 ) {
-   (void) bank;
    (void) rewarded_epoch;
    (void) rewards;
+   fd_point_value_t * point_value_result = NULL;
+   calculate_reward_points_partitioned(ctx, rewards, point_value_result);
+   calculate_stake_vote_rewards(ctx, rewarded_epoch, point_value_result);
+   
 }
 
 
 /// Calculate the number of blocks required to distribute rewards to all stake accounts.
 // fn get_reward_distribution_num_blocks(&self, rewards: &StakeRewards) -> u64 {
-ulong get_reward_distribution_num_blocks(
+ulong
+get_reward_distribution_num_blocks(
     fd_firedancer_banks_t * bank
 ) {
     // todo
@@ -344,18 +366,20 @@ ulong get_reward_distribution_num_blocks(
 }
 
 // Calculate rewards from previous epoch to prepare for partitioned distribution.
-void calculate_rewards_for_partitioning(
-    fd_firedancer_banks_t * bank,
+void
+calculate_rewards_for_partitioning(
+    instruction_ctx_t * ctx,
     ulong prev_epoch,
     partitioned_rewards_calculation_t * partitioned_rewards
 ) {
     prev_epoch_inflation_rewards_t rewards;
+    fd_firedancer_banks_t * bank = &ctx->global->bank;
     calculate_previous_epoch_inflation_rewards(bank, bank->capitalization, prev_epoch, &rewards);
 
     ulong old_vote_balance_and_staked = vote_balance_and_staked(&bank->stakes);
     (void) old_vote_balance_and_staked;
 
-    calculate_validator_rewards(bank, prev_epoch, rewards.validator_rewards);
+    calculate_validator_rewards(ctx, prev_epoch, rewards.validator_rewards);
     (void) partitioned_rewards;
 
 }

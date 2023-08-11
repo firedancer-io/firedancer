@@ -80,7 +80,7 @@ int fd_executor_bpf_upgradeable_loader_program_is_executable_program_account( fd
 
   fd_account_meta_t *m = (fd_account_meta_t *) raw_acc_data;
 
-  if( memcmp( m->info.owner, global->solana_bpf_loader_upgradeable_program_with_jit, sizeof(fd_pubkey_t)) )
+  if( memcmp( m->info.owner, global->solana_bpf_loader_upgradeable_program, sizeof(fd_pubkey_t)) )
     return -1;
 
   if( m->info.executable != 1)
@@ -144,7 +144,7 @@ serialize_aligned( instruction_ctx_t ctx, ulong * sz ) {
       int read_result = FD_ACC_MGR_SUCCESS;
       uchar * raw_acc_data = (uchar *)fd_acc_mgr_view_data(ctx.global->acc_mgr, ctx.global->funk_txn, acc, NULL, &read_result);
       fd_account_meta_t * metadata = (fd_account_meta_t *)raw_acc_data;
-      
+
       ulong acc_data_len = 0;
       if ( FD_LIKELY( read_result == FD_ACC_MGR_SUCCESS ) ) {
         acc_data_len = metadata->dlen;
@@ -202,12 +202,12 @@ serialize_aligned( instruction_ctx_t ctx, ulong * sz ) {
           + sizeof(uchar)                                 // is_writable
           + sizeof(uchar)                                 // is_executable
           + sizeof(uint));                                // original_data_len
-          
+
           serialized_params += sizeof(uchar)  // is_signer
           + sizeof(uchar)                     // is_writable
           + sizeof(uchar)                     // is_executable
           + sizeof(uint);                     // original_data_len
-          
+
           fd_pubkey_t key = *acc;
           FD_STORE( fd_pubkey_t, serialized_params, key );
           serialized_params += sizeof(fd_pubkey_t);
@@ -350,7 +350,7 @@ deserialize_aligned( instruction_ctx_t ctx, uchar * input, ulong input_sz ) {
           return -1;
         }
 
-        fd_funk_rec_t * acc_data_rec = NULL;  
+        fd_funk_rec_t * acc_data_rec = NULL;
         int modify_err = FD_ACC_MGR_SUCCESS;
         void * raw_acc_data = fd_acc_mgr_modify_data(ctx.global->acc_mgr, ctx.global->funk_txn, acc, 0, &acc_sz, acc_const_data_rec, &acc_data_rec, &modify_err);
         if ( modify_err != FD_ACC_MGR_SUCCESS ) {
@@ -358,7 +358,7 @@ deserialize_aligned( instruction_ctx_t ctx, uchar * input, ulong input_sz ) {
           return -1;
         }
         metadata = (fd_account_meta_t *)raw_acc_data;
-        
+
         uchar * acc_data = fd_account_get_data( metadata );
         input_cursor += fd_ulong_align_up(metadata->dlen, 8);
 
@@ -377,7 +377,7 @@ deserialize_aligned( instruction_ctx_t ctx, uchar * input, ulong input_sz ) {
       }
 
       input_cursor += MAX_PERMITTED_DATA_INCREASE;
-      
+
       input_cursor += sizeof(ulong);
     } else {
       acc_idx_seen[acc_idx] = 1;
@@ -390,13 +390,13 @@ deserialize_aligned( instruction_ctx_t ctx, uchar * input, ulong input_sz ) {
       input_cursor += sizeof(fd_pubkey_t);  // owner
       input_cursor += sizeof(ulong);        // lamports
       input_cursor += sizeof(ulong);        // data_len
-      
+
       int view_err = FD_ACC_MGR_SUCCESS;
       void const * raw_acc_data = fd_acc_mgr_view_data(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t const *)acc, NULL, &view_err);
       fd_account_meta_t * metadata = (fd_account_meta_t *)raw_acc_data;
 
       if ( view_err == FD_ACC_MGR_SUCCESS ) {
-        input_cursor += fd_ulong_align_up(metadata->dlen, 8); 
+        input_cursor += fd_ulong_align_up(metadata->dlen, 8);
       }
       input_cursor += MAX_PERMITTED_DATA_INCREASE;
 
@@ -762,7 +762,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
 
     meta->dlen = PROGRAMDATA_METADATA_SIZE + instruction.inner.deploy_with_max_data_len.max_data_len;
     meta->info.executable = 0;
-    fd_memcpy(&meta->info.owner, &ctx.global->solana_bpf_loader_upgradeable_program_with_jit, sizeof(fd_pubkey_t));
+    fd_memcpy(&meta->info.owner, &ctx.global->solana_bpf_loader_upgradeable_program, sizeof(fd_pubkey_t));
     meta->info.lamports = fd_rent_exempt_minimum_balance(ctx.global, meta->dlen);
     meta->info.rent_epoch = 0;
 
@@ -843,7 +843,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
     }
 
     // Is program owner the BPF upgradeable loader?
-    if ( memcmp( program_acc_metadata.info.owner, ctx.global->solana_bpf_loader_upgradeable_program_with_jit, sizeof(fd_pubkey_t) ) != 0 ) {
+    if ( memcmp( program_acc_metadata.info.owner, ctx.global->solana_bpf_loader_upgradeable_program, sizeof(fd_pubkey_t) ) != 0 ) {
       return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
     }
 

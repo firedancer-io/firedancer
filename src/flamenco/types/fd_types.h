@@ -737,7 +737,7 @@ typedef struct fd_landed_vote fd_landed_vote_t;
 
 #define DEQUE_NAME deq_fd_vote_lockout_t
 #define DEQUE_T fd_vote_lockout_t
-#define DEQUE_MAX 35
+#define DEQUE_MAX 100
 #include "../../util/tmpl/fd_deque.c"
 #undef DEQUE_NAME
 #undef DEQUE_T

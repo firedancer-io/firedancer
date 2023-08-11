@@ -19,7 +19,7 @@ int fd_executor_bpf_loader_program_is_executable_program_account( fd_global_ctx_
     return -1;
   }
 
-  if( memcmp( metadata.info.owner, global->solana_bpf_loader_program_with_jit, sizeof(fd_pubkey_t)) ) {
+  if( memcmp( metadata.info.owner, global->solana_bpf_loader_program, sizeof(fd_pubkey_t)) ) {
     return -1;
   }
 
@@ -110,10 +110,10 @@ serialize_unaligned( instruction_ctx_t ctx, ulong * sz ) {
       if ( FD_UNLIKELY( read_result == FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) ) {
           fd_memset( serialized_params, 0, sizeof(uchar)  // is_signer
           + sizeof(uchar));              // is_writable
-          
+
           serialized_params +=sizeof(uchar)  // is_signer
           + sizeof(uchar);               // is_writable
-          
+
           fd_pubkey_t key = *acc;
           FD_STORE( fd_pubkey_t, serialized_params, key );
           serialized_params += sizeof(fd_pubkey_t);
@@ -350,7 +350,7 @@ int fd_executor_bpf_loader_program_execute_program_instruction( instruction_ctx_
 
   // TODO: make tracing an option!
   // FILE * trace_fd = fopen("trace.log", "w");
-  
+
   // for( ulong i = 0; i < trace_used; i++ ) {
   //   fd_vm_trace_entry_t trace_ent = trace[i];
   //   fprintf(stderr, "%5lu [%016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX] %5lu: ",
@@ -372,7 +372,7 @@ int fd_executor_bpf_loader_program_execute_program_instruction( instruction_ctx_
 
   //   fprintf(stderr, "\n");
   // }
-  
+
   // fclose(trace_fd);
   fd_valloc_free( ctx.global->valloc, trace);
 
@@ -431,7 +431,7 @@ int fd_executor_bpf_loader_program_execute_instruction( instruction_ctx_t ctx ) 
    /* FIXME: will need to actually find last program_acct in this instruction but practically no one does this. Yet another
        area where there seems to be a lot of overhead... See solana_runtime::Accounts::load_transaction_accounts */
   fd_pubkey_t * bpf_loader_acc = &txn_accs[ctx.txn_ctx->txn_descriptor->acct_addr_cnt - 1];
-  if ( memcmp( bpf_loader_acc, ctx.global->solana_bpf_loader_program_with_jit, sizeof(fd_pubkey_t) ) != 0 ) {
+  if ( memcmp( bpf_loader_acc, ctx.global->solana_bpf_loader_program, sizeof(fd_pubkey_t) ) != 0 ) {
     return FD_EXECUTOR_INSTR_ERR_EXECUTABLE_MODIFIED;
   }
 

@@ -275,7 +275,7 @@ fd_vote_save_account(
       serialized_sz = VOTE_ACCOUNT_14_SIZE;
   }
 
-  ulong acc_sz = serialized_sz;
+  ulong acc_sz = sizeof(fd_account_meta_t) + serialized_sz;
 
   int                err = 0;
   fd_funk_rec_t *    acc_data_rec = NULL;
@@ -289,8 +289,10 @@ fd_vote_save_account(
     add_vote_latency = 0;
   }
 
-  if (m->dlen < serialized_sz)
+  if (m->dlen < serialized_sz) {
+    fd_memset( raw_acc_data + m->hlen + m->dlen, 0, serialized_sz - m->dlen );
     m->dlen = serialized_sz;
+  }
 
   if (set_lamports)
     m->info.lamports = lamports;
@@ -2024,7 +2026,7 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
     fd_compact_vote_state_update_t *vote_state_update;
 
     if ( instruction.discriminant == fd_vote_instruction_enum_compact_update_vote_state) {
-      FD_LOG_WARNING(( "executing vote program instruction: fd_vote_instruction_enum_compact_update_vote_state"));
+      FD_LOG_DEBUG(( "executing vote program instruction: fd_vote_instruction_enum_compact_update_vote_state"));
       vote_state_update = &instruction.inner.compact_update_vote_state;
     } else {
       // What are we supposed to do here?  What about the hash?

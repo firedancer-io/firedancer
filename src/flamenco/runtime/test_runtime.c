@@ -153,7 +153,6 @@ accounts_hash( global_state_t *state ) {
 
 static fd_hash_t const *
 get_bank_hash( fd_funk_t *       funk,
-               fd_wksp_t const * wksp,
                ulong             slot ) {
 
   fd_funk_rec_key_t key = fd_runtime_bank_hash_key( slot );
@@ -163,7 +162,7 @@ get_bank_hash( fd_funk_t *       funk,
     return NULL;
   }
 
-  void const * val = fd_funk_val_const( rec, wksp );
+  void const * val = fd_funk_val_const( rec, fd_funk_wksp( funk ));
   FD_TEST( fd_funk_val_sz( rec ) == sizeof(fd_hash_t) );
   return (fd_hash_t const *)val;
 }
@@ -177,10 +176,10 @@ replay( global_state_t * state,
   /* Create scratch allocator */
 
   ulong  smax = 512 /*MiB*/ << 20;
-  void * smem = fd_wksp_alloc_laddr( state->global->wksp, fd_scratch_smem_align(), smax, 1UL );
+  void * smem = fd_wksp_alloc_laddr( state->global->local_wksp, fd_scratch_smem_align(), smax, 1UL );
   if( FD_UNLIKELY( !smem ) ) FD_LOG_ERR(( "Failed to alloc scratch mem" ));
   ulong  scratch_depth = 4UL;
-  void * fmem = fd_wksp_alloc_laddr( state->global->wksp, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( scratch_depth ), 2UL );
+  void * fmem = fd_wksp_alloc_laddr( state->global->local_wksp, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( scratch_depth ), 2UL );
   if( FD_UNLIKELY( !fmem ) ) FD_LOG_ERR(( "Failed to alloc scratch frames" ));
 
   fd_scratch_attach( smem, fmem, smax, scratch_depth );
@@ -203,9 +202,6 @@ replay( global_state_t * state,
 
   if (mm.end_slot < state->end_slot)
     state->end_slot = mm.end_slot;
-
-  if ((0 != state->global->bank.slot) && (~0ul != state->global->bank.slot))
-    fd_update_features(state->global);
 
   /* Load epoch schedule sysvar */
   fd_epoch_schedule_t schedule;
@@ -248,7 +244,7 @@ replay( global_state_t * state,
     FD_LOG_INFO(( "epoch_leaders_footprint=%lu", epoch_leaders_footprint ));
     if( FD_LIKELY( epoch_leaders_footprint ) ) {
       /* Only available when we are importing from snapshot */
-      void * epoch_leaders_mem = fd_wksp_alloc_laddr( state->global->wksp, fd_epoch_leaders_align(), epoch_leaders_footprint, 1UL );
+      void * epoch_leaders_mem = fd_wksp_alloc_laddr( state->global->local_wksp, fd_epoch_leaders_align(), epoch_leaders_footprint, 1UL );
       state->global->leaders = fd_epoch_leaders_join( fd_epoch_leaders_new( epoch_leaders_mem, stake_weight_cnt, sched_cnt ) );
       FD_TEST( state->global->leaders );
       /* Derive */
@@ -261,7 +257,7 @@ replay( global_state_t * state,
     state->global->bank.prev_slot = prev_slot;
     state->global->bank.slot      = slot;
 
-    FD_LOG_NOTICE(("reading slot %ld (epoch %lu)", slot, epoch));
+    FD_LOG_INFO(("reading slot %ld (epoch %lu)", slot, epoch));
 
     fd_slot_meta_t m;
     fd_memset(&m, 0, sizeof(m));
@@ -303,14 +299,17 @@ replay( global_state_t * state,
 
     /* Read bank hash */
 
-    fd_hash_t const * known_bank_hash = get_bank_hash( state->global->funk, state->global->wksp, slot );
+    fd_hash_t const * known_bank_hash = get_bank_hash( state->global->funk, slot );
     if( known_bank_hash ) {
       if( FD_UNLIKELY( 0!=memcmp( state->global->bank.banks_hash.hash, known_bank_hash->hash, 32UL ) ) ) {
         FD_LOG_WARNING(( "Bank hash mismatch! slot=%lu expected=%32J, got=%32J",
                          slot,
                          known_bank_hash->hash,
                          state->global->bank.banks_hash.hash ));
-        if( state->global->abort_on_mismatch ) return 1;
+        if( state->global->abort_on_mismatch ) {
+          fd_solcap_writer_fini( state->global->capture );
+          return 1;
+        }
       }
     }
 
@@ -401,19 +400,21 @@ int main(int argc, char **argv) {
   gethostname(hostname, sizeof(hostname));
   ulong hashseed = fd_hash(0, hostname, strnlen(hostname, sizeof(hostname)));
 
-  fd_wksp_t *wksp = NULL;
+  fd_wksp_t *local_wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, state.pages, 0, "local_wksp", 0UL );
+  if ( FD_UNLIKELY( !local_wksp ) )
+    FD_LOG_ERR(( "Unable to create local wksp" ));
+
+  fd_wksp_t *funk_wksp;
   if ( state.name ) {
     FD_LOG_NOTICE(( "Attaching to --wksp %s", state.name ));
-    wksp = fd_wksp_attach( state.name );
+    funk_wksp = fd_wksp_attach( state.name );
+    if ( FD_UNLIKELY( !funk_wksp ) )
+      FD_LOG_ERR(( "Unable to attach to wksp" ));
+    if ( state.reset && strcmp(state.reset, "true") == 0 ) {
+      fd_wksp_reset( funk_wksp, (uint)hashseed);
+    }
   } else {
-    FD_LOG_NOTICE(( "--wksp not specified, using an anonymous workspace with %lu pages", state.pages ));
-    wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, state.pages, 0, "wksp", 0UL );
-  }
-  if ( FD_UNLIKELY( !wksp ) )
-    FD_LOG_ERR(( "Unable to attach to wksp" ));
-
-  if ( state.reset && strcmp(state.reset, "true") == 0 ) {
-    fd_wksp_reset( wksp, (uint)hashseed);
+    funk_wksp = local_wksp;
   }
 
   if (NULL != state.load) {
@@ -424,7 +425,7 @@ int main(int argc, char **argv) {
     struct stat statbuf;
     if (fstat(fd, &statbuf) == -1)
       FD_LOG_ERR(("restore failed: %s", strerror(errno)));
-    uchar* p = (uchar*)wksp;
+    uchar* p = (uchar*)funk_wksp;
     uchar* pend = p + statbuf.st_size;
     while ( p < pend ) {
       ulong sz = fd_ulong_min((ulong)(pend - p), 4UL<<20);
@@ -439,7 +440,7 @@ int main(int argc, char **argv) {
   if( !state.gaddr ) {
     if (NULL != state.load)
       FD_LOG_ERR(( "when you load a backup, you still need a --gaddr" ));
-    shmem = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint(), 1 );
+    shmem = fd_wksp_alloc_laddr( funk_wksp, fd_funk_align(), fd_funk_footprint(), 1 );
     if (shmem == NULL)
       FD_LOG_ERR(( "failed to allocate a funky" ));
     ulong index_max = 1000000;    // Maximum size (count) of master index
@@ -455,9 +456,9 @@ int main(int argc, char **argv) {
 
   } else {
     if (state.gaddr[0] == '0' && state.gaddr[1] == 'x')
-      shmem = fd_wksp_laddr_fast( wksp, (ulong)strtol(state.gaddr+2, NULL, 16) );
+      shmem = fd_wksp_laddr_fast( funk_wksp, (ulong)strtol(state.gaddr+2, NULL, 16) );
     else
-      shmem = fd_wksp_laddr_fast( wksp, (ulong)strtol(state.gaddr, NULL, 10) );
+      shmem = fd_wksp_laddr_fast( funk_wksp, (ulong)strtol(state.gaddr, NULL, 10) );
     state.global->funk = fd_funk_join(shmem);
     if (state.global->funk == NULL) {
       FD_LOG_ERR(( "failed to join a funky" ));
@@ -466,28 +467,39 @@ int main(int argc, char **argv) {
     if (r)
       FD_LOG_NOTICE(("cancelled %lu old transactions", r));
   }
-  FD_LOG_NOTICE(( "funky at global address 0x%lx", fd_wksp_gaddr_fast( wksp, shmem ) ));
-
-  if (NULL != log_level)
-    state.global->log_level = (uchar) atoi(log_level);
-
-  fd_alloc_t * alloc = fd_alloc_join( fd_wksp_laddr_fast( wksp, state.global->funk->alloc_gaddr ), 0UL );
-  if( FD_UNLIKELY( !alloc ) ) FD_LOG_ERR(( "fd_alloc_join(gaddr=%#lx) failed", state.global->funk->alloc_gaddr ));
-
-  state.global->wksp = wksp;
-  state.global->valloc = fd_libc_alloc_virtual();
-
-  if (NULL != state.persist) {
-    FD_LOG_NOTICE(("using %s for persistence", state.persist));
-    if ( fd_funk_persist_open_fast( state.global->funk, state.persist ) != FD_FUNK_SUCCESS )
-      FD_LOG_ERR(("failed to open persistence file"));
-  }
+  FD_LOG_NOTICE(( "funky at global address 0x%lx", fd_wksp_gaddr_fast( funk_wksp, shmem ) ));
 
   if ((validate_db != NULL) && (strcmp(validate_db, "true") == 0)) {
     FD_LOG_WARNING(("starting validate"));
     if ( fd_funk_verify(state.global->funk) != FD_FUNK_SUCCESS )
       FD_LOG_ERR(("valdation failed"));
     FD_LOG_WARNING(("finishing validate"));
+  }
+
+  if (NULL != log_level)
+    state.global->log_level = (uchar) atoi(log_level);
+
+  void * alloc_shmem = fd_wksp_alloc_laddr( local_wksp, fd_alloc_align(), fd_alloc_footprint(), 3UL );
+  if( FD_UNLIKELY( !alloc_shmem ) ) {
+    FD_LOG_ERR(( "fd_alloc too large for workspace" ));
+  }
+  void * alloc_shalloc = fd_alloc_new( alloc_shmem, 3UL );
+  if( FD_UNLIKELY( !alloc_shalloc ) ) {
+    FD_LOG_ERR(( "fd_allow_new failed" ));
+  }
+  fd_alloc_t * alloc = fd_alloc_join( alloc_shalloc, 3UL );
+  if( FD_UNLIKELY( !alloc ) ) {
+    FD_LOG_ERR(( "fd_alloc_join failed" ));
+  }
+
+  state.global->funk_wksp = funk_wksp;
+  state.global->local_wksp = local_wksp;
+  state.global->valloc = fd_libc_alloc_virtual();
+
+  if (NULL != state.persist) {
+    FD_LOG_NOTICE(("using %s for persistence", state.persist));
+    if ( fd_funk_persist_open_fast( state.global->funk, state.persist ) != FD_FUNK_SUCCESS )
+      FD_LOG_ERR(("failed to open persistence file"));
   }
 
   if( capture_fpath ) {
@@ -518,10 +530,10 @@ int main(int argc, char **argv) {
     ctx2.valloc  = state.global->valloc;
     FD_TEST( fd_firedancer_banks_decode(&state.global->bank, &ctx2 )==FD_BINCODE_SUCCESS );
 
-    FD_LOG_WARNING(( "decoded slot=%ld banks_hash=%32J poh_hash %32J",
-                     (long)state.global->bank.slot,
-                     state.global->bank.banks_hash.hash,
-                     state.global->bank.poh.hash ));
+    FD_LOG_NOTICE(( "decoded slot=%ld banks_hash=%32J poh_hash %32J",
+                    (long)state.global->bank.slot,
+                    state.global->bank.banks_hash.hash,
+                    state.global->bank.poh.hash ));
   }
 
   ulong tcnt = fd_tile_cnt();
@@ -538,7 +550,8 @@ int main(int argc, char **argv) {
   }
 
   if (strcmp(state.cmd, "replay") == 0) {
-    replay(&state, 0, tpool, tcnt);
+    int err = replay(&state, 0, tpool, tcnt);
+    if( err!=0 ) return err;
 
     if (NULL != confirm_hash) {
       uchar h[32];
@@ -578,10 +591,9 @@ int main(int argc, char **argv) {
 
   fd_global_ctx_delete(fd_global_ctx_leave(state.global));
 
+  fd_wksp_delete_anonymous( state.global->local_wksp );
   if( state.name )
-    fd_wksp_detach( state.global->wksp );
-  else
-    fd_wksp_delete_anonymous( state.global->wksp );
+    fd_wksp_detach( state.global->funk_wksp );
 
   FD_LOG_NOTICE(( "pass" ));
 

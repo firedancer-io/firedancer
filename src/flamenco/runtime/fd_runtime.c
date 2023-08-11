@@ -27,7 +27,8 @@ fd_runtime_init_bank_from_genesis( fd_global_ctx_t *     global,
                                    uchar                 genesis_hash[FD_SHA256_HASH_SZ] ) {
   global->bank.slot = 0;
 
-  fd_memcpy(&global->bank.poh, genesis_hash, FD_SHA256_HASH_SZ);
+  memcpy( &global->bank.poh, genesis_hash, FD_SHA256_HASH_SZ );
+  memset( global->bank.banks_hash.hash, 0, FD_SHA256_HASH_SZ );
 
   global->bank.fee_rate_governor = genesis_block->fee_rate_governor;
   global->bank.lamports_per_signature = 10000;
@@ -77,30 +78,52 @@ fd_runtime_init_bank_from_genesis( fd_global_ctx_t *     global,
 
   for( ulong i=0UL; i < genesis_block->accounts_len; i++ ) {
     fd_pubkey_account_pair_t const * acc = &genesis_block->accounts[ i ];
-    if( 0!=memcmp( acc->account.owner.key, global->solana_vote_program, sizeof(fd_pubkey_t) ) )
-      continue;
 
-    fd_vote_accounts_pair_t_mapnode_t * node =
-      fd_vote_accounts_pair_t_map_acquire( vacc_pool );
-    FD_TEST( node );
+    if( 0==memcmp( acc->account.owner.key, global->solana_vote_program, sizeof(fd_pubkey_t) ) ) {
+      /* Vote Program Account */
 
-    memcpy( node->elem.key.key, acc->key.key, sizeof(fd_pubkey_t) );
-    node->elem.stake = acc->account.lamports;
-    node->elem.value = (fd_solana_account_t) {
-      .lamports   = acc->account.lamports,
-      .data_len   = acc->account.data_len,
-      .data       = fd_valloc_malloc( global->valloc, 1UL, acc->account.data_len ),
-      .owner      = acc->account.owner,
-      .executable = acc->account.executable,
-      .rent_epoch = acc->account.rent_epoch
-    };
-    fd_memcpy( node->elem.value.data, acc->account.data, acc->account.data_len );
+      fd_vote_accounts_pair_t_mapnode_t * node =
+        fd_vote_accounts_pair_t_map_acquire( vacc_pool );
+      FD_TEST( node );
 
-    fd_vote_accounts_pair_t_map_insert( vacc_pool, &vacc_root, node );
+      memcpy( node->elem.key.key, acc->key.key, sizeof(fd_pubkey_t) );
+      node->elem.stake = acc->account.lamports;
+      node->elem.value = (fd_solana_account_t) {
+        .lamports   = acc->account.lamports,
+        .data_len   = acc->account.data_len,
+        .data       = fd_valloc_malloc( global->valloc, 1UL, acc->account.data_len ),
+        .owner      = acc->account.owner,
+        .executable = acc->account.executable,
+        .rent_epoch = acc->account.rent_epoch
+      };
+      fd_memcpy( node->elem.value.data, acc->account.data, acc->account.data_len );
 
-    FD_LOG_INFO(( "Adding genesis vote account: key=%32J stake=%lu",
-                  node->elem.key.key,
-                  node->elem.stake ));
+      fd_vote_accounts_pair_t_map_insert( vacc_pool, &vacc_root, node );
+
+      FD_LOG_INFO(( "Adding genesis vote account: key=%32J stake=%lu",
+                    node->elem.key.key,
+                    node->elem.stake ));
+
+    } else if( 0==memcmp( acc->account.owner.key, global->solana_feature_program, sizeof(fd_pubkey_t) ) ) {
+      /* Feature Account */
+
+      /* Scan list of feature IDs to resolve address => feature offset */
+      fd_feature_id_t const * found = NULL;
+      for( fd_feature_id_t const * id = fd_feature_iter_init();
+                                       !fd_feature_iter_done( id );
+                                   id = fd_feature_iter_next( id ) ) {
+        if( 0==memcmp( acc->key.key, id->id.key, sizeof(fd_pubkey_t) ) ) {
+          found = id;
+          break;
+        }
+      }
+      if( found ) {
+        /* Feature active since genesis.
+           Set activation slot to 1UL.  (Sadly, our runtime considers
+           0UL as "not activated" */
+        *fd_features_ptr( &global->features, found ) = 1UL;
+      }
+    }
   }
 
   global->bank.epoch_stakes = (fd_vote_accounts_t) {
@@ -883,14 +906,15 @@ fd_global_ctx_new        ( void * mem ) {
   fd_base58_decode_32( "SysvarLastRestartS1ot1111111111111111111111",  (unsigned char *) self->sysvar_last_restart_slot);
 
   fd_base58_decode_32( "NativeLoader1111111111111111111111111111111",  (unsigned char *) self->solana_native_loader);
+  fd_base58_decode_32( "Feature111111111111111111111111111111111111",                    self->solana_feature_program);
   fd_base58_decode_32( "Config1111111111111111111111111111111111111",  (unsigned char *) self->solana_config_program);
   fd_base58_decode_32( "Stake11111111111111111111111111111111111111",  (unsigned char *) self->solana_stake_program);
   fd_base58_decode_32( "StakeConfig11111111111111111111111111111111",  (unsigned char *) self->solana_stake_program_config);
   fd_base58_decode_32( "11111111111111111111111111111111",             (unsigned char *) self->solana_system_program);
   fd_base58_decode_32( "Vote111111111111111111111111111111111111111",  (unsigned char *) self->solana_vote_program);
   fd_base58_decode_32( "BPFLoader1111111111111111111111111111111111",  (unsigned char *) self->solana_bpf_loader_deprecated_program);
-  fd_base58_decode_32( "BPFLoader2111111111111111111111111111111111",  (unsigned char *) self->solana_bpf_loader_program_with_jit);
-  fd_base58_decode_32( "BPFLoaderUpgradeab1e11111111111111111111111",  (unsigned char *) self->solana_bpf_loader_upgradeable_program_with_jit);
+  fd_base58_decode_32( "BPFLoader2111111111111111111111111111111111",  (unsigned char *) self->solana_bpf_loader_program);
+  fd_base58_decode_32( "BPFLoaderUpgradeab1e11111111111111111111111",  (unsigned char *) self->solana_bpf_loader_upgradeable_program);
 
   fd_base58_decode_32( "Ed25519SigVerify111111111111111111111111111",  (unsigned char *) self->solana_ed25519_sig_verify_program);
   fd_base58_decode_32( "KeccakSecp256k11111111111111111111111111111",  (unsigned char *) self->solana_keccak_secp_256k_program);
@@ -1308,44 +1332,51 @@ int fd_global_import_solana_manifest(fd_global_ctx_t * global, fd_solana_manifes
   return fd_runtime_save_banks( global );
 }
 
-void
-fd_update_feature( fd_global_ctx_t * global,
-                   ulong *           f,
-                   uchar const       acct[ static 32 ] ) {
+/* fd_feature_restore loads a feature from the accounts database and
+   updates the bank's feature activation state, given a feature account
+   address. */
+
+static void
+fd_feature_restore( fd_global_ctx_t * global,
+                    ulong *           f,
+                    uchar const       acct[ static 32 ] ) {
 
   char * raw_acc_data = (char*) fd_acc_mgr_view_data(global->acc_mgr, global->funk_txn, (fd_pubkey_t *) acct, NULL, NULL);
   if (NULL == raw_acc_data)
     return;
   fd_account_meta_t *m = (fd_account_meta_t *) raw_acc_data;
 
-  fd_feature_t feature;
-  fd_feature_new(&feature);
+  fd_feature_t feature[1];
+  fd_feature_new( feature );
 
+  FD_SCRATCH_SCOPED_FRAME;
+
+  uchar const * data = (uchar const *)( (ulong)m + m->hlen );
   fd_bincode_decode_ctx_t ctx = {
-    .data = raw_acc_data + m->hlen,
-    .dataend = (char *) ctx.data + m->dlen,
-    .valloc  = global->valloc,
+    .data    = data,
+    .dataend = data + m->dlen,
+    .valloc  = fd_scratch_virtual(),
   };
-  if ( fd_feature_decode( &feature, &ctx ) )
+  int decode_err = fd_feature_decode( feature, &ctx );
+  if( FD_UNLIKELY( decode_err!=FD_BINCODE_SUCCESS ) ) {
+    FD_LOG_ERR(( "Failed to decode feature account %32J (%d)", acct, decode_err ));
     return;
+  }
 
   /* Careful: In test ledgers, features can get activated at genesis
      (meaning slot number 0).  However, we interpret 0 as "not activated
      and not scheduled for activation". */
-  if( NULL != feature.activated_at )
-    *f = fd_ulong_max( 1UL, *feature.activated_at );
+  if( feature->activated_at )
+    *f = fd_ulong_max( 1UL, *feature->activated_at );
 
-  fd_bincode_destroy_ctx_t destroy = { .valloc = global->valloc };
-  fd_feature_destroy( &feature, &destroy );
+  /* No need to call destroy, since we are using fd_scratch allocator. */
 }
 
 void
-fd_update_features( fd_global_ctx_t * global ) {
+fd_features_restore( fd_global_ctx_t * global ) {
   for( fd_feature_id_t const * id = fd_feature_iter_init();
                                    !fd_feature_iter_done( id );
                                id = fd_feature_iter_next( id ) ) {
-
-    ulong * feature_ptr = (ulong *)( (ulong)&global->features + id->offset );
-    fd_update_feature( global, feature_ptr, id->id.key );
+    fd_feature_restore( global, fd_features_ptr( &global->features, id ), id->id.key );
   }
 }
