@@ -810,7 +810,7 @@ main( int     argc,
         return result;
       }
 
-      global->bank.slot = ~0ul;
+      global->bank.slot = 0UL;
 
       FD_TEST( fd_runtime_save_banks( global )==FD_RUNTIME_EXECUTE_SUCCESS );
 
