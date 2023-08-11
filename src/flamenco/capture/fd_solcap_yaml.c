@@ -89,7 +89,7 @@ process_account( FILE * file,
   } while(0);
 
   printf(
-    "      owner:      %32J\n"
+    "      owner:      '%32J'\n"
     "      lamports:   %lu\n"
     "      slot:       %lu\n"
     "      rent_epoch: %lu\n"
@@ -256,8 +256,8 @@ process_account_table( FILE * file,
     /* Write to YAML */
 
     printf(
-      "    - pubkey: %32J\n"
-      "      hash:   %32J\n",
+      "    - pubkey: '%32J'\n"
+      "      hash:   '%32J'\n",
       entry->key,
       entry->hash );
 
@@ -326,15 +326,15 @@ process_bank( fd_solcap_chunk_t const * chunk,
 
   printf(
     "- slot: %lu\n"
-    "  bank_hash: %32J\n",
+    "  bank_hash: '%32J'\n",
     meta.slot,
     meta.bank_hash );
 
   if( verbose>=1 ) {
     printf(
-      "  prev_bank_hash:     %32J\n"
-      "  account_delta_hash: %32J\n"
-      "  poh_hash:           %32J\n"
+      "  prev_bank_hash:     '%32J'\n"
+      "  account_delta_hash: '%32J'\n"
+      "  poh_hash:           '%32J'\n"
       "  signature_cnt:      %lu\n",
       meta.prev_bank_hash,
       meta.account_delta_hash,
