@@ -62,7 +62,7 @@ struct fd_commission_split {
 typedef struct fd_commission_split fd_commission_split_t;
 
 void fd_vote_commission_split(
-  fd_vote_state_t * vote_state,
+  fd_vote_state_versioned_t * vote_state_versioned,
   ulong on,
   fd_commission_split_t * result
 );
