@@ -538,7 +538,8 @@ int main(int argc, char **argv) {
   }
 
   if (strcmp(state.cmd, "replay") == 0) {
-    replay(&state, 0, tpool, tcnt);
+    int err = replay(&state, 0, tpool, tcnt);
+    if( err!=0 ) return err;
 
     if (NULL != confirm_hash) {
       uchar h[32];
