@@ -2161,24 +2161,38 @@ fd_vote_acc_credits( fd_global_ctx_t* global, fd_pubkey_t * vote_acc, ulong* res
 ///
 ///  if commission calculation is 100% one way or other, indicate with false for was_split
 void fd_vote_commission_split(
-  fd_vote_state_t * vote_state,
+  fd_vote_state_versioned_t * vote_state_versioned,
   ulong on,
   fd_commission_split_t * result
 ) {
-  uint commission = fd_uint_min(*((uint *) (&vote_state->commission)), 100);
-  result->is_split = (commission != 0 && commission !=100);
-  if (commission == 0) {
+    uchar * commission;
+    switch (vote_state_versioned->discriminant) {
+        case fd_vote_state_versioned_enum_current:
+            commission = &vote_state_versioned->inner.current.commission;
+            break;
+        case fd_vote_state_versioned_enum_v0_23_5:
+            commission = &vote_state_versioned->inner.v0_23_5.commission;
+            break;
+        case fd_vote_state_versioned_enum_v1_14_11:
+            commission = &vote_state_versioned->inner.v1_14_11.commission;
+            break;
+        default:
+            __builtin_unreachable();
+    }  
+  uint commission_split = fd_uint_min(*((uint *) commission), 100);
+  result->is_split = (commission_split != 0 && commission_split !=100);
+  if (commission_split == 0) {
     result->voter_portion = 0;
     result->staker_portion = on;
     return;
   }
-  if (commission == 100) {
+  if (commission_split == 100) {
     result->voter_portion = on;
     result->staker_portion = 0;
     return;
   }
   /* Note: order of operations may matter for int division. That's why I didn't make the optimization of getting out the common calculations */
-  result->voter_portion = (ulong)( (__uint128_t)on * (__uint128_t) commission / (__uint128_t)100 );
-  result->staker_portion = (ulong)( (__uint128_t)on * (__uint128_t) (100-commission) / (__uint128_t)100 );
+  result->voter_portion = (ulong)( (__uint128_t)on * (__uint128_t) commission_split / (__uint128_t)100 );
+  result->staker_portion = (ulong)( (__uint128_t)on * (__uint128_t) (100-commission_split) / (__uint128_t)100 );
   return;
 }
