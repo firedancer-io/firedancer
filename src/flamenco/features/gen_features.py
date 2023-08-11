@@ -101,7 +101,7 @@ void fd_features_enable_all    ( fd_features_t * );
 
      for( fd_feature_id_t const * id = fd_feature_iter_init();
                                       !fd_feature_iter_done( id );
-                                  id = fd_feature_iter_next( id ) {{
+                                  id = fd_feature_iter_next( id ) ) {{
        ...
      }} */
 
@@ -118,6 +118,18 @@ fd_feature_iter_done( fd_feature_id_t const * id ) {{
 static inline fd_feature_id_t const *
 fd_feature_iter_next( fd_feature_id_t const * id ) {{
   return id+1;
+}}
+
+static inline ulong *
+fd_features_ptr( fd_features_t *         features,
+                 fd_feature_id_t const * id ) {{
+  return (ulong *)( (ulong)features + id->offset );
+}}
+
+static inline ulong const *
+fd_features_ptr_const( fd_features_t const *   features,
+                       fd_feature_id_t const * id ) {{
+  return (ulong const *)( (ulong)features + id->offset );
 }}
 
 FD_PROTOTYPES_END
