@@ -12,27 +12,6 @@ from base58 import b58decode
 with open("feature_map.json", "r") as json_file:
     feature_map = json.load(json_file)
 
-with open("../features/devnet.json", "r") as json_file:
-    devnet = json.load(json_file)
-
-with open("../features/testnet.json", "r") as json_file:
-    testnet = json.load(json_file)
-
-with open("../features/mainnet-beta.json", "r") as json_file:
-    mainnet = json.load(json_file)
-
-with open("../features/v13.json", "r") as json_file:
-    v13 = json.load(json_file)
-
-with open("../features/v14.json", "r") as json_file:
-    v14 = json.load(json_file)
-
-with open("../features/v16.json", "r") as json_file:
-    v16 = json.load(json_file)
-
-with open("../features/v17.json", "r") as json_file:
-    v17 = json.load(json_file)
-
 header = open(sys.argv[1], "w")
 body = open(sys.argv[2], "w")
 
@@ -83,16 +62,8 @@ FD_PROTOTYPES_BEGIN
    The last element has offset==ULONG_MAX. */
 extern fd_feature_id_t const ids[];
 
-/* fd_features_enable_{{...}} enables a specific set of features. */
-
-void fd_features_enable_testnet( fd_features_t * );
-void fd_features_enable_devnet ( fd_features_t * );
-void fd_features_enable_mainnet ( fd_features_t * );
-void fd_features_enable_v13    ( fd_features_t * );
-void fd_features_enable_v14    ( fd_features_t * );
-void fd_features_enable_v16    ( fd_features_t * );
-void fd_features_enable_v17    ( fd_features_t * );
-void fd_features_enable_all    ( fd_features_t * );
+/* fd_features_enable_all enables all available features. */
+void fd_features_enable_all( fd_features_t * );
 
 /* fd_feature_iter_{...} is an iterator-style API over all supported
    features in this version of Firedancer.  Usage:
@@ -161,48 +132,6 @@ print(
 
 #include "fd_features.h"
 #include <stddef.h>
-
-void
-fd_features_enable_testnet( fd_features_t * f ) {{
-  memset( f, 0xff, sizeof(fd_features_t) );
-  {gen_feature_activations_procedure(testnet)}
-}}
-
-void
-fd_features_enable_devnet( fd_features_t * f ) {{
-  memset( f, 0xff, sizeof(fd_features_t) );
-  {gen_feature_activations_procedure(devnet)}
-}}
-
-void
-fd_features_enable_mainnet( fd_features_t * f ) {{
-  memset( f, 0xff, sizeof(fd_features_t) );
-  {gen_feature_activations_procedure(mainnet)}
-}}
-
-void
-fd_features_enable_v13( fd_features_t * f ) {{
-  memset( f, 0xff, sizeof(fd_features_t) );
-  {gen_feature_activations_procedure(v13)}
-}}
-
-void
-fd_features_enable_v14( fd_features_t * f ) {{
-  memset( f, 0xff, sizeof(fd_features_t) );
-  {gen_feature_activations_procedure(v14)}
-}}
-
-void
-fd_features_enable_v16( fd_features_t * f ) {{
-  memset( f, 0xff, sizeof(fd_features_t) );
-  {gen_feature_activations_procedure(v16)}
-}}
-
-void
-fd_features_enable_v17( fd_features_t * f ) {{
-  memset( f, 0xff, sizeof(fd_features_t) );
-  {gen_feature_activations_procedure(v17)}
-}}
 
 void
 fd_features_enable_all( fd_features_t * f ) {{
