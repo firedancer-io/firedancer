@@ -2165,7 +2165,7 @@ void fd_vote_commission_split(
   ulong on,
   fd_commission_split_t * result
 ) {
-    uchar * commission;
+    uchar * commission = NULL;
     switch (vote_state_versioned->discriminant) {
         case fd_vote_state_versioned_enum_current:
             commission = &vote_state_versioned->inner.current.commission;

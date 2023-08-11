@@ -11,6 +11,13 @@
 
 FD_PROTOTYPES_BEGIN
 
+struct fd_vote_reward {
+  fd_pubkey_t * vote_acc;
+  uchar commission;
+  ulong vote_rewards;
+};
+typedef struct fd_vote_reward fd_vote_reward_t;
+
 struct prev_epoch_inflation_rewards {
     ulong validator_rewards;
     double prev_epoch_duration_in_years;
@@ -21,24 +28,22 @@ typedef struct prev_epoch_inflation_rewards prev_epoch_inflation_rewards_t;
 
 struct fd_reward_info {
     fd_reward_type_t reward_type;
-    long lamports;
+    ulong lamports;
     ulong post_balance;
     short commission;
 };
 typedef struct fd_reward_info fd_reward_info_t;
 
-struct fd_stake_rewards {
+struct fd_stake_reward {
     fd_pubkey_t * stake_pubkey;
     fd_reward_info_t * reward_info;
-    fd_solana_account_t * account_shared_data;
 };
-typedef struct fd_stake_rewards fd_stake_rewards_t;
+typedef struct fd_stake_reward fd_stake_reward_t;
 
 struct fd_stake_reward_calculation {
     ulong total_stake_rewards_lamports;
-    fd_stake_rewards_t * stake_rewards;
+    fd_stake_reward_t * stake_rewards;
 };
-
 typedef struct fd_stake_reward_calculation fd_stake_reward_calculation_t;
 
 struct partitioned_rewards_calculation {

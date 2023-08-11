@@ -174,11 +174,13 @@ static void calculate_and_redeem_stake_rewards(
 } 
 
 int redeem_rewards(
-  instruction_ctx_t* ctx,
-  fd_pubkey_t * stake_acc,
-  fd_vote_state_versioned_t * vote_state,
-  ulong rewarded_epoch,
-  fd_point_value_t * point_value
+    instruction_ctx_t* ctx,
+    fd_stake_history_t * stake_history,
+    fd_pubkey_t * stake_acc,
+    fd_vote_state_versioned_t * vote_state,
+    ulong rewarded_epoch,
+    fd_point_value_t * point_value,
+    fd_calculated_stake_rewards_t * result
 ) {
     fd_stake_state_t stake_state;
     read_stake_state( ctx->global, stake_acc, &stake_state );
@@ -186,12 +188,9 @@ int redeem_rewards(
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
     }
 
-    fd_stake_history_t stake_history;
-    fd_sysvar_stake_history_read( ctx->global, &stake_history);
-
-    fd_calculated_stake_rewards_t * stake_rewards_result = NULL;
-    calculate_and_redeem_stake_rewards(&stake_history, &stake_state, vote_state, rewarded_epoch, point_value, stake_rewards_result);
-    if (stake_rewards_result == NULL) {
+    result = NULL;
+    calculate_and_redeem_stake_rewards(stake_history, &stake_state, vote_state, rewarded_epoch, point_value, result);
+    if (result == NULL) {
         ctx->txn_ctx->custom_err = 0; /* Err(StakeError::NoCreditsToRedeem.into()) */
         return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
     }
@@ -203,9 +202,8 @@ int redeem_rewards(
     char * raw_acc_data = (char*) fd_acc_mgr_view_data(ctx->global->acc_mgr, ctx->global->funk_txn, stake_acc, NULL, &err);
     fd_account_meta_t *metadata = (fd_account_meta_t *) raw_acc_data;
 
-    fd_acc_mgr_set_lamports( ctx->global->acc_mgr, ctx->global->funk_txn, ctx->global->bank.slot, stake_acc, metadata->info.lamports + stake_rewards_result->staker_rewards);
+    fd_acc_mgr_set_lamports( ctx->global->acc_mgr, ctx->global->funk_txn, ctx->global->bank.slot, stake_acc, metadata->info.lamports + result->staker_rewards);
     return FD_EXECUTOR_INSTR_SUCCESS;
-
 }
 
 int calculate_points(
@@ -278,12 +276,10 @@ vote_balance_and_staked(fd_stakes_t * stakes) {
 static void
 calculate_reward_points_partitioned(
     instruction_ctx_t * ctx,
+    fd_stake_history_t * stake_history,
     ulong rewards,
     fd_point_value_t * result
 ) {
-    fd_stake_history_t stake_history;
-    fd_sysvar_stake_history_read( ctx->global, &stake_history);
-
     __uint128_t points = 0;
     fd_firedancer_banks_t * bank = &ctx->global->bank;
     for ( fd_delegation_pair_t_mapnode_t * n = fd_delegation_pair_t_map_minimum( bank->stakes.stake_delegations_pool, bank->stakes.stake_delegations_root ); n; n = fd_delegation_pair_t_map_successor( bank->stakes.stake_delegations_pool, n ) ) {
@@ -295,9 +291,13 @@ calculate_reward_points_partitioned(
         if (fd_vote_accounts_pair_t_map_find(bank->stakes.vote_accounts.vote_accounts_pool, bank->stakes.vote_accounts.vote_accounts_root, &key) != NULL) {
             continue;
         }
-        if ( fd_memcpy(voter_acc, ctx->global->solana_vote_program, sizeof(fd_pubkey_t)) != 0) {
+
+        fd_pubkey_t vote_acc_owner;
+        fd_acc_mgr_get_owner( ctx->global->acc_mgr, ctx->global->funk_txn, voter_acc, &vote_acc_owner );
+        if (memcmp(&vote_acc_owner, ctx->global->solana_vote_program, sizeof(fd_pubkey_t)) != 0) {
             continue;
         }
+
         fd_vote_state_versioned_t * vote_state = NULL;
         fd_account_meta_t * meta = NULL;
         if (fd_vote_load_account(vote_state, meta, ctx->global, &n->elem.delegation.voter_pubkey) != 0) {
@@ -308,7 +308,7 @@ calculate_reward_points_partitioned(
         read_stake_state( ctx->global, stake_acc, &stake_state );
 
         __uint128_t result;
-        points += (calculate_points(&stake_state, vote_state, &stake_history, &result) == FD_EXECUTOR_INSTR_SUCCESS ? result : 0);
+        points += (calculate_points(&stake_state, vote_state, stake_history, &result) == FD_EXECUTOR_INSTR_SUCCESS ? result : 0);
 
     }
 
@@ -321,19 +321,122 @@ calculate_reward_points_partitioned(
     return;    
 }
 
+/// return reward info for each vote account
+/// return account data for each vote account that needs to be stored
+/// This return value is a little awkward at the moment so that downstream existing code in the non-partitioned rewards code path can be re-used without duplication or modification.
+/// This function is copied from the existing code path's `store_vote_accounts`.
+/// The primary differences:
+/// - we want this fn to have no side effects (such as actually storing vote accounts) so that we
+///   can compare the expected results with the current code path
+/// - we want to be able to batch store the vote accounts later for improved performance/cache updating
+    // fn calc_vote_accounts_to_store(
+
 /* 
 Calculates epoch rewards for stake/vote accounts
 Returns vote rewards, stake rewards, and the sum of all stake rewards in lamports
 */
 static void
 calculate_stake_vote_rewards(
-   instruction_ctx_t * ctx,
-   ulong rewarded_epoch,
-   fd_point_value_t * point_value 
+    instruction_ctx_t * ctx,
+    fd_stake_history_t * stake_history,
+    ulong rewarded_epoch,
+    fd_point_value_t * point_value
 ) {
-    (void) ctx;
-    (void) rewarded_epoch;
-    (void) point_value;
+    fd_firedancer_banks_t * bank = &ctx->global->bank;
+    fd_acc_lamports_t total_stake_rewards = 0;
+    for ( fd_delegation_pair_t_mapnode_t * n = fd_delegation_pair_t_map_minimum( bank->stakes.stake_delegations_pool, bank->stakes.stake_delegations_root ); n; n = fd_delegation_pair_t_map_successor( bank->stakes.stake_delegations_pool, n ) ) {
+        fd_pubkey_t * voter_acc = &n->elem.delegation.voter_pubkey;
+        fd_pubkey_t * stake_acc = &n->elem.account;
+
+        fd_vote_accounts_pair_t_mapnode_t key;
+        fd_memcpy(&key.elem.key, voter_acc, sizeof(fd_pubkey_t));
+
+        if (fd_vote_accounts_pair_t_map_find(bank->stakes.vote_accounts.vote_accounts_pool, bank->stakes.vote_accounts.vote_accounts_root, &key) != NULL) {
+            continue;
+        }
+
+        fd_pubkey_t vote_acc_owner;
+        fd_acc_mgr_get_owner( ctx->global->acc_mgr, ctx->global->funk_txn, voter_acc, &vote_acc_owner );
+        if (memcmp(&vote_acc_owner, ctx->global->solana_vote_program, sizeof(fd_pubkey_t)) != 0) {
+            continue;
+        }
+
+        fd_vote_state_versioned_t * vote_state_versioned = NULL;
+        fd_account_meta_t * meta = NULL;
+        if (fd_vote_load_account(vote_state_versioned, meta, ctx->global, &n->elem.delegation.voter_pubkey) != 0) {
+            continue;
+        }
+
+        fd_calculated_stake_rewards_t * redeemed;
+        if (redeem_rewards(ctx, stake_history, stake_acc, vote_state_versioned, rewarded_epoch, point_value, redeemed) != 0) {
+            FD_LOG_WARNING(("stake_state::redeem_rewards() failed for %p", stake_acc));
+            continue;
+        }
+        int err;
+        fd_account_meta_t * metadata = (fd_account_meta_t *) fd_acc_mgr_view_data(ctx->global->acc_mgr, ctx->global->funk_txn, stake_acc, NULL, &err);
+        fd_acc_lamports_t post_lamports = metadata->info.lamports;
+
+        // track total_stake_rewards
+        total_stake_rewards += redeemed->staker_rewards;
+
+        // add stake_reward to the collection
+        fd_stake_reward_t * stake_reward;
+        fd_memcpy(stake_reward->stake_pubkey, stake_acc, sizeof(fd_pubkey_t));
+        uchar * commission = NULL;
+        switch (vote_state_versioned->discriminant) {
+            case fd_vote_state_versioned_enum_current:
+                commission = &vote_state_versioned->inner.current.commission;
+                break;
+            case fd_vote_state_versioned_enum_v0_23_5:
+                commission = &vote_state_versioned->inner.v0_23_5.commission;
+                break;
+            case fd_vote_state_versioned_enum_v1_14_11:
+                commission = &vote_state_versioned->inner.v1_14_11.commission;
+                break;
+            default:
+                __builtin_unreachable();
+        }
+        *(stake_reward->reward_info) = (fd_reward_info_t){
+            .reward_type = {fd_reward_type_enum_staking},
+            .commission = *commission,
+            .lamports = redeemed->staker_rewards,
+            .post_balance = post_lamports
+        };
+        // track voter rewards
+        fd_vote_reward_t vote_reward = {
+            .vote_rewards = 0,
+            .commission = *commission
+        };
+        fd_memcpy(&vote_reward.vote_acc, voter_acc, sizeof(fd_pubkey_t));
+
+
+                        // let mut voters_reward_entry = vote_account_rewards
+                        //     .entry(vote_pubkey)
+                        //     .or_insert(VoteReward {
+                        //         vote_account: vote_account.into(),
+                        //         commission: vote_state.commission,
+                        //         vote_rewards: 0,
+                        //         vote_needs_store: false,
+                        //     });
+
+                        // voters_reward_entry.vote_rewards = voters_reward_entry
+                        //     .vote_rewards
+                        //     .saturating_add(voters_reward);
+
+                        // let post_balance = stake_account.lamports();
+                        // total_stake_rewards.fetch_add(stakers_reward, Relaxed);
+                        // return Some(StakeReward {
+                        //     stake_pubkey,
+                        //     stake_reward_info: RewardInfo {
+                        //         reward_type: RewardType::Staking,
+                        //         lamports: i64::try_from(stakers_reward).unwrap(),
+                        //         post_balance,
+                        //         commission: Some(vote_state.commission),
+                        //     },
+                        //     stake_account,
+                        // });
+
+    } // end of for
 }
 
 /* Calculate epoch reward and return vote and stake rewards. */
@@ -343,12 +446,13 @@ calculate_validator_rewards(
     ulong rewarded_epoch,
     ulong rewards
 ) {
-   (void) rewarded_epoch;
-   (void) rewards;
-   fd_point_value_t * point_value_result = NULL;
-   calculate_reward_points_partitioned(ctx, rewards, point_value_result);
-   calculate_stake_vote_rewards(ctx, rewarded_epoch, point_value_result);
-   
+    fd_stake_history_t stake_history;
+    fd_sysvar_stake_history_read( ctx->global, &stake_history);
+
+    fd_point_value_t * point_value_result = NULL;
+    calculate_reward_points_partitioned(ctx, &stake_history, rewards, point_value_result);
+    calculate_stake_vote_rewards(ctx, &stake_history, rewarded_epoch, point_value_result);
+
 }
 
 
