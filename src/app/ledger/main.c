@@ -565,6 +565,7 @@ main( int     argc,
   char const * txnstatus    = fd_env_strip_cmdline_cstr ( &argc, &argv, "--txnstatus",    NULL, "false"   );
   char const * verifyhash   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--verifyhash",   NULL, NULL      );
   char const * backup       = fd_env_strip_cmdline_cstr ( &argc, &argv, "--backup",       NULL, NULL      );
+  char const * capture_fpath = fd_env_strip_cmdline_cstr ( &argc, &argv, "--capture",      NULL, NULL      );
 
   fd_wksp_t* wksp;
   ulong wkspsize;
@@ -746,6 +747,24 @@ main( int     argc,
     }
 
     if( genesis ) {
+
+      FILE *               capture_file = NULL;
+      fd_solcap_writer_t * capture      = NULL;
+      if( capture_fpath ) {
+        capture_file = fopen( capture_fpath, "w+" );
+        if( FD_UNLIKELY( !capture_file ) )
+          FD_LOG_ERR(( "fopen(%s) failed (%d-%s)", capture_fpath, errno, strerror( errno ) ));
+
+        void * capture_writer_mem = fd_alloc_malloc( alloc, fd_solcap_writer_align(), fd_solcap_writer_footprint() );
+        FD_TEST( capture_writer_mem );
+        capture = fd_solcap_writer_new( capture_writer_mem );
+
+        FD_TEST( fd_solcap_writer_init( capture, capture_file ) );
+        global->capture = capture;
+      }
+
+      fd_solcap_writer_set_slot( capture, 0UL );
+
       struct stat sbuf;
       if( FD_UNLIKELY( stat( genesis, &sbuf) < 0 ) )
         FD_LOG_ERR(("cannot open %s : %s", genesis, strerror(errno)));
@@ -758,11 +777,12 @@ main( int     argc,
 
       fd_genesis_solana_t genesis_block;
       fd_genesis_solana_new(&genesis_block);
-      fd_bincode_decode_ctx_t ctx;
-      ctx.data    = buf;
-      ctx.dataend = &buf[n];
-      ctx.valloc  = global->valloc;
-      if ( fd_genesis_solana_decode(&genesis_block, &ctx) )
+      fd_bincode_decode_ctx_t ctx = {
+        .data = buf,
+        .dataend = buf + n,
+        .valloc  = global->valloc
+      };
+      if( fd_genesis_solana_decode(&genesis_block, &ctx) )
         FD_LOG_ERR(("fd_genesis_solana_decode failed"));
 
       // The hash is generated from the raw data... don't mess with this..
@@ -771,6 +791,7 @@ main( int     argc,
       fd_sha256_init( &sha );
       fd_sha256_append( &sha, buf, (ulong) n );
       fd_sha256_fini( &sha, genesis_hash );
+      FD_LOG_NOTICE(( "Genesis Hash: %32J", genesis_hash ));
 
       free(buf);
 
@@ -778,11 +799,9 @@ main( int     argc,
 
       fd_runtime_init_program( global );
 
-      for (ulong i = 0; i < genesis_block.accounts_len; i++) {
+      for( ulong i=0; i < genesis_block.accounts_len; i++ ) {
         fd_pubkey_account_pair_t * a = &genesis_block.accounts[i];
-        char pubkey[50];
-        fd_base58_encode_32((uchar *) genesis_block.accounts[i].key.key, NULL, pubkey);
-        fd_acc_mgr_write_structured_account(global->acc_mgr, global->funk_txn, 0, &a->key, &a->account);
+        fd_acc_mgr_write_structured_account( global->acc_mgr, global->funk_txn, 0UL, &a->key, &a->account );
       }
 
       /* sort and update bank hash */
@@ -797,10 +816,25 @@ main( int     argc,
 
       fd_bincode_destroy_ctx_t ctx2 = { .valloc = global->valloc };
       fd_genesis_solana_destroy(&genesis_block, &ctx2);
+
+      if( capture )  {
+        fd_solcap_writer_fini( capture );
+        fclose( capture_file );
+      }
     }
 
     if( rocksdb_dir ) {
       ingest_rocksdb( global, rocksdb_dir, end_slot, verifypoh, txnstatus, tpool, tcnt-1 );
+    }
+
+    /* Dump feature activation state */
+
+    for( fd_feature_id_t const * id = fd_feature_iter_init();
+                                     !fd_feature_iter_done( id );
+                                 id = fd_feature_iter_next( id ) ) {
+      ulong activated_at = *fd_features_ptr_const( &global->features, id );
+      if( activated_at )
+        FD_LOG_DEBUG(( "feature %32J activated at slot %lu", id->id.key, activated_at ));
     }
 
   } else if (strcmp(cmd, "recover") == 0) {
