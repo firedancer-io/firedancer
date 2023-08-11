@@ -95,6 +95,8 @@ fd_set_exempt_rent_epoch_max( fd_global_ctx_t * global,
   int err = 0;
   uchar const * raw_data = fd_acc_mgr_view_data( global->acc_mgr, global->funk_txn, (fd_pubkey_t const *)addr, &rrec, &err );
   FD_LOG_NOTICE(( "fd_acc_mgr_view_data %32J returned %d", addr, err ));
+  if ( FD_UNLIKELY( !raw_data && err==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) )
+    return;
   FD_TEST( raw_data && err==FD_ACC_MGR_SUCCESS );
 
   fd_account_meta_t const * meta_r = (fd_account_meta_t const *)raw_data;
