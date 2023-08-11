@@ -175,8 +175,6 @@ int fd_acc_mgr_set_lamports( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, ulong sl
 
   FD_LOG_DEBUG(( "set_lamports: %ld:%32J: %ld->%ld (%ld)", slot, pubkey, metadata->info.lamports, lamports, lamports - metadata->info.lamports ));
 
-  fd_acc_mgr_commit_data( acc_mgr, rec, pubkey, data, slot, 0);
-
   return FD_ACC_MGR_SUCCESS;
 }
 
