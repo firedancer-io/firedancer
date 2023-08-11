@@ -204,9 +204,6 @@ replay( global_state_t * state,
   if (mm.end_slot < state->end_slot)
     state->end_slot = mm.end_slot;
 
-  if ((0 != state->global->bank.slot) && (~0ul != state->global->bank.slot))
-    fd_update_features(state->global);
-
   /* Load epoch schedule sysvar */
   fd_epoch_schedule_t schedule;
   fd_sysvar_epoch_schedule_read( state->global, &schedule );

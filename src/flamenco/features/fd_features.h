@@ -230,6 +230,18 @@ fd_feature_iter_next( fd_feature_id_t const * id ) {
   return id+1;
 }
 
+static inline ulong *
+fd_features_ptr( fd_features_t *         features,
+                 fd_feature_id_t const * id ) {
+  return (ulong *)( (ulong)features + id->offset );
+}
+
+static inline ulong const *
+fd_features_ptr_const( fd_features_t const *   features,
+                       fd_feature_id_t const * id ) {
+  return (ulong const *)( (ulong)features + id->offset );
+}
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_features_fd_features_h */
