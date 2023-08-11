@@ -1,7 +1,5 @@
 #!/bin/bash -f
 
-set -e
-
 # this assumes the test_runtime has already been built
 
 LEDGER="v17-test-ledger"
@@ -58,6 +56,8 @@ fi
 
 build/native/gcc/bin/fd_frank_ledger --rocksdb $LEDGER/rocksdb --genesis $LEDGER/genesis.bin --cmd ingest --indexmax 10000 --txnmax 100 --backup test_ledger_backup --gaddrout gaddr --net v13 --pages 1
 
+log=/tmp/ledger_log$$
+
 build/native/gcc/unit-test/test_runtime \
   --load test_ledger_backup \
   --cmd replay \
@@ -65,18 +65,19 @@ build/native/gcc/unit-test/test_runtime \
   --pages 1 \
   --validate true \
   --abort-on-mismatch 1 \
-  --capture test.solcap \
-  >& /tmp/ledger_log$$
+  --capture test.solcap >& $log
 
 status=$?
 
 if [ $status -ne 0 ]
 then
-  tail -20 /tmp/ledger_log$$
+  tail -20 $log
   echo 'ledger test failed:'
-  echo /tmp/ledger_log$$
+  echo $log
   exit $status
 fi
+
+rm $log
 
 build/native/gcc/unit-test/test_native_programs --ignore_fail_file src/flamenco/runtime/tests/ignore_fail >& native.log
 
