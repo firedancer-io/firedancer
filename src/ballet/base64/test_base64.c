@@ -30,12 +30,17 @@ static fd_base64_test_vec_t const test_vector[] = {
   { 4UL, "foob",   8UL, "Zm9vYg==" },
   { 5UL, "fooba",  8UL, "Zm9vYmE=" },
   { 6UL, "foobar", 8UL, "Zm9vYmFy" },
+
+  { 3UL, "\x00\x00\x00", 4UL, "AAAA"                 },
+  { 2UL, "\x00\x00",     4UL, "AAA="                 },
+  { 1UL, "\x00",         4UL, "AA=="                 },
+
   { 65UL, (char const *)test_long_raw,
     88UL, "Et9DG+Rqqu0Mz9JTXY9yieIXBgx4uErF5yPt2tQA9NJqKSU5y7D5sCm+bYoYnBQTP1y2FCiUr1tV2r8K2T+J0wc=" },
-  { 2UL, "\x00\x00\x00", 4UL, "AAAA" },
-  { 2UL, "\x00\x00",     4UL, "AAA=" },
-  { 1UL, "\x00",         4UL, "AA==" },
-  {0}
+
+  { 14UL, "system_program", 20UL, "c3lzdGVtX3Byb2dyYW0=" },
+
+  { .raw_len = ULONG_MAX }
 };
 
 /* https://cs.opensource.google/go/go/+/refs/tags/go1.20.7:src/encoding/base64/base64_test.go */
@@ -70,12 +75,12 @@ main( int     argc,
   /* Unit tests */
 
   for( fd_base64_test_vec_t const * test = test_vector;
-       test->raw_len;
+       test->raw_len != ULONG_MAX;
        test++ ) {
     uchar raw[ 128UL ];
     long  raw_sz = fd_base64_decode( raw, test->enc, test->enc_len );
-    FD_TEST( raw_sz==(long)test->raw_len );
     FD_TEST( 0==memcmp( raw, test->raw, test->raw_len ) );
+    FD_TEST( raw_sz==(long)test->raw_len );
   }
 
   for( char const * const * corrupt = test_corrupt; *corrupt; corrupt++ ) {

@@ -95,12 +95,17 @@ fd_base64_decode( uchar *      out,
     int err = (a<0) | (b<0) | (c<0);
     if( FD_UNLIKELY( err ) ) return -1L;
 
-    ulong triple = ((ulong)a<<18UL) | ((ulong)b<<12UL) | ((ulong)c<<6UL);
+    ulong triple   = ((ulong)a<<18UL) | ((ulong)b<<12UL) | ((ulong)c<<6UL);
+          triple   = fd_ulong_bswap( triple );
+          triple >>= 40UL;
 
-            *out = (uchar)(triple>>16UL); out++;
-    switch( pad_cnt ) {
-    case 2: *out = (uchar)(triple>> 8UL); out++; __attribute__((fallthrough));
-    case 1: *out = (uchar)(triple>> 0UL); out++;
+    switch( in_len ) {
+    case 3: *out = (uchar)triple;
+             out++;
+            triple>>=8UL;
+            __attribute__((fallthrough));
+    case 2: *out = (uchar)triple;
+             out++;
     }
 
   } while(0);
