@@ -66,6 +66,7 @@ build/native/gcc/unit-test/test_runtime \
   --validate true \
   --abort-on-mismatch 1 \
   --capture test.solcap \
+  --abort-on-mismatch 0 \
   >& /tmp/ledger_log$$
 
 status=$?

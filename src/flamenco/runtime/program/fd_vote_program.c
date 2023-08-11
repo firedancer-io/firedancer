@@ -275,7 +275,7 @@ fd_vote_save_account(
       serialized_sz = VOTE_ACCOUNT_14_SIZE;
   }
 
-  ulong acc_sz = serialized_sz;
+  ulong acc_sz = sizeof(fd_account_meta_t) + serialized_sz;
 
   int                err = 0;
   fd_funk_rec_t *    acc_data_rec = NULL;
