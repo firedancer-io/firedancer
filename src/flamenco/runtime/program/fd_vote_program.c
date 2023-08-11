@@ -2026,7 +2026,7 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
     fd_compact_vote_state_update_t *vote_state_update;
 
     if ( instruction.discriminant == fd_vote_instruction_enum_compact_update_vote_state) {
-      FD_LOG_WARNING(( "executing vote program instruction: fd_vote_instruction_enum_compact_update_vote_state"));
+      FD_LOG_DEBUG(( "executing vote program instruction: fd_vote_instruction_enum_compact_update_vote_state"));
       vote_state_update = &instruction.inner.compact_update_vote_state;
     } else {
       // What are we supposed to do here?  What about the hash?

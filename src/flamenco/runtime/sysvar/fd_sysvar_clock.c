@@ -156,15 +156,15 @@ void fd_calculate_stake_weighted_timestamp(
     // int result = fd_vote_load_account( &refvote_state, &, ctx.global, reference_vote_acc );
     ulong stake_weight = (value != NULL) ? value->elem.stake : 0;
     FD_LOG_DEBUG(( "estimate: %32J, est: %ld elem.slot: %lu elem.ts: %lu clock.slot %lu, sw: %lu",  &n->elem.pubkey, estimate, n->elem.slot, n->elem.timestamp, clock.slot, stake_weight ));
-    // FD_LOG_NOTICE(("stk: %32J %lu %lu",&n->elem.pubkey, stake_state.discriminant, stake_state.inner.stake.stake.delegation.stake));
-    // FD_LOG_NOTICE(("clk.slot: %lu, el.slot: %lu, el.ts: %lu, sl_dur: %lu stk_w: %lu, treap_sz: %lu, estimate = %lu", clock.slot, n->elem.slot, n->elem.timestamp, slot_duration, stake_weight, treap_ele_cnt( treap ), estimate));
+    // FD_LOG_DEBUG(("stk: %32J %lu %lu",&n->elem.pubkey, stake_state.discriminant, stake_state.inner.stake.stake.delegation.stake));
+    // FD_LOG_DEBUG(("clk.slot: %lu, el.slot: %lu, el.ts: %lu, sl_dur: %lu stk_w: %lu, treap_sz: %lu, estimate = %lu", clock.slot, n->elem.slot, n->elem.timestamp, slot_duration, stake_weight, treap_ele_cnt( treap ), estimate));
     total_stake += stake_weight;
     ulong idx = pool_idx_acquire( pool );
     pool[ idx ].timestamp = estimate;
     pool[ idx ].stake = stake_weight;
     treap_idx_insert( treap, idx, pool );
   }
-  FD_LOG_NOTICE(("total stake: %lu", total_stake));
+  FD_LOG_DEBUG(("total stake: %lu", total_stake));
   if (total_stake == 0) {
     *result_timestamp = 0;
     return;
@@ -183,7 +183,7 @@ void fd_calculate_stake_weighted_timestamp(
     }
   }
 
-  FD_LOG_NOTICE(( "stake weighted timestamp: %lu", *result_timestamp ));
+  FD_LOG_DEBUG(( "stake weighted timestamp: %lu", *result_timestamp ));
 
   // Bound estimate by `max_allowable_drift` since the start of the epoch
   fd_epoch_schedule_t schedule;
@@ -200,7 +200,7 @@ void fd_calculate_stake_weighted_timestamp(
     *result_timestamp = clock.epoch_start_timestamp + (long)poh_estimate_offset / NS_IN_S - (long)max_delta_fast / NS_IN_S;
   }
 
-  FD_LOG_NOTICE(( "corrected stake weighted timestamp: %lu", *result_timestamp ));
+  FD_LOG_DEBUG(( "corrected stake weighted timestamp: %lu", *result_timestamp ));
 
   return;
 }
