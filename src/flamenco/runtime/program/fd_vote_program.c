@@ -289,8 +289,10 @@ fd_vote_save_account(
     add_vote_latency = 0;
   }
 
-  if (m->dlen < serialized_sz)
+  if (m->dlen < serialized_sz) {
+    fd_memset( raw_acc_data + m->hlen + m->dlen, 0, serialized_sz - m->dlen );
     m->dlen = serialized_sz;
+  }
 
   if (set_lamports)
     m->info.lamports = lamports;
