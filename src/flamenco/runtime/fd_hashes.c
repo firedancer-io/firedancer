@@ -237,7 +237,7 @@ fd_update_hash_bank( fd_global_ctx_t * global,
 
   /* Bug: For some reason, the last restart slot is included in every
           bank hash. */
-  if( global->features.last_restart_slot_sysvar ) {
+  if( global->bank.slot > 0UL && global->features.last_restart_slot_sysvar ) {
     fd_pubkey_t const * acc_key = fd_type_pun_const( global->sysvar_last_restart_slot );
     int                 err     = FD_ACC_MGR_SUCCESS;
     uchar const *       acc_raw = fd_acc_mgr_view_data( acc_mgr, txn, acc_key, NULL, &err );
