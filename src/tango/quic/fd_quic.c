@@ -522,7 +522,7 @@ fd_quic_enc_level_to_pn_space( uint enc_level ) {
   return el2pn_map[ enc_level ];
 }
 
-/* This code is directly from rpc9000 A.3 */
+/* This code is directly from rfc9000 A.3 */
 static void
 fd_quic_reconstruct_pkt_num( ulong * pkt_number,
                              ulong   pkt_number_sz,
