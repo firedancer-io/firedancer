@@ -10511,6 +10511,122 @@ int fd_gossip_msg_encode(fd_gossip_msg_t const * self, fd_bincode_encode_ctx_t *
   return fd_gossip_msg_inner_encode(&self->inner, self->discriminant, ctx);
 }
 
+FD_FN_PURE uchar fd_gossip_ip_addr_is_ip4(fd_gossip_ip_addr_t const * self) {
+  return self->discriminant == 0;
+}
+FD_FN_PURE uchar fd_gossip_ip_addr_is_ip6(fd_gossip_ip_addr_t const * self) {
+  return self->discriminant == 1;
+}
+void fd_gossip_ip_addr_inner_new(fd_gossip_ip_addr_inner_t* self, uint discriminant);
+int fd_gossip_ip_addr_inner_decode(fd_gossip_ip_addr_inner_t* self, uint discriminant, fd_bincode_decode_ctx_t * ctx) {
+  fd_gossip_ip_addr_inner_new(self, discriminant);
+  int err;
+  switch (discriminant) {
+  case 0: {
+    return fd_gossip_ip4_addr_decode(&self->ip4, ctx);
+  }
+  case 1: {
+    return fd_gossip_ip6_addr_decode(&self->ip6, ctx);
+  }
+  default: return FD_BINCODE_ERR_ENCODING;
+  }
+}
+int fd_gossip_ip_addr_decode(fd_gossip_ip_addr_t* self, fd_bincode_decode_ctx_t * ctx) {
+  int err = fd_bincode_uint32_decode(&self->discriminant, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return fd_gossip_ip_addr_inner_decode(&self->inner, self->discriminant, ctx);
+}
+void fd_gossip_ip_addr_inner_new(fd_gossip_ip_addr_inner_t* self, uint discriminant) {
+  switch (discriminant) {
+  case 0: {
+    fd_gossip_ip4_addr_new(&self->ip4);
+    break;
+  }
+  case 1: {
+    fd_gossip_ip6_addr_new(&self->ip6);
+    break;
+  }
+  default: break; // FD_LOG_ERR(( "unhandled type"));
+  }
+}
+void fd_gossip_ip_addr_new_disc(fd_gossip_ip_addr_t* self, uint discriminant) {
+  self->discriminant = discriminant;
+  fd_gossip_ip_addr_inner_new(&self->inner, self->discriminant);
+}
+void fd_gossip_ip_addr_new(fd_gossip_ip_addr_t* self) {
+  fd_gossip_ip_addr_new_disc(self, UINT_MAX);
+}
+void fd_gossip_ip_addr_inner_destroy(fd_gossip_ip_addr_inner_t* self, uint discriminant, fd_bincode_destroy_ctx_t * ctx) {
+  switch (discriminant) {
+  case 0: {
+    fd_gossip_ip4_addr_destroy(&self->ip4, ctx);
+    break;
+  }
+  case 1: {
+    fd_gossip_ip6_addr_destroy(&self->ip6, ctx);
+    break;
+  }
+  default: break; // FD_LOG_ERR(( "unhandled type" ));
+  }
+}
+void fd_gossip_ip_addr_destroy(fd_gossip_ip_addr_t* self, fd_bincode_destroy_ctx_t * ctx) {
+  fd_gossip_ip_addr_inner_destroy(&self->inner, self->discriminant, ctx);
+}
+
+void fd_gossip_ip_addr_walk(void * w, fd_gossip_ip_addr_t* self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_ip_addr", level++);
+  // enum fd_signature_walk(w, &self->signature, fun, "signature", level);
+  switch (self->discriminant) {
+  case 0: {
+    fd_gossip_ip4_addr_walk(w, &self->inner.ip4, fun, "ip4", level);
+    break;
+  }
+  case 1: {
+    fd_gossip_ip6_addr_walk(w, &self->inner.ip6, fun, "ip6", level);
+    break;
+  }
+  }
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_ip_addr", level--);
+}
+ulong fd_gossip_ip_addr_size(fd_gossip_ip_addr_t const * self) {
+  ulong size = 0;
+  size += sizeof(uint);
+  switch (self->discriminant) {
+  case 0: {
+    size += fd_gossip_ip4_addr_size(&self->inner.ip4);
+    break;
+  }
+  case 1: {
+    size += fd_gossip_ip6_addr_size(&self->inner.ip6);
+    break;
+  }
+  }
+  return size;
+}
+
+int fd_gossip_ip_addr_inner_encode(fd_gossip_ip_addr_inner_t const * self, uint discriminant, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  switch (discriminant) {
+  case 0: {
+    err = fd_gossip_ip4_addr_encode(&self->ip4, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    break;
+  }
+  case 1: {
+    err = fd_gossip_ip6_addr_encode(&self->ip6, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    break;
+  }
+  }
+  return FD_BINCODE_SUCCESS;
+}
+int fd_gossip_ip_addr_encode(fd_gossip_ip_addr_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  err = fd_bincode_uint32_encode(&self->discriminant, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return fd_gossip_ip_addr_inner_encode(&self->inner, self->discriminant, ctx);
+}
+
 #define REDBLK_T fd_stake_history_epochentry_pair_t_mapnode_t
 #define REDBLK_NAME fd_stake_history_epochentry_pair_t_map
 #define REDBLK_IMPL_STYLE 2

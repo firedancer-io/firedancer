@@ -1391,6 +1391,21 @@
         { "name": "pong",      "type": "gossip_ping" }
       ],
       "comment": "UDP payloads of the Solana gossip protocol"
+    },
+    {
+      "name": "gossip_ip_addr",
+      "type": "enum",
+      "variants": [
+        {
+          "name": "ip4",
+          "type": "gossip_ip4_addr"
+        },
+        {
+          "name": "ip6",
+          "type": "gossip_ip6_addr"
+        }
+      ],
+      "comment": "Unnecessary and sad wrapper type. IPv4 addresses could have been mapped to IPv6"
     }
   ]
 }

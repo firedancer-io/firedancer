@@ -4,6 +4,7 @@
 #include "fd_types_meta.h"
 #include "fd_bincode.h"
 #include "../../ballet/ed25519/fd_ed25519.h"
+#include "../../util/net/fd_ip4.h"
 
 typedef void
 (* fd_types_walk_fn_t)( void *       self,
@@ -112,6 +113,8 @@ struct fd_txnstatusidx {
 };
 typedef struct fd_txnstatusidx fd_txnstatusidx_t;
 
+/* Signature **********************************************************/
+
 static inline void
 fd_signature_new( fd_signature_t * self FD_FN_UNUSED ) {}
 
@@ -144,6 +147,82 @@ fd_signature_walk( void *             w,
                    uint               level ) {
   fun( w, self->uc, name, FD_FLAMENCO_TYPE_SIG512, name, level );
 }
+
+/* IPv4 ***************************************************************/
+
+typedef uint fd_gossip_ip4_addr_t;
+
+static inline void
+fd_gossip_ip4_addr_new( fd_gossip_ip4_addr_t * self FD_FN_UNUSED ) {}
+
+static inline int
+fd_gossip_ip4_addr_decode( fd_gossip_ip4_addr_t *    self,
+                           fd_bincode_decode_ctx_t * ctx ) {
+  return fd_bincode_uint32_decode( self, ctx );
+}
+
+static inline void
+fd_gossip_ip4_addr_destroy( fd_gossip_ip4_addr_t const * self FD_FN_UNUSED,
+                            fd_bincode_destroy_ctx_t *   ctx  FD_FN_UNUSED ) {}
+
+FD_FN_CONST static inline ulong
+fd_gossip_ip4_addr_size( fd_gossip_ip4_addr_t const * self FD_FN_UNUSED ) {
+  return 4UL;
+}
+
+static inline int
+fd_gossip_ip4_addr_encode( fd_gossip_ip4_addr_t const * self,
+                           fd_bincode_encode_ctx_t *    ctx ) {
+  return fd_bincode_uint32_encode( self, ctx );
+}
+
+void
+fd_gossip_ip4_addr_walk( void *                   w,
+                         fd_gossip_ip4_addr_t *   self,
+                         fd_types_walk_fn_t       fun,
+                         char const *             name,
+                         uint                     level );
+
+/* IPv6 ***************************************************************/
+
+union fd_gossip_ip6_addr {
+  uchar  uc[ 16 ];
+  ushort us[  8 ];
+  uint   ul[  4 ];
+};
+
+typedef union fd_gossip_ip6_addr fd_gossip_ip6_addr_t;
+
+static inline void
+fd_gossip_ip6_addr_new( fd_gossip_ip6_addr_t * self FD_FN_UNUSED ) {}
+
+static inline int
+fd_gossip_ip6_addr_decode( fd_gossip_ip6_addr_t *    self,
+                           fd_bincode_decode_ctx_t * ctx ) {
+  return fd_bincode_bytes_decode( &self->uc[0], 16UL, ctx );
+}
+
+static inline void
+fd_gossip_ip6_addr_destroy( fd_gossip_ip6_addr_t const * self FD_FN_UNUSED,
+                            fd_bincode_destroy_ctx_t *   ctx  FD_FN_UNUSED ) {}
+
+FD_FN_CONST static inline ulong
+fd_gossip_ip6_addr_size( fd_gossip_ip6_addr_t const * self FD_FN_UNUSED ) {
+  return 16UL;
+}
+
+static inline int
+fd_gossip_ip6_addr_encode( fd_gossip_ip6_addr_t const * self,
+                           fd_bincode_encode_ctx_t *    ctx ) {
+  return fd_bincode_bytes_encode( &self->uc[0], 16UL, ctx );
+}
+
+void
+fd_gossip_ip6_addr_walk( void *                   w,
+                         fd_gossip_ip6_addr_t *   self,
+                         fd_types_walk_fn_t       fun,
+                         char const *             name,
+                         uint                     level );
 
 FD_PROTOTYPES_END
 

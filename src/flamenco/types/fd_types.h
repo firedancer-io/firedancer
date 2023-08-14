@@ -1702,6 +1702,21 @@ typedef struct fd_gossip_msg fd_gossip_msg_t;
 #define FD_GOSSIP_MSG_FOOTPRINT sizeof(fd_gossip_msg_t)
 #define FD_GOSSIP_MSG_ALIGN (8UL)
 
+union fd_gossip_ip_addr_inner {
+  fd_gossip_ip4_addr_t ip4;
+  fd_gossip_ip6_addr_t ip6;
+};
+typedef union fd_gossip_ip_addr_inner fd_gossip_ip_addr_inner_t;
+
+/* Unnecessary and sad wrapper type. IPv4 addresses could have been mapped to IPv6 */
+struct fd_gossip_ip_addr {
+  uint discriminant;
+  fd_gossip_ip_addr_inner_t inner;
+};
+typedef struct fd_gossip_ip_addr fd_gossip_ip_addr_t;
+#define FD_GOSSIP_IP_ADDR_FOOTPRINT sizeof(fd_gossip_ip_addr_t)
+#define FD_GOSSIP_IP_ADDR_ALIGN (8UL)
+
 
 FD_PROTOTYPES_BEGIN
 
@@ -2855,6 +2870,20 @@ fd_gossip_msg_enum_push_msg = 2,
 fd_gossip_msg_enum_prune_msg = 3,
 fd_gossip_msg_enum_ping = 4,
 fd_gossip_msg_enum_pong = 5,
+}; 
+void fd_gossip_ip_addr_new_disc(fd_gossip_ip_addr_t* self, uint discriminant);
+void fd_gossip_ip_addr_new(fd_gossip_ip_addr_t* self);
+int fd_gossip_ip_addr_decode(fd_gossip_ip_addr_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_gossip_ip_addr_encode(fd_gossip_ip_addr_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_gossip_ip_addr_destroy(fd_gossip_ip_addr_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_gossip_ip_addr_walk(void * w, fd_gossip_ip_addr_t* self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_gossip_ip_addr_size(fd_gossip_ip_addr_t const * self);
+
+FD_FN_PURE uchar fd_gossip_ip_addr_is_ip4(fd_gossip_ip_addr_t const * self);
+FD_FN_PURE uchar fd_gossip_ip_addr_is_ip6(fd_gossip_ip_addr_t const * self);
+enum {
+fd_gossip_ip_addr_enum_ip4 = 0,
+fd_gossip_ip_addr_enum_ip6 = 1,
 }; 
 FD_PROTOTYPES_END
 

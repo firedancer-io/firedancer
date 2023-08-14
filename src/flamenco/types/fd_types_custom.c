@@ -2,6 +2,8 @@
 #error "fd_types_custom.c is part of the fd_types.c compile uint"
 #endif /* !SOURCE_fd_src_flamenco_types_fd_types_c */
 
+#include <stdio.h>
+
 int fd_epoch_schedule_decode(fd_epoch_schedule_t* self, fd_bincode_decode_ctx_t * ctx) {
   int err;
   err = fd_bincode_uint64_decode(&self->slots_per_epoch, ctx);
@@ -221,4 +223,31 @@ int fd_vote_transcoding_state_versioned_encode(fd_vote_state_versioned_t const *
   }
   if ( FD_UNLIKELY(err) ) return err;
   return fd_vote_transcoding_state_versioned_inner_encode(&self->inner, self->discriminant, ctx);
+}
+
+void
+fd_gossip_ip4_addr_walk( void *                   w,
+                         fd_gossip_ip4_addr_t *   self,
+                         fd_types_walk_fn_t       fun,
+                         char const *             name,
+                         uint                     level ) {
+
+  char buf[ 16 ];
+  sprintf( buf, FD_IP4_ADDR_FMT, FD_IP4_ADDR_FMT_ARGS( *self ) );
+  fun( w, buf, name, FD_FLAMENCO_TYPE_CSTR, "ip4_addr", level );
+}
+
+void
+fd_gossip_ip6_addr_walk( void *                   w,
+                         fd_gossip_ip6_addr_t *   self,
+                         fd_types_walk_fn_t       fun,
+                         char const *             name,
+                         uint                     level ) {
+
+  char buf[ 40 ];
+  sprintf( buf,
+           "%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x",
+           self->us[ 0 ], self->us[ 1 ], self->us[ 2 ], self->us[ 3 ],
+           self->us[ 4 ], self->us[ 5 ], self->us[ 6 ], self->us[ 7 ] );
+  fun( w, buf, name, FD_FLAMENCO_TYPE_CSTR, "ip6_addr", level );
 }
