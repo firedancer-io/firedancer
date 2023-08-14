@@ -10,10 +10,10 @@ typedef struct fd_flamenco_yaml fd_flamenco_yaml_t;
 
 FD_PROTOTYPES_BEGIN
 
-ulong
+FD_FN_PURE ulong
 fd_flamenco_yaml_align( void );
 
-ulong
+FD_FN_PURE ulong
 fd_flamenco_yaml_footprint( void );
 
 fd_flamenco_yaml_t *

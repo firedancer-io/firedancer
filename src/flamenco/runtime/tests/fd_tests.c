@@ -4,6 +4,7 @@
 #include "../../fd_flamenco.h"
 #include <stdio.h>
 #include <unistd.h>
+#include "../../types/fd_types_yaml.h"
 
 #ifdef _DISABLE_OPTIMIZATION
 #pragma GCC optimize ("O0")
@@ -17,6 +18,46 @@ static ulong scratch_mb = 0UL;
 uchar do_leakcheck = 0;
 
 int fd_alloc_fprintf( fd_alloc_t * join, FILE *       stream );
+
+
+static int
+fd_account_pretty_print( fd_global_ctx_t const * global,
+                         uchar const             owner[ static 32 ],
+                         uchar const *           data,
+                         ulong                   data_sz,
+                         FILE *                  file ) {
+
+  FD_SCRATCH_SCOPED_FRAME;
+
+  fd_bincode_decode_ctx_t decode = {
+    .data    = data,
+    .dataend = data + data_sz,
+    .valloc  = fd_scratch_virtual()
+  };
+
+  fd_flamenco_yaml_t * yaml =
+    fd_flamenco_yaml_init( fd_flamenco_yaml_new(
+      fd_scratch_alloc( fd_flamenco_yaml_align(), fd_flamenco_yaml_footprint() ) ),
+      file );
+  FD_TEST( yaml );
+
+  if( 0==memcmp( owner, global->solana_vote_program, 32UL ) ) {
+    fd_vote_state_versioned_t vote_state[1];
+    int err = fd_vote_state_versioned_decode( vote_state, &decode );
+    if( FD_UNLIKELY( err!=0 ) ) return err;
+
+    fd_vote_state_versioned_walk( yaml, vote_state, fd_flamenco_yaml_walk, NULL, 0U );
+    err = ferror( file );
+    if( FD_UNLIKELY( err!=0 ) ) return err;
+  } else {
+    fwrite( "???", 1, 3, file );
+  }
+
+  /* No need to destroy structures, using fd_scratch allocator */
+
+  fd_flamenco_yaml_delete( yaml );
+  return 0;
+}
 
 /* copied from test_funk_txn.c */
 static fd_funk_txn_xid_t *
@@ -269,30 +310,77 @@ int fd_executor_run_test(
           ret = -668;
           break;
         }
-        if (m->dlen != test->accs[i].result_data_len) {
-          FD_LOG_WARNING(( "Failed test %d: %s: size mismatch (expected %lu, got %lu): %s",
-                           test->test_number, test->test_name,
-                           test->accs[i].result_data_len, m->dlen, (NULL != verbose) ? test->bt : "" ));
-          ret = -777;
-          break;
-        }
-        if (memcmp(d, test->accs[i].result_data, test->accs[i].result_data_len)) {
+
+        if(   ( m->dlen != test->accs[i].result_data_len )
+           || ( 0 != memcmp(d, test->accs[i].result_data, test->accs[i].result_data_len) ) ) {
+
           FD_LOG_WARNING(( "Failed test %d: %s: account_index: %d   account missmatch: %s", test->test_number, test->test_name, i, (NULL != verbose) ? test->bt : ""));
-          {
-            FILE * fd = fopen("actual.bin", "wb");
-            if (NULL != fd) {
-              fwrite(d, 1, m->dlen, fd);
-              fclose(fd);
-            }
-          }
-          {
-            FILE * fd = fopen("expected.bin", "wb");
-            if (NULL != fd) {
-              fwrite(test->accs[i].result_data, 1, test->accs[i].result_data_len, fd);
-              fclose(fd);
-            }
-          }
-          ret = -888;
+
+          /* Dump expected account bin */
+          do {
+            char buf[ PATH_MAX ];
+            snprintf( buf, PATH_MAX, "test_%lu_account_%32J_expected.bin", test->test_number, test->accs[i].pubkey.key );
+            FILE * file = fopen( buf, "wb" );
+            FD_TEST( test->accs[i].result_data_len
+                     == fwrite( test->accs[i].result_data, 1, test->accs[i].result_data_len, file ) );
+            fclose( file );
+          } while(0);
+
+          /* Dump actual account bin */
+          do {
+            char buf[ PATH_MAX ];
+            snprintf( buf, PATH_MAX, "test_%lu_account_%32J_account.bin", test->test_number, test->accs[i].pubkey.key );
+            FILE * file = fopen( buf, "wb" );
+            FD_TEST( m->dlen
+                     == fwrite( d, 1, m->dlen, file ) );
+            fclose( file );
+          } while(0);
+
+          /* Dump YAML serialization of expected account */
+          do {
+            char buf[ PATH_MAX ];
+            snprintf( buf, PATH_MAX, "test_%lu_account_%32J_expected.yml", test->test_number, test->accs[i].pubkey.key );
+            FILE * file = fopen( buf, "wb" );
+
+            fd_scratch_push();
+            fd_flamenco_yaml_t * yaml =
+              fd_flamenco_yaml_init( fd_flamenco_yaml_new(
+                fd_scratch_alloc( fd_flamenco_yaml_align(), fd_flamenco_yaml_footprint() ) ),
+                  file );
+            FD_TEST( yaml );
+            fd_account_pretty_print( global, test->accs[i].owner.key, test->accs[i].result_data, test->accs[i].result_data_len, file );
+            fd_scratch_pop();
+
+            fclose( file );
+          } while(0);
+
+          /* Dump YAML serialization of actual account */
+          do {
+            char buf[ PATH_MAX ];
+            snprintf( buf, PATH_MAX, "test_%lu_account_%32J_actual.yml", test->test_number, test->accs[i].pubkey.key );
+            FILE * file = fopen( buf, "wb" );
+
+            fd_scratch_push();
+            fd_flamenco_yaml_t * yaml =
+              fd_flamenco_yaml_init( fd_flamenco_yaml_new(
+                fd_scratch_alloc( fd_flamenco_yaml_align(), fd_flamenco_yaml_footprint() ) ),
+                  file );
+            FD_TEST( yaml );
+            fd_account_pretty_print( global, test->accs[i].owner.key, d, m->dlen, file );
+            fd_scratch_pop();
+
+            fclose( file );
+          } while(0);
+
+          /* Print instructions on how to diff */
+          FD_LOG_WARNING(( "HEX DIFF:\n  vimdiff <(xxd -c 32 test_%lu_account_%32J_expected.bin) <(xxd -c 32 test_%lu_account_%32J_account.bin)",
+                           test->test_number, test->accs[i].pubkey.key, test->test_number, test->accs[i].pubkey.key ));
+
+          /* Print instructions on how to diff */
+          FD_LOG_WARNING(( "YAML DIFF:\n  vimdiff <(xxd -c 32 test_%lu_account_%32J_expected.yml) <(xxd -c 32 test_%lu_account_%32J_account.yml)",
+                           test->test_number, test->accs[i].pubkey.key, test->test_number, test->accs[i].pubkey.key ));
+
+          ret = -777;
           break;
         }
       }
