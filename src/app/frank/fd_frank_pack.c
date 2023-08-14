@@ -12,6 +12,7 @@
 
 /* Helper struct containing all the state associated with one output */
 typedef struct {
+  fd_wksp_t      * out_wksp;
   fd_frag_meta_t * out_mcache;
   uchar          * out_dcache;
   ulong          * out_fseq;
@@ -71,6 +72,7 @@ join_out( out_state * state,
   FD_LOG_INFO(( "using cr_burst %lu, cr_max %lu, cr_resume %lu, cr_refill %lu",
         fd_fctl_cr_burst( out_fctl ), fd_fctl_cr_max( out_fctl ), fd_fctl_cr_resume( out_fctl ), fd_fctl_cr_refill( out_fctl ) ));
 
+  state->out_wksp     =  wksp;
   state->out_mcache   =  out_mcache;
   state->out_dcache   =  out_dcache;
   state->out_fseq     =  out_fseq;
@@ -131,7 +133,6 @@ run( fd_frank_args_t * args ) {
   ulong accum_ovrnp_cnt = 0UL;
   ulong accum_ovrnr_cnt = 0UL;
 
-  ulong gap = fd_pod_query_ulong( args->tile_pod, "min-gap", 0UL );
 
   ulong pack_depth = fd_pod_query_ulong( args->tile_pod, "depth", 0UL );
   if( FD_UNLIKELY( !pack_depth ) ) FD_LOG_ERR(( "pack.depth unset or set to zero" ));
@@ -145,11 +146,10 @@ run( fd_frank_args_t * args ) {
   if( FD_UNLIKELY( bank_cnt>FD_FRANK_PACK_MAX_OUT ) ) FD_LOG_ERR(( "pack tile connects to too many banking tiles" ));
 
   for( ulong i=0UL; i<bank_cnt; i++ ) join_out( out+i, args->out_pod, i );
-  fd_wksp_t * out_wksp = fd_wksp_containing( args->out_pod );
 
   ulong max_txn_per_microblock = MAX_MICROBLOCK_SZ/sizeof(fd_txn_p_t);
 
-  ulong pack_footprint   = fd_pack_footprint( pack_depth, gap, max_txn_per_microblock );
+  ulong pack_footprint   = fd_pack_footprint( pack_depth, bank_cnt, max_txn_per_microblock );
 
   ulong cus_per_microblock = 1500000UL; /* 1.5 M cost units, enough for 1 max size transaction */
   float vote_fraction = 0.75;
@@ -173,10 +173,10 @@ run( fd_frank_args_t * args ) {
   if( FD_UNLIKELY( !pack_laddr ) ) FD_LOG_ERR(( "allocating memory for pack object failed" ));
 
 
-  fd_pack_t * pack = fd_pack_join( fd_pack_new( pack_laddr, pack_depth, gap, max_txn_per_microblock, rng ) );
+  fd_pack_t * pack = fd_pack_join( fd_pack_new( pack_laddr, pack_depth, bank_cnt, max_txn_per_microblock, rng ) );
 
 
-  FD_LOG_INFO(( "packing blocks of at most %lu transactions with a parallelism of %lu", max_txn_per_microblock, gap ));
+  FD_LOG_INFO(( "packing blocks of at most %lu transactions to %lu bank tiles", max_txn_per_microblock, bank_cnt ));
 
   const ulong block_duration_ns      = 400UL*1000UL*1000UL; /* 400ms */
 
@@ -253,8 +253,9 @@ run( fd_frank_args_t * args ) {
     for( ulong i=0UL; i<bank_cnt; i++ ) {
       out_state * o = out+i;
       if( FD_LIKELY( o->out_cr_avail>0UL ) ) { /* optimize for the case we send a microblock */
-        void * microblock_dst = fd_chunk_to_laddr( out_wksp, o->out_chunk );
-        ulong schedule_cnt = fd_pack_schedule_next_microblock( pack, cus_per_microblock, vote_fraction, microblock_dst );
+        void * microblock_dst = fd_chunk_to_laddr( o->out_wksp, o->out_chunk );
+        fd_pack_microblock_complete( pack, i );
+        ulong schedule_cnt = fd_pack_schedule_next_microblock( pack, cus_per_microblock, vote_fraction, i, microblock_dst );
         if( FD_LIKELY( schedule_cnt ) ) {
           ulong tspub  = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
           ulong chunk  = o->out_chunk;
