@@ -18,7 +18,7 @@ validator(fd_inflation_t *inflation, double year) {
 }
 
 static FD_FN_CONST ulong
-get_inflation_start_slot() {
+get_inflation_start_slot( void ) {
     /*
         https://github.com/firedancer-io/solana/blob/de02601d73d626edf98ef63efd772824746f2f33/runtime/src/bank.rs#L2313-L2331
 
@@ -127,7 +127,7 @@ static void calculate_and_redeem_stake_rewards(
   fd_calculated_stake_rewards_t * result
 ) {
 
-  /* 
+  /*
   implements the `calculate_stake_rewards` solana function
   for a given stake and vote_state, calculate what distributions and what updates should be made
   returns a tuple in the case of a payout of:
@@ -135,7 +135,7 @@ static void calculate_and_redeem_stake_rewards(
   * voter_rewards to be distributed
   * new value for credits_observed in the stake
   returns None if there's no payout or if any deserved payout is < 1 lamport */
-  fd_calculate_stake_points_t stake_points_result; 
+  fd_calculate_stake_points_t stake_points_result;
   calculate_stake_points_and_credits( stake_history, stake_state, vote_state_versioned, &stake_points_result);
 
   // Drive credits_observed forward unconditionally when rewards are disabled
@@ -171,7 +171,7 @@ static void calculate_and_redeem_stake_rewards(
   stake_state->inner.stake.stake.credits_observed += result->new_credits_observed;
   stake_state->inner.stake.stake.delegation.stake += result->staker_rewards;
   return;
-} 
+}
 
 int redeem_rewards(
     instruction_ctx_t* ctx,
@@ -246,7 +246,7 @@ calculate_previous_epoch_inflation_rewards(
     /* https://github.com/firedancer-io/solana/blob/de02601d73d626edf98ef63efd772824746f2f33/runtime/src/bank.rs#L2351-L2376 */
 
 
-    /* slot_in_year_for_inflation 
+    /* slot_in_year_for_inflation
     https://github.com/firedancer-io/solana/blob/de02601d73d626edf98ef63efd772824746f2f33/runtime/src/bank.rs#L2344-L2349
     */
     ulong num_slots = get_inflation_num_slots(bank);
@@ -318,7 +318,7 @@ calculate_reward_points_partitioned(
     } else {
         result = NULL;
     }
-    return;    
+    return;
 }
 
 /// return reward info for each vote account
@@ -331,7 +331,7 @@ calculate_reward_points_partitioned(
 /// - we want to be able to batch store the vote accounts later for improved performance/cache updating
     // fn calc_vote_accounts_to_store(
 
-/* 
+/*
 Calculates epoch rewards for stake/vote accounts
 Returns vote rewards, stake rewards, and the sum of all stake rewards in lamports
 */
@@ -367,9 +367,9 @@ calculate_stake_vote_rewards(
             continue;
         }
 
-        fd_calculated_stake_rewards_t * redeemed;
+        fd_calculated_stake_rewards_t redeemed[1];
         if (redeem_rewards(ctx, stake_history, stake_acc, vote_state_versioned, rewarded_epoch, point_value, redeemed) != 0) {
-            FD_LOG_WARNING(("stake_state::redeem_rewards() failed for %p", stake_acc));
+            FD_LOG_WARNING(("stake_state::redeem_rewards() failed for %32J", stake_acc->key ));
             continue;
         }
         int err;
@@ -380,32 +380,32 @@ calculate_stake_vote_rewards(
         total_stake_rewards += redeemed->staker_rewards;
 
         // add stake_reward to the collection
-        fd_stake_reward_t * stake_reward;
+        fd_stake_reward_t stake_reward[1];
         fd_memcpy(stake_reward->stake_pubkey, stake_acc, sizeof(fd_pubkey_t));
-        uchar * commission = NULL;
+        uchar commission = 0U;
         switch (vote_state_versioned->discriminant) {
             case fd_vote_state_versioned_enum_current:
-                commission = &vote_state_versioned->inner.current.commission;
+                commission = (uchar)vote_state_versioned->inner.current.commission;
                 break;
             case fd_vote_state_versioned_enum_v0_23_5:
-                commission = &vote_state_versioned->inner.v0_23_5.commission;
+                commission = (uchar)vote_state_versioned->inner.v0_23_5.commission;
                 break;
             case fd_vote_state_versioned_enum_v1_14_11:
-                commission = &vote_state_versioned->inner.v1_14_11.commission;
+                commission = (uchar)vote_state_versioned->inner.v1_14_11.commission;
                 break;
             default:
                 __builtin_unreachable();
         }
         *(stake_reward->reward_info) = (fd_reward_info_t){
-            .reward_type = {fd_reward_type_enum_staking},
-            .commission = *commission,
+            .reward_type = { .discriminant = fd_reward_type_enum_staking },
+            .commission = (uchar)commission,
             .lamports = redeemed->staker_rewards,
             .post_balance = post_lamports
         };
         // track voter rewards
         fd_vote_reward_t vote_reward = {
             .vote_rewards = 0,
-            .commission = *commission
+            .commission = (uchar)commission
         };
         fd_memcpy(&vote_reward.vote_acc, voter_acc, sizeof(fd_pubkey_t));
 
@@ -437,6 +437,7 @@ calculate_stake_vote_rewards(
                         // });
 
     } // end of for
+    (void)total_stake_rewards;
 }
 
 /* Calculate epoch reward and return vote and stake rewards. */
