@@ -280,13 +280,17 @@ int fd_executor_run_test(
           FD_LOG_WARNING(( "Failed test %d: %s: account_index: %d   account missmatch: %s", test->test_number, test->test_name, i, (NULL != verbose) ? test->bt : ""));
           {
             FILE * fd = fopen("actual.bin", "wb");
-            fwrite(d, 1, m->dlen, fd);
-            fclose(fd);
+            if (NULL != fd) {
+              fwrite(d, 1, m->dlen, fd);
+              fclose(fd);
+            }
           }
           {
             FILE * fd = fopen("expected.bin", "wb");
-            fwrite(test->accs[i].result_data, 1, test->accs[i].result_data_len, fd);
-            fclose(fd);
+            if (NULL != fd) {
+              fwrite(test->accs[i].result_data, 1, test->accs[i].result_data_len, fd);
+              fclose(fd);
+            }
           }
           ret = -888;
           break;

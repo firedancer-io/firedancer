@@ -45,7 +45,7 @@ fi
 # sudo build/native/gcc/bin/fd_shmem_cfg fini
 
 # sudo build/native/gcc/bin/fd_shmem_cfg init 0777 jsiegel ""
-# sudo build/native/gcc/bin/fd_shmem_cfg alloc 64 gigantic 0
+# sudo build/native/gcc/bin/fd_shmem_cfg alloc 225 gigantic 0
 # sudo build/native/gcc/bin/fd_shmem_cfg alloc 512 huge 0
 
 set -x
