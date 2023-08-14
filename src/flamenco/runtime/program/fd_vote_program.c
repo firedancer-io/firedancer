@@ -282,6 +282,9 @@ fd_vote_save_account(
   char *             raw_acc_data = fd_acc_mgr_modify_data(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *)  address, 0, &acc_sz, NULL, &acc_data_rec, &err);
   fd_account_meta_t *m = (fd_account_meta_t *) raw_acc_data;
 
+  if (set_lamports)
+    m->info.lamports = lamports;
+
   ulong re = fd_rent_exempt(ctx.global, serialized_sz);
   bool cbr = fd_account_can_data_be_resized(&ctx, m, serialized_sz, &err);
   if ((m->info.lamports < re) || !cbr) {
@@ -295,9 +298,6 @@ fd_vote_save_account(
     fd_memset( raw_acc_data + m->hlen + m->dlen, 0, serialized_sz - m->dlen );
     m->dlen = serialized_sz;
   }
-
-  if (set_lamports)
-    m->info.lamports = lamports;
 
   /* Encode account data */
   fd_bincode_encode_ctx_t encode = {
