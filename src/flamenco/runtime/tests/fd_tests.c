@@ -329,7 +329,7 @@ int fd_executor_run_test(
           /* Dump actual account bin */
           do {
             char buf[ PATH_MAX ];
-            snprintf( buf, PATH_MAX, "test_%lu_account_%32J_account.bin", test->test_number, test->accs[i].pubkey.key );
+            snprintf( buf, PATH_MAX, "test_%lu_account_%32J_actual.bin", test->test_number, test->accs[i].pubkey.key );
             FILE * file = fopen( buf, "wb" );
             FD_TEST( m->dlen
                      == fwrite( d, 1, m->dlen, file ) );
@@ -373,11 +373,11 @@ int fd_executor_run_test(
           } while(0);
 
           /* Print instructions on how to diff */
-          FD_LOG_WARNING(( "HEX DIFF:\n  vimdiff <(xxd -c 32 test_%lu_account_%32J_expected.bin) <(xxd -c 32 test_%lu_account_%32J_account.bin)",
+          FD_LOG_WARNING(( "HEX DIFF:\n  vimdiff <(xxd -c 32 test_%lu_account_%32J_expected.bin) <(xxd -c 32 test_%lu_account_%32J_actual.bin)",
                            test->test_number, test->accs[i].pubkey.key, test->test_number, test->accs[i].pubkey.key ));
 
           /* Print instructions on how to diff */
-          FD_LOG_WARNING(( "YAML DIFF:\n  vimdiff <(xxd -c 32 test_%lu_account_%32J_expected.yml) <(xxd -c 32 test_%lu_account_%32J_account.yml)",
+          FD_LOG_WARNING(( "YAML DIFF:\n  vimdiff <(xxd -c 32 test_%lu_account_%32J_expected.yml) <(xxd -c 32 test_%lu_account_%32J_actual.yml)",
                            test->test_number, test->accs[i].pubkey.key, test->test_number, test->accs[i].pubkey.key ));
 
           ret = -777;
