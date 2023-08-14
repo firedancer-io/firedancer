@@ -120,7 +120,7 @@ fd_txn_parse_core( uchar const             * payload,
 
   CHECK( (ulong)instr_cnt<=FD_TXN_INSTR_MAX     );
   CHECK_LEFT( MIN_INSTR_SZ*instr_cnt            );
-  CHECK( (ulong)acct_addr_cnt>(!!instr_cnt)     ); /* If it has >0 instructions, it must have at least one other account address (the program id) that can't be the fee payer */
+  CHECK( allow_zero_signatures | ((ulong)acct_addr_cnt>(!!instr_cnt))     ); /* If it has >0 instructions, it must have at least one other account address (the program id) that can't be the fee payer */
 
   fd_txn_t * parsed = (fd_txn_t *)out_buf;
 
@@ -157,8 +157,7 @@ fd_txn_parse_core( uchar const             * payload,
        permitted to own any executable account.
        As of https://github.com/solana-labs/solana/issues/25034, the program ID
        can't come from a table. */
-    // Add allow_zero_signatures flag
-    CHECK( (0UL < (ulong)program_id) & ((ulong)program_id < (ulong)acct_addr_cnt) );
+    CHECK( allow_zero_signatures | ((0UL < (ulong)program_id) & ((ulong)program_id < (ulong)acct_addr_cnt) ) );
 
     if (NULL != parsed) {
       parsed->instr[ j ].program_id          = program_id;
