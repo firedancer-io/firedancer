@@ -729,7 +729,7 @@ fd_runtime_collect_rent_account( fd_global_ctx_t *   global,
       &global->bank.epoch_schedule,
        global->bank.slots_per_year );
   if( due == FD_RENT_EXEMPT ) {
-    if( global->features.preserve_rent_epoch_for_rent_exempt_accounts )
+    if( FD_FEATURE_ACTIVE( global, preserve_rent_epoch_for_rent_exempt_accounts ) )
       return 0;
     info->rent_epoch = epoch;
     return 1;

@@ -223,12 +223,11 @@ fd_update_hash_bank( fd_global_ctx_t * global,
                      fd_hash_t *       hash,
                      ulong             signature_cnt ) {
 
-  fd_funk_t *           funk     = global->funk;
-  fd_acc_mgr_t *        acc_mgr  = global->acc_mgr;
-  fd_funk_txn_t *       txn      = global->funk_txn;
-  ulong                 slot     = global->bank.slot;
-  fd_features_t const * features = &global->features;
-  fd_solcap_writer_t *  capture  = global->capture;
+  fd_funk_t *          funk     = global->funk;
+  fd_acc_mgr_t *       acc_mgr  = global->acc_mgr;
+  fd_funk_txn_t *      txn      = global->funk_txn;
+  ulong                slot     = global->bank.slot;
+  fd_solcap_writer_t * capture  = global->capture;
 
   /* Collect list of changed accounts to be added to bank hash */
 
@@ -237,7 +236,7 @@ fd_update_hash_bank( fd_global_ctx_t * global,
 
   /* Bug: For some reason, the last restart slot is included in every
           bank hash. */
-  if( global->bank.slot > 0UL && global->features.last_restart_slot_sysvar ) {
+  if( global->bank.slot > 0UL && FD_FEATURE_ACTIVE( global, last_restart_slot_sysvar ) ) {
     fd_pubkey_t const * acc_key = fd_type_pun_const( global->sysvar_last_restart_slot );
     int                 err     = FD_ACC_MGR_SUCCESS;
     uchar const *       acc_raw = fd_acc_mgr_view_data( acc_mgr, txn, acc_key, NULL, &err );
@@ -248,7 +247,7 @@ fd_update_hash_bank( fd_global_ctx_t * global,
     uchar const *             acc_data = acc_raw + acc_meta->hlen;
 
     fd_hash_t acc_hash[1];
-    fd_hash_account_current( acc_hash->hash, acc_meta, acc_key->key, acc_data, features, slot );
+    fd_hash_account_current( acc_hash->hash, acc_meta, acc_key->key, acc_data, global );
 
     fd_pubkey_hash_pair_t dirty_entry;
     memcpy( dirty_entry.pubkey.key, acc_key,        sizeof(fd_pubkey_t) );
@@ -293,7 +292,7 @@ fd_update_hash_bank( fd_global_ctx_t * global,
     /* Hash account */
 
     fd_hash_t acc_hash[1];
-    fd_hash_account_current( acc_hash->hash, acc_meta, acc_key->key, acc_data, features, slot );
+    fd_hash_account_current( acc_hash->hash, acc_meta, acc_key->key, acc_data, global );
 
     /* If hash didn't change, nothing to do */
 
@@ -415,4 +414,16 @@ fd_hash_account_v1( uchar                     hash[ static 32 ],
   fd_blake3_append( b3, pubkey,      32UL            );
   fd_blake3_fini  ( b3, hash );
   return hash;
+}
+
+void const *
+fd_hash_account_current( uchar                     hash  [ static 32 ],
+                         fd_account_meta_t const * account,
+                         uchar const               pubkey[ static 32 ],
+                         uchar const             * data,
+                         fd_global_ctx_t const   * global ) {
+  if( FD_FEATURE_ACTIVE( global, account_hash_ignore_slot ) )
+    return fd_hash_account_v1( hash, account, pubkey, data );
+  else
+    return fd_hash_account_v0( hash, account, pubkey, data, global->bank.slot );
 }

@@ -5,8 +5,6 @@
 
 #include "../fd_flamenco_base.h"
 
-#define FD_FEATURE_ACTIVE(_g, _y)  ((_g->features. _y != 0) && (_g->bank.slot >= _g->features. _y))
-
 /* fd_features_t is the current set of enabled feature flags.
 
    Each feature has a corresponding account in the account database,

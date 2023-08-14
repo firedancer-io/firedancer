@@ -207,7 +207,7 @@ fd_execute_txn( fd_executor_t* executor, fd_txn_t * txn_descriptor, fd_rawtxn_b_
   /* Update rent exempt on writable accounts if feature activated
      TODO this should probably not run on executable accounts
           Also iterate over LUT accounts */
-  if( global->features.set_exempt_rent_epoch_max ) {
+  if( FD_FEATURE_ACTIVE( global, set_exempt_rent_epoch_max ) ) {
     fd_txn_acct_iter_t ctrl;
     for( ulong i=fd_txn_acct_iter_init( txn_descriptor, FD_TXN_ACCT_CAT_WRITABLE, &ctrl );
           i<fd_txn_acct_iter_end(); i=fd_txn_acct_iter_next( i, &ctrl ) ) {

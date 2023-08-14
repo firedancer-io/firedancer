@@ -719,7 +719,7 @@ int fd_executor_stake_program_execute_instruction(
         https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/stake/src/stake_state.rs#L562
       */
       if (stake_activating_and_deactivating( &stake_state.inner.stake.stake.delegation, clock.epoch, &history).effective != 0) {
-        ushort stake_lamports_ok = (ctx.global->features.stake_redelegate_instruction) ? lamports >= stake_state.inner.stake.stake.delegation.stake : 1;
+        ushort stake_lamports_ok = ( FD_FEATURE_ACTIVE( ctx.global, stake_redelegate_instruction ) ) ? lamports >= stake_state.inner.stake.stake.delegation.stake : 1;
         if (stake_lamports_ok && clock.epoch == stake_state.inner.stake.stake.delegation.deactivation_epoch && memcmp( &stake_state.inner.stake.stake.delegation.voter_pubkey, vote_acc, sizeof(fd_pubkey_t) ) == 0) {
           stake_state.inner.stake.stake.delegation.deactivation_epoch = ULONG_MAX;
         } else {
@@ -752,10 +752,10 @@ int fd_executor_stake_program_execute_instruction(
     }
   } // end of fd_stake_instruction_is_delegate_stake, discriminant 2
   else if ( fd_stake_instruction_is_split( &instruction )) { // discriminant 3
-    FD_LOG_NOTICE(( "stake_split_uses_rent_sysvar=%ld", ctx.global->features.stake_split_uses_rent_sysvar ));
-    FD_LOG_NOTICE(( "stake_allow_zero_undelegated_amount=%ld", ctx.global->features.stake_allow_zero_undelegated_amount ));
-    FD_LOG_NOTICE(( "clean_up_delegation_errors=%ld", ctx.global->features.clean_up_delegation_errors));
-    FD_LOG_NOTICE(( "stake_raise_minimum_delegation_to_1_sol=%ld", ctx.global->features.stake_raise_minimum_delegation_to_1_sol));
+    FD_LOG_NOTICE(( "stake_split_uses_rent_sysvar=%ld",            FD_FEATURE_ACTIVE( ctx.global, stake_split_uses_rent_sysvar            ) ));
+    FD_LOG_NOTICE(( "stake_allow_zero_undelegated_amount=%ld",     FD_FEATURE_ACTIVE( ctx.global, stake_allow_zero_undelegated_amount     ) ));
+    FD_LOG_NOTICE(( "clean_up_delegation_errors=%ld",              FD_FEATURE_ACTIVE( ctx.global, clean_up_delegation_errors              ) ));
+    FD_LOG_NOTICE(( "stake_raise_minimum_delegation_to_1_sol=%ld", FD_FEATURE_ACTIVE( ctx.global, stake_raise_minimum_delegation_to_1_sol ) ));
 
   // https://github.com/firedancer-io/solana/blob/56bd357f0dfdb841b27c4a346a58134428173f42/programs/stake/src/stake_instruction.rs#L192
     if (ctx.txn_ctx->txn_descriptor->acct_addr_cnt < 2) {
@@ -1356,7 +1356,7 @@ int fd_executor_stake_program_execute_instruction(
     }
     /* Merging stake accounts */
     // metas_can_merge
-    uint is_not_lockup = !(source_state.inner.stake.meta.lockup.epoch > clock.epoch || source_state.inner.stake.meta.lockup.unix_timestamp > clock.unix_timestamp) && 
+    uint is_not_lockup = !(source_state.inner.stake.meta.lockup.epoch > clock.epoch || source_state.inner.stake.meta.lockup.unix_timestamp > clock.unix_timestamp) &&
                          !(stake_state.inner.stake.meta.lockup.epoch > clock.epoch || stake_state.inner.stake.meta.lockup.unix_timestamp > clock.unix_timestamp);
     uint can_merge_lockups = memcmp(&source_state.inner.stake.meta.lockup, &stake_state.inner.stake.meta.lockup, sizeof(fd_stake_lockup_t)) == 0 || is_not_lockup;
     uint can_merge_authorized = memcmp(&stake_state.inner.stake.meta.authorized, &source_state.inner.stake.meta.authorized, sizeof(fd_stake_lockup_t)) == 0;
@@ -1745,7 +1745,7 @@ int fd_executor_stake_program_execute_instruction(
     }
   } // end of set lockup checked, discriminant 12
   else if ( fd_stake_instruction_is_get_minimum_delegation( &instruction ) ) {
-    if ( !ctx.global->features.add_get_minimum_delegation_instruction_to_stake_program ) {
+    if( !FD_FEATURE_ACTIVE( ctx.global, add_get_minimum_delegation_instruction_to_stake_program ) ) {
       // still need to check if the first account is stake account
       fd_pubkey_t* stake_acc         = &txn_accs[instr_acc_idxs[0]];
       res = check_stake_account_owner(stake_acc, ctx);
@@ -1764,7 +1764,7 @@ int fd_executor_stake_program_execute_instruction(
 
   }
   else if ( fd_stake_instruction_is_deactivate_delinquent( &instruction ) ) {
-    if (!ctx.global->features.stake_deactivate_delinquent_instruction) {
+    if( !FD_FEATURE_ACTIVE( ctx.global, stake_deactivate_delinquent_instruction ) ) {
       return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
     }
 
@@ -1857,7 +1857,7 @@ int fd_executor_stake_program_execute_instruction(
     if ( !FD_FEATURE_ACTIVE( ctx.global, stake_redelegate_instruction ) ) {
       return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
     }
-    
+
     /* Read the current State State from the Stake account */
     fd_pubkey_t* stake_acc         = &txn_accs[instr_acc_idxs[0]];
     res = check_stake_account_owner(stake_acc, ctx);
@@ -1870,7 +1870,7 @@ int fd_executor_stake_program_execute_instruction(
       return result;
     }
 
-    if ( !ctx.global->features.stake_redelegate_instruction ) {
+    if( !FD_FEATURE_ACTIVE( ctx.global, stake_redelegate_instruction ) ) {
       return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
     }
     /* check at least there are at least 3 accounts */

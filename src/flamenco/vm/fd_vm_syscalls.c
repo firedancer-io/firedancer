@@ -553,7 +553,7 @@ fd_vm_syscall_cpi_check_instruction( fd_vm_exec_context_t const * ctx,
                                      ulong                        acct_cnt,
                                      ulong                        data_sz ) {
 
-  if( ctx->instr_ctx.global->features.loosen_cpi_size_restriction ) {
+  if( FD_FEATURE_ACTIVE( ctx->instr_ctx.global, loosen_cpi_size_restriction ) ) {
     if( FD_UNLIKELY( data_sz > 0x2800UL ) ) {
       FD_LOG_WARNING(( "cpi: data too long (%#lx)", data_sz ));
       return FD_VM_SYSCALL_ERR_INVAL;
@@ -1089,7 +1089,7 @@ fd_vm_syscall_sol_get_rent_sysvar(
   FD_TEST( ctx->instr_ctx.instr );  /* TODO */
 
   fd_rent_t rent;
-  fd_rent_new( &rent ); 
+  fd_rent_new( &rent );
   fd_sysvar_rent_read( ctx->instr_ctx.global, &rent );
 
   void * out = fd_vm_translate_vm_to_host(
