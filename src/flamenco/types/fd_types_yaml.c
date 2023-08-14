@@ -162,13 +162,14 @@ fd_flamenco_yaml_walk( void *       _self,
        object: []
        ...                                                            */
 
-  /* Check if current collection is ending */
-  if( fd_flamenco_type_is_collection_end( type ) ) {
-    FD_TEST( level>0 );  /* collection end always one level below start */
-    /* Special handling if collection is empty */
-    if( (self->stack[ level ] & 1)==0 ) {
+  /* Check if we are at the beginning of a collection */
+  if( (self->stack[ level ] & 1)==0 ) {
+
+    /* Collection is empty -- print inline */
+    if( fd_flamenco_type_is_collection_end( type ) ) {
       if( name )
         fprintf( file, "%s: ", name );
+
       switch( type ) {
       case FD_FLAMENCO_TYPE_MAP_END:
         fprintf( file, "{}\n" );
@@ -177,46 +178,62 @@ fd_flamenco_yaml_walk( void *       _self,
         fprintf( file, "[]\n" );
         break;
       }
+      return;
     }
-    return;
-  }
 
-  /* Split off into new line if required */
-  int split = 0;
-  switch( self->stack[ level ] ) {
-  case STATE_OBJECT_BEGIN:
-    /* Arrays or objects nested in objects go on a separate line */
-    split = ( level>1 )
-         && ( ( (self->stack[ level-1 ])==STATE_OBJECT ) );
-    break;
-  case STATE_ARRAY_BEGIN:
-    /* Arrays nested in arrays go on a separate line */
-    split = ( level>1 )
-         && ( ( (self->stack[ level-1 ])==STATE_OBJECT )
-            | ( (self->stack[ level-1 ])==STATE_ARRAY  ) );
-    break;
-  }
-
-  if( split ) {
-    fprintf( file, "\n" );
-    fwrite( self->indent, 2, (ulong)level-1, file );
-  } else {
-    /* Indent according to current level.
-      If just started an object or array, inhibit indent.
-      Also remember that we now have at least one item. */
-
-    long indent = (long)level-1L;
+    /* Check if we should split off into a separate line */
+    int split = 0;
     switch( self->stack[ level ] ) {
     case STATE_OBJECT_BEGIN:
+      /* Objects nested in objects go on a separate line:
+
+           ...
+           a:          <---
+             b:        <---
+               c: {}
+           ...                                                        */
+
+      split = ( level>1 )
+           && ( ( (self->stack[ level-1 ])==STATE_OBJECT ) );
+      break;
     case STATE_ARRAY_BEGIN:
-      indent = 0L;
+      /* Arrays nested in arrays or objects go on a separate line:
+
+           ...              |      ...
+           -         <---   |      a:          <---
+             -       <---   |        - a: 3
+               - []         |          b: 4
+           ...              |      ...                                */
+
+      split = ( level>1 )
+           && ( ( (self->stack[ level-1 ])==STATE_OBJECT )
+              | ( (self->stack[ level-1 ])==STATE_ARRAY  ) );
       break;
     }
-    indent = fd_long_max( indent, 0 );
+
+    if( split ) {
+      fprintf( file, "\n" );
+      fwrite( self->indent, 2, (ulong)level-1, file );
+    }
+
+  } else {
+
+    /* Nothing to do if collection ends, but at least one item printed */
+
+    if( fd_flamenco_type_is_collection_end( type ) )
+      return;
+
+    /* We are at the beginning of a line.
+
+       Indent according to current level.
+       If just started an object or array, inhibit indent. */
+
+    long indent = (long)level-1L;
     fwrite( self->indent, 2, (ulong)indent, file );
+
   }
 
-  /* Print prefix */
+  /* Print node tag */
   switch( self->stack[ level ] ) {
   case STATE_OBJECT_BEGIN:
   case STATE_OBJECT:
@@ -229,6 +246,7 @@ fd_flamenco_yaml_walk( void *       _self,
     break;
   }
 
+  /* Print node value */
   switch( type ) {
   case FD_FLAMENCO_TYPE_MAP:
     self->stack[ level+1 ] = STATE_OBJECT_BEGIN;
