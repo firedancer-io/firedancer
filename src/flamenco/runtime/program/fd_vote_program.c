@@ -1094,7 +1094,6 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
 
-//  fd_vote_instruction_walk(&instruction, fd_printer_walker, "vote", 0);
   switch( instruction.discriminant ) {
   case fd_vote_instruction_enum_initialize_account: {
     /* VoteInstruction::InitializeAccount instruction
@@ -2178,7 +2177,7 @@ void fd_vote_commission_split(
             break;
         default:
             __builtin_unreachable();
-    }  
+    }
   uint commission_split = fd_uint_min(*((uint *) commission), 100);
   result->is_split = (commission_split != 0 && commission_split !=100);
   if (commission_split == 0) {

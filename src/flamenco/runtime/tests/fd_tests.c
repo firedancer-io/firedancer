@@ -18,21 +18,6 @@ uchar do_leakcheck = 0;
 
 int fd_alloc_fprintf( fd_alloc_t * join, FILE *       stream );
 
-#define T_DUMP(_type_, _d, _l, _c) { \
-            _type_##_t d1; \
-            _type_##_new(&d1); \
-            fd_bincode_decode_ctx_t decode = { \
-              .data    = _d, \
-              .dataend = (void const *)( (ulong)_d + _l ), \
-              .valloc  = global->valloc, \
-            }; \
-            _type_##_decode( &d1, &decode ); \
-            _type_##_walk(&d1, fd_printer_walker, _c, 0); \
-            fd_bincode_destroy_ctx_t destroy = { .valloc = global->valloc }; \
-            _type_##_destroy(&d1, &destroy); \
-          }
-
-
 /* copied from test_funk_txn.c */
 static fd_funk_txn_xid_t *
 fd_funk_txn_xid_set_unique( fd_funk_txn_xid_t * xid ) {
@@ -285,9 +270,6 @@ int fd_executor_run_test(
           break;
         }
         if (m->dlen != test->accs[i].result_data_len) {
-//          T_DUMP(fd_vote_state_versioned, d, m->dlen, "result");
-//          T_DUMP(fd_vote_state_versioned, test->accs[i].result_data, test->accs[i].result_data_len , "expected");
-
           FD_LOG_WARNING(( "Failed test %d: %s: size mismatch (expected %lu, got %lu): %s",
                            test->test_number, test->test_name,
                            test->accs[i].result_data_len, m->dlen, (NULL != verbose) ? test->bt : "" ));
@@ -295,9 +277,6 @@ int fd_executor_run_test(
           break;
         }
         if (memcmp(d, test->accs[i].result_data, test->accs[i].result_data_len)) {
-//          T_DUMP(fd_vote_state_versioned, d, m->dlen, "result");
-//          T_DUMP(fd_vote_state_versioned, test->accs[i].result_data, test->accs[i].result_data_len , "expected");
-
           FD_LOG_WARNING(( "Failed test %d: %s: account_index: %d   account missmatch: %s", test->test_number, test->test_name, i, (NULL != verbose) ? test->bt : ""));
           {
             FILE * fd = fopen("actual.bin", "wb");
