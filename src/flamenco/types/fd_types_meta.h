@@ -24,23 +24,24 @@
 #define FD_FLAMENCO_TYPE_FLOAT     (0x0c)
 #define FD_FLAMENCO_TYPE_DOUBLE    (0x0d)
 #define FD_FLAMENCO_TYPE_HASH256   (0x0e)  /* pubkey, account */
-#define FD_FLAMENCO_TYPE_CSTR      (0x0f)
+#define FD_FLAMENCO_TYPE_SIG512    (0x0f)
+#define FD_FLAMENCO_TYPE_CSTR      (0x10)
 
-#define FD_FLAMENCO_TYPE_ARR       (0x10)
-#define FD_FLAMENCO_TYPE_ARR_END   (0x11)
-#define FD_FLAMENCO_TYPE_MAP       (0x12)
-#define FD_FLAMENCO_TYPE_MAP_END   (0x13)
+#define FD_FLAMENCO_TYPE_ARR       (0x20)
+#define FD_FLAMENCO_TYPE_ARR_END   (0x21)
+#define FD_FLAMENCO_TYPE_MAP       (0x22)
+#define FD_FLAMENCO_TYPE_MAP_END   (0x23)
 
 FD_PROTOTYPES_BEGIN
 
 static inline int
 fd_flamenco_type_is_primitive( int type ) {
-  return (type&0xf0)==0x00;
+  return (type&0xe0)==0x00;
 }
 
 static inline int
 fd_flamenco_type_is_collection( int type ) {
-  return (type&0xf0)==0x10;
+  return (type&0xe0)==0x20;
 }
 
 static inline int

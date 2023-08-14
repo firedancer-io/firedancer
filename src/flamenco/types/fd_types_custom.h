@@ -30,6 +30,13 @@ union __attribute__((aligned(FD_HASH_ALIGN))) fd_hash {
 typedef union fd_hash fd_hash_t;
 typedef union fd_hash fd_pubkey_t;
 
+union fd_signature {
+  uchar uc[ 64 ];
+  ulong ul[  8 ];
+};
+
+typedef union fd_signature fd_signature_t;
+
 FD_PROTOTYPES_BEGIN
 
 static inline void
@@ -104,6 +111,39 @@ struct fd_txnstatusidx {
     ulong status_sz;
 };
 typedef struct fd_txnstatusidx fd_txnstatusidx_t;
+
+static inline void
+fd_signature_new( fd_signature_t * self FD_FN_UNUSED ) {}
+
+static inline int
+fd_signature_decode( fd_signature_t *          self,
+                     fd_bincode_decode_ctx_t * ctx ) {
+  return fd_bincode_bytes_decode( &self->uc[0], 64UL, ctx );
+}
+
+static inline void
+fd_signature_destroy( fd_signature_t const *     self FD_FN_UNUSED,
+                      fd_bincode_destroy_ctx_t * ctx  FD_FN_UNUSED ) {}
+
+FD_FN_CONST static inline ulong
+fd_signature_size( fd_signature_t const * self FD_FN_UNUSED ) {
+  return 64;
+}
+
+static inline int
+fd_signature_encode( fd_signature_t const *    self,
+                     fd_bincode_encode_ctx_t * ctx ) {
+  return fd_bincode_bytes_encode( &self->uc[0], 64UL, ctx );
+}
+
+static inline void
+fd_signature_walk( void *             w,
+                   fd_signature_t *   self,
+                   fd_types_walk_fn_t fun,
+                   char const *       name,
+                   uint               level ) {
+  fun( w, self->uc, name, FD_FLAMENCO_TYPE_SIG512, name, level );
+}
 
 FD_PROTOTYPES_END
 

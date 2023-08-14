@@ -1673,6 +1673,35 @@ typedef struct fd_frozen_hash_versioned fd_frozen_hash_versioned_t;
 #define FD_FROZEN_HASH_VERSIONED_FOOTPRINT sizeof(fd_frozen_hash_versioned_t)
 #define FD_FROZEN_HASH_VERSIONED_ALIGN (8UL)
 
+/* https://github.com/solana-labs/solana/blob/52616cf7aa424a80f770e5ec3f2cd49d1cfeb845/gossip/src/ping_pong.rs#L22 */
+struct fd_gossip_ping {
+  fd_pubkey_t from;
+  fd_hash_t token;
+  fd_signature_t signature;
+};
+typedef struct fd_gossip_ping fd_gossip_ping_t;
+#define FD_GOSSIP_PING_FOOTPRINT sizeof(fd_gossip_ping_t)
+#define FD_GOSSIP_PING_ALIGN (8UL)
+
+union fd_gossip_msg_inner {
+  uchar pull_req;
+  uchar pull_resp;
+  uchar push_msg;
+  uchar prune_msg;
+  fd_gossip_ping_t ping;
+  fd_gossip_ping_t pong;
+};
+typedef union fd_gossip_msg_inner fd_gossip_msg_inner_t;
+
+/* UDP payloads of the Solana gossip protocol */
+struct fd_gossip_msg {
+  uint discriminant;
+  fd_gossip_msg_inner_t inner;
+};
+typedef struct fd_gossip_msg fd_gossip_msg_t;
+#define FD_GOSSIP_MSG_FOOTPRINT sizeof(fd_gossip_msg_t)
+#define FD_GOSSIP_MSG_ALIGN (8UL)
+
 
 FD_PROTOTYPES_BEGIN
 
@@ -2797,6 +2826,35 @@ ulong fd_frozen_hash_versioned_size(fd_frozen_hash_versioned_t const * self);
 FD_FN_PURE uchar fd_frozen_hash_versioned_is_current(fd_frozen_hash_versioned_t const * self);
 enum {
 fd_frozen_hash_versioned_enum_current = 0,
+}; 
+void fd_gossip_ping_new(fd_gossip_ping_t* self);
+int fd_gossip_ping_decode(fd_gossip_ping_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_gossip_ping_encode(fd_gossip_ping_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_gossip_ping_destroy(fd_gossip_ping_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_gossip_ping_walk(void * w, fd_gossip_ping_t* self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_gossip_ping_size(fd_gossip_ping_t const * self);
+
+void fd_gossip_msg_new_disc(fd_gossip_msg_t* self, uint discriminant);
+void fd_gossip_msg_new(fd_gossip_msg_t* self);
+int fd_gossip_msg_decode(fd_gossip_msg_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_gossip_msg_encode(fd_gossip_msg_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_gossip_msg_destroy(fd_gossip_msg_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_gossip_msg_walk(void * w, fd_gossip_msg_t* self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_gossip_msg_size(fd_gossip_msg_t const * self);
+
+FD_FN_PURE uchar fd_gossip_msg_is_pull_req(fd_gossip_msg_t const * self);
+FD_FN_PURE uchar fd_gossip_msg_is_pull_resp(fd_gossip_msg_t const * self);
+FD_FN_PURE uchar fd_gossip_msg_is_push_msg(fd_gossip_msg_t const * self);
+FD_FN_PURE uchar fd_gossip_msg_is_prune_msg(fd_gossip_msg_t const * self);
+FD_FN_PURE uchar fd_gossip_msg_is_ping(fd_gossip_msg_t const * self);
+FD_FN_PURE uchar fd_gossip_msg_is_pong(fd_gossip_msg_t const * self);
+enum {
+fd_gossip_msg_enum_pull_req = 0,
+fd_gossip_msg_enum_pull_resp = 1,
+fd_gossip_msg_enum_push_msg = 2,
+fd_gossip_msg_enum_prune_msg = 3,
+fd_gossip_msg_enum_ping = 4,
+fd_gossip_msg_enum_pong = 5,
 }; 
 FD_PROTOTYPES_END
 

@@ -10239,6 +10239,278 @@ int fd_frozen_hash_versioned_encode(fd_frozen_hash_versioned_t const * self, fd_
   return fd_frozen_hash_versioned_inner_encode(&self->inner, self->discriminant, ctx);
 }
 
+int fd_gossip_ping_decode(fd_gossip_ping_t* self, fd_bincode_decode_ctx_t * ctx) {
+  int err;
+  err = fd_pubkey_decode(&self->from, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_hash_decode(&self->token, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_signature_decode(&self->signature, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_gossip_ping_new(fd_gossip_ping_t* self) {
+  fd_memset(self, 0, sizeof(fd_gossip_ping_t));
+  fd_pubkey_new(&self->from);
+  fd_hash_new(&self->token);
+  fd_signature_new(&self->signature);
+}
+void fd_gossip_ping_destroy(fd_gossip_ping_t* self, fd_bincode_destroy_ctx_t * ctx) {
+  fd_pubkey_destroy(&self->from, ctx);
+  fd_hash_destroy(&self->token, ctx);
+  fd_signature_destroy(&self->signature, ctx);
+}
+
+void fd_gossip_ping_walk(void * w, fd_gossip_ping_t* self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_ping", level++);
+  fd_pubkey_walk(w, &self->from, fun, "from", level);
+  fd_hash_walk(w, &self->token, fun, "token", level);
+  fd_signature_walk(w, &self->signature, fun, "signature", level);
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_ping", level--);
+}
+ulong fd_gossip_ping_size(fd_gossip_ping_t const * self) {
+  ulong size = 0;
+  size += fd_pubkey_size(&self->from);
+  size += fd_hash_size(&self->token);
+  size += fd_signature_size(&self->signature);
+  return size;
+}
+
+int fd_gossip_ping_encode(fd_gossip_ping_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  err = fd_pubkey_encode(&self->from, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_hash_encode(&self->token, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_signature_encode(&self->signature, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+
+FD_FN_PURE uchar fd_gossip_msg_is_pull_req(fd_gossip_msg_t const * self) {
+  return self->discriminant == 0;
+}
+FD_FN_PURE uchar fd_gossip_msg_is_pull_resp(fd_gossip_msg_t const * self) {
+  return self->discriminant == 1;
+}
+FD_FN_PURE uchar fd_gossip_msg_is_push_msg(fd_gossip_msg_t const * self) {
+  return self->discriminant == 2;
+}
+FD_FN_PURE uchar fd_gossip_msg_is_prune_msg(fd_gossip_msg_t const * self) {
+  return self->discriminant == 3;
+}
+FD_FN_PURE uchar fd_gossip_msg_is_ping(fd_gossip_msg_t const * self) {
+  return self->discriminant == 4;
+}
+FD_FN_PURE uchar fd_gossip_msg_is_pong(fd_gossip_msg_t const * self) {
+  return self->discriminant == 5;
+}
+void fd_gossip_msg_inner_new(fd_gossip_msg_inner_t* self, uint discriminant);
+int fd_gossip_msg_inner_decode(fd_gossip_msg_inner_t* self, uint discriminant, fd_bincode_decode_ctx_t * ctx) {
+  fd_gossip_msg_inner_new(self, discriminant);
+  int err;
+  switch (discriminant) {
+  case 0: {
+    err = fd_bincode_uint8_decode(&self->pull_req, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
+  }
+  case 1: {
+    err = fd_bincode_uint8_decode(&self->pull_resp, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
+  }
+  case 2: {
+    err = fd_bincode_uint8_decode(&self->push_msg, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
+  }
+  case 3: {
+    err = fd_bincode_uint8_decode(&self->prune_msg, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
+  }
+  case 4: {
+    return fd_gossip_ping_decode(&self->ping, ctx);
+  }
+  case 5: {
+    return fd_gossip_ping_decode(&self->pong, ctx);
+  }
+  default: return FD_BINCODE_ERR_ENCODING;
+  }
+}
+int fd_gossip_msg_decode(fd_gossip_msg_t* self, fd_bincode_decode_ctx_t * ctx) {
+  int err = fd_bincode_uint32_decode(&self->discriminant, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return fd_gossip_msg_inner_decode(&self->inner, self->discriminant, ctx);
+}
+void fd_gossip_msg_inner_new(fd_gossip_msg_inner_t* self, uint discriminant) {
+  switch (discriminant) {
+  case 0: {
+    break;
+  }
+  case 1: {
+    break;
+  }
+  case 2: {
+    break;
+  }
+  case 3: {
+    break;
+  }
+  case 4: {
+    fd_gossip_ping_new(&self->ping);
+    break;
+  }
+  case 5: {
+    fd_gossip_ping_new(&self->pong);
+    break;
+  }
+  default: break; // FD_LOG_ERR(( "unhandled type"));
+  }
+}
+void fd_gossip_msg_new_disc(fd_gossip_msg_t* self, uint discriminant) {
+  self->discriminant = discriminant;
+  fd_gossip_msg_inner_new(&self->inner, self->discriminant);
+}
+void fd_gossip_msg_new(fd_gossip_msg_t* self) {
+  fd_gossip_msg_new_disc(self, UINT_MAX);
+}
+void fd_gossip_msg_inner_destroy(fd_gossip_msg_inner_t* self, uint discriminant, fd_bincode_destroy_ctx_t * ctx) {
+  switch (discriminant) {
+  case 0: {
+    break;
+  }
+  case 1: {
+    break;
+  }
+  case 2: {
+    break;
+  }
+  case 3: {
+    break;
+  }
+  case 4: {
+    fd_gossip_ping_destroy(&self->ping, ctx);
+    break;
+  }
+  case 5: {
+    fd_gossip_ping_destroy(&self->pong, ctx);
+    break;
+  }
+  default: break; // FD_LOG_ERR(( "unhandled type" ));
+  }
+}
+void fd_gossip_msg_destroy(fd_gossip_msg_t* self, fd_bincode_destroy_ctx_t * ctx) {
+  fd_gossip_msg_inner_destroy(&self->inner, self->discriminant, ctx);
+}
+
+void fd_gossip_msg_walk(void * w, fd_gossip_msg_t* self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_msg", level++);
+  // enum fd_signature_walk(w, &self->signature, fun, "signature", level);
+  switch (self->discriminant) {
+  case 0: {
+  fun( w, &self->inner.pull_req, "pull_req", FD_FLAMENCO_TYPE_UCHAR,   "uchar",     level );
+    break;
+  }
+  case 1: {
+  fun( w, &self->inner.pull_resp, "pull_resp", FD_FLAMENCO_TYPE_UCHAR,   "uchar",     level );
+    break;
+  }
+  case 2: {
+  fun( w, &self->inner.push_msg, "push_msg", FD_FLAMENCO_TYPE_UCHAR,   "uchar",     level );
+    break;
+  }
+  case 3: {
+  fun( w, &self->inner.prune_msg, "prune_msg", FD_FLAMENCO_TYPE_UCHAR,   "uchar",     level );
+    break;
+  }
+  case 4: {
+    fd_gossip_ping_walk(w, &self->inner.ping, fun, "ping", level);
+    break;
+  }
+  case 5: {
+    fd_gossip_ping_walk(w, &self->inner.pong, fun, "pong", level);
+    break;
+  }
+  }
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_msg", level--);
+}
+ulong fd_gossip_msg_size(fd_gossip_msg_t const * self) {
+  ulong size = 0;
+  size += sizeof(uint);
+  switch (self->discriminant) {
+  case 0: {
+    size += sizeof(char);
+    break;
+  }
+  case 1: {
+    size += sizeof(char);
+    break;
+  }
+  case 2: {
+    size += sizeof(char);
+    break;
+  }
+  case 3: {
+    size += sizeof(char);
+    break;
+  }
+  case 4: {
+    size += fd_gossip_ping_size(&self->inner.ping);
+    break;
+  }
+  case 5: {
+    size += fd_gossip_ping_size(&self->inner.pong);
+    break;
+  }
+  }
+  return size;
+}
+
+int fd_gossip_msg_inner_encode(fd_gossip_msg_inner_t const * self, uint discriminant, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  switch (discriminant) {
+  case 0: {
+    err = fd_bincode_uint8_encode(&self->pull_req, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+    break;
+  }
+  case 1: {
+    err = fd_bincode_uint8_encode(&self->pull_resp, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+    break;
+  }
+  case 2: {
+    err = fd_bincode_uint8_encode(&self->push_msg, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+    break;
+  }
+  case 3: {
+    err = fd_bincode_uint8_encode(&self->prune_msg, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+    break;
+  }
+  case 4: {
+    err = fd_gossip_ping_encode(&self->ping, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    break;
+  }
+  case 5: {
+    err = fd_gossip_ping_encode(&self->pong, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    break;
+  }
+  }
+  return FD_BINCODE_SUCCESS;
+}
+int fd_gossip_msg_encode(fd_gossip_msg_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  err = fd_bincode_uint32_encode(&self->discriminant, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return fd_gossip_msg_inner_encode(&self->inner, self->discriminant, ctx);
+}
+
 #define REDBLK_T fd_stake_history_epochentry_pair_t_mapnode_t
 #define REDBLK_NAME fd_stake_history_epochentry_pair_t_map
 #define REDBLK_IMPL_STYLE 2

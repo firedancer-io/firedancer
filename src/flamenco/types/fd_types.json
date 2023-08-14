@@ -1368,6 +1368,29 @@
         { "name": "current", "type": "frozen_hash_status" }
       ],
       "comment": "https://github.com/firedancer-io/solana/blob/f4b7c54f9e021b40cfc7cbd32dc12b19dedbe791/ledger/src/blockstore_meta.rs#L157"
+    },
+    {
+      "name": "gossip_ping",
+      "type": "struct",
+      "fields": [
+        { "name": "from",      "type": "pubkey"    },
+        { "name": "token",     "type": "hash"      },
+        { "name": "signature", "type": "signature" }
+      ],
+      "comment": "https://github.com/solana-labs/solana/blob/52616cf7aa424a80f770e5ec3f2cd49d1cfeb845/gossip/src/ping_pong.rs#L22"
+    },
+    {
+      "name": "gossip_msg",
+      "type": "enum",
+      "variants": [
+        { "name": "pull_req",  "type": "uchar" },
+        { "name": "pull_resp", "type": "uchar" },
+        { "name": "push_msg",  "type": "uchar" },
+        { "name": "prune_msg", "type": "uchar" },
+        { "name": "ping",      "type": "gossip_ping" },
+        { "name": "pong",      "type": "gossip_ping" }
+      ],
+      "comment": "UDP payloads of the Solana gossip protocol"
     }
   ]
 }
