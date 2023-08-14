@@ -86,7 +86,7 @@ fd_vote_upgrade_account( fd_vote_state_versioned_t * account,
     /* Nothing to do */
     return;
   case fd_vote_state_versioned_enum_v0_23_5: {
-    if( !global->features.vote_state_add_vote_latency ) {
+    if( !FD_FEATURE_ACTIVE(global, vote_state_add_vote_latency ) ) {
       FD_LOG_ERR(("unimplemented vote state upgrade to v14"));
       // FIXME: Implement v14 upgrade.
       return;
@@ -148,7 +148,7 @@ fd_vote_upgrade_account( fd_vote_state_versioned_t * account,
     return;
   }
   case fd_vote_state_versioned_enum_v1_14_11: {
-    if( !global->features.vote_state_add_vote_latency ) {
+    if( !FD_FEATURE_ACTIVE(global, vote_state_add_vote_latency ) ) {
       return;
     }
     fd_vote_state_1_14_11_t * old = &account->inner.v1_14_11;
@@ -282,7 +282,9 @@ fd_vote_save_account(
   char *             raw_acc_data = fd_acc_mgr_modify_data(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *)  address, 0, &acc_sz, NULL, &acc_data_rec, &err);
   fd_account_meta_t *m = (fd_account_meta_t *) raw_acc_data;
 
-  if ((m->info.lamports < fd_rent_exempt(ctx.global, serialized_sz)) || !fd_account_can_data_be_resized(&ctx, m, serialized_sz, &err)) {
+  ulong re = fd_rent_exempt(ctx.global, serialized_sz);
+  bool cbr = fd_account_can_data_be_resized(&ctx, m, serialized_sz, &err);
+  if ((m->info.lamports < re) || !cbr) {
     serialized_sz = original_serialized_sz;
     if( serialized_sz < VOTE_ACCOUNT_14_SIZE )
       serialized_sz = VOTE_ACCOUNT_14_SIZE;
@@ -1223,7 +1225,7 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
     /* Create a new vote account state structure */
     /* TODO: create constructors in fd_types */
     fd_vote_state_versioned_t vote_state_versioned;
-    if( ctx.global->features.vote_state_add_vote_latency ) {
+    if( FD_FEATURE_ACTIVE(ctx.global, vote_state_add_vote_latency ) ) {
       fd_vote_state_versioned_new_disc(&vote_state_versioned, fd_vote_state_versioned_enum_current);
     } else {
       fd_vote_state_versioned_new_disc(&vote_state_versioned, fd_vote_state_versioned_enum_v1_14_11);
@@ -1311,12 +1313,12 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
     int process_vote_res = FD_EXECUTOR_INSTR_SUCCESS;
     switch( vote_state_versioned.discriminant ) {
       case fd_vote_state_versioned_enum_current: {
-        FD_TEST( ctx.global->features.vote_state_add_vote_latency );
+        FD_TEST( FD_FEATURE_ACTIVE(ctx.global, vote_state_add_vote_latency ) );
         process_vote_res = vote_process_vote_current( ctx, vote, &vote_state_versioned, &slot_hashes );
         break;
       }
       case fd_vote_state_versioned_enum_v1_14_11: {
-        FD_TEST( !ctx.global->features.vote_state_add_vote_latency );
+        FD_TEST( !FD_FEATURE_ACTIVE(ctx.global, vote_state_add_vote_latency ) );
         process_vote_res = vote_process_vote_v1_14_11( ctx, vote, &vote_state_versioned, &slot_hashes );
         break;
       }

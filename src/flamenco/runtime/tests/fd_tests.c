@@ -16,6 +16,7 @@ const char *fail_fast = NULL;
 static ulong scratch_mb = 0UL;
 
 uchar do_leakcheck = 0;
+const char * do_dump = NULL;
 
 int fd_alloc_fprintf( fd_alloc_t * join, FILE *       stream );
 
@@ -115,7 +116,7 @@ void fd_executor_test_suite_new( fd_executor_test_suite_t* suite ) {
     suite->valloc = fd_alloc_virtual( alloc );
   }
 
-  fd_features_enable_all(&suite->features);
+  fd_features_enable_v17(&suite->features);
 }
 
 int fd_executor_run_test(
@@ -136,6 +137,10 @@ int fd_executor_run_test(
   global->funk       = suite->funk;
   global->funk_wksp  = suite->wksp;
   global->local_wksp = suite->wksp;
+
+  global->bank.rent.lamports_per_uint8_year = 3480;
+  global->bank.rent.exemption_threshold = 2;
+  global->bank.rent.burn_percent = 50;
 
   memcpy(&global->features, &suite->features, sizeof(suite->features));
   if (test->disable_cnt > 0) {
@@ -316,69 +321,80 @@ int fd_executor_run_test(
 
           FD_LOG_WARNING(( "Failed test %d: %s: account_index: %d   account missmatch: %s", test->test_number, test->test_name, i, (NULL != verbose) ? test->bt : ""));
 
-          /* Dump expected account bin */
-          do {
-            char buf[ PATH_MAX ];
-            snprintf( buf, PATH_MAX, "test_%lu_account_%32J_expected.bin", test->test_number, test->accs[i].pubkey.key );
-            FILE * file = fopen( buf, "wb" );
-            FD_TEST( test->accs[i].result_data_len
-                     == fwrite( test->accs[i].result_data, 1, test->accs[i].result_data_len, file ) );
-            fclose( file );
-          } while(0);
+          if (do_dump) {
+            /* Dump expected account bin */
+            do {
+              char buf[ PATH_MAX ];
+              snprintf( buf, PATH_MAX, "test_%lu_account_%32J_expected.bin", test->test_number, test->accs[i].pubkey.key );
+              FILE * file = fopen( buf, "wb" );
+              if (NULL != file) {
+                FD_TEST( test->accs[i].result_data_len
+                  == fwrite( test->accs[i].result_data, 1, test->accs[i].result_data_len, file ) );
+                fclose( file );
+              }
+            } while(0);
 
-          /* Dump actual account bin */
-          do {
-            char buf[ PATH_MAX ];
-            snprintf( buf, PATH_MAX, "test_%lu_account_%32J_actual.bin", test->test_number, test->accs[i].pubkey.key );
-            FILE * file = fopen( buf, "wb" );
-            FD_TEST( m->dlen
-                     == fwrite( d, 1, m->dlen, file ) );
-            fclose( file );
-          } while(0);
+            /* Dump actual account bin */
+            do {
+              char buf[ PATH_MAX ];
+              snprintf( buf, PATH_MAX, "test_%lu_account_%32J_actual.bin", test->test_number, test->accs[i].pubkey.key );
+              FILE * file = fopen( buf, "wb" );
+              if (NULL != file) {
+                FD_TEST( m->dlen
+                  == fwrite( d, 1, m->dlen, file ) );
+                fclose( file );
+              }
+            } while(0);
 
-          /* Dump YAML serialization of expected account */
-          do {
-            char buf[ PATH_MAX ];
-            snprintf( buf, PATH_MAX, "test_%lu_account_%32J_expected.yml", test->test_number, test->accs[i].pubkey.key );
-            FILE * file = fopen( buf, "wb" );
+            /* Dump YAML serialization of expected account */
+            do {
+              char buf[ PATH_MAX ];
+              snprintf( buf, PATH_MAX, "test_%lu_account_%32J_expected.yml", test->test_number, test->accs[i].pubkey.key );
+              FILE * file = fopen( buf, "wb" );
+              if (NULL != file) {
 
-            fd_scratch_push();
-            fd_flamenco_yaml_t * yaml =
-              fd_flamenco_yaml_init( fd_flamenco_yaml_new(
-                fd_scratch_alloc( fd_flamenco_yaml_align(), fd_flamenco_yaml_footprint() ) ),
-                  file );
-            FD_TEST( yaml );
-            fd_account_pretty_print( global, test->accs[i].owner.key, test->accs[i].result_data, test->accs[i].result_data_len, file );
-            fd_scratch_pop();
+                fd_scratch_push();
+                fd_flamenco_yaml_t * yaml =
+                  fd_flamenco_yaml_init( fd_flamenco_yaml_new(
+                      fd_scratch_alloc( fd_flamenco_yaml_align(), fd_flamenco_yaml_footprint() ) ),
+                    file );
+                FD_TEST( yaml );
+                fd_account_pretty_print( global, test->accs[i].owner.key, test->accs[i].result_data, test->accs[i].result_data_len, file );
+                fd_scratch_pop();
 
-            fclose( file );
-          } while(0);
+                fclose( file );
+              }
+            } while(0);
 
-          /* Dump YAML serialization of actual account */
-          do {
-            char buf[ PATH_MAX ];
-            snprintf( buf, PATH_MAX, "test_%lu_account_%32J_actual.yml", test->test_number, test->accs[i].pubkey.key );
-            FILE * file = fopen( buf, "wb" );
+            /* Dump YAML serialization of actual account */
+            do {
+              char buf[ PATH_MAX ];
+              snprintf( buf, PATH_MAX, "test_%lu_account_%32J_actual.yml", test->test_number, test->accs[i].pubkey.key );
+              FILE * file = fopen( buf, "wb" );
+              if (NULL != file) {
 
-            fd_scratch_push();
-            fd_flamenco_yaml_t * yaml =
-              fd_flamenco_yaml_init( fd_flamenco_yaml_new(
-                fd_scratch_alloc( fd_flamenco_yaml_align(), fd_flamenco_yaml_footprint() ) ),
-                  file );
-            FD_TEST( yaml );
-            fd_account_pretty_print( global, test->accs[i].owner.key, d, m->dlen, file );
-            fd_scratch_pop();
+                fd_scratch_push();
+                fd_flamenco_yaml_t * yaml =
+                  fd_flamenco_yaml_init( fd_flamenco_yaml_new(
+                      fd_scratch_alloc( fd_flamenco_yaml_align(), fd_flamenco_yaml_footprint() ) ),
+                    file );
+                FD_TEST( yaml );
+                fd_account_pretty_print( global, test->accs[i].owner.key, d, m->dlen, file );
+                fd_scratch_pop();
 
-            fclose( file );
-          } while(0);
+                fclose( file );
+              }
+            } while(0);
 
-          /* Print instructions on how to diff */
-          FD_LOG_WARNING(( "HEX DIFF:\n  vimdiff <(xxd -c 32 test_%lu_account_%32J_expected.bin) <(xxd -c 32 test_%lu_account_%32J_actual.bin)",
-                           test->test_number, test->accs[i].pubkey.key, test->test_number, test->accs[i].pubkey.key ));
+            /* Print instructions on how to diff */
+            FD_LOG_WARNING(( "HEX DIFF:\n  vimdiff <(xxd -c 32 test_%lu_account_%32J_expected.bin) <(xxd -c 32 test_%lu_account_%32J_actual.bin)",
+                test->test_number, test->accs[i].pubkey.key, test->test_number, test->accs[i].pubkey.key ));
 
-          /* Print instructions on how to diff */
-          FD_LOG_WARNING(( "YAML DIFF:\n  vimdiff test_%lu_account_%32J_expected.yml test_%lu_account_%32J_actual.yml",
-                           test->test_number, test->accs[i].pubkey.key, test->test_number, test->accs[i].pubkey.key ));
+            /* Print instructions on how to diff */
+            FD_LOG_WARNING(( "YAML DIFF:\n  vimdiff test_%lu_account_%32J_expected.yml test_%lu_account_%32J_actual.yml",
+                test->test_number, test->accs[i].pubkey.key, test->test_number, test->accs[i].pubkey.key ));
+
+          }
 
           ret = -777;
           break;
@@ -413,6 +429,7 @@ main( int     argc,
   char const * filter           = fd_env_strip_cmdline_cstr ( &argc, &argv, "--filter",           NULL, NULL      );
                verbose          = fd_env_strip_cmdline_cstr ( &argc, &argv, "--verbose",          NULL, NULL      );
                fail_fast        = fd_env_strip_cmdline_cstr ( &argc, &argv, "--fail_fast",        NULL, NULL      );
+               do_dump          = fd_env_strip_cmdline_cstr ( &argc, &argv, "--do_dump",          NULL, NULL      );
   char *       ignore_fail      = (char *)fd_env_strip_cmdline_cstr ( &argc, &argv, "--ignore_fail",      NULL, NULL      ); /* UGLY!!! */
   char const * ignore_fail_file = fd_env_strip_cmdline_cstr ( &argc, &argv, "--ignore_fail_file", NULL, NULL      );
                scratch_mb       = fd_env_strip_cmdline_ulong( &argc, &argv, "--scratch-mb",       NULL, 1024      );
