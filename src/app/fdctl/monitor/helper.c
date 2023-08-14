@@ -112,9 +112,9 @@ printf_seq( char ** buf,
                      : (delta>0L) ? TEXT_GREEN  /* new sequence numbers published */
                      : (seq_now)  ? TEXT_RED    /* sequence number went backward */
                      :              TEXT_BLUE;  /* sequence number reset */
-  if(      delta> 99999L ) PRINT( "%16lx(%s>+99999" TEXT_NORMAL ")", seq_now, color        );
-  else if( delta<-99999L ) PRINT( "%16lx(%s<-99999" TEXT_NORMAL ")", seq_now, color        );
-  else                     PRINT( "%16lx(%s %+6li"  TEXT_NORMAL ")", seq_now, color, delta );
+  if(      delta> 99999L ) PRINT( "%10lu(%s>+99999" TEXT_NORMAL ")", seq_now, color        );
+  else if( delta<-99999L ) PRINT( "%10lu(%s<-99999" TEXT_NORMAL ")", seq_now, color        );
+  else                     PRINT( "%10lu(%s %+6li"  TEXT_NORMAL ")", seq_now, color, delta );
 }
 
 void

@@ -334,8 +334,8 @@ run_monitor( config_t * const config,
       PRINT( TEXT_NEWLINE );
     }
     PRINT( TEXT_NEWLINE );
-    PRINT( "           link |  tot TPS |  tot bps | uniq TPS | uniq bps |   ha tr%% | uniq bw%% | filt tr%% | filt bw%% |           ovrnp cnt |           ovrnr cnt |            slow cnt" TEXT_NEWLINE );
-    PRINT( "----------------+----------+----------+----------+----------+----------+----------+----------+----------+---------------------+---------------------+---------------------"    TEXT_NEWLINE );
+    PRINT( "           link |  tot TPS |  tot bps | uniq TPS | uniq bps |   ha tr%% | uniq bw%% | filt tr%% | filt bw%% |           ovrnp cnt |           ovrnr cnt |            slow cnt |             tx seq" TEXT_NEWLINE );
+    PRINT( "----------------+----------+----------+----------+----------+----------+----------+----------+----------+---------------------+---------------------+---------------------+-------------------"    TEXT_NEWLINE );
     long dt = now-then;
     for( ulong link_idx=0UL; link_idx<link_cnt; link_idx++ ) {
       link_snap_t * prv = &link_snap_prv[ link_idx ];
@@ -363,6 +363,7 @@ run_monitor( config_t * const config,
       PRINT( " | " ); printf_err_cnt( &buf, &buf_sz, cur->fseq_diag_ovrnp_cnt, prv->fseq_diag_ovrnp_cnt );
       PRINT( " | " ); printf_err_cnt( &buf, &buf_sz, cur->fseq_diag_ovrnr_cnt, prv->fseq_diag_ovrnr_cnt );
       PRINT( " | " ); printf_err_cnt( &buf, &buf_sz, cur->fseq_diag_slow_cnt,  prv->fseq_diag_slow_cnt  );
+      PRINT( " | " ); printf_seq(     &buf, &buf_sz, cur->mcache_seq,          prv->mcache_seq  );
       PRINT( TEXT_NEWLINE );
     }
 
