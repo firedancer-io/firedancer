@@ -151,7 +151,7 @@
       "fields": [
         { "name": "write_version_obsolete", "type": "ulong" },
         { "name": "data_len", "type": "ulong" },
-        { "name": "pubkey", "type": "char[32]" }
+        { "name": "pubkey", "type": "uchar[32]" }
       ]
     },
     {
@@ -161,7 +161,7 @@
       "fields": [
         { "name": "lamports", "type": "ulong" },
         { "name": "rent_epoch", "type": "ulong" },
-        { "name": "owner", "type": "char[32]" },
+        { "name": "owner", "type": "uchar[32]" },
         { "name": "executable", "type": "char" },
         { "name": "padding", "type": "char[7]" }
       ]
@@ -171,7 +171,7 @@
       "attribute": "((packed))",
       "type": "struct",
       "fields": [
-        { "name": "value", "type": "char[32]" }
+        { "name": "value", "type": "uchar[32]" }
       ]
     },
     {

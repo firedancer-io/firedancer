@@ -1,11 +1,17 @@
 #ifndef HEADER_fd_src_flamenco_runtime_fd_types_custom
 #define HEADER_fd_src_flamenco_runtime_fd_types_custom
 
-#include "../../ballet/fd_ballet_base.h"
+#include "fd_types_meta.h"
 #include "fd_bincode.h"
 #include "../../ballet/ed25519/fd_ed25519.h"
 
-typedef void (*fd_walk_fun_t)(void *arg, const char* name, int type, const char *type_name, int level);
+typedef void
+(* fd_types_walk_fn_t)( void *       self,
+                        void const * arg,
+                        char const * name,
+                        int          type,
+                        char const * type_name,
+                        uint         level );
 
 #define FD_HASH_FOOTPRINT (32UL)
 #define FD_HASH_ALIGN (8UL)
@@ -26,45 +32,50 @@ typedef union fd_hash fd_pubkey_t;
 
 FD_PROTOTYPES_BEGIN
 
-static inline
-void fd_hash_new(FD_FN_UNUSED fd_hash_t* self) {
+static inline void
+fd_hash_new( fd_hash_t * self FD_FN_UNUSED ) {}
+
+static inline int
+fd_hash_decode( fd_hash_t *               self,
+                fd_bincode_decode_ctx_t * ctx ) {
+  return fd_bincode_bytes_decode( &self->hash[0], sizeof(self->hash), ctx );
 }
 
-static inline
-int fd_hash_decode(fd_hash_t* self, fd_bincode_decode_ctx_t * ctx) {
-  return fd_bincode_bytes_decode(&self->hash[0], sizeof(self->hash), ctx);
-}
+static inline void
+fd_hash_destroy( fd_hash_t const *          self FD_FN_UNUSED,
+                 fd_bincode_destroy_ctx_t * ctx  FD_FN_UNUSED ) {}
 
-static inline
-void fd_hash_destroy(FD_FN_UNUSED fd_hash_t const * self, FD_FN_UNUSED fd_bincode_destroy_ctx_t * ctx) {
-}
-
-static inline
-ulong fd_hash_size(FD_FN_UNUSED fd_hash_t const * self) {
+static inline ulong
+fd_hash_size( fd_hash_t const * self FD_FN_UNUSED ) {
   return 32;
 }
 
-static inline
-int fd_hash_encode(fd_hash_t const * self, fd_bincode_encode_ctx_t * ctx) {
-  return fd_bincode_bytes_encode(&self->hash[0], sizeof(self->hash), ctx);
+static inline int
+fd_hash_encode( fd_hash_t const *         self,
+                fd_bincode_encode_ctx_t * ctx ) {
+  return fd_bincode_bytes_encode( &self->hash[0], sizeof(self->hash), ctx );
 }
 
-static inline
-void fd_hash_walk(FD_FN_UNUSED fd_hash_t* self, FD_FN_UNUSED fd_walk_fun_t fun, FD_FN_UNUSED const char *name, FD_FN_UNUSED int level) {
-  fun(self->hash, name, 35, name, level);
+static inline void
+fd_hash_walk( void *             w,
+              fd_hash_t *        self,
+              fd_types_walk_fn_t fun,
+              char const *       name,
+              uint               level ) {
+  fun( w, self->hash, name, FD_FLAMENCO_TYPE_HASH256, name, level );
 }
 
-#define fd_hash_check_zero(_x)           (!((_x)->ul[0] | (_x)->ul[1] | (_x)->ul[2] | (_x)->ul[3]))
-#define fd_hash_set_zero(_x)             {((_x)->ul[0] = 0); ((_x)->ul[1] = 0); ((_x)->ul[2] = 0); ((_x)->ul[3] = 0);}
+#define fd_hash_check_zero(_x) (!((_x)->ul[0] | (_x)->ul[1] | (_x)->ul[2] | (_x)->ul[3]))
+#define fd_hash_set_zero(_x)   {((_x)->ul[0] = 0); ((_x)->ul[1] = 0); ((_x)->ul[2] = 0); ((_x)->ul[3] = 0);}
 
-#define fd_pubkey_new(_x)                fd_hash_new(_x)
-#define fd_pubkey_decode(_x,_y)          fd_hash_decode(_x, _y)
-#define fd_pubkey_encode(_x, _y)         fd_hash_encode(_x, _y)
-#define fd_pubkey_destroy(_x, _y)        fd_hash_destroy(_x, _y)
-#define fd_pubkey_size(_x)               fd_hash_size(_x)
-#define fd_pubkey_check_zero(_x)         fd_hash_check_zero(_x)
-#define fd_pubkey_set_zero(_x)           fd_hash_set_zero(_x)
-#define fd_pubkey_walk(_x, _y, _z, _l)   fd_hash_walk(_x, _y, _z, _l)
+#define fd_pubkey_new         fd_hash_new
+#define fd_pubkey_decode      fd_hash_decode
+#define fd_pubkey_encode      fd_hash_encode
+#define fd_pubkey_destroy     fd_hash_destroy
+#define fd_pubkey_size        fd_hash_size
+#define fd_pubkey_check_zero  fd_hash_check_zero
+#define fd_pubkey_set_zero    fd_hash_set_zero
+#define fd_pubkey_walk        fd_hash_walk
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/epoch_schedule.rs#L26 */
 struct fd_epoch_schedule {
@@ -83,7 +94,7 @@ void fd_epoch_schedule_new(fd_epoch_schedule_t* self);
 int fd_epoch_schedule_decode(fd_epoch_schedule_t* self, fd_bincode_decode_ctx_t * ctx);
 int fd_epoch_schedule_encode(fd_epoch_schedule_t const * self, fd_bincode_encode_ctx_t * ctx);
 void fd_epoch_schedule_destroy(fd_epoch_schedule_t* self, fd_bincode_destroy_ctx_t * ctx);
-void fd_epoch_schedule_walk(fd_epoch_schedule_t* self, fd_walk_fun_t fun, const char *name, int level);
+void fd_epoch_schedule_walk(void * w, fd_epoch_schedule_t* self, fd_types_walk_fn_t fun, const char *name, uint level);
 ulong fd_epoch_schedule_size(fd_epoch_schedule_t const * self);
 
 /* Index structure needed for transaction status (metadata) blocks */

@@ -27,14 +27,14 @@ void fd_epoch_schedule_new(fd_epoch_schedule_t* self) {
 void fd_epoch_schedule_destroy(fd_epoch_schedule_t* self, fd_bincode_destroy_ctx_t * ctx) {
 }
 
-void fd_epoch_schedule_walk(fd_epoch_schedule_t* self, fd_walk_fun_t fun, const char *name, int level) {
-  fun(self, name, 32, "fd_epoch_schedule", level++);
-  fun(&self->slots_per_epoch, "slots_per_epoch", 11, "ulong", level + 1);
-  fun(&self->leader_schedule_slot_offset, "leader_schedule_slot_offset", 11, "ulong", level + 1);
-  fun(&self->warmup, "warmup", 9, "uchar", level + 1);
-  fun(&self->first_normal_epoch, "first_normal_epoch", 11, "ulong", level + 1);
-  fun(&self->first_normal_slot, "first_normal_slot", 11, "ulong", level + 1);
-  fun(self, name, 33, "fd_epoch_schedule", --level);
+void fd_epoch_schedule_walk(void * w, fd_epoch_schedule_t* self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun(w, self, name, 32, "fd_epoch_schedule", level++);
+  fun(w, &self->slots_per_epoch, "slots_per_epoch", 11, "ulong", level + 1);
+  fun(w, &self->leader_schedule_slot_offset, "leader_schedule_slot_offset", 11, "ulong", level + 1);
+  fun(w, &self->warmup, "warmup", 9, "uchar", level + 1);
+  fun(w, &self->first_normal_epoch, "first_normal_epoch", 11, "ulong", level + 1);
+  fun(w, &self->first_normal_slot, "first_normal_slot", 11, "ulong", level + 1);
+  fun(w, self, name, 33, "fd_epoch_schedule", --level);
 }
 ulong fd_epoch_schedule_size(fd_epoch_schedule_t const * self) {
   ulong size = 0;
