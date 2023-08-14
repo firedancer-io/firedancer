@@ -377,7 +377,7 @@ int fd_executor_run_test(
                            test->test_number, test->accs[i].pubkey.key, test->test_number, test->accs[i].pubkey.key ));
 
           /* Print instructions on how to diff */
-          FD_LOG_WARNING(( "YAML DIFF:\n  vimdiff <(xxd -c 32 test_%lu_account_%32J_expected.yml) <(xxd -c 32 test_%lu_account_%32J_actual.yml)",
+          FD_LOG_WARNING(( "YAML DIFF:\n  vimdiff test_%lu_account_%32J_expected.yml test_%lu_account_%32J_actual.yml",
                            test->test_number, test->accs[i].pubkey.key, test->test_number, test->accs[i].pubkey.key ));
 
           ret = -777;

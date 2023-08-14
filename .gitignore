@@ -58,6 +58,8 @@ dump/
 *.solcap
 /*.json
 v17-test-ledger
+/test_*.yml
+/test_*.bin
 
 # RocksDB
 LOG*
