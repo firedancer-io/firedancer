@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - runtime
   workflow_dispatch:
   merge_group:
 jobs:
@@ -17,6 +16,12 @@ jobs:
       CC: ${{ matrix.compiler }}
     steps:
       - uses: actions/checkout@v3
+        with:
+          submodules: recursive
+
+      - uses: dtolnay/rust-toolchain@1.69.0
+
       - uses: ./.github/actions/deps
+
       - name: Build everything
         run: make -j

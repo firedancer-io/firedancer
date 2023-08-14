@@ -14,6 +14,30 @@ fini_perm( security_t *     security,
 }
 
 static configure_result_t
+check_page_size( char * name, ulong size, uint expected ) {
+  char page_path[ PATH_MAX ];
+  snprintf1( page_path,
+             PATH_MAX,
+             "/sys/devices/system/node/node0/hugepages/hugepages-%lukB/free_hugepages",
+             size );
+
+  FILE * fp = fopen( page_path, "r" );
+  if( FD_UNLIKELY( !fp ) ) FD_LOG_ERR(( "error opening `%s` (%i-%s)", page_path, errno, strerror( errno ) ));
+  ulong free_pages;
+  if( FD_UNLIKELY( fscanf( fp, "%lu", &free_pages ) != 1 ) )
+    FD_LOG_ERR(( "error reading `%s` (%i-%s)", page_path, errno, strerror( errno ) ));
+  if( FD_UNLIKELY( fclose( fp ) ) )
+    FD_LOG_ERR(( "error closing `%s` (%i-%s)", page_path, errno, strerror( errno ) ));
+
+  if( FD_UNLIKELY( free_pages < expected ) )
+    PARTIALLY_CONFIGURED( "expected at least %lu free %s pages, but there are %lu, "
+                          "run `fini` to see which processes are using them",
+                          expected, name, free_pages );
+
+  CONFIGURE_OK();
+}
+
+static configure_result_t
 check( config_t * const config ) {
   const char * huge     = config->shmem.huge_page_mount_path;
   const char * gigantic = config->shmem.gigantic_page_mount_path;
@@ -28,37 +52,14 @@ check( config_t * const config ) {
     PARTIALLY_CONFIGURED( "error reading `%s`: %i-%s", gigantic, errno, strerror( errno ) );
 
   /* if our mounts are present, it's OK to have used pages, we will be
-     able to clean up the workspce later */
+     able to clean up the workspace later */
   if( FD_UNLIKELY( !result1 || !result2 ) ) CONFIGURE_OK();
 
-  const char * size = config->shmem.workspace_page_size;
-  ulong page_size   = 0;
-  if( FD_LIKELY( !strcmp( size, "gigantic" ) ) )
-    page_size = 1048576;
-  else if( FD_LIKELY( !strcmp( size, "huge" ) ) )
-    page_size = 2048;
-  else
-    FD_LOG_ERR(( "unknown page size `%s`", size ));
+  uint expected[ 2 ] = { 0 };
+  expected_pages( config, expected );
 
-  char page_path[ PATH_MAX ];
-  snprintf1( page_path,
-             PATH_MAX,
-             "/sys/devices/system/node/node0/hugepages/hugepages-%lukB/free_hugepages",
-             page_size );
-
-  FILE * fp = fopen( page_path, "r" );
-  if( FD_UNLIKELY( !fp ) ) FD_LOG_ERR(( "error opening `%s` (%i-%s)", page_path, errno, strerror( errno ) ));
-  ulong free_pages;
-  if( FD_UNLIKELY( fscanf( fp, "%lu", &free_pages ) != 1 ) )
-    FD_LOG_ERR(( "error reading `%s` (%i-%s)", page_path, errno, strerror( errno ) ));
-  if( FD_UNLIKELY( fclose( fp ) ) )
-    FD_LOG_ERR(( "error closing `%s` (%i-%s)", page_path, errno, strerror( errno ) ));
-
-  ulong expected_pages = config->shmem.workspace_page_count;
-  if( FD_UNLIKELY( free_pages < expected_pages ) )
-    PARTIALLY_CONFIGURED( "expected at least %lu free %s pages, but there are %lu, "
-                          "run `fini` to see which processes are using them",
-                          expected_pages, size, free_pages );
+  CHECK( check_page_size( "huge", 2048, expected[ 0 ] ) );
+  CHECK( check_page_size( "gigantic", 1048576, expected[ 1 ] ) );
 
   CONFIGURE_OK();
 }

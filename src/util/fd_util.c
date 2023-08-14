@@ -18,38 +18,6 @@ fd_boot( int *    pargc,
 }
 
 void
-fd_boot_secure1( int *    pargc,
-                 char *** pargv ) {
-  // 1. Initialize logging and some shared memory information. This
-  //    is done first because it requires opening /dev/null, the log
-  //    file, and some /proc/... info which will not be present after
-  //    the privileged step of sandboxing
-  //
-  //    It's also needed because the caller process might want to
-  //    initialize some privileged resources with code that does
-  //    logging, or needs information from the shared memory domain.
-  fd_log_private_boot          ( pargc, pargv );
-  fd_shmem_private_boot        ( pargc, pargv );
-}
-
-void
-fd_boot_secure2( int *    pargc,
-                 char *** pargv ) {
-  // 2. Do any sandboxing operations which require capabilities. This
-  //    enters a mount namespace and makes the filesystem unavailable.
-  //    When this returns the caller is in a new usernamespace and
-  //    has no capabilities.
-  fd_sandbox_private_privileged        ( pargc, pargv );
-
-  // 3. Boot the tiles. Must be done after dropping capabilities so
-  //    tiles start without any.
-  fd_tile_private_boot                 ( pargc, pargv ); /* The caller is now tile 0 */
-
-  // 4. Enter sandbox and restrict all system calls
-  fd_sandbox_private                   ( pargc, pargv );
-}
-
-void
 fd_halt( void ) {
   /* At this point, we are immediately before normal program
      termination, and fd has already been booted. */

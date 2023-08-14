@@ -208,7 +208,12 @@
 
    Note: fd_log_wallclock called outside the arg list to give it a
    linguistically strict point when it is called that is before logging
-   activities commence. */
+   activities commence.
+
+   This family of functions is not async-signal safe. Do not call log functions from
+   a signal handler, it may deadlock or corrupt the log. If you wish to write
+   emergency diagnostics, you can call `write(2)` directly to stderr or the log file,
+   which is safe. */
 
 #define FD_LOG_DEBUG(a)           do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_1( 0, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0           a ); } while(0)
 #define FD_LOG_INFO(a)            do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_1( 1, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0           a ); } while(0)
@@ -535,6 +540,9 @@ void fd_log_level_flush_set  ( int level );
 void fd_log_level_core_set   ( int level );
 
 /* These functions are for fd_log internal use only. */
+
+void
+fd_log_private_fprintf_0( int fd, char const * fmt, ... ) __attribute__((format(printf,2,3))); /* Type check the fmt string at compile time */
 
 char const *
 fd_log_private_0( char const * fmt, ... ) __attribute__((format(printf,1,2))); /* Type check the fmt string at compile time */

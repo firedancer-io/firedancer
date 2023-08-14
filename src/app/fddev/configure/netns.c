@@ -1,26 +1,9 @@
 #define _GNU_SOURCE
-#include "configure.h"
+#include "../../fdctl/configure/configure.h"
 
-#include <sched.h>
-#include <fcntl.h>
 #include <sys/stat.h>
 
 #define NAME "netns"
-
-static int entered = 0;
-
-void
-enter_network_namespace( config_t * const config ) {
-  if( FD_LIKELY( !config->development.netns.enabled || entered ) ) return;
-  entered = 1;
-
-  char path[ PATH_MAX ];
-  snprintf1( path, PATH_MAX, "/var/run/netns/%s", config->tiles.quic.interface );
-
-  int fd = open( path, O_RDONLY | O_CLOEXEC );
-  if( FD_UNLIKELY( fd < 0 ) ) FD_LOG_ERR(( "failed to open `%s` (%i-%s)", path, errno, strerror( errno ) ));
-  if( FD_UNLIKELY( setns( fd, CLONE_NEWNET ) ) ) FD_LOG_ERR(( "failed to enter network namespace `%s` (%i-%s)", path, errno, strerror( errno ) ));
-}
 
 static int
 enabled( config_t * const config ) {

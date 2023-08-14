@@ -409,25 +409,23 @@ main( int     argc,
       struct stat st;
       if( FD_UNLIKELY( fstat( fd, &st ) == -1 ) )
         FD_LOG_ERR(( "%i: %s: fstat( \"%s\" ) failed\n\tDo %s help for help", cnt, cmd, file, bin ));
+      ulong buf_sz = (ulong)st.st_size;
 
-      size_t buf_sz = (size_t) st.st_size;
-      uchar * buf = malloc( buf_sz );
-      if( FD_UNLIKELY( !buf ) )
-        FD_LOG_ERR(( "%i: %s: malloc( %lu ) failed\n\tDo %s help for help", cnt, cmd, buf_sz, bin ));
-
-      if( FD_UNLIKELY( read( fd, buf, buf_sz ) == -1 ) )
-        FD_LOG_ERR(( "%i: %s: read( \"%s\" ) failed\n\tDo %s help for help", cnt, cmd, file, bin ));
-
-
-      ulong off = fd_pod_insert_buf( pod, path, buf, buf_sz );
-
-      close( fd );
-      free( buf );
-      fd_wksp_unmap( fd_pod_leave( pod ) );
-
+      ulong off = fd_pod_alloc( pod, path, FD_POD_VAL_TYPE_BUF, buf_sz );
       if( FD_UNLIKELY( !off ) )
-        FD_LOG_ERR(( "%i: %s: fd_pod_insert_file( \"%s\", \"%s\", \"%s\" ) failed\n\tDo %s help for help",
-                     cnt, cmd, cstr, path, file, bin ));
+        FD_LOG_ERR(( "%i: %s: fd_pod_alloc( \"%s\", \"%s\", FD_POD_VAL_TYPE_BUF, %lu ) failed\n\tDo %s help for help",
+                     cnt, cmd, cstr, path, buf_sz, bin ));
+
+      if( FD_UNLIKELY( read( fd, pod + off, buf_sz )!=(long)buf_sz ) ) {
+        if( FD_UNLIKELY( fd_pod_remove( pod, path ) ) )
+          FD_LOG_WARNING(( "%i: %s: fd_pod_remove( \"%s\", \"%s\" ) failed; pod likely corrupt", cnt, cmd, cstr, path ));
+        FD_LOG_ERR(( "%i: %s: read( \"%s\" ) failed\n\tDo %s help for help", cnt, cmd, file, bin ));
+      }
+
+      if( FD_UNLIKELY( close( fd ) ) )
+        FD_LOG_WARNING(( "%i: %s: close( \"%s\" ) failed; attempting to continue", cnt, cmd, file ));
+
+      fd_wksp_unmap( fd_pod_leave( pod ) );
 
       FD_LOG_NOTICE(( "%i: %s %s %s %s: success", cnt, cmd, cstr, path, file ));
       SHIFT(3);

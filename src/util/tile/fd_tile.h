@@ -22,6 +22,9 @@ typedef int (*fd_tile_task_t)( int argc, char ** argv );
 struct fd_tile_exec_private;
 typedef struct fd_tile_exec_private fd_tile_exec_t;
 
+/* TODO: Allow this to be run-time configured (e.g. match ulimit -s)? */
+#define FD_TILE_PRIVATE_STACK_SZ (8UL<<20) /* Should be a multiple of HUGE (and NORMAL) page sizes */
+
 FD_PROTOTYPES_BEGIN
 
 /* fd_tile_{id0,id1,id,idx,cnt} return various information about the
@@ -163,6 +166,14 @@ fd_tile_private_boot( int *    pargc,
 
 void
 fd_tile_private_halt( void );
+
+void *
+fd_tile_private_stack_new( int   optimize,
+                           ulong cpu_idx );
+
+ulong
+fd_tile_private_cpus_parse( char const * cstr,
+                            ushort *     tile_to_cpu );
 
 FD_PROTOTYPES_END
 

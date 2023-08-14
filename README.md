@@ -23,26 +23,29 @@ The [getting started](doc/getting-started.md) guide has detailed system
 setup instructions.
 
 ```bash
-$ git clone https://github.com/firedancer-io/firedancer.git
+$ git clone --recurse-submodules https://github.com/firedancer-io/firedancer.git
 $ cd firedancer
 $ ./deps.sh
 $ make -j run
 ```
 
-Firedancer uses several privileged operating system features to improve
-performance and security. These can be configured manually in your
-environment, but we also provide a tool for automatic configuration.
+The `make run` target runs the `fddev dev` command. This development
+command will ensure your system is configured correctly before starting
+a Solana validator on the local machine. `fddev` will use `sudo` to make
+privileged changes to system configuration where needed.
 
-The default `make run` target will ensure your system is configured
-correctly before running Firedancer, using `sudo` to make privileged
-changes where necessary.
+By default `fddev` will create a new chain with a genesis block, along
+with any keys needed to start the initial validator. If you wish to join
+this cluster with other validators, you can define `[rpc.entrypoints]`
+in the configuration file to point at your first validator and run
+`fddev dev` again.
 
 ## Running
 
 In production, it is recommended to configure the system immediately at
-boot time rather than when running Firedancer. This ensures we can
-allocate the contiguous memory we need, as over time memory may become
-fragmented.
+boot time rather than when running Firedancer. This ensures a contiguous
+block of memory can be reserved, as it may not be possible when the
+machine has been running a long time.
 
 ```bash
 $ fdctl configure init all
@@ -58,6 +61,12 @@ Later, when you wish to start the validator, you can run
 ```bash
 $ fdctl run
 ```
+
+Unlike `fddev`, `fdctl` will not try to gain root to perform
+configuration, and will not automatically create required keys or a
+genesis block. The `[rpc.entrypoints]` and `[consensus.identity_path]`
+configuration options must be defined in order to start the production
+validator.
 
 Some of the privileged system configuration steps performed by `fdctl
 configure` are,

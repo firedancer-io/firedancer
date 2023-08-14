@@ -94,10 +94,7 @@ fd_tile_private_cpu_restore( fd_tile_private_cpu_config_t * save ) {
     FD_LOG_WARNING(( "fd_tile: setpriority failed (%i-%s); attempting to continue", errno, strerror( errno ) ));
 }
 
-/* TODO: Allow this to be run-time configured (e.g. match ulimit -s)? */
-#define FD_TILE_PRIVATE_STACK_SZ (8UL<<20) /* Should be a multiple of HUGE (and NORMAL) page sizes */
-
-static void *
+void *
 fd_tile_private_stack_new( int   optimize,
                            ulong cpu_idx ) { /* Ignored if optimize is not requested */
 
@@ -262,6 +259,23 @@ typedef struct fd_tile_private_manager_args fd_tile_private_manager_args_t;
 static void *
 fd_tile_private_manager( void * _args ) {
   fd_tile_private_manager_args_t * args = (fd_tile_private_manager_args_t *)_args;
+
+# if !__GLIBC__
+  if( args->cpu_idx<65535UL ) {
+    cpu_set_t cpu_set[1];
+    CPU_ZERO( cpu_set );
+    CPU_SET( args->cpu_idx, cpu_set );
+    int err = sched_setaffinity( (pid_t)0, sizeof(cpu_set_t), cpu_set );
+    if( FD_UNLIKELY( err ) )
+      FD_LOG_WARNING(( "fd_tile: sched_setaffinity_failed (%i-%s)\n\t"
+                       "Unable to set the thread affinity for tile %lu to cpu %lu.  Attempting to\n\t"
+                       "continue without explicitly specifying this tile's cpu affinity but it\n\t"
+                       "is likely this thread group's performance and stability are compromised\n\t"
+                       "(possibly catastrophically so).  Update --tile-cpus to specify a set of\n\t"
+                       "allowed cpus that have been reserved for this thread group on this host\n\t"
+                       "to eliminate this warning.", err, strerror( err ), args->idx, args->cpu_idx ));
+  }
+# endif /* !__GLIBC__ */
 
   ulong  id       = args->id;
   ulong  idx      = args->idx;
@@ -442,7 +456,7 @@ fd_tile_exec_done( fd_tile_exec_t const * exec ) {
 
 FD_STATIC_ASSERT( CPU_SETSIZE<65535, update_tile_to_cpu_type );
 
-static ulong
+ulong
 fd_tile_private_cpus_parse( char const * cstr,
                             ushort *     tile_to_cpu ) {
   if( !cstr ) return 0UL;

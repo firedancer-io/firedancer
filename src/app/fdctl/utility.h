@@ -5,6 +5,17 @@
 
 #include <stdlib.h>
 
+/* mkdir_all() is like `mkdir -p`, it creates all directories
+   needed as part of the path. Logs an error and exits the process
+   if anything goes wrong. */
+void
+mkdir_all( const char * _path,
+           uid_t uid,
+           gid_t gid );
+
+void
+exit_group( int status );
+
 /* internet_routing_interface() returns the interface index which
    routes to the public internet (8.8.8.8). If multiple interfaces
    route there, the first one returned by rtnetlink is returned.
@@ -20,12 +31,19 @@ void nanosleep1( uint secs, uint nanos );
 
 /* snprintf1() functions like snprintf except if the buffer is not
    large enough or there is some other error printing, it logs an
-   error and exits the program. */
-void
+   error and exits the program. returns s. */
+char *
 snprintf1( char * s,
            ulong  maxlen,
            char * format,
            ... );
+
+/* self_exe() retrieves the full path of the current executable
+   into the path. Path should be a buffer with at least PATH_MAX
+   elements or calling this is undefined behavior. Logs error
+   and exits if the current executable cannot be determined. */
+void
+self_exe( char * path );
 
 /* RUN() executes the given string and formatting arguments as a
    subprocess, and waits for the child to complete. If the child does

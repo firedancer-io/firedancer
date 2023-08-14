@@ -54,7 +54,7 @@ check_res( security_t *    security,
     FD_LOG_ERR(( "getrlimit failed (%i-%s)", errno, strerror( errno ) ));
   if( FD_LIKELY( rlim.rlim_cur >= limit ) ) return;
 
-  if( FD_LIKELY( has_capability( CAP_SYS_RESOURCE ) ) ) {
+  if( FD_LIKELY( ! has_capability( CAP_SYS_RESOURCE ) ) ) {
     if( FD_LIKELY( resource == RLIMIT_NICE && has_capability( CAP_SYS_NICE ) ) ) {
         /* special case, if we have CAP_SYS_NICE we can set any nice
            value without raising the limit with CAP_SYS_RESOURCE. */

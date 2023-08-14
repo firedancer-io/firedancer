@@ -101,8 +101,10 @@ wd_extract( wd_t a, int imm ) { /* FIXME: USE EPI64 HACKS? */
   return d[imm];
 }
 
-#if FD_USING_CLANG /* Sigh ... clang is sad and can't handle passing compile time const expressions through a static inline */
+#if FD_USING_CLANG || !FD_HAS_OPTIMIZATION
 
+/* Sigh ... clang is sad and can't handle passing compile time const
+   expressions through a static inline */
 #define wd_insert( a, imm, v ) (__extension__({                                                      \
     union { double v; long i; } _wd_insert_t;                                                        \
     _wd_insert_t.v = v;                                                                              \

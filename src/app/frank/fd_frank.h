@@ -3,6 +3,7 @@
 
 #include "../../disco/fd_disco.h"
 #include "../../ballet/fd_ballet.h" /* FIXME: CONSIDER HAVING THIS IN DISCO_BASE */
+#include "../../tango/xdp/fd_xsk.h"
 
 /* FD_FRANK_CNC_DIAG_* are FD_CNC_DIAG_* style diagnostics and thus the
    same considerations apply.  Further they are harmonized with the
@@ -23,55 +24,32 @@
 #define FD_FRANK_CNC_DIAG_SV_FILT_CNT (4UL)                 /* ", ideally never */
 #define FD_FRANK_CNC_DIAG_SV_FILT_SZ  (5UL)                 /* " */
 
-FD_PROTOTYPES_BEGIN
+typedef struct {
+   char *        app_name;
+   char *        tile_name;
+   ulong         tile_idx;
+   ulong         idx;
+   uchar const * tile_pod;
+   uchar const * in_pod;
+   uchar const * out_pod;
+   fd_xsk_t    * xsk;
+   double        tick_per_ns;
+} fd_frank_args_t;
 
-/* fd_frank_{verify,dedup,pack}_task is a fd_tile_task_t compatible
-   function whose task is to run a {verify,dedup,pack} tile.  argc is
-   ignored, argv[0] points to a cstr with the tile name (for a verify,
-   this is also used to find the specific verify configuration in the
-   frank instance's configuration), argv[1] points to a cstr with the
-   gaddr of the pod containing the frank instance's configuration and
-   argv[2] points to a cstr with the path to the frank instance's
-   configuration.  The lifetime of these cstr should be longer than the
-   tile execution.  The argv array used to pass these cstr will not be
-   used after the tile has successfully booted.  Aborts the thread group
-   on error.  Returns 0 on success and non-zero on failure (logs
-   details, given abortive behavior). */
+typedef struct {
+   char *  name;
+   char *  in_wksp;
+   char *  out_wksp;
+   ushort  allow_syscalls_sz;
+   long *  allow_syscalls;
+   ulong (*allow_fds)( fd_frank_args_t * args, ulong out_fds_sz, int * out_fds );
+   void  (*init)( fd_frank_args_t * args );
+   void  (*run )( fd_frank_args_t * args );
+} fd_frank_task_t;
 
-int
-fd_frank_run( int *        pargc,
-              char ***     pargv,
-              const char * pod_gaddr );
-
-int
-fd_frank_mon( int *        pargc,
-              char ***     pargv,
-              const char * pod_gaddr,
-              long         dt_min,
-              long         dt_max,
-              long         duration,
-              uint         seed );
-
-int
-fd_frank_verify_task( int     argc,
-                      char ** argv );
-
-int
-fd_frank_dedup_task( int     argc,
-                     char ** argv );
-
-int
-fd_frank_pack_task( int     argc,
-                    char ** argv );
-
-void
-fd_frank_quic_task_preload( char const * pod_gaddr );
-
-int
-fd_frank_quic_task( int     argc,
-                    char ** argv );
-
-FD_PROTOTYPES_END
+extern fd_frank_task_t frank_verify;
+extern fd_frank_task_t frank_dedup;
+extern fd_frank_task_t frank_quic;
+extern fd_frank_task_t frank_pack;
 
 #endif /* HEADER_fd_src_app_frank_fd_frank_h */
-
