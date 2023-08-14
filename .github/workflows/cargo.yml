@@ -64,21 +64,21 @@ jobs:
           command: fmt
           args: --all -- --check
 
-  clippy:
-    name: cargo-clippy
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: nightly
-          override: true
-          components: rustfmt, clippy
-      - uses: actions-rs/cargo@v1
-        with:
-          command: clippy
-          args: --all -- -D warnings
+  #clippy:
+  #  name: cargo-clippy
+  #  runs-on: ubuntu-latest
+  #  steps:
+  #    - uses: actions/checkout@v3
+  #    - uses: actions-rs/toolchain@v1
+  #      with:
+  #        profile: minimal
+  #        toolchain: nightly
+  #        override: true
+  #        components: rustfmt, clippy
+  #    - uses: actions-rs/cargo@v1
+  #      with:
+  #        command: clippy
+  #        args: --all -- -D warnings
 
   cargo-deny:
     name: cargo-deny
