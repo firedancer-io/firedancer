@@ -1,12 +1,13 @@
 #ifndef HEADER_fd_src_flamenco_types_fd_types_meta_h
 #define HEADER_fd_src_flamenco_types_fd_types_meta_h
 
-#include "../fd_flamenco_base.h"
+#include "../../util/fd_util_base.h"
 
 /* fd_types_meta.h provides type reflection APIs fd_types. */
 
 /* FD_FLAMENCO_TYPE_{...} identifies kinds of nodes */
 
+#define FD_FLAMENCO_TYPE_NULL      (0x00)
 #define FD_FLAMENCO_TYPE_BOOL      (0x01)
 #define FD_FLAMENCO_TYPE_UCHAR     (0x02)
 #define FD_FLAMENCO_TYPE_SCHAR     (0x03)
@@ -27,10 +28,8 @@
 
 #define FD_FLAMENCO_TYPE_ARR       (0x10)
 #define FD_FLAMENCO_TYPE_ARR_END   (0x11)
-#define FD_FLAMENCO_TYPE_OPT       (0x12)
-#define FD_FLAMENCO_TYPE_OPT_END   (0x13)
-#define FD_FLAMENCO_TYPE_MAP       (0x14)
-#define FD_FLAMENCO_TYPE_MAP_END   (0x15)
+#define FD_FLAMENCO_TYPE_MAP       (0x12)
+#define FD_FLAMENCO_TYPE_MAP_END   (0x13)
 
 FD_PROTOTYPES_BEGIN
 

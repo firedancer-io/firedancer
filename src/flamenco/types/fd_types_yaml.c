@@ -4,10 +4,7 @@
 #include <ctype.h>
 #include <stdio.h>
 
-#define FD_FLAMENCO_YAML_MAX_INDENT   (64UL)
 #define FD_FLAMENCO_YAML_INDENT_BUFSZ (2UL*FD_FLAMENCO_YAML_MAX_INDENT+1UL)
-
-FD_STATIC_ASSERT( FD_FLAMENCO_YAML_INDENT_BUFSZ<=UCHAR_MAX, overflow );
 
 /* STATE_{...} identify the state of the YAML writer.  This is used
    because assembling the YAML stream requires different combinations
@@ -18,6 +15,7 @@ FD_STATIC_ASSERT( FD_FLAMENCO_YAML_INDENT_BUFSZ<=UCHAR_MAX, overflow );
 #define STATE_OBJECT       (3)  /* Writing object,  >0 elems so far */
 #define STATE_ARRAY_BEGIN  (4)  /* Writing array,  ==0 elems so far */
 #define STATE_ARRAY        (5)  /* Writing array,   >0 elems so far */
+#define STATE_OPTION_BEGIN (6)  /* Writing nullable, waiting for elem */
 
 /* fd_flamenco_yaml provides methods for converting a bincode-like AST of
    nodes into a YAML text stream.
@@ -34,6 +32,7 @@ FD_STATIC_ASSERT( FD_FLAMENCO_YAML_INDENT_BUFSZ<=UCHAR_MAX, overflow );
        - 128
        - 129
        key2: true
+       key3: null
 
    Results in the following walk:
 
@@ -47,6 +46,8 @@ FD_STATIC_ASSERT( FD_FLAMENCO_YAML_INDENT_BUFSZ<=UCHAR_MAX, overflow );
           3  ARR_END
           2  BOOL    key2      true
           2  MAP_END
+          2  OPT     key3
+          3  OPT_END
           1  MAP_END
           0  MAP_END
 
@@ -54,7 +55,10 @@ FD_STATIC_ASSERT( FD_FLAMENCO_YAML_INDENT_BUFSZ<=UCHAR_MAX, overflow );
    the walk level may increment.  The subsequent nodes in this
    incremented level then belong to the collection.  The last node in
    the incremented level is always the collection's corresponding end
-   node. */
+   node.
+
+   Finally, we support option types.  During walk, these are presented
+   as a separate  */
 
 struct fd_flamenco_yaml {
   void * file;   /* (FILE *) or platform equivalent */
@@ -122,9 +126,10 @@ fd_flamenco_yaml_walk( void *       _self,
                        void const * arg,
                        char const * name,
                        int          type,
+                       char const * type_name,
                        uint         level ) {
 
-  if( FD_UNLIKELY( !arg ) ) return;
+  (void)type_name;
 
   if( level>=FD_FLAMENCO_YAML_MAX_INDENT-1 ) {
     FD_LOG_WARNING(( "indent level %d exceeds max %d",
@@ -178,6 +183,7 @@ fd_flamenco_yaml_walk( void *       _self,
         fprintf( file, "[]\n" );
         break;
       }
+
       return;
     }
 
@@ -255,6 +261,9 @@ fd_flamenco_yaml_walk( void *       _self,
     self->stack[ level+1 ] = STATE_ARRAY_BEGIN;
     break;
 
+  case FD_FLAMENCO_TYPE_NULL:
+    fprintf( file, "null\n" );
+    break;
   case FD_FLAMENCO_TYPE_BOOL:
     fprintf( file, "%s\n", (*(uchar const *)arg) ? "true" : "false" );
     break;
@@ -298,10 +307,13 @@ fd_flamenco_yaml_walk( void *       _self,
     fprintf( file, "%f\n", *(double const *)arg );
     break;
   case FD_FLAMENCO_TYPE_HASH256:
-    fprintf( file, "'%32J'", arg );
+    fprintf( file, "'%32J'\n", arg );
     break;
   case FD_FLAMENCO_TYPE_CSTR:
     fprintf( file, "'%s'\n", (char const *)arg );
+    break;
+  default:
+    FD_LOG_CRIT(( "unknown type %d", type ));
     break;
   }
 

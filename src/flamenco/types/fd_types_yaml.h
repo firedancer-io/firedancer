@@ -6,6 +6,8 @@
 struct fd_flamenco_yaml;
 typedef struct fd_flamenco_yaml fd_flamenco_yaml_t;
 
+#define FD_FLAMENCO_YAML_MAX_INDENT (64UL)
+
 FD_PROTOTYPES_BEGIN
 
 ulong
@@ -25,7 +27,7 @@ fd_flamenco_yaml_delete( fd_flamenco_yaml_t * yaml );
 
 fd_flamenco_yaml_t *
 fd_flamenco_yaml_init( fd_flamenco_yaml_t * yaml,
-                       void *            file );
+                       void *               file );
 
 /* fd_flamenco_yaml_walk implements fd_flamenco_walk_fn_t. */
 
@@ -34,6 +36,7 @@ fd_flamenco_yaml_walk( void *       self,
                        void const * arg,
                        char const * name,
                        int          type,
+                       char const * type_name,
                        uint         level );
 
 FD_PROTOTYPES_END
