@@ -2,8 +2,6 @@ name: Make Fuzz Artifacts
 on:
   pull_request:
   push:
-    branches:
-      - main
   workflow_dispatch:
   merge_group:
 jobs:
@@ -21,16 +19,16 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@1.69.0
 
-      - name: Set extras
-        run: |
-          echo "EXTRAS=static" >> "$GITHUB_ENV"
-
-      - name: Prepare asan
-        run: |
-          echo "MACHINE=linux_clang_x86_64_fuzz_asan" >> "$GITHUB_ENV"
-
       - uses: firedancer-io/alpine-builder@main
-        name: Build with asan on Alpine
+        name: Build with ASAN on Alpine
+        env:
+          MACHINE: linux_clang_x86_64_fuzz_asan
+        with:
+          command: make --output-sync=target -j fuzz-test
+
+      - name: List Artifacts
+        run: |
+          ls build/linux/clang/x86_64_fuzz_asan/fuzz-test
 
       - uses: firedancer-io/clusterfuzz-action@main
         if: ${{ github.ref == 'refs/heads/main' }}
