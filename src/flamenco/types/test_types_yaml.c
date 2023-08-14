@@ -6,6 +6,9 @@
 
 #include <stdio.h>
 
+/* This test program ensures that the fd_flamenco_yaml serializer works
+   correctly, given various type tree walk inputs. */
+
 /* Unit tests:  Test that a bincode AST walk results in the correct
    YAML stream.
 
@@ -145,6 +148,61 @@ static const char test5_expected[] =
   "        - 3\n"
   "        - []\n";
 
+/* Unit test 6: Mix objects/arrays */
+
+static const fd_flamenco_type_step_t test6_walk[] = {
+  { .level = 0, .type = FD_FLAMENCO_TYPE_MAP },
+
+  { .level = 1, .type = FD_FLAMENCO_TYPE_ARR, .name = "authorized_voters" },
+  { .level = 2, .type = FD_FLAMENCO_TYPE_MAP },
+  { .level = 3, .type = FD_FLAMENCO_TYPE_ULONG, .name = "epoch",  .ul =   0 },
+  { .level = 3, .type = FD_FLAMENCO_TYPE_ULONG, .name = "pubkey", .ul = 123 },
+  { .level = 3, .type = FD_FLAMENCO_TYPE_MAP_END },
+  { .level = 2, .type = FD_FLAMENCO_TYPE_ARR_END },
+
+  { .level = 1, .type = FD_FLAMENCO_TYPE_MAP, .name = "prior_voters" },
+  { .level = 2, .type = FD_FLAMENCO_TYPE_ARR, .name = "buf" },
+
+  { .level = 3, .type = FD_FLAMENCO_TYPE_MAP,   .name = "prior_voter" },
+  { .level = 4, .type = FD_FLAMENCO_TYPE_ULONG, .name = "start", .ul = 0UL },
+  { .level = 4, .type = FD_FLAMENCO_TYPE_ULONG, .name = "end",   .ul = 0UL },
+  { .level = 4, .type = FD_FLAMENCO_TYPE_MAP_END },
+
+  { .level = 3, .type = FD_FLAMENCO_TYPE_MAP,   .name = "prior_voter" },
+  { .level = 4, .type = FD_FLAMENCO_TYPE_ULONG, .name = "start", .ul = 0UL },
+  { .level = 4, .type = FD_FLAMENCO_TYPE_ULONG, .name = "end",   .ul = 0UL },
+  { .level = 4, .type = FD_FLAMENCO_TYPE_MAP_END },
+
+  { .level = 3, .type = FD_FLAMENCO_TYPE_ARR_END },
+  { .level = 2, .type = FD_FLAMENCO_TYPE_MAP_END },
+
+  { .level = 1, .type = FD_FLAMENCO_TYPE_MAP_END },
+  {0}
+};
+
+static const char test6_expected[] =
+  "authorized_voters: \n"
+  "  - epoch: 0\n"
+  "    pubkey: 123\n"
+  "prior_voters: \n"
+  "  buf: \n"
+  "    - start: 0\n"
+  "      end: 0\n"
+  "    - start: 0\n"
+  "      end: 0\n";
+
+/* Unit test 7: Option in map (null) */
+
+static const fd_flamenco_type_step_t test7_walk[] = {
+  { .level = 0, .type = FD_FLAMENCO_TYPE_MAP },
+  { .level = 1, .type = FD_FLAMENCO_TYPE_NULL, .name = "option" },
+  { .level = 1, .type = FD_FLAMENCO_TYPE_MAP_END },
+  {0}
+};
+
+static const char test7_expected[] =
+  "option: null\n";
+
 /* List of unit tests */
 
 static const fd_flamenco_yaml_test_t fd_flamenco_yaml_tests[] = {
@@ -154,6 +212,8 @@ static const fd_flamenco_yaml_test_t fd_flamenco_yaml_tests[] = {
   { .walk = test3_walk, .expected = test3_expected },
   { .walk = test4_walk, .expected = test4_expected },
   { .walk = test5_walk, .expected = test5_expected },
+  { .walk = test6_walk, .expected = test6_expected },
+  { .walk = test7_walk, .expected = test7_expected },
   {0}
 };
 
@@ -169,9 +229,9 @@ fd_flamenco_yaml_unit_test( fd_flamenco_yaml_test_t const * test ) {
   fd_flamenco_yaml_t * yaml = fd_flamenco_yaml_init( fd_flamenco_yaml_new( yaml_mem ), file );
 
   for( fd_flamenco_type_step_t const * walk = test->walk;
-                                       walk->type;
+                                       (!!walk->type) | (!!walk->level);
                                        walk++ ) {
-    fd_flamenco_yaml_walk( yaml, &walk->ul, walk->name, walk->type, walk->level );
+    fd_flamenco_yaml_walk( yaml, &walk->ul, walk->name, walk->type, NULL, walk->level );
   }
   FD_TEST( 0==fputc( '\0', file ) );
   long cnt = ftell( file );
@@ -185,6 +245,8 @@ fd_flamenco_yaml_unit_test( fd_flamenco_yaml_test_t const * test ) {
     FD_LOG_HEXDUMP_WARNING(( "Actual",   yaml_buf,       (ulong)cnt               ));
     FD_LOG_ERR(( "Unit test %ld failed", test - fd_flamenco_yaml_tests ));
   }
+
+  fd_flamenco_yaml_delete( yaml );
 }
 
 static void
@@ -203,43 +265,46 @@ fd_flamenco_yaml_run_unit_tests( void ) {
 FD_IMPORT_BINARY( vote_account_bin,  "src/flamenco/types/fixtures/vote_account.bin" );
 FD_IMPORT_BINARY( vote_account_yaml, "src/flamenco/types/fixtures/vote_account.yml" );
 
-//static void
-//fd_flamenco_integration_test( void ) {
-//
-//  /* Decode bincode blob */
-//
-//  fd_scratch_push();
-//  fd_bincode_decode_ctx_t decode[1] = {{
-//    .data    = vote_account_bin,
-//    .dataend = vote_account_bin + vote_account_bin_sz,
-//    .valloc  = fd_scratch_virtual()
-//  }};
-//  fd_vote_state_versioned_t state[1];
-//  int err = fd_vote_state_versioned_decode( state, decode );
-//  fd_scratch_pop();
-//  FD_TEST( err==FD_BINCODE_SUCCESS );
-//
-//  /* Create memory-backed file */
-//
-//  static uchar yaml_buf[ 1<<20 ];
-//  FILE * file = fmemopen( yaml_buf, sizeof(yaml_buf), "w" );
-//
-//  /* Encode YAML */
-//
-//  fd_flamenco_yaml_t  _yaml[1];
-//  fd_flamenco_yaml_t * yaml = fd_flamenco_yaml_init( _yaml, file );
-//  FD_TEST( yaml==_yaml );
-//
-//  fd_vote_state_versioned_walk( yaml, state, fd_flamenco_yaml_walk, NULL, 0 );
-//  FD_TEST( 0==ferror( file )      );
-//  FD_TEST( 0==fputc( '\0', file ) );
-//  long sz = ftell(  file );
-//  FD_TEST( sz>0 );
-//  FD_TEST( 0==fclose( file ) );
-//
-//  fwrite( yaml_buf, 1, (ulong)sz, stdout );
-//}
-//
+static void
+fd_flamenco_yaml_full_test( void ) {
+
+  FD_SCRATCH_SCOPED_FRAME;
+
+  /* Decode bincode blob */
+
+  fd_bincode_decode_ctx_t decode[1] = {{
+    .data    = vote_account_bin,
+    .dataend = vote_account_bin + vote_account_bin_sz,
+    .valloc  = fd_scratch_virtual()
+  }};
+  fd_vote_state_versioned_t state[1];
+  int err = fd_vote_state_versioned_decode( state, decode );
+  FD_TEST( err==FD_BINCODE_SUCCESS );
+
+  /* Encode YAML */
+
+  static char yaml_buf[ 1<<20 ];
+  FILE * file = fmemopen( yaml_buf, sizeof(yaml_buf), "w" );
+
+  void * yaml_mem = fd_scratch_alloc( fd_flamenco_yaml_align(), fd_flamenco_yaml_footprint() );
+  fd_flamenco_yaml_t * yaml = fd_flamenco_yaml_init( fd_flamenco_yaml_new( yaml_mem ), file );
+
+  fd_vote_state_versioned_walk( yaml, state, fd_flamenco_yaml_walk, NULL, 0 );
+  FD_TEST( 0==ferror( file ) );
+  long sz = ftell(  file );
+  FD_TEST( sz>0 );
+  FD_TEST( 0==fclose( file ) );
+
+  /* Compare */
+
+  if( FD_UNLIKELY( (ulong)sz!=vote_account_yaml_sz )
+                || (0!=memcmp( yaml_buf, vote_account_yaml, vote_account_yaml_sz ) ) ) {
+    FD_LOG_WARNING(( "Encoded vote account YAML doesn't match test fixture" ));
+    fwrite( yaml_buf, 1, (ulong)sz, stdout );
+    FD_LOG_WARNING(( "Dumped output to stdout!" ));
+    FD_LOG_ERR(( "fail" ));
+  }
+}
 
 int
 main( int     argc,
@@ -247,37 +312,20 @@ main( int     argc,
   fd_boot( &argc, &argv );
   fd_flamenco_boot( &argc, &argv );
 
-  char const * _page_sz   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",    NULL, "gigantic" );
-  ulong        page_cnt   = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt",   NULL, 2UL        );
-  ulong        scratch_mb = fd_env_strip_cmdline_ulong( &argc, &argv, "--scratch-mb", NULL, 1024UL     );
-
-  ulong page_sz = fd_cstr_to_shmem_page_sz( _page_sz );
-  FD_TEST( page_sz );
-
-  /* Acquire workspace */
-
-  fd_wksp_t * wksp = fd_wksp_new_anonymous( page_sz, page_cnt, fd_log_cpu_id(), "wksp", 0UL );
-  FD_TEST( wksp );
-
-  /* Create scratch allocator */
-
-  ulong  smax = scratch_mb << 20;
-  void * smem = fd_wksp_alloc_laddr( wksp, fd_scratch_smem_align(), smax, 1UL );
-  if( FD_UNLIKELY( !smem ) ) FD_LOG_ERR(( "Failed to alloc scratch mem" ));
-
-# define SCRATCH_DEPTH (4UL)
-  ulong fmem[ SCRATCH_DEPTH ] __attribute((aligned(FD_SCRATCH_FMEM_ALIGN)));
-
-  fd_scratch_attach( smem, fmem, smax, SCRATCH_DEPTH );
+  static uchar scratch_mem [ 1<<25 ];  /* 32 MiB */
+  static ulong scratch_fmem[ 4UL ] __attribute((aligned(FD_SCRATCH_FMEM_ALIGN)));
+  fd_scratch_attach( scratch_mem, scratch_fmem, 1UL<<25, 4UL );
 
   /* Run tests */
 
   fd_flamenco_yaml_run_unit_tests();
+  fd_flamenco_yaml_full_test();
 
   /* Cleanup */
 
+  FD_LOG_NOTICE(( "pass" ));
   FD_TEST( fd_scratch_frame_used()==0UL );
-  fd_wksp_free_laddr( fd_scratch_detach( NULL ) );
+  fd_scratch_detach( NULL );
   fd_flamenco_halt();
   fd_halt();
   return 0;
