@@ -639,7 +639,7 @@ fd_txn_parse_core( uchar const             * payload,
                    ulong *                   payload_sz_opt,
                    int allow_zero_signatures );
 
-static ulong fd_txn_parse( uchar const * payload, ulong payload_sz, void * out_buf, fd_txn_parse_counters_t * counters_opt ) {
+static inline ulong fd_txn_parse( uchar const * payload, ulong payload_sz, void * out_buf, fd_txn_parse_counters_t * counters_opt ) {
   return fd_txn_parse_core(payload, payload_sz, out_buf, counters_opt, NULL, 0);
 }
 
