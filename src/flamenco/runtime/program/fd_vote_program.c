@@ -86,7 +86,7 @@ fd_vote_upgrade_account( fd_vote_state_versioned_t * account,
     /* Nothing to do */
     return;
   case fd_vote_state_versioned_enum_v0_23_5: {
-    if( !FD_FEATURE_ACTIVE(global, vote_state_add_vote_latency ) ) {
+    if( !FD_FEATURE_ACTIVE( global, vote_state_add_vote_latency ) ) {
       FD_LOG_ERR(("unimplemented vote state upgrade to v14"));
       // FIXME: Implement v14 upgrade.
       return;
@@ -148,7 +148,7 @@ fd_vote_upgrade_account( fd_vote_state_versioned_t * account,
     return;
   }
   case fd_vote_state_versioned_enum_v1_14_11: {
-    if( !FD_FEATURE_ACTIVE(global, vote_state_add_vote_latency ) ) {
+    if( !FD_FEATURE_ACTIVE( global, vote_state_add_vote_latency ) ) {
       return;
     }
     fd_vote_state_1_14_11_t * old = &account->inner.v1_14_11;
@@ -1225,7 +1225,7 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
     /* Create a new vote account state structure */
     /* TODO: create constructors in fd_types */
     fd_vote_state_versioned_t vote_state_versioned;
-    if( FD_FEATURE_ACTIVE(ctx.global, vote_state_add_vote_latency ) ) {
+    if( FD_FEATURE_ACTIVE( ctx.global, vote_state_add_vote_latency ) ) {
       fd_vote_state_versioned_new_disc(&vote_state_versioned, fd_vote_state_versioned_enum_current);
     } else {
       fd_vote_state_versioned_new_disc(&vote_state_versioned, fd_vote_state_versioned_enum_v1_14_11);
@@ -1313,12 +1313,12 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
     int process_vote_res = FD_EXECUTOR_INSTR_SUCCESS;
     switch( vote_state_versioned.discriminant ) {
       case fd_vote_state_versioned_enum_current: {
-        FD_TEST( FD_FEATURE_ACTIVE(ctx.global, vote_state_add_vote_latency ) );
+        FD_TEST( FD_FEATURE_ACTIVE( ctx.global, vote_state_add_vote_latency ) );
         process_vote_res = vote_process_vote_current( ctx, vote, &vote_state_versioned, &slot_hashes );
         break;
       }
       case fd_vote_state_versioned_enum_v1_14_11: {
-        FD_TEST( !FD_FEATURE_ACTIVE(ctx.global, vote_state_add_vote_latency ) );
+        FD_TEST( !FD_FEATURE_ACTIVE( ctx.global, vote_state_add_vote_latency ) );
         process_vote_res = vote_process_vote_v1_14_11( ctx, vote, &vote_state_versioned, &slot_hashes );
         break;
       }

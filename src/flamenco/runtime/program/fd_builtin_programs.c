@@ -55,7 +55,7 @@ void fd_builtin_programs_init( fd_global_ctx_t* global ) {
   write_builtin_bogus_account( global, global->solana_stake_program,          "stake_program",          13UL );
   write_builtin_bogus_account( global, global->solana_config_program,         "config_program",         14UL );
 
-  if (global->features.zk_token_sdk_enabled) {
+  if( FD_FEATURE_ACTIVE( global, zk_token_sdk_enabled ) ) {
     write_builtin_bogus_account( global, global->solana_zk_token_proof_program, "zk_token_proof_program", 22UL );
   }
 

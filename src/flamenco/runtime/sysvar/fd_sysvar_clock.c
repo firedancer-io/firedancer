@@ -225,7 +225,7 @@ int fd_sysvar_clock_update( fd_global_ctx_t* global ) {
 
   if (global->bank.slot != 0) {
     FD_LOG_DEBUG(("SLOT IS NOT ZERO!"));
-    fd_calculate_stake_weighted_timestamp(global, &clock.unix_timestamp, (uint)global->features.warp_timestamp_again);
+    fd_calculate_stake_weighted_timestamp(global, &clock.unix_timestamp, FD_FEATURE_ACTIVE( global, warp_timestamp_again ) );
   } else {
     FD_LOG_DEBUG(("SLOT IS ZERO!"));
   }

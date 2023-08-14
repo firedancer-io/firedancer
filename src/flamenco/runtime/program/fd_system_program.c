@@ -331,7 +331,7 @@ static int create_account(
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
-  if (!ctx.global->features.system_transfer_zero_check && lamports == 0) {
+  if( !FD_FEATURE_ACTIVE( ctx.global, system_transfer_zero_check ) && lamports == 0) {
     return FD_EXECUTOR_INSTR_SUCCESS;
   }
 

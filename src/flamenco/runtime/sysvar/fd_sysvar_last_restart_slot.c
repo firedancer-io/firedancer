@@ -5,7 +5,7 @@
 void
 fd_sysvar_last_restart_slot_init( fd_global_ctx_t * global ) {
 
-  if( !global->features.last_restart_slot_sysvar ) {
+  if( !FD_FEATURE_ACTIVE( global, last_restart_slot_sysvar ) ) {
     FD_LOG_INFO(( "sysvar LastRestartSlot not supported by this ledger version!" ));
     return;
   }
@@ -61,7 +61,7 @@ fd_sysvar_last_restart_slot_read( fd_global_ctx_t const *             global,
 
 void
 fd_sysvar_last_restart_slot_update( fd_global_ctx_t * global ) {
-  if( !global->features.last_restart_slot_sysvar ) return;
+  if( !FD_FEATURE_ACTIVE( global, last_restart_slot_sysvar ) ) return;
 
   /* Set this every slot? */
   uchar data[ 8 ];
