@@ -10239,6 +10239,234 @@ int fd_frozen_hash_versioned_encode(fd_frozen_hash_versioned_t const * self, fd_
   return fd_frozen_hash_versioned_inner_encode(&self->inner, self->discriminant, ctx);
 }
 
+int fd_gossip_bitvec_u8_inner_decode(fd_gossip_bitvec_u8_inner_t* self, fd_bincode_decode_ctx_t * ctx) {
+  int err;
+  err = fd_bincode_uint64_decode(&self->vec_len, ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  if (self->vec_len != 0) {
+    self->vec = fd_valloc_malloc( ctx->valloc, 8UL, self->vec_len );
+    err = fd_bincode_bytes_decode(self->vec, self->vec_len, ctx);
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  } else
+    self->vec = NULL;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_gossip_bitvec_u8_inner_new(fd_gossip_bitvec_u8_inner_t* self) {
+  fd_memset(self, 0, sizeof(fd_gossip_bitvec_u8_inner_t));
+}
+void fd_gossip_bitvec_u8_inner_destroy(fd_gossip_bitvec_u8_inner_t* self, fd_bincode_destroy_ctx_t * ctx) {
+  if (NULL != self->vec) {
+    fd_valloc_free( ctx->valloc, self->vec );
+    self->vec = NULL;
+  }
+}
+
+void fd_gossip_bitvec_u8_inner_walk(void * w, fd_gossip_bitvec_u8_inner_t* self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_bitvec_u8_inner", level++);
+  fun(w, self->vec, "vec", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_bitvec_u8_inner", level--);
+}
+ulong fd_gossip_bitvec_u8_inner_size(fd_gossip_bitvec_u8_inner_t const * self) {
+  ulong size = 0;
+  size += sizeof(ulong);
+  size += self->vec_len;
+  return size;
+}
+
+int fd_gossip_bitvec_u8_inner_encode(fd_gossip_bitvec_u8_inner_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  err = fd_bincode_uint64_encode(&self->vec_len, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  if (self->vec_len != 0) {
+    err = fd_bincode_bytes_encode(self->vec, self->vec_len, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+  }
+  return FD_BINCODE_SUCCESS;
+}
+
+int fd_gossip_bitvec_u8_decode(fd_gossip_bitvec_u8_t* self, fd_bincode_decode_ctx_t * ctx) {
+  int err;
+  {
+    uchar o;
+    err = fd_bincode_option_decode( &o, ctx );
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    if( o ) {
+      self->bits = (fd_gossip_bitvec_u8_inner_t*)fd_valloc_malloc( ctx->valloc, FD_GOSSIP_BITVEC_U8_INNER_ALIGN, FD_GOSSIP_BITVEC_U8_INNER_FOOTPRINT );
+      fd_gossip_bitvec_u8_inner_new( self->bits );
+      err = fd_gossip_bitvec_u8_inner_decode( self->bits, ctx );
+      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    } else
+      self->bits = NULL;
+  }
+  err = fd_bincode_uint64_decode(&self->len, ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_gossip_bitvec_u8_new(fd_gossip_bitvec_u8_t* self) {
+  fd_memset(self, 0, sizeof(fd_gossip_bitvec_u8_t));
+}
+void fd_gossip_bitvec_u8_destroy(fd_gossip_bitvec_u8_t* self, fd_bincode_destroy_ctx_t * ctx) {
+  if (NULL != self->bits) {
+    fd_gossip_bitvec_u8_inner_destroy(self->bits, ctx);
+    fd_valloc_free( ctx->valloc, self->bits);
+    self->bits = NULL;
+  }
+}
+
+void fd_gossip_bitvec_u8_walk(void * w, fd_gossip_bitvec_u8_t* self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_bitvec_u8", level++);
+  if( !self->bits ) {
+    fun( w, NULL, "bits", FD_FLAMENCO_TYPE_NULL, "gossip_bitvec_u8_inner", level );
+  } else {
+  fd_gossip_bitvec_u8_inner_walk( w, self->bits, fun, "bits", level );
+  }
+  fun( w, &self->len, "len", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_bitvec_u8", level--);
+}
+ulong fd_gossip_bitvec_u8_size(fd_gossip_bitvec_u8_t const * self) {
+  ulong size = 0;
+  size += sizeof(char);
+  if (NULL !=  self->bits) {
+    size += fd_gossip_bitvec_u8_inner_size(self->bits);
+  }
+  size += sizeof(ulong);
+  return size;
+}
+
+int fd_gossip_bitvec_u8_encode(fd_gossip_bitvec_u8_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  if (self->bits != NULL) {
+    err = fd_bincode_option_encode(1, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    err = fd_gossip_bitvec_u8_inner_encode(self->bits, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+  } else {
+    err = fd_bincode_option_encode(0, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+  }
+  err = fd_bincode_uint64_encode(&self->len, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+
+int fd_gossip_bitvec_u64_inner_decode(fd_gossip_bitvec_u64_inner_t* self, fd_bincode_decode_ctx_t * ctx) {
+  int err;
+  err = fd_bincode_uint64_decode(&self->vec_len, ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  if (self->vec_len != 0) {
+    self->vec = fd_valloc_malloc( ctx->valloc, 8UL, sizeof(ulong)*self->vec_len );
+    for( ulong i = 0; i < self->vec_len; ++i) {
+      err = fd_bincode_uint64_decode(self->vec + i, ctx);
+      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    }
+  } else
+    self->vec = NULL;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_gossip_bitvec_u64_inner_new(fd_gossip_bitvec_u64_inner_t* self) {
+  fd_memset(self, 0, sizeof(fd_gossip_bitvec_u64_inner_t));
+}
+void fd_gossip_bitvec_u64_inner_destroy(fd_gossip_bitvec_u64_inner_t* self, fd_bincode_destroy_ctx_t * ctx) {
+  if (NULL != self->vec) {
+    fd_valloc_free( ctx->valloc, self->vec );
+    self->vec = NULL;
+  }
+}
+
+void fd_gossip_bitvec_u64_inner_walk(void * w, fd_gossip_bitvec_u64_inner_t* self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_bitvec_u64_inner", level++);
+  if (self->vec_len != 0) {
+    fun(w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "vec", level++);
+    for (ulong i = 0; i < self->vec_len; ++i)
+      fun( w, self->vec + i, "vec", FD_FLAMENCO_TYPE_ULONG,   "ulong",   level );
+    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "vec", level-- );
+  }
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_bitvec_u64_inner", level--);
+}
+ulong fd_gossip_bitvec_u64_inner_size(fd_gossip_bitvec_u64_inner_t const * self) {
+  ulong size = 0;
+  size += sizeof(ulong);
+  size += self->vec_len * sizeof(ulong);
+  return size;
+}
+
+int fd_gossip_bitvec_u64_inner_encode(fd_gossip_bitvec_u64_inner_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  err = fd_bincode_uint64_encode(&self->vec_len, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  if (self->vec_len != 0) {
+    for (ulong i = 0; i < self->vec_len; ++i) {
+      err = fd_bincode_uint64_encode(self->vec + i, ctx);
+    }
+  }
+  return FD_BINCODE_SUCCESS;
+}
+
+int fd_gossip_bitvec_u64_decode(fd_gossip_bitvec_u64_t* self, fd_bincode_decode_ctx_t * ctx) {
+  int err;
+  {
+    uchar o;
+    err = fd_bincode_option_decode( &o, ctx );
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    if( o ) {
+      self->bits = (fd_gossip_bitvec_u64_inner_t*)fd_valloc_malloc( ctx->valloc, FD_GOSSIP_BITVEC_U64_INNER_ALIGN, FD_GOSSIP_BITVEC_U64_INNER_FOOTPRINT );
+      fd_gossip_bitvec_u64_inner_new( self->bits );
+      err = fd_gossip_bitvec_u64_inner_decode( self->bits, ctx );
+      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    } else
+      self->bits = NULL;
+  }
+  err = fd_bincode_uint64_decode(&self->len, ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_gossip_bitvec_u64_new(fd_gossip_bitvec_u64_t* self) {
+  fd_memset(self, 0, sizeof(fd_gossip_bitvec_u64_t));
+}
+void fd_gossip_bitvec_u64_destroy(fd_gossip_bitvec_u64_t* self, fd_bincode_destroy_ctx_t * ctx) {
+  if (NULL != self->bits) {
+    fd_gossip_bitvec_u64_inner_destroy(self->bits, ctx);
+    fd_valloc_free( ctx->valloc, self->bits);
+    self->bits = NULL;
+  }
+}
+
+void fd_gossip_bitvec_u64_walk(void * w, fd_gossip_bitvec_u64_t* self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_bitvec_u64", level++);
+  if( !self->bits ) {
+    fun( w, NULL, "bits", FD_FLAMENCO_TYPE_NULL, "gossip_bitvec_u64_inner", level );
+  } else {
+  fd_gossip_bitvec_u64_inner_walk( w, self->bits, fun, "bits", level );
+  }
+  fun( w, &self->len, "len", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_bitvec_u64", level--);
+}
+ulong fd_gossip_bitvec_u64_size(fd_gossip_bitvec_u64_t const * self) {
+  ulong size = 0;
+  size += sizeof(char);
+  if (NULL !=  self->bits) {
+    size += fd_gossip_bitvec_u64_inner_size(self->bits);
+  }
+  size += sizeof(ulong);
+  return size;
+}
+
+int fd_gossip_bitvec_u64_encode(fd_gossip_bitvec_u64_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  if (self->bits != NULL) {
+    err = fd_bincode_option_encode(1, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    err = fd_gossip_bitvec_u64_inner_encode(self->bits, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+  } else {
+    err = fd_bincode_option_encode(0, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+  }
+  err = fd_bincode_uint64_encode(&self->len, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+
 int fd_gossip_ping_decode(fd_gossip_ping_t* self, fd_bincode_decode_ctx_t * ctx) {
   int err;
   err = fd_pubkey_decode(&self->from, ctx);
@@ -10772,11 +11000,485 @@ int fd_gossip_vote_encode(fd_gossip_vote_t const * self, fd_bincode_encode_ctx_t
   return FD_BINCODE_SUCCESS;
 }
 
+int fd_gossip_lowest_slot_decode(fd_gossip_lowest_slot_t* self, fd_bincode_decode_ctx_t * ctx) {
+  int err;
+  err = fd_bincode_uint8_decode(&self->u8, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_pubkey_decode(&self->from, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_decode(&self->root, ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_uint64_decode(&self->lowest, ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_uint64_decode(&self->slots_len, ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  if (self->slots_len != 0) {
+    self->slots = fd_valloc_malloc( ctx->valloc, 8UL, sizeof(ulong)*self->slots_len );
+    for( ulong i = 0; i < self->slots_len; ++i) {
+      err = fd_bincode_uint64_decode(self->slots + i, ctx);
+      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    }
+  } else
+    self->slots = NULL;
+  err = fd_bincode_uint64_decode(&self->i_dont_know, ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_uint64_decode(&self->wallclock, ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_gossip_lowest_slot_new(fd_gossip_lowest_slot_t* self) {
+  fd_memset(self, 0, sizeof(fd_gossip_lowest_slot_t));
+  fd_pubkey_new(&self->from);
+}
+void fd_gossip_lowest_slot_destroy(fd_gossip_lowest_slot_t* self, fd_bincode_destroy_ctx_t * ctx) {
+  fd_pubkey_destroy(&self->from, ctx);
+  if (NULL != self->slots) {
+    fd_valloc_free( ctx->valloc, self->slots );
+    self->slots = NULL;
+  }
+}
+
+void fd_gossip_lowest_slot_walk(void * w, fd_gossip_lowest_slot_t* self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_lowest_slot", level++);
+  fun( w, &self->u8, "u8", FD_FLAMENCO_TYPE_UCHAR,   "uchar",     level );
+  fd_pubkey_walk(w, &self->from, fun, "from", level);
+  fun( w, &self->root, "root", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
+  fun( w, &self->lowest, "lowest", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
+  if (self->slots_len != 0) {
+    fun(w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "slots", level++);
+    for (ulong i = 0; i < self->slots_len; ++i)
+      fun( w, self->slots + i, "slots", FD_FLAMENCO_TYPE_ULONG,   "ulong",   level );
+    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "slots", level-- );
+  }
+  fun( w, &self->i_dont_know, "i_dont_know", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
+  fun( w, &self->wallclock, "wallclock", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_lowest_slot", level--);
+}
+ulong fd_gossip_lowest_slot_size(fd_gossip_lowest_slot_t const * self) {
+  ulong size = 0;
+  size += sizeof(char);
+  size += fd_pubkey_size(&self->from);
+  size += sizeof(ulong);
+  size += sizeof(ulong);
+  size += sizeof(ulong);
+  size += self->slots_len * sizeof(ulong);
+  size += sizeof(ulong);
+  size += sizeof(ulong);
+  return size;
+}
+
+int fd_gossip_lowest_slot_encode(fd_gossip_lowest_slot_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  err = fd_bincode_uint8_encode(&self->u8, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_pubkey_encode(&self->from, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_encode(&self->root, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_encode(&self->lowest, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_encode(&self->slots_len, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  if (self->slots_len != 0) {
+    for (ulong i = 0; i < self->slots_len; ++i) {
+      err = fd_bincode_uint64_encode(self->slots + i, ctx);
+    }
+  }
+  err = fd_bincode_uint64_encode(&self->i_dont_know, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_encode(&self->wallclock, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+
+int fd_gossip_slot_hashes_decode(fd_gossip_slot_hashes_t* self, fd_bincode_decode_ctx_t * ctx) {
+  int err;
+  err = fd_pubkey_decode(&self->from, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_decode(&self->hashes_len, ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  if (self->hashes_len != 0) {
+    self->hashes = (fd_slot_hash_t *)fd_valloc_malloc( ctx->valloc, FD_SLOT_HASH_ALIGN, FD_SLOT_HASH_FOOTPRINT*self->hashes_len);
+    for( ulong i = 0; i < self->hashes_len; ++i) {
+      fd_slot_hash_new(self->hashes + i);
+    }
+    for( ulong i = 0; i < self->hashes_len; ++i ) {
+      err = fd_slot_hash_decode(self->hashes + i, ctx);
+      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    }
+  } else
+    self->hashes = NULL;
+  err = fd_bincode_uint64_decode(&self->wallclock, ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_gossip_slot_hashes_new(fd_gossip_slot_hashes_t* self) {
+  fd_memset(self, 0, sizeof(fd_gossip_slot_hashes_t));
+  fd_pubkey_new(&self->from);
+}
+void fd_gossip_slot_hashes_destroy(fd_gossip_slot_hashes_t* self, fd_bincode_destroy_ctx_t * ctx) {
+  fd_pubkey_destroy(&self->from, ctx);
+  if (NULL != self->hashes) {
+    for (ulong i = 0; i < self->hashes_len; ++i)
+      fd_slot_hash_destroy(self->hashes + i, ctx);
+    fd_valloc_free( ctx->valloc, self->hashes );
+    self->hashes = NULL;
+  }
+}
+
+void fd_gossip_slot_hashes_walk(void * w, fd_gossip_slot_hashes_t* self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_slot_hashes", level++);
+  fd_pubkey_walk(w, &self->from, fun, "from", level);
+  if (self->hashes_len != 0) {
+    fun(w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "hashes", level++);
+    for (ulong i = 0; i < self->hashes_len; ++i)
+      fd_slot_hash_walk(w, self->hashes + i, fun, "slot_hash", level );
+    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "hashes", level-- );
+  }
+  fun( w, &self->wallclock, "wallclock", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_slot_hashes", level--);
+}
+ulong fd_gossip_slot_hashes_size(fd_gossip_slot_hashes_t const * self) {
+  ulong size = 0;
+  size += fd_pubkey_size(&self->from);
+  size += sizeof(ulong);
+  for (ulong i = 0; i < self->hashes_len; ++i)
+    size += fd_slot_hash_size(self->hashes + i);
+  size += sizeof(ulong);
+  return size;
+}
+
+int fd_gossip_slot_hashes_encode(fd_gossip_slot_hashes_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  err = fd_pubkey_encode(&self->from, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_encode(&self->hashes_len, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  if (self->hashes_len != 0) {
+    for (ulong i = 0; i < self->hashes_len; ++i) {
+      err = fd_slot_hash_encode(self->hashes + i, ctx);
+      if ( FD_UNLIKELY(err) ) return err;
+    }
+  }
+  err = fd_bincode_uint64_encode(&self->wallclock, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+
+int fd_gossip_slots_decode(fd_gossip_slots_t* self, fd_bincode_decode_ctx_t * ctx) {
+  int err;
+  err = fd_bincode_uint64_decode(&self->first_slot, ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_uint64_decode(&self->num, ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_gossip_bitvec_u8_decode(&self->slots, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_gossip_slots_new(fd_gossip_slots_t* self) {
+  fd_memset(self, 0, sizeof(fd_gossip_slots_t));
+  fd_gossip_bitvec_u8_new(&self->slots);
+}
+void fd_gossip_slots_destroy(fd_gossip_slots_t* self, fd_bincode_destroy_ctx_t * ctx) {
+  fd_gossip_bitvec_u8_destroy(&self->slots, ctx);
+}
+
+void fd_gossip_slots_walk(void * w, fd_gossip_slots_t* self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_slots", level++);
+  fun( w, &self->first_slot, "first_slot", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
+  fun( w, &self->num, "num", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
+  fd_gossip_bitvec_u8_walk(w, &self->slots, fun, "slots", level);
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_slots", level--);
+}
+ulong fd_gossip_slots_size(fd_gossip_slots_t const * self) {
+  ulong size = 0;
+  size += sizeof(ulong);
+  size += sizeof(ulong);
+  size += fd_gossip_bitvec_u8_size(&self->slots);
+  return size;
+}
+
+int fd_gossip_slots_encode(fd_gossip_slots_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  err = fd_bincode_uint64_encode(&self->first_slot, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_encode(&self->num, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_gossip_bitvec_u8_encode(&self->slots, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+
+int fd_gossip_flate2_slots_decode(fd_gossip_flate2_slots_t* self, fd_bincode_decode_ctx_t * ctx) {
+  int err;
+  err = fd_bincode_uint64_decode(&self->first_slot, ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_uint64_decode(&self->num, ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_uint64_decode(&self->compressed_len, ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  if (self->compressed_len != 0) {
+    self->compressed = fd_valloc_malloc( ctx->valloc, 8UL, self->compressed_len );
+    err = fd_bincode_bytes_decode(self->compressed, self->compressed_len, ctx);
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  } else
+    self->compressed = NULL;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_gossip_flate2_slots_new(fd_gossip_flate2_slots_t* self) {
+  fd_memset(self, 0, sizeof(fd_gossip_flate2_slots_t));
+}
+void fd_gossip_flate2_slots_destroy(fd_gossip_flate2_slots_t* self, fd_bincode_destroy_ctx_t * ctx) {
+  if (NULL != self->compressed) {
+    fd_valloc_free( ctx->valloc, self->compressed );
+    self->compressed = NULL;
+  }
+}
+
+void fd_gossip_flate2_slots_walk(void * w, fd_gossip_flate2_slots_t* self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_flate2_slots", level++);
+  fun( w, &self->first_slot, "first_slot", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
+  fun( w, &self->num, "num", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
+  fun(w, self->compressed, "compressed", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_flate2_slots", level--);
+}
+ulong fd_gossip_flate2_slots_size(fd_gossip_flate2_slots_t const * self) {
+  ulong size = 0;
+  size += sizeof(ulong);
+  size += sizeof(ulong);
+  size += sizeof(ulong);
+  size += self->compressed_len;
+  return size;
+}
+
+int fd_gossip_flate2_slots_encode(fd_gossip_flate2_slots_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  err = fd_bincode_uint64_encode(&self->first_slot, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_encode(&self->num, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_encode(&self->compressed_len, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  if (self->compressed_len != 0) {
+    err = fd_bincode_bytes_encode(self->compressed, self->compressed_len, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+  }
+  return FD_BINCODE_SUCCESS;
+}
+
+FD_FN_PURE uchar fd_gossip_slots_enum_is_flate2(fd_gossip_slots_enum_t const * self) {
+  return self->discriminant == 0;
+}
+FD_FN_PURE uchar fd_gossip_slots_enum_is_uncompressed(fd_gossip_slots_enum_t const * self) {
+  return self->discriminant == 1;
+}
+void fd_gossip_slots_enum_inner_new(fd_gossip_slots_enum_inner_t* self, uint discriminant);
+int fd_gossip_slots_enum_inner_decode(fd_gossip_slots_enum_inner_t* self, uint discriminant, fd_bincode_decode_ctx_t * ctx) {
+  fd_gossip_slots_enum_inner_new(self, discriminant);
+  int err;
+  switch (discriminant) {
+  case 0: {
+    return fd_gossip_flate2_slots_decode(&self->flate2, ctx);
+  }
+  case 1: {
+    return fd_gossip_slots_decode(&self->uncompressed, ctx);
+  }
+  default: return FD_BINCODE_ERR_ENCODING;
+  }
+}
+int fd_gossip_slots_enum_decode(fd_gossip_slots_enum_t* self, fd_bincode_decode_ctx_t * ctx) {
+  int err = fd_bincode_uint32_decode(&self->discriminant, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return fd_gossip_slots_enum_inner_decode(&self->inner, self->discriminant, ctx);
+}
+void fd_gossip_slots_enum_inner_new(fd_gossip_slots_enum_inner_t* self, uint discriminant) {
+  switch (discriminant) {
+  case 0: {
+    fd_gossip_flate2_slots_new(&self->flate2);
+    break;
+  }
+  case 1: {
+    fd_gossip_slots_new(&self->uncompressed);
+    break;
+  }
+  default: break; // FD_LOG_ERR(( "unhandled type"));
+  }
+}
+void fd_gossip_slots_enum_new_disc(fd_gossip_slots_enum_t* self, uint discriminant) {
+  self->discriminant = discriminant;
+  fd_gossip_slots_enum_inner_new(&self->inner, self->discriminant);
+}
+void fd_gossip_slots_enum_new(fd_gossip_slots_enum_t* self) {
+  fd_gossip_slots_enum_new_disc(self, UINT_MAX);
+}
+void fd_gossip_slots_enum_inner_destroy(fd_gossip_slots_enum_inner_t* self, uint discriminant, fd_bincode_destroy_ctx_t * ctx) {
+  switch (discriminant) {
+  case 0: {
+    fd_gossip_flate2_slots_destroy(&self->flate2, ctx);
+    break;
+  }
+  case 1: {
+    fd_gossip_slots_destroy(&self->uncompressed, ctx);
+    break;
+  }
+  default: break; // FD_LOG_ERR(( "unhandled type" ));
+  }
+}
+void fd_gossip_slots_enum_destroy(fd_gossip_slots_enum_t* self, fd_bincode_destroy_ctx_t * ctx) {
+  fd_gossip_slots_enum_inner_destroy(&self->inner, self->discriminant, ctx);
+}
+
+void fd_gossip_slots_enum_walk(void * w, fd_gossip_slots_enum_t* self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_slots_enum", level++);
+  // enum fd_vector_walk(w, &self->compressed, fun, "compressed", level);
+  switch (self->discriminant) {
+  case 0: {
+    fd_gossip_flate2_slots_walk(w, &self->inner.flate2, fun, "flate2", level);
+    break;
+  }
+  case 1: {
+    fd_gossip_slots_walk(w, &self->inner.uncompressed, fun, "uncompressed", level);
+    break;
+  }
+  }
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_slots_enum", level--);
+}
+ulong fd_gossip_slots_enum_size(fd_gossip_slots_enum_t const * self) {
+  ulong size = 0;
+  size += sizeof(uint);
+  switch (self->discriminant) {
+  case 0: {
+    size += fd_gossip_flate2_slots_size(&self->inner.flate2);
+    break;
+  }
+  case 1: {
+    size += fd_gossip_slots_size(&self->inner.uncompressed);
+    break;
+  }
+  }
+  return size;
+}
+
+int fd_gossip_slots_enum_inner_encode(fd_gossip_slots_enum_inner_t const * self, uint discriminant, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  switch (discriminant) {
+  case 0: {
+    err = fd_gossip_flate2_slots_encode(&self->flate2, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    break;
+  }
+  case 1: {
+    err = fd_gossip_slots_encode(&self->uncompressed, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    break;
+  }
+  }
+  return FD_BINCODE_SUCCESS;
+}
+int fd_gossip_slots_enum_encode(fd_gossip_slots_enum_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  err = fd_bincode_uint32_encode(&self->discriminant, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return fd_gossip_slots_enum_inner_encode(&self->inner, self->discriminant, ctx);
+}
+
+int fd_gossip_epoch_slots_decode(fd_gossip_epoch_slots_t* self, fd_bincode_decode_ctx_t * ctx) {
+  int err;
+  err = fd_bincode_uint8_decode(&self->u8, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_pubkey_decode(&self->from, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_decode(&self->slots_len, ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  if (self->slots_len != 0) {
+    self->slots = (fd_gossip_slots_enum_t *)fd_valloc_malloc( ctx->valloc, FD_GOSSIP_SLOTS_ENUM_ALIGN, FD_GOSSIP_SLOTS_ENUM_FOOTPRINT*self->slots_len);
+    for( ulong i = 0; i < self->slots_len; ++i) {
+      fd_gossip_slots_enum_new(self->slots + i);
+    }
+    for( ulong i = 0; i < self->slots_len; ++i ) {
+      err = fd_gossip_slots_enum_decode(self->slots + i, ctx);
+      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    }
+  } else
+    self->slots = NULL;
+  err = fd_bincode_uint64_decode(&self->wallclock, ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_gossip_epoch_slots_new(fd_gossip_epoch_slots_t* self) {
+  fd_memset(self, 0, sizeof(fd_gossip_epoch_slots_t));
+  fd_pubkey_new(&self->from);
+}
+void fd_gossip_epoch_slots_destroy(fd_gossip_epoch_slots_t* self, fd_bincode_destroy_ctx_t * ctx) {
+  fd_pubkey_destroy(&self->from, ctx);
+  if (NULL != self->slots) {
+    for (ulong i = 0; i < self->slots_len; ++i)
+      fd_gossip_slots_enum_destroy(self->slots + i, ctx);
+    fd_valloc_free( ctx->valloc, self->slots );
+    self->slots = NULL;
+  }
+}
+
+void fd_gossip_epoch_slots_walk(void * w, fd_gossip_epoch_slots_t* self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_epoch_slots", level++);
+  fun( w, &self->u8, "u8", FD_FLAMENCO_TYPE_UCHAR,   "uchar",     level );
+  fd_pubkey_walk(w, &self->from, fun, "from", level);
+  if (self->slots_len != 0) {
+    fun(w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "slots", level++);
+    for (ulong i = 0; i < self->slots_len; ++i)
+      fd_gossip_slots_enum_walk(w, self->slots + i, fun, "gossip_slots_enum", level );
+    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "slots", level-- );
+  }
+  fun( w, &self->wallclock, "wallclock", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_epoch_slots", level--);
+}
+ulong fd_gossip_epoch_slots_size(fd_gossip_epoch_slots_t const * self) {
+  ulong size = 0;
+  size += sizeof(char);
+  size += fd_pubkey_size(&self->from);
+  size += sizeof(ulong);
+  for (ulong i = 0; i < self->slots_len; ++i)
+    size += fd_gossip_slots_enum_size(self->slots + i);
+  size += sizeof(ulong);
+  return size;
+}
+
+int fd_gossip_epoch_slots_encode(fd_gossip_epoch_slots_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  err = fd_bincode_uint8_encode(&self->u8, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_pubkey_encode(&self->from, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_encode(&self->slots_len, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  if (self->slots_len != 0) {
+    for (ulong i = 0; i < self->slots_len; ++i) {
+      err = fd_gossip_slots_enum_encode(self->slots + i, ctx);
+      if ( FD_UNLIKELY(err) ) return err;
+    }
+  }
+  err = fd_bincode_uint64_encode(&self->wallclock, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+
 FD_FN_PURE uchar fd_crds_data_is_contact_info(fd_crds_data_t const * self) {
   return self->discriminant == 0;
 }
 FD_FN_PURE uchar fd_crds_data_is_vote(fd_crds_data_t const * self) {
   return self->discriminant == 1;
+}
+FD_FN_PURE uchar fd_crds_data_is_lowest_slot(fd_crds_data_t const * self) {
+  return self->discriminant == 2;
+}
+FD_FN_PURE uchar fd_crds_data_is_snapshot_hashes(fd_crds_data_t const * self) {
+  return self->discriminant == 3;
+}
+FD_FN_PURE uchar fd_crds_data_is_accounts_hashes(fd_crds_data_t const * self) {
+  return self->discriminant == 4;
+}
+FD_FN_PURE uchar fd_crds_data_is_epoch_slots(fd_crds_data_t const * self) {
+  return self->discriminant == 5;
 }
 void fd_crds_data_inner_new(fd_crds_data_inner_t* self, uint discriminant);
 int fd_crds_data_inner_decode(fd_crds_data_inner_t* self, uint discriminant, fd_bincode_decode_ctx_t * ctx) {
@@ -10788,6 +11490,18 @@ int fd_crds_data_inner_decode(fd_crds_data_inner_t* self, uint discriminant, fd_
   }
   case 1: {
     return fd_gossip_vote_decode(&self->vote, ctx);
+  }
+  case 2: {
+    return fd_gossip_lowest_slot_decode(&self->lowest_slot, ctx);
+  }
+  case 3: {
+    return fd_gossip_slot_hashes_decode(&self->snapshot_hashes, ctx);
+  }
+  case 4: {
+    return fd_gossip_slot_hashes_decode(&self->accounts_hashes, ctx);
+  }
+  case 5: {
+    return fd_gossip_epoch_slots_decode(&self->epoch_slots, ctx);
   }
   default: return FD_BINCODE_ERR_ENCODING;
   }
@@ -10805,6 +11519,22 @@ void fd_crds_data_inner_new(fd_crds_data_inner_t* self, uint discriminant) {
   }
   case 1: {
     fd_gossip_vote_new(&self->vote);
+    break;
+  }
+  case 2: {
+    fd_gossip_lowest_slot_new(&self->lowest_slot);
+    break;
+  }
+  case 3: {
+    fd_gossip_slot_hashes_new(&self->snapshot_hashes);
+    break;
+  }
+  case 4: {
+    fd_gossip_slot_hashes_new(&self->accounts_hashes);
+    break;
+  }
+  case 5: {
+    fd_gossip_epoch_slots_new(&self->epoch_slots);
     break;
   }
   default: break; // FD_LOG_ERR(( "unhandled type"));
@@ -10827,6 +11557,22 @@ void fd_crds_data_inner_destroy(fd_crds_data_inner_t* self, uint discriminant, f
     fd_gossip_vote_destroy(&self->vote, ctx);
     break;
   }
+  case 2: {
+    fd_gossip_lowest_slot_destroy(&self->lowest_slot, ctx);
+    break;
+  }
+  case 3: {
+    fd_gossip_slot_hashes_destroy(&self->snapshot_hashes, ctx);
+    break;
+  }
+  case 4: {
+    fd_gossip_slot_hashes_destroy(&self->accounts_hashes, ctx);
+    break;
+  }
+  case 5: {
+    fd_gossip_epoch_slots_destroy(&self->epoch_slots, ctx);
+    break;
+  }
   default: break; // FD_LOG_ERR(( "unhandled type" ));
   }
 }
@@ -10836,7 +11582,7 @@ void fd_crds_data_destroy(fd_crds_data_t* self, fd_bincode_destroy_ctx_t * ctx) 
 
 void fd_crds_data_walk(void * w, fd_crds_data_t* self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_crds_data", level++);
-  // enum fd_gossip_vote_rec_walk(w, &self->rec, fun, "rec", level);
+  // enum fd_ulong_walk(w, &self->wallclock, fun, "wallclock", level);
   switch (self->discriminant) {
   case 0: {
     fd_gossip_contact_info_walk(w, &self->inner.contact_info, fun, "contact_info", level);
@@ -10844,6 +11590,22 @@ void fd_crds_data_walk(void * w, fd_crds_data_t* self, fd_types_walk_fn_t fun, c
   }
   case 1: {
     fd_gossip_vote_walk(w, &self->inner.vote, fun, "vote", level);
+    break;
+  }
+  case 2: {
+    fd_gossip_lowest_slot_walk(w, &self->inner.lowest_slot, fun, "lowest_slot", level);
+    break;
+  }
+  case 3: {
+    fd_gossip_slot_hashes_walk(w, &self->inner.snapshot_hashes, fun, "snapshot_hashes", level);
+    break;
+  }
+  case 4: {
+    fd_gossip_slot_hashes_walk(w, &self->inner.accounts_hashes, fun, "accounts_hashes", level);
+    break;
+  }
+  case 5: {
+    fd_gossip_epoch_slots_walk(w, &self->inner.epoch_slots, fun, "epoch_slots", level);
     break;
   }
   }
@@ -10859,6 +11621,22 @@ ulong fd_crds_data_size(fd_crds_data_t const * self) {
   }
   case 1: {
     size += fd_gossip_vote_size(&self->inner.vote);
+    break;
+  }
+  case 2: {
+    size += fd_gossip_lowest_slot_size(&self->inner.lowest_slot);
+    break;
+  }
+  case 3: {
+    size += fd_gossip_slot_hashes_size(&self->inner.snapshot_hashes);
+    break;
+  }
+  case 4: {
+    size += fd_gossip_slot_hashes_size(&self->inner.accounts_hashes);
+    break;
+  }
+  case 5: {
+    size += fd_gossip_epoch_slots_size(&self->inner.epoch_slots);
     break;
   }
   }
@@ -10878,6 +11656,26 @@ int fd_crds_data_inner_encode(fd_crds_data_inner_t const * self, uint discrimina
     if ( FD_UNLIKELY(err) ) return err;
     break;
   }
+  case 2: {
+    err = fd_gossip_lowest_slot_encode(&self->lowest_slot, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    break;
+  }
+  case 3: {
+    err = fd_gossip_slot_hashes_encode(&self->snapshot_hashes, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    break;
+  }
+  case 4: {
+    err = fd_gossip_slot_hashes_encode(&self->accounts_hashes, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    break;
+  }
+  case 5: {
+    err = fd_gossip_epoch_slots_encode(&self->epoch_slots, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    break;
+  }
   }
   return FD_BINCODE_SUCCESS;
 }
@@ -10886,124 +11684,6 @@ int fd_crds_data_encode(fd_crds_data_t const * self, fd_bincode_encode_ctx_t * c
   err = fd_bincode_uint32_encode(&self->discriminant, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return fd_crds_data_inner_encode(&self->inner, self->discriminant, ctx);
-}
-
-int fd_bitvec_u64_inner_decode(fd_bitvec_u64_inner_t* self, fd_bincode_decode_ctx_t * ctx) {
-  int err;
-  err = fd_bincode_uint64_decode(&self->vec_len, ctx);
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  if (self->vec_len != 0) {
-    self->vec = fd_valloc_malloc( ctx->valloc, 8UL, sizeof(ulong)*self->vec_len );
-    for( ulong i = 0; i < self->vec_len; ++i) {
-      err = fd_bincode_uint64_decode(self->vec + i, ctx);
-      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-    }
-  } else
-    self->vec = NULL;
-  return FD_BINCODE_SUCCESS;
-}
-void fd_bitvec_u64_inner_new(fd_bitvec_u64_inner_t* self) {
-  fd_memset(self, 0, sizeof(fd_bitvec_u64_inner_t));
-}
-void fd_bitvec_u64_inner_destroy(fd_bitvec_u64_inner_t* self, fd_bincode_destroy_ctx_t * ctx) {
-  if (NULL != self->vec) {
-    fd_valloc_free( ctx->valloc, self->vec );
-    self->vec = NULL;
-  }
-}
-
-void fd_bitvec_u64_inner_walk(void * w, fd_bitvec_u64_inner_t* self, fd_types_walk_fn_t fun, const char *name, uint level) {
-  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_bitvec_u64_inner", level++);
-  if (self->vec_len != 0) {
-    fun(w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "vec", level++);
-    for (ulong i = 0; i < self->vec_len; ++i)
-      fun( w, self->vec + i, "vec", FD_FLAMENCO_TYPE_ULONG,   "ulong",   level );
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "vec", level-- );
-  }
-  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_bitvec_u64_inner", level--);
-}
-ulong fd_bitvec_u64_inner_size(fd_bitvec_u64_inner_t const * self) {
-  ulong size = 0;
-  size += sizeof(ulong);
-  size += self->vec_len * sizeof(ulong);
-  return size;
-}
-
-int fd_bitvec_u64_inner_encode(fd_bitvec_u64_inner_t const * self, fd_bincode_encode_ctx_t * ctx) {
-  int err;
-  err = fd_bincode_uint64_encode(&self->vec_len, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
-  if (self->vec_len != 0) {
-    for (ulong i = 0; i < self->vec_len; ++i) {
-      err = fd_bincode_uint64_encode(self->vec + i, ctx);
-    }
-  }
-  return FD_BINCODE_SUCCESS;
-}
-
-int fd_bitvec_u64_decode(fd_bitvec_u64_t* self, fd_bincode_decode_ctx_t * ctx) {
-  int err;
-  {
-    uchar o;
-    err = fd_bincode_option_decode( &o, ctx );
-    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-    if( o ) {
-      self->bits = (fd_bitvec_u64_inner_t*)fd_valloc_malloc( ctx->valloc, FD_BITVEC_U64_INNER_ALIGN, FD_BITVEC_U64_INNER_FOOTPRINT );
-      fd_bitvec_u64_inner_new( self->bits );
-      err = fd_bitvec_u64_inner_decode( self->bits, ctx );
-      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-    } else
-      self->bits = NULL;
-  }
-  err = fd_bincode_uint32_decode(&self->len, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
-  return FD_BINCODE_SUCCESS;
-}
-void fd_bitvec_u64_new(fd_bitvec_u64_t* self) {
-  fd_memset(self, 0, sizeof(fd_bitvec_u64_t));
-}
-void fd_bitvec_u64_destroy(fd_bitvec_u64_t* self, fd_bincode_destroy_ctx_t * ctx) {
-  if (NULL != self->bits) {
-    fd_bitvec_u64_inner_destroy(self->bits, ctx);
-    fd_valloc_free( ctx->valloc, self->bits);
-    self->bits = NULL;
-  }
-}
-
-void fd_bitvec_u64_walk(void * w, fd_bitvec_u64_t* self, fd_types_walk_fn_t fun, const char *name, uint level) {
-  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_bitvec_u64", level++);
-  if( !self->bits ) {
-    fun( w, NULL, "bits", FD_FLAMENCO_TYPE_NULL, "bitvec_u64_inner", level );
-  } else {
-  fd_bitvec_u64_inner_walk( w, self->bits, fun, "bits", level );
-  }
-  fun( w, &self->len, "len", FD_FLAMENCO_TYPE_UINT,    "uint",      level );
-  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_bitvec_u64", level--);
-}
-ulong fd_bitvec_u64_size(fd_bitvec_u64_t const * self) {
-  ulong size = 0;
-  size += sizeof(char);
-  if (NULL !=  self->bits) {
-    size += fd_bitvec_u64_inner_size(self->bits);
-  }
-  size += sizeof(uint);
-  return size;
-}
-
-int fd_bitvec_u64_encode(fd_bitvec_u64_t const * self, fd_bincode_encode_ctx_t * ctx) {
-  int err;
-  if (self->bits != NULL) {
-    err = fd_bincode_option_encode(1, ctx);
-    if ( FD_UNLIKELY(err) ) return err;
-    err = fd_bitvec_u64_inner_encode(self->bits, ctx);
-    if ( FD_UNLIKELY(err) ) return err;
-  } else {
-    err = fd_bincode_option_encode(0, ctx);
-    if ( FD_UNLIKELY(err) ) return err;
-  }
-  err = fd_bincode_uint32_encode(&self->len, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
-  return FD_BINCODE_SUCCESS;
 }
 
 int fd_crds_bloom_decode(fd_crds_bloom_t* self, fd_bincode_decode_ctx_t * ctx) {
@@ -11018,20 +11698,20 @@ int fd_crds_bloom_decode(fd_crds_bloom_t* self, fd_bincode_decode_ctx_t * ctx) {
     }
   } else
     self->keys = NULL;
-  err = fd_bitvec_u64_decode(&self->bits, ctx);
+  err = fd_gossip_bitvec_u64_decode(&self->bits, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
 void fd_crds_bloom_new(fd_crds_bloom_t* self) {
   fd_memset(self, 0, sizeof(fd_crds_bloom_t));
-  fd_bitvec_u64_new(&self->bits);
+  fd_gossip_bitvec_u64_new(&self->bits);
 }
 void fd_crds_bloom_destroy(fd_crds_bloom_t* self, fd_bincode_destroy_ctx_t * ctx) {
   if (NULL != self->keys) {
     fd_valloc_free( ctx->valloc, self->keys );
     self->keys = NULL;
   }
-  fd_bitvec_u64_destroy(&self->bits, ctx);
+  fd_gossip_bitvec_u64_destroy(&self->bits, ctx);
 }
 
 void fd_crds_bloom_walk(void * w, fd_crds_bloom_t* self, fd_types_walk_fn_t fun, const char *name, uint level) {
@@ -11042,14 +11722,14 @@ void fd_crds_bloom_walk(void * w, fd_crds_bloom_t* self, fd_types_walk_fn_t fun,
       fun( w, self->keys + i, "keys", FD_FLAMENCO_TYPE_ULONG,   "ulong",   level );
     fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "keys", level-- );
   }
-  fd_bitvec_u64_walk(w, &self->bits, fun, "bits", level);
+  fd_gossip_bitvec_u64_walk(w, &self->bits, fun, "bits", level);
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_crds_bloom", level--);
 }
 ulong fd_crds_bloom_size(fd_crds_bloom_t const * self) {
   ulong size = 0;
   size += sizeof(ulong);
   size += self->keys_len * sizeof(ulong);
-  size += fd_bitvec_u64_size(&self->bits);
+  size += fd_gossip_bitvec_u64_size(&self->bits);
   return size;
 }
 
@@ -11062,7 +11742,7 @@ int fd_crds_bloom_encode(fd_crds_bloom_t const * self, fd_bincode_encode_ctx_t *
       err = fd_bincode_uint64_encode(self->keys + i, ctx);
     }
   }
-  err = fd_bitvec_u64_encode(&self->bits, ctx);
+  err = fd_gossip_bitvec_u64_encode(&self->bits, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }

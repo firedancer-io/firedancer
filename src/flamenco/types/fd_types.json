@@ -1370,6 +1370,32 @@
       "comment": "https://github.com/firedancer-io/solana/blob/f4b7c54f9e021b40cfc7cbd32dc12b19dedbe791/ledger/src/blockstore_meta.rs#L157"
     },
     {
+      "name": "gossip_bitvec_u8_inner",
+      "type": "struct",
+      "fields": [ { "name": "vec", "type": "vector", "element": "uchar" } ]
+    },
+    {
+      "name": "gossip_bitvec_u8",
+      "type": "struct",
+      "fields": [
+        { "name": "bits", "type": "option", "element": "gossip_bitvec_u8_inner" },
+        { "name": "len", "type": "ulong" }
+      ]
+    },
+    {
+      "name": "gossip_bitvec_u64_inner",
+      "type": "struct",
+      "fields": [ { "name": "vec", "type": "vector", "element": "ulong" } ]
+    },
+    {
+      "name": "gossip_bitvec_u64",
+      "type": "struct",
+      "fields": [
+        { "name": "bits", "type": "option", "element": "gossip_bitvec_u64_inner" },
+        { "name": "len", "type": "ulong" }
+      ]
+    },
+    {
       "name": "gossip_ping",
       "type": "struct",
       "fields": [
@@ -1451,24 +1477,73 @@
       ]
     },
     {
+      "name": "gossip_lowest_slot",
+      "type": "struct",
+      "fields": [
+        { "name": "u8", "type": "uchar" },
+        { "name": "from", "type": "pubkey" },
+        { "name": "root", "type": "ulong" },
+        { "name": "lowest", "type": "ulong" },
+        { "name": "slots", "type": "vector", "element": "ulong" },
+        { "name": "i_dont_know", "type": "ulong" },
+        { "name": "wallclock", "type": "ulong" }
+      ]
+    },
+    {
+      "name": "gossip_slot_hashes",
+      "type": "struct",
+      "fields": [
+        { "name": "from", "type": "pubkey" },
+        { "name": "hashes", "type": "vector", "element": "slot_hash" },
+        { "name": "wallclock", "type": "ulong" }
+      ]
+    },
+    {
+      "name": "gossip_slots",
+      "type": "struct",
+      "fields": [
+        { "name": "first_slot", "type": "ulong" },
+        { "name": "num", "type": "ulong" },
+        { "name": "slots", "type": "gossip_bitvec_u8" }
+      ]
+    },
+    {
+      "name": "gossip_flate2_slots",
+      "type": "struct",
+      "fields": [
+        { "name": "first_slot", "type": "ulong" },
+        { "name": "num", "type": "ulong" },
+        { "name": "compressed", "type": "vector", "element": "uchar" }
+      ]
+    },
+    {
+      "name": "gossip_slots_enum",
+      "type": "enum",
+      "variants": [
+        { "name": "flate2", "type": "gossip_flate2_slots" },
+        { "name": "uncompressed", "type": "gossip_slots" }
+      ]
+    },
+    {
+      "name": "gossip_epoch_slots",
+      "type": "struct",
+      "fields": [
+        { "name": "u8", "type": "uchar" },
+        { "name": "from", "type": "pubkey" },
+        { "name": "slots", "type": "vector", "element": "gossip_slots_enum" },
+        { "name": "wallclock", "type": "ulong" }
+      ]
+    },
+    {
       "name": "crds_data",
       "type": "enum",
       "variants": [
         { "name": "contact_info", "type": "gossip_contact_info" },
-        { "name": "vote", "type": "gossip_vote" }
-      ]
-    },
-    {
-      "name": "bitvec_u64_inner",
-      "type": "struct",
-      "fields": [ { "name": "vec", "type": "vector", "element": "ulong" } ]
-    },
-    {
-      "name": "bitvec_u64",
-      "type": "struct",
-      "fields": [
-        { "name": "bits", "type": "option", "element": "bitvec_u64_inner" },
-        { "name": "len", "type": "uint" }
+        { "name": "vote", "type": "gossip_vote" },
+        { "name": "lowest_slot", "type": "gossip_lowest_slot" },
+        { "name": "snapshot_hashes", "type": "gossip_slot_hashes" },
+        { "name": "accounts_hashes", "type": "gossip_slot_hashes" },
+        { "name": "epoch_slots", "type": "gossip_epoch_slots" }
       ]
     },
     {
@@ -1476,7 +1551,7 @@
       "type": "struct",
       "fields": [
         { "name": "keys", "type": "vector", "element": "ulong" },
-        { "name": "bits", "type": "bitvec_u64" }
+        { "name": "bits", "type": "gossip_bitvec_u64" }
       ]
     },
     {

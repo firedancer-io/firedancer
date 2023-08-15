@@ -1673,6 +1673,38 @@ typedef struct fd_frozen_hash_versioned fd_frozen_hash_versioned_t;
 #define FD_FROZEN_HASH_VERSIONED_FOOTPRINT sizeof(fd_frozen_hash_versioned_t)
 #define FD_FROZEN_HASH_VERSIONED_ALIGN (8UL)
 
+struct fd_gossip_bitvec_u8_inner {
+  ulong vec_len;
+  uchar* vec;
+};
+typedef struct fd_gossip_bitvec_u8_inner fd_gossip_bitvec_u8_inner_t;
+#define FD_GOSSIP_BITVEC_U8_INNER_FOOTPRINT sizeof(fd_gossip_bitvec_u8_inner_t)
+#define FD_GOSSIP_BITVEC_U8_INNER_ALIGN (8UL)
+
+struct fd_gossip_bitvec_u8 {
+  fd_gossip_bitvec_u8_inner_t* bits;
+  ulong len;
+};
+typedef struct fd_gossip_bitvec_u8 fd_gossip_bitvec_u8_t;
+#define FD_GOSSIP_BITVEC_U8_FOOTPRINT sizeof(fd_gossip_bitvec_u8_t)
+#define FD_GOSSIP_BITVEC_U8_ALIGN (8UL)
+
+struct fd_gossip_bitvec_u64_inner {
+  ulong vec_len;
+  ulong* vec;
+};
+typedef struct fd_gossip_bitvec_u64_inner fd_gossip_bitvec_u64_inner_t;
+#define FD_GOSSIP_BITVEC_U64_INNER_FOOTPRINT sizeof(fd_gossip_bitvec_u64_inner_t)
+#define FD_GOSSIP_BITVEC_U64_INNER_ALIGN (8UL)
+
+struct fd_gossip_bitvec_u64 {
+  fd_gossip_bitvec_u64_inner_t* bits;
+  ulong len;
+};
+typedef struct fd_gossip_bitvec_u64 fd_gossip_bitvec_u64_t;
+#define FD_GOSSIP_BITVEC_U64_FOOTPRINT sizeof(fd_gossip_bitvec_u64_t)
+#define FD_GOSSIP_BITVEC_U64_ALIGN (8UL)
+
 /* https://github.com/solana-labs/solana/blob/52616cf7aa424a80f770e5ec3f2cd49d1cfeb845/gossip/src/ping_pong.rs#L22 */
 struct fd_gossip_ping {
   fd_pubkey_t from;
@@ -1755,9 +1787,81 @@ typedef struct fd_gossip_vote fd_gossip_vote_t;
 #define FD_GOSSIP_VOTE_FOOTPRINT sizeof(fd_gossip_vote_t)
 #define FD_GOSSIP_VOTE_ALIGN (8UL)
 
+struct fd_gossip_lowest_slot {
+  uchar u8;
+  fd_pubkey_t from;
+  ulong root;
+  ulong lowest;
+  ulong slots_len;
+  ulong* slots;
+  ulong i_dont_know;
+  ulong wallclock;
+};
+typedef struct fd_gossip_lowest_slot fd_gossip_lowest_slot_t;
+#define FD_GOSSIP_LOWEST_SLOT_FOOTPRINT sizeof(fd_gossip_lowest_slot_t)
+#define FD_GOSSIP_LOWEST_SLOT_ALIGN (8UL)
+
+struct fd_gossip_slot_hashes {
+  fd_pubkey_t from;
+  ulong hashes_len;
+  fd_slot_hash_t* hashes;
+  ulong wallclock;
+};
+typedef struct fd_gossip_slot_hashes fd_gossip_slot_hashes_t;
+#define FD_GOSSIP_SLOT_HASHES_FOOTPRINT sizeof(fd_gossip_slot_hashes_t)
+#define FD_GOSSIP_SLOT_HASHES_ALIGN (8UL)
+
+struct fd_gossip_slots {
+  ulong first_slot;
+  ulong num;
+  fd_gossip_bitvec_u8_t slots;
+};
+typedef struct fd_gossip_slots fd_gossip_slots_t;
+#define FD_GOSSIP_SLOTS_FOOTPRINT sizeof(fd_gossip_slots_t)
+#define FD_GOSSIP_SLOTS_ALIGN (8UL)
+
+struct fd_gossip_flate2_slots {
+  ulong first_slot;
+  ulong num;
+  ulong compressed_len;
+  uchar* compressed;
+};
+typedef struct fd_gossip_flate2_slots fd_gossip_flate2_slots_t;
+#define FD_GOSSIP_FLATE2_SLOTS_FOOTPRINT sizeof(fd_gossip_flate2_slots_t)
+#define FD_GOSSIP_FLATE2_SLOTS_ALIGN (8UL)
+
+union fd_gossip_slots_enum_inner {
+  fd_gossip_flate2_slots_t flate2;
+  fd_gossip_slots_t uncompressed;
+};
+typedef union fd_gossip_slots_enum_inner fd_gossip_slots_enum_inner_t;
+
+struct fd_gossip_slots_enum {
+  uint discriminant;
+  fd_gossip_slots_enum_inner_t inner;
+};
+typedef struct fd_gossip_slots_enum fd_gossip_slots_enum_t;
+#define FD_GOSSIP_SLOTS_ENUM_FOOTPRINT sizeof(fd_gossip_slots_enum_t)
+#define FD_GOSSIP_SLOTS_ENUM_ALIGN (8UL)
+
+struct fd_gossip_epoch_slots {
+  uchar u8;
+  fd_pubkey_t from;
+  ulong slots_len;
+  fd_gossip_slots_enum_t* slots;
+  ulong wallclock;
+};
+typedef struct fd_gossip_epoch_slots fd_gossip_epoch_slots_t;
+#define FD_GOSSIP_EPOCH_SLOTS_FOOTPRINT sizeof(fd_gossip_epoch_slots_t)
+#define FD_GOSSIP_EPOCH_SLOTS_ALIGN (8UL)
+
 union fd_crds_data_inner {
   fd_gossip_contact_info_t contact_info;
   fd_gossip_vote_t vote;
+  fd_gossip_lowest_slot_t lowest_slot;
+  fd_gossip_slot_hashes_t snapshot_hashes;
+  fd_gossip_slot_hashes_t accounts_hashes;
+  fd_gossip_epoch_slots_t epoch_slots;
 };
 typedef union fd_crds_data_inner fd_crds_data_inner_t;
 
@@ -1769,26 +1873,10 @@ typedef struct fd_crds_data fd_crds_data_t;
 #define FD_CRDS_DATA_FOOTPRINT sizeof(fd_crds_data_t)
 #define FD_CRDS_DATA_ALIGN (8UL)
 
-struct fd_bitvec_u64_inner {
-  ulong vec_len;
-  ulong* vec;
-};
-typedef struct fd_bitvec_u64_inner fd_bitvec_u64_inner_t;
-#define FD_BITVEC_U64_INNER_FOOTPRINT sizeof(fd_bitvec_u64_inner_t)
-#define FD_BITVEC_U64_INNER_ALIGN (8UL)
-
-struct fd_bitvec_u64 {
-  fd_bitvec_u64_inner_t* bits;
-  uint len;
-};
-typedef struct fd_bitvec_u64 fd_bitvec_u64_t;
-#define FD_BITVEC_U64_FOOTPRINT sizeof(fd_bitvec_u64_t)
-#define FD_BITVEC_U64_ALIGN (8UL)
-
 struct fd_crds_bloom {
   ulong keys_len;
   ulong* keys;
-  fd_bitvec_u64_t bits;
+  fd_gossip_bitvec_u64_t bits;
 };
 typedef struct fd_crds_bloom fd_crds_bloom_t;
 #define FD_CRDS_BLOOM_FOOTPRINT sizeof(fd_crds_bloom_t)
@@ -2989,6 +3077,34 @@ FD_FN_PURE uchar fd_frozen_hash_versioned_is_current(fd_frozen_hash_versioned_t 
 enum {
 fd_frozen_hash_versioned_enum_current = 0,
 }; 
+void fd_gossip_bitvec_u8_inner_new(fd_gossip_bitvec_u8_inner_t* self);
+int fd_gossip_bitvec_u8_inner_decode(fd_gossip_bitvec_u8_inner_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_gossip_bitvec_u8_inner_encode(fd_gossip_bitvec_u8_inner_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_gossip_bitvec_u8_inner_destroy(fd_gossip_bitvec_u8_inner_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_gossip_bitvec_u8_inner_walk(void * w, fd_gossip_bitvec_u8_inner_t* self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_gossip_bitvec_u8_inner_size(fd_gossip_bitvec_u8_inner_t const * self);
+
+void fd_gossip_bitvec_u8_new(fd_gossip_bitvec_u8_t* self);
+int fd_gossip_bitvec_u8_decode(fd_gossip_bitvec_u8_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_gossip_bitvec_u8_encode(fd_gossip_bitvec_u8_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_gossip_bitvec_u8_destroy(fd_gossip_bitvec_u8_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_gossip_bitvec_u8_walk(void * w, fd_gossip_bitvec_u8_t* self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_gossip_bitvec_u8_size(fd_gossip_bitvec_u8_t const * self);
+
+void fd_gossip_bitvec_u64_inner_new(fd_gossip_bitvec_u64_inner_t* self);
+int fd_gossip_bitvec_u64_inner_decode(fd_gossip_bitvec_u64_inner_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_gossip_bitvec_u64_inner_encode(fd_gossip_bitvec_u64_inner_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_gossip_bitvec_u64_inner_destroy(fd_gossip_bitvec_u64_inner_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_gossip_bitvec_u64_inner_walk(void * w, fd_gossip_bitvec_u64_inner_t* self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_gossip_bitvec_u64_inner_size(fd_gossip_bitvec_u64_inner_t const * self);
+
+void fd_gossip_bitvec_u64_new(fd_gossip_bitvec_u64_t* self);
+int fd_gossip_bitvec_u64_decode(fd_gossip_bitvec_u64_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_gossip_bitvec_u64_encode(fd_gossip_bitvec_u64_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_gossip_bitvec_u64_destroy(fd_gossip_bitvec_u64_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_gossip_bitvec_u64_walk(void * w, fd_gossip_bitvec_u64_t* self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_gossip_bitvec_u64_size(fd_gossip_bitvec_u64_t const * self);
+
 void fd_gossip_ping_new(fd_gossip_ping_t* self);
 int fd_gossip_ping_decode(fd_gossip_ping_t* self, fd_bincode_decode_ctx_t * ctx);
 int fd_gossip_ping_encode(fd_gossip_ping_t const * self, fd_bincode_encode_ctx_t * ctx);
@@ -3045,6 +3161,55 @@ void fd_gossip_vote_destroy(fd_gossip_vote_t* self, fd_bincode_destroy_ctx_t * c
 void fd_gossip_vote_walk(void * w, fd_gossip_vote_t* self, fd_types_walk_fn_t fun, const char *name, uint level);
 ulong fd_gossip_vote_size(fd_gossip_vote_t const * self);
 
+void fd_gossip_lowest_slot_new(fd_gossip_lowest_slot_t* self);
+int fd_gossip_lowest_slot_decode(fd_gossip_lowest_slot_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_gossip_lowest_slot_encode(fd_gossip_lowest_slot_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_gossip_lowest_slot_destroy(fd_gossip_lowest_slot_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_gossip_lowest_slot_walk(void * w, fd_gossip_lowest_slot_t* self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_gossip_lowest_slot_size(fd_gossip_lowest_slot_t const * self);
+
+void fd_gossip_slot_hashes_new(fd_gossip_slot_hashes_t* self);
+int fd_gossip_slot_hashes_decode(fd_gossip_slot_hashes_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_gossip_slot_hashes_encode(fd_gossip_slot_hashes_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_gossip_slot_hashes_destroy(fd_gossip_slot_hashes_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_gossip_slot_hashes_walk(void * w, fd_gossip_slot_hashes_t* self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_gossip_slot_hashes_size(fd_gossip_slot_hashes_t const * self);
+
+void fd_gossip_slots_new(fd_gossip_slots_t* self);
+int fd_gossip_slots_decode(fd_gossip_slots_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_gossip_slots_encode(fd_gossip_slots_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_gossip_slots_destroy(fd_gossip_slots_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_gossip_slots_walk(void * w, fd_gossip_slots_t* self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_gossip_slots_size(fd_gossip_slots_t const * self);
+
+void fd_gossip_flate2_slots_new(fd_gossip_flate2_slots_t* self);
+int fd_gossip_flate2_slots_decode(fd_gossip_flate2_slots_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_gossip_flate2_slots_encode(fd_gossip_flate2_slots_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_gossip_flate2_slots_destroy(fd_gossip_flate2_slots_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_gossip_flate2_slots_walk(void * w, fd_gossip_flate2_slots_t* self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_gossip_flate2_slots_size(fd_gossip_flate2_slots_t const * self);
+
+void fd_gossip_slots_enum_new_disc(fd_gossip_slots_enum_t* self, uint discriminant);
+void fd_gossip_slots_enum_new(fd_gossip_slots_enum_t* self);
+int fd_gossip_slots_enum_decode(fd_gossip_slots_enum_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_gossip_slots_enum_encode(fd_gossip_slots_enum_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_gossip_slots_enum_destroy(fd_gossip_slots_enum_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_gossip_slots_enum_walk(void * w, fd_gossip_slots_enum_t* self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_gossip_slots_enum_size(fd_gossip_slots_enum_t const * self);
+
+FD_FN_PURE uchar fd_gossip_slots_enum_is_flate2(fd_gossip_slots_enum_t const * self);
+FD_FN_PURE uchar fd_gossip_slots_enum_is_uncompressed(fd_gossip_slots_enum_t const * self);
+enum {
+fd_gossip_slots_enum_enum_flate2 = 0,
+fd_gossip_slots_enum_enum_uncompressed = 1,
+}; 
+void fd_gossip_epoch_slots_new(fd_gossip_epoch_slots_t* self);
+int fd_gossip_epoch_slots_decode(fd_gossip_epoch_slots_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_gossip_epoch_slots_encode(fd_gossip_epoch_slots_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_gossip_epoch_slots_destroy(fd_gossip_epoch_slots_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_gossip_epoch_slots_walk(void * w, fd_gossip_epoch_slots_t* self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_gossip_epoch_slots_size(fd_gossip_epoch_slots_t const * self);
+
 void fd_crds_data_new_disc(fd_crds_data_t* self, uint discriminant);
 void fd_crds_data_new(fd_crds_data_t* self);
 int fd_crds_data_decode(fd_crds_data_t* self, fd_bincode_decode_ctx_t * ctx);
@@ -3055,24 +3220,18 @@ ulong fd_crds_data_size(fd_crds_data_t const * self);
 
 FD_FN_PURE uchar fd_crds_data_is_contact_info(fd_crds_data_t const * self);
 FD_FN_PURE uchar fd_crds_data_is_vote(fd_crds_data_t const * self);
+FD_FN_PURE uchar fd_crds_data_is_lowest_slot(fd_crds_data_t const * self);
+FD_FN_PURE uchar fd_crds_data_is_snapshot_hashes(fd_crds_data_t const * self);
+FD_FN_PURE uchar fd_crds_data_is_accounts_hashes(fd_crds_data_t const * self);
+FD_FN_PURE uchar fd_crds_data_is_epoch_slots(fd_crds_data_t const * self);
 enum {
 fd_crds_data_enum_contact_info = 0,
 fd_crds_data_enum_vote = 1,
+fd_crds_data_enum_lowest_slot = 2,
+fd_crds_data_enum_snapshot_hashes = 3,
+fd_crds_data_enum_accounts_hashes = 4,
+fd_crds_data_enum_epoch_slots = 5,
 }; 
-void fd_bitvec_u64_inner_new(fd_bitvec_u64_inner_t* self);
-int fd_bitvec_u64_inner_decode(fd_bitvec_u64_inner_t* self, fd_bincode_decode_ctx_t * ctx);
-int fd_bitvec_u64_inner_encode(fd_bitvec_u64_inner_t const * self, fd_bincode_encode_ctx_t * ctx);
-void fd_bitvec_u64_inner_destroy(fd_bitvec_u64_inner_t* self, fd_bincode_destroy_ctx_t * ctx);
-void fd_bitvec_u64_inner_walk(void * w, fd_bitvec_u64_inner_t* self, fd_types_walk_fn_t fun, const char *name, uint level);
-ulong fd_bitvec_u64_inner_size(fd_bitvec_u64_inner_t const * self);
-
-void fd_bitvec_u64_new(fd_bitvec_u64_t* self);
-int fd_bitvec_u64_decode(fd_bitvec_u64_t* self, fd_bincode_decode_ctx_t * ctx);
-int fd_bitvec_u64_encode(fd_bitvec_u64_t const * self, fd_bincode_encode_ctx_t * ctx);
-void fd_bitvec_u64_destroy(fd_bitvec_u64_t* self, fd_bincode_destroy_ctx_t * ctx);
-void fd_bitvec_u64_walk(void * w, fd_bitvec_u64_t* self, fd_types_walk_fn_t fun, const char *name, uint level);
-ulong fd_bitvec_u64_size(fd_bitvec_u64_t const * self);
-
 void fd_crds_bloom_new(fd_crds_bloom_t* self);
 int fd_crds_bloom_decode(fd_crds_bloom_t* self, fd_bincode_decode_ctx_t * ctx);
 int fd_crds_bloom_encode(fd_crds_bloom_t const * self, fd_bincode_encode_ctx_t * ctx);
