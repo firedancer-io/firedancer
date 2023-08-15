@@ -10655,8 +10655,128 @@ int fd_gossip_contact_info_encode(fd_gossip_contact_info_t const * self, fd_binc
   return FD_BINCODE_SUCCESS;
 }
 
+int fd_gossip_vote_rec_decode(fd_gossip_vote_rec_t* self, fd_bincode_decode_ctx_t * ctx) {
+  int err;
+  err = fd_pubkey_decode(&self->from, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_flamenco_txn_decode(&self->txn, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_decode(&self->wallclock, ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  {
+    uchar o;
+    err = fd_bincode_option_decode( &o, ctx );
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    if( o ) {
+      self->slot = fd_valloc_malloc( ctx->valloc, 8, sizeof(ulong) );
+      err = fd_bincode_uint64_decode( self->slot, ctx );
+      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    } else
+      self->slot = NULL;
+  }
+  return FD_BINCODE_SUCCESS;
+}
+void fd_gossip_vote_rec_new(fd_gossip_vote_rec_t* self) {
+  fd_memset(self, 0, sizeof(fd_gossip_vote_rec_t));
+  fd_pubkey_new(&self->from);
+  fd_flamenco_txn_new(&self->txn);
+}
+void fd_gossip_vote_rec_destroy(fd_gossip_vote_rec_t* self, fd_bincode_destroy_ctx_t * ctx) {
+  fd_pubkey_destroy(&self->from, ctx);
+  fd_flamenco_txn_destroy(&self->txn, ctx);
+  if (NULL != self->slot) {
+    fd_valloc_free( ctx->valloc, self->slot);
+    self->slot = NULL;
+  }
+}
+
+void fd_gossip_vote_rec_walk(void * w, fd_gossip_vote_rec_t* self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_vote_rec", level++);
+  fd_pubkey_walk(w, &self->from, fun, "from", level);
+  fd_flamenco_txn_walk(w, &self->txn, fun, "txn", level);
+  fun( w, &self->wallclock, "wallclock", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
+  if( !self->slot ) {
+    fun( w, NULL, "slot", FD_FLAMENCO_TYPE_NULL, "ulong", level );
+  } else {
+  fun( w, self->slot, "slot", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
+  }
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_vote_rec", level--);
+}
+ulong fd_gossip_vote_rec_size(fd_gossip_vote_rec_t const * self) {
+  ulong size = 0;
+  size += fd_pubkey_size(&self->from);
+  size += fd_flamenco_txn_size(&self->txn);
+  size += sizeof(ulong);
+  size += sizeof(char);
+  if (NULL !=  self->slot) {
+    size += sizeof(ulong);
+  }
+  return size;
+}
+
+int fd_gossip_vote_rec_encode(fd_gossip_vote_rec_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  err = fd_pubkey_encode(&self->from, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_flamenco_txn_encode(&self->txn, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_encode(&self->wallclock, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  if (self->slot != NULL) {
+    err = fd_bincode_option_encode(1, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    err = fd_bincode_uint64_encode(self->slot, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+  } else {
+    err = fd_bincode_option_encode(0, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+  }
+  return FD_BINCODE_SUCCESS;
+}
+
+int fd_gossip_vote_decode(fd_gossip_vote_t* self, fd_bincode_decode_ctx_t * ctx) {
+  int err;
+  err = fd_bincode_uint8_decode(&self->u8, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_gossip_vote_rec_decode(&self->rec, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_gossip_vote_new(fd_gossip_vote_t* self) {
+  fd_memset(self, 0, sizeof(fd_gossip_vote_t));
+  fd_gossip_vote_rec_new(&self->rec);
+}
+void fd_gossip_vote_destroy(fd_gossip_vote_t* self, fd_bincode_destroy_ctx_t * ctx) {
+  fd_gossip_vote_rec_destroy(&self->rec, ctx);
+}
+
+void fd_gossip_vote_walk(void * w, fd_gossip_vote_t* self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_vote", level++);
+  fun( w, &self->u8, "u8", FD_FLAMENCO_TYPE_UCHAR,   "uchar",     level );
+  fd_gossip_vote_rec_walk(w, &self->rec, fun, "rec", level);
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_vote", level--);
+}
+ulong fd_gossip_vote_size(fd_gossip_vote_t const * self) {
+  ulong size = 0;
+  size += sizeof(char);
+  size += fd_gossip_vote_rec_size(&self->rec);
+  return size;
+}
+
+int fd_gossip_vote_encode(fd_gossip_vote_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  err = fd_bincode_uint8_encode(&self->u8, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_gossip_vote_rec_encode(&self->rec, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+
 FD_FN_PURE uchar fd_crds_data_is_contact_info(fd_crds_data_t const * self) {
   return self->discriminant == 0;
+}
+FD_FN_PURE uchar fd_crds_data_is_vote(fd_crds_data_t const * self) {
+  return self->discriminant == 1;
 }
 void fd_crds_data_inner_new(fd_crds_data_inner_t* self, uint discriminant);
 int fd_crds_data_inner_decode(fd_crds_data_inner_t* self, uint discriminant, fd_bincode_decode_ctx_t * ctx) {
@@ -10665,6 +10785,9 @@ int fd_crds_data_inner_decode(fd_crds_data_inner_t* self, uint discriminant, fd_
   switch (discriminant) {
   case 0: {
     return fd_gossip_contact_info_decode(&self->contact_info, ctx);
+  }
+  case 1: {
+    return fd_gossip_vote_decode(&self->vote, ctx);
   }
   default: return FD_BINCODE_ERR_ENCODING;
   }
@@ -10678,6 +10801,10 @@ void fd_crds_data_inner_new(fd_crds_data_inner_t* self, uint discriminant) {
   switch (discriminant) {
   case 0: {
     fd_gossip_contact_info_new(&self->contact_info);
+    break;
+  }
+  case 1: {
+    fd_gossip_vote_new(&self->vote);
     break;
   }
   default: break; // FD_LOG_ERR(( "unhandled type"));
@@ -10696,6 +10823,10 @@ void fd_crds_data_inner_destroy(fd_crds_data_inner_t* self, uint discriminant, f
     fd_gossip_contact_info_destroy(&self->contact_info, ctx);
     break;
   }
+  case 1: {
+    fd_gossip_vote_destroy(&self->vote, ctx);
+    break;
+  }
   default: break; // FD_LOG_ERR(( "unhandled type" ));
   }
 }
@@ -10705,10 +10836,14 @@ void fd_crds_data_destroy(fd_crds_data_t* self, fd_bincode_destroy_ctx_t * ctx) 
 
 void fd_crds_data_walk(void * w, fd_crds_data_t* self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_crds_data", level++);
-  // enum fd_ushort_walk(w, &self->shred_version, fun, "shred_version", level);
+  // enum fd_gossip_vote_rec_walk(w, &self->rec, fun, "rec", level);
   switch (self->discriminant) {
   case 0: {
     fd_gossip_contact_info_walk(w, &self->inner.contact_info, fun, "contact_info", level);
+    break;
+  }
+  case 1: {
+    fd_gossip_vote_walk(w, &self->inner.vote, fun, "vote", level);
     break;
   }
   }
@@ -10722,6 +10857,10 @@ ulong fd_crds_data_size(fd_crds_data_t const * self) {
     size += fd_gossip_contact_info_size(&self->inner.contact_info);
     break;
   }
+  case 1: {
+    size += fd_gossip_vote_size(&self->inner.vote);
+    break;
+  }
   }
   return size;
 }
@@ -10731,6 +10870,11 @@ int fd_crds_data_inner_encode(fd_crds_data_inner_t const * self, uint discrimina
   switch (discriminant) {
   case 0: {
     err = fd_gossip_contact_info_encode(&self->contact_info, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    break;
+  }
+  case 1: {
+    err = fd_gossip_vote_encode(&self->vote, ctx);
     if ( FD_UNLIKELY(err) ) return err;
     break;
   }
