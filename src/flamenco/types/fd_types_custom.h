@@ -4,6 +4,7 @@
 #include "fd_types_meta.h"
 #include "fd_bincode.h"
 #include "../../ballet/ed25519/fd_ed25519.h"
+#include "../../ballet/txn/fd_txn.h"
 #include "../../util/net/fd_ip4.h"
 
 typedef void
@@ -223,6 +224,59 @@ fd_gossip_ip6_addr_walk( void *                   w,
                          fd_types_walk_fn_t       fun,
                          char const *             name,
                          uint                     level );
+
+/* Transaction wrapper ************************************************/
+
+/* fd_flamenco_txn_t is yet another fd_txn_t wrapper.
+   This should die as soon as we have a better stubs generator. */
+
+struct fd_flamenco_txn {
+  union {
+    uchar                  txn_buf[ FD_TXN_MAX_SZ ];
+    __extension__ fd_txn_t txn[0];
+  };
+  uchar raw[ FD_TXN_MTU ];
+  ulong raw_sz;
+};
+
+typedef struct fd_flamenco_txn fd_flamenco_txn_t;
+
+static inline void
+fd_flamenco_txn_new( fd_flamenco_txn_t * self FD_FN_UNUSED ) {}
+
+static inline int
+fd_flamenco_txn_decode( fd_flamenco_txn_t *       self,
+                        fd_bincode_decode_ctx_t * ctx ) {
+  ulong bufsz = (ulong)ctx->data - (ulong)ctx->dataend;
+  ulong sz = fd_txn_parse( ctx->data, bufsz, self->txn, NULL );
+  if( FD_UNLIKELY( !sz ) ) return FD_BINCODE_ERR_ENCODING;
+  fd_memcpy( self->raw, ctx->data, sz );
+  self->raw_sz = sz;
+  ctx->data = (void *)( (ulong)ctx->data + sz );
+  return 0;
+}
+
+static inline void
+fd_flamenco_txn_destroy( fd_flamenco_txn_t const *  self FD_FN_UNUSED,
+                         fd_bincode_destroy_ctx_t * ctx  FD_FN_UNUSED ) {}
+
+FD_FN_CONST static inline ulong
+fd_flamenco_txn_size( fd_flamenco_txn_t const * self FD_FN_UNUSED ) {
+  return self->raw_sz;
+}
+
+static inline int
+fd_flamenco_txn_encode( fd_flamenco_txn_t const * self,
+                        fd_bincode_encode_ctx_t * ctx ) {
+  return fd_bincode_bytes_encode( self->raw, self->raw_sz, ctx );
+}
+
+static inline void
+fd_flamenco_txn_walk( void *              w     FD_FN_UNUSED,
+                      fd_flamenco_txn_t * self  FD_FN_UNUSED,
+                      fd_types_walk_fn_t  fun   FD_FN_UNUSED,
+                      char const *        name  FD_FN_UNUSED,
+                      uint                level FD_FN_UNUSED ) {}
 
 FD_PROTOTYPES_END
 
