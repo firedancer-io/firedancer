@@ -8,16 +8,12 @@
 #include "../stakes/fd_stakes.h"
 #include "../stakes/fd_stake_program.h"
 #include "../runtime/program/fd_vote_program.h"
+#include "../../ballet/siphash13/fd_siphash13.h"
 
-FD_PROTOTYPES_BEGIN
-
-/// reward calculation happens synchronously during the first block of the epoch boundary.
-/// So, # blocks for reward calculation is 1.
+/* reward calculation happens synchronously during the first block of the epoch boundary.
+ So, # blocks for reward calculation is 1. */
 #define REWARD_CALCULATION_NUM_BLOCK            1
-/// # stake accounts to store in one block during partitioned reward interval
-/// Target to store 64 rewards per entry/tick in a block. A block has a minimum of 64
-/// entries/tick. This gives 4096 total rewards to store in one block.
-/// This constant affects consensus.
+/* stake accounts to store in one block during partitioned reward interval Target to store 64 rewards per entry/tick in a block. A block has a minimum of 64 entries/tick. This gives 4096 total rewards to store in one block. This constant affects consensus. */
 #define STAKE_ACCOUNT_STORES_PER_BLOCK          4096
 #define TEST_ENABLE_PARTITIONED_REWARDS         0
 #define TEST_COMPARE_PARTITIONED_EPOCH_REWARDS  0
@@ -46,12 +42,6 @@ struct fd_reward_info {
 };
 typedef struct fd_reward_info fd_reward_info_t;
 
-struct fd_stake_reward {
-    fd_pubkey_t * stake_pubkey;
-    fd_reward_info_t * reward_info;
-};
-typedef struct fd_stake_reward fd_stake_reward_t;
-
 struct fd_vote_reward_t_mapnode {
   fd_pubkey_t * vote_pubkey;
   ulong vote_rewards;
@@ -79,6 +69,24 @@ fd_vote_reward_t_map_alloc( fd_valloc_t valloc, int len ) {
   return fd_vote_reward_t_map_join(fd_vote_reward_t_map_new(mem, len));
 }
 
+struct fd_stake_reward {
+    fd_pubkey_t * stake_pubkey;
+    fd_reward_info_t * reward_info;
+};
+typedef struct fd_stake_reward fd_stake_reward_t;
+
+#define VECT_NAME fd_stake_rewards
+#define VECT_ELEMENT fd_stake_reward_t*
+#include "../runtime/fd_vector.h"
+#undef VECT_NAME
+#undef VECT_ELEMENT
+
+#define VECT_NAME fd_stake_rewards_vector
+#define VECT_ELEMENT fd_stake_rewards_t
+#include "../runtime/fd_vector.h"
+#undef VECT_NAME
+#undef VECT_ELEMENT
+
 #define DEQUE_NAME deq_fd_stake_reward_t
 #define DEQUE_T    fd_stake_reward_t
 #define DEQUE_MAX  1000UL
@@ -96,9 +104,11 @@ struct fd_validator_reward_calculation {
 };
 typedef struct fd_validator_reward_calculation fd_validator_reward_calculation_t;
 
-struct partitioned_rewards_calculation {
+struct fd_partitioned_rewards_calculation {
     /* VoteRewardsAccount */
-    // fd_stake_reward_calculation_t * stake_rewards_by_partition; 
+    fd_vote_reward_t_mapnode_t * vote_account_rewards;
+    fd_stake_rewards_vector_t * stake_rewards_by_partition;
+    ulong total_stake_rewards_lamports;
     ulong old_vote_balance_and_staked;
     ulong validator_rewards;
     double validator_rate;
@@ -106,7 +116,7 @@ struct partitioned_rewards_calculation {
     double prev_epoch_duration_in_years;
     ulong capitalization;
 };
-typedef struct partitioned_rewards_calculation partitioned_rewards_calculation_t;
+typedef struct fd_partitioned_rewards_calculation fd_partitioned_rewards_calculation_t;
 
 struct fd_point_value {
   ulong rewards;
@@ -127,6 +137,8 @@ struct fd_calculate_stake_points {
   uint force_credits_update_with_skipped_reward;
 };
 typedef struct fd_calculate_stake_points fd_calculate_stake_points_t;
+
+FD_PROTOTYPES_BEGIN
 
 FD_PROTOTYPES_END
 

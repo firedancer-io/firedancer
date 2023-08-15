@@ -443,7 +443,7 @@ calculate_validator_rewards(
 
 /// Calculate the number of blocks required to distribute rewards to all stake accounts.
 // fn get_reward_distribution_num_blocks(&self, rewards: &StakeRewards) -> u64 {
-ulong
+static ulong
 get_reward_distribution_num_blocks(
     fd_firedancer_banks_t * bank,
     fd_stake_reward_t * stake_reward_deq
@@ -462,32 +462,82 @@ get_reward_distribution_num_blocks(
     return num_chunks;
 }
 
+static void
+hash_rewards_into_partitions(
+    fd_firedancer_banks_t * bank,
+    fd_stake_reward_t * stake_reward_deq,
+    ulong num_partitions,
+    fd_stake_rewards_vector_t * result
+) {
+    fd_siphash13_t  _sip[1];
+    fd_siphash13_t * hasher = fd_siphash13_init( _sip, 0, 0 );
+    hasher = fd_siphash13_append( hasher, bank->banks_hash.hash, sizeof(fd_hash_t));
+
+    fd_stake_rewards_vector_new( result );
+    for (ulong i = 0; i < num_partitions; ++i) {
+        fd_stake_rewards_new(&result->elems[i]);
+    }
+    for (
+        deq_fd_stake_reward_t_iter_t iter = deq_fd_stake_reward_t_iter_init(stake_reward_deq );
+        !deq_fd_stake_reward_t_iter_done( stake_reward_deq, iter );
+        iter =  deq_fd_stake_reward_t_iter_next( stake_reward_deq, iter)
+    ) {
+        fd_stake_reward_t * ele =  deq_fd_stake_reward_t_iter_ele( stake_reward_deq, iter );
+        /* hash_address_to_partition: find partition index (0..partitions) by hashing `address` with the `hasher` */
+        fd_siphash13_append( hasher, ele->stake_pubkey->hash, sizeof(fd_pubkey_t));
+        ulong hash64 = fd_siphash13_fini(hasher);
+        /* hash_to_partition */
+        ulong partition_index = (ulong)(
+            (__uint128_t) num_partitions *
+            (__uint128_t) hash64 /
+            ((__uint128_t)ULONG_MAX + 1)
+        );
+        fd_stake_rewards_push(&result->elems[partition_index], ele);
+    }
+}
+
 // Calculate rewards from previous epoch to prepare for partitioned distribution.
 void
 calculate_rewards_for_partitioning(
     instruction_ctx_t * ctx,
     ulong prev_epoch,
-    partitioned_rewards_calculation_t * partitioned_rewards
+    fd_partitioned_rewards_calculation_t * result
 ) {
     prev_epoch_inflation_rewards_t rewards;
     fd_firedancer_banks_t * bank = &ctx->global->bank;
     calculate_previous_epoch_inflation_rewards(bank, bank->capitalization, prev_epoch, &rewards);
 
     ulong old_vote_balance_and_staked = vote_balance_and_staked(&bank->stakes);
-    (void) old_vote_balance_and_staked;
 
     fd_validator_reward_calculation_t * validator_result = NULL;
     calculate_validator_rewards(ctx, prev_epoch, rewards.validator_rewards, validator_result);
 
     ulong num_partitions = get_reward_distribution_num_blocks(&ctx->global->bank, validator_result->stake_reward_deq);
-    (void) num_partitions;
-    // hash_rewards_into_partitioned
-    (void) partitioned_rewards;
 
-
+    fd_stake_rewards_vector_t * hash_rewards_result = NULL;
+    hash_rewards_into_partitions(&ctx->global->bank, validator_result->stake_reward_deq, num_partitions, hash_rewards_result);
+    *result = (fd_partitioned_rewards_calculation_t) {
+        .vote_account_rewards = validator_result->vote_reward_map,
+        .stake_rewards_by_partition = hash_rewards_result,
+        .total_stake_rewards_lamports = validator_result->total_stake_rewards_lamports,
+        .old_vote_balance_and_staked = old_vote_balance_and_staked,
+        .validator_rewards = rewards.validator_rewards,
+        .validator_rate = rewards.validator_rate,
+        .foundation_rate = rewards.foundation_rate,
+        .prev_epoch_duration_in_years = rewards.prev_epoch_duration_in_years,
+        .capitalization = bank->capitalization
+    };
 }
 
-//calculate_rewards_and_distribute_vote_rewards
+// Calculate rewards from previous epoch and distribute vote rewards
+void calculate_rewards_and_distribute_vote_rewards(
+    instruction_ctx_t * ctx,
+    ulong prev_epoch
+) {
+    fd_partitioned_rewards_calculation_t * rewards_calc_result = NULL;
+    calculate_rewards_for_partitioning(ctx, prev_epoch,  rewards_calc_result);
+    (void) rewards_calc_result;
+}
 
 // update_rewards_with_thread_pool
 
