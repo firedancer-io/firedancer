@@ -1380,19 +1380,6 @@
       "comment": "https://github.com/solana-labs/solana/blob/52616cf7aa424a80f770e5ec3f2cd49d1cfeb845/gossip/src/ping_pong.rs#L22"
     },
     {
-      "name": "gossip_msg",
-      "type": "enum",
-      "variants": [
-        { "name": "pull_req",  "type": "uchar" },
-        { "name": "pull_resp", "type": "uchar" },
-        { "name": "push_msg",  "type": "uchar" },
-        { "name": "prune_msg", "type": "uchar" },
-        { "name": "ping",      "type": "gossip_ping" },
-        { "name": "pong",      "type": "gossip_ping" }
-      ],
-      "comment": "UDP payloads of the Solana gossip protocol"
-    },
-    {
       "name": "gossip_ip_addr",
       "type": "enum",
       "variants": [
@@ -1406,6 +1393,134 @@
         }
       ],
       "comment": "Unnecessary and sad wrapper type. IPv4 addresses could have been mapped to IPv6"
+    },
+    {
+      "name": "gossip_prune_data",
+      "type": "struct",
+      "fields": [
+        { "name": "pubkey", "type": "pubkey" },
+        { "name": "prunes", "type": "vector", "element": "pubkey" },
+        { "name": "signature", "type": "signature" },
+        { "name": "destination", "type": "pubkey" },
+        { "name": "wallclock", "type": "ulong" }
+      ]
+    },
+    {
+      "name": "gossip_socket_addr",
+      "type": "struct",
+      "fields": [
+        { "name": "addr", "type": "gossip_ip_addr" },
+        { "name": "port", "type": "ushort" }
+      ]
+    },
+    {
+      "name": "gossip_contact_info",
+      "type": "struct",
+      "fields": [
+        { "name": "id", "type": "pubkey" },
+        { "name": "gossip", "type": "gossip_socket_addr" },
+        { "name": "tvu", "type": "gossip_socket_addr" },
+        { "name": "tvu_fwd", "type": "gossip_socket_addr" },
+        { "name": "repair", "type": "gossip_socket_addr" },
+        { "name": "tpu", "type": "gossip_socket_addr" },
+        { "name": "tpu_fwd", "type": "gossip_socket_addr" },
+        { "name": "tpu_vote", "type": "gossip_socket_addr" },
+        { "name": "rpc", "type": "gossip_socket_addr" },
+        { "name": "rpc_pubsub", "type": "gossip_socket_addr" },
+        { "name": "serve_repair", "type": "gossip_socket_addr" },
+        { "name": "wallclock", "type": "ulong" },
+        { "name": "shred_version", "type": "ushort" }
+      ]
+    },
+    {
+      "name": "crds_data",
+      "type": "enum",
+      "variants": [
+        { "name": "contact_info", "type": "gossip_contact_info" }
+      ]
+    },
+    {
+      "name": "bitvec_u64_inner",
+      "type": "struct",
+      "fields": [ { "name": "vec", "type": "vector", "element": "ulong" } ]
+    },
+    {
+      "name": "bitvec_u64",
+      "type": "struct",
+      "fields": [
+        { "name": "bits", "type": "option", "element": "bitvec_u64_inner" },
+        { "name": "len", "type": "uint" }
+      ]
+    },
+    {
+      "name": "crds_bloom",
+      "type": "struct",
+      "fields": [
+        { "name": "keys", "type": "vector", "element": "ulong" },
+        { "name": "bits", "type": "bitvec_u64" }
+      ]
+    },
+    {
+      "name": "crds_filter",
+      "type": "struct",
+      "fields": [
+        { "name": "filter", "type": "crds_bloom" },
+        { "name": "mask", "type": "ulong" },
+        { "name": "mask_bits", "type": "uint" }
+      ]
+    },
+    {
+      "name": "crds_value",
+      "type": "struct",
+      "fields": [
+        { "name": "signature", "type": "signature" },
+        { "name": "data", "type": "crds_data" }
+      ]
+    },
+    {
+      "name": "gossip_pull_req",
+      "type": "struct",
+      "fields": [
+        { "name": "filter", "type": "crds_filter" },
+        { "name": "value",  "type": "crds_value" }
+      ]
+    },
+    {
+      "name": "gossip_pull_resp",
+      "type": "struct",
+      "fields": [
+        { "name": "pubkey", "type": "pubkey" },
+        { "name": "crds", "type": "vector", "element": "crds_value" }
+      ]
+    },
+    {
+      "name": "gossip_push_msg",
+      "type": "struct",
+      "fields": [
+        { "name": "pubkey", "type": "pubkey" },
+        { "name": "crds", "type": "vector", "element": "crds_value" }
+      ]
+    },
+    {
+      "name": "gossip_prune_msg",
+      "type": "struct",
+      "fields": [
+        { "name": "pubkey", "type": "pubkey" },
+        { "name": "data", "type": "gossip_prune_data" }
+      ]
+    },
+    {
+      "name": "gossip_msg",
+      "type": "enum",
+      "variants": [
+        { "name": "pull_req",  "type": "gossip_pull_req" },
+        { "name": "pull_resp", "type": "gossip_pull_resp" },
+        { "name": "push_msg",  "type": "gossip_push_msg" },
+        { "name": "prune_msg", "type": "gossip_prune_msg" },
+        { "name": "ping",      "type": "gossip_ping" },
+        { "name": "pong",      "type": "gossip_ping" }
+      ],
+      "comment": "UDP payloads of the Solana gossip protocol"
     }
   ]
 }

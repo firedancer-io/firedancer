@@ -1683,25 +1683,6 @@ typedef struct fd_gossip_ping fd_gossip_ping_t;
 #define FD_GOSSIP_PING_FOOTPRINT sizeof(fd_gossip_ping_t)
 #define FD_GOSSIP_PING_ALIGN (8UL)
 
-union fd_gossip_msg_inner {
-  uchar pull_req;
-  uchar pull_resp;
-  uchar push_msg;
-  uchar prune_msg;
-  fd_gossip_ping_t ping;
-  fd_gossip_ping_t pong;
-};
-typedef union fd_gossip_msg_inner fd_gossip_msg_inner_t;
-
-/* UDP payloads of the Solana gossip protocol */
-struct fd_gossip_msg {
-  uint discriminant;
-  fd_gossip_msg_inner_t inner;
-};
-typedef struct fd_gossip_msg fd_gossip_msg_t;
-#define FD_GOSSIP_MSG_FOOTPRINT sizeof(fd_gossip_msg_t)
-#define FD_GOSSIP_MSG_ALIGN (8UL)
-
 union fd_gossip_ip_addr_inner {
   fd_gossip_ip4_addr_t ip4;
   fd_gossip_ip6_addr_t ip6;
@@ -1716,6 +1697,153 @@ struct fd_gossip_ip_addr {
 typedef struct fd_gossip_ip_addr fd_gossip_ip_addr_t;
 #define FD_GOSSIP_IP_ADDR_FOOTPRINT sizeof(fd_gossip_ip_addr_t)
 #define FD_GOSSIP_IP_ADDR_ALIGN (8UL)
+
+struct fd_gossip_prune_data {
+  fd_pubkey_t pubkey;
+  ulong prunes_len;
+  fd_pubkey_t* prunes;
+  fd_signature_t signature;
+  fd_pubkey_t destination;
+  ulong wallclock;
+};
+typedef struct fd_gossip_prune_data fd_gossip_prune_data_t;
+#define FD_GOSSIP_PRUNE_DATA_FOOTPRINT sizeof(fd_gossip_prune_data_t)
+#define FD_GOSSIP_PRUNE_DATA_ALIGN (8UL)
+
+struct fd_gossip_socket_addr {
+  fd_gossip_ip_addr_t addr;
+  ushort port;
+};
+typedef struct fd_gossip_socket_addr fd_gossip_socket_addr_t;
+#define FD_GOSSIP_SOCKET_ADDR_FOOTPRINT sizeof(fd_gossip_socket_addr_t)
+#define FD_GOSSIP_SOCKET_ADDR_ALIGN (8UL)
+
+struct fd_gossip_contact_info {
+  fd_pubkey_t id;
+  fd_gossip_socket_addr_t gossip;
+  fd_gossip_socket_addr_t tvu;
+  fd_gossip_socket_addr_t tvu_fwd;
+  fd_gossip_socket_addr_t repair;
+  fd_gossip_socket_addr_t tpu;
+  fd_gossip_socket_addr_t tpu_fwd;
+  fd_gossip_socket_addr_t tpu_vote;
+  fd_gossip_socket_addr_t rpc;
+  fd_gossip_socket_addr_t rpc_pubsub;
+  fd_gossip_socket_addr_t serve_repair;
+  ulong wallclock;
+  ushort shred_version;
+};
+typedef struct fd_gossip_contact_info fd_gossip_contact_info_t;
+#define FD_GOSSIP_CONTACT_INFO_FOOTPRINT sizeof(fd_gossip_contact_info_t)
+#define FD_GOSSIP_CONTACT_INFO_ALIGN (8UL)
+
+union fd_crds_data_inner {
+  fd_gossip_contact_info_t contact_info;
+};
+typedef union fd_crds_data_inner fd_crds_data_inner_t;
+
+struct fd_crds_data {
+  uint discriminant;
+  fd_crds_data_inner_t inner;
+};
+typedef struct fd_crds_data fd_crds_data_t;
+#define FD_CRDS_DATA_FOOTPRINT sizeof(fd_crds_data_t)
+#define FD_CRDS_DATA_ALIGN (8UL)
+
+struct fd_bitvec_u64_inner {
+  ulong vec_len;
+  ulong* vec;
+};
+typedef struct fd_bitvec_u64_inner fd_bitvec_u64_inner_t;
+#define FD_BITVEC_U64_INNER_FOOTPRINT sizeof(fd_bitvec_u64_inner_t)
+#define FD_BITVEC_U64_INNER_ALIGN (8UL)
+
+struct fd_bitvec_u64 {
+  fd_bitvec_u64_inner_t* bits;
+  uint len;
+};
+typedef struct fd_bitvec_u64 fd_bitvec_u64_t;
+#define FD_BITVEC_U64_FOOTPRINT sizeof(fd_bitvec_u64_t)
+#define FD_BITVEC_U64_ALIGN (8UL)
+
+struct fd_crds_bloom {
+  ulong keys_len;
+  ulong* keys;
+  fd_bitvec_u64_t bits;
+};
+typedef struct fd_crds_bloom fd_crds_bloom_t;
+#define FD_CRDS_BLOOM_FOOTPRINT sizeof(fd_crds_bloom_t)
+#define FD_CRDS_BLOOM_ALIGN (8UL)
+
+struct fd_crds_filter {
+  fd_crds_bloom_t filter;
+  ulong mask;
+  uint mask_bits;
+};
+typedef struct fd_crds_filter fd_crds_filter_t;
+#define FD_CRDS_FILTER_FOOTPRINT sizeof(fd_crds_filter_t)
+#define FD_CRDS_FILTER_ALIGN (8UL)
+
+struct fd_crds_value {
+  fd_signature_t signature;
+  fd_crds_data_t data;
+};
+typedef struct fd_crds_value fd_crds_value_t;
+#define FD_CRDS_VALUE_FOOTPRINT sizeof(fd_crds_value_t)
+#define FD_CRDS_VALUE_ALIGN (8UL)
+
+struct fd_gossip_pull_req {
+  fd_crds_filter_t filter;
+  fd_crds_value_t value;
+};
+typedef struct fd_gossip_pull_req fd_gossip_pull_req_t;
+#define FD_GOSSIP_PULL_REQ_FOOTPRINT sizeof(fd_gossip_pull_req_t)
+#define FD_GOSSIP_PULL_REQ_ALIGN (8UL)
+
+struct fd_gossip_pull_resp {
+  fd_pubkey_t pubkey;
+  ulong crds_len;
+  fd_crds_value_t* crds;
+};
+typedef struct fd_gossip_pull_resp fd_gossip_pull_resp_t;
+#define FD_GOSSIP_PULL_RESP_FOOTPRINT sizeof(fd_gossip_pull_resp_t)
+#define FD_GOSSIP_PULL_RESP_ALIGN (8UL)
+
+struct fd_gossip_push_msg {
+  fd_pubkey_t pubkey;
+  ulong crds_len;
+  fd_crds_value_t* crds;
+};
+typedef struct fd_gossip_push_msg fd_gossip_push_msg_t;
+#define FD_GOSSIP_PUSH_MSG_FOOTPRINT sizeof(fd_gossip_push_msg_t)
+#define FD_GOSSIP_PUSH_MSG_ALIGN (8UL)
+
+struct fd_gossip_prune_msg {
+  fd_pubkey_t pubkey;
+  fd_gossip_prune_data_t data;
+};
+typedef struct fd_gossip_prune_msg fd_gossip_prune_msg_t;
+#define FD_GOSSIP_PRUNE_MSG_FOOTPRINT sizeof(fd_gossip_prune_msg_t)
+#define FD_GOSSIP_PRUNE_MSG_ALIGN (8UL)
+
+union fd_gossip_msg_inner {
+  fd_gossip_pull_req_t pull_req;
+  fd_gossip_pull_resp_t pull_resp;
+  fd_gossip_push_msg_t push_msg;
+  fd_gossip_prune_msg_t prune_msg;
+  fd_gossip_ping_t ping;
+  fd_gossip_ping_t pong;
+};
+typedef union fd_gossip_msg_inner fd_gossip_msg_inner_t;
+
+/* UDP payloads of the Solana gossip protocol */
+struct fd_gossip_msg {
+  uint discriminant;
+  fd_gossip_msg_inner_t inner;
+};
+typedef struct fd_gossip_msg fd_gossip_msg_t;
+#define FD_GOSSIP_MSG_FOOTPRINT sizeof(fd_gossip_msg_t)
+#define FD_GOSSIP_MSG_ALIGN (8UL)
 
 
 FD_PROTOTYPES_BEGIN
@@ -2849,6 +2977,116 @@ void fd_gossip_ping_destroy(fd_gossip_ping_t* self, fd_bincode_destroy_ctx_t * c
 void fd_gossip_ping_walk(void * w, fd_gossip_ping_t* self, fd_types_walk_fn_t fun, const char *name, uint level);
 ulong fd_gossip_ping_size(fd_gossip_ping_t const * self);
 
+void fd_gossip_ip_addr_new_disc(fd_gossip_ip_addr_t* self, uint discriminant);
+void fd_gossip_ip_addr_new(fd_gossip_ip_addr_t* self);
+int fd_gossip_ip_addr_decode(fd_gossip_ip_addr_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_gossip_ip_addr_encode(fd_gossip_ip_addr_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_gossip_ip_addr_destroy(fd_gossip_ip_addr_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_gossip_ip_addr_walk(void * w, fd_gossip_ip_addr_t* self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_gossip_ip_addr_size(fd_gossip_ip_addr_t const * self);
+
+FD_FN_PURE uchar fd_gossip_ip_addr_is_ip4(fd_gossip_ip_addr_t const * self);
+FD_FN_PURE uchar fd_gossip_ip_addr_is_ip6(fd_gossip_ip_addr_t const * self);
+enum {
+fd_gossip_ip_addr_enum_ip4 = 0,
+fd_gossip_ip_addr_enum_ip6 = 1,
+}; 
+void fd_gossip_prune_data_new(fd_gossip_prune_data_t* self);
+int fd_gossip_prune_data_decode(fd_gossip_prune_data_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_gossip_prune_data_encode(fd_gossip_prune_data_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_gossip_prune_data_destroy(fd_gossip_prune_data_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_gossip_prune_data_walk(void * w, fd_gossip_prune_data_t* self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_gossip_prune_data_size(fd_gossip_prune_data_t const * self);
+
+void fd_gossip_socket_addr_new(fd_gossip_socket_addr_t* self);
+int fd_gossip_socket_addr_decode(fd_gossip_socket_addr_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_gossip_socket_addr_encode(fd_gossip_socket_addr_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_gossip_socket_addr_destroy(fd_gossip_socket_addr_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_gossip_socket_addr_walk(void * w, fd_gossip_socket_addr_t* self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_gossip_socket_addr_size(fd_gossip_socket_addr_t const * self);
+
+void fd_gossip_contact_info_new(fd_gossip_contact_info_t* self);
+int fd_gossip_contact_info_decode(fd_gossip_contact_info_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_gossip_contact_info_encode(fd_gossip_contact_info_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_gossip_contact_info_destroy(fd_gossip_contact_info_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_gossip_contact_info_walk(void * w, fd_gossip_contact_info_t* self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_gossip_contact_info_size(fd_gossip_contact_info_t const * self);
+
+void fd_crds_data_new_disc(fd_crds_data_t* self, uint discriminant);
+void fd_crds_data_new(fd_crds_data_t* self);
+int fd_crds_data_decode(fd_crds_data_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_crds_data_encode(fd_crds_data_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_crds_data_destroy(fd_crds_data_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_crds_data_walk(void * w, fd_crds_data_t* self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_crds_data_size(fd_crds_data_t const * self);
+
+FD_FN_PURE uchar fd_crds_data_is_contact_info(fd_crds_data_t const * self);
+enum {
+fd_crds_data_enum_contact_info = 0,
+}; 
+void fd_bitvec_u64_inner_new(fd_bitvec_u64_inner_t* self);
+int fd_bitvec_u64_inner_decode(fd_bitvec_u64_inner_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_bitvec_u64_inner_encode(fd_bitvec_u64_inner_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_bitvec_u64_inner_destroy(fd_bitvec_u64_inner_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_bitvec_u64_inner_walk(void * w, fd_bitvec_u64_inner_t* self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_bitvec_u64_inner_size(fd_bitvec_u64_inner_t const * self);
+
+void fd_bitvec_u64_new(fd_bitvec_u64_t* self);
+int fd_bitvec_u64_decode(fd_bitvec_u64_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_bitvec_u64_encode(fd_bitvec_u64_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_bitvec_u64_destroy(fd_bitvec_u64_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_bitvec_u64_walk(void * w, fd_bitvec_u64_t* self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_bitvec_u64_size(fd_bitvec_u64_t const * self);
+
+void fd_crds_bloom_new(fd_crds_bloom_t* self);
+int fd_crds_bloom_decode(fd_crds_bloom_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_crds_bloom_encode(fd_crds_bloom_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_crds_bloom_destroy(fd_crds_bloom_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_crds_bloom_walk(void * w, fd_crds_bloom_t* self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_crds_bloom_size(fd_crds_bloom_t const * self);
+
+void fd_crds_filter_new(fd_crds_filter_t* self);
+int fd_crds_filter_decode(fd_crds_filter_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_crds_filter_encode(fd_crds_filter_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_crds_filter_destroy(fd_crds_filter_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_crds_filter_walk(void * w, fd_crds_filter_t* self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_crds_filter_size(fd_crds_filter_t const * self);
+
+void fd_crds_value_new(fd_crds_value_t* self);
+int fd_crds_value_decode(fd_crds_value_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_crds_value_encode(fd_crds_value_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_crds_value_destroy(fd_crds_value_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_crds_value_walk(void * w, fd_crds_value_t* self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_crds_value_size(fd_crds_value_t const * self);
+
+void fd_gossip_pull_req_new(fd_gossip_pull_req_t* self);
+int fd_gossip_pull_req_decode(fd_gossip_pull_req_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_gossip_pull_req_encode(fd_gossip_pull_req_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_gossip_pull_req_destroy(fd_gossip_pull_req_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_gossip_pull_req_walk(void * w, fd_gossip_pull_req_t* self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_gossip_pull_req_size(fd_gossip_pull_req_t const * self);
+
+void fd_gossip_pull_resp_new(fd_gossip_pull_resp_t* self);
+int fd_gossip_pull_resp_decode(fd_gossip_pull_resp_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_gossip_pull_resp_encode(fd_gossip_pull_resp_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_gossip_pull_resp_destroy(fd_gossip_pull_resp_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_gossip_pull_resp_walk(void * w, fd_gossip_pull_resp_t* self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_gossip_pull_resp_size(fd_gossip_pull_resp_t const * self);
+
+void fd_gossip_push_msg_new(fd_gossip_push_msg_t* self);
+int fd_gossip_push_msg_decode(fd_gossip_push_msg_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_gossip_push_msg_encode(fd_gossip_push_msg_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_gossip_push_msg_destroy(fd_gossip_push_msg_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_gossip_push_msg_walk(void * w, fd_gossip_push_msg_t* self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_gossip_push_msg_size(fd_gossip_push_msg_t const * self);
+
+void fd_gossip_prune_msg_new(fd_gossip_prune_msg_t* self);
+int fd_gossip_prune_msg_decode(fd_gossip_prune_msg_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_gossip_prune_msg_encode(fd_gossip_prune_msg_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_gossip_prune_msg_destroy(fd_gossip_prune_msg_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_gossip_prune_msg_walk(void * w, fd_gossip_prune_msg_t* self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_gossip_prune_msg_size(fd_gossip_prune_msg_t const * self);
+
 void fd_gossip_msg_new_disc(fd_gossip_msg_t* self, uint discriminant);
 void fd_gossip_msg_new(fd_gossip_msg_t* self);
 int fd_gossip_msg_decode(fd_gossip_msg_t* self, fd_bincode_decode_ctx_t * ctx);
@@ -2870,20 +3108,6 @@ fd_gossip_msg_enum_push_msg = 2,
 fd_gossip_msg_enum_prune_msg = 3,
 fd_gossip_msg_enum_ping = 4,
 fd_gossip_msg_enum_pong = 5,
-}; 
-void fd_gossip_ip_addr_new_disc(fd_gossip_ip_addr_t* self, uint discriminant);
-void fd_gossip_ip_addr_new(fd_gossip_ip_addr_t* self);
-int fd_gossip_ip_addr_decode(fd_gossip_ip_addr_t* self, fd_bincode_decode_ctx_t * ctx);
-int fd_gossip_ip_addr_encode(fd_gossip_ip_addr_t const * self, fd_bincode_encode_ctx_t * ctx);
-void fd_gossip_ip_addr_destroy(fd_gossip_ip_addr_t* self, fd_bincode_destroy_ctx_t * ctx);
-void fd_gossip_ip_addr_walk(void * w, fd_gossip_ip_addr_t* self, fd_types_walk_fn_t fun, const char *name, uint level);
-ulong fd_gossip_ip_addr_size(fd_gossip_ip_addr_t const * self);
-
-FD_FN_PURE uchar fd_gossip_ip_addr_is_ip4(fd_gossip_ip_addr_t const * self);
-FD_FN_PURE uchar fd_gossip_ip_addr_is_ip6(fd_gossip_ip_addr_t const * self);
-enum {
-fd_gossip_ip_addr_enum_ip4 = 0,
-fd_gossip_ip_addr_enum_ip6 = 1,
 }; 
 FD_PROTOTYPES_END
 

@@ -10287,230 +10287,6 @@ int fd_gossip_ping_encode(fd_gossip_ping_t const * self, fd_bincode_encode_ctx_t
   return FD_BINCODE_SUCCESS;
 }
 
-FD_FN_PURE uchar fd_gossip_msg_is_pull_req(fd_gossip_msg_t const * self) {
-  return self->discriminant == 0;
-}
-FD_FN_PURE uchar fd_gossip_msg_is_pull_resp(fd_gossip_msg_t const * self) {
-  return self->discriminant == 1;
-}
-FD_FN_PURE uchar fd_gossip_msg_is_push_msg(fd_gossip_msg_t const * self) {
-  return self->discriminant == 2;
-}
-FD_FN_PURE uchar fd_gossip_msg_is_prune_msg(fd_gossip_msg_t const * self) {
-  return self->discriminant == 3;
-}
-FD_FN_PURE uchar fd_gossip_msg_is_ping(fd_gossip_msg_t const * self) {
-  return self->discriminant == 4;
-}
-FD_FN_PURE uchar fd_gossip_msg_is_pong(fd_gossip_msg_t const * self) {
-  return self->discriminant == 5;
-}
-void fd_gossip_msg_inner_new(fd_gossip_msg_inner_t* self, uint discriminant);
-int fd_gossip_msg_inner_decode(fd_gossip_msg_inner_t* self, uint discriminant, fd_bincode_decode_ctx_t * ctx) {
-  fd_gossip_msg_inner_new(self, discriminant);
-  int err;
-  switch (discriminant) {
-  case 0: {
-    err = fd_bincode_uint8_decode(&self->pull_req, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
-    return FD_BINCODE_SUCCESS;
-  }
-  case 1: {
-    err = fd_bincode_uint8_decode(&self->pull_resp, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
-    return FD_BINCODE_SUCCESS;
-  }
-  case 2: {
-    err = fd_bincode_uint8_decode(&self->push_msg, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
-    return FD_BINCODE_SUCCESS;
-  }
-  case 3: {
-    err = fd_bincode_uint8_decode(&self->prune_msg, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
-    return FD_BINCODE_SUCCESS;
-  }
-  case 4: {
-    return fd_gossip_ping_decode(&self->ping, ctx);
-  }
-  case 5: {
-    return fd_gossip_ping_decode(&self->pong, ctx);
-  }
-  default: return FD_BINCODE_ERR_ENCODING;
-  }
-}
-int fd_gossip_msg_decode(fd_gossip_msg_t* self, fd_bincode_decode_ctx_t * ctx) {
-  int err = fd_bincode_uint32_decode(&self->discriminant, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
-  return fd_gossip_msg_inner_decode(&self->inner, self->discriminant, ctx);
-}
-void fd_gossip_msg_inner_new(fd_gossip_msg_inner_t* self, uint discriminant) {
-  switch (discriminant) {
-  case 0: {
-    break;
-  }
-  case 1: {
-    break;
-  }
-  case 2: {
-    break;
-  }
-  case 3: {
-    break;
-  }
-  case 4: {
-    fd_gossip_ping_new(&self->ping);
-    break;
-  }
-  case 5: {
-    fd_gossip_ping_new(&self->pong);
-    break;
-  }
-  default: break; // FD_LOG_ERR(( "unhandled type"));
-  }
-}
-void fd_gossip_msg_new_disc(fd_gossip_msg_t* self, uint discriminant) {
-  self->discriminant = discriminant;
-  fd_gossip_msg_inner_new(&self->inner, self->discriminant);
-}
-void fd_gossip_msg_new(fd_gossip_msg_t* self) {
-  fd_gossip_msg_new_disc(self, UINT_MAX);
-}
-void fd_gossip_msg_inner_destroy(fd_gossip_msg_inner_t* self, uint discriminant, fd_bincode_destroy_ctx_t * ctx) {
-  switch (discriminant) {
-  case 0: {
-    break;
-  }
-  case 1: {
-    break;
-  }
-  case 2: {
-    break;
-  }
-  case 3: {
-    break;
-  }
-  case 4: {
-    fd_gossip_ping_destroy(&self->ping, ctx);
-    break;
-  }
-  case 5: {
-    fd_gossip_ping_destroy(&self->pong, ctx);
-    break;
-  }
-  default: break; // FD_LOG_ERR(( "unhandled type" ));
-  }
-}
-void fd_gossip_msg_destroy(fd_gossip_msg_t* self, fd_bincode_destroy_ctx_t * ctx) {
-  fd_gossip_msg_inner_destroy(&self->inner, self->discriminant, ctx);
-}
-
-void fd_gossip_msg_walk(void * w, fd_gossip_msg_t* self, fd_types_walk_fn_t fun, const char *name, uint level) {
-  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_msg", level++);
-  // enum fd_signature_walk(w, &self->signature, fun, "signature", level);
-  switch (self->discriminant) {
-  case 0: {
-  fun( w, &self->inner.pull_req, "pull_req", FD_FLAMENCO_TYPE_UCHAR,   "uchar",     level );
-    break;
-  }
-  case 1: {
-  fun( w, &self->inner.pull_resp, "pull_resp", FD_FLAMENCO_TYPE_UCHAR,   "uchar",     level );
-    break;
-  }
-  case 2: {
-  fun( w, &self->inner.push_msg, "push_msg", FD_FLAMENCO_TYPE_UCHAR,   "uchar",     level );
-    break;
-  }
-  case 3: {
-  fun( w, &self->inner.prune_msg, "prune_msg", FD_FLAMENCO_TYPE_UCHAR,   "uchar",     level );
-    break;
-  }
-  case 4: {
-    fd_gossip_ping_walk(w, &self->inner.ping, fun, "ping", level);
-    break;
-  }
-  case 5: {
-    fd_gossip_ping_walk(w, &self->inner.pong, fun, "pong", level);
-    break;
-  }
-  }
-  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_msg", level--);
-}
-ulong fd_gossip_msg_size(fd_gossip_msg_t const * self) {
-  ulong size = 0;
-  size += sizeof(uint);
-  switch (self->discriminant) {
-  case 0: {
-    size += sizeof(char);
-    break;
-  }
-  case 1: {
-    size += sizeof(char);
-    break;
-  }
-  case 2: {
-    size += sizeof(char);
-    break;
-  }
-  case 3: {
-    size += sizeof(char);
-    break;
-  }
-  case 4: {
-    size += fd_gossip_ping_size(&self->inner.ping);
-    break;
-  }
-  case 5: {
-    size += fd_gossip_ping_size(&self->inner.pong);
-    break;
-  }
-  }
-  return size;
-}
-
-int fd_gossip_msg_inner_encode(fd_gossip_msg_inner_t const * self, uint discriminant, fd_bincode_encode_ctx_t * ctx) {
-  int err;
-  switch (discriminant) {
-  case 0: {
-    err = fd_bincode_uint8_encode(&self->pull_req, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
-    break;
-  }
-  case 1: {
-    err = fd_bincode_uint8_encode(&self->pull_resp, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
-    break;
-  }
-  case 2: {
-    err = fd_bincode_uint8_encode(&self->push_msg, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
-    break;
-  }
-  case 3: {
-    err = fd_bincode_uint8_encode(&self->prune_msg, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
-    break;
-  }
-  case 4: {
-    err = fd_gossip_ping_encode(&self->ping, ctx);
-    if ( FD_UNLIKELY(err) ) return err;
-    break;
-  }
-  case 5: {
-    err = fd_gossip_ping_encode(&self->pong, ctx);
-    if ( FD_UNLIKELY(err) ) return err;
-    break;
-  }
-  }
-  return FD_BINCODE_SUCCESS;
-}
-int fd_gossip_msg_encode(fd_gossip_msg_t const * self, fd_bincode_encode_ctx_t * ctx) {
-  int err;
-  err = fd_bincode_uint32_encode(&self->discriminant, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
-  return fd_gossip_msg_inner_encode(&self->inner, self->discriminant, ctx);
-}
-
 FD_FN_PURE uchar fd_gossip_ip_addr_is_ip4(fd_gossip_ip_addr_t const * self) {
   return self->discriminant == 0;
 }
@@ -10625,6 +10401,1050 @@ int fd_gossip_ip_addr_encode(fd_gossip_ip_addr_t const * self, fd_bincode_encode
   err = fd_bincode_uint32_encode(&self->discriminant, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return fd_gossip_ip_addr_inner_encode(&self->inner, self->discriminant, ctx);
+}
+
+int fd_gossip_prune_data_decode(fd_gossip_prune_data_t* self, fd_bincode_decode_ctx_t * ctx) {
+  int err;
+  err = fd_pubkey_decode(&self->pubkey, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_decode(&self->prunes_len, ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  if (self->prunes_len != 0) {
+    self->prunes = (fd_pubkey_t *)fd_valloc_malloc( ctx->valloc, FD_PUBKEY_ALIGN, FD_PUBKEY_FOOTPRINT*self->prunes_len);
+    for( ulong i = 0; i < self->prunes_len; ++i) {
+      fd_pubkey_new(self->prunes + i);
+    }
+    for( ulong i = 0; i < self->prunes_len; ++i ) {
+      err = fd_pubkey_decode(self->prunes + i, ctx);
+      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    }
+  } else
+    self->prunes = NULL;
+  err = fd_signature_decode(&self->signature, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_pubkey_decode(&self->destination, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_decode(&self->wallclock, ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_gossip_prune_data_new(fd_gossip_prune_data_t* self) {
+  fd_memset(self, 0, sizeof(fd_gossip_prune_data_t));
+  fd_pubkey_new(&self->pubkey);
+  fd_signature_new(&self->signature);
+  fd_pubkey_new(&self->destination);
+}
+void fd_gossip_prune_data_destroy(fd_gossip_prune_data_t* self, fd_bincode_destroy_ctx_t * ctx) {
+  fd_pubkey_destroy(&self->pubkey, ctx);
+  if (NULL != self->prunes) {
+    for (ulong i = 0; i < self->prunes_len; ++i)
+      fd_pubkey_destroy(self->prunes + i, ctx);
+    fd_valloc_free( ctx->valloc, self->prunes );
+    self->prunes = NULL;
+  }
+  fd_signature_destroy(&self->signature, ctx);
+  fd_pubkey_destroy(&self->destination, ctx);
+}
+
+void fd_gossip_prune_data_walk(void * w, fd_gossip_prune_data_t* self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_prune_data", level++);
+  fd_pubkey_walk(w, &self->pubkey, fun, "pubkey", level);
+  if (self->prunes_len != 0) {
+    fun(w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "prunes", level++);
+    for (ulong i = 0; i < self->prunes_len; ++i)
+      fd_pubkey_walk(w, self->prunes + i, fun, "pubkey", level );
+    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "prunes", level-- );
+  }
+  fd_signature_walk(w, &self->signature, fun, "signature", level);
+  fd_pubkey_walk(w, &self->destination, fun, "destination", level);
+  fun( w, &self->wallclock, "wallclock", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_prune_data", level--);
+}
+ulong fd_gossip_prune_data_size(fd_gossip_prune_data_t const * self) {
+  ulong size = 0;
+  size += fd_pubkey_size(&self->pubkey);
+  size += sizeof(ulong);
+  for (ulong i = 0; i < self->prunes_len; ++i)
+    size += fd_pubkey_size(self->prunes + i);
+  size += fd_signature_size(&self->signature);
+  size += fd_pubkey_size(&self->destination);
+  size += sizeof(ulong);
+  return size;
+}
+
+int fd_gossip_prune_data_encode(fd_gossip_prune_data_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  err = fd_pubkey_encode(&self->pubkey, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_encode(&self->prunes_len, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  if (self->prunes_len != 0) {
+    for (ulong i = 0; i < self->prunes_len; ++i) {
+      err = fd_pubkey_encode(self->prunes + i, ctx);
+      if ( FD_UNLIKELY(err) ) return err;
+    }
+  }
+  err = fd_signature_encode(&self->signature, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_pubkey_encode(&self->destination, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_encode(&self->wallclock, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+
+int fd_gossip_socket_addr_decode(fd_gossip_socket_addr_t* self, fd_bincode_decode_ctx_t * ctx) {
+  int err;
+  err = fd_gossip_ip_addr_decode(&self->addr, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint16_decode(&self->port, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_gossip_socket_addr_new(fd_gossip_socket_addr_t* self) {
+  fd_memset(self, 0, sizeof(fd_gossip_socket_addr_t));
+  fd_gossip_ip_addr_new(&self->addr);
+}
+void fd_gossip_socket_addr_destroy(fd_gossip_socket_addr_t* self, fd_bincode_destroy_ctx_t * ctx) {
+  fd_gossip_ip_addr_destroy(&self->addr, ctx);
+}
+
+void fd_gossip_socket_addr_walk(void * w, fd_gossip_socket_addr_t* self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_socket_addr", level++);
+  fd_gossip_ip_addr_walk(w, &self->addr, fun, "addr", level);
+  fun( w, &self->port, "port", FD_FLAMENCO_TYPE_USHORT,  "ushort",    level );
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_socket_addr", level--);
+}
+ulong fd_gossip_socket_addr_size(fd_gossip_socket_addr_t const * self) {
+  ulong size = 0;
+  size += fd_gossip_ip_addr_size(&self->addr);
+  size += sizeof(ushort);
+  return size;
+}
+
+int fd_gossip_socket_addr_encode(fd_gossip_socket_addr_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  err = fd_gossip_ip_addr_encode(&self->addr, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint16_encode(&self->port, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+
+int fd_gossip_contact_info_decode(fd_gossip_contact_info_t* self, fd_bincode_decode_ctx_t * ctx) {
+  int err;
+  err = fd_pubkey_decode(&self->id, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_gossip_socket_addr_decode(&self->gossip, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_gossip_socket_addr_decode(&self->tvu, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_gossip_socket_addr_decode(&self->tvu_fwd, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_gossip_socket_addr_decode(&self->repair, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_gossip_socket_addr_decode(&self->tpu, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_gossip_socket_addr_decode(&self->tpu_fwd, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_gossip_socket_addr_decode(&self->tpu_vote, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_gossip_socket_addr_decode(&self->rpc, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_gossip_socket_addr_decode(&self->rpc_pubsub, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_gossip_socket_addr_decode(&self->serve_repair, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_decode(&self->wallclock, ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_uint16_decode(&self->shred_version, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_gossip_contact_info_new(fd_gossip_contact_info_t* self) {
+  fd_memset(self, 0, sizeof(fd_gossip_contact_info_t));
+  fd_pubkey_new(&self->id);
+  fd_gossip_socket_addr_new(&self->gossip);
+  fd_gossip_socket_addr_new(&self->tvu);
+  fd_gossip_socket_addr_new(&self->tvu_fwd);
+  fd_gossip_socket_addr_new(&self->repair);
+  fd_gossip_socket_addr_new(&self->tpu);
+  fd_gossip_socket_addr_new(&self->tpu_fwd);
+  fd_gossip_socket_addr_new(&self->tpu_vote);
+  fd_gossip_socket_addr_new(&self->rpc);
+  fd_gossip_socket_addr_new(&self->rpc_pubsub);
+  fd_gossip_socket_addr_new(&self->serve_repair);
+}
+void fd_gossip_contact_info_destroy(fd_gossip_contact_info_t* self, fd_bincode_destroy_ctx_t * ctx) {
+  fd_pubkey_destroy(&self->id, ctx);
+  fd_gossip_socket_addr_destroy(&self->gossip, ctx);
+  fd_gossip_socket_addr_destroy(&self->tvu, ctx);
+  fd_gossip_socket_addr_destroy(&self->tvu_fwd, ctx);
+  fd_gossip_socket_addr_destroy(&self->repair, ctx);
+  fd_gossip_socket_addr_destroy(&self->tpu, ctx);
+  fd_gossip_socket_addr_destroy(&self->tpu_fwd, ctx);
+  fd_gossip_socket_addr_destroy(&self->tpu_vote, ctx);
+  fd_gossip_socket_addr_destroy(&self->rpc, ctx);
+  fd_gossip_socket_addr_destroy(&self->rpc_pubsub, ctx);
+  fd_gossip_socket_addr_destroy(&self->serve_repair, ctx);
+}
+
+void fd_gossip_contact_info_walk(void * w, fd_gossip_contact_info_t* self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_contact_info", level++);
+  fd_pubkey_walk(w, &self->id, fun, "id", level);
+  fd_gossip_socket_addr_walk(w, &self->gossip, fun, "gossip", level);
+  fd_gossip_socket_addr_walk(w, &self->tvu, fun, "tvu", level);
+  fd_gossip_socket_addr_walk(w, &self->tvu_fwd, fun, "tvu_fwd", level);
+  fd_gossip_socket_addr_walk(w, &self->repair, fun, "repair", level);
+  fd_gossip_socket_addr_walk(w, &self->tpu, fun, "tpu", level);
+  fd_gossip_socket_addr_walk(w, &self->tpu_fwd, fun, "tpu_fwd", level);
+  fd_gossip_socket_addr_walk(w, &self->tpu_vote, fun, "tpu_vote", level);
+  fd_gossip_socket_addr_walk(w, &self->rpc, fun, "rpc", level);
+  fd_gossip_socket_addr_walk(w, &self->rpc_pubsub, fun, "rpc_pubsub", level);
+  fd_gossip_socket_addr_walk(w, &self->serve_repair, fun, "serve_repair", level);
+  fun( w, &self->wallclock, "wallclock", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
+  fun( w, &self->shred_version, "shred_version", FD_FLAMENCO_TYPE_USHORT,  "ushort",    level );
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_contact_info", level--);
+}
+ulong fd_gossip_contact_info_size(fd_gossip_contact_info_t const * self) {
+  ulong size = 0;
+  size += fd_pubkey_size(&self->id);
+  size += fd_gossip_socket_addr_size(&self->gossip);
+  size += fd_gossip_socket_addr_size(&self->tvu);
+  size += fd_gossip_socket_addr_size(&self->tvu_fwd);
+  size += fd_gossip_socket_addr_size(&self->repair);
+  size += fd_gossip_socket_addr_size(&self->tpu);
+  size += fd_gossip_socket_addr_size(&self->tpu_fwd);
+  size += fd_gossip_socket_addr_size(&self->tpu_vote);
+  size += fd_gossip_socket_addr_size(&self->rpc);
+  size += fd_gossip_socket_addr_size(&self->rpc_pubsub);
+  size += fd_gossip_socket_addr_size(&self->serve_repair);
+  size += sizeof(ulong);
+  size += sizeof(ushort);
+  return size;
+}
+
+int fd_gossip_contact_info_encode(fd_gossip_contact_info_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  err = fd_pubkey_encode(&self->id, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_gossip_socket_addr_encode(&self->gossip, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_gossip_socket_addr_encode(&self->tvu, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_gossip_socket_addr_encode(&self->tvu_fwd, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_gossip_socket_addr_encode(&self->repair, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_gossip_socket_addr_encode(&self->tpu, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_gossip_socket_addr_encode(&self->tpu_fwd, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_gossip_socket_addr_encode(&self->tpu_vote, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_gossip_socket_addr_encode(&self->rpc, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_gossip_socket_addr_encode(&self->rpc_pubsub, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_gossip_socket_addr_encode(&self->serve_repair, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_encode(&self->wallclock, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint16_encode(&self->shred_version, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+
+FD_FN_PURE uchar fd_crds_data_is_contact_info(fd_crds_data_t const * self) {
+  return self->discriminant == 0;
+}
+void fd_crds_data_inner_new(fd_crds_data_inner_t* self, uint discriminant);
+int fd_crds_data_inner_decode(fd_crds_data_inner_t* self, uint discriminant, fd_bincode_decode_ctx_t * ctx) {
+  fd_crds_data_inner_new(self, discriminant);
+  int err;
+  switch (discriminant) {
+  case 0: {
+    return fd_gossip_contact_info_decode(&self->contact_info, ctx);
+  }
+  default: return FD_BINCODE_ERR_ENCODING;
+  }
+}
+int fd_crds_data_decode(fd_crds_data_t* self, fd_bincode_decode_ctx_t * ctx) {
+  int err = fd_bincode_uint32_decode(&self->discriminant, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return fd_crds_data_inner_decode(&self->inner, self->discriminant, ctx);
+}
+void fd_crds_data_inner_new(fd_crds_data_inner_t* self, uint discriminant) {
+  switch (discriminant) {
+  case 0: {
+    fd_gossip_contact_info_new(&self->contact_info);
+    break;
+  }
+  default: break; // FD_LOG_ERR(( "unhandled type"));
+  }
+}
+void fd_crds_data_new_disc(fd_crds_data_t* self, uint discriminant) {
+  self->discriminant = discriminant;
+  fd_crds_data_inner_new(&self->inner, self->discriminant);
+}
+void fd_crds_data_new(fd_crds_data_t* self) {
+  fd_crds_data_new_disc(self, UINT_MAX);
+}
+void fd_crds_data_inner_destroy(fd_crds_data_inner_t* self, uint discriminant, fd_bincode_destroy_ctx_t * ctx) {
+  switch (discriminant) {
+  case 0: {
+    fd_gossip_contact_info_destroy(&self->contact_info, ctx);
+    break;
+  }
+  default: break; // FD_LOG_ERR(( "unhandled type" ));
+  }
+}
+void fd_crds_data_destroy(fd_crds_data_t* self, fd_bincode_destroy_ctx_t * ctx) {
+  fd_crds_data_inner_destroy(&self->inner, self->discriminant, ctx);
+}
+
+void fd_crds_data_walk(void * w, fd_crds_data_t* self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_crds_data", level++);
+  // enum fd_ushort_walk(w, &self->shred_version, fun, "shred_version", level);
+  switch (self->discriminant) {
+  case 0: {
+    fd_gossip_contact_info_walk(w, &self->inner.contact_info, fun, "contact_info", level);
+    break;
+  }
+  }
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_crds_data", level--);
+}
+ulong fd_crds_data_size(fd_crds_data_t const * self) {
+  ulong size = 0;
+  size += sizeof(uint);
+  switch (self->discriminant) {
+  case 0: {
+    size += fd_gossip_contact_info_size(&self->inner.contact_info);
+    break;
+  }
+  }
+  return size;
+}
+
+int fd_crds_data_inner_encode(fd_crds_data_inner_t const * self, uint discriminant, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  switch (discriminant) {
+  case 0: {
+    err = fd_gossip_contact_info_encode(&self->contact_info, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    break;
+  }
+  }
+  return FD_BINCODE_SUCCESS;
+}
+int fd_crds_data_encode(fd_crds_data_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  err = fd_bincode_uint32_encode(&self->discriminant, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return fd_crds_data_inner_encode(&self->inner, self->discriminant, ctx);
+}
+
+int fd_bitvec_u64_inner_decode(fd_bitvec_u64_inner_t* self, fd_bincode_decode_ctx_t * ctx) {
+  int err;
+  err = fd_bincode_uint64_decode(&self->vec_len, ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  if (self->vec_len != 0) {
+    self->vec = fd_valloc_malloc( ctx->valloc, 8UL, sizeof(ulong)*self->vec_len );
+    for( ulong i = 0; i < self->vec_len; ++i) {
+      err = fd_bincode_uint64_decode(self->vec + i, ctx);
+      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    }
+  } else
+    self->vec = NULL;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_bitvec_u64_inner_new(fd_bitvec_u64_inner_t* self) {
+  fd_memset(self, 0, sizeof(fd_bitvec_u64_inner_t));
+}
+void fd_bitvec_u64_inner_destroy(fd_bitvec_u64_inner_t* self, fd_bincode_destroy_ctx_t * ctx) {
+  if (NULL != self->vec) {
+    fd_valloc_free( ctx->valloc, self->vec );
+    self->vec = NULL;
+  }
+}
+
+void fd_bitvec_u64_inner_walk(void * w, fd_bitvec_u64_inner_t* self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_bitvec_u64_inner", level++);
+  if (self->vec_len != 0) {
+    fun(w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "vec", level++);
+    for (ulong i = 0; i < self->vec_len; ++i)
+      fun( w, self->vec + i, "vec", FD_FLAMENCO_TYPE_ULONG,   "ulong",   level );
+    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "vec", level-- );
+  }
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_bitvec_u64_inner", level--);
+}
+ulong fd_bitvec_u64_inner_size(fd_bitvec_u64_inner_t const * self) {
+  ulong size = 0;
+  size += sizeof(ulong);
+  size += self->vec_len * sizeof(ulong);
+  return size;
+}
+
+int fd_bitvec_u64_inner_encode(fd_bitvec_u64_inner_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  err = fd_bincode_uint64_encode(&self->vec_len, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  if (self->vec_len != 0) {
+    for (ulong i = 0; i < self->vec_len; ++i) {
+      err = fd_bincode_uint64_encode(self->vec + i, ctx);
+    }
+  }
+  return FD_BINCODE_SUCCESS;
+}
+
+int fd_bitvec_u64_decode(fd_bitvec_u64_t* self, fd_bincode_decode_ctx_t * ctx) {
+  int err;
+  {
+    uchar o;
+    err = fd_bincode_option_decode( &o, ctx );
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    if( o ) {
+      self->bits = (fd_bitvec_u64_inner_t*)fd_valloc_malloc( ctx->valloc, FD_BITVEC_U64_INNER_ALIGN, FD_BITVEC_U64_INNER_FOOTPRINT );
+      fd_bitvec_u64_inner_new( self->bits );
+      err = fd_bitvec_u64_inner_decode( self->bits, ctx );
+      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    } else
+      self->bits = NULL;
+  }
+  err = fd_bincode_uint32_decode(&self->len, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_bitvec_u64_new(fd_bitvec_u64_t* self) {
+  fd_memset(self, 0, sizeof(fd_bitvec_u64_t));
+}
+void fd_bitvec_u64_destroy(fd_bitvec_u64_t* self, fd_bincode_destroy_ctx_t * ctx) {
+  if (NULL != self->bits) {
+    fd_bitvec_u64_inner_destroy(self->bits, ctx);
+    fd_valloc_free( ctx->valloc, self->bits);
+    self->bits = NULL;
+  }
+}
+
+void fd_bitvec_u64_walk(void * w, fd_bitvec_u64_t* self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_bitvec_u64", level++);
+  if( !self->bits ) {
+    fun( w, NULL, "bits", FD_FLAMENCO_TYPE_NULL, "bitvec_u64_inner", level );
+  } else {
+  fd_bitvec_u64_inner_walk( w, self->bits, fun, "bits", level );
+  }
+  fun( w, &self->len, "len", FD_FLAMENCO_TYPE_UINT,    "uint",      level );
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_bitvec_u64", level--);
+}
+ulong fd_bitvec_u64_size(fd_bitvec_u64_t const * self) {
+  ulong size = 0;
+  size += sizeof(char);
+  if (NULL !=  self->bits) {
+    size += fd_bitvec_u64_inner_size(self->bits);
+  }
+  size += sizeof(uint);
+  return size;
+}
+
+int fd_bitvec_u64_encode(fd_bitvec_u64_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  if (self->bits != NULL) {
+    err = fd_bincode_option_encode(1, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    err = fd_bitvec_u64_inner_encode(self->bits, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+  } else {
+    err = fd_bincode_option_encode(0, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+  }
+  err = fd_bincode_uint32_encode(&self->len, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+
+int fd_crds_bloom_decode(fd_crds_bloom_t* self, fd_bincode_decode_ctx_t * ctx) {
+  int err;
+  err = fd_bincode_uint64_decode(&self->keys_len, ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  if (self->keys_len != 0) {
+    self->keys = fd_valloc_malloc( ctx->valloc, 8UL, sizeof(ulong)*self->keys_len );
+    for( ulong i = 0; i < self->keys_len; ++i) {
+      err = fd_bincode_uint64_decode(self->keys + i, ctx);
+      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    }
+  } else
+    self->keys = NULL;
+  err = fd_bitvec_u64_decode(&self->bits, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_crds_bloom_new(fd_crds_bloom_t* self) {
+  fd_memset(self, 0, sizeof(fd_crds_bloom_t));
+  fd_bitvec_u64_new(&self->bits);
+}
+void fd_crds_bloom_destroy(fd_crds_bloom_t* self, fd_bincode_destroy_ctx_t * ctx) {
+  if (NULL != self->keys) {
+    fd_valloc_free( ctx->valloc, self->keys );
+    self->keys = NULL;
+  }
+  fd_bitvec_u64_destroy(&self->bits, ctx);
+}
+
+void fd_crds_bloom_walk(void * w, fd_crds_bloom_t* self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_crds_bloom", level++);
+  if (self->keys_len != 0) {
+    fun(w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "keys", level++);
+    for (ulong i = 0; i < self->keys_len; ++i)
+      fun( w, self->keys + i, "keys", FD_FLAMENCO_TYPE_ULONG,   "ulong",   level );
+    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "keys", level-- );
+  }
+  fd_bitvec_u64_walk(w, &self->bits, fun, "bits", level);
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_crds_bloom", level--);
+}
+ulong fd_crds_bloom_size(fd_crds_bloom_t const * self) {
+  ulong size = 0;
+  size += sizeof(ulong);
+  size += self->keys_len * sizeof(ulong);
+  size += fd_bitvec_u64_size(&self->bits);
+  return size;
+}
+
+int fd_crds_bloom_encode(fd_crds_bloom_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  err = fd_bincode_uint64_encode(&self->keys_len, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  if (self->keys_len != 0) {
+    for (ulong i = 0; i < self->keys_len; ++i) {
+      err = fd_bincode_uint64_encode(self->keys + i, ctx);
+    }
+  }
+  err = fd_bitvec_u64_encode(&self->bits, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+
+int fd_crds_filter_decode(fd_crds_filter_t* self, fd_bincode_decode_ctx_t * ctx) {
+  int err;
+  err = fd_crds_bloom_decode(&self->filter, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_decode(&self->mask, ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_uint32_decode(&self->mask_bits, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_crds_filter_new(fd_crds_filter_t* self) {
+  fd_memset(self, 0, sizeof(fd_crds_filter_t));
+  fd_crds_bloom_new(&self->filter);
+}
+void fd_crds_filter_destroy(fd_crds_filter_t* self, fd_bincode_destroy_ctx_t * ctx) {
+  fd_crds_bloom_destroy(&self->filter, ctx);
+}
+
+void fd_crds_filter_walk(void * w, fd_crds_filter_t* self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_crds_filter", level++);
+  fd_crds_bloom_walk(w, &self->filter, fun, "filter", level);
+  fun( w, &self->mask, "mask", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
+  fun( w, &self->mask_bits, "mask_bits", FD_FLAMENCO_TYPE_UINT,    "uint",      level );
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_crds_filter", level--);
+}
+ulong fd_crds_filter_size(fd_crds_filter_t const * self) {
+  ulong size = 0;
+  size += fd_crds_bloom_size(&self->filter);
+  size += sizeof(ulong);
+  size += sizeof(uint);
+  return size;
+}
+
+int fd_crds_filter_encode(fd_crds_filter_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  err = fd_crds_bloom_encode(&self->filter, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_encode(&self->mask, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint32_encode(&self->mask_bits, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+
+int fd_crds_value_decode(fd_crds_value_t* self, fd_bincode_decode_ctx_t * ctx) {
+  int err;
+  err = fd_signature_decode(&self->signature, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_crds_data_decode(&self->data, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_crds_value_new(fd_crds_value_t* self) {
+  fd_memset(self, 0, sizeof(fd_crds_value_t));
+  fd_signature_new(&self->signature);
+  fd_crds_data_new(&self->data);
+}
+void fd_crds_value_destroy(fd_crds_value_t* self, fd_bincode_destroy_ctx_t * ctx) {
+  fd_signature_destroy(&self->signature, ctx);
+  fd_crds_data_destroy(&self->data, ctx);
+}
+
+void fd_crds_value_walk(void * w, fd_crds_value_t* self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_crds_value", level++);
+  fd_signature_walk(w, &self->signature, fun, "signature", level);
+  fd_crds_data_walk(w, &self->data, fun, "data", level);
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_crds_value", level--);
+}
+ulong fd_crds_value_size(fd_crds_value_t const * self) {
+  ulong size = 0;
+  size += fd_signature_size(&self->signature);
+  size += fd_crds_data_size(&self->data);
+  return size;
+}
+
+int fd_crds_value_encode(fd_crds_value_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  err = fd_signature_encode(&self->signature, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_crds_data_encode(&self->data, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+
+int fd_gossip_pull_req_decode(fd_gossip_pull_req_t* self, fd_bincode_decode_ctx_t * ctx) {
+  int err;
+  err = fd_crds_filter_decode(&self->filter, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_crds_value_decode(&self->value, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_gossip_pull_req_new(fd_gossip_pull_req_t* self) {
+  fd_memset(self, 0, sizeof(fd_gossip_pull_req_t));
+  fd_crds_filter_new(&self->filter);
+  fd_crds_value_new(&self->value);
+}
+void fd_gossip_pull_req_destroy(fd_gossip_pull_req_t* self, fd_bincode_destroy_ctx_t * ctx) {
+  fd_crds_filter_destroy(&self->filter, ctx);
+  fd_crds_value_destroy(&self->value, ctx);
+}
+
+void fd_gossip_pull_req_walk(void * w, fd_gossip_pull_req_t* self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_pull_req", level++);
+  fd_crds_filter_walk(w, &self->filter, fun, "filter", level);
+  fd_crds_value_walk(w, &self->value, fun, "value", level);
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_pull_req", level--);
+}
+ulong fd_gossip_pull_req_size(fd_gossip_pull_req_t const * self) {
+  ulong size = 0;
+  size += fd_crds_filter_size(&self->filter);
+  size += fd_crds_value_size(&self->value);
+  return size;
+}
+
+int fd_gossip_pull_req_encode(fd_gossip_pull_req_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  err = fd_crds_filter_encode(&self->filter, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_crds_value_encode(&self->value, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+
+int fd_gossip_pull_resp_decode(fd_gossip_pull_resp_t* self, fd_bincode_decode_ctx_t * ctx) {
+  int err;
+  err = fd_pubkey_decode(&self->pubkey, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_decode(&self->crds_len, ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  if (self->crds_len != 0) {
+    self->crds = (fd_crds_value_t *)fd_valloc_malloc( ctx->valloc, FD_CRDS_VALUE_ALIGN, FD_CRDS_VALUE_FOOTPRINT*self->crds_len);
+    for( ulong i = 0; i < self->crds_len; ++i) {
+      fd_crds_value_new(self->crds + i);
+    }
+    for( ulong i = 0; i < self->crds_len; ++i ) {
+      err = fd_crds_value_decode(self->crds + i, ctx);
+      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    }
+  } else
+    self->crds = NULL;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_gossip_pull_resp_new(fd_gossip_pull_resp_t* self) {
+  fd_memset(self, 0, sizeof(fd_gossip_pull_resp_t));
+  fd_pubkey_new(&self->pubkey);
+}
+void fd_gossip_pull_resp_destroy(fd_gossip_pull_resp_t* self, fd_bincode_destroy_ctx_t * ctx) {
+  fd_pubkey_destroy(&self->pubkey, ctx);
+  if (NULL != self->crds) {
+    for (ulong i = 0; i < self->crds_len; ++i)
+      fd_crds_value_destroy(self->crds + i, ctx);
+    fd_valloc_free( ctx->valloc, self->crds );
+    self->crds = NULL;
+  }
+}
+
+void fd_gossip_pull_resp_walk(void * w, fd_gossip_pull_resp_t* self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_pull_resp", level++);
+  fd_pubkey_walk(w, &self->pubkey, fun, "pubkey", level);
+  if (self->crds_len != 0) {
+    fun(w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "crds", level++);
+    for (ulong i = 0; i < self->crds_len; ++i)
+      fd_crds_value_walk(w, self->crds + i, fun, "crds_value", level );
+    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "crds", level-- );
+  }
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_pull_resp", level--);
+}
+ulong fd_gossip_pull_resp_size(fd_gossip_pull_resp_t const * self) {
+  ulong size = 0;
+  size += fd_pubkey_size(&self->pubkey);
+  size += sizeof(ulong);
+  for (ulong i = 0; i < self->crds_len; ++i)
+    size += fd_crds_value_size(self->crds + i);
+  return size;
+}
+
+int fd_gossip_pull_resp_encode(fd_gossip_pull_resp_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  err = fd_pubkey_encode(&self->pubkey, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_encode(&self->crds_len, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  if (self->crds_len != 0) {
+    for (ulong i = 0; i < self->crds_len; ++i) {
+      err = fd_crds_value_encode(self->crds + i, ctx);
+      if ( FD_UNLIKELY(err) ) return err;
+    }
+  }
+  return FD_BINCODE_SUCCESS;
+}
+
+int fd_gossip_push_msg_decode(fd_gossip_push_msg_t* self, fd_bincode_decode_ctx_t * ctx) {
+  int err;
+  err = fd_pubkey_decode(&self->pubkey, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_decode(&self->crds_len, ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  if (self->crds_len != 0) {
+    self->crds = (fd_crds_value_t *)fd_valloc_malloc( ctx->valloc, FD_CRDS_VALUE_ALIGN, FD_CRDS_VALUE_FOOTPRINT*self->crds_len);
+    for( ulong i = 0; i < self->crds_len; ++i) {
+      fd_crds_value_new(self->crds + i);
+    }
+    for( ulong i = 0; i < self->crds_len; ++i ) {
+      err = fd_crds_value_decode(self->crds + i, ctx);
+      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    }
+  } else
+    self->crds = NULL;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_gossip_push_msg_new(fd_gossip_push_msg_t* self) {
+  fd_memset(self, 0, sizeof(fd_gossip_push_msg_t));
+  fd_pubkey_new(&self->pubkey);
+}
+void fd_gossip_push_msg_destroy(fd_gossip_push_msg_t* self, fd_bincode_destroy_ctx_t * ctx) {
+  fd_pubkey_destroy(&self->pubkey, ctx);
+  if (NULL != self->crds) {
+    for (ulong i = 0; i < self->crds_len; ++i)
+      fd_crds_value_destroy(self->crds + i, ctx);
+    fd_valloc_free( ctx->valloc, self->crds );
+    self->crds = NULL;
+  }
+}
+
+void fd_gossip_push_msg_walk(void * w, fd_gossip_push_msg_t* self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_push_msg", level++);
+  fd_pubkey_walk(w, &self->pubkey, fun, "pubkey", level);
+  if (self->crds_len != 0) {
+    fun(w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "crds", level++);
+    for (ulong i = 0; i < self->crds_len; ++i)
+      fd_crds_value_walk(w, self->crds + i, fun, "crds_value", level );
+    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "crds", level-- );
+  }
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_push_msg", level--);
+}
+ulong fd_gossip_push_msg_size(fd_gossip_push_msg_t const * self) {
+  ulong size = 0;
+  size += fd_pubkey_size(&self->pubkey);
+  size += sizeof(ulong);
+  for (ulong i = 0; i < self->crds_len; ++i)
+    size += fd_crds_value_size(self->crds + i);
+  return size;
+}
+
+int fd_gossip_push_msg_encode(fd_gossip_push_msg_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  err = fd_pubkey_encode(&self->pubkey, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_encode(&self->crds_len, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  if (self->crds_len != 0) {
+    for (ulong i = 0; i < self->crds_len; ++i) {
+      err = fd_crds_value_encode(self->crds + i, ctx);
+      if ( FD_UNLIKELY(err) ) return err;
+    }
+  }
+  return FD_BINCODE_SUCCESS;
+}
+
+int fd_gossip_prune_msg_decode(fd_gossip_prune_msg_t* self, fd_bincode_decode_ctx_t * ctx) {
+  int err;
+  err = fd_pubkey_decode(&self->pubkey, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_gossip_prune_data_decode(&self->data, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_gossip_prune_msg_new(fd_gossip_prune_msg_t* self) {
+  fd_memset(self, 0, sizeof(fd_gossip_prune_msg_t));
+  fd_pubkey_new(&self->pubkey);
+  fd_gossip_prune_data_new(&self->data);
+}
+void fd_gossip_prune_msg_destroy(fd_gossip_prune_msg_t* self, fd_bincode_destroy_ctx_t * ctx) {
+  fd_pubkey_destroy(&self->pubkey, ctx);
+  fd_gossip_prune_data_destroy(&self->data, ctx);
+}
+
+void fd_gossip_prune_msg_walk(void * w, fd_gossip_prune_msg_t* self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_prune_msg", level++);
+  fd_pubkey_walk(w, &self->pubkey, fun, "pubkey", level);
+  fd_gossip_prune_data_walk(w, &self->data, fun, "data", level);
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_prune_msg", level--);
+}
+ulong fd_gossip_prune_msg_size(fd_gossip_prune_msg_t const * self) {
+  ulong size = 0;
+  size += fd_pubkey_size(&self->pubkey);
+  size += fd_gossip_prune_data_size(&self->data);
+  return size;
+}
+
+int fd_gossip_prune_msg_encode(fd_gossip_prune_msg_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  err = fd_pubkey_encode(&self->pubkey, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_gossip_prune_data_encode(&self->data, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+
+FD_FN_PURE uchar fd_gossip_msg_is_pull_req(fd_gossip_msg_t const * self) {
+  return self->discriminant == 0;
+}
+FD_FN_PURE uchar fd_gossip_msg_is_pull_resp(fd_gossip_msg_t const * self) {
+  return self->discriminant == 1;
+}
+FD_FN_PURE uchar fd_gossip_msg_is_push_msg(fd_gossip_msg_t const * self) {
+  return self->discriminant == 2;
+}
+FD_FN_PURE uchar fd_gossip_msg_is_prune_msg(fd_gossip_msg_t const * self) {
+  return self->discriminant == 3;
+}
+FD_FN_PURE uchar fd_gossip_msg_is_ping(fd_gossip_msg_t const * self) {
+  return self->discriminant == 4;
+}
+FD_FN_PURE uchar fd_gossip_msg_is_pong(fd_gossip_msg_t const * self) {
+  return self->discriminant == 5;
+}
+void fd_gossip_msg_inner_new(fd_gossip_msg_inner_t* self, uint discriminant);
+int fd_gossip_msg_inner_decode(fd_gossip_msg_inner_t* self, uint discriminant, fd_bincode_decode_ctx_t * ctx) {
+  fd_gossip_msg_inner_new(self, discriminant);
+  int err;
+  switch (discriminant) {
+  case 0: {
+    return fd_gossip_pull_req_decode(&self->pull_req, ctx);
+  }
+  case 1: {
+    return fd_gossip_pull_resp_decode(&self->pull_resp, ctx);
+  }
+  case 2: {
+    return fd_gossip_push_msg_decode(&self->push_msg, ctx);
+  }
+  case 3: {
+    return fd_gossip_prune_msg_decode(&self->prune_msg, ctx);
+  }
+  case 4: {
+    return fd_gossip_ping_decode(&self->ping, ctx);
+  }
+  case 5: {
+    return fd_gossip_ping_decode(&self->pong, ctx);
+  }
+  default: return FD_BINCODE_ERR_ENCODING;
+  }
+}
+int fd_gossip_msg_decode(fd_gossip_msg_t* self, fd_bincode_decode_ctx_t * ctx) {
+  int err = fd_bincode_uint32_decode(&self->discriminant, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return fd_gossip_msg_inner_decode(&self->inner, self->discriminant, ctx);
+}
+void fd_gossip_msg_inner_new(fd_gossip_msg_inner_t* self, uint discriminant) {
+  switch (discriminant) {
+  case 0: {
+    fd_gossip_pull_req_new(&self->pull_req);
+    break;
+  }
+  case 1: {
+    fd_gossip_pull_resp_new(&self->pull_resp);
+    break;
+  }
+  case 2: {
+    fd_gossip_push_msg_new(&self->push_msg);
+    break;
+  }
+  case 3: {
+    fd_gossip_prune_msg_new(&self->prune_msg);
+    break;
+  }
+  case 4: {
+    fd_gossip_ping_new(&self->ping);
+    break;
+  }
+  case 5: {
+    fd_gossip_ping_new(&self->pong);
+    break;
+  }
+  default: break; // FD_LOG_ERR(( "unhandled type"));
+  }
+}
+void fd_gossip_msg_new_disc(fd_gossip_msg_t* self, uint discriminant) {
+  self->discriminant = discriminant;
+  fd_gossip_msg_inner_new(&self->inner, self->discriminant);
+}
+void fd_gossip_msg_new(fd_gossip_msg_t* self) {
+  fd_gossip_msg_new_disc(self, UINT_MAX);
+}
+void fd_gossip_msg_inner_destroy(fd_gossip_msg_inner_t* self, uint discriminant, fd_bincode_destroy_ctx_t * ctx) {
+  switch (discriminant) {
+  case 0: {
+    fd_gossip_pull_req_destroy(&self->pull_req, ctx);
+    break;
+  }
+  case 1: {
+    fd_gossip_pull_resp_destroy(&self->pull_resp, ctx);
+    break;
+  }
+  case 2: {
+    fd_gossip_push_msg_destroy(&self->push_msg, ctx);
+    break;
+  }
+  case 3: {
+    fd_gossip_prune_msg_destroy(&self->prune_msg, ctx);
+    break;
+  }
+  case 4: {
+    fd_gossip_ping_destroy(&self->ping, ctx);
+    break;
+  }
+  case 5: {
+    fd_gossip_ping_destroy(&self->pong, ctx);
+    break;
+  }
+  default: break; // FD_LOG_ERR(( "unhandled type" ));
+  }
+}
+void fd_gossip_msg_destroy(fd_gossip_msg_t* self, fd_bincode_destroy_ctx_t * ctx) {
+  fd_gossip_msg_inner_destroy(&self->inner, self->discriminant, ctx);
+}
+
+void fd_gossip_msg_walk(void * w, fd_gossip_msg_t* self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_msg", level++);
+  // enum fd_gossip_prune_data_walk(w, &self->data, fun, "data", level);
+  switch (self->discriminant) {
+  case 0: {
+    fd_gossip_pull_req_walk(w, &self->inner.pull_req, fun, "pull_req", level);
+    break;
+  }
+  case 1: {
+    fd_gossip_pull_resp_walk(w, &self->inner.pull_resp, fun, "pull_resp", level);
+    break;
+  }
+  case 2: {
+    fd_gossip_push_msg_walk(w, &self->inner.push_msg, fun, "push_msg", level);
+    break;
+  }
+  case 3: {
+    fd_gossip_prune_msg_walk(w, &self->inner.prune_msg, fun, "prune_msg", level);
+    break;
+  }
+  case 4: {
+    fd_gossip_ping_walk(w, &self->inner.ping, fun, "ping", level);
+    break;
+  }
+  case 5: {
+    fd_gossip_ping_walk(w, &self->inner.pong, fun, "pong", level);
+    break;
+  }
+  }
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_msg", level--);
+}
+ulong fd_gossip_msg_size(fd_gossip_msg_t const * self) {
+  ulong size = 0;
+  size += sizeof(uint);
+  switch (self->discriminant) {
+  case 0: {
+    size += fd_gossip_pull_req_size(&self->inner.pull_req);
+    break;
+  }
+  case 1: {
+    size += fd_gossip_pull_resp_size(&self->inner.pull_resp);
+    break;
+  }
+  case 2: {
+    size += fd_gossip_push_msg_size(&self->inner.push_msg);
+    break;
+  }
+  case 3: {
+    size += fd_gossip_prune_msg_size(&self->inner.prune_msg);
+    break;
+  }
+  case 4: {
+    size += fd_gossip_ping_size(&self->inner.ping);
+    break;
+  }
+  case 5: {
+    size += fd_gossip_ping_size(&self->inner.pong);
+    break;
+  }
+  }
+  return size;
+}
+
+int fd_gossip_msg_inner_encode(fd_gossip_msg_inner_t const * self, uint discriminant, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  switch (discriminant) {
+  case 0: {
+    err = fd_gossip_pull_req_encode(&self->pull_req, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    break;
+  }
+  case 1: {
+    err = fd_gossip_pull_resp_encode(&self->pull_resp, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    break;
+  }
+  case 2: {
+    err = fd_gossip_push_msg_encode(&self->push_msg, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    break;
+  }
+  case 3: {
+    err = fd_gossip_prune_msg_encode(&self->prune_msg, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    break;
+  }
+  case 4: {
+    err = fd_gossip_ping_encode(&self->ping, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    break;
+  }
+  case 5: {
+    err = fd_gossip_ping_encode(&self->pong, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    break;
+  }
+  }
+  return FD_BINCODE_SUCCESS;
+}
+int fd_gossip_msg_encode(fd_gossip_msg_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  err = fd_bincode_uint32_encode(&self->discriminant, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return fd_gossip_msg_inner_encode(&self->inner, self->discriminant, ctx);
 }
 
 #define REDBLK_T fd_stake_history_epochentry_pair_t_mapnode_t
