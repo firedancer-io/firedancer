@@ -1067,6 +1067,7 @@ for entry in entries:
     else:
       print(f'int {n}_decode({n}_t* self, fd_bincode_decode_ctx_t * ctx) {{', file=body)
       print('  int err;', file=body)
+      assert "fields" in entry, "no fields in " + entry["name"]
       for f in entry["fields"]:
           if f["type"] in fields_body_decode:
               fields_body_decode[f["type"]](namespace, f)
