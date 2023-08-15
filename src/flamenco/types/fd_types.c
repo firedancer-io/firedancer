@@ -11462,6 +11462,417 @@ int fd_gossip_epoch_slots_encode(fd_gossip_epoch_slots_t const * self, fd_bincod
   return FD_BINCODE_SUCCESS;
 }
 
+int fd_gossip_legacy_version_decode(fd_gossip_legacy_version_t* self, fd_bincode_decode_ctx_t * ctx) {
+  int err;
+  err = fd_pubkey_decode(&self->from, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_decode(&self->wallclock, ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_uint16_decode(&self->major, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint16_decode(&self->minor, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint16_decode(&self->patch, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  {
+    uchar o;
+    err = fd_bincode_option_decode( &o, ctx );
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    if( o ) {
+      self->commit = fd_valloc_malloc( ctx->valloc, 8, sizeof(uint) );
+      err = fd_bincode_uint32_decode( self->commit, ctx );
+      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    } else
+      self->commit = NULL;
+  }
+  return FD_BINCODE_SUCCESS;
+}
+void fd_gossip_legacy_version_new(fd_gossip_legacy_version_t* self) {
+  fd_memset(self, 0, sizeof(fd_gossip_legacy_version_t));
+  fd_pubkey_new(&self->from);
+}
+void fd_gossip_legacy_version_destroy(fd_gossip_legacy_version_t* self, fd_bincode_destroy_ctx_t * ctx) {
+  fd_pubkey_destroy(&self->from, ctx);
+  if (NULL != self->commit) {
+    fd_valloc_free( ctx->valloc, self->commit);
+    self->commit = NULL;
+  }
+}
+
+void fd_gossip_legacy_version_walk(void * w, fd_gossip_legacy_version_t* self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_legacy_version", level++);
+  fd_pubkey_walk(w, &self->from, fun, "from", level);
+  fun( w, &self->wallclock, "wallclock", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
+  fun( w, &self->major, "major", FD_FLAMENCO_TYPE_USHORT,  "ushort",    level );
+  fun( w, &self->minor, "minor", FD_FLAMENCO_TYPE_USHORT,  "ushort",    level );
+  fun( w, &self->patch, "patch", FD_FLAMENCO_TYPE_USHORT,  "ushort",    level );
+  if( !self->commit ) {
+    fun( w, NULL, "commit", FD_FLAMENCO_TYPE_NULL, "uint", level );
+  } else {
+  fun( w, self->commit, "commit", FD_FLAMENCO_TYPE_UINT,    "uint",      level );
+  }
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_legacy_version", level--);
+}
+ulong fd_gossip_legacy_version_size(fd_gossip_legacy_version_t const * self) {
+  ulong size = 0;
+  size += fd_pubkey_size(&self->from);
+  size += sizeof(ulong);
+  size += sizeof(ushort);
+  size += sizeof(ushort);
+  size += sizeof(ushort);
+  size += sizeof(char);
+  if (NULL !=  self->commit) {
+    size += sizeof(uint);
+  }
+  return size;
+}
+
+int fd_gossip_legacy_version_encode(fd_gossip_legacy_version_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  err = fd_pubkey_encode(&self->from, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_encode(&self->wallclock, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint16_encode(&self->major, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint16_encode(&self->minor, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint16_encode(&self->patch, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  if (self->commit != NULL) {
+    err = fd_bincode_option_encode(1, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    err = fd_bincode_uint32_encode(self->commit, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+  } else {
+    err = fd_bincode_option_encode(0, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+  }
+  return FD_BINCODE_SUCCESS;
+}
+
+int fd_gossip_version_decode(fd_gossip_version_t* self, fd_bincode_decode_ctx_t * ctx) {
+  int err;
+  err = fd_pubkey_decode(&self->from, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_decode(&self->wallclock, ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_uint16_decode(&self->major, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint16_decode(&self->minor, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint16_decode(&self->patch, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  {
+    uchar o;
+    err = fd_bincode_option_decode( &o, ctx );
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    if( o ) {
+      self->commit = fd_valloc_malloc( ctx->valloc, 8, sizeof(uint) );
+      err = fd_bincode_uint32_decode( self->commit, ctx );
+      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    } else
+      self->commit = NULL;
+  }
+  err = fd_bincode_uint32_decode(&self->feature_set, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_gossip_version_new(fd_gossip_version_t* self) {
+  fd_memset(self, 0, sizeof(fd_gossip_version_t));
+  fd_pubkey_new(&self->from);
+}
+void fd_gossip_version_destroy(fd_gossip_version_t* self, fd_bincode_destroy_ctx_t * ctx) {
+  fd_pubkey_destroy(&self->from, ctx);
+  if (NULL != self->commit) {
+    fd_valloc_free( ctx->valloc, self->commit);
+    self->commit = NULL;
+  }
+}
+
+void fd_gossip_version_walk(void * w, fd_gossip_version_t* self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_version", level++);
+  fd_pubkey_walk(w, &self->from, fun, "from", level);
+  fun( w, &self->wallclock, "wallclock", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
+  fun( w, &self->major, "major", FD_FLAMENCO_TYPE_USHORT,  "ushort",    level );
+  fun( w, &self->minor, "minor", FD_FLAMENCO_TYPE_USHORT,  "ushort",    level );
+  fun( w, &self->patch, "patch", FD_FLAMENCO_TYPE_USHORT,  "ushort",    level );
+  if( !self->commit ) {
+    fun( w, NULL, "commit", FD_FLAMENCO_TYPE_NULL, "uint", level );
+  } else {
+  fun( w, self->commit, "commit", FD_FLAMENCO_TYPE_UINT,    "uint",      level );
+  }
+  fun( w, &self->feature_set, "feature_set", FD_FLAMENCO_TYPE_UINT,    "uint",      level );
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_version", level--);
+}
+ulong fd_gossip_version_size(fd_gossip_version_t const * self) {
+  ulong size = 0;
+  size += fd_pubkey_size(&self->from);
+  size += sizeof(ulong);
+  size += sizeof(ushort);
+  size += sizeof(ushort);
+  size += sizeof(ushort);
+  size += sizeof(char);
+  if (NULL !=  self->commit) {
+    size += sizeof(uint);
+  }
+  size += sizeof(uint);
+  return size;
+}
+
+int fd_gossip_version_encode(fd_gossip_version_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  err = fd_pubkey_encode(&self->from, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_encode(&self->wallclock, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint16_encode(&self->major, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint16_encode(&self->minor, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint16_encode(&self->patch, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  if (self->commit != NULL) {
+    err = fd_bincode_option_encode(1, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    err = fd_bincode_uint32_encode(self->commit, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+  } else {
+    err = fd_bincode_option_encode(0, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+  }
+  err = fd_bincode_uint32_encode(&self->feature_set, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+
+int fd_gossip_node_instance_decode(fd_gossip_node_instance_t* self, fd_bincode_decode_ctx_t * ctx) {
+  int err;
+  err = fd_pubkey_decode(&self->from, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_decode(&self->wallclock, ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_uint64_decode(&self->timestamp, ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_uint64_decode(&self->token, ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_gossip_node_instance_new(fd_gossip_node_instance_t* self) {
+  fd_memset(self, 0, sizeof(fd_gossip_node_instance_t));
+  fd_pubkey_new(&self->from);
+}
+void fd_gossip_node_instance_destroy(fd_gossip_node_instance_t* self, fd_bincode_destroy_ctx_t * ctx) {
+  fd_pubkey_destroy(&self->from, ctx);
+}
+
+void fd_gossip_node_instance_walk(void * w, fd_gossip_node_instance_t* self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_node_instance", level++);
+  fd_pubkey_walk(w, &self->from, fun, "from", level);
+  fun( w, &self->wallclock, "wallclock", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
+  fun( w, &self->timestamp, "timestamp", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
+  fun( w, &self->token, "token", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_node_instance", level--);
+}
+ulong fd_gossip_node_instance_size(fd_gossip_node_instance_t const * self) {
+  ulong size = 0;
+  size += fd_pubkey_size(&self->from);
+  size += sizeof(ulong);
+  size += sizeof(ulong);
+  size += sizeof(ulong);
+  return size;
+}
+
+int fd_gossip_node_instance_encode(fd_gossip_node_instance_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  err = fd_pubkey_encode(&self->from, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_encode(&self->wallclock, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_encode(&self->timestamp, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_encode(&self->token, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+
+int fd_gossip_duplicate_shred_decode(fd_gossip_duplicate_shred_t* self, fd_bincode_decode_ctx_t * ctx) {
+  int err;
+  err = fd_bincode_uint16_decode(&self->version, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_pubkey_decode(&self->from, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_decode(&self->wallclock, ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_uint64_decode(&self->slot, ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_uint32_decode(&self->shred_index, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint8_decode(&self->shred_variant, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint8_decode(&self->chunk_cnt, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint8_decode(&self->chunk_idx, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_decode(&self->chunk_len, ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  if (self->chunk_len != 0) {
+    self->chunk = fd_valloc_malloc( ctx->valloc, 8UL, self->chunk_len );
+    err = fd_bincode_bytes_decode(self->chunk, self->chunk_len, ctx);
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  } else
+    self->chunk = NULL;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_gossip_duplicate_shred_new(fd_gossip_duplicate_shred_t* self) {
+  fd_memset(self, 0, sizeof(fd_gossip_duplicate_shred_t));
+  fd_pubkey_new(&self->from);
+}
+void fd_gossip_duplicate_shred_destroy(fd_gossip_duplicate_shred_t* self, fd_bincode_destroy_ctx_t * ctx) {
+  fd_pubkey_destroy(&self->from, ctx);
+  if (NULL != self->chunk) {
+    fd_valloc_free( ctx->valloc, self->chunk );
+    self->chunk = NULL;
+  }
+}
+
+void fd_gossip_duplicate_shred_walk(void * w, fd_gossip_duplicate_shred_t* self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_duplicate_shred", level++);
+  fun( w, &self->version, "version", FD_FLAMENCO_TYPE_USHORT,  "ushort",    level );
+  fd_pubkey_walk(w, &self->from, fun, "from", level);
+  fun( w, &self->wallclock, "wallclock", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
+  fun( w, &self->slot, "slot", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
+  fun( w, &self->shred_index, "shred_index", FD_FLAMENCO_TYPE_UINT,    "uint",      level );
+  fun( w, &self->shred_variant, "shred_variant", FD_FLAMENCO_TYPE_UCHAR,   "uchar",     level );
+  fun( w, &self->chunk_cnt, "chunk_cnt", FD_FLAMENCO_TYPE_UCHAR,   "uchar",     level );
+  fun( w, &self->chunk_idx, "chunk_idx", FD_FLAMENCO_TYPE_UCHAR,   "uchar",     level );
+  fun(w, self->chunk, "chunk", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_duplicate_shred", level--);
+}
+ulong fd_gossip_duplicate_shred_size(fd_gossip_duplicate_shred_t const * self) {
+  ulong size = 0;
+  size += sizeof(ushort);
+  size += fd_pubkey_size(&self->from);
+  size += sizeof(ulong);
+  size += sizeof(ulong);
+  size += sizeof(uint);
+  size += sizeof(char);
+  size += sizeof(char);
+  size += sizeof(char);
+  size += sizeof(ulong);
+  size += self->chunk_len;
+  return size;
+}
+
+int fd_gossip_duplicate_shred_encode(fd_gossip_duplicate_shred_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  err = fd_bincode_uint16_encode(&self->version, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_pubkey_encode(&self->from, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_encode(&self->wallclock, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_encode(&self->slot, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint32_encode(&self->shred_index, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint8_encode(&self->shred_variant, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint8_encode(&self->chunk_cnt, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint8_encode(&self->chunk_idx, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_encode(&self->chunk_len, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  if (self->chunk_len != 0) {
+    err = fd_bincode_bytes_encode(self->chunk, self->chunk_len, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+  }
+  return FD_BINCODE_SUCCESS;
+}
+
+int fd_gossip_incremental_snapshot_hashes_decode(fd_gossip_incremental_snapshot_hashes_t* self, fd_bincode_decode_ctx_t * ctx) {
+  int err;
+  err = fd_pubkey_decode(&self->from, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_slot_hash_decode(&self->base_hash, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_decode(&self->hashes_len, ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  if (self->hashes_len != 0) {
+    self->hashes = (fd_slot_hash_t *)fd_valloc_malloc( ctx->valloc, FD_SLOT_HASH_ALIGN, FD_SLOT_HASH_FOOTPRINT*self->hashes_len);
+    for( ulong i = 0; i < self->hashes_len; ++i) {
+      fd_slot_hash_new(self->hashes + i);
+    }
+    for( ulong i = 0; i < self->hashes_len; ++i ) {
+      err = fd_slot_hash_decode(self->hashes + i, ctx);
+      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    }
+  } else
+    self->hashes = NULL;
+  err = fd_bincode_uint64_decode(&self->wallclock, ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_gossip_incremental_snapshot_hashes_new(fd_gossip_incremental_snapshot_hashes_t* self) {
+  fd_memset(self, 0, sizeof(fd_gossip_incremental_snapshot_hashes_t));
+  fd_pubkey_new(&self->from);
+  fd_slot_hash_new(&self->base_hash);
+}
+void fd_gossip_incremental_snapshot_hashes_destroy(fd_gossip_incremental_snapshot_hashes_t* self, fd_bincode_destroy_ctx_t * ctx) {
+  fd_pubkey_destroy(&self->from, ctx);
+  fd_slot_hash_destroy(&self->base_hash, ctx);
+  if (NULL != self->hashes) {
+    for (ulong i = 0; i < self->hashes_len; ++i)
+      fd_slot_hash_destroy(self->hashes + i, ctx);
+    fd_valloc_free( ctx->valloc, self->hashes );
+    self->hashes = NULL;
+  }
+}
+
+void fd_gossip_incremental_snapshot_hashes_walk(void * w, fd_gossip_incremental_snapshot_hashes_t* self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_incremental_snapshot_hashes", level++);
+  fd_pubkey_walk(w, &self->from, fun, "from", level);
+  fd_slot_hash_walk(w, &self->base_hash, fun, "base_hash", level);
+  if (self->hashes_len != 0) {
+    fun(w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "hashes", level++);
+    for (ulong i = 0; i < self->hashes_len; ++i)
+      fd_slot_hash_walk(w, self->hashes + i, fun, "slot_hash", level );
+    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "hashes", level-- );
+  }
+  fun( w, &self->wallclock, "wallclock", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_incremental_snapshot_hashes", level--);
+}
+ulong fd_gossip_incremental_snapshot_hashes_size(fd_gossip_incremental_snapshot_hashes_t const * self) {
+  ulong size = 0;
+  size += fd_pubkey_size(&self->from);
+  size += fd_slot_hash_size(&self->base_hash);
+  size += sizeof(ulong);
+  for (ulong i = 0; i < self->hashes_len; ++i)
+    size += fd_slot_hash_size(self->hashes + i);
+  size += sizeof(ulong);
+  return size;
+}
+
+int fd_gossip_incremental_snapshot_hashes_encode(fd_gossip_incremental_snapshot_hashes_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  err = fd_pubkey_encode(&self->from, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_slot_hash_encode(&self->base_hash, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_encode(&self->hashes_len, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  if (self->hashes_len != 0) {
+    for (ulong i = 0; i < self->hashes_len; ++i) {
+      err = fd_slot_hash_encode(self->hashes + i, ctx);
+      if ( FD_UNLIKELY(err) ) return err;
+    }
+  }
+  err = fd_bincode_uint64_encode(&self->wallclock, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+
 FD_FN_PURE uchar fd_crds_data_is_contact_info(fd_crds_data_t const * self) {
   return self->discriminant == 0;
 }
@@ -11479,6 +11890,21 @@ FD_FN_PURE uchar fd_crds_data_is_accounts_hashes(fd_crds_data_t const * self) {
 }
 FD_FN_PURE uchar fd_crds_data_is_epoch_slots(fd_crds_data_t const * self) {
   return self->discriminant == 5;
+}
+FD_FN_PURE uchar fd_crds_data_is_legacy_version(fd_crds_data_t const * self) {
+  return self->discriminant == 6;
+}
+FD_FN_PURE uchar fd_crds_data_is_version(fd_crds_data_t const * self) {
+  return self->discriminant == 7;
+}
+FD_FN_PURE uchar fd_crds_data_is_node_instance(fd_crds_data_t const * self) {
+  return self->discriminant == 8;
+}
+FD_FN_PURE uchar fd_crds_data_is_duplicate_shred(fd_crds_data_t const * self) {
+  return self->discriminant == 9;
+}
+FD_FN_PURE uchar fd_crds_data_is_incremental_snapshot_hashes(fd_crds_data_t const * self) {
+  return self->discriminant == 10;
 }
 void fd_crds_data_inner_new(fd_crds_data_inner_t* self, uint discriminant);
 int fd_crds_data_inner_decode(fd_crds_data_inner_t* self, uint discriminant, fd_bincode_decode_ctx_t * ctx) {
@@ -11502,6 +11928,21 @@ int fd_crds_data_inner_decode(fd_crds_data_inner_t* self, uint discriminant, fd_
   }
   case 5: {
     return fd_gossip_epoch_slots_decode(&self->epoch_slots, ctx);
+  }
+  case 6: {
+    return fd_gossip_legacy_version_decode(&self->legacy_version, ctx);
+  }
+  case 7: {
+    return fd_gossip_version_decode(&self->version, ctx);
+  }
+  case 8: {
+    return fd_gossip_node_instance_decode(&self->node_instance, ctx);
+  }
+  case 9: {
+    return fd_gossip_duplicate_shred_decode(&self->duplicate_shred, ctx);
+  }
+  case 10: {
+    return fd_gossip_incremental_snapshot_hashes_decode(&self->incremental_snapshot_hashes, ctx);
   }
   default: return FD_BINCODE_ERR_ENCODING;
   }
@@ -11535,6 +11976,26 @@ void fd_crds_data_inner_new(fd_crds_data_inner_t* self, uint discriminant) {
   }
   case 5: {
     fd_gossip_epoch_slots_new(&self->epoch_slots);
+    break;
+  }
+  case 6: {
+    fd_gossip_legacy_version_new(&self->legacy_version);
+    break;
+  }
+  case 7: {
+    fd_gossip_version_new(&self->version);
+    break;
+  }
+  case 8: {
+    fd_gossip_node_instance_new(&self->node_instance);
+    break;
+  }
+  case 9: {
+    fd_gossip_duplicate_shred_new(&self->duplicate_shred);
+    break;
+  }
+  case 10: {
+    fd_gossip_incremental_snapshot_hashes_new(&self->incremental_snapshot_hashes);
     break;
   }
   default: break; // FD_LOG_ERR(( "unhandled type"));
@@ -11573,6 +12034,26 @@ void fd_crds_data_inner_destroy(fd_crds_data_inner_t* self, uint discriminant, f
     fd_gossip_epoch_slots_destroy(&self->epoch_slots, ctx);
     break;
   }
+  case 6: {
+    fd_gossip_legacy_version_destroy(&self->legacy_version, ctx);
+    break;
+  }
+  case 7: {
+    fd_gossip_version_destroy(&self->version, ctx);
+    break;
+  }
+  case 8: {
+    fd_gossip_node_instance_destroy(&self->node_instance, ctx);
+    break;
+  }
+  case 9: {
+    fd_gossip_duplicate_shred_destroy(&self->duplicate_shred, ctx);
+    break;
+  }
+  case 10: {
+    fd_gossip_incremental_snapshot_hashes_destroy(&self->incremental_snapshot_hashes, ctx);
+    break;
+  }
   default: break; // FD_LOG_ERR(( "unhandled type" ));
   }
 }
@@ -11608,6 +12089,26 @@ void fd_crds_data_walk(void * w, fd_crds_data_t* self, fd_types_walk_fn_t fun, c
     fd_gossip_epoch_slots_walk(w, &self->inner.epoch_slots, fun, "epoch_slots", level);
     break;
   }
+  case 6: {
+    fd_gossip_legacy_version_walk(w, &self->inner.legacy_version, fun, "legacy_version", level);
+    break;
+  }
+  case 7: {
+    fd_gossip_version_walk(w, &self->inner.version, fun, "version", level);
+    break;
+  }
+  case 8: {
+    fd_gossip_node_instance_walk(w, &self->inner.node_instance, fun, "node_instance", level);
+    break;
+  }
+  case 9: {
+    fd_gossip_duplicate_shred_walk(w, &self->inner.duplicate_shred, fun, "duplicate_shred", level);
+    break;
+  }
+  case 10: {
+    fd_gossip_incremental_snapshot_hashes_walk(w, &self->inner.incremental_snapshot_hashes, fun, "incremental_snapshot_hashes", level);
+    break;
+  }
   }
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_crds_data", level--);
 }
@@ -11637,6 +12138,26 @@ ulong fd_crds_data_size(fd_crds_data_t const * self) {
   }
   case 5: {
     size += fd_gossip_epoch_slots_size(&self->inner.epoch_slots);
+    break;
+  }
+  case 6: {
+    size += fd_gossip_legacy_version_size(&self->inner.legacy_version);
+    break;
+  }
+  case 7: {
+    size += fd_gossip_version_size(&self->inner.version);
+    break;
+  }
+  case 8: {
+    size += fd_gossip_node_instance_size(&self->inner.node_instance);
+    break;
+  }
+  case 9: {
+    size += fd_gossip_duplicate_shred_size(&self->inner.duplicate_shred);
+    break;
+  }
+  case 10: {
+    size += fd_gossip_incremental_snapshot_hashes_size(&self->inner.incremental_snapshot_hashes);
     break;
   }
   }
@@ -11673,6 +12194,31 @@ int fd_crds_data_inner_encode(fd_crds_data_inner_t const * self, uint discrimina
   }
   case 5: {
     err = fd_gossip_epoch_slots_encode(&self->epoch_slots, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    break;
+  }
+  case 6: {
+    err = fd_gossip_legacy_version_encode(&self->legacy_version, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    break;
+  }
+  case 7: {
+    err = fd_gossip_version_encode(&self->version, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    break;
+  }
+  case 8: {
+    err = fd_gossip_node_instance_encode(&self->node_instance, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    break;
+  }
+  case 9: {
+    err = fd_gossip_duplicate_shred_encode(&self->duplicate_shred, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    break;
+  }
+  case 10: {
+    err = fd_gossip_incremental_snapshot_hashes_encode(&self->incremental_snapshot_hashes, ctx);
     if ( FD_UNLIKELY(err) ) return err;
     break;
   }

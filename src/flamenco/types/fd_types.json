@@ -1535,6 +1535,66 @@
       ]
     },
     {
+      "name": "gossip_legacy_version",
+      "type": "struct",
+      "fields": [
+        { "name": "from", "type": "pubkey" },
+        { "name": "wallclock", "type": "ulong" },
+        { "name": "major", "type": "ushort" },
+        { "name": "minor", "type": "ushort" },
+        { "name": "patch", "type": "ushort" },
+        { "name": "commit", "type": "option", "element": "uint" }
+      ]
+    },
+    {
+      "name": "gossip_version",
+      "type": "struct",
+      "fields": [
+        { "name": "from", "type": "pubkey" },
+        { "name": "wallclock", "type": "ulong" },
+        { "name": "major", "type": "ushort" },
+        { "name": "minor", "type": "ushort" },
+        { "name": "patch", "type": "ushort" },
+        { "name": "commit", "type": "option", "element": "uint" },
+        { "name": "feature_set", "type": "uint" }
+      ]
+    },
+    {
+      "name": "gossip_node_instance",
+      "type": "struct",
+      "fields": [
+        { "name": "from", "type": "pubkey" },
+        { "name": "wallclock", "type": "ulong" },
+        { "name": "timestamp", "type": "ulong" },
+        { "name": "token", "type": "ulong" }
+      ]
+    },
+    {
+      "name": "gossip_duplicate_shred",
+      "type": "struct",
+      "fields": [
+        { "name": "version", "type": "ushort" },
+        { "name": "from", "type": "pubkey" },
+        { "name": "wallclock", "type": "ulong" },
+        { "name": "slot", "type": "ulong" },
+        { "name": "shred_index", "type": "uint" },
+        { "name": "shred_variant", "type": "uchar" },
+        { "name": "chunk_cnt", "type": "uchar" },
+        { "name": "chunk_idx", "type": "uchar" },
+        { "name": "chunk", "type": "vector", "element": "uchar" }
+      ]
+    },
+    {
+      "name": "gossip_incremental_snapshot_hashes",
+      "type": "struct",
+      "fields": [
+        { "name": "from", "type": "pubkey" },
+        { "name": "base_hash", "type": "slot_hash" },
+        { "name": "hashes", "type": "vector", "element": "slot_hash" },
+        { "name": "wallclock", "type": "ulong" }
+      ]
+    },
+    {
       "name": "crds_data",
       "type": "enum",
       "variants": [
@@ -1543,7 +1603,12 @@
         { "name": "lowest_slot", "type": "gossip_lowest_slot" },
         { "name": "snapshot_hashes", "type": "gossip_slot_hashes" },
         { "name": "accounts_hashes", "type": "gossip_slot_hashes" },
-        { "name": "epoch_slots", "type": "gossip_epoch_slots" }
+        { "name": "epoch_slots", "type": "gossip_epoch_slots" },
+        { "name": "legacy_version", "type": "gossip_legacy_version" },
+        { "name": "version", "type": "gossip_version" },
+        { "name": "node_instance", "type": "gossip_node_instance" },
+        { "name": "duplicate_shred", "type": "gossip_duplicate_shred" },
+        { "name": "incremental_snapshot_hashes", "type": "gossip_incremental_snapshot_hashes" }
       ]
     },
     {
