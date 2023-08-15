@@ -19,12 +19,12 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@1.69.0
 
-      - uses: firedancer-io/alpine-builder@main
-        name: Build with ASAN on Alpine
+      - uses: firedancer-io/fuzzbot-builder@main
+        name: Build with ASAN on Ubuntu 20.04
         env:
           MACHINE: linux_clang_x86_64_fuzz_asan
         with:
-          command: make --output-sync=target -j fuzz-test
+          command: ./deps.sh install && make --output-sync=target -j fuzz-test
 
       - name: List Artifacts
         run: |
