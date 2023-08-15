@@ -30,6 +30,9 @@ impl MCacheCtl {
   }
 }
 
+unsafe impl Sync for MCache {}
+unsafe impl Send for MCache {}
+
 #[derive(Copy, Clone)]
 pub enum Poll {
     CaughtUp,

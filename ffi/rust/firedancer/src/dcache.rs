@@ -16,6 +16,9 @@ impl Drop for DCache {
     }
 }
 
+unsafe impl Sync for DCache {}
+unsafe impl Send for DCache {}
+
 impl DCache {
     pub unsafe fn join<T: Into<GlobalAddress>>(gaddr: T) -> Result<Self, ()> {
       let workspace = Workspace::map(gaddr)?;

@@ -19,6 +19,8 @@ impl Drop for FSeq {
         unsafe { tango::fd_fseq_leave(self.laddr) };
     }
 }
+unsafe impl Sync for FSeq {}
+unsafe impl Send for FSeq {}
 
 #[repr(u32)]
 #[derive(Copy, Clone, Debug)]
