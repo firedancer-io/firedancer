@@ -3,7 +3,7 @@ int test_1910(fd_executor_test_suite_t *suite) {
   fd_executor_test_t test;
   fd_memset( &test, 0, FD_EXECUTOR_TEST_FOOTPRINT );
   test.disable_cnt = 46;
-  test.bt = "   2: solana_system_program::system_processor::tests::test_nonce_account_upgrade             at ./src/system_processor.rs:2020:24   3: solana_system_program::system_processor::tests::test_nonce_account_upgrade::{{closure}}             at ./src/system_processor.rs:2002:37   4: core::ops::function::FnOnce::call_once             at /rustc/84c898d65adf2f39a5a98507f1fe0ce10a2b8dbc/library/core/src/ops/function.rs:250:5   5: core::ops::function::FnOnce::call_once             at /rustc/84c898d65adf2f39a5a98507f1fe0ce10a2b8dbc/library/core/src/ops/function.rs:250:5";
+  test.bt = "   2: solana_system_program::system_processor::tests::test_nonce_account_upgrade             at ./src/system_processor.rs:2006:24   3: solana_system_program::system_processor::tests::test_nonce_account_upgrade::{{closure}}             at ./src/system_processor.rs:2002:37   4: core::ops::function::FnOnce::call_once             at /rustc/84c898d65adf2f39a5a98507f1fe0ce10a2b8dbc/library/core/src/ops/function.rs:250:5   5: core::ops::function::FnOnce::call_once             at /rustc/84c898d65adf2f39a5a98507f1fe0ce10a2b8dbc/library/core/src/ops/function.rs:250:5";
   test.test_name = "system_processor::tests::test_nonce_account_upgrade";
   test.test_number = 1910;
   test.sysvar_cache.clock = "";
@@ -34,10 +34,10 @@ int test_1910(fd_executor_test_suite_t *suite) {
   test_acc->result_executable= 0;
   test_acc->rent_epoch      = 0;
   test_acc->result_rent_epoch      = 0;
-  static uchar const fd_flamenco_native_prog_test_1910_acc_0_data[] = { 0x01,0x00,0x00,0x00,0x00,0x00,0x00,0x00 };
+  static uchar const fd_flamenco_native_prog_test_1910_acc_0_data[] = { 0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00 };
   test_acc->data            = fd_flamenco_native_prog_test_1910_acc_0_data;
   test_acc->data_len        = 8UL;
-  static uchar const fd_flamenco_native_prog_test_1910_acc_0_post_data[] = { 0x01,0x00,0x00,0x00,0x00,0x00,0x00,0x00 };
+  static uchar const fd_flamenco_native_prog_test_1910_acc_0_post_data[] = { 0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00 };
   test_acc->result_data     = fd_flamenco_native_prog_test_1910_acc_0_post_data;
   test_acc->result_data_len = 8UL;
   test_acc++;

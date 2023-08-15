@@ -61,8 +61,9 @@ int write_bpf_upgradeable_loader_state(fd_global_ctx_t* global, fd_pubkey_t* pro
 
   ulong lamps = (encoded_loader_state_size + 128) * ((ulong) ((double)global->bank.rent.lamports_per_uint8_year * global->bank.rent.exemption_threshold));
   if (m->info.lamports < lamps) {
-    FD_LOG_ERR(("topped up the lamports.. was this needed?"));
-    m->info.lamports = lamps;
+    FD_LOG_WARNING(("topped up the lamports.. was this needed?"));
+    return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
+// m->info.lamports = lamps;
   }
 
   if (encoded_loader_state_size > m->dlen)
@@ -628,9 +629,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
     loader_state.discriminant = fd_bpf_upgradeable_loader_state_enum_buffer;
     loader_state.inner.buffer.authority_address = authority_acc;
 
-    write_bpf_upgradeable_loader_state( ctx.global, buffer_acc, &loader_state );
-
-    return FD_EXECUTOR_INSTR_SUCCESS;
+    return write_bpf_upgradeable_loader_state( ctx.global, buffer_acc, &loader_state );
   } else if ( fd_bpf_upgradeable_loader_program_instruction_is_write( &instruction ) ) {
     if( ctx.instr->acct_cnt < 2 ) {
       return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
@@ -801,7 +800,11 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
     program_acc_loader_state.discriminant = fd_bpf_upgradeable_loader_state_enum_program;
     fd_memcpy(&program_acc_loader_state.inner.program.programdata_address, programdata_acc, sizeof(fd_pubkey_t));
 
-    write_bpf_upgradeable_loader_state( ctx.global, program_acc, &program_acc_loader_state );
+    write_result =write_bpf_upgradeable_loader_state( ctx.global, program_acc, &program_acc_loader_state );
+    if ( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) ) {
+      FD_LOG_WARNING(( "failed to write loader state "));
+      return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
+    }
 
     write_result = fd_acc_mgr_set_metadata( ctx.global->acc_mgr, ctx.global->funk_txn, payer_acc, &payer_acc_metadata );
     if ( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) ) {
@@ -985,9 +988,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
       }
 
       loader_state.inner.buffer.authority_address = new_authority_acc;
-      write_bpf_upgradeable_loader_state( ctx.global, loader_acc, &loader_state );
-
-      return FD_EXECUTOR_INSTR_SUCCESS;
+      return write_bpf_upgradeable_loader_state( ctx.global, loader_acc, &loader_state );
     } else if( fd_bpf_upgradeable_loader_state_is_program_data( &loader_state ) ) {
       if( loader_state.inner.program_data.upgrade_authority_address==NULL ) {
         return FD_EXECUTOR_INSTR_ERR_ACC_IMMUTABLE;
@@ -1003,9 +1004,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
 
       loader_state.inner.program_data.upgrade_authority_address = new_authority_acc;
 
-      write_bpf_upgradeable_loader_state( ctx.global, loader_acc, &loader_state );
-
-      return FD_EXECUTOR_INSTR_SUCCESS;
+      return write_bpf_upgradeable_loader_state( ctx.global, loader_acc, &loader_state );
     } else {
       return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
     }
