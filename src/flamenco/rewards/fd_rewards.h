@@ -40,9 +40,47 @@ struct fd_stake_reward {
 };
 typedef struct fd_stake_reward fd_stake_reward_t;
 
+struct fd_vote_reward_t_mapnode {
+  fd_pubkey_t * vote_pubkey;
+  ulong vote_rewards;
+  uchar commission;
+};
+
+typedef struct fd_vote_reward_t_mapnode fd_vote_reward_t_mapnode_t;
+
+#define MAP_NAME              fd_vote_reward_t_map
+#define MAP_T                 fd_vote_reward_t_mapnode_t
+#define MAP_LG_SLOT_CNT       9
+#define MAP_MEMOIZE           0
+#define MAP_KEY               vote_pubkey
+#define MAP_KEY_T             fd_pubkey_t *
+#define MAP_KEY_NULL          NULL
+#define MAP_KEY_INVAL(k)      !(k)
+#define MAP_KEY_EQUAL(a,b)    (memcmp((a), (b), sizeof(fd_pubkey_t))==0)
+#define MAP_KEY_EQUAL_IS_SLOW 1
+#define MAP_KEY_HASH(key)     fd_uint_load_4( (key) )
+#define MAP_KEY_MOVE(kd,ks) memcpy((kd),(ks),sizeof(fd_pubkey_t))
+#include "../../util/tmpl/fd_map_dynamic.c"
+static inline fd_vote_reward_t_mapnode_t *
+fd_vote_reward_t_map_alloc( fd_valloc_t valloc, int len ) {
+  void * mem = fd_valloc_malloc( valloc, fd_vote_reward_t_map_align(), fd_vote_reward_t_map_footprint(len));
+  return fd_vote_reward_t_map_join(fd_vote_reward_t_map_new(mem, len));
+}
+
+#define DEQUE_NAME deq_fd_stake_reward_t
+#define DEQUE_T    fd_stake_reward_t
+#define DEQUE_MAX  1000UL
+#include "../../util/tmpl/fd_deque.c"
+static inline fd_stake_reward_t *
+deq_fd_stake_reward_t_alloc( fd_valloc_t valloc ) {
+  void * mem = fd_valloc_malloc( valloc, deq_fd_stake_reward_t_align(), deq_fd_stake_reward_t_footprint());
+  return deq_fd_stake_reward_t_join( deq_fd_stake_reward_t_new( mem ) );
+}
+
 struct fd_stake_reward_calculation {
-    ulong total_stake_rewards_lamports;
-    fd_stake_reward_t * stake_rewards;
+    fd_acc_lamports_t total_stake_rewards_lamports;
+    fd_stake_reward_t * stake_reward_deq;
+    fd_vote_reward_t_mapnode_t * vote_reward_map;
 };
 typedef struct fd_stake_reward_calculation fd_stake_reward_calculation_t;
 

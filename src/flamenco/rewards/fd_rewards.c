@@ -340,10 +340,13 @@ calculate_stake_vote_rewards(
     instruction_ctx_t * ctx,
     fd_stake_history_t * stake_history,
     ulong rewarded_epoch,
-    fd_point_value_t * point_value
+    fd_point_value_t * point_value,
+    fd_stake_reward_calculation_t * result
 ) {
     fd_firedancer_banks_t * bank = &ctx->global->bank;
     fd_acc_lamports_t total_stake_rewards = 0;
+    fd_stake_reward_t * stake_reward_deq = deq_fd_stake_reward_t_alloc( ctx->global->valloc );
+    fd_vote_reward_t_mapnode_t * vote_reward_map = fd_vote_reward_t_map_alloc( ctx->global->valloc, 9);
     for ( fd_delegation_pair_t_mapnode_t * n = fd_delegation_pair_t_map_minimum( bank->stakes.stake_delegations_pool, bank->stakes.stake_delegations_root ); n; n = fd_delegation_pair_t_map_successor( bank->stakes.stake_delegations_pool, n ) ) {
         fd_pubkey_t * voter_acc = &n->elem.delegation.voter_pubkey;
         fd_pubkey_t * stake_acc = &n->elem.account;
@@ -367,7 +370,7 @@ calculate_stake_vote_rewards(
             continue;
         }
 
-        fd_calculated_stake_rewards_t redeemed[1];
+        fd_calculated_stake_rewards_t * redeemed = NULL;
         if (redeem_rewards(ctx, stake_history, stake_acc, vote_state_versioned, rewarded_epoch, point_value, redeemed) != 0) {
             FD_LOG_WARNING(("stake_state::redeem_rewards() failed for %32J", stake_acc->key ));
             continue;
@@ -380,7 +383,7 @@ calculate_stake_vote_rewards(
         total_stake_rewards += redeemed->staker_rewards;
 
         // add stake_reward to the collection
-        fd_stake_reward_t stake_reward[1];
+        fd_stake_reward_t * stake_reward = deq_fd_stake_reward_t_insert_tail( stake_reward_deq );
         fd_memcpy(stake_reward->stake_pubkey, stake_acc, sizeof(fd_pubkey_t));
         uchar commission = 0U;
         switch (vote_state_versioned->discriminant) {
@@ -403,41 +406,22 @@ calculate_stake_vote_rewards(
             .post_balance = post_lamports
         };
         // track voter rewards
-        fd_vote_reward_t vote_reward = {
-            .vote_rewards = 0,
-            .commission = (uchar)commission
-        };
-        fd_memcpy(&vote_reward.vote_acc, voter_acc, sizeof(fd_pubkey_t));
-
-
-                        // let mut voters_reward_entry = vote_account_rewards
-                        //     .entry(vote_pubkey)
-                        //     .or_insert(VoteReward {
-                        //         vote_account: vote_account.into(),
-                        //         commission: vote_state.commission,
-                        //         vote_rewards: 0,
-                        //         vote_needs_store: false,
-                        //     });
-
-                        // voters_reward_entry.vote_rewards = voters_reward_entry
-                        //     .vote_rewards
-                        //     .saturating_add(voters_reward);
-
-                        // let post_balance = stake_account.lamports();
-                        // total_stake_rewards.fetch_add(stakers_reward, Relaxed);
-                        // return Some(StakeReward {
-                        //     stake_pubkey,
-                        //     stake_reward_info: RewardInfo {
-                        //         reward_type: RewardType::Staking,
-                        //         lamports: i64::try_from(stakers_reward).unwrap(),
-                        //         post_balance,
-                        //         commission: Some(vote_state.commission),
-                        //     },
-                        //     stake_account,
-                        // });
-
+        fd_vote_reward_t_mapnode_t * node = fd_vote_reward_t_map_query(vote_reward_map, voter_acc, NULL);
+        if (node != NULL) {
+        }
+        if (node == NULL) {
+            node = fd_vote_reward_t_map_insert(vote_reward_map, voter_acc);
+            node->vote_rewards = 0;
+            fd_memcpy(node->vote_pubkey, voter_acc, sizeof(fd_pubkey_t));
+            node->commission = (uchar)commission;
+        }
+        node->vote_rewards = fd_ulong_sat_add(node->vote_rewards, redeemed->voter_rewards);
     } // end of for
-    (void)total_stake_rewards;
+    *result = (fd_stake_reward_calculation_t) {
+        .total_stake_rewards_lamports = total_stake_rewards,
+        .stake_reward_deq = stake_reward_deq,
+        .vote_reward_map = vote_reward_map
+    };
 }
 
 /* Calculate epoch reward and return vote and stake rewards. */
@@ -452,7 +436,8 @@ calculate_validator_rewards(
 
     fd_point_value_t * point_value_result = NULL;
     calculate_reward_points_partitioned(ctx, &stake_history, rewards, point_value_result);
-    calculate_stake_vote_rewards(ctx, &stake_history, rewarded_epoch, point_value_result);
+    fd_stake_reward_calculation_t * result = NULL;
+    calculate_stake_vote_rewards(ctx, &stake_history, rewarded_epoch, point_value_result, result);
 
 }
 
