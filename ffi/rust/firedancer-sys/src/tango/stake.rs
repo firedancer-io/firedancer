@@ -6,7 +6,7 @@ pub use crate::generated::{
     fd_stake_new,
     fd_stake_version,
     fd_stake_version_laddr,
-    fd_stake_write,
+    fd_stake_deser,
     fd_stake_read,
     fd_stake_dump,
     FD_STAKE_ALIGN
