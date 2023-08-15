@@ -11,6 +11,18 @@
 
 FD_PROTOTYPES_BEGIN
 
+/// reward calculation happens synchronously during the first block of the epoch boundary.
+/// So, # blocks for reward calculation is 1.
+#define REWARD_CALCULATION_NUM_BLOCK            1
+/// # stake accounts to store in one block during partitioned reward interval
+/// Target to store 64 rewards per entry/tick in a block. A block has a minimum of 64
+/// entries/tick. This gives 4096 total rewards to store in one block.
+/// This constant affects consensus.
+#define STAKE_ACCOUNT_STORES_PER_BLOCK          4096
+#define TEST_ENABLE_PARTITIONED_REWARDS         0
+#define TEST_COMPARE_PARTITIONED_EPOCH_REWARDS  0
+#define MAX_FACTOR_OF_REWARD_BLOCKS_IN_EPOCH    10
+
 struct fd_vote_reward {
   fd_pubkey_t * vote_acc;
   uchar commission;
@@ -77,16 +89,16 @@ deq_fd_stake_reward_t_alloc( fd_valloc_t valloc ) {
   return deq_fd_stake_reward_t_join( deq_fd_stake_reward_t_new( mem ) );
 }
 
-struct fd_stake_reward_calculation {
+struct fd_validator_reward_calculation {
     fd_acc_lamports_t total_stake_rewards_lamports;
     fd_stake_reward_t * stake_reward_deq;
     fd_vote_reward_t_mapnode_t * vote_reward_map;
 };
-typedef struct fd_stake_reward_calculation fd_stake_reward_calculation_t;
+typedef struct fd_validator_reward_calculation fd_validator_reward_calculation_t;
 
 struct partitioned_rewards_calculation {
     /* VoteRewardsAccount */
-    fd_stake_reward_calculation_t * stake_rewards_by_partition; 
+    // fd_stake_reward_calculation_t * stake_rewards_by_partition; 
     ulong old_vote_balance_and_staked;
     ulong validator_rewards;
     double validator_rate;

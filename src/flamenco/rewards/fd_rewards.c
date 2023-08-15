@@ -341,7 +341,7 @@ calculate_stake_vote_rewards(
     fd_stake_history_t * stake_history,
     ulong rewarded_epoch,
     fd_point_value_t * point_value,
-    fd_stake_reward_calculation_t * result
+    fd_validator_reward_calculation_t * result
 ) {
     fd_firedancer_banks_t * bank = &ctx->global->bank;
     fd_acc_lamports_t total_stake_rewards = 0;
@@ -417,7 +417,7 @@ calculate_stake_vote_rewards(
         }
         node->vote_rewards = fd_ulong_sat_add(node->vote_rewards, redeemed->voter_rewards);
     } // end of for
-    *result = (fd_stake_reward_calculation_t) {
+    *result = (fd_validator_reward_calculation_t) {
         .total_stake_rewards_lamports = total_stake_rewards,
         .stake_reward_deq = stake_reward_deq,
         .vote_reward_map = vote_reward_map
@@ -429,16 +429,15 @@ static void
 calculate_validator_rewards(
     instruction_ctx_t * ctx,
     ulong rewarded_epoch,
-    ulong rewards
+    ulong rewards,
+    fd_validator_reward_calculation_t * result
 ) {
     fd_stake_history_t stake_history;
     fd_sysvar_stake_history_read( ctx->global, &stake_history);
 
     fd_point_value_t * point_value_result = NULL;
     calculate_reward_points_partitioned(ctx, &stake_history, rewards, point_value_result);
-    fd_stake_reward_calculation_t * result = NULL;
     calculate_stake_vote_rewards(ctx, &stake_history, rewarded_epoch, point_value_result, result);
-
 }
 
 
@@ -446,13 +445,21 @@ calculate_validator_rewards(
 // fn get_reward_distribution_num_blocks(&self, rewards: &StakeRewards) -> u64 {
 ulong
 get_reward_distribution_num_blocks(
-    fd_firedancer_banks_t * bank
+    fd_firedancer_banks_t * bank,
+    fd_stake_reward_t * stake_reward_deq
 ) {
-    // todo
-    if (bank->epoch_schedule.warmup && fd_slot_to_epoch(&bank->epoch_schedule, bank->slot, NULL)) {
+    if (bank->epoch_schedule.warmup && fd_slot_to_epoch(&bank->epoch_schedule, bank->slot, NULL) < bank->epoch_schedule.first_normal_epoch) {
         return 1;
     }
-    return 0;
+    ulong total_stake_accounts = deq_fd_stake_reward_t_cnt(stake_reward_deq);
+    ulong num_chunks = total_stake_accounts / (ulong)STAKE_ACCOUNT_STORES_PER_BLOCK + (total_stake_accounts % STAKE_ACCOUNT_STORES_PER_BLOCK != 0);
+    num_chunks = fd_ulong_max(num_chunks, 1);
+    num_chunks = fd_ulong_min(
+        fd_ulong_max(
+            bank->epoch_schedule.slots_per_epoch / (ulong)MAX_FACTOR_OF_REWARD_BLOCKS_IN_EPOCH, 
+            1),
+        1);
+    return num_chunks;
 }
 
 // Calculate rewards from previous epoch to prepare for partitioned distribution.
@@ -469,8 +476,14 @@ calculate_rewards_for_partitioning(
     ulong old_vote_balance_and_staked = vote_balance_and_staked(&bank->stakes);
     (void) old_vote_balance_and_staked;
 
-    calculate_validator_rewards(ctx, prev_epoch, rewards.validator_rewards);
+    fd_validator_reward_calculation_t * validator_result = NULL;
+    calculate_validator_rewards(ctx, prev_epoch, rewards.validator_rewards, validator_result);
+
+    ulong num_partitions = get_reward_distribution_num_blocks(&ctx->global->bank, validator_result->stake_reward_deq);
+    (void) num_partitions;
+    // hash_rewards_into_partitioned
     (void) partitioned_rewards;
+
 
 }
 
