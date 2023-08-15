@@ -333,21 +333,19 @@ fd_vote_save_account(
 
 static int
 fd_vote_verify_authority_current( fd_vote_state_t const *   vote_state,
-                                  instruction_ctx_t const * ctx ) {
+                                  instruction_ctx_t const * ctx,
+                                  ulong epoch ) {
 
   /* Check that the vote state account is initialized
      Assuming here that authorized voters is not empty */
   fd_vote_historical_authorized_voter_t * authorized_voters = vote_state->authorized_voters;
-
-  fd_sol_sysvar_clock_t clock;
-  fd_sysvar_clock_read( ctx->global, &clock );
 
   /* Get the current authorized voter for the current epoch */
   for ( deq_fd_vote_historical_authorized_voter_t_iter_t iter = deq_fd_vote_historical_authorized_voter_t_iter_init( authorized_voters );
         !deq_fd_vote_historical_authorized_voter_t_iter_done( authorized_voters, iter );
         iter = deq_fd_vote_historical_authorized_voter_t_iter_next( authorized_voters, iter ) ) {
     fd_vote_historical_authorized_voter_t * ele = deq_fd_vote_historical_authorized_voter_t_iter_ele( authorized_voters, iter );
-    if (ele->epoch != clock.epoch)
+    if (ele->epoch != epoch)
       continue; // ignore old voters
     fd_pubkey_t * authorized_voter = &ele->pubkey;
     /* Check that the authorized voter for this epoch has signed the vote transaction
@@ -446,7 +444,7 @@ vote_process_vote_current( instruction_ctx_t           ctx,
   }
 
   /* Verify vote authority */
-  int authorize_res = fd_vote_verify_authority_current( vote_state, &ctx );
+  int authorize_res = fd_vote_verify_authority_current( vote_state, &ctx, clock.epoch );
   if( FD_UNLIKELY( 0!=authorize_res ) ) {
     return authorize_res;
   }
@@ -1414,7 +1412,7 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
 
     // FIXME: support v1_14_11 votes!!
     /* Verify vote authority */
-    int authorize_res = fd_vote_verify_authority_current( vote_state, &ctx );
+    int authorize_res = fd_vote_verify_authority_current( vote_state, &ctx, clock.epoch );
     if( FD_UNLIKELY( 0!=authorize_res ) ) {
       ret = authorize_res;
       break;
@@ -1643,14 +1641,18 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
       break;
     }
 
-    int authorize_result =
-      vote_authorize( ctx, &vote_state_versioned.inner.current,
-                          &authorize->vote_authorize, &authorize->pubkey,
-                          NULL, &clock );
-
+    fd_vote_state_t * vote_state = &vote_state_versioned.inner.current;
+    int authorize_result = fd_vote_verify_authority_current( vote_state, &ctx, clock.epoch );
     if( authorize_result == FD_EXECUTOR_INSTR_SUCCESS ) {
-      /* Write back the new vote state */
-      authorize_result = fd_vote_save_account( ctx, &vote_state_versioned, vote_acc_addr, 0, 0);
+      authorize_result =
+        vote_authorize( ctx, &vote_state_versioned.inner.current,
+          &authorize->vote_authorize, &authorize->pubkey,
+          NULL, &clock );
+
+      if( authorize_result == FD_EXECUTOR_INSTR_SUCCESS ) {
+        /* Write back the new vote state */
+        authorize_result = fd_vote_save_account( ctx, &vote_state_versioned, vote_acc_addr, 0, 0);
+      }
     }
 
     fd_vote_state_versioned_destroy( &vote_state_versioned, &destroy );
@@ -2084,7 +2086,7 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
     // FIXME: Support v1_14_11 votes
 
     /* Verify vote authority */
-    int authorize_res = fd_vote_verify_authority_current( vote_state, &ctx );
+    int authorize_res = fd_vote_verify_authority_current( vote_state, &ctx, clock.epoch );
     if( FD_UNLIKELY( 0!=authorize_res ) ) {
       ret = authorize_res;
       break;
