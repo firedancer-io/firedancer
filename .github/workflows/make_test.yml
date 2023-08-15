@@ -85,5 +85,10 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@1.69.0
 
+      - uses: ./.github/actions/deps
+
+      - name: Build everything
+        run: ./contrib/make-j
+
       - name: Run
         run: ./src/test/frank-single-transaction.sh
