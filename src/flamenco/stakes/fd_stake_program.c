@@ -43,7 +43,7 @@ acceptable_reference_epoch_credits( fd_vote_epoch_credits_t * epoch_credits, ulo
     return 0;
   }
   for (ulong idx = len - 1; idx >= len - MINIMUM_DELINQUENT_EPOCHS_FOR_DEACTIVATION; -- idx) {
-    FD_LOG_NOTICE(("idx=%lu peek=%lu current_epoch=%lu", idx, deq_fd_vote_epoch_credits_t_peek_index(epoch_credits, idx)->epoch, current_epoch));
+    FD_LOG_INFO(("idx=%lu peek=%lu current_epoch=%lu", idx, deq_fd_vote_epoch_credits_t_peek_index(epoch_credits, idx)->epoch, current_epoch));
     if (deq_fd_vote_epoch_credits_t_peek_index(epoch_credits, idx)->epoch != current_epoch) {
       return 0;
     }
@@ -292,7 +292,7 @@ static int merge_delegation_stake_and_credits_observed( fd_global_ctx_t* global,
 static int get_if_mergeable( instruction_ctx_t* ctx, fd_stake_state_t* stake_state, fd_sol_sysvar_clock_t clock, fd_stake_history_t history, fd_merge_kind_t* merge_kind) {
     if ( fd_stake_state_is_stake( stake_state ) ) {
       fd_stake_history_entry_t entry = stake_activating_and_deactivating( &stake_state->inner.stake.stake.delegation, clock.epoch, &history);
-      FD_LOG_NOTICE(( "effective = %lu, activating = %lu, deactivating = %lu", entry.effective, entry.activating, entry.deactivating ));
+      FD_LOG_INFO(( "effective = %lu, activating = %lu, deactivating = %lu", entry.effective, entry.activating, entry.deactivating ));
       if (entry.effective == 0 && entry.activating == 0 && entry.deactivating == 0) {
         // Ok(Self::Inactive(*meta, stake_lamports)),
         merge_kind->discriminant = MERGE_KIND_INACTIVE;
@@ -471,7 +471,7 @@ int fd_executor_stake_program_execute_instruction(
   }
   uchar * instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
   fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
-  FD_LOG_NOTICE(("instruction discriminant=%d", instruction.discriminant));
+  FD_LOG_INFO(("instruction discriminant=%d", instruction.discriminant));
   /* TODO: check that the instruction account 0 owner is the stake program ID
      https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/stake/src/stake_instruction.rs#L37 */
   if ( fd_stake_instruction_is_initialize( &instruction ) ) {
@@ -752,10 +752,10 @@ int fd_executor_stake_program_execute_instruction(
     }
   } // end of fd_stake_instruction_is_delegate_stake, discriminant 2
   else if ( fd_stake_instruction_is_split( &instruction )) { // discriminant 3
-    FD_LOG_NOTICE(( "stake_split_uses_rent_sysvar=%ld",            FD_FEATURE_ACTIVE( ctx.global, stake_split_uses_rent_sysvar            ) ));
-    FD_LOG_NOTICE(( "stake_allow_zero_undelegated_amount=%ld",     FD_FEATURE_ACTIVE( ctx.global, stake_allow_zero_undelegated_amount     ) ));
-    FD_LOG_NOTICE(( "clean_up_delegation_errors=%ld",              FD_FEATURE_ACTIVE( ctx.global, clean_up_delegation_errors              ) ));
-    FD_LOG_NOTICE(( "stake_raise_minimum_delegation_to_1_sol=%ld", FD_FEATURE_ACTIVE( ctx.global, stake_raise_minimum_delegation_to_1_sol ) ));
+    FD_LOG_INFO(( "stake_split_uses_rent_sysvar=%ld",            FD_FEATURE_ACTIVE( ctx.global, stake_split_uses_rent_sysvar            ) ));
+    FD_LOG_INFO(( "stake_allow_zero_undelegated_amount=%ld",     FD_FEATURE_ACTIVE( ctx.global, stake_allow_zero_undelegated_amount     ) ));
+    FD_LOG_INFO(( "clean_up_delegation_errors=%ld",              FD_FEATURE_ACTIVE( ctx.global, clean_up_delegation_errors              ) ));
+    FD_LOG_INFO(( "stake_raise_minimum_delegation_to_1_sol=%ld", FD_FEATURE_ACTIVE( ctx.global, stake_raise_minimum_delegation_to_1_sol ) ));
 
   // https://github.com/firedancer-io/solana/blob/56bd357f0dfdb841b27c4a346a58134428173f42/programs/stake/src/stake_instruction.rs#L192
     if (ctx.txn_ctx->txn_descriptor->acct_addr_cnt < 2) {

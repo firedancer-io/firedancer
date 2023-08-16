@@ -1125,7 +1125,7 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
 
-  FD_LOG_NOTICE(("Discriminant=%lu", instruction.discriminant));
+  FD_LOG_INFO(("Discriminant=%lu", instruction.discriminant));
 
   switch( instruction.discriminant ) {
   case fd_vote_instruction_enum_initialize_account: {
