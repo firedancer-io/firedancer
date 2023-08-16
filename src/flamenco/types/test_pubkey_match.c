@@ -4,6 +4,8 @@
 
 #include <immintrin.h>
 
+/* TODO add description: what does this thing achieve? */
+
 #define NUM_KEYS  (16*1024)
 #define NUM_ITERS (16)
 
