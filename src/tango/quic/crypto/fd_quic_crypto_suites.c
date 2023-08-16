@@ -855,7 +855,7 @@ int fd_quic_retry_token_encrypt(
   uchar iv[FD_QUIC_NONCE_SZ] = { 0 };
 
   /* The AAD is the client IPv4 address, UDP port, and retry source connection id. */
-  ulong aad_sz = (ulong)FD_QUIC_RETRY_TOKEN_AAD_SZ + retry_src_conn_id->sz;
+  ulong aad_sz = (ulong)FD_QUIC_RETRY_TOKEN_AAD_PREFIX_SZ + retry_src_conn_id->sz;
   uchar aad[aad_sz];
   memcpy( aad, &ip_addr, sizeof( uint ) );
   memcpy( aad + sizeof( uint ), &udp_port, sizeof( ushort ) );
@@ -866,7 +866,7 @@ int fd_quic_retry_token_encrypt(
       retry_src_conn_id->sz
   );
 
-  uchar plaintext[FD_QUIC_RETRY_TOKEN_PLAINTEXT_SZ];
+  uchar plaintext[FD_QUIC_RETRY_TOKEN_PLAINTEXT_SZ] = { 0 };
   memcpy( plaintext, &orig_dst_conn_id->sz, sizeof( uchar ) );
   memcpy( plaintext + 1, orig_dst_conn_id->conn_id, orig_dst_conn_id->sz );
   memcpy( plaintext + 1 + orig_dst_conn_id->sz, &now, sizeof( ulong ) );
@@ -904,7 +904,7 @@ int fd_quic_retry_token_decrypt(
 ) {
   /* Regenerate the AEAD key (the HKDF key is the first 32 bytes of the token). */
   uchar * hkdf_key = retry_token;
-  uchar   aead_key[FD_QUIC_RETRY_TOKEN_AEAD_KEY_SZ];
+  uchar   aead_key[FD_QUIC_RETRY_TOKEN_AEAD_KEY_SZ] = { 0 };
   fd_quic_hkdf_expand_label(
       aead_key,
       FD_QUIC_RETRY_TOKEN_AEAD_KEY_SZ,
@@ -917,8 +917,9 @@ int fd_quic_retry_token_decrypt(
   );
 
   uchar * ciphertext = hkdf_key + FD_QUIC_RETRY_TOKEN_HKDF_KEY_SZ;
-  ulong   aad_sz     = (ulong)FD_QUIC_RETRY_TOKEN_AAD_SZ + retry_src_conn_id->sz;
+  ulong   aad_sz     = (ulong)FD_QUIC_RETRY_TOKEN_AAD_PREFIX_SZ + retry_src_conn_id->sz;
   uchar   aad[aad_sz];
+  memset( aad, 0, aad_sz );
   memcpy( aad, &ip_addr, sizeof( uint ) );
   memcpy( aad + sizeof( uint ), &udp_port, sizeof( ushort ) );
   memcpy( aad + sizeof( uint ) + sizeof( ushort ), &retry_src_conn_id->sz, sizeof( uchar ) );
@@ -931,7 +932,7 @@ int fd_quic_retry_token_decrypt(
   }
   uchar   iv[FD_QUIC_NONCE_SZ] = { 0 };
   uchar * tag                  = ciphertext + FD_QUIC_RETRY_TOKEN_CIPHERTEXT_SZ;
-  uchar   plaintext[FD_QUIC_RETRY_TOKEN_PLAINTEXT_SZ];
+  uchar   plaintext[FD_QUIC_RETRY_TOKEN_PLAINTEXT_SZ] = { 0 };
   if ( FD_UNLIKELY(
            gcm_decrypt(
                EVP_aes_256_gcm(),
@@ -957,7 +958,7 @@ int fd_quic_retry_token_decrypt(
 int fd_quic_retry_integrity_tag_encrypt(
     uchar * retry_pseudo_pkt,
     int     retry_pseudo_pkt_len,
-    uchar   retry_integrity_tag[static FD_QUIC_CRYPTO_TAG_SZ]
+    uchar   retry_integrity_tag[static FD_QUIC_RETRY_INTEGRITY_TAG_SZ]
 ) {
   int ciphertext_len = gcm_encrypt(
       EVP_aes_128_gcm(),
@@ -979,7 +980,7 @@ int fd_quic_retry_integrity_tag_encrypt(
 int fd_quic_retry_integrity_tag_decrypt(
     uchar * retry_pseudo_pkt,
     int     retry_pseudo_pkt_len,
-    uchar   retry_integrity_tag[static FD_QUIC_CRYPTO_TAG_SZ]
+    uchar   retry_integrity_tag[static FD_QUIC_RETRY_INTEGRITY_TAG_SZ]
 ) {
   int plaintext_len = gcm_decrypt(
       EVP_aes_128_gcm(),
@@ -1013,19 +1014,19 @@ int gcm_encrypt(
   ctx = EVP_CIPHER_CTX_new();
   if( FD_UNLIKELY( !ctx ) ) {
     FD_DEBUG( FD_LOG_ERR( ( "EVP_CIPHER_CTX_new failed. Error: %s", fd_quic_openssl_strerror() ) ) );
-    return FD_QUIC_FAILED;
+    return -1;
   }
 
   if( FD_UNLIKELY( 1 != EVP_EncryptInit_ex( ctx, cipher, NULL, key, iv ) ) ) {
     FD_DEBUG( FD_LOG_ERR( ( "EVP_EncryptInit_ex failed. Error: %s", fd_quic_openssl_strerror() ) ); )
-    return FD_QUIC_FAILED;
+    return -1;
   }
 
   int len;
   /* The associated data ("AD" in AEAD). */
   if( FD_UNLIKELY( 1 != EVP_EncryptUpdate( ctx, NULL, &len, aad, aad_len ) ) ) {
     FD_DEBUG( FD_LOG_ERR( ( "EVP_EncryptUpdate (AAD) failed. Error: %s", fd_quic_openssl_strerror() ) ); )
-    return FD_QUIC_FAILED;
+    return -1;
   }
 
   /* The encryption of plaintext ("E" in AEAD). */
@@ -1033,19 +1034,19 @@ int gcm_encrypt(
   if ( plaintext_len > 0 &&
        FD_UNLIKELY( 1 != EVP_EncryptUpdate( ctx, ciphertext, &len, plaintext, plaintext_len ) ) ) {
     FD_DEBUG( FD_LOG_ERR( ( "EVP_EncryptUpdate (plaintext) failed. Error: %s", fd_quic_openssl_strerror() ) ); )
-    return FD_QUIC_FAILED;
+    return -1;
   }
   ciphertext_len = len;
   if ( FD_UNLIKELY( 1 != EVP_EncryptFinal_ex( ctx, ciphertext + len, &len ) ) ) {
     FD_DEBUG( FD_LOG_ERR( ( "EVP_EncryptFinal_ex failed. Error: %s", fd_quic_openssl_strerror() ) ); )
-    return FD_QUIC_FAILED;
+    return -1;
   }
   ciphertext_len += len;
 
   /* The authentication tag ("A" in AEAD). */
   if( FD_UNLIKELY( 1 != EVP_CIPHER_CTX_ctrl( ctx, EVP_CTRL_GCM_GET_TAG, 16, tag ) ) ) {
     FD_DEBUG( FD_LOG_ERR(( "EVP_CIPHER_CTX_ctrl (get tag) failed. Error: %s", fd_quic_openssl_strerror() )) );
-    return FD_QUIC_FAILED;
+    return -1;
   }
 
   EVP_CIPHER_CTX_free( ctx );
@@ -1067,35 +1068,35 @@ int gcm_decrypt(
 
   if( FD_UNLIKELY( !( ctx = EVP_CIPHER_CTX_new() ) ) ) {
     FD_DEBUG( FD_LOG_WARNING( ( "EVP_CIPHER_CTX_new failed. Error: %s", fd_quic_openssl_strerror() ) ) );
-    return FD_QUIC_FAILED;
+    return -1;
   }
 
   if( FD_UNLIKELY( !EVP_DecryptInit_ex( ctx, cipher, NULL, key, iv ) ) ) {
     FD_DEBUG( FD_LOG_WARNING( ( "EVP_DecryptInit_ex failed. Error: %s", fd_quic_openssl_strerror() ) ) );
-    return FD_QUIC_FAILED;
+    return -1;
   }
 
   int len;
   if( FD_UNLIKELY( !EVP_DecryptUpdate( ctx, NULL, &len, aad, aad_len ) ) ) {
     FD_DEBUG( FD_LOG_WARNING( ( "EVP_DecryptUpdate (AAD) failed. Error: %s", fd_quic_openssl_strerror() ) ) );
-    return FD_QUIC_FAILED;
+    return -1;
   }
 
   if( FD_UNLIKELY( !EVP_DecryptUpdate( ctx, plaintext, &len, ciphertext, ciphertext_len ) ) ) {
     FD_DEBUG( FD_LOG_WARNING( ( "EVP_DecryptUpdate (ciphertext) failed. Error: %s", fd_quic_openssl_strerror() ) ) );
-    return FD_QUIC_FAILED;
+    return -1;
   }
 
   int plaintext_len = len;
   if( FD_UNLIKELY( !EVP_CIPHER_CTX_ctrl( ctx, EVP_CTRL_GCM_SET_TAG, FD_QUIC_CRYPTO_TAG_SZ, tag ) ) ) {
     FD_DEBUG( FD_LOG_WARNING( ( "EVP_CIPHER_CTX_ctrl (get tag) failed. Error: %s", fd_quic_openssl_strerror() ) ) );
-    return FD_QUIC_FAILED;
+    return -1;
   }
 
   int rc = EVP_DecryptFinal_ex( ctx, plaintext + len, &len );
   if( FD_UNLIKELY( rc <= 0 ) ) {
     FD_DEBUG( FD_LOG_WARNING( ( "EVP_DecryptFinal_ex failed. Error: %s", fd_quic_openssl_strerror() ) ) );
-    return FD_QUIC_FAILED;
+    return -1;
   }
   plaintext_len += len;
 

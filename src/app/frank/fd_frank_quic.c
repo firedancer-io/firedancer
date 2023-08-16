@@ -2,6 +2,7 @@
 
 #include "../../disco/quic/fd_quic.h"
 #include "../../tango/xdp/fd_xdp.h"
+#include "../../tango/xdp/fd_xsk_private.h"
 #include "../../util/net/fd_eth.h"
 #include "../../util/net/fd_ip4.h"
 
@@ -135,13 +136,24 @@ static long allow_syscalls[] = {
   __NR_sendto,    /* fd_xsk requires sendto */
 };
 
+static ulong
+allow_fds( fd_frank_args_t * args,
+           ulong out_fds_sz,
+           int * out_fds ) {
+  if( FD_UNLIKELY( out_fds_sz < 3 ) ) FD_LOG_ERR(( "out_fds_sz %lu", out_fds_sz ));
+  out_fds[ 0 ] = 2; /* stderr */
+  out_fds[ 1 ] = 3; /* logfile */
+  out_fds[ 2 ] = args->xsk->xsk_fd;
+  return 3;
+}
+
 fd_frank_task_t frank_quic = {
-  .name     = "quic",
-  .in_wksp  = NULL,
-  .out_wksp = "quic_verify",
-  .close_fd_start = 5, /* stdin, stdout, stderr, logfile, xsk->xsk_fd */
+  .name              = "quic",
+  .in_wksp           = NULL,
+  .out_wksp          = "quic_verify",
   .allow_syscalls_sz = sizeof(allow_syscalls)/sizeof(allow_syscalls[ 0 ]),
-  .allow_syscalls = allow_syscalls,
-  .init = init,
-  .run  = run,
+  .allow_syscalls    = allow_syscalls,
+  .allow_fds         = allow_fds,
+  .init              = init,
+  .run               = run,
 };

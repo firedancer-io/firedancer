@@ -9,7 +9,7 @@ check( config_t * const config ) {
   DIR * dir = opendir( "/sys/fs/bpf" );
   if( FD_UNLIKELY( !dir ) ) {
     if( FD_LIKELY( errno == ENOENT ) ) NOT_CONFIGURED( "error reading `/sys/fs/bpf`: %i-%s", errno, strerror( errno ) );
-    else FD_LOG_ERR(( "error reading `/sys/fs/bpf` (%i-%s)", errno, strerror( errno ) ));
+    else PARTIALLY_CONFIGURED( "error reading `/sys/fs/bpf` (%i-%s)", errno, strerror( errno ) );
   }
 
   struct dirent * entry;

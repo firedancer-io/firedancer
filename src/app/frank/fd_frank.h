@@ -37,14 +37,14 @@ typedef struct {
 } fd_frank_args_t;
 
 typedef struct {
-   char * name;
-   char * in_wksp;
-   char * out_wksp;
-   uint   close_fd_start;
-   ushort allow_syscalls_sz;
-   long * allow_syscalls;
-   void (*init)( fd_frank_args_t * args );
-   void (*run )( fd_frank_args_t * args );
+   char *  name;
+   char *  in_wksp;
+   char *  out_wksp;
+   ushort  allow_syscalls_sz;
+   long *  allow_syscalls;
+   ulong (*allow_fds)( fd_frank_args_t * args, ulong out_fds_sz, int * out_fds );
+   void  (*init)( fd_frank_args_t * args );
+   void  (*run )( fd_frank_args_t * args );
 } fd_frank_task_t;
 
 extern fd_frank_task_t frank_verify;

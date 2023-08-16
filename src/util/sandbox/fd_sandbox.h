@@ -64,41 +64,14 @@
       We have the luxury of disallowing all of the syscalls that might
       have received less scrutiny. */
 
-/* Sandbox the current process by dropping all privileges and entering various
-   restricted namespaces, but leave it able to make system calls. This should be
-   done as a first step before later calling`fd_sandbox_private_threaded`.
-
-   This call is meant to be paired with the nthreaded` version. You should
-   call `unthreaded` before creating any threads in the process, and `threaded`
-   afterwards. */
-void
-fd_sandbox_private_unthreaded( uint uid, uint gid );
-
-/* fd_sandbox_private_threaded sandboxes the current process. After calling, the
-   process has maximally restricted privileges we can enable given the host
-   environment. On Linux, seccomp is used to prevent any syscalls except select
-   whitelisted ones.
-
-   This call is meant to be paired with the `unthreaded` version. You should
-   call `unthreaded` before creating any threads in the process, and `threaded`
-   afterwards. */
-void
-fd_sandbox_private_threaded( uint close_fd_start,
-                             ushort allow_syscalls_sz,
-                             long * allow_syscalls );
-
 /* fd_sandbox sandboxes the current process, performing both privileged and
    private steps. */
 void
-fd_sandbox( uint uid,
-            uint gid,
-            uint close_fd_start,
+fd_sandbox( uint   uid,
+            uint   gid,
+            ulong  allow_fds_sz,
+            int *  allow_fds,
             ushort allow_syscalls_sz,
             long * allow_syscalls );
-
-/* Only used by test code. Install private sandbox without seccomp, used so
-   we can test with some syscalls without bringing down the process. */
-void
-fd_sandbox_private_no_seccomp( uint close_fds_from );
 
 #endif /* HEADER_fd_src_util_sandbox_fd_sandbox_h */

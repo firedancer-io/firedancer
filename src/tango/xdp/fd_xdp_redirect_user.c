@@ -5,6 +5,7 @@
 #define _DEFAULT_SOURCE
 #include "fd_xdp_redirect_user.h"
 #include "fd_xdp_redirect_prog.h"
+#include "fd_xdp_license.h"
 #include "../../ballet/ebpf/fd_ebpf.h"
 #include "../../util/fd_util.h"
 
@@ -286,6 +287,7 @@ fd_xdp_hook_iface( char const * app_name,
   if( FD_UNLIKELY( xsks_fd<0 ) ) {
     FD_LOG_WARNING(( "Failed to create XSKMAP (%d-%s)",
                      errno, strerror( errno ) ));
+    close( udp_dsts_map_fd );
     return -1;
   }
 
@@ -293,6 +295,8 @@ fd_xdp_hook_iface( char const * app_name,
   if( FD_UNLIKELY( 0!=fd_bpf_obj_pin( xsks_fd, path ) ) ) {
     FD_LOG_WARNING(( "bpf_obj_pin(xsks_fd,%s) failed (%d-%s)",
                      path, errno, strerror( errno ) ));
+    close( xsks_fd );
+    close( udp_dsts_map_fd );
     return -1;
   }
 
@@ -314,6 +318,8 @@ fd_xdp_hook_iface( char const * app_name,
 
   if( FD_UNLIKELY( !res ) ) {
     FD_LOG_WARNING(( "Failed to link eBPF bytecode" ));
+    close( xsks_fd );
+    close( udp_dsts_map_fd );
     return -1;
   }
 
@@ -323,7 +329,7 @@ fd_xdp_hook_iface( char const * app_name,
     .prog_type = BPF_PROG_TYPE_XDP,
     .insn_cnt  = (uint) ( res->bpf_sz / 8UL ),
     .insns     = (ulong)( res->bpf ),
-    .license   = (ulong)"Apache-2.0",
+    .license   = (ulong)FD_LICENSE,
     /* Verifier logs */
     .log_level = 6,
     .log_size  = EBPF_KERN_LOG_BUFSZ,
@@ -333,9 +339,7 @@ fd_xdp_hook_iface( char const * app_name,
   if( FD_UNLIKELY( prog_fd<0 ) ) {
     FD_LOG_WARNING(( "bpf(BPF_PROG_LOAD, insns=%p, insn_cnt=%lu) failed (%d-%s)",
                      (void *)res->bpf, res->bpf_sz / 8UL, errno, strerror( errno ) ));
-    if( errno==EACCES ) {
-      FD_LOG_NOTICE(( "eBPF verifier log:\n%s", ebpf_kern_log ));
-    }
+    FD_LOG_NOTICE(( "eBPF verifier log:\n%s", ebpf_kern_log ));
     return -1;
   }
 
@@ -345,6 +349,9 @@ fd_xdp_hook_iface( char const * app_name,
   if( FD_UNLIKELY( 0!=fd_bpf_obj_pin( prog_fd, path ) ) ) {
     FD_LOG_WARNING(( "bpf_obj_pin(prog_fd,%s) failed (%d-%s)",
                      path, errno, strerror( errno ) ));
+    close( prog_fd );
+    close( xsks_fd );
+    close( udp_dsts_map_fd );
     return -1;
   }
 
@@ -364,6 +371,10 @@ fd_xdp_hook_iface( char const * app_name,
   if( FD_UNLIKELY( -1==prog_link_fd ) ) {
     FD_LOG_WARNING(( "BPF_LINK_CREATE failed (%d-%s)",
                      errno, strerror( errno ) ));
+    close( prog_link_fd );
+    close( prog_fd );
+    close( xsks_fd );
+    close( udp_dsts_map_fd );
     return -1;
   }
 
@@ -377,6 +388,11 @@ fd_xdp_hook_iface( char const * app_name,
   }
 
   fd_xdp_reperm( path, install_stat.st_mode, (int)install_stat.st_uid, (int)install_stat.st_gid, 0 );
+
+  FD_TEST( !close( prog_link_fd ) );
+  FD_TEST( !close( prog_fd ) );
+  FD_TEST( !close( xsks_fd ) );
+  FD_TEST( !close( udp_dsts_map_fd ) );
 
   return 0;
 }

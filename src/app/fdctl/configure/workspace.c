@@ -175,7 +175,7 @@ workspace_path( config_t * const config,
   char * mount_path;
   if( wksp->page_size == FD_SHMEM_GIGANTIC_PAGE_SZ ) mount_path = config->shmem.gigantic_page_mount_path;
   else if( wksp->page_size == FD_SHMEM_HUGE_PAGE_SZ ) mount_path = config->shmem.huge_page_mount_path;
-  else FD_LOG_ERR(( "invalid page size %lu", wksp->page_size ));
+  else FD_LOG_ERR(( "invalid page size %lu for workspace %s", wksp->page_size, wksp->name ));
 
   char name[ FD_WKSP_CSTR_MAX ];
   workspace_name( config, wksp, name );
@@ -236,8 +236,14 @@ init( config_t * const config ) {
         fseq  ( pod, "fseq" );
         break;
       case wksp_pack_bank:
-      /* bank tiles. we don't set anything for tile 0, which is the gossip
-         vote receiver and runs with the Solana Labs networking layer. */
+        ulong1( pod, "num_tiles", config->layout.bank_tile_count );
+        for( ulong i=0; i<config->layout.bank_tile_count; i++ ) {
+          mcache( pod, "mcache%lu", config->tiles.bank.receive_buffer_size, i );
+          dcache( pod, "dcache%lu", USHORT_MAX, config->layout.bank_tile_count * (ulong)config->tiles.bank.receive_buffer_size, 0, i );
+          fseq  ( pod, "fseq%lu", i );
+        }
+        break;
+      case wksp_bank_shred:
         for( ulong i=0; i<config->layout.bank_tile_count; i++ ) {
           mcache( pod, "mcache%lu", config->tiles.bank.receive_buffer_size, i );
           dcache( pod, "dcache%lu", USHORT_MAX, config->layout.bank_tile_count * (ulong)config->tiles.bank.receive_buffer_size, 0, i );
@@ -274,6 +280,8 @@ init( config_t * const config ) {
         ulong1( pod, "min-gap", config->layout.bank_tile_count - 1UL        );
         ulong1( pod, "depth",   config->tiles.pack.max_pending_transactions );
         break;
+      case wksp_bank:
+        cnc   ( pod, "cnc" );
     }
 
     WKSP_END();

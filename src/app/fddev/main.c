@@ -25,7 +25,7 @@ execve_as_root( int     argc,
   self_exe( self_exe_path );
 
   char * args[ MAX_ARGC+4 ];
-  for( int i=3; i<=argc; i++ ) args[i] = argv[i-2];
+  for( int i=1; i<argc; i++ ) args[i+2] = argv[i];
   args[ 0 ]      = "sudo";
   args[ 1 ]      = "-E";
   args[ 2 ]      = self_exe_path;
@@ -65,6 +65,7 @@ main( int     argc,
 
   /* initialize logging */
   fd_boot( &argc, &argv );
+  fd_log_thread_set( "main" );
 
   argc--; argv++;
 
@@ -73,6 +74,8 @@ main( int     argc,
   if( config.is_live_cluster )
     FD_LOG_ERR(( "fddev is for development and test environments but your configuration "
                  "targets a live cluster. use fdctl if this is a production environment" ));
+  int no_sandbox = fd_env_strip_cmdline_contains( &argc, &argv, "--no-sandbox" );
+  config.development.sandbox = config.development.sandbox && !no_sandbox;
 
   const char * action_name = "dev";
   if( FD_UNLIKELY( argc > 0 && argv[ 0 ][ 0 ] != '-' ) ) {
@@ -102,7 +105,9 @@ main( int     argc,
 
   /* check if we are appropriate permissioned to run the desired command */
   if( FD_LIKELY( action->perm ) ) {
-    security_t security;
+    security_t security = {
+      .idx = 0,
+    };
     action->perm( &args, &security, &config );
     if( FD_UNLIKELY( security.idx ) ) {
       execve_as_root( orig_argc, orig_argv );

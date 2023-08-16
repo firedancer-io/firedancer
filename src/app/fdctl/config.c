@@ -6,7 +6,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include <pwd.h>
 #include <sys/stat.h>
 #include <sys/ioctl.h>
 #include <net/if.h>
@@ -24,6 +23,12 @@ find_wksp( config_t * const config,
   }
   FD_LOG_ERR(( "no workspace with name `%s` found", name ));
 }
+
+/* partial frank_bank definition since the tile doesn't really exist */
+static fd_frank_task_t frank_bank = {
+   .in_wksp = "pack_bank",
+   .out_wksp = "bank_shred",
+};
 
 ulong
 memlock_max_bytes( config_t * const config ) {
@@ -50,6 +55,7 @@ memlock_max_bytes( config_t * const config ) {
       case wksp_verify_dedup:
       case wksp_dedup_pack:
       case wksp_pack_bank:
+      case wksp_bank_shred:
         break;
       case wksp_quic:
         TILE_MAX( frank_quic );
@@ -62,6 +68,9 @@ memlock_max_bytes( config_t * const config ) {
         break;
       case wksp_pack:
         TILE_MAX( frank_pack );
+        break;
+      case wksp_bank:
+        TILE_MAX( frank_bank );
         break;
     }
   }
@@ -294,7 +303,7 @@ replace( char *       in,
     if( FD_UNLIKELY( total_len >= PATH_MAX ) )
       FD_LOG_ERR(( "configuration scratch directory path too long: `%s`", in ));
 
-    uchar after[PATH_MAX];
+    uchar after[PATH_MAX] = {0};
     fd_memcpy( after, replace + pat_len, strlen( replace + pat_len ) );
     fd_memcpy( replace, sub, sub_len );
     ulong after_len = strlen( ( const char * ) after );
@@ -302,8 +311,6 @@ replace( char *       in,
     in[ total_len ] = '\0';
   }
 }
-
-
 
 static void
 config_parse_array( config_t * config,
@@ -375,7 +382,7 @@ config_parse_line( uint       lineno,
 static void
 config_parse1( const char * config,
                config_t *   out ) {
-  char section[ 4096 ];
+  char section[ 4096 ] = {0};
   char key[ 4096 ];
   uint lineno = 0;
   int in_array = 0;
@@ -408,7 +415,7 @@ config_parse_file( const char * path,
   char line[ 4096 ];
   char key[ 4096 ];
   int in_array = 0;
-  char section[ 4096 ];
+  char section[ 4096 ] = {0};
   while( FD_LIKELY( fgets( line, 4096, fp ) ) ) {
     lineno++;
     ulong len = strlen( line );
@@ -459,26 +466,32 @@ init_workspaces( config_t * config ) {
   config->shmem.workspaces[ idx ].name      = "quic_verify";
   config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
   config->shmem.workspaces[ idx ].num_pages = 1;
-
   idx++;
+
   config->shmem.workspaces[ idx ].kind      = wksp_verify_dedup;
   config->shmem.workspaces[ idx ].name      = "verify_dedup";
   config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
   config->shmem.workspaces[ idx ].num_pages = 1;
-
   idx++;
+
   config->shmem.workspaces[ idx ].kind      = wksp_dedup_pack;
   config->shmem.workspaces[ idx ].name      = "dedup_pack";
   config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
   config->shmem.workspaces[ idx ].num_pages = 1;
-
   idx++;
+
   config->shmem.workspaces[ idx ].kind      = wksp_pack_bank;
   config->shmem.workspaces[ idx ].name      = "pack_bank";
   config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
   config->shmem.workspaces[ idx ].num_pages = 1;
-
   idx++;
+
+  config->shmem.workspaces[ idx ].kind      = wksp_bank_shred;
+  config->shmem.workspaces[ idx ].name      = "bank_shred";
+  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
+  config->shmem.workspaces[ idx ].num_pages = 1;
+  idx++;
+
   for( ulong i=0; i<config->layout.verify_tile_count; i++ ) {
     config->shmem.workspaces[ idx ].kind      = wksp_quic;
     config->shmem.workspaces[ idx ].name      = "quic";
@@ -501,14 +514,50 @@ init_workspaces( config_t * config ) {
   config->shmem.workspaces[ idx ].name      = "dedup";
   config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
   config->shmem.workspaces[ idx ].num_pages = 1;
-
   idx++;
+
   config->shmem.workspaces[ idx ].kind      = wksp_pack;
   config->shmem.workspaces[ idx ].name      = "pack";
   config->shmem.workspaces[ idx ].page_size = FD_SHMEM_HUGE_PAGE_SZ;
   config->shmem.workspaces[ idx ].num_pages = 1;
+  idx++;
 
-  config->shmem.workspaces_cnt = idx + 1;
+  for( ulong i=0; i<config->layout.bank_tile_count; i++ ) {
+    config->shmem.workspaces[ idx ].kind      = wksp_bank;
+    config->shmem.workspaces[ idx ].name      = "bank";
+    config->shmem.workspaces[ idx ].page_size = FD_SHMEM_HUGE_PAGE_SZ;
+    config->shmem.workspaces[ idx ].num_pages = 1;
+    config->shmem.workspaces[ idx ].kind_idx  = i;
+    idx++;
+  }
+
+  config->shmem.workspaces_cnt = idx;
+}
+
+static uint
+username_to_uid( char * username ) {
+  FILE * fp = fopen( "/etc/passwd", "rb" );
+  if( FD_UNLIKELY( !fp) ) FD_LOG_ERR(( "could not open /etc/passwd (%d-%s)", errno, strerror( errno ) ));
+
+  char line[ 4096 ];
+  while( FD_LIKELY( fgets( line, 4096, fp ) ) ) {
+    if( FD_UNLIKELY( strlen( line ) == 4095 ) ) FD_LOG_ERR(( "line too long in /etc/passwd" ));
+    char * s = strchr( line, ':' );
+    if( FD_UNLIKELY( !s ) ) continue;
+    *s = 0;
+    if( FD_LIKELY( strcmp( line, username ) ) ) continue;
+
+    s = strchr( s + 1, ':' );
+    if( FD_UNLIKELY( !s ) ) continue;
+
+    if( FD_UNLIKELY( fclose( fp ) ) ) FD_LOG_ERR(( "could not close /etc/passwd (%d-%s)", errno, strerror( errno ) ));
+    char * endptr;
+    ulong uid = strtoul( s + 1, &endptr, 10 );
+    if( FD_UNLIKELY( *endptr != ':' || uid > UINT_MAX ) ) FD_LOG_ERR(( "could not parse uid in /etc/passwd"));
+    return (uint)uid;
+  }
+
+  FD_LOG_ERR(( "configuration file wants firedancer to run as user `%s` but it does not exist", username ));
 }
 
 config_t
@@ -535,7 +584,7 @@ config_parse( int *    pargc,
     strncpy( result.user, user, 256 );
   }
 
-  if( FD_UNLIKELY( !strcmp( result.tiles.quic.interface, "" ) ) ) {
+  if( FD_UNLIKELY( !strcmp( result.tiles.quic.interface, "" ) && !result.development.netns.enabled ) ) {
     int ifindex = internet_routing_interface();
     if( FD_UNLIKELY( ifindex == -1 ) )
       FD_LOG_ERR(( "no network device found which routes to 8.8.8.8. If no network "
@@ -565,15 +614,9 @@ config_parse( int *    pargc,
     mac_address( result.tiles.quic.interface, result.tiles.quic.mac_addr );
   }
 
-  errno = 0;
-  struct passwd * passwd = getpwnam( result.user );
-  if( FD_UNLIKELY( !passwd && !errno ))
-    FD_LOG_ERR(( "configuration file wants firedancer to run as user `%s` but it does not exist", result.user ));
-  else if( FD_UNLIKELY( !passwd ) )
-    FD_LOG_ERR(( "getpwnam failed (%i-%s)", errno, strerror( errno ) ) );
-
-  result.uid = passwd->pw_uid;
-  result.gid = passwd->pw_uid;
+  uint uid = username_to_uid( result.user );
+  result.uid = uid;
+  result.gid = uid;
 
   if( result.uid == 0 || result.gid == 0 )
     FD_LOG_ERR(( "firedancer cannot run as root. please specify a non-root user in the configuration file" ));

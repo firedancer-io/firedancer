@@ -1,6 +1,7 @@
 #!/bin/bash
 
 fail() {
+  rm -f "$EMPTYFILE" "$TMPFILE"
   echo FAIL: "$1" unexpected exit code "$2"
   echo Log N/A
   exit 1
@@ -21,6 +22,14 @@ PAGE_CNT=1
 PAGE_SZ=gigantic
 CPU_IDX=0
 MODE=0600
+
+BADFILE=$(mktemp)
+rm -f "$BADFILE"
+
+EMPTYFILE=$(mktemp)
+
+TMPFILE=$(mktemp)
+echo "The quick brown fox jumps over the lazy dog" > "$TMPFILE"
 
 # Disable the permanent log
 
@@ -78,6 +87,17 @@ echo Testing insert
                   insert "$POD" ulong  ulong.p4   4   \
                   insert "$POD" float  float.half 0.5 \
 || fail insert $?
+
+echo Testing insert-file
+"$BIN"/fd_pod_ctl insert-file                                && fail insert-file $?
+"$BIN"/fd_pod_ctl insert-file "$POD"                         && fail insert-file $?
+"$BIN"/fd_pod_ctl insert-file "$POD" tmpfile                 && fail insert-file $?
+"$BIN"/fd_pod_ctl insert-file bad    tmpfile    "$TMPFILE"   && fail insert-file $?
+"$BIN"/fd_pod_ctl insert-file "$POD" tmpfile    "$BADFILE"   && fail insert-file $?
+"$BIN"/fd_pod_ctl insert-file "$POD" tmpfile    "$TMPFILE"   \
+                  insert-file "$POD" empttyfile "$EMPTYFILE" || fail insert-file $?
+"$BIN"/fd_pod_ctl insert-file "$POD" tmpfile    "$TMPFILE"   && fail insert-file $?
+"$BIN"/fd_pod_ctl insert-file "$POD" tmpfile    "$EMPTYFILE" && fail insert-file $?
 
 echo Testing update
 
@@ -230,6 +250,7 @@ echo Fini
 
 "$BIN"/fd_wksp_ctl delete "$WKSP" > /dev/null 2>&1
 
+rm -f "$EMPTYFILE" "$TMPFILE"
 echo pass
 echo Log N/A
 exit 0

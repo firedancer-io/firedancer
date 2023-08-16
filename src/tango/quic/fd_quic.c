@@ -1,3 +1,5 @@
+#include "fd_quic.h"
+#include "fd_quic_common.h"
 #include "fd_quic_private.h"
 #include "fd_quic_conn.h"
 #include "fd_quic_conn_map.h"
@@ -520,7 +522,7 @@ fd_quic_enc_level_to_pn_space( uint enc_level ) {
   return el2pn_map[ enc_level ];
 }
 
-/* This code is directly from rpc9000 A.3 */
+/* This code is directly from rfc9000 A.3 */
 static void
 fd_quic_reconstruct_pkt_num( ulong * pkt_number,
                              ulong   pkt_number_sz,
@@ -1181,6 +1183,23 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
   ulong rc = fd_quic_decode_initial( initial, cur_ptr, cur_sz );
   if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) return FD_QUIC_PARSE_FAIL;
 
+  /* Check it is valid for a token to be present in an initial packet in the current context.
+
+     quic->config.role == FD_QUIC_ROLE_CLIENT
+     - Indicates the client received an initial packet with a token from a server. "Initial packets
+     sent by the server MUST set the Token Length field to 0; clients that receive an Initial packet
+     with a non-zero Token Length field MUST either discard the packet or generate a connection
+     error of type PROTOCOL_VIOLATION (RFC 9000, Section 17.2.2)"
+
+     quic->config.retry == false
+     - Indicates the server is not configured to retry, but a client attached a token to this
+     initial packet. NEW_TOKEN frames are not supported, so this implementation treats the presence
+     of a token when retry is disabled as an error. */
+  if ( FD_UNLIKELY( initial->token_len > 0 &&
+                    ( quic->config.role == FD_QUIC_ROLE_CLIENT || !quic->config.retry ) ) ) {
+    return FD_QUIC_PARSE_FAIL;
+  }
+
   /* Initial packets have explicitly encoded conn ID lengths. */
 
   if( FD_UNLIKELY( ( initial->src_conn_id_len > FD_QUIC_MAX_CONN_ID_SZ ) |
@@ -1415,6 +1434,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
         ulong issued;
         if (FD_UNLIKELY(fd_quic_retry_token_decrypt((uchar *) initial->token, &retry_src_conn_id, dst_ip_addr, dst_udp_port, &retry_odcid, &issued))) {
           quic->metrics.conn_err_retry_fail_cnt++;
+          fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_INVALID_TOKEN );
           return FD_QUIC_PARSE_FAIL;
         };
         tp->original_destination_connection_id_len     = retry_odcid.sz;
@@ -1424,6 +1444,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
         ulong now = fd_quic_now(quic);
         if ( FD_UNLIKELY( now < issued || ( now - issued ) > FD_QUIC_RETRY_TOKEN_LIFETIME ) ) {
           quic->metrics.conn_err_retry_fail_cnt++;
+          fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_INVALID_TOKEN );
           return FD_QUIC_PARSE_FAIL;
         }
         quic->metrics.conn_retry_cnt++;
@@ -1848,6 +1869,10 @@ ulong fd_quic_handle_v1_retry(
     ulong                 cur_sz
 ) {
   (void)pkt;
+  if ( FD_UNLIKELY ( quic->config.role == FD_QUIC_ROLE_SERVER ) ) {
+    fd_quic_conn_close( conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION );
+    return FD_QUIC_PARSE_FAIL;
+  }
   fd_quic_retry_t retry_pkt;
   fd_quic_decode_retry(&retry_pkt, cur_ptr, cur_sz);
 
