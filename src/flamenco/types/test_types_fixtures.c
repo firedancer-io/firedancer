@@ -14,33 +14,52 @@
 
 /* Define list of test fixtures.
 
-   Each entry is loaded from the following two files:
+   Each entry is X( name, type ).
+
+   Test fixtures are sourced from the following two files:
      - src/flamenco/types/fixtures/<name>.bin
        (containing some input bincode blob)
      - src/flamenco/types/fixtures/<name>.yml
        (containing the expected pretty printed decoding in YAML format)
 
-   Add new fixtures to the end. */
+   type should be set such that fd_<type>_t is defined in fd_types.h. */
 
-#define TEST_VECTOR( X )\
-  X(vote_account)\
-  X(gossip_pull_req)\
-  X(gossip_pull_resp_contact_info)\
-  X(gossip_pull_resp_node_instance)\
-  X(gossip_pull_resp_snapshot_hashes)\
-  X(gossip_pull_resp_version)\
-  X(gossip_push_vote)
+#define TEST_VECTOR( X )                                               \
+  X( vote_account,                     vote_state_versioned )          \
+  X( gossip_pull_req,                  gossip_msg           )          \
+  X( gossip_pull_resp_contact_info,    gossip_msg           )          \
+  X( gossip_pull_resp_node_instance,   gossip_msg           )          \
+  X( gossip_pull_resp_snapshot_hashes, gossip_msg           )          \
+  X( gossip_pull_resp_version,         gossip_msg           )          \
+  X( gossip_push_vote,                 gossip_msg           )
+  /* Add more fixtures to the end ... */
 
 
 /* TEST BOILERPLATE ***************************************************/
 
 /* Embed test vectors into compile unit */
 
-#define X(id) \
+#define X(id, _) \
   FD_IMPORT_BINARY( test_##id##_bin, "src/flamenco/types/fixtures/" #id ".bin" ); \
   FD_IMPORT_BINARY( test_##id##_yml, "src/flamenco/types/fixtures/" #id ".yml" );
 TEST_VECTOR( X )
 #undef X
+
+/* Declare types of abstract class functions.
+
+   Casting self function param from (qualified_t *) to (void *) is
+   technically U.B. !!!  The compiler checks for actual ABI violations. */
+
+typedef int
+(* fd_types_decode_vfn_t)( void *                    self,
+                           fd_bincode_decode_ctx_t * d );
+
+typedef void
+(* fd_types_walk_vfn_t)( void *             walker,
+                         void const *       self,
+                         fd_types_walk_fn_t fun,
+                         char const *       name,
+                         uint               level );
 
 /* Define test vector */
 
@@ -51,18 +70,25 @@ struct test_fixture {
   ulong const * bin_sz;  /* extern symbol, thus need pointer */
   char  const * yml;
   ulong const * yml_sz;
+  ulong         struct_sz;  /* size of outer struct */
+
+  fd_types_decode_vfn_t decode;
+  fd_types_walk_vfn_t   walk;
 };
 
 typedef struct test_fixture test_fixture_t;
 
 static const test_fixture_t test_vector[] = {
-# define X(id) \
-  { .name      = #id,                                              \
-    .dump_path = "src/flamenco/types/fixtures/" #id ".actual.yml", \
-    .bin       = test_##id##_bin,                                  \
-    .bin_sz    = &test_##id##_bin_sz,                              \
-    .yml       = (char const *)test_##id##_yml,                    \
-    .yml_sz    = &test_##id##_yml_sz },
+# define X( id, type )                                                 \
+  { .name      = #id,                                                  \
+    .dump_path = "src/flamenco/types/fixtures/" #id ".actual.yml",     \
+    .bin       = test_##id##_bin,                                      \
+    .bin_sz    = &test_##id##_bin_sz,                                  \
+    .yml       = (char const *)test_##id##_yml,                        \
+    .yml_sz    = &test_##id##_yml_sz,                                  \
+    .struct_sz = sizeof( fd_##type##_t ),                              \
+    .decode    = ( fd_types_decode_vfn_t )fd_##type##_decode,          \
+    .walk      = ( fd_types_walk_vfn_t   )fd_##type##_walk },
 TEST_VECTOR( X )
 # undef X
   {0}
@@ -87,8 +113,9 @@ test_yaml( test_fixture_t const * t ) {
     .dataend = t->bin + bin_sz,
     .valloc  = fd_scratch_virtual()
   }};
-  fd_vote_state_versioned_t state[1];
-  int err = fd_vote_state_versioned_decode( state, decode );
+
+  void * decoded = fd_scratch_alloc( 64UL, t->struct_sz );
+  int err = t->decode( decoded, decode );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) )
     FD_LOG_ERR(( "Test '%s' failed: Bincode decode err (%d)", t->name, err ));
 
@@ -100,7 +127,7 @@ test_yaml( test_fixture_t const * t ) {
   void * yaml_mem = fd_scratch_alloc( fd_flamenco_yaml_align(), fd_flamenco_yaml_footprint() );
   fd_flamenco_yaml_t * yaml = fd_flamenco_yaml_init( fd_flamenco_yaml_new( yaml_mem ), file );
 
-  fd_vote_state_versioned_walk( yaml, state, fd_flamenco_yaml_walk, NULL, 0 );
+  t->walk( yaml, decoded, fd_flamenco_yaml_walk, NULL, 0 );
   FD_TEST( 0==ferror( file ) );
   long sz = ftell(  file );
   FD_TEST( sz>0 );

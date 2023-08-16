@@ -67,7 +67,7 @@ fd_hash_encode( fd_hash_t const *         self,
 
 static inline void
 fd_hash_walk( void *             w,
-              fd_hash_t *        self,
+              fd_hash_t const *  self,
               fd_types_walk_fn_t fun,
               char const *       name,
               uint               level ) {
@@ -103,7 +103,7 @@ void fd_epoch_schedule_new(fd_epoch_schedule_t* self);
 int fd_epoch_schedule_decode(fd_epoch_schedule_t* self, fd_bincode_decode_ctx_t * ctx);
 int fd_epoch_schedule_encode(fd_epoch_schedule_t const * self, fd_bincode_encode_ctx_t * ctx);
 void fd_epoch_schedule_destroy(fd_epoch_schedule_t* self, fd_bincode_destroy_ctx_t * ctx);
-void fd_epoch_schedule_walk(void * w, fd_epoch_schedule_t* self, fd_types_walk_fn_t fun, const char *name, uint level);
+void fd_epoch_schedule_walk(void * w, fd_epoch_schedule_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
 ulong fd_epoch_schedule_size(fd_epoch_schedule_t const * self);
 
 /* Index structure needed for transaction status (metadata) blocks */
@@ -141,11 +141,11 @@ fd_signature_encode( fd_signature_t const *    self,
 }
 
 static inline void
-fd_signature_walk( void *             w,
-                   fd_signature_t *   self,
-                   fd_types_walk_fn_t fun,
-                   char const *       name,
-                   uint               level ) {
+fd_signature_walk( void *                 w,
+                   fd_signature_t const * self,
+                   fd_types_walk_fn_t     fun,
+                   char const *           name,
+                   uint                   level ) {
   fun( w, self->uc, name, FD_FLAMENCO_TYPE_SIG512, name, level );
 }
 
@@ -178,11 +178,11 @@ fd_gossip_ip4_addr_encode( fd_gossip_ip4_addr_t const * self,
 }
 
 void
-fd_gossip_ip4_addr_walk( void *                   w,
-                         fd_gossip_ip4_addr_t *   self,
-                         fd_types_walk_fn_t       fun,
-                         char const *             name,
-                         uint                     level );
+fd_gossip_ip4_addr_walk( void *                       w,
+                         fd_gossip_ip4_addr_t const * self,
+                         fd_types_walk_fn_t           fun,
+                         char const *                 name,
+                         uint                         level );
 
 /* IPv6 ***************************************************************/
 
@@ -219,11 +219,11 @@ fd_gossip_ip6_addr_encode( fd_gossip_ip6_addr_t const * self,
 }
 
 void
-fd_gossip_ip6_addr_walk( void *                   w,
-                         fd_gossip_ip6_addr_t *   self,
-                         fd_types_walk_fn_t       fun,
-                         char const *             name,
-                         uint                     level );
+fd_gossip_ip6_addr_walk( void *                       w,
+                         fd_gossip_ip6_addr_t const * self,
+                         fd_types_walk_fn_t           fun,
+                         char const *                 name,
+                         uint                         level );
 
 /* Transaction wrapper ************************************************/
 
@@ -244,12 +244,15 @@ typedef struct fd_flamenco_txn fd_flamenco_txn_t;
 static inline void
 fd_flamenco_txn_new( fd_flamenco_txn_t * self FD_FN_UNUSED ) {}
 
+/* Should probably not be a static inline */
+
 static inline int
 fd_flamenco_txn_decode( fd_flamenco_txn_t *       self,
                         fd_bincode_decode_ctx_t * ctx ) {
   ulong bufsz = (ulong)ctx->data - (ulong)ctx->dataend;
-  ulong sz = fd_txn_parse( ctx->data, bufsz, self->txn, NULL );
-  if( FD_UNLIKELY( !sz ) ) return FD_BINCODE_ERR_ENCODING;
+  ulong sz;
+  ulong res = fd_txn_parse_core( ctx->data, bufsz, self->txn, NULL, &sz, 0 );
+  if( FD_UNLIKELY( !res ) ) return FD_BINCODE_ERR_ENCODING;
   fd_memcpy( self->raw, ctx->data, sz );
   self->raw_sz = sz;
   ctx->data = (void *)( (ulong)ctx->data + sz );
@@ -272,11 +275,13 @@ fd_flamenco_txn_encode( fd_flamenco_txn_t const * self,
 }
 
 static inline void
-fd_flamenco_txn_walk( void *              w     FD_FN_UNUSED,
-                      fd_flamenco_txn_t * self  FD_FN_UNUSED,
-                      fd_types_walk_fn_t  fun   FD_FN_UNUSED,
-                      char const *        name  FD_FN_UNUSED,
-                      uint                level FD_FN_UNUSED ) {}
+fd_flamenco_txn_walk( void *                    w     FD_FN_UNUSED,
+                      fd_flamenco_txn_t const * self  FD_FN_UNUSED,
+                      fd_types_walk_fn_t        fun   FD_FN_UNUSED,
+                      char const *              name  FD_FN_UNUSED,
+                      uint                      level FD_FN_UNUSED ) {
+  /* TODO Pseudo walk */
+}
 
 FD_PROTOTYPES_END
 

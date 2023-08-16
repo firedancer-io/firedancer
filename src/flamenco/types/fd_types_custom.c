@@ -29,7 +29,7 @@ void fd_epoch_schedule_new(fd_epoch_schedule_t* self) {
 void fd_epoch_schedule_destroy(fd_epoch_schedule_t* self, fd_bincode_destroy_ctx_t * ctx) {
 }
 
-void fd_epoch_schedule_walk(void * w, fd_epoch_schedule_t* self, fd_types_walk_fn_t fun, const char *name, uint level) {
+void fd_epoch_schedule_walk(void * w, fd_epoch_schedule_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, 32, "fd_epoch_schedule", level++);
   fun(w, &self->slots_per_epoch, "slots_per_epoch", 11, "ulong", level + 1);
   fun(w, &self->leader_schedule_slot_offset, "leader_schedule_slot_offset", 11, "ulong", level + 1);
@@ -226,11 +226,11 @@ int fd_vote_transcoding_state_versioned_encode(fd_vote_state_versioned_t const *
 }
 
 void
-fd_gossip_ip4_addr_walk( void *                   w,
-                         fd_gossip_ip4_addr_t *   self,
-                         fd_types_walk_fn_t       fun,
-                         char const *             name,
-                         uint                     level ) {
+fd_gossip_ip4_addr_walk( void *                       w,
+                         fd_gossip_ip4_addr_t const * self,
+                         fd_types_walk_fn_t           fun,
+                         char const *                 name,
+                         uint                         level ) {
 
   char buf[ 16 ];
   sprintf( buf, FD_IP4_ADDR_FMT, FD_IP4_ADDR_FMT_ARGS( *self ) );
@@ -238,11 +238,11 @@ fd_gossip_ip4_addr_walk( void *                   w,
 }
 
 void
-fd_gossip_ip6_addr_walk( void *                   w,
-                         fd_gossip_ip6_addr_t *   self,
-                         fd_types_walk_fn_t       fun,
-                         char const *             name,
-                         uint                     level ) {
+fd_gossip_ip6_addr_walk( void *                       w,
+                         fd_gossip_ip6_addr_t const * self,
+                         fd_types_walk_fn_t           fun,
+                         char const *                 name,
+                         uint                         level ) {
 
   char buf[ 40 ];
   sprintf( buf,

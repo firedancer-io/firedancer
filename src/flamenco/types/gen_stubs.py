@@ -1012,7 +1012,7 @@ for entry in entries:
     print(f"int {n}_decode({n}_t* self, fd_bincode_decode_ctx_t * ctx);", file=header)
     print(f"int {n}_encode({n}_t const * self, fd_bincode_encode_ctx_t * ctx);", file=header)
     print(f"void {n}_destroy({n}_t* self, fd_bincode_destroy_ctx_t * ctx);", file=header)
-    print(f"void {n}_walk(void * w, {n}_t* self, fd_types_walk_fn_t fun, const char *name, uint level);", file=header)
+    print(f"void {n}_walk(void * w, {n}_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);", file=header)
     print(f"ulong {n}_size({n}_t const * self);", file=header)
     print("", file=header)
 
@@ -1139,7 +1139,7 @@ for entry in entries:
       print("}", file=body)
     print("", file=body)
 
-    print(f'void {n}_walk(void * w, {n}_t* self, fd_types_walk_fn_t fun, const char *name, uint level) {{', file=body)
+    print(f'void {n}_walk(void * w, {n}_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {{', file=body)
     print(f'  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "{n}", level++);', file=body)
 
     if entry["type"] == "enum":
