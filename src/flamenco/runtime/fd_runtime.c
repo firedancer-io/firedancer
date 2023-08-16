@@ -117,12 +117,25 @@ fd_runtime_init_bank_from_genesis( fd_global_ctx_t *     global,
           break;
         }
       }
+
       if( found ) {
-        /* Feature active since genesis.
-           Set activation slot to 1UL.  (Sadly, our runtime considers
-           0UL as "not activated" */
-        *fd_features_ptr( &global->features, found ) = 1UL;
+        /* Load feature activation */
+        FD_SCRATCH_SCOPED_FRAME;
+        fd_bincode_decode_ctx_t decode = { .data    = acc->account.data,
+                                           .dataend = acc->account.data + acc->account.data_len,
+                                           .valloc  = fd_scratch_virtual() };
+        fd_feature_t feature;
+        int err = fd_feature_decode( &feature, &decode );
+        FD_TEST( err==FD_BINCODE_SUCCESS );
+        if( feature.activated_at ) {
+          FD_LOG_DEBUG(( "Feature %32J activated at %lu (genesis)", acc->key.key, *feature.activated_at ));
+          *fd_features_ptr( &global->features, found ) = *feature.activated_at;
+        } else {
+          FD_LOG_DEBUG(( "Feature %32J not activated (genesis)", acc->key.key, *feature.activated_at ));
+          *fd_features_ptr( &global->features, found ) = ULONG_MAX;
+        }
       }
+
     }
   }
 
@@ -1303,11 +1316,10 @@ fd_feature_restore( fd_global_ctx_t * global,
     return;
   }
 
-  /* Careful: In test ledgers, features can get activated at genesis
-     (meaning slot number 0).  However, we interpret 0 as "not activated
-     and not scheduled for activation". */
-  if( feature->activated_at )
-    *f = fd_ulong_max( 1UL, *feature->activated_at );
+  if( feature->activated_at ) {
+    FD_LOG_DEBUG(( "Feature %32J activated at %lu", acct, *feature->activated_at ));
+    *f = *feature->activated_at;
+  }
 
   /* No need to call destroy, since we are using fd_scratch allocator. */
 }

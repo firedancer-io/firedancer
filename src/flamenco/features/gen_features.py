@@ -54,8 +54,6 @@ print(
 
 #include "../fd_flamenco_base.h"
 
-#define FD_FEATURE_ACTIVE(_g, _y)  ((_g->features. _y != 0) && (_g->bank.slot >= _g->features. _y))
-
 /* fd_features_t is the current set of enabled feature flags.
 
    Each feature has a corresponding account in the account database,
@@ -166,49 +164,49 @@ print(
 
 void
 fd_features_enable_testnet( fd_features_t * f ) {{
-  memset( f, 0, sizeof(fd_features_t) );
+  memset( f, 0xff, sizeof(fd_features_t) );
   {gen_feature_activations_procedure(testnet)}
 }}
 
 void
 fd_features_enable_devnet( fd_features_t * f ) {{
-  memset( f, 0, sizeof(fd_features_t) );
+  memset( f, 0xff, sizeof(fd_features_t) );
   {gen_feature_activations_procedure(devnet)}
 }}
 
 void
 fd_features_enable_mainnet( fd_features_t * f ) {{
-  memset( f, 0, sizeof(fd_features_t) );
+  memset( f, 0xff, sizeof(fd_features_t) );
   {gen_feature_activations_procedure(mainnet)}
 }}
 
 void
 fd_features_enable_v13( fd_features_t * f ) {{
-  memset( f, 0, sizeof(fd_features_t) );
+  memset( f, 0xff, sizeof(fd_features_t) );
   {gen_feature_activations_procedure(v13)}
 }}
 
 void
 fd_features_enable_v14( fd_features_t * f ) {{
-  memset( f, 0, sizeof(fd_features_t) );
+  memset( f, 0xff, sizeof(fd_features_t) );
   {gen_feature_activations_procedure(v14)}
 }}
 
 void
 fd_features_enable_v16( fd_features_t * f ) {{
-  memset( f, 0, sizeof(fd_features_t) );
+  memset( f, 0xff, sizeof(fd_features_t) );
   {gen_feature_activations_procedure(v16)}
 }}
 
 void
 fd_features_enable_v17( fd_features_t * f ) {{
-  memset( f, 0, sizeof(fd_features_t) );
+  memset( f, 0xff, sizeof(fd_features_t) );
   {gen_feature_activations_procedure(v17)}
 }}
 
 void
 fd_features_enable_all( fd_features_t * f ) {{
-  memset( f, 0, sizeof(fd_features_t) );
+  memset( f, 0xff, sizeof(fd_features_t) );
   {chr(0xa).join([f'  f->{x["name"]} = 1;' for x in fm])}
 }}
 

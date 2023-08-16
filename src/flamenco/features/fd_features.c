@@ -5,7 +5,7 @@
 
 void
 fd_features_enable_testnet( fd_features_t * f ) {
-  memset( f, 0, sizeof(fd_features_t) );
+  memset( f, 0xff, sizeof(fd_features_t) );
   f->secp256k1_program_enabled = 39404256;   // secp256k1 program
   f->deprecate_rewards_sysvar = 39404256; // deprecate unused rewards sysvar
   f->spl_token_v2_multisig_fix = 39836256; // spl-token multisig fix
@@ -134,7 +134,7 @@ fd_features_enable_testnet( fd_features_t * f ) {
 
 void
 fd_features_enable_devnet( fd_features_t * f ) {
-  memset( f, 0, sizeof(fd_features_t) );
+  memset( f, 0xff, sizeof(fd_features_t) );
   f->secp256k1_program_enabled = 5414912;   // secp256k1 program
   f->spl_token_v2_multisig_fix = 5414912; // spl-token multisig fix
   f->deprecate_rewards_sysvar = 5414912; // deprecate unused rewards sysvar
@@ -249,7 +249,7 @@ fd_features_enable_devnet( fd_features_t * f ) {
 
 void
 fd_features_enable_mainnet( fd_features_t * f ) {
-  memset( f, 0, sizeof(fd_features_t) );
+  memset( f, 0xff, sizeof(fd_features_t) );
   f->secp256k1_program_enabled = 41040000;   // secp256k1 program
   f->spl_token_v2_multisig_fix = 41040000; // spl-token multisig fix
   f->no_overflow_rent_distribution = 51408000; // no overflow rent distribution
@@ -353,7 +353,7 @@ fd_features_enable_mainnet( fd_features_t * f ) {
 
 void
 fd_features_enable_v13( fd_features_t * f ) {
-  memset( f, 0, sizeof(fd_features_t) );
+  memset( f, 0xff, sizeof(fd_features_t) );
   f->merge_nonce_error_into_system_error = 1;   //
   f->optimize_epoch_boundary_updates = 1; //
   f->update_syscall_base_costs = 1; //
@@ -453,7 +453,7 @@ fd_features_enable_v13( fd_features_t * f ) {
 
 void
 fd_features_enable_v14( fd_features_t * f ) {
-  memset( f, 0, sizeof(fd_features_t) );
+  memset( f, 0xff, sizeof(fd_features_t) );
   f->merge_nonce_error_into_system_error = 1;   //
   f->incremental_snapshot_only_incremental_hash_calculation = 1; //
   f->optimize_epoch_boundary_updates = 1; //
@@ -585,7 +585,7 @@ fd_features_enable_v14( fd_features_t * f ) {
 
 void
 fd_features_enable_v16( fd_features_t * f ) {
-  memset( f, 0, sizeof(fd_features_t) );
+  memset( f, 0xff, sizeof(fd_features_t) );
   f->stop_truncating_strings_in_syscalls = 1;   //
   f->merge_nonce_error_into_system_error = 1; //
   f->incremental_snapshot_only_incremental_hash_calculation = 1; //
@@ -748,7 +748,7 @@ fd_features_enable_v16( fd_features_t * f ) {
 
 void
 fd_features_enable_v17( fd_features_t * f ) {
-  memset( f, 0, sizeof(fd_features_t) );
+  memset( f, 0xff, sizeof(fd_features_t) );
   f->stop_truncating_strings_in_syscalls = 1;   //
   f->merge_nonce_error_into_system_error = 1; //
   f->incremental_snapshot_only_incremental_hash_calculation = 1; //
@@ -913,7 +913,7 @@ fd_features_enable_v17( fd_features_t * f ) {
 
 void
 fd_features_enable_all( fd_features_t * f ) {
-  memset( f, 0, sizeof(fd_features_t) );
+  memset( f, 0xff, sizeof(fd_features_t) );
   f->account_hash_ignore_slot = 1;
   f->add_compute_budget_program = 1;
   f->add_get_minimum_delegation_instruction_to_stake_program = 1;
