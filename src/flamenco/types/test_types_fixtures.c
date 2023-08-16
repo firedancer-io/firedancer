@@ -26,12 +26,10 @@
 
 #define TEST_VECTOR( X )                                               \
   X( vote_account,                     vote_state_versioned )          \
-  X( gossip_pull_req,                  gossip_msg           )          \
   X( gossip_pull_resp_contact_info,    gossip_msg           )          \
   X( gossip_pull_resp_node_instance,   gossip_msg           )          \
   X( gossip_pull_resp_snapshot_hashes, gossip_msg           )          \
   X( gossip_pull_resp_version,         gossip_msg           )          \
-  X( gossip_push_vote,                 gossip_msg           )
   /* Add more fixtures to the end ... */
 
 

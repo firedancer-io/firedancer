@@ -309,11 +309,14 @@ fd_flamenco_yaml_walk( void *       _self,
   case FD_FLAMENCO_TYPE_HASH256:
     fprintf( file, "'%32J'\n", arg );
     break;
+  case FD_FLAMENCO_TYPE_SIG512:
+    fprintf( file, "'%64J'\n", arg );
+    break;
   case FD_FLAMENCO_TYPE_CSTR:
     fprintf( file, "'%s'\n", (char const *)arg );
     break;
   default:
-    FD_LOG_CRIT(( "unknown type %d", type ));
+    FD_LOG_CRIT(( "unknown type %#x", type ));
     break;
   }
 
