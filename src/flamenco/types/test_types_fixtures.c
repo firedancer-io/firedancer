@@ -25,6 +25,7 @@
    type should be set such that fd_<type>_t is defined in fd_types.h. */
 
 #define TEST_VECTOR( X )                                               \
+  X( txn_vote,                         flamenco_txn         )          \
   X( vote_account,                     vote_state_versioned )          \
   X( gossip_pull_resp_contact_info,    gossip_msg           )          \
   X( gossip_pull_resp_node_instance,   gossip_msg           )          \

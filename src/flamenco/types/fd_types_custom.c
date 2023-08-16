@@ -4,6 +4,25 @@
 
 #include <stdio.h>
 
+int
+fd_flamenco_txn_decode( fd_flamenco_txn_t *       self,
+                        fd_bincode_decode_ctx_t * ctx ) {
+  static FD_TLS fd_txn_parse_counters_t counters[1];
+  ulong bufsz = (ulong)ctx->dataend - (ulong)ctx->data;
+  ulong sz;
+  ulong res = fd_txn_parse_core( ctx->data, bufsz, self->txn, counters, &sz, 0 );
+  if( FD_UNLIKELY( !res ) ) {
+    /* TODO: Remove this debug print in prod */
+    FD_LOG_DEBUG(( "Failed to decode txn (fd_txn.c:%lu)",
+                   counters->failure_ring[ counters->failure_cnt % FD_TXN_PARSE_COUNTERS_RING_SZ ] ));
+    return -1000001;
+  }
+  fd_memcpy( self->raw, ctx->data, sz );
+  self->raw_sz = sz;
+  ctx->data = (void *)( (ulong)ctx->data + sz );
+  return 0;
+}
+
 int fd_epoch_schedule_decode(fd_epoch_schedule_t* self, fd_bincode_decode_ctx_t * ctx) {
   int err;
   err = fd_bincode_uint64_decode(&self->slots_per_epoch, ctx);

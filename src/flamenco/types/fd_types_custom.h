@@ -244,20 +244,9 @@ typedef struct fd_flamenco_txn fd_flamenco_txn_t;
 static inline void
 fd_flamenco_txn_new( fd_flamenco_txn_t * self FD_FN_UNUSED ) {}
 
-/* Should probably not be a static inline */
-
-static inline int
+int
 fd_flamenco_txn_decode( fd_flamenco_txn_t *       self,
-                        fd_bincode_decode_ctx_t * ctx ) {
-  ulong bufsz = (ulong)ctx->data - (ulong)ctx->dataend;
-  ulong sz;
-  ulong res = fd_txn_parse_core( ctx->data, bufsz, self->txn, NULL, &sz, 0 );
-  if( FD_UNLIKELY( !res ) ) return FD_BINCODE_ERR_ENCODING;
-  fd_memcpy( self->raw, ctx->data, sz );
-  self->raw_sz = sz;
-  ctx->data = (void *)( (ulong)ctx->data + sz );
-  return 0;
-}
+                        fd_bincode_decode_ctx_t * ctx );
 
 static inline void
 fd_flamenco_txn_destroy( fd_flamenco_txn_t const *  self FD_FN_UNUSED,
@@ -275,12 +264,21 @@ fd_flamenco_txn_encode( fd_flamenco_txn_t const * self,
 }
 
 static inline void
-fd_flamenco_txn_walk( void *                    w     FD_FN_UNUSED,
-                      fd_flamenco_txn_t const * self  FD_FN_UNUSED,
-                      fd_types_walk_fn_t        fun   FD_FN_UNUSED,
-                      char const *              name  FD_FN_UNUSED,
-                      uint                      level FD_FN_UNUSED ) {
-  /* TODO Pseudo walk */
+fd_flamenco_txn_walk( void *                    w,
+                      fd_flamenco_txn_t const * self,
+                      fd_types_walk_fn_t        fun,
+                      char const *              name,
+                      uint                      level ) {
+
+  static uchar const zero[ 64 ]={0};
+  fd_txn_t const *   txn  = self->txn;
+  uchar const *      sig0 = zero;
+
+  if( FD_LIKELY( txn->signature_cnt > 0 ) )
+    sig0 = fd_txn_get_signatures( txn, self->raw )[0];
+
+  /* For now, just print the transaction's signature */
+  fun( w, sig0, name, FD_FLAMENCO_TYPE_SIG512, "txn", level );
 }
 
 FD_PROTOTYPES_END
