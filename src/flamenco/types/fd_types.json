@@ -1459,21 +1459,13 @@
       ]
     },
     {
-      "name": "gossip_vote_rec",
-      "type": "struct",
-      "fields": [
-        { "name": "from", "type": "pubkey" },
-        { "name": "txn", "type": "flamenco_txn" },
-        { "name": "wallclock", "type": "ulong" },
-        { "name": "slot", "type": "option", "element": "ulong" }
-      ]
-    },
-    {
       "name": "gossip_vote",
       "type": "struct",
       "fields": [
-        { "name": "u8", "type": "uchar" },
-        { "name": "rec", "type": "gossip_vote_rec" }
+        { "name": "index", "type": "uchar" },
+        { "name": "from", "type": "pubkey" },
+        { "name": "txn", "type": "flamenco_txn" },
+        { "name": "wallclock", "type": "ulong" }
       ]
     },
     {

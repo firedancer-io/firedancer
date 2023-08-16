@@ -1769,19 +1769,11 @@ typedef struct fd_gossip_contact_info fd_gossip_contact_info_t;
 #define FD_GOSSIP_CONTACT_INFO_FOOTPRINT sizeof(fd_gossip_contact_info_t)
 #define FD_GOSSIP_CONTACT_INFO_ALIGN (8UL)
 
-struct fd_gossip_vote_rec {
+struct fd_gossip_vote {
+  uchar index;
   fd_pubkey_t from;
   fd_flamenco_txn_t txn;
   ulong wallclock;
-  ulong* slot;
-};
-typedef struct fd_gossip_vote_rec fd_gossip_vote_rec_t;
-#define FD_GOSSIP_VOTE_REC_FOOTPRINT sizeof(fd_gossip_vote_rec_t)
-#define FD_GOSSIP_VOTE_REC_ALIGN (8UL)
-
-struct fd_gossip_vote {
-  uchar u8;
-  fd_gossip_vote_rec_t rec;
 };
 typedef struct fd_gossip_vote fd_gossip_vote_t;
 #define FD_GOSSIP_VOTE_FOOTPRINT sizeof(fd_gossip_vote_t)
@@ -3214,13 +3206,6 @@ int fd_gossip_contact_info_encode(fd_gossip_contact_info_t const * self, fd_binc
 void fd_gossip_contact_info_destroy(fd_gossip_contact_info_t* self, fd_bincode_destroy_ctx_t * ctx);
 void fd_gossip_contact_info_walk(void * w, fd_gossip_contact_info_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
 ulong fd_gossip_contact_info_size(fd_gossip_contact_info_t const * self);
-
-void fd_gossip_vote_rec_new(fd_gossip_vote_rec_t* self);
-int fd_gossip_vote_rec_decode(fd_gossip_vote_rec_t* self, fd_bincode_decode_ctx_t * ctx);
-int fd_gossip_vote_rec_encode(fd_gossip_vote_rec_t const * self, fd_bincode_encode_ctx_t * ctx);
-void fd_gossip_vote_rec_destroy(fd_gossip_vote_rec_t* self, fd_bincode_destroy_ctx_t * ctx);
-void fd_gossip_vote_rec_walk(void * w, fd_gossip_vote_rec_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
-ulong fd_gossip_vote_rec_size(fd_gossip_vote_rec_t const * self);
 
 void fd_gossip_vote_new(fd_gossip_vote_t* self);
 int fd_gossip_vote_decode(fd_gossip_vote_t* self, fd_bincode_decode_ctx_t * ctx);
