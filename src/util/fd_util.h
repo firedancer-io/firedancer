@@ -6,9 +6,10 @@
 //#include "sanitize/fd_asan.h"     /* includes fd_util_base.h" */
 //#include "sanitize/fd_sanitize.h" /* includes sanitize/fd_asan.h */
 //#include "cstr/fd_cstr.h"         /* includes bits/fd_bits.h */
+//#include "io/fd_io.h"             /* includes bits/fd_bits.h */
 //#include "pod/fd_pod.h"           /* includes cstr/fd_cstr.h */
 //#include "env/fd_env.h"           /* includes cstr/fd_cstr.h */
-//#include "log/fd_log.h"           /* includes env/fd_env.h */
+//#include "log/fd_log.h"           /* includes env/fd_env.h io/fd_io.h */
 //#include "shmem/fd_shmem.h"       /* includes log/fd_log.h */
 //#include "tile/fd_tile.h"         /* includes shmem/fd_shmem.h */
 //#include "wksp/fd_wksp.h"         /* includes shmem/fd_shmem.h pod/fd_pod.h */
@@ -171,6 +172,13 @@ FD_PROTOTYPES_BEGIN
        not provided, defaults to 0.  This is stripped but otherwise
        ignored on targets where the underlying OS assigns this (e.g. the
        tid of the process containing the caller).
+
+     --log-user-id [ulong] / FD_LOG_USER_ID=[ulong]
+
+       Provides the user id of the user responsible for the caller.  If
+       not provided, defaults to 0.  This is stripped but otherwise
+       ignored on targets where an underlying OS assigns this (e.g. the
+       user ID of the person who started the caller's process).
 
      --log-user [cstr] / FD_LOG_USER=[cstr]
 

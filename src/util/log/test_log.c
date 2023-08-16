@@ -46,6 +46,7 @@ main( int     argc,
   FD_LOG_NOTICE(( "fd_log_cpu_id        %lu", fd_log_cpu_id()        ));
   FD_LOG_NOTICE(( "fd_log_group_id      %lu", fd_log_group_id()      ));
   FD_LOG_NOTICE(( "fd_log_tid           %lu", fd_log_tid()           ));
+  FD_LOG_NOTICE(( "fd_log_user_id       %lu", fd_log_user_id()       ));
   FD_LOG_NOTICE(( "fd_log_app           %s",  fd_log_app()           ));
   FD_LOG_NOTICE(( "fd_log_thread        %s",  fd_log_thread()        ));
   FD_LOG_NOTICE(( "fd_log_host          %s",  fd_log_host()          ));
