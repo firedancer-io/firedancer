@@ -145,7 +145,7 @@ int fd_executor_run_test(
   memcpy(&global->features, &suite->features, sizeof(suite->features));
   if (test->disable_cnt > 0) {
     for (uint i = 0; i < test->disable_cnt; i++)
-      ((ulong *) fd_type_pun( &global->features ))[test->disable_feature[i]] = 0;
+      ((ulong *) fd_type_pun( &global->features ))[test->disable_feature[i]] = ULONG_MAX;
   }
 
   char *acc_mgr_mem = fd_alloca_check(FD_ACC_MGR_ALIGN, FD_ACC_MGR_FOOTPRINT);
