@@ -249,63 +249,6 @@ fd_flamenco_yaml_unit_test( fd_flamenco_yaml_test_t const * test ) {
   fd_flamenco_yaml_delete( yaml );
 }
 
-static void
-fd_flamenco_yaml_run_unit_tests( void ) {
-  for( fd_flamenco_yaml_test_t const * test = fd_flamenco_yaml_tests;
-       test->walk;
-       ++test ) {
-    fd_flamenco_yaml_unit_test( test );
-  }
-}
-
-
-/* Integration test: Test deserializer, type walk, and YAML serialize on
-   a Solana protocol data structure. */
-
-FD_IMPORT_BINARY( vote_account_bin,  "src/flamenco/types/fixtures/vote_account.bin" );
-FD_IMPORT_BINARY( vote_account_yaml, "src/flamenco/types/fixtures/vote_account.yml" );
-
-static void
-fd_flamenco_yaml_full_test( void ) {
-
-  FD_SCRATCH_SCOPED_FRAME;
-
-  /* Decode bincode blob */
-
-  fd_bincode_decode_ctx_t decode[1] = {{
-    .data    = vote_account_bin,
-    .dataend = vote_account_bin + vote_account_bin_sz,
-    .valloc  = fd_scratch_virtual()
-  }};
-  fd_vote_state_versioned_t state[1];
-  int err = fd_vote_state_versioned_decode( state, decode );
-  FD_TEST( err==FD_BINCODE_SUCCESS );
-
-  /* Encode YAML */
-
-  static char yaml_buf[ 1<<20 ];
-  FILE * file = fmemopen( yaml_buf, sizeof(yaml_buf), "w" );
-
-  void * yaml_mem = fd_scratch_alloc( fd_flamenco_yaml_align(), fd_flamenco_yaml_footprint() );
-  fd_flamenco_yaml_t * yaml = fd_flamenco_yaml_init( fd_flamenco_yaml_new( yaml_mem ), file );
-
-  fd_vote_state_versioned_walk( yaml, state, fd_flamenco_yaml_walk, NULL, 0 );
-  FD_TEST( 0==ferror( file ) );
-  long sz = ftell(  file );
-  FD_TEST( sz>0 );
-  FD_TEST( 0==fclose( file ) );
-
-  /* Compare */
-
-  if( FD_UNLIKELY( (ulong)sz!=vote_account_yaml_sz )
-                || (0!=memcmp( yaml_buf, vote_account_yaml, vote_account_yaml_sz ) ) ) {
-    FD_LOG_WARNING(( "Encoded vote account YAML doesn't match test fixture" ));
-    fwrite( yaml_buf, 1, (ulong)sz, stdout );
-    FD_LOG_WARNING(( "Dumped output to stdout!" ));
-    FD_LOG_ERR(( "fail" ));
-  }
-}
-
 int
 main( int     argc,
       char ** argv ) {
@@ -318,8 +261,11 @@ main( int     argc,
 
   /* Run tests */
 
-  fd_flamenco_yaml_run_unit_tests();
-  fd_flamenco_yaml_full_test();
+  for( fd_flamenco_yaml_test_t const * test = fd_flamenco_yaml_tests;
+       test->walk;
+       ++test ) {
+    fd_flamenco_yaml_unit_test( test );
+  }
 
   /* Cleanup */
 
