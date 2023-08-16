@@ -432,6 +432,15 @@ FD_FN_CONST char const * fd_log_group( void ); /* ptr is CONST, cstr pointed at 
 
 ulong fd_log_tid( void );
 
+/* fd_log_user_id() returns the user id of the thread group to which the
+   caller belongs.  The user id is intended, at a minimum, to be unique
+   over all users on a host.  In simple cases, this is the OS uid of the
+   process to which the caller belongs.  In general cases, this is
+   typically something provided to the caller when the caller started.
+   This is cheap after the first call. */
+
+FD_FN_PURE ulong fd_log_user_id( void );
+
 /* fd_log_user() returns a non-NULL pointer to a cstr describing the
    user that created the thread group to which the caller belongs.  In
    simple cases, this defaults to the LOGNAME / login that started the
@@ -455,7 +464,7 @@ FD_FN_CONST char const * fd_log_user( void ); /* ptr is CONST, cstr pointed at i
 
 int fd_log_group_id_query( ulong group_id );
 
-/* FIXME: TID DESC? UID? UID_SET? */
+/* FIXME: TID DESC? */
 
 /* Build info APIs ****************************************************/
 
@@ -616,6 +625,7 @@ void fd_log_private_host_id_set  ( ulong host_id   );
 void fd_log_private_cpu_id_set   ( ulong cpu_id    );
 void fd_log_private_group_id_set ( ulong group_id  );
 void fd_log_private_tid_set      ( ulong tid       );
+void fd_log_private_user_id_set  ( ulong user_id   );
 
 void fd_log_private_app_set  ( char const * app   ); /* Not thread safe */
 void fd_log_private_host_set ( char const * host  ); /* Not thread safe */
