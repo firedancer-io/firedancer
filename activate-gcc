@@ -5,9 +5,9 @@
 if [ $# -gt 0 ] && [ "$1" = "install" ]; then
   # Install Packages needed for dev hosts
   sudo yum install                        \
-    jump_module_gcc-9.3.0
+    jump_module_gcc-12.2.0
 fi
 
 module purge
-module load gcc-9.3.0
+module load gcc-12.2.0
 module list

@@ -3,6 +3,8 @@
 
 #include "../../../util/fd_util_base.h"
 
+#include "../fd_quic_proto_structs.h"
+
 /* define a union of all the frame structures */
 union fd_quic_frame_union {
 #include "fd_quic_union_decl.h"
