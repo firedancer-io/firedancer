@@ -1414,6 +1414,9 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
      */
     fd_vote_state_update_t * vote_state_update;
     bool is_compact = false;
+    fd_vote_state_update_t decode;
+    fd_memset(&decode, 0, sizeof(fd_vote_state_update_t));
+
     if ( instruction.discriminant == fd_vote_instruction_enum_update_vote_state) {
       FD_LOG_INFO(( "executing VoteInstruction::UpdateVoteState instruction" ));
       vote_state_update = &instruction.inner.update_vote_state;
@@ -1423,16 +1426,12 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
     } else if ( instruction.discriminant == fd_vote_instruction_enum_compact_update_vote_state ) {
       FD_LOG_DEBUG(( "executing vote program instruction: fd_vote_instruction_enum_compact_update_vote_state"));
       is_compact = true;
-      fd_vote_state_update_t decode;
-      fd_memset(&decode, 0, sizeof(fd_vote_state_update_t));
       decode_compact_update(ctx, &instruction.inner.compact_update_vote_state, &decode);
       vote_state_update = &decode;
     } else {
       // What are we supposed to do here?  What about the hash?
       FD_LOG_WARNING(( "executing vote program instruction: fd_vote_instruction_enum_compact_update_vote_state_switch"));
       is_compact = true;
-      fd_vote_state_update_t decode;
-      fd_memset(&decode, 0, sizeof(fd_vote_state_update_t));
       decode_compact_update(ctx, &instruction.inner.compact_update_vote_state_switch.compact_vote_state_update, &decode);
       vote_state_update = &decode;
     }
