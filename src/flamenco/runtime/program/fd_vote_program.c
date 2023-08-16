@@ -1473,7 +1473,7 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
       ret = FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
       break;
     }
-    
+
     // check_update_vote_state_slots_are_valid start
     if (vote_state_update->lockouts_len == 0) {
       ctx.txn_ctx->custom_err = FD_VOTE_EMPTY_SLOTS;
@@ -1513,7 +1513,7 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
         vote_state_update->root = vote_state->root_slot;
         // ulong prev_slot = ULONG_MAX;
         // ulong * current_root = vote_state_update->root;
-        
+
         for( deq_fd_landed_vote_t_iter_t iter = deq_fd_landed_vote_t_iter_init_reverse(vote_state->votes); !deq_fd_landed_vote_t_iter_done_reverse( vote_state->votes, iter ); iter = deq_fd_landed_vote_t_iter_next_reverse( vote_state->votes, iter ) ) {
           fd_landed_vote_t * vote = deq_fd_landed_vote_t_iter_ele( vote_state->votes, iter );
           // bool is_slot_bigger_than_root = true;
@@ -1561,7 +1561,7 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
           }
 
           if (root_to_check) {
-            // assert_eq!(new_proposed_root, proposed_vote_slot);            
+            // assert_eq!(new_proposed_root, proposed_vote_slot);
             // assert!(new_proposed_root < earliest_slot_hash_in_history);
 
             root_to_check = NULL;
@@ -1605,7 +1605,7 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
     //     last_vote_state_update_slot,
     //     slot_hashes[slot_hashes_index].0
     // );
-    
+
     if (memcmp(&deq_fd_slot_hash_t_peek_index_const(slot_hashes.hashes, slot_hashes_index)->hash, &vote_state_update->hash, sizeof(fd_hash_t)) != 0) {
       ctx.txn_ctx->custom_err = FD_VOTE_SLOT_HASH_MISMATCH;
       ret = FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
@@ -1625,7 +1625,7 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
     // process_new_vote_state start
     fd_vote_lockout_t * new_state = vote_state_update->lockouts;
     // assert!(!new_state.is_empty());
-    
+
     if (vote_state_update->lockouts_len > MAX_LOCKOUT_HISTORY) {
       ctx.txn_ctx->custom_err = FD_VOTE_TOO_MANY_VOTES;
       ret = FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
@@ -1666,7 +1666,7 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
           break;
         }
       }
-      
+
       if (previous_vote) {
         ulong last_locked_out_slot = previous_vote->slot + (ulong)pow(INITIAL_LOCKOUT, previous_vote->confirmation_count);
         if (previous_vote->slot >= vote->slot) {
@@ -1771,7 +1771,7 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
       vote_state->last_timestamp.slot = vote_state_update->lockouts[ vote_state_update->lockouts_len - 1 ].slot;
       vote_state->last_timestamp.timestamp = *vote_state_update->timestamp;
     }
-    
+
     /* TODO: add constructors to fd_types */
     if (NULL != vote_state_update->root) {
       if ( vote_state->root_slot == NULL )
@@ -1843,19 +1843,20 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
       break;
     }
 
-    fd_vote_state_t * vote_state = &vote_state_versioned.inner.current;
-    int authorize_result = fd_vote_verify_authority_current( vote_state, &ctx, clock.epoch );
-    if( authorize_result == FD_EXECUTOR_INSTR_SUCCESS ) {
-      authorize_result =
-        vote_authorize( ctx, &vote_state_versioned.inner.current,
-          &authorize->vote_authorize, &authorize->pubkey,
-          NULL, &clock );
+//    fd_vote_state_t * vote_state = &vote_state_versioned.inner.current;
+//    int authorize_result = fd_vote_verify_authority_current( vote_state, &ctx, clock.epoch );
+//    if( authorize_result == FD_EXECUTOR_INSTR_SUCCESS ) {
+    int authorize_result =
+      vote_authorize( ctx, &vote_state_versioned.inner.current,
+        &authorize->vote_authorize, &authorize->pubkey,
+        NULL, &clock );
 
-      if( authorize_result == FD_EXECUTOR_INSTR_SUCCESS ) {
-        /* Write back the new vote state */
-        authorize_result = fd_vote_save_account( ctx, &vote_state_versioned, vote_acc_addr, 0, 0);
-      }
+    if( authorize_result == FD_EXECUTOR_INSTR_SUCCESS ) {
+      /* Write back the new vote state */
+      authorize_result = fd_vote_save_account( ctx, &vote_state_versioned, vote_acc_addr, 0, 0);
     }
+
+//    }
 
     fd_vote_state_versioned_destroy( &vote_state_versioned, &destroy );
 
