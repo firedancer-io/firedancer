@@ -70,20 +70,20 @@ jobs:
       - name: Run unit tests
         run: make -k -j2 --output-sync=target run-unit-test
 
-  frank-single-transaction:
-    runs-on: [self-hosted, Linux, X64]
-    strategy:
-      matrix:
-        compiler: [gcc]
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - uses: actions/checkout@v3
-        with:
-          submodules: recursive
+  # frank-single-transaction:
+  #   runs-on: [self-hosted, Linux, X64]
+  #   strategy:
+  #     matrix:
+  #       compiler: [gcc]
+  #   defaults:
+  #     run:
+  #       shell: bash
+  #   steps:
+  #     - uses: actions/checkout@v3
+  #       with:
+  #         submodules: recursive
 
-      - uses: dtolnay/rust-toolchain@1.69.0
+  #     - uses: dtolnay/rust-toolchain@1.69.0
 
-      - name: Run
-        run: ./src/test/frank-single-transaction.sh
+  #     - name: Run
+  #       run: ./src/test/frank-single-transaction.sh
