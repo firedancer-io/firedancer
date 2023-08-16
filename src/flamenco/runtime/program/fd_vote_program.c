@@ -913,6 +913,9 @@ vote_authorize( instruction_ctx_t             ctx,
   if (!authorized_withdrawer_signer)
     authorized_withdrawer_signer = fd_account_is_signer(&ctx, &vote_state->authorized_withdrawer);
 
+  if (!authorized_withdrawer_signer) {
+    return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+  }
   switch( authorize->discriminant ) {
   case fd_vote_authorize_enum_voter: {
     /* Simplified logic by merging together the following functions:
