@@ -1088,6 +1088,24 @@ bool vote_state_contains_slot(fd_vote_state_t* vote_state, ulong slot) {
   return false;
 }
 
+int decode_compact_update(instruction_ctx_t ctx, fd_compact_vote_state_update_t * compact_update, fd_vote_state_update_t * vote_update) {
+  // Taken from: https://github.com/firedancer-io/solana/blob/debug-master/sdk/program/src/vote/state/mod.rs#L712
+  vote_update->root = compact_update->root != ULONG_MAX ? &compact_update->root : NULL;
+  vote_update->lockouts = (fd_vote_lockout_t*) fd_valloc_malloc(ctx.global->valloc, sizeof(fd_vote_lockout_t), compact_update->lockouts_len * sizeof(fd_vote_lockout_t));
+  vote_update->lockouts_len = compact_update->lockouts_len;
+
+  ulong slot = vote_update->root ? *vote_update->root : 0;
+  for (ushort i = 0; i < compact_update->lockouts_len; i++) {
+    fd_lockout_offset_t * lock_offset = &compact_update->lockouts[i];
+    slot += lock_offset->offset;
+    vote_update->lockouts[i].slot = slot;
+    vote_update->lockouts[i].confirmation_count = (uint)lock_offset->confirmation_count;
+  }
+  vote_update->hash = compact_update->hash;
+  vote_update->timestamp = compact_update->timestamp;
+  return 0;
+}
+
 int
 fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
   int ret = FD_EXECUTOR_INSTR_SUCCESS;
@@ -1125,7 +1143,7 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
 
-  FD_LOG_NOTICE(("Discriminant=%lu", instruction.discriminant));
+  FD_LOG_INFO(("Discriminant=%lu", instruction.discriminant));
 
   switch( instruction.discriminant ) {
   case fd_vote_instruction_enum_initialize_account: {
@@ -1387,10 +1405,45 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
     fd_vote_state_versioned_destroy( &vote_state_versioned, &destroy );
     break;
   }
+  case fd_vote_instruction_enum_compact_update_vote_state_switch:
+  case fd_vote_instruction_enum_compact_update_vote_state:
   case fd_vote_instruction_enum_update_vote_state:
   case fd_vote_instruction_enum_update_vote_state_switch: {
+    /* VoteInstruction::UpdateVoteState instruction
+       https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_processor.rs#L174
+     */
+    fd_vote_state_update_t * vote_state_update;
+    bool is_compact = false;
+    fd_vote_state_update_t decode;
+    fd_memset(&decode, 0, sizeof(fd_vote_state_update_t));
+
+    if ( instruction.discriminant == fd_vote_instruction_enum_update_vote_state) {
+      FD_LOG_INFO(( "executing VoteInstruction::UpdateVoteState instruction" ));
+      vote_state_update = &instruction.inner.update_vote_state;
+    } else if ( instruction.discriminant == fd_vote_instruction_enum_update_vote_state_switch) {
+      FD_LOG_WARNING(( "executing VoteInstruction::UpdateVoteStateSwitch instruction" ));
+      vote_state_update = &instruction.inner.update_vote_state_switch.vote_state_update;
+    } else if ( instruction.discriminant == fd_vote_instruction_enum_compact_update_vote_state ) {
+      FD_LOG_DEBUG(( "executing vote program instruction: fd_vote_instruction_enum_compact_update_vote_state"));
+      is_compact = true;
+      decode_compact_update(ctx, &instruction.inner.compact_update_vote_state, &decode);
+      vote_state_update = &decode;
+    } else {
+      // What are we supposed to do here?  What about the hash?
+      FD_LOG_WARNING(( "executing vote program instruction: fd_vote_instruction_enum_compact_update_vote_state_switch"));
+      is_compact = true;
+      decode_compact_update(ctx, &instruction.inner.compact_update_vote_state_switch.compact_vote_state_update, &decode);
+      vote_state_update = &decode;
+    }
+
     if( FD_UNLIKELY( !FD_FEATURE_ACTIVE(ctx.global, allow_votes_to_directly_update_vote_state ) )) {
       FD_LOG_WARNING(( "executing VoteInstruction::UpdateVoteState instruction, but feature is not active" ));
+      ret = FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+      break;
+    }
+
+    if ( is_compact && !FD_FEATURE_ACTIVE( ctx.global, compact_vote_state_updates )) {
+      FD_LOG_WARNING(( "executing VoteInstruction::CompactUpdateVoteState instruction, but feature is not active" ));
       ret = FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
       break;
     }
@@ -1399,19 +1452,6 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
     fd_slot_hashes_new( &slot_hashes );
     int result = fd_sysvar_slot_hashes_read( ctx.global, &slot_hashes );
     FD_TEST( result==0 );
-
-    /* VoteInstruction::UpdateVoteState instruction
-       https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_processor.rs#L174
-     */
-    fd_vote_state_update_t * vote_state_update;
-
-    if ( instruction.discriminant == fd_vote_instruction_enum_update_vote_state) {
-      FD_LOG_INFO(( "executing VoteInstruction::UpdateVoteState instruction" ));
-      vote_state_update = &instruction.inner.update_vote_state;
-    } else {
-      FD_LOG_WARNING(( "executing VoteInstruction::UpdateVoteStateSwitch instruction" ));
-      vote_state_update = &instruction.inner.update_vote_state_switch.vote_state_update;
-    }
 
     /* Read vote account state stored in the vote account data */
     fd_pubkey_t const * vote_acc = &txn_accs[instr_acc_idxs[0]];
@@ -1807,6 +1847,9 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
     }
 
     fd_vote_state_versioned_destroy( &vote_state_versioned, &destroy );
+    if (is_compact) {
+      fd_valloc_free(ctx.global->valloc, vote_state_update->lockouts);
+    }
     break;
   }
   case fd_vote_instruction_enum_authorize: {
@@ -2246,121 +2289,122 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
     fd_vote_state_versioned_destroy( &vote_state_versioned, &destroy );
     break;
   }
-  case fd_vote_instruction_enum_compact_update_vote_state_switch:
-  case fd_vote_instruction_enum_compact_update_vote_state: {
-    if( FD_UNLIKELY( !FD_FEATURE_ACTIVE( ctx.global, allow_votes_to_directly_update_vote_state ) ) ) {
-      FD_LOG_WARNING(( "executing VoteInstruction::CompactUpdateVoteState instruction, but feature is not active" ));
-      ret = FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
-      break;
-    }
+  // case fd_vote_instruction_enum_compact_update_vote_state_switch:
+  // case fd_vote_instruction_enum_compact_update_vote_state: {
+  //   if( FD_UNLIKELY( !FD_FEATURE_ACTIVE( ctx.global, allow_votes_to_directly_update_vote_state ) && 
+  //                    !FD_FEATURE_ACTIVE( ctx.global, compact_vote_state_updates ) ) ) {
+  //     FD_LOG_WARNING(( "executing VoteInstruction::CompactUpdateVoteState instruction, but feature is not active" ));
+  //     ret = FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+  //     break;
+  //   }
 
-    // Update the github links...
+  //   // Update the github links...
 
-    /* VoteInstruction::UpdateVoteState instruction
-       https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_processor.rs#L174
-     */
+  //   /* VoteInstruction::UpdateVoteState instruction
+  //      https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_processor.rs#L174
+  //    */
 
-    fd_compact_vote_state_update_t *vote_state_update;
+  //   fd_compact_vote_state_update_t *vote_state_update;
 
-    if ( instruction.discriminant == fd_vote_instruction_enum_compact_update_vote_state) {
-      FD_LOG_DEBUG(( "executing vote program instruction: fd_vote_instruction_enum_compact_update_vote_state"));
-      vote_state_update = &instruction.inner.compact_update_vote_state;
-    } else {
-      // What are we supposed to do here?  What about the hash?
-      FD_LOG_WARNING(( "executing vote program instruction: fd_vote_instruction_enum_compact_update_vote_state_switch"));
-      vote_state_update = &instruction.inner.compact_update_vote_state_switch.compact_vote_state_update;
-    }
+  //   if ( instruction.discriminant == fd_vote_instruction_enum_compact_update_vote_state) {
+  //     FD_LOG_DEBUG(( "executing vote program instruction: fd_vote_instruction_enum_compact_update_vote_state"));
+  //     vote_state_update = &instruction.inner.compact_update_vote_state;
+  //   } else {
+  //     // What are we supposed to do here?  What about the hash?
+  //     FD_LOG_WARNING(( "executing vote program instruction: fd_vote_instruction_enum_compact_update_vote_state_switch"));
+  //     vote_state_update = &instruction.inner.compact_update_vote_state_switch.compact_vote_state_update;
+  //   }
 
-    /* Read vote account state stored in the vote account data */
-    fd_pubkey_t const * vote_acc = &txn_accs[instr_acc_idxs[0]];
+  //   /* Read vote account state stored in the vote account data */
+  //   fd_pubkey_t const * vote_acc = &txn_accs[instr_acc_idxs[0]];
 
-    fd_sol_sysvar_clock_t clock;
-    fd_sysvar_clock_read( ctx.global, &clock );
+  //   fd_sol_sysvar_clock_t clock;
+  //   fd_sysvar_clock_read( ctx.global, &clock );
 
-    /* Read vote account */
-    fd_account_meta_t         meta;
-    fd_vote_state_versioned_t vote_state_versioned;
-    int result = fd_vote_load_account_current( &vote_state_versioned, &meta, ctx.global, vote_acc, /* allow_uninitialized */ 0, clock.epoch );
-    if( FD_UNLIKELY( 0!=result ) ) {
-      ret = result;
-      break;
-    }
-    fd_vote_state_t * vote_state = &vote_state_versioned.inner.current;
-    // FIXME: Support v1_14_11 votes
+  //   /* Read vote account */
+  //   fd_account_meta_t         meta;
+  //   fd_vote_state_versioned_t vote_state_versioned;
+  //   int result = fd_vote_load_account_current( &vote_state_versioned, &meta, ctx.global, vote_acc, /* allow_uninitialized */ 0, clock.epoch );
+  //   if( FD_UNLIKELY( 0!=result ) ) {
+  //     ret = result;
+  //     break;
+  //   }
+  //   fd_vote_state_t * vote_state = &vote_state_versioned.inner.current;
+  //   // FIXME: Support v1_14_11 votes
 
-    /* Verify vote authority */
-    int authorize_res = fd_vote_verify_authority_current( vote_state, &ctx, clock.epoch );
-    if( FD_UNLIKELY( 0!=authorize_res ) ) {
-      ret = authorize_res;
-      break;
-    }
+  //   /* Verify vote authority */
+  //   int authorize_res = fd_vote_verify_authority_current( vote_state, &ctx, clock.epoch );
+  //   if( FD_UNLIKELY( 0!=authorize_res ) ) {
+  //     ret = authorize_res;
+  //     break;
+  //   }
 
-    ulong finalized_slot_count = 1;
-    /* Execute the extremely thin minimal slice of the vote state update logic necessary to validate our test ledger, lifted from
-       https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L886-L898
-       This skips all the safety checks, and assumes many things including that:
-       - The vote state update is valid and for the current epoch
-       - The vote is for the current fork
-       - ...
-    */
+  //   ulong finalized_slot_count = 1;
+  //   /* Execute the extremely thin minimal slice of the vote state update logic necessary to validate our test ledger, lifted from
+  //      https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L886-L898
+  //      This skips all the safety checks, and assumes many things including that:
+  //      - The vote state update is valid and for the current epoch
+  //      - The vote is for the current fork
+  //      - ...
+  //   */
 
-    /* If the root has changed, give this validator a credit for doing work */
-    /* In mininal slice proposed_root will always be present */
-    // if vote_state.root_slot != new_root {
-    if ((vote_state->root_slot == NULL) || ( vote_state_update->root != *vote_state->root_slot )) {
-      if( deq_fd_vote_epoch_credits_t_empty( vote_state->epoch_credits ) ) {
-        fd_vote_epoch_credits_t epoch_credits = {
-          .epoch = 0,
-          .credits = 0,
-          .prev_credits = 0,
-        };
-        FD_TEST( !deq_fd_vote_epoch_credits_t_full( vote_state->epoch_credits ) );
-        deq_fd_vote_epoch_credits_t_push_tail( vote_state->epoch_credits, epoch_credits );
-      }
-      if (FD_FEATURE_ACTIVE(ctx.global, vote_state_update_credit_per_dequeue))
-        deq_fd_vote_epoch_credits_t_peek_head( vote_state->epoch_credits )->credits += finalized_slot_count;
-      else
-        deq_fd_vote_epoch_credits_t_peek_head( vote_state->epoch_credits )->credits += 1UL;
-    }
+  //   /* If the root has changed, give this validator a credit for doing work */
+  //   /* In mininal slice proposed_root will always be present */
+  //   // if vote_state.root_slot != new_root {
+  //   if ((vote_state->root_slot == NULL) || ( vote_state_update->root != *vote_state->root_slot )) {
+  //     if( deq_fd_vote_epoch_credits_t_empty( vote_state->epoch_credits ) ) {
+  //       fd_vote_epoch_credits_t epoch_credits = {
+  //         .epoch = 0,
+  //         .credits = 0,
+  //         .prev_credits = 0,
+  //       };
+  //       FD_TEST( !deq_fd_vote_epoch_credits_t_full( vote_state->epoch_credits ) );
+  //       deq_fd_vote_epoch_credits_t_push_tail( vote_state->epoch_credits, epoch_credits );
+  //     }
+  //     if (FD_FEATURE_ACTIVE(ctx.global, vote_state_update_credit_per_dequeue))
+  //       deq_fd_vote_epoch_credits_t_peek_head( vote_state->epoch_credits )->credits += finalized_slot_count;
+  //     else
+  //       deq_fd_vote_epoch_credits_t_peek_head( vote_state->epoch_credits )->credits += 1UL;
+  //   }
 
-    /* Update the new root slot, timestamp and votes */
-    if ( vote_state_update->timestamp != NULL ) {
-      vote_state->last_timestamp.slot = vote_state_update->root + vote_state_update->lockouts[ vote_state_update->lockouts_len - 1 ].offset;
-      vote_state->last_timestamp.timestamp = *vote_state_update->timestamp;
-    }
-    /* TODO: add constructors to fd_types */
-    if ( vote_state->root_slot == NULL )
-      vote_state->root_slot = fd_valloc_malloc( ctx.global->valloc, 8UL, sizeof(ulong) );
-    *vote_state->root_slot = vote_state_update->root;
-    deq_fd_landed_vote_t_remove_all( vote_state->votes );
-    for ( ulong i = 0; i < vote_state_update->lockouts_len; i++ ) {
-      FD_TEST( !deq_fd_landed_vote_t_full( vote_state->votes ) );
-      fd_landed_vote_t lc = {
-        .latency = 0,
-        .lockout = {
-          .slot = vote_state_update->root + vote_state_update->lockouts[i].offset,
-          .confirmation_count = vote_state_update->lockouts[i].confirmation_count
-        }
-      };
-      deq_fd_landed_vote_t_push_tail( vote_state->votes, lc );
-    }
+  //   /* Update the new root slot, timestamp and votes */
+  //   if ( vote_state_update->timestamp != NULL ) {
+  //     vote_state->last_timestamp.slot = vote_state_update->root + vote_state_update->lockouts[ vote_state_update->lockouts_len - 1 ].offset;
+  //     vote_state->last_timestamp.timestamp = *vote_state_update->timestamp;
+  //   }
+  //   /* TODO: add constructors to fd_types */
+  //   if ( vote_state->root_slot == NULL )
+  //     vote_state->root_slot = fd_valloc_malloc( ctx.global->valloc, 8UL, sizeof(ulong) );
+  //   *vote_state->root_slot = vote_state_update->root;
+  //   deq_fd_landed_vote_t_remove_all( vote_state->votes );
+  //   for ( ulong i = 0; i < vote_state_update->lockouts_len; i++ ) {
+  //     FD_TEST( !deq_fd_landed_vote_t_full( vote_state->votes ) );
+  //     fd_landed_vote_t lc = {
+  //       .latency = 0,
+  //       .lockout = {
+  //         .slot = vote_state_update->root + vote_state_update->lockouts[i].offset,
+  //         .confirmation_count = vote_state_update->lockouts[i].confirmation_count
+  //       }
+  //     };
+  //     deq_fd_landed_vote_t_push_tail( vote_state->votes, lc );
+  //   }
 
-    /* Write the new vote account back to the database */
-    int save_result = fd_vote_save_account( ctx, &vote_state_versioned, vote_acc, 0, 0);
-    if( FD_UNLIKELY( save_result != FD_EXECUTOR_INSTR_SUCCESS ) ) {
-      ret = save_result;
-      break;
-    }
+  //   /* Write the new vote account back to the database */
+  //   int save_result = fd_vote_save_account( ctx, &vote_state_versioned, vote_acc, 0, 0);
+  //   if( FD_UNLIKELY( save_result != FD_EXECUTOR_INSTR_SUCCESS ) ) {
+  //     ret = save_result;
+  //     break;
+  //   }
 
-    /* Record the timestamp vote */
-    if( vote_state_update->timestamp != NULL ) {
-      record_timestamp_vote( ctx.global, vote_acc, *vote_state_update->timestamp );
-    }
+  //   /* Record the timestamp vote */
+  //   if( vote_state_update->timestamp != NULL ) {
+  //     record_timestamp_vote( ctx.global, vote_acc, *vote_state_update->timestamp );
+  //   }
 
-    fd_vote_state_versioned_destroy( &vote_state_versioned, &destroy );
+  //   fd_vote_state_versioned_destroy( &vote_state_versioned, &destroy );
 
-    break;
-  }
+  //   break;
+  // }
 
   default:
     /* TODO: support other vote program instructions */

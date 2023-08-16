@@ -138,6 +138,13 @@ struct fd_calculate_stake_points {
 };
 typedef struct fd_calculate_stake_points fd_calculate_stake_points_t;
 
+struct fd_calculate_rewards_and_distribute_vote_rewards_result {
+  ulong total_rewards;
+  ulong distributed_rewards;
+  fd_stake_rewards_vector_t * stake_rewards_by_partition;
+};
+typedef struct fd_calculate_rewards_and_distribute_vote_rewards_result fd_calculate_rewards_and_distribute_vote_rewards_result_t;
+
 FD_PROTOTYPES_BEGIN
 
 FD_PROTOTYPES_END

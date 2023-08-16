@@ -15,7 +15,7 @@
 #define FD_RUNTIME_EXECUTE_GENERIC_ERR                          ( -1 ) /* The Slot execute returned an error */
 #define MAX_PERMITTED_DATA_LENGTH ( 10 * 1024 * 1024 )
 
-#define FD_FEATURE_ACTIVE(_g, _y)  ((_g->features. _y != 0) && (_g->bank.slot >= _g->features. _y))
+#define FD_FEATURE_ACTIVE(_g, _y)  (_g->bank.slot >= _g->features. _y)
 
 #define FD_GLOBAL_CTX_ALIGN (32UL)
 struct __attribute__((aligned(FD_GLOBAL_CTX_ALIGN))) fd_global_ctx {

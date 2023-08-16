@@ -605,7 +605,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
   fd_pubkey_t* txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
 
 
-  FD_LOG_NOTICE(("BPF INSTR RUN! - addr: %32J, disc: %u", &txn_accs[ctx.instr->program_id], instruction.discriminant));
+  FD_LOG_INFO(("BPF INSTR RUN! - addr: %32J, disc: %u", &txn_accs[ctx.instr->program_id], instruction.discriminant));
 
   if( fd_bpf_upgradeable_loader_program_instruction_is_initialize_buffer( &instruction ) ) {
     if( ctx.instr->acct_cnt < 2 ) {
