@@ -207,7 +207,7 @@ fd_features_enable_v17( fd_features_t * f ) {{
 void
 fd_features_enable_all( fd_features_t * f ) {{
   memset( f, 0xff, sizeof(fd_features_t) );
-  {chr(0xa).join([f'  f->{x["name"]} = 1;' for x in fm])}
+  {chr(0xa).join([f'  f->{x["name"]} = 0;' for x in fm])}
 }}
 
 fd_feature_id_t const ids[] = {{
