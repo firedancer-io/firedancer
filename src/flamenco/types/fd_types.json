@@ -1616,7 +1616,8 @@
       "type": "struct",
       "fields": [
         { "name": "keys", "type": "vector", "element": "ulong" },
-        { "name": "bits", "type": "gossip_bitvec_u64" }
+        { "name": "bits", "type": "gossip_bitvec_u64" },
+        { "name": "num_bits_set", "type": "ulong" }
       ]
     },
     {

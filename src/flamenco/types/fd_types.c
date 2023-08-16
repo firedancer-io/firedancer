@@ -12246,6 +12246,8 @@ int fd_crds_bloom_decode(fd_crds_bloom_t* self, fd_bincode_decode_ctx_t * ctx) {
     self->keys = NULL;
   err = fd_gossip_bitvec_u64_decode(&self->bits, ctx);
   if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_decode(&self->num_bits_set, ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   return FD_BINCODE_SUCCESS;
 }
 void fd_crds_bloom_new(fd_crds_bloom_t* self) {
@@ -12269,6 +12271,7 @@ void fd_crds_bloom_walk(void * w, fd_crds_bloom_t const * self, fd_types_walk_fn
     fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "keys", level-- );
   }
   fd_gossip_bitvec_u64_walk(w, &self->bits, fun, "bits", level);
+  fun( w, &self->num_bits_set, "num_bits_set", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_crds_bloom", level--);
 }
 ulong fd_crds_bloom_size(fd_crds_bloom_t const * self) {
@@ -12276,6 +12279,7 @@ ulong fd_crds_bloom_size(fd_crds_bloom_t const * self) {
   size += sizeof(ulong);
   size += self->keys_len * sizeof(ulong);
   size += fd_gossip_bitvec_u64_size(&self->bits);
+  size += sizeof(ulong);
   return size;
 }
 
@@ -12289,6 +12293,8 @@ int fd_crds_bloom_encode(fd_crds_bloom_t const * self, fd_bincode_encode_ctx_t *
     }
   }
   err = fd_gossip_bitvec_u64_encode(&self->bits, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_encode(&self->num_bits_set, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }

@@ -1944,6 +1944,7 @@ struct fd_crds_bloom {
   ulong keys_len;
   ulong* keys;
   fd_gossip_bitvec_u64_t bits;
+  ulong num_bits_set;
 };
 typedef struct fd_crds_bloom fd_crds_bloom_t;
 #define FD_CRDS_BLOOM_FOOTPRINT sizeof(fd_crds_bloom_t)
