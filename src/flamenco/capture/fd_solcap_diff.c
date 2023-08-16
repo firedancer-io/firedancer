@@ -3,12 +3,22 @@
 #include "fd_solcap_reader.h"
 #include "fd_solcap.pb.h"
 #include "../../ballet/base58/fd_base58.h"
+#include "../runtime/fd_runtime.h"
+#include "../types/fd_types_yaml.h"
 
 #include <errno.h>
 #include <stdio.h>
 #include <sys/stat.h> /* mkdir(2) */
 #include <fcntl.h>    /* open(2) */
 #include <unistd.h>   /* close(2) */
+
+
+/* TODO: Ugly -- These should not be hard coded! */
+
+static const uchar
+_vote_program_address[ 32 ] =
+  "\x07\x61\x48\x1d\x35\x74\x74\xbb\x7c\x4d\x76\x24\xeb\xd3\xbd\xb3"
+  "\xd8\x35\x5e\x73\xd1\x10\x43\xfc\x0d\xa3\x53\x80\x00\x00\x00\x00";
 
 
 /* Define routines for sorting the bank hash account delta accounts.
@@ -121,6 +131,51 @@ fd_solcap_differ_sync( fd_solcap_differ_t * diff ) {
   return 0;
 }
 
+static int
+fd_solcap_can_pretty_print( uchar const owner[ static 32 ] ) {
+
+  if( 0==memcmp( owner, _vote_program_address, 32UL ) )
+    return 1;
+
+  return 0;
+}
+
+static int
+fd_solcap_account_pretty_print( uchar const   owner[ static 32 ],
+                                uchar const * data,
+                                ulong         data_sz,
+                                FILE *        file ) {
+
+  FD_SCRATCH_SCOPED_FRAME;
+
+  fd_bincode_decode_ctx_t decode = {
+    .data    = data,
+    .dataend = data + data_sz,
+    .valloc  = fd_scratch_virtual()
+  };
+
+  fd_flamenco_yaml_t * yaml =
+    fd_flamenco_yaml_init( fd_flamenco_yaml_new(
+      fd_scratch_alloc( fd_flamenco_yaml_align(), fd_flamenco_yaml_footprint() ) ),
+      file );
+  FD_TEST( yaml );
+
+  if( 0==memcmp( owner, _vote_program_address, 32UL ) ) {
+    fd_vote_state_versioned_t vote_state[1];
+    int err = fd_vote_state_versioned_decode( vote_state, &decode );
+    if( FD_UNLIKELY( err!=0 ) ) return err;
+
+    fd_vote_state_versioned_walk( yaml, vote_state, fd_flamenco_yaml_walk, NULL, 0U );
+    err = ferror( file );
+    if( FD_UNLIKELY( err!=0 ) ) return err;
+  }
+
+  /* No need to destroy structures, using fd_scratch allocator */
+
+  fd_flamenco_yaml_delete( yaml );
+  return 0;
+}
+
 static void
 fd_solcap_diff_account_data( fd_solcap_differ_t *                  diff,
                              fd_solcap_AccountMeta   const         meta     [ static 2 ],
@@ -154,10 +209,25 @@ fd_solcap_diff_account_data( fd_solcap_differ_t *                  diff,
 
   /* Dump account data to file */
   if( diff->verbose >= 4 ) {
+
+    /* TODO: Remove hardcoded account size check */
+    FD_TEST( meta[0].data_sz <= 1048576 );
+    FD_TEST( meta[1].data_sz <= 1048576 );
+
+    FD_SCRATCH_SCOPED_FRAME;
+    void * acc_data[2];
+           acc_data[0] = fd_scratch_alloc( 1LU, meta[0].data_sz );
+           acc_data[1] = fd_scratch_alloc( 1LU, meta[1].data_sz );
+
     for( ulong i=0UL; i<2UL; i++ ) {
       /* Rewind capture stream */
       FD_TEST( 0==fseek( diff->iter[ i ].stream, (long)data_goff[i], SEEK_SET ) );
 
+      /* Copy data */
+      FD_TEST( meta[i].data_sz == fread( acc_data[i], 1UL, meta[i].data_sz, diff->iter[i].stream ) );
+    }
+
+    for( ulong i=0; i<2; i++ ) {
       /* Create dump file */
       char path[ FD_BASE58_ENCODED_32_LEN+1+FD_BASE58_ENCODED_32_LEN+4+1 ];
       int res = snprintf( path, sizeof(path), "%32J-%32J.bin", entry[i]->key, entry[i]->hash );
@@ -166,24 +236,11 @@ fd_solcap_diff_account_data( fd_solcap_differ_t *                  diff,
       if( FD_UNLIKELY( fd<0 ) )
         FD_LOG_ERR(( "openat(%d,%s) failed (%d-%s)",
                     diff->dump_dir_fd, path, errno, strerror( errno ) ));
+
+      /* Write dump file */
       FILE * file = fdopen( fd, "wb" );
-
-      /* Copy */
-      for( ulong off=0UL; off<meta[i].data_sz; ) {
-#       define BUFSZ (512UL)
-
-        /* Copy chunks */
-        uchar buf[2][ BUFSZ ];
-        ulong sz = fd_ulong_min( BUFSZ, meta[i].data_sz-off );
-        FD_TEST( sz==fread ( buf[i], 1UL, sz, diff->iter[i].stream ) );
-        FD_TEST( sz==fwrite( buf[i], 1UL, sz, file                 ) );
-
-        off += sz;
-#       undef BUFSZ
-      }
-
-      /* Save dump file */
-      fclose( file );
+      FD_TEST( meta[i].data_sz == fwrite( acc_data[i], 1UL, meta[i].data_sz, file ) );
+      fclose( file );  /* Closes fd */
     }
 
     /* Inform user */
@@ -194,6 +251,35 @@ fd_solcap_diff_account_data( fd_solcap_differ_t *                  diff,
             diff->dump_dir, entry[1]->key, entry[1]->hash,
             diff->dump_dir, entry[0]->key, entry[0]->hash,
             diff->dump_dir, entry[1]->key, entry[1]->hash );
+
+    if( fd_solcap_can_pretty_print( meta[0].owner )
+      & fd_solcap_can_pretty_print( meta[1].owner ) ) {
+
+      for( ulong i=0UL; i<2UL; i++ ) {
+        /* Create YAML file */
+        char path[ FD_BASE58_ENCODED_32_LEN+1+FD_BASE58_ENCODED_32_LEN+4+1 ];
+        int res = snprintf( path, sizeof(path), "%32J-%32J.yml", entry[i]->key, entry[i]->hash );
+        FD_TEST( (res>0) & (res<(int)sizeof(path)) );
+        int fd = openat( diff->dump_dir_fd, path, O_CREAT|O_WRONLY|O_TRUNC, 0666 );
+        if( FD_UNLIKELY( fd<0 ) )
+          FD_LOG_ERR(( "openat(%d,%s) failed (%d-%s)",
+                      diff->dump_dir_fd, path, errno, strerror( errno ) ));
+
+        /* Write YAML file */
+        FILE * file = fdopen( fd, "wb" );
+        fd_solcap_account_pretty_print( meta[i].owner, acc_data[i], meta[i].data_sz, file );
+        fclose( file );  /* closes fd */
+      }
+
+
+      /* Inform user */
+      printf( "                 vimdiff '%s/%32J-%32J.yml' '%s/%32J-%32J.yml'\n",
+              diff->dump_dir, entry[0]->key, entry[0]->hash,
+              diff->dump_dir, entry[1]->key, entry[1]->hash,
+              diff->dump_dir, entry[0]->key, entry[0]->hash,
+              diff->dump_dir, entry[1]->key, entry[1]->hash );
+
+    }
   }
 }
 
