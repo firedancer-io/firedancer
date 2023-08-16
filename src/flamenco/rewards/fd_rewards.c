@@ -185,7 +185,7 @@ int redeem_rewards(
     fd_stake_state_t stake_state;
     read_stake_state( ctx->global, stake_acc, &stake_state );
     if (!fd_stake_state_is_stake( &stake_state)) {
-    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+        return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
     }
 
     result = NULL;
@@ -470,7 +470,7 @@ hash_rewards_into_partitions(
     fd_stake_rewards_vector_t * result
 ) {
     fd_siphash13_t  _sip[1];
-    fd_siphash13_t * hasher = fd_siphash13_init( _sip, 0, 0 );
+    fd_siphash13_t * hasher = fd_siphash13_init( _sip, 0UL, 0UL );
     hasher = fd_siphash13_append( hasher, bank->banks_hash.hash, sizeof(fd_hash_t));
 
     fd_stake_rewards_vector_new( result );
@@ -529,17 +529,74 @@ calculate_rewards_for_partitioning(
     };
 }
 
+static void
+update_reward_history(
+    fd_firedancer_banks_t * bank,
+    fd_stake_rewards_t * stake_rewards,
+    fd_vote_reward_t_mapnode_t * vote_reward_map
+) {
+    (void) bank;
+    (void) stake_rewards;
+    (void) vote_reward_map;
+    // let additional_reserve = stake_rewards.len() + vote_rewards.len();
+    // let mut rewards = self.rewards.write().unwrap();
+    // rewards.reserve(additional_reserve);
+    // rewards.append(&mut vote_rewards);
+    // stake_rewards
+    //     .into_iter()
+    //     .filter(|x| x.get_stake_reward() > 0)
+    //     .for_each(|x| rewards.push((x.stake_pubkey, x.stake_reward_info)));
+    return;
+}
 // Calculate rewards from previous epoch and distribute vote rewards
 void calculate_rewards_and_distribute_vote_rewards(
     instruction_ctx_t * ctx,
-    ulong prev_epoch
+    ulong prev_epoch,
+    fd_calculate_rewards_and_distribute_vote_rewards_result_t * result
 ) {
     fd_partitioned_rewards_calculation_t * rewards_calc_result = NULL;
     calculate_rewards_for_partitioning(ctx, prev_epoch,  rewards_calc_result);
-    (void) rewards_calc_result;
+    /* TODO: update_reward_history */
+    fd_firedancer_banks_t * bank = &ctx->global->bank;
+    update_reward_history(bank, NULL, rewards_calc_result->vote_account_rewards);
+
+    // This is for vote rewards only.
+    ulong new_vote_balance_and_staked = vote_balance_and_staked(&bank->stakes);
+    ulong validator_rewards_paid = fd_ulong_sat_sub(new_vote_balance_and_staked, rewards_calc_result->old_vote_balance_and_staked);
+
+    // verify that we didn't pay any more than we expected to
+    FD_TEST( rewards_calc_result->validator_rewards >= fd_ulong_sat_add(validator_rewards_paid, rewards_calc_result->total_stake_rewards_lamports));
+
+    FD_LOG_INFO((
+        "distributed vote rewards: %lu out of %lu, remaining %lu",
+        validator_rewards_paid,
+        rewards_calc_result->validator_rewards,
+        rewards_calc_result->total_stake_rewards_lamports
+    ));
+
+    bank->capitalization += validator_rewards_paid;
+
+    /*
+    // only useful for logging
+    ulong active_stake = 0;
+    for ( fd_stake_history_epochentry_pair_t_mapnode_t * n = fd_stake_history_epochentry_pair_t_map_minimum( bank->stakes.stake_history.entries_pool, bank->stakes.stake_history.entries_root ); n; n = fd_stake_history_epochentry_pair_t_map_successor( bank->stakes.stake_history.entries_pool, n ) ) {
+        if (bank->stakes.stake_history.entries_pool->elem.epoch == prev_epoch) {
+            active_stake = bank->stakes.stake_history.entries_pool->elem.entry.effective;
+            break;
+        }
+    }
+    */
+    result->total_rewards = fd_ulong_sat_add(validator_rewards_paid,  rewards_calc_result->total_stake_rewards_lamports);
+    result->distributed_rewards = validator_rewards_paid;
+    result->stake_rewards_by_partition = rewards_calc_result->stake_rewards_by_partition;
 }
 
 // update_rewards_with_thread_pool
 
+// pay_validator_rewards_with_thread_pool
+
+// begin_partitioned_rewards
+
+// distribute_partitioned_epoch_rewards
 
 // process_new_epoch
