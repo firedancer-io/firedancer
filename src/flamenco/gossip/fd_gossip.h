@@ -2,6 +2,16 @@
 #define HEADER_fd_src_flamenco_gossip_fd_gossip_h
 
 #include "../types/fd_types.h"
+#include "../../util/valloc/fd_valloc.h"
+
+/* Global state of gossip protocol */
+typedef struct fd_gossip_global fd_gossip_global_t;
+ulong                fd_gossip_global_align    ( void );
+ulong                fd_gossip_global_footprint( void );
+void *               fd_gossip_global_new      ( void * shmem, ulong seed, fd_valloc_t valloc );
+fd_gossip_global_t * fd_gossip_global_join     ( void * shmap );
+void *               fd_gossip_global_leave    ( fd_gossip_global_t * join );
+void *               fd_gossip_global_delete   ( void * shmap, fd_valloc_t valloc );
 
 /* fd_gossip_credentials holds the node's gossip private credentials. */
 
