@@ -272,6 +272,31 @@ fd_log_tid( void ) {
   return fd_log_private_tid;
 }
 
+/* User id */
+
+static ulong
+fd_log_private_user_id_default( void ) {
+  return (ulong)getuid(); /* POSIX spec seems ambiguous as to whether or not this is a signed type */
+}
+
+static ulong fd_log_private_user_id;      /* 0 outside boot/halt, init on boot */
+static int   fd_log_private_user_id_init;
+
+void
+fd_log_private_user_id_set( ulong user_id ) {
+  fd_log_private_user_id      = user_id;
+  fd_log_private_user_id_init = 1;
+}
+
+ulong
+fd_log_user_id( void ) {
+  if( FD_UNLIKELY( !fd_log_private_user_id_init ) ) {
+    fd_log_private_user_id      = fd_log_private_user_id_default();
+    fd_log_private_user_id_init = 1;
+  }
+  return fd_log_private_user_id;
+}
+
 /* User */
 
 static char  fd_log_private_user[ FD_LOG_NAME_MAX ]; /* "" outside boot/halt, init on boot */
@@ -963,6 +988,9 @@ fd_log_private_boot( int  *   pargc,
   fd_env_strip_cmdline_ulong( pargc, pargv, "--log-tid", "FD_LOG_TID", 0UL ); /* FIXME: LOG IGNORING? */
   fd_log_private_tid_set( fd_log_private_tid_default() );
 
+  fd_env_strip_cmdline_ulong( pargc, pargv, "--log-user-id", "FD_LOG_USER_ID", 0UL ); /* FIXME: LOG IGNORING? */
+  fd_log_private_user_id_set( fd_log_private_user_id_default() );
+
   char const * user = fd_env_strip_cmdline_cstr( pargc, pargv, "--log-user", "FD_LOG_USER", NULL );
   if( !user )  user = getenv( "LOGNAME" );
   if( !user )  user = getlogin();
@@ -1105,6 +1133,7 @@ fd_log_private_boot( int  *   pargc,
   FD_LOG_INFO(( "fd_log: --log-group-id      %lu", fd_log_group_id()      ));
   FD_LOG_INFO(( "fd_log: --log-group         %s",  fd_log_group()         ));
   FD_LOG_INFO(( "fd_log: --log-tid           %lu", fd_log_tid()           ));
+  FD_LOG_INFO(( "fd_log: --log-user-id       %lu", fd_log_user_id()       ));
   FD_LOG_INFO(( "fd_log: --log-user          %s",  fd_log_user()          ));
 
   FD_LOG_INFO(( "fd_log: boot success" ));
@@ -1129,6 +1158,8 @@ fd_log_private_halt( void ) {
   fd_log_private_colorize       = 0;
 
   fd_log_private_user[0]        = '\0';
+  fd_log_private_user_id_init   = 0;
+  fd_log_private_user_id        = 0UL;
   fd_log_private_tid_init       = 0;
   fd_log_private_tid            = 0UL;
   fd_log_private_group[0]       = '\0';
