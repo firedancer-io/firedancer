@@ -218,8 +218,10 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_meta_t* m, const void
         ulong pay_sz = 0;
         const uchar* raw = (const uchar *)block + blockoff;
         ulong txn_sz = fd_txn_parse_core(raw, fd_ulong_min(blocklen - blockoff, USHORT_MAX), txn_out, NULL, &pay_sz, 0);
-        if ( txn_sz == 0 || txn_sz > FD_TXN_MAX_SZ )
-          FD_LOG_ERR(("failed to parse transaction"));
+        if ( txn_sz == 0 || txn_sz > FD_TXN_MAX_SZ ) {
+          txn_sz = fd_txn_parse_core(raw, fd_ulong_min(blocklen - blockoff, USHORT_MAX), txn_out, NULL, &pay_sz, 0);
+          FD_LOG_ERR(("failed to parse transaction -  slot: %lu, txn_idx_in_block: %lu, mblk: %lu, txn_idx: %lu", global->bank.slot, txn_idx_in_block, mblk, txn_idx));
+        }
 
         fd_txn_t* txn = (fd_txn_t *)txn_out;
         fd_rawtxn_b_t rawtxn;
@@ -906,6 +908,9 @@ fd_global_ctx_new        ( void * mem ) {
   fd_executor_new ( &self->executor, self, FD_EXECUTOR_FOOTPRINT );
 
   fd_firedancer_banks_new(&self->bank);
+
+  // all features are disabled by default.
+  fd_features_disable_all(&self->features);
 
   fd_base58_decode_32( "Sysvar1111111111111111111111111111111111111",  (unsigned char *) self->sysvar_owner);
   fd_base58_decode_32( "SysvarRecentB1ockHashes11111111111111111111",  (unsigned char *) self->sysvar_recent_block_hashes);

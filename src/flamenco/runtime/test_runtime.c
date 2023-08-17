@@ -41,6 +41,7 @@ build/native/gcc/unit-test/test_runtime --wksp giant_wksp --gaddr 0xc7ce180 --cm
 #include "fd_rocksdb.h"
 #include "fd_banks_solana.h"
 #include "fd_hashes.h"
+#include "fd_account.h"
 #include "fd_executor.h"
 #include "../../flamenco/types/fd_types.h"
 #include "../../funk/fd_funk.h"
@@ -149,22 +150,6 @@ accounts_hash( global_state_t *state ) {
   FD_LOG_WARNING(("num_iter_accounts %ld", num_iter_accounts));
 
   return 0;
-}
-
-static fd_hash_t const *
-get_bank_hash( fd_funk_t *       funk,
-               ulong             slot ) {
-
-  fd_funk_rec_key_t key = fd_runtime_bank_hash_key( slot );
-  fd_funk_rec_t const * rec = fd_funk_rec_query_global( funk, NULL, &key );
-  if( !rec ) {
-    FD_LOG_DEBUG(( "No known bank hash for slot %lu", slot ));
-    return NULL;
-  }
-
-  void const * val = fd_funk_val_const( rec, fd_funk_wksp( funk ));
-  FD_TEST( fd_funk_val_sz( rec ) == sizeof(fd_hash_t) );
-  return (fd_hash_t const *)val;
 }
 
 int
@@ -299,7 +284,7 @@ replay( global_state_t * state,
 
     /* Read bank hash */
 
-    fd_hash_t const * known_bank_hash = get_bank_hash( state->global->funk, slot );
+    fd_hash_t const * known_bank_hash = fd_get_bank_hash( state->global->funk, slot );
     if( known_bank_hash ) {
       if( FD_UNLIKELY( 0!=memcmp( state->global->bank.banks_hash.hash, known_bank_hash->hash, 32UL ) ) ) {
         FD_LOG_WARNING(( "Bank hash mismatch! slot=%lu expected=%32J, got=%32J",
@@ -593,7 +578,7 @@ int main(int argc, char **argv) {
 
   FD_TEST(fd_alloc_is_empty(alloc));
   fd_wksp_free_laddr( fd_alloc_delete( fd_alloc_leave( alloc ) ) );
-  
+
   fd_wksp_delete_anonymous( state.global->local_wksp );
   if( state.name )
     fd_wksp_detach( state.global->funk_wksp );

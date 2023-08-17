@@ -1,7 +1,6 @@
 MAKEFLAGS += --no-builtin-rules
 MAKEFLAGS += --no-builtin-variables
 .SUFFIXES:
-.SUFFIXES: .h .hxx .c .cxx .o .a .d .S .i
 .PHONY: all bin fdctl fddev run monitor include lib unit-test fuzz-test run-unit-test help clean distclean asm ppp show-deps lint check-lint cargo
 .SECONDARY:
 .SECONDEXPANSION:

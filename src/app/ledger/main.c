@@ -18,9 +18,12 @@
 #include "../../funk/fd_funk.h"
 #include "../../flamenco/types/fd_types.h"
 #include "../../flamenco/runtime/fd_runtime.h"
+#include "../../flamenco/runtime/fd_account.h"
 #include "../../flamenco/runtime/fd_rocksdb.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../../flamenco/types/fd_solana_block.pb.h"
+
+extern void fd_write_builtin_bogus_account( fd_global_ctx_t * global, uchar const       pubkey[ static 32 ], char const *      data, ulong             sz );
 
 static void usage(char const * progname) {
   fprintf(stderr, "USAGE: %s\n", progname);
@@ -401,7 +404,7 @@ ingest_rocksdb( fd_global_ctx_t * global,
   if (end_slot > last_slot)
     end_slot = last_slot;
 
-  ulong start_slot = global->bank.slot+1;
+  ulong start_slot = global->bank.slot;
   if ( last_slot < start_slot ) {
     FD_LOG_ERR(("rocksdb blocks are older than snapshot. first=%lu last=%lu wanted=%lu",
                 fd_rocksdb_first_slot(&rocks_db, &err), last_slot, start_slot));
@@ -557,7 +560,7 @@ main( int     argc,
   char const * snapshotfile = fd_env_strip_cmdline_cstr ( &argc, &argv, "--snapshotfile", NULL, NULL      );
   char const * incremental  = fd_env_strip_cmdline_cstr ( &argc, &argv, "--incremental",  NULL, NULL      );
   ulong        loglevel     = fd_env_strip_cmdline_ulong( &argc, &argv, "--loglevel",     NULL, 0         );
-  char const * net          = fd_env_strip_cmdline_cstr ( &argc, &argv, "--network",      NULL, NULL      );
+  char const * net          = fd_env_strip_cmdline_cstr ( &argc, &argv, "--net",          NULL, NULL      );
   char const * genesis      = fd_env_strip_cmdline_cstr ( &argc, &argv, "--genesis",      NULL, NULL      );
   char const * rocksdb_dir  = fd_env_strip_cmdline_cstr ( &argc, &argv, "--rocksdb",      NULL, NULL      );
   ulong        end_slot     = fd_env_strip_cmdline_ulong( &argc, &argv, "--endslot",      NULL, ULONG_MAX );
@@ -640,7 +643,6 @@ main( int     argc,
   }
 
   char global_mem[FD_GLOBAL_CTX_FOOTPRINT] __attribute__((aligned(FD_GLOBAL_CTX_ALIGN)));
-  memset(global_mem, 0, sizeof(global_mem));
   fd_global_ctx_t * global = fd_global_ctx_join( fd_global_ctx_new( global_mem ) );
 
   fd_alloc_t * alloc = fd_alloc_join( fd_wksp_laddr_fast( wksp, funk->alloc_gaddr ), 0UL );
@@ -726,8 +728,7 @@ main( int     argc,
         fd_features_enable_v16(&global->features);
       if (!strcmp(net, "v17"))
         fd_features_enable_v17(&global->features);
-    } else
-      fd_features_enable_all(&global->features);
+    }
 
     if (snapshot_used) {
       int err = 0;
@@ -800,9 +801,20 @@ main( int     argc,
 
       fd_runtime_init_program( global );
 
+      if (global->log_level > 2)
+        FD_LOG_WARNING(( "start genesis accounts"));
+
       for( ulong i=0; i < genesis_block.accounts_len; i++ ) {
         fd_pubkey_account_pair_t * a = &genesis_block.accounts[i];
         fd_acc_mgr_write_structured_account( global->acc_mgr, global->funk_txn, 0UL, &a->key, &a->account );
+      }
+
+      if (global->log_level > 2)
+        FD_LOG_WARNING(( "end genesis accounts"));
+
+      for( ulong i=0; i < genesis_block.native_instruction_processors_len; i++ ) {
+        fd_string_pubkey_pair_t * a = &genesis_block.native_instruction_processors[i];
+        fd_write_builtin_bogus_account( global, a->pubkey.uc, a->string, strlen(a->string) );
       }
 
       /* sort and update bank hash */
@@ -826,6 +838,17 @@ main( int     argc,
 
     if( rocksdb_dir ) {
       ingest_rocksdb( global, rocksdb_dir, end_slot, verifypoh, txnstatus, tpool, tcnt-1 );
+
+      fd_hash_t const * known_bank_hash = fd_get_bank_hash( global->funk, global->bank.slot );
+
+      if( known_bank_hash ) {
+        if( FD_UNLIKELY( 0!=memcmp( global->bank.banks_hash.hash, known_bank_hash->hash, 32UL ) ) ) {
+          FD_LOG_ERR(( "Bank hash mismatch! slot=%lu expected=%32J, got=%32J",
+              global->bank.slot,
+              known_bank_hash->hash,
+              global->bank.banks_hash.hash ));
+        }
+      }
     }
 
     /* Dump feature activation state */

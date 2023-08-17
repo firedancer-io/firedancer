@@ -117,10 +117,10 @@ fd_executor_collect_fee( fd_global_ctx_t *   global,
                          ulong               fee ) {
 
   int          err = 0;
-  ulong        sz;
+  ulong        sz  = 0UL;
   void const * raw_data = fd_acc_mgr_modify_data( global->acc_mgr, global->funk_txn, account, 0, &sz, NULL, NULL, &err );
   if( !raw_data ) {
-    FD_LOG_WARNING(( "fd_acc_mgr_view_data failed" ));
+    FD_LOG_WARNING(( "fd_acc_mgr_modify_data failed (%d)", err ));
     // TODO: The fee payer does not seem to exist?!  what now?
     return -1;
   }
@@ -237,9 +237,17 @@ fd_execute_txn( fd_executor_t* executor, fd_txn_t * txn_descriptor, fd_rawtxn_b_
     if (exec_instr_func != NULL) {
       int exec_result = exec_instr_func( ctx );
       if ( FD_UNLIKELY( exec_result != FD_EXECUTOR_INSTR_SUCCESS ) ) {
+        fd_funk_txn_cancel(global->funk, txn, 0);
+
+        xid.ul[0] = fd_rng_ulong( global->rng );
+        xid.ul[1] = fd_rng_ulong( global->rng );
+        xid.ul[2] = fd_rng_ulong( global->rng );
+        xid.ul[3] = fd_rng_ulong( global->rng );
+        txn = fd_funk_txn_prepare( global->funk, parent_txn, &xid, 1 );
+        global->funk_txn = txn;
+
         exec_result = exec_instr_func( ctx );
         FD_LOG_WARNING(( "instruction executed unsuccessfully: error code %d, program id: %32J", exec_result, &tx_accs[instr->program_id] ));
-        fd_funk_txn_cancel(global->funk, txn, 0);
         global->funk_txn = parent_txn;
         return -1;
         /* TODO: revert transaction context */

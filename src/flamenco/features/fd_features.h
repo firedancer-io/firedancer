@@ -240,7 +240,16 @@ fd_features_ptr_const( fd_features_t const *   features,
   return (ulong const *)( (ulong)features + id->offset );
 }
 
+static inline void fd_features_disable_all   ( fd_features_t * f) {
+  for( fd_feature_id_t const * id = fd_feature_iter_init();
+       !fd_feature_iter_done( id );
+       id = fd_feature_iter_next( id ) ) {
+    *fd_features_ptr(f, id) = ULONG_MAX;
+  }
+}
+
+
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_features_fd_features_h */
-
