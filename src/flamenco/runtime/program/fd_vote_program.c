@@ -1417,23 +1417,28 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
     fd_vote_state_update_t decode;
     fd_memset(&decode, 0, sizeof(fd_vote_state_update_t));
 
-    if ( instruction.discriminant == fd_vote_instruction_enum_update_vote_state) {
+    switch (instruction.discriminant) {
+    case fd_vote_instruction_enum_update_vote_state:
       FD_LOG_INFO(( "executing VoteInstruction::UpdateVoteState instruction" ));
       vote_state_update = &instruction.inner.update_vote_state;
-    } else if ( instruction.discriminant == fd_vote_instruction_enum_update_vote_state_switch) {
+      break;
+    case fd_vote_instruction_enum_update_vote_state_switch:
       FD_LOG_WARNING(( "executing VoteInstruction::UpdateVoteStateSwitch instruction" ));
       vote_state_update = &instruction.inner.update_vote_state_switch.vote_state_update;
-    } else if ( instruction.discriminant == fd_vote_instruction_enum_compact_update_vote_state ) {
+      break;
+    case fd_vote_instruction_enum_compact_update_vote_state:
       FD_LOG_DEBUG(( "executing vote program instruction: fd_vote_instruction_enum_compact_update_vote_state"));
       is_compact = true;
       decode_compact_update(ctx, &instruction.inner.compact_update_vote_state, &decode);
       vote_state_update = &decode;
-    } else {
+      break;
+    default:
       // What are we supposed to do here?  What about the hash?
       FD_LOG_WARNING(( "executing vote program instruction: fd_vote_instruction_enum_compact_update_vote_state_switch"));
       is_compact = true;
       decode_compact_update(ctx, &instruction.inner.compact_update_vote_state_switch.compact_vote_state_update, &decode);
       vote_state_update = &decode;
+      break;
     }
 
     if( FD_UNLIKELY( !FD_FEATURE_ACTIVE(ctx.global, allow_votes_to_directly_update_vote_state ) )) {
@@ -1455,12 +1460,6 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
 
     /* Read vote account state stored in the vote account data */
     fd_pubkey_t const * vote_acc = &txn_accs[instr_acc_idxs[0]];
-
-    /* Ensure that keyed account 1 is the clock sysvar */
-    if( FD_UNLIKELY( 0!=memcmp( &txn_accs[instr_acc_idxs[2]], ctx.global->sysvar_clock, sizeof(fd_pubkey_t) ) ) ) {
-      ret = FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
-      break;
-    }
 
     fd_sol_sysvar_clock_t clock;
     fd_sysvar_clock_read( ctx.global, &clock );
@@ -1593,7 +1592,8 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
 
       ulong ancestor_slot = deq_fd_slot_hash_t_peek_index_const(slot_hashes.hashes, slot_hashes_index - 1)->slot;
       if (proposed_vote_slot < ancestor_slot) {
-        if (slot_hashes_index == deq_fd_slot_hash_t_cnt(slot_hashes.hashes)) {
+        ulong cnt = deq_fd_slot_hash_t_cnt(slot_hashes.hashes);
+        if (slot_hashes_index == cnt) {
           // TODO: assert!(proposed_vote_slot < earliest_slot_hash_in_history);
           if (!vote_state_contains_slot(vote_state, proposed_vote_slot) && !root_to_check) {
             FD_LOG_NOTICE(("index %lu", vote_state_update_index));
@@ -2291,7 +2291,7 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
   }
   // case fd_vote_instruction_enum_compact_update_vote_state_switch:
   // case fd_vote_instruction_enum_compact_update_vote_state: {
-  //   if( FD_UNLIKELY( !FD_FEATURE_ACTIVE( ctx.global, allow_votes_to_directly_update_vote_state ) && 
+  //   if( FD_UNLIKELY( !FD_FEATURE_ACTIVE( ctx.global, allow_votes_to_directly_update_vote_state ) &&
   //                    !FD_FEATURE_ACTIVE( ctx.global, compact_vote_state_updates ) ) ) {
   //     FD_LOG_WARNING(( "executing VoteInstruction::CompactUpdateVoteState instruction, but feature is not active" ));
   //     ret = FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;

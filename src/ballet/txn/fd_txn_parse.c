@@ -3,6 +3,9 @@
 #include "fd_txn.h"
 #include "fd_compact_u16.h"
 
+#ifdef _DISABLE_OPTIMIZATION
+#pragma GCC optimize ("O0")
+#endif
 
 
 ulong
@@ -74,7 +77,7 @@ fd_txn_parse_core( uchar const             * payload,
 
   /* Minimal instr has 1B for program id, 1B acct_addr list, 1B for no data */
   #define MIN_INSTR_SZ (3UL)
-  CHECK( payload_sz<=FD_TXN_MTU );
+//  CHECK( payload_sz<=FD_TXN_MTU );
 
   /* The documentation sometimes calls this field a compact-u16 and sometimes a u8.
      Because of transaction size caps, even allowing for a 3k transaction caps the
