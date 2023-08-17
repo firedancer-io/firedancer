@@ -26,10 +26,8 @@ dev_cmd_perm( args_t *         args,
   args_t configure_args = {
     .configure.command = CONFIGURE_CMD_INIT,
   };
-  configure_args.configure.stages[ 0 ] = &netns;
   for( ulong i=0; i<CONFIGURE_STAGE_COUNT; i++ )
-    configure_args.configure.stages[ i + 1 ] = STAGES[ i ];
-  configure_args.configure.stages[ CONFIGURE_STAGE_COUNT+1 ] = &cluster;
+    configure_args.configure.stages[ i ] = STAGES[ i ];
   configure_cmd_perm( &configure_args, security, config );
 
   run_cmd_perm( NULL, security, config );
@@ -68,13 +66,8 @@ dev_cmd_fn( args_t *         args,
   args_t configure_args = {
     .configure.command = CONFIGURE_CMD_INIT,
   };
-  /* cluster and netns stages are not accessible from regular configure command,
-     but perform them here. netns is first, as other stages might depend on it */
-  /* netns is the first stage, others might depend on it */
-  configure_args.configure.stages[ 0 ] = &netns;
   for( ulong i=0; i<CONFIGURE_STAGE_COUNT; i++ )
-    configure_args.configure.stages[ i + 1 ] = STAGES[ i ];
-  configure_args.configure.stages[ CONFIGURE_STAGE_COUNT ] = &cluster;
+    configure_args.configure.stages[ i ] = STAGES[ i ];
   configure_cmd_fn( &configure_args, config );
 
   /* when starting from a new genesis block, this needs to be off else the

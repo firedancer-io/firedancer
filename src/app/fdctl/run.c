@@ -25,10 +25,12 @@ run_cmd_perm( args_t *         args,
   check_res( security, "run", RLIMIT_NOFILE, 1024000, "increase `RLIMIT_NOFILE` to allow more open files for Solana Labs" );
   check_cap( security, "run", CAP_NET_RAW, "call `bind(2)` to bind to a socket with `SOCK_RAW`" );
   check_cap( security, "run", CAP_SYS_ADMIN, "initialize XDP by calling `bpf_obj_get`" );
-  if( getuid() != config->uid )
+  if( FD_LIKELY( getuid() != config->uid ) )
     check_cap( security, "run", CAP_SETUID, "switch uid by calling `setuid(2)`" );
-  if( getgid() != config->gid )
+  if( FD_LIKELY( getgid() != config->gid ) )
     check_cap( security, "run", CAP_SETGID, "switch gid by calling `setgid(2)`" );
+  if( FD_UNLIKELY( config->development.netns.enabled ) )
+    check_cap( security, "run", CAP_SYS_ADMIN, "enter a network namespace by calling `setns(2)`" );
 }
 
 static void
@@ -125,12 +127,13 @@ tile_main( void * _args ) {
                                               sizeof(allow_fds)/sizeof(allow_fds[0]),
                                               allow_fds );
 
-  if( FD_LIKELY( args->sandbox ) ) fd_sandbox( args->uid,
-                                               args->gid,
-                                               allow_fds_sz,
-                                               allow_fds,
-                                               args->tile->allow_syscalls_sz,
-                                               args->tile->allow_syscalls );
+  fd_sandbox( args->sandbox,
+              args->uid,
+              args->gid,
+              allow_fds_sz,
+              allow_fds,
+              args->tile->allow_syscalls_sz,
+              args->tile->allow_syscalls );
   args->tile->run( &frank_args );
   return 0;
 }
@@ -332,7 +335,8 @@ main_pid_namespace( void * args ) {
   if( sigaction( SIGINT, sa, NULL ) ) FD_LOG_ERR(( "sigaction() failed (%i-%s)", errno, strerror( errno ) ));
 
   /* change pgid so controlling terminal generates interrupt only to the parent */
-  if( FD_UNLIKELY( setpgid( 0, 0 ) ) ) FD_LOG_ERR(( "setpgid() failed (%i-%s)", errno, strerror( errno ) ));
+  if( FD_LIKELY( config->development.sandbox ) )
+    if( FD_UNLIKELY( setpgid( 0, 0 ) ) ) FD_LOG_ERR(( "setpgid() failed (%i-%s)", errno, strerror( errno ) ));
 
   ushort tile_to_cpu[ FD_TILE_MAX ];
   ulong  affinity_tile_cnt = fd_tile_private_cpus_parse( config->layout.affinity, tile_to_cpu );
@@ -387,13 +391,13 @@ main_pid_namespace( void * args ) {
     3, /* logfile */
   };
 
-  if( config->development.sandbox )
-    fd_sandbox( config->uid,
-                config->gid,
-                sizeof(allow_fds)/sizeof(allow_fds[ 0 ]),
-                allow_fds,
-                sizeof(allow_syscalls)/sizeof(allow_syscalls[0]),
-                allow_syscalls );
+  fd_sandbox( config->development.sandbox,
+              config->uid,
+              config->gid,
+              sizeof(allow_fds)/sizeof(allow_fds[ 0 ]),
+              allow_fds,
+              sizeof(allow_syscalls)/sizeof(allow_syscalls[0]),
+              allow_syscalls );
 
   /* we are now the init process of the pid namespace. if the init process
      dies, all children are terminated. If any child dies, we terminate the
@@ -476,13 +480,13 @@ run_firedancer( config_t * const config ) {
     3, /* logfile */
   };
 
-  if( config->development.sandbox )
-    fd_sandbox( config->uid,
-                config->gid,
-                sizeof(allow_fds)/sizeof(allow_fds[ 0 ]),
-                allow_fds,
-                sizeof(allow_syscalls)/sizeof(allow_syscalls[0]),
-                allow_syscalls );
+  fd_sandbox( config->development.sandbox,
+              config->uid,
+              config->gid,
+              sizeof(allow_fds)/sizeof(allow_fds[ 0 ]),
+              allow_fds,
+              sizeof(allow_syscalls)/sizeof(allow_syscalls[0]),
+              allow_syscalls );
 
   int wstatus;
   pid_t pid2 = wait4( pid_namespace, &wstatus, (int)__WCLONE, NULL );

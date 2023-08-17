@@ -14,7 +14,7 @@ static void
 init_perm( security_t *     security,
            config_t * const config ) {
   if( FD_UNLIKELY( config->development.netns.enabled ) )
-    check_cap( security, NAME, CAP_SYS_ADMIN, "enter a network namespace" );
+    check_cap( security, NAME, CAP_SYS_ADMIN, "enter a network namespace by calling `setns(2)`" );
   else {
     check_cap( security, NAME, CAP_SYS_ADMIN, "create a BPF map with `bpf_map_create`" );
     check_cap( security, NAME, CAP_NET_ADMIN, "create an XSK map with `bpf_map_create`" );
@@ -27,9 +27,8 @@ FD_IMPORT_BINARY( fd_xdp_redirect_prog, "src/tango/xdp/fd_xdp_redirect_prog.o" )
 
 static void
 init( config_t * const config ) {
-  if( FD_UNLIKELY( config->development.netns.enabled ) )  {
+  if( FD_UNLIKELY( config->development.netns.enabled ) )
     enter_network_namespace( config->tiles.quic.interface );
-  }
 
   uint mode = 0;
   if(      FD_LIKELY( !strcmp( config->tiles.quic.xdp_mode, "skb" ) ) ) mode = XDP_FLAGS_SKB_MODE;
@@ -55,7 +54,17 @@ init( config_t * const config ) {
 }
 
 static void
+fini_perm( security_t *     security,
+           config_t * const config ) {
+  if( FD_UNLIKELY( config->development.netns.enabled ) )
+    check_cap( security, NAME, CAP_SYS_ADMIN, "enter a network namespace by calling `setns(2)`" );
+}
+
+static void
 fini( config_t * const config ) {
+  if( FD_UNLIKELY( config->development.netns.enabled ) )
+    enter_network_namespace( config->tiles.quic.interface );
+
   if( FD_UNLIKELY( fd_xdp_fini( config->name ) ) )
     FD_LOG_ERR(( "fd_xdp_fini failed" ));
 
@@ -105,7 +114,7 @@ configure_stage_t xdp = {
   .always_recreate = 0,
   .enabled         = NULL,
   .init_perm       = init_perm,
-  .fini_perm       = NULL,
+  .fini_perm       = fini_perm,
   .init            = init,
   .fini            = fini,
   .check           = check,

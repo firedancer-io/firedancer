@@ -215,7 +215,7 @@ seccomp_default_filter( void ) {
     FD_TEST( -1 != waitpid( pid, &wstatus, WUNTRACED ) );
     FD_TEST( WIFSIGNALED( wstatus ) && WTERMSIG( wstatus ) == SIGSYS );
   } else { // child
-    fd_sandbox( getuid(), getgid(), SIZEOFA( fds ), fds, 0, NULL );
+    fd_sandbox( 1, getuid(), getgid(), SIZEOFA( fds ), fds, 0, NULL );
     // This should fail with SIGSYS
     execl( "/bin/true", "" );
     exit( EXIT_FAILURE );

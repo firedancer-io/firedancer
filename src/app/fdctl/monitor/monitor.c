@@ -487,13 +487,13 @@ monitor_cmd_fn( args_t *         args,
   ushort allow_syscalls_sz = args->monitor.drain_output_fd >= 0 ? num_syscalls : (ushort)(num_syscalls - 1);
 
   if( FD_UNLIKELY( close( 0 ) ) ) FD_LOG_ERR(( "close(0) failed (%i-%s)", errno, strerror( errno ) ));
-  if( config->development.sandbox )
-    fd_sandbox( config->uid,
-                config->gid,
-                allow_fds_sz,
-                allow_fds,
-                allow_syscalls_sz,
-                allow_syscalls );
+  fd_sandbox( config->development.sandbox,
+              config->uid,
+              config->gid,
+              allow_fds_sz,
+              allow_fds,
+              allow_syscalls_sz,
+              allow_syscalls );
 
   run_monitor( config,
                pods,

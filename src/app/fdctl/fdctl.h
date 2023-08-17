@@ -11,7 +11,7 @@
 #include <unistd.h>
 #include <errno.h>
 
-#define CONFIGURE_STAGE_COUNT 9
+#define CONFIGURE_STAGE_COUNT 11
 struct configure_stage;
 
 typedef union {
@@ -25,7 +25,7 @@ typedef union {
   } monitor;
   struct {
     int                      command;
-    struct configure_stage * stages[ CONFIGURE_STAGE_COUNT + 2 ];
+    struct configure_stage * stages[ CONFIGURE_STAGE_COUNT ];
   } configure;
   struct {
     int tile;

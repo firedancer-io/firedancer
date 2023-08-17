@@ -255,7 +255,6 @@ static void parse_key_value( config_t *   config,
   ENTRY_STR   ( ., shmem,               huge_page_mount_path                                      );
 
   ENTRY_BOOL  ( ., development,         sandbox                                                   );
-  ENTRY_BOOL  ( ., development,         sudo                                                      );
 
   ENTRY_BOOL  ( ., development.netns,   enabled                                                   );
   ENTRY_STR   ( ., development.netns,   interface0                                                );
@@ -577,6 +576,15 @@ config_parse( int *    pargc,
     config_parse_file( user_config, &result );
   }
 
+  int netns = fd_env_strip_cmdline_contains( pargc, pargv, "--netns" );
+  if( FD_UNLIKELY( netns ) ) {
+    result.development.netns.enabled = 1;
+    strncpy( result.tiles.quic.interface,
+             result.development.netns.interface0,
+             sizeof(result.tiles.quic.interface) );
+    result.tiles.quic.interface[ sizeof(result.tiles.quic.interface) - 1 ] = '\0';
+  }
+
   if( FD_UNLIKELY( !strcmp( result.user, "" ) ) ) {
     const char * user = default_user();
     if( FD_UNLIKELY( strlen( user ) >= sizeof( result.user ) ) )
@@ -605,8 +613,10 @@ config_parse( int *    pargc,
                    "for development, the configuration file must specify that "
                    "[development.netns.interface0] is the same as [tiles.quic.interface]" ));
 
-    fd_cstr_to_ip4_addr( result.development.netns.interface0_addr, &result.tiles.quic.ip_addr );
-    fd_cstr_to_mac_addr( result.development.netns.interface0_mac, result.tiles.quic.mac_addr );
+    if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( result.development.netns.interface0_addr, &result.tiles.quic.ip_addr ) ) )
+      FD_LOG_ERR(( "configuration specifies invalid netns IP address `%s`", result.development.netns.interface0_addr ));
+    if( FD_UNLIKELY( !fd_cstr_to_mac_addr( result.development.netns.interface0_mac, result.tiles.quic.mac_addr ) ) )
+      FD_LOG_ERR(( "configuration specifies invalid netns MAC address `%s`", result.development.netns.interface0_mac ));
   } else {
     if( FD_UNLIKELY( !if_nametoindex( result.tiles.quic.interface ) ) )
       FD_LOG_ERR(( "configuration specifies network interface `%s` which does not exist", result.tiles.quic.interface ));
@@ -681,8 +691,6 @@ config_parse( int *    pargc,
                    "cluster may destabilize the network. Please do not attempt." ));
 
   if( FD_LIKELY( result.is_live_cluster) ) {
-    if( FD_UNLIKELY( result.development.sudo ) )
-      FD_LOG_ERR(( "trying to join a live cluster, but configuration specified [development.sudo] which is a development only feature" ));
     if( FD_UNLIKELY( !result.development.sandbox ) )
       FD_LOG_ERR(( "trying to join a live cluster, but configuration disables the sandbox which is a a development only feature" ));
     if( FD_UNLIKELY( result.development.netns.enabled ) )
