@@ -17,8 +17,8 @@ main( int     argc,
   fd_boot( &argc, &argv );
 
   char const * name     = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp",      NULL,            NULL );
-  char const * _page_sz = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",   NULL,      "gigantic" );
-  ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt",  NULL,             1UL );
+  char const * _page_sz = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",   NULL,        "normal" );
+  ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt",  NULL,        262144UL );
   ulong        near_cpu = fd_env_strip_cmdline_ulong( &argc, &argv, "--near-cpu",  NULL, fd_log_cpu_id() );
   ulong        wksp_tag = fd_env_strip_cmdline_ulong( &argc, &argv, "--wksp-tag",  NULL,          1234UL );
   ulong        seed     = fd_env_strip_cmdline_ulong( &argc, &argv, "--seed",      NULL,          5678UL );
@@ -173,10 +173,10 @@ main( int     argc,
         FD_TEST( mrec==(is_frozen ? NULL               : &rec_map[0]    ) );
       }
 
-      FD_TEST( !fd_funk_rec_insert( NULL, NULL, NULL, NULL ) ); 
+      FD_TEST( !fd_funk_rec_insert( NULL, NULL, NULL, NULL ) );
       FD_TEST( !fd_funk_rec_insert( NULL, NULL, NULL, &err ) ); FD_TEST( err==FD_FUNK_ERR_INVAL );
 
-      FD_TEST( !fd_funk_rec_insert( NULL, NULL, NULL, NULL ) ); 
+      FD_TEST( !fd_funk_rec_insert( NULL, NULL, NULL, NULL ) );
       FD_TEST( !fd_funk_rec_insert( NULL, NULL, NULL, &err ) ); FD_TEST( err==FD_FUNK_ERR_INVAL );
 
       if( fd_funk_rec_is_full( rec_map ) ) {
@@ -297,10 +297,10 @@ main( int     argc,
 
       int err;
 
-      FD_TEST( !fd_funk_rec_insert( NULL, ttxn, NULL, NULL ) ); 
+      FD_TEST( !fd_funk_rec_insert( NULL, ttxn, NULL, NULL ) );
       FD_TEST( !fd_funk_rec_insert( NULL, ttxn, NULL, &err ) ); FD_TEST( err==FD_FUNK_ERR_INVAL );
 
-      FD_TEST( !fd_funk_rec_insert( NULL, ttxn, NULL, NULL ) ); 
+      FD_TEST( !fd_funk_rec_insert( NULL, ttxn, NULL, NULL ) );
       FD_TEST( !fd_funk_rec_insert( NULL, ttxn, NULL, &err ) ); FD_TEST( err==FD_FUNK_ERR_INVAL );
 
       if( fd_funk_rec_is_full( rec_map ) ) {

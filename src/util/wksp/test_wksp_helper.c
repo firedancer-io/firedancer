@@ -8,8 +8,8 @@ main( int     argc,
   fd_boot( &argc, &argv );
 
   char const * name     = fd_env_strip_cmdline_cstr ( &argc, &argv, "--name",      NULL,   "helper_test" );
-  char const * _page_sz = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",   NULL,      "gigantic" );
-  ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt",  NULL,             1UL );
+  char const * _page_sz = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",   NULL,        "normal" );
+  ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt",  NULL,        262144UL );
   ulong        near_cpu = fd_env_strip_cmdline_ulong( &argc, &argv, "--near-cpu",  NULL, fd_log_cpu_id() );
   char const * _mode    = fd_env_strip_cmdline_cstr ( &argc, &argv, "--mode",      NULL,          "0600" );
   uint         seed     = fd_env_strip_cmdline_uint ( &argc, &argv, "--near-cpu",  NULL,           1234U );
@@ -142,7 +142,7 @@ main( int     argc,
     cstr2[0] = '\0'; FD_TEST( !fd_wksp_cstr_laddr( laddr1,      NULL  )        );
     cstr2[0] = '\0'; FD_TEST(  fd_wksp_cstr_laddr( laddr1,      cstr2 )==cstr2 );
     FD_TEST( !strcmp( cstr1, cstr2 ) );
- 
+
     /* Test fd_wksp_unmap */
 
     fd_wksp_unmap( NULL   );
@@ -153,7 +153,7 @@ main( int     argc,
     fd_wksp_cstr_free( NULL  );
     fd_wksp_cstr_free( cstr1 );
     fd_wksp_cstr_free( cstr1 );
-  
+
     FD_TEST( fd_wksp_cstr_tag( cstr1 )==0UL );
     fd_wksp_cstr_memset( NULL, 255 );
 

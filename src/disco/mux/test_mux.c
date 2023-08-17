@@ -429,8 +429,8 @@ main( int     argc,
   ulong cpu_idx = fd_tile_cpu_id( fd_tile_idx() );
   if( cpu_idx>=fd_shmem_cpu_cnt() ) cpu_idx = 0UL;
 
-  char const * _page_sz   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",    NULL, "gigantic"                   );
-  ulong        page_cnt   = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt",   NULL, 1UL                          );
+  char const * _page_sz   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",    NULL, "normal"                     );
+  ulong        page_cnt   = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt",   NULL, 262144UL                     );
   ulong        numa_idx   = fd_env_strip_cmdline_ulong( &argc, &argv, "--numa-idx",   NULL, fd_shmem_numa_idx( cpu_idx ) );
   ulong        tx_cnt     = fd_env_strip_cmdline_ulong( &argc, &argv, "--tx-cnt",     NULL, 2UL                          );
   ulong        tx_depth   = fd_env_strip_cmdline_ulong( &argc, &argv, "--tx-depth",   NULL, 32768UL                      );
@@ -552,7 +552,7 @@ main( int     argc,
   cfg->rx_cnc_mem  = cnc_mem  + (tx_cnt+1UL)*cnc_footprint;  cfg->rx_cnc_footprint  = cnc_footprint;
   cfg->rx_rng_mem  = rng_mem  +  tx_cnt     *rng_footprint;  cfg->rx_rng_footprint  = rng_footprint;
   cfg->rx_fseq_mem = fseq_mem +  tx_cnt     *fseq_footprint; cfg->rx_fseq_footprint = fseq_footprint;
-  
+
   cfg->pkt_framing     = pkt_framing;
   cfg->pkt_payload_max = pkt_payload_max;
   cfg->burst_tau       = burst_tau;
