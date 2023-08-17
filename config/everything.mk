@@ -45,9 +45,6 @@ help:
 	# "make include" makes all include files for the current platform
 	# "make lib" makes all libraries for the current platform
 	# "make unit-test" makes all unit-tests for the current platform
-	# "make fuzz-test" makes all fuzz-tests for the current platform (requires fuzzing profile)
-	# "make fuzz_TARGET_unit" re-runs fuzz-test over the existing corpus
-	# "make fuzz_TARGET_run" runs the fuzz-test in explore mode for 600 seconds
 	# "make run-unit-test" runs all unit-tests for the current platform. NOTE: this will not (re)build the test executables
 	# "make help" prints this message
 	# "make clean" removes editor temp files and the current platform build
@@ -58,6 +55,11 @@ help:
 	# "make cov-report" creates an LCOV coverage report from LLVM profdata. Requires make run-unit-test EXTRAS="llvm-cov"
 	# "make lint" runs the linter on all C source and header files. Creates backup files.
 	# "make check-lint" runs the linter in dry run mode.
+	# Fuzzing (requires fuzzing profile):
+	#   "make fuzz-test" makes all fuzz-tests for the current platform
+	#   "make run-fuzz-test" re-runs all fuzz tests over existing corpora
+	#   "make fuzz_TARGET_unit" re-runs a specific fuzz-test over the existing corpus
+	#   "make fuzz_TARGET_run" runs a specific fuzz-test in explore mode for 600 seconds
 
 clean:
 	#######################################################################
@@ -257,6 +259,8 @@ $(1)_unit:
 $(1)_run:
 	@mkdir -p "$(CORPUSDIR)/$(1)/explore"
 	$(OBJDIR)/fuzz-test/$(1)/$(1) $(FUZZFLAGS) $(CORPUSDIR)/$(1)/explore $(CORPUSDIR)/$(1)
+
+run-fuzz-test: $(1)_unit
 
 endef
 
