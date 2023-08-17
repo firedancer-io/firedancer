@@ -387,6 +387,10 @@ main_pid_namespace( void * args ) {
      bringing all of our processes down as a group. */
   int wstatus;
   pid_t exited_pid = wait4( -1, &wstatus, (int)__WCLONE, NULL );
+  if( FD_UNLIKELY( exited_pid == -1 ) ) {
+    fd_log_private_fprintf_0( STDERR_FILENO, "wait4() failed (%i-%s)", errno, strerror( errno ) );
+    exit_group( 1 );
+  }
 
   char * name = "unknown";
   ulong tile_idx = ULONG_MAX;

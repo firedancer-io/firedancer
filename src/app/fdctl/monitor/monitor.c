@@ -13,11 +13,12 @@ void
 monitor_cmd_args( int *    pargc,
                   char *** pargv,
                   args_t * args ) {
-  args->monitor.dt_min     = fd_env_strip_cmdline_long( pargc, pargv, "--dt-min",   NULL,    6666667.          );
-  args->monitor.dt_max     = fd_env_strip_cmdline_long( pargc, pargv, "--dt-max",   NULL,  133333333.          );
-  args->monitor.duration   = fd_env_strip_cmdline_long( pargc, pargv, "--duration", NULL,          0.          );
-  args->monitor.seed       = fd_env_strip_cmdline_uint( pargc, pargv, "--seed",     NULL, (uint)fd_tickcount() );
-  args->monitor.ns_per_tic = 1./fd_tempo_tick_per_ns( NULL ); /* calibrate during init */
+  args->monitor.drain_output_fd = -1; /* only accessible to development commands, not the command line */
+  args->monitor.dt_min          = fd_env_strip_cmdline_long( pargc, pargv, "--dt-min",   NULL,    6666667.          );
+  args->monitor.dt_max          = fd_env_strip_cmdline_long( pargc, pargv, "--dt-max",   NULL,  133333333.          );
+  args->monitor.duration        = fd_env_strip_cmdline_long( pargc, pargv, "--duration", NULL,          0.          );
+  args->monitor.seed            = fd_env_strip_cmdline_uint( pargc, pargv, "--seed",     NULL, (uint)fd_tickcount() );
+  args->monitor.ns_per_tic      = 1./fd_tempo_tick_per_ns( NULL ); /* calibrate during init */
 
   if( FD_UNLIKELY( args->monitor.dt_min<0L                   ) ) FD_LOG_ERR(( "--dt-min should be positive"          ));
   if( FD_UNLIKELY( args->monitor.dt_max<args->monitor.dt_min ) ) FD_LOG_ERR(( "--dt-max should be at least --dt-min" ));
@@ -145,10 +146,48 @@ static int stop1 = 0;
 
 #define FD_MONITOR_TEXT_BUF_SZ 16384
 char buffer[ FD_MONITOR_TEXT_BUF_SZ ];
+char buffer2[ FD_MONITOR_TEXT_BUF_SZ ];
+
+static void
+drain_to_buffer( char ** buf,
+                 ulong * buf_sz,
+                 int fd ) {
+  while(1) {
+    long nread = read( fd, buffer2, *buf_sz );
+    if( FD_LIKELY( nread == -1 && errno == EAGAIN ) ) break; /* no data available */
+    else if( FD_UNLIKELY( nread == -1 ) ) FD_LOG_ERR(( "read() failed (%d-%s)", errno, strerror( errno ) ));
+
+    char * ptr = buffer2;
+    char * next;
+    while(( next = memchr( ptr, '\n', (ulong)nread - (ulong)(ptr - buffer2) ))) {
+      ulong len = (ulong)(next - ptr);
+      if( FD_UNLIKELY( *buf_sz < len ) ) {
+        write_stdout( buffer, FD_MONITOR_TEXT_BUF_SZ - *buf_sz );
+        *buf = buffer;
+        *buf_sz = FD_MONITOR_TEXT_BUF_SZ;
+      }
+      fd_memcpy( *buf, ptr, len );
+      *buf += len;
+      *buf_sz -= len;
+
+      if( FD_UNLIKELY( *buf_sz < sizeof(TEXT_NEWLINE)-1 ) ) {
+        write_stdout( buffer, FD_MONITOR_TEXT_BUF_SZ - *buf_sz );
+        *buf = buffer;
+        *buf_sz = FD_MONITOR_TEXT_BUF_SZ;
+      }
+      fd_memcpy( *buf, TEXT_NEWLINE, sizeof(TEXT_NEWLINE)-1 );
+      *buf += sizeof(TEXT_NEWLINE)-1;
+      *buf_sz -= sizeof(TEXT_NEWLINE)-1;
+
+      ptr = next + 1;
+    }
+  }
+}
 
 void
 run_monitor( config_t * const config,
              const uchar **   pods,
+             int              drain_output_fd,
              long             dt_min,
              long             dt_max,
              long             duration,
@@ -286,7 +325,7 @@ run_monitor( config_t * const config,
   FD_LOG_NOTICE(( "monitoring --dt-min %li ns, --dt-max %li ns, --duration %li ns, --seed %u", dt_min, dt_max, duration, seed ));
 
   long stop = then + duration;
-  if( duration == 0) stop = LONG_MAX;
+  if( duration == 0 ) stop = LONG_MAX;
 
 #define PRINT( ... ) do {                                                       \
     int n = snprintf( buf, buf_sz, __VA_ARGS__ );                               \
@@ -295,9 +334,7 @@ run_monitor( config_t * const config,
     buf += n; buf_sz -= (ulong)n;                                               \
   } while(0)
 
-  write_stdout( TEXT_ALTBUF_ENABLE, sizeof(TEXT_ALTBUF_ENABLE)-1 );
-  write_stdout( TEXT_NOCURSOR, sizeof(TEXT_NOCURSOR)-1 );
-
+  ulong line_count = 0;
   for(;;) {
     /* Wait a somewhat randomized amount and then make a diagnostic
        snapshot */
@@ -310,12 +347,23 @@ run_monitor( config_t * const config,
     /* Pretty print a comparison between this diagnostic snapshot and
        the previous one. */
 
-    /* FIXME: CONSIDER DOING CNC ACKS AND INCL IN SNAPSHOT */
-    /* FIXME: CONSIDER INCLUDING TILE UPTIME */
-    /* FIXME: CONSIDER ADDING INFO LIKE PID OF INSTANCE */
-
     char * buf = buffer;
     ulong buf_sz = FD_MONITOR_TEXT_BUF_SZ;
+
+    /* move to beginning of line, n lines ago */
+    PRINT( "\033[%luF", line_count );
+
+    /* drain any firedancer log messages into the terminal */
+    if( FD_UNLIKELY( drain_output_fd >= 0 ) ) drain_to_buffer( &buf, &buf_sz, drain_output_fd );
+    if( FD_UNLIKELY( buf_sz < FD_MONITOR_TEXT_BUF_SZ / 2 ) ) {
+      /* make sure there's enough space to print the whole monitor in one go */
+      write_stdout( buffer, FD_MONITOR_TEXT_BUF_SZ - buf_sz );
+      buf = buffer;
+      buf_sz = FD_MONITOR_TEXT_BUF_SZ;
+    }
+
+    char * mon_start = buf;
+    if( FD_UNLIKELY( drain_output_fd >= 0 ) ) PRINT( TEXT_NEWLINE );
 
     char now_cstr[ FD_LOG_WALLCLOCK_CSTR_BUF_SZ ];
     PRINT( "snapshot for %s" TEXT_NEWLINE, fd_log_wallclock_cstr( now, now_cstr ) );
@@ -335,7 +383,7 @@ run_monitor( config_t * const config,
     }
     PRINT( TEXT_NEWLINE );
     PRINT( "           link |  tot TPS |  tot bps | uniq TPS | uniq bps |   ha tr%% | uniq bw%% | filt tr%% | filt bw%% |           ovrnp cnt |           ovrnr cnt |            slow cnt |             tx seq" TEXT_NEWLINE );
-    PRINT( "----------------+----------+----------+----------+----------+----------+----------+----------+----------+---------------------+---------------------+---------------------+-------------------"    TEXT_NEWLINE );
+    PRINT( "----------------+----------+----------+----------+----------+----------+----------+----------+----------+---------------------+---------------------+---------------------+-------------------" TEXT_NEWLINE );
     long dt = now-then;
     for( ulong link_idx=0UL; link_idx<link_cnt; link_idx++ ) {
       link_snap_t * prv = &link_snap_prv[ link_idx ];
@@ -367,23 +415,20 @@ run_monitor( config_t * const config,
       PRINT( TEXT_NEWLINE );
     }
 
+    /* write entire monitor output buffer */
+    write_stdout( buffer, sizeof(buffer) - buf_sz );
+
     if( FD_UNLIKELY( stop1 || (now-stop)>=0L ) ) {
       /* Stop once we've been monitoring for duration ns */
-      write_stdout( TEXT_ALTBUF_DISABLE, sizeof(TEXT_ALTBUF_DISABLE)-1 );
-      write_stdout( buffer, sizeof(buffer) - buf_sz );
-      write_stdout( TEXT_CURSOR, sizeof(TEXT_CURSOR)-1 );
       break;
     }
 
-    /* clear terminal and write new buffer */
-    write_stdout( TEXT_ED
-                  TEXT_CUP_HOME,
-                  sizeof(TEXT_ED)-1
-                  + sizeof(TEXT_CUP_HOME)-1 );
-    write_stdout( buffer, sizeof(buffer) - buf_sz );
-
     /* Still more monitoring to do ... wind up for the next iteration by
        swaping the two snap arrays. */
+    line_count = 0;
+    for ( ulong i=(ulong)(mon_start-buffer); i<sizeof(buffer) - buf_sz; i++ ) {
+      if( buffer[i] == '\n' ) line_count++;
+    }
 
     then = now; tic = toc;
     tile_snap_t * tmp = tile_snap_prv; tile_snap_prv = tile_snap_cur; tile_snap_cur = tmp;
@@ -394,7 +439,7 @@ run_monitor( config_t * const config,
 static void
 signal1( int sig ) {
   (void)sig;
-  stop1 = 1;
+  exit_group( 0 );
 }
 
 void
@@ -422,26 +467,34 @@ monitor_cmd_fn( args_t *         args,
     __NR_nanosleep,    /* fd_log_wait_until */
     __NR_sched_yield,  /* fd_log_wait_until */
     __NR_exit_group,   /* exit process */
-    __NR_rt_sigreturn, /* return from signal handler */
+    __NR_read,         /* read from firedancer stdout to interpose their log messages */
   };
 
   int allow_fds[] = {
     1, /* stdout */
     2, /* stderr */
     3, /* logfile */
+    args->monitor.drain_output_fd, /* maybe we are interposing firedancer log output with the monitor */
   };
+
+  ulong num_fds = sizeof(allow_fds)/sizeof(allow_fds[0]);
+  ushort num_syscalls = sizeof(allow_syscalls)/sizeof(allow_syscalls[0]);
+
+  ulong allow_fds_sz = args->monitor.drain_output_fd >= 0 ? num_fds : num_fds - 1;
+  ushort allow_syscalls_sz = args->monitor.drain_output_fd >= 0 ? num_syscalls : (ushort)(num_syscalls - 1);
 
   if( FD_UNLIKELY( close( 0 ) ) ) FD_LOG_ERR(( "close(0) failed (%i-%s)", errno, strerror( errno ) ));
   if( config->development.sandbox )
     fd_sandbox( config->uid,
                 config->gid,
-                sizeof(allow_fds)/sizeof(allow_fds[ 0 ]),
+                allow_fds_sz,
                 allow_fds,
-                sizeof(allow_syscalls)/sizeof(allow_syscalls[0]),
+                allow_syscalls_sz,
                 allow_syscalls );
 
   run_monitor( config,
                pods,
+               args->monitor.drain_output_fd,
                args->monitor.dt_min,
                args->monitor.dt_max,
                args->monitor.duration,
