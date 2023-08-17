@@ -94,7 +94,7 @@ endif
 cargo:
 
 solana/target/release/libsolana_validator_fd.a: cargo
-	cd ./solana && ./cargo build --release -p solana-validator-fd
+	cd ./solana && env --unset=LDFLAGS ./cargo build --release -p solana-validator-fd
 
 $(OBJDIR)/lib/libsolana_validator_fd.a: solana/target/release/libsolana_validator_fd.a
 	$(MKDIR) $(dir $@) && cp solana/target/release/libsolana_validator_fd.a $@

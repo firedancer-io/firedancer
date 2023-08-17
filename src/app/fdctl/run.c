@@ -80,6 +80,19 @@ workspace_pod_join( char * app_name,
   return pod;
 }
 
+static int
+getpid1( void ) {
+  char pid[ 12 ] = {0};
+  long count = readlink( "/proc/self", pid, sizeof(pid) );
+  if( FD_UNLIKELY( count < 0 ) ) FD_LOG_ERR(( "readlink(/proc/self) failed (%i-%s)", errno, strerror( errno ) ));
+  if( FD_UNLIKELY( (ulong)count >= sizeof(pid) ) ) FD_LOG_ERR(( "readlink(/proc/self) returned truncated pid" ));
+  char * endptr;
+  ulong result = strtoul( pid, &endptr, 10 );
+  if( FD_UNLIKELY( *endptr != '\0' || result > INT_MAX  ) ) FD_LOG_ERR(( "strtoul(/proc/self) returned invalid pid" ));
+
+  return (int)result;
+}
+
 int
 tile_main( void * _args ) {
   tile_main_args_t * args = _args;
@@ -89,6 +102,7 @@ tile_main( void * _args ) {
 
   install_tile_signals();
   fd_frank_args_t frank_args = {
+    .pid = getpid1(), /* need to read /proc since we are in a PID namespace now */
     .tile_idx = args->tile_idx,
     .idx = args->idx,
     .app_name = args->app_name,
@@ -353,10 +367,10 @@ main_pid_namespace( void * args ) {
     close_network_namespace_original_fd();
   }
 
+  for( ulong i=0; i<config->layout.verify_tile_count; i++ ) clone_tile( &spawner, &frank_quic, i );
+  for( ulong i=0; i<config->layout.verify_tile_count; i++ ) clone_tile( &spawner, &frank_verify, i );
   clone_tile( &spawner, &frank_dedup, 0 );
   clone_tile( &spawner, &frank_pack , 0 );
-  for( ulong i=0; i<config->layout.verify_tile_count; i++ ) clone_tile( &spawner, &frank_verify, i );
-  for( ulong i=0; i<config->layout.verify_tile_count; i++ ) clone_tile( &spawner, &frank_quic, i );
 
   if( FD_UNLIKELY( sched_setaffinity( 0, sizeof(cpu_set_t), floating_cpu_set ) ) )
     FD_LOG_ERR(( "sched_setaffinity (%i-%s)", errno, strerror( errno ) ));
