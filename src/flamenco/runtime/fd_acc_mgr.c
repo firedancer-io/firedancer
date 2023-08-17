@@ -329,6 +329,7 @@ fd_acc_mgr_view_data(
   if (NULL != orec)
     *orec = rec;
   void const * data = fd_funk_val_cache( funk, rec, opt_err );
+  if( FD_UNLIKELY( !data ) ) FD_LOG_CRIT(( "fd_funk_val_cache failed (%d-%s)", *opt_err, fd_funk_strerror( *opt_err ) ));
   fd_account_meta_t const *metadata = (fd_account_meta_t const *) data;
   FD_TEST( metadata->magic == FD_ACCOUNT_META_MAGIC );
   return data;

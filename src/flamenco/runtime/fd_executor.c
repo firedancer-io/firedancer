@@ -117,10 +117,10 @@ fd_executor_collect_fee( fd_global_ctx_t *   global,
                          ulong               fee ) {
 
   int          err = 0;
-  ulong        sz;
+  ulong        sz  = 0UL;
   void const * raw_data = fd_acc_mgr_modify_data( global->acc_mgr, global->funk_txn, account, 0, &sz, NULL, NULL, &err );
   if( !raw_data ) {
-    FD_LOG_WARNING(( "fd_acc_mgr_view_data failed" ));
+    FD_LOG_WARNING(( "fd_acc_mgr_modify_data failed (%d)", err ));
     // TODO: The fee payer does not seem to exist?!  what now?
     return -1;
   }
