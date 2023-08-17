@@ -534,6 +534,9 @@ dynamic_port_range = "8000-10000"
     # capabilities of the process after initialization to make the attack
     # surface smaller. This is required in production, but might be too
     # restrictive during development.
+    #
+    # In development, you can disable the sandbox for testing and debugging
+    # with the `--no-sandbox` argument to `fddev`.
     sandbox = true
 
     # Because of how Firedancer uses UDP and XDP together, we do not receive
@@ -549,7 +552,9 @@ dynamic_port_range = "8000-10000"
     # by `fdctl` within that namespace.
     #
     # This is a development only configuration, network namespaces are not
-    # suitable for production use due to performance overhead.
+    # suitable for production use due to performance overhead. In developmemnt
+    # when running with `fddev`, this can also be enabled with the `--netns`
+    # argument.
     [development.netns]
         # If enabled, `fdctl dev` will ensure the network namespaces are
         # configured properly, can route to each other, and that running

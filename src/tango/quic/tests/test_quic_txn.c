@@ -151,8 +151,8 @@ main( int argc,
     pkt.buf_sz = ( ushort ) buf_sz;
   }
 
-  fd_wksp_t * wksp = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz("gigantic"),
-                                            1UL,
+  fd_wksp_t * wksp = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz("normal"),
+                                            1UL << 15,
                                             fd_shmem_cpu_idx( 0 ),
                                             "wksp",
                                             0UL );

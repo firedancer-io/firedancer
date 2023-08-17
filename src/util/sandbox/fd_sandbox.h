@@ -67,7 +67,8 @@
 /* fd_sandbox sandboxes the current process, performing both privileged and
    private steps. */
 void
-fd_sandbox( uint   uid,
+fd_sandbox( int    full_sandbox,
+            uint   uid,
             uint   gid,
             ulong  allow_fds_sz,
             int *  allow_fds,
