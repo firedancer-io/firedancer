@@ -1,15 +1,20 @@
+#define _GNU_SOURCE 1
 #include "fd_gossip.h"
 #include "../../ballet/sha256/fd_sha256.h"
 #include "../../ballet/ed25519/fd_ed25519.h"
+#include "../../util/net/fd_eth.h"
 #include <sys/socket.h>
-#include <netinet/in.h>
+#include <errno.h>
+#include <string.h>
+#include <netinet/ip.h>
+#include <unistd.h>
+
+#pragma GCC diagnostic ignored "-Wstrict-aliasing"
 
 /* Key used for active sets and contact lists */
 struct __attribute__((aligned(8UL))) fd_ping_key {
     fd_pubkey_t id;
-    sa_family_t family;   /* AF_INET or AF_INET6 */
-    in_port_t   port;     /* port number, host byte order */
-    union fd_gossip_ip_addr_inner ip_addr;
+    fd_gossip_network_addr_t addr;
 };
 #define FD_PING_KEY_NLONGS (sizeof(fd_ping_key_t)/sizeof(ulong))
 typedef struct fd_ping_key fd_ping_key_t;
@@ -65,7 +70,7 @@ ulong fd_ping_key_hash( const fd_ping_key_t * key, ulong seed ) {
 #undef ROLLUP
 #undef ROTATE
 
-  return (((r0^r1)^(r2^r3))^(r4^r5));
+  return (r0^r1)^(r2^r3)^(r4^r5);
 }
 
 void fd_ping_key_copy( fd_ping_key_t * keyd, const fd_ping_key_t * keys ) {
@@ -95,7 +100,10 @@ typedef struct fd_contact_elem fd_contact_elem_t;
 
 /* Global data for gossip service */
 struct fd_gossip_global {
+    fd_gossip_credentials_t my_creds;
+    fd_gossip_network_addr_t my_addr;
     ulong seed;
+    int sockfd;
     fd_contact_elem_t * contacts;
 };
 
@@ -107,8 +115,10 @@ fd_gossip_global_footprint( void ) { return sizeof(fd_gossip_global_t); }
 
 void *
 fd_gossip_global_new ( void * shmem, ulong seed, fd_valloc_t valloc ) {
+  fd_memset(shmem, 0, sizeof(fd_gossip_global_t));
   fd_gossip_global_t * glob = (fd_gossip_global_t *)shmem;
   glob->seed = seed;
+  glob->sockfd = -1;
   void * shm = fd_valloc_malloc(valloc, fd_contact_table_align(), fd_contact_table_footprint(FD_CONTACT_KEY_MAX));
   glob->contacts = fd_contact_table_join(fd_contact_table_new(shm, FD_CONTACT_KEY_MAX, seed));
   return glob;
@@ -127,12 +137,22 @@ fd_gossip_global_delete ( void * shmap, fd_valloc_t valloc ) {
   return glob;
 }
 
-void
-fd_gossip_handle_ping_request( fd_gossip_ping_t        const * ping,
-                               fd_gossip_ping_t              * pong,
-                               fd_gossip_credentials_t const * creds ) {
+int
+fd_gossip_global_set_config( fd_gossip_global_t * glob, const fd_gossip_config_t * config ) {
+  glob->my_creds = config->my_creds;
+  glob->my_addr = config->my_addr;
+  return 0;
+}
 
-  memcpy( pong->from.uc, creds->public_key, 32UL );
+void
+fd_gossip_handle_ping_request( fd_gossip_global_t * glob, fd_gossip_network_addr_t * from, fd_gossip_ping_t const * ping ) {
+  (void)from;
+  
+  fd_gossip_msg_t gmsg;
+  fd_gossip_msg_new_disc(&gmsg, fd_gossip_msg_enum_pong);
+  fd_gossip_ping_t * pong = &gmsg.inner.pong;
+
+  memcpy( pong->from.uc, glob->my_creds.public_key.uc, 32UL );
 
   /* Generate response hash token */
   fd_sha256_t sha[1];
@@ -146,7 +166,145 @@ fd_gossip_handle_ping_request( fd_gossip_ping_t        const * ping,
   fd_ed25519_sign( /* sig */ pong->signature.uc,
                    /* msg */ ping->token.uc,
                    /* sz  */ 32UL,
-                   /* public_key  */ creds->public_key,
-                   /* private_key */ creds->private_key,
+                   /* public_key  */ glob->my_creds.public_key.uc,
+                   /* private_key */ glob->my_creds.private_key,
                    sha2 );
+}
+
+void
+fd_gossip_recv_packet(fd_gossip_global_t * glob, fd_valloc_t valloc, fd_gossip_network_addr_t * from, ulong msg_len, const uchar * msg) {
+  fd_gossip_msg_t gmsg;
+  fd_gossip_msg_new(&gmsg);
+  fd_bincode_decode_ctx_t ctx;
+  ctx.data    = msg;
+  ctx.dataend = msg + msg_len;
+  ctx.valloc  = valloc;
+  if (fd_gossip_msg_decode(&gmsg, &ctx)) {
+    FD_LOG_WARNING(("corrupt gossip message"));
+    return;
+  }
+  if (ctx.data != ctx.dataend) {
+    FD_LOG_WARNING(("corrupt gossip message"));
+    return;
+  }
+
+  switch (gmsg.discriminant) {
+  case fd_gossip_msg_enum_pull_req:
+    break;
+  case fd_gossip_msg_enum_pull_resp:
+    break;
+  case fd_gossip_msg_enum_push_msg:
+    break;
+  case fd_gossip_msg_enum_prune_msg:
+    break;
+  case fd_gossip_msg_enum_ping:
+    fd_gossip_handle_ping_request(glob, from, &gmsg.inner.ping);
+    break;
+  case fd_gossip_msg_enum_pong:
+    break;
+  }
+
+  fd_bincode_destroy_ctx_t ctx2;
+  ctx2.valloc  = valloc;
+  fd_gossip_msg_destroy(&gmsg, &ctx2);
+}
+
+/* Main loop for socket reading/writing. Does not return until stopflag is non-zero */
+int
+fd_gossip_main_loop( fd_gossip_global_t * glob, fd_valloc_t valloc, volatile int * stopflag ) {
+  int fd;
+  if ((fd = socket(glob->my_addr.family, SOCK_DGRAM, 0)) < 0) {
+    FD_LOG_ERR(("socket failed: %s", strerror(errno)));
+    return -1;
+  }
+  glob->sockfd = fd;
+  int optval = 1<<20;
+  if (setsockopt(fd, SOL_SOCKET, SO_RCVBUF, (char *)&optval, sizeof(int)) < 0) {
+    FD_LOG_ERR(("setsocketopt failed: %s", strerror(errno)));
+    return -1;
+  }
+  if (glob->my_addr.family == AF_INET) {
+    struct sockaddr_in myaddr;
+    memset((char *)&myaddr, 0, sizeof(myaddr));
+    myaddr.sin_family = AF_INET;
+    myaddr.sin_addr.s_addr = glob->my_addr.addr[0];
+    myaddr.sin_port = glob->my_addr.port;
+    if (bind(fd, (struct sockaddr *)&myaddr, sizeof(myaddr)) < 0) {
+      FD_LOG_ERR(("bind failed: %s", strerror(errno)));
+      return -1;
+    }
+  } else if (glob->my_addr.family == AF_INET6) {
+    struct sockaddr_in6 myaddr;
+    memset((char *)&myaddr, 0, sizeof(myaddr));
+    myaddr.sin6_family = AF_INET6;
+    uint * u6_addr32 = myaddr.sin6_addr.__in6_u.__u6_addr32;
+    u6_addr32[0] = glob->my_addr.addr[0];
+    u6_addr32[1] = glob->my_addr.addr[1];
+    u6_addr32[2] = glob->my_addr.addr[2];
+    u6_addr32[3] = glob->my_addr.addr[3];
+    myaddr.sin6_port = glob->my_addr.port;
+    if (bind(fd, (struct sockaddr *)&myaddr, sizeof(myaddr)) < 0) {
+      FD_LOG_ERR(("bind failed: %s", strerror(errno)));
+      return -1;
+    }
+  } else {
+    FD_LOG_ERR(("invalid address family"));
+    return -1;
+  }
+
+#define VLEN 32U
+  struct mmsghdr msgs[VLEN];
+  struct iovec iovecs[VLEN];
+  uchar bufs[VLEN][FD_ETH_PAYLOAD_MAX];
+  struct sockaddr sockaddrs[VLEN];
+  struct timespec timeout;
+
+  while ( !*stopflag ) {
+    fd_memset(msgs, 0, sizeof(msgs));
+    for (uint i = 0; i < VLEN; i++) {
+      iovecs[i].iov_base         = bufs[i];
+      iovecs[i].iov_len          = FD_ETH_PAYLOAD_MAX;
+      msgs[i].msg_hdr.msg_iov    = &iovecs[i];
+      msgs[i].msg_hdr.msg_iovlen = 1;
+      msgs[i].msg_hdr.msg_name   = &sockaddrs[i];
+      msgs[i].msg_hdr.msg_iovlen = sizeof(struct sockaddr);
+    }
+    
+    timeout.tv_sec = 1;
+    timeout.tv_nsec = 0;
+    
+    int retval = recvmmsg(fd, msgs, VLEN, 0, &timeout);
+    if (retval < 0) {
+      FD_LOG_ERR(("recvmmsg failed: %s", strerror(errno)));
+      return -1;
+    }
+
+    for (uint i = 0; i < (uint)retval; ++i) {
+      // Get the source addr
+      fd_gossip_network_addr_t from;
+      fd_memset(&from, 0, sizeof(from));
+      from.family = sockaddrs[i].sa_family;
+      if (from.family == AF_INET) {
+        const struct sockaddr_in * sa = (const struct sockaddr_in *)&sockaddrs[i];
+        from.addr[0] = sa->sin_addr.s_addr;
+        from.port = sa->sin_port;
+      } else if (from.family == AF_INET6) {
+        const struct sockaddr_in6 * sa = (const struct sockaddr_in6 *)&sockaddrs[i];
+        const uint * u6_addr32 = sa->sin6_addr.__in6_u.__u6_addr32;
+        from.addr[0] = u6_addr32[0];
+        from.addr[1] = u6_addr32[1];
+        from.addr[2] = u6_addr32[2];
+        from.addr[3] = u6_addr32[3];
+        from.port = sa->sin6_port;
+      } else {
+        FD_LOG_WARNING(("unknown address family in packet"));
+        continue;
+      }
+      fd_gossip_recv_packet(glob, valloc, &from, msgs[i].msg_len, bufs[i]);
+    }
+  }
+
+  close(fd);
+  glob->sockfd = -1;
+  return 0;
 }

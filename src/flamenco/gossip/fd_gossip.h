@@ -3,6 +3,7 @@
 
 #include "../types/fd_types.h"
 #include "../../util/valloc/fd_valloc.h"
+#include <netinet/in.h>
 
 /* Global state of gossip protocol */
 typedef struct fd_gossip_global fd_gossip_global_t;
@@ -16,19 +17,27 @@ void *               fd_gossip_global_delete   ( void * shmap, fd_valloc_t vallo
 /* fd_gossip_credentials holds the node's gossip private credentials. */
 
 struct fd_gossip_credentials {
-  /* TODO refactor out to external signer */
-  uchar private_key[ 32 ];
-  uchar public_key [ 32 ];
+    fd_pubkey_t public_key;
+    uchar private_key[ 32 ];
 };
-
 typedef struct fd_gossip_credentials fd_gossip_credentials_t;
 
-/* fd_gossip_handle_ping_request generates a pong response given an
-   incoming ping request.  Involves a hash and an Ed25519 sign op. */
+struct fd_gossip_network_addr {
+    sa_family_t family;   /* AF_INET or AF_INET6 */
+    in_port_t   port;     /* port number, network byte order */
+    uint        addr[4];  /* IPv4 or v6 address, network byte order */
+};
+typedef struct fd_gossip_network_addr fd_gossip_network_addr_t;
 
-void
-fd_gossip_handle_ping_request( fd_gossip_ping_t        const * ping,
-                               fd_gossip_ping_t              * pong,
-                               fd_gossip_credentials_t const * creds );
+struct fd_gossip_config {
+    fd_gossip_credentials_t my_creds;
+    fd_gossip_network_addr_t my_addr;
+};
+typedef struct fd_gossip_config fd_gossip_config_t;
 
-#endif /* HEADER_fd_src_flamenco_gossip_fd_gossip_ping_server_h */
+int fd_gossip_global_set_config( fd_gossip_global_t * glob, const fd_gossip_config_t * config );
+
+/* Main loop for socket reading/writing. Does not return until stopflag is non-zero */
+int fd_gossip_main_loop( fd_gossip_global_t * glob, fd_valloc_t valloc, volatile int * stopflag );
+
+#endif /* HEADER_fd_src_flamenco_gossip_fd_gossip_h */
