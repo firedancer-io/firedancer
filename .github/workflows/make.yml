@@ -1,11 +1,14 @@
-name: Make Build
+# On every PR and main commit:
+# - Build on GCC and Clang
+# - Test on GCC
+
+name: Make
 on:
   pull_request:
   push:
     branches:
       - main
   workflow_dispatch:
-  merge_group:
 jobs:
   make-build:
     strategy:
@@ -25,4 +28,8 @@ jobs:
       - uses: ./.github/actions/deps
 
       - name: Build everything
-        run: make -j
+        run: make -j -Otarget
+
+      - if: matrix.compiler == 'gcc'
+        name: Run unit tests
+        run: make -k -j4 -Otarget run-unit-test
