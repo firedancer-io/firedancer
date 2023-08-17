@@ -1,6 +1,5 @@
 #if FD_HAS_HOSTED
 
-#define _POSIX_C_SOURCE
 #include <stdio.h>
 #include <sys/types.h>
 #include <pwd.h>

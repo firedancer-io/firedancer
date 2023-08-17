@@ -48,7 +48,8 @@ $(call map-define,FD_HAS_INT128, __SIZEOF_INT128__)
 FD_HAS_DOUBLE:=1
 CPPFLAGS+=-DFD_HAS_DOUBLE=1
 $(call map-define,FD_HAS_ALLOCA, __linux__)
-$(call map-define,FD_HAS_THREADS, __linux__)
+# No FD_HAS_THREADS since we want to build with nothreads
+# $(call map-define,FD_HAS_THREADS, __linux__)
 $(call map-define,FD_HAS_OPENSSL, __linux__)
 $(call map-define,FD_HAS_X86, __x86_64__)
 $(call map-define,FD_HAS_SSE, __SSE4_2__)
@@ -61,9 +62,7 @@ $(info Using FD_HAS_AVX=$(FD_HAS_AVX))
 $(info Using FD_HAS_GFNI=$(FD_HAS_GFNI))
 $(info Using FD_HAS_SHANI=$(FD_HAS_SHANI))
 
-ifeq ($(FD_HAS_THREADS),1)
-include config/with-threads.mk
-endif
+include config/with-nothreads.mk
 
 ifeq ($(FD_HAS_OPENSSL),1)
 include config/with-openssl.mk

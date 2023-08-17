@@ -146,7 +146,7 @@ clone_tile( tile_spawner_t * spawn, fd_frank_task_t * task, ulong idx ) {
                      errno, strerror( errno ), spawn->idx, cpu_idx ));
   }
 
-  void * stack = fd_tile_private_stack_new( 1, cpu_idx );
+  void * stack = fd_tile_stack_new( 1, cpu_idx );
   if( FD_UNLIKELY( !stack ) ) FD_LOG_ERR(( "unable to create a stack for tile process" ));
 
   FD_LOG_NOTICE(( "booting tile %s(%lu)", task->name, idx ));
@@ -289,7 +289,7 @@ solana_labs_main( void * args ) {
 
 static void
 clone_solana_labs( tile_spawner_t * spawner, config_t * const config ) {
-  void * stack = fd_tile_private_stack_new( 0, 65535UL );
+  void * stack = fd_tile_stack_new( 0, 65535UL );
   if( FD_UNLIKELY( !stack ) ) FD_LOG_ERR(( "unable to create a stack for boot process" ));
 
   /* clone into a pid namespace */
@@ -321,7 +321,7 @@ main_pid_namespace( void * args ) {
   if( FD_UNLIKELY( setpgid( 0, 0 ) ) ) FD_LOG_ERR(( "setpgid() failed (%i-%s)", errno, strerror( errno ) ));
 
   ushort tile_to_cpu[ FD_TILE_MAX ];
-  ulong  affinity_tile_cnt = fd_tile_private_cpus_parse( config->layout.affinity, tile_to_cpu );
+  ulong  affinity_tile_cnt = fd_tile_cpus_parse( config->layout.affinity, tile_to_cpu );
 
   ulong tile_cnt = 3UL + config->layout.verify_tile_count * 2;
   if( FD_UNLIKELY( affinity_tile_cnt<tile_cnt ) ) FD_LOG_ERR(( "at least %lu tiles required for this config", tile_cnt ));
@@ -432,7 +432,7 @@ install_parent_signals( void ) {
 
 void
 run_firedancer( config_t * const config ) {
-  void * stack = fd_tile_private_stack_new( 0, 65535UL );
+  void * stack = fd_tile_stack_new( 0, 65535UL );
   if( FD_UNLIKELY( !stack ) ) FD_LOG_ERR(( "unable to create a stack for boot process" ));
 
   /* install signal handler to kill child before cloning it, to prevent

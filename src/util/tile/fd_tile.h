@@ -168,12 +168,15 @@ void
 fd_tile_private_halt( void );
 
 void *
-fd_tile_private_stack_new( int   optimize,
-                           ulong cpu_idx );
+fd_tile_stack_new( int   optimize,
+                   ulong cpu_idx );
+
+void
+fd_tile_stack_delete( void * stack );
 
 ulong
-fd_tile_private_cpus_parse( char const * cstr,
-                            ushort *     tile_to_cpu );
+fd_tile_cpus_parse( char const * cstr,
+                    ushort *     tile_to_cpu );
 
 FD_PROTOTYPES_END
 
