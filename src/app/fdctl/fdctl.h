@@ -21,6 +21,7 @@ typedef union {
     long duration;
     uint seed;
     double ns_per_tic;
+    int drain_output_fd;
   } monitor;
   struct {
     int                      command;
@@ -29,6 +30,9 @@ typedef union {
   struct {
     int tile;
   } run1;
+  struct {
+    int monitor;
+  } dev;
 } args_t;
 
 typedef struct security security_t;

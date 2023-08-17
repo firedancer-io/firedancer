@@ -5,15 +5,10 @@
 
 /* TEXT_* are quick-and-dirty color terminal hacks.  Probably should
    do something more robust longer term. */
-#define TEXT_ALTBUF_ENABLE  "\033[?1049h"
-#define TEXT_ALTBUF_DISABLE "\033[?1049l"
-#define TEXT_CUP_HOME       "\033[H"
-#define TEXT_ED             "\033[J"
-#define TEXT_EL             "\033[K"
-#define TEXT_NEWLINE         TEXT_EL "\n"
-
-#define TEXT_NOCURSOR "\033[?25l"
-#define TEXT_CURSOR   "\033[?25h"
+#define TEXT_NOCURSOR   "\033[?25l"
+#define TEXT_CURSOR     "\033[?25h"
+#define TEXT_ERASE_LINE "\033[0K"
+#define TEXT_NEWLINE    TEXT_ERASE_LINE "\n"
 
 #define TEXT_NORMAL "\033[0m"
 #define TEXT_BLUE   "\033[34m"

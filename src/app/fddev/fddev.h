@@ -4,6 +4,11 @@
 #include "../fdctl/fdctl.h"
 
 void
+dev_cmd_args( int *    pargc,
+              char *** pargv,
+              args_t * args );
+
+void
 dev_cmd_perm( args_t *         args,
               security_t *     security,
               config_t * const config );

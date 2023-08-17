@@ -8,7 +8,7 @@
 #include <sys/stat.h>
 
 static action_t DEV_ACTIONS[] = {
-  { .name = "dev",  .args = NULL,          .fn = dev_cmd_fn,  .perm = dev_cmd_perm },
+  { .name = "dev",  .args = dev_cmd_args,  .fn = dev_cmd_fn,  .perm = dev_cmd_perm },
   { .name = "dev1", .args = dev1_cmd_args, .fn = dev1_cmd_fn, .perm = dev_cmd_perm },
 };
 
