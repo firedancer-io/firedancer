@@ -42,6 +42,9 @@ run( fd_frank_args_t * args ) {
   if( FD_UNLIKELY( !cnc ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
   if( FD_UNLIKELY( fd_cnc_signal_query( cnc )!=FD_CNC_SIGNAL_BOOT ) ) FD_LOG_ERR(( "cnc not in boot state" ));
 
+  ulong * cnc_diag = (ulong *)fd_cnc_app_laddr( cnc );
+  cnc_diag[ FD_FRANK_CNC_DIAG_PID ] = (ulong)args->pid;
+
   FD_LOG_INFO(( "joining mcache%lu", args->tile_idx ));
   char path[ 32 ];
   snprintf( path, sizeof(path), "mcache%lu", args->tile_idx );

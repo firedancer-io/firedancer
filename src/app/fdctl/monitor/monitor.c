@@ -43,6 +43,7 @@ typedef struct {
   long  cnc_heartbeat;
   ulong cnc_signal;
 
+  ulong cnc_diag_pid;
   ulong cnc_diag_in_backp;
   ulong cnc_diag_backp_cnt;
   ulong cnc_diag_ha_filt_cnt;
@@ -89,6 +90,7 @@ tile_snap( tile_snap_t *     snap_cur,     /* Snaphot for each tile, indexed [0,
     snap->cnc_signal    = fd_cnc_signal_query   ( cnc );
     ulong const * cnc_diag = (ulong const *)fd_cnc_app_laddr_const( cnc );
     FD_COMPILER_MFENCE();
+    snap->cnc_diag_pid         = cnc_diag[ FD_FRANK_CNC_DIAG_PID         ];
     snap->cnc_diag_in_backp    = cnc_diag[ FD_FRANK_CNC_DIAG_IN_BACKP    ];
     snap->cnc_diag_backp_cnt   = cnc_diag[ FD_FRANK_CNC_DIAG_BACKP_CNT   ];
     snap->cnc_diag_ha_filt_cnt = cnc_diag[ FD_FRANK_CNC_DIAG_HA_FILT_CNT ];
@@ -367,12 +369,13 @@ run_monitor( config_t * const config,
 
     char now_cstr[ FD_LOG_WALLCLOCK_CSTR_BUF_SZ ];
     PRINT( "snapshot for %s" TEXT_NEWLINE, fd_log_wallclock_cstr( now, now_cstr ) );
-    PRINT( "   tile |      stale | heart |        sig | in backp |           backp cnt |         sv_filt cnt " TEXT_NEWLINE );
-    PRINT( "--------+------------+-------+------------+----------+---------------------+---------------------" TEXT_NEWLINE );
+    PRINT( "   tile |     pid |      stale | heart |        sig | in backp |           backp cnt |         sv_filt cnt " TEXT_NEWLINE );
+    PRINT( "--------+---------+------------+-------+------------+----------+---------------------+---------------------" TEXT_NEWLINE );
     for( ulong tile_idx=0UL; tile_idx<tile_cnt; tile_idx++ ) {
       tile_snap_t * prv = &tile_snap_prv[ tile_idx ];
       tile_snap_t * cur = &tile_snap_cur[ tile_idx ];
       PRINT( " %6s", tiles[ tile_idx ].name );
+      PRINT( " | %7lu", cur->cnc_diag_pid );
       PRINT( " | " ); printf_stale   ( &buf, &buf_sz, (long)(0.5+ns_per_tic*(double)(toc - cur->cnc_heartbeat)), 1e8 /* 100 millis */ );
       PRINT( " | " ); printf_heart   ( &buf, &buf_sz, cur->cnc_heartbeat,        prv->cnc_heartbeat        );
       PRINT( " | " ); printf_sig     ( &buf, &buf_sz, cur->cnc_signal,           prv->cnc_signal           );
