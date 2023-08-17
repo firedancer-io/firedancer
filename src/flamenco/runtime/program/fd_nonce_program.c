@@ -538,13 +538,8 @@ int fd_upgrade_nonce_account(
     return err;
 
   uchar *       instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
-
-  if (!fd_account_is_writable_idx(&ctx, instr_acc_idxs[0]))
-    return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
-
-  fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
-
-  fd_pubkey_t * me   = &txn_accs[instr_acc_idxs[0]];
+  fd_pubkey_t * txn_accs       = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
+  fd_pubkey_t * me             = &txn_accs[instr_acc_idxs[0]];
 
   char * raw_acc_data = (char*) fd_acc_mgr_view_data(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) me, NULL, NULL);
   if (NULL == raw_acc_data)
@@ -553,6 +548,9 @@ int fd_upgrade_nonce_account(
 
   if (memcmp(m->info.owner, ctx.global->solana_system_program, sizeof(m->info.owner)) != 0)
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
+
+  if (!fd_account_is_writable_idx(&ctx, instr_acc_idxs[0]))
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
 
   fd_nonce_state_versions_t state;
   fd_nonce_state_versions_new( &state );
