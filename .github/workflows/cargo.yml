@@ -3,7 +3,8 @@ on: [push, pull_request]
 jobs:
   check:
     name: cargo-check
-    runs-on: ubuntu-latest
+    runs-on:
+      group: github-v1
     steps:
       - uses: actions/checkout@v3
       - uses: actions-rs/toolchain@v1
@@ -18,7 +19,8 @@ jobs:
 
   package:
     name: cargo-package
-    runs-on: ubuntu-latest
+    runs-on:
+      group: github-v1
     steps:
       - uses: actions/checkout@v3
       - uses: actions-rs/toolchain@v1
@@ -35,7 +37,8 @@ jobs:
 
   test:
     name: cargo-test
-    runs-on: ubuntu-latest
+    runs-on:
+      group: github-v1
     steps:
       - uses: actions/checkout@v3
       - uses: actions-rs/toolchain@v1
@@ -66,7 +69,8 @@ jobs:
 
   clippy:
     name: cargo-clippy
-    runs-on: ubuntu-latest
+    runs-on:
+      group: github-v1
     steps:
       - uses: actions/checkout@v3
       - uses: actions-rs/toolchain@v1

@@ -8,7 +8,8 @@ on:
   merge_group:
 jobs:
   make-test:
-    runs-on: [self-hosted, Linux, X64]
+    runs-on:
+      group: github-v1
     defaults:
       run:
         shell: sudo --preserve-env=PATH bash --noprofile --norc -eo pipefail -c "set -ex; export MACHINE=linux_clang_x86_64; chmod +x {0} && {0}"
@@ -28,7 +29,8 @@ jobs:
         run: make -k -j2 --output-sync=target run-unit-test
 
   make-test-asan:
-    runs-on: [self-hosted, Linux, X64]
+    runs-on:
+      group: github-v1
     defaults:
       run:
         shell: sudo --preserve-env=PATH bash --noprofile --norc -eo pipefail -c "set -ex; export MACHINE=linux_clang_x86_64_asan; chmod +x {0} && {0}"
@@ -48,7 +50,8 @@ jobs:
         run: make -k -j2 --output-sync=target run-unit-test
 
   make-test-ubsan:
-    runs-on: [self-hosted, Linux, X64]
+    runs-on:
+      group: github-v1
     strategy:
       matrix:
         compiler: [gcc, clang]
@@ -71,7 +74,8 @@ jobs:
         run: make -k -j2 --output-sync=target run-unit-test
 
   # frank-single-transaction:
-  #   runs-on: [self-hosted, Linux, X64]
+  #   runs-on:
+  #     group: github-v1
   #   strategy:
   #     matrix:
   #       compiler: [gcc]

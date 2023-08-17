@@ -1,13 +1,13 @@
 name: Make Coverage
 on:
-  pull_request:
   push:
     branches:
       - main
   workflow_dispatch:
 jobs:
   make-test-coverage:
-    runs-on: [self-hosted, Linux, X64]
+    runs-on:
+      group: github-v1
     defaults:
       run:
         shell: sudo --preserve-env=PATH bash --noprofile --norc -eo pipefail -c "export CC=clang; export EXTRAS=llvm-cov; set -ex; chmod +x {0} && {0}"
@@ -47,7 +47,8 @@ jobs:
           functionalities: search
 
   publish-coverage:
-    runs-on: ubuntu-22.04
+    runs-on:
+      group: github-v1
     needs: [make-test-coverage]
     if: github.ref == 'refs/heads/main'
 

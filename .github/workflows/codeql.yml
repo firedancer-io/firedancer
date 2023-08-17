@@ -8,7 +8,8 @@ on:
 jobs:
   analyze:
     name: Analyze
-    runs-on: [self-hosted, Linux, X64]
+    runs-on:
+      group: github-v1
     env:
       MACHINE: linux_clang_x86_64
     permissions:

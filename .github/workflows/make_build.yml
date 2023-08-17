@@ -11,7 +11,8 @@ jobs:
     strategy:
       matrix:
         compiler: [gcc, clang]
-    runs-on: [self-hosted, Linux, X64]
+    runs-on:
+      group: github-v1
     env:
       CC: ${{ matrix.compiler }}
     steps:

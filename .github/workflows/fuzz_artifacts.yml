@@ -1,12 +1,13 @@
 name: Make Fuzz Artifacts
 on:
-  pull_request:
   push:
+    branches:
+      - main
   workflow_dispatch:
-  merge_group:
 jobs:
   make-with-sanitizer:
-    runs-on: ubuntu-latest
+    runs-on:
+      group: github-v1
     steps:
       - name: Install zip
         run: |
