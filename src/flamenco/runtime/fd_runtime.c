@@ -907,6 +907,9 @@ fd_global_ctx_new        ( void * mem ) {
 
   fd_firedancer_banks_new(&self->bank);
 
+  // all features are disabled by default.
+  fd_features_disable_all(&self->features);
+
   fd_base58_decode_32( "Sysvar1111111111111111111111111111111111111",  (unsigned char *) self->sysvar_owner);
   fd_base58_decode_32( "SysvarRecentB1ockHashes11111111111111111111",  (unsigned char *) self->sysvar_recent_block_hashes);
   fd_base58_decode_32( "SysvarC1ock11111111111111111111111111111111",  (unsigned char *) self->sysvar_clock);
