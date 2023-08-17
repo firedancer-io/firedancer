@@ -1,24 +1,17 @@
-name: CI
-on: [push, pull_request]
-jobs:
-  check:
-    name: cargo-check
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
-      - uses: actions-rs/cargo@v1
-        with:
-          command: check
-          args: --workspace
+# On every PR and main commit, run check, package, test, rustfmt, clippy
 
+name: CI
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+jobs:
   package:
     name: cargo-package
-    runs-on: ubuntu-latest
+    runs-on:
+      group: github-v1
+    if: github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v3
       - uses: actions-rs/toolchain@v1

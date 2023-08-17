@@ -173,7 +173,6 @@ fi
 
 # Clean up process tree on exit
 trap 'exit' INT QUIT TERM
-trap 'kill -TERM 0' EXIT
 
 # Track list of PIDs of child processes
 declare -A PIDS
