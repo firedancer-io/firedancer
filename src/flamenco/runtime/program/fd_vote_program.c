@@ -1091,7 +1091,8 @@ bool vote_state_contains_slot(fd_vote_state_t* vote_state, ulong slot) {
 int decode_compact_update(instruction_ctx_t ctx, fd_compact_vote_state_update_t * compact_update, fd_vote_state_update_t * vote_update) {
   // Taken from: https://github.com/firedancer-io/solana/blob/debug-master/sdk/program/src/vote/state/mod.rs#L712
   vote_update->root = compact_update->root != ULONG_MAX ? &compact_update->root : NULL;
-  vote_update->lockouts = (fd_vote_lockout_t*) fd_valloc_malloc(ctx.global->valloc, sizeof(fd_vote_lockout_t), compact_update->lockouts_len * sizeof(fd_vote_lockout_t));
+  if( vote_update->lockouts ) FD_LOG_WARNING(( "MEM LEAK: %p", (void *)vote_update->lockouts ));
+  vote_update->lockouts = deq_fd_vote_lockout_t_alloc( ctx.global->valloc );
   vote_update->lockouts_len = compact_update->lockouts_len;
 
   ulong slot = vote_update->root ? *vote_update->root : 0;
@@ -1429,25 +1430,27 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
     case fd_vote_instruction_enum_compact_update_vote_state:
       FD_LOG_DEBUG(( "executing vote program instruction: fd_vote_instruction_enum_compact_update_vote_state"));
       is_compact = true;
-      decode_compact_update(ctx, &instruction.inner.compact_update_vote_state, &decode);
+      decode_compact_update(ctx, &instruction.inner.compact_update_vote_state, &decode);  /* ALLOCATES! */
       vote_state_update = &decode;
       break;
     default:
       // What are we supposed to do here?  What about the hash?
       FD_LOG_WARNING(( "executing vote program instruction: fd_vote_instruction_enum_compact_update_vote_state_switch"));
       is_compact = true;
-      decode_compact_update(ctx, &instruction.inner.compact_update_vote_state_switch.compact_vote_state_update, &decode);
+      decode_compact_update(ctx, &instruction.inner.compact_update_vote_state_switch.compact_vote_state_update, &decode);  /* ALLOCATES! */
       vote_state_update = &decode;
       break;
     }
 
     if( FD_UNLIKELY( !FD_FEATURE_ACTIVE(ctx.global, allow_votes_to_directly_update_vote_state ) )) {
+      if( is_compact ) fd_valloc_free( ctx.global->valloc, deq_fd_vote_lockout_t_delete( deq_fd_vote_lockout_t_leave( decode.lockouts ) ) );
       FD_LOG_WARNING(( "executing VoteInstruction::UpdateVoteState instruction, but feature is not active" ));
       ret = FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
       break;
     }
 
     if ( is_compact && !FD_FEATURE_ACTIVE( ctx.global, compact_vote_state_updates )) {
+      fd_valloc_free( ctx.global->valloc, deq_fd_vote_lockout_t_delete( deq_fd_vote_lockout_t_leave( decode.lockouts ) ) );
       FD_LOG_WARNING(( "executing VoteInstruction::CompactUpdateVoteState instruction, but feature is not active" ));
       ret = FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
       break;
@@ -1847,9 +1850,7 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
     }
 
     fd_vote_state_versioned_destroy( &vote_state_versioned, &destroy );
-    if (is_compact) {
-      fd_valloc_free(ctx.global->valloc, vote_state_update->lockouts);
-    }
+    if (is_compact) fd_valloc_free( ctx.global->valloc, deq_fd_vote_lockout_t_delete( deq_fd_vote_lockout_t_leave(  vote_state_update->lockouts ) ) );
     break;
   }
   case fd_vote_instruction_enum_authorize: {
