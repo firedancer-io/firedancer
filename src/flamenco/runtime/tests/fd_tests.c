@@ -243,8 +243,10 @@ int fd_executor_run_test(
       .instr          = instr,
       .txn_ctx        = &txn_ctx,
     };
+    // TODO: dirty hack to get around additional account parsed for testing
     if (ctx.txn_ctx->txn_descriptor->acct_addr_cnt == test->accs_len + 1) {
       ctx.txn_ctx->txn_descriptor->acct_addr_cnt = (ushort)test->accs_len;
+      ctx.txn_ctx->txn_descriptor->readonly_unsigned_cnt--;
     }
 
     execute_instruction_func_t exec_instr_func = fd_executor_lookup_native_program( global, &test->program_id );
