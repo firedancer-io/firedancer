@@ -2,7 +2,7 @@ name: CI
 on: [push]
 jobs:
   build:
-    runs-on: ubuntu-22.04-64-1
+    runs-on: logan-test
     steps:
     - uses: actions/checkout@v2
     - name: Setup upterm session
