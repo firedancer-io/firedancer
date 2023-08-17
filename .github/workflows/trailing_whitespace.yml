@@ -1,5 +1,7 @@
 name: Trailing Whitespace
-on: [push, pull_request]
+on:
+  push:
+  pull_request:
 jobs:
   check:
     name: trailing-whitespace
