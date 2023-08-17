@@ -33,3 +33,6 @@ GENHTML=genhtml
 # useful for some build configs where a library with a main symbol is
 # linked in (e.g. fuzz targets)
 FD_HAS_MAIN:=1
+
+# Parameters passed to libFuzzer tests
+FUZZFLAGS:=-max_total_time=600
