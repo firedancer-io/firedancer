@@ -248,7 +248,7 @@ run-unit-test = $(eval $(call _run-unit-test,$(1),$(2),unit-test))
 else
 make-bin =
 make-unit-test =
-make-fuzz-test = $(eval $(call _make-exe,$(1),$(2),$(3),fuzz-test))
+make-fuzz-test = $(eval $(call _make-exe,$(1)/$(1),$(2),$(3),fuzz-test))
 run-unit-test =
 endif
 
