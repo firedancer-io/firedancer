@@ -867,6 +867,7 @@ int fd_quic_retry_token_encrypt(
   );
 
   uchar plaintext[FD_QUIC_RETRY_TOKEN_PLAINTEXT_SZ] = { 0 };
+  if ( FD_UNLIKELY( orig_dst_conn_id->sz > FD_QUIC_MAX_CONN_ID_SZ ) ) return FD_QUIC_FAILED;
   memcpy( plaintext, &orig_dst_conn_id->sz, sizeof( uchar ) );
   memcpy( plaintext + 1, orig_dst_conn_id->conn_id, orig_dst_conn_id->sz );
   memcpy( plaintext + 1 + orig_dst_conn_id->sz, &now, sizeof( ulong ) );
@@ -949,7 +950,9 @@ int fd_quic_retry_token_decrypt(
     return FD_QUIC_FAILED;
   };
 
-  orig_dst_conn_id->sz = *plaintext;
+  uchar orig_dst_conn_id_sz = *plaintext; /* untrusted input */
+  if ( FD_UNLIKELY( orig_dst_conn_id_sz > FD_QUIC_MAX_CONN_ID_SZ ) ) return FD_QUIC_FAILED;
+  orig_dst_conn_id->sz = orig_dst_conn_id_sz;
   memcpy( orig_dst_conn_id->conn_id, plaintext + sizeof( uchar ), orig_dst_conn_id->sz );
   *now = *( (ulong *)fd_type_pun( plaintext + sizeof( uchar ) + orig_dst_conn_id->sz ) );
   return FD_QUIC_SUCCESS;
