@@ -4,7 +4,9 @@ include config/base.mk
 include config/with-gcc.mk
 include config/with-debug.mk
 include config/with-brutality.mk
+ifeq ($(DISABLE_OPTIMIZATION),)
 include config/with-optimization.mk
+endif
 include config/with-threads.mk
 include config/with-secp256k1.mk
 include config/with-rocksdb.mk
@@ -17,10 +19,6 @@ include config/x86-64-gcc-flags.mk
 
 CPPFLAGS+=-march=haswell -mtune=skylake
 CPPFLAGS+=-DFD_HAS_INT128=1 -DFD_HAS_DOUBLE=1 -DFD_HAS_ALLOCA=1 -DFD_HAS_X86=1 -DFD_HAS_SSE=1 -DFD_HAS_AVX=1
-
-ifneq ($(DISABLE_OPTIMIZATION),)
-CPPFLAGS+=-D_DISABLE_OPTIMIZATION
-endif
 
 FD_HAS_INT128:=1
 FD_HAS_DOUBLE:=1
