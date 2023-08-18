@@ -1,7 +1,7 @@
 MAKEFLAGS += --no-builtin-rules
 MAKEFLAGS += --no-builtin-variables
 .SUFFIXES:
-.PHONY: all bin fdctl fddev run monitor include lib unit-test fuzz-test run-unit-test help clean distclean asm ppp show-deps lint check-lint cargo
+.PHONY: all bin fdctl fddev run monitor include lib unit-test fuzz-test run-unit-test help clean distclean asm ppp show-deps lint check-lint
 .SECONDARY:
 .SECONDEXPANSION:
 
@@ -99,16 +99,6 @@ ifeq (run,$(firstword $(MAKECMDGOALS)))
   endif
   $(eval $(RUN_ARGS):;@:)
 endif
-
-# Phony target to always rerun cargo build ... it will detect if anything
-# changed on the library side.
-cargo:
-
-solana/target/release/libsolana_validator_fd.a: cargo
-	cd ./solana && env --unset=LDFLAGS ./cargo build --release -p solana-validator-fd
-
-$(OBJDIR)/lib/libsolana_validator_fd.a: solana/target/release/libsolana_validator_fd.a
-	$(MKDIR) $(dir $@) && cp solana/target/release/libsolana_validator_fd.a $@
 
 run: $(OBJDIR)/bin/fddev
 	$(OBJDIR)/bin/fddev $(RUN_ARGS)
