@@ -3,11 +3,6 @@
 #include "fd_txn.h"
 #include "fd_compact_u16.h"
 
-#ifdef _DISABLE_OPTIMIZATION
-#pragma GCC optimize ("O0")
-#endif
-
-
 ulong
 fd_txn_parse_core( uchar const             * payload,
                    ulong                     payload_sz,

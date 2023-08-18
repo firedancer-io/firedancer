@@ -12,6 +12,14 @@ run( fd_frank_args_t * args ) {
    * Join the IPC objects needed this tile instance
    */
 
+  FD_LOG_INFO(( "joining cnc" ));
+  fd_cnc_t * cnc = fd_cnc_join( fd_wksp_pod_map( args->tile_pod, "cnc" ) );
+  if( FD_UNLIKELY( !cnc ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
+  if( FD_UNLIKELY( fd_cnc_signal_query( cnc )!=FD_CNC_SIGNAL_BOOT ) ) FD_LOG_ERR(( "cnc not in boot state" ));
+
+  ulong * cnc_diag = (ulong *)fd_cnc_app_laddr( cnc );
+  cnc_diag[ FD_FRANK_CNC_DIAG_PID ] = (ulong)args->pid;
+
   /* In IPC objects */
   FD_LOG_INFO(( "joining mcache%lu", args->tile_idx ));
   char path[ 32 ];
@@ -77,12 +85,6 @@ run( fd_frank_args_t * args ) {
   if( FD_UNLIKELY( !vin_async_min ) ) FD_LOG_ERR(( "bad vin_lazy" ));
 
   /* Out IPC objects */
-  FD_LOG_INFO(( "joining cnc" ));
-  fd_cnc_t * cnc = fd_cnc_join( fd_wksp_pod_map( args->tile_pod, "cnc" ) );
-  if( FD_UNLIKELY( !cnc ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
-  if( FD_UNLIKELY( fd_cnc_signal_query( cnc )!=FD_CNC_SIGNAL_BOOT ) ) FD_LOG_ERR(( "cnc not in boot state" ));
-  ulong * cnc_diag = (ulong *)fd_cnc_app_laddr( cnc );
-  if( FD_UNLIKELY( !cnc_diag ) ) FD_LOG_ERR(( "fd_cnc_app_laddr failed" ));
   int in_backp = 1;
 
   FD_COMPILER_MFENCE();

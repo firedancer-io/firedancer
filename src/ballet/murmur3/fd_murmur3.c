@@ -1,7 +1,3 @@
-#ifdef _DISABLE_OPTIMIZATION
-#pragma GCC optimize ("O0")
-#endif
-
 #include "fd_murmur3.h"
 
 uint
@@ -56,4 +52,3 @@ fd_murmur3_32( void const * _data,
 
   return hash;
 }
-

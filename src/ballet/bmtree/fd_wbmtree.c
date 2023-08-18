@@ -1,10 +1,5 @@
 #include "fd_wbmtree.h"
 
-#ifdef _DISABLE_OPTIMIZATION
-#pragma GCC optimize ("O0")
-#endif
-
-
 // Merkle tree of 3 nodes
 //
 // A . B . C

@@ -134,9 +134,12 @@ check( config_t * const config ) {
     if( FD_UNLIKELY( !fp ) ) FD_LOG_ERR(( "failed to open `/proc/self/mounts`" ));
 
     char line[ 4096 ];
+    int found = 0;
     while( FD_LIKELY( fgets( line, 4096, fp ) ) ) {
       if( FD_UNLIKELY( strlen( line ) == 4095 ) ) FD_LOG_ERR(( "line too long in `/proc/self/mounts`" ));
       if( FD_UNLIKELY( strstr( line, path[i] ) ) ) {
+        found = 1;
+
         char * saveptr;
         char * device = strtok_r( line, " ", &saveptr );
         if( FD_UNLIKELY( !device ) ) FD_LOG_ERR(( "error parsing `/proc/self/mounts`, line `%s`", line ));
@@ -172,6 +175,7 @@ check( config_t * const config ) {
           if( FD_UNLIKELY( fclose( fp ) ) ) FD_LOG_ERR(( "error closing `/proc/self/mounts` (%i-%s)", errno, strerror( errno ) ));
           PARTIALLY_CONFIGURED( "mount `%s` is not mounted read/write, expected `rw`", path[i] );
         }
+        break;
       }
     }
 
@@ -179,6 +183,9 @@ check( config_t * const config ) {
       FD_LOG_ERR(( "error reading `/proc/self/mounts` (%i-%s)", errno, strerror( errno ) ));
     if( FD_LIKELY( fclose( fp ) ) )
       FD_LOG_ERR(( "error closing `/proc/self/mounts` (%i-%s)", errno, strerror( errno ) ));
+
+    if( FD_UNLIKELY( !found ) )
+      PARTIALLY_CONFIGURED( "mount `%s` not found in `/proc/self/mounts`", path[i] );
   }
 
   CONFIGURE_OK();

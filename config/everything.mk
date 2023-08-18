@@ -6,6 +6,7 @@ MAKEFLAGS += --no-builtin-variables
 .SECONDEXPANSION:
 
 OBJDIR:=$(BASEDIR)/$(BUILDDIR)
+CORPUSDIR:=corpus
 
 # Auxiliarily rules that should not set up depenencies
 AUX_RULES:=clean distclean help show-deps lint check-lint
@@ -14,36 +15,35 @@ all: bin include lib unit-test
 
 help:
 	# Configuration
-	# MACHINE  = $(MACHINE)
-	# EXTRAS   = $(EXTRAS)
-	# SHELL    = $(SHELL)
-	# BASEDIR  = $(BASEDIR)
-	# OBJDIR   = $(OBJDIR)
-	# CPPFLAGS = $(CPPFLAGS)
-	# CC       = $(CC)
-	# CFLAGS   = $(CFLAGS)
-	# CXX      = $(CXX)
-	# CXXFLAGS = $(CXXFLAGS)
-	# LD       = $(LD)
-	# LDFLAGS  = $(LDFLAGS)
-	# AR       = $(AR)
-	# ARFLAGS  = $(ARFLAGS)
-	# RANLIB   = $(RANLIB)
-	# CP       = $(CP)
-	# RM       = $(RM)
-	# MKDIR    = $(MKDIR)
-	# RMDIR    = $(RMDIR)
-	# SED      = $(SED)
-	# FIND     = $(FIND)
-	# SCRUB    = $(SCRUB)
+	# MACHINE   = $(MACHINE)
+	# EXTRAS    = $(EXTRAS)
+	# SHELL     = $(SHELL)
+	# BASEDIR   = $(BASEDIR)
+	# OBJDIR    = $(OBJDIR)
+	# CPPFLAGS  = $(CPPFLAGS)
+	# CC        = $(CC)
+	# CFLAGS    = $(CFLAGS)
+	# CXX       = $(CXX)
+	# CXXFLAGS  = $(CXXFLAGS)
+	# LD        = $(LD)
+	# LDFLAGS   = $(LDFLAGS)
+	# AR        = $(AR)
+	# ARFLAGS   = $(ARFLAGS)
+	# RANLIB    = $(RANLIB)
+	# CP        = $(CP)
+	# RM        = $(RM)
+	# MKDIR     = $(MKDIR)
+	# RMDIR     = $(RMDIR)
+	# SED       = $(SED)
+	# FIND      = $(FIND)
+	# SCRUB     = $(SCRUB)
+	# FUZZFLAGS = $(FUZZFLAGS)
 	# Explicit goals are: all bin include lib unit-test help clean distclean asm ppp
 	# "make all" is equivalent to "make bin include lib unit-test"
 	# "make bin" makes all binaries for the current platform
-	# "make ebpf-bin" makes all eBPF binaries
 	# "make include" makes all include files for the current platform
 	# "make lib" makes all libraries for the current platform
 	# "make unit-test" makes all unit-tests for the current platform
-	# "make fuzz-test" makes all fuzz-tests for the current platform (requires fuzzing profile)
 	# "make run-unit-test" runs all unit-tests for the current platform. NOTE: this will not (re)build the test executables
 	# "make help" prints this message
 	# "make clean" removes editor temp files and the current platform build
@@ -54,6 +54,11 @@ help:
 	# "make cov-report" creates an LCOV coverage report from LLVM profdata. Requires make run-unit-test EXTRAS="llvm-cov"
 	# "make lint" runs the linter on all C source and header files. Creates backup files.
 	# "make check-lint" runs the linter in dry run mode.
+	# Fuzzing (requires fuzzing profile):
+	#   "make fuzz-test" makes all fuzz-tests for the current platform
+	#   "make run-fuzz-test" re-runs all fuzz tests over existing corpora
+	#   "make fuzz_TARGET_unit" re-runs a specific fuzz-test over the existing corpus
+	#   "make fuzz_TARGET_run" runs a specific fuzz-test in explore mode for 600 seconds
 
 clean:
 	#######################################################################
@@ -84,7 +89,7 @@ check-lint:
 ifeq (run,$(firstword $(MAKECMDGOALS)))
   RUN_ARGS := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
   ifeq ($(RUN_ARGS),)
-    RUN_ARGS := dev
+    RUN_ARGS := dev --monitor
   endif
   $(eval $(RUN_ARGS):;@:)
 endif
@@ -94,7 +99,7 @@ endif
 cargo:
 
 solana/target/release/libsolana_validator_fd.a: cargo
-	cd ./solana && ./cargo build --release -p solana-validator-fd
+	cd ./solana && env --unset=LDFLAGS ./cargo build --release -p solana-validator-fd
 
 $(OBJDIR)/lib/libsolana_validator_fd.a: solana/target/release/libsolana_validator_fd.a
 	$(MKDIR) $(dir $@) && cp solana/target/release/libsolana_validator_fd.a $@
@@ -202,8 +207,8 @@ endif
 ##############################
 # Usage: $(call make-bin,name,objs,libs)
 # Usage: $(call make-unit-test,name,objs,libs)
-# Usage: $(call make-fuzz-test,name,objs,libs)
 # Usage: $(call run-unit-test,name,args)
+# Usage: $(call fuzz-test,name,objs,libs)
 
 # Note: The library arguments require customization of each target
 
@@ -240,39 +245,35 @@ run-$(3): run-$(1)
 
 endef
 
+define _fuzz-test
+
+$(eval $(call _make-exe,$(1)/$(1),$(2),$(3),fuzz-test))
+
+.PHONY: $(1)_unit
+$(1)_unit:
+	@mkdir -p "$(CORPUSDIR)/$(1)"
+	$(FIND) $(CORPUSDIR)/$(1) -type f -exec $(OBJDIR)/fuzz-test/$(1)/$(1) $(FUZZFLAGS) {} +
+
+.PHONY: $(1)_run
+$(1)_run:
+	@mkdir -p "$(CORPUSDIR)/$(1)/explore"
+	$(OBJDIR)/fuzz-test/$(1)/$(1) $(FUZZFLAGS) $(CORPUSDIR)/$(1)/explore $(CORPUSDIR)/$(1)
+
+run-fuzz-test: $(1)_unit
+
+endef
+
 ifeq "$(FD_HAS_MAIN)" "1"
 make-bin       = $(eval $(call _make-exe,$(1),$(2),$(3),bin))
 make-unit-test = $(eval $(call _make-exe,$(1),$(2),$(3),unit-test))
-make-fuzz-test =
+fuzz-test =
 run-unit-test = $(eval $(call _run-unit-test,$(1),$(2),unit-test))
 else
 make-bin =
 make-unit-test =
-make-fuzz-test = $(eval $(call _make-exe,$(1),$(2),$(3),fuzz-test))
+fuzz-test = $(eval $(call _fuzz-test,$(1),$(2),$(3)))
 run-unit-test =
 endif
-
-##############################
-# Usage: $(call make-ebpf-bin,obj)
-
-# TODO support depfiles
-
-EBPF_BINDIR:=$(BASEDIR)/ebpf/clang/bin
-
-define _make-ebpf-bin
-
-$(EBPF_BINDIR)/$(1).o: $(MKPATH)$(1).c
-	#######################################################################
-	# Creating ebpf-bin $$@ from $$^
-	#######################################################################
-	$(MKDIR) $$(dir $$@) && \
-$(EBPF_CC) $(EBPF_CPPFLAGS) $(EBPF_CFLAGS) -c $$< -o $$@
-
-ebpf-bin: $(EBPF_BINDIR)/$(1).o
-
-endef
-
-make-ebpf-bin = $(eval $(call _make-ebpf-bin,$(1)))
 
 ##############################
 ## GENERIC RULES

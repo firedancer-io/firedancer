@@ -11,10 +11,6 @@
 #include <math.h>
 #include <stdio.h>
 
-#ifdef _DISABLE_OPTIMIZATION
-#pragma GCC optimize ("O0")
-#endif
-
 // Encoders that turn a "current" vote_state into a 1_14_11 on the fly...
 ulong fd_vote_transcoding_state_versioned_size(fd_vote_state_versioned_t const * self);
 int fd_vote_transcoding_state_versioned_encode(fd_vote_state_versioned_t const * self, fd_bincode_encode_ctx_t * ctx);

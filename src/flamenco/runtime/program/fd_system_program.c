@@ -7,10 +7,6 @@
 #include "../sysvar/fd_sysvar.h"
 #include "../../../ballet/base58/fd_base58.h"
 
-#ifdef _DISABLE_OPTIMIZATION
-#pragma GCC optimize ("O0")
-#endif
-
 static int transfer(
   instruction_ctx_t                ctx,
   fd_system_program_instruction_t *instruction

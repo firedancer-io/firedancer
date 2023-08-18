@@ -200,11 +200,19 @@ deny_setgroups( void ) {
 }
 
 static void
-unshare_user( uint uid, uint gid ) {
+switch_user( uint uid, uint gid ) {
+  /* calling setresgid/setresuid sets the dumpable bit to 0
+     which prevents debugging and stops us from setting our
+     uid/gid maps in the user namespace, so set it back for
+     now */
   FD_TESTV( !setresgid( gid, gid, gid ) );
   FD_TESTV( !setresuid( uid, uid, uid ) );
   FD_TESTV( !prctl( PR_SET_DUMPABLE, 1, 0, 0, 0 ) );
+}
 
+static void
+unshare_user( uint uid, uint gid ) {
+  switch_user( uid, gid );
   FD_TESTV( !unshare( CLONE_NEWUSER | CLONE_NEWNS | CLONE_NEWNET ) );
   deny_setgroups();
   userns_map( uid, "uid_map" );
@@ -237,12 +245,19 @@ sandbox_unthreaded( ulong allow_fds_sz,
 }
 
 void
-fd_sandbox( uint   uid,
+fd_sandbox( int    full_sandbox,
+            uint   uid,
             uint   gid,
             ulong  allow_fds_sz,
             int *  allow_fds,
             ushort allow_syscalls_sz,
             long * allow_syscalls ) {
-  sandbox_unthreaded( allow_fds_sz, allow_fds, uid, gid );
-  install_seccomp( allow_syscalls_sz, allow_syscalls );
+  if( FD_LIKELY( full_sandbox ) ) {
+    sandbox_unthreaded( allow_fds_sz, allow_fds, uid, gid );
+    install_seccomp( allow_syscalls_sz, allow_syscalls );
+    FD_LOG_INFO(( "sandbox: full sandbox is now enabled" ));
+  } else {
+    switch_user( uid, gid );
+    FD_LOG_INFO(( "sandbox: no sandbox enabled" ));
+  }
 }

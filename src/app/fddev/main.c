@@ -1,14 +1,30 @@
 #define _GNU_SOURCE
 #include "fddev.h"
 
+#include "../fdctl/configure/configure.h"
+
 #include <unistd.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 
+configure_stage_t * STAGES[ CONFIGURE_STAGE_COUNT ] = {
+  &netns,
+  &large_pages,
+  &shmem,
+  &sysctl,
+  &xdp,
+  &xdp_leftover,
+  &ethtool,
+  &workspace_leftover,
+  &workspace,
+  &cluster,
+  NULL,
+};
+
 static action_t DEV_ACTIONS[] = {
-  { .name = "dev",  .args = NULL,          .fn = dev_cmd_fn,  .perm = dev_cmd_perm },
+  { .name = "dev",  .args = dev_cmd_args,  .fn = dev_cmd_fn,  .perm = dev_cmd_perm },
   { .name = "dev1", .args = dev1_cmd_args, .fn = dev1_cmd_fn, .perm = dev_cmd_perm },
 };
 

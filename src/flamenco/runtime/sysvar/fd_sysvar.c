@@ -5,10 +5,6 @@
 #include "../fd_runtime.h"
 #include "fd_sysvar.h"
 
-#ifdef _DISABLE_OPTIMIZATION
-#pragma GCC optimize ("O0")
-#endif
-
 int fd_sysvar_set(fd_global_ctx_t *global, const unsigned char *owner, const fd_pubkey_t *pubkey, unsigned char *data, unsigned long sz, ulong slot) {
   fd_funk_rec_t * acc_data_rec = NULL;
   int modify_err;
@@ -56,7 +52,7 @@ int fd_sysvar_set_override(fd_global_ctx_t *global, const unsigned char *owner, 
   uchar * acc_data = fd_account_get_data( metadata );
 
   fd_memcpy(acc_data, data, sz);
- 
+
   metadata->dlen = sz;
   fd_memcpy(metadata->info.owner, owner, 32);
 

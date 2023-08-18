@@ -24,7 +24,10 @@
 #define FD_FRANK_CNC_DIAG_SV_FILT_CNT (4UL)                 /* ", ideally never */
 #define FD_FRANK_CNC_DIAG_SV_FILT_SZ  (5UL)                 /* " */
 
+#define FD_FRANK_CNC_DIAG_PID         (128UL)
+
 typedef struct {
+   int           pid;
    char *        app_name;
    char *        tile_name;
    ulong         tile_idx;

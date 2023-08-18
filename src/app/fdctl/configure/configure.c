@@ -4,18 +4,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-configure_stage_t * STAGES[ CONFIGURE_STAGE_COUNT ] = {
-  &large_pages,
-  &shmem,
-  &sysctl,
-  &xdp,
-  &xdp_leftover,
-  &ethtool,
-  &workspace_leftover,
-  &workspace,
-  NULL,
-};
-
 void
 configure_cmd_args( int *    pargc,
                     char *** pargv,
@@ -32,7 +20,7 @@ configure_cmd_args( int *    pargc,
   (*pargv)++;
 
   for( int i=0; i<*pargc; i++ ) {
-    if( FD_UNLIKELY( !strcmp(*pargv[ i ], "all" ) ) ) {
+    if( FD_UNLIKELY( !strcmp( *pargv[ i ], "all" ) ) ) {
       (*pargc) -= i + 1;
       (*pargv) += i + 1;
       for( int j=0; j<CONFIGURE_STAGE_COUNT; j++) args->configure.stages[ j ] = STAGES[ j ];
@@ -43,7 +31,7 @@ configure_cmd_args( int *    pargc,
   if( FD_UNLIKELY( *pargc >= CONFIGURE_STAGE_COUNT ) ) FD_LOG_ERR(( "too many stages specified" ));
 
   ulong nstage = 0;
-  while( pargc ) {
+  while( *pargc ) {
     int found = 0;
     for( configure_stage_t ** stage = STAGES; *stage; stage++ ) {
       if( FD_UNLIKELY( !strcmp( *pargv[0], (*stage)->name ) ) ) {

@@ -1,10 +1,6 @@
 #ifndef HEADER_fd_src_funk_fd_funk_h
 #define HEADER_fd_src_funk_fd_funk_h
 
-#ifdef _DISABLE_OPTIMIZATION
-#pragma GCC optimize ("O0")
-#endif
-
 /* Funk is a hybrid of a database and version control system designed
    for ultra high performance blockchain applications.
 
@@ -271,7 +267,7 @@ struct __attribute__((aligned(FD_FUNK_ALIGN))) fd_funk_private {
      created/updated/removed. */
   fd_funk_notify_cb_t notify_cb;
   void * notify_cb_arg;
-    
+
   /* Padding to FD_FUNK_ALIGN here */
 };
 

@@ -16,10 +16,6 @@
 
 #include "../../ballet/base58/fd_base58.h"
 
-#ifdef _DISABLE_OPTIMIZATION
-#pragma GCC optimize ("O0")
-#endif
-
 void* fd_executor_new(void*            mem,
                       fd_global_ctx_t* global,
                       ulong            footprint) {

@@ -108,6 +108,12 @@ typedef struct fd_quic_udpsock fd_quic_udpsock_t;
 FD_PROTOTYPES_BEGIN
 
 fd_quic_udpsock_t *
+fd_quic_client_create_udpsock(fd_quic_udpsock_t * udpsock,
+                              fd_wksp_t *      wksp,
+                              fd_aio_t const * rx_aio,
+                              uint listen_ip);
+
+fd_quic_udpsock_t *
 fd_quic_udpsock_create( void *           _sock,
                         int *            argc,
                         char ***         argv,

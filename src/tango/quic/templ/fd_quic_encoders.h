@@ -73,7 +73,10 @@
 #define FD_TEMPL_MBR_ELEM_PKTNUM(NAME,TYPE)                            \
     buf += (cur_bit != 0);                                             \
     cur_bit = 0;                                                       \
-    if( buf >= buf_end ) return FD_QUIC_PARSE_FAIL;                    \
+    if( (long)( frame->NAME##_bits + cur_bit )                         \
+        > (long)( ( buf_end - buf ) * 8 ) ) {                          \
+      return FD_QUIC_PARSE_FAIL;                                       \
+    }                                                                  \
     frame->NAME##_pnoff = (unsigned)( buf - orig_buf );                \
     if( fd_quic_encode_bits( buf, cur_bit, frame->NAME,                \
           frame->NAME##_bits ) ) {                                     \

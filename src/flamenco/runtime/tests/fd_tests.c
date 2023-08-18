@@ -6,10 +6,6 @@
 #include <unistd.h>
 #include "../../types/fd_types_yaml.h"
 
-#ifdef _DISABLE_OPTIMIZATION
-#pragma GCC optimize ("O0")
-#endif
-
 const char *verbose = NULL;
 const char *fail_fast = NULL;
 

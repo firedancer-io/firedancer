@@ -40,7 +40,9 @@ BUILDDIR?=native/$(CC)
 CPPFLAGS+=-march=native -mtune=native
 
 include config/with-brutality.mk
+ifeq ($(DISABLE_OPTIMIZATION),)
 include config/with-optimization.mk
+endif
 include config/with-debug.mk
 
 $(call map-define,FD_HAS_SHANI, __SHA__)
@@ -58,10 +60,6 @@ CPPFLAGS+=-DFD_HAS_X86=1
 $(call map-define,FD_HAS_SSE, __SSE4_2__)
 $(call map-define,FD_HAS_AVX, __AVX2__)
 $(call map-define,FD_HAS_GFNI, __GFNI__)
-
-ifneq ($(DISABLE_OPTIMIZATION),)
-CPPFLAGS+=-D_DISABLE_OPTIMIZATION
-endif
 
 $(info Using FD_HAS_SSE=$(FD_HAS_SSE))
 $(info Using FD_HAS_AVX=$(FD_HAS_AVX))

@@ -57,10 +57,6 @@ build/native/gcc/unit-test/test_runtime --wksp giant_wksp --gaddr 0xc7ce180 --cm
 
 #include <dirent.h>
 
-#ifdef _DISABLE_OPTIMIZATION
-#pragma GCC optimize ("O0")
-#endif
-
 struct global_state {
   fd_global_ctx_t*    global;
 

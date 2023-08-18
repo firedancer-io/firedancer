@@ -7,6 +7,7 @@
 #include "crypto/fd_quic_crypto_suites.h"
 #include "templ/fd_quic_transport_params.h"
 #include "fd_quic_pkt_meta.h"
+#include "templ/fd_quic_union.h"
 
 #define FD_QUIC_CONN_STATE_INVALID            0 /* dead object / freed */
 #define FD_QUIC_CONN_STATE_HANDSHAKE          1 /* currently doing handshaking with peer */
@@ -87,6 +88,11 @@ struct fd_quic_conn {
   /* we can have multiple connection ids */
   fd_quic_conn_id_t  our_conn_id[ FD_QUIC_MAX_CONN_ID_PER_CONN ];
 
+  /* Save original destination connection id
+     This will be used when we receive a retransmitted initial packet
+     Also used when retransmitting the first initial packet */
+  fd_quic_conn_id_t  orig_dst_conn_id;
+
   /* Host network endpoint
      - for server, just a copy of config->net
      - for client, an allocated ephemeral UDP port */
@@ -159,7 +165,7 @@ struct fd_quic_conn {
   uchar crypt_scratch[2048];
 
   /* some scratch space for frame encoding/decoding */
-  uchar frame_scratch[2048];
+  fd_quic_frame_u frame_union;
 
   /* buffer to send next */
   /* rename tx_buf, since it's easy to confuse with stream->tx_buf */

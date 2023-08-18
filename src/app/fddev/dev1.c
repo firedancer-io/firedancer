@@ -22,6 +22,7 @@ dev1_cmd_args( int *    pargc,
   else if( FD_LIKELY( !strcmp( *pargv[ 0 ], "quic" ) ) ) args->run1.tile = 3;
   else if( FD_LIKELY( !strcmp( *pargv[ 0 ], "bank" ) ) ) args->run1.tile = 4;
   else if( FD_LIKELY( !strcmp( *pargv[ 0 ], "labs" ) ) ) args->run1.tile = 4;
+  else if( FD_LIKELY( !strcmp( *pargv[ 0 ], "solana" ) ) ) args->run1.tile = 4;
   else if( FD_LIKELY( !strcmp( *pargv[ 0 ], "solana-labs" ) ) ) args->run1.tile = 4;
   else FD_LOG_ERR(( "unrecognized tile %s", *pargv[0] ));
 
@@ -44,13 +45,8 @@ dev1_cmd_fn( args_t *         args,
   args_t configure_args = {
     .configure.command = CONFIGURE_CMD_INIT,
   };
-  /* cluster and netns stages are not accessible from regular configure command,
-     but perform them here. netns is first, as other stages might depend on it */
-  /* netns is the first stage, others might depend on it */
-  configure_args.configure.stages[ 0 ] = &netns;
   for( ulong i=0; i<CONFIGURE_STAGE_COUNT; i++ )
-    configure_args.configure.stages[ i + 1 ] = STAGES[ i ];
-  configure_args.configure.stages[ CONFIGURE_STAGE_COUNT ] = &cluster;
+    configure_args.configure.stages[ i ] = STAGES[ i ];
   configure_cmd_fn( &configure_args, config );
 
   /* when starting from a new genesis block, this needs to be off else the
