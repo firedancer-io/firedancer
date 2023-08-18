@@ -3,11 +3,11 @@ BASEDIR?=build
 SHELL:=bash
 CPPFLAGS:=-isystem ./opt/include -DFD_LOG_UNCLEAN_EXIT=1
 CC:=gcc
-CFLAGS:=-std=c17 -fPIE
+CFLAGS:=-std=c17
 CXX:=g++
 CXXFLAGS:=-std=c++17
 LD:=g++
-LDFLAGS:=-lm -L./opt/lib -Wl,-rpath=$(shell pwd)/opt/lib -fPIE -lrt -ldl
+LDFLAGS:=-lm -lrt -ldl -L./opt/lib
 AR:=ar
 ARFLAGS:=rv
 RANLIB:=ranlib
