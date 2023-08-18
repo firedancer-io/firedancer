@@ -140,19 +140,87 @@ fd_gossip_global_delete ( void * shmap, fd_valloc_t valloc ) {
 int
 fd_gossip_global_set_config( fd_gossip_global_t * glob, const fd_gossip_config_t * config ) {
   glob->my_creds = config->my_creds;
-  glob->my_addr = config->my_addr;
+  fd_memcpy(&glob->my_addr, &config->my_addr, sizeof(fd_gossip_network_addr_t));
+  return 0;
+}
+
+int
+fd_gossip_to_sockaddr( uchar * dst, fd_gossip_network_addr_t const * src ) {
+  if (src->family == AF_INET) {
+    fd_memset(dst, 0, sizeof(struct sockaddr_in));
+    struct sockaddr_in * t = (struct sockaddr_in *)dst;
+    t->sin_family = AF_INET;
+    t->sin_addr.s_addr = src->addr[0];
+    t->sin_port = src->port;
+    return sizeof(struct sockaddr_in);
+  } else if (src->family == AF_INET6) {
+    fd_memset(dst, 0, sizeof(struct sockaddr_in6));
+    struct sockaddr_in6 * t = (struct sockaddr_in6 *)dst;
+    t->sin6_family = AF_INET6;
+    uint * u6_addr32 = t->sin6_addr.__in6_u.__u6_addr32;
+    u6_addr32[0] = src->addr[0];
+    u6_addr32[1] = src->addr[1];
+    u6_addr32[2] = src->addr[2];
+    u6_addr32[3] = src->addr[3];
+    t->sin6_port = src->port;
+    return sizeof(struct sockaddr_in6);
+  } else {
+    FD_LOG_ERR(("invalid address family"));
+    errno = 0;
+    return -1;
+  }
+}
+
+int
+fd_gossip_from_sockaddr( fd_gossip_network_addr_t * dst, uchar const * src ) {
+  fd_memset(dst, 0, sizeof(fd_gossip_network_addr_t));
+  dst->family = ((const struct sockaddr *)src)->sa_family;
+  if (dst->family == AF_INET) {
+    const struct sockaddr_in * sa = (const struct sockaddr_in *)src;
+    dst->addr[0] = sa->sin_addr.s_addr;
+    dst->port = sa->sin_port;
+  } else if (dst->family == AF_INET6) {
+    const struct sockaddr_in6 * sa = (const struct sockaddr_in6 *)src;
+    const uint * u6_addr32 = sa->sin6_addr.__in6_u.__u6_addr32;
+    dst->addr[0] = u6_addr32[0];
+    dst->addr[1] = u6_addr32[1];
+    dst->addr[2] = u6_addr32[2];
+    dst->addr[3] = u6_addr32[3];
+    dst->port = sa->sin6_port;
+  } else {
+    FD_LOG_WARNING(("unknown address family in packet"));
+    return -1;
+  }
   return 0;
 }
 
 void
+fd_gossip_send( fd_gossip_global_t * glob, fd_gossip_network_addr_t * dest, fd_gossip_msg_t * gmsg ) {
+  uchar buf[FD_ETH_PAYLOAD_MAX];
+  fd_bincode_encode_ctx_t ctx;
+  ctx.data = buf;
+  ctx.dataend = buf + FD_ETH_PAYLOAD_MAX;
+  if ( fd_gossip_msg_encode( gmsg, &ctx ) ) {
+    FD_LOG_WARNING(("fd_gossip_msg_encode failed"));
+    return;
+  }
+  uchar saddr[sizeof(struct sockaddr_in6)];
+  int saddrlen = fd_gossip_to_sockaddr(saddr, dest);
+  if ( saddrlen < 0 )
+    return;
+  if ( sendto(glob->sockfd, buf, (size_t)((const uchar *)ctx.data - buf), MSG_DONTWAIT,
+              (const struct sockaddr *)saddr, (socklen_t)saddrlen) < 0 ) {
+    FD_LOG_WARNING(("sendto failed: %s", strerror(errno)));
+  }
+}
+
+void
 fd_gossip_handle_ping_request( fd_gossip_global_t * glob, fd_gossip_network_addr_t * from, fd_gossip_ping_t const * ping ) {
-  (void)from;
-  
   fd_gossip_msg_t gmsg;
   fd_gossip_msg_new_disc(&gmsg, fd_gossip_msg_enum_pong);
   fd_gossip_ping_t * pong = &gmsg.inner.pong;
 
-  memcpy( pong->from.uc, glob->my_creds.public_key.uc, 32UL );
+  fd_memcpy( pong->from.uc, glob->my_creds.public_key.uc, 32UL );
 
   /* Generate response hash token */
   fd_sha256_t sha[1];
@@ -169,26 +237,13 @@ fd_gossip_handle_ping_request( fd_gossip_global_t * glob, fd_gossip_network_addr
                    /* public_key  */ glob->my_creds.public_key.uc,
                    /* private_key */ glob->my_creds.private_key,
                    sha2 );
+
+  fd_gossip_send(glob, from, &gmsg);
 }
 
 void
-fd_gossip_recv_packet(fd_gossip_global_t * glob, fd_valloc_t valloc, fd_gossip_network_addr_t * from, ulong msg_len, const uchar * msg) {
-  fd_gossip_msg_t gmsg;
-  fd_gossip_msg_new(&gmsg);
-  fd_bincode_decode_ctx_t ctx;
-  ctx.data    = msg;
-  ctx.dataend = msg + msg_len;
-  ctx.valloc  = valloc;
-  if (fd_gossip_msg_decode(&gmsg, &ctx)) {
-    FD_LOG_WARNING(("corrupt gossip message"));
-    return;
-  }
-  if (ctx.data != ctx.dataend) {
-    FD_LOG_WARNING(("corrupt gossip message"));
-    return;
-  }
-
-  switch (gmsg.discriminant) {
+fd_gossip_recv(fd_gossip_global_t * glob, fd_gossip_network_addr_t * from, fd_gossip_msg_t * gmsg) {
+  switch (gmsg->discriminant) {
   case fd_gossip_msg_enum_pull_req:
     break;
   case fd_gossip_msg_enum_pull_resp:
@@ -198,15 +253,11 @@ fd_gossip_recv_packet(fd_gossip_global_t * glob, fd_valloc_t valloc, fd_gossip_n
   case fd_gossip_msg_enum_prune_msg:
     break;
   case fd_gossip_msg_enum_ping:
-    fd_gossip_handle_ping_request(glob, from, &gmsg.inner.ping);
+    fd_gossip_handle_ping_request(glob, from, &gmsg->inner.ping);
     break;
   case fd_gossip_msg_enum_pong:
     break;
   }
-
-  fd_bincode_destroy_ctx_t ctx2;
-  ctx2.valloc  = valloc;
-  fd_gossip_msg_destroy(&gmsg, &ctx2);
 }
 
 /* Main loop for socket reading/writing. Does not return until stopflag is non-zero */
@@ -223,32 +274,10 @@ fd_gossip_main_loop( fd_gossip_global_t * glob, fd_valloc_t valloc, volatile int
     FD_LOG_ERR(("setsocketopt failed: %s", strerror(errno)));
     return -1;
   }
-  if (glob->my_addr.family == AF_INET) {
-    struct sockaddr_in myaddr;
-    memset((char *)&myaddr, 0, sizeof(myaddr));
-    myaddr.sin_family = AF_INET;
-    myaddr.sin_addr.s_addr = glob->my_addr.addr[0];
-    myaddr.sin_port = glob->my_addr.port;
-    if (bind(fd, (struct sockaddr *)&myaddr, sizeof(myaddr)) < 0) {
-      FD_LOG_ERR(("bind failed: %s", strerror(errno)));
-      return -1;
-    }
-  } else if (glob->my_addr.family == AF_INET6) {
-    struct sockaddr_in6 myaddr;
-    memset((char *)&myaddr, 0, sizeof(myaddr));
-    myaddr.sin6_family = AF_INET6;
-    uint * u6_addr32 = myaddr.sin6_addr.__in6_u.__u6_addr32;
-    u6_addr32[0] = glob->my_addr.addr[0];
-    u6_addr32[1] = glob->my_addr.addr[1];
-    u6_addr32[2] = glob->my_addr.addr[2];
-    u6_addr32[3] = glob->my_addr.addr[3];
-    myaddr.sin6_port = glob->my_addr.port;
-    if (bind(fd, (struct sockaddr *)&myaddr, sizeof(myaddr)) < 0) {
-      FD_LOG_ERR(("bind failed: %s", strerror(errno)));
-      return -1;
-    }
-  } else {
-    FD_LOG_ERR(("invalid address family"));
+  uchar saddr[sizeof(struct sockaddr_in6)];
+  int saddrlen = fd_gossip_to_sockaddr(saddr, &glob->my_addr);
+  if (saddrlen < 0 || bind(fd, (struct sockaddr*)saddr, (uint)saddrlen) < 0) {
+    FD_LOG_ERR(("bind failed: %s", strerror(errno)));
     return -1;
   }
 
@@ -256,18 +285,18 @@ fd_gossip_main_loop( fd_gossip_global_t * glob, fd_valloc_t valloc, volatile int
   struct mmsghdr msgs[VLEN];
   struct iovec iovecs[VLEN];
   uchar bufs[VLEN][FD_ETH_PAYLOAD_MAX];
-  struct sockaddr sockaddrs[VLEN];
+  uchar sockaddrs[VLEN][sizeof(struct sockaddr_in6)]; /* sockaddr is smaller than sockaddr_in6 */
   struct timespec timeout;
 
   while ( !*stopflag ) {
     fd_memset(msgs, 0, sizeof(msgs));
     for (uint i = 0; i < VLEN; i++) {
-      iovecs[i].iov_base         = bufs[i];
-      iovecs[i].iov_len          = FD_ETH_PAYLOAD_MAX;
-      msgs[i].msg_hdr.msg_iov    = &iovecs[i];
-      msgs[i].msg_hdr.msg_iovlen = 1;
-      msgs[i].msg_hdr.msg_name   = &sockaddrs[i];
-      msgs[i].msg_hdr.msg_iovlen = sizeof(struct sockaddr);
+      iovecs[i].iov_base          = bufs[i];
+      iovecs[i].iov_len           = FD_ETH_PAYLOAD_MAX;
+      msgs[i].msg_hdr.msg_iov     = &iovecs[i];
+      msgs[i].msg_hdr.msg_iovlen  = 1;
+      msgs[i].msg_hdr.msg_name    = sockaddrs[i];
+      msgs[i].msg_hdr.msg_namelen = sizeof(struct sockaddr_in6);
     }
     
     timeout.tv_sec = 1;
@@ -282,25 +311,29 @@ fd_gossip_main_loop( fd_gossip_global_t * glob, fd_valloc_t valloc, volatile int
     for (uint i = 0; i < (uint)retval; ++i) {
       // Get the source addr
       fd_gossip_network_addr_t from;
-      fd_memset(&from, 0, sizeof(from));
-      from.family = sockaddrs[i].sa_family;
-      if (from.family == AF_INET) {
-        const struct sockaddr_in * sa = (const struct sockaddr_in *)&sockaddrs[i];
-        from.addr[0] = sa->sin_addr.s_addr;
-        from.port = sa->sin_port;
-      } else if (from.family == AF_INET6) {
-        const struct sockaddr_in6 * sa = (const struct sockaddr_in6 *)&sockaddrs[i];
-        const uint * u6_addr32 = sa->sin6_addr.__in6_u.__u6_addr32;
-        from.addr[0] = u6_addr32[0];
-        from.addr[1] = u6_addr32[1];
-        from.addr[2] = u6_addr32[2];
-        from.addr[3] = u6_addr32[3];
-        from.port = sa->sin6_port;
-      } else {
-        FD_LOG_WARNING(("unknown address family in packet"));
+      if ( fd_gossip_from_sockaddr( &from, sockaddrs[i] ) )
+        continue;
+
+      fd_gossip_msg_t gmsg;
+      fd_gossip_msg_new(&gmsg);
+      fd_bincode_decode_ctx_t ctx;
+      ctx.data    = bufs[i];
+      ctx.dataend = (const uchar*)ctx.data + msgs[i].msg_len;
+      ctx.valloc  = valloc;
+      if (fd_gossip_msg_decode(&gmsg, &ctx)) {
+        FD_LOG_WARNING(("corrupt gossip message"));
         continue;
       }
-      fd_gossip_recv_packet(glob, valloc, &from, msgs[i].msg_len, bufs[i]);
+      if (ctx.data != ctx.dataend) {
+        FD_LOG_WARNING(("corrupt gossip message"));
+        continue;
+      }
+
+      fd_gossip_recv(glob, &from, &gmsg);
+
+      fd_bincode_destroy_ctx_t ctx2;
+      ctx2.valloc = valloc;
+      fd_gossip_msg_destroy(&gmsg, &ctx2);
     }
   }
 
