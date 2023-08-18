@@ -238,9 +238,9 @@ static int create_account(
   instruction_ctx_t                ctx,
   fd_system_program_instruction_t *instruction
   ) {
-  int err = fd_account_sanity_check(&ctx, 2);
-  if (FD_UNLIKELY(FD_EXECUTOR_INSTR_SUCCESS != err))
-    return err;
+  if (ctx.txn_ctx->txn_descriptor->acct_addr_cnt < 2) {
+    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+  }
 
   /* Account 0: funding account
      Account 1: new account
@@ -287,11 +287,12 @@ static int create_account(
   if (!fd_account_is_signer(&ctx, base))
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
 
+  int err;
   char * raw_acc_data_from = (char*) fd_acc_mgr_view_data(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) from, NULL, &err);
-    if (err == FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
-      ctx.txn_ctx->custom_err = 0; /* SystemError::AccountAlreadyInUse */
-      return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
-    }
+  if (err == FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
+    ctx.txn_ctx->custom_err = 0; /* SystemError::AccountAlreadyInUse */
+    return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+  }
 
   fd_account_meta_t *metadata = (fd_account_meta_t *) raw_acc_data_from;
   if (metadata->dlen > 0) {

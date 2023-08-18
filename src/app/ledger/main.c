@@ -560,7 +560,6 @@ main( int     argc,
   char const * snapshotfile = fd_env_strip_cmdline_cstr ( &argc, &argv, "--snapshotfile", NULL, NULL      );
   char const * incremental  = fd_env_strip_cmdline_cstr ( &argc, &argv, "--incremental",  NULL, NULL      );
   ulong        loglevel     = fd_env_strip_cmdline_ulong( &argc, &argv, "--loglevel",     NULL, 0         );
-  char const * net          = fd_env_strip_cmdline_cstr ( &argc, &argv, "--net",          NULL, NULL      );
   char const * genesis      = fd_env_strip_cmdline_cstr ( &argc, &argv, "--genesis",      NULL, NULL      );
   char const * rocksdb_dir  = fd_env_strip_cmdline_cstr ( &argc, &argv, "--rocksdb",      NULL, NULL      );
   ulong        end_slot     = fd_env_strip_cmdline_ulong( &argc, &argv, "--endslot",      NULL, ULONG_MAX );
@@ -712,23 +711,6 @@ main( int     argc,
     }
 
     global->log_level = (uchar) loglevel;
-
-    if (NULL != net) {
-      if (!strncmp(net, "main", 4))
-        fd_features_enable_mainnet(&global->features);
-      if (!strcmp(net, "test"))
-        fd_features_enable_testnet(&global->features);
-      if (!strcmp(net, "dev"))
-        fd_features_enable_devnet(&global->features);
-      if (!strcmp(net, "v13"))
-        fd_features_enable_v13(&global->features);
-      if (!strcmp(net, "v14"))
-        fd_features_enable_v14(&global->features);
-      if (!strcmp(net, "v16"))
-        fd_features_enable_v16(&global->features);
-      if (!strcmp(net, "v17"))
-        fd_features_enable_v17(&global->features);
-    }
 
     if (snapshot_used) {
       int err = 0;

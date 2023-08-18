@@ -36,3 +36,4 @@ jobs:
         run: |
           sudo prlimit --pid $$ --memlock=-1:-1
           ./test.sh -j --page-sz gigantic
+          make run-runtime-test

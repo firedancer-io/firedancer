@@ -193,16 +193,8 @@ FD_PROTOTYPES_BEGIN
    The last element has offset==ULONG_MAX. */
 extern fd_feature_id_t const ids[];
 
-/* fd_features_enable_{...} enables a specific set of features. */
-
-void fd_features_enable_testnet( fd_features_t * );
-void fd_features_enable_devnet ( fd_features_t * );
-void fd_features_enable_mainnet ( fd_features_t * );
-void fd_features_enable_v13    ( fd_features_t * );
-void fd_features_enable_v14    ( fd_features_t * );
-void fd_features_enable_v16    ( fd_features_t * );
-void fd_features_enable_v17    ( fd_features_t * );
-void fd_features_enable_all    ( fd_features_t * );
+/* fd_features_enable_all enables all available features. */
+void fd_features_enable_all( fd_features_t * );
 
 /* fd_feature_iter_Ellipsis is an iterator-style API over all supported
    features in this version of Firedancer.  Usage:
@@ -240,16 +232,7 @@ fd_features_ptr_const( fd_features_t const *   features,
   return (ulong const *)( (ulong)features + id->offset );
 }
 
-static inline void fd_features_disable_all   ( fd_features_t * f) {
-  for( fd_feature_id_t const * id = fd_feature_iter_init();
-       !fd_feature_iter_done( id );
-       id = fd_feature_iter_next( id ) ) {
-    *fd_features_ptr(f, id) = ULONG_MAX;
-  }
-}
-
-
-
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_features_fd_features_h */
+

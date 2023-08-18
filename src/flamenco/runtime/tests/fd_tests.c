@@ -2,6 +2,7 @@
 #include "../sysvar/fd_sysvar.h"
 #include "../../../ballet/base58/fd_base58.h"
 #include "../../fd_flamenco.h"
+#include <errno.h>
 #include <stdio.h>
 #include <unistd.h>
 #include "../../types/fd_types_yaml.h"
@@ -242,8 +243,10 @@ int fd_executor_run_test(
       .instr          = instr,
       .txn_ctx        = &txn_ctx,
     };
+    // TODO: dirty hack to get around additional account parsed for testing
     if (ctx.txn_ctx->txn_descriptor->acct_addr_cnt == test->accs_len + 1) {
       ctx.txn_ctx->txn_descriptor->acct_addr_cnt = (ushort)test->accs_len;
+      ctx.txn_ctx->txn_descriptor->readonly_unsigned_cnt--;
     }
 
     execute_instruction_func_t exec_instr_func = fd_executor_lookup_native_program( global, &test->program_id );
@@ -426,8 +429,6 @@ main( int     argc,
                verbose          = fd_env_strip_cmdline_cstr ( &argc, &argv, "--verbose",          NULL, NULL      );
                fail_fast        = fd_env_strip_cmdline_cstr ( &argc, &argv, "--fail_fast",        NULL, NULL      );
                do_dump          = fd_env_strip_cmdline_cstr ( &argc, &argv, "--do_dump",          NULL, NULL      );
-  char *       ignore_fail      = (char *)fd_env_strip_cmdline_cstr ( &argc, &argv, "--ignore_fail",      NULL, NULL      ); /* UGLY!!! */
-  char const * ignore_fail_file = fd_env_strip_cmdline_cstr ( &argc, &argv, "--ignore_fail_file", NULL, NULL      );
                scratch_mb       = fd_env_strip_cmdline_ulong( &argc, &argv, "--scratch-mb",       NULL, 1024      );
 
   if (-1 != do_test)
@@ -437,29 +438,21 @@ main( int     argc,
   fd_executor_test_suite_t suite;
   fd_executor_test_suite_new( &suite );
 
-  if (NULL != ignore_fail_file) {
-    FILE *fp = fopen(ignore_fail_file, "r");
-    if (NULL != fp) {
-      char buf[255];
-      while (NULL != fgets(buf, sizeof(buf), fp)) {
+  /* Read list of ignored tests */
+  do {
+    FILE * fp = fopen( "src/flamenco/runtime/tests/ignore_fail", "r" );
+    if( FD_UNLIKELY( !fp ) ) FD_LOG_ERR(( "fopen(src/flamenco/runtime/tests/ignore_fail, r) failed: %s", strerror(errno) ));
+    else {
+      char buf[ 256 ];
+      while( NULL != fgets( buf, sizeof(buf), fp ) ) {
         ulong i = fd_cstr_to_ulong( buf );
         FD_LOG_WARNING(( "Ignoring test %lu", i ));
-        if (i < (sizeof(suite.ignore_fail) / sizeof(suite.ignore_fail[0])))
-          suite.ignore_fail[i] = 1;
+        if( i < (sizeof(suite.ignore_fail) / sizeof(suite.ignore_fail[0])) )
+          suite.ignore_fail[ i ] = 1;
       }
-      fclose(fp);
+      fclose( fp );
     }
-  }
-
-  if (NULL != ignore_fail) {
-    char *tok = strtok(ignore_fail, " ,");
-    while (NULL != tok) {
-      ulong i = (ulong) atoi(tok);
-      if (i < (sizeof(suite.ignore_fail) / sizeof(suite.ignore_fail[0])))
-        suite.ignore_fail[i] = 1;
-      tok = strtok(NULL, " ,");
-    }
-  }
+  } while(0);
 
   fd_features_enable_all(&suite.features);
 
@@ -492,7 +485,13 @@ main( int     argc,
     }
     if( r != -9999 ) {
       executed_cnt++;
-      if( r == 0 ) success_cnt++;
+      if( r == 0 ) {
+        if( suite.ignore_fail[idx] ) {
+          FD_LOG_NOTICE(( "Removing %lu from ignore fail 🎉", idx ));
+          suite.ignore_fail[idx] = 0;
+        }
+        success_cnt++;
+      }
     }
   }
 
@@ -501,9 +500,24 @@ main( int     argc,
   if (NULL != filter)
     regfree(&suite.filter_ex);
 
+  /* Update ignore fail list */
+  do {
+    FILE * fp = fopen( "src/flamenco/runtime/tests/ignore_fail", "w" );
+    if( FD_UNLIKELY( !fp ) ) FD_LOG_ERR(( "fopen(src/flamenco/runtime/tests/ignore_fail, w) failed: %s", strerror(errno) ));
+    else {
+      for( ulong i = 0; i < (sizeof(suite.ignore_fail) / sizeof(suite.ignore_fail[0])); i++ ) {
+        if( suite.ignore_fail[ i ] )
+          fprintf( fp, "%lu\n", i );
+      }
+      fclose( fp );
+    }
+  } while(0);
+
   /* Free test suite */
   fd_wksp_free_laddr( fd_scratch_detach( NULL ) );
 
+  if( ret==0 ) FD_LOG_NOTICE(( "pass" ));
+  else         FD_LOG_NOTICE(( "fail" ));
   fd_log_flush();
   fd_flamenco_halt();
   fd_halt();

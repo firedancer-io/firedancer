@@ -106,9 +106,9 @@ int fd_advance_nonce_account(
 //        {pubkey: params.noncePubkey, isSigner: false, isWritable: true},
 //        {pubkey: SYSVAR_RECENT_BLOCKHASHES_PUBKEY, isSigner: false, isWritable: false,},
 //        {pubkey: params.authorizedPubkey, isSigner: true, isWritable: false},
-  int err = fd_account_sanity_check(&ctx, 2);
-  if (FD_UNLIKELY(FD_EXECUTOR_INSTR_SUCCESS != err))
-    return err;
+  if (ctx.txn_ctx->txn_descriptor->acct_addr_cnt < 2) {
+    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+  }
 
   uchar *       instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
 
@@ -117,6 +117,10 @@ int fd_advance_nonce_account(
 
   fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
   fd_pubkey_t * me   = &txn_accs[instr_acc_idxs[0]];
+
+  if (0 != memcmp(&txn_accs[instr_acc_idxs[1]], ctx.global->sysvar_recent_block_hashes, sizeof(fd_pubkey_t))) {
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+  }
 
   // https://github.com/firedancer-io/solana/blob/ffd63324f988e1b2151dab34983c71d6ff4087f6/runtime/src/nonce_keyed_account.rs#L66
 
@@ -157,8 +161,11 @@ int fd_advance_nonce_account(
 //                let (next_durable_nonce, separate_domains) = get_durable_nonce(invoke_context);
 
   fd_block_block_hash_entry_t * hashes = ctx.global->bank.recent_block_hashes.hashes;
-  if ( deq_fd_block_block_hash_entry_t_cnt( hashes ) == 0)
+  if ( deq_fd_block_block_hash_entry_t_cnt( hashes ) == 0) {
+    ctx.txn_ctx->custom_err = 6;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+  }
+    
   fd_block_block_hash_entry_t *re = deq_fd_block_block_hash_entry_t_peek_head( hashes );
 
   fd_hash_t durable_nonce;
@@ -203,6 +210,7 @@ int fd_advance_nonce_account(
   if ( fd_nonce_state_versions_encode(&state, &ctx3) )
     FD_LOG_ERR(("fd_nonce_state_versions_encode failed"));
 
+  int err;
   if (!fd_account_check_set_data_length(&ctx, m, me, sz, &err))
     return err;
 
@@ -223,10 +231,10 @@ int fd_withdraw_nonce_account(
   unsigned long                   requested_lamports
   )
 {
-  // https://github.com/firedancer-io/solana/blob/ffd63324f988e1b2151dab34983c71d6ff4087f6/runtime/src/nonce_keyed_account.rs#L138
-  int err = fd_account_sanity_check(&ctx, 4);
-  if (FD_UNLIKELY(FD_EXECUTOR_INSTR_SUCCESS != err))
-    return err;
+
+  if (ctx.txn_ctx->txn_descriptor->acct_addr_cnt < 2) {
+    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+  }
 
   uchar *       instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
 
@@ -237,7 +245,7 @@ int fd_withdraw_nonce_account(
   fd_pubkey_t * from   = &txn_accs[instr_acc_idxs[0]];
   fd_pubkey_t * to  = &txn_accs[instr_acc_idxs[1]];
 
-  err = 0;
+  int err = 0;
   fd_funk_rec_t const * from_con_rec = NULL;
   char *                raw_acc_data = (char*) fd_acc_mgr_view_data(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) from, &from_con_rec, &err);
   if (NULL == raw_acc_data)
@@ -342,9 +350,9 @@ int fd_initialize_nonce_account(
   instruction_ctx_t   ctx,
   fd_pubkey_t        *initialize_nonce_account
   ) {
-  int err = fd_account_sanity_check(&ctx, 3);
-  if (FD_UNLIKELY(FD_EXECUTOR_INSTR_SUCCESS != err))
-    return err;
+  if (ctx.txn_ctx->txn_descriptor->acct_addr_cnt < 2) {
+    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+  }
 
   uchar *       instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
 
@@ -354,6 +362,10 @@ int fd_initialize_nonce_account(
   fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
 
   fd_pubkey_t * me   = &txn_accs[instr_acc_idxs[0]];
+
+  if (0 != memcmp(&txn_accs[instr_acc_idxs[1]], ctx.global->sysvar_recent_block_hashes, sizeof(fd_pubkey_t))) {
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+  }
 
   if (!fd_account_is_signer(&ctx, me))
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG; // Really? This was the error?!
@@ -383,8 +395,11 @@ int fd_initialize_nonce_account(
       return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
 
     fd_block_block_hash_entry_t * hashes = ctx.global->bank.recent_block_hashes.hashes;
-    if ( deq_fd_block_block_hash_entry_t_cnt( hashes ) == 0)
+    if ( deq_fd_block_block_hash_entry_t_cnt( hashes ) == 0) {
+      ctx.txn_ctx->custom_err = 6;
       return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+    }
+      
     fd_block_block_hash_entry_t *re = deq_fd_block_block_hash_entry_t_peek_head( hashes );
 
     fd_hash_t durable_nonce;
@@ -406,7 +421,7 @@ int fd_initialize_nonce_account(
     if ( fd_nonce_state_versions_encode(&state, &ctx4) )
       FD_LOG_ERR(("fd_nonce_state_versions_encode failed"));
 
-    err = 0;
+    int err = 0;
     if (!fd_account_check_set_data_length(&ctx, m, me, sz, &err))
       return err;
 
@@ -443,9 +458,9 @@ int fd_authorize_nonce_account(
 //        {pubkey: params.noncePubkey, isSigner: false, isWritable: true},
 //        {pubkey: params.authorizedPubkey, isSigner: true, isWritable: false},
 
-  int err = fd_account_sanity_check(&ctx, 1);
-  if (FD_UNLIKELY(FD_EXECUTOR_INSTR_SUCCESS != err))
-    return err;
+  if (ctx.txn_ctx->txn_descriptor->acct_addr_cnt < 1) {
+    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+  }
 
   uchar *       instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
   fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
@@ -529,9 +544,9 @@ int fd_upgrade_nonce_account(
 
 // https://github.com/solana-labs/solana/blob/b00d18cec4011bb452e3fe87a3412a3f0146942e/runtime/src/system_instruction_processor.rs#L491
 
-  int err = fd_account_sanity_check(&ctx, 1);
-  if (FD_UNLIKELY(FD_EXECUTOR_INSTR_SUCCESS != err))
-    return err;
+  if (ctx.txn_ctx->txn_descriptor->acct_addr_cnt < 1) {
+    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+  }
 
   uchar *       instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
   fd_pubkey_t * txn_accs       = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);

@@ -69,7 +69,6 @@ struct global_state {
   char const *        persist;
   ulong               end_slot;
   char const *        cmd;
-  char const *        net;
   char const *        reset;
   char const *        load;
 
@@ -335,7 +334,6 @@ int main(int argc, char **argv) {
   state.persist             = fd_env_strip_cmdline_cstr ( &argc, &argv, "--persist",      NULL, NULL);
   state.end_slot            = fd_env_strip_cmdline_ulong( &argc, &argv, "--end-slot",     NULL, ULONG_MAX);
   state.cmd                 = fd_env_strip_cmdline_cstr ( &argc, &argv, "--cmd",          NULL, NULL);
-  state.net                 = fd_env_strip_cmdline_cstr ( &argc, &argv, "--net",          NULL, NULL);
   state.reset               = fd_env_strip_cmdline_cstr ( &argc, &argv, "--reset",        NULL, NULL);
   state.load                = fd_env_strip_cmdline_cstr ( &argc, &argv, "--load",         NULL, NULL);
 
@@ -358,24 +356,6 @@ int main(int argc, char **argv) {
     usage(argv[0]);
     return 1;
   }
-
-  if (NULL != state.net) {
-    if (!strncmp(state.net, "main", 4))
-      fd_features_enable_mainnet(&state.global->features);
-    if (!strcmp(state.net, "test"))
-      fd_features_enable_testnet(&state.global->features);
-    if (!strcmp(state.net, "dev"))
-      fd_features_enable_devnet(&state.global->features);
-    if (!strcmp(state.net, "v13"))
-      fd_features_enable_v13(&state.global->features);
-    if (!strcmp(state.net, "v14"))
-      fd_features_enable_v14(&state.global->features);
-    if (!strcmp(state.net, "v16"))
-      fd_features_enable_v16(&state.global->features);
-    if (!strcmp(state.net, "v17"))
-      fd_features_enable_v17(&state.global->features);
-  } else
-    fd_features_enable_all(&state.global->features);
 
   char hostname[64];
   gethostname(hostname, sizeof(hostname));

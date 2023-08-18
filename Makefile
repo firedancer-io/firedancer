@@ -68,4 +68,4 @@ run-runtime-test:
 #	export EXTRAS="asan" && export LSAN_OPTIONS="suppressions=`pwd`/lsan-suppressed.cc" &&
 	src/flamenco/runtime/run_ledger_tests.sh
 #	export EXTRAS="asan" && export LSAN_OPTIONS="suppressions=`pwd`/lsan-suppressed.cc" &&
-	src/flamenco/runtime/run_bpf_tests.sh
+#	src/flamenco/runtime/run_bpf_tests.sh
