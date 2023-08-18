@@ -104,9 +104,9 @@ typedef struct fd_contact_elem fd_contact_elem_t;
 struct fd_active_elem {
     fd_ping_key_t key;
     ulong next;
-    ulong pingtime;
+    long pingtime;
     fd_hash_t pingtoken;
-    ulong pongtime;
+    long pongtime;
 };
 /* Active table */
 typedef struct fd_active_elem fd_active_elem_t;
@@ -242,7 +242,52 @@ fd_gossip_send( fd_gossip_global_t * glob, fd_gossip_network_addr_t * dest, fd_g
 }
 
 void
+fd_gossip_make_ping( fd_gossip_global_t * glob, fd_ping_key_t * key, long now ) {
+  fd_active_elem_t * val = fd_active_table_query(glob->actives, key, NULL);
+  if (val == NULL) {
+    val = fd_active_table_insert(glob->actives, key);
+    if (val == NULL) {
+      FD_LOG_WARNING(("too many actives"));
+      return;
+    }
+    val->pongtime = 0;
+  }
+  val->pingtime = now;
+
+  fd_gossip_msg_t gmsg;
+  fd_gossip_msg_new_disc(&gmsg, fd_gossip_msg_enum_ping);
+  fd_gossip_ping_t * ping = &gmsg.inner.ping;
+
+  fd_memcpy( ping->from.uc, glob->my_creds.public_key.uc, 32UL );
+
+  for ( ulong i = 0; i < FD_HASH_FOOTPRINT / sizeof(ulong); ++i )
+    ping->token.ul[i] = val->pingtoken.ul[i] = fd_rng_ulong(glob->rng);
+
+  /* Sign */
+  fd_sha512_t sha[1];
+  fd_ed25519_sign( /* sig */ ping->signature.uc,
+                   /* msg */ ping->token.uc,
+                   /* sz  */ 32UL,
+                   /* public_key  */ glob->my_creds.public_key.uc,
+                   /* private_key */ glob->my_creds.private_key,
+                   sha );
+
+  fd_gossip_send( glob, &key->addr, &gmsg );
+}
+
+void
 fd_gossip_handle_ping( fd_gossip_global_t * glob, fd_gossip_network_addr_t * from, fd_gossip_ping_t const * ping ) {
+  /* Verify the signature */
+  fd_sha512_t sha2[1];
+  if (fd_ed25519_verify( /* msg */ ping->token.uc,
+                         /* sz */ 32UL,
+                         /* sig */ ping->signature.uc,
+                         /* public_key */ ping->from.uc,
+                         sha2 )) {
+    FD_LOG_WARNING(("received ping with invalid signature"));
+    return;
+  }
+
   fd_gossip_msg_t gmsg;
   fd_gossip_msg_new_disc(&gmsg, fd_gossip_msg_enum_pong);
   fd_gossip_ping_t * pong = &gmsg.inner.pong;
@@ -257,7 +302,6 @@ fd_gossip_handle_ping( fd_gossip_global_t * glob, fd_gossip_network_addr_t * fro
   fd_sha256_fini( sha, pong->token.uc );
 
   /* Sign */
-  fd_sha512_t sha2[1];
   fd_ed25519_sign( /* sig */ pong->signature.uc,
                    /* msg */ pong->token.uc,
                    /* sz  */ 32UL,
@@ -269,7 +313,7 @@ fd_gossip_handle_ping( fd_gossip_global_t * glob, fd_gossip_network_addr_t * fro
 }
 
 void
-fd_gossip_handle_pong( fd_gossip_global_t * glob, fd_gossip_network_addr_t * from, fd_gossip_ping_t const * pong, ulong now ) {
+fd_gossip_handle_pong( fd_gossip_global_t * glob, fd_gossip_network_addr_t * from, fd_gossip_ping_t const * pong, long now ) {
   fd_ping_key_t key;
   fd_memcpy(key.id.uc, pong->from.uc, 32U);
   fd_memcpy(&key.addr, from, sizeof(fd_gossip_network_addr_t));
@@ -306,7 +350,7 @@ fd_gossip_handle_pong( fd_gossip_global_t * glob, fd_gossip_network_addr_t * fro
 }
 
 void
-fd_gossip_recv(fd_gossip_global_t * glob, fd_gossip_network_addr_t * from, fd_gossip_msg_t * gmsg, ulong now) {
+fd_gossip_recv(fd_gossip_global_t * glob, fd_gossip_network_addr_t * from, fd_gossip_msg_t * gmsg, long now) {
   switch (gmsg->discriminant) {
   case fd_gossip_msg_enum_pull_req:
     break;
@@ -374,12 +418,7 @@ fd_gossip_main_loop( fd_gossip_global_t * glob, fd_valloc_t valloc, volatile int
     }
     if (retval == 0)
       continue;
-    struct timeval tv;
-    if (gettimeofday(&tv, NULL) < 0) {
-      FD_LOG_ERR(("gettimeofday failed: %s", strerror(errno)));
-      return -1;
-    }
-    ulong now = ((ulong)tv.tv_sec)*1000000000UL + ((ulong)tv.tv_usec)*1000UL;
+    long now = fd_log_wallclock();
 
     for (uint i = 0; i < (uint)retval; ++i) {
       // Get the source addr
