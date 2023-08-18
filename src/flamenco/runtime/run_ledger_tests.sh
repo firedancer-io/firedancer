@@ -3,7 +3,6 @@
 # this assumes the test_runtime has already been built
 
 LEDGER="v17-test-ledger"
-VERBOSE=NO
 POSITION_ARGS=()
 
 while [[ $# -gt 0 ]]; do
@@ -11,10 +10,6 @@ while [[ $# -gt 0 ]]; do
     -l|--ledger)
        LEDGER="$2"
        shift
-       shift
-       ;;
-    -v|--verbose)
-       VERBOSE=YES
        shift
        ;;
     -*|--*)
@@ -50,11 +45,17 @@ fi
 
 set -x
 
-if [ $VERBOSE == "YES" ]; then
-  set -x
+build/native/gcc/bin/fd_frank_ledger --rocksdb $LEDGER/rocksdb --genesis $LEDGER/genesis.bin --cmd ingest --indexmax 10000 --txnmax 100 --backup test_ledger_backup --gaddrout gaddr --pages 1
+
+status=$?
+
+if [ $status -ne 0 ]
+then
+  echo 'ledger test failed:'
+  exit $status
 fi
 
-build/native/gcc/bin/fd_frank_ledger --rocksdb $LEDGER/rocksdb --genesis $LEDGER/genesis.bin --cmd ingest --indexmax 10000 --txnmax 100 --backup test_ledger_backup --gaddrout gaddr --pages 1
+
 
 log=/tmp/ledger_log$$
 
