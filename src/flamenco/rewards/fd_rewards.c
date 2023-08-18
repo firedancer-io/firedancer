@@ -468,7 +468,7 @@ get_reward_distribution_num_blocks(
     num_chunks = fd_ulong_max(num_chunks, 1);
     num_chunks = fd_ulong_min(
         fd_ulong_max(
-            bank->epoch_schedule.slots_per_epoch / (ulong)MAX_FACTOR_OF_REWARD_BLOCKS_IN_EPOCH, 
+            bank->epoch_schedule.slots_per_epoch / (ulong)MAX_FACTOR_OF_REWARD_BLOCKS_IN_EPOCH,
             1),
         1);
     return num_chunks;
@@ -649,8 +649,6 @@ begin_partitioned_rewards(
 }
 // distribute_partitioned_epoch_rewards
 void
-distribute_partitioned_epoch_rewards(
-
-){
+distribute_partitioned_epoch_rewards( void ) {
 
 }
