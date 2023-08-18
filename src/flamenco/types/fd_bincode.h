@@ -43,24 +43,24 @@ typedef struct fd_bincode_destroy_ctx fd_bincode_destroy_ctx_t;
 
 static inline int
 fd_bincode_uint128_decode(uint128 * self, fd_bincode_decode_ctx_t * ctx) {
-  const uint128 * ptr = (const uint128 *) ctx->data;
-  if ( FD_UNLIKELY((void const *) (ptr + 1) > ctx->dataend ) )
-    return FD_BINCODE_ERR_UNDERFLOW;
+  uchar const * ptr = (uchar *)ctx->data;
+  if( FD_UNLIKELY((void const *)(ptr + sizeof(uint128)) > ctx->dataend ) )
+    return FD_BINCODE_ERR_OVERFLOW;
 
-  memcpy( self, ptr, sizeof(uint128) ); /* Do direct assignment (especially if ptr is aligned 16)? */
-  ctx->data = ptr + 1;
+  memcpy( self, ptr, sizeof(uint128) );  /* unaligned */
+  ctx->data = ptr + sizeof(uint128);
 
   return FD_BINCODE_SUCCESS;
 }
 
 static inline int
 fd_bincode_uint128_encode(uint128 const * self, fd_bincode_encode_ctx_t * ctx) {
-  uint128 * ptr = (uint128 *) ctx->data;
-  if ( FD_UNLIKELY((void const *) (ptr + 1) > ctx->dataend ) )
+  uchar * ptr = (uchar *)ctx->data;
+  if( FD_UNLIKELY((void *)(ptr + sizeof(uint128)) > ctx->dataend ) )
     return FD_BINCODE_ERR_OVERFLOW;
 
-  memcpy( ptr, self, sizeof(uint128) ); /* Do direct assignment (especially if ptr is aligned 16)? */
-  ctx->data = ptr + 1;
+  memcpy( ptr, self, sizeof(uint128) );  /* unaligned */
+  ctx->data = ptr + sizeof(uint128);
 
   return FD_BINCODE_SUCCESS;
 }
