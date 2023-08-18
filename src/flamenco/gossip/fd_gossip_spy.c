@@ -4,6 +4,9 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <signal.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 
 static void usage(const char* progname) {
   fprintf( stderr, "USAGE: %s\n", progname );
@@ -26,6 +29,13 @@ int main(int argc, char **argv) {
     return 1;
   }
   fd_gossip_config_t config;
+  fd_memset(&config, 0, sizeof(config));
+  static const uchar keypair[64] = {151,50,112,166,226,63,194,20,148,252,40,64,15,177,107,182,33,55,205,229,41,89,253,105,59,34,222,63,137,61,149,108,57,78,32,56,180,204,58,197,119,82,62,204,48,103,63,242,241,207,147,187,12,159,8,106,193,251,118,170,166,141,103,111};
+  fd_memcpy(config.my_creds.private_key, keypair, 32UL);
+  fd_memcpy(config.my_creds.public_key.uc, keypair + 32U, 32UL);
+  config.my_addr.family = AF_INET;
+  config.my_addr.port = htons(1125);
+  config.my_addr.addr[0] = inet_addr("127.0.0.1");
 
   char hostname[64];
   gethostname(hostname, sizeof(hostname));

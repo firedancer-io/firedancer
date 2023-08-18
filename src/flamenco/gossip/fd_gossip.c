@@ -159,8 +159,8 @@ fd_gossip_global_leave ( fd_gossip_global_t * join ) { return join; }
 void *
 fd_gossip_global_delete ( void * shmap, fd_valloc_t valloc ) {
   fd_gossip_global_t * glob = (fd_gossip_global_t *)shmap;
-  fd_valloc_free(valloc, fd_contact_table_leave(fd_contact_table_delete(glob->contacts)));
-  fd_valloc_free(valloc, fd_active_table_leave(fd_active_table_delete(glob->actives)));
+  fd_valloc_free(valloc, fd_contact_table_delete(fd_contact_table_leave(glob->contacts)));
+  fd_valloc_free(valloc, fd_active_table_delete(fd_active_table_leave(glob->actives)));
   return glob;
 }
 
@@ -413,6 +413,8 @@ fd_gossip_main_loop( fd_gossip_global_t * glob, fd_valloc_t valloc, volatile int
     
     int retval = recvmmsg(fd, msgs, VLEN, 0, &timeout);
     if (retval < 0) {
+      if (errno == EINTR )
+        continue;
       FD_LOG_ERR(("recvmmsg failed: %s", strerror(errno)));
       return -1;
     }
