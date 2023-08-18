@@ -137,6 +137,18 @@
 
 #define FD_WKSP_CSTR_MAX (FD_SHMEM_NAME_MAX + 21UL)
 
+/* FD_WKSP_CHECKPT_STYLE_* specifies the streaming format to use for
+   a workspace checkpoint.  These are non-zero.
+
+     RAW - the stream will have extensively workspace metadata followed
+           by the used workspace partitions.  No compression or
+           hashing is done of the workspace partitions.
+
+     DEFAULT - the style to use when not specified by user. */
+
+#define FD_WKSP_CHECKPT_STYLE_RAW     (1)
+#define FD_WKSP_CHECKPT_STYLE_DEFAULT FD_WKSP_CHECKPT_STYLE_RAW
+
 /* A fd_wksp_t * is an opaque handle of a workspace */
 
 struct fd_wksp_private;
@@ -947,6 +959,56 @@ fd_wksp_pod_map( uchar const * pod,
 
 void
 fd_wksp_pod_unmap( void * obj );
+
+/* io APIs ************************************************************/
+
+/* fd_wksp_checkpt will write the wksp's state to a file.  The file
+   will be located at path with UNIX style permissions given by mode.
+   style specifies the checkpt style and should be a
+   FD_WKSP_CHECKPT_STYLE_* value or 0 (0 indicates to use
+   FD_WKSP_CHECKPT_STYLE_DEFAULT).  uinfo points to a cstr with optional
+   additional user context (NULL will be treated as the empty string ""
+   ... if the strlen is longer than 16384 bytes, the info will be
+   truncated to a strlen of 16383).
+
+   Returns FD_WKSP_SUCCESS (0) on success or a FD_WKSP_ERR_* on failure
+   (logs details).  Reasons for failure include INVAL (NULL wksp, NULL
+   path, bad mode, unsupported style), CORRUPT (wksp memory corruption
+   detected), FAIL (fail already exists, I/O error).  On failure, this
+   will make a best effort to clean up after any partially written
+   checkpt file. */
+
+int
+fd_wksp_checkpt( fd_wksp_t *  wksp,
+                 char const * path,
+                 ulong        mode,
+                 int          style,
+                 char const * uinfo );
+
+/* fd_wksp_restore will replace all allocations in the current workspace
+   with the allocations from the checkpt at path.  The restored
+   workspace will use the given seed.
+
+   IMPORTANT!  It is okay for wksp to have a different size, backing
+   page sz and/or numa affinity than the original wksp.  The only
+   requirements are the wksp be able to support as many allocations as
+   are in the checkpt and that these partitions can be restored to their
+   original positions in wksp's global address space.  If wksp has
+   part_max in checkpt's [alloc_cnt,part_max] and a data_max>=checkpt's
+   data_max, this is guaranteed.
+
+   Returns FD_WKSP_SUCCESS (0) on success or a FD_WKSP_ERR_* on failure
+   (logs details).  Reasons for failure include INVAL (NULL wksp, NULL
+   path), FAIL (couldn't open checkpt, I/O error, checkpt format error),
+   CORRUPT (I/O error, checkpt format error).  In the CORRUPT case, the
+   wksp was partially restored when the error was detected.  In this
+   case, this makes a best effort to reset the wksp to an valid / empty
+   state.  In the other error cases, the wksp is unchanged. */
+
+int
+fd_wksp_restore( fd_wksp_t *  wksp,
+                 char const * path,
+                 uint         seed );
 
 FD_PROTOTYPES_END
 

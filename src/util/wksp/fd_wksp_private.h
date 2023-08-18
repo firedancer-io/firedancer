@@ -18,12 +18,12 @@
 
    - [gaddr_lo,gaddr_hi) specify the range of offsets covered by this
      partition.
-     
+
        wksp_gaddr_lo <= gaddr_lo < gaddr_hi <= wksp_gaddr_hi
 
      such that partitions always have at least 1 byte and are contained
      within the workspace's data region.
-   
+
    - tag==0 indicates this partition is space in the workspace free
      for use and the partition is in the free treap, fast findable by
      its size.  Otherwise, this partition is allocated and the partition
@@ -31,7 +31,7 @@
 
    - prev_cidx, next_cidx give the index (in compressed form) of the
      previous / next partition if present or IDX_NULL if this is the
-     workspace partition head / tail partition (in which case gaddr_lo / 
+     workspace partition head / tail partition (in which case gaddr_lo /
      gaddr_hi will be wksp->gaddr_lo / wksp->gaddr_hi).  That is, for
      partition idx where idx is in [0,wksp->part_max):
 
@@ -373,7 +373,7 @@ fd_wksp_private_free_treap_query( ulong                     sz,
    initialize {in_same, left, right, same, parent}_cidx.  This will
    ignore {prev,next}_cidx.  This might consume a wksp cycle tag and
    clobber the partition stack_cidx and cycle_tag fields.
-   
+
    Returns FD_WKSP_SUCCESS (zero) on success and a FD_WKSP_ERR_*
    (negative) on failure (logs details for failure).  Reasons for
    failure include n is not in [0,part_max), n's range is not in wksp
@@ -472,6 +472,112 @@ fd_wksp_private_unlock( fd_wksp_t * wksp ) {
   FD_VOLATILE( wksp->owner ) = ULONG_MAX;
   FD_COMPILER_MFENCE();
 }
+
+/* private checkpt/restore APIs ***************************************/
+
+/* TODO: Consider making these more general (e.g. part of I/O?) */
+
+/* fd_wksp_private_checkpt writes size sz buffer buf to the output
+   stream checkpt.  Assumes checkpt is valid and not in a prepare.
+   Returns 0 on success and non-zero on failure (will be an errno compat
+   error code). */
+
+static inline int
+fd_wksp_private_checkpt_write( fd_io_buffered_ostream_t * checkpt,
+                               void const *               buf,
+                               ulong                      sz ) {
+  return fd_io_buffered_ostream_write( checkpt, buf, sz );
+}
+
+/* fd_wksp_private_prepare prepares to write at most max bytes to the
+   output stream checkpt.  Assumes checkpt is valid and not in a prepare
+   and max is at most checkpt's wbuf_sz.  Returns the location in the
+   caller's address space for preparing the max bytes on success (*_err
+   will be 0) and NULL on failure (*_err will be an errno compat error
+   code). */
+
+static inline void *
+fd_wksp_private_checkpt_prepare( fd_io_buffered_ostream_t * checkpt,
+                                 ulong                      max,
+                                 int *                      _err ) {
+  if( FD_UNLIKELY( fd_io_buffered_ostream_peek_sz( checkpt )<max ) ) {
+    int err = fd_io_buffered_ostream_flush( checkpt );
+    if( FD_UNLIKELY( err ) ) {
+      *_err = err;
+      return NULL;
+    }
+    /* At this point, peek_sz==wbuf_sz and wbuf_sz>=max */
+  }
+  /* At this point, peek_sz>=max */
+  *_err = 0;
+  return fd_io_buffered_ostream_peek( checkpt );
+}
+
+/* fd_wksp_private_publish publishes prepared bytes [prepare,next) to
+   checkpt.  Assumes checkpt is in a prepare and the number of bytes to
+   publish is at most the prepare's max.  checkpt will not be in a
+   prepare on return. */
+
+static inline void
+fd_wksp_private_checkpt_publish( fd_io_buffered_ostream_t * checkpt,
+                                 void *                     next ) {
+  fd_io_buffered_ostream_seek( checkpt, (ulong)next - (ulong)fd_io_buffered_ostream_peek( checkpt ) );
+}
+
+/* fd_wksp_private_cancels a prepare.  Assumes checkpt is valid and in a
+   prepare.  checkpt will not be in a prepare on return. */
+
+static inline void fd_wksp_private_checkpt_cancel( fd_io_buffered_ostream_t * checkpt ) { (void)checkpt; }
+
+/* fd_wksp_private_checkpt_ulong checkpoints the value v into a checkpt.
+   p points to the location in a prepare where v should be encoded.
+   Assumes this location has svw_enc_sz(v) available (at least 1 and at
+   most 9).  Returns the location of the first byte after the encoded
+   value (will be prep+svw_enc_sz(val)). */
+
+static inline void * fd_wksp_private_checkpt_ulong( void * prep, ulong val ) { return fd_ulong_svw_enc( (uchar *)prep, val ); }
+
+/* fd_wksp_private_checkpt_buf checkpoints a variable length buffer buf
+   of size sz into a checkpt.  p points to the location in a prepare
+   region where buf should be encoded.  Assumes this location has
+   svw_enc_sz(sz)+sz bytes available (at least 1+sz and at most 9+sz).
+   Returns the location of the first byte after the encoded buffer (will
+   be prep+svw_enc_sz(sz)+sz).  Zero sz is fine (and NULL buf is fine if
+   sz is zero). */
+
+static inline void *
+fd_wksp_private_checkpt_buf( void *       prep,
+                             void const * buf,
+                             ulong        sz ) {
+  prep = fd_wksp_private_checkpt_ulong( (uchar *)prep, sz );
+  if( FD_LIKELY( sz ) ) fd_memcpy( prep, buf, sz );
+  return (uchar *)prep + sz;
+}
+
+/* fd_wksp_private_restore_ulong restores a ulong from the stream in.
+   Returns 0 on success and, on return, *_val will contain the restored
+   val.  Returns non-zero on failure (will be an errno compat error
+   code) and, on failure, *_val will be zero.  This will implicitly read
+   ahead for future restores. */
+
+int
+fd_wksp_private_restore_ulong( fd_io_buffered_istream_t * in,
+                               ulong *                    _val );
+
+/* fd_wksp_private_restore_buf restores a variable length buffer buf of
+   maximum size buf_max from the stream in.  Returns 0 on success and,
+   on success, buf will contain the buffer and *_buf_sz will contain the
+   buffer's size (will be in [0,buf_max]).  Returns non-zero on failure
+   (will be an errno compat error code) and, on failure, buf will be
+   clobbered and *_buf_sz will be zero.  This will implicitly read ahead
+   for future restores.  Zero buf_max is fine (and NULL buf is fine if
+   buf_max is zero). */
+
+int
+fd_wksp_private_restore_buf( fd_io_buffered_istream_t * in,
+                             void *                     buf,
+                             ulong                      buf_max,
+                             ulong *                    _buf_sz );
 
 FD_PROTOTYPES_END
 
