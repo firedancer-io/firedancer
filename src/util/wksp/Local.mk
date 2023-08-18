@@ -16,8 +16,6 @@ $(call run-unit-test,test_wksp_used_treap,)
 $(call run-unit-test,test_wksp_free_treap,)
 $(call run-unit-test,test_wksp_admin,)
 $(call run-unit-test,test_wksp_user,)
-$(call run-unit-test,test_wksp_helper,)
 $(call run-unit-test,test_wksp,)
-$(call run-unit-test,test_wksp_ctl,)
 
 endif

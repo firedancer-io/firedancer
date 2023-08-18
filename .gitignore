@@ -6,15 +6,11 @@ tmp
 
 # Coverage
 genhtml/
-target/
-fd_ffi.rs
 *.lcov
 *.profraw
 
 # Core Dumps
 core.*.*
-# Rust
-**/Cargo.lock
 
 # Dependencies
 opt/
