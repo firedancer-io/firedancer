@@ -83,3 +83,28 @@ usage wksp tag
 query wksp
 - Print the detailed workspace usage to stdout.
 
+checkpt wksp checkpt mode style info
+- Create a checkpoint for the workspace named wksp at the path checkpt.
+  The checkpt will have the unix permissions specified by mode (assumed
+  octal).  The style of checkpt is given by style.  info is a string
+  that the user can use to provide additional information about the
+  checkpoint.  Supported styles include:
+    0 - default (currently this is raw)
+    1 - raw ... all workspace allocations (partitions with a non-zero
+        tag) will be checkpointed.  Minimal compression and hashing will
+        be done to the checkpoint file.
+
+checkpt-query checkpt verbose
+- Query the checkpoint at the path checkpt.  Verbose indicates the
+  desired verbosity:
+   <1 - low:    checkpoint metadata information
+    1 - medium: low plus original wksp metadata and summary usage
+   >1 - high:   medium plus detailed workspace usage
+
+restore wksp checkpt seed
+- Free all allocations in the workspace named wksp and replace them with
+  allocations in the checkpoint at path checkpt.  The restored wksp will
+  be rebuilt with the given seed.  A '-' indicates to rebuild using the
+  wksp's current seed.  TODO: consider options to rebuild with the
+  checkpt seed.
+
