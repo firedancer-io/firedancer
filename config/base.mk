@@ -3,11 +3,11 @@ BASEDIR?=build
 SHELL:=bash
 CPPFLAGS:=-isystem ./opt/include -DFD_LOG_UNCLEAN_EXIT=1
 CC:=gcc
-CFLAGS:=-std=c17
+CFLAGS:=-std=c17 -fPIE
 CXX:=g++
 CXXFLAGS:=-std=c++17
 LD:=g++
-LDFLAGS:=-lm -lrt -ldl -L./opt/lib
+LDFLAGS:=-lm -L./opt/lib -Wl,-rpath=$(shell pwd)/opt/lib -fPIE -lrt -ldl
 AR:=ar
 ARFLAGS:=rv
 RANLIB:=ranlib
@@ -33,6 +33,3 @@ GENHTML=genhtml
 # useful for some build configs where a library with a main symbol is
 # linked in (e.g. fuzz targets)
 FD_HAS_MAIN:=1
-
-# Parameters passed to libFuzzer tests
-FUZZFLAGS:=-max_total_time=600
