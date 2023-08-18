@@ -2,10 +2,7 @@
 
 name: CI
 on:
-  pull_request:
-  push:
-    branches:
-      - main
+  workflow_dispatch:
 jobs:
   package:
     name: cargo-package
