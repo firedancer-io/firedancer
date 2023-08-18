@@ -4,6 +4,7 @@
 
 LEDGER="v13-contract-ledger"
 POSITION_ARGS=()
+OBJDIR=${OBJDIR:-build/native/gcc}
 
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -45,7 +46,7 @@ fi
 
 set -x
 
-build/native/gcc/bin/fd_frank_ledger --rocksdb $LEDGER/rocksdb --genesis $LEDGER/genesis.bin --cmd ingest --indexmax 10000 --txnmax 100 --backup test_ledger_backup --gaddrout gaddr --pages 1
+"$OBJDIR"/bin/fd_frank_ledger --rocksdb $LEDGER/rocksdb --genesis $LEDGER/genesis.bin --cmd ingest --indexmax 10000 --txnmax 100 --backup test_ledger_backup --gaddrout gaddr --pages 1
 
 status=$?
 
@@ -57,7 +58,7 @@ fi
 
 log=/tmp/ledger_log$$
 
-build/native/gcc/unit-test/test_runtime \
+"$OBJDIR"/unit-test/test_runtime \
   --load test_ledger_backup \
   --cmd replay \
   --gaddr `cat gaddr` \

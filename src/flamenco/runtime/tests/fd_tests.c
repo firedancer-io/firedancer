@@ -113,7 +113,7 @@ void fd_executor_test_suite_new( fd_executor_test_suite_t* suite ) {
     suite->valloc = fd_alloc_virtual( alloc );
   }
 
-  fd_features_enable_v17(&suite->features);
+  fd_features_enable_all( &suite->features );
 }
 
 int fd_executor_run_test(
