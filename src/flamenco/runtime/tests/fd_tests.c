@@ -451,7 +451,7 @@ main( int     argc,
       char buf[ 256 ];
       while( NULL != fgets( buf, sizeof(buf), fp ) ) {
         ulong i = fd_cstr_to_ulong( buf );
-        FD_LOG_WARNING(( "Ignoring test %lu", i ));
+        FD_LOG_DEBUG(( "Ignoring test %lu", i ));
         if( i < (sizeof(suite.ignore_fail) / sizeof(suite.ignore_fail[0])) )
           suite.ignore_fail[ i ] = 1;
       }
