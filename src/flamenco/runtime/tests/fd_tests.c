@@ -260,8 +260,13 @@ int fd_executor_run_test(
     }
     int exec_result = exec_instr_func( ctx );
     if ( exec_result != test->expected_result ) {
-      FD_LOG_WARNING(( "Failed test %d: %s: expected transaction result %d, got %d: %s", test->test_number, test->test_name, test->expected_result , exec_result
-                       , (NULL != verbose) ? test->bt : ""));
+      if( suite->ignore_fail[ test->test_number ] ) {
+        FD_LOG_INFO(( "Failed test %d: %s (ignored): expected transaction result %d, got %d: %s", test->test_number, test->test_name, test->expected_result , exec_result
+                        , (NULL != verbose) ? test->bt : ""));
+      } else {
+        FD_LOG_WARNING(( "Failed test %d: %s: expected transaction result %d, got %d: %s", test->test_number, test->test_name, test->expected_result , exec_result
+                        , (NULL != verbose) ? test->bt : ""));
+      }
       ret = -1;
       break;
     }
@@ -405,7 +410,7 @@ int fd_executor_run_test(
       break;
     }
     if (NULL == fail_fast)
-      FD_LOG_NOTICE(("Passed test %d: %s", test->test_number, test->test_name));
+      FD_LOG_INFO(("Passed test %d: %s", test->test_number, test->test_name));
   } while (false);
 
   /* Revert the Funk transaction */
