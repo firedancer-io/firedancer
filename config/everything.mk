@@ -9,7 +9,7 @@ OBJDIR:=$(BASEDIR)/$(BUILDDIR)
 CORPUSDIR:=corpus
 
 # Auxiliarily rules that should not set up depenencies
-AUX_RULES:=clean distclean help show-deps lint check-lint
+AUX_RULES:=clean distclean help show-deps lint check-lint run-unit-test
 
 all: bin include lib unit-test
 
@@ -85,6 +85,12 @@ check-lint:
 	# Checking lint in src/
 	#######################################################################
 	$(FIND) src/ -iname "*.c" -or -iname "*.h" | uncrustify -c lint.cfg -F - --check
+
+run-unit-test:
+	#######################################################################
+	# Running unit tests
+	#######################################################################
+	config/test.sh --tests $(OBJDIR)/unit-test/automatic.txt $(TEST_OPTS)
 
 ifeq (run,$(firstword $(MAKECMDGOALS)))
   RUN_ARGS := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
@@ -227,23 +233,14 @@ $(4): $(OBJDIR)/$(4)/$(1)
 
 endef
 
-UNIT_TEST_DATETIME := $(shell date -u +%Y%m%d-%H%M%S)
-export LLVM_PROFILE_FILE = $(OBJDIR)/cov/raw/%p.profraw
-
+# Generate list of automatic unit tests from $(call run-unit-test,...)
+unit-test: $(OBJDIR)/unit-test/automatic.txt
 define _run-unit-test
-
-run-$(1):
-	#######################################################################
-	# Running $(3) from $(1)
-	#######################################################################
-	@$(MKDIR) $(OBJDIR)/log/$(3)/$(1)
-	$(OBJDIR)/$(3)/$(1) --log-path $(OBJDIR)/log/$(3)/$(1)/$(UNIT_TEST_DATETIME).log $(2) > /dev/null 2>&1 || \
-($(CAT) $(OBJDIR)/log/$(3)/$(1)/$(UNIT_TEST_DATETIME).log && \
-exit 1)
-
-run-$(3): run-$(1)
-
+RUN_UNIT_TEST+=$(OBJDIR)/unit-test/$(1)
 endef
+$(OBJDIR)/unit-test/automatic.txt:
+	$(MKDIR) "$(OBJDIR)/unit-test"
+	@$(foreach test,$(RUN_UNIT_TEST),echo $(test)>>$@;)
 
 define _fuzz-test
 
@@ -251,12 +248,12 @@ $(eval $(call _make-exe,$(1)/$(1),$(2),$(3),fuzz-test))
 
 .PHONY: $(1)_unit
 $(1)_unit:
-	@mkdir -p "$(CORPUSDIR)/$(1)"
+	$(MKDIR) "$(CORPUSDIR)/$(1)"
 	$(FIND) $(CORPUSDIR)/$(1) -type f -exec $(OBJDIR)/fuzz-test/$(1)/$(1) $(FUZZFLAGS) {} +
 
 .PHONY: $(1)_run
 $(1)_run:
-	@mkdir -p "$(CORPUSDIR)/$(1)/explore"
+	$(MKDIR) "$(CORPUSDIR)/$(1)/explore"
 	$(OBJDIR)/fuzz-test/$(1)/$(1) $(FUZZFLAGS) $(CORPUSDIR)/$(1)/explore $(CORPUSDIR)/$(1)
 
 run-fuzz-test: $(1)_unit
@@ -267,7 +264,10 @@ ifeq "$(FD_HAS_MAIN)" "1"
 make-bin       = $(eval $(call _make-exe,$(1),$(2),$(3),bin))
 make-unit-test = $(eval $(call _make-exe,$(1),$(2),$(3),unit-test))
 fuzz-test =
-run-unit-test = $(eval $(call _run-unit-test,$(1),$(2),unit-test))
+run-unit-test = $(eval $(call _run-unit-test,$(1)))
+run-fuzz-test:
+	@echo "Requested run-fuzz-test but profile MACHINE=$(MACHINE) does not support fuzzing" >&2
+	@exit 1
 else
 make-bin =
 make-unit-test =
