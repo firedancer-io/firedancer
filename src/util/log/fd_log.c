@@ -536,12 +536,9 @@ fd_log_private_fprintf_0( int fd, char const * fmt, ... ) {
   FD_COMPILER_MFENCE();
 # endif
 
-  ulong written = 0;
-  for(;;) {
-    long cnt = write( fd, fd_log_private_log_msg0 + written, (ulong)len - written );
-    if( FD_LIKELY( cnt == len || cnt < 0 ) ) break;
-    written += (ulong)cnt;
-  }
+  ulong wsz;
+  fd_io_write( fd, fd_log_private_log_msg0, (ulong)len, (ulong)len, &wsz );
+  /* Note: we ignore errors because what are we doing to do, log them? */
 
 # if FD_HAS_ATOMIC
   FD_COMPILER_MFENCE();

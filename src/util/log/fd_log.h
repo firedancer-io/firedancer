@@ -141,6 +141,7 @@
      by message passing or via shared memory. */
 
 #include "../env/fd_env.h"
+#include "../io/fd_io.h"
 
 /* FD_LOG_NOTICE(( ... printf style arguments ... )) will send a message
    at the NOTICE level to the logger.  E.g. for a typical fd_log
