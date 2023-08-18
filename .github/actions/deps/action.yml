@@ -15,7 +15,7 @@ runs:
   steps:
     - id: deps-sh-hash
       shell: bash
-      run: sha256sum '${{ inputs.deps-script-path }}' | awk '{print "HASH=" $1}'
+      run: sha256sum '${{ inputs.deps-script-path }}' | awk '{print "HASH=" $1}' >> "$GITHUB_OUTPUT"
 
     - id: deps-sh-cache
       uses: actions/cache@v3
