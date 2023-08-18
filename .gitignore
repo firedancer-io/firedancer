@@ -11,8 +11,6 @@ genhtml/
 
 # Core Dumps
 core.*.*
-# Rust
-**/Cargo.lock
 
 # Dependencies
 opt/
