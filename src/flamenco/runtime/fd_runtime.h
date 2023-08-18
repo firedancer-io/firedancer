@@ -10,6 +10,7 @@
 #include "program/fd_builtin_programs.h"
 #include "../leaders/fd_leaders.h"
 #include "../capture/fd_solcap_writer.h"
+#include "../rewards/fd_rewards.h"
 
 #define FD_RUNTIME_EXECUTE_SUCCESS                               ( 0 )  /* Slot executed successfully */
 #define FD_RUNTIME_EXECUTE_GENERIC_ERR                          ( -1 ) /* The Slot execute returned an error */

@@ -178,7 +178,11 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_meta_t* m, const void
   (void)m;
 
   fd_solcap_writer_set_slot( global->capture, m->slot );
-
+  if ( global->bank.slot != 0 ) {
+    if ( global->bank.slot == global->bank.epoch_schedule.first_normal_slot) {
+      // epoch boundary crap
+    }
+  }
   /* Get current leader */
   ulong slot_rel;
   fd_slot_to_epoch( &global->bank.epoch_schedule, m->slot, &slot_rel );
@@ -1332,4 +1336,37 @@ fd_features_restore( fd_global_ctx_t * global ) {
                                id = fd_feature_iter_next( id ) ) {
     fd_feature_restore( global, fd_features_ptr( &global->features, id ), id->id.key );
   }
+}
+
+/* process for the start of a new epoch */
+void
+process_new_epoch(
+    fd_global_ctx_t * global,
+    ulong parent_epoch,
+    ulong parent_slot,
+    ulong parent_height
+) {
+  ulong epoch = fd_slot_to_epoch(&global->bank.epoch_schedule, global->bank.slot, NULL);
+
+  // activate feature flags
+  fd_features_restore( global );
+
+  // Add new entry to stakes.stake_history, set appropriate epoch and
+  // update vote accounts with warmed up stakes before saving a
+  // snapshot of stakes in epoch stakes
+  activate_epoch(global, epoch);
+
+  // (We might not implement this part)
+  /* Save a snapshot of stakes for use in consensus and stake weighted networking
+  let leader_schedule_epoch = self.epoch_schedule.get_leader_schedule_epoch(slot);
+  let (_, update_epoch_stakes_time) = measure!(
+           self.update_epoch_stakes(leader_schedule_epoch),
+           "update_epoch_stakes",
+       ); */
+  if (global->features.enable_partitioned_epoch_reward) {
+    begin_partitioned_rewards( global, parent_epoch, parent_slot, parent_height );
+  } else {
+    update_rewards( global, parent_epoch);
+  }
+
 }
