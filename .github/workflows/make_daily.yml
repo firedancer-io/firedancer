@@ -42,7 +42,7 @@ jobs:
       - name: Run unit tests
         run: |
           sudo prlimit --pid $$ --memlock=-1:-1
-          ./test.sh -j --page-sz huge
+          ./test.sh -j --page-sz gigantic
 
   # Tests with UndefinedBehaviorSanitizer
   make-test-ubsan:
@@ -65,7 +65,7 @@ jobs:
       - name: Run unit tests
         run: |
           sudo prlimit --pid $$ --memlock=-1:-1
-          ./test.sh -j --page-sz huge
+          ./test.sh -j --page-sz gigantic
 
   # Build fuzz artifacts, check default corpus
   make-fuzz:
@@ -131,7 +131,7 @@ jobs:
       - name: Run unit tests
         run: |
           sudo prlimit --pid $$ --memlock=-1:-1
-          ./test.sh -j --page-sz huge
+          ./test.sh -j --page-sz gigantic
 
       - name: Make coverage report
         run: |
