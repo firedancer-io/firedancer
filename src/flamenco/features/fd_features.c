@@ -168,6 +168,15 @@ fd_features_enable_all( fd_features_t * f ) {
   f->zk_token_sdk_enabled = 0;
 }
 
+void
+fd_features_disable_all( fd_features_t * f ) {
+  for( fd_feature_id_t const * id = fd_feature_iter_init();
+       !fd_feature_iter_done( id );
+       id = fd_feature_iter_next( id ) ) {
+    *fd_features_ptr( f, id ) = ULONG_MAX;
+  }
+}
+
 fd_feature_id_t const ids[] = {
   /* SVn36yVApPLYsa8koK3qUcy14zXDnqkNYWyUh1f4oK1 */
   { .offset = offsetof(fd_features_t, account_hash_ignore_slot),

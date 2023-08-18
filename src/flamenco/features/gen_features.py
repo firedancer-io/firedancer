@@ -62,6 +62,10 @@ FD_PROTOTYPES_BEGIN
    The last element has offset==ULONG_MAX. */
 extern fd_feature_id_t const ids[];
 
+/* fd_features_disable_all disables all available features. */
+void
+fd_features_disable_all( fd_features_t * f );
+
 /* fd_features_enable_all enables all available features. */
 void fd_features_enable_all( fd_features_t * );
 
@@ -137,6 +141,15 @@ void
 fd_features_enable_all( fd_features_t * f ) {{
   memset( f, 0xff, sizeof(fd_features_t) );
   {chr(0xa).join([f'  f->{x["name"]} = 0;' for x in fm])}
+}}
+
+void
+fd_features_disable_all( fd_features_t * f ) {{
+  for( fd_feature_id_t const * id = fd_feature_iter_init();
+       !fd_feature_iter_done( id );
+       id = fd_feature_iter_next( id ) ) {{
+    *fd_features_ptr( f, id ) = ULONG_MAX;
+  }}
 }}
 
 fd_feature_id_t const ids[] = {{
