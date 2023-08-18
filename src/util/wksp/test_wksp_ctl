@@ -1,6 +1,7 @@
 #!/bin/bash
 
 fail() {
+  rm -fv "$CHECKPT"
   echo FAIL: "$1" unexpected exit code "$2"
   echo Log N/A
   exit 1
@@ -22,6 +23,10 @@ PAGE_SZ=gigantic
 CPU_IDX=0
 MODE=0600
 
+CHECKPT=test_fd_wksp_ctl.checkpt
+STYLE=0
+INFO="The quick brown fox jumps over the lazy dog"
+
 # Disable the permanent log
 
 FD_LOG_PATH=""
@@ -30,6 +35,7 @@ export FD_LOG_PATH
 # Try to clean up any leftovers from previous runs (including same name on multiple pages)
 
 "$BIN"/fd_wksp_ctl delete "$WKSP" delete "$WKSP" delete "$WKSP" > /dev/null 2>&1
+rm -fv "$CHECKPT"
 
 echo Testing no-op
 
@@ -92,6 +98,27 @@ GADDR=$("$BIN"/fd_wksp_ctl alloc "$WKSP" 4096 2097152 || fail alloc $?)
 GADDR1=$("$BIN"/fd_wksp_ctl tag 1234 alloc "$WKSP" 4096 4096 || fail alloc $?)
 GADDR2=$("$BIN"/fd_wksp_ctl tag 1234 alloc "$WKSP" 4096 4096 || fail alloc $?)
 GADDR3=$("$BIN"/fd_wksp_ctl tag 2345 alloc "$WKSP" 4096 4096 || fail alloc $?)
+
+echo Testing checkpt
+
+"$BIN"/fd_wksp_ctl checkpt                                              && fail checkpt $?
+"$BIN"/fd_wksp_ctl checkpt "$WKSP"                                      && fail checkpt $?
+"$BIN"/fd_wksp_ctl checkpt "$WKSP"  "$CHECKPT"                          && fail checkpt $?
+"$BIN"/fd_wksp_ctl checkpt "$WKSP"  "$CHECKPT" "$MODE"                  && fail checkpt $?
+"$BIN"/fd_wksp_ctl checkpt "$WKSP"  "$CHECKPT" "$MODE" "$STYLE"         && fail checkpt $?
+"$BIN"/fd_wksp_ctl checkpt bad/name "$CHECKPT" "$MODE" "$STYLE" "$INFO" && fail checkpt $?
+"$BIN"/fd_wksp_ctl checkpt "$WKSP"  "$CHECKPT" -1      "$STYLE" "$INFO" && fail checkpt $?
+"$BIN"/fd_wksp_ctl checkpt "$WKSP"  "$CHECKPT" "$MODE" -1       "$INFO" && fail checkpt $?
+"$BIN"/fd_wksp_ctl checkpt "$WKSP"  "$CHECKPT" "$MODE" "$STYLE" "$INFO" || fail checkpt $?
+"$BIN"/fd_wksp_ctl checkpt "$WKSP"  "$CHECKPT" "$MODE" "$STYLE" "$INFO" && fail checkpt $?
+
+echo Testing checkpt-query
+
+"$BIN"/fd_wksp_ctl checkpt-query              && fail checkpt-query $?
+"$BIN"/fd_wksp_ctl checkpt-query "$CHECKPT"   && fail checkpt-query $?
+"$BIN"/fd_wksp_ctl checkpt-query "$CHECKPT" 0 \
+                   checkpt-query "$CHECKPT" 1 \
+                   checkpt-query "$CHECKPT" 2 || fail checkpt-query $?
 
 echo Testing info
 
@@ -186,6 +213,31 @@ echo Testing reset
 "$BIN"/fd_wksp_ctl reset bad/name && fail reset $?
 "$BIN"/fd_wksp_ctl reset "$WKSP"  || fail reset $?
 
+echo Testing restore
+
+"$BIN"/fd_wksp_ctl restore                         && fail restore $?
+"$BIN"/fd_wksp_ctl restore "$WKSP"                 && fail restore $?
+"$BIN"/fd_wksp_ctl restore "$WKSP"  "$CHECKPT"     && fail restore $?
+"$BIN"/fd_wksp_ctl restore bad/name "$CHECKPT"     && fail restore $?
+"$BIN"/fd_wksp_ctl restore "$WKSP"  "$CHECKPT" -   query "$WKSP" check "$WKSP" \
+                   restore "$WKSP"  "$CHECKPT" 123 query "$WKSP" check "$WKSP" \
+                   restore "$WKSP"  "$CHECKPT" 123 query "$WKSP" check "$WKSP" \
+                   restore "$WKSP"  "$CHECKPT" 234 query "$WKSP" check "$WKSP" \
+|| fail restore $?
+rm -fv "$CHECKPT"
+
+# Test checkpt empty wksp, query empty checkpt, restore empty to empty,
+# restore non-empty to empty
+
+"$BIN"/fd_wksp_ctl reset         "$WKSP"                                          \
+                   checkpt       "$WKSP" "$CHECKPT" "$MODE" "$STYLE" "$INFO"      \
+                   checkpt-query "$CHECKPT" 2                                     \
+                   restore       "$WKSP" "$CHECKPT" - query "$WKSP" check "$WKSP" \
+                   alloc         "$WKSP" 1 1          query "$WKSP" check "$WKSP" \
+                   restore       "$WKSP" "$CHECKPT" - query "$WKSP" check "$WKSP" \
+|| fail reset $?
+rm -fv "$CHECKPT"
+
 echo Testing delete
 
 "$BIN"/fd_wksp_ctl delete          && fail delete $?
@@ -194,14 +246,23 @@ echo Testing delete
 
 echo Testing multi
 
-"$BIN"/fd_wksp_ctl new  "$WKSP" "$PAGE_CNT" $PAGE_SZ $CPU_IDX $MODE check "$WKSP" \
-                 query  "$WKSP"                                     check "$WKSP" \
-                 alloc  "$WKSP" 4096 2097152                        check "$WKSP" \
-                 query  "$WKSP"                                     check "$WKSP" \
-                 reset  "$WKSP"                                     check "$WKSP" \
-                 query  "$WKSP"                                     check "$WKSP" \
-                 delete "$WKSP"                                                   \
+"$BIN"/fd_wksp_ctl new           "$WKSP" "$PAGE_CNT" $PAGE_SZ $CPU_IDX $MODE check "$WKSP" \
+                   query         "$WKSP"                                     check "$WKSP" \
+                   alloc         "$WKSP" 1 1                                 check "$WKSP" \
+                   alloc         "$WKSP" 2 2                                 check "$WKSP" \
+                   alloc         "$WKSP" 4 3                                 check "$WKSP" \
+                   query         "$WKSP"                                     check "$WKSP" \
+                   checkpt       "$WKSP" "$CHECKPT" "$MODE" "$STYLE" "$INFO" check "$WKSP" \
+                   checkpt-query "$CHECKPT" 2                                check "$WKSP" \
+                   reset         "$WKSP"                                     check "$WKSP" \
+                   alloc         "$WKSP" 8 8                                 check "$WKSP" \
+                   restore       "$WKSP" "$CHECKPT" -                        check "$WKSP" \
+                   query         "$WKSP"                                     check "$WKSP" \
+                   reset         "$WKSP"                                     check "$WKSP" \
+                   query         "$WKSP"                                     check "$WKSP" \
+                   delete        "$WKSP"                                                   \
 || fail multi $?
+rm -fv "$CHECKPT"
 
 echo pass
 echo Log N/A

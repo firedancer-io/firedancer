@@ -6,6 +6,9 @@
 /* TODO: add owner query */
 
 #include <stdio.h>
+#include <errno.h>
+#include <unistd.h>
+#include <fcntl.h>
 #include <sys/stat.h>
 
 FD_IMPORT_CSTR( fd_wksp_ctl_help, "src/util/wksp/fd_wksp_ctl_help" );
@@ -99,8 +102,8 @@ fprintf_wksp( FILE *      file,
     if( FD_UNLIKELY(        j!=last_i  ) ) { cnt++; TRAP( fprintf( file, "\ttail err\n"       ) ); }
     if( FD_UNLIKELY( gaddr_hi!=last_hi ) ) { cnt++; TRAP( fprintf( file, "\tincomplete err\n" ) ); }
 
-    TRAP( fprintf( file, "\t%20lu bytes used (%20lu alloc(s), largest %20lu bytes)\n", used_sz, used_cnt, used_max ) );
-    TRAP( fprintf( file, "\t%20lu bytes free (%20lu block(s), largest %20lu bytes)\n", free_sz, free_cnt, free_max ) );
+    TRAP( fprintf( file, "\t%20lu bytes used (%20lu blocks, largest %20lu bytes)\n", used_sz, used_cnt, used_max ) );
+    TRAP( fprintf( file, "\t%20lu bytes free (%20lu blocks, largest %20lu bytes)\n", free_sz, free_cnt, free_max ) );
 
     fd_wksp_private_unlock( wksp );
   }
@@ -109,6 +112,206 @@ fprintf_wksp( FILE *      file,
 # undef TRAP
 
   return ret;
+}
+
+static int
+fprintf_checkpt( FILE *       file,
+                 char const * path,
+                 int          verbose ) {
+
+# define TRAP(x) do { err = (x); if( FD_UNLIKELY( err<0 ) ) { ret = err; goto done; } ret += err; } while(0)
+
+# define TEST(c) do { if( FD_UNLIKELY( !(c) ) ) { err_info = #c; goto stream_err; } } while(0)
+
+# define RESTORE_ULONG(v) do {                               \
+    err = fd_wksp_private_restore_ulong( restore, &v );      \
+    if( FD_UNLIKELY( err ) ) { err_info = #v; goto io_err; } \
+  } while(0)
+
+# define RESTORE_CSTR(v,max) do {                                         \
+    err = fd_wksp_private_restore_buf( restore, v, (max)-1UL, &v##_len ); \
+    if( FD_UNLIKELY( err ) ) { err_info = #v; goto io_err; }              \
+    v[v##_len] = '\0';                                                    \
+  } while(0)
+
+# define RBUF_ALIGN     (4096UL)
+# define RBUF_FOOTPRINT (65536UL)
+
+  int                        fd      = -1;
+  fd_io_buffered_istream_t * restore = NULL;
+  int                        ret     = 0;
+  int                        err;
+  char const *               err_info;
+  uchar                      rbuf[ RBUF_FOOTPRINT ] __attribute__((aligned( RBUF_ALIGN )));
+  fd_io_buffered_istream_t   _restore[1];
+
+  TRAP( fprintf( file, "checkpt %s (verbose %i)\n", path, verbose ) );
+
+  fd = open( path, O_RDONLY, (mode_t)0 );
+  if( FD_UNLIKELY( fd==-1 ) ) TRAP( fprintf( file, "\topen(O_RDONLY) failed (%i-%s)\n", errno, strerror( errno ) ) );
+
+  restore = fd_io_buffered_istream_init( _restore, fd, rbuf, RBUF_FOOTPRINT );
+
+  ulong magic;    RESTORE_ULONG( magic    );                                  TEST( magic   ==FD_WKSP_MAGIC      );
+  ulong style_ul; RESTORE_ULONG( style_ul ); int style = (int)(uint)style_ul; TEST( style_ul==(ulong)(uint)style );
+
+  TRAP( fprintf( file,
+                 "\tcheckpt_magic  %016lx\n"
+                 "\tcheckpt_style  %i\n"
+                 , magic, style ) );
+
+  switch( style ) {
+
+  case FD_WKSP_CHECKPT_STYLE_RAW: {
+
+    /* Print out checkpt metadata */
+
+    ulong seed_ul;   RESTORE_ULONG( seed_ul   ); uint seed = (uint)seed_ul; TEST( seed_ul==(ulong)seed                    );
+    ulong part_max;  RESTORE_ULONG( part_max  );
+    ulong data_max;  RESTORE_ULONG( data_max  );                            TEST( fd_wksp_footprint( part_max, data_max ) );
+
+    ulong ts_ul;     RESTORE_ULONG( ts_ul     ); long ts = (long)ts_ul;     TEST( ts_ul==(ulong)ts                        );
+    ulong app_id;    RESTORE_ULONG( app_id    );
+    ulong thread_id; RESTORE_ULONG( thread_id );
+    ulong host_id;   RESTORE_ULONG( host_id   );
+    ulong cpu_id;    RESTORE_ULONG( cpu_id    );
+    ulong group_id;  RESTORE_ULONG( group_id  );                            TEST( group_id>=2UL                           );
+    ulong tid;       RESTORE_ULONG( tid       );
+    ulong user_id;   RESTORE_ULONG( user_id   );
+
+    char name[ FD_SHMEM_NAME_MAX ]; ulong name_len; RESTORE_CSTR( name, FD_SHMEM_NAME_MAX );
+    TEST( fd_shmem_name_len( name )==name_len );
+
+    char app   [ FD_LOG_NAME_MAX ]; ulong app_len;    RESTORE_CSTR( app,    FD_LOG_NAME_MAX ); TEST( strlen( app    )==app_len    );
+    char thread[ FD_LOG_NAME_MAX ]; ulong thread_len; RESTORE_CSTR( thread, FD_LOG_NAME_MAX ); TEST( strlen( thread )==thread_len );
+    char host  [ FD_LOG_NAME_MAX ]; ulong host_len;   RESTORE_CSTR( host,   FD_LOG_NAME_MAX ); TEST( strlen( host   )==host_len   );
+    char cpu   [ FD_LOG_NAME_MAX ]; ulong cpu_len;    RESTORE_CSTR( cpu,    FD_LOG_NAME_MAX ); TEST( strlen( cpu    )==cpu_len    );
+    char group [ FD_LOG_NAME_MAX ]; ulong group_len;  RESTORE_CSTR( group,  FD_LOG_NAME_MAX ); TEST( strlen( group  )==group_len  );
+    char user  [ FD_LOG_NAME_MAX ]; ulong user_len;   RESTORE_CSTR( user,   FD_LOG_NAME_MAX ); TEST( strlen( user   )==user_len   );
+
+    char ts_cstr[ FD_LOG_WALLCLOCK_CSTR_BUF_SZ ]; fd_log_wallclock_cstr( ts, ts_cstr );
+    TRAP( fprintf( file,
+                   "\tcheckpt_ts     %-20li \"%s\"\n"
+                   "\tcheckpt_app    %-20lu \"%s\"\n"
+                   "\tcheckpt_thread %-20lu \"%s\"\n"
+                   "\tcheckpt_host   %-20lu \"%s\"\n"
+                   "\tcheckpt_cpu    %-20lu \"%s\"\n"
+                   "\tcheckpt_group  %-20lu \"%s\"\n"
+                   "\tcheckpt_tid    %-20lu\n"
+                   "\tcheckpt_user   %-20lu \"%s\"\n"
+                   , ts, ts_cstr, app_id, app, thread_id, thread,
+                   host_id, host, cpu_id, cpu, group_id, group, tid, user_id, user ) );
+
+    char buf[ 16384 ]; ulong buf_len;
+    RESTORE_CSTR( buf, 16384UL ); TEST( strlen( buf )==buf_len );
+    if( verbose>1 ) TRAP( fprintf( file, "\tcheckpt_build  \"%s\"\n", buf ) );
+
+    RESTORE_CSTR( buf, 16384UL ); TEST( strlen( buf )==buf_len );
+    TRAP( fprintf( file,
+                   "\tcheckpt_info   \"%s\"\n"
+                   "\tshmem_name     \"%s\"\n"
+                   , buf, name ) );
+
+    if( verbose>0 ) {
+
+      TRAP( fprintf( file,
+                     "\tseed           %-20u\n"
+                     "\tpart_max       %-20lu\n"
+                     "\tdata_max       %-20lu\n"
+                     , seed, part_max, data_max ) );
+
+      ulong data_lo = fd_wksp_private_data_off( part_max );
+      ulong data_hi = data_lo + data_max;
+
+      if( verbose>1 ) TRAP( fprintf( file, "\tgaddr          [0x%016lx,0x%016lx)\n", data_lo, data_hi ) );
+
+      ulong alloc_tot = 0UL;
+      ulong alloc_cnt = 0UL;
+      ulong alloc_big = 0UL;
+
+      ulong free_tot  = 0UL;
+      ulong free_cnt  = 0UL;
+      ulong free_big  = 0UL;
+
+      ulong free_lo   = data_lo;
+      for(;;) {
+        ulong tag;      RESTORE_ULONG( tag      ); if( !tag ) break;
+        ulong gaddr_lo; RESTORE_ULONG( gaddr_lo );
+        ulong sz;       RESTORE_ULONG( sz       );
+
+        ulong gaddr_hi = gaddr_lo + sz;
+
+        TEST( (data_lo<=gaddr_lo) & (gaddr_lo<gaddr_hi) & (gaddr_hi<=data_hi) );
+
+        /* Print out free partition details (implied) */
+        if( free_lo<gaddr_lo ) {
+          ulong free_sz = gaddr_lo - free_lo;
+          if( verbose>1 )
+            TRAP( fprintf( file, "\tpartition      [0x%016lx,0x%016lx) sz %20lu tag %20lu\n", free_lo, gaddr_lo, free_sz, 0UL ) );
+          free_tot += free_sz;
+          free_cnt += 1UL;
+          free_big  = fd_ulong_max( free_big, free_sz );
+        }
+        free_lo = gaddr_hi;
+
+        /* Print out allocated partition details (explicit) */
+        if( verbose>1 )
+          TRAP( fprintf( file, "\tpartition      [0x%016lx,0x%016lx) sz %20lu tag %20lu\n", gaddr_lo, gaddr_hi, sz, tag ) );
+        alloc_cnt += 1UL;
+        alloc_tot += sz;
+        alloc_big  = fd_ulong_max( alloc_big, sz );
+
+        /* Skip over partition data */
+        int err = fd_io_buffered_istream_skip( restore, sz );
+        if( FD_UNLIKELY( err ) ) { err_info = "partition data"; goto io_err; }
+      }
+
+      /* Print out any last free partition details (implied) */
+      if( free_lo<data_hi ) {
+        ulong free_sz = data_hi - free_lo;
+        if( verbose>1 )
+          TRAP( fprintf( file, "\tpartition      [0x%016lx,0x%016lx) sz %20lu tag %20lu\n", free_lo, data_hi, free_sz, 0UL ) );
+        free_tot += free_sz;
+        free_cnt += 1UL;
+        free_big  = fd_ulong_max( free_big, free_sz );
+      }
+
+      TRAP( fprintf( file, "\t%20lu bytes used (%20lu blocks, largest %20lu bytes)\n"
+                           "\t%20lu bytes free (%20lu blocks, largest %20lu bytes)\n"
+                           "\t%20lu errors detected\n"
+                           , alloc_tot, alloc_cnt, alloc_big, free_tot, free_cnt, free_big, 0UL /* no err if we got here */ ) );
+    }
+
+    break;
+  } /* FD_WKSP_CHECKPT_STYLE_RAW */
+
+  default:
+    err_info = "unsupported style";
+    goto stream_err;
+  }
+
+done:
+  if( FD_LIKELY( restore ) ) fd_io_buffered_istream_fini( restore );
+  if( FD_LIKELY( fd!=-1  ) ) close( fd ); /* TODO: Consider trapping (but we might be in a fprintf err) */
+  fflush( file ); /* TODO: Consider trapping (but we might be in a fprintf err) */
+  return ret;
+
+io_err:
+  if( err<0 ) TRAP( fprintf( file, "\tFAIL: io: %s (unexpected end of file)\n", err_info ) );
+  else        TRAP( fprintf( file, "\tFAIL: io: %s (%i-%s)\n", err_info, err, strerror( err ) ) );
+  goto done;
+
+stream_err:
+  TRAP( fprintf( file, "\tFAIL: stream: %s\n", err_info ) );
+  goto done;
+
+# undef RBUF_FOOTPRINT
+# undef RBUF_ALIGN
+# undef RESTORE_CSTR
+# undef RESTORE_ULONG
+# undef TEST
+# undef TRAP
+
 }
 
 int
@@ -348,7 +551,7 @@ main( int     argc,
       char const * name = argv[0];
 
       fd_wksp_t * wksp = fd_wksp_attach( name ); /* logs details */
-      if( FD_UNLIKELY( !wksp ) ) FD_LOG_ERR(( "%i: %s: wksp_attach failed", cnt, cmd ));
+      if( FD_UNLIKELY( !wksp ) ) FD_LOG_ERR(( "%i: %s %s: wksp_attach failed", cnt, cmd, name ));
       fd_wksp_reset( wksp, fd_wksp_seed( wksp ) ); /* logs details */
       fd_wksp_detach( wksp ); /* logs details */
 
@@ -391,12 +594,68 @@ main( int     argc,
       char const * name = argv[0];
 
       fd_wksp_t * wksp = fd_wksp_attach( name ); /* logs details */
-      if( FD_UNLIKELY( !wksp ) ) FD_LOG_ERR(( "%i: %s: wksp_attach failed", cnt, cmd ));
+      if( FD_UNLIKELY( !wksp ) ) FD_LOG_ERR(( "%i: %s %s: wksp_attach failed", cnt, cmd, name ));
       fprintf_wksp( stdout, wksp ); /* logs details */
       fd_wksp_detach( wksp ); /* logs details */
 
       FD_LOG_NOTICE(( "%i: %s %s: success", cnt, cmd, name ));
       SHIFT(1);
+
+    } else if( !strcmp( cmd, "checkpt" ) ) {
+
+      if( FD_UNLIKELY( argc<5 ) ) FD_LOG_ERR(( "%i: %s: too few arguments\n\tDo %s help for help", cnt, cmd, bin ));
+
+      char const * name  =                         argv[0];
+      char const * path  =                         argv[1];
+      ulong        mode  = fd_cstr_to_ulong_octal( argv[2] );
+      int          style = fd_cstr_to_int        ( argv[3] );
+      char const * info  =                         argv[4];
+
+      fd_wksp_t * wksp = fd_wksp_attach( name ); /* logs details */
+      if( FD_UNLIKELY( !wksp ) )
+        FD_LOG_ERR(( "%i: %s %s %s 0%03lo %i ...: wksp_attach failed", cnt, cmd, name, path, mode, style ));
+
+      int err = fd_wksp_checkpt( wksp, path, mode, style, info ); /* logs details */
+      if( FD_UNLIKELY( err ) )
+        FD_LOG_ERR(( "%i: %s %s %s 0%03lo %i ...: fd_wksp_checkpt failed", cnt, cmd, name, path, mode, style ));
+
+      fd_wksp_detach( wksp ); /* logs details */
+
+      FD_LOG_NOTICE(( "%i: %s %s %s 0%03lo %i ...: success", cnt, cmd, name, path, mode, style ));
+      SHIFT(5);
+
+    } else if( !strcmp( cmd, "checkpt-query" ) ) {
+
+      if( FD_UNLIKELY( argc<2 ) ) FD_LOG_ERR(( "%i: %s: too few arguments\n\tDo %s help for help", cnt, cmd, bin ));
+
+      char const * path    =                 argv[0];
+      int          verbose = fd_cstr_to_int( argv[1] );
+
+      fprintf_checkpt( stdout, path, verbose );
+
+      FD_LOG_NOTICE(( "%i: %s %s %i: success", cnt, cmd, path, verbose ));
+      SHIFT(2);
+
+    } else if( !strcmp( cmd, "restore" ) ) {
+
+      if( FD_UNLIKELY( argc<3 ) ) FD_LOG_ERR(( "%i: %s: too few arguments\n\tDo %s help for help", cnt, cmd, bin ));
+
+      char const * name  = argv[0];
+      char const * path  = argv[1];
+      char const * _seed = argv[2];
+
+      fd_wksp_t * wksp = fd_wksp_attach( name ); /* logs details */
+      if( FD_UNLIKELY( !wksp ) ) FD_LOG_ERR(( "%i: %s %s %s %s: wksp_attach failed", cnt, cmd, name, path, _seed ));
+
+      uint seed = strcmp( _seed, "-" ) ? fd_cstr_to_uint( _seed ) : fd_wksp_seed( wksp );
+
+      int err = fd_wksp_restore( wksp, path, seed ); /* logs details */
+      if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "%i: %s %s %s %u: fd_wksp_restore failed", cnt, cmd, name, path, seed ));
+
+      fd_wksp_detach( wksp ); /* logs details */
+
+      FD_LOG_NOTICE(( "%i: %s %s %s %u: success", cnt, cmd, name, path, seed ));
+      SHIFT(3);
 
     } else {
 
