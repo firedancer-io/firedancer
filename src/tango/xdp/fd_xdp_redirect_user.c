@@ -59,6 +59,7 @@ fd_xdp_reperm( char const * path,
   if ( FD_UNLIKELY( 0 > ( fd = open( path, 0 ) ) ) ) {
     FD_LOG_WARNING(( "open(%s, 0) failed (%d-%s)",
                      path, errno, strerror( errno ) ));
+    return;
   }
 
   if( FD_UNLIKELY( 0!=fchown( fd, (uint)uid, (uint)gid ) ) ) {
