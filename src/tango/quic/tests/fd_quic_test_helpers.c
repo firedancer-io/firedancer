@@ -227,6 +227,77 @@ fd_quic_test_keylog( fd_quic_virtual_pair_t const * pair,
 }
 
 fd_quic_udpsock_t *
+fd_quic_client_create_udpsock(fd_quic_udpsock_t * udpsock,
+                              fd_wksp_t *      wksp,
+                              fd_aio_t const * rx_aio,
+                              uint listen_ip) {
+  ulong        mtu          = 2048UL;
+  ulong        rx_depth     = 1024UL;
+  ulong        tx_depth     = 1024UL;
+
+  int sock_fd = socket( AF_INET, SOCK_DGRAM, IPPROTO_UDP );
+  if( FD_UNLIKELY( sock_fd<0 ) ) {
+    FD_LOG_WARNING(( "socket(AF_INET,SOCK_DGRAM,IPPROTO_UDP) failed (%d-%s)",
+        errno, strerror( errno ) ));
+    return NULL;
+  }
+
+  struct sockaddr_in listen_addr = {
+      .sin_family = AF_INET,
+      .sin_addr   = { .s_addr = listen_ip },
+      .sin_port   = 0,
+  };
+  if( FD_UNLIKELY( 0!=bind( sock_fd, (struct sockaddr const *)fd_type_pun_const( &listen_addr ), sizeof(struct sockaddr_in) ) ) ) {
+    FD_LOG_WARNING(( "bind(sock_fd) failed (%d-%s)",
+        errno, strerror( errno ) ));
+    close( sock_fd );
+    return NULL;
+  }
+
+  void * sock_mem = fd_wksp_alloc_laddr( wksp, fd_udpsock_align(),
+                                         fd_udpsock_footprint( mtu, rx_depth, tx_depth ),
+                                         1UL );
+  if( FD_UNLIKELY( !sock_mem ) ) {
+    FD_LOG_WARNING(( "fd_wksp_alloc_laddr() failed" ));
+    close( sock_fd );
+    return NULL;
+  }
+
+  fd_udpsock_t * sock = fd_udpsock_join( fd_udpsock_new( sock_mem, mtu, rx_depth, tx_depth ), sock_fd );
+  if( FD_UNLIKELY( !sock ) ) {
+    FD_LOG_WARNING(( "fd_udpsock_join() failed" ));
+    close( sock_fd );
+    fd_wksp_free_laddr( sock_mem );
+    return NULL;
+  }
+
+  udpsock->type            = FD_QUIC_UDPSOCK_TYPE_UDPSOCK;
+  udpsock->wksp            = wksp;
+  udpsock->udpsock.sock    = sock;
+  udpsock->udpsock.sock_fd = sock_fd;
+  udpsock->aio             = fd_udpsock_get_tx( sock );
+  udpsock->listen_ip       = fd_udpsock_get_ip4_address( sock );
+  udpsock->listen_port     = (ushort)fd_udpsock_get_listen_port( sock );
+  fd_udpsock_set_rx( sock, rx_aio );
+
+  FD_LOG_NOTICE(( "UDP socket listening on " FD_IP4_ADDR_FMT ":%u",
+      FD_IP4_ADDR_FMT_ARGS( udpsock->listen_ip ), udpsock->listen_port ));
+  return udpsock;
+}
+
+// TODO: LML complete this thought?
+fd_quic_udpsock_t *
+create_udp_socket(fd_quic_udpsock_t * udpsock) {
+  if( FD_UNLIKELY( !fd_cstr_to_ip4_addr("0.0.0.0", &udpsock->listen_ip ) ) ) {
+    goto error_1;
+  }
+  udpsock->listen_port = 0; // TODO: check this where is it set in flood?
+  error_1:
+  FD_LOG_NOTICE(( "invalid --listen-ip" ));
+  return NULL;
+}
+
+fd_quic_udpsock_t *
 fd_quic_udpsock_create( void *           _sock,
                         int *            pargc,
                         char ***         pargv,
@@ -255,6 +326,7 @@ fd_quic_udpsock_create( void *           _sock,
   quic_sock->listen_port = listen_port;
 
   int is_xsk = (!!xdp_app_name);
+  FD_LOG_NOTICE(( "is_xsk %d", is_xsk ));
   if( is_xsk ) {
     FD_TEST( _src_mac );
     if( FD_UNLIKELY( !fd_cstr_to_mac_addr( _src_mac, quic_sock->self_mac ) ) ) FD_LOG_ERR(( "invalid --src-mac" ));

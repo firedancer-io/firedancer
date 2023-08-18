@@ -93,7 +93,9 @@ run( fd_frank_args_t * args ) {
   fd_cnc_t * cnc = fd_cnc_join( fd_wksp_pod_map( args->tile_pod, "cnc" ) );
   if( FD_UNLIKELY( !cnc ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
   if( FD_UNLIKELY( fd_cnc_signal_query( cnc )!=FD_CNC_SIGNAL_BOOT ) ) FD_LOG_ERR(( "cnc not in boot state" ));
-  /* FIXME: CNC DIAG REGION? */
+
+  ulong * cnc_diag = (ulong *)fd_cnc_app_laddr( cnc );
+  cnc_diag[ FD_FRANK_CNC_DIAG_PID ] = (ulong)args->pid;
 
   FD_LOG_INFO(( "joining mcache" ));
   fd_frag_meta_t const * mcache = fd_mcache_join( fd_wksp_pod_map( args->in_pod, "mcache" ) );

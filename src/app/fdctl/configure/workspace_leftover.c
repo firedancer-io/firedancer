@@ -92,7 +92,7 @@ fini( config_t * const config ) {
     char path[ PATH_MAX ];
     snprintf1( path, PATH_MAX, "/proc/%lu/maps", pid );
     FILE * fp = fopen( path, "r" );
-    if( FD_UNLIKELY( !fp ) ) FD_LOG_ERR(( "error opening `%s` (%i-%s)", path, errno, strerror( errno ) ));
+    if( FD_UNLIKELY( !fp && errno != ENOENT ) ) FD_LOG_ERR(( "error opening `%s` (%i-%s)", path, errno, strerror( errno ) ));
 
     char self_cmdline[ PATH_MAX ];
     cmdline( self_cmdline, PATH_MAX );

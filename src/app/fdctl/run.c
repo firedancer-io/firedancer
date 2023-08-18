@@ -25,10 +25,12 @@ run_cmd_perm( args_t *         args,
   check_res( security, "run", RLIMIT_NOFILE, 1024000, "increase `RLIMIT_NOFILE` to allow more open files for Solana Labs" );
   check_cap( security, "run", CAP_NET_RAW, "call `bind(2)` to bind to a socket with `SOCK_RAW`" );
   check_cap( security, "run", CAP_SYS_ADMIN, "initialize XDP by calling `bpf_obj_get`" );
-  if( getuid() != config->uid )
+  if( FD_LIKELY( getuid() != config->uid ) )
     check_cap( security, "run", CAP_SETUID, "switch uid by calling `setuid(2)`" );
-  if( getgid() != config->gid )
+  if( FD_LIKELY( getgid() != config->gid ) )
     check_cap( security, "run", CAP_SETGID, "switch gid by calling `setgid(2)`" );
+  if( FD_UNLIKELY( config->development.netns.enabled ) )
+    check_cap( security, "run", CAP_SYS_ADMIN, "enter a network namespace by calling `setns(2)`" );
 }
 
 static void
@@ -80,6 +82,19 @@ workspace_pod_join( char * app_name,
   return pod;
 }
 
+static int
+getpid1( void ) {
+  char pid[ 12 ] = {0};
+  long count = readlink( "/proc/self", pid, sizeof(pid) );
+  if( FD_UNLIKELY( count < 0 ) ) FD_LOG_ERR(( "readlink(/proc/self) failed (%i-%s)", errno, strerror( errno ) ));
+  if( FD_UNLIKELY( (ulong)count >= sizeof(pid) ) ) FD_LOG_ERR(( "readlink(/proc/self) returned truncated pid" ));
+  char * endptr;
+  ulong result = strtoul( pid, &endptr, 10 );
+  if( FD_UNLIKELY( *endptr != '\0' || result > INT_MAX  ) ) FD_LOG_ERR(( "strtoul(/proc/self) returned invalid pid" ));
+
+  return (int)result;
+}
+
 int
 tile_main( void * _args ) {
   tile_main_args_t * args = _args;
@@ -89,6 +104,7 @@ tile_main( void * _args ) {
 
   install_tile_signals();
   fd_frank_args_t frank_args = {
+    .pid = getpid1(), /* need to read /proc since we are in a PID namespace now */
     .tile_idx = args->tile_idx,
     .idx = args->idx,
     .app_name = args->app_name,
@@ -111,12 +127,13 @@ tile_main( void * _args ) {
                                               sizeof(allow_fds)/sizeof(allow_fds[0]),
                                               allow_fds );
 
-  if( FD_LIKELY( args->sandbox ) ) fd_sandbox( args->uid,
-                                               args->gid,
-                                               allow_fds_sz,
-                                               allow_fds,
-                                               args->tile->allow_syscalls_sz,
-                                               args->tile->allow_syscalls );
+  fd_sandbox( args->sandbox,
+              args->uid,
+              args->gid,
+              allow_fds_sz,
+              allow_fds,
+              args->tile->allow_syscalls_sz,
+              args->tile->allow_syscalls );
   args->tile->run( &frank_args );
   return 0;
 }
@@ -318,7 +335,8 @@ main_pid_namespace( void * args ) {
   if( sigaction( SIGINT, sa, NULL ) ) FD_LOG_ERR(( "sigaction() failed (%i-%s)", errno, strerror( errno ) ));
 
   /* change pgid so controlling terminal generates interrupt only to the parent */
-  if( FD_UNLIKELY( setpgid( 0, 0 ) ) ) FD_LOG_ERR(( "setpgid() failed (%i-%s)", errno, strerror( errno ) ));
+  if( FD_LIKELY( config->development.sandbox ) )
+    if( FD_UNLIKELY( setpgid( 0, 0 ) ) ) FD_LOG_ERR(( "setpgid() failed (%i-%s)", errno, strerror( errno ) ));
 
   ushort tile_to_cpu[ FD_TILE_MAX ];
   ulong  affinity_tile_cnt = fd_tile_private_cpus_parse( config->layout.affinity, tile_to_cpu );
@@ -353,10 +371,10 @@ main_pid_namespace( void * args ) {
     close_network_namespace_original_fd();
   }
 
+  for( ulong i=0; i<config->layout.verify_tile_count; i++ ) clone_tile( &spawner, &frank_quic, i );
+  for( ulong i=0; i<config->layout.verify_tile_count; i++ ) clone_tile( &spawner, &frank_verify, i );
   clone_tile( &spawner, &frank_dedup, 0 );
   clone_tile( &spawner, &frank_pack , 0 );
-  for( ulong i=0; i<config->layout.verify_tile_count; i++ ) clone_tile( &spawner, &frank_verify, i );
-  for( ulong i=0; i<config->layout.verify_tile_count; i++ ) clone_tile( &spawner, &frank_quic, i );
 
   if( FD_UNLIKELY( sched_setaffinity( 0, sizeof(cpu_set_t), floating_cpu_set ) ) )
     FD_LOG_ERR(( "sched_setaffinity (%i-%s)", errno, strerror( errno ) ));
@@ -373,13 +391,13 @@ main_pid_namespace( void * args ) {
     3, /* logfile */
   };
 
-  if( config->development.sandbox )
-    fd_sandbox( config->uid,
-                config->gid,
-                sizeof(allow_fds)/sizeof(allow_fds[ 0 ]),
-                allow_fds,
-                sizeof(allow_syscalls)/sizeof(allow_syscalls[0]),
-                allow_syscalls );
+  fd_sandbox( config->development.sandbox,
+              config->uid,
+              config->gid,
+              sizeof(allow_fds)/sizeof(allow_fds[ 0 ]),
+              allow_fds,
+              sizeof(allow_syscalls)/sizeof(allow_syscalls[0]),
+              allow_syscalls );
 
   /* we are now the init process of the pid namespace. if the init process
      dies, all children are terminated. If any child dies, we terminate the
@@ -387,6 +405,10 @@ main_pid_namespace( void * args ) {
      bringing all of our processes down as a group. */
   int wstatus;
   pid_t exited_pid = wait4( -1, &wstatus, (int)__WCLONE, NULL );
+  if( FD_UNLIKELY( exited_pid == -1 ) ) {
+    fd_log_private_fprintf_0( STDERR_FILENO, "wait4() failed (%i-%s)", errno, strerror( errno ) );
+    exit_group( 1 );
+  }
 
   char * name = "unknown";
   ulong tile_idx = ULONG_MAX;
@@ -458,13 +480,13 @@ run_firedancer( config_t * const config ) {
     3, /* logfile */
   };
 
-  if( config->development.sandbox )
-    fd_sandbox( config->uid,
-                config->gid,
-                sizeof(allow_fds)/sizeof(allow_fds[ 0 ]),
-                allow_fds,
-                sizeof(allow_syscalls)/sizeof(allow_syscalls[0]),
-                allow_syscalls );
+  fd_sandbox( config->development.sandbox,
+              config->uid,
+              config->gid,
+              sizeof(allow_fds)/sizeof(allow_fds[ 0 ]),
+              allow_fds,
+              sizeof(allow_syscalls)/sizeof(allow_syscalls[0]),
+              allow_syscalls );
 
   int wstatus;
   pid_t pid2 = wait4( pid_namespace, &wstatus, (int)__WCLONE, NULL );
