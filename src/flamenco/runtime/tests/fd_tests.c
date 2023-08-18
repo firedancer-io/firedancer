@@ -116,6 +116,23 @@ void fd_executor_test_suite_new( fd_executor_test_suite_t* suite ) {
   fd_features_enable_all( &suite->features );
 }
 
+static void
+log_test_fail( fd_executor_test_t *             test,
+               fd_executor_test_suite_t const * suite,
+               char const *                     fmt,
+               ... ) {
+  static FD_TLS char buf[ 0x2000 ];
+  va_list ap;
+  va_start( ap, fmt );
+  vsnprintf( buf, sizeof(buf), fmt, ap );
+  va_end( ap );
+  if( suite->ignore_fail[ test->test_number ] ) {
+    FD_LOG_INFO(( "Failed test %d (ignored): %s", test->test_number, buf ));
+  } else {
+    FD_LOG_WARNING(( "Failed test %d: %s", test->test_number, buf ));
+  }
+}
+
 int fd_executor_run_test(
   fd_executor_test_t*       test,
   fd_executor_test_suite_t* suite) {
@@ -254,26 +271,20 @@ int fd_executor_run_test(
       char buf[50];
       fd_base58_encode_32((uchar *) &test->program_id, NULL, buf);
 
-      FD_LOG_WARNING(( "Failed test %d: %s: fd_executor_lookup_native_program failed: %s", test->test_number, test->test_name, buf));
+      log_test_fail( test, suite, "fd_executor_lookup_native_program failed: %s", buf );
       ret = -1;
       break;
     }
     int exec_result = exec_instr_func( ctx );
     if ( exec_result != test->expected_result ) {
-      if( suite->ignore_fail[ test->test_number ] ) {
-        FD_LOG_INFO(( "Failed test %d: %s (ignored): expected transaction result %d, got %d: %s", test->test_number, test->test_name, test->expected_result , exec_result
-                        , (NULL != verbose) ? test->bt : ""));
-      } else {
-        FD_LOG_WARNING(( "Failed test %d: %s: expected transaction result %d, got %d: %s", test->test_number, test->test_name, test->expected_result , exec_result
-                        , (NULL != verbose) ? test->bt : ""));
-      }
+      log_test_fail( test, suite, "expected transaction result %d, got %d", test->expected_result, exec_result );
       ret = -1;
       break;
     }
 
     if ( exec_result == FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR ) {
       if ( ctx.txn_ctx->custom_err != test->custom_err) {
-        FD_LOG_WARNING(( "Failed test %d: %s: expected custom error inner value of %d, got %d: %s", test->test_number, test->test_name, test->custom_err, ctx.txn_ctx->custom_err , (NULL != verbose) ? test->bt : ""));
+        log_test_fail( test, suite, "expected custom error value %d, got %d: %s", test->custom_err, ctx.txn_ctx->custom_err, (!!verbose) ? test->bt : "" );
         ret = -1;
         break;
       }
@@ -300,22 +311,22 @@ int fd_executor_run_test(
         void*              d = (void *)(raw_acc_data + m->hlen);
 
         if (m->info.lamports != test->accs[i].result_lamports) {
-          FD_LOG_WARNING(( "Failed test %d: %s: expected lamports %ld, got %ld: %s", test->test_number, test->test_name, test->accs[i].result_lamports, m->info.lamports, (NULL != verbose) ? test->bt : ""));
+          log_test_fail( test, suite, "expected lamports %ld, got %ld: %s", test->accs[i].result_lamports, m->info.lamports, (NULL != verbose) ? test->bt : "");
           ret = -666;
           break;
         }
         if (m->info.executable != test->accs[i].result_executable) {
-          FD_LOG_WARNING(( "Failed test %d: %s: expected executable %u, got %u: %s", test->test_number, test->test_name, test->accs[i].result_executable, m->info.executable, (NULL != verbose) ? test->bt : ""));
+          log_test_fail( test, suite, "expected executable %u, got %u: %s", test->accs[i].result_executable, m->info.executable, (NULL != verbose) ? test->bt : "");
           ret = -667;
           break;
         }
         if (m->info.rent_epoch != test->accs[i].result_rent_epoch) {
-          FD_LOG_WARNING(( "Failed test %d: %s: expected rent_epoch %ld, got %ld: %s", test->test_number, test->test_name, test->accs[i].result_rent_epoch, m->info.rent_epoch, (NULL != verbose) ? test->bt : ""));
+          log_test_fail( test, suite, "expected rent_epoch %ld, got %ld: %s", test->accs[i].result_rent_epoch, m->info.rent_epoch, (NULL != verbose) ? test->bt : "");
           ret = -668;
           break;
         }
         if (memcmp(&m->info.owner, &test->accs[i].result_owner, sizeof(fd_pubkey_t)) != 0) {
-          FD_LOG_WARNING(( "Failed test %d: %s: owner missmatch: %s", test->test_number, test->test_name,  (NULL != verbose) ? test->bt : ""));
+          log_test_fail( test, suite, "owner missmatch: %s", (NULL != verbose) ? test->bt : "");
           ret = -668;
           break;
         }
@@ -323,7 +334,7 @@ int fd_executor_run_test(
         if(   ( m->dlen != test->accs[i].result_data_len )
            || ( 0 != memcmp(d, test->accs[i].result_data, test->accs[i].result_data_len) ) ) {
 
-          FD_LOG_WARNING(( "Failed test %d: %s: account_index: %d   account missmatch: %s", test->test_number, test->test_name, i, (NULL != verbose) ? test->bt : ""));
+          log_test_fail( test, suite, "account_index: %d   account missmatch: %s", i, (NULL != verbose) ? test->bt : "");
 
           if (do_dump) {
             /* Dump expected account bin */

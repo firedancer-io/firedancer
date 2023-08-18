@@ -515,7 +515,7 @@ vote_process_vote_current( instruction_ctx_t           ctx,
   /* Check that for each slot in the vote tower, we found a slot in the slot hashes:
       if so, we would have got to the end of the vote tower. */
   if ( vote_idx != vote_slots_new_cnt ) {
-    FD_LOG_WARNING(( "vote_idx != vote_slots_new_cnt" ));
+    FD_LOG_DEBUG(( "vote_idx != vote_slots_new_cnt" ));
     ctx.txn_ctx->custom_err = FD_VOTE_SLOTS_MISMATCH;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
@@ -1316,7 +1316,7 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
       FD_LOG_INFO(( "executing VoteInstruction::Vote instruction" ));
       vote = &instruction.inner.vote;
     } else {
-      FD_LOG_WARNING(( "executing VoteInstruction::VoteSwitch instruction" ));
+      FD_LOG_INFO(( "executing VoteInstruction::VoteSwitch instruction" ));
       vote = &instruction.inner.vote_switch.vote;
     }
 
@@ -1420,7 +1420,7 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
       vote_state_update = &instruction.inner.update_vote_state;
       break;
     case fd_vote_instruction_enum_update_vote_state_switch:
-      FD_LOG_WARNING(( "executing VoteInstruction::UpdateVoteStateSwitch instruction" ));
+      FD_LOG_INFO(( "executing VoteInstruction::UpdateVoteStateSwitch instruction" ));
       vote_state_update = &instruction.inner.update_vote_state_switch.vote_state_update;
       break;
     case fd_vote_instruction_enum_compact_update_vote_state:
@@ -1431,7 +1431,7 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
       break;
     default:
       // What are we supposed to do here?  What about the hash?
-      FD_LOG_WARNING(( "executing vote program instruction: fd_vote_instruction_enum_compact_update_vote_state_switch"));
+      FD_LOG_DEBUG(( "executing vote program instruction: fd_vote_instruction_enum_compact_update_vote_state_switch"));
       is_compact = true;
       decode_compact_update(ctx, &instruction.inner.compact_update_vote_state_switch.compact_vote_state_update, &decode);  /* ALLOCATES! */
       vote_state_update = &decode;
