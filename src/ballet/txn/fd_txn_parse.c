@@ -70,7 +70,7 @@ fd_txn_parse( uchar const             * payload,
 
   /* Minimal instr has 1B for program id, 1B acct_addr list, 1B for no data */
   #define MIN_INSTR_SZ (3UL)
-  CHECK( payload_sz<=USHORT_MAX );
+  CHECK( payload_sz<=FD_TXN_MTU );
 
   /* The documentation sometimes calls this field a compact-u16 and sometimes a u8.
      Because of transaction size caps, even allowing for a 3k transaction caps the
@@ -112,7 +112,9 @@ fd_txn_parse( uchar const             * payload,
   ushort instr_cnt = (ushort)0;
   READ_CHECKED_COMPACT_U16( bytes_consumed,                instr_cnt,                i );     i+=bytes_consumed;
 
+  CHECK( (ulong)instr_cnt<=FD_TXN_INSTR_MAX     );
   CHECK_LEFT( MIN_INSTR_SZ*instr_cnt            );
+  CHECK( (ulong)acct_addr_cnt>(!!instr_cnt)     ); /* If it has >0 instructions, it must have at least one other account address (the program id) that can't be the fee payer */
 
   fd_txn_t * parsed = (fd_txn_t *)out_buf;
 
@@ -138,6 +140,14 @@ fd_txn_parse( uchar const             * payload,
     CHECK_LEFT( acct_cnt                        );   ulong acct_off       =          i  ;     i+=acct_cnt;
     READ_CHECKED_COMPACT_U16( bytes_consumed,             data_sz,                   i );     i+=bytes_consumed;
     CHECK_LEFT( data_sz                         );   ulong data_off       =          i  ;     i+=data_sz;
+
+    /* Account 0 is the fee payer and the program can't be the fee payer.
+       The fee payer account must be owned by the system program, but the
+       program must be an executable account and the system program is not
+       permitted to own any executable account.
+       As of https://github.com/solana-labs/solana/issues/25034, the program ID
+       can't come from a table. */
+    CHECK( (0UL < (ulong)program_id) & ((ulong)program_id < (ulong)acct_addr_cnt) );
 
     parsed->instr[ j ].program_id          = program_id;
     parsed->instr[ j ]._padding_reserved_1 = (uchar)0;
@@ -193,11 +203,6 @@ fd_txn_parse( uchar const             * payload,
 
   /* Final validation that all the account address indices are in range */
   for( ulong j=0; j<instr_cnt; j++ ) {
-    /* Account 0 is the fee payer and the program can't be the fee payer. 
-       The fee payer account must be owned by the system program, but the
-       program must be an executable account and the system program is not
-       permitted to own any executable account. */
-    CHECK( (0 < parsed->instr[ j ].program_id) & (parsed->instr[ j ].program_id < acct_addr_cnt + addr_table_adtl_cnt) );
     for( ulong k=0; k<parsed->instr[ j ].acct_cnt; k++ ) {
       CHECK( payload[ parsed->instr[ j ].acct_off + k ] < acct_addr_cnt + addr_table_adtl_cnt );
     }

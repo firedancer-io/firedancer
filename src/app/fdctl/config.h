@@ -1,6 +1,8 @@
 #ifndef HEADER_fd_src_app_fdctl_config_h
 #define HEADER_fd_src_app_fdctl_config_h
 
+#include "../../ballet/base58/fd_base58.h"
+
 #include <net/if.h>
 #include <linux/limits.h>
 
@@ -16,10 +18,12 @@ typedef struct {
     wksp_verify_dedup,
     wksp_dedup_pack,
     wksp_pack_bank,
+    wksp_bank_shred,
     wksp_quic,
     wksp_verify,
     wksp_dedup,
     wksp_pack,
+    wksp_bank,
   } kind;
   char * name;
   ulong kind_idx;
@@ -68,9 +72,9 @@ typedef struct {
     int    snapshot_fetch;
     int    genesis_fetch;
     int    poh_speed_test;
-    char   expected_genesis_hash[ 32 ];
+    char   expected_genesis_hash[ FD_BASE58_ENCODED_32_SZ ];
     uint   wait_for_supermajority_at_slot;
-    char   expected_bank_hash[ 32 ];
+    char   expected_bank_hash[ FD_BASE58_ENCODED_32_SZ ];
     ushort expected_shred_version;
     int    wait_for_vote_to_start_leader;
     ulong  hard_fork_at_slots_cnt;
