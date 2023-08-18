@@ -5,10 +5,6 @@
 #include "fd_sysvar.h"
 #include "../fd_runtime.h"
 
-#ifdef _DISABLE_OPTIMIZATION
-#pragma GCC optimize ("O0")
-#endif
-
 // run --ledger /home/jsiegel/test-ledger --db /home/jsiegel/funk --cmd accounts --accounts /home/jsiegel/test-ledger/accounts/ --pages 15 --index-max 120000000 --start-slot 2 --end-slot 2 --start-id 35 --end-id 37
 // run --ledger /home/jsiegel/test-ledger --db /home/jsiegel/funk --cmd replay --pages 15 --index-max 120000000 --start-slot 0 --end-slot 3
 

@@ -21,10 +21,6 @@ FD_STATIC_ASSERT( FD_BMTREE32_COMMIT_FOOTPRINT==sizeof (fd_bmtree32_commit_t), u
 
 /* Test tree-20 construction */
 
-#ifdef _DISABLE_OPTIMIZATION
-#pragma GCC optimize ("O0")
-#endif
-
 static void
 test_bmtree20_commit( ulong        leaf_cnt,
                       void const * expected_root ) {

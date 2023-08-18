@@ -2,9 +2,7 @@
 #include "fd_types.h"
 #pragma GCC diagnostic ignored "-Wunused-parameter"
 #pragma GCC diagnostic ignored "-Wunused-variable"
-#ifdef _DISABLE_OPTIMIZATION
-#pragma GCC optimize ("O0")
-#endif
+
 #define SOURCE_fd_src_flamenco_types_fd_types_c
 #include "fd_types_custom.c"
 int fd_feature_decode(fd_feature_t* self, fd_bincode_decode_ctx_t * ctx) {

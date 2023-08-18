@@ -1,7 +1,3 @@
-#ifdef _DISABLE_OPTIMIZATION
-#pragma GCC optimize ("O0")
-#endif
-
 #include "fd_vm_context.h"
 
 #include "../../ballet/sbpf/fd_sbpf_opcodes.h"

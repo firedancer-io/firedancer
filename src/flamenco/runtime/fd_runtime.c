@@ -17,10 +17,6 @@
 
 #define MICRO_LAMPORTS_PER_LAMPORT (1000000UL)
 
-#ifdef _DISABLE_OPTIMIZATION
-#pragma GCC optimize ("O0")
-#endif
-
 void
 fd_runtime_init_bank_from_genesis( fd_global_ctx_t *     global,
                                    fd_genesis_solana_t * genesis_block,

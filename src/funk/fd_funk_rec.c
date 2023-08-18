@@ -1,9 +1,5 @@
 #include "fd_funk.h"
 
-#ifdef _DISABLE_OPTIMIZATION
-#pragma GCC optimize ("O0")
-#endif
-
 /* Provide the actual record map implementation */
 
 #define MAP_NAME              fd_funk_rec_map
@@ -201,7 +197,7 @@ fd_funk_rec_modify( fd_funk_t *           funk,
 FD_FN_PURE int
 fd_funk_rec_is_modified( fd_funk_t *           funk,
                          fd_funk_rec_t const * rec ) {
-  
+
   if( FD_UNLIKELY( (!funk) | (!rec) ) ) return 0;
 
   fd_wksp_t * wksp = fd_funk_wksp( funk );
@@ -227,7 +223,7 @@ fd_funk_rec_is_modified( fd_funk_t *           funk,
     FD_LOG_WARNING(("failed to load record: error %d", err));
     return 1;
   }
-  
+
   do {
     /* Go to the parent transaction */
     fd_funk_xid_key_pair_t pair[1];
@@ -524,7 +520,7 @@ fd_funk_rec_remove( fd_funk_t *     funk,
 
           if ( funk->notify_cb )
             (*funk->notify_cb)( NULL, rec, funk->notify_cb_arg );
-          
+
           rec->flags |= FD_FUNK_REC_FLAG_ERASE;
           fd_funk_val_flush( rec, fd_funk_alloc( funk, wksp ), wksp ); /* TODO: consider testing wksp_gaddr has wksp_tag? */
           return FD_FUNK_SUCCESS;
@@ -642,7 +638,7 @@ fd_funk_set_notify( fd_funk_t *         funk,
                     void *              notify_cb_arg) {
   funk->notify_cb = notify_cb;
   funk->notify_cb_arg = notify_cb_arg;
-  
+
   fd_wksp_t *     wksp    = fd_funk_wksp( funk );
   fd_funk_rec_t * rec_map = fd_funk_rec_map( funk, wksp );
   for( fd_funk_rec_map_iter_t iter = fd_funk_rec_map_iter_init( rec_map );

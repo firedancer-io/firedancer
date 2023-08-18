@@ -110,10 +110,6 @@ def main():
 
     hdr = """#include <stdlib.h>
 #include <stdio.h>
-
-#ifdef _DISABLE_OPTIMIZATION
-#pragma GCC optimize (\"O0\")
-#endif
 """
 
     print(hdr)

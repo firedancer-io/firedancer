@@ -2,10 +2,6 @@
 #include "fd_funk_persist.h"
 #include <stdio.h>
 
-#ifdef _DISABLE_OPTIMIZATION
-#pragma GCC optimize ("O0")
-#endif
-
 /* Provide the actual transaction map implementation */
 
 #define MAP_NAME              fd_funk_txn_map
@@ -271,7 +267,7 @@ fd_funk_txn_cancel_family( fd_funk_t *     funk,
   for(;;) {
 
     /* At this point, txn_idx appears to be valid and has been tagged. */
-    
+
     ulong youngest_idx = fd_funk_txn_idx( map[ txn_idx ].child_tail_cidx );
     if( FD_LIKELY( fd_funk_txn_idx_is_null( youngest_idx ) ) ) { /* txn is is childless, opt for incr pub */
 
@@ -283,7 +279,7 @@ fd_funk_txn_cancel_family( fd_funk_t *     funk,
       parent_stack_idx = fd_funk_txn_idx( map[ txn_idx ].stack_cidx );
       continue;
     }
-    
+
     /* txn has at least one child and the youngest is youngest_idx.  Tag
        the youngest child, push txn onto the parent stack and recurse
        into the youngest child. */
@@ -426,7 +422,7 @@ fd_funk_txn_cancel_siblings( fd_funk_t *     funk,
     if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "txn is not a funk transaction" ));
     return 0UL;
   }
-  
+
   ulong oldest_idx = fd_funk_txn_oldest_sibling( funk, map, txn_max, txn_idx );
 
   return fd_funk_txn_cancel_sibling_list( funk, map, txn_max, funk->cycle_tag++, oldest_idx, txn_idx );
@@ -465,7 +461,7 @@ fd_funk_txn_cancel_children( fd_funk_t *     funk,
     oldest_idx = fd_funk_txn_idx( txn->child_head_cidx );
 
   }
-  
+
   return fd_funk_txn_cancel_sibling_list( funk, map, txn_max, funk->cycle_tag++, oldest_idx, FD_FUNK_TXN_IDX_NULL );
 }
 
@@ -706,7 +702,7 @@ fd_funk_txn_publish_funk_child( fd_funk_t *     funk,
                                 ulong           txn_idx ) {
 
   /* Write the write-ahead log */
-  
+
   ulong wa_pos, wa_alloc;
   int err = fd_funk_txn_persist_writeahead( funk, map, txn_idx, &wa_pos, &wa_alloc );
   if ( err )
@@ -721,7 +717,7 @@ fd_funk_txn_publish_funk_child( fd_funk_t *     funk,
   /* Erase the write-ahead log */
 
   fd_funk_txn_persist_writeahead_erase( funk, wa_pos, wa_alloc );
-  
+
   /* Cancel all competing transaction histories */
 
   ulong oldest_idx = fd_funk_txn_oldest_sibling( funk, map, txn_max, txn_idx );
@@ -854,7 +850,7 @@ fd_funk_txn_merge( fd_funk_t *     funk,
     if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "txn must not have children" ));
     return FD_FUNK_ERR_INVAL;
   }
-  
+
   if( FD_UNLIKELY( !fd_funk_txn_is_only_child( txn ) ) ) {
     if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "txn must be an only child" ));
     return FD_FUNK_ERR_INVAL;
@@ -1076,4 +1072,3 @@ fd_funk_txn_verify( fd_funk_t * funk ) {
 #undef ASSERT_UNTAGGED
 #undef ASSERT_IN_PREP
 #undef ASSERT_IN_MAP
-

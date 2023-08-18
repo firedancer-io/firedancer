@@ -4,10 +4,6 @@
 #include "fd_runtime.h"
 #include <stdio.h>
 
-#ifdef _DISABLE_OPTIMIZATION
-#pragma GCC optimize ("O0")
-#endif
-
 #define MAX_ACC_SIZE (10UL<<20) /* 10MB */
 
 void* fd_acc_mgr_new( void*            mem,
