@@ -8,6 +8,7 @@
 #include <string.h>
 #include <netinet/ip.h>
 #include <unistd.h>
+#include <sys/time.h>
 
 #pragma GCC diagnostic ignored "-Wstrict-aliasing"
 
@@ -98,6 +99,25 @@ typedef struct fd_contact_elem fd_contact_elem_t;
 #include "../../util/tmpl/fd_map_giant.c"
 #define FD_CONTACT_KEY_MAX (1<<16)
 
+/* Active table element */
+struct fd_active_elem {
+    fd_ping_key_t key;
+    ulong next;
+    ulong pingtime;
+    fd_hash_t pingtoken;
+    ulong pongtime;
+};
+/* Active table */
+typedef struct fd_active_elem fd_active_elem_t;
+#define MAP_NAME     fd_active_table
+#define MAP_KEY_T    fd_ping_key_t
+#define MAP_KEY_EQ   fd_ping_key_eq
+#define MAP_KEY_HASH fd_ping_key_hash
+#define MAP_KEY_COPY fd_ping_key_copy
+#define MAP_T        fd_active_elem_t
+#include "../../util/tmpl/fd_map_giant.c"
+#define FD_ACTIVE_KEY_MAX (1<<8)
+
 /* Global data for gossip service */
 struct fd_gossip_global {
     fd_gossip_credentials_t my_creds;
@@ -105,6 +125,7 @@ struct fd_gossip_global {
     ulong seed;
     int sockfd;
     fd_contact_elem_t * contacts;
+    fd_active_elem_t * actives;
 };
 
 ulong
@@ -121,6 +142,8 @@ fd_gossip_global_new ( void * shmem, ulong seed, fd_valloc_t valloc ) {
   glob->sockfd = -1;
   void * shm = fd_valloc_malloc(valloc, fd_contact_table_align(), fd_contact_table_footprint(FD_CONTACT_KEY_MAX));
   glob->contacts = fd_contact_table_join(fd_contact_table_new(shm, FD_CONTACT_KEY_MAX, seed));
+  shm = fd_valloc_malloc(valloc, fd_active_table_align(), fd_active_table_footprint(FD_ACTIVE_KEY_MAX));
+  glob->actives = fd_active_table_join(fd_active_table_new(shm, FD_ACTIVE_KEY_MAX, seed));
   return glob;
 }
 
@@ -134,6 +157,7 @@ void *
 fd_gossip_global_delete ( void * shmap, fd_valloc_t valloc ) {
   fd_gossip_global_t * glob = (fd_gossip_global_t *)shmap;
   fd_valloc_free(valloc, fd_contact_table_leave(fd_contact_table_delete(glob->contacts)));
+  fd_valloc_free(valloc, fd_active_table_leave(fd_active_table_delete(glob->actives)));
   return glob;
 }
 
@@ -215,7 +239,7 @@ fd_gossip_send( fd_gossip_global_t * glob, fd_gossip_network_addr_t * dest, fd_g
 }
 
 void
-fd_gossip_handle_ping_request( fd_gossip_global_t * glob, fd_gossip_network_addr_t * from, fd_gossip_ping_t const * ping ) {
+fd_gossip_handle_ping( fd_gossip_global_t * glob, fd_gossip_network_addr_t * from, fd_gossip_ping_t const * ping ) {
   fd_gossip_msg_t gmsg;
   fd_gossip_msg_new_disc(&gmsg, fd_gossip_msg_enum_pong);
   fd_gossip_ping_t * pong = &gmsg.inner.pong;
@@ -242,7 +266,44 @@ fd_gossip_handle_ping_request( fd_gossip_global_t * glob, fd_gossip_network_addr
 }
 
 void
-fd_gossip_recv(fd_gossip_global_t * glob, fd_gossip_network_addr_t * from, fd_gossip_msg_t * gmsg) {
+fd_gossip_handle_pong( fd_gossip_global_t * glob, fd_gossip_network_addr_t * from, fd_gossip_ping_t const * pong, ulong now ) {
+  fd_ping_key_t key;
+  fd_memcpy(key.id.uc, pong->from.uc, 32U);
+  fd_memcpy(&key.addr, from, sizeof(fd_gossip_network_addr_t));
+  fd_active_elem_t * val = fd_active_table_query(glob->actives, &key, NULL);
+  if (val == NULL) {
+    FD_LOG_WARNING(("received unsolicited pong"));
+    return;
+  }
+
+  /* Confirm response hash token */
+  fd_sha256_t sha[1];
+  fd_sha256_init( sha );
+  fd_sha256_append( sha, "SOLANA_PING_PONG", 16UL );
+  fd_sha256_append( sha, val->pingtoken.uc,  32UL );
+  fd_hash_t pongtoken;
+  fd_sha256_fini( sha, pongtoken.uc );
+  if (memcmp(pongtoken.uc, pong->token.uc, 32UL) != 0) {
+    FD_LOG_WARNING(("received pong with wrong token"));
+    return;
+  }
+
+  /* Verify the signature */
+  fd_sha512_t sha2[1];
+  if (fd_ed25519_verify( /* msg */ val->pingtoken.uc,
+                         /* sz */ 332UL,
+                         /* sig */ pong->signature.uc,
+                         /* public_key */ pong->from.uc,
+                         sha2 )) {
+    FD_LOG_WARNING(("received pong with invalid signature"));
+    return;
+  }
+  
+  val->pongtime = now;
+}
+
+void
+fd_gossip_recv(fd_gossip_global_t * glob, fd_gossip_network_addr_t * from, fd_gossip_msg_t * gmsg, ulong now) {
   switch (gmsg->discriminant) {
   case fd_gossip_msg_enum_pull_req:
     break;
@@ -253,9 +314,10 @@ fd_gossip_recv(fd_gossip_global_t * glob, fd_gossip_network_addr_t * from, fd_go
   case fd_gossip_msg_enum_prune_msg:
     break;
   case fd_gossip_msg_enum_ping:
-    fd_gossip_handle_ping_request(glob, from, &gmsg->inner.ping);
+    fd_gossip_handle_ping(glob, from, &gmsg->inner.ping);
     break;
   case fd_gossip_msg_enum_pong:
+    fd_gossip_handle_pong(glob, from, &gmsg->inner.pong, now);
     break;
   }
 }
@@ -307,6 +369,14 @@ fd_gossip_main_loop( fd_gossip_global_t * glob, fd_valloc_t valloc, volatile int
       FD_LOG_ERR(("recvmmsg failed: %s", strerror(errno)));
       return -1;
     }
+    if (retval == 0)
+      continue;
+    struct timeval tv;
+    if (gettimeofday(&tv, NULL) < 0) {
+      FD_LOG_ERR(("gettimeofday failed: %s", strerror(errno)));
+      return -1;
+    }
+    ulong now = ((ulong)tv.tv_sec)*1000000000UL + ((ulong)tv.tv_usec)*1000UL;
 
     for (uint i = 0; i < (uint)retval; ++i) {
       // Get the source addr
@@ -318,7 +388,7 @@ fd_gossip_main_loop( fd_gossip_global_t * glob, fd_valloc_t valloc, volatile int
       fd_gossip_msg_new(&gmsg);
       fd_bincode_decode_ctx_t ctx;
       ctx.data    = bufs[i];
-      ctx.dataend = (const uchar*)ctx.data + msgs[i].msg_len;
+      ctx.dataend = bufs[i] + msgs[i].msg_len;
       ctx.valloc  = valloc;
       if (fd_gossip_msg_decode(&gmsg, &ctx)) {
         FD_LOG_WARNING(("corrupt gossip message"));
@@ -329,7 +399,7 @@ fd_gossip_main_loop( fd_gossip_global_t * glob, fd_valloc_t valloc, volatile int
         continue;
       }
 
-      fd_gossip_recv(glob, &from, &gmsg);
+      fd_gossip_recv(glob, &from, &gmsg, now);
 
       fd_bincode_destroy_ctx_t ctx2;
       ctx2.valloc = valloc;
