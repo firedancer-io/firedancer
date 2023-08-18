@@ -3,6 +3,7 @@
 #include "../../ballet/sha256/fd_sha256.h"
 #include "../../ballet/ed25519/fd_ed25519.h"
 #include "../../util/net/fd_eth.h"
+#include "../../util/rng/fd_rng.h"
 #include <sys/socket.h>
 #include <errno.h>
 #include <string.h>
@@ -126,6 +127,7 @@ struct fd_gossip_global {
     int sockfd;
     fd_contact_elem_t * contacts;
     fd_active_elem_t * actives;
+    fd_rng_t rng[1];
 };
 
 ulong
@@ -144,6 +146,7 @@ fd_gossip_global_new ( void * shmem, ulong seed, fd_valloc_t valloc ) {
   glob->contacts = fd_contact_table_join(fd_contact_table_new(shm, FD_CONTACT_KEY_MAX, seed));
   shm = fd_valloc_malloc(valloc, fd_active_table_align(), fd_active_table_footprint(FD_ACTIVE_KEY_MAX));
   glob->actives = fd_active_table_join(fd_active_table_new(shm, FD_ACTIVE_KEY_MAX, seed));
+  fd_rng_new(glob->rng, (uint)seed, 0UL);
   return glob;
 }
 
@@ -256,7 +259,7 @@ fd_gossip_handle_ping( fd_gossip_global_t * glob, fd_gossip_network_addr_t * fro
   /* Sign */
   fd_sha512_t sha2[1];
   fd_ed25519_sign( /* sig */ pong->signature.uc,
-                   /* msg */ ping->token.uc,
+                   /* msg */ pong->token.uc,
                    /* sz  */ 32UL,
                    /* public_key  */ glob->my_creds.public_key.uc,
                    /* private_key */ glob->my_creds.private_key,
@@ -290,8 +293,8 @@ fd_gossip_handle_pong( fd_gossip_global_t * glob, fd_gossip_network_addr_t * fro
 
   /* Verify the signature */
   fd_sha512_t sha2[1];
-  if (fd_ed25519_verify( /* msg */ val->pingtoken.uc,
-                         /* sz */ 332UL,
+  if (fd_ed25519_verify( /* msg */ pong->token.uc,
+                         /* sz */ 32UL,
                          /* sig */ pong->signature.uc,
                          /* public_key */ pong->from.uc,
                          sha2 )) {
