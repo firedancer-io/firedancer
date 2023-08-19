@@ -76,8 +76,7 @@ then
   tail -20 $log
   echo 'ledger test failed:'
   echo $log
-  #exit $status
-  echo "(IGNORING)"
+  exit $status
 fi
 
 rm $log
