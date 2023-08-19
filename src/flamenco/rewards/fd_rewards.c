@@ -173,17 +173,21 @@ static void calculate_and_redeem_stake_rewards(
   return;
 }
 
-int redeem_rewards(
-    fd_global_ctx_t * global,
-    fd_stake_history_t * stake_history,
-    fd_pubkey_t * stake_acc,
-    fd_vote_state_versioned_t * vote_state,
-    ulong rewarded_epoch,
-    fd_point_value_t * point_value,
-    fd_calculated_stake_rewards_t * result
-) {
+int
+redeem_rewards( fd_global_ctx_t *               global,
+                fd_stake_history_t *            stake_history,
+                fd_pubkey_t *                   stake_acc,
+                fd_vote_state_versioned_t *     vote_state,
+                ulong                           rewarded_epoch,
+                fd_point_value_t *              point_value,
+                fd_calculated_stake_rewards_t * result ) {
+
+  fd_account_meta_t const * stake_acc_meta = NULL;
+  int err = fd_acc_mgr_view( global->acc_mgr, global->funk_txn, stake_acc, NULL, &stake_acc_meta, NULL );
+  if( FD_UNLIKELY( err ) ) return err;
+
     fd_stake_state_t stake_state;
-    read_stake_state( global, stake_acc, &stake_state );
+    read_stake_state( global, stake_acc_meta, &stake_state );
     if (!fd_stake_state_is_stake( &stake_state)) {
         return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
     }
@@ -194,15 +198,17 @@ int redeem_rewards(
         // ctx->txn_ctx->custom_err = 0; /* Err(StakeError::NoCreditsToRedeem.into()) */
         return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
     }
-    int err = write_stake_state( global, stake_acc, &stake_state, 0);
+    err = write_stake_state( global, stake_acc, &stake_state, 0);
     if (err != 0 ) {
         return err;
     }
 
-    char * raw_acc_data = (char*) fd_acc_mgr_view_data(global->acc_mgr, global->funk_txn, stake_acc, NULL, &err);
-    fd_account_meta_t *metadata = (fd_account_meta_t *) raw_acc_data;
+    fd_account_meta_t * meta = NULL;
+    int read_err = fd_acc_mgr_modify( global->acc_mgr, global->funk_txn, stake_acc, 0, 0UL, NULL, NULL, &meta, NULL );
+    FD_TEST( read_err==0 );
 
-    fd_acc_mgr_set_lamports( global->acc_mgr, global->funk_txn, global->bank.slot, stake_acc, metadata->info.lamports + result->staker_rewards);
+    meta->info.lamports += result->staker_rewards;
+
     return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
@@ -304,20 +310,29 @@ calculate_reward_points_partitioned(
             continue;
         }
 
-        fd_pubkey_t vote_acc_owner;
-        fd_acc_mgr_get_owner( global->acc_mgr, global->funk_txn, voter_acc, &vote_acc_owner );
-        if (memcmp(&vote_acc_owner, global->solana_vote_program, sizeof(fd_pubkey_t)) != 0) {
+        fd_account_meta_t const * meta2 = NULL;
+        uchar const *             data  = NULL;
+        int read_err = fd_acc_mgr_view( global->acc_mgr, global->funk_txn, voter_acc, NULL, &meta2, &data );
+        if( read_err!=0 || 0!=memcmp( &meta2->info.owner, global->solana_vote_program, sizeof(fd_pubkey_t) ) ) {
             continue;
         }
 
-        fd_vote_state_versioned_t * vote_state = NULL;
-        fd_account_meta_t * meta = NULL;
-        if (fd_vote_load_account(vote_state, meta, global, &n->elem.delegation.voter_pubkey) != 0) {
-            continue;
-        }
+        /* Deserialize vote account */
+        fd_bincode_decode_ctx_t decode = {
+            .data    = data,
+            .dataend = data + meta2->dlen,
+            /* TODO: Make this a instruction-scoped allocator */
+            .valloc  = global->valloc,
+        };
+        fd_vote_state_versioned_t vote_state[1];
+        if( FD_UNLIKELY( 0!=fd_vote_state_versioned_decode( vote_state, &decode ) ) )
+            FD_LOG_ERR(( "vote_state_versioned_decode failed" ));
+
+        fd_account_meta_t const * stake_acc_meta = NULL;
+        FD_TEST( 0==fd_acc_mgr_view( global->acc_mgr, global->funk_txn, stake_acc, NULL, &stake_acc_meta, NULL ) );
 
         fd_stake_state_t stake_state;
-        read_stake_state( global, stake_acc, &stake_state );
+        read_stake_state( global, stake_acc_meta, &stake_state );
 
         __uint128_t result;
         points += (calculate_points(&stake_state, vote_state, stake_history, &result) == FD_EXECUTOR_INSTR_SUCCESS ? result : 0);
@@ -370,15 +385,22 @@ calculate_stake_vote_rewards(
             continue;
         }
 
-        fd_pubkey_t vote_acc_owner;
-        fd_acc_mgr_get_owner( global->acc_mgr, global->funk_txn, voter_acc, &vote_acc_owner );
-        if (memcmp(&vote_acc_owner, global->solana_vote_program, sizeof(fd_pubkey_t)) != 0) {
+        fd_account_meta_t const * meta2 = NULL;
+        uchar const *             data  = NULL;
+        int read_err = fd_acc_mgr_view( global->acc_mgr, global->funk_txn, voter_acc, NULL, &meta2, &data );
+        if( read_err!=0 || 0!=memcmp( &meta2->info.owner, global->solana_vote_program, sizeof(fd_pubkey_t) ) ) {
             continue;
         }
 
-        fd_vote_state_versioned_t * vote_state_versioned = NULL;
-        fd_account_meta_t * meta = NULL;
-        if (fd_vote_load_account(vote_state_versioned, meta, global, &n->elem.delegation.voter_pubkey) != 0) {
+        /* Read vote account */
+        fd_bincode_decode_ctx_t decode = {
+            .data    = data,
+            .dataend = data + meta2->dlen,
+            /* TODO: Make this a instruction-scoped allocator */
+            .valloc  = global->valloc,
+        };
+        fd_vote_state_versioned_t vote_state_versioned[1];
+        if( fd_vote_state_versioned_decode( vote_state_versioned, &decode ) != 0 ) {
             continue;
         }
 
@@ -388,7 +410,7 @@ calculate_stake_vote_rewards(
             continue;
         }
         int err;
-        fd_account_meta_t * metadata = (fd_account_meta_t *) fd_acc_mgr_view_data(global->acc_mgr, global->funk_txn, stake_acc, NULL, &err);
+        fd_account_meta_t * metadata = (fd_account_meta_t *) fd_acc_mgr_view_raw(global->acc_mgr, global->funk_txn, stake_acc, NULL, &err);
         fd_acc_lamports_t post_lamports = metadata->info.lamports;
 
         // track total_stake_rewards

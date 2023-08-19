@@ -20,7 +20,9 @@ typedef void
 #define FD_PUBKEY_FOOTPRINT FD_HASH_FOOTPRINT
 #define FD_PUBKEY_ALIGN FD_HASH_ALIGN
 
-union __attribute__((aligned(FD_HASH_ALIGN))) fd_hash {
+/* TODO this should not have packed alignment, but it's misused everywhere */
+
+union __attribute__((packed)) fd_hash {
   uchar hash[ FD_HASH_FOOTPRINT ];
   uchar key [ FD_HASH_FOOTPRINT ]; // Making fd_hash and fd_pubkey interchangable
 

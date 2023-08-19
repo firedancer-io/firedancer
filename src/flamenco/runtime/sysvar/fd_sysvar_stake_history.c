@@ -20,7 +20,7 @@ void write_stake_history( fd_global_ctx_t* global, fd_stake_history_t* stake_his
 
 int fd_sysvar_stake_history_read( fd_global_ctx_t* global, fd_stake_history_t* result ) {
   int          acc_view_err = 0;
-  char const * raw_acc_data = fd_acc_mgr_view_data( global->acc_mgr, global->funk_txn, (fd_pubkey_t *) global->sysvar_stake_history, NULL, &acc_view_err );
+  char const * raw_acc_data = fd_acc_mgr_view_raw( global->acc_mgr, global->funk_txn, (fd_pubkey_t *) global->sysvar_stake_history, NULL, &acc_view_err );
   fd_account_meta_t const * metadata = (fd_account_meta_t const *)raw_acc_data;
 
   fd_bincode_decode_ctx_t ctx;

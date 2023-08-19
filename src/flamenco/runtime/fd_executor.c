@@ -87,24 +87,21 @@ static void
 fd_set_exempt_rent_epoch_max( fd_global_ctx_t * global,
                               void const *      addr ) {
 
-  fd_funk_rec_t const * rrec = NULL;
-  int err = 0;
-  uchar const * raw_data = fd_acc_mgr_view_data( global->acc_mgr, global->funk_txn, (fd_pubkey_t const *)addr, &rrec, &err );
-  FD_LOG_NOTICE(( "fd_acc_mgr_view_data %32J returned %d", addr, err ));
-  if ( FD_UNLIKELY( !raw_data && err==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) )
+  fd_funk_rec_t const *     rec_ro  = NULL;
+  fd_account_meta_t const * meta_ro = NULL;
+  int err = fd_acc_mgr_view( global->acc_mgr, global->funk_txn, (fd_pubkey_t const *)addr, &rec_ro, &meta_ro, NULL );
+  if( FD_UNLIKELY( err==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) )
     return;
-  FD_TEST( raw_data && err==FD_ACC_MGR_SUCCESS );
+  FD_TEST( err==FD_ACC_MGR_SUCCESS );
 
-  fd_account_meta_t const * meta_r = (fd_account_meta_t const *)raw_data;
-  if( meta_r->info.lamports < fd_rent_exempt_minimum_balance( global, meta_r->dlen ) ) return;
-  if( meta_r->info.rent_epoch == ULONG_MAX ) return;
+  if( meta_ro->info.lamports < fd_rent_exempt_minimum_balance( global, meta_ro->dlen ) ) return;
+  if( meta_ro->info.rent_epoch == ULONG_MAX ) return;
 
-  uchar * raw_data_w = fd_acc_mgr_modify_data( global->acc_mgr, global->funk_txn, (fd_pubkey_t const *)addr, 0, NULL, rrec, NULL, &err );
-  FD_LOG_NOTICE(( "fd_acc_mgr_modify %32J returned %d", addr, err ));
-  FD_TEST( raw_data_w );
+  fd_account_meta_t * meta_rw = NULL;
+  err = fd_acc_mgr_modify( global->acc_mgr, global->funk_txn, (fd_pubkey_t const *)addr, 0, 0UL, rec_ro, NULL, &meta_rw, NULL );
+  FD_TEST( err==FD_ACC_MGR_SUCCESS );
 
-  fd_account_meta_t * meta_w = (fd_account_meta_t *)raw_data_w;
-  meta_w->info.rent_epoch = ULONG_MAX;
+  meta_rw->info.rent_epoch = ULONG_MAX;
 }
 
 static int
@@ -112,15 +109,13 @@ fd_executor_collect_fee( fd_global_ctx_t *   global,
                          fd_pubkey_t const * account,
                          ulong               fee ) {
 
-  int          err = 0;
-  ulong        sz  = 0UL;
-  void const * raw_data = fd_acc_mgr_modify_data( global->acc_mgr, global->funk_txn, account, 0, &sz, NULL, NULL, &err );
-  if( !raw_data ) {
-    FD_LOG_WARNING(( "fd_acc_mgr_modify_data failed (%d)", err ));
+  fd_account_meta_t * meta = NULL;
+  int err = fd_acc_mgr_modify( global->acc_mgr, global->funk_txn, account, 0, 0UL, NULL, NULL, &meta, NULL );
+  if( FD_UNLIKELY( err ) ) {
+    FD_LOG_WARNING(( "fd_acc_mgr_modify_raw failed (%d)", err ));
     // TODO: The fee payer does not seem to exist?!  what now?
     return -1;
   }
-  fd_account_meta_t * meta = (fd_account_meta_t *)raw_data;
 
   if (fee > meta->info.lamports) {
     // TODO: Not enough lamports to pay for this txn...

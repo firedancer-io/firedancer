@@ -48,7 +48,7 @@ void write_clock( fd_global_ctx_t* global, fd_sol_sysvar_clock_t* clock ) {
 
 int fd_sysvar_clock_read( fd_global_ctx_t* global, fd_sol_sysvar_clock_t* result ) {
   int err = 0;
-  char * raw_acc_data = (char*) fd_acc_mgr_view_data(global->acc_mgr, global->funk_txn, (fd_pubkey_t *) global->sysvar_clock, NULL, &err);
+  char * raw_acc_data = (char*) fd_acc_mgr_view_raw(global->acc_mgr, global->funk_txn, (fd_pubkey_t *) global->sysvar_clock, NULL, &err);
   if (NULL == raw_acc_data)
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   fd_account_meta_t *m = (fd_account_meta_t *) raw_acc_data;
@@ -201,22 +201,24 @@ void fd_calculate_stake_weighted_timestamp(
   return;
 }
 
-int fd_sysvar_clock_update( fd_global_ctx_t* global ) {
-  fd_sol_sysvar_clock_t clock;
+int
+fd_sysvar_clock_update( fd_global_ctx_t * global ) {
 
-  int err = 0;
-  fd_funk_rec_t const *con_rec = NULL;
-  char * raw_acc_data = (char*) fd_acc_mgr_view_data(global->acc_mgr, global->funk_txn, (fd_pubkey_t *) global->sysvar_clock, &con_rec, &err);
-  if (NULL == raw_acc_data)
-    return err;  // This should be a trap
-  fd_account_meta_t *m = (fd_account_meta_t *) raw_acc_data;
+  fd_pubkey_t const * key = (fd_pubkey_t const *)global->sysvar_clock;
+
+  fd_funk_rec_t const *     con_rec = NULL;
+  fd_account_meta_t const * m       = NULL;
+  uchar const *             data    = NULL;
+  int err = fd_acc_mgr_view( global->acc_mgr, global->funk_txn, key, &con_rec, &m, &data );
+  if (err)
+    FD_LOG_CRIT(( "fd_acc_mgr_view(clock) failed: %d", err ));
 
   fd_bincode_decode_ctx_t ctx;
-  ctx.data = raw_acc_data + m->hlen;
-  ctx.dataend = (char *) ctx.data + m->dlen;
+  ctx.data    = data;
+  ctx.dataend = data + m->dlen;
   ctx.valloc  = global->valloc;
-
-  if ( fd_sol_sysvar_clock_decode( &clock, &ctx ) )
+  fd_sol_sysvar_clock_t clock;
+  if( fd_sol_sysvar_clock_decode( &clock, &ctx ) )
     FD_LOG_ERR(("fd_sol_sysvar_clock_decode failed"));
 
   if (global->bank.slot != 0) {
@@ -245,89 +247,27 @@ int fd_sysvar_clock_update( fd_global_ctx_t* global ) {
   FD_LOG_INFO(( "clock.leader_schedule_epoch: %lu", clock.leader_schedule_epoch ));
   FD_LOG_INFO(( "clock.unix_timestamp: %ld", clock.unix_timestamp ));
 
-  ulong sz = fd_sol_sysvar_clock_size(&clock);
-  ulong acc_sz = sizeof(fd_account_meta_t) + sz;
-  fd_funk_rec_t * acc_data_rec = NULL;
+  ulong               sz       = fd_sol_sysvar_clock_size(&clock);
+  fd_funk_rec_t *     acc_rec  = NULL;
+  fd_account_meta_t * acc_meta = NULL;
+  uchar *             acc_data = NULL;
+  err = fd_acc_mgr_modify( global->acc_mgr, global->funk_txn, key, 1, sz, con_rec, &acc_rec, &acc_meta, &acc_data );
+  if (err)
+    FD_LOG_CRIT(( "fd_acc_mgr_modify(clock) failed: %d", err ));
 
-  err = 0;
-  raw_acc_data = fd_acc_mgr_modify_data(global->acc_mgr, global->funk_txn, (fd_pubkey_t *)  global->sysvar_clock, 1, &acc_sz, con_rec, &acc_data_rec, &err);
-  if ( FD_UNLIKELY (NULL == raw_acc_data) )
-    return err;
-
-  m = (fd_account_meta_t *)raw_acc_data;
-
-  fd_bincode_encode_ctx_t e_ctx;
-  e_ctx.data = raw_acc_data + m->hlen;
-  e_ctx.dataend = (char*)e_ctx.data + sz;
-  if ( fd_sol_sysvar_clock_encode( &clock, &e_ctx ) )
+  fd_bincode_encode_ctx_t e_ctx = {
+    .data    = acc_data,
+    .dataend = acc_data+sz,
+  };
+  if( fd_sol_sysvar_clock_encode( &clock, &e_ctx ) )
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
 
   ulong lamps = (sz + 128) * ((ulong) ((double)global->bank.rent.lamports_per_uint8_year * global->bank.rent.exemption_threshold));
-  if (m->info.lamports < lamps)
-    m->info.lamports = lamps;
+  if( acc_meta->info.lamports < lamps )
+    acc_meta->info.lamports = lamps;
 
-  m->dlen = sz;
-  fd_memcpy(m->info.owner, global->sysvar_owner, 32);
+  acc_meta->dlen = sz;
+  fd_memcpy( acc_meta->info.owner, global->sysvar_owner, 32 );
 
-  err = fd_acc_mgr_commit_data(global->acc_mgr, acc_data_rec, (fd_pubkey_t *) global->sysvar_slot_history, raw_acc_data, global->bank.slot, 0);
-
-  fd_bincode_destroy_ctx_t ctx_d = { .valloc = global->valloc };
-  fd_sol_sysvar_clock_destroy( &clock, &ctx_d );
-
-  return err;
+  return fd_acc_mgr_commit_raw( global->acc_mgr, acc_rec, key, acc_meta, global->bank.slot, 0 );
 }
-
-  /* Slot of next epoch boundary */
-//  ulong epoch           = fd_slot_to_epoch( &schedule, state->global->bank.slot+1, NULL );
-//  ulong last_epoch_slot = fd_epoch_slot0  ( &schedule, epoch+1UL );
-
-
-
-
-
-//    fn get_timestamp_estimate(
-//        &self,
-//        max_allowable_drift: MaxAllowableDrift,
-//        epoch_start_timestamp: Option<(Slot, UnixTimestamp)>,
-//    ) -> Option<UnixTimestamp> {
-//        let mut get_timestamp_estimate_time = Measure::start("get_timestamp_estimate");
-//        let slots_per_epoch = self.epoch_schedule().slots_per_epoch;
-//        let vote_accounts = self.vote_accounts();
-//        let recent_timestamps = vote_accounts.iter().filter_map(|(pubkey, (_, account))| {
-//            let vote_state = account.vote_state();
-//            let vote_state = vote_state.as_ref().ok()?;
-//            let slot_delta = self.slot().checked_sub(vote_state.last_timestamp.slot)?;
-//            (slot_delta <= slots_per_epoch).then(|| {
-//                (
-//                    *pubkey,
-//                    (
-//                        vote_state.last_timestamp.slot,
-//                        vote_state.last_timestamp.timestamp,
-//                    ),
-//                )
-//            })
-//        });
-//        let slot_duration = Duration::from_nanos(self.ns_per_slot as u64);
-//        let epoch = self.epoch_schedule().get_epoch(self.slot());
-//        let stakes = self.epoch_vote_accounts(epoch)?;
-//        let stake_weighted_timestamp = calculate_stake_weighted_timestamp(
-//            recent_timestamps,
-//            stakes,
-//            self.slot(),
-//            slot_duration,
-//            epoch_start_timestamp,
-//            max_allowable_drift,
-//            self.feature_set
-//                .is_active(&feature_set::warp_timestamp_again::id()),
-//        );
-//        get_timestamp_estimate_time.stop();
-//        datapoint_info!(
-//            "bank-timestamp",
-//            (
-//                "get_timestamp_estimate_us",
-//                get_timestamp_estimate_time.as_us(),
-//                i64
-//            ),
-//        );
-//        stake_weighted_timestamp
-//    }

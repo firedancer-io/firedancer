@@ -88,6 +88,9 @@ void SnapshotParser_destroy(struct SnapshotParser* self) {
   free(self->tmpstart_);
 }
 
+/* why is this creatively named "parse" if it actually loads the
+   snapshot into the database? */
+
 void SnapshotParser_parsefd_solana_accounts(struct SnapshotParser* self, char const * name, const void* data, size_t datalen) {
   ulong id, slot;
   if (sscanf(name, "accounts/%lu.%lu", &slot, &id) != 2)
@@ -110,21 +113,60 @@ void SnapshotParser_parsefd_solana_accounts(struct SnapshotParser* self, char co
   if (node2->elem.accounts_current_len < datalen)
     datalen = node2->elem.accounts_current_len;
 
+  fd_acc_mgr_t *  acc_mgr = self->global_->acc_mgr;
+  fd_funk_txn_t * txn     = self->global_->funk_txn;
+
   while (datalen) {
     size_t roundedlen = (sizeof(fd_solana_account_hdr_t)+7UL)&~7UL;
     if (roundedlen > datalen)
       return;
-    fd_solana_account_hdr_t* hdr = (fd_solana_account_hdr_t*)data;
+
+    fd_solana_account_hdr_t const * hdr = (fd_solana_account_hdr_t const *)data;
+    uchar const * acc_data = (uchar const *)hdr + sizeof(fd_solana_account_hdr_t);
+
+    fd_pubkey_t const * acc_key = (fd_pubkey_t const *)&hdr->meta.pubkey;
 
     do {
-      fd_account_meta_t metadata;
-      int               read_result = fd_acc_mgr_get_metadata( self->global_->acc_mgr, self->global_->funk_txn, (fd_pubkey_t*) &hdr->meta.pubkey, &metadata );
-      if ( FD_UNLIKELY( read_result == FD_ACC_MGR_SUCCESS ) ) {
-        if (metadata.slot > slot)
-          break;
+      /* Check existing account */
+      fd_funk_rec_t const *     rec_ro  = NULL;
+      fd_account_meta_t const * meta_ro = NULL;
+      int read_result = fd_acc_mgr_view( acc_mgr, txn, acc_key, &rec_ro, &meta_ro, /* data_ro */ NULL );
+
+      /* Skip if we previously inserted a newer version */
+      if( read_result == FD_ACC_MGR_SUCCESS ) {
+        if( meta_ro->slot > slot ) break;
+      } else if( FD_UNLIKELY( read_result != FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) ) {
+        FD_LOG_ERR(( "database error while loading snapshot: %d", read_result ));
       }
-      if (fd_acc_mgr_write_append_vec_account( self->global_->acc_mgr, self->global_->funk_txn, slot, hdr, self->uncache_) != FD_ACC_MGR_SUCCESS)
-        FD_LOG_ERR(("writing failed account"));
+
+      if( FD_UNLIKELY( hdr->meta.data_len > MAX_ACC_SIZE ) )
+        FD_LOG_ERR(("account too large: %lu bytes", hdr->meta.data_len));
+
+      /* Write account */
+      fd_account_meta_t * meta = NULL;
+      uchar *             data = NULL;
+      fd_funk_rec_t *     rec_rw;
+      int write_result = fd_acc_mgr_modify(
+          acc_mgr,
+          txn,
+          acc_key,
+          /* do_create */ 1,
+          hdr->meta.data_len,
+          rec_ro,
+          &rec_rw,
+          &meta,
+          &data );
+      if( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) )
+        FD_LOG_ERR(("writing account failed"));
+
+      meta->dlen = hdr->meta.data_len;
+      meta->slot = slot;
+      memcpy( &meta->info, &hdr->info, sizeof(fd_solana_account_meta_t) );
+      memcpy( data, acc_data, hdr->meta.data_len );
+
+      fd_acc_mgr_commit_raw( acc_mgr, rec_rw, acc_key, meta, slot, /* uncache */ 0 );
+
+      /* TODO Check if calculated hash fails to match account hash from snapshot. */
     } while (0);
 
     roundedlen = (sizeof(fd_solana_account_hdr_t)+hdr->meta.data_len+7UL)&~7UL;
@@ -653,9 +695,8 @@ main( int     argc,
   global->funk = funk;
   global->valloc = fd_alloc_virtual( alloc );
 
-  char acc_mgr_mem[FD_ACC_MGR_FOOTPRINT] __attribute__((aligned(FD_ACC_MGR_ALIGN)));
-  memset(acc_mgr_mem, 0, sizeof(acc_mgr_mem));
-  global->acc_mgr = (fd_acc_mgr_t*)( fd_acc_mgr_new( acc_mgr_mem, global, FD_ACC_MGR_FOOTPRINT ) );
+  fd_acc_mgr_t mgr[1];
+  global->acc_mgr = fd_acc_mgr_new( mgr, global );
 
   ulong tcnt = fd_tile_cnt();
   uchar tpool_mem[ FD_TPOOL_FOOTPRINT(FD_TILE_MAX) ] __attribute__((aligned(FD_TPOOL_ALIGN)));
@@ -714,7 +755,7 @@ main( int     argc,
 
     if (snapshot_used) {
       int err = 0;
-      char * raw_acc_data = (char*) fd_acc_mgr_view_data(global->acc_mgr, global->funk_txn, (fd_pubkey_t *) global->sysvar_recent_block_hashes, NULL, &err);
+      char * raw_acc_data = (char*) fd_acc_mgr_view_raw(global->acc_mgr, global->funk_txn, (fd_pubkey_t *) global->sysvar_recent_block_hashes, NULL, &err);
       if (NULL == raw_acc_data)
         FD_LOG_ERR(( "missing recent block hashes account" ));
       fd_account_meta_t *m = (fd_account_meta_t *) raw_acc_data;
@@ -755,7 +796,7 @@ main( int     argc,
       int fd = open( genesis, O_RDONLY );
       if( FD_UNLIKELY( fd < 0 ) )
         FD_LOG_ERR(("cannot open %s : %s", genesis, strerror(errno)));
-      uchar * buf = malloc((ulong) sbuf.st_size);
+      uchar * buf = malloc((ulong) sbuf.st_size);  /* TODO Make this a scratch alloc */
       ssize_t n = read(fd, buf, (ulong) sbuf.st_size);
       close(fd);
 
@@ -771,10 +812,7 @@ main( int     argc,
 
       // The hash is generated from the raw data... don't mess with this..
       uchar genesis_hash[FD_SHA256_HASH_SZ];
-      fd_sha256_t sha;
-      fd_sha256_init( &sha );
-      fd_sha256_append( &sha, buf, (ulong) n );
-      fd_sha256_fini( &sha, genesis_hash );
+      fd_sha256_hash( buf, (ulong)n, genesis_hash );
       FD_LOG_NOTICE(( "Genesis Hash: %32J", genesis_hash ));
 
       free(buf);
@@ -788,7 +826,27 @@ main( int     argc,
 
       for( ulong i=0; i < genesis_block.accounts_len; i++ ) {
         fd_pubkey_account_pair_t * a = &genesis_block.accounts[i];
-        fd_acc_mgr_write_structured_account( global->acc_mgr, global->funk_txn, 0UL, &a->key, &a->account );
+
+        fd_funk_rec_t *     rec;
+        fd_account_meta_t * meta = NULL;
+        uchar *             data = NULL;
+
+        int err = fd_acc_mgr_modify(
+            global->acc_mgr,
+            global->funk_txn,
+            &a->key,
+            /* do_create */ 1,
+            a->account.data_len,
+            /* opt_con_rec */ NULL,
+            &rec,
+            &meta,
+            &data );
+        if( FD_UNLIKELY( err ) )
+          FD_LOG_ERR(( "fd_acc_mgr_modify failed (%d)", err ));
+
+        err = fd_acc_mgr_commit_raw( global->acc_mgr, rec, &a->key, meta, 0UL, 0 );
+        if( FD_UNLIKELY( err ) )
+          FD_LOG_ERR(( "fd_acc_mgr_commit_raw failed (%d)", err ));
       }
 
       if (global->log_level > 2)

@@ -322,9 +322,8 @@ int main(int argc, char **argv) {
   memset(global_mem, 0, sizeof(global_mem));
   state.global = fd_global_ctx_join( fd_global_ctx_new( global_mem ) );
 
-  char acc_mgr_mem[FD_ACC_MGR_FOOTPRINT] __attribute__((aligned(FD_ACC_MGR_ALIGN)));
-  memset(acc_mgr_mem, 0, sizeof(acc_mgr_mem));
-  state.global->acc_mgr = (fd_acc_mgr_t*)( fd_acc_mgr_new( acc_mgr_mem, state.global, FD_ACC_MGR_FOOTPRINT ) );
+  fd_acc_mgr_t _acc_mgr[1];
+  state.global->acc_mgr = fd_acc_mgr_new( _acc_mgr, state.global );
 
   state.argc = argc;
   state.argv = argv;

@@ -1,3 +1,4 @@
+#include "fd_acc_mgr.h"
 #include "time.h"
 #include "fd_runtime.h"
 #include "fd_hashes.h"
@@ -772,23 +773,24 @@ fd_runtime_collect_rent_account( fd_global_ctx_t *   global,
 }
 
 static int
-fd_runtime_collect_rent_cb( fd_funk_rec_t const * rec_ro,
-                            void * arg ) {
-  fd_global_ctx_t * global = (fd_global_ctx_t *)arg;
-  fd_funk_txn_t * txn      = global->funk_txn;
-  fd_acc_mgr_t *  acc_mgr  = global->acc_mgr;
+fd_runtime_collect_rent_cb( fd_funk_rec_t const * encountered_rec_ro,
+                            void *                arg ) {
 
-  int err = FD_ACC_MGR_SUCCESS;
-  fd_pubkey_t const * key = fd_type_pun_const( &rec_ro->pair.key[0].uc );
-  void const * acc_ro = fd_acc_mgr_view_data( acc_mgr, txn, key, &rec_ro, &err );
-  fd_account_meta_t const * meta_ro = (fd_account_meta_t const *)acc_ro;
+  fd_global_ctx_t *   global   = (fd_global_ctx_t *)arg;
+  fd_funk_txn_t *     txn      = global->funk_txn;
+  fd_acc_mgr_t *      acc_mgr  = global->acc_mgr;
+  fd_pubkey_t const * key      = fd_type_pun_const( &encountered_rec_ro->pair.key[0].uc );
+
+  fd_funk_rec_t const *     rec_ro  = NULL;  /* not necessarily encountered_rec_ro */
+  fd_account_meta_t const * meta_ro = NULL;
+  int err = fd_acc_mgr_view( acc_mgr, txn, key, &rec_ro, &meta_ro, NULL );
 
   /* Account might not exist anymore in the current world */
-  if( ( err==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) | (!acc_ro) ) {
+  if( err==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
     return 0; /* Don't walk again */
   }
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
-    FD_LOG_WARNING(( "fd_runtime_collect_rent_cb: fd_acc_mgr_view_data failed (%d)", err ));
+    FD_LOG_WARNING(( "fd_runtime_collect_rent_cb: fd_acc_mgr_view_raw failed (%d)", err ));
     return 0; /* Don't walk again */
   }
 
@@ -797,22 +799,20 @@ fd_runtime_collect_rent_cb( fd_funk_rec_t const * rec_ro,
   if( meta_ro->info.rent_epoch >= epoch ) return 1;
 
   /* Upgrade read-only handle to writable */
-  fd_funk_rec_t * rec_rw = NULL;
-  err = FD_ACC_MGR_SUCCESS;
-  void * acc_rw = fd_acc_mgr_modify_data(
+  fd_account_meta_t * meta_rw = NULL;
+  err = fd_acc_mgr_modify(
     acc_mgr, txn, key,
-      /* do_create */ 0,
-      /* sz          */ NULL,
+      /* do_create   */ 0,
+      /* min_data_sz */ 0UL,
       /* opt_con_rec */ rec_ro,
-      /* opt_out_rec */ &rec_rw,
-      &err );
+      /* opt_out_rec */ NULL,
+      &meta_rw, NULL );
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
-    FD_LOG_WARNING(( "fd_runtime_collect_rent_range: fd_acc_mgr_modify_data failed (%d)", err ));
+    FD_LOG_WARNING(( "fd_runtime_collect_rent_range: fd_acc_mgr_modify_raw failed (%d)", err ));
     return err;
   }
 
   /* Actually invoke rent collection */
-  fd_account_meta_t * meta_rw = (fd_account_meta_t *)acc_rw;
   /*int changed = */fd_runtime_collect_rent_account( global, meta_rw, key, epoch );
 
   return 1;
@@ -863,20 +863,21 @@ fd_runtime_freeze( fd_global_ctx_t *global ) {
 
   // Look at collect_fees... I think this was where I saw the fee payout..
 
+  /* Acquire writable handle for leader */
+
+  fd_account_meta_t * leader_meta = NULL;
+  int err = fd_acc_mgr_modify( global->acc_mgr, global->funk_txn, global->leader, 0, 0UL, NULL, NULL, &leader_meta, NULL );
+  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+    FD_LOG_WARNING(( "fd_runtime_freeze: fd_acc_mgr_modify_raw for leader (%32J) failed (%d)", leader_meta, err ));
+    return;
+  }
+
   if (global->bank.collected > 0) {
     if (FD_UNLIKELY(global->log_level > 2)) {
       FD_LOG_WARNING(( "fd_runtime_freeze: slot:%ld global->collected: %ld", global->bank.slot, global->bank.collected ));
     }
 
-    fd_acc_lamports_t lamps;
-    int               ret = fd_acc_mgr_get_lamports ( global->acc_mgr, global->funk_txn, global->leader, &lamps);
-    if (ret != FD_ACC_MGR_SUCCESS)
-      FD_LOG_ERR(( "The collector_id is wrong?!" ));
-
-    // TODO: half get burned?!
-    ret = fd_acc_mgr_set_lamports ( global->acc_mgr, global->funk_txn, global->bank.slot, global->leader, lamps + (global->bank.collected/2));
-    if (ret != FD_ACC_MGR_SUCCESS)
-      FD_LOG_ERR(( "lamport update failed" ));
+    leader_meta->info.lamports += ( global->bank.collected / 2 );
 
     global->bank.collected = 0;
   }
@@ -1040,20 +1041,19 @@ const size_t MAX_SEED_LEN = 32;
 const char PDA_MARKER[] = {"ProgramDerivedAddress"};
 
 int
-fd_pubkey_create_with_seed( fd_pubkey_t const * base,
-                            char const *        seed,  /* FIXME add sz param */
-                            fd_pubkey_t const * owner,
-                            fd_pubkey_t *       out ) {
+fd_pubkey_create_with_seed( uchar const  base [ static 32 ],
+                            char const * seed,  /* FIXME add sz param */
+                            ulong        seed_sz,
+                            uchar const  owner[ static 32 ],
+                            uchar        out  [ static 32 ] ) {
 //  if seed.len() > MAX_SEED_LEN {
 //      return Err(PubkeyError::MaxSeedLengthExceeded);
 //    }
 
-  size_t slen = strlen(seed);
-
-  if (slen > MAX_SEED_LEN)
+  if (seed_sz > MAX_SEED_LEN)
     return FD_EXECUTOR_SYSTEM_ERR_MAX_SEED_LENGTH_EXCEEDED;
 
-  if (memcmp(&owner->hash[sizeof(owner->hash) - sizeof(PDA_MARKER) - 1], PDA_MARKER, sizeof(PDA_MARKER) - 1) == 0)
+  if( memcmp( &owner[32UL - sizeof(PDA_MARKER)-1], PDA_MARKER, sizeof(PDA_MARKER)-1 ) == 0)
     return FD_EXECUTOR_INSTR_ERR_ILLEGAL_OWNER;
 //  let owner = owner.as_ref();
 //  if owner.len() >= PDA_MARKER.len() {
@@ -1066,11 +1066,11 @@ fd_pubkey_create_with_seed( fd_pubkey_t const * base,
   fd_sha256_t sha;
   fd_sha256_init( &sha );
 
-  fd_sha256_append( &sha, base->hash, sizeof( fd_hash_t ) );
-  fd_sha256_append( &sha, seed, slen );
-  fd_sha256_append( &sha, owner->hash, sizeof( fd_hash_t ) );
+  fd_sha256_append( &sha, base,  32UL    );
+  fd_sha256_append( &sha, seed,  seed_sz );
+  fd_sha256_append( &sha, owner, 32UL    );
 
-  fd_sha256_fini( &sha, out->hash );
+  fd_sha256_fini( &sha, out );
 
 //  Ok(Pubkey::new(
 //      hashv(&[base.as_ref(), seed.as_ref(), owner]).as_ref(),
@@ -1299,7 +1299,7 @@ fd_feature_restore( fd_global_ctx_t * global,
                     ulong *           f,
                     uchar const       acct[ static 32 ] ) {
 
-  char * raw_acc_data = (char*) fd_acc_mgr_view_data(global->acc_mgr, global->funk_txn, (fd_pubkey_t *) acct, NULL, NULL);
+  char * raw_acc_data = (char*) fd_acc_mgr_view_raw(global->acc_mgr, global->funk_txn, (fd_pubkey_t *) acct, NULL, NULL);
   if (NULL == raw_acc_data)
     return;
   fd_account_meta_t *m = (fd_account_meta_t *) raw_acc_data;
