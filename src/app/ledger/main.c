@@ -161,10 +161,15 @@ void SnapshotParser_parsefd_solana_accounts(struct SnapshotParser* self, char co
 
       meta->dlen = hdr->meta.data_len;
       meta->slot = slot;
+      memcpy( &meta->hash, hdr->hash.value, 32UL );
       memcpy( &meta->info, &hdr->info, sizeof(fd_solana_account_meta_t) );
-      memcpy( data, acc_data, hdr->meta.data_len );
+      if( hdr->meta.data_len )
+        memcpy( data, acc_data, hdr->meta.data_len );
 
-      fd_acc_mgr_commit_raw( acc_mgr, rec_rw, acc_key, meta, slot, /* uncache */ 0 );
+      /* Skip hashing */
+      int err = fd_funk_rec_persist( acc_mgr->global->funk, rec_rw );
+      if( FD_UNLIKELY( err ) )
+        FD_LOG_ERR(( "fd_funk_rec_persist failed (%d-%s)", err, fd_funk_strerror( err ) ));
 
       /* TODO Check if calculated hash fails to match account hash from snapshot. */
     } while (0);
@@ -843,6 +848,14 @@ main( int     argc,
             &data );
         if( FD_UNLIKELY( err ) )
           FD_LOG_ERR(( "fd_acc_mgr_modify failed (%d)", err ));
+
+        meta->dlen            = a->account.data_len;
+        meta->info.lamports   = a->account.lamports;
+        meta->info.rent_epoch = a->account.rent_epoch;
+        meta->info.executable = (char)a->account.executable;
+        memcpy( meta->info.owner, a->account.owner.key, 32UL );
+        if( a->account.data_len )
+          memcpy( data, a->account.data, a->account.data_len );
 
         err = fd_acc_mgr_commit_raw( global->acc_mgr, rec, &a->key, meta, 0UL, 0 );
         if( FD_UNLIKELY( err ) )

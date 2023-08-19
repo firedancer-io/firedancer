@@ -164,6 +164,8 @@ replay( global_state_t * state,
 
   fd_scratch_attach( smem, fmem, smax, scratch_depth );
 
+  fd_features_restore( state->global );
+
   fd_funk_rec_key_t key = fd_runtime_block_meta_key(ULONG_MAX);
   fd_funk_rec_t const * rec = fd_funk_rec_query( state->global->funk, NULL, &key );
   if (rec == NULL)

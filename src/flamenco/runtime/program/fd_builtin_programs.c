@@ -20,7 +20,7 @@ fd_write_builtin_bogus_account( fd_global_ctx_t * global,
   fd_account_meta_t * meta_rw = NULL;
   uchar *             data_rw = NULL;
 
-  int err = fd_acc_mgr_modify( acc_mgr, txn, key, 0, sz, NULL, &rec, &meta_rw, &data_rw );
+  int err = fd_acc_mgr_modify( acc_mgr, txn, key, 1, sz, NULL, &rec, &meta_rw, &data_rw );
   FD_TEST( !err );
 
   meta_rw->dlen            = sz;
@@ -52,7 +52,7 @@ write_inline_spl_native_mint_program_account( fd_global_ctx_t * global ) {
       0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 9, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
       0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 
-  int err = fd_acc_mgr_modify( acc_mgr, txn, key, 0, sizeof(data), NULL, &rec, &meta_rw, &data_rw );
+  int err = fd_acc_mgr_modify( acc_mgr, txn, key, 1, sizeof(data), NULL, &rec, &meta_rw, &data_rw );
   FD_TEST( !err );
 
   meta_rw->dlen            = sizeof(data);
