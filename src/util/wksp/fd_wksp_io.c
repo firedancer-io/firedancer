@@ -284,6 +284,7 @@ fd_wksp_restore( fd_wksp_t *  wksp,
   ulong                     wksp_data_lo  = wksp->gaddr_lo;
   ulong                     wksp_data_hi  = wksp->gaddr_hi;
   fd_wksp_private_pinfo_t * wksp_pinfo    = fd_wksp_private_pinfo( wksp );
+  int                       wksp_dirty    = 0;
 
   char const * err_info;
 
@@ -356,7 +357,10 @@ fd_wksp_restore( fd_wksp_t *  wksp,
     RESTORE_CSTR( buf, 16384UL ); TEST( strlen( buf )==buf_len );
     FD_LOG_INFO(( "checkpt_info\n\t%s", buf ));
 
-    FD_LOG_INFO(( "shmem_name     \"%s\"", name ) );
+    FD_LOG_INFO(( "shmem_name     \"%s\"", name     ));
+    FD_LOG_INFO(( "seed           %-20u",  seed     ));
+    FD_LOG_INFO(( "part_max       %-20lu", part_max ));
+    FD_LOG_INFO(( "data_max       %-20lu", data_max ));
 
     ulong data_lo = fd_wksp_private_data_off( part_max );
     ulong data_hi = data_lo + data_max;
@@ -378,31 +382,29 @@ fd_wksp_restore( fd_wksp_t *  wksp,
       TEST( (data_lo<=gaddr_lo) & (gaddr_lo<gaddr_hi) & (gaddr_hi<=data_hi) );
 
       if( FD_UNLIKELY( wksp_part_cnt>=wksp_part_max ) ) {
-        FD_LOG_WARNING(( "Restore \"%s\" to wksp \"%s\" failed because too few wksp partitions "
-                         "(part_max checkpt %lu, wksp %lu); attempting to reset wksp and continue",
+        FD_LOG_WARNING(( "Restore \"%s\" to wksp \"%s\" failed because too few wksp partitions (part_max checkpt %lu, wksp %lu)",
                          path, wksp->name, part_max, wksp_part_max ));
-        goto corrupt_wksp; /* wksp might be dirty from previous iterations */
+        goto unlock;
       }
 
       if( FD_UNLIKELY( !((wksp_data_lo<=gaddr_lo) & (gaddr_hi<=wksp_data_hi)) ) ) {
         FD_LOG_WARNING(( "Restore \"%s\" to wksp \"%s\" failed because checkpt partition [0x%016lx,0x%016lx) tag %lu "
-                         "does not fit into wksp data region [0x%016lx,0x%016lx) (data_max checkpt %lu, wksp %lu); "
-                         "attempting to reset wksp and continue",
+                         "does not fit into wksp data region [0x%016lx,0x%016lx) (data_max checkpt %lu, wksp %lu)",
                          path, wksp->name, gaddr_lo, gaddr_hi, tag, wksp_data_lo, wksp_data_hi, data_max, wksp_data_max ));
-        goto corrupt_wksp; /* wksp might be dirty from previous iterations */
+        goto unlock;
       }
 
-      /* Restore the allocation payload into the wksp (this will dirty the wksp) */
+      /* Restore the allocation payload into the wksp and record this
+         allocation in the wksp */
+
+      wksp_dirty = 1;
 
       err = fd_io_buffered_istream_read( restore, fd_wksp_laddr_fast( wksp, gaddr_lo ), sz );
       if( FD_UNLIKELY( err ) ) {
-        FD_LOG_WARNING(( "Restore \"%s\" to wksp \"%s\" failed because of I/O error (%i-%s); "
-                         "attempting to reset wksp and continue",
+        FD_LOG_WARNING(( "Restore \"%s\" to wksp \"%s\" failed because of I/O error (%i-%s)",
                          path, wksp->name, err, fd_io_strerror( err ) ));
-        goto corrupt_wksp;
+        goto unlock;
       }
-
-      /* Record this allocation in the wksp (this will also dirty the wksp) */
 
       wksp_pinfo[ wksp_part_cnt ].gaddr_lo = gaddr_lo;
       wksp_pinfo[ wksp_part_cnt ].gaddr_hi = gaddr_hi;
@@ -410,20 +412,19 @@ fd_wksp_restore( fd_wksp_t *  wksp,
       wksp_part_cnt++;
     }
 
-    /* Remove all remaining old allocations (this will dirty the wksp) */
-
-    for( ulong i=wksp_part_cnt; i<wksp_part_max; i++ ) wksp_pinfo[ i ].tag = 0UL;
-
     FD_LOG_INFO(( "Rebuilding wksp with restored allocations" ));
 
+    wksp_dirty = 1;
+
+    for( ulong i=wksp_part_cnt; i<wksp_part_max; i++ ) wksp_pinfo[ i ].tag = 0UL; /* Remove all remaining old allocations */
     err = fd_wksp_rebuild( wksp, new_seed ); /* logs details */
     if( FD_UNLIKELY( err ) ) { /* wksp dirty */
-      FD_LOG_WARNING(( "Restore \"%s\" to wksp \"%s\" failed because of rebuild error; attempting to reset wksp and continue",
-                       path, wksp->name ));
-      goto corrupt_wksp;
+      FD_LOG_WARNING(( "Restore \"%s\" to wksp \"%s\" failed because of rebuild error", path, wksp->name ));
+      goto unlock;
     }
 
-    fd_wksp_private_unlock( wksp );
+    wksp_dirty = 0;
+
     FD_LOG_INFO(( "Restore successful" ));
     break;
 
@@ -436,33 +437,44 @@ fd_wksp_restore( fd_wksp_t *  wksp,
 
   /* err = 0 at this point */
 
-fini: /* note: wksp unlocked at this point, wksp clean, details not logged */
+unlock: /* note: wksp locked at this point */
+
+  /* If wksp is not clean, reset it to get it back to a clean state
+     (TODO: consider FD_LOG_CRIT here if rebuild fails though it
+     shouldn't) */
+
+  if( wksp_dirty ) {
+    FD_LOG_WARNING(( "wksp \"%s\" dirty; attemping to reset it and continue", wksp->name ));
+    for( ulong i=0UL; i<wksp_part_max; i++ ) wksp_pinfo[ i ].tag = 0UL;
+    fd_wksp_rebuild( wksp, new_seed ); /* logs details */
+    err = FD_WKSP_ERR_CORRUPT;
+  }
+
+  fd_wksp_private_unlock( wksp );
+
+fini: /* Note: wksp unlocked at this point */
+
   fd_io_buffered_istream_fini( restore );
+
   if( FD_UNLIKELY( close( fd ) ) )
     FD_LOG_WARNING(( "close(\"%s\") failed (%i-%s); attempting to continue", path, errno, fd_io_strerror( errno ) ));
+
   return err;
 
-io_err: /* note: wksp locked at this point, wksp clean, details not logged */
-  fd_wksp_private_unlock( wksp );
+io_err: /* Note: wksp locked at this point */
+
   FD_LOG_WARNING(( "Restore \"%s\" to wksp \"%s\" failed (%s) due to I/O error (%i-%s)",
                    path, wksp->name, err_info, err, fd_io_strerror( err ) ));
   err = FD_WKSP_ERR_FAIL;
-  goto fini;
 
-stream_err: /* note: wksp locked at this point, wksp clean, details not logged */
-  fd_wksp_private_unlock( wksp );
-  FD_LOG_WARNING(( "Restore \"%s\" to wksp \"%s\" failed (%s) due to checkpt format error", path, wksp->name, err_info ));
+  goto unlock;
+
+stream_err: /* Note: wksp locked at this point */
+
+  FD_LOG_WARNING(( "Restore \"%s\" to wksp \"%s\" failed due to checkpt format error (%s)", path, wksp->name, err_info ));
   err = FD_WKSP_ERR_FAIL;
-  goto fini;
 
-corrupt_wksp: /* note: wksp locked at this point, wksp dirty, details already logged */
-  /* reset the wksp (if we can) to get it back to a clean state (TODO:
-     consider FD_LOG_CRIT here if rebuild fails though it shouldn't) */
-  for( ulong i=0UL; i<wksp_part_max; i++ ) wksp_pinfo[ i ].tag = 0UL;
-  fd_wksp_rebuild( wksp, new_seed ); /* logs details */
-  fd_wksp_private_unlock( wksp );
-  err = FD_WKSP_ERR_CORRUPT;
-  goto fini;
+  goto unlock;
 
 # undef TEST
 # undef RESTORE_CSTR
