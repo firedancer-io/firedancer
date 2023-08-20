@@ -74,9 +74,9 @@ fini( config_t * const config ) {
 
   char path[ PATH_MAX ];
   snprintf1( path, PATH_MAX, "/sys/fs/bpf/%s/%s", config->name, config->tiles.quic.interface );
-  if( FD_UNLIKELY( rmdir( path ) && errno != ENOENT ) ) FD_LOG_ERR(( "rmdir failed (%i-%s)", errno, strerror( errno ) ));
+  if( FD_UNLIKELY( rmdir( path ) && errno != ENOENT ) ) FD_LOG_ERR(( "rmdir failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   snprintf1( path, PATH_MAX, "/sys/fs/bpf/%s", config->name );
-  if( FD_UNLIKELY( rmdir( path ) && errno != ENOENT ) ) FD_LOG_ERR(( "rmdir failed (%i-%s)", errno, strerror( errno ) ));
+  if( FD_UNLIKELY( rmdir( path ) && errno != ENOENT ) ) FD_LOG_ERR(( "rmdir failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
 
 static configure_result_t
@@ -87,7 +87,7 @@ check( config_t * const config ) {
   struct stat st;
   int result = stat( xdp_path, &st );
   if( FD_UNLIKELY( result && errno == ENOENT ) ) NOT_CONFIGURED( "`%s` does not exist", xdp_path );
-  else if( FD_UNLIKELY( result ) ) PARTIALLY_CONFIGURED( "`%s` cannot be statted (%i-%s)", xdp_path, errno, strerror( errno ) );
+  else if( FD_UNLIKELY( result ) ) PARTIALLY_CONFIGURED( "`%s` cannot be statted (%i-%s)", xdp_path, errno, fd_io_strerror( errno ) );
 
   CHECK( check_dir(  "/sys/fs/bpf", config->uid, config->uid, S_IFDIR | S_IRWXU | S_IRGRP | S_IXGRP ) );
   CHECK( check_dir(  xdp_path,      config->uid, config->uid, S_IFDIR | S_IRWXU | S_IRGRP | S_IXGRP ) );

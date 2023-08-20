@@ -49,24 +49,20 @@ fd_tile_private_cpu_config( fd_tile_private_cpu_config_t * save,
                      "/etc/security/limits.conf as superuser to nice -19 or -20 for this user)\n\t"
                      "to eliminate this warning.  Also consider starting this thread group\n\t"
                      "with 'nice --19'.",
-                     errno, strerror( errno ) ));
+                     errno, fd_io_strerror( errno ) ));
     save->prio = INT_MIN;
   }
 
   struct rlimit rlim;
-  if( FD_UNLIKELY( -1==getrlimit(RLIMIT_NICE, &rlim) ) ) {
-    FD_LOG_WARNING(( "fd_tile: getrlimit failed (%i-%s).",
-                     errno, strerror( errno ) ));
-  }
+  if( FD_UNLIKELY( -1==getrlimit(RLIMIT_NICE, &rlim) ) )
+    FD_LOG_WARNING(( "fd_tile: getrlimit failed (%i-%s).", errno, fd_io_strerror( errno ) ));
 
   if( FD_UNLIKELY( rlim.rlim_cur!=40) && FD_UNLIKELY( rlim.rlim_max==40 ) ) {
     // setpriority will fail based on rlim_cur, but we may be able to raise
     // it higher first.
     rlim.rlim_cur = 40;
-    if( FD_UNLIKELY( -1==setrlimit(RLIMIT_NICE, &rlim) ) ) {
-      FD_LOG_WARNING(( "fd_tile: setrlimit failed (%i-%s).",
-                       errno, strerror( errno ) ));
-    }
+    if( FD_UNLIKELY( -1==setrlimit(RLIMIT_NICE, &rlim) ) )
+      FD_LOG_WARNING(( "fd_tile: setrlimit failed (%i-%s).", errno, fd_io_strerror( errno ) ));
   }
 
   if( FD_UNLIKELY( prio!=-19 ) && FD_UNLIKELY( setpriority( PRIO_PROCESS, (id_t)0, -19 ) ) ) {
@@ -77,7 +73,7 @@ fd_tile_private_cpu_config( fd_tile_private_cpu_config_t * save,
                      "might require adjusting /etc/security/limits.conf to nice -19 or -20\n\t"
                      "for this user) to eliminate this warning.  Also consider starting this\n\t"
                      "thread group with 'nice --19'.",
-                     errno, strerror( errno ) ));
+                     errno, fd_io_strerror( errno ) ));
     save->prio = INT_MIN;
     return;
   }
@@ -91,7 +87,7 @@ static inline void
 fd_tile_private_cpu_restore( fd_tile_private_cpu_config_t * save ) {
   int prio = save->prio;
   if( FD_LIKELY( prio!=INT_MIN ) && FD_UNLIKELY( prio!=-19 ) && FD_UNLIKELY( setpriority( PRIO_PROCESS, (id_t)0, prio ) ) )
-    FD_LOG_WARNING(( "fd_tile: setpriority failed (%i-%s); attempting to continue", errno, strerror( errno ) ));
+    FD_LOG_WARNING(( "fd_tile: setpriority failed (%i-%s); attempting to continue", errno, fd_io_strerror( errno ) ));
 }
 
 void *
@@ -143,18 +139,18 @@ fd_tile_private_stack_new( int   optimize,
     if( FD_LIKELY( ((void *)stack)!=MAP_FAILED ) ) { /* Make space for guard lo and guard hi */
 
       if( FD_UNLIKELY( munmap( stack, FD_SHMEM_NORMAL_PAGE_SZ ) ) )
-        FD_LOG_WARNING(( "fd_tile: munmap failed (%i-%s); attempting to continue", errno, strerror( errno ) ));
+        FD_LOG_WARNING(( "fd_tile: munmap failed (%i-%s); attempting to continue", errno, fd_io_strerror( errno ) ));
 
       stack += FD_SHMEM_NORMAL_PAGE_SZ;
 
       if( FD_UNLIKELY( munmap( stack + FD_TILE_PRIVATE_STACK_SZ, FD_SHMEM_NORMAL_PAGE_SZ ) ) )
-        FD_LOG_WARNING(( "fd_tile: munmap failed (%i-%s); attempting to continue", errno, strerror( errno ) ));
+        FD_LOG_WARNING(( "fd_tile: munmap failed (%i-%s); attempting to continue", errno, fd_io_strerror( errno ) ));
 
     } else {
 
       FD_LOG_WARNING(( "fd_tile: mmap(NULL,%lu KiB,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0) failed (%i-%s)\n\t"
                        "Falling back on pthreads created stack and attempting to continue.",
-                       mmap_sz >> 10, errno, strerror( errno ) ));
+                       mmap_sz >> 10, errno, fd_io_strerror( errno ) ));
       return NULL;
 
     }
@@ -166,12 +162,14 @@ fd_tile_private_stack_new( int   optimize,
   void * guard_lo = (void *)(stack - FD_SHMEM_NORMAL_PAGE_SZ );
   if( FD_UNLIKELY( mmap( guard_lo, FD_SHMEM_NORMAL_PAGE_SZ, PROT_NONE,
                          MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, (off_t)0 )!=guard_lo ) )
-    FD_LOG_WARNING(( "fd_tile: mmap failed (%i-%s)\n\tAttempting to continue without stack guard lo.", errno, strerror( errno ) ));
+    FD_LOG_WARNING(( "fd_tile: mmap failed (%i-%s)\n\tAttempting to continue without stack guard lo.",
+                     errno, fd_io_strerror( errno ) ));
 
   void * guard_hi = (void *)(stack + FD_TILE_PRIVATE_STACK_SZ);
   if( FD_UNLIKELY( mmap( guard_hi, FD_SHMEM_NORMAL_PAGE_SZ, PROT_NONE,
                          MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, (off_t)0 )!=guard_hi ) )
-    FD_LOG_WARNING(( "fd_tile: mmap failed (%i-%s)\n\tAttempting to continue without stack guard hi.", errno, strerror( errno ) ));
+    FD_LOG_WARNING(( "fd_tile: mmap failed (%i-%s)\n\tAttempting to continue without stack guard hi.",
+                     errno, fd_io_strerror( errno ) ));
 
   return stack;
 }
@@ -185,16 +183,16 @@ fd_tile_private_stack_delete( void * _stack ) {
   uchar * guard_hi = stack + FD_TILE_PRIVATE_STACK_SZ;
 
   if( FD_UNLIKELY( munmap( guard_hi, FD_SHMEM_NORMAL_PAGE_SZ ) ) )
-    FD_LOG_WARNING(( "fd_tile: munmap failed (%i-%s); attempting to continue", errno, strerror( errno ) ));
+    FD_LOG_WARNING(( "fd_tile: munmap failed (%i-%s); attempting to continue", errno, fd_io_strerror( errno ) ));
 
   if( FD_UNLIKELY( munmap( guard_lo, FD_SHMEM_NORMAL_PAGE_SZ ) ) )
-    FD_LOG_WARNING(( "fd_tile: munmap failed (%i-%s); attempting to continue", errno, strerror( errno ) ));
+    FD_LOG_WARNING(( "fd_tile: munmap failed (%i-%s); attempting to continue", errno, fd_io_strerror( errno ) ));
 
   /* Note that fd_shmem_release is just a wrapper around munmap such
      that this covers both the optimized and non-optimized cases */
 
   if( FD_UNLIKELY( munmap( stack, FD_TILE_PRIVATE_STACK_SZ ) ) )
-    FD_LOG_WARNING(( "fd_tile: munmap failed (%i-%s); attempting to continue", errno, strerror( errno ) ));
+    FD_LOG_WARNING(( "fd_tile: munmap failed (%i-%s); attempting to continue", errno, fd_io_strerror( errno ) ));
 }
 
 /* Tile side APIs ****************************************************/
@@ -273,7 +271,7 @@ fd_tile_private_manager( void * _args ) {
                        "is likely this thread group's performance and stability are compromised\n\t"
                        "(possibly catastrophically so).  Update --tile-cpus to specify a set of\n\t"
                        "allowed cpus that have been reserved for this thread group on this host\n\t"
-                       "to eliminate this warning.", err, strerror( err ), args->idx, args->cpu_idx ));
+                       "to eliminate this warning.", err, fd_io_strerror( err ), args->idx, args->cpu_idx ));
   }
 # endif /* !__GLIBC__ */
 
@@ -584,7 +582,7 @@ fd_tile_private_boot( int *    pargc,
     pthread_attr_t attr[1];
     int err = pthread_attr_init( attr );
     if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_tile: pthread_attr_init failed (%i-%s) for tile %lu.\n\t",
-                                          err, strerror( err ), tile_idx ));
+                                          err, fd_io_strerror( err ), tile_idx ));
 
     /* Set affinity ahead of time.  This is a GNU-specific extension
        that is not available on musl.  On musl, we just skip this
@@ -603,7 +601,7 @@ fd_tile_private_boot( int *    pargc,
                                                 "(possibly catastrophically so).  Update --tile-cpus to specify a set of\n\t"
                                                 "allowed cpus that have been reserved for this thread group on this host\n\t"
                                                 "to eliminate this warning.",
-                                                err, strerror( err ), tile_idx, cpu_idx ));
+                                                err, fd_io_strerror( err ), tile_idx, cpu_idx ));
     }
 #   endif /* __GLIBC__ */
 
@@ -631,7 +629,7 @@ fd_tile_private_boot( int *    pargc,
     if( FD_LIKELY( stack ) ) {
       err = pthread_attr_setstack( attr, stack, FD_TILE_PRIVATE_STACK_SZ );
       if( FD_UNLIKELY( err ) ) {
-        FD_LOG_WARNING(( "fd_tile: pthread_attr_setstack failed (%i-%s)\n\t", err, strerror( err ) ));
+        FD_LOG_WARNING(( "fd_tile: pthread_attr_setstack failed (%i-%s)\n\t", err, fd_io_strerror( err ) ));
         fd_tile_private_stack_delete( stack );
         stack = NULL;
       }
@@ -646,7 +644,7 @@ fd_tile_private_boot( int *    pargc,
     ulong stack_sz;
     err = pthread_attr_getstacksize( attr, &stack_sz );
     if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_tile: pthread_attr_getstacksize failed (%i-%s) for tile %lu.\n\t",
-                                          err, strerror( err ), tile_idx ));
+                                          err, fd_io_strerror( err ), tile_idx ));
 
     FD_VOLATILE( fd_tile_private[ tile_idx ].lock ) = NULL;
 
@@ -668,9 +666,9 @@ fd_tile_private_boot( int *    pargc,
                                "this cpu is restricted from the user or does not exist on this host.\n\t"
                                "Update --tile-cpus to specify a set of allowed cpus that have been reserved\n\t"
                                "for this thread group on this host.",
-                               err, strerror( err ), tile_idx, cpu_idx ));
+                               err, fd_io_strerror( err ), tile_idx, cpu_idx ));
       FD_LOG_ERR(( "fd_tile: pthread_create failed (%i-%s)\n\tUnable to start up the tile %lu (floating).",
-                   err, strerror( err ), tile_idx ));
+                   err, fd_io_strerror( err ), tile_idx ));
     }
 
     /* Wait for the tile to be ready to exec */
@@ -687,8 +685,9 @@ fd_tile_private_boot( int *    pargc,
     /* Tile is running, args is safe to reuse */
 
     err = pthread_attr_destroy( attr );
-    if( FD_UNLIKELY( err ) ) FD_LOG_WARNING(( "fd_tile: pthread_attr_destroy failed (%i-%s) for tile %lu; attempting to continue",
-                                              err, strerror( err ), tile_idx ));
+    if( FD_UNLIKELY( err ) )
+      FD_LOG_WARNING(( "fd_tile: pthread_attr_destroy failed (%i-%s) for tile %lu; attempting to continue",
+                       err, fd_io_strerror( err ), tile_idx ));
   }
 
   /* And now we "boot" tile 0 */
@@ -703,7 +702,8 @@ fd_tile_private_boot( int *    pargc,
     int good_taskset;
     cpu_set_t cpu_set[1];
     if( FD_UNLIKELY( sched_getaffinity( (pid_t)0, sizeof(cpu_set_t), cpu_set ) ) ) {
-      FD_LOG_WARNING(( "fd_tile: sched_getaffinity failed (%i-%s) for tile 0 on cpu %lu", errno, strerror( errno ), cpu_idx ));
+      FD_LOG_WARNING(( "fd_tile: sched_getaffinity failed (%i-%s) for tile 0 on cpu %lu",
+                       errno, fd_io_strerror( errno ), cpu_idx ));
       good_taskset = 0;
     } else {
       ulong cnt = (ulong)CPU_COUNT( cpu_set );
@@ -727,7 +727,7 @@ fd_tile_private_boot( int *    pargc,
                          "(possibly catastrophically so).  Update --tile-cpus to specify a set of\n\t"
                          "allowed cpus that have been reserved for this thread group on this host\n\t"
                          "to eliminate this warning.",
-                         errno, strerror( errno ), cpu_idx ));
+                         errno, fd_io_strerror( errno ), cpu_idx ));
       fd_log_private_cpu_id_set( cpu_idx );
       fd_log_cpu_set   ( NULL );
       fd_log_thread_set( NULL );
@@ -788,7 +788,7 @@ fd_tile_private_halt( void ) {
   for( ulong tile_idx=1UL; tile_idx<tile_cnt; tile_idx++ ) {
     void * stack;
     int err = pthread_join( fd_tile_private[ tile_idx ].pthread, &stack );
-    if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_tile: pthread_join failed (%i-%s)", err, strerror( err ) ));
+    if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_tile: pthread_join failed (%i-%s)", err, fd_io_strerror( err ) ));
     fd_tile_private_stack_delete( stack );
     FD_LOG_INFO(( "fd_tile: halt tile %lu success", tile_idx ));
   }
@@ -816,4 +816,3 @@ fd_tile_private_halt( void ) {
 
   FD_LOG_INFO(( "fd_tile: halt success" ));
 }
-

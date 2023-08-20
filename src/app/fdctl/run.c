@@ -46,9 +46,9 @@ install_tile_signals( void ) {
     .sa_flags   = 0,
   };
   if( FD_UNLIKELY( sigaction( SIGTERM, &sa, NULL ) ) )
-    FD_LOG_ERR(( "sigaction(SIGTERM) failed (%i-%s)", errno, strerror( errno ) ));
+    FD_LOG_ERR(( "sigaction(SIGTERM) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( sigaction( SIGINT, &sa, NULL ) ) )
-    FD_LOG_ERR(( "sigaction(SIGINT) failed (%i-%s)", errno, strerror( errno ) ));
+    FD_LOG_ERR(( "sigaction(SIGINT) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
 
 typedef struct {
@@ -86,7 +86,7 @@ static int
 getpid1( void ) {
   char pid[ 12 ] = {0};
   long count = readlink( "/proc/self", pid, sizeof(pid) );
-  if( FD_UNLIKELY( count < 0 ) ) FD_LOG_ERR(( "readlink(/proc/self) failed (%i-%s)", errno, strerror( errno ) ));
+  if( FD_UNLIKELY( count < 0 ) ) FD_LOG_ERR(( "readlink(/proc/self) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( (ulong)count >= sizeof(pid) ) ) FD_LOG_ERR(( "readlink(/proc/self) returned truncated pid" ));
   char * endptr;
   ulong result = strtoul( pid, &endptr, 10 );
@@ -160,7 +160,7 @@ clone_tile( tile_spawner_t * spawn, fd_frank_task_t * task, ulong idx ) {
                      "(possibly catastrophically so). Update [layout.affinity] in the configuraton "
                      "to specify a set of allowed cpus that have been reserved for this thread "
                      "group on this host to eliminate this warning.",
-                     errno, strerror( errno ), spawn->idx, cpu_idx ));
+                     errno, fd_io_strerror( errno ), spawn->idx, cpu_idx ));
   }
 
   void * stack = fd_tile_private_stack_new( 1, cpu_idx );
@@ -182,7 +182,7 @@ clone_tile( tile_spawner_t * spawn, fd_frank_task_t * task, ulong idx ) {
   /* also spawn tiles into pid namespaces so they cannot signal each other or the parent */
   int flags = spawn->sandbox ? CLONE_NEWPID : 0;
   pid_t pid = clone( tile_main, (uchar *)stack + (8UL<<20), flags, &args );
-  if( FD_UNLIKELY( pid<0 ) ) FD_LOG_ERR(( "clone() failed (%i-%s)", errno, strerror( errno ) ));
+  if( FD_UNLIKELY( pid<0 ) ) FD_LOG_ERR(( "clone() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   spawn->child_pids[ spawn->idx ] = pid;
   strncpy( spawn->child_names[ spawn->idx ], task->name, 32 );
@@ -197,20 +197,20 @@ solana_labs_main( void * args ) {
 
   gid_t gid, egid, sgid;
   if( FD_UNLIKELY( getresgid( &gid, &egid, &sgid ) ) )
-    FD_LOG_ERR(( "getresgid() failed (%i-%s)", errno, strerror( errno ) ));
+    FD_LOG_ERR(( "getresgid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   if( gid != config->gid || egid != config->gid || sgid != config->gid ) {
     if( FD_UNLIKELY( setresgid( config->gid, config->gid, config->gid ) ) )
-      FD_LOG_ERR(( "setresgid() failed (%i-%s)", errno, strerror( errno ) ));
+      FD_LOG_ERR(( "setresgid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
   uid_t uid, euid, suid;
   if( FD_UNLIKELY( getresuid( &uid, &euid, &suid ) ) )
-    FD_LOG_ERR(( "getresuid() failed (%i-%s)", errno, strerror( errno ) ));
+    FD_LOG_ERR(( "getresuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   if( uid != config->uid || euid != config->uid || suid != config->uid ) {
     if( FD_UNLIKELY( setresuid( config->uid, config->uid, config->uid ) ) )
-      FD_LOG_ERR(( "setresuid() failed (%i-%s)", errno, strerror( errno ) ));
+      FD_LOG_ERR(( "setresuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
   uint idx = 0;
@@ -294,7 +294,7 @@ solana_labs_main( void * args ) {
 
   /* silence a bunch of solana_metrics INFO spam */
   if( FD_UNLIKELY( setenv( "RUST_LOG", "solana=info,solana_metrics::metrics=warn", 1 ) ) )
-    FD_LOG_ERR(( "setenv() failed (%i-%s)", errno, strerror( errno ) ));
+    FD_LOG_ERR(( "setenv() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   FD_LOG_INFO(( "Running Solana Labs validator with the following arguments:" ));
   for( ulong j=0UL; j<idx; j++ ) FD_LOG_INFO(( "%s", argv[j] ));
@@ -312,7 +312,7 @@ clone_solana_labs( tile_spawner_t * spawner, config_t * const config ) {
   /* clone into a pid namespace */
   int flags = config->development.sandbox ? CLONE_NEWPID : 0;
   pid_t pid = clone( solana_labs_main, (uchar *)stack + (8UL<<20), flags, config );
-  if( FD_UNLIKELY( pid<0 ) ) FD_LOG_ERR(( "clone() failed (%i-%s)", errno, strerror( errno ) ));
+  if( FD_UNLIKELY( pid<0 ) ) FD_LOG_ERR(( "clone() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   spawner->child_pids[ spawner->idx ] = pid;
   strncpy( spawner->child_names[ spawner->idx ], "solana-labs", 32 );
   spawner->idx++;
@@ -330,13 +330,13 @@ main_pid_namespace( void * args ) {
   struct sigaction sa[1];
   sa->sa_handler = SIG_DFL;
   sa->sa_flags = 0;
-  if( sigemptyset( &sa->sa_mask ) ) FD_LOG_ERR(( "sigemptyset() failed (%i-%s)", errno, strerror( errno ) ));
-  if( sigaction( SIGTERM, sa, NULL ) ) FD_LOG_ERR(( "sigaction() failed (%i-%s)", errno, strerror( errno ) ));
-  if( sigaction( SIGINT, sa, NULL ) ) FD_LOG_ERR(( "sigaction() failed (%i-%s)", errno, strerror( errno ) ));
+  if( sigemptyset( &sa->sa_mask ) ) FD_LOG_ERR(( "sigemptyset() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( sigaction( SIGTERM, sa, NULL ) ) FD_LOG_ERR(( "sigaction() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( sigaction( SIGINT, sa, NULL ) ) FD_LOG_ERR(( "sigaction() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   /* change pgid so controlling terminal generates interrupt only to the parent */
   if( FD_LIKELY( config->development.sandbox ) )
-    if( FD_UNLIKELY( setpgid( 0, 0 ) ) ) FD_LOG_ERR(( "setpgid() failed (%i-%s)", errno, strerror( errno ) ));
+    if( FD_UNLIKELY( setpgid( 0, 0 ) ) ) FD_LOG_ERR(( "setpgid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   ushort tile_to_cpu[ FD_TILE_MAX ];
   ulong  affinity_tile_cnt = fd_tile_private_cpus_parse( config->layout.affinity, tile_to_cpu );
@@ -351,7 +351,7 @@ main_pid_namespace( void * args ) {
   /* Save the current affinity, it will be restored after creating any child tiles */
   cpu_set_t floating_cpu_set[1];
   if( FD_UNLIKELY( sched_getaffinity( 0, sizeof(cpu_set_t), floating_cpu_set ) ) )
-    FD_LOG_ERR(( "sched_getaffinity (%i-%s)", errno, strerror( errno ) ));
+    FD_LOG_ERR(( "sched_getaffinity failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   tile_spawner_t spawner = {
     .app_name = config->name,
@@ -377,8 +377,7 @@ main_pid_namespace( void * args ) {
   clone_tile( &spawner, &frank_pack , 0 );
 
   if( FD_UNLIKELY( sched_setaffinity( 0, sizeof(cpu_set_t), floating_cpu_set ) ) )
-    FD_LOG_ERR(( "sched_setaffinity (%i-%s)", errno, strerror( errno ) ));
-
+    FD_LOG_ERR(( "sched_setaffinity failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   long allow_syscalls[] = {
     __NR_write,      /* logging */
@@ -406,7 +405,7 @@ main_pid_namespace( void * args ) {
   int wstatus;
   pid_t exited_pid = wait4( -1, &wstatus, (int)__WCLONE, NULL );
   if( FD_UNLIKELY( exited_pid == -1 ) ) {
-    fd_log_private_fprintf_0( STDERR_FILENO, "wait4() failed (%i-%s)", errno, strerror( errno ) );
+    fd_log_private_fprintf_0( STDERR_FILENO, "wait4() failed (%i-%s)", errno, fd_io_strerror( errno ) );
     exit_group( 1 );
   }
 
@@ -447,9 +446,9 @@ install_parent_signals( void ) {
     .sa_flags   = 0,
   };
   if( FD_UNLIKELY( sigaction( SIGTERM, &sa, NULL ) ) )
-    FD_LOG_ERR(( "sigaction(SIGTERM) failed (%i-%s)", errno, strerror( errno ) ));
+    FD_LOG_ERR(( "sigaction(SIGTERM) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( sigaction( SIGINT, &sa, NULL ) ) )
-    FD_LOG_ERR(( "sigaction(SIGINT) failed (%i-%s)", errno, strerror( errno ) ));
+    FD_LOG_ERR(( "sigaction(SIGINT) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
 
 void
@@ -461,8 +460,8 @@ run_firedancer( config_t * const config ) {
      race condition. child will clear the handlers. */
   install_parent_signals();
 
-  if( FD_UNLIKELY( close( 0 ) ) ) FD_LOG_ERR(( "close(0) failed (%i-%s)", errno, strerror( errno ) ));
-  if( FD_UNLIKELY( close( 1 ) ) ) FD_LOG_ERR(( "close(1) failed (%i-%s)", errno, strerror( errno ) ));
+  if( FD_UNLIKELY( close( 0 ) ) ) FD_LOG_ERR(( "close(0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( close( 1 ) ) ) FD_LOG_ERR(( "close(1) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   /* clone into a pid namespace */
   int flags = config->development.sandbox ? CLONE_NEWPID : 0;

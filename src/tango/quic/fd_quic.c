@@ -253,7 +253,6 @@ fd_quic_set_aio_net_tx( fd_quic_t *      quic,
   }
 }
 
-
 /* initialize everything that mutates during runtime */
 static void
 fd_quic_stream_init( fd_quic_stream_t * stream ) {
@@ -425,7 +424,7 @@ fd_quic_init( fd_quic_t * quic ) {
   if( FD_UNLIKELY( keylog_file[0] ) ) {
     keylog_fd = open( keylog_file, O_WRONLY|O_CREAT|O_APPEND, 0660 );
     if( FD_UNLIKELY( keylog_fd<0 ) )
-      FD_LOG_WARNING(( "Cannot create keylog file at %s (%d-%s)", keylog_file, errno, strerror( errno ) ));
+      FD_LOG_WARNING(( "Cannot create keylog file at %s (%i-%s)", keylog_file, errno, fd_io_strerror( errno ) ));
     else
       FD_LOG_INFO(( "Logging TLS key material to %s", keylog_file ));
   }
@@ -691,10 +690,8 @@ fd_quic_tx_enc_level( fd_quic_conn_t * conn ) {
   return ~0u;
 }
 
-
 void
 fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn );
-
 
 typedef struct fd_quic_pkt fd_quic_pkt_t;
 typedef struct fd_quic_frame_context fd_quic_frame_context_t;
@@ -704,7 +701,6 @@ struct fd_quic_frame_context {
   fd_quic_conn_t * conn;
   fd_quic_pkt_t *  pkt;
 };
-
 
 /* handle single v1 frames */
 /* returns bytes consumed */
@@ -980,7 +976,6 @@ fd_quic_stream_send( fd_quic_stream_t *  stream,
   stream->flags          |= FD_QUIC_STREAM_FLAGS_UNSENT; /* we have unsent data */
   stream->upd_pkt_number  = FD_QUIC_PKT_NUM_PENDING;     /* schedule tx */
 
-
   /* don't actually set fin flag if we didn't add the last
      byte to the buffer */
   if( fin && buffers_queued==batch_sz ) {
@@ -1051,7 +1046,6 @@ struct fd_quic_pkt {
 # define ACK_FLAG_RQD     1
 # define ACK_FLAG_CANCEL  2
 };
-
 
 void
 fd_quic_ack_enc_level( fd_quic_conn_t * conn, uint enc_level ) {
@@ -1507,7 +1501,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
       conn->tls_hs = tls_hs;
 
       if (FD_UNLIKELY(fd_quic_gen_initial_secret_and_keys(suite, conn, &orig_dst_conn_id)) == FD_QUIC_FAILED) {
-        conn->state = FD_QUIC_CONN_STATE_DEAD;   
+        conn->state = FD_QUIC_CONN_STATE_DEAD;
         quic->metrics.conn_aborted_cnt++;
         quic->metrics.conn_err_tls_fail_cnt++;
         FD_DEBUG( FD_LOG_WARNING(( "fd_quic_gen_initial_secret_and_keys failed" )) );
@@ -1536,7 +1530,6 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
   ulong   pkt_number       = (ulong)-1;
   ulong   pkt_number_sz    = (ulong)-1;
   ulong   tot_sz           = (ulong)-1;
-
 
   /* TODO TESTING - remove */
   uchar zeros[16] = {0};
@@ -1741,7 +1734,6 @@ fd_quic_handle_v1_handshake(
   ulong    pkt_number       = (ulong)-1;
   ulong    pkt_number_sz    = (ulong)-1;
   ulong    tot_sz           = (ulong)-1;
-
 
   /* TODO TESTING - remove */
   uchar zeros[16] = {0};
@@ -2012,7 +2004,6 @@ fd_quic_handle_v1_one_rtt( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_pkt_
   ulong    pkt_number_sz    = (ulong)-1;
   ulong    tot_sz           = (ulong)-1;
 
-
   /* TODO TESTING - remove */
   uchar zeros[16] = {0};
   if( memcmp( cur_ptr + cur_sz - 16, zeros, 16 ) == 0 ) {
@@ -2196,7 +2187,6 @@ fd_quic_handle_v1_one_rtt( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_pkt_
   return tot_sz;
 }
 
-
 void
 fd_quic_schedule_conn( fd_quic_conn_t * conn ) {
 
@@ -2239,7 +2229,6 @@ fd_quic_schedule_conn( fd_quic_conn_t * conn ) {
   conn->next_service_time  = timeout;
   conn->in_service         = 1;
 }
-
 
 void
 fd_quic_reschedule_conn( fd_quic_conn_t * conn,
@@ -2288,7 +2277,6 @@ fd_quic_reschedule_conn( fd_quic_conn_t * conn,
     conn->next_service_time = timeout;
   }
 }
-
 
 /* generate acks and add to queue for future tx */
 void
@@ -2485,7 +2473,6 @@ fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
                                 uchar const *   cur_ptr,
                                 ulong           cur_sz ) {
 
-
   fd_quic_state_t *      state = fd_quic_get_state( quic );
   fd_quic_conn_entry_t * entry = NULL;
   fd_quic_conn_t *       conn  = NULL;
@@ -2579,7 +2566,6 @@ fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
   /* return bytes consumed */
   return (ulong)( cur_ptr - orig_ptr );
 }
-
 
 void
 fd_quic_process_packet( fd_quic_t *   quic,
@@ -2824,7 +2810,7 @@ fd_quic_tls_cb_alert( fd_quic_tls_hs_t * hs,
                 ( "TLS alert: %s %s\n" ),
                 SSL_alert_type_string_long( alert ),
                 SSL_alert_desc_string_long( alert )
-            ) ) 
+            ) )
             );
 
   /* may use the following to retrieve alert information:
@@ -3088,7 +3074,6 @@ fd_quic_frame_handle_crypto_frame( void *                   vp_context,
   return 0;
 }
 
-
 void
 fd_quic_service( fd_quic_t * quic ) {
   fd_quic_state_t * state = fd_quic_get_state( quic );
@@ -3279,7 +3264,6 @@ fd_quic_tx_buffered_raw(
   *tx_ptr_ptr = tx_buf;
   *tx_sz  = tx_buf_sz;
 
-
   quic->metrics.net_tx_pkt_cnt += aio_rc==FD_AIO_SUCCESS;
   if (FD_LIKELY (aio_rc==FD_AIO_SUCCESS) ) {
     quic->metrics.net_tx_byte_cnt += aio_buf.buf_sz;
@@ -3309,7 +3293,6 @@ uint fd_quic_tx_buffered(fd_quic_t *quic,
       flush);
 }
 
-
 struct fd_quic_pkt_hdr {
   union {
     fd_quic_initial_t   initial;
@@ -3321,7 +3304,6 @@ struct fd_quic_pkt_hdr {
   uint enc_level; /* implies the type of quic_pkt */
 };
 typedef struct fd_quic_pkt_hdr fd_quic_pkt_hdr_t;
-
 
 /* populate the fd_quic_pkt_hdr_t */
 void
@@ -3457,7 +3439,6 @@ fd_quic_pkt_hdr_set_payload_sz( fd_quic_pkt_hdr_t * pkt_hdr, uint enc_level, uin
   }
 }
 
-
 /* calculate the footprint of the current header */
 ulong
 fd_quic_pkt_hdr_footprint( fd_quic_pkt_hdr_t * pkt_hdr, uint enc_level ) {
@@ -3472,7 +3453,6 @@ fd_quic_pkt_hdr_footprint( fd_quic_pkt_hdr_t * pkt_hdr, uint enc_level ) {
       FD_LOG_ERR(( "%s - logic error: unexpected enc_level", __func__ ));
   }
 }
-
 
 /* encode packet header into buffer */
 ulong
@@ -3489,7 +3469,6 @@ fd_quic_pkt_hdr_encode( uchar * cur_ptr, ulong cur_sz, fd_quic_pkt_hdr_t * pkt_h
   }
 }
 
-
 /* returns the packet number length */
 uint
 fd_quic_pkt_hdr_pkt_number_len( fd_quic_pkt_hdr_t * pkt_hdr,
@@ -3502,7 +3481,6 @@ fd_quic_pkt_hdr_pkt_number_len( fd_quic_pkt_hdr_t * pkt_hdr,
       FD_LOG_ERR(( "%s - logic error: unexpected enc_level", __func__ ));
   }
 }
-
 
 /* transmit
      looks at each of the following dependent on state, and creates
@@ -4814,7 +4792,6 @@ fail_conn:
   return NULL;
 }
 
-
 fd_quic_conn_t *
 fd_quic_conn_create( fd_quic_t *               quic,
                      fd_quic_conn_id_t const * our_conn_id,
@@ -5040,11 +5017,9 @@ fd_quic_conn_create( fd_quic_t *               quic,
   return conn;
 }
 
-
 extern inline FD_FN_CONST
 int
 fd_quic_handshake_complete( fd_quic_conn_t * conn );
-
 
 ulong
 fd_quic_get_next_wakeup( fd_quic_t * quic ) {
@@ -5089,7 +5064,6 @@ fd_quic_frame_handle_ping_frame(
 
   return 0;
 }
-
 
 /* Retry packet metadata
    This will force pkt_meta to be returned to the free list
@@ -5319,7 +5293,6 @@ fd_quic_pkt_meta_retry( fd_quic_t *          quic,
     cnt_freed++;
   }
 }
-
 
 /* reclaim resources associated with packet metadata
    this is called in response to received acks */
@@ -5593,7 +5566,6 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
   }
 }
 
-
 /* process ack range
    applies to pkt_number in [largest_ack - first_ack_range, largest_ack] */
 void
@@ -5644,7 +5616,6 @@ fd_quic_process_ack_range( fd_quic_conn_t * conn,
     pkt_meta = pkt_meta_next;
   }
 }
-
 
 static ulong
 fd_quic_frame_handle_ack_frame(
@@ -6217,7 +6188,6 @@ fd_quic_frame_handle_new_conn_id_frame(
   /* ack-eliciting */
   context.pkt->ack_flag |= ACK_FLAG_RQD;
 
-
   FD_DEBUG( FD_LOG_DEBUG(( "new_conn_id requested" )); )
   return 0;
 }
@@ -6403,7 +6373,6 @@ fd_quic_frame_handle_common_frag(
   return FD_QUIC_PARSE_FAIL;
 }
 
-
 /* initiate the shutdown of a connection
    may select a reason code */
 void
@@ -6423,7 +6392,6 @@ fd_quic_conn_close( fd_quic_conn_t * conn, uint app_reason ) {
   /* set connection to be serviced ASAP */
   fd_quic_reschedule_conn( conn, 0 );
 }
-
 
 ulong
 fd_quic_conn_get_pkt_meta_free_count( fd_quic_conn_t * conn ) {

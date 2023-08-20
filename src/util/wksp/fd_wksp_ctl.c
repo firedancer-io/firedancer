@@ -148,7 +148,7 @@ fprintf_checkpt( FILE *       file,
   TRAP( fprintf( file, "checkpt %s (verbose %i)\n", path, verbose ) );
 
   fd = open( path, O_RDONLY, (mode_t)0 );
-  if( FD_UNLIKELY( fd==-1 ) ) TRAP( fprintf( file, "\topen(O_RDONLY) failed (%i-%s)\n", errno, strerror( errno ) ) );
+  if( FD_UNLIKELY( fd==-1 ) ) TRAP( fprintf( file, "\topen(O_RDONLY) failed (%i-%s)\n", errno, fd_io_strerror( errno ) ) );
 
   restore = fd_io_buffered_istream_init( _restore, fd, rbuf, RBUF_FOOTPRINT );
 
@@ -298,7 +298,7 @@ done:
 
 io_err:
   if( err<0 ) TRAP( fprintf( file, "\tFAIL: io: %s (unexpected end of file)\n", err_info ) );
-  else        TRAP( fprintf( file, "\tFAIL: io: %s (%i-%s)\n", err_info, err, strerror( err ) ) );
+  else        TRAP( fprintf( file, "\tFAIL: io: %s (%i-%s)\n", err_info, err, fd_io_strerror( err ) ) );
   goto done;
 
 stream_err:

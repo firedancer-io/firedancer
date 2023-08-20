@@ -12,9 +12,9 @@ generate_keypair( const char * keyfile,
   uchar keys[ 64 ];
 
   FILE * fp = fopen( "/dev/urandom", "r" );
-  if( FD_UNLIKELY( !fp ) ) FD_LOG_ERR(( "could not create keypair, fopen(/dev/urandom) failed (%i-%s)", errno, strerror( errno ) ));
-  if( FD_UNLIKELY( fread( keys, 1, 32, fp ) != 32 ) ) FD_LOG_ERR(( "could not create keypair, fread(/dev/urandom) failed (%i-%s)", errno, strerror( errno ) ));
-  if( FD_UNLIKELY( fclose( fp ) ) ) FD_LOG_ERR(( "could not create keypair, fclose(/dev/urandom) failed (%i-%s)", errno, strerror( errno ) ));
+  if( FD_UNLIKELY( !fp ) ) FD_LOG_ERR(( "could not create keypair, fopen(/dev/urandom) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( fread( keys, 1, 32, fp ) != 32 ) ) FD_LOG_ERR(( "could not create keypair, fread(/dev/urandom) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( fclose( fp ) ) ) FD_LOG_ERR(( "could not create keypair, fclose(/dev/urandom) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   fd_sha512_t _sha[1];
   fd_sha512_t * sha = fd_sha512_join( fd_sha512_new( _sha ) );
@@ -25,14 +25,14 @@ generate_keypair( const char * keyfile,
   gid_t gid = getgid();
   uid_t uid = getuid();
   if( FD_LIKELY( gid == 0 && setegid( config->gid ) ) )
-    FD_LOG_ERR(( "setegid() failed (%i-%s)", errno, strerror( errno ) ));
+    FD_LOG_ERR(( "setegid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_LIKELY( uid == 0 && seteuid( config->uid ) ) )
-    FD_LOG_ERR(( "seteuid() failed (%i-%s)", errno, strerror( errno ) ));
+    FD_LOG_ERR(( "seteuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   mode_t previous = umask( S_IRWXO | S_IRWXG | S_IXUSR );
 
   fp = fopen( keyfile, "w" );
-  if( !fp ) FD_LOG_ERR(( "could not create keypair, fopen(%s) failed (%i-%s)", keyfile, errno, strerror( errno ) ));
+  if( !fp ) FD_LOG_ERR(( "could not create keypair, fopen(%s) failed (%i-%s)", keyfile, errno, fd_io_strerror( errno ) ));
 
   if( fwrite( "[", 1, 1, fp ) != 1 )
       FD_LOG_ERR(( "could not create keypair, fwrite() failed" ));
@@ -47,13 +47,13 @@ generate_keypair( const char * keyfile,
   if( fwrite( "]", 1, 1, fp ) != 1 )
       FD_LOG_ERR(( "could not create keypair, fwrite() failed" ));
 
-  if( FD_UNLIKELY( fclose( fp ) ) ) FD_LOG_ERR(( "could not create keypair, fclose failed (%i-%s)", errno, strerror( errno ) ));
+  if( FD_UNLIKELY( fclose( fp ) ) ) FD_LOG_ERR(( "could not create keypair, fclose failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   FD_LOG_NOTICE(( "successfully created keypair in `%s`", keyfile ));
 
   umask( previous );
 
-  if( FD_UNLIKELY( seteuid( uid ) ) ) FD_LOG_ERR(( "seteuid() failed (%i-%s)", errno, strerror( errno ) ));
-  if( FD_UNLIKELY( setegid( gid ) ) ) FD_LOG_ERR(( "setegid() failed (%i-%s)", errno, strerror( errno ) ));
+  if( FD_UNLIKELY( seteuid( uid ) ) ) FD_LOG_ERR(( "seteuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( setegid( gid ) ) ) FD_LOG_ERR(( "setegid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
 
 void

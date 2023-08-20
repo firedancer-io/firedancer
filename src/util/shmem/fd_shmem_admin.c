@@ -86,13 +86,13 @@ fd_shmem_numa_validate( void const * mem,
     page_cnt--;
     if( FD_UNLIKELY( ((batch_cnt==512UL) | (!page_cnt) ) ) ) {
       if( FD_UNLIKELY( fd_numa_move_pages( 0, batch_cnt, batch_page, NULL, batch_status, 0 ) ) ) {
-        FD_LOG_WARNING(( "fd_numa_move_pages query failed (%i-%s)", errno, strerror( errno ) ));
+        FD_LOG_WARNING(( "fd_numa_move_pages query failed (%i-%s)", errno, fd_io_strerror( errno ) ));
         return errno;
       }
       for( ulong batch_idx=0UL; batch_idx<batch_cnt; batch_idx++ ) {
         if( FD_UNLIKELY( batch_status[batch_idx]<0 ) ) {
           int err = -batch_status[batch_idx];
-          FD_LOG_WARNING(( "page status failed (%i-%s)", err, strerror( err ) ));
+          FD_LOG_WARNING(( "page status failed (%i-%s)", err, fd_io_strerror( err ) ));
           return err;
         }
         if( FD_UNLIKELY( batch_status[batch_idx]!=(int)numa_idx ) ) {
@@ -176,7 +176,7 @@ fd_shmem_create_multi( char const *  name,
   /* Save this thread's numa node mempolicy */
 
   if( FD_UNLIKELY( fd_numa_get_mempolicy( &orig_mempolicy, orig_nodemask, FD_SHMEM_NUMA_MAX, NULL, 0UL ) ) ) {
-    FD_LOG_WARNING(( "fd_numa_get_mempolicy failed (%i-%s)", errno, strerror( errno ) ));
+    FD_LOG_WARNING(( "fd_numa_get_mempolicy failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     ERROR( done );
   }
 
@@ -184,14 +184,14 @@ fd_shmem_create_multi( char const *  name,
 
   fd = open( fd_shmem_private_path( name, page_sz, path ), O_RDWR | O_CREAT | O_EXCL, (mode_t)mode );
   if( FD_UNLIKELY( fd==-1 ) ) {
-    FD_LOG_WARNING(( "open(\"%s\",O_RDWR|O_CREAT|O_EXCL,0%03lo) failed (%i-%s)", path, mode, errno, strerror( errno ) ));
+    FD_LOG_WARNING(( "open(\"%s\",O_RDWR|O_CREAT|O_EXCL,0%03lo) failed (%i-%s)", path, mode, errno, fd_io_strerror( errno ) ));
     ERROR( restore );
   }
 
   /* Size the region */
 
   if( FD_UNLIKELY( ftruncate( fd, (off_t)sz ) ) ) {
-    FD_LOG_WARNING(( "ftruncate(\"%s\",%lu KiB) failed (%i-%s)", path, sz>>10, errno, strerror( errno ) ));
+    FD_LOG_WARNING(( "ftruncate(\"%s\",%lu KiB) failed (%i-%s)", path, sz>>10, errno, fd_io_strerror( errno ) ));
     ERROR( close );
   }
 
@@ -200,7 +200,7 @@ fd_shmem_create_multi( char const *  name,
   shmem = mmap( NULL, sz, PROT_READ | PROT_WRITE, MAP_SHARED, fd, (off_t)0);
   if( FD_UNLIKELY( shmem==MAP_FAILED ) ) {
     FD_LOG_WARNING(( "mmap(NULL,%lu KiB,PROT_READ|PROT_WRITE,MAP_SHARED,\"%s\",0) failed (%i-%s)",
-                     sz>>10, path, errno, strerror( errno ) ));
+                     sz>>10, path, errno, fd_io_strerror( errno ) ));
     ERROR( close );
   }
 
@@ -244,7 +244,7 @@ fd_shmem_create_multi( char const *  name,
     nodemask[ sub_numa_idx >> 6 ] = 1UL << (sub_numa_idx & 63UL);
 
     if( FD_UNLIKELY( fd_numa_set_mempolicy( MPOL_BIND | MPOL_F_STATIC_NODES, nodemask, FD_SHMEM_NUMA_MAX ) ) ) {
-      FD_LOG_WARNING(( "fd_numa_set_mempolicy failed (%i-%s)", errno, strerror( errno ) ));
+      FD_LOG_WARNING(( "fd_numa_set_mempolicy failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       ERROR( unmap );
     }
 
@@ -270,7 +270,7 @@ fd_shmem_create_multi( char const *  name,
 
     if( FD_UNLIKELY( fd_numa_mlock( sub_shmem, sub_sz ) ) ) {
       FD_LOG_WARNING(( "sub[%lu]: fd_numa_mlock(\"%s\",%lu KiB) failed (%i-%s)",
-                       sub_idx, path, sub_sz>>10, errno, strerror( errno ) ));
+                       sub_idx, path, sub_sz>>10, errno, fd_io_strerror( errno ) ));
       ERROR( unmap );
     }
 
@@ -291,7 +291,7 @@ fd_shmem_create_multi( char const *  name,
 
     if( FD_UNLIKELY( fd_numa_mbind( sub_shmem, sub_sz, MPOL_BIND, nodemask, FD_SHMEM_NUMA_MAX, MPOL_MF_MOVE|MPOL_MF_STRICT ) ) ) {
       FD_LOG_WARNING(( "sub[%lu]: fd_numa_mbind(\"%s\",%lu KiB,MPOL_BIND,1UL<<%lu,MPOL_MF_MOVE|MPOL_MF_STRICT) failed (%i-%s)",
-                       sub_idx, path, sub_sz>>10, sub_numa_idx, errno, strerror( errno ) ));
+                       sub_idx, path, sub_sz>>10, sub_numa_idx, errno, fd_io_strerror( errno ) ));
       ERROR( unmap );
     }
 
@@ -301,7 +301,7 @@ fd_shmem_create_multi( char const *  name,
     int warn = fd_shmem_numa_validate( sub_shmem, page_sz, sub_page_cnt, sub_numa_idx ); /* logs details */
     if( FD_UNLIKELY( warn ) )
       FD_LOG_WARNING(( "sub[%lu]: mmap(NULL,%lu KiB,PROT_READ|PROT_WRITE,MAP_SHARED,\"%s\",0) numa binding failed (%i-%s)",
-                       sub_idx, sub_sz>>10, path, warn, strerror( warn ) ));
+                       sub_idx, sub_sz>>10, path, warn, fd_io_strerror( warn ) ));
 
     sub_shmem += sub_sz;
   }
@@ -312,17 +312,18 @@ fd_shmem_create_multi( char const *  name,
 
 unmap:
   if( FD_UNLIKELY( munmap( shmem, sz ) ) )
-    FD_LOG_WARNING(( "munmap(\"%s\",%lu KiB) failed (%i-%s); attempting to continue", path, sz>>10, errno, strerror( errno ) ));
+    FD_LOG_WARNING(( "munmap(\"%s\",%lu KiB) failed (%i-%s); attempting to continue",
+                     path, sz>>10, errno, fd_io_strerror( errno ) ));
 
 close:
   if( FD_UNLIKELY( err ) && FD_UNLIKELY( unlink( path ) ) )
-    FD_LOG_WARNING(( "unlink(\"%s\") failed (%i-%s)", path, errno, strerror( errno ) )); /* Don't log "attempting ..." */
+    FD_LOG_WARNING(( "unlink(\"%s\") failed (%i-%s)", path, errno, fd_io_strerror( errno ) )); /* Don't log "attempting ..." */
   if( FD_UNLIKELY( close( fd ) ) )
-    FD_LOG_WARNING(( "close(\"%s\") failed (%i-%s); attempting to continue", path, errno, strerror( errno ) ));
+    FD_LOG_WARNING(( "close(\"%s\") failed (%i-%s); attempting to continue", path, errno, fd_io_strerror( errno ) ));
 
 restore:
   if( FD_UNLIKELY( fd_numa_set_mempolicy( orig_mempolicy, orig_nodemask, FD_SHMEM_NUMA_MAX ) ) )
-    FD_LOG_WARNING(( "fd_numa_set_mempolicy failed (%i-%s); attempting to continue", errno, strerror( errno ) ));
+    FD_LOG_WARNING(( "fd_numa_set_mempolicy failed (%i-%s); attempting to continue", errno, fd_io_strerror( errno ) ));
 
 done:
   FD_SHMEM_UNLOCK;
@@ -343,7 +344,7 @@ fd_shmem_unlink( char const * name,
   /* Unlink the name */
 
   if( FD_UNLIKELY( unlink( fd_shmem_private_path( name, page_sz, path ) ) ) ) {
-    FD_LOG_WARNING(( "unlink(\"%s\") failed (%i-%s)", path, errno, strerror( errno ) ));
+    FD_LOG_WARNING(( "unlink(\"%s\") failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
     return errno;
   }
 
@@ -372,10 +373,10 @@ fd_shmem_info( char const *      name,
 
   struct stat stat[1];
   if( FD_UNLIKELY( fstat( fd, stat ) ) ) {
-    FD_LOG_WARNING(( "fstat failed (%i-%s)", errno, strerror( errno ) ));
+    FD_LOG_WARNING(( "fstat failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     int err = errno;
     if( FD_UNLIKELY( close( fd ) ) )
-      FD_LOG_WARNING(( "close(\"%s\") failed (%i-%s); attempting to continue", path, errno, strerror( errno ) ));
+      FD_LOG_WARNING(( "close(\"%s\") failed (%i-%s); attempting to continue", path, errno, fd_io_strerror( errno ) ));
     return err;
   }
 
@@ -388,13 +389,13 @@ fd_shmem_info( char const *      name,
                      "See 'bin/fd_shmem_cfg help' for more information.",
                      path, sz, page_sz, fd_shmem_private_base ));
     if( FD_UNLIKELY( close( fd ) ) )
-      FD_LOG_WARNING(( "close(\"%s\") failed (%i-%s); attempting to continue", path, errno, strerror( errno ) ));
+      FD_LOG_WARNING(( "close(\"%s\") failed (%i-%s); attempting to continue", path, errno, fd_io_strerror( errno ) ));
     return EFAULT;
   }
   ulong page_cnt = sz / page_sz;
 
   if( FD_UNLIKELY( close( fd ) ) )
-    FD_LOG_WARNING(( "close(\"%s\") failed (%i-%s); attempting to continue", path, errno, strerror( errno ) ));
+    FD_LOG_WARNING(( "close(\"%s\") failed (%i-%s); attempting to continue", path, errno, fd_io_strerror( errno ) ));
 
   if( opt_info ) {
     opt_info->page_sz  = page_sz;
@@ -465,13 +466,14 @@ fd_shmem_acquire_multi( ulong         page_sz,
   ulong  sz = page_cnt*page_sz;
 
   if( FD_UNLIKELY( fd_numa_get_mempolicy( &orig_mempolicy, orig_nodemask, FD_SHMEM_NUMA_MAX, NULL, 0UL ) ) ) {
-    FD_LOG_WARNING(( "fd_numa_get_mempolicy failed (%i-%s)", errno, strerror( errno ) ));
+    FD_LOG_WARNING(( "fd_numa_get_mempolicy failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     ERROR( done );
   }
 
   mem = mmap( NULL, sz, PROT_READ | PROT_WRITE, flags, -1, (off_t)0);
   if( FD_UNLIKELY( mem==MAP_FAILED ) ) {
-    FD_LOG_WARNING(( "mmap(NULL,%lu KiB,PROT_READ|PROT_WRITE,%x,-1,0) failed (%i-%s)", sz>>10, flags, errno, strerror( errno ) ));
+    FD_LOG_WARNING(( "mmap(NULL,%lu KiB,PROT_READ|PROT_WRITE,%x,-1,0) failed (%i-%s)",
+                     sz>>10, flags, errno, fd_io_strerror( errno ) ));
     ERROR( restore );
   }
 
@@ -496,12 +498,13 @@ fd_shmem_acquire_multi( ulong         page_sz,
     nodemask[ sub_numa_idx >> 6 ] = 1UL << (sub_numa_idx & 63UL);
 
     if( FD_UNLIKELY( fd_numa_set_mempolicy( MPOL_BIND | MPOL_F_STATIC_NODES, nodemask, FD_SHMEM_NUMA_MAX ) ) ) {
-      FD_LOG_WARNING(( "fd_numa_set_mempolicy failed (%i-%s)", errno, strerror( errno ) ));
+      FD_LOG_WARNING(( "fd_numa_set_mempolicy failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       ERROR( unmap );
     }
 
     if( FD_UNLIKELY( fd_numa_mlock( sub_mem, sub_sz ) ) ) {
-      FD_LOG_WARNING(( "sub[%lu]: fd_numa_mlock(anon,%lu KiB) failed (%i-%s)", sub_idx, sub_sz>>10, errno, strerror( errno ) ));
+      FD_LOG_WARNING(( "sub[%lu]: fd_numa_mlock(anon,%lu KiB) failed (%i-%s)",
+                       sub_idx, sub_sz>>10, errno, fd_io_strerror( errno ) ));
       ERROR( unmap );
     }
 
@@ -513,14 +516,14 @@ fd_shmem_acquire_multi( ulong         page_sz,
 
     if( FD_UNLIKELY( fd_numa_mbind( sub_mem, sub_sz, MPOL_BIND, nodemask, FD_SHMEM_NUMA_MAX, MPOL_MF_MOVE|MPOL_MF_STRICT ) ) ) {
       FD_LOG_WARNING(( "sub[%lu]: fd_numa_mbind(anon,%lu KiB,MPOL_BIND,1UL<<%lu,MPOL_MF_MOVE|MPOL_MF_STRICT) failed (%i-%s)",
-                       sub_idx, sub_sz>>10, sub_numa_idx, errno, strerror( errno ) ));
+                       sub_idx, sub_sz>>10, sub_numa_idx, errno, fd_io_strerror( errno ) ));
       ERROR( unmap );
     }
 
     int warn = fd_shmem_numa_validate( sub_mem, page_sz, sub_page_cnt, sub_numa_idx ); /* logs details */
     if( FD_UNLIKELY( warn ) )
       FD_LOG_WARNING(( "sub[%lu]: mmap(NULL,%lu KiB,PROT_READ|PROT_WRITE,%x,-1,0) numa binding failed (%i-%s)",
-                       sub_idx, sub_sz>>10, flags, warn, strerror( warn ) ));
+                       sub_idx, sub_sz>>10, flags, warn, fd_io_strerror( warn ) ));
 
     sub_mem += sub_sz;
   }
@@ -531,11 +534,12 @@ fd_shmem_acquire_multi( ulong         page_sz,
 
 unmap:
   if( FD_UNLIKELY( err ) && FD_UNLIKELY( munmap( mem, sz ) ) )
-    FD_LOG_WARNING(( "munmap(anon,%lu KiB) failed (%i-%s); attempting to continue", sz>>10, errno, strerror( errno ) ));
+    FD_LOG_WARNING(( "munmap(anon,%lu KiB) failed (%i-%s); attempting to continue",
+                     sz>>10, errno, fd_io_strerror( errno ) ));
 
 restore:
   if( FD_UNLIKELY( fd_numa_set_mempolicy( orig_mempolicy, orig_nodemask, FD_SHMEM_NUMA_MAX ) ) )
-    FD_LOG_WARNING(( "fd_numa_set_mempolicy failed (%i-%s); attempting to continue", errno, strerror( errno ) ));
+    FD_LOG_WARNING(( "fd_numa_set_mempolicy failed (%i-%s); attempting to continue", errno, fd_io_strerror( errno ) ));
 
 done:
   FD_SHMEM_UNLOCK;
@@ -569,7 +573,7 @@ fd_shmem_release( void * mem,
   ulong sz = page_sz*page_cnt;
 
   if( FD_UNLIKELY( munmap( mem, sz ) ) )
-    FD_LOG_WARNING(( "munmap(anon,%lu KiB) failed (%i-%s); attempting to continue", sz>>10, errno, strerror( errno ) ));
+    FD_LOG_WARNING(( "munmap(anon,%lu KiB) failed (%i-%s); attempting to continue", sz>>10, errno, fd_io_strerror( errno ) ));
 }
 
 /* SHMEM PARSING APIS *************************************************/
@@ -754,4 +758,3 @@ fd_shmem_private_halt( void ) {
 }
 
 #endif
-

@@ -138,7 +138,7 @@ static void write_stdout( char * buf, ulong buf_sz ) {
     long n = write( STDOUT_FILENO, buf + written, total - written );
     if( FD_UNLIKELY( n < 0 ) ) {
       if( errno == EINTR ) continue;
-      FD_LOG_ERR(( "error writing to stdout (%d-%s)", errno, strerror( errno ) ));
+      FD_LOG_ERR(( "error writing to stdout (%i-%s)", errno, fd_io_strerror( errno ) ));
     }
     written += (ulong)n;
   }
@@ -157,7 +157,7 @@ drain_to_buffer( char ** buf,
   while(1) {
     long nread = read( fd, buffer2, *buf_sz );
     if( FD_LIKELY( nread == -1 && errno == EAGAIN ) ) break; /* no data available */
-    else if( FD_UNLIKELY( nread == -1 ) ) FD_LOG_ERR(( "read() failed (%d-%s)", errno, strerror( errno ) ));
+    else if( FD_UNLIKELY( nread == -1 ) ) FD_LOG_ERR(( "read() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
     char * ptr = buffer2;
     char * next;
@@ -460,9 +460,9 @@ monitor_cmd_fn( args_t *         args,
     .sa_flags   = 0,
   };
   if( FD_UNLIKELY( sigaction( SIGTERM, &sa, NULL ) ) )
-    FD_LOG_ERR(( "sigaction(SIGTERM) failed (%i-%s)", errno, strerror( errno ) ));
+    FD_LOG_ERR(( "sigaction(SIGTERM) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( sigaction( SIGINT, &sa, NULL ) ) )
-    FD_LOG_ERR(( "sigaction(SIGINT) failed (%i-%s)", errno, strerror( errno ) ));
+    FD_LOG_ERR(( "sigaction(SIGINT) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   long allow_syscalls[] = {
     __NR_write,        /* logging */
@@ -486,7 +486,7 @@ monitor_cmd_fn( args_t *         args,
   ulong allow_fds_sz = args->monitor.drain_output_fd >= 0 ? num_fds : num_fds - 1;
   ushort allow_syscalls_sz = args->monitor.drain_output_fd >= 0 ? num_syscalls : (ushort)(num_syscalls - 1);
 
-  if( FD_UNLIKELY( close( 0 ) ) ) FD_LOG_ERR(( "close(0) failed (%i-%s)", errno, strerror( errno ) ));
+  if( FD_UNLIKELY( close( 0 ) ) ) FD_LOG_ERR(( "close(0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   fd_sandbox( config->development.sandbox,
               config->uid,
               config->gid,

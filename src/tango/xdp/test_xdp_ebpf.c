@@ -16,7 +16,6 @@
 #include "../../util/net/fd_ip4.h"
 #include "../../ballet/ebpf/fd_ebpf.h"
 
-
 /* Test support *******************************************************/
 
 /* fd_xdp_redirect_prog is eBPF ELF object containing the XDP program.
@@ -63,13 +62,12 @@ fd_bpf_map_clear( int map_fd ) {
     ulong next_key;
     if( FD_UNLIKELY( 0!=fd_bpf_map_get_next_key( map_fd, &key, &next_key ) ) ) {
       if( FD_LIKELY( errno==ENOENT ) ) break;
-      FD_LOG_ERR(( "bpf_map_get_next_key(%d,%#lx,%p) failed (%d-%s)",
-                   map_fd, key, (void *)&next_key, errno, strerror( errno ) ));
+      FD_LOG_ERR(( "bpf_map_get_next_key(%d,%#lx,%p) failed (%i-%s)",
+                   map_fd, key, (void *)&next_key, errno, fd_io_strerror( errno ) ));
     }
 
     if( FD_UNLIKELY( 0!=fd_bpf_map_delete_elem( map_fd, &next_key ) ) )
-      FD_LOG_ERR(( "bpf_map_delete_elem(%d,%#lx) failed (%d-%s)",
-                   map_fd, next_key, errno, strerror( errno ) ));
+      FD_LOG_ERR(( "bpf_map_delete_elem(%d,%#lx) failed (%i-%s)", map_fd, next_key, errno, fd_io_strerror( errno ) ));
 
     key = next_key;
   }
@@ -87,8 +85,8 @@ fd_run_xdp_redirect_test( fd_xdp_redirect_test_t const * test ) {
   if( test->udp_dsts_kv ) {
     for( fd_udp_dst_kv_t *kv=test->udp_dsts_kv; kv->k; kv++ ) {
       if( FD_UNLIKELY( 0!=fd_bpf_map_update_elem( udp_dsts_fd, &kv->k, &kv->v, 0UL ) ) ) {
-        FD_LOG_ERR(( "fd_bpf_map_update_elem(%d,%#lx,%#x,0) failed (%d-%s)",
-                    udp_dsts_fd, kv->k, kv->v, errno, strerror( errno ) ));
+        FD_LOG_ERR(( "fd_bpf_map_update_elem(%d,%#lx,%#x,0) failed (%i-%s)",
+                     udp_dsts_fd, kv->k, kv->v, errno, fd_io_strerror( errno ) ));
       }
     }
   } else {
@@ -153,7 +151,6 @@ fd_xdp_redirect_test_t tests[] = {
   {0}
 };
 
-
 int main( int     argc,
           char ** argv ) {
   fd_boot( &argc, &argv );
@@ -174,8 +171,8 @@ int main( int     argc,
       fd_halt();
       return 0;
     }
-    FD_LOG_WARNING(( "bpf_map_create(BPF_MAP_TYPE_HASH,\"fd_xdp_udp_dsts\",8U,4U,%u) failed (%d-%s)",
-                     FD_XDP_UDP_MAP_CNT, errno, strerror( errno ) ));
+    FD_LOG_WARNING(( "bpf_map_create(BPF_MAP_TYPE_HASH,\"fd_xdp_udp_dsts\",8U,4U,%u) failed (%i-%s)",
+                     FD_XDP_UDP_MAP_CNT, errno, fd_io_strerror( errno ) ));
     return -1;
   }
 
@@ -188,8 +185,7 @@ int main( int     argc,
   };
   xsks_fd = (int)bpf( BPF_MAP_CREATE, &attr, sizeof(union bpf_attr) );
   if( FD_UNLIKELY( xsks_fd<0 ) ) {
-    FD_LOG_WARNING(( "Failed to create XSKMAP (%d-%s)",
-                     errno, strerror( errno ) ));
+    FD_LOG_WARNING(( "Failed to create XSKMAP (%i-%s)", errno, fd_io_strerror( errno ) ));
     return -1;
   }
 
@@ -228,7 +224,7 @@ int main( int     argc,
       fd_halt();
       return 0;
     }
-    FD_LOG_ERR(( "BPF_PROG_LOAD failed (%d-%s)", errno, strerror( errno ) ));
+    FD_LOG_ERR(( "BPF_PROG_LOAD failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
   /* Create new AF_XDP socket. Doesn't actually have to be operational
