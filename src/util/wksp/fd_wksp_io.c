@@ -41,7 +41,7 @@ fd_wksp_checkpt( fd_wksp_t *  wksp,
     int fd = open( path, O_CREAT|O_EXCL|O_WRONLY, (mode_t)mode );
     umask( old_mask );
     if( FD_UNLIKELY( fd==-1 ) ) {
-      FD_LOG_WARNING(( "open(\"%s\",O_CREAT|O_EXCL|O_WRONLY,0%03lo) failed (%i-%s)\n", path, mode, errno, strerror( errno ) ));
+      FD_LOG_WARNING(( "open(\"%s\",O_CREAT|O_EXCL|O_WRONLY,0%03lo) failed (%i-%s)", path, mode, errno, fd_io_strerror( errno ) ));
       return FD_WKSP_ERR_FAIL;
     }
 
@@ -157,14 +157,15 @@ fd_wksp_checkpt( fd_wksp_t *  wksp,
   fini: /* note: wksp unlocked at this point */
     fd_io_buffered_ostream_fini( checkpt );
     if( FD_UNLIKELY( err ) && FD_UNLIKELY( unlink( path ) ) )
-      FD_LOG_WARNING(( "unlink(\"%s\") failed (%i-%s); attempting to continue", path, errno, strerror( errno ) ));
+      FD_LOG_WARNING(( "unlink(\"%s\") failed (%i-%s); attempting to continue", path, errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( close( fd ) ) )
-      FD_LOG_WARNING(( "close(\"%s\") failed (%i-%s); attempting to continue", path, errno, strerror( errno ) ));
+      FD_LOG_WARNING(( "close(\"%s\") failed (%i-%s); attempting to continue", path, errno, fd_io_strerror( errno ) ));
     return err;
 
   io_err: /* Failed due to I/O error ... clean up and log (note: wksp locked at this point) */
     fd_wksp_private_unlock( wksp );
-    FD_LOG_WARNING(( "Checkpt wksp \"%s\" to \"%s\" failed due to I/O error (%i-%s)", wksp->name, path, err, strerror( err ) ));
+    FD_LOG_WARNING(( "Checkpt wksp \"%s\" to \"%s\" failed due to I/O error (%i-%s)",
+                     wksp->name, path, err, fd_io_strerror( err ) ));
     err = FD_WKSP_ERR_FAIL;
     goto fini;
 
@@ -263,7 +264,7 @@ fd_wksp_restore( fd_wksp_t *  wksp,
 
   int fd = open( path, O_RDONLY, (mode_t)0 );
   if( FD_UNLIKELY( fd==-1 ) ) {
-    FD_LOG_WARNING(( "open(\"%s\",O_RDONLY,0) failed (%i-%s)\n", path, errno, strerror( errno ) ));
+    FD_LOG_WARNING(( "open(\"%s\",O_RDONLY,0) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
     return FD_WKSP_ERR_FAIL;
   }
 
@@ -395,10 +396,9 @@ fd_wksp_restore( fd_wksp_t *  wksp,
 
       err = fd_io_buffered_istream_read( restore, fd_wksp_laddr_fast( wksp, gaddr_lo ), sz );
       if( FD_UNLIKELY( err ) ) {
-        char const * msg = (err<0) ? "unexpected end of file" : strerror( err );
         FD_LOG_WARNING(( "Restore \"%s\" to wksp \"%s\" failed because of I/O error (%i-%s); "
                          "attempting to reset wksp and continue",
-                         path, wksp->name, err, msg ));
+                         path, wksp->name, err, fd_io_strerror( err ) ));
         goto corrupt_wksp;
       }
 
@@ -439,13 +439,13 @@ fd_wksp_restore( fd_wksp_t *  wksp,
 fini: /* note: wksp unlocked at this point, wksp clean, details not logged */
   fd_io_buffered_istream_fini( restore );
   if( FD_UNLIKELY( close( fd ) ) )
-    FD_LOG_WARNING(( "close(\"%s\") failed (%i-%s); attempting to continue", path, errno, strerror( errno ) ));
+    FD_LOG_WARNING(( "close(\"%s\") failed (%i-%s); attempting to continue", path, errno, fd_io_strerror( errno ) ));
   return err;
 
 io_err: /* note: wksp locked at this point, wksp clean, details not logged */
   fd_wksp_private_unlock( wksp );
-  char const * msg = (err<0) ? "unexpected end of file" : strerror( err );
-  FD_LOG_WARNING(( "Restore \"%s\" to wksp \"%s\" failed (%s) due to I/O error (%i-%s)", path, wksp->name, err_info, err, msg ));
+  FD_LOG_WARNING(( "Restore \"%s\" to wksp \"%s\" failed (%s) due to I/O error (%i-%s)",
+                   path, wksp->name, err_info, err, fd_io_strerror( err ) ));
   err = FD_WKSP_ERR_FAIL;
   goto fini;
 

@@ -7,7 +7,6 @@
 
 fd_fibre_t * fd_fibre_current = NULL;
 
-
 /* top level function
    simply calls the user function then sets the done flag */
 void
@@ -33,7 +32,6 @@ fd_fibre_init_align( void ) {
   return FD_FIBRE_ALIGN;
 }
 
-
 /* initialize main fibre */
 fd_fibre_t *
 fd_fibre_init( void * mem ) {
@@ -47,7 +45,7 @@ fd_fibre_init( void * mem ) {
   ucontext_t * ctx = &fibre->ctx;
 
   if( getcontext( ctx ) == -1 ) {
-    fprintf( stderr, "getcontext failed with %d %s\n", errno, strerror( errno ) );
+    fprintf( stderr, "getcontext failed with %d %s\n", errno, fd_io_strerror( errno ) );
     fflush( stderr );
     fd_fibre_abort();
   }
@@ -56,7 +54,6 @@ fd_fibre_init( void * mem ) {
 
   return fibre;
 }
-
 
 /* footprint and alignment required for fd_fibre_start */
 ulong
@@ -68,7 +65,6 @@ fd_fibre_start_footprint( ulong stack_size ) {
 ulong fd_fibre_start_align( void ) {
   return FD_FIBRE_ALIGN;
 }
-
 
 /* start a fibre */
 
@@ -149,7 +145,7 @@ fd_fibre_swap( fd_fibre_t * swap_to ) {
 
   /* switch to new fibre */
   if( swapcontext( &fibre_pop->ctx, &swap_to->ctx ) == -1 ) {
-    fprintf( stderr, "swapcontext failed with %d %s\n", errno, strerror( errno ) );
+    fprintf( stderr, "swapcontext failed with %d %s\n", errno, fd_io_strerror( errno ) );
     fflush( stdout );
     fd_fibre_abort();
   }
@@ -157,7 +153,6 @@ fd_fibre_swap( fd_fibre_t * swap_to ) {
   /* return value of fibre to its previous value */
   fd_fibre_current = fibre_pop;
 }
-
 
 /* set a clock for scheduler */
 long (*fd_fibre_clock)(void);
@@ -383,7 +378,6 @@ fd_fibre_pipe_write( fd_fibre_pipe_t * pipe, ulong value, long timeout ) {
   /* return successful write */
   return 0;
 }
-
 
 int
 fd_fibre_pipe_read( fd_fibre_pipe_t * pipe, ulong *value, long timeout ) {

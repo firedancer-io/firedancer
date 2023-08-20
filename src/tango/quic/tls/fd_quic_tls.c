@@ -439,7 +439,6 @@ fd_quic_tls_process( fd_quic_tls_hs_t * self ) {
   }
 }
 
-
 /* internal callbacks */
 int
 fd_quic_ssl_add_handshake_data( SSL *                 ssl,
@@ -599,15 +598,13 @@ fd_quic_ssl_keylog( SSL const *  ssl,
       { .iov_base=(void *)"\n", .iov_len=1UL            }
     };
     /* TODO blocking system call - consider using io_submit */
-    if( FD_UNLIKELY( writev( fd, iov, 2 )==-1 ) ) {
-      FD_LOG_WARNING(( "Keylog write failed (%d-%s)", errno, strerror( errno ) ));
-    }
+    if( FD_UNLIKELY( writev( fd, iov, 2 )==-1 ) )
+      FD_LOG_WARNING(( "Keylog write failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
   fd_quic_tls_cb_keylog_t cb = quic_tls->keylog_cb;
   if( cb ) cb( hs, line );
 }
-
 
 /* suite ids
 
@@ -625,7 +622,6 @@ fd_quic_ssl_keylog( SSL const *  ssl,
                  CXPLAT_AEAD_CHACHA20_POLY1305
                  CXPLAT_HASH_SHA256
                  AEAD_AES_128_ECB */
-
 
 int
 fd_quic_ssl_set_encryption_secrets( SSL *                 ssl,
@@ -711,7 +707,6 @@ fd_quic_create_context( fd_quic_tls_t * quic_tls,
     return NULL;
   }
 
-
   ERR_clear_error();
   if( !SSL_CTX_set_max_proto_version( ctx, TLS1_3_VERSION ) ) {
     SSL_CTX_free( ctx );
@@ -786,7 +781,6 @@ fd_quic_create_context( fd_quic_tls_t * quic_tls,
   return ctx;
 }
 
-
 fd_quic_tls_hs_data_t *
 fd_quic_tls_get_hs_data( fd_quic_tls_hs_t * self, int enc_level ) {
   uint idx = self->hs_data_pend_idx[enc_level];
@@ -795,14 +789,12 @@ fd_quic_tls_get_hs_data( fd_quic_tls_hs_t * self, int enc_level ) {
   return &self->hs_data[idx];
 }
 
-
 fd_quic_tls_hs_data_t *
 fd_quic_tls_get_next_hs_data( fd_quic_tls_hs_t * self, fd_quic_tls_hs_data_t * hs ) {
   ushort idx = hs->next_idx;
   if( idx == (ushort)(~0u) ) return NULL;
   return self->hs_data + idx;
 }
-
 
 void
 fd_quic_tls_pop_hs_data( fd_quic_tls_hs_t * self, int enc_level ) {
@@ -844,7 +836,6 @@ fd_quic_tls_pop_hs_data( fd_quic_tls_hs_t * self, int enc_level ) {
   }
 
 }
-
 
 void
 fd_quic_tls_get_peer_transport_params( fd_quic_tls_hs_t * self,

@@ -194,9 +194,9 @@ init( config_t * const config ) {
   gid_t gid = getgid();
   uid_t uid = getuid();
   if( FD_LIKELY( gid == 0 && setegid( config->gid ) ) )
-    FD_LOG_ERR(( "setegid() failed (%i-%s)", errno, strerror( errno ) ));
+    FD_LOG_ERR(( "setegid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_LIKELY( uid == 0 && seteuid( config->uid ) ) )
-    FD_LOG_ERR(( "seteuid() failed (%i-%s)", errno, strerror( errno ) ));
+    FD_LOG_ERR(( "seteuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   fd_quic_limits_t limits = {
     .conn_cnt                                      = config->tiles.quic.max_concurrent_connections,
@@ -287,8 +287,8 @@ init( config_t * const config ) {
     WKSP_END();
   }
 
-  if( FD_UNLIKELY( seteuid( uid ) ) ) FD_LOG_ERR(( "seteuid() failed (%i-%s)", errno, strerror( errno ) ));
-  if( FD_UNLIKELY( setegid( gid ) ) ) FD_LOG_ERR(( "setegid() failed (%i-%s)", errno, strerror( errno ) ));
+  if( FD_UNLIKELY( seteuid( uid ) ) ) FD_LOG_ERR(( "seteuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( setegid( gid ) ) ) FD_LOG_ERR(( "setegid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
 
 static void
@@ -308,7 +308,7 @@ fini( config_t * const config ) {
       if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_wksp_delete_named failed (%i-%s)", err, fd_wksp_strerror( err ) ));
     }
     else if( FD_LIKELY( result && errno == ENOENT ) ) continue;
-    else FD_LOG_ERR(( "stat failed when trying to delete wksp `%s` (%i-%s)", path, errno, strerror( errno ) ));
+    else FD_LOG_ERR(( "stat failed when trying to delete wksp `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
   }
 }
 
@@ -324,7 +324,7 @@ check( config_t * const config ) {
     int result = stat( path, &st );
     if( FD_LIKELY( !result ) ) PARTIALLY_CONFIGURED( "workspace `%s` exists", path );
     else if( FD_LIKELY( result && errno == ENOENT ) ) continue;
-    else PARTIALLY_CONFIGURED( "error reading `%s` (%i-%s)", path, errno, strerror( errno ) );
+    else PARTIALLY_CONFIGURED( "error reading `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) );
   }
 
   NOT_CONFIGURED( "no workspaces files found" );

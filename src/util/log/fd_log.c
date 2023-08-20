@@ -928,7 +928,9 @@ fd_log_private_boot( int  *   pargc,
   if( FD_UNLIKELY( !fd_log_private_shared_lock ) ) {
     int lock = 0;
     fd_log_private_shared_lock = &lock;
-    fd_log_private_fprintf_0( STDERR_FILENO, "open( \"/dev/null\", O_WRONLY | O_APPEND ) failed (%i-%s); attempting to continue\n", errno, strerror( errno ) );
+    fd_log_private_fprintf_0( STDERR_FILENO,
+                              "open( \"/dev/null\", O_WRONLY | O_APPEND ) failed (%i-%s); attempting to continue\n",
+                              errno, fd_io_strerror( errno ) );
     exit(1);
   }
 
@@ -1035,11 +1037,15 @@ fd_log_private_boot( int  *   pargc,
     int btrace_cnt = backtrace( btrace, 128 );
     int fd = open( "/dev/null", O_WRONLY | O_APPEND );
     if( FD_UNLIKELY( fd==-1 ) )
-      fd_log_private_fprintf_0( STDERR_FILENO, "open( \"/dev/null\", O_WRONLY | O_APPEND ) failed (%i-%s); attempting to continue\n", errno, strerror( errno ) );
+      fd_log_private_fprintf_0( STDERR_FILENO,
+                                "open( \"/dev/null\", O_WRONLY | O_APPEND ) failed (%i-%s); attempting to continue\n",
+                                errno, fd_io_strerror( errno ) );
     else {
       backtrace_symbols_fd( btrace, btrace_cnt, fd );
       if( FD_UNLIKELY( close( fd ) ) )
-        fd_log_private_fprintf_0( STDERR_FILENO, "close( \"/dev/null\" ) failed (%i-%s); attempting to continue\n", errno, strerror( errno ) );
+        fd_log_private_fprintf_0( STDERR_FILENO,
+                                  "close( \"/dev/null\" ) failed (%i-%s); attempting to continue\n",
+                                  errno, fd_io_strerror( errno ) );
     }
 #   endif /* FD_HAS_BACKTRACE */
 
@@ -1201,7 +1207,7 @@ fd_log_private_main_stack_sz( void ) {
   struct rlimit rlim[1];
   int err = getrlimit( RLIMIT_STACK, rlim );
   if( FD_UNLIKELY( err ) ) {
-    FD_LOG_WARNING(( "fd_log: getrlimit failed (%i-%s)", errno, strerror( errno ) ));
+    FD_LOG_WARNING(( "fd_log: getrlimit failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     return 0UL;
   }
 
@@ -1274,7 +1280,8 @@ fd_log_private_stack_discover( ulong   stack_sz,
   ulong stack_addr = (ulong)stack_mem;
 
   FILE * file = fopen( "/proc/self/maps", "r" );
-  if( FD_UNLIKELY( !file ) ) FD_LOG_WARNING(( "fopen( \"/proc/self/maps\", \"r\" ) failed (%i-%s)", errno, strerror( errno ) ));
+  if( FD_UNLIKELY( !file ) )
+    FD_LOG_WARNING(( "fopen( \"/proc/self/maps\", \"r\" ) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   else {
 
     while( FD_LIKELY( !feof( file ) ) ) {
@@ -1314,7 +1321,7 @@ fd_log_private_stack_discover( ulong   stack_sz,
     }
 
     if( FD_UNLIKELY( fclose( file ) ) )
-      FD_LOG_WARNING(( "fclose( \"/proc/self/maps\" ) failed (%i-%s)", errno, strerror( errno ) ));
+      FD_LOG_WARNING(( "fclose( \"/proc/self/maps\" ) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   }
 

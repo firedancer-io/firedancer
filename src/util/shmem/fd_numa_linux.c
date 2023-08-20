@@ -46,7 +46,7 @@ fd_numa_node_cnt( void ) {
   char const * path = "/sys/devices/system/node";
   DIR *        dir  = opendir( path );
   if( FD_UNLIKELY( !dir ) ) {
-    FD_LOG_WARNING(( "opendir( \"%s\" ) failed (%i-%s)", path, errno, strerror( errno ) ));
+    FD_LOG_WARNING(( "opendir( \"%s\" ) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
     return 0UL;
   }
 
@@ -64,7 +64,7 @@ fd_numa_node_cnt( void ) {
   /* Close dir and return what was found */
 
   if( FD_UNLIKELY( closedir( dir ) ) )
-    FD_LOG_WARNING(( "closedir( \"%s\" ) failed (%i-%s); attempting to continue", path, errno, strerror( errno ) ));
+    FD_LOG_WARNING(( "closedir( \"%s\" ) failed (%i-%s); attempting to continue", path, errno, fd_io_strerror( errno ) ));
 
   if( FD_UNLIKELY( node_idx_max<0 ) ) {
     FD_LOG_WARNING(( "No numa nodes found in \"%s\"", path ));
@@ -97,7 +97,7 @@ fd_numa_node_idx( ulong cpu_idx ) {
   char  path[64];
   DIR * dir = opendir( fd_cstr_printf( path, 64UL, NULL, "/sys/devices/system/cpu/cpu%lu", cpu_idx ) );
   if( FD_UNLIKELY( !dir ) ) {
-    FD_LOG_WARNING(( "opendir( \"%s\" ) failed (%i-%s)", path, errno, strerror( errno ) ));
+    FD_LOG_WARNING(( "opendir( \"%s\" ) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
     return ULONG_MAX;
   }
 
@@ -114,7 +114,7 @@ fd_numa_node_idx( ulong cpu_idx ) {
   /* Close dir and return what was found */
 
   if( FD_UNLIKELY( closedir( dir ) ) )
-    FD_LOG_WARNING(( "closedir( \"%s\" ) failed (%i-%s); attempting to continue", path, errno, strerror( errno ) ));
+    FD_LOG_WARNING(( "closedir( \"%s\" ) failed (%i-%s); attempting to continue", path, errno, fd_io_strerror( errno ) ));
 
   if( FD_UNLIKELY( node_idx<0 ) ) {
     FD_LOG_WARNING(( "No numa node found in \"%s\"", path ));

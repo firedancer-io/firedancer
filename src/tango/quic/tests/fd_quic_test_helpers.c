@@ -237,8 +237,7 @@ fd_quic_client_create_udpsock(fd_quic_udpsock_t * udpsock,
 
   int sock_fd = socket( AF_INET, SOCK_DGRAM, IPPROTO_UDP );
   if( FD_UNLIKELY( sock_fd<0 ) ) {
-    FD_LOG_WARNING(( "socket(AF_INET,SOCK_DGRAM,IPPROTO_UDP) failed (%d-%s)",
-        errno, strerror( errno ) ));
+    FD_LOG_WARNING(( "socket(AF_INET,SOCK_DGRAM,IPPROTO_UDP) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     return NULL;
   }
 
@@ -248,8 +247,7 @@ fd_quic_client_create_udpsock(fd_quic_udpsock_t * udpsock,
       .sin_port   = 0,
   };
   if( FD_UNLIKELY( 0!=bind( sock_fd, (struct sockaddr const *)fd_type_pun_const( &listen_addr ), sizeof(struct sockaddr_in) ) ) ) {
-    FD_LOG_WARNING(( "bind(sock_fd) failed (%d-%s)",
-        errno, strerror( errno ) ));
+    FD_LOG_WARNING(( "bind(sock_fd) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     close( sock_fd );
     return NULL;
   }
@@ -403,8 +401,7 @@ fd_quic_udpsock_create( void *           _sock,
   } else {
     int sock_fd = socket( AF_INET, SOCK_DGRAM, IPPROTO_UDP );
     if( FD_UNLIKELY( sock_fd<0 ) ) {
-      FD_LOG_WARNING(( "socket(AF_INET,SOCK_DGRAM,IPPROTO_UDP) failed (%d-%s)",
-                       errno, strerror( errno ) ));
+      FD_LOG_WARNING(( "socket(AF_INET,SOCK_DGRAM,IPPROTO_UDP) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       return NULL;
     }
 
@@ -414,8 +411,7 @@ fd_quic_udpsock_create( void *           _sock,
       .sin_port   = (ushort)fd_ushort_bswap( (ushort)listen_port ),
     };
     if( FD_UNLIKELY( 0!=bind( sock_fd, (struct sockaddr const *)fd_type_pun_const( &listen_addr ), sizeof(struct sockaddr_in) ) ) ) {
-      FD_LOG_WARNING(( "bind(sock_fd) failed (%d-%s)",
-                       errno, strerror( errno ) ));
+      FD_LOG_WARNING(( "bind(sock_fd) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       close( sock_fd );
       return NULL;
     }
@@ -483,4 +479,3 @@ fd_quic_udpsock_service( fd_quic_udpsock_t const * udpsock ) {
     break;
   }
 }
-

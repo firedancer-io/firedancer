@@ -318,7 +318,7 @@ fd_replay_tile( fd_cnc_t *       cnc,
 
     FD_LOG_INFO(( "Closing pcap" ));
     if( FD_UNLIKELY( fclose( fd_pcap_iter_delete( pcap_iter ) ) ) )
-      FD_LOG_WARNING(( "fclose failed (%i-%s)", errno, strerror( errno ) ));
+      FD_LOG_WARNING(( "fclose failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
     FD_LOG_INFO(( "Halted replay" ));
     fd_cnc_signal( cnc, FD_CNC_SIGNAL_BOOT );
@@ -327,48 +327,6 @@ fd_replay_tile( fd_cnc_t *       cnc,
 
   return 0;
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 int
 fd_replay_tile_loop(  fd_cnc_t *       cnc,
@@ -624,7 +582,7 @@ fd_replay_tile_loop(  fd_cnc_t *       cnc,
       // cnc_diag_pcap_done = 1UL;
       // --------------------------------------
       // pcap_file = freopen( pcap_path, "r", pcap_file ); /* Note: freopen */
-      rewind( fd_pcap_iter_delete( pcap_iter ) ); 
+      rewind( fd_pcap_iter_delete( pcap_iter ) );
       pcap_iter = fd_pcap_iter_new( pcap_file );
       if( FD_UNLIKELY( !pcap_iter ) ) { FD_LOG_WARNING(( "fd_pcap_iter_new failed" )); return 1; }
       FD_COMPILER_MFENCE();
@@ -670,7 +628,7 @@ fd_replay_tile_loop(  fd_cnc_t *       cnc,
 
     FD_LOG_INFO(( "Closing pcap" ));
     if( FD_UNLIKELY( fclose( fd_pcap_iter_delete( pcap_iter ) ) ) )
-      FD_LOG_WARNING(( "fclose failed (%i-%s)", errno, strerror( errno ) ));
+      FD_LOG_WARNING(( "fclose failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
     FD_LOG_INFO(( "Halted replay" ));
     fd_cnc_signal( cnc, FD_CNC_SIGNAL_BOOT );
@@ -679,7 +637,6 @@ fd_replay_tile_loop(  fd_cnc_t *       cnc,
 
   return 0;
 }
-
 
 #undef SCRATCH_ALLOC
 
