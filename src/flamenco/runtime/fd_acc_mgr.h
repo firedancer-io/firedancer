@@ -167,7 +167,7 @@ fd_acc_mgr_modify( fd_acc_mgr_t *         acc_mgr,
    "raw" INTO THE ACCOUNT DATA REGION) */
 
 int
-fd_acc_mgr_commit_raw( fd_acc_mgr_t *       acc_mgr,
+fd_acc_mgr_commit_raw( fd_acc_mgr_t *      acc_mgr,
                        fd_funk_rec_t *     rec,
                        fd_pubkey_t const * pubkey,
                        void *              raw,

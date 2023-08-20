@@ -503,10 +503,10 @@ ingest_rocksdb( fd_global_ctx_t * global,
 
     key = fd_runtime_block_meta_key(slot);
     rec = fd_funk_rec_modify( global->funk, fd_funk_rec_insert( global->funk, NULL, &key, &ret ) );
-    if( FD_UNLIKELY( !rec ) ) FD_LOG_ERR(( "fd_funk_rec_modify failed with code %d", ret ));
+    if( FD_UNLIKELY( !rec ) ) FD_LOG_ERR(( "fd_funk_rec_modify failed with code (%d-%s)", ret, fd_funk_strerror( ret ) ));
     sz  = fd_slot_meta_size(&m);
     rec = fd_funk_val_truncate( rec, sz, (fd_alloc_t *)global->valloc.self, global->funk_wksp, &ret );
-    if( FD_UNLIKELY( !rec ) ) FD_LOG_ERR(( "fd_funk_val_truncate failed with code %d", ret ));
+    if( FD_UNLIKELY( !rec ) ) FD_LOG_ERR(( "fd_funk_val_truncate failed with code (%d-%s)", ret, fd_funk_strerror( ret ) ));
     val = fd_funk_val( rec, global->funk_wksp );
     fd_bincode_encode_ctx_t ctx2;
     ctx2.data = val;
