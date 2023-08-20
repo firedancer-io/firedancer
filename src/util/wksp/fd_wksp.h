@@ -999,11 +999,13 @@ fd_wksp_checkpt( fd_wksp_t *  wksp,
 
    Returns FD_WKSP_SUCCESS (0) on success or a FD_WKSP_ERR_* on failure
    (logs details).  Reasons for failure include INVAL (NULL wksp, NULL
-   path), FAIL (couldn't open checkpt, I/O error, checkpt format error),
-   CORRUPT (I/O error, checkpt format error).  In the CORRUPT case, the
-   wksp was partially restored when the error was detected.  In this
-   case, this makes a best effort to reset the wksp to an valid / empty
-   state.  In the other error cases, the wksp is unchanged. */
+   path), FAIL or CORRUPT (couldn't open checkpt, I/O error, checkpt
+   format error, incompatible wksp for checkpt, etc ... logs details).
+   For the INVAL and FAIL cases, the original workspace allocations was
+   untouched.  For the CORRUPT case, original workspace allocations were
+   removed because the checkpt issues were detected after the restore
+   process began (a best effort to reset wksp to the empty state was
+   done before return). */
 
 int
 fd_wksp_restore( fd_wksp_t *  wksp,
