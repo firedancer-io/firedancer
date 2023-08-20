@@ -742,6 +742,17 @@ fd_io_buffered_ostream_flush( fd_io_buffered_ostream_t * out ) {
   return fd_io_write( out->fd, out->wbuf, wbuf_used, wbuf_used, &wsz );
 }
 
+/* Misc APIs */
+
+/* fd_io_strerror converts at fd_io error code (i.e. negative ->
+   end-of-file, 0 -> success, positive -> strerror compatible) into a
+   human readable cstr.  Unlike strerror, the lifetime of the returned
+   pointer is infinite and call itself is thread safe.  The returned
+   pointer is always to a non-NULL cstr. */
+
+FD_FN_CONST char const *
+fd_io_strerror( int err );
+
 /* TODO: ASYNC IO APIS */
 
 FD_PROTOTYPES_END
