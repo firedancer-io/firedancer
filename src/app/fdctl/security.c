@@ -26,7 +26,7 @@ has_capability( uint cap ) {
   };
 
   if( FD_UNLIKELY( syscall( SYS_capget, &capheader, capdata ) ) )
-    FD_LOG_ERR(( "capget failed (%i-%s)", errno, strerror( errno ) ) );
+    FD_LOG_ERR(( "capget failed (%i-%s)", errno, fd_io_strerror( errno ) ) );
   return !!(capdata[ 0 ].effective & (1U << cap));
 }
 
@@ -51,7 +51,7 @@ check_res( security_t *    security,
            const char *    reason ) {
   struct rlimit rlim;
   if( FD_UNLIKELY( getrlimit( resource, &rlim ) ) )
-    FD_LOG_ERR(( "getrlimit failed (%i-%s)", errno, strerror( errno ) ));
+    FD_LOG_ERR(( "getrlimit failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_LIKELY( rlim.rlim_cur >= limit ) ) return;
 
   if( FD_LIKELY( ! has_capability( CAP_SYS_RESOURCE ) ) ) {
@@ -69,6 +69,6 @@ check_res( security_t *    security,
     rlim.rlim_cur = limit;
     rlim.rlim_max = limit;
     if( FD_UNLIKELY( setrlimit( resource, &rlim ) ) )
-      FD_LOG_ERR(( "setrlimit failed (%i-%s)", errno, strerror( errno ) ));
+      FD_LOG_ERR(( "setrlimit failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 }

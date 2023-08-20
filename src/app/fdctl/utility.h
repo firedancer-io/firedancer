@@ -59,7 +59,7 @@ self_exe( char * path );
                    cmd,                                                \
                    ret,                                                \
                    errno,                                              \
-                   strerror( errno ) ));                               \
+                   fd_io_strerror( errno ) ));                         \
   } while( 0 )
 
 /* OUTPUT() executes the given string and formatting arguments as a
@@ -78,7 +78,7 @@ self_exe( char * path );
       FD_LOG_ERR(( "popen of command `%s` failed (%i-%s)",    \
                    cmd,                                       \
                    errno,                                     \
-                   strerror( errno ) ));                      \
+                   fd_io_strerror( errno ) ));                \
     size_t output_len = sizeof( output );                     \
     size_t printed = fread( output,                           \
                             1,                                \
@@ -88,7 +88,7 @@ self_exe( char * path );
       FD_LOG_ERR(( "fread of command `%s` failed (%i-%s)",    \
                    cmd,                                       \
                    errno,                                     \
-                   strerror( errno ) ));                      \
+                   fd_io_strerror( errno ) ));                \
     if( FD_UNLIKELY( printed >= output_len ) )                \
       FD_LOG_ERR(( "fread of command `%s` truncated", cmd )); \
     output[ printed ] = '\0';                                 \
@@ -96,7 +96,7 @@ self_exe( char * path );
       FD_LOG_ERR(( "pclose of command `%s` failed (%i-%s)",   \
                    cmd,                                       \
                    errno,                                     \
-                   strerror( errno ) ));                      \
+                   fd_io_strerror( errno ) ));                \
   } while( 0 )
 
 #endif /* HEADER_fd_src_app_fdctl_utility_h */

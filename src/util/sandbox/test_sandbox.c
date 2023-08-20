@@ -73,7 +73,6 @@
     }                                                               \
 } while( 0 )
 
-
 /* check_open_fds ensures that `sandbox_unthreaded` verifies
    the file descriptors we allow are exactly those that are matched. */
 void
@@ -173,7 +172,7 @@ netns( void ) {
     unshare_user( getuid(), getgid() );
 
     ifs = if_nameindex();
-    if( !ifs ) FD_LOG_ERR(( "if_nameindex: (%d-%s)", errno, strerror( errno ) ));
+    if( !ifs ) FD_LOG_ERR(( "if_nameindex failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     FD_TEST( !strcmp( ifs[0].if_name, "lo" ) );
     FD_TEST( ifs[1].if_name == NULL );
   );

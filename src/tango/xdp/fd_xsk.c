@@ -309,7 +309,7 @@ fd_xsk_mmap_ring( fd_ring_desc_t * ring,
   void * res = mmap( NULL, map_sz, PROT_READ|PROT_WRITE, MAP_SHARED, xsk_fd, map_off );
   if( FD_UNLIKELY( !res ) ) {
     FD_LOG_WARNING(( "mmap(NULL, %lu, PROT_READ|PROT_WRITE, MAP_SHARED, xsk_fd, %s) failed (%i-%s)",
-                     map_sz, fd_xsk_mmap_offset_cstr( map_off ), errno, strerror( errno ) ));
+                     map_sz, fd_xsk_mmap_offset_cstr( map_off ), errno, fd_io_strerror( errno ) ));
     return -1;
   }
 
@@ -340,11 +340,9 @@ fd_xsk_munmap_ring( fd_ring_desc_t * ring,
 
   fd_memset( ring, 0, sizeof(fd_ring_desc_t) );
 
-  if( FD_UNLIKELY( 0!=munmap( mem, sz ) ) ) {
+  if( FD_UNLIKELY( 0!=munmap( mem, sz ) ) )
     FD_LOG_WARNING(( "munmap(%p, %lu) on %s ring failed (%i-%s)",
-                     mem, sz, fd_xsk_mmap_offset_cstr( map_off ),
-                     errno, strerror( errno ) ));
-  }
+                     mem, sz, fd_xsk_mmap_offset_cstr( map_off ), errno, fd_io_strerror( errno ) ));
 }
 
 /* fd_xsk_cleanup undoes a (partial) join by releasing all active kernel
@@ -401,19 +399,19 @@ fd_xsk_setup_umem( fd_xsk_t * xsk ) {
   res = setsockopt( xsk->xsk_fd, SOL_XDP, XDP_UMEM_REG,
                     &xsk->umem, sizeof(struct xdp_umem_reg) );
   if( FD_UNLIKELY( res!=0 ) ) {
-    FD_LOG_WARNING(( "setsockopt(SOL_XDP, XDP_UMEM_REG) failed (%d-%s)", errno, strerror( errno ) ));
+    FD_LOG_WARNING(( "setsockopt(SOL_XDP, XDP_UMEM_REG) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     return -1;
   }
 
   /* Set ring frame counts */
-# define FD_SET_XSK_RING_DEPTH(name, var)                              \
-    do {                                                               \
-      res = setsockopt( xsk->xsk_fd, SOL_XDP, name, &(var), 8UL );     \
-      if( FD_UNLIKELY( res!=0 ) ) {                                    \
-        FD_LOG_WARNING(( "setsockopt(SOL_XDP, " #name ") failed: %s",  \
-                         strerror( errno ) ));                         \
-        return -1;                                                     \
-      }                                                                \
+# define FD_SET_XSK_RING_DEPTH(name, var)                                 \
+    do {                                                                  \
+      res = setsockopt( xsk->xsk_fd, SOL_XDP, name, &(var), 8UL );        \
+      if( FD_UNLIKELY( res!=0 ) ) {                                       \
+        FD_LOG_WARNING(( "setsockopt(SOL_XDP, " #name ") failed (%i-%s)", \
+                         errno, fd_io_strerror( errno ) ));               \
+        return -1;                                                        \
+      }                                                                   \
     } while(0)
   FD_SET_XSK_RING_DEPTH( XDP_UMEM_FILL_RING,       xsk->params.fr_depth );
   FD_SET_XSK_RING_DEPTH( XDP_RX_RING,              xsk->params.rx_depth );
@@ -426,8 +424,7 @@ fd_xsk_setup_umem( fd_xsk_t * xsk ) {
   res = getsockopt( xsk->xsk_fd, SOL_XDP, XDP_MMAP_OFFSETS,
                     &xsk->offsets, &offsets_sz );
   if( FD_UNLIKELY( res!=0 ) ) {
-    FD_LOG_WARNING(( "getsockopt(SOL_XDP, XDP_MMAP_OFFSETS): %s",
-                     strerror( errno ) ));
+    FD_LOG_WARNING(( "getsockopt(SOL_XDP, XDP_MMAP_OFFSETS) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     return -1;
   }
 
@@ -460,8 +457,7 @@ fd_xsk_init( fd_xsk_t * xsk ) {
   }
   uint if_idx = if_nametoindex( xsk->if_name_cstr );
   if( FD_UNLIKELY( if_idx )==0 ) {
-    FD_LOG_WARNING(( "if_nametoindex(%s) failed (%d-%s)",
-                     xsk->if_name_cstr, errno, strerror( errno ) ));
+    FD_LOG_WARNING(( "if_nametoindex(%s) failed (%i-%s)", xsk->if_name_cstr, errno, fd_io_strerror( errno ) ));
     return -1;
   }
   xsk->if_idx = if_idx;
@@ -470,7 +466,7 @@ fd_xsk_init( fd_xsk_t * xsk ) {
 
   xsk->xsk_fd = socket( AF_XDP, SOCK_RAW, 0 );
   if( FD_UNLIKELY( xsk->xsk_fd<0 ) ) {
-    FD_LOG_WARNING(( "Failed to create XSK (%d-%s)", errno, strerror( errno ) ));
+    FD_LOG_WARNING(( "Failed to create XSK (%i-%s)", errno, fd_io_strerror( errno ) ));
     return -1;
   }
 
@@ -495,8 +491,8 @@ fd_xsk_init( fd_xsk_t * xsk ) {
   };
 
   if( FD_UNLIKELY( 0!=bind( xsk->xsk_fd, (void *)&sa, sizeof(struct sockaddr_xdp) ) ) ) {
-    FD_LOG_WARNING(( "Unable to bind to interface %s queue %u: %s",
-                     xsk->if_name_cstr, xsk->if_queue_id, strerror( errno ) ));
+    FD_LOG_WARNING(( "Unable to bind to interface %s queue %u (%i-%s)",
+                     xsk->if_name_cstr, xsk->if_queue_id, errno, fd_io_strerror( errno ) ));
     return -1;
   }
   FD_LOG_INFO(( "xsk bind() success" ));
@@ -574,11 +570,10 @@ fd_xsk_leave( fd_xsk_t * xsk ) {
 
 /* Public helper methods **********************************************/
 
-FD_FN_CONST void *
+void *
 fd_xsk_umem_laddr( fd_xsk_t * xsk ) {
   return (void *)xsk->umem.addr;
 }
-
 
 FD_FN_CONST char const *
 fd_xsk_app_name( fd_xsk_t * const xsk ) {
@@ -770,7 +765,7 @@ fd_xsk_tx_enqueue( fd_xsk_t *            xsk,
     if( fd_xsk_tx_need_wakeup( xsk ) ) {
       if( FD_UNLIKELY( -1==sendto( xsk->xsk_fd, NULL, 0, MSG_DONTWAIT, NULL, 0 ) ) ) {
         if( FD_UNLIKELY( errno!=EAGAIN ) ) {
-          FD_LOG_WARNING(( "xsk sendto failed xsk_fd=%d (%d-%s)", xsk->xsk_fd, errno, strerror( errno ) ));
+          FD_LOG_WARNING(( "xsk sendto failed xsk_fd=%d (%i-%s)", xsk->xsk_fd, errno, fd_io_strerror( errno ) ));
         }
       }
     }

@@ -8,8 +8,8 @@ static configure_result_t
 check( config_t * const config ) {
   DIR * dir = opendir( "/sys/fs/bpf" );
   if( FD_UNLIKELY( !dir ) ) {
-    if( FD_LIKELY( errno == ENOENT ) ) NOT_CONFIGURED( "error reading `/sys/fs/bpf`: %i-%s", errno, strerror( errno ) );
-    else PARTIALLY_CONFIGURED( "error reading `/sys/fs/bpf` (%i-%s)", errno, strerror( errno ) );
+    if( FD_LIKELY( errno == ENOENT ) ) NOT_CONFIGURED( "error reading `/sys/fs/bpf` (%i-%s)", errno, fd_io_strerror( errno ) );
+    else PARTIALLY_CONFIGURED( "error reading `/sys/fs/bpf` (%i-%s)", errno, fd_io_strerror( errno ) );
   }
 
   struct dirent * entry;
@@ -18,14 +18,14 @@ check( config_t * const config ) {
     if( FD_UNLIKELY( entry->d_name[ 0 ] == '.' ) ) continue;
 
     if( FD_UNLIKELY( strcmp( config->name, entry->d_name ) ) ) {
-      if( FD_UNLIKELY( closedir( dir ) ) ) FD_LOG_ERR(( "error closing `/sys/fs/bpf` (%i-%s)", errno, strerror( errno ) ));
+      if( FD_UNLIKELY( closedir( dir ) ) ) FD_LOG_ERR(( "error closing `/sys/fs/bpf` (%i-%s)", errno, fd_io_strerror( errno ) ));
       PARTIALLY_CONFIGURED( "unexpected entry `%s` in `/sys/fs/bpf`", entry->d_name );
     }
   }
 
-  if( FD_UNLIKELY( errno ) ) FD_LOG_ERR(( "error reading `/sys/fs/bpf` (%i-%s)", errno, strerror( errno ) ));
+  if( FD_UNLIKELY( errno ) ) FD_LOG_ERR(( "error reading `/sys/fs/bpf` (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  if( FD_UNLIKELY( closedir( dir ) ) ) FD_LOG_ERR(( "error closing `/sys/fs/bpf` (%i-%s)", errno, strerror( errno ) ));
+  if( FD_UNLIKELY( closedir( dir ) ) ) FD_LOG_ERR(( "error closing `/sys/fs/bpf` (%i-%s)", errno, fd_io_strerror( errno ) ));
   CONFIGURE_OK();
 }
 

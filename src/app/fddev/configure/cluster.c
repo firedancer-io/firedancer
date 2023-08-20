@@ -93,9 +93,9 @@ init( config_t * const config ) {
   gid_t gid = getgid();
   uid_t uid = getuid();
   if( FD_LIKELY( gid == 0 && setegid( config->gid ) ) )
-    FD_LOG_ERR(( "setegid() failed (%i-%s)", errno, strerror( errno ) ));
+    FD_LOG_ERR(( "setegid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_LIKELY( uid == 0 && seteuid( config->uid ) ) )
-    FD_LOG_ERR(( "seteuid() failed (%i-%s)", errno, strerror( errno ) ));
+    FD_LOG_ERR(( "seteuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   mode_t previous = umask( S_IRWXO | S_IRWXG );
 
@@ -103,8 +103,8 @@ init( config_t * const config ) {
 
   umask( previous );
 
-  if( FD_UNLIKELY( seteuid( uid ) ) ) FD_LOG_ERR(( "seteuid() failed (%i-%s)", errno, strerror( errno ) ));
-  if( FD_UNLIKELY( setegid( gid ) ) ) FD_LOG_ERR(( "setegid() failed (%i-%s)", errno, strerror( errno ) ));
+  if( FD_UNLIKELY( seteuid( uid ) ) ) FD_LOG_ERR(( "seteuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( setegid( gid ) ) ) FD_LOG_ERR(( "setegid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
 
 static void
@@ -112,16 +112,16 @@ fini( config_t * const config ) {
   char path[ PATH_MAX ];
   snprintf1( path, PATH_MAX, "%s/faucet.json", config->scratch_directory );
   if( FD_UNLIKELY( unlink( path ) && errno != ENOENT ) )
-    FD_LOG_ERR(( "could not remove cluster file `%s` (%i-%s)", path, errno, strerror( errno ) ));
+    FD_LOG_ERR(( "could not remove cluster file `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
   snprintf1( path, PATH_MAX, "%s/stake-account.json", config->scratch_directory );
   if( FD_UNLIKELY( unlink( path ) && errno != ENOENT ) )
-    FD_LOG_ERR(( "could not remove cluster file `%s` (%i-%s)", path, errno, strerror( errno ) ));
+    FD_LOG_ERR(( "could not remove cluster file `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
   snprintf1( path, PATH_MAX, "%s/vote-account.json", config->scratch_directory );
   if( FD_UNLIKELY( unlink( path ) && errno != ENOENT ) )
-    FD_LOG_ERR(( "could not remove cluster file `%s` (%i-%s)", path, errno, strerror( errno ) ));
+    FD_LOG_ERR(( "could not remove cluster file `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
   snprintf1( path, PATH_MAX, "%s/genesis.bin", config->ledger.path );
   if( FD_UNLIKELY( unlink( path ) && errno != ENOENT ) )
-    FD_LOG_ERR(( "could not remove cluster file `%s` (%i-%s)", path, errno, strerror( errno ) ));
+    FD_LOG_ERR(( "could not remove cluster file `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
 }
 
 static configure_result_t

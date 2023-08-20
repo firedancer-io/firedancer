@@ -89,7 +89,7 @@ default_user( void ) {
   if( FD_LIKELY( name ) ) return name;
 
   name = getlogin();
-  if( FD_UNLIKELY( !name ) ) FD_LOG_ERR(( "getlogin failed (%i-%s)", errno, strerror( errno ) ));
+  if( FD_UNLIKELY( !name ) ) FD_LOG_ERR(( "getlogin failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   return name;
 }
 
@@ -408,7 +408,7 @@ static void
 config_parse_file( const char * path,
                    config_t *   out ) {
   FILE * fp = fopen( path, "r" );
-  if( FD_UNLIKELY( !fp ) ) FD_LOG_ERR(( "could not open configuration file `%s`: (%d-%s)", path, errno, strerror( errno ) ));
+  if( FD_UNLIKELY( !fp ) ) FD_LOG_ERR(( "could not open configuration file `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
 
   uint lineno = 0;
   char line[ 4096 ];
@@ -425,9 +425,9 @@ config_parse_file( const char * path,
     }
   }
   if( FD_UNLIKELY( ferror( fp ) ) )
-    FD_LOG_ERR(( "error reading `%s` (%i-%s)", path, errno, strerror( errno ) ));
+    FD_LOG_ERR(( "error reading `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
   if( FD_LIKELY( fclose( fp ) ) )
-    FD_LOG_ERR(( "error closing `%s` (%i-%s)", path, errno, strerror( errno ) ));
+    FD_LOG_ERR(( "error closing `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
 }
 
 static uint
@@ -437,9 +437,9 @@ listen_address( const char * interface ) {
   ifr.ifr_addr.sa_family = AF_INET;
   strncpy( ifr.ifr_name, interface, IF_NAMESIZE );
   if( FD_UNLIKELY( ioctl( fd, SIOCGIFADDR, &ifr ) ) )
-    FD_LOG_ERR(( "could not get IP address of interface `%s`: (%d-%s)", interface, errno, strerror( errno ) ));
+    FD_LOG_ERR(( "could not get IP address of interface `%s` (%i-%s)", interface, errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( close(fd) ) )
-    FD_LOG_ERR(( "could not close socket (%d-%s)", errno, strerror( errno ) ));
+    FD_LOG_ERR(( "could not close socket (%i-%s)", errno, fd_io_strerror( errno ) ));
   return ((struct sockaddr_in *)fd_type_pun( &ifr.ifr_addr ))->sin_addr.s_addr;
 }
 
@@ -451,9 +451,9 @@ mac_address( const char * interface,
   ifr.ifr_addr.sa_family = AF_INET;
   strncpy( ifr.ifr_name, interface, IF_NAMESIZE );
   if( FD_UNLIKELY( ioctl( fd, SIOCGIFHWADDR, &ifr ) ) )
-    FD_LOG_ERR(( "could not get MAC address of interface `%s`: (%d-%s)", interface, errno, strerror( errno ) ));
+    FD_LOG_ERR(( "could not get MAC address of interface `%s`: (%i-%s)", interface, errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( close(fd) ) )
-    FD_LOG_ERR(( "could not close socket (%d-%s)", errno, strerror( errno ) ));
+    FD_LOG_ERR(( "could not close socket (%i-%s)", errno, fd_io_strerror( errno ) ));
   fd_memcpy( mac, ifr.ifr_hwaddr.sa_data, 6 );
 }
 
@@ -536,7 +536,7 @@ init_workspaces( config_t * config ) {
 static uint
 username_to_uid( char * username ) {
   FILE * fp = fopen( "/etc/passwd", "rb" );
-  if( FD_UNLIKELY( !fp) ) FD_LOG_ERR(( "could not open /etc/passwd (%d-%s)", errno, strerror( errno ) ));
+  if( FD_UNLIKELY( !fp) ) FD_LOG_ERR(( "could not open /etc/passwd (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   char line[ 4096 ];
   while( FD_LIKELY( fgets( line, 4096, fp ) ) ) {
@@ -549,7 +549,7 @@ username_to_uid( char * username ) {
     s = strchr( s + 1, ':' );
     if( FD_UNLIKELY( !s ) ) continue;
 
-    if( FD_UNLIKELY( fclose( fp ) ) ) FD_LOG_ERR(( "could not close /etc/passwd (%d-%s)", errno, strerror( errno ) ));
+    if( FD_UNLIKELY( fclose( fp ) ) ) FD_LOG_ERR(( "could not close /etc/passwd (%i-%s)", errno, fd_io_strerror( errno ) ));
     char * endptr;
     ulong uid = strtoul( s + 1, &endptr, 10 );
     if( FD_UNLIKELY( *endptr != ':' || uid > UINT_MAX ) ) FD_LOG_ERR(( "could not parse uid in /etc/passwd"));
