@@ -28,13 +28,13 @@ main( int     argc,
     mode_t old_mask = umask( (mode_t)0 );
     fd = open( path, O_CREAT | O_EXCL | O_RDWR, (mode_t)mode );
     umask( old_mask );
-    if( FD_UNLIKELY( fd==-1 ) ) FD_LOG_ERR(( "open(O_CREATE | O_EXCL | O_RDWR) failed (%i-%s)", errno, strerror( errno ) ));
+    if( FD_UNLIKELY( fd==-1 ) ) FD_LOG_ERR(( "open(O_CREATE | O_EXCL | O_RDWR) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   } else {
 
     FD_LOG_NOTICE(( "--path not specified; using tmp file (--mode ignored, --keep %i)", keep ));
     fd = mkstemp( tmp_path );
-    if( FD_UNLIKELY( fd==-1 ) ) FD_LOG_ERR(( "mkstemp(\"%s\")failed (%i-%s)", tmp_path, errno, strerror( errno ) ));
+    if( FD_UNLIKELY( fd==-1 ) ) FD_LOG_ERR(( "mkstemp(\"%s\")failed (%i-%s)", tmp_path, errno, fd_io_strerror( errno ) ));
     path = tmp_path;
     FD_LOG_NOTICE(( "tmp file at %s", path ));
 
@@ -45,7 +45,8 @@ main( int     argc,
      That is, as per usual UNIX semantics, the underlying file will
      still exist it has any open file descriptors. */
 
-  if( FD_UNLIKELY( !keep && unlink( path ) ) ) FD_LOG_ERR(( "unlink( \"%s\" ) failed (%i-%s)", path,  errno, strerror( errno ) ));
+  if( FD_UNLIKELY( !keep && unlink( path ) ) )
+    FD_LOG_ERR(( "unlink( \"%s\" ) failed (%i-%s)", path,  errno, fd_io_strerror( errno ) ));
 
   /* Write a bunch of test data to the file */
 
@@ -138,7 +139,7 @@ main( int     argc,
   ulong off;
 
 # define REWIND \
-  if( FD_UNLIKELY( lseek( fd, (off_t)0, SEEK_SET )==-1 ) ) FD_LOG_ERR(( "lseek failed (%i-%s)", errno, strerror( errno ) ))
+  if( FD_UNLIKELY( lseek( fd, (off_t)0, SEEK_SET )==-1 ) ) FD_LOG_ERR(( "lseek failed (%i-%s)", errno, fd_io_strerror( errno ) ))
 
   /* Test simple read */
 
@@ -277,13 +278,18 @@ main( int     argc,
 
 # undef REWIND
 
-  if( FD_UNLIKELY( close( fd ) ) ) FD_LOG_WARNING(( "close failed (%i-%s); attempting to continue", errno, strerror( errno ) ));
+  if( FD_UNLIKELY( close( fd ) ) )
+    FD_LOG_WARNING(( "close failed (%i-%s); attempting to continue", errno, fd_io_strerror( errno ) ));
 
   FD_TEST( fd_io_write( -1, src, src_len, src_len, &wsz )==EBADF );
   FD_TEST( fd_io_write( fd, src, src_len, src_len, &wsz )==EBADF );
 
   FD_TEST( fd_io_read ( -1, dst, src_len, src_len, &rsz )==EBADF );
   FD_TEST( fd_io_read ( fd, dst, src_len, src_len, &rsz )==EBADF );
+
+  FD_LOG_NOTICE(( "fd_io_strerror(    -1 ) \"%s\"", fd_io_strerror(    -1 ) ));
+  FD_LOG_NOTICE(( "fd_io_strerror(     0 ) \"%s\"", fd_io_strerror(     0 ) ));
+  FD_LOG_NOTICE(( "fd_io_strerror( EBADF ) \"%s\"", fd_io_strerror( EBADF ) ));
 
   fd_rng_delete( fd_rng_leave( rng ) );
 
