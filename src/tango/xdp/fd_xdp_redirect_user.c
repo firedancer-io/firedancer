@@ -55,26 +55,18 @@ fd_xdp_reperm( char const * path,
                int          gid,
                int          is_dir ) {
 
-  int fd;
-  if ( FD_UNLIKELY( 0 > ( fd = open( path, 0 ) ) ) ) {
-    FD_LOG_WARNING(( "open(%s, 0) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
-    return;
-  }
-
-  if( FD_UNLIKELY( 0!=fchown( fd, (uint)uid, (uint)gid ) ) ) {
-    FD_LOG_WARNING(( "fchown(%d,%u,%u) failed (%i-%s)", fd, uid, gid, errno, fd_io_strerror( errno ) ));
-    close( fd );
+  if( FD_UNLIKELY( 0!=chown( path, (uint)uid, (uint)gid ) ) ) {
+    FD_LOG_WARNING(( "chown(%s,%u,%u) failed (%d-%s)",
+                     path, uid, gid, errno, strerror( errno ) ));
     return;
   }
 
   mode &= fd_uint_if( is_dir, 0777, 0666 );
-  if( FD_UNLIKELY( 0!=fchmod( fd, mode ) ) ) {
-    FD_LOG_WARNING(( "fchmod(%d,%u,%u) failed (%i-%s)", fd, uid, gid, errno, fd_io_strerror( errno ) ));
-    close( fd );
+  if( FD_UNLIKELY( 0!=chmod( path, mode ) ) ) {
+    FD_LOG_WARNING(( "chown(%s,%u,%u) failed (%d-%s)",
+                     path, uid, gid, errno, strerror( errno ) ));
     return;
   }
-
-  close( fd );
 }
 
 int
