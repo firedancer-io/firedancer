@@ -1,0 +1,30 @@
+name: Functional Tests
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+jobs:
+  frank-single-transaction:
+    runs-on:
+      group: github-v1
+    env:
+      CC: gcc
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: recursive
+
+      - uses: dtolnay/rust-toolchain@1.69.0
+
+      - uses: ./.github/actions/deps
+
+      - name: Build everything
+        run: make -j -Otarget
+
+      - uses: ./.github/actions/hugepages
+
+      - name: Run functional tests
+        run: |
+          ./src/test/frank-single-transaction.sh
