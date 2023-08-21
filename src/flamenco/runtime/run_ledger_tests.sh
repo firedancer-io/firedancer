@@ -2,7 +2,7 @@
 
 # this assumes the test_runtime has already been built
 
-LEDGER="v17-test-ledger"
+LEDGER="v17-epoch32"
 POSITION_ARGS=()
 OBJDIR=${OBJDIR:-build/native/gcc}
 
@@ -25,7 +25,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [ ! -e $LEDGER ]; then
-  curl -o - -L -q https://github.com/firedancer-io/firedancer-testbins/raw/main/$LEDGER.tar.gz | tar zxf -
+  curl -o - -L -q https://github.com/firedancer-io/firedancer-testbins/raw/main/$LEDGER.tar.gz | tar zxf - -C ./dump
 fi
 
 # We determine these values by
@@ -46,7 +46,15 @@ fi
 
 set -x
 
-"$OBJDIR"/bin/fd_frank_ledger --rocksdb $LEDGER/rocksdb --genesis $LEDGER/genesis.bin --cmd ingest --indexmax 10000 --txnmax 100 --backup test_ledger_backup --gaddrout gaddr --pages 1
+"$OBJDIR"/bin/fd_frank_ledger \
+  --rocksdb dump/$LEDGER/rocksdb \
+  --genesis dump/$LEDGER/genesis.bin \
+  --cmd ingest \
+  --indexmax 10000 \
+  --txnmax 100 \
+  --backup test_ledger_backup \
+  --gaddrout gaddr \
+  --pages 1
 
 status=$?
 
@@ -67,7 +75,8 @@ log=/tmp/ledger_log$$
   --pages 1 \
   --validate true \
   --abort-on-mismatch 1 \
-  --capture test.solcap >& $log
+  --capture test.solcap \
+  --end-slot 32 >& $log
 
 status=$?
 

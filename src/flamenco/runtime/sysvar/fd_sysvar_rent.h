@@ -6,8 +6,11 @@
 
 /* The rent sysvar contains the rent of rate. */
 
-/* Initialize the rent sysvar account. */
-void fd_sysvar_rent_init( fd_global_ctx_t* global );
+/* fd_sysvar_rent_init copies the cached rent sysvar stored from
+   fd_global_ctx_t to the corresponding account in the database.
+   Note that it does NOT initialize global->bank.rent */
+void
+fd_sysvar_rent_init( fd_global_ctx_t * global );
 
 /* Reads the current value of the rent sysvar */
 void fd_sysvar_rent_read( fd_global_ctx_t* global, fd_rent_t* result );

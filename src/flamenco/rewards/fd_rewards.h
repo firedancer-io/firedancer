@@ -52,7 +52,6 @@ typedef struct fd_vote_reward_t_mapnode fd_vote_reward_t_mapnode_t;
 
 #define MAP_NAME              fd_vote_reward_t_map
 #define MAP_T                 fd_vote_reward_t_mapnode_t
-// #define MAP_LG_SLOT_CNT       9
 #define MAP_MEMOIZE           0
 #define MAP_KEY               vote_pubkey
 #define MAP_KEY_T             fd_pubkey_t *
@@ -149,16 +148,22 @@ FD_PROTOTYPES_BEGIN
 
 void
 begin_partitioned_rewards(
-    fd_global_ctx_t * global,
-    ulong parent_epoch,
-    ulong parent_slot,
-    ulong parent_height
+  fd_global_ctx_t * global,
+  fd_firedancer_banks_t * self,
+  ulong parent_epoch,
+  ulong parent_slot,
+  ulong parent_height
 );
 
 void
 update_rewards(
-    fd_global_ctx_t * global,
-    ulong prev_epoch
+  fd_global_ctx_t * global,
+  ulong prev_epoch
+);
+
+void
+distribute_partitioned_epoch_rewards(
+  fd_firedancer_banks_t * self
 );
 
 FD_PROTOTYPES_END

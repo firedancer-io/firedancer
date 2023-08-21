@@ -123,6 +123,12 @@ fd_acc_mgr_view( fd_acc_mgr_t *             acc_mgr,
      funk rec.  Suitable as rec parameter to fd_acc_mgr_commit_raw.
    - Returns pointer to mutable account metadata and data analogous to
      fd_acc_mgr_view_raw.
+   - IMPORTANT:  Return value may point to the same memory region as a
+     previous calls to fd_acc_mgr_view_raw or fd_acc_mgr_modify_raw do,
+     for the same funk rec (account/txn pair).  fd_acc_mgr only promises
+     that account handles requested for different funk txns will not
+     alias. Generally, for each funk txn, the user should only ever
+     access the latest handle returned by view/modify.
 
    Caller must eventually commit funk record.  During replay, this is
    done automatically by slot freeze. */

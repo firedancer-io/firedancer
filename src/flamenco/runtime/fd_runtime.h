@@ -166,6 +166,14 @@ static inline ulong fd_rent_exempt(fd_global_ctx_t *global, ulong sz) {
   return (sz + 128) * ((ulong) ((double)global->bank.rent.lamports_per_uint8_year * global->bank.rent.exemption_threshold));
 }
 
+void
+process_new_epoch(
+    fd_global_ctx_t * global,
+    ulong parent_epoch,
+    ulong parent_slot,
+    ulong parent_height
+);
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_runtime_h */

@@ -42,18 +42,12 @@ test-ledger*
 compile_commands.json
 
 # Temp ... remove this
-actual.bin
-expected.bin
-before.bin
-v14-test-ledger
 testgaddr
 gaddr
 test_ledger_backup
-v13-contract-ledger
 dump/
 *.solcap
 /*.json
-v17-test-ledger
 /test_*.yml
 /test_*.bin
 

@@ -2,7 +2,6 @@
 #include "fd_types.h"
 #pragma GCC diagnostic ignored "-Wunused-parameter"
 #pragma GCC diagnostic ignored "-Wunused-variable"
-
 #define SOURCE_fd_src_flamenco_types_fd_types_c
 #include "fd_types_custom.c"
 int fd_feature_decode(fd_feature_t* self, fd_bincode_decode_ctx_t * ctx) {
@@ -5547,6 +5546,8 @@ int fd_firedancer_banks_decode(fd_firedancer_banks_t* self, fd_bincode_decode_ct
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_bincode_uint64_decode(&self->capitalization, ctx);
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_uint64_decode(&self->block_height, ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   err = fd_bincode_uint64_decode(&self->lamports_per_signature, ctx);
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   err = fd_bincode_uint64_decode(&self->hashes_per_tick, ctx);
@@ -5614,6 +5615,7 @@ void fd_firedancer_banks_walk(void * w, fd_firedancer_banks_t const * self, fd_t
   fd_hash_walk(w, &self->banks_hash, fun, "banks_hash", level);
   fd_fee_rate_governor_walk(w, &self->fee_rate_governor, fun, "fee_rate_governor", level);
   fun( w, &self->capitalization, "capitalization", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
+  fun( w, &self->block_height, "block_height", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
   fun( w, &self->lamports_per_signature, "lamports_per_signature", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
   fun( w, &self->hashes_per_tick, "hashes_per_tick", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
   fun( w, &self->ticks_per_slot, "ticks_per_slot", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
@@ -5639,6 +5641,7 @@ ulong fd_firedancer_banks_size(fd_firedancer_banks_t const * self) {
   size += fd_hash_size(&self->poh);
   size += fd_hash_size(&self->banks_hash);
   size += fd_fee_rate_governor_size(&self->fee_rate_governor);
+  size += sizeof(ulong);
   size += sizeof(ulong);
   size += sizeof(ulong);
   size += sizeof(ulong);
@@ -5675,6 +5678,8 @@ int fd_firedancer_banks_encode(fd_firedancer_banks_t const * self, fd_bincode_en
   err = fd_fee_rate_governor_encode(&self->fee_rate_governor, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_bincode_uint64_encode(&self->capitalization, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_encode(&self->block_height, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_bincode_uint64_encode(&self->lamports_per_signature, ctx);
   if ( FD_UNLIKELY(err) ) return err;

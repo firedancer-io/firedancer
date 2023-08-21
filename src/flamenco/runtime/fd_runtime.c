@@ -181,7 +181,9 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_meta_t* m, const void
   fd_solcap_writer_set_slot( global->capture, m->slot );
   if ( global->bank.slot != 0 ) {
     if ( global->bank.slot == global->bank.epoch_schedule.first_normal_slot) {
-      // epoch boundary crap
+      ulong parent_slot = global->bank.slot;
+      ulong parent_epoch = fd_slot_to_epoch(&global->bank.epoch_schedule, parent_slot, NULL);
+      process_new_epoch(global, parent_epoch, parent_slot, global->bank.block_height);
     }
   }
   /* Get current leader */
@@ -685,7 +687,7 @@ fd_rent_due( fd_account_meta_t *         acc,
   /* Nothing due if account is rent-exempt */
 
   ulong min_balance = fd_rent_exempt_minimum_balance2( rent, acc->dlen );
-  if( info->lamports > min_balance ) return FD_RENT_EXEMPT;
+  if( info->lamports >= min_balance ) return FD_RENT_EXEMPT;
 
   /* Count the number of slots that have passed since last collection */
 
@@ -1225,6 +1227,7 @@ int fd_global_import_solana_manifest(fd_global_ctx_t * global, fd_solana_manifes
   bank->rent = oldbank->rent_collector.rent;
   bank->collected = oldbank->collected_rent;
   bank->capitalization = oldbank->capitalization;
+  bank->block_height = oldbank->block_height;
 
   /* Update last restart slot
      https://github.com/solana-labs/solana/blob/30531d7a5b74f914dde53bfbb0bc2144f2ac92bb/runtime/src/bank.rs#L2152
@@ -1364,9 +1367,13 @@ process_new_epoch(
            "update_epoch_stakes",
        ); */
   if (global->features.enable_partitioned_epoch_reward) {
-    begin_partitioned_rewards( global, parent_epoch, parent_slot, parent_height );
+    begin_partitioned_rewards( global, &global->bank, parent_epoch, parent_slot, parent_height );
   } else {
     update_rewards( global, parent_epoch);
   }
+  global->bank.block_height += 1;
+
+  distribute_partitioned_epoch_rewards( &global->bank);
+
 
 }

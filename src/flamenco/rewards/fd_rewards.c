@@ -584,18 +584,18 @@ update_reward_history(
 }
 // Calculate rewards from previous epoch and distribute vote rewards
 void calculate_rewards_and_distribute_vote_rewards(
-    instruction_ctx_t * ctx,
+    fd_firedancer_banks_t * self,
+    fd_global_ctx_t * global,
     ulong prev_epoch,
     fd_calculate_rewards_and_distribute_vote_rewards_result_t * result
 ) {
     fd_partitioned_rewards_calculation_t * rewards_calc_result = NULL;
-    calculate_rewards_for_partitioning(ctx->global, prev_epoch,  rewards_calc_result);
+    calculate_rewards_for_partitioning(global, prev_epoch,  rewards_calc_result);
     /* TODO: update_reward_history */
-    fd_firedancer_banks_t * bank = &ctx->global->bank;
-    update_reward_history(bank, NULL, rewards_calc_result->vote_account_rewards);
+    update_reward_history(self, NULL, rewards_calc_result->vote_account_rewards);
 
     // This is for vote rewards only.
-    ulong new_vote_balance_and_staked = vote_balance_and_staked(&bank->stakes);
+    ulong new_vote_balance_and_staked = vote_balance_and_staked(&self->stakes);
     ulong validator_rewards_paid = fd_ulong_sat_sub(new_vote_balance_and_staked, rewards_calc_result->old_vote_balance_and_staked);
 
     // verify that we didn't pay any more than we expected to
@@ -608,7 +608,7 @@ void calculate_rewards_and_distribute_vote_rewards(
         rewards_calc_result->total_stake_rewards_lamports
     ));
 
-    bank->capitalization += validator_rewards_paid;
+    self->capitalization += validator_rewards_paid;
 
     /*
     // only useful for logging
@@ -657,20 +657,59 @@ update_rewards(
 }
 
 // begin_partitioned_rewards
+/* Begin the process of calculating and distributing rewards. This process can take multiple slots. */
 void
 begin_partitioned_rewards(
     fd_global_ctx_t * global,
+    fd_firedancer_banks_t * self,
     ulong parent_epoch,
     ulong parent_slot,
     ulong parent_height
 ) {
-    (void) global;
-    (void) parent_epoch;
+    fd_calculate_rewards_and_distribute_vote_rewards_result_t *rewards_result = NULL;
+    calculate_rewards_and_distribute_vote_rewards(
+        self,
+        global,
+        parent_epoch,
+        rewards_result
+    );
+    ulong start_block_height = 0;
+    ulong credit_end_exclusive = start_block_height + REWARD_CALCULATION_NUM_BLOCK + rewards_result->stake_rewards_by_partition->cnt;
+    (void) credit_end_exclusive;
+    // self.set_epoch_reward_status_active(stake_rewards_by_partition);
+
+    self->capitalization += rewards_result->total_rewards - rewards_result->distributed_rewards;
+
+    // create EpochRewards sysvar that holds the balance of undistributed rewards with
+    // (total_rewards, distributed_rewards, credit_end_exclusive), total capital will increase by (total_rewards - distributed_rewards)
+    // self.create_epoch_rewards_sysvar(total_rewards, distributed_rewards, credit_end_exclusive);
     (void) parent_slot;
     (void) parent_height;
 }
+
 // distribute_partitioned_epoch_rewards
+/* Process reward distribution for the block if it is inside reward interval. */
 void
-distribute_partitioned_epoch_rewards( void ) {
+distribute_partitioned_epoch_rewards(
+    fd_firedancer_banks_t * self
+) {
+    /* assuming we are inside the reward interval */
+    /* increase total capitalization by the distributed rewards */
+    ulong start_block_height = 0;
+    ulong total_rewards_in_lamports = 0;
+    ulong credit_start = start_block_height + REWARD_CALCULATION_NUM_BLOCK;
+    ulong credit_end_exclusive;
+    if (self->block_height >= credit_start && self->block_height < credit_end_exclusive) {
+        // ulong partition_index = self->block_height - credit_start;
+        self->capitalization = fd_ulong_sat_add(self->capitalization, total_rewards_in_lamports);
+        // decrease distributed capital from epoch rewards sysvar
+        // self.update_epoch_rewards_sysvar(total_rewards_in_lamports);
+
+        // update reward history for this partitioned distribution
+        // self.update_reward_history_in_partition(this_partition_stake_rewards);
+    }
+    if (fd_ulong_sat_sub(self->block_height, 1) >= credit_end_exclusive) {
+        // deactivate epoch reward status
+    }
 
 }
