@@ -685,7 +685,7 @@ fd_rent_due( fd_account_meta_t *         acc,
   /* Nothing due if account is rent-exempt */
 
   ulong min_balance = fd_rent_exempt_minimum_balance2( rent, acc->dlen );
-  if( info->lamports > min_balance ) return FD_RENT_EXEMPT;
+  if( info->lamports >= min_balance ) return FD_RENT_EXEMPT;
 
   /* Count the number of slots that have passed since last collection */
 
