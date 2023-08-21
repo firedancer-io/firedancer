@@ -1,6 +1,7 @@
 #include "fd_sysvar_clock.h"
 #include "../../../flamenco/types/fd_types.h"
 #include "fd_sysvar.h"
+#include "fd_sysvar_epoch_schedule.h"
 
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/stake_weighted_timestamp.rs#L14 */
@@ -252,7 +253,9 @@ fd_sysvar_clock_update( fd_global_ctx_t * global ) {
     }
     clock.unix_timestamp = bounded_timestamp_estimate;
   }
-  clock.slot                      = global->bank.slot;
+
+  clock.slot  = global->bank.slot;
+  clock.epoch = fd_slot_to_epoch( &global->bank.epoch_schedule, global->bank.slot, NULL );
 
   FD_LOG_INFO(( "Updated clock at slot %lu", global->bank.slot ));
   FD_LOG_INFO(( "clock.slot: %lu", clock.slot ));
