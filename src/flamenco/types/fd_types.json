@@ -840,6 +840,7 @@
         { "name": "banks_hash",            "type": "hash" },
         { "name": "fee_rate_governor",     "type": "fee_rate_governor" },
         { "name": "capitalization",        "type": "ulong" },
+        { "name": "block_height",          "type": "ulong" },
         { "name": "lamports_per_signature","type": "ulong" },
         { "name": "hashes_per_tick",       "type": "ulong" },
         { "name": "ticks_per_slot",        "type": "ulong" },

@@ -1070,6 +1070,7 @@ struct fd_firedancer_banks {
   fd_hash_t banks_hash;
   fd_fee_rate_governor_t fee_rate_governor;
   ulong capitalization;
+  ulong block_height;
   ulong lamports_per_signature;
   ulong hashes_per_tick;
   ulong ticks_per_slot;
