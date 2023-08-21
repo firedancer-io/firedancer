@@ -698,7 +698,7 @@ distribute_partitioned_epoch_rewards(
     ulong start_block_height = 0;
     ulong total_rewards_in_lamports = 0;
     ulong credit_start = start_block_height + REWARD_CALCULATION_NUM_BLOCK;
-    ulong credit_end_exclusive;
+    ulong credit_end_exclusive = 0UL;
     if (self->block_height >= credit_start && self->block_height < credit_end_exclusive) {
         // ulong partition_index = self->block_height - credit_start;
         self->capitalization = fd_ulong_sat_add(self->capitalization, total_rewards_in_lamports);
