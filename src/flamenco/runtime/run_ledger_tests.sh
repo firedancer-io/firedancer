@@ -25,6 +25,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [ ! -e $LEDGER ]; then
+  mkdir -p dump
   curl -o - -L -q https://github.com/firedancer-io/firedancer-testbins/raw/main/$LEDGER.tar.gz | tar zxf - -C ./dump
 fi
 
@@ -76,7 +77,7 @@ log=/tmp/ledger_log$$
   --validate true \
   --abort-on-mismatch 1 \
   --capture test.solcap \
-  --end-slot 32 >& $log
+  --end-slot 64 >& $log
 
 status=$?
 
