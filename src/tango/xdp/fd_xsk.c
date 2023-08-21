@@ -440,6 +440,18 @@ fd_xsk_setup_umem( fd_xsk_t * xsk ) {
    implemented in fd_xsk_setup_{...}. */
 static int
 fd_xsk_init( fd_xsk_t * xsk ) {
+  /* Validate XDP zero copy flag */
+
+  switch( xsk->params.zerocopy ) {
+  case 0:
+  case XDP_COPY:
+  case XDP_ZEROCOPY:
+    break;  /* okay */
+  default:
+    FD_LOG_WARNING(( "invalid zerocopy flag: %#x", xsk->params.zerocopy ));
+    return -1;
+  }
+
   /* Find interface index */
 
   if( FD_UNLIKELY( !xsk->if_name_cstr[0] ) ) {
@@ -479,7 +491,7 @@ fd_xsk_init( fd_xsk_t * xsk ) {
     .sxdp_family   = PF_XDP,
     .sxdp_ifindex  = xsk->if_idx,
     .sxdp_queue_id = xsk->if_queue_id,
-    .sxdp_flags    = XDP_USE_NEED_WAKEUP | XDP_COPY
+    .sxdp_flags    = XDP_USE_NEED_WAKEUP | (ushort)xsk->params.zerocopy
   };
 
   if( FD_UNLIKELY( 0!=bind( xsk->xsk_fd, (void *)&sa, sizeof(struct sockaddr_xdp) ) ) ) {
