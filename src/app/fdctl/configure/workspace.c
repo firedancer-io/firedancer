@@ -216,10 +216,14 @@ init( config_t * const config ) {
     WKSP_BEGIN( config, wksp1, 0 );
 
     switch( wksp1->kind ) {
+      case wksp_tpu_txn_data:
+        for( ulong i=0; i<config->layout.verify_tile_count; i++ ) {
+          dcache( pod, "dcache%lu", config->tiles.verify.mtu, config->tiles.verify.receive_buffer_size, config->tiles.verify.receive_buffer_size * 32, i );
+        }
+        break;
       case wksp_quic_verify:
         for( ulong i=0; i<config->layout.verify_tile_count; i++ ) {
           mcache( pod, "mcache%lu", config->tiles.verify.receive_buffer_size, i );
-          dcache( pod, "dcache%lu", config->tiles.verify.mtu, config->tiles.verify.receive_buffer_size, config->tiles.verify.receive_buffer_size * 32, i );
           fseq  ( pod, "fseq%lu", i );
         }
         break;
@@ -227,7 +231,6 @@ init( config_t * const config ) {
         ulong1( pod, "cnt", config->layout.verify_tile_count );
         for( ulong i=0; i<config->layout.verify_tile_count; i++ ) {
           mcache( pod, "mcache%lu", config->tiles.verify.receive_buffer_size, i );
-          dcache( pod, "dcache%lu", config->tiles.verify.mtu, config->tiles.verify.receive_buffer_size, 0, i );
           fseq  ( pod, "fseq%lu",   i );
         }
         break;
@@ -241,6 +244,8 @@ init( config_t * const config ) {
           mcache( pod, "mcache%lu", config->tiles.bank.receive_buffer_size, i );
           dcache( pod, "dcache%lu", USHORT_MAX, config->layout.bank_tile_count * (ulong)config->tiles.bank.receive_buffer_size, 0, i );
           fseq  ( pod, "fseq%lu", i );
+          mcache( pod, "mcache-back%lu", config->tiles.bank.receive_buffer_size, i );
+          fseq  ( pod, "fseq-back%lu", i );
         }
         break;
       case wksp_bank_shred:

@@ -206,7 +206,8 @@ run_monitor( config_t * const config,
     config->layout.verify_tile_count + // quic <-> verify
     config->layout.verify_tile_count + // verify <-> dedup
     1 +                                // dedup <-> pack
-    config->layout.bank_tile_count;    // pack <-> bank
+    config->layout.bank_tile_count +   // pack <-> bank
+    config->layout.bank_tile_count;    // bank <-> pack
 
   tile_t * tiles = fd_alloca( alignof(tile_t *), sizeof(tile_t)*tile_cnt );
   link_t * links = fd_alloca( alignof(link_t *), sizeof(link_t)*link_cnt );
@@ -220,6 +221,8 @@ run_monitor( config_t * const config,
 
     char buf[ 64 ];
     switch( wksp->kind ) {
+      case wksp_tpu_txn_data:
+        break;
       case wksp_quic_verify:
         for( ulong i=0; i<config->layout.verify_tile_count; i++ ) {
           links[ link_idx ].src_name = "quic";
@@ -258,6 +261,14 @@ run_monitor( config_t * const config,
           links[ link_idx ].mcache = fd_mcache_join( fd_wksp_pod_map( pods[ j ], snprintf1( buf, 64, "mcache%lu", i ) ) );
           if( FD_UNLIKELY( !links[ link_idx ].mcache ) ) FD_LOG_ERR(( "fd_mcache_join failed" ));
           links[ link_idx ].fseq = fd_fseq_join( fd_wksp_pod_map( pods[ j ], snprintf1( buf, 64, "fseq%lu", i ) ) );
+          if( FD_UNLIKELY( !links[ link_idx ].fseq ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
+          link_idx++;
+
+          links[ link_idx ].src_name = "bank";
+          links[ link_idx ].dst_name = "pack";
+          links[ link_idx ].mcache = fd_mcache_join( fd_wksp_pod_map( pods[ j ], snprintf1( buf, 64, "mcache-back%lu", i ) ) );
+          if( FD_UNLIKELY( !links[ link_idx ].mcache ) ) FD_LOG_ERR(( "fd_mcache_join failed" ));
+          links[ link_idx ].fseq = fd_fseq_join( fd_wksp_pod_map( pods[ j ], snprintf1( buf, 64, "fseq-back%lu", i ) ) );
           if( FD_UNLIKELY( !links[ link_idx ].fseq ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
           link_idx++;
         }

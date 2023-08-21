@@ -53,7 +53,7 @@ run( fd_frank_args_t * args ) {
 
   FD_LOG_INFO(( "joining dcache" ));
   snprintf( path, sizeof(path), "dcache%lu", args->tile_idx );
-  uchar * dcache = fd_dcache_join( fd_wksp_pod_map( args->out_pod, path ) );
+  uchar * dcache = fd_dcache_join( fd_wksp_pod_map( args->extra_pod, path ) );
   if( FD_UNLIKELY( !dcache ) ) FD_LOG_ERR(( "fd_dcache_join failed" ));
 
   FD_LOG_INFO(( "loading quic" ));
@@ -154,6 +154,7 @@ fd_frank_task_t frank_quic = {
   .name              = "quic",
   .in_wksp           = NULL,
   .out_wksp          = "quic_verify",
+  .extra_wksp        = "tpu_txn_data",
   .allow_syscalls_sz = sizeof(allow_syscalls)/sizeof(allow_syscalls[ 0 ]),
   .allow_syscalls    = allow_syscalls,
   .allow_fds         = allow_fds,

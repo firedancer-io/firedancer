@@ -111,6 +111,7 @@ tile_main( void * _args ) {
     .tile_name = args->tile->name,
     .in_pod = NULL,
     .out_pod = NULL,
+    .extra_pod = NULL,
     .tick_per_ns = args->tick_per_ns,
   };
 
@@ -119,6 +120,8 @@ tile_main( void * _args ) {
     frank_args.in_pod = workspace_pod_join( args->app_name, args->tile->in_wksp, 0 );
   if( FD_LIKELY( args->tile->out_wksp ) )
     frank_args.out_pod = workspace_pod_join( args->app_name, args->tile->out_wksp, 0 );
+  if( FD_LIKELY( args->tile->extra_wksp ) )
+    frank_args.extra_pod = workspace_pod_join( args->app_name, args->tile->extra_wksp, 0 );
 
   if( FD_UNLIKELY( args->tile->init ) ) args->tile->init( &frank_args );
 

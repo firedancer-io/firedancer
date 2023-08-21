@@ -74,6 +74,15 @@ dev_cmd_fn( args_t *         args,
      validator will get stuck forever. */
   config->consensus.wait_for_vote_to_start_leader = 0;
 
+  config->consensus.genesis_fetch = 0;
+  config->consensus.snapshot_fetch = 0;
+
+  if( FD_LIKELY( !strcmp( config->consensus.vote_account_path, "" ) ) )
+    snprintf1( config->consensus.vote_account_path,
+               sizeof( config->consensus.vote_account_path ),
+               "%s/vote-account.json",
+               config->scratch_directory );
+
   if( FD_UNLIKELY( config->development.netns.enabled ) ) {
     /* if we entered a network namespace during configuration, leave it
        so that `run_firedancer` starts from a clean namespace */
