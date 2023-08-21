@@ -7,16 +7,18 @@
 #include <sys/socket.h>
 #include <errno.h>
 #include <string.h>
+#include <stdio.h>
 #include <netinet/ip.h>
 #include <unistd.h>
 #include <sys/time.h>
+#include <arpa/inet.h>
 
 #pragma GCC diagnostic ignored "-Wstrict-aliasing"
 
 /* Key used for active sets and contact lists */
 struct __attribute__((aligned(8UL))) fd_ping_key {
-    fd_pubkey_t id;
-    fd_gossip_network_addr_t addr;
+    fd_pubkey_t id __attribute__((aligned(8UL)));
+    fd_gossip_network_addr_t addr __attribute__((aligned(8UL)));
 };
 #define FD_PING_KEY_NLONGS (sizeof(fd_ping_key_t)/sizeof(ulong))
 typedef struct fd_ping_key fd_ping_key_t;
@@ -230,6 +232,20 @@ fd_gossip_to_sockaddr( uchar * dst, fd_gossip_network_addr_t const * src ) {
   }
 }
 
+const char * fd_gossip_addr_str( char * dst, size_t dstlen, fd_gossip_network_addr_t const * src ) {
+  if (src->family == AF_INET) {
+    char tmp[INET_ADDRSTRLEN];
+    snprintf(dst, dstlen, "%s:%u", inet_ntop(AF_INET, src->addr, tmp, INET_ADDRSTRLEN), (uint)ntohs(src->port));
+    return dst;
+  } else if (src->family == AF_INET6) {
+    char tmp[INET6_ADDRSTRLEN];
+    snprintf(dst, dstlen, "%s:%u", inet_ntop(AF_INET6, src->addr, tmp, INET6_ADDRSTRLEN), (uint)ntohs(src->port));
+    return dst;
+  } else {
+    return "???";
+  }
+}
+
 int
 fd_gossip_from_sockaddr( fd_gossip_network_addr_t * dst, uchar const * src ) {
   fd_memset(dst, 0, sizeof(fd_gossip_network_addr_t));
@@ -281,6 +297,9 @@ fd_gossip_send( fd_gossip_global_t * glob, fd_gossip_network_addr_t * dest, fd_g
               (const struct sockaddr *)saddr, (socklen_t)saddrlen) < 0 ) {
     FD_LOG_WARNING(("sendto failed: %s", strerror(errno)));
   }
+
+  char tmp[100];
+  FD_LOG_NOTICE(("sent msg type %d to %s", gmsg->discriminant, fd_gossip_addr_str(tmp, sizeof(tmp), dest)));
 }
 
 void
@@ -358,6 +377,7 @@ fd_gossip_handle_ping( fd_gossip_global_t * glob, fd_gossip_network_addr_t * fro
 void
 fd_gossip_handle_pong( fd_gossip_global_t * glob, fd_gossip_network_addr_t * from, fd_gossip_ping_t const * pong, long now ) {
   fd_ping_key_t key;
+  fd_memset(&key, 0, sizeof(key));
   fd_memcpy(key.id.uc, pong->from.uc, 32U);
   fd_memcpy(&key.addr, from, sizeof(fd_gossip_network_addr_t));
   fd_active_elem_t * val = fd_active_table_query(glob->actives, &key, NULL);
@@ -414,6 +434,7 @@ fd_gossip_recv(fd_gossip_global_t * glob, fd_gossip_network_addr_t * from, fd_go
 
 int fd_gossip_add_active_peer( fd_gossip_global_t * glob, fd_pubkey_t * id, fd_gossip_network_addr_t * addr ) {
   fd_ping_key_t key;
+  fd_memset(&key, 0, sizeof(key));
   fd_memcpy(&key.id, id, sizeof(fd_pubkey_t));
   fd_memcpy(&key.addr, addr, sizeof(fd_gossip_network_addr_t));
   fd_active_elem_t * val = fd_active_table_insert(glob->actives, &key);
@@ -490,7 +511,8 @@ fd_gossip_main_loop( fd_gossip_global_t * glob, fd_valloc_t valloc, volatile int
     } while (1);
 
     /* Read more packets */
-    int retval = recvmmsg(fd, msgs, VLEN, 0, &timeout);
+    fd_log_flush();
+    int retval = recvmmsg(fd, msgs, VLEN, MSG_WAITFORONE, &timeout);
     if (retval < 0) {
       if (errno == EINTR )
         continue;
@@ -504,7 +526,7 @@ fd_gossip_main_loop( fd_gossip_global_t * glob, fd_valloc_t valloc, volatile int
     for (uint i = 0; i < (uint)retval; ++i) {
       // Get the source addr
       fd_gossip_network_addr_t from;
-      if ( fd_gossip_from_sockaddr( &from, sockaddrs[i] ) )
+      if ( fd_gossip_from_sockaddr( &from, msgs[i].msg_hdr.msg_name ) )
         continue;
 
       fd_gossip_msg_t gmsg;
@@ -522,6 +544,9 @@ fd_gossip_main_loop( fd_gossip_global_t * glob, fd_valloc_t valloc, volatile int
         continue;
       }
 
+      char tmp[100];
+      FD_LOG_NOTICE(("recv msg type %d from %s", gmsg.discriminant, fd_gossip_addr_str(tmp, sizeof(tmp), &from)));
+                       
       fd_gossip_recv(glob, &from, &gmsg, now);
 
       fd_bincode_destroy_ctx_t ctx2;
