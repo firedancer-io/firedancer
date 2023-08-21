@@ -43,13 +43,17 @@ fd_account_pretty_print( fd_global_ctx_t const * global,
     fd_vote_state_versioned_t vote_state[1];
     int err = fd_vote_state_versioned_decode( vote_state, &decode );
     if( FD_UNLIKELY( err!=0 ) ) return err;
-
     fd_vote_state_versioned_walk( yaml, vote_state, fd_flamenco_yaml_walk, NULL, 0U );
-    err = ferror( file );
+  } else if( 0==memcmp( owner, global->solana_stake_program, 32UL ) ) {
+    fd_stake_state_t stake_state[1];
+    int err = fd_stake_state_decode( stake_state, &decode );
     if( FD_UNLIKELY( err!=0 ) ) return err;
+    fd_stake_state_walk( yaml, stake_state, fd_flamenco_yaml_walk, NULL, 0U );
   } else {
     fwrite( "???", 1, 3, file );
   }
+  int err = ferror( file );
+  if( FD_UNLIKELY( err!=0 ) ) return err;
 
   /* No need to destroy structures, using fd_scratch allocator */
 
@@ -116,6 +120,23 @@ void fd_executor_test_suite_new( fd_executor_test_suite_t* suite ) {
   fd_features_enable_all( &suite->features );
 }
 
+static void
+log_test_fail( fd_executor_test_t *             test,
+               fd_executor_test_suite_t const * suite,
+               char const *                     fmt,
+               ... ) {
+  static FD_TLS char buf[ 0x2000 ];
+  va_list ap;
+  va_start( ap, fmt );
+  vsnprintf( buf, sizeof(buf), fmt, ap );
+  va_end( ap );
+  if( suite->ignore_fail[ test->test_number ] ) {
+    FD_LOG_INFO(( "Failed test %d (ignored): %s", test->test_number, buf ));
+  } else {
+    FD_LOG_WARNING(( "Failed test %d: %s", test->test_number, buf ));
+  }
+}
+
 int fd_executor_run_test(
   fd_executor_test_t*       test,
   fd_executor_test_suite_t* suite) {
@@ -145,9 +166,8 @@ int fd_executor_run_test(
       ((ulong *) fd_type_pun( &global->features ))[test->disable_feature[i]] = ULONG_MAX;
   }
 
-  char *acc_mgr_mem = fd_alloca_check(FD_ACC_MGR_ALIGN, FD_ACC_MGR_FOOTPRINT);
-  memset(acc_mgr_mem, 0, sizeof(FD_ACC_MGR_FOOTPRINT));
-  global->acc_mgr = (fd_acc_mgr_t*)( fd_acc_mgr_new( acc_mgr_mem, global, FD_ACC_MGR_FOOTPRINT ) );
+  fd_acc_mgr_t _acc_mgr[1];
+  global->acc_mgr = fd_acc_mgr_new( _acc_mgr, global );
 
   /* Prepare a new Funk transaction to execute this test in */
   fd_funk_txn_xid_t xid;
@@ -166,23 +186,32 @@ int fd_executor_run_test(
       if (memcmp(&test->accs[i].pubkey, global->sysvar_clock, sizeof(fd_pubkey_t)) == 0) {
         num_clock++;
       }
-      fd_solana_account_t acc = {
-        .data = (uchar*) test->accs[ i ].data,
-        .data_len = test->accs[ i ].data_len,
-        .executable = test->accs[ i ].executable,
-        .lamports = test->accs[ i ].lamports,
-        .owner = test->accs[ i ].owner,
-        .rent_epoch = test->accs[ i ].rent_epoch,
-      };
-      if (fd_acc_mgr_write_structured_account( global->acc_mgr, global->funk_txn, global->bank.slot, &test->accs[i].pubkey, &acc) !=0) {
-        FD_LOG_ERR(("Error writing test account"));
-      }
 
+      /* Insert account */
+
+      fd_pubkey_t const * acc_key  = &test->accs[ i ].pubkey;
+      fd_funk_rec_t *     acc_rec  = NULL;
+      fd_account_meta_t * acc_meta = NULL;
+      uchar *             acc_data = NULL;
+      int err = fd_acc_mgr_modify( global->acc_mgr, global->funk_txn, acc_key, 1, test->accs[i].data_len, NULL, &acc_rec, &acc_meta, &acc_data );
+      FD_TEST( !err );
+
+      acc_meta->dlen            = test->accs[ i ].data_len;
+      acc_meta->info.lamports   = test->accs[ i ].lamports;
+      acc_meta->info.rent_epoch = test->accs[ i ].rent_epoch;
+      memcpy( acc_meta->info.owner, test->accs[ i ].owner.uc, 32UL );
+      acc_meta->info.executable = (char)test->accs[ i ].executable;
+      if( test->accs[ i ].data_len )
+        memcpy( acc_data, test->accs[ i ].data, test->accs[ i ].data_len );
+
+      err = fd_acc_mgr_commit_raw( global->acc_mgr, acc_rec, acc_key, acc_meta, global->bank.slot, 0 );
+
+      /* wtf ... */
       if (memcmp(&global->sysvar_recent_block_hashes, &test->accs[i].pubkey, sizeof(test->accs[i].pubkey)) == 0) {
         fd_recent_block_hashes_new( &global->bank.recent_block_hashes );
         fd_bincode_decode_ctx_t ctx2;
-        ctx2.data = acc.data,
-        ctx2.dataend = acc.data + acc.data_len;
+        ctx2.data    = acc_data,
+        ctx2.dataend = acc_data + acc_meta->dlen;
         ctx2.valloc  = global->valloc;
         if ( fd_recent_block_hashes_decode( &global->bank.recent_block_hashes, &ctx2 ) ) {
           FD_LOG_WARNING(("fd_recent_block_hashes_decode failed"));
@@ -254,21 +283,20 @@ int fd_executor_run_test(
       char buf[50];
       fd_base58_encode_32((uchar *) &test->program_id, NULL, buf);
 
-      FD_LOG_WARNING(( "Failed test %d: %s: fd_executor_lookup_native_program failed: %s", test->test_number, test->test_name, buf));
+      log_test_fail( test, suite, "fd_executor_lookup_native_program failed: %s", buf );
       ret = -1;
       break;
     }
     int exec_result = exec_instr_func( ctx );
     if ( exec_result != test->expected_result ) {
-      FD_LOG_WARNING(( "Failed test %d: %s: expected transaction result %d, got %d: %s", test->test_number, test->test_name, test->expected_result , exec_result
-                       , (NULL != verbose) ? test->bt : ""));
+      log_test_fail( test, suite, "expected transaction result %d, got %d", test->expected_result, exec_result );
       ret = -1;
       break;
     }
 
     if ( exec_result == FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR ) {
       if ( ctx.txn_ctx->custom_err != test->custom_err) {
-        FD_LOG_WARNING(( "Failed test %d: %s: expected custom error inner value of %d, got %d: %s", test->test_number, test->test_name, test->custom_err, ctx.txn_ctx->custom_err , (NULL != verbose) ? test->bt : ""));
+        log_test_fail( test, suite, "expected custom error value %d, got %d: %s", test->custom_err, ctx.txn_ctx->custom_err, (!!verbose) ? test->bt : "" );
         ret = -1;
         break;
       }
@@ -278,7 +306,7 @@ int fd_executor_run_test(
       /* Confirm account updates */
       for ( ulong i = 0; i < test->accs_len; i++ ) {
         int    err = 0;
-        char * raw_acc_data = (char*) fd_acc_mgr_view_data(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) &test->accs[i].pubkey, NULL, &err);
+        char * raw_acc_data = (char*) fd_acc_mgr_view_raw(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) &test->accs[i].pubkey, NULL, &err);
         if (NULL == raw_acc_data) {
           if ((test->accs[ i ].lamports == 0) && (test->accs[ i ].data_len == 0))
             continue;
@@ -295,30 +323,36 @@ int fd_executor_run_test(
         void*              d = (void *)(raw_acc_data + m->hlen);
 
         if (m->info.lamports != test->accs[i].result_lamports) {
-          FD_LOG_WARNING(( "Failed test %d: %s: expected lamports %ld, got %ld: %s", test->test_number, test->test_name, test->accs[i].result_lamports, m->info.lamports, (NULL != verbose) ? test->bt : ""));
+          log_test_fail( test, suite, "expected lamports %ld, got %ld: %s", test->accs[i].result_lamports, m->info.lamports, (NULL != verbose) ? test->bt : "");
           ret = -666;
           break;
         }
         if (m->info.executable != test->accs[i].result_executable) {
-          FD_LOG_WARNING(( "Failed test %d: %s: expected executable %u, got %u: %s", test->test_number, test->test_name, test->accs[i].result_executable, m->info.executable, (NULL != verbose) ? test->bt : ""));
+          log_test_fail( test, suite, "expected executable %u, got %u: %s", test->accs[i].result_executable, m->info.executable, (NULL != verbose) ? test->bt : "");
           ret = -667;
           break;
         }
         if (m->info.rent_epoch != test->accs[i].result_rent_epoch) {
-          FD_LOG_WARNING(( "Failed test %d: %s: expected rent_epoch %ld, got %ld: %s", test->test_number, test->test_name, test->accs[i].result_rent_epoch, m->info.rent_epoch, (NULL != verbose) ? test->bt : ""));
+          log_test_fail( test, suite, "expected rent_epoch %ld, got %ld: %s", test->accs[i].result_rent_epoch, m->info.rent_epoch, (NULL != verbose) ? test->bt : "");
           ret = -668;
           break;
         }
         if (memcmp(&m->info.owner, &test->accs[i].result_owner, sizeof(fd_pubkey_t)) != 0) {
-          FD_LOG_WARNING(( "Failed test %d: %s: owner missmatch: %s", test->test_number, test->test_name,  (NULL != verbose) ? test->bt : ""));
+          log_test_fail( test, suite, "owner missmatch: %s", (NULL != verbose) ? test->bt : "");
           ret = -668;
           break;
         }
+        FD_TEST( (!!test->accs[i].result_data_len) ^ (!test->accs[i].result_data) );
+        if (test->accs[i].result_data_len == 0 && m->dlen != 0) {
+          log_test_fail( test, suite, "expected data len %ld, got %ld: %s", test->accs[i].result_data_len, m->dlen, (NULL != verbose) ? test->bt : "");
+          ret = -669;
+          break;
+        }
+        if(   ( m->dlen > 0 ) && (
+              ( m->dlen != test->accs[i].result_data_len )
+           || ( 0 != memcmp(d, test->accs[i].result_data, test->accs[i].result_data_len) ) ) ) {
 
-        if(   ( m->dlen != test->accs[i].result_data_len )
-           || ( 0 != memcmp(d, test->accs[i].result_data, test->accs[i].result_data_len) ) ) {
-
-          FD_LOG_WARNING(( "Failed test %d: %s: account_index: %d   account missmatch: %s", test->test_number, test->test_name, i, (NULL != verbose) ? test->bt : ""));
+          log_test_fail( test, suite, "account_index: %d   account missmatch: %s", i, (NULL != verbose) ? test->bt : "");
 
           if (do_dump) {
             /* Dump expected account bin */
@@ -405,7 +439,7 @@ int fd_executor_run_test(
       break;
     }
     if (NULL == fail_fast)
-      FD_LOG_NOTICE(("Passed test %d: %s", test->test_number, test->test_name));
+      FD_LOG_INFO(("Passed test %d: %s", test->test_number, test->test_name));
   } while (false);
 
   /* Revert the Funk transaction */
@@ -446,7 +480,7 @@ main( int     argc,
       char buf[ 256 ];
       while( NULL != fgets( buf, sizeof(buf), fp ) ) {
         ulong i = fd_cstr_to_ulong( buf );
-        FD_LOG_WARNING(( "Ignoring test %lu", i ));
+        FD_LOG_DEBUG(( "Ignoring test %lu", i ));
         if( i < (sizeof(suite.ignore_fail) / sizeof(suite.ignore_fail[0])) )
           suite.ignore_fail[ i ] = 1;
       }
@@ -495,7 +529,7 @@ main( int     argc,
     }
   }
 
-  FD_LOG_NOTICE(( "Progress: %lu/%lu tests (%lu tests failed but ignored)", success_cnt, executed_cnt, ignored_cnt ));
+  FD_LOG_NOTICE(( "Progress: %lu/%lu tests (%lu tests failed but ignored, %lu regressions)", success_cnt, executed_cnt, ignored_cnt, executed_cnt - success_cnt - ignored_cnt ));
 
   if (NULL != filter)
     regfree(&suite.filter_ex);

@@ -10,6 +10,7 @@
 #include "program/fd_builtin_programs.h"
 #include "../leaders/fd_leaders.h"
 #include "../capture/fd_solcap_writer.h"
+#include "../rewards/fd_rewards.h"
 
 #define FD_RUNTIME_EXECUTE_SUCCESS                               ( 0 )  /* Slot executed successfully */
 #define FD_RUNTIME_EXECUTE_GENERIC_ERR                          ( -1 ) /* The Slot execute returned an error */
@@ -144,7 +145,12 @@ fd_runtime_block_txnstatus_key( ulong slot ) {
   return id;
 }
 
-int               fd_pubkey_create_with_seed(fd_pubkey_t const * base, char const * seed, fd_pubkey_t const *owner, fd_pubkey_t *out );
+int
+fd_pubkey_create_with_seed( uchar const  base [ static 32 ],
+                            char const * seed,
+                            ulong        seed_sz,
+                            uchar const  owner[ static 32 ],
+                            uchar        out  [ static 32 ] );
 
 int               fd_runtime_save_banks    ( fd_global_ctx_t *global );
 int               fd_global_import_solana_manifest(fd_global_ctx_t *global, fd_solana_manifest_t* manifest);

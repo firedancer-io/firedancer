@@ -27,43 +27,6 @@ int fd_vote_transcoding_state_versioned_encode(fd_vote_state_versioned_t const *
 #define VOTE_ACCOUNT_14_SIZE ( 3731 )
 #define VOTE_ACCOUNT_SIZE ( 3762 )
 
-/* fd_vote_load_account loads the vote account at the given address.
-   On success, populates account with vote state info (which may be an
-   old version) and populates meta with generic account info. */
-
-int
-fd_vote_load_account( fd_vote_state_versioned_t * account,
-                      fd_account_meta_t *         meta,
-                      fd_global_ctx_t *           global,
-                      fd_pubkey_t const *         address ) {
-
-  /* Acquire view into raw vote account data */
-  int          acc_view_err = 0;
-  void const * raw_acc_data = fd_acc_mgr_view_data( global->acc_mgr, global->funk_txn, address, NULL, &acc_view_err );
-  if (NULL == raw_acc_data)
-    return acc_view_err;
-
-  /* Reinterpret account data buffer */
-  fd_account_meta_t const * meta_raw = (fd_account_meta_t const *)raw_acc_data;
-  void const *              data_raw = (void const *)( (ulong)raw_acc_data + FD_ACCOUNT_META_FOOTPRINT );
-
-  /* Copy metadata */
-  memcpy( meta, meta_raw, sizeof(fd_account_meta_t) );
-
-  /* Deserialize content */
-  fd_bincode_decode_ctx_t decode = {
-    .data    = data_raw,
-    .dataend = (void const *)( (ulong)data_raw + meta_raw->dlen ),
-    /* TODO: Make this a instruction-scoped allocator */
-    .valloc  = global->valloc,
-  };
-
-  if( FD_UNLIKELY( 0!=fd_vote_state_versioned_decode( account, &decode ) ) )
-    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
-
-  return FD_EXECUTOR_INSTR_SUCCESS;
-}
-
 /*
    fd_vote_upgrade_account migrates older versions of the vote account
    state in-place to the latest version.  Allocates the new version
@@ -207,22 +170,27 @@ fd_vote_upgrade_account( fd_vote_state_versioned_t * account,
   }
 }
 
-/* fd_vote_load_account_current is like fd_vote_load_account but also
-   upgrades the vote state object to the latest version.  On success,
-   account is a "current" kind vote state */
+/* fd_vote_load_account_current is like fd_vote_load_account (which does
+   not exist anymore lol) but also upgrades the vote state object to the
+   latest version.  On success, account is a "current" kind vote state */
 
 static int
 fd_vote_load_account_current( fd_vote_state_versioned_t * account,
-                              fd_account_meta_t *         meta,
+                              fd_account_meta_t const *   meta,
+                              uchar const *               acc_data,
                               fd_global_ctx_t *           global,
-                              fd_pubkey_t const *         address,
                               int                         allow_uninitialized,
                               ulong                       epoch) {
 
-  /* Load current version of account */
-  int load_res = fd_vote_load_account( account, meta, global, address );
-  if( FD_UNLIKELY( load_res != FD_EXECUTOR_INSTR_SUCCESS ) )
-    return load_res;
+  /* Deserialize vote account */
+  fd_bincode_decode_ctx_t decode = {
+    .data    = acc_data,
+    .dataend = acc_data + meta->dlen,
+    /* TODO: Make this a instruction-scoped allocator */
+    .valloc  = global->valloc,
+  };
+  if( FD_UNLIKELY( 0!=fd_vote_state_versioned_decode( account, &decode ) ) )
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
 
   /* Check if is initialized */
   int is_uninitialized = 1;
@@ -284,11 +252,9 @@ fd_vote_save_account(
       serialized_sz = VOTE_ACCOUNT_14_SIZE;
   }
 
-  ulong acc_sz = sizeof(fd_account_meta_t) + serialized_sz;
-
   int                err = 0;
   fd_funk_rec_t *    acc_data_rec = NULL;
-  char *             raw_acc_data = fd_acc_mgr_modify_data(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *)  address, 0, &acc_sz, NULL, &acc_data_rec, &err);
+  char *             raw_acc_data = fd_acc_mgr_modify_raw(ctx.global->acc_mgr, ctx.global->funk_txn, address, 0, serialized_sz, NULL, &acc_data_rec, &err);
   fd_account_meta_t *m = (fd_account_meta_t *) raw_acc_data;
 
   if (set_lamports)
@@ -321,7 +287,7 @@ fd_vote_save_account(
       FD_LOG_ERR(( "fd_vote_state_versioned_encode failed" ));
   }
 
-  return fd_acc_mgr_commit_data(ctx.global->acc_mgr, acc_data_rec, (fd_pubkey_t *) address, raw_acc_data, ctx.global->bank.slot, 0);
+  return fd_acc_mgr_commit_raw(ctx.global->acc_mgr, acc_data_rec, (fd_pubkey_t *) address, raw_acc_data, ctx.global->bank.slot, 0);
 }
 
 /* fd_vote_verify_authority verifies whether the current vote authority
@@ -515,7 +481,7 @@ vote_process_vote_current( instruction_ctx_t           ctx,
   /* Check that for each slot in the vote tower, we found a slot in the slot hashes:
       if so, we would have got to the end of the vote tower. */
   if ( vote_idx != vote_slots_new_cnt ) {
-    FD_LOG_WARNING(( "vote_idx != vote_slots_new_cnt" ));
+    FD_LOG_DEBUG(( "vote_idx != vote_slots_new_cnt" ));
     ctx.txn_ctx->custom_err = FD_VOTE_SLOTS_MISMATCH;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
@@ -524,7 +490,7 @@ vote_process_vote_current( instruction_ctx_t           ctx,
       matches the slot hashes hash for that slot. */
   fd_slot_hash_t const * hash = deq_fd_slot_hash_t_peek_index_const( slot_hashes->hashes, slot_hash_idx );
   if ( memcmp( &hash->hash, &vote->hash, sizeof(fd_hash_t) ) != 0 ) {
-    FD_LOG_WARNING(( "hash mismatch: slot: %lu slot_hash: %32J vote_hash: %32J", hash->slot, hash->hash.uc, vote->hash.uc ));
+    FD_LOG_DEBUG(( "hash mismatch: slot: %lu slot_hash: %32J vote_hash: %32J", hash->slot, hash->hash.uc, vote->hash.uc ));
     /* FIXME: re-visit when bank hashes are confirmed to be good */
     ctx.txn_ctx->custom_err = FD_VOTE_SLOT_HASH_MISMATCH;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
@@ -1111,17 +1077,23 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
 
   /* Accounts */
   uchar const *       instr_acc_idxs = ((uchar const *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
-  fd_pubkey_t const * txn_accs = (fd_pubkey_t const *)((uchar const *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
+  fd_pubkey_t const * txn_accs       = (fd_pubkey_t const *)((uchar const *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
 
-  /* Check vote account account owner.
-     TODO dedup metadata fetch */
   if( FD_UNLIKELY( ctx.instr->acct_cnt < 1 ) )
     return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
-  fd_pubkey_t vote_acc_owner;
-  int         get_owner_res = fd_acc_mgr_get_owner( ctx.global->acc_mgr, ctx.global->funk_txn, &txn_accs[instr_acc_idxs[0]], &vote_acc_owner );
-  if( FD_UNLIKELY( get_owner_res != FD_ACC_MGR_SUCCESS ) )
-    return get_owner_res;
-  if( FD_UNLIKELY( 0!=memcmp( &vote_acc_owner, ctx.global->solana_vote_program, 32UL ) ) )
+
+  /* Pre-flight check: Fetch vote account meta and check owner */
+
+  fd_pubkey_t       const * vote_acc_addr = &txn_accs[instr_acc_idxs[0]];
+  fd_funk_rec_t     const * vote_acc_rec  = NULL;
+  fd_account_meta_t const * vote_acc_meta = NULL;
+  uchar             const * vote_acc_data = NULL;
+
+  int err = fd_acc_mgr_view( ctx.global->acc_mgr, ctx.global->funk_txn, vote_acc_addr, &vote_acc_rec, &vote_acc_meta, &vote_acc_data );
+  if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) )
+    return err;
+
+  if( FD_UNLIKELY( 0!=memcmp( vote_acc_meta->info.owner, ctx.global->solana_vote_program, 32UL ) ) )
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
 
   /* Deserialize the Vote instruction */
@@ -1153,7 +1125,7 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
 
     /* Check that the accounts are correct
        https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_processor.rs#L72-L81 */
-    fd_pubkey_t const * vote_acc = &txn_accs[instr_acc_idxs[0]];
+
 
     /* Check that account at index 1 is the rent sysvar */
     if ( memcmp( &txn_accs[instr_acc_idxs[1]], ctx.global->sysvar_rent, sizeof(fd_pubkey_t) ) != 0 ) {
@@ -1176,30 +1148,15 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
 
     /* Check that the vote account is the correct size
        https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L1340-L1342 */
-    fd_account_meta_t metadata;
-    int               read_result = fd_acc_mgr_get_metadata( ctx.global->acc_mgr, ctx.global->funk_txn, vote_acc, &metadata );
-    if( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
-      FD_LOG_WARNING(( "failed to read account metadata" ));
-      ret = read_result;
-      break;
-    }
 
     bool add_vote_latency = FD_FEATURE_ACTIVE(ctx.global, vote_state_add_vote_latency );
 
-    if( FD_UNLIKELY( metadata.dlen != (add_vote_latency ? VOTE_ACCOUNT_SIZE : VOTE_ACCOUNT_14_SIZE) ) ) {
+    if( FD_UNLIKELY( vote_acc_meta->dlen != (add_vote_latency ? VOTE_ACCOUNT_SIZE : VOTE_ACCOUNT_14_SIZE) ) ) {
       ret = FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
       break;
     }
 
     /* Check, for both the current and V0_23_5 versions of the vote account state, that the vote account is uninitialized. */
-    uchar * vote_acc_data = fd_valloc_malloc( ctx.global->valloc, 8UL, metadata.dlen );
-    read_result = fd_acc_mgr_get_account_data( ctx.global->acc_mgr, ctx.global->funk_txn, vote_acc, (uchar*)vote_acc_data, sizeof(fd_account_meta_t), metadata.dlen );
-    if ( read_result != FD_ACC_MGR_SUCCESS ) {
-      FD_LOG_WARNING(( "failed to read account data" ));
-      fd_valloc_free( ctx.global->valloc, vote_acc_data );
-      ret = read_result;
-      break;
-    }
 
     /* Check that the account does not already contain an initialized vote state
        https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L1345-L1347
@@ -1210,12 +1167,11 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
     fd_vote_state_versioned_t stored_vote_state_versioned;
     fd_vote_state_versioned_new( &stored_vote_state_versioned );
     fd_bincode_decode_ctx_t ctx2;
-    ctx2.data = vote_acc_data;
-    ctx2.dataend = &vote_acc_data[metadata.dlen];
+    ctx2.data    = vote_acc_data;
+    ctx2.dataend = vote_acc_data + vote_acc_meta->dlen;
     ctx2.valloc  = ctx.global->valloc;
     if ( fd_vote_state_versioned_decode( &stored_vote_state_versioned, &ctx2 ) ) {
       FD_LOG_WARNING(("fd_vote_state_versioned_decode failed"));
-      fd_valloc_free( ctx.global->valloc, vote_acc_data );
       ret = FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
       break;
     }
@@ -1253,7 +1209,6 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
     fd_vote_state_versioned_destroy( &stored_vote_state_versioned, &destroy );
 
     if( FD_UNLIKELY( !uninitialized_vote_state ) ) {
-      fd_valloc_free( ctx.global->valloc, vote_acc_data );
       ret = FD_EXECUTOR_INSTR_ERR_ACC_ALREADY_INITIALIZED;
       break;
     }
@@ -1263,7 +1218,6 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
     /* TODO: factor signature check out */
     int node_pubkey_signed = fd_account_is_signer(&ctx, &init_account_params->node_pubkey);
     if( FD_UNLIKELY( !node_pubkey_signed ) ) {
-      fd_valloc_free( ctx.global->valloc, vote_acc_data );
       ret = FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
       break;
     }
@@ -1297,11 +1251,10 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
     vote_state->commission = init_account_params->commission;
 
     /* Write the new vote account back to the database */
-    int save_result = fd_vote_save_account( ctx, &vote_state_versioned, vote_acc, 0, 0);
+    int save_result = fd_vote_save_account( ctx, &vote_state_versioned, vote_acc_addr, 0, 0);
     if( FD_UNLIKELY( save_result != FD_EXECUTOR_INSTR_SUCCESS ) )
       ret = save_result;
 
-    fd_valloc_free( ctx.global->valloc, vote_acc_data );
     fd_vote_state_versioned_destroy( &vote_state_versioned, &destroy );
     break;
   }
@@ -1316,16 +1269,13 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
       FD_LOG_INFO(( "executing VoteInstruction::Vote instruction" ));
       vote = &instruction.inner.vote;
     } else {
-      FD_LOG_WARNING(( "executing VoteInstruction::VoteSwitch instruction" ));
+      FD_LOG_INFO(( "executing VoteInstruction::VoteSwitch instruction" ));
       vote = &instruction.inner.vote_switch.vote;
     }
 
     int err = fd_account_sanity_check(&ctx, 3);
     if (FD_UNLIKELY(FD_EXECUTOR_INSTR_SUCCESS != err))
       return err;
-
-    /* Check that the accounts are correct */
-    fd_pubkey_t const * vote_acc = &txn_accs[instr_acc_idxs[0]];
 
     /* Ensure that keyed account 1 is the slot hashes sysvar */
     if( FD_UNLIKELY( 0!=memcmp( &txn_accs[instr_acc_idxs[1]], ctx.global->sysvar_slot_hashes, sizeof(fd_pubkey_t) ) ) ) {
@@ -1343,10 +1293,8 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
     fd_sysvar_clock_read( ctx.global, &clock );
 
     /* Read vote account */
-    fd_account_meta_t         meta;
     fd_vote_state_versioned_t vote_state_versioned;
-
-    int result = fd_vote_load_account_current( &vote_state_versioned, &meta, ctx.global, vote_acc, /* allow_uninitialized */ 0, clock.epoch );
+    int result = fd_vote_load_account_current( &vote_state_versioned, vote_acc_meta, vote_acc_data, ctx.global, /* allow_uninitialized */ 0, clock.epoch );
     if( FD_UNLIKELY( 0!=result ) ) {
       ret = result;
       break;
@@ -1385,7 +1333,7 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
     }
 
     /* Write the new vote account back to the database */
-    int save_result = fd_vote_save_account( ctx, &vote_state_versioned, vote_acc, 0, 0);
+    int save_result = fd_vote_save_account( ctx, &vote_state_versioned, vote_acc_addr, 0, 0);
     if( FD_UNLIKELY( save_result != FD_EXECUTOR_INSTR_SUCCESS ) ) {
       fd_vote_state_versioned_destroy(&vote_state_versioned, &destroy);
       fd_slot_hashes_destroy( &slot_hashes, &destroy );
@@ -1395,7 +1343,7 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
 
     /* Record the timestamp vote */
     if ( vote->timestamp != NULL ) {
-      record_timestamp_vote( ctx.global, vote_acc, *vote->timestamp );
+      record_timestamp_vote( ctx.global, vote_acc_addr, *vote->timestamp );
     }
 
     fd_slot_hashes_destroy( &slot_hashes, &destroy );
@@ -1420,7 +1368,7 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
       vote_state_update = &instruction.inner.update_vote_state;
       break;
     case fd_vote_instruction_enum_update_vote_state_switch:
-      FD_LOG_WARNING(( "executing VoteInstruction::UpdateVoteStateSwitch instruction" ));
+      FD_LOG_INFO(( "executing VoteInstruction::UpdateVoteStateSwitch instruction" ));
       vote_state_update = &instruction.inner.update_vote_state_switch.vote_state_update;
       break;
     case fd_vote_instruction_enum_compact_update_vote_state:
@@ -1431,7 +1379,7 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
       break;
     default:
       // What are we supposed to do here?  What about the hash?
-      FD_LOG_WARNING(( "executing vote program instruction: fd_vote_instruction_enum_compact_update_vote_state_switch"));
+      FD_LOG_DEBUG(( "executing vote program instruction: fd_vote_instruction_enum_compact_update_vote_state_switch"));
       is_compact = true;
       decode_compact_update(ctx, &instruction.inner.compact_update_vote_state_switch.compact_vote_state_update, &decode);  /* ALLOCATES! */
       vote_state_update = &decode;
@@ -1440,14 +1388,14 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
 
     if( FD_UNLIKELY( !FD_FEATURE_ACTIVE(ctx.global, allow_votes_to_directly_update_vote_state ) )) {
       if( is_compact ) fd_valloc_free( ctx.global->valloc, deq_fd_vote_lockout_t_delete( deq_fd_vote_lockout_t_leave( decode.lockouts ) ) );
-      FD_LOG_WARNING(( "executing VoteInstruction::UpdateVoteState instruction, but feature is not active" ));
+      FD_LOG_DEBUG(( "executing VoteInstruction::UpdateVoteState instruction, but feature is not active" ));
       ret = FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
       break;
     }
 
     if ( is_compact && !FD_FEATURE_ACTIVE( ctx.global, compact_vote_state_updates )) {
       fd_valloc_free( ctx.global->valloc, deq_fd_vote_lockout_t_delete( deq_fd_vote_lockout_t_leave( decode.lockouts ) ) );
-      FD_LOG_WARNING(( "executing VoteInstruction::CompactUpdateVoteState instruction, but feature is not active" ));
+      FD_LOG_DEBUG(( "executing VoteInstruction::CompactUpdateVoteState instruction, but feature is not active" ));
       ret = FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
       break;
     }
@@ -1458,15 +1406,13 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
     FD_TEST( result==0 );
 
     /* Read vote account state stored in the vote account data */
-    fd_pubkey_t const * vote_acc = &txn_accs[instr_acc_idxs[0]];
 
     fd_sol_sysvar_clock_t clock;
     fd_sysvar_clock_read( ctx.global, &clock );
 
     /* Read vote account */
-    fd_account_meta_t         meta;
     fd_vote_state_versioned_t vote_state_versioned;
-    result = fd_vote_load_account_current( &vote_state_versioned, &meta, ctx.global, vote_acc, /* allow_uninitialized */ 0, clock.epoch );
+    result = fd_vote_load_account_current( &vote_state_versioned, vote_acc_meta, vote_acc_data, ctx.global, /* allow_uninitialized */ 0, clock.epoch );
     if( FD_UNLIKELY( 0!=result ) ) {
       ret = result;
       break;
@@ -1834,7 +1780,7 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
     // process_new_vote_state end
 
     /* Write the new vote account back to the database */
-    int save_result = fd_vote_save_account( ctx, &vote_state_versioned, vote_acc, 0, 0);
+    int save_result = fd_vote_save_account( ctx, &vote_state_versioned, vote_acc_addr, 0, 0);
     if( FD_UNLIKELY( save_result != FD_EXECUTOR_INSTR_SUCCESS ) ) {
       ret = save_result;
       break;
@@ -1842,7 +1788,7 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
 
     /* Record the timestamp vote */
     if( vote_state_update->timestamp != NULL ) {
-      record_timestamp_vote( ctx.global, vote_acc, *vote_state_update->timestamp );
+      record_timestamp_vote( ctx.global, vote_acc_addr, *vote_state_update->timestamp );
     }
 
     fd_vote_state_versioned_destroy( &vote_state_versioned, &destroy );
@@ -1863,7 +1809,6 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
     }
 
     /* Instruction accounts (untrusted user inputs) */
-    fd_pubkey_t const * vote_acc_addr  = &txn_accs[instr_acc_idxs[0]];
     fd_pubkey_t const * clock_acc_addr = &txn_accs[instr_acc_idxs[1]];
 
     /* Check that account at index 1 is the clock sysvar */
@@ -1875,9 +1820,8 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
     /* Context: solana_vote_program::vote_state::authorize */
 
     /* Read vote account */
-    fd_account_meta_t         meta;
     fd_vote_state_versioned_t vote_state_versioned;
-    int load_res = fd_vote_load_account_current( &vote_state_versioned, &meta, ctx.global, vote_acc_addr, /* allow_uninitialized */ 1, clock.epoch );
+    int load_res = fd_vote_load_account_current( &vote_state_versioned, vote_acc_meta, vote_acc_data, ctx.global, /* allow_uninitialized */ 1, clock.epoch );
     if( FD_UNLIKELY( 0!=load_res ) ) {
       ret = load_res;
       break;
@@ -1919,7 +1863,6 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
     }
 
     /* Instruction accounts (untrusted user inputs) */
-    fd_pubkey_t const * vote_acc_addr  = &txn_accs[instr_acc_idxs[0]];
     fd_pubkey_t const * clock_acc_addr = &txn_accs[instr_acc_idxs[1]];
     fd_pubkey_t const * voter_pubkey   = &txn_accs[instr_acc_idxs[3]];
 
@@ -1938,9 +1881,8 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
     fd_sysvar_clock_read( ctx.global, &clock );
 
     /* Read vote account */
-    fd_account_meta_t         meta;
     fd_vote_state_versioned_t vote_state_versioned;
-    int result = fd_vote_load_account_current( &vote_state_versioned, &meta, ctx.global, vote_acc_addr, /* allow_uninitialized */ 1 , clock.epoch);
+    int result = fd_vote_load_account_current( &vote_state_versioned, vote_acc_meta, vote_acc_data, ctx.global, /* allow_uninitialized */ 1 , clock.epoch);
     if( FD_UNLIKELY( 0!=result ) ) {
       ret = result;
       break;
@@ -1982,7 +1924,6 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
     }
 
     /* Instruction accounts (untrusted user inputs) */
-    fd_pubkey_t const * vote_acc_addr  = &txn_accs[instr_acc_idxs[0]];
     fd_pubkey_t const * clock_acc_addr = &txn_accs[instr_acc_idxs[1]];
     fd_pubkey_t const * base_key_addr  = &txn_accs[instr_acc_idxs[2]];
 
@@ -2001,10 +1942,11 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
     if( instr_acc_idxs[2] < ctx.txn_ctx->txn_descriptor->signature_cnt ) {
       delegate_key_opt = &delegate_key;
       int derive_result = fd_pubkey_create_with_seed(
-            base_key_addr,
+            base_key_addr->uc,
             args->current_authority_derived_key_seed,
-            &args->current_authority_derived_key_owner,
-            &delegate_key );
+            strlen( args->current_authority_derived_key_seed ),
+            args->current_authority_derived_key_owner.uc,
+            delegate_key.uc );
       if( FD_UNLIKELY( derive_result != FD_RUNTIME_EXECUTE_SUCCESS ) ) {
         ret = derive_result;
         break;
@@ -2014,9 +1956,8 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
     /* Context: solana_vote_program::vote_state::authorize */
 
     /* Read vote account */
-    fd_account_meta_t         meta;
     fd_vote_state_versioned_t vote_state_versioned;
-    int result = fd_vote_load_account_current( &vote_state_versioned, &meta, ctx.global, vote_acc_addr, /* allow_uninitialized */ 1, clock.epoch );
+    int result = fd_vote_load_account_current( &vote_state_versioned, vote_acc_meta, vote_acc_data, ctx.global, /* allow_uninitialized */ 1, clock.epoch );
     if( FD_UNLIKELY( 0!=result ) ) {
       ret = result;
       break;
@@ -2052,7 +1993,6 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
     }
 
     /* Read vote account state stored in the vote account data */
-    fd_pubkey_t const * vote_acc_addr  = &txn_accs[instr_acc_idxs[0]];
     fd_pubkey_t const * clock_acc_addr = &txn_accs[instr_acc_idxs[1]];
     fd_pubkey_t const * base_key_addr  = &txn_accs[instr_acc_idxs[2]];
     fd_pubkey_t const * voter_pubkey   = &txn_accs[instr_acc_idxs[3]];
@@ -2081,10 +2021,11 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
     if( instr_acc_idxs[2] < ctx.txn_ctx->txn_descriptor->signature_cnt ) {
       delegate_key_opt = &delegate_key;
       int derive_result = fd_pubkey_create_with_seed(
-            base_key_addr,
+            base_key_addr->uc,
             args->current_authority_derived_key_seed,
-            &args->current_authority_derived_key_owner,
-            &delegate_key );
+            strlen( args->current_authority_derived_key_seed ),
+            args->current_authority_derived_key_owner.uc,
+            delegate_key.uc );
       if( FD_UNLIKELY( derive_result != FD_RUNTIME_EXECUTE_SUCCESS ) ) {
         ret = derive_result;
         break;
@@ -2094,9 +2035,8 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
     /* Context: solana_vote_program::vote_state::authorize */
 
     /* Read vote account */
-    fd_account_meta_t         meta;
     fd_vote_state_versioned_t vote_state_versioned;
-    int result = fd_vote_load_account_current( &vote_state_versioned, &meta, ctx.global, vote_acc_addr, /* allow_uninitialized */ 1, clock.epoch );
+    int result = fd_vote_load_account_current( &vote_state_versioned, vote_acc_meta, vote_acc_data, ctx.global, /* allow_uninitialized */ 1, clock.epoch );
     if( FD_UNLIKELY( 0!=result ) ) {
       ret = result;
       break;
@@ -2123,7 +2063,6 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
     FD_LOG_INFO(( "executing VoteInstruction::UpdateValidatorIdentity instruction" ));
 
     /* Read vote account state stored in the vote account data */
-    fd_pubkey_t const * vote_acc_addr = &txn_accs[instr_acc_idxs[0]];
     fd_pubkey_t const * new_identity  = &txn_accs[instr_acc_idxs[1]];
 
     /* Require at least two accounts */
@@ -2136,9 +2075,8 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
     fd_sysvar_clock_read( ctx.global, &clock );
 
     /* Read vote account */
-    fd_account_meta_t         meta;
     fd_vote_state_versioned_t vote_state_versioned;
-    int result = fd_vote_load_account_current( &vote_state_versioned, &meta, ctx.global, vote_acc_addr, /* allow_uninitialized */ 0, clock.epoch );
+    int result = fd_vote_load_account_current( &vote_state_versioned, vote_acc_meta, vote_acc_data, ctx.global, /* allow_uninitialized */ 0, clock.epoch );
     if( FD_UNLIKELY( 0!=result ) ) {
       ret = result;
       break;
@@ -2169,15 +2107,13 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
     }
 
     /* Read vote account state stored in the vote account data */
-    fd_pubkey_t const * vote_acc_addr = &txn_accs[instr_acc_idxs[0]];
 
     fd_sol_sysvar_clock_t clock;
     fd_sysvar_clock_read( ctx.global, &clock );
 
     /* Read vote account */
-    fd_account_meta_t         meta;
     fd_vote_state_versioned_t vote_state_versioned;
-    int result = fd_vote_load_account_current( &vote_state_versioned, &meta, ctx.global, vote_acc_addr, /* allow_uninitialized */ 0, clock.epoch );
+    int result = fd_vote_load_account_current( &vote_state_versioned, vote_acc_meta, vote_acc_data, ctx.global, /* allow_uninitialized */ 0, clock.epoch );
     if( FD_UNLIKELY( 0!=result ) ) {
       ret = result;
       break;
@@ -2211,13 +2147,10 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
     }
 
     /* Read vote account state stored in the vote account data */
-    fd_pubkey_t const * vote_acc_addr = &txn_accs[instr_acc_idxs[0]];
 
     /* Load vote account */
-    fd_account_meta_t         metadata;
     fd_vote_state_versioned_t vote_state_versioned;
-    int load_res = fd_vote_load_account_current(
-          &vote_state_versioned, &metadata, ctx.global, vote_acc_addr, /* allow_uninitialized */ 0, clock.epoch );
+    int load_res = fd_vote_load_account_current( &vote_state_versioned, vote_acc_meta, vote_acc_data, ctx.global, /* allow_uninitialized */ 0, clock.epoch );
     if( FD_UNLIKELY( load_res != FD_EXECUTOR_INSTR_SUCCESS ) ) {
       ret = load_res;
       break;
@@ -2236,7 +2169,7 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
     }
 
     ulong withdraw_amount = instruction.inner.withdraw;
-    ulong pre_balance = metadata.info.lamports;
+    ulong pre_balance = vote_acc_meta->info.lamports;
     if( withdraw_amount > pre_balance ) {
       ret = FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;    /* leaks */
       fd_vote_state_versioned_destroy(&vote_state_versioned, &destroy);
@@ -2268,7 +2201,7 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
       };
       vote_state->prior_voters = prior_voters;
     } else {
-      ulong minimum_balance = fd_rent_exempt_minimum_balance( ctx.global, metadata.dlen );
+      ulong minimum_balance = fd_rent_exempt_minimum_balance( ctx.global, vote_acc_meta->dlen );
       if( FD_UNLIKELY( post_balance < minimum_balance ) ) {
         fd_vote_state_versioned_destroy(&vote_state_versioned, &destroy);
         ret = FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
@@ -2276,11 +2209,9 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
       }
     }
 
-    metadata.info.lamports = post_balance;
-
     /* Write back the new vote state */
 
-    int save_result = fd_vote_save_account( ctx, &vote_state_versioned, vote_acc_addr, 1, metadata.info.lamports );
+    int save_result = fd_vote_save_account( ctx, &vote_state_versioned, vote_acc_addr, 1, post_balance );
     ret = save_result;
 
     fd_vote_state_versioned_destroy( &vote_state_versioned, &destroy );
@@ -2313,15 +2244,13 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
   //   }
 
   //   /* Read vote account state stored in the vote account data */
-  //   fd_pubkey_t const * vote_acc = &txn_accs[instr_acc_idxs[0]];
 
   //   fd_sol_sysvar_clock_t clock;
   //   fd_sysvar_clock_read( ctx.global, &clock );
 
   //   /* Read vote account */
-  //   fd_account_meta_t         meta;
   //   fd_vote_state_versioned_t vote_state_versioned;
-  //   int result = fd_vote_load_account_current( &vote_state_versioned, &meta, ctx.global, vote_acc, /* allow_uninitialized */ 0, clock.epoch );
+  //   int result = fd_vote_load_account_current( &vote_state_versioned, vote_acc_meta, vote_acc_data, ctx.global, /* allow_uninitialized */ 0, clock.epoch );
   //   if( FD_UNLIKELY( 0!=result ) ) {
   //     ret = result;
   //     break;
@@ -2416,15 +2345,17 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L1041 */
 int
-fd_vote_acc_credits( fd_global_ctx_t* global, fd_pubkey_t * vote_acc, ulong* result ) {
+fd_vote_acc_credits( fd_global_ctx_t *         global,
+                     fd_account_meta_t const * vote_acc_meta,
+                     uchar const *             vote_acc_data,
+                     ulong *                   result ) {
 
   fd_sol_sysvar_clock_t clock;
   fd_sysvar_clock_read( global, &clock );
 
   /* Read vote account */
-  fd_account_meta_t         meta;
   fd_vote_state_versioned_t versioned;
-  int load_res = fd_vote_load_account_current( &versioned, &meta, global, vote_acc, /* allow_uninitialized */ 0, clock.epoch );
+  int load_res = fd_vote_load_account_current( &versioned, vote_acc_meta, vote_acc_data, global, /* allow_uninitialized */ 0, clock.epoch );
   if( FD_UNLIKELY( load_res != FD_EXECUTOR_INSTR_SUCCESS ) )
     return load_res;
 

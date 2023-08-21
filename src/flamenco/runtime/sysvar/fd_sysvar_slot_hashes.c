@@ -89,7 +89,7 @@ fd_sysvar_slot_hashes_read( fd_global_ctx_t *  global,
 //  FD_LOG_INFO(( "SysvarS1otHashes111111111111111111111111111 at slot %lu: " FD_LOG_HEX16_FMT, global->bank.slot, FD_LOG_HEX16_FMT_ARGS(     metadata.hash    ) ));
 
   int err = 0;
-  uchar const * raw_acc_data = fd_acc_mgr_view_data( global->acc_mgr, global->funk_txn, (fd_pubkey_t const *)global->sysvar_slot_hashes, NULL, &err );
+  uchar const * raw_acc_data = fd_acc_mgr_view_raw( global->acc_mgr, global->funk_txn, (fd_pubkey_t const *)global->sysvar_slot_hashes, NULL, &err );
   if( FD_UNLIKELY( !raw_acc_data ) ) return err;
 
   fd_account_meta_t const * metadata = (fd_account_meta_t const *)raw_acc_data;

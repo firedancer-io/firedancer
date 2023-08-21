@@ -9,39 +9,61 @@
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/src/native_loader.rs#L19 */
 void
 fd_write_builtin_bogus_account( fd_global_ctx_t * global,
-                             uchar const       pubkey[ static 32 ],
-                             char const *      data,
-                             ulong             sz ) {
+                                uchar const       pubkey[ static 32 ],
+                                char const *      data,
+                                ulong             sz ) {
 
-  fd_solana_account_t account = {
-    .lamports   = 1,
-    .rent_epoch = 0,
-    .data_len   = sz,
-    .data       = (uchar*) data,
-    .executable = (uchar) 1
-  };
-  fd_memcpy( account.owner.key, global->solana_native_loader, 32 );
+  fd_acc_mgr_t *      acc_mgr = global->acc_mgr;
+  fd_funk_txn_t *     txn     = global->funk_txn;
+  fd_pubkey_t const * key     = (fd_pubkey_t const *)pubkey;
+  fd_funk_rec_t *     rec     = NULL;
+  fd_account_meta_t * meta_rw = NULL;
+  uchar *             data_rw = NULL;
 
-  fd_acc_mgr_write_structured_account( global->acc_mgr, global->funk_txn, global->bank.slot, (fd_pubkey_t *) pubkey, &account );
+  int err = fd_acc_mgr_modify( acc_mgr, txn, key, 1, sz, NULL, &rec, &meta_rw, &data_rw );
+  FD_TEST( !err );
+
+  meta_rw->dlen            = sz;
+  meta_rw->info.lamports   = 1UL;
+  meta_rw->info.rent_epoch = 0UL;
+  meta_rw->info.executable = 1;
+  fd_memcpy( meta_rw->info.owner, global->solana_native_loader, 32 );
+  memcpy( data_rw, data, sz );
+
+  err = fd_acc_mgr_commit_raw( acc_mgr, rec, key, meta_rw, global->bank.slot, 0 );
+  FD_TEST( !err );
 }
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/inline_spl_token.rs#L74 */
 /* TODO: move this somewhere more appropiate */
-void write_inline_spl_native_mint_program_account( fd_global_ctx_t* global ) {
+void
+write_inline_spl_native_mint_program_account( fd_global_ctx_t * global ) {
+
+  fd_acc_mgr_t *      acc_mgr = global->acc_mgr;
+  fd_funk_txn_t *     txn     = global->funk_txn;
+  fd_pubkey_t const * key     = (fd_pubkey_t const *)global->solana_spl_native_mint;
+  fd_funk_rec_t *     rec     = NULL;
+  fd_account_meta_t * meta_rw = NULL;
+  uchar *             data_rw = NULL;
+
   /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/inline_spl_token.rs#L86-L90 */
-    uchar data[] = {
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 9, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-  fd_solana_account_t account = {
-    .lamports = 1000000000,
-    .rent_epoch = 1,
-    .data_len = sizeof(data),
-    .data = (unsigned char *) data,
-    .executable = (uchar) 0
-  };
-  fd_memcpy( account.owner.key, global->solana_spl_token, 32 );
-  fd_acc_mgr_write_structured_account( global->acc_mgr, global->funk_txn, global->bank.slot, (fd_pubkey_t *) global->solana_spl_native_mint, &account );
+  static uchar const data[] = {
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 9, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+
+  int err = fd_acc_mgr_modify( acc_mgr, txn, key, 1, sizeof(data), NULL, &rec, &meta_rw, &data_rw );
+  FD_TEST( !err );
+
+  meta_rw->dlen            = sizeof(data);
+  meta_rw->info.lamports   = 1000000000UL;
+  meta_rw->info.rent_epoch = 1UL;
+  meta_rw->info.executable = 0;
+  fd_memcpy( meta_rw->info.owner, global->solana_spl_token, 32 );
+  memcpy( data_rw, data, sizeof(data) );
+
+  err = fd_acc_mgr_commit_raw( acc_mgr, rec, key, meta_rw, global->bank.slot, 0 );
+  FD_TEST( !err );
 }
 
 void fd_builtin_programs_init( fd_global_ctx_t* global ) {

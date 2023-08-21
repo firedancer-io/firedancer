@@ -52,7 +52,7 @@ typedef struct fd_vote_reward_t_mapnode fd_vote_reward_t_mapnode_t;
 
 #define MAP_NAME              fd_vote_reward_t_map
 #define MAP_T                 fd_vote_reward_t_mapnode_t
-#define MAP_LG_SLOT_CNT       9
+// #define MAP_LG_SLOT_CNT       9
 #define MAP_MEMOIZE           0
 #define MAP_KEY               vote_pubkey
 #define MAP_KEY_T             fd_pubkey_t *
@@ -146,6 +146,20 @@ struct fd_calculate_rewards_and_distribute_vote_rewards_result {
 typedef struct fd_calculate_rewards_and_distribute_vote_rewards_result fd_calculate_rewards_and_distribute_vote_rewards_result_t;
 
 FD_PROTOTYPES_BEGIN
+
+void
+begin_partitioned_rewards(
+    fd_global_ctx_t * global,
+    ulong parent_epoch,
+    ulong parent_slot,
+    ulong parent_height
+);
+
+void
+update_rewards(
+    fd_global_ctx_t * global,
+    ulong prev_epoch
+);
 
 FD_PROTOTYPES_END
 

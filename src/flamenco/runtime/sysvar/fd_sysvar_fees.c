@@ -15,26 +15,27 @@ void write_fees( fd_global_ctx_t* global, fd_sysvar_fees_t* fees ) {
   fd_sysvar_set( global, global->sysvar_owner, (fd_pubkey_t *) global->sysvar_fees, enc, sz, global->bank.slot );
 }
 
-void fd_sysvar_fees_read( fd_global_ctx_t* global, fd_sysvar_fees_t* result ) {
-  fd_account_meta_t metadata;
-  int               read_result = fd_acc_mgr_get_metadata( global->acc_mgr, global->funk_txn, (fd_pubkey_t *) global->sysvar_fees, &metadata );
-  if ( read_result != FD_ACC_MGR_SUCCESS ) {
-    FD_LOG_NOTICE(( "failed to read account metadata: %d", read_result ));
+void
+fd_sysvar_fees_read( fd_global_ctx_t  * global,
+                     fd_sysvar_fees_t * result ) {
+
+  int err = 0;
+  uchar const * record = fd_acc_mgr_view_raw( global->acc_mgr, global->funk_txn, (fd_pubkey_t const *)global->sysvar_fees, NULL, &err );
+  if( FD_UNLIKELY( !record ) ) {
+    FD_LOG_ERR(( "failed to read fees sysvar: %d", err ));
     return;
   }
 
-  unsigned char *raw_acc_data = fd_alloca( 1, metadata.dlen );
-  read_result = fd_acc_mgr_get_account_data( global->acc_mgr, global->funk_txn, (fd_pubkey_t *) global->sysvar_fees, raw_acc_data, metadata.hlen, metadata.dlen );
-  if ( read_result != FD_ACC_MGR_SUCCESS ) {
-    FD_LOG_NOTICE(( "failed to read account data: %d", read_result ));
-    return;
-  }
+  fd_account_meta_t const * metadata     = (fd_account_meta_t const *)record;
+  uchar const *             raw_acc_data = record + metadata->hlen;
 
-  fd_bincode_decode_ctx_t ctx;
-  ctx.data = raw_acc_data;
-  ctx.dataend = raw_acc_data + metadata.dlen;
-  ctx.valloc  = global->valloc;
-  if ( fd_sysvar_fees_decode( result, &ctx ) )
+  fd_bincode_decode_ctx_t decode = {
+    .data    = raw_acc_data,
+    .dataend = raw_acc_data + metadata->dlen,
+    .valloc  = global->valloc
+  };
+
+  if( FD_UNLIKELY( fd_sysvar_fees_decode( result, &decode ) ) )
     FD_LOG_ERR(("fd_sysvar_fees_decode failed"));
 }
 

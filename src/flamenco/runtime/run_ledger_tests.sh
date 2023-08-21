@@ -81,7 +81,7 @@ fi
 
 rm $log
 
-"$OBJDIR"/unit-test/test_native_programs --ignore_fail_file src/flamenco/runtime/tests/ignore_fail >& native.log
+"$OBJDIR"/unit-test/test_native_programs >& native.log
 
 status=$?
 

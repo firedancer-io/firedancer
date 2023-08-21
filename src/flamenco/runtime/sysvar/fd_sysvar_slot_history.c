@@ -54,60 +54,57 @@ void fd_sysvar_slot_history_init( fd_global_ctx_t* global ) {
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/bank.rs#L2345 */
 int fd_sysvar_slot_history_update( fd_global_ctx_t* global ) {
   /* Set current_slot, and update next_slot */
-  fd_slot_history_t history;
-  fd_slot_history_new(&history);
 
-  int err = 0;
-  fd_funk_rec_t const *con_rec = NULL;
-  char * raw_acc_data = (char*) fd_acc_mgr_view_data(global->acc_mgr, global->funk_txn, (fd_pubkey_t *) global->sysvar_slot_history , &con_rec, &err);
-  if (NULL == raw_acc_data)
-    return err;
-  fd_account_meta_t *m = (fd_account_meta_t *) raw_acc_data;
+  fd_pubkey_t const * key = (fd_pubkey_t *)global->sysvar_slot_history;
+
+  fd_funk_rec_t const *     con_rec = NULL;
+  fd_account_meta_t const * m       = NULL;
+  uchar const *             data    = NULL;
+  int err = fd_acc_mgr_view( global->acc_mgr, global->funk_txn, key, &con_rec, &m, &data );
+  if (err)
+    FD_LOG_CRIT(( "fd_acc_mgr_view(slot_history) failed: %d", err ));
 
   fd_bincode_decode_ctx_t ctx;
-  ctx.data = raw_acc_data + m->hlen;
-  ctx.dataend = (uchar *) ctx.data + m->dlen;
+  ctx.data    = data;
+  ctx.dataend = data + m->dlen;
   ctx.valloc  = global->valloc;
-  err = fd_slot_history_decode( &history, &ctx );
-  if (0 != err)
-    return err;
+  fd_slot_history_t history[1];
+  fd_slot_history_new( history );
+  if( fd_slot_history_decode( history, &ctx ) )
+    FD_LOG_ERR(("fd_slot_history_decode failed"));
 
   /* TODO: handle case where current_slot > max_entries */
 
   /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_history.rs#L48 */
-  fd_sysvar_slot_history_set( &history, global->bank.slot );
-  history.next_slot = global->bank.slot + 1;
+  fd_sysvar_slot_history_set( history, global->bank.slot );
+  history->next_slot = global->bank.slot + 1;
 
-  ulong          sz = fd_slot_history_size( &history );
-  if (sz < slot_history_min_account_size)
+  ulong sz = fd_slot_history_size( history );
+  if( sz < slot_history_min_account_size )
     sz = slot_history_min_account_size;
 
-  fd_funk_rec_t * acc_data_rec = NULL;
+  fd_funk_rec_t *     acc_rec  = NULL;
+  fd_account_meta_t * acc_meta = NULL;
+  uchar *             acc_data = NULL;
+  err = fd_acc_mgr_modify( global->acc_mgr, global->funk_txn, key, 1, sz, con_rec, &acc_rec, &acc_meta, &acc_data );
+  if (err)
+    FD_LOG_CRIT(( "fd_acc_mgr_modify(slot_history) failed: %d", err ));
 
-  ulong acc_sz = sizeof(fd_account_meta_t) + sz;
+  fd_bincode_encode_ctx_t e_ctx = {
+    .data    = acc_data,
+    .dataend = acc_data+sz
+  };
+  if( fd_slot_history_encode( history, &e_ctx ) )
+    return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
 
-  raw_acc_data = fd_acc_mgr_modify_data(global->acc_mgr, global->funk_txn, (fd_pubkey_t *) global->sysvar_slot_history, 1, &acc_sz, con_rec, &acc_data_rec, &err);
-  if ( FD_UNLIKELY (NULL == raw_acc_data) )
-    return FD_ACC_MGR_ERR_READ_FAILED;
+  /* wtf */
+  acc_meta->info.lamports = (sz + 128) * ((ulong) ((double)global->bank.rent.lamports_per_uint8_year * global->bank.rent.exemption_threshold));
 
-  m = (fd_account_meta_t *)raw_acc_data;
-
-  fd_bincode_encode_ctx_t e_ctx;
-  e_ctx.data = raw_acc_data + m->hlen;
-  e_ctx.dataend = (char*)e_ctx.data + sz;
-  err = fd_slot_history_encode( &history, &e_ctx );
-  if (0 != err)
-    return err;
-
-  m->info.lamports = (sz + 128) * ((ulong) ((double)global->bank.rent.lamports_per_uint8_year * global->bank.rent.exemption_threshold));
-
-  m->dlen = sz;
-  fd_memcpy(m->info.owner, global->sysvar_owner, 32);
-
-  err = fd_acc_mgr_commit_data(global->acc_mgr, acc_data_rec, (fd_pubkey_t *) global->sysvar_slot_history, raw_acc_data, global->bank.slot, 0);
+  acc_meta->dlen = sz;
+  fd_memcpy( acc_meta->info.owner, global->sysvar_owner, 32 );
 
   fd_bincode_destroy_ctx_t ctx_d = { .valloc = global->valloc };
-  fd_slot_history_destroy( &history, &ctx_d );
+  fd_slot_history_destroy( history, &ctx_d );
 
-  return err;
+  return fd_acc_mgr_commit_raw(global->acc_mgr, acc_rec, (fd_pubkey_t *) global->sysvar_slot_history, acc_meta, global->bank.slot, 0);
 }

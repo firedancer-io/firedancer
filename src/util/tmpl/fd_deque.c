@@ -80,6 +80,8 @@
 
 #include "../bits/fd_bits.h"
 
+#include <stddef.h>
+
 #ifndef DEQUE_NAME
 #error "Define DEQUE_NAME"
 #endif
@@ -135,14 +137,14 @@ FD_PROTOTYPES_BEGIN
 
 FD_FN_CONST static inline DEQUE_(private_t) *
 DEQUE_(private_hdr_from_deque)( DEQUE_T * deque ) {
-  return (DEQUE_(private_t) *)( (ulong)deque - (ulong)&(((DEQUE_(private_t) *)NULL)->deque) );
+  return (DEQUE_(private_t) *)( (ulong)deque - offsetof(DEQUE_(private_t), deque) );
 }
 
 /* const-correct version of above */
 
 FD_FN_CONST static inline DEQUE_(private_t) const *
 DEQUE_(private_const_hdr_from_deque)( DEQUE_T const * deque ) {
-  return (DEQUE_(private_t) const *)( (ulong)deque - (ulong)&(((DEQUE_(private_t) *)NULL)->deque) );
+  return (DEQUE_(private_t) const *)( (ulong)deque - offsetof(DEQUE_(private_t), deque) );
 }
 
 /* private_slot maps an index to a slot cnt.  The compiler should

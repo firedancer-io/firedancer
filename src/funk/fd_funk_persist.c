@@ -138,7 +138,7 @@ fd_funk_persist_alloc( fd_funk_t * funk, ulong needed, ulong * actual ) {
     fd_funk_persist_free_entry_t * pool = (fd_funk_persist_free_entry_t *)
       fd_wksp_laddr_fast( wksp, funk->persist_frees_gaddr );
     fd_funk_persist_free_entry_t * root = pool + funk->persist_frees_root;
-    
+
     /* Find the best fit from the existing free blocks */
     fd_funk_persist_free_entry_t key;
     key.alloc_sz = needed;
@@ -147,7 +147,7 @@ fd_funk_persist_alloc( fd_funk_t * funk, ulong needed, ulong * actual ) {
       node = fd_funk_persist_free_map_successor(pool, node);
     if ( node && node->alloc_sz < needed )
       FD_LOG_CRIT(( "corrupt fd_funk_persist_free_map" ));
-    
+
     /* See if we found a good fit without too much slop */
     if ( node && node->alloc_sz <= needed + (needed>>2) ) { /* max 25% slop */
       *actual = node->alloc_sz;
@@ -352,13 +352,13 @@ fd_funk_persist_recover_walog( fd_funk_t * funk, struct fd_funk_persist_walog_he
         FD_LOG_ERR(( "corrupt write-ahead log" ));
         break;
       }
-      
+
     } else if ( FD_LIKELY( tmpptr + sizeof(struct fd_funk_persist_erase_head) <= tmpend &&
                            ((struct fd_funk_persist_erase_head *)tmpptr)->type == FD_FUNK_PERSIST_ERASE_TYPE ) ) {
       struct fd_funk_persist_erase_head * head = (struct fd_funk_persist_erase_head *)tmpptr;
       fd_funk_persist_recover_walog_erase( funk, head );
       tmpptr += sizeof(struct fd_funk_persist_erase_head);
-      
+
     } else {
       /* Bad magic number */
       FD_LOG_ERR(( "corrupt write-ahead log" ));
@@ -521,7 +521,7 @@ fd_funk_persist_open( fd_funk_t * funk, const char * filename, int cache_all ) {
     /* Recovery complete. Delete the log. */
     fd_funk_persist_free( funk, walogs[i].pos, head->alloc_sz );
   }
-  
+
   /* Free the temp buffer */
   fd_alloc_free( alloc, tmp );
 
@@ -670,7 +670,7 @@ fd_funk_rec_persist_unsafe( fd_funk_t *     funk,
   }
 
   /* At this point we may have two versions of the same record. If we
-   * crash here, this will get cleaned up during recovery. */ 
+   * crash here, this will get cleaned up during recovery. */
 
   if ( rec->persist_pos != FD_FUNK_REC_IDX_NULL &&
        rec->persist_pos != pos ) {
@@ -817,14 +817,14 @@ fd_funk_txn_persist_writeahead( fd_funk_t *     funk,
       head.type = FD_FUNK_PERSIST_ERASE_TYPE;
       fd_memcpy( head.key, &rec->pair.key, sizeof(head.key) );
       head.alloc_sz = sizeof(struct fd_funk_persist_erase_head);
-      
+
       if ( pwrite( funk->persist_fd, &head, sizeof(head), (long)pos ) != (long)sizeof(head) ) {
         FD_LOG_WARNING(( "failed to update persistence file: %s", strerror(errno) ));
         return FD_FUNK_ERR_SYS;
       }
-      
+
       pos += sizeof(struct fd_funk_persist_erase_head);
-      
+
     } else {
       /* Start building the header */
       struct fd_funk_persist_record_head head;
@@ -832,7 +832,7 @@ fd_funk_txn_persist_writeahead( fd_funk_t *     funk,
       fd_memcpy( head.key, &rec->pair.key, sizeof(head.key) );
       head.val_sz = rec->val_sz;
       head.alloc_sz = sizeof(struct fd_funk_persist_record_head) + rec->val_sz;
-      
+
       /* Write the data */
       struct iovec iov[2];
       iov[0].iov_base = &head;
@@ -852,13 +852,13 @@ fd_funk_txn_persist_writeahead( fd_funk_t *     funk,
           return FD_FUNK_ERR_SYS;
         }
       }
-      
+
       pos += sizeof(struct fd_funk_persist_record_head) + rec->val_sz;
     }
 
     rec_idx = rec->next_idx;
   }
-  
+
   /* The data is written. Write the final header. */
   {
     struct fd_funk_persist_walog_head head;
@@ -916,7 +916,7 @@ fd_funk_persist_verify( fd_funk_t * funk ) {
     TEST( head.alloc_sz == n->alloc_sz );
     tot_free += n->alloc_sz;
   }
-  
+
   fd_funk_rec_t * rec_map  = fd_funk_rec_map( funk, wksp ); /* Previously verified */
   for( fd_funk_rec_map_iter_t iter = fd_funk_rec_map_iter_init( rec_map );
        !fd_funk_rec_map_iter_done( rec_map, iter );

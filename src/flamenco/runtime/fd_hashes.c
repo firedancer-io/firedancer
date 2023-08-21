@@ -43,54 +43,48 @@ fd_hash_account_deltas(fd_global_ctx_t *global, fd_pubkey_hash_pair_t * pairs, u
 
   for( ulong i = 0; i < pairs_len; ++i ) {
 
-    if (FD_UNLIKELY(global->log_level > 2)) {
-      char encoded_pubkey[50];
-      fd_base58_encode_32((uchar *) pairs[i].pubkey.key, 0, encoded_pubkey);
+    // if (FD_UNLIKELY(global->log_level > 2)) {
+    //   FD_LOG_NOTICE(( "account delta hash X { \"key\":%ld, \"pubkey\":\"%32J\", \"hash\":\"%32J\" },", i, pairs[i].pubkey.key, pairs[i].hash.hash));
 
-      char encoded_hash[50];
-      fd_base58_encode_32((uchar *) pairs[i].hash.hash, 0, encoded_hash);
-      FD_LOG_NOTICE(( "account delta hash X { \"key\":%ld, \"pubkey\":\"%s\", \"hash\":\"%s\" },", i, encoded_pubkey, encoded_hash));
+    //   /*
+    //   pubkey
+    //   slot
+    //   lamports
+    //   owner
+    //   executable
+    //   rent_epoch
+    //   data_len
+    //   data
+    //   hash
+    //   */
+    //   fd_pubkey_t current_owner;
+    //   fd_acc_mgr_get_owner( global->acc_mgr, global->funk_txn, &pairs[i].pubkey, &current_owner );
+    //   char encoded_owner[50];
+    //   fd_base58_encode_32((uchar *) &current_owner, 0, encoded_owner);
 
+    //   uchar * raw_acc_data = (uchar*) fd_acc_mgr_view_raw(global->acc_mgr, global->funk_txn, (fd_pubkey_t *) &pairs[i].pubkey, NULL, NULL);
+    //   if (NULL == raw_acc_data)
+    //     return;
+    //   fd_account_meta_t * metadata = (fd_account_meta_t *)raw_acc_data;
+    //   uchar * acc_data = fd_account_get_data(metadata);
+    //   char * acc_data_str = malloc(5*metadata->dlen + 1);
 
-      /*
-      pubkey
-      slot
-      lamports
-      owner
-      executable
-      rent_epoch
-      data_len
-      data
-      hash
-      */
-      fd_pubkey_t current_owner;
-      fd_acc_mgr_get_owner( global->acc_mgr, global->funk_txn, &pairs[i].pubkey, &current_owner );
-      char encoded_owner[50];
-      fd_base58_encode_32((uchar *) &current_owner, 0, encoded_owner);
+    //   char * acc_data_str_cursor = acc_data_str;
+    //   if (metadata->dlen > 0) {
+    //     for( ulong j = 0; j < (metadata->dlen - 1); j++ ) {
+    //       int x = sprintf(acc_data_str_cursor, "%u, ", acc_data[j]);
+    //       acc_data_str_cursor += x;
+    //     }
+    //     sprintf(acc_data_str_cursor, "%u", acc_data[metadata->dlen - 1]);
+    //   } else {
+    //     *acc_data_str_cursor = 0;
+    //   }
 
-      uchar * raw_acc_data = (uchar*) fd_acc_mgr_view_data(global->acc_mgr, global->funk_txn, (fd_pubkey_t *) &pairs[i].pubkey, NULL, NULL);
-      if (NULL == raw_acc_data)
-        return;
-      fd_account_meta_t * metadata = (fd_account_meta_t *)raw_acc_data;
-      uchar * acc_data = fd_account_get_data(metadata);
-      char * acc_data_str = malloc(5*metadata->dlen + 1);
+    //   FD_LOG_NOTICE(( "account_delta_hash_compare pubkey: (%s) slot: (%lu) lamports: (%lu), owner: (%s), executable: (%d), rent_epoch: (%lu), data_len: (%ld), hash: (%s) ",  encoded_pubkey, global->bank.slot, metadata->info.lamports, encoded_owner, metadata->info.executable, metadata->info.rent_epoch, metadata->dlen, encoded_hash ));
+    //   printf( "account_delta_hash pubkey: %s, slot: %lu, lamports: %lu, owner: %s, executable: %d, rent_epoch: %lu, data_len: %ld, data: [%s] = %s\n",  encoded_pubkey, global->bank.slot, metadata->info.lamports, encoded_owner, metadata->info.executable, metadata->info.rent_epoch, metadata->dlen, acc_data_str, encoded_hash );
 
-      char * acc_data_str_cursor = acc_data_str;
-      if (metadata->dlen > 0) {
-        for( ulong j = 0; j < (metadata->dlen - 1); j++ ) {
-          int x = sprintf(acc_data_str_cursor, "%u, ", acc_data[j]);
-          acc_data_str_cursor += x;
-        }
-        sprintf(acc_data_str_cursor, "%u", acc_data[metadata->dlen - 1]);
-      } else {
-        *acc_data_str_cursor = 0;
-      }
-
-      FD_LOG_NOTICE(( "account_delta_hash_compare pubkey: (%s) slot: (%lu) lamports: (%lu), owner: (%s), executable: (%d), rent_epoch: (%lu), data_len: (%ld), hash: (%s) ",  encoded_pubkey, global->bank.slot, metadata->info.lamports, encoded_owner, metadata->info.executable, metadata->info.rent_epoch, metadata->dlen, encoded_hash ));
-      printf( "account_delta_hash pubkey: %s, slot: %lu, lamports: %lu, owner: %s, executable: %d, rent_epoch: %lu, data_len: %ld, data: [%s] = %s\n",  encoded_pubkey, global->bank.slot, metadata->info.lamports, encoded_owner, metadata->info.executable, metadata->info.rent_epoch, metadata->dlen, acc_data_str, encoded_hash );
-
-      free(acc_data_str);
-    }
+    //   free(acc_data_str);
+    // }
 
     fd_sha256_append( &shas[0] , (uchar const *) pairs[i].hash.hash, sizeof( fd_hash_t ) );
     num_hashes[0]++;
@@ -239,7 +233,7 @@ fd_update_hash_bank( fd_global_ctx_t * global,
   if( global->bank.slot > 0UL && FD_FEATURE_ACTIVE( global, last_restart_slot_sysvar ) ) {
     fd_pubkey_t const * acc_key = fd_type_pun_const( global->sysvar_last_restart_slot );
     int                 err     = FD_ACC_MGR_SUCCESS;
-    uchar const *       acc_raw = fd_acc_mgr_view_data( acc_mgr, txn, acc_key, NULL, &err );
+    uchar const *       acc_raw = fd_acc_mgr_view_raw( acc_mgr, txn, acc_key, NULL, &err );
 
     if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) return err;
 
@@ -278,16 +272,14 @@ fd_update_hash_bank( fd_global_ctx_t * global,
 
     /* Get dirty account */
 
-    fd_pubkey_t const *   acc_key = fd_type_pun_const( rec->pair.key[0].uc );
-    fd_funk_rec_t const * rec     = NULL;
-    int                   err     = FD_ACC_MGR_SUCCESS;
-    uchar const *         acc_raw = fd_acc_mgr_view_data( acc_mgr, txn, acc_key, &rec, &err );
+    fd_pubkey_t const *       acc_key  = fd_type_pun_const( rec->pair.key[0].uc );
+    fd_funk_rec_t const *     rec      = NULL;
+    fd_account_meta_t const * acc_meta = NULL;
+    uchar const *             acc_data = NULL;
 
+    int err = fd_acc_mgr_view( acc_mgr, txn, acc_key, &rec, &acc_meta, &acc_data );
     if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) )
       return err;
-
-    fd_account_meta_t const * acc_meta = (fd_account_meta_t const *)acc_raw;
-    uchar const *             acc_data = acc_raw + acc_meta->hlen;
 
     /* Hash account */
 
@@ -301,18 +293,10 @@ fd_update_hash_bank( fd_global_ctx_t * global,
 
     /* Upgrade to writable record */
 
-    /*int*/ err       = FD_ACC_MGR_SUCCESS;
-    void *  acc_raw_w = fd_acc_mgr_modify_data(
-        acc_mgr, txn, acc_key,
-        /* do_create   */ 0,
-        /* sz          */ NULL,
-        /* opt_con_rec */ rec,
-        /* opt_out_rec */ NULL,
-        &err );
+    fd_account_meta_t * acc_meta_w = NULL;
 
+    err = fd_acc_mgr_modify( acc_mgr, txn, acc_key, 0, 0UL, rec, NULL, &acc_meta_w, NULL );
     if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) return err;
-
-    fd_account_meta_t * acc_meta_w = (fd_account_meta_t *)acc_raw_w;
 
     /* Update hash */
 

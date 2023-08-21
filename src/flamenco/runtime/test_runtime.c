@@ -164,6 +164,8 @@ replay( global_state_t * state,
 
   fd_scratch_attach( smem, fmem, smax, scratch_depth );
 
+  fd_features_restore( state->global );
+
   fd_funk_rec_key_t key = fd_runtime_block_meta_key(ULONG_MAX);
   fd_funk_rec_t const * rec = fd_funk_rec_query( state->global->funk, NULL, &key );
   if (rec == NULL)
@@ -322,9 +324,8 @@ int main(int argc, char **argv) {
   memset(global_mem, 0, sizeof(global_mem));
   state.global = fd_global_ctx_join( fd_global_ctx_new( global_mem ) );
 
-  char acc_mgr_mem[FD_ACC_MGR_FOOTPRINT] __attribute__((aligned(FD_ACC_MGR_ALIGN)));
-  memset(acc_mgr_mem, 0, sizeof(acc_mgr_mem));
-  state.global->acc_mgr = (fd_acc_mgr_t*)( fd_acc_mgr_new( acc_mgr_mem, state.global, FD_ACC_MGR_FOOTPRINT ) );
+  fd_acc_mgr_t _acc_mgr[1];
+  state.global->acc_mgr = fd_acc_mgr_new( _acc_mgr, state.global );
 
   state.argc = argc;
   state.argv = argv;

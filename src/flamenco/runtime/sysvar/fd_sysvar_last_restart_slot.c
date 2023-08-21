@@ -35,7 +35,7 @@ fd_sysvar_last_restart_slot_read( fd_global_ctx_t const *             global,
                                   fd_sol_sysvar_last_restart_slot_t * result ) {
 
   int err = 0;
-  uchar const * raw_acc_data = fd_acc_mgr_view_data(
+  uchar const * raw_acc_data = fd_acc_mgr_view_raw(
       global->acc_mgr,
       global->funk_txn,
       (fd_pubkey_t const *)global->sysvar_last_restart_slot,

@@ -5,19 +5,27 @@
 #include "../fd_runtime.h"
 #include "fd_sysvar.h"
 
-int fd_sysvar_set(fd_global_ctx_t *global, const unsigned char *owner, const fd_pubkey_t *pubkey, unsigned char *data, unsigned long sz, ulong slot) {
+int
+fd_sysvar_set( fd_global_ctx_t *   global,
+               uchar const *       owner,
+               fd_pubkey_t const * pubkey,
+               uchar *             data,
+               ulong               sz,
+               ulong               slot ) {
+
+  fd_acc_mgr_t *  acc_mgr  = global->acc_mgr;
+  fd_funk_txn_t * funk_txn = global->funk_txn;
+
   fd_funk_rec_t * acc_data_rec = NULL;
   int modify_err;
 
-  ulong acc_sz = sizeof(fd_account_meta_t) + sz;
-
-  void * raw_acc_data = fd_acc_mgr_modify_data(global->acc_mgr, global->funk_txn, pubkey, 1, &acc_sz, NULL, &acc_data_rec, &modify_err);
-  if ( FD_UNLIKELY (NULL == raw_acc_data) )
+  void * raw_acc_data = fd_acc_mgr_modify_raw( acc_mgr, funk_txn, pubkey, 1, sz, NULL, &acc_data_rec, &modify_err );
+  if( FD_UNLIKELY( !raw_acc_data ) )
     return FD_ACC_MGR_ERR_READ_FAILED;
 
   fd_account_meta_t * metadata = (fd_account_meta_t *)raw_acc_data;
 
-  if ( FD_UNLIKELY( metadata->magic != FD_ACCOUNT_META_MAGIC ) )
+  if( FD_UNLIKELY( metadata->magic != FD_ACCOUNT_META_MAGIC ) )
     return FD_ACC_MGR_ERR_WRONG_MAGIC;
 
   uchar * acc_data = fd_account_get_data( metadata );
@@ -31,17 +39,22 @@ int fd_sysvar_set(fd_global_ctx_t *global, const unsigned char *owner, const fd_
   metadata->dlen = sz;
   fd_memcpy(metadata->info.owner, owner, 32);
 
-  return fd_acc_mgr_commit_data(global->acc_mgr, acc_data_rec, pubkey, raw_acc_data, slot, 0);
+  return fd_acc_mgr_commit_raw( global->acc_mgr, acc_data_rec, pubkey, raw_acc_data, slot, 0 );
 }
 
-int fd_sysvar_set_override(fd_global_ctx_t *global, const unsigned char *owner, const fd_pubkey_t *pubkey, unsigned char *data, unsigned long sz, ulong slot) {
+int
+fd_sysvar_set_override( fd_global_ctx_t *   global,
+                        uchar const *       owner,
+                        fd_pubkey_t const * pubkey,
+                        uchar *             data,
+                        ulong               data_sz,
+                        ulong               slot ) {
+
   fd_funk_rec_t * acc_data_rec = NULL;
   int modify_err;
 
-  ulong acc_sz = sizeof(fd_account_meta_t) + sz;
-
-  void * raw_acc_data = fd_acc_mgr_modify_data(global->acc_mgr, global->funk_txn, pubkey, 1, &acc_sz, NULL, &acc_data_rec, &modify_err);
-  if ( FD_UNLIKELY (NULL == raw_acc_data) )
+  void * raw_acc_data = fd_acc_mgr_modify_raw(global->acc_mgr, global->funk_txn, pubkey, 1, data_sz, NULL, &acc_data_rec, &modify_err);
+  if( FD_UNLIKELY( !raw_acc_data ) )
     return FD_ACC_MGR_ERR_READ_FAILED;
 
   fd_account_meta_t * metadata = (fd_account_meta_t *)raw_acc_data;
@@ -51,10 +64,10 @@ int fd_sysvar_set_override(fd_global_ctx_t *global, const unsigned char *owner, 
 
   uchar * acc_data = fd_account_get_data( metadata );
 
-  fd_memcpy(acc_data, data, sz);
+  fd_memcpy(acc_data, data, data_sz);
 
-  metadata->dlen = sz;
+  metadata->dlen = data_sz;
   fd_memcpy(metadata->info.owner, owner, 32);
 
-  return fd_acc_mgr_commit_data(global->acc_mgr, acc_data_rec, pubkey, raw_acc_data, slot, 0);
+  return fd_acc_mgr_commit_raw( global->acc_mgr, acc_data_rec, pubkey, raw_acc_data, slot, 0 );
 }
