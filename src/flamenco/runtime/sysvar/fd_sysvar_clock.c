@@ -221,6 +221,8 @@ fd_sysvar_clock_update( fd_global_ctx_t * global ) {
   if( fd_sol_sysvar_clock_decode( &clock, &ctx ) )
     FD_LOG_ERR(("fd_sol_sysvar_clock_decode failed"));
 
+  long ancestor_timestamp = clock.unix_timestamp;
+
   if (global->bank.slot != 0) {
     FD_LOG_DEBUG(("SLOT IS NOT ZERO!"));
     fd_calculate_stake_weighted_timestamp(global, &clock.unix_timestamp, FD_FEATURE_ACTIVE( global, warp_timestamp_again ) );
@@ -236,7 +238,19 @@ fd_sysvar_clock_update( fd_global_ctx_t * global ) {
     if ( timestamp_estimate != bounded_timestamp_estimate ) {
       FD_LOG_INFO(( "corrected timestamp_estimate %ld to %ld", timestamp_estimate, bounded_timestamp_estimate ));
     }
-    clock.unix_timestamp            = bounded_timestamp_estimate;
+    /*  if let Some(timestamp_estimate) =
+            self.get_timestamp_estimate(max_allowable_drift, epoch_start_timestamp)
+        {
+            unix_timestamp = timestamp_estimate;
+            if timestamp_estimate < ancestor_timestamp {
+                unix_timestamp = ancestor_timestamp;
+            }
+        } */
+    if( bounded_timestamp_estimate < ancestor_timestamp ) {
+      FD_LOG_INFO(( "clock rewind detected: %ld -> %ld", ancestor_timestamp, bounded_timestamp_estimate ));
+      bounded_timestamp_estimate = ancestor_timestamp;
+    }
+    clock.unix_timestamp = bounded_timestamp_estimate;
   }
   clock.slot                      = global->bank.slot;
 
