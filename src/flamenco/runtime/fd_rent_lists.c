@@ -191,25 +191,25 @@ static void fd_rent_lists_sort_tpool( void * tpool,
   (void)stride;
   (void)l0;
   (void)l1;
-  (void)m1;
   (void)n0;
   (void)n1;
   
   fd_rent_lists_t * lists = (fd_rent_lists_t*)tpool;
   fd_rent_list_t ** i = lists->lists + m0;
-  if ( i == lists->lists + lists->slots_per_epoch)
+  while ( i != lists->lists + m1) {
+    if ( i == lists->lists + lists->slots_per_epoch)
     return;
-  fd_rent_list_t * j = *i;
-  if ( j && j->num_sorted > 1 ) {
-    fd_rent_lists_quickSort(j->sorted, 0, j->num_sorted - 1U);
-    for (fd_funk_rec_t* k = j->sorted; k != j->sorted + j->num_sorted; ++k) {
-      FD_LOG_NOTICE(("Bucket index %lu, %32J", m0, k->pair.key));
+
+    fd_rent_list_t * j = *i;
+    if ( j && j->num_sorted > 1 ) {
+      fd_rent_lists_quickSort(j->sorted, 0, j->num_sorted - 1U);
     }
+    ++i;
   }
 }
 
 void fd_rent_lists_startup_done_tpool( fd_rent_lists_t * lists, fd_tpool_t * tpool, ulong max_workers ) {
-  fd_tpool_exec_all_taskq( tpool, 0, max_workers, fd_rent_lists_sort_tpool, lists, NULL, NULL, 1, 0, lists->slots_per_epoch);
+  fd_tpool_exec_all_taskq( tpool, 0, max_workers, fd_rent_lists_sort_tpool, lists, NULL, NULL, 4, 0, lists->slots_per_epoch);
   lists->startup = 0;
 }
 
