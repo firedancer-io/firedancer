@@ -138,11 +138,15 @@ fd_solcap_can_pretty_print( uchar const owner [ static 32 ],
   /* TODO clean up */
   uchar _sysvar_clock[ 32 ];
   fd_base58_decode_32( "SysvarC1ock11111111111111111111111111111111", _sysvar_clock );
+  uchar _sysvar_rent[ 32 ];
+  fd_base58_decode_32( "SysvarRent111111111111111111111111111111111", _sysvar_rent );
 
   if( 0==memcmp( owner, _vote_program_address, 32UL ) )
     return 1;
 
   if( 0==memcmp( pubkey, _sysvar_clock, 32UL ) )
+    return 1;
+  if( 0==memcmp( pubkey, _sysvar_rent, 32UL ) )
     return 1;
 
   return 0;
@@ -172,6 +176,8 @@ fd_solcap_account_pretty_print( uchar const   pubkey[ static 32 ],
   /* TODO clean up */
   uchar _sysvar_clock[ 32 ];
   fd_base58_decode_32( "SysvarC1ock11111111111111111111111111111111", _sysvar_clock );
+  uchar _sysvar_rent[ 32 ];
+  fd_base58_decode_32( "SysvarRent111111111111111111111111111111111", _sysvar_rent );
 
   if( 0==memcmp( owner, _vote_program_address, 32UL ) ) {
     fd_vote_state_versioned_t vote_state[1];
@@ -185,6 +191,12 @@ fd_solcap_account_pretty_print( uchar const   pubkey[ static 32 ],
     if( FD_UNLIKELY( err!=0 ) ) return err;
 
     fd_sol_sysvar_clock_walk( yaml, clock, fd_flamenco_yaml_walk, NULL, 0U );
+  } else if( 0==memcmp( pubkey, _sysvar_rent, 32UL ) ) {
+    fd_rent_t rent[1];
+    int err = fd_rent_decode( rent, &decode );
+    if( FD_UNLIKELY( err!=0 ) ) return err;
+
+    fd_rent_walk( yaml, rent, fd_flamenco_yaml_walk, NULL, 0U );
   }
 
   int err = ferror( file );
