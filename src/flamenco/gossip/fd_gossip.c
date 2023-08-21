@@ -119,6 +119,30 @@ typedef struct fd_active_elem fd_active_elem_t;
 #include "../../util/tmpl/fd_map_giant.c"
 #define FD_ACTIVE_KEY_MAX (1<<8)
 
+/* Queue of pending timed events */
+union fd_pending_event_arg {
+    fd_ping_key_t key;
+};
+typedef union fd_pending_event_arg fd_pending_event_arg_t;
+typedef void (*fd_pending_event_fun)(struct fd_gossip_global * glob, fd_pending_event_arg_t * arg, long now);
+struct fd_pending_event {
+    ulong left;
+    ulong right;
+    long key;
+    fd_pending_event_fun fun;
+    fd_pending_event_arg_t fun_arg;
+};
+typedef struct fd_pending_event fd_pending_event_t;
+#define POOL_NAME fd_pending_pool
+#define POOL_T    fd_pending_event_t
+#define POOL_NEXT left
+#include "../../util/tmpl/fd_pool.c"
+#define HEAP_NAME      fd_pending_heap
+#define HEAP_T         fd_pending_event_t
+#define HEAP_LT(e0,e1) (e0->key < e1->key)
+#include "../../util/tmpl/fd_heap.c"
+#define FD_PENDING_MAX (1<<9)
+
 /* Global data for gossip service */
 struct fd_gossip_global {
     fd_gossip_credentials_t my_creds;
@@ -127,6 +151,8 @@ struct fd_gossip_global {
     int sockfd;
     fd_contact_elem_t * contacts;
     fd_active_elem_t * actives;
+    fd_pending_event_t * event_pool;
+    fd_pending_heap_t * event_heap;
     fd_rng_t rng[1];
 };
 
@@ -146,6 +172,10 @@ fd_gossip_global_new ( void * shmem, ulong seed, fd_valloc_t valloc ) {
   glob->contacts = fd_contact_table_join(fd_contact_table_new(shm, FD_CONTACT_KEY_MAX, seed));
   shm = fd_valloc_malloc(valloc, fd_active_table_align(), fd_active_table_footprint(FD_ACTIVE_KEY_MAX));
   glob->actives = fd_active_table_join(fd_active_table_new(shm, FD_ACTIVE_KEY_MAX, seed));
+  shm = fd_valloc_malloc(valloc, fd_pending_pool_align(), fd_pending_pool_footprint(FD_PENDING_MAX));
+  glob->event_pool = fd_pending_pool_join(fd_pending_pool_new(shm, FD_PENDING_MAX));
+  shm = fd_valloc_malloc(valloc, fd_pending_heap_align(), fd_pending_heap_footprint(FD_PENDING_MAX));
+  glob->event_heap = fd_pending_heap_join(fd_pending_heap_new(shm, FD_PENDING_MAX));
   fd_rng_new(glob->rng, (uint)seed, 0UL);
   return glob;
 }
@@ -161,6 +191,8 @@ fd_gossip_global_delete ( void * shmap, fd_valloc_t valloc ) {
   fd_gossip_global_t * glob = (fd_gossip_global_t *)shmap;
   fd_valloc_free(valloc, fd_contact_table_delete(fd_contact_table_leave(glob->contacts)));
   fd_valloc_free(valloc, fd_active_table_delete(fd_active_table_leave(glob->actives)));
+  fd_valloc_free(valloc, fd_pending_pool_delete(fd_pending_pool_leave(glob->event_pool)));
+  fd_valloc_free(valloc, fd_pending_heap_delete(fd_pending_heap_leave(glob->event_heap)));
   return glob;
 }
 
@@ -221,6 +253,16 @@ fd_gossip_from_sockaddr( fd_gossip_network_addr_t * dst, uchar const * src ) {
   return 0;
 }
 
+fd_pending_event_t *
+fd_gossip_add_pending( fd_gossip_global_t * glob, long when ) {
+  fd_pending_event_t * ev = fd_pending_pool_ele_acquire( glob->event_pool );
+  if (ev == NULL)
+    return NULL;
+  ev->key = when;
+  fd_pending_heap_ele_insert( glob->event_heap, ev, glob->event_pool );
+  return ev;
+}
+
 void
 fd_gossip_send( fd_gossip_global_t * glob, fd_gossip_network_addr_t * dest, fd_gossip_msg_t * gmsg ) {
   uchar buf[FD_ETH_PAYLOAD_MAX];
@@ -242,7 +284,8 @@ fd_gossip_send( fd_gossip_global_t * glob, fd_gossip_network_addr_t * dest, fd_g
 }
 
 void
-fd_gossip_make_ping( fd_gossip_global_t * glob, fd_ping_key_t * key, long now ) {
+fd_gossip_make_ping( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, long now ) {
+  fd_ping_key_t * key = &arg->key;
   fd_active_elem_t * val = fd_active_table_query(glob->actives, key, NULL);
   if (val == NULL) {
     val = fd_active_table_insert(glob->actives, key);
@@ -369,6 +412,24 @@ fd_gossip_recv(fd_gossip_global_t * glob, fd_gossip_network_addr_t * from, fd_go
   }
 }
 
+int fd_gossip_add_active_peer( fd_gossip_global_t * glob, fd_pubkey_t * id, fd_gossip_network_addr_t * addr ) {
+  fd_ping_key_t key;
+  fd_memcpy(&key.id, id, sizeof(fd_pubkey_t));
+  fd_memcpy(&key.addr, addr, sizeof(fd_gossip_network_addr_t));
+  fd_active_elem_t * val = fd_active_table_insert(glob->actives, &key);
+  if (val == NULL) {
+    FD_LOG_ERR(("too many actives"));
+    return -1;
+  }
+  val->pingtime = val->pongtime = 0;
+  fd_pending_event_t * ev = fd_gossip_add_pending( glob, 0L /* next chance we get */ );
+  if (ev == NULL)
+    return 0;
+  ev->fun = fd_gossip_make_ping;
+  ev->fun_arg.key = key;
+  return 0;
+}
+
 /* Main loop for socket reading/writing. Does not return until stopflag is non-zero */
 int
 fd_gossip_main_loop( fd_gossip_global_t * glob, fd_valloc_t valloc, volatile int * stopflag ) {
@@ -407,10 +468,28 @@ fd_gossip_main_loop( fd_gossip_global_t * glob, fd_valloc_t valloc, volatile int
       msgs[i].msg_hdr.msg_name    = sockaddrs[i];
       msgs[i].msg_hdr.msg_namelen = sizeof(struct sockaddr_in6);
     }
-    
-    timeout.tv_sec = 1;
-    timeout.tv_nsec = 0;
-    
+
+    /* Execute pending timed events */
+    long now = fd_log_wallclock();
+    do {
+      fd_pending_event_t * ev = fd_pending_heap_ele_peek_min( glob->event_heap, glob->event_pool );
+      if (ev == NULL || ev->key - now > 1000000000L /* 1 second */) {
+        /* Don't block for more than a second */
+        timeout.tv_sec = 1;
+        timeout.tv_nsec = 0;
+        break;
+      }
+      if (ev->key > now) {
+        timeout.tv_sec = 0;
+        timeout.tv_nsec = ev->key - now;
+        break;
+      }
+      (*ev->fun)(glob, &ev->fun_arg, now);
+      fd_pending_heap_ele_remove_min( glob->event_heap, glob->event_pool );
+      fd_pending_pool_ele_release( glob->event_pool, ev );
+    } while (1);
+
+    /* Read more packets */
     int retval = recvmmsg(fd, msgs, VLEN, 0, &timeout);
     if (retval < 0) {
       if (errno == EINTR )
@@ -420,7 +499,7 @@ fd_gossip_main_loop( fd_gossip_global_t * glob, fd_valloc_t valloc, volatile int
     }
     if (retval == 0)
       continue;
-    long now = fd_log_wallclock();
+    now = fd_log_wallclock();
 
     for (uint i = 0; i < (uint)retval; ++i) {
       // Get the source addr

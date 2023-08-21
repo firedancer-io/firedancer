@@ -37,6 +37,8 @@ typedef struct fd_gossip_config fd_gossip_config_t;
 
 int fd_gossip_global_set_config( fd_gossip_global_t * glob, const fd_gossip_config_t * config );
 
+int fd_gossip_add_active_peer( fd_gossip_global_t * glob, fd_pubkey_t * id, fd_gossip_network_addr_t * addr );
+
 /* Main loop for socket reading/writing. Does not return until stopflag is non-zero */
 int fd_gossip_main_loop( fd_gossip_global_t * glob, fd_valloc_t valloc, volatile int * stopflag );
 
