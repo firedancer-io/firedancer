@@ -91,6 +91,48 @@ int fd_fee_calculator_encode(fd_fee_calculator_t const * self, fd_bincode_encode
   return FD_BINCODE_SUCCESS;
 }
 
+int fd_epoch_rewards_decode(fd_epoch_rewards_t* self, fd_bincode_decode_ctx_t * ctx) {
+  int err;
+  err = fd_bincode_uint64_decode(&self->total_rewards, ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_uint64_decode(&self->distributed_rewards, ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_uint64_decode(&self->distribution_complete_block_height, ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_epoch_rewards_new(fd_epoch_rewards_t* self) {
+  fd_memset(self, 0, sizeof(fd_epoch_rewards_t));
+}
+void fd_epoch_rewards_destroy(fd_epoch_rewards_t* self, fd_bincode_destroy_ctx_t * ctx) {
+}
+
+void fd_epoch_rewards_walk(void * w, fd_epoch_rewards_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_epoch_rewards", level++);
+  fun( w, &self->total_rewards, "total_rewards", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
+  fun( w, &self->distributed_rewards, "distributed_rewards", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
+  fun( w, &self->distribution_complete_block_height, "distribution_complete_block_height", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_epoch_rewards", level--);
+}
+ulong fd_epoch_rewards_size(fd_epoch_rewards_t const * self) {
+  ulong size = 0;
+  size += sizeof(ulong);
+  size += sizeof(ulong);
+  size += sizeof(ulong);
+  return size;
+}
+
+int fd_epoch_rewards_encode(fd_epoch_rewards_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  err = fd_bincode_uint64_encode(&self->total_rewards, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_encode(&self->distributed_rewards, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_encode(&self->distribution_complete_block_height, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+
 int fd_hash_age_decode(fd_hash_age_t* self, fd_bincode_decode_ctx_t * ctx) {
   int err;
   err = fd_fee_calculator_decode(&self->fee_calculator, ctx);
@@ -5356,6 +5398,38 @@ ulong fd_sysvar_fees_size(fd_sysvar_fees_t const * self) {
 int fd_sysvar_fees_encode(fd_sysvar_fees_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_fee_calculator_encode(&self->fee_calculator, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+
+int fd_sysvar_epoch_rewards_decode(fd_sysvar_epoch_rewards_t* self, fd_bincode_decode_ctx_t * ctx) {
+  int err;
+  err = fd_epoch_rewards_decode(&self->epoch_rewards, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_sysvar_epoch_rewards_new(fd_sysvar_epoch_rewards_t* self) {
+  fd_memset(self, 0, sizeof(fd_sysvar_epoch_rewards_t));
+  fd_epoch_rewards_new(&self->epoch_rewards);
+}
+void fd_sysvar_epoch_rewards_destroy(fd_sysvar_epoch_rewards_t* self, fd_bincode_destroy_ctx_t * ctx) {
+  fd_epoch_rewards_destroy(&self->epoch_rewards, ctx);
+}
+
+void fd_sysvar_epoch_rewards_walk(void * w, fd_sysvar_epoch_rewards_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_sysvar_epoch_rewards", level++);
+  fd_epoch_rewards_walk(w, &self->epoch_rewards, fun, "epoch_rewards", level);
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_sysvar_epoch_rewards", level--);
+}
+ulong fd_sysvar_epoch_rewards_size(fd_sysvar_epoch_rewards_t const * self) {
+  ulong size = 0;
+  size += fd_epoch_rewards_size(&self->epoch_rewards);
+  return size;
+}
+
+int fd_sysvar_epoch_rewards_encode(fd_sysvar_epoch_rewards_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  err = fd_epoch_rewards_encode(&self->epoch_rewards, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }

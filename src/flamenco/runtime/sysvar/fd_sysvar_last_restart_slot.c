@@ -27,7 +27,8 @@ fd_sysvar_last_restart_slot_init( fd_global_ctx_t * global ) {
                  global->sysvar_owner,
                  (fd_pubkey_t const *)global->sysvar_last_restart_slot,
                  enc, sz,
-                 global->bank.slot );
+                 global->bank.slot,
+                 NULL );
 }
 
 int
@@ -69,5 +70,6 @@ fd_sysvar_last_restart_slot_update( fd_global_ctx_t * global ) {
   fd_sysvar_set( global, global->sysvar_owner,
                  (fd_pubkey_t const *)global->sysvar_last_restart_slot,
                  data, /* sz */ 8UL,
-                 global->bank.slot );
+                 global->bank.slot,
+                 NULL );
 }

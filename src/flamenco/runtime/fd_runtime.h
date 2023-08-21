@@ -44,6 +44,7 @@ struct __attribute__((aligned(FD_GLOBAL_CTX_ALIGN))) fd_global_ctx {
   unsigned char              sysvar_slot_history[32];
   unsigned char              sysvar_slot_hashes[32];
   unsigned char              sysvar_epoch_schedule[32];
+  unsigned char              sysvar_epoch_rewards[32];
   unsigned char              sysvar_fees[32];
   unsigned char              sysvar_rent[32];
   unsigned char              sysvar_stake_history[32];
@@ -169,9 +170,7 @@ static inline ulong fd_rent_exempt(fd_global_ctx_t *global, ulong sz) {
 void
 process_new_epoch(
     fd_global_ctx_t * global,
-    ulong parent_epoch,
-    ulong parent_slot,
-    ulong parent_height
+    ulong parent_epoch
 );
 
 FD_PROTOTYPES_END

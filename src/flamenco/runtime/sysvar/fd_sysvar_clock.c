@@ -44,7 +44,7 @@ void write_clock( fd_global_ctx_t* global, fd_sol_sysvar_clock_t* clock ) {
   if ( fd_sol_sysvar_clock_encode( clock, &ctx ) )
     FD_LOG_ERR(("fd_sol_sysvar_clock_encode failed"));
 
-  fd_sysvar_set( global, global->sysvar_owner, (fd_pubkey_t *) global->sysvar_clock, enc, sz, global->bank.slot );
+  fd_sysvar_set( global, global->sysvar_owner, (fd_pubkey_t *) global->sysvar_clock, enc, sz, global->bank.slot, NULL );
 }
 
 int fd_sysvar_clock_read( fd_global_ctx_t* global, fd_sol_sysvar_clock_t* result ) {

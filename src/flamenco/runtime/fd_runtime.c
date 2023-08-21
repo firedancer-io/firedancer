@@ -181,9 +181,8 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_meta_t* m, const void
   fd_solcap_writer_set_slot( global->capture, m->slot );
   if ( global->bank.slot != 0 ) {
     if ( global->bank.slot == global->bank.epoch_schedule.first_normal_slot) {
-      ulong parent_slot = global->bank.slot;
-      ulong parent_epoch = fd_slot_to_epoch(&global->bank.epoch_schedule, parent_slot, NULL);
-      process_new_epoch(global, parent_epoch, parent_slot, global->bank.block_height);
+      ulong parent_epoch = fd_slot_to_epoch(&global->bank.epoch_schedule, global->bank.slot, NULL);
+      process_new_epoch(global, parent_epoch);
     }
   }
   /* Get current leader */
@@ -1345,9 +1344,7 @@ fd_features_restore( fd_global_ctx_t * global ) {
 void
 process_new_epoch(
     fd_global_ctx_t * global,
-    ulong parent_epoch,
-    ulong parent_slot,
-    ulong parent_height
+    ulong parent_epoch
 ) {
   ulong epoch = fd_slot_to_epoch(&global->bank.epoch_schedule, global->bank.slot, NULL);
 
@@ -1366,11 +1363,13 @@ process_new_epoch(
            self.update_epoch_stakes(leader_schedule_epoch),
            "update_epoch_stakes",
        ); */
+  fd_epoch_reward_status_t * epoch_reward_status = NULL;
   if (global->features.enable_partitioned_epoch_reward) {
-    begin_partitioned_rewards( global, &global->bank, parent_epoch, parent_slot, parent_height );
+    begin_partitioned_rewards( global, &global->bank, parent_epoch, epoch_reward_status);
   } else {
     update_rewards( global, parent_epoch);
   }
+  (void)epoch_reward_status;
   global->bank.block_height += 1;
 
   distribute_partitioned_epoch_rewards( &global->bank);

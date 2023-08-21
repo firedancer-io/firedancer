@@ -110,6 +110,7 @@ int fd_account_is_sysvar(instruction_ctx_t * ctx, fd_pubkey_t * acct) {
   if (memcmp(acct, ctx->global->sysvar_slot_history, sizeof(fd_pubkey_t)) == 0) return 1;
   if (memcmp(acct, ctx->global->sysvar_slot_hashes, sizeof(fd_pubkey_t)) == 0) return 1;
   if (memcmp(acct, ctx->global->sysvar_epoch_schedule, sizeof(fd_pubkey_t)) == 0) return 1;
+  if (memcmp(acct, ctx->global->sysvar_epoch_rewards, sizeof(fd_pubkey_t)) == 0) return 1;
   if (memcmp(acct, ctx->global->sysvar_fees, sizeof(fd_pubkey_t)) == 0) return 1;
   if (memcmp(acct, ctx->global->sysvar_rent, sizeof(fd_pubkey_t)) == 0) return 1;
   if (memcmp(acct, ctx->global->sysvar_stake_history, sizeof(fd_pubkey_t)) == 0) return 1;

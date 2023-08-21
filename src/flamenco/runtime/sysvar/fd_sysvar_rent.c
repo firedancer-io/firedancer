@@ -15,7 +15,7 @@ void write_rent( fd_global_ctx_t* global, fd_rent_t* rent ) {
   if ( fd_rent_encode( rent, &ctx ) )
     FD_LOG_ERR(("fd_rent_encode failed"));
 
-  fd_sysvar_set( global, global->sysvar_owner, (fd_pubkey_t *) global->sysvar_rent, enc, sz, global->bank.slot );
+  fd_sysvar_set( global, global->sysvar_owner, (fd_pubkey_t *) global->sysvar_rent, enc, sz, global->bank.slot, NULL );
 }
 
 void

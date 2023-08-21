@@ -28,7 +28,7 @@ int fd_sysvar_slot_history_write_history( fd_global_ctx_t* global, fd_slot_histo
   int err = fd_slot_history_encode( history, &ctx );
   if (0 != err)
     return err;
-  return fd_sysvar_set( global, global->sysvar_owner, (fd_pubkey_t *) global->sysvar_slot_history, enc, sz, global->bank.slot );
+  return fd_sysvar_set( global, global->sysvar_owner, (fd_pubkey_t *) global->sysvar_slot_history, enc, sz, global->bank.slot, NULL );
 }
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_history.rs#L16 */

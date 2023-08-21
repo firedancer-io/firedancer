@@ -663,8 +663,7 @@ begin_partitioned_rewards(
     fd_global_ctx_t * global,
     fd_firedancer_banks_t * self,
     ulong parent_epoch,
-    ulong parent_slot,
-    ulong parent_height
+    fd_epoch_reward_status_t * result
 ) {
     fd_calculate_rewards_and_distribute_vote_rewards_result_t *rewards_result = NULL;
     calculate_rewards_and_distribute_vote_rewards(
@@ -673,18 +672,17 @@ begin_partitioned_rewards(
         parent_epoch,
         rewards_result
     );
-    ulong start_block_height = 0;
+    ulong start_block_height = 0; //FIXME
     ulong credit_end_exclusive = start_block_height + REWARD_CALCULATION_NUM_BLOCK + rewards_result->stake_rewards_by_partition->cnt;
-    (void) credit_end_exclusive;
-    // self.set_epoch_reward_status_active(stake_rewards_by_partition);
 
-    self->capitalization += rewards_result->total_rewards - rewards_result->distributed_rewards;
+    // self.set_epoch_reward_status_active(stake_rewards_by_partition);
+    result->is_active = 1;
+    result->stake_rewards_by_partition = rewards_result->stake_rewards_by_partition;
+    result->start_block_height = self->block_height;
 
     // create EpochRewards sysvar that holds the balance of undistributed rewards with
     // (total_rewards, distributed_rewards, credit_end_exclusive), total capital will increase by (total_rewards - distributed_rewards)
-    // self.create_epoch_rewards_sysvar(total_rewards, distributed_rewards, credit_end_exclusive);
-    (void) parent_slot;
-    (void) parent_height;
+    fd_sysvar_epoch_rewards_init( global, rewards_result->total_rewards, rewards_result->distributed_rewards, credit_end_exclusive);
 }
 
 // distribute_partitioned_epoch_rewards

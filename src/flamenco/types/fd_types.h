@@ -22,6 +22,16 @@ typedef struct fd_fee_calculator fd_fee_calculator_t;
 #define FD_FEE_CALCULATOR_FOOTPRINT sizeof(fd_fee_calculator_t)
 #define FD_FEE_CALCULATOR_ALIGN (8UL)
 
+/* https://github.com/solana-labs/solana/blob/98e19af5eb2585cfc3c07e123bdb96f18e92bc93/sdk/program/src/epoch_rewards.rs#L11-L20 */
+struct fd_epoch_rewards {
+  ulong total_rewards;
+  ulong distributed_rewards;
+  ulong distribution_complete_block_height;
+};
+typedef struct fd_epoch_rewards fd_epoch_rewards_t;
+#define FD_EPOCH_REWARDS_FOOTPRINT sizeof(fd_epoch_rewards_t)
+#define FD_EPOCH_REWARDS_ALIGN (8UL)
+
 struct fd_hash_age {
   fd_fee_calculator_t fee_calculator;
   ulong hash_index;
@@ -1032,6 +1042,14 @@ typedef struct fd_sysvar_fees fd_sysvar_fees_t;
 #define FD_SYSVAR_FEES_FOOTPRINT sizeof(fd_sysvar_fees_t)
 #define FD_SYSVAR_FEES_ALIGN (8UL)
 
+/* https://github.com/solana-labs/solana/blob/a02aebaa4b3aa0b24e13644cf0ffa5ae8bd47e7b/sdk/program/src/sysvar/epoch_rewards.rs */
+struct fd_sysvar_epoch_rewards {
+  fd_epoch_rewards_t epoch_rewards;
+};
+typedef struct fd_sysvar_epoch_rewards fd_sysvar_epoch_rewards_t;
+#define FD_SYSVAR_EPOCH_REWARDS_FOOTPRINT sizeof(fd_sysvar_epoch_rewards_t)
+#define FD_SYSVAR_EPOCH_REWARDS_ALIGN (8UL)
+
 struct fd_config_keys_pair {
   fd_pubkey_t key;
   uchar signer;
@@ -2030,6 +2048,13 @@ void fd_fee_calculator_destroy(fd_fee_calculator_t* self, fd_bincode_destroy_ctx
 void fd_fee_calculator_walk(void * w, fd_fee_calculator_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
 ulong fd_fee_calculator_size(fd_fee_calculator_t const * self);
 
+void fd_epoch_rewards_new(fd_epoch_rewards_t* self);
+int fd_epoch_rewards_decode(fd_epoch_rewards_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_epoch_rewards_encode(fd_epoch_rewards_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_epoch_rewards_destroy(fd_epoch_rewards_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_epoch_rewards_walk(void * w, fd_epoch_rewards_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_epoch_rewards_size(fd_epoch_rewards_t const * self);
+
 void fd_hash_age_new(fd_hash_age_t* self);
 int fd_hash_age_decode(fd_hash_age_t* self, fd_bincode_decode_ctx_t * ctx);
 int fd_hash_age_encode(fd_hash_age_t const * self, fd_bincode_encode_ctx_t * ctx);
@@ -2549,6 +2574,13 @@ int fd_sysvar_fees_encode(fd_sysvar_fees_t const * self, fd_bincode_encode_ctx_t
 void fd_sysvar_fees_destroy(fd_sysvar_fees_t* self, fd_bincode_destroy_ctx_t * ctx);
 void fd_sysvar_fees_walk(void * w, fd_sysvar_fees_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
 ulong fd_sysvar_fees_size(fd_sysvar_fees_t const * self);
+
+void fd_sysvar_epoch_rewards_new(fd_sysvar_epoch_rewards_t* self);
+int fd_sysvar_epoch_rewards_decode(fd_sysvar_epoch_rewards_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_sysvar_epoch_rewards_encode(fd_sysvar_epoch_rewards_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_sysvar_epoch_rewards_destroy(fd_sysvar_epoch_rewards_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_sysvar_epoch_rewards_walk(void * w, fd_sysvar_epoch_rewards_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_sysvar_epoch_rewards_size(fd_sysvar_epoch_rewards_t const * self);
 
 void fd_config_keys_pair_new(fd_config_keys_pair_t* self);
 int fd_config_keys_pair_decode(fd_config_keys_pair_t* self, fd_bincode_decode_ctx_t * ctx);
