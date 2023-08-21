@@ -200,8 +200,12 @@ static void fd_rent_lists_sort_tpool( void * tpool,
   if ( i == lists->lists + lists->slots_per_epoch)
     return;
   fd_rent_list_t * j = *i;
-  if ( j && j->num_sorted > 1 )
-      fd_rent_lists_quickSort(j->sorted, 0, j->num_sorted - 1U);
+  if ( j && j->num_sorted > 1 ) {
+    fd_rent_lists_quickSort(j->sorted, 0, j->num_sorted - 1U);
+    for (fd_funk_rec_t* k = j->sorted; k != j->sorted + j->num_sorted; ++k) {
+      FD_LOG_NOTICE(("Bucket index %lu, %32J", m0, k->pair.key));
+    }
+  }
 }
 
 void fd_rent_lists_startup_done_tpool( fd_rent_lists_t * lists, fd_tpool_t * tpool, ulong max_workers ) {
