@@ -203,7 +203,7 @@ replay( global_state_t * state,
 
   state->global->rentlists = fd_rent_lists_new(fd_epoch_slot_cnt( &schedule, epoch ));
   fd_funk_set_notify(state->global->funk, fd_rent_lists_cb, state->global->rentlists);
-  fd_rent_lists_startup_done(state->global->rentlists);
+  fd_rent_lists_startup_done_tpool(state->global->rentlists, tpool, max_workers);
 
   ulong stake_weight_cnt;
   {

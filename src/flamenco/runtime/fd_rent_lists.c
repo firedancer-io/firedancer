@@ -176,6 +176,39 @@ fd_rent_lists_startup_done( fd_rent_lists_t * lists ) {
   lists->startup = 0;
 }
 
+static void fd_rent_lists_sort_tpool( void * tpool,
+                                      ulong  t0,     ulong t1,
+                                      void * args,
+                                      void * reduce, ulong stride,
+                                      ulong  l0,     ulong l1,
+                                      ulong  m0,     ulong m1,
+                                      ulong  n0,     ulong n1 ) {
+
+  (void)t0;
+  (void)t1;
+  (void)args;
+  (void)reduce;
+  (void)stride;
+  (void)l0;
+  (void)l1;
+  (void)m1;
+  (void)n0;
+  (void)n1;
+  
+  fd_rent_lists_t * lists = (fd_rent_lists_t*)tpool;
+  fd_rent_list_t ** i = lists->lists + m0;
+  if ( i == lists->lists + lists->slots_per_epoch)
+    return;
+  fd_rent_list_t * j = *i;
+  if ( j && j->num_sorted > 1 )
+      fd_rent_lists_quickSort(j->sorted, 0, j->num_sorted - 1U);
+}
+
+void fd_rent_lists_startup_done_tpool( fd_rent_lists_t * lists, fd_tpool_t * tpool, ulong max_workers ) {
+  fd_tpool_exec_all_taskq( tpool, 0, max_workers, fd_rent_lists_sort_tpool, lists, NULL, NULL, 1, 0, lists->slots_per_epoch);
+  lists->startup = 0;
+}
+
 static void
 fd_rent_lists_compact_and_sort( fd_rent_list_t ** listp ) {
   fd_rent_list_t * list = *listp;
