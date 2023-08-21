@@ -465,6 +465,10 @@ fd_gossip_main_loop( fd_gossip_global_t * glob, fd_valloc_t valloc, volatile int
     FD_LOG_ERR(("setsocketopt failed: %s", strerror(errno)));
     return -1;
   }
+  if (setsockopt(fd, SOL_SOCKET, SO_SNDBUF, (char *)&optval, sizeof(int)) < 0) {
+    FD_LOG_ERR(("setsocketopt failed: %s", strerror(errno)));
+    return -1;
+  }
   uchar saddr[sizeof(struct sockaddr_in6)];
   int saddrlen = fd_gossip_to_sockaddr(saddr, &glob->my_addr);
   if (saddrlen < 0 || bind(fd, (struct sockaddr*)saddr, (uint)saddrlen) < 0) {
