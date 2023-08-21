@@ -53,6 +53,7 @@ init( config_t * const config ) {
   ADD( "--bootstrap-validator", config->consensus.identity_path );
   ADD1( vote );
   ADD1( stake );
+  ADD( "--bootstrap-stake-authorized-pubkey", config->consensus.identity_path );
 
   ADD( "--ledger", config->ledger.path );
   ADD( "--faucet-pubkey", faucet );
@@ -153,7 +154,7 @@ check( config_t * const config ) {
 
 configure_stage_t cluster = {
   .name            = NAME,
-  .always_recreate = 0,
+  .always_recreate = 1,
   .enabled         = enabled,
   .init_perm       = NULL,
   .fini_perm       = NULL,

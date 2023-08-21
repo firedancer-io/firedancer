@@ -14,6 +14,7 @@
 
 typedef struct {
   enum {
+    wksp_tpu_txn_data,
     wksp_quic_verify,
     wksp_verify_dedup,
     wksp_dedup_pack,
