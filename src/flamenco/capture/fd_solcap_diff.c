@@ -132,16 +132,25 @@ fd_solcap_differ_sync( fd_solcap_differ_t * diff ) {
 }
 
 static int
-fd_solcap_can_pretty_print( uchar const owner[ static 32 ] ) {
+fd_solcap_can_pretty_print( uchar const owner [ static 32 ],
+                            uchar const pubkey[ static 32 ] ) {
+
+  /* TODO clean up */
+  uchar _sysvar_clock[ 32 ];
+  fd_base58_decode_32( "SysvarC1ock11111111111111111111111111111111", _sysvar_clock );
 
   if( 0==memcmp( owner, _vote_program_address, 32UL ) )
+    return 1;
+
+  if( 0==memcmp( pubkey, _sysvar_clock, 32UL ) )
     return 1;
 
   return 0;
 }
 
 static int
-fd_solcap_account_pretty_print( uchar const   owner[ static 32 ],
+fd_solcap_account_pretty_print( uchar const   pubkey[ static 32 ],
+                                uchar const   owner[ static 32 ],
                                 uchar const * data,
                                 ulong         data_sz,
                                 FILE *        file ) {
@@ -160,15 +169,26 @@ fd_solcap_account_pretty_print( uchar const   owner[ static 32 ],
       file );
   FD_TEST( yaml );
 
+  /* TODO clean up */
+  uchar _sysvar_clock[ 32 ];
+  fd_base58_decode_32( "SysvarC1ock11111111111111111111111111111111", _sysvar_clock );
+
   if( 0==memcmp( owner, _vote_program_address, 32UL ) ) {
     fd_vote_state_versioned_t vote_state[1];
     int err = fd_vote_state_versioned_decode( vote_state, &decode );
     if( FD_UNLIKELY( err!=0 ) ) return err;
 
     fd_vote_state_versioned_walk( yaml, vote_state, fd_flamenco_yaml_walk, NULL, 0U );
-    err = ferror( file );
+  } else if( 0==memcmp( pubkey, _sysvar_clock, 32UL ) ) {
+    fd_sol_sysvar_clock_t clock[1];
+    int err = fd_sol_sysvar_clock_decode( clock, &decode );
     if( FD_UNLIKELY( err!=0 ) ) return err;
+
+    fd_sol_sysvar_clock_walk( yaml, clock, fd_flamenco_yaml_walk, NULL, 0U );
   }
+
+  int err = ferror( file );
+  if( FD_UNLIKELY( err!=0 ) ) return err;
 
   /* No need to destroy structures, using fd_scratch allocator */
 
@@ -252,8 +272,8 @@ fd_solcap_diff_account_data( fd_solcap_differ_t *                  diff,
             diff->dump_dir, entry[0]->key, entry[0]->hash,
             diff->dump_dir, entry[1]->key, entry[1]->hash );
 
-    if( fd_solcap_can_pretty_print( meta[0].owner )
-      & fd_solcap_can_pretty_print( meta[1].owner ) ) {
+    if( fd_solcap_can_pretty_print( meta[0].owner, entry[0]->key )
+      & fd_solcap_can_pretty_print( meta[1].owner, entry[1]->key ) ) {
 
       for( ulong i=0UL; i<2UL; i++ ) {
         /* Create YAML file */
@@ -267,7 +287,7 @@ fd_solcap_diff_account_data( fd_solcap_differ_t *                  diff,
 
         /* Write YAML file */
         FILE * file = fdopen( fd, "wb" );
-        fd_solcap_account_pretty_print( meta[i].owner, acc_data[i], meta[i].data_sz, file );
+        fd_solcap_account_pretty_print( entry[i]->key, meta[i].owner, acc_data[i], meta[i].data_sz, file );
         fclose( file );  /* closes fd */
       }
 
