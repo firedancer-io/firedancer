@@ -324,7 +324,7 @@ calculate_reward_points_partitioned(
             /* TODO: Make this a instruction-scoped allocator */
             .valloc  = global->valloc,
         };
-        fd_vote_state_versioned_t vote_state[1];
+        fd_vote_state_versioned_t vote_state[1] = {0};
         if( FD_UNLIKELY( 0!=fd_vote_state_versioned_decode( vote_state, &decode ) ) )
             FD_LOG_ERR(( "vote_state_versioned_decode failed" ));
 
@@ -399,7 +399,7 @@ calculate_stake_vote_rewards(
             /* TODO: Make this a instruction-scoped allocator */
             .valloc  = global->valloc,
         };
-        fd_vote_state_versioned_t vote_state_versioned[1];
+        fd_vote_state_versioned_t vote_state_versioned[1] = {0};
         if( fd_vote_state_versioned_decode( vote_state_versioned, &decode ) != 0 ) {
             continue;
         }
@@ -469,7 +469,7 @@ calculate_validator_rewards(
     fd_stake_history_t stake_history;
     fd_sysvar_stake_history_read( global, &stake_history);
 
-    fd_point_value_t * point_value_result = NULL;
+    fd_point_value_t point_value_result[1] = {0};
     calculate_reward_points_partitioned(global, &stake_history, rewards, point_value_result);
     calculate_stake_vote_rewards(global, &stake_history, rewarded_epoch, point_value_result, result);
 }
@@ -503,7 +503,7 @@ hash_rewards_into_partitions(
     ulong num_partitions,
     fd_stake_rewards_vector_t * result
 ) {
-    fd_siphash13_t  _sip[1];
+    fd_siphash13_t  _sip[1] = {0};
     fd_siphash13_t * hasher = fd_siphash13_init( _sip, 0UL, 0UL );
     hasher = fd_siphash13_append( hasher, bank->banks_hash.hash, sizeof(fd_hash_t));
 
@@ -543,12 +543,12 @@ calculate_rewards_for_partitioning(
 
     ulong old_vote_balance_and_staked = vote_balance_and_staked(&bank->stakes);
 
-    fd_validator_reward_calculation_t * validator_result = NULL;
+    fd_validator_reward_calculation_t validator_result[1] = {0};
     calculate_validator_rewards(global, prev_epoch, rewards.validator_rewards, validator_result);
 
     ulong num_partitions = get_reward_distribution_num_blocks(&global->bank, validator_result->stake_reward_deq);
 
-    fd_stake_rewards_vector_t * hash_rewards_result = NULL;
+    fd_stake_rewards_vector_t hash_rewards_result[1] = {0};
     hash_rewards_into_partitions(&global->bank, validator_result->stake_reward_deq, num_partitions, hash_rewards_result);
     *result = (fd_partitioned_rewards_calculation_t) {
         .vote_account_rewards = validator_result->vote_reward_map,
@@ -589,7 +589,7 @@ void calculate_rewards_and_distribute_vote_rewards(
     ulong prev_epoch,
     fd_calculate_rewards_and_distribute_vote_rewards_result_t * result
 ) {
-    fd_partitioned_rewards_calculation_t * rewards_calc_result = NULL;
+    fd_partitioned_rewards_calculation_t rewards_calc_result[1] = {0};
     calculate_rewards_for_partitioning(global, prev_epoch,  rewards_calc_result);
     /* TODO: update_reward_history */
     update_reward_history(self, NULL, rewards_calc_result->vote_account_rewards);
@@ -649,11 +649,8 @@ update_rewards(
     fd_global_ctx_t * global,
     ulong prev_epoch
 ) {
-    fd_firedancer_banks_t * bank = &global->bank;
-    fd_partitioned_rewards_calculation_t * rewards_calc_result = NULL;
-    calculate_rewards_for_partitioning(global, prev_epoch,  rewards_calc_result);
-    (void) bank;
-
+    (void) global;
+    (void) prev_epoch;
 }
 
 // begin_partitioned_rewards
@@ -665,7 +662,7 @@ begin_partitioned_rewards(
     ulong parent_epoch,
     fd_epoch_reward_status_t * result
 ) {
-    fd_calculate_rewards_and_distribute_vote_rewards_result_t *rewards_result = NULL;
+    fd_calculate_rewards_and_distribute_vote_rewards_result_t rewards_result[1] = {0};
     calculate_rewards_and_distribute_vote_rewards(
         self,
         global,

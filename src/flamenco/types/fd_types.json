@@ -139,7 +139,7 @@
       "name": "stake_history",
       "type": "struct",
       "fields": [
-        { "name": "entries", "type": "map", "element": "stake_history_epochentry_pair", "key": "epoch" }
+        { "name": "entries", "type": "map", "element": "stake_history_epochentry_pair", "key": "epoch", "minalloc":10000 }
       ],
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake_history.rs#L55"
     },

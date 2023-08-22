@@ -1370,8 +1370,9 @@ fd_process_new_epoch(
            self.update_epoch_stakes(leader_schedule_epoch),
            "update_epoch_stakes",
        ); */
-  fd_epoch_reward_status_t * epoch_reward_status = NULL;
-  if (global->features.enable_partitioned_epoch_reward) {
+  fd_epoch_reward_status_t epoch_reward_status[1] = {0};
+  uint test_enable_partitioned_rewards = 1;
+  if (global->features.enable_partitioned_epoch_reward || test_enable_partitioned_rewards) {
     begin_partitioned_rewards( &global->bank, global, parent_epoch, epoch_reward_status);
   } else {
     // TODO: need to complete this path
