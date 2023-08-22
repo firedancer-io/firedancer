@@ -1,4 +1,3 @@
-
 indent = 0
 def cprint(string):
     global indent
@@ -15,24 +14,12 @@ def cprint(string):
 def make_recover_var(n, max_shreds):
     global outf
     with open(f'fd_reedsol_recover_{n}.c', 'wt') as outf:
-        cprint('#include "../../util/fd_util.h"')
-        cprint('#include "fd_reedsol.h"')
-        cprint('#include "fd_reedsol_internal.h"')
-        cprint('#if FD_HAS_GFNI')
-        cprint('#include "fd_reedsol_arith_gfni.h"')
-        cprint('#elif FD_HAS_AVX')
-        cprint('#include "fd_reedsol_arith_avx2.h"')
-        cprint('#else')
-        cprint('#include "fd_reedsol_arith_none.h"')
-        cprint('#endif')
-        cprint('#include "fd_reedsol_fft.h"')
         cprint('#include "fd_reedsol_ppt.h"')
         cprint('#include "fd_reedsol_fderiv.h"')
-        cprint('#include "fd_reedsol_pi.h"')
 
         cprint('')
 
-        fn_name = f'int fd_reedsol_recover_var_{n}('
+        fn_name = f'int fd_reedsol_private_recover_var_{n}('
         cprint(fn_name +          " ulong           shred_sz,")
         cprint(" "*len(fn_name) + " uchar * const * shred,")
         cprint(" "*len(fn_name) + " ulong           data_shred_cnt,")
@@ -50,10 +37,10 @@ def make_recover_var(n, max_shreds):
         cprint(f'loaded_cnt += (ulong)load_shred;')
         cprint('}')
 
-        cprint(f'if( FD_UNLIKELY( loaded_cnt<data_shred_cnt ) ) return FD_REEDSOL_ERR_INSUFFICIENT;')
+        cprint(f'if( FD_UNLIKELY( loaded_cnt<data_shred_cnt ) ) return FD_REEDSOL_ERR_PARTIAL;')
 
         cprint('')
-        cprint(f'fd_reedsol_gen_pi_{n}( _erased, pi );')
+        cprint(f'fd_reedsol_private_gen_pi_{n}( _erased, pi );')
         cprint('')
 
         cprint("/* Store the difference for each shred that was regenerated.  This")
@@ -69,7 +56,6 @@ def make_recover_var(n, max_shreds):
             cprint(f"gf_t in{k:02} = _erased[ {k:2} ] ? gf_zero() : gf_ldu( shred[ {k:2} ] + shred_pos );")
         for k in range(min(n, max_shreds),n):
             cprint(f"gf_t in{k:02} = gf_zero();")
-
 
         cprint('/* Technically, we only need to multiply the non-erased ones, since')
         cprint('   the erased ones are 0, but we know at least half of them are')
@@ -108,7 +94,6 @@ def make_recover_var(n, max_shreds):
         cprint("        IFFT in the next step.")
         cprint("    - If i>=shred_cnt, do nothing, which will keep the value of the")
         cprint("        shred if it existed in the variable. */")
-
 
         cprint("""#define STORE_COMPARE_RELOAD( n, var ) do{                                                        \\
             if(       erased[ n ] )        gf_stu( shred[ n ] + shred_pos, var );                            \\
@@ -151,15 +136,13 @@ def make_recover_var(n, max_shreds):
             potential_shreds_remaining -= n
             chunk_cnt += 1
 
-        cprint("if( FD_UNLIKELY( GF_ANY( diff ) ) ) return FD_REEDSOL_ERR_INCONSISTENT;")
+        cprint("if( FD_UNLIKELY( GF_ANY( diff ) ) ) return FD_REEDSOL_ERR_CORRUPT;")
 
         cprint('shred_pos += GF_WIDTH;')
         cprint('shred_pos = fd_ulong_if( ((shred_sz-GF_WIDTH)<shred_pos) & (shred_pos<shred_sz), shred_sz-GF_WIDTH, shred_pos );')
         cprint('}')
-        cprint('return FD_REEDSOL_OK;')
+        cprint('return FD_REEDSOL_SUCCESS;')
         cprint('}')
-
-
 
 make_recover_var( 16, 67*2)
 make_recover_var( 32, 67*2)

@@ -7,6 +7,8 @@ header = """
 #ifndef HEADER_fd_src_ballet_reedsol_fd_reedsol_fft_h
 #define HEADER_fd_src_ballet_reedsol_fd_reedsol_fft_h
 
+#include "fd_reedsol_private.h"
+
 /* This file implements the FFT-like operator described in:
      S. -J. Lin, T. Y. Al-Naffouri, Y. S. Han and W. -H. Chung, "Novel
      Polynomial Basis With Fast Fourier Transform and Its Application to
@@ -58,11 +60,6 @@ header = """
 
    */
 
-#ifndef FD_REEDSOL_GF_ARITH_DEFINED
-#error "You must include fd_reedsol_arith_gfni.h or fd_reedsol_arith_avx2.h before including this file"
-#endif
-
-
 /* FD_REEDSOL_GENERATE_FFT: Inserts code to transform n input values from the
    coefficient basis to the evaluation basis, i.e.  evaluating the
    polynomial described by the input at points b, b+1, b+2, ...  b+n-1
@@ -93,8 +90,6 @@ header = """
 #define FD_REEDSOL_GENERATE_FFT(  n, b, ...) FD_REEDSOL_PRIVATE_EXPAND( FD_REEDSOL_FFT_IMPL_##n,   FD_CONCAT4(FD_REEDSOL_FFT_CONSTANTS_,  n, _, b),  __VA_ARGS__ )
 #define FD_REEDSOL_GENERATE_IFFT( n, b, ...) FD_REEDSOL_PRIVATE_EXPAND( FD_REEDSOL_IFFT_IMPL_##n,  FD_CONCAT4(FD_REEDSOL_IFFT_CONSTANTS_, n, _, b),  __VA_ARGS__ )
 
-
-
 """
 
 outf = open('fd_reedsol_fft.h', "wt")
@@ -120,7 +115,6 @@ for j in range(8):
     for x in range(256):
         sbar[ j, x ] = svals[ j, x ] / svals[ j, 1<<j ]
 
-
 def print_macro(macro_name, args, lines, indent=2):
     line1 = "#define " + macro_name + "( " + args[0]
     maxwidth = max( map(len, lines)) + indent + 16
@@ -142,9 +136,6 @@ def print_macro(macro_name, args, lines, indent=2):
     print(" "*indent + "} while( 0 )", file=outf)
     print("\n\n", file=outf)
 
-
-
-
 def op_fft( h, beta, i_round, r_offset ):
     # print(f"Calling a_fft( {h}, {beta}, {i_round}, {r_offset} )")
     if 2**i_round==h:
@@ -162,7 +153,6 @@ def op_fft( h, beta, i_round, r_offset ):
     # print(f"a_fft( {h}, {beta}, {i_round}, {r_offset} ) = {delta}")
     return to_return
 
-
 def op_ifft( h, beta, i_round, r_offset ):
     # print(f"Calling a_ifft( {h}, {beta}, {i_round}, {r_offset} )")
     if 2**i_round==h:
@@ -173,7 +163,6 @@ def op_ifft( h, beta, i_round, r_offset ):
         omega_ = j*2**(i_round+1)
         # print(f"ifft_butterfly {r_offset+omega_:2}, {r_offset+2**i_round+omega_:2}, {sbar[ i_round, omega_ ^ beta ]:3} # {(r_offset, i_round, omega_)} and {(r_offset, i_round, omega_ + 2**i_round)} => {(r_offset, i_round+1, omega_)} and {(r_offset+2**i_round, i_round+1, omega_ )}")
         butterflies.append((1, r_offset+omega_, r_offset+2**i_round+omega_, ( i_round, omega_ , beta ), (r_offset, i_round, omega_), (r_offset, i_round, omega_ + 2**i_round), (r_offset, i_round+1, omega_), (r_offset+2**i_round, i_round+1, omega_ ) ))
-
 
     butterflies.extend(op_ifft(h, beta, i_round+1, r_offset))
     butterflies.extend(op_ifft(h, beta, i_round+1, r_offset+2**i_round))
@@ -187,8 +176,6 @@ print_macro("FD_REEDSOL_PRIVATE_IFFT_BUTTERFLY", ["inout0", "inout1", "c"], [
     "inout1 = GF_ADD( inout1, inout0 );",
     "inout0 = GF_ADD( inout0, GF_MUL( inout1, c ) );",
     ])
-
-
 
 for N in (256, 128, 64, 32, 16, 8, 4):
     inputs = [f"in{j:02}" for j in range(N)]
@@ -210,7 +197,6 @@ for N in (256, 128, 64, 32, 16, 8, 4):
         shift_specific = [ f'{(int(sbar[ c[0], c[1]^shift ])):3}' for c in consts_array ]
         print(f"#define FD_REEDSOL_IFFT_CONSTANTS_{N}_{shift:<2} " + ', '.join(shift_specific), file=outf)
 
-
     for t, i0, i1, c, fi0, fi1, fo0, fo1 in butterflies:
         assert t==1
         assert current_vars[i0] == fi0
@@ -219,7 +205,6 @@ for N in (256, 128, 64, 32, 16, 8, 4):
         current_vars[i0] = fo0
         current_vars[i1] = fo1
     print_macro(f"FD_REEDSOL_IFFT_IMPL_{N}", [f"c_{j:02}" for j in range(len(const_to_cidx))] + inputs, macro_lines)
-
 
     macro_lines = [ ]
     butterflies = op_fft(N, shift, 0, 0)
@@ -237,7 +222,6 @@ for N in (256, 128, 64, 32, 16, 8, 4):
         shift_specific = [ f'{int(sbar[ c[0], (c[1]^shift)&0xFF ]):3}' for c in consts_array ]
         print(f"#define FD_REEDSOL_FFT_CONSTANTS_{N}_{shift:<2} " + ', '.join(shift_specific), file=outf)
 
-
     for t, i0, i1, c, fi0, fi1, fo0, fo1 in butterflies:
         assert t==0
         assert current_vars[i0] == fi0
@@ -246,6 +230,5 @@ for N in (256, 128, 64, 32, 16, 8, 4):
         current_vars[i0] = fo0
         current_vars[i1] = fo1
     print_macro(f"FD_REEDSOL_FFT_IMPL_{N}", [f"c_{j:02}" for j in range(len(const_to_cidx))] + inputs, macro_lines)
-
 
 print("#endif /* HEADER_fd_src_ballet_reedsol_fd_reedsol_fft_h */", file=outf)

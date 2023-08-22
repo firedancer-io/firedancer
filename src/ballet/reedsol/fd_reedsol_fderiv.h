@@ -1,7 +1,8 @@
-
 /* Note: This file is auto generated. */
 #ifndef HEADER_fd_src_ballet_reedsol_fd_reedsol_fderiv_h
 #define HEADER_fd_src_ballet_reedsol_fd_reedsol_fderiv_h
+
+#include "fd_reedsol_private.h"
 
 /* This file implements the formal derivative computation of a
    polynomial stored in the coefficient basis.  The computation is
@@ -25,10 +26,6 @@
 
    Basically, this operator is useful because it obeys the formal
    equivalent of the product rule. */
-
-#ifndef FD_REEDSOL_GF_ARITH_DEFINED
-#error "You must include fd_reedsol_arith_gfni.h or fd_reedsol_arith_avx2.h before including this file"
-#endif
 
 /* FD_REEDSOL_GEN_FDERIV: Inserts code to compute the formal derivative
    of a polynomial of length n, where both the input and output
@@ -136,8 +133,6 @@
     in14 = GF_MUL( in14, 23 );               \
     in15 = GF_MUL( in15, 23 );               \
   } while( 0 )
-
-
 
 #define FD_REEDSOL_FDERIV_IMPL_32( in00    , \
     in01, in02, in03, in04, in05, in06, in07, \
@@ -323,8 +318,6 @@
     in30 = GF_MUL( in30, 76 );               \
     in31 = GF_MUL( in31, 76 );               \
   } while( 0 )
-
-
 
 #define FD_REEDSOL_FDERIV_IMPL_64( in00    , \
     in01, in02, in03, in04, in05, in06, in07, \
@@ -722,8 +715,6 @@
     in62 = GF_MUL( in62, 221 );              \
     in63 = GF_MUL( in63, 221 );              \
   } while( 0 )
-
-
 
 #define FD_REEDSOL_FDERIV_IMPL_128( in00, in01, \
     in02, in03, in04, in05, in06, in07, in08  , \
@@ -1579,8 +1570,6 @@
     in126 = GF_MUL( in126, 25 );                \
     in127 = GF_MUL( in127, 25 );                \
   } while( 0 )
-
-
 
 #define FD_REEDSOL_FDERIV_IMPL_256( in00, in01, \
     in02, in03, in04, in05, in06, in07, in08  , \
@@ -3417,7 +3406,5 @@
     in254 = GF_MUL( in254, 100 );               \
     in255 = GF_MUL( in255, 100 );               \
   } while( 0 )
-
-
 
 #endif /* HEADER_fd_src_ballet_reedsol_fd_reedsol_fderiv_h */

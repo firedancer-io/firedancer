@@ -6,6 +6,8 @@ header = """
 #ifndef HEADER_fd_src_ballet_reedsol_fd_reedsol_fderiv_h
 #define HEADER_fd_src_ballet_reedsol_fd_reedsol_fderiv_h
 
+#include "fd_reedsol_private.h"
+
 /* This file implements the formal derivative computation of a
    polynomial stored in the coefficient basis.  The computation is
    described in section IV of the Lin, et al. paper, and especially part
@@ -28,10 +30,6 @@ header = """
 
    Basically, this operator is useful because it obeys the formal
    equivalent of the product rule. */
-
-#ifndef FD_REEDSOL_GF_ARITH_DEFINED
-#error "You must include fd_reedsol_arith_gfni.h or fd_reedsol_arith_avx2.h before including this file"
-#endif
 
 /* FD_REEDSOL_GEN_FDERIV: Inserts code to compute the formal derivative
    of a polynomial of length n, where both the input and output

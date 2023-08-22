@@ -1,18 +1,4 @@
-#include <stdio.h>
-#include "fd_reedsol_pi.h"
-#if FD_HAS_AVX
-#include "../../util/simd/fd_avx.h"
-#include "../../util/simd/fd_sse.h"
-#include <immintrin.h>
-#endif
-
-#if FD_HAS_GFNI
-#include "fd_reedsol_arith_gfni.h"
-#elif FD_HAS_AVX
-#include "fd_reedsol_arith_avx2.h"
-#else
-#include "fd_reedsol_arith_none.h"
-#endif
+#include "fd_reedsol_private.h"
 
 /* TODO: Move this high-level overview
 
@@ -57,7 +43,7 @@
    Fast Walsh-Hadamard transform in Appendix A that the code in this
    implementation also uses. */
 
-#if FD_HAS_AVX
+#if FD_REEDSOL_ARITH_IMPL>0
 
 /* When using AVX, the representation used for internal computation can
    be done with unsigned chars or with shorts.  They give the same
@@ -72,12 +58,15 @@
    overcomplete representation of the integers mod 255 (yes,
    unfortunately not mod 256).  In particular, the value 255 is allowed,
    which is interchangeable with 0. */
+
 #ifndef FD_REEDSOL_PI_USE_SHORT
 #define FD_REEDSOL_PI_USE_SHORT 0
 #endif
 
 /* Define some helper macros like what we have in util/simd for a vector
    of shorts.  */
+
+#include "../../util/simd/fd_sse.h"
 
 #define ws_t __m256i
 #define ws_add(a,b)         _mm256_add_epi16( (a), (b) )
@@ -113,8 +102,8 @@ ws_mod255( ws_t x ) {
    Unlike the rest of the similar-seeming components in fd_reedsol (e.g.
    FFT, PPT), this computes the transform within a single (or few) AVX
    vectors, not in parallel across each component of the vector. I.e. if
-   FD_HAS_AVX, to compute a 16-element FWHD, you pass one AVX vector
-   (16*short), not 16 vectors.
+   FD_REEDSOL_ARITH_IMPL>0, to compute a 16-element FWHD, you pass one
+   AVX vector (16*short), not 16 vectors.
 
    Also unlike the rest of the similar-seeming components in fd_reedsol,
    this works on the group Z/255Z (integers mod 255).  Since 255 is not
@@ -142,7 +131,6 @@ ws_mod255( ws_t x ) {
   FD_REEDSOL_FWHT_16( _y0 );         FD_REEDSOL_FWHT_16( _y1 ); \
   (x0) = _y0;                        (x1) = _y1; \
 } while( 0 )
-
 
 #define FD_REEDSOL_FWHT_64( x0, x1, x2, x3 )  do { \
   ws_t _z0, _z1, _z2, _z3; ws_t _z0i, _z1i, _z2i, _z3i; \
@@ -349,7 +337,7 @@ exp_2( wb_t x ) {
   return with3;
 }
 
-#endif /* FD_HAS_AVX */
+#endif /* FD_REEDSOL_ARITH_IMPL>0 */
 
 /* l_twiddle_{N} stores the size N FWHT of what the paper calls L~, i.e.
          ( 0, Log(1), Log(2), Log(3), ... Log(N-1) )
@@ -397,8 +385,7 @@ static const short fwht_l_twiddle_256[ 256 ] = {0x00,0xfc,0xfb,0x15,0x2d,0xfa,0x
                                                 0xc4,0x48,0x04,0x6d,0xdf,0x95,0xa1,0x73,0xed,0x0f,0xce,0x58,0x25,0x51,0x99,0xa6,
                                                 0x49,0x6e,0xe0,0xa2,0xee,0xcf,0x52,0xa7,0x4a,0xe1,0xd0,0xa8,0xe2,0xa9,0xe3,0xe4};
 
-
-#if !FD_HAS_AVX
+#if FD_REEDSOL_ARITH_IMPL==0
 static void
 gen_pi_noavx_generic( uchar const * is_erased,
                       uchar       * output,
@@ -420,7 +407,6 @@ gen_pi_noavx_generic( uchar const * is_erased,
 
   for( ulong i=0UL; i<sz; i++ ) scratch[ i ] *= l_twiddle[ i ];
 
-
   for( ulong h=1UL; h<sz; h<<=1 ) {
     for( ulong i=0UL; i<sz; i += 2UL*h ) for( ulong j=i; j<i+h; j++ ) {
       long x = scratch[ j   ];
@@ -437,9 +423,9 @@ gen_pi_noavx_generic( uchar const * is_erased,
 #endif
 
 void
-fd_reedsol_gen_pi_16( uchar const * is_erased,
-                      uchar       * output ) {
-#if FD_HAS_AVX
+fd_reedsol_private_gen_pi_16( uchar const * is_erased,
+                              uchar       * output ) {
+#if FD_REEDSOL_ARITH_IMPL>0
 #if FD_REEDSOL_PI_USE_SHORT
   ws_t erased_vec = _mm256_cvtepu8_epi16( vb_ld( is_erased ) );
 
@@ -518,11 +504,10 @@ fd_reedsol_gen_pi_16( uchar const * is_erased,
 #endif
 }
 
-
 void
-fd_reedsol_gen_pi_32( uchar const * is_erased,
-                      uchar       * output ) {
-#if FD_HAS_AVX
+fd_reedsol_private_gen_pi_32( uchar const * is_erased,
+                              uchar       * output ) {
+#if FD_REEDSOL_ARITH_IMPL>0
 #if FD_REEDSOL_PI_USE_SHORT
   ws_t erased_vec0 = _mm256_cvtepu8_epi16( vb_ld( is_erased        ) );
   ws_t erased_vec1 = _mm256_cvtepu8_epi16( vb_ld( is_erased + 16UL ) );
@@ -605,9 +590,9 @@ fd_reedsol_gen_pi_32( uchar const * is_erased,
 }
 
 void
-fd_reedsol_gen_pi_64( uchar const * is_erased,
-                      uchar       * output ) {
-#if FD_HAS_AVX
+fd_reedsol_private_gen_pi_64( uchar const * is_erased,
+                              uchar       * output ) {
+#if FD_REEDSOL_ARITH_IMPL>0
 #if FD_REEDSOL_PI_USE_SHORT
   ws_t erased_vec0 = _mm256_cvtepu8_epi16( vb_ld( is_erased        ) );
   ws_t erased_vec1 = _mm256_cvtepu8_epi16( vb_ld( is_erased + 16UL ) );
@@ -723,9 +708,9 @@ fd_reedsol_gen_pi_64( uchar const * is_erased,
 }
 
 void
-fd_reedsol_gen_pi_128( uchar const * is_erased,
-                       uchar       * output ) {
-#if FD_HAS_AVX
+fd_reedsol_private_gen_pi_128( uchar const * is_erased,
+                               uchar       * output ) {
+#if FD_REEDSOL_ARITH_IMPL>0
 #if FD_REEDSOL_PI_USE_SHORT
   ws_t erased_vec0 = _mm256_cvtepu8_epi16( vb_ld( is_erased         ) );
   ws_t erased_vec1 = _mm256_cvtepu8_epi16( vb_ld( is_erased +  16UL ) );
@@ -920,9 +905,9 @@ fd_reedsol_gen_pi_128( uchar const * is_erased,
 }
 
 void
-fd_reedsol_gen_pi_256( uchar const * is_erased,
-                       uchar       * output ) {
-#if FD_HAS_AVX
+fd_reedsol_private_gen_pi_256( uchar const * is_erased,
+                               uchar       * output ) {
+#if FD_REEDSOL_ARITH_IMPL>0
 #if FD_REEDSOL_PI_USE_SHORT
   ws_t erased_vec0  = _mm256_cvtepu8_epi16( vb_ld( is_erased         ) );
   ws_t erased_vec1  = _mm256_cvtepu8_epi16( vb_ld( is_erased +  16UL ) );
@@ -1040,7 +1025,6 @@ fd_reedsol_gen_pi_256( uchar const * is_erased,
   log_pi13 = ws_adjust_sign( log_pi13, ws_sub( ws_bcast( 1 ), ws_shl( erased_vec13, 1 ) ) );
   log_pi14 = ws_adjust_sign( log_pi14, ws_sub( ws_bcast( 1 ), ws_shl( erased_vec14, 1 ) ) );
   log_pi15 = ws_adjust_sign( log_pi15, ws_sub( ws_bcast( 1 ), ws_shl( erased_vec15, 1 ) ) );
-
 
   /* After the addition below, 0<= log_pi <= 65152 < 2^16. The mod
      brings it back to 0 <= log_pi < 255. */

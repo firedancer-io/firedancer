@@ -7,26 +7,13 @@ def cprint(string):
     if "{" in string:
         indent += 1
 
-
-
 def make_encode(min_data_shreds, max_data_shreds, max_parity_shreds):
     n = 2**(max_data_shreds - 1).bit_length()
     global outf
     with open(f'fd_reedsol_encode_{n}.c', 'wt') as outf:
-        cprint('#include "../../util/fd_util.h"')
-        cprint('#include "fd_reedsol_internal.h"')
-        cprint('#if FD_HAS_GFNI')
-        cprint('#include "fd_reedsol_arith_gfni.h"')
-        cprint('#elif FD_HAS_AVX')
-        cprint('#include "fd_reedsol_arith_avx2.h"')
-        cprint('#else')
-        cprint('#include "fd_reedsol_arith_none.h"')
-        cprint('#endif')
-        cprint('#include "fd_reedsol_fft.h"')
         cprint('#include "fd_reedsol_ppt.h"')
 
-
-        fn_name = f'void fd_reedsol_encode_{n}('
+        fn_name = f'void fd_reedsol_private_encode_{n}('
         cprint(fn_name + " ulong                 shred_sz,")
         cprint(" "*len(fn_name) + " uchar const * const * data_shred,")
         cprint(" "*len(fn_name) + " ulong                 data_shred_cnt,")
@@ -100,7 +87,6 @@ def make_encode(min_data_shreds, max_data_shreds, max_parity_shreds):
         cprint("shred_pos = fd_ulong_if( ((shred_sz-GF_WIDTH)<shred_pos) & (shred_pos<shred_sz), shred_sz-GF_WIDTH, shred_pos );")
         cprint("}")
         cprint("}")
-
 
 make_encode( 1, 16, 68)
 make_encode(17, 32, 68)
