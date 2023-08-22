@@ -23,8 +23,6 @@ jobs:
       - name: Build everything
         run: make -j -Otarget
 
-      - uses: ./.github/actions/hugepages
-
       - name: Run functional tests
         run: |
           ./src/test/frank-single-transaction.sh

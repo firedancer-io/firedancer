@@ -47,8 +47,27 @@ try_defragment_memory( void ) {
 }
 
 void
-expected_pages( config_t * const  config, uint out[2] ) {
+expected_pages( config_t * const config, uint out[2] ) {
+  uint num_tiles = 0;
+
   for( ulong i=0; i<config->shmem.workspaces_cnt; i++ ) {
+    switch( config->shmem.workspaces[ i ].kind ) {
+      case wksp_tpu_txn_data:
+      case wksp_quic_verify:
+      case wksp_verify_dedup:
+      case wksp_dedup_pack:
+      case wksp_pack_bank:
+      case wksp_bank_shred:
+        break;
+      case wksp_quic:
+      case wksp_verify:
+      case wksp_dedup:
+      case wksp_pack:
+      case wksp_bank:
+        num_tiles++;
+        break;
+    }
+
     switch( config->shmem.workspaces[ i ].page_size ) {
       case FD_SHMEM_GIGANTIC_PAGE_SZ:
         out[ 1 ] += (uint)config->shmem.workspaces[ i ].num_pages;
@@ -60,6 +79,11 @@ expected_pages( config_t * const  config, uint out[2] ) {
         break;
     }
   }
+
+  /* each tile has 6 huge pages for its stack, and then the main solana
+     labs thread, and the pid namespace parent thread also have 6 huge
+     pages each for the stack */
+  out[ 0 ] += ( num_tiles + 2 ) * 6;
 }
 
 static void init( config_t * const config ) {
