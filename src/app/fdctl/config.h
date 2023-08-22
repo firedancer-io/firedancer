@@ -59,6 +59,8 @@ typedef struct {
     char  account_indexes[ 4 ][ 32 ];
     ulong account_index_exclude_keys_cnt;
     char  account_index_exclude_keys[ 32 ][ 32 ];
+    int   require_tower;
+    char  snapshot_compression[ 10 ];
   } ledger;
 
   struct {
@@ -84,6 +86,7 @@ typedef struct {
     uint   hard_fork_at_slots[ 32 ];
     ulong  known_validators_cnt;
     char   known_validators[ 16 ][ 256 ];
+    int    os_network_limits_test;
   } consensus;
 
   struct {
@@ -131,7 +134,8 @@ typedef struct {
       char   interface[ IF_NAMESIZE ];
       uint   ip_addr;
       uchar  mac_addr[6];
-      ushort listen_port;
+      ushort transaction_listen_port;
+      ushort quic_transaction_listen_port;
       char   xdp_mode[ 8 ];
 
       uint max_concurrent_connections;

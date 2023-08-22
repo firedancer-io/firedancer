@@ -380,7 +380,7 @@ fd_quic_udpsock_create( void *           _sock,
 
     FD_LOG_NOTICE(( "Adding UDP listener (" FD_IP4_ADDR_FMT ":%u)",
                     FD_IP4_ADDR_FMT_ARGS( quic_sock->listen_ip ), quic_sock->listen_port ));
-    if( FD_UNLIKELY( 0!=fd_xdp_listen_udp_port( xdp_app_name, quic_sock->listen_ip, quic_sock->listen_port, 0 ) ) ) {
+    if( FD_UNLIKELY( 0!=fd_xdp_listen_udp_ports( xdp_app_name, quic_sock->listen_ip, 1, &quic_sock->listen_port, 0 ) ) ) {
       FD_LOG_WARNING(( "failed to add UDP listener" ));
       fd_xsk_aio_leave( xsk_aio );
       fd_xsk_leave( xsk );

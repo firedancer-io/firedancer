@@ -188,6 +188,7 @@ tx_tile_main( int     argc,
       cfg->tx_cnc,
       cfg->tx_quic,
       cfg->xsk_aio,
+      NULL,
       cfg->tx_mcache,
       cfg->tx_dcache,
       cfg->tx_lazy,
@@ -225,7 +226,7 @@ int main( int     argc,
   char const * iface        =       fd_env_strip_cmdline_cstr  ( &argc, &argv, "--iface",          NULL, NULL                         );
   uint         ifqueue      =       fd_env_strip_cmdline_uint  ( &argc, &argv, "--ifqueue",        NULL, 0U                           );
   char const * _listen_addr =       fd_env_strip_cmdline_cstr  ( &argc, &argv, "--listen",         NULL, NULL                         );
-  uint         udp_port     =       fd_env_strip_cmdline_uint  ( &argc, &argv, "--port",           NULL, 8080U                        );
+  ushort       udp_port     =       fd_env_strip_cmdline_ushort( &argc, &argv, "--port",           NULL, 8080U                        );
   char const * _hwaddr      =       fd_env_strip_cmdline_cstr  ( &argc, &argv, "--hwaddr",         NULL, NULL                         );
   char const * bpf_dir      =       fd_env_strip_cmdline_cstr  ( &argc, &argv, "--bpf-dir",        NULL, "test_quic"                  );
 
@@ -245,7 +246,7 @@ int main( int     argc,
   if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( _listen_addr, &listen_addr ) ) )
     FD_LOG_ERR(( "invalid IPv4 address \"%s\"", _listen_addr ));
 
-  if( FD_UNLIKELY( udp_port<=0 || udp_port>USHORT_MAX ) )
+  if( FD_UNLIKELY( udp_port<=0 ) )
     FD_LOG_ERR(( "invalid UDP port %d", udp_port ));
 
   if( FD_UNLIKELY( !_hwaddr  ) ) FD_LOG_ERR(( "missing --hwaddr" ));
@@ -314,7 +315,7 @@ int main( int     argc,
 
   FD_LOG_NOTICE(( "Listening on " FD_IP4_ADDR_FMT ":%u",
                   FD_IP4_ADDR_FMT_ARGS( listen_addr ), udp_port ));
-  FD_TEST( 0==fd_xdp_listen_udp_port( bpf_dir, listen_addr, udp_port, 0U ) );
+  FD_TEST( 0==fd_xdp_listen_udp_ports( bpf_dir, listen_addr, 1, &udp_port, 0U ) );
 
   FD_LOG_NOTICE(( "Joining xsk" ));
   cfg->xsk = fd_xsk_join( shxsk );

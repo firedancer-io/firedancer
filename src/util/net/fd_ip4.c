@@ -2,6 +2,7 @@
 #include "../fd_util.h"
 
 #include <stdlib.h>
+#include <stdio.h>
 
 
 /* FIXME add bounds checks to fd_util version */
@@ -33,4 +34,14 @@ fd_cstr_to_ip4_addr( char const * s,
   if( FD_UNLIKELY( (v0<0)|(v1<0)|(v2<0)|(v3<0) ) ) return 0;
   *out = FD_IP4_ADDR( v0, v1, v2, v3 );
   return 1;
+}
+
+void
+fd_ip4_addr_to_cstr( uint   addr,
+                     char * buf ) {
+  sprintf( buf, "%u.%u.%u.%u",
+           (addr    )&0xFF,
+           (addr>> 8)&0xFF,
+           (addr>>16)&0xFF,
+           (addr>>24)&0xFF );
 }

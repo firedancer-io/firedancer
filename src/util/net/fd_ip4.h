@@ -124,6 +124,14 @@ int
 fd_cstr_to_ip4_addr( char const * s,
                      uint *       addr );
 
+
+/* fd_ip4_addr_to_cstr converts an ip address back to a formatted
+   string like %u.%u.%u.%u  The input buffer is assumed to be at
+   least 16 bytes, a trailing NUL byte is also written. */
+void
+fd_ip4_addr_to_cstr( uint   addr,
+                     char * buf );
+
 /* fd_ip4_hdr_bswap reverses the endianness of all fields in the IPv4
    header. */
 

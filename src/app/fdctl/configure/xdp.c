@@ -41,16 +41,52 @@ init( config_t * const config ) {
                                 (int)config->uid,
                                 (int)config->uid ) ) )
     FD_LOG_ERR(( "fd_xdp_init failed" ));
+
   if( FD_UNLIKELY( fd_xdp_hook_iface( config->name,
                                       config->tiles.quic.interface,
                                       mode,
                                       fd_xdp_redirect_prog,
                                       fd_xdp_redirect_prog_sz ) ) )
     FD_LOG_ERR(( "fd_xdp_hook_iface failed" ));
-  if( FD_UNLIKELY( fd_xdp_listen_udp_port( config->name,
-                                           config->tiles.quic.ip_addr,
-                                           config->tiles.quic.listen_port, 1 ) ) )
-    FD_LOG_ERR(( "fd_xdp_listen_udp_port failed" ));
+
+  /* The Linux kernel does some short circuiting optimizations
+     when sending packets to an IP address that's owned by the
+     same host. The optimization is basically to route them over
+     to the loopback interface directly, bypassing the network
+     hardware.
+
+     This redirection to the loopback interface happens before
+     XDP programs are executed, so local traffic destined for
+     our listen addresses will not get ingested correctly.
+
+     There are two reasons we send traffic locally,
+
+      * For testing and development.
+      * The Solana Labs code sends local traffic to itself to
+        as part of routine operation (eg, when it's the leader
+        it sends votes to its own TPU socket).
+
+     So for now we need to also bind to loopback. This is a
+     small performance hit for other traffic, but we only
+     redirect packets destined for our target IP and port so
+     it will not otherwise interfere. */
+  if( FD_LIKELY( strcmp( config->tiles.quic.interface, "lo" ) ) ) {
+    if( FD_UNLIKELY( fd_xdp_hook_iface( config->name,
+                                        "lo",
+                                        mode,
+                                        fd_xdp_redirect_prog,
+                                        fd_xdp_redirect_prog_sz ) ) )
+      FD_LOG_ERR(( "fd_xdp_hook_iface failed" ));
+  }
+
+
+  ushort udp_ports[] = { config->tiles.quic.transaction_listen_port, config->tiles.quic.quic_transaction_listen_port };
+  if( FD_UNLIKELY( fd_xdp_listen_udp_ports( config->name,
+                                            config->tiles.quic.ip_addr,
+                                            2,
+                                            udp_ports,
+                                            1 ) ) )
+    FD_LOG_ERR(( "fd_xdp_listen_udp_ports failed" ));
 }
 
 static void
@@ -75,6 +111,8 @@ fini( config_t * const config ) {
   char path[ PATH_MAX ];
   snprintf1( path, PATH_MAX, "/sys/fs/bpf/%s/%s", config->name, config->tiles.quic.interface );
   if( FD_UNLIKELY( rmdir( path ) && errno != ENOENT ) ) FD_LOG_ERR(( "rmdir failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  snprintf1( path, PATH_MAX, "/sys/fs/bpf/%s/lo", config->name );
+  if( FD_UNLIKELY( rmdir( path ) && errno != ENOENT ) ) FD_LOG_ERR(( "rmdir failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   snprintf1( path, PATH_MAX, "/sys/fs/bpf/%s", config->name );
   if( FD_UNLIKELY( rmdir( path ) && errno != ENOENT ) ) FD_LOG_ERR(( "rmdir failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
@@ -95,17 +133,21 @@ check( config_t * const config ) {
   snprintf1( xdp_path, PATH_MAX, "/sys/fs/bpf/%s/udp_dsts", config->name );
   CHECK( check_file( xdp_path,      config->uid, config->uid, S_IFREG | S_IRUSR | S_IWUSR | S_IRGRP ) );
 
-  snprintf1( xdp_path, PATH_MAX, "/sys/fs/bpf/%s/%s/xdp_link", config->name, config->tiles.quic.interface );
-  CHECK( check_file( xdp_path,      config->uid, config->uid, S_IFREG | S_IRUSR | S_IWUSR | S_IRGRP ) );
+  char * interfaces[] = { config->tiles.quic.interface, "lo" };
+  ulong interfaces_sz = !strcmp( config->tiles.quic.interface, "lo" ) ? 1 : 2;
+  for( ulong i=0; i<interfaces_sz; i++ ) {
+    snprintf1( xdp_path, PATH_MAX, "/sys/fs/bpf/%s/%s/xdp_link", config->name, interfaces[i] );
+    CHECK( check_file( xdp_path,      config->uid, config->uid, S_IFREG | S_IRUSR | S_IWUSR | S_IRGRP ) );
 
-  snprintf1( xdp_path, PATH_MAX, "/sys/fs/bpf/%s/%s/xdp_prog", config->name, config->tiles.quic.interface );
-  CHECK( check_file( xdp_path,      config->uid, config->uid, S_IFREG | S_IRUSR | S_IWUSR | S_IRGRP ) );
+    snprintf1( xdp_path, PATH_MAX, "/sys/fs/bpf/%s/%s/xdp_prog", config->name, interfaces[i] );
+    CHECK( check_file( xdp_path,      config->uid, config->uid, S_IFREG | S_IRUSR | S_IWUSR | S_IRGRP ) );
 
-  snprintf1( xdp_path, PATH_MAX, "/sys/fs/bpf/%s/%s/xsks", config->name, config->tiles.quic.interface );
-  CHECK( check_file( xdp_path,      config->uid, config->uid, S_IFREG | S_IRUSR | S_IWUSR | S_IRGRP ) );
+    snprintf1( xdp_path, PATH_MAX, "/sys/fs/bpf/%s/%s/xsks", config->name, interfaces[i] );
+    CHECK( check_file( xdp_path,      config->uid, config->uid, S_IFREG | S_IRUSR | S_IWUSR | S_IRGRP ) );
+  }
 
   /* todo: step into these links and make sure the interior data is
-           correct */
+           correct, eg, port numbers still match */
   CONFIGURE_OK();
 }
 

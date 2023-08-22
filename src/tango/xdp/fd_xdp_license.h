@@ -1,1 +1,1 @@
-#define FD_LICENSE "Apache-2.0"
+#define FD_LICENSE "GPL"

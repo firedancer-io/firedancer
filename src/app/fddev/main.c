@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/mman.h>
 
 configure_stage_t * STAGES[ CONFIGURE_STAGE_COUNT ] = {
   &netns,
@@ -26,6 +27,7 @@ configure_stage_t * STAGES[ CONFIGURE_STAGE_COUNT ] = {
 static action_t DEV_ACTIONS[] = {
   { .name = "dev",  .args = dev_cmd_args,  .fn = dev_cmd_fn,  .perm = dev_cmd_perm },
   { .name = "dev1", .args = dev1_cmd_args, .fn = dev1_cmd_fn, .perm = dev_cmd_perm },
+  { .name = "txn",  .args = txn_cmd_args,  .fn = txn_cmd_fn,  .perm = txn_cmd_perm },
 };
 
 #define MAX_ARGC 32
@@ -67,9 +69,14 @@ execve_as_root( int     argc,
   FD_LOG_ERR(( "execve(sudo) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
 
+extern int * fd_log_private_shared_lock;
+
 int
 main( int     argc,
       char ** _argv ) {
+  fd_log_private_shared_lock = (int*)mmap( NULL, sizeof(int), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, (off_t)0 );
+  if( FD_UNLIKELY( !fd_log_private_shared_lock ) ) exit(1);
+
   /* save original arguments list in case we need to respawn the process
      as privileged */
   int    orig_argc = argc;

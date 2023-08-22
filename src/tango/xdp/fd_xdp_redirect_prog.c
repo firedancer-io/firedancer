@@ -47,7 +47,7 @@ static long
                       ulong  flags )
   = (void *)51U;
 
-#ifdef FD_XDP_LOGGING
+#ifndef FD_XDP_LOGGING
 
 /* To do logging, you should enable this import and then call it like
 
@@ -112,12 +112,15 @@ int fd_xdp_redirect( struct xdp_md *ctx ) {
   uchar const * udp = iphdr + iplen;
 
   /* Ignore if UDP header is too short */
-  if( udp+4U > data_end ) return XDP_PASS;
+  if( FD_UNLIKELY( udp+4U > data_end ) ) return XDP_PASS;
 
   /* Extract IP dest addr and UDP dest port */
   ulong ip_dstaddr  = *(uint   *)( iphdr+16UL );
   ulong udp_dstport = *(ushort *)( udp+2UL    );
   ulong flow_key    = (ip_dstaddr<<16) | udp_dstport;
+
+  char fmt[] = "len is %d, port is %lu addr is %lu";
+  bpf_trace_printk( fmt, sizeof(fmt), data_end - data, udp_dstport, ip_dstaddr );
 
   /* Filter for known UDP dest ports of interest */
   /* FIXME: This generates invalid asm.  The lddw instruction for
@@ -125,10 +128,12 @@ int fd_xdp_redirect( struct xdp_md *ctx ) {
             be src_reg==1 */
   /* TODO: Consider using inline asm instead */
   uint * udp_value = bpf_map_lookup_elem( &fd_xdp_udp_dsts, &flow_key );
-  if( !udp_value ) return XDP_PASS;
+  if( FD_UNLIKELY( !udp_value ) ) return XDP_PASS;
 
   /* Look up the interface queue to find the socket to forward to */
   uint socket_key = ctx->rx_queue_index;
+  char fmt3[] = "found udp valuekey is %u";
+  bpf_trace_printk( fmt3, sizeof(fmt3), socket_key );
   return bpf_redirect_map( &fd_xdp_xsks, socket_key, 0 );
 }
 

@@ -1,4 +1,7 @@
+#define _GNU_SOURCE
 #include "fdctl.h"
+
+#include <sys/mman.h>
 
 action_t ACTIONS[ 4 ] = {
   { .name = "run",       .args = NULL,               .fn = run_cmd_fn,       .perm = run_cmd_perm },
@@ -7,9 +10,14 @@ action_t ACTIONS[ 4 ] = {
   { .name = "keygen",    .args = NULL,               .fn = keygen_cmd_fn,    .perm = NULL },
 };
 
+extern int * fd_log_private_shared_lock;
+
 int
 main1( int     argc,
       char ** _argv ) {
+  fd_log_private_shared_lock = (int*)mmap( NULL, sizeof(int), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, (off_t)0 );
+  if( FD_UNLIKELY( !fd_log_private_shared_lock ) ) exit(1);
+
   fd_boot( &argc, &_argv );
   fd_log_thread_set( "main" );
 

@@ -20,6 +20,13 @@ init( fd_frank_args_t * args ) {
   args->xsk = fd_xsk_join( fd_wksp_pod_map( args->tile_pod, "xsk" ) );
   if( FD_UNLIKELY( !args->xsk ) ) FD_LOG_ERR(( "fd_xsk_join failed" ));
 
+  args->lo_xsk = NULL;
+  if( FD_UNLIKELY( fd_pod_query_cstr( args->tile_pod, "lo_xsk", NULL ) ) ) {
+    FD_LOG_INFO(( "loading %s", "lo_xsk" ));
+    args->lo_xsk = fd_xsk_join( fd_wksp_pod_map( args->tile_pod, "lo_xsk" ) );
+    if( FD_UNLIKELY( !args->lo_xsk ) ) FD_LOG_ERR(( "fd_xsk_join (lo) failed" ));
+  }
+
   /* OpenSSL goes and tries to read files and allocate memory and
      other dumb things on a thread local basis, so we need a special
      initializer to do it before seccomp happens in the process. */
@@ -30,6 +37,79 @@ init( fd_frank_args_t * args ) {
   if( FD_UNLIKELY( !OPENSSL_init_crypto( OPENSSL_INIT_LOAD_CRYPTO_STRINGS | OPENSSL_INIT_NO_LOAD_CONFIG , NULL ) ) )
     FD_LOG_ERR(( "OPENSSL_init_crypto failed" ));
 }
+
+struct fd_quic_tpu_ctx;
+
+struct root_aio_ctx {
+  ushort transaction_listen_port;
+  ushort quic_transaction_listen_port;
+
+  const fd_aio_t * quic_aio;
+  void (*transaction_callback)( struct fd_quic_tpu_ctx * ctx, uchar const * packet, uint packet_sz );
+};
+
+static int
+root_aio_net_rx( void *                    ctx,
+                 fd_aio_pkt_info_t const * batch,
+                 ulong                     batch_cnt,
+                 ulong *                   opt_batch_idx,
+                 int                       flush ) {
+  struct root_aio_ctx * root_ctx = ctx;
+
+  for( ulong i=0; i<batch_cnt; i++ ) {
+    uchar const * packet = batch[i].buf;
+    uchar const * packet_end = packet + batch[i].buf_sz;
+
+    uchar const * iphdr = packet + 14U;
+
+    /* Filter for UDP/IPv4 packets.
+      Test for ethtype and ipproto in 1 branch */
+    uint test_ethip = ( (uint)packet[12] << 16u ) | ( (uint)packet[13] << 8u ) | (uint)packet[23];
+    if( FD_UNLIKELY( test_ethip!=0x080011 ) )
+      FD_LOG_ERR(( "Firedancer received a packet from the XDP program that was either "
+                   "not an IPv4 packet, or not a UDP packet. It is likely your XDP program "
+                   "is not configured correctly." ));
+
+    /* IPv4 is variable-length, so lookup IHL to find start of UDP */
+    uint iplen = ( ( (uint)iphdr[0] ) & 0x0FU ) * 4U;
+    uchar const * udp = iphdr + iplen;
+
+    /* Ignore if UDP header is too short */
+    if( FD_UNLIKELY( udp+4U > packet_end ) ) continue;
+
+    /* Extract IP dest addr and UDP dest port */
+    ulong ip_dstaddr  = *(uint   *)( iphdr+16UL );
+    (void)ip_dstaddr;
+    ushort udp_dstport = *(ushort *)( udp+2UL    );
+
+    uchar const * data = udp + 8U;
+    uint data_sz = (uint)(packet_end - data);
+
+    ulong ignored;
+    if( FD_LIKELY( fd_ushort_bswap( udp_dstport ) == root_ctx->quic_transaction_listen_port ) )
+      root_ctx->quic_aio->send_func( root_ctx->quic_aio->ctx, batch + i, 1, &ignored, flush );
+    else if( FD_LIKELY( fd_ushort_bswap( udp_dstport ) == root_ctx->transaction_listen_port ) )
+      root_ctx->transaction_callback( root_ctx->quic_aio->ctx, data, data_sz );
+    else
+      FD_LOG_ERR(( "Firedancer received a UDP packet on port %hu which was not expected. "
+                  "Only ports %hu and %hu should be configured to forward packets. Do "
+                  "you need to reload the XDP program?",
+                  fd_ushort_bswap( udp_dstport ), root_ctx->transaction_listen_port, root_ctx->quic_transaction_listen_port ));
+  }
+
+  /* the assumption here at present is that any packet that could not be processed
+     is simply dropped hence, all packets were consumed */
+  if( FD_LIKELY( opt_batch_idx ) ) {
+    *opt_batch_idx = batch_cnt;
+  }
+
+  return FD_AIO_SUCCESS;
+}
+
+extern void
+fd_quic_transaction_receive( struct fd_quic_tpu_ctx * ctx,
+                             uchar const *       packet,
+                             uint                packet_sz );
 
 static void
 run( fd_frank_args_t * args ) {
@@ -63,6 +143,13 @@ run( fd_frank_args_t * args ) {
   FD_LOG_INFO(( "loading xsk_aio" ));
   fd_xsk_aio_t * xsk_aio = fd_xsk_aio_join( fd_wksp_pod_map( args->tile_pod, "xsk_aio" ), args->xsk );
   if( FD_UNLIKELY( !xsk_aio ) ) FD_LOG_ERR(( "fd_xsk_aio_join failed" ));
+
+  fd_xsk_aio_t * lo_xsk_aio = NULL;
+  if( FD_UNLIKELY( args->lo_xsk ) ) {
+    FD_LOG_INFO(( "loading lo xsk_aio" ));
+    lo_xsk_aio = fd_xsk_aio_join( fd_wksp_pod_map( args->tile_pod, "lo_xsk_aio" ), args->lo_xsk );
+    if( FD_UNLIKELY( !lo_xsk_aio ) ) FD_LOG_ERR(( "fd_xsk_aio_join failed" ));
+  }
 
   /* Setup local objects used by this tile */
 
@@ -106,9 +193,12 @@ run( fd_frank_args_t * args ) {
   if( FD_UNLIKELY( !src_mac ) ) FD_LOG_ERR(( "src_mac_addr not set" ));
   fd_memcpy( quic_cfg->link.src_mac_addr, src_mac, 6 );
 
-  ushort listen_port = fd_pod_query_ushort( args->tile_pod, "listen_port", 0 );
-  if( FD_UNLIKELY( !listen_port ) ) FD_LOG_ERR(( "listen_port not set" ));
-  quic_cfg->net.listen_udp_port = listen_port;
+  ushort transaction_listen_port = fd_pod_query_ushort( args->tile_pod, "transaction_listen_port", 0 );
+  if( FD_UNLIKELY( !transaction_listen_port ) ) FD_LOG_ERR(( "transaction_listen_port not set" ));
+
+  ushort quic_transaction_listen_port = fd_pod_query_ushort( args->tile_pod, "quic_transaction_listen_port", 0 );
+  if( FD_UNLIKELY( !quic_transaction_listen_port ) ) FD_LOG_ERR(( "quic_transaction_listen_port not set" ));
+  quic_cfg->net.listen_udp_port = quic_transaction_listen_port;
 
   ulong idle_timeout_ms = fd_pod_query_ulong( args->tile_pod, "idle_timeout_ms", 0 );
   if( FD_UNLIKELY( !idle_timeout_ms ) ) FD_LOG_ERR(( "idle_timeout_ms not set" ));
@@ -120,13 +210,28 @@ run( fd_frank_args_t * args ) {
 
   /* Attach to XSK */
 
-  fd_xsk_aio_set_rx     ( xsk_aio, fd_quic_get_aio_net_rx( quic    ) );
-  fd_quic_set_aio_net_tx( quic,    fd_xsk_aio_get_tx     ( xsk_aio ) );
+  const fd_aio_t * quic_aio = fd_quic_get_aio_net_rx( quic );
+
+  struct root_aio_ctx root_ctx = {
+    .quic_aio = quic_aio,
+    .transaction_callback = fd_quic_transaction_receive,
+    .transaction_listen_port = transaction_listen_port,
+    .quic_transaction_listen_port = quic_transaction_listen_port,
+  };
+
+  fd_aio_t root_aio = {
+    .ctx       = &root_ctx,
+    .send_func = root_aio_net_rx,
+  };
+
+  if( FD_UNLIKELY( lo_xsk_aio) ) fd_xsk_aio_set_rx( lo_xsk_aio, &root_aio );
+  fd_xsk_aio_set_rx     ( xsk_aio,    &root_aio );
+  fd_quic_set_aio_net_tx( quic,       fd_xsk_aio_get_tx( xsk_aio ) );
 
   /* Start serving */
 
   FD_LOG_INFO(( "%s(%lu) run", args->tile_name, args->tile_idx ));
-  int err = fd_quic_tile( cnc, quic, xsk_aio, mcache, dcache, lazy, rng, scratch, args->tick_per_ns );
+  int err = fd_quic_tile( cnc, quic, xsk_aio, lo_xsk_aio, mcache, dcache, lazy, rng, scratch, args->tick_per_ns );
   if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_quic_tile failed (%i)", err ));
 }
 
@@ -141,13 +246,14 @@ static long allow_syscalls[] = {
 
 static ulong
 allow_fds( fd_frank_args_t * args,
-           ulong out_fds_sz,
-           int * out_fds ) {
-  if( FD_UNLIKELY( out_fds_sz < 3 ) ) FD_LOG_ERR(( "out_fds_sz %lu", out_fds_sz ));
+           ulong             out_fds_sz,
+           int *             out_fds ) {
+  if( FD_UNLIKELY( out_fds_sz < 4 ) ) FD_LOG_ERR(( "out_fds_sz %lu", out_fds_sz ));
   out_fds[ 0 ] = 2; /* stderr */
   out_fds[ 1 ] = 3; /* logfile */
   out_fds[ 2 ] = args->xsk->xsk_fd;
-  return 3;
+  out_fds[ 3 ] = args->lo_xsk ? args->lo_xsk->xsk_fd : -1;
+  return args->lo_xsk ? 4 : 3;
 }
 
 fd_frank_task_t frank_quic = {

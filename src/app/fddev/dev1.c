@@ -64,6 +64,12 @@ dev1_cmd_fn( args_t *         args,
      validator will get stuck forever. */
   config->consensus.wait_for_vote_to_start_leader = 0;
 
+  if( FD_LIKELY( !strcmp( config->consensus.vote_account_path, "" ) ) )
+    snprintf1( config->consensus.vote_account_path,
+               sizeof( config->consensus.vote_account_path ),
+               "%s/vote-account.json",
+               config->scratch_directory );
+
   tile_main_args_t tile_args = {
     .app_name = config->name,
     .uid = config->uid,
