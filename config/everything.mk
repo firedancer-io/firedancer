@@ -1,7 +1,7 @@
 MAKEFLAGS += --no-builtin-rules
 MAKEFLAGS += --no-builtin-variables
 .SUFFIXES:
-.PHONY: all info bin fdctl fddev run monitor include lib unit-test fuzz-test run-unit-test help clean distclean asm ppp show-deps lint check-lint
+.PHONY: all info bin include lib unit-test fuzz-test run-unit-test help clean distclean asm ppp show-deps lint check-lint
 .SECONDARY:
 .SECONDEXPANSION:
 
@@ -96,31 +96,6 @@ run-unit-test:
 	# Running unit tests
 	#######################################################################
 	config/test.sh --tests $(OBJDIR)/unit-test/automatic.txt $(TEST_OPTS)
-
-ifeq (run,$(firstword $(MAKECMDGOALS)))
-  RUN_ARGS := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
-  ifeq ($(RUN_ARGS),)
-    RUN_ARGS := dev --monitor
-  endif
-  $(eval $(RUN_ARGS):;@:)
-endif
-
-run: $(OBJDIR)/bin/fddev
-	$(OBJDIR)/bin/fddev $(RUN_ARGS)
-
-fdctl: $(OBJDIR)/bin/fdctl
-fddev: $(OBJDIR)/bin/fddev
-
-ifeq (monitor,$(firstword $(MAKECMDGOALS)))
-  MONITOR_ARGS := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
-  ifeq ($(MONITOR_ARGS),)
-    MONITOR_ARGS :=
-  endif
-  $(eval $(MONITOR_ARGS):;@:)
-endif
-
-monitor: bin
-	$(OBJDIR)/bin/fddev monitor $(MONITOR_ARGS)
 
 ##############################
 # Usage: $(call make-lib,name)
