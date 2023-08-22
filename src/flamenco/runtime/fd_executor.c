@@ -136,7 +136,8 @@ fd_executor_collect_fee( fd_global_ctx_t *   global,
   global->bank.collected += fee;
 
   /* todo rent exempt check */
-  meta->info.rent_epoch = ULONG_MAX;
+  if( FD_FEATURE_ACTIVE( global, set_exempt_rent_epoch_max ) )
+    meta->info.rent_epoch = ULONG_MAX;
   return 0;
 }
 

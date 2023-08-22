@@ -320,7 +320,6 @@ int main(int argc, char **argv) {
   fd_memset(&state, 0, sizeof(state));
 
   char global_mem[FD_GLOBAL_CTX_FOOTPRINT] __attribute__((aligned(FD_GLOBAL_CTX_ALIGN)));
-  memset(global_mem, 0, sizeof(global_mem));
   state.global = fd_global_ctx_join( fd_global_ctx_new( global_mem ) );
 
   fd_acc_mgr_t _acc_mgr[1];
