@@ -400,13 +400,7 @@ void activate_epoch( fd_global_ctx_t* global, ulong next_epoch ) {
   /* Add a new entry to the Stake History sysvar for the previous epoch
      https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L181-L192 */
 
-  FD_TEST( stakes->stake_history.entries_pool );
   fd_stake_history_epochentry_pair_t_mapnode_t * acc = fd_stake_history_epochentry_pair_t_map_acquire( stakes->stake_history.entries_pool );
-  if( FD_UNLIKELY( !acc ) ) {
-    FD_LOG_CRIT(( "stake history entries pool out of memory (laddr=%p cnt=%lu)",
-                  (void *)stakes->stake_history.entries_pool,
-                  fd_stake_history_epochentry_pair_t_map_size( stakes->stake_history.entries_pool, stakes->stake_history.entries_root ) ));
-  }
   acc->elem.entry = (fd_stake_history_entry_t){
     .effective = 0,
     .activating = 0,

@@ -713,7 +713,7 @@ int fd_stake_history_decode(fd_stake_history_t* self, fd_bincode_decode_ctx_t * 
   ulong entries_len;
   err = fd_bincode_uint64_decode(&entries_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  self->entries_pool = fd_stake_history_epochentry_pair_t_map_alloc(ctx->valloc, fd_ulong_max(entries_len, 32));
+  self->entries_pool = fd_stake_history_epochentry_pair_t_map_alloc(ctx->valloc, entries_len);
   self->entries_root = NULL;
   for (ulong i = 0; i < entries_len; ++i) {
     fd_stake_history_epochentry_pair_t_mapnode_t* node = fd_stake_history_epochentry_pair_t_map_acquire(self->entries_pool);
