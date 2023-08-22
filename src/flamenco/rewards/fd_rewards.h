@@ -89,7 +89,7 @@ typedef struct fd_stake_reward fd_stake_reward_t;
 
 #define DEQUE_NAME deq_fd_stake_reward_t
 #define DEQUE_T    fd_stake_reward_t
-#define DEQUE_MAX  1000UL
+#define DEQUE_MAX  1000000UL
 #include "../../util/tmpl/fd_deque.c"
 static inline fd_stake_reward_t *
 deq_fd_stake_reward_t_alloc( fd_valloc_t valloc ) {
@@ -155,22 +155,24 @@ typedef struct fd_epoch_reward_status fd_epoch_reward_status_t;
 FD_PROTOTYPES_BEGIN
 
 void
-begin_partitioned_rewards(
-    fd_global_ctx_t * global,
-    fd_firedancer_banks_t * self,
-    ulong parent_epoch,
-    fd_epoch_reward_status_t * result
-);
-
-void
 update_rewards(
   fd_global_ctx_t * global,
   ulong prev_epoch
 );
 
 void
+begin_partitioned_rewards(
+    fd_firedancer_banks_t * self,
+    fd_global_ctx_t * global,
+    ulong parent_epoch,
+    fd_epoch_reward_status_t * result
+);
+
+void
 distribute_partitioned_epoch_rewards(
-  fd_firedancer_banks_t * self
+    fd_firedancer_banks_t * self,
+    fd_global_ctx_t * global,
+    fd_epoch_reward_status_t * epoch_reward_status
 );
 
 FD_PROTOTYPES_END

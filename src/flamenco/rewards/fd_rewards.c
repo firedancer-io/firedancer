@@ -373,7 +373,7 @@ calculate_stake_vote_rewards(
     fd_firedancer_banks_t * bank = &global->bank;
     fd_acc_lamports_t total_stake_rewards = 0;
     fd_stake_reward_t * stake_reward_deq = deq_fd_stake_reward_t_alloc( global->valloc );
-    fd_vote_reward_t_mapnode_t * vote_reward_map = fd_vote_reward_t_map_alloc( global->valloc, 9);
+    fd_vote_reward_t_mapnode_t * vote_reward_map = fd_vote_reward_t_map_alloc( global->valloc, 30);
     for ( fd_delegation_pair_t_mapnode_t * n = fd_delegation_pair_t_map_minimum( bank->stakes.stake_delegations_pool, bank->stakes.stake_delegations_root ); n; n = fd_delegation_pair_t_map_successor( bank->stakes.stake_delegations_pool, n ) ) {
         fd_pubkey_t * voter_acc = &n->elem.delegation.voter_pubkey;
         fd_pubkey_t * stake_acc = &n->elem.account;
@@ -660,8 +660,8 @@ update_rewards(
 /* Begin the process of calculating and distributing rewards. This process can take multiple slots. */
 void
 begin_partitioned_rewards(
-    fd_global_ctx_t * global,
     fd_firedancer_banks_t * self,
+    fd_global_ctx_t * global,
     ulong parent_epoch,
     fd_epoch_reward_status_t * result
 ) {
@@ -672,8 +672,7 @@ begin_partitioned_rewards(
         parent_epoch,
         rewards_result
     );
-    ulong start_block_height = 0; //FIXME
-    ulong credit_end_exclusive = start_block_height + REWARD_CALCULATION_NUM_BLOCK + rewards_result->stake_rewards_by_partition->cnt;
+    ulong credit_end_exclusive = self->block_height + REWARD_CALCULATION_NUM_BLOCK + rewards_result->stake_rewards_by_partition->cnt;
 
     // self.set_epoch_reward_status_active(stake_rewards_by_partition);
     result->is_active = 1;
@@ -685,29 +684,46 @@ begin_partitioned_rewards(
     fd_sysvar_epoch_rewards_init( global, rewards_result->total_rewards, rewards_result->distributed_rewards, credit_end_exclusive);
 }
 
-// distribute_partitioned_epoch_rewards
 /* Process reward distribution for the block if it is inside reward interval. */
 void
 distribute_partitioned_epoch_rewards(
-    fd_firedancer_banks_t * self
+    fd_firedancer_banks_t * self,
+    fd_global_ctx_t * global,
+    fd_epoch_reward_status_t * epoch_reward_status
 ) {
-    /* assuming we are inside the reward interval */
-    /* increase total capitalization by the distributed rewards */
-    ulong start_block_height = 0;
-    ulong total_rewards_in_lamports = 0;
+    /* make sure we are inside the reward interval */
+    if ( !epoch_reward_status->is_active ) {
+        return;
+    }
+
+    ulong start_block_height = epoch_reward_status->start_block_height;
     ulong credit_start = start_block_height + REWARD_CALCULATION_NUM_BLOCK;
-    ulong credit_end_exclusive = 0UL;
+    ulong credit_end_exclusive = credit_start + epoch_reward_status->stake_rewards_by_partition->cnt;
     if (self->block_height >= credit_start && self->block_height < credit_end_exclusive) {
-        // ulong partition_index = self->block_height - credit_start;
+        ulong partition_index = self->block_height - credit_start;
+        ulong total_rewards_in_lamports = 0UL;
+        fd_stake_rewards_t this_partition_stake_rewards = epoch_reward_status->stake_rewards_by_partition->elems[partition_index];
+        for (uint i = 0; i < this_partition_stake_rewards.cnt; ++i) {
+            total_rewards_in_lamports = fd_ulong_sat_add(total_rewards_in_lamports, this_partition_stake_rewards.elems[i]->reward_info->lamports);
+            // store rewards into accounts
+            fd_account_meta_t * acc_meta = NULL;
+            FD_TEST( 0==fd_acc_mgr_modify( global->acc_mgr, global->funk_txn, this_partition_stake_rewards.elems[i]->stake_pubkey, 0, 0UL, NULL, NULL, &acc_meta, NULL ));
+            acc_meta->info.lamports += this_partition_stake_rewards.elems[i]->reward_info->lamports;
+        }
+
+        // increase total capitalization by the distributed rewards
         self->capitalization = fd_ulong_sat_add(self->capitalization, total_rewards_in_lamports);
+
         // decrease distributed capital from epoch rewards sysvar
-        // self.update_epoch_rewards_sysvar(total_rewards_in_lamports);
+        fd_sysvar_epoch_rewards_update( global, total_rewards_in_lamports );
 
         // update reward history for this partitioned distribution
         // self.update_reward_history_in_partition(this_partition_stake_rewards);
     }
+
     if (fd_ulong_sat_sub(self->block_height, 1) >= credit_end_exclusive) {
         // deactivate epoch reward status
+        epoch_reward_status->is_active = 0;
     }
 
 }

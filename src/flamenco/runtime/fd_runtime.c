@@ -184,8 +184,7 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_meta_t* m, const void
     ulong new_epoch = fd_slot_to_epoch( &global->bank.epoch_schedule, m->slot, &slot_idx );
     if( slot_idx==0UL ) {
       /* Epoch boundary! */
-      (void)new_epoch;
-      //process_new_epoch( global, new_epoch-1UL );
+      fd_process_new_epoch( global, new_epoch - 1UL );
     }
   }
 
@@ -1346,11 +1345,15 @@ fd_features_restore( fd_global_ctx_t * global ) {
 
 /* process for the start of a new epoch */
 void
-process_new_epoch(
+fd_process_new_epoch(
     fd_global_ctx_t * global,
     ulong parent_epoch
 ) {
-  ulong epoch = fd_slot_to_epoch(&global->bank.epoch_schedule, global->bank.slot, NULL);
+  ulong slot;
+  ulong epoch = fd_slot_to_epoch(&global->bank.epoch_schedule, global->bank.slot, &slot);
+  global->bank.collected = 0;
+  global->bank.block_height = global->bank.block_height + 1UL;
+  global->bank.max_tick_height = (slot + 1) * global->bank.ticks_per_slot;
 
   // activate feature flags
   fd_features_restore( global );
@@ -1358,7 +1361,7 @@ process_new_epoch(
   // Add new entry to stakes.stake_history, set appropriate epoch and
   // update vote accounts with warmed up stakes before saving a
   // snapshot of stakes in epoch stakes
-  activate_epoch(global, epoch);
+  activate_epoch( global, epoch );
 
   // (We might not implement this part)
   /* Save a snapshot of stakes for use in consensus and stake weighted networking
@@ -1369,12 +1372,13 @@ process_new_epoch(
        ); */
   fd_epoch_reward_status_t * epoch_reward_status = NULL;
   if (global->features.enable_partitioned_epoch_reward) {
-    begin_partitioned_rewards( global, &global->bank, parent_epoch, epoch_reward_status);
+    begin_partitioned_rewards( &global->bank, global, parent_epoch, epoch_reward_status);
   } else {
+    // TODO: need to complete this path
     update_rewards( global, parent_epoch);
   }
-  (void)epoch_reward_status;
-  global->bank.block_height += 1;
 
-  distribute_partitioned_epoch_rewards( &global->bank);
+  distribute_partitioned_epoch_rewards( &global->bank, global, epoch_reward_status );
+
+
 }

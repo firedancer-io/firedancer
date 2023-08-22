@@ -168,7 +168,7 @@ static inline ulong fd_rent_exempt(fd_global_ctx_t *global, ulong sz) {
 }
 
 void
-process_new_epoch(
+fd_process_new_epoch(
     fd_global_ctx_t * global,
     ulong parent_epoch
 );
