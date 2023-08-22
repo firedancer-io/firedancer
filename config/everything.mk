@@ -1,7 +1,7 @@
 MAKEFLAGS += --no-builtin-rules
 MAKEFLAGS += --no-builtin-variables
 .SUFFIXES:
-.PHONY: all info bin fdctl fddev run monitor include lib unit-test fuzz-test run-unit-test help clean distclean asm ppp show-deps lint check-lint cargo
+.PHONY: all info bin rust include lib unit-test fuzz-test run-unit-test help clean distclean asm ppp show-deps lint check-lint
 .SECONDARY:
 .SECONDEXPANSION:
 
@@ -43,10 +43,11 @@ help:
 	# Explicit goals are: all bin include lib unit-test help clean distclean asm ppp
 	# "make all" is equivalent to "make bin include lib unit-test"
 	# "make info" makes build info $(OBJDIR)/info for the current platform (if not already made)
-	# "make bin" makes all binaries for the current platform
+	# "make bin" makes all binaries for the current platform (except those requiring the Rust toolchain)
 	# "make include" makes all include files for the current platform
 	# "make lib" makes all libraries for the current platform
 	# "make unit-test" makes all unit-tests for the current platform
+	# "make rust" makes all binaries for the current platform that require the Rust toolchain
 	# "make run-unit-test" runs all unit-tests for the current platform. NOTE: this will not (re)build the test executables
 	# "make help" prints this message
 	# "make clean" removes editor temp files and the current platform build
@@ -96,46 +97,6 @@ run-unit-test:
 	# Running unit tests
 	#######################################################################
 	config/test.sh --tests $(OBJDIR)/unit-test/automatic.txt $(TEST_OPTS)
-
-ifeq (run,$(firstword $(MAKECMDGOALS)))
-  RUN_ARGS := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
-  ifeq ($(RUN_ARGS),)
-    RUN_ARGS := dev --monitor
-  endif
-  $(eval $(RUN_ARGS):;@:)
-endif
-
-# Phony target to always rerun cargo build ... it will detect if anything
-# changed on the library side.
-cargo:
-
-ifeq ($(RUST_PROFILE),release)
-solana/target/$(RUST_PROFILE)/libsolana_validator_fd.a: cargo
-	cd ./solana && env --unset=LDFLAGS ./cargo build --release -p solana-validator-fd
-else
-solana/target/$(RUST_PROFILE)/libsolana_validator_fd.a: cargo
-	cd ./solana && env --unset=LDFLAGS ./cargo build -p solana-validator-fd
-endif
-
-$(OBJDIR)/lib/libsolana_validator_fd.a: solana/target/$(RUST_PROFILE)/libsolana_validator_fd.a
-	$(MKDIR) $(dir $@) && cp solana/target/$(RUST_PROFILE)/libsolana_validator_fd.a $@
-
-run: $(OBJDIR)/bin/fddev
-	$(OBJDIR)/bin/fddev $(RUN_ARGS)
-
-fdctl: $(OBJDIR)/bin/fdctl
-fddev: $(OBJDIR)/bin/fddev
-
-ifeq (monitor,$(firstword $(MAKECMDGOALS)))
-  MONITOR_ARGS := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
-  ifeq ($(MONITOR_ARGS),)
-    MONITOR_ARGS :=
-  endif
-  $(eval $(MONITOR_ARGS):;@:)
-endif
-
-monitor: bin
-	$(OBJDIR)/bin/fddev monitor $(MONITOR_ARGS)
 
 ##############################
 # Usage: $(call make-lib,name)
@@ -232,14 +193,14 @@ define _make-exe
 
 DEPFILES+=$(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).d))
 
-$(OBJDIR)/$(4)/$(1): $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) $(foreach lib,$(3),$(OBJDIR)/lib/lib$(lib).a)
+$(OBJDIR)/$(5)/$(1): $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) $(foreach lib,$(3),$(OBJDIR)/lib/lib$(lib).a)
 	#######################################################################
-	# Creating $(4) $$@ from $$^
+	# Creating $(5) $$@ from $$^
 	#######################################################################
 	$(MKDIR) $$(dir $$@) && \
 $(LD) -L$(OBJDIR)/lib $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) -Wl,--start-group $(foreach lib,$(3),-l$(lib)) $(LDFLAGS) -Wl,--end-group -o $$@
 
-$(4): $(OBJDIR)/$(4)/$(1)
+$(4): $(OBJDIR)/$(5)/$(1)
 
 endef
 
@@ -254,7 +215,7 @@ $(OBJDIR)/unit-test/automatic.txt:
 
 define _fuzz-test
 
-$(eval $(call _make-exe,$(1)/$(1),$(2),$(3),fuzz-test))
+$(eval $(call _make-exe,$(1)/$(1),$(2),$(3),fuzz-test,fuzz-test))
 
 .PHONY: $(1)_unit
 $(1)_unit:
@@ -271,8 +232,9 @@ run-fuzz-test: $(1)_unit
 endef
 
 ifeq "$(FD_HAS_MAIN)" "1"
-make-bin       = $(eval $(call _make-exe,$(1),$(2),$(3),bin))
-make-unit-test = $(eval $(call _make-exe,$(1),$(2),$(3),unit-test))
+make-bin       = $(eval $(call _make-exe,$(1),$(2),$(3),bin,bin))
+make-bin-rust  = $(eval $(call _make-exe,$(1),$(2),$(3),rust,bin))
+make-unit-test = $(eval $(call _make-exe,$(1),$(2),$(3),unit-test,unit-test))
 fuzz-test =
 run-unit-test = $(eval $(call _run-unit-test,$(1)))
 run-fuzz-test:
