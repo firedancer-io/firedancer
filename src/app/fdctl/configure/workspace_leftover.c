@@ -22,12 +22,12 @@ check_page_size( char * name, ulong size, uint expected ) {
              size );
 
   FILE * fp = fopen( page_path, "r" );
-  if( FD_UNLIKELY( !fp ) ) FD_LOG_ERR(( "error opening `%s` (%i-%s)", page_path, errno, strerror( errno ) ));
+  if( FD_UNLIKELY( !fp ) ) FD_LOG_ERR(( "error opening `%s` (%i-%s)", page_path, errno, fd_io_strerror( errno ) ));
   ulong free_pages;
   if( FD_UNLIKELY( fscanf( fp, "%lu", &free_pages ) != 1 ) )
-    FD_LOG_ERR(( "error reading `%s` (%i-%s)", page_path, errno, strerror( errno ) ));
+    FD_LOG_ERR(( "error reading `%s` (%i-%s)", page_path, errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( fclose( fp ) ) )
-    FD_LOG_ERR(( "error closing `%s` (%i-%s)", page_path, errno, strerror( errno ) ));
+    FD_LOG_ERR(( "error closing `%s` (%i-%s)", page_path, errno, fd_io_strerror( errno ) ));
 
   if( FD_UNLIKELY( free_pages < expected ) )
     PARTIALLY_CONFIGURED( "expected at least %lu free %s pages, but there are %lu, "
@@ -45,11 +45,11 @@ check( config_t * const config ) {
   struct stat st;
   int result1 = stat( huge, &st );
   if( FD_UNLIKELY( result1 && errno != ENOENT ) )
-    PARTIALLY_CONFIGURED( "error reading `%s`: %i-%s", huge, errno, strerror( errno ) );
+    PARTIALLY_CONFIGURED( "error reading `%s` (%i-%s)", huge, errno, fd_io_strerror( errno ) );
 
   int result2 = stat( gigantic, &st );
   if( FD_UNLIKELY( result2 && errno != ENOENT ) )
-    PARTIALLY_CONFIGURED( "error reading `%s`: %i-%s", gigantic, errno, strerror( errno ) );
+    PARTIALLY_CONFIGURED( "error reading `%s` (%i-%s)", gigantic, errno, fd_io_strerror( errno ) );
 
   /* if our mounts are present, it's OK to have used pages, we will be
      able to clean up the workspace later */
@@ -68,11 +68,11 @@ static void
 cmdline( char * buf,
          size_t len) {
   FILE * fp = fopen( "/proc/self/cmdline", "r" );
-  if( FD_UNLIKELY( !fp ) ) FD_LOG_ERR(( "error opening `/proc/self/cmdline` (%i-%s)", errno, strerror( errno ) ));
+  if( FD_UNLIKELY( !fp ) ) FD_LOG_ERR(( "error opening `/proc/self/cmdline` (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   ulong read = fread( buf, 1, len - 1, fp );
-  if( FD_UNLIKELY( ferror( fp ) ) ) FD_LOG_ERR(( "error reading `/proc/self/cmdline` (%i-%s)", errno, strerror( errno ) ));
-  if( FD_UNLIKELY( fclose( fp ) ) ) FD_LOG_ERR(( "error closing `/proc/self/cmdline` (%i-%s)", errno, strerror( errno ) ));
+  if( FD_UNLIKELY( ferror( fp ) ) ) FD_LOG_ERR(( "error reading `/proc/self/cmdline` (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( fclose( fp ) ) ) FD_LOG_ERR(( "error closing `/proc/self/cmdline` (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   buf[ read ] = '\0';
 }
@@ -80,7 +80,7 @@ cmdline( char * buf,
 static void
 fini( config_t * const config ) {
   DIR * dir = opendir( "/proc" );
-  if( FD_UNLIKELY( !dir ) ) FD_LOG_ERR(( "error opening `/proc` (%i-%s)", errno, strerror( errno ) ));
+  if( FD_UNLIKELY( !dir ) ) FD_LOG_ERR(( "error opening `/proc` (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   struct dirent * entry;
   while(( FD_LIKELY( entry = readdir( dir ) ) )) {
@@ -92,7 +92,7 @@ fini( config_t * const config ) {
     char path[ PATH_MAX ];
     snprintf1( path, PATH_MAX, "/proc/%lu/maps", pid );
     FILE * fp = fopen( path, "r" );
-    if( FD_UNLIKELY( !fp && errno != ENOENT ) ) FD_LOG_ERR(( "error opening `%s` (%i-%s)", path, errno, strerror( errno ) ));
+    if( FD_UNLIKELY( !fp && errno != ENOENT ) ) FD_LOG_ERR(( "error opening `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
 
     char self_cmdline[ PATH_MAX ];
     cmdline( self_cmdline, PATH_MAX );
@@ -107,13 +107,13 @@ fini( config_t * const config ) {
       }
     }
     if( FD_UNLIKELY( ferror( fp ) ) )
-      FD_LOG_ERR(( "error reading `%s` (%i-%s)", path, errno, strerror( errno ) ));
+      FD_LOG_ERR(( "error reading `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
     if( FD_LIKELY( fclose( fp ) ) )
-      FD_LOG_ERR(( "error closing `%s` (%i-%s)", path, errno, strerror( errno ) ));
+      FD_LOG_ERR(( "error closing `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
 
     snprintf1( path, PATH_MAX, "/proc/%lu/numa_maps", pid );
     fp = fopen( path, "r" );
-    if( FD_UNLIKELY( !fp ) ) FD_LOG_ERR(( "error opening `%s` (%i-%s)", path, errno, strerror( errno ) ));
+    if( FD_UNLIKELY( !fp ) ) FD_LOG_ERR(( "error opening `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
 
     while( FD_LIKELY( fgets( line, 4096, fp ) ) ) {
       if( FD_UNLIKELY( strlen( line ) == 4095 ) ) FD_LOG_ERR(( "line too long in `%s`", path ));
@@ -123,9 +123,9 @@ fini( config_t * const config ) {
       }
     }
     if( FD_UNLIKELY( ferror( fp ) ) )
-      FD_LOG_ERR(( "error reading `%s` (%i-%s)", path, errno, strerror( errno ) ));
+      FD_LOG_ERR(( "error reading `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
     if( FD_LIKELY( fclose( fp ) ) )
-      FD_LOG_ERR(( "error closing `%s` (%i-%s)", path, errno, strerror( errno ) ));
+      FD_LOG_ERR(( "error closing `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
   }
 
   configure_result_t result = check( config );

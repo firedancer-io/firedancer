@@ -1,19 +1,16 @@
-name: Make Build
+name: Functional Tests
 on:
   pull_request:
   push:
     branches:
       - main
   workflow_dispatch:
-  merge_group:
 jobs:
-  make-build:
-    strategy:
-      matrix:
-        compiler: [gcc, clang]
-    runs-on: [self-hosted, Linux, X64]
+  frank-single-transaction:
+    runs-on:
+      group: github-v1
     env:
-      CC: ${{ matrix.compiler }}
+      CC: gcc
     steps:
       - uses: actions/checkout@v3
         with:
@@ -24,4 +21,10 @@ jobs:
       - uses: ./.github/actions/deps
 
       - name: Build everything
-        run: make -j
+        run: make -j -Otarget
+
+      - uses: ./.github/actions/hugepages
+
+      - name: Run functional tests
+        run: |
+          ./src/test/frank-single-transaction.sh

@@ -2,6 +2,7 @@
 
 fail() {
   echo FAIL: "$1" unexpected exit code "$2"
+  "$BIN"/fd_wksp_ctl delete "$WKSP" > /dev/null 2>&1
   echo Log N/A
   exit 1
 }
@@ -118,6 +119,7 @@ ALLOC=$("$BIN"/fd_alloc_ctl tag "$TAG_META" new "$WKSP" "$TAG_ALLOC" || fail new
 "$BIN"/fd_alloc_ctl delete "$ALLOC" 1 || fail query $?
 "$BIN"/fd_alloc_ctl delete "$ALLOC" 1 && fail query $?
 
+"$BIN"/fd_wksp_ctl delete "$WKSP" > /dev/null 2>&1
 echo Log N/A
 echo pass
 exit 0

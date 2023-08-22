@@ -142,29 +142,31 @@ fd_shmem_join( char const *               name,
   int fd = open( fd_shmem_private_path( name, page_sz, path ), rw ? O_RDWR : O_RDONLY, (mode_t)0 );
   if( FD_UNLIKELY( fd==-1 ) ) {
     FD_SHMEM_UNLOCK;
-    FD_LOG_WARNING(( "open(\"%s\",%s,0) failed (%i-%s)", path, rw ? "O_RDWR" : "O_RDONLY", errno, strerror( errno ) ));
+    FD_LOG_WARNING(( "open(\"%s\",%s,0) failed (%i-%s)", path, rw ? "O_RDWR" : "O_RDONLY", errno, fd_io_strerror( errno ) ));
     return NULL;
   }
   /* Note that MAP_HUGETLB and MAP_HUGE_* are implied by the mount point */
   void * shmem = mmap( NULL, sz, rw ? (PROT_READ|PROT_WRITE) : PROT_READ, MAP_SHARED, fd, (off_t)0 );
   int mmap_errno = errno;
   if( FD_UNLIKELY( close( fd ) ) )
-    FD_LOG_WARNING(( "close(\"%s\") failed (%i-%s); attempting to continue", path, errno, strerror( errno ) ));
+    FD_LOG_WARNING(( "close(\"%s\") failed (%i-%s); attempting to continue", path, errno, fd_io_strerror( errno ) ));
 
   /* Validate the mapping */
 
   if( FD_UNLIKELY( shmem==MAP_FAILED ) ) {
     if( FD_UNLIKELY( munmap( shmem, sz ) ) )
-      FD_LOG_WARNING(( "munmap(\"%s\",%lu KiB) failed (%i-%s); attempting to continue", path, sz>>10, errno, strerror( errno ) ));
+      FD_LOG_WARNING(( "munmap(\"%s\",%lu KiB) failed (%i-%s); attempting to continue",
+                       path, sz>>10, errno, fd_io_strerror( errno ) ));
     FD_SHMEM_UNLOCK;
     FD_LOG_WARNING(( "mmap(NULL,%lu KiB,%s,MAP_SHARED,\"%s\",0) failed (%i-%s)",
-                     sz>>10, rw ? "PROT_READ|PROT_WRITE" : "PROT_READ", path, mmap_errno, strerror( mmap_errno ) ));
+                     sz>>10, rw ? "PROT_READ|PROT_WRITE" : "PROT_READ", path, mmap_errno, fd_io_strerror( mmap_errno ) ));
     return NULL;
   }
 
   if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shmem, page_sz ) ) ) {
     if( FD_UNLIKELY( munmap( shmem, sz ) ) )
-      FD_LOG_WARNING(( "munmap(\"%s\",%lu KiB) failed (%i-%s); attempting to continue", path, sz>>10, errno, strerror( errno ) ));
+      FD_LOG_WARNING(( "munmap(\"%s\",%lu KiB) failed (%i-%s); attempting to continue",
+                       path, sz>>10, errno, fd_io_strerror( errno ) ));
     FD_SHMEM_UNLOCK;
     FD_LOG_WARNING(( "misaligned memory mapping for \"%s\"\n\t"
                      "This thread group's hugetlbfs mount path (--shmem-path / FD_SHMEM_PATH):\n\t"
@@ -184,10 +186,11 @@ fd_shmem_join( char const *               name,
 
   if( FD_UNLIKELY( fd_numa_mlock( shmem, sz ) ) )
     FD_LOG_WARNING(( "fd_numa_mlock(\"%s\",%lu KiB) failed (%i-%s); attempting to continue",
-                     path, sz>>10, errno, strerror( errno ) ));
+                     path, sz>>10, errno, fd_io_strerror( errno ) ));
 
   if( FD_UNLIKELY( madvise( shmem, sz, MADV_DONTDUMP ) ) )
-    FD_LOG_WARNING(( "madvise(\"%s\",%lu KiB) failed (%i-%s); attempting to continue", path, sz>>10, errno, strerror( errno ) ));
+    FD_LOG_WARNING(( "madvise(\"%s\",%lu KiB) failed (%i-%s); attempting to continue",
+                     path, sz>>10, errno, fd_io_strerror( errno ) ));
 
   /* We have mapped the region.  Try to complete the join.  Note:
      map_query above and map_insert could be combined to improve
@@ -214,7 +217,8 @@ fd_shmem_join( char const *               name,
     fd_shmem_private_map_remove( fd_shmem_private_map, join_info );
     fd_shmem_private_map_cnt--;
     if( FD_UNLIKELY( munmap( shmem, sz ) ) )
-      FD_LOG_WARNING(( "munmap(\"%s\",%lu KiB) failed (%i-%s); attempting to continue", name, sz>>10, errno, strerror( errno ) ));
+      FD_LOG_WARNING(( "munmap(\"%s\",%lu KiB) failed (%i-%s); attempting to continue",
+                       name, sz>>10, errno, fd_io_strerror( errno ) ));
     FD_SHMEM_UNLOCK;
     FD_LOG_WARNING(( "unable to join region \"%s\"", name ));
     return NULL;
@@ -275,7 +279,8 @@ fd_shmem_leave( void *                    join,
 
   ulong sz = page_sz*page_cnt;
   if( FD_UNLIKELY( munmap( shmem, sz ) ) )
-    FD_LOG_WARNING(( "munmap(\"%s\",%lu KiB) failed (%i-%s); attempting to continue", name, sz>>10, errno, strerror( errno ) ));
+    FD_LOG_WARNING(( "munmap(\"%s\",%lu KiB) failed (%i-%s); attempting to continue",
+                     name, sz>>10, errno, fd_io_strerror( errno ) ));
 
   fd_shmem_private_map_remove( fd_shmem_private_map, join_info );
   fd_shmem_private_map_cnt--;
@@ -497,4 +502,3 @@ fd_shmem_leave_anonymous( void *                 join,
 }
 
 #endif
-

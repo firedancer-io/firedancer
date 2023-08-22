@@ -51,8 +51,7 @@ main( int     argc,
 
   int sock_fd = socket( AF_INET, SOCK_DGRAM, IPPROTO_UDP );
   if( FD_UNLIKELY( sock_fd<0 ) ) {
-    FD_LOG_ERR(( "socket(AF_INET,SOCK_DGRAM,IPPROTO_UDP) failed (%d-%s)",
-                 errno, strerror( errno ) ));
+    FD_LOG_ERR(( "socket(AF_INET,SOCK_DGRAM,IPPROTO_UDP) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
   struct sockaddr_in listen_addr = {
@@ -61,8 +60,7 @@ main( int     argc,
     .sin_port   = (ushort)fd_ushort_bswap( (ushort)port ),
   };
   if( FD_UNLIKELY( 0!=bind( sock_fd, (struct sockaddr const *)fd_type_pun_const( &listen_addr ), sizeof(struct sockaddr_in) ) ) ) {
-    FD_LOG_ERR(( "bind(sock_fd) failed (%d-%s)",
-                 errno, strerror( errno ) ));
+    FD_LOG_ERR(( "bind(sock_fd) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
   /* Allocate fd_udpsock */
@@ -89,13 +87,9 @@ main( int     argc,
   fd_aio_delete( fd_aio_leave( aio ) );
   free( fd_udpsock_delete( fd_udpsock_leave( sock ) ) );
 
-  if( FD_UNLIKELY( close( sock_fd )<0 ) ) {
-    FD_LOG_ERR(( "close(sock_fd) failed (%d-%s)",
-                 errno, strerror( errno ) ));
-  }
+  if( FD_UNLIKELY( close( sock_fd )<0 ) ) FD_LOG_ERR(( "close(sock_fd) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;
 }
-

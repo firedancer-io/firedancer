@@ -41,7 +41,8 @@
 # error "Target architecture is unsupported by seccomp."
 #endif
 
-#define FD_TESTV(c) do { if( FD_UNLIKELY( !(c) ) ) FD_LOG_ERR(( "FAIL: (%d:%s) %s", errno, strerror( errno ), #c )); } while(0)
+#define FD_TESTV(c) \
+  do { if( FD_UNLIKELY( !(c) ) ) FD_LOG_ERR(( "FAIL: %s (%i-%s)", #c, errno, fd_io_strerror( errno ) )); } while(0)
 
 static void
 secure_clear_environment( void ) {
@@ -108,7 +109,7 @@ check_fds( ulong allow_fds_sz,
       FD_TEST( len>0 && len < PATH_MAX );
       char target[ PATH_MAX ];
       long count = readlink( path, target, PATH_MAX );
-      if( FD_UNLIKELY( count < 0 ) ) FD_LOG_ERR(( "readlink(%s) failed (%i-%s)", target, errno, strerror( errno ) ));
+      if( FD_UNLIKELY( count < 0 ) ) FD_LOG_ERR(( "readlink(%s) failed (%i-%s)", target, errno, fd_io_strerror( errno ) ));
       if( FD_UNLIKELY( count >= PATH_MAX ) ) FD_LOG_ERR(( "readlink(%s) returned truncated path", path ));
       target[ count ] = '\0';
 

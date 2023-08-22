@@ -34,6 +34,13 @@
 #define FD_HAS_BACKTRACE 0
 #endif /* __has_include( <execinfo.h> ) */
 
+#ifdef FD_BUILD_INFO
+FD_IMPORT_CSTR( fd_log_build_info, FD_BUILD_INFO );
+#else
+char const  fd_log_build_info[1] __attribute__((aligned(1))) = { '\0' };
+ulong const fd_log_build_info_sz                             = 1UL;
+#endif
+
 /* TEXT_* are quick-and-dirty color terminal hacks.  Probably should
    do something more robust longer term. */
 
@@ -263,6 +270,31 @@ ulong
 fd_log_tid( void ) {
   if( FD_UNLIKELY( !fd_log_private_tid_init ) ) fd_log_private_tid_set( fd_log_private_tid_default() );
   return fd_log_private_tid;
+}
+
+/* User id */
+
+static ulong
+fd_log_private_user_id_default( void ) {
+  return (ulong)getuid(); /* POSIX spec seems ambiguous as to whether or not this is a signed type */
+}
+
+static ulong fd_log_private_user_id;      /* 0 outside boot/halt, init on boot */
+static int   fd_log_private_user_id_init;
+
+void
+fd_log_private_user_id_set( ulong user_id ) {
+  fd_log_private_user_id      = user_id;
+  fd_log_private_user_id_init = 1;
+}
+
+ulong
+fd_log_user_id( void ) {
+  if( FD_UNLIKELY( !fd_log_private_user_id_init ) ) {
+    fd_log_private_user_id      = fd_log_private_user_id_default();
+    fd_log_private_user_id_init = 1;
+  }
+  return fd_log_private_user_id;
 }
 
 /* User */
@@ -504,12 +536,9 @@ fd_log_private_fprintf_0( int fd, char const * fmt, ... ) {
   FD_COMPILER_MFENCE();
 # endif
 
-  ulong written = 0;
-  for(;;) {
-    long cnt = write( fd, fd_log_private_log_msg0 + written, (ulong)len - written );
-    if( FD_LIKELY( cnt == len || cnt < 0 ) ) break;
-    written += (ulong)cnt;
-  }
+  ulong wsz;
+  fd_io_write( fd, fd_log_private_log_msg0, (ulong)len, (ulong)len, &wsz );
+  /* Note: we ignore errors because what are we doing to do, log them? */
 
 # if FD_HAS_ATOMIC
   FD_COMPILER_MFENCE();
@@ -518,7 +547,7 @@ fd_log_private_fprintf_0( int fd, char const * fmt, ... ) {
 # endif
 }
 
-char const * 
+char const *
 fd_log_private_hexdump_msg ( char const * descr,
                              void const * mem,
                              ulong        sz ) {
@@ -858,7 +887,7 @@ fd_log_private_sig_abort( int         sig,
   fsync( STDERR_FILENO );
 
 # else /* !FD_HAS_BACKTRACE */
-  
+
   int log_fileno = FD_VOLATILE_CONST( fd_log_private_fileno );
   if( log_fileno ) fd_log_private_fprintf_0( log_fileno, "Caught signal %i.\n", sig );
 
@@ -899,7 +928,9 @@ fd_log_private_boot( int  *   pargc,
   if( FD_UNLIKELY( !fd_log_private_shared_lock ) ) {
     int lock = 0;
     fd_log_private_shared_lock = &lock;
-    fd_log_private_fprintf_0( STDERR_FILENO, "open( \"/dev/null\", O_WRONLY | O_APPEND ) failed (%i-%s); attempting to continue\n", errno, strerror( errno ) );
+    fd_log_private_fprintf_0( STDERR_FILENO,
+                              "open( \"/dev/null\", O_WRONLY | O_APPEND ) failed (%i-%s); attempting to continue\n",
+                              errno, fd_io_strerror( errno ) );
     exit(1);
   }
 
@@ -956,6 +987,9 @@ fd_log_private_boot( int  *   pargc,
   fd_env_strip_cmdline_ulong( pargc, pargv, "--log-tid", "FD_LOG_TID", 0UL ); /* FIXME: LOG IGNORING? */
   fd_log_private_tid_set( fd_log_private_tid_default() );
 
+  fd_env_strip_cmdline_ulong( pargc, pargv, "--log-user-id", "FD_LOG_USER_ID", 0UL ); /* FIXME: LOG IGNORING? */
+  fd_log_private_user_id_set( fd_log_private_user_id_default() );
+
   char const * user = fd_env_strip_cmdline_cstr( pargc, pargv, "--log-user", "FD_LOG_USER", NULL );
   if( !user )  user = getenv( "LOGNAME" );
   if( !user )  user = getlogin();
@@ -1003,11 +1037,15 @@ fd_log_private_boot( int  *   pargc,
     int btrace_cnt = backtrace( btrace, 128 );
     int fd = open( "/dev/null", O_WRONLY | O_APPEND );
     if( FD_UNLIKELY( fd==-1 ) )
-      fd_log_private_fprintf_0( STDERR_FILENO, "open( \"/dev/null\", O_WRONLY | O_APPEND ) failed (%i-%s); attempting to continue\n", errno, strerror( errno ) );
+      fd_log_private_fprintf_0( STDERR_FILENO,
+                                "open( \"/dev/null\", O_WRONLY | O_APPEND ) failed (%i-%s); attempting to continue\n",
+                                errno, fd_io_strerror( errno ) );
     else {
       backtrace_symbols_fd( btrace, btrace_cnt, fd );
       if( FD_UNLIKELY( close( fd ) ) )
-        fd_log_private_fprintf_0( STDERR_FILENO, "close( \"/dev/null\" ) failed (%i-%s); attempting to continue\n", errno, strerror( errno ) );
+        fd_log_private_fprintf_0( STDERR_FILENO,
+                                  "close( \"/dev/null\" ) failed (%i-%s); attempting to continue\n",
+                                  errno, fd_io_strerror( errno ) );
     }
 #   endif /* FD_HAS_BACKTRACE */
 
@@ -1077,6 +1115,8 @@ fd_log_private_boot( int  *   pargc,
   if( atexit( fd_log_private_cleanup ) ) { fd_log_private_fprintf_0( STDERR_FILENO, "atexit failed; unable to boot\n" ); exit(1); }
 
   /* At this point, logging online */
+  if( fd_log_build_info_sz>1UL ) FD_LOG_INFO(( "fd_log: build info:\n%s", fd_log_build_info ));
+  else                           FD_LOG_INFO(( "fd_log: build info not available"           ));
   FD_LOG_INFO(( "fd_log: --log-path          %s",  fd_log_private_path    ));
   FD_LOG_INFO(( "fd_log: --log-dedup         %i",  fd_log_private_dedup   ));
   FD_LOG_INFO(( "fd_log: --log-colorize      %i",  fd_log_colorize()      ));
@@ -1096,6 +1136,7 @@ fd_log_private_boot( int  *   pargc,
   FD_LOG_INFO(( "fd_log: --log-group-id      %lu", fd_log_group_id()      ));
   FD_LOG_INFO(( "fd_log: --log-group         %s",  fd_log_group()         ));
   FD_LOG_INFO(( "fd_log: --log-tid           %lu", fd_log_tid()           ));
+  FD_LOG_INFO(( "fd_log: --log-user-id       %lu", fd_log_user_id()       ));
   FD_LOG_INFO(( "fd_log: --log-user          %s",  fd_log_user()          ));
 
   FD_LOG_INFO(( "fd_log: boot success" ));
@@ -1120,6 +1161,8 @@ fd_log_private_halt( void ) {
   fd_log_private_colorize       = 0;
 
   fd_log_private_user[0]        = '\0';
+  fd_log_private_user_id_init   = 0;
+  fd_log_private_user_id        = 0UL;
   fd_log_private_tid_init       = 0;
   fd_log_private_tid            = 0UL;
   fd_log_private_group[0]       = '\0';
@@ -1164,7 +1207,7 @@ fd_log_private_main_stack_sz( void ) {
   struct rlimit rlim[1];
   int err = getrlimit( RLIMIT_STACK, rlim );
   if( FD_UNLIKELY( err ) ) {
-    FD_LOG_WARNING(( "fd_log: getrlimit failed (%i-%s)", errno, strerror( errno ) ));
+    FD_LOG_WARNING(( "fd_log: getrlimit failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     return 0UL;
   }
 
@@ -1237,7 +1280,8 @@ fd_log_private_stack_discover( ulong   stack_sz,
   ulong stack_addr = (ulong)stack_mem;
 
   FILE * file = fopen( "/proc/self/maps", "r" );
-  if( FD_UNLIKELY( !file ) ) FD_LOG_WARNING(( "fopen( \"/proc/self/maps\", \"r\" ) failed (%i-%s)", errno, strerror( errno ) ));
+  if( FD_UNLIKELY( !file ) )
+    FD_LOG_WARNING(( "fopen( \"/proc/self/maps\", \"r\" ) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   else {
 
     while( FD_LIKELY( !feof( file ) ) ) {
@@ -1277,7 +1321,7 @@ fd_log_private_stack_discover( ulong   stack_sz,
     }
 
     if( FD_UNLIKELY( fclose( file ) ) )
-      FD_LOG_WARNING(( "fclose( \"/proc/self/maps\" ) failed (%i-%s)", errno, strerror( errno ) ));
+      FD_LOG_WARNING(( "fclose( \"/proc/self/maps\" ) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   }
 

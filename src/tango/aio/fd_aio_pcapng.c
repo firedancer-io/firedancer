@@ -18,7 +18,7 @@ fd_aio_pcapng_send( void *                    ctx,
 
   for( ulong i=0; i<batch_cnt; i++ ) {
     if( FD_UNLIKELY( 1UL!=fd_pcapng_fwrite_pkt( ts, batch[ i ].buf, batch[ i ].buf_sz, mitm->pcapng ) ) ) {
-      FD_LOG_WARNING(( "fd_pcapng_fwrite_pkt failed (%d-%s)", errno, strerror( errno ) ));
+      FD_LOG_WARNING(( "fd_pcapng_fwrite_pkt failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       break;
     }
   }
@@ -36,7 +36,6 @@ fd_aio_pcapng_get_aio( fd_aio_pcapng_t const * mitm ) {
   return &mitm->local;
 }
 
-
 ulong
 fd_aio_pcapng_start( void * pcapng ) {
   fd_pcapng_shb_opts_t shb_opts = {0};
@@ -51,7 +50,6 @@ fd_aio_pcapng_start( void * pcapng ) {
 
   return 1UL;
 }
-
 
 fd_aio_pcapng_t *
 fd_aio_pcapng_join( void *           _mitm,

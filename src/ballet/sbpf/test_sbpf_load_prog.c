@@ -12,7 +12,6 @@
 
 #include "fd_sbpf_maps.c"
 
-
 uint const _syscalls[] = {
   0xb6fc1a11, 0x686093bb, 0x207559bd, 0x5c2a3178, 0x52ba5096,
   0x7ef088ca, 0x9377323c, 0x48504a38, 0x11f49d86, 0xd7793abb,
@@ -22,7 +21,6 @@ uint const _syscalls[] = {
   0xa226d3eb, 0x5d2245e4, 0x7317b434, 0xadb8efc8, 0x85532d94,
   0U
 };
-
 
 int
 main( int     argc,
@@ -41,14 +39,13 @@ main( int     argc,
   /* Open file */
 
   FILE * bin_file = fopen( bin_path, "rb" );
-  if( FD_UNLIKELY( !bin_file ) )
-    FD_LOG_ERR(( "Failed to open \"%s\": %s", bin_path, strerror( errno ) ));
+  if( FD_UNLIKELY( !bin_file ) ) FD_LOG_ERR(( "Failed to open \"%s\" (%i-%s)", bin_path, errno, fd_io_strerror( errno ) ));
 
   /* Check file type */
 
   struct stat bin_stat;
   if( FD_UNLIKELY( 0!=fstat( fileno( bin_file ), &bin_stat ) ) )
-    FD_LOG_ERR(( "fstat() failed: %s", strerror( errno ) ));
+    FD_LOG_ERR(( "fstat() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( !S_ISREG( bin_stat.st_mode ) ) )
     FD_LOG_ERR(( "File \"%s\" not a regular file", bin_path ));
   if( FD_UNLIKELY( bin_stat.st_size<0L ) )
@@ -60,11 +57,10 @@ main( int     argc,
 
   ulong  bin_sz  = (ulong)bin_stat.st_size;
   void * bin_buf = malloc( bin_sz+8UL );
-  if( FD_UNLIKELY( !bin_buf ) )
-    FD_LOG_ERR(( "malloc(%#lx) failed: %s", bin_sz, strerror( errno ) ));
+  if( FD_UNLIKELY( !bin_buf ) ) FD_LOG_ERR(( "malloc(%#lx) failed (%i-%s)", bin_sz, errno, fd_io_strerror( errno ) ));
 
   if( FD_UNLIKELY( fread( bin_buf, bin_sz, 1UL, bin_file )!=1UL ) )
-    FD_LOG_ERR(( "fread() failed: %s", strerror( errno ) ));
+    FD_LOG_ERR(( "fread() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   /* Extract ELF info */
 
@@ -83,8 +79,7 @@ main( int     argc,
   ulong  prog_footprint = fd_sbpf_program_footprint( &elf_info );
   void * prog_buf       = aligned_alloc( prog_align, prog_footprint );
   if( FD_UNLIKELY( !prog_buf ) )
-    FD_LOG_ERR(( "aligned_alloc(%#lx, %#lx) failed: %s",
-                 prog_align, prog_footprint, strerror( errno ) ));
+    FD_LOG_ERR(( "aligned_alloc(%#lx, %#lx) failed (%i-%s)", prog_align, prog_footprint, errno, fd_io_strerror( errno ) ));
 
   fd_sbpf_program_t * prog = fd_sbpf_program_new( prog_buf, &elf_info, rodata );
   FD_TEST( prog );
@@ -108,8 +103,7 @@ main( int     argc,
   free( prog_buf );
   free( fd_sbpf_syscalls_delete( syscalls ) );
 
-  if( FD_UNLIKELY( 0!=fclose( bin_file ) ) )
-    FD_LOG_WARNING(( "fclose() failed: %s", strerror( errno ) ));
+  if( FD_UNLIKELY( 0!=fclose( bin_file ) ) ) FD_LOG_WARNING(( "fclose() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   /* Yield result */
 

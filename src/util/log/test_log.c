@@ -46,12 +46,21 @@ main( int     argc,
   FD_LOG_NOTICE(( "fd_log_cpu_id        %lu", fd_log_cpu_id()        ));
   FD_LOG_NOTICE(( "fd_log_group_id      %lu", fd_log_group_id()      ));
   FD_LOG_NOTICE(( "fd_log_tid           %lu", fd_log_tid()           ));
+  FD_LOG_NOTICE(( "fd_log_user_id       %lu", fd_log_user_id()       ));
   FD_LOG_NOTICE(( "fd_log_app           %s",  fd_log_app()           ));
   FD_LOG_NOTICE(( "fd_log_thread        %s",  fd_log_thread()        ));
   FD_LOG_NOTICE(( "fd_log_host          %s",  fd_log_host()          ));
   FD_LOG_NOTICE(( "fd_log_cpu           %s",  fd_log_cpu()           ));
   FD_LOG_NOTICE(( "fd_log_group         %s",  fd_log_group()         ));
   FD_LOG_NOTICE(( "fd_log_user          %s",  fd_log_user()          ));
+
+  /* Make sure build info is a proper cstr */
+  FD_TEST( fd_log_build_info_sz>0UL                              );
+  FD_TEST( !fd_log_build_info[ fd_log_build_info_sz-1UL ]        );
+  FD_TEST( (strlen(fd_log_build_info)+1UL)==fd_log_build_info_sz );
+
+  if( FD_LIKELY( fd_log_build_info_sz>1UL ) ) FD_LOG_NOTICE(( "fd_log_build_info:\n%s", fd_log_build_info ));
+  else                                        FD_LOG_NOTICE(( "fd_log_build_info not available" ));
 
   if( cmode ) {
     fd_log_colorize_set( 0 );
@@ -192,4 +201,3 @@ main( int     argc,
   fd_halt();
   return 0;
 }
-

@@ -209,7 +209,7 @@ fd_udpsock_join( void * shsock,
   socklen_t addrlen = sizeof(addr);
   int res = getsockname( fd, &addr, &addrlen );
   if( FD_UNLIKELY( res < 0 ) ) {
-    FD_LOG_WARNING(( "getsockname(%d) failed (%d-%s)", fd, errno, strerror(errno) ));
+    FD_LOG_WARNING(( "getsockname(%d) failed (%i-%s)", fd, errno, fd_io_strerror( errno ) ));
     return NULL;
   }
   if( FD_UNLIKELY( addr.sa_family != AF_INET ) ) {
@@ -262,7 +262,7 @@ fd_udpsock_service( fd_udpsock_t * sock ) {
   if( FD_UNLIKELY( res<0 ) ) {
     if( FD_LIKELY( (errno==EAGAIN) | (errno==EWOULDBLOCK) ) )
       return;
-    FD_LOG_WARNING(( "recvmmsg(%d) failed (%d-%s)", fd, errno, strerror(errno) ));
+    FD_LOG_WARNING(( "recvmmsg(%d) failed (%i-%s)", fd, errno, fd_io_strerror( errno ) ));
     return;
   }
   ulong msg_cnt = (ulong)res;
@@ -362,7 +362,7 @@ fd_udpsock_send( void *                    ctx,
     *opt_batch_idx = 0UL;
     if( FD_LIKELY( (errno==EAGAIN) | (errno==EWOULDBLOCK) ) )
       return FD_AIO_ERR_AGAIN;
-    FD_LOG_WARNING(( "sendmmsg(%d) failed (%d-%s)", fd, errno, strerror(errno) ));
+    FD_LOG_WARNING(( "sendmmsg(%d) failed (%i-%s)", fd, errno, fd_io_strerror( errno ) ));
     return FD_AIO_ERR_INVAL;
   }
   ulong sent_cnt = (ulong)res;
@@ -383,4 +383,3 @@ uint
 fd_udpsock_get_listen_port( fd_udpsock_t const * sock ) {
   return sock->udp_self_port;
 }
-

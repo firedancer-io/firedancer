@@ -36,22 +36,22 @@ fd_chacha20_block( void *       _block,
        b is the block index
        n is the nonce */
 
-  uint * block = (uint *)__builtin_assume_aligned( _block, 64UL );
+  uint * block = (uint *)_block;
   block[ 0 ] = 0x61707865U;
   block[ 1 ] = 0x3320646eU;
   block[ 2 ] = 0x79622d32U;
   block[ 3 ] = 0x6b206574U;
 
-  uint const * key = (uint const *)__builtin_assume_aligned( _key, 32UL );
+  uint const * key = (uint const *)_key;
   memcpy( block+ 4, key, 8*sizeof(uint) );
 
   block[ 12 ] = idx;
-  uint const * nonce = (uint const *)__builtin_assume_aligned( _nonce, 4UL );
+  uint const * nonce = (uint const *)_nonce;
   memcpy( block+13, nonce, 3*sizeof(uint) );
 
   /* Remember the input state for later use */
 
-  uint block_pre[ 16 ];
+  uint block_pre[ 16 ] __attribute__((aligned(32)));
   memcpy( block_pre, block, 64UL );
 
   /* Run the ChaCha round function 20 times.

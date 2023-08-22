@@ -177,7 +177,7 @@ check_path( const char * path,
   struct stat st;
   if( FD_UNLIKELY( stat( path, &st ) ) ) {
     if( FD_LIKELY( errno == ENOENT ) ) PARTIALLY_CONFIGURED( "path `%s` does not exist", path );
-    PARTIALLY_CONFIGURED( "failed to stat `%s` (%i-%s)", path, errno, strerror( errno ) );
+    PARTIALLY_CONFIGURED( "failed to stat `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) );
   }
   if( FD_UNLIKELY( expected_dir && !S_ISDIR( st.st_mode ) ) )
     PARTIALLY_CONFIGURED( "path `%s` is a file, not a directory", path );

@@ -303,8 +303,6 @@ main( int argc, char ** argv ) {
   client_cfg->net.ephem_udp_port.lo = (ushort)udpsock->listen_port;
   client_cfg->net.ephem_udp_port.hi = (ushort)(udpsock->listen_port + 1);
 
-  if( FD_UNLIKELY( argc>1 ) ) FD_LOG_ERR(( "unrecognized argument: %s", argv[ 1 ] ));
-
   /* loop continually, so that if the connection dies we try again */
   while (1) {
     run_quic_client( quic, udpsock, dst_ip, (ushort)dst_port, batch );
