@@ -213,29 +213,40 @@ runner () {
   local logfull="${log%.log}-full.log"
   shift 4
 
+  # Create coverage dir, in case it's used
+  local covdir; covdir="$(dirname "$prog")/../cov/raw"
+  mkdir -p "$covdir"
+  # Set up coverage file (no-op for non-instrumented binary)
+  local LLVM_PROFILE_FILE
+  LLVM_PROFILE_FILE="$covdir/$(basename "$prog").profraw"
+
   set +e
   local elapsed
-  elapsed="$({ \
-    time \
-    taskset -c "$cpu_idx" \
-      "$prog" \
+  elapsed="$({                 \
+    time                       \
+    LLVM_PROFILE_FILE="$LLVM_PROFILE_FILE" \
+    taskset -c "$cpu_idx"      \
+      "$prog"                  \
       "--numa-idx" "$numa_idx" \
       "--page-cnt" "$PAGE_CNT" \
-      "--page-sz" "$PAGE_SZ" \
-      "$@" \
-      --log-path "$logfull" \
-      --log-level-stderr 3 \
-      >/dev/null  \
-      2>$log \
+      "--page-sz" "$PAGE_SZ"   \
+      "$@"                     \
+      --log-path "$logfull"    \
+      --log-level-stderr 3     \
+      >/dev/null               \
+      2>"$log"                 \
     ; } \
     2>&1 >/dev/null \
     | grep real \
     | awk '{print $2}'
   )"
   local ret="$?"
-  local rcpath="$(rc_path "$pid")"
-  echo "$ret" > $rcpath
-  echo "$elapsed" >> $rcpath
+
+  local rcpath; rcpath="$(rc_path "$pid")"
+  {
+    echo "$ret"
+    echo "$elapsed"
+  } > "$rcpath"
 }
 
 # dispatch numa_idx cpu_idx cmdline...
@@ -243,7 +254,7 @@ runner () {
 dispatch () {
   # Craft command line args
   local numa_idx="$1"
-  local cpu_idx="$2"
+  local cpu="$2"
   local prog="$3"
   local progname="${prog##*/}"
   shift 3
@@ -252,23 +263,23 @@ dispatch () {
   local logdir
   logdir="$(dirname "$(dirname "$prog")")/log/$progname"
   mkdir -p "$logdir"
-  local log="$logdir/$(date -u +%Y%m%d-%H%M%S).log"
+  local log; log="$logdir/$(date -u +%Y%m%d-%H%M%S).log"
 
   if [[ "$VERBOSE" == 1 ]]; then
     echo "test.sh: NUMA $numa_idx: $progname" >&2
   fi
 
   # Dispatch
-  runner "$numa_idx" "$cpu_idx" "$prog" "$log" "$@" &
+  runner "$numa_idx" "$cpu" "$prog" "$log" "$@" &
   local pid="$!"
 
   # Remember PID
-  PIDS[$pid]=$pid
-  PID2NUMA[$pid]="$numa_idx"
-  PID2CPU[$pid]="$cpu_idx"
-  CPU2PID[$cpu_idx]="$pid"
-  PID2UNIT[$pid]="$progname"
-  PID2LOG[$pid]="$log"
+  PIDS["$pid"]=$pid
+  PID2NUMA["$pid"]="$numa_idx"
+  PID2CPU["$pid"]="$cpu"
+  CPU2PID[$cpu]="$pid"
+  PID2UNIT["$pid"]="$progname"
+  PID2LOG["$pid"]="$log"
 }
 
 # sow
@@ -280,7 +291,7 @@ sow () {
     declare -n cpus="NUMA_CPUMAP_$numa"
     for cpu in "${cpus[@]}"; do
       if [[ "${NUMA_JOBS[$numa]}" -eq 0 ]]; then continue; fi
-      if [[ -n "${CPU2PID[$cpu]+}"      ]]; then continue; fi
+      if [[ -n "${CPU2PID[$cpu]:-}"     ]]; then continue; fi
       if [[ "${#TEST_LIST[@]}"    -eq 0 ]]; then return  ; fi
       # Found a free CPU!
       local test="${TEST_LIST[0]}"
@@ -301,29 +312,29 @@ reap () {
   for pid in "${PIDS[@]}"; do
     if [[ ! -d "/proc/$pid" ]]; then
       # Job finished
-      local rcfile="$(rc_path "$pid")"
+      local rcfile; rcfile="$(rc_path "$pid")"
       local rc
       local elapsed
       {
         IFS= read -r rc
         IFS= read -r elapsed
       } < "$rcfile"
-      local numa="${PID2NUMA[$pid]}"
-      local cpu="${PID2CPU[$pid]}"
-      local unit="${PID2UNIT[$pid]}"
-      local log="${PID2LOG[$pid]}"
+      local numa="${PID2NUMA["$pid"]}"
+      local cpu="${PID2CPU["$pid"]}"
+      local unit="${PID2UNIT["$pid"]}"
+      local log="${PID2LOG["$pid"]}"
       local logfull="${log%.log}-full.log"
-      unset PIDS[$pid]
-      unset PID2NUMA[$pid]
-      unset PID2CPU[$pid]
-      unset CPU2PID[$cpu]
-      unset PID2UNIT[$pid]
-      unset PID2LOG[$pid]
+      unset PIDS["$pid"]
+      unset PID2NUMA["$pid"]
+      unset PID2CPU["$pid"]
+      unset CPU2PID["$cpu"]
+      unset PID2UNIT["$pid"]
+      unset PID2LOG["$pid"]
       NUMA_JOBS[$numa]="$(( NUMA_JOBS[numa] + 1 ))"
       if [[ "$rc" -ne 0 ]]; then
         FAIL_CNT="$(( FAIL_CNT + 1 ))"
         printf "\033[0;31mFAIL\033[0m%12s   %s (exit %d): %s\n" "$elapsed" "$unit" "$rc" "$logfull" >&2
-        cat "$log" | grep -sv "Log at" | sed -e "$(printf "s/^/%19s%-20s /" '' "$unit")" || true >&2
+        grep -sv "Log at" "$log" | sed -e "$(printf "s/^/%19s%-20s /" '' "$unit")" || true >&2
       else
         printf "\033[0;32mOK  \033[0m%12s   %s\n"               "$elapsed" "$unit" >&2
       fi
