@@ -798,6 +798,9 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
       return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
     }
 
+    return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
+
+#if 0
     fd_pubkey_t * programdata_acc = &txn_accs[instr_acc_idxs[0]];
     fd_pubkey_t * program_acc = &txn_accs[instr_acc_idxs[1]];
     fd_pubkey_t * buffer_acc = &txn_accs[instr_acc_idxs[2]];
@@ -811,6 +814,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
       FD_LOG_WARNING(( "failed to read account metadata" ));
       return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
     }
+
 
     // Is program executable?
     if( !program_acc_metadata->info.executable ) {
@@ -919,6 +923,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
     (void)rent_acc;
 
     return FD_EXECUTOR_INSTR_SUCCESS;
+#endif
   } else if ( fd_bpf_upgradeable_loader_program_instruction_is_set_authority( &instruction ) ) {
     if( ctx.instr->acct_cnt < 2 ) {
       return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
