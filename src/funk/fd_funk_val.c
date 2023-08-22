@@ -317,7 +317,7 @@ fd_funk_val_cache( fd_funk_t *           funk,
     fd_int_store_if( !!opt_err, opt_err, err );
     return NULL;
   }
-    
+
   ((fd_funk_rec_t *) rec)->val_max   = (uint)new_val_max;
   ((fd_funk_rec_t *) rec)->val_gaddr = fd_wksp_gaddr_fast( wksp, new_val );
   return new_val;
@@ -370,4 +370,3 @@ fd_funk_val_verify( fd_funk_t * funk ) {
 
   return FD_FUNK_SUCCESS;
 }
-

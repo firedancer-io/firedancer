@@ -179,7 +179,7 @@ fd_funk_rec_key_copy( fd_funk_rec_key_t *       kd,
    64-bit value.  Returns the hash.  The hash functions are high quality
    but not cryptographically secure.  Assumes x is in the caller's
    address space and valid. */
-   
+
 FD_FN_UNUSED FD_FN_PURE static ulong /* Work around -Winline */
 fd_funk_txn_xid_hash( fd_funk_txn_xid_t const * x,
                       ulong                     seed ) {
@@ -307,4 +307,3 @@ fd_funk_strerror( int err );
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_funk_fd_funk_base_h */
-

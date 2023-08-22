@@ -219,7 +219,7 @@ fd_funk_txn_next_rec( fd_funk_t *           funk,
    transactions).  This is a reasonably fast O(length of ancestor
    history) time (theoretical minimum) and a reasonably small O(1) space
    (theoretical minimum).  This is not fortified against transaction map
-   data corruption. 
+   data corruption.
 
    fd_funk_txn_descendant returns a pointer in the caller's address
    space to the first the first transaction among txn and its youngest
@@ -228,7 +228,7 @@ fd_funk_txn_next_rec( fd_funk_t *           funk,
    This is a reasonably fast O(length of descendant history) time
    (theoretical minimum) and a reasonably small O(1) space (theoretical
    minimum).  This is not fortified against transaction map data
-   corruption. 
+   corruption.
 
    That is, if txn's ancestor is NULL, all transactions up to and
    including txn's descendant (which will be non-NULL) can be published

@@ -253,7 +253,7 @@ void *
 fd_funk_val_cache( fd_funk_t *           funk,
                    fd_funk_rec_t const * rec,
                    int *                 opt_err );  /* If non-NULL, *opt_err returns operation error code */
-   
+
 /* Misc */
 
 /* fd_funk_val_init sets a record with uninitialized value metadata to
