@@ -8,6 +8,8 @@ header = """
 #ifndef HEADER_fd_src_ballet_reedsol_fd_reedsol_ppt_h
 #define HEADER_fd_src_ballet_reedsol_fd_reedsol_ppt_h
 
+#include "fd_reedsol_fft.h"
+
 /* This file implements the Principal Pivot Transform for the Reed
    Solomon FFT operator as described in:
      S. -J. Lin, A. Alloum and T. Al-Naffouri, "Principal pivot
@@ -17,7 +19,6 @@ header = """
 
    The main macro this file provides is FD_REEDSOL_GENERATE_PPT.  The
    rest of this file is auto-generated implementation details.
-
 
    When the number of data shreds we have is not a power of 2, the
    approach used in the 32-32 case doesn't apply.  I found the paper
@@ -82,12 +83,6 @@ header = """
    arbitrary subset of them.  This file only implements the specific
    case. */
 
-#include "fd_reedsol_fft.h"
-#ifndef FD_REEDSOL_GF_ARITH_DEFINED
-#error "You must include fd_reedsol_arith_gfni.h or fd_reedsol_arith_avx2.h before including this file"
-#endif
-
-
    /* FD_REEDSOL_GENERATE_PPT: Inserts code to compute the principal
    pivot transform of size n (must be a power of 2, currently only 16
    and 32 are emitted by the code generator) and when you have k known
@@ -106,8 +101,6 @@ header = """
    stored in the ith byte of the output for each i independently. */
 
 #define FD_REEDSOL_GENERATE_PPT(n, k, ...) FD_REEDSOL_PPT_IMPL_##n##_##k( __VA_ARGS__ )
-
-
 
 """
 
@@ -147,7 +140,7 @@ def m_fft( lg_h, beta ):
                 omega_ = j*2**(i_round+1)
                 idx = r + omega_
                 offset = 2**i_round
-                # print(f"Round {i_round} (offset {offset}), idx={idx} (paired with {idx+offset}): j = {j}") 
+                # print(f"Round {i_round} (offset {offset}), idx={idx} (paired with {idx+offset}): j = {j}")
                 s = GF(4)
                 matrA[ idx,        idx        ] = 1
                 matrA[ idx,        idx+offset ] = GF(sbar[i_round, omega_ + beta])
@@ -172,7 +165,7 @@ def m_ifft( lg_h, beta ):
                 omega_ = j*2**(i_round+1)
                 idx = r + omega_
                 offset = 2**i_round
-                # print(f"Round {i_round} (offset {offset}), idx={idx} (paired with {idx+offset}): j = {j}") 
+                # print(f"Round {i_round} (offset {offset}), idx={idx} (paired with {idx+offset}): j = {j}")
                 matrA[ idx+offset, idx        ] = 1
                 matrA[ idx+offset, idx+offset ] = 1
                 matrA[ idx,        idx        ] = 1
@@ -203,7 +196,7 @@ def Bmatr(lg_sz, shift):
 def principal_pivot_transform_k_no_x(lg_sz, k, alpha_offset):
     n = 2**lg_sz
 
-    # alpha is [0, min(k - alpha_offset, n)) 
+    # alpha is [0, min(k - alpha_offset, n))
     if n>=4:
         if k-alpha_offset >= n:
             return [ ("IFFT", n, alpha_offset) ]
@@ -219,7 +212,6 @@ def principal_pivot_transform_k_no_x(lg_sz, k, alpha_offset):
         else:
             matrix = GF(np.array([[GF(1)/f[0,0], f[0,1]/f[0,0]], [ f[1,0]/f[0,0], f[1,1]-f[1,0]*f[0,1]/f[0,0]]]))
         return [ ("MM22",  alpha_offset, alpha_offset+1, matrix) ]
-
 
     B = Bmatr(lg_sz, alpha_offset)
     Bupper = np.linalg.inv(B)
@@ -240,8 +232,6 @@ def principal_pivot_transform_k_no_x(lg_sz, k, alpha_offset):
         else:
             operations.append( ("MM22", j+alpha_offset, j+alpha_offset+n2, B))
 
-
-
     operations.extend( principal_pivot_transform_k_no_x(lg_sz-1, k, alpha_offset) )
 
     # Fixup the part of J2 that needs U1
@@ -250,7 +240,6 @@ def principal_pivot_transform_k_no_x(lg_sz, k, alpha_offset):
         in_alpha2 = (j+alpha_offset+n2 < k)
         if in_alpha1 and not in_alpha2:
             operations.append( ("MULACC", j+n2+alpha_offset, j+alpha_offset, Blower[1,0]) )
-
 
     operations.extend( principal_pivot_transform_k_no_x(lg_sz-1, k, alpha_offset+n//2) )
 
@@ -290,7 +279,6 @@ def print_macro(macro_name, args, lines, indent=2):
     print(" "*indent + "} while( 0 )", file=outf)
     print("\n\n", file=outf)
 
-
 print_macro("GF_MUL22", ["inout0", "inout1", "c00", "c01", "c10", "c11"], [
     "gf_t temp = GF_ADD( GF_MUL( inout0, c00 ), GF_MUL( inout1, c01 ) );",
     "inout1 = GF_ADD( GF_MUL( inout0, c10 ), GF_MUL( inout1, c11 ) );",
@@ -305,7 +293,6 @@ for mink,maxk, N in ((1,16,16), (17,32,32), (33,64,64), (65,69,128)):
         operations = principal_pivot_transform_k_no_x(int(np.log2(N)), k, 0)
 
         scratch_to_declare = set()
-
 
         for op in operations:
             if op[0] == "IFFT":
@@ -341,7 +328,6 @@ for mink,maxk, N in ((1,16,16), (17,32,32), (33,64,64), (65,69,128)):
 
         print_macro(f"FD_REEDSOL_PPT_IMPL_{N}_{k}", inputs, macro_lines)
 
-
         if False: #debug
             first_bytes = GF([0]*1 + [1] +[0]*30)
             scratch_first_bytes = GF([0]*32)
@@ -367,8 +353,5 @@ for mink,maxk, N in ((1,16,16), (17,32,32), (33,64,64), (65,69,128)):
                 if op[0] == "MULACC_SCRATCH":
                     dest, src_scratch, const = op[1:]
                     first_bytes[dest] += scratch_first_bytes[src_scratch] * const
-
-
-
 
 print("#endif /* HEADER_fd_src_ballet_reedsol_fd_reedsol_ppt_h */", file=outf)

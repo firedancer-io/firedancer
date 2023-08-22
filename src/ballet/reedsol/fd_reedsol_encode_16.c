@@ -1,19 +1,11 @@
-#include "../../util/fd_util.h"
-#include "fd_reedsol_internal.h"
-#if FD_HAS_GFNI
-#include "fd_reedsol_arith_gfni.h"
-#elif FD_HAS_AVX
-#include "fd_reedsol_arith_avx2.h"
-#else
-#include "fd_reedsol_arith_none.h"
-#endif
-#include "fd_reedsol_fft.h"
 #include "fd_reedsol_ppt.h"
-void fd_reedsol_encode_16( ulong                 shred_sz,
-                           uchar const * const * data_shred,
-                           ulong                 data_shred_cnt,
-                           uchar       * const * parity_shred,
-                           ulong                 parity_shred_cnt ) {
+
+void
+fd_reedsol_private_encode_16( ulong                 shred_sz,
+                              uchar const * const * data_shred,
+                              ulong                 data_shred_cnt,
+                              uchar       * const * parity_shred,
+                              ulong                 parity_shred_cnt ) {
   for( ulong shred_pos=0UL; shred_pos<shred_sz; /* advanced manually at end of loop */ ) {
     gf_t in00 = gf_zero();  gf_t in01 = gf_zero();  gf_t in02 = gf_zero();  gf_t in03 = gf_zero();
     gf_t in04 = gf_zero();  gf_t in05 = gf_zero();  gf_t in06 = gf_zero();  gf_t in07 = gf_zero();

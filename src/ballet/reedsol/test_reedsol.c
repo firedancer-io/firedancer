@@ -1,18 +1,5 @@
-#include <stdio.h>
-#include "fd_reedsol.h"
-#include "../../util/fd_util.h"
-
-#if FD_HAS_GFNI
-#include "fd_reedsol_arith_gfni.h"
-#elif FD_HAS_AVX
-#include "fd_reedsol_arith_avx2.h"
-#else
-#include "fd_reedsol_arith_none.h"
-#endif
-#include "fd_reedsol_fft.h"
 #include "fd_reedsol_ppt.h"
-
-#include "fd_reedsol_pi.h"
+#include <stdio.h>
 
 FD_IMPORT_BINARY( fd_reedsol_generic_constants, "src/ballet/reedsol/constants/generic_constants.bin" );
 static short const * log_tbl     = (short const *)fd_reedsol_generic_constants; /* Indexed [0, 256) */
@@ -23,6 +10,10 @@ static uchar const * matrix_32_32= fd_reedsol_generic_constants + 256UL*sizeof(s
 uchar data_shreds[ SHRED_SZ * FD_REEDSOL_DATA_SHREDS_MAX ];
 uchar parity_shreds[ SHRED_SZ * FD_REEDSOL_PARITY_SHREDS_MAX ];
 uchar recovered_shreds[ SHRED_SZ * FD_REEDSOL_PARITY_SHREDS_MAX ];
+
+FD_STATIC_ASSERT( FD_REEDSOL_SUCCESS    == 0, unit_test );
+FD_STATIC_ASSERT( FD_REEDSOL_ERR_CORRUPT==-1, unit_test );
+FD_STATIC_ASSERT( FD_REEDSOL_ERR_PARTIAL==-2, unit_test );
 
 FD_STATIC_ASSERT( sizeof(fd_reedsol_t) == FD_REEDSOL_FOOTPRINT, reedsol_footprint );
 
@@ -81,7 +72,6 @@ void fd_reedsol_encode_ref( ulong                 shred_sz,
     long l_p = 255L - log_tbl[ top_matrix[ row ][ row ] ]; /* We've chosen row so that top_matrix[row][row] != 0, so 0<l_p<=255 */
     for( ulong j=row; j<2UL*data_shred_cnt; j++ ) top_matrix[ row ][ j ] = invlog_tbl[ l_p + log_tbl[ top_matrix[ row ][ j ] ] ];
 
-
     /* Clear out next rows */
     for( ulong i=row+1UL; i<data_shred_cnt; i++ ) {
       long ls = log_tbl[ top_matrix[ i ][ row ] ];
@@ -128,6 +118,12 @@ void fd_reedsol_encode_ref( ulong                 shred_sz,
 
 static void
 basic_tests( void ) {
+
+  FD_TEST( !strcmp( fd_reedsol_strerror( FD_REEDSOL_SUCCESS     ), "success" ) );
+  FD_TEST( !strcmp( fd_reedsol_strerror( FD_REEDSOL_ERR_CORRUPT ), "corrupt" ) );
+  FD_TEST( !strcmp( fd_reedsol_strerror( FD_REEDSOL_ERR_PARTIAL ), "partial" ) );
+  FD_TEST( !strcmp( fd_reedsol_strerror( 1                      ), "unknown" ) );
+
   uchar * d[ 32UL ];
   uchar * p[ 32UL ];
 
@@ -170,7 +166,6 @@ basic_tests( void ) {
 
 }
 
-
 typedef uchar linear_chunk_t[ 32UL ];
 
 #define LINEAR_MAX_DIM (128UL)
@@ -206,7 +201,6 @@ test_linearity( linear_func_t to_test,
     /* Initialize randomly */
     for( ulong i=0UL; i<input_cnt; i++ ) for( ulong col=0UL; col<chunk_sz; col++ ) inputs[ i ][ col ] = fd_rng_uchar( rng );
     to_test( inputs, outputs );
-
 
     for( ulong shift=1UL; shift<chunk_sz; shift++ ) {
       for( ulong i=0UL; i<input_cnt; i++ )
@@ -258,8 +252,6 @@ test_linearity( linear_func_t to_test,
   }
 }
 
-
-
 #define REPEAT_128(m, SEP, offset, binary) REPEAT_64(m, SEP, offset, binary##0) SEP() REPEAT_64(m, SEP, (offset)+64UL, binary##1)
 #define REPEAT_64( m, SEP, offset, binary) REPEAT_32(m, SEP, offset, binary##0) SEP() REPEAT_32(m, SEP, (offset)+32UL, binary##1)
 #define REPEAT_32( m, SEP, offset, binary) REPEAT_16(m, SEP, offset, binary##0) SEP() REPEAT_16(m, SEP, (offset)+16UL, binary##1)
@@ -268,13 +260,11 @@ test_linearity( linear_func_t to_test,
 #define REPEAT_4(  m, SEP, offset, binary) REPEAT_2( m, SEP, offset, binary##0) SEP() REPEAT_2( m, SEP, (offset)+ 2UL, binary##1)
 #define REPEAT_2(  m, SEP, offset, binary) m(offset, binary##0) SEP() m((offset)+1UL, binary##1)
 
-
 #define LOAD_VAR(offset, binary) gf_t v##binary = gf_ldu( inputs[offset] );
 #define STORE_VAR(offset, binary) gf_stu( outputs[offset], v##binary );
 #define VAR(offset, binary) v##binary
 #define COMMA() ,
 #define NO_SEP()
-
 
 #define WRAP_FFT(N) \
 static void \
@@ -323,7 +313,6 @@ wrapped_encode_generic( linear_chunk_t * inputs, linear_chunk_t * outputs ) {
   fd_reedsol_encode_fini( rs );
 }
 
-
 WRAP_FFT(4) WRAP_FFT(8) WRAP_FFT(16) WRAP_FFT(32) WRAP_FFT(64) WRAP_FFT(128)
 
 WRAP_PPT(16,  1) WRAP_PPT(16,  2) WRAP_PPT(16,  3) WRAP_PPT(16,  4)
@@ -335,7 +324,6 @@ WRAP_PPT(32, 17) WRAP_PPT(32, 18) WRAP_PPT(32, 19) WRAP_PPT(32, 20)
 WRAP_PPT(32, 21) WRAP_PPT(32, 22) WRAP_PPT(32, 23) WRAP_PPT(32, 24)
 WRAP_PPT(32, 25) WRAP_PPT(32, 26) WRAP_PPT(32, 27) WRAP_PPT(32, 28)
 WRAP_PPT(32, 29) WRAP_PPT(32, 30) WRAP_PPT(32, 31)
-
 
 WRAP_PPT(64, 33) WRAP_PPT(64, 34) WRAP_PPT(64, 35) WRAP_PPT(64, 36)
 WRAP_PPT(64, 37) WRAP_PPT(64, 38) WRAP_PPT(64, 39) WRAP_PPT(64, 40)
@@ -409,7 +397,6 @@ test_linearity_all( fd_rng_t * rng ) {
   test_linearity( wrapped_ppt_64_61, 64UL, 64UL, rng, TC, CW ); test_linearity( wrapped_ppt_64_62, 64UL, 64UL, rng, TC, CW );
   test_linearity( wrapped_ppt_64_63, 64UL, 64UL, rng, TC, CW );
 
-
   test_linearity( wrapped_ppt_128_65, 128UL, 128UL, rng, TC, CW );
   test_linearity( wrapped_ppt_128_66, 128UL, 128UL, rng, TC, CW );
   test_linearity( wrapped_ppt_128_67, 128UL, 128UL, rng, TC, CW );
@@ -419,7 +406,6 @@ test_linearity_all( fd_rng_t * rng ) {
     for( wrapped_parity_shred_cnt=1UL; wrapped_parity_shred_cnt<=FD_REEDSOL_PARITY_SHREDS_MAX; wrapped_parity_shred_cnt++ )
       test_linearity( wrapped_encode_generic, wrapped_data_shred_cnt, wrapped_parity_shred_cnt, rng, 500UL, 32UL );
 }
-
 
 /* Since now we know these are linear operators, we only need to test
    their behavior on a basis.  We'll use the identity matrix as the
@@ -591,7 +577,6 @@ battery_performance_base( fd_rng_t *    rng ) {
 
   encode += fd_log_wallclock();
 
-
   FD_LOG_NOTICE(( "average time per encode call %f ns ( %f GiB/s, %f Gbps )",
                   (double)(encode        )/(double)test_count,
                   (double)(test_count * 32UL * SHRED_SZ) / ((double)(encode)*1.0737),
@@ -615,7 +600,6 @@ battery_performance_generic( fd_rng_t *    rng,
 
   for( ulong j=0UL; j<SHRED_SZ*max_data_shreds; j++ )
     FD_VOLATILE( data_shreds[ j ] ) = fd_rng_uchar( rng );
-
 
   for( ulong d_cnt=1UL; d_cnt<=max_data_shreds; d_cnt++ ) {
     for( ulong p_cnt=1UL; p_cnt<=max_parity_shreds; p_cnt++ ) {
@@ -660,7 +644,6 @@ battery_performance_generic( fd_rng_t *    rng,
   }
   fd_cstr_fini( str );
 
-
   printf( "%s", output );
 }
 
@@ -670,7 +653,8 @@ pi_ref( uchar x, uchar * erasures, ulong erasures_cnt ) {
   for( ulong i=0UL; i<erasures_cnt; i++ ) prod = gfmul( prod, x ^ erasures[ i ] );
   return prod;
 }
-static inline uchar
+
+static uchar
 pi_prime_inv_ref( uchar x, uchar * erasures, ulong erasures_cnt ) {
   uchar prod = 1;
   for( ulong i=0UL; i<erasures_cnt; i++ ) if( erasures[i] != x ) prod = gfmul( prod, x ^ erasures[ i ] );
@@ -743,11 +727,11 @@ test_pi( gen_pi_fn_t fn,
 }
 static void
 test_pi_all( fd_rng_t * rng ) {
-  test_pi( fd_reedsol_gen_pi_16,   16UL, rng );
-  test_pi( fd_reedsol_gen_pi_32,   32UL, rng );
-  test_pi( fd_reedsol_gen_pi_64,   64UL, rng );
-  test_pi( fd_reedsol_gen_pi_128, 128UL, rng );
-  test_pi( fd_reedsol_gen_pi_256, 256UL, rng );
+  test_pi( fd_reedsol_private_gen_pi_16,   16UL, rng );
+  test_pi( fd_reedsol_private_gen_pi_32,   32UL, rng );
+  test_pi( fd_reedsol_private_gen_pi_64,   64UL, rng );
+  test_pi( fd_reedsol_private_gen_pi_128, 128UL, rng );
+  test_pi( fd_reedsol_private_gen_pi_256, 256UL, rng );
 }
 
 static void
@@ -794,9 +778,9 @@ test_recover( fd_rng_t * rng ) {
         FD_TEST( erased_cnt==e_cnt ); /* If this fails, the test is wrong. */
         int retval = fd_reedsol_recover_fini( rs );
 
-        if( FD_UNLIKELY( e_cnt>p_cnt ) ) { FD_TEST( retval==FD_REEDSOL_ERR_INSUFFICIENT ); continue; }
+        if( FD_UNLIKELY( e_cnt>p_cnt ) ) { FD_TEST( retval==FD_REEDSOL_ERR_PARTIAL ); continue; }
 
-        FD_TEST( FD_REEDSOL_OK==retval );
+        FD_TEST( FD_REEDSOL_SUCCESS==retval );
 
         for( ulong i=0UL; i<e_cnt; i++ ) FD_TEST( 0==memcmp( erased_truth[ i ], r[ i ], SHRED_SZ ) );
       }
@@ -811,7 +795,7 @@ test_recover( fd_rng_t * rng ) {
         for( ulong i=0UL; i<d_cnt; i++ ) fd_reedsol_recover_add_rcvd_shred( rs, 1, d[ i ] );
         for( ulong i=0UL; i<p_cnt; i++ ) fd_reedsol_recover_add_rcvd_shred( rs, 0, p[ i ] );
 
-        FD_TEST( FD_REEDSOL_ERR_INCONSISTENT==fd_reedsol_recover_fini( rs ) );
+        FD_TEST( FD_REEDSOL_ERR_CORRUPT==fd_reedsol_recover_fini( rs ) );
 
         if( corrupt_idx<d_cnt )  d[ corrupt_idx       ][ byte_idx ] ^= (uchar)1;
         else                     p[ corrupt_idx-d_cnt ][ byte_idx ] ^= (uchar)1;
@@ -844,7 +828,7 @@ test_recover_performance( fd_rng_t *    rng ) {
   rs = fd_reedsol_recover_init( mem, SHRED_SZ );
   for( ulong i=0UL; i<32UL; i++ ) fd_reedsol_recover_add_rcvd_shred( rs, 1, d[ i ] );
   for( ulong i=0UL; i<32UL; i++ ) fd_reedsol_recover_add_rcvd_shred( rs, 0, p[ i ] );
-  FD_TEST( FD_REEDSOL_OK==fd_reedsol_recover_fini( rs ) );
+  FD_TEST( FD_REEDSOL_SUCCESS==fd_reedsol_recover_fini( rs ) );
 
   rs = fd_reedsol_recover_init( mem, SHRED_SZ );
   for( ulong i=0UL; i<32UL; i++ ) fd_reedsol_recover_add_rcvd_shred( rs, 1, d[ i ] );
@@ -863,7 +847,6 @@ test_recover_performance( fd_rng_t *    rng ) {
 
   recover += fd_log_wallclock();
 
-
   FD_LOG_NOTICE(( "average time per recover (no erasures) call %f ns ( %f GiB/s, %f Gbps )",
                   (double)(recover        )/(double)test_count,
                   (double)(test_count * 64UL * SHRED_SZ) / ((double)(recover)*1.0737),
@@ -876,7 +859,7 @@ test_recover_performance( fd_rng_t *    rng ) {
   rs = fd_reedsol_recover_init( mem, SHRED_SZ );
   for( ulong i=0UL; i<32UL; i++ ) fd_reedsol_recover_add_rcvd_shred( rs, 1, d[ i ] );
   for( ulong i=0UL; i<32UL; i++ ) fd_reedsol_recover_add_erased_shred( rs, 0, r[ i ] );
-  FD_TEST( FD_REEDSOL_OK==fd_reedsol_recover_fini( rs ) );
+  FD_TEST( FD_REEDSOL_SUCCESS==fd_reedsol_recover_fini( rs ) );
 
   rs = fd_reedsol_recover_init( mem, SHRED_SZ );
   for( ulong i=0UL; i<32UL; i++ ) fd_reedsol_recover_add_rcvd_shred( rs, 1, d[ i ] );
@@ -895,7 +878,6 @@ test_recover_performance( fd_rng_t *    rng ) {
 
   recover += fd_log_wallclock();
 
-
   FD_LOG_NOTICE(( "average time per recover (parity erased) call %f ns ( %f GiB/s, %f Gbps )",
                   (double)(recover        )/(double)test_count,
                   (double)(test_count * 64UL * SHRED_SZ) / ((double)(recover)*1.0737),
@@ -908,7 +890,7 @@ test_recover_performance( fd_rng_t *    rng ) {
   rs = fd_reedsol_recover_init( mem, SHRED_SZ );
   for( ulong i=0UL; i<32UL; i++ ) fd_reedsol_recover_add_erased_shred( rs, 1, r[ i ] );
   for( ulong i=0UL; i<32UL; i++ ) fd_reedsol_recover_add_rcvd_shred( rs, 0, p[ i ] );
-  FD_TEST( FD_REEDSOL_OK==fd_reedsol_recover_fini( rs ) );
+  FD_TEST( FD_REEDSOL_SUCCESS==fd_reedsol_recover_fini( rs ) );
 
   rs = fd_reedsol_recover_init( mem, SHRED_SZ );
   for( ulong i=0UL; i<32UL; i++ ) fd_reedsol_recover_add_erased_shred( rs, 1, r[ i ] );
@@ -927,7 +909,6 @@ test_recover_performance( fd_rng_t *    rng ) {
 
   recover += fd_log_wallclock();
 
-
   FD_LOG_NOTICE(( "average time per recover (data erased) call %f ns ( %f GiB/s, %f Gbps )",
                   (double)(recover        )/(double)test_count,
                   (double)(test_count * 64UL * SHRED_SZ) / ((double)(recover)*1.0737),
@@ -939,7 +920,7 @@ test_recover_performance( fd_rng_t *    rng ) {
   rs = fd_reedsol_recover_init( mem, SHRED_SZ );
   for( ulong i=0UL; i<32UL; i+=2UL ) { fd_reedsol_recover_add_erased_shred( rs, 1, r[ i/2UL ] );      fd_reedsol_recover_add_rcvd_shred( rs, 1, d[ i+1UL ] ); }
   for( ulong i=0UL; i<32UL; i+=2UL ) { fd_reedsol_recover_add_erased_shred( rs, 0, r[ 16UL+i/2UL ] ); fd_reedsol_recover_add_rcvd_shred( rs, 0, p[ i+1UL ] ); }
-  FD_TEST( FD_REEDSOL_OK==fd_reedsol_recover_fini( rs ) );
+  FD_TEST( FD_REEDSOL_SUCCESS==fd_reedsol_recover_fini( rs ) );
 
   rs = fd_reedsol_recover_init( mem, SHRED_SZ );
   for( ulong i=0UL; i<32UL; i+=2UL ) { fd_reedsol_recover_add_erased_shred( rs, 1, r[ i/2UL ] );      fd_reedsol_recover_add_rcvd_shred( rs, 1, d[ i+1UL ] ); }
@@ -958,7 +939,6 @@ test_recover_performance( fd_rng_t *    rng ) {
 
   recover += fd_log_wallclock();
 
-
   FD_LOG_NOTICE(( "average time per recover (even erased) call %f ns ( %f GiB/s, %f Gbps )",
                   (double)(recover        )/(double)test_count,
                   (double)(test_count * 64UL * SHRED_SZ) / ((double)(recover)*1.0737),
@@ -971,7 +951,8 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-  // ulong cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--cnt", NULL, 100000UL );
+// ulong cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--cnt", NULL, 100000UL );
+
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
   basic_tests();

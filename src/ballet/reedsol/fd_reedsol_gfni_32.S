@@ -1,16 +1,16 @@
-# void fd_reedsol_encode_32_32( ulong                 shred_sz,      (rdi)
-#                               uchar const * const * data_shred,    (rsi)
-#                               uchar       * const * parity_shred,  (rdx)
-#                               uchar       *         _scratch )     (rcx)
+# void
+# fd_reedsol_private_encode_32_32( ulong                 shred_sz,      (rdi)
+#                                  uchar const * const * data_shred,    (rsi)
+#                                  uchar       * const * parity_shred,  (rdx)
+#                                  uchar       *         _scratch )     (rcx)
 .section .rodata,"a",@progbits
 gfni_const_tbl:
 .align 32
 .incbin "src/ballet/reedsol/constants/gfni_constants.bin"
 .previous
 
-
-fd_reedsol_encode_32_32:
-.globl fd_reedsol_encode_32_32
+fd_reedsol_private_encode_32_32:
+.globl fd_reedsol_private_encode_32_32
 .cfi_startproc
 
 # This file implements the FFT-like O(n log n) algorithm for computing Reed
@@ -68,7 +68,6 @@ fd_reedsol_encode_32_32:
 #          register used for the butterflies
 #   * ymm31: Sometimes stores data from the 31st line, sometimes a scratch
 #          register used for the butterflies
-
 
 # Push registers we clobber
 pushq   %r15
@@ -379,7 +378,6 @@ outer_loop:
   parity_store      14              # storing (0, 0, 14)
   parity_store      15              # storing (0, 0, 15)
 
-
   # Advance shred position.  Normally it increases by 32, but if the shred size
   # is not a multiple of 32, then we clamp it down.  E.g. suppose rdi==33.  We
   # first run through the loop with rax==0.  Then we add 32 to rax and test
@@ -407,8 +405,5 @@ popq    %r15
 .cfi_def_cfa_offset 8
 ret
 .align 16
-
-
-
 
 .cfi_endproc

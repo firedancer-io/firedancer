@@ -1,23 +1,12 @@
-#include "../../util/fd_util.h"
-#include "fd_reedsol.h"
-#include "fd_reedsol_internal.h"
-#if FD_HAS_GFNI
-#include "fd_reedsol_arith_gfni.h"
-#elif FD_HAS_AVX
-#include "fd_reedsol_arith_avx2.h"
-#else
-#include "fd_reedsol_arith_none.h"
-#endif
-#include "fd_reedsol_fft.h"
 #include "fd_reedsol_ppt.h"
 #include "fd_reedsol_fderiv.h"
-#include "fd_reedsol_pi.h"
 
-int fd_reedsol_recover_var_256( ulong           shred_sz,
-                                uchar * const * shred,
-                                ulong           data_shred_cnt,
-                                ulong           parity_shred_cnt,
-                                uchar const *   erased ) {
+int
+fd_reedsol_private_recover_var_256( ulong           shred_sz,
+                                    uchar * const * shred,
+                                    ulong           data_shred_cnt,
+                                    ulong           parity_shred_cnt,
+                                    uchar const *   erased ) {
   uchar _erased[ 256 ] W_ATTR;
   uchar pi[      256 ] W_ATTR;
   ulong shred_cnt = data_shred_cnt + parity_shred_cnt;
@@ -27,9 +16,9 @@ int fd_reedsol_recover_var_256( ulong           shred_sz,
     _erased[ i ] = !load_shred;
     loaded_cnt += (ulong)load_shred;
   }
-  if( FD_UNLIKELY( loaded_cnt<data_shred_cnt ) ) return FD_REEDSOL_ERR_INSUFFICIENT;
+  if( FD_UNLIKELY( loaded_cnt<data_shred_cnt ) ) return FD_REEDSOL_ERR_PARTIAL;
 
-  fd_reedsol_gen_pi_256( _erased, pi );
+  fd_reedsol_private_gen_pi_256( _erased, pi );
 
   /* Store the difference for each shred that was regenerated.  This
      must be 0.  Otherwise there's a corrupt shred. */
@@ -736,9 +725,9 @@ int fd_reedsol_recover_var_256( ulong           shred_sz,
       case  1UL: STORE_COMPARE_RELOAD(  0, in00 );
     }
 
-    if( FD_UNLIKELY( GF_ANY( diff ) ) ) return FD_REEDSOL_ERR_INCONSISTENT;
+    if( FD_UNLIKELY( GF_ANY( diff ) ) ) return FD_REEDSOL_ERR_CORRUPT;
     shred_pos += GF_WIDTH;
     shred_pos = fd_ulong_if( ((shred_sz-GF_WIDTH)<shred_pos) & (shred_pos<shred_sz), shred_sz-GF_WIDTH, shred_pos );
   }
-  return FD_REEDSOL_OK;
+  return FD_REEDSOL_SUCCESS;
 }
