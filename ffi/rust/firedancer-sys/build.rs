@@ -47,7 +47,10 @@ fn main() {
         //
         // We would need to `cargo clean` if any Makefile changes, which
         // isn't possible now.
-        println!("cargo:rerun-if-changed=../../../src");
+        println!("cargo:rerun-if-changed=../../../src/util");
+        println!("cargo:rerun-if-changed=../../../src/ballet");
+        println!("cargo:rerun-if-changed=../../../src/tango");
+        println!("cargo:rerun-if-changed=../../../src/disco");
 
         "../../../"
     };

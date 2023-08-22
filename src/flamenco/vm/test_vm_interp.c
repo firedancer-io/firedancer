@@ -835,6 +835,8 @@ main( int     argc,
   generate_random_alu64_instrs( rng, instrs, instrs_sz );
   test_program_success("alu64_bench_short", 0x0, instrs_sz, instrs);
 
+  free( instrs );
+
   fd_rng_delete( fd_rng_leave( rng ) );
 
   fd_halt();
