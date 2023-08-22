@@ -2,6 +2,7 @@
 #include "../../ballet/base58/fd_base58.h"
 #include "fd_hashes.h"
 #include "fd_runtime.h"
+#include <execinfo.h>
 #include <stdio.h>
 
 fd_acc_mgr_t *
@@ -71,14 +72,19 @@ fd_acc_mgr_modify_raw( fd_acc_mgr_t *        acc_mgr,
                        fd_funk_rec_t **      opt_out_rec,
                        int *                 opt_err ) {
 
-  fd_funk_t            *funk     = acc_mgr->global->funk;
-  fd_funk_rec_key_t     id       = fd_acc_mgr_key( pubkey );
+  fd_funk_t *       funk = acc_mgr->global->funk;
+  fd_funk_rec_key_t id   = fd_acc_mgr_key( pubkey );
 
-  fd_funk_rec_t * rec = fd_funk_rec_write_prepare(funk, txn, &id, sizeof(fd_account_meta_t)+min_data_sz, do_create, opt_con_rec, opt_err);
+  int funk_err;
+  fd_funk_rec_t * rec = fd_funk_rec_write_prepare( funk, txn, &id, sizeof(fd_account_meta_t)+min_data_sz, do_create, opt_con_rec, &funk_err );
 
-  if ( FD_UNLIKELY( NULL == rec ) )  {
-    fd_int_store_if( !!opt_err, opt_err, FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT );
-    return NULL;
+  if( FD_UNLIKELY( !rec ) )  {
+    if( FD_LIKELY( funk_err==FD_FUNK_ERR_KEY ) ) {
+      fd_int_store_if( !!opt_err, opt_err, FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT );
+      return NULL;
+    }
+    /* Irrecoverable funky internal error [[noreturn]] */
+    FD_LOG_ERR(( "fd_funk_rec_write_prepare(%32J) failed (%i-%s)", pubkey->key, funk_err, fd_funk_strerror( funk_err ) ));
   }
 
   if (NULL != opt_out_rec)

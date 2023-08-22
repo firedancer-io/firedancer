@@ -179,12 +179,16 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_meta_t* m, const void
   (void)m;
 
   fd_solcap_writer_set_slot( global->capture, m->slot );
-  if ( global->bank.slot != 0 ) {
-    if ( global->bank.slot == global->bank.epoch_schedule.first_normal_slot) {
-      ulong parent_epoch = fd_slot_to_epoch(&global->bank.epoch_schedule, global->bank.slot, NULL);
-      process_new_epoch(global, parent_epoch);
+  if( global->bank.slot != 0 ) {
+    ulong slot_idx;
+    ulong new_epoch = fd_slot_to_epoch( &global->bank.epoch_schedule, m->slot, &slot_idx );
+    if( slot_idx==0UL ) {
+      /* Epoch boundary! */
+      (void)new_epoch;
+      //process_new_epoch( global, new_epoch-1UL );
     }
   }
+
   /* Get current leader */
   ulong slot_rel;
   fd_slot_to_epoch( &global->bank.epoch_schedule, m->slot, &slot_rel );
@@ -233,7 +237,7 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_meta_t* m, const void
 
         char sig[FD_BASE58_ENCODED_64_SZ];
         fd_base58_encode_64(raw+txn->signature_off, NULL, sig);
-        FD_LOG_NOTICE(("executing txn -  slot: %lu, txn_idx_in_block: %lu, mblk: %lu, txn_idx: %lu, sig: %s", global->bank.slot, txn_idx_in_block, mblk, txn_idx, sig));
+        FD_LOG_DEBUG(("executing txn -  slot: %lu, txn_idx_in_block: %lu, mblk: %lu, txn_idx: %lu, sig: %s", global->bank.slot, txn_idx_in_block, mblk, txn_idx, sig));
         fd_execute_txn( &global->executor, txn, &rawtxn );
 
         blockoff += pay_sz;
@@ -1107,7 +1111,7 @@ fd_runtime_save_banks( fd_global_ctx_t * global ) {
     return -1;
   }
 
-  FD_LOG_NOTICE(( "saved banks_hash %32J  poh_hash %32J", global->bank.banks_hash.hash, global->bank.poh.hash));
+  FD_LOG_NOTICE(( "Slot frozen, slot=%d bank_hash=%32J poh_hash=%32J", global->bank.slot, global->bank.banks_hash.hash, global->bank.poh.hash ));
 
   fd_funk_rec_persist(global->funk, rec);
 
@@ -1373,6 +1377,4 @@ process_new_epoch(
   global->bank.block_height += 1;
 
   distribute_partitioned_epoch_rewards( &global->bank);
-
-
 }

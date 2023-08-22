@@ -239,6 +239,7 @@ fd_execute_txn( fd_executor_t* executor, fd_txn_t * txn_descriptor, fd_rawtxn_b_
 
         exec_result = exec_instr_func( ctx );
         FD_LOG_WARNING(( "instruction executed unsuccessfully: error code %d, program id: %32J", exec_result, &tx_accs[instr->program_id] ));
+        fd_funk_txn_cancel( global->funk, txn, 0 );
         global->funk_txn = parent_txn;
         return -1;
         /* TODO: revert transaction context */

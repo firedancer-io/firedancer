@@ -257,12 +257,12 @@ fd_sysvar_clock_update( fd_global_ctx_t * global ) {
   clock.slot  = global->bank.slot;
   clock.epoch = fd_slot_to_epoch( &global->bank.epoch_schedule, global->bank.slot, NULL );
 
-  FD_LOG_INFO(( "Updated clock at slot %lu", global->bank.slot ));
-  FD_LOG_INFO(( "clock.slot: %lu", clock.slot ));
-  FD_LOG_INFO(( "clock.epoch_start_timestamp: %ld", clock.epoch_start_timestamp ));
-  FD_LOG_INFO(( "clock.epoch: %lu", clock.epoch ));
-  FD_LOG_INFO(( "clock.leader_schedule_epoch: %lu", clock.leader_schedule_epoch ));
-  FD_LOG_INFO(( "clock.unix_timestamp: %ld", clock.unix_timestamp ));
+  FD_LOG_DEBUG(( "Updated clock at slot %lu", global->bank.slot ));
+  FD_LOG_DEBUG(( "clock.slot: %lu", clock.slot ));
+  FD_LOG_DEBUG(( "clock.epoch_start_timestamp: %ld", clock.epoch_start_timestamp ));
+  FD_LOG_DEBUG(( "clock.epoch: %lu", clock.epoch ));
+  FD_LOG_DEBUG(( "clock.leader_schedule_epoch: %lu", clock.leader_schedule_epoch ));
+  FD_LOG_DEBUG(( "clock.unix_timestamp: %ld", clock.unix_timestamp ));
 
   ulong               sz       = fd_sol_sysvar_clock_size(&clock);
   fd_funk_rec_t *     acc_rec  = NULL;
