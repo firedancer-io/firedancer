@@ -2,7 +2,6 @@
 #include "../../ballet/base58/fd_base58.h"
 #include "fd_hashes.h"
 #include "fd_runtime.h"
-#include <execinfo.h>
 #include <stdio.h>
 
 fd_acc_mgr_t *
