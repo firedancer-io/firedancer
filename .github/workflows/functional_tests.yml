@@ -21,7 +21,7 @@ jobs:
       - uses: ./.github/actions/deps
 
       - name: Build everything
-        run: make -j -Otarget
+        run: make -j -Otarget fddev unit-test
 
       - name: Run functional tests
         run: |

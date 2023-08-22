@@ -29,7 +29,7 @@ jobs:
       - uses: ./.github/actions/deps
 
       - name: Build everything
-        run: make -j -Otarget
+        run: make -j -Otarget all rust
 
       - uses: ./.github/actions/hugepages
 

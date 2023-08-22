@@ -199,7 +199,7 @@ jobs:
         languages: ${{ matrix.language }}
 
     - name: Build
-      run: make -j -Otarget
+      run: make -j -Otarget all rust
 
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@v2
