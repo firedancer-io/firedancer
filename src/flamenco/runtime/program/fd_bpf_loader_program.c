@@ -431,10 +431,10 @@ int fd_executor_bpf_loader_program_execute_instruction( instruction_ctx_t ctx ) 
 
    /* FIXME: will need to actually find last program_acct in this instruction but practically no one does this. Yet another
        area where there seems to be a lot of overhead... See solana_runtime::Accounts::load_transaction_accounts */
-  fd_pubkey_t * bpf_loader_acc = &txn_accs[ctx.txn_ctx->txn_descriptor->acct_addr_cnt - 1];
-  if ( memcmp( bpf_loader_acc, ctx.global->solana_bpf_loader_program, sizeof(fd_pubkey_t) ) != 0 ) {
-    return FD_EXECUTOR_INSTR_ERR_EXECUTABLE_MODIFIED;
-  }
+  // fd_pubkey_t * bpf_loader_acc = &txn_accs[ctx.txn_ctx->txn_descriptor->acct_addr_cnt - 1];
+  // if ( memcmp( bpf_loader_acc, ctx.global->solana_bpf_loader_program, sizeof(fd_pubkey_t) ) != 0 ) {
+  //   return FD_EXECUTOR_INSTR_ERR_EXECUTABLE_MODIFIED;
+  // }
 
   fd_pubkey_t * program_acc = &txn_accs[instr_acc_idxs[0]];
 
@@ -446,7 +446,7 @@ int fd_executor_bpf_loader_program_execute_instruction( instruction_ctx_t ctx ) 
     return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
   }
   fd_account_meta_t const * program_acc_metadata = (fd_account_meta_t const *)raw;
-  if ( memcmp(program_acc_metadata->info.owner, bpf_loader_acc, sizeof(fd_pubkey_t) ) != 0 ) {
+  if ( memcmp(program_acc_metadata->info.owner, ctx.global->solana_bpf_loader_program, sizeof(fd_pubkey_t) ) != 0 ) {
     return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
   }
 
