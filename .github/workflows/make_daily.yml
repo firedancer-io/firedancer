@@ -134,6 +134,8 @@ jobs:
       - uses: ./.github/actions/hugepages
 
       - name: Run unit tests
+        env:
+          LLVM_PROFILE_FILE: build/native/clang/cov/cov.lcov
         run: |
           sudo prlimit --pid $$ --memlock=-1:-1
           ./test.sh -j --page-sz gigantic
