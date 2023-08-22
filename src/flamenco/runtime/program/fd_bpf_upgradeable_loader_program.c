@@ -798,9 +798,6 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
       return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
     }
 
-    return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
-
-#if 0
     fd_pubkey_t * programdata_acc = &txn_accs[instr_acc_idxs[0]];
     fd_pubkey_t * program_acc = &txn_accs[instr_acc_idxs[1]];
     fd_pubkey_t * buffer_acc = &txn_accs[instr_acc_idxs[2]];
@@ -884,7 +881,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
     }
 
-    ulong sz2 = PROGRAMDATA_METADATA_SIZE + instruction.inner.deploy_with_max_data_len.max_data_len;
+    ulong sz2 = PROGRAMDATA_METADATA_SIZE + buffer_data_len;
     err = 0;
     void * program_data_raw = fd_acc_mgr_modify_raw(ctx.global->acc_mgr, ctx.global->funk_txn, programdata_acc, 1, sz2, NULL, NULL, &err);
     if( err != FD_ACC_MGR_SUCCESS ) {
@@ -904,7 +901,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
       programdata_balance_required = 1;
     }
 
-    if (programdata_data_len < PROGRAMDATA_METADATA_SIZE + buffer_data_len) {
+    if (programdata_data_len < fd_ulong_sat_add(PROGRAMDATA_METADATA_SIZE, buffer_data_len)) {
       return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
     }
 
@@ -989,7 +986,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
     (void)rent_acc;
 
     return FD_EXECUTOR_INSTR_SUCCESS;
-#endif
+
   } else if ( fd_bpf_upgradeable_loader_program_instruction_is_set_authority( &instruction ) ) {
     if( ctx.instr->acct_cnt < 2 ) {
       return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
