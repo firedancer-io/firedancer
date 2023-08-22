@@ -56,6 +56,7 @@
 #define FD_FUNK_ERR_TXN    (-5) /* Failed due to transaction map issue (e.g. funk txn_max too small) */
 #define FD_FUNK_ERR_REC    (-6) /* Failed due to record map issue (e.g. funk rec_max too small) */
 #define FD_FUNK_ERR_MEM    (-7) /* Failed due to wksp issue (e.g. wksp too small) */
+#define FD_FUNK_ERR_SYS    (-8) /* Failed system call (e.g. a file write) */
 
 /* FD_FUNK_REC_KEY_{ALIGN,FOOTPRINT} describe the alignment and
    footprint of a fd_funk_rec_key_t.  ALIGN is a positive integer power
@@ -178,7 +179,7 @@ fd_funk_rec_key_copy( fd_funk_rec_key_t *       kd,
    64-bit value.  Returns the hash.  The hash functions are high quality
    but not cryptographically secure.  Assumes x is in the caller's
    address space and valid. */
-   
+
 FD_FN_UNUSED FD_FN_PURE static ulong /* Work around -Winline */
 fd_funk_txn_xid_hash( fd_funk_txn_xid_t const * x,
                       ulong                     seed ) {
@@ -306,4 +307,3 @@ fd_funk_strerror( int err );
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_funk_fd_funk_base_h */
-

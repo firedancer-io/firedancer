@@ -192,6 +192,22 @@ fd_funk_txn_is_only_child( fd_funk_txn_t const * txn ) {
          ( fd_funk_txn_idx_is_null( fd_funk_txn_idx( txn->sibling_next_cidx ) ) );
 }
 
+typedef struct fd_funk_rec fd_funk_rec_t;
+
+/* Return the first record in a transaction. Returns NULL if the
+   transaction has no records yet. */
+
+FD_FN_PURE fd_funk_rec_t const *
+fd_funk_txn_first_rec( fd_funk_t *           funk,
+                       fd_funk_txn_t const * txn );
+
+/* Return the next record in a transaction. Returns NULL if the
+   transaction has no more records. */
+
+FD_FN_PURE fd_funk_rec_t const *
+fd_funk_txn_next_rec( fd_funk_t *           funk,
+                      fd_funk_rec_t const * rec );
+
 /* Operations */
 
 /* fd_funk_txn_ancestor returns a pointer in the caller's address space
@@ -203,7 +219,7 @@ fd_funk_txn_is_only_child( fd_funk_txn_t const * txn ) {
    transactions).  This is a reasonably fast O(length of ancestor
    history) time (theoretical minimum) and a reasonably small O(1) space
    (theoretical minimum).  This is not fortified against transaction map
-   data corruption. 
+   data corruption.
 
    fd_funk_txn_descendant returns a pointer in the caller's address
    space to the first the first transaction among txn and its youngest
@@ -212,7 +228,7 @@ fd_funk_txn_is_only_child( fd_funk_txn_t const * txn ) {
    This is a reasonably fast O(length of descendant history) time
    (theoretical minimum) and a reasonably small O(1) space (theoretical
    minimum).  This is not fortified against transaction map data
-   corruption. 
+   corruption.
 
    That is, if txn's ancestor is NULL, all transactions up to and
    including txn's descendant (which will be non-NULL) can be published
@@ -353,6 +369,10 @@ ulong
 fd_funk_txn_cancel_children( fd_funk_t *     funk,
                              fd_funk_txn_t * txn,
                              int             verbose );
+
+ulong
+fd_funk_txn_cancel_all( fd_funk_t *     funk,
+                        int             verbose );
 
 /* fd_funk_txn_publish publishes in-preparation transaction txn and any
    of txn's in-preparation ancestors.  Returns the number of

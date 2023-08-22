@@ -1,4 +1,5 @@
 #include "fd_funk.h"
+#include "fd_funk_persist.h"
 
 ulong
 fd_funk_align( void ) {
@@ -139,6 +140,8 @@ fd_funk_new( void * shmem,
 
   funk->alloc_gaddr = fd_wksp_gaddr_fast( wksp, alloc ); /* Note that this persists the join until delete */
 
+  fd_funk_persist_new( funk );
+
   FD_COMPILER_MFENCE();
   FD_VOLATILE( funk->magic ) = FD_FUNK_MAGIC;
   FD_COMPILER_MFENCE();
@@ -171,6 +174,11 @@ fd_funk_join( void * shfunk ) {
     return NULL;
   }
 
+  fd_funk_persist_join( funk );
+
+  funk->notify_cb = NULL;
+  funk->notify_cb_arg = NULL;
+
   return funk;
 }
 
@@ -181,6 +189,8 @@ fd_funk_leave( fd_funk_t * funk ) {
     FD_LOG_WARNING(( "NULL funk" ));
     return NULL;
   }
+
+  fd_funk_persist_leave( funk );
 
   return (void *)funk;
 }
@@ -215,6 +225,7 @@ fd_funk_delete( void * shfunk ) {
   fd_wksp_free_laddr( fd_alloc_delete       ( fd_alloc_leave       ( fd_funk_alloc  ( funk, wksp ) ) ) );
   fd_wksp_free_laddr( fd_funk_rec_map_delete( fd_funk_rec_map_leave( fd_funk_rec_map( funk, wksp ) ) ) );
   fd_wksp_free_laddr( fd_funk_txn_map_delete( fd_funk_txn_map_leave( fd_funk_txn_map( funk, wksp ) ) ) );
+  fd_funk_persist_delete( funk );
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( funk->magic ) = 0UL;
@@ -334,8 +345,10 @@ fd_funk_verify( fd_funk_t * funk ) {
 
   TEST( !fd_funk_val_verify( funk ) );
 
+  if ( funk->persist_fd != -1 )
+    TEST( !fd_funk_persist_verify( funk ) );
+
 # undef TEST
 
   return FD_FUNK_SUCCESS;
 }
-

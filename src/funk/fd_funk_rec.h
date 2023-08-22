@@ -59,6 +59,9 @@ struct fd_funk_rec {
                       If non-zero, the region [val_gaddr,val_gaddr+val_max) will be a current fd_alloc allocation (such that it is
                       has tag wksp_tag) and the owner of the region will be the record.  IMPORTANT! HAS NO GUARANTEED ALIGNMENT! */
 
+  ulong persist_pos; /* Position in persistence file. FD_FUNK_REC_IDX_NULL if not persisted. */
+  ulong persist_alloc_sz; /* Allocatioon size in persistence file. FD_FUNK_REC_IDX_NULL if not persisted. */
+
   /* Padding to FD_FUNK_REC_ALIGN here (TODO: consider using self index
      in the structures to accelerate indexing computations if padding
      permits as this structure is currently has 8 bytes of padding) */
@@ -293,6 +296,13 @@ FD_FN_PURE fd_funk_rec_t *
 fd_funk_rec_modify( fd_funk_t *           funk,
                     fd_funk_rec_t const * rec );
 
+/* Returns true if the record has been modified in its transaction
+   compared to the prior incarnation of the record with the same key. */
+
+FD_FN_PURE int
+fd_funk_rec_is_modified( fd_funk_t *           funk,
+                         fd_funk_rec_t const * rec );
+
 /* TODO: Consider instead doing something like: modify_init, modify_fini and
    preventing forking the txn if records are being modified instead of
    the long laundry list of lifetime constraints? */
@@ -436,9 +446,35 @@ fd_funk_rec_remove( fd_funk_t *     funk,
                     fd_funk_rec_t * rec,
                     int             erase );
 
+/* fd_funk_rec_persist causes the current state of the record to be
+   written to the backing file, if one has been opened with
+   fd_funk_persist_open. This function only makes sense on records
+   that are part of the root or last published
+   transaction. Persistence is automatic for all records in a
+   transaction when transactions are published, which is the usual
+   case. Therefore, fd_funk_rec_persist does nothing if there is no
+   open backing file or the record is unpublished.
+
+   An error code is returned on failure. */
+
+int
+fd_funk_rec_persist( fd_funk_t *     funk,
+                     fd_funk_rec_t * rec );
+
+/* fd_funk_rec_persist_erase causes the current state of the record to
+   be deleted from the backing file. fd_funk_rec_persist_erase does
+   nothing if there is no open backing file, the record is
+   unpublished, or the record's state was never written to the file.
+
+   An error code is returned on failure. */
+
+int
+fd_funk_rec_persist_erase( fd_funk_t *     funk,
+                           fd_funk_rec_t * rec );
+
 /* fd_funk_rec_write_prepare combines several operations into one
    convenient package. There are 3 basic cases:
-   
+
    1. If the given record key already exists in the transaction, the
    record is returned in modifiable form. This is equivalent to
    fd_funk_rec_query combined with fd_funk_rec_modify.
@@ -460,6 +496,8 @@ fd_funk_rec_write_prepare( fd_funk_t *               funk,
                            fd_funk_txn_t *           txn,
                            fd_funk_rec_key_t const * key,
                            ulong                     min_val_size,
+                           int                       do_create,
+                           fd_funk_rec_t const *     irec,
                            int *                     opt_err );
 
 /* Misc */

@@ -11,8 +11,8 @@ fd_funk_strerror( int err ) {
   case FD_FUNK_ERR_TXN:    return "txn";
   case FD_FUNK_ERR_REC:    return "rec";
   case FD_FUNK_ERR_MEM:    return "mem";
+  case FD_FUNK_ERR_SYS:    return "sys";
   default: break;
   }
   return "unknown";
 }
-
