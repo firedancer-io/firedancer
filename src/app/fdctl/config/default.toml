@@ -112,13 +112,13 @@ dynamic_port_range = "8000-10000"
     # If nonzero, enable JSON RPC on this port, and use the next port for the
     # RPC websocket. If zero, disable JSON RPC. This option is passed to the
     # Solana Labs client with the `--rpc-port` argument.
-    port = 0
+    port = 8899
 
     # If true, all RPC operations are enabled on this validator, including
     # non-default RPC methods for querying chain state and transaction history.
     # This option is passed to the Solana Labs client with the `--full-rpc-api`
     # argument.
-    full_api = false
+    full_api = true
 
     # If the RPC is private, the valdiator's open RPC port is not published in
     # the `solana gossip` command for use by others. This option is passed to
@@ -129,7 +129,7 @@ dynamic_port_range = "8000-10000"
     # `getConfirmedBlock` API. This will cause an increase in disk usage and
     # IOPS. This option is passed to the Solana Labs client with the
     # `--enable-rpc-transaction-history` argument.
-    transaction_history = false
+    transaction_history = true
 
     # If enabled, include CPI inner instructions, logs, and return data in the
     # historical transaction info stored. This option is passed to the Solana

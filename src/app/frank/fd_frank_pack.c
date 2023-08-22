@@ -108,9 +108,9 @@ run( fd_frank_args_t * args ) {
 
   FD_LOG_INFO(( "joining dcache%lu", args->tile_idx ));
   /* Note (chunks are referenced relative to the containing workspace
-     currently and there is just one workspace).  (FIXME: VALIDATE
-     COMMON WORKSPACE FOR THESE) */
-  fd_wksp_t * wksp = fd_wksp_containing( mcache );
+     currently and there is just one workspace). */
+  uchar * dcache = fd_dcache_join( fd_wksp_pod_map( args->extra_pod, "dcache0" ) );
+  fd_wksp_t * wksp = fd_wksp_containing( dcache );
   if( FD_UNLIKELY( !wksp ) ) FD_LOG_ERR(( "fd_wksp_containing failed" ));
 
   FD_LOG_INFO(( "joining fseq" ));
@@ -140,12 +140,12 @@ run( fd_frank_args_t * args ) {
   out_state out[ FD_FRANK_PACK_MAX_OUT ];
 
   /* FIXME: Plumb this through properly: */
-  ulong bank_cnt = fd_pod_cnt( args->out_pod ) / 3UL - 1UL; /* Skip bank 0 */
+  ulong bank_cnt = fd_pod_query_ulong( args->out_pod, "num_tiles", 0UL );
+  if( FD_UNLIKELY( !bank_cnt ) ) FD_LOG_ERR(( "pack.num_tiles unset or set to zero" ));
   if( FD_UNLIKELY( bank_cnt>FD_FRANK_PACK_MAX_OUT ) ) FD_LOG_ERR(( "pack tile connects to too many banking tiles" ));
 
-  /* Skip bank 0 */
-  for( ulong i=0UL; i<bank_cnt; i++ ) join_out( out+i, args->out_pod, i+1UL );
-
+  for( ulong i=0UL; i<bank_cnt; i++ ) join_out( out+i, args->out_pod, i );
+  fd_wksp_t * out_wksp = fd_wksp_containing( args->out_pod );
 
   ulong max_txn_per_microblock = MAX_MICROBLOCK_SZ/sizeof(fd_txn_p_t);
 
@@ -169,8 +169,7 @@ run( fd_frank_args_t * args ) {
   fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, seed, 0UL ) );
   if( FD_UNLIKELY( !rng ) ) FD_LOG_ERR(( "fd_rng_join failed" ));
 
-
-  void * pack_laddr = fd_wksp_alloc_laddr( wksp, fd_pack_align(), pack_footprint, FD_PACK_TAG );
+  void * pack_laddr = fd_wksp_alloc_laddr( fd_wksp_containing( args->tile_pod ), fd_pack_align(), pack_footprint, FD_PACK_TAG );
   if( FD_UNLIKELY( !pack_laddr ) ) FD_LOG_ERR(( "allocating memory for pack object failed" ));
 
 
@@ -254,7 +253,7 @@ run( fd_frank_args_t * args ) {
     for( ulong i=0UL; i<bank_cnt; i++ ) {
       out_state * o = out+i;
       if( FD_LIKELY( o->out_cr_avail>0UL ) ) { /* optimize for the case we send a microblock */
-        void * microblock_dst = fd_chunk_to_laddr( wksp, o->out_chunk );
+        void * microblock_dst = fd_chunk_to_laddr( out_wksp, o->out_chunk );
         ulong schedule_cnt = fd_pack_schedule_next_microblock( pack, cus_per_microblock, vote_fraction, microblock_dst );
         if( FD_LIKELY( schedule_cnt ) ) {
           ulong tspub  = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
@@ -362,6 +361,7 @@ fd_frank_task_t frank_pack = {
   .name              = "pack",
   .in_wksp           = "dedup_pack",
   .out_wksp          = "pack_bank",
+  .extra_wksp        = "tpu_txn_data",
   .allow_syscalls_sz = sizeof(allow_syscalls)/sizeof(allow_syscalls[ 0 ]),
   .allow_syscalls    = allow_syscalls,
   .allow_fds         = allow_fds,

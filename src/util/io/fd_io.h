@@ -744,14 +744,23 @@ fd_io_buffered_ostream_flush( fd_io_buffered_ostream_t * out ) {
 
 /* Misc APIs */
 
-/* fd_io_strerror converts at fd_io error code (i.e. negative ->
+/* fd_io_strerror converts an fd_io error code (i.e. negative ->
    end-of-file, 0 -> success, positive -> strerror compatible) into a
    human readable cstr.  Unlike strerror, the lifetime of the returned
-   pointer is infinite and call itself is thread safe.  The returned
-   pointer is always to a non-NULL cstr. */
+   pointer is infinite and the call itself is thread safe.  The
+   returned pointer is always to a non-NULL cstr. */
 
 FD_FN_CONST char const *
 fd_io_strerror( int err );
+
+/* fd_io_strsignal converts a signal code (like returned by WTERMSIG)
+   into a human readable cstr.  Unlike strsignal, the lifetime of the
+   returned pointer is infinite and the call itself is thread safe.
+   Unlike the glibc strsignal implementation in particular, it does
+   not call `brk(3)` or `futex(2)` internally.  The returned pointer
+   is always to a non-NULL cstr. */
+FD_FN_CONST char const *
+fd_io_strsignal( int err );
 
 /* TODO: ASYNC IO APIS */
 

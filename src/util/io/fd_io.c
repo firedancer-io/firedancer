@@ -14,6 +14,7 @@
 #if FD_IO_STYLE==0 /* POSIX style */
 
 #include <errno.h>
+#include <signal.h>
 #include <unistd.h>
 
 int
@@ -498,6 +499,51 @@ fd_io_strerror( int err ) {
   case ETIMEDOUT      : return "ETIMEDOUT-connection timed out";
   case ETXTBSY        : return "ETXTBSY-text file busy";
   case EXDEV          : return "EXDEV-invalid cross-device link";
+  default: break;
+  }
+
+  return "unknown";
+}
+
+char const *
+fd_io_strsignal( int sig ) {
+  switch( sig ) {
+  case 0              : return "success";
+  case SIGHUP         : return "SIGHUP-Hangup";
+  case SIGINT         : return "SIGINT-Interrupt";
+  case SIGQUIT        : return "SIGQUIT-Quit";
+  case SIGILL         : return "SIGILL-Illegal instruction";
+  case SIGTRAP        : return "SIGTRAP-Trace/breakpoint trap";
+  case SIGABRT        : return "SIGABRT-Aborted";
+  case SIGBUS         : return "SIGBUS-Bus error";
+  case SIGFPE         : return "SIGFPE-Arithmetic exception";
+  case SIGKILL        : return "SIGKILL-Killed";
+  case SIGUSR1        : return "SIGUSR1-User defined signal 1";
+  case SIGSEGV        : return "SIGSEGV-Segmentation fault";
+  case SIGUSR2        : return "SIGUSR2-User defined signal 2";
+  case SIGPIPE        : return "SIGPIPE-Broken pipe";
+  case SIGALRM        : return "SIGALRM-Alarm clock";
+  case SIGTERM        : return "SIGTERM-Terminated";
+#if defined(SIGSTKFLT)
+  case SIGSTKFLT      : return "SIGSTKFLT-Stack fault";
+#elif defined(SIGEMT)
+  case SIGEMT         : return "SIGEMT-Emulator trap";
+#endif
+  case SIGCHLD        : return "SIGCHLD-Child process status";
+  case SIGCONT        : return "SIGCONT-Continued";
+  case SIGSTOP        : return "SIGSTOP-Stopped (signal)";
+  case SIGTSTP        : return "SIGTSTP-Stopped";
+  case SIGTTIN        : return "SIGTTIN-Stopped (tty input)";
+  case SIGTTOU        : return "SIGTTOU-Stopped (tty output)";
+  case SIGURG         : return "SIGURG-Urgent I/O condition";
+  case SIGXCPU        : return "SIGXCPU-CPU time limit exceeded";
+  case SIGXFSZ        : return "SIGXFSZ-File size limit exceeded";
+  case SIGVTALRM      : return "SIGVTALRM-Virtual timer expired";
+  case SIGPROF        : return "SIGPROF-Profiling timer expired";
+  case SIGWINCH       : return "SIGWINCH-Window changed";
+  case SIGPOLL        : return "SIGPOLL-I/O possible";
+  case SIGPWR         : return "SIGPWR-Power failure";
+  case SIGSYS         : return "SIGSYS-Bad system call";
   default: break;
   }
 

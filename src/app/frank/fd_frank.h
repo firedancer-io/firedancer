@@ -35,6 +35,7 @@ typedef struct {
    uchar const * tile_pod;
    uchar const * in_pod;
    uchar const * out_pod;
+   uchar const * extra_pod;
    fd_xsk_t    * xsk;
    double        tick_per_ns;
 } fd_frank_args_t;
@@ -43,6 +44,7 @@ typedef struct {
    char *  name;
    char *  in_wksp;
    char *  out_wksp;
+   char *  extra_wksp;
    ushort  allow_syscalls_sz;
    long *  allow_syscalls;
    ulong (*allow_fds)( fd_frank_args_t * args, ulong out_fds_sz, int * out_fds );

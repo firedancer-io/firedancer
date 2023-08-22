@@ -111,6 +111,7 @@ tile_main( void * _args ) {
     .tile_name = args->tile->name,
     .in_pod = NULL,
     .out_pod = NULL,
+    .extra_pod = NULL,
     .tick_per_ns = args->tick_per_ns,
   };
 
@@ -119,6 +120,8 @@ tile_main( void * _args ) {
     frank_args.in_pod = workspace_pod_join( args->app_name, args->tile->in_wksp, 0 );
   if( FD_LIKELY( args->tile->out_wksp ) )
     frank_args.out_pod = workspace_pod_join( args->app_name, args->tile->out_wksp, 0 );
+  if( FD_LIKELY( args->tile->extra_wksp ) )
+    frank_args.extra_pod = workspace_pod_join( args->app_name, args->tile->extra_wksp, 0 );
 
   if( FD_UNLIKELY( args->tile->init ) ) args->tile->init( &frank_args );
 
@@ -420,11 +423,11 @@ main_pid_namespace( void * args ) {
   }
 
   if( FD_UNLIKELY( !WIFEXITED( wstatus ) ) ) {
-    fd_log_private_fprintf_0( STDERR_FILENO, "tile %lu (%s) exited with signal %d (%s)\n", tile_idx, name, WTERMSIG( wstatus ), strsignal( WTERMSIG( wstatus ) ) );
-    exit_group( WTERMSIG( wstatus ) );
+    fd_log_private_fprintf_0( STDERR_FILENO, "tile %lu (%s) exited with signal %d (%s)\n", tile_idx, name, WTERMSIG( wstatus ), fd_io_strsignal( WTERMSIG( wstatus ) ) );
+    exit_group( WTERMSIG( wstatus ) ? WTERMSIG( wstatus ) : 1 );
   }
   fd_log_private_fprintf_0( STDERR_FILENO, "tile %lu (%s) exited with code %d\n", tile_idx, name, WEXITSTATUS( wstatus ) );
-  exit_group( WEXITSTATUS( wstatus ) );
+  exit_group( WEXITSTATUS( wstatus ) ? WEXITSTATUS( wstatus ) : 1 );
   return 0;
 }
 
@@ -487,12 +490,16 @@ run_firedancer( config_t * const config ) {
               sizeof(allow_syscalls)/sizeof(allow_syscalls[0]),
               allow_syscalls );
 
+  /* the only clean way to exit is SIGINT or SIGTERM on this parent process,
+     so if wait4() completes, it must be an error */
   int wstatus;
   pid_t pid2 = wait4( pid_namespace, &wstatus, (int)__WCLONE, NULL );
-  fd_log_private_fprintf_0( STDERR_FILENO, "Log at \"%s\"\n", fd_log_private_path );
-  if( FD_UNLIKELY( pid2 == -1 ) ) exit_group( 1 );
-  if( FD_UNLIKELY( !WIFEXITED( wstatus ) ) ) exit_group( WTERMSIG( wstatus ) );
-  exit_group( WEXITSTATUS( wstatus ) );
+  if( FD_UNLIKELY( pid2 == -1 ) ) {
+    fd_log_private_fprintf_0( STDERR_FILENO, "error waiting for child process to exit\nLog at \"%s\"\n", fd_log_private_path );
+    exit_group( 1 );
+  }
+  if( FD_UNLIKELY( WIFSIGNALED( wstatus ) ) ) exit_group( WTERMSIG( wstatus ) ? WTERMSIG( wstatus ) : 1 );
+  else exit_group( WEXITSTATUS( wstatus ) ? WEXITSTATUS( wstatus ) : 1 );
 }
 
 void

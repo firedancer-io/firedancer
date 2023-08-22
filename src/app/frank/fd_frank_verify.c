@@ -33,7 +33,7 @@ run( fd_frank_args_t * args ) {
 
   FD_LOG_INFO(( "joining dcache%lu", args->tile_idx ));
   snprintf( path, sizeof(path), "dcache%lu", args->tile_idx );
-  uchar * vin_dcache = fd_dcache_join( fd_wksp_pod_map( args->in_pod, path ) );
+  uchar * vin_dcache = fd_dcache_join( fd_wksp_pod_map( args->extra_pod, path ) );
   if( FD_UNLIKELY( !vin_dcache ) ) FD_LOG_ERR(( "fd_dcache_join failed" ));
   fd_wksp_t * vin_wksp = fd_wksp_containing( vin_dcache ); /* chunks are referenced relative to the containing workspace */
   if( FD_UNLIKELY( !vin_wksp ) ) FD_LOG_ERR(( "fd_wksp_containing failed" ));
@@ -103,16 +103,6 @@ run( fd_frank_args_t * args ) {
   ulong   depth = fd_mcache_depth( mcache );
   ulong * sync  = fd_mcache_seq_laddr( mcache );
   ulong   seq   = fd_mcache_seq_query( sync );
-
-  FD_LOG_INFO(( "joining dcache%lu", args->tile_idx ));
-  snprintf( path, sizeof(path), "dcache%lu", args->tile_idx );
-  uchar * dcache = fd_dcache_join( fd_wksp_pod_map( args->out_pod, path ) );
-  if( FD_UNLIKELY( !dcache ) ) FD_LOG_ERR(( "fd_dcache_join failed" ));
-  fd_wksp_t * wksp = fd_wksp_containing( dcache ); /* chunks are referenced relative to the containing workspace */
-  if( FD_UNLIKELY( !wksp ) ) FD_LOG_ERR(( "fd_wksp_containing failed" ));
-  ulong   chunk0 = fd_dcache_compact_chunk0( wksp, dcache );
-  ulong   wmark  = fd_dcache_compact_wmark ( wksp, dcache, 1542UL ); /* FIXME: MTU? SAFETY CHECK THE FOOTPRINT? */
-  ulong   chunk  = chunk0;
 
   FD_LOG_INFO(( "joining fseq%lu", args->tile_idx ));
   snprintf( path, sizeof(path), "fseq%lu", args->tile_idx );
@@ -290,27 +280,13 @@ run( fd_frank_args_t * args ) {
       continue;
     }
 
-    now = fd_tickcount();
+    uint chunk = vin_mline->chunk;
 
-    /* At this point, we have started receiving frag seq with details in
-       mline at time now.  Speculatively processs it here. */
     ulong vin_data_sz    = (ulong)vin_mline->sz;
-    uchar *  vin_dcache_chunk_laddr = (uchar *)fd_chunk_to_laddr( vin_wksp, vin_mline->chunk );
-    uchar *  udp_payload = (uchar *)fd_chunk_to_laddr( wksp, chunk );
-    memcpy(udp_payload, vin_dcache_chunk_laddr, vin_data_sz);
-
-    /* Check that we weren't overrun while processing */
-    vin_seq_found = fd_frag_meta_seq_query( vin_mline );
-    if( FD_UNLIKELY( fd_seq_ne( vin_seq_found, vin_mcache_seq ) ) ) {
-      vin_accum_ovrnr_cnt++;
-      FD_LOG_INFO(( "verifyin.%lu ovrnr encountered:   vin_mcache_seq=%lu   vin_seq_found=%lu   vin_accum_ovrnr_cnt=%lu", args->tile_idx, vin_mcache_seq, vin_seq_found, vin_accum_ovrnr_cnt ));
-      vin_mcache_seq = vin_seq_found;
-      now = fd_tickcount();
-      continue;
-    }
+    uchar * udp_payload = (uchar *)fd_chunk_to_laddr( vin_wksp, chunk );
 
     vin_accum_pub_cnt++;
-    vin_accum_pub_sz += vin_data_sz;
+    vin_accum_pub_sz += (ulong)vin_mline->sz;
 
     /* Wind up for the next iteration for verifyin */
     vin_mcache_seq   = fd_seq_inc( vin_mcache_seq, 1UL );
@@ -393,7 +369,6 @@ run( fd_frank_args_t * args ) {
     ulong   tsorig = tspub;
     fd_mcache_publish( mcache, depth, seq, ha_tag, chunk, vin_data_sz, ctl, tsorig, tspub );
 
-    chunk = fd_dcache_compact_next( chunk, vin_data_sz, chunk0, wmark );
     seq   = fd_seq_inc( seq, 1UL );
     cr_avail--;
 
@@ -424,6 +399,7 @@ fd_frank_task_t frank_verify = {
   .name              = "verify",
   .in_wksp           = "quic_verify",
   .out_wksp          = "verify_dedup",
+  .extra_wksp        = "tpu_txn_data",
   .allow_syscalls_sz = sizeof(allow_syscalls)/sizeof(allow_syscalls[ 0 ]),
   .allow_syscalls    = allow_syscalls,
   .allow_fds         = allow_fds,
