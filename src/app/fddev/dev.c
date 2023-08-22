@@ -130,7 +130,7 @@ dev_cmd_fn( args_t *         args,
     char * exited_child = exited_pid == firedancer_pid ? "firedancer" : exited_pid == monitor_pid ? "monitor" : "unknown";
     int exit_code = 0;
     if( FD_UNLIKELY( !WIFEXITED( wstatus ) ) ) {
-      FD_LOG_ERR(( "%s exited unexpectedly with signal %d (%s)", exited_child, WTERMSIG( wstatus ), strsignal( WTERMSIG( wstatus ) ) ));
+      FD_LOG_ERR(( "%s exited unexpectedly with signal %d (%s)", exited_child, WTERMSIG( wstatus ), fd_io_strsignal( WTERMSIG( wstatus ) ) ));
       exit_code = WTERMSIG( wstatus );
     } else {
       FD_LOG_ERR(( "%s exited unexpectedly with code %d", exited_child, WEXITSTATUS( wstatus ) ));

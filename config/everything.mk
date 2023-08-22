@@ -109,11 +109,16 @@ endif
 # changed on the library side.
 cargo:
 
-solana/target/release/libsolana_validator_fd.a: cargo
+ifeq ($(RUST_PROFILE),release)
+solana/target/$(RUST_PROFILE)/libsolana_validator_fd.a: cargo
 	cd ./solana && env --unset=LDFLAGS ./cargo build --release -p solana-validator-fd
+else
+solana/target/$(RUST_PROFILE)/libsolana_validator_fd.a: cargo
+	cd ./solana && env --unset=LDFLAGS ./cargo build -p solana-validator-fd
+endif
 
-$(OBJDIR)/lib/libsolana_validator_fd.a: solana/target/release/libsolana_validator_fd.a
-	$(MKDIR) $(dir $@) && cp solana/target/release/libsolana_validator_fd.a $@
+$(OBJDIR)/lib/libsolana_validator_fd.a: solana/target/$(RUST_PROFILE)/libsolana_validator_fd.a
+	$(MKDIR) $(dir $@) && cp solana/target/$(RUST_PROFILE)/libsolana_validator_fd.a $@
 
 run: $(OBJDIR)/bin/fddev
 	$(OBJDIR)/bin/fddev $(RUN_ARGS)
