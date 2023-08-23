@@ -18,7 +18,7 @@ void write_rent( fd_global_ctx_t* global, fd_rent_t* rent ) {
   fd_sysvar_set( global, global->sysvar_owner, (fd_pubkey_t *) global->sysvar_rent, enc, sz, global->bank.slot, NULL );
 }
 
-void
+int
 fd_sysvar_rent_read( fd_global_ctx_t * global,
                      fd_rent_t *       result ) {
 
@@ -26,7 +26,7 @@ fd_sysvar_rent_read( fd_global_ctx_t * global,
   uchar const * record = fd_acc_mgr_view_raw( global->acc_mgr, global->funk_txn, (fd_pubkey_t const *)global->sysvar_rent, NULL, &err );
   if( FD_UNLIKELY( !record ) ) {
     FD_LOG_ERR(( "failed to read rent sysvar: %d", err ));
-    return;
+    return err;
   }
 
   fd_account_meta_t const * metadata     = (fd_account_meta_t const *)record;
@@ -37,9 +37,13 @@ fd_sysvar_rent_read( fd_global_ctx_t * global,
     .dataend = raw_acc_data + metadata->dlen,
     .valloc  = global->valloc
   };
-
-  if( FD_UNLIKELY( fd_rent_decode( result, &decode ) ) )
+  err = fd_rent_decode( result, &decode );
+  if( FD_UNLIKELY( err ) ) {
     FD_LOG_ERR(("fd_rent_decode failed"));
+    return err;
+  }
+    
+  return 0;
 }
 
 void
