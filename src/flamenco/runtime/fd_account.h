@@ -456,6 +456,35 @@ fd_get_bank_hash( fd_funk_t *       funk,
   return (fd_hash_t const *)val;
 }
 
+static inline
+int fd_account_set_executable(instruction_ctx_t ctx, fd_pubkey_t * program_acc, fd_account_meta_t * metadata, char is_executable) {
+  fd_rent_t rent;
+  fd_rent_new( &rent );
+  if (fd_sysvar_rent_read( ctx.global, &rent ) == 0) {
+    ulong min_balance = fd_rent_exempt_minimum_balance(ctx.global, metadata->dlen);
+    if (metadata->info.lamports < min_balance) {
+      return FD_EXECUTOR_INSTR_ERR_EXECUTABLE_ACCOUNT_NOT_RENT_EXEMPT;
+    }
 
+    if (0 != memcmp(metadata->info.owner, ctx.global->solana_bpf_loader_program, sizeof(fd_pubkey_t))) {
+      return FD_EXECUTOR_INSTR_ERR_EXECUTABLE_MODIFIED;
+    }
+
+    if (!fd_account_is_writable(&ctx, program_acc)) {
+      return FD_EXECUTOR_INSTR_ERR_EXECUTABLE_MODIFIED;
+    }
+
+    if (metadata->info.executable && !is_executable) {
+      return FD_EXECUTOR_INSTR_ERR_EXECUTABLE_MODIFIED;
+    }
+
+    if (metadata->info.executable == is_executable) {
+      return 0;
+    }
+  }
+
+  metadata->info.executable = is_executable;
+  return 0;
+}
 
 #endif
