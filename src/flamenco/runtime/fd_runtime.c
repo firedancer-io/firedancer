@@ -927,6 +927,7 @@ fd_global_ctx_new        ( void * mem ) {
   fd_base58_decode_32( "SysvarRent111111111111111111111111111111111",  (unsigned char *) self->sysvar_rent);
   fd_base58_decode_32( "SysvarStakeHistory1111111111111111111111111",  (unsigned char *) self->sysvar_stake_history);
   fd_base58_decode_32( "SysvarLastRestartS1ot1111111111111111111111",  (unsigned char *) self->sysvar_last_restart_slot);
+  fd_base58_decode_32( "SysvarEpochRewards1111111111111111111111111",  (unsigned char *) self->sysvar_epoch_rewards);
 
   fd_base58_decode_32( "NativeLoader1111111111111111111111111111111",  (unsigned char *) self->solana_native_loader);
   fd_base58_decode_32( "Feature111111111111111111111111111111111111",                    self->solana_feature_program);
@@ -1371,10 +1372,10 @@ fd_process_new_epoch(
            "update_epoch_stakes",
        ); */
   fd_epoch_reward_status_t epoch_reward_status[1] = {0};
-  uint test_enable_partitioned_rewards = 1;
-  if (global->features.enable_partitioned_epoch_reward || test_enable_partitioned_rewards) {
+  if ( FD_FEATURE_ACTIVE( global, enable_partitioned_epoch_reward ) ) {
     begin_partitioned_rewards( &global->bank, global, parent_epoch, epoch_reward_status);
   } else {
+
     // TODO: need to complete this path
     update_rewards( global, parent_epoch);
   }
