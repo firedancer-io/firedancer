@@ -17,7 +17,7 @@
 static void
 usage( void ) {
   fprintf( stderr,
-    "Usage: fd_solcap_dump --type <type> --file {FILE1}\n"
+    "Usage: fd_solcap_dump --type <type> --file {FILE}\n"
     "\n"
     "dumps the contents of an account.\n"
     "\n"
@@ -53,19 +53,6 @@ main( int     argc,
     return 0;
   }
 
-  int fd = open (file, O_RDONLY);
-
-  if ( fd < 0 )
-    FD_LOG_ERR(( "fopen failed (%d-%s)", errno, strerror( errno ) ));
-
-  struct stat statbuf;
-  fstat(fd, &statbuf);
-
-  char *data = fd_alloca(1UL, (ulong) statbuf.st_size);
-
-  read(fd, data, (size_t) statbuf.st_size);
-  close(fd);
-
   ulong page_sz = fd_cstr_to_shmem_page_sz( _page_sz );
 
   fd_wksp_t * wksp = fd_wksp_new_anonymous( page_sz, page_cnt, fd_log_cpu_id(), "wksp", 0UL );
@@ -76,17 +63,37 @@ main( int     argc,
   ulong  smax = scratch_mb << 20;
   void * smem = fd_wksp_alloc_laddr( wksp, fd_scratch_smem_align(), smax, 1UL );
   if( FD_UNLIKELY( !smem ) ) FD_LOG_ERR(( "Failed to alloc scratch mem" ));
-
 # define SCRATCH_DEPTH (4UL)
   ulong fmem[ SCRATCH_DEPTH ] __attribute((aligned(FD_SCRATCH_FMEM_ALIGN)));
-
   fd_scratch_attach( smem, fmem, smax, SCRATCH_DEPTH );
+  fd_scratch_push();
 
-  FD_SCRATCH_SCOPED_FRAME;
+  /* Read file */
+
+  uchar * data;
+  ulong   data_sz;
+  do {
+    /* Open and stat file */
+    int fd = open( file, O_RDONLY );
+    FD_TEST( fd>=0 );
+    struct stat statbuf[1];
+    FD_TEST( 0==fstat( fd, statbuf ) );
+    data_sz = (ulong)statbuf->st_size;
+
+    /* Allocate scratch buffer for file */
+    FD_TEST( fd_scratch_alloc_is_safe( /* align */ 1UL, data_sz ) );
+    data = fd_scratch_alloc( /* align */ 1UL, data_sz );
+
+    /* Copy file into memory */
+    FD_TEST( 0==read( fd, data, data_sz ) );
+    FD_TEST( 0==close( fd ) );
+  } while(0);
+
+  /* Decode file */
 
   fd_bincode_decode_ctx_t decode = {
     .data    = data,
-    .dataend = data + statbuf.st_size,
+    .dataend = data + data_sz,
     .valloc  = fd_scratch_virtual()
   };
 
@@ -94,7 +101,6 @@ main( int     argc,
     fd_flamenco_yaml_init( fd_flamenco_yaml_new(
       fd_scratch_alloc( fd_flamenco_yaml_align(), fd_flamenco_yaml_footprint() ) ),
       stdout );
-
 
   fd_types_funcs_t f;
   if (fd_flamenco_type_lookup(type, &f) != 0)
@@ -110,6 +116,8 @@ main( int     argc,
 
   f.walk_fun(yaml, d, fd_flamenco_yaml_walk, NULL, 0U );
 
+  fd_scratch_pop();
+  fd_scratch_detach( NULL );
   fd_flamenco_halt();
   fd_halt();
   return 0;
