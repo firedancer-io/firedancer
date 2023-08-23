@@ -152,15 +152,23 @@ fd_slot_to_epoch( fd_epoch_schedule_t const * schedule,
   return epoch;
 }
 
-ulong fd_sysvar_epoch_schedule_get_first_slot_in_epoch(fd_epoch_schedule_t * schedule, ulong epoch) {
-  return (epoch < schedule->first_normal_epoch) ?
-      fd_ulong_sat_mul(
-        fd_ulong_sat_sub((1UL<<epoch), 1UL),
-        FD_EPOCH_LEN_MIN
-        ) :
-     fd_ulong_sat_add(
-      fd_ulong_sat_mul(
-        fd_ulong_sat_sub(epoch, schedule->first_normal_epoch), schedule->slots_per_epoch),
-      schedule->first_normal_slot
-      );
+/* https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1fb868e/sdk/program/src/epoch_schedule.rs#L114 */
+
+ulong
+fd_slot_to_leader_schedule_epoch( fd_epoch_schedule_t const * schedule,
+                                  ulong                       slot ) {
+
+  if( slot < schedule->first_normal_slot )
+    return fd_slot_to_epoch( schedule, slot, NULL ) + 1UL;
+
+  /* These variable names ... sigh */
+
+  ulong new_slots_since_first_normal_slot =
+    slot - schedule->first_normal_slot;
+  ulong new_first_normal_leader_schedule_slot =
+    new_slots_since_first_normal_slot + schedule->leader_schedule_slot_offset;
+  ulong new_epochs_since_first_normal_leader_schedule =
+    new_first_normal_leader_schedule_slot / schedule->slots_per_epoch;
+
+  return schedule->first_normal_epoch + new_epochs_since_first_normal_leader_schedule;
 }

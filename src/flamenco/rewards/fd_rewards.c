@@ -40,7 +40,7 @@ static ulong
 get_inflation_num_slots(fd_firedancer_banks_t * bank) {
     /* https://github.com/firedancer-io/solana/blob/de02601d73d626edf98ef63efd772824746f2f33/runtime/src/bank.rs#L2333-L2342 */
     ulong inflaction_activation_slot = get_inflation_start_slot();
-    ulong inflation_start_slot = fd_sysvar_epoch_schedule_get_first_slot_in_epoch(
+    ulong inflation_start_slot = fd_epoch_slot0(
         &bank->epoch_schedule,
         fd_ulong_sat_sub(
             fd_slot_to_epoch(&bank->epoch_schedule, inflaction_activation_slot, NULL),
@@ -50,7 +50,7 @@ get_inflation_num_slots(fd_firedancer_banks_t * bank) {
 
     ulong epoch = fd_slot_to_epoch(&bank->epoch_schedule, bank->slot, NULL);
 
-    return fd_sysvar_epoch_schedule_get_first_slot_in_epoch(&bank->epoch_schedule, epoch) - inflation_start_slot;
+    return fd_epoch_slot0(&bank->epoch_schedule, epoch) - inflation_start_slot;
 }
 
 
