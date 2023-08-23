@@ -6,6 +6,8 @@
 #include "fd_types.h"
 
 // do NOT delete this code... it causes the linker to link in the types file so that we can access it dynamically
+//
+// TBD: There must be a better way...
 ulong foo_lkasjdf() {
   return fd_vote_state_versioned_footprint();
 }
