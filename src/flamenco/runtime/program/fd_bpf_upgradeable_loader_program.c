@@ -640,36 +640,6 @@ static int setup_program(instruction_ctx_t ctx, const uchar * program_data, ulon
   return 0;
 }
 
-static int set_executable(instruction_ctx_t ctx, fd_pubkey_t * program_acc, fd_account_meta_t * metadata, char is_executable) {
-  fd_rent_t rent;
-  fd_rent_new( &rent );
-  if (fd_sysvar_rent_read( ctx.global, &rent ) == 0) {
-    ulong min_balance = fd_rent_exempt_minimum_balance(ctx.global, metadata->dlen);
-    if (metadata->info.lamports < min_balance) {
-      return FD_EXECUTOR_INSTR_ERR_EXECUTABLE_ACCOUNT_NOT_RENT_EXEMPT;
-    }
-
-    if (0 != memcmp(metadata->info.owner, ctx.global->solana_bpf_loader_program, sizeof(fd_pubkey_t))) {
-      return FD_EXECUTOR_INSTR_ERR_EXECUTABLE_MODIFIED;
-    }
-
-    if (!fd_account_is_writable(&ctx, program_acc)) {
-      return FD_EXECUTOR_INSTR_ERR_EXECUTABLE_MODIFIED;
-    }
-
-    if (metadata->info.executable && !is_executable) {
-      return FD_EXECUTOR_INSTR_ERR_EXECUTABLE_MODIFIED;
-    }
-
-    if (metadata->info.executable == is_executable) {
-      return 0;
-    }
-  }
-
-  metadata->info.executable = is_executable;
-  return 0;
-}
-
 int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_ctx_t ctx ) {
   /* Deserialize the Stake instruction */
   uchar * data            = (uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->data_off;
@@ -962,7 +932,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
       return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
     }
 
-    err = set_executable(ctx, program_acc, program_acc_metadata_new, 1);
+    err = fd_account_set_executable(ctx, program_acc, program_acc_metadata_new, 1);
     if (err != 0)
       return err;
 
@@ -1160,7 +1130,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
     programdata_acc_metadata->info.lamports = programdata_balance_required;
 
     if (FD_FEATURE_ACTIVE(ctx.global, enable_program_redeployment_cooldown)) {
-      // TODO: buffer set_data_length
+      fd_account_set_data_length(&ctx, buffer_acc_metadata_new, buffer_acc, BUFFER_METADATA_SIZE, 0, NULL);
     }
 
     write_bpf_upgradeable_loader_state( ctx.global, programdata_acc, &program_data_acc_loader_state );
