@@ -18,8 +18,8 @@ static int transfer(
   /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/system_instruction_processor.rs#L327 */
 
   /* Pull out sender (acc idx 0) and recipient (acc idx 1) */
-  uchar *       instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
-  fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
+  uchar *       instr_acc_idxs = ctx.instr->acct_txn_idxs;
+  fd_pubkey_t * txn_accs = ctx.txn_ctx->accounts;
   fd_pubkey_t * sender = NULL;
   fd_pubkey_t * receiver = NULL;
 
@@ -113,8 +113,8 @@ static int fd_system_allocate(
     int err = fd_account_sanity_check(&ctx, 1);
     if (FD_UNLIKELY(FD_EXECUTOR_INSTR_SUCCESS != err))
       return err;
-  uchar *       instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
-  fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
+  uchar *       instr_acc_idxs = ctx.instr->acct_txn_idxs;
+  fd_pubkey_t * txn_accs = ctx.txn_ctx->accounts;
   fd_pubkey_t * account     = &txn_accs[instr_acc_idxs[0]];
   fd_pubkey_t*  owner = NULL;
 
@@ -192,8 +192,8 @@ static int fd_system_assign_with_seed(
   if (FD_UNLIKELY(FD_EXECUTOR_INSTR_SUCCESS != err))
     return err;
 
-  uchar *       instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
-  fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
+  uchar const * instr_acc_idxs = ctx.instr->acct_txn_idxs;
+  fd_pubkey_t * txn_accs = ctx.txn_ctx->accounts;
   fd_pubkey_t * account     = &txn_accs[instr_acc_idxs[0]];
 
   fd_pubkey_t      address_with_seed;
@@ -249,8 +249,9 @@ static int create_account(
   /* Account 0: funding account
      Account 1: new account
    */
-  uchar *       instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
-  fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
+
+  uchar const * instr_acc_idxs = ctx.instr->acct_txn_idxs;
+  fd_pubkey_t * txn_accs = ctx.txn_ctx->accounts;
   fd_pubkey_t * from     = &txn_accs[instr_acc_idxs[0]];
   fd_pubkey_t * to       = &txn_accs[instr_acc_idxs[1]];
 
@@ -364,8 +365,8 @@ static int assign(
     return err;
 
   /* Pull out the account to be assigned an owner (acc idx 0) */
-  uchar *       instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
-  fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
+  uchar *       instr_acc_idxs = ctx.instr->acct_txn_idxs;
+  fd_pubkey_t * txn_accs = ctx.txn_ctx->accounts;
   fd_pubkey_t * keyed_account   = &txn_accs[instr_acc_idxs[0]];
 
   // get owner
@@ -399,7 +400,7 @@ int fd_executor_system_program_execute_instruction(
   instruction_ctx_t ctx
   ) {
   /* Deserialize the SystemInstruction enum */
-  uchar *      data            = (uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->data_off;
+  uchar *      data            = ctx.instr->data;
 
   fd_system_program_instruction_t instruction;
   fd_system_program_instruction_new( &instruction );

@@ -644,14 +644,31 @@ fd_txn_xray( uchar const             * payload,
              fd_txn_xray_result_t    * result );
 
 static inline int
-fd_txn_is_writable( fd_txn_t const * txn, int idx ) 
-{
+fd_txn_is_writable( fd_txn_t const * txn, int idx ) {
+  if (txn->transaction_version == FD_TXN_V0 && idx >= txn->acct_addr_cnt) {
+    if (idx < (txn->acct_addr_cnt + txn->addr_table_adtl_writable_cnt)) {
+      return 1;
+    }
+    return 0;
+  }
+
   if (idx < (txn->signature_cnt - txn->readonly_signed_cnt))
     return 1;
   if ((idx >= txn->signature_cnt) & (idx < (txn->acct_addr_cnt - txn->readonly_unsigned_cnt)))
     return 1;
+  
+
   return 0;
 }
+
+static inline int
+fd_txn_is_signer( fd_txn_t const * txn, int idx ) {
+  if (idx < txn->signature_cnt)
+    return 1;
+
+  return 0;
+}
+
 
 static inline ulong fd_txn_num_writable_accounts( fd_txn_t * txn ) {
   return (ulong)((txn->signature_cnt - txn->readonly_signed_cnt)

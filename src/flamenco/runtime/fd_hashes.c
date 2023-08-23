@@ -278,8 +278,7 @@ fd_update_hash_bank( fd_global_ctx_t * global,
     /* If hash didn't change, nothing to do */
 
     if( 0==memcmp( acc_hash->hash, acc_meta->hash, sizeof(fd_hash_t) ) )
-      return 0;
-
+      continue;
     /* Upgrade to writable record */
 
     /*int*/ err       = FD_ACC_MGR_SUCCESS;
@@ -291,7 +290,10 @@ fd_update_hash_bank( fd_global_ctx_t * global,
         /* opt_out_rec */ NULL,
         &err );
 
-    if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) return err;
+    if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+      FD_LOG_WARNING(("BBBBB"));
+      return err;
+    }
 
     fd_account_meta_t * acc_meta_w = (fd_account_meta_t *)acc_raw_w;
 

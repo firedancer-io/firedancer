@@ -10,16 +10,17 @@ int fd_executor_config_program_execute_instruction( instruction_ctx_t ctx ) {
   uchar *config_acc_data = NULL;
   fd_bincode_destroy_ctx_t destroy_ctx;
 
-   /* Deserialize the Config Program instruction data, which consists only of the ConfigKeys
-       https://github.com/solana-labs/solana/blob/a03ae63daff987912c48ee286eb8ee7e8a84bf01/programs/config/src/config_processor.rs#L25 */
-   uchar *data = (uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->data_off;
-   fd_bincode_decode_ctx_t instruction_decode_context = {
-      .valloc  = ctx.global->valloc,
-      .data    = data,
-      .dataend = &data[ctx.instr->data_sz],
-   };
-   fd_config_keys_t instruction;
-   int decode_result = fd_config_keys_decode( &instruction, &instruction_decode_context );
+  /* Deserialize the Config Program instruction data, which consists only of the ConfigKeys
+     https://github.com/solana-labs/solana/blob/a03ae63daff987912c48ee286eb8ee7e8a84bf01/programs/config/src/config_processor.rs#L25 */
+  uchar *data = ctx.instr->data;
+  fd_bincode_decode_ctx_t instruction_decode_context = {
+    .valloc  = ctx.global->valloc,
+    .data    = data,
+    .dataend = &data[ctx.instr->data_sz],
+  };
+
+  fd_config_keys_t instruction;
+  int decode_result = fd_config_keys_decode( &instruction, &instruction_decode_context );
    if ( decode_result != FD_BINCODE_SUCCESS ) {
       FD_LOG_WARNING(("fd_config_keys_decode failed: %d", decode_result));
       ret = FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
@@ -35,8 +36,8 @@ int fd_executor_config_program_execute_instruction( instruction_ctx_t ctx ) {
      goto config_program_execute_instruction_cleanup;
    }
 
-   uchar * instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
-   fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
+   uchar * instr_acc_idxs = ctx.instr->acct_txn_idxs;
+   fd_pubkey_t * txn_accs = ctx.txn_ctx->accounts;
    fd_pubkey_t * config_acc = &txn_accs[instr_acc_idxs[0]];
 
    /* Deserialize the config account data, which must already be a valid ConfigKeys map (zeroed accounts pass this check)

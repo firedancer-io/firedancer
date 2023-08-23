@@ -524,6 +524,15 @@ fd_type_pun_const( void const * p ) {
 
 #define FD_FN_UNUSED __attribute__((unused))
 
+/* FD_PARAM_UNUSED indicates that it is okay if the function parameter is not
+   used. */
+
+#define FD_PARAM_UNUSED __attribute__((unused))
+
+/* FD_TYPE_PACKED indicates that a type is to be packed, reseting its alignment
+   to 1. */
+#define FD_TYPE_PACKED __attribute__((packed))
+
 /* FD_COMPILER_FORGET(var):  Tells the compiler that it shouldn't use
    any knowledge it has about the provided register-compatible variable
    var for optimizations going forward (i.e. the variable has changed in

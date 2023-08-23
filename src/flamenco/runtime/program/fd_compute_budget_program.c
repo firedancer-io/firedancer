@@ -5,7 +5,7 @@
 
 static inline int
 is_compute_budget_instruction( transaction_ctx_t * ctx, fd_txn_instr_t * instr ) {
-  fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx->txn_raw->raw + ctx->txn_descriptor->acct_addr_off);
+  fd_pubkey_t * txn_accs = ctx->accounts;
   fd_pubkey_t * program_pubkey = &txn_accs[instr->program_id];
   return !memcmp(program_pubkey, ctx->global->solana_compute_budget_program, sizeof(fd_pubkey_t));
 }
@@ -15,7 +15,7 @@ int fd_executor_compute_budget_program_execute_instruction_nop( FD_FN_UNUSED ins
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
-int fd_executor_compute_budget_program_execute_instructions( transaction_ctx_t * ctx ) {
+int fd_executor_compute_budget_program_execute_instructions( transaction_ctx_t * ctx, fd_rawtxn_b_t const * txn_raw ) {
   uint has_compute_units_limit_update = 0;
   uint has_compute_units_price_update = 0;
   uint has_requested_heap_size = 0;
@@ -37,7 +37,7 @@ int fd_executor_compute_budget_program_execute_instructions( transaction_ctx_t *
       continue;
     }
     /* Deserialize the ComputeBudgetInstruction enum */
-    uchar *      data             = (uchar *)ctx->txn_raw->raw + instr->data_off;
+    uchar *      data             = (uchar *)txn_raw->raw + instr->data_off;
 
     fd_compute_budget_program_instruction_t instruction;
     fd_bincode_decode_ctx_t decode_ctx = {

@@ -28,14 +28,14 @@ static int fd_executor_ed25519_program_get_data( instruction_ctx_t ctx, ulong in
   uchar const * data;
   ulong data_sz;
   if ( index == USHORT_MAX) {
-    data = (uchar const *)ctx.txn_ctx->txn_raw->raw + ctx.instr->data_off;
+    data = ctx.instr->data;
     data_sz = ctx.instr->data_sz;
   } else {
     fd_txn_t * txn_descriptor = ctx.txn_ctx->txn_descriptor;
     if ( index >= txn_descriptor->instr_cnt )
       return FD_EXECUTOR_SIGN_ERR_DATA_OFFSETS;
     fd_txn_instr_t * instr = &txn_descriptor->instr[index];
-    data = (uchar const *)ctx.txn_ctx->txn_raw->raw + instr->data_off;
+    data = (uchar const *)ctx.txn_ctx->_txn_raw->raw + instr->data_off;
     data_sz = instr->data_sz;
   }
   if ( offset + sz > data_sz )
@@ -45,7 +45,7 @@ static int fd_executor_ed25519_program_get_data( instruction_ctx_t ctx, ulong in
 }
 
 int fd_executor_ed25519_program_execute_instruction( instruction_ctx_t ctx ) {
-  uchar const * data = (uchar const * )ctx.txn_ctx->txn_raw->raw + ctx.instr->data_off;
+  uchar const * data = ctx.instr->data;
   ulong data_sz = ctx.instr->data_sz;
 
   if ( data_sz < 2 )

@@ -850,7 +850,8 @@
         { "name": "inflation",             "type": "inflation" },
         { "name": "epoch_schedule",        "type": "epoch_schedule" },
         { "name": "rent",                  "type": "rent" },
-        { "name": "collected",             "type": "ulong" },
+        { "name": "collected_fees",        "type": "ulong" },
+        { "name": "collected_rent",        "type": "ulong" },
         { "name": "epoch_stakes",          "type": "vote_accounts" },
         { "name": "last_restart_slot",     "type": "sol_sysvar_last_restart_slot" }
       ]
@@ -1368,6 +1369,35 @@
         { "name": "current", "type": "frozen_hash_status" }
       ],
       "comment": "https://github.com/firedancer-io/solana/blob/f4b7c54f9e021b40cfc7cbd32dc12b19dedbe791/ledger/src/blockstore_meta.rs#L157"
+    },
+    {
+      "name": "lookup_table_meta",
+      "type": "struct",
+      "fields": [
+        { "name": "deactivation_slot", "type": "ulong" },
+        { "name": "last_extended_slot", "type": "ulong" },
+        { "name": "last_extended_slot_start_index", "type": "uchar" },
+        { "name": "authority", "type": "option", "element": "pubkey" },
+        { "name": "_padding", "type": "ushort" }
+      ],
+      "comment": ""
+    },
+    {
+      "name": "address_lookup_table",
+      "type": "struct",
+      "fields": [
+        { "name": "meta", "type": "lookup_table_meta" }
+      ],
+      "comment": ""
+    },
+    {
+      "name": "address_lookup_table_state",
+      "type": "enum",
+      "variants": [
+        { "name": "uninitialized" },
+        { "name": "lookup_table", "type": "address_lookup_table" }
+      ],
+      "comment": ""
     }
   ]
 }

@@ -1080,7 +1080,8 @@ struct fd_firedancer_banks {
   fd_inflation_t inflation;
   fd_epoch_schedule_t epoch_schedule;
   fd_rent_t rent;
-  ulong collected;
+  ulong collected_fees;
+  ulong collected_rent;
   fd_vote_accounts_t epoch_stakes;
   fd_sol_sysvar_last_restart_slot_t last_restart_slot;
 };
@@ -1672,6 +1673,40 @@ struct fd_frozen_hash_versioned {
 typedef struct fd_frozen_hash_versioned fd_frozen_hash_versioned_t;
 #define FD_FROZEN_HASH_VERSIONED_FOOTPRINT sizeof(fd_frozen_hash_versioned_t)
 #define FD_FROZEN_HASH_VERSIONED_ALIGN (8UL)
+
+/*  */
+struct fd_lookup_table_meta {
+  ulong deactivation_slot;
+  ulong last_extended_slot;
+  uchar last_extended_slot_start_index;
+  fd_pubkey_t* authority;
+  ushort _padding;
+};
+typedef struct fd_lookup_table_meta fd_lookup_table_meta_t;
+#define FD_LOOKUP_TABLE_META_FOOTPRINT sizeof(fd_lookup_table_meta_t)
+#define FD_LOOKUP_TABLE_META_ALIGN (8UL)
+
+/*  */
+struct fd_address_lookup_table {
+  fd_lookup_table_meta_t meta;
+};
+typedef struct fd_address_lookup_table fd_address_lookup_table_t;
+#define FD_ADDRESS_LOOKUP_TABLE_FOOTPRINT sizeof(fd_address_lookup_table_t)
+#define FD_ADDRESS_LOOKUP_TABLE_ALIGN (8UL)
+
+union fd_address_lookup_table_state_inner {
+  fd_address_lookup_table_t lookup_table;
+};
+typedef union fd_address_lookup_table_state_inner fd_address_lookup_table_state_inner_t;
+
+/*  */
+struct fd_address_lookup_table_state {
+  uint discriminant;
+  fd_address_lookup_table_state_inner_t inner;
+};
+typedef struct fd_address_lookup_table_state fd_address_lookup_table_state_t;
+#define FD_ADDRESS_LOOKUP_TABLE_STATE_FOOTPRINT sizeof(fd_address_lookup_table_state_t)
+#define FD_ADDRESS_LOOKUP_TABLE_STATE_ALIGN (8UL)
 
 
 FD_PROTOTYPES_BEGIN
@@ -2797,6 +2832,34 @@ ulong fd_frozen_hash_versioned_size(fd_frozen_hash_versioned_t const * self);
 FD_FN_PURE uchar fd_frozen_hash_versioned_is_current(fd_frozen_hash_versioned_t const * self);
 enum {
 fd_frozen_hash_versioned_enum_current = 0,
+}; 
+void fd_lookup_table_meta_new(fd_lookup_table_meta_t* self);
+int fd_lookup_table_meta_decode(fd_lookup_table_meta_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_lookup_table_meta_encode(fd_lookup_table_meta_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_lookup_table_meta_destroy(fd_lookup_table_meta_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_lookup_table_meta_walk(fd_lookup_table_meta_t* self, fd_walk_fun_t fun, const char *name, int level);
+ulong fd_lookup_table_meta_size(fd_lookup_table_meta_t const * self);
+
+void fd_address_lookup_table_new(fd_address_lookup_table_t* self);
+int fd_address_lookup_table_decode(fd_address_lookup_table_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_address_lookup_table_encode(fd_address_lookup_table_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_address_lookup_table_destroy(fd_address_lookup_table_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_address_lookup_table_walk(fd_address_lookup_table_t* self, fd_walk_fun_t fun, const char *name, int level);
+ulong fd_address_lookup_table_size(fd_address_lookup_table_t const * self);
+
+void fd_address_lookup_table_state_new_disc(fd_address_lookup_table_state_t* self, uint discriminant);
+void fd_address_lookup_table_state_new(fd_address_lookup_table_state_t* self);
+int fd_address_lookup_table_state_decode(fd_address_lookup_table_state_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_address_lookup_table_state_encode(fd_address_lookup_table_state_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_address_lookup_table_state_destroy(fd_address_lookup_table_state_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_address_lookup_table_state_walk(fd_address_lookup_table_state_t* self, fd_walk_fun_t fun, const char *name, int level);
+ulong fd_address_lookup_table_state_size(fd_address_lookup_table_state_t const * self);
+
+FD_FN_PURE uchar fd_address_lookup_table_state_is_uninitialized(fd_address_lookup_table_state_t const * self);
+FD_FN_PURE uchar fd_address_lookup_table_state_is_lookup_table(fd_address_lookup_table_state_t const * self);
+enum {
+fd_address_lookup_table_state_enum_uninitialized = 0,
+fd_address_lookup_table_state_enum_lookup_table = 1,
 }; 
 FD_PROTOTYPES_END
 

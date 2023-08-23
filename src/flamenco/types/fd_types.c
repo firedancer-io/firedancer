@@ -5447,7 +5447,9 @@ int fd_firedancer_banks_decode(fd_firedancer_banks_t* self, fd_bincode_decode_ct
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_rent_decode(&self->rent, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_decode(&self->collected, ctx);
+  err = fd_bincode_uint64_decode(&self->collected_fees, ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_uint64_decode(&self->collected_rent, ctx);
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   err = fd_vote_accounts_decode(&self->epoch_stakes, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -5504,7 +5506,8 @@ void fd_firedancer_banks_walk(fd_firedancer_banks_t* self, fd_walk_fun_t fun, co
   fd_inflation_walk(&self->inflation, fun, "inflation", level + 1);
   fd_epoch_schedule_walk(&self->epoch_schedule, fun, "epoch_schedule", level + 1);
   fd_rent_walk(&self->rent, fun, "rent", level + 1);
-  fun(&self->collected, "collected", 11, "ulong", level + 1);
+  fun(&self->collected_fees, "collected_fees", 11, "ulong", level + 1);
+  fun(&self->collected_rent, "collected_rent", 11, "ulong", level + 1);
   fd_vote_accounts_walk(&self->epoch_stakes, fun, "epoch_stakes", level + 1);
   fd_sol_sysvar_last_restart_slot_walk(&self->last_restart_slot, fun, "last_restart_slot", level + 1);
   fun(self, name, 33, "fd_firedancer_banks", --level);
@@ -5530,6 +5533,7 @@ ulong fd_firedancer_banks_size(fd_firedancer_banks_t const * self) {
   size += fd_inflation_size(&self->inflation);
   size += fd_epoch_schedule_size(&self->epoch_schedule);
   size += fd_rent_size(&self->rent);
+  size += sizeof(ulong);
   size += sizeof(ulong);
   size += fd_vote_accounts_size(&self->epoch_stakes);
   size += fd_sol_sysvar_last_restart_slot_size(&self->last_restart_slot);
@@ -5576,7 +5580,9 @@ int fd_firedancer_banks_encode(fd_firedancer_banks_t const * self, fd_bincode_en
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_rent_encode(&self->rent, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->collected, ctx);
+  err = fd_bincode_uint64_encode(&self->collected_fees, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_encode(&self->collected_rent, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_vote_accounts_encode(&self->epoch_stakes, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -10076,6 +10082,218 @@ int fd_frozen_hash_versioned_encode(fd_frozen_hash_versioned_t const * self, fd_
   err = fd_bincode_uint32_encode(&self->discriminant, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return fd_frozen_hash_versioned_inner_encode(&self->inner, self->discriminant, ctx);
+}
+
+int fd_lookup_table_meta_decode(fd_lookup_table_meta_t* self, fd_bincode_decode_ctx_t * ctx) {
+  int err;
+  err = fd_bincode_uint64_decode(&self->deactivation_slot, ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_uint64_decode(&self->last_extended_slot, ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_uint8_decode(&self->last_extended_slot_start_index, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  {
+    uchar o;
+    err = fd_bincode_option_decode( &o, ctx );
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    if( o ) {
+      self->authority = (fd_pubkey_t*)fd_valloc_malloc( ctx->valloc, FD_PUBKEY_ALIGN, FD_PUBKEY_FOOTPRINT );
+      fd_pubkey_new( self->authority );
+      err = fd_pubkey_decode( self->authority, ctx );
+      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    } else
+      self->authority = NULL;
+  }
+  err = fd_bincode_uint16_decode(&self->_padding, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_lookup_table_meta_new(fd_lookup_table_meta_t* self) {
+  fd_memset(self, 0, sizeof(fd_lookup_table_meta_t));
+}
+void fd_lookup_table_meta_destroy(fd_lookup_table_meta_t* self, fd_bincode_destroy_ctx_t * ctx) {
+  if (NULL != self->authority) {
+    fd_pubkey_destroy(self->authority, ctx);
+    fd_valloc_free( ctx->valloc, self->authority);
+    self->authority = NULL;
+  }
+}
+
+void fd_lookup_table_meta_walk(fd_lookup_table_meta_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_lookup_table_meta", level++);
+  fun(&self->deactivation_slot, "deactivation_slot", 11, "ulong", level + 1);
+  fun(&self->last_extended_slot, "last_extended_slot", 11, "ulong", level + 1);
+  fun(&self->last_extended_slot_start_index, "last_extended_slot_start_index", 9, "uchar", level + 1);
+  // fun(&self->authority, "authority", 16, "option", level + 1);
+  fun(&self->_padding, "_padding", 12, "ushort", level + 1);
+  fun(self, name, 33, "fd_lookup_table_meta", --level);
+}
+ulong fd_lookup_table_meta_size(fd_lookup_table_meta_t const * self) {
+  ulong size = 0;
+  size += sizeof(ulong);
+  size += sizeof(ulong);
+  size += sizeof(char);
+  size += sizeof(char);
+  if (NULL !=  self->authority) {
+    size += fd_pubkey_size(self->authority);
+  }
+  size += sizeof(ushort);
+  return size;
+}
+
+int fd_lookup_table_meta_encode(fd_lookup_table_meta_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  err = fd_bincode_uint64_encode(&self->deactivation_slot, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_encode(&self->last_extended_slot, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint8_encode(&self->last_extended_slot_start_index, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  if (self->authority != NULL) {
+    err = fd_bincode_option_encode(1, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    err = fd_pubkey_encode(self->authority, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+  } else {
+    err = fd_bincode_option_encode(0, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+  }
+  err = fd_bincode_uint16_encode(&self->_padding, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+
+int fd_address_lookup_table_decode(fd_address_lookup_table_t* self, fd_bincode_decode_ctx_t * ctx) {
+  int err;
+  err = fd_lookup_table_meta_decode(&self->meta, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_address_lookup_table_new(fd_address_lookup_table_t* self) {
+  fd_memset(self, 0, sizeof(fd_address_lookup_table_t));
+  fd_lookup_table_meta_new(&self->meta);
+}
+void fd_address_lookup_table_destroy(fd_address_lookup_table_t* self, fd_bincode_destroy_ctx_t * ctx) {
+  fd_lookup_table_meta_destroy(&self->meta, ctx);
+}
+
+void fd_address_lookup_table_walk(fd_address_lookup_table_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_address_lookup_table", level++);
+  fd_lookup_table_meta_walk(&self->meta, fun, "meta", level + 1);
+  fun(self, name, 33, "fd_address_lookup_table", --level);
+}
+ulong fd_address_lookup_table_size(fd_address_lookup_table_t const * self) {
+  ulong size = 0;
+  size += fd_lookup_table_meta_size(&self->meta);
+  return size;
+}
+
+int fd_address_lookup_table_encode(fd_address_lookup_table_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  err = fd_lookup_table_meta_encode(&self->meta, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+
+FD_FN_PURE uchar fd_address_lookup_table_state_is_uninitialized(fd_address_lookup_table_state_t const * self) {
+  return self->discriminant == 0;
+}
+FD_FN_PURE uchar fd_address_lookup_table_state_is_lookup_table(fd_address_lookup_table_state_t const * self) {
+  return self->discriminant == 1;
+}
+void fd_address_lookup_table_state_inner_new(fd_address_lookup_table_state_inner_t* self, uint discriminant);
+int fd_address_lookup_table_state_inner_decode(fd_address_lookup_table_state_inner_t* self, uint discriminant, fd_bincode_decode_ctx_t * ctx) {
+  fd_address_lookup_table_state_inner_new(self, discriminant);
+  int err;
+  switch (discriminant) {
+  case 0: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 1: {
+    return fd_address_lookup_table_decode(&self->lookup_table, ctx);
+  }
+  default: return FD_BINCODE_ERR_ENCODING;
+  }
+}
+int fd_address_lookup_table_state_decode(fd_address_lookup_table_state_t* self, fd_bincode_decode_ctx_t * ctx) {
+  int err = fd_bincode_uint32_decode(&self->discriminant, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return fd_address_lookup_table_state_inner_decode(&self->inner, self->discriminant, ctx);
+}
+void fd_address_lookup_table_state_inner_new(fd_address_lookup_table_state_inner_t* self, uint discriminant) {
+  switch (discriminant) {
+  case 0: {
+    break;
+  }
+  case 1: {
+    fd_address_lookup_table_new(&self->lookup_table);
+    break;
+  }
+  default: break; // FD_LOG_ERR(( "unhandled type"));
+  }
+}
+void fd_address_lookup_table_state_new_disc(fd_address_lookup_table_state_t* self, uint discriminant) {
+  self->discriminant = discriminant;
+  fd_address_lookup_table_state_inner_new(&self->inner, self->discriminant);
+}
+void fd_address_lookup_table_state_new(fd_address_lookup_table_state_t* self) {
+  fd_address_lookup_table_state_new_disc(self, UINT_MAX);
+}
+void fd_address_lookup_table_state_inner_destroy(fd_address_lookup_table_state_inner_t* self, uint discriminant, fd_bincode_destroy_ctx_t * ctx) {
+  switch (discriminant) {
+  case 0: {
+    break;
+  }
+  case 1: {
+    fd_address_lookup_table_destroy(&self->lookup_table, ctx);
+    break;
+  }
+  default: break; // FD_LOG_ERR(( "unhandled type" ));
+  }
+}
+void fd_address_lookup_table_state_destroy(fd_address_lookup_table_state_t* self, fd_bincode_destroy_ctx_t * ctx) {
+  fd_address_lookup_table_state_inner_destroy(&self->inner, self->discriminant, ctx);
+}
+
+void fd_address_lookup_table_state_walk(fd_address_lookup_table_state_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_address_lookup_table_state", level++);
+  // enum fd_lookup_table_meta_walk(&self->meta, fun, "meta", level + 1);
+  switch (self->discriminant) {
+  case 1: {
+    fd_address_lookup_table_walk(&self->inner.lookup_table, fun, "lookup_table", level + 1);
+    break;
+  }
+  }
+  fun(self, name, 33, "fd_address_lookup_table_state", --level);
+}
+ulong fd_address_lookup_table_state_size(fd_address_lookup_table_state_t const * self) {
+  ulong size = 0;
+  size += sizeof(uint);
+  switch (self->discriminant) {
+  case 1: {
+    size += fd_address_lookup_table_size(&self->inner.lookup_table);
+    break;
+  }
+  }
+  return size;
+}
+
+int fd_address_lookup_table_state_inner_encode(fd_address_lookup_table_state_inner_t const * self, uint discriminant, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  switch (discriminant) {
+  case 1: {
+    err = fd_address_lookup_table_encode(&self->lookup_table, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    break;
+  }
+  }
+  return FD_BINCODE_SUCCESS;
+}
+int fd_address_lookup_table_state_encode(fd_address_lookup_table_state_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  err = fd_bincode_uint32_encode(&self->discriminant, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return fd_address_lookup_table_state_inner_encode(&self->inner, self->discriminant, ctx);
 }
 
 #define REDBLK_T fd_stake_history_epochentry_pair_t_mapnode_t

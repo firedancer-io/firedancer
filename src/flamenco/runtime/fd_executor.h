@@ -113,12 +113,37 @@ typedef struct fd_rawtxn_b fd_rawtxn_b_t;
 
   Makes changes to the Funk accounts DB. */
 int
-fd_execute_txn( fd_executor_t* executor, fd_txn_t * txn_descriptor, fd_rawtxn_b_t* txn_raw ) ;
+fd_execute_txn( fd_executor_t* executor, fd_txn_t * txn_descriptor, fd_rawtxn_b_t const * txn_raw ) ;
 
 
 #define FD_COMPUTE_BUDGET_PRIORITIZATION_FEE_TYPE_COMPUTE_UNIT_PRICE (0)
 #define FD_COMPUTE_BUDGET_PRIORITIZATION_FEE_TYPE_DEPRECATED         (1)
 
+#define FD_INSTR_ACCT_FLAGS_IS_SIGNER   (0x01)
+#define FD_INSTR_ACCT_FLAGS_IS_WRITABLE (0x02)
+
+
+struct fd_instr {
+  uchar         program_id;
+  ushort        data_sz;
+  ushort        acct_cnt;
+  uchar *       data;
+
+  uchar         acct_txn_idxs[256];
+  uchar         acct_flags[256];
+  fd_pubkey_t   acct_pubkeys[256];
+};
+typedef struct fd_instr fd_instr_t;
+
+struct transaction_ctx;
+typedef struct transaction_ctx transaction_ctx_t;
+/* Context needed to execute a single instruction. TODO: split into a hierarchy of layered contexts.  */
+struct instruction_ctx {
+  fd_global_ctx_t *   global;
+  fd_instr_t *        instr;    /* The instruction */
+  transaction_ctx_t * txn_ctx;  /* The transaction context for this instruction */
+};
+typedef struct instruction_ctx instruction_ctx_t;
 /* TODO prefix constant types with fd_ */
 
 /* Context needed to execute a single transaction. */
@@ -128,27 +153,57 @@ struct transaction_ctx {
   ulong             compute_unit_price;       /* Compute unit price for this transaction. */
   ulong             heap_size;                /* Heap size for VM */
   uint              prioritization_fee_type;  /* The type of prioritization fee to use. */
-  fd_txn_t*         txn_descriptor;           /* Descriptor of the transaction. */
-  fd_rawtxn_b_t*    txn_raw;                  /* Raw bytes of the transaction. */
+  fd_txn_t *        txn_descriptor;           /* Descriptor of the transaction. */
+  fd_rawtxn_b_t const *   _txn_raw;                  /* Raw bytes of the transaction. */
   uint              custom_err;               /* When a custom error is returned, this is where the numeric value gets stashed */
-
+  uchar             instr_stack_sz;           
+  instruction_ctx_t instr_stack[6];
+  uchar             accounts_cnt;             /* Number of account pubkeys accessed by this transaction */
+  fd_pubkey_t       accounts[256];            /* Array of account pubkeys accessed by this transaction. */
 };
 typedef struct transaction_ctx transaction_ctx_t;
 
-/* Context needed to execute a single instruction. TODO: split into a hierarchy of layered contexts.  */
-struct instruction_ctx {
-  fd_global_ctx_t *   global;
-  fd_txn_instr_t *    instr;    /* The instruction */
-  transaction_ctx_t * txn_ctx;  /* The transaction context for this instruction */
-};
-typedef struct instruction_ctx instruction_ctx_t;
 
 /* Type definition for native programs, akin to an interface for native programs.
    The executor will execute instructions designated for a given native program by invoking a function of this type. */
 typedef int(*execute_instruction_func_t) ( instruction_ctx_t ctx );
 
 execute_instruction_func_t
-fd_executor_lookup_native_program( fd_global_ctx_t* global,  fd_pubkey_t *pubkey ) ;
+fd_executor_lookup_native_program( fd_global_ctx_t * global, fd_pubkey_t const * pubkey ) ;
+
+int
+fd_execute_instr( fd_executor_t * executor, fd_instr_t * instr, transaction_ctx_t * txn_ctx );
+
+void
+fd_executor_setup_accessed_accounts_for_txn( transaction_ctx_t * txn_ctx, fd_rawtxn_b_t const * txn_raw );
+
+void
+fd_convert_txn_instr_to_instr( fd_txn_t const * txn_descriptor, 
+                               fd_rawtxn_b_t const * txn_raw,
+                               fd_txn_instr_t const * txn_instr,
+                               fd_pubkey_t const * accounts,
+                               fd_instr_t * instr );
+
+static inline uint
+fd_instr_acc_is_writable_idx(fd_instr_t const * instr, uchar idx) {
+  return !!(instr->acct_flags[idx] & FD_INSTR_ACCT_FLAGS_IS_WRITABLE);
+}
+
+static inline uint
+fd_instr_acc_is_writable(fd_instr_t const * instr, fd_pubkey_t const * acc) {
+  for( uchar i = 0; i < instr->acct_cnt; i++ ) {
+    if( memcmp( &instr->acct_pubkeys[i], acc, sizeof( fd_pubkey_t ) )==0 ) {
+      return fd_instr_acc_is_writable_idx( instr, i );
+    }
+  }
+
+  return 0;
+}
+
+static inline uint
+fd_instr_acc_is_signer_idx(fd_instr_t const * instr, uchar idx) {
+  return !!(instr->acct_flags[idx] & FD_INSTR_ACCT_FLAGS_IS_SIGNER);
+}
 
 FD_PROTOTYPES_END
 

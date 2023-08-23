@@ -1062,8 +1062,8 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
   fd_bincode_destroy_ctx_t destroy = { .valloc = ctx.global->valloc };
 
   /* Accounts */
-  uchar const *       instr_acc_idxs = ((uchar const *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
-  fd_pubkey_t const * txn_accs = (fd_pubkey_t const *)((uchar const *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
+  uchar const *       instr_acc_idxs = ctx.instr->acct_txn_idxs;
+  fd_pubkey_t const * txn_accs = ctx.instr->acct_pubkeys;
 
   /* Check vote account account owner.
      TODO dedup metadata fetch */
@@ -1077,7 +1077,7 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
 
   /* Deserialize the Vote instruction */
-  void const * data = (void const *)( (ulong)ctx.txn_ctx->txn_raw->raw + ctx.instr->data_off );
+  void const * data = (void const *)( ctx.instr->data );
 
   fd_vote_instruction_t instruction;
   fd_vote_instruction_new( &instruction );
@@ -1582,8 +1582,8 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
     FD_LOG_INFO(( "executing VoteInstruction::Authorize instruction" ));
     fd_vote_authorize_pubkey_t const * authorize = &instruction.inner.authorize;
 
-    uchar const *       instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
-    fd_pubkey_t const * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
+    uchar const *       instr_acc_idxs = ctx.instr->acct_txn_idxs;
+    fd_pubkey_t const * txn_accs = ctx.instr->acct_pubkeys;
 
     /* Require at least two accounts */
     if( FD_UNLIKELY( ctx.instr->acct_cnt < 2 ) ) {
@@ -1633,8 +1633,8 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
     FD_LOG_INFO(( "executing VoteInstruction::AuthorizeChecked instruction" ));
     fd_vote_authorize_t const * authorize = &instruction.inner.authorize_checked;
 
-    uchar const *       instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
-    fd_pubkey_t const * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
+    uchar const *       instr_acc_idxs = ctx.instr->acct_txn_idxs;
+    fd_pubkey_t const * txn_accs = ctx.instr->acct_pubkeys;
 
     /* Require at least four accounts */
     if( FD_UNLIKELY( ctx.instr->acct_cnt < 4 ) ) {
@@ -1690,8 +1690,8 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
     FD_LOG_INFO(( "executing VoteInstruction::AuthorizeWithSeed instruction" ));
     fd_vote_authorize_with_seed_args_t const * args = &instruction.inner.authorize_with_seed;
 
-    uchar const *       instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
-    fd_pubkey_t const * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
+    uchar const *       instr_acc_idxs = ctx.instr->acct_txn_idxs;
+    fd_pubkey_t const * txn_accs = ctx.instr->acct_pubkeys;
 
     /* Require at least three accounts */
     if( FD_UNLIKELY( ctx.instr->acct_cnt < 3 ) ) {
@@ -1766,8 +1766,8 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
     FD_LOG_INFO(( "executing VoteInstruction::AuthorizeCheckedWithSeed instruction" ));
     fd_vote_authorize_checked_with_seed_args_t const * args = &instruction.inner.authorize_checked_with_seed;
 
-    uchar const *       instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
-    fd_pubkey_t const * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
+    uchar const *       instr_acc_idxs = ctx.instr->acct_txn_idxs;
+    fd_pubkey_t const * txn_accs = ctx.instr->acct_pubkeys;
 
     /* Require at least one accounts */
     if( FD_UNLIKELY( ctx.instr->acct_cnt < 4 ) ) {
