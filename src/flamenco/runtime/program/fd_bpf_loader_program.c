@@ -257,7 +257,7 @@ deserialize_unaligned( instruction_ctx_t ctx, uchar * input, ulong input_sz ) {
   return 0;
 }
 
-int setup_program(instruction_ctx_t ctx, uchar * program_data, ulong program_data_len) {
+static int setup_program(instruction_ctx_t ctx, uchar * program_data, ulong program_data_len) {
   fd_sbpf_elf_info_t elf_info;
   fd_sbpf_elf_peek( &elf_info, program_data, program_data_len );
 
@@ -461,7 +461,7 @@ int fd_executor_bpf_loader_program_execute_program_instruction( instruction_ctx_
   return 0;
 }
 
-int set_executable(instruction_ctx_t ctx, fd_pubkey_t * program_acc, fd_account_meta_t * metadata, char is_executable) {
+static int set_executable(instruction_ctx_t ctx, fd_pubkey_t * program_acc, fd_account_meta_t * metadata, char is_executable) {
   fd_rent_t rent;
   fd_rent_new( &rent );
   if (fd_sysvar_rent_read( ctx.global, &rent ) == 0) {
