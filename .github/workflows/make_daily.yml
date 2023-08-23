@@ -6,6 +6,12 @@ on:
   schedule:
     - cron: '0 0 * * *'
   workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
 jobs:
   # Ensures that cron job is skipped if no commit was made on that day.
   check-date:
@@ -206,3 +212,54 @@ jobs:
       with:
         category: "/language:${{matrix.language}}"
         threads: 0
+
+  fuzz-coverage:
+    name: Fuzzer Coverage
+    runs-on:
+      group: github-v1
+    steps:
+      - name: Install Dependencies
+        run: sudo apt-get update && sudo apt-get install -y llvm lcov
+
+      - uses: actions/checkout@v3
+        with:
+          submodules: recursive
+
+      - name: 'Authenticate to Google Cloud'
+        uses: 'google-github-actions/auth@v1'
+        with:
+          credentials_json: ${{ secrets.FUZZ_SERVICE_ACCT_JSON_BUNDLE }}
+
+      - uses: ./.github/actions/deps
+
+      # Not using fuzzbot-builder because llvm-cov must be ran in the same environment otherwise paths will not match
+      - name: Build Fuzz Tests
+        env:
+          CC: clang
+          MACHINE: linux_clang_x86_64_fuzz_asan
+          EXTRAS: llvm-cov
+        run: make -j -Otarget fuzz-test
+
+      - name: Fetch Corpus, Generate Fuzzing Coverage
+        run: ./.github/workflows/scripts/fuzzcov_generate.sh build/linux/clang/x86_64_fuzz_asan/fuzz-test/
+
+      - name: Publish Fuzzing Coverage to codecov.io
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+        run: ./.github/workflows/scripts/fuzzcov_publish_codecov.sh
+
+      - name: Generate HTML Fuzzing Coverage Reports
+        run: ./.github/workflows/scripts/fuzzcov_genhtml.sh "${{ github.sha }}"
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v3
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v2
+        with:
+          # Upload entire repository
+          path: './build/pages/'
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v2
