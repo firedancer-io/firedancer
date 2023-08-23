@@ -57,6 +57,7 @@ expected_pages( config_t * const config, uint out[2] ) {
       case wksp_verify_dedup:
       case wksp_dedup_pack:
       case wksp_pack_bank:
+      case wksp_pack_forward:
       case wksp_bank_shred:
         break;
       case wksp_quic:
@@ -64,6 +65,7 @@ expected_pages( config_t * const config, uint out[2] ) {
       case wksp_dedup:
       case wksp_pack:
       case wksp_bank:
+      case wksp_forward:
         num_tiles++;
         break;
     }

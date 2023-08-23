@@ -200,14 +200,16 @@ run_monitor( config_t * const config,
     config->layout.verify_tile_count + // verify tiles
     1 +                                // dedup tile
     1 +                                // pack tile
-    config->layout.bank_tile_count;    // bank tiles
+    config->layout.bank_tile_count +   // bank tiles
+    1;                                 // forward tile
 
   ulong link_cnt =
     config->layout.verify_tile_count + // quic <-> verify
     config->layout.verify_tile_count + // verify <-> dedup
     1 +                                // dedup <-> pack
     config->layout.bank_tile_count +   // pack <-> bank
-    config->layout.bank_tile_count;    // bank <-> pack
+    config->layout.bank_tile_count +   // bank <-> pack
+    1;                                 // pack <-> forward
 
   tile_t * tiles = fd_alloca( alignof(tile_t *), sizeof(tile_t)*tile_cnt );
   link_t * links = fd_alloca( alignof(link_t *), sizeof(link_t)*link_cnt );
@@ -273,6 +275,15 @@ run_monitor( config_t * const config,
           link_idx++;
         }
         break;
+      case wksp_pack_forward:
+        links[ link_idx ].src_name = "pack";
+        links[ link_idx ].dst_name = "forward";
+        links[ link_idx ].mcache = fd_mcache_join( fd_wksp_pod_map( pods[ j ], "mcache" ) );
+        if( FD_UNLIKELY( !links[ link_idx ].mcache ) ) FD_LOG_ERR(( "fd_mcache_join failed" ));
+        links[ link_idx ].fseq = fd_fseq_join( fd_wksp_pod_map( pods[ j ], "fseq" ) );
+        if( FD_UNLIKELY( !links[ link_idx ].fseq ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
+        link_idx++;
+        break;
       case wksp_bank_shred:
         break;
       case wksp_quic:
@@ -305,6 +316,13 @@ run_monitor( config_t * const config,
         break;
       case wksp_bank:
         tiles[ tile_idx ].name = "bank";
+        tiles[ tile_idx ].cnc = fd_cnc_join( fd_wksp_pod_map( pod, "cnc" ) );
+        if( FD_UNLIKELY( !tiles[ tile_idx ].cnc ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
+        if( FD_UNLIKELY( fd_cnc_app_sz( tiles[ tile_idx ].cnc )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
+        tile_idx++;
+        break;
+      case wksp_forward:
+        tiles[ tile_idx ].name = "forward";
         tiles[ tile_idx ].cnc = fd_cnc_join( fd_wksp_pod_map( pod, "cnc" ) );
         if( FD_UNLIKELY( !tiles[ tile_idx ].cnc ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
         if( FD_UNLIKELY( fd_cnc_app_sz( tiles[ tile_idx ].cnc )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
@@ -380,12 +398,12 @@ run_monitor( config_t * const config,
 
     char now_cstr[ FD_LOG_WALLCLOCK_CSTR_BUF_SZ ];
     PRINT( "snapshot for %s" TEXT_NEWLINE, fd_log_wallclock_cstr( now, now_cstr ) );
-    PRINT( "   tile |     pid |      stale | heart |        sig | in backp |           backp cnt |         sv_filt cnt " TEXT_NEWLINE );
-    PRINT( "--------+---------+------------+-------+------------+----------+---------------------+---------------------" TEXT_NEWLINE );
+    PRINT( "    tile |     pid |      stale | heart |        sig | in backp |           backp cnt |         sv_filt cnt " TEXT_NEWLINE );
+    PRINT( "---------+---------+------------+-------+------------+----------+---------------------+---------------------" TEXT_NEWLINE );
     for( ulong tile_idx=0UL; tile_idx<tile_cnt; tile_idx++ ) {
       tile_snap_t * prv = &tile_snap_prv[ tile_idx ];
       tile_snap_t * cur = &tile_snap_cur[ tile_idx ];
-      PRINT( " %6s", tiles[ tile_idx ].name );
+      PRINT( " %7s", tiles[ tile_idx ].name );
       PRINT( " | %7lu", cur->cnc_diag_pid );
       PRINT( " | " ); printf_stale   ( &buf, &buf_sz, (long)(0.5+ns_per_tic*(double)(toc - cur->cnc_heartbeat)), 1e8 /* 100 millis */ );
       PRINT( " | " ); printf_heart   ( &buf, &buf_sz, cur->cnc_heartbeat,        prv->cnc_heartbeat        );
@@ -396,13 +414,13 @@ run_monitor( config_t * const config,
       PRINT( TEXT_NEWLINE );
     }
     PRINT( TEXT_NEWLINE );
-    PRINT( "           link |  tot TPS |  tot bps | uniq TPS | uniq bps |   ha tr%% | uniq bw%% | filt tr%% | filt bw%% |           ovrnp cnt |           ovrnr cnt |            slow cnt |             tx seq" TEXT_NEWLINE );
-    PRINT( "----------------+----------+----------+----------+----------+----------+----------+----------+----------+---------------------+---------------------+---------------------+-------------------" TEXT_NEWLINE );
+    PRINT( "             link |  tot TPS |  tot bps | uniq TPS | uniq bps |   ha tr%% | uniq bw%% | filt tr%% | filt bw%% |           ovrnp cnt |           ovrnr cnt |            slow cnt |             tx seq" TEXT_NEWLINE );
+    PRINT( "------------------+----------+----------+----------+----------+----------+----------+----------+----------+---------------------+---------------------+---------------------+-------------------" TEXT_NEWLINE );
     long dt = now-then;
     for( ulong link_idx=0UL; link_idx<link_cnt; link_idx++ ) {
       link_snap_t * prv = &link_snap_prv[ link_idx ];
       link_snap_t * cur = &link_snap_cur[ link_idx ];
-      PRINT( " %6s->%-6s", links[ link_idx ].src_name, links[ link_idx ].dst_name );
+      PRINT( " %7s->%-7s", links[ link_idx ].src_name, links[ link_idx ].dst_name );
       ulong cur_raw_cnt = /* cur->cnc_diag_ha_filt_cnt + */ cur->fseq_diag_tot_cnt;
       ulong cur_raw_sz  = /* cur->cnc_diag_ha_filt_sz  + */ cur->fseq_diag_tot_sz;
       ulong prv_raw_cnt = /* prv->cnc_diag_ha_filt_cnt + */ prv->fseq_diag_tot_cnt;

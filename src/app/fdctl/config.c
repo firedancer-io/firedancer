@@ -64,6 +64,7 @@ memlock_max_bytes( config_t * const config ) {
       case wksp_verify_dedup:
       case wksp_dedup_pack:
       case wksp_pack_bank:
+      case wksp_pack_forward:
       case wksp_bank_shred:
         break;
       case wksp_quic:
@@ -80,6 +81,9 @@ memlock_max_bytes( config_t * const config ) {
         break;
       case wksp_bank:
         TILE_MAX( frank_bank );
+        break;
+      case wksp_forward:
+        TILE_MAX( frank_forward );
         break;
     }
   }
@@ -293,6 +297,8 @@ static void parse_key_value( config_t *   config,
 
   ENTRY_UINT  ( ., tiles.bank,          receive_buffer_size                                       );
 
+  ENTRY_UINT  ( ., tiles.forward,       receive_buffer_size                                       );
+
   ENTRY_UINT  ( ., tiles.dedup,         signature_cache_size                                      );
 }
 
@@ -500,6 +506,12 @@ init_workspaces( config_t * config ) {
   config->shmem.workspaces[ idx ].num_pages = 1;
   idx++;
 
+  config->shmem.workspaces[ idx ].kind      = wksp_pack_forward;
+  config->shmem.workspaces[ idx ].name      = "pack_forward";
+  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
+  config->shmem.workspaces[ idx ].num_pages = 1;
+  idx++;
+
   config->shmem.workspaces[ idx ].kind      = wksp_bank_shred;
   config->shmem.workspaces[ idx ].name      = "bank_shred";
   config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
@@ -532,6 +544,12 @@ init_workspaces( config_t * config ) {
 
   config->shmem.workspaces[ idx ].kind      = wksp_pack;
   config->shmem.workspaces[ idx ].name      = "pack";
+  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
+  config->shmem.workspaces[ idx ].num_pages = 1;
+  idx++;
+
+  config->shmem.workspaces[ idx ].kind      = wksp_forward;
+  config->shmem.workspaces[ idx ].name      = "forward";
   config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
   config->shmem.workspaces[ idx ].num_pages = 1;
   idx++;

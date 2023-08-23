@@ -248,6 +248,11 @@ init( config_t * const config ) {
           fseq  ( pod, "fseq-back%lu", i );
         }
         break;
+      case wksp_pack_forward:
+        mcache( pod, "mcache", config->tiles.forward.receive_buffer_size );
+        dcache( pod, "dcache", USHORT_MAX, (ulong)config->tiles.forward.receive_buffer_size, 0 );
+        fseq  ( pod, "fseq" );
+        break;
       case wksp_bank_shred:
         for( ulong i=0; i<config->layout.bank_tile_count; i++ ) {
           mcache( pod, "mcache%lu", config->tiles.bank.receive_buffer_size, i );
@@ -287,6 +292,10 @@ init( config_t * const config ) {
         break;
       case wksp_bank:
         cnc   ( pod, "cnc" );
+        break;
+      case wksp_forward:
+        cnc   ( pod, "cnc" );
+        break;
     }
 
     WKSP_END();
