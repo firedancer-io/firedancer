@@ -248,14 +248,22 @@ fd_sysvar_clock_update( fd_global_ctx_t * global ) {
             }
         } */
     if( bounded_timestamp_estimate < ancestor_timestamp ) {
-      FD_LOG_INFO(( "clock rewind detected: %ld -> %ld", ancestor_timestamp, bounded_timestamp_estimate ));
+      FD_LOG_DEBUG(( "clock rewind detected: %ld -> %ld", ancestor_timestamp, bounded_timestamp_estimate ));
       bounded_timestamp_estimate = ancestor_timestamp;
     }
     clock.unix_timestamp = bounded_timestamp_estimate;
   }
 
   clock.slot  = global->bank.slot;
-  clock.epoch = fd_slot_to_epoch( &global->bank.epoch_schedule, global->bank.slot, NULL );
+
+  ulong epoch_old = clock.epoch;
+  ulong epoch_new = fd_slot_to_epoch( &global->bank.epoch_schedule, clock.slot, NULL );
+
+  clock.epoch = epoch_new;
+  if( epoch_old != epoch_new ) {
+    clock.epoch_start_timestamp = clock.unix_timestamp;
+    clock.leader_schedule_epoch = fd_slot_to_leader_schedule_epoch( &global->bank.epoch_schedule, global->bank.slot );
+  }
 
   FD_LOG_DEBUG(( "Updated clock at slot %lu", global->bank.slot ));
   FD_LOG_DEBUG(( "clock.slot: %lu", clock.slot ));
