@@ -25,7 +25,7 @@ fd_sysvar_rent_read( fd_global_ctx_t * global,
   int err = 0;
   uchar const * record = fd_acc_mgr_view_raw( global->acc_mgr, global->funk_txn, (fd_pubkey_t const *)global->sysvar_rent, NULL, &err );
   if( FD_UNLIKELY( !record ) ) {
-    FD_LOG_ERR(( "failed to read rent sysvar: %d", err ));
+    FD_LOG_WARNING(( "failed to read rent sysvar: %d", err ));
     return err;
   }
 
@@ -39,7 +39,7 @@ fd_sysvar_rent_read( fd_global_ctx_t * global,
   };
   err = fd_rent_decode( result, &decode );
   if( FD_UNLIKELY( err ) ) {
-    FD_LOG_ERR(("fd_rent_decode failed"));
+    FD_LOG_WARNING(("fd_rent_decode failed"));
     return err;
   }
     
