@@ -29,8 +29,8 @@ void fd_feature_destroy(fd_feature_t* self, fd_bincode_destroy_ctx_t * ctx) {
   }
 }
 
-ulong fd_feature_footprint(){ return FD_FEATURE_FOOTPRINT; }
-ulong fd_feature_align(){ return FD_FEATURE_ALIGN; }
+ulong fd_feature_footprint( void ){ return FD_FEATURE_FOOTPRINT; }
+ulong fd_feature_align( void ){ return FD_FEATURE_ALIGN; }
 
 void fd_feature_walk(void * w, fd_feature_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_feature", level++);
@@ -76,8 +76,8 @@ void fd_fee_calculator_new(fd_fee_calculator_t* self) {
 void fd_fee_calculator_destroy(fd_fee_calculator_t* self, fd_bincode_destroy_ctx_t * ctx) {
 }
 
-ulong fd_fee_calculator_footprint(){ return FD_FEE_CALCULATOR_FOOTPRINT; }
-ulong fd_fee_calculator_align(){ return FD_FEE_CALCULATOR_ALIGN; }
+ulong fd_fee_calculator_footprint( void ){ return FD_FEE_CALCULATOR_FOOTPRINT; }
+ulong fd_fee_calculator_align( void ){ return FD_FEE_CALCULATOR_ALIGN; }
 
 void fd_fee_calculator_walk(void * w, fd_fee_calculator_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_fee_calculator", level++);
@@ -113,8 +113,8 @@ void fd_epoch_rewards_new(fd_epoch_rewards_t* self) {
 void fd_epoch_rewards_destroy(fd_epoch_rewards_t* self, fd_bincode_destroy_ctx_t * ctx) {
 }
 
-ulong fd_epoch_rewards_footprint(){ return FD_EPOCH_REWARDS_FOOTPRINT; }
-ulong fd_epoch_rewards_align(){ return FD_EPOCH_REWARDS_ALIGN; }
+ulong fd_epoch_rewards_footprint( void ){ return FD_EPOCH_REWARDS_FOOTPRINT; }
+ulong fd_epoch_rewards_align( void ){ return FD_EPOCH_REWARDS_ALIGN; }
 
 void fd_epoch_rewards_walk(void * w, fd_epoch_rewards_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_epoch_rewards", level++);
@@ -160,8 +160,8 @@ void fd_hash_age_destroy(fd_hash_age_t* self, fd_bincode_destroy_ctx_t * ctx) {
   fd_fee_calculator_destroy(&self->fee_calculator, ctx);
 }
 
-ulong fd_hash_age_footprint(){ return FD_HASH_AGE_FOOTPRINT; }
-ulong fd_hash_age_align(){ return FD_HASH_AGE_ALIGN; }
+ulong fd_hash_age_footprint( void ){ return FD_HASH_AGE_FOOTPRINT; }
+ulong fd_hash_age_align( void ){ return FD_HASH_AGE_ALIGN; }
 
 void fd_hash_age_walk(void * w, fd_hash_age_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_hash_age", level++);
@@ -207,8 +207,8 @@ void fd_hash_hash_age_pair_destroy(fd_hash_hash_age_pair_t* self, fd_bincode_des
   fd_hash_age_destroy(&self->val, ctx);
 }
 
-ulong fd_hash_hash_age_pair_footprint(){ return FD_HASH_HASH_AGE_PAIR_FOOTPRINT; }
-ulong fd_hash_hash_age_pair_align(){ return FD_HASH_HASH_AGE_PAIR_ALIGN; }
+ulong fd_hash_hash_age_pair_footprint( void ){ return FD_HASH_HASH_AGE_PAIR_FOOTPRINT; }
+ulong fd_hash_hash_age_pair_align( void ){ return FD_HASH_HASH_AGE_PAIR_ALIGN; }
 
 void fd_hash_hash_age_pair_walk(void * w, fd_hash_hash_age_pair_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_hash_hash_age_pair", level++);
@@ -282,8 +282,8 @@ void fd_block_hash_queue_destroy(fd_block_hash_queue_t* self, fd_bincode_destroy
   }
 }
 
-ulong fd_block_hash_queue_footprint(){ return FD_BLOCK_HASH_QUEUE_FOOTPRINT; }
-ulong fd_block_hash_queue_align(){ return FD_BLOCK_HASH_QUEUE_ALIGN; }
+ulong fd_block_hash_queue_footprint( void ){ return FD_BLOCK_HASH_QUEUE_FOOTPRINT; }
+ulong fd_block_hash_queue_align( void ){ return FD_BLOCK_HASH_QUEUE_ALIGN; }
 
 void fd_block_hash_queue_walk(void * w, fd_block_hash_queue_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_block_hash_queue", level++);
@@ -362,8 +362,8 @@ void fd_fee_rate_governor_new(fd_fee_rate_governor_t* self) {
 void fd_fee_rate_governor_destroy(fd_fee_rate_governor_t* self, fd_bincode_destroy_ctx_t * ctx) {
 }
 
-ulong fd_fee_rate_governor_footprint(){ return FD_FEE_RATE_GOVERNOR_FOOTPRINT; }
-ulong fd_fee_rate_governor_align(){ return FD_FEE_RATE_GOVERNOR_ALIGN; }
+ulong fd_fee_rate_governor_footprint( void ){ return FD_FEE_RATE_GOVERNOR_FOOTPRINT; }
+ulong fd_fee_rate_governor_align( void ){ return FD_FEE_RATE_GOVERNOR_ALIGN; }
 
 void fd_fee_rate_governor_walk(void * w, fd_fee_rate_governor_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_fee_rate_governor", level++);
@@ -413,8 +413,8 @@ void fd_slot_pair_new(fd_slot_pair_t* self) {
 void fd_slot_pair_destroy(fd_slot_pair_t* self, fd_bincode_destroy_ctx_t * ctx) {
 }
 
-ulong fd_slot_pair_footprint(){ return FD_SLOT_PAIR_FOOTPRINT; }
-ulong fd_slot_pair_align(){ return FD_SLOT_PAIR_ALIGN; }
+ulong fd_slot_pair_footprint( void ){ return FD_SLOT_PAIR_FOOTPRINT; }
+ulong fd_slot_pair_align( void ){ return FD_SLOT_PAIR_ALIGN; }
 
 void fd_slot_pair_walk(void * w, fd_slot_pair_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_slot_pair", level++);
@@ -467,8 +467,8 @@ void fd_hard_forks_destroy(fd_hard_forks_t* self, fd_bincode_destroy_ctx_t * ctx
   }
 }
 
-ulong fd_hard_forks_footprint(){ return FD_HARD_FORKS_FOOTPRINT; }
-ulong fd_hard_forks_align(){ return FD_HARD_FORKS_ALIGN; }
+ulong fd_hard_forks_footprint( void ){ return FD_HARD_FORKS_FOOTPRINT; }
+ulong fd_hard_forks_align( void ){ return FD_HARD_FORKS_ALIGN; }
 
 void fd_hard_forks_walk(void * w, fd_hard_forks_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_hard_forks", level++);
@@ -523,8 +523,8 @@ void fd_inflation_new(fd_inflation_t* self) {
 void fd_inflation_destroy(fd_inflation_t* self, fd_bincode_destroy_ctx_t * ctx) {
 }
 
-ulong fd_inflation_footprint(){ return FD_INFLATION_FOOTPRINT; }
-ulong fd_inflation_align(){ return FD_INFLATION_ALIGN; }
+ulong fd_inflation_footprint( void ){ return FD_INFLATION_FOOTPRINT; }
+ulong fd_inflation_align( void ){ return FD_INFLATION_ALIGN; }
 
 void fd_inflation_walk(void * w, fd_inflation_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_inflation", level++);
@@ -580,8 +580,8 @@ void fd_rent_new(fd_rent_t* self) {
 void fd_rent_destroy(fd_rent_t* self, fd_bincode_destroy_ctx_t * ctx) {
 }
 
-ulong fd_rent_footprint(){ return FD_RENT_FOOTPRINT; }
-ulong fd_rent_align(){ return FD_RENT_ALIGN; }
+ulong fd_rent_footprint( void ){ return FD_RENT_FOOTPRINT; }
+ulong fd_rent_align( void ){ return FD_RENT_ALIGN; }
 
 void fd_rent_walk(void * w, fd_rent_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_rent", level++);
@@ -631,8 +631,8 @@ void fd_rent_collector_destroy(fd_rent_collector_t* self, fd_bincode_destroy_ctx
   fd_rent_destroy(&self->rent, ctx);
 }
 
-ulong fd_rent_collector_footprint(){ return FD_RENT_COLLECTOR_FOOTPRINT; }
-ulong fd_rent_collector_align(){ return FD_RENT_COLLECTOR_ALIGN; }
+ulong fd_rent_collector_footprint( void ){ return FD_RENT_COLLECTOR_FOOTPRINT; }
+ulong fd_rent_collector_align( void ){ return FD_RENT_COLLECTOR_ALIGN; }
 
 void fd_rent_collector_walk(void * w, fd_rent_collector_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_rent_collector", level++);
@@ -680,8 +680,8 @@ void fd_stake_history_entry_new(fd_stake_history_entry_t* self) {
 void fd_stake_history_entry_destroy(fd_stake_history_entry_t* self, fd_bincode_destroy_ctx_t * ctx) {
 }
 
-ulong fd_stake_history_entry_footprint(){ return FD_STAKE_HISTORY_ENTRY_FOOTPRINT; }
-ulong fd_stake_history_entry_align(){ return FD_STAKE_HISTORY_ENTRY_ALIGN; }
+ulong fd_stake_history_entry_footprint( void ){ return FD_STAKE_HISTORY_ENTRY_FOOTPRINT; }
+ulong fd_stake_history_entry_align( void ){ return FD_STAKE_HISTORY_ENTRY_ALIGN; }
 
 void fd_stake_history_entry_walk(void * w, fd_stake_history_entry_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_stake_history_entry", level++);
@@ -725,8 +725,8 @@ void fd_stake_history_epochentry_pair_destroy(fd_stake_history_epochentry_pair_t
   fd_stake_history_entry_destroy(&self->entry, ctx);
 }
 
-ulong fd_stake_history_epochentry_pair_footprint(){ return FD_STAKE_HISTORY_EPOCHENTRY_PAIR_FOOTPRINT; }
-ulong fd_stake_history_epochentry_pair_align(){ return FD_STAKE_HISTORY_EPOCHENTRY_PAIR_ALIGN; }
+ulong fd_stake_history_epochentry_pair_footprint( void ){ return FD_STAKE_HISTORY_EPOCHENTRY_PAIR_FOOTPRINT; }
+ulong fd_stake_history_epochentry_pair_align( void ){ return FD_STAKE_HISTORY_EPOCHENTRY_PAIR_ALIGN; }
 
 void fd_stake_history_epochentry_pair_walk(void * w, fd_stake_history_epochentry_pair_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_stake_history_epochentry_pair", level++);
@@ -778,8 +778,8 @@ void fd_stake_history_destroy(fd_stake_history_t* self, fd_bincode_destroy_ctx_t
   self->entries_root = NULL;
 }
 
-ulong fd_stake_history_footprint(){ return FD_STAKE_HISTORY_FOOTPRINT; }
-ulong fd_stake_history_align(){ return FD_STAKE_HISTORY_ALIGN; }
+ulong fd_stake_history_footprint( void ){ return FD_STAKE_HISTORY_FOOTPRINT; }
+ulong fd_stake_history_align( void ){ return FD_STAKE_HISTORY_ALIGN; }
 
 void fd_stake_history_walk(void * w, fd_stake_history_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_stake_history", level++);
@@ -853,8 +853,8 @@ void fd_solana_account_destroy(fd_solana_account_t* self, fd_bincode_destroy_ctx
   fd_pubkey_destroy(&self->owner, ctx);
 }
 
-ulong fd_solana_account_footprint(){ return FD_SOLANA_ACCOUNT_FOOTPRINT; }
-ulong fd_solana_account_align(){ return FD_SOLANA_ACCOUNT_ALIGN; }
+ulong fd_solana_account_footprint( void ){ return FD_SOLANA_ACCOUNT_FOOTPRINT; }
+ulong fd_solana_account_align( void ){ return FD_SOLANA_ACCOUNT_ALIGN; }
 
 void fd_solana_account_walk(void * w, fd_solana_account_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_solana_account", level++);
@@ -915,8 +915,8 @@ void fd_vote_accounts_pair_destroy(fd_vote_accounts_pair_t* self, fd_bincode_des
   fd_solana_account_destroy(&self->value, ctx);
 }
 
-ulong fd_vote_accounts_pair_footprint(){ return FD_VOTE_ACCOUNTS_PAIR_FOOTPRINT; }
-ulong fd_vote_accounts_pair_align(){ return FD_VOTE_ACCOUNTS_PAIR_ALIGN; }
+ulong fd_vote_accounts_pair_footprint( void ){ return FD_VOTE_ACCOUNTS_PAIR_FOOTPRINT; }
+ulong fd_vote_accounts_pair_align( void ){ return FD_VOTE_ACCOUNTS_PAIR_ALIGN; }
 
 void fd_vote_accounts_pair_walk(void * w, fd_vote_accounts_pair_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_vote_accounts_pair", level++);
@@ -972,8 +972,8 @@ void fd_vote_accounts_destroy(fd_vote_accounts_t* self, fd_bincode_destroy_ctx_t
   self->vote_accounts_root = NULL;
 }
 
-ulong fd_vote_accounts_footprint(){ return FD_VOTE_ACCOUNTS_FOOTPRINT; }
-ulong fd_vote_accounts_align(){ return FD_VOTE_ACCOUNTS_ALIGN; }
+ulong fd_vote_accounts_footprint( void ){ return FD_VOTE_ACCOUNTS_FOOTPRINT; }
+ulong fd_vote_accounts_align( void ){ return FD_VOTE_ACCOUNTS_ALIGN; }
 
 void fd_vote_accounts_walk(void * w, fd_vote_accounts_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_vote_accounts", level++);
@@ -1031,8 +1031,8 @@ void fd_stake_weight_destroy(fd_stake_weight_t* self, fd_bincode_destroy_ctx_t *
   fd_pubkey_destroy(&self->key, ctx);
 }
 
-ulong fd_stake_weight_footprint(){ return FD_STAKE_WEIGHT_FOOTPRINT; }
-ulong fd_stake_weight_align(){ return FD_STAKE_WEIGHT_ALIGN; }
+ulong fd_stake_weight_footprint( void ){ return FD_STAKE_WEIGHT_FOOTPRINT; }
+ulong fd_stake_weight_align( void ){ return FD_STAKE_WEIGHT_ALIGN; }
 
 void fd_stake_weight_walk(void * w, fd_stake_weight_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_stake_weight", level++);
@@ -1084,8 +1084,8 @@ void fd_stake_weights_destroy(fd_stake_weights_t* self, fd_bincode_destroy_ctx_t
   self->stake_weights_root = NULL;
 }
 
-ulong fd_stake_weights_footprint(){ return FD_STAKE_WEIGHTS_FOOTPRINT; }
-ulong fd_stake_weights_align(){ return FD_STAKE_WEIGHTS_ALIGN; }
+ulong fd_stake_weights_footprint( void ){ return FD_STAKE_WEIGHTS_FOOTPRINT; }
+ulong fd_stake_weights_align( void ){ return FD_STAKE_WEIGHTS_ALIGN; }
 
 void fd_stake_weights_walk(void * w, fd_stake_weights_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_stake_weights", level++);
@@ -1149,8 +1149,8 @@ void fd_delegation_destroy(fd_delegation_t* self, fd_bincode_destroy_ctx_t * ctx
   fd_pubkey_destroy(&self->voter_pubkey, ctx);
 }
 
-ulong fd_delegation_footprint(){ return FD_DELEGATION_FOOTPRINT; }
-ulong fd_delegation_align(){ return FD_DELEGATION_ALIGN; }
+ulong fd_delegation_footprint( void ){ return FD_DELEGATION_FOOTPRINT; }
+ulong fd_delegation_align( void ){ return FD_DELEGATION_ALIGN; }
 
 void fd_delegation_walk(void * w, fd_delegation_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_delegation", level++);
@@ -1204,8 +1204,8 @@ void fd_delegation_pair_destroy(fd_delegation_pair_t* self, fd_bincode_destroy_c
   fd_delegation_destroy(&self->delegation, ctx);
 }
 
-ulong fd_delegation_pair_footprint(){ return FD_DELEGATION_PAIR_FOOTPRINT; }
-ulong fd_delegation_pair_align(){ return FD_DELEGATION_PAIR_ALIGN; }
+ulong fd_delegation_pair_footprint( void ){ return FD_DELEGATION_PAIR_FOOTPRINT; }
+ulong fd_delegation_pair_align( void ){ return FD_DELEGATION_PAIR_ALIGN; }
 
 void fd_delegation_pair_walk(void * w, fd_delegation_pair_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_delegation_pair", level++);
@@ -1269,8 +1269,8 @@ void fd_stakes_destroy(fd_stakes_t* self, fd_bincode_destroy_ctx_t * ctx) {
   fd_stake_history_destroy(&self->stake_history, ctx);
 }
 
-ulong fd_stakes_footprint(){ return FD_STAKES_FOOTPRINT; }
-ulong fd_stakes_align(){ return FD_STAKES_ALIGN; }
+ulong fd_stakes_footprint( void ){ return FD_STAKES_FOOTPRINT; }
+ulong fd_stakes_align( void ){ return FD_STAKES_ALIGN; }
 
 void fd_stakes_walk(void * w, fd_stakes_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_stakes", level++);
@@ -1352,8 +1352,8 @@ void fd_bank_incremental_snapshot_persistence_destroy(fd_bank_incremental_snapsh
   fd_hash_destroy(&self->incremental_hash, ctx);
 }
 
-ulong fd_bank_incremental_snapshot_persistence_footprint(){ return FD_BANK_INCREMENTAL_SNAPSHOT_PERSISTENCE_FOOTPRINT; }
-ulong fd_bank_incremental_snapshot_persistence_align(){ return FD_BANK_INCREMENTAL_SNAPSHOT_PERSISTENCE_ALIGN; }
+ulong fd_bank_incremental_snapshot_persistence_footprint( void ){ return FD_BANK_INCREMENTAL_SNAPSHOT_PERSISTENCE_FOOTPRINT; }
+ulong fd_bank_incremental_snapshot_persistence_align( void ){ return FD_BANK_INCREMENTAL_SNAPSHOT_PERSISTENCE_ALIGN; }
 
 void fd_bank_incremental_snapshot_persistence_walk(void * w, fd_bank_incremental_snapshot_persistence_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_bank_incremental_snapshot_persistence", level++);
@@ -1420,8 +1420,8 @@ void fd_node_vote_accounts_destroy(fd_node_vote_accounts_t* self, fd_bincode_des
   }
 }
 
-ulong fd_node_vote_accounts_footprint(){ return FD_NODE_VOTE_ACCOUNTS_FOOTPRINT; }
-ulong fd_node_vote_accounts_align(){ return FD_NODE_VOTE_ACCOUNTS_ALIGN; }
+ulong fd_node_vote_accounts_footprint( void ){ return FD_NODE_VOTE_ACCOUNTS_FOOTPRINT; }
+ulong fd_node_vote_accounts_align( void ){ return FD_NODE_VOTE_ACCOUNTS_ALIGN; }
 
 void fd_node_vote_accounts_walk(void * w, fd_node_vote_accounts_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_node_vote_accounts", level++);
@@ -1476,8 +1476,8 @@ void fd_pubkey_node_vote_accounts_pair_destroy(fd_pubkey_node_vote_accounts_pair
   fd_node_vote_accounts_destroy(&self->value, ctx);
 }
 
-ulong fd_pubkey_node_vote_accounts_pair_footprint(){ return FD_PUBKEY_NODE_VOTE_ACCOUNTS_PAIR_FOOTPRINT; }
-ulong fd_pubkey_node_vote_accounts_pair_align(){ return FD_PUBKEY_NODE_VOTE_ACCOUNTS_PAIR_ALIGN; }
+ulong fd_pubkey_node_vote_accounts_pair_footprint( void ){ return FD_PUBKEY_NODE_VOTE_ACCOUNTS_PAIR_FOOTPRINT; }
+ulong fd_pubkey_node_vote_accounts_pair_align( void ){ return FD_PUBKEY_NODE_VOTE_ACCOUNTS_PAIR_ALIGN; }
 
 void fd_pubkey_node_vote_accounts_pair_walk(void * w, fd_pubkey_node_vote_accounts_pair_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_pubkey_node_vote_accounts_pair", level++);
@@ -1519,8 +1519,8 @@ void fd_pubkey_pubkey_pair_destroy(fd_pubkey_pubkey_pair_t* self, fd_bincode_des
   fd_pubkey_destroy(&self->value, ctx);
 }
 
-ulong fd_pubkey_pubkey_pair_footprint(){ return FD_PUBKEY_PUBKEY_PAIR_FOOTPRINT; }
-ulong fd_pubkey_pubkey_pair_align(){ return FD_PUBKEY_PUBKEY_PAIR_ALIGN; }
+ulong fd_pubkey_pubkey_pair_footprint( void ){ return FD_PUBKEY_PUBKEY_PAIR_FOOTPRINT; }
+ulong fd_pubkey_pubkey_pair_align( void ){ return FD_PUBKEY_PUBKEY_PAIR_ALIGN; }
 
 void fd_pubkey_pubkey_pair_walk(void * w, fd_pubkey_pubkey_pair_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_pubkey_pubkey_pair", level++);
@@ -1598,8 +1598,8 @@ void fd_epoch_stakes_destroy(fd_epoch_stakes_t* self, fd_bincode_destroy_ctx_t *
   }
 }
 
-ulong fd_epoch_stakes_footprint(){ return FD_EPOCH_STAKES_FOOTPRINT; }
-ulong fd_epoch_stakes_align(){ return FD_EPOCH_STAKES_ALIGN; }
+ulong fd_epoch_stakes_footprint( void ){ return FD_EPOCH_STAKES_FOOTPRINT; }
+ulong fd_epoch_stakes_align( void ){ return FD_EPOCH_STAKES_ALIGN; }
 
 void fd_epoch_stakes_walk(void * w, fd_epoch_stakes_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_epoch_stakes", level++);
@@ -1673,8 +1673,8 @@ void fd_epoch_epoch_stakes_pair_destroy(fd_epoch_epoch_stakes_pair_t* self, fd_b
   fd_epoch_stakes_destroy(&self->value, ctx);
 }
 
-ulong fd_epoch_epoch_stakes_pair_footprint(){ return FD_EPOCH_EPOCH_STAKES_PAIR_FOOTPRINT; }
-ulong fd_epoch_epoch_stakes_pair_align(){ return FD_EPOCH_EPOCH_STAKES_PAIR_ALIGN; }
+ulong fd_epoch_epoch_stakes_pair_footprint( void ){ return FD_EPOCH_EPOCH_STAKES_PAIR_FOOTPRINT; }
+ulong fd_epoch_epoch_stakes_pair_align( void ){ return FD_EPOCH_EPOCH_STAKES_PAIR_ALIGN; }
 
 void fd_epoch_epoch_stakes_pair_walk(void * w, fd_epoch_epoch_stakes_pair_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_epoch_epoch_stakes_pair", level++);
@@ -1714,8 +1714,8 @@ void fd_pubkey_u64_pair_destroy(fd_pubkey_u64_pair_t* self, fd_bincode_destroy_c
   fd_pubkey_destroy(&self->_0, ctx);
 }
 
-ulong fd_pubkey_u64_pair_footprint(){ return FD_PUBKEY_U64_PAIR_FOOTPRINT; }
-ulong fd_pubkey_u64_pair_align(){ return FD_PUBKEY_U64_PAIR_ALIGN; }
+ulong fd_pubkey_u64_pair_footprint( void ){ return FD_PUBKEY_U64_PAIR_FOOTPRINT; }
+ulong fd_pubkey_u64_pair_align( void ){ return FD_PUBKEY_U64_PAIR_ALIGN; }
 
 void fd_pubkey_u64_pair_walk(void * w, fd_pubkey_u64_pair_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_pubkey_u64_pair", level++);
@@ -1806,8 +1806,8 @@ void fd_unused_accounts_destroy(fd_unused_accounts_t* self, fd_bincode_destroy_c
   }
 }
 
-ulong fd_unused_accounts_footprint(){ return FD_UNUSED_ACCOUNTS_FOOTPRINT; }
-ulong fd_unused_accounts_align(){ return FD_UNUSED_ACCOUNTS_ALIGN; }
+ulong fd_unused_accounts_footprint( void ){ return FD_UNUSED_ACCOUNTS_FOOTPRINT; }
+ulong fd_unused_accounts_align( void ){ return FD_UNUSED_ACCOUNTS_ALIGN; }
 
 void fd_unused_accounts_walk(void * w, fd_unused_accounts_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_unused_accounts", level++);
@@ -2019,8 +2019,8 @@ void fd_deserializable_versioned_bank_destroy(fd_deserializable_versioned_bank_t
   }
 }
 
-ulong fd_deserializable_versioned_bank_footprint(){ return FD_DESERIALIZABLE_VERSIONED_BANK_FOOTPRINT; }
-ulong fd_deserializable_versioned_bank_align(){ return FD_DESERIALIZABLE_VERSIONED_BANK_ALIGN; }
+ulong fd_deserializable_versioned_bank_footprint( void ){ return FD_DESERIALIZABLE_VERSIONED_BANK_FOOTPRINT; }
+ulong fd_deserializable_versioned_bank_align( void ){ return FD_DESERIALIZABLE_VERSIONED_BANK_ALIGN; }
 
 void fd_deserializable_versioned_bank_walk(void * w, fd_deserializable_versioned_bank_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_deserializable_versioned_bank", level++);
@@ -2218,8 +2218,8 @@ void fd_serializable_account_storage_entry_new(fd_serializable_account_storage_e
 void fd_serializable_account_storage_entry_destroy(fd_serializable_account_storage_entry_t* self, fd_bincode_destroy_ctx_t * ctx) {
 }
 
-ulong fd_serializable_account_storage_entry_footprint(){ return FD_SERIALIZABLE_ACCOUNT_STORAGE_ENTRY_FOOTPRINT; }
-ulong fd_serializable_account_storage_entry_align(){ return FD_SERIALIZABLE_ACCOUNT_STORAGE_ENTRY_ALIGN; }
+ulong fd_serializable_account_storage_entry_footprint( void ){ return FD_SERIALIZABLE_ACCOUNT_STORAGE_ENTRY_FOOTPRINT; }
+ulong fd_serializable_account_storage_entry_align( void ){ return FD_SERIALIZABLE_ACCOUNT_STORAGE_ENTRY_ALIGN; }
 
 void fd_serializable_account_storage_entry_walk(void * w, fd_serializable_account_storage_entry_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_serializable_account_storage_entry", level++);
@@ -2263,8 +2263,8 @@ void fd_bank_hash_stats_new(fd_bank_hash_stats_t* self) {
 void fd_bank_hash_stats_destroy(fd_bank_hash_stats_t* self, fd_bincode_destroy_ctx_t * ctx) {
 }
 
-ulong fd_bank_hash_stats_footprint(){ return FD_BANK_HASH_STATS_FOOTPRINT; }
-ulong fd_bank_hash_stats_align(){ return FD_BANK_HASH_STATS_ALIGN; }
+ulong fd_bank_hash_stats_footprint( void ){ return FD_BANK_HASH_STATS_FOOTPRINT; }
+ulong fd_bank_hash_stats_align( void ){ return FD_BANK_HASH_STATS_ALIGN; }
 
 void fd_bank_hash_stats_walk(void * w, fd_bank_hash_stats_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_bank_hash_stats", level++);
@@ -2322,8 +2322,8 @@ void fd_bank_hash_info_destroy(fd_bank_hash_info_t* self, fd_bincode_destroy_ctx
   fd_bank_hash_stats_destroy(&self->stats, ctx);
 }
 
-ulong fd_bank_hash_info_footprint(){ return FD_BANK_HASH_INFO_FOOTPRINT; }
-ulong fd_bank_hash_info_align(){ return FD_BANK_HASH_INFO_ALIGN; }
+ulong fd_bank_hash_info_footprint( void ){ return FD_BANK_HASH_INFO_FOOTPRINT; }
+ulong fd_bank_hash_info_align( void ){ return FD_BANK_HASH_INFO_ALIGN; }
 
 void fd_bank_hash_info_walk(void * w, fd_bank_hash_info_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_bank_hash_info", level++);
@@ -2381,8 +2381,8 @@ void fd_slot_account_pair_destroy(fd_slot_account_pair_t* self, fd_bincode_destr
   self->accounts_root = NULL;
 }
 
-ulong fd_slot_account_pair_footprint(){ return FD_SLOT_ACCOUNT_PAIR_FOOTPRINT; }
-ulong fd_slot_account_pair_align(){ return FD_SLOT_ACCOUNT_PAIR_ALIGN; }
+ulong fd_slot_account_pair_footprint( void ){ return FD_SLOT_ACCOUNT_PAIR_FOOTPRINT; }
+ulong fd_slot_account_pair_align( void ){ return FD_SLOT_ACCOUNT_PAIR_ALIGN; }
 
 void fd_slot_account_pair_walk(void * w, fd_slot_account_pair_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_slot_account_pair", level++);
@@ -2444,8 +2444,8 @@ void fd_slot_map_pair_destroy(fd_slot_map_pair_t* self, fd_bincode_destroy_ctx_t
   fd_hash_destroy(&self->hash, ctx);
 }
 
-ulong fd_slot_map_pair_footprint(){ return FD_SLOT_MAP_PAIR_FOOTPRINT; }
-ulong fd_slot_map_pair_align(){ return FD_SLOT_MAP_PAIR_ALIGN; }
+ulong fd_slot_map_pair_footprint( void ){ return FD_SLOT_MAP_PAIR_FOOTPRINT; }
+ulong fd_slot_map_pair_align( void ){ return FD_SLOT_MAP_PAIR_ALIGN; }
 
 void fd_slot_map_pair_walk(void * w, fd_slot_map_pair_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_slot_map_pair", level++);
@@ -2538,8 +2538,8 @@ void fd_solana_accounts_db_fields_destroy(fd_solana_accounts_db_fields_t* self, 
   }
 }
 
-ulong fd_solana_accounts_db_fields_footprint(){ return FD_SOLANA_ACCOUNTS_DB_FIELDS_FOOTPRINT; }
-ulong fd_solana_accounts_db_fields_align(){ return FD_SOLANA_ACCOUNTS_DB_FIELDS_ALIGN; }
+ulong fd_solana_accounts_db_fields_footprint( void ){ return FD_SOLANA_ACCOUNTS_DB_FIELDS_FOOTPRINT; }
+ulong fd_solana_accounts_db_fields_align( void ){ return FD_SOLANA_ACCOUNTS_DB_FIELDS_ALIGN; }
 
 void fd_solana_accounts_db_fields_walk(void * w, fd_solana_accounts_db_fields_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_solana_accounts_db_fields", level++);
@@ -2645,8 +2645,8 @@ void fd_solana_manifest_destroy(fd_solana_manifest_t* self, fd_bincode_destroy_c
   fd_solana_accounts_db_fields_destroy(&self->accounts_db, ctx);
 }
 
-ulong fd_solana_manifest_footprint(){ return FD_SOLANA_MANIFEST_FOOTPRINT; }
-ulong fd_solana_manifest_align(){ return FD_SOLANA_MANIFEST_ALIGN; }
+ulong fd_solana_manifest_footprint( void ){ return FD_SOLANA_MANIFEST_FOOTPRINT; }
+ulong fd_solana_manifest_align( void ){ return FD_SOLANA_MANIFEST_ALIGN; }
 
 void fd_solana_manifest_walk(void * w, fd_solana_manifest_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_solana_manifest", level++);
@@ -2688,8 +2688,8 @@ void fd_rust_duration_new(fd_rust_duration_t* self) {
 void fd_rust_duration_destroy(fd_rust_duration_t* self, fd_bincode_destroy_ctx_t * ctx) {
 }
 
-ulong fd_rust_duration_footprint(){ return FD_RUST_DURATION_FOOTPRINT; }
-ulong fd_rust_duration_align(){ return FD_RUST_DURATION_ALIGN; }
+ulong fd_rust_duration_footprint( void ){ return FD_RUST_DURATION_FOOTPRINT; }
+ulong fd_rust_duration_align( void ){ return FD_RUST_DURATION_ALIGN; }
 
 void fd_rust_duration_walk(void * w, fd_rust_duration_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_rust_duration", level++);
@@ -2757,8 +2757,8 @@ void fd_poh_config_destroy(fd_poh_config_t* self, fd_bincode_destroy_ctx_t * ctx
   }
 }
 
-ulong fd_poh_config_footprint(){ return FD_POH_CONFIG_FOOTPRINT; }
-ulong fd_poh_config_align(){ return FD_POH_CONFIG_ALIGN; }
+ulong fd_poh_config_footprint( void ){ return FD_POH_CONFIG_FOOTPRINT; }
+ulong fd_poh_config_align( void ){ return FD_POH_CONFIG_ALIGN; }
 
 void fd_poh_config_walk(void * w, fd_poh_config_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_poh_config", level++);
@@ -2839,8 +2839,8 @@ void fd_string_pubkey_pair_destroy(fd_string_pubkey_pair_t* self, fd_bincode_des
   fd_pubkey_destroy(&self->pubkey, ctx);
 }
 
-ulong fd_string_pubkey_pair_footprint(){ return FD_STRING_PUBKEY_PAIR_FOOTPRINT; }
-ulong fd_string_pubkey_pair_align(){ return FD_STRING_PUBKEY_PAIR_ALIGN; }
+ulong fd_string_pubkey_pair_footprint( void ){ return FD_STRING_PUBKEY_PAIR_FOOTPRINT; }
+ulong fd_string_pubkey_pair_align( void ){ return FD_STRING_PUBKEY_PAIR_ALIGN; }
 
 void fd_string_pubkey_pair_walk(void * w, fd_string_pubkey_pair_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_string_pubkey_pair", level++);
@@ -2885,8 +2885,8 @@ void fd_pubkey_account_pair_destroy(fd_pubkey_account_pair_t* self, fd_bincode_d
   fd_solana_account_destroy(&self->account, ctx);
 }
 
-ulong fd_pubkey_account_pair_footprint(){ return FD_PUBKEY_ACCOUNT_PAIR_FOOTPRINT; }
-ulong fd_pubkey_account_pair_align(){ return FD_PUBKEY_ACCOUNT_PAIR_ALIGN; }
+ulong fd_pubkey_account_pair_footprint( void ){ return FD_PUBKEY_ACCOUNT_PAIR_FOOTPRINT; }
+ulong fd_pubkey_account_pair_align( void ){ return FD_PUBKEY_ACCOUNT_PAIR_ALIGN; }
 
 void fd_pubkey_account_pair_walk(void * w, fd_pubkey_account_pair_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_pubkey_account_pair", level++);
@@ -3007,8 +3007,8 @@ void fd_genesis_solana_destroy(fd_genesis_solana_t* self, fd_bincode_destroy_ctx
   fd_epoch_schedule_destroy(&self->epoch_schedule, ctx);
 }
 
-ulong fd_genesis_solana_footprint(){ return FD_GENESIS_SOLANA_FOOTPRINT; }
-ulong fd_genesis_solana_align(){ return FD_GENESIS_SOLANA_ALIGN; }
+ulong fd_genesis_solana_footprint( void ){ return FD_GENESIS_SOLANA_FOOTPRINT; }
+ulong fd_genesis_solana_align( void ){ return FD_GENESIS_SOLANA_ALIGN; }
 
 void fd_genesis_solana_walk(void * w, fd_genesis_solana_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_genesis_solana", level++);
@@ -3135,8 +3135,8 @@ void fd_sol_sysvar_clock_new(fd_sol_sysvar_clock_t* self) {
 void fd_sol_sysvar_clock_destroy(fd_sol_sysvar_clock_t* self, fd_bincode_destroy_ctx_t * ctx) {
 }
 
-ulong fd_sol_sysvar_clock_footprint(){ return FD_SOL_SYSVAR_CLOCK_FOOTPRINT; }
-ulong fd_sol_sysvar_clock_align(){ return FD_SOL_SYSVAR_CLOCK_ALIGN; }
+ulong fd_sol_sysvar_clock_footprint( void ){ return FD_SOL_SYSVAR_CLOCK_FOOTPRINT; }
+ulong fd_sol_sysvar_clock_align( void ){ return FD_SOL_SYSVAR_CLOCK_ALIGN; }
 
 void fd_sol_sysvar_clock_walk(void * w, fd_sol_sysvar_clock_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_sol_sysvar_clock", level++);
@@ -3184,8 +3184,8 @@ void fd_sol_sysvar_last_restart_slot_new(fd_sol_sysvar_last_restart_slot_t* self
 void fd_sol_sysvar_last_restart_slot_destroy(fd_sol_sysvar_last_restart_slot_t* self, fd_bincode_destroy_ctx_t * ctx) {
 }
 
-ulong fd_sol_sysvar_last_restart_slot_footprint(){ return FD_SOL_SYSVAR_LAST_RESTART_SLOT_FOOTPRINT; }
-ulong fd_sol_sysvar_last_restart_slot_align(){ return FD_SOL_SYSVAR_LAST_RESTART_SLOT_ALIGN; }
+ulong fd_sol_sysvar_last_restart_slot_footprint( void ){ return FD_SOL_SYSVAR_LAST_RESTART_SLOT_FOOTPRINT; }
+ulong fd_sol_sysvar_last_restart_slot_align( void ){ return FD_SOL_SYSVAR_LAST_RESTART_SLOT_ALIGN; }
 
 void fd_sol_sysvar_last_restart_slot_walk(void * w, fd_sol_sysvar_last_restart_slot_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_sol_sysvar_last_restart_slot", level++);
@@ -3219,8 +3219,8 @@ void fd_vote_lockout_new(fd_vote_lockout_t* self) {
 void fd_vote_lockout_destroy(fd_vote_lockout_t* self, fd_bincode_destroy_ctx_t * ctx) {
 }
 
-ulong fd_vote_lockout_footprint(){ return FD_VOTE_LOCKOUT_FOOTPRINT; }
-ulong fd_vote_lockout_align(){ return FD_VOTE_LOCKOUT_ALIGN; }
+ulong fd_vote_lockout_footprint( void ){ return FD_VOTE_LOCKOUT_FOOTPRINT; }
+ulong fd_vote_lockout_align( void ){ return FD_VOTE_LOCKOUT_ALIGN; }
 
 void fd_vote_lockout_walk(void * w, fd_vote_lockout_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_vote_lockout", level++);
@@ -3258,8 +3258,8 @@ void fd_lockout_offset_new(fd_lockout_offset_t* self) {
 void fd_lockout_offset_destroy(fd_lockout_offset_t* self, fd_bincode_destroy_ctx_t * ctx) {
 }
 
-ulong fd_lockout_offset_footprint(){ return FD_LOCKOUT_OFFSET_FOOTPRINT; }
-ulong fd_lockout_offset_align(){ return FD_LOCKOUT_OFFSET_ALIGN; }
+ulong fd_lockout_offset_footprint( void ){ return FD_LOCKOUT_OFFSET_FOOTPRINT; }
+ulong fd_lockout_offset_align( void ){ return FD_LOCKOUT_OFFSET_ALIGN; }
 
 void fd_lockout_offset_walk(void * w, fd_lockout_offset_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_lockout_offset", level++);
@@ -3299,8 +3299,8 @@ void fd_vote_authorized_voter_destroy(fd_vote_authorized_voter_t* self, fd_binco
   fd_pubkey_destroy(&self->pubkey, ctx);
 }
 
-ulong fd_vote_authorized_voter_footprint(){ return FD_VOTE_AUTHORIZED_VOTER_FOOTPRINT; }
-ulong fd_vote_authorized_voter_align(){ return FD_VOTE_AUTHORIZED_VOTER_ALIGN; }
+ulong fd_vote_authorized_voter_footprint( void ){ return FD_VOTE_AUTHORIZED_VOTER_FOOTPRINT; }
+ulong fd_vote_authorized_voter_align( void ){ return FD_VOTE_AUTHORIZED_VOTER_ALIGN; }
 
 void fd_vote_authorized_voter_walk(void * w, fd_vote_authorized_voter_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_vote_authorized_voter", level++);
@@ -3342,8 +3342,8 @@ void fd_vote_prior_voter_destroy(fd_vote_prior_voter_t* self, fd_bincode_destroy
   fd_pubkey_destroy(&self->pubkey, ctx);
 }
 
-ulong fd_vote_prior_voter_footprint(){ return FD_VOTE_PRIOR_VOTER_FOOTPRINT; }
-ulong fd_vote_prior_voter_align(){ return FD_VOTE_PRIOR_VOTER_ALIGN; }
+ulong fd_vote_prior_voter_footprint( void ){ return FD_VOTE_PRIOR_VOTER_FOOTPRINT; }
+ulong fd_vote_prior_voter_align( void ){ return FD_VOTE_PRIOR_VOTER_ALIGN; }
 
 void fd_vote_prior_voter_walk(void * w, fd_vote_prior_voter_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_vote_prior_voter", level++);
@@ -3391,8 +3391,8 @@ void fd_vote_prior_voter_0_23_5_destroy(fd_vote_prior_voter_0_23_5_t* self, fd_b
   fd_pubkey_destroy(&self->pubkey, ctx);
 }
 
-ulong fd_vote_prior_voter_0_23_5_footprint(){ return FD_VOTE_PRIOR_VOTER_0_23_5_FOOTPRINT; }
-ulong fd_vote_prior_voter_0_23_5_align(){ return FD_VOTE_PRIOR_VOTER_0_23_5_ALIGN; }
+ulong fd_vote_prior_voter_0_23_5_footprint( void ){ return FD_VOTE_PRIOR_VOTER_0_23_5_FOOTPRINT; }
+ulong fd_vote_prior_voter_0_23_5_align( void ){ return FD_VOTE_PRIOR_VOTER_0_23_5_ALIGN; }
 
 void fd_vote_prior_voter_0_23_5_walk(void * w, fd_vote_prior_voter_0_23_5_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_vote_prior_voter_0_23_5", level++);
@@ -3440,8 +3440,8 @@ void fd_vote_epoch_credits_new(fd_vote_epoch_credits_t* self) {
 void fd_vote_epoch_credits_destroy(fd_vote_epoch_credits_t* self, fd_bincode_destroy_ctx_t * ctx) {
 }
 
-ulong fd_vote_epoch_credits_footprint(){ return FD_VOTE_EPOCH_CREDITS_FOOTPRINT; }
-ulong fd_vote_epoch_credits_align(){ return FD_VOTE_EPOCH_CREDITS_ALIGN; }
+ulong fd_vote_epoch_credits_footprint( void ){ return FD_VOTE_EPOCH_CREDITS_FOOTPRINT; }
+ulong fd_vote_epoch_credits_align( void ){ return FD_VOTE_EPOCH_CREDITS_ALIGN; }
 
 void fd_vote_epoch_credits_walk(void * w, fd_vote_epoch_credits_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_vote_epoch_credits", level++);
@@ -3485,8 +3485,8 @@ void fd_vote_historical_authorized_voter_destroy(fd_vote_historical_authorized_v
   fd_pubkey_destroy(&self->pubkey, ctx);
 }
 
-ulong fd_vote_historical_authorized_voter_footprint(){ return FD_VOTE_HISTORICAL_AUTHORIZED_VOTER_FOOTPRINT; }
-ulong fd_vote_historical_authorized_voter_align(){ return FD_VOTE_HISTORICAL_AUTHORIZED_VOTER_ALIGN; }
+ulong fd_vote_historical_authorized_voter_footprint( void ){ return FD_VOTE_HISTORICAL_AUTHORIZED_VOTER_FOOTPRINT; }
+ulong fd_vote_historical_authorized_voter_align( void ){ return FD_VOTE_HISTORICAL_AUTHORIZED_VOTER_ALIGN; }
 
 void fd_vote_historical_authorized_voter_walk(void * w, fd_vote_historical_authorized_voter_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_vote_historical_authorized_voter", level++);
@@ -3524,8 +3524,8 @@ void fd_vote_block_timestamp_new(fd_vote_block_timestamp_t* self) {
 void fd_vote_block_timestamp_destroy(fd_vote_block_timestamp_t* self, fd_bincode_destroy_ctx_t * ctx) {
 }
 
-ulong fd_vote_block_timestamp_footprint(){ return FD_VOTE_BLOCK_TIMESTAMP_FOOTPRINT; }
-ulong fd_vote_block_timestamp_align(){ return FD_VOTE_BLOCK_TIMESTAMP_ALIGN; }
+ulong fd_vote_block_timestamp_footprint( void ){ return FD_VOTE_BLOCK_TIMESTAMP_FOOTPRINT; }
+ulong fd_vote_block_timestamp_align( void ){ return FD_VOTE_BLOCK_TIMESTAMP_ALIGN; }
 
 void fd_vote_block_timestamp_walk(void * w, fd_vote_block_timestamp_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_vote_block_timestamp", level++);
@@ -3571,8 +3571,8 @@ void fd_vote_prior_voters_destroy(fd_vote_prior_voters_t* self, fd_bincode_destr
     fd_vote_prior_voter_destroy(self->buf + i, ctx);
 }
 
-ulong fd_vote_prior_voters_footprint(){ return FD_VOTE_PRIOR_VOTERS_FOOTPRINT; }
-ulong fd_vote_prior_voters_align(){ return FD_VOTE_PRIOR_VOTERS_ALIGN; }
+ulong fd_vote_prior_voters_footprint( void ){ return FD_VOTE_PRIOR_VOTERS_FOOTPRINT; }
+ulong fd_vote_prior_voters_align( void ){ return FD_VOTE_PRIOR_VOTERS_ALIGN; }
 
 void fd_vote_prior_voters_walk(void * w, fd_vote_prior_voters_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_vote_prior_voters", level++);
@@ -3628,8 +3628,8 @@ void fd_vote_prior_voters_0_23_5_destroy(fd_vote_prior_voters_0_23_5_t* self, fd
     fd_vote_prior_voter_0_23_5_destroy(self->buf + i, ctx);
 }
 
-ulong fd_vote_prior_voters_0_23_5_footprint(){ return FD_VOTE_PRIOR_VOTERS_0_23_5_FOOTPRINT; }
-ulong fd_vote_prior_voters_0_23_5_align(){ return FD_VOTE_PRIOR_VOTERS_0_23_5_ALIGN; }
+ulong fd_vote_prior_voters_0_23_5_footprint( void ){ return FD_VOTE_PRIOR_VOTERS_0_23_5_FOOTPRINT; }
+ulong fd_vote_prior_voters_0_23_5_align( void ){ return FD_VOTE_PRIOR_VOTERS_0_23_5_ALIGN; }
 
 void fd_vote_prior_voters_0_23_5_walk(void * w, fd_vote_prior_voters_0_23_5_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_vote_prior_voters_0_23_5", level++);
@@ -3679,8 +3679,8 @@ void fd_landed_vote_destroy(fd_landed_vote_t* self, fd_bincode_destroy_ctx_t * c
   fd_vote_lockout_destroy(&self->lockout, ctx);
 }
 
-ulong fd_landed_vote_footprint(){ return FD_LANDED_VOTE_FOOTPRINT; }
-ulong fd_landed_vote_align(){ return FD_LANDED_VOTE_ALIGN; }
+ulong fd_landed_vote_footprint( void ){ return FD_LANDED_VOTE_FOOTPRINT; }
+ulong fd_landed_vote_align( void ){ return FD_LANDED_VOTE_ALIGN; }
 
 void fd_landed_vote_walk(void * w, fd_landed_vote_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_landed_vote", level++);
@@ -3791,8 +3791,8 @@ void fd_vote_state_0_23_5_destroy(fd_vote_state_0_23_5_t* self, fd_bincode_destr
   fd_vote_block_timestamp_destroy(&self->last_timestamp, ctx);
 }
 
-ulong fd_vote_state_0_23_5_footprint(){ return FD_VOTE_STATE_0_23_5_FOOTPRINT; }
-ulong fd_vote_state_0_23_5_align(){ return FD_VOTE_STATE_0_23_5_ALIGN; }
+ulong fd_vote_state_0_23_5_footprint( void ){ return FD_VOTE_STATE_0_23_5_FOOTPRINT; }
+ulong fd_vote_state_0_23_5_align( void ){ return FD_VOTE_STATE_0_23_5_ALIGN; }
 
 void fd_vote_state_0_23_5_walk(void * w, fd_vote_state_0_23_5_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_vote_state_0_23_5", level++);
@@ -4028,8 +4028,8 @@ void fd_vote_state_1_14_11_destroy(fd_vote_state_1_14_11_t* self, fd_bincode_des
   fd_vote_block_timestamp_destroy(&self->last_timestamp, ctx);
 }
 
-ulong fd_vote_state_1_14_11_footprint(){ return FD_VOTE_STATE_1_14_11_FOOTPRINT; }
-ulong fd_vote_state_1_14_11_align(){ return FD_VOTE_STATE_1_14_11_ALIGN; }
+ulong fd_vote_state_1_14_11_footprint( void ){ return FD_VOTE_STATE_1_14_11_FOOTPRINT; }
+ulong fd_vote_state_1_14_11_align( void ){ return FD_VOTE_STATE_1_14_11_ALIGN; }
 
 void fd_vote_state_1_14_11_walk(void * w, fd_vote_state_1_14_11_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_vote_state_1_14_11", level++);
@@ -4294,8 +4294,8 @@ void fd_vote_state_destroy(fd_vote_state_t* self, fd_bincode_destroy_ctx_t * ctx
   fd_vote_block_timestamp_destroy(&self->last_timestamp, ctx);
 }
 
-ulong fd_vote_state_footprint(){ return FD_VOTE_STATE_FOOTPRINT; }
-ulong fd_vote_state_align(){ return FD_VOTE_STATE_ALIGN; }
+ulong fd_vote_state_footprint( void ){ return FD_VOTE_STATE_FOOTPRINT; }
+ulong fd_vote_state_align( void ){ return FD_VOTE_STATE_ALIGN; }
 
 void fd_vote_state_walk(void * w, fd_vote_state_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_vote_state", level++);
@@ -4536,8 +4536,8 @@ void fd_vote_state_versioned_destroy(fd_vote_state_versioned_t* self, fd_bincode
   fd_vote_state_versioned_inner_destroy(&self->inner, self->discriminant, ctx);
 }
 
-ulong fd_vote_state_versioned_footprint(){ return FD_VOTE_STATE_VERSIONED_FOOTPRINT; }
-ulong fd_vote_state_versioned_align(){ return FD_VOTE_STATE_VERSIONED_ALIGN; }
+ulong fd_vote_state_versioned_footprint( void ){ return FD_VOTE_STATE_VERSIONED_FOOTPRINT; }
+ulong fd_vote_state_versioned_align( void ){ return FD_VOTE_STATE_VERSIONED_ALIGN; }
 
 void fd_vote_state_versioned_walk(void * w, fd_vote_state_versioned_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_vote_state_versioned", level++);
@@ -4669,8 +4669,8 @@ void fd_vote_state_update_destroy(fd_vote_state_update_t* self, fd_bincode_destr
   }
 }
 
-ulong fd_vote_state_update_footprint(){ return FD_VOTE_STATE_UPDATE_FOOTPRINT; }
-ulong fd_vote_state_update_align(){ return FD_VOTE_STATE_UPDATE_ALIGN; }
+ulong fd_vote_state_update_footprint( void ){ return FD_VOTE_STATE_UPDATE_FOOTPRINT; }
+ulong fd_vote_state_update_align( void ){ return FD_VOTE_STATE_UPDATE_ALIGN; }
 
 void fd_vote_state_update_walk(void * w, fd_vote_state_update_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_vote_state_update", level++);
@@ -4793,8 +4793,8 @@ void fd_compact_vote_state_update_destroy(fd_compact_vote_state_update_t* self, 
   }
 }
 
-ulong fd_compact_vote_state_update_footprint(){ return FD_COMPACT_VOTE_STATE_UPDATE_FOOTPRINT; }
-ulong fd_compact_vote_state_update_align(){ return FD_COMPACT_VOTE_STATE_UPDATE_ALIGN; }
+ulong fd_compact_vote_state_update_footprint( void ){ return FD_COMPACT_VOTE_STATE_UPDATE_FOOTPRINT; }
+ulong fd_compact_vote_state_update_align( void ){ return FD_COMPACT_VOTE_STATE_UPDATE_ALIGN; }
 
 void fd_compact_vote_state_update_walk(void * w, fd_compact_vote_state_update_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_compact_vote_state_update", level++);
@@ -4871,8 +4871,8 @@ void fd_compact_vote_state_update_switch_destroy(fd_compact_vote_state_update_sw
   fd_hash_destroy(&self->hash, ctx);
 }
 
-ulong fd_compact_vote_state_update_switch_footprint(){ return FD_COMPACT_VOTE_STATE_UPDATE_SWITCH_FOOTPRINT; }
-ulong fd_compact_vote_state_update_switch_align(){ return FD_COMPACT_VOTE_STATE_UPDATE_SWITCH_ALIGN; }
+ulong fd_compact_vote_state_update_switch_footprint( void ){ return FD_COMPACT_VOTE_STATE_UPDATE_SWITCH_FOOTPRINT; }
+ulong fd_compact_vote_state_update_switch_align( void ){ return FD_COMPACT_VOTE_STATE_UPDATE_SWITCH_ALIGN; }
 
 void fd_compact_vote_state_update_switch_walk(void * w, fd_compact_vote_state_update_switch_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_compact_vote_state_update_switch", level++);
@@ -4920,8 +4920,8 @@ void fd_slot_history_inner_destroy(fd_slot_history_inner_t* self, fd_bincode_des
   }
 }
 
-ulong fd_slot_history_inner_footprint(){ return FD_SLOT_HISTORY_INNER_FOOTPRINT; }
-ulong fd_slot_history_inner_align(){ return FD_SLOT_HISTORY_INNER_ALIGN; }
+ulong fd_slot_history_inner_footprint( void ){ return FD_SLOT_HISTORY_INNER_FOOTPRINT; }
+ulong fd_slot_history_inner_align( void ){ return FD_SLOT_HISTORY_INNER_ALIGN; }
 
 void fd_slot_history_inner_walk(void * w, fd_slot_history_inner_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_slot_history_inner", level++);
@@ -4981,8 +4981,8 @@ void fd_slot_history_bitvec_destroy(fd_slot_history_bitvec_t* self, fd_bincode_d
   }
 }
 
-ulong fd_slot_history_bitvec_footprint(){ return FD_SLOT_HISTORY_BITVEC_FOOTPRINT; }
-ulong fd_slot_history_bitvec_align(){ return FD_SLOT_HISTORY_BITVEC_ALIGN; }
+ulong fd_slot_history_bitvec_footprint( void ){ return FD_SLOT_HISTORY_BITVEC_FOOTPRINT; }
+ulong fd_slot_history_bitvec_align( void ){ return FD_SLOT_HISTORY_BITVEC_ALIGN; }
 
 void fd_slot_history_bitvec_walk(void * w, fd_slot_history_bitvec_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_slot_history_bitvec", level++);
@@ -5036,8 +5036,8 @@ void fd_slot_history_destroy(fd_slot_history_t* self, fd_bincode_destroy_ctx_t *
   fd_slot_history_bitvec_destroy(&self->bits, ctx);
 }
 
-ulong fd_slot_history_footprint(){ return FD_SLOT_HISTORY_FOOTPRINT; }
-ulong fd_slot_history_align(){ return FD_SLOT_HISTORY_ALIGN; }
+ulong fd_slot_history_footprint( void ){ return FD_SLOT_HISTORY_FOOTPRINT; }
+ulong fd_slot_history_align( void ){ return FD_SLOT_HISTORY_ALIGN; }
 
 void fd_slot_history_walk(void * w, fd_slot_history_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_slot_history", level++);
@@ -5077,8 +5077,8 @@ void fd_slot_hash_destroy(fd_slot_hash_t* self, fd_bincode_destroy_ctx_t * ctx) 
   fd_hash_destroy(&self->hash, ctx);
 }
 
-ulong fd_slot_hash_footprint(){ return FD_SLOT_HASH_FOOTPRINT; }
-ulong fd_slot_hash_align(){ return FD_SLOT_HASH_ALIGN; }
+ulong fd_slot_hash_footprint( void ){ return FD_SLOT_HASH_FOOTPRINT; }
+ulong fd_slot_hash_align( void ){ return FD_SLOT_HASH_ALIGN; }
 
 void fd_slot_hash_walk(void * w, fd_slot_hash_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_slot_hash", level++);
@@ -5131,8 +5131,8 @@ void fd_slot_hashes_destroy(fd_slot_hashes_t* self, fd_bincode_destroy_ctx_t * c
   }
 }
 
-ulong fd_slot_hashes_footprint(){ return FD_SLOT_HASHES_FOOTPRINT; }
-ulong fd_slot_hashes_align(){ return FD_SLOT_HASHES_ALIGN; }
+ulong fd_slot_hashes_footprint( void ){ return FD_SLOT_HASHES_FOOTPRINT; }
+ulong fd_slot_hashes_align( void ){ return FD_SLOT_HASHES_ALIGN; }
 
 void fd_slot_hashes_walk(void * w, fd_slot_hashes_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_slot_hashes", level++);
@@ -5203,8 +5203,8 @@ void fd_block_block_hash_entry_destroy(fd_block_block_hash_entry_t* self, fd_bin
   fd_fee_calculator_destroy(&self->fee_calculator, ctx);
 }
 
-ulong fd_block_block_hash_entry_footprint(){ return FD_BLOCK_BLOCK_HASH_ENTRY_FOOTPRINT; }
-ulong fd_block_block_hash_entry_align(){ return FD_BLOCK_BLOCK_HASH_ENTRY_ALIGN; }
+ulong fd_block_block_hash_entry_footprint( void ){ return FD_BLOCK_BLOCK_HASH_ENTRY_FOOTPRINT; }
+ulong fd_block_block_hash_entry_align( void ){ return FD_BLOCK_BLOCK_HASH_ENTRY_ALIGN; }
 
 void fd_block_block_hash_entry_walk(void * w, fd_block_block_hash_entry_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_block_block_hash_entry", level++);
@@ -5257,8 +5257,8 @@ void fd_recent_block_hashes_destroy(fd_recent_block_hashes_t* self, fd_bincode_d
   }
 }
 
-ulong fd_recent_block_hashes_footprint(){ return FD_RECENT_BLOCK_HASHES_FOOTPRINT; }
-ulong fd_recent_block_hashes_align(){ return FD_RECENT_BLOCK_HASHES_ALIGN; }
+ulong fd_recent_block_hashes_footprint( void ){ return FD_RECENT_BLOCK_HASHES_FOOTPRINT; }
+ulong fd_recent_block_hashes_align( void ){ return FD_RECENT_BLOCK_HASHES_ALIGN; }
 
 void fd_recent_block_hashes_walk(void * w, fd_recent_block_hashes_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_recent_block_hashes", level++);
@@ -5363,8 +5363,8 @@ void fd_slot_meta_destroy(fd_slot_meta_t* self, fd_bincode_destroy_ctx_t * ctx) 
   }
 }
 
-ulong fd_slot_meta_footprint(){ return FD_SLOT_META_FOOTPRINT; }
-ulong fd_slot_meta_align(){ return FD_SLOT_META_ALIGN; }
+ulong fd_slot_meta_footprint( void ){ return FD_SLOT_META_FOOTPRINT; }
+ulong fd_slot_meta_align( void ){ return FD_SLOT_META_ALIGN; }
 
 void fd_slot_meta_walk(void * w, fd_slot_meta_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_slot_meta", level++);
@@ -5452,8 +5452,8 @@ void fd_slot_meta_meta_new(fd_slot_meta_meta_t* self) {
 void fd_slot_meta_meta_destroy(fd_slot_meta_meta_t* self, fd_bincode_destroy_ctx_t * ctx) {
 }
 
-ulong fd_slot_meta_meta_footprint(){ return FD_SLOT_META_META_FOOTPRINT; }
-ulong fd_slot_meta_meta_align(){ return FD_SLOT_META_META_ALIGN; }
+ulong fd_slot_meta_meta_footprint( void ){ return FD_SLOT_META_META_FOOTPRINT; }
+ulong fd_slot_meta_meta_align( void ){ return FD_SLOT_META_META_ALIGN; }
 
 void fd_slot_meta_meta_walk(void * w, fd_slot_meta_meta_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_slot_meta_meta", level++);
@@ -5495,8 +5495,8 @@ void fd_clock_timestamp_vote_destroy(fd_clock_timestamp_vote_t* self, fd_bincode
   fd_pubkey_destroy(&self->pubkey, ctx);
 }
 
-ulong fd_clock_timestamp_vote_footprint(){ return FD_CLOCK_TIMESTAMP_VOTE_FOOTPRINT; }
-ulong fd_clock_timestamp_vote_align(){ return FD_CLOCK_TIMESTAMP_VOTE_ALIGN; }
+ulong fd_clock_timestamp_vote_footprint( void ){ return FD_CLOCK_TIMESTAMP_VOTE_FOOTPRINT; }
+ulong fd_clock_timestamp_vote_align( void ){ return FD_CLOCK_TIMESTAMP_VOTE_ALIGN; }
 
 void fd_clock_timestamp_vote_walk(void * w, fd_clock_timestamp_vote_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_clock_timestamp_vote", level++);
@@ -5552,8 +5552,8 @@ void fd_clock_timestamp_votes_destroy(fd_clock_timestamp_votes_t* self, fd_binco
   self->votes_root = NULL;
 }
 
-ulong fd_clock_timestamp_votes_footprint(){ return FD_CLOCK_TIMESTAMP_VOTES_FOOTPRINT; }
-ulong fd_clock_timestamp_votes_align(){ return FD_CLOCK_TIMESTAMP_VOTES_ALIGN; }
+ulong fd_clock_timestamp_votes_footprint( void ){ return FD_CLOCK_TIMESTAMP_VOTES_FOOTPRINT; }
+ulong fd_clock_timestamp_votes_align( void ){ return FD_CLOCK_TIMESTAMP_VOTES_ALIGN; }
 
 void fd_clock_timestamp_votes_walk(void * w, fd_clock_timestamp_votes_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_clock_timestamp_votes", level++);
@@ -5609,8 +5609,8 @@ void fd_sysvar_fees_destroy(fd_sysvar_fees_t* self, fd_bincode_destroy_ctx_t * c
   fd_fee_calculator_destroy(&self->fee_calculator, ctx);
 }
 
-ulong fd_sysvar_fees_footprint(){ return FD_SYSVAR_FEES_FOOTPRINT; }
-ulong fd_sysvar_fees_align(){ return FD_SYSVAR_FEES_ALIGN; }
+ulong fd_sysvar_fees_footprint( void ){ return FD_SYSVAR_FEES_FOOTPRINT; }
+ulong fd_sysvar_fees_align( void ){ return FD_SYSVAR_FEES_ALIGN; }
 
 void fd_sysvar_fees_walk(void * w, fd_sysvar_fees_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_sysvar_fees", level++);
@@ -5644,8 +5644,8 @@ void fd_sysvar_epoch_rewards_destroy(fd_sysvar_epoch_rewards_t* self, fd_bincode
   fd_epoch_rewards_destroy(&self->epoch_rewards, ctx);
 }
 
-ulong fd_sysvar_epoch_rewards_footprint(){ return FD_SYSVAR_EPOCH_REWARDS_FOOTPRINT; }
-ulong fd_sysvar_epoch_rewards_align(){ return FD_SYSVAR_EPOCH_REWARDS_ALIGN; }
+ulong fd_sysvar_epoch_rewards_footprint( void ){ return FD_SYSVAR_EPOCH_REWARDS_FOOTPRINT; }
+ulong fd_sysvar_epoch_rewards_align( void ){ return FD_SYSVAR_EPOCH_REWARDS_ALIGN; }
 
 void fd_sysvar_epoch_rewards_walk(void * w, fd_sysvar_epoch_rewards_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_sysvar_epoch_rewards", level++);
@@ -5681,8 +5681,8 @@ void fd_config_keys_pair_destroy(fd_config_keys_pair_t* self, fd_bincode_destroy
   fd_pubkey_destroy(&self->key, ctx);
 }
 
-ulong fd_config_keys_pair_footprint(){ return FD_CONFIG_KEYS_PAIR_FOOTPRINT; }
-ulong fd_config_keys_pair_align(){ return FD_CONFIG_KEYS_PAIR_ALIGN; }
+ulong fd_config_keys_pair_footprint( void ){ return FD_CONFIG_KEYS_PAIR_FOOTPRINT; }
+ulong fd_config_keys_pair_align( void ){ return FD_CONFIG_KEYS_PAIR_ALIGN; }
 
 void fd_config_keys_pair_walk(void * w, fd_config_keys_pair_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_config_keys_pair", level++);
@@ -5739,8 +5739,8 @@ void fd_stake_config_destroy(fd_stake_config_t* self, fd_bincode_destroy_ctx_t *
   }
 }
 
-ulong fd_stake_config_footprint(){ return FD_STAKE_CONFIG_FOOTPRINT; }
-ulong fd_stake_config_align(){ return FD_STAKE_CONFIG_ALIGN; }
+ulong fd_stake_config_footprint( void ){ return FD_STAKE_CONFIG_FOOTPRINT; }
+ulong fd_stake_config_align( void ){ return FD_STAKE_CONFIG_ALIGN; }
 
 void fd_stake_config_walk(void * w, fd_stake_config_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_stake_config", level++);
@@ -5808,8 +5808,8 @@ void fd_feature_entry_destroy(fd_feature_entry_t* self, fd_bincode_destroy_ctx_t
   }
 }
 
-ulong fd_feature_entry_footprint(){ return FD_FEATURE_ENTRY_FOOTPRINT; }
-ulong fd_feature_entry_align(){ return FD_FEATURE_ENTRY_ALIGN; }
+ulong fd_feature_entry_footprint( void ){ return FD_FEATURE_ENTRY_FOOTPRINT; }
+ulong fd_feature_entry_align( void ){ return FD_FEATURE_ENTRY_ALIGN; }
 
 void fd_feature_entry_walk(void * w, fd_feature_entry_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_feature_entry", level++);
@@ -5918,8 +5918,8 @@ void fd_firedancer_banks_destroy(fd_firedancer_banks_t* self, fd_bincode_destroy
   fd_sol_sysvar_last_restart_slot_destroy(&self->last_restart_slot, ctx);
 }
 
-ulong fd_firedancer_banks_footprint(){ return FD_FIREDANCER_BANKS_FOOTPRINT; }
-ulong fd_firedancer_banks_align(){ return FD_FIREDANCER_BANKS_ALIGN; }
+ulong fd_firedancer_banks_footprint( void ){ return FD_FIREDANCER_BANKS_FOOTPRINT; }
+ulong fd_firedancer_banks_align( void ){ return FD_FIREDANCER_BANKS_ALIGN; }
 
 void fd_firedancer_banks_walk(void * w, fd_firedancer_banks_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_firedancer_banks", level++);
@@ -6070,8 +6070,8 @@ void fd_vote_destroy(fd_vote_t* self, fd_bincode_destroy_ctx_t * ctx) {
   }
 }
 
-ulong fd_vote_footprint(){ return FD_VOTE_FOOTPRINT; }
-ulong fd_vote_align(){ return FD_VOTE_ALIGN; }
+ulong fd_vote_footprint( void ){ return FD_VOTE_FOOTPRINT; }
+ulong fd_vote_align( void ){ return FD_VOTE_ALIGN; }
 
 void fd_vote_walk(void * w, fd_vote_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_vote", level++);
@@ -6167,8 +6167,8 @@ void fd_vote_init_destroy(fd_vote_init_t* self, fd_bincode_destroy_ctx_t * ctx) 
   fd_pubkey_destroy(&self->authorized_withdrawer, ctx);
 }
 
-ulong fd_vote_init_footprint(){ return FD_VOTE_INIT_FOOTPRINT; }
-ulong fd_vote_init_align(){ return FD_VOTE_INIT_ALIGN; }
+ulong fd_vote_init_footprint( void ){ return FD_VOTE_INIT_FOOTPRINT; }
+ulong fd_vote_init_align( void ){ return FD_VOTE_INIT_ALIGN; }
 
 void fd_vote_init_walk(void * w, fd_vote_init_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_vote_init", level++);
@@ -6258,8 +6258,8 @@ void fd_vote_authorize_destroy(fd_vote_authorize_t* self, fd_bincode_destroy_ctx
   fd_vote_authorize_inner_destroy(&self->inner, self->discriminant, ctx);
 }
 
-ulong fd_vote_authorize_footprint(){ return FD_VOTE_AUTHORIZE_FOOTPRINT; }
-ulong fd_vote_authorize_align(){ return FD_VOTE_AUTHORIZE_ALIGN; }
+ulong fd_vote_authorize_footprint( void ){ return FD_VOTE_AUTHORIZE_FOOTPRINT; }
+ulong fd_vote_authorize_align( void ){ return FD_VOTE_AUTHORIZE_ALIGN; }
 
 void fd_vote_authorize_walk(void * w, fd_vote_authorize_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_vote_authorize", level++);
@@ -6304,8 +6304,8 @@ void fd_vote_authorize_pubkey_destroy(fd_vote_authorize_pubkey_t* self, fd_binco
   fd_vote_authorize_destroy(&self->vote_authorize, ctx);
 }
 
-ulong fd_vote_authorize_pubkey_footprint(){ return FD_VOTE_AUTHORIZE_PUBKEY_FOOTPRINT; }
-ulong fd_vote_authorize_pubkey_align(){ return FD_VOTE_AUTHORIZE_PUBKEY_ALIGN; }
+ulong fd_vote_authorize_pubkey_footprint( void ){ return FD_VOTE_AUTHORIZE_PUBKEY_FOOTPRINT; }
+ulong fd_vote_authorize_pubkey_align( void ){ return FD_VOTE_AUTHORIZE_PUBKEY_ALIGN; }
 
 void fd_vote_authorize_pubkey_walk(void * w, fd_vote_authorize_pubkey_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_vote_authorize_pubkey", level++);
@@ -6347,8 +6347,8 @@ void fd_vote_switch_destroy(fd_vote_switch_t* self, fd_bincode_destroy_ctx_t * c
   fd_hash_destroy(&self->hash, ctx);
 }
 
-ulong fd_vote_switch_footprint(){ return FD_VOTE_SWITCH_FOOTPRINT; }
-ulong fd_vote_switch_align(){ return FD_VOTE_SWITCH_ALIGN; }
+ulong fd_vote_switch_footprint( void ){ return FD_VOTE_SWITCH_FOOTPRINT; }
+ulong fd_vote_switch_align( void ){ return FD_VOTE_SWITCH_ALIGN; }
 
 void fd_vote_switch_walk(void * w, fd_vote_switch_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_vote_switch", level++);
@@ -6390,8 +6390,8 @@ void fd_update_vote_state_switch_destroy(fd_update_vote_state_switch_t* self, fd
   fd_hash_destroy(&self->hash, ctx);
 }
 
-ulong fd_update_vote_state_switch_footprint(){ return FD_UPDATE_VOTE_STATE_SWITCH_FOOTPRINT; }
-ulong fd_update_vote_state_switch_align(){ return FD_UPDATE_VOTE_STATE_SWITCH_ALIGN; }
+ulong fd_update_vote_state_switch_footprint( void ){ return FD_UPDATE_VOTE_STATE_SWITCH_FOOTPRINT; }
+ulong fd_update_vote_state_switch_align( void ){ return FD_UPDATE_VOTE_STATE_SWITCH_ALIGN; }
 
 void fd_update_vote_state_switch_walk(void * w, fd_update_vote_state_switch_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_update_vote_state_switch", level++);
@@ -6448,8 +6448,8 @@ void fd_vote_authorize_with_seed_args_destroy(fd_vote_authorize_with_seed_args_t
   fd_pubkey_destroy(&self->new_authority, ctx);
 }
 
-ulong fd_vote_authorize_with_seed_args_footprint(){ return FD_VOTE_AUTHORIZE_WITH_SEED_ARGS_FOOTPRINT; }
-ulong fd_vote_authorize_with_seed_args_align(){ return FD_VOTE_AUTHORIZE_WITH_SEED_ARGS_ALIGN; }
+ulong fd_vote_authorize_with_seed_args_footprint( void ){ return FD_VOTE_AUTHORIZE_WITH_SEED_ARGS_FOOTPRINT; }
+ulong fd_vote_authorize_with_seed_args_align( void ){ return FD_VOTE_AUTHORIZE_WITH_SEED_ARGS_ALIGN; }
 
 void fd_vote_authorize_with_seed_args_walk(void * w, fd_vote_authorize_with_seed_args_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_vote_authorize_with_seed_args", level++);
@@ -6513,8 +6513,8 @@ void fd_vote_authorize_checked_with_seed_args_destroy(fd_vote_authorize_checked_
   }
 }
 
-ulong fd_vote_authorize_checked_with_seed_args_footprint(){ return FD_VOTE_AUTHORIZE_CHECKED_WITH_SEED_ARGS_FOOTPRINT; }
-ulong fd_vote_authorize_checked_with_seed_args_align(){ return FD_VOTE_AUTHORIZE_CHECKED_WITH_SEED_ARGS_ALIGN; }
+ulong fd_vote_authorize_checked_with_seed_args_footprint( void ){ return FD_VOTE_AUTHORIZE_CHECKED_WITH_SEED_ARGS_FOOTPRINT; }
+ulong fd_vote_authorize_checked_with_seed_args_align( void ){ return FD_VOTE_AUTHORIZE_CHECKED_WITH_SEED_ARGS_ALIGN; }
 
 void fd_vote_authorize_checked_with_seed_args_walk(void * w, fd_vote_authorize_checked_with_seed_args_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_vote_authorize_checked_with_seed_args", level++);
@@ -6773,8 +6773,8 @@ void fd_vote_instruction_destroy(fd_vote_instruction_t* self, fd_bincode_destroy
   fd_vote_instruction_inner_destroy(&self->inner, self->discriminant, ctx);
 }
 
-ulong fd_vote_instruction_footprint(){ return FD_VOTE_INSTRUCTION_FOOTPRINT; }
-ulong fd_vote_instruction_align(){ return FD_VOTE_INSTRUCTION_ALIGN; }
+ulong fd_vote_instruction_footprint( void ){ return FD_VOTE_INSTRUCTION_FOOTPRINT; }
+ulong fd_vote_instruction_align( void ){ return FD_VOTE_INSTRUCTION_ALIGN; }
 
 void fd_vote_instruction_walk(void * w, fd_vote_instruction_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_vote_instruction", level++);
@@ -7055,8 +7055,8 @@ void fd_reward_type_destroy(fd_reward_type_t* self, fd_bincode_destroy_ctx_t * c
   fd_reward_type_inner_destroy(&self->inner, self->discriminant, ctx);
 }
 
-ulong fd_reward_type_footprint(){ return FD_REWARD_TYPE_FOOTPRINT; }
-ulong fd_reward_type_align(){ return FD_REWARD_TYPE_ALIGN; }
+ulong fd_reward_type_footprint( void ){ return FD_REWARD_TYPE_FOOTPRINT; }
+ulong fd_reward_type_align( void ){ return FD_REWARD_TYPE_ALIGN; }
 
 void fd_reward_type_walk(void * w, fd_reward_type_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_reward_type", level++);
@@ -7101,8 +7101,8 @@ void fd_system_program_instruction_create_account_destroy(fd_system_program_inst
   fd_pubkey_destroy(&self->owner, ctx);
 }
 
-ulong fd_system_program_instruction_create_account_footprint(){ return FD_SYSTEM_PROGRAM_INSTRUCTION_CREATE_ACCOUNT_FOOTPRINT; }
-ulong fd_system_program_instruction_create_account_align(){ return FD_SYSTEM_PROGRAM_INSTRUCTION_CREATE_ACCOUNT_ALIGN; }
+ulong fd_system_program_instruction_create_account_footprint( void ){ return FD_SYSTEM_PROGRAM_INSTRUCTION_CREATE_ACCOUNT_FOOTPRINT; }
+ulong fd_system_program_instruction_create_account_align( void ){ return FD_SYSTEM_PROGRAM_INSTRUCTION_CREATE_ACCOUNT_ALIGN; }
 
 void fd_system_program_instruction_create_account_walk(void * w, fd_system_program_instruction_create_account_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_system_program_instruction_create_account", level++);
@@ -7163,8 +7163,8 @@ void fd_system_program_instruction_create_account_with_seed_destroy(fd_system_pr
   fd_pubkey_destroy(&self->owner, ctx);
 }
 
-ulong fd_system_program_instruction_create_account_with_seed_footprint(){ return FD_SYSTEM_PROGRAM_INSTRUCTION_CREATE_ACCOUNT_WITH_SEED_FOOTPRINT; }
-ulong fd_system_program_instruction_create_account_with_seed_align(){ return FD_SYSTEM_PROGRAM_INSTRUCTION_CREATE_ACCOUNT_WITH_SEED_ALIGN; }
+ulong fd_system_program_instruction_create_account_with_seed_footprint( void ){ return FD_SYSTEM_PROGRAM_INSTRUCTION_CREATE_ACCOUNT_WITH_SEED_FOOTPRINT; }
+ulong fd_system_program_instruction_create_account_with_seed_align( void ){ return FD_SYSTEM_PROGRAM_INSTRUCTION_CREATE_ACCOUNT_WITH_SEED_ALIGN; }
 
 void fd_system_program_instruction_create_account_with_seed_walk(void * w, fd_system_program_instruction_create_account_with_seed_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_system_program_instruction_create_account_with_seed", level++);
@@ -7234,8 +7234,8 @@ void fd_system_program_instruction_allocate_with_seed_destroy(fd_system_program_
   fd_pubkey_destroy(&self->owner, ctx);
 }
 
-ulong fd_system_program_instruction_allocate_with_seed_footprint(){ return FD_SYSTEM_PROGRAM_INSTRUCTION_ALLOCATE_WITH_SEED_FOOTPRINT; }
-ulong fd_system_program_instruction_allocate_with_seed_align(){ return FD_SYSTEM_PROGRAM_INSTRUCTION_ALLOCATE_WITH_SEED_ALIGN; }
+ulong fd_system_program_instruction_allocate_with_seed_footprint( void ){ return FD_SYSTEM_PROGRAM_INSTRUCTION_ALLOCATE_WITH_SEED_FOOTPRINT; }
+ulong fd_system_program_instruction_allocate_with_seed_align( void ){ return FD_SYSTEM_PROGRAM_INSTRUCTION_ALLOCATE_WITH_SEED_ALIGN; }
 
 void fd_system_program_instruction_allocate_with_seed_walk(void * w, fd_system_program_instruction_allocate_with_seed_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_system_program_instruction_allocate_with_seed", level++);
@@ -7299,8 +7299,8 @@ void fd_system_program_instruction_assign_with_seed_destroy(fd_system_program_in
   fd_pubkey_destroy(&self->owner, ctx);
 }
 
-ulong fd_system_program_instruction_assign_with_seed_footprint(){ return FD_SYSTEM_PROGRAM_INSTRUCTION_ASSIGN_WITH_SEED_FOOTPRINT; }
-ulong fd_system_program_instruction_assign_with_seed_align(){ return FD_SYSTEM_PROGRAM_INSTRUCTION_ASSIGN_WITH_SEED_ALIGN; }
+ulong fd_system_program_instruction_assign_with_seed_footprint( void ){ return FD_SYSTEM_PROGRAM_INSTRUCTION_ASSIGN_WITH_SEED_FOOTPRINT; }
+ulong fd_system_program_instruction_assign_with_seed_align( void ){ return FD_SYSTEM_PROGRAM_INSTRUCTION_ASSIGN_WITH_SEED_ALIGN; }
 
 void fd_system_program_instruction_assign_with_seed_walk(void * w, fd_system_program_instruction_assign_with_seed_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_system_program_instruction_assign_with_seed", level++);
@@ -7358,8 +7358,8 @@ void fd_system_program_instruction_transfer_with_seed_destroy(fd_system_program_
   fd_pubkey_destroy(&self->from_owner, ctx);
 }
 
-ulong fd_system_program_instruction_transfer_with_seed_footprint(){ return FD_SYSTEM_PROGRAM_INSTRUCTION_TRANSFER_WITH_SEED_FOOTPRINT; }
-ulong fd_system_program_instruction_transfer_with_seed_align(){ return FD_SYSTEM_PROGRAM_INSTRUCTION_TRANSFER_WITH_SEED_ALIGN; }
+ulong fd_system_program_instruction_transfer_with_seed_footprint( void ){ return FD_SYSTEM_PROGRAM_INSTRUCTION_TRANSFER_WITH_SEED_FOOTPRINT; }
+ulong fd_system_program_instruction_transfer_with_seed_align( void ){ return FD_SYSTEM_PROGRAM_INSTRUCTION_TRANSFER_WITH_SEED_ALIGN; }
 
 void fd_system_program_instruction_transfer_with_seed_walk(void * w, fd_system_program_instruction_transfer_with_seed_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_system_program_instruction_transfer_with_seed", level++);
@@ -7602,8 +7602,8 @@ void fd_system_program_instruction_destroy(fd_system_program_instruction_t* self
   fd_system_program_instruction_inner_destroy(&self->inner, self->discriminant, ctx);
 }
 
-ulong fd_system_program_instruction_footprint(){ return FD_SYSTEM_PROGRAM_INSTRUCTION_FOOTPRINT; }
-ulong fd_system_program_instruction_align(){ return FD_SYSTEM_PROGRAM_INSTRUCTION_ALIGN; }
+ulong fd_system_program_instruction_footprint( void ){ return FD_SYSTEM_PROGRAM_INSTRUCTION_FOOTPRINT; }
+ulong fd_system_program_instruction_align( void ){ return FD_SYSTEM_PROGRAM_INSTRUCTION_ALIGN; }
 
 void fd_system_program_instruction_walk(void * w, fd_system_program_instruction_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_system_program_instruction", level++);
@@ -7918,8 +7918,8 @@ void fd_system_error_destroy(fd_system_error_t* self, fd_bincode_destroy_ctx_t *
   fd_system_error_inner_destroy(&self->inner, self->discriminant, ctx);
 }
 
-ulong fd_system_error_footprint(){ return FD_SYSTEM_ERROR_FOOTPRINT; }
-ulong fd_system_error_align(){ return FD_SYSTEM_ERROR_ALIGN; }
+ulong fd_system_error_footprint( void ){ return FD_SYSTEM_ERROR_FOOTPRINT; }
+ulong fd_system_error_align( void ){ return FD_SYSTEM_ERROR_ALIGN; }
 
 void fd_system_error_walk(void * w, fd_system_error_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_system_error", level++);
@@ -7964,8 +7964,8 @@ void fd_stake_authorized_destroy(fd_stake_authorized_t* self, fd_bincode_destroy
   fd_pubkey_destroy(&self->withdrawer, ctx);
 }
 
-ulong fd_stake_authorized_footprint(){ return FD_STAKE_AUTHORIZED_FOOTPRINT; }
-ulong fd_stake_authorized_align(){ return FD_STAKE_AUTHORIZED_ALIGN; }
+ulong fd_stake_authorized_footprint( void ){ return FD_STAKE_AUTHORIZED_FOOTPRINT; }
+ulong fd_stake_authorized_align( void ){ return FD_STAKE_AUTHORIZED_ALIGN; }
 
 void fd_stake_authorized_walk(void * w, fd_stake_authorized_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_stake_authorized", level++);
@@ -8007,8 +8007,8 @@ void fd_stake_lockup_destroy(fd_stake_lockup_t* self, fd_bincode_destroy_ctx_t *
   fd_pubkey_destroy(&self->custodian, ctx);
 }
 
-ulong fd_stake_lockup_footprint(){ return FD_STAKE_LOCKUP_FOOTPRINT; }
-ulong fd_stake_lockup_align(){ return FD_STAKE_LOCKUP_ALIGN; }
+ulong fd_stake_lockup_footprint( void ){ return FD_STAKE_LOCKUP_FOOTPRINT; }
+ulong fd_stake_lockup_align( void ){ return FD_STAKE_LOCKUP_ALIGN; }
 
 void fd_stake_lockup_walk(void * w, fd_stake_lockup_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_stake_lockup", level++);
@@ -8054,8 +8054,8 @@ void fd_stake_instruction_initialize_destroy(fd_stake_instruction_initialize_t* 
   fd_stake_lockup_destroy(&self->lockup, ctx);
 }
 
-ulong fd_stake_instruction_initialize_footprint(){ return FD_STAKE_INSTRUCTION_INITIALIZE_FOOTPRINT; }
-ulong fd_stake_instruction_initialize_align(){ return FD_STAKE_INSTRUCTION_INITIALIZE_ALIGN; }
+ulong fd_stake_instruction_initialize_footprint( void ){ return FD_STAKE_INSTRUCTION_INITIALIZE_FOOTPRINT; }
+ulong fd_stake_instruction_initialize_align( void ){ return FD_STAKE_INSTRUCTION_INITIALIZE_ALIGN; }
 
 void fd_stake_instruction_initialize_walk(void * w, fd_stake_instruction_initialize_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_stake_instruction_initialize", level++);
@@ -8137,8 +8137,8 @@ void fd_stake_authorize_destroy(fd_stake_authorize_t* self, fd_bincode_destroy_c
   fd_stake_authorize_inner_destroy(&self->inner, self->discriminant, ctx);
 }
 
-ulong fd_stake_authorize_footprint(){ return FD_STAKE_AUTHORIZE_FOOTPRINT; }
-ulong fd_stake_authorize_align(){ return FD_STAKE_AUTHORIZE_ALIGN; }
+ulong fd_stake_authorize_footprint( void ){ return FD_STAKE_AUTHORIZE_FOOTPRINT; }
+ulong fd_stake_authorize_align( void ){ return FD_STAKE_AUTHORIZE_ALIGN; }
 
 void fd_stake_authorize_walk(void * w, fd_stake_authorize_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_stake_authorize", level++);
@@ -8183,8 +8183,8 @@ void fd_stake_instruction_authorize_destroy(fd_stake_instruction_authorize_t* se
   fd_stake_authorize_destroy(&self->stake_authorize, ctx);
 }
 
-ulong fd_stake_instruction_authorize_footprint(){ return FD_STAKE_INSTRUCTION_AUTHORIZE_FOOTPRINT; }
-ulong fd_stake_instruction_authorize_align(){ return FD_STAKE_INSTRUCTION_AUTHORIZE_ALIGN; }
+ulong fd_stake_instruction_authorize_footprint( void ){ return FD_STAKE_INSTRUCTION_AUTHORIZE_FOOTPRINT; }
+ulong fd_stake_instruction_authorize_align( void ){ return FD_STAKE_INSTRUCTION_AUTHORIZE_ALIGN; }
 
 void fd_stake_instruction_authorize_walk(void * w, fd_stake_instruction_authorize_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_stake_instruction_authorize", level++);
@@ -8265,8 +8265,8 @@ void fd_lockup_args_destroy(fd_lockup_args_t* self, fd_bincode_destroy_ctx_t * c
   }
 }
 
-ulong fd_lockup_args_footprint(){ return FD_LOCKUP_ARGS_FOOTPRINT; }
-ulong fd_lockup_args_align(){ return FD_LOCKUP_ARGS_ALIGN; }
+ulong fd_lockup_args_footprint( void ){ return FD_LOCKUP_ARGS_FOOTPRINT; }
+ulong fd_lockup_args_align( void ){ return FD_LOCKUP_ARGS_ALIGN; }
 
 void fd_lockup_args_walk(void * w, fd_lockup_args_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_lockup_args", level++);
@@ -8369,8 +8369,8 @@ void fd_authorize_with_seed_args_destroy(fd_authorize_with_seed_args_t* self, fd
   fd_pubkey_destroy(&self->authority_owner, ctx);
 }
 
-ulong fd_authorize_with_seed_args_footprint(){ return FD_AUTHORIZE_WITH_SEED_ARGS_FOOTPRINT; }
-ulong fd_authorize_with_seed_args_align(){ return FD_AUTHORIZE_WITH_SEED_ARGS_ALIGN; }
+ulong fd_authorize_with_seed_args_footprint( void ){ return FD_AUTHORIZE_WITH_SEED_ARGS_FOOTPRINT; }
+ulong fd_authorize_with_seed_args_align( void ){ return FD_AUTHORIZE_WITH_SEED_ARGS_ALIGN; }
 
 void fd_authorize_with_seed_args_walk(void * w, fd_authorize_with_seed_args_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_authorize_with_seed_args", level++);
@@ -8434,8 +8434,8 @@ void fd_authorize_checked_with_seed_args_destroy(fd_authorize_checked_with_seed_
   fd_pubkey_destroy(&self->authority_owner, ctx);
 }
 
-ulong fd_authorize_checked_with_seed_args_footprint(){ return FD_AUTHORIZE_CHECKED_WITH_SEED_ARGS_FOOTPRINT; }
-ulong fd_authorize_checked_with_seed_args_align(){ return FD_AUTHORIZE_CHECKED_WITH_SEED_ARGS_ALIGN; }
+ulong fd_authorize_checked_with_seed_args_footprint( void ){ return FD_AUTHORIZE_CHECKED_WITH_SEED_ARGS_FOOTPRINT; }
+ulong fd_authorize_checked_with_seed_args_align( void ){ return FD_AUTHORIZE_CHECKED_WITH_SEED_ARGS_ALIGN; }
 
 void fd_authorize_checked_with_seed_args_walk(void * w, fd_authorize_checked_with_seed_args_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_authorize_checked_with_seed_args", level++);
@@ -8506,8 +8506,8 @@ void fd_lockup_checked_args_destroy(fd_lockup_checked_args_t* self, fd_bincode_d
   }
 }
 
-ulong fd_lockup_checked_args_footprint(){ return FD_LOCKUP_CHECKED_ARGS_FOOTPRINT; }
-ulong fd_lockup_checked_args_align(){ return FD_LOCKUP_CHECKED_ARGS_ALIGN; }
+ulong fd_lockup_checked_args_footprint( void ){ return FD_LOCKUP_CHECKED_ARGS_FOOTPRINT; }
+ulong fd_lockup_checked_args_align( void ){ return FD_LOCKUP_CHECKED_ARGS_ALIGN; }
 
 void fd_lockup_checked_args_walk(void * w, fd_lockup_checked_args_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_lockup_checked_args", level++);
@@ -8803,8 +8803,8 @@ void fd_stake_instruction_destroy(fd_stake_instruction_t* self, fd_bincode_destr
   fd_stake_instruction_inner_destroy(&self->inner, self->discriminant, ctx);
 }
 
-ulong fd_stake_instruction_footprint(){ return FD_STAKE_INSTRUCTION_FOOTPRINT; }
-ulong fd_stake_instruction_align(){ return FD_STAKE_INSTRUCTION_ALIGN; }
+ulong fd_stake_instruction_footprint( void ){ return FD_STAKE_INSTRUCTION_FOOTPRINT; }
+ulong fd_stake_instruction_align( void ){ return FD_STAKE_INSTRUCTION_ALIGN; }
 
 void fd_stake_instruction_walk(void * w, fd_stake_instruction_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_stake_instruction", level++);
@@ -8971,8 +8971,8 @@ void fd_stake_state_meta_destroy(fd_stake_state_meta_t* self, fd_bincode_destroy
   fd_stake_lockup_destroy(&self->lockup, ctx);
 }
 
-ulong fd_stake_state_meta_footprint(){ return FD_STAKE_STATE_META_FOOTPRINT; }
-ulong fd_stake_state_meta_align(){ return FD_STAKE_STATE_META_ALIGN; }
+ulong fd_stake_state_meta_footprint( void ){ return FD_STAKE_STATE_META_FOOTPRINT; }
+ulong fd_stake_state_meta_align( void ){ return FD_STAKE_STATE_META_ALIGN; }
 
 void fd_stake_state_meta_walk(void * w, fd_stake_state_meta_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_stake_state_meta", level++);
@@ -9016,8 +9016,8 @@ void fd_stake_destroy(fd_stake_t* self, fd_bincode_destroy_ctx_t * ctx) {
   fd_delegation_destroy(&self->delegation, ctx);
 }
 
-ulong fd_stake_footprint(){ return FD_STAKE_FOOTPRINT; }
-ulong fd_stake_align(){ return FD_STAKE_ALIGN; }
+ulong fd_stake_footprint( void ){ return FD_STAKE_FOOTPRINT; }
+ulong fd_stake_align( void ){ return FD_STAKE_ALIGN; }
 
 void fd_stake_walk(void * w, fd_stake_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_stake", level++);
@@ -9059,8 +9059,8 @@ void fd_stake_state_stake_destroy(fd_stake_state_stake_t* self, fd_bincode_destr
   fd_stake_destroy(&self->stake, ctx);
 }
 
-ulong fd_stake_state_stake_footprint(){ return FD_STAKE_STATE_STAKE_FOOTPRINT; }
-ulong fd_stake_state_stake_align(){ return FD_STAKE_STATE_STAKE_ALIGN; }
+ulong fd_stake_state_stake_footprint( void ){ return FD_STAKE_STATE_STAKE_FOOTPRINT; }
+ulong fd_stake_state_stake_align( void ){ return FD_STAKE_STATE_STAKE_ALIGN; }
 
 void fd_stake_state_stake_walk(void * w, fd_stake_state_stake_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_stake_state_stake", level++);
@@ -9170,8 +9170,8 @@ void fd_stake_state_destroy(fd_stake_state_t* self, fd_bincode_destroy_ctx_t * c
   fd_stake_state_inner_destroy(&self->inner, self->discriminant, ctx);
 }
 
-ulong fd_stake_state_footprint(){ return FD_STAKE_STATE_FOOTPRINT; }
-ulong fd_stake_state_align(){ return FD_STAKE_STATE_ALIGN; }
+ulong fd_stake_state_footprint( void ){ return FD_STAKE_STATE_FOOTPRINT; }
+ulong fd_stake_state_align( void ){ return FD_STAKE_STATE_ALIGN; }
 
 void fd_stake_state_walk(void * w, fd_stake_state_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_stake_state", level++);
@@ -9249,8 +9249,8 @@ void fd_nonce_data_destroy(fd_nonce_data_t* self, fd_bincode_destroy_ctx_t * ctx
   fd_fee_calculator_destroy(&self->fee_calculator, ctx);
 }
 
-ulong fd_nonce_data_footprint(){ return FD_NONCE_DATA_FOOTPRINT; }
-ulong fd_nonce_data_align(){ return FD_NONCE_DATA_ALIGN; }
+ulong fd_nonce_data_footprint( void ){ return FD_NONCE_DATA_FOOTPRINT; }
+ulong fd_nonce_data_align( void ){ return FD_NONCE_DATA_ALIGN; }
 
 void fd_nonce_data_walk(void * w, fd_nonce_data_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_nonce_data", level++);
@@ -9338,8 +9338,8 @@ void fd_nonce_state_destroy(fd_nonce_state_t* self, fd_bincode_destroy_ctx_t * c
   fd_nonce_state_inner_destroy(&self->inner, self->discriminant, ctx);
 }
 
-ulong fd_nonce_state_footprint(){ return FD_NONCE_STATE_FOOTPRINT; }
-ulong fd_nonce_state_align(){ return FD_NONCE_STATE_ALIGN; }
+ulong fd_nonce_state_footprint( void ){ return FD_NONCE_STATE_FOOTPRINT; }
+ulong fd_nonce_state_align( void ){ return FD_NONCE_STATE_ALIGN; }
 
 void fd_nonce_state_walk(void * w, fd_nonce_state_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_nonce_state", level++);
@@ -9444,8 +9444,8 @@ void fd_nonce_state_versions_destroy(fd_nonce_state_versions_t* self, fd_bincode
   fd_nonce_state_versions_inner_destroy(&self->inner, self->discriminant, ctx);
 }
 
-ulong fd_nonce_state_versions_footprint(){ return FD_NONCE_STATE_VERSIONS_FOOTPRINT; }
-ulong fd_nonce_state_versions_align(){ return FD_NONCE_STATE_VERSIONS_ALIGN; }
+ulong fd_nonce_state_versions_footprint( void ){ return FD_NONCE_STATE_VERSIONS_FOOTPRINT; }
+ulong fd_nonce_state_versions_align( void ){ return FD_NONCE_STATE_VERSIONS_ALIGN; }
 
 void fd_nonce_state_versions_walk(void * w, fd_nonce_state_versions_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_nonce_state_versions", level++);
@@ -9515,8 +9515,8 @@ void fd_compute_budget_program_instruction_request_units_deprecated_new(fd_compu
 void fd_compute_budget_program_instruction_request_units_deprecated_destroy(fd_compute_budget_program_instruction_request_units_deprecated_t* self, fd_bincode_destroy_ctx_t * ctx) {
 }
 
-ulong fd_compute_budget_program_instruction_request_units_deprecated_footprint(){ return FD_COMPUTE_BUDGET_PROGRAM_INSTRUCTION_REQUEST_UNITS_DEPRECATED_FOOTPRINT; }
-ulong fd_compute_budget_program_instruction_request_units_deprecated_align(){ return FD_COMPUTE_BUDGET_PROGRAM_INSTRUCTION_REQUEST_UNITS_DEPRECATED_ALIGN; }
+ulong fd_compute_budget_program_instruction_request_units_deprecated_footprint( void ){ return FD_COMPUTE_BUDGET_PROGRAM_INSTRUCTION_REQUEST_UNITS_DEPRECATED_FOOTPRINT; }
+ulong fd_compute_budget_program_instruction_request_units_deprecated_align( void ){ return FD_COMPUTE_BUDGET_PROGRAM_INSTRUCTION_REQUEST_UNITS_DEPRECATED_ALIGN; }
 
 void fd_compute_budget_program_instruction_request_units_deprecated_walk(void * w, fd_compute_budget_program_instruction_request_units_deprecated_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_compute_budget_program_instruction_request_units_deprecated", level++);
@@ -9632,8 +9632,8 @@ void fd_compute_budget_program_instruction_destroy(fd_compute_budget_program_ins
   fd_compute_budget_program_instruction_inner_destroy(&self->inner, self->discriminant, ctx);
 }
 
-ulong fd_compute_budget_program_instruction_footprint(){ return FD_COMPUTE_BUDGET_PROGRAM_INSTRUCTION_FOOTPRINT; }
-ulong fd_compute_budget_program_instruction_align(){ return FD_COMPUTE_BUDGET_PROGRAM_INSTRUCTION_ALIGN; }
+ulong fd_compute_budget_program_instruction_footprint( void ){ return FD_COMPUTE_BUDGET_PROGRAM_INSTRUCTION_FOOTPRINT; }
+ulong fd_compute_budget_program_instruction_align( void ){ return FD_COMPUTE_BUDGET_PROGRAM_INSTRUCTION_ALIGN; }
 
 void fd_compute_budget_program_instruction_walk(void * w, fd_compute_budget_program_instruction_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_compute_budget_program_instruction", level++);
@@ -9744,8 +9744,8 @@ void fd_config_keys_destroy(fd_config_keys_t* self, fd_bincode_destroy_ctx_t * c
   }
 }
 
-ulong fd_config_keys_footprint(){ return FD_CONFIG_KEYS_FOOTPRINT; }
-ulong fd_config_keys_align(){ return FD_CONFIG_KEYS_ALIGN; }
+ulong fd_config_keys_footprint( void ){ return FD_CONFIG_KEYS_FOOTPRINT; }
+ulong fd_config_keys_align( void ){ return FD_CONFIG_KEYS_ALIGN; }
 
 void fd_config_keys_walk(void * w, fd_config_keys_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_config_keys", level++);
@@ -9802,8 +9802,8 @@ void fd_bpf_loader_program_instruction_write_destroy(fd_bpf_loader_program_instr
   }
 }
 
-ulong fd_bpf_loader_program_instruction_write_footprint(){ return FD_BPF_LOADER_PROGRAM_INSTRUCTION_WRITE_FOOTPRINT; }
-ulong fd_bpf_loader_program_instruction_write_align(){ return FD_BPF_LOADER_PROGRAM_INSTRUCTION_WRITE_ALIGN; }
+ulong fd_bpf_loader_program_instruction_write_footprint( void ){ return FD_BPF_LOADER_PROGRAM_INSTRUCTION_WRITE_FOOTPRINT; }
+ulong fd_bpf_loader_program_instruction_write_align( void ){ return FD_BPF_LOADER_PROGRAM_INSTRUCTION_WRITE_ALIGN; }
 
 void fd_bpf_loader_program_instruction_write_walk(void * w, fd_bpf_loader_program_instruction_write_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_bpf_loader_program_instruction_write", level++);
@@ -9892,8 +9892,8 @@ void fd_bpf_loader_program_instruction_destroy(fd_bpf_loader_program_instruction
   fd_bpf_loader_program_instruction_inner_destroy(&self->inner, self->discriminant, ctx);
 }
 
-ulong fd_bpf_loader_program_instruction_footprint(){ return FD_BPF_LOADER_PROGRAM_INSTRUCTION_FOOTPRINT; }
-ulong fd_bpf_loader_program_instruction_align(){ return FD_BPF_LOADER_PROGRAM_INSTRUCTION_ALIGN; }
+ulong fd_bpf_loader_program_instruction_footprint( void ){ return FD_BPF_LOADER_PROGRAM_INSTRUCTION_FOOTPRINT; }
+ulong fd_bpf_loader_program_instruction_align( void ){ return FD_BPF_LOADER_PROGRAM_INSTRUCTION_ALIGN; }
 
 void fd_bpf_loader_program_instruction_walk(void * w, fd_bpf_loader_program_instruction_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_bpf_loader_program_instruction", level++);
@@ -9960,8 +9960,8 @@ void fd_bpf_upgradeable_loader_program_instruction_write_destroy(fd_bpf_upgradea
   }
 }
 
-ulong fd_bpf_upgradeable_loader_program_instruction_write_footprint(){ return FD_BPF_UPGRADEABLE_LOADER_PROGRAM_INSTRUCTION_WRITE_FOOTPRINT; }
-ulong fd_bpf_upgradeable_loader_program_instruction_write_align(){ return FD_BPF_UPGRADEABLE_LOADER_PROGRAM_INSTRUCTION_WRITE_ALIGN; }
+ulong fd_bpf_upgradeable_loader_program_instruction_write_footprint( void ){ return FD_BPF_UPGRADEABLE_LOADER_PROGRAM_INSTRUCTION_WRITE_FOOTPRINT; }
+ulong fd_bpf_upgradeable_loader_program_instruction_write_align( void ){ return FD_BPF_UPGRADEABLE_LOADER_PROGRAM_INSTRUCTION_WRITE_ALIGN; }
 
 void fd_bpf_upgradeable_loader_program_instruction_write_walk(void * w, fd_bpf_upgradeable_loader_program_instruction_write_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_bpf_upgradeable_loader_program_instruction_write", level++);
@@ -10002,8 +10002,8 @@ void fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len_new(
 void fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len_destroy(fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len_t* self, fd_bincode_destroy_ctx_t * ctx) {
 }
 
-ulong fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len_footprint(){ return FD_BPF_UPGRADEABLE_LOADER_PROGRAM_INSTRUCTION_DEPLOY_WITH_MAX_DATA_LEN_FOOTPRINT; }
-ulong fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len_align(){ return FD_BPF_UPGRADEABLE_LOADER_PROGRAM_INSTRUCTION_DEPLOY_WITH_MAX_DATA_LEN_ALIGN; }
+ulong fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len_footprint( void ){ return FD_BPF_UPGRADEABLE_LOADER_PROGRAM_INSTRUCTION_DEPLOY_WITH_MAX_DATA_LEN_FOOTPRINT; }
+ulong fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len_align( void ){ return FD_BPF_UPGRADEABLE_LOADER_PROGRAM_INSTRUCTION_DEPLOY_WITH_MAX_DATA_LEN_ALIGN; }
 
 void fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len_walk(void * w, fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len", level++);
@@ -10035,8 +10035,8 @@ void fd_bpf_upgradeable_loader_program_instruction_extend_program_new(fd_bpf_upg
 void fd_bpf_upgradeable_loader_program_instruction_extend_program_destroy(fd_bpf_upgradeable_loader_program_instruction_extend_program_t* self, fd_bincode_destroy_ctx_t * ctx) {
 }
 
-ulong fd_bpf_upgradeable_loader_program_instruction_extend_program_footprint(){ return FD_BPF_UPGRADEABLE_LOADER_PROGRAM_INSTRUCTION_EXTEND_PROGRAM_FOOTPRINT; }
-ulong fd_bpf_upgradeable_loader_program_instruction_extend_program_align(){ return FD_BPF_UPGRADEABLE_LOADER_PROGRAM_INSTRUCTION_EXTEND_PROGRAM_ALIGN; }
+ulong fd_bpf_upgradeable_loader_program_instruction_extend_program_footprint( void ){ return FD_BPF_UPGRADEABLE_LOADER_PROGRAM_INSTRUCTION_EXTEND_PROGRAM_FOOTPRINT; }
+ulong fd_bpf_upgradeable_loader_program_instruction_extend_program_align( void ){ return FD_BPF_UPGRADEABLE_LOADER_PROGRAM_INSTRUCTION_EXTEND_PROGRAM_ALIGN; }
 
 void fd_bpf_upgradeable_loader_program_instruction_extend_program_walk(void * w, fd_bpf_upgradeable_loader_program_instruction_extend_program_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_bpf_upgradeable_loader_program_instruction_extend_program", level++);
@@ -10180,8 +10180,8 @@ void fd_bpf_upgradeable_loader_program_instruction_destroy(fd_bpf_upgradeable_lo
   fd_bpf_upgradeable_loader_program_instruction_inner_destroy(&self->inner, self->discriminant, ctx);
 }
 
-ulong fd_bpf_upgradeable_loader_program_instruction_footprint(){ return FD_BPF_UPGRADEABLE_LOADER_PROGRAM_INSTRUCTION_FOOTPRINT; }
-ulong fd_bpf_upgradeable_loader_program_instruction_align(){ return FD_BPF_UPGRADEABLE_LOADER_PROGRAM_INSTRUCTION_ALIGN; }
+ulong fd_bpf_upgradeable_loader_program_instruction_footprint( void ){ return FD_BPF_UPGRADEABLE_LOADER_PROGRAM_INSTRUCTION_FOOTPRINT; }
+ulong fd_bpf_upgradeable_loader_program_instruction_align( void ){ return FD_BPF_UPGRADEABLE_LOADER_PROGRAM_INSTRUCTION_ALIGN; }
 
 void fd_bpf_upgradeable_loader_program_instruction_walk(void * w, fd_bpf_upgradeable_loader_program_instruction_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_bpf_upgradeable_loader_program_instruction", level++);
@@ -10277,8 +10277,8 @@ void fd_bpf_upgradeable_loader_state_buffer_destroy(fd_bpf_upgradeable_loader_st
   }
 }
 
-ulong fd_bpf_upgradeable_loader_state_buffer_footprint(){ return FD_BPF_UPGRADEABLE_LOADER_STATE_BUFFER_FOOTPRINT; }
-ulong fd_bpf_upgradeable_loader_state_buffer_align(){ return FD_BPF_UPGRADEABLE_LOADER_STATE_BUFFER_ALIGN; }
+ulong fd_bpf_upgradeable_loader_state_buffer_footprint( void ){ return FD_BPF_UPGRADEABLE_LOADER_STATE_BUFFER_FOOTPRINT; }
+ulong fd_bpf_upgradeable_loader_state_buffer_align( void ){ return FD_BPF_UPGRADEABLE_LOADER_STATE_BUFFER_ALIGN; }
 
 void fd_bpf_upgradeable_loader_state_buffer_walk(void * w, fd_bpf_upgradeable_loader_state_buffer_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_bpf_upgradeable_loader_state_buffer", level++);
@@ -10326,8 +10326,8 @@ void fd_bpf_upgradeable_loader_state_program_destroy(fd_bpf_upgradeable_loader_s
   fd_pubkey_destroy(&self->programdata_address, ctx);
 }
 
-ulong fd_bpf_upgradeable_loader_state_program_footprint(){ return FD_BPF_UPGRADEABLE_LOADER_STATE_PROGRAM_FOOTPRINT; }
-ulong fd_bpf_upgradeable_loader_state_program_align(){ return FD_BPF_UPGRADEABLE_LOADER_STATE_PROGRAM_ALIGN; }
+ulong fd_bpf_upgradeable_loader_state_program_footprint( void ){ return FD_BPF_UPGRADEABLE_LOADER_STATE_PROGRAM_FOOTPRINT; }
+ulong fd_bpf_upgradeable_loader_state_program_align( void ){ return FD_BPF_UPGRADEABLE_LOADER_STATE_PROGRAM_ALIGN; }
 
 void fd_bpf_upgradeable_loader_state_program_walk(void * w, fd_bpf_upgradeable_loader_state_program_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_bpf_upgradeable_loader_state_program", level++);
@@ -10376,8 +10376,8 @@ void fd_bpf_upgradeable_loader_state_program_data_destroy(fd_bpf_upgradeable_loa
   }
 }
 
-ulong fd_bpf_upgradeable_loader_state_program_data_footprint(){ return FD_BPF_UPGRADEABLE_LOADER_STATE_PROGRAM_DATA_FOOTPRINT; }
-ulong fd_bpf_upgradeable_loader_state_program_data_align(){ return FD_BPF_UPGRADEABLE_LOADER_STATE_PROGRAM_DATA_ALIGN; }
+ulong fd_bpf_upgradeable_loader_state_program_data_footprint( void ){ return FD_BPF_UPGRADEABLE_LOADER_STATE_PROGRAM_DATA_FOOTPRINT; }
+ulong fd_bpf_upgradeable_loader_state_program_data_align( void ){ return FD_BPF_UPGRADEABLE_LOADER_STATE_PROGRAM_DATA_ALIGN; }
 
 void fd_bpf_upgradeable_loader_state_program_data_walk(void * w, fd_bpf_upgradeable_loader_state_program_data_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_bpf_upgradeable_loader_state_program_data", level++);
@@ -10503,8 +10503,8 @@ void fd_bpf_upgradeable_loader_state_destroy(fd_bpf_upgradeable_loader_state_t* 
   fd_bpf_upgradeable_loader_state_inner_destroy(&self->inner, self->discriminant, ctx);
 }
 
-ulong fd_bpf_upgradeable_loader_state_footprint(){ return FD_BPF_UPGRADEABLE_LOADER_STATE_FOOTPRINT; }
-ulong fd_bpf_upgradeable_loader_state_align(){ return FD_BPF_UPGRADEABLE_LOADER_STATE_ALIGN; }
+ulong fd_bpf_upgradeable_loader_state_footprint( void ){ return FD_BPF_UPGRADEABLE_LOADER_STATE_FOOTPRINT; }
+ulong fd_bpf_upgradeable_loader_state_align( void ){ return FD_BPF_UPGRADEABLE_LOADER_STATE_ALIGN; }
 
 void fd_bpf_upgradeable_loader_state_walk(void * w, fd_bpf_upgradeable_loader_state_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_bpf_upgradeable_loader_state", level++);
@@ -10589,8 +10589,8 @@ void fd_frozen_hash_status_destroy(fd_frozen_hash_status_t* self, fd_bincode_des
   fd_hash_destroy(&self->frozen_hash, ctx);
 }
 
-ulong fd_frozen_hash_status_footprint(){ return FD_FROZEN_HASH_STATUS_FOOTPRINT; }
-ulong fd_frozen_hash_status_align(){ return FD_FROZEN_HASH_STATUS_ALIGN; }
+ulong fd_frozen_hash_status_footprint( void ){ return FD_FROZEN_HASH_STATUS_FOOTPRINT; }
+ulong fd_frozen_hash_status_align( void ){ return FD_FROZEN_HASH_STATUS_ALIGN; }
 
 void fd_frozen_hash_status_walk(void * w, fd_frozen_hash_status_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_frozen_hash_status", level++);
@@ -10662,8 +10662,8 @@ void fd_frozen_hash_versioned_destroy(fd_frozen_hash_versioned_t* self, fd_binco
   fd_frozen_hash_versioned_inner_destroy(&self->inner, self->discriminant, ctx);
 }
 
-ulong fd_frozen_hash_versioned_footprint(){ return FD_FROZEN_HASH_VERSIONED_FOOTPRINT; }
-ulong fd_frozen_hash_versioned_align(){ return FD_FROZEN_HASH_VERSIONED_ALIGN; }
+ulong fd_frozen_hash_versioned_footprint( void ){ return FD_FROZEN_HASH_VERSIONED_FOOTPRINT; }
+ulong fd_frozen_hash_versioned_align( void ){ return FD_FROZEN_HASH_VERSIONED_ALIGN; }
 
 void fd_frozen_hash_versioned_walk(void * w, fd_frozen_hash_versioned_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_frozen_hash_versioned", level++);
@@ -10728,8 +10728,8 @@ void fd_gossip_bitvec_u8_inner_destroy(fd_gossip_bitvec_u8_inner_t* self, fd_bin
   }
 }
 
-ulong fd_gossip_bitvec_u8_inner_footprint(){ return FD_GOSSIP_BITVEC_U8_INNER_FOOTPRINT; }
-ulong fd_gossip_bitvec_u8_inner_align(){ return FD_GOSSIP_BITVEC_U8_INNER_ALIGN; }
+ulong fd_gossip_bitvec_u8_inner_footprint( void ){ return FD_GOSSIP_BITVEC_U8_INNER_FOOTPRINT; }
+ulong fd_gossip_bitvec_u8_inner_align( void ){ return FD_GOSSIP_BITVEC_U8_INNER_ALIGN; }
 
 void fd_gossip_bitvec_u8_inner_walk(void * w, fd_gossip_bitvec_u8_inner_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_bitvec_u8_inner", level++);
@@ -10783,8 +10783,8 @@ void fd_gossip_bitvec_u8_destroy(fd_gossip_bitvec_u8_t* self, fd_bincode_destroy
   }
 }
 
-ulong fd_gossip_bitvec_u8_footprint(){ return FD_GOSSIP_BITVEC_U8_FOOTPRINT; }
-ulong fd_gossip_bitvec_u8_align(){ return FD_GOSSIP_BITVEC_U8_ALIGN; }
+ulong fd_gossip_bitvec_u8_footprint( void ){ return FD_GOSSIP_BITVEC_U8_FOOTPRINT; }
+ulong fd_gossip_bitvec_u8_align( void ){ return FD_GOSSIP_BITVEC_U8_ALIGN; }
 
 void fd_gossip_bitvec_u8_walk(void * w, fd_gossip_bitvec_u8_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_bitvec_u8", level++);
@@ -10846,8 +10846,8 @@ void fd_gossip_bitvec_u64_inner_destroy(fd_gossip_bitvec_u64_inner_t* self, fd_b
   }
 }
 
-ulong fd_gossip_bitvec_u64_inner_footprint(){ return FD_GOSSIP_BITVEC_U64_INNER_FOOTPRINT; }
-ulong fd_gossip_bitvec_u64_inner_align(){ return FD_GOSSIP_BITVEC_U64_INNER_ALIGN; }
+ulong fd_gossip_bitvec_u64_inner_footprint( void ){ return FD_GOSSIP_BITVEC_U64_INNER_FOOTPRINT; }
+ulong fd_gossip_bitvec_u64_inner_align( void ){ return FD_GOSSIP_BITVEC_U64_INNER_ALIGN; }
 
 void fd_gossip_bitvec_u64_inner_walk(void * w, fd_gossip_bitvec_u64_inner_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_bitvec_u64_inner", level++);
@@ -10907,8 +10907,8 @@ void fd_gossip_bitvec_u64_destroy(fd_gossip_bitvec_u64_t* self, fd_bincode_destr
   }
 }
 
-ulong fd_gossip_bitvec_u64_footprint(){ return FD_GOSSIP_BITVEC_U64_FOOTPRINT; }
-ulong fd_gossip_bitvec_u64_align(){ return FD_GOSSIP_BITVEC_U64_ALIGN; }
+ulong fd_gossip_bitvec_u64_footprint( void ){ return FD_GOSSIP_BITVEC_U64_FOOTPRINT; }
+ulong fd_gossip_bitvec_u64_align( void ){ return FD_GOSSIP_BITVEC_U64_ALIGN; }
 
 void fd_gossip_bitvec_u64_walk(void * w, fd_gossip_bitvec_u64_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_bitvec_u64", level++);
@@ -10968,8 +10968,8 @@ void fd_gossip_ping_destroy(fd_gossip_ping_t* self, fd_bincode_destroy_ctx_t * c
   fd_signature_destroy(&self->signature, ctx);
 }
 
-ulong fd_gossip_ping_footprint(){ return FD_GOSSIP_PING_FOOTPRINT; }
-ulong fd_gossip_ping_align(){ return FD_GOSSIP_PING_ALIGN; }
+ulong fd_gossip_ping_footprint( void ){ return FD_GOSSIP_PING_FOOTPRINT; }
+ulong fd_gossip_ping_align( void ){ return FD_GOSSIP_PING_ALIGN; }
 
 void fd_gossip_ping_walk(void * w, fd_gossip_ping_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_ping", level++);
@@ -11059,8 +11059,8 @@ void fd_gossip_ip_addr_destroy(fd_gossip_ip_addr_t* self, fd_bincode_destroy_ctx
   fd_gossip_ip_addr_inner_destroy(&self->inner, self->discriminant, ctx);
 }
 
-ulong fd_gossip_ip_addr_footprint(){ return FD_GOSSIP_IP_ADDR_FOOTPRINT; }
-ulong fd_gossip_ip_addr_align(){ return FD_GOSSIP_IP_ADDR_ALIGN; }
+ulong fd_gossip_ip_addr_footprint( void ){ return FD_GOSSIP_IP_ADDR_FOOTPRINT; }
+ulong fd_gossip_ip_addr_align( void ){ return FD_GOSSIP_IP_ADDR_ALIGN; }
 
 void fd_gossip_ip_addr_walk(void * w, fd_gossip_ip_addr_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_ip_addr", level++);
@@ -11159,8 +11159,8 @@ void fd_gossip_prune_data_destroy(fd_gossip_prune_data_t* self, fd_bincode_destr
   fd_pubkey_destroy(&self->destination, ctx);
 }
 
-ulong fd_gossip_prune_data_footprint(){ return FD_GOSSIP_PRUNE_DATA_FOOTPRINT; }
-ulong fd_gossip_prune_data_align(){ return FD_GOSSIP_PRUNE_DATA_ALIGN; }
+ulong fd_gossip_prune_data_footprint( void ){ return FD_GOSSIP_PRUNE_DATA_FOOTPRINT; }
+ulong fd_gossip_prune_data_align( void ){ return FD_GOSSIP_PRUNE_DATA_ALIGN; }
 
 void fd_gossip_prune_data_walk(void * w, fd_gossip_prune_data_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_prune_data", level++);
@@ -11225,8 +11225,8 @@ void fd_gossip_socket_addr_destroy(fd_gossip_socket_addr_t* self, fd_bincode_des
   fd_gossip_ip_addr_destroy(&self->addr, ctx);
 }
 
-ulong fd_gossip_socket_addr_footprint(){ return FD_GOSSIP_SOCKET_ADDR_FOOTPRINT; }
-ulong fd_gossip_socket_addr_align(){ return FD_GOSSIP_SOCKET_ADDR_ALIGN; }
+ulong fd_gossip_socket_addr_footprint( void ){ return FD_GOSSIP_SOCKET_ADDR_FOOTPRINT; }
+ulong fd_gossip_socket_addr_align( void ){ return FD_GOSSIP_SOCKET_ADDR_ALIGN; }
 
 void fd_gossip_socket_addr_walk(void * w, fd_gossip_socket_addr_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_socket_addr", level++);
@@ -11308,8 +11308,8 @@ void fd_gossip_contact_info_destroy(fd_gossip_contact_info_t* self, fd_bincode_d
   fd_gossip_socket_addr_destroy(&self->serve_repair, ctx);
 }
 
-ulong fd_gossip_contact_info_footprint(){ return FD_GOSSIP_CONTACT_INFO_FOOTPRINT; }
-ulong fd_gossip_contact_info_align(){ return FD_GOSSIP_CONTACT_INFO_ALIGN; }
+ulong fd_gossip_contact_info_footprint( void ){ return FD_GOSSIP_CONTACT_INFO_FOOTPRINT; }
+ulong fd_gossip_contact_info_align( void ){ return FD_GOSSIP_CONTACT_INFO_ALIGN; }
 
 void fd_gossip_contact_info_walk(void * w, fd_gossip_contact_info_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_contact_info", level++);
@@ -11399,8 +11399,8 @@ void fd_gossip_vote_destroy(fd_gossip_vote_t* self, fd_bincode_destroy_ctx_t * c
   fd_flamenco_txn_destroy(&self->txn, ctx);
 }
 
-ulong fd_gossip_vote_footprint(){ return FD_GOSSIP_VOTE_FOOTPRINT; }
-ulong fd_gossip_vote_align(){ return FD_GOSSIP_VOTE_ALIGN; }
+ulong fd_gossip_vote_footprint( void ){ return FD_GOSSIP_VOTE_FOOTPRINT; }
+ulong fd_gossip_vote_align( void ){ return FD_GOSSIP_VOTE_ALIGN; }
 
 void fd_gossip_vote_walk(void * w, fd_gossip_vote_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_vote", level++);
@@ -11470,8 +11470,8 @@ void fd_gossip_lowest_slot_destroy(fd_gossip_lowest_slot_t* self, fd_bincode_des
   }
 }
 
-ulong fd_gossip_lowest_slot_footprint(){ return FD_GOSSIP_LOWEST_SLOT_FOOTPRINT; }
-ulong fd_gossip_lowest_slot_align(){ return FD_GOSSIP_LOWEST_SLOT_ALIGN; }
+ulong fd_gossip_lowest_slot_footprint( void ){ return FD_GOSSIP_LOWEST_SLOT_FOOTPRINT; }
+ulong fd_gossip_lowest_slot_align( void ){ return FD_GOSSIP_LOWEST_SLOT_ALIGN; }
 
 void fd_gossip_lowest_slot_walk(void * w, fd_gossip_lowest_slot_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_lowest_slot", level++);
@@ -11561,8 +11561,8 @@ void fd_gossip_slot_hashes_destroy(fd_gossip_slot_hashes_t* self, fd_bincode_des
   }
 }
 
-ulong fd_gossip_slot_hashes_footprint(){ return FD_GOSSIP_SLOT_HASHES_FOOTPRINT; }
-ulong fd_gossip_slot_hashes_align(){ return FD_GOSSIP_SLOT_HASHES_ALIGN; }
+ulong fd_gossip_slot_hashes_footprint( void ){ return FD_GOSSIP_SLOT_HASHES_FOOTPRINT; }
+ulong fd_gossip_slot_hashes_align( void ){ return FD_GOSSIP_SLOT_HASHES_ALIGN; }
 
 void fd_gossip_slot_hashes_walk(void * w, fd_gossip_slot_hashes_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_slot_hashes", level++);
@@ -11621,8 +11621,8 @@ void fd_gossip_slots_destroy(fd_gossip_slots_t* self, fd_bincode_destroy_ctx_t *
   fd_gossip_bitvec_u8_destroy(&self->slots, ctx);
 }
 
-ulong fd_gossip_slots_footprint(){ return FD_GOSSIP_SLOTS_FOOTPRINT; }
-ulong fd_gossip_slots_align(){ return FD_GOSSIP_SLOTS_ALIGN; }
+ulong fd_gossip_slots_footprint( void ){ return FD_GOSSIP_SLOTS_FOOTPRINT; }
+ulong fd_gossip_slots_align( void ){ return FD_GOSSIP_SLOTS_ALIGN; }
 
 void fd_gossip_slots_walk(void * w, fd_gossip_slots_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_slots", level++);
@@ -11676,8 +11676,8 @@ void fd_gossip_flate2_slots_destroy(fd_gossip_flate2_slots_t* self, fd_bincode_d
   }
 }
 
-ulong fd_gossip_flate2_slots_footprint(){ return FD_GOSSIP_FLATE2_SLOTS_FOOTPRINT; }
-ulong fd_gossip_flate2_slots_align(){ return FD_GOSSIP_FLATE2_SLOTS_ALIGN; }
+ulong fd_gossip_flate2_slots_footprint( void ){ return FD_GOSSIP_FLATE2_SLOTS_FOOTPRINT; }
+ulong fd_gossip_flate2_slots_align( void ){ return FD_GOSSIP_FLATE2_SLOTS_ALIGN; }
 
 void fd_gossip_flate2_slots_walk(void * w, fd_gossip_flate2_slots_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_flate2_slots", level++);
@@ -11772,8 +11772,8 @@ void fd_gossip_slots_enum_destroy(fd_gossip_slots_enum_t* self, fd_bincode_destr
   fd_gossip_slots_enum_inner_destroy(&self->inner, self->discriminant, ctx);
 }
 
-ulong fd_gossip_slots_enum_footprint(){ return FD_GOSSIP_SLOTS_ENUM_FOOTPRINT; }
-ulong fd_gossip_slots_enum_align(){ return FD_GOSSIP_SLOTS_ENUM_ALIGN; }
+ulong fd_gossip_slots_enum_footprint( void ){ return FD_GOSSIP_SLOTS_ENUM_FOOTPRINT; }
+ulong fd_gossip_slots_enum_align( void ){ return FD_GOSSIP_SLOTS_ENUM_ALIGN; }
 
 void fd_gossip_slots_enum_walk(void * w, fd_gossip_slots_enum_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_slots_enum", level++);
@@ -11866,8 +11866,8 @@ void fd_gossip_epoch_slots_destroy(fd_gossip_epoch_slots_t* self, fd_bincode_des
   }
 }
 
-ulong fd_gossip_epoch_slots_footprint(){ return FD_GOSSIP_EPOCH_SLOTS_FOOTPRINT; }
-ulong fd_gossip_epoch_slots_align(){ return FD_GOSSIP_EPOCH_SLOTS_ALIGN; }
+ulong fd_gossip_epoch_slots_footprint( void ){ return FD_GOSSIP_EPOCH_SLOTS_FOOTPRINT; }
+ulong fd_gossip_epoch_slots_align( void ){ return FD_GOSSIP_EPOCH_SLOTS_ALIGN; }
 
 void fd_gossip_epoch_slots_walk(void * w, fd_gossip_epoch_slots_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_epoch_slots", level++);
@@ -11949,8 +11949,8 @@ void fd_gossip_legacy_version_destroy(fd_gossip_legacy_version_t* self, fd_binco
   }
 }
 
-ulong fd_gossip_legacy_version_footprint(){ return FD_GOSSIP_LEGACY_VERSION_FOOTPRINT; }
-ulong fd_gossip_legacy_version_align(){ return FD_GOSSIP_LEGACY_VERSION_ALIGN; }
+ulong fd_gossip_legacy_version_footprint( void ){ return FD_GOSSIP_LEGACY_VERSION_FOOTPRINT; }
+ulong fd_gossip_legacy_version_align( void ){ return FD_GOSSIP_LEGACY_VERSION_ALIGN; }
 
 void fd_gossip_legacy_version_walk(void * w, fd_gossip_legacy_version_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_legacy_version", level++);
@@ -12043,8 +12043,8 @@ void fd_gossip_version_destroy(fd_gossip_version_t* self, fd_bincode_destroy_ctx
   }
 }
 
-ulong fd_gossip_version_footprint(){ return FD_GOSSIP_VERSION_FOOTPRINT; }
-ulong fd_gossip_version_align(){ return FD_GOSSIP_VERSION_ALIGN; }
+ulong fd_gossip_version_footprint( void ){ return FD_GOSSIP_VERSION_FOOTPRINT; }
+ulong fd_gossip_version_align( void ){ return FD_GOSSIP_VERSION_ALIGN; }
 
 void fd_gossip_version_walk(void * w, fd_gossip_version_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_version", level++);
@@ -12122,8 +12122,8 @@ void fd_gossip_node_instance_destroy(fd_gossip_node_instance_t* self, fd_bincode
   fd_pubkey_destroy(&self->from, ctx);
 }
 
-ulong fd_gossip_node_instance_footprint(){ return FD_GOSSIP_NODE_INSTANCE_FOOTPRINT; }
-ulong fd_gossip_node_instance_align(){ return FD_GOSSIP_NODE_INSTANCE_ALIGN; }
+ulong fd_gossip_node_instance_footprint( void ){ return FD_GOSSIP_NODE_INSTANCE_FOOTPRINT; }
+ulong fd_gossip_node_instance_align( void ){ return FD_GOSSIP_NODE_INSTANCE_ALIGN; }
 
 void fd_gossip_node_instance_walk(void * w, fd_gossip_node_instance_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_node_instance", level++);
@@ -12195,8 +12195,8 @@ void fd_gossip_duplicate_shred_destroy(fd_gossip_duplicate_shred_t* self, fd_bin
   }
 }
 
-ulong fd_gossip_duplicate_shred_footprint(){ return FD_GOSSIP_DUPLICATE_SHRED_FOOTPRINT; }
-ulong fd_gossip_duplicate_shred_align(){ return FD_GOSSIP_DUPLICATE_SHRED_ALIGN; }
+ulong fd_gossip_duplicate_shred_footprint( void ){ return FD_GOSSIP_DUPLICATE_SHRED_FOOTPRINT; }
+ulong fd_gossip_duplicate_shred_align( void ){ return FD_GOSSIP_DUPLICATE_SHRED_ALIGN; }
 
 void fd_gossip_duplicate_shred_walk(void * w, fd_gossip_duplicate_shred_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_duplicate_shred", level++);
@@ -12292,8 +12292,8 @@ void fd_gossip_incremental_snapshot_hashes_destroy(fd_gossip_incremental_snapsho
   }
 }
 
-ulong fd_gossip_incremental_snapshot_hashes_footprint(){ return FD_GOSSIP_INCREMENTAL_SNAPSHOT_HASHES_FOOTPRINT; }
-ulong fd_gossip_incremental_snapshot_hashes_align(){ return FD_GOSSIP_INCREMENTAL_SNAPSHOT_HASHES_ALIGN; }
+ulong fd_gossip_incremental_snapshot_hashes_footprint( void ){ return FD_GOSSIP_INCREMENTAL_SNAPSHOT_HASHES_FOOTPRINT; }
+ulong fd_gossip_incremental_snapshot_hashes_align( void ){ return FD_GOSSIP_INCREMENTAL_SNAPSHOT_HASHES_ALIGN; }
 
 void fd_gossip_incremental_snapshot_hashes_walk(void * w, fd_gossip_incremental_snapshot_hashes_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_incremental_snapshot_hashes", level++);
@@ -12526,8 +12526,8 @@ void fd_crds_data_destroy(fd_crds_data_t* self, fd_bincode_destroy_ctx_t * ctx) 
   fd_crds_data_inner_destroy(&self->inner, self->discriminant, ctx);
 }
 
-ulong fd_crds_data_footprint(){ return FD_CRDS_DATA_FOOTPRINT; }
-ulong fd_crds_data_align(){ return FD_CRDS_DATA_ALIGN; }
+ulong fd_crds_data_footprint( void ){ return FD_CRDS_DATA_FOOTPRINT; }
+ulong fd_crds_data_align( void ){ return FD_CRDS_DATA_ALIGN; }
 
 void fd_crds_data_walk(void * w, fd_crds_data_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_crds_data", level++);
@@ -12730,8 +12730,8 @@ void fd_crds_bloom_destroy(fd_crds_bloom_t* self, fd_bincode_destroy_ctx_t * ctx
   fd_gossip_bitvec_u64_destroy(&self->bits, ctx);
 }
 
-ulong fd_crds_bloom_footprint(){ return FD_CRDS_BLOOM_FOOTPRINT; }
-ulong fd_crds_bloom_align(){ return FD_CRDS_BLOOM_ALIGN; }
+ulong fd_crds_bloom_footprint( void ){ return FD_CRDS_BLOOM_FOOTPRINT; }
+ulong fd_crds_bloom_align( void ){ return FD_CRDS_BLOOM_ALIGN; }
 
 void fd_crds_bloom_walk(void * w, fd_crds_bloom_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_crds_bloom", level++);
@@ -12788,8 +12788,8 @@ void fd_crds_filter_destroy(fd_crds_filter_t* self, fd_bincode_destroy_ctx_t * c
   fd_crds_bloom_destroy(&self->filter, ctx);
 }
 
-ulong fd_crds_filter_footprint(){ return FD_CRDS_FILTER_FOOTPRINT; }
-ulong fd_crds_filter_align(){ return FD_CRDS_FILTER_ALIGN; }
+ulong fd_crds_filter_footprint( void ){ return FD_CRDS_FILTER_FOOTPRINT; }
+ulong fd_crds_filter_align( void ){ return FD_CRDS_FILTER_ALIGN; }
 
 void fd_crds_filter_walk(void * w, fd_crds_filter_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_crds_filter", level++);
@@ -12835,8 +12835,8 @@ void fd_crds_value_destroy(fd_crds_value_t* self, fd_bincode_destroy_ctx_t * ctx
   fd_crds_data_destroy(&self->data, ctx);
 }
 
-ulong fd_crds_value_footprint(){ return FD_CRDS_VALUE_FOOTPRINT; }
-ulong fd_crds_value_align(){ return FD_CRDS_VALUE_ALIGN; }
+ulong fd_crds_value_footprint( void ){ return FD_CRDS_VALUE_FOOTPRINT; }
+ulong fd_crds_value_align( void ){ return FD_CRDS_VALUE_ALIGN; }
 
 void fd_crds_value_walk(void * w, fd_crds_value_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_crds_value", level++);
@@ -12878,8 +12878,8 @@ void fd_gossip_pull_req_destroy(fd_gossip_pull_req_t* self, fd_bincode_destroy_c
   fd_crds_value_destroy(&self->value, ctx);
 }
 
-ulong fd_gossip_pull_req_footprint(){ return FD_GOSSIP_PULL_REQ_FOOTPRINT; }
-ulong fd_gossip_pull_req_align(){ return FD_GOSSIP_PULL_REQ_ALIGN; }
+ulong fd_gossip_pull_req_footprint( void ){ return FD_GOSSIP_PULL_REQ_FOOTPRINT; }
+ulong fd_gossip_pull_req_align( void ){ return FD_GOSSIP_PULL_REQ_ALIGN; }
 
 void fd_gossip_pull_req_walk(void * w, fd_gossip_pull_req_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_pull_req", level++);
@@ -12936,8 +12936,8 @@ void fd_gossip_pull_resp_destroy(fd_gossip_pull_resp_t* self, fd_bincode_destroy
   }
 }
 
-ulong fd_gossip_pull_resp_footprint(){ return FD_GOSSIP_PULL_RESP_FOOTPRINT; }
-ulong fd_gossip_pull_resp_align(){ return FD_GOSSIP_PULL_RESP_ALIGN; }
+ulong fd_gossip_pull_resp_footprint( void ){ return FD_GOSSIP_PULL_RESP_FOOTPRINT; }
+ulong fd_gossip_pull_resp_align( void ){ return FD_GOSSIP_PULL_RESP_ALIGN; }
 
 void fd_gossip_pull_resp_walk(void * w, fd_gossip_pull_resp_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_pull_resp", level++);
@@ -13007,8 +13007,8 @@ void fd_gossip_push_msg_destroy(fd_gossip_push_msg_t* self, fd_bincode_destroy_c
   }
 }
 
-ulong fd_gossip_push_msg_footprint(){ return FD_GOSSIP_PUSH_MSG_FOOTPRINT; }
-ulong fd_gossip_push_msg_align(){ return FD_GOSSIP_PUSH_MSG_ALIGN; }
+ulong fd_gossip_push_msg_footprint( void ){ return FD_GOSSIP_PUSH_MSG_FOOTPRINT; }
+ulong fd_gossip_push_msg_align( void ){ return FD_GOSSIP_PUSH_MSG_ALIGN; }
 
 void fd_gossip_push_msg_walk(void * w, fd_gossip_push_msg_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_push_msg", level++);
@@ -13063,8 +13063,8 @@ void fd_gossip_prune_msg_destroy(fd_gossip_prune_msg_t* self, fd_bincode_destroy
   fd_gossip_prune_data_destroy(&self->data, ctx);
 }
 
-ulong fd_gossip_prune_msg_footprint(){ return FD_GOSSIP_PRUNE_MSG_FOOTPRINT; }
-ulong fd_gossip_prune_msg_align(){ return FD_GOSSIP_PRUNE_MSG_ALIGN; }
+ulong fd_gossip_prune_msg_footprint( void ){ return FD_GOSSIP_PRUNE_MSG_FOOTPRINT; }
+ulong fd_gossip_prune_msg_align( void ){ return FD_GOSSIP_PRUNE_MSG_ALIGN; }
 
 void fd_gossip_prune_msg_walk(void * w, fd_gossip_prune_msg_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_prune_msg", level++);
@@ -13206,8 +13206,8 @@ void fd_gossip_msg_destroy(fd_gossip_msg_t* self, fd_bincode_destroy_ctx_t * ctx
   fd_gossip_msg_inner_destroy(&self->inner, self->discriminant, ctx);
 }
 
-ulong fd_gossip_msg_footprint(){ return FD_GOSSIP_MSG_FOOTPRINT; }
-ulong fd_gossip_msg_align(){ return FD_GOSSIP_MSG_ALIGN; }
+ulong fd_gossip_msg_footprint( void ){ return FD_GOSSIP_MSG_FOOTPRINT; }
+ulong fd_gossip_msg_align( void ){ return FD_GOSSIP_MSG_ALIGN; }
 
 void fd_gossip_msg_walk(void * w, fd_gossip_msg_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_msg", level++);
