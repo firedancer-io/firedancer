@@ -15,6 +15,7 @@
 #define PROGRAMDATA_METADATA_SIZE (45UL)
 #define MAX_PERMITTED_DATA_INCREASE (10 * 1024)
 #define SIZE_OF_PROGRAM (36)
+#define SIZE_OF_UNITIALIZED (4)
 
 char *
 read_bpf_upgradeable_loader_state( fd_global_ctx_t* global, fd_pubkey_t* program_acc, fd_bpf_upgradeable_loader_state_t * result, int *opt_err) {
@@ -640,6 +641,34 @@ static int setup_program(instruction_ctx_t ctx, const uchar * program_data, ulon
   return 0;
 }
 
+static int common_close_account(instruction_ctx_t ctx, fd_pubkey_t * authority_acc, 
+                                fd_account_meta_t * close_acc_metadata, 
+                                fd_account_meta_t * recipient_acc_metadata, 
+                                uchar * instr_acc_idxs, 
+                                fd_bpf_upgradeable_loader_state_t * loader_state,
+                                fd_pubkey_t * close_acc) {
+  fd_pubkey_t * authority_address = loader_state->inner.buffer.authority_address;
+
+  if (!authority_address) {
+    return FD_EXECUTOR_INSTR_ERR_ACC_IMMUTABLE;
+  }
+
+  if (memcmp(authority_address, authority_acc, sizeof(fd_pubkey_t)) == 0) {
+    return FD_EXECUTOR_INSTR_ERR_INCORRECT_AUTHORITY;
+  }
+
+  if (instr_acc_idxs[2] >= ctx.txn_ctx->txn_descriptor->signature_cnt) {
+    return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+  }
+
+  recipient_acc_metadata->info.lamports += close_acc_metadata->info.lamports;
+  close_acc_metadata   ->info.lamports = 0;
+
+  loader_state->discriminant = fd_bpf_upgradeable_loader_state_enum_uninitialized;
+
+  return write_bpf_upgradeable_loader_state( ctx.global, close_acc, loader_state );
+}
+
 int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_ctx_t ctx ) {
   /* Deserialize the Stake instruction */
   uchar * data            = (uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->data_off;
@@ -1216,23 +1245,29 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
     if (NULL == read_bpf_upgradeable_loader_state( ctx.global, close_acc, &loader_state, &err ))
       return err;
 
+    fd_account_meta_t * close_acc_metadata = NULL;
+    int write_result = fd_acc_mgr_modify( ctx.global->acc_mgr, ctx.global->funk_txn, close_acc, 0, 0UL, NULL, NULL, &close_acc_metadata, NULL );
+    if( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) ) {
+      FD_LOG_WARNING(( "failed to read account metadata" ));
+      return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
+    }
+
+    if (FD_FEATURE_ACTIVE(ctx.global, enable_program_redeployment_cooldown)) {
+      if (fd_account_set_data_length(&ctx, close_acc_metadata, close_acc, SIZE_OF_UNITIALIZED, 0, &err) != 0) {
+        return err;
+      }
+    }
+
+    fd_account_meta_t * recipient_acc_metadata = NULL;
+    write_result = fd_acc_mgr_modify( ctx.global->acc_mgr, ctx.global->funk_txn, recipient_acc, 0, 0UL, NULL, NULL, &recipient_acc_metadata, NULL );
+    if( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) ) {
+      FD_LOG_WARNING(( "failed to read account metadata" ));
+      return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
+    }
+
     if( fd_bpf_upgradeable_loader_state_is_uninitialized( &loader_state ) ) {
-      fd_account_meta_t * close_acc_metadata = NULL;
-      int write_result = fd_acc_mgr_modify( ctx.global->acc_mgr, ctx.global->funk_txn, close_acc, 0, 0UL, NULL, NULL, &close_acc_metadata, NULL );
-      if( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) ) {
-        FD_LOG_WARNING(( "failed to read account metadata" ));
-        return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
-      }
-
-      fd_account_meta_t * recipient_acc_metdata = NULL;
-      write_result = fd_acc_mgr_modify( ctx.global->acc_mgr, ctx.global->funk_txn, recipient_acc, 0, 0UL, NULL, NULL, &recipient_acc_metdata, NULL );
-      if( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) ) {
-        FD_LOG_WARNING(( "failed to read account metadata" ));
-        return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
-      }
-
       // FIXME: Do checked addition
-      recipient_acc_metdata->info.lamports += close_acc_metadata->info.lamports;
+      recipient_acc_metadata->info.lamports += close_acc_metadata->info.lamports;
       close_acc_metadata   ->info.lamports = 0;
 
       return FD_EXECUTOR_INSTR_SUCCESS;
@@ -1243,15 +1278,82 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
 
       fd_pubkey_t * authority_acc = &txn_accs[instr_acc_idxs[2]];
 
-      (void)authority_acc;
-    } else if( !fd_bpf_upgradeable_loader_state_is_program( &loader_state ) ) {
+      return common_close_account(ctx, authority_acc, close_acc_metadata, recipient_acc_metadata, instr_acc_idxs, &loader_state, close_acc);
+    } else if ( fd_bpf_upgradeable_loader_state_is_program_data( &loader_state ) ) {
+      if( ctx.instr->acct_cnt < 4 ) {
+        return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+      }
+
+      fd_pubkey_t * program_acc = &txn_accs[instr_acc_idxs[3]];
+      fd_account_meta_t * program_acc_metdata = NULL;
+      write_result = fd_acc_mgr_modify( ctx.global->acc_mgr, ctx.global->funk_txn, program_acc, 0, 0UL, NULL, NULL, &program_acc_metdata, NULL );
+      if( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) ) {
+        FD_LOG_WARNING(( "failed to read account metadata" ));
+        return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
+      }
+
+      if (!fd_account_is_writable(&ctx, program_acc)) {
+        return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+      }
+      fd_pubkey_t * program_id = &txn_accs[instr_acc_idxs[ctx.txn_ctx->txn_descriptor->acct_addr_cnt - 1]];
+      if (memcmp(program_acc_metdata->info.owner, program_id, sizeof(fd_pubkey_t)) != 0) {
+        return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
+      }
+
+      if (FD_FEATURE_ACTIVE(ctx.global, enable_program_redeployment_cooldown)) {
+        fd_sol_sysvar_clock_t clock;
+        fd_sysvar_clock_read(ctx.global, &clock);
+        if (clock.slot == loader_state.inner.program_data.slot) {
+          return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+        }
+      }
+
+      fd_bpf_upgradeable_loader_state_t program_acc_state;
+      err = 0;
+      if (NULL == read_bpf_upgradeable_loader_state( ctx.global, program_acc, &program_acc_state, &err ))
+        return err;
+
+      if (!fd_bpf_upgradeable_loader_state_is_program( &program_acc_state )) {
+        return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+      }
+
+      if (memcmp(&program_acc_state.inner.program.programdata_address, close_acc, sizeof(fd_pubkey_t)) != 0) {
+        return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+      }
+
+      fd_pubkey_t * authority_acc = &txn_accs[instr_acc_idxs[2]];
+
+      err = common_close_account(ctx, authority_acc, close_acc_metadata, recipient_acc_metadata, instr_acc_idxs, &loader_state, close_acc);
+      if (err != 0) {
+        return err;
+      }
+
+      if (FD_FEATURE_ACTIVE(ctx.global, delay_visibility_of_program_deployment)) {
+        // invoke_context.programs_modified_by_tx.replenish(
+        //     program_key,
+        //     Arc::new(LoadedProgram::new_tombstone(
+        //         clock.slot,
+        //         LoadedProgramType::Closed,
+        //     )),
+        // );
+      } else {
+        // invoke_context
+        //     .programs_updated_only_for_global_cache
+        //     .replenish(
+        //         program_key,
+        //         Arc::new(LoadedProgram::new_tombstone(
+        //             clock.slot,
+        //             LoadedProgramType::Closed,
+        //         )),
+        //     );
+      }
+      return FD_EXECUTOR_INSTR_SUCCESS;
+    } else {
       return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
     }
 
     return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
   } else if ( fd_bpf_upgradeable_loader_program_instruction_is_extend_program( &instruction ) ) {
-
-
     return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
   } else {
     FD_LOG_WARNING(( "unsupported bpf upgradeable loader program instruction: discriminant: %d", instruction.discriminant ));
