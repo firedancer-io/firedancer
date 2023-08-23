@@ -2,6 +2,7 @@
 #define HEADER_fd_src_flamenco_types_fd_types_meta_h
 
 #include "../../util/fd_util_base.h"
+#include "fd_bincode.h"
 
 /* fd_types_meta.h provides type reflection APIs fd_types. */
 
@@ -32,6 +33,19 @@
 #define FD_FLAMENCO_TYPE_MAP       (0x22)
 #define FD_FLAMENCO_TYPE_MAP_END   (0x23)
 
+struct fd_types_funcs {
+  int   (*decode_fun)(void* self, fd_bincode_decode_ctx_t *);
+  int   (*encode_fun)(void const * self, fd_bincode_encode_ctx_t * ctx);
+  int   (*walk_fun)(void * w, void * self, fd_types_walk_fn_t, const char *, uint);
+  ulong (*align_fun)();
+  ulong (*footprint_fun)();
+  ulong (*size_fun)(void const * self);
+  void  (*destroy_fun)(void* self, fd_bincode_destroy_ctx_t * ctx);
+  void* (*new_fun)(void *);
+};
+
+typedef struct fd_types_funcs fd_types_funcs_t;
+
 FD_PROTOTYPES_BEGIN
 
 static inline int
@@ -53,6 +67,8 @@ static inline int
 fd_flamenco_type_is_collection_end( int type ) {
   return fd_flamenco_type_is_collection(type) && ((type&1)!=0);
 }
+
+int fd_flamenco_type_lookup(const char *name, fd_types_funcs_t *);
 
 FD_PROTOTYPES_END
 

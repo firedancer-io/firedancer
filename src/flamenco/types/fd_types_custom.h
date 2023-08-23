@@ -7,14 +7,6 @@
 #include "../../ballet/txn/fd_txn.h"
 #include "../../util/net/fd_ip4.h"
 
-typedef void
-(* fd_types_walk_fn_t)( void *       self,
-                        void const * arg,
-                        char const * name,
-                        int          type,
-                        char const * type_name,
-                        uint         level );
-
 #define FD_HASH_FOOTPRINT (32UL)
 #define FD_HASH_ALIGN (8UL)
 #define FD_PUBKEY_FOOTPRINT FD_HASH_FOOTPRINT
