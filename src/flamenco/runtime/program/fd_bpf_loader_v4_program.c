@@ -429,18 +429,70 @@ _process_deploy( instruction_ctx_t ctx ) {
 static int
 _process_retract( instruction_ctx_t ctx ) {
 
-  /* Accounts */
+  /* Context */
 
   fd_global_ctx_t *   global         = ctx.global;
   uchar const *       instr_acc_idxs = ((uchar const *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
   fd_pubkey_t const * txn_accs       = (fd_pubkey_t const *)((uchar const *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
+  fd_acc_mgr_t *      acc_mgr        = global->acc_mgr;
+  fd_funk_txn_t *     funk_txn       = global->funk_txn;
 
-  (void)global;
-  (void)instr_acc_idxs;
-  (void)txn_accs;
+  /* Unpack accounts
 
-  FD_LOG_WARNING(( "TODO" ));
-  return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
+     https://github.com/solana-labs/solana/blob/d90e1582869d8ef8d386a1c156eda987404c43be/programs/loader-v4/src/lib.rs#L494 */
+
+  if( FD_UNLIKELY( ctx.instr->acct_cnt < 2 ) )
+    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+
+  ulong program_id_idx = instr_acc_idxs[0];
+  //ulong authority_idx  = instr_acc_idxs[1];
+
+  fd_pubkey_t const * program_id = &txn_accs[ program_id_idx ];
+  //fd_pubkey_t const * authority  = &txn_accs[ authority_idx  ];
+
+  /* Read program account */
+  fd_funk_rec_t     const * program_rec_ro  = NULL;
+  fd_account_meta_t const * program_meta_ro = NULL;
+  uchar             const * program_data_ro = NULL;
+  int err = fd_acc_mgr_view( acc_mgr, funk_txn, program_id, &program_rec_ro, &program_meta_ro, &program_data_ro );
+  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) return err;
+
+  /* Check program account
+     https://github.com/solana-labs/solana/blob/d90e1582869d8ef8d386a1c156eda987404c43be/programs/loader-v4/src/lib.rs#L498 */
+  err = check_program_account( ctx, program_meta_ro );
+  if( FD_UNLIKELY( err!=0 ) ) return err;
+  fd_bpf_loader_v4_state_t const * state = (fd_bpf_loader_v4_state_t const *)
+    fd_type_pun_const( program_data_ro );
+
+  /* Solana Labs reads from the clock sysvar here
+     https://github.com/solana-labs/solana/blob/d90e1582869d8ef8d386a1c156eda987404c43be/programs/loader-v4/src/lib.rs#L504 */
+  ulong current_slot = global->bank.slot;
+  if( state->slot + 750UL > current_slot ) {
+    // TODO Log: "Program was deployed recently, cooldown stil in effect"
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+  }
+
+  /* https://github.com/solana-labs/solana/blob/d90e1582869d8ef8d386a1c156eda987404c43be/programs/loader-v4/src/lib.rs#L512 */
+  if( !state->is_deployed ) {
+    // TODO Log: "Program is not deployed"
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+  }
+
+  /* Upgrade to writable handle
+     https://github.com/solana-labs/solana/blob/d90e1582869d8ef8d386a1c156eda987404c43be/programs/loader-v4/src/lib.rs#L516 */
+  if( FD_UNLIKELY( !fd_txn_is_writable( ctx.txn_ctx->txn_descriptor, (int)program_id_idx ) ) )
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+  fd_funk_rec_t     * program_rec_rw  = NULL;
+  fd_account_meta_t * program_meta_rw = NULL;
+  uchar             * program_data_rw = NULL;
+  err = fd_acc_mgr_modify( acc_mgr, funk_txn, program_id, /* do_create */ 0, 0UL, program_rec_ro, &program_rec_rw, &program_meta_rw, &program_data_rw );
+  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) return err;
+  fd_bpf_loader_v4_state_t * state_rw = (fd_bpf_loader_v4_state_t *)fd_type_pun( program_data_rw );
+
+  /* https://github.com/solana-labs/solana/blob/d90e1582869d8ef8d386a1c156eda987404c43be/programs/loader-v4/src/lib.rs#L517 */
+  state_rw->is_deployed = 0;
+
+  return 0;
 }
 
 static int
