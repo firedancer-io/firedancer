@@ -3,6 +3,8 @@
 #include "../../types/fd_types.h"
 #include "../../../util/bits/fd_sat.h"
 
+#define DEPLOYMENT_COOLDOWN_IN_SLOTS (750)
+
 /* Methods for processing specific BPF Loader v4 instructions */
 
 static int _process_write             ( instruction_ctx_t, fd_bpf_loader_v4_program_instruction_write_t const * );
@@ -416,12 +418,104 @@ _process_deploy( instruction_ctx_t ctx ) {
   uchar const *       instr_acc_idxs = ((uchar const *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
   fd_pubkey_t const * txn_accs       = (fd_pubkey_t const *)((uchar const *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
 
-  (void)global;
-  (void)instr_acc_idxs;
-  (void)txn_accs;
+  if (ctx.instr->acct_cnt < 2) {
+    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+  }
+  const fd_pubkey_t * program_acc = &txn_accs[instr_acc_idxs[0]];
+  const fd_pubkey_t * authority_address = &txn_accs[instr_acc_idxs[1]];
+  const fd_pubkey_t * source_program = NULL;
 
-  FD_LOG_WARNING(( "TODO" ));
-  return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
+  if (ctx.instr->acct_cnt >= 3) {
+    source_program = &txn_accs[instr_acc_idxs[2]];
+  }
+  // Load program account
+  fd_account_meta_t * program_acc_metadata = NULL;
+  uchar * program_acc_data = NULL;
+  int err = fd_acc_mgr_modify(global->acc_mgr, global->funk_txn, program_acc, 1, 0, NULL, NULL, &program_acc_metadata, &program_acc_data);
+  if( FD_UNLIKELY( err ) ) return err;
+  err = check_program_account(ctx, program_acc_metadata);
+  if( FD_UNLIKELY( err ) ) return err;
+
+  // Get bpf v4 state
+  fd_bpf_loader_v4_state_t const * state = (fd_bpf_loader_v4_state_t const *)
+      fd_type_pun_const( program_acc_data );
+
+  fd_sol_sysvar_clock_t clock;
+  fd_sysvar_clock_read(global, &clock);
+  ulong current_slot = clock.slot;
+
+  if (fd_ulong_sat_add(state->slot, DEPLOYMENT_COOLDOWN_IN_SLOTS) > current_slot) {
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+  }
+
+  if (state->is_deployed) {
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+  }
+
+  fd_account_meta_t * buffer_metadata = NULL;
+  uchar * buffer_data = NULL;
+
+  if (source_program) {
+    fd_account_meta_t * source_program_metadata = NULL;
+    uchar * source_program_data = NULL;
+    err = fd_acc_mgr_modify(global->acc_mgr, global->funk_txn, source_program, 1, 0, NULL, NULL, &source_program_metadata, &source_program_data);
+    if (FD_UNLIKELY(err != FD_EXECUTOR_INSTR_SUCCESS)) {
+      return err;
+    }
+
+    err = check_program_account(ctx, source_program_metadata);
+    if (FD_UNLIKELY(err != FD_EXECUTOR_INSTR_SUCCESS)) {
+      return err;
+    }
+
+    fd_bpf_loader_v4_state_t const * source_state = (fd_bpf_loader_v4_state_t const *)
+      fd_type_pun_const( source_program_data );
+
+    if (source_state->is_deployed) {
+      return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+    }
+    buffer_metadata = source_program_metadata;
+    buffer_data = source_program_data;
+  } else {
+    buffer_metadata = program_acc_metadata;
+    buffer_data = program_acc_data;
+  }
+
+  // TODO: load_program
+  FD_LOG_WARNING(("TODO: load program"));
+  // let (_executor, load_program_metrics) = load_program_from_account(
+  //     &invoke_context.feature_set,
+  //     invoke_context.get_compute_budget(),
+  //     invoke_context.get_log_collector(),
+  //     buffer,
+  //     false, /* debugging_features */
+  // )?;
+
+  if (source_program) {
+    ulong required_lamports = fd_rent_exempt_minimum_balance(global, program_acc_metadata->dlen);
+    ulong transfer_lamports = fd_ulong_sat_sub(program_acc_metadata->info.lamports, required_lamports);
+
+    fd_account_meta_t * source_program_metadata = NULL;
+    uchar * source_program_data = NULL;
+    err = fd_acc_mgr_modify(global->acc_mgr, global->funk_txn, source_program, 1, 0, NULL, NULL, &source_program_metadata, &source_program_data);
+    if (FD_UNLIKELY(err != FD_EXECUTOR_INSTR_SUCCESS)) {
+      return err;
+    }
+    program_acc_metadata->dlen = source_program_metadata->dlen;
+    fd_memcpy(program_acc_data, source_program_data, source_program_metadata->dlen);
+    source_program_metadata->dlen = 0;
+    source_program_metadata->info.lamports -= transfer_lamports;
+    program_acc_metadata->info.lamports += transfer_lamports;
+  }
+
+  fd_bpf_loader_v4_state_t * mut_state = (fd_bpf_loader_v4_state_t *) program_acc_data;
+  mut_state->slot = current_slot;
+  mut_state->is_deployed = true;
+
+  (void) buffer_data;
+  (void) buffer_metadata;
+  (void) authority_address;
+  return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
 static int
