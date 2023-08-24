@@ -1297,6 +1297,27 @@
       "comment": ""
     },
     {
+      "name": "bpf_loader_v4_program_instruction_write",
+      "type": "struct",
+      "fields": [
+        { "name": "offset", "type": "uint" },
+        { "name": "bytes", "type": "vector", "element": "uchar" }
+      ],
+      "comment": "https://github.com/solana-labs/solana/blob/d90e1582869d8ef8d386a1c156eda987404c43be/sdk/program/src/loader_v4_instruction.rs#L18"
+    },
+    {
+      "name": "bpf_loader_v4_program_instruction",
+      "type": "enum",
+      "variants": [
+        { "name": "write", "type": "bpf_loader_v4_program_instruction_write" },
+        { "name": "truncate", "type": "uint" },
+        { "name": "deploy" },
+        { "name": "retract" },
+        { "name": "transfer_authority" }
+      ],
+      "comment": "https://github.com/solana-labs/solana/blob/d90e1582869d8ef8d386a1c156eda987404c43be/sdk/program/src/loader_v4_instruction.rs#L5-L6"
+    },
+    {
       "name": "bpf_upgradeable_loader_program_instruction_write",
       "type": "struct",
       "fields": [
