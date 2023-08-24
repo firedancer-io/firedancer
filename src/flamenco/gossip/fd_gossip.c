@@ -407,14 +407,18 @@ fd_gossip_first_pull( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, l
   filter->filter.keys = (ulong*)keys;
   filter->filter.num_bits_set = 0;
   fd_gossip_bitvec_u64_t * bits = &filter->filter.bits;
-  bits->bits = NULL;
-  bits->len = 0;
+  struct fd_gossip_bitvec_u64_inner bitsbits;
+  bits->bits = &bitsbits;
+  bits->len = 64;
+  bitsbits.vec_len = 1;
+  static const ulong bv[1] = {0};
+  bitsbits.vec = (ulong*)bv;
 
   fd_crds_value_t * value = &req->value;
   fd_crds_data_new_disc(&value->data, fd_crds_data_enum_version);
   fd_gossip_version_t * version = &value->data.inner.version;
   fd_memcpy( version->from.uc, glob->my_creds.public_key.uc, 32UL );
-  version->wallclock = (ulong)now;
+  version->wallclock = (ulong)now/1000000; /* convert to ms */
   fd_gossip_sign_crds_value(glob, value);
 
   fd_ping_key_t * key = &arg->key;
