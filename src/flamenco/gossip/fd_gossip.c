@@ -85,22 +85,23 @@ void fd_ping_key_copy( fd_ping_key_t * keyd, const fd_ping_key_t * keys ) {
     pd[i] = ps[i];
 }
 
-/* Contact table element */
-struct fd_contact_elem {
+/* All peers table element */
+struct fd_peer_elem {
     fd_ping_key_t key;
     ulong next;
-    fd_gossip_contact_info_t info;
+    long lastheard; /* last time we heard about this peer */
+    ulong stake;
 };
-/* Contact table */
-typedef struct fd_contact_elem fd_contact_elem_t;
-#define MAP_NAME     fd_contact_table
+/* All peer table */
+typedef struct fd_peer_elem fd_peer_elem_t;
+#define MAP_NAME     fd_peer_table
 #define MAP_KEY_T    fd_ping_key_t
 #define MAP_KEY_EQ   fd_ping_key_eq
 #define MAP_KEY_HASH fd_ping_key_hash
 #define MAP_KEY_COPY fd_ping_key_copy
-#define MAP_T        fd_contact_elem_t
+#define MAP_T        fd_peer_elem_t
 #include "../../util/tmpl/fd_map_giant.c"
-#define FD_CONTACT_KEY_MAX (1<<16)
+#define FD_PEER_KEY_MAX (1<<16)
 
 /* Active table element */
 struct fd_active_elem {
@@ -151,7 +152,7 @@ struct fd_gossip_global {
     fd_gossip_network_addr_t my_addr;
     ulong seed;
     int sockfd;
-    fd_contact_elem_t * contacts;
+    fd_peer_elem_t * peers;
     fd_active_elem_t * actives;
     fd_pending_event_t * event_pool;
     fd_pending_heap_t * event_heap;
@@ -170,8 +171,8 @@ fd_gossip_global_new ( void * shmem, ulong seed, fd_valloc_t valloc ) {
   fd_gossip_global_t * glob = (fd_gossip_global_t *)shmem;
   glob->seed = seed;
   glob->sockfd = -1;
-  void * shm = fd_valloc_malloc(valloc, fd_contact_table_align(), fd_contact_table_footprint(FD_CONTACT_KEY_MAX));
-  glob->contacts = fd_contact_table_join(fd_contact_table_new(shm, FD_CONTACT_KEY_MAX, seed));
+  void * shm = fd_valloc_malloc(valloc, fd_peer_table_align(), fd_peer_table_footprint(FD_PEER_KEY_MAX));
+  glob->peers = fd_peer_table_join(fd_peer_table_new(shm, FD_PEER_KEY_MAX, seed));
   shm = fd_valloc_malloc(valloc, fd_active_table_align(), fd_active_table_footprint(FD_ACTIVE_KEY_MAX));
   glob->actives = fd_active_table_join(fd_active_table_new(shm, FD_ACTIVE_KEY_MAX, seed));
   shm = fd_valloc_malloc(valloc, fd_pending_pool_align(), fd_pending_pool_footprint(FD_PENDING_MAX));
@@ -191,7 +192,7 @@ fd_gossip_global_leave ( fd_gossip_global_t * join ) { return join; }
 void *
 fd_gossip_global_delete ( void * shmap, fd_valloc_t valloc ) {
   fd_gossip_global_t * glob = (fd_gossip_global_t *)shmap;
-  fd_valloc_free(valloc, fd_contact_table_delete(fd_contact_table_leave(glob->contacts)));
+  fd_valloc_free(valloc, fd_peer_table_delete(fd_peer_table_leave(glob->peers)));
   fd_valloc_free(valloc, fd_active_table_delete(fd_active_table_leave(glob->actives)));
   fd_valloc_free(valloc, fd_pending_pool_delete(fd_pending_pool_leave(glob->event_pool)));
   fd_valloc_free(valloc, fd_pending_heap_delete(fd_pending_heap_leave(glob->event_heap)));
@@ -375,6 +376,52 @@ fd_gossip_handle_ping( fd_gossip_global_t * glob, fd_gossip_network_addr_t * fro
 }
 
 void
+fd_gossip_sign_crds_value( fd_gossip_global_t * glob, fd_crds_value_t * value ) {
+  uchar buf[FD_ETH_PAYLOAD_MAX];
+  fd_bincode_encode_ctx_t ctx;
+  ctx.data = buf;
+  ctx.dataend = buf + FD_ETH_PAYLOAD_MAX;
+  if ( fd_crds_data_encode( &value->data, &ctx ) ) {
+    FD_LOG_WARNING(("fd_crds_data_encode failed"));
+    return;
+  }
+  fd_sha512_t sha[1];
+  fd_ed25519_sign( /* sig */ value->signature.uc,
+                   /* msg */ buf,
+                   /* sz  */ (ulong)((uchar*)ctx.data - buf),
+                   /* public_key  */ glob->my_creds.public_key.uc,
+                   /* private_key */ glob->my_creds.private_key,
+                   sha );
+}
+
+void
+fd_gossip_first_pull( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, long now ) {
+  fd_gossip_msg_t gmsg;
+  fd_gossip_msg_new_disc(&gmsg, fd_gossip_msg_enum_pull_req);
+  fd_gossip_pull_req_t * req = &gmsg.inner.pull_req;
+  fd_crds_filter_t * filter = &req->filter;
+  filter->mask = ~0UL;
+  filter->mask_bits = 0;
+  static const ulong keys[1] = {0};
+  filter->filter.keys_len = 1;
+  filter->filter.keys = (ulong*)keys;
+  filter->filter.num_bits_set = 0;
+  fd_gossip_bitvec_u64_t * bits = &filter->filter.bits;
+  bits->bits = NULL;
+  bits->len = 0;
+
+  fd_crds_value_t * value = &req->value;
+  fd_crds_data_new_disc(&value->data, fd_crds_data_enum_version);
+  fd_gossip_version_t * version = &value->data.inner.version;
+  fd_memcpy( version->from.uc, glob->my_creds.public_key.uc, 32UL );
+  version->wallclock = (ulong)now;
+  fd_gossip_sign_crds_value(glob, value);
+
+  fd_ping_key_t * key = &arg->key;
+  fd_gossip_send(glob, &key->addr, &gmsg);
+}
+
+void
 fd_gossip_handle_pong( fd_gossip_global_t * glob, fd_gossip_network_addr_t * from, fd_gossip_ping_t const * pong, long now ) {
   fd_ping_key_t key;
   fd_memset(&key, 0, sizeof(key));
@@ -410,6 +457,26 @@ fd_gossip_handle_pong( fd_gossip_global_t * glob, fd_gossip_network_addr_t * fro
   }
   
   val->pongtime = now;
+
+  /* Trigger the first pull request */
+  if (fd_peer_table_key_cnt(glob->peers) == 0) {
+    fd_pending_event_t * ev = fd_gossip_add_pending(glob, 0 /* ASAP */);
+    if (ev) {
+      ev->fun = fd_gossip_first_pull;
+      fd_memcpy(&ev->fun_arg.key, &key, sizeof(key));
+    }
+  }
+  /* Remember that this is a good peer */
+  fd_peer_elem_t * peerval = fd_peer_table_query(glob->peers, &key, NULL);
+  if (peerval == NULL) {
+    peerval = fd_peer_table_insert(glob->peers, &key);
+    if (peerval == NULL) {
+      FD_LOG_WARNING(("too many peers"));
+      return;
+    }
+    peerval->stake = 0;
+  }
+  peerval->lastheard = now;
 }
 
 void
@@ -447,7 +514,7 @@ int fd_gossip_add_active_peer( fd_gossip_global_t * glob, fd_pubkey_t * id, fd_g
   if (ev == NULL)
     return 0;
   ev->fun = fd_gossip_make_ping;
-  ev->fun_arg.key = key;
+  fd_memcpy(&ev->fun_arg.key, &key, sizeof(key));;
   return 0;
 }
 
