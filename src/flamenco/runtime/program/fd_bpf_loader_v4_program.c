@@ -332,11 +332,11 @@ _process_truncate( instruction_ctx_t ctx,
     return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
 
   ulong program_id_idx = instr_acc_idxs[0];
-  ulong authority_idx  = instr_acc_idxs[1];
+  //ulong authority_idx  = instr_acc_idxs[1];
   ulong recipient_idx  = instr_acc_idxs[2];
 
   fd_pubkey_t const * program_id = &txn_accs[ program_id_idx ];
-  fd_pubkey_t const * authority  = &txn_accs[ authority_idx  ];
+  //fd_pubkey_t const * authority  = &txn_accs[ authority_idx  ];
   fd_pubkey_t const * recipient  = &txn_accs[ recipient_idx  ];
 
   /* Read program account */
@@ -382,14 +382,31 @@ _process_truncate( instruction_ctx_t ctx,
     required_lamports     = fd_rent_exempt_minimum_balance2( &global->bank.rent, target_program_acc_sz );
   }
 
-  /* Upgrade to writable handle and res ....
-      OK nvm ADHD kicked in need to make a commit */
-  (void)recipient;
-  (void)authority;
-  (void)required_lamports;
+  /* Upgrade to writable handle and shrink account.
+     TODO fd_funk does currently not support shrinking records. */
+  if( FD_UNLIKELY( !fd_txn_is_writable( ctx.txn_ctx->txn_descriptor, (int)program_id_idx ) ) )
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+  fd_funk_rec_t     * program_rec_rw  = NULL;
+  fd_account_meta_t * program_meta_rw = NULL;
+  uchar             * program_data_rw = NULL;
+  err = fd_acc_mgr_modify( acc_mgr, funk_txn, program_id, /* do_create */ 0, target_program_acc_sz, program_rec_ro, &program_rec_rw, &program_meta_rw, &program_data_rw );
+  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) return err;
+  program_meta_rw->dlen = target_program_acc_sz;
 
-  FD_LOG_WARNING(( "TODO" ));
-  return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
+  /* Obtain writable handle to recipient account. */
+  if( FD_UNLIKELY( !fd_txn_is_writable( ctx.txn_ctx->txn_descriptor, (int)recipient_idx ) ) )
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+  fd_account_meta_t * recipient_meta_rw = NULL;
+  err = fd_acc_mgr_modify( acc_mgr, funk_txn, recipient, /* flags */ 0UL, /* min_data_sz */ 0UL, NULL, NULL, &recipient_meta_rw, NULL );
+  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) return err;
+
+  /* https://github.com/solana-labs/solana/blob/d90e1582869d8ef8d386a1c156eda987404c43be/programs/loader-v4/src/lib.rs#L375 */
+  ulong transfer_lamports = program_meta_rw->info.lamports - required_lamports;
+  FD_TEST( transfer_lamports <= program_meta_rw->info.lamports );  /* debug assert */
+  program_meta_rw  ->info.lamports -= transfer_lamports;
+  recipient_meta_rw->info.lamports += transfer_lamports;
+
+  return 0;
 }
 
 static int
