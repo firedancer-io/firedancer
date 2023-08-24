@@ -2062,14 +2062,14 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
   case fd_vote_instruction_enum_update_validator_identity: {
     FD_LOG_INFO(( "executing VoteInstruction::UpdateValidatorIdentity instruction" ));
 
-    /* Read vote account state stored in the vote account data */
-    fd_pubkey_t const * new_identity  = &txn_accs[instr_acc_idxs[1]];
-
     /* Require at least two accounts */
-    if( FD_UNLIKELY( ctx.instr->acct_cnt < 1 ) ) {
+    if( FD_UNLIKELY( ctx.instr->acct_cnt < 2 ) ) {
       ret = FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
       break;
     }
+
+    /* Read vote account state stored in the vote account data */
+    fd_pubkey_t const * new_identity  = &txn_accs[instr_acc_idxs[1]];
 
     fd_sol_sysvar_clock_t clock;
     fd_sysvar_clock_read( ctx.global, &clock );
