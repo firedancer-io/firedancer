@@ -400,8 +400,12 @@ void activate_epoch( fd_global_ctx_t* global, ulong next_epoch ) {
      https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L180 */
   /* Add a new entry to the Stake History sysvar for the previous epoch
      https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L181-L192 */
+  fd_stake_history_epochentry_pair_t_mapnode_t * stake_history_pool = stakes->stake_history.entries_pool;
+  fd_stake_history_epochentry_pair_t_mapnode_t * stake_history_root = stakes->stake_history.entries_root;
+  fd_stake_history_t history;
+  fd_sysvar_stake_history_read( global,  &history);
 
-  fd_stake_history_epochentry_pair_t_mapnode_t * acc = fd_stake_history_epochentry_pair_t_map_acquire( stakes->stake_history.entries_pool );
+  fd_stake_history_epochentry_pair_t_mapnode_t * acc = fd_stake_history_epochentry_pair_t_map_acquire( stake_history_pool );
   acc->elem.entry = (fd_stake_history_entry_t){
     .effective = 0,
     .activating = 0,
@@ -409,8 +413,6 @@ void activate_epoch( fd_global_ctx_t* global, ulong next_epoch ) {
   };
   acc->elem.epoch = stakes->epoch;
 
-  fd_stake_history_t history;
-  fd_sysvar_stake_history_read( global, &history);
 
   for ( fd_delegation_pair_t_mapnode_t * n = fd_delegation_pair_t_map_minimum(stakes->stake_delegations_pool, stakes->stake_delegations_root); n; n = fd_delegation_pair_t_map_successor(stakes->stake_delegations_pool, n) ) {
     fd_stake_history_entry_t new_entry = stake_activating_and_deactivating( &n->elem.delegation, stakes->epoch, &history );
@@ -418,7 +420,8 @@ void activate_epoch( fd_global_ctx_t* global, ulong next_epoch ) {
     acc->elem.entry.activating += new_entry.activating;
     acc->elem.entry.deactivating += new_entry.deactivating;
   }
-  acc = fd_stake_history_epochentry_pair_t_map_insert( stakes->stake_history.entries_pool, &stakes->stake_history.entries_root, acc );
+  acc = fd_stake_history_epochentry_pair_t_map_insert( stake_history_pool, &stake_history_root, acc );
+  fd_sysvar_stake_history_update( global, &acc->elem);
 
   /* Update the current epoch value */
   stakes->epoch = next_epoch;

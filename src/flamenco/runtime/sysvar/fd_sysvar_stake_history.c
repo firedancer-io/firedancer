@@ -33,7 +33,19 @@ int fd_sysvar_stake_history_read( fd_global_ctx_t* global, fd_stake_history_t* r
 }
 
 void fd_sysvar_stake_history_init( fd_global_ctx_t* global ) {
-  fd_stake_history_t stake_history;
-  memset( &stake_history, 0, sizeof(fd_stake_history_t) );
+  fd_stake_history_t stake_history = {
+    .entries_pool = fd_stake_history_epochentry_pair_t_map_alloc( global->valloc, 100000UL ),
+    .entries_root = NULL
+  };
   write_stake_history( global, &stake_history );
+}
+
+void fd_sysvar_stake_history_update( fd_global_ctx_t * global, fd_stake_history_epochentry_pair_t * entry) {
+  // Need to make this maybe zero copies of map...
+  fd_stake_history_t stake_history;
+  fd_sysvar_stake_history_read( global, &stake_history);
+  fd_stake_history_epochentry_pair_t_mapnode_t * node = fd_stake_history_epochentry_pair_t_map_acquire( stake_history.entries_pool );
+  fd_memcpy(&node->elem, entry, sizeof(fd_stake_history_epochentry_pair_t));
+  fd_stake_history_epochentry_pair_t_map_insert( stake_history.entries_pool, &stake_history.entries_root, node );
+  write_stake_history( global, &stake_history);
 }

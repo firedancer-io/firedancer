@@ -142,6 +142,8 @@ fd_solcap_can_pretty_print( uchar const owner [ static 32 ],
   fd_base58_decode_32( "SysvarRent111111111111111111111111111111111", _sysvar_rent );
   uchar _sysvar_epoch_rewards[ 32 ];
   fd_base58_decode_32( "SysvarEpochRewards1111111111111111111111111", _sysvar_epoch_rewards );
+  uchar _sysvar_stake_history[ 32 ];
+  fd_base58_decode_32( "SysvarStakeHistory1111111111111111111111111", _sysvar_stake_history );
 
   if( 0==memcmp( owner, _vote_program_address, 32UL ) )
     return 1;
@@ -152,7 +154,8 @@ fd_solcap_can_pretty_print( uchar const owner [ static 32 ],
     return 1;
   if( 0==memcmp( pubkey, _sysvar_epoch_rewards, 32UL ) )
     return 1;
-
+  if( 0==memcmp( pubkey, _sysvar_stake_history, 32UL ) )
+    return 1;
   return 0;
 }
 
@@ -184,6 +187,8 @@ fd_solcap_account_pretty_print( uchar const   pubkey[ static 32 ],
   fd_base58_decode_32( "SysvarRent111111111111111111111111111111111", _sysvar_rent );
   uchar _sysvar_epoch_rewards[ 32 ];
   fd_base58_decode_32( "SysvarEpochRewards1111111111111111111111111", _sysvar_epoch_rewards );
+  uchar _sysvar_stake_history[ 32 ];
+  fd_base58_decode_32( "SysvarStakeHistory1111111111111111111111111", _sysvar_stake_history );
 
   if( 0==memcmp( owner, _vote_program_address, 32UL ) ) {
     fd_vote_state_versioned_t vote_state[1];
@@ -209,6 +214,12 @@ fd_solcap_account_pretty_print( uchar const   pubkey[ static 32 ],
     if( FD_UNLIKELY( err!=0 ) ) return err;
 
     fd_sysvar_epoch_rewards_walk( yaml, epoch_rewards, fd_flamenco_yaml_walk, NULL, 0U );
+  } else if( 0==memcmp( pubkey, _sysvar_stake_history, 32UL ) ) {
+    fd_stake_history_t stake_history[1];
+    int err = fd_stake_history_decode( stake_history, &decode );
+    if( FD_UNLIKELY( err!=0 ) ) return err;
+
+    fd_stake_history_walk( yaml, stake_history, fd_flamenco_yaml_walk, NULL, 0U );
   }
 
   int err = ferror( file );

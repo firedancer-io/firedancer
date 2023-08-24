@@ -10,7 +10,6 @@
 #include "../../ballet/bmtree/fd_bmtree.h"
 
 #include "../stakes/fd_stake_program.h"
-
 #include "program/fd_system_program.h"
 #include "program/fd_vote_program.h"
 #include <stdio.h>
@@ -210,7 +209,7 @@ fd_runtime_init_bank_from_genesis( fd_global_ctx_t *     global,
 
 void
 fd_runtime_init_program( fd_global_ctx_t * global ) {
-  fd_sysvar_recent_hashes_init(global );
+  fd_sysvar_recent_hashes_init( global );
   fd_sysvar_clock_init( global );
   fd_sysvar_slot_history_init( global );
 //  fd_sysvar_slot_hashes_init( global );
