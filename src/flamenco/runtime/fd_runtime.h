@@ -60,6 +60,7 @@ struct __attribute__((aligned(FD_GLOBAL_CTX_ALIGN))) fd_global_ctx {
   unsigned char              solana_bpf_loader_deprecated_program[32];
   unsigned char              solana_bpf_loader_program[32];
   unsigned char              solana_bpf_loader_upgradeable_program[32];
+  fd_pubkey_t                solana_bpf_loader_v4_program[32];
   unsigned char              solana_ed25519_sig_verify_program[32];
   unsigned char              solana_keccak_secp_256k_program[32];
   unsigned char              solana_compute_budget_program[32];

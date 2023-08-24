@@ -12,6 +12,7 @@
 #include "program/fd_bpf_loader_program.h"
 #include "program/fd_bpf_upgradeable_loader_program.h"
 #include "program/fd_bpf_deprecated_loader_program.h"
+#include "program/fd_bpf_loader_v4_program.h"
 #include "program/fd_compute_budget_program.h"
 
 #include "../../ballet/base58/fd_base58.h"
@@ -68,6 +69,8 @@ fd_executor_lookup_native_program( fd_global_ctx_t* global,  fd_pubkey_t* pubkey
     return fd_executor_bpf_deprecated_loader_program_execute_instruction;
   } else if ( !memcmp( pubkey, global->solana_compute_budget_program, sizeof( fd_pubkey_t ) ) ) {
     return fd_executor_compute_budget_program_execute_instruction_nop;
+  } else if( !memcmp( pubkey, global->solana_bpf_loader_v4_program->key, sizeof(fd_pubkey_t) ) ) {
+    return fd_executor_bpf_loader_v4_program_execute_instruction;
   } else {
     return NULL; /* FIXME */
   }
