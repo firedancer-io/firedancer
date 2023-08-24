@@ -388,6 +388,7 @@ void fd_stakes_init( fd_global_ctx_t* global, fd_stakes_t* stakes ) {
    /* TODO: handle non-zero epoch case */
   stakes->epoch = 0;
   stakes->stake_delegations_pool = fd_delegation_pair_t_map_alloc(global->valloc, 10000);
+  stakes->stake_delegations_root = NULL;
 }
 
 /* https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L169 */
@@ -431,13 +432,15 @@ void activate_epoch( fd_global_ctx_t* global, ulong next_epoch ) {
   for ( fd_delegation_pair_t_mapnode_t * n = fd_delegation_pair_t_map_minimum(stakes->stake_delegations_pool, stakes->stake_delegations_root); n; n = fd_delegation_pair_t_map_successor(stakes->stake_delegations_pool, n) ) {
     ulong delegation_stake = stake_activating_and_deactivating( &n->elem.delegation, stakes->epoch, &history ).effective;
     fd_stake_weight_t_mapnode_t temp;
-    memcpy(&temp.elem.key, &n->elem.delegation.voter_pubkey, sizeof(fd_pubkey_t));
+    fd_memcpy(&temp.elem.key, &n->elem.delegation.voter_pubkey, sizeof(fd_pubkey_t));
     fd_stake_weight_t_mapnode_t * entry  = fd_stake_weight_t_map_find(pool, root, &temp);
     if (entry != NULL) {
       entry->elem.stake += delegation_stake;
     } else {
-      temp.elem.stake = delegation_stake;
-      fd_stake_weight_t_map_insert(pool, &root, &temp);
+      entry = fd_stake_weight_t_map_acquire( pool );
+      fd_memcpy( &entry->elem.key, &n->elem.delegation.voter_pubkey, sizeof(fd_pubkey_t));
+      entry->elem.stake = delegation_stake;
+      fd_stake_weight_t_map_insert( pool, &root, entry );
     }
   }
   for ( fd_vote_accounts_pair_t_mapnode_t * n = fd_vote_accounts_pair_t_map_minimum(stakes->vote_accounts.vote_accounts_pool, stakes->vote_accounts.vote_accounts_root); n; n = fd_vote_accounts_pair_t_map_successor(stakes->vote_accounts.vote_accounts_pool, n) ) {

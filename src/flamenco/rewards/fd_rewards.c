@@ -348,15 +348,14 @@ calculate_reward_points_partitioned(
     return;
 }
 
-/// return reward info for each vote account
-/// return account data for each vote account that needs to be stored
-/// This return value is a little awkward at the moment so that downstream existing code in the non-partitioned rewards code path can be re-used without duplication or modification.
-/// This function is copied from the existing code path's `store_vote_accounts`.
-/// The primary differences:
-/// - we want this fn to have no side effects (such as actually storing vote accounts) so that we
-///   can compare the expected results with the current code path
-/// - we want to be able to batch store the vote accounts later for improved performance/cache updating
-    // fn calc_vote_accounts_to_store(
+// return reward info for each vote account
+// return account data for each vote account that needs to be stored
+// This return value is a little awkward at the moment so that downstream existing code in the non-partitioned rewards code path can be re-used without duplication or modification.
+// This function is copied from the existing code path's `store_vote_accounts`.
+// The primary differences:
+// - we want this fn to have no side effects (such as actually storing vote accounts) so that we
+//   can compare the expected results with the current code path
+// - we want to be able to batch store the vote accounts later for improved performance/cache updating
 
 /*
 Calculates epoch rewards for stake/vote accounts
@@ -509,7 +508,9 @@ hash_rewards_into_partitions(
 
     fd_stake_rewards_vector_new( result );
     for (ulong i = 0; i < num_partitions; ++i) {
-        fd_stake_rewards_new(&result->elems[i]);
+        fd_stake_rewards_t new_partition;
+        fd_stake_rewards_new(&new_partition);
+        fd_stake_rewards_vector_push( result, new_partition);
     }
     for (
         deq_fd_stake_reward_t_iter_t iter = deq_fd_stake_reward_t_iter_init(stake_reward_deq );
@@ -526,6 +527,7 @@ hash_rewards_into_partitions(
             (__uint128_t) hash64 /
             ((__uint128_t)ULONG_MAX + 1)
         );
+        FD_LOG_NOTICE(("partition idx={%lu}", partition_index));
         fd_stake_rewards_push(&result->elems[partition_index], ele);
     }
 }
@@ -693,8 +695,7 @@ distribute_partitioned_epoch_rewards(
         return;
     }
 
-    ulong start_block_height = epoch_reward_status->start_block_height;
-    ulong credit_start = start_block_height + REWARD_CALCULATION_NUM_BLOCK;
+    ulong credit_start = epoch_reward_status->start_block_height + REWARD_CALCULATION_NUM_BLOCK;
     ulong credit_end_exclusive = credit_start + epoch_reward_status->stake_rewards_by_partition->cnt;
     if (self->block_height >= credit_start && self->block_height < credit_end_exclusive) {
         ulong partition_index = self->block_height - credit_start;
@@ -718,7 +719,7 @@ distribute_partitioned_epoch_rewards(
         // self.update_reward_history_in_partition(this_partition_stake_rewards);
     }
 
-    if (fd_ulong_sat_sub(self->block_height, 1) >= credit_end_exclusive) {
+    if ( fd_ulong_sat_sub(self->block_height, 1) >= credit_end_exclusive ) {
         // deactivate epoch reward status
         epoch_reward_status->is_active = 0;
     }
