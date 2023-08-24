@@ -47,7 +47,7 @@
      fd_wksp_free( wksp, gaddr );
 
    Any join can free any allocation regardless of who made it.
-   
+
    When the application is done using a wksp, it should leave it.  The
    workspace will continue to exist (it just is no longer safe to access
    in the caller's address space).  E.g.
@@ -137,6 +137,18 @@
 
 #define FD_WKSP_CSTR_MAX (FD_SHMEM_NAME_MAX + 21UL)
 
+/* FD_WKSP_CHECKPT_STYLE_* specifies the streaming format to use for
+   a workspace checkpoint.  These are non-zero.
+
+     RAW - the stream will have extensively workspace metadata followed
+           by the used workspace partitions.  No compression or
+           hashing is done of the workspace partitions.
+
+     DEFAULT - the style to use when not specified by user. */
+
+#define FD_WKSP_CHECKPT_STYLE_RAW     (1)
+#define FD_WKSP_CHECKPT_STYLE_DEFAULT FD_WKSP_CHECKPT_STYLE_RAW
+
 /* A fd_wksp_t * is an opaque handle of a workspace */
 
 struct fd_wksp_private;
@@ -195,7 +207,7 @@ fd_wksp_data_max_est( ulong footprint,
    Reasons for failure include zero part_max, part_max too large for
    this implementation, zero data_max, part_max/data_max requires a
    footprint that overflows a ULONG_MAX. */
-   
+
 FD_FN_CONST ulong
 fd_wksp_align( void );
 
@@ -503,6 +515,31 @@ ulong
 fd_wksp_tag( fd_wksp_t * wksp,
              ulong       gaddr );
 
+/* fd_wksp_tag_query queries the workspace for all partitions that match
+   one of the given tags.  The tag array is indexed [0,tag_cnt).
+   Returns info_cnt, the number of matching partitions.  Further, if
+   info_max is non-zero, will return detailed information for the first
+   (from low to high gaddr) min(info_cnt,info_max).  Returns 0 if no
+   partitions match any tags.  If any wonkiness encountered (e.g. wksp
+   is NULL, tag is not in postive, etc) returns 0 and logs details.
+   This is O(wksp_alloc_cnt*tag_cnt) currently (but could be made
+   O(wksp_alloc_cnt) with some additional work). */
+
+struct fd_wksp_tag_query_info {
+  ulong gaddr_lo; /* Partition covers workspace global addresses [gaddr_lo,gaddr_hi) */
+  ulong gaddr_hi; /* 0<gaddr_lo<gaddr_hi */
+  ulong tag;      /* Partition tag */
+};
+
+typedef struct fd_wksp_tag_query_info fd_wksp_tag_query_info_t;
+
+ulong
+fd_wksp_tag_query( fd_wksp_t *                wksp,
+                   ulong const *              tag,
+                   ulong                      tag_cnt,
+                   fd_wksp_tag_query_info_t * info,
+                   ulong                      info_max );
+
 /* fd_wksp_tag_free frees all allocations in wksp that match one of the
    given tags.  The tag array is indexed [0,tag_cnt).  Logs details if
    any wonkiness encountered (e.g. wksp is NULL, tag is not in postive.
@@ -647,7 +684,7 @@ fd_wksp_new_anon( char const *  name,
                   ulong         page_sz,
                   ulong         sub_cnt,
                   ulong const * sub_page_cnt,
-                  ulong const * sub_cpu_idx, 
+                  ulong const * sub_cpu_idx,
                   uint          seed,
                   ulong         opt_part_max );
 
@@ -922,6 +959,58 @@ fd_wksp_pod_map( uchar const * pod,
 
 void
 fd_wksp_pod_unmap( void * obj );
+
+/* io APIs ************************************************************/
+
+/* fd_wksp_checkpt will write the wksp's state to a file.  The file
+   will be located at path with UNIX style permissions given by mode.
+   style specifies the checkpt style and should be a
+   FD_WKSP_CHECKPT_STYLE_* value or 0 (0 indicates to use
+   FD_WKSP_CHECKPT_STYLE_DEFAULT).  uinfo points to a cstr with optional
+   additional user context (NULL will be treated as the empty string ""
+   ... if the strlen is longer than 16384 bytes, the info will be
+   truncated to a strlen of 16383).
+
+   Returns FD_WKSP_SUCCESS (0) on success or a FD_WKSP_ERR_* on failure
+   (logs details).  Reasons for failure include INVAL (NULL wksp, NULL
+   path, bad mode, unsupported style), CORRUPT (wksp memory corruption
+   detected), FAIL (fail already exists, I/O error).  On failure, this
+   will make a best effort to clean up after any partially written
+   checkpt file. */
+
+int
+fd_wksp_checkpt( fd_wksp_t *  wksp,
+                 char const * path,
+                 ulong        mode,
+                 int          style,
+                 char const * uinfo );
+
+/* fd_wksp_restore will replace all allocations in the current workspace
+   with the allocations from the checkpt at path.  The restored
+   workspace will use the given seed.
+
+   IMPORTANT!  It is okay for wksp to have a different size, backing
+   page sz and/or numa affinity than the original wksp.  The only
+   requirements are the wksp be able to support as many allocations as
+   are in the checkpt and that these partitions can be restored to their
+   original positions in wksp's global address space.  If wksp has
+   part_max in checkpt's [alloc_cnt,part_max] and a data_max>=checkpt's
+   data_max, this is guaranteed.
+
+   Returns FD_WKSP_SUCCESS (0) on success or a FD_WKSP_ERR_* on failure
+   (logs details).  Reasons for failure include INVAL (NULL wksp, NULL
+   path), FAIL or CORRUPT (couldn't open checkpt, I/O error, checkpt
+   format error, incompatible wksp for checkpt, etc ... logs details).
+   For the INVAL and FAIL cases, the original workspace allocations was
+   untouched.  For the CORRUPT case, original workspace allocations were
+   removed because the checkpt issues were detected after the restore
+   process began (a best effort to reset wksp to the empty state was
+   done before return). */
+
+int
+fd_wksp_restore( fd_wksp_t *  wksp,
+                 char const * path,
+                 uint         seed );
 
 FD_PROTOTYPES_END
 

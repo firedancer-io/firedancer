@@ -257,6 +257,66 @@ deserialize_unaligned( instruction_ctx_t ctx, uchar * input, ulong input_sz ) {
   return 0;
 }
 
+static int setup_program(instruction_ctx_t ctx, uchar * program_data, ulong program_data_len) {
+  fd_sbpf_elf_info_t elf_info;
+  fd_sbpf_elf_peek( &elf_info, program_data, program_data_len );
+
+  /* Allocate rodata segment */
+  void * rodata = fd_valloc_malloc( ctx.global->valloc, 1UL,  elf_info.rodata_footprint );
+  if (!rodata) {
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+  }
+
+  /* Allocate program buffer */
+
+  ulong  prog_align     = fd_sbpf_program_align();
+  ulong  prog_footprint = fd_sbpf_program_footprint( &elf_info );
+  fd_sbpf_program_t * prog = fd_sbpf_program_new( fd_valloc_malloc( ctx.global->valloc, prog_align, prog_footprint ), &elf_info, rodata );
+  FD_TEST( prog );
+
+  /* Allocate syscalls */
+
+  fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new( fd_valloc_malloc( ctx.global->valloc, fd_sbpf_syscalls_align(), fd_sbpf_syscalls_footprint() ) );
+  FD_TEST( syscalls );
+
+  fd_vm_syscall_register_all( syscalls );
+  /* Load program */
+
+  if(  0!=fd_sbpf_program_load( prog, program_data, program_data_len, syscalls ) ) {
+    FD_LOG_ERR(( "fd_sbpf_program_load() failed: %s", fd_sbpf_strerror() ));
+  }
+  FD_LOG_WARNING(( "fd_sbpf_program_load() success: %s", fd_sbpf_strerror() ));
+
+  fd_vm_exec_context_t vm_ctx = {
+    .entrypoint          = (long)prog->entry_pc,
+    .program_counter     = 0,
+    .instruction_counter = 0,
+    .instrs              = (fd_sbpf_instr_t const *)fd_type_pun_const( prog->text ),
+    .instrs_sz           = prog->text_cnt,
+    .instrs_offset       = prog->text_off,
+    .syscall_map         = syscalls,
+    .local_call_map      = prog->calldests,
+    .input               = NULL,
+    .input_sz            = 0,
+    .read_only           = (uchar *)fd_type_pun_const(prog->rodata),
+    .read_only_sz        = prog->rodata_sz,
+    /* TODO configure heap allocator */
+    .instr_ctx           = ctx,
+  };
+
+  ulong validate_result = fd_vm_context_validate( &vm_ctx );
+  if (validate_result != FD_VM_SBPF_VALIDATE_SUCCESS) {
+    FD_LOG_ERR(( "fd_vm_context_validate() failed: %lu", validate_result ));
+  }
+
+  FD_LOG_WARNING(( "fd_vm_context_validate() success" ));
+
+  fd_valloc_free( ctx.global->valloc,  fd_sbpf_program_delete( prog ) );
+  fd_valloc_free( ctx.global->valloc,  fd_sbpf_syscalls_delete( syscalls ) );
+  fd_valloc_free( ctx.global->valloc, rodata);
+  return 0;
+}
+
 int fd_executor_bpf_loader_program_execute_program_instruction( instruction_ctx_t ctx ) {
   fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
   fd_pubkey_t * program_acc = &txn_accs[ctx.instr->program_id];
@@ -431,10 +491,10 @@ int fd_executor_bpf_loader_program_execute_instruction( instruction_ctx_t ctx ) 
 
    /* FIXME: will need to actually find last program_acct in this instruction but practically no one does this. Yet another
        area where there seems to be a lot of overhead... See solana_runtime::Accounts::load_transaction_accounts */
-  fd_pubkey_t * bpf_loader_acc = &txn_accs[ctx.txn_ctx->txn_descriptor->acct_addr_cnt - 1];
-  if ( memcmp( bpf_loader_acc, ctx.global->solana_bpf_loader_program, sizeof(fd_pubkey_t) ) != 0 ) {
-    return FD_EXECUTOR_INSTR_ERR_EXECUTABLE_MODIFIED;
-  }
+  // fd_pubkey_t * bpf_loader_acc = &txn_accs[ctx.txn_ctx->txn_descriptor->acct_addr_cnt - 1];
+  // if ( memcmp( bpf_loader_acc, ctx.global->solana_bpf_loader_program, sizeof(fd_pubkey_t) ) != 0 ) {
+  //   return FD_EXECUTOR_INSTR_ERR_EXECUTABLE_MODIFIED;
+  // }
 
   fd_pubkey_t * program_acc = &txn_accs[instr_acc_idxs[0]];
 
@@ -446,7 +506,7 @@ int fd_executor_bpf_loader_program_execute_instruction( instruction_ctx_t ctx ) 
     return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
   }
   fd_account_meta_t const * program_acc_metadata = (fd_account_meta_t const *)raw;
-  if ( memcmp(program_acc_metadata->info.owner, bpf_loader_acc, sizeof(fd_pubkey_t) ) != 0 ) {
+  if ( memcmp(program_acc_metadata->info.owner, ctx.global->solana_bpf_loader_program, sizeof(fd_pubkey_t) ) != 0 ) {
     return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
   }
 
@@ -470,9 +530,33 @@ int fd_executor_bpf_loader_program_execute_instruction( instruction_ctx_t ctx ) 
 
     return FD_EXECUTOR_INSTR_SUCCESS;
   } else if( fd_bpf_loader_program_instruction_is_finalize( &instruction ) ) {
-    // TODO: check for rent exemption
-    // TODO: check for writable
+    /* Check that Instruction Account 0 is a signer */
+    if( instr_acc_idxs[0] >= ctx.txn_ctx->txn_descriptor->signature_cnt ) {
+      return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+    }
 
+    fd_pubkey_t * program_acc = &txn_accs[instr_acc_idxs[0]];
+
+    int err = 0;
+    uchar * raw_mut = fd_acc_mgr_modify_raw( ctx.global->acc_mgr, ctx.global->funk_txn, program_acc, 0, 0UL, con_rec, NULL, &err );
+    if( FD_UNLIKELY( !raw_mut ) ) {
+      FD_LOG_WARNING(( "failed to get writable handle to program data" ));
+      return err;
+    }
+
+    fd_account_meta_t * metadata_mut     = (fd_account_meta_t *)raw_mut;
+    uchar *             program_acc_data = fd_account_get_data(metadata_mut);
+
+    // TODO: deploy program properly
+    err = setup_program(ctx, program_acc_data, metadata_mut->dlen);
+    if (err != FD_EXECUTOR_INSTR_SUCCESS) {
+      return err;
+    }
+
+    err = fd_account_set_executable(ctx, program_acc, metadata_mut, 1);
+    if (err != FD_EXECUTOR_INSTR_SUCCESS) {
+      return err;
+    }
     // ???? what does this do
     //fd_acc_mgr_set_metadata(ctx.global->acc_mgr, ctx.global->funk_txn, program_acc, program_acc_metadata);
 

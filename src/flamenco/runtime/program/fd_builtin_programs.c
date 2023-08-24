@@ -83,8 +83,13 @@ void fd_builtin_programs_init( fd_global_ctx_t* global ) {
   fd_write_builtin_bogus_account( global, global->solana_address_lookup_table_program,   "address_lookup_table_program",          28UL );
   fd_write_builtin_bogus_account( global, global->solana_bpf_loader_deprecated_program,  "solana_bpf_loader_deprecated_program",  36UL );
 
-  fd_write_builtin_bogus_account( global, global->solana_bpf_loader_program,             "solana_bpf_loader_program",             25UL );
-  fd_write_builtin_bogus_account( global, global->solana_bpf_loader_upgradeable_program, "solana_bpf_loader_upgradeable_program", 37UL );
+  if (global->features.vote_state_add_vote_latency == ULONG_MAX) {
+    fd_write_builtin_bogus_account( global, global->solana_bpf_loader_program,             "solana_bpf_loader_program_with_jit",             34UL );
+    fd_write_builtin_bogus_account( global, global->solana_bpf_loader_upgradeable_program, "solana_bpf_loader_upgradeable_program_with_jit", 46UL );
+  } else {
+    fd_write_builtin_bogus_account( global, global->solana_bpf_loader_program,             "solana_bpf_loader_program",             25UL );
+    fd_write_builtin_bogus_account( global, global->solana_bpf_loader_upgradeable_program, "solana_bpf_loader_upgradeable_program", 37UL );
+  }
 
   fd_write_builtin_bogus_account( global, global->solana_compute_budget_program, "compute_budget_program", 22UL );
 

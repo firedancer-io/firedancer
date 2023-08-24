@@ -25,6 +25,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [ ! -e $LEDGER ]; then
+  mkdir -p dump
   curl -o - -L -q https://github.com/firedancer-io/firedancer-testbins/raw/main/$LEDGER.tar.gz | tar zxf - -C ./dump
 fi
 

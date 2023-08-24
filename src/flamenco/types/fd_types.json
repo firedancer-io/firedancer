@@ -24,6 +24,16 @@
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/fee_calculator.rs#L9"
     },
     {
+      "name": "epoch_rewards",
+      "type": "struct",
+      "fields": [
+        { "name": "total_rewards", "type": "ulong" },
+        { "name": "distributed_rewards", "type": "ulong" },
+        { "name": "distribution_complete_block_height", "type": "ulong" }
+      ],
+      "comment": "https://github.com/solana-labs/solana/blob/98e19af5eb2585cfc3c07e123bdb96f18e92bc93/sdk/program/src/epoch_rewards.rs#L11-L20"
+    },
+    {
       "name": "hash_age",
       "type": "struct",
       "fields": [
@@ -129,7 +139,7 @@
       "name": "stake_history",
       "type": "struct",
       "fields": [
-        { "name": "entries", "type": "map", "element": "stake_history_epochentry_pair", "key": "epoch" }
+        { "name": "entries", "type": "map", "element": "stake_history_epochentry_pair", "key": "epoch", "minalloc":10000 }
       ],
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake_history.rs#L55"
     },
@@ -798,6 +808,14 @@
         { "name": "fee_calculator", "type": "fee_calculator" }
       ],
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/sysvar/fees.rs#L21"
+    },
+    {
+      "name": "sysvar_epoch_rewards",
+      "type": "struct",
+      "fields": [
+        { "name": "epoch_rewards", "type": "epoch_rewards" }
+      ],
+      "comment": "https://github.com/solana-labs/solana/blob/a02aebaa4b3aa0b24e13644cf0ffa5ae8bd47e7b/sdk/program/src/sysvar/epoch_rewards.rs"
     },
     {
       "name": "config_keys_pair",

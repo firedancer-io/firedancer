@@ -26,8 +26,9 @@ find_wksp( config_t * const config,
 
 /* partial frank_bank definition since the tile doesn't really exist */
 static fd_frank_task_t frank_bank = {
-   .in_wksp = "pack_bank",
-   .out_wksp = "bank_shred",
+   .in_wksp    = "pack_bank",
+   .out_wksp   = "bank_shred",
+   .extra_wksp = NULL,
 };
 
 ulong
@@ -36,21 +37,29 @@ memlock_max_bytes( config_t * const config ) {
   for( ulong j=0; j<config->shmem.workspaces_cnt; j++ ) {
     workspace_config_t * wksp = &config->shmem.workspaces[ j ];
 
-#define TILE_MAX( tile ) do {                                                                     \
-    ulong in_bytes = 0, out_bytes = 0;                                                            \
-    if( FD_LIKELY( tile.in_wksp ) ) {                                                             \
-      workspace_config_t * in_wksp = find_wksp( config, tile.in_wksp );                           \
-      in_bytes = in_wksp->num_pages * in_wksp->page_size;                                         \
-    }                                                                                             \
-    if( FD_LIKELY( tile.out_wksp ) ) {                                                            \
-      workspace_config_t * out_wksp = find_wksp( config, tile.out_wksp );                         \
-      out_bytes = out_wksp->num_pages * out_wksp->page_size;                                      \
-    }                                                                                             \
-    memlock_max_bytes = fd_ulong_max( memlock_max_bytes,                                          \
-                                      wksp->page_size * wksp->num_pages + in_bytes + out_bytes ); \
+#define TILE_MAX( tile ) do {                                                 \
+    ulong in_bytes = 0, out_bytes = 0, extra_bytes = 0;                       \
+    if( FD_LIKELY( tile.in_wksp ) ) {                                         \
+      workspace_config_t * in_wksp = find_wksp( config, tile.in_wksp );       \
+      in_bytes = in_wksp->num_pages * in_wksp->page_size;                     \
+    }                                                                         \
+    if( FD_LIKELY( tile.out_wksp ) ) {                                        \
+      workspace_config_t * out_wksp = find_wksp( config, tile.out_wksp );     \
+      out_bytes = out_wksp->num_pages * out_wksp->page_size;                  \
+    }                                                                         \
+    if( FD_LIKELY( tile.extra_wksp ) ) {                                      \
+      workspace_config_t * extra_wksp = find_wksp( config, tile.extra_wksp ); \
+      extra_bytes = extra_wksp->num_pages * extra_wksp->page_size;            \
+    }                                                                         \
+    memlock_max_bytes = fd_ulong_max( memlock_max_bytes,                      \
+                                      wksp->page_size * wksp->num_pages +     \
+                                      in_bytes +                              \
+                                      out_bytes +                             \
+                                      extra_bytes );                          \
   } while(0)
 
     switch ( wksp->kind ) {
+      case wksp_tpu_txn_data:
       case wksp_quic_verify:
       case wksp_verify_dedup:
       case wksp_dedup_pack:
@@ -89,7 +98,7 @@ default_user( void ) {
   if( FD_LIKELY( name ) ) return name;
 
   name = getlogin();
-  if( FD_UNLIKELY( !name ) ) FD_LOG_ERR(( "getlogin failed (%i-%s)", errno, strerror( errno ) ));
+  if( FD_UNLIKELY( !name ) ) FD_LOG_ERR(( "getlogin failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   return name;
 }
 
@@ -408,7 +417,7 @@ static void
 config_parse_file( const char * path,
                    config_t *   out ) {
   FILE * fp = fopen( path, "r" );
-  if( FD_UNLIKELY( !fp ) ) FD_LOG_ERR(( "could not open configuration file `%s`: (%d-%s)", path, errno, strerror( errno ) ));
+  if( FD_UNLIKELY( !fp ) ) FD_LOG_ERR(( "could not open configuration file `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
 
   uint lineno = 0;
   char line[ 4096 ];
@@ -425,9 +434,9 @@ config_parse_file( const char * path,
     }
   }
   if( FD_UNLIKELY( ferror( fp ) ) )
-    FD_LOG_ERR(( "error reading `%s` (%i-%s)", path, errno, strerror( errno ) ));
+    FD_LOG_ERR(( "error reading `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
   if( FD_LIKELY( fclose( fp ) ) )
-    FD_LOG_ERR(( "error closing `%s` (%i-%s)", path, errno, strerror( errno ) ));
+    FD_LOG_ERR(( "error closing `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
 }
 
 static uint
@@ -437,9 +446,9 @@ listen_address( const char * interface ) {
   ifr.ifr_addr.sa_family = AF_INET;
   strncpy( ifr.ifr_name, interface, IF_NAMESIZE );
   if( FD_UNLIKELY( ioctl( fd, SIOCGIFADDR, &ifr ) ) )
-    FD_LOG_ERR(( "could not get IP address of interface `%s`: (%d-%s)", interface, errno, strerror( errno ) ));
+    FD_LOG_ERR(( "could not get IP address of interface `%s` (%i-%s)", interface, errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( close(fd) ) )
-    FD_LOG_ERR(( "could not close socket (%d-%s)", errno, strerror( errno ) ));
+    FD_LOG_ERR(( "could not close socket (%i-%s)", errno, fd_io_strerror( errno ) ));
   return ((struct sockaddr_in *)fd_type_pun( &ifr.ifr_addr ))->sin_addr.s_addr;
 }
 
@@ -451,9 +460,9 @@ mac_address( const char * interface,
   ifr.ifr_addr.sa_family = AF_INET;
   strncpy( ifr.ifr_name, interface, IF_NAMESIZE );
   if( FD_UNLIKELY( ioctl( fd, SIOCGIFHWADDR, &ifr ) ) )
-    FD_LOG_ERR(( "could not get MAC address of interface `%s`: (%d-%s)", interface, errno, strerror( errno ) ));
+    FD_LOG_ERR(( "could not get MAC address of interface `%s`: (%i-%s)", interface, errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( close(fd) ) )
-    FD_LOG_ERR(( "could not close socket (%d-%s)", errno, strerror( errno ) ));
+    FD_LOG_ERR(( "could not close socket (%i-%s)", errno, fd_io_strerror( errno ) ));
   fd_memcpy( mac, ifr.ifr_hwaddr.sa_data, 6 );
 }
 
@@ -461,21 +470,27 @@ static void
 init_workspaces( config_t * config ) {
   ulong idx = 0;
 
-  config->shmem.workspaces[ idx ].kind      = wksp_quic_verify;
-  config->shmem.workspaces[ idx ].name      = "quic_verify";
+  config->shmem.workspaces[ idx ].kind      = wksp_tpu_txn_data;
+  config->shmem.workspaces[ idx ].name      = "tpu_txn_data";
   config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
   config->shmem.workspaces[ idx ].num_pages = 1;
+  idx++;
+
+  config->shmem.workspaces[ idx ].kind      = wksp_quic_verify;
+  config->shmem.workspaces[ idx ].name      = "quic_verify";
+  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_HUGE_PAGE_SZ;
+  config->shmem.workspaces[ idx ].num_pages = 2;
   idx++;
 
   config->shmem.workspaces[ idx ].kind      = wksp_verify_dedup;
   config->shmem.workspaces[ idx ].name      = "verify_dedup";
-  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
-  config->shmem.workspaces[ idx ].num_pages = 1;
+  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_HUGE_PAGE_SZ;
+  config->shmem.workspaces[ idx ].num_pages = 2;
   idx++;
 
   config->shmem.workspaces[ idx ].kind      = wksp_dedup_pack;
   config->shmem.workspaces[ idx ].name      = "dedup_pack";
-  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
+  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_HUGE_PAGE_SZ;
   config->shmem.workspaces[ idx ].num_pages = 1;
   idx++;
 
@@ -517,7 +532,7 @@ init_workspaces( config_t * config ) {
 
   config->shmem.workspaces[ idx ].kind      = wksp_pack;
   config->shmem.workspaces[ idx ].name      = "pack";
-  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_HUGE_PAGE_SZ;
+  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
   config->shmem.workspaces[ idx ].num_pages = 1;
   idx++;
 
@@ -536,7 +551,7 @@ init_workspaces( config_t * config ) {
 static uint
 username_to_uid( char * username ) {
   FILE * fp = fopen( "/etc/passwd", "rb" );
-  if( FD_UNLIKELY( !fp) ) FD_LOG_ERR(( "could not open /etc/passwd (%d-%s)", errno, strerror( errno ) ));
+  if( FD_UNLIKELY( !fp) ) FD_LOG_ERR(( "could not open /etc/passwd (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   char line[ 4096 ];
   while( FD_LIKELY( fgets( line, 4096, fp ) ) ) {
@@ -549,7 +564,7 @@ username_to_uid( char * username ) {
     s = strchr( s + 1, ':' );
     if( FD_UNLIKELY( !s ) ) continue;
 
-    if( FD_UNLIKELY( fclose( fp ) ) ) FD_LOG_ERR(( "could not close /etc/passwd (%d-%s)", errno, strerror( errno ) ));
+    if( FD_UNLIKELY( fclose( fp ) ) ) FD_LOG_ERR(( "could not close /etc/passwd (%i-%s)", errno, fd_io_strerror( errno ) ));
     char * endptr;
     ulong uid = strtoul( s + 1, &endptr, 10 );
     if( FD_UNLIKELY( *endptr != ':' || uid > UINT_MAX ) ) FD_LOG_ERR(( "could not parse uid in /etc/passwd"));

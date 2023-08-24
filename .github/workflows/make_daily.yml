@@ -119,6 +119,11 @@ jobs:
       CC: clang
       EXTRAS: llvm-cov
     steps:
+
+      # The next steps require llvm-profdata
+      - name: Install LLVM
+        run: sudo apt-get update && sudo apt-get install -y llvm
+
       - uses: actions/checkout@v3
 
       - uses: ./.github/actions/deps
@@ -192,7 +197,7 @@ jobs:
         languages: ${{ matrix.language }}
 
     - name: Build
-      run: make -j -Otarget
+      run: make -j -Otarget all rust
 
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@v2

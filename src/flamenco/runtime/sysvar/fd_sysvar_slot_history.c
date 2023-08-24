@@ -1,6 +1,7 @@
 #include "fd_sysvar_slot_history.h"
 #include "../../../flamenco/types/fd_types.h"
 #include "fd_sysvar.h"
+#include "fd_sysvar_rent.h"
 
 const ulong slot_history_min_account_size = 131097;
 
@@ -28,7 +29,7 @@ int fd_sysvar_slot_history_write_history( fd_global_ctx_t* global, fd_slot_histo
   int err = fd_slot_history_encode( history, &ctx );
   if (0 != err)
     return err;
-  return fd_sysvar_set( global, global->sysvar_owner, (fd_pubkey_t *) global->sysvar_slot_history, enc, sz, global->bank.slot );
+  return fd_sysvar_set( global, global->sysvar_owner, (fd_pubkey_t *) global->sysvar_slot_history, enc, sz, global->bank.slot, NULL );
 }
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_history.rs#L16 */
@@ -52,7 +53,8 @@ void fd_sysvar_slot_history_init( fd_global_ctx_t* global ) {
 }
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/bank.rs#L2345 */
-int fd_sysvar_slot_history_update( fd_global_ctx_t* global ) {
+int
+fd_sysvar_slot_history_update( fd_global_ctx_t * global ) {
   /* Set current_slot, and update next_slot */
 
   fd_pubkey_t const * key = (fd_pubkey_t *)global->sysvar_slot_history;
@@ -97,8 +99,7 @@ int fd_sysvar_slot_history_update( fd_global_ctx_t* global ) {
   if( fd_slot_history_encode( history, &e_ctx ) )
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
 
-  /* wtf */
-  acc_meta->info.lamports = (sz + 128) * ((ulong) ((double)global->bank.rent.lamports_per_uint8_year * global->bank.rent.exemption_threshold));
+  acc_meta->info.lamports = fd_rent_exempt_minimum_balance2( &global->bank.rent, sz );
 
   acc_meta->dlen = sz;
   fd_memcpy( acc_meta->info.owner, global->sysvar_owner, 32 );

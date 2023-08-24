@@ -1010,6 +1010,8 @@ for entry in entries:
     print(f"void {n}_destroy({n}_t* self, fd_bincode_destroy_ctx_t * ctx);", file=header)
     print(f"void {n}_walk(void * w, {n}_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);", file=header)
     print(f"ulong {n}_size({n}_t const * self);", file=header)
+    print(f'ulong {n}_footprint( void );', file=header)
+    print(f'ulong {n}_align( void );', file=header)
     print("", file=header)
 
     if entry["type"] == "enum":
@@ -1133,6 +1135,10 @@ for entry in entries:
           else:
               print(f'  {namespace}_{f["type"]}_destroy(&self->{f["name"]}, ctx);', file=body)
       print("}", file=body)
+    print("", file=body)
+
+    print(f'ulong {n}_footprint( void ){{ return {n.upper()}_FOOTPRINT; }}', file=body)
+    print(f'ulong {n}_align( void ){{ return {n.upper()}_ALIGN; }}', file=body)
     print("", file=body)
 
     print(f'void {n}_walk(void * w, {n}_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {{', file=body)

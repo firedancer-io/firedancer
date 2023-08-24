@@ -101,6 +101,7 @@ fd_frank_task_t frank_dedup = {
   .name              = "dedup",
   .in_wksp           = "verify_dedup",
   .out_wksp          = "dedup_pack",
+  .extra_wksp        = NULL,
   .allow_syscalls_sz = sizeof(allow_syscalls)/sizeof(allow_syscalls[ 0 ]),
   .allow_syscalls    = allow_syscalls,
   .allow_fds         = allow_fds,

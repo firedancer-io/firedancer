@@ -2,7 +2,8 @@
 #include "../../../flamenco/types/fd_types.h"
 #include "fd_sysvar.h"
 
-void write_fees( fd_global_ctx_t* global, fd_sysvar_fees_t* fees ) {
+static void
+write_fees( fd_global_ctx_t* global, fd_sysvar_fees_t* fees ) {
   ulong          sz = fd_sysvar_fees_size( fees );
   unsigned char *enc = fd_alloca( 1, sz );
   memset( enc, 0, sz );
@@ -12,7 +13,7 @@ void write_fees( fd_global_ctx_t* global, fd_sysvar_fees_t* fees ) {
   if ( fd_sysvar_fees_encode( fees, &ctx ) )
     FD_LOG_ERR(("fd_sysvar_fees_encode failed"));
 
-  fd_sysvar_set( global, global->sysvar_owner, (fd_pubkey_t *) global->sysvar_fees, enc, sz, global->bank.slot );
+  fd_sysvar_set( global, global->sysvar_owner, (fd_pubkey_t *) global->sysvar_fees, enc, sz, global->bank.slot, NULL );
 }
 
 void

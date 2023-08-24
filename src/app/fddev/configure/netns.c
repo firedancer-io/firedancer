@@ -82,9 +82,8 @@ fini( config_t * const config ) {
 
   char cmd[ 256 ];
   snprintf1( cmd, sizeof(cmd), "ip link del dev %s", interface0 );
-  /* TODO handle return value */
-  if( FD_UNLIKELY( system( cmd )<0 ) ) // Destroys interface1 as well, no need to check failure
-    FD_LOG_WARNING(( "Failed to delete device %s", interface0 ));
+  int status3 = system( cmd ); // Destroys interface1 as well, no need to check failure
+  if( FD_UNLIKELY( status3 ) ) FD_LOG_DEBUG(( "ip link del dev %s failed", interface0 ));
 
   snprintf1( cmd, sizeof(cmd), "ip netns delete %s", interface0 );
   int status1 = system( cmd );

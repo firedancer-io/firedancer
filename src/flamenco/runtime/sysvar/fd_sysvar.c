@@ -11,7 +11,8 @@ fd_sysvar_set( fd_global_ctx_t *   global,
                fd_pubkey_t const * pubkey,
                uchar *             data,
                ulong               sz,
-               ulong               slot ) {
+               ulong               slot,
+               fd_acc_lamports_t * lamports ) {
 
   fd_acc_mgr_t *  acc_mgr  = global->acc_mgr;
   fd_funk_txn_t * funk_txn = global->funk_txn;
@@ -34,11 +35,10 @@ fd_sysvar_set( fd_global_ctx_t *   global,
   // What is the correct behavior here?  Where is this code in the
   // solana code base?  Do I only adjust the lamports if the data
   // increases but not decreases?  I am inventing money here...
-  metadata->info.lamports = (sz + 128) * ((ulong) ((double)global->bank.rent.lamports_per_uint8_year * global->bank.rent.exemption_threshold));
+  metadata->info.lamports = (lamports == NULL) ? fd_rent_exempt_minimum_balance2(&global->bank.rent, sz) : *lamports;
 
   metadata->dlen = sz;
   fd_memcpy(metadata->info.owner, owner, 32);
-
   return fd_acc_mgr_commit_raw( global->acc_mgr, acc_data_rec, pubkey, raw_acc_data, slot, 0 );
 }
 

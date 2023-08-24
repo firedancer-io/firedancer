@@ -110,11 +110,9 @@ fd_slot_to_epoch( fd_epoch_schedule_t const * schedule,
                   ulong                       slot,
                   ulong *                     out_offset_opt );
 
-
-ulong fd_sysvar_epoch_schedule_get_first_slot_in_epoch(fd_epoch_schedule_t * schedule, ulong epoch);
-
-
-ulong fd_sysvar_epoch_schedule_get_first_slot_in_epoch(fd_epoch_schedule_t * schedule, ulong epoch);
+ulong
+fd_slot_to_leader_schedule_epoch( fd_epoch_schedule_t const * schedule,
+                                  ulong                       slot );
 
 FD_PROTOTYPES_END
 

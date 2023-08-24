@@ -56,15 +56,15 @@ execve_as_root( int     argc,
   int    idx = 0;
   if( FD_LIKELY(( env = getenv( "FIREDANCER_CONFIG_TOML" ) )) ) {
     if( FD_UNLIKELY( asprintf( &envp[ idx++ ], "FIREDANCER_CONFIG_TOML=%s", env ) == -1 ) )
-      FD_LOG_ERR(( "asprintf() failed (%i-%s)", errno, strerror( errno ) ));
+      FD_LOG_ERR(( "asprintf() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
   if( FD_LIKELY(( env = getenv( "TERM" ) )) ) {
     if( FD_UNLIKELY( asprintf( &envp[ idx++ ], "TERM=%s", env ) == -1 ) )
-      FD_LOG_ERR(( "asprintf() failed (%i-%s)", errno, strerror( errno ) ));
+      FD_LOG_ERR(( "asprintf() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
   execve( "/usr/bin/sudo", args, envp );
-  FD_LOG_ERR(( "execve(sudo) failed (%i-%s)", errno, strerror( errno ) ));
+  FD_LOG_ERR(( "execve(sudo) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
 
 int

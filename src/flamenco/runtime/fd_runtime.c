@@ -179,13 +179,15 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_meta_t* m, const void
   (void)m;
 
   fd_solcap_writer_set_slot( global->capture, m->slot );
-  if ( global->bank.slot != 0 ) {
-    if ( global->bank.slot == global->bank.epoch_schedule.first_normal_slot) {
-      ulong parent_slot = global->bank.slot;
-      ulong parent_epoch = fd_slot_to_epoch(&global->bank.epoch_schedule, parent_slot, NULL);
-      process_new_epoch(global, parent_epoch, parent_slot, global->bank.block_height);
+  if( global->bank.slot != 0 ) {
+    ulong slot_idx;
+    ulong new_epoch = fd_slot_to_epoch( &global->bank.epoch_schedule, m->slot, &slot_idx );
+    if( slot_idx==0UL ) {
+      /* Epoch boundary! */
+      fd_process_new_epoch( global, new_epoch - 1UL );
     }
   }
+
   /* Get current leader */
   ulong slot_rel;
   fd_slot_to_epoch( &global->bank.epoch_schedule, m->slot, &slot_rel );
@@ -234,7 +236,7 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_meta_t* m, const void
 
         char sig[FD_BASE58_ENCODED_64_SZ];
         fd_base58_encode_64(raw+txn->signature_off, NULL, sig);
-        FD_LOG_NOTICE(("executing txn -  slot: %lu, txn_idx_in_block: %lu, mblk: %lu, txn_idx: %lu, sig: %s", global->bank.slot, txn_idx_in_block, mblk, txn_idx, sig));
+        FD_LOG_DEBUG(("executing txn -  slot: %lu, txn_idx_in_block: %lu, mblk: %lu, txn_idx: %lu, sig: %s", global->bank.slot, txn_idx_in_block, mblk, txn_idx, sig));
         fd_execute_txn( &global->executor, txn, &rawtxn );
 
         blockoff += pay_sz;
@@ -925,6 +927,7 @@ fd_global_ctx_new        ( void * mem ) {
   fd_base58_decode_32( "SysvarRent111111111111111111111111111111111",  (unsigned char *) self->sysvar_rent);
   fd_base58_decode_32( "SysvarStakeHistory1111111111111111111111111",  (unsigned char *) self->sysvar_stake_history);
   fd_base58_decode_32( "SysvarLastRestartS1ot1111111111111111111111",  (unsigned char *) self->sysvar_last_restart_slot);
+  fd_base58_decode_32( "SysvarEpochRewards1111111111111111111111111",  (unsigned char *) self->sysvar_epoch_rewards);
 
   fd_base58_decode_32( "NativeLoader1111111111111111111111111111111",  (unsigned char *) self->solana_native_loader);
   fd_base58_decode_32( "Feature111111111111111111111111111111111111",                    self->solana_feature_program);
@@ -1108,7 +1111,7 @@ fd_runtime_save_banks( fd_global_ctx_t * global ) {
     return -1;
   }
 
-  FD_LOG_NOTICE(( "saved banks_hash %32J  poh_hash %32J", global->bank.banks_hash.hash, global->bank.poh.hash));
+  FD_LOG_NOTICE(( "Slot frozen, slot=%d bank_hash=%32J poh_hash=%32J", global->bank.slot, global->bank.banks_hash.hash, global->bank.poh.hash ));
 
   fd_funk_rec_persist(global->funk, rec);
 
@@ -1343,13 +1346,15 @@ fd_features_restore( fd_global_ctx_t * global ) {
 
 /* process for the start of a new epoch */
 void
-process_new_epoch(
+fd_process_new_epoch(
     fd_global_ctx_t * global,
-    ulong parent_epoch,
-    ulong parent_slot,
-    ulong parent_height
+    ulong parent_epoch
 ) {
-  ulong epoch = fd_slot_to_epoch(&global->bank.epoch_schedule, global->bank.slot, NULL);
+  ulong slot;
+  ulong epoch = fd_slot_to_epoch(&global->bank.epoch_schedule, global->bank.slot, &slot);
+  global->bank.collected = 0;
+  global->bank.block_height = global->bank.block_height + 1UL;
+  global->bank.max_tick_height = (slot + 1) * global->bank.ticks_per_slot;
 
   // activate feature flags
   fd_features_restore( global );
@@ -1357,7 +1362,7 @@ process_new_epoch(
   // Add new entry to stakes.stake_history, set appropriate epoch and
   // update vote accounts with warmed up stakes before saving a
   // snapshot of stakes in epoch stakes
-  activate_epoch(global, epoch);
+  activate_epoch( global, epoch );
 
   // (We might not implement this part)
   /* Save a snapshot of stakes for use in consensus and stake weighted networking
@@ -1366,14 +1371,16 @@ process_new_epoch(
            self.update_epoch_stakes(leader_schedule_epoch),
            "update_epoch_stakes",
        ); */
-  if (global->features.enable_partitioned_epoch_reward) {
-    begin_partitioned_rewards( global, &global->bank, parent_epoch, parent_slot, parent_height );
+  fd_epoch_reward_status_t epoch_reward_status[1] = {0};
+  if ( FD_FEATURE_ACTIVE( global, enable_partitioned_epoch_reward ) ) {
+    begin_partitioned_rewards( &global->bank, global, parent_epoch, epoch_reward_status);
   } else {
+
+    // TODO: need to complete this path
     update_rewards( global, parent_epoch);
   }
-  global->bank.block_height += 1;
 
-  distribute_partitioned_epoch_rewards( &global->bank);
+  distribute_partitioned_epoch_rewards( &global->bank, global, epoch_reward_status );
 
 
 }

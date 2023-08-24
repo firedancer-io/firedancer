@@ -194,9 +194,9 @@ init( config_t * const config ) {
   gid_t gid = getgid();
   uid_t uid = getuid();
   if( FD_LIKELY( gid == 0 && setegid( config->gid ) ) )
-    FD_LOG_ERR(( "setegid() failed (%i-%s)", errno, strerror( errno ) ));
+    FD_LOG_ERR(( "setegid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_LIKELY( uid == 0 && seteuid( config->uid ) ) )
-    FD_LOG_ERR(( "seteuid() failed (%i-%s)", errno, strerror( errno ) ));
+    FD_LOG_ERR(( "seteuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   fd_quic_limits_t limits = {
     .conn_cnt                                      = config->tiles.quic.max_concurrent_connections,
@@ -216,10 +216,14 @@ init( config_t * const config ) {
     WKSP_BEGIN( config, wksp1, 0 );
 
     switch( wksp1->kind ) {
+      case wksp_tpu_txn_data:
+        for( ulong i=0; i<config->layout.verify_tile_count; i++ ) {
+          dcache( pod, "dcache%lu", config->tiles.verify.mtu, config->tiles.verify.receive_buffer_size, config->tiles.verify.receive_buffer_size * 32, i );
+        }
+        break;
       case wksp_quic_verify:
         for( ulong i=0; i<config->layout.verify_tile_count; i++ ) {
           mcache( pod, "mcache%lu", config->tiles.verify.receive_buffer_size, i );
-          dcache( pod, "dcache%lu", config->tiles.verify.mtu, config->tiles.verify.receive_buffer_size, config->tiles.verify.receive_buffer_size * 32, i );
           fseq  ( pod, "fseq%lu", i );
         }
         break;
@@ -227,7 +231,6 @@ init( config_t * const config ) {
         ulong1( pod, "cnt", config->layout.verify_tile_count );
         for( ulong i=0; i<config->layout.verify_tile_count; i++ ) {
           mcache( pod, "mcache%lu", config->tiles.verify.receive_buffer_size, i );
-          dcache( pod, "dcache%lu", config->tiles.verify.mtu, config->tiles.verify.receive_buffer_size, 0, i );
           fseq  ( pod, "fseq%lu",   i );
         }
         break;
@@ -241,6 +244,8 @@ init( config_t * const config ) {
           mcache( pod, "mcache%lu", config->tiles.bank.receive_buffer_size, i );
           dcache( pod, "dcache%lu", USHORT_MAX, config->layout.bank_tile_count * (ulong)config->tiles.bank.receive_buffer_size, 0, i );
           fseq  ( pod, "fseq%lu", i );
+          mcache( pod, "mcache-back%lu", config->tiles.bank.receive_buffer_size, i );
+          fseq  ( pod, "fseq-back%lu", i );
         }
         break;
       case wksp_bank_shred:
@@ -287,8 +292,8 @@ init( config_t * const config ) {
     WKSP_END();
   }
 
-  if( FD_UNLIKELY( seteuid( uid ) ) ) FD_LOG_ERR(( "seteuid() failed (%i-%s)", errno, strerror( errno ) ));
-  if( FD_UNLIKELY( setegid( gid ) ) ) FD_LOG_ERR(( "setegid() failed (%i-%s)", errno, strerror( errno ) ));
+  if( FD_UNLIKELY( seteuid( uid ) ) ) FD_LOG_ERR(( "seteuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( setegid( gid ) ) ) FD_LOG_ERR(( "setegid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
 
 static void
@@ -308,7 +313,7 @@ fini( config_t * const config ) {
       if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_wksp_delete_named failed (%i-%s)", err, fd_wksp_strerror( err ) ));
     }
     else if( FD_LIKELY( result && errno == ENOENT ) ) continue;
-    else FD_LOG_ERR(( "stat failed when trying to delete wksp `%s` (%i-%s)", path, errno, strerror( errno ) ));
+    else FD_LOG_ERR(( "stat failed when trying to delete wksp `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
   }
 }
 
@@ -324,7 +329,7 @@ check( config_t * const config ) {
     int result = stat( path, &st );
     if( FD_LIKELY( !result ) ) PARTIALLY_CONFIGURED( "workspace `%s` exists", path );
     else if( FD_LIKELY( result && errno == ENOENT ) ) continue;
-    else PARTIALLY_CONFIGURED( "error reading `%s` (%i-%s)", path, errno, strerror( errno ) );
+    else PARTIALLY_CONFIGURED( "error reading `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) );
   }
 
   NOT_CONFIGURED( "no workspaces files found" );

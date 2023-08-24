@@ -1,6 +1,7 @@
 #include "fd_sysvar_clock.h"
 #include "../../../flamenco/types/fd_types.h"
 #include "fd_sysvar.h"
+#include "fd_sysvar_epoch_schedule.h"
 
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/stake_weighted_timestamp.rs#L14 */
@@ -43,7 +44,7 @@ void write_clock( fd_global_ctx_t* global, fd_sol_sysvar_clock_t* clock ) {
   if ( fd_sol_sysvar_clock_encode( clock, &ctx ) )
     FD_LOG_ERR(("fd_sol_sysvar_clock_encode failed"));
 
-  fd_sysvar_set( global, global->sysvar_owner, (fd_pubkey_t *) global->sysvar_clock, enc, sz, global->bank.slot );
+  fd_sysvar_set( global, global->sysvar_owner, (fd_pubkey_t *) global->sysvar_clock, enc, sz, global->bank.slot, NULL );
 }
 
 int fd_sysvar_clock_read( fd_global_ctx_t* global, fd_sol_sysvar_clock_t* result ) {
@@ -247,19 +248,29 @@ fd_sysvar_clock_update( fd_global_ctx_t * global ) {
             }
         } */
     if( bounded_timestamp_estimate < ancestor_timestamp ) {
-      FD_LOG_INFO(( "clock rewind detected: %ld -> %ld", ancestor_timestamp, bounded_timestamp_estimate ));
+      FD_LOG_DEBUG(( "clock rewind detected: %ld -> %ld", ancestor_timestamp, bounded_timestamp_estimate ));
       bounded_timestamp_estimate = ancestor_timestamp;
     }
     clock.unix_timestamp = bounded_timestamp_estimate;
   }
-  clock.slot                      = global->bank.slot;
 
-  FD_LOG_INFO(( "Updated clock at slot %lu", global->bank.slot ));
-  FD_LOG_INFO(( "clock.slot: %lu", clock.slot ));
-  FD_LOG_INFO(( "clock.epoch_start_timestamp: %ld", clock.epoch_start_timestamp ));
-  FD_LOG_INFO(( "clock.epoch: %lu", clock.epoch ));
-  FD_LOG_INFO(( "clock.leader_schedule_epoch: %lu", clock.leader_schedule_epoch ));
-  FD_LOG_INFO(( "clock.unix_timestamp: %ld", clock.unix_timestamp ));
+  clock.slot  = global->bank.slot;
+
+  ulong epoch_old = clock.epoch;
+  ulong epoch_new = fd_slot_to_epoch( &global->bank.epoch_schedule, clock.slot, NULL );
+
+  clock.epoch = epoch_new;
+  if( epoch_old != epoch_new ) {
+    clock.epoch_start_timestamp = clock.unix_timestamp;
+    clock.leader_schedule_epoch = fd_slot_to_leader_schedule_epoch( &global->bank.epoch_schedule, global->bank.slot );
+  }
+
+  FD_LOG_DEBUG(( "Updated clock at slot %lu", global->bank.slot ));
+  FD_LOG_DEBUG(( "clock.slot: %lu", clock.slot ));
+  FD_LOG_DEBUG(( "clock.epoch_start_timestamp: %ld", clock.epoch_start_timestamp ));
+  FD_LOG_DEBUG(( "clock.epoch: %lu", clock.epoch ));
+  FD_LOG_DEBUG(( "clock.leader_schedule_epoch: %lu", clock.leader_schedule_epoch ));
+  FD_LOG_DEBUG(( "clock.unix_timestamp: %ld", clock.unix_timestamp ));
 
   ulong               sz       = fd_sol_sysvar_clock_size(&clock);
   fd_funk_rec_t *     acc_rec  = NULL;

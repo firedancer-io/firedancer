@@ -5,6 +5,7 @@
 #include "../types/fd_types.h"
 #include "../runtime/sysvar/fd_sysvar.h"
 #include "../runtime/sysvar/fd_sysvar_epoch_schedule.h"
+#include "../runtime/sysvar/fd_sysvar_epoch_rewards.h"
 #include "../stakes/fd_stakes.h"
 #include "../stakes/fd_stake_program.h"
 #include "../runtime/program/fd_vote_program.h"
@@ -88,7 +89,7 @@ typedef struct fd_stake_reward fd_stake_reward_t;
 
 #define DEQUE_NAME deq_fd_stake_reward_t
 #define DEQUE_T    fd_stake_reward_t
-#define DEQUE_MAX  1000UL
+#define DEQUE_MAX  1000000UL
 #include "../../util/tmpl/fd_deque.c"
 static inline fd_stake_reward_t *
 deq_fd_stake_reward_t_alloc( fd_valloc_t valloc ) {
@@ -144,16 +145,14 @@ struct fd_calculate_rewards_and_distribute_vote_rewards_result {
 };
 typedef struct fd_calculate_rewards_and_distribute_vote_rewards_result fd_calculate_rewards_and_distribute_vote_rewards_result_t;
 
-FD_PROTOTYPES_BEGIN
+struct fd_epoch_reward_status {
+  uint is_active;
+  ulong start_block_height;
+  fd_stake_rewards_vector_t * stake_rewards_by_partition;
+};
+typedef struct fd_epoch_reward_status fd_epoch_reward_status_t;
 
-void
-begin_partitioned_rewards(
-  fd_global_ctx_t * global,
-  fd_firedancer_banks_t * self,
-  ulong parent_epoch,
-  ulong parent_slot,
-  ulong parent_height
-);
+FD_PROTOTYPES_BEGIN
 
 void
 update_rewards(
@@ -162,8 +161,18 @@ update_rewards(
 );
 
 void
+begin_partitioned_rewards(
+    fd_firedancer_banks_t * self,
+    fd_global_ctx_t * global,
+    ulong parent_epoch,
+    fd_epoch_reward_status_t * result
+);
+
+void
 distribute_partitioned_epoch_rewards(
-  fd_firedancer_banks_t * self
+    fd_firedancer_banks_t * self,
+    fd_global_ctx_t * global,
+    fd_epoch_reward_status_t * epoch_reward_status
 );
 
 FD_PROTOTYPES_END

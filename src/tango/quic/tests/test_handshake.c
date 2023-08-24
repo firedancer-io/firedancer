@@ -85,8 +85,6 @@ main( int     argc,
 
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
-  if( FD_UNLIKELY( argc>1 ) ) FD_LOG_ERR(( "unrecognized argument: %s", argv[ 1 ] ));
-
   /* Generate certificate key */
   uchar cert_private_key[ 32 ];
   for( ulong b=0; b<32UL; b++ ) cert_private_key[b] = fd_rng_uchar( rng );

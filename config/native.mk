@@ -40,9 +40,7 @@ BUILDDIR?=native/$(CC)
 CPPFLAGS+=-march=native -mtune=native
 
 include config/with-brutality.mk
-ifeq ($(DISABLE_OPTIMIZATION),)
 include config/with-optimization.mk
-endif
 include config/with-debug.mk
 
 $(call map-define,FD_HAS_SHANI, __SHA__)

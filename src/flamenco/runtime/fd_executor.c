@@ -136,7 +136,8 @@ fd_executor_collect_fee( fd_global_ctx_t *   global,
   global->bank.collected += fee;
 
   /* todo rent exempt check */
-  meta->info.rent_epoch = ULONG_MAX;
+  if( FD_FEATURE_ACTIVE( global, set_exempt_rent_epoch_max ) )
+    meta->info.rent_epoch = ULONG_MAX;
   return 0;
 }
 
@@ -239,6 +240,7 @@ fd_execute_txn( fd_executor_t* executor, fd_txn_t * txn_descriptor, fd_rawtxn_b_
 
         exec_result = exec_instr_func( ctx );
         FD_LOG_WARNING(( "instruction executed unsuccessfully: error code %d, program id: %32J", exec_result, &tx_accs[instr->program_id] ));
+        fd_funk_txn_cancel( global->funk, txn, 0 );
         global->funk_txn = parent_txn;
         return -1;
         /* TODO: revert transaction context */
