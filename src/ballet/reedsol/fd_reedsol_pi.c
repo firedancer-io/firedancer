@@ -109,7 +109,13 @@ ws_mod255( ws_t x ) {
    this works on the group Z/255Z (integers mod 255).  Since 255 is not
    a prime, this is not a field, but the FD_REEDSOL_FWHT only needs addition,
    subtraction, and division by powers of 2 (which have inverses mod
-   255), so it's not a problem. */
+   255), so it's not a problem.
+
+   The typical FWHT multiplies by a factor of 1/sqrt(2) at each step.
+   To convert the unscaled version to the scaled version, divide the
+   result by sqrt(2)^lg(N).  Since we often do two transforms, we need
+   to divide by N ( = (sqrt(2)^lg(N))^2 ).
+   */
 
 #if FD_REEDSOL_PI_USE_SHORT
 
@@ -351,7 +357,7 @@ exp_2( wb_t x ) {
    Although L~ for a smaller size is a subset of that for a larger size,
    because we also precompute the value of the FWHT, we store the
    variables separately.  Perhaps a good compiler could
-   constant-propagate through the AVX instructions, but it's just 4
+   constant-propagate through the AVX instructions, but it's just 5
    values of N, so I prefer not to depend on that. */
 static const short fwht_l_twiddle_16 [  16 ] = {0xca,0xa1,0x6a,0xa9,0x73,0xfc,0xe2,0x44,0x93,0x74,0x08,0x7f,0x96,0x8c,0x42,0xf2};
 static const short fwht_l_twiddle_32 [  32 ] = {0x24,0x8f,0xc2,0x7e,0x49,0x89,0x74,0xdc,0x4f,0x95,0x43,0xb4,0x09,0xba,0x03,0x83,
@@ -395,7 +401,7 @@ gen_pi_noavx_generic( uchar const * is_erased,
 
   for( ulong i=0UL; i<sz; i++ ) scratch[ i ] = is_erased[ i ];
 
-  /* FWHT */
+  /* Unscaled FWHT */
   for( ulong h=1UL; h<sz; h<<=1 ) {
     for( ulong i=0UL; i<sz; i += 2UL*h ) for( ulong j=i; j<i+h; j++ ) {
       long x = scratch[ j   ];
@@ -416,7 +422,21 @@ gen_pi_noavx_generic( uchar const * is_erased,
     }
   }
 
-  for( ulong i=0UL; i<sz; i++ ) scratch[ i ] = (32L*(scratch[ i ] + 255L*64L)) % 255L;
+  /* Negate the ones corresponding to erasures to compute 1/Pi' */
+  for( ulong i=0UL; i<sz; i++ ) scratch[ i ] *= fd_long_if( is_erased[ i ], -1L, 1L );
+
+  /* To fix the FWHT scaling, we need to multiply by sz^-1 mod 255.
+     Given that sz is always a power of 2, this is not too bad.
+     Let s = lg(sz).  Note that 2^8 == 256 == 1 (mod 255),
+     so then (2^s) * (2^(8-s)) == 1    (mod 255).
+     This implies that sz^-1 = 2^(8-s) (mod 255), and we can compute
+     2^(8-s) by 256/s with normal integer division. */
+  long sz_inv = 256L/(long)sz;
+  /* The % operator in C doesn't work like the mathematical mod
+     operation for negative numbers, so we need to add in a shift to
+     make any input non-negative.  We can compute the smalles possible
+     value at this point and it's -142397, so we add 255*559=142545. */
+  for( ulong i=0UL; i<sz; i++ ) scratch[ i ] = (sz_inv*(scratch[ i ] + 255L*559L)) % 255L;
 
   for( ulong i=0UL; i<sz; i++ ) output[ i ] = (uchar)gf_arith_invlog_tbl[ scratch[ i ] ];
 }
