@@ -150,6 +150,7 @@ typedef struct fd_pending_event fd_pending_event_t;
 struct fd_gossip_global {
     fd_gossip_credentials_t my_creds;
     fd_gossip_network_addr_t my_addr;
+    fd_gossip_contact_info_t my_contact_info;
     ulong seed;
     int sockfd;
     fd_peer_elem_t * peers;
@@ -157,6 +158,7 @@ struct fd_gossip_global {
     fd_pending_event_t * event_pool;
     fd_pending_heap_t * event_heap;
     fd_rng_t rng[1];
+    int got_pull_resp;
 };
 
 ulong
@@ -200,9 +202,32 @@ fd_gossip_global_delete ( void * shmap, fd_valloc_t valloc ) {
 }
 
 int
+fd_gossip_to_soladdr( fd_gossip_socket_addr_t * dst, fd_gossip_network_addr_t const * src ) {
+  dst->port = ntohs(src->port);
+  if (src->family == AF_INET) {
+    fd_gossip_ip_addr_new_disc(&dst->addr, fd_gossip_ip_addr_enum_ip4);
+    dst->addr.inner.ip4 = src->addr[0];
+    return 0;
+  } else if (src->family == AF_INET6) {
+    fd_gossip_ip_addr_new_disc(&dst->addr, fd_gossip_ip_addr_enum_ip6);
+    dst->addr.inner.ip6.ul[0] = src->addr[0];
+    dst->addr.inner.ip6.ul[1] = src->addr[1];
+    dst->addr.inner.ip6.ul[2] = src->addr[2];
+    dst->addr.inner.ip6.ul[3] = src->addr[3];
+    return 0;
+  } else {
+    FD_LOG_ERR(("invalid address family"));
+    errno = 0;
+    return -1;
+  }
+}
+
+int
 fd_gossip_global_set_config( fd_gossip_global_t * glob, const fd_gossip_config_t * config ) {
-  glob->my_creds = config->my_creds;
+  fd_memcpy(&glob->my_creds, &config->my_creds, sizeof(fd_gossip_config_t));
+  fd_memcpy(&glob->my_contact_info.id.uc, config->my_creds.public_key.uc, 32U);
   fd_memcpy(&glob->my_addr, &config->my_addr, sizeof(fd_gossip_network_addr_t));
+  fd_gossip_to_soladdr(&glob->my_contact_info.gossip, &config->my_addr);
   return 0;
 }
 
@@ -396,6 +421,17 @@ fd_gossip_sign_crds_value( fd_gossip_global_t * glob, fd_crds_value_t * value ) 
 
 void
 fd_gossip_first_pull( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, long now ) {
+  if (glob->got_pull_resp)
+    return;
+
+  /* Try again in 100 ms */
+  fd_ping_key_t * key = &arg->key;
+  fd_pending_event_t * ev = fd_gossip_add_pending(glob, now + (long)1e8);
+  if (ev) {
+    ev->fun = fd_gossip_first_pull;
+    fd_memcpy(&ev->fun_arg.key, key, sizeof(fd_ping_key_t));
+  }
+
   fd_gossip_msg_t gmsg;
   fd_gossip_msg_new_disc(&gmsg, fd_gossip_msg_enum_pull_req);
   fd_gossip_pull_req_t * req = &gmsg.inner.pull_req;
@@ -415,13 +451,12 @@ fd_gossip_first_pull( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, l
   bitsbits.vec = (ulong*)bv;
 
   fd_crds_value_t * value = &req->value;
-  fd_crds_data_new_disc(&value->data, fd_crds_data_enum_version);
-  fd_gossip_version_t * version = &value->data.inner.version;
-  fd_memcpy( version->from.uc, glob->my_creds.public_key.uc, 32UL );
-  version->wallclock = (ulong)now/1000000; /* convert to ms */
+  fd_crds_data_new_disc(&value->data, fd_crds_data_enum_contact_info);
+  fd_gossip_contact_info_t * ci = &value->data.inner.contact_info;
+  fd_memcpy(ci, &glob->my_contact_info, sizeof(fd_gossip_contact_info_t));
+  ci->wallclock = (ulong)now/1000000; /* convert to ms */
   fd_gossip_sign_crds_value(glob, value);
 
-  fd_ping_key_t * key = &arg->key;
   fd_gossip_send(glob, &key->addr, &gmsg);
 }
 
@@ -463,7 +498,7 @@ fd_gossip_handle_pong( fd_gossip_global_t * glob, fd_gossip_network_addr_t * fro
   val->pongtime = now;
 
   /* Trigger the first pull request */
-  if (fd_peer_table_key_cnt(glob->peers) == 0) {
+  if (!glob->got_pull_resp) {
     fd_pending_event_t * ev = fd_gossip_add_pending(glob, 0 /* ASAP */);
     if (ev) {
       ev->fun = fd_gossip_first_pull;
@@ -489,6 +524,7 @@ fd_gossip_recv(fd_gossip_global_t * glob, fd_gossip_network_addr_t * from, fd_go
   case fd_gossip_msg_enum_pull_req:
     break;
   case fd_gossip_msg_enum_pull_resp:
+    glob->got_pull_resp = 1;
     break;
   case fd_gossip_msg_enum_push_msg:
     break;
@@ -552,7 +588,6 @@ fd_gossip_main_loop( fd_gossip_global_t * glob, fd_valloc_t valloc, volatile int
   struct iovec iovecs[VLEN];
   uchar bufs[VLEN][FD_ETH_PAYLOAD_MAX];
   uchar sockaddrs[VLEN][sizeof(struct sockaddr_in6)]; /* sockaddr is smaller than sockaddr_in6 */
-  struct timespec timeout;
 
   while ( !*stopflag ) {
     fd_memset(msgs, 0, sizeof(msgs));
@@ -569,27 +604,17 @@ fd_gossip_main_loop( fd_gossip_global_t * glob, fd_valloc_t valloc, volatile int
     long now = fd_log_wallclock();
     do {
       fd_pending_event_t * ev = fd_pending_heap_ele_peek_min( glob->event_heap, glob->event_pool );
-      if (ev == NULL || ev->key - now > 1000000000L /* 1 second */) {
-        /* Don't block for more than a second */
-        timeout.tv_sec = 1;
-        timeout.tv_nsec = 0;
+      if (ev == NULL || ev->key > now)
         break;
-      }
-      if (ev->key > now) {
-        timeout.tv_sec = 0;
-        timeout.tv_nsec = ev->key - now;
-        break;
-      }
       (*ev->fun)(glob, &ev->fun_arg, now);
       fd_pending_heap_ele_remove_min( glob->event_heap, glob->event_pool );
       fd_pending_pool_ele_release( glob->event_pool, ev );
     } while (1);
 
     /* Read more packets */
-    fd_log_flush();
-    int retval = recvmmsg(fd, msgs, VLEN, MSG_WAITFORONE, &timeout);
+    int retval = recvmmsg(fd, msgs, VLEN, MSG_DONTWAIT, NULL);
     if (retval < 0) {
-      if (errno == EINTR )
+      if (errno == EINTR || errno == EWOULDBLOCK)
         continue;
       FD_LOG_ERR(("recvmmsg failed: %s", strerror(errno)));
       return -1;
