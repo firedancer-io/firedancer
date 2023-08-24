@@ -10077,6 +10077,9 @@ FD_FN_PURE uchar fd_bpf_upgradeable_loader_program_instruction_is_close(fd_bpf_u
 FD_FN_PURE uchar fd_bpf_upgradeable_loader_program_instruction_is_extend_program(fd_bpf_upgradeable_loader_program_instruction_t const * self) {
   return self->discriminant == 6;
 }
+FD_FN_PURE uchar fd_bpf_upgradeable_loader_program_instruction_is_set_authority_checked(fd_bpf_upgradeable_loader_program_instruction_t const * self) {
+  return self->discriminant == 7;
+}
 void fd_bpf_upgradeable_loader_program_instruction_inner_new(fd_bpf_upgradeable_loader_program_instruction_inner_t* self, uint discriminant);
 int fd_bpf_upgradeable_loader_program_instruction_inner_decode(fd_bpf_upgradeable_loader_program_instruction_inner_t* self, uint discriminant, fd_bincode_decode_ctx_t * ctx) {
   fd_bpf_upgradeable_loader_program_instruction_inner_new(self, discriminant);
@@ -10102,6 +10105,9 @@ int fd_bpf_upgradeable_loader_program_instruction_inner_decode(fd_bpf_upgradeabl
   }
   case 6: {
     return fd_bpf_upgradeable_loader_program_instruction_extend_program_decode(&self->extend_program, ctx);
+  }
+  case 7: {
+    return FD_BINCODE_SUCCESS;
   }
   default: return FD_BINCODE_ERR_ENCODING;
   }
@@ -10135,6 +10141,9 @@ void fd_bpf_upgradeable_loader_program_instruction_inner_new(fd_bpf_upgradeable_
   }
   case 6: {
     fd_bpf_upgradeable_loader_program_instruction_extend_program_new(&self->extend_program);
+    break;
+  }
+  case 7: {
     break;
   }
   default: break; // FD_LOG_ERR(( "unhandled type"));
@@ -10171,6 +10180,9 @@ void fd_bpf_upgradeable_loader_program_instruction_inner_destroy(fd_bpf_upgradea
   }
   case 6: {
     fd_bpf_upgradeable_loader_program_instruction_extend_program_destroy(&self->extend_program, ctx);
+    break;
+  }
+  case 7: {
     break;
   }
   default: break; // FD_LOG_ERR(( "unhandled type" ));

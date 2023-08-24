@@ -1331,7 +1331,8 @@
         { "name": "upgrade" },
         { "name": "set_authority" },
         { "name": "close" },
-        { "name": "extend_program", "type": "bpf_upgradeable_loader_program_instruction_extend_program" }
+        { "name": "extend_program", "type": "bpf_upgradeable_loader_program_instruction_extend_program" },
+        { "name": "set_authority_checked" }
       ],
       "comment": ""
     },
