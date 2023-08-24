@@ -664,6 +664,11 @@ fd_txn_is_writable( fd_txn_t const * txn, int idx )
   return 0;
 }
 
+static inline int
+fd_txn_is_signer( fd_txn_t const * txn, int idx ) {
+  return idx < txn->signature_cnt;
+}
+
 static inline ulong fd_txn_num_writable_accounts( fd_txn_t * txn ) {
   return (ulong)((txn->signature_cnt - txn->readonly_signed_cnt)
       + ((txn->acct_addr_cnt - txn->readonly_unsigned_cnt) - txn->signature_cnt));
