@@ -44,7 +44,7 @@ struct fd_reward_info {
 typedef struct fd_reward_info fd_reward_info_t;
 
 struct fd_vote_reward_t_mapnode {
-  fd_pubkey_t * vote_pubkey;
+  fd_pubkey_t vote_pubkey;
   ulong vote_rewards;
   uchar commission;
 };
@@ -55,13 +55,13 @@ typedef struct fd_vote_reward_t_mapnode fd_vote_reward_t_mapnode_t;
 #define MAP_T                 fd_vote_reward_t_mapnode_t
 #define MAP_MEMOIZE           0
 #define MAP_KEY               vote_pubkey
-#define MAP_KEY_T             fd_pubkey_t *
-#define MAP_KEY_NULL          NULL
-#define MAP_KEY_INVAL(k)      !(k)
-#define MAP_KEY_EQUAL(a,b)    (memcmp((a), (b), sizeof(fd_pubkey_t))==0)
+#define MAP_KEY_T             fd_pubkey_t
+#define MAP_KEY_NULL          (fd_pubkey_t){0}
+#define MAP_KEY_INVAL(k)      MAP_KEY_EQUAL((k),MAP_KEY_NULL)
+#define MAP_KEY_EQUAL(k0,k1)    (!memcmp((k0).key, (k1).key, sizeof( fd_pubkey_t ) ))
 #define MAP_KEY_EQUAL_IS_SLOW 1
-#define MAP_KEY_HASH(key)     fd_uint_load_4( (key) )
-#define MAP_KEY_MOVE(kd,ks) memcpy((kd),(ks),sizeof(fd_pubkey_t))
+#define MAP_KEY_HASH(key)     ((uint)fd_ulong_hash( fd_ulong_load_8( (key).key ) ))
+#define MAP_KEY_MOVE(kd,ks) memcpy( &(kd), &(ks),sizeof(fd_pubkey_t))
 #include "../../util/tmpl/fd_map_dynamic.c"
 static inline fd_vote_reward_t_mapnode_t *
 fd_vote_reward_t_map_alloc( fd_valloc_t valloc, int len ) {
@@ -70,8 +70,8 @@ fd_vote_reward_t_map_alloc( fd_valloc_t valloc, int len ) {
 }
 
 struct fd_stake_reward {
-    fd_pubkey_t * stake_pubkey;
-    fd_reward_info_t * reward_info;
+    fd_pubkey_t stake_pubkey;
+    fd_reward_info_t reward_info;
 };
 typedef struct fd_stake_reward fd_stake_reward_t;
 

@@ -382,14 +382,6 @@ fd_stake_history_entry_t stake_activating_and_deactivating( fd_delegation_t cons
 }
 
 
-/* Initializes the stakes cache in the Bank structure.
-   TODO: maybe we don't need this cache at all? */
-void fd_stakes_init( fd_global_ctx_t* global, fd_stakes_t* stakes ) {
-   /* TODO: handle non-zero epoch case */
-  stakes->epoch = 0;
-  stakes->stake_delegations_pool = fd_delegation_pair_t_map_alloc(global->valloc, 10000);
-  stakes->stake_delegations_root = NULL;
-}
 
 /* https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L169 */
 void activate_epoch( fd_global_ctx_t* global, ulong next_epoch ) {

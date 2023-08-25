@@ -107,6 +107,7 @@ static void calculate_stake_points_and_credits (
     } else if (credits_in_stake < final_epoch_credits) {
       earned_credits = (__uint128_t)(final_epoch_credits - new_credits_observed);
     }
+    FD_LOG_NOTICE(("earned_credits: %lu", earned_credits));
     new_credits_observed = fd_ulong_max(new_credits_observed, final_epoch_credits);
 
     __uint128_t stake_amount = (__uint128_t)(stake_activating_and_deactivating(&stake_state->inner.stake.stake.delegation, epoch, stake_history).effective);
@@ -192,8 +193,10 @@ redeem_rewards( fd_global_ctx_t *               global,
         return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
     }
 
-    result = NULL;
     calculate_and_redeem_stake_rewards(stake_history, &stake_state, vote_state, rewarded_epoch, point_value, result);
+    FD_LOG_NOTICE(("result->staker_rewards: %lu", result->staker_rewards));
+    FD_LOG_NOTICE(("result->new_credits_observed: %lu", result->new_credits_observed));
+    FD_LOG_NOTICE(("result->voter_rewards: %lu", result->voter_rewards));
     if (result == NULL) {
         // ctx->txn_ctx->custom_err = 0; /* Err(StakeError::NoCreditsToRedeem.into()) */
         return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
@@ -221,7 +224,7 @@ int calculate_points(
     if (!fd_stake_state_is_stake( stake_state)) {
         return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
     }
-
+    FD_LOG_NOTICE(("calculate_points"));
     fd_calculate_stake_points_t stake_point_result;
     calculate_stake_points_and_credits(stake_history, stake_state, vote_state_versioned, &stake_point_result);
     *result = stake_point_result.points;
@@ -306,7 +309,8 @@ calculate_reward_points_partitioned(
 
         fd_vote_accounts_pair_t_mapnode_t key;
         fd_memcpy(&key.elem.key, voter_acc, sizeof(fd_pubkey_t));
-        if (fd_vote_accounts_pair_t_map_find(bank->stakes.vote_accounts.vote_accounts_pool, bank->stakes.vote_accounts.vote_accounts_root, &key) != NULL) {
+
+        if (fd_vote_accounts_pair_t_map_find(bank->stakes.vote_accounts.vote_accounts_pool, bank->stakes.vote_accounts.vote_accounts_root, &key) == NULL) {
             continue;
         }
 
@@ -338,7 +342,7 @@ calculate_reward_points_partitioned(
         points += (calculate_points(&stake_state, vote_state, stake_history, &result) == FD_EXECUTOR_INSTR_SUCCESS ? result : 0);
 
     }
-
+    FD_LOG_NOTICE(("points: %lu", points));
     if (points > 0) {
         result->points = points;
         result->rewards = rewards;
@@ -373,6 +377,7 @@ calculate_stake_vote_rewards(
     fd_acc_lamports_t total_stake_rewards = 0;
     fd_stake_reward_t * stake_reward_deq = deq_fd_stake_reward_t_alloc( global->valloc );
     fd_vote_reward_t_mapnode_t * vote_reward_map = fd_vote_reward_t_map_alloc( global->valloc, 30);
+    FD_LOG_NOTICE(("calculate_stake_vote_rewards WITHIN"));
     for ( fd_delegation_pair_t_mapnode_t * n = fd_delegation_pair_t_map_minimum( bank->stakes.stake_delegations_pool, bank->stakes.stake_delegations_root ); n; n = fd_delegation_pair_t_map_successor( bank->stakes.stake_delegations_pool, n ) ) {
         fd_pubkey_t * voter_acc = &n->elem.delegation.voter_pubkey;
         fd_pubkey_t * stake_acc = &n->elem.account;
@@ -380,7 +385,7 @@ calculate_stake_vote_rewards(
         fd_vote_accounts_pair_t_mapnode_t key;
         fd_memcpy(&key.elem.key, voter_acc, sizeof(fd_pubkey_t));
 
-        if (fd_vote_accounts_pair_t_map_find(bank->stakes.vote_accounts.vote_accounts_pool, bank->stakes.vote_accounts.vote_accounts_root, &key) != NULL) {
+        if (fd_vote_accounts_pair_t_map_find(bank->stakes.vote_accounts.vote_accounts_pool, bank->stakes.vote_accounts.vote_accounts_root, &key) == NULL) {
             continue;
         }
 
@@ -403,7 +408,7 @@ calculate_stake_vote_rewards(
             continue;
         }
 
-        fd_calculated_stake_rewards_t * redeemed = NULL;
+        fd_calculated_stake_rewards_t redeemed[1];
         if (redeem_rewards(global, stake_history, stake_acc, vote_state_versioned, rewarded_epoch, point_value, redeemed) != 0) {
             FD_LOG_WARNING(("stake_state::redeem_rewards() failed for %32J", stake_acc->key ));
             continue;
@@ -416,8 +421,8 @@ calculate_stake_vote_rewards(
         total_stake_rewards += redeemed->staker_rewards;
 
         // add stake_reward to the collection
-        fd_stake_reward_t * stake_reward = deq_fd_stake_reward_t_insert_tail( stake_reward_deq );
-        fd_memcpy(stake_reward->stake_pubkey, stake_acc, sizeof(fd_pubkey_t));
+        fd_stake_reward_t stake_reward;
+        fd_memcpy(&stake_reward.stake_pubkey, stake_acc, sizeof(fd_pubkey_t));
         uchar commission = 0U;
         switch (vote_state_versioned->discriminant) {
             case fd_vote_state_versioned_enum_current:
@@ -432,20 +437,18 @@ calculate_stake_vote_rewards(
             default:
                 __builtin_unreachable();
         }
-        *(stake_reward->reward_info) = (fd_reward_info_t){
+        stake_reward.reward_info = (fd_reward_info_t) {
             .reward_type = { .discriminant = fd_reward_type_enum_staking },
             .commission = (uchar)commission,
             .lamports = redeemed->staker_rewards,
             .post_balance = post_lamports
         };
+        deq_fd_stake_reward_t_push_tail( stake_reward_deq, stake_reward );
         // track voter rewards
-        fd_vote_reward_t_mapnode_t * node = fd_vote_reward_t_map_query(vote_reward_map, voter_acc, NULL);
+        fd_vote_reward_t_mapnode_t * node = fd_vote_reward_t_map_insert(vote_reward_map, *voter_acc);
         if (node != NULL) {
-        }
-        if (node == NULL) {
-            node = fd_vote_reward_t_map_insert(vote_reward_map, voter_acc);
             node->vote_rewards = 0;
-            fd_memcpy(node->vote_pubkey, voter_acc, sizeof(fd_pubkey_t));
+            fd_memcpy(&node->vote_pubkey, voter_acc, sizeof(fd_pubkey_t));
             node->commission = (uchar)commission;
         }
         node->vote_rewards = fd_ulong_sat_add(node->vote_rewards, redeemed->voter_rewards);
@@ -470,6 +473,7 @@ calculate_validator_rewards(
 
     fd_point_value_t point_value_result[1] = {0};
     calculate_reward_points_partitioned(global, &stake_history, rewards, point_value_result);
+    FD_LOG_NOTICE(("calculate_validator_rewards: point_value_result->points = %lu", point_value_result->points));
     calculate_stake_vote_rewards(global, &stake_history, rewarded_epoch, point_value_result, result);
 }
 
@@ -519,7 +523,7 @@ hash_rewards_into_partitions(
     ) {
         fd_stake_reward_t * ele =  deq_fd_stake_reward_t_iter_ele( stake_reward_deq, iter );
         /* hash_address_to_partition: find partition index (0..partitions) by hashing `address` with the `hasher` */
-        fd_siphash13_append( hasher, ele->stake_pubkey->hash, sizeof(fd_pubkey_t));
+        fd_siphash13_append( hasher, (const uchar *) ele->stake_pubkey.key, sizeof(fd_pubkey_t));
         ulong hash64 = fd_siphash13_fini(hasher);
         /* hash_to_partition */
         ulong partition_index = (ulong)(
@@ -547,8 +551,10 @@ calculate_rewards_for_partitioning(
 
     fd_validator_reward_calculation_t validator_result[1] = {0};
     calculate_validator_rewards(global, prev_epoch, rewards.validator_rewards, validator_result);
+    FD_LOG_NOTICE(("calculate_rewards_for_partitioning: total_stake_rewards_lamports = %lu", validator_result->total_stake_rewards_lamports));
 
     ulong num_partitions = get_reward_distribution_num_blocks(&global->bank, validator_result->stake_reward_deq);
+    FD_LOG_NOTICE(("calculate_rewards_for_partitioning: num_partitions = %lu", num_partitions));
 
     fd_stake_rewards_vector_t hash_rewards_result[1] = {0};
     hash_rewards_into_partitions(&global->bank, validator_result->stake_reward_deq, num_partitions, hash_rewards_result);
@@ -593,6 +599,12 @@ void calculate_rewards_and_distribute_vote_rewards(
 ) {
     fd_partitioned_rewards_calculation_t rewards_calc_result[1] = {0};
     calculate_rewards_for_partitioning(global, prev_epoch,  rewards_calc_result);
+    FD_LOG_NOTICE((
+        "calculate_rewards_and_distribute_vote_rewards: %lu, %lu, %lu",
+        rewards_calc_result->total_stake_rewards_lamports,
+        rewards_calc_result->old_vote_balance_and_staked,
+        rewards_calc_result->validator_rewards
+    ));
     /* TODO: update_reward_history */
     update_reward_history(self, NULL, rewards_calc_result->vote_account_rewards);
 
@@ -603,7 +615,7 @@ void calculate_rewards_and_distribute_vote_rewards(
     // verify that we didn't pay any more than we expected to
     FD_TEST( rewards_calc_result->validator_rewards >= fd_ulong_sat_add(validator_rewards_paid, rewards_calc_result->total_stake_rewards_lamports));
 
-    FD_LOG_INFO((
+    FD_LOG_NOTICE((
         "distributed vote rewards: %lu out of %lu, remaining %lu",
         validator_rewards_paid,
         rewards_calc_result->validator_rewards,
@@ -677,7 +689,12 @@ begin_partitioned_rewards(
     result->is_active = 1;
     result->stake_rewards_by_partition = rewards_result->stake_rewards_by_partition;
     result->start_block_height = self->block_height;
-
+    FD_LOG_NOTICE((
+        "begin_partitioned_rewards: %lu, %lu, %lu",
+        result->start_block_height,
+        credit_end_exclusive,
+        rewards_result->total_rewards
+    ));
     // create EpochRewards sysvar that holds the balance of undistributed rewards with
     // (total_rewards, distributed_rewards, credit_end_exclusive), total capital will increase by (total_rewards - distributed_rewards)
     fd_sysvar_epoch_rewards_init( global, rewards_result->total_rewards, rewards_result->distributed_rewards, credit_end_exclusive);
@@ -702,11 +719,11 @@ distribute_partitioned_epoch_rewards(
         ulong total_rewards_in_lamports = 0UL;
         fd_stake_rewards_t this_partition_stake_rewards = epoch_reward_status->stake_rewards_by_partition->elems[partition_index];
         for (uint i = 0; i < this_partition_stake_rewards.cnt; ++i) {
-            total_rewards_in_lamports = fd_ulong_sat_add(total_rewards_in_lamports, this_partition_stake_rewards.elems[i]->reward_info->lamports);
+            total_rewards_in_lamports = fd_ulong_sat_add(total_rewards_in_lamports, this_partition_stake_rewards.elems[i]->reward_info.lamports);
             // store rewards into accounts
             fd_account_meta_t * acc_meta = NULL;
-            FD_TEST( 0==fd_acc_mgr_modify( global->acc_mgr, global->funk_txn, this_partition_stake_rewards.elems[i]->stake_pubkey, 0, 0UL, NULL, NULL, &acc_meta, NULL ));
-            acc_meta->info.lamports += this_partition_stake_rewards.elems[i]->reward_info->lamports;
+            FD_TEST( 0==fd_acc_mgr_modify( global->acc_mgr, global->funk_txn, &this_partition_stake_rewards.elems[i]->stake_pubkey, 0, 0UL, NULL, NULL, &acc_meta, NULL ));
+            acc_meta->info.lamports += this_partition_stake_rewards.elems[i]->reward_info.lamports;
         }
 
         // increase total capitalization by the distributed rewards

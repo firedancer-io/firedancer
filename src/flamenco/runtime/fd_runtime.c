@@ -189,6 +189,8 @@ fd_runtime_init_bank_from_genesis( fd_global_ctx_t *     global,
     .vote_accounts_pool = vacc_pool,
     .vote_accounts_root = vacc_root,
   };
+
+  /* Initializes the stakes cache in the Bank structure. */
   global->bank.stakes = (fd_stakes_t) {
     .stake_delegations_pool = sacc_pool,
     .stake_delegations_root = sacc_root,
@@ -203,6 +205,7 @@ fd_runtime_init_bank_from_genesis( fd_global_ctx_t *     global,
       .entries_root = stake_history_root
     }
   };
+
   global->bank.capitalization = capitalization;
 
 }

@@ -25,15 +25,10 @@ FD_PROTOTYPES_BEGIN
    scratch space available. */
 #define STAKE_ACCOUNT_SIZE ( 200 )
 
-
-
 ulong
 fd_stake_weights_by_node( fd_vote_accounts_t const * accs,
                           fd_stake_weight_t *        weights );
 
-FD_PROTOTYPES_END
-
-void fd_stakes_init( fd_global_ctx_t * global, fd_stakes_t* stakes );
 
 void activate_epoch( fd_global_ctx_t * global, ulong next_epoch );
 
@@ -47,5 +42,7 @@ int write_stake_state(
     fd_stake_state_t* stake_state,
     ushort is_new_account
 );
+
+FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_stakes_fd_stakes_h */
