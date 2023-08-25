@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <unistd.h>
 #include "../../types/fd_types_yaml.h"
+#include "../../../ballet/base64/fd_base64.h"
 
 const char *verbose = NULL;
 const char *fail_fast = NULL;
@@ -223,25 +224,34 @@ int fd_executor_run_test(
 
     global->bank.slot = 200880004;
 
-    // // TODO: are these required now?
-    // if ( strcmp(test->sysvar_cache.clock, "") ) {
-    //   fd_sol_sysvar_clock_t clk;
-    //   ulong          sz = fd_sol_sysvar_clock_size( &clk );
+    // TODO: are these required now?
+    if ( strcmp(test->sysvar_cache.clock, "") ) {
+      FD_SCRATCH_SCOPED_FRAME;
 
-    //   uchar decoded[64];
-    //   fd_base58_decode_64(test->sysvar_cache.clock, decoded);
-    //   ulong arr[64 / sizeof(ulong)];
-    //   memcpy(arr, decoded, sizeof(decoded));
-    //   for (ulong i = 0; i < sizeof(ulong) / 2; i++) {
-    //     ulong t = arr[i];
-    //     arr[i] = arr[sizeof(ulong) - 1 - i];
-    //     arr[sizeof(ulong) - 1 - i] = t;
-    //   }
-    //   unsigned char *enc = fd_alloca( 1, sz );
-    //   memcpy( enc, arr, sz );
-    //   fd_sysvar_set_override(global, global->sysvar_owner, (fd_pubkey_t*)global->sysvar_clock, enc, sz, global->bank.slot);
+      ulong base64_len = strlen( test->sysvar_cache.clock );
 
-    // }
+      /* Decode Base64 */
+      ulong   max_data_sz = 3UL + base64_len/2UL;
+      uchar * data        = fd_scratch_alloc( 1, max_data_sz );
+      long    data_sz     = fd_base64_decode( data, test->sysvar_cache.clock, base64_len );
+      FD_TEST( data_sz>=0 );
+
+      /* Decode clock */
+      fd_sol_sysvar_clock_t clk = {0};
+      fd_bincode_decode_ctx_t ctx = {
+        .data    = data,
+        .dataend = data + data_sz,
+        .valloc  = fd_scratch_virtual()
+      };
+      if ( fd_sol_sysvar_clock_decode( &clk, &ctx ) ) {
+        FD_LOG_WARNING(("fd_sol_sysvar_clock_decode failed"));
+        ret = FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+        goto fd_executor_run_cleanup;
+      }
+
+      global->bank.slot = clk.slot;
+      fd_sysvar_set_override(global, global->sysvar_owner, (fd_pubkey_t*)global->sysvar_clock, data, (ulong)data_sz, global->bank.slot);
+    }
 
     /* Parse the raw transaction */
 
