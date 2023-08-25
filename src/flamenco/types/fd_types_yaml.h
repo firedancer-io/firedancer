@@ -29,6 +29,9 @@ fd_flamenco_yaml_t *
 fd_flamenco_yaml_init( fd_flamenco_yaml_t * yaml,
                        void *               file );
 
+void *
+fd_flamenco_yaml_file( fd_flamenco_yaml_t * yaml );
+
 /* fd_flamenco_yaml_walk implements fd_flamenco_walk_fn_t. */
 
 void
