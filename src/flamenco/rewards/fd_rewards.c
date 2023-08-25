@@ -3,6 +3,7 @@
 
 static double
 total(fd_inflation_t* inflation, double year) {
+    FD_TEST( year >= 0.0 );
     double tapered = inflation->initial * pow((1.0 - inflation->taper), year);
     return (tapered > inflation->terminal) ? tapered : inflation->terminal;
 }
@@ -63,7 +64,6 @@ static void calculate_stake_points_and_credits (
   fd_vote_state_versioned_t * vote_state_versioned,
   fd_calculate_stake_points_t * result
 ) {
-    // fd_vote_state_t * vote_state;
     fd_vote_epoch_credits_t * epoch_credits;
     switch (vote_state_versioned->discriminant) {
         case fd_vote_state_versioned_enum_current:
@@ -128,50 +128,54 @@ static void calculate_and_redeem_stake_rewards(
   fd_calculated_stake_rewards_t * result
 ) {
 
-  /*
-  implements the `calculate_stake_rewards` solana function
-  for a given stake and vote_state, calculate what distributions and what updates should be made
-  returns a tuple in the case of a payout of:
-  * staker_rewards to be distributed
-  * voter_rewards to be distributed
-  * new value for credits_observed in the stake
-  returns None if there's no payout or if any deserved payout is < 1 lamport */
-  fd_calculate_stake_points_t stake_points_result;
-  calculate_stake_points_and_credits( stake_history, stake_state, vote_state_versioned, &stake_points_result);
+    /*
+    implements the `calculate_stake_rewards` solana function
+    for a given stake and vote_state, calculate what distributions and what updates should be made
+    returns a tuple in the case of a payout of:
+    * staker_rewards to be distributed
+    * voter_rewards to be distributed
+    * new value for credits_observed in the stake
+    returns None if there's no payout or if any deserved payout is < 1 lamport */
+    fd_calculate_stake_points_t stake_points_result;
+    calculate_stake_points_and_credits( stake_history, stake_state, vote_state_versioned, &stake_points_result);
 
-  // Drive credits_observed forward unconditionally when rewards are disabled
-  // or when this is the stake's activation epoch
-  stake_points_result.force_credits_update_with_skipped_reward |= (point_value->rewards == 0);
-  stake_points_result.force_credits_update_with_skipped_reward |= (stake_state->inner.stake.stake.delegation.activation_epoch == rewarded_epoch);
+    // Drive credits_observed forward unconditionally when rewards are disabled
+    // or when this is the stake's activation epoch
+    stake_points_result.force_credits_update_with_skipped_reward |= (point_value->rewards == 0);
+    stake_points_result.force_credits_update_with_skipped_reward |= (stake_state->inner.stake.stake.delegation.activation_epoch == rewarded_epoch);
 
-  if (stake_points_result.force_credits_update_with_skipped_reward) {
+    if (stake_points_result.force_credits_update_with_skipped_reward) {
     result->staker_rewards = 0;
     result->voter_rewards = 0;
     result->new_credits_observed = stake_points_result.new_credits_observed;
     return;
-  }
-  if ( stake_points_result.points == 0 || point_value->points == 0 ) {
+    }
+    if ( stake_points_result.points == 0 || point_value->points == 0 ) {
     result = NULL;
     return;
-  }
+    }
 
 
-  ulong rewards = (ulong)(stake_points_result.points * point_value->rewards / point_value->points);
-  fd_commission_split_t split_result;
-  fd_vote_commission_split( vote_state_versioned, rewards, &split_result );
-  if (split_result.is_split && (split_result.voter_portion == 0 || split_result.staker_portion == 0)) {
+    ulong rewards = (ulong)(stake_points_result.points * (__uint128_t)point_value->rewards / (__uint128_t) point_value->points);
+    FD_LOG_NOTICE(("stake_points_result.points: %lu", stake_points_result.points));
+    FD_LOG_NOTICE(("point_value->rewards: %lu", point_value->rewards));
+    FD_LOG_NOTICE(("point_value->points: %lu", point_value->points));
+    FD_LOG_NOTICE(("REWARDS REWARDS REWARDS: %lu", rewards));
+    fd_commission_split_t split_result;
+    fd_vote_commission_split( vote_state_versioned, rewards, &split_result );
+    if (split_result.is_split && (split_result.voter_portion == 0 || split_result.staker_portion == 0)) {
     result = NULL;
     return;
-  }
+    }
 
-  result->staker_rewards = split_result.staker_portion;
-  result->voter_rewards = split_result.voter_portion;
-  result->new_credits_observed = stake_points_result.new_credits_observed;
+    result->staker_rewards = split_result.staker_portion;
+    result->voter_rewards = split_result.voter_portion;
+    result->new_credits_observed = stake_points_result.new_credits_observed;
 
-  /* implements the `redeem_stake_rewards` solana function */
-  stake_state->inner.stake.stake.credits_observed += result->new_credits_observed;
-  stake_state->inner.stake.stake.delegation.stake += result->staker_rewards;
-  return;
+    /* implements the `redeem_stake_rewards` solana function */
+    stake_state->inner.stake.stake.credits_observed += result->new_credits_observed;
+    stake_state->inner.stake.stake.delegation.stake += result->staker_rewards;
+    return;
 }
 
 int
@@ -183,9 +187,11 @@ redeem_rewards( fd_global_ctx_t *               global,
                 fd_point_value_t *              point_value,
                 fd_calculated_stake_rewards_t * result ) {
 
-  fd_account_meta_t const * stake_acc_meta = NULL;
-  int err = fd_acc_mgr_view( global->acc_mgr, global->funk_txn, stake_acc, NULL, &stake_acc_meta, NULL );
-  if( FD_UNLIKELY( err ) ) return err;
+    fd_account_meta_t const * stake_acc_meta = NULL;
+    int err = fd_acc_mgr_view( global->acc_mgr, global->funk_txn, stake_acc, NULL, &stake_acc_meta, NULL );
+    if( FD_UNLIKELY( err ) ) {
+        return err;
+    }
 
     fd_stake_state_t stake_state;
     read_stake_state( global, stake_acc_meta, &stake_state );
@@ -242,6 +248,10 @@ epoch_duration_in_years(
     ulong slots_in_epoch = (prev_epoch < bank->epoch_schedule.first_normal_epoch) ?
         1UL << fd_ulong_sat_add(prev_epoch, FD_EPOCH_LEN_MIN_TRAILING_ZERO) :
         bank->epoch_schedule.slots_per_epoch;
+    FD_LOG_NOTICE(("epoch_duration_in_years prev_epoch: %lu", prev_epoch));
+    FD_LOG_NOTICE(("epoch_duration_in_years bank->epoch_schedule.first_normal_epoch: %lu", bank->epoch_schedule.first_normal_epoch));
+    FD_LOG_NOTICE(("epoch_duration_in_years slots_in_epoch: %lu", slots_in_epoch));
+    FD_LOG_NOTICE(("epoch_duration_in_years bank->slots_per_year: %f", bank->slots_per_year));
     return (double)slots_in_epoch / bank->slots_per_year;
 }
 
@@ -264,6 +274,10 @@ calculate_previous_epoch_inflation_rewards(
     rewards->foundation_rate = foundation(&bank->inflation, slot_in_year);
     rewards->prev_epoch_duration_in_years = epoch_duration_in_years(bank, prev_epoch);
     rewards->validator_rewards = (ulong)(rewards->validator_rate * (double)prev_epoch_capitalization * rewards->prev_epoch_duration_in_years);
+    FD_LOG_NOTICE(("validator_rate: %.32f", rewards->validator_rate));
+    FD_LOG_NOTICE(("prev_epoch_duration_in_years: %.32f", rewards->prev_epoch_duration_in_years));
+    FD_LOG_NOTICE(("prev_epoch_capitalization: %lu", prev_epoch_capitalization));
+    FD_LOG_NOTICE(("validator_rewards: %lu", rewards->validator_rewards));
 }
 
 
@@ -445,8 +459,9 @@ calculate_stake_vote_rewards(
         };
         deq_fd_stake_reward_t_push_tail( stake_reward_deq, stake_reward );
         // track voter rewards
-        fd_vote_reward_t_mapnode_t * node = fd_vote_reward_t_map_insert(vote_reward_map, *voter_acc);
-        if (node != NULL) {
+        fd_vote_reward_t_mapnode_t * node = fd_vote_reward_t_map_query(vote_reward_map, *voter_acc, NULL);
+        if (node == NULL) {
+            node = fd_vote_reward_t_map_insert(vote_reward_map, *voter_acc);
             node->vote_rewards = 0;
             fd_memcpy(&node->vote_pubkey, voter_acc, sizeof(fd_pubkey_t));
             node->commission = (uchar)commission;
@@ -474,6 +489,7 @@ calculate_validator_rewards(
     fd_point_value_t point_value_result[1] = {0};
     calculate_reward_points_partitioned(global, &stake_history, rewards, point_value_result);
     FD_LOG_NOTICE(("calculate_validator_rewards: point_value_result->points = %lu", point_value_result->points));
+    FD_LOG_NOTICE(("calculate_validator_rewards: point_value_result->rewards = %lu", point_value_result->rewards));
     calculate_stake_vote_rewards(global, &stake_history, rewarded_epoch, point_value_result, result);
 }
 
