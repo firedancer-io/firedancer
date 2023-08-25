@@ -359,7 +359,7 @@ int fd_initialize_nonce_account(
   fd_pubkey_t * txn_accs = ctx.txn_ctx->accounts;
   uchar const * instr_acc_idxs = ctx.instr->acct_txn_idxs;
 
-  fd_pubkey_t * me = &txn_accs[0];
+  fd_pubkey_t * me   = &txn_accs[instr_acc_idxs[0]];
 
   if (0 != memcmp(&txn_accs[instr_acc_idxs[1]], ctx.global->sysvar_recent_block_hashes, sizeof(fd_pubkey_t))) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;

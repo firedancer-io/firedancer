@@ -431,7 +431,7 @@ struct fd_deserializable_versioned_bank {
   fd_slot_pair_t* ancestors;
   fd_hash_t hash;
   fd_hash_t parent_hash;
-  ulong parent_slot;
+  ulong parent_slot; // 128
   fd_hard_forks_t hard_forks;
   ulong transaction_count;
   ulong tick_height;
@@ -463,7 +463,7 @@ struct fd_deserializable_versioned_bank {
 };
 typedef struct fd_deserializable_versioned_bank fd_deserializable_versioned_bank_t;
 #define FD_DESERIALIZABLE_VERSIONED_BANK_FOOTPRINT sizeof(fd_deserializable_versioned_bank_t)
-#define FD_DESERIALIZABLE_VERSIONED_BANK_ALIGN (8UL)
+#define FD_DESERIALIZABLE_VERSIONED_BANK_ALIGN (16UL)
 
 struct fd_serializable_account_storage_entry {
   ulong id;
@@ -570,7 +570,7 @@ struct fd_solana_manifest {
 };
 typedef struct fd_solana_manifest fd_solana_manifest_t;
 #define FD_SOLANA_MANIFEST_FOOTPRINT sizeof(fd_solana_manifest_t)
-#define FD_SOLANA_MANIFEST_ALIGN (8UL)
+#define FD_SOLANA_MANIFEST_ALIGN (16UL)
 
 struct fd_rust_duration {
   ulong seconds;
