@@ -11,7 +11,7 @@
 */
 // 64-bit aligned
 uchar *
-fd_bpf_loader_input_serialize_aligned( instruction_ctx_t ctx, ulong * sz ) {
+fd_bpf_loader_input_serialize_aligned( instruction_ctx_t ctx, ulong * sz, ulong * pre_lens ) {
   ulong serialized_size = 0;
   uchar const * instr_acc_idxs = ctx.instr->acct_txn_idxs;
   fd_pubkey_t * txn_accs = ctx.txn_ctx->accounts;
@@ -126,6 +126,7 @@ fd_bpf_loader_input_serialize_aligned( instruction_ctx_t ctx, ulong * sz ) {
           + 0                                       // data
           + MAX_PERMITTED_DATA_INCREASE
           + sizeof(ulong);                          // rent_epoch
+        pre_lens[i] = 0;
         continue;
       } else if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
         FD_LOG_WARNING(( "failed to read account data - pubkey: %32J, err: %d", acc, read_result ));
@@ -166,6 +167,7 @@ fd_bpf_loader_input_serialize_aligned( instruction_ctx_t ctx, ulong * sz ) {
       serialized_params += sizeof(ulong);
 
       ulong acc_data_len = metadata->dlen;
+      pre_lens[i] = acc_data_len;
       ulong aligned_acc_data_len = fd_ulong_align_up(acc_data_len, 8);
       ulong alignment_padding_len = aligned_acc_data_len - acc_data_len;
 
@@ -206,7 +208,10 @@ fd_bpf_loader_input_serialize_aligned( instruction_ctx_t ctx, ulong * sz ) {
 }
 
 int
-fd_bpf_loader_input_deserialize_aligned( instruction_ctx_t ctx, uchar * input, ulong input_sz ) {
+fd_bpf_loader_input_deserialize_aligned( instruction_ctx_t ctx,
+                                         ulong const * pre_lens, 
+                                         uchar * input, 
+                                         ulong input_sz ) {
   uchar * input_cursor = input;
 
   uchar acc_idx_seen[256];
@@ -264,9 +269,11 @@ fd_bpf_loader_input_deserialize_aligned( instruction_ctx_t ctx, uchar * input, u
           return -1;
         }
         metadata = (fd_account_meta_t *)raw_acc_data;
+
+        ulong pre_len = pre_lens[i];
         
         uchar * acc_data = fd_account_get_data( metadata );
-        input_cursor += fd_ulong_align_up(metadata->dlen, 8);
+        input_cursor += fd_ulong_align_up( pre_len, 8 );
 
         metadata->dlen = post_data_len;
         metadata->info.lamports = lamports;
@@ -318,7 +325,7 @@ fd_bpf_loader_input_deserialize_aligned( instruction_ctx_t ctx, uchar * input, u
 }
 
 uchar *
-fd_bpf_loader_input_serialize_unaligned( instruction_ctx_t ctx, ulong * sz ) {
+fd_bpf_loader_input_serialize_unaligned( instruction_ctx_t ctx, ulong * sz, ulong * pre_lens ) {
   ulong serialized_size = 0;
   uchar * instr_acc_idxs = ctx.instr->acct_txn_idxs;
   fd_pubkey_t * txn_accs = ctx.txn_ctx->accounts;
@@ -356,6 +363,8 @@ fd_bpf_loader_input_serialize_unaligned( instruction_ctx_t ctx, ulong * sz ) {
         FD_LOG_WARNING(( "failed to read account data - pubkey: %32J, err: %d", acc, read_result ));
         return NULL;
       }
+
+      pre_lens[i] = acc_data_len;
 
       serialized_size += sizeof(uchar)  // is_signer
           + sizeof(uchar)               // is_writable
@@ -488,7 +497,7 @@ fd_bpf_loader_input_serialize_unaligned( instruction_ctx_t ctx, ulong * sz ) {
 }
 
 int
-fd_bpf_loader_input_deserialize_unaligned( instruction_ctx_t ctx, uchar * input, ulong input_sz ) {
+fd_bpf_loader_input_deserialize_unaligned( instruction_ctx_t ctx, ulong const * pre_lens, uchar * input, ulong input_sz ) {
   uchar * input_cursor = input;
 
   uchar acc_idx_seen[256];
@@ -525,7 +534,7 @@ fd_bpf_loader_input_deserialize_unaligned( instruction_ctx_t ctx, uchar * input,
       fd_account_meta_t * metadata = (fd_account_meta_t *)raw_acc_data;
       uchar * acc_data = fd_account_get_data( metadata );
 
-      input_cursor += metadata->dlen;
+      input_cursor += pre_lens[i];
 
       fd_pubkey_t * owner = (fd_pubkey_t *)input_cursor;
       input_cursor += sizeof(fd_pubkey_t);

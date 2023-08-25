@@ -7,6 +7,7 @@
 #include "../../ballet/base58/fd_base58.h"
 #include "../../ballet/murmur3/fd_murmur3.h"
 #include "../../ballet/sbpf/fd_sbpf_maps.c"
+#include "../../ballet/secp256k1/fd_secp256k1.h"
 #include "fd_vm_context.h"
 #include "fd_vm_cpi.h"
 #include "../runtime/sysvar/fd_sysvar.h"
@@ -219,7 +220,6 @@ fd_vm_syscall_sol_blake3(
     ulong   r5 FD_PARAM_UNUSED,
     ulong * pr0
 ) {
-
   fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
 
   /* TODO don't hardcode limit */
@@ -251,15 +251,62 @@ fd_vm_syscall_sol_blake3(
 
 ulong
 fd_vm_syscall_sol_secp256k1_recover(
-    void * _ctx FD_PARAM_UNUSED,
-    ulong arg0 FD_PARAM_UNUSED,
-    ulong arg1 FD_PARAM_UNUSED,
-    ulong arg2 FD_PARAM_UNUSED,
-    ulong arg3 FD_PARAM_UNUSED,
+    void * _ctx,
+    ulong hash_vaddr,
+    ulong recovery_id_val,
+    ulong signature_vaddr,
+    ulong result_vaddr,
     ulong arg4 FD_PARAM_UNUSED,
-    ulong * ret FD_PARAM_UNUSED
+    ulong * pr0
 ) {
-  return FD_VM_SYSCALL_ERR_UNIMPLEMENTED;
+  fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
+
+  void const * hash = fd_vm_translate_vm_to_host_const(
+    ctx,
+    hash_vaddr,
+    sizeof(fd_hash_t),
+    alignof(uchar) );
+  if( FD_UNLIKELY( !hash ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
+
+  void const * signature = fd_vm_translate_vm_to_host_const(
+    ctx,
+    signature_vaddr,
+    64,
+    alignof(uchar) );
+  if( FD_UNLIKELY( !hash ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
+
+  void * pubkey_result = fd_vm_translate_vm_to_host(
+    ctx,
+    result_vaddr,
+    64,
+    alignof(uchar) );
+  if( FD_UNLIKELY( !pubkey_result ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
+
+  if( recovery_id_val > 4 ) {
+    *pr0 = 1; // Secp256k1RecoverError::InvalidRecoveryId
+    return FD_VM_SYSCALL_SUCCESS;
+  }
+
+  uchar secp256k1_pubkey[64];
+  if( !fd_secp256k1_recover(secp256k1_pubkey, hash, signature, (int)recovery_id_val) ) {
+    *pr0 = 2; // Secp256k1RecoverError::InvalidSignature
+    return FD_VM_SYSCALL_SUCCESS;
+  }
+
+  for( ulong j = 0; j < 16; ++j ) {
+    uchar tmp0 = secp256k1_pubkey[31-j];
+    secp256k1_pubkey[31-j] = secp256k1_pubkey[j];
+    secp256k1_pubkey[j] = tmp0;
+
+    uchar tmp1 = secp256k1_pubkey[63-j];
+    secp256k1_pubkey[63-j] = secp256k1_pubkey[j+32];
+    secp256k1_pubkey[j+32] = tmp1;
+  }
+
+  fd_memcpy(pubkey_result, secp256k1_pubkey, 64);
+  *pr0 = 0;
+
+  return FD_VM_SYSCALL_SUCCESS;
 }
 
 
@@ -273,7 +320,6 @@ fd_vm_syscall_sol_log(
     ulong   r5 FD_PARAM_UNUSED,
     ulong * pr0
 ) {
-
   fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
 
   void const * msg_host_addr =
@@ -451,9 +497,9 @@ fd_vm_syscall_sol_memcmp(
 ) {
   fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
 
-  void const * host_addr1 =
+  uchar const * host_addr1 =
       fd_vm_translate_vm_to_host_const( ctx, vm_addr1, n, alignof(uchar) );
-  void const * host_addr2 =
+  uchar const * host_addr2 =
       fd_vm_translate_vm_to_host_const( ctx, vm_addr2, n, alignof(uchar) );
   
   int * cmp_result_host_addr =
@@ -465,7 +511,16 @@ fd_vm_syscall_sol_memcmp(
   FD_LOG_HEXDUMP_WARNING(("MEMCMP1", host_addr1, n));
   FD_LOG_HEXDUMP_WARNING(("MEMCMP2", host_addr2, n));
   *pr0 = 0;
-  *cmp_result_host_addr = memcmp(host_addr1, host_addr2, n);
+
+  for( ulong i = 0; i < n; i++ ) {
+    uchar byte1 = host_addr1[i];
+    uchar byte2 = host_addr2[i];
+    
+    if( byte1 != byte2 ) {
+      *cmp_result_host_addr = (int)byte1 - (int)byte2;
+      break;
+    }
+  }
   FD_LOG_WARNING(("MEMCMP3 %lx", *pr0));
   FD_LOG_WARNING(("MEMCMP4 %lx", *cmp_result_host_addr));
   return FD_VM_SYSCALL_SUCCESS;
@@ -920,7 +975,7 @@ fd_vm_cpi_update_caller_account( fd_vm_exec_context_t * ctx,
   if( FD_UNLIKELY( !caller_acc_lamports_box ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
   *caller_acc_lamports = callee_acc_metadata->info.lamports;
 
-  fd_vm_rc_refcell_vec_t const * caller_acc_data_box = fd_vm_translate_vm_to_host_const(
+  fd_vm_rc_refcell_vec_t * caller_acc_data_box = fd_vm_translate_vm_to_host(
     ctx, 
     caller_acc_info->data_box_addr,
     sizeof(fd_vm_rc_refcell_vec_t),
@@ -933,15 +988,25 @@ fd_vm_cpi_update_caller_account( fd_vm_exec_context_t * ctx,
     caller_acc_data_box->len,
     alignof(uchar) );
   if( FD_UNLIKELY( !caller_acc_data ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
+ 
+  uchar * caller_acc_owner = fd_vm_translate_vm_to_host( 
+    ctx,
+    caller_acc_info->owner_addr,
+    sizeof(fd_pubkey_t),
+    alignof(uchar) );
+
+  fd_memcpy( caller_acc_owner, callee_acc_metadata->info.owner, sizeof(fd_pubkey_t) );
+  // TODO: deal with all functionality in update_caller_account
 
   if( caller_acc_data_box->len != callee_acc_metadata->dlen ) {
-    FD_LOG_WARNING(( "account size mismatch while updating CPI caller account - key: %32J", callee_acc_pubkey ));
-    return 1;
+    FD_LOG_WARNING(( "account size mismatch while updating CPI caller account - key: %32J, caller: %lu, callee: %lu", callee_acc_pubkey, caller_acc_data_box->len, callee_acc_metadata->dlen ));
+    
+    caller_acc_data_box->len = callee_acc_metadata->dlen;
+    
     // TODO return instruction error account data size too small.
   }
 
   fd_memcpy( caller_acc_data, callee_acc_data, callee_acc_metadata->dlen );
-  
 
   return 0;
 }
@@ -1043,13 +1108,16 @@ fd_vm_syscall_cpi_rust(
   fd_vm_syscall_cpi_rust_instruction_to_instr( ctx, instruction, accounts, signers, signers_seeds_cnt, data, &cpi_instr );
 
   FD_LOG_WARNING(( "CPI: %u %u", cpi_instr.program_id, cpi_instr.acct_cnt, cpi_instr.data_sz ));
-  *pr0 = (ulong)fd_execute_instr( &ctx->instr_ctx.global->executor, &cpi_instr, ctx->instr_ctx.txn_ctx );
+  ulong instr_exec_res = (ulong)fd_execute_instr( &ctx->instr_ctx.global->executor, &cpi_instr, ctx->instr_ctx.txn_ctx );
   FD_LOG_WARNING(( "AFTER CPI: %lu", *pr0 ));
 
+  if( instr_exec_res != 0) {
+    return FD_VM_SYSCALL_ERR_INSTR_ERR;
+  }
+  *pr0 = instr_exec_res;
   for( ulong i = 0; i < cpi_instr.acct_cnt; i++ ) {
     res = fd_vm_cpi_update_caller_account(ctx, &acc_infos[i], &acct_keys[i]);
     if( FD_UNLIKELY( res != FD_VM_SYSCALL_SUCCESS ) ) return res;
-
   }
 
   return FD_VM_SYSCALL_SUCCESS;
@@ -1512,7 +1580,7 @@ fini:
 ulong
 fd_vm_syscall_sol_get_processed_sibling_instruction(
     void * _ctx FD_PARAM_UNUSED,
-    ulong arg0 FD_PARAM_UNUSED,
+    ulong arg0 FD_PARAM_UNUSED,      
     ulong arg1 FD_PARAM_UNUSED,
     ulong arg2 FD_PARAM_UNUSED,
     ulong arg3 FD_PARAM_UNUSED,

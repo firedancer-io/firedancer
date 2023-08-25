@@ -153,7 +153,7 @@ int fd_advance_nonce_account(
 //                    return Err(InstructionError::MissingRequiredSignature);
 //                }
 
-  if (!fd_account_is_signer(&ctx, &state.inner.current.inner.initialized.authority))
+  if (!fd_instr_acc_is_signer(ctx.instr, &state.inner.current.inner.initialized.authority))
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
 
   //if ( memcmp( authorized, state.inner.current.inner.initialized.authority.hash, sizeof(fd_pubkey_t) ) )
@@ -293,7 +293,7 @@ int fd_withdraw_nonce_account(
   }
   }
 
-  if (!fd_account_is_signer(&ctx, from))
+  if (!fd_instr_acc_is_signer(ctx.instr, from))
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
 
   fd_funk_rec_t const * to_con_rec = NULL;
@@ -479,7 +479,7 @@ int fd_authorize_nonce_account(
       break;
     }
 
-    if (!fd_account_is_signer(&ctx, &state.inner.current.inner.initialized.authority)) {
+    if (!fd_instr_acc_is_signer(ctx.instr, &state.inner.current.inner.initialized.authority)) {
       ret = FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
       break;
     }

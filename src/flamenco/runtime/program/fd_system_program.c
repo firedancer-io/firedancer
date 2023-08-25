@@ -54,7 +54,7 @@ static int transfer(
     return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
   }
 
-  if (!fd_account_is_signer(&ctx, sender))
+  if (!fd_instr_acc_is_signer(ctx.instr, sender))
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
 
   int    err = 0;
@@ -120,14 +120,14 @@ static int fd_system_allocate(
 
   unsigned long allocate = 0;
   if (instruction->discriminant == fd_system_program_instruction_enum_allocate) {
-    if (!fd_account_is_signer(&ctx, account))
+    if (!fd_instr_acc_is_signer(ctx.instr, account))
       return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
 
     allocate = instruction->inner.allocate;
   } else {
     fd_system_program_instruction_allocate_with_seed_t *t = &instruction->inner.allocate_with_seed;
 
-    if (!fd_account_is_signer(&ctx, &t->base))
+    if (!fd_instr_acc_is_signer(ctx.instr, &t->base))
       return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
 
     fd_pubkey_t      address_with_seed;
@@ -212,7 +212,7 @@ static int fd_system_assign_with_seed(
       return FD_ACC_MGR_SUCCESS;
   }
 
-  if (!fd_account_is_signer(&ctx, &t->base))
+  if (!fd_instr_acc_is_signer(ctx.instr, &t->base))
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
 
   ulong sz = sizeof(fd_account_meta_t);
@@ -287,9 +287,9 @@ static int create_account(
 
   // https://github.com/solana-labs/solana/blob/b9a2030537ba440c0378cc1ed02af7cff3f35141/programs/system/src/system_processor.rs#L146-L181
 
-  if (!fd_account_is_signer(&ctx, from))
+  if (!fd_instr_acc_is_signer(ctx.instr, from))
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
-  if (!fd_account_is_signer(&ctx, base))
+  if (!fd_instr_acc_is_signer(ctx.instr, base))
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
 
   char * raw_acc_data_from = (char*) fd_acc_mgr_view_data(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) from, NULL, &err);
@@ -320,17 +320,28 @@ static int create_account(
   }
 
   /* Check to see if the account is already in use */
+  err = FD_ACC_MGR_SUCCESS;
   char * raw_acc_data_to = (char *) fd_acc_mgr_view_data(ctx.global->acc_mgr, ctx.global->funk_txn, to, NULL, &err);
-  if (err != FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
+  if (err == FD_ACC_MGR_SUCCESS) {
+    /* Check if account was deleted */
+    metadata = (fd_account_meta_t *) raw_acc_data_to;
+    if( metadata->info.lamports != 0 ) {
+      ctx.txn_ctx->custom_err = 0;     /* SystemError::AccountAlreadyInUse */
+      return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+    }
+  } else if (err != FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
     ctx.txn_ctx->custom_err = 0;     /* SystemError::AccountAlreadyInUse */
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
-  raw_acc_data_to = (char*) fd_acc_mgr_modify_data(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) to, 1, &space, NULL, NULL, &err);
-  /* Check that we are not exceeding the MAX_PERMITTED_DATA_LENGTH account size */
+
   if ( space > MAX_PERMITTED_DATA_LENGTH ) {
     ctx.txn_ctx->custom_err = 3;     /* SystemError::InvalidAccountDataLength */
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
+
+  ulong sz2 = space + sizeof(fd_account_meta_t);
+  raw_acc_data_to = (char*) fd_acc_mgr_modify_data(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) to, 1, &sz2, NULL, NULL, &err);
+  /* Check that we are not exceeding the MAX_PERMITTED_DATA_LENGTH account size */
 
   if (!ctx.global->features.system_transfer_zero_check && lamports == 0) {
     return FD_EXECUTOR_INSTR_SUCCESS;
@@ -384,7 +395,7 @@ static int assign(
   }
   // #endif
 
-  if (!fd_account_is_signer(&ctx, keyed_account))
+  if (!fd_instr_acc_is_signer(ctx.instr, keyed_account))
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
 
   // Set the owner of the account

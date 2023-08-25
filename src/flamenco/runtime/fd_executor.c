@@ -53,6 +53,7 @@ fd_convert_txn_instr_to_instr( fd_txn_t const * txn_descriptor,
                                fd_pubkey_t const * accounts,
                                fd_instr_t * instr ) {
   instr->program_id = txn_instr->program_id;
+  instr->program_id_pubkey = accounts[txn_instr->program_id];
   instr->acct_cnt = txn_instr->acct_cnt;
   instr->data_sz = txn_instr->data_sz;
   instr->data =  (uchar *)txn_raw->raw + txn_instr->data_off;
@@ -339,12 +340,30 @@ fd_execute_txn( fd_executor_t * executor, fd_txn_t * txn_descriptor, fd_rawtxn_b
   fd_funk_txn_t * txn = fd_funk_txn_prepare( global->funk, parent_txn, &xid, 1 );
   global->funk_txn = txn;
 
+  fd_instr_t instrs[txn_descriptor->instr_cnt];
   for ( ushort i = 0; i < txn_descriptor->instr_cnt; ++i ) {
     fd_txn_instr_t *  txn_instr = &txn_descriptor->instr[i];
-    fd_instr_t instr;
-    fd_convert_txn_instr_to_instr( txn_descriptor, txn_raw, txn_instr, txn_ctx.accounts, &instr );
-    
-    int exec_result = fd_execute_instr( executor, &instr, &txn_ctx );
+    fd_convert_txn_instr_to_instr( txn_descriptor, txn_raw, txn_instr, txn_ctx.accounts, &instrs[i] );
+  }
+
+  ret = fd_sysvar_instructions_serialize_account( global, instrs, txn_descriptor->instr_cnt );
+  if( ret != FD_ACC_MGR_SUCCESS ) {
+    FD_LOG_WARNING(( "SYSVAR INSTRS FAILED TO SERIALIZE!" ));
+    fd_funk_txn_cancel(global->funk, txn, 0);
+    global->funk_txn = parent_txn;
+    return -1;
+  }
+
+  for ( ushort i = 0; i < txn_descriptor->instr_cnt; ++i ) {
+    ret = fd_sysvar_instructions_update_current_instr_idx( global, i );
+    if( ret != FD_ACC_MGR_SUCCESS ) {
+      FD_LOG_WARNING(( "SYSVAR INSTRS FAILED TO UPDATE CURRENT INSTR IDX!" ));
+      fd_funk_txn_cancel(global->funk, txn, 0);
+      global->funk_txn = parent_txn;
+      return -1;
+    }
+
+    int exec_result = fd_execute_instr( executor, &instrs[i], &txn_ctx );
     if( exec_result != FD_EXECUTOR_INSTR_SUCCESS ) {
       fd_funk_txn_cancel(global->funk, txn, 0);
       global->funk_txn = parent_txn;
@@ -352,6 +371,12 @@ fd_execute_txn( fd_executor_t * executor, fd_txn_t * txn_descriptor, fd_rawtxn_b
     }
 
     /* TODO: sanity before/after checks: total lamports unchanged etc */
+  }
+
+  ret = fd_sysvar_instructions_cleanup_account( global );
+  if( ret != FD_ACC_MGR_SUCCESS ) {
+    FD_LOG_WARNING(( "SYSVAR INSTRS FAILED TO CLEANUP!" ));
+    return -1;
   }
 
   fd_funk_txn_merge(global->funk, txn, 0);

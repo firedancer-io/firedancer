@@ -83,7 +83,7 @@ int fd_executor_config_program_execute_instruction( instruction_ctx_t ctx ) {
 
    /* If we have no keys in the account, require the config account to have signed the transaction
       https://github.com/solana-labs/solana/blob/a03ae63daff987912c48ee286eb8ee7e8a84bf01/programs/config/src/config_processor.rs#L50-L56 */
-   int config_acc_signed = fd_account_is_signer(&ctx, config_acc);
+   uint config_acc_signed = fd_instr_acc_is_signer(ctx.instr, config_acc);
    if ( config_account_state.keys_len == 0 ) {
       if ( !config_acc_signed ) {
          ret = FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;

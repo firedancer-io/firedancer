@@ -127,8 +127,10 @@ struct fd_instr {
   uchar         program_id;
   ushort        data_sz;
   ushort        acct_cnt;
-  uchar *       data;
 
+  uchar *       data;
+  fd_pubkey_t   program_id_pubkey;
+  
   uchar         acct_txn_idxs[256];
   uchar         acct_flags[256];
   fd_pubkey_t   acct_pubkeys[256];
@@ -203,6 +205,17 @@ fd_instr_acc_is_writable(fd_instr_t const * instr, fd_pubkey_t const * acc) {
 static inline uint
 fd_instr_acc_is_signer_idx(fd_instr_t const * instr, uchar idx) {
   return !!(instr->acct_flags[idx] & FD_INSTR_ACCT_FLAGS_IS_SIGNER);
+}
+
+static inline uint
+fd_instr_acc_is_signer(fd_instr_t const * instr, fd_pubkey_t const * acc) {
+  for( uchar i = 0; i < instr->acct_cnt; i++ ) {
+    if( memcmp( &instr->acct_pubkeys[i], acc, sizeof( fd_pubkey_t ) )==0 ) {
+      return fd_instr_acc_is_signer_idx( instr, i );
+    }
+  }
+
+  return 0;
 }
 
 FD_PROTOTYPES_END

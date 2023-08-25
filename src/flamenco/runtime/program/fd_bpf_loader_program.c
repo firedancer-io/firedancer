@@ -80,7 +80,8 @@ int fd_executor_bpf_loader_program_execute_program_instruction( instruction_ctx_
   FD_LOG_WARNING(( "fd_sbpf_program_load() success: %s", fd_sbpf_strerror() ));
 
   ulong input_sz = 0;
-  uchar * input = fd_bpf_loader_input_serialize_aligned(ctx, &input_sz);
+  ulong pre_lens[256];
+  uchar * input = fd_bpf_loader_input_serialize_aligned(ctx, &input_sz, pre_lens);
   if( input==NULL ) {
     fd_valloc_free( ctx.global->valloc,  fd_sbpf_program_delete( prog ) );
     fd_valloc_free( ctx.global->valloc,  fd_sbpf_syscalls_delete( syscalls ) );
@@ -172,7 +173,7 @@ int fd_executor_bpf_loader_program_execute_program_instruction( instruction_ctx_
     return -1;
   }
 
-  fd_bpf_loader_input_deserialize_aligned(ctx, input, input_sz);
+  fd_bpf_loader_input_deserialize_aligned(ctx, pre_lens, input, input_sz);
 
   return 0;
 }

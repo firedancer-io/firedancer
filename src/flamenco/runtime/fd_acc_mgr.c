@@ -4,6 +4,7 @@
 #include "fd_runtime.h"
 #include <stdio.h>
 
+#pragma GCC optimize ("O0")
 #ifdef _DISABLE_OPTIMIZATION
 #pragma GCC optimize ("O0")
 #endif
@@ -323,7 +324,13 @@ fd_acc_mgr_view_data(
   fd_funk_t *           funk = acc_mgr->global->funk;
 
   fd_funk_rec_t const * rec = fd_funk_rec_query_global(funk, txn, &id);
-
+  
+  fd_pubkey_t acc;
+  fd_base58_decode_32("FSiwxcrw3JQsRSkkmevbNN5G3SPL8gAmjDmZxiAvg4WT", acc.uc);
+  if (memcmp(acc.uc, pubkey->uc, sizeof(fd_pubkey_t))==0) {
+    FD_LOG_WARNING(("ACC! %32J", pubkey));
+  }
+  
   if ( FD_UNLIKELY( NULL == rec ) )  {
     fd_int_store_if( !!opt_err, opt_err, FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT );
     return NULL;
@@ -349,7 +356,12 @@ fd_acc_mgr_modify_data(
   ) {
   fd_funk_t            *funk     = acc_mgr->global->funk;
   fd_funk_rec_key_t     id       = fd_acc_mgr_key( pubkey );
-
+  
+  fd_pubkey_t acc;
+  fd_base58_decode_32("FSiwxcrw3JQsRSkkmevbNN5G3SPL8gAmjDmZxiAvg4WT", acc.uc);
+  if (memcmp(acc.uc, pubkey->uc, sizeof(fd_pubkey_t))==0) {
+    FD_LOG_WARNING(("ACC! %32J", pubkey));
+  }
   fd_funk_rec_t *rec = fd_funk_rec_write_prepare(funk, txn, &id, (NULL != sz) ? *sz : 0, do_create, opt_con_rec, opt_err);
 
   if ( FD_UNLIKELY( NULL == rec ) )  {

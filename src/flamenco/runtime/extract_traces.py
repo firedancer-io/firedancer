@@ -7,6 +7,7 @@ import sys
 import time
 import multiprocessing
 import os
+import string
 
 reg_val_pattern = lambda x: "(?P<r{}>[0-9A-F]{{16}})".format(x)
 
@@ -34,6 +35,7 @@ def read_traces_from_file(log_path, max_traces):
     traces = []
     trace = []
     dt = -time.time()
+    dt2 = -time.time()
     with open(log_path, 'r') as log_file:
         print(file=sys.stderr)
         for line in log_file:
@@ -44,10 +46,12 @@ def read_traces_from_file(log_path, max_traces):
                 continue
             groups = match.groupdict()
             if groups["ic"] == "0" and len(trace) > 0:
+                dt2 += time.time()
                 traces.append(trace)
                 trace = []
+                print("\rTraces:", len(traces), dt2, end="", file=sys.stderr)
+                dt2 = -time.time()
             trace.append((line.lstrip(), groups))
-            print("\rTraces:", len(traces), end="", file=sys.stderr)
     dt += time.time()
     print(file=sys.stderr)
     print("Trace time:", log_path, dt, file=sys.stderr)
@@ -56,7 +60,7 @@ def read_traces_from_file(log_path, max_traces):
 def check_strict_match(fd_line, sl_line):
     fd_strict_match = re.match(trace_line_pattern, fd_line)
     sl_strict_match = re.match(trace_line_pattern, sl_line)
-    checked_keys = ['ic', 'r0', 'r1', 'r2', 'r3', 'r4', 'r5', 'r6', 'r7', 'r8', 'r9', 'r10', 'pc']
+    checked_keys = ['r0', 'r1', 'r2', 'r3', 'r4', 'r5', 'r6', 'r7', 'r8', 'r9', 'r10', 'ic']
     for checked_key in checked_keys:
         if fd_strict_match[checked_key] != sl_strict_match[checked_key]:
             return False

@@ -51,7 +51,7 @@ JT_CASE_END
   register_file[instr.dst_reg] = (uint)((uint)register_file[instr.dst_reg] * (uint)instr.imm);
 JT_CASE_END
 /* 0x25 */ JT_CASE(0x25) // FD_BPF_OP_JGT_IMM
-  pc += (register_file[instr.dst_reg] > instr.imm) ? instr.offset : 0;
+  pc += (register_file[instr.dst_reg] > (ulong)(long)(int)instr.imm) ? instr.offset : 0;
 JT_CASE_END
 /* 0x27 */ JT_CASE(0x27) // FD_BPF_OP_MUL64_IMM
   register_file[instr.dst_reg] = (ulong)((long)register_file[instr.dst_reg] * (int)instr.imm);
@@ -74,7 +74,8 @@ JT_CASE_END
   pc += (register_file[instr.dst_reg] >= instr.imm) ? instr.offset : 0;
 JT_CASE_END
 /* 0x37 */ JT_CASE(0x37) // FD_BPF_OP_DIV64_IMM
-  register_file[instr.dst_reg] = instr.imm == 0 ? 0UL : (ulong)((long)register_file[instr.dst_reg] / (int)instr.imm);
+  // TODO: pretty sure that this instr is checked to be non-zero imm at valiation-time. 
+  register_file[instr.dst_reg] = instr.imm == 0 ? 0UL : (ulong)((ulong)register_file[instr.dst_reg] / (ulong)instr.imm);
 JT_CASE_END
 /* 0x3c */ JT_CASE(0x3c) // FD_BPF_OP_DIV_REG
   register_file[instr.dst_reg] = (uint)register_file[instr.src_reg] == 0 ? 0 : (uint)((uint)register_file[instr.dst_reg] / (uint)register_file[instr.src_reg]);
@@ -231,10 +232,12 @@ JT_CASE_END
   register_file[instr.dst_reg] = (uint)(-((int)register_file[instr.dst_reg]));
 JT_CASE_END
 /* 0x85 */ JT_CASE(0x85) // FD_BPF_OP_CALL_IMM
-  if (instr.imm < ctx->instrs_sz ) {
-    cond_fault = 0;
-    pc = instr.imm;
-  } else {
+  // if (instr.imm < ctx->instrs_sz ) {
+  //   register_file[10] += 0x2000;
+  //   cond_fault = 0;
+  //   pc = instr.imm;
+  // } else 
+  {
     fd_sbpf_syscalls_t * syscall_entry_imm = fd_sbpf_syscalls_query( ctx->syscall_map, instr.imm, NULL );
     if( syscall_entry_imm==NULL ) {
       fd_sbpf_calldests_t * calldest_entry_imm = fd_sbpf_calldests_query( ctx->local_call_map, instr.imm, NULL );
@@ -404,3 +407,4 @@ JT_CASE_END
 /* 0xdd */ JT_CASE(0xdd) // FD_BPF_OP_JSLE_REG
   pc += ((long)register_file[instr.dst_reg] <= (long)register_file[instr.src_reg]) ? instr.offset : 0;
 JT_CASE_END
+ 
