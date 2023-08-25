@@ -121,6 +121,7 @@ int
 fd_quic_tile( fd_cnc_t *         cnc,           /* Local join to the tile's command-and-control */
               fd_quic_t *        quic,          /* QUIC without active join */
               fd_xsk_aio_t *     xsk_aio,       /* Local join to QUIC XSK aio */
+              fd_xsk_aio_t *     lo_xsk_aio,    /* Local join to QUIC XSK aio for loopback interface */
               fd_frag_meta_t *   mcache,        /* Local join to the tile's txn output mcache */
               uchar *            dcache,        /* Local join to the tile's txn output dcache */
               long               lazy,          /* Laziness, <=0 means use a reasonable default */

@@ -278,7 +278,8 @@ static void parse_key_value( config_t *   config,
   ENTRY_STR   ( ., development.netns,   interface1_addr                                           );
 
   ENTRY_STR   ( ., tiles.quic,          interface                                                 );
-  ENTRY_USHORT( ., tiles.quic,          listen_port                                               );
+  ENTRY_USHORT( ., tiles.quic,          transaction_listen_port                                   );
+  ENTRY_USHORT( ., tiles.quic,          quic_transaction_listen_port                              );
   ENTRY_UINT  ( ., tiles.quic,          max_concurrent_connections                                );
   ENTRY_UINT  ( ., tiles.quic,          max_concurrent_connection_ids_per_connection              );
   ENTRY_UINT  ( ., tiles.quic,          max_concurrent_streams_per_connection                     );
@@ -729,6 +730,12 @@ config_parse( int *    pargc,
     if( FD_UNLIKELY( result.development.netns.enabled ) )
       FD_LOG_ERR(( "trying to join a live cluster, but configuration enables [development.netns] which is a development only feature" ));
   }
+
+  if( FD_UNLIKELY( result.tiles.quic.quic_transaction_listen_port != result.tiles.quic.transaction_listen_port + 6 ) )
+    FD_LOG_ERR(( "configuration specifies invalid [tiles.quic.quic_transaction_listen_port] `%hu`. "
+                 "This must be 6 more than [tiles.quic.transaction_listen_port] `%hu`",
+                 result.tiles.quic.quic_transaction_listen_port,
+                 result.tiles.quic.transaction_listen_port ));
 
   init_workspaces( &result );
 

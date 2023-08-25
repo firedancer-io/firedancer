@@ -272,11 +272,24 @@ init( config_t * const config ) {
           FD_LOG_ERR(( "failed to bind xsk for quic tile %lu", wksp1->kind_idx ));
         fd_wksp_unmap( shmem );
 
-        uint1  ( pod, "ip_addr",                    config->tiles.quic.ip_addr );
-        ushort1( pod, "listen_port",                config->tiles.quic.listen_port, 0 );
-        buf    ( pod, "src_mac_addr",               config->tiles.quic.mac_addr, 6 );
-        ulong1 ( pod, "idle_timeout_ms",            1000 );
-        ulong1 ( pod, "initial_rx_max_stream_data", 1<<15 );
+        if( FD_UNLIKELY( strcmp( config->tiles.quic.interface, "lo") && !wksp1->kind_idx ) ) {
+          // First QUIC tile (0) can also listen to loopback XSK.
+          xsk    ( pod, "lo_xsk",     2048, config->tiles.quic.xdp_rx_queue_size, config->tiles.quic.xdp_tx_queue_size );
+          xsk_aio( pod, "lo_xsk_aio", config->tiles.quic.xdp_tx_queue_size, config->tiles.quic.xdp_aio_depth );
+
+          char const * lo_xsk_gaddr = fd_pod_query_cstr( pod, "lo_xsk", NULL );
+          void *       lo_shmem     = fd_wksp_map      ( lo_xsk_gaddr );
+          if( FD_UNLIKELY( !fd_xsk_bind( lo_shmem, config->name, "lo", (uint)wksp1->kind_idx ) ) )
+            FD_LOG_ERR(( "failed to bind lo_xsk for quic tile %lu", wksp1->kind_idx ));
+          fd_wksp_unmap( lo_shmem );
+        }
+
+        uint1  ( pod, "ip_addr",                      config->tiles.quic.ip_addr );
+        ushort1( pod, "transaction_listen_port",      config->tiles.quic.transaction_listen_port, 0 );
+        ushort1( pod, "quic_transaction_listen_port", config->tiles.quic.quic_transaction_listen_port, 0 );
+        buf    ( pod, "src_mac_addr",                 config->tiles.quic.mac_addr, 6 );
+        ulong1 ( pod, "idle_timeout_ms",              1000 );
+        ulong1 ( pod, "initial_rx_max_stream_data",   1<<15 );
         break;
       case wksp_verify:
         cnc( pod, "cnc" );

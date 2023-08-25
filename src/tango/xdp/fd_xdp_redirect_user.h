@@ -33,7 +33,7 @@
        - fd_xsk_bind()
        - fd_xsk_join()
    - For each UDP/IP destination to listen on
-     - fd_xdp_listen_udp_port()
+     - fd_xdp_listen_udp_ports()
    - ... Application run ... */
 
 /* TODO: Support NUMA-aware eBPF maps */
@@ -135,8 +135,8 @@ fd_xdp_udp_dst_key( uint ip4_addr,
   return ( (ulong)( ip4_addr )<<16 ) | fd_ushort_bswap( (ushort)udp_port );
 }
 
-/* fd_xdp_listen_udp_port installs a listener for protocol proto on IPv4
-   destination addr ip4_dst_addr and UDP destination port udp_dst_port.
+/* fd_xdp_listen_udp_ports installs a listener for protocol proto on IPv4
+   destination addr ip4_dst_addr and UDP destination ports udp_dst_ports.
    Installation lifetime is until a matching call to
    fd_xdp_release_udp_port() or until the system is shut down.
    On interfaces running the XDP redirect program, causes matching
@@ -145,13 +145,14 @@ fd_xdp_udp_dst_key( uint ip4_addr,
    or if no redirect program installation was found, and -1 on error.
    Reasons for error are logged to FD_LOG_WARNING. */
 int
-fd_xdp_listen_udp_port( char const * app_name,
-                        uint         ip4_dst_addr,
-                        uint         udp_dst_port,
-                        uint         proto );
+fd_xdp_listen_udp_ports( char const * app_name,
+                         uint         ip4_dst_addr,
+                         ulong        udp_dst_ports_sz,
+                         ushort *     udp_dst_ports,
+                         uint         proto );
 
 /* fd_xdp_release_udp_port uninstalls a listener that was previously
-   installed with fd_xdp_listen_udp_port().  Restores processing of
+   installed with fd_xdp_listen_udp_ports().  Restores processing of
    matching traffic in the Linux networking stack.  Returns 0 on success
    or if no redirect program installation was found, and -1 on error.
    Reasons for error are logged to FD_LOG_WARNING. */
@@ -161,7 +162,7 @@ fd_xdp_release_udp_port( char const * app_name,
                          uint         udp_dst_port );
 
 /* fd_xdp_clear_listeners uninstalls all listeners previously installed
-   via fd_xdp_listen_udp_port(). */
+   via fd_xdp_listen_udp_ports(). */
 
 int
 fd_xdp_clear_listeners( char const * app_name );

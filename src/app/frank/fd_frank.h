@@ -37,6 +37,7 @@ typedef struct {
    uchar const * out_pod;
    uchar const * extra_pod;
    fd_xsk_t    * xsk;
+   fd_xsk_t    * lo_xsk;
    double        tick_per_ns;
 } fd_frank_args_t;
 

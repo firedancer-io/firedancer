@@ -33,5 +33,5 @@ FDDEV_PID=$!
 sleep 4
 sudo nsenter --net=/var/run/netns/veth_test_xdp_1 ${TEST_QUIC_TXN}
 RETVAL=$?
-sudo kill -9 $FDDEV_PID
+sudo kill $FDDEV_PID
 exit $RETVAL
