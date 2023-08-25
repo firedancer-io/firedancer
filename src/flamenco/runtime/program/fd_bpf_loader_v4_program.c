@@ -252,8 +252,11 @@ _process_write( instruction_ctx_t                                    ctx,
   ulong const   offset     = write->offset;
   ulong const   end_offset = offset + write->bytes_len;
 
+  ulong const program_acc_new_sz =
+    fd_ulong_max( program_meta_ro->dlen, end_offset + sizeof(fd_bpf_loader_v4_state_t) );
+
   fd_rent_t const * rent = &global->bank.rent;
-  ulong required_lamports = fd_rent_exempt_minimum_balance2( rent, sizeof(fd_bpf_loader_v4_state_t) + end_offset );
+  ulong required_lamports = fd_rent_exempt_minimum_balance2( rent, program_acc_new_sz );
   ulong transfer_lamports = fd_ulong_sat_sub( required_lamports, program_meta_ro->info.lamports );
 
   /* Does not linearly match Solana Labs */
@@ -267,7 +270,6 @@ _process_write( instruction_ctx_t                                    ctx,
   }
 
   /* https://github.com/solana-labs/solana/blob/d90e1582869d8ef8d386a1c156eda987404c43be/programs/loader-v4/src/lib.rs#L310-L311 */
-  ulong program_acc_new_sz = end_offset + sizeof(fd_bpf_loader_v4_state_t);
 
   /* Upgrade program to writable handle */
   fd_funk_rec_t     * program_rec_rw  = NULL;
