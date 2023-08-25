@@ -952,7 +952,13 @@ for entry in entries:
     else:
         a = ""
 
+    alignment = "8"
+    if "alignment" in entry:
+        alignment = entry["alignment"]
+
     if "type" in entry and entry["type"] == "struct":
+      if a == "":
+          a = "__attribute__((aligned(" + alignment + "UL))) "
       print(f'struct {a}{n} {{', file=header)
       for f in entry["fields"]:
           if f["type"] in fields_header:
@@ -990,7 +996,7 @@ for entry in entries:
       print(f"typedef struct {n} {n}_t;", file=header)
 
     print(f"#define {n.upper()}_FOOTPRINT sizeof({n}_t)", file=header)
-    print(f"#define {n.upper()}_ALIGN (8UL)", file=header)
+    print(f"#define {n.upper()}_ALIGN ({alignment}UL)", file=header)
     print("", file=header)
 
 print("", file=header)
