@@ -309,8 +309,8 @@ int fd_executor_run_test(
       break;
     }
 
-    fd_txn_t*       txn_descriptor = (fd_txn_t*)txn_parse_out_buf;
-    fd_txn_instr_t* instr    = &txn_descriptor->instr[0];
+    fd_txn_t * txn_descriptor = (fd_txn_t*)txn_parse_out_buf;
+    fd_txn_instr_t const * txn_instr    = &txn_descriptor->instr[0];
 
     /* Execute the transaction and check the result */
     fd_rawtxn_b_t              raw_txn_b = {
@@ -320,12 +320,17 @@ int fd_executor_run_test(
     transaction_ctx_t          txn_ctx = {
       .global         = global,
       .txn_descriptor = txn_descriptor,
-      .txn_raw        = &raw_txn_b,
+      ._txn_raw        = &raw_txn_b,
     };
+
+    fd_executor_setup_accessed_accounts_for_txn( &txn_ctx, &raw_txn_b );
+
+    fd_instr_t instr;
+    fd_convert_txn_instr_to_instr( (fd_txn_t const *)txn_descriptor, &raw_txn_b, txn_instr, txn_ctx.accounts, &instr );
 
     instruction_ctx_t          ctx = {
       .global         = global,
-      .instr          = instr,
+      .instr          = &instr,
       .txn_ctx        = &txn_ctx,
     };
     // TODO: dirty hack to get around additional account parsed for testing

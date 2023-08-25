@@ -23,7 +23,7 @@ static fd_acc_lamports_t get_minimum_delegation( fd_global_ctx_t* global ) {
   }
 }
 
-int authorized_check_signers(instruction_ctx_t* ctx, uchar * instr_acc_idxs, fd_pubkey_t * txn_accs, fd_pubkey_t * staker) {
+int authorized_check_signers(instruction_ctx_t* ctx, uchar const * instr_acc_idxs, fd_pubkey_t * txn_accs, fd_pubkey_t * staker) {
   // meta.authorized.check(signers, StakeAuthorize::Staker)?;
   for ( ulong i = 0; i < ctx->instr->acct_cnt; i++ ) {
     if ( instr_acc_idxs[i] < ctx->txn_ctx->txn_descriptor->signature_cnt ) {
@@ -190,8 +190,8 @@ static int validate_split_amount(
       return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
     }
 
-    uchar * instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
-    fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
+    uchar const * instr_acc_idxs = ctx.instr->acct_txn_idxs;
+    fd_pubkey_t * txn_accs = ctx.txn_ctx->accounts;
 
     // getting all source data
     fd_pubkey_t *             source_acc      = &txn_accs[instr_acc_idxs[source_account_index]];
@@ -320,7 +320,7 @@ static int get_if_mergeable( instruction_ctx_t* ctx, fd_stake_state_t* stake_sta
 }
 
 int authorize(instruction_ctx_t ctx,
-              uchar * instr_acc_idxs,
+              uchar const * instr_acc_idxs,
               fd_pubkey_t * txn_accs,
               fd_stake_authorize_t * stake_authorize,
               fd_pubkey_t * new_authority,
@@ -442,9 +442,7 @@ int fd_executor_stake_program_execute_instruction(
   FD_FN_UNUSED instruction_ctx_t ctx
 ) {
   /* Deserialize the Stake instruction */
-  uchar *data            = (uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->data_off;
-  uchar * instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
-  fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
+  uchar *data            = ctx.instr->data;
 
   fd_stake_instruction_t instruction;
   fd_stake_instruction_new( &instruction );
@@ -458,6 +456,10 @@ int fd_executor_stake_program_execute_instruction(
   }
   int res;
 
+  uchar const * instr_acc_idxs = ctx.instr->acct_txn_idxs;
+  fd_pubkey_t * txn_accs = ctx.txn_ctx->accounts;
+  FD_LOG_NOTICE(("instruction discriminant=%d", instruction.discriminant));
+  /* TODO: check that the instruction account 0 owner is the stake program ID */
   if( FD_UNLIKELY( ctx.txn_ctx->txn_descriptor->acct_addr_cnt < 1 ) )
     return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
 
@@ -903,8 +905,8 @@ int fd_executor_stake_program_execute_instruction(
       return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
     }
     /* Check that the instruction accounts are correct */
-    uchar* instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
-    fd_pubkey_t* txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
+    uchar const * instr_acc_idxs = ctx.instr->acct_txn_idxs;
+    fd_pubkey_t * txn_accs = ctx.txn_ctx->accounts;
     fd_pubkey_t* to_acc   = &txn_accs[instr_acc_idxs[1]];
 
     /* Check that the Instruction Account 2 is the Clock Sysvar account */
@@ -1150,8 +1152,8 @@ int fd_executor_stake_program_execute_instruction(
     if (ctx.txn_ctx->txn_descriptor->acct_addr_cnt < 2) {
       return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
     }
-    uchar * instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
-    fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
+    uchar const * instr_acc_idxs = ctx.instr->acct_txn_idxs;
+    fd_pubkey_t * txn_accs = ctx.txn_ctx->accounts;
 
     /* Check that the Instruction Account 2 is the Clock Sysvar account */
     if ( memcmp( &txn_accs[instr_acc_idxs[2]], ctx.global->sysvar_clock, sizeof(fd_pubkey_t) ) != 0 ) {

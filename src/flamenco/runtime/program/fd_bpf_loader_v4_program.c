@@ -39,9 +39,9 @@ check_program_account( instruction_ctx_t         ctx,
   /* Unpack arguments */
 
   fd_global_ctx_t const * global         = ctx.global;
-  uchar const *           instr_acc_idxs = ((uchar const *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
+  uchar const * instr_acc_idxs = ctx.instr->acct_txn_idxs;
+  fd_pubkey_t * txn_accs =  ctx.txn_ctx->accounts;
   ulong                   instr_acc_cnt  = ctx.instr->acct_cnt;
-  fd_pubkey_t const *     txn_accs       = (fd_pubkey_t const *)((uchar const *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
   uchar const *           program_data   = (uchar const *)program_meta + program_meta->hlen;
 
   /* Assume instruction account index 1 to be authority */
@@ -109,7 +109,7 @@ _process_meta_instruction( instruction_ctx_t ctx ) {
 
   /* Deserialize instruction */
 
-  uchar const * instr_data = (uchar const *)ctx.txn_ctx->txn_raw->raw + ctx.instr->data_off;
+  uchar const * instr_data = ctx.instr->data;
   fd_bincode_decode_ctx_t instr_decode = {
     .data    = instr_data,
     .dataend = instr_data + ctx.instr->data_sz,
@@ -144,7 +144,7 @@ fd_executor_bpf_loader_v4_program_execute_instruction( instruction_ctx_t ctx ) {
 
   /* Query program ID */
   fd_global_ctx_t *   global     = ctx.global;
-  fd_pubkey_t const * txn_accs   = (fd_pubkey_t const *)((uchar const *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
+  fd_pubkey_t const * txn_accs =  ctx.txn_ctx->accounts;
   fd_pubkey_t const * program_id = &txn_accs[ ctx.instr->program_id ];
 
   if( 0==memcmp( program_id, &global->solana_bpf_loader_v4_program->key, sizeof(fd_pubkey_t) ) ) {
@@ -162,9 +162,9 @@ _process_write( instruction_ctx_t                                    ctx,
   /* Context */
 
   fd_global_ctx_t *   global         = ctx.global;
-  uchar const *       instr_acc_idxs = ((uchar const *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
+  uchar const * instr_acc_idxs = ctx.instr->acct_txn_idxs;
+  fd_pubkey_t * txn_accs =  ctx.txn_ctx->accounts;
   ulong               instr_acc_cnt  = ctx.instr->acct_cnt;
-  fd_pubkey_t const * txn_accs       = (fd_pubkey_t const *)((uchar const *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
   fd_acc_mgr_t *      acc_mgr        = global->acc_mgr;
   fd_funk_txn_t *     funk_txn       = global->funk_txn;
 
@@ -325,8 +325,8 @@ _process_truncate( instruction_ctx_t ctx,
   /* Accounts */
 
   fd_global_ctx_t *   global         = ctx.global;
-  uchar const *       instr_acc_idxs = ((uchar const *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
-  fd_pubkey_t const * txn_accs       = (fd_pubkey_t const *)((uchar const *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
+  uchar const * instr_acc_idxs = ctx.instr->acct_txn_idxs;
+  fd_pubkey_t const * txn_accs =  ctx.txn_ctx->accounts;
   fd_acc_mgr_t *      acc_mgr        = global->acc_mgr;
   fd_funk_txn_t *     funk_txn       = global->funk_txn;
 
@@ -417,9 +417,8 @@ _process_deploy( instruction_ctx_t ctx ) {
   /* Accounts */
 
   fd_global_ctx_t *   global         = ctx.global;
-  uchar const *       instr_acc_idxs = ((uchar const *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
-  fd_pubkey_t const * txn_accs       = (fd_pubkey_t const *)((uchar const *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
-
+  uchar const * instr_acc_idxs = ctx.instr->acct_txn_idxs;
+  fd_pubkey_t const * txn_accs =  ctx.txn_ctx->accounts;
   if (ctx.instr->acct_cnt < 2) {
     return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
   }
@@ -526,8 +525,8 @@ _process_retract( instruction_ctx_t ctx ) {
   /* Context */
 
   fd_global_ctx_t *   global         = ctx.global;
-  uchar const *       instr_acc_idxs = ((uchar const *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
-  fd_pubkey_t const * txn_accs       = (fd_pubkey_t const *)((uchar const *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
+  uchar const * instr_acc_idxs = ctx.instr->acct_txn_idxs;
+  fd_pubkey_t const * txn_accs =  ctx.txn_ctx->accounts;
   fd_acc_mgr_t *      acc_mgr        = global->acc_mgr;
   fd_funk_txn_t *     funk_txn       = global->funk_txn;
 
@@ -595,8 +594,8 @@ _process_transfer_authority( instruction_ctx_t ctx ) {
   /* Context */
 
   fd_global_ctx_t *   global         = ctx.global;
-  uchar const *       instr_acc_idxs = ((uchar const *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
-  fd_pubkey_t const * txn_accs       = (fd_pubkey_t const *)((uchar const *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
+  uchar const * instr_acc_idxs = ctx.instr->acct_txn_idxs;
+  fd_pubkey_t const * txn_accs =  ctx.txn_ctx->accounts;
   fd_acc_mgr_t *      acc_mgr        = global->acc_mgr;
   fd_funk_txn_t *     funk_txn       = global->funk_txn;
 

@@ -8,15 +8,14 @@
 
 static inline
 int fd_account_sanity_check_raw(
-  fd_txn_instr_t const * instr,
-  fd_txn_t*         txn_descriptor,
-  fd_rawtxn_b_t*    txn_raw,
+  fd_instr_t const * instr,
+  fd_txn_t *         txn_descriptor,
   int cnt
 ) {
   if (instr->acct_cnt < cnt)
     return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
 
-  uchar *       instr_acc_idxs = ((uchar *)txn_raw->raw + instr->acct_off);
+  uchar const * instr_acc_idxs = instr->acct_txn_idxs;
   ulong acct_addr_cnt = txn_descriptor->acct_addr_cnt;
 
   for (int i = 0; i < cnt; i++)
@@ -27,8 +26,8 @@ int fd_account_sanity_check_raw(
 }
 
 static inline
-int fd_account_sanity_check(instruction_ctx_t const *ctx, int cnt) {
-  return fd_account_sanity_check_raw(ctx->instr, ctx->txn_ctx->txn_descriptor, ctx->txn_ctx->txn_raw, cnt);
+int fd_account_sanity_check(instruction_ctx_t const * ctx, int cnt) {
+  return fd_account_sanity_check_raw(ctx->instr, ctx->txn_ctx->txn_descriptor, cnt);
 }
 
 static inline
@@ -50,7 +49,7 @@ int fd_account_is_early_verification_of_account_modifications_enabled(FD_FN_UNUS
 }
 
 static inline
-int fd_account_touch(FD_FN_UNUSED instruction_ctx_t *ctx, FD_FN_UNUSED fd_account_meta_t * acct, FD_FN_UNUSED fd_pubkey_t *key, FD_FN_UNUSED int *err) {
+int fd_account_touch(FD_FN_UNUSED instruction_ctx_t *ctx, FD_FN_UNUSED fd_account_meta_t * acct, FD_FN_UNUSED fd_pubkey_t const * key, FD_FN_UNUSED int *err) {
   return 1;
 }
 
@@ -88,17 +87,22 @@ int fd_account_can_data_be_resized(instruction_ctx_t *ctx, const fd_account_meta
 }
 
 static inline
-int fd_account_is_writable_idx(instruction_ctx_t * ctx, int idx) {
-  ushort acct_addr_cnt = ctx->txn_ctx->txn_descriptor->acct_addr_cnt;
+int fd_account_is_writable_idx( fd_txn_t const * txn_descriptor,
+                                uchar program_id,
+                                int idx ) {
+  ushort acct_addr_cnt = txn_descriptor->acct_addr_cnt;
+  if (txn_descriptor->transaction_version == FD_TXN_V0) {
+    acct_addr_cnt += txn_descriptor->addr_table_adtl_cnt;
+  }
 
   if (idx == acct_addr_cnt)
     return 0;
 
   // You just cannot write to a program...
-  if (idx == ctx->instr->program_id)
+  if (idx == program_id)
     return 0;
 
-  return fd_txn_is_writable(ctx->txn_ctx->txn_descriptor, idx);
+  return fd_txn_is_writable(txn_descriptor, idx);
 }
 
 /* TODO just check the owner ... */
@@ -115,13 +119,14 @@ int fd_account_is_sysvar(instruction_ctx_t * ctx, fd_pubkey_t * acct) {
   if (memcmp(acct, ctx->global->sysvar_rent, sizeof(fd_pubkey_t)) == 0) return 1;
   if (memcmp(acct, ctx->global->sysvar_stake_history, sizeof(fd_pubkey_t)) == 0) return 1;
   if (memcmp(acct, ctx->global->sysvar_last_restart_slot, sizeof(fd_pubkey_t)) == 0) return 1;
+  if (memcmp(acct, ctx->global->sysvar_instructions, sizeof(fd_pubkey_t)) == 0) return 1;
   return 0;
 }
 
 static inline
-int fd_account_is_writable(instruction_ctx_t * ctx, fd_pubkey_t * acct) {
-  fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx->txn_ctx->txn_raw->raw + ctx->txn_ctx->txn_descriptor->acct_addr_off);
-  ushort        acct_addr_cnt = ctx->txn_ctx->txn_descriptor->acct_addr_cnt;
+int fd_account_is_writable(fd_rawtxn_b_t * txn_raw, fd_txn_t * txn_descriptor, uchar program_id, fd_pubkey_t * acct) {
+  fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)txn_raw->raw + txn_descriptor->acct_addr_off);
+  ushort        acct_addr_cnt = txn_descriptor->acct_addr_cnt;
 
   int idx = 0;
   for (; idx < acct_addr_cnt; idx++) {
@@ -129,7 +134,7 @@ int fd_account_is_writable(instruction_ctx_t * ctx, fd_pubkey_t * acct) {
       break;
   }
 
-  return fd_account_is_writable_idx(ctx, idx);
+  return fd_account_is_writable_idx(txn_descriptor, program_id, idx);
 }
 
 static inline
@@ -142,7 +147,7 @@ int fd_account_can_data_be_changed(instruction_ctx_t *ctx, fd_account_meta_t * a
     return 0;
   }
 
-  if (!fd_account_is_writable(ctx, key)) {
+  if (!fd_instr_acc_is_writable(ctx->instr, key)) {
     *err = FD_EXECUTOR_INSTR_ERR_READONLY_DATA_MODIFIED;
     return 0;
   }
@@ -178,12 +183,12 @@ int fd_account_is_zeroed(fd_account_meta_t * acct) {
 }
 
 static inline
-int fd_account_set_owner(instruction_ctx_t *ctx, fd_account_meta_t * acct, fd_pubkey_t *key, fd_pubkey_t *pubkey) {
+int fd_account_set_owner(instruction_ctx_t *ctx, fd_account_meta_t * acct, fd_pubkey_t const * key, fd_pubkey_t * pubkey) {
   if (fd_account_is_early_verification_of_account_modifications_enabled(ctx)) {
     int err = 0;
     if (!fd_account_is_owned_by_current_program(ctx, acct, &err))
       return FD_EXECUTOR_INSTR_ERR_MODIFIED_PROGRAM_ID;
-    if (!fd_account_is_writable(ctx, key))
+    if (!fd_instr_acc_is_writable(ctx->instr, key ))
       return FD_EXECUTOR_INSTR_ERR_MODIFIED_PROGRAM_ID;
     if (fd_account_is_executable(ctx, acct, &err))
       return FD_EXECUTOR_INSTR_ERR_MODIFIED_PROGRAM_ID;
@@ -414,10 +419,9 @@ int fd_account_set_data_length(instruction_ctx_t *ctx, fd_account_meta_t * acct,
 //    /// Returns whether this account is a signer (instruction wide)
 
 static inline
-int fd_account_is_signer(instruction_ctx_t const *ctx, fd_pubkey_t const * account) {
-  uchar *       instr_acc_idxs = ((uchar *)ctx->txn_ctx->txn_raw->raw + ctx->instr->acct_off);
-  fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx->txn_ctx->txn_raw->raw + ctx->txn_ctx->txn_descriptor->acct_addr_off);
-
+int fd_account_is_signer_(instruction_ctx_t const *ctx, fd_pubkey_t const * account) {
+  uchar *       instr_acc_idxs = ctx->instr->acct_txn_idxs;
+  fd_pubkey_t * txn_accs = ctx->txn_ctx->accounts;
   for ( ulong i = 0; i < ctx->instr->acct_cnt; i++ ) {
     if ( instr_acc_idxs[i] < ctx->txn_ctx->txn_descriptor->signature_cnt ) {
       fd_pubkey_t * signer = &txn_accs[instr_acc_idxs[i]];
@@ -470,7 +474,7 @@ int fd_account_set_executable(instruction_ctx_t ctx, fd_pubkey_t * program_acc, 
       return FD_EXECUTOR_INSTR_ERR_EXECUTABLE_MODIFIED;
     }
 
-    if (!fd_account_is_writable(&ctx, program_acc)) {
+    if (!fd_instr_acc_is_writable(ctx.instr, program_acc)) {
       return FD_EXECUTOR_INSTR_ERR_EXECUTABLE_MODIFIED;
     }
 

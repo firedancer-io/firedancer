@@ -50,7 +50,7 @@ void fd_sysvar_recent_hashes_update( fd_global_ctx_t* global ) {
   fd_block_block_hash_entry_new(elem);
   // bank.poh is updated in fd_runtime_block_verify
   fd_memcpy(elem->blockhash.hash, &global->bank.poh, sizeof(global->bank.poh));
-  elem->fee_calculator.lamports_per_signature = fd_runtime_txn_lamports_per_signature(global, NULL, NULL);
+  elem->fee_calculator.lamports_per_signature = fd_runtime_txn_lamports_per_signature(global, NULL, NULL, NULL);
 
   ulong sz = fd_recent_block_hashes_size(&global->bank.recent_block_hashes);
   if (sz < 6008)

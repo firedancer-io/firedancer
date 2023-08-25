@@ -8,14 +8,9 @@
 #include "../../vm/fd_vm_syscalls.h"
 #include "../../vm/fd_vm_interp.h"
 #include "../../vm/fd_vm_disasm.h"
+#include "fd_bpf_loader_serialization.h"
 
 #include <stdio.h>
-
-#define BUFFER_METADATA_SIZE  (37)
-#define PROGRAMDATA_METADATA_SIZE (45UL)
-#define MAX_PERMITTED_DATA_INCREASE (10 * 1024)
-#define SIZE_OF_PROGRAM (36)
-#define SIZE_OF_UNITIALIZED (4)
 
 char *
 read_bpf_upgradeable_loader_state( fd_global_ctx_t* global, fd_pubkey_t* program_acc, fd_bpf_upgradeable_loader_state_t * result, int *opt_err) {
@@ -74,13 +69,13 @@ int write_bpf_upgradeable_loader_state(fd_global_ctx_t* global, fd_pubkey_t* pro
 }
 
 // This is literally called before every single instruction execution... To make it fast we are duplicating some code
-int fd_executor_bpf_upgradeable_loader_program_is_executable_program_account( fd_global_ctx_t * global, fd_pubkey_t * pubkey ) {
+int fd_executor_bpf_upgradeable_loader_program_is_executable_program_account( fd_global_ctx_t * global, fd_pubkey_t const * pubkey ) {
   int err = 0;
   char * raw_acc_data = (char*) fd_acc_mgr_view_raw(global->acc_mgr, global->funk_txn, (fd_pubkey_t *) pubkey, NULL, &err);
   if (NULL == raw_acc_data)
     return -1;
 
-  fd_account_meta_t *m = (fd_account_meta_t *) raw_acc_data;
+  fd_account_meta_t * m = (fd_account_meta_t *) raw_acc_data;
 
   if( memcmp( m->info.owner, global->solana_bpf_loader_upgradeable_program, sizeof(fd_pubkey_t)) )
     return -1;
@@ -110,309 +105,8 @@ int fd_executor_bpf_upgradeable_loader_program_is_executable_program_account( fd
   return 0;
 }
 
-/**
- * num accounts
- * serialized accounts
- * instr data len
- * instr data
- * program id public key
-*/
-// 64-bit aligned
-uchar *
-serialize_aligned( instruction_ctx_t ctx, ulong * sz ) {
-  ulong serialized_size = 0;
-  uchar * instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
-  fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
-
-  uchar acc_idx_seen[256];
-  ushort dup_acc_idx[256];
-  memset(acc_idx_seen, 0, sizeof(acc_idx_seen));
-  memset(dup_acc_idx, 0, sizeof(dup_acc_idx));
-
-  serialized_size += sizeof(ulong);
-  for( ushort i = 0; i < ctx.instr->acct_cnt; i++ ) {
-    uchar acc_idx = instr_acc_idxs[i];
-
-    // fd_pubkey_t * acc = &txn_accs[acc_idx];
-    // FD_LOG_WARNING(( "START OF ACC: %32J %x %lu", acc, serialized_size, serialized_size ));
-
-    serialized_size++; // dup byte
-    if( FD_UNLIKELY( acc_idx_seen[acc_idx] ) ) {
-      serialized_size += 7; // pad to 64-bit alignment
-    } else {
-      acc_idx_seen[acc_idx] = 1;
-      dup_acc_idx[acc_idx] = i;
-      fd_pubkey_t * acc = &txn_accs[acc_idx];
-      int read_result = FD_ACC_MGR_SUCCESS;
-      uchar * raw_acc_data = (uchar *)fd_acc_mgr_view_raw(ctx.global->acc_mgr, ctx.global->funk_txn, acc, NULL, &read_result);
-      fd_account_meta_t * metadata = (fd_account_meta_t *)raw_acc_data;
-
-      ulong acc_data_len = 0;
-      if ( FD_LIKELY( read_result == FD_ACC_MGR_SUCCESS ) ) {
-        acc_data_len = metadata->dlen;
-      } else if ( FD_UNLIKELY( read_result == FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) ) {
-        acc_data_len = 0;
-      } else {
-        FD_LOG_WARNING(( "failed to read account data - pubkey: %32J, err: %d", acc, read_result ));
-        return NULL;
-      }
-
-      ulong aligned_acc_data_len = fd_ulong_align_up(acc_data_len, 8);
-
-      serialized_size += sizeof(uchar)  // is_signer
-          + sizeof(uchar)               // is_writable
-          + sizeof(uchar)               // is_executable
-          + sizeof(uint)                // original_data_len
-          + sizeof(fd_pubkey_t)         // key
-          + sizeof(fd_pubkey_t)         // owner
-          + sizeof(ulong)               // lamports
-          + sizeof(ulong)               // data_len
-          + aligned_acc_data_len
-          + MAX_PERMITTED_DATA_INCREASE
-          + sizeof(ulong);              // rent_epoch
-    }
-  }
-
-  serialized_size += sizeof(ulong)
-      + ctx.instr->data_sz
-      + sizeof(fd_pubkey_t);
-
-  uchar * serialized_params = fd_valloc_malloc( ctx.global->valloc, 1UL, serialized_size);
-  uchar * serialized_params_start = serialized_params;
-
-  FD_STORE( ulong, serialized_params, ctx.instr->acct_cnt );
-  serialized_params += sizeof(ulong);
-
-  for( ushort i = 0; i < ctx.instr->acct_cnt; i++ ) {
-    // FD_LOG_WARNING(( "SERIAL OF ACC: %x %lu", serialized_params - serialized_params_start, serialized_params-serialized_params_start ));
-    uchar acc_idx = instr_acc_idxs[i];
-    fd_pubkey_t * acc = &txn_accs[acc_idx];
-
-    if( FD_UNLIKELY( acc_idx_seen[acc_idx] && dup_acc_idx[acc_idx] != i ) ) {
-      // Duplicate
-      FD_STORE( ulong, serialized_params, 0 );
-      FD_STORE( uchar, serialized_params, (uchar)dup_acc_idx[acc_idx] );
-      serialized_params += sizeof(ulong);
-    } else {
-      FD_STORE( uchar, serialized_params, 0xFF );
-      serialized_params += sizeof(uchar);
-
-      int read_result = FD_ACC_MGR_SUCCESS;
-      uchar * raw_acc_data = (uchar *)fd_acc_mgr_view_raw(ctx.global->acc_mgr, ctx.global->funk_txn, acc, NULL, &read_result);
-      if ( FD_UNLIKELY( read_result == FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) ) {
-          fd_memset( serialized_params, 0, sizeof(uchar)  // is_signer
-          + sizeof(uchar)                                 // is_writable
-          + sizeof(uchar)                                 // is_executable
-          + sizeof(uint));                                // original_data_len
-
-          serialized_params += sizeof(uchar)  // is_signer
-          + sizeof(uchar)                     // is_writable
-          + sizeof(uchar)                     // is_executable
-          + sizeof(uint);                     // original_data_len
-
-          fd_pubkey_t key = *acc;
-          FD_STORE( fd_pubkey_t, serialized_params, key );
-          serialized_params += sizeof(fd_pubkey_t);
-
-          fd_memset( serialized_params, 0, sizeof(fd_pubkey_t)  // owner
-          + sizeof(ulong)                                       // lamports
-          + sizeof(ulong)                                       // data_len
-          + 0                                                   // data
-          + MAX_PERMITTED_DATA_INCREASE
-          + sizeof(ulong));                                     // rent_epoch
-          serialized_params += sizeof(fd_pubkey_t)  // owner
-          + sizeof(ulong)                           // lamports
-          + sizeof(ulong)                           // data_len
-          + 0                                       // data
-          + MAX_PERMITTED_DATA_INCREASE
-          + sizeof(ulong);                          // rent_epoch
-        continue;
-      } else if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
-        FD_LOG_WARNING(( "failed to read account data - pubkey: %32J, err: %d", acc, read_result ));
-        return NULL;
-      }
-
-      fd_account_meta_t * metadata = (fd_account_meta_t *)raw_acc_data;
-      uchar * acc_data = fd_account_get_data( metadata );
-
-      uchar is_signer = (uchar)fd_account_is_signer( &ctx, acc );
-      FD_STORE( uchar, serialized_params, is_signer );
-      serialized_params += sizeof(uchar);
-
-      uchar is_writable = (uchar)(fd_account_is_writable_idx( &ctx, acc_idx ) && !fd_account_is_sysvar( &ctx, acc ));
-      FD_STORE( uchar, serialized_params, is_writable );
-      serialized_params += sizeof(uchar);
-
-      uchar is_executable = (uchar)metadata->info.executable;
-      FD_STORE( uchar, serialized_params, is_executable );
-      serialized_params += sizeof(uchar);
-
-      uint padding_0 = 0;
-      FD_STORE( uint, serialized_params, padding_0 );
-      serialized_params += sizeof(uint);
-
-      fd_pubkey_t key = *acc;
-      FD_STORE( fd_pubkey_t, serialized_params, key );
-      serialized_params += sizeof(fd_pubkey_t);
-
-      fd_pubkey_t owner = *(fd_pubkey_t *)&metadata->info.owner;
-      FD_STORE( fd_pubkey_t, serialized_params, owner );
-      serialized_params += sizeof(fd_pubkey_t);
-
-      ulong lamports = metadata->info.lamports;
-      FD_STORE( ulong, serialized_params, lamports );
-      serialized_params += sizeof(ulong);
-
-      ulong acc_data_len = metadata->dlen;
-      ulong aligned_acc_data_len = fd_ulong_align_up(acc_data_len, 8);
-      ulong alignment_padding_len = aligned_acc_data_len - acc_data_len;
-
-      ulong data_len = acc_data_len;
-      FD_STORE( ulong, serialized_params, data_len );
-      serialized_params += sizeof(ulong);
-
-      fd_memcpy( serialized_params, acc_data, acc_data_len);
-      serialized_params += acc_data_len;
-
-      fd_memset( serialized_params, 0, MAX_PERMITTED_DATA_INCREASE + alignment_padding_len);
-      serialized_params += MAX_PERMITTED_DATA_INCREASE + alignment_padding_len;
-
-      ulong rent_epoch = metadata->info.rent_epoch;
-      FD_STORE( ulong, serialized_params, rent_epoch );
-      serialized_params += sizeof(ulong);
-    }
-  }
-
-  ulong instr_data_len = ctx.instr->data_sz;
-  FD_STORE( ulong, serialized_params, instr_data_len );
-  serialized_params += sizeof(ulong);
-
-  uchar * instr_data = (uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->data_off;
-  fd_memcpy( serialized_params, instr_data, instr_data_len );
-  serialized_params += instr_data_len;
-
-  FD_STORE( fd_pubkey_t, serialized_params, txn_accs[ctx.instr->program_id] );
-  serialized_params += sizeof(fd_pubkey_t);
-
-  FD_TEST( serialized_params == serialized_params_start + serialized_size );
-
-  // FD_LOG_NOTICE(( "SERIALIZE - sz: %lu, diff: %lu", serialized_size, serialized_params - serialized_params_start ));
-  *sz = serialized_size;
-  return serialized_params_start;
-}
-
-int
-deserialize_aligned( instruction_ctx_t ctx, uchar * input, ulong input_sz ) {
-  uchar * input_cursor = input;
-
-  uchar acc_idx_seen[256];
-  memset(acc_idx_seen, 0, sizeof(acc_idx_seen));
-
-  uchar * instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
-  fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
-
-  input_cursor += sizeof(ulong);
-
-  for( ulong i = 0; i < ctx.instr->acct_cnt; i++ ) {
-    uchar acc_idx = instr_acc_idxs[i];
-    fd_pubkey_t * acc = &txn_accs[instr_acc_idxs[i]];
-
-    input_cursor++;
-    if ( FD_UNLIKELY( acc_idx_seen[acc_idx] ) ) {
-      input_cursor += 7;
-    } else if ( fd_account_is_writable_idx( &ctx, acc_idx ) && !fd_account_is_sysvar( &ctx, acc ) ) {
-      acc_idx_seen[acc_idx] = 1;
-      input_cursor += sizeof(uchar) // is_signer
-          + sizeof(uchar)           // is_writable
-          + sizeof(uchar)           // executable
-          + sizeof(uint)            // original_data_len
-          + sizeof(fd_pubkey_t);    // key
-
-      fd_pubkey_t * owner = (fd_pubkey_t *)input_cursor;
-      input_cursor += sizeof(fd_pubkey_t);
-
-      ulong lamports = FD_LOAD(ulong, input_cursor);
-      input_cursor += sizeof(ulong);
-
-      ulong post_data_len = FD_LOAD(ulong, input_cursor);
-      input_cursor += sizeof(ulong);
-
-      uchar * post_data = input_cursor;
-
-      fd_funk_rec_t const * acc_const_data_rec = NULL;
-      int view_err = FD_ACC_MGR_SUCCESS;
-      void const * raw_data = fd_acc_mgr_view_raw(ctx.global->acc_mgr, ctx.global->funk_txn, acc, &acc_const_data_rec, &view_err);
-
-      if ( view_err == FD_ACC_MGR_SUCCESS ) {
-        fd_account_meta_t * metadata = (fd_account_meta_t *)raw_data;
-        if ( fd_ulong_sat_sub( post_data_len, metadata->dlen ) > MAX_PERMITTED_DATA_INCREASE || post_data_len > MAX_PERMITTED_DATA_LENGTH ) {
-          fd_valloc_free( ctx.global->valloc, input );
-          return -1;
-        }
-
-        fd_funk_rec_t * acc_data_rec = NULL;
-        int modify_err = FD_ACC_MGR_SUCCESS;
-        void * raw_acc_data = fd_acc_mgr_modify_raw(ctx.global->acc_mgr, ctx.global->funk_txn, acc, 0, post_data_len, acc_const_data_rec, &acc_data_rec, &modify_err);
-        if ( modify_err != FD_ACC_MGR_SUCCESS ) {
-          fd_valloc_free( ctx.global->valloc, input );
-          return -1;
-        }
-        metadata = (fd_account_meta_t *)raw_acc_data;
-
-        uchar * acc_data = fd_account_get_data( metadata );
-        input_cursor += fd_ulong_align_up(metadata->dlen, 8);
-
-        metadata->dlen = post_data_len;
-        metadata->info.lamports = lamports;
-        fd_memcpy(metadata->info.owner, owner, sizeof(fd_pubkey_t));
-
-        fd_memcpy( acc_data, post_data, post_data_len );
-
-        fd_acc_mgr_commit_raw(ctx.global->acc_mgr, acc_data_rec, acc, raw_acc_data, ctx.global->bank.slot, 0);
-      } else if ( view_err == FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
-        // no-op
-      } else {
-        fd_valloc_free( ctx.global->valloc, input );
-        return -1;
-      }
-
-      input_cursor += MAX_PERMITTED_DATA_INCREASE;
-
-      input_cursor += sizeof(ulong);
-    } else {
-      acc_idx_seen[acc_idx] = 1;
-      // Account is not writable, skip over
-      input_cursor += sizeof(uchar)         // is_signer
-          + sizeof(uchar)                   // is_writable
-          + sizeof(uchar)                   // executable
-          + sizeof(uint)                    // original_data_len
-          + sizeof(fd_pubkey_t);            // key
-      input_cursor += sizeof(fd_pubkey_t);  // owner
-      input_cursor += sizeof(ulong);        // lamports
-      input_cursor += sizeof(ulong);        // data_len
-
-      int view_err = FD_ACC_MGR_SUCCESS;
-      void const * raw_acc_data = fd_acc_mgr_view_raw(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t const *)acc, NULL, &view_err);
-      fd_account_meta_t * metadata = (fd_account_meta_t *)raw_acc_data;
-
-      if ( view_err == FD_ACC_MGR_SUCCESS ) {
-        input_cursor += fd_ulong_align_up(metadata->dlen, 8);
-      }
-      input_cursor += MAX_PERMITTED_DATA_INCREASE;
-
-      input_cursor += sizeof(ulong);
-    }
-  }
-
-  FD_TEST( input_cursor <= input + input_sz );
-
-  fd_valloc_free( ctx.global->valloc, input );
-
-  return 0;
-}
-
 int fd_executor_bpf_upgradeable_loader_program_execute_program_instruction( instruction_ctx_t ctx ) {
-  fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
+  fd_pubkey_t * txn_accs = ctx.txn_ctx->accounts;
   fd_pubkey_t * program_acc = &txn_accs[ctx.instr->program_id];
 
   fd_bpf_upgradeable_loader_state_t program_loader_state;
@@ -480,7 +174,8 @@ int fd_executor_bpf_upgradeable_loader_program_execute_program_instruction( inst
   FD_LOG_DEBUG(( "fd_sbpf_program_load() success: %s", fd_sbpf_strerror() ));
 
   ulong input_sz = 0;
-  uchar * input = serialize_aligned(ctx, &input_sz);
+  ulong pre_lens[256];
+  uchar * input = fd_bpf_loader_input_serialize_aligned(ctx, &input_sz, pre_lens);
   if( input==NULL ) {
     fd_valloc_free( ctx.global->valloc, fd_sbpf_program_delete( prog ) );
     fd_valloc_free( ctx.global->valloc, fd_sbpf_syscalls_delete( syscalls ) );
@@ -529,27 +224,27 @@ int fd_executor_bpf_upgradeable_loader_program_execute_program_instruction( inst
   // TODO: make tracing an option!
   // FILE * trace_fd = fopen("trace.log", "w");
 
-  // for( ulong i = 0; i < trace_used; i++ ) {
-  //   fd_vm_trace_entry_t trace_ent = trace[i];
-  //   fprintf(stderr, "%5lu [%016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX] %5lu: ",
-  //       trace_ent.ic,
-  //       trace_ent.register_file[0],
-  //       trace_ent.register_file[1],
-  //       trace_ent.register_file[2],
-  //       trace_ent.register_file[3],
-  //       trace_ent.register_file[4],
-  //       trace_ent.register_file[5],
-  //       trace_ent.register_file[6],
-  //       trace_ent.register_file[7],
-  //       trace_ent.register_file[8],
-  //       trace_ent.register_file[9],
-  //       trace_ent.register_file[10],
-  //       trace_ent.pc+29 // FIXME: THIS OFFSET IS FOR TESTING ONLY
-  //     );
-  //   fd_vm_disassemble_instr(&vm_ctx.instrs[trace[i].pc], trace[i].pc, vm_ctx.syscall_map, vm_ctx.local_call_map, stderr);
+  for( ulong i = 0; i < trace_used; i++ ) {
+    fd_vm_trace_entry_t trace_ent = trace[i];
+    fprintf(stderr, "%5lu [%016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX] %5lu: ",
+      trace_ent.ic,
+      trace_ent.register_file[0],
+      trace_ent.register_file[1],
+      trace_ent.register_file[2],
+      trace_ent.register_file[3],
+      trace_ent.register_file[4],
+      trace_ent.register_file[5],
+      trace_ent.register_file[6],
+      trace_ent.register_file[7],
+      trace_ent.register_file[8],
+      trace_ent.register_file[9],
+      trace_ent.register_file[10],
+      trace_ent.pc+29 // FIXME: THIS OFFSET IS FOR TESTING ONLY
+    );
+    fd_vm_disassemble_instr(&vm_ctx.instrs[trace[i].pc], trace[i].pc, vm_ctx.syscall_map, vm_ctx.local_call_map, stderr);
 
-  //   fprintf(stderr, "\n");
-  // }
+    fprintf(stderr, "\n");
+  }
 
   // fclose(trace_fd);
   free(trace);
@@ -557,10 +252,10 @@ int fd_executor_bpf_upgradeable_loader_program_execute_program_instruction( inst
 
   fd_valloc_free( ctx.global->valloc, fd_sbpf_program_delete( prog ) );
   fd_valloc_free( ctx.global->valloc, fd_sbpf_syscalls_delete( syscalls ) );
-  fd_valloc_free( ctx.global->valloc, rodata);
+  fd_valloc_free( ctx.global->valloc, rodata );
 
   FD_LOG_WARNING(( "fd_vm_interp_instrs() success: %lu, ic: %lu, pc: %lu, ep: %lu, r0: %lu, fault: %lu", interp_res, vm_ctx.instruction_counter, vm_ctx.program_counter, vm_ctx.entrypoint, vm_ctx.register_file[0], vm_ctx.cond_fault ));
-  FD_LOG_WARNING(( "log coll: %s", vm_ctx.log_collector.buf ));
+  // FD_LOG_WARNING(( "log coll - len: %lu %s", vm_ctx.log_collector.buf ));
 
   if( vm_ctx.register_file[0]!=0 ) {
     fd_valloc_free( ctx.global->valloc, input);
@@ -574,7 +269,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_program_instruction( inst
     return -1;
   }
 
-  if( deserialize_aligned(ctx, input, input_sz) != 0 ) {
+  if( fd_bpf_loader_input_deserialize_aligned(ctx, pre_lens, input, input_sz) != 0 ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
   }
 
@@ -671,7 +366,7 @@ static int common_close_account(instruction_ctx_t ctx, fd_pubkey_t * authority_a
 
 int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_ctx_t ctx ) {
   /* Deserialize the Stake instruction */
-  uchar * data            = (uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->data_off;
+  uchar * data            = ctx.instr->data;
 
   fd_bpf_upgradeable_loader_program_instruction_t instruction;
   fd_bpf_upgradeable_loader_program_instruction_new( &instruction );
@@ -686,11 +381,8 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
 
-
-  uchar* instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
-  fd_pubkey_t* txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
-  fd_pubkey_t * program_id = &txn_accs[ctx.instr->program_id];
-
+  uchar * instr_acc_idxs = ctx.instr->acct_txn_idxs;
+  fd_pubkey_t * txn_accs = ctx.txn_ctx->accounts;
 
   FD_LOG_INFO(("BPF INSTR RUN! - addr: %32J, disc: %u", &txn_accs[ctx.instr->program_id], instruction.discriminant));
 
@@ -1202,7 +894,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
         return FD_EXECUTOR_INSTR_ERR_INCORRECT_AUTHORITY;
       }
 
-      if(instr_acc_idxs[1] >= ctx.txn_ctx->txn_descriptor->signature_cnt) {
+      if( instr_acc_idxs[1] >= ctx.txn_ctx->txn_descriptor->signature_cnt ) {
         return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
       }
 
@@ -1254,7 +946,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
     }
 
     if (FD_FEATURE_ACTIVE(ctx.global, enable_program_redeployment_cooldown)) {
-      if (fd_account_set_data_length(&ctx, close_acc_metadata, close_acc, SIZE_OF_UNITIALIZED, 0, &err) != 0) {
+      if (fd_account_set_data_length(&ctx, close_acc_metadata, close_acc, SIZE_OF_UNINITIALIZED, 0, &err) != 0) {
         return err;
       }
     }
@@ -1293,11 +985,11 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
         return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
       }
 
-      if (!fd_account_is_writable(&ctx, program_acc)) {
+      if (!fd_instr_acc_is_writable(ctx.instr, program_acc)) {
         return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
       }
 
-      if (memcmp(program_acc_metdata->info.owner, program_id, sizeof(fd_pubkey_t)) != 0) {
+      if (memcmp(program_acc_metdata->info.owner, &ctx.instr->program_id_pubkey, sizeof(fd_pubkey_t)) != 0) {
         return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
       }
 
@@ -1444,7 +1136,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
     }
 
     if (FD_FEATURE_ACTIVE(ctx.global, enable_program_redeployment_cooldown)) {
-      if (fd_account_set_data_length(&ctx, close_acc_metadata, close_acc, SIZE_OF_UNITIALIZED, 0, &err) != 0) {
+      if (fd_account_set_data_length(&ctx, close_acc_metadata, close_acc, SIZE_OF_UNINITIALIZED, 0, &err) != 0) {
         return err;
       }
     }
@@ -1483,11 +1175,11 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
         return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
       }
 
-      if (!fd_account_is_writable(&ctx, program_acc)) {
+      if (!fd_instr_acc_is_writable(ctx.instr, program_acc)) {
         return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
       }
 
-      if (memcmp(program_acc_metdata->info.owner, program_id, sizeof(fd_pubkey_t)) != 0) {
+      if (memcmp(program_acc_metdata->info.owner, &ctx.instr->program_id_pubkey, sizeof(fd_pubkey_t)) != 0) {
         return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
       }
 
@@ -1569,11 +1261,11 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
       return result;
     }
 
-    if (memcmp(programdata_acc_metadata->info.owner, program_id, sizeof(fd_pubkey_t)) != 0) {
+    if (memcmp(programdata_acc_metadata->info.owner, &ctx.instr->program_id_pubkey, sizeof(fd_pubkey_t)) != 0) {
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
     }
 
-    if (!fd_account_is_writable(&ctx, programdata_acc)) {
+    if (!fd_instr_acc_is_writable(ctx.instr, programdata_acc)) {
       return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
     }
 
@@ -1583,11 +1275,11 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
       return result;
     }
 
-    if (!fd_account_is_writable(&ctx, program_acc)) {
+    if (!fd_instr_acc_is_writable(ctx.instr, program_acc)) {
       return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
     }
 
-    if (memcmp(program_acc_metadata->info.owner, program_id, sizeof(fd_pubkey_t)) != 0) {
+    if (memcmp(program_acc_metadata->info.owner, &ctx.instr->program_id_pubkey, sizeof(fd_pubkey_t)) != 0) {
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
     }
 

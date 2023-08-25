@@ -14,8 +14,8 @@ static int transfer(
   /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/system_instruction_processor.rs#L327 */
 
   /* Pull out sender (acc idx 0) and recipient (acc idx 1) */
-  uchar *       instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
-  fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
+  uchar *       instr_acc_idxs = ctx.instr->acct_txn_idxs;
+  fd_pubkey_t * txn_accs = ctx.txn_ctx->accounts;
   fd_pubkey_t * sender = NULL;
   fd_pubkey_t * receiver = NULL;
 
@@ -54,7 +54,7 @@ static int transfer(
     return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
   }
 
-  if (!fd_account_is_signer(&ctx, sender))
+  if (!fd_instr_acc_is_signer(ctx.instr, sender))
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
 
   int    err = 0;
@@ -112,21 +112,21 @@ static int fd_system_allocate(
     int err = fd_account_sanity_check(&ctx, 1);
     if (FD_UNLIKELY(FD_EXECUTOR_INSTR_SUCCESS != err))
       return err;
-  uchar *       instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
-  fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
+  uchar *       instr_acc_idxs = ctx.instr->acct_txn_idxs;
+  fd_pubkey_t * txn_accs = ctx.txn_ctx->accounts;
   fd_pubkey_t * account     = &txn_accs[instr_acc_idxs[0]];
   fd_pubkey_t*  owner = NULL;
 
   unsigned long allocate = 0;
   if (instruction->discriminant == fd_system_program_instruction_enum_allocate) {
-    if (!fd_account_is_signer(&ctx, account))
+    if (!fd_instr_acc_is_signer(ctx.instr, account))
       return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
 
     allocate = instruction->inner.allocate;
   } else {
     fd_system_program_instruction_allocate_with_seed_t *t = &instruction->inner.allocate_with_seed;
 
-    if (!fd_account_is_signer(&ctx, &t->base))
+    if (!fd_instr_acc_is_signer(ctx.instr, &t->base))
       return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
 
     fd_pubkey_t      address_with_seed;
@@ -190,8 +190,8 @@ static int fd_system_assign_with_seed(
   if (FD_UNLIKELY(FD_EXECUTOR_INSTR_SUCCESS != err))
     return err;
 
-  uchar *       instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
-  fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
+  uchar const * instr_acc_idxs = ctx.instr->acct_txn_idxs;
+  fd_pubkey_t * txn_accs = ctx.txn_ctx->accounts;
   fd_pubkey_t * account     = &txn_accs[instr_acc_idxs[0]];
 
   fd_pubkey_t      address_with_seed;
@@ -210,7 +210,7 @@ static int fd_system_assign_with_seed(
       return FD_ACC_MGR_SUCCESS;
   }
 
-  if (!fd_account_is_signer(&ctx, &t->base))
+  if (!fd_instr_acc_is_signer(ctx.instr, &t->base))
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
 
   fd_funk_rec_t *rec = NULL;
@@ -246,8 +246,9 @@ static int create_account(
   /* Account 0: funding account
      Account 1: new account
    */
-  uchar *       instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
-  fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
+
+  uchar const * instr_acc_idxs = ctx.instr->acct_txn_idxs;
+  fd_pubkey_t * txn_accs = ctx.txn_ctx->accounts;
   fd_pubkey_t * from     = &txn_accs[instr_acc_idxs[0]];
   fd_pubkey_t * to       = &txn_accs[instr_acc_idxs[1]];
 
@@ -283,9 +284,9 @@ static int create_account(
 
   // https://github.com/solana-labs/solana/blob/b9a2030537ba440c0378cc1ed02af7cff3f35141/programs/system/src/system_processor.rs#L146-L181
 
-  if (!fd_account_is_signer(&ctx, from))
+  if (!fd_instr_acc_is_signer(ctx.instr, from))
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
-  if (!fd_account_is_signer(&ctx, base))
+  if (!fd_instr_acc_is_signer(ctx.instr, base))
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
 
   fd_funk_rec_t const * from_rec_ro = NULL;
@@ -319,14 +320,23 @@ static int create_account(
   }
 
   /* Check to see if the account is already in use */
+  err = FD_ACC_MGR_SUCCESS;
   fd_funk_rec_t const * to_rec_ro = NULL;
   char * raw_acc_data_to = (char *) fd_acc_mgr_view_raw(ctx.global->acc_mgr, ctx.global->funk_txn, to, &to_rec_ro, &err);
-  if (err != FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
+  if (err == FD_ACC_MGR_SUCCESS) {
+    /* Check if account was deleted */
+    metadata = (fd_account_meta_t *) raw_acc_data_to;
+    if( metadata->info.lamports != 0 ) {
+      ctx.txn_ctx->custom_err = 0;     /* SystemError::AccountAlreadyInUse */
+      return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+    }
+  } else if (err != FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
     ctx.txn_ctx->custom_err = 0;     /* SystemError::AccountAlreadyInUse */
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
+  ulong sz2 = space + sizeof(fd_account_meta_t);
   fd_funk_rec_t * to_rec_rw = NULL;
-  raw_acc_data_to = (char*) fd_acc_mgr_modify_raw(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) to, 1, space, to_rec_ro, &to_rec_rw, &err);
+  raw_acc_data_to = (char*) fd_acc_mgr_modify_raw(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) to, 1, sz2, to_rec_ro, &to_rec_rw, &err);
   FD_TEST( raw_acc_data_to );
   /* Check that we are not exceeding the MAX_PERMITTED_DATA_LENGTH account size */
   if ( space > MAX_PERMITTED_DATA_LENGTH ) {
@@ -367,9 +377,9 @@ static int assign(
     return err;
 
   /* Pull out the account to be assigned an owner (acc idx 0) */
-  uchar *       instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
-  fd_pubkey_t * txn_accs       = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
-  fd_pubkey_t * keyed_account  = &txn_accs[instr_acc_idxs[0]];
+  uchar *       instr_acc_idxs = ctx.instr->acct_txn_idxs;
+  fd_pubkey_t * txn_accs = ctx.txn_ctx->accounts;
+  fd_pubkey_t * keyed_account   = &txn_accs[instr_acc_idxs[0]];
 
   fd_account_meta_t * meta = NULL;
   int read_result = fd_acc_mgr_modify( ctx.global->acc_mgr, ctx.global->funk_txn, keyed_account, /* do_create */ 0, 0UL, NULL, NULL, &meta, NULL );
@@ -382,7 +392,7 @@ static int assign(
     return FD_EXECUTOR_INSTR_SUCCESS;
   // #endif
 
-  if( !fd_account_is_signer(&ctx, keyed_account) )
+  if (!fd_instr_acc_is_signer(ctx.instr, keyed_account))
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
 
   memcpy( meta->info.owner, owner.key, sizeof(fd_pubkey_t) );
@@ -393,7 +403,7 @@ int fd_executor_system_program_execute_instruction(
   instruction_ctx_t ctx
   ) {
   /* Deserialize the SystemInstruction enum */
-  uchar *      data            = (uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->data_off;
+  uchar *      data            = ctx.instr->data;
 
   fd_system_program_instruction_t instruction;
   fd_system_program_instruction_new( &instruction );

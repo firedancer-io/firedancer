@@ -50,6 +50,7 @@ struct __attribute__((aligned(FD_GLOBAL_CTX_ALIGN))) fd_global_ctx {
   unsigned char              sysvar_stake_history[32];
   unsigned char              sysvar_owner[32];
   unsigned char              sysvar_last_restart_slot[32];
+  unsigned char              sysvar_instructions[32];
   unsigned char              solana_native_loader[32];
   unsigned char              solana_feature_program[32];
   unsigned char              solana_config_program[32];
@@ -60,7 +61,7 @@ struct __attribute__((aligned(FD_GLOBAL_CTX_ALIGN))) fd_global_ctx {
   unsigned char              solana_bpf_loader_deprecated_program[32];
   unsigned char              solana_bpf_loader_program[32];
   unsigned char              solana_bpf_loader_upgradeable_program[32];
-  fd_pubkey_t                solana_bpf_loader_v4_program[32];
+  fd_pubkey_t                solana_bpf_loader_v4_program[1];
   unsigned char              solana_ed25519_sig_verify_program[32];
   unsigned char              solana_keccak_secp_256k_program[32];
   unsigned char              solana_compute_budget_program[32];
@@ -114,7 +115,7 @@ void *            fd_global_ctx_delete     ( void *  );
 
 ulong             fd_runtime_lamports_per_signature( fd_global_ctx_t *global );
 
-ulong             fd_runtime_txn_lamports_per_signature( fd_global_ctx_t *global, fd_txn_t * txn_descriptor, fd_rawtxn_b_t* txn_raw );
+ulong             fd_runtime_txn_lamports_per_signature( fd_global_ctx_t *global, transaction_ctx_t * txn_ctx, fd_txn_t * txn_descriptor, fd_rawtxn_b_t const * txn_raw );
 void              fd_runtime_init_bank_from_genesis( fd_global_ctx_t * global, fd_genesis_solana_t * genesis_block, uchar genesis_hash[FD_SHA256_HASH_SZ] );
 void              fd_runtime_init_program( fd_global_ctx_t * global );
 int               fd_runtime_block_execute ( fd_global_ctx_t *global, fd_slot_meta_t *m, const void* block, ulong blocklen );
@@ -122,7 +123,7 @@ int               fd_runtime_block_verify  ( fd_global_ctx_t *global, fd_slot_me
 int               fd_runtime_block_verify_tpool( fd_global_ctx_t *global, fd_slot_meta_t *m, const void* block, ulong blocklen, fd_tpool_t * tpool, ulong max_workers );
 int               fd_runtime_block_eval    ( fd_global_ctx_t *global, fd_slot_meta_t *m, const void* block, ulong blocklen );
 
-ulong             fd_runtime_calculate_fee ( fd_global_ctx_t *global, transaction_ctx_t * txn_ctx, fd_txn_t * txn_descriptor, fd_rawtxn_b_t* txn_raw );
+ulong             fd_runtime_calculate_fee ( fd_global_ctx_t *global, transaction_ctx_t * txn_ctx, fd_txn_t * txn_descriptor, fd_rawtxn_b_t const * txn_raw );
 void              fd_runtime_freeze        ( fd_global_ctx_t *global );
 
 ulong             fd_runtime_lamports_per_signature_for_blockhash( fd_global_ctx_t *global, FD_FN_UNUSED fd_hash_t *blockhash );

@@ -26,36 +26,38 @@ void fd_durable_nonce_from_blockhash(fd_hash_t *hash, fd_hash_t *out) {
 }
 
 int fd_load_nonce_account(
-  fd_global_ctx_t *global, fd_txn_t * txn_descriptor, fd_rawtxn_b_t* txn_raw, fd_nonce_state_versions_t *state, int *opt_err
+  fd_global_ctx_t *global, transaction_ctx_t * txn_ctx, fd_txn_t * txn_descriptor, fd_rawtxn_b_t const * txn_raw, fd_nonce_state_versions_t *state, int *opt_err
   ) {
   if (txn_descriptor->instr_cnt == 0) {
     *opt_err = FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
     return 0;
   }
 
-  fd_txn_instr_t * instr = &txn_descriptor->instr[0];
+  fd_txn_instr_t * txn_instr = &txn_descriptor->instr[0];
+  fd_instr_t instr;
+  fd_convert_txn_instr_to_instr(txn_descriptor, txn_raw, txn_instr, txn_ctx->accounts, &instr);
 
   // A little defense in depth?
-  int err = fd_account_sanity_check_raw(instr, txn_descriptor, txn_raw, instr->program_id + 1);
+  int err = fd_account_sanity_check_raw(&instr, txn_descriptor, instr.program_id + 1);
   if (FD_EXECUTOR_INSTR_SUCCESS != err) {
     *opt_err = err;
     return 0;
   }
 
-  fd_pubkey_t *tx_accs   = (fd_pubkey_t *)((uchar *)txn_raw->raw + txn_descriptor->acct_addr_off);
-  fd_pubkey_t *pubkey = &tx_accs[instr->program_id];
+  fd_pubkey_t * tx_accs   = (fd_pubkey_t *)((uchar *)txn_raw->raw + txn_descriptor->acct_addr_off);
+  fd_pubkey_t * pubkey = &tx_accs[instr.program_id];
 
   if ( memcmp( pubkey, global->solana_system_program, sizeof( fd_pubkey_t ) ) )
     return 0;
 
   /* Deserialize the SystemInstruction enum */
-  uchar *      data            = (uchar *)txn_raw->raw + instr->data_off;
+  uchar *      data            = instr.data;
 
   fd_system_program_instruction_t instruction;
   fd_system_program_instruction_new( &instruction );
   fd_bincode_decode_ctx_t ctx2;
   ctx2.data = data;
-  ctx2.dataend = &data[instr->data_sz];
+  ctx2.dataend = &data[instr.data_sz];
   ctx2.valloc  = global->valloc;
   if ( fd_system_program_instruction_decode( &instruction, &ctx2 ) ) {
     FD_LOG_WARNING(("fd_system_program_instruction_decode failed"));
@@ -66,14 +68,13 @@ int fd_load_nonce_account(
   if (fd_system_program_instruction_enum_advance_nonce_account != instruction.discriminant)
     return 0;
 
-  err = fd_account_sanity_check_raw(instr, txn_descriptor, txn_raw, 3);
+  err = fd_account_sanity_check_raw(&instr, txn_descriptor, 3);
   if (FD_UNLIKELY(FD_EXECUTOR_INSTR_SUCCESS != err)) {
     *opt_err = err;
     return 0;
   }
 
-  uchar *       instr_acc_idxs = ((uchar *)txn_raw->raw + instr->acct_off);
-
+  uchar *       instr_acc_idxs = instr.acct_txn_idxs;
   fd_pubkey_t * me   = &tx_accs[instr_acc_idxs[0]];
 
   // https://github.com/firedancer-io/solana/blob/ffd63324f988e1b2151dab34983c71d6ff4087f6/runtime/src/nonce_keyed_account.rs#L66
@@ -110,12 +111,12 @@ int fd_advance_nonce_account(
     return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
   }
 
-  uchar *       instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
+  uchar *       instr_acc_idxs = ctx.instr->acct_txn_idxs;
 
-  if (!fd_account_is_writable_idx(&ctx, instr_acc_idxs[0]))
+  if (!fd_instr_acc_is_writable_idx(ctx.instr, 0))
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
 
-  fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
+  fd_pubkey_t * txn_accs = ctx.txn_ctx->accounts;
   fd_pubkey_t * me   = &txn_accs[instr_acc_idxs[0]];
 
   if (0 != memcmp(&txn_accs[instr_acc_idxs[1]], ctx.global->sysvar_recent_block_hashes, sizeof(fd_pubkey_t))) {
@@ -152,7 +153,7 @@ int fd_advance_nonce_account(
 //                    return Err(InstructionError::MissingRequiredSignature);
 //                }
 
-  if (!fd_account_is_signer(&ctx, &state.inner.current.inner.initialized.authority))
+  if (!fd_instr_acc_is_signer(ctx.instr, &state.inner.current.inner.initialized.authority))
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
 
   //if ( memcmp( authorized, state.inner.current.inner.initialized.authority.hash, sizeof(fd_pubkey_t) ) )
@@ -235,12 +236,12 @@ int fd_withdraw_nonce_account(
     return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
   }
 
-  uchar *       instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
+  uchar const * instr_acc_idxs = ctx.instr->acct_txn_idxs;
 
-  if (!fd_account_is_writable_idx(&ctx, instr_acc_idxs[0]) || !fd_account_is_writable_idx(&ctx, instr_acc_idxs[1]))
+  if (!fd_instr_acc_is_writable_idx(ctx.instr, 0) || !fd_instr_acc_is_writable_idx(ctx.instr, 1))
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
 
-  fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
+  fd_pubkey_t * txn_accs = ctx.txn_ctx->accounts;
   fd_pubkey_t * from   = &txn_accs[instr_acc_idxs[0]];
   fd_pubkey_t * to  = &txn_accs[instr_acc_idxs[1]];
 
@@ -295,7 +296,7 @@ int fd_withdraw_nonce_account(
   }
   }
 
-  if (!fd_account_is_signer(&ctx, from))
+  if (!fd_instr_acc_is_signer(ctx.instr, from))
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
 
   fd_funk_rec_t const * to_con_rec = NULL;
@@ -352,20 +353,18 @@ int fd_initialize_nonce_account(
     return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
   }
 
-  uchar *       instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
-
-  if (!fd_account_is_writable_idx(&ctx, instr_acc_idxs[0]))
+  if (!fd_instr_acc_is_writable_idx(ctx.instr, 0))
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
 
-  fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
+  fd_pubkey_t * txn_accs = ctx.txn_ctx->accounts;
+  uchar const * instr_acc_idxs = ctx.instr->acct_txn_idxs;
 
   fd_pubkey_t * me   = &txn_accs[instr_acc_idxs[0]];
 
   if (0 != memcmp(&txn_accs[instr_acc_idxs[1]], ctx.global->sysvar_recent_block_hashes, sizeof(fd_pubkey_t))) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
   }
-
-  if (!fd_account_is_signer(&ctx, me))
+  if (!fd_instr_acc_is_signer_idx(ctx.instr, 0))
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG; // Really? This was the error?!
 
   fd_funk_rec_t const *con_rec = NULL;
@@ -459,10 +458,10 @@ int fd_authorize_nonce_account(
     return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
   }
 
-  uchar *       instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
-  fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
+  uchar const * instr_acc_idxs = ctx.instr->acct_txn_idxs;
+  fd_pubkey_t * txn_accs = ctx.txn_ctx->accounts;
 
-  if (!fd_account_is_writable_idx(&ctx, instr_acc_idxs[0]))
+  if (!fd_instr_acc_is_writable_idx(ctx.instr, 0))
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
 
   fd_pubkey_t const *       me           = &txn_accs[instr_acc_idxs[0]];
@@ -492,7 +491,7 @@ int fd_authorize_nonce_account(
       break;
     }
 
-    if (!fd_account_is_signer(&ctx, &state.inner.current.inner.initialized.authority)) {
+    if (!fd_instr_acc_is_signer(ctx.instr, &state.inner.current.inner.initialized.authority)) {
       ret = FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
       break;
     }
@@ -556,9 +555,8 @@ int fd_upgrade_nonce_account(
     return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
   }
 
-  /* TODO: fix unreadable pointer arithmetic */
-  uchar *                   instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
-  fd_pubkey_t *             txn_accs       = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
+  fd_pubkey_t * txn_accs = ctx.txn_ctx->accounts;
+  uchar const * instr_acc_idxs = ctx.instr->acct_txn_idxs;
   fd_pubkey_t *             me             = &txn_accs[instr_acc_idxs[0]];
   fd_funk_rec_t const *     acc_rec_ro     = NULL;
   fd_account_meta_t const * acc_meta_ro    = NULL;
@@ -573,8 +571,16 @@ int fd_upgrade_nonce_account(
   if (memcmp(acc_meta_ro->info.owner, ctx.global->solana_system_program, sizeof(acc_meta_ro->info.owner)) != 0)
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
 
-  if (!fd_account_is_writable_idx(&ctx, instr_acc_idxs[0]))
+  if (!fd_instr_acc_is_writable_idx(ctx.instr, 0))
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+
+  char * raw_acc_data = (char*) fd_acc_mgr_view_raw(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) me, NULL, NULL);
+  if (NULL == raw_acc_data)
+    return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+  fd_account_meta_t *m = (fd_account_meta_t *) raw_acc_data;
+
+  if (memcmp(m->info.owner, ctx.global->solana_system_program, sizeof(m->info.owner)) != 0)
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
 
   fd_nonce_state_versions_t state;
   fd_nonce_state_versions_new( &state );

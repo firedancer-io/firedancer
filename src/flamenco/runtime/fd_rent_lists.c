@@ -66,7 +66,7 @@ fd_rent_lists_get_slots_per_epoch( fd_rent_lists_t * lists ) {
   return lists->slots_per_epoch;
 }
 
-static int
+static inline int
 fd_rent_lists_compare(fd_funk_rec_t const * a, fd_funk_rec_t const * b) {
   if ( a == b )
     return 0;

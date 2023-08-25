@@ -152,7 +152,6 @@ replay( global_state_t * state,
         int              justverify,
         fd_tpool_t *     tpool,
         ulong            max_workers) {
-
   /* Create scratch allocator */
 
   ulong  smax = 512 /*MiB*/ << 20;
@@ -201,9 +200,11 @@ replay( global_state_t * state,
   /* Find epoch stakes for current epoch */
   fd_vote_accounts_t const * epoch_vaccs = &state->global->bank.epoch_stakes;
 
+  FD_LOG_INFO(( "starting rent list init" ));
   state->global->rentlists = fd_rent_lists_new(fd_epoch_slot_cnt( &schedule, epoch ));
   fd_funk_set_notify(state->global->funk, fd_rent_lists_cb, state->global->rentlists);
   fd_rent_lists_startup_done_tpool(state->global->rentlists, tpool, max_workers);
+  FD_LOG_INFO(( "rent list init done" ));
   ulong stake_weight_cnt;
   {
     FD_SCRATCH_SCOPED_FRAME;

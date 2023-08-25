@@ -317,7 +317,7 @@ fd_vote_verify_authority_current( fd_vote_state_t const *   vote_state,
     fd_pubkey_t * authorized_voter = &ele->pubkey;
     /* Check that the authorized voter for this epoch has signed the vote transaction
        https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L1265 */
-    if( fd_account_is_signer(ctx, authorized_voter) )
+    if( fd_instr_acc_is_signer(ctx->instr, authorized_voter) )
       return FD_EXECUTOR_INSTR_SUCCESS;
   }
   return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
@@ -344,7 +344,7 @@ fd_vote_verify_authority_v1_14_11( fd_vote_state_1_14_11_t const *   vote_state,
     fd_pubkey_t * authorized_voter = &ele->pubkey;
     /* Check that the authorized voter for this epoch has signed the vote transaction
        https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L1265 */
-    if( fd_account_is_signer(ctx, authorized_voter) )
+    if( fd_instr_acc_is_signer(ctx->instr, authorized_voter) )
       return FD_EXECUTOR_INSTR_SUCCESS;
   }
   return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
@@ -872,14 +872,14 @@ vote_authorize( instruction_ctx_t             ctx,
 
   /* Check whether authorized withdrawer has signed
      Matching solana_vote_program::vote_state::verify_authorized_signer(&vote_state.authorized_withdrawer) */
-  int authorized_withdrawer_signer = 0;
+  uint authorized_withdrawer_signer = 0;
   if( extra_authority ) {
     if( 0==memcmp( extra_authority->uc, vote_state->authorized_withdrawer.uc, sizeof(fd_pubkey_t) ) )
       authorized_withdrawer_signer = 1;
   }
 
   if (!authorized_withdrawer_signer)
-    authorized_withdrawer_signer = fd_account_is_signer(&ctx, &vote_state->authorized_withdrawer);
+    authorized_withdrawer_signer = fd_instr_acc_is_signer(ctx.instr, &vote_state->authorized_withdrawer);
 
   switch( authorize->discriminant ) {
   case fd_vote_authorize_enum_voter: {
@@ -925,15 +925,15 @@ vote_authorize( instruction_ctx_t             ctx,
 
     /* Check whether authorized voter has signed
        Matching solana_vote_program::vote_state::verify_authorized_signer(&authorized_voters_vec->elems[0].pubkey) */
-    int authorized_voter_signer = 0;
+    uint authorized_voter_signer = 0;
     if( extra_authority ) {
       if( 0==memcmp( extra_authority->uc, authorized_voter->pubkey.uc, sizeof(fd_pubkey_t) ) )
         authorized_voter_signer = 1;
     }
-    authorized_voter_signer = fd_account_is_signer(&ctx, &authorized_voter->pubkey);
+    authorized_voter_signer = fd_instr_acc_is_signer(ctx.instr, &authorized_voter->pubkey);
 
     /* If not already authorized by withdrawer, check for authorized voter signature */
-    int is_authorized;
+    uint is_authorized = 0;
     if( FD_FEATURE_ACTIVE(ctx.global, vote_withdraw_authority_may_change_authorized_voter )) {
       is_authorized = authorized_withdrawer_signer | authorized_voter_signer;
     } else {
@@ -1010,7 +1010,7 @@ vote_update_commission( instruction_ctx_t   ctx,
 
   /* Check whether authorized withdrawer has signed
       Matching solana_vote_program::vote_state::verify_authorized_signer(&vote_state.authorized_withdrawer) */
-  int authorized_withdrawer_signer = fd_account_is_signer(&ctx, &vote_state->authorized_withdrawer);
+  uint authorized_withdrawer_signer = fd_instr_acc_is_signer(ctx.instr, &vote_state->authorized_withdrawer);
 
   if( FD_UNLIKELY( !authorized_withdrawer_signer ) )
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
@@ -1027,8 +1027,8 @@ vote_update_validator_identity( instruction_ctx_t   ctx,
 
   /* Check whether authorized withdrawer has signed
       Matching solana_vote_program::vote_state::verify_authorized_signer(&vote_state.authorized_withdrawer) */
-  int authorized_withdrawer_signer = fd_account_is_signer(&ctx, &vote_state->authorized_withdrawer);
-  int authorized_new_identity_signer = fd_account_is_signer(&ctx, new_identity);
+  uint authorized_withdrawer_signer = fd_instr_acc_is_signer(ctx.instr, &vote_state->authorized_withdrawer);
+  uint authorized_new_identity_signer = fd_instr_acc_is_signer(ctx.instr, new_identity);
 
   if( FD_UNLIKELY( (!authorized_withdrawer_signer) | (!authorized_new_identity_signer) ) )
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
@@ -1082,8 +1082,8 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
   fd_bincode_destroy_ctx_t destroy = { .valloc = ctx.global->valloc };
 
   /* Accounts */
-  uchar const *       instr_acc_idxs = ((uchar const *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
-  fd_pubkey_t const * txn_accs       = (fd_pubkey_t const *)((uchar const *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
+  uchar const *       instr_acc_idxs = ctx.instr->acct_txn_idxs;
+  fd_pubkey_t const * txn_accs = ctx.instr->acct_pubkeys;
 
   if( FD_UNLIKELY( ctx.instr->acct_cnt < 1 ) )
     return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
@@ -1103,7 +1103,7 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
 
   /* Deserialize the Vote instruction */
-  void const * data = (void const *)( (ulong)ctx.txn_ctx->txn_raw->raw + ctx.instr->data_off );
+  void const * data = (void const *)( ctx.instr->data );
 
   fd_vote_instruction_t instruction;
   fd_vote_instruction_new( &instruction );
@@ -1222,7 +1222,7 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
     /* Check that the init_account_params.node_pubkey has signed the transaction
        https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L1349-L1350 */
     /* TODO: factor signature check out */
-    int node_pubkey_signed = fd_account_is_signer(&ctx, &init_account_params->node_pubkey);
+    uint node_pubkey_signed = fd_instr_acc_is_signer(ctx.instr, &init_account_params->node_pubkey);
     if( FD_UNLIKELY( !node_pubkey_signed ) ) {
       ret = FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
       break;
@@ -1805,8 +1805,8 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
     FD_LOG_INFO(( "executing VoteInstruction::Authorize instruction" ));
     fd_vote_authorize_pubkey_t const * authorize = &instruction.inner.authorize;
 
-    uchar const *       instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
-    fd_pubkey_t const * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
+    uchar const *       instr_acc_idxs = ctx.instr->acct_txn_idxs;
+    fd_pubkey_t const * txn_accs = ctx.instr->acct_pubkeys;
 
     /* Require at least two accounts */
     if( FD_UNLIKELY( ctx.instr->acct_cnt < 2 ) ) {
@@ -1859,8 +1859,8 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
     FD_LOG_INFO(( "executing VoteInstruction::AuthorizeChecked instruction" ));
     fd_vote_authorize_t const * authorize = &instruction.inner.authorize_checked;
 
-    uchar const *       instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
-    fd_pubkey_t const * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
+    uchar const *       instr_acc_idxs = ctx.instr->acct_txn_idxs;
+    fd_pubkey_t const * txn_accs = ctx.instr->acct_pubkeys;
 
     /* Require at least four accounts */
     if( FD_UNLIKELY( ctx.instr->acct_cnt < 4 ) ) {
@@ -1914,8 +1914,8 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
     FD_LOG_INFO(( "executing VoteInstruction::AuthorizeWithSeed instruction" ));
     fd_vote_authorize_with_seed_args_t const * args = &instruction.inner.authorize_with_seed;
 
-    uchar const *       instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
-    fd_pubkey_t const * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
+    uchar const *       instr_acc_idxs = ctx.instr->acct_txn_idxs;
+    fd_pubkey_t const * txn_accs = ctx.instr->acct_pubkeys;
 
     /* Require at least three accounts */
     if( FD_UNLIKELY( ctx.instr->acct_cnt < 3 ) ) {
@@ -1989,8 +1989,8 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
     FD_LOG_INFO(( "executing VoteInstruction::AuthorizeCheckedWithSeed instruction" ));
     fd_vote_authorize_checked_with_seed_args_t const * args = &instruction.inner.authorize_checked_with_seed;
 
-    uchar const *       instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
-    fd_pubkey_t const * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
+    uchar const *       instr_acc_idxs = ctx.instr->acct_txn_idxs;
+    fd_pubkey_t const * txn_accs = ctx.instr->acct_pubkeys;
 
     /* Require at least one accounts */
     if( FD_UNLIKELY( ctx.instr->acct_cnt < 4 ) ) {
@@ -2169,7 +2169,7 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
 
     /* Check whether authorized withdrawer has signed
         Matching solana_vote_program::vote_state::verify_authorized_signer(&vote_state.authorized_withdrawer) */
-    int authorized_withdrawer_signer = fd_account_is_signer(&ctx, &vote_state->authorized_withdrawer);
+    uint authorized_withdrawer_signer = fd_instr_acc_is_signer(ctx.instr, &vote_state->authorized_withdrawer);
 
     if( FD_UNLIKELY( !authorized_withdrawer_signer ) ) {
       /* Missing required signature */

@@ -47,7 +47,7 @@ fd_acc_mgr_view_raw( fd_acc_mgr_t *         acc_mgr,
   fd_funk_t *           funk = acc_mgr->global->funk;
 
   fd_funk_rec_t const * rec = fd_funk_rec_query_global(funk, txn, &id);
-
+  
   if ( FD_UNLIKELY( NULL == rec ) )  {
     fd_int_store_if( !!opt_err, opt_err, FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT );
     return NULL;

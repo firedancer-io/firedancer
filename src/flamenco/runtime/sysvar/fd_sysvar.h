@@ -15,6 +15,7 @@
 #include "fd_sysvar_rent.h"
 #include "fd_sysvar_stake_history.h"
 #include "fd_sysvar_last_restart_slot.h"
+#include "fd_sysvar_instructions.h"
 
 int
 fd_sysvar_set( fd_global_ctx_t *   state,
