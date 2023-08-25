@@ -48,12 +48,6 @@ fd_acc_mgr_view_raw( fd_acc_mgr_t *         acc_mgr,
 
   fd_funk_rec_t const * rec = fd_funk_rec_query_global(funk, txn, &id);
   
-  fd_pubkey_t acc;
-  fd_base58_decode_32("FSiwxcrw3JQsRSkkmevbNN5G3SPL8gAmjDmZxiAvg4WT", acc.uc);
-  if (memcmp(acc.uc, pubkey->uc, sizeof(fd_pubkey_t))==0) {
-    FD_LOG_WARNING(("ACC! %32J", pubkey));
-  }
-  
   if ( FD_UNLIKELY( NULL == rec ) )  {
     fd_int_store_if( !!opt_err, opt_err, FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT );
     return NULL;
