@@ -131,7 +131,8 @@ typedef struct {
       char   interface[ IF_NAMESIZE ];
       uint   ip_addr;
       uchar  mac_addr[6];
-      ushort listen_port;
+      ushort transaction_listen_port;
+      ushort quic_transaction_listen_port;
       char   xdp_mode[ 8 ];
 
       uint max_concurrent_connections;

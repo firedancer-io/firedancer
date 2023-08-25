@@ -417,7 +417,7 @@ fd_xdp_unhook_iface( char const * app_name,
 
   /* Remove pinned maps */
 
-  if( FD_UNLIKELY( 0!=unlinkat( dir_fd, "xsks", 0 ) ) ) {
+  if( FD_UNLIKELY( 0!=unlinkat( dir_fd, "xsks", 0 ) && errno != ENOENT ) ) {
     FD_LOG_WARNING(( "unlinkat(\"%s\",\"xsks\",0) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
     close( dir_fd );
     return -1;
@@ -425,7 +425,7 @@ fd_xdp_unhook_iface( char const * app_name,
 
   /* Remove pinned program */
 
-  if( FD_UNLIKELY( 0!=unlinkat( dir_fd, "xdp_prog", 0 ) ) ) {
+  if( FD_UNLIKELY( 0!=unlinkat( dir_fd, "xdp_prog", 0 ) && errno != ENOENT ) ) {
     FD_LOG_WARNING(( "unlinkat(\"%s\",\"xdp_prog\",0) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
     close( dir_fd );
     return -1;
@@ -433,8 +433,14 @@ fd_xdp_unhook_iface( char const * app_name,
 
   /* Remove pinned program link */
 
-  if( FD_UNLIKELY( 0!=unlinkat( dir_fd, "xdp_link", 0 ) ) ) {
+  if( FD_UNLIKELY( 0!=unlinkat( dir_fd, "xdp_link", 0 ) && errno != ENOENT ) ) {
     FD_LOG_WARNING(( "unlinkat(\"%s\",\"xdp_link\",0) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+    close( dir_fd );
+    return -1;
+  }
+
+  if( FD_UNLIKELY( 0!=unlinkat( dir_fd, "xdp_link2", 0 ) && errno != ENOENT ) ) {
+    FD_LOG_WARNING(( "unlinkat(\"%s\",\"xdp_link2\",0) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
     close( dir_fd );
     return -1;
   }
@@ -442,7 +448,8 @@ fd_xdp_unhook_iface( char const * app_name,
   /* Clean up */
 
   close( dir_fd );
-  rmdir( path );
+  if( FD_UNLIKELY( -1==rmdir( path ) ) )
+    FD_LOG_WARNING(( "rmdir(%s) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
   return 0;
 }
 
@@ -461,10 +468,11 @@ fd_xdp_get_udp_dsts_map( char const * app_name ) {
 }
 
 int
-fd_xdp_listen_udp_port( char const * app_name,
-                        uint         ip4_dst_addr,
-                        uint         udp_dst_port,
-                        uint         proto ) {
+fd_xdp_listen_udp_ports( char const * app_name,
+                         uint         ip4_dst_addr,
+                         ulong        udp_dst_ports_sz,
+                         ushort *     udp_dst_ports,
+                         uint         proto ) {
   /* Validate arguments */
 
   if( FD_UNLIKELY( 0!=fd_xdp_validate_name_cstr( app_name, NAME_MAX, "app_name" ) ) )
@@ -477,14 +485,16 @@ fd_xdp_listen_udp_port( char const * app_name,
 
   /* Insert element */
 
-  ulong key   = fd_xdp_udp_dst_key( ip4_dst_addr, udp_dst_port );
-  uint  value = proto;
+  uint value = proto;
+  for( ulong i=0; i<udp_dst_ports_sz; i++ ) {
+    ulong key   = fd_xdp_udp_dst_key( ip4_dst_addr, udp_dst_ports[i] );
 
-  if( FD_UNLIKELY( 0!=fd_bpf_map_update_elem( udp_dsts_fd, &key, &value, 0UL ) ) ) {
-    FD_LOG_WARNING(( "bpf_map_update_elem(fd=%d,key=%#lx,value=%#x,flags=0) failed (%i-%s)",
-                     udp_dsts_fd, key, value, errno, fd_io_strerror( errno ) ));
-    close( udp_dsts_fd );
-    return -1;
+    if( FD_UNLIKELY( 0!=fd_bpf_map_update_elem( udp_dsts_fd, &key, &value, 0UL ) ) ) {
+      FD_LOG_WARNING(( "bpf_map_update_elem(fd=%d,key=%#lx,value=%#x,flags=0) failed (%i-%s)",
+                      udp_dsts_fd, key, value, errno, fd_io_strerror( errno ) ));
+      close( udp_dsts_fd );
+      return -1;
+    }
   }
 
   /* Clean up */

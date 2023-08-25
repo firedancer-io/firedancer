@@ -226,7 +226,12 @@ solana_labs_main( void * args ) {
   ADD1( "fdctl" );
   ADD( "--log", "-" );
 
-  ADD( "--dynamic-port-range", config->dynamic_port_range );
+  if( FD_UNLIKELY( strcmp( config->dynamic_port_range, "" ) ) )
+    ADD( "--dynamic-port-range", config->dynamic_port_range );
+
+  char ip_addr[16];
+  snprintf1( ip_addr, 16, FD_IP4_ADDR_FMT, FD_IP4_ADDR_FMT_ARGS(config->tiles.quic.ip_addr) );
+  ADD( "--gossip-host", ip_addr );
 
   /* consensus */
   ADD( "--identity", identity_path );

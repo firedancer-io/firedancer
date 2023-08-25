@@ -370,8 +370,13 @@ dynamic_port_range = "8000-10000"
         # you can check what this is with `ip route get 8.8.8.8`
         interface = ""
 
-        # Which port to listen on.
-        listen_port = 9001
+        # Which port to listen on for incoming transactions. This could be votes,
+        # user transactions, or transactions forwarded from another validator.
+        transaction_listen_port = 9001
+
+        # Which port to listen on for incoming quic transactions. Currently
+        # this must be exactly 6 more than the transaction_listen_port.
+        quic_transaction_listen_port = 9007
 
         # Maximum number of simultaneous QUIC connections which can be open. New
         # connections which would exceed this limit will not be accepted.
