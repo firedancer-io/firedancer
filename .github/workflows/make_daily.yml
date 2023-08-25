@@ -7,11 +7,6 @@ on:
     - cron: '0 0 * * *'
   workflow_dispatch:
 
-permissions:
-  contents: read
-  pages: write
-  id-token: write
-
 jobs:
   # Ensures that cron job is skipped if no commit was made on that day.
   check-date:
@@ -109,69 +104,6 @@ jobs:
       - name: Run fuzz tests
         run: make -k -j -Otarget run-fuzz-test
 
-  # Tests with coverage reporting
-  make-test-coverage:
-    needs: check-date
-    if: needs.check-date.outputs.should_run == 'true'
-    runs-on:
-      group: github-v1
-    permissions:
-      pages: write     # to deploy to Pages
-      id-token: write  # to verify the deployment originates from an appropriate source
-    environment:
-      name: github-pages
-      url: ${{ steps.pages-deploy.outputs.page_url }}
-    env:
-      CC: clang
-      EXTRAS: llvm-cov
-    steps:
-
-      # The next steps require llvm-profdata
-      - name: Install LLVM
-        run: sudo apt-get update && sudo apt-get install -y llvm
-
-      - uses: actions/checkout@v3
-
-      - uses: ./.github/actions/deps
-
-      - name: Build unit tests
-        run: make -j -Otarget unit-test
-
-      - uses: ./.github/actions/hugepages
-
-      - name: Run unit tests
-        run: |
-          sudo prlimit --pid $$ --memlock=-1:-1
-          ./test.sh -j --page-sz gigantic
-
-      - name: Make coverage report
-        run: |
-          make cov-report
-          mv build/native/clang/cov/html coverage-report
-
-      - name: Upload coverage report to CodeCov
-        uses: codecov/codecov-action@v3
-        timeout-minutes: 5
-        with:
-          files: build/native/clang/cov/cov.lcov
-          name: codecov-make-linux_clang-14_native
-          fail_ci_if_error: false
-          functionalities: search
-
-      - name: Prepare GitHub Pages site dir
-        run: |
-          mkdir _site
-          ln -s coverage-report _site/coverage-report
-
-      - name: Upload to GitHub Pages
-        uses: actions/upload-pages-artifact@v2
-        with:
-          path: _site
-
-      - name: Deploy to GitHub Pages
-        id: pages-deploy
-        uses: actions/deploy-pages@v2
-
   # Build and analyze with CodeQL
   codeql:
     needs: check-date
@@ -212,54 +144,3 @@ jobs:
       with:
         category: "/language:${{matrix.language}}"
         threads: 0
-
-  fuzz-coverage:
-    name: Fuzzer Coverage
-    runs-on:
-      group: github-v1
-    steps:
-      - name: Install Dependencies
-        run: sudo apt-get update && sudo apt-get install -y llvm lcov
-
-      - uses: actions/checkout@v3
-        with:
-          submodules: recursive
-
-      - name: 'Authenticate to Google Cloud'
-        uses: 'google-github-actions/auth@v1'
-        with:
-          credentials_json: ${{ secrets.FUZZ_SERVICE_ACCT_JSON_BUNDLE }}
-
-      - uses: ./.github/actions/deps
-
-      # Not using fuzzbot-builder because llvm-cov must be ran in the same environment otherwise paths will not match
-      - name: Build Fuzz Tests
-        env:
-          CC: clang
-          MACHINE: linux_clang_x86_64_fuzz_asan
-          EXTRAS: llvm-cov
-        run: make -j -Otarget fuzz-test
-
-      - name: Fetch Corpus, Generate Fuzzing Coverage
-        run: ./.github/workflows/scripts/fuzzcov_generate.sh build/linux/clang/x86_64_fuzz_asan/fuzz-test/
-
-      - name: Publish Fuzzing Coverage to codecov.io
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
-        run: ./.github/workflows/scripts/fuzzcov_publish_codecov.sh
-
-      - name: Generate HTML Fuzzing Coverage Reports
-        run: ./.github/workflows/scripts/fuzzcov_genhtml.sh "${{ github.sha }}"
-
-      - name: Setup Pages
-        uses: actions/configure-pages@v3
-
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v2
-        with:
-          # Upload entire repository
-          path: './build/pages/'
-
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v2
