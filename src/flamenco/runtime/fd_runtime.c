@@ -1141,9 +1141,22 @@ fd_runtime_freeze( fd_global_ctx_t * global ) {
   fd_sysvar_recent_hashes_update ( global );
 
   // Look at collect_fees... I think this was where I saw the fee payout..
+  fd_account_meta_t * leader_meta = NULL;
+  int err = fd_acc_mgr_modify( global->acc_mgr, global->funk_txn, global->leader, 0, 0UL, NULL, NULL, &leader_meta, NULL );
+  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+    FD_LOG_WARNING(( "fd_runtime_freeze: fd_acc_mgr_modify_raw for leader (%32J) failed (%d)", leader_meta, err ));
+    return;
+  }
 
-  global->bank.collected_fees = 0;
-  
+  if (global->bank.collected_fees > 0) {
+    if (FD_UNLIKELY(global->log_level > 2)) {
+      FD_LOG_WARNING(( "fd_runtime_freeze: slot:%ld global->collected_fees: %ld", global->bank.slot, global->bank.collected_fees ));
+    }
+
+    leader_meta->info.lamports += ( global->bank.collected_fees / 2 );
+
+    global->bank.collected_fees = 0;
+  }  
 
   //self.distribute_rent();
   //self.update_slot_history();
