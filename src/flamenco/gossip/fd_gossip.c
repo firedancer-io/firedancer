@@ -520,15 +520,70 @@ fd_gossip_handle_pong( fd_gossip_global_t * glob, fd_gossip_network_addr_t * fro
 }
 
 void
-fd_gossip_recv_value(fd_gossip_global_t * glob, fd_pubkey_t * pubkey, fd_gossip_network_addr_t * from, fd_crds_value_t* crd, long now, fd_flamenco_yaml_t * yamldump) {
+fd_gossip_recv_crds_value(fd_gossip_global_t * glob, fd_pubkey_t * pubkey, fd_gossip_network_addr_t * from, fd_crds_value_t* crd, long now, fd_flamenco_yaml_t * yamldump) {
   (void)glob;
-  (void)crd;
   (void)now;
   FILE * dumpfile = (FILE *)fd_flamenco_yaml_file(yamldump);
   char tmp[100];
   fprintf(dumpfile, "from %32J %s:\n", pubkey->uc, fd_gossip_addr_str(tmp, sizeof(tmp), from));
   fd_crds_value_walk(yamldump, crd, fd_flamenco_yaml_walk, NULL, 1U);
   fflush(dumpfile);
+
+  /* Verify the signature */
+  switch (crd->data.discriminant) {
+  case fd_crds_data_enum_contact_info:
+    pubkey = &crd->data.inner.contact_info.id;
+    break;
+  case fd_crds_data_enum_vote:
+    pubkey = &crd->data.inner.vote.from;
+    break;
+  case fd_crds_data_enum_lowest_slot:
+    pubkey = &crd->data.inner.lowest_slot.from;
+    break;
+  case fd_crds_data_enum_snapshot_hashes:
+    pubkey = &crd->data.inner.snapshot_hashes.from;
+    break;
+  case fd_crds_data_enum_accounts_hashes:
+    pubkey = &crd->data.inner.accounts_hashes.from;
+    break;
+  case fd_crds_data_enum_epoch_slots:
+    pubkey = &crd->data.inner.epoch_slots.from;
+    break;
+  case fd_crds_data_enum_legacy_version:
+    pubkey = &crd->data.inner.legacy_version.from;
+    break;
+  case fd_crds_data_enum_version:
+    pubkey = &crd->data.inner.version.from;
+    break;
+  case fd_crds_data_enum_node_instance:
+    pubkey = &crd->data.inner.node_instance.from;
+    break;
+  case fd_crds_data_enum_duplicate_shred:
+    pubkey = &crd->data.inner.duplicate_shred.from;
+    break;
+  case fd_crds_data_enum_incremental_snapshot_hashes:
+    pubkey = &crd->data.inner.incremental_snapshot_hashes.from;
+    break;
+  }
+  
+  uchar buf[FD_ETH_PAYLOAD_MAX];
+  fd_bincode_encode_ctx_t ctx;
+  ctx.data = buf;
+  ctx.dataend = buf + FD_ETH_PAYLOAD_MAX;
+  if ( fd_crds_data_encode( &crd->data, &ctx ) ) {
+    FD_LOG_ERR(("fd_crds_data_encode failed"));
+    return;
+  }
+  fd_sha512_t sha[1];
+  if (fd_ed25519_verify( /* msg */ buf,
+                         /* sz  */ (ulong)((uchar*)ctx.data - buf),
+                         /* sig */ crd->signature.uc,
+                         /* public_key */ pubkey->uc,
+                         sha )) {
+    FD_LOG_ERR(("received crds_value with invalid signature"));
+    return;
+  }
+
 }
 
 void
@@ -540,16 +595,15 @@ fd_gossip_recv(fd_gossip_global_t * glob, fd_gossip_network_addr_t * from, fd_go
     glob->got_pull_resp = 1;
     fd_gossip_pull_resp_t * pull_resp = &gmsg->inner.pull_resp;
     for (ulong i = 0; i < pull_resp->crds_len; ++i)
-      fd_gossip_recv_value(glob, &pull_resp->pubkey, from, pull_resp->crds + i, now, yamldump);
+      fd_gossip_recv_crds_value(glob, &pull_resp->pubkey, from, pull_resp->crds + i, now, yamldump);
     break;
   }
   case fd_gossip_msg_enum_push_msg: {
     fd_gossip_push_msg_t * push_msg = &gmsg->inner.push_msg;
     for (ulong i = 0; i < push_msg->crds_len; ++i)
-      fd_gossip_recv_value(glob, &push_msg->pubkey, from, push_msg->crds + i, now, yamldump);
+      fd_gossip_recv_crds_value(glob, &push_msg->pubkey, from, push_msg->crds + i, now, yamldump);
     break;
   }
-    break;
   case fd_gossip_msg_enum_prune_msg:
     break;
   case fd_gossip_msg_enum_ping:
