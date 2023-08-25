@@ -66,39 +66,40 @@ fd_reedsol_private_encode_64( ulong                 shred_sz,
       case 33UL: in32 = gf_ldu( data_shred[ 32 ] + shred_pos );
     }
     #define ALL_VARS in00, in01, in02, in03, in04, in05, in06, in07, in08, in09, in10, in11, in12, in13, in14, in15, in16, in17, in18, in19, in20, in21, in22, in23, in24, in25, in26, in27, in28, in29, in30, in31, in32, in33, in34, in35, in36, in37, in38, in39, in40, in41, in42, in43, in44, in45, in46, in47, in48, in49, in50, in51, in52, in53, in54, in55, in56, in57, in58, in59, in60, in61, in62, in63
+    #define ALL_VARS_REF &in00, &in01, &in02, &in03, &in04, &in05, &in06, &in07, &in08, &in09, &in10, &in11, &in12, &in13, &in14, &in15, &in16, &in17, &in18, &in19, &in20, &in21, &in22, &in23, &in24, &in25, &in26, &in27, &in28, &in29, &in30, &in31, &in32, &in33, &in34, &in35, &in36, &in37, &in38, &in39, &in40, &in41, &in42, &in43, &in44, &in45, &in46, &in47, &in48, &in49, &in50, &in51, &in52, &in53, &in54, &in55, &in56, &in57, &in58, &in59, &in60, &in61, &in62, &in63
     switch( data_shred_cnt ) {
       case 64UL: FD_REEDSOL_GENERATE_IFFT( 64,  0, ALL_VARS ); break;
-      case 63UL: FD_REEDSOL_GENERATE_PPT(  64, 63, ALL_VARS ); break;
-      case 62UL: FD_REEDSOL_GENERATE_PPT(  64, 62, ALL_VARS ); break;
-      case 61UL: FD_REEDSOL_GENERATE_PPT(  64, 61, ALL_VARS ); break;
-      case 60UL: FD_REEDSOL_GENERATE_PPT(  64, 60, ALL_VARS ); break;
-      case 59UL: FD_REEDSOL_GENERATE_PPT(  64, 59, ALL_VARS ); break;
-      case 58UL: FD_REEDSOL_GENERATE_PPT(  64, 58, ALL_VARS ); break;
-      case 57UL: FD_REEDSOL_GENERATE_PPT(  64, 57, ALL_VARS ); break;
-      case 56UL: FD_REEDSOL_GENERATE_PPT(  64, 56, ALL_VARS ); break;
-      case 55UL: FD_REEDSOL_GENERATE_PPT(  64, 55, ALL_VARS ); break;
-      case 54UL: FD_REEDSOL_GENERATE_PPT(  64, 54, ALL_VARS ); break;
-      case 53UL: FD_REEDSOL_GENERATE_PPT(  64, 53, ALL_VARS ); break;
-      case 52UL: FD_REEDSOL_GENERATE_PPT(  64, 52, ALL_VARS ); break;
-      case 51UL: FD_REEDSOL_GENERATE_PPT(  64, 51, ALL_VARS ); break;
-      case 50UL: FD_REEDSOL_GENERATE_PPT(  64, 50, ALL_VARS ); break;
-      case 49UL: FD_REEDSOL_GENERATE_PPT(  64, 49, ALL_VARS ); break;
-      case 48UL: FD_REEDSOL_GENERATE_PPT(  64, 48, ALL_VARS ); break;
-      case 47UL: FD_REEDSOL_GENERATE_PPT(  64, 47, ALL_VARS ); break;
-      case 46UL: FD_REEDSOL_GENERATE_PPT(  64, 46, ALL_VARS ); break;
-      case 45UL: FD_REEDSOL_GENERATE_PPT(  64, 45, ALL_VARS ); break;
-      case 44UL: FD_REEDSOL_GENERATE_PPT(  64, 44, ALL_VARS ); break;
-      case 43UL: FD_REEDSOL_GENERATE_PPT(  64, 43, ALL_VARS ); break;
-      case 42UL: FD_REEDSOL_GENERATE_PPT(  64, 42, ALL_VARS ); break;
-      case 41UL: FD_REEDSOL_GENERATE_PPT(  64, 41, ALL_VARS ); break;
-      case 40UL: FD_REEDSOL_GENERATE_PPT(  64, 40, ALL_VARS ); break;
-      case 39UL: FD_REEDSOL_GENERATE_PPT(  64, 39, ALL_VARS ); break;
-      case 38UL: FD_REEDSOL_GENERATE_PPT(  64, 38, ALL_VARS ); break;
-      case 37UL: FD_REEDSOL_GENERATE_PPT(  64, 37, ALL_VARS ); break;
-      case 36UL: FD_REEDSOL_GENERATE_PPT(  64, 36, ALL_VARS ); break;
-      case 35UL: FD_REEDSOL_GENERATE_PPT(  64, 35, ALL_VARS ); break;
-      case 34UL: FD_REEDSOL_GENERATE_PPT(  64, 34, ALL_VARS ); break;
-      case 33UL: FD_REEDSOL_GENERATE_PPT(  64, 33, ALL_VARS ); break;
+      case 63UL: fd_reedsol_ppt_64_63( ALL_VARS_REF ); break;
+      case 62UL: fd_reedsol_ppt_64_62( ALL_VARS_REF ); break;
+      case 61UL: fd_reedsol_ppt_64_61( ALL_VARS_REF ); break;
+      case 60UL: fd_reedsol_ppt_64_60( ALL_VARS_REF ); break;
+      case 59UL: fd_reedsol_ppt_64_59( ALL_VARS_REF ); break;
+      case 58UL: fd_reedsol_ppt_64_58( ALL_VARS_REF ); break;
+      case 57UL: fd_reedsol_ppt_64_57( ALL_VARS_REF ); break;
+      case 56UL: fd_reedsol_ppt_64_56( ALL_VARS_REF ); break;
+      case 55UL: fd_reedsol_ppt_64_55( ALL_VARS_REF ); break;
+      case 54UL: fd_reedsol_ppt_64_54( ALL_VARS_REF ); break;
+      case 53UL: fd_reedsol_ppt_64_53( ALL_VARS_REF ); break;
+      case 52UL: fd_reedsol_ppt_64_52( ALL_VARS_REF ); break;
+      case 51UL: fd_reedsol_ppt_64_51( ALL_VARS_REF ); break;
+      case 50UL: fd_reedsol_ppt_64_50( ALL_VARS_REF ); break;
+      case 49UL: fd_reedsol_ppt_64_49( ALL_VARS_REF ); break;
+      case 48UL: fd_reedsol_ppt_64_48( ALL_VARS_REF ); break;
+      case 47UL: fd_reedsol_ppt_64_47( ALL_VARS_REF ); break;
+      case 46UL: fd_reedsol_ppt_64_46( ALL_VARS_REF ); break;
+      case 45UL: fd_reedsol_ppt_64_45( ALL_VARS_REF ); break;
+      case 44UL: fd_reedsol_ppt_64_44( ALL_VARS_REF ); break;
+      case 43UL: fd_reedsol_ppt_64_43( ALL_VARS_REF ); break;
+      case 42UL: fd_reedsol_ppt_64_42( ALL_VARS_REF ); break;
+      case 41UL: fd_reedsol_ppt_64_41( ALL_VARS_REF ); break;
+      case 40UL: fd_reedsol_ppt_64_40( ALL_VARS_REF ); break;
+      case 39UL: fd_reedsol_ppt_64_39( ALL_VARS_REF ); break;
+      case 38UL: fd_reedsol_ppt_64_38( ALL_VARS_REF ); break;
+      case 37UL: fd_reedsol_ppt_64_37( ALL_VARS_REF ); break;
+      case 36UL: fd_reedsol_ppt_64_36( ALL_VARS_REF ); break;
+      case 35UL: fd_reedsol_ppt_64_35( ALL_VARS_REF ); break;
+      case 34UL: fd_reedsol_ppt_64_34( ALL_VARS_REF ); break;
+      case 33UL: fd_reedsol_ppt_64_33( ALL_VARS_REF ); break;
     }
     /* That generated the first 64-data_shred_cnt parity shreds in the
        last 64-data_shred_cnt variables. We might only need

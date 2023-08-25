@@ -3,8 +3,7 @@ import numpy as np
 import numpy.linalg
 
 # file 1: fd_reedsol_ppt.h
-header = """
-/* Note: This file is auto generated. */
+header = """/* Note: This file is auto generated. */
 #ifndef HEADER_fd_src_ballet_reedsol_fd_reedsol_ppt_h
 #define HEADER_fd_src_ballet_reedsol_fd_reedsol_ppt_h
 
@@ -83,18 +82,20 @@ header = """
    arbitrary subset of them.  This file only implements the specific
    case. */
 
-   /* FD_REEDSOL_GENERATE_PPT: Inserts code to compute the principal
-   pivot transform of size n (must be a power of 2, currently only 16
-   and 32 are emitted by the code generator) and when you have k known
-   elements of the evaluation domain (i.e. k data shreds).  k must be in
-   [1,n-1].  The remaining n arguments should be vector variables of
+/* FD_REEDSOL_GENERATE_PPT: Inserts code to compute the principal pivot
+   transform of size n (must be a power of 2, currently 16, 32, 64, and
+   128 are emitted by the code generator) and when you have k known
+   elements of the evaluation domain (i.e. k data shreds).  k must be
+   less than n, but the code generator adds the additional restrictions
+   that k<=67 and only the smallest n is chosen for each k.
+   Additionally, The remaining n arguments should be vector variables of
    type gf_t (which is a typedef for wb_t in the AVX case).  These are
    used as input and output, since there's no other good way to return n
    vector values.  As such, this macro is not robust.
 
    As explained above, the PPT computes the k non-zero elements of the
    coefficient domain, followed by the first n-k parity elements.  If
-   the last n-k return values are repalced with zero, they can then be
+   the last n-k return values are replaced with zero, they can then be
    used with FD_REEDSOL_GENERATE_FFT and the appropriate shift to
    compute many more parity elements.  The PPT is computed in a
    vectorized fashion, i.e. the PPT of the ith byte is computed and
@@ -102,6 +103,12 @@ header = """
 
 #define FD_REEDSOL_GENERATE_PPT(n, k, ...) FD_REEDSOL_PPT_IMPL_##n##_##k( __VA_ARGS__ )
 
+/* For n>=32, this header also declares
+          void fd_reedsol_ppt_n_k( gf_t *, ... )
+   that takes n gf_t elements by reference.  The arguments are used for
+   input and output, and it performs the same operation as the similarly
+   named macro, but this signature allows the function to be defined in
+   a different compilation unit to speed up compile times. */
 """
 
 outf = open('fd_reedsol_ppt.h', "wt")
@@ -277,7 +284,7 @@ def print_macro(macro_name, args, lines, indent=2):
     for line in lines:
         print(" "*(2*indent) + line + " "*(maxwidth-len(line)-1-2*indent) + "\\", file=outf)
     print(" "*indent + "} while( 0 )", file=outf)
-    print("\n\n", file=outf)
+    print("", file=outf)
 
 print_macro("GF_MUL22", ["inout0", "inout1", "c00", "c01", "c10", "c11"], [
     "gf_t temp = GF_ADD( GF_MUL( inout0, c00 ), GF_MUL( inout1, c01 ) );",
@@ -326,6 +333,8 @@ for mink,maxk, N in ((1,16,16), (17,32,32), (33,64,64), (65,69,128)):
             scratch_to_declare = scratch_to_declare[16:]
         macro_lines = scratch_lines + macro_lines
 
+        if N>=32:
+            print(f"void fd_reedsol_ppt_{N}_{k}( { ', '.join(['gf_t*']*N) } );", file=outf)
         print_macro(f"FD_REEDSOL_PPT_IMPL_{N}_{k}", inputs, macro_lines)
 
         if False: #debug
@@ -355,3 +364,37 @@ for mink,maxk, N in ((1,16,16), (17,32,32), (33,64,64), (65,69,128)):
                     first_bytes[dest] += scratch_first_bytes[src_scratch] * const
 
 print("#endif /* HEADER_fd_src_ballet_reedsol_fd_reedsol_ppt_h */", file=outf)
+
+
+# file 2..n
+batches = (17, 25, 33, 40, 45, 50, 55, 60, 65, 68)
+for j in range(len(batches)-1):
+    start = batches[j]
+    end = batches[j+1] # exclusive
+    with open(f'wrapped_impl/fd_reedsol_ppt_impl_{start}.c', "wt") as outf:
+        print('#include "../fd_reedsol_ppt.h"', file=outf)
+        for k in range(start, end):
+            N = 1<<(k-1).bit_length() # Round to next power of 2
+            if k==N:
+                continue # Skip powers of 2 because we don't use PPT in those cases
+            print('\nvoid', file=outf)
+            fn_name = f"fd_reedsol_ppt_{N}_{k}( "
+            print(fn_name + "gf_t * _in00,", file=outf)
+            for l in range(1, N):
+                if l<N-1:
+                    _next = ","
+                else:
+                    _next = " ) {"
+                print(" "*len(fn_name) + f"gf_t * _in{l:02}{_next}", file=outf)
+
+            for l in range(0, N):
+                print(f"  gf_t in{l:02} = *_in{l:02};", file=outf)
+
+            print("", file=outf)
+
+            print(f"  FD_REEDSOL_GENERATE_PPT( {N:2}, {k:2}, {', '.join([f'in{l:02}' for l in range(N) ])} );", file=outf)
+
+            for l in range(0, N):
+                print(f"  *_in{l:02} = in{l:02};", file=outf)
+
+            print("}", file=outf)

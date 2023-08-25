@@ -288,12 +288,13 @@ fd_reedsol_private_recover_var_128( ulong           shred_sz,
     in126 = GF_MUL_VAR( in126, pi[ 126 ] );
     in127 = GF_MUL_VAR( in127, pi[ 127 ] );
     #define ALL_VARS in00, in01, in02, in03, in04, in05, in06, in07, in08, in09, in10, in11, in12, in13, in14, in15, in16, in17, in18, in19, in20, in21, in22, in23, in24, in25, in26, in27, in28, in29, in30, in31, in32, in33, in34, in35, in36, in37, in38, in39, in40, in41, in42, in43, in44, in45, in46, in47, in48, in49, in50, in51, in52, in53, in54, in55, in56, in57, in58, in59, in60, in61, in62, in63, in64, in65, in66, in67, in68, in69, in70, in71, in72, in73, in74, in75, in76, in77, in78, in79, in80, in81, in82, in83, in84, in85, in86, in87, in88, in89, in90, in91, in92, in93, in94, in95, in96, in97, in98, in99, in100, in101, in102, in103, in104, in105, in106, in107, in108, in109, in110, in111, in112, in113, in114, in115, in116, in117, in118, in119, in120, in121, in122, in123, in124, in125, in126, in127
+    #define ALL_VARS_REF &in00, &in01, &in02, &in03, &in04, &in05, &in06, &in07, &in08, &in09, &in10, &in11, &in12, &in13, &in14, &in15, &in16, &in17, &in18, &in19, &in20, &in21, &in22, &in23, &in24, &in25, &in26, &in27, &in28, &in29, &in30, &in31, &in32, &in33, &in34, &in35, &in36, &in37, &in38, &in39, &in40, &in41, &in42, &in43, &in44, &in45, &in46, &in47, &in48, &in49, &in50, &in51, &in52, &in53, &in54, &in55, &in56, &in57, &in58, &in59, &in60, &in61, &in62, &in63, &in64, &in65, &in66, &in67, &in68, &in69, &in70, &in71, &in72, &in73, &in74, &in75, &in76, &in77, &in78, &in79, &in80, &in81, &in82, &in83, &in84, &in85, &in86, &in87, &in88, &in89, &in90, &in91, &in92, &in93, &in94, &in95, &in96, &in97, &in98, &in99, &in100, &in101, &in102, &in103, &in104, &in105, &in106, &in107, &in108, &in109, &in110, &in111, &in112, &in113, &in114, &in115, &in116, &in117, &in118, &in119, &in120, &in121, &in122, &in123, &in124, &in125, &in126, &in127
 
-    FD_REEDSOL_GENERATE_IFFT( 128, 0, ALL_VARS );
+    fd_reedsol_ifft_128_0( ALL_VARS_REF );
 
     FD_REEDSOL_GENERATE_FDERIV( 128, ALL_VARS );
 
-    FD_REEDSOL_GENERATE_FFT( 128, 0, ALL_VARS );
+    fd_reedsol_fft_128_0( ALL_VARS_REF );
 
     /* Again, we only need to multiply the erased ones, since we don't
        use the value of the non-erased ones anymore, but I'll take
