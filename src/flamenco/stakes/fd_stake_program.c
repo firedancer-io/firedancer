@@ -458,7 +458,6 @@ int fd_executor_stake_program_execute_instruction(
 
   uchar const * instr_acc_idxs = ctx.instr->acct_txn_idxs;
   fd_pubkey_t * txn_accs = ctx.txn_ctx->accounts;
-  FD_LOG_NOTICE(("instruction discriminant=%d", instruction.discriminant));
   /* TODO: check that the instruction account 0 owner is the stake program ID */
   if( FD_UNLIKELY( ctx.txn_ctx->txn_descriptor->acct_addr_cnt < 1 ) )
     return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;

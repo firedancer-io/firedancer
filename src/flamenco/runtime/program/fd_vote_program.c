@@ -2009,7 +2009,7 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
     }
 
     if( FD_UNLIKELY( !FD_FEATURE_ACTIVE(ctx.global, vote_authorize_with_seed ) ) ) {
-      FD_LOG_WARNING(( "executing VoteInstruction::AuthorizeCheckedWithSeed instruction, but feature is not active" ));
+      FD_LOG_DEBUG(( "executing VoteInstruction::AuthorizeCheckedWithSeed instruction, but feature is not active" ));
       ret = FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
       break;
     }
