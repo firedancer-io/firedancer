@@ -200,6 +200,28 @@ fd_executor_setup_accessed_accounts_for_txn( transaction_ctx_t * txn_ctx, fd_raw
   }
 }
 
+/* todo rent exempt check */
+static void
+fd_set_exempt_rent_epoch_max( fd_global_ctx_t * global,
+                              void const *      addr ) {
+
+  fd_funk_rec_t const *     rec_ro  = NULL;
+  fd_account_meta_t const * meta_ro = NULL;
+  int err = fd_acc_mgr_view( global->acc_mgr, global->funk_txn, (fd_pubkey_t const *)addr, &rec_ro, &meta_ro, NULL );
+  if( FD_UNLIKELY( err==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) )
+    return;
+  FD_TEST( err==FD_ACC_MGR_SUCCESS );
+
+  if( meta_ro->info.lamports < fd_rent_exempt_minimum_balance( global, meta_ro->dlen ) ) return;
+  if( meta_ro->info.rent_epoch == ULONG_MAX ) return;
+
+  fd_account_meta_t * meta_rw = NULL;
+  err = fd_acc_mgr_modify( global->acc_mgr, global->funk_txn, (fd_pubkey_t const *)addr, 0, 0UL, rec_ro, NULL, &meta_rw, NULL );
+  FD_TEST( err==FD_ACC_MGR_SUCCESS );
+
+  meta_rw->info.rent_epoch = ULONG_MAX;
+}
+
 static int
 fd_executor_collect_fee( fd_global_ctx_t *   global,
                          fd_pubkey_t const * account,
@@ -349,6 +371,18 @@ fd_execute_txn( fd_executor_t * executor, fd_txn_t * txn_descriptor, fd_rawtxn_b
   xid.ul[3] = fd_rng_ulong( global->rng );
   fd_funk_txn_t * txn = fd_funk_txn_prepare( global->funk, parent_txn, &xid, 1 );
   global->funk_txn = txn;
+
+  /* Update rent exempt on writable accounts if feature activated
+    TODO this should probably not run on executable accounts
+        Also iterate over LUT accounts */
+  if( FD_FEATURE_ACTIVE( global, set_exempt_rent_epoch_max ) ) {
+    fd_txn_acct_iter_t ctrl;
+    for( ulong i=fd_txn_acct_iter_init( txn_descriptor, FD_TXN_ACCT_CAT_WRITABLE, &ctrl );
+          i<fd_txn_acct_iter_end(); i=fd_txn_acct_iter_next( i, &ctrl ) ) {
+      if( i==0 ) continue;
+      fd_set_exempt_rent_epoch_max( global, &tx_accs[i] );
+    }
+  }
 
   fd_instr_t instrs[txn_descriptor->instr_cnt];
   for ( ushort i = 0; i < txn_descriptor->instr_cnt; ++i ) {
