@@ -265,17 +265,15 @@ _process_write( instruction_ctx_t                                    ctx,
   }
 
   /* https://github.com/solana-labs/solana/blob/d90e1582869d8ef8d386a1c156eda987404c43be/programs/loader-v4/src/lib.rs#L310-L311 */
-  if( FD_UNLIKELY( end_offset > program_size ) ) {
-    FD_LOG_WARNING(( "TODO: handle program growth" ));
-    return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
-  }
+  ulong program_acc_new_sz = end_offset + sizeof(fd_bpf_loader_v4_state_t);
 
   /* Upgrade program to writable handle */
   fd_funk_rec_t     * program_rec_rw  = NULL;
   fd_account_meta_t * program_meta_rw = NULL;
   uchar             * program_data_rw = NULL;
-  err = fd_acc_mgr_modify( acc_mgr, funk_txn, program_id, 0, 0UL, program_rec_ro, &program_rec_rw, &program_meta_rw, &program_data_rw );
+  err = fd_acc_mgr_modify( acc_mgr, funk_txn, program_id, 0, program_acc_new_sz, program_rec_ro, &program_rec_rw, &program_meta_rw, &program_data_rw );
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) return err;
+  program_meta_rw->dlen = program_acc_new_sz;
 
   /* https://github.com/solana-labs/solana/blob/d90e1582869d8ef8d386a1c156eda987404c43be/programs/loader-v4/src/lib.rs#L313 */
   if( payer ) {

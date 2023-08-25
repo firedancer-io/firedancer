@@ -33,6 +33,8 @@
 #define FD_FLAMENCO_TYPE_MAP       (0x22)
 #define FD_FLAMENCO_TYPE_MAP_END   (0x23)
 
+/* TODO: This should be called fd_types_vtable_t. */
+
 struct fd_types_funcs {
   int   (*decode_fun)(void* self, fd_bincode_decode_ctx_t *);
   int   (*encode_fun)(void const * self, fd_bincode_encode_ctx_t * ctx);
