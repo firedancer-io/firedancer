@@ -37,7 +37,7 @@ int fd_vote_transcoding_state_versioned_encode(fd_vote_state_versioned_t const *
    https://github.com/solana-labs/solana/blob/aba637d5d9408dcde1e0ba863bafef96a7225f1b/sdk/program/src/vote/state/vote_state_versions.rs#L15
 */
 
-static void
+static int
 fd_vote_upgrade_account( fd_vote_state_versioned_t * account,
                          fd_global_ctx_t *           global,
                          ulong                       epoch) {
@@ -47,9 +47,9 @@ fd_vote_upgrade_account( fd_vote_state_versioned_t * account,
     break;
   case fd_vote_state_versioned_enum_v0_23_5: {
     if( !FD_FEATURE_ACTIVE( global, vote_state_add_vote_latency ) ) {
-      FD_LOG_ERR(("unimplemented vote state upgrade to v14"));
+      FD_LOG_WARNING(("unimplemented vote state upgrade to v14"));
       // FIXME: Implement v14 upgrade.
-      return;
+      return 0;
     }
     fd_vote_state_0_23_5_t * old = &account->inner.v0_23_5;
     /* Object to hold upgraded state version
@@ -109,7 +109,7 @@ fd_vote_upgrade_account( fd_vote_state_versioned_t * account,
   }
   case fd_vote_state_versioned_enum_v1_14_11: {
     if( !FD_FEATURE_ACTIVE( global, vote_state_add_vote_latency ) ) {
-      return;
+      return 1;
     }
     fd_vote_state_1_14_11_t * old = &account->inner.v1_14_11;
     /* Object to hold upgraded state version
@@ -168,6 +168,8 @@ fd_vote_upgrade_account( fd_vote_state_versioned_t * account,
     fd_vote_historical_authorized_voter_destroy(ele, &destroy);
     deq_fd_vote_historical_authorized_voter_t_pop_head(authorized_voters);
   }
+
+  return 1;
 }
 
 /* fd_vote_load_account_current is like fd_vote_load_account (which does
@@ -219,7 +221,10 @@ fd_vote_load_account_current( fd_vote_state_versioned_t * account,
   }
 
   /* Upgrade account version */
-  fd_vote_upgrade_account( account, global, epoch );
+  if( !fd_vote_upgrade_account( account, global, epoch ) ) {
+    /* internal error (skill issue) */
+    return FD_EXECUTOR_INSTR_ERR_PRIVILEGE_ESCALATION;
+  }
 
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
@@ -710,9 +715,10 @@ vote_process_vote_v1_14_11( instruction_ctx_t           ctx,
   /* Check that there does exist a proposed vote slot newer than the last slot we previously voted on:
       if so, we would have made some progress through the slot hashes. */
   if( slot_hash_idx == deq_fd_slot_hash_t_cnt( slot_hashes->hashes ) ) {
-    ulong previously_voted_on = deq_fd_vote_lockout_t_peek_tail_const( vote_state->votes )->slot;
-    ulong most_recent_proposed_vote_slot = *deq_ulong_peek_tail_const( vote->slots );
-    FD_LOG_INFO(( "vote instruction too old (%lu <= %lu): discarding", most_recent_proposed_vote_slot, previously_voted_on ));
+    // This crashes if vote_state->votes is empty
+    //ulong previously_voted_on = deq_fd_vote_lockout_t_peek_tail_const( vote_state->votes )->slot;
+    //ulong most_recent_proposed_vote_slot = *deq_ulong_peek_tail_const( vote->slots );
+    //FD_LOG_INFO(( "vote instruction too old (%lu <= %lu): discarding", most_recent_proposed_vote_slot, previously_voted_on ));
     ctx.txn_ctx->custom_err = FD_VOTE_VOTE_TOO_OLD;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
