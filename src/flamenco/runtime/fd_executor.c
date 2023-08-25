@@ -311,7 +311,6 @@ fd_execute_instr( fd_executor_t * executor, fd_instr_t * instr, transaction_ctx_
   txn_ctx->instr_stack_sz--;
   
   /* TODO: sanity before/after checks: total lamports unchanged etc */
-
   return exec_result;
 }
 

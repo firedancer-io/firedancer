@@ -90,7 +90,7 @@ static inline
 int fd_account_is_writable_idx( fd_txn_t const * txn_descriptor,
                                 uchar program_id,
                                 int idx ) {
-  ushort acct_addr_cnt = txn_descriptor->acct_addr_cnt;
+  int acct_addr_cnt = txn_descriptor->acct_addr_cnt;
   if (txn_descriptor->transaction_version == FD_TXN_V0) {
     acct_addr_cnt += txn_descriptor->addr_table_adtl_cnt;
   }

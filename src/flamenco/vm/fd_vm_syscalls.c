@@ -16,8 +16,6 @@
 #include <stdio.h>
 
 /* FIXME: Temporary scaffolding */
-#pragma GCC optimize ("O0")
-#pragma GCC diagnostic push
 #if FD_USING_GCC==1 /* Clang doesn't understand the below */
 #pragma GCC diagnostic ignored "-Wsuggest-attribute=const"
 #endif
@@ -1591,4 +1589,3 @@ fd_vm_syscall_sol_get_processed_sibling_instruction(
 }
 
 /* FIXME: SEE ABOVE PUSH */
-#pragma GCC diagnostic pop

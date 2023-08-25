@@ -1116,8 +1116,12 @@ fd_runtime_distribute_rent_to_validators( fd_global_ctx_t * global, ulong rent_t
         FD_LOG_WARNING(( "fd_runtime_distribute_rent_to_validators: fd_acc_mgr_commit_raw failed (%d)", err ));
       }
     }
+  } // end of iteration over validator_stakes
+  if (enforce_fix) {
+    FD_TEST( leftover_lamports == 0);
+  } else {
+    global->bank.capitalization = fd_ulong_sat_sub( global->bank.capitalization, leftover_lamports);
   }
-
   fd_valloc_free( global->valloc, validator_stakes );
 }
 

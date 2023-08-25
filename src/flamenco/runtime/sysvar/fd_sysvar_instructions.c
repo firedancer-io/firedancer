@@ -61,7 +61,7 @@ fd_sysvar_instructions_serialize_account( fd_global_ctx_t *   global,
   metadata->dlen = serialized_sz;
 
   uchar * serialized_instructions = (uchar *)acc_data;
-  ushort offset = 0;
+  ulong offset = 0;
 
   // TODO: do we needs bounds checking?
   // num_instructions
@@ -75,7 +75,7 @@ fd_sysvar_instructions_serialize_account( fd_global_ctx_t *   global,
   // serialize instructions
   for( ushort i = 0; i < instrs_cnt; ++i ) {
     // set the instruction offset
-    FD_STORE( ushort, serialized_instruction_offsets, offset );
+    FD_STORE( ushort, serialized_instruction_offsets, (ushort) offset );
     serialized_instruction_offsets += sizeof(ushort);
 
     fd_instr_t const * instr = &instrs[i];

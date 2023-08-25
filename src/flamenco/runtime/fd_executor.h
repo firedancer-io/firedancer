@@ -160,7 +160,7 @@ struct transaction_ctx {
   uint              custom_err;               /* When a custom error is returned, this is where the numeric value gets stashed */
   uchar             instr_stack_sz;           
   instruction_ctx_t instr_stack[6];
-  uchar             accounts_cnt;             /* Number of account pubkeys accessed by this transaction */
+  ulong             accounts_cnt;             /* Number of account pubkeys accessed by this transaction */
   fd_pubkey_t       accounts[256];            /* Array of account pubkeys accessed by this transaction. */
 };
 typedef struct transaction_ctx transaction_ctx_t;
