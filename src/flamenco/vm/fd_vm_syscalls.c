@@ -949,7 +949,7 @@ fd_vm_cpi_update_caller_account( fd_vm_exec_context_t * ctx,
                                  fd_vm_rust_account_info_t const * caller_acc_info,
                                  fd_pubkey_t const * callee_acc_pubkey ) {
   int read_result = FD_ACC_MGR_SUCCESS;
-  uchar * raw_callee_acc_data = (uchar *)fd_acc_mgr_view_data(ctx->instr_ctx.global->acc_mgr, ctx->instr_ctx.global->funk_txn, callee_acc_pubkey, NULL, &read_result);
+  uchar * raw_callee_acc_data = (uchar *)fd_acc_mgr_view_raw(ctx->instr_ctx.global->acc_mgr, ctx->instr_ctx.global->funk_txn, callee_acc_pubkey, NULL, &read_result);
   fd_account_meta_t * callee_acc_metadata = (fd_account_meta_t *)raw_callee_acc_data;
 
   if( read_result != FD_ACC_MGR_SUCCESS ) {

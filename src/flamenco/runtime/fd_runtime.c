@@ -306,7 +306,7 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_meta_t* m, const void
         FD_LOG_NOTICE(("executing txn - slot: %lu, txn_idx_in_block: %lu, mblk: %lu, txn_idx: %lu, sig: %s", global->bank.slot, txn_idx_in_block, total_mblks, txn_idx, sig));
         fd_pubkey_t const * txn_accs = (fd_pubkey_t *)((uchar *)rawtxn.raw + txn->acct_addr_off);
         for (ulong i = 0; i < txn->acct_addr_cnt; i++) {
-          char * raw_acc_data = (char*) fd_acc_mgr_view_data(global->acc_mgr, global->funk_txn, &txn_accs[i], NULL, NULL);
+          char * raw_acc_data = (char*) fd_acc_mgr_view_raw(global->acc_mgr, global->funk_txn, &txn_accs[i], NULL, NULL);
           if (raw_acc_data) {
             fd_account_meta_t * meta = (fd_account_meta_t *)raw_acc_data;
             FD_LOG_WARNING(("ACCT FOR TXN: %lu - %32J, lamps: %lu", i, &txn_accs[i], meta->info.lamports));
@@ -318,7 +318,7 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_meta_t* m, const void
           fd_txn_acct_addr_lut_t * addr_lut = &addr_luts[i];
           fd_pubkey_t const * addr_lut_acc = (fd_pubkey_t *)((uchar *)rawtxn.raw + addr_lut->addr_off);
 
-          char * raw_acc_data = (char*) fd_acc_mgr_view_data(global->acc_mgr, global->funk_txn, (fd_pubkey_t *) addr_lut_acc, NULL, NULL);
+          char * raw_acc_data = (char*) fd_acc_mgr_view_raw(global->acc_mgr, global->funk_txn, (fd_pubkey_t *) addr_lut_acc, NULL, NULL);
           if (!raw_acc_data) {
             FD_LOG_ERR(( "addr lut not found" ));
           }
@@ -869,7 +869,7 @@ fd_runtime_collect_rent_account( fd_global_ctx_t *   global,
        global->bank.slots_per_year );
 
   if( due == FD_RENT_EXEMPT ) {
-    if( FD_FEATURE_ACTIVE( global, preserve_rent_epoch_for_rent_exempt_accounts ) )
+    if( FD_FEATURE_ACTIVE( global, preserve_rent_epoch_for_rent_exempt_accounts ) ) {
       return 0;
     }
     info->rent_epoch = epoch;
@@ -929,12 +929,13 @@ fd_runtime_collect_rent_cb( fd_funk_rec_t const * encountered_rec_ro,
 
   /* Upgrade read-only handle to writable */
   fd_account_meta_t * meta_rw = NULL;
+  fd_funk_rec_t *     rec_rw  = NULL; 
   err = fd_acc_mgr_modify(
     acc_mgr, txn, key,
       /* do_create   */ 0,
       /* min_data_sz */ 0UL,
       /* opt_con_rec */ rec_ro,
-      /* opt_out_rec */ NULL,
+      /* opt_out_rec */ &rec_rw,
       &meta_rw, NULL );
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
     FD_LOG_WARNING(( "fd_runtime_collect_rent_range: fd_acc_mgr_modify_raw failed (%d)", err ));
@@ -945,7 +946,11 @@ fd_runtime_collect_rent_cb( fd_funk_rec_t const * encountered_rec_ro,
   int changed = fd_runtime_collect_rent_account( global, meta_rw, key, epoch );
 
   if( changed ) {
-    fd_acc_mgr_commit_data(global->acc_mgr, rec_rw, key, acc_rw, global->bank.slot, 0);
+    err = fd_acc_mgr_commit_raw(global->acc_mgr, rec_rw, key, meta_rw, global->bank.slot, 0);
+    if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+      FD_LOG_WARNING(( "fd_runtime_collect_rent_range: fd_acc_mgr_commit_raw failed (%d)", err ));
+      return err;
+    }
   }
 
   return 1;
@@ -986,25 +991,6 @@ fd_runtime_collect_rent( fd_global_ctx_t * global ) {
   }
 
   FD_LOG_NOTICE(( "Rent collected - lamports: %lu", global->bank.collected_rent ));
-}
-
-void
-fd_runtime_collect_fees( fd_global_ctx_t * global ) {
- if (global->bank.collected_fees > 0) {
-    if (FD_UNLIKELY(global->log_level > 2)) {
-      FD_LOG_WARNING(( "fd_runtime_freeze: slot:%ld global->collected_fees: %ld", global->bank.slot, global->bank.collected_fees ));
-    }
-
-    fd_acc_lamports_t lamps;
-    int ret = fd_acc_mgr_get_lamports( global->acc_mgr, global->funk_txn, global->leader, &lamps);
-    if (ret != FD_ACC_MGR_SUCCESS)
-      FD_LOG_ERR(( "The collector_id is wrong?!" ));
-
-    // TODO: half get burned?!
-    ret = fd_acc_mgr_set_lamports( global->acc_mgr, global->funk_txn, global->bank.slot, global->leader, lamps + (global->bank.collected_fees/2));
-    if (ret != FD_ACC_MGR_SUCCESS)
-      FD_LOG_ERR(( "lamport update failed" ));
-  }
 }
 
 ulong
@@ -1111,15 +1097,21 @@ fd_runtime_distribute_rent_to_validators( fd_global_ctx_t * global, ulong rent_t
     
     // TODO: handle the prevent_rent_paying_rent_recipients feature
     if( !enforce_fix || rent_to_be_paid > 0 ) {
-      fd_acc_lamports_t acc_lamports;
       fd_pubkey_t pubkey = validator_stakes[i].pubkey;
-      int ret = fd_acc_mgr_get_lamports( global->acc_mgr, global->funk_txn, &pubkey, &acc_lamports);
-      if( ret != FD_ACC_MGR_SUCCESS )
-        FD_LOG_ERR(( "pubkey is wrong" ));
 
-      ret = fd_acc_mgr_set_lamports( global->acc_mgr, global->funk_txn, global->bank.slot, &pubkey, rent_to_be_paid + acc_lamports );
-      if( ret != FD_ACC_MGR_SUCCESS )
-        FD_LOG_ERR(( "lamport update faled" ));
+      fd_account_meta_t * meta = NULL;
+      fd_funk_rec_t * rec = NULL;
+      int err = fd_acc_mgr_modify( global->acc_mgr, global->funk_txn, &pubkey, 0, 0UL, NULL, &rec, &meta, NULL );
+      if( FD_UNLIKELY( err ) ) {
+        FD_LOG_WARNING(( "fd_acc_mgr_modify_raw failed (%d)", err ));
+      }
+
+      meta->info.lamports += rent_to_be_paid;
+
+      err = fd_acc_mgr_commit_raw(global->acc_mgr, rec, &pubkey, meta, global->bank.slot, 0);
+      if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+        FD_LOG_WARNING(( "fd_runtime_distribute_rent_to_validators: fd_acc_mgr_commit_raw failed (%d)", err ));
+      }
     }
   }
 
@@ -1147,7 +1139,6 @@ fd_runtime_freeze( fd_global_ctx_t * global ) {
   //self.collect_fees();
 
   fd_sysvar_recent_hashes_update ( global );
-  fd_runtime_collect_fees( global );
 
   // Look at collect_fees... I think this was where I saw the fee payout..
 
@@ -1627,7 +1618,8 @@ fd_process_new_epoch(
 ) {
   ulong slot;
   ulong epoch = fd_slot_to_epoch(&global->bank.epoch_schedule, global->bank.slot, &slot);
-  global->bank.collected = 0;
+  global->bank.collected_fees = 0;
+  global->bank.collected_rent = 0;
   global->bank.block_height = global->bank.block_height + 1UL;
   global->bank.max_tick_height = (slot + 1) * global->bank.ticks_per_slot;
 

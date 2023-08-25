@@ -946,7 +946,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
     }
 
     if (FD_FEATURE_ACTIVE(ctx.global, enable_program_redeployment_cooldown)) {
-      if (fd_account_set_data_length(&ctx, close_acc_metadata, close_acc, SIZE_OF_UNITIALIZED, 0, &err) != 0) {
+      if (fd_account_set_data_length(&ctx, close_acc_metadata, close_acc, SIZE_OF_UNINITIALIZED, 0, &err) != 0) {
         return err;
       }
     }
@@ -985,11 +985,11 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
         return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
       }
 
-      if (!fd_account_is_writable(&ctx, program_acc)) {
+      if (!fd_instr_acc_is_writable(ctx.instr, program_acc)) {
         return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
       }
 
-      if (memcmp(program_acc_metdata->info.owner, program_id, sizeof(fd_pubkey_t)) != 0) {
+      if (memcmp(program_acc_metdata->info.owner, &ctx.instr->program_id_pubkey, sizeof(fd_pubkey_t)) != 0) {
         return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
       }
 
@@ -1136,7 +1136,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
     }
 
     if (FD_FEATURE_ACTIVE(ctx.global, enable_program_redeployment_cooldown)) {
-      if (fd_account_set_data_length(&ctx, close_acc_metadata, close_acc, SIZE_OF_UNITIALIZED, 0, &err) != 0) {
+      if (fd_account_set_data_length(&ctx, close_acc_metadata, close_acc, SIZE_OF_UNINITIALIZED, 0, &err) != 0) {
         return err;
       }
     }
@@ -1175,11 +1175,11 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
         return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
       }
 
-      if (!fd_account_is_writable(&ctx, program_acc)) {
+      if (!fd_instr_acc_is_writable(ctx.instr, program_acc)) {
         return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
       }
 
-      if (memcmp(program_acc_metdata->info.owner, program_id, sizeof(fd_pubkey_t)) != 0) {
+      if (memcmp(program_acc_metdata->info.owner, &ctx.instr->program_id_pubkey, sizeof(fd_pubkey_t)) != 0) {
         return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
       }
 
@@ -1261,11 +1261,11 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
       return result;
     }
 
-    if (memcmp(programdata_acc_metadata->info.owner, program_id, sizeof(fd_pubkey_t)) != 0) {
+    if (memcmp(programdata_acc_metadata->info.owner, &ctx.instr->program_id_pubkey, sizeof(fd_pubkey_t)) != 0) {
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
     }
 
-    if (!fd_account_is_writable(&ctx, programdata_acc)) {
+    if (!fd_instr_acc_is_writable(ctx.instr, programdata_acc)) {
       return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
     }
 
@@ -1275,11 +1275,11 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
       return result;
     }
 
-    if (!fd_account_is_writable(&ctx, program_acc)) {
+    if (!fd_instr_acc_is_writable(ctx.instr, program_acc)) {
       return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
     }
 
-    if (memcmp(program_acc_metadata->info.owner, program_id, sizeof(fd_pubkey_t)) != 0) {
+    if (memcmp(program_acc_metadata->info.owner, &ctx.instr->program_id_pubkey, sizeof(fd_pubkey_t)) != 0) {
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
     }
 

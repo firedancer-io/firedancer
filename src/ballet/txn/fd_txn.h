@@ -674,14 +674,6 @@ fd_txn_is_writable( fd_txn_t const * txn, int idx ) {
 
 static inline int
 fd_txn_is_signer( fd_txn_t const * txn, int idx ) {
-  if (idx < txn->signature_cnt)
-    return 1;
-
-  return 0;
-}
-
-static inline int
-fd_txn_is_signer( fd_txn_t const * txn, int idx ) {
   return idx < txn->signature_cnt;
 }
 

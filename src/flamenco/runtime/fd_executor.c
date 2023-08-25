@@ -130,7 +130,7 @@ fd_executor_setup_accessed_accounts_for_txn( transaction_ctx_t * txn_ctx, fd_raw
       fd_txn_acct_addr_lut_t * addr_lut = &addr_luts[i];
       fd_pubkey_t const * addr_lut_acc = (fd_pubkey_t *)((uchar *)txn_raw->raw + addr_lut->addr_off);
 
-      char * raw_acc_data = (char*) fd_acc_mgr_view_data(global->acc_mgr, global->funk_txn, (fd_pubkey_t *) addr_lut_acc, NULL, NULL);
+      char * raw_acc_data = (char*) fd_acc_mgr_view_raw(global->acc_mgr, global->funk_txn, (fd_pubkey_t *) addr_lut_acc, NULL, NULL);
       if (!raw_acc_data) {
         // TODO: return txn err code
         FD_LOG_ERR(( "addr lut not found" ));
@@ -167,7 +167,7 @@ fd_executor_setup_accessed_accounts_for_txn( transaction_ctx_t * txn_ctx, fd_raw
       fd_txn_acct_addr_lut_t * addr_lut = &addr_luts[i];
       fd_pubkey_t const * addr_lut_acc = (fd_pubkey_t *)((uchar *)txn_raw->raw + addr_lut->addr_off);
 
-      char * raw_acc_data = (char*) fd_acc_mgr_view_data(global->acc_mgr, global->funk_txn, (fd_pubkey_t *) addr_lut_acc, NULL, NULL);
+      char * raw_acc_data = (char*) fd_acc_mgr_view_raw(global->acc_mgr, global->funk_txn, (fd_pubkey_t *) addr_lut_acc, NULL, NULL);
       if (!raw_acc_data) {
         // TODO: return txn err code
         FD_LOG_ERR(( "addr lut not found" ));
@@ -200,28 +200,6 @@ fd_executor_setup_accessed_accounts_for_txn( transaction_ctx_t * txn_ctx, fd_raw
   }
 }
 
-/* todo rent exempt check */
-static void
-fd_set_exempt_rent_epoch_max( fd_global_ctx_t * global,
-                              void const *      addr ) {
-
-  fd_funk_rec_t const *     rec_ro  = NULL;
-  fd_account_meta_t const * meta_ro = NULL;
-  int err = fd_acc_mgr_view( global->acc_mgr, global->funk_txn, (fd_pubkey_t const *)addr, &rec_ro, &meta_ro, NULL );
-  if( FD_UNLIKELY( err==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) )
-    return;
-  FD_TEST( err==FD_ACC_MGR_SUCCESS );
-
-  if( meta_ro->info.lamports < fd_rent_exempt_minimum_balance( global, meta_ro->dlen ) ) return;
-  if( meta_ro->info.rent_epoch == ULONG_MAX ) return;
-
-  fd_account_meta_t * meta_rw = NULL;
-  err = fd_acc_mgr_modify( global->acc_mgr, global->funk_txn, (fd_pubkey_t const *)addr, 0, 0UL, rec_ro, NULL, &meta_rw, NULL );
-  FD_TEST( err==FD_ACC_MGR_SUCCESS );
-
-  meta_rw->info.rent_epoch = ULONG_MAX;
-}
-
 static int
 fd_executor_collect_fee( fd_global_ctx_t *   global,
                          fd_pubkey_t const * account,
@@ -244,14 +222,14 @@ fd_executor_collect_fee( fd_global_ctx_t *   global,
   }
 
   if (FD_UNLIKELY(global->log_level > 2)) {
-    FD_LOG_WARNING(( "fd_execute_txn: global->collected: %ld->%ld (%ld)", global->bank.collected, global->bank.collected + fee, fee));
+    FD_LOG_WARNING(( "fd_execute_txn: global->collected: %ld->%ld (%ld)", global->bank.collected_fees, global->bank.collected_fees + fee, fee));
     FD_LOG_DEBUG(( "calling set_lamports to charge the fee %lu", fee));
   }
 
   // TODO: I BELIEVE we charge for the fee BEFORE we create the funk_txn fork
   // since we collect reguardless of the success of the txn execution...
   meta->info.lamports -= fee;
-  global->bank.collected += fee;
+  global->bank.collected_fees += fee;
 
   /* todo rent exempt check */
   if( FD_FEATURE_ACTIVE( global, set_exempt_rent_epoch_max ) )
@@ -358,37 +336,6 @@ fd_execute_txn( fd_executor_t * executor, fd_txn_t * txn_descriptor, fd_rawtxn_b
   //            }
   //      }
 
-
-  fd_acc_lamports_t lamps;
-  int               ret = fd_acc_mgr_get_lamports ( global->acc_mgr, global->funk_txn, &tx_accs[0], &lamps);
-  if (ret != FD_ACC_MGR_SUCCESS) {
-    // TODO: The fee payer does not seem to exist?!  what now?
-    return -1;
-  }
-
-  if (fee > lamps) {
-    // TODO: Not enough lamports to pay for this txn...
-    //
-    // (Should this be lamps + whatever is required to keep the payer rent exempt?)
-    FD_LOG_WARNING(( "Not enough lamps" ));
-    return -1;
-  }
-
-  if (FD_UNLIKELY(global->log_level > 2)) {
-    FD_LOG_WARNING(( "fd_execute_txn: global->collected_fees: %ld->%ld (%ld)", global->bank.collected_fees, global->bank.collected_fees + fee, fee));
-    FD_LOG_DEBUG(( "calling set_lamports to charge the fee %lu", fee));
-  }
-
-  // TODO: I BELIEVE we charge for the fee BEFORE we create the funk_txn fork
-  // since we collect reguardless of the success of the txn execution...
-  ret = fd_acc_mgr_set_lamports ( global->acc_mgr, global->funk_txn, global->bank.slot, &tx_accs[0], lamps - fee);
-  if (ret != FD_ACC_MGR_SUCCESS) {
-    // TODO: Wait! wait! what?!
-    FD_LOG_ERR(( "lamport update failed" ));
-    return -1;
-  }
-  global->bank.collected_fees += fee;
-
   /* TODO: track compute budget used within execution */
   /* TODO: store stack of instructions to detect reentrancy */
 
@@ -402,14 +349,14 @@ fd_execute_txn( fd_executor_t * executor, fd_txn_t * txn_descriptor, fd_rawtxn_b
   xid.ul[3] = fd_rng_ulong( global->rng );
   fd_funk_txn_t * txn = fd_funk_txn_prepare( global->funk, parent_txn, &xid, 1 );
   global->funk_txn = txn;
-  
+
   fd_instr_t instrs[txn_descriptor->instr_cnt];
   for ( ushort i = 0; i < txn_descriptor->instr_cnt; ++i ) {
     fd_txn_instr_t *  txn_instr = &txn_descriptor->instr[i];
     fd_convert_txn_instr_to_instr( txn_descriptor, txn_raw, txn_instr, txn_ctx.accounts, &instrs[i] );
   }
 
-  ret = fd_sysvar_instructions_serialize_account( global, instrs, txn_descriptor->instr_cnt );
+  int ret = fd_sysvar_instructions_serialize_account( global, instrs, txn_descriptor->instr_cnt );
   if( ret != FD_ACC_MGR_SUCCESS ) {
     FD_LOG_WARNING(( "SYSVAR INSTRS FAILED TO SERIALIZE!" ));
     fd_funk_txn_cancel(global->funk, txn, 0);

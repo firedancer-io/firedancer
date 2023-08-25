@@ -474,7 +474,7 @@ int fd_account_set_executable(instruction_ctx_t ctx, fd_pubkey_t * program_acc, 
       return FD_EXECUTOR_INSTR_ERR_EXECUTABLE_MODIFIED;
     }
 
-    if (!fd_account_is_writable(&ctx, program_acc)) {
+    if (!fd_instr_acc_is_writable(ctx.instr, program_acc)) {
       return FD_EXECUTOR_INSTR_ERR_EXECUTABLE_MODIFIED;
     }
 

@@ -3527,23 +3527,29 @@ void fd_lookup_table_meta_new(fd_lookup_table_meta_t* self);
 int fd_lookup_table_meta_decode(fd_lookup_table_meta_t* self, fd_bincode_decode_ctx_t * ctx);
 int fd_lookup_table_meta_encode(fd_lookup_table_meta_t const * self, fd_bincode_encode_ctx_t * ctx);
 void fd_lookup_table_meta_destroy(fd_lookup_table_meta_t* self, fd_bincode_destroy_ctx_t * ctx);
-void fd_lookup_table_meta_walk(fd_lookup_table_meta_t* self, fd_walk_fun_t fun, const char *name, int level);
+void fd_lookup_table_meta_walk(void * w, fd_lookup_table_meta_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
 ulong fd_lookup_table_meta_size(fd_lookup_table_meta_t const * self);
+ulong fd_lookup_table_meta_footprint( void );
+ulong fd_lookup_table_meta_align( void );
 
 void fd_address_lookup_table_new(fd_address_lookup_table_t* self);
 int fd_address_lookup_table_decode(fd_address_lookup_table_t* self, fd_bincode_decode_ctx_t * ctx);
 int fd_address_lookup_table_encode(fd_address_lookup_table_t const * self, fd_bincode_encode_ctx_t * ctx);
 void fd_address_lookup_table_destroy(fd_address_lookup_table_t* self, fd_bincode_destroy_ctx_t * ctx);
-void fd_address_lookup_table_walk(fd_address_lookup_table_t* self, fd_walk_fun_t fun, const char *name, int level);
+void fd_address_lookup_table_walk(void * w, fd_address_lookup_table_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
 ulong fd_address_lookup_table_size(fd_address_lookup_table_t const * self);
+ulong fd_address_lookup_table_footprint( void );
+ulong fd_address_lookup_table_align( void );
 
 void fd_address_lookup_table_state_new_disc(fd_address_lookup_table_state_t* self, uint discriminant);
 void fd_address_lookup_table_state_new(fd_address_lookup_table_state_t* self);
 int fd_address_lookup_table_state_decode(fd_address_lookup_table_state_t* self, fd_bincode_decode_ctx_t * ctx);
 int fd_address_lookup_table_state_encode(fd_address_lookup_table_state_t const * self, fd_bincode_encode_ctx_t * ctx);
 void fd_address_lookup_table_state_destroy(fd_address_lookup_table_state_t* self, fd_bincode_destroy_ctx_t * ctx);
-void fd_address_lookup_table_state_walk(fd_address_lookup_table_state_t* self, fd_walk_fun_t fun, const char *name, int level);
+void fd_address_lookup_table_state_walk(void * w, fd_address_lookup_table_state_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
 ulong fd_address_lookup_table_state_size(fd_address_lookup_table_state_t const * self);
+ulong fd_address_lookup_table_state_footprint( void );
+ulong fd_address_lookup_table_state_align( void );
 
 FD_FN_PURE uchar fd_address_lookup_table_state_is_uninitialized(fd_address_lookup_table_state_t const * self);
 FD_FN_PURE uchar fd_address_lookup_table_state_is_lookup_table(fd_address_lookup_table_state_t const * self);

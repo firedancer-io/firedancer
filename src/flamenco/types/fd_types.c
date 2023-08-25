@@ -5945,8 +5945,8 @@ void fd_firedancer_banks_walk(void * w, fd_firedancer_banks_t const * self, fd_t
   fd_inflation_walk(w, &self->inflation, fun, "inflation", level);
   fd_epoch_schedule_walk(w, &self->epoch_schedule, fun, "epoch_schedule", level);
   fd_rent_walk(w, &self->rent, fun, "rent", level);
-  fun( w, &self->collected_fees, "collected_fees", 11, "ulong", level + 1);
-  fun(&self->collected_rent, "collected_rent", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
+  fun( w, &self->collected_fees, "collected_fees", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
+  fun( w, &self->collected_rent, "collected_rent", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
   fd_vote_accounts_walk(w, &self->epoch_stakes, fun, "epoch_stakes", level);
   fd_sol_sysvar_last_restart_slot_walk(w, &self->last_restart_slot, fun, "last_restart_slot", level);
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_firedancer_banks", level--);
@@ -10968,14 +10968,21 @@ void fd_lookup_table_meta_destroy(fd_lookup_table_meta_t* self, fd_bincode_destr
   }
 }
 
-void fd_lookup_table_meta_walk(fd_lookup_table_meta_t* self, fd_walk_fun_t fun, const char *name, int level) {
-  fun(self, name, 32, "fd_lookup_table_meta", level++);
-  fun(&self->deactivation_slot, "deactivation_slot", 11, "ulong", level + 1);
-  fun(&self->last_extended_slot, "last_extended_slot", 11, "ulong", level + 1);
-  fun(&self->last_extended_slot_start_index, "last_extended_slot_start_index", 9, "uchar", level + 1);
-  // fun(&self->authority, "authority", 16, "option", level + 1);
-  fun(&self->_padding, "_padding", 12, "ushort", level + 1);
-  fun(self, name, 33, "fd_lookup_table_meta", --level);
+ulong fd_lookup_table_meta_footprint( void ){ return FD_LOOKUP_TABLE_META_FOOTPRINT; }
+ulong fd_lookup_table_meta_align( void ){ return FD_LOOKUP_TABLE_META_ALIGN; }
+
+void fd_lookup_table_meta_walk(void * w, fd_lookup_table_meta_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_lookup_table_meta", level++);
+  fun( w, &self->deactivation_slot, "deactivation_slot", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
+  fun( w, &self->last_extended_slot, "last_extended_slot", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
+  fun( w, &self->last_extended_slot_start_index, "last_extended_slot_start_index", FD_FLAMENCO_TYPE_UCHAR,   "uchar",     level );
+  if( !self->authority ) {
+    fun( w, NULL, "authority", FD_FLAMENCO_TYPE_NULL, "pubkey", level );
+  } else {
+  fd_pubkey_walk( w, self->authority, fun, "authority", level );
+  }
+  fun( w, &self->_padding, "_padding", FD_FLAMENCO_TYPE_USHORT,  "ushort",    level );
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_lookup_table_meta", level--);
 }
 ulong fd_lookup_table_meta_size(fd_lookup_table_meta_t const * self) {
   ulong size = 0;
@@ -11026,10 +11033,13 @@ void fd_address_lookup_table_destroy(fd_address_lookup_table_t* self, fd_bincode
   fd_lookup_table_meta_destroy(&self->meta, ctx);
 }
 
-void fd_address_lookup_table_walk(fd_address_lookup_table_t* self, fd_walk_fun_t fun, const char *name, int level) {
-  fun(self, name, 32, "fd_address_lookup_table", level++);
-  fd_lookup_table_meta_walk(&self->meta, fun, "meta", level + 1);
-  fun(self, name, 33, "fd_address_lookup_table", --level);
+ulong fd_address_lookup_table_footprint( void ){ return FD_ADDRESS_LOOKUP_TABLE_FOOTPRINT; }
+ulong fd_address_lookup_table_align( void ){ return FD_ADDRESS_LOOKUP_TABLE_ALIGN; }
+
+void fd_address_lookup_table_walk(void * w, fd_address_lookup_table_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_address_lookup_table", level++);
+  fd_lookup_table_meta_walk(w, &self->meta, fun, "meta", level);
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_address_lookup_table", level--);
 }
 ulong fd_address_lookup_table_size(fd_address_lookup_table_t const * self) {
   ulong size = 0;
@@ -11104,16 +11114,19 @@ void fd_address_lookup_table_state_destroy(fd_address_lookup_table_state_t* self
   fd_address_lookup_table_state_inner_destroy(&self->inner, self->discriminant, ctx);
 }
 
-void fd_address_lookup_table_state_walk(fd_address_lookup_table_state_t* self, fd_walk_fun_t fun, const char *name, int level) {
-  fun(self, name, 32, "fd_address_lookup_table_state", level++);
-  // enum fd_lookup_table_meta_walk(&self->meta, fun, "meta", level + 1);
+ulong fd_address_lookup_table_state_footprint( void ){ return FD_ADDRESS_LOOKUP_TABLE_STATE_FOOTPRINT; }
+ulong fd_address_lookup_table_state_align( void ){ return FD_ADDRESS_LOOKUP_TABLE_STATE_ALIGN; }
+
+void fd_address_lookup_table_state_walk(void * w, fd_address_lookup_table_state_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_address_lookup_table_state", level++);
+  // enum fd_lookup_table_meta_walk(w, &self->meta, fun, "meta", level);
   switch (self->discriminant) {
   case 1: {
-    fd_address_lookup_table_walk(&self->inner.lookup_table, fun, "lookup_table", level + 1);
+    fd_address_lookup_table_walk(w, &self->inner.lookup_table, fun, "lookup_table", level);
     break;
   }
   }
-  fun(self, name, 33, "fd_address_lookup_table_state", --level);
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_address_lookup_table_state", level--);
 }
 ulong fd_address_lookup_table_state_size(fd_address_lookup_table_state_t const * self) {
   ulong size = 0;

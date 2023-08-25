@@ -462,6 +462,7 @@ int fd_executor_stake_program_execute_instruction(
   /* TODO: check that the instruction account 0 owner is the stake program ID
   if( FD_UNLIKELY( ctx.txn_ctx->txn_descriptor->acct_addr_cnt < 1 ) )
     return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+  */
 
   /* Check that first instruction account is stake account
      https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/stake/src/stake_instruction.rs#L37 */

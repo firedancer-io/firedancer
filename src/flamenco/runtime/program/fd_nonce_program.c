@@ -357,6 +357,7 @@ int fd_initialize_nonce_account(
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
 
   fd_pubkey_t * txn_accs = ctx.txn_ctx->accounts;
+  uchar const * instr_acc_idxs = ctx.instr->acct_txn_idxs;
 
   fd_pubkey_t * me = &txn_accs[0];
 
@@ -554,9 +555,8 @@ int fd_upgrade_nonce_account(
     return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
   }
 
-  /* TODO: fix unreadable pointer arithmetic */
-  uchar *                   instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
-  fd_pubkey_t *             txn_accs       = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
+  fd_pubkey_t * txn_accs = ctx.txn_ctx->accounts;
+  uchar const * instr_acc_idxs = ctx.instr->acct_txn_idxs;
   fd_pubkey_t *             me             = &txn_accs[instr_acc_idxs[0]];
   fd_funk_rec_t const *     acc_rec_ro     = NULL;
   fd_account_meta_t const * acc_meta_ro    = NULL;
@@ -570,16 +570,11 @@ int fd_upgrade_nonce_account(
 
   if (memcmp(acc_meta_ro->info.owner, ctx.global->solana_system_program, sizeof(acc_meta_ro->info.owner)) != 0)
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
-  uchar const * instr_acc_idxs = ctx.instr->acct_txn_idxs;
 
   if (!fd_instr_acc_is_writable_idx(ctx.instr, 0))
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
 
-  fd_pubkey_t * txn_accs = ctx.txn_ctx->accounts;
-
-  fd_pubkey_t * me   = &txn_accs[instr_acc_idxs[0]];
-
-  char * raw_acc_data = (char*) fd_acc_mgr_view_data(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) me, NULL, NULL);
+  char * raw_acc_data = (char*) fd_acc_mgr_view_raw(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) me, NULL, NULL);
   if (NULL == raw_acc_data)
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   fd_account_meta_t *m = (fd_account_meta_t *) raw_acc_data;

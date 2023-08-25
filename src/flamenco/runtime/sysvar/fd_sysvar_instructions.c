@@ -43,7 +43,7 @@ fd_sysvar_instructions_serialize_account( fd_global_ctx_t *   global,
   ulong acc_sz = sizeof(fd_account_meta_t) + serialized_sz;
 
   // TODO: do we need to undo this acc creation if everything goes to shit?
-  void * raw_acc_data = fd_acc_mgr_modify_data(global->acc_mgr, global->funk_txn, (fd_pubkey_t const *)global->sysvar_instructions, 1, &acc_sz, NULL, NULL, &modify_err);
+  void * raw_acc_data = fd_acc_mgr_modify_raw(global->acc_mgr, global->funk_txn, (fd_pubkey_t const *)global->sysvar_instructions, 1, acc_sz, NULL, NULL, &modify_err);
   if ( FD_UNLIKELY (NULL == raw_acc_data) )
     return FD_ACC_MGR_ERR_READ_FAILED;
 
@@ -122,7 +122,7 @@ fd_sysvar_instructions_cleanup_account( fd_global_ctx_t * global ) {
   fd_funk_rec_t * acc_data_rec = NULL;
   int modify_err = FD_ACC_MGR_SUCCESS;
 
-  void * raw_acc_data = fd_acc_mgr_modify_data( global->acc_mgr, global->funk_txn, (fd_pubkey_t const *)global->sysvar_instructions, 0, NULL, NULL, &acc_data_rec, &modify_err );
+  void * raw_acc_data = fd_acc_mgr_modify_raw( global->acc_mgr, global->funk_txn, (fd_pubkey_t const *)global->sysvar_instructions, 0, 0, NULL, &acc_data_rec, &modify_err );
   if( FD_UNLIKELY( NULL == raw_acc_data ) ) {
     return FD_ACC_MGR_ERR_READ_FAILED;
   }
@@ -141,7 +141,7 @@ fd_sysvar_instructions_update_current_instr_idx( fd_global_ctx_t *  global,
   int modify_err = FD_ACC_MGR_SUCCESS;
 
   // TODO: do we need to undo this acc creation if everything goes to shit?
-  void * raw_acc_data = fd_acc_mgr_modify_data(global->acc_mgr, global->funk_txn, (fd_pubkey_t const *)global->sysvar_instructions, 0, NULL, NULL, NULL, &modify_err);
+  void * raw_acc_data = fd_acc_mgr_modify_raw(global->acc_mgr, global->funk_txn, (fd_pubkey_t const *)global->sysvar_instructions, 0, 0, NULL, NULL, &modify_err);
   if ( FD_UNLIKELY (NULL == raw_acc_data) )
     return FD_ACC_MGR_ERR_READ_FAILED;
   

@@ -32,6 +32,65 @@ fd_executor_bpf_loader_program_is_executable_program_account( fd_global_ctx_t * 
   return 0;
 }
 
+static int setup_program(instruction_ctx_t ctx, uchar * program_data, ulong program_data_len) {
+  fd_sbpf_elf_info_t elf_info;
+  fd_sbpf_elf_peek( &elf_info, program_data, program_data_len );
+
+  /* Allocate rodata segment */
+  void * rodata = fd_valloc_malloc( ctx.global->valloc, 1UL,  elf_info.rodata_footprint );
+  if (!rodata) {
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+  }
+
+  /* Allocate program buffer */
+
+  ulong  prog_align     = fd_sbpf_program_align();
+  ulong  prog_footprint = fd_sbpf_program_footprint( &elf_info );
+  fd_sbpf_program_t * prog = fd_sbpf_program_new( fd_valloc_malloc( ctx.global->valloc, prog_align, prog_footprint ), &elf_info, rodata );
+  FD_TEST( prog );
+
+  /* Allocate syscalls */
+
+  fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new( fd_valloc_malloc( ctx.global->valloc, fd_sbpf_syscalls_align(), fd_sbpf_syscalls_footprint() ) );
+  FD_TEST( syscalls );
+
+  fd_vm_syscall_register_all( syscalls );
+  /* Load program */
+
+  if(  0!=fd_sbpf_program_load( prog, program_data, program_data_len, syscalls ) ) {
+    FD_LOG_ERR(( "fd_sbpf_program_load() failed: %s", fd_sbpf_strerror() ));
+  }
+  FD_LOG_WARNING(( "fd_sbpf_program_load() success: %s", fd_sbpf_strerror() ));
+
+  fd_vm_exec_context_t vm_ctx = {
+    .entrypoint          = (long)prog->entry_pc,
+    .program_counter     = 0,
+    .instruction_counter = 0,
+    .instrs              = (fd_sbpf_instr_t const *)fd_type_pun_const( prog->text ),
+    .instrs_sz           = prog->text_cnt,
+    .instrs_offset       = prog->text_off,
+    .syscall_map         = syscalls,
+    .local_call_map      = prog->calldests,
+    .input               = NULL,
+    .input_sz            = 0,
+    .read_only           = (uchar *)fd_type_pun_const(prog->rodata),
+    .read_only_sz        = prog->rodata_sz,
+    /* TODO configure heap allocator */
+    .instr_ctx           = ctx,
+  };
+
+  ulong validate_result = fd_vm_context_validate( &vm_ctx );
+  if (validate_result != FD_VM_SBPF_VALIDATE_SUCCESS) {
+    FD_LOG_ERR(( "fd_vm_context_validate() failed: %lu", validate_result ));
+  }
+
+  FD_LOG_WARNING(( "fd_vm_context_validate() success" ));
+
+  fd_valloc_free( ctx.global->valloc,  fd_sbpf_program_delete( prog ) );
+  fd_valloc_free( ctx.global->valloc,  fd_sbpf_syscalls_delete( syscalls ) );
+  fd_valloc_free( ctx.global->valloc, rodata);
+  return 0;
+}
 
 
 int fd_executor_bpf_loader_program_execute_program_instruction( instruction_ctx_t ctx ) {
