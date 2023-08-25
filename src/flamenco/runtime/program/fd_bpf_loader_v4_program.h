@@ -10,7 +10,7 @@ struct __attribute__((packed)) fd_bpf_loader_v4_state {
   /* 0x00 */ ulong slot;
   /* 0x08 */ uchar is_deployed;
   /* 0x09 */ uchar has_authority;
-  /* 0x0a */ uchar authority_address[ 32 ];
+  /* 0x0a */ uchar authority_addr[ 32 ];
   /* 0x2a */ uchar _pad2a[ 6 ];
 };
 

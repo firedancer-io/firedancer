@@ -86,7 +86,7 @@ check_program_account( instruction_ctx_t         ctx,
   }
 
   /* https://github.com/solana-labs/solana/blob/d90e1582869d8ef8d386a1c156eda987404c43be/programs/loader-v4/src/lib.rs#L230 */
-  if( FD_UNLIKELY( 0!=memcmp( state->authority_address, authority->key, sizeof(fd_pubkey_t) ) ) ) {
+  if( FD_UNLIKELY( 0!=memcmp( state->authority_addr, authority->key, sizeof(fd_pubkey_t) ) ) ) {
     // TODO Log: "Incorrect authority provided"
     return FD_EXECUTOR_INSTR_ERR_INCORRECT_AUTHORITY;
   }
@@ -301,7 +301,7 @@ _process_write( instruction_ctx_t                                    ctx,
     state->slot          = global->bank.slot;  /* Solana Labs reads from the clock sysvar here */
     state->is_deployed   = 0;
     state->has_authority = 1;
-    memcpy( state->authority_address, authority->key, sizeof(fd_pubkey_t) );
+    memcpy( state->authority_addr, authority->key, sizeof(fd_pubkey_t) );
   }
 
   /* https://github.com/solana-labs/solana/blob/d90e1582869d8ef8d386a1c156eda987404c43be/programs/loader-v4/src/lib.rs#L323
@@ -561,7 +561,7 @@ _process_retract( instruction_ctx_t ctx ) {
   /* Solana Labs reads from the clock sysvar here
      https://github.com/solana-labs/solana/blob/d90e1582869d8ef8d386a1c156eda987404c43be/programs/loader-v4/src/lib.rs#L504 */
   ulong current_slot = global->bank.slot;
-  if( state->slot + 750UL > current_slot ) {
+  if( state->slot + DEPLOYMENT_COOLDOWN_IN_SLOTS > current_slot ) {
     // TODO Log: "Program was deployed recently, cooldown stil in effect"
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
   }
@@ -657,7 +657,7 @@ _process_transfer_authority( instruction_ctx_t ctx ) {
     fd_memset( state_rw, 0, sizeof(fd_pubkey_t) );
   } else {
     state_rw->has_authority = 1;
-    fd_memcpy( state_rw->authority_address, new_authority->key, sizeof(fd_pubkey_t) );
+    fd_memcpy( state_rw->authority_addr, new_authority->key, sizeof(fd_pubkey_t) );
   }
   return 0;
 }
