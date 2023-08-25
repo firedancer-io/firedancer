@@ -523,9 +523,6 @@ main( int     argc,
         if( suite.ignore_fail[idx] ) {
           FD_LOG_NOTICE(( "Removing %lu from ignore fail 🎉", idx ));
           suite.ignore_fail[idx] = 0;
-          /* HACK!! */
-          if( idx==941  ) suite.ignore_fail[idx] = 1;
-          if( idx==1037 ) suite.ignore_fail[idx] = 1;
         }
         success_cnt++;
       }

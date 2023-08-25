@@ -1027,7 +1027,7 @@ vote_update_validator_identity( instruction_ctx_t   ctx,
   if( FD_UNLIKELY( (!authorized_withdrawer_signer) | (!authorized_new_identity_signer) ) )
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
 
-  memcpy( &vote_state->node_pubkey, new_identity, 32UL );
+  memcpy( vote_state->node_pubkey.key, new_identity->key, 32UL );
 
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
@@ -2072,10 +2072,14 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
     fd_pubkey_t const * new_identity  = &txn_accs[instr_acc_idxs[1]];
 
     fd_sol_sysvar_clock_t clock;
-    fd_sysvar_clock_read( ctx.global, &clock );
+    int err = fd_sysvar_clock_read( ctx.global, &clock );
+    if( FD_UNLIKELY( 0!=err ) ) {
+      ret = err;
+      break;
+    }
 
     /* Read vote account */
-    fd_vote_state_versioned_t vote_state_versioned;
+    fd_vote_state_versioned_t vote_state_versioned = {0};
     int result = fd_vote_load_account_current( &vote_state_versioned, vote_acc_meta, vote_acc_data, ctx.global, /* allow_uninitialized */ 0, clock.epoch );
     if( FD_UNLIKELY( 0!=result ) ) {
       ret = result;
