@@ -431,7 +431,7 @@ struct __attribute__((aligned(16UL))) fd_deserializable_versioned_bank {
   fd_slot_pair_t* ancestors;
   fd_hash_t hash;
   fd_hash_t parent_hash;
-  ulong parent_slot; // 128
+  ulong parent_slot;
   fd_hard_forks_t hard_forks;
   ulong transaction_count;
   ulong tick_height;
