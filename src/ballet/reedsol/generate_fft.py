@@ -2,8 +2,7 @@ import galois
 import numpy as np
 import numpy.linalg
 
-header = """
-/* Note: This file is auto generated. */
+header = """/* Note: This file is auto generated. */
 #ifndef HEADER_fd_src_ballet_reedsol_fd_reedsol_fft_h
 #define HEADER_fd_src_ballet_reedsol_fd_reedsol_fft_h
 
@@ -21,9 +20,9 @@ header = """
    implementation details.
 
    Like the normal FFT and IFFT, the operator implemented in this file
-   (and henceforward referred to as FFT and IFFT) tranforms between one
-   basis and another.  Rather than tranformations of a signal between
-   the frequency domain and the time domain, these operators tranform a
+   (and henceforward referred to as FFT and IFFT) transforms between one
+   basis and another.  Rather than transformations of a signal between
+   the frequency domain and the time domain, these operators transform a
    polynomial between domains we call the "evaluation basis" and the
    "coefficient basis".
 
@@ -67,14 +66,14 @@ header = """
    arithmetic).
 
    FD_REEDSOL_GENERATE_IFFT: Inserts code to transform n input values
-   from the evaluation basis to the coefficient basis, descrbing a
+   from the evaluation basis to the coefficient basis, describing a
    polynomial P(x) of degree no more than n such that P(b) = in0,
    P(b+1)=in1, ... P(b+n-1)=in_{n-1} (where this arithmetic on b is
    integer arithmetic, not GF(2^8) arithmetic).
 
-   For both macros, n must be a power of 2 (only 4, 8, 16, 32 are
-   emitted by the code generator at the moment), and b must be a
-   non-negative multiple of n no more than 32.  Both b and n must be
+   For both macros, n must be a power of 2 (4, 8, 16, 32, 64, 128, and
+   256 are emitted by the code generator at the moment), and b must be a
+   non-negative multiple of n no more than 134.  Both b and n must be
    literal integer values.
 
    The remaining n arguments should be vector variables of type gf_t.
@@ -90,6 +89,12 @@ header = """
 #define FD_REEDSOL_GENERATE_FFT(  n, b, ...) FD_REEDSOL_PRIVATE_EXPAND( FD_REEDSOL_FFT_IMPL_##n,   FD_CONCAT4(FD_REEDSOL_FFT_CONSTANTS_,  n, _, b),  __VA_ARGS__ )
 #define FD_REEDSOL_GENERATE_IFFT( n, b, ...) FD_REEDSOL_PRIVATE_EXPAND( FD_REEDSOL_IFFT_IMPL_##n,  FD_CONCAT4(FD_REEDSOL_IFFT_CONSTANTS_, n, _, b),  __VA_ARGS__ )
 
+/* For n>=64, this header also declares
+          void fd_reedsol_{fft,ifft}_n_b( gf_t *, ... )
+   that takes n gf_t elements by reference.  The arguments are used for
+   input and output, and it performs the same operation as the similarly
+   named macro, but this signature allows the function to be defined in
+   a different compilation unit to speed up compile times. */
 """
 
 outf = open('fd_reedsol_fft.h', "wt")
@@ -134,7 +139,7 @@ def print_macro(macro_name, args, lines, indent=2):
     for line in lines:
         print(" "*(2*indent) + line + " "*(maxwidth-len(line)-1-2*indent) + "\\", file=outf)
     print(" "*indent + "} while( 0 )", file=outf)
-    print("\n\n", file=outf)
+    print("", file=outf)
 
 def op_fft( h, beta, i_round, r_offset ):
     # print(f"Calling a_fft( {h}, {beta}, {i_round}, {r_offset} )")
@@ -206,6 +211,10 @@ for N in (256, 128, 64, 32, 16, 8, 4):
         current_vars[i1] = fo1
     print_macro(f"FD_REEDSOL_IFFT_IMPL_{N}", [f"c_{j:02}" for j in range(len(const_to_cidx))] + inputs, macro_lines)
 
+    if N>=64:
+        for shift in range(0, 67*2, N):
+            print(f"void fd_reedsol_ifft_{N}_{shift:<2}( " + ', '.join(['gf_t*']*N) + " );", file=outf)
+
     macro_lines = [ ]
     butterflies = op_fft(N, shift, 0, 0)
 
@@ -231,4 +240,56 @@ for N in (256, 128, 64, 32, 16, 8, 4):
         current_vars[i1] = fo1
     print_macro(f"FD_REEDSOL_FFT_IMPL_{N}", [f"c_{j:02}" for j in range(len(const_to_cidx))] + inputs, macro_lines)
 
+    if N>=64:
+        for shift in range(0, 67*2, N):
+            print(f"void fd_reedsol_fft_{N}_{shift:<2}( " + ', '.join(['gf_t*']*N) + " );", file=outf)
+
 print("#endif /* HEADER_fd_src_ballet_reedsol_fd_reedsol_fft_h */", file=outf)
+
+for N in (256, 128, 64):
+    for shift in range(0, 67*2, N):
+        with open(f'wrapped_impl/fd_reedsol_fft_impl_{N}_{shift}.c', "wt") as outf:
+            print('#include "../fd_reedsol_fft.h"', file=outf)
+            print('\nvoid', file=outf)
+            fn_name = f"fd_reedsol_fft_{N}_{shift}( "
+            print(fn_name + "gf_t * _in00,", file=outf)
+            for l in range(1, N):
+                if l<N-1:
+                    _next = ","
+                else:
+                    _next = " ) {"
+                print(" "*len(fn_name) + f"gf_t * _in{l:02}{_next}", file=outf)
+
+            for l in range(0, N):
+                print(f"  gf_t in{l:02} = *_in{l:02};", file=outf)
+
+            print("", file=outf)
+
+            print(f"  FD_REEDSOL_GENERATE_FFT( {N:2}, {shift:2}, {', '.join([f'in{l:02}' for l in range(N) ])} );", file=outf)
+
+            for l in range(0, N):
+                print(f"  *_in{l:02} = in{l:02};", file=outf)
+
+            print("}", file=outf)
+
+            print('\nvoid', file=outf)
+            fn_name = f"fd_reedsol_ifft_{N}_{shift}( "
+            print(fn_name + "gf_t * _in00,", file=outf)
+            for l in range(1, N):
+                if l<N-1:
+                    _next = ","
+                else:
+                    _next = " ) {"
+                print(" "*len(fn_name) + f"gf_t * _in{l:02}{_next}", file=outf)
+
+            for l in range(0, N):
+                print(f"  gf_t in{l:02} = *_in{l:02};", file=outf)
+
+            print("", file=outf)
+
+            print(f"  FD_REEDSOL_GENERATE_IFFT( {N:2}, {shift:2}, {', '.join([f'in{l:02}' for l in range(N) ])} );", file=outf)
+
+            for l in range(0, N):
+                print(f"  *_in{l:02} = in{l:02};", file=outf)
+
+            print("}", file=outf)

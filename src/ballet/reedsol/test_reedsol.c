@@ -262,7 +262,8 @@ test_linearity( linear_func_t to_test,
 
 #define LOAD_VAR(offset, binary) gf_t v##binary = gf_ldu( inputs[offset] );
 #define STORE_VAR(offset, binary) gf_stu( outputs[offset], v##binary );
-#define VAR(offset, binary) v##binary
+#define VAR(   offset, binary)  v##binary
+#define REFVAR(offset, binary) &v##binary
 #define COMMA() ,
 #define NO_SEP()
 
@@ -292,6 +293,32 @@ wrapped_ifft_##N##_shift( linear_chunk_t * inputs, linear_chunk_t * outputs ) { 
     REPEAT_##N(STORE_VAR, NO_SEP , 0, ) \
 }
 
+#define WRAP_FFT2(N) \
+static void \
+wrapped_fft_##N( linear_chunk_t * inputs, linear_chunk_t * outputs ) { \
+    REPEAT_##N(LOAD_VAR, NO_SEP , 0, ) \
+    fd_reedsol_fft_##N##_0( REPEAT_##N(REFVAR, COMMA, 0, ) ); \
+    REPEAT_##N(STORE_VAR, NO_SEP , 0, ) \
+} \
+static void \
+wrapped_fft_##N##_shift( linear_chunk_t * inputs, linear_chunk_t * outputs ) { \
+    REPEAT_##N(LOAD_VAR, NO_SEP , 0, ) \
+    fd_reedsol_fft_##N##_##N( REPEAT_##N(REFVAR, COMMA, 0, ) ); \
+    REPEAT_##N(STORE_VAR, NO_SEP , 0, ) \
+} \
+static void \
+wrapped_ifft_##N( linear_chunk_t * inputs, linear_chunk_t * outputs ) { \
+    REPEAT_##N(LOAD_VAR, NO_SEP , 0, ) \
+    fd_reedsol_ifft_##N##_0( REPEAT_##N(REFVAR, COMMA, 0, ) ); \
+    REPEAT_##N(STORE_VAR, NO_SEP , 0, ) \
+} \
+static void \
+wrapped_ifft_##N##_shift( linear_chunk_t * inputs, linear_chunk_t * outputs ) { \
+    REPEAT_##N(LOAD_VAR, NO_SEP , 0, ) \
+    fd_reedsol_ifft_##N##_##N( REPEAT_##N(REFVAR, COMMA, 0, ) ); \
+    REPEAT_##N(STORE_VAR, NO_SEP , 0, ) \
+}
+
 #define INVOKE(M, ...) M( __VA_ARGS__)
 
 #define WRAP_PPT(N, K) \
@@ -299,6 +326,13 @@ static void \
 wrapped_ppt_##N##_## K ( linear_chunk_t * inputs, linear_chunk_t * outputs ) { \
     INVOKE(REPEAT_##N, LOAD_VAR, NO_SEP , 0, ) \
     FD_REEDSOL_GENERATE_PPT( N, K, REPEAT_##N(VAR, COMMA, 0, ) ); \
+    REPEAT_##N(STORE_VAR, NO_SEP , 0, ) \
+}
+#define WRAP_PPT2(N, K) \
+static void \
+wrapped_ppt_##N##_## K ( linear_chunk_t * inputs, linear_chunk_t * outputs ) { \
+    INVOKE(REPEAT_##N, LOAD_VAR, NO_SEP , 0, ) \
+    fd_reedsol_ppt_##N##_##K( REPEAT_##N(REFVAR, COMMA, 0, ) ); \
     REPEAT_##N(STORE_VAR, NO_SEP , 0, ) \
 }
 
@@ -313,28 +347,28 @@ wrapped_encode_generic( linear_chunk_t * inputs, linear_chunk_t * outputs ) {
   fd_reedsol_encode_fini( rs );
 }
 
-WRAP_FFT(4) WRAP_FFT(8) WRAP_FFT(16) WRAP_FFT(32) WRAP_FFT(64) WRAP_FFT(128)
+WRAP_FFT(4) WRAP_FFT(8) WRAP_FFT(16) WRAP_FFT(32) WRAP_FFT2(64) WRAP_FFT2(128)
 
 WRAP_PPT(16,  1) WRAP_PPT(16,  2) WRAP_PPT(16,  3) WRAP_PPT(16,  4)
 WRAP_PPT(16,  5) WRAP_PPT(16,  6) WRAP_PPT(16,  7) WRAP_PPT(16,  8)
 WRAP_PPT(16,  9) WRAP_PPT(16, 10) WRAP_PPT(16, 11) WRAP_PPT(16, 12)
 WRAP_PPT(16, 13) WRAP_PPT(16, 14) WRAP_PPT(16, 15)
 
-WRAP_PPT(32, 17) WRAP_PPT(32, 18) WRAP_PPT(32, 19) WRAP_PPT(32, 20)
-WRAP_PPT(32, 21) WRAP_PPT(32, 22) WRAP_PPT(32, 23) WRAP_PPT(32, 24)
-WRAP_PPT(32, 25) WRAP_PPT(32, 26) WRAP_PPT(32, 27) WRAP_PPT(32, 28)
-WRAP_PPT(32, 29) WRAP_PPT(32, 30) WRAP_PPT(32, 31)
+WRAP_PPT2(32, 17) WRAP_PPT2(32, 18) WRAP_PPT2(32, 19) WRAP_PPT2(32, 20)
+WRAP_PPT2(32, 21) WRAP_PPT2(32, 22) WRAP_PPT2(32, 23) WRAP_PPT2(32, 24)
+WRAP_PPT2(32, 25) WRAP_PPT2(32, 26) WRAP_PPT2(32, 27) WRAP_PPT2(32, 28)
+WRAP_PPT2(32, 29) WRAP_PPT2(32, 30) WRAP_PPT2(32, 31)
 
-WRAP_PPT(64, 33) WRAP_PPT(64, 34) WRAP_PPT(64, 35) WRAP_PPT(64, 36)
-WRAP_PPT(64, 37) WRAP_PPT(64, 38) WRAP_PPT(64, 39) WRAP_PPT(64, 40)
-WRAP_PPT(64, 41) WRAP_PPT(64, 42) WRAP_PPT(64, 43) WRAP_PPT(64, 44)
-WRAP_PPT(64, 45) WRAP_PPT(64, 46) WRAP_PPT(64, 47) WRAP_PPT(64, 48)
-WRAP_PPT(64, 49) WRAP_PPT(64, 50) WRAP_PPT(64, 51) WRAP_PPT(64, 52)
-WRAP_PPT(64, 53) WRAP_PPT(64, 54) WRAP_PPT(64, 55) WRAP_PPT(64, 56)
-WRAP_PPT(64, 57) WRAP_PPT(64, 58) WRAP_PPT(64, 59) WRAP_PPT(64, 60)
-WRAP_PPT(64, 61) WRAP_PPT(64, 62) WRAP_PPT(64, 63)
+WRAP_PPT2(64, 33) WRAP_PPT2(64, 34) WRAP_PPT2(64, 35) WRAP_PPT2(64, 36)
+WRAP_PPT2(64, 37) WRAP_PPT2(64, 38) WRAP_PPT2(64, 39) WRAP_PPT2(64, 40)
+WRAP_PPT2(64, 41) WRAP_PPT2(64, 42) WRAP_PPT2(64, 43) WRAP_PPT2(64, 44)
+WRAP_PPT2(64, 45) WRAP_PPT2(64, 46) WRAP_PPT2(64, 47) WRAP_PPT2(64, 48)
+WRAP_PPT2(64, 49) WRAP_PPT2(64, 50) WRAP_PPT2(64, 51) WRAP_PPT2(64, 52)
+WRAP_PPT2(64, 53) WRAP_PPT2(64, 54) WRAP_PPT2(64, 55) WRAP_PPT2(64, 56)
+WRAP_PPT2(64, 57) WRAP_PPT2(64, 58) WRAP_PPT2(64, 59) WRAP_PPT2(64, 60)
+WRAP_PPT2(64, 61) WRAP_PPT2(64, 62) WRAP_PPT2(64, 63)
 
-WRAP_PPT(128, 65) WRAP_PPT(128, 66) WRAP_PPT(128, 67)
+WRAP_PPT2(128, 65) WRAP_PPT2(128, 66) WRAP_PPT2(128, 67)
 
 static void
 test_linearity_all( fd_rng_t * rng ) {
@@ -414,7 +448,7 @@ test_linearity_all( fd_rng_t * rng ) {
 /* Reference implementations for s, S, and X as defined in
    fd_reedsol_fft.h */
 static uchar
-s_ref( int j, uchar x ) { /* j in [0, 5) */
+s_ref( int j, uchar x ) { /* j in [0, 6) */
   ulong mask = fd_ulong_mask_lsb( j );
   ulong min_x = x & (~mask);
   ulong max_x = min_x + mask + 1UL;
@@ -427,9 +461,9 @@ s_ref( int j, uchar x ) { /* j in [0, 5) */
 static uchar S_ref( int j, uchar x ) { return gfmul( s_ref( j, x ), gfinv( s_ref( j, (uchar)(1<<j) ) ) ); }
 
 static uchar
-X_ref( ulong i, uchar x ) { /* i in [0, 32) */
+X_ref( ulong i, uchar x ) { /* i in [0, 64) */
   uchar prod = (uchar)1;
-  for( int j=0UL; j<5; j++ ) if( i & (1UL<<j) ) prod = gfmul( prod, S_ref( j, x ) );
+  for( int j=0UL; j<6; j++ ) if( i & (1UL<<j) ) prod = gfmul( prod, S_ref( j, x ) );
   return prod;
 }
 
@@ -492,14 +526,16 @@ test_inv( linear_func_t f1, linear_func_t f2, ulong N ) {
 
 static void
 test_fft_all( void ) {
-  test_fft_single( wrapped_fft_4,         4UL,  0UL );  test_ifft_single( wrapped_ifft_4,         4UL,  0UL );
-  test_fft_single( wrapped_fft_4_shift,   4UL,  4UL );  test_ifft_single( wrapped_ifft_4_shift,   4UL,  4UL );
-  test_fft_single( wrapped_fft_8,         8UL,  0UL );  test_ifft_single( wrapped_ifft_8,         8UL,  0UL );
-  test_fft_single( wrapped_fft_8_shift,   8UL,  8UL );  test_ifft_single( wrapped_ifft_8_shift,   8UL,  8UL );
-  test_fft_single( wrapped_fft_16,       16UL,  0UL );  test_ifft_single( wrapped_ifft_16,       16UL,  0UL );
-  test_fft_single( wrapped_fft_16_shift, 16UL, 16UL );  test_ifft_single( wrapped_ifft_16_shift, 16UL, 16UL );
-  test_fft_single( wrapped_fft_32,       32UL,  0UL );  test_ifft_single( wrapped_ifft_32,       32UL,  0UL );
-  test_fft_single( wrapped_fft_32_shift, 32UL, 32UL );  test_ifft_single( wrapped_ifft_32_shift, 32UL, 32UL );
+  test_fft_single( wrapped_fft_4,          4UL,  0UL );  test_ifft_single( wrapped_ifft_4,          4UL,  0UL );
+  test_fft_single( wrapped_fft_4_shift,    4UL,  4UL );  test_ifft_single( wrapped_ifft_4_shift,    4UL,  4UL );
+  test_fft_single( wrapped_fft_8,          8UL,  0UL );  test_ifft_single( wrapped_ifft_8,          8UL,  0UL );
+  test_fft_single( wrapped_fft_8_shift,    8UL,  8UL );  test_ifft_single( wrapped_ifft_8_shift,    8UL,  8UL );
+  test_fft_single( wrapped_fft_16,        16UL,  0UL );  test_ifft_single( wrapped_ifft_16,        16UL,  0UL );
+  test_fft_single( wrapped_fft_16_shift,  16UL, 16UL );  test_ifft_single( wrapped_ifft_16_shift,  16UL, 16UL );
+  test_fft_single( wrapped_fft_32,        32UL,  0UL );  test_ifft_single( wrapped_ifft_32,        32UL,  0UL );
+  test_fft_single( wrapped_fft_32_shift,  32UL, 32UL );  test_ifft_single( wrapped_ifft_32_shift,  32UL, 32UL );
+  test_fft_single( wrapped_fft_64,        64UL,  0UL );  test_ifft_single( wrapped_ifft_64,        64UL,  0UL );
+  test_fft_single( wrapped_fft_64_shift,  64UL, 64UL );  test_ifft_single( wrapped_ifft_64_shift,  64UL, 64UL );
 
   test_inv( wrapped_fft_4,        wrapped_ifft_4,         4UL ); test_inv( wrapped_ifft_4,        wrapped_fft_4,         4UL );
   test_inv( wrapped_fft_8,        wrapped_ifft_8,         8UL ); test_inv( wrapped_ifft_8,        wrapped_fft_8,         8UL );
@@ -509,6 +545,9 @@ test_fft_all( void ) {
   test_inv( wrapped_fft_8_shift,  wrapped_ifft_8_shift,   8UL ); test_inv( wrapped_ifft_8_shift,  wrapped_fft_8_shift,   8UL );
   test_inv( wrapped_fft_16_shift, wrapped_ifft_16_shift, 16UL ); test_inv( wrapped_ifft_16_shift, wrapped_fft_16_shift, 16UL );
   test_inv( wrapped_fft_32_shift, wrapped_ifft_32_shift, 32UL ); test_inv( wrapped_ifft_32_shift, wrapped_fft_32_shift, 32UL );
+  /* test_inv only supports up to 32 at the moment */
+  /* test_inv( wrapped_fft_64_shift, wrapped_ifft_64_shift, 64UL ); test_inv( wrapped_ifft_64_shift, wrapped_fft_64_shift, 64UL );
+     test_inv( wrapped_fft_64,       wrapped_ifft_64,       64UL ); test_inv( wrapped_ifft_64,       wrapped_fft_64,       64UL ); */
 }
 
 static void

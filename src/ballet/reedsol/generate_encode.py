@@ -13,7 +13,9 @@ def make_encode(min_data_shreds, max_data_shreds, max_parity_shreds):
     with open(f'fd_reedsol_encode_{n}.c', 'wt') as outf:
         cprint('#include "fd_reedsol_ppt.h"')
 
-        fn_name = f'void fd_reedsol_private_encode_{n}('
+        cprint('')
+        cprint('void')
+        fn_name = f'fd_reedsol_private_encode_{n}('
         cprint(fn_name + " ulong                 shred_sz,")
         cprint(" "*len(fn_name) + " uchar const * const * data_shred,")
         cprint(" "*len(fn_name) + " ulong                 data_shred_cnt,")
@@ -36,10 +38,16 @@ def make_encode(min_data_shreds, max_data_shreds, max_parity_shreds):
         cprint("}")
         all_vars = [ f'in{k:02}' for k in range(n) ]
         cprint(f"#define ALL_VARS " + ", ".join(all_vars))
+        if n>=64:
+            cprint(f"#define ALL_VARS_REF &" + ", &".join(all_vars))
         cprint("switch( data_shred_cnt ) {")
-        cprint(f"case {n:2}UL: FD_REEDSOL_GENERATE_IFFT( {n:2}, {0:2}, ALL_VARS ); break;")
+        if n <= max_data_shreds:
+            cprint(f"case {n:2}UL: FD_REEDSOL_GENERATE_IFFT( {n:2}, {0:2}, ALL_VARS ); break;")
         for k in range(max_data_shreds-1, min_data_shreds-1, -1):
-            cprint(f"case {k:2}UL: FD_REEDSOL_GENERATE_PPT(  {n:2}, {k:2}, ALL_VARS ); break;")
+            if n<64:
+                cprint(f"case {k:2}UL: FD_REEDSOL_GENERATE_PPT(  {n:2}, {k:2}, ALL_VARS ); break;")
+            else:
+                cprint(f"case {k:2}UL: fd_reedsol_ppt_{n}_{k}( ALL_VARS_REF ); break;")
         cprint("}")
         cprint(f"/* That generated the first {n}-data_shred_cnt parity shreds in the")
         cprint(f"   last {n}-data_shred_cnt variables. We might only need")

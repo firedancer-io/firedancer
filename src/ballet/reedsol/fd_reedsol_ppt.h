@@ -77,24 +77,33 @@
    arbitrary subset of them.  This file only implements the specific
    case. */
 
-   /* FD_REEDSOL_GENERATE_PPT: Inserts code to compute the principal
-   pivot transform of size n (must be a power of 2, currently only 16
-   and 32 are emitted by the code generator) and when you have k known
-   elements of the evaluation domain (i.e. k data shreds).  k must be in
-   [1,n-1].  The remaining n arguments should be vector variables of
+/* FD_REEDSOL_GENERATE_PPT: Inserts code to compute the principal pivot
+   transform of size n (must be a power of 2, currently 16, 32, 64, and
+   128 are emitted by the code generator) and when you have k known
+   elements of the evaluation domain (i.e. k data shreds).  k must be
+   less than n, but the code generator adds the additional restrictions
+   that k<=67 and only the smallest n is chosen for each k.
+   Additionally, The remaining n arguments should be vector variables of
    type gf_t (which is a typedef for wb_t in the AVX case).  These are
    used as input and output, since there's no other good way to return n
    vector values.  As such, this macro is not robust.
 
    As explained above, the PPT computes the k non-zero elements of the
    coefficient domain, followed by the first n-k parity elements.  If
-   the last n-k return values are repalced with zero, they can then be
+   the last n-k return values are replaced with zero, they can then be
    used with FD_REEDSOL_GENERATE_FFT and the appropriate shift to
    compute many more parity elements.  The PPT is computed in a
    vectorized fashion, i.e. the PPT of the ith byte is computed and
    stored in the ith byte of the output for each i independently. */
 
 #define FD_REEDSOL_GENERATE_PPT(n, k, ...) FD_REEDSOL_PPT_IMPL_##n##_##k( __VA_ARGS__ )
+
+/* For n>=32, this header also declares
+          void fd_reedsol_ppt_n_k( gf_t *, ... )
+   that takes n gf_t elements by reference.  The arguments are used for
+   input and output, and it performs the same operation as the similarly
+   named macro, but this signature allows the function to be defined in
+   a different compilation unit to speed up compile times. */
 
 #define GF_MUL22( inout0, inout1, c00, c01, c10, c11)                               \
   do {                                                                              \
@@ -895,6 +904,7 @@
     in07 = GF_ADD( GF_MUL( scratch_15, 0 ), in07 );                                               \
   } while( 0 )
 
+void fd_reedsol_ppt_32_17( gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t* );
 #define FD_REEDSOL_PPT_IMPL_32_17( in00, in01, in02, in03, in04, in05, in06, in07, in08, in09, in10, in11, in12, in13, in14, in15, in16, in17, in18, in19, in20, in21, in22, in23, in24, in25, in26, in27, in28   , \
     in29, in30, in31)                                                                                                                                                                                               \
   do {                                                                                                                                                                                                              \
@@ -1009,6 +1019,7 @@
     in15 = GF_ADD( GF_MUL( scratch_31, 0 ), in15 );                                                                                                                                                                 \
   } while( 0 )
 
+void fd_reedsol_ppt_32_18( gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t* );
 #define FD_REEDSOL_PPT_IMPL_32_18( in00, in01, in02, in03, in04, in05, in06, in07, in08, in09, in10, in11, in12, in13, in14, in15, in16, in17, in18, in19, in20, in21, in22, in23, in24, in25, in26, in27, in28  , \
     in29, in30, in31)                                                                                                                                                                                              \
   do {                                                                                                                                                                                                             \
@@ -1131,6 +1142,7 @@
     in15 = GF_ADD( GF_MUL( scratch_31, 0 ), in15 );                                                                                                                                                                \
   } while( 0 )
 
+void fd_reedsol_ppt_32_19( gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t* );
 #define FD_REEDSOL_PPT_IMPL_32_19( in00, in01, in02, in03, in04, in05, in06, in07, in08, in09, in10, in11, in12, in13, in14, in15, in16, in17, in18, in19, in20, in21, in22, in23, in24, in25, in26, in27, in28  , \
     in29, in30, in31)                                                                                                                                                                                              \
   do {                                                                                                                                                                                                             \
@@ -1253,6 +1265,7 @@
     in15 = GF_ADD( GF_MUL( scratch_31, 0 ), in15 );                                                                                                                                                                \
   } while( 0 )
 
+void fd_reedsol_ppt_32_20( gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t* );
 #define FD_REEDSOL_PPT_IMPL_32_20( in00, in01, in02, in03, in04, in05, in06, in07, in08, in09, in10, in11, in12, in13, in14, in15, in16, in17, in18, in19, in20, in21, in22, in23, in24, in25, in26, in27, in28  , \
     in29, in30, in31)                                                                                                                                                                                              \
   do {                                                                                                                                                                                                             \
@@ -1372,6 +1385,7 @@
     in15 = GF_ADD( GF_MUL( scratch_31, 0 ), in15 );                                                                                                                                                                \
   } while( 0 )
 
+void fd_reedsol_ppt_32_21( gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t* );
 #define FD_REEDSOL_PPT_IMPL_32_21( in00, in01, in02, in03, in04, in05, in06, in07, in08, in09, in10, in11, in12, in13, in14, in15, in16, in17, in18, in19, in20, in21, in22, in23, in24, in25, in26, in27, in28  , \
     in29, in30, in31)                                                                                                                                                                                              \
   do {                                                                                                                                                                                                             \
@@ -1494,6 +1508,7 @@
     in15 = GF_ADD( GF_MUL( scratch_31, 0 ), in15 );                                                                                                                                                                \
   } while( 0 )
 
+void fd_reedsol_ppt_32_22( gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t* );
 #define FD_REEDSOL_PPT_IMPL_32_22( in00, in01, in02, in03, in04, in05, in06, in07, in08, in09, in10, in11, in12, in13, in14, in15, in16, in17, in18, in19, in20, in21, in22, in23, in24, in25, in26, in27, in28  , \
     in29, in30, in31)                                                                                                                                                                                              \
   do {                                                                                                                                                                                                             \
@@ -1616,6 +1631,7 @@
     in15 = GF_ADD( GF_MUL( scratch_31, 0 ), in15 );                                                                                                                                                                \
   } while( 0 )
 
+void fd_reedsol_ppt_32_23( gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t* );
 #define FD_REEDSOL_PPT_IMPL_32_23( in00, in01, in02, in03, in04, in05, in06, in07, in08, in09, in10, in11, in12, in13, in14, in15, in16, in17, in18, in19, in20, in21, in22, in23, in24, in25, in26, in27, in28  , \
     in29, in30, in31)                                                                                                                                                                                              \
   do {                                                                                                                                                                                                             \
@@ -1730,6 +1746,7 @@
     in15 = GF_ADD( GF_MUL( scratch_31, 0 ), in15 );                                                                                                                                                                \
   } while( 0 )
 
+void fd_reedsol_ppt_32_24( gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t* );
 #define FD_REEDSOL_PPT_IMPL_32_24( in00, in01, in02, in03, in04, in05, in06, in07, in08, in09, in10, in11, in12, in13, in14, in15, in16, in17, in18, in19, in20, in21, in22, in23, in24, in25, in26, in27, in28  , \
     in29, in30, in31)                                                                                                                                                                                              \
   do {                                                                                                                                                                                                             \
@@ -1827,6 +1844,7 @@
     in15 = GF_ADD( GF_MUL( scratch_31, 0 ), in15 );                                                                                                                                                                \
   } while( 0 )
 
+void fd_reedsol_ppt_32_25( gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t* );
 #define FD_REEDSOL_PPT_IMPL_32_25( in00, in01, in02, in03, in04, in05, in06, in07, in08, in09, in10, in11, in12, in13, in14, in15, in16, in17, in18, in19, in20, in21, in22, in23, in24, in25, in26, in27, in28 , \
     in29, in30, in31)                                                                                                                                                                                             \
   do {                                                                                                                                                                                                            \
@@ -1932,6 +1950,7 @@
     in15 = GF_ADD( GF_MUL( scratch_31, 0 ), in15 );                                                                                                                                                               \
   } while( 0 )
 
+void fd_reedsol_ppt_32_26( gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t* );
 #define FD_REEDSOL_PPT_IMPL_32_26( in00, in01, in02, in03, in04, in05, in06, in07, in08, in09, in10, in11, in12, in13, in14, in15, in16, in17, in18, in19, in20, in21, in22, in23, in24, in25, in26, in27, in28, \
     in29, in30, in31)                                                                                                                                                                                            \
   do {                                                                                                                                                                                                           \
@@ -2037,6 +2056,7 @@
     in15 = GF_ADD( GF_MUL( scratch_31, 0 ), in15 );                                                                                                                                                              \
   } while( 0 )
 
+void fd_reedsol_ppt_32_27( gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t* );
 #define FD_REEDSOL_PPT_IMPL_32_27( in00, in01, in02, in03, in04, in05, in06, in07, in08, in09, in10, in11, in12, in13, in14, in15, in16, in17, in18, in19, in20, in21, in22, in23, in24, \
     in25, in26, in27, in28, in29, in30, in31)                                                                                                                                            \
   do {                                                                                                                                                                                   \
@@ -2134,6 +2154,7 @@
     in15 = GF_ADD( GF_MUL( scratch_31, 0 ), in15 );                                                                                                                                      \
   } while( 0 )
 
+void fd_reedsol_ppt_32_28( gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t* );
 #define FD_REEDSOL_PPT_IMPL_32_28( in00, in01, in02, in03, in04, in05, in06, in07, in08, in09, in10, in11, in12, in13, in14, in15, in16, in17, in18, in19, in20, \
     in21, in22, in23, in24, in25, in26, in27, in28, in29, in30, in31)                                                                                            \
   do {                                                                                                                                                           \
@@ -2220,6 +2241,7 @@
     in15 = GF_ADD( GF_MUL( scratch_31, 0 ), in15 );                                                                                                              \
   } while( 0 )
 
+void fd_reedsol_ppt_32_29( gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t* );
 #define FD_REEDSOL_PPT_IMPL_32_29( in00, in01, in02, in03, in04, in05, in06, in07, in08, in09, in10, in11, in12, in13, in14, in15, in16, in17    , \
     in18, in19, in20, in21, in22, in23, in24, in25, in26, in27, in28, in29, in30, in31)                                                            \
   do {                                                                                                                                             \
@@ -2301,6 +2323,7 @@
     in15 = GF_ADD( GF_MUL( scratch_31, 0 ), in15 );                                                                                                \
   } while( 0 )
 
+void fd_reedsol_ppt_32_30( gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t* );
 #define FD_REEDSOL_PPT_IMPL_32_30( in00, in01, in02, in03, in04, in05, in06, in07, in08, in09, in10, in11, in12, in13, in14, in15, in16, in17    , \
     in18, in19, in20, in21, in22, in23, in24, in25, in26, in27, in28, in29, in30, in31)                                                            \
   do {                                                                                                                                             \
@@ -2374,6 +2397,7 @@
     in15 = GF_ADD( GF_MUL( scratch_31, 0 ), in15 );                                                                                                \
   } while( 0 )
 
+void fd_reedsol_ppt_32_31( gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t* );
 #define FD_REEDSOL_PPT_IMPL_32_31( in00, in01, in02, in03, in04, in05, in06, in07, in08, in09, in10, in11, in12, in13, in14, in15, in16, in17    , \
     in18, in19, in20, in21, in22, in23, in24, in25, in26, in27, in28, in29, in30, in31)                                                            \
   do {                                                                                                                                             \
@@ -2431,6 +2455,7 @@
     in15 = GF_ADD( GF_MUL( scratch_31, 0 ), in15 );                                                                                                \
   } while( 0 )
 
+void fd_reedsol_ppt_64_33( gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t* );
 #define FD_REEDSOL_PPT_IMPL_64_33( in00, in01, in02, in03, in04, in05, in06, in07, in08, in09, in10, in11, in12, in13, in14, in15, in16, in17, in18, in19, in20, in21, in22, in23, in24, in25, in26, in27, in28, in29, in30, in31, in32, in33    , \
     in34, in35, in36, in37, in38, in39, in40, in41, in42, in43, in44, in45, in46, in47, in48, in49, in50, in51, in52, in53, in54, in55, in56, in57, in58, in59, in60, in61, in62, in63)                                                            \
   do {                                                                                                                                                                                                                                             \
@@ -2647,6 +2672,7 @@
     in31 = GF_ADD( GF_MUL( scratch_63, 0 ), in31 );                                                                                                                                                                                                \
   } while( 0 )
 
+void fd_reedsol_ppt_64_34( gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t* );
 #define FD_REEDSOL_PPT_IMPL_64_34( in00, in01, in02, in03, in04, in05, in06, in07, in08, in09, in10, in11, in12, in13, in14, in15, in16, in17, in18, in19, in20, in21, in22, in23, in24, in25, in26, in27, in28, in29, in30, in31, in32, in33    , \
     in34, in35, in36, in37, in38, in39, in40, in41, in42, in43, in44, in45, in46, in47, in48, in49, in50, in51, in52, in53, in54, in55, in56, in57, in58, in59, in60, in61, in62, in63)                                                            \
   do {                                                                                                                                                                                                                                             \
@@ -2875,6 +2901,7 @@
     in31 = GF_ADD( GF_MUL( scratch_63, 0 ), in31 );                                                                                                                                                                                                \
   } while( 0 )
 
+void fd_reedsol_ppt_64_35( gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t* );
 #define FD_REEDSOL_PPT_IMPL_64_35( in00, in01, in02, in03, in04, in05, in06, in07, in08, in09, in10, in11, in12, in13, in14, in15, in16, in17, in18, in19, in20, in21, in22, in23, in24, in25, in26, in27, in28, in29, in30, in31, in32, in33    , \
     in34, in35, in36, in37, in38, in39, in40, in41, in42, in43, in44, in45, in46, in47, in48, in49, in50, in51, in52, in53, in54, in55, in56, in57, in58, in59, in60, in61, in62, in63)                                                            \
   do {                                                                                                                                                                                                                                             \
@@ -3107,6 +3134,7 @@
     in31 = GF_ADD( GF_MUL( scratch_63, 0 ), in31 );                                                                                                                                                                                                \
   } while( 0 )
 
+void fd_reedsol_ppt_64_36( gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t* );
 #define FD_REEDSOL_PPT_IMPL_64_36( in00, in01, in02, in03, in04, in05, in06, in07, in08, in09, in10, in11, in12, in13, in14, in15, in16, in17, in18, in19, in20, in21, in22, in23, in24, in25, in26, in27, in28, in29, in30, in31, in32, in33    , \
     in34, in35, in36, in37, in38, in39, in40, in41, in42, in43, in44, in45, in46, in47, in48, in49, in50, in51, in52, in53, in54, in55, in56, in57, in58, in59, in60, in61, in62, in63)                                                            \
   do {                                                                                                                                                                                                                                             \
@@ -3340,6 +3368,7 @@
     in31 = GF_ADD( GF_MUL( scratch_63, 0 ), in31 );                                                                                                                                                                                                \
   } while( 0 )
 
+void fd_reedsol_ppt_64_37( gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t* );
 #define FD_REEDSOL_PPT_IMPL_64_37( in00, in01, in02, in03, in04, in05, in06, in07, in08, in09, in10, in11, in12, in13, in14, in15, in16, in17, in18, in19, in20, in21, in22, in23, in24, in25, in26, in27, in28, in29, in30, in31, in32, in33    , \
     in34, in35, in36, in37, in38, in39, in40, in41, in42, in43, in44, in45, in46, in47, in48, in49, in50, in51, in52, in53, in54, in55, in56, in57, in58, in59, in60, in61, in62, in63)                                                            \
   do {                                                                                                                                                                                                                                             \
@@ -3580,6 +3609,7 @@
     in31 = GF_ADD( GF_MUL( scratch_63, 0 ), in31 );                                                                                                                                                                                                \
   } while( 0 )
 
+void fd_reedsol_ppt_64_38( gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t* );
 #define FD_REEDSOL_PPT_IMPL_64_38( in00, in01, in02, in03, in04, in05, in06, in07, in08, in09, in10, in11, in12, in13, in14, in15, in16, in17, in18, in19, in20, in21, in22, in23, in24, in25, in26, in27, in28, in29, in30, in31, in32, in33    , \
     in34, in35, in36, in37, in38, in39, in40, in41, in42, in43, in44, in45, in46, in47, in48, in49, in50, in51, in52, in53, in54, in55, in56, in57, in58, in59, in60, in61, in62, in63)                                                            \
   do {                                                                                                                                                                                                                                             \
@@ -3824,6 +3854,7 @@
     in31 = GF_ADD( GF_MUL( scratch_63, 0 ), in31 );                                                                                                                                                                                                \
   } while( 0 )
 
+void fd_reedsol_ppt_64_39( gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t* );
 #define FD_REEDSOL_PPT_IMPL_64_39( in00, in01, in02, in03, in04, in05, in06, in07, in08, in09, in10, in11, in12, in13, in14, in15, in16, in17, in18, in19, in20, in21, in22, in23, in24, in25, in26, in27, in28, in29, in30, in31, in32, in33    , \
     in34, in35, in36, in37, in38, in39, in40, in41, in42, in43, in44, in45, in46, in47, in48, in49, in50, in51, in52, in53, in54, in55, in56, in57, in58, in59, in60, in61, in62, in63)                                                            \
   do {                                                                                                                                                                                                                                             \
@@ -4064,6 +4095,7 @@
     in31 = GF_ADD( GF_MUL( scratch_63, 0 ), in31 );                                                                                                                                                                                                \
   } while( 0 )
 
+void fd_reedsol_ppt_64_40( gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t* );
 #define FD_REEDSOL_PPT_IMPL_64_40( in00, in01, in02, in03, in04, in05, in06, in07, in08, in09, in10, in11, in12, in13, in14, in15, in16, in17, in18, in19, in20, in21, in22, in23, in24, in25, in26, in27, in28, in29, in30, in31, in32, in33    , \
     in34, in35, in36, in37, in38, in39, in40, in41, in42, in43, in44, in45, in46, in47, in48, in49, in50, in51, in52, in53, in54, in55, in56, in57, in58, in59, in60, in61, in62, in63)                                                            \
   do {                                                                                                                                                                                                                                             \
@@ -4292,6 +4324,7 @@
     in31 = GF_ADD( GF_MUL( scratch_63, 0 ), in31 );                                                                                                                                                                                                \
   } while( 0 )
 
+void fd_reedsol_ppt_64_41( gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t* );
 #define FD_REEDSOL_PPT_IMPL_64_41( in00, in01, in02, in03, in04, in05, in06, in07, in08, in09, in10, in11, in12, in13, in14, in15, in16, in17, in18, in19, in20, in21, in22, in23, in24, in25, in26, in27, in28, in29, in30, in31, in32, in33    , \
     in34, in35, in36, in37, in38, in39, in40, in41, in42, in43, in44, in45, in46, in47, in48, in49, in50, in51, in52, in53, in54, in55, in56, in57, in58, in59, in60, in61, in62, in63)                                                            \
   do {                                                                                                                                                                                                                                             \
@@ -4532,6 +4565,7 @@
     in31 = GF_ADD( GF_MUL( scratch_63, 0 ), in31 );                                                                                                                                                                                                \
   } while( 0 )
 
+void fd_reedsol_ppt_64_42( gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t* );
 #define FD_REEDSOL_PPT_IMPL_64_42( in00, in01, in02, in03, in04, in05, in06, in07, in08, in09, in10, in11, in12, in13, in14, in15, in16, in17, in18, in19, in20, in21, in22, in23, in24, in25, in26, in27, in28, in29, in30, in31, in32, in33    , \
     in34, in35, in36, in37, in38, in39, in40, in41, in42, in43, in44, in45, in46, in47, in48, in49, in50, in51, in52, in53, in54, in55, in56, in57, in58, in59, in60, in61, in62, in63)                                                            \
   do {                                                                                                                                                                                                                                             \
@@ -4776,6 +4810,7 @@
     in31 = GF_ADD( GF_MUL( scratch_63, 0 ), in31 );                                                                                                                                                                                                \
   } while( 0 )
 
+void fd_reedsol_ppt_64_43( gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t* );
 #define FD_REEDSOL_PPT_IMPL_64_43( in00, in01, in02, in03, in04, in05, in06, in07, in08, in09, in10, in11, in12, in13, in14, in15, in16, in17, in18, in19, in20, in21, in22, in23, in24, in25, in26, in27, in28, in29, in30, in31, in32, in33    , \
     in34, in35, in36, in37, in38, in39, in40, in41, in42, in43, in44, in45, in46, in47, in48, in49, in50, in51, in52, in53, in54, in55, in56, in57, in58, in59, in60, in61, in62, in63)                                                            \
   do {                                                                                                                                                                                                                                             \
@@ -5016,6 +5051,7 @@
     in31 = GF_ADD( GF_MUL( scratch_63, 0 ), in31 );                                                                                                                                                                                                \
   } while( 0 )
 
+void fd_reedsol_ppt_64_44( gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t* );
 #define FD_REEDSOL_PPT_IMPL_64_44( in00, in01, in02, in03, in04, in05, in06, in07, in08, in09, in10, in11, in12, in13, in14, in15, in16, in17, in18, in19, in20, in21, in22, in23, in24, in25, in26, in27, in28, in29, in30, in31, in32, in33    , \
     in34, in35, in36, in37, in38, in39, in40, in41, in42, in43, in44, in45, in46, in47, in48, in49, in50, in51, in52, in53, in54, in55, in56, in57, in58, in59, in60, in61, in62, in63)                                                            \
   do {                                                                                                                                                                                                                                             \
@@ -5249,6 +5285,7 @@
     in31 = GF_ADD( GF_MUL( scratch_63, 0 ), in31 );                                                                                                                                                                                                \
   } while( 0 )
 
+void fd_reedsol_ppt_64_45( gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t* );
 #define FD_REEDSOL_PPT_IMPL_64_45( in00, in01, in02, in03, in04, in05, in06, in07, in08, in09, in10, in11, in12, in13, in14, in15, in16, in17, in18, in19, in20, in21, in22, in23, in24, in25, in26, in27, in28, in29, in30, in31, in32, in33    , \
     in34, in35, in36, in37, in38, in39, in40, in41, in42, in43, in44, in45, in46, in47, in48, in49, in50, in51, in52, in53, in54, in55, in56, in57, in58, in59, in60, in61, in62, in63)                                                            \
   do {                                                                                                                                                                                                                                             \
@@ -5481,6 +5518,7 @@
     in31 = GF_ADD( GF_MUL( scratch_63, 0 ), in31 );                                                                                                                                                                                                \
   } while( 0 )
 
+void fd_reedsol_ppt_64_46( gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t* );
 #define FD_REEDSOL_PPT_IMPL_64_46( in00, in01, in02, in03, in04, in05, in06, in07, in08, in09, in10, in11, in12, in13, in14, in15, in16, in17, in18, in19, in20, in21, in22, in23, in24, in25, in26, in27, in28, in29, in30, in31, in32, in33    , \
     in34, in35, in36, in37, in38, in39, in40, in41, in42, in43, in44, in45, in46, in47, in48, in49, in50, in51, in52, in53, in54, in55, in56, in57, in58, in59, in60, in61, in62, in63)                                                            \
   do {                                                                                                                                                                                                                                             \
@@ -5709,6 +5747,7 @@
     in31 = GF_ADD( GF_MUL( scratch_63, 0 ), in31 );                                                                                                                                                                                                \
   } while( 0 )
 
+void fd_reedsol_ppt_64_47( gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t* );
 #define FD_REEDSOL_PPT_IMPL_64_47( in00, in01, in02, in03, in04, in05, in06, in07, in08, in09, in10, in11, in12, in13, in14, in15, in16, in17, in18, in19, in20, in21, in22, in23, in24, in25, in26, in27, in28, in29, in30, in31, in32, in33    , \
     in34, in35, in36, in37, in38, in39, in40, in41, in42, in43, in44, in45, in46, in47, in48, in49, in50, in51, in52, in53, in54, in55, in56, in57, in58, in59, in60, in61, in62, in63)                                                            \
   do {                                                                                                                                                                                                                                             \
@@ -5925,6 +5964,7 @@
     in31 = GF_ADD( GF_MUL( scratch_63, 0 ), in31 );                                                                                                                                                                                                \
   } while( 0 )
 
+void fd_reedsol_ppt_64_48( gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t* );
 #define FD_REEDSOL_PPT_IMPL_64_48( in00, in01, in02, in03, in04, in05, in06, in07, in08, in09, in10, in11, in12, in13, in14, in15, in16, in17, in18, in19, in20, in21, in22, in23, in24, in25, in26, in27, in28, in29, in30, in31, in32, in33    , \
     in34, in35, in36, in37, in38, in39, in40, in41, in42, in43, in44, in45, in46, in47, in48, in49, in50, in51, in52, in53, in54, in55, in56, in57, in58, in59, in60, in61, in62, in63)                                                            \
   do {                                                                                                                                                                                                                                             \
@@ -6111,6 +6151,7 @@
     in31 = GF_ADD( GF_MUL( scratch_63, 0 ), in31 );                                                                                                                                                                                                \
   } while( 0 )
 
+void fd_reedsol_ppt_64_49( gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t* );
 #define FD_REEDSOL_PPT_IMPL_64_49( in00, in01, in02, in03, in04, in05, in06, in07, in08, in09, in10, in11, in12, in13, in14, in15, in16, in17, in18, in19, in20, in21, in22, in23, in24, in25, in26, in27, in28, in29, in30, in31, in32, in33    , \
     in34, in35, in36, in37, in38, in39, in40, in41, in42, in43, in44, in45, in46, in47, in48, in49, in50, in51, in52, in53, in54, in55, in56, in57, in58, in59, in60, in61, in62, in63)                                                            \
   do {                                                                                                                                                                                                                                             \
@@ -6319,6 +6360,7 @@
     in31 = GF_ADD( GF_MUL( scratch_63, 0 ), in31 );                                                                                                                                                                                                \
   } while( 0 )
 
+void fd_reedsol_ppt_64_50( gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t* );
 #define FD_REEDSOL_PPT_IMPL_64_50( in00, in01, in02, in03, in04, in05, in06, in07, in08, in09, in10, in11, in12, in13, in14, in15, in16, in17, in18, in19, in20, in21, in22, in23, in24, in25, in26, in27, in28, in29, in30, in31, in32, in33    , \
     in34, in35, in36, in37, in38, in39, in40, in41, in42, in43, in44, in45, in46, in47, in48, in49, in50, in51, in52, in53, in54, in55, in56, in57, in58, in59, in60, in61, in62, in63)                                                            \
   do {                                                                                                                                                                                                                                             \
@@ -6531,6 +6573,7 @@
     in31 = GF_ADD( GF_MUL( scratch_63, 0 ), in31 );                                                                                                                                                                                                \
   } while( 0 )
 
+void fd_reedsol_ppt_64_51( gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t* );
 #define FD_REEDSOL_PPT_IMPL_64_51( in00, in01, in02, in03, in04, in05, in06, in07, in08, in09, in10, in11, in12, in13, in14, in15, in16, in17, in18, in19, in20, in21, in22, in23, in24, in25, in26, in27, in28, in29, in30, in31, in32, in33    , \
     in34, in35, in36, in37, in38, in39, in40, in41, in42, in43, in44, in45, in46, in47, in48, in49, in50, in51, in52, in53, in54, in55, in56, in57, in58, in59, in60, in61, in62, in63)                                                            \
   do {                                                                                                                                                                                                                                             \
@@ -6739,6 +6782,7 @@
     in31 = GF_ADD( GF_MUL( scratch_63, 0 ), in31 );                                                                                                                                                                                                \
   } while( 0 )
 
+void fd_reedsol_ppt_64_52( gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t* );
 #define FD_REEDSOL_PPT_IMPL_64_52( in00, in01, in02, in03, in04, in05, in06, in07, in08, in09, in10, in11, in12, in13, in14, in15, in16, in17, in18, in19, in20, in21, in22, in23, in24, in25, in26, in27, in28, in29, in30, in31, in32, in33    , \
     in34, in35, in36, in37, in38, in39, in40, in41, in42, in43, in44, in45, in46, in47, in48, in49, in50, in51, in52, in53, in54, in55, in56, in57, in58, in59, in60, in61, in62, in63)                                                            \
   do {                                                                                                                                                                                                                                             \
@@ -6939,6 +6983,7 @@
     in31 = GF_ADD( GF_MUL( scratch_63, 0 ), in31 );                                                                                                                                                                                                \
   } while( 0 )
 
+void fd_reedsol_ppt_64_53( gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t* );
 #define FD_REEDSOL_PPT_IMPL_64_53( in00, in01, in02, in03, in04, in05, in06, in07, in08, in09, in10, in11, in12, in13, in14, in15, in16, in17, in18, in19, in20, in21, in22, in23, in24, in25, in26, in27, in28, in29, in30, in31, in32, in33    , \
     in34, in35, in36, in37, in38, in39, in40, in41, in42, in43, in44, in45, in46, in47, in48, in49, in50, in51, in52, in53, in54, in55, in56, in57, in58, in59, in60, in61, in62, in63)                                                            \
   do {                                                                                                                                                                                                                                             \
@@ -7138,6 +7183,7 @@
     in31 = GF_ADD( GF_MUL( scratch_63, 0 ), in31 );                                                                                                                                                                                                \
   } while( 0 )
 
+void fd_reedsol_ppt_64_54( gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t* );
 #define FD_REEDSOL_PPT_IMPL_64_54( in00, in01, in02, in03, in04, in05, in06, in07, in08, in09, in10, in11, in12, in13, in14, in15, in16, in17, in18, in19, in20, in21, in22, in23, in24, in25, in26, in27, in28, in29, in30, in31, in32, in33    , \
     in34, in35, in36, in37, in38, in39, in40, in41, in42, in43, in44, in45, in46, in47, in48, in49, in50, in51, in52, in53, in54, in55, in56, in57, in58, in59, in60, in61, in62, in63)                                                            \
   do {                                                                                                                                                                                                                                             \
@@ -7333,6 +7379,7 @@
     in31 = GF_ADD( GF_MUL( scratch_63, 0 ), in31 );                                                                                                                                                                                                \
   } while( 0 )
 
+void fd_reedsol_ppt_64_55( gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t* );
 #define FD_REEDSOL_PPT_IMPL_64_55( in00, in01, in02, in03, in04, in05, in06, in07, in08, in09, in10, in11, in12, in13, in14, in15, in16, in17, in18, in19, in20, in21, in22, in23, in24, in25, in26, in27, in28, in29, in30, in31, in32, in33    , \
     in34, in35, in36, in37, in38, in39, in40, in41, in42, in43, in44, in45, in46, in47, in48, in49, in50, in51, in52, in53, in54, in55, in56, in57, in58, in59, in60, in61, in62, in63)                                                            \
   do {                                                                                                                                                                                                                                             \
@@ -7516,6 +7563,7 @@
     in31 = GF_ADD( GF_MUL( scratch_63, 0 ), in31 );                                                                                                                                                                                                \
   } while( 0 )
 
+void fd_reedsol_ppt_64_56( gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t* );
 #define FD_REEDSOL_PPT_IMPL_64_56( in00, in01, in02, in03, in04, in05, in06, in07, in08, in09, in10, in11, in12, in13, in14, in15, in16, in17, in18, in19, in20, in21, in22, in23, in24, in25, in26, in27, in28, in29, in30, in31, in32, in33    , \
     in34, in35, in36, in37, in38, in39, in40, in41, in42, in43, in44, in45, in46, in47, in48, in49, in50, in51, in52, in53, in54, in55, in56, in57, in58, in59, in60, in61, in62, in63)                                                            \
   do {                                                                                                                                                                                                                                             \
@@ -7679,6 +7727,7 @@
     in31 = GF_ADD( GF_MUL( scratch_63, 0 ), in31 );                                                                                                                                                                                                \
   } while( 0 )
 
+void fd_reedsol_ppt_64_57( gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t* );
 #define FD_REEDSOL_PPT_IMPL_64_57( in00, in01, in02, in03, in04, in05, in06, in07, in08, in09, in10, in11, in12, in13, in14, in15, in16, in17, in18, in19, in20, in21, in22, in23, in24, in25, in26, in27, in28, in29, in30, in31, in32, in33    , \
     in34, in35, in36, in37, in38, in39, in40, in41, in42, in43, in44, in45, in46, in47, in48, in49, in50, in51, in52, in53, in54, in55, in56, in57, in58, in59, in60, in61, in62, in63)                                                            \
   do {                                                                                                                                                                                                                                             \
@@ -7846,6 +7895,7 @@
     in31 = GF_ADD( GF_MUL( scratch_63, 0 ), in31 );                                                                                                                                                                                                \
   } while( 0 )
 
+void fd_reedsol_ppt_64_58( gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t* );
 #define FD_REEDSOL_PPT_IMPL_64_58( in00, in01, in02, in03, in04, in05, in06, in07, in08, in09, in10, in11, in12, in13, in14, in15, in16, in17, in18, in19, in20, in21, in22, in23, in24, in25, in26, in27, in28, in29, in30, in31, in32, in33    , \
     in34, in35, in36, in37, in38, in39, in40, in41, in42, in43, in44, in45, in46, in47, in48, in49, in50, in51, in52, in53, in54, in55, in56, in57, in58, in59, in60, in61, in62, in63)                                                            \
   do {                                                                                                                                                                                                                                             \
@@ -8009,6 +8059,7 @@
     in31 = GF_ADD( GF_MUL( scratch_63, 0 ), in31 );                                                                                                                                                                                                \
   } while( 0 )
 
+void fd_reedsol_ppt_64_59( gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t* );
 #define FD_REEDSOL_PPT_IMPL_64_59( in00, in01, in02, in03, in04, in05, in06, in07, in08, in09, in10, in11, in12, in13, in14, in15, in16, in17, in18, in19, in20, in21, in22, in23, in24, in25, in26, in27, in28, in29, in30, in31, in32, in33    , \
     in34, in35, in36, in37, in38, in39, in40, in41, in42, in43, in44, in45, in46, in47, in48, in49, in50, in51, in52, in53, in54, in55, in56, in57, in58, in59, in60, in61, in62, in63)                                                            \
   do {                                                                                                                                                                                                                                             \
@@ -8160,6 +8211,7 @@
     in31 = GF_ADD( GF_MUL( scratch_63, 0 ), in31 );                                                                                                                                                                                                \
   } while( 0 )
 
+void fd_reedsol_ppt_64_60( gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t* );
 #define FD_REEDSOL_PPT_IMPL_64_60( in00, in01, in02, in03, in04, in05, in06, in07, in08, in09, in10, in11, in12, in13, in14, in15, in16, in17, in18, in19, in20, in21, in22, in23, in24, in25, in26, in27, in28, in29, in30, in31, in32, in33    , \
     in34, in35, in36, in37, in38, in39, in40, in41, in42, in43, in44, in45, in46, in47, in48, in49, in50, in51, in52, in53, in54, in55, in56, in57, in58, in59, in60, in61, in62, in63)                                                            \
   do {                                                                                                                                                                                                                                             \
@@ -8295,6 +8347,7 @@
     in31 = GF_ADD( GF_MUL( scratch_63, 0 ), in31 );                                                                                                                                                                                                \
   } while( 0 )
 
+void fd_reedsol_ppt_64_61( gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t* );
 #define FD_REEDSOL_PPT_IMPL_64_61( in00, in01, in02, in03, in04, in05, in06, in07, in08, in09, in10, in11, in12, in13, in14, in15, in16, in17, in18, in19, in20, in21, in22, in23, in24, in25, in26, in27, in28, in29, in30, in31, in32, in33    , \
     in34, in35, in36, in37, in38, in39, in40, in41, in42, in43, in44, in45, in46, in47, in48, in49, in50, in51, in52, in53, in54, in55, in56, in57, in58, in59, in60, in61, in62, in63)                                                            \
   do {                                                                                                                                                                                                                                             \
@@ -8421,6 +8474,7 @@
     in31 = GF_ADD( GF_MUL( scratch_63, 0 ), in31 );                                                                                                                                                                                                \
   } while( 0 )
 
+void fd_reedsol_ppt_64_62( gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t* );
 #define FD_REEDSOL_PPT_IMPL_64_62( in00, in01, in02, in03, in04, in05, in06, in07, in08, in09, in10, in11, in12, in13, in14, in15, in16, in17, in18, in19, in20, in21, in22, in23, in24, in25, in26, in27, in28, in29, in30, in31, in32, in33    , \
     in34, in35, in36, in37, in38, in39, in40, in41, in42, in43, in44, in45, in46, in47, in48, in49, in50, in51, in52, in53, in54, in55, in56, in57, in58, in59, in60, in61, in62, in63)                                                            \
   do {                                                                                                                                                                                                                                             \
@@ -8535,6 +8589,7 @@
     in31 = GF_ADD( GF_MUL( scratch_63, 0 ), in31 );                                                                                                                                                                                                \
   } while( 0 )
 
+void fd_reedsol_ppt_64_63( gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t* );
 #define FD_REEDSOL_PPT_IMPL_64_63( in00, in01, in02, in03, in04, in05, in06, in07, in08, in09, in10, in11, in12, in13, in14, in15, in16, in17, in18, in19, in20, in21, in22, in23, in24, in25, in26, in27, in28, in29, in30, in31, in32, in33    , \
     in34, in35, in36, in37, in38, in39, in40, in41, in42, in43, in44, in45, in46, in47, in48, in49, in50, in51, in52, in53, in54, in55, in56, in57, in58, in59, in60, in61, in62, in63)                                                            \
   do {                                                                                                                                                                                                                                             \
@@ -8629,6 +8684,7 @@
     in31 = GF_ADD( GF_MUL( scratch_63, 0 ), in31 );                                                                                                                                                                                                \
   } while( 0 )
 
+void fd_reedsol_ppt_128_65( gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t* );
 #define FD_REEDSOL_PPT_IMPL_128_65( in00, in01, in02, in03, in04, in05, in06, in07, in08, in09, in10, in11, in12, in13, in14, in15, in16, in17, in18, in19, in20, in21, in22, in23, in24, in25, in26, in27, in28, in29, in30, in31, in32, in33, in34, in35, in36, in37, in38, in39, in40, in41, in42, in43, in44, in45, in46, in47, in48, in49, in50, in51, in52, in53, in54, in55, in56, in57, in58, in59, in60, in61, in62, in63, in64, in65   , \
     in66, in67, in68, in69, in70, in71, in72, in73, in74, in75, in76, in77, in78, in79, in80, in81, in82, in83, in84, in85, in86, in87, in88, in89, in90, in91, in92, in93, in94, in95, in96, in97, in98, in99, in100, in101, in102, in103, in104, in105, in106, in107, in108, in109, in110, in111, in112, in113, in114, in115, in116, in117, in118, in119, in120, in121, in122, in123, in124, in125, in126, in127)                                \
   do {                                                                                                                                                                                                                                                                                                                                                                                                                                             \
@@ -9044,6 +9100,7 @@
     in63 = GF_ADD( GF_MUL( scratch_127, 0 ), in63 );                                                                                                                                                                                                                                                                                                                                                                                               \
   } while( 0 )
 
+void fd_reedsol_ppt_128_66( gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t* );
 #define FD_REEDSOL_PPT_IMPL_128_66( in00, in01, in02, in03, in04, in05, in06, in07, in08, in09, in10, in11, in12, in13, in14, in15, in16, in17, in18, in19, in20, in21, in22, in23, in24, in25, in26, in27, in28, in29, in30, in31, in32, in33, in34, in35, in36, in37, in38, in39, in40, in41, in42, in43, in44, in45, in46, in47, in48, in49, in50, in51, in52, in53, in54, in55, in56, in57, in58, in59, in60, in61, in62, in63, in64, in65   , \
     in66, in67, in68, in69, in70, in71, in72, in73, in74, in75, in76, in77, in78, in79, in80, in81, in82, in83, in84, in85, in86, in87, in88, in89, in90, in91, in92, in93, in94, in95, in96, in97, in98, in99, in100, in101, in102, in103, in104, in105, in106, in107, in108, in109, in110, in111, in112, in113, in114, in115, in116, in117, in118, in119, in120, in121, in122, in123, in124, in125, in126, in127)                                \
   do {                                                                                                                                                                                                                                                                                                                                                                                                                                             \
@@ -9475,6 +9532,7 @@
     in63 = GF_ADD( GF_MUL( scratch_127, 0 ), in63 );                                                                                                                                                                                                                                                                                                                                                                                               \
   } while( 0 )
 
+void fd_reedsol_ppt_128_67( gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t* );
 #define FD_REEDSOL_PPT_IMPL_128_67( in00, in01, in02, in03, in04, in05, in06, in07, in08, in09, in10, in11, in12, in13, in14, in15, in16, in17, in18, in19, in20, in21, in22, in23, in24, in25, in26, in27, in28, in29, in30, in31, in32, in33, in34, in35, in36, in37, in38, in39, in40, in41, in42, in43, in44, in45, in46, in47, in48, in49, in50, in51, in52, in53, in54, in55, in56, in57, in58, in59, in60, in61, in62, in63, in64, in65   , \
     in66, in67, in68, in69, in70, in71, in72, in73, in74, in75, in76, in77, in78, in79, in80, in81, in82, in83, in84, in85, in86, in87, in88, in89, in90, in91, in92, in93, in94, in95, in96, in97, in98, in99, in100, in101, in102, in103, in104, in105, in106, in107, in108, in109, in110, in111, in112, in113, in114, in115, in116, in117, in118, in119, in120, in121, in122, in123, in124, in125, in126, in127)                                \
   do {                                                                                                                                                                                                                                                                                                                                                                                                                                             \
@@ -9914,6 +9972,7 @@
     in63 = GF_ADD( GF_MUL( scratch_127, 0 ), in63 );                                                                                                                                                                                                                                                                                                                                                                                               \
   } while( 0 )
 
+void fd_reedsol_ppt_128_68( gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t* );
 #define FD_REEDSOL_PPT_IMPL_128_68( in00, in01, in02, in03, in04, in05, in06, in07, in08, in09, in10, in11, in12, in13, in14, in15, in16, in17, in18, in19, in20, in21, in22, in23, in24, in25, in26, in27, in28, in29, in30, in31, in32, in33, in34, in35, in36, in37, in38, in39, in40, in41, in42, in43, in44, in45, in46, in47, in48, in49, in50, in51, in52, in53, in54, in55, in56, in57, in58, in59, in60, in61, in62, in63, in64, in65   , \
     in66, in67, in68, in69, in70, in71, in72, in73, in74, in75, in76, in77, in78, in79, in80, in81, in82, in83, in84, in85, in86, in87, in88, in89, in90, in91, in92, in93, in94, in95, in96, in97, in98, in99, in100, in101, in102, in103, in104, in105, in106, in107, in108, in109, in110, in111, in112, in113, in114, in115, in116, in117, in118, in119, in120, in121, in122, in123, in124, in125, in126, in127)                                \
   do {                                                                                                                                                                                                                                                                                                                                                                                                                                             \

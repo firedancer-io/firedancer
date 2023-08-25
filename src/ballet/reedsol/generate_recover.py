@@ -16,10 +16,10 @@ def make_recover_var(n, max_shreds):
     with open(f'fd_reedsol_recover_{n}.c', 'wt') as outf:
         cprint('#include "fd_reedsol_ppt.h"')
         cprint('#include "fd_reedsol_fderiv.h"')
-
         cprint('')
 
-        fn_name = f'int fd_reedsol_private_recover_var_{n}('
+        cprint('int')
+        fn_name = f'fd_reedsol_private_recover_var_{n}('
         cprint(fn_name +          " ulong           shred_sz,")
         cprint(" "*len(fn_name) + " uchar * const * shred,")
         cprint(" "*len(fn_name) + " ulong           data_shred_cnt,")
@@ -67,12 +67,20 @@ def make_recover_var(n, max_shreds):
 
         all_vars = [ f'in{k:02}' for k in range(n) ]
         cprint(f"#define ALL_VARS " + ", ".join(all_vars))
+        if n>64:
+            cprint(f"#define ALL_VARS_REF &" + ", &".join(all_vars))
         cprint('')
-        cprint(f'FD_REEDSOL_GENERATE_IFFT( {n}, 0, ALL_VARS );')
+        if n>64:
+            cprint(f'fd_reedsol_ifft_{n}_0( ALL_VARS_REF );')
+        else:
+            cprint(f'FD_REEDSOL_GENERATE_IFFT( {n}, 0, ALL_VARS );')
         cprint('')
         cprint(f'FD_REEDSOL_GENERATE_FDERIV( {n}, ALL_VARS );')
         cprint('')
-        cprint(f'FD_REEDSOL_GENERATE_FFT( {n}, 0, ALL_VARS );')
+        if n>64:
+            cprint(f'fd_reedsol_fft_{n}_0( ALL_VARS_REF );')
+        else:
+            cprint(f'FD_REEDSOL_GENERATE_FFT( {n}, 0, ALL_VARS );')
         cprint('')
 
         cprint("/* Again, we only need to multiply the erased ones, since we don't")
