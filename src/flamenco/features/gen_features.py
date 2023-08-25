@@ -113,19 +113,6 @@ FD_PROTOTYPES_END
 )
 
 
-def gen_feature_activations_procedure(network):
-    lines = []
-    for x in network["features"]:
-        if x["status"] == "active":
-            if x["id"] not in rmap:
-                continue
-            lines.append(
-                "  f->{} = {}; // {}".format(
-                    rmap[x["id"]], x["sinceSlot"], x["description"]
-                )
-            )
-    return "\n".join(lines)
-
 def pubkey_to_c_array(pubkey):
     raw = b58decode(pubkey)
     return '"' + "".join([f"\\x{byte:02x}" for byte in raw]) + '"'
