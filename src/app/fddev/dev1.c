@@ -9,6 +9,16 @@
 #include <sched.h>
 #include <sys/wait.h>
 
+typedef enum {
+  DEV1_PACK,
+  DEV1_DEDUP,
+  DEV1_VERIFY,
+  DEV1_QUIC,
+  DEV1_BANK,
+  DEV1_FORWARD,
+  DEV1_SOLANA,
+} tile_t;
+
 void
 dev1_cmd_args( int *    pargc,
                char *** pargv,
@@ -16,14 +26,15 @@ dev1_cmd_args( int *    pargc,
   char * usage = "usage: run1 <tile>";
   if( FD_UNLIKELY( *pargc < 1 ) ) FD_LOG_ERR(( "%s", usage ));
 
-  if( FD_LIKELY( !strcmp( *pargv[ 0 ], "pack" ) ) ) args->run1.tile = 0;
-  else if( FD_LIKELY( !strcmp( *pargv[ 0 ], "dedup" ) ) ) args->run1.tile = 1;
-  else if( FD_LIKELY( !strcmp( *pargv[ 0 ], "verify" ) ) ) args->run1.tile = 2;
-  else if( FD_LIKELY( !strcmp( *pargv[ 0 ], "quic" ) ) ) args->run1.tile = 3;
-  else if( FD_LIKELY( !strcmp( *pargv[ 0 ], "bank" ) ) ) args->run1.tile = 4;
-  else if( FD_LIKELY( !strcmp( *pargv[ 0 ], "labs" ) ) ) args->run1.tile = 4;
-  else if( FD_LIKELY( !strcmp( *pargv[ 0 ], "solana" ) ) ) args->run1.tile = 4;
-  else if( FD_LIKELY( !strcmp( *pargv[ 0 ], "solana-labs" ) ) ) args->run1.tile = 4;
+  if( FD_LIKELY( !strcmp( *pargv[ 0 ], "pack" ) ) )             args->run1.tile = DEV1_PACK;
+  else if( FD_LIKELY( !strcmp( *pargv[ 0 ], "dedup" ) ) )       args->run1.tile = DEV1_DEDUP;
+  else if( FD_LIKELY( !strcmp( *pargv[ 0 ], "verify" ) ) )      args->run1.tile = DEV1_VERIFY;
+  else if( FD_LIKELY( !strcmp( *pargv[ 0 ], "quic" ) ) )        args->run1.tile = DEV1_QUIC;
+  else if( FD_LIKELY( !strcmp( *pargv[ 0 ], "bank" ) ) )        args->run1.tile = DEV1_BANK;
+  else if( FD_LIKELY( !strcmp( *pargv[ 0 ], "forward" ) ) )     args->run1.tile = DEV1_FORWARD;
+  else if( FD_LIKELY( !strcmp( *pargv[ 0 ], "labs" ) ) )        args->run1.tile = DEV1_SOLANA;
+  else if( FD_LIKELY( !strcmp( *pargv[ 0 ], "solana" ) ) )      args->run1.tile = DEV1_SOLANA;
+  else if( FD_LIKELY( !strcmp( *pargv[ 0 ], "solana-labs" ) ) ) args->run1.tile = DEV1_SOLANA;
   else FD_LOG_ERR(( "unrecognized tile %s", *pargv[0] ));
 
   (*pargc)--;
@@ -63,16 +74,17 @@ dev1_cmd_fn( args_t *         args,
   };
 
   switch( args->run1.tile ) {
-    case 0: tile_args.tile = &frank_pack; break;
-    case 1: tile_args.tile = &frank_dedup; break;
-    case 2: tile_args.tile = &frank_verify; break;
-    case 3: tile_args.tile = &frank_quic; break;
-    case 4: break;
+    case DEV1_PACK:    tile_args.tile = &frank_pack; break;
+    case DEV1_DEDUP:   tile_args.tile = &frank_dedup; break;
+    case DEV1_VERIFY:  tile_args.tile = &frank_verify; break;
+    case DEV1_QUIC:    tile_args.tile = &frank_quic; break;
+    case DEV1_FORWARD: tile_args.tile = &frank_forward; break;
+    case DEV1_SOLANA: break;
     default: FD_LOG_ERR(( "unknown tile %d", args->run1.tile ));
   }
 
   int result;
-  if( args->run1.tile == 4 ) result = solana_labs_main( config );
+  if( args->run1.tile == DEV1_SOLANA ) result = solana_labs_main( config );
   else result = tile_main( &tile_args );
   /* main functions should exit_group and never return, but just in case */
   exit_group( result );

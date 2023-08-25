@@ -343,8 +343,8 @@ main_pid_namespace( void * args ) {
 
   ushort tile_to_cpu[ FD_TILE_MAX ];
   ulong  affinity_tile_cnt = fd_tile_private_cpus_parse( config->layout.affinity, tile_to_cpu );
-
-  ulong tile_cnt = 3UL + config->layout.verify_tile_count * 2;
+  /* TODO: Can we use something like config->shmem.workspaces_cnt = idx; here instead? */
+   ulong tile_cnt = 4UL + config->layout.verify_tile_count * 2;
   if( FD_UNLIKELY( affinity_tile_cnt<tile_cnt ) ) FD_LOG_ERR(( "at least %lu tiles required for this config", tile_cnt ));
   if( FD_UNLIKELY( affinity_tile_cnt>tile_cnt ) ) FD_LOG_WARNING(( "only %lu tiles required for this config", tile_cnt ));
 
@@ -378,6 +378,7 @@ main_pid_namespace( void * args ) {
   for( ulong i=0; i<config->layout.verify_tile_count; i++ ) clone_tile( &spawner, &frank_verify, i );
   clone_tile( &spawner, &frank_dedup, 0 );
   clone_tile( &spawner, &frank_pack , 0 );
+  clone_tile( &spawner, &frank_forward , 0 );
 
   if( FD_UNLIKELY( sched_setaffinity( 0, sizeof(cpu_set_t), floating_cpu_set ) ) )
     FD_LOG_ERR(( "sched_setaffinity failed (%i-%s)", errno, fd_io_strerror( errno ) ));

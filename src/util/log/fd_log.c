@@ -8,6 +8,14 @@
 
 #if FD_LOG_STYLE==0 /* POSIX style */
 
+#ifndef FD_HAS_BACKTRACE
+#if __has_include( <execinfo.h> )
+#define FD_HAS_BACKTRACE 1
+#else
+#define FD_HAS_BACKTRACE 0
+#endif
+#endif
+
 /* FIXME: SANITIZE VARIOUS USER SET STRINGS */
 
 #define _GNU_SOURCE
@@ -27,12 +35,9 @@
 #include <syscall.h>
 #include <sys/mman.h>
 
-#if __has_include( <execinfo.h> )
-#define FD_HAS_BACKTRACE 1
+#if FD_HAS_BACKTRACE
 #include <execinfo.h>
-#else
-#define FD_HAS_BACKTRACE 0
-#endif /* __has_include( <execinfo.h> ) */
+#endif
 
 #ifdef FD_BUILD_INFO
 FD_IMPORT_CSTR( fd_log_build_info, FD_BUILD_INFO );
@@ -465,16 +470,14 @@ fd_log_wait_until( long then ) {
 
 /* LOG APIS ***********************************************************/
 
-char          fd_log_private_path[ 1024 ]; /* empty string on start */
-static int    fd_log_private_fileno;
-static int    fd_log_private_dedup;        /* 0 on start */
+char       fd_log_private_path[ 1024 ]; /* "" outside boot/halt, init at boot */
+static int fd_log_private_fileno = -1;  /* -1 outside boot/halt, init at boot */
+static int fd_log_private_dedup;        /*  0 outside boot/halt, init at boot */
 
 void
 fd_log_flush( void ) {
   int log_fileno = FD_VOLATILE_CONST( fd_log_private_fileno );
-  if( log_fileno ) {
-    fsync( log_fileno );
-  }
+  if( FD_LIKELY( log_fileno!=-1 ) ) fsync( log_fileno );
 }
 
 static int fd_log_private_colorize;      /* 0 outside boot/halt, init at boot */
@@ -495,39 +498,46 @@ void fd_log_level_stderr_set ( int level ) { FD_VOLATILE( fd_log_private_level_s
 void fd_log_level_flush_set  ( int level ) { FD_VOLATILE( fd_log_private_level_flush   ) = level; }
 void fd_log_level_core_set   ( int level ) { FD_VOLATILE( fd_log_private_level_core    ) = level; }
 
-/* Total size of the log buffer (fd_log_private_log_msg) */
+/* Buffer size used for vsnprintf calls (this is also one more than the
+   maximum size that this can passed to fd_io_write) */
 
 #define FD_LOG_BUF_SZ (4UL*4096UL)
 
-/* Log buffer, used by fd_log_private_0 and fd_log_private_hexdump_msg */
+/* Lock to used by fd_log_private_fprintf_0 to sequence calls writes
+   between different _processes_ that share the same fd. */
 
-static FD_TLS char fd_log_private_log_msg[ FD_LOG_BUF_SZ ];
-static FD_TLS char fd_log_private_log_msg0[ FD_LOG_BUF_SZ ];
+static int * fd_log_private_shared_lock; /* NULL outside boot/halt, init at boot */
 
-char const *
-fd_log_private_0( char const * fmt, ... ) {
-  va_list ap;
-  va_start( ap, fmt );
-  int len = vsnprintf( fd_log_private_log_msg, FD_LOG_BUF_SZ, fmt, ap );
-  if( len<0    ) len = 0;    /* cmov */
-  if( len>(int)FD_LOG_BUF_SZ-1 ) len = FD_LOG_BUF_SZ-1; /* cmov */
-  fd_log_private_log_msg[ len ] = '\0';
-  va_end( ap );
-  return fd_log_private_log_msg;
-}
-
-/* Lock to sequence writes between different threads */
-
-static int * fd_log_private_shared_lock = NULL;
+static int fd_log_private_shared_lock_local[1] __attribute__((aligned(128))); /* location of lock if boot mmap fails */
 
 void
-fd_log_private_fprintf_0( int fd, char const * fmt, ... ) {
+fd_log_private_fprintf_0( int          fd,
+                          char const * fmt, ... ) {
+
+  /* Note: while this function superfically looks vdprintf-ish, we don't
+     use that as it can do all sorts of unpleasantness under the hood
+     (fflush, mutex / futex on fd, non-AS-safe buffering, ...) that this
+     function deliberately avoids.  Also, the function uses the shared
+     lock to help keep messages generated from processes that share the
+     same log fd sane. */
+
+  /* TODO:
+     - Consider moving to util/io as fd_io_printf or renaming to
+       fd_log_printf?
+     - Is msg better to have on stack or in thread local storage?
+     - Is msg even necessary given shared lock? (probably still useful to
+       keep the message write to be a single-system-call best effort)
+     - Allow partial write to fd_io_write?  (e.g. src_min=0 such that
+       the fd_io_write below is guaranteed to be a single system call) */
+
+  char msg[ FD_LOG_BUF_SZ ];
+
   va_list ap;
   va_start( ap, fmt );
-  int len = vsnprintf( fd_log_private_log_msg0, FD_LOG_BUF_SZ, fmt, ap );
-  if( len<0    ) len = 0;    /* cmov */
-  if( len>(int)FD_LOG_BUF_SZ-1 ) len = FD_LOG_BUF_SZ-1; /* cmov */
-  fd_log_private_log_msg0[ len ] = '\0';
+  int len = vsnprintf( msg, FD_LOG_BUF_SZ, fmt, ap );
+  if( len<0                        ) len = 0;                        /* cmov */
+  if( len>(int)(FD_LOG_BUF_SZ-1UL) ) len = (int)(FD_LOG_BUF_SZ-1UL); /* cmov */
+  msg[ len ] = '\0';
   va_end( ap );
 
 # if FD_HAS_ATOMIC
@@ -537,32 +547,43 @@ fd_log_private_fprintf_0( int fd, char const * fmt, ... ) {
 # endif
 
   ulong wsz;
-  fd_io_write( fd, fd_log_private_log_msg0, (ulong)len, (ulong)len, &wsz );
-  /* Note: we ignore errors because what are we doing to do, log them? */
+  fd_io_write( fd, msg, (ulong)len, (ulong)len, &wsz ); /* Note: we ignore errors because what are we doing to do? log them? */
 
 # if FD_HAS_ATOMIC
   FD_COMPILER_MFENCE();
-  *fd_log_private_shared_lock = 0;
+  FD_VOLATILE( *fd_log_private_shared_lock ) = 0;
   FD_COMPILER_MFENCE();
 # endif
+
+}
+
+/* Log buffer used by fd_log_private_0 and fd_log_private_hexdump_msg */
+
+static FD_TLS char fd_log_private_log_msg[ FD_LOG_BUF_SZ ];
+
+char const *
+fd_log_private_0( char const * fmt, ... ) {
+  va_list ap;
+  va_start( ap, fmt );
+  int len = vsnprintf( fd_log_private_log_msg, FD_LOG_BUF_SZ, fmt, ap );
+  if( len<0                        ) len = 0;                        /* cmov */
+  if( len>(int)(FD_LOG_BUF_SZ-1UL) ) len = (int)(FD_LOG_BUF_SZ-1UL); /* cmov */
+  fd_log_private_log_msg[ len ] = '\0';
+  va_end( ap );
+  return fd_log_private_log_msg;
 }
 
 char const *
-fd_log_private_hexdump_msg ( char const * descr,
-                             void const * mem,
-                             ulong        sz ) {
+fd_log_private_hexdump_msg( char const * descr,
+                            void const * mem,
+                            ulong        sz ) {
 
-# define FD_LOG_HEXDUMP_BYTES_PER_LINE             (16UL)
-# define FD_LOG_HEXDUMP_BLOB_DESCRIPTION_MAX_LEN   (32UL)
-# define FD_LOG_HEXDUMP_MAX_INPUT_BLOB_SZ          (1664UL) /* multiple of 128 >= 1542 */
+# define FD_LOG_HEXDUMP_BYTES_PER_LINE           (16UL)
+# define FD_LOG_HEXDUMP_BLOB_DESCRIPTION_MAX_LEN (32UL)
+# define FD_LOG_HEXDUMP_MAX_INPUT_BLOB_SZ        (1664UL) /* multiple of 128 >= 1542 */
 
-# define FD_LOG_HEXDUMP_ADD_TO_LOG_BUF(...)  do {                              \
-    num_bytes_written = sprintf ( log_buf_ptr, __VA_ARGS__ );                  \
-    if( FD_LIKELY( num_bytes_written>=0 )) log_buf_ptr += num_bytes_written;   \
-    } while(0)
-
-  char * log_buf_ptr = fd_log_private_log_msg;   /* used by FD_LOG_HEXDUMP_ADD_TO_LOG_BUF macro */
-  int num_bytes_written = 0;                     /* used by the FD_LOG_HEXDUMP_ADD_TO_LOG_BUF macro. signed because *printf() return 'int'. */
+# define FD_LOG_HEXDUMP_ADD_TO_LOG_BUF(...)  do { log_buf_ptr += fd_int_max( sprintf( log_buf_ptr, __VA_ARGS__ ), 0 ); } while(0)
+  char * log_buf_ptr = fd_log_private_log_msg; /* used by FD_LOG_HEXDUMP_ADD_TO_LOG_BUF macro */
 
   /* Print the hexdump header */
   /* FIXME: consider additional sanitization of descr or using compiler
@@ -654,9 +675,9 @@ fd_log_private_1( int          level,
   char const * cpu    = fd_log_cpu();
   ulong        tid    = fd_log_tid();
 
-  int    log_fileno = FD_VOLATILE_CONST( fd_log_private_fileno );
-  int    to_logfile = !!log_fileno;
-  int    to_stderr  = (level>=fd_log_level_stderr());
+  int log_fileno = FD_VOLATILE_CONST( fd_log_private_fileno );
+  int to_logfile = (log_fileno!=-1);
+  int to_stderr  = (level>=fd_log_level_stderr());
   if( !(to_logfile | to_stderr) ) return;
 
   /* Deduplicate the log if requested */
@@ -667,7 +688,7 @@ fd_log_private_1( int          level,
        a previous log message */
 
     ulong hash = fd_cstr_hash_append( fd_cstr_hash_append( fd_cstr_hash_append( fd_ulong_hash(
-                                      (ulong)(uint)(8*line+level) ), file ), func ), msg );
+                   (ulong)(8L*(long)line+(long)level) ), file ), func ), msg );
 
     static long const dedup_interval = 20000000L; /* 1/50 s */
 
@@ -694,10 +715,11 @@ fd_log_private_1( int          level,
         char then_cstr[ FD_LOG_WALLCLOCK_CSTR_BUF_SZ ];
         fd_log_wallclock_cstr( then, then_cstr );
 
-        if( to_logfile ) fd_log_private_fprintf_0( log_fileno, "SNIP    %s %6lu:%-6lu %s:%s:%-4s %s:%s:%-4s "
-                                                   "stopped repeating (%lu identical messages)\n",
-                                                   then_cstr, fd_log_group_id(),tid, fd_log_user(),fd_log_host(),cpu,
-                                                   fd_log_app(),fd_log_group(),thread, dedup_cnt+1UL );
+        if( to_logfile )
+          fd_log_private_fprintf_0( log_fileno, "SNIP    %s %6lu:%-6lu %s:%s:%-4s %s:%s:%-4s "
+                                    "stopped repeating (%lu identical messages)\n",
+                                    then_cstr, fd_log_group_id(),tid, fd_log_user(),fd_log_host(),cpu,
+                                    fd_log_app(),fd_log_group(),thread, dedup_cnt+1UL );
 
         if( to_stderr ) {
           char * then_short_cstr = then_cstr+5; then_short_cstr[21] = '\0'; /* Lop off the year, ns resolution and timezone */
@@ -726,9 +748,10 @@ fd_log_private_1( int          level,
       if( (now-dedup_last) >= dedup_throttle ) {
         char now_cstr[ FD_LOG_WALLCLOCK_CSTR_BUF_SZ ];
         fd_log_wallclock_cstr( now, now_cstr );
-        if( to_logfile ) fd_log_private_fprintf_0( log_fileno, "SNIP    %s %6lu:%-6lu %s:%s:%-4s %s:%s:%-4s repeating (%lu identical messages)\n",
-                                                   now_cstr, fd_log_group_id(),tid, fd_log_user(),fd_log_host(),cpu,
-                                                   fd_log_app(),fd_log_group(),thread, dedup_cnt+1UL );
+        if( to_logfile )
+          fd_log_private_fprintf_0( log_fileno, "SNIP    %s %6lu:%-6lu %s:%s:%-4s %s:%s:%-4s repeating (%lu identical messages)\n",
+                                    now_cstr, fd_log_group_id(),tid, fd_log_user(),fd_log_host(),cpu,
+                                    fd_log_app(),fd_log_group(),thread, dedup_cnt+1UL );
         if( to_stderr ) {
           char * now_short_cstr = now_cstr+5; now_short_cstr[21] = '\0'; /* Lop off the year, ns resolution and timezone */
           fd_log_private_fprintf_0( STDERR_FILENO, "SNIP    %s %-6lu %-4s %-4s repeating (%lu identical messages)\n",
@@ -759,9 +782,10 @@ fd_log_private_1( int          level,
     /* 7 */ "EMERG  "
   };
 
-  if( to_logfile ) fd_log_private_fprintf_0( log_fileno, "%s %s %6lu:%-6lu %s:%s:%-4s %s:%s:%-4s %s(%i)[%s]: %s\n",
-                                             level_cstr[level], now_cstr, fd_log_group_id(),tid, fd_log_user(),fd_log_host(),cpu,
-                                             fd_log_app(),fd_log_group(),thread, file,line,func, msg );
+  if( to_logfile )
+    fd_log_private_fprintf_0( log_fileno, "%s %s %6lu:%-6lu %s:%s:%-4s %s:%s:%-4s %s(%i)[%s]: %s\n",
+                              level_cstr[level], now_cstr, fd_log_group_id(),tid, fd_log_user(),fd_log_host(),cpu,
+                              fd_log_app(),fd_log_group(),thread, file,line,func, msg );
 
   if( to_stderr ) {
     static char const * color_level_cstr[] = {
@@ -775,7 +799,8 @@ fd_log_private_1( int          level,
       /* 7 */ TEXT_RED TEXT_BOLD TEXT_UNDERLINE TEXT_BLINK "EMERG  " TEXT_NORMAL
     };
     char * now_short_cstr = now_cstr+5; now_short_cstr[21] = '\0'; /* Lop off the year, ns resolution and timezone */
-    fd_log_private_fprintf_0( STDERR_FILENO, "%s %s %-6lu %-4s %-4s %s(%i): %s\n", fd_log_private_colorize ? color_level_cstr[level] : level_cstr[level],
+    fd_log_private_fprintf_0( STDERR_FILENO, "%s %s %-6lu %-4s %-4s %s(%i): %s\n",
+                              fd_log_private_colorize ? color_level_cstr[level] : level_cstr[level],
                               now_short_cstr, tid,cpu,thread, file, line, msg );
   }
 
@@ -827,7 +852,7 @@ fd_log_private_cleanup( void ) {
 
   FD_ONCE_BEGIN {
     int log_fileno = FD_VOLATILE_CONST( fd_log_private_fileno );
-    if(      !log_fileno                             ) fd_log_private_fprintf_0( STDERR_FILENO, "No log\n" );
+    if(      log_fileno==-1                      ) fd_log_private_fprintf_0( STDERR_FILENO, "No log\n" );
     else if( !strcmp( fd_log_private_path, "-" ) ) fd_log_private_fprintf_0( STDERR_FILENO, "Log to stdout\n" );
     else {
 #     if FD_HAS_THREADS
@@ -845,12 +870,12 @@ fd_log_private_cleanup( void ) {
            RISK. */
         usleep( (useconds_t)40000 ); /* Give potentially concurrent users a chance to get their dying messages out */
         FD_COMPILER_MFENCE();
-        FD_VOLATILE( fd_log_private_fileno ) = 0; /* Turn off the permanent log for concurrent users */
+        FD_VOLATILE( fd_log_private_fileno ) = -1; /* Turn off the permanent log for concurrent users */
         FD_COMPILER_MFENCE();
         usleep( (useconds_t)40000 ); /* Give any concurrent log operations progress at turn off a chance to wrap */
       }
 #     else
-      FD_VOLATILE( fd_log_private_fileno ) = 0;
+      FD_VOLATILE( fd_log_private_fileno ) = -1;
 #     endif
 
       fsync( log_fileno );
@@ -876,7 +901,7 @@ fd_log_private_sig_abort( int         sig,
   int btrace_cnt = backtrace( btrace, 128 );
 
   int log_fileno = FD_VOLATILE_CONST( fd_log_private_fileno );
-  if( log_fileno ) {
+  if( log_fileno!=-1 ) {
     fd_log_private_fprintf_0( log_fileno, "Caught signal %i, backtrace:\n", sig );
     backtrace_symbols_fd( btrace, btrace_cnt, log_fileno );
     fsync( log_fileno );
@@ -889,7 +914,7 @@ fd_log_private_sig_abort( int         sig,
 # else /* !FD_HAS_BACKTRACE */
 
   int log_fileno = FD_VOLATILE_CONST( fd_log_private_fileno );
-  if( log_fileno ) fd_log_private_fprintf_0( log_fileno, "Caught signal %i.\n", sig );
+  if( log_fileno!=-1 ) fd_log_private_fprintf_0( log_fileno, "Caught signal %i.\n", sig );
 
   fd_log_private_fprintf_0( STDERR_FILENO, "\nCaught signal %i.\n", sig );
 
@@ -923,16 +948,21 @@ fd_log_private_boot( int  *   pargc,
 
   char buf[ FD_LOG_NAME_MAX ];
 
-  fd_log_private_shared_lock = (int*)mmap( NULL, sizeof(int), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, (off_t)0 );
+  /* Try to allocate a _shared_ _anonymous_ page of memory for the
+     fd_log_private_shared_lock such that the log can strictly sequence
+     messages written by clones of the caller made after the caller has
+     finished booting the log.  If this cannot be done, warn the caller
+     and just try to use a local lock. */
 
-  if( FD_UNLIKELY( !fd_log_private_shared_lock ) ) {
-    int lock = 0;
-    fd_log_private_shared_lock = &lock;
+  void * shmem = mmap( NULL, sizeof(int), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, (off_t)0 );
+  if( FD_UNLIKELY( shmem==MAP_FAILED ) ) {
     fd_log_private_fprintf_0( STDERR_FILENO,
-                              "open( \"/dev/null\", O_WRONLY | O_APPEND ) failed (%i-%s); attempting to continue\n",
+                              "mmap(NULL,sizeof(int),PROT_READ|PROT_WRITE,MAP_SHARED|MAP_ANONYMOUS,-1,(off_t)0) (%i-%s); "
+                              "log messages generated from clones (if any) may not be well sequenced; attempting to continue\n",
                               errno, fd_io_strerror( errno ) );
-    exit(1);
+    shmem = fd_log_private_shared_lock_local;
   }
+  fd_log_private_shared_lock = shmem;
 
   /* Init our our application logical ids */
   /* FIXME: CONSIDER EXPLICIT SPECIFICATION OF RANGE OF THREADS
@@ -1097,14 +1127,14 @@ fd_log_private_boot( int  *   pargc,
   int log_fileno;
   if( fd_log_private_path[0]=='\0' ) {
     fd_log_private_fprintf_0( STDERR_FILENO, "--log-path \"\"\nNo log\n" );
-    log_fileno = 0;
+    log_fileno = -1;
   } else if( !strcmp( fd_log_private_path, "-" ) ) {
     fd_log_private_fprintf_0( STDERR_FILENO, "--log-path \"-\"\nLog to stdout\n" );
     log_fileno = STDOUT_FILENO;
   } else {
     if( !log_path_sz ) fd_log_private_fprintf_0( STDERR_FILENO, "--log-path not specified; using autogenerated path\n" );
     log_fileno = open( fd_log_private_path, O_WRONLY | O_CREAT | O_APPEND, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH );
-    if( log_fileno == -1 ) {
+    if( log_fileno==-1 ) {
       fd_log_private_fprintf_0( STDERR_FILENO, "fopen failed (--log-path \"%s\"); unable to boot\n", fd_log_private_path );
       exit(1);
     }
@@ -1151,7 +1181,7 @@ fd_log_private_halt( void ) {
   /* At this point, log is offline */
 
   fd_log_private_path[0]        = '\0';
-/*fd_log_private_file           = NULL;*/ /* Already handled by cleanup */
+//fd_log_private_fileno         = -1;   /* Already handled by cleanup */
   fd_log_private_dedup          = 0;
 
   fd_log_private_level_core     = 0;
@@ -1184,6 +1214,19 @@ fd_log_private_halt( void ) {
 # endif
   fd_log_private_app[0]         = '\0';
   fd_log_private_app_id         = 0UL;
+
+  if( FD_LIKELY( fd_log_private_shared_lock!=fd_log_private_shared_lock_local ) ) {
+    /* Note: the below will not unmap this in any clones that also
+       inherited this mapping unless they were cloned with CLONE_VM.  In
+       cases like this, the caller is expected to handle the cleanup
+       semantics sanely (e.g. only have the parent do boot/halt and then
+       children only use log while parent has log booted). */
+    if( FD_UNLIKELY( munmap( fd_log_private_shared_lock, sizeof(int) ) ) )
+      fd_log_private_fprintf_0( STDERR_FILENO,
+                                "munmap( fd_log_private_shared_lock, sizeof(int) ) failed (%i-%s); attempting to continue",
+                                errno, fd_io_strerror( errno ) );
+  }
+  fd_log_private_shared_lock = NULL;
 
 //FD_LOG_INFO(( "fd_log: halt success" )); /* Log not online anymore */
 }
