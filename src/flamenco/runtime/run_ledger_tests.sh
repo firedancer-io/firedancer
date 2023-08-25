@@ -91,6 +91,7 @@ fi
 
 rm $log
 
+# Running this twice, but whatever
 "$OBJDIR"/unit-test/test_native_programs >& native.log
 
 status=$?
