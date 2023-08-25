@@ -4,10 +4,6 @@
 #include <stdlib.h>
 #include "../../util/bits/fd_bits.h"
 
-#ifdef _DISABLE_OPTIMIZATION
-#pragma GCC optimize ("O0")
-#endif
-
 char *
 fd_rocksdb_init( fd_rocksdb_t * db,
                  char const *   db_name ) {

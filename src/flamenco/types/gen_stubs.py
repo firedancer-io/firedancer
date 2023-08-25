@@ -1,4 +1,5 @@
 # This stub generator is horrible...  the resulting code is horrible...  please... rewrite
+# It must die.
 
 import json
 import sys
@@ -24,10 +25,6 @@ print(f'#include "{sys.argv[1]}"', file=body)
 
 print('#pragma GCC diagnostic ignored "-Wunused-parameter"', file=body)
 print('#pragma GCC diagnostic ignored "-Wunused-variable"', file=body)
-
-print('#ifdef _DISABLE_OPTIMIZATION', file=body)
-print('#pragma GCC optimize ("O0")', file=body)
-print('#endif', file=body)
 
 print('#define SOURCE_fd_src_flamenco_types_fd_types_c', file=body)
 print('#include "fd_types_custom.c"', file=body)
@@ -96,23 +93,23 @@ def do_array_header(n, f):
         print(f'  {n}_{f["element"]}_t {f["name"]}[{length}];', file=header)
 
 fields_header = {
-    "char" :              lambda n, f: print(f'  char {f["name"]};',              file=header),
-    "char*" :             lambda n, f: print(f'  char* {f["name"]};',             file=header),
-    "char[32]" :          lambda n, f: print(f'  char {f["name"]}[32];',          file=header),
-    "char[7]" :           lambda n, f: print(f'  char {f["name"]}[7];',           file=header),
-    "double" :            lambda n, f: print(f'  double {f["name"]};',            file=header),
-    "long" :              lambda n, f: print(f'  long {f["name"]};',              file=header),
-    "uint" :              lambda n, f: print(f'  uint {f["name"]};',              file=header),
-    "uint128" :           lambda n, f: print(f'  uint128 {f["name"]};',           file=header),
+    "char" :      lambda n, f: print(f'  char {f["name"]};',              file=header),
+    "char*" :     lambda n, f: print(f'  char* {f["name"]};',             file=header),
+    "char[32]" :  lambda n, f: print(f'  char {f["name"]}[32];',          file=header),
+    "char[7]" :   lambda n, f: print(f'  char {f["name"]}[7];',           file=header),
+    "double" :    lambda n, f: print(f'  double {f["name"]};',            file=header),
+    "long" :      lambda n, f: print(f'  long {f["name"]};',              file=header),
+    "uint" :      lambda n, f: print(f'  uint {f["name"]};',              file=header),
+    "uint128" :   lambda n, f: print(f'  uint128 {f["name"]};',           file=header),
     "uchar" :     lambda n, f: print(f'  uchar {f["name"]};',     file=header),
     "uchar[32]" : lambda n, f: print(f'  uchar {f["name"]}[32];', file=header),
     "ulong" :     lambda n, f: print(f'  ulong {f["name"]};',     file=header),
-    "ushort" :            lambda n, f: print(f'  ushort {f["name"]};',            file=header),
-    "vector" :            lambda n, f: do_vector_header(n, f),
-    "deque":              lambda n, f: do_deque_header(n, f),
-    "array":              lambda n, f: do_array_header(n, f),
-    "option" :            lambda n, f: do_option_header(n, f),
-    "map" :               lambda n, f: do_map_header(n, f),
+    "ushort" :    lambda n, f: print(f'  ushort {f["name"]};',            file=header),
+    "vector" :    lambda n, f: do_vector_header(n, f),
+    "deque":      lambda n, f: do_deque_header(n, f),
+    "array":      lambda n, f: do_array_header(n, f),
+    "option" :    lambda n, f: do_option_header(n, f),
+    "map" :       lambda n, f: do_map_header(n, f),
 }
 
 def do_vector_body_decode(n, f):
@@ -596,23 +593,23 @@ def do_pass():
     pass
 
 fields_body_new = {
-    "char" :              lambda n, f: do_pass(),
-    "char*" :             lambda n, f: do_pass(),
-    "char[32]" :          lambda n, f: do_pass(),
-    "char[7]" :           lambda n, f: do_pass(),
-    "double" :            lambda n, f: do_pass(),
-    "long" :              lambda n, f: do_pass(),
-    "uint" :              lambda n, f: do_pass(),
-    "uint128" :           lambda n, f: do_pass(),
+    "char" :      lambda n, f: do_pass(),
+    "char*" :     lambda n, f: do_pass(),
+    "char[32]" :  lambda n, f: do_pass(),
+    "char[7]" :   lambda n, f: do_pass(),
+    "double" :    lambda n, f: do_pass(),
+    "long" :      lambda n, f: do_pass(),
+    "uint" :      lambda n, f: do_pass(),
+    "uint128" :   lambda n, f: do_pass(),
     "uchar" :     lambda n, f: do_pass(),
     "uchar[32]" : lambda n, f: do_pass(),
     "ulong" :     lambda n, f: do_pass(),
-    "ushort" :            lambda n, f: do_pass(),
-    "vector" :            lambda n, f: do_pass(),
-    "deque" :             lambda n, f: do_pass(),
-    "array" :             lambda n, f: do_array_body_new(n, f),
-    "option" :            lambda n, f: do_pass(),
-    "map" :               lambda n, f: do_pass()
+    "ushort" :    lambda n, f: do_pass(),
+    "vector" :    lambda n, f: do_pass(),
+    "deque" :     lambda n, f: do_pass(),
+    "array" :     lambda n, f: do_array_body_new(n, f),
+    "option" :    lambda n, f: do_pass(),
+    "map" :       lambda n, f: do_pass()
 }
 
 # destroy
@@ -689,74 +686,82 @@ def do_option_body_destroy(n, f):
     print('  }', file=body)
 
 fields_body_destroy = {
-    "char" :              lambda n, f: do_pass(),
-    "char*" :             lambda n, f: print(f"""  if (NULL != self->{f["name"]}) {{\n    fd_valloc_free( ctx->valloc, self->{f["name"]});\n    self->{f["name"]} = NULL;\n  }}""", file=body),
-    "char[32]" :          lambda n, f: do_pass(),
-    "char[7]" :           lambda n, f: do_pass(),
-    "double" :            lambda n, f: do_pass(),
-    "long" :              lambda n, f: do_pass(),
-    "uint" :              lambda n, f: do_pass(),
-    "uint128" :           lambda n, f: do_pass(),
+    "char" :      lambda n, f: do_pass(),
+    "char*" :     lambda n, f: print(f"""  if (NULL != self->{f["name"]}) {{\n    fd_valloc_free( ctx->valloc, self->{f["name"]});\n    self->{f["name"]} = NULL;\n  }}""", file=body),
+    "char[32]" :  lambda n, f: do_pass(),
+    "char[7]" :   lambda n, f: do_pass(),
+    "double" :    lambda n, f: do_pass(),
+    "long" :      lambda n, f: do_pass(),
+    "uint" :      lambda n, f: do_pass(),
+    "uint128" :   lambda n, f: do_pass(),
     "uchar" :     lambda n, f: do_pass(),
     "uchar[32]" : lambda n, f: do_pass(),
     "ulong" :     lambda n, f: do_pass(),
-    "ushort" :            lambda n, f: do_pass(),
-    "vector" :            lambda n, f: do_vector_body_destroy(n, f),
-    "deque" :             lambda n, f: do_deque_body_destroy(n, f),
-    "array" :             lambda n, f: do_array_body_destroy(n, f),
-    "option" :            lambda n, f: do_option_body_destroy(n, f),
-    "map" :               lambda n, f: do_map_body_destroy(n, f),
+    "ushort" :    lambda n, f: do_pass(),
+    "vector" :    lambda n, f: do_vector_body_destroy(n, f),
+    "deque" :     lambda n, f: do_deque_body_destroy(n, f),
+    "array" :     lambda n, f: do_array_body_destroy(n, f),
+    "option" :    lambda n, f: do_option_body_destroy(n, f),
+    "map" :       lambda n, f: do_map_body_destroy(n, f),
 }
 
 # walk
 
 fields_body_vector_walk = {
-    "double" :            lambda n, f: print(f'  fun(self->{f["name"]} + i, "{f["name"]}", 5, "double", level + 1);', file=body),
-    "long" :              lambda n, f: print(f'  fun(self->{f["name"]} + i, "{f["name"]}", 6, "long", level + 1);', file=body),
-    "uint" :              lambda n, f: print(f'  fun(self->{f["name"]} + i, "{f["name"]}", 7, "uint", level + 1);', file=body),
-    "uint128" :           lambda n, f: print(f'  fun(self->{f["name"]} + i, "{f["name"]}", 8, "uint128", level + 1);', file=body),
-    "ulong" :     lambda n, f: print(f'  fun(self->{f["name"]} + i, "{f["name"]}", 11, "ulong", level + 1);', file=body),
-    "ushort" :            lambda n, f: print(f'  fun(self->{f["name"]} + i, "{f["name"]}", 12, "ushort", level + 1);', file=body),
+    "double" :  lambda n, f: print(f'  fun( w, self->{f["name"]} + i, "{f["name"]}", FD_FLAMENCO_TYPE_DOUBLE,  "double",  level );', file=body),
+    "long" :    lambda n, f: print(f'  fun( w, self->{f["name"]} + i, "{f["name"]}", FD_FLAMENCO_TYPE_LONG,    "long",    level );', file=body),
+    "uint" :    lambda n, f: print(f'  fun( w, self->{f["name"]} + i, "{f["name"]}", FD_FLAMENCO_TYPE_UINT,    "uint",    level );', file=body),
+    "uint128" : lambda n, f: print(f'  fun( w, self->{f["name"]} + i, "{f["name"]}", FD_FLAMENCO_TYPE_UINT128, "uint128", level );', file=body),
+    "ulong" :   lambda n, f: print(f'  fun( w, self->{f["name"]} + i, "{f["name"]}", FD_FLAMENCO_TYPE_ULONG,   "ulong",   level );', file=body),
+    "ushort" :  lambda n, f: print(f'  fun( w, self->{f["name"]} + i, "{f["name"]}", FD_FLAMENCO_TYPE_USHORT,  "ushort",  level );', file=body),
 }
 
 def do_vector_body_walk(n, f):
 
     if f["element"] == "uchar":
-        print(f'  fun(self->{f["name"]}, "{f["name"]}", 2, "{f["element"]}", level + 1);', file=body),
+        print(f'  fun(w, self->{f["name"]}, "{f["name"]}", FD_FLAMENCO_TYPE_UCHAR, "{f["element"]}", level );', file=body),
         return
     else:
         print(f'  if (self->{f["name"]}_len != 0) {{', file=body)
-        print(f'    fun(NULL, NULL, 30, "{f["name"]}", level++);', file=body)
+        print(f'    fun(w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "{f["name"]}", level++);', file=body)
         print(f'    for (ulong i = 0; i < self->{f["name"]}_len; ++i)', file=body)
 
     if f["element"] in fields_body_vector_walk:
         body.write("    ")
         fields_body_vector_walk[f["element"]](namespace, f)
     else:
-        print(f'      {n}_{f["element"]}_walk(self->{f["name"]} + i, fun, "{f["element"]}", level + 1);', file=body)
+        print(f'      {n}_{f["element"]}_walk(w, self->{f["name"]} + i, fun, "{f["element"]}", level );', file=body)
 
-    print(f'    fun(NULL, NULL, 31, "{f["name"]}", --level);', file=body)
+    print(f'    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "{f["name"]}", level-- );', file=body)
     print('  }', file=body)
 
 def do_deque_body_walk(n, f):
-#    print(f'  if ( self->{f["name"]} ) {{', file=body)
-    print(f'    fun(self->{f["name"]}, "{f["name"]}", 36, "{f["name"]}", level++);', file=body)
-    print(f'    if (NULL != self->{f["name"]}) ', file=body)
-    print(f'     for ( {deque_prefix(n, f)}_iter_t iter = {deque_prefix(n, f)}_iter_init( self->{f["name"]} ); !{deque_prefix(n, f)}_iter_done( self->{f["name"]}, iter ); iter = {deque_prefix(n, f)}_iter_next( self->{f["name"]}, iter ) ) {{', file=body)
-    print(f'      {deque_elem_type(n, f)} * ele = {deque_prefix(n, f)}_iter_ele( self->{f["name"]}, iter );', file=body)
+    print(
+        f'''
+  /* Walk deque */
+  fun( w, self->{f["name"]}, "{f["name"]}", FD_FLAMENCO_TYPE_ARR, "{f["name"]}", level++ );
+  if( self->{f["name"]} ) {{
+    for( {deque_prefix(n, f)}_iter_t iter = {deque_prefix(n, f)}_iter_init( self->{f["name"]} );
+         !{deque_prefix(n, f)}_iter_done( self->{f["name"]}, iter );
+         iter = {deque_prefix(n, f)}_iter_next( self->{f["name"]}, iter ) ) {{
+      {deque_elem_type(n, f)} * ele = {deque_prefix(n, f)}_iter_ele( self->{f["name"]}, iter );''',
+      file=body
+  )
 
     if f["element"] == "uchar":
-        print('      fun(ele, "ele", 1, "long", level + 1);', file=body),
+        print('      fun(w, ele, "ele", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );', file=body),
     elif f["element"] == "ulong":
-        print('      fun(ele, "ele", 6, "long", level + 1);', file=body),
+        print('      fun(w, ele, "ele", FD_FLAMENCO_TYPE_ULONG, "long",  level );', file=body),
     elif f["element"] == "uint":
-        print('      fun(ele, "ele", 7, "uint", level + 1);', file=body),
+        print('      fun(w, ele, "ele", FD_FLAMENCO_TYPE_UINT,  "uint",  level );', file=body),
     else:
-        print(f'      {n}_{f["element"]}_walk(ele, fun, "{f["name"]}", level + 1);', file=body)
+        print(f'      {n}_{f["element"]}_walk(w, ele, fun, "{f["name"]}", level );', file=body)
 
-    print('    }', file=body)
-    print(f'    fun(self->{f["name"]}, "{f["name"]}", 37, "{f["name"]}", --level);', file=body)
-#    print('  }', file=body)
+    print(f'''    }}
+  }}
+  fun( w, self->{f["name"]}, "{f["name"]}", FD_FLAMENCO_TYPE_ARR_END, "{f["name"]}", level-- );
+  /* Done walking deque */
+''', file=body)
 
 def do_map_body_walk(n, f):
     element_type = deque_elem_type(n, f)
@@ -766,13 +771,13 @@ def do_map_body_walk(n, f):
     print(f'    for ( {nodename}* n = {mapname}_minimum(self->{f["name"]}_pool, self->{f["name"]}_root); n; n = {mapname}_successor(self->{f["name"]}_pool, n) ) {{', file=body);
 
     if f["element"] == "uchar":
-        print('      fun(&n->elem, "ele", 1, "long", level + 1);', file=body),
+        print('      fun(w, &n->elem, "ele", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );', file=body),
     elif f["element"] == "ulong":
-        print('      fun(&n->elem, "ele", 6, "long", level + 1);', file=body),
+        print('      fun(w, &n->elem, "ele", FD_FLAMENCO_TYPE_ULONG, "long",  level );', file=body),
     elif f["element"] == "uint":
-        print('      fun(&n->elem, "ele", 7, "uint", level + 1);', file=body),
+        print('      fun(w, &n->elem, "ele", FD_FLAMENCO_TYPE_UINT,  "uint",  level );', file=body),
     else:
-        print(f'      {n}_{f["element"]}_walk(&n->elem, fun, "{f["name"]}", level + 1);', file=body)
+        print(f'      {n}_{f["element"]}_walk(w, &n->elem, fun, "{f["name"]}", level );', file=body)
     print(f'    }}', file=body)
     print(f'  }}', file=body)
 
@@ -785,66 +790,68 @@ def do_map_body_walk(n, f):
 #        print(f'  fd_walk_short_u16(&{f["name"]}_len, ctx);', file=body)
 #    else:
 #        print(f'  ulong {f["name"]}_len = {mapname}_size(self->{f["name"]}, self->{f["name"]}_root);', file=body)
-#        print(f'  fd_bincode_uint64_walk(&{f["name"]}_len, ctx);', file=body)
+#        print(f'  fd_bincode_uint64_walk(w, &{f["name"]}_len, ctx);', file=body)
 #    print(f'  for ( {nodename}* n = {mapname}_minimum(self->{f["name"]}, self->{f["name"]}_root); n; n = {mapname}_successor(self->{f["name"]}, n) ) {{', file=body);
-#    print(f'      {n}_{f["element"]}_walk(&n->elem, ctx);', file=body)
+#    print(f'      {n}_{f["element"]}_walk(w, &n->elem, ctx);', file=body)
 #    print('  }', file=body)
 
 def do_array_body_walk(n, f):
     length = f["length"]
 
     if f["element"] == "uchar":
-        print(f'fd_bincode_bytes_walk(self->{f["name"]}, {length}, ctx);', file=body)
+        print(f'fd_bincode_bytes_walk(w, self->{f["name"]}, {length}, ctx);', file=body)
         return
 
+    print(f'  fun(w, NULL, "{f["name"]}", FD_FLAMENCO_TYPE_ARR, "{f["element"]}[]", level++);', file=body)
     print(f'  for (ulong i = 0; i < {length}; ++i)', file=body)
 
     if f["element"] in fields_body_vector_walk:
         body.write("  ")
         fields_body_vector_walk[f["element"]](namespace, f)
     else:
-        print(f'    {n}_{f["element"]}_walk(self->{f["name"]} + i, fun, "{f["element"]}", level + 1);', file=body)
+        print(f'    {n}_{f["element"]}_walk(w, self->{f["name"]} + i, fun, "{f["element"]}", level );', file=body)
+    print(f'  fun(w, NULL, "{f["name"]}", FD_FLAMENCO_TYPE_ARR_END, "{f["element"]}[]", level--);', file=body)
 
-fields_body_option_walk = {
-    "char" :              lambda n, f: print(f'  //fun(&self->{f["name"]}, "{f["name"]}", 1, "char", level + 1);', file=body),
-    "char*" :             lambda n, f: print(f'  //fun(self->{f["name"]}, "{f["name"]}", 2, "char*", level + 1);', file=body),
-    "char[32]" :          lambda n, f: print(f'  //fun(self->{f["name"]}, "{f["name"]}", 3, "char[32]", level + 1);', file=body),
-    "char[7]" :           lambda n, f: print(f'  //fun(self->{f["name"]}, "{f["name"]}", 4, "char[7]", level + 1);', file=body),
-    "double" :            lambda n, f: print(f'  fun(self->{f["name"]}, "{f["name"]}", 5, "double", level + 1);', file=body),
-    "long" :              lambda n, f: print(f'  fun(self->{f["name"]}, "{f["name"]}", 6, "long", level + 1);', file=body),
-    "uint" :              lambda n, f: print(f'  fun(self->{f["name"]}, "{f["name"]}", 7, "uint", level + 1);', file=body),
-    "uint128" :           lambda n, f: print(f'  fun(self->{f["name"]}, "{f["name"]}", 8, "uint128", level + 1);', file=body),
-    "uchar" :     lambda n, f: print(f'  fun(self->{f["name"]}, "{f["name"]}", 9, "uchar", level + 1);', file=body),
-    "uchar[32]" : lambda n, f: print(f'  //fun(self->{f["name"]}, "{f["name"]}", 10, "uchar[32]", level + 1);', file=body),
-    "ulong" :     lambda n, f: print(f'  fun(self->{f["name"]}, "{f["name"]}", 11, "ulong", level + 1);', file=body),
-    "ushort" :            lambda n, f: print(f'  fun(self->{f["name"]}, "{f["name"]}", 12, "ushort", level + 1);', file=body),
+fields_body_walk = {
+    "char" :      lambda n, f, e: print(f'  fun( w, &self->{e}{f["name"]}, "{f["name"]}", FD_FLAMENCO_TYPE_SCHAR,   "char",      level );', file=body),
+    "char*" :     lambda n, f, e: print(f'  fun( w,  self->{e}{f["name"]}, "{f["name"]}", FD_FLAMENCO_TYPE_CSTR,    "char*",     level );', file=body),
+    "double" :    lambda n, f, e: print(f'  fun( w, &self->{e}{f["name"]}, "{f["name"]}", FD_FLAMENCO_TYPE_DOUBLE,  "double",    level );', file=body),
+    "long" :      lambda n, f, e: print(f'  fun( w, &self->{e}{f["name"]}, "{f["name"]}", FD_FLAMENCO_TYPE_SLONG,   "long",      level );', file=body),
+    "uint" :      lambda n, f, e: print(f'  fun( w, &self->{e}{f["name"]}, "{f["name"]}", FD_FLAMENCO_TYPE_UINT,    "uint",      level );', file=body),
+    "uint128" :   lambda n, f, e: print(f'  fun( w, &self->{e}{f["name"]}, "{f["name"]}", FD_FLAMENCO_TYPE_UINT128, "uint128",   level );', file=body),
+    "uchar" :     lambda n, f, e: print(f'  fun( w, &self->{e}{f["name"]}, "{f["name"]}", FD_FLAMENCO_TYPE_UCHAR,   "uchar",     level );', file=body),
+    "uchar[32]" : lambda n, f, e: print(f'  fun( w,  self->{e}{f["name"]}, "{f["name"]}", FD_FLAMENCO_TYPE_HASH256, "uchar[32]", level );', file=body),
+    "ulong" :     lambda n, f, e: print(f'  fun( w, &self->{e}{f["name"]}, "{f["name"]}", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );', file=body),
+    "ushort" :    lambda n, f, e: print(f'  fun( w, &self->{e}{f["name"]}, "{f["name"]}", FD_FLAMENCO_TYPE_USHORT,  "ushort",    level );', file=body),
+    "vector" :    lambda n, f, e: do_vector_body_walk(n, f),
+    "deque" :     lambda n, f, e: do_deque_body_walk(n, f),
+    "array" :     lambda n, f, e: do_array_body_walk(n, f),
+    "option" :    lambda n, f, e: do_option_body_walk(n, f),
+    "map" :       lambda n, f, e: do_map_body_walk(n, f),
+}
+
+fields_option_walk = {
+    "char" :      lambda n, f, e: print(f'  fun( w, self->{e}{f["name"]}, "{f["name"]}", FD_FLAMENCO_TYPE_SCHAR,   "char",      level );', file=body),
+    "char*" :     lambda n, f, e: print(f'  fun( w, self->{e}{f["name"]}, "{f["name"]}", FD_FLAMENCO_TYPE_CSTR,    "char*",     level );', file=body),
+    "double" :    lambda n, f, e: print(f'  fun( w, self->{e}{f["name"]}, "{f["name"]}", FD_FLAMENCO_TYPE_DOUBLE,  "double",    level );', file=body),
+    "long" :      lambda n, f, e: print(f'  fun( w, self->{e}{f["name"]}, "{f["name"]}", FD_FLAMENCO_TYPE_SLONG,   "long",      level );', file=body),
+    "uint" :      lambda n, f, e: print(f'  fun( w, self->{e}{f["name"]}, "{f["name"]}", FD_FLAMENCO_TYPE_UINT,    "uint",      level );', file=body),
+    "uint128" :   lambda n, f, e: print(f'  fun( w, self->{e}{f["name"]}, "{f["name"]}", FD_FLAMENCO_TYPE_UINT128, "uint128",   level );', file=body),
+    "uchar" :     lambda n, f, e: print(f'  fun( w, self->{e}{f["name"]}, "{f["name"]}", FD_FLAMENCO_TYPE_UCHAR,   "uchar",     level );', file=body),
+    "uchar[32]" : lambda n, f, e: print(f'  fun( w, self->{e}{f["name"]}, "{f["name"]}", FD_FLAMENCO_TYPE_HASH256, "uchar[32]", level );', file=body),
+    "ulong" :     lambda n, f, e: print(f'  fun( w, self->{e}{f["name"]}, "{f["name"]}", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );', file=body),
+    "ushort" :    lambda n, f, e: print(f'  fun( w, self->{e}{f["name"]}, "{f["name"]}", FD_FLAMENCO_TYPE_USHORT,  "ushort",    level );', file=body),
 }
 
 def do_option_body_walk(n, f):
-    if f["element"] in fields_body_option_walk:
-        fields_body_option_walk[f["element"]](namespace, f)
+    print(f'''  if( !self->{f["name"]} ) {{
+    fun( w, NULL, "{f["name"]}", FD_FLAMENCO_TYPE_NULL, "{f["element"]}", level );
+  }} else {{''', file=body)
+    if f["element"] in fields_option_walk:
+        fields_option_walk[f["element"]](n, f, "")
     else:
-        print(f'  // fun(&self->{f["name"]}, "{f["name"]}", 16, "option", level + 1);', file=body),
-
-fields_body_walk = {
-    "char" :              lambda n, f, e: print(f'  fun(&self->{e}{f["name"]}, "{f["name"]}", 1, "char", level + 1);', file=body),
-    "char*" :             lambda n, f, e: print(f'  fun(self->{e}{f["name"]}, "{f["name"]}", 2, "char*", level + 1);', file=body),
-    "char[32]" :          lambda n, f, e: print(f'  fun(self->{e}{f["name"]}, "{f["name"]}", 3, "char[32]", level + 1);', file=body),
-    "char[7]" :           lambda n, f, e: print(f'  fun(self->{e}{f["name"]}, "{f["name"]}", 4, "char[7]", level + 1);', file=body),
-    "double" :            lambda n, f, e: print(f'  fun(&self->{e}{f["name"]}, "{f["name"]}", 5, "double", level + 1);', file=body),
-    "long" :              lambda n, f, e: print(f'  fun(&self->{e}{f["name"]}, "{f["name"]}", 6, "long", level + 1);', file=body),
-    "uint" :              lambda n, f, e: print(f'  fun(&self->{e}{f["name"]}, "{f["name"]}", 7, "uint", level + 1);', file=body),
-    "uint128" :           lambda n, f, e: print(f'  fun(&self->{e}{f["name"]}, "{f["name"]}", 8, "uint128", level + 1);', file=body),
-    "uchar" :     lambda n, f, e: print(f'  fun(&self->{e}{f["name"]}, "{f["name"]}", 9, "uchar", level + 1);', file=body),
-    "uchar[32]" : lambda n, f, e: print(f'  fun(self->{e}{f["name"]}, "{f["name"]}", 10, "uchar[32]", level + 1);', file=body),
-    "ulong" :     lambda n, f, e: print(f'  fun(&self->{e}{f["name"]}, "{f["name"]}", 11, "ulong", level + 1);', file=body),
-    "ushort" :            lambda n, f, e: print(f'  fun(&self->{e}{f["name"]}, "{f["name"]}", 12, "ushort", level + 1);', file=body),
-    "vector" :            lambda n, f, e: do_vector_body_walk(n, f),
-    "deque" :             lambda n, f, e: do_deque_body_walk(n, f),
-    "array" :             lambda n, f, e: do_array_body_walk(n, f),
-    "option" :            lambda n, f, e: do_option_body_walk(n, f),
-    "map" :               lambda n, f, e: do_map_body_walk(n, f),
-}
+        print(f'  {n}_{f["element"]}_walk( w, self->{f["name"]}, fun, "{f["name"]}", level );', file=body)
+    print(f'  }}', file=body)
 
 # Map different names for the same times into how firedancer knows them
 for entry in entries:
@@ -1001,8 +1008,10 @@ for entry in entries:
     print(f"int {n}_decode({n}_t* self, fd_bincode_decode_ctx_t * ctx);", file=header)
     print(f"int {n}_encode({n}_t const * self, fd_bincode_encode_ctx_t * ctx);", file=header)
     print(f"void {n}_destroy({n}_t* self, fd_bincode_destroy_ctx_t * ctx);", file=header)
-    print(f"void {n}_walk({n}_t* self, fd_walk_fun_t fun, const char *name, int level);", file=header)
+    print(f"void {n}_walk(void * w, {n}_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);", file=header)
     print(f"ulong {n}_size({n}_t const * self);", file=header)
+    print(f'ulong {n}_footprint( void );', file=header)
+    print(f'ulong {n}_align( void );', file=header)
     print("", file=header)
 
     if entry["type"] == "enum":
@@ -1056,6 +1065,7 @@ for entry in entries:
     else:
       print(f'int {n}_decode({n}_t* self, fd_bincode_decode_ctx_t * ctx) {{', file=body)
       print('  int err;', file=body)
+      assert "fields" in entry, "no fields in " + entry["name"]
       for f in entry["fields"]:
           if f["type"] in fields_body_decode:
               fields_body_decode[f["type"]](namespace, f)
@@ -1127,11 +1137,15 @@ for entry in entries:
       print("}", file=body)
     print("", file=body)
 
-    print(f'void {n}_walk({n}_t* self, fd_walk_fun_t fun, const char *name, int level) {{', file=body)
-    print(f'  fun(self, name, 32, "{n}", level++);', file=body)
+    print(f'ulong {n}_footprint( void ){{ return {n.upper()}_FOOTPRINT; }}', file=body)
+    print(f'ulong {n}_align( void ){{ return {n.upper()}_ALIGN; }}', file=body)
+    print("", file=body)
+
+    print(f'void {n}_walk(void * w, {n}_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {{', file=body)
+    print(f'  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "{n}", level++);', file=body)
 
     if entry["type"] == "enum":
-        print(f'  // enum {namespace}_{f["type"]}_walk(&self->{f["name"]}, fun, "{f["name"]}", level + 1);', file=body)
+        print(f'  // enum {namespace}_{f["type"]}_walk(w, &self->{f["name"]}, fun, "{f["name"]}", level);', file=body)
 
         print('  switch (self->discriminant) {', file=body)
         for i, v in enumerate(entry["variants"]):
@@ -1140,7 +1154,7 @@ for entry in entries:
             if v["type"] in fields_body_walk:
                 fields_body_walk[v["type"]](namespace, v, "inner.")
             else:
-                print(f'    {namespace}_{v["type"]}_walk(&self->inner.{v["name"]}, fun, "{v["name"]}", level + 1);', file=body)
+                print(f'    {namespace}_{v["type"]}_walk(w, &self->inner.{v["name"]}, fun, "{v["name"]}", level);', file=body)
             print('    break;', file=body)
             print('  }', file=body)
         print('  }', file=body)
@@ -1149,9 +1163,9 @@ for entry in entries:
             if f["type"] in fields_body_walk:
                 fields_body_walk[f["type"]](namespace, f, "")
             else:
-                print(f'  {namespace}_{f["type"]}_walk(&self->{f["name"]}, fun, "{f["name"]}", level + 1);', file=body)
+                print(f'  {namespace}_{f["type"]}_walk(w, &self->{f["name"]}, fun, "{f["name"]}", level);', file=body)
 
-    print(f'  fun(self, name, 33, "{n}", --level);', file=body)
+    print(f'  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "{n}", level--);', file=body)
     print("}", file=body)
 
     print(f'ulong {n}_size({n}_t const * self) {{', file=body)

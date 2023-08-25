@@ -1,7 +1,3 @@
-#ifdef _DISABLE_OPTIMIZATION
-#pragma GCC optimize ("O0")
-#endif
-
 #include "fd_sbpf_loader.h"
 #include "fd_sbpf_maps.c"
 #include "fd_sbpf_opcodes.h"

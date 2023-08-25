@@ -10,10 +10,13 @@
 #include "program/fd_builtin_programs.h"
 #include "../leaders/fd_leaders.h"
 #include "../capture/fd_solcap_writer.h"
+#include "../rewards/fd_rewards.h"
 
 #define FD_RUNTIME_EXECUTE_SUCCESS                               ( 0 )  /* Slot executed successfully */
 #define FD_RUNTIME_EXECUTE_GENERIC_ERR                          ( -1 ) /* The Slot execute returned an error */
 #define MAX_PERMITTED_DATA_LENGTH ( 10 * 1024 * 1024 )
+
+#define FD_FEATURE_ACTIVE(_g, _y)  (_g->bank.slot >= _g->features. _y)
 
 #define FD_GLOBAL_CTX_ALIGN (32UL)
 struct __attribute__((aligned(FD_GLOBAL_CTX_ALIGN))) fd_global_ctx {
@@ -26,8 +29,9 @@ struct __attribute__((aligned(FD_GLOBAL_CTX_ALIGN))) fd_global_ctx {
 
   fd_rng_t                   rnd_mem;
 
-  fd_wksp_t *                wksp;
+  fd_wksp_t *                funk_wksp; // Workspace dedicated to funk, KEEP YOUR GRUBBY MITS OFF!
   fd_funk_t*                 funk;
+  fd_wksp_t *                local_wksp; // Workspace for allocs local to this process
   fd_executor_t              executor;  // Amusingly, it is just a pointer to this...
   fd_rng_t*                  rng;
 
@@ -40,6 +44,7 @@ struct __attribute__((aligned(FD_GLOBAL_CTX_ALIGN))) fd_global_ctx {
   unsigned char              sysvar_slot_history[32];
   unsigned char              sysvar_slot_hashes[32];
   unsigned char              sysvar_epoch_schedule[32];
+  unsigned char              sysvar_epoch_rewards[32];
   unsigned char              sysvar_fees[32];
   unsigned char              sysvar_rent[32];
   unsigned char              sysvar_stake_history[32];
@@ -47,14 +52,16 @@ struct __attribute__((aligned(FD_GLOBAL_CTX_ALIGN))) fd_global_ctx {
   unsigned char              sysvar_last_restart_slot[32];
   unsigned char              sysvar_instructions[32];
   unsigned char              solana_native_loader[32];
+  unsigned char              solana_feature_program[32];
   unsigned char              solana_config_program[32];
   unsigned char              solana_stake_program[32];
   unsigned char              solana_stake_program_config[32];
   unsigned char              solana_system_program[32];
   unsigned char              solana_vote_program[32];
   unsigned char              solana_bpf_loader_deprecated_program[32];
-  unsigned char              solana_bpf_loader_program_with_jit[32];
-  unsigned char              solana_bpf_loader_upgradeable_program_with_jit[32];
+  unsigned char              solana_bpf_loader_program[32];
+  unsigned char              solana_bpf_loader_upgradeable_program[32];
+  fd_pubkey_t                solana_bpf_loader_v4_program[32];
   unsigned char              solana_ed25519_sig_verify_program[32];
   unsigned char              solana_keccak_secp_256k_program[32];
   unsigned char              solana_compute_budget_program[32];
@@ -74,6 +81,7 @@ struct __attribute__((aligned(FD_GLOBAL_CTX_ALIGN))) fd_global_ctx {
   fd_hash_t                  prev_banks_hash;
 
   uchar                      log_level;
+  uchar                      abort_on_mismatch;
 
   fd_epoch_leaders_t *       leaders;  /* Current epoch only */
   fd_pubkey_t const *        leader;   /* Current leader */
@@ -119,8 +127,6 @@ ulong             fd_runtime_calculate_fee ( fd_global_ctx_t *global, transactio
 void              fd_runtime_collect_fees  ( fd_global_ctx_t * global );
 void              fd_runtime_freeze        ( fd_global_ctx_t *global );
 
-void              fd_printer_walker        (void *arg, const char* name, int type, const char *type_name, int level);
-
 ulong             fd_runtime_lamports_per_signature_for_blockhash( fd_global_ctx_t *global, FD_FN_UNUSED fd_hash_t *blockhash );
 
 fd_funk_rec_key_t fd_runtime_block_key     (ulong slot);
@@ -143,17 +149,32 @@ fd_runtime_block_txnstatus_key( ulong slot ) {
   return id;
 }
 
-int               fd_pubkey_create_with_seed(fd_pubkey_t const * base, char const * seed, fd_pubkey_t const *owner, fd_pubkey_t *out );
+int
+fd_pubkey_create_with_seed( uchar const  base [ static 32 ],
+                            char const * seed,
+                            ulong        seed_sz,
+                            uchar const  owner[ static 32 ],
+                            uchar        out  [ static 32 ] );
 
 int               fd_runtime_save_banks    ( fd_global_ctx_t *global );
 int               fd_global_import_solana_manifest(fd_global_ctx_t *global, fd_solana_manifest_t* manifest);
 
+/* fd_features_restore loads all known feature accounts from the
+   accounts database.  This is used when initializing bank from a
+   snapshot. */
+
 void
-fd_update_features( fd_global_ctx_t * global );
+fd_features_restore( fd_global_ctx_t * global );
 
 static inline ulong fd_rent_exempt(fd_global_ctx_t *global, ulong sz) {
   return (sz + 128) * ((ulong) ((double)global->bank.rent.lamports_per_uint8_year * global->bank.rent.exemption_threshold));
 }
+
+void
+fd_process_new_epoch(
+    fd_global_ctx_t * global,
+    ulong parent_epoch
+);
 
 FD_PROTOTYPES_END
 

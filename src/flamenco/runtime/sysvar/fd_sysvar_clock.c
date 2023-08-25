@@ -1,11 +1,8 @@
 #include "fd_sysvar_clock.h"
 #include "../../../flamenco/types/fd_types.h"
 #include "fd_sysvar.h"
+#include "fd_sysvar_epoch_schedule.h"
 
-
-#ifdef _DISABLE_OPTIMIZATION
-#pragma GCC optimize ("O0")
-#endif
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/stake_weighted_timestamp.rs#L14 */
 #define MAX_ALLOWABLE_DRIFT_FAST ( 25 )
@@ -47,12 +44,12 @@ void write_clock( fd_global_ctx_t* global, fd_sol_sysvar_clock_t* clock ) {
   if ( fd_sol_sysvar_clock_encode( clock, &ctx ) )
     FD_LOG_ERR(("fd_sol_sysvar_clock_encode failed"));
 
-  fd_sysvar_set( global, global->sysvar_owner, (fd_pubkey_t *) global->sysvar_clock, enc, sz, global->bank.slot );
+  fd_sysvar_set( global, global->sysvar_owner, (fd_pubkey_t *) global->sysvar_clock, enc, sz, global->bank.slot, NULL );
 }
 
 int fd_sysvar_clock_read( fd_global_ctx_t* global, fd_sol_sysvar_clock_t* result ) {
   int err = 0;
-  char * raw_acc_data = (char*) fd_acc_mgr_view_data(global->acc_mgr, global->funk_txn, (fd_pubkey_t *) global->sysvar_clock, NULL, &err);
+  char * raw_acc_data = (char*) fd_acc_mgr_view_raw(global->acc_mgr, global->funk_txn, (fd_pubkey_t *) global->sysvar_clock, NULL, &err);
   if (NULL == raw_acc_data)
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   fd_account_meta_t *m = (fd_account_meta_t *) raw_acc_data;
@@ -131,7 +128,7 @@ void fd_calculate_stake_weighted_timestamp(
  ) {
   fd_clock_timestamp_votes_t * unique_timestamps = &global->bank.timestamp_votes;
   ulong slot_duration = (ulong)ns_per_slot( global->bank.ticks_per_slot );
-  FD_LOG_WARNING(( "slot duration: %lu", slot_duration ));
+  FD_LOG_DEBUG(( "slot duration: %lu", slot_duration ));
   fd_sol_sysvar_clock_t clock;
   fd_sysvar_clock_read( global, &clock );
   // get the unique timestamps
@@ -144,7 +141,7 @@ void fd_calculate_stake_weighted_timestamp(
   ulong total_stake = 0;
 
   for(
-    fd_clock_timestamp_vote_t_mapnode_t* n = fd_clock_timestamp_vote_t_map_minimum(unique_timestamps->votes_pool, unique_timestamps->votes_root); 
+    fd_clock_timestamp_vote_t_mapnode_t* n = fd_clock_timestamp_vote_t_map_minimum(unique_timestamps->votes_pool, unique_timestamps->votes_root);
     n;
     n = fd_clock_timestamp_vote_t_map_successor(unique_timestamps->votes_pool, n)
   ) {
@@ -163,7 +160,7 @@ void fd_calculate_stake_weighted_timestamp(
     pool[ idx ].stake = stake_weight;
     treap_idx_insert( treap, idx, pool );
   }
-  FD_LOG_NOTICE(("total stake: %lu", total_stake));
+  FD_LOG_DEBUG(("total stake: %lu", total_stake));
   if (total_stake == 0) {
     *result_timestamp = 0;
     return;
@@ -181,8 +178,8 @@ void fd_calculate_stake_weighted_timestamp(
       break;
     }
   }
-  
-  FD_LOG_NOTICE(( "stake weighted timestamp: %lu", *result_timestamp ));
+
+  FD_LOG_DEBUG(( "stake weighted timestamp: %lu", *result_timestamp ));
 
   // Bound estimate by `max_allowable_drift` since the start of the epoch
   fd_epoch_schedule_t schedule;
@@ -199,31 +196,37 @@ void fd_calculate_stake_weighted_timestamp(
     *result_timestamp = clock.epoch_start_timestamp + (long)poh_estimate_offset / NS_IN_S - (long)max_delta_fast / NS_IN_S;
   }
 
-  FD_LOG_NOTICE(( "corrected stake weighted timestamp: %lu", *result_timestamp ));
+  FD_LOG_DEBUG(( "corrected stake weighted timestamp: %lu", *result_timestamp ));
 
   return;
 }
 
-int fd_sysvar_clock_update( fd_global_ctx_t* global ) {
-  fd_sol_sysvar_clock_t clock;
+int
+fd_sysvar_clock_update( fd_global_ctx_t * global ) {
 
-  int err = 0;
-  fd_funk_rec_t const *con_rec = NULL;
-  char * raw_acc_data = (char*) fd_acc_mgr_view_data(global->acc_mgr, global->funk_txn, (fd_pubkey_t *) global->sysvar_clock, &con_rec, &err);
-  if (NULL == raw_acc_data)
-    return err;  // This should be a trap
-  fd_account_meta_t *m = (fd_account_meta_t *) raw_acc_data;
+  fd_pubkey_t const * key = (fd_pubkey_t const *)global->sysvar_clock;
+
+  fd_funk_rec_t const *     con_rec = NULL;
+  fd_account_meta_t const * m       = NULL;
+  uchar const *             data    = NULL;
+  int err = fd_acc_mgr_view( global->acc_mgr, global->funk_txn, key, &con_rec, &m, &data );
+  if (err)
+    FD_LOG_CRIT(( "fd_acc_mgr_view(clock) failed: %d", err ));
 
   fd_bincode_decode_ctx_t ctx;
-  ctx.data = raw_acc_data + m->hlen;
-  ctx.dataend = (char *) ctx.data + m->dlen;
+  ctx.data    = data;
+  ctx.dataend = data + m->dlen;
   ctx.valloc  = global->valloc;
-
-  if ( fd_sol_sysvar_clock_decode( &clock, &ctx ) )
+  fd_sol_sysvar_clock_t clock;
+  if( fd_sol_sysvar_clock_decode( &clock, &ctx ) )
     FD_LOG_ERR(("fd_sol_sysvar_clock_decode failed"));
 
+  long ancestor_timestamp = clock.unix_timestamp;
+
   if (global->bank.slot != 0) {
-    fd_calculate_stake_weighted_timestamp(global, &clock.unix_timestamp, (uint)global->features.warp_timestamp_again);
+    fd_calculate_stake_weighted_timestamp(global, &clock.unix_timestamp, FD_FEATURE_ACTIVE( global, warp_timestamp_again ) );
+  } else {
+    FD_LOG_DEBUG(("SLOT IS ZERO!"));
   }
   
   if (0 == clock.unix_timestamp) {
@@ -233,100 +236,60 @@ int fd_sysvar_clock_update( fd_global_ctx_t* global ) {
     if ( timestamp_estimate != bounded_timestamp_estimate ) {
       FD_LOG_INFO(( "corrected timestamp_estimate %ld to %ld", timestamp_estimate, bounded_timestamp_estimate ));
     }
-    clock.unix_timestamp            = bounded_timestamp_estimate;
+    /*  if let Some(timestamp_estimate) =
+            self.get_timestamp_estimate(max_allowable_drift, epoch_start_timestamp)
+        {
+            unix_timestamp = timestamp_estimate;
+            if timestamp_estimate < ancestor_timestamp {
+                unix_timestamp = ancestor_timestamp;
+            }
+        } */
+    if( bounded_timestamp_estimate < ancestor_timestamp ) {
+      FD_LOG_DEBUG(( "clock rewind detected: %ld -> %ld", ancestor_timestamp, bounded_timestamp_estimate ));
+      bounded_timestamp_estimate = ancestor_timestamp;
+    }
+    clock.unix_timestamp = bounded_timestamp_estimate;
   }
-  clock.slot                      = global->bank.slot;
 
-  FD_LOG_INFO(( "Updated clock at slot %lu", global->bank.slot ));
-  FD_LOG_INFO(( "clock.slot: %lu", clock.slot ));
-  FD_LOG_INFO(( "clock.epoch_start_timestamp: %ld", clock.epoch_start_timestamp ));
-  FD_LOG_INFO(( "clock.epoch: %lu", clock.epoch ));
-  FD_LOG_INFO(( "clock.leader_schedule_epoch: %lu", clock.leader_schedule_epoch ));
-  FD_LOG_INFO(( "clock.unix_timestamp: %ld", clock.unix_timestamp ));
+  clock.slot  = global->bank.slot;
 
-  ulong sz = fd_sol_sysvar_clock_size(&clock);
-  ulong acc_sz = sizeof(fd_account_meta_t) + sz;
-  fd_funk_rec_t * acc_data_rec = NULL;
+  ulong epoch_old = clock.epoch;
+  ulong epoch_new = fd_slot_to_epoch( &global->bank.epoch_schedule, clock.slot, NULL );
 
-  err = 0;
-  raw_acc_data = fd_acc_mgr_modify_data(global->acc_mgr, global->funk_txn, (fd_pubkey_t *)  global->sysvar_clock, 1, &acc_sz, con_rec, &acc_data_rec, &err);
-  if ( FD_UNLIKELY (NULL == raw_acc_data) )
-    return err;
+  clock.epoch = epoch_new;
+  if( epoch_old != epoch_new ) {
+    clock.epoch_start_timestamp = clock.unix_timestamp;
+    clock.leader_schedule_epoch = fd_slot_to_leader_schedule_epoch( &global->bank.epoch_schedule, global->bank.slot );
+  }
 
-  m = (fd_account_meta_t *)raw_acc_data;
+  FD_LOG_DEBUG(( "Updated clock at slot %lu", global->bank.slot ));
+  FD_LOG_DEBUG(( "clock.slot: %lu", clock.slot ));
+  FD_LOG_DEBUG(( "clock.epoch_start_timestamp: %ld", clock.epoch_start_timestamp ));
+  FD_LOG_DEBUG(( "clock.epoch: %lu", clock.epoch ));
+  FD_LOG_DEBUG(( "clock.leader_schedule_epoch: %lu", clock.leader_schedule_epoch ));
+  FD_LOG_DEBUG(( "clock.unix_timestamp: %ld", clock.unix_timestamp ));
 
-  fd_bincode_encode_ctx_t e_ctx;
-  e_ctx.data = raw_acc_data + m->hlen;
-  e_ctx.dataend = (char*)e_ctx.data + sz;
-  if ( fd_sol_sysvar_clock_encode( &clock, &e_ctx ) )
+  ulong               sz       = fd_sol_sysvar_clock_size(&clock);
+  fd_funk_rec_t *     acc_rec  = NULL;
+  fd_account_meta_t * acc_meta = NULL;
+  uchar *             acc_data = NULL;
+  err = fd_acc_mgr_modify( global->acc_mgr, global->funk_txn, key, 1, sz, con_rec, &acc_rec, &acc_meta, &acc_data );
+  if (err)
+    FD_LOG_CRIT(( "fd_acc_mgr_modify(clock) failed: %d", err ));
+
+  fd_bincode_encode_ctx_t e_ctx = {
+    .data    = acc_data,
+    .dataend = acc_data+sz,
+  };
+  if( fd_sol_sysvar_clock_encode( &clock, &e_ctx ) )
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
 
   ulong lamps = (sz + 128) * ((ulong) ((double)global->bank.rent.lamports_per_uint8_year * global->bank.rent.exemption_threshold));
-  if (m->info.lamports < lamps)
-    m->info.lamports = lamps;
+  if( acc_meta->info.lamports < lamps )
+    acc_meta->info.lamports = lamps;
 
-  m->dlen = sz;
-  fd_memcpy(m->info.owner, global->sysvar_owner, 32);
+  acc_meta->dlen = sz;
+  fd_memcpy( acc_meta->info.owner, global->sysvar_owner, 32 );
 
-  err = fd_acc_mgr_commit_data(global->acc_mgr, acc_data_rec, (fd_pubkey_t *) global->sysvar_slot_history, raw_acc_data, global->bank.slot, 0);
-
-  fd_bincode_destroy_ctx_t ctx_d = { .valloc = global->valloc };
-  fd_sol_sysvar_clock_destroy( &clock, &ctx_d );
-
-  return err;
+  return fd_acc_mgr_commit_raw( global->acc_mgr, acc_rec, key, acc_meta, global->bank.slot, 0 );
 }
-
-  /* Slot of next epoch boundary */
-//  ulong epoch           = fd_slot_to_epoch( &schedule, state->global->bank.slot+1, NULL );
-//  ulong last_epoch_slot = fd_epoch_slot0  ( &schedule, epoch+1UL );
-
-
-
-
-
-//    fn get_timestamp_estimate(
-//        &self,
-//        max_allowable_drift: MaxAllowableDrift,
-//        epoch_start_timestamp: Option<(Slot, UnixTimestamp)>,
-//    ) -> Option<UnixTimestamp> {
-//        let mut get_timestamp_estimate_time = Measure::start("get_timestamp_estimate");
-//        let slots_per_epoch = self.epoch_schedule().slots_per_epoch;
-//        let vote_accounts = self.vote_accounts();
-//        let recent_timestamps = vote_accounts.iter().filter_map(|(pubkey, (_, account))| {
-//            let vote_state = account.vote_state();
-//            let vote_state = vote_state.as_ref().ok()?;
-//            let slot_delta = self.slot().checked_sub(vote_state.last_timestamp.slot)?;
-//            (slot_delta <= slots_per_epoch).then(|| {
-//                (
-//                    *pubkey,
-//                    (
-//                        vote_state.last_timestamp.slot,
-//                        vote_state.last_timestamp.timestamp,
-//                    ),
-//                )
-//            })
-//        });
-//        let slot_duration = Duration::from_nanos(self.ns_per_slot as u64);
-//        let epoch = self.epoch_schedule().get_epoch(self.slot());
-//        let stakes = self.epoch_vote_accounts(epoch)?;
-//        let stake_weighted_timestamp = calculate_stake_weighted_timestamp(
-//            recent_timestamps,
-//            stakes,
-//            self.slot(),
-//            slot_duration,
-//            epoch_start_timestamp,
-//            max_allowable_drift,
-//            self.feature_set
-//                .is_active(&feature_set::warp_timestamp_again::id()),
-//        );
-//        get_timestamp_estimate_time.stop();
-//        datapoint_info!(
-//            "bank-timestamp",
-//            (
-//                "get_timestamp_estimate_us",
-//                get_timestamp_estimate_time.as_us(),
-//                i64
-//            ),
-//        );
-//        stake_weighted_timestamp
-//    }

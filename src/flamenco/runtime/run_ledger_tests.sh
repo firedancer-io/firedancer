@@ -1,22 +1,16 @@
 #!/bin/bash -f
 
-set -e
-
 # this assumes the test_runtime has already been built
 
-LEDGER="test-ledger-4"
-VERBOSE=NO
+LEDGER="v17-epoch32"
 POSITION_ARGS=()
+OBJDIR=${OBJDIR:-build/native/gcc}
 
 while [[ $# -gt 0 ]]; do
   case $1 in
     -l|--ledger)
        LEDGER="$2"
        shift
-       shift
-       ;;
-    -v|--verbose)
-       VERBOSE=YES
        shift
        ;;
     -*|--*)
@@ -31,7 +25,8 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [ ! -e $LEDGER ]; then
-  curl -o - -L -q https://github.com/firedancer-io/firedancer-testbins/raw/main/$LEDGER.tar.gz | tar zxf -
+  mkdir -p dump
+  curl -o - -L -q https://github.com/firedancer-io/firedancer-testbins/raw/main/$LEDGER.tar.gz | tar zxf - -C ./dump
 fi
 
 # We determine these values by
@@ -47,30 +42,57 @@ fi
 # sudo build/native/gcc/bin/fd_shmem_cfg fini
 
 # sudo build/native/gcc/bin/fd_shmem_cfg init 0777 jsiegel ""
-# sudo build/native/gcc/bin/fd_shmem_cfg alloc 64 gigantic 0
+# sudo build/native/gcc/bin/fd_shmem_cfg alloc 225 gigantic 0
 # sudo build/native/gcc/bin/fd_shmem_cfg alloc 512 huge 0
 
 set -x
 
-if [ $VERBOSE == "YES" ]; then
-  set -x
-fi
-
-build/native/gcc/bin/fd_frank_ledger --rocksdb $LEDGER/rocksdb --genesis $LEDGER/genesis.bin --cmd ingest --indexmax 10000 --txnmax 100 --backup test_ledger_backup --gaddrout gaddr --net v13 --pages 1
-
-build/native/gcc/unit-test/test_runtime --load test_ledger_backup --gaddr `cat gaddr` --pages 1 --cmd replay --end-slot 25 --confirm_hash AsHedZaZkabNtB8XBiKWQkKwaeLy2y4Hrqm6MkQALT5h --confirm_parent CvgPeR54qpVRZGBuiQztGXecxSXREPfTF8wALujK4WdE --confirm_account_delta 7PL6JZgcNy5vkPSc6JsMHET9dvpvsFMWR734VtCG29xN  --confirm_signature 2  --confirm_last_block G4YL2SieHDGNZGjiwBsJESK7jMDfazg33ievuCwbkjrv --validate true  --net v13 >& /tmp/ledger_log$$
+"$OBJDIR"/bin/fd_frank_ledger \
+  --rocksdb dump/$LEDGER/rocksdb \
+  --genesis dump/$LEDGER/genesis.bin \
+  --cmd ingest \
+  --indexmax 10000 \
+  --txnmax 100 \
+  --backup test_ledger_backup \
+  --gaddrout gaddr \
+  --pages 1
 
 status=$?
 
 if [ $status -ne 0 ]
 then
-  tail -20 /tmp/ledger_log$$
   echo 'ledger test failed:'
-  echo /tmp/ledger_log$$
   exit $status
 fi
 
-build/native/gcc/unit-test/test_native_programs --ignore_fail_file src/flamenco/runtime/tests/ignore_fail >& native.log
+
+
+log=/tmp/ledger_log$$
+
+"$OBJDIR"/unit-test/test_runtime \
+  --load test_ledger_backup \
+  --cmd replay \
+  --gaddr `cat gaddr` \
+  --pages 1 \
+  --validate true \
+  --abort-on-mismatch 1 \
+  --capture test.solcap \
+  --end-slot 32 >& $log
+
+status=$?
+
+if [ $status -ne 0 ]
+then
+  tail -20 $log
+  echo 'ledger test failed:'
+  echo $log
+  exit $status
+fi
+
+rm $log
+
+# Running this twice, but whatever
+"$OBJDIR"/unit-test/test_native_programs >& native.log
 
 status=$?
 

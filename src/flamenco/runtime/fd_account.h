@@ -114,6 +114,7 @@ int fd_account_is_sysvar(instruction_ctx_t * ctx, fd_pubkey_t * acct) {
   if (memcmp(acct, ctx->global->sysvar_slot_history, sizeof(fd_pubkey_t)) == 0) return 1;
   if (memcmp(acct, ctx->global->sysvar_slot_hashes, sizeof(fd_pubkey_t)) == 0) return 1;
   if (memcmp(acct, ctx->global->sysvar_epoch_schedule, sizeof(fd_pubkey_t)) == 0) return 1;
+  if (memcmp(acct, ctx->global->sysvar_epoch_rewards, sizeof(fd_pubkey_t)) == 0) return 1;
   if (memcmp(acct, ctx->global->sysvar_fees, sizeof(fd_pubkey_t)) == 0) return 1;
   if (memcmp(acct, ctx->global->sysvar_rent, sizeof(fd_pubkey_t)) == 0) return 1;
   if (memcmp(acct, ctx->global->sysvar_stake_history, sizeof(fd_pubkey_t)) == 0) return 1;
@@ -442,5 +443,52 @@ int fd_account_is_signer_(instruction_ctx_t const *ctx, fd_pubkey_t const * acco
 }
 //
 
+static inline
+fd_hash_t const *
+fd_get_bank_hash( fd_funk_t *       funk,
+               ulong             slot ) {
+
+  fd_funk_rec_key_t key = fd_runtime_bank_hash_key( slot );
+  fd_funk_rec_t const * rec = fd_funk_rec_query_global( funk, NULL, &key );
+  if( !rec ) {
+    FD_LOG_DEBUG(( "No known bank hash for slot %lu", slot ));
+    return NULL;
+  }
+
+  void const * val = fd_funk_val_const( rec, fd_funk_wksp( funk ));
+  FD_TEST( fd_funk_val_sz( rec ) == sizeof(fd_hash_t) );
+  return (fd_hash_t const *)val;
+}
+
+static inline
+int fd_account_set_executable(instruction_ctx_t ctx, fd_pubkey_t * program_acc, fd_account_meta_t * metadata, char is_executable) {
+  fd_rent_t rent;
+  fd_rent_new( &rent );
+  if (fd_sysvar_rent_read( ctx.global, &rent ) == 0) {
+    ulong min_balance = fd_rent_exempt_minimum_balance(ctx.global, metadata->dlen);
+    if (metadata->info.lamports < min_balance) {
+      return FD_EXECUTOR_INSTR_ERR_EXECUTABLE_ACCOUNT_NOT_RENT_EXEMPT;
+    }
+
+    if (0 != memcmp(metadata->info.owner, ctx.global->solana_bpf_loader_program, sizeof(fd_pubkey_t))) {
+      return FD_EXECUTOR_INSTR_ERR_EXECUTABLE_MODIFIED;
+    }
+
+    if (!fd_account_is_writable(&ctx, program_acc)) {
+      return FD_EXECUTOR_INSTR_ERR_EXECUTABLE_MODIFIED;
+    }
+
+    if (metadata->info.executable && !is_executable) {
+      return FD_EXECUTOR_INSTR_ERR_EXECUTABLE_MODIFIED;
+    }
+
+    if (metadata->info.executable == is_executable) {
+      return 0;
+    }
+  }
+
+  metadata->info.executable = is_executable;
+  return 0;
+}
 
 #endif

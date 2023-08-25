@@ -44,36 +44,31 @@ write_epoch_schedule( fd_global_ctx_t *     global,
   if ( fd_epoch_schedule_encode( epoch_schedule, &ctx ) )
     FD_LOG_ERR(("fd_epoch_schedule_encode failed"));
 
-  fd_sysvar_set( global, global->sysvar_owner, (fd_pubkey_t *) global->sysvar_epoch_schedule, enc, sz, global->bank.slot );
+  fd_sysvar_set( global, global->sysvar_owner, (fd_pubkey_t *) global->sysvar_epoch_schedule, enc, sz, global->bank.slot, NULL );
 }
 
 void
 fd_sysvar_epoch_schedule_read( fd_global_ctx_t *     global,
                                fd_epoch_schedule_t * result ) {
 
-  /* TODO: Update to new account mgr API */
-
-  fd_account_meta_t metadata;
-  int               read_result = fd_acc_mgr_get_metadata( global->acc_mgr, global->funk_txn, (fd_pubkey_t *) global->sysvar_epoch_schedule, &metadata );
-  if ( read_result != FD_ACC_MGR_SUCCESS ) {
-    FD_LOG_NOTICE(( "failed to read account metadata: %d", read_result ));
+  int err = 0;
+  uchar const * record = fd_acc_mgr_view_raw( global->acc_mgr, global->funk_txn, (fd_pubkey_t const *)global->sysvar_epoch_schedule, NULL, &err );
+  if( FD_UNLIKELY( !record ) ) {
+    FD_LOG_ERR(( "failed to read epoch schedule sysvar: %d", err ));
     return;
   }
 
-  uchar * raw_acc_data = fd_alloca( 1, metadata.dlen );
-  read_result = fd_acc_mgr_get_account_data( global->acc_mgr, global->funk_txn, (fd_pubkey_t *) global->sysvar_epoch_schedule, raw_acc_data, metadata.hlen, metadata.dlen );
-  if ( read_result != FD_ACC_MGR_SUCCESS ) {
-    FD_LOG_NOTICE(( "failed to read account data: %d", read_result ));
-    return;
-  }
+  fd_account_meta_t const * metadata     = (fd_account_meta_t const *)record;
+  uchar const *             raw_acc_data = record + metadata->hlen;
 
-  fd_bincode_decode_ctx_t ctx;
-  ctx.data = raw_acc_data;
-  ctx.dataend = raw_acc_data + metadata.dlen;
-  ctx.valloc  = global->valloc;
+  fd_bincode_decode_ctx_t decode = {
+    .data    = raw_acc_data,
+    .dataend = raw_acc_data + metadata->dlen,
+    .valloc  = global->valloc
+  };
 
   fd_epoch_schedule_new( result );
-  if( FD_UNLIKELY( fd_epoch_schedule_decode( result, &ctx ) ) )
+  if( FD_UNLIKELY( fd_epoch_schedule_decode( result, &decode ) ) )
     FD_LOG_ERR(("fd_epoch_schedule_decode failed"));
 }
 
@@ -157,15 +152,23 @@ fd_slot_to_epoch( fd_epoch_schedule_t const * schedule,
   return epoch;
 }
 
-ulong fd_sysvar_epoch_schedule_get_first_slot_in_epoch(fd_epoch_schedule_t * schedule, ulong epoch) {
-  return (epoch < schedule->first_normal_epoch) ?
-      fd_ulong_sat_mul(
-        fd_ulong_sat_sub((1UL<<epoch), 1UL),
-        FD_EPOCH_LEN_MIN
-        ) :
-     fd_ulong_sat_add(
-      fd_ulong_sat_mul(
-        fd_ulong_sat_sub(epoch, schedule->first_normal_epoch), schedule->slots_per_epoch),
-      schedule->first_normal_slot
-      );
+/* https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1fb868e/sdk/program/src/epoch_schedule.rs#L114 */
+
+ulong
+fd_slot_to_leader_schedule_epoch( fd_epoch_schedule_t const * schedule,
+                                  ulong                       slot ) {
+
+  if( slot < schedule->first_normal_slot )
+    return fd_slot_to_epoch( schedule, slot, NULL ) + 1UL;
+
+  /* These variable names ... sigh */
+
+  ulong new_slots_since_first_normal_slot =
+    slot - schedule->first_normal_slot;
+  ulong new_first_normal_leader_schedule_slot =
+    new_slots_since_first_normal_slot + schedule->leader_schedule_slot_offset;
+  ulong new_epochs_since_first_normal_leader_schedule =
+    new_first_normal_leader_schedule_slot / schedule->slots_per_epoch;
+
+  return schedule->first_normal_epoch + new_epochs_since_first_normal_leader_schedule;
 }

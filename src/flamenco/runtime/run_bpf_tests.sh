@@ -3,18 +3,14 @@
 # this assumes the test_runtime has already been built
 
 LEDGER="v13-contract-ledger"
-VERBOSE=NO
 POSITION_ARGS=()
+OBJDIR=${OBJDIR:-build/native/gcc}
 
 while [[ $# -gt 0 ]]; do
   case $1 in
     -l|--ledger)
        LEDGER="$2"
        shift
-       shift
-       ;;
-    -v|--verbose)
-       VERBOSE=YES
        shift
        ;;
     -*|--*)
@@ -42,32 +38,45 @@ fi
 
 # we could ALWAYS run it with logging except when I run this from the command line, I want less noise...
 
-# sudo build/linux/gcc/x86_64/bin/fd_shmem_cfg fini
+# sudo build/native/gcc/bin/fd_shmem_cfg fini
 
-# sudo build/linux/gcc/x86_64/bin/fd_shmem_cfg init 0777 jsiegel ""
-# sudo build/linux/gcc/x86_64/bin/fd_shmem_cfg alloc 64 gigantic 0
-# sudo build/linux/gcc/x86_64/bin/fd_shmem_cfg alloc 512 huge 0
+# sudo build/native/gcc/bin/fd_shmem_cfg init 0777 jsiegel ""
+# sudo build/native/gcc/bin/fd_shmem_cfg alloc 225 gigantic 0
+# sudo build/native/gcc/bin/fd_shmem_cfg alloc 512 huge 0
 
 set -x
 
-if [ $VERBOSE == "YES" ]; then
-  set -x
-fi
-
-# bank frozen: 21 hash: 7A1Zi63guF7kMWeoYPZmhKdg2H9Hvoc2DAQ2S1QFXtH parent_hash: 6zPf6DeMhrpiSBhqahu9qEkqgVNiPhhzTejKB85FiAmB  accounts_delta: 4ptz3mgFYHfsfiBUfPaCtM5TwPXvu8Ctxe346sTiq74x signature_count: 2 last_blockhash: HyqLfiMCsXYwDTujyDLKwrTCDmkFtCoid5ehH6PDdzjt capitalization: 503000502311969156
-
-build/native/gcc/bin/fd_frank_ledger --rocksdb $LEDGER/rocksdb --genesis $LEDGER/genesis.bin --cmd ingest --indexmax 10000 --txnmax 100 --backup test_ledger_backup  main  --net v13
-
-build/native/gcc/unit-test/test_runtime --load test_ledger_backup --cmd replay --end-slot 22 --confirm_hash 7A1Zi63guF7kMWeoYPZmhKdg2H9Hvoc2DAQ2S1QFXtH    --confirm_signature 2  --confirm_last_block HyqLfiMCsXYwDTujyDLKwrTCDmkFtCoid5ehH6PDdzjt --validate true  --net v13 >& /tmp/bpf_log$$
+"$OBJDIR"/bin/fd_frank_ledger --rocksdb $LEDGER/rocksdb --genesis $LEDGER/genesis.bin --cmd ingest --indexmax 10000 --txnmax 100 --backup test_ledger_backup --gaddrout gaddr --pages 1
 
 status=$?
 
 if [ $status -ne 0 ]
 then
-  tail -20 /tmp/bpf_log$$
-  echo 'bpf test failed'
-  echo /tmp/bpf_log$$
+  echo 'ledger test failed:'
   exit $status
 fi
+
+log=/tmp/ledger_log$$
+
+"$OBJDIR"/unit-test/test_runtime \
+  --load test_ledger_backup \
+  --cmd replay \
+  --gaddr `cat gaddr` \
+  --pages 1 \
+  --validate true \
+  --abort-on-mismatch 1 \
+  --capture test.solcap >& $log
+
+status=$?
+
+if [ $status -ne 0 ]
+then
+  tail -20 $log
+  echo 'ledger test failed:'
+  echo $log
+  exit $status
+fi
+
+rm $log
 
 echo 'bpf tests passed'

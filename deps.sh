@@ -2,7 +2,6 @@
 
 # Change into Firedancer root directory
 cd "$(dirname "${BASH_SOURCE[0]}")"
-REPO_ROOT="$(pwd)"
 
 set -euo pipefail
 
@@ -116,7 +115,7 @@ fetch () {
   checkout_repo zlib      https://github.com/madler/zlib            "v1.2.13"
   checkout_repo bzip2     https://sourceware.org/git/bzip2.git      "bzip2-1.0.8"
   checkout_repo zstd      https://github.com/facebook/zstd          "v1.5.4"
-  checkout_repo openssl   https://github.com/quictls/openssl        "openssl-3.0.9-quic1"
+  checkout_repo openssl   https://github.com/quictls/openssl        "openssl-3.1.2-quic1"
   checkout_repo rocksdb   https://github.com/facebook/rocksdb       "v7.10.2"
   checkout_repo secp256k1 https://github.com/bitcoin-core/secp256k1 "v0.3.2"
   checkout_repo snappy    https://github.com/google/snappy          "1.1.10"
@@ -126,7 +125,7 @@ fetch () {
 }
 
 check_fedora_pkgs () {
-  local REQUIRED_RPMS=( perl autoconf gettext-devel automake flex bison cmake )
+  local REQUIRED_RPMS=( perl autoconf gettext-devel automake flex bison cmake clang )
 
   echo "[~] Checking for required RPM packages"
 
@@ -142,20 +141,7 @@ check_fedora_pkgs () {
     return 0
   fi
 
-  echo "[!] Found missing packages"
-  echo "[?] This is fixed by the following command:"
-  echo "        ${SUDO}dnf install -y ${MISSING_RPMS[*]}"
-  read -r -p "[?] Install missing packages with superuser privileges? (y/N) " choice
-  case "$choice" in
-    y|Y)
-      echo "[+] Installing missing RPMs"
-      ${SUDO}dnf install -y "${MISSING_RPMS[@]}"
-      echo "[+] Installed missing RPMs"
-      ;;
-    *)
-      echo "[-] Skipping package install"
-      ;;
-  esac
+  PACKAGE_INSTALL_CMD="${SUDO}dnf install -y ${MISSING_RPMS[*]}"
 }
 
 check_debian_pkgs () {
@@ -175,20 +161,7 @@ check_debian_pkgs () {
     return 0
   fi
 
-  echo "[!] Found missing packages"
-  echo "[?] This is fixed by the following command:"
-  echo "        ${SUDO}apt-get install -y ${MISSING_DEBS[*]}"
-  read -r -p "[?] Install missing packages with superuser privileges? (y/N) " choice
-  case "$choice" in
-    y|Y)
-      echo "[+] Installing missing DEBs"
-      ${SUDO}apt-get install -y "${MISSING_DEBS[@]}"
-      echo "[+] Installed missing DEBs"
-      ;;
-    *)
-      echo "[-] Skipping package install"
-      ;;
-  esac
+  PACKAGE_INSTALL_CMD="${SUDO}apt-get install -y ${MISSING_DEBS[*]}"
 }
 
 check_alpine_pkgs () {
@@ -208,20 +181,7 @@ check_alpine_pkgs () {
     return 0
   fi
 
-  echo "[!] Found missing packages"
-  echo "[?] This is fixed by the following command:"
-  echo "        ${SUDO}apk add ${MISSING_APKS[*]}"
-  read -r -p "[?] Install missing packages with superuser privileges? (y/N) " choice
-  case "$choice" in
-    y|Y)
-      echo "[+] Installing missing APKs"
-      ${SUDO}apk add "${MISSING_APKS[@]}"
-      echo "[+] Installed missing APKs"
-      ;;
-    *)
-      echo "[-] Skipping package install"
-      ;;
-  esac
+  PACKAGE_INSTALL_CMD="${SUDO}apk add ${MISSING_APKS[*]}"
 }
 
 check_macos_pkgs () {
@@ -241,20 +201,7 @@ check_macos_pkgs () {
     return 0
   fi
 
-  echo "[!] Found missing formulae"
-  echo "[?] This is fixed by the following command:"
-  echo "        brew install ${MISSING_FORMULAE[*]}"
-  read -r -p "[?] Install missing formulae with brew? (y/N) " choice
-  case "$choice" in
-    y|Y)
-      echo "[+] Installing missing formulae"
-      brew install "${MISSING_FORMULAE[@]}"
-      echo "[+] Installed missing formulae"
-      ;;
-    *)
-      echo "[-] Skipping formula install"
-      ;;
-  esac
+  PACKAGE_INSTALL_CMD="brew install ${MISSING_FORMULAE[*]}"
 }
 
 check () {
@@ -276,6 +223,28 @@ check () {
       echo "Unsupported distro $DISTRO. Your mileage may vary."
       ;;
   esac
+
+  if [[ ! -z "${PACKAGE_INSTALL_CMD+}" ]]; then
+    echo "[!] Found missing system packages"
+    echo "[?] This is fixed by the following command:"
+    echo "        ${PACKAGE_INSTALL_CMD}"
+    FD_AUTO_INSTALL_PACKAGES=1
+    if [[ "$FD_AUTO_INSTALL_PACKAGES" == "1" ]]; then
+      choice=y
+    else
+      read -r -p "[?] Install missing system packages? (y/N) " choice
+    fi
+    case "$choice" in
+      y|Y)
+        echo "[+] Installing missing packages"
+        "${PACKAGE_INSTALL_CMD[@]}"
+        echo "[+] Finished installing missing packages"
+        ;;
+      *)
+        echo "[-] Skipping formula install"
+        ;;
+    esac
+  fi
 }
 
 install_zlib () {
@@ -349,7 +318,9 @@ install_openssl () {
   ./config \
     -static \
     --prefix="$PREFIX" \
+    --libdir=lib \
     enable-quic \
+    enable-pic \
     no-engine \
     no-static-engine \
     no-weak-ssl-ciphers \
@@ -493,8 +464,10 @@ install_snappy () {
 }
 
 install () {
-  export CC=`which gcc`
-  export cc=`which gcc`
+  CC="$(command -v gcc)"
+  cc="$CC"
+  export CC
+  export cc
   ( install_zlib      )
   ( install_bzip2     )
   ( install_zstd      )
@@ -513,6 +486,10 @@ install () {
     find ./opt/lib64/ -mindepth 1 -exec mv -t ./opt/lib/ {} +
     rm -rf ./opt/lib64
   fi
+
+  # Remove cmake and pkgconfig files, so we don't accidentally
+  # depend on them.
+  rm -rf ./opt/lib/cmake ./opt/lib/pkgconfig
 
   echo "[~] Done!"
 }

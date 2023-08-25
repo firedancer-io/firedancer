@@ -15,12 +15,12 @@ void write_stake_history( fd_global_ctx_t* global, fd_stake_history_t* stake_his
   if ( fd_stake_history_encode( stake_history, &ctx ) )
     FD_LOG_ERR(("fd_stake_history_encode failed"));
 
-  fd_sysvar_set( global, global->sysvar_owner, (fd_pubkey_t *) global->sysvar_stake_history, enc, sz, global->bank.slot );
+  fd_sysvar_set( global, global->sysvar_owner, (fd_pubkey_t *) global->sysvar_stake_history, enc, sz, global->bank.slot, NULL );
 }
 
 int fd_sysvar_stake_history_read( fd_global_ctx_t* global, fd_stake_history_t* result ) {
   int          acc_view_err = 0;
-  char const * raw_acc_data = fd_acc_mgr_view_data( global->acc_mgr, global->funk_txn, (fd_pubkey_t *) global->sysvar_stake_history, NULL, &acc_view_err );
+  char const * raw_acc_data = fd_acc_mgr_view_raw( global->acc_mgr, global->funk_txn, (fd_pubkey_t *) global->sysvar_stake_history, NULL, &acc_view_err );
   fd_account_meta_t const * metadata = (fd_account_meta_t const *)raw_acc_data;
 
   fd_bincode_decode_ctx_t ctx;
@@ -33,7 +33,19 @@ int fd_sysvar_stake_history_read( fd_global_ctx_t* global, fd_stake_history_t* r
 }
 
 void fd_sysvar_stake_history_init( fd_global_ctx_t* global ) {
-  fd_stake_history_t stake_history;
-  memset( &stake_history, 0, sizeof(fd_stake_history_t) );
+  fd_stake_history_t stake_history = {
+    .entries_pool = fd_stake_history_epochentry_pair_t_map_alloc( global->valloc, 100000UL ),
+    .entries_root = NULL
+  };
   write_stake_history( global, &stake_history );
+}
+
+void fd_sysvar_stake_history_update( fd_global_ctx_t * global, fd_stake_history_epochentry_pair_t * entry) {
+  // Need to make this maybe zero copies of map...
+  fd_stake_history_t stake_history;
+  fd_sysvar_stake_history_read( global, &stake_history);
+  fd_stake_history_epochentry_pair_t_mapnode_t * node = fd_stake_history_epochentry_pair_t_map_acquire( stake_history.entries_pool );
+  fd_memcpy(&node->elem, entry, sizeof(fd_stake_history_epochentry_pair_t));
+  fd_stake_history_epochentry_pair_t_map_insert( stake_history.entries_pool, &stake_history.entries_root, node );
+  write_stake_history( global, &stake_history);
 }

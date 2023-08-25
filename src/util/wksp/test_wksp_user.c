@@ -132,7 +132,6 @@ main( int     argc,
     FD_TEST( !fd_wksp_alloc( wksp, 1UL, 0UL,       1UL ) ); /* zero sz */
     FD_TEST( !fd_wksp_alloc( wksp, 2UL, ULONG_MAX, 1UL ) ); /* overflow footprint */
     FD_TEST( !fd_wksp_alloc( wksp, 1UL, 1UL,       0UL ) ); /* zero tag */
-    
 
     ulong g = fd_wksp_alloc( wksp, 0UL, 1UL, 1UL ); /* default align */
     FD_TEST( g );
@@ -154,9 +153,26 @@ main( int     argc,
     fd_wksp_free( NULL, g   ); /* NULL wksp */
     fd_wksp_free( wksp, 0UL ); /* zero gaddr */
 
+    /* Test fd_wksp_tag_query edge cases */
+
+    ulong                    tag_tmp;
+    fd_wksp_tag_query_info_t info[2];
+
+    tag_tmp = 1UL;
+    FD_TEST( fd_wksp_tag_query( NULL, &tag_tmp, 1UL, info, 2UL )==0UL ); /* NULL wksp */
+    FD_TEST( fd_wksp_tag_query( wksp, NULL,     1UL, info, 2UL )==0UL ); /* NULL tags */
+    FD_TEST( fd_wksp_tag_query( wksp, NULL,     0UL, info, 2UL )==0UL ); /* no tags (NULL tag array) */
+    FD_TEST( fd_wksp_tag_query( wksp, &tag_tmp, 0UL, info, 2UL )==0UL ); /* no tags */
+    FD_TEST( fd_wksp_tag_query( wksp, &tag_tmp, 1UL, NULL, 2UL )==0UL ); /* NULL info */
+    FD_TEST( fd_wksp_tag_query( wksp, &tag_tmp, 1UL, NULL, 0UL )==1UL ); /* count only (NULL info array) */
+    FD_TEST( fd_wksp_tag_query( wksp, &tag_tmp, 1UL, info, 0UL )==1UL ); /* count only */
+
+    FD_TEST( fd_wksp_tag_query( wksp, &tag_tmp, 1UL, info, 2UL )==1UL );
+    FD_TEST( info[0].gaddr_lo<=g && (g+1UL)<=info[0].gaddr_hi && info[0].tag==1UL );
+
     /* Test fd_wksp_tag_free edge cases */
 
-    ulong tag_tmp = 2UL;
+    tag_tmp = 2UL;
     fd_wksp_tag_free( NULL, &tag_tmp, 1UL ); /* NULL wksp */
     fd_wksp_tag_free( wksp, NULL,     0UL );
     fd_wksp_tag_free( wksp, NULL,     1UL );
@@ -239,14 +255,20 @@ main( int     argc,
       ulong t1 = (ulong)(r & 3U); r >>= 2;
       ulong i  = fd_ulong_min( t0, t1 );
       ulong j  = fd_ulong_max( t0, t1 );
-      fd_wksp_tag_free( wksp, alloc_tag+i, j-i );
 
       ulong new_alloc_cnt = 0UL;
+      ulong free_cnt      = 0UL;
       for( ulong alloc_idx=0UL; alloc_idx<alloc_cnt; alloc_idx++ ) {
         ulong k = alloc[ alloc_idx ].tag & 3UL;
         if( !((i<=k) & (k<j)) ) alloc[ new_alloc_cnt++ ] = alloc[ alloc_idx ];
+        else                    free_cnt++;
       }
       alloc_cnt = new_alloc_cnt;
+
+      FD_TEST( fd_wksp_tag_query( wksp, alloc_tag+i, j-i, NULL, 0UL )==free_cnt );
+      fd_wksp_tag_free( wksp, alloc_tag+i, j-i );
+      FD_TEST( fd_wksp_tag_query( wksp, alloc_tag+i, j-i, NULL, 0UL )==0UL );
+
       continue;
     }
 

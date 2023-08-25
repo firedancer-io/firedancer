@@ -1,4 +1,6 @@
 #include "fd_executor.h"
+#include "fd_acc_mgr.h"
+#include "fd_hashes.h"
 #include "fd_runtime.h"
 
 #include "program/fd_system_program.h"
@@ -10,13 +12,10 @@
 #include "program/fd_bpf_loader_program.h"
 #include "program/fd_bpf_upgradeable_loader_program.h"
 #include "program/fd_bpf_deprecated_loader_program.h"
+#include "program/fd_bpf_loader_v4_program.h"
 #include "program/fd_compute_budget_program.h"
 
 #include "../../ballet/base58/fd_base58.h"
-
-#ifdef _DISABLE_OPTIMIZATION
-#pragma GCC optimize ("O0")
-#endif
 
 void * fd_executor_new(void*           mem,
                       fd_global_ctx_t* global,
@@ -89,14 +88,16 @@ fd_executor_lookup_native_program( fd_global_ctx_t * global,  fd_pubkey_t const 
     return fd_executor_ed25519_program_execute_instruction;
   } else if ( !memcmp( pubkey, global->solana_keccak_secp_256k_program, sizeof( fd_pubkey_t ) ) ) {
     return fd_executor_secp256k1_program_execute_instruction;
-  } else if ( !memcmp( pubkey, global->solana_bpf_loader_upgradeable_program_with_jit, sizeof( fd_pubkey_t ) ) ) {
+  } else if ( !memcmp( pubkey, global->solana_bpf_loader_upgradeable_program, sizeof( fd_pubkey_t ) ) ) {
     return fd_executor_bpf_upgradeable_loader_program_execute_instruction;
-  } else if ( !memcmp( pubkey, global->solana_bpf_loader_program_with_jit, sizeof( fd_pubkey_t ) ) ) {
+  } else if ( !memcmp( pubkey, global->solana_bpf_loader_program, sizeof( fd_pubkey_t ) ) ) {
     return fd_executor_bpf_loader_program_execute_instruction;
   } else if ( !memcmp( pubkey, global->solana_bpf_loader_deprecated_program, sizeof( fd_pubkey_t ) ) ) {
     return fd_executor_bpf_deprecated_loader_program_execute_instruction;
   } else if ( !memcmp( pubkey, global->solana_compute_budget_program, sizeof( fd_pubkey_t ) ) ) {
     return fd_executor_compute_budget_program_execute_instruction_nop;
+  } else if( !memcmp( pubkey, global->solana_bpf_loader_v4_program->key, sizeof(fd_pubkey_t) ) ) {
+    return fd_executor_bpf_loader_v4_program_execute_instruction;
   } else {
     return NULL; /* FIXME */
   }
@@ -199,6 +200,65 @@ fd_executor_setup_accessed_accounts_for_txn( transaction_ctx_t * txn_ctx, fd_raw
   }
 }
 
+/* todo rent exempt check */
+static void
+fd_set_exempt_rent_epoch_max( fd_global_ctx_t * global,
+                              void const *      addr ) {
+
+  fd_funk_rec_t const *     rec_ro  = NULL;
+  fd_account_meta_t const * meta_ro = NULL;
+  int err = fd_acc_mgr_view( global->acc_mgr, global->funk_txn, (fd_pubkey_t const *)addr, &rec_ro, &meta_ro, NULL );
+  if( FD_UNLIKELY( err==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) )
+    return;
+  FD_TEST( err==FD_ACC_MGR_SUCCESS );
+
+  if( meta_ro->info.lamports < fd_rent_exempt_minimum_balance( global, meta_ro->dlen ) ) return;
+  if( meta_ro->info.rent_epoch == ULONG_MAX ) return;
+
+  fd_account_meta_t * meta_rw = NULL;
+  err = fd_acc_mgr_modify( global->acc_mgr, global->funk_txn, (fd_pubkey_t const *)addr, 0, 0UL, rec_ro, NULL, &meta_rw, NULL );
+  FD_TEST( err==FD_ACC_MGR_SUCCESS );
+
+  meta_rw->info.rent_epoch = ULONG_MAX;
+}
+
+static int
+fd_executor_collect_fee( fd_global_ctx_t *   global,
+                         fd_pubkey_t const * account,
+                         ulong               fee ) {
+
+  fd_account_meta_t * meta = NULL;
+  int err = fd_acc_mgr_modify( global->acc_mgr, global->funk_txn, account, 0, 0UL, NULL, NULL, &meta, NULL );
+  if( FD_UNLIKELY( err ) ) {
+    FD_LOG_WARNING(( "fd_acc_mgr_modify_raw failed (%d)", err ));
+    // TODO: The fee payer does not seem to exist?!  what now?
+    return -1;
+  }
+
+  if (fee > meta->info.lamports) {
+    // TODO: Not enough lamports to pay for this txn...
+    //
+    // (Should this be lamps + whatever is required to keep the payer rent exempt?)
+    FD_LOG_WARNING(( "Not enough lamps" ));
+    return -1;
+  }
+
+  if (FD_UNLIKELY(global->log_level > 2)) {
+    FD_LOG_WARNING(( "fd_execute_txn: global->collected: %ld->%ld (%ld)", global->bank.collected, global->bank.collected + fee, fee));
+    FD_LOG_DEBUG(( "calling set_lamports to charge the fee %lu", fee));
+  }
+
+  // TODO: I BELIEVE we charge for the fee BEFORE we create the funk_txn fork
+  // since we collect reguardless of the success of the txn execution...
+  meta->info.lamports -= fee;
+  global->bank.collected += fee;
+
+  /* todo rent exempt check */
+  if( FD_FEATURE_ACTIVE( global, set_exempt_rent_epoch_max ) )
+    meta->info.rent_epoch = ULONG_MAX;
+  return 0;
+}
+
 int
 fd_execute_instr( fd_executor_t * executor, fd_instr_t * instr, transaction_ctx_t * txn_ctx ) {
   fd_pubkey_t const * txn_accs = txn_ctx->accounts; 
@@ -278,6 +338,9 @@ fd_execute_txn( fd_executor_t * executor, fd_txn_t * txn_descriptor, fd_rawtxn_b
   (void)compute_budget_status;
 
   ulong fee = fd_runtime_calculate_fee ( global, &txn_ctx, txn_descriptor, txn_raw );
+  if( fd_executor_collect_fee( global, &tx_accs[0], fee ) ) {
+    return -1;
+  }
 
   // TODO: we are just assuming the fee payer is account 0... FIX this..
 
@@ -339,7 +402,7 @@ fd_execute_txn( fd_executor_t * executor, fd_txn_t * txn_descriptor, fd_rawtxn_b
   xid.ul[3] = fd_rng_ulong( global->rng );
   fd_funk_txn_t * txn = fd_funk_txn_prepare( global->funk, parent_txn, &xid, 1 );
   global->funk_txn = txn;
-
+  
   fd_instr_t instrs[txn_descriptor->instr_cnt];
   for ( ushort i = 0; i < txn_descriptor->instr_cnt; ++i ) {
     fd_txn_instr_t *  txn_instr = &txn_descriptor->instr[i];

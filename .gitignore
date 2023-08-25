@@ -6,15 +6,11 @@ tmp
 
 # Coverage
 genhtml/
-target/
-fd_ffi.rs
 *.lcov
 *.profraw
 
 # Core Dumps
 core.*.*
-# Rust
-**/Cargo.lock
 
 # Dependencies
 opt/
@@ -46,14 +42,26 @@ test-ledger*
 compile_commands.json
 
 # Temp ... remove this
-actual.bin
-expected.bin
-before.bin
-v14-test-ledger
 testgaddr
 gaddr
 test_ledger_backup
-v13-contract-ledger
 dump/
 *.solcap
 /*.json
+/test_*.yml
+/test_*.bin
+
+# RocksDB
+LOG*
+LOCK
+*.sst
+MANIFEST-*
+OPTIONS-*
+CURRENT
+IDENTITY
+
+# Solana Labs
+*-keypair.json
+tower-*.bin
+genesis.bin
+genesis.tar.bz2

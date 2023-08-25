@@ -89,14 +89,18 @@ process_account( FILE * file,
   } while(0);
 
   printf(
+    "      owner:      '%32J'\n"
     "      lamports:   %lu\n"
     "      slot:       %lu\n"
     "      rent_epoch: %lu\n"
-    "      executable: %s\n",
+    "      executable: %s\n"
+    "      data_sz:    %lu\n",
+    meta->owner,
     meta->lamports,
     meta->slot,
     meta->rent_epoch,
-    meta->executable ? "true" : "false" );
+    meta->executable ? "true" : "false",
+    meta->data_sz );
 
   /* Optionally print account data */
 
@@ -252,8 +256,8 @@ process_account_table( FILE * file,
     /* Write to YAML */
 
     printf(
-      "    - pubkey: %32J\n"
-      "      hash:   %32J\n",
+      "    - pubkey: '%32J'\n"
+      "      hash:   '%32J'\n",
       entry->key,
       entry->hash );
 
@@ -322,25 +326,28 @@ process_bank( fd_solcap_chunk_t const * chunk,
 
   printf(
     "- slot: %lu\n"
-    "  bank_hash: %32J\n",
+    "  bank_hash: '%32J'\n",
     meta.slot,
     meta.bank_hash );
 
   if( verbose>=1 ) {
     printf(
-      "  prev_bank_hash:     %32J\n"
-      "  account_delta_hash: %32J\n"
-      "  poh_hash:           %32J\n",
+      "  prev_bank_hash:     '%32J'\n"
+      "  account_delta_hash: '%32J'\n"
+      "  poh_hash:           '%32J'\n"
+      "  signature_cnt:      %lu\n",
       meta.prev_bank_hash,
       meta.account_delta_hash,
-      meta.poh_hash );
+      meta.poh_hash,
+      meta.signature_cnt );
   }
 
   /* Accounts */
 
   if( verbose >= 2 ) {
     if( meta.account_table_coff==0L ) {
-      FD_LOG_WARNING(( "Capture does not include account info" ));
+      if( meta.account_cnt > 0UL )
+        FD_LOG_WARNING(( "Capture does not include account info" ));
       return 0;
     }
 

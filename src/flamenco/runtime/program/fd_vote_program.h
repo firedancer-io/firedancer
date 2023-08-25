@@ -44,15 +44,23 @@ int fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) ;
 
 /* Number of credits owned to the given vote account from the mining pool. */
 int
-fd_vote_acc_credits( fd_global_ctx_t * global,
-                     fd_pubkey_t *     vote_acc,
-                     ulong *           result );
+fd_vote_acc_credits( fd_global_ctx_t *         global,
+                     fd_account_meta_t const * vote_acc_meta,
+                     uchar const *             vote_acc_data,
+                     ulong *                   result );
 
-int
-fd_vote_load_account( fd_vote_state_versioned_t * account,
-                      fd_account_meta_t *         meta,
-                      fd_global_ctx_t *           global,
-                      fd_pubkey_t const *         address );
+struct fd_commission_split {
+    ulong voter_portion;
+    ulong staker_portion;
+    uint is_split;
+};
+typedef struct fd_commission_split fd_commission_split_t;
+
+void fd_vote_commission_split(
+  fd_vote_state_versioned_t * vote_state_versioned,
+  ulong on,
+  fd_commission_split_t * result
+);
 
 FD_PROTOTYPES_END
 

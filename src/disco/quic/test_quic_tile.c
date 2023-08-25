@@ -192,7 +192,8 @@ tx_tile_main( int     argc,
       cfg->tx_dcache,
       cfg->tx_lazy,
       rng,
-      scratch ) );
+      scratch,
+      fd_tempo_tick_per_ns( NULL ) ) );
 
   fd_rng_delete( fd_rng_leave( rng ) );
   return 0;

@@ -10,6 +10,7 @@
 #include "fd_sysvar_slot_history.h"
 #include "fd_sysvar_slot_hashes.h"
 #include "fd_sysvar_epoch_schedule.h"
+#include "fd_sysvar_epoch_rewards.h"
 #include "fd_sysvar_fees.h"
 #include "fd_sysvar_rent.h"
 #include "fd_sysvar_stake_history.h"
@@ -22,7 +23,8 @@ fd_sysvar_set( fd_global_ctx_t *   state,
                fd_pubkey_t const * pubkey,
                uchar *             data,
                ulong               sz,
-               ulong               slot );
+               ulong               slot,
+               fd_acc_lamports_t * lamports );
 
 int
 fd_sysvar_set_override( fd_global_ctx_t *   state,

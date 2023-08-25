@@ -436,15 +436,6 @@ fd_wksp_cstr_memset( char const * cstr,
 }
 
 void *
-fd_wksp_preload( char const * cstr ) {
-  char  name[ FD_SHMEM_NAME_MAX ];
-  ulong gaddr;
-  if( FD_UNLIKELY( !fd_wksp_private_cstr_parse( cstr, name, &gaddr ) ) ) return NULL;
-
-  return fd_shmem_join( name, FD_SHMEM_JOIN_MODE_READ_WRITE, NULL, NULL, NULL );
-}
-
-void *
 fd_wksp_map( char const * cstr ) {
   char  name[ FD_SHMEM_NAME_MAX ];
   ulong gaddr;

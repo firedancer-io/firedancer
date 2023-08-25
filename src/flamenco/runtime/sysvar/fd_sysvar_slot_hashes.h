@@ -12,8 +12,13 @@
 /* Update the slot hashes sysvar account. This should be called at the end of every slot, before execution commences. */
 void fd_sysvar_slot_hashes_update( fd_global_ctx_t* global);
 
-/* Reads the current value of the slot hashes sysvar */
-void fd_sysvar_slot_hashes_read( fd_global_ctx_t* global, fd_slot_hashes_t* result );
+/* fd_sysvar_slot_hashes_read reads the slot hashes sysvar from the
+   accounts manager.  On success, returns 0 and writes deserialized
+   value into *result.  On failure, returns the bincode/acc_mgr error
+   code. */
+int
+fd_sysvar_slot_hashes_read( fd_global_ctx_t *  global,
+                            fd_slot_hashes_t * result );
 
 #endif /* HEADER_fd_src_flamenco_runtime_sysvar_fd_slot_hashes_h */
 

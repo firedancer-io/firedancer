@@ -207,7 +207,7 @@ fd_stake_history_entry_t stake_and_activating( fd_delegation_t const * delegatio
 
     if (NULL != n)
       cluster_stake_at_activation_epoch = &n->elem.entry;
-    
+
     if (cluster_stake_at_activation_epoch == NULL) {
       fd_stake_history_entry_t entry = {
         .effective = delegated_stake,
@@ -388,6 +388,7 @@ void fd_stakes_init( fd_global_ctx_t* global, fd_stakes_t* stakes ) {
    /* TODO: handle non-zero epoch case */
   stakes->epoch = 0;
   stakes->stake_delegations_pool = fd_delegation_pair_t_map_alloc(global->valloc, 10000);
+  stakes->stake_delegations_root = NULL;
 }
 
 /* https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L169 */
@@ -399,8 +400,12 @@ void activate_epoch( fd_global_ctx_t* global, ulong next_epoch ) {
      https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L180 */
   /* Add a new entry to the Stake History sysvar for the previous epoch
      https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L181-L192 */
+  fd_stake_history_epochentry_pair_t_mapnode_t * stake_history_pool = stakes->stake_history.entries_pool;
+  fd_stake_history_epochentry_pair_t_mapnode_t * stake_history_root = stakes->stake_history.entries_root;
+  fd_stake_history_t history;
+  fd_sysvar_stake_history_read( global,  &history);
 
-  fd_stake_history_epochentry_pair_t_mapnode_t * acc = fd_stake_history_epochentry_pair_t_map_acquire( stakes->stake_history.entries_pool );
+  fd_stake_history_epochentry_pair_t_mapnode_t * acc = fd_stake_history_epochentry_pair_t_map_acquire( stake_history_pool );
   acc->elem.entry = (fd_stake_history_entry_t){
     .effective = 0,
     .activating = 0,
@@ -408,8 +413,6 @@ void activate_epoch( fd_global_ctx_t* global, ulong next_epoch ) {
   };
   acc->elem.epoch = stakes->epoch;
 
-  fd_stake_history_t history;
-  fd_sysvar_stake_history_read( global, &history);
 
   for ( fd_delegation_pair_t_mapnode_t * n = fd_delegation_pair_t_map_minimum(stakes->stake_delegations_pool, stakes->stake_delegations_root); n; n = fd_delegation_pair_t_map_successor(stakes->stake_delegations_pool, n) ) {
     fd_stake_history_entry_t new_entry = stake_activating_and_deactivating( &n->elem.delegation, stakes->epoch, &history );
@@ -417,7 +420,8 @@ void activate_epoch( fd_global_ctx_t* global, ulong next_epoch ) {
     acc->elem.entry.activating += new_entry.activating;
     acc->elem.entry.deactivating += new_entry.deactivating;
   }
-  acc = fd_stake_history_epochentry_pair_t_map_insert( stakes->stake_history.entries_pool, &stakes->stake_history.entries_root, acc );
+  acc = fd_stake_history_epochentry_pair_t_map_insert( stake_history_pool, &stake_history_root, acc );
+  fd_sysvar_stake_history_update( global, &acc->elem);
 
   /* Update the current epoch value */
   stakes->epoch = next_epoch;
@@ -431,13 +435,15 @@ void activate_epoch( fd_global_ctx_t* global, ulong next_epoch ) {
   for ( fd_delegation_pair_t_mapnode_t * n = fd_delegation_pair_t_map_minimum(stakes->stake_delegations_pool, stakes->stake_delegations_root); n; n = fd_delegation_pair_t_map_successor(stakes->stake_delegations_pool, n) ) {
     ulong delegation_stake = stake_activating_and_deactivating( &n->elem.delegation, stakes->epoch, &history ).effective;
     fd_stake_weight_t_mapnode_t temp;
-    memcpy(&temp.elem.key, &n->elem.delegation.voter_pubkey, sizeof(fd_pubkey_t));
+    fd_memcpy(&temp.elem.key, &n->elem.delegation.voter_pubkey, sizeof(fd_pubkey_t));
     fd_stake_weight_t_mapnode_t * entry  = fd_stake_weight_t_map_find(pool, root, &temp);
     if (entry != NULL) {
       entry->elem.stake += delegation_stake;
     } else {
-      temp.elem.stake = delegation_stake;
-      fd_stake_weight_t_map_insert(pool, &root, &temp);
+      entry = fd_stake_weight_t_map_acquire( pool );
+      fd_memcpy( &entry->elem.key, &n->elem.delegation.voter_pubkey, sizeof(fd_pubkey_t));
+      entry->elem.stake = delegation_stake;
+      fd_stake_weight_t_map_insert( pool, &root, entry );
     }
   }
   for ( fd_vote_accounts_pair_t_mapnode_t * n = fd_vote_accounts_pair_t_map_minimum(stakes->vote_accounts.vote_accounts_pool, stakes->vote_accounts.vote_accounts_root); n; n = fd_vote_accounts_pair_t_map_successor(stakes->vote_accounts.vote_accounts_pool, n) ) {
@@ -448,53 +454,40 @@ void activate_epoch( fd_global_ctx_t* global, ulong next_epoch ) {
   }
 }
 
-int write_stake_state(
-    fd_global_ctx_t* global,
-    fd_pubkey_t* stake_acc,
-    fd_stake_state_t* stake_state,
-    ushort is_new_account
-) {
-    fd_account_meta_t metadata;
-    int read_result = fd_acc_mgr_get_metadata( global->acc_mgr, global->funk_txn, stake_acc, &metadata );
-    if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
-      FD_LOG_WARNING(( "failed to read account metadata" ));
-      return read_result;
-    }
+int
+write_stake_state( fd_global_ctx_t *   global,
+                   fd_pubkey_t const * stake_acc,
+                   fd_stake_state_t *  stake_state,
+                   ushort              is_new_account ) {
 
-    ulong encoded_stake_state_size = (is_new_account) ? STAKE_ACCOUNT_SIZE : fd_stake_state_size(stake_state);
-    uchar* encoded_stake_state = fd_valloc_malloc( global->valloc, 8UL, encoded_stake_state_size );
-    if (is_new_account) {
-      fd_memset( encoded_stake_state, 0, encoded_stake_state_size );
-    }
+  fd_funk_rec_t *     rec  = NULL;
+  fd_account_meta_t * meta = NULL;
+  uchar *             data = NULL;
 
-    fd_bincode_encode_ctx_t ctx3;
-    ctx3.data = encoded_stake_state;
-    ctx3.dataend = encoded_stake_state + encoded_stake_state_size;
-    if ( fd_stake_state_encode( stake_state, &ctx3 ) )
-      FD_LOG_ERR(("fd_stake_state_encode failed"));
+  ulong encoded_stake_state_size = (is_new_account) ? STAKE_ACCOUNT_SIZE : fd_stake_state_size(stake_state);
 
-    fd_solana_account_t structured_account;
-    structured_account.data = encoded_stake_state;
-    structured_account.data_len = encoded_stake_state_size;
-    structured_account.executable = 0;
-    structured_account.rent_epoch = 0;
-    memcpy( &structured_account.owner, global->solana_stake_program, sizeof(fd_pubkey_t) );
+  int err = fd_acc_mgr_modify( global->acc_mgr, global->funk_txn, stake_acc, !!is_new_account, encoded_stake_state_size, NULL, &rec, &meta, &data );
+  if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
+    FD_LOG_WARNING(( "write_stake_state failed" ));
+    return err;
+  }
 
-    int write_result = fd_acc_mgr_write_structured_account( global->acc_mgr, global->funk_txn, global->bank.slot, stake_acc, &structured_account );
-    if ( write_result != FD_ACC_MGR_SUCCESS ) {
-      FD_LOG_WARNING(( "failed to write account data" ));
-      return write_result;
-    }
-    metadata.dlen = (is_new_account) ? STAKE_ACCOUNT_SIZE : metadata.dlen;
+  if (is_new_account)
+    fd_memset( data, 0, encoded_stake_state_size );
 
-    fd_acc_mgr_set_metadata( global->acc_mgr, global->funk_txn, stake_acc, &metadata);
+  fd_bincode_encode_ctx_t ctx3;
+  ctx3.data    = data;
+  ctx3.dataend = data + encoded_stake_state_size;
+  if( FD_UNLIKELY( fd_stake_state_encode( stake_state, &ctx3 )!=FD_BINCODE_SUCCESS ) )
+    FD_LOG_ERR(("fd_stake_state_encode failed"));
 
-    return FD_EXECUTOR_INSTR_SUCCESS;
+  if( is_new_account )
+    meta->dlen = STAKE_ACCOUNT_SIZE;
+  /* TODO Lamports? */
+  meta->info.executable = 0;
+  meta->info.rent_epoch = 0UL;
+  memcpy( &meta->info.owner, global->solana_stake_program, sizeof(fd_pubkey_t) );
+
+  return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
- /// Sum the lamports of the vote accounts and the delegated stake
-ulong vote_balance_and_staked(fd_stakes_t * stakes) {
-  /* TODO: implement pub(crate) fn vote_balance_and_staked*/
-  (void) stakes;
-  return 0;
-}

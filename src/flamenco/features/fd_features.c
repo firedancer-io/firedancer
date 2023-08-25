@@ -4,1382 +4,296 @@
 #include <stddef.h>
 
 void
-fd_features_enable_testnet( fd_features_t * f ) {
-  memset( f, 0, sizeof(fd_features_t) );
-  f->secp256k1_program_enabled = 39404256;   // secp256k1 program
-  f->deprecate_rewards_sysvar = 39404256; // deprecate unused rewards sysvar
-  f->spl_token_v2_multisig_fix = 39836256; // spl-token multisig fix
-  f->no_overflow_rent_distribution = 47612256; // no overflow rent distribution
-  f->pico_inflation = 49772256; // pico inflation
-  f->filter_stake_delegation_accounts = 54092257; // filter stake_delegation_accounts #14062
-  f->spl_token_v2_self_transfer_fix = 64028256; // spl-token self-transfer fix
-  f->check_init_vote_data = 67052260; // check initialized Vote data
-  f->require_custodian_for_locked_stake_authorize = 67052260; // require custodian to authorize withdrawer change for locked stake
-  f->system_transfer_zero_check = 84332260; // perform all checks for transfers of 0 lamports
-  f->merge_nonce_error_into_system_error = 86060263; // merge NonceError into SystemError
-  f->secp256k1_recover_syscall_enabled = 86060263; // secp256k1_recover syscall
-  f->dedupe_config_program_signers = 86060263; // dedupe config program signers
-  f->libsecp256k1_0_5_upgrade_enabled = 86060263; // upgrade libsecp256k1 to v0.5.0
-  f->spl_token_v2_set_authority_fix = 89084265; // spl-token set_authority fix
-  f->vote_stake_checked_instructions = 89516256; // vote/state program checked instructions #18345
-  f->verify_tx_signatures_len = 94700260; // prohibit extra transaction signatures
-  f->demote_program_write_locks = 96860257; // demote program write locks to readonly, except when upgradeable loader present #19593 #20265
-  f->send_to_tpu_vote_port = 96860257; // send votes to the tpu vote port
-  f->reduce_required_deploy_balance = 96860257; // reduce required payer balance for program deploys
-  f->stakes_remove_delegation_if_inactive = 96860257; // remove delegations from stakes cache when inactive
-  f->stake_program_advance_activating_credits_observed = 96860257; // Enable advancing credits observed for activation epoch #19309
-  f->stake_merge_with_unmatched_credits_observed = 96860257; // allow merging active stakes with unmatched credits_observed #18985
-  f->optimize_epoch_boundary_updates = 99452256; // optimize epoch boundary updates
-  f->rent_for_sysvars = 100748256; // collect rent from accounts owned by sysvars
-  f->add_compute_budget_program = 105068256; // Add compute_budget_program
-  f->remove_native_loader = 106796256; // remove support for the native loader
-  f->ed25519_program_enabled = 112412257; // enable builtin ed25519 signature verify program
-  f->sol_log_data_syscall_enabled = 112412257; // enable sol_log_data syscall
-  f->return_data_syscall_enabled = 112412257; // enable sol_{set,get}_return_data syscall
-  f->spl_token_v3_3_0_release = 112844260; // spl-token v3.3.0 release
-  f->reject_non_rent_exempt_vote_withdraws = 113708264; // fail vote withdraw instructions which leave the account non-rent-exempt
-  f->reject_empty_instruction_without_program = 113708264; // fail instructions which have native_loader as program_id directly
-  f->max_tx_account_locks = 113708264; // enforce max number of locked accounts per transaction
-  f->evict_invalid_stakes_cache_entries = 113708264; // evict invalid stakes cache entries on epoch boundaries
-  f->instructions_sysvar_owned_by_sysvar = 113708264; // fix owner for instructions sysvar
-  f->disable_fee_calculator = 114140256; // deprecate fee calculator
-  f->prevent_calling_precompiles_as_programs = 114140256; // prevent calling precompiles as programs
-  f->nonce_must_be_writable = 114140256; // nonce must be writable
-  f->leave_nonce_on_success = 114140256; // leave nonce as is on success
-  f->spl_associated_token_account_v1_0_4 = 122348260; // SPL Associated Token Account Program release version 1.0.4, tied to token 3.3.0 #22648
-  f->vote_withdraw_authority_may_change_authorized_voter = 124076256; // vote account withdraw authority may change the authorized voter #22521
-  f->update_syscall_base_costs = 124508260; // update syscall base costs
-  f->disable_bpf_deprecated_load_instructions = 124508260; // disable ldabs* and ldind* SBF instructions
-  f->disable_bpf_unresolved_symbols_at_runtime = 124508260; // disable reporting of unresolved SBF symbols at runtime
-  f->tx_wide_compute_cap = 124508260; // transaction wide compute cap
-  f->requestable_heap_size = 124508260; // Requestable heap frame size
-  f->add_get_processed_sibling_instruction_syscall = 124508260; // add add_get_processed_sibling_instruction_syscall
-  f->do_support_realloc = 125804256; // support account data reallocation
-  f->require_rent_exempt_accounts = 125804256; // require all new transaction accounts with data to be rent-exempt
-  f->versioned_tx_message_enabled = 127100256; // enable versioned transaction message processing
-  f->filter_votes_outside_slot_hashes = 130556260; // filter vote slots older than the slot hashes history
-  f->warp_timestamp_with_a_vengeance = 135308256; // warp timestamp again, adjust bounding to 150% slow #25666
-  f->default_units_per_instruction = 135308256; // Default max tx-wide compute units calculated per instruction
-  f->fixed_memcpy_nonoverlapping_check = 136172256; // use correct check for nonoverlapping regions in memcpy syscall
-  f->add_shred_type_to_shred_seed = 136172256; // add shred-type to shred seed #25556
-  f->nonce_must_be_advanceable = 137036260; // durable nonces must be advanceable
-  f->enable_durable_nonce = 137036260; // enable durable nonce #25744
-  f->separate_nonce_from_blockhash = 137036260; // separate durable nonce and blockhash domains #25744
-  f->nonce_must_be_authorized = 137036260; // nonce must be authorized
-  f->executables_incur_cpi_data_cost = 137468257; // Executables incur CPI data costs
-  f->add_set_compute_unit_price_ix = 137900256; // add compute budget ix for setting a compute unit price
-  f->quick_bail_on_panic = 138332256; // quick bail on panic
-  f->record_instruction_in_transaction_context_push = 138764256; // move the CPI stack overflow check to the end of push
-  f->limit_secp256k1_recovery_id = 138764256; // limit secp256k1 recovery id
-  f->check_physical_overlapping = 139196256; // check physical overlapping regions
-  f->syscall_saturated_math = 140060257; // syscalls use saturated math
-  f->reject_vote_account_close_unless_zero_credit_epoch = 140924260; // fail vote account withdraw to 0 unless account earned 0 credits in last completed epoch
-  f->spl_associated_token_account_v1_1_0 = 143084256; // SPL Associated Token Account Program version 1.1.0 release #24741
-  f->spl_token_v3_4_0 = 143084256; // SPL Token Program version 3.4.0 release #24740
-  f->vote_authorize_with_seed = 144380257; // An instruction you can use to change a vote accounts authority when the current authority is a derived key #25860
-  f->include_account_index_in_rent_error = 144812257; // include account index in rent tx error #25190
-  f->require_static_program_ids_in_transaction = 144812257; // require static program ids in versioned transactions
-  f->preserve_rent_epoch_for_rent_exempt_accounts = 145676256; // preserve rent epoch for rent exempt accounts #26479
-  f->prevent_crediting_accounts_that_end_rent_paying = 146972256; // prevent crediting rent paying accounts #26606
-  f->disable_deprecated_loader = 158204260; // disable the deprecated BPF loader
-  f->check_syscall_outputs_do_not_overlap = 165980260; // check syscall outputs do_not overlap #28600
-  f->bank_transaction_count_fix = 168572256; // fixes Bank::transaction_count to include all committed transactions, not just successful ones
-  f->reject_callx_r10 = 195356264; // Reject bpf callx r10 instructions
-  f->stake_deactivate_delinquent_instruction = 195356264; // enable the deactivate delinquent stake instruction #23932
-  f->libsecp256k1_fail_on_bad_count2 = 195356264; // fail libsec256k1_verify if count appears wrong
-  f->fix_recent_blockhashes = 195356264; // stop adding hashes for skipped slots to recent blockhashes
-  f->move_serialized_len_ptr_in_cpi = 195356264; // cpi ignore serialized_len_ptr #29592
-  f->disable_deploy_of_alloc_free_syscall = 195356264; // disable new deployments of deprecated sol_alloc_free_ syscall
-  f->enable_early_verification_of_account_modifications = 195356264; // enable early verification of account modifications #25899
-  f->error_on_syscall_bpf_function_hash_collisions = 195356264; // error on bpf function hash collisions
-  f->compact_vote_state_updates = 195356264; // Compact vote state updates to lower block size
-  f->use_default_units_in_fee_calculation = 195356264; // use default units per instruction in fee calculation #26785
-  f->increase_tx_account_lock_limit = 195356264; // increase tx account lock limit to 128 #27241
-  f->cap_bpf_program_instruction_accounts = 195356264; // enforce max number of accounts per bpf program instruction #26628
-  f->credits_auto_rewind = 195356264; // Auto rewind stake's credits_observed if (accidental) vote recreation is detected #22546
-  f->on_load_preserve_rent_epoch_for_rent_exempt_accounts = 195356264; // on bank load account, do not try to fix up rent_epoch #28541
-  f->vote_state_update_credit_per_dequeue = 195356264; // Calculate vote credits for VoteStateUpdate per vote dequeue to match credit awards for Vote instruction
-  f->disable_rehash_for_rent_epoch = 195356264; // on accounts hash calculation, do not try to rehash accounts #28934
-  f->stake_split_uses_rent_sysvar = 195356264; // stake split instruction uses rent sysvar
-  f->allow_votes_to_directly_update_vote_state = 195356264; // enable direct vote state update
-  f->vote_state_update_root_fix = 195356264; // fix root in vote state updates #27361
-  f->loosen_cpi_size_restriction = 195356264; // loosen cpi size restrictions #26641
-  f->check_slice_translation_size = 195356264; // check size when translating slices
-  f->add_get_minimum_delegation_instruction_to_stake_program = 195356264; // add GetMinimumDelegation instruction to stake program
-  f->stake_allow_zero_undelegated_amount = 195356264; // Allow zero-lamport undelegated amount for initialized stakes #24670
-  f->drop_redundant_turbine_path = 196220264; // drop redundant turbine path
-  f->update_rewards_from_cached_accounts = 197516256; // update rewards from cached accounts
-  f->commission_updates_only_allowed_in_first_half_of_epoch = 197948256; // validator commission updates are only allowed in the first half of an epoch #29362
-  f->disable_builtin_loader_ownership_chains = 199244256; // disable builtin loader ownership chains #29956
-  f->stake_raise_minimum_delegation_to_1_sol = 199676256; // Raise minimum stake delegation to 1.0 SOL #24357
-  f->clean_up_delegation_errors = 201404260; // Return InsufficientDelegation instead of InsufficientFunds or InsufficientStake where applicable #31206
-  f->limit_max_instruction_trace_length = 203996256; // limit max instruction trace length #27939
-  f->switch_to_new_elf_parser = 204428256; // switch to new ELF parser #30497
-  f->cap_accounts_data_allocations_per_transaction = 205724256; // cap accounts data allocations per transaction #27375
-  f->enable_alt_bn128_syscall = 206156264; // add alt_bn128 syscalls #27961
-  f->enable_bpf_loader_extend_program_ix = 207020260; // enable bpf upgradeable loader ExtendProgram instruction #25234
-  f->account_hash_ignore_slot = 207452256; // ignore slot when calculating an account hash #28420
-  f->epoch_accounts_hash = 207884256; // enable epoch accounts hash calculation #27539
-  f->delay_visibility_of_program_deployment = 208316256; // delay visibility of program upgrades #30085
-  f->enable_program_redeployment_cooldown = 208316256; // enable program redeployment cooldown #29135
-  f->curve25519_syscall_enabled = 208748256; // enable curve25519 syscalls
-  f->cap_transaction_accounts_data_size = 209180256; // cap transaction accounts data size up to a limit #27839
-  f->add_set_tx_loaded_accounts_data_size_instruction = 210044260; // add compute budget instruction for setting account data size per transaction #30366
-  f->update_hashes_per_tick = 210476260; // Update desired hashes per tick on epoch boundary
-  f->remove_deprecated_request_unit_ix = 210908260; // remove support for RequestUnitsDeprecated instruction #27500
-  f->prevent_rent_paying_rent_recipients = 211340260; // prevent recipients of rent rewards from ending in rent-paying state #30151
-  f->checked_arithmetic_in_fee_validation = 211772256; // checked arithmetic in fee validation #31273
-  f->round_up_heap_size = 212204260; // round up heap size when calculating heap cost #30679
-}
-
-void
-fd_features_enable_devnet( fd_features_t * f ) {
-  memset( f, 0, sizeof(fd_features_t) );
-  f->secp256k1_program_enabled = 5414912;   // secp256k1 program
-  f->spl_token_v2_multisig_fix = 5414912; // spl-token multisig fix
-  f->deprecate_rewards_sysvar = 5414912; // deprecate unused rewards sysvar
-  f->no_overflow_rent_distribution = 18144000; // no overflow rent distribution
-  f->pico_inflation = 19008000; // pico inflation
-  f->filter_stake_delegation_accounts = 25056000; // filter stake_delegation_accounts #14062
-  f->full_inflation_mainnet_certusone_vote = 34560000; // community vote allowing Certus One to enable full inflation
-  f->spl_token_v2_self_transfer_fix = 37152000; // spl-token self-transfer fix
-  f->check_init_vote_data = 41472000; // check initialized Vote data
-  f->require_custodian_for_locked_stake_authorize = 41472000; // require custodian to authorize withdrawer change for locked stake
-  f->system_transfer_zero_check = 67392000; // perform all checks for transfers of 0 lamports
-  f->merge_nonce_error_into_system_error = 70416000; // merge NonceError into SystemError
-  f->secp256k1_recover_syscall_enabled = 70416000; // secp256k1_recover syscall
-  f->dedupe_config_program_signers = 70416000; // dedupe config program signers
-  f->libsecp256k1_0_5_upgrade_enabled = 70416000; // upgrade libsecp256k1 to v0.5.0
-  f->spl_token_v2_set_authority_fix = 73872000; // spl-token set_authority fix
-  f->vote_stake_checked_instructions = 74304000; // vote/state program checked instructions #18345
-  f->verify_tx_signatures_len = 81648000; // prohibit extra transaction signatures
-  f->demote_program_write_locks = 85536000; // demote program write locks to readonly, except when upgradeable loader present #19593 #20265
-  f->send_to_tpu_vote_port = 85536000; // send votes to the tpu vote port
-  f->reduce_required_deploy_balance = 85536000; // reduce required payer balance for program deploys
-  f->stakes_remove_delegation_if_inactive = 85536000; // remove delegations from stakes cache when inactive
-  f->stake_program_advance_activating_credits_observed = 85536000; // Enable advancing credits observed for activation epoch #19309
-  f->stake_merge_with_unmatched_credits_observed = 85536000; // allow merging active stakes with unmatched credits_observed #18985
-  f->rent_for_sysvars = 90720000; // collect rent from accounts owned by sysvars
-  f->optimize_epoch_boundary_updates = 98496000; // optimize epoch boundary updates
-  f->add_compute_budget_program = 99360000; // Add compute_budget_program
-  f->remove_native_loader = 101952000; // remove support for the native loader
-  f->reject_non_rent_exempt_vote_withdraws = 108864000; // fail vote withdraw instructions which leave the account non-rent-exempt
-  f->evict_invalid_stakes_cache_entries = 108864000; // evict invalid stakes cache entries on epoch boundaries
-  f->spl_token_v3_3_0_release = 108864000; // spl-token v3.3.0 release
-  f->ed25519_program_enabled = 109296004; // enable builtin ed25519 signature verify program
-  f->sol_log_data_syscall_enabled = 109296004; // enable sol_log_data syscall
-  f->return_data_syscall_enabled = 109296004; // enable sol_{set,get}_return_data syscall
-  f->vote_withdraw_authority_may_change_authorized_voter = 123552000; // vote account withdraw authority may change the authorized voter #22521
-  f->spl_associated_token_account_v1_0_4 = 126144000; // SPL Associated Token Account Program release version 1.0.4, tied to token 3.3.0 #22648
-  f->update_syscall_base_costs = 128304000; // update syscall base costs
-  f->fixed_memcpy_nonoverlapping_check = 128304000; // use correct check for nonoverlapping regions in memcpy syscall
-  f->disable_bpf_deprecated_load_instructions = 128304000; // disable ldabs* and ldind* SBF instructions
-  f->prevent_calling_precompiles_as_programs = 128304000; // prevent calling precompiles as programs
-  f->disable_bpf_unresolved_symbols_at_runtime = 128304000; // disable reporting of unresolved SBF symbols at runtime
-  f->tx_wide_compute_cap = 128304000; // transaction wide compute cap
-  f->do_support_realloc = 128304000; // support account data reallocation
-  f->libsecp256k1_fail_on_bad_count = 128304000; // fail libsec256k1_verify if count appears wrong
-  f->reject_empty_instruction_without_program = 128304000; // fail instructions which have native_loader as program_id directly
-  f->nonce_must_be_writable = 128304000; // nonce must be writable
-  f->require_rent_exempt_accounts = 128304000; // require all new transaction accounts with data to be rent-exempt
-  f->requestable_heap_size = 128304000; // Requestable heap frame size
-  f->add_get_processed_sibling_instruction_syscall = 128304000; // add add_get_processed_sibling_instruction_syscall
-  f->leave_nonce_on_success = 128304000; // leave nonce as is on success
-  f->max_tx_account_locks = 132192000; // enforce max number of locked accounts per transaction
-  f->versioned_tx_message_enabled = 132624000; // enable versioned transaction message processing
-  f->instructions_sysvar_owned_by_sysvar = 136944000; // fix owner for instructions sysvar
-  f->warp_timestamp_with_a_vengeance = 138672000; // warp timestamp again, adjust bounding to 150% slow #25666
-  f->drop_redundant_turbine_path = 139968000; // drop redundant turbine path
-  f->add_shred_type_to_shred_seed = 140400000; // add shred-type to shred seed #25556
-  f->nonce_must_be_advanceable = 141264000; // durable nonces must be advanceable
-  f->enable_durable_nonce = 141264000; // enable durable nonce #25744
-  f->separate_nonce_from_blockhash = 141264000; // separate durable nonce and blockhash domains #25744
-  f->nonce_must_be_authorized = 141264000; // nonce must be authorized
-  f->default_units_per_instruction = 141696000; // Default max tx-wide compute units calculated per instruction
-  f->executables_incur_cpi_data_cost = 142560000; // Executables incur CPI data costs
-  f->add_set_compute_unit_price_ix = 143424000; // add compute budget ix for setting a compute unit price
-  f->quick_bail_on_panic = 144288000; // quick bail on panic
-  f->record_instruction_in_transaction_context_push = 144720000; // move the CPI stack overflow check to the end of push
-  f->limit_secp256k1_recovery_id = 146016000; // limit secp256k1 recovery id
-  f->check_physical_overlapping = 146016000; // check physical overlapping regions
-  f->disable_fee_calculator = 146448000; // deprecate fee calculator
-  f->reject_vote_account_close_unless_zero_credit_epoch = 147744000; // fail vote account withdraw to 0 unless account earned 0 credits in last completed epoch
-  f->syscall_saturated_math = 149472000; // syscalls use saturated math
-  f->spl_associated_token_account_v1_1_0 = 151200000; // SPL Associated Token Account Program version 1.1.0 release #24741
-  f->spl_token_v3_4_0 = 151200000; // SPL Token Program version 3.4.0 release #24740
-  f->vote_authorize_with_seed = 153792000; // An instruction you can use to change a vote accounts authority when the current authority is a derived key #25860
-  f->include_account_index_in_rent_error = 154656004; // include account index in rent tx error #25190
-  f->require_static_program_ids_in_transaction = 154656004; // require static program ids in versioned transactions
-  f->blake3_syscall_enabled = 158976000; // blake3 syscall
-  f->preserve_rent_epoch_for_rent_exempt_accounts = 160704000; // preserve rent epoch for rent exempt accounts #26479
-  f->prevent_crediting_accounts_that_end_rent_paying = 166752000; // prevent crediting rent paying accounts #26606
-  f->increase_tx_account_lock_limit = 166752000; // increase tx account lock limit to 128 #27241
-  f->filter_votes_outside_slot_hashes = 167184000; // filter vote slots older than the slot hashes history
-  f->disable_deprecated_loader = 174528000; // disable the deprecated BPF loader
-  f->stake_deactivate_delinquent_instruction = 182736000; // enable the deactivate delinquent stake instruction #23932
-  f->add_get_minimum_delegation_instruction_to_stake_program = 183600000; // add GetMinimumDelegation instruction to stake program
-  f->stake_allow_zero_undelegated_amount = 184032000; // Allow zero-lamport undelegated amount for initialized stakes #24670
-  f->bank_transaction_count_fix = 184896000; // fixes Bank::transaction_count to include all committed transactions, not just successful ones
-  f->credits_auto_rewind = 186624000; // Auto rewind stake's credits_observed if (accidental) vote recreation is detected #22546
-  f->libsecp256k1_fail_on_bad_count2 = 187056000; // fail libsec256k1_verify if count appears wrong
-  f->vote_state_update_root_fix = 187488000; // fix root in vote state updates #27361
-  f->stake_redelegate_instruction = 187920000; // enable the redelegate stake instruction #26294
-  f->compact_vote_state_updates = 188784000; // Compact vote state updates to lower block size
-  f->check_syscall_outputs_do_not_overlap = 189648000; // check syscall outputs do_not overlap #28600
-  f->stake_split_uses_rent_sysvar = 190512000; // stake split instruction uses rent sysvar
-  f->vote_state_update_credit_per_dequeue = 191376000; // Calculate vote credits for VoteStateUpdate per vote dequeue to match credit awards for Vote instruction
-  f->move_serialized_len_ptr_in_cpi = 192240001; // cpi ignore serialized_len_ptr #29592
-  f->allow_votes_to_directly_update_vote_state = 196128000; // enable direct vote state update
-  f->fix_recent_blockhashes = 214704000; // stop adding hashes for skipped slots to recent blockhashes
-  f->on_load_preserve_rent_epoch_for_rent_exempt_accounts = 214704000; // on bank load account, do not try to fix up rent_epoch #28541
-  f->disable_rehash_for_rent_epoch = 214704000; // on accounts hash calculation, do not try to rehash accounts #28934
-  f->enable_early_verification_of_account_modifications = 215136000; // enable early verification of account modifications #25899
-  f->reject_callx_r10 = 216864000; // Reject bpf callx r10 instructions
-  f->error_on_syscall_bpf_function_hash_collisions = 216864000; // error on bpf function hash collisions
-  f->cap_bpf_program_instruction_accounts = 218160000; // enforce max number of accounts per bpf program instruction #26628
-  f->update_rewards_from_cached_accounts = 218592000; // update rewards from cached accounts
-  f->use_default_units_in_fee_calculation = 219888000; // use default units per instruction in fee calculation #26785
-  f->disable_builtin_loader_ownership_chains = 222480000; // disable builtin loader ownership chains #29956
-  f->check_slice_translation_size = 222912000; // check size when translating slices
-  f->disable_deploy_of_alloc_free_syscall = 224208000; // disable new deployments of deprecated sol_alloc_free_ syscall
-  f->commission_updates_only_allowed_in_first_half_of_epoch = 224640000; // validator commission updates are only allowed in the first half of an epoch #29362
-  f->clean_up_delegation_errors = 225072000; // Return InsufficientDelegation instead of InsufficientFunds or InsufficientStake where applicable #31206
-  f->limit_max_instruction_trace_length = 233712000; // limit max instruction trace length #27939
-}
-
-void
-fd_features_enable_mainnet( fd_features_t * f ) {
-  memset( f, 0, sizeof(fd_features_t) );
-  f->secp256k1_program_enabled = 41040000;   // secp256k1 program
-  f->spl_token_v2_multisig_fix = 41040000; // spl-token multisig fix
-  f->no_overflow_rent_distribution = 51408000; // no overflow rent distribution
-  f->deprecate_rewards_sysvar = 55728001; // deprecate unused rewards sysvar
-  f->pico_inflation = 57456000; // pico inflation
-  f->filter_stake_delegation_accounts = 57888004; // filter stake_delegation_accounts #14062
-  f->full_inflation_mainnet_certusoneenable = 64800004; // full inflation enabled by Certus One
-  f->full_inflation_mainnet_certusone_vote = 64800004; // community vote allowing Certus One to enable full inflation
-  f->spl_token_v2_self_transfer_fix = 66528004; // spl-token self-transfer fix
-  f->warp_timestamp_again = 66528004; // warp timestamp again, adjust bounding to 25% fast 80% slow #15204
-  f->check_init_vote_data = 68688000; // check initialized Vote data
-  f->require_custodian_for_locked_stake_authorize = 71712000; // require custodian to authorize withdrawer change for locked stake
-  f->vote_stake_checked_instructions = 92448000; // vote/state program checked instructions #18345
-  f->system_transfer_zero_check = 93312000; // perform all checks for transfers of 0 lamports
-  f->spl_token_v2_set_authority_fix = 93312000; // spl-token set_authority fix
-  f->demote_program_write_locks = 100656000; // demote program write locks to readonly, except when upgradeable loader present #19593 #20265
-  f->send_to_tpu_vote_port = 101088000; // send votes to the tpu vote port
-  f->reduce_required_deploy_balance = 102816004; // reduce required payer balance for program deploys
-  f->verify_tx_signatures_len = 102816004; // prohibit extra transaction signatures
-  f->stake_program_advance_activating_credits_observed = 104112000; // Enable advancing credits observed for activation epoch #19309
-  f->stake_merge_with_unmatched_credits_observed = 104112000; // allow merging active stakes with unmatched credits_observed #18985
-  f->secp256k1_recover_syscall_enabled = 104976000; // secp256k1_recover syscall
-  f->rent_for_sysvars = 104976000; // collect rent from accounts owned by sysvars
-  f->optimize_epoch_boundary_updates = 109728000; // optimize epoch boundary updates
-  f->dedupe_config_program_signers = 110592000; // dedupe config program signers
-  f->libsecp256k1_0_5_upgrade_enabled = 110592000; // upgrade libsecp256k1 to v0.5.0
-  f->stakes_remove_delegation_if_inactive = 110592000; // remove delegations from stakes cache when inactive
-  f->add_compute_budget_program = 117072004; // Add compute_budget_program
-  f->reject_non_rent_exempt_vote_withdraws = 117072004; // fail vote withdraw instructions which leave the account non-rent-exempt
-  f->evict_invalid_stakes_cache_entries = 117072004; // evict invalid stakes cache entries on epoch boundaries
-  f->spl_token_v3_3_0_release = 117072004; // spl-token v3.3.0 release
-  f->remove_native_loader = 117072004; // remove support for the native loader
-  f->ed25519_program_enabled = 117936008; // enable builtin ed25519 signature verify program
-  f->sol_log_data_syscall_enabled = 117936008; // enable sol_log_data syscall
-  f->return_data_syscall_enabled = 117936008; // enable sol_{set,get}_return_data syscall
-  f->spl_associated_token_account_v1_0_4 = 130464000; // SPL Associated Token Account Program release version 1.0.4, tied to token 3.3.0 #22648
-  f->leave_nonce_on_success = 133056012; // leave nonce as is on success
-  f->require_rent_exempt_accounts = 133488000; // require all new transaction accounts with data to be rent-exempt
-  f->do_support_realloc = 133920008; // support account data reallocation
-  f->add_get_processed_sibling_instruction_syscall = 134352008; // add add_get_processed_sibling_instruction_syscall
-  f->tx_wide_compute_cap = 135216004; // transaction wide compute cap
-  f->requestable_heap_size = 135216004; // Requestable heap frame size
-  f->warp_timestamp_with_a_vengeance = 136512012; // warp timestamp again, adjust bounding to 150% slow #25666
-  f->nonce_must_be_writable = 136944004; // nonce must be writable
-  f->reject_empty_instruction_without_program = 137376016; // fail instructions which have native_loader as program_id directly
-  f->add_shred_type_to_shred_seed = 137376016; // add shred-type to shred seed #25556
-  f->fixed_memcpy_nonoverlapping_check = 137808012; // use correct check for nonoverlapping regions in memcpy syscall
-  f->nonce_must_be_advanceable = 138240000; // durable nonces must be advanceable
-  f->enable_durable_nonce = 138240000; // enable durable nonce #25744
-  f->separate_nonce_from_blockhash = 138240000; // separate durable nonce and blockhash domains #25744
-  f->nonce_must_be_authorized = 138240000; // nonce must be authorized
-  f->update_syscall_base_costs = 138672000; // update syscall base costs
-  f->vote_withdraw_authority_may_change_authorized_voter = 138672000; // vote account withdraw authority may change the authorized voter #22521
-  f->disable_bpf_deprecated_load_instructions = 139104000; // disable ldabs* and ldind* SBF instructions
-  f->disable_bpf_unresolved_symbols_at_runtime = 139104000; // disable reporting of unresolved SBF symbols at runtime
-  f->executables_incur_cpi_data_cost = 139536000; // Executables incur CPI data costs
-  f->max_tx_account_locks = 140400004; // enforce max number of locked accounts per transaction
-  f->quick_bail_on_panic = 140400004; // quick bail on panic
-  f->default_units_per_instruction = 141264004; // Default max tx-wide compute units calculated per instruction
-  f->record_instruction_in_transaction_context_push = 141696000; // move the CPI stack overflow check to the end of push
-  f->add_set_compute_unit_price_ix = 142128000; // add compute budget ix for setting a compute unit price
-  f->limit_secp256k1_recovery_id = 142560008; // limit secp256k1 recovery id
-  f->check_physical_overlapping = 142560008; // check physical overlapping regions
-  f->prevent_calling_precompiles_as_programs = 143424004; // prevent calling precompiles as programs
-  f->spl_associated_token_account_v1_1_0 = 144288004; // SPL Associated Token Account Program version 1.1.0 release #24741
-  f->spl_token_v3_4_0 = 144288004; // SPL Token Program version 3.4.0 release #24740
-  f->disable_fee_calculator = 147744004; // deprecate fee calculator
-  f->vote_authorize_with_seed = 148608004; // An instruction you can use to change a vote accounts authority when the current authority is a derived key #25860
-  f->syscall_saturated_math = 150768000; // syscalls use saturated math
-  f->merge_nonce_error_into_system_error = 151632012; // merge NonceError into SystemError
-  f->instructions_sysvar_owned_by_sysvar = 152496000; // fix owner for instructions sysvar
-  f->require_static_program_ids_in_transaction = 153360000; // require static program ids in versioned transactions
-  f->include_account_index_in_rent_error = 154224000; // include account index in rent tx error #25190
-  f->versioned_tx_message_enabled = 154656004; // enable versioned transaction message processing
-  f->preserve_rent_epoch_for_rent_exempt_accounts = 156384000; // preserve rent epoch for rent exempt accounts #26479
-  f->filter_votes_outside_slot_hashes = 157680012; // filter vote slots older than the slot hashes history
-  f->prevent_crediting_accounts_that_end_rent_paying = 161136000; // prevent crediting rent paying accounts #26606
-  f->disable_deprecated_loader = 167184008; // disable the deprecated BPF loader
-  f->reject_vote_account_close_unless_zero_credit_epoch = 170640000; // fail vote account withdraw to 0 unless account earned 0 credits in last completed epoch
-  f->bank_transaction_count_fix = 171072012; // fixes Bank::transaction_count to include all committed transactions, not just successful ones
-  f->check_syscall_outputs_do_not_overlap = 174096000; // check syscall outputs do_not overlap #28600
-  f->stake_deactivate_delinquent_instruction = 198720004; // enable the deactivate delinquent stake instruction #23932
-  f->drop_redundant_turbine_path = 199152000; // drop redundant turbine path
-  f->add_get_minimum_delegation_instruction_to_stake_program = 199584000; // add GetMinimumDelegation instruction to stake program
-  f->stake_allow_zero_undelegated_amount = 200016004; // Allow zero-lamport undelegated amount for initialized stakes #24670
-  f->credits_auto_rewind = 200448008; // Auto rewind stake's credits_observed if (accidental) vote recreation is detected #22546
-  f->libsecp256k1_fail_on_bad_count2 = 200880004; // fail libsec256k1_verify if count appears wrong
-  f->vote_state_update_root_fix = 202176000; // fix root in vote state updates #27361
-  f->move_serialized_len_ptr_in_cpi = 202608000; // cpi ignore serialized_len_ptr #29592
-  f->stake_split_uses_rent_sysvar = 203904008; // stake split instruction uses rent sysvar
-  f->on_load_preserve_rent_epoch_for_rent_exempt_accounts = 204336000; // on bank load account, do not try to fix up rent_epoch #28541
-  f->disable_rehash_for_rent_epoch = 204336000; // on accounts hash calculation, do not try to rehash accounts #28934
-  f->fix_recent_blockhashes = 204768000; // stop adding hashes for skipped slots to recent blockhashes
-  f->cap_bpf_program_instruction_accounts = 205200004; // enforce max number of accounts per bpf program instruction #26628
-  f->update_rewards_from_cached_accounts = 206064004; // update rewards from cached accounts
-  f->use_default_units_in_fee_calculation = 206496008; // use default units per instruction in fee calculation #26785
-  f->disable_builtin_loader_ownership_chains = 207360004; // disable builtin loader ownership chains #29956
-  f->check_slice_translation_size = 207792008; // check size when translating slices
-  f->disable_fees_sysvar = 208656004; // disable fees sysvar
-}
-
-void
-fd_features_enable_v13( fd_features_t * f ) {
-  memset( f, 0, sizeof(fd_features_t) );
-  f->merge_nonce_error_into_system_error = 1;   //
-  f->optimize_epoch_boundary_updates = 1; //
-  f->update_syscall_base_costs = 1; //
-  f->disable_fee_calculator = 1; //
-  f->include_account_index_in_rent_error = 1; //
-  f->apply_cost_tracker_during_replay = 1; //
-  f->fixed_memcpy_nonoverlapping_check = 1; //
-  f->record_instruction_in_transaction_context_push = 1; //
-  f->warp_timestamp_with_a_vengeance = 1; //
-  f->check_init_vote_data = 1; //
-  f->demote_program_write_locks = 1; //
-  f->filter_votes_outside_slot_hashes = 1; //
-  f->versioned_tx_message_enabled = 1; //
-  f->nonce_must_be_advanceable = 1; //
-  f->check_syscall_outputs_do_not_overlap = 1; //
-  f->disable_bpf_deprecated_load_instructions = 1; //
-  f->prevent_calling_precompiles_as_programs = 1; //
-  f->add_compute_budget_program = 1; //
-  f->drop_redundant_turbine_path = 1; //
-  f->enable_durable_nonce = 1; //
-  f->no_overflow_rent_distribution = 1; //
-  f->pico_inflation = 1; //
-  f->disable_bpf_unresolved_symbols_at_runtime = 1; //
-  f->libsecp256k1_fail_on_bad_count2 = 1; //
-  f->tx_wide_compute_cap = 1; //
-  f->ed25519_program_enabled = 1; //
-  f->secp256k1_recover_syscall_enabled = 1; //
-  f->vote_authorize_with_seed = 1; //
-  f->sol_log_data_syscall_enabled = 1; //
-  f->do_support_realloc = 1; //
-  f->limit_secp256k1_recovery_id = 1; //
-  f->executables_incur_cpi_data_cost = 1; //
-  f->curve25519_syscall_enabled = 1; //
-  f->reject_non_rent_exempt_vote_withdraws = 1; //
-  f->full_inflation_mainnet_certusoneenable = 1; //
-  f->prevent_crediting_accounts_that_end_rent_paying = 1; //
-  f->libsecp256k1_fail_on_bad_count = 1; //
-  f->require_static_program_ids_in_transaction = 1; //
-  f->dedupe_config_program_signers = 1; //
-  f->add_set_compute_unit_price_ix = 1; //
-  f->reject_empty_instruction_without_program = 1; //
-  f->increase_tx_account_lock_limit = 1; //
-  f->reject_vote_account_close_unless_zero_credit_epoch = 1; //
-  f->vote_withdraw_authority_may_change_authorized_voter = 1; //
-  f->vote_stake_checked_instructions = 1; //
-  f->nonce_must_be_writable = 1; //
-  f->rent_for_sysvars = 1; //
-  f->require_rent_exempt_accounts = 1; //
-  f->spl_token_v2_self_transfer_fix = 1; //
-  f->system_transfer_zero_check = 1; //
-  f->full_inflation_mainnet_certusone_vote = 1; //
-  f->send_to_tpu_vote_port = 1; //
-  f->cap_accounts_data_len = 1; //
-  f->max_tx_account_locks = 1; //
-  f->requestable_heap_size = 1; //
-  f->add_get_processed_sibling_instruction_syscall = 1; //
-  f->require_custodian_for_locked_stake_authorize = 1; //
-  f->libsecp256k1_0_5_upgrade_enabled = 1; //
-  f->quick_bail_on_panic = 1; //
-  f->add_shred_type_to_shred_seed = 1; //
-  f->full_inflation_devnet_and_testnet = 1; //
-  f->return_data_syscall_enabled = 1; //
-  f->secp256k1_program_enabled = 1; //
-  f->spl_token_v2_multisig_fix = 1; //
-  f->leave_nonce_on_success = 1; //
-  f->reduce_required_deploy_balance = 1; //
-  f->evict_invalid_stakes_cache_entries = 1; //
-  f->verify_tx_signatures_len = 1; //
-  f->spl_associated_token_account_v1_1_0 = 1; //
-  f->spl_associated_token_account_v1_0_4 = 1; //
-  f->allow_votes_to_directly_update_vote_state = 1; //
-  f->spl_token_v3_3_0_release = 1; //
-  f->spl_token_v3_4_0 = 1; //
-  f->spl_token_v2_set_authority_fix = 1; //
-  f->deprecate_rewards_sysvar = 1; //
-  f->filter_stake_delegation_accounts = 1; //
-  f->separate_nonce_from_blockhash = 1; //
-  f->disable_deprecated_loader = 1; //
-  f->warp_timestamp_again = 1; //
-  f->instructions_sysvar_owned_by_sysvar = 1; //
-  f->stakes_remove_delegation_if_inactive = 1; //
-  f->preserve_rent_epoch_for_rent_exempt_accounts = 1; //
-  f->remove_native_loader = 1; //
-  f->blake3_syscall_enabled = 1; //
-  f->nonce_must_be_authorized = 1; //
-  f->syscall_saturated_math = 1; //
-  f->default_units_per_instruction = 1; //
-  f->disable_fees_sysvar = 1; //
-  f->stake_merge_with_unmatched_credits_observed = 1; //
-  f->check_physical_overlapping = 1; //
-  f->cap_accounts_data_size_per_block = 1; //
-  f->stake_program_advance_activating_credits_observed = 1; //
-  f->stake_allow_zero_undelegated_amount = 1; //
-  f->bank_transaction_count_fix = 1; //
-  f->zk_token_sdk_enabled = 1; //
-}
-
-void
-fd_features_enable_v14( fd_features_t * f ) {
-  memset( f, 0, sizeof(fd_features_t) );
-  f->merge_nonce_error_into_system_error = 1;   //
-  f->incremental_snapshot_only_incremental_hash_calculation = 1; //
-  f->optimize_epoch_boundary_updates = 1; //
-  f->update_rewards_from_cached_accounts = 1; //
-  f->update_syscall_base_costs = 1; //
-  f->disable_fee_calculator = 1; //
-  f->include_account_index_in_rent_error = 1; //
-  f->fixed_memcpy_nonoverlapping_check = 1; //
-  f->record_instruction_in_transaction_context_push = 1; //
-  f->warp_timestamp_with_a_vengeance = 1; //
-  f->check_init_vote_data = 1; //
-  f->demote_program_write_locks = 1; //
-  f->stake_redelegate_instruction = 1; //
-  f->filter_votes_outside_slot_hashes = 1; //
-  f->versioned_tx_message_enabled = 1; //
-  f->reject_callx_r10 = 1; //
-  f->nonce_must_be_advanceable = 1; //
-  f->check_syscall_outputs_do_not_overlap = 1; //
-  f->disable_bpf_deprecated_load_instructions = 1; //
-  f->stake_deactivate_delinquent_instruction = 1; //
-  f->prevent_calling_precompiles_as_programs = 1; //
-  f->add_compute_budget_program = 1; //
-  f->drop_redundant_turbine_path = 1; //
-  f->enable_durable_nonce = 1; //
-  f->no_overflow_rent_distribution = 1; //
-  f->pico_inflation = 1; //
-  f->disable_builtin_loader_ownership_chains = 1; //
-  f->disable_bpf_unresolved_symbols_at_runtime = 1; //
-  f->libsecp256k1_fail_on_bad_count2 = 1; //
-  f->tx_wide_compute_cap = 1; //
-  f->fix_recent_blockhashes = 1; //
-  f->ed25519_program_enabled = 1; //
-  f->secp256k1_recover_syscall_enabled = 1; //
-  f->vote_authorize_with_seed = 1; //
-  f->sol_log_data_syscall_enabled = 1; //
-  f->move_serialized_len_ptr_in_cpi = 1; //
-  f->do_support_realloc = 1; //
-  f->disable_deploy_of_alloc_free_syscall = 1; //
-  f->limit_secp256k1_recovery_id = 1; //
-  f->executables_incur_cpi_data_cost = 1; //
-  f->curve25519_syscall_enabled = 1; //
-  f->reject_non_rent_exempt_vote_withdraws = 1; //
-  f->enable_early_verification_of_account_modifications = 1; //
-  f->full_inflation_mainnet_certusoneenable = 1; //
-  f->prevent_crediting_accounts_that_end_rent_paying = 1; //
-  f->error_on_syscall_bpf_function_hash_collisions = 1; //
-  f->drop_merkle_shreds = 1; //
-  f->compact_vote_state_updates = 1; //
-  f->libsecp256k1_fail_on_bad_count = 1; //
-  f->require_static_program_ids_in_transaction = 1; //
-  f->dedupe_config_program_signers = 1; //
-  f->use_default_units_in_fee_calculation = 1; //
-  f->enable_bpf_loader_extend_program_ix = 1; //
-  f->add_set_compute_unit_price_ix = 1; //
-  f->cap_bpf_program_instruction_accounts = 1; //
-  f->reject_empty_instruction_without_program = 1; //
-  f->increase_tx_account_lock_limit = 1; //
-  f->stake_raise_minimum_delegation_to_1_sol = 1; //
-  f->reject_vote_account_close_unless_zero_credit_epoch = 1; //
-  f->vote_withdraw_authority_may_change_authorized_voter = 1; //
-  f->vote_stake_checked_instructions = 1; //
-  f->nonce_must_be_writable = 1; //
-  f->clean_up_delegation_errors = 1; //
-  f->rent_for_sysvars = 1; //
-  f->require_rent_exempt_accounts = 1; //
-  f->spl_token_v2_self_transfer_fix = 1; //
-  f->system_transfer_zero_check = 1; //
-  f->credits_auto_rewind = 1; //
-  f->full_inflation_mainnet_certusone_vote = 1; //
-  f->send_to_tpu_vote_port = 1; //
-  f->cap_accounts_data_len = 1; //
-  f->max_tx_account_locks = 1; //
-  f->requestable_heap_size = 1; //
-  f->add_get_processed_sibling_instruction_syscall = 1; //
-  f->on_load_preserve_rent_epoch_for_rent_exempt_accounts = 1; //
-  f->vote_state_update_credit_per_dequeue = 1; //
-  f->enable_turbine_fanout_experiments = 1; //
-  f->require_custodian_for_locked_stake_authorize = 1; //
-  f->libsecp256k1_0_5_upgrade_enabled = 1; //
-  f->quick_bail_on_panic = 1; //
-  f->add_shred_type_to_shred_seed = 1; //
-  f->full_inflation_devnet_and_testnet = 1; //
-  f->disable_rehash_for_rent_epoch = 1; //
-  f->return_data_syscall_enabled = 1; //
-  f->secp256k1_program_enabled = 1; //
-  f->spl_token_v2_multisig_fix = 1; //
-  f->leave_nonce_on_success = 1; //
-  f->reduce_required_deploy_balance = 1; //
-  f->stake_minimum_delegation_for_rewards = 1; //
-  f->evict_invalid_stakes_cache_entries = 1; //
-  f->verify_tx_signatures_len = 1; //
-  f->spl_associated_token_account_v1_1_0 = 1; //
-  f->spl_associated_token_account_v1_0_4 = 1; //
-  f->allow_votes_to_directly_update_vote_state = 1; //
-  f->stake_split_uses_rent_sysvar = 1; //
-  f->spl_token_v3_3_0_release = 1; //
-  f->spl_token_v3_4_0 = 1; //
-  f->spl_token_v2_set_authority_fix = 1; //
-  f->vote_state_update_root_fix = 1; //
-  f->deprecate_rewards_sysvar = 1; //
-  f->loosen_cpi_size_restriction = 1; //
-  f->filter_stake_delegation_accounts = 1; //
-  f->separate_nonce_from_blockhash = 1; //
-  f->check_slice_translation_size = 1; //
-  f->disable_deprecated_loader = 1; //
-  f->warp_timestamp_again = 1; //
-  f->disable_turbine_fanout_experiments = 1; //
-  f->instructions_sysvar_owned_by_sysvar = 1; //
-  f->stakes_remove_delegation_if_inactive = 1; //
-  f->preserve_rent_epoch_for_rent_exempt_accounts = 1; //
-  f->enable_request_heap_frame_ix = 1; //
-  f->remove_native_loader = 1; //
-  f->blake3_syscall_enabled = 1; //
-  f->nonce_must_be_authorized = 1; //
-  f->keep_merkle_shreds = 1; //
-  f->syscall_saturated_math = 1; //
-  f->default_units_per_instruction = 1; //
-  f->disable_fees_sysvar = 1; //
-  f->stake_merge_with_unmatched_credits_observed = 1; //
-  f->commission_updates_only_allowed_in_first_half_of_epoch = 1; //
-  f->check_physical_overlapping = 1; //
-  f->cap_accounts_data_size_per_block = 1; //
-  f->stake_program_advance_activating_credits_observed = 1; //
-  f->add_get_minimum_delegation_instruction_to_stake_program = 1; //
-  f->stake_allow_zero_undelegated_amount = 1; //
-  f->bank_transaction_count_fix = 1; //
-  f->zk_token_sdk_enabled = 1; //
-}
-
-void
-fd_features_enable_v16( fd_features_t * f ) {
-  memset( f, 0, sizeof(fd_features_t) );
-  f->stop_truncating_strings_in_syscalls = 1;   //
-  f->merge_nonce_error_into_system_error = 1; //
-  f->incremental_snapshot_only_incremental_hash_calculation = 1; //
-  f->optimize_epoch_boundary_updates = 1; //
-  f->update_rewards_from_cached_accounts = 1; //
-  f->update_syscall_base_costs = 1; //
-  f->remove_bpf_loader_incorrect_program_id = 1; //
-  f->disable_fee_calculator = 1; //
-  f->include_account_index_in_rent_error = 1; //
-  f->apply_cost_tracker_during_replay = 1; //
-  f->fixed_memcpy_nonoverlapping_check = 1; //
-  f->record_instruction_in_transaction_context_push = 1; //
-  f->warp_timestamp_with_a_vengeance = 1; //
-  f->check_init_vote_data = 1; //
-  f->demote_program_write_locks = 1; //
-  f->stake_redelegate_instruction = 1; //
-  f->filter_votes_outside_slot_hashes = 1; //
-  f->versioned_tx_message_enabled = 1; //
-  f->reject_callx_r10 = 1; //
-  f->nonce_must_be_advanceable = 1; //
-  f->update_hashes_per_tick = 1; //
-  f->check_syscall_outputs_do_not_overlap = 1; //
-  f->disable_bpf_deprecated_load_instructions = 1; //
-  f->stake_deactivate_delinquent_instruction = 1; //
-  f->prevent_calling_precompiles_as_programs = 1; //
-  f->add_compute_budget_program = 1; //
-  f->drop_redundant_turbine_path = 1; //
-  f->enable_durable_nonce = 1; //
-  f->no_overflow_rent_distribution = 1; //
-  f->pico_inflation = 1; //
-  f->disable_builtin_loader_ownership_chains = 1; //
-  f->disable_bpf_unresolved_symbols_at_runtime = 1; //
-  f->libsecp256k1_fail_on_bad_count2 = 1; //
-  f->tx_wide_compute_cap = 1; //
-  f->epoch_accounts_hash = 1; //
-  f->checked_arithmetic_in_fee_validation = 1; //
-  f->set_exempt_rent_epoch_max = 1; //
-  f->enable_bpf_loader_set_authority_checked_ix = 1; //
-  f->simplify_writable_program_account_check = 1; //
-  f->fix_recent_blockhashes = 1; //
-  f->ed25519_program_enabled = 1; //
-  f->secp256k1_recover_syscall_enabled = 1; //
-  f->vote_authorize_with_seed = 1; //
-  f->sol_log_data_syscall_enabled = 1; //
-  f->move_serialized_len_ptr_in_cpi = 1; //
-  f->do_support_realloc = 1; //
-  f->disable_deploy_of_alloc_free_syscall = 1; //
-  f->vote_state_add_vote_latency = 1; //
-  f->limit_secp256k1_recovery_id = 1; //
-  f->executables_incur_cpi_data_cost = 1; //
-  f->curve25519_syscall_enabled = 1; //
-  f->reject_non_rent_exempt_vote_withdraws = 1; //
-  f->enable_early_verification_of_account_modifications = 1; //
-  f->full_inflation_mainnet_certusoneenable = 1; //
-  f->prevent_crediting_accounts_that_end_rent_paying = 1; //
-  f->error_on_syscall_bpf_function_hash_collisions = 1; //
-  f->drop_merkle_shreds = 1; //
-  f->compact_vote_state_updates = 1; //
-  f->libsecp256k1_fail_on_bad_count = 1; //
-  f->require_static_program_ids_in_transaction = 1; //
-  f->dedupe_config_program_signers = 1; //
-  f->native_programs_consume_cu = 1; //
-  f->use_default_units_in_fee_calculation = 1; //
-  f->enable_bpf_loader_extend_program_ix = 1; //
-  f->add_set_compute_unit_price_ix = 1; //
-  f->bpf_account_data_direct_mapping = 1; //
-  f->cap_accounts_data_allocations_per_transaction = 1; //
-  f->cap_bpf_program_instruction_accounts = 1; //
-  f->reject_empty_instruction_without_program = 1; //
-  f->increase_tx_account_lock_limit = 1; //
-  f->stake_raise_minimum_delegation_to_1_sol = 1; //
-  f->enable_alt_bn128_syscall = 1; //
-  f->remove_congestion_multiplier_from_fee_calculation = 1; //
-  f->reject_vote_account_close_unless_zero_credit_epoch = 1; //
-  f->vote_withdraw_authority_may_change_authorized_voter = 1; //
-  f->disable_cpi_setting_executable_and_rent_epoch = 1; //
-  f->vote_stake_checked_instructions = 1; //
-  f->nonce_must_be_writable = 1; //
-  f->clean_up_delegation_errors = 1; //
-  f->rent_for_sysvars = 1; //
-  f->require_rent_exempt_accounts = 1; //
-  f->spl_token_v2_self_transfer_fix = 1; //
-  f->system_transfer_zero_check = 1; //
-  f->credits_auto_rewind = 1; //
-  f->full_inflation_mainnet_certusone_vote = 1; //
-  f->send_to_tpu_vote_port = 1; //
-  f->cap_accounts_data_len = 1; //
-  f->max_tx_account_locks = 1; //
-  f->requestable_heap_size = 1; //
-  f->switch_to_new_elf_parser = 1; //
-  f->round_up_heap_size = 1; //
-  f->add_get_processed_sibling_instruction_syscall = 1; //
-  f->skip_rent_rewrites = 1; //
-  f->on_load_preserve_rent_epoch_for_rent_exempt_accounts = 1; //
-  f->vote_state_update_credit_per_dequeue = 1; //
-  f->enable_turbine_fanout_experiments = 1; //
-  f->require_custodian_for_locked_stake_authorize = 1; //
-  f->cap_transaction_accounts_data_size = 1; //
-  f->libsecp256k1_0_5_upgrade_enabled = 1; //
-  f->quick_bail_on_panic = 1; //
-  f->add_shred_type_to_shred_seed = 1; //
-  f->full_inflation_devnet_and_testnet = 1; //
-  f->disable_rehash_for_rent_epoch = 1; //
-  f->return_data_syscall_enabled = 1; //
-  f->secp256k1_program_enabled = 1; //
-  f->spl_token_v2_multisig_fix = 1; //
-  f->leave_nonce_on_success = 1; //
-  f->include_loaded_accounts_data_size_in_fee_calculation = 1; //
-  f->reduce_required_deploy_balance = 1; //
-  f->enable_big_mod_exp_syscall = 1; //
-  f->remove_deprecated_request_unit_ix = 1; //
-  f->stake_minimum_delegation_for_rewards = 1; //
-  f->evict_invalid_stakes_cache_entries = 1; //
-  f->verify_tx_signatures_len = 1; //
-  f->stop_sibling_instruction_search_at_parent = 1; //
-  f->prevent_rent_paying_rent_recipients = 1; //
-  f->spl_associated_token_account_v1_1_0 = 1; //
-  f->spl_associated_token_account_v1_0_4 = 1; //
-  f->allow_votes_to_directly_update_vote_state = 1; //
-  f->relax_authority_signer_check_for_lookup_table_creation = 1; //
-  f->stake_split_uses_rent_sysvar = 1; //
-  f->spl_token_v3_3_0_release = 1; //
-  f->spl_token_v3_4_0 = 1; //
-  f->spl_token_v2_set_authority_fix = 1; //
-  f->add_set_tx_loaded_accounts_data_size_instruction = 1; //
-  f->vote_state_update_root_fix = 1; //
-  f->deprecate_rewards_sysvar = 1; //
-  f->loosen_cpi_size_restriction = 1; //
-  f->filter_stake_delegation_accounts = 1; //
-  f->separate_nonce_from_blockhash = 1; //
-  f->check_slice_translation_size = 1; //
-  f->delay_visibility_of_program_deployment = 1; //
-  f->limit_max_instruction_trace_length = 1; //
-  f->disable_deprecated_loader = 1; //
-  f->warp_timestamp_again = 1; //
-  f->disable_turbine_fanout_experiments = 1; //
-  f->instructions_sysvar_owned_by_sysvar = 1; //
-  f->stakes_remove_delegation_if_inactive = 1; //
-  f->preserve_rent_epoch_for_rent_exempt_accounts = 1; //
-  f->enable_request_heap_frame_ix = 1; //
-  f->remove_native_loader = 1; //
-  f->blake3_syscall_enabled = 1; //
-  f->nonce_must_be_authorized = 1; //
-  f->keep_merkle_shreds = 1; //
-  f->syscall_saturated_math = 1; //
-  f->default_units_per_instruction = 1; //
-  f->enable_program_redeployment_cooldown = 1; //
-  f->disable_fees_sysvar = 1; //
-  f->stake_merge_with_unmatched_credits_observed = 1; //
-  f->commission_updates_only_allowed_in_first_half_of_epoch = 1; //
-  f->check_physical_overlapping = 1; //
-  f->cap_accounts_data_size_per_block = 1; //
-  f->stake_program_advance_activating_credits_observed = 1; //
-  f->add_get_minimum_delegation_instruction_to_stake_program = 1; //
-  f->stake_allow_zero_undelegated_amount = 1; //
-  f->account_hash_ignore_slot = 1; //
-  f->bank_transaction_count_fix = 1; //
-  f->zk_token_sdk_enabled = 1; //
-}
-
-void
-fd_features_enable_v17( fd_features_t * f ) {
-  memset( f, 0, sizeof(fd_features_t) );
-  f->stop_truncating_strings_in_syscalls = 1;   //
-  f->merge_nonce_error_into_system_error = 1; //
-  f->incremental_snapshot_only_incremental_hash_calculation = 1; //
-  f->optimize_epoch_boundary_updates = 1; //
-  f->update_rewards_from_cached_accounts = 1; //
-  f->update_syscall_base_costs = 1; //
-  f->remove_bpf_loader_incorrect_program_id = 1; //
-  f->disable_fee_calculator = 1; //
-  f->include_account_index_in_rent_error = 1; //
-  f->apply_cost_tracker_during_replay = 1; //
-  f->fixed_memcpy_nonoverlapping_check = 1; //
-  f->record_instruction_in_transaction_context_push = 1; //
-  f->warp_timestamp_with_a_vengeance = 1; //
-  f->check_init_vote_data = 1; //
-  f->demote_program_write_locks = 1; //
-  f->stake_redelegate_instruction = 1; //
-  f->filter_votes_outside_slot_hashes = 1; //
-  f->versioned_tx_message_enabled = 1; //
-  f->reject_callx_r10 = 1; //
-  f->nonce_must_be_advanceable = 1; //
-  f->update_hashes_per_tick = 1; //
-  f->check_syscall_outputs_do_not_overlap = 1; //
-  f->disable_bpf_deprecated_load_instructions = 1; //
-  f->stake_deactivate_delinquent_instruction = 1; //
-  f->prevent_calling_precompiles_as_programs = 1; //
-  f->add_compute_budget_program = 1; //
-  f->drop_redundant_turbine_path = 1; //
-  f->enable_durable_nonce = 1; //
-  f->no_overflow_rent_distribution = 1; //
-  f->pico_inflation = 1; //
-  f->disable_builtin_loader_ownership_chains = 1; //
-  f->disable_bpf_unresolved_symbols_at_runtime = 1; //
-  f->libsecp256k1_fail_on_bad_count2 = 1; //
-  f->tx_wide_compute_cap = 1; //
-  f->epoch_accounts_hash = 1; //
-  f->checked_arithmetic_in_fee_validation = 1; //
-  f->set_exempt_rent_epoch_max = 1; //
-  f->enable_bpf_loader_set_authority_checked_ix = 1; //
-  f->simplify_writable_program_account_check = 1; //
-  f->fix_recent_blockhashes = 1; //
-  f->ed25519_program_enabled = 1; //
-  f->secp256k1_recover_syscall_enabled = 1; //
-  f->vote_authorize_with_seed = 1; //
-  f->sol_log_data_syscall_enabled = 1; //
-  f->move_serialized_len_ptr_in_cpi = 1; //
-  f->do_support_realloc = 1; //
-  f->disable_deploy_of_alloc_free_syscall = 1; //
-  f->vote_state_add_vote_latency = 1; //
-  f->limit_secp256k1_recovery_id = 1; //
-  f->executables_incur_cpi_data_cost = 1; //
-  f->curve25519_syscall_enabled = 1; //
-  f->reject_non_rent_exempt_vote_withdraws = 1; //
-  f->enable_early_verification_of_account_modifications = 1; //
-  f->full_inflation_mainnet_certusoneenable = 1; //
-  f->prevent_crediting_accounts_that_end_rent_paying = 1; //
-  f->error_on_syscall_bpf_function_hash_collisions = 1; //
-  f->drop_merkle_shreds = 1; //
-  f->compact_vote_state_updates = 1; //
-  f->libsecp256k1_fail_on_bad_count = 1; //
-  f->require_static_program_ids_in_transaction = 1; //
-  f->dedupe_config_program_signers = 1; //
-  f->native_programs_consume_cu = 1; //
-  f->use_default_units_in_fee_calculation = 1; //
-  f->enable_bpf_loader_extend_program_ix = 1; //
-  f->add_set_compute_unit_price_ix = 1; //
-  f->bpf_account_data_direct_mapping = 1; //
-  f->cap_accounts_data_allocations_per_transaction = 1; //
-  f->cap_bpf_program_instruction_accounts = 1; //
-  f->reject_empty_instruction_without_program = 1; //
-  f->increase_tx_account_lock_limit = 1; //
-  f->stake_raise_minimum_delegation_to_1_sol = 1; //
-  f->enable_alt_bn128_syscall = 1; //
-  f->remove_congestion_multiplier_from_fee_calculation = 1; //
-  f->reject_vote_account_close_unless_zero_credit_epoch = 1; //
-  f->vote_withdraw_authority_may_change_authorized_voter = 1; //
-  f->disable_cpi_setting_executable_and_rent_epoch = 1; //
-  f->vote_stake_checked_instructions = 1; //
-  f->nonce_must_be_writable = 1; //
-  f->clean_up_delegation_errors = 1; //
-  f->rent_for_sysvars = 1; //
-  f->require_rent_exempt_accounts = 1; //
-  f->spl_token_v2_self_transfer_fix = 1; //
-  f->system_transfer_zero_check = 1; //
-  f->credits_auto_rewind = 1; //
-  f->full_inflation_mainnet_certusone_vote = 1; //
-  f->send_to_tpu_vote_port = 1; //
-  f->cap_accounts_data_len = 1; //
-  f->max_tx_account_locks = 1; //
-  f->requestable_heap_size = 1; //
-  f->switch_to_new_elf_parser = 1; //
-  f->round_up_heap_size = 1; //
-  f->add_get_processed_sibling_instruction_syscall = 1; //
-  f->skip_rent_rewrites = 1; //
-  f->on_load_preserve_rent_epoch_for_rent_exempt_accounts = 1; //
-  f->vote_state_update_credit_per_dequeue = 1; //
-  f->enable_turbine_fanout_experiments = 1; //
-  f->require_custodian_for_locked_stake_authorize = 1; //
-  f->cap_transaction_accounts_data_size = 1; //
-  f->libsecp256k1_0_5_upgrade_enabled = 1; //
-  f->quick_bail_on_panic = 1; //
-  f->add_shred_type_to_shred_seed = 1; //
-  f->full_inflation_devnet_and_testnet = 1; //
-  f->disable_rehash_for_rent_epoch = 1; //
-  f->return_data_syscall_enabled = 1; //
-  f->secp256k1_program_enabled = 1; //
-  f->spl_token_v2_multisig_fix = 1; //
-  f->leave_nonce_on_success = 1; //
-  f->include_loaded_accounts_data_size_in_fee_calculation = 1; //
-  f->reduce_required_deploy_balance = 1; //
-  f->enable_big_mod_exp_syscall = 1; //
-  f->remove_deprecated_request_unit_ix = 1; //
-  f->stake_minimum_delegation_for_rewards = 1; //
-  f->evict_invalid_stakes_cache_entries = 1; //
-  f->verify_tx_signatures_len = 1; //
-  f->stop_sibling_instruction_search_at_parent = 1; //
-  f->prevent_rent_paying_rent_recipients = 1; //
-  f->spl_associated_token_account_v1_1_0 = 1; //
-  f->spl_associated_token_account_v1_0_4 = 1; //
-  f->allow_votes_to_directly_update_vote_state = 1; //
-  f->relax_authority_signer_check_for_lookup_table_creation = 1; //
-  f->stake_split_uses_rent_sysvar = 1; //
-  f->spl_token_v3_3_0_release = 1; //
-  f->spl_token_v3_4_0 = 1; //
-  f->spl_token_v2_set_authority_fix = 1; //
-  f->add_set_tx_loaded_accounts_data_size_instruction = 1; //
-  f->vote_state_update_root_fix = 1; //
-  f->deprecate_rewards_sysvar = 1; //
-  f->loosen_cpi_size_restriction = 1; //
-  f->filter_stake_delegation_accounts = 1; //
-  f->separate_nonce_from_blockhash = 1; //
-  f->check_slice_translation_size = 1; //
-  f->delay_visibility_of_program_deployment = 1; //
-  f->limit_max_instruction_trace_length = 1; //
-  f->disable_deprecated_loader = 1; //
-  f->warp_timestamp_again = 1; //
-  f->disable_turbine_fanout_experiments = 1; //
-  f->instructions_sysvar_owned_by_sysvar = 1; //
-  f->enable_partitioned_epoch_reward = 1; //
-  f->stakes_remove_delegation_if_inactive = 1; //
-  f->preserve_rent_epoch_for_rent_exempt_accounts = 1; //
-  f->last_restart_slot_sysvar = 1; //
-  f->enable_request_heap_frame_ix = 1; //
-  f->remove_native_loader = 1; //
-  f->blake3_syscall_enabled = 1; //
-  f->nonce_must_be_authorized = 1; //
-  f->keep_merkle_shreds = 1; //
-  f->syscall_saturated_math = 1; //
-  f->default_units_per_instruction = 1; //
-  f->enable_program_redeployment_cooldown = 1; //
-  f->disable_fees_sysvar = 1; //
-  f->stake_merge_with_unmatched_credits_observed = 1; //
-  f->commission_updates_only_allowed_in_first_half_of_epoch = 1; //
-  f->check_physical_overlapping = 1; //
-  f->cap_accounts_data_size_per_block = 1; //
-  f->stake_program_advance_activating_credits_observed = 1; //
-  f->add_get_minimum_delegation_instruction_to_stake_program = 1; //
-  f->stake_allow_zero_undelegated_amount = 1; //
-  f->account_hash_ignore_slot = 1; //
-  f->bank_transaction_count_fix = 1; //
-  f->zk_token_sdk_enabled = 1; //
-}
-
-void
 fd_features_enable_all( fd_features_t * f ) {
-  memset( f, 0, sizeof(fd_features_t) );
-  f->account_hash_ignore_slot = 1;
-  f->add_compute_budget_program = 1;
-  f->add_get_minimum_delegation_instruction_to_stake_program = 1;
-  f->add_get_processed_sibling_instruction_syscall = 1;
-  f->add_set_compute_unit_price_ix = 1;
-  f->add_set_tx_loaded_accounts_data_size_instruction = 1;
-  f->add_shred_type_to_shred_seed = 1;
-  f->allow_votes_to_directly_update_vote_state = 1;
-  f->apply_cost_tracker_during_replay = 1;
-  f->bank_transaction_count_fix = 1;
-  f->blake3_syscall_enabled = 1;
-  f->bpf_account_data_direct_mapping = 1;
-  f->cap_accounts_data_allocations_per_transaction = 1;
-  f->cap_accounts_data_len = 1;
-  f->cap_accounts_data_size_per_block = 1;
-  f->cap_bpf_program_instruction_accounts = 1;
-  f->cap_transaction_accounts_data_size = 1;
-  f->check_init_vote_data = 1;
-  f->check_physical_overlapping = 1;
-  f->check_slice_translation_size = 1;
-  f->check_syscall_outputs_do_not_overlap = 1;
-  f->checked_arithmetic_in_fee_validation = 1;
-  f->clean_up_delegation_errors = 1;
-  f->commission_updates_only_allowed_in_first_half_of_epoch = 1;
-  f->compact_vote_state_updates = 1;
-  f->credits_auto_rewind = 1;
-  f->curve25519_syscall_enabled = 1;
-  f->dedupe_config_program_signers = 1;
-  f->default_units_per_instruction = 1;
-  f->delay_visibility_of_program_deployment = 1;
-  f->demote_program_write_locks = 1;
-  f->deprecate_rewards_sysvar = 1;
-  f->disable_bpf_deprecated_load_instructions = 1;
-  f->disable_bpf_unresolved_symbols_at_runtime = 1;
-  f->disable_builtin_loader_ownership_chains = 1;
-  f->disable_cpi_setting_executable_and_rent_epoch = 1;
-  f->disable_deploy_of_alloc_free_syscall = 1;
-  f->disable_deprecated_loader = 1;
-  f->disable_fee_calculator = 1;
-  f->disable_fees_sysvar = 1;
-  f->disable_rehash_for_rent_epoch = 1;
-  f->disable_turbine_fanout_experiments = 1;
-  f->do_support_realloc = 1;
-  f->drop_merkle_shreds = 1;
-  f->drop_redundant_turbine_path = 1;
-  f->ed25519_program_enabled = 1;
-  f->enable_alt_bn128_syscall = 1;
-  f->enable_big_mod_exp_syscall = 1;
-  f->enable_bpf_loader_extend_program_ix = 1;
-  f->enable_bpf_loader_set_authority_checked_ix = 1;
-  f->enable_durable_nonce = 1;
-  f->enable_early_verification_of_account_modifications = 1;
-  f->enable_partitioned_epoch_reward = 1;
-  f->enable_program_redeployment_cooldown = 1;
-  f->enable_request_heap_frame_ix = 1;
-  f->enable_turbine_fanout_experiments = 1;
-  f->epoch_accounts_hash = 1;
-  f->error_on_syscall_bpf_function_hash_collisions = 1;
-  f->evict_invalid_stakes_cache_entries = 1;
-  f->executables_incur_cpi_data_cost = 1;
-  f->filter_stake_delegation_accounts = 1;
-  f->filter_votes_outside_slot_hashes = 1;
-  f->fix_recent_blockhashes = 1;
-  f->fixed_memcpy_nonoverlapping_check = 1;
-  f->full_inflation_devnet_and_testnet = 1;
-  f->full_inflation_mainnet_certusone_vote = 1;
-  f->full_inflation_mainnet_certusoneenable = 1;
-  f->include_account_index_in_rent_error = 1;
-  f->include_loaded_accounts_data_size_in_fee_calculation = 1;
-  f->increase_tx_account_lock_limit = 1;
-  f->incremental_snapshot_only_incremental_hash_calculation = 1;
-  f->instructions_sysvar_owned_by_sysvar = 1;
-  f->keep_merkle_shreds = 1;
-  f->last_restart_slot_sysvar = 1;
-  f->leave_nonce_on_success = 1;
-  f->libsecp256k1_0_5_upgrade_enabled = 1;
-  f->libsecp256k1_fail_on_bad_count = 1;
-  f->libsecp256k1_fail_on_bad_count2 = 1;
-  f->limit_max_instruction_trace_length = 1;
-  f->limit_secp256k1_recovery_id = 1;
-  f->loosen_cpi_size_restriction = 1;
-  f->max_tx_account_locks = 1;
-  f->merge_nonce_error_into_system_error = 1;
-  f->move_serialized_len_ptr_in_cpi = 1;
-  f->native_programs_consume_cu = 1;
-  f->no_overflow_rent_distribution = 1;
-  f->nonce_must_be_advanceable = 1;
-  f->nonce_must_be_authorized = 1;
-  f->nonce_must_be_writable = 1;
-  f->on_load_preserve_rent_epoch_for_rent_exempt_accounts = 1;
-  f->optimize_epoch_boundary_updates = 1;
-  f->pico_inflation = 1;
-  f->preserve_rent_epoch_for_rent_exempt_accounts = 1;
-  f->prevent_calling_precompiles_as_programs = 1;
-  f->prevent_crediting_accounts_that_end_rent_paying = 1;
-  f->prevent_rent_paying_rent_recipients = 1;
-  f->quick_bail_on_panic = 1;
-  f->record_instruction_in_transaction_context_push = 1;
-  f->reduce_required_deploy_balance = 1;
-  f->reject_callx_r10 = 1;
-  f->reject_empty_instruction_without_program = 1;
-  f->reject_non_rent_exempt_vote_withdraws = 1;
-  f->reject_vote_account_close_unless_zero_credit_epoch = 1;
-  f->relax_authority_signer_check_for_lookup_table_creation = 1;
-  f->remove_bpf_loader_incorrect_program_id = 1;
-  f->remove_congestion_multiplier_from_fee_calculation = 1;
-  f->remove_deprecated_request_unit_ix = 1;
-  f->remove_native_loader = 1;
-  f->rent_for_sysvars = 1;
-  f->requestable_heap_size = 1;
-  f->require_custodian_for_locked_stake_authorize = 1;
-  f->require_rent_exempt_accounts = 1;
-  f->require_static_program_ids_in_transaction = 1;
-  f->return_data_syscall_enabled = 1;
-  f->round_up_heap_size = 1;
-  f->secp256k1_program_enabled = 1;
-  f->secp256k1_recover_syscall_enabled = 1;
-  f->send_to_tpu_vote_port = 1;
-  f->separate_nonce_from_blockhash = 1;
-  f->set_exempt_rent_epoch_max = 1;
-  f->simplify_writable_program_account_check = 1;
-  f->skip_rent_rewrites = 1;
-  f->sol_log_data_syscall_enabled = 1;
-  f->spl_associated_token_account_v1_0_4 = 1;
-  f->spl_associated_token_account_v1_1_0 = 1;
-  f->spl_token_v2_multisig_fix = 1;
-  f->spl_token_v2_self_transfer_fix = 1;
-  f->spl_token_v2_set_authority_fix = 1;
-  f->spl_token_v3_3_0_release = 1;
-  f->spl_token_v3_4_0 = 1;
-  f->stake_allow_zero_undelegated_amount = 1;
-  f->stake_deactivate_delinquent_instruction = 1;
-  f->stake_merge_with_unmatched_credits_observed = 1;
-  f->stake_minimum_delegation_for_rewards = 1;
-  f->stake_program_advance_activating_credits_observed = 1;
-  f->stake_raise_minimum_delegation_to_1_sol = 1;
-  f->stake_redelegate_instruction = 1;
-  f->stake_split_uses_rent_sysvar = 1;
-  f->stakes_remove_delegation_if_inactive = 1;
-  f->stop_sibling_instruction_search_at_parent = 1;
-  f->stop_truncating_strings_in_syscalls = 1;
-  f->switch_to_new_elf_parser = 1;
-  f->syscall_saturated_math = 1;
-  f->system_transfer_zero_check = 1;
-  f->tx_wide_compute_cap = 1;
-  f->update_hashes_per_tick = 1;
-  f->update_rewards_from_cached_accounts = 1;
-  f->update_syscall_base_costs = 1;
-  f->use_default_units_in_fee_calculation = 1;
-  f->verify_tx_signatures_len = 1;
-  f->versioned_tx_message_enabled = 1;
-  f->vote_authorize_with_seed = 1;
-  f->vote_stake_checked_instructions = 1;
-  f->vote_state_add_vote_latency = 1;
-  f->vote_state_update_credit_per_dequeue = 1;
-  f->vote_state_update_root_fix = 1;
-  f->vote_withdraw_authority_may_change_authorized_voter = 1;
-  f->warp_timestamp_again = 1;
-  f->warp_timestamp_with_a_vengeance = 1;
-  f->zk_token_sdk_enabled = 1;
+  memset( f, 0xff, sizeof(fd_features_t) );
+  f->deprecate_rewards_sysvar = 0;
+  f->pico_inflation = 0;
+  f->devnet_and_testnet = 0;
+  f->vote = 0;
+  f->enable = 0;
+  f->secp256k1_program_enabled = 0;
+  f->spl_token_v2_multisig_fix = 0;
+  f->no_overflow_rent_distribution = 0;
+  f->filter_stake_delegation_accounts = 0;
+  f->require_custodian_for_locked_stake_authorize = 0;
+  f->spl_token_v2_self_transfer_fix = 0;
+  f->warp_timestamp_again = 0;
+  f->check_init_vote_data = 0;
+  f->secp256k1_recover_syscall_enabled = 0;
+  f->system_transfer_zero_check = 0;
+  f->blake3_syscall_enabled = 0;
+  f->dedupe_config_program_signers = 0;
+  f->verify_tx_signatures_len = 0;
+  f->vote_stake_checked_instructions = 0;
+  f->rent_for_sysvars = 0;
+  f->libsecp256k1_0_5_upgrade_enabled = 0;
+  f->tx_wide_compute_cap = 0;
+  f->spl_token_v2_set_authority_fix = 0;
+  f->merge_nonce_error_into_system_error = 0;
+  f->disable_fees_sysvar = 0;
+  f->stake_merge_with_unmatched_credits_observed = 0;
+  f->zk_token_sdk_enabled = 0;
+  f->curve25519_syscall_enabled = 0;
+  f->versioned_tx_message_enabled = 0;
+  f->libsecp256k1_fail_on_bad_count = 0;
+  f->libsecp256k1_fail_on_bad_count2 = 0;
+  f->instructions_sysvar_owned_by_sysvar = 0;
+  f->stake_program_advance_activating_credits_observed = 0;
+  f->credits_auto_rewind = 0;
+  f->demote_program_write_locks = 0;
+  f->ed25519_program_enabled = 0;
+  f->return_data_syscall_enabled = 0;
+  f->reduce_required_deploy_balance = 0;
+  f->sol_log_data_syscall_enabled = 0;
+  f->stakes_remove_delegation_if_inactive = 0;
+  f->do_support_realloc = 0;
+  f->prevent_calling_precompiles_as_programs = 0;
+  f->optimize_epoch_boundary_updates = 0;
+  f->remove_native_loader = 0;
+  f->send_to_tpu_vote_port = 0;
+  f->requestable_heap_size = 0;
+  f->disable_fee_calculator = 0;
+  f->add_compute_budget_program = 0;
+  f->nonce_must_be_writable = 0;
+  f->spl_token_v3_3_0_release = 0;
+  f->leave_nonce_on_success = 0;
+  f->reject_empty_instruction_without_program = 0;
+  f->fixed_memcpy_nonoverlapping_check = 0;
+  f->reject_non_rent_exempt_vote_withdraws = 0;
+  f->evict_invalid_stakes_cache_entries = 0;
+  f->allow_votes_to_directly_update_vote_state = 0;
+  f->cap_accounts_data_len = 0;
+  f->max_tx_account_locks = 0;
+  f->require_rent_exempt_accounts = 0;
+  f->filter_votes_outside_slot_hashes = 0;
+  f->update_syscall_base_costs = 0;
+  f->stake_deactivate_delinquent_instruction = 0;
+  f->stake_redelegate_instruction = 0;
+  f->vote_withdraw_authority_may_change_authorized_voter = 0;
+  f->spl_associated_token_account_v1_0_4 = 0;
+  f->reject_vote_account_close_unless_zero_credit_epoch = 0;
+  f->add_get_processed_sibling_instruction_syscall = 0;
+  f->bank_transaction_count_fix = 0;
+  f->disable_bpf_deprecated_load_instructions = 0;
+  f->disable_bpf_unresolved_symbols_at_runtime = 0;
+  f->record_instruction_in_transaction_context_push = 0;
+  f->syscall_saturated_math = 0;
+  f->check_physical_overlapping = 0;
+  f->limit_secp256k1_recovery_id = 0;
+  f->disable_deprecated_loader = 0;
+  f->check_slice_translation_size = 0;
+  f->stake_split_uses_rent_sysvar = 0;
+  f->add_get_minimum_delegation_instruction_to_stake_program = 0;
+  f->error_on_syscall_bpf_function_hash_collisions = 0;
+  f->reject_callx_r10 = 0;
+  f->drop_redundant_turbine_path = 0;
+  f->executables_incur_cpi_data_cost = 0;
+  f->fix_recent_blockhashes = 0;
+  f->update_rewards_from_cached_accounts = 0;
+  f->enable_partitioned_epoch_reward = 0;
+  f->spl_token_v3_4_0 = 0;
+  f->spl_associated_token_account_v1_1_0 = 0;
+  f->default_units_per_instruction = 0;
+  f->stake_allow_zero_undelegated_amount = 0;
+  f->require_static_program_ids_in_transaction = 0;
+  f->stake_raise_minimum_delegation_to_1_sol = 0;
+  f->stake_minimum_delegation_for_rewards = 0;
+  f->add_set_compute_unit_price_ix = 0;
+  f->disable_deploy_of_alloc_free_syscall = 0;
+  f->include_account_index_in_rent_error = 0;
+  f->add_shred_type_to_shred_seed = 0;
+  f->warp_timestamp_with_a_vengeance = 0;
+  f->separate_nonce_from_blockhash = 0;
+  f->enable_durable_nonce = 0;
+  f->vote_state_update_credit_per_dequeue = 0;
+  f->quick_bail_on_panic = 0;
+  f->nonce_must_be_authorized = 0;
+  f->nonce_must_be_advanceable = 0;
+  f->vote_authorize_with_seed = 0;
+  f->cap_accounts_data_size_per_block = 0;
+  f->preserve_rent_epoch_for_rent_exempt_accounts = 0;
+  f->enable_bpf_loader_extend_program_ix = 0;
+  f->enable_early_verification_of_account_modifications = 0;
+  f->skip_rent_rewrites = 0;
+  f->prevent_crediting_accounts_that_end_rent_paying = 0;
+  f->cap_bpf_program_instruction_accounts = 0;
+  f->loosen_cpi_size_restriction = 0;
+  f->use_default_units_in_fee_calculation = 0;
+  f->compact_vote_state_updates = 0;
+  f->incremental_snapshot_only_incremental_hash_calculation = 0;
+  f->disable_cpi_setting_executable_and_rent_epoch = 0;
+  f->on_load_preserve_rent_epoch_for_rent_exempt_accounts = 0;
+  f->account_hash_ignore_slot = 0;
+  f->set_exempt_rent_epoch_max = 0;
+  f->relax_authority_signer_check_for_lookup_table_creation = 0;
+  f->stop_sibling_instruction_search_at_parent = 0;
+  f->vote_state_update_root_fix = 0;
+  f->cap_accounts_data_allocations_per_transaction = 0;
+  f->epoch_accounts_hash = 0;
+  f->remove_deprecated_request_unit_ix = 0;
+  f->disable_rehash_for_rent_epoch = 0;
+  f->increase_tx_account_lock_limit = 0;
+  f->limit_max_instruction_trace_length = 0;
+  f->check_syscall_outputs_do_not_overlap = 0;
+  f->enable_bpf_loader_set_authority_checked_ix = 0;
+  f->enable_alt_bn128_syscall = 0;
+  f->enable_program_redeployment_cooldown = 0;
+  f->commission_updates_only_allowed_in_first_half_of_epoch = 0;
+  f->enable_turbine_fanout_experiments = 0;
+  f->disable_turbine_fanout_experiments = 0;
+  f->drop_merkle_shreds = 0;
+  f->keep_merkle_shreds = 0;
+  f->move_serialized_len_ptr_in_cpi = 0;
+  f->update_hashes_per_tick = 0;
+  f->enable_big_mod_exp_syscall = 0;
+  f->disable_builtin_loader_ownership_chains = 0;
+  f->cap_transaction_accounts_data_size = 0;
+  f->remove_congestion_multiplier_from_fee_calculation = 0;
+  f->enable_request_heap_frame_ix = 0;
+  f->prevent_rent_paying_rent_recipients = 0;
+  f->delay_visibility_of_program_deployment = 0;
+  f->apply_cost_tracker_during_replay = 0;
+  f->bpf_account_data_direct_mapping = 0;
+  f->add_set_tx_loaded_accounts_data_size_instruction = 0;
+  f->switch_to_new_elf_parser = 0;
+  f->round_up_heap_size = 0;
+  f->remove_bpf_loader_incorrect_program_id = 0;
+  f->include_loaded_accounts_data_size_in_fee_calculation = 0;
+  f->native_programs_consume_cu = 0;
+  f->simplify_writable_program_account_check = 0;
+  f->stop_truncating_strings_in_syscalls = 0;
+  f->clean_up_delegation_errors = 0;
+  f->vote_state_add_vote_latency = 0;
+  f->checked_arithmetic_in_fee_validation = 0;
+  f->last_restart_slot_sysvar = 0;
+  f->reduce_stake_warmup_cooldown = 0;
+}
+
+void
+fd_features_disable_all( fd_features_t * f ) {
+  for( fd_feature_id_t const * id = fd_feature_iter_init();
+       !fd_feature_iter_done( id );
+       id = fd_feature_iter_next( id ) ) {
+    *fd_features_ptr( f, id ) = ULONG_MAX;
+  }
 }
 
 fd_feature_id_t const ids[] = {
-  /* SVn36yVApPLYsa8koK3qUcy14zXDnqkNYWyUh1f4oK1 */
-  { .offset = offsetof(fd_features_t, account_hash_ignore_slot),
-    .id     = {"\x06\x88\x0e\xd2\xd7\xba\x96\x67\x8f\x11\x2c\x91\x03\x77\xb7\xc9\xc5\xd4\x04\x96\xe4\xb7\x4c\x8f\x64\xfb\x77\x3f\x84\xd6\x12\xe4"} },
-
-  /* 4d5AKtxoh93Dwm1vHXUU3iRATuMndx1c431KgT2td52r */
-  { .offset = offsetof(fd_features_t, add_compute_budget_program),
-    .id     = {"\x35\xd0\xac\xad\xb3\x34\x81\x2b\xc2\x6f\x22\x22\x73\xad\x66\x01\xbb\xc9\x5e\x9b\xa8\x4f\x17\x8f\x46\x5d\xf2\x28\xa4\x04\xf0\x6b"} },
-
-  /* St8k9dVXP97xT6faW24YmRSYConLbhsMJA4TJTBLmMT */
-  { .offset = offsetof(fd_features_t, add_get_minimum_delegation_instruction_to_stake_program),
-    .id     = {"\x06\xa1\x56\x4a\xbf\x71\x63\x7f\x4a\x66\x67\x62\x89\x18\x9b\xd0\x9e\x04\x9b\x64\x09\xb6\xf0\x8a\x44\xd1\xf7\x57\xe6\x33\x38\xea"} },
-
-  /* CFK1hRCNy8JJuAAY8Pb2GjLFNdCThS2qwZNe3izzBMgn */
-  { .offset = offsetof(fd_features_t, add_get_processed_sibling_instruction_syscall),
-    .id     = {"\xa7\x1b\x0d\xc3\xa8\xf3\x9e\xd8\x70\xe5\xd0\xbe\xa7\xee\x4c\x46\xe6\x0b\x12\x14\x90\x14\x1b\x3c\x55\x32\x1e\x07\xc1\x10\xda\xd3"} },
-
-  /* 98std1NSHqXi9WYvFShfVepRdCoq1qvsp8fsR2XZtG8g */
-  { .offset = offsetof(fd_features_t, add_set_compute_unit_price_ix),
-    .id     = {"\x78\xe2\x1a\x43\xc1\x90\x64\x60\x36\x9e\x01\x54\xad\x41\x14\x72\x2f\x6b\x2a\x43\xe7\x9b\x9a\x61\xcb\x4b\x37\xa1\x0c\x7f\x4b\xd1"} },
-
-  /* G6vbf1UBok8MWb8m25ex86aoQHeKTzDKzuZADHkShqm6 */
-  { .offset = offsetof(fd_features_t, add_set_tx_loaded_accounts_data_size_instruction),
-    .id     = {"\xe0\x63\xcf\x92\xc3\xa0\xd3\x55\x49\xd0\x52\xb1\x0c\xaf\xf1\x3f\x56\xfa\x06\x11\x1c\x63\x6f\x69\x75\x42\xd1\x31\x2a\x1e\xe2\x6d"} },
-
-  /* Ds87KVeqhbv7Jw8W6avsS1mqz3Mw5J3pRTpPoDQ2QdiJ */
-  { .offset = offsetof(fd_features_t, add_shred_type_to_shred_seed),
-    .id     = {"\xbf\x23\x52\x59\xab\x2e\x5c\x5a\x43\xb4\x18\xdc\x05\x95\x16\xa5\xc8\x3d\xa3\x9e\x9e\x88\xca\x6d\x8e\xc7\x1c\x40\x7c\x3d\x5c\x73"} },
-
-  /* Ff8b1fBeB86q8cjq47ZhsQLgv5EkHu3G1C99zjUfAzrq */
-  { .offset = offsetof(fd_features_t, allow_votes_to_directly_update_vote_state),
-    .id     = {"\xd9\xc8\x44\x04\x08\x9a\xc9\x7b\x21\x9b\x5e\x12\x1b\x56\x70\xc5\xc4\xe2\x73\x67\x87\x69\x92\x78\x1e\xd0\xda\x67\xc6\x2e\x6c\xf6"} },
-
-  /* 2ry7ygxiYURULZCrypHhveanvP5tzZ4toRwVp89oCNSj */
-  { .offset = offsetof(fd_features_t, apply_cost_tracker_during_replay),
-    .id     = {"\x1b\xa8\x9a\x1c\x70\xb2\x9a\xca\x07\x34\x3d\x0b\xbf\xe2\x48\x67\x97\x3a\xdb\x59\x2e\x5d\x00\xfa\xde\x49\x8b\x33\x77\x3f\x70\xa0"} },
-
-  /* Vo5siZ442SaZBKPXNocthiXysNviW4UYPwRFggmbgAp */
-  { .offset = offsetof(fd_features_t, bank_transaction_count_fix),
-    .id     = {"\x07\x60\x5e\xbb\x59\x63\x27\xe2\xef\x50\xf5\xc8\x99\xc3\x09\xa6\xce\xf3\x0c\x41\x7c\xc6\x8e\xe4\xf0\xfd\xbd\xd8\x83\xfc\x60\xe5"} },
-
-  /* HTW2pSyErTj4BV6KBM9NZ9VBUJVxt7sacNWcf76wtzb3 */
-  { .offset = offsetof(fd_features_t, blake3_syscall_enabled),
-    .id     = {"\xf4\x84\xea\xee\xb8\xa4\x94\xe9\x28\x63\x46\xac\x46\x52\xff\x97\xa2\xca\x0d\x75\x29\xce\x59\x81\x14\x6e\x83\x07\x1f\x14\x9d\xb2"} },
-
-  /* 9gwzizfABsKUereT6phZZxbTzuAnovkgwpVVpdcSxv9h */
-  { .offset = offsetof(fd_features_t, bpf_account_data_direct_mapping),
-    .id     = {"\x81\x19\x54\x8d\x6f\x4d\x00\x5b\x8f\x74\x6a\x89\xd3\xed\x8d\xff\xd2\x55\x91\xcb\x0c\x38\xa0\x31\xad\xfa\x66\xc9\xc3\xb3\x72\xf4"} },
-
-  /* 9gxu85LYRAcZL38We8MYJ4A9AwgBBPtVBAqebMcT1241 */
-  { .offset = offsetof(fd_features_t, cap_accounts_data_allocations_per_transaction),
-    .id     = {"\x81\x1a\x5a\x0d\xf1\x24\x2c\x5b\xa0\x2a\x65\x74\xdb\x64\x82\xa1\x77\x98\x85\x5e\x4a\xb0\xe6\x08\xb4\xf7\x34\x9e\xc4\x67\x31\x52"} },
-
-  /* capRxUrBjNkkCpjrJxPGfPaWijB7q3JoDfsWXAnt46r */
-  { .offset = offsetof(fd_features_t, cap_accounts_data_len),
-    .id     = {"\x09\x1d\x90\xf1\x7c\x23\x03\x02\xed\xea\x26\xcc\xf4\x7f\xfa\xeb\xef\x7e\x27\x9f\x24\x13\x11\xef\x36\x3a\x3a\x45\x04\x05\xd7\x27"} },
-
-  /* qywiJyZmqTKspFg2LeuUHqcA5nNvBgobqb9UprywS9N */
-  { .offset = offsetof(fd_features_t, cap_accounts_data_size_per_block),
-    .id     = {"\x0c\x8c\x43\xcc\xfb\xd3\x99\x67\xa0\x32\x30\xa0\x84\x7b\xfb\x91\xed\xe2\x57\x36\xcb\xaf\xc0\x6a\x1c\x7a\x87\x88\xf5\x81\xbb\x39"} },
-
-  /* 9k5ijzTbYPtjzu8wj2ErH9v45xecHzQ1x4PMYMMxFgdM */
-  { .offset = offsetof(fd_features_t, cap_bpf_program_instruction_accounts),
-    .id     = {"\x81\xe6\xce\x87\x8e\x3a\xa7\x14\x8e\x5f\x37\x82\xa7\x85\xe7\x8d\xa9\x14\x59\x07\xf5\x22\xf7\x8d\xd4\xa6\x46\x9f\x82\xfa\xec\x58"} },
-
-  /* DdLwVYuvDz26JohmgSbA7mjpJFgX5zP2dkp8qsF2C33V */
-  { .offset = offsetof(fd_features_t, cap_transaction_accounts_data_size),
-    .id     = {"\xbb\x9b\xb2\xab\xa7\x5e\xe3\xff\x53\x3b\x58\xb3\x2c\x8b\x46\xe9\xfa\x66\xc9\x20\x65\xe4\x90\x65\x5e\xd4\x27\x18\xd9\x85\xef\xe0"} },
-
-  /* 3ccR6QpxGYsAbWyfevEtBNGfWV4xBffxRj2tD6A9i39F */
-  { .offset = offsetof(fd_features_t, check_init_vote_data),
-    .id     = {"\x26\xd6\xbf\x1a\x22\x53\xab\x30\xc7\xee\x40\x65\x9c\xa3\x5d\xd9\x95\x33\x6d\x11\x41\x80\x06\x9c\x93\xce\xf1\xf6\xa0\x90\x19\xee"} },
-
-  /* nWBqjr3gpETbiaVj3CBJ3HFC5TMdnJDGt21hnvSTvVZ */
-  { .offset = offsetof(fd_features_t, check_physical_overlapping),
-    .id     = {"\x0b\xa8\x23\x5d\x64\x8c\x28\x80\xec\x2d\xf5\x0a\x24\xaf\xfa\x9f\xdf\xa8\x89\x04\x0c\xaf\x8c\x03\xcd\x21\xfe\x9e\x66\x53\xa2\xec"} },
-
-  /* GmC19j9qLn2RFk5NduX6QXaDhVpGncVVBzyM8e9WMz2F */
-  { .offset = offsetof(fd_features_t, check_slice_translation_size),
-    .id     = {"\xea\x31\x4c\xd7\xc6\x76\x2f\x56\x21\x37\x60\xc0\x95\x4d\xc6\x55\x29\x76\x96\x73\xc2\x70\x2a\x55\xc7\x47\x46\x59\xf0\x69\xc8\xfc"} },
-
-  /* 3uRVPBpyEJRo1emLCrq38eLRFGcu6uKSpUXqGvU8T7SZ */
-  { .offset = offsetof(fd_features_t, check_syscall_outputs_do_not_overlap),
-    .id     = {"\x2b\x25\x44\x20\xcb\x2b\x86\xa6\xf2\x48\x28\x8b\xc6\x3a\xc5\xd1\x38\x59\x45\xf3\xb3\x68\xcc\xe9\x1b\x2e\x60\x59\x61\xd1\x78\xc2"} },
-
-  /* 5Pecy6ie6XGm22pc9d4P9W5c31BugcFBuy6hsP2zkETv */
-  { .offset = offsetof(fd_features_t, checked_arithmetic_in_fee_validation),
-    .id     = {"\x41\x3c\x10\x0e\x1d\x39\xd7\x2b\xbe\x35\xa2\xa1\xcb\xff\x4f\xe1\x7d\x4d\x55\xd0\x45\x4d\xf0\x5f\x58\xa4\x96\x7c\xed\x08\x34\x55"} },
-
-  /* Bj2jmUsM2iRhfdLLDSTkhM5UQRQvQHm57HSmPibPtEyu */
-  { .offset = offsetof(fd_features_t, clean_up_delegation_errors),
-    .id     = {"\x9f\x59\x3a\x49\x85\xf1\xaa\x61\x96\x8e\x49\xb3\x45\xce\xea\xed\xbb\x96\x54\x09\xa4\x3d\x8d\xba\xbb\x57\xc7\x64\x0d\xfc\x59\x90"} },
-
-  /* noRuG2kzACwgaY7TVmLRnUNPLKNVQE1fb7X55YWBehp */
-  { .offset = offsetof(fd_features_t, commission_updates_only_allowed_in_first_half_of_epoch),
-    .id     = {"\x0b\xbb\xa2\x5c\x08\xb9\x8e\x8a\xbc\xe8\xb4\x63\x97\x94\x37\x88\xf2\xa6\xa0\x91\x29\xf3\xc1\x8b\x35\x49\x07\x6a\x1d\x5f\x63\x33"} },
-
-  /* 86HpNqzutEZwLcPxS6EHDcMNYWk6ikhteg9un7Y2PBKE */
-  { .offset = offsetof(fd_features_t, compact_vote_state_updates),
-    .id     = {"\x69\x5c\xba\x36\x37\x83\xa5\x2c\x1b\xb5\x28\x3d\x3b\xc4\x4b\xc6\x19\xb6\xb5\x14\x1e\x14\xa7\x6a\xf1\xf6\xb8\xb5\x96\xef\xc8\x69"} },
-
-  /* BUS12ciZ5gCoFafUHWW8qaFMMtwFQGVxjsDheWLdqBE2 */
-  { .offset = offsetof(fd_features_t, credits_auto_rewind),
-    .id     = {"\x9b\x9b\xd1\xb9\xd4\x1e\xdd\x35\x8b\xcf\x42\x55\x5f\xc4\x5c\xd0\x84\xfb\xa8\x2c\x6a\x16\xa5\x5e\x77\xb4\x86\xaf\x50\xa4\x60\xbb"} },
-
-  /* 7rcw5UtqgDTBBv2EcynNfYckgdAaH1MAsCjKgXMkN7Ri */
-  { .offset = offsetof(fd_features_t, curve25519_syscall_enabled),
-    .id     = {"\x65\xdc\x35\xc6\x6f\x58\x1e\x4b\x7f\x4e\xe4\x3c\x60\x48\x03\x3f\x33\x88\x72\x50\x61\x81\xf7\x08\x47\x16\x9a\x51\xb9\x72\xd2\xe9"} },
-
-  /* 8kEuAshXLsgkUEdcFVLqrjCGGHVWFW99ZZpxvAzzMtBp */
-  { .offset = offsetof(fd_features_t, dedupe_config_program_signers),
-    .id     = {"\x73\x15\x7f\xdd\x92\xe0\xa1\x10\xaa\xbb\x79\xc2\x61\x81\x1e\xd2\xf7\xd5\x72\x9c\x19\xd7\x3e\x17\xd0\xbb\xb0\x23\xa7\x9d\x86\xaf"} },
-
-  /* J2QdYx8crLbTVK8nur1jeLsmc3krDbfjoxoea2V1Uy5Q */
-  { .offset = offsetof(fd_features_t, default_units_per_instruction),
-    .id     = {"\xfc\xf2\xfa\x30\x04\x5d\x28\x7b\x6c\xdc\x72\xa5\x33\xff\xa4\x48\x5f\xe4\x00\x16\x31\x6c\x9a\x57\x33\x61\xcf\x2e\x29\x8d\xbe\x57"} },
-
-  /* GmuBvtFb2aHfSfMXpuFeWZGHyDeCLPS79s48fmCWCfM5 */
-  { .offset = offsetof(fd_features_t, delay_visibility_of_program_deployment),
-    .id     = {"\xea\x5f\xde\x80\x1b\x0d\x12\xd6\x7b\x51\xc2\xb5\xc6\x08\x33\x59\x68\x07\x4f\x61\x84\x0f\xaf\xfe\xf5\x96\x2c\x58\xbb\xe9\x9f\x4c"} },
-
-  /* 3E3jV7v9VcdJL8iYZUMax9DiDno8j7EWUVbhm9RtShj2 */
-  { .offset = offsetof(fd_features_t, demote_program_write_locks),
-    .id     = {"\x21\x0f\x03\x96\x77\x13\xbf\x30\x1d\xb3\xfc\x8a\x64\xe0\xc6\x24\x2c\xca\x69\x56\x80\x86\x96\x61\xfb\x6a\xe6\xba\xd8\x02\x7a\x3d"} },
-
   /* GaBtBJvmS4Arjj5W1NmFcyvPjsHN38UGYDq2MDwbs9Qu */
   { .offset = offsetof(fd_features_t, deprecate_rewards_sysvar),
     .id     = {"\xe7\x5f\xc6\x7c\x5f\x30\x77\x25\xb6\x9e\x15\xbc\x0f\xd3\x26\x29\x0b\x7c\x02\x21\xaf\x9b\x5a\x1d\xfe\xac\x67\x40\x80\x67\x4c\x3a"} },
 
-  /* 3XgNukcZWf9o3HdA3fpJbm94XFc4qpvTXc8h1wxYwiPi */
-  { .offset = offsetof(fd_features_t, disable_bpf_deprecated_load_instructions),
-    .id     = {"\x25\x93\x52\x9b\xc1\x85\x23\xf0\x0b\xe7\x62\x26\xce\x45\xc6\x2e\xcf\x5f\x8c\xf8\x25\x10\x00\xae\xbf\x40\xbe\xd7\x81\x5b\x8a\x29"} },
+  /* 4RWNif6C2WCNiKVW7otP4G7dkmkHGyKQWRpuZ1pxKU5m */
+  { .offset = offsetof(fd_features_t, pico_inflation),
+    .id     = {"\x32\xda\x36\xc8\x6b\xd3\x95\x70\x85\x28\x50\xc5\x40\xb6\xea\xeb\xda\xf1\xca\x6d\x30\x85\x46\x37\x34\xa2\x73\x4c\xd7\xb3\x83\x80"} },
 
-  /* 4yuaYAj2jGMGTh1sSmi4G2eFscsDq8qjugJXZoBN6YEa */
-  { .offset = offsetof(fd_features_t, disable_bpf_unresolved_symbols_at_runtime),
-    .id     = {"\x3b\x27\x09\x56\xe4\x2a\x76\xf1\x7a\xbd\xf9\x24\x8a\x04\xe7\xff\x6b\x3c\x1d\x0d\xa0\x75\xc1\x8c\x62\x42\x4e\x25\xbd\x62\x6b\x47"} },
+  /* DT4n6ABDqs6w4bnfwrXT9rsprcPf6cdDga1egctaPkLC */
+  { .offset = offsetof(fd_features_t, devnet_and_testnet),
+    .id     = {"\xb8\xf9\x9d\x82\x20\x0f\x99\x8b\x98\xc4\x89\xbc\x09\x52\xdf\x91\x9e\xf2\xb5\x9b\xe9\xf7\x54\xee\xea\x83\x26\x25\x63\xbb\xec\x05"} },
 
-  /* 4UDcAfQ6EcA6bdcadkeHpkarkhZGJ7Bpq7wTAiRMjkoi */
-  { .offset = offsetof(fd_features_t, disable_builtin_loader_ownership_chains),
-    .id     = {"\x33\x8b\xff\x23\x8a\xab\x0a\x50\xe8\xa3\x35\x8b\x09\x2b\x90\xff\x20\x0b\xde\xe6\x3a\x66\x92\xd7\x6d\x4f\x19\x3d\x10\x52\x93\x31"} },
+  /* BzBBveUDymEYoYzcMWNQCx3cd4jQs7puaVFHLtsbB6fm */
+  { .offset = offsetof(fd_features_t, vote),
+    .id     = {"\xa3\x3a\x7e\xd2\x59\x88\xe1\x47\x3f\x2d\xd4\xb8\xd8\x11\xea\x38\x4d\xf8\x81\x37\x10\xd2\x32\xe0\xaf\xc1\x60\x43\xf1\xbf\xbf\xac"} },
 
-  /* B9cdB55u4jQsDNsdTK525yE9dmSc5Ga7YBaBrDFvEhM9 */
-  { .offset = offsetof(fd_features_t, disable_cpi_setting_executable_and_rent_epoch),
-    .id     = {"\x96\xc9\xcb\xaa\x07\x49\x4b\x20\x79\x14\xfa\xee\xb2\x59\xe0\x0f\xdc\x79\xca\x7d\xba\x69\xb2\x5b\x1a\xe8\x15\xd8\x6e\x90\xfa\xc8"} },
+  /* 7XRJcS5Ud5vxGB54JbK9N2vBZVwnwdBNeJW1ibRgD9gx */
+  { .offset = offsetof(fd_features_t, enable),
+    .id     = {"\x60\xf1\x06\xaa\x86\x1f\x57\xe7\x69\x46\x83\x60\x05\x72\x0e\x3a\xe9\xfb\xb0\x6b\xb0\x66\x90\xe6\x29\xa6\x61\x92\x93\xbe\x01\x7d"} },
 
-  /* 79HWsX9rpnnJBPcdNURVqygpMAfxdrAirzAGAVmf92im */
-  { .offset = offsetof(fd_features_t, disable_deploy_of_alloc_free_syscall),
-    .id     = {"\x5b\x45\x71\x0e\x10\xc2\x51\xd1\xa1\x7a\xb4\x60\x29\x22\x23\x9c\x36\x0c\xb7\x5a\xd9\x63\x42\x25\x23\x74\xd9\xdc\x01\xaa\x52\x3a"} },
+  /* E3PHP7w8kB7np3CTQ1qQ2tW3KCtjRSXBQgW9vM2mWv2Y */
+  { .offset = offsetof(fd_features_t, secp256k1_program_enabled),
+    .id     = {"\xc1\xc4\x49\x57\x9c\x05\x24\xd9\xe1\x68\xa6\x5a\x60\xd6\x93\x3f\x7a\xfc\x55\x08\x10\xf6\x46\x64\x97\x01\xc4\x7e\x18\x6d\x5b\x35"} },
 
-  /* GTUMCZ8LTNxVfxdrw7ZsDFTxXb7TutYkzJnFwinpE6dg */
-  { .offset = offsetof(fd_features_t, disable_deprecated_loader),
-    .id     = {"\xe5\xa7\x53\xe4\xca\xd6\x43\x9f\x64\x39\x5a\xd3\xc1\x4d\x38\xe2\x1d\xc7\x04\xf1\xe7\xd8\x80\xf4\x0a\xbc\x86\x38\x5b\xf8\x24\x5b"} },
+  /* E5JiFDQCwyC6QfT9REFyMpfK2mHcmv1GUDySU1Ue7TYv */
+  { .offset = offsetof(fd_features_t, spl_token_v2_multisig_fix),
+    .id     = {"\xc2\x42\x47\x80\xbd\x67\x99\x15\xf7\x8a\x1c\x2d\xbb\x79\x78\x72\x57\x8d\x17\xc3\x31\x54\x76\x9b\x95\x50\x53\x22\x88\x28\x61\x83"} },
 
-  /* 2jXx2yDmGysmBKfKYNgLj2DQyAQv6mMk2BPh4eSbyB4H */
-  { .offset = offsetof(fd_features_t, disable_fee_calculator),
-    .id     = {"\x19\xc1\x13\x2c\x6a\xd5\x21\x90\x8f\x76\x04\xb4\xeb\x7e\x74\xf4\xf0\x22\x7e\x6c\xe6\x35\xf2\xa9\xa9\xc7\xbb\x97\x0e\x99\xe0\x66"} },
-
-  /* JAN1trEUEtZjgXYzNBYHU9DYd7GnThhXfFP7SzPXkPsG */
-  { .offset = offsetof(fd_features_t, disable_fees_sysvar),
-    .id     = {"\xfe\xfc\xaa\xcf\xc3\xaa\x00\xff\xf5\xe9\x30\x87\xf9\x49\x49\x4b\x71\x4d\xd3\x7d\x4d\xc5\xd8\x2d\x5e\xa1\xcb\xec\x4d\xfb\x49\x93"} },
-
-  /* DTVTkmw3JSofd8CJVJte8PXEbxNQ2yZijvVr3pe2APPj */
-  { .offset = offsetof(fd_features_t, disable_rehash_for_rent_epoch),
-    .id     = {"\xb9\x15\x86\x82\xd3\x57\x8a\x0d\xd0\xe3\x80\x58\x5a\x23\x9f\x0a\x62\x00\xe7\xf3\x10\xc5\x21\x6c\xd8\xc7\x7f\xb2\xf1\x94\x76\x96"} },
-
-  /* Gz1aLrbeQ4Q6PTSafCZcGWZXz91yVRi7ASFzFEr1U4sa */
-  { .offset = offsetof(fd_features_t, disable_turbine_fanout_experiments),
-    .id     = {"\xed\x7a\x0f\x5d\x50\x53\xdf\xc3\x1a\x51\x89\xb6\x66\xfb\x7e\xb7\xb5\xf8\x91\x7c\xd3\xee\x46\x82\x07\x9e\x28\x44\xb1\xb0\x0d\xf9"} },
-
-  /* 75m6ysz33AfLA5DDEzWM1obBrnPQRSsdVQ2nRmc8Vuu1 */
-  { .offset = offsetof(fd_features_t, do_support_realloc),
-    .id     = {"\x5a\x5e\x4f\xf5\xe1\x44\x2a\xee\xd4\xd2\xd4\x9e\x6c\x79\x96\x42\x36\xd3\x54\x59\xc0\x34\x49\x13\xd5\xb6\xed\xb1\xdd\x17\x55\xc8"} },
-
-  /* 84zy5N23Q9vTZuLc9h1HWUtyM9yCFV2SCmyP9W9C3yHZ */
-  { .offset = offsetof(fd_features_t, drop_merkle_shreds),
-    .id     = {"\x69\x08\x18\x1d\x4f\xdb\x4a\x78\x97\x2f\x1b\x4f\x94\xdf\x81\x2b\x60\x4d\x43\xf8\x92\x98\xa4\xdd\x93\xba\x48\xb5\xac\xb8\x3b\xe0"} },
-
-  /* 4Di3y24QFLt5QEUPZtbnjyfQKfm6ZMTfa6Dw1psfoMKU */
-  { .offset = offsetof(fd_features_t, drop_redundant_turbine_path),
-    .id     = {"\x2f\xd4\x72\x78\xb4\x96\xc4\xff\x58\x4b\x74\x4b\xfc\xec\x33\x90\x63\xd1\x91\xe8\xd1\xa7\xad\x65\xd2\xe2\x5d\xb1\x03\x6f\xd7\x8f"} },
-
-  /* 6ppMXNYLhVd7GcsZ5uV11wQEW7spppiMVfqQv5SXhDpX */
-  { .offset = offsetof(fd_features_t, ed25519_program_enabled),
-    .id     = {"\x56\x8a\x46\x9d\x0c\xe9\xec\xa5\xc0\x60\x9f\xa0\xf5\xe8\xc8\xb3\xc1\xfb\xd8\xca\x84\xf9\xfa\xcd\x68\xcf\xba\xf1\xc7\x18\x57\xb4"} },
-
-  /* A16q37opZdQMCbe5qJ6xpBB9usykfv8jZaMkxvZQi4GJ */
-  { .offset = offsetof(fd_features_t, enable_alt_bn128_syscall),
-    .id     = {"\x85\xbf\xc5\xb6\xde\x1e\xef\xaa\xa4\x86\xcc\x6c\x6a\x80\xda\xed\x94\x7b\x18\xac\x7f\x7c\xc2\x5d\xf9\x58\x4a\x86\x98\xb3\xff\x7b"} },
-
-  /* EBq48m8irRKuE7ZnMTLvLg2UuGSqhe8s8oMqnmja1fJw */
-  { .offset = offsetof(fd_features_t, enable_big_mod_exp_syscall),
-    .id     = {"\xc3\xee\x12\xb0\x1a\x5b\x31\x3a\xe4\xe6\xc1\xc1\xb0\x76\x81\xe6\xe4\x62\x1e\xfa\x9e\x71\x16\xfc\x35\x72\xe8\x64\xcd\x4e\xa6\x38"} },
-
-  /* 8Zs9W7D9MpSEtUWSQdGniZk2cNmV22y6FLJwCx53asme */
-  { .offset = offsetof(fd_features_t, enable_bpf_loader_extend_program_ix),
-    .id     = {"\x70\x6d\x18\x65\x6d\x4b\x39\xe5\xf1\xf0\x6a\xaf\x74\xd6\x4c\xc4\x75\xf9\x46\x4d\x36\x80\x64\xf1\x47\x00\xe9\xf2\x4e\x8b\x12\x2d"} },
-
-  /* 5x3825XS7M2A3Ekbn5VGGkvFoAg5qrRWkTrY4bARP1GL */
-  { .offset = offsetof(fd_features_t, enable_bpf_loader_set_authority_checked_ix),
-    .id     = {"\x49\x88\x17\x26\xf7\x23\x43\x9f\xb0\xa3\xf3\x59\xda\xeb\xa1\x8a\x3a\x8e\xd1\xf7\x0c\x15\x1b\x1d\xa4\x92\xb1\x6e\xfa\xe0\xfc\x09"} },
-
-  /* 4EJQtF2pkRyawwcTVfQutzq4Sa5hRhibF6QAK1QXhtEX */
-  { .offset = offsetof(fd_features_t, enable_durable_nonce),
-    .id     = {"\x2f\xfb\x4c\x82\x5c\x65\x10\xe2\x50\x4f\x90\x65\x48\x8d\xe2\x2b\x09\x14\x62\x13\xc9\x6e\x14\x9c\x7b\xce\x06\x85\x91\xf9\x90\xbc"} },
-
-  /* 7Vced912WrRnfjaiKRiNBcbuFw7RrnLv3E3z95Y4GTNc */
-  { .offset = offsetof(fd_features_t, enable_early_verification_of_account_modifications),
-    .id     = {"\x60\x7a\xb1\x3a\x4e\x8d\x68\x8f\x13\xba\xcf\xd0\x61\xb5\x93\x07\x83\xc6\x06\x3d\x78\xe8\x67\x55\x90\xa3\x62\xb6\xce\x26\xd6\x75"} },
-
-  /* HCnE3xQoZtDz9dSVm3jKwJXioTb6zMRbgwCmGg3PHHk8 */
-  { .offset = offsetof(fd_features_t, enable_partitioned_epoch_reward),
-    .id     = {"\xf0\xbf\x84\x0c\x29\xba\x5b\x53\xaa\x06\xc7\x09\x13\x5d\x6b\x7b\x0a\x5b\x43\x3d\xc1\x70\x93\x1e\xf7\x25\x55\xfe\xd3\xdb\xd4\x65"} },
-
-  /* J4HFT8usBxpcF63y46t1upYobJgChmKyZPm5uTBRg25Z */
-  { .offset = offsetof(fd_features_t, enable_program_redeployment_cooldown),
-    .id     = {"\xfd\x6d\xcb\x0b\xa2\x88\x5c\x79\xeb\x88\x3d\x86\xf2\xe6\x33\x89\x5a\x3d\x23\x69\x38\x9b\x1f\xa6\xad\xb4\x94\xe2\x3e\xe0\x54\x84"} },
-
-  /* Hr1nUA9b7NJ6eChS26o7Vi8gYYDDwWD3YeBfzJkTbU86 */
-  { .offset = offsetof(fd_features_t, enable_request_heap_frame_ix),
-    .id     = {"\xfa\x49\x56\x3c\xc1\xbc\x82\xce\x81\x12\x31\x04\x9a\xe1\x37\xce\xbe\x3a\xb5\xad\x0d\xd1\xd7\x70\xb8\x8c\x90\xbb\x45\xd3\xc9\xf7"} },
-
-  /* D31EFnLgdiysi84Woo3of4JMu7VmasUS3Z7j9HYXCeLY */
-  { .offset = offsetof(fd_features_t, enable_turbine_fanout_experiments),
-    .id     = {"\xb2\xcf\xa9\xc3\x4d\xe4\xe6\x33\x25\x4b\x10\xed\xcc\xb9\xf3\x06\xbe\x3b\x9a\xdb\x9c\xed\xc0\x5b\xa2\x9f\xda\x85\x71\xb5\xae\x99"} },
-
-  /* 5GpmAKxaGsWWbPp4bNXFLJxZVvG92ctxf7jQnzTQjF3n */
-  { .offset = offsetof(fd_features_t, epoch_accounts_hash),
-    .id     = {"\x3f\x7c\x76\xbc\xf9\xca\x28\x17\x4a\x5a\xf1\x64\x71\x2e\xb4\x6e\x29\x48\x29\x2b\x19\x68\x8e\xf9\xad\x5a\x19\x23\x25\x12\x11\x99"} },
-
-  /* 8199Q2gMD2kwgfopK5qqVWuDbegLgpuFUFHCcUJQDN8b */
-  { .offset = offsetof(fd_features_t, error_on_syscall_bpf_function_hash_collisions),
-    .id     = {"\x68\x0b\x04\x8f\x62\x8e\xa5\x3c\x7f\xfa\x04\x93\xa4\xd2\x90\xa0\xba\xc9\xbe\xa5\x4a\x03\xa8\x63\x01\xd7\xea\x4f\xa7\x0c\x9e\xdc"} },
-
-  /* EMX9Q7TVFAmQ9V1CggAkhMzhXSg8ECp7fHrWQX2G1chf */
-  { .offset = offsetof(fd_features_t, evict_invalid_stakes_cache_entries),
-    .id     = {"\xc6\x69\xa1\x8d\x1d\x65\x5d\xa8\x4f\x4c\x6b\x6b\x4b\xa2\x16\x11\x68\x2b\xdf\x04\x2d\xb7\x92\xe0\xbd\x76\x7c\x55\x1a\x69\xc2\xb2"} },
-
-  /* 7GUcYgq4tVtaqNCKT3dho9r4665Qp5TxCZ27Qgjx3829 */
-  { .offset = offsetof(fd_features_t, executables_incur_cpi_data_cost),
-    .id     = {"\x5d\x1d\x0e\x3f\xf1\x9b\xf2\x2b\x12\x4f\x82\xca\xb7\x35\x84\x0f\x1f\x05\xfe\x3e\x75\x6d\x54\x84\x0a\x12\xc4\xa2\xb8\x85\x18\x7e"} },
+  /* 4kpdyrcj5jS47CZb2oJGfVxjYbsMm2Kx97gFyZrxxwXz */
+  { .offset = offsetof(fd_features_t, no_overflow_rent_distribution),
+    .id     = {"\x37\xcc\xe6\x49\xe2\xfe\x41\x1d\x3a\xe6\xbc\x60\x13\x4d\x6f\xde\xfe\xa7\x6d\x00\xbf\x5c\x39\x18\x30\x8f\xe0\x0c\x54\x97\x7d\x45"} },
 
   /* GE7fRxmW46K6EmCD9AMZSbnaJ2e3LfqCZzdHi9hmYAgi */
   { .offset = offsetof(fd_features_t, filter_stake_delegation_accounts),
     .id     = {"\xe2\x3b\x63\x48\xdf\xee\xd8\xa6\xb1\xa0\x60\x8e\x76\xaf\x9e\xac\x8f\x04\x44\xb4\xc5\x26\xcb\x0d\x0e\xaf\xf2\xa6\x51\xbb\xd6\x5b"} },
 
-  /* 3gtZPqvPpsbXZVCx6hceMfWxtsmrjMzmg8C7PLKSxS2d */
-  { .offset = offsetof(fd_features_t, filter_votes_outside_slot_hashes),
-    .id     = {"\x27\xef\x52\xa3\x5a\x38\xed\xff\xf1\x6f\xe8\xd3\x7a\x86\x20\x86\xce\x9e\x4c\xba\xac\x9a\xc7\x23\xdb\x4b\xe2\xaa\x59\x27\x29\x0a"} },
+  /* D4jsDcXaqdW8tDAWn8H4R25Cdns2YwLneujSL1zvjW6R */
+  { .offset = offsetof(fd_features_t, require_custodian_for_locked_stake_authorize),
+    .id     = {"\xb3\x41\x74\x3e\x7f\x9c\xb7\x65\xa1\x86\x5b\xac\x72\x3a\x52\xcf\xbe\x72\x16\xea\x00\x36\xae\x50\xca\x19\xe6\x37\xfa\x7a\x7a\x4e"} },
 
-  /* 6iyggb5MTcsvdcugX7bEKbHV8c6jdLbpHwkncrgLMhfo */
-  { .offset = offsetof(fd_features_t, fix_recent_blockhashes),
-    .id     = {"\x55\x0b\x57\x3f\x7d\x0a\x3a\x07\xc2\x58\x63\xc5\xbc\xda\x43\x2c\x02\xa0\x84\x0b\x1e\x1a\x2d\xc5\x91\x1f\xa4\xe2\xb8\x7e\x19\xda"} },
+  /* BL99GYhdjjcv6ys22C9wPgn2aTVERDbPHHo4NbS3hgp7 */
+  { .offset = offsetof(fd_features_t, spl_token_v2_self_transfer_fix),
+    .id     = {"\x99\x7c\x1c\x87\xf2\x9a\x94\x51\x7f\x02\x2a\x51\x9c\xb9\xee\xd4\xac\xd0\x86\xdf\xad\x15\xee\xce\xbb\x56\x25\xd7\x26\x2e\xf8\x28"} },
 
-  /* 36PRUK2Dz6HWYdG9SpjeAsF5F3KxnFCakA2BZMbtMhSb */
-  { .offset = offsetof(fd_features_t, fixed_memcpy_nonoverlapping_check),
-    .id     = {"\x1f\x18\xa1\x64\x25\xc5\x8b\x16\x22\xe0\x41\xcf\xbe\x3b\xbc\x24\xfe\x3b\xc5\xea\x7d\xe5\x1d\x35\x34\x3c\xb6\x3d\xe8\x32\xb4\xfc"} },
+  /* GvDsGDkH5gyzwpDhxNixx8vtx1kwYHH13RiNAPw27zXb */
+  { .offset = offsetof(fd_features_t, warp_timestamp_again),
+    .id     = {"\xec\x81\xa2\x94\x94\x89\xa4\xfa\xeb\xca\x4d\xb5\x9a\x5f\x29\x03\x7b\xbb\x84\x7e\x8a\x53\xfb\x72\xe2\x35\x5d\xce\xa5\xdc\x04\xb2"} },
 
-  /* DT4n6ABDqs6w4bnfwrXT9rsprcPf6cdDga1egctaPkLC */
-  { .offset = offsetof(fd_features_t, full_inflation_devnet_and_testnet),
-    .id     = {"\xb8\xf9\x9d\x82\x20\x0f\x99\x8b\x98\xc4\x89\xbc\x09\x52\xdf\x91\x9e\xf2\xb5\x9b\xe9\xf7\x54\xee\xea\x83\x26\x25\x63\xbb\xec\x05"} },
+  /* 3ccR6QpxGYsAbWyfevEtBNGfWV4xBffxRj2tD6A9i39F */
+  { .offset = offsetof(fd_features_t, check_init_vote_data),
+    .id     = {"\x26\xd6\xbf\x1a\x22\x53\xab\x30\xc7\xee\x40\x65\x9c\xa3\x5d\xd9\x95\x33\x6d\x11\x41\x80\x06\x9c\x93\xce\xf1\xf6\xa0\x90\x19\xee"} },
 
-  /* BzBBveUDymEYoYzcMWNQCx3cd4jQs7puaVFHLtsbB6fm */
-  { .offset = offsetof(fd_features_t, full_inflation_mainnet_certusone_vote),
-    .id     = {"\xa3\x3a\x7e\xd2\x59\x88\xe1\x47\x3f\x2d\xd4\xb8\xd8\x11\xea\x38\x4d\xf8\x81\x37\x10\xd2\x32\xe0\xaf\xc1\x60\x43\xf1\xbf\xbf\xac"} },
+  /* 6RvdSWHh8oh72Dp7wMTS2DBkf3fRPtChfNrAo3cZZoXJ */
+  { .offset = offsetof(fd_features_t, secp256k1_recover_syscall_enabled),
+    .id     = {"\x50\xad\x03\x00\xb1\xb2\xb8\x4a\x95\x65\xa6\x37\x8b\x00\x7a\x9b\x20\xae\xd5\x18\x05\xfc\xaf\x8f\xfa\x0e\x59\x87\x5e\x6c\x15\xb5"} },
 
-  /* 7XRJcS5Ud5vxGB54JbK9N2vBZVwnwdBNeJW1ibRgD9gx */
-  { .offset = offsetof(fd_features_t, full_inflation_mainnet_certusoneenable),
-    .id     = {"\x60\xf1\x06\xaa\x86\x1f\x57\xe7\x69\x46\x83\x60\x05\x72\x0e\x3a\xe9\xfb\xb0\x6b\xb0\x66\x90\xe6\x29\xa6\x61\x92\x93\xbe\x01\x7d"} },
+  /* BrTR9hzw4WBGFP65AJMbpAo64DcA3U6jdPSga9fMV5cS */
+  { .offset = offsetof(fd_features_t, system_transfer_zero_check),
+    .id     = {"\xa1\x40\x32\xb0\x82\x73\xf9\xe8\xbf\x3e\xb7\x3f\x14\x51\x73\x4e\xe3\x13\x42\xeb\x1f\xb7\xb8\x7f\x9b\x61\x6b\xeb\xe3\xdb\xe9\x77"} },
 
-  /* 2R72wpcQ7qV7aTJWUumdn8u5wmmTyXbK7qzEy7YSAgyY */
-  { .offset = offsetof(fd_features_t, include_account_index_in_rent_error),
-    .id     = {"\x15\x08\x72\xd0\x0b\x30\xdc\x2f\x0a\xe0\x27\x5b\x00\xb9\x34\x35\x76\xf1\x2e\xe5\x53\x23\x9e\xf1\x7e\x55\xe1\xbd\x4a\x1e\x56\x23"} },
+  /* HTW2pSyErTj4BV6KBM9NZ9VBUJVxt7sacNWcf76wtzb3 */
+  { .offset = offsetof(fd_features_t, blake3_syscall_enabled),
+    .id     = {"\xf4\x84\xea\xee\xb8\xa4\x94\xe9\x28\x63\x46\xac\x46\x52\xff\x97\xa2\xca\x0d\x75\x29\xce\x59\x81\x14\x6e\x83\x07\x1f\x14\x9d\xb2"} },
 
-  /* EaQpmC6GtRssaZ3PCUM5YksGqUdMLeZ46BQXYtHYakDS */
-  { .offset = offsetof(fd_features_t, include_loaded_accounts_data_size_in_fee_calculation),
-    .id     = {"\xc9\xb7\x08\xb6\xbb\xa5\xb1\xa6\xdc\xbf\xd0\x4f\xed\xe7\x28\xa3\x52\xcd\x71\x42\x39\x0c\xa0\x41\x13\x66\xde\xff\x50\x24\xfe\x35"} },
+  /* 8kEuAshXLsgkUEdcFVLqrjCGGHVWFW99ZZpxvAzzMtBp */
+  { .offset = offsetof(fd_features_t, dedupe_config_program_signers),
+    .id     = {"\x73\x15\x7f\xdd\x92\xe0\xa1\x10\xaa\xbb\x79\xc2\x61\x81\x1e\xd2\xf7\xd5\x72\x9c\x19\xd7\x3e\x17\xd0\xbb\xb0\x23\xa7\x9d\x86\xaf"} },
 
-  /* 9LZdXeKGeBV6hRLdxS1rHbHoEUsKqesCC2ZAPTPKJAbK */
-  { .offset = offsetof(fd_features_t, increase_tx_account_lock_limit),
-    .id     = {"\x7b\xe0\x6c\xe7\xf5\xe5\x27\xb5\x80\x17\x6a\xe2\x84\xd5\xd4\x17\xd6\xf8\x87\xbc\x4b\xbe\xb7\x45\x50\xeb\x91\x07\x48\x35\xe0\x12"} },
+  /* EVW9B5xD9FFK7vw1SBARwMA4s5eRo5eKJdKpsBikzKBz */
+  { .offset = offsetof(fd_features_t, verify_tx_signatures_len),
+    .id     = {"\xc8\x75\x24\x77\x9e\x25\xeb\xc6\xc2\x06\x09\x6b\xf5\x53\xcf\x2f\x25\x71\x64\x39\xad\xd0\xa4\x0d\x97\xc8\xc1\x6d\x53\x94\x30\xbd"} },
 
-  /* 25vqsfjk7Nv1prsQJmA4Xu1bN61s8LXCBGUPp8Rfy1UF */
-  { .offset = offsetof(fd_features_t, incremental_snapshot_only_incremental_hash_calculation),
-    .id     = {"\x10\x1e\xe3\xe6\xb1\x43\x55\x85\x09\x0f\xe0\x6c\xb6\xa5\x1e\xe8\x32\x49\x2a\xec\x96\x74\xe0\x9a\x96\xc7\x86\xc8\x80\x69\x5f\x8c"} },
+  /* BcWknVcgvonN8sL4HE4XFuEVgfcee5MwxWPAgP6ZV89X */
+  { .offset = offsetof(fd_features_t, vote_stake_checked_instructions),
+    .id     = {"\x9d\xad\xd7\x70\x49\x9c\xa6\xfb\x4b\x28\x5d\x39\x39\x90\x51\xc6\xdc\xcf\x23\x49\xea\x0d\x57\x35\xe6\x4b\x0b\x8f\x11\x2e\x5c\x6a"} },
 
-  /* H3kBSaKdeiUsyHmeHqjJYNc27jesXZ6zWj3zWkowQbkV */
-  { .offset = offsetof(fd_features_t, instructions_sysvar_owned_by_sysvar),
-    .id     = {"\xee\x6e\xf9\xea\xd9\x55\x5c\x4b\x5b\x67\xec\x20\x84\x44\xe4\xfb\x95\x77\xbc\x1e\x0e\xb2\xba\x54\x3f\xe7\x19\x5e\x90\xb3\x10\x9a"} },
-
-  /* HyNQzc7TMNmRhpVHXqDGjpsHzeQie82mDQXSF9hj7nAH */
-  { .offset = offsetof(fd_features_t, keep_merkle_shreds),
-    .id     = {"\xfc\x2b\xba\x88\xd2\xa1\xeb\x71\x75\xdf\x3f\x39\x29\x20\x96\x3b\xfe\xc6\x90\x82\xc6\xbb\xc4\x44\xe3\xde\x9b\x5f\xcc\xbc\xb9\xfe"} },
-
-  /* HooKD5NC9QNxk25QuzCssB8ecrEzGt6eXEPBUxWp1LaR */
-  { .offset = offsetof(fd_features_t, last_restart_slot_sysvar),
-    .id     = {"\xf9\xb8\x13\x4b\x8e\x66\x1b\x40\x28\x1c\xed\xbe\x7c\x78\x8c\x99\x1b\x93\x96\x34\xd6\xc9\x0b\xde\xae\xb8\xdb\x5a\x06\x7d\x87\x8e"} },
-
-  /* E8MkiWZNNPGU6n55jkGzyj8ghUmjCHRmDFdYYFYHxWhQ */
-  { .offset = offsetof(fd_features_t, leave_nonce_on_success),
-    .id     = {"\xc3\x0a\x76\x46\x54\x06\x9e\xe7\xfd\xe2\x47\xed\xe9\x44\x6b\x05\x85\xe0\x92\x21\x63\x31\x88\xe4\x8c\x5a\x29\x0d\xe6\x01\x10\x33"} },
+  /* BKCPBQQBZqggVnFso5nQ8rQ4RwwogYwjuUt9biBjxwNF */
+  { .offset = offsetof(fd_features_t, rent_for_sysvars),
+    .id     = {"\x99\x3e\x31\xa6\xc4\x08\xb5\xb5\x8f\xcf\x29\x40\xbb\x18\x48\xd6\xb9\x5f\xdd\x02\xf5\x82\x52\x1d\x7f\x4c\x29\xb4\xdd\x9b\x2d\x20"} },
 
   /* DhsYfRjxfnh2g7HKJYSzT79r74Afa1wbHkAgHndrA1oy */
   { .offset = offsetof(fd_features_t, libsecp256k1_0_5_upgrade_enabled),
     .id     = {"\xbc\xc4\xa0\xbf\x2a\x1d\xff\xab\xfb\x42\xa2\xef\x03\xf5\x22\x58\x81\x49\xde\x86\x00\xff\x86\x83\xd1\x55\x96\x33\xb8\x1b\x1e\xdc"} },
+
+  /* 5ekBxc8itEnPv4NzGJtr8BVVQLNMQuLMNQQj7pHoLNZ9 */
+  { .offset = offsetof(fd_features_t, tx_wide_compute_cap),
+    .id     = {"\x45\x1a\x12\x50\x21\xe1\x52\xa9\xef\xa5\xf0\xf1\x60\xbb\x15\x33\x4f\x3b\xc0\x13\x88\x23\x17\xa3\x84\x55\xf3\xd5\x61\x09\x27\xd4"} },
+
+  /* FToKNBYyiF4ky9s8WsmLBXHCht17Ek7RXaLZGHzzQhJ1 */
+  { .offset = offsetof(fd_features_t, spl_token_v2_set_authority_fix),
+    .id     = {"\xd6\xe1\x16\xa1\x46\x5c\x88\x62\xb2\x99\x24\x9c\x29\xf0\x9d\x10\x50\x27\x40\xb8\xa7\x13\x6d\xde\x12\xef\x53\x75\x0e\x3a\xe7\xc2"} },
+
+  /* 21AWDosvp3pBamFW91KB35pNoaoZVTM7ess8nr2nt53B */
+  { .offset = offsetof(fd_features_t, merge_nonce_error_into_system_error),
+    .id     = {"\x0e\xe6\x6e\xd3\x90\x03\x83\xd5\xa5\xb2\xec\xe6\xd8\xad\xa3\x60\x5f\x4d\x2a\xb0\xdb\xab\xee\x2e\x9a\x94\x66\x54\x46\xd1\x62\x36"} },
+
+  /* JAN1trEUEtZjgXYzNBYHU9DYd7GnThhXfFP7SzPXkPsG */
+  { .offset = offsetof(fd_features_t, disable_fees_sysvar),
+    .id     = {"\xfe\xfc\xaa\xcf\xc3\xaa\x00\xff\xf5\xe9\x30\x87\xf9\x49\x49\x4b\x71\x4d\xd3\x7d\x4d\xc5\xd8\x2d\x5e\xa1\xcb\xec\x4d\xfb\x49\x93"} },
+
+  /* meRgp4ArRPhD3KtCY9c5yAf2med7mBLsjKTPeVUHqBL */
+  { .offset = offsetof(fd_features_t, stake_merge_with_unmatched_credits_observed),
+    .id     = {"\x0b\x6f\xdf\x75\xce\xc4\x22\x6d\xdb\x7c\x88\xf7\xcd\x32\xb5\x2f\xf4\x8f\xba\x47\xce\x7a\x0a\x83\xae\x0e\xfb\x11\x03\x9a\x7e\x07"} },
+
+  /* zk1snxsc6Fh3wsGNbbHAJNHiJoYgF29mMnTSusGx5EJ */
+  { .offset = offsetof(fd_features_t, zk_token_sdk_enabled),
+    .id     = {"\x0e\xca\xbe\x52\x62\x63\x44\xd5\x41\x60\x53\x0c\x35\x83\xe3\xa4\x81\x07\xdf\x19\x47\xbf\xf9\x4e\x80\x6b\x53\x88\x06\x46\x9a\xdb"} },
+
+  /* 7rcw5UtqgDTBBv2EcynNfYckgdAaH1MAsCjKgXMkN7Ri */
+  { .offset = offsetof(fd_features_t, curve25519_syscall_enabled),
+    .id     = {"\x65\xdc\x35\xc6\x6f\x58\x1e\x4b\x7f\x4e\xe4\x3c\x60\x48\x03\x3f\x33\x88\x72\x50\x61\x81\xf7\x08\x47\x16\x9a\x51\xb9\x72\xd2\xe9"} },
+
+  /* 3KZZ6Ks1885aGBQ45fwRcPXVBCtzUvxhUTkwKMR41Tca */
+  { .offset = offsetof(fd_features_t, versioned_tx_message_enabled),
+    .id     = {"\x22\x78\xa2\xf5\x73\x65\xa4\x7c\x62\x3b\xfa\x86\xf3\x78\x94\xac\x71\x21\xbc\x8c\x18\x53\xe7\xd5\xed\xee\xda\xec\xa7\x1f\x59\xe7"} },
 
   /* 8aXvSuopd1PUj7UhehfXJRg6619RHp8ZvwTyyJHdUYsj */
   { .offset = offsetof(fd_features_t, libsecp256k1_fail_on_bad_count),
@@ -1389,333 +303,525 @@ fd_feature_id_t const ids[] = {
   { .offset = offsetof(fd_features_t, libsecp256k1_fail_on_bad_count2),
     .id     = {"\x3c\x48\x08\xa9\xa9\x6b\x76\x15\x09\x65\x48\xc5\x3b\x5c\x2d\x94\xac\x24\xba\x3d\xe3\x96\xb4\xda\x47\x43\xf0\xfe\x52\xe3\xdb\x01"} },
 
-  /* GQALDaC48fEhZGWRj9iL5Q889emJKcj3aCvHF7VCbbF4 */
-  { .offset = offsetof(fd_features_t, limit_max_instruction_trace_length),
-    .id     = {"\xe4\xce\x36\xa5\xa6\x94\xc1\x2a\x9b\x4b\x9d\x19\x3e\x5e\x55\x67\x17\x67\x77\x8d\x3e\xe2\xea\x29\xe0\xa4\x04\xed\x88\x25\x26\xf7"} },
-
-  /* 7g9EUwj4j7CS21Yx1wvgWLjSZeh5aPq8x9kpoPwXM8n8 */
-  { .offset = offsetof(fd_features_t, limit_secp256k1_recovery_id),
-    .id     = {"\x63\x2d\x14\xe1\x8f\xb7\x9a\x49\xfc\x41\xbc\x56\xfe\xed\xac\xc0\xa1\xcd\x00\x95\x52\x83\x9a\x6f\xb0\x62\x8f\xc7\x11\x1d\xaa\x75"} },
-
-  /* GDH5TVdbTPUpRnXaRyQqiKUa7uZAbZ28Q2N9bhbKoMLm */
-  { .offset = offsetof(fd_features_t, loosen_cpi_size_restriction),
-    .id     = {"\xe2\x04\x73\xa5\xa7\x6f\x1e\xe2\x8a\xb6\x64\xde\x46\xec\x20\x34\xdf\xdf\x68\xf9\xe7\x11\x5c\x2c\xe1\x6a\xa6\x27\x91\xec\x3d\xda"} },
-
-  /* CBkDroRDqm8HwHe6ak9cguPjUomrASEkfmxEaZ5CNNxz */
-  { .offset = offsetof(fd_features_t, max_tx_account_locks),
-    .id     = {"\xa6\x31\x3c\x36\xed\x67\x8f\x7e\xef\xc9\x44\x42\xce\x35\x41\x3c\x52\xba\x5b\xac\x0f\x39\x32\x63\x68\xae\x73\xed\x85\x07\xc1\x9b"} },
-
-  /* 21AWDosvp3pBamFW91KB35pNoaoZVTM7ess8nr2nt53B */
-  { .offset = offsetof(fd_features_t, merge_nonce_error_into_system_error),
-    .id     = {"\x0e\xe6\x6e\xd3\x90\x03\x83\xd5\xa5\xb2\xec\xe6\xd8\xad\xa3\x60\x5f\x4d\x2a\xb0\xdb\xab\xee\x2e\x9a\x94\x66\x54\x46\xd1\x62\x36"} },
-
-  /* 74CoWuBmt3rUVUrCb2JiSTvh6nXyBWUsK4SaMj3CtE3T */
-  { .offset = offsetof(fd_features_t, move_serialized_len_ptr_in_cpi),
-    .id     = {"\x59\xf8\x35\x62\xdd\x14\x3d\x82\x30\xdc\x4b\x24\x59\xa9\xa8\xa2\xd6\x12\x67\x7c\x1b\x86\x51\xfd\x02\x1d\x47\x6b\xff\xef\x9b\xca"} },
-
-  /* 8pgXCMNXC8qyEFypuwpXyRxLXZdpM4Qo72gJ6k87A6wL */
-  { .offset = offsetof(fd_features_t, native_programs_consume_cu),
-    .id     = {"\x74\x38\xca\xe8\xba\x15\xa6\x50\xd5\x96\x1a\x62\xd9\xba\x14\xc6\x20\x96\xdb\x0f\xa1\x87\x72\x3f\x3c\x59\xc3\xdb\xfb\xdd\x3b\x6b"} },
-
-  /* 4kpdyrcj5jS47CZb2oJGfVxjYbsMm2Kx97gFyZrxxwXz */
-  { .offset = offsetof(fd_features_t, no_overflow_rent_distribution),
-    .id     = {"\x37\xcc\xe6\x49\xe2\xfe\x41\x1d\x3a\xe6\xbc\x60\x13\x4d\x6f\xde\xfe\xa7\x6d\x00\xbf\x5c\x39\x18\x30\x8f\xe0\x0c\x54\x97\x7d\x45"} },
-
-  /* 3u3Er5Vc2jVcwz4xr2GJeSAXT3fAj6ADHZ4BJMZiScFd */
-  { .offset = offsetof(fd_features_t, nonce_must_be_advanceable),
-    .id     = {"\x2b\x0c\x1b\x75\x79\x07\x5d\xcb\x30\xc4\xca\x00\x3c\x94\xa9\x5f\x14\xd9\x92\x5d\x87\xce\xba\x7e\x1f\xd5\xde\xb0\xe0\x90\x50\x34"} },
-
-  /* HxrEu1gXuH7iD3Puua1ohd5n4iUKJyFNtNxk9DVJkvgr */
-  { .offset = offsetof(fd_features_t, nonce_must_be_authorized),
-    .id     = {"\xfc\x09\x9c\x57\xb1\x71\xe5\xb0\x13\x0d\xe7\xa4\x9b\x54\x05\x3b\x8a\x0a\x7f\x93\xdb\xcc\x8f\x9f\x25\x7e\x27\xaf\xc1\xff\x7d\xc3"} },
-
-  /* BiCU7M5w8ZCMykVSyhZ7Q3m2SWoR2qrEQ86ERcDX77ME */
-  { .offset = offsetof(fd_features_t, nonce_must_be_writable),
-    .id     = {"\x9f\x22\xa6\x0f\x43\x25\xec\x1c\x13\x1d\xfc\x40\x8a\x79\x56\xd8\x87\x16\x30\x5c\xc8\xb8\xc0\x9b\x2d\x8d\xb7\x55\x7d\x84\xc5\x7d"} },
-
-  /* CpkdQmspsaZZ8FVAouQTtTWZkc8eeQ7V3uj7dWz543rZ */
-  { .offset = offsetof(fd_features_t, on_load_preserve_rent_epoch_for_rent_exempt_accounts),
-    .id     = {"\xaf\xac\x2f\x2c\xdb\xbe\xf1\x80\x0b\x83\x1b\x72\xcd\x82\x2a\x2a\xc2\x80\x87\x59\x79\xca\xd3\xc1\x87\x07\xe9\x67\x10\x2f\x32\x1a"} },
-
-  /* 265hPS8k8xJ37ot82KEgjRunsUp5w4n4Q4VwwiN9i9ps */
-  { .offset = offsetof(fd_features_t, optimize_epoch_boundary_updates),
-    .id     = {"\x10\x28\xe6\xaf\xee\x77\xd2\xf1\x33\x5c\x08\x51\xf2\x30\x66\x91\x71\x7e\x84\x6f\x76\xa3\x94\xaf\x67\xb1\x8c\x86\xf1\x40\x4c\x40"} },
-
-  /* 4RWNif6C2WCNiKVW7otP4G7dkmkHGyKQWRpuZ1pxKU5m */
-  { .offset = offsetof(fd_features_t, pico_inflation),
-    .id     = {"\x32\xda\x36\xc8\x6b\xd3\x95\x70\x85\x28\x50\xc5\x40\xb6\xea\xeb\xda\xf1\xca\x6d\x30\x85\x46\x37\x34\xa2\x73\x4c\xd7\xb3\x83\x80"} },
-
-  /* HH3MUYReL2BvqqA3oEcAa7txju5GY6G4nxJ51zvsEjEZ */
-  { .offset = offsetof(fd_features_t, preserve_rent_epoch_for_rent_exempt_accounts),
-    .id     = {"\xf1\xd6\xf1\xbf\x8e\x54\x39\x44\x3d\x29\x52\xb0\xc4\x04\x6d\xf4\x2f\x03\xeb\x95\xc3\x13\xbc\xad\x6c\x1b\x91\x0d\xe3\xbd\x7c\x82"} },
-
-  /* 4ApgRX3ud6p7LNMJmsuaAcZY5HWctGPr5obAsjB3A54d */
-  { .offset = offsetof(fd_features_t, prevent_calling_precompiles_as_programs),
-    .id     = {"\x2f\x17\x33\x1d\xb1\xc6\x48\xc5\xae\xfd\x61\x48\xb0\xca\xc9\xf0\x3e\x42\xd4\x6f\x80\x44\x47\x92\xda\x04\x00\x72\xd1\xe8\x0b\xaa"} },
-
-  /* 812kqX67odAp5NFwM8D2N24cku7WTm9CHUTFUXaDkWPn */
-  { .offset = offsetof(fd_features_t, prevent_crediting_accounts_that_end_rent_paying),
-    .id     = {"\x68\x03\xcb\x34\xee\x14\xb9\x41\xe4\x82\x55\xaa\xae\x45\x50\x80\x27\x51\x46\x7f\xc4\x71\xf3\x5a\xf3\x82\x49\xe4\xe9\xfb\xb2\x55"} },
-
-  /* Fab5oP3DmsLYCiQZXdjyqT3ukFFPrsmqhXU4WU1AWVVF */
-  { .offset = offsetof(fd_features_t, prevent_rent_paying_rent_recipients),
-    .id     = {"\xd8\x9e\x52\x37\x85\xcf\xf9\x8f\x7a\x56\x28\x4c\x32\x67\x1e\xe9\x81\xe6\xae\xdd\xca\x67\x66\x9d\x83\xc2\x82\x56\xb8\x4e\xf4\xae"} },
-
-  /* DpJREPyuMZ5nDfU6H3WTqSqUFSXAfw8u7xqmWtEwJDcP */
-  { .offset = offsetof(fd_features_t, quick_bail_on_panic),
-    .id     = {"\xbe\x6a\x3c\x48\xaf\xd3\x58\x27\xf9\x55\x7f\x90\x79\xad\xad\x74\x63\x47\x6f\x89\xe2\xd9\x43\x3a\xfb\x7f\x55\x53\xdc\xfc\x44\x1c"} },
-
-  /* 3aJdcZqxoLpSBxgeYGjPwaYS1zzcByxUDqJkbzWAH1Zb */
-  { .offset = offsetof(fd_features_t, record_instruction_in_transaction_context_push),
-    .id     = {"\x26\x3f\x79\xed\xbf\x52\xf4\xbf\x46\x8e\x6a\xfa\xc1\xd9\xe2\x56\x9e\x5b\x68\x8d\x9a\xbf\x3d\xaf\x55\xd8\x5d\x34\xbb\x4d\xd0\xd2"} },
-
-  /* EBeznQDjcPG8491sFsKZYBi5S5jTVXMpAKNDJMQPS2kq */
-  { .offset = offsetof(fd_features_t, reduce_required_deploy_balance),
-    .id     = {"\xc3\xe2\xb3\x5c\xd6\x3c\xbe\x92\x36\xe4\xbb\x17\x1e\xd7\x1a\x11\x85\x1d\xeb\x1f\x6e\xec\x3c\x75\x98\x3c\xc1\x7d\x3c\x1c\xf3\x3a"} },
-
-  /* 3NKRSwpySNwD3TvP5pHnRmkAQRsdkXWRr1WaQh8p4PWX */
-  { .offset = offsetof(fd_features_t, reject_callx_r10),
-    .id     = {"\x23\x2d\x66\x6d\x5c\x7d\x78\x7e\xf9\x05\x90\x7b\x5c\x5b\xfe\x99\xd2\x8a\x96\xc4\x37\xaa\x40\x2a\x06\x26\x72\x4e\xdd\x3c\x7a\x10"} },
-
-  /* 9kdtFSrXHQg3hKkbXkQ6trJ3Ja1xpJ22CTFSNAciEwmL */
-  { .offset = offsetof(fd_features_t, reject_empty_instruction_without_program),
-    .id     = {"\x82\x0b\x2c\xb4\x44\xcd\x63\x7a\x12\x05\x77\x50\xa2\x72\x55\x41\x5e\x5f\x34\x66\xab\xbc\x0d\x72\x6e\x1e\x2b\x78\x5f\xec\x19\xdb"} },
-
-  /* 7txXZZD6Um59YoLMF7XUNimbMjsqsWhc7g2EniiTrmp1 */
-  { .offset = offsetof(fd_features_t, reject_non_rent_exempt_vote_withdraws),
-    .id     = {"\x66\x75\x86\xfd\xae\x10\xf0\xe4\xe7\x44\x72\x25\xed\x6a\x21\xf1\xc3\x9f\x3f\xcf\x58\xf0\x54\xbc\x98\x45\xbc\xf5\x37\x15\x74\x7e"} },
-
-  /* ALBk3EWdeAg2WAGf6GPDUf1nynyNqCdEVmgouG7rpuCj */
-  { .offset = offsetof(fd_features_t, reject_vote_account_close_unless_zero_credit_epoch),
-    .id     = {"\x8a\xa3\x5d\x20\x73\xe2\x79\x94\x19\x3e\xf5\x2e\xad\xbf\x80\x94\xd2\x35\x09\x3a\xbb\x3f\x8b\xd7\xf6\x30\x5b\x78\x14\xda\x00\xe0"} },
-
-  /* FKAcEvNgSY79RpqsPNUV5gDyumopH4cEHqUxyfm8b8Ap */
-  { .offset = offsetof(fd_features_t, relax_authority_signer_check_for_lookup_table_creation),
-    .id     = {"\xd4\xaa\xef\x53\x4b\x5a\xa1\xad\x90\xf8\x49\xb9\x13\x45\x25\x3c\x4c\x39\x46\x28\xb4\xb6\xb4\xfa\x41\x0d\xb5\x1e\xa1\x4f\xa8\xf5"} },
-
-  /* 2HmTkCj9tXuPE4ueHzdD7jPeMf9JGCoZh5AsyoATiWEe */
-  { .offset = offsetof(fd_features_t, remove_bpf_loader_incorrect_program_id),
-    .id     = {"\x13\x27\x40\x91\x61\xec\xe3\xca\x4e\x63\x93\xed\xe0\x0c\x11\x78\x1f\x7e\xef\x3f\x56\xe8\xdb\x60\x71\x31\x74\xd2\xe6\x72\xbe\x53"} },
-
-  /* A8xyMHZovGXFkorFqEmVH2PKGLiBip5JD7jt4zsUWo4H */
-  { .offset = offsetof(fd_features_t, remove_congestion_multiplier_from_fee_calculation),
-    .id     = {"\x87\xc3\x89\x04\xe8\xc4\x22\x8a\x27\x67\xda\xd1\x7b\xe7\x83\xd3\x4e\x0c\x77\xe2\xe2\x94\x79\xbf\x73\xe4\x32\xa6\x91\x44\x90\x6e"} },
-
-  /* EfhYd3SafzGT472tYQDUc4dPd2xdEfKs5fwkowUgVt4W */
-  { .offset = offsetof(fd_features_t, remove_deprecated_request_unit_ix),
-    .id     = {"\xcb\x11\xd8\x6b\x52\xd0\x9b\x81\xe7\xb7\x56\x74\xa6\x36\x72\x31\x4d\x5f\xb9\x6e\x6e\x87\x1a\x6f\x7a\x87\x4a\x89\xfc\x31\xd4\x27"} },
-
-  /* HTTgmruMYRZEntyL3EdCDdnS6e4D5wRq1FA7kQsb66qq */
-  { .offset = offsetof(fd_features_t, remove_native_loader),
-    .id     = {"\xf4\x82\x43\xf9\xcd\x6a\xb8\xbd\x79\xb6\x7e\x15\x77\x72\x05\xd6\xff\xb9\xef\x89\xf9\x64\xc1\xdc\x8c\xdb\xc7\xc3\x11\x03\x40\x2c"} },
-
-  /* BKCPBQQBZqggVnFso5nQ8rQ4RwwogYwjuUt9biBjxwNF */
-  { .offset = offsetof(fd_features_t, rent_for_sysvars),
-    .id     = {"\x99\x3e\x31\xa6\xc4\x08\xb5\xb5\x8f\xcf\x29\x40\xbb\x18\x48\xd6\xb9\x5f\xdd\x02\xf5\x82\x52\x1d\x7f\x4c\x29\xb4\xdd\x9b\x2d\x20"} },
-
-  /* CCu4boMmfLuqcmfTLPHQiUo22ZdUsXjgzPAURYaWt1Bw */
-  { .offset = offsetof(fd_features_t, requestable_heap_size),
-    .id     = {"\xa6\x7c\xcf\xd5\xf5\x8e\xb2\x3a\x0c\xcc\xa6\xc3\x5b\x15\x41\x3b\x89\x47\xa2\xd7\x0e\x67\x2d\x02\xa3\x2a\x6a\xf1\x58\x9e\x6f\xa2"} },
-
-  /* D4jsDcXaqdW8tDAWn8H4R25Cdns2YwLneujSL1zvjW6R */
-  { .offset = offsetof(fd_features_t, require_custodian_for_locked_stake_authorize),
-    .id     = {"\xb3\x41\x74\x3e\x7f\x9c\xb7\x65\xa1\x86\x5b\xac\x72\x3a\x52\xcf\xbe\x72\x16\xea\x00\x36\xae\x50\xca\x19\xe6\x37\xfa\x7a\x7a\x4e"} },
-
-  /* BkFDxiJQWZXGTZaJQxH7wVEHkAmwCgSEVkrvswFfRJPD */
-  { .offset = offsetof(fd_features_t, require_rent_exempt_accounts),
-    .id     = {"\x9f\xa8\xed\x33\x9c\x59\x8b\xf2\x53\x9b\xa2\x71\x37\xcd\x3d\xd2\x01\x2c\x35\xa5\x17\x22\xc2\xec\x0e\x31\xe9\xa5\x67\xcd\xa0\xcc"} },
-
-  /* 8FdwgyHFEjhAdjWfV2vfqk7wA1g9X3fQpKH7SBpEv3kC */
-  { .offset = offsetof(fd_features_t, require_static_program_ids_in_transaction),
-    .id     = {"\x6b\xc1\xb6\x17\xc3\xb9\x0f\xfc\xe7\x7d\x80\xcb\x58\x53\x93\xc8\xc5\x81\xd1\xbf\x89\xb2\xc7\x16\x31\x03\xc3\x63\x2f\x02\xab\x89"} },
-
-  /* DwScAzPUjuv65TMbDnFY7AgwmotzWy3xpEJMXM3hZFaB */
-  { .offset = offsetof(fd_features_t, return_data_syscall_enabled),
-    .id     = {"\xc0\x3e\x8f\x61\x16\x40\x08\xf1\xfd\xa9\x49\x58\x8a\x4a\x53\x0c\xb0\x4b\xb1\x0b\x46\xa7\x1e\x77\x15\xd5\x74\xcd\xf2\x3d\xfc\x3c"} },
-
-  /* CE2et8pqgyQMP2mQRg3CgvX8nJBKUArMu3wfiQiQKY1y */
-  { .offset = offsetof(fd_features_t, round_up_heap_size),
-    .id     = {"\xa6\xc6\xf9\xd5\x39\x30\xd1\xe2\xaa\xfa\xc5\x3d\xd9\x8e\xeb\xc2\xf3\xdb\x6c\x9a\xde\xeb\xf2\x61\x38\x73\x42\x7d\x71\x86\xb9\xb4"} },
-
-  /* E3PHP7w8kB7np3CTQ1qQ2tW3KCtjRSXBQgW9vM2mWv2Y */
-  { .offset = offsetof(fd_features_t, secp256k1_program_enabled),
-    .id     = {"\xc1\xc4\x49\x57\x9c\x05\x24\xd9\xe1\x68\xa6\x5a\x60\xd6\x93\x3f\x7a\xfc\x55\x08\x10\xf6\x46\x64\x97\x01\xc4\x7e\x18\x6d\x5b\x35"} },
-
-  /* 6RvdSWHh8oh72Dp7wMTS2DBkf3fRPtChfNrAo3cZZoXJ */
-  { .offset = offsetof(fd_features_t, secp256k1_recover_syscall_enabled),
-    .id     = {"\x50\xad\x03\x00\xb1\xb2\xb8\x4a\x95\x65\xa6\x37\x8b\x00\x7a\x9b\x20\xae\xd5\x18\x05\xfc\xaf\x8f\xfa\x0e\x59\x87\x5e\x6c\x15\xb5"} },
-
-  /* C5fh68nJ7uyKAuYZg2x9sEQ5YrVf3dkW6oojNBSc3Jvo */
-  { .offset = offsetof(fd_features_t, send_to_tpu_vote_port),
-    .id     = {"\xa4\xa2\xa0\xaf\xed\x4a\x65\xa7\x9d\xa8\x3c\xf1\xc7\x77\xe0\xd7\x25\xc6\x08\x60\x7c\x5b\xbb\xe3\x12\x19\xd8\x49\xad\xbc\x86\xb4"} },
-
-  /* Gea3ZkK2N4pHuVZVxWcnAtS6UEDdyumdYt4pFcKjA3ar */
-  { .offset = offsetof(fd_features_t, separate_nonce_from_blockhash),
-    .id     = {"\xe8\x7f\x28\x34\x34\x97\x58\xc3\xd5\x36\xdd\x4f\x3c\xf7\xd8\x91\x44\x51\x30\x6d\x32\x78\x42\x21\x40\x11\xb5\xd4\x8b\xf0\xe5\xfb"} },
-
-  /* 5wAGiy15X1Jb2hkHnPDCM8oB9V42VNA9ftNVFK84dEgv */
-  { .offset = offsetof(fd_features_t, set_exempt_rent_epoch_max),
-    .id     = {"\x49\x4e\x98\x21\x34\x4b\x72\xe0\x04\xd2\x66\xa2\x2e\xf9\xfb\x20\xbd\xba\x5a\xad\xec\xe7\xf6\xbc\x0a\x93\xe4\xd1\x83\xe0\xfd\x8f"} },
-
-  /* 5ZCcFAzJ1zsFKe1KSZa9K92jhx7gkcKj97ci2DBo1vwj */
-  { .offset = offsetof(fd_features_t, simplify_writable_program_account_check),
-    .id     = {"\x43\xae\x75\x5b\x05\xd6\x4d\xda\x6b\x93\x44\x69\xa0\x06\xea\xf0\x99\x27\xf4\xbc\x96\x0e\xc6\x48\x64\x47\xc0\x53\x52\xfb\x1a\x7a"} },
-
-  /* CGB2jM8pwZkeeiXQ66kBMyBR6Np61mggL7XUsmLjVcrw */
-  { .offset = offsetof(fd_features_t, skip_rent_rewrites),
-    .id     = {"\xa7\x53\x9b\xed\x5c\xc7\x64\xe3\x4e\x5c\xb0\x51\xc9\x19\xbf\x17\xbe\x92\xb8\x8b\x5a\x37\x6e\xd2\x33\xa0\xbe\x6b\x31\xa2\x5a\x1c"} },
-
-  /* 6uaHcKPGUy4J7emLBgUTeufhJdiwhngW6a1R9B7c2ob9 */
-  { .offset = offsetof(fd_features_t, sol_log_data_syscall_enabled),
-    .id     = {"\x57\xc2\x46\x11\xf5\xd2\x02\xbd\xd6\xe0\x83\x46\xe7\x7d\xc9\x21\x47\x32\x1b\x9f\xac\x5f\xf4\xf1\x68\x37\x3c\x07\x9a\xb7\x8f\xcc"} },
-
-  /* FaTa4SpiaSNH44PGC4z8bnGVTkSRYaWvrBs3KTu8XQQq */
-  { .offset = offsetof(fd_features_t, spl_associated_token_account_v1_0_4),
-    .id     = {"\xd8\x95\xd3\x92\x53\x47\xac\x96\x6d\x66\x87\x42\x26\xb1\x5b\xa5\xa6\x9d\x36\x8c\x06\xd2\x22\x9c\x5e\xe4\x57\xff\x5d\x01\x59\xc2"} },
-
-  /* FaTa17gVKoqbh38HcfiQonPsAaQViyDCCSg71AubYZw8 */
-  { .offset = offsetof(fd_features_t, spl_associated_token_account_v1_1_0),
-    .id     = {"\xd8\x95\xd3\x48\xf8\xc5\x2a\xe0\x2d\x94\xe2\xa0\xb7\x01\xe6\xc8\x08\x15\xce\x93\x17\x76\x53\xa5\x4a\x7f\x1d\xc3\x19\xe2\xfc\x7b"} },
-
-  /* E5JiFDQCwyC6QfT9REFyMpfK2mHcmv1GUDySU1Ue7TYv */
-  { .offset = offsetof(fd_features_t, spl_token_v2_multisig_fix),
-    .id     = {"\xc2\x42\x47\x80\xbd\x67\x99\x15\xf7\x8a\x1c\x2d\xbb\x79\x78\x72\x57\x8d\x17\xc3\x31\x54\x76\x9b\x95\x50\x53\x22\x88\x28\x61\x83"} },
-
-  /* BL99GYhdjjcv6ys22C9wPgn2aTVERDbPHHo4NbS3hgp7 */
-  { .offset = offsetof(fd_features_t, spl_token_v2_self_transfer_fix),
-    .id     = {"\x99\x7c\x1c\x87\xf2\x9a\x94\x51\x7f\x02\x2a\x51\x9c\xb9\xee\xd4\xac\xd0\x86\xdf\xad\x15\xee\xce\xbb\x56\x25\xd7\x26\x2e\xf8\x28"} },
-
-  /* FToKNBYyiF4ky9s8WsmLBXHCht17Ek7RXaLZGHzzQhJ1 */
-  { .offset = offsetof(fd_features_t, spl_token_v2_set_authority_fix),
-    .id     = {"\xd6\xe1\x16\xa1\x46\x5c\x88\x62\xb2\x99\x24\x9c\x29\xf0\x9d\x10\x50\x27\x40\xb8\xa7\x13\x6d\xde\x12\xef\x53\x75\x0e\x3a\xe7\xc2"} },
-
-  /* Ftok2jhqAqxUWEiCVRrfRs9DPppWP8cgTB7NQNKL88mS */
-  { .offset = offsetof(fd_features_t, spl_token_v3_3_0_release),
-    .id     = {"\xdd\x49\x16\xe6\xf1\xc4\x8d\x4c\x6b\x98\xd4\x11\xea\x18\x15\xbc\xef\x97\x90\x40\x59\xd7\x3d\x5a\xb9\xe9\x9a\x22\xf5\x12\xe8\x55"} },
-
-  /* Ftok4njE8b7tDffYkC5bAbCaQv5sL6jispYrprzatUwN */
-  { .offset = offsetof(fd_features_t, spl_token_v3_4_0),
-    .id     = {"\xdd\x49\x17\x14\x26\x0f\xf1\xe8\xa1\x87\xe0\x3b\x4b\x80\x5d\xde\xd4\x52\xd3\x90\x4e\x14\x4c\xa2\xc5\x99\x39\x3f\x15\xf2\x37\x85"} },
-
-  /* sTKz343FM8mqtyGvYWvbLpTThw3ixRM4Xk8QvZ985mw */
-  { .offset = offsetof(fd_features_t, stake_allow_zero_undelegated_amount),
-    .id     = {"\x0c\xec\xcf\x0f\x3b\x1d\xee\xf3\xfc\xd1\xac\x00\xdc\x3f\x98\x31\xae\x6b\xa7\x87\x16\x47\x94\xa5\x77\xba\x87\x40\xf3\x28\x84\x16"} },
-
-  /* 437r62HoAdUb63amq3D7ENnBLDhHT2xY8eFkLJYVKK4x */
-  { .offset = offsetof(fd_features_t, stake_deactivate_delinquent_instruction),
-    .id     = {"\x2d\x1d\xf6\xab\xa3\x87\x99\xd7\x59\x0a\x3e\x32\x5e\x95\xd2\x09\x38\xfc\xde\x62\x68\x65\xe7\xd3\x6d\x58\xd3\x51\x2f\xaa\x35\x1d"} },
-
-  /* meRgp4ArRPhD3KtCY9c5yAf2med7mBLsjKTPeVUHqBL */
-  { .offset = offsetof(fd_features_t, stake_merge_with_unmatched_credits_observed),
-    .id     = {"\x0b\x6f\xdf\x75\xce\xc4\x22\x6d\xdb\x7c\x88\xf7\xcd\x32\xb5\x2f\xf4\x8f\xba\x47\xce\x7a\x0a\x83\xae\x0e\xfb\x11\x03\x9a\x7e\x07"} },
-
-  /* ELjxSXwNsyXGfAh8TqX8ih22xeT8huF6UngQirbLKYKH */
-  { .offset = offsetof(fd_features_t, stake_minimum_delegation_for_rewards),
-    .id     = {"\xc6\x36\x89\x28\x10\xbb\x1b\x44\xb0\x3d\x91\xd6\xc1\x60\x79\xd3\x82\xa0\xa6\xa6\x88\x53\x4c\x6c\xe0\x95\xc2\xfa\xcc\xfb\xf3\x80"} },
+  /* H3kBSaKdeiUsyHmeHqjJYNc27jesXZ6zWj3zWkowQbkV */
+  { .offset = offsetof(fd_features_t, instructions_sysvar_owned_by_sysvar),
+    .id     = {"\xee\x6e\xf9\xea\xd9\x55\x5c\x4b\x5b\x67\xec\x20\x84\x44\xe4\xfb\x95\x77\xbc\x1e\x0e\xb2\xba\x54\x3f\xe7\x19\x5e\x90\xb3\x10\x9a"} },
 
   /* SAdVFw3RZvzbo6DvySbSdBnHN4gkzSTH9dSxesyKKPj */
   { .offset = offsetof(fd_features_t, stake_program_advance_activating_credits_observed),
     .id     = {"\x06\x72\x68\x6a\x60\xe5\x62\xf1\x9c\x80\x56\xf7\x31\x18\x56\x52\x03\x26\x9d\x1a\x9c\x5e\x42\xb7\x76\x73\x32\x21\xe7\x2c\x86\xfe"} },
 
-  /* 9onWzzvCzNC2jfhxxeqRgs5q7nFAAKpCUvkj6T6GJK9i */
-  { .offset = offsetof(fd_features_t, stake_raise_minimum_delegation_to_1_sol),
-    .id     = {"\x82\xd9\xad\xdb\xe7\x11\x20\x56\x59\xa5\xb1\x4a\xfe\xf6\x66\x04\x74\x73\x6a\x49\x2c\x1d\x3a\xa0\x92\x59\x3d\x03\x5c\xa8\x16\x39"} },
+  /* BUS12ciZ5gCoFafUHWW8qaFMMtwFQGVxjsDheWLdqBE2 */
+  { .offset = offsetof(fd_features_t, credits_auto_rewind),
+    .id     = {"\x9b\x9b\xd1\xb9\xd4\x1e\xdd\x35\x8b\xcf\x42\x55\x5f\xc4\x5c\xd0\x84\xfb\xa8\x2c\x6a\x16\xa5\x5e\x77\xb4\x86\xaf\x50\xa4\x60\xbb"} },
 
-  /* 3EPmAX94PvVJCjMeFfRFvj4avqCPL8vv3TGsZQg7ydMx */
-  { .offset = offsetof(fd_features_t, stake_redelegate_instruction),
-    .id     = {"\x21\x25\xa9\x2b\xd1\x72\x10\xc9\xb5\x63\x9b\x6a\x04\x58\x73\x3f\x82\x31\xd7\x79\x73\xf6\x0a\x1f\xdf\x83\xb2\x13\x5a\x2f\xd0\x0f"} },
+  /* 3E3jV7v9VcdJL8iYZUMax9DiDno8j7EWUVbhm9RtShj2 */
+  { .offset = offsetof(fd_features_t, demote_program_write_locks),
+    .id     = {"\x21\x0f\x03\x96\x77\x13\xbf\x30\x1d\xb3\xfc\x8a\x64\xe0\xc6\x24\x2c\xca\x69\x56\x80\x86\x96\x61\xfb\x6a\xe6\xba\xd8\x02\x7a\x3d"} },
 
-  /* FQnc7U4koHqWgRvFaBJjZnV8VPg6L6wWK33yJeDp4yvV */
-  { .offset = offsetof(fd_features_t, stake_split_uses_rent_sysvar),
-    .id     = {"\xd6\x1b\x8a\xaf\x1d\xe7\x0a\xf7\x21\x06\xb5\x2b\x4b\x9b\x69\xfd\x8d\x3b\x8a\x04\x45\xc3\xeb\xfc\x94\x08\x8a\xa2\xa4\xc7\x91\xa6"} },
+  /* 6ppMXNYLhVd7GcsZ5uV11wQEW7spppiMVfqQv5SXhDpX */
+  { .offset = offsetof(fd_features_t, ed25519_program_enabled),
+    .id     = {"\x56\x8a\x46\x9d\x0c\xe9\xec\xa5\xc0\x60\x9f\xa0\xf5\xe8\xc8\xb3\xc1\xfb\xd8\xca\x84\xf9\xfa\xcd\x68\xcf\xba\xf1\xc7\x18\x57\xb4"} },
+
+  /* DwScAzPUjuv65TMbDnFY7AgwmotzWy3xpEJMXM3hZFaB */
+  { .offset = offsetof(fd_features_t, return_data_syscall_enabled),
+    .id     = {"\xc0\x3e\x8f\x61\x16\x40\x08\xf1\xfd\xa9\x49\x58\x8a\x4a\x53\x0c\xb0\x4b\xb1\x0b\x46\xa7\x1e\x77\x15\xd5\x74\xcd\xf2\x3d\xfc\x3c"} },
+
+  /* EBeznQDjcPG8491sFsKZYBi5S5jTVXMpAKNDJMQPS2kq */
+  { .offset = offsetof(fd_features_t, reduce_required_deploy_balance),
+    .id     = {"\xc3\xe2\xb3\x5c\xd6\x3c\xbe\x92\x36\xe4\xbb\x17\x1e\xd7\x1a\x11\x85\x1d\xeb\x1f\x6e\xec\x3c\x75\x98\x3c\xc1\x7d\x3c\x1c\xf3\x3a"} },
+
+  /* 6uaHcKPGUy4J7emLBgUTeufhJdiwhngW6a1R9B7c2ob9 */
+  { .offset = offsetof(fd_features_t, sol_log_data_syscall_enabled),
+    .id     = {"\x57\xc2\x46\x11\xf5\xd2\x02\xbd\xd6\xe0\x83\x46\xe7\x7d\xc9\x21\x47\x32\x1b\x9f\xac\x5f\xf4\xf1\x68\x37\x3c\x07\x9a\xb7\x8f\xcc"} },
 
   /* HFpdDDNQjvcXnXKec697HDDsyk6tFoWS2o8fkxuhQZpL */
   { .offset = offsetof(fd_features_t, stakes_remove_delegation_if_inactive),
     .id     = {"\xf1\x86\xf8\x9c\x94\xef\xd1\xfc\x05\x66\x9f\x41\xf1\x9e\x48\xa4\x47\xb6\xf8\xd1\x26\xb6\x77\x7d\x87\xde\x1c\x74\xe0\x93\xff\x11"} },
 
-  /* EYVpEP7uzH1CoXzbD6PubGhYmnxRXPeq3PPsm1ba3gpo */
-  { .offset = offsetof(fd_features_t, stop_sibling_instruction_search_at_parent),
-    .id     = {"\xc9\x39\x83\xfd\x35\x0d\xfd\x41\xbe\x29\x91\x43\x10\x56\xfc\x45\xcf\x1b\x83\x50\x1d\x26\x21\x7f\xf5\x55\x94\xc1\xee\xd6\xb1\xf0"} },
+  /* 75m6ysz33AfLA5DDEzWM1obBrnPQRSsdVQ2nRmc8Vuu1 */
+  { .offset = offsetof(fd_features_t, do_support_realloc),
+    .id     = {"\x5a\x5e\x4f\xf5\xe1\x44\x2a\xee\xd4\xd2\xd4\x9e\x6c\x79\x96\x42\x36\xd3\x54\x59\xc0\x34\x49\x13\xd5\xb6\xed\xb1\xdd\x17\x55\xc8"} },
 
-  /* 16FMCmgLzCNNz6eTwGanbyN2ZxvTBSLuQ6DZhgeMshg */
-  { .offset = offsetof(fd_features_t, stop_truncating_strings_in_syscalls),
-    .id     = {"\x00\x05\xee\xe8\x9f\xd8\x51\x2f\x51\x9c\xc1\x76\xca\xbb\xe0\xf6\x3a\x39\x61\x09\xda\xa5\x4d\x9a\xb7\x98\xa3\x01\x0d\x5a\xb8\x0f"} },
+  /* 4ApgRX3ud6p7LNMJmsuaAcZY5HWctGPr5obAsjB3A54d */
+  { .offset = offsetof(fd_features_t, prevent_calling_precompiles_as_programs),
+    .id     = {"\x2f\x17\x33\x1d\xb1\xc6\x48\xc5\xae\xfd\x61\x48\xb0\xca\xc9\xf0\x3e\x42\xd4\x6f\x80\x44\x47\x92\xda\x04\x00\x72\xd1\xe8\x0b\xaa"} },
 
-  /* Cdkc8PPTeTNUPoZEfCY5AyetUrEdkZtNPMgz58nqyaHD */
-  { .offset = offsetof(fd_features_t, switch_to_new_elf_parser),
-    .id     = {"\xac\xda\xc5\x37\x50\xa9\x7a\x0e\xb4\x8f\xa3\x40\xa0\xcc\xd2\x80\x94\x20\x2c\xc7\x60\x42\x4a\xd0\xa9\xc0\xd3\x31\xe6\xd6\x62\xf0"} },
+  /* 265hPS8k8xJ37ot82KEgjRunsUp5w4n4Q4VwwiN9i9ps */
+  { .offset = offsetof(fd_features_t, optimize_epoch_boundary_updates),
+    .id     = {"\x10\x28\xe6\xaf\xee\x77\xd2\xf1\x33\x5c\x08\x51\xf2\x30\x66\x91\x71\x7e\x84\x6f\x76\xa3\x94\xaf\x67\xb1\x8c\x86\xf1\x40\x4c\x40"} },
 
-  /* HyrbKftCdJ5CrUfEti6x26Cj7rZLNe32weugk7tLcWb8 */
-  { .offset = offsetof(fd_features_t, syscall_saturated_math),
-    .id     = {"\xfc\x4b\x96\xf7\x1d\xbd\x05\xe5\x16\xa8\x69\xd1\xb5\xfe\x2f\xff\x89\x07\x77\x53\xc4\xe8\xaf\xc0\x7e\x30\x12\x7a\x35\x09\x4b\x57"} },
+  /* HTTgmruMYRZEntyL3EdCDdnS6e4D5wRq1FA7kQsb66qq */
+  { .offset = offsetof(fd_features_t, remove_native_loader),
+    .id     = {"\xf4\x82\x43\xf9\xcd\x6a\xb8\xbd\x79\xb6\x7e\x15\x77\x72\x05\xd6\xff\xb9\xef\x89\xf9\x64\xc1\xdc\x8c\xdb\xc7\xc3\x11\x03\x40\x2c"} },
 
-  /* BrTR9hzw4WBGFP65AJMbpAo64DcA3U6jdPSga9fMV5cS */
-  { .offset = offsetof(fd_features_t, system_transfer_zero_check),
-    .id     = {"\xa1\x40\x32\xb0\x82\x73\xf9\xe8\xbf\x3e\xb7\x3f\x14\x51\x73\x4e\xe3\x13\x42\xeb\x1f\xb7\xb8\x7f\x9b\x61\x6b\xeb\xe3\xdb\xe9\x77"} },
+  /* C5fh68nJ7uyKAuYZg2x9sEQ5YrVf3dkW6oojNBSc3Jvo */
+  { .offset = offsetof(fd_features_t, send_to_tpu_vote_port),
+    .id     = {"\xa4\xa2\xa0\xaf\xed\x4a\x65\xa7\x9d\xa8\x3c\xf1\xc7\x77\xe0\xd7\x25\xc6\x08\x60\x7c\x5b\xbb\xe3\x12\x19\xd8\x49\xad\xbc\x86\xb4"} },
 
-  /* 5ekBxc8itEnPv4NzGJtr8BVVQLNMQuLMNQQj7pHoLNZ9 */
-  { .offset = offsetof(fd_features_t, tx_wide_compute_cap),
-    .id     = {"\x45\x1a\x12\x50\x21\xe1\x52\xa9\xef\xa5\xf0\xf1\x60\xbb\x15\x33\x4f\x3b\xc0\x13\x88\x23\x17\xa3\x84\x55\xf3\xd5\x61\x09\x27\xd4"} },
+  /* CCu4boMmfLuqcmfTLPHQiUo22ZdUsXjgzPAURYaWt1Bw */
+  { .offset = offsetof(fd_features_t, requestable_heap_size),
+    .id     = {"\xa6\x7c\xcf\xd5\xf5\x8e\xb2\x3a\x0c\xcc\xa6\xc3\x5b\x15\x41\x3b\x89\x47\xa2\xd7\x0e\x67\x2d\x02\xa3\x2a\x6a\xf1\x58\x9e\x6f\xa2"} },
 
-  /* 3uFHb9oKdGfgZGJK9EHaAXN4USvnQtAFC13Fh5gGFS5B */
-  { .offset = offsetof(fd_features_t, update_hashes_per_tick),
-    .id     = {"\x2b\x19\xba\xab\x09\xcd\xf6\xb3\x1b\xf1\x51\xc9\xb4\x3b\x0e\xd7\x89\xcc\x3f\x9a\x80\x21\x94\xfc\xbd\x78\xaf\xab\xe5\x1a\xbd\xf6"} },
+  /* 2jXx2yDmGysmBKfKYNgLj2DQyAQv6mMk2BPh4eSbyB4H */
+  { .offset = offsetof(fd_features_t, disable_fee_calculator),
+    .id     = {"\x19\xc1\x13\x2c\x6a\xd5\x21\x90\x8f\x76\x04\xb4\xeb\x7e\x74\xf4\xf0\x22\x7e\x6c\xe6\x35\xf2\xa9\xa9\xc7\xbb\x97\x0e\x99\xe0\x66"} },
 
-  /* 28s7i3htzhahXQKqmS2ExzbEoUypg9krwvtK2M9UWXh9 */
-  { .offset = offsetof(fd_features_t, update_rewards_from_cached_accounts),
-    .id     = {"\x10\xdf\x6b\x25\x2c\xe0\x6a\x4d\x0d\x81\x8a\xa7\xe1\x32\x72\x78\x30\x7b\x44\x13\x29\x55\xff\x2c\x79\xa2\xca\x9d\xd3\x20\xf3\x08"} },
+  /* 4d5AKtxoh93Dwm1vHXUU3iRATuMndx1c431KgT2td52r */
+  { .offset = offsetof(fd_features_t, add_compute_budget_program),
+    .id     = {"\x35\xd0\xac\xad\xb3\x34\x81\x2b\xc2\x6f\x22\x22\x73\xad\x66\x01\xbb\xc9\x5e\x9b\xa8\x4f\x17\x8f\x46\x5d\xf2\x28\xa4\x04\xf0\x6b"} },
+
+  /* BiCU7M5w8ZCMykVSyhZ7Q3m2SWoR2qrEQ86ERcDX77ME */
+  { .offset = offsetof(fd_features_t, nonce_must_be_writable),
+    .id     = {"\x9f\x22\xa6\x0f\x43\x25\xec\x1c\x13\x1d\xfc\x40\x8a\x79\x56\xd8\x87\x16\x30\x5c\xc8\xb8\xc0\x9b\x2d\x8d\xb7\x55\x7d\x84\xc5\x7d"} },
+
+  /* Ftok2jhqAqxUWEiCVRrfRs9DPppWP8cgTB7NQNKL88mS */
+  { .offset = offsetof(fd_features_t, spl_token_v3_3_0_release),
+    .id     = {"\xdd\x49\x16\xe6\xf1\xc4\x8d\x4c\x6b\x98\xd4\x11\xea\x18\x15\xbc\xef\x97\x90\x40\x59\xd7\x3d\x5a\xb9\xe9\x9a\x22\xf5\x12\xe8\x55"} },
+
+  /* E8MkiWZNNPGU6n55jkGzyj8ghUmjCHRmDFdYYFYHxWhQ */
+  { .offset = offsetof(fd_features_t, leave_nonce_on_success),
+    .id     = {"\xc3\x0a\x76\x46\x54\x06\x9e\xe7\xfd\xe2\x47\xed\xe9\x44\x6b\x05\x85\xe0\x92\x21\x63\x31\x88\xe4\x8c\x5a\x29\x0d\xe6\x01\x10\x33"} },
+
+  /* 9kdtFSrXHQg3hKkbXkQ6trJ3Ja1xpJ22CTFSNAciEwmL */
+  { .offset = offsetof(fd_features_t, reject_empty_instruction_without_program),
+    .id     = {"\x82\x0b\x2c\xb4\x44\xcd\x63\x7a\x12\x05\x77\x50\xa2\x72\x55\x41\x5e\x5f\x34\x66\xab\xbc\x0d\x72\x6e\x1e\x2b\x78\x5f\xec\x19\xdb"} },
+
+  /* 36PRUK2Dz6HWYdG9SpjeAsF5F3KxnFCakA2BZMbtMhSb */
+  { .offset = offsetof(fd_features_t, fixed_memcpy_nonoverlapping_check),
+    .id     = {"\x1f\x18\xa1\x64\x25\xc5\x8b\x16\x22\xe0\x41\xcf\xbe\x3b\xbc\x24\xfe\x3b\xc5\xea\x7d\xe5\x1d\x35\x34\x3c\xb6\x3d\xe8\x32\xb4\xfc"} },
+
+  /* 7txXZZD6Um59YoLMF7XUNimbMjsqsWhc7g2EniiTrmp1 */
+  { .offset = offsetof(fd_features_t, reject_non_rent_exempt_vote_withdraws),
+    .id     = {"\x66\x75\x86\xfd\xae\x10\xf0\xe4\xe7\x44\x72\x25\xed\x6a\x21\xf1\xc3\x9f\x3f\xcf\x58\xf0\x54\xbc\x98\x45\xbc\xf5\x37\x15\x74\x7e"} },
+
+  /* EMX9Q7TVFAmQ9V1CggAkhMzhXSg8ECp7fHrWQX2G1chf */
+  { .offset = offsetof(fd_features_t, evict_invalid_stakes_cache_entries),
+    .id     = {"\xc6\x69\xa1\x8d\x1d\x65\x5d\xa8\x4f\x4c\x6b\x6b\x4b\xa2\x16\x11\x68\x2b\xdf\x04\x2d\xb7\x92\xe0\xbd\x76\x7c\x55\x1a\x69\xc2\xb2"} },
+
+  /* Ff8b1fBeB86q8cjq47ZhsQLgv5EkHu3G1C99zjUfAzrq */
+  { .offset = offsetof(fd_features_t, allow_votes_to_directly_update_vote_state),
+    .id     = {"\xd9\xc8\x44\x04\x08\x9a\xc9\x7b\x21\x9b\x5e\x12\x1b\x56\x70\xc5\xc4\xe2\x73\x67\x87\x69\x92\x78\x1e\xd0\xda\x67\xc6\x2e\x6c\xf6"} },
+
+  /* capRxUrBjNkkCpjrJxPGfPaWijB7q3JoDfsWXAnt46r */
+  { .offset = offsetof(fd_features_t, cap_accounts_data_len),
+    .id     = {"\x09\x1d\x90\xf1\x7c\x23\x03\x02\xed\xea\x26\xcc\xf4\x7f\xfa\xeb\xef\x7e\x27\x9f\x24\x13\x11\xef\x36\x3a\x3a\x45\x04\x05\xd7\x27"} },
+
+  /* CBkDroRDqm8HwHe6ak9cguPjUomrASEkfmxEaZ5CNNxz */
+  { .offset = offsetof(fd_features_t, max_tx_account_locks),
+    .id     = {"\xa6\x31\x3c\x36\xed\x67\x8f\x7e\xef\xc9\x44\x42\xce\x35\x41\x3c\x52\xba\x5b\xac\x0f\x39\x32\x63\x68\xae\x73\xed\x85\x07\xc1\x9b"} },
+
+  /* BkFDxiJQWZXGTZaJQxH7wVEHkAmwCgSEVkrvswFfRJPD */
+  { .offset = offsetof(fd_features_t, require_rent_exempt_accounts),
+    .id     = {"\x9f\xa8\xed\x33\x9c\x59\x8b\xf2\x53\x9b\xa2\x71\x37\xcd\x3d\xd2\x01\x2c\x35\xa5\x17\x22\xc2\xec\x0e\x31\xe9\xa5\x67\xcd\xa0\xcc"} },
+
+  /* 3gtZPqvPpsbXZVCx6hceMfWxtsmrjMzmg8C7PLKSxS2d */
+  { .offset = offsetof(fd_features_t, filter_votes_outside_slot_hashes),
+    .id     = {"\x27\xef\x52\xa3\x5a\x38\xed\xff\xf1\x6f\xe8\xd3\x7a\x86\x20\x86\xce\x9e\x4c\xba\xac\x9a\xc7\x23\xdb\x4b\xe2\xaa\x59\x27\x29\x0a"} },
 
   /* 2h63t332mGCCsWK2nqqqHhN4U9ayyqhLVFvczznHDoTZ */
   { .offset = offsetof(fd_features_t, update_syscall_base_costs),
     .id     = {"\x19\x20\xa1\x02\xee\xec\xad\x06\xa7\x5e\x1d\xde\x0a\xcf\xef\xd1\xdb\x39\x73\x65\x8a\xa2\x8e\x23\x01\x75\x83\xeb\x6d\xb7\xa2\x3c"} },
 
-  /* 8sKQrMQoUHtQSUP83SPG4ta2JDjSAiWs7t5aJ9uEd6To */
-  { .offset = offsetof(fd_features_t, use_default_units_in_fee_calculation),
-    .id     = {"\x74\xe5\xaa\xa4\x92\x70\x1e\x6d\xdb\xdf\x4d\x06\xd3\x76\x96\x33\x65\x34\xbb\x39\x35\x04\x40\xed\x47\xc9\x90\x52\xd6\xcc\xed\x36"} },
+  /* 437r62HoAdUb63amq3D7ENnBLDhHT2xY8eFkLJYVKK4x */
+  { .offset = offsetof(fd_features_t, stake_deactivate_delinquent_instruction),
+    .id     = {"\x2d\x1d\xf6\xab\xa3\x87\x99\xd7\x59\x0a\x3e\x32\x5e\x95\xd2\x09\x38\xfc\xde\x62\x68\x65\xe7\xd3\x6d\x58\xd3\x51\x2f\xaa\x35\x1d"} },
 
-  /* EVW9B5xD9FFK7vw1SBARwMA4s5eRo5eKJdKpsBikzKBz */
-  { .offset = offsetof(fd_features_t, verify_tx_signatures_len),
-    .id     = {"\xc8\x75\x24\x77\x9e\x25\xeb\xc6\xc2\x06\x09\x6b\xf5\x53\xcf\x2f\x25\x71\x64\x39\xad\xd0\xa4\x0d\x97\xc8\xc1\x6d\x53\x94\x30\xbd"} },
-
-  /* 3KZZ6Ks1885aGBQ45fwRcPXVBCtzUvxhUTkwKMR41Tca */
-  { .offset = offsetof(fd_features_t, versioned_tx_message_enabled),
-    .id     = {"\x22\x78\xa2\xf5\x73\x65\xa4\x7c\x62\x3b\xfa\x86\xf3\x78\x94\xac\x71\x21\xbc\x8c\x18\x53\xe7\xd5\xed\xee\xda\xec\xa7\x1f\x59\xe7"} },
-
-  /* 6tRxEYKuy2L5nnv5bgn7iT28MxUbYxp5h7F3Ncf1exrT */
-  { .offset = offsetof(fd_features_t, vote_authorize_with_seed),
-    .id     = {"\x57\x77\x45\x01\x4d\x65\x95\x57\x36\xf5\x6c\xdb\x68\x88\x1a\x5f\x8a\x3e\xa7\xbb\xd2\xfb\x18\x68\x7f\xd8\xfc\xdd\x9b\xf2\x18\xb8"} },
-
-  /* BcWknVcgvonN8sL4HE4XFuEVgfcee5MwxWPAgP6ZV89X */
-  { .offset = offsetof(fd_features_t, vote_stake_checked_instructions),
-    .id     = {"\x9d\xad\xd7\x70\x49\x9c\xa6\xfb\x4b\x28\x5d\x39\x39\x90\x51\xc6\xdc\xcf\x23\x49\xea\x0d\x57\x35\xe6\x4b\x0b\x8f\x11\x2e\x5c\x6a"} },
-
-  /* 7axKe5BTYBDD87ftzWbk5DfzWMGyRvqmWTduuo22Yaqy */
-  { .offset = offsetof(fd_features_t, vote_state_add_vote_latency),
-    .id     = {"\x61\xd8\xd7\x1f\x81\x6f\x32\x74\x56\x37\x18\x3c\x8b\x7e\x6e\xaa\x28\x71\xb5\x22\x61\x11\xb0\x39\x6d\xb6\x4f\xad\x75\xad\x77\xc4"} },
-
-  /* CveezY6FDLVBToHDcvJRmtMouqzsmj4UXYh5ths5G5Uv */
-  { .offset = offsetof(fd_features_t, vote_state_update_credit_per_dequeue),
-    .id     = {"\xb1\x2e\xea\x6e\xdc\x3b\xcc\xc3\xcd\x65\x39\xa6\xbc\x49\x71\x55\xd7\x36\xc5\xa3\xc2\xd9\x2f\x0d\x60\x9d\xcd\x37\xa5\x25\x32\x3b"} },
-
-  /* G74BkWBzmsByZ1kxHy44H3wjwp5hp7JbrGRuDpco22tY */
-  { .offset = offsetof(fd_features_t, vote_state_update_root_fix),
-    .id     = {"\xe0\x6c\x63\xf3\x55\x30\xb0\x91\xaf\xff\x39\x26\x67\xcb\x54\x16\x02\x4b\x9a\xc7\x1b\x61\xb8\x99\xc6\x41\x30\xe4\xc1\x0b\xac\x79"} },
+  /* 3EPmAX94PvVJCjMeFfRFvj4avqCPL8vv3TGsZQg7ydMx */
+  { .offset = offsetof(fd_features_t, stake_redelegate_instruction),
+    .id     = {"\x21\x25\xa9\x2b\xd1\x72\x10\xc9\xb5\x63\x9b\x6a\x04\x58\x73\x3f\x82\x31\xd7\x79\x73\xf6\x0a\x1f\xdf\x83\xb2\x13\x5a\x2f\xd0\x0f"} },
 
   /* AVZS3ZsN4gi6Rkx2QUibYuSJG3S6QHib7xCYhG6vGJxU */
   { .offset = offsetof(fd_features_t, vote_withdraw_authority_may_change_authorized_voter),
     .id     = {"\x8d\x0a\x1d\xa1\x3d\x86\x7a\x31\x73\x4d\xc2\x6f\xbd\x80\x15\x55\x52\x82\x02\xd2\x57\x22\x82\x78\x99\xc6\xfe\x95\xf3\x51\x7f\x7d"} },
 
-  /* GvDsGDkH5gyzwpDhxNixx8vtx1kwYHH13RiNAPw27zXb */
-  { .offset = offsetof(fd_features_t, warp_timestamp_again),
-    .id     = {"\xec\x81\xa2\x94\x94\x89\xa4\xfa\xeb\xca\x4d\xb5\x9a\x5f\x29\x03\x7b\xbb\x84\x7e\x8a\x53\xfb\x72\xe2\x35\x5d\xce\xa5\xdc\x04\xb2"} },
+  /* FaTa4SpiaSNH44PGC4z8bnGVTkSRYaWvrBs3KTu8XQQq */
+  { .offset = offsetof(fd_features_t, spl_associated_token_account_v1_0_4),
+    .id     = {"\xd8\x95\xd3\x92\x53\x47\xac\x96\x6d\x66\x87\x42\x26\xb1\x5b\xa5\xa6\x9d\x36\x8c\x06\xd2\x22\x9c\x5e\xe4\x57\xff\x5d\x01\x59\xc2"} },
+
+  /* ALBk3EWdeAg2WAGf6GPDUf1nynyNqCdEVmgouG7rpuCj */
+  { .offset = offsetof(fd_features_t, reject_vote_account_close_unless_zero_credit_epoch),
+    .id     = {"\x8a\xa3\x5d\x20\x73\xe2\x79\x94\x19\x3e\xf5\x2e\xad\xbf\x80\x94\xd2\x35\x09\x3a\xbb\x3f\x8b\xd7\xf6\x30\x5b\x78\x14\xda\x00\xe0"} },
+
+  /* CFK1hRCNy8JJuAAY8Pb2GjLFNdCThS2qwZNe3izzBMgn */
+  { .offset = offsetof(fd_features_t, add_get_processed_sibling_instruction_syscall),
+    .id     = {"\xa7\x1b\x0d\xc3\xa8\xf3\x9e\xd8\x70\xe5\xd0\xbe\xa7\xee\x4c\x46\xe6\x0b\x12\x14\x90\x14\x1b\x3c\x55\x32\x1e\x07\xc1\x10\xda\xd3"} },
+
+  /* Vo5siZ442SaZBKPXNocthiXysNviW4UYPwRFggmbgAp */
+  { .offset = offsetof(fd_features_t, bank_transaction_count_fix),
+    .id     = {"\x07\x60\x5e\xbb\x59\x63\x27\xe2\xef\x50\xf5\xc8\x99\xc3\x09\xa6\xce\xf3\x0c\x41\x7c\xc6\x8e\xe4\xf0\xfd\xbd\xd8\x83\xfc\x60\xe5"} },
+
+  /* 3XgNukcZWf9o3HdA3fpJbm94XFc4qpvTXc8h1wxYwiPi */
+  { .offset = offsetof(fd_features_t, disable_bpf_deprecated_load_instructions),
+    .id     = {"\x25\x93\x52\x9b\xc1\x85\x23\xf0\x0b\xe7\x62\x26\xce\x45\xc6\x2e\xcf\x5f\x8c\xf8\x25\x10\x00\xae\xbf\x40\xbe\xd7\x81\x5b\x8a\x29"} },
+
+  /* 4yuaYAj2jGMGTh1sSmi4G2eFscsDq8qjugJXZoBN6YEa */
+  { .offset = offsetof(fd_features_t, disable_bpf_unresolved_symbols_at_runtime),
+    .id     = {"\x3b\x27\x09\x56\xe4\x2a\x76\xf1\x7a\xbd\xf9\x24\x8a\x04\xe7\xff\x6b\x3c\x1d\x0d\xa0\x75\xc1\x8c\x62\x42\x4e\x25\xbd\x62\x6b\x47"} },
+
+  /* 3aJdcZqxoLpSBxgeYGjPwaYS1zzcByxUDqJkbzWAH1Zb */
+  { .offset = offsetof(fd_features_t, record_instruction_in_transaction_context_push),
+    .id     = {"\x26\x3f\x79\xed\xbf\x52\xf4\xbf\x46\x8e\x6a\xfa\xc1\xd9\xe2\x56\x9e\x5b\x68\x8d\x9a\xbf\x3d\xaf\x55\xd8\x5d\x34\xbb\x4d\xd0\xd2"} },
+
+  /* HyrbKftCdJ5CrUfEti6x26Cj7rZLNe32weugk7tLcWb8 */
+  { .offset = offsetof(fd_features_t, syscall_saturated_math),
+    .id     = {"\xfc\x4b\x96\xf7\x1d\xbd\x05\xe5\x16\xa8\x69\xd1\xb5\xfe\x2f\xff\x89\x07\x77\x53\xc4\xe8\xaf\xc0\x7e\x30\x12\x7a\x35\x09\x4b\x57"} },
+
+  /* nWBqjr3gpETbiaVj3CBJ3HFC5TMdnJDGt21hnvSTvVZ */
+  { .offset = offsetof(fd_features_t, check_physical_overlapping),
+    .id     = {"\x0b\xa8\x23\x5d\x64\x8c\x28\x80\xec\x2d\xf5\x0a\x24\xaf\xfa\x9f\xdf\xa8\x89\x04\x0c\xaf\x8c\x03\xcd\x21\xfe\x9e\x66\x53\xa2\xec"} },
+
+  /* 7g9EUwj4j7CS21Yx1wvgWLjSZeh5aPq8x9kpoPwXM8n8 */
+  { .offset = offsetof(fd_features_t, limit_secp256k1_recovery_id),
+    .id     = {"\x63\x2d\x14\xe1\x8f\xb7\x9a\x49\xfc\x41\xbc\x56\xfe\xed\xac\xc0\xa1\xcd\x00\x95\x52\x83\x9a\x6f\xb0\x62\x8f\xc7\x11\x1d\xaa\x75"} },
+
+  /* GTUMCZ8LTNxVfxdrw7ZsDFTxXb7TutYkzJnFwinpE6dg */
+  { .offset = offsetof(fd_features_t, disable_deprecated_loader),
+    .id     = {"\xe5\xa7\x53\xe4\xca\xd6\x43\x9f\x64\x39\x5a\xd3\xc1\x4d\x38\xe2\x1d\xc7\x04\xf1\xe7\xd8\x80\xf4\x0a\xbc\x86\x38\x5b\xf8\x24\x5b"} },
+
+  /* GmC19j9qLn2RFk5NduX6QXaDhVpGncVVBzyM8e9WMz2F */
+  { .offset = offsetof(fd_features_t, check_slice_translation_size),
+    .id     = {"\xea\x31\x4c\xd7\xc6\x76\x2f\x56\x21\x37\x60\xc0\x95\x4d\xc6\x55\x29\x76\x96\x73\xc2\x70\x2a\x55\xc7\x47\x46\x59\xf0\x69\xc8\xfc"} },
+
+  /* FQnc7U4koHqWgRvFaBJjZnV8VPg6L6wWK33yJeDp4yvV */
+  { .offset = offsetof(fd_features_t, stake_split_uses_rent_sysvar),
+    .id     = {"\xd6\x1b\x8a\xaf\x1d\xe7\x0a\xf7\x21\x06\xb5\x2b\x4b\x9b\x69\xfd\x8d\x3b\x8a\x04\x45\xc3\xeb\xfc\x94\x08\x8a\xa2\xa4\xc7\x91\xa6"} },
+
+  /* St8k9dVXP97xT6faW24YmRSYConLbhsMJA4TJTBLmMT */
+  { .offset = offsetof(fd_features_t, add_get_minimum_delegation_instruction_to_stake_program),
+    .id     = {"\x06\xa1\x56\x4a\xbf\x71\x63\x7f\x4a\x66\x67\x62\x89\x18\x9b\xd0\x9e\x04\x9b\x64\x09\xb6\xf0\x8a\x44\xd1\xf7\x57\xe6\x33\x38\xea"} },
+
+  /* 8199Q2gMD2kwgfopK5qqVWuDbegLgpuFUFHCcUJQDN8b */
+  { .offset = offsetof(fd_features_t, error_on_syscall_bpf_function_hash_collisions),
+    .id     = {"\x68\x0b\x04\x8f\x62\x8e\xa5\x3c\x7f\xfa\x04\x93\xa4\xd2\x90\xa0\xba\xc9\xbe\xa5\x4a\x03\xa8\x63\x01\xd7\xea\x4f\xa7\x0c\x9e\xdc"} },
+
+  /* 3NKRSwpySNwD3TvP5pHnRmkAQRsdkXWRr1WaQh8p4PWX */
+  { .offset = offsetof(fd_features_t, reject_callx_r10),
+    .id     = {"\x23\x2d\x66\x6d\x5c\x7d\x78\x7e\xf9\x05\x90\x7b\x5c\x5b\xfe\x99\xd2\x8a\x96\xc4\x37\xaa\x40\x2a\x06\x26\x72\x4e\xdd\x3c\x7a\x10"} },
+
+  /* 4Di3y24QFLt5QEUPZtbnjyfQKfm6ZMTfa6Dw1psfoMKU */
+  { .offset = offsetof(fd_features_t, drop_redundant_turbine_path),
+    .id     = {"\x2f\xd4\x72\x78\xb4\x96\xc4\xff\x58\x4b\x74\x4b\xfc\xec\x33\x90\x63\xd1\x91\xe8\xd1\xa7\xad\x65\xd2\xe2\x5d\xb1\x03\x6f\xd7\x8f"} },
+
+  /* 7GUcYgq4tVtaqNCKT3dho9r4665Qp5TxCZ27Qgjx3829 */
+  { .offset = offsetof(fd_features_t, executables_incur_cpi_data_cost),
+    .id     = {"\x5d\x1d\x0e\x3f\xf1\x9b\xf2\x2b\x12\x4f\x82\xca\xb7\x35\x84\x0f\x1f\x05\xfe\x3e\x75\x6d\x54\x84\x0a\x12\xc4\xa2\xb8\x85\x18\x7e"} },
+
+  /* 6iyggb5MTcsvdcugX7bEKbHV8c6jdLbpHwkncrgLMhfo */
+  { .offset = offsetof(fd_features_t, fix_recent_blockhashes),
+    .id     = {"\x55\x0b\x57\x3f\x7d\x0a\x3a\x07\xc2\x58\x63\xc5\xbc\xda\x43\x2c\x02\xa0\x84\x0b\x1e\x1a\x2d\xc5\x91\x1f\xa4\xe2\xb8\x7e\x19\xda"} },
+
+  /* 28s7i3htzhahXQKqmS2ExzbEoUypg9krwvtK2M9UWXh9 */
+  { .offset = offsetof(fd_features_t, update_rewards_from_cached_accounts),
+    .id     = {"\x10\xdf\x6b\x25\x2c\xe0\x6a\x4d\x0d\x81\x8a\xa7\xe1\x32\x72\x78\x30\x7b\x44\x13\x29\x55\xff\x2c\x79\xa2\xca\x9d\xd3\x20\xf3\x08"} },
+
+  /* HCnE3xQoZtDz9dSVm3jKwJXioTb6zMRbgwCmGg3PHHk8 */
+  { .offset = offsetof(fd_features_t, enable_partitioned_epoch_reward),
+    .id     = {"\xf0\xbf\x84\x0c\x29\xba\x5b\x53\xaa\x06\xc7\x09\x13\x5d\x6b\x7b\x0a\x5b\x43\x3d\xc1\x70\x93\x1e\xf7\x25\x55\xfe\xd3\xdb\xd4\x65"} },
+
+  /* Ftok4njE8b7tDffYkC5bAbCaQv5sL6jispYrprzatUwN */
+  { .offset = offsetof(fd_features_t, spl_token_v3_4_0),
+    .id     = {"\xdd\x49\x17\x14\x26\x0f\xf1\xe8\xa1\x87\xe0\x3b\x4b\x80\x5d\xde\xd4\x52\xd3\x90\x4e\x14\x4c\xa2\xc5\x99\x39\x3f\x15\xf2\x37\x85"} },
+
+  /* FaTa17gVKoqbh38HcfiQonPsAaQViyDCCSg71AubYZw8 */
+  { .offset = offsetof(fd_features_t, spl_associated_token_account_v1_1_0),
+    .id     = {"\xd8\x95\xd3\x48\xf8\xc5\x2a\xe0\x2d\x94\xe2\xa0\xb7\x01\xe6\xc8\x08\x15\xce\x93\x17\x76\x53\xa5\x4a\x7f\x1d\xc3\x19\xe2\xfc\x7b"} },
+
+  /* J2QdYx8crLbTVK8nur1jeLsmc3krDbfjoxoea2V1Uy5Q */
+  { .offset = offsetof(fd_features_t, default_units_per_instruction),
+    .id     = {"\xfc\xf2\xfa\x30\x04\x5d\x28\x7b\x6c\xdc\x72\xa5\x33\xff\xa4\x48\x5f\xe4\x00\x16\x31\x6c\x9a\x57\x33\x61\xcf\x2e\x29\x8d\xbe\x57"} },
+
+  /* sTKz343FM8mqtyGvYWvbLpTThw3ixRM4Xk8QvZ985mw */
+  { .offset = offsetof(fd_features_t, stake_allow_zero_undelegated_amount),
+    .id     = {"\x0c\xec\xcf\x0f\x3b\x1d\xee\xf3\xfc\xd1\xac\x00\xdc\x3f\x98\x31\xae\x6b\xa7\x87\x16\x47\x94\xa5\x77\xba\x87\x40\xf3\x28\x84\x16"} },
+
+  /* 8FdwgyHFEjhAdjWfV2vfqk7wA1g9X3fQpKH7SBpEv3kC */
+  { .offset = offsetof(fd_features_t, require_static_program_ids_in_transaction),
+    .id     = {"\x6b\xc1\xb6\x17\xc3\xb9\x0f\xfc\xe7\x7d\x80\xcb\x58\x53\x93\xc8\xc5\x81\xd1\xbf\x89\xb2\xc7\x16\x31\x03\xc3\x63\x2f\x02\xab\x89"} },
+
+  /* 9onWzzvCzNC2jfhxxeqRgs5q7nFAAKpCUvkj6T6GJK9i */
+  { .offset = offsetof(fd_features_t, stake_raise_minimum_delegation_to_1_sol),
+    .id     = {"\x82\xd9\xad\xdb\xe7\x11\x20\x56\x59\xa5\xb1\x4a\xfe\xf6\x66\x04\x74\x73\x6a\x49\x2c\x1d\x3a\xa0\x92\x59\x3d\x03\x5c\xa8\x16\x39"} },
+
+  /* ELjxSXwNsyXGfAh8TqX8ih22xeT8huF6UngQirbLKYKH */
+  { .offset = offsetof(fd_features_t, stake_minimum_delegation_for_rewards),
+    .id     = {"\xc6\x36\x89\x28\x10\xbb\x1b\x44\xb0\x3d\x91\xd6\xc1\x60\x79\xd3\x82\xa0\xa6\xa6\x88\x53\x4c\x6c\xe0\x95\xc2\xfa\xcc\xfb\xf3\x80"} },
+
+  /* 98std1NSHqXi9WYvFShfVepRdCoq1qvsp8fsR2XZtG8g */
+  { .offset = offsetof(fd_features_t, add_set_compute_unit_price_ix),
+    .id     = {"\x78\xe2\x1a\x43\xc1\x90\x64\x60\x36\x9e\x01\x54\xad\x41\x14\x72\x2f\x6b\x2a\x43\xe7\x9b\x9a\x61\xcb\x4b\x37\xa1\x0c\x7f\x4b\xd1"} },
+
+  /* 79HWsX9rpnnJBPcdNURVqygpMAfxdrAirzAGAVmf92im */
+  { .offset = offsetof(fd_features_t, disable_deploy_of_alloc_free_syscall),
+    .id     = {"\x5b\x45\x71\x0e\x10\xc2\x51\xd1\xa1\x7a\xb4\x60\x29\x22\x23\x9c\x36\x0c\xb7\x5a\xd9\x63\x42\x25\x23\x74\xd9\xdc\x01\xaa\x52\x3a"} },
+
+  /* 2R72wpcQ7qV7aTJWUumdn8u5wmmTyXbK7qzEy7YSAgyY */
+  { .offset = offsetof(fd_features_t, include_account_index_in_rent_error),
+    .id     = {"\x15\x08\x72\xd0\x0b\x30\xdc\x2f\x0a\xe0\x27\x5b\x00\xb9\x34\x35\x76\xf1\x2e\xe5\x53\x23\x9e\xf1\x7e\x55\xe1\xbd\x4a\x1e\x56\x23"} },
+
+  /* Ds87KVeqhbv7Jw8W6avsS1mqz3Mw5J3pRTpPoDQ2QdiJ */
+  { .offset = offsetof(fd_features_t, add_shred_type_to_shred_seed),
+    .id     = {"\xbf\x23\x52\x59\xab\x2e\x5c\x5a\x43\xb4\x18\xdc\x05\x95\x16\xa5\xc8\x3d\xa3\x9e\x9e\x88\xca\x6d\x8e\xc7\x1c\x40\x7c\x3d\x5c\x73"} },
 
   /* 3BX6SBeEBibHaVQXywdkcgyUk6evfYZkHdztXiDtEpFS */
   { .offset = offsetof(fd_features_t, warp_timestamp_with_a_vengeance),
     .id     = {"\x20\x69\x35\x80\x69\xe5\xa7\xdd\xf5\x01\xa4\xd3\x37\x7f\xa7\xa6\x8a\xe9\x93\xe6\x74\x0b\x8d\xfd\x06\xfe\x26\xb0\x9e\xf4\x76\xd9"} },
 
-  /* zk1snxsc6Fh3wsGNbbHAJNHiJoYgF29mMnTSusGx5EJ */
-  { .offset = offsetof(fd_features_t, zk_token_sdk_enabled),
-    .id     = {"\x0e\xca\xbe\x52\x62\x63\x44\xd5\x41\x60\x53\x0c\x35\x83\xe3\xa4\x81\x07\xdf\x19\x47\xbf\xf9\x4e\x80\x6b\x53\x88\x06\x46\x9a\xdb"} },
+  /* Gea3ZkK2N4pHuVZVxWcnAtS6UEDdyumdYt4pFcKjA3ar */
+  { .offset = offsetof(fd_features_t, separate_nonce_from_blockhash),
+    .id     = {"\xe8\x7f\x28\x34\x34\x97\x58\xc3\xd5\x36\xdd\x4f\x3c\xf7\xd8\x91\x44\x51\x30\x6d\x32\x78\x42\x21\x40\x11\xb5\xd4\x8b\xf0\xe5\xfb"} },
+
+  /* 4EJQtF2pkRyawwcTVfQutzq4Sa5hRhibF6QAK1QXhtEX */
+  { .offset = offsetof(fd_features_t, enable_durable_nonce),
+    .id     = {"\x2f\xfb\x4c\x82\x5c\x65\x10\xe2\x50\x4f\x90\x65\x48\x8d\xe2\x2b\x09\x14\x62\x13\xc9\x6e\x14\x9c\x7b\xce\x06\x85\x91\xf9\x90\xbc"} },
+
+  /* CveezY6FDLVBToHDcvJRmtMouqzsmj4UXYh5ths5G5Uv */
+  { .offset = offsetof(fd_features_t, vote_state_update_credit_per_dequeue),
+    .id     = {"\xb1\x2e\xea\x6e\xdc\x3b\xcc\xc3\xcd\x65\x39\xa6\xbc\x49\x71\x55\xd7\x36\xc5\xa3\xc2\xd9\x2f\x0d\x60\x9d\xcd\x37\xa5\x25\x32\x3b"} },
+
+  /* DpJREPyuMZ5nDfU6H3WTqSqUFSXAfw8u7xqmWtEwJDcP */
+  { .offset = offsetof(fd_features_t, quick_bail_on_panic),
+    .id     = {"\xbe\x6a\x3c\x48\xaf\xd3\x58\x27\xf9\x55\x7f\x90\x79\xad\xad\x74\x63\x47\x6f\x89\xe2\xd9\x43\x3a\xfb\x7f\x55\x53\xdc\xfc\x44\x1c"} },
+
+  /* HxrEu1gXuH7iD3Puua1ohd5n4iUKJyFNtNxk9DVJkvgr */
+  { .offset = offsetof(fd_features_t, nonce_must_be_authorized),
+    .id     = {"\xfc\x09\x9c\x57\xb1\x71\xe5\xb0\x13\x0d\xe7\xa4\x9b\x54\x05\x3b\x8a\x0a\x7f\x93\xdb\xcc\x8f\x9f\x25\x7e\x27\xaf\xc1\xff\x7d\xc3"} },
+
+  /* 3u3Er5Vc2jVcwz4xr2GJeSAXT3fAj6ADHZ4BJMZiScFd */
+  { .offset = offsetof(fd_features_t, nonce_must_be_advanceable),
+    .id     = {"\x2b\x0c\x1b\x75\x79\x07\x5d\xcb\x30\xc4\xca\x00\x3c\x94\xa9\x5f\x14\xd9\x92\x5d\x87\xce\xba\x7e\x1f\xd5\xde\xb0\xe0\x90\x50\x34"} },
+
+  /* 6tRxEYKuy2L5nnv5bgn7iT28MxUbYxp5h7F3Ncf1exrT */
+  { .offset = offsetof(fd_features_t, vote_authorize_with_seed),
+    .id     = {"\x57\x77\x45\x01\x4d\x65\x95\x57\x36\xf5\x6c\xdb\x68\x88\x1a\x5f\x8a\x3e\xa7\xbb\xd2\xfb\x18\x68\x7f\xd8\xfc\xdd\x9b\xf2\x18\xb8"} },
+
+  /* qywiJyZmqTKspFg2LeuUHqcA5nNvBgobqb9UprywS9N */
+  { .offset = offsetof(fd_features_t, cap_accounts_data_size_per_block),
+    .id     = {"\x0c\x8c\x43\xcc\xfb\xd3\x99\x67\xa0\x32\x30\xa0\x84\x7b\xfb\x91\xed\xe2\x57\x36\xcb\xaf\xc0\x6a\x1c\x7a\x87\x88\xf5\x81\xbb\x39"} },
+
+  /* HH3MUYReL2BvqqA3oEcAa7txju5GY6G4nxJ51zvsEjEZ */
+  { .offset = offsetof(fd_features_t, preserve_rent_epoch_for_rent_exempt_accounts),
+    .id     = {"\xf1\xd6\xf1\xbf\x8e\x54\x39\x44\x3d\x29\x52\xb0\xc4\x04\x6d\xf4\x2f\x03\xeb\x95\xc3\x13\xbc\xad\x6c\x1b\x91\x0d\xe3\xbd\x7c\x82"} },
+
+  /* 8Zs9W7D9MpSEtUWSQdGniZk2cNmV22y6FLJwCx53asme */
+  { .offset = offsetof(fd_features_t, enable_bpf_loader_extend_program_ix),
+    .id     = {"\x70\x6d\x18\x65\x6d\x4b\x39\xe5\xf1\xf0\x6a\xaf\x74\xd6\x4c\xc4\x75\xf9\x46\x4d\x36\x80\x64\xf1\x47\x00\xe9\xf2\x4e\x8b\x12\x2d"} },
+
+  /* 7Vced912WrRnfjaiKRiNBcbuFw7RrnLv3E3z95Y4GTNc */
+  { .offset = offsetof(fd_features_t, enable_early_verification_of_account_modifications),
+    .id     = {"\x60\x7a\xb1\x3a\x4e\x8d\x68\x8f\x13\xba\xcf\xd0\x61\xb5\x93\x07\x83\xc6\x06\x3d\x78\xe8\x67\x55\x90\xa3\x62\xb6\xce\x26\xd6\x75"} },
+
+  /* CGB2jM8pwZkeeiXQ66kBMyBR6Np61mggL7XUsmLjVcrw */
+  { .offset = offsetof(fd_features_t, skip_rent_rewrites),
+    .id     = {"\xa7\x53\x9b\xed\x5c\xc7\x64\xe3\x4e\x5c\xb0\x51\xc9\x19\xbf\x17\xbe\x92\xb8\x8b\x5a\x37\x6e\xd2\x33\xa0\xbe\x6b\x31\xa2\x5a\x1c"} },
+
+  /* 812kqX67odAp5NFwM8D2N24cku7WTm9CHUTFUXaDkWPn */
+  { .offset = offsetof(fd_features_t, prevent_crediting_accounts_that_end_rent_paying),
+    .id     = {"\x68\x03\xcb\x34\xee\x14\xb9\x41\xe4\x82\x55\xaa\xae\x45\x50\x80\x27\x51\x46\x7f\xc4\x71\xf3\x5a\xf3\x82\x49\xe4\xe9\xfb\xb2\x55"} },
+
+  /* 9k5ijzTbYPtjzu8wj2ErH9v45xecHzQ1x4PMYMMxFgdM */
+  { .offset = offsetof(fd_features_t, cap_bpf_program_instruction_accounts),
+    .id     = {"\x81\xe6\xce\x87\x8e\x3a\xa7\x14\x8e\x5f\x37\x82\xa7\x85\xe7\x8d\xa9\x14\x59\x07\xf5\x22\xf7\x8d\xd4\xa6\x46\x9f\x82\xfa\xec\x58"} },
+
+  /* GDH5TVdbTPUpRnXaRyQqiKUa7uZAbZ28Q2N9bhbKoMLm */
+  { .offset = offsetof(fd_features_t, loosen_cpi_size_restriction),
+    .id     = {"\xe2\x04\x73\xa5\xa7\x6f\x1e\xe2\x8a\xb6\x64\xde\x46\xec\x20\x34\xdf\xdf\x68\xf9\xe7\x11\x5c\x2c\xe1\x6a\xa6\x27\x91\xec\x3d\xda"} },
+
+  /* 8sKQrMQoUHtQSUP83SPG4ta2JDjSAiWs7t5aJ9uEd6To */
+  { .offset = offsetof(fd_features_t, use_default_units_in_fee_calculation),
+    .id     = {"\x74\xe5\xaa\xa4\x92\x70\x1e\x6d\xdb\xdf\x4d\x06\xd3\x76\x96\x33\x65\x34\xbb\x39\x35\x04\x40\xed\x47\xc9\x90\x52\xd6\xcc\xed\x36"} },
+
+  /* 86HpNqzutEZwLcPxS6EHDcMNYWk6ikhteg9un7Y2PBKE */
+  { .offset = offsetof(fd_features_t, compact_vote_state_updates),
+    .id     = {"\x69\x5c\xba\x36\x37\x83\xa5\x2c\x1b\xb5\x28\x3d\x3b\xc4\x4b\xc6\x19\xb6\xb5\x14\x1e\x14\xa7\x6a\xf1\xf6\xb8\xb5\x96\xef\xc8\x69"} },
+
+  /* 25vqsfjk7Nv1prsQJmA4Xu1bN61s8LXCBGUPp8Rfy1UF */
+  { .offset = offsetof(fd_features_t, incremental_snapshot_only_incremental_hash_calculation),
+    .id     = {"\x10\x1e\xe3\xe6\xb1\x43\x55\x85\x09\x0f\xe0\x6c\xb6\xa5\x1e\xe8\x32\x49\x2a\xec\x96\x74\xe0\x9a\x96\xc7\x86\xc8\x80\x69\x5f\x8c"} },
+
+  /* B9cdB55u4jQsDNsdTK525yE9dmSc5Ga7YBaBrDFvEhM9 */
+  { .offset = offsetof(fd_features_t, disable_cpi_setting_executable_and_rent_epoch),
+    .id     = {"\x96\xc9\xcb\xaa\x07\x49\x4b\x20\x79\x14\xfa\xee\xb2\x59\xe0\x0f\xdc\x79\xca\x7d\xba\x69\xb2\x5b\x1a\xe8\x15\xd8\x6e\x90\xfa\xc8"} },
+
+  /* CpkdQmspsaZZ8FVAouQTtTWZkc8eeQ7V3uj7dWz543rZ */
+  { .offset = offsetof(fd_features_t, on_load_preserve_rent_epoch_for_rent_exempt_accounts),
+    .id     = {"\xaf\xac\x2f\x2c\xdb\xbe\xf1\x80\x0b\x83\x1b\x72\xcd\x82\x2a\x2a\xc2\x80\x87\x59\x79\xca\xd3\xc1\x87\x07\xe9\x67\x10\x2f\x32\x1a"} },
+
+  /* SVn36yVApPLYsa8koK3qUcy14zXDnqkNYWyUh1f4oK1 */
+  { .offset = offsetof(fd_features_t, account_hash_ignore_slot),
+    .id     = {"\x06\x88\x0e\xd2\xd7\xba\x96\x67\x8f\x11\x2c\x91\x03\x77\xb7\xc9\xc5\xd4\x04\x96\xe4\xb7\x4c\x8f\x64\xfb\x77\x3f\x84\xd6\x12\xe4"} },
+
+  /* 5wAGiy15X1Jb2hkHnPDCM8oB9V42VNA9ftNVFK84dEgv */
+  { .offset = offsetof(fd_features_t, set_exempt_rent_epoch_max),
+    .id     = {"\x49\x4e\x98\x21\x34\x4b\x72\xe0\x04\xd2\x66\xa2\x2e\xf9\xfb\x20\xbd\xba\x5a\xad\xec\xe7\xf6\xbc\x0a\x93\xe4\xd1\x83\xe0\xfd\x8f"} },
+
+  /* FKAcEvNgSY79RpqsPNUV5gDyumopH4cEHqUxyfm8b8Ap */
+  { .offset = offsetof(fd_features_t, relax_authority_signer_check_for_lookup_table_creation),
+    .id     = {"\xd4\xaa\xef\x53\x4b\x5a\xa1\xad\x90\xf8\x49\xb9\x13\x45\x25\x3c\x4c\x39\x46\x28\xb4\xb6\xb4\xfa\x41\x0d\xb5\x1e\xa1\x4f\xa8\xf5"} },
+
+  /* EYVpEP7uzH1CoXzbD6PubGhYmnxRXPeq3PPsm1ba3gpo */
+  { .offset = offsetof(fd_features_t, stop_sibling_instruction_search_at_parent),
+    .id     = {"\xc9\x39\x83\xfd\x35\x0d\xfd\x41\xbe\x29\x91\x43\x10\x56\xfc\x45\xcf\x1b\x83\x50\x1d\x26\x21\x7f\xf5\x55\x94\xc1\xee\xd6\xb1\xf0"} },
+
+  /* G74BkWBzmsByZ1kxHy44H3wjwp5hp7JbrGRuDpco22tY */
+  { .offset = offsetof(fd_features_t, vote_state_update_root_fix),
+    .id     = {"\xe0\x6c\x63\xf3\x55\x30\xb0\x91\xaf\xff\x39\x26\x67\xcb\x54\x16\x02\x4b\x9a\xc7\x1b\x61\xb8\x99\xc6\x41\x30\xe4\xc1\x0b\xac\x79"} },
+
+  /* 9gxu85LYRAcZL38We8MYJ4A9AwgBBPtVBAqebMcT1241 */
+  { .offset = offsetof(fd_features_t, cap_accounts_data_allocations_per_transaction),
+    .id     = {"\x81\x1a\x5a\x0d\xf1\x24\x2c\x5b\xa0\x2a\x65\x74\xdb\x64\x82\xa1\x77\x98\x85\x5e\x4a\xb0\xe6\x08\xb4\xf7\x34\x9e\xc4\x67\x31\x52"} },
+
+  /* 5GpmAKxaGsWWbPp4bNXFLJxZVvG92ctxf7jQnzTQjF3n */
+  { .offset = offsetof(fd_features_t, epoch_accounts_hash),
+    .id     = {"\x3f\x7c\x76\xbc\xf9\xca\x28\x17\x4a\x5a\xf1\x64\x71\x2e\xb4\x6e\x29\x48\x29\x2b\x19\x68\x8e\xf9\xad\x5a\x19\x23\x25\x12\x11\x99"} },
+
+  /* EfhYd3SafzGT472tYQDUc4dPd2xdEfKs5fwkowUgVt4W */
+  { .offset = offsetof(fd_features_t, remove_deprecated_request_unit_ix),
+    .id     = {"\xcb\x11\xd8\x6b\x52\xd0\x9b\x81\xe7\xb7\x56\x74\xa6\x36\x72\x31\x4d\x5f\xb9\x6e\x6e\x87\x1a\x6f\x7a\x87\x4a\x89\xfc\x31\xd4\x27"} },
+
+  /* DTVTkmw3JSofd8CJVJte8PXEbxNQ2yZijvVr3pe2APPj */
+  { .offset = offsetof(fd_features_t, disable_rehash_for_rent_epoch),
+    .id     = {"\xb9\x15\x86\x82\xd3\x57\x8a\x0d\xd0\xe3\x80\x58\x5a\x23\x9f\x0a\x62\x00\xe7\xf3\x10\xc5\x21\x6c\xd8\xc7\x7f\xb2\xf1\x94\x76\x96"} },
+
+  /* 9LZdXeKGeBV6hRLdxS1rHbHoEUsKqesCC2ZAPTPKJAbK */
+  { .offset = offsetof(fd_features_t, increase_tx_account_lock_limit),
+    .id     = {"\x7b\xe0\x6c\xe7\xf5\xe5\x27\xb5\x80\x17\x6a\xe2\x84\xd5\xd4\x17\xd6\xf8\x87\xbc\x4b\xbe\xb7\x45\x50\xeb\x91\x07\x48\x35\xe0\x12"} },
+
+  /* GQALDaC48fEhZGWRj9iL5Q889emJKcj3aCvHF7VCbbF4 */
+  { .offset = offsetof(fd_features_t, limit_max_instruction_trace_length),
+    .id     = {"\xe4\xce\x36\xa5\xa6\x94\xc1\x2a\x9b\x4b\x9d\x19\x3e\x5e\x55\x67\x17\x67\x77\x8d\x3e\xe2\xea\x29\xe0\xa4\x04\xed\x88\x25\x26\xf7"} },
+
+  /* 3uRVPBpyEJRo1emLCrq38eLRFGcu6uKSpUXqGvU8T7SZ */
+  { .offset = offsetof(fd_features_t, check_syscall_outputs_do_not_overlap),
+    .id     = {"\x2b\x25\x44\x20\xcb\x2b\x86\xa6\xf2\x48\x28\x8b\xc6\x3a\xc5\xd1\x38\x59\x45\xf3\xb3\x68\xcc\xe9\x1b\x2e\x60\x59\x61\xd1\x78\xc2"} },
+
+  /* 5x3825XS7M2A3Ekbn5VGGkvFoAg5qrRWkTrY4bARP1GL */
+  { .offset = offsetof(fd_features_t, enable_bpf_loader_set_authority_checked_ix),
+    .id     = {"\x49\x88\x17\x26\xf7\x23\x43\x9f\xb0\xa3\xf3\x59\xda\xeb\xa1\x8a\x3a\x8e\xd1\xf7\x0c\x15\x1b\x1d\xa4\x92\xb1\x6e\xfa\xe0\xfc\x09"} },
+
+  /* A16q37opZdQMCbe5qJ6xpBB9usykfv8jZaMkxvZQi4GJ */
+  { .offset = offsetof(fd_features_t, enable_alt_bn128_syscall),
+    .id     = {"\x85\xbf\xc5\xb6\xde\x1e\xef\xaa\xa4\x86\xcc\x6c\x6a\x80\xda\xed\x94\x7b\x18\xac\x7f\x7c\xc2\x5d\xf9\x58\x4a\x86\x98\xb3\xff\x7b"} },
+
+  /* J4HFT8usBxpcF63y46t1upYobJgChmKyZPm5uTBRg25Z */
+  { .offset = offsetof(fd_features_t, enable_program_redeployment_cooldown),
+    .id     = {"\xfd\x6d\xcb\x0b\xa2\x88\x5c\x79\xeb\x88\x3d\x86\xf2\xe6\x33\x89\x5a\x3d\x23\x69\x38\x9b\x1f\xa6\xad\xb4\x94\xe2\x3e\xe0\x54\x84"} },
+
+  /* noRuG2kzACwgaY7TVmLRnUNPLKNVQE1fb7X55YWBehp */
+  { .offset = offsetof(fd_features_t, commission_updates_only_allowed_in_first_half_of_epoch),
+    .id     = {"\x0b\xbb\xa2\x5c\x08\xb9\x8e\x8a\xbc\xe8\xb4\x63\x97\x94\x37\x88\xf2\xa6\xa0\x91\x29\xf3\xc1\x8b\x35\x49\x07\x6a\x1d\x5f\x63\x33"} },
+
+  /* D31EFnLgdiysi84Woo3of4JMu7VmasUS3Z7j9HYXCeLY */
+  { .offset = offsetof(fd_features_t, enable_turbine_fanout_experiments),
+    .id     = {"\xb2\xcf\xa9\xc3\x4d\xe4\xe6\x33\x25\x4b\x10\xed\xcc\xb9\xf3\x06\xbe\x3b\x9a\xdb\x9c\xed\xc0\x5b\xa2\x9f\xda\x85\x71\xb5\xae\x99"} },
+
+  /* Gz1aLrbeQ4Q6PTSafCZcGWZXz91yVRi7ASFzFEr1U4sa */
+  { .offset = offsetof(fd_features_t, disable_turbine_fanout_experiments),
+    .id     = {"\xed\x7a\x0f\x5d\x50\x53\xdf\xc3\x1a\x51\x89\xb6\x66\xfb\x7e\xb7\xb5\xf8\x91\x7c\xd3\xee\x46\x82\x07\x9e\x28\x44\xb1\xb0\x0d\xf9"} },
+
+  /* 84zy5N23Q9vTZuLc9h1HWUtyM9yCFV2SCmyP9W9C3yHZ */
+  { .offset = offsetof(fd_features_t, drop_merkle_shreds),
+    .id     = {"\x69\x08\x18\x1d\x4f\xdb\x4a\x78\x97\x2f\x1b\x4f\x94\xdf\x81\x2b\x60\x4d\x43\xf8\x92\x98\xa4\xdd\x93\xba\x48\xb5\xac\xb8\x3b\xe0"} },
+
+  /* HyNQzc7TMNmRhpVHXqDGjpsHzeQie82mDQXSF9hj7nAH */
+  { .offset = offsetof(fd_features_t, keep_merkle_shreds),
+    .id     = {"\xfc\x2b\xba\x88\xd2\xa1\xeb\x71\x75\xdf\x3f\x39\x29\x20\x96\x3b\xfe\xc6\x90\x82\xc6\xbb\xc4\x44\xe3\xde\x9b\x5f\xcc\xbc\xb9\xfe"} },
+
+  /* 74CoWuBmt3rUVUrCb2JiSTvh6nXyBWUsK4SaMj3CtE3T */
+  { .offset = offsetof(fd_features_t, move_serialized_len_ptr_in_cpi),
+    .id     = {"\x59\xf8\x35\x62\xdd\x14\x3d\x82\x30\xdc\x4b\x24\x59\xa9\xa8\xa2\xd6\x12\x67\x7c\x1b\x86\x51\xfd\x02\x1d\x47\x6b\xff\xef\x9b\xca"} },
+
+  /* 3uFHb9oKdGfgZGJK9EHaAXN4USvnQtAFC13Fh5gGFS5B */
+  { .offset = offsetof(fd_features_t, update_hashes_per_tick),
+    .id     = {"\x2b\x19\xba\xab\x09\xcd\xf6\xb3\x1b\xf1\x51\xc9\xb4\x3b\x0e\xd7\x89\xcc\x3f\x9a\x80\x21\x94\xfc\xbd\x78\xaf\xab\xe5\x1a\xbd\xf6"} },
+
+  /* EBq48m8irRKuE7ZnMTLvLg2UuGSqhe8s8oMqnmja1fJw */
+  { .offset = offsetof(fd_features_t, enable_big_mod_exp_syscall),
+    .id     = {"\xc3\xee\x12\xb0\x1a\x5b\x31\x3a\xe4\xe6\xc1\xc1\xb0\x76\x81\xe6\xe4\x62\x1e\xfa\x9e\x71\x16\xfc\x35\x72\xe8\x64\xcd\x4e\xa6\x38"} },
+
+  /* 4UDcAfQ6EcA6bdcadkeHpkarkhZGJ7Bpq7wTAiRMjkoi */
+  { .offset = offsetof(fd_features_t, disable_builtin_loader_ownership_chains),
+    .id     = {"\x33\x8b\xff\x23\x8a\xab\x0a\x50\xe8\xa3\x35\x8b\x09\x2b\x90\xff\x20\x0b\xde\xe6\x3a\x66\x92\xd7\x6d\x4f\x19\x3d\x10\x52\x93\x31"} },
+
+  /* DdLwVYuvDz26JohmgSbA7mjpJFgX5zP2dkp8qsF2C33V */
+  { .offset = offsetof(fd_features_t, cap_transaction_accounts_data_size),
+    .id     = {"\xbb\x9b\xb2\xab\xa7\x5e\xe3\xff\x53\x3b\x58\xb3\x2c\x8b\x46\xe9\xfa\x66\xc9\x20\x65\xe4\x90\x65\x5e\xd4\x27\x18\xd9\x85\xef\xe0"} },
+
+  /* A8xyMHZovGXFkorFqEmVH2PKGLiBip5JD7jt4zsUWo4H */
+  { .offset = offsetof(fd_features_t, remove_congestion_multiplier_from_fee_calculation),
+    .id     = {"\x87\xc3\x89\x04\xe8\xc4\x22\x8a\x27\x67\xda\xd1\x7b\xe7\x83\xd3\x4e\x0c\x77\xe2\xe2\x94\x79\xbf\x73\xe4\x32\xa6\x91\x44\x90\x6e"} },
+
+  /* Hr1nUA9b7NJ6eChS26o7Vi8gYYDDwWD3YeBfzJkTbU86 */
+  { .offset = offsetof(fd_features_t, enable_request_heap_frame_ix),
+    .id     = {"\xfa\x49\x56\x3c\xc1\xbc\x82\xce\x81\x12\x31\x04\x9a\xe1\x37\xce\xbe\x3a\xb5\xad\x0d\xd1\xd7\x70\xb8\x8c\x90\xbb\x45\xd3\xc9\xf7"} },
+
+  /* Fab5oP3DmsLYCiQZXdjyqT3ukFFPrsmqhXU4WU1AWVVF */
+  { .offset = offsetof(fd_features_t, prevent_rent_paying_rent_recipients),
+    .id     = {"\xd8\x9e\x52\x37\x85\xcf\xf9\x8f\x7a\x56\x28\x4c\x32\x67\x1e\xe9\x81\xe6\xae\xdd\xca\x67\x66\x9d\x83\xc2\x82\x56\xb8\x4e\xf4\xae"} },
+
+  /* GmuBvtFb2aHfSfMXpuFeWZGHyDeCLPS79s48fmCWCfM5 */
+  { .offset = offsetof(fd_features_t, delay_visibility_of_program_deployment),
+    .id     = {"\xea\x5f\xde\x80\x1b\x0d\x12\xd6\x7b\x51\xc2\xb5\xc6\x08\x33\x59\x68\x07\x4f\x61\x84\x0f\xaf\xfe\xf5\x96\x2c\x58\xbb\xe9\x9f\x4c"} },
+
+  /* 2ry7ygxiYURULZCrypHhveanvP5tzZ4toRwVp89oCNSj */
+  { .offset = offsetof(fd_features_t, apply_cost_tracker_during_replay),
+    .id     = {"\x1b\xa8\x9a\x1c\x70\xb2\x9a\xca\x07\x34\x3d\x0b\xbf\xe2\x48\x67\x97\x3a\xdb\x59\x2e\x5d\x00\xfa\xde\x49\x8b\x33\x77\x3f\x70\xa0"} },
+
+  /* 9gwzizfABsKUereT6phZZxbTzuAnovkgwpVVpdcSxv9h */
+  { .offset = offsetof(fd_features_t, bpf_account_data_direct_mapping),
+    .id     = {"\x81\x19\x54\x8d\x6f\x4d\x00\x5b\x8f\x74\x6a\x89\xd3\xed\x8d\xff\xd2\x55\x91\xcb\x0c\x38\xa0\x31\xad\xfa\x66\xc9\xc3\xb3\x72\xf4"} },
+
+  /* G6vbf1UBok8MWb8m25ex86aoQHeKTzDKzuZADHkShqm6 */
+  { .offset = offsetof(fd_features_t, add_set_tx_loaded_accounts_data_size_instruction),
+    .id     = {"\xe0\x63\xcf\x92\xc3\xa0\xd3\x55\x49\xd0\x52\xb1\x0c\xaf\xf1\x3f\x56\xfa\x06\x11\x1c\x63\x6f\x69\x75\x42\xd1\x31\x2a\x1e\xe2\x6d"} },
+
+  /* Cdkc8PPTeTNUPoZEfCY5AyetUrEdkZtNPMgz58nqyaHD */
+  { .offset = offsetof(fd_features_t, switch_to_new_elf_parser),
+    .id     = {"\xac\xda\xc5\x37\x50\xa9\x7a\x0e\xb4\x8f\xa3\x40\xa0\xcc\xd2\x80\x94\x20\x2c\xc7\x60\x42\x4a\xd0\xa9\xc0\xd3\x31\xe6\xd6\x62\xf0"} },
+
+  /* CE2et8pqgyQMP2mQRg3CgvX8nJBKUArMu3wfiQiQKY1y */
+  { .offset = offsetof(fd_features_t, round_up_heap_size),
+    .id     = {"\xa6\xc6\xf9\xd5\x39\x30\xd1\xe2\xaa\xfa\xc5\x3d\xd9\x8e\xeb\xc2\xf3\xdb\x6c\x9a\xde\xeb\xf2\x61\x38\x73\x42\x7d\x71\x86\xb9\xb4"} },
+
+  /* 2HmTkCj9tXuPE4ueHzdD7jPeMf9JGCoZh5AsyoATiWEe */
+  { .offset = offsetof(fd_features_t, remove_bpf_loader_incorrect_program_id),
+    .id     = {"\x13\x27\x40\x91\x61\xec\xe3\xca\x4e\x63\x93\xed\xe0\x0c\x11\x78\x1f\x7e\xef\x3f\x56\xe8\xdb\x60\x71\x31\x74\xd2\xe6\x72\xbe\x53"} },
+
+  /* EaQpmC6GtRssaZ3PCUM5YksGqUdMLeZ46BQXYtHYakDS */
+  { .offset = offsetof(fd_features_t, include_loaded_accounts_data_size_in_fee_calculation),
+    .id     = {"\xc9\xb7\x08\xb6\xbb\xa5\xb1\xa6\xdc\xbf\xd0\x4f\xed\xe7\x28\xa3\x52\xcd\x71\x42\x39\x0c\xa0\x41\x13\x66\xde\xff\x50\x24\xfe\x35"} },
+
+  /* 8pgXCMNXC8qyEFypuwpXyRxLXZdpM4Qo72gJ6k87A6wL */
+  { .offset = offsetof(fd_features_t, native_programs_consume_cu),
+    .id     = {"\x74\x38\xca\xe8\xba\x15\xa6\x50\xd5\x96\x1a\x62\xd9\xba\x14\xc6\x20\x96\xdb\x0f\xa1\x87\x72\x3f\x3c\x59\xc3\xdb\xfb\xdd\x3b\x6b"} },
+
+  /* 5ZCcFAzJ1zsFKe1KSZa9K92jhx7gkcKj97ci2DBo1vwj */
+  { .offset = offsetof(fd_features_t, simplify_writable_program_account_check),
+    .id     = {"\x43\xae\x75\x5b\x05\xd6\x4d\xda\x6b\x93\x44\x69\xa0\x06\xea\xf0\x99\x27\xf4\xbc\x96\x0e\xc6\x48\x64\x47\xc0\x53\x52\xfb\x1a\x7a"} },
+
+  /* 16FMCmgLzCNNz6eTwGanbyN2ZxvTBSLuQ6DZhgeMshg */
+  { .offset = offsetof(fd_features_t, stop_truncating_strings_in_syscalls),
+    .id     = {"\x00\x05\xee\xe8\x9f\xd8\x51\x2f\x51\x9c\xc1\x76\xca\xbb\xe0\xf6\x3a\x39\x61\x09\xda\xa5\x4d\x9a\xb7\x98\xa3\x01\x0d\x5a\xb8\x0f"} },
+
+  /* Bj2jmUsM2iRhfdLLDSTkhM5UQRQvQHm57HSmPibPtEyu */
+  { .offset = offsetof(fd_features_t, clean_up_delegation_errors),
+    .id     = {"\x9f\x59\x3a\x49\x85\xf1\xaa\x61\x96\x8e\x49\xb3\x45\xce\xea\xed\xbb\x96\x54\x09\xa4\x3d\x8d\xba\xbb\x57\xc7\x64\x0d\xfc\x59\x90"} },
+
+  /* 7axKe5BTYBDD87ftzWbk5DfzWMGyRvqmWTduuo22Yaqy */
+  { .offset = offsetof(fd_features_t, vote_state_add_vote_latency),
+    .id     = {"\x61\xd8\xd7\x1f\x81\x6f\x32\x74\x56\x37\x18\x3c\x8b\x7e\x6e\xaa\x28\x71\xb5\x22\x61\x11\xb0\x39\x6d\xb6\x4f\xad\x75\xad\x77\xc4"} },
+
+  /* 5Pecy6ie6XGm22pc9d4P9W5c31BugcFBuy6hsP2zkETv */
+  { .offset = offsetof(fd_features_t, checked_arithmetic_in_fee_validation),
+    .id     = {"\x41\x3c\x10\x0e\x1d\x39\xd7\x2b\xbe\x35\xa2\xa1\xcb\xff\x4f\xe1\x7d\x4d\x55\xd0\x45\x4d\xf0\x5f\x58\xa4\x96\x7c\xed\x08\x34\x55"} },
+
+  /* HooKD5NC9QNxk25QuzCssB8ecrEzGt6eXEPBUxWp1LaR */
+  { .offset = offsetof(fd_features_t, last_restart_slot_sysvar),
+    .id     = {"\xf9\xb8\x13\x4b\x8e\x66\x1b\x40\x28\x1c\xed\xbe\x7c\x78\x8c\x99\x1b\x93\x96\x34\xd6\xc9\x0b\xde\xae\xb8\xdb\x5a\x06\x7d\x87\x8e"} },
+
+  /* GwtDQBghCTBgmX2cpEGNPxTEBUTQRaDMGTr5qychdGMj */
+  { .offset = offsetof(fd_features_t, reduce_stake_warmup_cooldown),
+    .id     = {"\xec\xee\x93\x40\x57\x22\xb0\x74\x49\xc1\xf9\xe5\xef\x54\x03\xef\x18\x4d\x87\xf9\x31\x68\x96\x18\xad\x21\xb8\xf7\x00\x3d\x8a\xce"} },
 
   { .offset = ULONG_MAX }
 };

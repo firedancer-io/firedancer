@@ -12,7 +12,7 @@ int fd_executor_bpf_deprecated_loader_program_execute_instruction( instruction_c
   decode_ctx.valloc  = ctx.global->valloc;
 
   if ( fd_bpf_loader_program_instruction_decode( &instruction, &decode_ctx ) ) {
-    FD_LOG_WARNING(("fd_bpf_loader_program_instruction_decode failed"));
+    FD_LOG_DEBUG(("fd_bpf_loader_program_instruction_decode failed"));
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
 

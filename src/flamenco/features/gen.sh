@@ -1,4 +1,19 @@
 #!/bin/bash -f
-echo '{"features": [' > $1
-sed -e 's-//.*--' ~/repos/solana/sdk/src/feature_set.rs |  grep declare_id  | sed -e 's/^.*(//' -e 's/).*//' | sed -e 's/\(.*\)/{"id":\1, "status": "active", "sinceSlot": 1, "description": ""},/' | sort >> $1
-echo '{}]}' >> $1
+
+# Usage: gen.sh < solana/src/feature_set.rs > features.json
+
+n=0
+echo '['
+# dumbest code ever
+while read -r line; do
+  if [[ "$line" =~ ^pub\ mod\ ([a-zA-Z0-9_]+)\ \{ ]]; then
+    feature_name="${BASH_REMATCH[1]}"
+  elif [[ "$line" =~ solana_sdk::declare_id!\(\"([a-zA-Z0-9_]+)\" ]]; then
+    if ((n++ > 0)); then
+        echo ','
+    fi
+    echo -n "  {\"name\":\"$feature_name\",\"pubkey\": \"${BASH_REMATCH[1]}\"}"
+  fi
+done
+echo
+echo ']'

@@ -6,9 +6,10 @@
 //#include "sanitize/fd_asan.h"     /* includes fd_util_base.h" */
 //#include "sanitize/fd_sanitize.h" /* includes sanitize/fd_asan.h */
 //#include "cstr/fd_cstr.h"         /* includes bits/fd_bits.h */
+//#include "io/fd_io.h"             /* includes bits/fd_bits.h */
 //#include "pod/fd_pod.h"           /* includes cstr/fd_cstr.h */
 //#include "env/fd_env.h"           /* includes cstr/fd_cstr.h */
-//#include "log/fd_log.h"           /* includes env/fd_env.h */
+//#include "log/fd_log.h"           /* includes env/fd_env.h io/fd_io.h */
 //#include "shmem/fd_shmem.h"       /* includes log/fd_log.h */
 //#include "tile/fd_tile.h"         /* includes shmem/fd_shmem.h */
 //#include "wksp/fd_wksp.h"         /* includes shmem/fd_shmem.h pod/fd_pod.h */
@@ -173,6 +174,13 @@ FD_PROTOTYPES_BEGIN
        ignored on targets where the underlying OS assigns this (e.g. the
        tid of the process containing the caller).
 
+     --log-user-id [ulong] / FD_LOG_USER_ID=[ulong]
+
+       Provides the user id of the user responsible for the caller.  If
+       not provided, defaults to 0.  This is stripped but otherwise
+       ignored on targets where an underlying OS assigns this (e.g. the
+       user ID of the person who started the caller's process).
+
      --log-user [cstr] / FD_LOG_USER=[cstr]
 
        Provides the user of the caller's thread group.  If not provided,
@@ -276,31 +284,6 @@ FD_PROTOTYPES_BEGIN
 void
 fd_boot( int *    pargc,
          char *** pargv );
-
-/* Booting securely means starting with a maximal sandbox. This is a
-   three step process,
-
-     1. Initialize logging and shared memory infrastructure
-     .... User code loads any resources it needs
-     2. Drop all privileges, initialize tiles, and enforce seccomp
-        syscall filter,
-
-  These boot_secure1 and boot_secure2 functions map to steps 1 and 2,
-  so that user code can run inbetween to load privileged resources
-  while using logging.
-
-  Once boot_secure2 is called, the process is fully sandboxed and
-  cannot make system calls, access the file system, or really do
-  much of anything. All resources needed in the program should be
-  initialized before calling it.
-   */
-void
-fd_boot_secure1( int *    pargc,
-                 char *** pargv );
-
-void
-fd_boot_secure2( int *    pargc,
-                 char *** pargv );
 
 void
 fd_halt( void );

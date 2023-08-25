@@ -18,9 +18,12 @@
 #include "../../funk/fd_funk.h"
 #include "../../flamenco/types/fd_types.h"
 #include "../../flamenco/runtime/fd_runtime.h"
+#include "../../flamenco/runtime/fd_account.h"
 #include "../../flamenco/runtime/fd_rocksdb.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../../flamenco/types/fd_solana_block.pb.h"
+
+extern void fd_write_builtin_bogus_account( fd_global_ctx_t * global, uchar const       pubkey[ static 32 ], char const *      data, ulong             sz );
 
 static void usage(char const * progname) {
   fprintf(stderr, "USAGE: %s\n", progname);
@@ -85,6 +88,9 @@ void SnapshotParser_destroy(struct SnapshotParser* self) {
   free(self->tmpstart_);
 }
 
+/* why is this creatively named "parse" if it actually loads the
+   snapshot into the database? */
+
 void SnapshotParser_parsefd_solana_accounts(struct SnapshotParser* self, char const * name, const void* data, size_t datalen) {
   ulong id, slot;
   if (sscanf(name, "accounts/%lu.%lu", &slot, &id) != 2)
@@ -107,21 +113,65 @@ void SnapshotParser_parsefd_solana_accounts(struct SnapshotParser* self, char co
   if (node2->elem.accounts_current_len < datalen)
     datalen = node2->elem.accounts_current_len;
 
+  fd_acc_mgr_t *  acc_mgr = self->global_->acc_mgr;
+  fd_funk_txn_t * txn     = self->global_->funk_txn;
+
   while (datalen) {
     size_t roundedlen = (sizeof(fd_solana_account_hdr_t)+7UL)&~7UL;
     if (roundedlen > datalen)
       return;
-    fd_solana_account_hdr_t* hdr = (fd_solana_account_hdr_t*)data;
+
+    fd_solana_account_hdr_t const * hdr = (fd_solana_account_hdr_t const *)data;
+    uchar const * acc_data = (uchar const *)hdr + sizeof(fd_solana_account_hdr_t);
+
+    fd_pubkey_t const * acc_key = (fd_pubkey_t const *)&hdr->meta.pubkey;
 
     do {
-      fd_account_meta_t metadata;
-      int               read_result = fd_acc_mgr_get_metadata( self->global_->acc_mgr, self->global_->funk_txn, (fd_pubkey_t*) &hdr->meta.pubkey, &metadata );
-      if ( FD_UNLIKELY( read_result == FD_ACC_MGR_SUCCESS ) ) {
-        if (metadata.slot > slot)
-          break;
+      /* Check existing account */
+      fd_funk_rec_t const *     rec_ro  = NULL;
+      fd_account_meta_t const * meta_ro = NULL;
+      int read_result = fd_acc_mgr_view( acc_mgr, txn, acc_key, &rec_ro, &meta_ro, /* data_ro */ NULL );
+
+      /* Skip if we previously inserted a newer version */
+      if( read_result == FD_ACC_MGR_SUCCESS ) {
+        if( meta_ro->slot > slot ) break;
+      } else if( FD_UNLIKELY( read_result != FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) ) {
+        FD_LOG_ERR(( "database error while loading snapshot: %d", read_result ));
       }
-      if (fd_acc_mgr_write_append_vec_account( self->global_->acc_mgr, self->global_->funk_txn, slot, hdr, self->uncache_) != FD_ACC_MGR_SUCCESS)
-        FD_LOG_ERR(("writing failed account"));
+
+      if( FD_UNLIKELY( hdr->meta.data_len > MAX_ACC_SIZE ) )
+        FD_LOG_ERR(("account too large: %lu bytes", hdr->meta.data_len));
+
+      /* Write account */
+      fd_account_meta_t * meta = NULL;
+      uchar *             data = NULL;
+      fd_funk_rec_t *     rec_rw;
+      int write_result = fd_acc_mgr_modify(
+          acc_mgr,
+          txn,
+          acc_key,
+          /* do_create */ 1,
+          hdr->meta.data_len,
+          rec_ro,
+          &rec_rw,
+          &meta,
+          &data );
+      if( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) )
+        FD_LOG_ERR(("writing account failed"));
+
+      meta->dlen = hdr->meta.data_len;
+      meta->slot = slot;
+      memcpy( &meta->hash, hdr->hash.value, 32UL );
+      memcpy( &meta->info, &hdr->info, sizeof(fd_solana_account_meta_t) );
+      if( hdr->meta.data_len )
+        memcpy( data, acc_data, hdr->meta.data_len );
+
+      /* Skip hashing */
+      int err = fd_funk_rec_persist( acc_mgr->global->funk, rec_rw );
+      if( FD_UNLIKELY( err ) )
+        FD_LOG_ERR(( "fd_funk_rec_persist failed (%d-%s)", err, fd_funk_strerror( err ) ));
+
+      /* TODO Check if calculated hash fails to match account hash from snapshot. */
     } while (0);
 
     roundedlen = (sizeof(fd_solana_account_hdr_t)+hdr->meta.data_len+7UL)&~7UL;
@@ -363,9 +413,9 @@ ingest_txnstatus( fd_global_ctx_t * global,
   int ret;
   fd_funk_rec_t * rec = fd_funk_rec_modify( global->funk, fd_funk_rec_insert( global->funk, NULL, &key, &ret ) );
   if( FD_UNLIKELY( !rec ) ) FD_LOG_ERR(( "fd_funk_rec_modify failed with code %d", ret ));
-  rec = fd_funk_val_truncate( rec, totsize, (fd_alloc_t *)global->valloc.self, global->wksp, &ret );
+  rec = fd_funk_val_truncate( rec, totsize, (fd_alloc_t *)global->valloc.self, global->funk_wksp, &ret );
   if( FD_UNLIKELY( !rec ) ) FD_LOG_ERR(( "fd_funk_val_truncate failed with code %d", ret ));
-  uchar * val = (uchar*) fd_funk_val( rec, global->wksp );
+  uchar * val = (uchar*) fd_funk_val( rec, global->funk_wksp );
   *(ulong*)val = vec_idx.cnt;
   val += sizeof(ulong);
   fd_memcpy(val, vec_idx.elems, vec_idx.cnt*sizeof(fd_txnstatusidx_t));
@@ -401,7 +451,7 @@ ingest_rocksdb( fd_global_ctx_t * global,
   if (end_slot > last_slot)
     end_slot = last_slot;
 
-  ulong start_slot = global->bank.slot+1;
+  ulong start_slot = global->bank.slot;
   if ( last_slot < start_slot ) {
     FD_LOG_ERR(("rocksdb blocks are older than snapshot. first=%lu last=%lu wanted=%lu",
                 fd_rocksdb_first_slot(&rocks_db, &err), last_slot, start_slot));
@@ -422,10 +472,10 @@ ingest_rocksdb( fd_global_ctx_t * global,
   if (rec == NULL)
     FD_LOG_ERR(("funky insert failed with code %d", ret));
   ulong sz = fd_slot_meta_meta_size(&mm);
-  rec = fd_funk_val_truncate( rec, sz, (fd_alloc_t *)global->valloc.self, global->wksp, &ret );
+  rec = fd_funk_val_truncate( rec, sz, (fd_alloc_t *)global->valloc.self, global->funk_wksp, &ret );
   if (rec == NULL)
     FD_LOG_ERR(("funky insert failed with code %d", ret));
-  void * val = fd_funk_val( rec, global->wksp );
+  void * val = fd_funk_val( rec, global->funk_wksp );
   fd_bincode_encode_ctx_t ctx;
   ctx.data = val;
   ctx.dataend = (uchar *)val + sz;
@@ -453,11 +503,11 @@ ingest_rocksdb( fd_global_ctx_t * global,
 
     key = fd_runtime_block_meta_key(slot);
     rec = fd_funk_rec_modify( global->funk, fd_funk_rec_insert( global->funk, NULL, &key, &ret ) );
-    if( FD_UNLIKELY( !rec ) ) FD_LOG_ERR(( "fd_funk_rec_modify failed with code %d", ret ));
+    if( FD_UNLIKELY( !rec ) ) FD_LOG_ERR(( "fd_funk_rec_modify failed with code (%d-%s)", ret, fd_funk_strerror( ret ) ));
     sz  = fd_slot_meta_size(&m);
-    rec = fd_funk_val_truncate( rec, sz, (fd_alloc_t *)global->valloc.self, global->wksp, &ret );
-    if( FD_UNLIKELY( !rec ) ) FD_LOG_ERR(( "fd_funk_val_truncate failed with code %d", ret ));
-    val = fd_funk_val( rec, global->wksp );
+    rec = fd_funk_val_truncate( rec, sz, (fd_alloc_t *)global->valloc.self, global->funk_wksp, &ret );
+    if( FD_UNLIKELY( !rec ) ) FD_LOG_ERR(( "fd_funk_val_truncate failed with code (%d-%s)", ret, fd_funk_strerror( ret ) ));
+    val = fd_funk_val( rec, global->funk_wksp );
     fd_bincode_encode_ctx_t ctx2;
     ctx2.data = val;
     ctx2.dataend = (uchar *)val + sz;
@@ -476,9 +526,9 @@ ingest_rocksdb( fd_global_ctx_t * global,
     rec = fd_funk_rec_modify( global->funk, fd_funk_rec_insert( global->funk, NULL, &key, &ret ) );
     if( FD_UNLIKELY( !rec ) ) FD_LOG_ERR(( "fd_funk_rec_modify failed with code %d", ret ));
     /* TODO messy valloc => alloc upcast */
-    rec = fd_funk_val_truncate( rec, block_sz, global->valloc.self, global->wksp, &ret );
+    rec = fd_funk_val_truncate( rec, block_sz, global->valloc.self, global->funk_wksp, &ret );
     if( FD_UNLIKELY( !rec ) ) FD_LOG_ERR(( "fd_funk_val_truncate failed with code %d", ret ));
-    fd_memcpy( fd_funk_val( rec, global->wksp ), block, block_sz );
+    fd_memcpy( fd_funk_val( rec, global->funk_wksp ), block, block_sz );
     fd_funk_rec_persist( global->funk, rec );
     fd_funk_val_uncache( global->funk, rec );
 
@@ -493,9 +543,9 @@ ingest_rocksdb( fd_global_ctx_t * global,
       rec = fd_funk_rec_modify( global->funk, fd_funk_rec_insert( global->funk, NULL, &key, &ret ) );
       if( FD_UNLIKELY( !rec ) ) FD_LOG_ERR(( "fd_funk_rec_modify failed with code %d", ret ));
       sz  = sizeof(fd_hash_t);
-      rec = fd_funk_val_truncate( rec, sz, (fd_alloc_t *)global->valloc.self, global->wksp, &ret );
+      rec = fd_funk_val_truncate( rec, sz, (fd_alloc_t *)global->valloc.self, global->funk_wksp, &ret );
       if( FD_UNLIKELY( !rec ) ) FD_LOG_ERR(( "fd_funk_val_truncate failed with code %d", ret ));
-      memcpy( fd_funk_val( rec, global->wksp ), hash.hash, sizeof(fd_hash_t) );
+      memcpy( fd_funk_val( rec, global->funk_wksp ), hash.hash, sizeof(fd_hash_t) );
       fd_funk_rec_persist( global->funk, rec );
       fd_funk_val_uncache( global->funk, rec );
       FD_LOG_DEBUG(( "slot=%lu bank_hash=%32J", slot, hash.hash ));
@@ -557,7 +607,6 @@ main( int     argc,
   char const * snapshotfile = fd_env_strip_cmdline_cstr ( &argc, &argv, "--snapshotfile", NULL, NULL      );
   char const * incremental  = fd_env_strip_cmdline_cstr ( &argc, &argv, "--incremental",  NULL, NULL      );
   ulong        loglevel     = fd_env_strip_cmdline_ulong( &argc, &argv, "--loglevel",     NULL, 0         );
-  char const * net          = fd_env_strip_cmdline_cstr ( &argc, &argv, "--network",      NULL, NULL      );
   char const * genesis      = fd_env_strip_cmdline_cstr ( &argc, &argv, "--genesis",      NULL, NULL      );
   char const * rocksdb_dir  = fd_env_strip_cmdline_cstr ( &argc, &argv, "--rocksdb",      NULL, NULL      );
   ulong        end_slot     = fd_env_strip_cmdline_ulong( &argc, &argv, "--endslot",      NULL, ULONG_MAX );
@@ -565,6 +614,7 @@ main( int     argc,
   char const * txnstatus    = fd_env_strip_cmdline_cstr ( &argc, &argv, "--txnstatus",    NULL, "false"   );
   char const * verifyhash   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--verifyhash",   NULL, NULL      );
   char const * backup       = fd_env_strip_cmdline_cstr ( &argc, &argv, "--backup",       NULL, NULL      );
+  char const * capture_fpath = fd_env_strip_cmdline_cstr ( &argc, &argv, "--capture",      NULL, NULL      );
 
   fd_wksp_t* wksp;
   ulong wkspsize;
@@ -639,20 +689,19 @@ main( int     argc,
   }
 
   char global_mem[FD_GLOBAL_CTX_FOOTPRINT] __attribute__((aligned(FD_GLOBAL_CTX_ALIGN)));
-  memset(global_mem, 0, sizeof(global_mem));
   fd_global_ctx_t * global = fd_global_ctx_join( fd_global_ctx_new( global_mem ) );
 
   fd_alloc_t * alloc = fd_alloc_join( fd_wksp_laddr_fast( wksp, funk->alloc_gaddr ), 0UL );
   if( FD_UNLIKELY( !alloc ) ) FD_LOG_ERR(( "fd_alloc_join(gaddr=%#lx) failed", funk->alloc_gaddr ));
   /* TODO leave */
 
-  global->wksp = wksp;
+  global->funk_wksp = wksp;
+  global->local_wksp = NULL;
   global->funk = funk;
   global->valloc = fd_alloc_virtual( alloc );
 
-  char acc_mgr_mem[FD_ACC_MGR_FOOTPRINT] __attribute__((aligned(FD_ACC_MGR_ALIGN)));
-  memset(acc_mgr_mem, 0, sizeof(acc_mgr_mem));
-  global->acc_mgr = (fd_acc_mgr_t*)( fd_acc_mgr_new( acc_mgr_mem, global, FD_ACC_MGR_FOOTPRINT ) );
+  fd_acc_mgr_t mgr[1];
+  global->acc_mgr = fd_acc_mgr_new( mgr, global );
 
   ulong tcnt = fd_tile_cnt();
   uchar tpool_mem[ FD_TPOOL_FOOTPRINT(FD_TILE_MAX) ] __attribute__((aligned(FD_TPOOL_ALIGN)));
@@ -709,27 +758,9 @@ main( int     argc,
 
     global->log_level = (uchar) loglevel;
 
-    if (NULL != net) {
-      if (!strncmp(net, "main", 4))
-        fd_features_enable_mainnet(&global->features);
-      if (!strcmp(net, "test"))
-        fd_features_enable_testnet(&global->features);
-      if (!strcmp(net, "dev"))
-        fd_features_enable_devnet(&global->features);
-      if (!strcmp(net, "v13"))
-        fd_features_enable_v13(&global->features);
-      if (!strcmp(net, "v14"))
-        fd_features_enable_v14(&global->features);
-      if (!strcmp(net, "v16"))
-        fd_features_enable_v16(&global->features);
-      if (!strcmp(net, "v17"))
-        fd_features_enable_v17(&global->features);
-    } else
-      fd_features_enable_all(&global->features);
-
     if (snapshot_used) {
       int err = 0;
-      char * raw_acc_data = (char*) fd_acc_mgr_view_data(global->acc_mgr, global->funk_txn, (fd_pubkey_t *) global->sysvar_recent_block_hashes, NULL, &err);
+      char * raw_acc_data = (char*) fd_acc_mgr_view_raw(global->acc_mgr, global->funk_txn, (fd_pubkey_t *) global->sysvar_recent_block_hashes, NULL, &err);
       if (NULL == raw_acc_data)
         FD_LOG_ERR(( "missing recent block hashes account" ));
       fd_account_meta_t *m = (fd_account_meta_t *) raw_acc_data;
@@ -746,31 +777,48 @@ main( int     argc,
     }
 
     if( genesis ) {
+
+      FILE *               capture_file = NULL;
+      fd_solcap_writer_t * capture      = NULL;
+      if( capture_fpath ) {
+        capture_file = fopen( capture_fpath, "w+" );
+        if( FD_UNLIKELY( !capture_file ) )
+          FD_LOG_ERR(( "fopen(%s) failed (%d-%s)", capture_fpath, errno, strerror( errno ) ));
+
+        void * capture_writer_mem = fd_alloc_malloc( alloc, fd_solcap_writer_align(), fd_solcap_writer_footprint() );
+        FD_TEST( capture_writer_mem );
+        capture = fd_solcap_writer_new( capture_writer_mem );
+
+        FD_TEST( fd_solcap_writer_init( capture, capture_file ) );
+        global->capture = capture;
+      }
+
+      fd_solcap_writer_set_slot( capture, 0UL );
+
       struct stat sbuf;
       if( FD_UNLIKELY( stat( genesis, &sbuf) < 0 ) )
         FD_LOG_ERR(("cannot open %s : %s", genesis, strerror(errno)));
       int fd = open( genesis, O_RDONLY );
       if( FD_UNLIKELY( fd < 0 ) )
         FD_LOG_ERR(("cannot open %s : %s", genesis, strerror(errno)));
-      uchar * buf = malloc((ulong) sbuf.st_size);
+      uchar * buf = malloc((ulong) sbuf.st_size);  /* TODO Make this a scratch alloc */
       ssize_t n = read(fd, buf, (ulong) sbuf.st_size);
       close(fd);
 
       fd_genesis_solana_t genesis_block;
       fd_genesis_solana_new(&genesis_block);
-      fd_bincode_decode_ctx_t ctx;
-      ctx.data    = buf;
-      ctx.dataend = &buf[n];
-      ctx.valloc  = global->valloc;
-      if ( fd_genesis_solana_decode(&genesis_block, &ctx) )
+      fd_bincode_decode_ctx_t ctx = {
+        .data = buf,
+        .dataend = buf + n,
+        .valloc  = global->valloc
+      };
+      if( fd_genesis_solana_decode(&genesis_block, &ctx) )
         FD_LOG_ERR(("fd_genesis_solana_decode failed"));
 
       // The hash is generated from the raw data... don't mess with this..
       uchar genesis_hash[FD_SHA256_HASH_SZ];
-      fd_sha256_t sha;
-      fd_sha256_init( &sha );
-      fd_sha256_append( &sha, buf, (ulong) n );
-      fd_sha256_fini( &sha, genesis_hash );
+      fd_sha256_hash( buf, (ulong)n, genesis_hash );
+      FD_LOG_NOTICE(( "Genesis Hash: %32J", genesis_hash ));
 
       free(buf);
 
@@ -778,11 +826,48 @@ main( int     argc,
 
       fd_runtime_init_program( global );
 
-      for (ulong i = 0; i < genesis_block.accounts_len; i++) {
+      if (global->log_level > 2)
+        FD_LOG_WARNING(( "start genesis accounts"));
+
+      for( ulong i=0; i < genesis_block.accounts_len; i++ ) {
         fd_pubkey_account_pair_t * a = &genesis_block.accounts[i];
-        char pubkey[50];
-        fd_base58_encode_32((uchar *) genesis_block.accounts[i].key.key, NULL, pubkey);
-        fd_acc_mgr_write_structured_account(global->acc_mgr, global->funk_txn, 0, &a->key, &a->account);
+
+        fd_funk_rec_t *     rec;
+        fd_account_meta_t * meta = NULL;
+        uchar *             data = NULL;
+
+        int err = fd_acc_mgr_modify(
+            global->acc_mgr,
+            global->funk_txn,
+            &a->key,
+            /* do_create */ 1,
+            a->account.data_len,
+            /* opt_con_rec */ NULL,
+            &rec,
+            &meta,
+            &data );
+        if( FD_UNLIKELY( err ) )
+          FD_LOG_ERR(( "fd_acc_mgr_modify failed (%d)", err ));
+
+        meta->dlen            = a->account.data_len;
+        meta->info.lamports   = a->account.lamports;
+        meta->info.rent_epoch = a->account.rent_epoch;
+        meta->info.executable = (char)a->account.executable;
+        memcpy( meta->info.owner, a->account.owner.key, 32UL );
+        if( a->account.data_len )
+          memcpy( data, a->account.data, a->account.data_len );
+
+        err = fd_acc_mgr_commit_raw( global->acc_mgr, rec, &a->key, meta, 0UL, 0 );
+        if( FD_UNLIKELY( err ) )
+          FD_LOG_ERR(( "fd_acc_mgr_commit_raw failed (%d)", err ));
+      }
+
+      if (global->log_level > 2)
+        FD_LOG_WARNING(( "end genesis accounts"));
+
+      for( ulong i=0; i < genesis_block.native_instruction_processors_len; i++ ) {
+        fd_string_pubkey_pair_t * a = &genesis_block.native_instruction_processors[i];
+        fd_write_builtin_bogus_account( global, a->pubkey.uc, a->string, strlen(a->string) );
       }
 
       /* sort and update bank hash */
@@ -791,16 +876,42 @@ main( int     argc,
         return result;
       }
 
-      global->bank.slot = ~0ul;
+      global->bank.slot = 0UL;
 
       FD_TEST( fd_runtime_save_banks( global )==FD_RUNTIME_EXECUTE_SUCCESS );
 
       fd_bincode_destroy_ctx_t ctx2 = { .valloc = global->valloc };
       fd_genesis_solana_destroy(&genesis_block, &ctx2);
+
+      if( capture )  {
+        fd_solcap_writer_fini( capture );
+        fclose( capture_file );
+      }
     }
 
     if( rocksdb_dir ) {
       ingest_rocksdb( global, rocksdb_dir, end_slot, verifypoh, txnstatus, tpool, tcnt-1 );
+
+      fd_hash_t const * known_bank_hash = fd_get_bank_hash( global->funk, global->bank.slot );
+
+      if( known_bank_hash ) {
+        if( FD_UNLIKELY( 0!=memcmp( global->bank.banks_hash.hash, known_bank_hash->hash, 32UL ) ) ) {
+          FD_LOG_ERR(( "Bank hash mismatch! slot=%lu expected=%32J, got=%32J",
+              global->bank.slot,
+              known_bank_hash->hash,
+              global->bank.banks_hash.hash ));
+        }
+      }
+    }
+
+    /* Dump feature activation state */
+
+    for( fd_feature_id_t const * id = fd_feature_iter_init();
+                                     !fd_feature_iter_done( id );
+                                 id = fd_feature_iter_next( id ) ) {
+      ulong activated_at = *fd_features_ptr_const( &global->features, id );
+      if( activated_at )
+        FD_LOG_DEBUG(( "feature %32J activated at slot %lu", id->id.key, activated_at ));
     }
 
   } else if (strcmp(cmd, "recover") == 0) {

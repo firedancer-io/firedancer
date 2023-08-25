@@ -3,10 +3,14 @@
 ifneq ($(FD_HAS_ROCKSDB),)
 
 $(call make-lib,fd_sol_tests)
-
-$(call add-objs,generated/test_native_programs_0 generated/test_native_programs_150 generated/test_native_programs_400 generated/test_native_programs_1000 generated/test_native_programs_1550 generated/test_native_programs_450 generated/test_native_programs_100 generated/test_native_programs_1600 generated/test_native_programs_500 generated/test_native_programs_1050 generated/test_native_programs_1650 generated/test_native_programs_50 generated/test_native_programs_1100 generated/test_native_programs_1700 generated/test_native_programs_550 generated/test_native_programs_1150 generated/test_native_programs_1750 generated/test_native_programs_600 generated/test_native_programs_1200 generated/test_native_programs_1800 generated/test_native_programs_650 generated/test_native_programs_1250 generated/test_native_programs_1850 generated/test_native_programs_700 generated/test_native_programs_1300 generated/test_native_programs_1900 generated/test_native_programs_750 generated/test_native_programs_1350 generated/test_native_programs_200 generated/test_native_programs_800 generated/test_native_programs_1400 generated/test_native_programs_250 generated/test_native_programs_850 generated/test_native_programs_1450 generated/test_native_programs_300 generated/test_native_programs_900 generated/test_native_programs_1500 generated/test_native_programs_350 generated/test_native_programs_950,fd_sol_tests)
+$(call add-objs,$(patsubst src/flamenco/runtime/tests/%.c,%,$(wildcard src/flamenco/runtime/tests/generated/*.c)),fd_sol_tests)
 
 $(call make-unit-test,test_native_programs,test_native_programs,fd_ballet fd_funk fd_util fd_sol_tests fd_flamenco)
+$(call run-unit-test,test_native_programs)
 $(call make-unit-test,test_sign_programs,test_sign_programs fd_tests,fd_ballet fd_funk fd_util fd_flamenco)
+
+run-runtime-test: $(OBJDIR)/unit-test/test_native_programs $(OBJDIR)/unit-test/test_runtime $(OBJDIR)/bin/fd_frank_ledger
+	OBJDIR=$(OBJDIR) src/flamenco/runtime/run_ledger_tests.sh
+#	src/flamenco/runtime/run_bpf_tests.sh
 
 endif

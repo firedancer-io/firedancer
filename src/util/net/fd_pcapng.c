@@ -39,7 +39,6 @@ fd_pcapng_idb_defaults( fd_pcapng_idb_opts_t * opt,
   return 1;
 }
 
-
 #if FD_HAS_HOSTED
 
 #include <stdio.h>
@@ -87,7 +86,7 @@ fd_pcapng_iter_strerror( int    error,
   case FD_PCAPNG_ITER_ERR_STREAM:
   case FD_PCAPNG_ITER_ERR_IO: {
     int _errno = error==FD_PCAPNG_ITER_ERR_STREAM ? ferror( file ) : errno;
-    return fd_cstr_printf( err_cstr, sizeof(err_cstr_buf), NULL, "%d-%s", _errno, strerror(_errno) );
+    return fd_cstr_printf( err_cstr, sizeof(err_cstr_buf), NULL, "%i-%s", _errno, fd_io_strerror(_errno) );
   }
   default:
     err_cstr = fd_cstr_append_cstr( err_cstr, "???" );

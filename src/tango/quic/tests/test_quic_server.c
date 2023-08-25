@@ -91,8 +91,6 @@ main( int argc, char ** argv ) {
   quic->cert_key_object = fd_ed25519_pkey_from_private( pkey );
   quic->cert_object     = fd_x509_gen_solana_cert( quic->cert_key_object );
 
-  if( FD_UNLIKELY( argc>1 ) ) FD_LOG_ERR(( "unrecognized argument: %s", argv[ 1 ] ));
-
   FD_LOG_NOTICE(( "Initializing QUIC" ));
   FD_TEST( fd_quic_init( quic ) );
 

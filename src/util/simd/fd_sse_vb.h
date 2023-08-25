@@ -119,7 +119,7 @@ static inline void vb_stu( uchar * p, vb_t i ) { _mm_storeu_si128( (__m128i *)p,
    Note: C99 TC3 allows type punning through a union. */
 
 #define vb_extract(a,imm)  ((uchar)_mm_extract_epi8( (a), (imm) ))
-#define vb_insert(a,imm,v) _mm_insert_epi8( (a), (v), (imm) )
+#define vb_insert(a,imm,v) _mm_insert_epi8( (a), (char)(v), (imm) )
 
 static inline uchar
 vb_extract_variable( vb_t a, int n ) {

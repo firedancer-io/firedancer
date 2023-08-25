@@ -61,6 +61,12 @@ Test framework:
 """
 
 
+def cmp_key(key):
+    if "name" in key:
+        return key["name"]
+    else:
+        return ""
+
 def read_test_cases(path):
     tests = []
     files = os.listdir(path)
@@ -70,7 +76,8 @@ def read_test_cases(path):
             with open(path+'/'+file, "r") as f:
                 print(file)
                 data = json.loads('[' + f.read()[:-2] + ']')
-                tests = tests + data
+                tests = tests + sorted(data, key=lambda k: cmp_key(k))
+#    return tests.sort(key=lambda k: cmp_key(k))
     return tests
 
 def serializeInstructionError(err):
@@ -237,7 +244,7 @@ def main():
             f"""int test_{test_case_idx}(fd_executor_test_suite_t *suite) {{
   fd_executor_test_t test;
   fd_memset( &test, 0, FD_EXECUTOR_TEST_FOOTPRINT );
-  test.disable_cnt = {len(fs)};
+  test.disable_cnt = {len(feature_idxs)};
   test.bt = "{bt}";
   test.test_name = "{test_case["name"]}";
   test.test_number = {test_case_idx};
@@ -365,10 +372,6 @@ def main():
 
     hdr = """#include <stdlib.h>
 #include <stdio.h>
-
-#ifdef _DISABLE_OPTIMIZATION
-#pragma GCC optimize (\"O0\")
-#endif
 """
 
     print(hdr)

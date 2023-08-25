@@ -13,6 +13,8 @@ void fd_rent_lists_delete( fd_rent_lists_t * lists );
 
 void fd_rent_lists_startup_done( fd_rent_lists_t * lists );
 
+void fd_rent_lists_startup_done_tpool( fd_rent_lists_t * lists, fd_tpool_t * tpool, ulong max_workers );
+
 ulong fd_rent_lists_get_slots_per_epoch( fd_rent_lists_t * lists );
 
 /* Hook into funky */

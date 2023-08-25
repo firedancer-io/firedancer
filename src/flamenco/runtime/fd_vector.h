@@ -22,7 +22,7 @@ void VECT_(destroy)(struct VECT_NAME* self) {
 }
 
 static inline
-void VECT_(push)(struct VECT_NAME* self, const VECT_ELEMENT elem) {
+void VECT_(push)(struct VECT_NAME* self, VECT_ELEMENT elem) {
   if (self->cnt == self->max) {
     self->max <<= 1;
     self->elems = (VECT_ELEMENT*)realloc(self->elems, sizeof(VECT_ELEMENT)*self->max);
@@ -31,7 +31,7 @@ void VECT_(push)(struct VECT_NAME* self, const VECT_ELEMENT elem) {
 }
 
 static inline
-void VECT_(push_front)(struct VECT_NAME* self, const VECT_ELEMENT elem) {
+void VECT_(push_front)(struct VECT_NAME* self, VECT_ELEMENT elem) {
   if (self->cnt == self->max) {
     self->max <<= 1;
     self->elems = (VECT_ELEMENT*)realloc(self->elems, sizeof(VECT_ELEMENT)*self->max);

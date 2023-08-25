@@ -1,3 +1,4 @@
+#include "fd_acc_mgr.h"
 #include "time.h"
 #include "fd_runtime.h"
 #include "fd_account.h"
@@ -10,7 +11,6 @@
 #include "../../ballet/bmtree/fd_bmtree.h"
 
 #include "../stakes/fd_stake_program.h"
-
 #include "program/fd_system_program.h"
 #include "program/fd_vote_program.h"
 #include <stdio.h>
@@ -18,17 +18,14 @@
 
 #define MICRO_LAMPORTS_PER_LAMPORT (1000000UL)
 
-// #ifdef _DISABLE_OPTIMIZATION
-#pragma GCC optimize ("O0")
-// #endif
-
 void
 fd_runtime_init_bank_from_genesis( fd_global_ctx_t *     global,
                                    fd_genesis_solana_t * genesis_block,
                                    uchar                 genesis_hash[FD_SHA256_HASH_SZ] ) {
   global->bank.slot = 0;
 
-  fd_memcpy(&global->bank.poh, genesis_hash, FD_SHA256_HASH_SZ);
+  memcpy( &global->bank.poh, genesis_hash, FD_SHA256_HASH_SZ );
+  memset( global->bank.banks_hash.hash, 0, FD_SHA256_HASH_SZ );
 
   global->bank.fee_rate_governor = genesis_block->fee_rate_governor;
   global->bank.lamports_per_signature = 10000;
@@ -76,43 +73,144 @@ fd_runtime_init_bank_from_genesis( fd_global_ctx_t *     global,
   FD_TEST( vacc_pool );
   fd_vote_accounts_pair_t_mapnode_t * vacc_root = NULL;
 
+  fd_delegation_pair_t_mapnode_t * sacc_pool = fd_delegation_pair_t_map_alloc(global->valloc, 10000);
+  fd_delegation_pair_t_mapnode_t * sacc_root = NULL;
+
+  fd_stake_history_epochentry_pair_t_mapnode_t * stake_history_pool = fd_stake_history_epochentry_pair_t_map_alloc(global->valloc, 10000);
+  fd_stake_history_epochentry_pair_t_mapnode_t * stake_history_root = NULL;
+
+  fd_acc_lamports_t capitalization = 0UL;
+
   for( ulong i=0UL; i < genesis_block->accounts_len; i++ ) {
     fd_pubkey_account_pair_t const * acc = &genesis_block->accounts[ i ];
-    if( 0!=memcmp( acc->account.owner.key, global->solana_vote_program, sizeof(fd_pubkey_t) ) )
-      continue;
+    capitalization = fd_ulong_sat_add( capitalization, acc->account.lamports );
 
-    fd_vote_accounts_pair_t_mapnode_t * node =
-      fd_vote_accounts_pair_t_map_acquire( vacc_pool );
-    FD_TEST( node );
+    if( 0==memcmp( acc->account.owner.key, global->solana_vote_program, sizeof(fd_pubkey_t) ) ) {
+      /* Vote Program Account */
 
-    memcpy( node->elem.key.key, acc->key.key, sizeof(fd_pubkey_t) );
-    node->elem.stake = acc->account.lamports;
-    node->elem.value = (fd_solana_account_t) {
-      .lamports   = acc->account.lamports,
-      .data_len   = acc->account.data_len,
-      .data       = fd_valloc_malloc( global->valloc, 1UL, acc->account.data_len ),
-      .owner      = acc->account.owner,
-      .executable = acc->account.executable,
-      .rent_epoch = acc->account.rent_epoch
-    };
-    fd_memcpy( node->elem.value.data, acc->account.data, acc->account.data_len );
+      fd_vote_accounts_pair_t_mapnode_t * node =
+        fd_vote_accounts_pair_t_map_acquire( vacc_pool );
+      FD_TEST( node );
 
-    fd_vote_accounts_pair_t_map_insert( vacc_pool, &vacc_root, node );
+      fd_memcpy( node->elem.key.key, acc->key.key, sizeof(fd_pubkey_t) );
+      node->elem.stake = acc->account.lamports;
+      node->elem.value = (fd_solana_account_t) {
+        .lamports   = acc->account.lamports,
+        .data_len   = acc->account.data_len,
+        .data       = fd_valloc_malloc( global->valloc, 1UL, acc->account.data_len ),
+        .owner      = acc->account.owner,
+        .executable = acc->account.executable,
+        .rent_epoch = acc->account.rent_epoch
+      };
+      fd_memcpy( node->elem.value.data, acc->account.data, acc->account.data_len );
 
-    FD_LOG_INFO(( "Adding genesis vote account: key=%32J stake=%lu",
-                  node->elem.key.key,
-                  node->elem.stake ));
+      fd_vote_accounts_pair_t_map_insert( vacc_pool, &vacc_root, node );
+
+      FD_LOG_INFO(( "Adding genesis vote account: key=%32J stake=%lu",
+                    node->elem.key.key,
+                    node->elem.stake ));
+
+
+    } else if ( 0==memcmp( acc->account.owner.key , global->solana_stake_program, sizeof(fd_pubkey_t ) ) ) {
+      /* stake program account */
+      fd_stake_state_t stake_state;
+
+      fd_bincode_decode_ctx_t decode = {  .data    = acc->account.data,
+                                          .dataend = acc->account.data + acc->account.data_len,
+                                          .valloc  = global->valloc };
+      FD_TEST( fd_stake_state_decode( &stake_state, &decode ) == 0);
+
+      fd_delegation_pair_t_mapnode_t query_node;
+      fd_memcpy( &query_node.elem.account, acc->key.key, sizeof(fd_pubkey_t) );
+      fd_delegation_pair_t_mapnode_t * node = fd_delegation_pair_t_map_find( sacc_pool, sacc_root, &query_node);
+
+      fd_vote_accounts_pair_t_mapnode_t query_voter;
+      fd_pubkey_t * voter_pubkey = &stake_state.inner.stake.stake.delegation.voter_pubkey;
+      fd_memcpy( &query_voter.elem.key, voter_pubkey, sizeof(fd_pubkey_t) );
+      fd_vote_accounts_pair_t_mapnode_t * voter = fd_vote_accounts_pair_t_map_find( vacc_pool, vacc_root, &query_voter);
+
+      if ( node == NULL ) {
+        node = fd_delegation_pair_t_map_acquire( sacc_pool );
+        fd_memcpy( &node->elem.account, acc->key.key, sizeof(fd_pubkey_t) );
+        fd_memcpy( &node->elem.delegation, &stake_state.inner.stake.stake.delegation, sizeof(fd_delegation_t) );
+        if (voter != NULL)
+          voter->elem.stake = fd_ulong_sat_add(voter->elem.stake, stake_state.inner.stake.stake.delegation.stake);
+        fd_delegation_pair_t_map_insert( sacc_pool, &sacc_root, node );
+      } else {
+        if (memcmp( &node->elem.delegation.voter_pubkey, voter_pubkey, sizeof(fd_pubkey_t)) != 0 || node->elem.delegation.stake != stake_state.inner.stake.stake.delegation.stake ) {
+          // add stake to the new voter account
+          if (voter != NULL)
+            voter->elem.stake = fd_ulong_sat_add( voter->elem.stake, stake_state.inner.stake.stake.delegation.stake );
+
+          // remove stake from the old voter account
+          fd_memcpy( &query_voter.elem.key, &node->elem.delegation.voter_pubkey, sizeof(fd_pubkey_t) );
+          voter = fd_vote_accounts_pair_t_map_find( vacc_pool, vacc_root, &query_voter);
+          if (voter != NULL)
+            voter->elem.stake = fd_ulong_sat_sub( voter->elem.stake, node->elem.delegation.stake );
+        }
+        fd_memcpy( &node->elem.account, acc->key.key, sizeof(fd_pubkey_t) );
+        fd_memcpy( &node->elem.delegation, &stake_state.inner.stake.stake.delegation, sizeof(fd_delegation_t) );
+      }
+    } else if( 0==memcmp( acc->account.owner.key, global->solana_feature_program, sizeof(fd_pubkey_t) ) ) {
+      /* Feature Account */
+
+      /* Scan list of feature IDs to resolve address => feature offset */
+      fd_feature_id_t const * found = NULL;
+      for( fd_feature_id_t const * id = fd_feature_iter_init();
+                                       !fd_feature_iter_done( id );
+                                   id = fd_feature_iter_next( id ) ) {
+        if( 0==memcmp( acc->key.key, id->id.key, sizeof(fd_pubkey_t) ) ) {
+          found = id;
+          break;
+        }
+      }
+
+      if( found ) {
+        /* Load feature activation */
+        FD_SCRATCH_SCOPED_FRAME;
+        fd_bincode_decode_ctx_t decode = { .data    = acc->account.data,
+                                           .dataend = acc->account.data + acc->account.data_len,
+                                           .valloc  = fd_scratch_virtual() };
+        fd_feature_t feature;
+        int err = fd_feature_decode( &feature, &decode );
+        FD_TEST( err==FD_BINCODE_SUCCESS );
+        if( feature.activated_at ) {
+          FD_LOG_DEBUG(( "Feature %32J activated at %lu (genesis)", acc->key.key, *feature.activated_at ));
+          *fd_features_ptr( &global->features, found ) = *feature.activated_at;
+        } else {
+          FD_LOG_DEBUG(( "Feature %32J not activated (genesis)", acc->key.key, *feature.activated_at ));
+          *fd_features_ptr( &global->features, found ) = ULONG_MAX;
+        }
+      }
+
+    }
   }
 
   global->bank.epoch_stakes = (fd_vote_accounts_t) {
     .vote_accounts_pool = vacc_pool,
     .vote_accounts_root = vacc_root,
   };
+  global->bank.stakes = (fd_stakes_t) {
+    .stake_delegations_pool = sacc_pool,
+    .stake_delegations_root = sacc_root,
+    .epoch = 0,
+    .unused = 0,
+    .vote_accounts = (fd_vote_accounts_t) {
+      .vote_accounts_pool = vacc_pool,
+      .vote_accounts_root = vacc_root
+    },
+    .stake_history = (fd_stake_history_t) {
+      .entries_pool = stake_history_pool,
+      .entries_root = stake_history_root
+    }
+  };
+  global->bank.capitalization = capitalization;
+
 }
 
 void
 fd_runtime_init_program( fd_global_ctx_t * global ) {
-  fd_sysvar_recent_hashes_init(global );
+  fd_sysvar_recent_hashes_init( global );
   fd_sysvar_clock_init( global );
   fd_sysvar_slot_history_init( global );
 //  fd_sysvar_slot_hashes_init( global );
@@ -147,6 +245,14 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_meta_t* m, const void
   (void)m;
 
   fd_solcap_writer_set_slot( global->capture, m->slot );
+  if( global->bank.slot != 0 ) {
+    ulong slot_idx;
+    ulong new_epoch = fd_slot_to_epoch( &global->bank.epoch_schedule, m->slot, &slot_idx );
+    if( slot_idx==0UL ) {
+      /* Epoch boundary! */
+      fd_process_new_epoch( global, new_epoch - 1UL );
+    }
+  }
 
   /* Get current leader */
   ulong slot_rel;
@@ -159,6 +265,7 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_meta_t* m, const void
   // It has to go into the current txn previous info but is not in slot 0
   if (global->bank.slot != 0)
     fd_sysvar_slot_hashes_update( global );
+  fd_sysvar_last_restart_slot_update( global );
 
   ulong signature_cnt = 0;
   ulong blockoff = 0;
@@ -183,8 +290,10 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_meta_t* m, const void
         ulong pay_sz = 0;
         const uchar* raw = (const uchar *)block + blockoff;
         ulong txn_sz = fd_txn_parse_core(raw, fd_ulong_min(blocklen - blockoff, USHORT_MAX), txn_out, NULL, &pay_sz, 0);
-        if ( txn_sz == 0 || txn_sz > FD_TXN_MAX_SZ )
-          FD_LOG_ERR(("failed to parse transaction"));
+        if ( txn_sz == 0 || txn_sz > FD_TXN_MAX_SZ ) {
+          txn_sz = fd_txn_parse_core(raw, fd_ulong_min(blocklen - blockoff, USHORT_MAX), txn_out, NULL, &pay_sz, 0);
+          FD_LOG_ERR(("failed to parse transaction -  slot: %lu, txn_idx_in_block: %lu, mblk: %lu, txn_idx: %lu", global->bank.slot, txn_idx_in_block, mblk, txn_idx));
+        }
 
         fd_txn_t* txn = (fd_txn_t *)txn_out;
         fd_rawtxn_b_t rawtxn;
@@ -760,7 +869,7 @@ fd_runtime_collect_rent_account( fd_global_ctx_t *   global,
        global->bank.slots_per_year );
 
   if( due == FD_RENT_EXEMPT ) {
-    if( global->features.preserve_rent_epoch_for_rent_exempt_accounts ) {
+    if( FD_FEATURE_ACTIVE( global, preserve_rent_epoch_for_rent_exempt_accounts ) )
       return 0;
     }
     info->rent_epoch = epoch;
@@ -793,23 +902,24 @@ fd_runtime_collect_rent_account( fd_global_ctx_t *   global,
 }
 
 static int
-fd_runtime_collect_rent_cb( fd_funk_rec_t const * rec_ro,
-                            void * arg ) {
-  fd_global_ctx_t * global = (fd_global_ctx_t *)arg;
-  fd_funk_txn_t * txn      = global->funk_txn;
-  fd_acc_mgr_t *  acc_mgr  = global->acc_mgr;
+fd_runtime_collect_rent_cb( fd_funk_rec_t const * encountered_rec_ro,
+                            void *                arg ) {
 
-  int err = FD_ACC_MGR_SUCCESS;
-  fd_pubkey_t const * key = fd_type_pun_const( &rec_ro->pair.key[0].uc );
-  void const * acc_ro = fd_acc_mgr_view_data( acc_mgr, txn, key, &rec_ro, &err );
-  fd_account_meta_t const * meta_ro = (fd_account_meta_t const *)acc_ro;
+  fd_global_ctx_t *   global   = (fd_global_ctx_t *)arg;
+  fd_funk_txn_t *     txn      = global->funk_txn;
+  fd_acc_mgr_t *      acc_mgr  = global->acc_mgr;
+  fd_pubkey_t const * key      = fd_type_pun_const( &encountered_rec_ro->pair.key[0].uc );
+
+  fd_funk_rec_t const *     rec_ro  = NULL;  /* not necessarily encountered_rec_ro */
+  fd_account_meta_t const * meta_ro = NULL;
+  int err = fd_acc_mgr_view( acc_mgr, txn, key, &rec_ro, &meta_ro, NULL );
 
   /* Account might not exist anymore in the current world */
-  if( ( err==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) | (!acc_ro) ) {
+  if( err==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
     return 0; /* Don't walk again */
   }
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
-    FD_LOG_WARNING(( "fd_runtime_collect_rent_cb: fd_acc_mgr_view_data failed (%d)", err ));
+    FD_LOG_WARNING(( "fd_runtime_collect_rent_cb: fd_acc_mgr_view_raw failed (%d)", err ));
     return 0; /* Don't walk again */
   }
 
@@ -818,22 +928,20 @@ fd_runtime_collect_rent_cb( fd_funk_rec_t const * rec_ro,
   if( meta_ro->info.rent_epoch > epoch ) return 1;
 
   /* Upgrade read-only handle to writable */
-  fd_funk_rec_t * rec_rw = NULL;
-  err = FD_ACC_MGR_SUCCESS;
-  void * acc_rw = fd_acc_mgr_modify_data(
+  fd_account_meta_t * meta_rw = NULL;
+  err = fd_acc_mgr_modify(
     acc_mgr, txn, key,
-      /* do_create */ 0,
-      /* sz          */ NULL,
+      /* do_create   */ 0,
+      /* min_data_sz */ 0UL,
       /* opt_con_rec */ rec_ro,
-      /* opt_out_rec */ &rec_rw,
-      &err );
+      /* opt_out_rec */ NULL,
+      &meta_rw, NULL );
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
-    FD_LOG_WARNING(( "fd_runtime_collect_rent_range: fd_acc_mgr_modify_data failed (%d)", err ));
+    FD_LOG_WARNING(( "fd_runtime_collect_rent_range: fd_acc_mgr_modify_raw failed (%d)", err ));
     return err;
   }
 
   /* Actually invoke rent collection */
-  fd_account_meta_t * meta_rw = (fd_account_meta_t *)acc_rw;
   int changed = fd_runtime_collect_rent_account( global, meta_rw, key, epoch );
 
   if( changed ) {
@@ -1078,6 +1186,9 @@ fd_global_ctx_new        ( void * mem ) {
 
   fd_firedancer_banks_new(&self->bank);
 
+  // all features are disabled by default.
+  fd_features_disable_all(&self->features);
+
   fd_base58_decode_32( "Sysvar1111111111111111111111111111111111111",  (unsigned char *) self->sysvar_owner);
   fd_base58_decode_32( "SysvarRecentB1ockHashes11111111111111111111",  (unsigned char *) self->sysvar_recent_block_hashes);
   fd_base58_decode_32( "SysvarC1ock11111111111111111111111111111111",  (unsigned char *) self->sysvar_clock);
@@ -1089,16 +1200,19 @@ fd_global_ctx_new        ( void * mem ) {
   fd_base58_decode_32( "SysvarStakeHistory1111111111111111111111111",  (unsigned char *) self->sysvar_stake_history);
   fd_base58_decode_32( "SysvarLastRestartS1ot1111111111111111111111",  (unsigned char *) self->sysvar_last_restart_slot);
   fd_base58_decode_32( "Sysvar1nstructions1111111111111111111111111",  (unsigned char *) self->sysvar_instructions);
+  fd_base58_decode_32( "SysvarEpochRewards1111111111111111111111111",  (unsigned char *) self->sysvar_epoch_rewards);
 
   fd_base58_decode_32( "NativeLoader1111111111111111111111111111111",  (unsigned char *) self->solana_native_loader);
+  fd_base58_decode_32( "Feature111111111111111111111111111111111111",                    self->solana_feature_program);
   fd_base58_decode_32( "Config1111111111111111111111111111111111111",  (unsigned char *) self->solana_config_program);
   fd_base58_decode_32( "Stake11111111111111111111111111111111111111",  (unsigned char *) self->solana_stake_program);
   fd_base58_decode_32( "StakeConfig11111111111111111111111111111111",  (unsigned char *) self->solana_stake_program_config);
   fd_base58_decode_32( "11111111111111111111111111111111",             (unsigned char *) self->solana_system_program);
   fd_base58_decode_32( "Vote111111111111111111111111111111111111111",  (unsigned char *) self->solana_vote_program);
   fd_base58_decode_32( "BPFLoader1111111111111111111111111111111111",  (unsigned char *) self->solana_bpf_loader_deprecated_program);
-  fd_base58_decode_32( "BPFLoader2111111111111111111111111111111111",  (unsigned char *) self->solana_bpf_loader_program_with_jit);
-  fd_base58_decode_32( "BPFLoaderUpgradeab1e11111111111111111111111",  (unsigned char *) self->solana_bpf_loader_upgradeable_program_with_jit);
+  fd_base58_decode_32( "BPFLoader2111111111111111111111111111111111",  (unsigned char *) self->solana_bpf_loader_program);
+  fd_base58_decode_32( "BPFLoaderUpgradeab1e11111111111111111111111",  (unsigned char *) self->solana_bpf_loader_upgradeable_program);
+  fd_base58_decode_32( "LoaderV411111111111111111111111111111111111",                    self->solana_bpf_loader_v4_program->key);
 
   fd_base58_decode_32( "Ed25519SigVerify111111111111111111111111111",  (unsigned char *) self->solana_ed25519_sig_verify_program);
   fd_base58_decode_32( "KeccakSecp256k11111111111111111111111111111",  (unsigned char *) self->solana_keccak_secp_256k_program);
@@ -1175,66 +1289,6 @@ fd_global_ctx_delete     ( void * mem ) {
   return mem;
 }
 
-void fd_printer_walker(void *arg, const char* name, int type, const char *type_name, int level) {
-  if (NULL == arg)
-    return;
-  while (level-- > 0)
-    printf("  ");
-  switch (type) {
-    case 1:
-    case 9:
-      if (isprint(*((char *) arg)))
-        printf("\"%s\": \"%c\",  // %s\n", name, *((char *) arg), type_name);
-      else
-        printf("\"%s\": \"%d\",  // %s\n", name, *((char *) arg), type_name);
-      break;
-    case 2:
-    case 3:
-    case 4:
-      printf("\"%s\": \"%s\",  // %s\n", name, ((char *) arg), type_name);
-      break;
-    case 5:
-      printf("\"%s\": \"%f\",  // %s\n", name, *((double *) arg), type_name);
-      break;
-    case 6:
-      printf("\"%s\": \"%ld\",  // %s\n", name, *((long *) arg), type_name);
-      break;
-    case 7:
-      printf("\"%s\": \"%d\",  // %s\n", name, *((uint *) arg), type_name);
-      break;
-    case 8:
-      printf("\"%s\": \"%llx\",  // %s\n", name, (unsigned long long) *((uint128 *) arg), type_name);
-      break;
-    case 11:
-      printf("\"%s\": \"%ld\",  // %s\n", name, *((ulong *) arg), type_name);
-      break;
-    case 12:
-      printf("\"%s\": \"%d\",  // %s\n", name, *((ushort *) arg), type_name);
-      break;
-    case 32:
-      printf("\"%s\": {\n", name);
-      break;
-    case 33:
-      printf("},\n");
-      break;
-    case 35: {
-      char buf[50];
-      fd_base58_encode_32((uchar *) arg, NULL, buf);
-      printf("\"%s\": \"%s\",\n", name, buf);
-      break;
-    }
-    case 36:
-      printf("\"%s\": [\n", name);
-      break;
-    case 37:
-      printf("],\n");
-      break;
-  default:
-    printf("arg: %ld  name: %s  type: %d   type_name: %s\n", (ulong) arg, name, type, type_name);
-    break;
-  }
-}
-
 fd_funk_rec_key_t fd_runtime_block_key(ulong slot) {
   fd_funk_rec_key_t id;
   fd_memset( &id, 0, sizeof(id) );
@@ -1266,20 +1320,19 @@ const size_t MAX_SEED_LEN = 32;
 const char PDA_MARKER[] = {"ProgramDerivedAddress"};
 
 int
-fd_pubkey_create_with_seed( fd_pubkey_t const * base,
-                            char const *        seed,  /* FIXME add sz param */
-                            fd_pubkey_t const * owner,
-                            fd_pubkey_t *       out ) {
+fd_pubkey_create_with_seed( uchar const  base [ static 32 ],
+                            char const * seed,  /* FIXME add sz param */
+                            ulong        seed_sz,
+                            uchar const  owner[ static 32 ],
+                            uchar        out  [ static 32 ] ) {
 //  if seed.len() > MAX_SEED_LEN {
 //      return Err(PubkeyError::MaxSeedLengthExceeded);
 //    }
 
-  size_t slen = strlen(seed);
-
-  if (slen > MAX_SEED_LEN)
+  if (seed_sz > MAX_SEED_LEN)
     return FD_EXECUTOR_SYSTEM_ERR_MAX_SEED_LENGTH_EXCEEDED;
 
-  if (memcmp(&owner->hash[sizeof(owner->hash) - sizeof(PDA_MARKER) - 1], PDA_MARKER, sizeof(PDA_MARKER) - 1) == 0)
+  if( memcmp( &owner[32UL - sizeof(PDA_MARKER)-1], PDA_MARKER, sizeof(PDA_MARKER)-1 ) == 0)
     return FD_EXECUTOR_INSTR_ERR_ILLEGAL_OWNER;
 //  let owner = owner.as_ref();
 //  if owner.len() >= PDA_MARKER.len() {
@@ -1292,11 +1345,11 @@ fd_pubkey_create_with_seed( fd_pubkey_t const * base,
   fd_sha256_t sha;
   fd_sha256_init( &sha );
 
-  fd_sha256_append( &sha, base->hash, sizeof( fd_hash_t ) );
-  fd_sha256_append( &sha, seed, slen );
-  fd_sha256_append( &sha, owner->hash, sizeof( fd_hash_t ) );
+  fd_sha256_append( &sha, base,  32UL    );
+  fd_sha256_append( &sha, seed,  seed_sz );
+  fd_sha256_append( &sha, owner, 32UL    );
 
-  fd_sha256_fini( &sha, out->hash );
+  fd_sha256_fini( &sha, out );
 
 //  Ok(Pubkey::new(
 //      hashv(&[base.as_ref(), seed.as_ref(), owner]).as_ref(),
@@ -1332,8 +1385,8 @@ fd_runtime_save_banks( fd_global_ctx_t * global ) {
     return -1;
   }
 
-  FD_LOG_NOTICE(( "saved banks_hash %32J  poh_hash %32J", global->bank.banks_hash.hash, global->bank.poh.hash));
-
+  FD_LOG_NOTICE(( "Slot frozen, slot=%d bank_hash=%32J poh_hash=%32J", global->bank.slot, global->bank.banks_hash.hash, global->bank.poh.hash ));
+  global->bank.block_height += 1UL;
   fd_funk_rec_persist(global->funk, rec);
 
   return FD_RUNTIME_EXECUTE_SUCCESS;
@@ -1452,6 +1505,7 @@ int fd_global_import_solana_manifest(fd_global_ctx_t * global, fd_solana_manifes
   bank->collected_rent = oldbank->collected_rent;
   bank->collected_fees = oldbank->collector_fees;
   bank->capitalization = oldbank->capitalization;
+  bank->block_height = oldbank->block_height;
 
   /* Update last restart slot
      https://github.com/solana-labs/solana/blob/30531d7a5b74f914dde53bfbb0bc2144f2ac92bb/runtime/src/bank.rs#L2152
@@ -1517,44 +1571,98 @@ int fd_global_import_solana_manifest(fd_global_ctx_t * global, fd_solana_manifes
   return fd_runtime_save_banks( global );
 }
 
-void
-fd_update_feature( fd_global_ctx_t * global,
-                   ulong *           f,
-                   uchar const       acct[ static 32 ] ) {
+/* fd_feature_restore loads a feature from the accounts database and
+   updates the bank's feature activation state, given a feature account
+   address. */
 
-  char * raw_acc_data = (char*) fd_acc_mgr_view_data(global->acc_mgr, global->funk_txn, (fd_pubkey_t *) acct, NULL, NULL);
+static void
+fd_feature_restore( fd_global_ctx_t * global,
+                    ulong *           f,
+                    uchar const       acct[ static 32 ] ) {
+
+  char * raw_acc_data = (char*) fd_acc_mgr_view_raw(global->acc_mgr, global->funk_txn, (fd_pubkey_t *) acct, NULL, NULL);
   if (NULL == raw_acc_data)
     return;
   fd_account_meta_t *m = (fd_account_meta_t *) raw_acc_data;
 
-  fd_feature_t feature;
-  fd_feature_new(&feature);
+  fd_feature_t feature[1];
+  fd_feature_new( feature );
 
+  FD_SCRATCH_SCOPED_FRAME;
+
+  uchar const * data = (uchar const *)( (ulong)m + m->hlen );
   fd_bincode_decode_ctx_t ctx = {
-    .data = raw_acc_data + m->hlen,
-    .dataend = (char *) ctx.data + m->dlen,
-    .valloc  = global->valloc,
+    .data    = data,
+    .dataend = data + m->dlen,
+    .valloc  = fd_scratch_virtual(),
   };
-  if ( fd_feature_decode( &feature, &ctx ) )
+  int decode_err = fd_feature_decode( feature, &ctx );
+  if( FD_UNLIKELY( decode_err!=FD_BINCODE_SUCCESS ) ) {
+    FD_LOG_ERR(( "Failed to decode feature account %32J (%d)", acct, decode_err ));
     return;
+  }
 
-  /* Careful: In test ledgers, features can get activated at genesis
-     (meaning slot number 0).  However, we interpret 0 as "not activated
-     and not scheduled for activation". */
-  if( NULL != feature.activated_at )
-    *f = fd_ulong_max( 1UL, *feature.activated_at );
+  if( feature->activated_at ) {
+    FD_LOG_DEBUG(( "Feature %32J activated at %lu", acct, *feature->activated_at ));
+    *f = *feature->activated_at;
+  }
 
-  fd_bincode_destroy_ctx_t destroy = { .valloc = global->valloc };
-  fd_feature_destroy( &feature, &destroy );
+  /* No need to call destroy, since we are using fd_scratch allocator. */
 }
 
 void
-fd_update_features( fd_global_ctx_t * global ) {
+fd_features_restore( fd_global_ctx_t * global ) {
   for( fd_feature_id_t const * id = fd_feature_iter_init();
                                    !fd_feature_iter_done( id );
                                id = fd_feature_iter_next( id ) ) {
-
-    ulong * feature_ptr = (ulong *)( (ulong)&global->features + id->offset );
-    fd_update_feature( global, feature_ptr, id->id.key );
+    fd_feature_restore( global, fd_features_ptr( &global->features, id ), id->id.key );
   }
+}
+
+/* process for the start of a new epoch */
+void
+fd_process_new_epoch(
+    fd_global_ctx_t * global,
+    ulong parent_epoch
+) {
+  ulong slot;
+  ulong epoch = fd_slot_to_epoch(&global->bank.epoch_schedule, global->bank.slot, &slot);
+  global->bank.collected = 0;
+  global->bank.block_height = global->bank.block_height + 1UL;
+  global->bank.max_tick_height = (slot + 1) * global->bank.ticks_per_slot;
+
+  // activate feature flags
+  fd_features_restore( global );
+
+  // Add new entry to stakes.stake_history, set appropriate epoch and
+  // update vote accounts with warmed up stakes before saving a
+  // snapshot of stakes in epoch stakes
+  activate_epoch( global, epoch );
+
+  // (We might not implement this part)
+  /* Save a snapshot of stakes for use in consensus and stake weighted networking
+  let leader_schedule_epoch = self.epoch_schedule.get_leader_schedule_epoch(slot);
+  let (_, update_epoch_stakes_time) = measure!(
+           self.update_epoch_stakes(leader_schedule_epoch),
+           "update_epoch_stakes",
+       ); */
+  fd_epoch_reward_status_t epoch_reward_status[1] = {0};
+  if ( FD_FEATURE_ACTIVE( global, enable_partitioned_epoch_reward ) ) {
+    begin_partitioned_rewards( &global->bank, global, parent_epoch, epoch_reward_status);
+  } else {
+    // TODO: need to complete this path
+    update_rewards( global, parent_epoch);
+  }
+
+  distribute_partitioned_epoch_rewards( &global->bank, global, epoch_reward_status );
+
+  // (TODO) Update sysvars before processing transactions
+  // new.update_slot_hashes();
+  // new.update_stake_history(Some(parent_epoch));
+  // new.update_clock(Some(parent_epoch));
+  // new.update_fees();
+  fd_sysvar_fees_init( global );
+  // new.update_last_restart_slot()
+
+
 }

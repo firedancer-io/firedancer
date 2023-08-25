@@ -2,7 +2,6 @@
 #define HEADER_fd_src_flamenco_runtime_fd_hashes_h
 
 #include "fd_banks_solana.h"
-#include "../features/fd_features.h"
 
 struct fd_pubkey_hash_pair {
   fd_pubkey_t pubkey;
@@ -58,18 +57,12 @@ fd_hash_account_v1( uchar                     hash  [ static 32 ],
 /* fd_hash_account_current chooses the correct account hash function
    based on feature activation state. */
 
-static inline void const *
+void const *
 fd_hash_account_current( uchar                     hash  [ static 32 ],
                          fd_account_meta_t const * account,
                          uchar const               pubkey[ static 32 ],
                          uchar const             * data,
-                         fd_features_t const     * features,
-                         ulong                     slot ) {
-  if( features->account_hash_ignore_slot )
-    return fd_hash_account_v1( hash, account, pubkey, data );
-  else
-    return fd_hash_account_v0( hash, account, pubkey, data, slot );
-}
+                         fd_global_ctx_t const   * global );
 
 FD_PROTOTYPES_END
 

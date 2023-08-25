@@ -5,10 +5,6 @@
 #include "fd_sysvar.h"
 #include "../fd_runtime.h"
 
-#ifdef _DISABLE_OPTIMIZATION
-#pragma GCC optimize ("O0")
-#endif
-
 // run --ledger /home/jsiegel/test-ledger --db /home/jsiegel/funk --cmd accounts --accounts /home/jsiegel/test-ledger/accounts/ --pages 15 --index-max 120000000 --start-slot 2 --end-slot 2 --start-id 35 --end-id 37
 // run --ledger /home/jsiegel/test-ledger --db /home/jsiegel/funk --cmd replay --pages 15 --index-max 120000000 --start-slot 0 --end-slot 3
 
@@ -37,7 +33,7 @@ void fd_sysvar_recent_hashes_init( fd_global_ctx_t* global ) {
   if ( fd_recent_block_hashes_encode(&global->bank.recent_block_hashes, &ctx) )
     FD_LOG_ERR(("fd_recent_block_hashes_encode failed"));
 
-  fd_sysvar_set(global, global->sysvar_owner, (fd_pubkey_t *) global->sysvar_recent_block_hashes, enc, sz, global->bank.slot );
+  fd_sysvar_set(global, global->sysvar_owner, (fd_pubkey_t *) global->sysvar_recent_block_hashes, enc, sz, global->bank.slot, NULL );
 }
 
 void fd_sysvar_recent_hashes_update( fd_global_ctx_t* global ) {
@@ -67,5 +63,5 @@ void fd_sysvar_recent_hashes_update( fd_global_ctx_t* global ) {
   if ( fd_recent_block_hashes_encode(&global->bank.recent_block_hashes, &ctx) )
     FD_LOG_ERR(("fd_recent_block_hashes_encode failed"));
 
-  fd_sysvar_set(global, global->sysvar_owner, (fd_pubkey_t *) global->sysvar_recent_block_hashes, enc, sz, global->bank.slot);
+  fd_sysvar_set(global, global->sysvar_owner, (fd_pubkey_t *) global->sysvar_recent_block_hashes, enc, sz, global->bank.slot, NULL);
 }

@@ -1,13 +1,10 @@
 #ifndef HEADER_fd_src_tango_quic_fd_quic_proto_h
 #define HEADER_fd_src_tango_quic_fd_quic_proto_h
 
+#include "fd_quic_proto_structs.h"
+
 #include "fd_quic_common.h"
 #include "fd_quic_types.h"
-
-#include "templ/fd_quic_defs.h"
-#include "templ/fd_quic_templ.h"
-#include "templ/fd_quic_frames_templ.h"
-#include "templ/fd_quic_undefs.h"
 
 #include "templ/fd_quic_parsers_decl.h"
 #include "templ/fd_quic_templ.h"

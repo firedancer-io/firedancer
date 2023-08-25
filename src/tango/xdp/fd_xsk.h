@@ -145,6 +145,13 @@ struct fd_xsk_params {
   /* umem_sz: Total size of XSK ring shared memory area (contiguous).
      Aligned by FD_XSK_ALIGN. */
   ulong umem_sz;
+
+  /* zerocopy controls zero copy related flags.
+
+       0             default
+       XDP_COPY      Force "copy" mode
+       XDP_ZEROCOPY  Force "zero copy" mode (faster, but unstable on some NICs) */
+  ushort zerocopy;
 };
 typedef struct fd_xsk_params fd_xsk_params_t;
 

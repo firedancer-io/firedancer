@@ -1,6 +1,3 @@
-/* Tests in this file are not compatible with UBSAN. */
-#if !FD_HAS_UBSAN
-
 #include "fd_util.h"
 
 #if FD_HAS_HOSTED
@@ -428,8 +425,7 @@ main( int     argc,
   /* Test FD_IMPORT */
 
   FD_TEST( (strlen( quine_cstr )+1UL)==quine_cstr_sz              );
-  /* 75 bytes are skipped due to the preprocessor directive related to UBSAN. */
-  FD_TEST( !strncmp( quine_cstr+75U, "#include \"fd_util.h\"", 20UL ) );
+  FD_TEST( !strncmp( quine_cstr, "#include \"fd_util.h\"", 20UL ) );
 
   FD_TEST( (quine_binary_sz+1UL     )==quine_cstr_sz             );
   FD_TEST( fd_ulong_is_aligned( (ulong)quine_binary, 128UL )     );
@@ -445,14 +441,3 @@ main( int     argc,
   return 0;
 }
 
-#else /* FD_HAS_UBSAN */
-
-#include <stdio.h>
-int
-main ( int     argv,
-       char ** argc ) {
-  (void) argc;
-  (void) argv;
-  printf("not supported on this target\n");
-}
-#endif /* !FD_HAS_UBSAN */

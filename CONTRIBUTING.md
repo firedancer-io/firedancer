@@ -16,7 +16,6 @@ behaviors of various common development environments like emacs.
 - `.github`: CI- and repo-related config
 - `config`: GNU Make build system config
 - `contrib`: Miscellaneous code
-- `ffi/rust`: Rust FFI bindings
 - `src`: Main source tree
   - `app`: Main programs
   - `ballet`: Protocol-related code (parsers, serializers, cryptography)

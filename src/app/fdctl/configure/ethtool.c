@@ -32,7 +32,8 @@ device_is_bonded( const char * device ) {
   struct stat st;
   int err = stat( path, &st );
   if( FD_UNLIKELY( err && errno != ENOENT ) )
-    FD_LOG_ERR(( "error checking if device `%s` is bonded, stat(%s) failed (%i-%s)", device, path, errno, strerror( errno ) ));
+    FD_LOG_ERR(( "error checking if device `%s` is bonded, stat(%s) failed (%i-%s)",
+                 device, path, errno, fd_io_strerror( errno ) ));
   return !err;
 }
 
@@ -43,13 +44,15 @@ device_read_slaves( const char * device,
   snprintf1( path, PATH_MAX, "/sys/class/net/%s/bonding/slaves", device );
 
   FILE * fp = fopen( path, "r" );
-  if( FD_UNLIKELY( !fp ) ) FD_LOG_ERR(( "error configuring network device, fopen(%s) failed (%i-%s)", path, errno, strerror( errno ) ));
+  if( FD_UNLIKELY( !fp ) )
+    FD_LOG_ERR(( "error configuring network device, fopen(%s) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( !fgets( output, 4096, fp ) ) )
-    FD_LOG_ERR(( "error configuring network device, fgets(%s) failed (%i-%s)", path, errno, strerror( errno ) ));
+    FD_LOG_ERR(( "error configuring network device, fgets(%s) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( feof( fp ) ) ) FD_LOG_ERR(( "error configuring network device, fgets(%s) failed (EOF)", path ));
   if( FD_UNLIKELY( ferror( fp ) ) ) FD_LOG_ERR(( "error configuring network device, fgets(%s) failed (error)", path ));
   if( FD_UNLIKELY( strlen( output ) == 4095 ) ) FD_LOG_ERR(( "line too long in `%s`", path ));
-  if( FD_UNLIKELY( fclose( fp ) ) ) FD_LOG_ERR(( "error configuring network device, fclose(%s) failed (%i-%s)", path, errno, strerror( errno ) ));
+  if( FD_UNLIKELY( fclose( fp ) ) )
+    FD_LOG_ERR(( "error configuring network device, fclose(%s) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
   output[ strlen( output ) - 1 ] = '\0';
 }
 
@@ -59,7 +62,9 @@ init_device( const char * device,
   if( FD_UNLIKELY( strlen( device ) >= IF_NAMESIZE ) ) FD_LOG_ERR(( "device name `%s` is too long", device ));
 
   int sock = socket( AF_INET, SOCK_DGRAM, 0 );
-  if( FD_UNLIKELY( sock < 0 ) ) FD_LOG_ERR(( "error configuring network device, socket(AF_INET,SOCK_DGRAM,0) failed (%i-%s)", errno, strerror( errno ) ));
+  if( FD_UNLIKELY( sock < 0 ) )
+    FD_LOG_ERR(( "error configuring network device, socket(AF_INET,SOCK_DGRAM,0) failed (%i-%s)",
+                 errno, fd_io_strerror( errno ) ));
 
   struct ethtool_channels channels = {0};
   channels.cmd = ETHTOOL_GCHANNELS;
@@ -69,16 +74,18 @@ init_device( const char * device,
   ifr.ifr_data = (void *)&channels;
 
   if( FD_UNLIKELY( ioctl( sock, SIOCETHTOOL, &ifr ) ) )
-    FD_LOG_ERR(( "error configuring network device, ioctl(SIOCETHTOOL,ETHTOOL_GCHANNELS) failed (%i-%s)", errno, strerror( errno ) ));
+    FD_LOG_ERR(( "error configuring network device, ioctl(SIOCETHTOOL,ETHTOOL_GCHANNELS) failed (%i-%s)",
+                 errno, fd_io_strerror( errno ) ));
 
   channels.combined_count = combined_channel_count;
   channels.cmd = ETHTOOL_SCHANNELS;
 
   if( FD_UNLIKELY( ioctl( sock, SIOCETHTOOL, &ifr ) ) )
-    FD_LOG_ERR(( "error configuring network device, ioctl(SIOCETHTOOL,ETHTOOL_SCHANNELS) failed (%i-%s)", errno, strerror( errno ) ));
+    FD_LOG_ERR(( "error configuring network device, ioctl(SIOCETHTOOL,ETHTOOL_SCHANNELS) failed (%i-%s)",
+                 errno, fd_io_strerror( errno ) ));
 
   if( FD_UNLIKELY( close( sock ) ) )
-    FD_LOG_ERR(( "error configuring network device, close() socket failed (%i-%s)", errno, strerror( errno ) ));
+    FD_LOG_ERR(( "error configuring network device, close() socket failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
 
 static void
@@ -105,7 +112,9 @@ check_device( const char * device,
   if( FD_UNLIKELY( strlen( device ) >= IF_NAMESIZE ) ) FD_LOG_ERR(( "device name `%s` is too long", device ));
 
   int sock = socket( AF_INET, SOCK_DGRAM, 0 );
-  if( FD_UNLIKELY( sock < 0 ) ) FD_LOG_ERR(( "error configuring network device, socket(AF_INET,SOCK_DGRAM,0) failed (%i-%s)", errno, strerror( errno ) ));
+  if( FD_UNLIKELY( sock < 0 ) )
+    FD_LOG_ERR(( "error configuring network device, socket(AF_INET,SOCK_DGRAM,0) failed (%i-%s)",
+                 errno, fd_io_strerror( errno ) ));
 
   struct ethtool_channels channels = {0};
   channels.cmd = ETHTOOL_GCHANNELS;
@@ -124,14 +133,15 @@ check_device( const char * device,
       supports_channels = 0;
       current_channels  = 1;
     } else {
-      FD_LOG_ERR(( "error configuring network device `%s`, ioctl(SIOCETHTOOL,ETHTOOL_GCHANNELS) failed (%i-%s)", device, errno, strerror( errno ) ));
+      FD_LOG_ERR(( "error configuring network device `%s`, ioctl(SIOCETHTOOL,ETHTOOL_GCHANNELS) failed (%i-%s)",
+                   device, errno, fd_io_strerror( errno ) ));
     }
   } else {
     current_channels = channels.combined_count;
   }
 
   if( FD_UNLIKELY( close( sock ) ) )
-    FD_LOG_ERR(( "error configuring network device, close() socket failed (%i-%s)", errno, strerror( errno ) ));
+    FD_LOG_ERR(( "error configuring network device, close() socket failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   if( FD_UNLIKELY( current_channels != expected_channel_count ) ) {
     if( FD_UNLIKELY( !supports_channels ) )

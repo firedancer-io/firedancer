@@ -14,7 +14,7 @@ static void
 init_perm( security_t *     security,
            config_t * const config ) {
   if( FD_UNLIKELY( config->development.netns.enabled ) )
-    check_cap( security, NAME, CAP_SYS_ADMIN, "enter a network namespace" );
+    check_cap( security, NAME, CAP_SYS_ADMIN, "enter a network namespace by calling `setns(2)`" );
   else {
     check_cap( security, NAME, CAP_SYS_ADMIN, "create a BPF map with `bpf_map_create`" );
     check_cap( security, NAME, CAP_NET_ADMIN, "create an XSK map with `bpf_map_create`" );
@@ -22,12 +22,13 @@ init_perm( security_t *     security,
 }
 
 /* fd_xdp_redirect_prog is eBPF ELF object containing the XDP program.
-   It is embedded into this program. Build with `make ebpf-bin`. */
+   It is embedded into this program. */
 FD_IMPORT_BINARY( fd_xdp_redirect_prog, "src/tango/xdp/fd_xdp_redirect_prog.o" );
 
 static void
 init( config_t * const config ) {
-  enter_network_namespace( config );
+  if( FD_UNLIKELY( config->development.netns.enabled ) )
+    enter_network_namespace( config->tiles.quic.interface );
 
   uint mode = 0;
   if(      FD_LIKELY( !strcmp( config->tiles.quic.xdp_mode, "skb" ) ) ) mode = XDP_FLAGS_SKB_MODE;
@@ -53,7 +54,17 @@ init( config_t * const config ) {
 }
 
 static void
+fini_perm( security_t *     security,
+           config_t * const config ) {
+  if( FD_UNLIKELY( config->development.netns.enabled ) )
+    check_cap( security, NAME, CAP_SYS_ADMIN, "enter a network namespace by calling `setns(2)`" );
+}
+
+static void
 fini( config_t * const config ) {
+  if( FD_UNLIKELY( config->development.netns.enabled ) )
+    enter_network_namespace( config->tiles.quic.interface );
+
   if( FD_UNLIKELY( fd_xdp_fini( config->name ) ) )
     FD_LOG_ERR(( "fd_xdp_fini failed" ));
 
@@ -63,9 +74,9 @@ fini( config_t * const config ) {
 
   char path[ PATH_MAX ];
   snprintf1( path, PATH_MAX, "/sys/fs/bpf/%s/%s", config->name, config->tiles.quic.interface );
-  if( FD_UNLIKELY( rmdir( path ) && errno != ENOENT ) ) FD_LOG_ERR(( "rmdir failed (%i-%s)", errno, strerror( errno ) ));
+  if( FD_UNLIKELY( rmdir( path ) && errno != ENOENT ) ) FD_LOG_ERR(( "rmdir failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   snprintf1( path, PATH_MAX, "/sys/fs/bpf/%s", config->name );
-  if( FD_UNLIKELY( rmdir( path ) && errno != ENOENT ) ) FD_LOG_ERR(( "rmdir failed (%i-%s)", errno, strerror( errno ) ));
+  if( FD_UNLIKELY( rmdir( path ) && errno != ENOENT ) ) FD_LOG_ERR(( "rmdir failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
 
 static configure_result_t
@@ -76,7 +87,7 @@ check( config_t * const config ) {
   struct stat st;
   int result = stat( xdp_path, &st );
   if( FD_UNLIKELY( result && errno == ENOENT ) ) NOT_CONFIGURED( "`%s` does not exist", xdp_path );
-  else if( FD_UNLIKELY( result ) ) PARTIALLY_CONFIGURED( "`%s` cannot be statted (%i-%s)", xdp_path, errno, strerror( errno ) );
+  else if( FD_UNLIKELY( result ) ) PARTIALLY_CONFIGURED( "`%s` cannot be statted (%i-%s)", xdp_path, errno, fd_io_strerror( errno ) );
 
   CHECK( check_dir(  "/sys/fs/bpf", config->uid, config->uid, S_IFDIR | S_IRWXU | S_IRGRP | S_IXGRP ) );
   CHECK( check_dir(  xdp_path,      config->uid, config->uid, S_IFDIR | S_IRWXU | S_IRGRP | S_IXGRP ) );
@@ -103,7 +114,7 @@ configure_stage_t xdp = {
   .always_recreate = 0,
   .enabled         = NULL,
   .init_perm       = init_perm,
-  .fini_perm       = NULL,
+  .fini_perm       = fini_perm,
   .init            = init,
   .fini            = fini,
   .check           = check,

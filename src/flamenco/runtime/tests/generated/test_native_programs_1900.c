@@ -1,10 +1,6 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-#ifdef _DISABLE_OPTIMIZATION
-#pragma GCC optimize ("O0")
-#endif
-
 #include "../fd_tests.h"
 #include "../../../../ballet/base58/fd_base58.h"
 extern int fd_executor_test_suite_check_filter(fd_executor_test_suite_t *suite, fd_executor_test_t *test);
@@ -52,3 +48,9 @@ extern int fd_executor_test_suite_check_filter(fd_executor_test_suite_t *suite, 
 #include "test_native_programs_1941.h"
 #include "test_native_programs_1942.h"
 #include "test_native_programs_1943.h"
+#include "test_native_programs_1944.h"
+#include "test_native_programs_1945.h"
+#include "test_native_programs_1946.h"
+#include "test_native_programs_1947.h"
+#include "test_native_programs_1948.h"
+#include "test_native_programs_1949.h"
