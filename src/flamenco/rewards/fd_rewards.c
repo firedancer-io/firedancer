@@ -110,7 +110,7 @@ static void calculate_stake_points_and_credits (
     FD_LOG_NOTICE(("earned_credits: %lu", earned_credits));
     new_credits_observed = fd_ulong_max(new_credits_observed, final_epoch_credits);
 
-    __uint128_t stake_amount = (__uint128_t)(stake_activating_and_deactivating(&stake_state->inner.stake.stake.delegation, epoch, stake_history).effective);
+    __uint128_t stake_amount = (__uint128_t)(stake_activating_and_deactivating(&stake_state->inner.stake.stake.delegation, epoch, stake_history, NULL).effective);
     points += stake_amount * earned_credits;
   }
   result->points = points;

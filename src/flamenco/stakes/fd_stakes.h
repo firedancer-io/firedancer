@@ -32,9 +32,9 @@ fd_stake_weights_by_node( fd_vote_accounts_t const * accs,
 
 void activate_epoch( fd_global_ctx_t * global, ulong next_epoch );
 
-fd_stake_history_entry_t stake_and_activating( fd_delegation_t const * delegation, ulong target_epoch, fd_stake_history_t * stake_history );
+fd_stake_history_entry_t stake_and_activating( fd_delegation_t const * delegation, ulong target_epoch, fd_stake_history_t * stake_history, ulong * new_rate_activation_epoch );
 
-fd_stake_history_entry_t stake_activating_and_deactivating( fd_delegation_t const * delegation, ulong target_epoch, fd_stake_history_t * stake_history );
+fd_stake_history_entry_t stake_activating_and_deactivating( fd_delegation_t const * delegation, ulong target_epoch, fd_stake_history_t * stake_history, ulong * new_rate_activation_epoch );
 
 int write_stake_state(
     fd_global_ctx_t* global,

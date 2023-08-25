@@ -289,9 +289,64 @@ static int merge_delegation_stake_and_credits_observed( fd_global_ctx_t* global,
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
+static ulong next_power_of_two( ulong v )
+{
+    v--;
+    v |= v >> 1;
+    v |= v >> 2;
+    v |= v >> 4;
+    v |= v >> 8;
+    v |= v >> 16;
+    v++;
+    return v;
+}
+
+static ulong trailing_zeros( ulong v ) {
+    ulong c = 0;
+    while ( v % 2 == 0 ) {
+      c++;
+      v = v >> 1;
+    }
+    return c;
+}
+
+static ulong get_epoch_from_schedule( fd_epoch_schedule_t * epoch_schedule, ulong slot ) {
+    const ulong MINIMUM_SLOTS_PER_EPOCH = 32;
+    if ( slot < epoch_schedule->first_normal_slot ) {
+      ulong epoch = fd_ulong_sat_add(slot, MINIMUM_SLOTS_PER_EPOCH);
+      epoch = fd_ulong_sat_add(epoch, 1);
+      epoch = next_power_of_two(epoch);
+      epoch = trailing_zeros(epoch);
+      FD_LOG_INFO(("Epoch %lu", epoch));
+      epoch = fd_ulong_sat_sub(epoch, trailing_zeros(MINIMUM_SLOTS_PER_EPOCH));
+      FD_LOG_INFO(("Epoch %lu", epoch));
+      epoch = fd_ulong_sat_sub(epoch, 1);
+      return epoch;
+    } else {
+      ulong normal_slot_index = fd_ulong_sat_sub(slot, epoch_schedule->first_normal_slot);
+      ulong normal_epoch_index = epoch_schedule->slots_per_epoch ? normal_slot_index / epoch_schedule->slots_per_epoch : 0;
+      return fd_ulong_sat_add(epoch_schedule->first_normal_epoch, normal_epoch_index);
+    }
+} 
+
+static int new_warmup_cooldown_rate_epoch( instruction_ctx_t* ctx, ulong * result ) {
+    if (FD_FEATURE_ACTIVE(ctx->global, reduce_stake_warmup_cooldown)) {
+      fd_epoch_schedule_t epoch_schedule;
+      fd_sysvar_epoch_schedule_read(ctx->global, &epoch_schedule);
+      ulong slot = ctx->global->features.reduce_stake_warmup_cooldown;
+      *result = get_epoch_from_schedule( &epoch_schedule, slot);
+    } else {
+      return -1;
+    }
+    return 0;
+}
+
 static int get_if_mergeable( instruction_ctx_t* ctx, fd_stake_state_t* stake_state, fd_sol_sysvar_clock_t clock, fd_stake_history_t history, fd_merge_kind_t* merge_kind) {
     if ( fd_stake_state_is_stake( stake_state ) ) {
-      fd_stake_history_entry_t entry = stake_activating_and_deactivating( &stake_state->inner.stake.stake.delegation, clock.epoch, &history);
+      ulong new_epoch;
+      int err = new_warmup_cooldown_rate_epoch(ctx, &new_epoch);
+      ulong * new_activation_epoch = err == 0 ? &new_epoch : NULL;
+      fd_stake_history_entry_t entry = stake_activating_and_deactivating( &stake_state->inner.stake.stake.delegation, clock.epoch, &history, new_activation_epoch);
       FD_LOG_INFO(( "effective = %lu, activating = %lu, deactivating = %lu", entry.effective, entry.activating, entry.deactivating ));
       if (entry.effective == 0 && entry.activating == 0 && entry.deactivating == 0) {
         // Ok(Self::Inactive(*meta, stake_lamports)),
@@ -676,7 +731,10 @@ int fd_executor_stake_program_execute_instruction(
       /* redelegate when fd_stake_state_is_stake( &stake_state )
         https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/stake/src/stake_state.rs#L562
       */
-      if (stake_activating_and_deactivating( &stake_state.inner.stake.stake.delegation, clock.epoch, &history).effective != 0) {
+      ulong new_epoch;
+      int err = new_warmup_cooldown_rate_epoch(&ctx, &new_epoch);
+      ulong * new_activation_epoch = err == 0 ? &new_epoch : NULL;
+      if (stake_activating_and_deactivating( &stake_state.inner.stake.stake.delegation, clock.epoch, &history, new_activation_epoch).effective != 0) {
         ushort stake_lamports_ok = ( FD_FEATURE_ACTIVE( ctx.global, stake_redelegate_instruction ) ) ? stake_acc_meta->info.lamports >= stake_state.inner.stake.stake.delegation.stake : 1;
         if (stake_lamports_ok && clock.epoch == stake_state.inner.stake.stake.delegation.deactivation_epoch && memcmp( &stake_state.inner.stake.stake.delegation.voter_pubkey, vote_acc, sizeof(fd_pubkey_t) ) == 0) {
           stake_state.inner.stake.stake.delegation.deactivation_epoch = ULONG_MAX;
@@ -964,9 +1022,11 @@ int fd_executor_stake_program_execute_instruction(
       // if( clock.epoch >= stake_state.inner.stake.stake.delegation.deactivation_epoch ) {
       //   return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;m
       // }
-
+      ulong new_epoch;
+      int err = new_warmup_cooldown_rate_epoch(&ctx, &new_epoch);
+      ulong * new_activation_epoch = err == 0 ? &new_epoch : NULL;
       ulong staked_lamports = (clock.epoch >= stake_state.inner.stake.stake.delegation.deactivation_epoch)
-          ? stake_activating_and_deactivating(&stake_state.inner.stake.stake.delegation, clock.epoch, &stake_history).effective
+          ? stake_activating_and_deactivating(&stake_state.inner.stake.stake.delegation, clock.epoch, &stake_history, new_activation_epoch).effective
           : stake_state.inner.stake.stake.delegation.stake;
 
       reserve_lamports = staked_lamports + stake_state.inner.stake.meta.rent_exempt_reserve;
@@ -1148,7 +1208,7 @@ int fd_executor_stake_program_execute_instruction(
     // https://github.com/firedancer-io/solana/blob/56bd357f0dfdb841b27c4a346a58134428173f42/programs/stake/src/stake_instruction.rs#L206
 
     /* Check that there are at least two instruction accounts */
-    if (ctx.txn_ctx->txn_descriptor->acct_addr_cnt < 2) {
+    if (ctx.txn_ctx->txn_descriptor->acct_addr_cnt < 4) {
       return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
     }
     uchar const * instr_acc_idxs = ctx.instr->acct_txn_idxs;
@@ -1778,7 +1838,10 @@ int fd_executor_stake_program_execute_instruction(
     if (result != FD_EXECUTOR_INSTR_SUCCESS)
       return result;
 
-    fd_stake_history_entry_t entry = stake_activating_and_deactivating(&stake_state.inner.stake.stake.delegation, clock.epoch, &history);
+    ulong new_epoch;
+    int err = new_warmup_cooldown_rate_epoch(&ctx, &new_epoch);
+    ulong * new_activation_epoch = err == 0 ? &new_epoch : NULL;
+    fd_stake_history_entry_t entry = stake_activating_and_deactivating(&stake_state.inner.stake.stake.delegation, clock.epoch, &history, new_activation_epoch);
     if ( (entry.effective == 0) || (entry.activating != 0) || (entry.deactivating != 0)) {
       FD_LOG_DEBUG(("stake is not active"));
       ctx.txn_ctx->custom_err = 13; // Err(StakeError::RedelegateTransientOrInactiveStake.into())

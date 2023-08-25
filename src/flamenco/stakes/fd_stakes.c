@@ -164,7 +164,12 @@ fd_stake_weights_by_node( fd_vote_accounts_t const * accs,
   return weights_cnt;
 }
 
-fd_stake_history_entry_t stake_and_activating( fd_delegation_t const * delegation, ulong target_epoch, fd_stake_history_t * stake_history ) {
+double warmup_cooldown_rate( ulong current_epoch, ulong * new_rate_activation_epoch ) {
+  ulong unwrapped = new_rate_activation_epoch ? *new_rate_activation_epoch : ULONG_MAX;
+  return current_epoch < unwrapped ? 0.25 : 0.09;
+}
+
+fd_stake_history_entry_t stake_and_activating( fd_delegation_t const * delegation, ulong target_epoch, fd_stake_history_t * stake_history, ulong * new_rate_activation_epoch ) {
   ulong delegated_stake = delegation->stake;
 
   fd_stake_history_entry_t * cluster_stake_at_activation_epoch = NULL;
@@ -231,7 +236,7 @@ fd_stake_history_entry_t stake_and_activating( fd_delegation_t const * delegatio
       ulong remaining_activating_stake = delegated_stake - current_effective_stake;
       double weight = (double)remaining_activating_stake / (double)prev_cluster_stake->activating;
 
-      double newly_effective_cluster_stake = (double)prev_cluster_stake->effective * delegation->warmup_cooldown_rate;
+      double newly_effective_cluster_stake = (double)prev_cluster_stake->effective * warmup_cooldown_rate(current_epoch, new_rate_activation_epoch);
       ulong newly_effective_stake = (ulong)(weight * newly_effective_cluster_stake);
       newly_effective_stake = (newly_effective_stake == 0) ? 1 : newly_effective_stake;
 
@@ -273,9 +278,9 @@ fd_stake_history_entry_t stake_and_activating( fd_delegation_t const * delegatio
   }
 }
 
-fd_stake_history_entry_t stake_activating_and_deactivating( fd_delegation_t const * delegation, ulong target_epoch, fd_stake_history_t * stake_history ) {
+fd_stake_history_entry_t stake_activating_and_deactivating( fd_delegation_t const * delegation, ulong target_epoch, fd_stake_history_t * stake_history, ulong * new_rate_activation_epoch ) {
 
-  fd_stake_history_entry_t stake_and_activating_entry = stake_and_activating( delegation, target_epoch, stake_history );
+  fd_stake_history_entry_t stake_and_activating_entry = stake_and_activating( delegation, target_epoch, stake_history, new_rate_activation_epoch );
 
   ulong effective_stake = stake_and_activating_entry.effective;
   ulong activating_stake = stake_and_activating_entry.activating;
@@ -338,7 +343,7 @@ fd_stake_history_entry_t stake_activating_and_deactivating( fd_delegation_t cons
 
       double weight = (double)current_effective_stake / (double)prev_cluster_stake->deactivating;
 
-      double newly_not_effective_cluster_stake = (double)prev_cluster_stake->effective * delegation->warmup_cooldown_rate;
+      double newly_not_effective_cluster_stake = (double)prev_cluster_stake->effective * warmup_cooldown_rate(current_epoch, new_rate_activation_epoch);
       ulong newly_not_effective_stake = (ulong)(weight * newly_not_effective_cluster_stake);
       newly_not_effective_stake = (newly_not_effective_stake == 0) ? 1 : newly_not_effective_stake;
 
@@ -407,7 +412,7 @@ void activate_epoch( fd_global_ctx_t* global, ulong next_epoch ) {
 
 
   for ( fd_delegation_pair_t_mapnode_t * n = fd_delegation_pair_t_map_minimum(stakes->stake_delegations_pool, stakes->stake_delegations_root); n; n = fd_delegation_pair_t_map_successor(stakes->stake_delegations_pool, n) ) {
-    fd_stake_history_entry_t new_entry = stake_activating_and_deactivating( &n->elem.delegation, stakes->epoch, &history );
+    fd_stake_history_entry_t new_entry = stake_activating_and_deactivating( &n->elem.delegation, stakes->epoch, &history, NULL );
     acc->elem.entry.effective += new_entry.effective;
     acc->elem.entry.activating += new_entry.activating;
     acc->elem.entry.deactivating += new_entry.deactivating;
@@ -425,7 +430,7 @@ void activate_epoch( fd_global_ctx_t* global, ulong next_epoch ) {
   fd_stake_weight_t_mapnode_t * root = NULL;
 
   for ( fd_delegation_pair_t_mapnode_t * n = fd_delegation_pair_t_map_minimum(stakes->stake_delegations_pool, stakes->stake_delegations_root); n; n = fd_delegation_pair_t_map_successor(stakes->stake_delegations_pool, n) ) {
-    ulong delegation_stake = stake_activating_and_deactivating( &n->elem.delegation, stakes->epoch, &history ).effective;
+    ulong delegation_stake = stake_activating_and_deactivating( &n->elem.delegation, stakes->epoch, &history, NULL ).effective;
     fd_stake_weight_t_mapnode_t temp;
     fd_memcpy(&temp.elem.key, &n->elem.delegation.voter_pubkey, sizeof(fd_pubkey_t));
     fd_stake_weight_t_mapnode_t * entry  = fd_stake_weight_t_map_find(pool, root, &temp);
