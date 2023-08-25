@@ -7,6 +7,7 @@
 #include <unistd.h>
 #include "../../types/fd_types_yaml.h"
 #include "../../../ballet/base64/fd_base64.h"
+#include "../program/fd_bpf_loader_v4_program.h"  /* TODO remove this */
 
 const char *verbose = NULL;
 const char *fail_fast = NULL;
@@ -138,6 +139,51 @@ log_test_fail( fd_executor_test_t *             test,
   }
 }
 
+static void
+load_sysvar_cache( fd_global_ctx_t * global,
+                   uchar const       pubkey[ static 32 ],
+                   char const *      base64 ) {
+
+  /* Get upper bound for size of sysvar data */
+
+  ulong base64_len  = strlen( base64 );
+  ulong max_data_sz = 3UL + base64_len/2UL;  /* TODO add fd_base64_decoded_sz */
+
+  /* Allocate funk record */
+
+  fd_account_meta_t * acc_meta = NULL;
+  uchar *             acc_data = NULL;
+  int err = fd_acc_mgr_modify( global->acc_mgr, global->funk_txn, (fd_pubkey_t *)pubkey, 1, max_data_sz, NULL, NULL, &acc_meta, &acc_data );
+  FD_TEST( !err );
+
+  /* Decode Base64 into funk record */
+
+  long sz = fd_base64_decode( acc_data, base64, base64_len );
+  FD_TEST( sz>=0 );
+
+  /* Set metadata */
+
+  fd_memcpy( acc_meta->info.owner, global->sysvar_owner, 32UL );
+  acc_meta->info.lamports = 1UL;  /* chicken-and-egg problem: don't know rent, so can't find rent-exempt balance */
+  acc_meta->dlen = (ulong)sz;
+}
+
+/* TODO: hack to ignore sysvars in account mismatches */
+static int
+is_sysvar( fd_global_ctx_t const * global,
+           uchar const             pubkey[ static 32 ] ) {
+  if( 0==memcmp( pubkey, global->sysvar_clock, 32UL ) ) return 1;
+  if( 0==memcmp( pubkey, global->sysvar_epoch_schedule, 32UL ) ) return 1;
+  if( 0==memcmp( pubkey, global->sysvar_epoch_rewards, 32UL ) ) return 1;
+  if( 0==memcmp( pubkey, global->sysvar_fees, 32UL ) ) return 1;
+  if( 0==memcmp( pubkey, global->sysvar_rent, 32UL ) ) return 1;
+  if( 0==memcmp( pubkey, global->sysvar_slot_hashes, 32UL ) ) return 1;
+  if( 0==memcmp( pubkey, global->sysvar_recent_block_hashes, 32UL ) ) return 1;
+  if( 0==memcmp( pubkey, global->sysvar_stake_history, 32UL ) ) return 1;
+  if( 0==memcmp( pubkey, global->sysvar_slot_history, 32UL ) ) return 1;
+  return 0;
+}
+
 int fd_executor_run_test(
   fd_executor_test_t*       test,
   fd_executor_test_suite_t* suite) {
@@ -224,34 +270,34 @@ int fd_executor_run_test(
 
     global->bank.slot = 200880004;
 
-    // TODO: are these required now?
-    if ( strcmp(test->sysvar_cache.clock, "") ) {
-      FD_SCRATCH_SCOPED_FRAME;
+    /* Load sysvar cache */
+    if( 0!=strcmp( test->sysvar_cache.clock, "" ) )
+      load_sysvar_cache( global, global->sysvar_clock, test->sysvar_cache.clock );
+    if( 0!=strcmp( test->sysvar_cache.epoch_schedule, "" ) )
+      load_sysvar_cache( global, global->sysvar_epoch_schedule, test->sysvar_cache.epoch_schedule );
+    if( 0!=strcmp( test->sysvar_cache.epoch_rewards, "" ) )
+      load_sysvar_cache( global, global->sysvar_epoch_rewards, test->sysvar_cache.epoch_rewards );
+    if( 0!=strcmp( test->sysvar_cache.fees, "" ) )
+      load_sysvar_cache( global, global->sysvar_fees, test->sysvar_cache.fees );
+    if( 0!=strcmp( test->sysvar_cache.rent, "" ) )
+      load_sysvar_cache( global, global->sysvar_rent, test->sysvar_cache.rent );
+    if( 0!=strcmp( test->sysvar_cache.slot_hashes, "" ) )
+      load_sysvar_cache( global, global->sysvar_slot_hashes, test->sysvar_cache.slot_hashes );
+    //if( 0!=strcmp( test->sysvar_cache.recent_block_hashes, "" ) )
+    //  load_sysvar_cache( global, global->sysvar_recent_block_hashes, test->sysvar_cache.recent_block_hashes );
+    if( 0!=strcmp( test->sysvar_cache.stake_history, "" ) )
+      load_sysvar_cache( global, global->sysvar_stake_history, test->sysvar_cache.stake_history );
+    if( 0!=strcmp( test->sysvar_cache.slot_history, "" ) )
+      load_sysvar_cache( global, global->sysvar_slot_history, test->sysvar_cache.slot_history );
 
-      ulong base64_len = strlen( test->sysvar_cache.clock );
-
-      /* Decode Base64 */
-      ulong   max_data_sz = 3UL + base64_len/2UL;
-      uchar * data        = fd_scratch_alloc( 1, max_data_sz );
-      long    data_sz     = fd_base64_decode( data, test->sysvar_cache.clock, base64_len );
-      FD_TEST( data_sz>=0 );
-
-      /* Decode clock */
-      fd_sol_sysvar_clock_t clk = {0};
-      fd_bincode_decode_ctx_t ctx = {
-        .data    = data,
-        .dataend = data + data_sz,
-        .valloc  = fd_scratch_virtual()
-      };
-      if ( fd_sol_sysvar_clock_decode( &clk, &ctx ) ) {
-        FD_LOG_WARNING(("fd_sol_sysvar_clock_decode failed"));
-        ret = FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
-        goto fd_executor_run_cleanup;
-      }
-
-      global->bank.slot = clk.slot;
-      fd_sysvar_set_override(global, global->sysvar_owner, (fd_pubkey_t*)global->sysvar_clock, data, (ulong)data_sz, global->bank.slot);
-    }
+    /* Restore slot number
+       TODO The slot number should not be in bank */
+    do {
+      fd_sol_sysvar_clock_t clock[1];
+      int err = fd_sysvar_clock_read( global, clock );
+      if( err==0 )
+        global->bank.slot = clock->slot;
+    } while(0);
 
     /* Parse the raw transaction */
 
@@ -315,6 +361,8 @@ int fd_executor_run_test(
     if (FD_EXECUTOR_INSTR_SUCCESS == exec_result) {
       /* Confirm account updates */
       for ( ulong i = 0; i < test->accs_len; i++ ) {
+        if( is_sysvar( global, test->accs[i].pubkey.key ) ) continue;
+
         int    err = 0;
         char * raw_acc_data = (char*) fd_acc_mgr_view_raw(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) &test->accs[i].pubkey, NULL, &err);
         if (NULL == raw_acc_data) {
@@ -348,7 +396,7 @@ int fd_executor_run_test(
           break;
         }
         if (memcmp(&m->info.owner, &test->accs[i].result_owner, sizeof(fd_pubkey_t)) != 0) {
-          log_test_fail( test, suite, "owner missmatch: %s", (NULL != verbose) ? test->bt : "");
+          log_test_fail( test, suite, "owner missmatch: %32J vs %32J", m->info.owner, test->accs[i].result_owner.key );
           ret = -668;
           break;
         }
@@ -430,11 +478,11 @@ int fd_executor_run_test(
             } while(0);
 
             /* Print instructions on how to diff */
-            FD_LOG_WARNING(( "HEX DIFF:\n  vimdiff <(xxd -c 32 test_%lu_account_%32J_expected.bin) <(xxd -c 32 test_%lu_account_%32J_actual.bin)",
+            FD_LOG_WARNING(( "HEX DIFF:\n  vimdiff <(xxd -c 32 test_%lu_account_%32J_actual.bin) <(xxd -c 32 test_%lu_account_%32J_expected.bin)",
                 test->test_number, test->accs[i].pubkey.key, test->test_number, test->accs[i].pubkey.key ));
 
             /* Print instructions on how to diff */
-            FD_LOG_WARNING(( "YAML DIFF:\n  vimdiff test_%lu_account_%32J_expected.yml test_%lu_account_%32J_actual.yml",
+            FD_LOG_WARNING(( "YAML DIFF:\n  vimdiff test_%lu_account_%32J_actual.yml test_%lu_account_%32J_expected.yml",
                 test->test_number, test->accs[i].pubkey.key, test->test_number, test->accs[i].pubkey.key ));
 
           }

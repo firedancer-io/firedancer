@@ -38,10 +38,10 @@ fd_acc_mgr_is_key( fd_funk_rec_key_t const* id ) {
 
 void const *
 fd_acc_mgr_view_raw( fd_acc_mgr_t *         acc_mgr,
-                      fd_funk_txn_t const *  txn,
-                      fd_pubkey_t const *    pubkey,
-                      fd_funk_rec_t const ** orec,
-                      int *                  opt_err ) {
+                     fd_funk_txn_t const *  txn,
+                     fd_pubkey_t const *    pubkey,
+                     fd_funk_rec_t const ** orec,
+                     int *                  opt_err ) {
 
   fd_funk_rec_key_t     id = fd_acc_mgr_key(pubkey);
   fd_funk_t *           funk = acc_mgr->global->funk;
@@ -58,6 +58,15 @@ fd_acc_mgr_view_raw( fd_acc_mgr_t *         acc_mgr,
   if( FD_UNLIKELY( !data ) ) FD_LOG_CRIT(( "fd_funk_val_cache failed (%d-%s)", *opt_err, fd_funk_strerror( *opt_err ) ));
   fd_account_meta_t const *metadata = (fd_account_meta_t const *) data;
   FD_TEST( metadata->magic == FD_ACCOUNT_META_MAGIC );
+
+  ///* Pretend that zero-lamport accounts do not exist, as per Solana
+  //   protocol logic.  In Firedancer, zero-lamport funk_rec are allowed
+  //   to exist, but are garbage collected at a slot boundary. */
+  //if( metadata->info.lamports == 0UL ) {
+  //  fd_int_store_if( !!opt_err, opt_err, FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT );
+  //  return NULL;
+  //}
+
   return data;
 }
 
