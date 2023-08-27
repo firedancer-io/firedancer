@@ -122,7 +122,7 @@ fd_tls_decode_client_hello( fd_tls_client_hello_t * out,
       ext_parse_res = fd_tls_decode_ext_signature_algorithms( &out->signature_algorithms, ext_data, wire_sz );
       break;
     case FD_TLS_EXT_KEY_SHARE:
-      ext_parse_res = fd_tls_decode_ext_key_share_client( &out->key_share, ext_data, wire_sz );
+      ext_parse_res = fd_tls_decode_key_share_list( &out->key_share, ext_data, wire_sz );
       break;
     default:
       ext_parse_res = (long)ext_sz;
@@ -141,6 +141,176 @@ fd_tls_decode_client_hello( fd_tls_client_hello_t * out,
   /* Assert: wire_laddr == ext_stop */
 
   return (long)( wire_laddr - (ulong)wire );
+}
+
+long
+fd_tls_encode_client_hello( fd_tls_client_hello_t * in,
+                            void *                  wire,
+                            ulong                   wire_sz ) {
+
+  ulong wire_laddr = (ulong)wire;
+
+  /* Encode static sized part of client hello */
+
+  ushort legacy_version        = FD_TLS_VERSION_TLS12;
+  uchar  legacy_session_id_sz  = 0;
+  ushort cipher_suite_sz       = 1*sizeof(ushort);
+  ushort cipher_suites[1]      = { FD_TLS_CIPHER_SUITE_AES_128_GCM_SHA256 };
+  uchar  legacy_comp_method_sz = 1;
+  uchar  legacy_comp_method[1] = {0};
+
+# define FIELDS( FIELD )                                 \
+    FIELD( 0, &legacy_version,            ushort, 1    ) \
+    FIELD( 1,  in->random,                uchar,  32UL ) \
+    FIELD( 2, &legacy_session_id_sz,      uchar,  1    ) \
+    FIELD( 3, &cipher_suite_sz,           ushort, 1    ) \
+    FIELD( 4,  cipher_suites,             ushort, 1    ) \
+    FIELD( 5, &legacy_comp_method_sz,     uchar,  1    ) \
+    FIELD( 6,  legacy_comp_method,        uchar,  1    )
+    FD_TLS_ENCODE_STATIC_BATCH( FIELDS )
+# undef FIELDS
+
+  /* Encode extensions */
+
+  ushort * extension_tot_sz = FD_TLS_SKIP_FIELD( ushort );
+  ulong    extension_start  = wire_laddr;
+
+  ushort ext_supported_versions_ext_type = FD_TLS_EXT_SUPPORTED_VERSIONS;
+  ushort ext_supported_versions_ext_sz   = 3;
+  uchar  ext_supported_versions_sz       = 2;
+  ushort ext_supported_versions[1]       = { FD_TLS_VERSION_TLS13 };
+
+  ushort ext_key_share_ext_type = FD_TLS_EXT_KEY_SHARE;
+  ushort ext_key_share_ext_sz   = 38;
+  ushort ext_key_share_sz1      = 36;
+  ushort ext_key_share_group    = FD_TLS_GROUP_X25519;
+  ushort ext_key_share_sz       = 32;
+
+  ushort ext_supported_groups_ext_type = FD_TLS_EXT_TYPE_SUPPORTED_GROUPS;
+  ushort ext_supported_groups_ext_sz   = 4;
+  ushort ext_supported_groups_sz       = 2;
+  ushort ext_supported_groups[1]       = { FD_TLS_GROUP_X25519 };
+
+  ushort ext_sigalg_ext_type = FD_TLS_EXT_SIGNATURE_ALGORITHMS;
+  ushort ext_sigalg_ext_sz   = 4;
+  ushort ext_sigalg_sz       = 2;
+  ushort ext_sigalg[1]       = { FD_TLS_SIGNATURE_ED25519 };
+
+# define FIELDS( FIELD ) \
+    FIELD( 0, &ext_supported_versions_ext_type,   ushort, 1    ) \
+    FIELD( 1, &ext_supported_versions_ext_sz,     ushort, 1    ) \
+    FIELD( 2, &ext_supported_versions_sz,         uchar,  1    ) \
+    FIELD( 3,  ext_supported_versions,            ushort, 1    ) \
+    FIELD( 4, &ext_key_share_ext_type,            ushort, 1    ) \
+    FIELD( 5, &ext_key_share_ext_sz,              ushort, 1    ) \
+    FIELD( 6, &ext_key_share_sz1,                 ushort, 1    ) \
+    FIELD( 7, &ext_key_share_group,               ushort, 1    ) \
+    FIELD( 8, &ext_key_share_sz,                  ushort, 1    ) \
+    FIELD( 9, &in->key_share.x25519[0],           uchar,  32UL ) \
+    FIELD(10, &ext_supported_groups_ext_type,     ushort, 1    ) \
+    FIELD(11, &ext_supported_groups_ext_sz,       ushort, 1    ) \
+    FIELD(12, &ext_supported_groups_sz,           ushort, 1    ) \
+    FIELD(13,  ext_supported_groups,              ushort, 1    ) \
+    FIELD(14, &ext_sigalg_ext_type,               ushort, 1    ) \
+    FIELD(15, &ext_sigalg_ext_sz,                 ushort, 1    ) \
+    FIELD(16, &ext_sigalg_sz,                     ushort, 1    ) \
+    FIELD(17,  ext_sigalg,                        ushort, 1    )
+    FD_TLS_ENCODE_STATIC_BATCH( FIELDS )
+# undef FIELDS
+
+  *extension_tot_sz = fd_ushort_bswap( (ushort)( (ulong)wire_laddr - extension_start ) );
+  return (long)( wire_laddr - (ulong)wire );
+}
+
+long
+fd_tls_decode_server_hello( fd_tls_server_hello_t * out,
+                            void const *            wire,
+                            ulong                   wire_sz ) {
+
+  ulong wire_laddr = (ulong)wire;
+
+  /* Decode static sized part of server hello */
+
+  ushort legacy_version;            /* ==FD_TLS_VERSION_TLS12 */
+  uchar  legacy_session_id_sz;      /* ==0 */
+  ushort cipher_suite;              /* ==FD_TLS_CIPHER_SUITE_AES_128_GCM_SHA256 */
+  uchar  legacy_compression_method; /* ==0 */
+
+# define FIELDS( FIELD )                                 \
+    FIELD( 0, &legacy_version,            ushort, 1    ) \
+    FIELD( 1, &out->random[0],            uchar,  32UL ) \
+    FIELD( 2, &legacy_session_id_sz,      uchar,  1    ) \
+    FIELD( 3, &cipher_suite,              ushort, 1    ) \
+    FIELD( 4, &legacy_compression_method, uchar,  1    )
+    FD_TLS_DECODE_STATIC_BATCH( FIELDS )
+# undef FIELDS
+
+  if( FD_UNLIKELY( ( legacy_version != FD_TLS_VERSION_TLS12 )
+                 | ( legacy_session_id_sz      != 0         )
+                 | ( legacy_compression_method != 0         ) ) )
+    return -(long)FD_TLS_ALERT_PROTOCOL_VERSION;
+
+  if( FD_UNLIKELY( cipher_suite != FD_TLS_CIPHER_SUITE_AES_128_GCM_SHA256 ) )
+    return -(long)FD_TLS_ALERT_ILLEGAL_PARAMETER;
+
+  /* Middlebox compatibility for HelloRetryRequest */
+
+  static uchar const special_random[ 32 ] =
+    { 0xCF, 0x21, 0xAD, 0x74, 0xE5, 0x9A, 0x61, 0x11,
+      0xBE, 0x1D, 0x8C, 0x02, 0x1E, 0x65, 0xB8, 0x91,
+      0xC2, 0xA2, 0x11, 0x16, 0x7A, 0xBB, 0x8C, 0x5E,
+      0x07, 0x9E, 0x09, 0xE2, 0xC8, 0xA8, 0x33, 0x9C };
+  if( FD_UNLIKELY( 0==memcmp( out->random, special_random, 32 ) ) )
+    return -(long)FD_TLS_ALERT_ILLEGAL_PARAMETER;
+
+  /* Read extensions */
+
+  fd_tls_ext_supported_versions_t versions = {0};
+
+  FD_TLS_DECODE_LIST_BEGIN( ushort, alignof(uchar) ) {
+    /* Read extension type and length */
+    ushort ext_type;
+    ushort ext_sz;
+#   define FIELDS( FIELD )             \
+      FIELD( 0, &ext_type, ushort, 1 ) \
+      FIELD( 1, &ext_sz,   ushort, 1 )
+      FD_TLS_DECODE_STATIC_BATCH( FIELDS )
+#   undef FIELDS
+
+    /* Bounds check extension data */
+    if( FD_UNLIKELY( ext_sz > wire_sz ) )
+      return -(long)FD_TLS_ALERT_DECODE_ERROR;
+
+    /* Decode extension data */
+    void const * ext_data = (void const *)wire_laddr;
+    long ext_parse_res;
+    switch( ext_type ) {
+    case FD_TLS_EXT_SUPPORTED_VERSIONS:
+      ext_parse_res = fd_tls_decode_ext_supported_versions( &versions, ext_data, wire_sz );
+      break;
+    case FD_TLS_EXT_KEY_SHARE:
+      ext_parse_res = fd_tls_decode_key_share( &out->key_share, ext_data, wire_sz );
+      break;
+    default:
+      /* Reject unsolicited extensions */
+      return -(long)FD_TLS_ALERT_ILLEGAL_PARAMETER;
+    }
+
+    if( FD_UNLIKELY( ext_parse_res<0L ) )
+      return ext_parse_res;
+    if( FD_UNLIKELY( ext_parse_res != (long)ext_sz ) )
+      return -(long)FD_TLS_ALERT_DECODE_ERROR;
+  }
+  FD_TLS_DECODE_LIST_END
+
+  /* Check for required extensions */
+
+  if( FD_UNLIKELY( !versions.tls13 ) )
+    return -(long)FD_TLS_ALERT_PROTOCOL_VERSION;
+  if( FD_UNLIKELY( !out->key_share.has_x25519 ) )
+    return -(long)FD_TLS_ALERT_MISSING_EXTENSION;
+
+  return 0L;
 }
 
 long
@@ -184,7 +354,7 @@ fd_tls_encode_server_hello( fd_tls_server_hello_t * out,
 # define FIELDS( FIELD )                                         \
     FIELD( 0, &ext_supported_versions_ext_type,   ushort, 1    ) \
     FIELD( 1, &ext_supported_versions_ext_sz,     ushort, 1    ) \
-    FIELD( 2, ext_supported_versions,             ushort, 1    ) \
+    FIELD( 2,  ext_supported_versions,            ushort, 1    ) \
     FIELD( 3, &ext_key_share_ext_type,            ushort, 1    ) \
     FIELD( 4, &ext_key_share_ext_sz,              ushort, 1    ) \
     FIELD( 5, &ext_key_share_group,               ushort, 1    ) \
@@ -318,7 +488,7 @@ fd_tls_decode_ext_supported_versions( fd_tls_ext_supported_versions_t * out,
     case FD_TLS_VERSION_TLS13:
       out->tls13 = 1;
       break;
-    /* Add more groups here */
+    /* Add more versions here */
     }
   }
   FD_TLS_DECODE_LIST_END
@@ -348,8 +518,8 @@ fd_tls_decode_ext_signature_algorithms( fd_tls_ext_signature_algorithms_t * out,
   return (long)( wire_laddr - (ulong)wire );
 }
 
-static long
-fd_tls_decode_key_share_entry( fd_tls_ext_key_share_t * out,
+long
+fd_tls_decode_key_share( fd_tls_key_share_t * out,
                                void const *             wire,
                                ulong                    wire_sz ) {
 
@@ -386,14 +556,14 @@ fd_tls_decode_key_share_entry( fd_tls_ext_key_share_t * out,
 }
 
 long
-fd_tls_decode_ext_key_share_client( fd_tls_ext_key_share_t * out,
+fd_tls_decode_key_share_list( fd_tls_key_share_t * out,
                                     void const *             wire,
                                     ulong                    wire_sz ) {
 
   ulong wire_laddr = (ulong)wire;
 
   FD_TLS_DECODE_LIST_BEGIN( ushort, alignof(uchar) ) {
-    FD_TLS_DECODE_SUB( fd_tls_decode_key_share_entry, out );
+    FD_TLS_DECODE_SUB( fd_tls_decode_key_share, out );
   }
   FD_TLS_DECODE_LIST_END
 

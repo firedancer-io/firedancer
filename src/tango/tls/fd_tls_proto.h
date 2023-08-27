@@ -14,6 +14,8 @@
    a packed C struct and a "bswap" (endianness conversion) function is
    provided. */
 
+/* TODO Messy code!  Needs cleanup eventually. */
+
 #include "../fd_tango_base.h"
 
 /* TLS Extensions *****************************************************/
@@ -62,12 +64,12 @@ struct fd_tls_ext_signature_algorithms {
 
 typedef struct fd_tls_ext_signature_algorithms fd_tls_ext_signature_algorithms_t;
 
-struct fd_tls_ext_key_share {
+struct fd_tls_key_share {
   uchar has_x25519 : 1;
   uchar x25519[ 32 ];
 };
 
-typedef struct fd_tls_ext_key_share fd_tls_ext_key_share_t;
+typedef struct fd_tls_key_share fd_tls_key_share_t;
 
 union fd_tls_ext_cert_type_list {
   struct {
@@ -117,7 +119,8 @@ struct fd_tls_client_hello {
   fd_tls_ext_server_name_t          server_name;
   fd_tls_ext_supported_groups_t     supported_groups;
   fd_tls_ext_signature_algorithms_t signature_algorithms;
-  fd_tls_ext_key_share_t            key_share;
+  fd_tls_key_share_t            key_share;
+  fd_tls_ext_cert_type_list_t       cert_types;
 };
 
 typedef struct fd_tls_client_hello fd_tls_client_hello_t;
@@ -129,7 +132,7 @@ struct fd_tls_server_hello {
   uchar  random[ 32 ];
   ushort cipher_suite;
 
-  fd_tls_ext_key_share_t key_share;
+  fd_tls_key_share_t key_share;
 };
 
 typedef struct fd_tls_server_hello fd_tls_server_hello_t;
@@ -379,6 +382,11 @@ fd_tls_decode_client_hello( fd_tls_client_hello_t * out,
                             ulong                   wire_sz );
 
 long
+fd_tls_encode_client_hello( fd_tls_client_hello_t * in,
+                            void *                  wire,
+                            ulong                   wire_sz );
+
+long
 fd_tls_decode_server_hello( fd_tls_server_hello_t * out,
                             void const *            wire,
                             ulong                   wire_sz );
@@ -415,9 +423,14 @@ fd_tls_decode_ext_signature_algorithms( fd_tls_ext_signature_algorithms_t * out,
                                         ulong                               wire_sz );
 
 long
-fd_tls_decode_ext_key_share_client( fd_tls_ext_key_share_t * out,
-                                    void const *             wire,
-                                    ulong                    wire_sz );
+fd_tls_decode_key_share( fd_tls_key_share_t * out,
+                         void const *         wire,
+                         ulong                wire_sz );
+
+long
+fd_tls_decode_key_share_list( fd_tls_key_share_t * out,
+                              void const *         wire,
+                              ulong                wire_sz );
 
 long
 fd_tls_decode_ext_cert_type_list( fd_tls_ext_cert_type_list_t * out,

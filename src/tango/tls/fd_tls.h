@@ -65,7 +65,7 @@
      RFC 5288: AES Galois Counter Mode (GCM) Cipher Suites for TLS
      https://datatracker.ietf.org/doc/html/rfc5288 */
 
-/* Callback functions */
+/* Callbacks **********************************************************/
 
 /* fd_tls_secrets_fn_t is called by fd_tls when new encryption secrets
    have been generated.  {recv/send}_secret are used for incoming/out-
@@ -98,25 +98,46 @@ typedef int
                          int          encryption_level,
                          int          flush );
 
-/* fd_tls_rand_fn_t is called by fd_tls to request random bytes.
-   TODO use thiscall convention */
+/* fd_tls_rand_vt_t is an abstraction for retrieving secure pseudorandom
+   values.  When fd_tls needs random values, it calls fd_tls_rand_fn_t.
+
+   ctx is an arbitrary pointer that is provided as a callback argument.
+   buf points to a buffer of bufsz bytes that is to be filled with
+   cryptographically secure randomness.  bufsz is usually 32 bytes.
+   Assume buf is unaligned.  Returns buf on success and NULL on failure.
+
+   Function must not block, but may synchronously pre-calculate a
+   reasonable amount of data ahead of time.  NULL return value implies
+   inability to keep up with demand for random values.  In this case,
+   function should return NULL.  Function should minimize side effects
+   (notably, should not log).
+
+   TODO API considerations:
+   - read() style error codes?
+   - Buffering to reduce amount of virtual function calls? */
 
 typedef void *
-(* fd_tls_rand_fn_t)( void * buf,
+(* fd_tls_rand_fn_t)( void * ctx,
+                      void * buf,
                       ulong  bufsz );
 
-/* fd_tls_ext_fn_t allows the callee to add arbitrary TLS extensions.
-   Return value is a NULL-terminated list.  Each list element points to
-   a serialized extension (length is implied by the extension header).
-   hs is the handshake object (fd_server_hs_t).  It is U.B. to return
-   NULL or to provide an invalid serialization.
-   TODO document length restrictions */
+struct fd_tls_rand_vt {
+  void *           ctx;
+  fd_tls_rand_fn_t rand_fn;
+};
 
-typedef void const * const *
-(* fd_tls_ext_fn_t)( void * hs );
+typedef struct fd_tls_rand_vt fd_tls_rand_t;
+
+static inline void *
+fd_tls_rand( fd_tls_rand_t const * rand,
+             void *                buf,
+             ulong                 bufsz ) {
+  return rand->rand_fn( rand->ctx, buf, bufsz );
+}
 
 /* Handshake state identifiers */
 
+/* Server */
 #define FD_TLS_HS_FAIL          (-1)
 #define FD_TLS_HS_CONNECTED     (-2)
 #define FD_TLS_HS_START         ( 0)
@@ -124,6 +145,10 @@ typedef void const * const *
 #define FD_TLS_HS_WAIT_CERT     ( 3)
 #define FD_TLS_HS_WAIT_CV       ( 4)
 #define FD_TLS_HS_WAIT_FINISHED ( 5)
+/* Client */
+#define FD_TLS_HS_WAIT_SH       ( 6)
+#define FD_TLS_HS_WAIT_EE       ( 7)
+#define FD_TLS_HS_WAIT_CERT_CR  ( 8)
 
 /* TLS encryption levels */
 
@@ -142,6 +167,8 @@ typedef void const * const *
 
 #define FD_TLS_SERVER_CERT_MSG_SZ_MAX (FD_TLS_SERVER_CERT_SZ_MAX+13UL)
 
+/* Transcripts ********************************************************/
+
 /* The transcript is a running hash over all handshake messages.  The
    hash state depends on the current handshake progression.  The hash
    order is as follows:
@@ -155,12 +182,7 @@ typedef void const * const *
      server   Finished              always
      client   Certificate           optional
      client   CertificateVerify     optional
-     client   Finished              always
-
-   TODO We can (and should) cheat and remove the pending SHA block
-        buffer.  In the server case, we control the last few messages,
-        so we can align the transcript preimage with a multiple of a
-        SHA block size. */
+     client   Finished              always */
 
 struct fd_tls_transcript {
   uchar buf[ 64 ];  /* Pending SHA block */
@@ -171,126 +193,13 @@ struct fd_tls_transcript {
 
 typedef struct fd_tls_transcript fd_tls_transcript_t;
 
-/* The fd_tls_server_t object provides the server-side functionality
-   of a TLS handshake. */
-
-struct fd_tls_server {
-  fd_tls_rand_fn_t    rand_fn;
-  fd_tls_secrets_fn_t secrets_fn;
-  fd_tls_sendmsg_fn_t sendmsg_fn;
-  fd_tls_ext_fn_t     encrypted_exts_fn;
-
-  uchar kex_private_key[ 32 ];
-  uchar kex_public_key [ 32 ];
-
-  uchar cert_private_key[ 32 ];
-  uchar cert_public_key [ 32 ];
-
-  /* Buffers storing the Certificate record.  This is not a simple copy
-     of the cert but also contains TLS headers/footers.  Do not set
-     directly. */
-  uchar cert_x509[ FD_TLS_SERVER_CERT_MSG_SZ_MAX ];  /* set using fd_tls_server_set_x509 */
-  ulong cert_x509_sz;
-  /* TODO support raw public key */
-
-  uchar alpn[ 32 ];
-};
-
-typedef struct fd_tls_server fd_tls_server_t;
-
-/* fd_tls_server_hs_t is an instance of the server-side TLS handshake
-   state machine.  This object is instantiated when the client sent its
-   ClientHello, the first message of a TLS handshake.  Currently, only
-   one in-flight state exists:
-
-     FD_TLS_HS_WAIT_FINISHED:  Processed ClientHello.
-
-       At this point, the server has responded with all messages up to
-       server Finished and is waiting for the client to respond with
-       with client Finished (and optionally, a certificate).
-
-       FIXME When requesting a cert, the server should instead stop
-             sending after CertificateVerify to save compute resources
-             (at the expense of more memory required to save state
-              carried over from CertificateRequest ... server Finished).
-
-   A server might have to handle lots of concurrent connection attempts.
-   To minimize memory usage, the handshake state only contains the info
-   that a server needs to remember between function calls (i.e. when
-   waiting for the client to respond).  Specifically, this is:
-
-     The transcript hash state, which commits both sides to the entire
-     sequence of handshake messages (such that they cannot be tampered
-     with).
-
-     The client handshake secret, which is used to derive the "client
-     Finished" verify data. */
-
-struct fd_tls_server_hs {
-  char  state;  /* FD_TLS_HS_{...} */
-  uchar server_cert_type : 2;
-  uchar client_cert_type : 2;
-
-  fd_tls_transcript_t transcript;
-  uchar               client_hs_secret[32];
-};
-
-typedef struct fd_tls_server_hs fd_tls_server_hs_t;
+/* Note:  An experimental memory optimization that is not implemented
+   here is alignment of SHA state.  It might be possible to craft a
+   transcript preimage that is aligned to SHA block size.  This allows
+   omitting the SHA block buffer, saving 64 bytes per transcript (and
+   thus per in-flight handshake). */
 
 FD_PROTOTYPES_BEGIN
-
-ulong
-fd_tls_server_align( void );
-
-ulong
-fd_tls_server_footprint( void );
-
-void *
-fd_tls_server_new( void * mem );
-
-fd_tls_server_t *
-fd_tls_server_join( void * );
-
-void *
-fd_tls_server_leave( fd_tls_server_t * );
-
-void *
-fd_tls_server_delete( void * );
-
-/* fd_tls_server_hs_new initializes a handshake object.  mem points to a
-   buffer suitable for storing an fd_tls_server_hs_t.  Returns cast of
-   mem. */
-
-fd_tls_server_hs_t *
-fd_tls_server_hs_new( void * mem );
-
-/* fd_tls_server_set_x509 sets the server certificate.  cert points to
-   the first byte of the DER serialized X.509 certificate.  cert_sz is
-   the serialized size.  Returns 1 on success and 0 on failure.  Reasons
-   for failure include oversz cert. */
-
-static inline int
-fd_tls_server_set_x509( fd_tls_server_t * server,
-                        void const *      cert,
-                        ulong             cert_sz ) {
-
-  long res = fd_tls_encode_server_cert_x509( cert, cert_sz, server->cert_x509, FD_TLS_SERVER_CERT_MSG_SZ_MAX );
-  if( FD_UNLIKELY( res<0 ) ) return 0;
-  server->cert_x509_sz = (ulong)res;
-  return 1;
-}
-
-/* fd_tls_server_handshake ingests a TLS record from the client.
-   Progresses the TLS state machine. Synchronously dispatches callbacks.
-
-   Returns 0L on success.  On failure, returns negated TLS alert code. */
-
-long
-fd_tls_server_handshake( fd_tls_server_t const * server,
-                         fd_tls_server_hs_t *    handshake,
-                         void const *            record,
-                         ulong                   record_sz,
-                         int                     encryption_level );
 
 static inline void
 fd_tls_transcript_store( fd_tls_transcript_t * script,
