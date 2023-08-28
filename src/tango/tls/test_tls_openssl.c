@@ -1,4 +1,5 @@
 #include "fd_tls.h"
+#include "fd_tls_estate_cli.h"
 #include "fd_tls_proto.h"
 #if !FD_HAS_OPENSSL
 #error "This test requires OpenSSL"
@@ -73,77 +74,8 @@ _fdtls_secrets( void const * handshake,
 
 /* Record transport */
 
-#define TEST_RECORD_BUFSZ (1024UL)
-struct test_record {
-  int   level;
-  uchar buf[ TEST_RECORD_BUFSZ ];
-  ulong cur;
-};
-
-typedef struct test_record test_record_t;
-
-#define TEST_RECORD_BUF_CNT (8UL)
-struct test_record_buf {
-  test_record_t records[ TEST_RECORD_BUF_CNT ];
-  ulong         recv;
-  ulong         send;
-};
-
-typedef struct test_record_buf test_record_buf_t;
-
 static test_record_buf_t _ossl_out  = {0};
 static test_record_buf_t _fdtls_out = {0};
-
-static void
-test_record_send( test_record_buf_t * buf,
-                  int                 level,
-                  uchar const *       record,
-                  ulong               record_sz ) {
-  test_record_t * r = &buf->records[ (buf->send++ % TEST_RECORD_BUF_CNT) ];
-  r->level = level;
-  r->cur   = record_sz;
-  FD_TEST( record_sz<=TEST_RECORD_BUFSZ );
-  fd_memcpy( r->buf, record, record_sz );
-}
-
-static test_record_t *
-test_record_recv( test_record_buf_t * buf ) {
-  if( buf->recv==buf->send ) return NULL;
-  return &buf->records[ buf->recv++ ];
-}
-
-static void
-_log_record( uchar const * record,
-             ulong         record_sz,
-             int           from_server ) {
-
-  FD_TEST( record_sz>=4UL );
-
-  char buf[ 512UL ];
-  char * str = fd_cstr_init( buf );
-
-  char const * prefix = from_server ? "server" : "client";
-         str = fd_cstr_append_cstr( str, prefix );
-         str = fd_cstr_append_cstr( str, ": " );
-
-  char const * type = NULL;
-  switch( *(uchar const *)record ) {
-  case FD_TLS_RECORD_CLIENT_HELLO:       type = "ClientHello";         break;
-  case FD_TLS_RECORD_SERVER_HELLO:       type = "ServerHello";         break;
-  case FD_TLS_RECORD_ENCRYPTED_EXT:      type = "EncryptedExtensions"; break;
-  case FD_TLS_RECORD_CERT:               type = "Certificate";         break;
-  case FD_TLS_RECORD_CERT_VERIFY:        type = "CertificateVerify";   break;
-  case FD_TLS_RECORD_CERT_REQ:           type = "CertificateRequest";  break;
-  case FD_TLS_RECORD_FINISHED:           type = "Finished";            break;
-  case FD_TLS_RECORD_NEW_SESSION_TICKET: type = "NewSessionTicket";    break;
-  default:
-    FD_LOG_ERR(( "unknown TLS record type %u", *(uchar const *)record ));
-  }
-  str = fd_cstr_append_cstr( str, type );
-  fd_cstr_fini( str );
-
-  FD_LOG_HEXDUMP_INFO(( buf, record, record_sz ));
-}
 
 static int
 _ossl_sendmsg( SSL *                 ssl,
@@ -151,7 +83,7 @@ _ossl_sendmsg( SSL *                 ssl,
                uchar const *         record,
                ulong                 record_sz ) {
   (void)ssl;
-  _log_record( record, record_sz, !_is_ossl_to_fd );
+  test_record_log( record, record_sz, !_is_ossl_to_fd );
   test_record_send( &_ossl_out, _ossl_level_to_fdtls[ enc_level ], record, record_sz );
   return 1;
 }
@@ -163,7 +95,7 @@ _fdtls_sendmsg( void const * handshake,
                 int          encryption_level,
                 int          flush ) {
   (void)handshake;  (void)flush;
-  _log_record( record, record_sz, !!_is_ossl_to_fd );
+  test_record_log( record, record_sz, !!_is_ossl_to_fd );
   test_record_send( &_fdtls_out, encryption_level, record, record_sz );
   return 1;
 }
@@ -336,16 +268,6 @@ test_server( SSL_CTX * ctx ) {
 
   _fd_server_respond( server, hs );
 
-  /* Check handshake secrets */
-  //FD_TEST( 0==memcmp( client_hs_secret_ossl, client_hs_secret_fdtls, 32UL ) );
-  //FD_TEST( 0==memcmp( server_hs_secret_ossl, server_hs_secret_fdtls, 32UL ) );
-  //FD_LOG_INFO(( "client handshake secret: " FD_LOG_HEX16_FMT FD_LOG_HEX16_FMT,
-  //              FD_LOG_HEX16_FMT_ARGS( client_hs_secret_fdtls    ),
-  //              FD_LOG_HEX16_FMT_ARGS( client_hs_secret_fdtls+16 ) ));
-  //FD_LOG_INFO(( "server handshake secret: " FD_LOG_HEX16_FMT FD_LOG_HEX16_FMT,
-  //              FD_LOG_HEX16_FMT_ARGS( server_hs_secret_fdtls    ),
-  //              FD_LOG_HEX16_FMT_ARGS( server_hs_secret_fdtls+16 ) ));
-
   /* Check if connected */
   int ssl_res = SSL_do_handshake( ssl );
   if( FD_UNLIKELY( SSL_do_handshake( ssl )!=1 ) ) {
@@ -356,6 +278,7 @@ test_server( SSL_CTX * ctx ) {
 
   /* Clean up */
 
+  fd_tls_estate_srv_delete( hs );
   fd_tls_server_delete( fd_tls_server_leave( _server ) );
   SSL_free( ssl );
   fd_rng_delete( fd_rng_leave( rng ) );
@@ -448,14 +371,10 @@ test_client( SSL_CTX * ctx ) {
 
   /* ClientHello */
   fd_tls_client_handshake( client, hs, NULL, 0UL, FD_TLS_LEVEL_INITIAL );
-  _fd_client_respond( client, hs );
-
   /* ServerHello, EncryptedExtensions, Certificate, CertificateVerify, server Finished */
   _ossl_respond( ssl );
-
   /* client Finished */
   _fd_client_respond( client, hs );
-
   /* NewSessionTicket */
   _ossl_respond( ssl );
 
@@ -465,7 +384,8 @@ test_client( SSL_CTX * ctx ) {
 
   /* Clean up */
 
-  fd_tls_client_delete( fd_tls_client_leave( _client ) );
+  fd_tls_estate_cli_delete( hs );
+  fd_tls_client_delete( fd_tls_client_leave( client ) );
   SSL_free( ssl );
   fd_rng_delete( fd_rng_leave( rng ) );
   fd_sha512_delete( fd_sha512_leave( sha ) );
