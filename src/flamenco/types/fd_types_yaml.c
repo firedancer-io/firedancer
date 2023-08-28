@@ -115,6 +115,11 @@ fd_flamenco_yaml_init( fd_flamenco_yaml_t * self,
   return self;
 }
 
+void *
+fd_flamenco_yaml_file( fd_flamenco_yaml_t * self ) {
+  return self->file;
+}
+
 /* fd_flamenco_yaml_walk iteratively serializes YAML while keeping
    minimal state.
 

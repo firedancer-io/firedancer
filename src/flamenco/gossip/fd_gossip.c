@@ -4,6 +4,7 @@
 #include "../../ballet/ed25519/fd_ed25519.h"
 #include "../../util/net/fd_eth.h"
 #include "../../util/rng/fd_rng.h"
+#include "../types/fd_types_yaml.h"
 #include <sys/socket.h>
 #include <errno.h>
 #include <string.h>
@@ -122,6 +123,41 @@ typedef struct fd_active_elem fd_active_elem_t;
 #include "../../util/tmpl/fd_map_giant.c"
 #define FD_ACTIVE_KEY_MAX (1<<8)
 
+int fd_hash_eq( const fd_hash_t * key1, const fd_hash_t * key2 ) {
+  for (ulong i = 0; i < 32U/sizeof(ulong); ++i)
+    if (key1->ul[i] != key2->ul[i])
+      return 0;
+  return 1;
+}
+
+ulong fd_hash_hash( const fd_hash_t * key, ulong seed ) {
+  return key->ul[0] ^ seed;
+}
+
+void fd_hash_copy( fd_hash_t * keyd, const fd_hash_t * keys ) {
+  for (ulong i = 0; i < 32U/sizeof(ulong); ++i)
+    keyd->ul[i] = keys->ul[i];
+}
+
+/* Message table element */
+struct fd_message_elem {
+    fd_hash_t key;
+    ulong next;
+    ulong wallclock;
+    uchar * data;
+    ulong datalen;
+};
+/* Message table */
+typedef struct fd_message_elem fd_message_elem_t;
+#define MAP_NAME     fd_message_table
+#define MAP_KEY_T    fd_hash_t
+#define MAP_KEY_EQ   fd_hash_eq
+#define MAP_KEY_HASH fd_hash_hash
+#define MAP_KEY_COPY fd_hash_copy
+#define MAP_T        fd_message_elem_t
+#include "../../util/tmpl/fd_map_giant.c"
+#define FD_MESSAGE_KEY_MAX (1<<15)
+
 /* Queue of pending timed events */
 union fd_pending_event_arg {
     fd_ping_key_t key;
@@ -155,6 +191,7 @@ struct fd_gossip_global {
     int sockfd;
     fd_peer_elem_t * peers;
     fd_active_elem_t * actives;
+    fd_message_elem_t * messages;
     fd_pending_event_t * event_pool;
     fd_pending_heap_t * event_heap;
     fd_rng_t rng[1];
@@ -177,6 +214,8 @@ fd_gossip_global_new ( void * shmem, ulong seed, fd_valloc_t valloc ) {
   glob->peers = fd_peer_table_join(fd_peer_table_new(shm, FD_PEER_KEY_MAX, seed));
   shm = fd_valloc_malloc(valloc, fd_active_table_align(), fd_active_table_footprint(FD_ACTIVE_KEY_MAX));
   glob->actives = fd_active_table_join(fd_active_table_new(shm, FD_ACTIVE_KEY_MAX, seed));
+  shm = fd_valloc_malloc(valloc, fd_message_table_align(), fd_message_table_footprint(FD_MESSAGE_KEY_MAX));
+  glob->messages = fd_message_table_join(fd_message_table_new(shm, FD_MESSAGE_KEY_MAX, seed));
   shm = fd_valloc_malloc(valloc, fd_pending_pool_align(), fd_pending_pool_footprint(FD_PENDING_MAX));
   glob->event_pool = fd_pending_pool_join(fd_pending_pool_new(shm, FD_PENDING_MAX));
   shm = fd_valloc_malloc(valloc, fd_pending_heap_align(), fd_pending_heap_footprint(FD_PENDING_MAX));
@@ -196,6 +235,7 @@ fd_gossip_global_delete ( void * shmap, fd_valloc_t valloc ) {
   fd_gossip_global_t * glob = (fd_gossip_global_t *)shmap;
   fd_valloc_free(valloc, fd_peer_table_delete(fd_peer_table_leave(glob->peers)));
   fd_valloc_free(valloc, fd_active_table_delete(fd_active_table_leave(glob->actives)));
+  fd_valloc_free(valloc, fd_message_table_delete(fd_message_table_leave(glob->messages)));
   fd_valloc_free(valloc, fd_pending_pool_delete(fd_pending_pool_leave(glob->event_pool)));
   fd_valloc_free(valloc, fd_pending_heap_delete(fd_pending_heap_leave(glob->event_heap)));
   return glob;
@@ -519,15 +559,135 @@ fd_gossip_handle_pong( fd_gossip_global_t * glob, fd_gossip_network_addr_t * fro
 }
 
 void
-fd_gossip_recv(fd_gossip_global_t * glob, fd_gossip_network_addr_t * from, fd_gossip_msg_t * gmsg, long now) {
+fd_gossip_recv_crds_value(fd_gossip_global_t * glob, fd_pubkey_t * pubkey, fd_gossip_network_addr_t * from, fd_crds_value_t* crd, long now, fd_valloc_t valloc, fd_flamenco_yaml_t * yamldump) {
+  (void)glob;
+  (void)now;
+  FILE * dumpfile = (FILE *)fd_flamenco_yaml_file(yamldump);
+  char tmp[100];
+  fprintf(dumpfile, "from %32J %s:\n", pubkey->uc, fd_gossip_addr_str(tmp, sizeof(tmp), from));
+  fd_crds_value_walk(yamldump, crd, fd_flamenco_yaml_walk, NULL, 1U);
+  fflush(dumpfile);
+
+  /* Verify the signature */
+  ulong wallclock;
+  switch (crd->data.discriminant) {
+  case fd_crds_data_enum_contact_info:
+    pubkey = &crd->data.inner.contact_info.id;
+    wallclock = crd->data.inner.contact_info.wallclock;
+    break;
+  case fd_crds_data_enum_vote:
+    pubkey = &crd->data.inner.vote.from;
+    wallclock = crd->data.inner.vote.wallclock;
+    break;
+  case fd_crds_data_enum_lowest_slot:
+    pubkey = &crd->data.inner.lowest_slot.from;
+    wallclock = crd->data.inner.lowest_slot.wallclock;
+    break;
+  case fd_crds_data_enum_snapshot_hashes:
+    pubkey = &crd->data.inner.snapshot_hashes.from;
+    wallclock = crd->data.inner.snapshot_hashes.wallclock;
+    break;
+  case fd_crds_data_enum_accounts_hashes:
+    pubkey = &crd->data.inner.accounts_hashes.from;
+    wallclock = crd->data.inner.accounts_hashes.wallclock;
+    break;
+  case fd_crds_data_enum_epoch_slots:
+    pubkey = &crd->data.inner.epoch_slots.from;
+    wallclock = crd->data.inner.epoch_slots.wallclock;
+    break;
+  case fd_crds_data_enum_legacy_version:
+    pubkey = &crd->data.inner.legacy_version.from;
+    wallclock = crd->data.inner.legacy_version.wallclock;
+    break;
+  case fd_crds_data_enum_version:
+    pubkey = &crd->data.inner.version.from;
+    wallclock = crd->data.inner.version.wallclock;
+    break;
+  case fd_crds_data_enum_node_instance:
+    pubkey = &crd->data.inner.node_instance.from;
+    wallclock = crd->data.inner.node_instance.wallclock;
+    break;
+  case fd_crds_data_enum_duplicate_shred:
+    pubkey = &crd->data.inner.duplicate_shred.from;
+    wallclock = crd->data.inner.duplicate_shred.wallclock;
+    break;
+  case fd_crds_data_enum_incremental_snapshot_hashes:
+    pubkey = &crd->data.inner.incremental_snapshot_hashes.from;
+    wallclock = crd->data.inner.incremental_snapshot_hashes.wallclock;
+    break;
+  default:
+    wallclock = (ulong)(now / (long)1e6); /* In millisecs */
+    break;
+  }
+  if (memcmp(pubkey->uc, glob->my_creds.public_key.uc, 32U) == 0)
+    /* Ignore my own messages */
+    return;
+  uchar buf[FD_ETH_PAYLOAD_MAX];
+  fd_bincode_encode_ctx_t ctx;
+  ctx.data = buf;
+  ctx.dataend = buf + FD_ETH_PAYLOAD_MAX;
+  if ( fd_crds_data_encode( &crd->data, &ctx ) ) {
+    FD_LOG_ERR(("fd_crds_data_encode failed"));
+    return;
+  }
+  fd_sha512_t sha[1];
+  if (fd_ed25519_verify( /* msg */ buf,
+                         /* sz  */ (ulong)((uchar*)ctx.data - buf),
+                         /* sig */ crd->signature.uc,
+                         /* public_key */ pubkey->uc,
+                         sha )) {
+    FD_LOG_ERR(("received crds_value with invalid signature"));
+    return;
+  }
+
+  /* Perform the value hash */
+  ctx.data = buf;
+  ctx.dataend = buf + FD_ETH_PAYLOAD_MAX;
+  if ( fd_crds_value_encode( crd, &ctx ) ) {
+    FD_LOG_ERR(("fd_crds_value_encode failed"));
+    return;
+  }
+  fd_sha256_t sha2[1];
+  fd_sha256_init( sha2 );
+  ulong datalen = (ulong)((uchar*)ctx.data - buf);
+  fd_sha256_append( sha2, buf, datalen );
+  fd_hash_t key;
+  fd_sha256_fini( sha2, key.uc );
+
+  /* Store the message */
+  fd_message_elem_t * msg = fd_message_table_query(glob->messages, &key, NULL);
+  if (msg != NULL)
+    /* Already have this message */
+    return;
+  msg = fd_message_table_insert(glob->messages, &key);
+  if (msg == NULL) {
+    FD_LOG_WARNING(("too many messages"));
+    return;
+  }
+  msg->wallclock = wallclock;
+  msg->data = fd_valloc_malloc(valloc, 1U, datalen);
+  fd_memcpy(msg->data, buf, datalen);
+  msg->datalen = datalen;
+}
+
+void
+fd_gossip_recv(fd_gossip_global_t * glob, fd_gossip_network_addr_t * from, fd_gossip_msg_t * gmsg, long now, fd_valloc_t valloc, fd_flamenco_yaml_t * yamldump) {
   switch (gmsg->discriminant) {
   case fd_gossip_msg_enum_pull_req:
     break;
-  case fd_gossip_msg_enum_pull_resp:
+  case fd_gossip_msg_enum_pull_resp: {
     glob->got_pull_resp = 1;
+    fd_gossip_pull_resp_t * pull_resp = &gmsg->inner.pull_resp;
+    for (ulong i = 0; i < pull_resp->crds_len; ++i)
+      fd_gossip_recv_crds_value(glob, &pull_resp->pubkey, from, pull_resp->crds + i, now, valloc, yamldump);
     break;
-  case fd_gossip_msg_enum_push_msg:
+  }
+  case fd_gossip_msg_enum_push_msg: {
+    fd_gossip_push_msg_t * push_msg = &gmsg->inner.push_msg;
+    for (ulong i = 0; i < push_msg->crds_len; ++i)
+      fd_gossip_recv_crds_value(glob, &push_msg->pubkey, from, push_msg->crds + i, now, valloc, yamldump);
     break;
+  }
   case fd_gossip_msg_enum_prune_msg:
     break;
   case fd_gossip_msg_enum_ping:
@@ -582,6 +742,11 @@ fd_gossip_main_loop( fd_gossip_global_t * glob, fd_valloc_t valloc, volatile int
     FD_LOG_ERR(("bind failed: %s", strerror(errno)));
     return -1;
   }
+
+  fd_flamenco_yaml_t * yamldump =
+    fd_flamenco_yaml_init( fd_flamenco_yaml_new(
+      fd_valloc_malloc( valloc, fd_flamenco_yaml_align(), fd_flamenco_yaml_footprint() ) ),
+      stdout );
 
 #define VLEN 32U
   struct mmsghdr msgs[VLEN];
@@ -647,7 +812,7 @@ fd_gossip_main_loop( fd_gossip_global_t * glob, fd_valloc_t valloc, volatile int
       char tmp[100];
       FD_LOG_NOTICE(("recv msg type %d from %s", gmsg.discriminant, fd_gossip_addr_str(tmp, sizeof(tmp), &from)));
                        
-      fd_gossip_recv(glob, &from, &gmsg, now);
+      fd_gossip_recv(glob, &from, &gmsg, now, valloc, yamldump);
 
       fd_bincode_destroy_ctx_t ctx2;
       ctx2.valloc = valloc;
@@ -655,6 +820,8 @@ fd_gossip_main_loop( fd_gossip_global_t * glob, fd_valloc_t valloc, volatile int
     }
   }
 
+  fd_valloc_free(valloc, fd_flamenco_yaml_delete(yamldump));
+  
   close(fd);
   glob->sockfd = -1;
   return 0;
