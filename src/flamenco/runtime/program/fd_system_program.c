@@ -334,6 +334,15 @@ static int create_account(
     ctx.txn_ctx->custom_err = 0;     /* SystemError::AccountAlreadyInUse */
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
+
+  if (!fd_instr_acc_is_signer(ctx.instr, to)) {
+    return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+  }
+
+  if (metadata->dlen != 0 || memcmp(metadata->info.owner, ctx.global->solana_system_program, sizeof(fd_pubkey_t)) != 0) {
+    ctx.txn_ctx->custom_err = 0;     /* SystemError::AccountAlreadyInUse */
+    return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+  }
   ulong sz2 = space + sizeof(fd_account_meta_t);
   fd_funk_rec_t * to_rec_rw = NULL;
   raw_acc_data_to = (char*) fd_acc_mgr_modify_raw(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) to, 1, sz2, to_rec_ro, &to_rec_rw, &err);
