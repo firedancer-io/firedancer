@@ -8,6 +8,13 @@ FD_STATIC_ASSERT( sizeof( fd_tls_ext_cert_type_t      )==1UL, layout );
 
 FD_IMPORT_BINARY( test_client_hello, "src/tango/tls/fixtures/client_hello_labs-1.14.8.bin" );
 
+/* Further captured TLS messages */
+
+FD_IMPORT_BINARY( test_server_hello,       "src/tango/tls/fixtures/server_hello_openssl.bin"       );
+FD_IMPORT_BINARY( test_certificate,        "src/tango/tls/fixtures/certificate_openssl.bin"        );
+FD_IMPORT_BINARY( test_certificate_verify, "src/tango/tls/fixtures/certificate_verify_openssl.bin" );
+FD_IMPORT_BINARY( test_server_finished,    "src/tango/tls/fixtures/server_finished_openssl.bin"    );
+
 static void
 test_client_hello_decode( void ) {
   fd_tls_client_hello_t client_hello = {0};
@@ -62,6 +69,20 @@ test_server_hello_encode( void ) {
   FD_LOG_HEXDUMP_DEBUG(( "fd_tls_encode_server_hello", server_hello_buf, (ulong)sz ));
 }
 
+static void
+test_server_hello_decode( void ) {
+  fd_tls_server_hello_t server_hello[1] = {0};
+  long sz = fd_tls_decode_server_hello( server_hello, test_server_hello+4, test_server_hello_sz-4 );
+  FD_TEST( sz>=0L );
+}
+
+static void
+test_server_finished_decode( void ) {
+  fd_tls_finished_t finished[1] = {0};
+  long sz = fd_tls_decode_finished( finished, test_server_finished+4, test_server_finished_sz-4 );
+  FD_TEST( sz>=0L );
+}
+
 int
 main( int     argc,
       char ** argv) {
@@ -69,6 +90,8 @@ main( int     argc,
 
   test_client_hello_decode();
   test_server_hello_encode();
+  test_server_hello_decode();
+  test_server_finished_decode();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
