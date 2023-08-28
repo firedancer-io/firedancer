@@ -236,6 +236,12 @@ fd_gossip_global_delete ( void * shmap, fd_valloc_t valloc ) {
   fd_gossip_global_t * glob = (fd_gossip_global_t *)shmap;
   fd_valloc_free(valloc, fd_peer_table_delete(fd_peer_table_leave(glob->peers)));
   fd_valloc_free(valloc, fd_active_table_delete(fd_active_table_leave(glob->actives)));
+  for( fd_message_table_iter_t iter = fd_message_table_iter_init( glob->messages );
+       !fd_message_table_iter_done( glob->messages, iter );
+       iter = fd_message_table_iter_next( glob->messages, iter ) ) {
+    fd_message_elem_t * ele = fd_message_table_iter_ele( glob->messages, iter );
+    fd_valloc_free(valloc, ele->data);
+  }
   fd_valloc_free(valloc, fd_message_table_delete(fd_message_table_leave(glob->messages)));
   fd_valloc_free(valloc, fd_pending_pool_delete(fd_pending_pool_leave(glob->event_pool)));
   fd_valloc_free(valloc, fd_pending_heap_delete(fd_pending_heap_leave(glob->event_heap)));
