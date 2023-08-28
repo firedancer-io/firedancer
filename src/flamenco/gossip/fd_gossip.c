@@ -12,6 +12,7 @@
 #include <unistd.h>
 #include <sys/time.h>
 #include <arpa/inet.h>
+#include <math.h>
 
 #pragma GCC diagnostic ignored "-Wstrict-aliasing"
 
@@ -537,6 +538,30 @@ fd_gossip_random_pull( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, 
   if (ele->pongtime == 0)
     /* Still pinging */
     return;
+
+  /* Compute the number of packets */
+  ulong nitems = fd_message_table_key_cnt(glob->messages);
+#define NBITS (1024U*8U) /* 1 Kbyte */
+  ulong nkeys = 1;
+  ulong npackets = 1;
+  ulong nmaskbits = 0;
+  if (nitems > 0) {
+    do {
+      double n = ((double)nitems)/((double)npackets); /* Assume even division of messages */
+      double m = (double)NBITS;
+      nkeys = fd_ulong_max(1U, (ulong)((m/n)*0.69314718055994530941723212145818 /* ln(2) */));
+      nkeys = fd_ulong_min(nkeys, 32U);
+      if (npackets == 32U)
+        break;
+      double k = (double)nkeys;
+      double e = pow(1.0 - exp(-k*n/m), k);
+      if (e < 0.001)
+        break;
+      nmaskbits++;
+      npackets = 1U<<nmaskbits;
+    } while (1);
+  }
+  FD_LOG_NOTICE(("making bloom filter for %lu items with %lu packets and %lu keys\n", nitems, npackets, nkeys));
 
   fd_gossip_msg_t gmsg;
   fd_gossip_msg_new_disc(&gmsg, fd_gossip_msg_enum_pull_req);
