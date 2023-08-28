@@ -6,6 +6,8 @@ IFS=$'\n\t'
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 cd "${SCRIPT_DIR}/../../"
 
+ LOG_PATH=${LOG_PATH:-~/log}
+
 # create test configuration for fddev
 TMPDIR=$(mktemp -d)
 cat > ${TMPDIR}/config.toml <<EOM
@@ -27,8 +29,8 @@ export FIREDANCER_CONFIG_TOML=${TMPDIR}/config.toml
 FDDEV=./build/native/gcc/bin/fddev
 TEST_QUIC_TXN=./build/native/gcc/unit-test/test_quic_txn
 # TODO: For some reason /tmp does not work on the github runner for --log-path
-timeout --preserve-status 15 $FDDEV configure init all --log-path ~/log
-timeout --preserve-status 15 $FDDEV --log-path ~/log &
+timeout --preserve-status 15 $FDDEV configure init all --log-path "${LOG_PATH}"
+timeout --preserve-status 15 $FDDEV --log-path "${LOG_PATH}" &
 FDDEV_PID=$!
 sleep 4
 sudo nsenter --net=/var/run/netns/veth_test_xdp_1 ${TEST_QUIC_TXN}

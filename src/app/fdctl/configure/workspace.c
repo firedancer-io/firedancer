@@ -95,6 +95,13 @@ static void xsk_aio( void * pod, char * fmt, ulong tx_depth, ulong batch_count, 
             fd_xsk_aio_new      ( shmem,    tx_depth, batch_count ) );
 }
 
+static void leader_schedule( void * pod, char * fmt, ... ) {
+  INSERTER( fmt,
+            fd_leader_schedule_align    (         ),
+            fd_leader_schedule_footprint(         ),
+            fd_leader_schedule_new      ( shmem ) );
+}
+
 FD_FN_UNUSED static void alloc( void * pod, char * fmt, ulong align, ulong sz, ... ) {
   INSERTER( sz, align, sz, 1 );
 }
@@ -307,7 +314,8 @@ init( config_t * const config ) {
         cnc   ( pod, "cnc" );
         break;
       case wksp_forward:
-        cnc   ( pod, "cnc" );
+        cnc            ( pod, "cnc" );
+        leader_schedule( pod, "leader_schedule" );
         break;
     }
 

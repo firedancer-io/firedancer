@@ -1,4 +1,5 @@
 #include "fd_frank.h"
+#include "../../tango/leader_schedule//fd_leader_schedule.h"
 #include <linux/unistd.h>
 
 static void
@@ -12,6 +13,11 @@ run( fd_frank_args_t * args ) {
 
   ulong * cnc_diag = (ulong *)fd_cnc_app_laddr( cnc );
   cnc_diag[ FD_FRANK_CNC_DIAG_PID ] = (ulong)args->pid;
+
+  FD_LOG_INFO(( "joining leader schedule" ));
+  fd_leader_schedule_new( fd_wksp_pod_map( args->tile_pod, "leader_schedule" ) );
+  fd_leader_schedule_t * leader_schedule = fd_leader_schedule_get( args->app_name );
+  if( FD_UNLIKELY( !leader_schedule ) ) FD_LOG_ERR(( "fd_leader_schedule_join failed" ));
 
   FD_LOG_INFO(( "joining mcache" ));
   fd_frag_meta_t const * mcache = fd_mcache_join( fd_wksp_pod_map( args->in_pod, "mcache" ) );
@@ -65,6 +71,7 @@ run( fd_frank_args_t * args ) {
 
   long now            = fd_tickcount();
   long then           = now;            /* Do housekeeping on first iteration of run loop */
+  ulong version = 0;
   for(;;) {
 
     /* Do housekeeping at a low rate in the background */
@@ -96,6 +103,18 @@ run( fd_frank_args_t * args ) {
 
       /* Reload housekeeping timer */
       then = now + (long)fd_tempo_async_reload( rng, async_min );
+    }
+
+    ulong begin_version = fd_mvcc_begin_read( &leader_schedule->mvcc);
+    if( FD_UNLIKELY( begin_version != version && begin_version % 2 == 0 ) ) {
+      ulong size = leader_schedule->size;
+      ulong end_version = fd_mvcc_end_read( &leader_schedule->mvcc);
+      if( FD_LIKELY( begin_version == end_version ) ) {
+        FD_LOG_NOTICE(( "schedule clean read! length %lu", size ));
+      } else {
+        FD_LOG_NOTICE(( "schedule bad read! %lu %lu", begin_version, end_version ));
+      }
+      version = begin_version;
     }
 
     /* See if there are any transactions waiting to be forwarded */
