@@ -413,9 +413,24 @@ fd_gossip_make_ping( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, lo
     val->pingcount = 1;
     val->pongtime = 0;
     fd_memset(val->id.uc, 0, 32U);
-  } else
-    val->pingcount++;
+  } else {
+    if (val->pongtime != 0)
+      /* Success */
+      return;
+    if (val->pingcount++ == 5U) {
+      /* Give up */
+      fd_active_table_remove(glob->actives, key);
+      return;
+    }
+  }
   val->pingtime = now;
+
+  /* Keep pinging until we succeed */ 
+  fd_pending_event_t * ev = fd_gossip_add_pending( glob, now + (long)2e8 /* 200 ms */ );
+  if (ev != NULL) {
+    ev->fun = fd_gossip_make_ping;
+    fd_memcpy(&ev->fun_arg.key, key, sizeof(fd_gossip_network_addr_t));
+  }
 
   fd_gossip_msg_t gmsg;
   fd_gossip_msg_new_disc(&gmsg, fd_gossip_msg_enum_ping);
