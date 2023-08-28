@@ -324,6 +324,11 @@ int fd_executor_run_test(
     };
 
     fd_executor_setup_accessed_accounts_for_txn( &txn_ctx, &raw_txn_b );
+    // TODO: dirty hack to get around additional account parsed for testing
+    if (txn_ctx.txn_descriptor->acct_addr_cnt == test->accs_len + 1) {
+      txn_ctx.txn_descriptor->acct_addr_cnt = (ushort)test->accs_len;
+      txn_ctx.txn_descriptor->readonly_unsigned_cnt--;
+    }
 
     fd_instr_t instr;
     fd_convert_txn_instr_to_instr( (fd_txn_t const *)txn_descriptor, &raw_txn_b, txn_instr, txn_ctx.accounts, &instr );
@@ -333,11 +338,6 @@ int fd_executor_run_test(
       .instr          = &instr,
       .txn_ctx        = &txn_ctx,
     };
-    // TODO: dirty hack to get around additional account parsed for testing
-    if (ctx.txn_ctx->txn_descriptor->acct_addr_cnt == test->accs_len + 1) {
-      ctx.txn_ctx->txn_descriptor->acct_addr_cnt = (ushort)test->accs_len;
-      ctx.txn_ctx->txn_descriptor->readonly_unsigned_cnt--;
-    }
 
     execute_instruction_func_t exec_instr_func = fd_executor_lookup_native_program( global, &test->program_id );
     if (NULL == exec_instr_func) {
@@ -401,7 +401,7 @@ int fd_executor_run_test(
           break;
         }
         if (memcmp(&m->info.owner, &test->accs[i].result_owner, sizeof(fd_pubkey_t)) != 0) {
-          log_test_fail( test, suite, "owner missmatch: %32J vs %32J", m->info.owner, test->accs[i].result_owner.key );
+          log_test_fail( test, suite, "expected owner %32J, got %32J: %s", test->accs[i].result_owner.key, m->info.owner, (NULL != verbose) ? test->bt : "" );
           ret = -668;
           break;
         }

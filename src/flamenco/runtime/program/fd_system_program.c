@@ -344,17 +344,13 @@ static int create_account(
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
-  if( !FD_FEATURE_ACTIVE( ctx.global, system_transfer_zero_check ) && lamports == 0) {
-    return FD_EXECUTOR_INSTR_SUCCESS;
-  }
-
   metadata = (fd_account_meta_t *) raw_acc_data_to;
   metadata->info.lamports = lamports;
   metadata->dlen = space;
   metadata->info.executable = 0;
   metadata->info.rent_epoch = 0;
   /* Initialize the account with all zeroed data and the correct owner */
-  fd_memcpy( &metadata->info.owner, owner, sizeof(fd_pubkey_t) );
+  fd_memcpy( metadata->info.owner, owner, sizeof(fd_pubkey_t) );
   memset( raw_acc_data_to + metadata->hlen, 0, space );
 
   write_result = fd_acc_mgr_commit_raw( ctx.global->acc_mgr, to_rec_rw, to, raw_acc_data_to, ctx.global->bank.slot, 0);
