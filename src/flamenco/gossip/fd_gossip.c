@@ -101,13 +101,14 @@ typedef struct fd_peer_elem fd_peer_elem_t;
 #define MAP_KEY_COPY fd_ping_key_copy
 #define MAP_T        fd_peer_elem_t
 #include "../../util/tmpl/fd_map_giant.c"
-#define FD_PEER_KEY_MAX (1<<16)
+#define FD_PEER_KEY_MAX (1<<14)
 
 /* Active table element */
 struct fd_active_elem {
     fd_ping_key_t key;
     ulong next;
     long pingtime;
+    uint pingcount;
     fd_hash_t pingtoken;
     long pongtime;
 };
@@ -192,6 +193,9 @@ struct fd_gossip_global {
     int sockfd;
     fd_peer_elem_t * peers;
     fd_active_elem_t * actives;
+    fd_ping_key_t * inactives;
+    ulong inactives_cnt;
+#define INACTIVES_MAX 1024U
     fd_message_elem_t * messages;
     fd_pending_event_t * event_pool;
     fd_pending_heap_t * event_heap;
@@ -215,6 +219,8 @@ fd_gossip_global_new ( void * shmem, ulong seed, fd_valloc_t valloc ) {
   glob->peers = fd_peer_table_join(fd_peer_table_new(shm, FD_PEER_KEY_MAX, seed));
   shm = fd_valloc_malloc(valloc, fd_active_table_align(), fd_active_table_footprint(FD_ACTIVE_KEY_MAX));
   glob->actives = fd_active_table_join(fd_active_table_new(shm, FD_ACTIVE_KEY_MAX, seed));
+  glob->inactives = (fd_ping_key_t*)fd_valloc_malloc(valloc, alignof(fd_ping_key_t), INACTIVES_MAX*sizeof(fd_ping_key_t));
+  glob->inactives_cnt = 0;
   shm = fd_valloc_malloc(valloc, fd_message_table_align(), fd_message_table_footprint(FD_MESSAGE_KEY_MAX));
   glob->messages = fd_message_table_join(fd_message_table_new(shm, FD_MESSAGE_KEY_MAX, seed));
   shm = fd_valloc_malloc(valloc, fd_pending_pool_align(), fd_pending_pool_footprint(FD_PENDING_MAX));
@@ -236,6 +242,7 @@ fd_gossip_global_delete ( void * shmap, fd_valloc_t valloc ) {
   fd_gossip_global_t * glob = (fd_gossip_global_t *)shmap;
   fd_valloc_free(valloc, fd_peer_table_delete(fd_peer_table_leave(glob->peers)));
   fd_valloc_free(valloc, fd_active_table_delete(fd_active_table_leave(glob->actives)));
+  fd_valloc_free(valloc, glob->inactives);
   for( fd_message_table_iter_t iter = fd_message_table_iter_init( glob->messages );
        !fd_message_table_iter_done( glob->messages, iter );
        iter = fd_message_table_iter_next( glob->messages, iter ) ) {
@@ -408,8 +415,10 @@ fd_gossip_make_ping( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, lo
       FD_LOG_WARNING(("too many actives"));
       return;
     }
+    val->pingcount = 1;
     val->pongtime = 0;
-  }
+  } else
+    val->pingcount++;
   val->pingtime = now;
 
   fd_gossip_msg_t gmsg;
@@ -566,6 +575,7 @@ fd_gossip_handle_pong( fd_gossip_global_t * glob, fd_gossip_network_addr_t * fro
   }
   
   val->pongtime = now;
+  val->pingcount = 0; /* Start count over next time */
 
   /* Trigger the first pull request */
   if (!glob->got_pull_resp) {
@@ -700,8 +710,14 @@ fd_gossip_recv_crds_value(fd_gossip_global_t * glob, fd_pubkey_t * pubkey, fd_cr
       fd_memcpy(pkey.id.uc, info->id.uc, 32U);
       fd_gossip_from_soladdr(&pkey.addr, &info->gossip);
       fd_peer_elem_t * val = fd_peer_table_query(glob->peers, &pkey, NULL);
-      if (val == NULL)
+      if (val == NULL) {
         val = fd_peer_table_insert(glob->peers, &pkey);
+        if (glob->inactives_cnt < INACTIVES_MAX &&
+            fd_active_table_query(glob->actives, &pkey, NULL) == NULL) {
+          /* Queue this peer for potential active status */
+          fd_memcpy(glob->inactives + (glob->inactives_cnt++), &pkey, sizeof(pkey));
+        }
+      }
       if (val == NULL)
         FD_LOG_WARNING(("too many peers"));
       else {
@@ -749,12 +765,6 @@ int fd_gossip_add_active_peer( fd_gossip_global_t * glob, fd_pubkey_t * id, fd_g
   fd_memset(&key, 0, sizeof(key));
   fd_memcpy(&key.id, id, sizeof(fd_pubkey_t));
   fd_memcpy(&key.addr, addr, sizeof(fd_gossip_network_addr_t));
-  fd_active_elem_t * val = fd_active_table_insert(glob->actives, &key);
-  if (val == NULL) {
-    FD_LOG_ERR(("too many actives"));
-    return -1;
-  }
-  val->pingtime = val->pongtime = 0;
   fd_pending_event_t * ev = fd_gossip_add_pending( glob, 0L /* next chance we get */ );
   if (ev == NULL)
     return 0;
