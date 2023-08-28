@@ -112,7 +112,7 @@
     int valid = 1;                                       \
     FD_TLS_SERDE_LOCATE( , , FIELD_TYPE, 1   )           \
     FD_TLS_SERDE_CHECK                                   \
-    (FIELD_TYPE *)_field__laddr;                         \
+    (FIELD_TYPE *)fd_type_pun( (void *)_field__laddr );  \
   }))
 
 #define FD_TLS_SKIP_FIELDS( FIELD_TYPE, CNT ) (__extension__({ \

@@ -73,6 +73,7 @@ typedef struct fd_tls_key_share fd_tls_key_share_t;
 
 union fd_tls_ext_cert_type_list {
   struct {
+    uchar present    : 1;  /* if 0, indicates that this extension is missing */
     uchar x509       : 1;
     uchar raw_pubkey : 1;
   };
@@ -179,6 +180,8 @@ typedef struct fd_tls_finished fd_tls_finished_t;
 #define FD_TLS_EXT_SUPPORTED_GROUPS      ((ushort)10)
 #define FD_TLS_EXT_SIGNATURE_ALGORITHMS  ((ushort)13)
 #define FD_TLS_EXT_ALPN                  ((ushort)16)
+#define FD_TLS_EXT_CLIENT_CERT_TYPE      ((ushort)19)
+#define FD_TLS_EXT_SERVER_CERT_TYPE      ((ushort)20)
 #define FD_TLS_EXT_SUPPORTED_VERSIONS    ((ushort)43)
 #define FD_TLS_EXT_KEY_SHARE             ((ushort)51)
 #define FD_TLS_EXT_KEY_SHARE             ((ushort)51)
@@ -389,6 +392,12 @@ fd_tls_encode_server_cert_x509( void const * x509,
                                 ulong        x509_sz,
                                 void *       wire,
                                 ulong        wire_sz );
+
+
+long
+fd_tls_encode_server_raw_public_key( void const * ed25519_pubkey,
+                                     void *       wire,
+                                     ulong        wire_sz );
 
 long
 fd_tls_decode_ext_server_name( fd_tls_ext_server_name_t * out,

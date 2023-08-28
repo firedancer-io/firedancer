@@ -9,6 +9,8 @@
 
 FD_PROTOTYPES_BEGIN
 
+extern const uchar fd_asn1_ed25519_pubkey_prefix[12];
+
 /* fd_ed25519_public_key_from_asn1 attempts to extract an Ed25519
    public key from an ASN.1 DER container at [buf,buf+sz).  On success,
    returns a pointer to the first byte of the 32 byte subregion holding

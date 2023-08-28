@@ -187,7 +187,7 @@ fd_tls_server_hs_start( fd_tls_server_t const * const server,
 
   /* Read client hello ************************************************/
 
-  fd_tls_client_hello_t ch;
+  fd_tls_client_hello_t ch = {0};
 
   do {
     ulong wire_laddr = (ulong)record;
@@ -382,6 +382,24 @@ fd_tls_server_hs_start( fd_tls_server_t const * const server,
       fd_tls_ext_hdr_bswap( alpn_hdr );
     }
 
+    /* Negotiate raw public keys if available */
+
+    if( ch.cert_types.raw_pubkey ) {
+
+      handshake->server_cert_type = FD_TLS_CERTTYPE_RAW_PUBKEY;
+      fd_tls_ext_hdr_t * cert_type_hdr = FD_TLS_SKIP_FIELD( fd_tls_ext_hdr_t );
+      uchar *            cert_type     = FD_TLS_SKIP_FIELD( uchar );
+      *cert_type_hdr = (fd_tls_ext_hdr_t) {
+        .type = FD_TLS_EXT_SERVER_CERT_TYPE,
+        .sz   = 1
+      };
+      fd_tls_ext_hdr_bswap( cert_type_hdr );
+      *cert_type = FD_TLS_CERTTYPE_RAW_PUBKEY;
+
+    } else if( !server->cert_x509_sz ) {
+      return -(long)FD_TLS_ALERT_UNSUPPORTED_CERTIFICATE;
+    }
+
     /* Update headers */
 
     server_ee_sz = wire_laddr - (ulong)msg_buf;
@@ -410,25 +428,32 @@ fd_tls_server_hs_start( fd_tls_server_t const * const server,
 
   /* Send Certificate *************************************************/
 
-  /* TODO check whether we negotiated X.509 or RPK */
+  void const * cert_msg;
+  ulong        cert_msg_sz;
 
-  /* Send Certificate record with X.509 */
-
-  if( FD_UNLIKELY( !server->cert_x509_sz ) ) {
-    FD_LOG_WARNING(( "fd_tls: no server certificate configured" ));
-    return -(long)FD_TLS_ALERT_INTERNAL_ERROR;
+  if( ch.cert_types.raw_pubkey ) {
+    long sz = fd_tls_encode_server_raw_public_key( server->cert_public_key, msg_buf, MSG_BUFSZ );
+    FD_TEST( sz>=0L );
+    cert_msg    = msg_buf;
+    cert_msg_sz = (ulong)sz;
+  } else {
+    /* Send pre-prepared X.509 Certificate message */
+    cert_msg    = server->cert_x509;
+    cert_msg_sz = server->cert_x509_sz;
   }
+
+  /* Send certificate message */
 
   if( FD_UNLIKELY( !server->sendmsg_fn(
         handshake,
-        server->cert_x509, server->cert_x509_sz,
+        cert_msg, cert_msg_sz,
         FD_TLS_LEVEL_HANDSHAKE,
         /* flush */ 0 ) ) )
     return -(long)FD_TLS_ALERT_INTERNAL_ERROR;
 
   /* Record Certificate record in transcript hash */
 
-  fd_sha256_append( &transcript, server->cert_x509, server->cert_x509_sz );
+  fd_sha256_append( &transcript, cert_msg, cert_msg_sz );
 
   /* Send CertificateVerify *******************************************/
 
@@ -785,7 +810,7 @@ fd_tls_client_hs_start( fd_tls_client_t const * const client,
       .signature_algorithms = { .ed25519=1 },
       .cipher_suites        = { .aes_128_gcm_sha256=1 },
       .key_share            = { .has_x25519=1 },
-      .cert_types           = { .x509=1, .raw_pubkey=1 },
+      .cert_types           = { .x509=!!client->cert_x509_sz, .raw_pubkey=1 },
       .quic_tp              = client->quic_tp,
       .quic_tp_sz           = client->quic_tp_sz,
     };
@@ -979,6 +1004,14 @@ fd_tls_client_hs_wait_ee( fd_tls_client_t const * const client,
         if( FD_UNLIKELY( ext_sz > FD_TLS_EXT_QUIC_PARAMS_SZ ) )
           return -(long)FD_TLS_ALERT_DECODE_ERROR;
         /* TODO ... memcpy QUIC transport params */
+        break;
+      case FD_TLS_EXT_SERVER_CERT_TYPE:
+        if( FD_UNLIKELY( ext_sz>wire_sz ) )
+          return -(long)FD_TLS_ALERT_DECODE_ERROR;
+        uchar const * cert_types = (uchar const *)wire_laddr;
+        for( ulong i=0; i<ext_sz; i++ )
+          if( cert_types[i]==FD_TLS_CERTTYPE_RAW_PUBKEY )
+            handshake->server_cert_raw = 1;
         break;
       default:
         break;  /* TODO should we error on unknown extensions */
