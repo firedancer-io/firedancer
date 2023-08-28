@@ -29,9 +29,13 @@ struct fd_gossip_network_addr {
 };
 typedef struct fd_gossip_network_addr fd_gossip_network_addr_t;
 
+typedef void (*fd_gossip_data_deliver_fun)(fd_crds_data_t* data, void* arg, long now);
+
 struct fd_gossip_config {
     fd_gossip_credentials_t my_creds;
     fd_gossip_network_addr_t my_addr;
+    fd_gossip_data_deliver_fun deliver_fun;
+    void * deliver_fun_arg;
 };
 typedef struct fd_gossip_config fd_gossip_config_t;
 

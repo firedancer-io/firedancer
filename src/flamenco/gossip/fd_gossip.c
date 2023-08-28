@@ -4,7 +4,6 @@
 #include "../../ballet/ed25519/fd_ed25519.h"
 #include "../../util/net/fd_eth.h"
 #include "../../util/rng/fd_rng.h"
-#include "../types/fd_types_yaml.h"
 #include <sys/socket.h>
 #include <errno.h>
 #include <string.h>
@@ -188,6 +187,8 @@ struct fd_gossip_global {
     fd_gossip_network_addr_t my_addr;
     fd_gossip_contact_info_t my_contact_info;
     ulong seed;
+    fd_gossip_data_deliver_fun deliver_fun;
+    void * deliver_fun_arg;
     int sockfd;
     fd_peer_elem_t * peers;
     fd_active_elem_t * actives;
@@ -268,6 +269,8 @@ fd_gossip_global_set_config( fd_gossip_global_t * glob, const fd_gossip_config_t
   fd_memcpy(&glob->my_contact_info.id.uc, config->my_creds.public_key.uc, 32U);
   fd_memcpy(&glob->my_addr, &config->my_addr, sizeof(fd_gossip_network_addr_t));
   fd_gossip_to_soladdr(&glob->my_contact_info.gossip, &config->my_addr);
+  glob->deliver_fun = config->deliver_fun;
+  glob->deliver_fun_arg = config->deliver_fun_arg;
   return 0;
 }
 
@@ -559,15 +562,7 @@ fd_gossip_handle_pong( fd_gossip_global_t * glob, fd_gossip_network_addr_t * fro
 }
 
 void
-fd_gossip_recv_crds_value(fd_gossip_global_t * glob, fd_pubkey_t * pubkey, fd_gossip_network_addr_t * from, fd_crds_value_t* crd, long now, fd_valloc_t valloc, fd_flamenco_yaml_t * yamldump) {
-  (void)glob;
-  (void)now;
-  FILE * dumpfile = (FILE *)fd_flamenco_yaml_file(yamldump);
-  char tmp[100];
-  fprintf(dumpfile, "from %32J %s:\n", pubkey->uc, fd_gossip_addr_str(tmp, sizeof(tmp), from));
-  fd_crds_value_walk(yamldump, crd, fd_flamenco_yaml_walk, NULL, 1U);
-  fflush(dumpfile);
-
+fd_gossip_recv_crds_value(fd_gossip_global_t * glob, fd_pubkey_t * pubkey, fd_crds_value_t* crd, long now, fd_valloc_t valloc) {
   /* Verify the signature */
   ulong wallclock;
   switch (crd->data.discriminant) {
@@ -668,10 +663,13 @@ fd_gossip_recv_crds_value(fd_gossip_global_t * glob, fd_pubkey_t * pubkey, fd_go
   msg->data = fd_valloc_malloc(valloc, 1U, datalen);
   fd_memcpy(msg->data, buf, datalen);
   msg->datalen = datalen;
+
+  /* Deliver the data upstream */
+  (*glob->deliver_fun)(&crd->data, glob->deliver_fun_arg, now);
 }
 
 void
-fd_gossip_recv(fd_gossip_global_t * glob, fd_gossip_network_addr_t * from, fd_gossip_msg_t * gmsg, long now, fd_valloc_t valloc, fd_flamenco_yaml_t * yamldump) {
+fd_gossip_recv(fd_gossip_global_t * glob, fd_gossip_network_addr_t * from, fd_gossip_msg_t * gmsg, long now, fd_valloc_t valloc) {
   switch (gmsg->discriminant) {
   case fd_gossip_msg_enum_pull_req:
     break;
@@ -679,13 +677,13 @@ fd_gossip_recv(fd_gossip_global_t * glob, fd_gossip_network_addr_t * from, fd_go
     glob->got_pull_resp = 1;
     fd_gossip_pull_resp_t * pull_resp = &gmsg->inner.pull_resp;
     for (ulong i = 0; i < pull_resp->crds_len; ++i)
-      fd_gossip_recv_crds_value(glob, &pull_resp->pubkey, from, pull_resp->crds + i, now, valloc, yamldump);
+      fd_gossip_recv_crds_value(glob, &pull_resp->pubkey, pull_resp->crds + i, now, valloc);
     break;
   }
   case fd_gossip_msg_enum_push_msg: {
     fd_gossip_push_msg_t * push_msg = &gmsg->inner.push_msg;
     for (ulong i = 0; i < push_msg->crds_len; ++i)
-      fd_gossip_recv_crds_value(glob, &push_msg->pubkey, from, push_msg->crds + i, now, valloc, yamldump);
+      fd_gossip_recv_crds_value(glob, &push_msg->pubkey, push_msg->crds + i, now, valloc);
     break;
   }
   case fd_gossip_msg_enum_prune_msg:
@@ -742,11 +740,6 @@ fd_gossip_main_loop( fd_gossip_global_t * glob, fd_valloc_t valloc, volatile int
     FD_LOG_ERR(("bind failed: %s", strerror(errno)));
     return -1;
   }
-
-  fd_flamenco_yaml_t * yamldump =
-    fd_flamenco_yaml_init( fd_flamenco_yaml_new(
-      fd_valloc_malloc( valloc, fd_flamenco_yaml_align(), fd_flamenco_yaml_footprint() ) ),
-      stdout );
 
 #define VLEN 32U
   struct mmsghdr msgs[VLEN];
@@ -812,7 +805,7 @@ fd_gossip_main_loop( fd_gossip_global_t * glob, fd_valloc_t valloc, volatile int
       char tmp[100];
       FD_LOG_NOTICE(("recv msg type %d from %s", gmsg.discriminant, fd_gossip_addr_str(tmp, sizeof(tmp), &from)));
                        
-      fd_gossip_recv(glob, &from, &gmsg, now, valloc, yamldump);
+      fd_gossip_recv(glob, &from, &gmsg, now, valloc);
 
       fd_bincode_destroy_ctx_t ctx2;
       ctx2.valloc = valloc;
@@ -820,8 +813,6 @@ fd_gossip_main_loop( fd_gossip_global_t * glob, fd_valloc_t valloc, volatile int
     }
   }
 
-  fd_valloc_free(valloc, fd_flamenco_yaml_delete(yamldump));
-  
   close(fd);
   glob->sockfd = -1;
   return 0;
