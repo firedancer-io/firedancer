@@ -196,7 +196,6 @@ struct fd_gossip_global {
     fd_pending_event_t * event_pool;
     fd_pending_heap_t * event_heap;
     fd_rng_t rng[1];
-    int got_pull_resp;
 };
 
 ulong
@@ -496,17 +495,33 @@ fd_gossip_sign_crds_value( fd_gossip_global_t * glob, fd_crds_value_t * value ) 
 }
 
 void
-fd_gossip_first_pull( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, long now ) {
-  if (glob->got_pull_resp)
-    return;
-
-  /* Try again in 100 ms */
-  fd_gossip_network_addr_t * key = &arg->key;
-  fd_pending_event_t * ev = fd_gossip_add_pending(glob, now + (long)1e8);
+fd_gossip_random_pull( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, long now ) {
+  (void)arg;
+  
+  /* Try again in 1 sec */
+  fd_pending_event_t * ev = fd_gossip_add_pending(glob, now + (long)1e9);
   if (ev) {
-    ev->fun = fd_gossip_first_pull;
-    fd_memcpy(&ev->fun_arg.key, key, sizeof(fd_gossip_network_addr_t));
+    ev->fun = fd_gossip_random_pull;
   }
+
+  /* Pick a random partner */
+  ulong cnt = fd_active_table_key_cnt(glob->actives);
+  if (cnt == 0)
+    return;
+  ulong i = fd_rng_ulong(glob->rng) % cnt;
+  fd_active_elem_t * ele = NULL;
+  ulong j = 0;
+  for( fd_active_table_iter_t iter = fd_active_table_iter_init( glob->actives );
+       !fd_active_table_iter_done( glob->actives, iter );
+       iter = fd_active_table_iter_next( glob->actives, iter ) ) {
+    if (i == j++) {
+      ele = fd_active_table_iter_ele( glob->actives, iter );
+      break;
+    }
+  }
+  if (ele->pongtime == 0)
+    /* Still pinging */
+    return;
 
   fd_gossip_msg_t gmsg;
   fd_gossip_msg_new_disc(&gmsg, fd_gossip_msg_enum_pull_req);
@@ -533,7 +548,7 @@ fd_gossip_first_pull( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, l
   ci->wallclock = (ulong)now/1000000; /* convert to ms */
   fd_gossip_sign_crds_value(glob, value);
 
-  fd_gossip_send(glob, key, &gmsg);
+  fd_gossip_send(glob, &ele->key, &gmsg);
 }
 
 void
@@ -571,14 +586,6 @@ fd_gossip_handle_pong( fd_gossip_global_t * glob, fd_gossip_network_addr_t * fro
   val->pingcount = 0; /* Start count over next time */
   fd_memcpy(val->id.uc, pong->from.uc, 32U);
 
-  /* Trigger the first pull request */
-  if (!glob->got_pull_resp) {
-    fd_pending_event_t * ev = fd_gossip_add_pending(glob, 0 /* ASAP */);
-    if (ev) {
-      ev->fun = fd_gossip_first_pull;
-      fd_memcpy(&ev->fun_arg.key, from, sizeof(fd_gossip_network_addr_t));
-    }
-  }
   /* Remember that this is a good peer */
   fd_peer_elem_t * peerval = fd_peer_table_query(glob->peers, from, NULL);
   if (peerval == NULL) {
@@ -732,7 +739,6 @@ fd_gossip_recv(fd_gossip_global_t * glob, fd_gossip_network_addr_t * from, fd_go
   case fd_gossip_msg_enum_pull_req:
     break;
   case fd_gossip_msg_enum_pull_resp: {
-    glob->got_pull_resp = 1;
     fd_gossip_pull_resp_t * pull_resp = &gmsg->inner.pull_resp;
     for (ulong i = 0; i < pull_resp->crds_len; ++i)
       fd_gossip_recv_crds_value(glob, &pull_resp->pubkey, pull_resp->crds + i, now, valloc);
@@ -788,6 +794,10 @@ fd_gossip_main_loop( fd_gossip_global_t * glob, fd_valloc_t valloc, volatile int
     FD_LOG_ERR(("bind failed: %s", strerror(errno)));
     return -1;
   }
+
+  /* Start pulling every sec */
+  fd_pending_event_t * ev = fd_gossip_add_pending(glob, fd_log_wallclock() + (long)1e9);
+  ev->fun = fd_gossip_random_pull;
 
 #define VLEN 32U
   struct mmsghdr msgs[VLEN];
