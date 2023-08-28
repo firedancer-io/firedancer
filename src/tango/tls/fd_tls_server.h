@@ -24,6 +24,11 @@ struct fd_tls_server {
   ulong cert_x509_sz;
 
   uchar alpn[ 32 ];
+
+  /* Advertised QUIC transport parameters */
+# define FD_TLS_EXT_QUIC_PARAMS_SZ (1024UL)
+  uchar  quic_tp[ 1024 ];
+  ushort quic_tp_sz;
 };
 
 typedef struct fd_tls_server fd_tls_server_t;

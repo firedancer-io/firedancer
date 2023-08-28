@@ -267,7 +267,7 @@ fd_tls_server_hs_start( fd_tls_server_t const * const server,
         handshake,
         msg_buf, server_hello_sz,
         FD_TLS_LEVEL_INITIAL,
-        /* flush */ 1 ) ) )
+        /* flush */ 0 ) ) )
     return -(long)FD_TLS_ALERT_INTERNAL_ERROR;
 
   /* Derive handshake secrets *****************************************/
@@ -353,6 +353,20 @@ fd_tls_server_hs_start( fd_tls_server_t const * const server,
     fd_tls_record_hdr_t * rec_hdr = FD_TLS_SKIP_FIELD( fd_tls_record_hdr_t );
     ushort *              exts_sz = FD_TLS_SKIP_FIELD( ushort );
 
+    /* Add QUIC transport params if requested */
+
+    if( server->quic_tp_sz ) {
+      fd_tls_ext_hdr_t * quic_tp_hdr = FD_TLS_SKIP_FIELD( fd_tls_ext_hdr_t );
+      uchar *            quic_tp     = FD_TLS_SKIP_FIELDS( uchar, server->quic_tp_sz );
+
+      fd_memcpy( quic_tp, server->quic_tp, server->quic_tp_sz );
+      *quic_tp_hdr = (fd_tls_ext_hdr_t) {
+        .type = FD_TLS_EXT_QUIC_TRANSPORT_PARAMS,
+        .sz   = (ushort)server->quic_tp_sz
+      };
+      fd_tls_ext_hdr_bswap( quic_tp_hdr );
+    }
+
     /* Add ALPN if requested */
 
     ulong alpn_sz = FD_LOAD( ushort, server->alpn );
@@ -362,8 +376,8 @@ fd_tls_server_hs_start( fd_tls_server_t const * const server,
 
       fd_memcpy( alpn, server->alpn, alpn_sz );
       *alpn_hdr = (fd_tls_ext_hdr_t) {
-        .type = FD_TLS_EXT_TYPE_ALPN,
-        .sz   = fd_ushort_bswap( (ushort)alpn_sz )
+        .type = FD_TLS_EXT_ALPN,
+        .sz   = (ushort)alpn_sz
       };
       fd_tls_ext_hdr_bswap( alpn_hdr );
     }
@@ -387,7 +401,7 @@ fd_tls_server_hs_start( fd_tls_server_t const * const server,
         handshake,
         msg_buf, server_ee_sz,
         FD_TLS_LEVEL_HANDSHAKE,
-        /* flush */ 1 ) ) )
+        /* flush */ 0 ) ) )
     return -(long)FD_TLS_ALERT_INTERNAL_ERROR;
 
   /* Record EE in transcript hash */
@@ -409,7 +423,7 @@ fd_tls_server_hs_start( fd_tls_server_t const * const server,
         handshake,
         server->cert_x509, server->cert_x509_sz,
         FD_TLS_LEVEL_HANDSHAKE,
-        /* flush */ 1 ) ) )
+        /* flush */ 0 ) ) )
     return -(long)FD_TLS_ALERT_INTERNAL_ERROR;
 
   /* Record Certificate record in transcript hash */
@@ -429,20 +443,26 @@ fd_tls_server_hs_start( fd_tls_server_t const * const server,
 
   /* Create static size message layout */
 
-  fd_tls_cert_verify_t cert_verify = {
-    .hdr = {
-      .type = FD_TLS_RECORD_CERT_VERIFY,
-      .sz   = fd_uint_to_tls_u24( 0x44 )
-    },
+  struct __attribute__((packed)) {
+    fd_tls_record_hdr_t  hdr;
+    fd_tls_cert_verify_t cert_verify;
+  } cv_rec;
+  cv_rec.hdr = (fd_tls_record_hdr_t){
+    .type = FD_TLS_RECORD_CERT_VERIFY,
+    .sz   = fd_uint_to_tls_u24( 0x44 )
+  };
+  cv_rec.cert_verify = (fd_tls_cert_verify_t){
     .sig_alg = FD_TLS_SIGNATURE_ED25519,
     .sig_sz  = 0x40,
   };
-  fd_tls_cert_verify_bswap( &cert_verify );
+
+  fd_tls_record_hdr_bswap ( &cv_rec.hdr         );
+  fd_tls_cert_verify_bswap( &cv_rec.cert_verify );
 
   /* Sign certificate */
 
   fd_sha512_t sha512;
-  fd_ed25519_sign( cert_verify.sig,
+  fd_ed25519_sign( cv_rec.cert_verify.sig,
                    sign_msg, 130UL,
                    server->cert_public_key,
                    server->cert_private_key,
@@ -452,27 +472,30 @@ fd_tls_server_hs_start( fd_tls_server_t const * const server,
 
   if( FD_UNLIKELY( !server->sendmsg_fn(
         handshake,
-        &cert_verify, sizeof(fd_tls_cert_verify_t),
+        &cv_rec, sizeof(cv_rec),
         FD_TLS_LEVEL_HANDSHAKE,
-        /* flush */ 1 ) ) )
+        /* flush */ 0 ) ) )
     return -(long)FD_TLS_ALERT_INTERNAL_ERROR;
 
   /* Record CertificateVerify in transcript hash */
 
   fd_sha256_append( &transcript,
-                    &cert_verify, sizeof(fd_tls_cert_verify_t) );
+                    &cv_rec, sizeof(cv_rec) );
 
   /* Send Finished ****************************************************/
 
   /* Create static size message layout */
 
-  fd_tls_finished_t finished = {
-    .hdr = {
-      .type = FD_TLS_RECORD_FINISHED,
-      .sz   = fd_uint_to_tls_u24( 0x20 )
-    }
+  struct __attribute__((packed)) {
+    fd_tls_record_hdr_t hdr;
+    fd_tls_finished_t   fin;
+  } fin_rec;
+  fin_rec.hdr = (fd_tls_record_hdr_t){
+    .type = FD_TLS_RECORD_FINISHED,
+    .sz   = fd_uint_to_tls_u24( 0x20 )
   };
-  fd_tls_finished_bswap( &finished );
+  fd_tls_record_hdr_bswap( &fin_rec.hdr );
+  fd_tls_finished_bswap( &fin_rec.fin );
 
   /* Export transcript hash ClientHello..CertificateVerify */
 
@@ -491,13 +514,13 @@ fd_tls_server_hs_start( fd_tls_server_t const * const server,
 
   fd_hmac_sha256( /* data */ transcript_hash, 32UL,
                   /* salt */ finished_key,    32UL,
-                  /* out  */ finished.verify );
+                  /* out  */ fin_rec.fin.verify );
 
   /* Send Finished record */
 
   if( FD_UNLIKELY( !server->sendmsg_fn(
         handshake,
-        &finished, sizeof(finished),
+        &fin_rec, sizeof(fin_rec),
         FD_TLS_LEVEL_HANDSHAKE,
         /* flush */ 1 ) ) )
     return -(long)FD_TLS_ALERT_INTERNAL_ERROR;
@@ -505,7 +528,7 @@ fd_tls_server_hs_start( fd_tls_server_t const * const server,
   /* Record Finished in transcript hash */
 
   fd_sha256_append( &transcript,
-                    &finished, sizeof(fd_tls_finished_t) );
+                    &fin_rec, sizeof(fin_rec) );
 
   /* Derive application secrets ***************************************/
 
@@ -569,21 +592,27 @@ fd_tls_server_hs_wait_finished( fd_tls_estate_srv_t * const handshake,
 
   /* Decode incoming client "Finished" message ************************/
 
-  fd_tls_finished_t finished;
-  if( FD_UNLIKELY( fd_tls_decode_finished( &finished, record, record_sz )<0L ) )
+  if( FD_UNLIKELY( record_sz!=0x24 ) )
     return -(long)FD_TLS_ALERT_DECODE_ERROR;
 
-  if( FD_UNLIKELY( ( finished.hdr.type != FD_TLS_RECORD_FINISHED   )
-                 | ( fd_tls_u24_to_uint( finished.hdr.sz ) != 0x20 ) ) )
+  fd_tls_record_hdr_t hdr[1];
+  if( FD_UNLIKELY( fd_tls_decode_record_hdr( hdr, record, record_sz )<0L ) )
+    return -(long)FD_TLS_ALERT_DECODE_ERROR;
+
+  if( FD_UNLIKELY( ( hdr->type != FD_TLS_RECORD_FINISHED )
+                 | ( fd_tls_u24_to_uint( hdr->sz )!=0x20 ) ) )
+    return -(long)FD_TLS_ALERT_DECODE_ERROR;
+
+  fd_tls_finished_t finished;
+  if( FD_UNLIKELY( fd_tls_decode_finished( &finished, (uchar const *)record+4, 0x20UL )<0L ) )
     return -(long)FD_TLS_ALERT_DECODE_ERROR;
 
   /* Check "Finished" verify data *************************************/
 
   /* Export transcript hash */
 
-  fd_sha256_t transcript_clone = transcript;
   uchar transcript_hash[ 32 ];
-  fd_sha256_fini( &transcript_clone, transcript_hash );
+  fd_sha256_fini( &transcript, transcript_hash );
 
   /* Derive "Finished" key */
 
@@ -611,7 +640,6 @@ fd_tls_server_hs_wait_finished( fd_tls_estate_srv_t * const handshake,
   /* Done */
 
   handshake->state = FD_TLS_HS_CONNECTED;
-
   return 0L;
 }
 
@@ -689,7 +717,6 @@ fd_tls_client_handshake( fd_tls_client_t const * client,
                          void *                  record,
                          ulong                   record_sz,
                          int                     encryption_level ) {
-  FD_LOG_NOTICE(( "x" ));
   switch( handshake->state ) {
   case FD_TLS_HS_START:
     /* Record argument is ignored, since ClientHello is always the first record */
@@ -758,7 +785,9 @@ fd_tls_client_hs_start( fd_tls_client_t const * const client,
       .signature_algorithms = { .ed25519=1 },
       .cipher_suites        = { .aes_128_gcm_sha256=1 },
       .key_share            = { .has_x25519=1 },
-      .cert_types           = { .x509=1, .raw_pubkey=1 }
+      .cert_types           = { .x509=1, .raw_pubkey=1 },
+      .quic_tp              = client->quic_tp,
+      .quic_tp_sz           = client->quic_tp_sz,
     };
     memcpy( ch.random,           client_random,          32UL );
     memcpy( ch.key_share.x25519, client->kex_public_key, 32UL );
@@ -863,14 +892,12 @@ fd_tls_client_hs_wait_sh( fd_tls_client_t const * const client,
 
   /* Derive client/server handshake secrets */
 
-  uchar client_hs_secret[ 32UL ];
-  fd_tls_hkdf_expand_label( client_hs_secret,
+  fd_tls_hkdf_expand_label( handshake->client_hs_secret,
                             handshake_secret,
                             "c hs traffic",  12UL,
                             transcript_hash, 32UL );
 
-  uchar server_hs_secret[ 32UL ];
-  fd_tls_hkdf_expand_label( server_hs_secret,
+  fd_tls_hkdf_expand_label( handshake->server_hs_secret,
                             handshake_secret,
                             "s hs traffic",  12UL,
                             transcript_hash, 32UL );
@@ -879,8 +906,8 @@ fd_tls_client_hs_wait_sh( fd_tls_client_t const * const client,
 
   if( FD_UNLIKELY( !client->secrets_fn(
       handshake,
-      /* read secret  */ server_hs_secret,
-      /* write secret */ client_hs_secret,
+      /* read secret  */ handshake->server_hs_secret,
+      /* write secret */ handshake->client_hs_secret,
       FD_TLS_LEVEL_HANDSHAKE ) ) )
     return -(long)FD_TLS_ALERT_HANDSHAKE_FAILURE;
 
@@ -947,7 +974,15 @@ fd_tls_client_hs_wait_ee( fd_tls_client_t const * const client,
       if( FD_UNLIKELY( (list_stop - wire_laddr) < ext_sz ) )
         return -(long)FD_TLS_ALERT_DECODE_ERROR;
 
-      FD_LOG_NOTICE(( "TODO: Extension" ));
+      switch( ext_type ) {
+      case FD_TLS_EXT_QUIC_TRANSPORT_PARAMS:
+        if( FD_UNLIKELY( ext_sz > FD_TLS_EXT_QUIC_PARAMS_SZ ) )
+          return -(long)FD_TLS_ALERT_DECODE_ERROR;
+        /* TODO ... memcpy QUIC transport params */
+        break;
+      default:
+        break;  /* TODO should we error on unknown extensions */
+      }
 
       wire_laddr += ext_sz;
       wire_sz    -= ext_sz;
@@ -971,24 +1006,115 @@ fd_tls_client_hs_wait_ee( fd_tls_client_t const * const client,
   return 0L;
 }
 
+#if FD_HAS_OPENSSL
+
+/* fd_tls_client_handle_x509 uses OpenSSL's X.509 parser to determine
+   the signer public key of the certificate chain.  Fails if the leaf
+   cert is not signed by an Ed25519 public key.
+
+   Obviously, this is hacky code.  The long term ambition remains to
+   get rid of OpenSSL. */
+
+#include <openssl/evp.h>
+#include <openssl/x509.h>
+#include <openssl/x509v3.h>
+
 static long
-fd_tls_client_handle_cert( fd_tls_estate_cli_t *   handshake,
-                           void *                  cert,
-                           ulong                   cert_sz ) {
+fd_tls_client_handle_x509( fd_tls_estate_cli_t * const handshake,
+                           void *                const cert,
+                           ulong                 const cert_sz ) {
 
-  if( FD_UNLIKELY( !handshake->server_cert_raw ) ) {
-    FD_LOG_WARNING(( "Server sent us an X.509 cert, but we only support raw public keys for now" ));
-    return -(long)FD_TLS_ALERT_INTERNAL_ERROR;
-  }
-
-  void const * public_key = fd_ed25519_public_key_from_asn1( cert, cert_sz );
-  if( FD_UNLIKELY( !public_key ) )
+  uchar const * cert_in = (uchar *)cert;
+  X509 * x509 = d2i_X509( NULL, &cert_in, (long)cert_sz );
+  if( FD_UNLIKELY( !x509 ) )
     return -(long)FD_TLS_ALERT_BAD_CERTIFICATE;
 
-  if( FD_UNLIKELY( 0!=memcmp( public_key, handshake->server_pubkey, 32UL ) ) )
-    return -(long)FD_TLS_ALERT_HANDSHAKE_FAILURE;
+  EVP_PKEY * pubkey = X509_get0_pubkey( x509 );
+  if( FD_UNLIKELY( !pubkey ) ) {
+    X509_free( x509 );
+    return -(long)FD_TLS_ALERT_BAD_CERTIFICATE;
+  }
 
+  int key_type = EVP_PKEY_base_id( pubkey );
+  if( FD_UNLIKELY( key_type!=EVP_PKEY_ED25519 ) ) {
+    X509_free( x509 );
+    return -(long)FD_TLS_ALERT_BAD_CERTIFICATE;
+  }
+
+  ulong len = 32UL;
+  if( FD_UNLIKELY( !EVP_PKEY_get_raw_public_key( pubkey, handshake->server_pubkey, &len ) ) ) {
+    X509_free( x509 );
+    return -(long)FD_TLS_ALERT_BAD_CERTIFICATE;
+  }
+
+  X509_free( x509 );
   return 0L;
+}
+
+#endif
+
+static long
+fd_tls_client_handle_cert_chain( fd_tls_estate_cli_t * const handshake,
+                                 void *                const cert_chain,
+                                 ulong                 const cert_chain_sz ) {
+
+  ulong wire_laddr = (ulong)cert_chain;
+  ulong wire_sz    = cert_chain_sz;
+
+  /* Skip 'opaque certificate_request_context<0..2^8-1>' */
+  uchar const * opaque_sz = FD_TLS_SKIP_FIELD( uchar );
+  uchar const * opaque    = FD_TLS_SKIP_FIELDS( uchar, *opaque_sz );
+  (void)opaque;
+
+  /* Get first entry of certificate chain
+     CertificateEntry certificate_list<0..2^24-1> */
+  fd_tls_u24_t const * cert_list_sz_be = FD_TLS_SKIP_FIELD( fd_tls_u24_t );
+  fd_tls_u24_t         cert_list_sz_   = fd_tls_u24_bswap( *cert_list_sz_be );
+  uint                 cert_list_sz    = fd_tls_u24_to_uint( cert_list_sz_ );
+  if( FD_UNLIKELY( cert_list_sz==0U ) )
+    return -(long)FD_TLS_ALERT_BAD_CERTIFICATE;
+
+  /* Get certificate size */
+  fd_tls_u24_t const * cert_sz_be = FD_TLS_SKIP_FIELD( fd_tls_u24_t );
+  fd_tls_u24_t         cert_sz_   = fd_tls_u24_bswap( *cert_sz_be );
+  uint                 cert_sz    = fd_tls_u24_to_uint( cert_sz_ );
+  if( FD_UNLIKELY( cert_sz>wire_sz ) )
+    return -(long)FD_TLS_ALERT_DECODE_ERROR;
+
+  void * cert = (void *)wire_laddr;
+  if( FD_UNLIKELY( !handshake->server_cert_raw ) ) {
+
+    /* DER-encoded X.509 certificate */
+
+    long res;
+#   if !FD_HAS_OPENSSL
+    FD_LOG_WARNING(( "Server sent us an X.509 cert, but we only support raw public keys for now" ));
+    res = -(long)FD_TLS_ALERT_INTERNAL_ERROR;
+#   else
+    res = fd_tls_client_handle_x509( handshake, cert, cert_sz );
+#   endif
+
+    if( FD_UNLIKELY( res<0L ) )
+      return res;
+
+  } else {
+
+    /* Interpret certificate entry as raw public key (RFC 7250)
+       'opaque ASN1_subjectPublicKeyInfo<1..2^24-1>' */
+
+    void const * public_key = fd_ed25519_public_key_from_asn1( cert, cert_sz );
+    if( FD_UNLIKELY( !public_key ) )
+      return -(long)FD_TLS_ALERT_BAD_CERTIFICATE;
+
+    if( FD_UNLIKELY( 0!=memcmp( public_key, handshake->server_pubkey, 32UL ) ) )
+      return -(long)FD_TLS_ALERT_HANDSHAKE_FAILURE;
+
+  }
+
+  /* Skip extensions */
+  /* Skip remaining certificate chain */
+
+  return (long)cert_chain_sz;
 }
 
 static long
@@ -1024,7 +1150,7 @@ fd_tls_client_hs_wait_cert_cr( fd_tls_client_t const * const client,
       next_state = FD_TLS_HS_WAIT_CERT;
       break;
     case FD_TLS_RECORD_CERT:
-      res        = fd_tls_client_handle_cert( handshake, record, record_sz );
+      res        = fd_tls_client_handle_cert_chain( handshake, (void *)wire_laddr, wire_sz );
       next_state = FD_TLS_HS_WAIT_CV;
       break;
     default:
@@ -1068,7 +1194,7 @@ fd_tls_client_hs_wait_cert( fd_tls_client_t const * const client,
     if( FD_UNLIKELY( record_hdr.type != FD_TLS_RECORD_CERT ) )
       return -(long)FD_TLS_ALERT_UNEXPECTED_MESSAGE;
 
-    long res = fd_tls_client_handle_cert( handshake, record, record_sz );
+    long res = fd_tls_client_handle_cert_chain( handshake, record, record_sz );
     if( FD_UNLIKELY( res<0L ) ) return res;
   } while(0);
 
@@ -1150,15 +1276,117 @@ fd_tls_client_hs_wait_cert_verify( fd_tls_client_t const * const client,
 
 static long
 fd_tls_client_hs_wait_finished( fd_tls_client_t const * const client,
-                                fd_tls_estate_cli_t *   const handshake,
+                                fd_tls_estate_cli_t *   const hs,
                                 void *                  const record,
                                 ulong                   const record_sz,
                                 int                     const encryption_level ) {
 
   (void)client;
-  (void)handshake;
-  (void)record;
-  (void)record_sz;
-  (void)encryption_level;
-  FD_LOG_ERR(( "TODO" ));
+
+  /* TODO: Send certificate */
+
+  if( FD_UNLIKELY( encryption_level != FD_TLS_LEVEL_HANDSHAKE ) )
+    return -(long)FD_TLS_ALERT_INTERNAL_ERROR;
+
+  /* Export transcript hash ClientHello..CertificateVerify */
+
+  fd_sha256_t transcript_clone = hs->transcript;
+  uchar transcript_hash[ 32 ];
+  fd_sha256_fini( &transcript_clone, transcript_hash );
+
+  /* Derive "Finished" key */
+
+  uchar server_finished_key[ 32 ];
+  fd_tls_hkdf_expand_label( server_finished_key,
+                            hs->server_hs_secret,
+                            "finished", 8UL,
+                            NULL,       0UL );
+
+  /* Derive "Finished" verify data */
+
+  uchar server_finished_expected[ 32 ];
+  fd_hmac_sha256( /* data */ transcript_hash,     32UL,
+                  /* salt */ server_finished_key, 32UL,
+                  /* out  */ server_finished_expected );
+
+  /* Record server finished */
+
+  fd_sha256_append( &hs->transcript, record, record_sz );
+
+  /* Read server Finished *********************************************/
+
+  fd_tls_finished_t server_fin;
+
+  do {
+    ulong wire_laddr = (ulong)record;
+    ulong wire_sz    = record_sz;
+
+    /* Decode record header */
+
+    fd_tls_record_hdr_t record_hdr;
+    FD_TLS_DECODE_SUB( fd_tls_decode_record_hdr, &record_hdr );
+
+    if( FD_UNLIKELY( record_hdr.type != FD_TLS_RECORD_FINISHED ) )
+      return -(long)FD_TLS_ALERT_UNEXPECTED_MESSAGE;
+
+    /* Decode server Finished */
+
+    FD_TLS_DECODE_SUB( fd_tls_decode_finished, &server_fin );
+
+    /* Fail if trailing bytes detected */
+
+    if( FD_UNLIKELY( wire_laddr != (ulong)record+record_sz ) )
+      return -(long)FD_TLS_ALERT_DECODE_ERROR;
+  } while(0);
+
+  /* Verify that client and server's transcripts match */
+
+  int match = 0;
+  for( ulong i=0; i<32UL; i++ )
+    match |= server_fin.verify[i] ^ server_finished_expected[i];
+  if( FD_UNLIKELY( match!=0 ) )
+    return -(long)FD_TLS_ALERT_DECRYPT_ERROR;
+
+  /* Send client Finished *********************************************/
+
+  struct __attribute__((packed)) {
+    fd_tls_record_hdr_t hdr;
+    fd_tls_finished_t   fin;
+  } fin_rec;
+  fin_rec.hdr = (fd_tls_record_hdr_t){
+    .type = FD_TLS_RECORD_FINISHED,
+    .sz   = fd_uint_to_tls_u24( 0x20 )
+  };
+
+  fd_tls_record_hdr_bswap( &fin_rec.hdr );
+
+  /* Export transcript hash up to this point */
+
+  fd_sha256_fini( &hs->transcript, transcript_hash );
+
+  /* Derive "Finished" key */
+
+  uchar client_finished_key[ 32 ];
+  fd_tls_hkdf_expand_label( client_finished_key,
+                            hs->client_hs_secret,
+                            "finished", 8UL,
+                            NULL,       0UL );
+
+  /* Derive "Finished" verify data */
+
+  fd_hmac_sha256( /* data */ transcript_hash,     32UL,
+                  /* salt */ client_finished_key, 32UL,
+                  /* out  */ fin_rec.fin.verify );
+
+  /* Send client Finished record */
+
+  if( FD_UNLIKELY( !client->sendmsg_fn(
+        hs,
+        &fin_rec, sizeof(fin_rec),
+        FD_TLS_LEVEL_HANDSHAKE,
+        /* flush */ 1 ) ) )
+    return -(long)FD_TLS_ALERT_INTERNAL_ERROR;
+
+  hs->state = FD_TLS_HS_CONNECTED;
+  return 0L;
 }

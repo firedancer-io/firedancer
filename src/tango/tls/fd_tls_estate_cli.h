@@ -18,7 +18,9 @@
    Thus, estate_cli is not optimized for memory use. */
 
 struct fd_tls_estate_cli {
-  uchar server_pubkey[ 32 ];
+  uchar server_pubkey   [ 32 ];
+  uchar server_hs_secret[ 32 ];
+  uchar client_hs_secret[ 32 ];
 
   char  state;
 

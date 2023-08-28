@@ -112,10 +112,10 @@ fd_tls_decode_client_hello( fd_tls_client_hello_t * out,
     case FD_TLS_EXT_SUPPORTED_VERSIONS:
       ext_parse_res = fd_tls_decode_ext_supported_versions( &out->supported_versions, ext_data, wire_sz );
       break;
-    case FD_TLS_EXT_TYPE_SERVER_NAME:
+    case FD_TLS_EXT_SERVER_NAME:
       ext_parse_res = fd_tls_decode_ext_server_name( &out->server_name, ext_data, wire_sz );
       break;
-    case FD_TLS_EXT_TYPE_SUPPORTED_GROUPS:
+    case FD_TLS_EXT_SUPPORTED_GROUPS:
       ext_parse_res = fd_tls_decode_ext_supported_groups( &out->supported_groups, ext_data, wire_sz );
       break;
     case FD_TLS_EXT_SIGNATURE_ALGORITHMS:
@@ -186,7 +186,7 @@ fd_tls_encode_client_hello( fd_tls_client_hello_t * in,
   ushort ext_key_share_group    = FD_TLS_GROUP_X25519;
   ushort ext_key_share_sz       = 32;
 
-  ushort ext_supported_groups_ext_type = FD_TLS_EXT_TYPE_SUPPORTED_GROUPS;
+  ushort ext_supported_groups_ext_type = FD_TLS_EXT_SUPPORTED_GROUPS;
   ushort ext_supported_groups_ext_sz   = 4;
   ushort ext_supported_groups_sz       = 2;
   ushort ext_supported_groups[1]       = { FD_TLS_GROUP_X25519 };
@@ -217,6 +217,20 @@ fd_tls_encode_client_hello( fd_tls_client_hello_t * in,
     FIELD(17,  ext_sigalg,                        ushort, 1    )
     FD_TLS_ENCODE_STATIC_BATCH( FIELDS )
 # undef FIELDS
+
+  /* Add QUIC transport params */
+
+  if( in->quic_tp_sz > 0 ) {
+    ushort  quic_tp_ext_type = FD_TLS_EXT_QUIC_TRANSPORT_PARAMS;
+    ushort  quic_tp_ext_sz   = in->quic_tp_sz;
+    uchar * quic_tp          = (uchar *)in->quic_tp;
+#   define FIELDS( FIELD )                    \
+    FIELD( 0, &quic_tp_ext_type, ushort, 1 ); \
+    FIELD( 1, &quic_tp_ext_sz,   ushort, 1 ); \
+    FIELD( 2,  quic_tp,          uchar,  in->quic_tp_sz );
+    FD_TLS_ENCODE_STATIC_BATCH( FIELDS )
+# undef FIELDS
+  }
 
   *extension_tot_sz = fd_ushort_bswap( (ushort)( (ulong)wire_laddr - extension_start ) );
   return (long)( wire_laddr - (ulong)wire );
@@ -265,8 +279,6 @@ fd_tls_decode_server_hello( fd_tls_server_hello_t * out,
 
   /* Read extensions */
 
-  fd_tls_ext_supported_versions_t versions = {0};
-
   FD_TLS_DECODE_LIST_BEGIN( ushort, alignof(uchar) ) {
     /* Read extension type and length */
     ushort ext_type;
@@ -285,11 +297,22 @@ fd_tls_decode_server_hello( fd_tls_server_hello_t * out,
     void const * ext_data = (void const *)wire_laddr;
     long ext_parse_res;
     switch( ext_type ) {
-    case FD_TLS_EXT_SUPPORTED_VERSIONS:
-      ext_parse_res = fd_tls_decode_ext_supported_versions( &versions, ext_data, wire_sz );
+    case FD_TLS_EXT_SUPPORTED_VERSIONS: {
+      ushort chosen_version;
+      FD_TLS_DECODE_FIELD( &chosen_version, ushort );
+      ext_parse_res = 2L;
+      if( FD_UNLIKELY( chosen_version!=FD_TLS_VERSION_TLS13 ) )
+        return -(long)FD_TLS_ALERT_PROTOCOL_VERSION;
       break;
+    }
     case FD_TLS_EXT_KEY_SHARE:
       ext_parse_res = fd_tls_decode_key_share( &out->key_share, ext_data, wire_sz );
+      wire_laddr += ext_sz;
+      break;
+    case FD_TLS_EXT_QUIC_TRANSPORT_PARAMS:
+      /* Copy transport params as-is (TODO...) */
+      ext_parse_res = (long)ext_sz;
+      wire_laddr += ext_sz;
       break;
     default:
       /* Reject unsolicited extensions */
@@ -305,12 +328,10 @@ fd_tls_decode_server_hello( fd_tls_server_hello_t * out,
 
   /* Check for required extensions */
 
-  if( FD_UNLIKELY( !versions.tls13 ) )
-    return -(long)FD_TLS_ALERT_PROTOCOL_VERSION;
   if( FD_UNLIKELY( !out->key_share.has_x25519 ) )
     return -(long)FD_TLS_ALERT_MISSING_EXTENSION;
 
-  return 0L;
+  return (long)( wire_laddr - (ulong)wire );
 }
 
 long

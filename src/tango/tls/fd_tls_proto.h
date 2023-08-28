@@ -119,8 +119,11 @@ struct fd_tls_client_hello {
   fd_tls_ext_server_name_t          server_name;
   fd_tls_ext_supported_groups_t     supported_groups;
   fd_tls_ext_signature_algorithms_t signature_algorithms;
-  fd_tls_key_share_t            key_share;
+  fd_tls_key_share_t                key_share;
   fd_tls_ext_cert_type_list_t       cert_types;
+
+  uchar const * quic_tp;
+  ushort        quic_tp_sz;
 };
 
 typedef struct fd_tls_client_hello fd_tls_client_hello_t;
@@ -142,8 +145,6 @@ typedef struct fd_tls_server_hello fd_tls_server_hello_t;
    signature algorithms with 64 byte signature size (e.g. Ed25519). */
 
 struct __attribute__((packed)) fd_tls_cert_verify {
-  fd_tls_record_hdr_t hdr;  /* hdr.sz == 0x44 */
-
   ushort sig_alg;  /* FD_TLS_SIGNATURE_{...} */
   ushort sig_sz;   /* 0x40 */
   uchar  sig[ 64 ];
@@ -156,8 +157,6 @@ typedef struct fd_tls_cert_verify fd_tls_cert_verify_t;
    hash output size. */
 
 struct __attribute__((packed)) fd_tls_finished {
-  fd_tls_record_hdr_t hdr;  /* hdr.sz == 0x20 */
-
   uchar verify[ 32 ];
 };
 
@@ -176,11 +175,14 @@ typedef struct fd_tls_finished fd_tls_finished_t;
 
 /* TLS extension IDs */
 
-#define FD_TLS_EXT_SERVER_NAME          ((ushort) 0)
-#define FD_TLS_EXT_SUPPORTED_GROUPS     ((ushort)10)
-#define FD_TLS_EXT_SIGNATURE_ALGORITHMS ((ushort)13)
-#define FD_TLS_EXT_SUPPORTED_VERSIONS   ((ushort)43)
-#define FD_TLS_EXT_KEY_SHARE            ((ushort)51)
+#define FD_TLS_EXT_SERVER_NAME           ((ushort) 0)
+#define FD_TLS_EXT_SUPPORTED_GROUPS      ((ushort)10)
+#define FD_TLS_EXT_SIGNATURE_ALGORITHMS  ((ushort)13)
+#define FD_TLS_EXT_ALPN                  ((ushort)16)
+#define FD_TLS_EXT_SUPPORTED_VERSIONS    ((ushort)43)
+#define FD_TLS_EXT_KEY_SHARE             ((ushort)51)
+#define FD_TLS_EXT_KEY_SHARE             ((ushort)51)
+#define FD_TLS_EXT_QUIC_TRANSPORT_PARAMS ((ushort)57)
 
 /* TLS Alert Protocol */
 
@@ -211,16 +213,6 @@ typedef struct fd_tls_finished fd_tls_finished_t;
 #define FD_TLS_ALERT_UNKNOWN_PSK_IDENTITY            ((uchar)115)
 #define FD_TLS_ALERT_CERTIFICATE_REQUIRED            ((uchar)116)
 #define FD_TLS_ALERT_NO_APPLICATION_PROTOCOL         ((uchar)120)
-
-/* TLS extension types */
-
-#define FD_TLS_EXT_TYPE_SERVER_NAME           ((ushort) 0)
-#define FD_TLS_EXT_TYPE_SUPPORTED_GROUPS      ((ushort)10)
-#define FD_TLS_EXT_TYPE_SIGNATURE_ALGORITHMS  ((ushort)13)
-#define FD_TLS_EXT_TYPE_ALPN                  ((ushort)16)
-#define FD_TLS_EXT_TYPE_SUPPORTED_VERSIONS    ((ushort)43)
-#define FD_TLS_EXT_TYPE_KEY_SHARE             ((ushort)51)
-#define FD_TLS_EXT_TYPE_QUIC_TRANSPORT_PARAMS ((ushort)57)
 
 /* TLS server_name extension */
 
@@ -358,7 +350,6 @@ STATIC_SERDE( record_hdr, fd_tls_record_hdr_t )
 
 static inline void
 fd_tls_cert_verify_bswap( fd_tls_cert_verify_t * x ) {
-  fd_tls_record_hdr_bswap( &x->hdr );
   x->sig_alg = fd_ushort_bswap( x->sig_alg );
   x->sig_sz  = fd_ushort_bswap( x->sig_sz );
 }
@@ -367,10 +358,7 @@ STATIC_SERDE( cert_verify, fd_tls_cert_verify_t )
 
 /* Static serde methods for fd_tls_finished_t */
 
-static inline void
-fd_tls_finished_bswap( fd_tls_finished_t * x ) {
-  fd_tls_record_hdr_bswap( &x->hdr );
-}
+static inline void fd_tls_finished_bswap( fd_tls_finished_t * x FD_FN_UNUSED ) {}
 
 STATIC_SERDE( finished, fd_tls_finished_t )
 
