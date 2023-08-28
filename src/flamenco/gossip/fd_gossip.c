@@ -15,27 +15,21 @@
 
 #pragma GCC diagnostic ignored "-Wstrict-aliasing"
 
-/* Key used for active sets and contact lists */
-struct __attribute__((aligned(8UL))) fd_ping_key {
-    fd_pubkey_t id __attribute__((aligned(8UL)));
-    fd_gossip_network_addr_t addr __attribute__((aligned(8UL)));
-};
-#define FD_PING_KEY_NLONGS (sizeof(fd_ping_key_t)/sizeof(ulong))
-typedef struct fd_ping_key fd_ping_key_t;
+#define FD_GOSSIP_NETWORK_ADDR_NLONGS (sizeof(fd_gossip_network_addr_t)/sizeof(ulong))
 
-int fd_ping_key_eq( const fd_ping_key_t * key1, const fd_ping_key_t * key2 ) {
-  FD_STATIC_ASSERT(sizeof(fd_ping_key_t)%sizeof(ulong) == 0,"messed up size");
+int fd_gossip_network_addr_eq( const fd_gossip_network_addr_t * key1, const fd_gossip_network_addr_t * key2 ) {
+  FD_STATIC_ASSERT(sizeof(fd_gossip_network_addr_t)%sizeof(ulong) == 0,"messed up size");
   const ulong * p1 = (const ulong*)key1;
   const ulong * p2 = (const ulong*)key2;
-  for ( ulong i = 0; i < FD_PING_KEY_NLONGS; ++i )
+  for ( ulong i = 0; i < FD_GOSSIP_NETWORK_ADDR_NLONGS; ++i )
     if ( p1[i] != p2[i] )
       return 0;
   return 1;
 }
 
-ulong fd_ping_key_hash( const fd_ping_key_t * key, ulong seed ) {
-  ulong buf[FD_PING_KEY_NLONGS];
-  for ( ulong i = 0; i < FD_PING_KEY_NLONGS; ++i )
+ulong fd_gossip_network_addr_hash( const fd_gossip_network_addr_t * key, ulong seed ) {
+  ulong buf[FD_GOSSIP_NETWORK_ADDR_NLONGS];
+  for ( ulong i = 0; i < FD_GOSSIP_NETWORK_ADDR_NLONGS; ++i )
     buf[i] = ((const ulong *)key)[i];
 
   seed += 7242237688154252699UL;
@@ -43,7 +37,7 @@ ulong fd_ping_key_hash( const fd_ping_key_t * key, ulong seed ) {
 #define ROLLUP(_result_,_prime_)                       \
   ulong _result_ = 0;                                  \
   do {                                                 \
-    for ( ulong i = 0; i < FD_PING_KEY_NLONGS; ++i ) { \
+    for ( ulong i = 0; i < FD_GOSSIP_NETWORK_ADDR_NLONGS; ++i ) { \
       _result_ = (_result_ + buf[i] + seed)*_prime_;   \
     }                                                  \
   } while (0)
@@ -51,7 +45,7 @@ ulong fd_ping_key_hash( const fd_ping_key_t * key, ulong seed ) {
 #define ROTATE                                          \
   do {                                                  \
     ulong t = buf[0];                                   \
-    for ( ulong i = 1; i < FD_PING_KEY_NLONGS; ++i ) {  \
+    for ( ulong i = 1; i < FD_GOSSIP_NETWORK_ADDR_NLONGS; ++i ) {  \
       ulong t2 = buf[i];                                \
       buf[i] = ((buf[i] >> 11UL) | (t << (64UL-11UL))); \
       t = t2;                                           \
@@ -77,36 +71,38 @@ ulong fd_ping_key_hash( const fd_ping_key_t * key, ulong seed ) {
   return (r0^r1)^(r2^r3)^(r4^r5);
 }
 
-void fd_ping_key_copy( fd_ping_key_t * keyd, const fd_ping_key_t * keys ) {
-  FD_STATIC_ASSERT(sizeof(fd_ping_key_t)%sizeof(ulong) == 0,"messed up size");
+void fd_gossip_network_addr_copy( fd_gossip_network_addr_t * keyd, const fd_gossip_network_addr_t * keys ) {
+  FD_STATIC_ASSERT(sizeof(fd_gossip_network_addr_t)%sizeof(ulong) == 0,"messed up size");
   ulong * pd = (ulong*)keyd;
   const ulong * ps = (const ulong*)keys;
-  for ( ulong i = 0; i < FD_PING_KEY_NLONGS; ++i )
+  for ( ulong i = 0; i < FD_GOSSIP_NETWORK_ADDR_NLONGS; ++i )
     pd[i] = ps[i];
 }
 
 /* All peers table element */
 struct fd_peer_elem {
-    fd_ping_key_t key;
+    fd_gossip_network_addr_t key;
     ulong next;
+    fd_pubkey_t id;
     ulong wallclock; /* last time we heard about this peer */
     ulong stake;
 };
 /* All peer table */
 typedef struct fd_peer_elem fd_peer_elem_t;
 #define MAP_NAME     fd_peer_table
-#define MAP_KEY_T    fd_ping_key_t
-#define MAP_KEY_EQ   fd_ping_key_eq
-#define MAP_KEY_HASH fd_ping_key_hash
-#define MAP_KEY_COPY fd_ping_key_copy
+#define MAP_KEY_T    fd_gossip_network_addr_t
+#define MAP_KEY_EQ   fd_gossip_network_addr_eq
+#define MAP_KEY_HASH fd_gossip_network_addr_hash
+#define MAP_KEY_COPY fd_gossip_network_addr_copy
 #define MAP_T        fd_peer_elem_t
 #include "../../util/tmpl/fd_map_giant.c"
 #define FD_PEER_KEY_MAX (1<<14)
 
 /* Active table element */
 struct fd_active_elem {
-    fd_ping_key_t key;
+    fd_gossip_network_addr_t key;
     ulong next;
+    fd_pubkey_t id;
     long pingtime;
     uint pingcount;
     fd_hash_t pingtoken;
@@ -115,10 +111,10 @@ struct fd_active_elem {
 /* Active table */
 typedef struct fd_active_elem fd_active_elem_t;
 #define MAP_NAME     fd_active_table
-#define MAP_KEY_T    fd_ping_key_t
-#define MAP_KEY_EQ   fd_ping_key_eq
-#define MAP_KEY_HASH fd_ping_key_hash
-#define MAP_KEY_COPY fd_ping_key_copy
+#define MAP_KEY_T    fd_gossip_network_addr_t
+#define MAP_KEY_EQ   fd_gossip_network_addr_eq
+#define MAP_KEY_HASH fd_gossip_network_addr_hash
+#define MAP_KEY_COPY fd_gossip_network_addr_copy
 #define MAP_T        fd_active_elem_t
 #include "../../util/tmpl/fd_map_giant.c"
 #define FD_ACTIVE_KEY_MAX (1<<8)
@@ -160,7 +156,7 @@ typedef struct fd_message_elem fd_message_elem_t;
 
 /* Queue of pending timed events */
 union fd_pending_event_arg {
-    fd_ping_key_t key;
+    fd_gossip_network_addr_t key;
 };
 typedef union fd_pending_event_arg fd_pending_event_arg_t;
 typedef void (*fd_pending_event_fun)(struct fd_gossip_global * glob, fd_pending_event_arg_t * arg, long now);
@@ -193,7 +189,7 @@ struct fd_gossip_global {
     int sockfd;
     fd_peer_elem_t * peers;
     fd_active_elem_t * actives;
-    fd_ping_key_t * inactives;
+    fd_gossip_network_addr_t * inactives;
     ulong inactives_cnt;
 #define INACTIVES_MAX 1024U
     fd_message_elem_t * messages;
@@ -219,7 +215,7 @@ fd_gossip_global_new ( void * shmem, ulong seed, fd_valloc_t valloc ) {
   glob->peers = fd_peer_table_join(fd_peer_table_new(shm, FD_PEER_KEY_MAX, seed));
   shm = fd_valloc_malloc(valloc, fd_active_table_align(), fd_active_table_footprint(FD_ACTIVE_KEY_MAX));
   glob->actives = fd_active_table_join(fd_active_table_new(shm, FD_ACTIVE_KEY_MAX, seed));
-  glob->inactives = (fd_ping_key_t*)fd_valloc_malloc(valloc, alignof(fd_ping_key_t), INACTIVES_MAX*sizeof(fd_ping_key_t));
+  glob->inactives = (fd_gossip_network_addr_t*)fd_valloc_malloc(valloc, alignof(fd_gossip_network_addr_t), INACTIVES_MAX*sizeof(fd_gossip_network_addr_t));
   glob->inactives_cnt = 0;
   shm = fd_valloc_malloc(valloc, fd_message_table_align(), fd_message_table_footprint(FD_MESSAGE_KEY_MAX));
   glob->messages = fd_message_table_join(fd_message_table_new(shm, FD_MESSAGE_KEY_MAX, seed));
@@ -407,7 +403,7 @@ fd_gossip_send( fd_gossip_global_t * glob, fd_gossip_network_addr_t * dest, fd_g
 
 void
 fd_gossip_make_ping( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, long now ) {
-  fd_ping_key_t * key = &arg->key;
+  fd_gossip_network_addr_t * key = &arg->key;
   fd_active_elem_t * val = fd_active_table_query(glob->actives, key, NULL);
   if (val == NULL) {
     val = fd_active_table_insert(glob->actives, key);
@@ -417,6 +413,7 @@ fd_gossip_make_ping( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, lo
     }
     val->pingcount = 1;
     val->pongtime = 0;
+    fd_memset(val->id.uc, 0, 32U);
   } else
     val->pingcount++;
   val->pingtime = now;
@@ -439,7 +436,7 @@ fd_gossip_make_ping( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, lo
                    /* private_key */ glob->my_creds.private_key,
                    sha );
 
-  fd_gossip_send( glob, &key->addr, &gmsg );
+  fd_gossip_send( glob, key, &gmsg );
 }
 
 void
@@ -504,11 +501,11 @@ fd_gossip_first_pull( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, l
     return;
 
   /* Try again in 100 ms */
-  fd_ping_key_t * key = &arg->key;
+  fd_gossip_network_addr_t * key = &arg->key;
   fd_pending_event_t * ev = fd_gossip_add_pending(glob, now + (long)1e8);
   if (ev) {
     ev->fun = fd_gossip_first_pull;
-    fd_memcpy(&ev->fun_arg.key, key, sizeof(fd_ping_key_t));
+    fd_memcpy(&ev->fun_arg.key, key, sizeof(fd_gossip_network_addr_t));
   }
 
   fd_gossip_msg_t gmsg;
@@ -536,16 +533,12 @@ fd_gossip_first_pull( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, l
   ci->wallclock = (ulong)now/1000000; /* convert to ms */
   fd_gossip_sign_crds_value(glob, value);
 
-  fd_gossip_send(glob, &key->addr, &gmsg);
+  fd_gossip_send(glob, key, &gmsg);
 }
 
 void
 fd_gossip_handle_pong( fd_gossip_global_t * glob, fd_gossip_network_addr_t * from, fd_gossip_ping_t const * pong, long now ) {
-  fd_ping_key_t key;
-  fd_memset(&key, 0, sizeof(key));
-  fd_memcpy(key.id.uc, pong->from.uc, 32U);
-  fd_memcpy(&key.addr, from, sizeof(fd_gossip_network_addr_t));
-  fd_active_elem_t * val = fd_active_table_query(glob->actives, &key, NULL);
+  fd_active_elem_t * val = fd_active_table_query(glob->actives, from, NULL);
   if (val == NULL) {
     FD_LOG_WARNING(("received unsolicited pong"));
     return;
@@ -576,19 +569,20 @@ fd_gossip_handle_pong( fd_gossip_global_t * glob, fd_gossip_network_addr_t * fro
   
   val->pongtime = now;
   val->pingcount = 0; /* Start count over next time */
+  fd_memcpy(val->id.uc, pong->from.uc, 32U);
 
   /* Trigger the first pull request */
   if (!glob->got_pull_resp) {
     fd_pending_event_t * ev = fd_gossip_add_pending(glob, 0 /* ASAP */);
     if (ev) {
       ev->fun = fd_gossip_first_pull;
-      fd_memcpy(&ev->fun_arg.key, &key, sizeof(key));
+      fd_memcpy(&ev->fun_arg.key, from, sizeof(fd_gossip_network_addr_t));
     }
   }
   /* Remember that this is a good peer */
-  fd_peer_elem_t * peerval = fd_peer_table_query(glob->peers, &key, NULL);
+  fd_peer_elem_t * peerval = fd_peer_table_query(glob->peers, from, NULL);
   if (peerval == NULL) {
-    peerval = fd_peer_table_insert(glob->peers, &key);
+    peerval = fd_peer_table_insert(glob->peers, from);
     if (peerval == NULL) {
       FD_LOG_WARNING(("too many peers"));
       return;
@@ -596,6 +590,7 @@ fd_gossip_handle_pong( fd_gossip_global_t * glob, fd_gossip_network_addr_t * fro
     peerval->stake = 0;
   }
   peerval->wallclock = (ulong)(now / (long)1e6); /* In millisecs */
+  fd_memcpy(peerval->id.uc, pong->from.uc, 32U);
 }
 
 void
@@ -705,10 +700,9 @@ fd_gossip_recv_crds_value(fd_gossip_global_t * glob, fd_pubkey_t * pubkey, fd_cr
     fd_gossip_contact_info_t * info = &crd->data.inner.contact_info;
     if (info->gossip.port != 0) {
       /* Remember the peer */
-      fd_ping_key_t pkey;
+      fd_gossip_network_addr_t pkey;
       fd_memset(&pkey, 0, sizeof(pkey));
-      fd_memcpy(pkey.id.uc, info->id.uc, 32U);
-      fd_gossip_from_soladdr(&pkey.addr, &info->gossip);
+      fd_gossip_from_soladdr(&pkey, &info->gossip);
       fd_peer_elem_t * val = fd_peer_table_query(glob->peers, &pkey, NULL);
       if (val == NULL) {
         val = fd_peer_table_insert(glob->peers, &pkey);
@@ -723,6 +717,7 @@ fd_gossip_recv_crds_value(fd_gossip_global_t * glob, fd_pubkey_t * pubkey, fd_cr
       else {
         val->wallclock = wallclock;
         val->stake = 0;
+        fd_memcpy(val->id.uc, info->id.uc, 32U);
       }
     }
   }
@@ -760,16 +755,12 @@ fd_gossip_recv(fd_gossip_global_t * glob, fd_gossip_network_addr_t * from, fd_go
   }
 }
 
-int fd_gossip_add_active_peer( fd_gossip_global_t * glob, fd_pubkey_t * id, fd_gossip_network_addr_t * addr ) {
-  fd_ping_key_t key;
-  fd_memset(&key, 0, sizeof(key));
-  fd_memcpy(&key.id, id, sizeof(fd_pubkey_t));
-  fd_memcpy(&key.addr, addr, sizeof(fd_gossip_network_addr_t));
+int fd_gossip_add_active_peer( fd_gossip_global_t * glob, fd_gossip_network_addr_t * addr ) {
   fd_pending_event_t * ev = fd_gossip_add_pending( glob, 0L /* next chance we get */ );
   if (ev == NULL)
     return 0;
   ev->fun = fd_gossip_make_ping;
-  fd_memcpy(&ev->fun_arg.key, &key, sizeof(key));;
+  fd_memcpy(&ev->fun_arg.key, addr, sizeof(fd_gossip_network_addr_t));
   return 0;
 }
 

@@ -22,7 +22,7 @@ struct fd_gossip_credentials {
 };
 typedef struct fd_gossip_credentials fd_gossip_credentials_t;
 
-struct fd_gossip_network_addr {
+struct __attribute__((aligned(8UL))) fd_gossip_network_addr {
     sa_family_t family;   /* AF_INET or AF_INET6 */
     in_port_t   port;     /* port number, network byte order */
     uint        addr[4];  /* IPv4 or v6 address, network byte order */
@@ -41,7 +41,7 @@ typedef struct fd_gossip_config fd_gossip_config_t;
 
 int fd_gossip_global_set_config( fd_gossip_global_t * glob, const fd_gossip_config_t * config );
 
-int fd_gossip_add_active_peer( fd_gossip_global_t * glob, fd_pubkey_t * id, fd_gossip_network_addr_t * addr );
+int fd_gossip_add_active_peer( fd_gossip_global_t * glob, fd_gossip_network_addr_t * addr );
 
 /* Main loop for socket reading/writing. Does not return until stopflag is non-zero */
 int fd_gossip_main_loop( fd_gossip_global_t * glob, fd_valloc_t valloc, volatile int * stopflag );

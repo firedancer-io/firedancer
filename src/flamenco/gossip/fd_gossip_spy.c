@@ -9,6 +9,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <sys/random.h>
 
 /*
 static void usage(const char* progname) {
@@ -46,9 +47,9 @@ int main(int argc, char **argv) {
   */
   fd_gossip_config_t config;
   fd_memset(&config, 0, sizeof(config));
-  static const uchar keypair[64] = {151,50,112,166,226,63,194,20,148,252,40,64,15,177,107,182,33,55,205,229,41,89,253,105,59,34,222,63,137,61,149,108,57,78,32,56,180,204,58,197,119,82,62,204,48,103,63,242,241,207,147,187,12,159,8,106,193,251,118,170,166,141,103,111};
-  fd_memcpy(config.my_creds.private_key, keypair, 32UL);
-  fd_memcpy(config.my_creds.public_key.uc, keypair + 32U, 32UL);
+  FD_TEST( 32UL==getrandom( config.my_creds.private_key, 32UL, 0 ) );
+  fd_sha512_t sha[1];
+  FD_TEST( fd_ed25519_public_from_private( config.my_creds.public_key.uc, config.my_creds.private_key, sha ) );
   config.my_addr.family = AF_INET;
   config.my_addr.port = htons(1125);
   config.my_addr.addr[0] = inet_addr("127.0.0.1");
@@ -70,14 +71,12 @@ int main(int argc, char **argv) {
   if ( fd_gossip_global_set_config(glob, &config) )
     return 1;
 
-  fd_pubkey_t peerid;
-  fd_base58_decode_32("5wU7dNgcfn58mXcuKVEDqcVT4xTQaBYeKiNud14otjh8", peerid.uc);
   fd_gossip_network_addr_t peeraddr;
   fd_memset(&peeraddr, 0, sizeof(peeraddr));
   peeraddr.family = AF_INET;
   peeraddr.port = htons(1024);
   peeraddr.addr[0] = inet_addr("127.0.0.1");
-  if ( fd_gossip_add_active_peer(glob, &peerid, &peeraddr) )
+  if ( fd_gossip_add_active_peer(glob, &peeraddr) )
     return 1;
   
   signal(SIGINT, stop);
