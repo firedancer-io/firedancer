@@ -286,8 +286,6 @@ static int create_account(
 
   if (!fd_instr_acc_is_signer(ctx.instr, from))
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
-  if (!fd_instr_acc_is_signer(ctx.instr, base))
-    return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
 
   fd_funk_rec_t const * from_rec_ro = NULL;
   int err;
@@ -339,7 +337,7 @@ static int create_account(
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   }
 
-  if (metadata->dlen != 0 || memcmp(metadata->info.owner, ctx.global->solana_system_program, sizeof(fd_pubkey_t)) != 0) {
+  if (metadata->dlen != 0 || memcmp(metadata->info.owner, ctx.global->solana_system_program, sizeof(metadata->info.owner)) != 0) {
     ctx.txn_ctx->custom_err = 0;     /* SystemError::AccountAlreadyInUse */
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
