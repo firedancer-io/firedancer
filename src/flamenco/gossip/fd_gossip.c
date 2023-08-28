@@ -89,7 +89,7 @@ void fd_ping_key_copy( fd_ping_key_t * keyd, const fd_ping_key_t * keys ) {
 struct fd_peer_elem {
     fd_ping_key_t key;
     ulong next;
-    long lastheard; /* last time we heard about this peer */
+    ulong wallclock; /* last time we heard about this peer */
     ulong stake;
 };
 /* All peer table */
@@ -255,6 +255,27 @@ fd_gossip_to_soladdr( fd_gossip_socket_addr_t * dst, fd_gossip_network_addr_t co
     dst->addr.inner.ip6.ul[1] = src->addr[1];
     dst->addr.inner.ip6.ul[2] = src->addr[2];
     dst->addr.inner.ip6.ul[3] = src->addr[3];
+    return 0;
+  } else {
+    FD_LOG_ERR(("invalid address family"));
+    errno = 0;
+    return -1;
+  }
+}
+
+int
+fd_gossip_from_soladdr(fd_gossip_network_addr_t * dst, fd_gossip_socket_addr_t const * src ) {
+  dst->port = htons(src->port);
+  if (src->addr.discriminant == fd_gossip_ip_addr_enum_ip4) {
+    dst->family = AF_INET;
+    dst->addr[0] = src->addr.inner.ip4;
+    return 0;
+  } else if (src->addr.discriminant == fd_gossip_ip_addr_enum_ip6) {
+    dst->family = AF_INET6;
+    dst->addr[0] = src->addr.inner.ip6.ul[0];
+    dst->addr[1] = src->addr.inner.ip6.ul[1];
+    dst->addr[2] = src->addr.inner.ip6.ul[2];
+    dst->addr[3] = src->addr.inner.ip6.ul[3];
     return 0;
   } else {
     FD_LOG_ERR(("invalid address family"));
@@ -558,7 +579,7 @@ fd_gossip_handle_pong( fd_gossip_global_t * glob, fd_gossip_network_addr_t * fro
     }
     peerval->stake = 0;
   }
-  peerval->lastheard = now;
+  peerval->wallclock = (ulong)(now / (long)1e6); /* In millisecs */
 }
 
 void
@@ -663,6 +684,26 @@ fd_gossip_recv_crds_value(fd_gossip_global_t * glob, fd_pubkey_t * pubkey, fd_cr
   msg->data = fd_valloc_malloc(valloc, 1U, datalen);
   fd_memcpy(msg->data, buf, datalen);
   msg->datalen = datalen;
+
+  if (crd->data.discriminant == fd_crds_data_enum_contact_info) {
+    fd_gossip_contact_info_t * info = &crd->data.inner.contact_info;
+    if (info->gossip.port != 0) {
+      /* Remember the peer */
+      fd_ping_key_t pkey;
+      fd_memset(&pkey, 0, sizeof(pkey));
+      fd_memcpy(pkey.id.uc, info->id.uc, 32U);
+      fd_gossip_from_soladdr(&pkey.addr, &info->gossip);
+      fd_peer_elem_t * val = fd_peer_table_query(glob->peers, &pkey, NULL);
+      if (val == NULL)
+        val = fd_peer_table_insert(glob->peers, &pkey);
+      if (val == NULL)
+        FD_LOG_WARNING(("too many peers"));
+      else {
+        val->wallclock = wallclock;
+        val->stake = 0;
+      }
+    }
+  }
 
   /* Deliver the data upstream */
   (*glob->deliver_fun)(&crd->data, glob->deliver_fun_arg, now);
