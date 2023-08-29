@@ -60,7 +60,6 @@ static int setup_program(instruction_ctx_t ctx, uchar * program_data, ulong prog
   if(  0!=fd_sbpf_program_load( prog, program_data, program_data_len, syscalls ) ) {
     FD_LOG_ERR(( "fd_sbpf_program_load() failed: %s", fd_sbpf_strerror() ));
   }
-  FD_LOG_WARNING(( "fd_sbpf_program_load() success: %s", fd_sbpf_strerror() ));
 
   fd_vm_exec_context_t vm_ctx = {
     .entrypoint          = (long)prog->entry_pc,
@@ -83,8 +82,6 @@ static int setup_program(instruction_ctx_t ctx, uchar * program_data, ulong prog
   if (validate_result != FD_VM_SBPF_VALIDATE_SUCCESS) {
     FD_LOG_ERR(( "fd_vm_context_validate() failed: %lu", validate_result ));
   }
-
-  FD_LOG_WARNING(( "fd_vm_context_validate() success" ));
 
   fd_valloc_free( ctx.global->valloc,  fd_sbpf_program_delete( prog ) );
   fd_valloc_free( ctx.global->valloc,  fd_sbpf_syscalls_delete( syscalls ) );
