@@ -2,9 +2,11 @@
 #include "../../fdctl/configure/configure.h"
 
 #include <unistd.h>
+#include <dirent.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 
-#define NAME "cluster"
+#define NAME "genesis"
 
 static int
 enabled( config_t * const config ) {
@@ -48,17 +50,11 @@ init( config_t * const config ) {
 
   ADD1( "fddev" );
 
-  ADDU( "--max-genesis-archive-unpacked-size", 1073741824 );
-  ADD1( "--enable-warmup-epochs" );
-  ADD( "--bootstrap-validator", config->consensus.identity_path );
-  ADD1( vote );
-  ADD1( stake );
-  ADD( "--bootstrap-stake-authorized-pubkey", config->consensus.identity_path );
-
-  ADD( "--ledger", config->ledger.path );
   ADD( "--faucet-pubkey", faucet );
-  ADDU( "--faucet-lamports", 500000000000000000 );
-  ADD( "--hashes-per-tick", "auto" );
+  ADD( "--hashes-per-tick", "sleep" );
+  ADDU( "--faucet-lamports", 500000000000000000UL );
+  ADD( "--bootstrap-validator", config->consensus.identity_path ); ADD1( vote ); ADD1( stake );
+  ADD( "--ledger", config->ledger.path );
   ADD( "--cluster-type", "development" );
 
   /* these are copied out of the output of `solana/fetch-spl.sh` ... need to
@@ -90,22 +86,70 @@ init( config_t * const config ) {
 
   argv[ idx ] = NULL;
 
-  /* switch to non-root uid/gid for file creation. permissions checks still done as root. */
-  gid_t gid = getgid();
-  uid_t uid = getuid();
-  if( FD_LIKELY( gid == 0 && setegid( config->gid ) ) )
-    FD_LOG_ERR(( "setegid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  if( FD_LIKELY( uid == 0 && seteuid( config->uid ) ) )
-    FD_LOG_ERR(( "seteuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  /* fork off a new process for genesis creation.  Genesis creation happens
+     multi-threaded (Solana Labs spawns hundreds of Rayon threads), so we
+     would no longer be able to sandbox this process (you can't unshare the
+     user namespace once multi-threaded). We also want all those threads
+     gone once genesis creation completes, but Labs does not clean them up. */
+  pid_t pid = fork();
+  if( FD_UNLIKELY( pid == -1 ) ) FD_LOG_ERR(( "fork() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  mode_t previous = umask( S_IRWXO | S_IRWXG );
+  if( FD_LIKELY( !pid ) ) {
+    /* switch to non-root uid/gid for file creation. permissions checks still done as root. */
+    gid_t gid = getgid();
+    uid_t uid = getuid();
+    if( FD_LIKELY( gid == 0 && setegid( config->gid ) ) )
+      FD_LOG_ERR(( "setegid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_LIKELY( uid == 0 && seteuid( config->uid ) ) )
+      FD_LOG_ERR(( "seteuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  solana_genesis_main( (const char **)argv );
+    umask( S_IRWXO | S_IRWXG );
+    solana_genesis_main( (const char **)argv );
+    exit_group( 0 );
+  } else {
+    int wstatus;
+    if( FD_UNLIKELY( waitpid( pid, &wstatus, 0 )==-1 ) ) FD_LOG_ERR(( "waitpid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( WIFSIGNALED( wstatus ) ) )
+      FD_LOG_ERR(( "genesis creation process terminated by signal %i-%s", WTERMSIG( wstatus ), fd_io_strsignal( WTERMSIG( wstatus ) ) ));
+    if( FD_UNLIKELY( WEXITSTATUS( wstatus ) ) )
+      FD_LOG_ERR(( "genesis creation process exited with status %i", WEXITSTATUS( wstatus ) ));
+  }
+}
 
-  umask( previous );
+static void
+rmtree( char * path ) {
+    DIR * dir = opendir( path );
+    if( FD_UNLIKELY( !dir ) ) {
+      if( errno == ENOENT ) return;
+      FD_LOG_ERR(( "opendir `%s` failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+    }
 
-  if( FD_UNLIKELY( seteuid( uid ) ) ) FD_LOG_ERR(( "seteuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  if( FD_UNLIKELY( setegid( gid ) ) ) FD_LOG_ERR(( "setegid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    struct dirent * entry;
+    errno = 0;
+    while(( entry = readdir( dir ) )) {
+      if( FD_LIKELY( !strcmp( entry->d_name, "." ) || !strcmp( entry->d_name, ".." ) ) ) continue;
+
+      char path1[ PATH_MAX ];
+      snprintf1( path1, PATH_MAX, "%s/%s", path, entry->d_name );
+
+      struct stat st;
+      if( FD_UNLIKELY( lstat( path1, &st ) ) ) {
+        if( FD_LIKELY( errno == ENOENT ) ) continue;
+        FD_LOG_ERR(( "stat `%s` failed (%i-%s)", path1, errno, fd_io_strerror( errno ) ));
+      }
+
+      if( FD_UNLIKELY( S_ISDIR( st.st_mode ) ) ) {
+        rmtree( path1 );
+      } else {
+        if( FD_UNLIKELY( unlink( path1 ) && errno != ENOENT ) )
+          FD_LOG_ERR(( "unlink `%s` failed (%i-%s)", path1, errno, fd_io_strerror( errno ) ));
+      }
+    }
+
+    if( FD_UNLIKELY( errno && errno != ENOENT ) ) FD_LOG_ERR(( "readdir `%s` failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+
+    if( FD_UNLIKELY( rmdir( path ) ) ) FD_LOG_ERR(( "rmdir `%s` failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( closedir( dir ) ) ) FD_LOG_ERR(( "closedir `%s` failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
 }
 
 static void
@@ -120,26 +164,23 @@ fini( config_t * const config ) {
   snprintf1( path, PATH_MAX, "%s/vote-account.json", config->scratch_directory );
   if( FD_UNLIKELY( unlink( path ) && errno != ENOENT ) )
     FD_LOG_ERR(( "could not remove cluster file `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
-  snprintf1( path, PATH_MAX, "%s/genesis.bin", config->ledger.path );
-  if( FD_UNLIKELY( unlink( path ) && errno != ENOENT ) )
-    FD_LOG_ERR(( "could not remove cluster file `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+  rmtree( config->ledger.path );
 }
 
 static configure_result_t
 check( config_t * const config ) {
-  char faucet[ PATH_MAX ], stake[ PATH_MAX ], vote[ PATH_MAX ], genesis[ PATH_MAX ];
+  char faucet[ PATH_MAX ], stake[ PATH_MAX ], vote[ PATH_MAX ];
 
   snprintf1( faucet, PATH_MAX, "%s/faucet.json", config->scratch_directory );
   snprintf1( stake, PATH_MAX, "%s/stake-account.json", config->scratch_directory );
   snprintf1( vote, PATH_MAX, "%s/vote-account.json", config->scratch_directory );
-  snprintf1( genesis, PATH_MAX, "%s/genesis.bin", config->ledger.path );
 
   struct stat st;
   if( FD_UNLIKELY( stat( faucet, &st ) && errno == ENOENT &&
                    stat( stake, &st ) && errno == ENOENT &&
                    stat( vote, &st ) && errno == ENOENT &&
-                   stat( genesis, &st ) && errno == ENOENT ) )
-    NOT_CONFIGURED( "faucet.json, stake-account.json, vote-account.json, and genesis.bin do not exist" );
+                   stat( config->ledger.path, &st ) && errno == ENOENT ) )
+    NOT_CONFIGURED( "faucet.json, stake-account.json, vote-account.json, and `%s` do not exist", config->ledger.path );
 
   CHECK( check_dir( config->ledger.path, config->uid, config->gid, S_IFDIR | S_IRUSR | S_IWUSR | S_IXUSR ) );
   CHECK( check_dir( config->scratch_directory, config->uid, config->gid, S_IFDIR | S_IRUSR | S_IWUSR | S_IXUSR ) );
@@ -147,12 +188,11 @@ check( config_t * const config ) {
   CHECK( check_file( faucet, config->uid, config->gid, S_IFREG | S_IRUSR | S_IWUSR ) );
   CHECK( check_file( stake, config->uid, config->gid, S_IFREG | S_IRUSR | S_IWUSR ) );
   CHECK( check_file( vote, config->uid, config->gid, S_IFREG | S_IRUSR | S_IWUSR ) );
-  CHECK( check_file( genesis, config->uid, config->gid, S_IFREG | S_IRUSR | S_IWUSR ) );
 
-  CONFIGURE_OK();
+  PARTIALLY_CONFIGURED( "genesis directory exists at `%s`", config->ledger.path );
 }
 
-configure_stage_t cluster = {
+configure_stage_t genesis = {
   .name            = NAME,
   .always_recreate = 1,
   .enabled         = enabled,

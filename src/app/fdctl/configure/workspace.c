@@ -331,8 +331,10 @@ fini( config_t * const config ) {
     if( FD_LIKELY( !result ) ) {
       char name[ FD_WKSP_CSTR_MAX ];
       workspace_name( config, wksp, name );
-      int err = fd_wksp_delete_named( name );
-      if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_wksp_delete_named failed (%i-%s)", err, fd_wksp_strerror( err ) ));
+      if( FD_UNLIKELY( fd_wksp_delete_named( name ) ) ) {
+        if( FD_UNLIKELY( -1==unlink( path ) ) )
+          FD_LOG_ERR(( "unlink failed when trying to delete wksp `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+      }
     }
     else if( FD_LIKELY( result && errno == ENOENT ) ) continue;
     else FD_LOG_ERR(( "stat failed when trying to delete wksp `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));

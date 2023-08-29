@@ -9,6 +9,9 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 
+extern configure_stage_t netns;
+extern configure_stage_t genesis;
+
 configure_stage_t * STAGES[ CONFIGURE_STAGE_COUNT ] = {
   &netns,
   &large_pages,
@@ -19,7 +22,7 @@ configure_stage_t * STAGES[ CONFIGURE_STAGE_COUNT ] = {
   &ethtool,
   &workspace_leftover,
   &workspace,
-  &cluster,
+  &genesis,
   NULL,
 };
 
