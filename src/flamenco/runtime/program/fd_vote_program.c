@@ -1083,7 +1083,7 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
 
   /* Accounts */
   uchar const *       instr_acc_idxs = ctx.instr->acct_txn_idxs;
-  fd_pubkey_t const * txn_accs = ctx.instr->acct_pubkeys;
+  fd_pubkey_t const * txn_accs = ctx.txn_ctx->accounts;
 
   if( FD_UNLIKELY( ctx.instr->acct_cnt < 1 ) )
     return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
@@ -1806,7 +1806,7 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
     fd_vote_authorize_pubkey_t const * authorize = &instruction.inner.authorize;
 
     uchar const *       instr_acc_idxs = ctx.instr->acct_txn_idxs;
-    fd_pubkey_t const * txn_accs = ctx.instr->acct_pubkeys;
+    fd_pubkey_t const * txn_accs = ctx.txn_ctx->accounts;
 
     /* Require at least two accounts */
     if( FD_UNLIKELY( ctx.instr->acct_cnt < 2 ) ) {
@@ -1860,7 +1860,7 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
     fd_vote_authorize_t const * authorize = &instruction.inner.authorize_checked;
 
     uchar const *       instr_acc_idxs = ctx.instr->acct_txn_idxs;
-    fd_pubkey_t const * txn_accs = ctx.instr->acct_pubkeys;
+    fd_pubkey_t const * txn_accs = ctx.txn_ctx->accounts;
 
     /* Require at least four accounts */
     if( FD_UNLIKELY( ctx.instr->acct_cnt < 4 ) ) {
@@ -1915,7 +1915,7 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
     fd_vote_authorize_with_seed_args_t const * args = &instruction.inner.authorize_with_seed;
 
     uchar const *       instr_acc_idxs = ctx.instr->acct_txn_idxs;
-    fd_pubkey_t const * txn_accs = ctx.instr->acct_pubkeys;
+    fd_pubkey_t const * txn_accs = ctx.txn_ctx->accounts;
 
     /* Require at least three accounts */
     if( FD_UNLIKELY( ctx.instr->acct_cnt < 3 ) ) {
@@ -1990,7 +1990,7 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
     fd_vote_authorize_checked_with_seed_args_t const * args = &instruction.inner.authorize_checked_with_seed;
 
     uchar const *       instr_acc_idxs = ctx.instr->acct_txn_idxs;
-    fd_pubkey_t const * txn_accs = ctx.instr->acct_pubkeys;
+    fd_pubkey_t const * txn_accs = ctx.txn_ctx->accounts;
 
     /* Require at least one accounts */
     if( FD_UNLIKELY( ctx.instr->acct_cnt < 4 ) ) {

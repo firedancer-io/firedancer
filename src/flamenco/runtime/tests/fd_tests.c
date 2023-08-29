@@ -228,8 +228,11 @@ int fd_executor_run_test(
   do {
     /* Insert all the accounts into the database */
     for ( ulong i = 0; i < test->accs_len; i++ ) {
-      if ((test->accs[ i ].lamports == 0) && (test->accs[ i ].data_len == 0) && memcmp(global->solana_system_program, test->accs[i].owner.hash, 32 ) == 0)
-        continue;
+      // TODO: adding this makes the system tests fail
+      // why does this account need to be skipped?
+      // if ((test->accs[ i ].lamports == 0) && (test->accs[ i ].data_len == 0) && memcmp(global->solana_system_program, test->accs[i].owner.hash, 32 ) == 0) {
+      //   continue;
+      // }
       if (memcmp(&test->accs[i].pubkey, global->sysvar_clock, sizeof(fd_pubkey_t)) == 0) {
         num_clock++;
       }

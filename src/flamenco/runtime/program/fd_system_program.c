@@ -255,7 +255,6 @@ static int create_account(
   ulong             lamports = 0;
   ulong             space = 0;
   fd_pubkey_t*      owner = NULL;
-  fd_pubkey_t*      base = NULL;
   char*             seed = NULL;
 
 
@@ -265,19 +264,23 @@ static int create_account(
     lamports = params->lamports;
     space = params->space;
     owner = &params->owner;
-    base = to;
+
+    if (!fd_instr_acc_is_signer(ctx.instr, to))
+      return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   } else {
     // https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/system_instruction_processor.rs#L296
     fd_system_program_instruction_create_account_with_seed_t* params = &instruction->inner.create_account_with_seed;
     lamports = params->lamports;
     space = params->space;
     owner = &params->owner;
-    base = &params->base;
     seed = params->seed;
+
+    if (!fd_instr_acc_is_signer(ctx.instr, &params->base))
+      return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
 
     fd_pubkey_t      address_with_seed;
 
-    fd_pubkey_create_with_seed( base->uc, seed, strlen( seed ), owner->uc, address_with_seed.uc );
+    fd_pubkey_create_with_seed( params->base.uc, seed, strlen( seed ), owner->uc, address_with_seed.uc );
     if (memcmp(address_with_seed.hash, to->hash, sizeof(to->hash)))
       return fd_system_error_enum_address_with_seed_mismatch;
   }
@@ -285,8 +288,6 @@ static int create_account(
   // https://github.com/solana-labs/solana/blob/b9a2030537ba440c0378cc1ed02af7cff3f35141/programs/system/src/system_processor.rs#L146-L181
 
   if (!fd_instr_acc_is_signer(ctx.instr, from))
-    return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
-  if (!fd_instr_acc_is_signer(ctx.instr, base))
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
 
   fd_funk_rec_t const * from_rec_ro = NULL;
@@ -335,11 +336,7 @@ static int create_account(
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
-  if (!fd_instr_acc_is_signer(ctx.instr, to)) {
-    return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
-  }
-
-  if (metadata->dlen != 0 || memcmp(metadata->info.owner, ctx.global->solana_system_program, sizeof(fd_pubkey_t)) != 0) {
+  if (metadata->dlen != 0 || memcmp(metadata->info.owner, ctx.global->solana_system_program, sizeof(metadata->info.owner)) != 0) {
     ctx.txn_ctx->custom_err = 0;     /* SystemError::AccountAlreadyInUse */
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }

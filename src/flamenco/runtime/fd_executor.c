@@ -46,7 +46,7 @@ void * fd_executor_delete(void* mem) {
 }
 
 void
-fd_convert_txn_instr_to_instr( fd_txn_t const * txn_descriptor, 
+fd_convert_txn_instr_to_instr( fd_txn_t const * txn_descriptor,
                                fd_rawtxn_b_t const * txn_raw,
                                fd_txn_instr_t const * txn_instr,
                                fd_pubkey_t const * accounts,
@@ -56,12 +56,12 @@ fd_convert_txn_instr_to_instr( fd_txn_t const * txn_descriptor,
   instr->acct_cnt = txn_instr->acct_cnt;
   instr->data_sz = txn_instr->data_sz;
   instr->data =  (uchar *)txn_raw->raw + txn_instr->data_off;
-  
+
   uchar * instr_acc_idxs = (uchar *)txn_raw->raw + txn_instr->acct_off;
   for( ulong i = 0; i < instr->acct_cnt; i++ ) {
     instr->acct_txn_idxs[i] = instr_acc_idxs[i];
-    instr->acct_pubkeys[i] = accounts[i];
-    
+    instr->acct_pubkeys[i] = accounts[instr_acc_idxs[i]];
+
     instr->acct_flags[i] = 0;
     if( fd_account_is_writable_idx( txn_descriptor, txn_instr->program_id, instr_acc_idxs[i] ) ) {
       instr->acct_flags[i] |= FD_INSTR_ACCT_FLAGS_IS_WRITABLE;
@@ -261,7 +261,7 @@ fd_executor_collect_fee( fd_global_ctx_t *   global,
 
 int
 fd_execute_instr( fd_executor_t * executor, fd_instr_t * instr, transaction_ctx_t * txn_ctx ) {
-  fd_pubkey_t const * txn_accs = txn_ctx->accounts; 
+  fd_pubkey_t const * txn_accs = txn_ctx->accounts;
 
   instruction_ctx_t * ctx = &txn_ctx->instr_stack[txn_ctx->instr_stack_sz++];
   ctx->global = executor->global;
@@ -296,10 +296,10 @@ fd_execute_instr( fd_executor_t * executor, fd_instr_t * instr, transaction_ctx_
       FD_LOG_NOTICE(( "found BPF v2 executable program account - program id: %32J", program_id_acc ));
 
       exec_result = fd_executor_bpf_loader_program_execute_program_instruction(*ctx);
-      
+
     } else {
       FD_LOG_WARNING(( "did not find native or BPF executable program account - program id: %32J", program_id_acc ));
-      
+
       exec_result = FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
     }
   }
@@ -309,7 +309,7 @@ fd_execute_instr( fd_executor_t * executor, fd_instr_t * instr, transaction_ctx_
   }
 
   txn_ctx->instr_stack_sz--;
-  
+
   /* TODO: sanity before/after checks: total lamports unchanged etc */
   return exec_result;
 }
