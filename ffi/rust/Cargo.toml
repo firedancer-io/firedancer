@@ -1,5 +1,5 @@
 [workspace]
-members = ["ffi/rust/firedancer-sys", "ffi/rust/firedancer-diff"]
+members = ["firedancer-sys", "firedancer-diff"]
 resolver = "2"
 
 [profile.dev]

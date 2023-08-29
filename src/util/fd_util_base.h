@@ -169,12 +169,12 @@
 #define FD_HAS_GFNI 0
 #endif
 
-/* FD_HAS_ASAN indicates that the build targed is using ASAN. */
+/* FD_HAS_ASAN indicates that the build target is using ASAN. */
 #ifndef FD_HAS_ASAN
 #define FD_HAS_ASAN 0
 #endif
 
-/* FD_HAS_UBSAN indicates that the build targed is using UBSAN. */
+/* FD_HAS_UBSAN indicates that the build target is using UBSAN. */
 #ifndef FD_HAS_UBSAN
 #define FD_HAS_UBSAN 0
 #endif
