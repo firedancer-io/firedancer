@@ -199,6 +199,8 @@ struct fd_gossip_global {
     fd_pending_event_t * event_pool;
     fd_pending_heap_t * event_heap;
     fd_rng_t rng[1];
+    ulong recv_dup_cnt;
+    ulong recv_nondup_cnt;
 };
 
 ulong
@@ -529,6 +531,9 @@ fd_gossip_bloom_pos( fd_hash_t * hash, ulong key ) {
 void
 fd_gossip_random_pull( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, long now ) {
   (void)arg;
+
+  FD_LOG_NOTICE(("received %lu dup values and %lu new", glob->recv_dup_cnt, glob->recv_nondup_cnt));
+  glob->recv_dup_cnt = glob->recv_nondup_cnt = 0;
   
   /* Try again in 10 sec */
   fd_pending_event_t * ev = fd_gossip_add_pending(glob, now + (long)10e9);
@@ -775,9 +780,12 @@ fd_gossip_recv_crds_value(fd_gossip_global_t * glob, fd_pubkey_t * pubkey, fd_cr
 
   /* Store the message */
   fd_message_elem_t * msg = fd_message_table_query(glob->messages, &key, NULL);
-  if (msg != NULL)
+  if (msg != NULL) {
     /* Already have this message */
+    glob->recv_dup_cnt++;
     return;
+  }
+  glob->recv_nondup_cnt++;
   msg = fd_message_table_insert(glob->messages, &key);
   if (msg == NULL) {
     FD_LOG_WARNING(("too many messages"));
