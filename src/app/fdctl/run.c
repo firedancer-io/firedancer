@@ -225,18 +225,24 @@ solana_labs_main( void * args ) {
 
   ADD1( "fdctl" );
   ADD( "--log", "-" );
+  ADD( "--firedancer-app-name", config->name );
 
+  ADD1("--no-poh-speed-test" ); // TODO: Only if we built debug?
   if( FD_UNLIKELY( strcmp( config->dynamic_port_range, "" ) ) )
     ADD( "--dynamic-port-range", config->dynamic_port_range );
+
+  ADDU( "--tpu-port", config->tiles.quic.transaction_listen_port );
 
   char ip_addr[16];
   snprintf1( ip_addr, 16, FD_IP4_ADDR_FMT, FD_IP4_ADDR_FMT_ARGS(config->tiles.quic.ip_addr) );
   ADD( "--gossip-host", ip_addr );
 
   /* consensus */
+  (void)identity_path;
   ADD( "--identity", identity_path );
   if( strcmp( config->consensus.vote_account_path, "" ) )
     ADD( "--vote-account", config->consensus.vote_account_path );
+
   if( !config->consensus.snapshot_fetch ) ADD1( "--no-snapshot-fetch" );
   if( !config->consensus.genesis_fetch ) ADD1( "--no-genesis-fetch" );
   if( !config->consensus.poh_speed_test ) ADD1( "--no-poh-speed-test" );
@@ -255,9 +261,14 @@ solana_labs_main( void * args ) {
   for( ulong i=0; i<config->consensus.known_validators_cnt; i++ )
     ADD( "--known_validator", config->consensus.known_validators[ i ] );
 
+  ADD( "--snapshot-compression", config->ledger.snapshot_compression );
+  if( FD_UNLIKELY( config->ledger.require_tower ) ) ADD1( "--require-tower" );
+ 
+  if( FD_UNLIKELY( !config->consensus.os_network_limits_test ) ) ADD1( "--no-os-network-limits-test" );
+
   /* ledger */
   ADD( "--ledger", config->ledger.path );
-  ADDU( "--limit-ledger-size", config->ledger.limit_size );
+  if( FD_LIKELY( config->ledger.limit_size ) ) ADDU( "--limit-ledger-size", config->ledger.limit_size );
   if( config->ledger.bigtable_storage ) ADD1( "--enable-rpc-bigtable-ledger-storage" );
   for( ulong i=0; i<config->ledger.account_indexes_cnt; i++ )
     ADD( "--account-index", config->ledger.account_indexes[ i ] );
@@ -271,7 +282,7 @@ solana_labs_main( void * args ) {
   if( strcmp( config->gossip.host, "" ) )
     ADD( "--gossip-host", config->gossip.host );
 
-  /* rpc */
+  // /* rpc */
   if( config->rpc.port ) ADDH( "--rpc-port", config->rpc.port );
   if( config->rpc.full_api ) ADD1( "--full-rpc-api" );
   if( config->rpc.private ) ADD1( "--private-rpc" );
@@ -285,7 +296,7 @@ solana_labs_main( void * args ) {
   argv[ idx ] = NULL;
 
   /* silence a bunch of solana_metrics INFO spam */
-  if( FD_UNLIKELY( setenv( "RUST_LOG", "solana=info,solana_metrics::metrics=warn", 1 ) ) )
+  if( FD_UNLIKELY( setenv( "RUST_LOG", "solana=info,solana_metrics::metrics=warn,solana_gossip::cluster_info=trace", 1 ) ) )
     FD_LOG_ERR(( "setenv() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   FD_LOG_INFO(( "Running Solana Labs validator with the following arguments:" ));

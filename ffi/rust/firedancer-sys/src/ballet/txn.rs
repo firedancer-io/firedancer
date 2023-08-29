@@ -8,4 +8,5 @@ pub use crate::generated::{
     FD_TXN_ADDR_TABLE_LOOKUP_MAX,
     FD_TXN_MAX_SZ,
     FD_TXN_SIG_MAX,
+    FD_TXN_MTU,
 };

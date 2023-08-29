@@ -33,6 +33,12 @@ typedef union {
   struct {
     int monitor;
   } dev;
+  struct {
+    const char * payload_base64;
+    ulong  count;
+    const char * dst_ip;
+    ushort dst_port;
+  } txn;
 } args_t;
 
 typedef struct security security_t;

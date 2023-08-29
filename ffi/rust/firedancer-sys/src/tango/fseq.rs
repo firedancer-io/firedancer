@@ -1,5 +1,6 @@
 pub use crate::generated::{
     fd_fseq_align,
+    fd_fseq_app_laddr,
     fd_fseq_app_laddr_const,
     fd_fseq_delete,
     fd_fseq_footprint,

@@ -4,10 +4,10 @@
     {
       "name": "fddev",
       "type": "cppdbg",
-      "request": "launch",
+      "request": "attach",
       "cwd": "${workspaceFolder}/build/native/gcc/bin",
       "program": "${workspaceFolder}/build/native/gcc/bin/fddev",
-      "args": ["--no-sandbox"],
+      "args": ["dev1", "solana", "--no-sandbox"],
       "miDebuggerPath": "${workspaceFolder}/build/native/gcc/bin/fddbg",
       "MIMode": "gdb",
       "setupCommands": [
@@ -27,9 +27,9 @@
               "ignoreFailures": false
           },
           {
-            "description": "Stay parent after fork",
-            "text": "-gdb-set follow-fork-mode parent",
-            "ignoreFailures": false
+              "description": "Stay parent after fork",
+              "text": "-gdb-set follow-fork-mode parent",
+              "ignoreFailures": false
         }
       ]
     }

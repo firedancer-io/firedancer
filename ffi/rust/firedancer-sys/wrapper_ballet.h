@@ -3,3 +3,4 @@
 #include "src/ballet/sbpf/fd_sbpf_maps.c"
 #include "src/ballet/shred/fd_shred.h"
 #include "src/ballet/txn/fd_txn.h"
+#include "src/ballet/pack/fd_pack.h"
