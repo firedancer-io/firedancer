@@ -399,8 +399,6 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
   uchar * instr_acc_idxs = ctx.instr->acct_txn_idxs;
   fd_pubkey_t * txn_accs = ctx.txn_ctx->accounts;
 
-  FD_LOG_INFO(("BPF INSTR RUN! - addr: %32J, disc: %u", &txn_accs[ctx.instr->program_id], instruction.discriminant));
-
   if( fd_bpf_upgradeable_loader_program_instruction_is_initialize_buffer( &instruction ) ) {
     if( ctx.instr->acct_cnt < 2 ) {
       return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;

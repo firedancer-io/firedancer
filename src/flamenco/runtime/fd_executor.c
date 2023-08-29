@@ -274,7 +274,7 @@ fd_execute_instr( fd_executor_t * executor, fd_instr_t * instr, transaction_ctx_
     int exec_result = FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
     txn_ctx->instr_stack_sz--;
 
-    FD_LOG_WARNING(( "instruction executed unsuccessfully: error code %d", exec_result ));
+    //FD_LOG_WARNING(( "instruction executed unsuccessfully: error code %d", exec_result ));
     return exec_result;
   }
 
@@ -305,9 +305,9 @@ fd_execute_instr( fd_executor_t * executor, fd_instr_t * instr, transaction_ctx_
     }
   }
 
-  if ( FD_UNLIKELY( exec_result != FD_EXECUTOR_INSTR_SUCCESS ) ) {
-    FD_LOG_WARNING(( "instruction executed unsuccessfully: error code %d, custom err: %d, program id: %32J", exec_result, txn_ctx->custom_err, program_id_acc ));
-  }
+  //if ( FD_UNLIKELY( exec_result != FD_EXECUTOR_INSTR_SUCCESS ) ) {
+  //  FD_LOG_WARNING(( "instruction executed unsuccessfully: error code %d, custom err: %d, program id: %32J", exec_result, txn_ctx->custom_err, program_id_acc ));
+  //}
 
   txn_ctx->instr_stack_sz--;
 

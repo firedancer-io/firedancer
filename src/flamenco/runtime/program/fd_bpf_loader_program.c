@@ -188,7 +188,7 @@ int fd_executor_bpf_loader_program_execute_program_instruction( instruction_ctx_
 
   // TODO: make tracing an option!
   // FILE * trace_fd = fopen("trace.log", "w");
-  
+
   for( ulong i = 0; i < trace_used; i++ ) {
     fd_vm_trace_entry_t trace_ent = trace[i];
     fprintf(stderr, "%5lu [%016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX] %5lu: ",
@@ -210,7 +210,7 @@ int fd_executor_bpf_loader_program_execute_program_instruction( instruction_ctx_
 
     fprintf(stderr, "\n");
   }
-  
+
   // fclose(trace_fd);
   fd_valloc_free( ctx.global->valloc, trace);
 
@@ -239,7 +239,7 @@ int fd_executor_bpf_loader_program_execute_program_instruction( instruction_ctx_
 }
 
 int fd_executor_bpf_loader_program_execute_instruction( instruction_ctx_t ctx ) {
-  /* Deserialize the Stake instruction */
+  /* Deserialize the BPF Program instruction */
   uchar * data            = ctx.instr->data;
 
   fd_bpf_loader_program_instruction_t instruction;
