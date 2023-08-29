@@ -2,6 +2,10 @@
 
    export RUST_LOG=solana_gossip=TRACE
    cargo run --bin solana-test-validator
+
+   entrypoint.testnet.solana.com:8001 
+   entrypoint2.testnet.solana.com:8001
+   entrypoint3.testnet.solana.com:8001
    
  **/
 
