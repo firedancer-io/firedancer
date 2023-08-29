@@ -161,9 +161,20 @@ configure_cmd_fn( args_t *         args,
                   config_t * const config ) {
   int error = 0;
 
-  for( configure_stage_t ** stage = args->configure.stages; *stage; stage++ ) {
-    if( FD_UNLIKELY( configure_stage( *stage, (configure_cmd_t)args->configure.command, config ) ) ) error = 1;
+  if( FD_LIKELY( (configure_cmd_t)args->configure.command != CONFIGURE_CMD_FINI ) ) {
+    for( configure_stage_t ** stage = args->configure.stages; *stage; stage++ ) {
+      if( FD_UNLIKELY( configure_stage( *stage, (configure_cmd_t)args->configure.command, config ) ) ) error = 1;
+    }
+  } else {
+    ulong i;
+    for( i=0; args->configure.stages[ i ]; i++ ) ;
+    if( FD_LIKELY( i > 0 ) ) {
+      for( ulong j=0; j<i; j++ ) {
+        if( FD_UNLIKELY( configure_stage( args->configure.stages[ i-1-j ], (configure_cmd_t)args->configure.command, config ) ) ) error = 1;
+      }
+    }
   }
+
 
   if( FD_UNLIKELY( error ) ) FD_LOG_ERR(( "failed to configure some stages" ));
 }

@@ -332,8 +332,27 @@ main_pid_namespace( void * args ) {
 
   ushort tile_to_cpu[ FD_TILE_MAX ];
   ulong  affinity_tile_cnt = fd_tile_private_cpus_parse( config->layout.affinity, tile_to_cpu );
-  /* TODO: Can we use something like config->shmem.workspaces_cnt = idx; here instead? */
-   ulong tile_cnt = 4UL + config->layout.verify_tile_count * 2;
+  ulong tile_cnt = 0;
+  for( ulong i=0; i<config->shmem.workspaces_cnt; i++ ) {
+    switch( config->shmem.workspaces[ i ].kind ) {
+      case wksp_tpu_txn_data:
+      case wksp_quic_verify:
+      case wksp_verify_dedup:
+      case wksp_dedup_pack:
+      case wksp_pack_bank:
+      case wksp_pack_forward:
+      case wksp_bank_shred:
+        break;
+      case wksp_quic:
+      case wksp_verify:
+      case wksp_dedup:
+      case wksp_pack:
+      case wksp_bank:
+      case wksp_forward:
+        tile_cnt++;
+        break;
+    }
+  }
   if( FD_UNLIKELY( affinity_tile_cnt<tile_cnt ) ) FD_LOG_ERR(( "at least %lu tiles required for this config", tile_cnt ));
   if( FD_UNLIKELY( affinity_tile_cnt>tile_cnt ) ) FD_LOG_WARNING(( "only %lu tiles required for this config", tile_cnt ));
 
@@ -428,7 +447,7 @@ static void
 parent_signal( int sig ) {
   (void)sig;
   if( pid_namespace ) kill( pid_namespace, SIGKILL );
-  fd_log_private_fprintf_0( STDERR_FILENO, "Log at \"%s\"", fd_log_private_path );
+  fd_log_private_fprintf_0( STDERR_FILENO, "Log at \"%s\"\n", fd_log_private_path );
   exit_group( 0 );
 }
 
