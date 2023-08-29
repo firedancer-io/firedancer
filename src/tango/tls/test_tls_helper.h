@@ -50,6 +50,11 @@ struct test_record_buf {
 
 typedef struct test_record_buf test_record_buf_t;
 
+static FD_FN_UNUSED void
+test_record_reset( test_record_buf_t * buf ) {
+  buf->recv = buf->send = 0UL;
+}
+
 static void
 test_record_send( test_record_buf_t * buf,
                   int                 level,
