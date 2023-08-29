@@ -198,23 +198,7 @@ int
 solana_labs_main( void * args ) {
   config_t * const config = args;
 
-  gid_t gid, egid, sgid;
-  if( FD_UNLIKELY( getresgid( &gid, &egid, &sgid ) ) )
-    FD_LOG_ERR(( "getresgid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-
-  if( gid != config->gid || egid != config->gid || sgid != config->gid ) {
-    if( FD_UNLIKELY( setresgid( config->gid, config->gid, config->gid ) ) )
-      FD_LOG_ERR(( "setresgid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  }
-
-  uid_t uid, euid, suid;
-  if( FD_UNLIKELY( getresuid( &uid, &euid, &suid ) ) )
-    FD_LOG_ERR(( "getresuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-
-  if( uid != config->uid || euid != config->uid || suid != config->uid ) {
-    if( FD_UNLIKELY( setresuid( config->uid, config->uid, config->uid ) ) )
-      FD_LOG_ERR(( "setresuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  }
+  fd_sandbox( 0, config->uid, config->gid, 0, NULL, 0, NULL );
 
   uint idx = 0;
   char * argv[ 128 ];
