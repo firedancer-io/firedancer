@@ -510,6 +510,17 @@ fd_gossip_sign_crds_value( fd_gossip_global_t * glob, fd_crds_value_t * value ) 
                    sha );
 }
 
+#define NUM_BLOOM_BITS (1024U*8U) /* 1 Kbyte */
+
+static ulong
+fd_gossip_bloom_pos( fd_hash_t * hash, ulong key ) {
+  for ( ulong i = 0; i < 32U; ++i) {
+    key ^= (ulong)(hash->uc[i]);
+    key *= 1099511628211UL;
+  }
+  return key & (NUM_BLOOM_BITS-1U);
+}
+
 void
 fd_gossip_random_pull( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, long now ) {
   (void)arg;
@@ -541,17 +552,18 @@ fd_gossip_random_pull( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, 
 
   /* Compute the number of packets */
   ulong nitems = fd_message_table_key_cnt(glob->messages);
-#define NBITS (1024U*8U) /* 1 Kbyte */
   ulong nkeys = 1;
+#define MAXKEYS 32U
   ulong npackets = 1;
+#define MAXPACKETS 32U
   ulong nmaskbits = 0;
   if (nitems > 0) {
     do {
       double n = ((double)nitems)/((double)npackets); /* Assume even division of messages */
-      double m = (double)NBITS;
+      double m = (double)NUM_BLOOM_BITS;
       nkeys = fd_ulong_max(1U, (ulong)((m/n)*0.69314718055994530941723212145818 /* ln(2) */));
-      nkeys = fd_ulong_min(nkeys, 32U);
-      if (npackets == 32U)
+      nkeys = fd_ulong_min(nkeys, MAXKEYS);
+      if (npackets == MAXPACKETS)
         break;
       double k = (double)nkeys;
       double e = pow(1.0 - exp(-k*n/m), k);
@@ -563,23 +575,46 @@ fd_gossip_random_pull( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, 
   }
   FD_LOG_NOTICE(("making bloom filter for %lu items with %lu packets and %lu keys\n", nitems, npackets, nkeys));
 
+  /* Generate random keys */
+  ulong keys[MAXKEYS];
+  for (ulong i = 0; i < nkeys; ++i)
+    keys[i] = fd_rng_ulong(glob->rng);
+  /* Set all the bits */
+  ulong num_bits_set[MAXPACKETS];
+  for (ulong i = 0; i < npackets; ++i)
+    num_bits_set[i] = 0;
+#define CHUNKSIZE (NUM_BLOOM_BITS/64U)
+  ulong bits[CHUNKSIZE * MAXPACKETS];
+  fd_memset(bits, 0, CHUNKSIZE*8U*npackets);
+  for( fd_message_table_iter_t iter = fd_message_table_iter_init( glob->messages );
+       !fd_message_table_iter_done( glob->messages, iter );
+       iter = fd_message_table_iter_next( glob->messages, iter ) ) {
+    fd_hash_t * hash = &(fd_message_table_iter_ele( glob->messages, iter )->key);
+    ulong index = hash->ul[0] >> (64U - nmaskbits);
+    ulong * chunk = bits + (index*CHUNKSIZE);
+    for (ulong i = 0; i < nkeys; ++i) {
+      ulong pos = fd_gossip_bloom_pos(hash, keys[i]);
+      ulong * j = chunk + (pos>>6U); /* divide by 64 */
+      ulong bit = 1UL<<(pos & 63U);
+      if (!((*j) & bit)) {
+        *j |= bit;
+        num_bits_set[index]++;
+      }
+    }
+  }
+    
   fd_gossip_msg_t gmsg;
   fd_gossip_msg_new_disc(&gmsg, fd_gossip_msg_enum_pull_req);
   fd_gossip_pull_req_t * req = &gmsg.inner.pull_req;
   fd_crds_filter_t * filter = &req->filter;
-  filter->mask = ~0UL;
-  filter->mask_bits = 0;
-  static const ulong keys[1] = {0};
-  filter->filter.keys_len = 1;
-  filter->filter.keys = (ulong*)keys;
-  filter->filter.num_bits_set = 0;
-  fd_gossip_bitvec_u64_t * bits = &filter->filter.bits;
+  filter->mask = (~0UL >> nmaskbits);
+  filter->filter.keys_len = nkeys;
+  filter->filter.keys = keys;
+  fd_gossip_bitvec_u64_t * bitvec = &filter->filter.bits;
   struct fd_gossip_bitvec_u64_inner bitsbits;
-  bits->bits = &bitsbits;
-  bits->len = 64;
-  bitsbits.vec_len = 1;
-  static const ulong bv[1] = {0};
-  bitsbits.vec = (ulong*)bv;
+  bitvec->bits = &bitsbits;
+  bitvec->len = NUM_BLOOM_BITS;
+  bitsbits.vec_len = NUM_BLOOM_BITS/64U;
 
   fd_crds_value_t * value = &req->value;
   fd_crds_data_new_disc(&value->data, fd_crds_data_enum_contact_info);
@@ -588,7 +623,12 @@ fd_gossip_random_pull( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, 
   ci->wallclock = (ulong)now/1000000; /* convert to ms */
   fd_gossip_sign_crds_value(glob, value);
 
-  fd_gossip_send(glob, &ele->key, &gmsg);
+  for (ulong i = 0; i < npackets; ++i) {
+    filter->mask_bits = (1UL << (64U - nmaskbits));;
+    filter->filter.num_bits_set = num_bits_set[i];
+    bitsbits.vec = bits + (i*CHUNKSIZE);
+    fd_gossip_send(glob, &ele->key, &gmsg);
+  }
 }
 
 void

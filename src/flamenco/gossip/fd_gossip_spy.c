@@ -1,3 +1,10 @@
+/**
+
+   RUST_LOG=solana_gossip=TRACE
+   cargo run --bin solana-test-validator
+   
+ **/
+
 #include "fd_gossip.h"
 #include "../fd_flamenco.h"
 #include "../../util/fd_util.h"
