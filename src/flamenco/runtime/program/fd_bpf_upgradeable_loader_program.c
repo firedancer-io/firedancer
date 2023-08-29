@@ -684,6 +684,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
     fd_pubkey_t * programdata_acc = &txn_accs[instr_acc_idxs[0]];
     fd_pubkey_t * program_acc = &txn_accs[instr_acc_idxs[1]];
     fd_pubkey_t * buffer_acc = &txn_accs[instr_acc_idxs[2]];
+    fd_pubkey_t * spill_acc = &txn_accs[instr_acc_idxs[3]];
     fd_pubkey_t * rent_acc = &txn_accs[instr_acc_idxs[4]];
     fd_pubkey_t * clock_acc = &txn_accs[instr_acc_idxs[5]];
     fd_pubkey_t * authority_acc = &txn_accs[instr_acc_idxs[6]];
@@ -712,6 +713,10 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
     if ( memcmp( program_acc_metadata->info.owner, ctx.global->solana_bpf_loader_upgradeable_program, sizeof(fd_pubkey_t) ) != 0 ) {
       return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
     }
+    if( 0==memcmp( spill_acc->key, buffer_acc->key, 32UL ) )
+      return FD_EXECUTOR_INSTR_ERR_ACC_BORROW_FAILED;
+    if( 0==memcmp( spill_acc->key, programdata_acc->key, 32UL ) )
+      return FD_EXECUTOR_INSTR_ERR_ACC_BORROW_FAILED;
 
     fd_bpf_upgradeable_loader_state_t program_acc_loader_state;
     int err = 0;
@@ -837,7 +842,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
     fd_account_meta_t * buffer_acc_metadata_new = (fd_account_meta_t *)buffer_raw_new;
 
     // TODO: min size?
-    uchar * spill_raw = fd_acc_mgr_modify_raw( ctx.global->acc_mgr, ctx.global->funk_txn, &txn_accs[instr_acc_idxs[3]], 0, 0, NULL, NULL, &read_result );
+    uchar * spill_raw = fd_acc_mgr_modify_raw( ctx.global->acc_mgr, ctx.global->funk_txn, spill_acc, 0, 0, NULL, NULL, &read_result );
     if( FD_UNLIKELY( !spill_raw ) ) {
       FD_LOG_WARNING(( "failed to read account metadata" ));
       return read_result;
