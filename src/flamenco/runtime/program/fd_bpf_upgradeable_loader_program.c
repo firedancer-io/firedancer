@@ -276,21 +276,27 @@ int fd_executor_bpf_upgradeable_loader_program_execute_program_instruction( inst
   return 0;
 }
 
-static int setup_program(instruction_ctx_t ctx, const uchar * program_data, ulong program_data_len) {
-  fd_sbpf_elf_info_t elf_info;
-  fd_sbpf_elf_peek( &elf_info, program_data, program_data_len );
+static int
+setup_program( instruction_ctx_t ctx,
+               uchar const *     program_data,
+               ulong             program_data_len) {
+  fd_sbpf_elf_info_t  _elf_info[1];
+  fd_sbpf_elf_info_t * elf_info = fd_sbpf_elf_peek( _elf_info, program_data, program_data_len );
+  if( FD_UNLIKELY( !elf_info ) )
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
 
   /* Allocate rodata segment */
-  void * rodata = fd_valloc_malloc( ctx.global->valloc, 1UL,  elf_info.rodata_footprint );
+  void * rodata = fd_valloc_malloc( ctx.global->valloc, 1UL,  elf_info->rodata_footprint );
   if (!rodata) {
+    /* TODO this is obviously wrong */
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
 
   /* Allocate program buffer */
 
   ulong  prog_align     = fd_sbpf_program_align();
-  ulong  prog_footprint = fd_sbpf_program_footprint( &elf_info );
-  fd_sbpf_program_t * prog = fd_sbpf_program_new( fd_valloc_malloc( ctx.global->valloc, prog_align, prog_footprint ), &elf_info, rodata );
+  ulong  prog_footprint = fd_sbpf_program_footprint( elf_info );
+  fd_sbpf_program_t * prog = fd_sbpf_program_new( fd_valloc_malloc( ctx.global->valloc, prog_align, prog_footprint ), elf_info, rodata );
   FD_TEST( prog );
 
   /* Allocate syscalls */
@@ -304,7 +310,6 @@ static int setup_program(instruction_ctx_t ctx, const uchar * program_data, ulon
   if(  0!=fd_sbpf_program_load( prog, program_data, program_data_len, syscalls ) ) {
     FD_LOG_ERR(( "fd_sbpf_program_load() failed: %s", fd_sbpf_strerror() ));
   }
-  FD_LOG_WARNING(( "fd_sbpf_program_load() success: %s", fd_sbpf_strerror() ));
 
   fd_vm_exec_context_t vm_ctx = {
     .entrypoint          = (long)prog->entry_pc,
@@ -327,8 +332,6 @@ static int setup_program(instruction_ctx_t ctx, const uchar * program_data, ulon
   if (validate_result != FD_VM_SBPF_VALIDATE_SUCCESS) {
     FD_LOG_ERR(( "fd_vm_context_validate() failed: %lu", validate_result ));
   }
-
-  FD_LOG_WARNING(( "fd_vm_context_validate() success" ));
 
   fd_valloc_free( ctx.global->valloc,  fd_sbpf_program_delete( prog ) );
   fd_valloc_free( ctx.global->valloc,  fd_sbpf_syscalls_delete( syscalls ) );
@@ -693,7 +696,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
     }
 
     fd_sol_sysvar_clock_t clock;
-    fd_sysvar_clock_read( ctx.global, &clock );
+    FD_TEST( 0==fd_sysvar_clock_read( ctx.global, &clock ) );
 
     // Is program executable?
     if( !program_acc_metadata->info.executable ) {
@@ -761,9 +764,8 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
     }
 
-    ulong sz2 = PROGRAMDATA_METADATA_SIZE + buffer_data_len;
     err = 0;
-    void * program_data_raw = fd_acc_mgr_modify_raw(ctx.global->acc_mgr, ctx.global->funk_txn, programdata_acc, 1, sz2, NULL, NULL, &err);
+    void * program_data_raw = fd_acc_mgr_modify_raw(ctx.global->acc_mgr, ctx.global->funk_txn, programdata_acc, 1, 0UL, NULL, NULL, &err);
     if( err != FD_ACC_MGR_SUCCESS ) {
       return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
     }
@@ -774,7 +776,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
 
     fd_account_meta_t * programdata_acc_metadata = (fd_account_meta_t *)program_data_raw;
     uchar * programdata_acc_data = fd_account_get_data(programdata_acc_metadata);
-    ulong programdata_data_len = program_acc_metadata->dlen;
+    ulong programdata_data_len = programdata_acc_metadata->dlen;
 
     ulong programdata_balance_required = fd_rent_exempt_minimum_balance(ctx.global, programdata_data_len);
     if (programdata_balance_required < 1) {
@@ -785,7 +787,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
       return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
     }
 
-    if (program_acc_metadata->info.lamports + buffer_acc_metadata->info.lamports < programdata_balance_required) {
+    if (programdata_acc_metadata->info.lamports + programdata_acc_metadata->info.lamports < programdata_balance_required) {
       return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
     }
     fd_bpf_upgradeable_loader_state_t programdata_loader_state;
@@ -794,34 +796,40 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
     if( !read_bpf_upgradeable_loader_state( ctx.global, programdata_acc, &programdata_loader_state, &err ) )
       return err;
     if (!fd_bpf_upgradeable_loader_state_is_program_data(&programdata_loader_state)) {
+      // TODO Log: "Invalid ProgramData account"
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
     }
 
     if (FD_FEATURE_ACTIVE(ctx.global, enable_program_redeployment_cooldown) && clock.slot == programdata_loader_state.inner.program_data.slot) {
+      // TODO Log: "Program was deployed in this block already"
       return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
     }
 
     if (!programdata_loader_state.inner.program_data.upgrade_authority_address) {
+      // TODO Log: "Program not upgradeable"
       return FD_EXECUTOR_INSTR_ERR_ACC_IMMUTABLE;
     }
 
     if (memcmp(programdata_loader_state.inner.program_data.upgrade_authority_address, authority_acc, sizeof(fd_pubkey_t)) != 0) {
+      // TODO Log: "Incorrect upgrade authority provided"
       return FD_EXECUTOR_INSTR_ERR_INCORRECT_AUTHORITY;
     }
 
     if (instr_acc_idxs[6] >= ctx.txn_ctx->txn_descriptor->signature_cnt) {
+      // TODO Log: "Upgrade authority did not sign"
       return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
     }
 
     // TODO: deploy program properly
 
-    err = setup_program(ctx, buffer_acc_data, SIZE_OF_PROGRAM + programdata_data_len);
+    /* https://github.com/solana-labs/solana/blob/4d452fc5e9fd465c50b2404354bbc5d84a30fbcb/programs/bpf_loader/src/lib.rs#L898 */
+    /* TODO are those bounds checked */
+    err = setup_program(ctx, buffer_acc_data + BUFFER_METADATA_SIZE, SIZE_OF_PROGRAM + programdata_data_len);
     if (err != 0) {
       return err;
     }
 
-    sz2 = BUFFER_METADATA_SIZE;
-    uchar * buffer_raw_new = fd_acc_mgr_modify_raw( ctx.global->acc_mgr, ctx.global->funk_txn, buffer_acc, 1, sz2, NULL, NULL, &read_result );
+    uchar * buffer_raw_new = fd_acc_mgr_modify_raw( ctx.global->acc_mgr, ctx.global->funk_txn, buffer_acc, 1, 0UL, NULL, NULL, &read_result );
     if( FD_UNLIKELY( !buffer_raw_new ) ) {
       FD_LOG_WARNING(( "failed to read account metadata" ));
       return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
