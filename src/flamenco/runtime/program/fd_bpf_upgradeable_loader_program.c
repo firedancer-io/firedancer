@@ -12,20 +12,20 @@
 
 #include <stdio.h>
 
-char *
+static fd_account_meta_t const *
 read_bpf_upgradeable_loader_state( fd_global_ctx_t* global, fd_pubkey_t* program_acc, fd_bpf_upgradeable_loader_state_t * result, int *opt_err) {
-  int err = 0;
-  char * raw_acc_data = (char*) fd_acc_mgr_view_raw(global->acc_mgr, global->funk_txn, (fd_pubkey_t *) program_acc, NULL, &err);
-  if (NULL == raw_acc_data) {
-    if (NULL != opt_err)
-      *opt_err = err;
+  fd_account_meta_t const * meta = NULL;
+  uchar const *             data = NULL;
+
+  int err = fd_acc_mgr_view(global->acc_mgr, global->funk_txn, program_acc, NULL, &meta, &data );
+  if( err ) {
+    *opt_err = err;
     return NULL;
   }
-  fd_account_meta_t *m = (fd_account_meta_t *) raw_acc_data;
 
   fd_bincode_decode_ctx_t ctx = {
-    .data = raw_acc_data + m->hlen,
-    .dataend = (char *) ctx.data + m->dlen,
+    .data    = data,
+    .dataend = data + meta->dlen,
     .valloc  = global->valloc,
   };
 
@@ -33,10 +33,11 @@ read_bpf_upgradeable_loader_state( fd_global_ctx_t* global, fd_pubkey_t* program
 
   if ( fd_bpf_upgradeable_loader_state_decode( result, &ctx ) ) {
     FD_LOG_DEBUG(("fd_bpf_upgradeable_loader_state_decode failed"));
+    *opt_err = FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
     return NULL;
   }
 
-  return raw_acc_data;
+  return meta;  /* UGLY!!!!! */
 }
 
 int write_bpf_upgradeable_loader_state(fd_global_ctx_t* global, fd_pubkey_t* program_acc, fd_bpf_upgradeable_loader_state_t * loader_state) {
@@ -111,7 +112,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_program_instruction( inst
 
   fd_bpf_upgradeable_loader_state_t program_loader_state;
   int err = 0;
-  if (FD_UNLIKELY(NULL == read_bpf_upgradeable_loader_state( ctx.global, program_acc, &program_loader_state, &err )))
+  if (FD_UNLIKELY(!read_bpf_upgradeable_loader_state( ctx.global, program_acc, &program_loader_state, &err )))
     return err;
 
   fd_bincode_destroy_ctx_t ctx_d = { .valloc = ctx.global->valloc };
@@ -126,10 +127,9 @@ int fd_executor_bpf_upgradeable_loader_program_execute_program_instruction( inst
   fd_bpf_upgradeable_loader_state_t programdata_loader_state;
 
   err = 0;
-  uchar *ptr = (uchar *) read_bpf_upgradeable_loader_state( ctx.global, programdata_acc, &programdata_loader_state, &err );
-  if (NULL == ptr)
+  fd_account_meta_t const * programdata_metadata = read_bpf_upgradeable_loader_state( ctx.global, programdata_acc, &programdata_loader_state, &err );
+  if( FD_UNLIKELY( !programdata_metadata ) )
     return err;
-  fd_account_meta_t *programdata_metadata = (fd_account_meta_t *) ptr;
 
   FD_LOG_NOTICE(("BPF PROG INSTR RUN! - slot: %lu, addr: %32J", ctx.global->bank.slot, &txn_accs[ctx.instr->program_id]));
 
@@ -141,7 +141,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_program_instruction( inst
   fd_bpf_upgradeable_loader_state_destroy( &programdata_loader_state, &ctx_d );
 
   ulong program_data_len = programdata_metadata->dlen - PROGRAMDATA_METADATA_SIZE;
-  uchar * program_data = ptr + programdata_metadata->hlen + PROGRAMDATA_METADATA_SIZE;
+  uchar const * program_data = (uchar const *)programdata_metadata + programdata_metadata->hlen + PROGRAMDATA_METADATA_SIZE;
 
   fd_bpf_upgradeable_loader_state_destroy( &program_loader_state, &ctx_d );
 
@@ -344,13 +344,23 @@ common_close_account( instruction_ctx_t                   ctx,
                       uchar *                             instr_acc_idxs,
                       fd_bpf_upgradeable_loader_state_t * loader_state,
                       fd_pubkey_t *                       close_acc ) {
-  fd_pubkey_t * authority_address = loader_state->inner.buffer.authority_address;
+  fd_pubkey_t * authority_address;
+  switch( loader_state->discriminant ) {
+  case fd_bpf_upgradeable_loader_state_enum_buffer:
+    authority_address = loader_state->inner.buffer.authority_address;
+    break;
+  case fd_bpf_upgradeable_loader_state_enum_program_data:
+    authority_address = loader_state->inner.program_data.upgrade_authority_address;
+    break;
+  default:
+    FD_LOG_CRIT(( "entered unreachable code (%u)", loader_state->discriminant ));
+  }
 
   if (!authority_address) {
     return FD_EXECUTOR_INSTR_ERR_ACC_IMMUTABLE;
   }
 
-  if (memcmp(authority_address, authority_acc, sizeof(fd_pubkey_t)) == 0) {
+  if (memcmp(authority_address, authority_acc, sizeof(fd_pubkey_t)) != 0) {
     return FD_EXECUTOR_INSTR_ERR_INCORRECT_AUTHORITY;
   }
 
@@ -397,7 +407,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
     fd_pubkey_t * buffer_acc = &txn_accs[instr_acc_idxs[0]];
 
     int err = 0;
-    if (FD_UNLIKELY(NULL == read_bpf_upgradeable_loader_state( ctx.global, buffer_acc, &loader_state, &err ))) {
+    if (FD_UNLIKELY(!read_bpf_upgradeable_loader_state( ctx.global, buffer_acc, &loader_state, &err ))) {
       // TODO: Fix leaks...
       return err;
     }
@@ -423,7 +433,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
 
     fd_bpf_upgradeable_loader_state_t loader_state;
     int err = 0;
-    if (NULL == read_bpf_upgradeable_loader_state( ctx.global, buffer_acc, &loader_state, &err)) {
+    if (!read_bpf_upgradeable_loader_state( ctx.global, buffer_acc, &loader_state, &err)) {
       return err;
     }
 
@@ -498,8 +508,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
     fd_bpf_upgradeable_loader_state_t program_loader_state;
 
     int err = 0;
-    uchar *ptr = (uchar *) read_bpf_upgradeable_loader_state( ctx.global, program_acc, &program_loader_state, &err );
-    if (NULL == ptr)
+    if( !read_bpf_upgradeable_loader_state( ctx.global, program_acc, &program_loader_state, &err ) )
       return err;
 
     if (!fd_bpf_upgradeable_loader_state_is_uninitialized(&program_loader_state)) {
@@ -523,7 +532,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
 
     fd_bpf_upgradeable_loader_state_t buffer_acc_loader_state;
     err = 0;
-    if (NULL == read_bpf_upgradeable_loader_state( ctx.global, buffer_acc, &buffer_acc_loader_state, &err )) {
+    if (!read_bpf_upgradeable_loader_state( ctx.global, buffer_acc, &buffer_acc_loader_state, &err )) {
       FD_LOG_DEBUG(( "failed to read account metadata" ));
       return err;
     }
@@ -644,7 +653,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
     fd_bpf_upgradeable_loader_state_t program_acc_loader_state;
     // FIXME: HANDLE ERRORS!
     err = 0;
-    if (NULL == read_bpf_upgradeable_loader_state( ctx.global, program_acc, &program_acc_loader_state, &err ))
+    if (!read_bpf_upgradeable_loader_state( ctx.global, program_acc, &program_acc_loader_state, &err ))
       return err;
 
     program_acc_loader_state.discriminant = fd_bpf_upgradeable_loader_state_enum_program;
@@ -703,7 +712,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
 
     fd_bpf_upgradeable_loader_state_t program_acc_loader_state;
     int err = 0;
-    if (NULL == read_bpf_upgradeable_loader_state( ctx.global, program_acc, &program_acc_loader_state, &err)) {
+    if (!read_bpf_upgradeable_loader_state( ctx.global, program_acc, &program_acc_loader_state, &err)) {
       FD_LOG_DEBUG(( "failed to read account metadata" ));
       return err;
     }
@@ -718,7 +727,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
 
     fd_bpf_upgradeable_loader_state_t buffer_acc_loader_state;
     err = 0;
-    if (NULL == read_bpf_upgradeable_loader_state( ctx.global, buffer_acc, &buffer_acc_loader_state, &err )) {
+    if (!read_bpf_upgradeable_loader_state( ctx.global, buffer_acc, &buffer_acc_loader_state, &err )) {
       FD_LOG_DEBUG(( "failed to read account metadata" ));
       return err;
     }
@@ -782,8 +791,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
     fd_bpf_upgradeable_loader_state_t programdata_loader_state;
 
     err = 0;
-    uchar *ptr = (uchar *) read_bpf_upgradeable_loader_state( ctx.global, programdata_acc, &programdata_loader_state, &err );
-    if (NULL == ptr)
+    if( !read_bpf_upgradeable_loader_state( ctx.global, programdata_acc, &programdata_loader_state, &err ) )
       return err;
     if (!fd_bpf_upgradeable_loader_state_is_program_data(&programdata_loader_state)) {
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
@@ -881,7 +889,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
 
     fd_bpf_upgradeable_loader_state_t loader_state;
     int err = 0;
-    if (NULL == read_bpf_upgradeable_loader_state( ctx.global, loader_acc, &loader_state, &err)) {
+    if (!read_bpf_upgradeable_loader_state( ctx.global, loader_acc, &loader_state, &err)) {
       // FIXME: HANDLE ERRORS!
       return err;
     }
@@ -940,7 +948,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
 
     fd_bpf_upgradeable_loader_state_t loader_state;
     int err = 0;
-    if (NULL == read_bpf_upgradeable_loader_state( ctx.global, close_acc, &loader_state, &err ))
+    if (!read_bpf_upgradeable_loader_state( ctx.global, close_acc, &loader_state, &err ))
       return err;
 
     fd_account_meta_t * close_acc_metadata = NULL;
@@ -991,10 +999,12 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
       }
 
       if (!fd_instr_acc_is_writable(ctx.instr, program_acc)) {
+        // TODO Log: "Program account is not writable"
         return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
       }
 
       if (memcmp(program_acc_metdata->info.owner, &ctx.instr->program_id_pubkey, sizeof(fd_pubkey_t)) != 0) {
+        // TODO Log: "Program account not owned by loader"
         return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
       }
 
@@ -1008,7 +1018,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
 
       fd_bpf_upgradeable_loader_state_t program_acc_state;
       err = 0;
-      if (NULL == read_bpf_upgradeable_loader_state( ctx.global, program_acc, &program_acc_state, &err ))
+      if (!read_bpf_upgradeable_loader_state( ctx.global, program_acc, &program_acc_state, &err ))
         return err;
 
       if (!fd_bpf_upgradeable_loader_state_is_program( &program_acc_state )) {
@@ -1067,7 +1077,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
 
     fd_bpf_upgradeable_loader_state_t loader_state;
     int err = 0;
-    if (NULL == read_bpf_upgradeable_loader_state( ctx.global, loader_acc, &loader_state, &err)) {
+    if (!read_bpf_upgradeable_loader_state( ctx.global, loader_acc, &loader_state, &err)) {
       // FIXME: HANDLE ERRORS!
       return err;
     }
@@ -1130,7 +1140,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
 
     fd_bpf_upgradeable_loader_state_t loader_state;
     int err = 0;
-    if (NULL == read_bpf_upgradeable_loader_state( ctx.global, close_acc, &loader_state, &err ))
+    if (!read_bpf_upgradeable_loader_state( ctx.global, close_acc, &loader_state, &err ))
       return err;
 
     fd_account_meta_t * close_acc_metadata = NULL;
@@ -1199,7 +1209,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
 
       fd_bpf_upgradeable_loader_state_t program_acc_state;
       err = 0;
-      if (NULL == read_bpf_upgradeable_loader_state( ctx.global, program_acc, &program_acc_state, &err ))
+      if (!read_bpf_upgradeable_loader_state( ctx.global, program_acc, &program_acc_state, &err ))
         return err;
 
       if (!fd_bpf_upgradeable_loader_state_is_program( &program_acc_state )) {
@@ -1291,7 +1301,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
 
     fd_bpf_upgradeable_loader_state_t program_acc_state;
     int err = 0;
-    if (NULL == read_bpf_upgradeable_loader_state( ctx.global, program_acc, &program_acc_state, &err ))
+    if (!read_bpf_upgradeable_loader_state( ctx.global, program_acc, &program_acc_state, &err ))
       return err;
 
     if (!fd_bpf_upgradeable_loader_state_is_program( &program_acc_state )) {
@@ -1315,7 +1325,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
 
     fd_bpf_upgradeable_loader_state_t programdata_acc_state;
     err = 0;
-    if (NULL == read_bpf_upgradeable_loader_state( ctx.global, programdata_acc, &programdata_acc_state, &err ))
+    if (!read_bpf_upgradeable_loader_state( ctx.global, programdata_acc, &programdata_acc_state, &err ))
       return err;
 
     if (!fd_bpf_upgradeable_loader_state_is_program_data( &programdata_acc_state )) {
