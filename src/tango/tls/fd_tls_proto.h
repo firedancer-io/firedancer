@@ -395,7 +395,7 @@ fd_tls_encode_server_cert_x509( void const * x509,
 
 
 long
-fd_tls_encode_server_raw_public_key( void const * ed25519_pubkey,
+fd_tls_encode_raw_public_key( void const * ed25519_pubkey,
                                      void *       wire,
                                      ulong        wire_sz );
 

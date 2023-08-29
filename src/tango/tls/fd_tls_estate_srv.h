@@ -6,8 +6,6 @@
 /* fd_tls_estate_srv contains compressed TLS server handshake state
    while waiting for the client to send a message.  estate is optimized
    for small memory use for incoming conns (128 byte per handshake).
-   (Once the peer responds, spawns an istate and queues asynchronous
-   processing)
 
    *** Security ********************************************************
 

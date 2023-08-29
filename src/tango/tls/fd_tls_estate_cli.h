@@ -24,9 +24,10 @@ struct fd_tls_estate_cli {
 
   char  state;
 
-  uchar server_cert_raw : 1;  /* 0=X.509 1=RPK */
-  uchar client_cert_raw : 1;  /* 0=X.509 1=RPK */
-  uchar client_cert     : 1;  /* 0=anon  1=client auth */
+  uchar client_cert        : 1;  /* 0=anon  1=client auth */
+  uchar server_cert_rpk    : 1;
+  uchar client_cert_nox509 : 1;
+  uchar client_cert_rpk    : 1;
 
   fd_sha256_t transcript;
 };

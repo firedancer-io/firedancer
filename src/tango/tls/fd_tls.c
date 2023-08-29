@@ -10,6 +10,11 @@
 
 /* Pre-generated keys */
 
+static char const fd_tls13_cli_sign_prefix[ 98 ] =
+  "                                "  /* 32 spaces */
+  "                                "  /* 32 spaces */
+  "TLS 1.3, client CertificateVerify";
+
 static char const fd_tls13_srv_sign_prefix[ 98 ] =
   "                                "  /* 32 spaces */
   "                                "  /* 32 spaces */
@@ -160,6 +165,74 @@ fd_tls_hkdf_expand_label( void *        out,
   /* Compute result of HKDF-Expand-Label */
   fd_hmac_sha256( info, info_sz, secret, 32UL, out );
   return out;
+}
+
+/* fd_tls_send_cert_verify generates and sends a CertificateVerify
+   message.  Returns 0L on success and negated TLS alert number on
+   failure.  this is the local client or server object.  hs is the
+   local handshake object.  transcript is the SHA state of the
+   transcript hasher immediately preceding the CertificateVerify (where
+   last entry is Certificate).  is_client is 1 if the local role is a
+   client, 0 otherwise. */
+
+static long
+fd_tls_send_cert_verify( fd_tls_server_t const * this,
+                         void *                  hs,
+                         fd_sha256_t *           transcript,
+                         int                     is_client ) {
+
+  /* Export current transcript hash
+     And create message to be signed */
+
+  uchar sign_msg[ 130 ];
+  fd_memcpy( sign_msg,
+             is_client ? fd_tls13_cli_sign_prefix : fd_tls13_srv_sign_prefix,
+             98UL );
+
+  fd_sha256_t transcript_clone = *transcript;
+  fd_sha256_fini( &transcript_clone, sign_msg+98 );
+
+  /* Create static size message layout */
+
+  struct __attribute__((packed)) {
+    fd_tls_record_hdr_t  hdr;
+    fd_tls_cert_verify_t cert_verify;
+  } cv_rec;
+  cv_rec.hdr = (fd_tls_record_hdr_t){
+    .type = FD_TLS_RECORD_CERT_VERIFY,
+    .sz   = fd_uint_to_tls_u24( 0x44 )
+  };
+  cv_rec.cert_verify = (fd_tls_cert_verify_t){
+    .sig_alg = FD_TLS_SIGNATURE_ED25519,
+    .sig_sz  = 0x40,
+  };
+
+  fd_tls_record_hdr_bswap ( &cv_rec.hdr         );
+  fd_tls_cert_verify_bswap( &cv_rec.cert_verify );
+
+  /* Sign certificate */
+
+  fd_sha512_t sha512;
+  fd_ed25519_sign( cv_rec.cert_verify.sig,
+                   sign_msg, 130UL,
+                   this->cert_public_key,
+                   this->cert_private_key,
+                   &sha512 );
+
+  /* Send CertificateVerify record */
+
+  if( FD_UNLIKELY( !this->sendmsg_fn(
+        hs,
+        &cv_rec, sizeof(cv_rec),
+        FD_TLS_LEVEL_HANDSHAKE,
+        /* flush */ 0 ) ) )
+    return -(long)FD_TLS_ALERT_INTERNAL_ERROR;
+
+  /* Record CertificateVerify in transcript hash */
+
+  fd_sha256_append( transcript, &cv_rec, sizeof(cv_rec) );
+
+  return 0L;
 }
 
 /* fd_tls_server_hs_start is invoked in response to the initial
@@ -432,7 +505,7 @@ fd_tls_server_hs_start( fd_tls_server_t const * const server,
   ulong        cert_msg_sz;
 
   if( ch.cert_types.raw_pubkey ) {
-    long sz = fd_tls_encode_server_raw_public_key( server->cert_public_key, msg_buf, MSG_BUFSZ );
+    long sz = fd_tls_encode_raw_public_key( server->cert_public_key, msg_buf, MSG_BUFSZ );
     FD_TEST( sz>=0L );
     cert_msg    = msg_buf;
     cert_msg_sz = (ulong)sz;
@@ -457,55 +530,8 @@ fd_tls_server_hs_start( fd_tls_server_t const * const server,
 
   /* Send CertificateVerify *******************************************/
 
-  /* Export transcript hash ClientHello..server Certificate
-     And create message to be signed */
-
-  uchar sign_msg[ 130 ];
-  fd_memcpy( sign_msg, fd_tls13_srv_sign_prefix, 98UL );
-
-  transcript_clone = transcript;
-  fd_sha256_fini( &transcript_clone, sign_msg+98 );
-
-  /* Create static size message layout */
-
-  struct __attribute__((packed)) {
-    fd_tls_record_hdr_t  hdr;
-    fd_tls_cert_verify_t cert_verify;
-  } cv_rec;
-  cv_rec.hdr = (fd_tls_record_hdr_t){
-    .type = FD_TLS_RECORD_CERT_VERIFY,
-    .sz   = fd_uint_to_tls_u24( 0x44 )
-  };
-  cv_rec.cert_verify = (fd_tls_cert_verify_t){
-    .sig_alg = FD_TLS_SIGNATURE_ED25519,
-    .sig_sz  = 0x40,
-  };
-
-  fd_tls_record_hdr_bswap ( &cv_rec.hdr         );
-  fd_tls_cert_verify_bswap( &cv_rec.cert_verify );
-
-  /* Sign certificate */
-
-  fd_sha512_t sha512;
-  fd_ed25519_sign( cv_rec.cert_verify.sig,
-                   sign_msg, 130UL,
-                   server->cert_public_key,
-                   server->cert_private_key,
-                   &sha512 );
-
-  /* Send CertificateVerify record */
-
-  if( FD_UNLIKELY( !server->sendmsg_fn(
-        handshake,
-        &cv_rec, sizeof(cv_rec),
-        FD_TLS_LEVEL_HANDSHAKE,
-        /* flush */ 0 ) ) )
-    return -(long)FD_TLS_ALERT_INTERNAL_ERROR;
-
-  /* Record CertificateVerify in transcript hash */
-
-  fd_sha256_append( &transcript,
-                    &cv_rec, sizeof(cv_rec) );
+  long cvfy_res = fd_tls_send_cert_verify( server, handshake, &transcript, 0 );
+  if( FD_UNLIKELY( !!cvfy_res ) ) return cvfy_res;
 
   /* Send Finished ****************************************************/
 
@@ -1005,14 +1031,32 @@ fd_tls_client_hs_wait_ee( fd_tls_client_t const * const client,
           return -(long)FD_TLS_ALERT_DECODE_ERROR;
         /* TODO ... memcpy QUIC transport params */
         break;
-      case FD_TLS_EXT_SERVER_CERT_TYPE:
+      case FD_TLS_EXT_SERVER_CERT_TYPE: {
         if( FD_UNLIKELY( ext_sz>wire_sz ) )
           return -(long)FD_TLS_ALERT_DECODE_ERROR;
         uchar const * cert_types = (uchar const *)wire_laddr;
         for( ulong i=0; i<ext_sz; i++ )
           if( cert_types[i]==FD_TLS_CERTTYPE_RAW_PUBKEY )
-            handshake->server_cert_raw = 1;
+            handshake->server_cert_rpk = 1;
         break;
+      }
+      case FD_TLS_EXT_CLIENT_CERT_TYPE: {
+        if( FD_UNLIKELY( ext_sz>wire_sz ) )
+          return -(long)FD_TLS_ALERT_DECODE_ERROR;
+        uchar const * cert_types = (uchar const *)wire_laddr;
+        handshake->client_cert_nox509 = 1;
+        for( ulong i=0; i<ext_sz; i++ ) {
+          switch( cert_types[i] ) {
+          case FD_TLS_CERTTYPE_RAW_PUBKEY:
+            handshake->client_cert_rpk = 1;
+            break;
+          case FD_TLS_CERTTYPE_X509:
+            handshake->client_cert_nox509 = 0;
+            break;
+          }
+        }
+        break;
+      }
       default:
         break;  /* TODO should we error on unknown extensions */
       }
@@ -1028,6 +1072,12 @@ fd_tls_client_hs_wait_ee( fd_tls_client_t const * const client,
       return -(long)FD_TLS_ALERT_DECODE_ERROR;
   } while(0);
 
+  if( FD_UNLIKELY( (  handshake->client_cert             )
+                 & ( !handshake->client_cert_rpk         )
+                 & ( ( !client->cert_x509_sz           )
+                   | ( !!handshake->client_cert_nox509 ) ) ) )
+    return -(long)FD_TLS_ALERT_UNSUPPORTED_CERTIFICATE;
+
   /* Record EE in transcript hash */
 
   fd_sha256_append( &handshake->transcript, record, record_sz );
@@ -1035,6 +1085,21 @@ fd_tls_client_hs_wait_ee( fd_tls_client_t const * const client,
   /* Finish up ********************************************************/
 
   handshake->state = FD_TLS_HS_WAIT_CERT_CR;
+
+  return 0L;
+}
+
+static long
+fd_tls_client_handle_cert_req( fd_tls_estate_cli_t * const handshake,
+                               void *                const req,
+                               ulong                 const req_sz ) {
+
+  /* For now, just ignore the content of the certificate request.
+     TODO: This is obviously not compliant. */
+  (void)req; (void)req_sz;
+
+  handshake->client_cert = 1;
+  handshake->state       = FD_TLS_HS_WAIT_CERT;
 
   return 0L;
 }
@@ -1115,7 +1180,7 @@ fd_tls_client_handle_cert_chain( fd_tls_estate_cli_t * const handshake,
     return -(long)FD_TLS_ALERT_DECODE_ERROR;
 
   void * cert = (void *)wire_laddr;
-  if( FD_UNLIKELY( !handshake->server_cert_raw ) ) {
+  if( FD_UNLIKELY( !handshake->server_cert_rpk ) ) {
 
     /* DER-encoded X.509 certificate */
 
@@ -1178,8 +1243,7 @@ fd_tls_client_hs_wait_cert_cr( fd_tls_client_t const * const client,
     long res;
     switch( record_hdr.type ) {
     case FD_TLS_RECORD_CERT_REQ:
-      /* Ignore content of certificate request */
-      res        = 0L;
+      res        = fd_tls_client_handle_cert_req ( handshake, (void *)wire_laddr, wire_sz );
       next_state = FD_TLS_HS_WAIT_CERT;
       break;
     case FD_TLS_RECORD_CERT:
@@ -1227,7 +1291,7 @@ fd_tls_client_hs_wait_cert( fd_tls_client_t const * const client,
     if( FD_UNLIKELY( record_hdr.type != FD_TLS_RECORD_CERT ) )
       return -(long)FD_TLS_ALERT_UNEXPECTED_MESSAGE;
 
-    long res = fd_tls_client_handle_cert_chain( handshake, record, record_sz );
+    long res = fd_tls_client_handle_cert_chain( handshake, (void *)wire_laddr, wire_sz );
     if( FD_UNLIKELY( res<0L ) ) return res;
   } while(0);
 
@@ -1314,10 +1378,6 @@ fd_tls_client_hs_wait_finished( fd_tls_client_t const * const client,
                                 ulong                   const record_sz,
                                 int                     const encryption_level ) {
 
-  (void)client;
-
-  /* TODO: Send certificate */
-
   if( FD_UNLIKELY( encryption_level != FD_TLS_LEVEL_HANDSHAKE ) )
     return -(long)FD_TLS_ALERT_INTERNAL_ERROR;
 
@@ -1379,6 +1439,67 @@ fd_tls_client_hs_wait_finished( fd_tls_client_t const * const client,
     match |= server_fin.verify[i] ^ server_finished_expected[i];
   if( FD_UNLIKELY( match!=0 ) )
     return -(long)FD_TLS_ALERT_DECRYPT_ERROR;
+
+  if( hs->client_cert ) {
+
+    /* Send client Certificate ****************************************/
+
+    /* TODO deduplicate this */
+
+    /* Message buffer */
+#   define MSG_BUFSZ 512UL
+    uchar msg_buf[ MSG_BUFSZ ];
+
+    /* TODO: fd_tls does not support certificate_request_context.
+       It is an opaque string that the server may send in the cert
+       request.  The client is supposed to echo it back in its cert
+       message.  However, the server is not supposed to send it in the
+       first place, unless post-handshake auth is used (which is not
+       the case) */
+
+    void const * cert_msg;
+    ulong        cert_msg_sz;
+
+    if( hs->client_cert_rpk ) {
+      long sz = fd_tls_encode_raw_public_key( client->cert_public_key, msg_buf, MSG_BUFSZ );
+      FD_TEST( sz>=0L );
+      cert_msg    = msg_buf;
+      cert_msg_sz = (ulong)sz;
+    } else if( client->cert_x509_sz ) {
+      /* TODO: Technically should check whether the server supports
+         X.509.  There could be servers that support neither X.509 nor
+         raw public keys. */
+
+      /* Send pre-prepared X.509 Certificate message */
+      cert_msg    = client->cert_x509;
+      cert_msg_sz = client->cert_x509_sz;
+    } else {
+      /* TODO: Unreachable:  We should have verified whether we have
+         an appropriate certificate in wait_cert_cr. */
+      return -(long)FD_TLS_ALERT_INTERNAL_ERROR;
+    }
+
+    /* Send certificate message */
+
+    if( FD_UNLIKELY( !client->sendmsg_fn(
+          hs,
+          cert_msg, cert_msg_sz,
+          FD_TLS_LEVEL_HANDSHAKE,
+          /* flush */ 0 ) ) )
+      return -(long)FD_TLS_ALERT_INTERNAL_ERROR;
+
+    /* Record Certificate record in transcript hash */
+
+    fd_sha256_append( &hs->transcript, cert_msg, cert_msg_sz );
+
+    /* Send client CertificateVerify **********************************/
+
+    long cvfy_res = fd_tls_send_cert_verify( client, hs, &hs->transcript, 1 );
+    if( FD_UNLIKELY( !!cvfy_res ) ) return cvfy_res;
+
+#   undef MSG_BUFSZ
+
+  }
 
   /* Send client Finished *********************************************/
 
