@@ -41,7 +41,7 @@ fd_runtime_init_bank_from_genesis( fd_global_ctx_t *     global,
   uint128 target_tick_duration = ((uint128) poh->target_tick_duration.seconds * 1000000000UL + (uint128) poh->target_tick_duration.nanoseconds);
   global->bank.ns_per_slot = target_tick_duration * global->bank.ticks_per_slot;
 
-#define SECONDS_PER_YEAR ((double) (365.25 * 24.0 * 60.0 * 60.0))
+#define SECONDS_PER_YEAR ((double) (365.242199 * 24.0 * 60.0 * 60.0))
 
   global->bank.slots_per_year = SECONDS_PER_YEAR * (1000000000.0 / (double) target_tick_duration) / (double) global->bank.ticks_per_slot;
   global->bank.genesis_creation_time = genesis_block->creation_time;

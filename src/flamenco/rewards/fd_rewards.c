@@ -252,7 +252,7 @@ epoch_duration_in_years(
     FD_LOG_NOTICE(("epoch_duration_in_years bank->epoch_schedule.first_normal_epoch: %lu", bank->epoch_schedule.first_normal_epoch));
     FD_LOG_NOTICE(("epoch_duration_in_years slots_in_epoch: %lu", slots_in_epoch));
     FD_LOG_NOTICE(("epoch_duration_in_years bank->slots_per_year: %f", bank->slots_per_year));
-    return (double)slots_in_epoch / bank->slots_per_year;
+    return (double)slots_in_epoch / (double) bank->slots_per_year;
 }
 
 static void

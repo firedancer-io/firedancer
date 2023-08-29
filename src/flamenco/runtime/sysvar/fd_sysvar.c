@@ -35,7 +35,15 @@ fd_sysvar_set( fd_global_ctx_t *   global,
   // What is the correct behavior here?  Where is this code in the
   // solana code base?  Do I only adjust the lamports if the data
   // increases but not decreases?  I am inventing money here...
+  fd_acc_lamports_t lamports_before = metadata->info.lamports;
   metadata->info.lamports = (lamports == NULL) ? fd_rent_exempt_minimum_balance2(&global->bank.rent, sz) : *lamports;
+  global->bank.capitalization = fd_ulong_sat_sub(
+      fd_ulong_sat_add(
+        global->bank.capitalization,
+        metadata->info.lamports),
+      lamports_before);
+  FD_LOG_NOTICE(("fd_sysvar_set: capitalization={%lu} increased by lamports: %lu for pubkey %32J", global->bank.capitalization, (metadata->info.lamports - lamports_before), pubkey));
+
 
   metadata->dlen = sz;
   fd_memcpy(metadata->info.owner, owner, 32);
