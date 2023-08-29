@@ -13,6 +13,8 @@
 #include <sys/time.h>
 #include <arpa/inet.h>
 #include <math.h>
+#include <netdb.h>
+#include <stdlib.h>
 
 #pragma GCC diagnostic ignored "-Wstrict-aliasing"
 
@@ -894,7 +896,8 @@ fd_gossip_recv(fd_gossip_global_t * glob, fd_gossip_network_addr_t * from, fd_go
   }
 }
 
-int fd_gossip_add_active_peer( fd_gossip_global_t * glob, fd_gossip_network_addr_t * addr ) {
+int
+fd_gossip_add_active_peer( fd_gossip_global_t * glob, fd_gossip_network_addr_t * addr ) {
   fd_pending_event_arg_t arg;
   fd_memcpy(&arg.key, addr, sizeof(fd_gossip_network_addr_t));
   fd_gossip_make_ping(glob, &arg, fd_log_wallclock());
@@ -1012,4 +1015,51 @@ fd_gossip_main_loop( fd_gossip_global_t * glob, fd_valloc_t valloc, volatile int
   close(fd);
   glob->sockfd = -1;
   return 0;
+}
+
+fd_gossip_network_addr_t *
+fd_gossip_resolve_hostport(const char* str /* host:port */, fd_gossip_network_addr_t * res) {
+  fd_memset(res, 0, sizeof(fd_gossip_network_addr_t));
+  
+  char buf[128];
+  uint i;
+  for (i = 0; ; ++i) {
+    if (str[i] == '\0' || i > sizeof(buf)-1U) {
+      FD_LOG_ERR(("missing colon"));
+      return NULL;
+    }
+    if (str[i] == ':') {
+      buf[i] = '\0';
+      break;
+    }
+    buf[i] = str[i];
+  }
+  
+  struct hostent * host = gethostbyname( buf );
+  if (host == NULL) {
+    FD_LOG_WARNING(("unable to resolve host %s", buf));
+    return NULL;
+  }
+  res->family = (sa_family_t)host->h_addrtype;
+  if (res->family == AF_INET) {
+    res->addr[0] = ((struct in_addr *)host->h_addr)->s_addr;
+  } else if (res->family == AF_INET6) {
+    uint * u6_addr32 = ((struct in6_addr *)host->h_addr)->s6_addr32;
+    res->addr[0] = u6_addr32[0];
+    res->addr[1] = u6_addr32[1];
+    res->addr[2] = u6_addr32[2];
+    res->addr[3] = u6_addr32[3];
+  } else {
+    FD_LOG_WARNING(("unknown address family in host entry"));
+    return NULL;
+  }
+
+  int port = atoi(str + i + 1);
+  if (port < 1024 || port > (int)USHORT_MAX) {
+    FD_LOG_ERR(("invalid port number"));
+    return NULL;
+  }
+  res->port = htons((ushort)port);
+
+  return res;
 }
