@@ -63,6 +63,7 @@ fn main() {
             .allowlist_recursively(false)
             .default_non_copy_union_style(bindgen::NonCopyUnionStyle::ManuallyDrop)
             .clang_arg(format!("-I{prefix}/"))
+            .clang_arg("-std=c17")
             .header(&format!("wrapper_{lib}.h"))
             .blocklist_type("schar|uchar|ushort|uint|ulong")
             .blocklist_item("SORT_QUICK_ORDER_STYLE|SORT_MERGE_THRESH|SORT_QUICK_THRESH|SORT_QUICK_ORDER_STYLE|SORT_QUICK_SWAP_MINIMIZE");
