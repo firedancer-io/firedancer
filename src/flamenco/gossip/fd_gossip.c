@@ -691,6 +691,46 @@ fd_gossip_handle_pong( fd_gossip_global_t * glob, fd_gossip_network_addr_t * fro
 }
 
 void
+fd_gossip_random_ping( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, long now ) {
+  (void)arg;
+
+  /* Try again in 1 sec */
+  fd_pending_event_t * ev = fd_gossip_add_pending(glob, now + (long)1e9);
+  if (ev) {
+    ev->fun = fd_gossip_random_ping;
+  }
+
+  ulong cnt = fd_active_table_key_cnt(glob->actives);
+  if (cnt == 0)
+    return;
+  fd_gossip_network_addr_t * addr = NULL;
+  if (glob->inactives_cnt > 0 && cnt < FD_ACTIVE_KEY_MAX)
+    /* Try a new peer */
+    addr = glob->inactives + (--(glob->inactives_cnt));
+  else {
+    /* Choose a random active peer */
+    ulong i = fd_rng_ulong(glob->rng) % cnt;
+    ulong j = 0;
+    for( fd_active_table_iter_t iter = fd_active_table_iter_init( glob->actives );
+         !fd_active_table_iter_done( glob->actives, iter );
+         iter = fd_active_table_iter_next( glob->actives, iter ) ) {
+      if (i == j++) {
+        fd_active_elem_t * ele = fd_active_table_iter_ele( glob->actives, iter );
+        if (now - ele->pingtime < (long)60e9) /* minute cooldown */
+          return;
+        ele->pongtime = 0;
+        addr = &(ele->key);
+        break;
+      }
+    }
+  }
+
+  fd_pending_event_arg_t arg2;
+  fd_memcpy(&arg2.key, addr, sizeof(fd_gossip_network_addr_t));
+  fd_gossip_make_ping(glob, &arg2, now);
+}
+
+void
 fd_gossip_recv_crds_value(fd_gossip_global_t * glob, fd_pubkey_t * pubkey, fd_crds_value_t* crd, long now, fd_valloc_t valloc) {
   /* Verify the signature */
   ulong wallclock;
@@ -855,11 +895,9 @@ fd_gossip_recv(fd_gossip_global_t * glob, fd_gossip_network_addr_t * from, fd_go
 }
 
 int fd_gossip_add_active_peer( fd_gossip_global_t * glob, fd_gossip_network_addr_t * addr ) {
-  fd_pending_event_t * ev = fd_gossip_add_pending( glob, 0L /* next chance we get */ );
-  if (ev == NULL)
-    return 0;
-  ev->fun = fd_gossip_make_ping;
-  fd_memcpy(&ev->fun_arg.key, addr, sizeof(fd_gossip_network_addr_t));
+  fd_pending_event_arg_t arg;
+  fd_memcpy(&arg.key, addr, sizeof(fd_gossip_network_addr_t));
+  fd_gossip_make_ping(glob, &arg, fd_log_wallclock());
   return 0;
 }
 
@@ -888,9 +926,11 @@ fd_gossip_main_loop( fd_gossip_global_t * glob, fd_valloc_t valloc, volatile int
     return -1;
   }
 
-  /* Start pulling every sec */
+  /* Start pulling and pinging on a timer */
   fd_pending_event_t * ev = fd_gossip_add_pending(glob, fd_log_wallclock() + (long)1e9);
   ev->fun = fd_gossip_random_pull;
+  ev = fd_gossip_add_pending(glob, fd_log_wallclock() + (long)1e9);
+  ev->fun = fd_gossip_random_ping;
 
 #define VLEN 32U
   struct mmsghdr msgs[VLEN];
@@ -899,6 +939,11 @@ fd_gossip_main_loop( fd_gossip_global_t * glob, fd_valloc_t valloc, volatile int
   uchar sockaddrs[VLEN][sizeof(struct sockaddr_in6)]; /* sockaddr is smaller than sockaddr_in6 */
 
   while ( !*stopflag ) {
+    if (fd_active_table_key_cnt(glob->actives) == 0) {
+      FD_LOG_WARNING(("protocol failure, no active peers"));
+      break;
+    }
+    
     fd_memset(msgs, 0, sizeof(msgs));
     for (uint i = 0; i < VLEN; i++) {
       iovecs[i].iov_base          = bufs[i];
