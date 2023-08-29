@@ -336,12 +336,14 @@ static int setup_program(instruction_ctx_t ctx, const uchar * program_data, ulon
   return 0;
 }
 
-static int common_close_account(instruction_ctx_t ctx, fd_pubkey_t * authority_acc, 
-                                fd_account_meta_t * close_acc_metadata, 
-                                fd_account_meta_t * recipient_acc_metadata, 
-                                uchar * instr_acc_idxs, 
-                                fd_bpf_upgradeable_loader_state_t * loader_state,
-                                fd_pubkey_t * close_acc) {
+static int
+common_close_account( instruction_ctx_t                   ctx,
+                      fd_pubkey_t *                       authority_acc,
+                      fd_account_meta_t *                 close_acc_metadata,
+                      fd_account_meta_t *                 recipient_acc_metadata,
+                      uchar *                             instr_acc_idxs,
+                      fd_bpf_upgradeable_loader_state_t * loader_state,
+                      fd_pubkey_t *                       close_acc ) {
   fd_pubkey_t * authority_address = loader_state->inner.buffer.authority_address;
 
   if (!authority_address) {
@@ -357,7 +359,7 @@ static int common_close_account(instruction_ctx_t ctx, fd_pubkey_t * authority_a
   }
 
   recipient_acc_metadata->info.lamports += close_acc_metadata->info.lamports;
-  close_acc_metadata   ->info.lamports = 0;
+  close_acc_metadata    ->info.lamports = 0;
 
   loader_state->discriminant = fd_bpf_upgradeable_loader_state_enum_uninitialized;
 
@@ -584,13 +586,13 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
       payer_acc_metadata ->info.lamports += buffer_acc_metadata->info.lamports;
       buffer_acc_metadata->info.lamports  = 0;
     }
-    
+
     // TODO: deploy program
     err = setup_program(ctx, buffer_acc_data, SIZE_OF_PROGRAM + programdata_len);
     if (err != 0) {
       return err;
     }
-    
+
     // Create program data account
     fd_funk_rec_t * program_data_rec = NULL;
     int modify_err;
@@ -852,7 +854,10 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
     programdata_acc_metadata->info.lamports = programdata_balance_required;
 
     if (FD_FEATURE_ACTIVE(ctx.global, enable_program_redeployment_cooldown)) {
-      fd_account_set_data_length(&ctx, buffer_acc_metadata_new, buffer_acc, BUFFER_METADATA_SIZE, 0, NULL);
+      int err;
+      if (!fd_account_set_data_length(&ctx, buffer_acc_metadata_new, buffer_acc, BUFFER_METADATA_SIZE, 0, &err)) {
+        return err;
+      }
     }
 
     write_bpf_upgradeable_loader_state( ctx.global, programdata_acc, &program_data_acc_loader_state );
@@ -946,7 +951,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
     }
 
     if (FD_FEATURE_ACTIVE(ctx.global, enable_program_redeployment_cooldown)) {
-      if (fd_account_set_data_length(&ctx, close_acc_metadata, close_acc, SIZE_OF_UNINITIALIZED, 0, &err) != 0) {
+      if (!fd_account_set_data_length(&ctx, close_acc_metadata, close_acc, SIZE_OF_UNINITIALIZED, 0, &err)) {
         return err;
       }
     }
@@ -1136,9 +1141,10 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
     }
 
     if (FD_FEATURE_ACTIVE(ctx.global, enable_program_redeployment_cooldown)) {
-      if (fd_account_set_data_length(&ctx, close_acc_metadata, close_acc, SIZE_OF_UNINITIALIZED, 0, &err) != 0) {
+      if (!fd_account_set_data_length(&ctx, close_acc_metadata, close_acc, SIZE_OF_UNINITIALIZED, 0, &err)) {
         return err;
       }
+      return FD_EXECUTOR_INSTR_SUCCESS;
     }
 
     fd_account_meta_t * recipient_acc_metadata = NULL;
@@ -1348,7 +1354,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
       return result;
 
     err = 0;
-    if (fd_account_set_data_length(&ctx, programdata_acc_metadata_write, programdata_acc, new_len, 0, &err)) {
+    if (!fd_account_set_data_length(&ctx, programdata_acc_metadata_write, programdata_acc, new_len, 0, &err)) {
       return err;
     }
 
@@ -1358,7 +1364,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
     programdata_acc_state.inner.program_data.slot = clock_slot;
     program_acc_state.inner.program_data.upgrade_authority_address = upgrade_authority_address;
 
-    
+
     return write_bpf_upgradeable_loader_state( ctx.global, programdata_acc, &programdata_acc_state );
   } else {
     FD_LOG_WARNING(( "unsupported bpf upgradeable loader program instruction: discriminant: %d", instruction.discriminant ));
