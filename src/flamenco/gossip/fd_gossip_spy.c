@@ -1,6 +1,6 @@
 /**
 
-   RUST_LOG=solana_gossip=TRACE
+   export RUST_LOG=solana_gossip=TRACE
    cargo run --bin solana-test-validator
    
  **/

@@ -16,6 +16,8 @@
 
 #pragma GCC diagnostic ignored "-Wstrict-aliasing"
 
+#define PACKET_DATA_SIZE 1232
+
 #define FD_GOSSIP_NETWORK_ADDR_NLONGS (sizeof(fd_gossip_network_addr_t)/sizeof(ulong))
 
 int fd_gossip_network_addr_eq( const fd_gossip_network_addr_t * key1, const fd_gossip_network_addr_t * key2 ) {
@@ -392,13 +394,16 @@ fd_gossip_send( fd_gossip_global_t * glob, fd_gossip_network_addr_t * dest, fd_g
   int saddrlen = fd_gossip_to_sockaddr(saddr, dest);
   if ( saddrlen < 0 )
     return;
-  if ( sendto(glob->sockfd, buf, (size_t)((const uchar *)ctx.data - buf), MSG_DONTWAIT,
+  size_t sz = (size_t)((const uchar *)ctx.data - buf);
+  if ( sz > PACKET_DATA_SIZE )
+    FD_LOG_ERR(("sending oversized packet, size=%lu", sz));
+  if ( sendto(glob->sockfd, buf, sz, MSG_DONTWAIT,
               (const struct sockaddr *)saddr, (socklen_t)saddrlen) < 0 ) {
     FD_LOG_WARNING(("sendto failed: %s", strerror(errno)));
   }
 
   char tmp[100];
-  FD_LOG_NOTICE(("sent msg type %d to %s", gmsg->discriminant, fd_gossip_addr_str(tmp, sizeof(tmp), dest)));
+  FD_LOG_NOTICE(("sent msg type %d to %s size=%lu", gmsg->discriminant, fd_gossip_addr_str(tmp, sizeof(tmp), dest), sz));
 }
 
 void
@@ -510,7 +515,7 @@ fd_gossip_sign_crds_value( fd_gossip_global_t * glob, fd_crds_value_t * value ) 
                    sha );
 }
 
-#define NUM_BLOOM_BITS (1024U*8U) /* 1 Kbyte */
+#define NUM_BLOOM_BITS (512U*8U) /* 0.5 Kbyte */
 
 static ulong
 fd_gossip_bloom_pos( fd_hash_t * hash, ulong key ) {
@@ -590,7 +595,7 @@ fd_gossip_random_pull( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, 
        !fd_message_table_iter_done( glob->messages, iter );
        iter = fd_message_table_iter_next( glob->messages, iter ) ) {
     fd_hash_t * hash = &(fd_message_table_iter_ele( glob->messages, iter )->key);
-    ulong index = hash->ul[0] >> (64U - nmaskbits);
+    ulong index = (nmaskbits == 0 ? 0UL : ( hash->ul[0] >> (64U - nmaskbits) ));
     ulong * chunk = bits + (index*CHUNKSIZE);
     for (ulong i = 0; i < nkeys; ++i) {
       ulong pos = fd_gossip_bloom_pos(hash, keys[i]);
@@ -623,8 +628,8 @@ fd_gossip_random_pull( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, 
   ci->wallclock = (ulong)now/1000000; /* convert to ms */
   fd_gossip_sign_crds_value(glob, value);
 
-  for (ulong i = 0; i < npackets; ++i) {
-    filter->mask_bits = (1UL << (64U - nmaskbits));;
+  for (uint i = 0; i < npackets; ++i) {
+    filter->mask_bits = (nmaskbits == 0 ? 0U : (i << (64U - nmaskbits)));
     filter->filter.num_bits_set = num_bits_set[i];
     bitsbits.vec = bits + (i*CHUNKSIZE);
     fd_gossip_send(glob, &ele->key, &gmsg);
