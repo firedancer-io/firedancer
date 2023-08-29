@@ -530,8 +530,8 @@ void
 fd_gossip_random_pull( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, long now ) {
   (void)arg;
   
-  /* Try again in 1 sec */
-  fd_pending_event_t * ev = fd_gossip_add_pending(glob, now + (long)1e9);
+  /* Try again in 10 sec */
+  fd_pending_event_t * ev = fd_gossip_add_pending(glob, now + (long)10e9);
   if (ev) {
     ev->fun = fd_gossip_random_pull;
   }
