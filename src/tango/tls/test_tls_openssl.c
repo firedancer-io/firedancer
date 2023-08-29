@@ -183,12 +183,21 @@ _ossl_keylog( SSL const *  ssl,
   FD_LOG_DEBUG(( "OpenSSL: %s", line ));
 }
 
+static int
+_ossl_verify_callback( int              preverify_ok,
+                       X509_STORE_CTX * ctx ) {
+  (void)preverify_ok; (void)ctx;
+  return 1;
+}
+
 /* test_server connects an OpenSSL client to an fd_tls server */
 
 void
 test_server( SSL_CTX * ctx ) {
   FD_LOG_INFO(( "Testing OpenSSL client => fd_tls server" ));
   _is_ossl_to_fd = 1;
+  test_record_reset( &_ossl_out  );
+  test_record_reset( &_fdtls_out );
 
   fd_sha512_t _sha[1]; fd_sha512_t * sha = fd_sha512_join( fd_sha512_new( _sha ) );
 
@@ -291,6 +300,8 @@ void
 test_client( SSL_CTX * ctx ) {
   FD_LOG_INFO(( "Testing fd_tls client => OpenSSL server" ));
   _is_ossl_to_fd = 0;
+  test_record_reset( &_ossl_out  );
+  test_record_reset( &_fdtls_out );
 
   fd_sha512_t _sha[1]; fd_sha512_t * sha = fd_sha512_join( fd_sha512_new( _sha ) );
 
@@ -423,6 +434,11 @@ main( int     argc,
   SSL_CTX_set_keylog_callback( ctx, _ossl_keylog );
 
   test_server( ctx );
+
+  /* Test client with and without cert */
+  SSL_CTX_set_verify( ctx, SSL_VERIFY_NONE, NULL );
+  //test_client( ctx );
+  SSL_CTX_set_verify( ctx, SSL_VERIFY_PEER, _ossl_verify_callback );
   test_client( ctx );
 
   SSL_CTX_free( ctx );

@@ -238,21 +238,29 @@ fd_tls_encode_client_hello( fd_tls_client_hello_t * in,
 
   /* Add certificate types */
 
-  if( in->cert_types.raw_pubkey ) {
-    uchar cert_types[2] = { FD_TLS_CERTTYPE_RAW_PUBKEY, FD_TLS_CERTTYPE_X509 };
-    ulong cert_type_cnt = 1 + (!!in->cert_types.x509);
+  uchar  cert_type_srv[2]            = { FD_TLS_CERTTYPE_RAW_PUBKEY, FD_TLS_CERTTYPE_X509 };
+  ulong  cert_type_srv_cnt           = 1 + (!!in->cert_types.x509);
+  ushort cert_type_srv_list_ext_type = FD_TLS_EXT_SERVER_CERT_TYPE;
+  ushort cert_type_srv_list_ext_sz   = (ushort)(cert_type_srv_cnt+1UL);
+  uchar  cert_type_srv_list_sz       = (uchar ) cert_type_srv_cnt;
 
-    ushort cert_type_list_ext_type = FD_TLS_EXT_SERVER_CERT_TYPE;
-    ushort cert_type_list_ext_sz   = (ushort)(cert_type_cnt+1UL);
-    uchar  cert_type_list_sz       = (uchar ) cert_type_cnt;
-#   define FIELDS( FIELD ) \
-    FIELD( 0, &cert_type_list_ext_type, ushort, 1             ); \
-    FIELD( 1, &cert_type_list_ext_sz,   ushort, 1             ); \
-    FIELD( 2, &cert_type_list_sz,       uchar,  1             ); \
-    FIELD( 3,  cert_types,              uchar,  cert_type_cnt );
-    FD_TLS_ENCODE_STATIC_BATCH( FIELDS )
-#   undef FIELDS
-  }
+  uchar  cert_type_cli[2]            = { FD_TLS_CERTTYPE_RAW_PUBKEY, FD_TLS_CERTTYPE_X509 };
+  ulong  cert_type_cli_cnt           = 1 + (!!in->cert_types.x509);
+  ushort cert_type_cli_list_ext_type = FD_TLS_EXT_CLIENT_CERT_TYPE;
+  ushort cert_type_cli_list_ext_sz   = (ushort)(cert_type_cli_cnt+1UL);
+  uchar  cert_type_cli_list_sz       = (uchar ) cert_type_cli_cnt;
+
+# define FIELDS( FIELD ) \
+  FIELD( 0, &cert_type_srv_list_ext_type, ushort, 1                 ); \
+  FIELD( 1, &cert_type_srv_list_ext_sz,   ushort, 1                 ); \
+  FIELD( 2, &cert_type_srv_list_sz,       uchar,  1                 ); \
+  FIELD( 3,  cert_type_srv,               uchar,  cert_type_srv_cnt ); \
+  FIELD( 4, &cert_type_cli_list_ext_type, ushort, 1                 ); \
+  FIELD( 5, &cert_type_cli_list_ext_sz,   ushort, 1                 ); \
+  FIELD( 6, &cert_type_cli_list_sz,       uchar,  1                 ); \
+  FIELD( 7,  cert_type_cli,               uchar,  cert_type_cli_cnt );
+  FD_TLS_ENCODE_STATIC_BATCH( FIELDS )
+# undef FIELDS
 
   *extension_tot_sz = fd_ushort_bswap( (ushort)( (ulong)wire_laddr - extension_start ) );
   return (long)( wire_laddr - (ulong)wire );
@@ -455,7 +463,7 @@ fd_tls_encode_server_cert_x509( void const * x509,
 }
 
 long
-fd_tls_encode_server_raw_public_key( void const * key,
+fd_tls_encode_raw_public_key( void const * key,
                                      void *       wire,
                                      ulong        wire_sz ) {
 
