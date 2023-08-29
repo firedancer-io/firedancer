@@ -206,9 +206,21 @@ switch_user( uint uid, uint gid ) {
      which prevents debugging and stops us from setting our
      uid/gid maps in the user namespace, so set it back for
      now */
-  FD_TESTV( !setresgid( gid, gid, gid ) );
-  FD_TESTV( !setresuid( uid, uid, uid ) );
-  FD_TESTV( !prctl( PR_SET_DUMPABLE, 1, 0, 0, 0 ) );
+  int undumpable = 0;
+  gid_t curgid, curegid, cursgid;
+  FD_TESTV( !getresgid( &curgid, &curegid, &cursgid ) );
+  if( FD_LIKELY( gid != curgid || gid != curegid || gid != cursgid )) {
+    FD_TESTV( !setresgid( gid, gid, gid ) );
+    undumpable = 1;
+  }
+  uid_t curuid, cureuid, cursuid;
+  FD_TESTV( !getresuid( &curuid, &cureuid, &cursuid ) );
+  if( FD_LIKELY( uid != curuid || uid != cureuid || uid != cursuid )) {
+    FD_TESTV( !setresuid( uid, uid, uid ) );
+    undumpable = 1;
+  }
+  if( FD_LIKELY( undumpable ) )
+    FD_TESTV( !prctl( PR_SET_DUMPABLE, 1, 0, 0, 0 ) );
 }
 
 static void
