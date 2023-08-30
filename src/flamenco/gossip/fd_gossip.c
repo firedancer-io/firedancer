@@ -539,6 +539,35 @@ fd_gossip_bloom_pos( fd_hash_t * hash, ulong key ) {
   return key & (NUM_BLOOM_BITS-1U);
 }
 
+fd_active_elem_t *
+fd_gossip_random_active( fd_gossip_global_t * glob ) {
+  /* Look for a random element with a low ping count */
+  fd_active_elem_t * list[FD_ACTIVE_KEY_MAX];
+  ulong listlen = 0;
+  for( fd_active_table_iter_t iter = fd_active_table_iter_init( glob->actives );
+       !fd_active_table_iter_done( glob->actives, iter );
+       iter = fd_active_table_iter_next( glob->actives, iter ) ) {
+    fd_active_elem_t * ele = fd_active_table_iter_ele( glob->actives, iter );
+    if (ele->pongtime == 0) {
+      continue;
+    } else if (listlen == 0) {
+      list[0] = ele;
+      listlen = 1;
+    } else if (ele->pingcount > list[0]->pingcount) {
+      continue;
+    } else if (ele->pingcount < list[0]->pingcount) {
+      list[0] = ele;
+      listlen = 1;
+    } else {
+      list[listlen++] = ele;
+    }
+  }
+  if (listlen == 0)
+    return NULL;
+  // FD_LOG_NOTICE(("choosing from %lu with pingcount %lu", listlen, list[0]->pingcount));
+  return list[fd_rng_ulong(glob->rng) % listlen];
+}
+
 void
 fd_gossip_random_pull( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, long now ) {
   (void)arg;
@@ -550,22 +579,8 @@ fd_gossip_random_pull( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, 
   }
 
   /* Pick a random partner */
-  ulong cnt = fd_active_table_key_cnt(glob->actives);
-  if (cnt == 0)
-    return;
-  ulong i = fd_rng_ulong(glob->rng) % cnt;
-  fd_active_elem_t * ele = NULL;
-  ulong j = 0;
-  for( fd_active_table_iter_t iter = fd_active_table_iter_init( glob->actives );
-       !fd_active_table_iter_done( glob->actives, iter );
-       iter = fd_active_table_iter_next( glob->actives, iter ) ) {
-    if (i == j++) {
-      ele = fd_active_table_iter_ele( glob->actives, iter );
-      break;
-    }
-  }
-  if (ele->pongtime == 0)
-    /* Still pinging */
+  fd_active_elem_t * ele = fd_gossip_random_active(glob);
+  if (ele == NULL)
     return;
 
   /* Compute the number of packets */
@@ -689,7 +704,6 @@ fd_gossip_handle_pong( fd_gossip_global_t * glob, fd_gossip_network_addr_t * fro
   }
   
   val->pongtime = now;
-  val->pingcount = 0; /* Start count over next time */
   fd_memcpy(val->id.uc, pong->from.uc, 32U);
 
   /* Remember that this is a good peer */
@@ -734,6 +748,7 @@ fd_gossip_random_ping( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, 
         fd_active_elem_t * ele = fd_active_table_iter_ele( glob->actives, iter );
         if (now - ele->pingtime < (long)60e9) /* minute cooldown */
           return;
+        ele->pingcount = 0;
         ele->pongtime = 0;
         addr = &(ele->key);
         break;
@@ -940,10 +955,15 @@ fd_gossip_log_stats( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, lo
   glob->recv_dup_cnt = glob->recv_nondup_cnt = 0;
 
   ulong wc = (ulong)(now / (long)1e6);
+  ulong expire = wc - 4U*FD_GOSSIP_MESSAGE_EXPIRE;
   for( fd_peer_table_iter_t iter = fd_peer_table_iter_init( glob->peers );
        !fd_peer_table_iter_done( glob->peers, iter );
        iter = fd_peer_table_iter_next( glob->peers, iter ) ) {
     fd_peer_elem_t * ele = fd_peer_table_iter_ele( glob->peers, iter );
+    if (ele->wallclock < expire) {
+      fd_peer_table_remove( glob->peers, &ele->key );
+      continue;
+    }
     fd_active_elem_t * act = fd_active_table_query(glob->actives, &ele->key, NULL);
     char buf[100];
     FD_LOG_NOTICE(("peer at %s id %32J age %.3f %s",
