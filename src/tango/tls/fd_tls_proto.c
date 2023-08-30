@@ -126,7 +126,10 @@ fd_tls_decode_client_hello( fd_tls_client_hello_t * out,
       ext_parse_res = fd_tls_decode_key_share_list( &out->key_share, ext_data, wire_sz );
       break;
     case FD_TLS_EXT_SERVER_CERT_TYPE:
-      ext_parse_res = fd_tls_decode_ext_cert_type_list( &out->cert_types, ext_data, wire_sz );
+      ext_parse_res = fd_tls_decode_ext_cert_type_list( &out->server_cert_types, ext_data, wire_sz );
+      break;
+    case FD_TLS_EXT_CLIENT_CERT_TYPE:
+      ext_parse_res = fd_tls_decode_ext_cert_type_list( &out->client_cert_types, ext_data, wire_sz );
       break;
     default:
       ext_parse_res = (long)ext_sz;
@@ -239,13 +242,13 @@ fd_tls_encode_client_hello( fd_tls_client_hello_t * in,
   /* Add certificate types */
 
   uchar  cert_type_srv[2]            = { FD_TLS_CERTTYPE_RAW_PUBKEY, FD_TLS_CERTTYPE_X509 };
-  ulong  cert_type_srv_cnt           = 1 + (!!in->cert_types.x509);
+  ulong  cert_type_srv_cnt           = 1 + (!!in->server_cert_types.x509);
   ushort cert_type_srv_list_ext_type = FD_TLS_EXT_SERVER_CERT_TYPE;
   ushort cert_type_srv_list_ext_sz   = (ushort)(cert_type_srv_cnt+1UL);
   uchar  cert_type_srv_list_sz       = (uchar ) cert_type_srv_cnt;
 
   uchar  cert_type_cli[2]            = { FD_TLS_CERTTYPE_RAW_PUBKEY, FD_TLS_CERTTYPE_X509 };
-  ulong  cert_type_cli_cnt           = 1 + (!!in->cert_types.x509);
+  ulong  cert_type_cli_cnt           = 1 + (!!in->client_cert_types.x509);
   ushort cert_type_cli_list_ext_type = FD_TLS_EXT_CLIENT_CERT_TYPE;
   ushort cert_type_cli_list_ext_sz   = (ushort)(cert_type_cli_cnt+1UL);
   uchar  cert_type_cli_list_sz       = (uchar ) cert_type_cli_cnt;

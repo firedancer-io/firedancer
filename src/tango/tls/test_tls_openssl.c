@@ -227,7 +227,7 @@ test_server( SSL_CTX * ctx ) {
   for( ulong b=0; b<32UL; b++ ) server->cert_private_key[b] = fd_rng_uchar( rng );
   fd_ed25519_public_from_private( server->cert_public_key, server->cert_private_key, sha );
 
-  /* Set up cert */
+  /* Set up server cert */
 
   EVP_PKEY * pkey = fd_ed25519_pkey_from_private( server->cert_private_key );
   X509 * cert = fd_x509_gen_solana_cert( pkey );
@@ -239,8 +239,23 @@ test_server( SSL_CTX * ctx ) {
   X509_free( cert );
   free( cert_out );
 
+  /* Initialize OpenSSL */
+
   SSL * ssl = SSL_new( ctx );
   FD_TEST( ssl );
+
+  /* Set up client cert */
+
+  uchar client_private_key[ 32 ];
+  for( ulong b=0; b<32UL; b++ ) client_private_key[b] = fd_rng_uchar( rng );
+
+  EVP_PKEY * client_pkey = fd_ed25519_pkey_from_private( client_private_key );
+  FD_TEST( client_pkey );
+  X509 * client_cert = fd_x509_gen_solana_cert( client_pkey );
+  SSL_use_PrivateKey( ssl, client_pkey );
+  SSL_use_certificate( ssl, client_cert );
+  EVP_PKEY_free( client_pkey );
+  X509_free( client_cert );
 
   SSL_set_connect_state( ssl );
 

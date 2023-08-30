@@ -17,7 +17,9 @@
    ### Peer Authentication
 
    Peers are authenticated via Ed25519 using the TLS v1.3 raw public key
-   (RPK) extension.  Minimal support for X.509 is included.
+   (RPK) extension.  Minimal support for X.509 is included.  Client
+   cert authentication is optional for fd_tls_client_t and mandatory
+   for fd_tls_server_t.
 
    ### Key Exchange
 
