@@ -114,7 +114,6 @@ struct fd_active_elem {
     uint pingcount;
     fd_hash_t pingtoken;
     long pongtime;
-    int pruned; /* Do not push to me */
 };
 /* Active table */
 typedef struct fd_active_elem fd_active_elem_t;
@@ -427,7 +426,6 @@ fd_gossip_make_ping( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, lo
     val->pingcount = 1;
     val->pongtime = 0;
     fd_memset(val->id.uc, 0, 32U);
-    val->pruned = 0;
   } else {
     if (val->pongtime != 0)
       /* Success */
@@ -833,7 +831,7 @@ fd_gossip_recv_crds_value(fd_gossip_global_t * glob, fd_pubkey_t * pubkey, fd_cr
                          /* sig */ crd->signature.uc,
                          /* public_key */ pubkey->uc,
                          sha )) {
-    FD_LOG_ERR(("received crds_value with invalid signature"));
+    FD_LOG_WARNING(("received crds_value with invalid signature"));
     return;
   }
 
@@ -901,9 +899,35 @@ fd_gossip_recv_crds_value(fd_gossip_global_t * glob, fd_pubkey_t * pubkey, fd_cr
 
 void
 fd_gossip_handle_prune(fd_gossip_global_t * glob, fd_gossip_network_addr_t * from, fd_gossip_prune_msg_t * msg) {
-  (void)glob;
   (void)from;
-  (void)msg;
+
+  if (memcmp(msg->data.destination.uc, glob->my_creds.public_key.uc, 32U) != 0)
+    return;
+
+  fd_gossip_prune_sign_data_t signdata;
+  signdata.pubkey = msg->data.pubkey;
+  signdata.prunes_len = msg->data.prunes_len;
+  signdata.prunes = msg->data.prunes;
+  signdata.destination = msg->data.destination;
+  signdata.wallclock = msg->data.wallclock;
+
+  uchar buf[FD_ETH_PAYLOAD_MAX];
+  fd_bincode_encode_ctx_t ctx;
+  ctx.data = buf;
+  ctx.dataend = buf + FD_ETH_PAYLOAD_MAX;
+  if ( fd_gossip_prune_sign_data_encode( &signdata, &ctx ) ) {
+    FD_LOG_ERR(("fd_gossip_prune_sign_data_encode failed"));
+    return;
+  }
+  fd_sha512_t sha[1];
+  if (fd_ed25519_verify( /* msg */ buf,
+                         /* sz  */ (ulong)((uchar*)ctx.data - buf),
+                         /* sig */ msg->data.signature.uc,
+                         /* public_key */ msg->pubkey.uc,
+                         sha )) {
+    FD_LOG_WARNING(("received prune_msg with invalid signature"));
+    return;
+  }
 }
 
 void
@@ -947,7 +971,6 @@ fd_gossip_add_active_peer( fd_gossip_global_t * glob, fd_gossip_network_addr_t *
     val->pingcount = 0;
     val->pingtime = val->pongtime = 0;
     fd_memset(val->id.uc, 0, 32U);
-    val->pruned = 0;
   }
   return 0;
 }

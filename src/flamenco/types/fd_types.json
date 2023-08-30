@@ -1506,6 +1506,16 @@
       ]
     },
     {
+      "name": "gossip_prune_sign_data",
+      "type": "struct",
+      "fields": [
+        { "name": "pubkey", "type": "pubkey" },
+        { "name": "prunes", "type": "vector", "element": "pubkey" },
+        { "name": "destination", "type": "pubkey" },
+        { "name": "wallclock", "type": "ulong" }
+      ]
+    },
+    {
       "name": "gossip_socket_addr",
       "type": "struct",
       "fields": [
