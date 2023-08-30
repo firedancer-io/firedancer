@@ -36,7 +36,7 @@ jobs:
       - uses: ./.github/actions/deps
 
       - name: Build unit tests
-        run: make -j -Otarget unit-test
+        run: make -j unit-test
 
       - uses: ./.github/actions/hugepages
 
@@ -59,7 +59,7 @@ jobs:
       - uses: ./.github/actions/deps
 
       - name: Build unit tests
-        run: make -j -Otarget unit-test
+        run: make -j unit-test
 
       - uses: ./.github/actions/hugepages
 
@@ -85,7 +85,7 @@ jobs:
       - uses: firedancer-io/fuzzbot-builder@main
         name: Build fuzz tests
         with:
-          command: make -j -Otarget fuzz-test
+          command: make -j fuzz-test
 
       - name: List Artifacts
         run: |
@@ -102,7 +102,7 @@ jobs:
           service-account-credentials: ${{ secrets.FUZZ_SERVICE_ACCT_JSON_BUNDLE }}
 
       - name: Run fuzz tests
-        run: make -k -j -Otarget run-fuzz-test
+        run: make -k -j run-fuzz-test
 
   # Build and analyze with CodeQL
   codeql:
@@ -137,7 +137,7 @@ jobs:
         languages: ${{ matrix.language }}
 
     - name: Build
-      run: make -j -Otarget all rust
+      run: make -j all rust
 
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@v2

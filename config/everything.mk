@@ -4,6 +4,7 @@ MAKEFLAGS += --no-builtin-variables
 .PHONY: all info bin rust include lib unit-test fuzz-test run-unit-test help clean distclean asm ppp show-deps lint check-lint
 .SECONDARY:
 .SECONDEXPANSION:
+.ONESHELL:
 
 OBJDIR:=$(BASEDIR)/$(BUILDDIR)
 CORPUSDIR:=corpus

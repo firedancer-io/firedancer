@@ -34,7 +34,7 @@ jobs:
       - uses: ./.github/actions/deps
 
       - name: Build unit tests
-        run: make -j -Otarget unit-test
+        run: make -j unit-test
 
       - uses: ./.github/actions/hugepages
 
@@ -58,7 +58,7 @@ jobs:
       - name: Build Fuzz Tests
         env:
           MACHINE: linux_clang_x86_64_fuzz_asan
-        run: make -j -Otarget fuzz-test
+        run: make -j fuzz-test
 
       - name: Fetch Corpus, Generate Fuzzing Coverage
         run: ./.github/workflows/scripts/fuzzcov_generate.sh build/linux/clang/x86_64_fuzz_asan/fuzz-test/
