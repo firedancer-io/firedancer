@@ -2,10 +2,6 @@
 
    export RUST_LOG=solana_gossip=TRACE
    cargo run --bin solana-test-validator
-
-   entrypoint.testnet.solana.com:8001 
-   entrypoint2.testnet.solana.com:8001
-   entrypoint3.testnet.solana.com:8001
    
  **/
 
@@ -84,7 +80,11 @@ int main(int argc, char **argv) {
     return 1;
 
   fd_gossip_network_addr_t peeraddr;
-  if ( fd_gossip_add_active_peer(glob, fd_gossip_resolve_hostport("emch-ossdev-firedancer6:1024", &peeraddr)) )
+  if ( fd_gossip_add_active_peer(glob, fd_gossip_resolve_hostport("entrypoint.testnet.solana.com:8001", &peeraddr)) )
+    return 1;
+  if ( fd_gossip_add_active_peer(glob, fd_gossip_resolve_hostport("entrypoint2.testnet.solana.com:8001", &peeraddr)) )
+    return 1;
+  if ( fd_gossip_add_active_peer(glob, fd_gossip_resolve_hostport("entrypoint3.testnet.solana.com:8001", &peeraddr)) )
     return 1;
   
   signal(SIGINT, stop);

@@ -428,8 +428,9 @@ fd_gossip_make_ping( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, lo
       /* Success */
       return;
     if (val->pingcount++ == 5U) {
-      /* Give up */
+      /* Give up. This is a bad peer. */
       fd_active_table_remove(glob->actives, key);
+      fd_peer_table_remove(glob->peers, key);
       return;
     }
   }
@@ -448,8 +449,13 @@ fd_gossip_make_ping( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, lo
 
   fd_memcpy( ping->from.uc, glob->my_creds.public_key.uc, 32UL );
 
-  for ( ulong i = 0; i < FD_HASH_FOOTPRINT / sizeof(ulong); ++i )
-    ping->token.ul[i] = val->pingtoken.ul[i] = fd_rng_ulong(glob->rng);
+  if ( val->pingcount <= 1 ) {
+    for ( ulong i = 0; i < FD_HASH_FOOTPRINT / sizeof(ulong); ++i )
+      ping->token.ul[i] = val->pingtoken.ul[i] = fd_rng_ulong(glob->rng);
+  } else {
+    for ( ulong i = 0; i < FD_HASH_FOOTPRINT / sizeof(ulong); ++i )
+      ping->token.ul[i] = val->pingtoken.ul[i];
+  }
 
   /* Sign */
   fd_sha512_t sha[1];
@@ -534,9 +540,6 @@ void
 fd_gossip_random_pull( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, long now ) {
   (void)arg;
 
-  FD_LOG_NOTICE(("received %lu dup values and %lu new", glob->recv_dup_cnt, glob->recv_nondup_cnt));
-  glob->recv_dup_cnt = glob->recv_nondup_cnt = 0;
-  
   /* Try again in 10 sec */
   fd_pending_event_t * ev = fd_gossip_add_pending(glob, now + (long)10e9);
   if (ev) {
@@ -898,10 +901,46 @@ fd_gossip_recv(fd_gossip_global_t * glob, fd_gossip_network_addr_t * from, fd_go
 
 int
 fd_gossip_add_active_peer( fd_gossip_global_t * glob, fd_gossip_network_addr_t * addr ) {
-  fd_pending_event_arg_t arg;
-  fd_memcpy(&arg.key, addr, sizeof(fd_gossip_network_addr_t));
-  fd_gossip_make_ping(glob, &arg, fd_log_wallclock());
+  fd_active_elem_t * val = fd_active_table_query(glob->actives, addr, NULL);
+  if (val == NULL) {
+    val = fd_active_table_insert(glob->actives, addr);
+    if (val == NULL) {
+      FD_LOG_WARNING(("too many actives"));
+      return -1;
+    }
+    val->pingcount = 0;
+    val->pingtime = val->pongtime = 0;
+    fd_memset(val->id.uc, 0, 32U);
+  }
   return 0;
+}
+
+void
+fd_gossip_log_stats( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, long now ) {
+  (void)arg;
+
+  /* Try again in 60 sec */
+  fd_pending_event_t * ev = fd_gossip_add_pending(glob, now + (long)60e9);
+  if (ev) {
+    ev->fun = fd_gossip_log_stats;
+  }
+
+  FD_LOG_NOTICE(("received %lu dup values and %lu new", glob->recv_dup_cnt, glob->recv_nondup_cnt));
+  glob->recv_dup_cnt = glob->recv_nondup_cnt = 0;
+
+  ulong wc = (ulong)(now / (long)1e6);
+  for( fd_peer_table_iter_t iter = fd_peer_table_iter_init( glob->peers );
+       !fd_peer_table_iter_done( glob->peers, iter );
+       iter = fd_peer_table_iter_next( glob->peers, iter ) ) {
+    fd_peer_elem_t * ele = fd_peer_table_iter_ele( glob->peers, iter );
+    fd_active_elem_t * act = fd_active_table_query(glob->actives, &ele->key, NULL);
+    char buf[100];
+    FD_LOG_NOTICE(("peer at %s id %32J age %f %s",
+                   fd_gossip_addr_str(buf, sizeof(buf), &ele->key),
+                   ele->id.uc,
+                   ((double)(wc - ele->wallclock))*0.001,
+                   ((act != NULL && act->pongtime != 0) ? "(active)" : "")));
+  }
 }
 
 /* Main loop for socket reading/writing. Does not return until stopflag is non-zero */
@@ -930,10 +969,13 @@ fd_gossip_main_loop( fd_gossip_global_t * glob, fd_valloc_t valloc, volatile int
   }
 
   /* Start pulling and pinging on a timer */
-  fd_pending_event_t * ev = fd_gossip_add_pending(glob, fd_log_wallclock() + (long)1e9);
+  long now = fd_log_wallclock();
+  fd_pending_event_t * ev = fd_gossip_add_pending(glob, now + (long)1e9);
   ev->fun = fd_gossip_random_pull;
-  ev = fd_gossip_add_pending(glob, fd_log_wallclock() + (long)1e9);
+  ev = fd_gossip_add_pending(glob, now + (long)1e9);
   ev->fun = fd_gossip_random_ping;
+  ev = fd_gossip_add_pending(glob, now + (long)60e9);
+  ev->fun = fd_gossip_log_stats;
 
 #define VLEN 32U
   struct mmsghdr msgs[VLEN];
@@ -958,7 +1000,7 @@ fd_gossip_main_loop( fd_gossip_global_t * glob, fd_valloc_t valloc, volatile int
     }
 
     /* Execute pending timed events */
-    long now = fd_log_wallclock();
+    now = fd_log_wallclock();
     do {
       fd_pending_event_t * ev = fd_pending_heap_ele_peek_min( glob->event_heap, glob->event_pool );
       if (ev == NULL || ev->key > now)
