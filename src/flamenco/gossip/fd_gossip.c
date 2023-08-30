@@ -572,6 +572,7 @@ fd_gossip_random_pull( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, 
   ulong npackets = 1;
 #define MAXPACKETS 32U
   ulong nmaskbits = 0;
+  double e = 0;
   if (nitems > 0) {
     do {
       double n = ((double)nitems)/((double)npackets); /* Assume even division of messages */
@@ -581,14 +582,14 @@ fd_gossip_random_pull( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, 
       if (npackets == MAXPACKETS)
         break;
       double k = (double)nkeys;
-      double e = pow(1.0 - exp(-k*n/m), k);
+      e = pow(1.0 - exp(-k*n/m), k);
       if (e < 0.001)
         break;
       nmaskbits++;
       npackets = 1U<<nmaskbits;
     } while (1);
   }
-  FD_LOG_NOTICE(("making bloom filter for %lu items with %lu packets and %lu keys\n", nitems, npackets, nkeys));
+  FD_LOG_NOTICE(("making bloom filter for %lu items with %lu packets and %lu keys %g error\n", nitems, npackets, nkeys, e));
 
   /* Generate random keys */
   ulong keys[MAXKEYS];
@@ -935,7 +936,7 @@ fd_gossip_log_stats( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, lo
     fd_peer_elem_t * ele = fd_peer_table_iter_ele( glob->peers, iter );
     fd_active_elem_t * act = fd_active_table_query(glob->actives, &ele->key, NULL);
     char buf[100];
-    FD_LOG_NOTICE(("peer at %s id %32J age %f %s",
+    FD_LOG_NOTICE(("peer at %s id %32J age %.3f %s",
                    fd_gossip_addr_str(buf, sizeof(buf), &ele->key),
                    ele->id.uc,
                    ((double)(wc - ele->wallclock))*0.001,
