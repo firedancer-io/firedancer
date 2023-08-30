@@ -14,7 +14,7 @@
 #include "../../xdp/fd_xdp_redirect_user.h"
 
 #include "../../../ballet/ed25519/fd_ed25519_openssl.h"
-#include "../../../ballet/x509/fd_x509.h"
+#include "../../../ballet/x509/fd_x509_openssl.h"
 
 int server_complete = 0;
 
