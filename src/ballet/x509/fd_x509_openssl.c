@@ -59,6 +59,15 @@ fd_x509_gen_solana_cert( EVP_PKEY * pkey ) {
   /* Set public key (the only important part) */
   X509_set_pubkey( x, pkey );
 
+  /* Set dummy issuer */
+  X509_NAME * issuer = X509_get_issuer_name( x );
+  if( FD_UNLIKELY( !issuer ) ) {
+    FD_LOG_WARNING(( "X509_get_issuer_name() failed" ));
+    goto cleanup1;
+  }
+  X509_NAME_add_entry_by_txt( issuer, "CN", MBSTRING_ASC, (uchar *)"Solana", -1, -1, 0 );
+  FD_TEST( 1==X509_set_issuer_name( x, issuer ) );
+
   /* Set very long expiration date */
   long not_before = 0L;            /* Jan  1 00:00:00 1975 GMT */
   X509_time_adj( X509_getm_notBefore( x ), 0, &not_before );
@@ -66,7 +75,7 @@ fd_x509_gen_solana_cert( EVP_PKEY * pkey ) {
   X509_time_adj( X509_getm_notAfter ( x ), 0, &not_after  );
 
   /* Set SAN to localhost */
-  X509_EXTENSION * san = X509V3_EXT_conf_nid( NULL, NULL, NID_subject_alt_name, "DNS: localhost" );
+  X509_EXTENSION * san = X509V3_EXT_conf_nid( NULL, NULL, NID_subject_alt_name, "critical,DNS: localhost" );
   if( FD_UNLIKELY( !san ) ) {
     FD_LOG_WARNING(( "X509V3_EXT_conf_nid(NID_subject_alt_name) failed" ));
     goto cleanup1;
