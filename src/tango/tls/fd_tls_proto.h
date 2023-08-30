@@ -121,7 +121,8 @@ struct fd_tls_client_hello {
   fd_tls_ext_supported_groups_t     supported_groups;
   fd_tls_ext_signature_algorithms_t signature_algorithms;
   fd_tls_key_share_t                key_share;
-  fd_tls_ext_cert_type_list_t       cert_types;
+  fd_tls_ext_cert_type_list_t       server_cert_types;
+  fd_tls_ext_cert_type_list_t       client_cert_types;
 
   uchar const * quic_tp;
   ushort        quic_tp_sz;

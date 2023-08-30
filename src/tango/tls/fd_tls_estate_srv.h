@@ -56,11 +56,13 @@
 
 struct fd_tls_estate_srv {
   char  state;  /* FD_TLS_HS_{...} */
-  uchar server_cert_type : 2;
-  uchar client_cert_type : 2;
+  uchar server_cert_rpk : 1;  /* 0: X.509  1: raw public key */
+  uchar client_cert     : 1;  /* 0: no client auth  1: client cert */
+  uchar client_cert_rpk : 1;  /* 0: X.509  1: raw public key */
 
   fd_tls_transcript_t transcript;
   uchar               client_hs_secret[32];
+  uchar               client_pubkey[32];
 };
 
 typedef struct fd_tls_estate_srv fd_tls_estate_srv_t;
