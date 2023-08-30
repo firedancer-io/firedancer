@@ -20,6 +20,8 @@
 
 #define PACKET_DATA_SIZE 1232
 
+#define FD_GOSSIP_MESSAGE_EXPIRE ((ulong)(5*60e3)) /* 5 minutes */
+
 #define FD_GOSSIP_NETWORK_ADDR_NLONGS (sizeof(fd_gossip_network_addr_t)/sizeof(ulong))
 
 int fd_gossip_network_addr_eq( const fd_gossip_network_addr_t * key1, const fd_gossip_network_addr_t * key2 ) {
@@ -203,6 +205,7 @@ struct fd_gossip_global {
     fd_rng_t rng[1];
     ulong recv_dup_cnt;
     ulong recv_nondup_cnt;
+    fd_valloc_t valloc;
 };
 
 ulong
@@ -602,10 +605,17 @@ fd_gossip_random_pull( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, 
 #define CHUNKSIZE (NUM_BLOOM_BITS/64U)
   ulong bits[CHUNKSIZE * MAXPACKETS];
   fd_memset(bits, 0, CHUNKSIZE*8U*npackets);
+  ulong expire = (ulong)(now / (long)1e6) - FD_GOSSIP_MESSAGE_EXPIRE;
   for( fd_message_table_iter_t iter = fd_message_table_iter_init( glob->messages );
        !fd_message_table_iter_done( glob->messages, iter );
        iter = fd_message_table_iter_next( glob->messages, iter ) ) {
-    fd_hash_t * hash = &(fd_message_table_iter_ele( glob->messages, iter )->key);
+    fd_message_elem_t * ele = fd_message_table_iter_ele( glob->messages, iter );
+    fd_hash_t * hash = &(ele->key);
+    if (ele->wallclock < expire) {
+      fd_valloc_free( glob->valloc, ele->data );
+      fd_message_table_remove( glob->messages, hash );
+      continue;
+    }
     ulong index = (nmaskbits == 0 ? 0UL : ( hash->ul[0] >> (64U - nmaskbits) ));
     ulong * chunk = bits + (index*CHUNKSIZE);
     for (ulong i = 0; i < nkeys; ++i) {
@@ -737,7 +747,7 @@ fd_gossip_random_ping( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, 
 }
 
 void
-fd_gossip_recv_crds_value(fd_gossip_global_t * glob, fd_pubkey_t * pubkey, fd_crds_value_t* crd, long now, fd_valloc_t valloc) {
+fd_gossip_recv_crds_value(fd_gossip_global_t * glob, fd_pubkey_t * pubkey, fd_crds_value_t* crd, long now) {
   /* Verify the signature */
   ulong wallclock;
   switch (crd->data.discriminant) {
@@ -838,7 +848,7 @@ fd_gossip_recv_crds_value(fd_gossip_global_t * glob, fd_pubkey_t * pubkey, fd_cr
     return;
   }
   msg->wallclock = wallclock;
-  msg->data = fd_valloc_malloc(valloc, 1U, datalen);
+  msg->data = fd_valloc_malloc(glob->valloc, 1U, datalen);
   fd_memcpy(msg->data, buf, datalen);
   msg->datalen = datalen;
 
@@ -873,20 +883,20 @@ fd_gossip_recv_crds_value(fd_gossip_global_t * glob, fd_pubkey_t * pubkey, fd_cr
 }
 
 void
-fd_gossip_recv(fd_gossip_global_t * glob, fd_gossip_network_addr_t * from, fd_gossip_msg_t * gmsg, long now, fd_valloc_t valloc) {
+fd_gossip_recv(fd_gossip_global_t * glob, fd_gossip_network_addr_t * from, fd_gossip_msg_t * gmsg, long now) {
   switch (gmsg->discriminant) {
   case fd_gossip_msg_enum_pull_req:
     break;
   case fd_gossip_msg_enum_pull_resp: {
     fd_gossip_pull_resp_t * pull_resp = &gmsg->inner.pull_resp;
     for (ulong i = 0; i < pull_resp->crds_len; ++i)
-      fd_gossip_recv_crds_value(glob, &pull_resp->pubkey, pull_resp->crds + i, now, valloc);
+      fd_gossip_recv_crds_value(glob, &pull_resp->pubkey, pull_resp->crds + i, now);
     break;
   }
   case fd_gossip_msg_enum_push_msg: {
     fd_gossip_push_msg_t * push_msg = &gmsg->inner.push_msg;
     for (ulong i = 0; i < push_msg->crds_len; ++i)
-      fd_gossip_recv_crds_value(glob, &push_msg->pubkey, push_msg->crds + i, now, valloc);
+      fd_gossip_recv_crds_value(glob, &push_msg->pubkey, push_msg->crds + i, now);
     break;
   }
   case fd_gossip_msg_enum_prune_msg:
@@ -947,6 +957,8 @@ fd_gossip_log_stats( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, lo
 /* Main loop for socket reading/writing. Does not return until stopflag is non-zero */
 int
 fd_gossip_main_loop( fd_gossip_global_t * glob, fd_valloc_t valloc, volatile int * stopflag ) {
+  glob->valloc = valloc;
+  
   int fd;
   if ((fd = socket(glob->my_addr.family, SOCK_DGRAM, 0)) < 0) {
     FD_LOG_ERR(("socket failed: %s", strerror(errno)));
@@ -1047,7 +1059,7 @@ fd_gossip_main_loop( fd_gossip_global_t * glob, fd_valloc_t valloc, volatile int
       char tmp[100];
       FD_LOG_NOTICE(("recv msg type %d from %s", gmsg.discriminant, fd_gossip_addr_str(tmp, sizeof(tmp), &from)));
                        
-      fd_gossip_recv(glob, &from, &gmsg, now, valloc);
+      fd_gossip_recv(glob, &from, &gmsg, now);
 
       fd_bincode_destroy_ctx_t ctx2;
       ctx2.valloc = valloc;
