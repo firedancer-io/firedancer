@@ -7,6 +7,7 @@
 #include "../../ballet/ed25519/fd_ed25519.h"
 #include "../../ballet/ed25519/fd_x25519.h"
 #include "../../ballet/hmac/fd_hmac.h"
+#include "../../ballet/x509/fd_x509_cert_parser.h"
 
 /* Pre-generated keys */
 
@@ -682,52 +683,27 @@ fd_tls_server_hs_start( fd_tls_server_t const * const server,
   return 0L;
 }
 
-#if FD_HAS_OPENSSL
-
-/* fd_tls_client_handle_x509 uses OpenSSL's X.509 parser to determine
-   the signer public key of the certificate chain.  Fails if the leaf
-   cert is not signed by an Ed25519 public key.
-
-   Obviously, this is hacky code.  The long term ambition remains to
-   get rid of OpenSSL. */
-
-#include <openssl/evp.h>
-#include <openssl/x509.h>
-#include <openssl/x509v3.h>
-
 static long
-fd_tls_client_handle_x509( void * const cert,
-                           ulong  const cert_sz,
-                           uchar        out_pubkey[ static 32 ] ) {
+fd_tls_client_handle_x509( uchar const * const cert,
+                           ulong         const cert_sz,
+                           uchar               out_pubkey[ static 32 ] ) {
 
-  uchar const * cert_in = (uchar *)cert;
-  X509 * x509 = d2i_X509( NULL, &cert_in, (long)cert_sz );
-  if( FD_UNLIKELY( !x509 ) )
+  cert_parsing_ctx parsed = {0};
+  int err = parse_x509_cert( &parsed, cert, (uint)cert_sz );
+  if( FD_UNLIKELY( err ) )
     return -(long)FD_TLS_ALERT_BAD_CERTIFICATE;
 
-  EVP_PKEY * pubkey = X509_get0_pubkey( x509 );
-  if( FD_UNLIKELY( !pubkey ) ) {
-    X509_free( x509 );
+  if( FD_UNLIKELY( parsed.spki_alg != SPKI_ALG_ED25519 ) )
     return -(long)FD_TLS_ALERT_BAD_CERTIFICATE;
-  }
 
-  int key_type = EVP_PKEY_base_id( pubkey );
-  if( FD_UNLIKELY( key_type!=EVP_PKEY_ED25519 ) ) {
-    X509_free( x509 );
+  if( FD_UNLIKELY( parsed.spki_alg_params.ed25519.ed25519_raw_pub_len != 32 ) )
     return -(long)FD_TLS_ALERT_BAD_CERTIFICATE;
-  }
 
-  ulong len = 32UL;
-  if( FD_UNLIKELY( !EVP_PKEY_get_raw_public_key( pubkey, out_pubkey, &len ) ) ) {
-    X509_free( x509 );
-    return -(long)FD_TLS_ALERT_BAD_CERTIFICATE;
-  }
+  uchar const * pubkey = &cert[ parsed.spki_alg_params.ed25519.ed25519_raw_pub_off ];
+  fd_memcpy( out_pubkey, pubkey, 32UL );
 
-  X509_free( x509 );
   return 0L;
 }
-
-#endif /* FD_HAS_OPENSSL */
 
 static long
 fd_tls_handle_cert_chain( void *  const cert_chain,
@@ -765,18 +741,12 @@ fd_tls_handle_cert_chain( void *  const cert_chain,
   void * cert = (void *)wire_laddr;
   if( FD_UNLIKELY( !is_rpk ) ) {
 
-#   if !FD_HAS_OPENSSL
-    return -(long)FD_TLS_ALERT_INTERNAL_ERROR;
-#   else
-
     /* DER-encoded X.509 certificate */
 
     long res = fd_tls_client_handle_x509( cert, cert_sz, _pubkey );
     if( FD_UNLIKELY( res<0L ) )
       return res;
     pubkey = _pubkey;
-
-#   endif /* FD_HAS_OPENSSL */
 
   } else {
 
