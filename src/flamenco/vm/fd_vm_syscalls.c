@@ -463,19 +463,17 @@ fd_vm_syscall_sol_memcpy(
   fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
 
   /* Check for overlap */
-  /*
-  if (src_vm_addr <= (dst_vm_addr + n) && dst_vm_addr <= (src_vm_addr + n)) {
+  if ((dst_vm_addr <= src_vm_addr && src_vm_addr < dst_vm_addr + n)
+  || (src_vm_addr <= dst_vm_addr && dst_vm_addr < src_vm_addr + n))
     return FD_VM_SYSCALL_ERR_MEM_OVERLAP;
-  }
-  */
 
   void *       dst_host_addr =
       fd_vm_translate_vm_to_host      ( ctx, dst_vm_addr, n, alignof(uchar) );
-  void const * src_host_addr =
-      fd_vm_translate_vm_to_host_const( ctx, src_vm_addr, n, alignof(uchar) );
+  if( FD_UNLIKELY( !dst_host_addr ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
 
-  if( FD_UNLIKELY( (!dst_host_addr) | (!src_host_addr) ) )
-    return FD_VM_MEM_MAP_ERR_ACC_VIO;
+  void const * src_host_addr = 
+      fd_vm_translate_vm_to_host_const( ctx, src_vm_addr, n, alignof(uchar) );
+  if( FD_UNLIKELY( !src_host_addr ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
 
   fd_memcpy(dst_host_addr, src_host_addr, n);
 
@@ -497,19 +495,17 @@ fd_vm_syscall_sol_memcmp(
 
   uchar const * host_addr1 =
       fd_vm_translate_vm_to_host_const( ctx, vm_addr1, n, alignof(uchar) );
+  if( FD_UNLIKELY( !host_addr1 ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
+
   uchar const * host_addr2 =
       fd_vm_translate_vm_to_host_const( ctx, vm_addr2, n, alignof(uchar) );
-  
+  if( FD_UNLIKELY( !host_addr2 ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
+
   int * cmp_result_host_addr =
       fd_vm_translate_vm_to_host( ctx, cmp_result_vm_addr, sizeof(int), alignof(int) );
+  if ( FD_UNLIKELY( !cmp_result_host_addr ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
 
-  if( FD_UNLIKELY( (!host_addr1) | (!host_addr2) ) )
-    return FD_VM_MEM_MAP_ERR_ACC_VIO;
-
-  FD_LOG_HEXDUMP_WARNING(("MEMCMP1", host_addr1, n));
-  FD_LOG_HEXDUMP_WARNING(("MEMCMP2", host_addr2, n));
-  *pr0 = 0;
-
+  *cmp_result_host_addr = 0;
   for( ulong i = 0; i < n; i++ ) {
     uchar byte1 = host_addr1[i];
     uchar byte2 = host_addr2[i];
@@ -519,8 +515,8 @@ fd_vm_syscall_sol_memcmp(
       break;
     }
   }
-  FD_LOG_WARNING(("MEMCMP3 %lx", *pr0));
-  FD_LOG_WARNING(("MEMCMP4 %lx", *cmp_result_host_addr));
+
+  *pr0 = 0;
   return FD_VM_SYSCALL_SUCCESS;
 }
 
@@ -558,10 +554,10 @@ fd_vm_syscall_sol_memmove(
   fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
 
   void *       dst_host_addr = fd_vm_translate_vm_to_host      ( ctx, dst_vm_addr, n, alignof(uchar) );
-  void const * src_host_addr = fd_vm_translate_vm_to_host_const( ctx, src_vm_addr, n, alignof(uchar) );
+  if( FD_UNLIKELY( !dst_host_addr ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
 
-  if( FD_UNLIKELY( (!dst_host_addr) | (!src_host_addr) ) )
-    return FD_VM_MEM_MAP_ERR_ACC_VIO;
+  void const * src_host_addr = fd_vm_translate_vm_to_host_const( ctx, src_vm_addr, n, alignof(uchar) );
+  if( FD_UNLIKELY( !src_host_addr ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
 
   /* FIXME: use fd_memcpy here? */
   memmove( dst_host_addr, src_host_addr, n );
