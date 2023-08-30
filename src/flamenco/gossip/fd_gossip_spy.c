@@ -2,10 +2,6 @@
 
    export RUST_LOG=solana_gossip=TRACE
    cargo run --bin solana-test-validator
-
-   entrypoint.testnet.solana.com:8001 
-   entrypoint2.testnet.solana.com:8001
-   entrypoint3.testnet.solana.com:8001
    
  **/
 
@@ -61,9 +57,12 @@ int main(int argc, char **argv) {
   FD_TEST( 32UL==getrandom( config.my_creds.private_key, 32UL, 0 ) );
   fd_sha512_t sha[1];
   FD_TEST( fd_ed25519_public_from_private( config.my_creds.public_key.uc, config.my_creds.private_key, sha ) );
-  config.my_addr.family = AF_INET;
-  config.my_addr.port = htons(1125);
-  config.my_addr.addr[0] = inet_addr("127.0.0.1");
+
+  char hostname[64];
+  gethostname(hostname, sizeof(hostname));
+  char addrbuf[100];
+  snprintf(addrbuf, sizeof(addrbuf), "%s:1125", hostname);
+  FD_TEST( fd_gossip_resolve_hostport(addrbuf, &config.my_addr) );
 
   fd_flamenco_yaml_t * yamldump =
     fd_flamenco_yaml_init( fd_flamenco_yaml_new(
@@ -72,8 +71,6 @@ int main(int argc, char **argv) {
   config.deliver_fun = print_data;
   config.deliver_fun_arg = yamldump;
 
-  char hostname[64];
-  gethostname(hostname, sizeof(hostname));
   ulong seed = fd_hash(0, hostname, strnlen(hostname, sizeof(hostname)));
 
   void * shm = fd_valloc_malloc(valloc, fd_gossip_global_align(), fd_gossip_global_footprint());
@@ -83,11 +80,11 @@ int main(int argc, char **argv) {
     return 1;
 
   fd_gossip_network_addr_t peeraddr;
-  fd_memset(&peeraddr, 0, sizeof(peeraddr));
-  peeraddr.family = AF_INET;
-  peeraddr.port = htons(1024);
-  peeraddr.addr[0] = inet_addr("127.0.0.1");
-  if ( fd_gossip_add_active_peer(glob, &peeraddr) )
+  if ( fd_gossip_add_active_peer(glob, fd_gossip_resolve_hostport("entrypoint.testnet.solana.com:8001", &peeraddr)) )
+    return 1;
+  if ( fd_gossip_add_active_peer(glob, fd_gossip_resolve_hostport("entrypoint2.testnet.solana.com:8001", &peeraddr)) )
+    return 1;
+  if ( fd_gossip_add_active_peer(glob, fd_gossip_resolve_hostport("entrypoint3.testnet.solana.com:8001", &peeraddr)) )
     return 1;
   
   signal(SIGINT, stop);

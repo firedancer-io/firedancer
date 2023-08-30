@@ -29,6 +29,9 @@ struct __attribute__((aligned(8UL))) fd_gossip_network_addr {
 };
 typedef struct fd_gossip_network_addr fd_gossip_network_addr_t;
 
+fd_gossip_network_addr_t * fd_gossip_resolve_hostport(const char* str /* host:port */,
+                                                      fd_gossip_network_addr_t * res);
+
 typedef void (*fd_gossip_data_deliver_fun)(fd_crds_data_t* data, void* arg, long now);
 
 struct fd_gossip_config {
