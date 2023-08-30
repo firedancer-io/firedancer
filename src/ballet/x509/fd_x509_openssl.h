@@ -1,7 +1,8 @@
-#ifndef HEADER_fd_src_ballet_x509_fd_x509_h
-#define HEADER_fd_src_ballet_x509_fd_x509_h
+#ifndef HEADER_fd_src_ballet_x509_fd_x509_openssl_h
+#define HEADER_fd_src_ballet_x509_fd_x509_openssl_h
 
-/* fd_x509 provides APIs for generating Solana peer-to-peer X.509 certs. */
+/* fd_x509_openssl provides APIs for generating Solana peer-to-peer
+   X.509 certs using OpenSSL. */
 
 #include "../fd_ballet_base.h"
 
@@ -24,4 +25,4 @@ FD_PROTOTYPES_END
 
 #endif /* FD_HAS_OPENSSL */
 
-#endif /* HEADER_fd_src_ballet_x509_fd_x509_h */
+#endif /* HEADER_fd_src_ballet_x509_fd_x509_openssl_h */

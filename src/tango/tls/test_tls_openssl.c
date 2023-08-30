@@ -10,7 +10,7 @@
 #include "../../ballet/ed25519/fd_ed25519.h"
 #include "../../ballet/ed25519/fd_ed25519_openssl.h"
 #include "../../ballet/ed25519/fd_x25519.h"
-#include "../../ballet/x509/fd_x509.h"
+#include "../../ballet/x509/fd_x509_openssl.h"
 #include "../quic/fd_quic_common.h"
 #include "../quic/templ/fd_quic_transport_params.h"
 

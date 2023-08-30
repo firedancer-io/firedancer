@@ -14,7 +14,7 @@
 #include "fd_quic_test_helpers.h"
 
 #include "../../../ballet/ed25519/fd_ed25519_openssl.h"
-#include "../../../ballet/x509/fd_x509.h"
+#include "../../../ballet/x509/fd_x509_openssl.h"
 
 fd_quic_t *server_quic = NULL;
 

@@ -20,7 +20,7 @@
 #include <openssl/evp.h>
 #include <openssl/x509.h>
 #include "../../ballet/ed25519/fd_ed25519_openssl.h"
-#include "../../ballet/x509/fd_x509.h"
+#include "../../ballet/x509/fd_x509_openssl.h"
 #include <openssl/rand.h>
 
 #define CONN_FMT "%02x%02x%02x%02x%02x%02x%02x%02x"

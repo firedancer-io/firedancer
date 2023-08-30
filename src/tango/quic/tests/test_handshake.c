@@ -7,7 +7,7 @@
 #include "../templ/fd_quic_transport_params.h"
 #include "../../../util/net/fd_ip4.h"
 #include "../../../ballet/ed25519/fd_ed25519_openssl.h"
-#include "../../../ballet/x509/fd_x509.h"
+#include "../../../ballet/x509/fd_x509_openssl.h"
 
 
 // test transport parameters

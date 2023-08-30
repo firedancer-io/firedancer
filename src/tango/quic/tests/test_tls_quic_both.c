@@ -9,7 +9,7 @@
 #include "../../../util/fd_util.h"
 #include "../../../util/net/fd_ip4.h"
 #include "../../../ballet/ed25519/fd_ed25519_openssl.h"
-#include "../../../ballet/x509/fd_x509.h"
+#include "../../../ballet/x509/fd_x509_openssl.h"
 
 // test transport parameters
 uchar test_tp[] = "\x00\x39\x00\x39\x01\x04\x80\x00\xea\x60\x04\x04\x80\x10\x00\x00"
