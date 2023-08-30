@@ -69,14 +69,14 @@ clean:
 	#######################################################################
 	# Cleaning $(OBJDIR)
 	#######################################################################
-	$(RMDIR) $(OBJDIR) && $(RMDIR) $(BASEDIR)/target && $(RMDIR) $(BASEDIR)/solana/target && \
+	$(RMDIR) $(OBJDIR) && $(RMDIR) target && $(RMDIR) solana/target && \
 $(SCRUB)
 
 distclean:
 	#######################################################################
 	# Cleaning $(BASEDIR)
 	#######################################################################
-	$(RMDIR) $(BASEDIR) && $(RMDIR) $(BASEDIR)/target && $(RMDIR) $(BASEDIR)/solana/target && \
+	$(RMDIR) $(BASEDIR) && $(RMDIR) target && $(RMDIR) solana/target && \
 $(SCRUB)
 
 lint:

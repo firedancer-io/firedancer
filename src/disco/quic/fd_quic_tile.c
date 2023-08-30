@@ -104,6 +104,29 @@ fd_tpu_conn_destroy( fd_quic_conn_t * conn,
   ctx->cnc_diag_tpu_conn_live_cnt--;
 }
 
+static void
+fd_tpu_dummy_dcache( fd_quic_tpu_ctx_t * ctx ) {
+  /* By default the dcache only has headroom for one in-flight fragment, but
+     QUIC might have many. If we exceed the headroom, we publish a dummy
+     mcache entry to evict the reader from this fragment we want to use so we
+     can start using it.
+
+     This is not ideal because if the reader is already done with the fragment
+     we are writing a useless mcache entry, so we try and do it only when
+     needed.
+
+     The QUIC receive path might typically execute stream_create,
+     stream_receive, and stream_notice serially, so it is often the case that
+     even if we are handling multiple new connections in one receive batch,
+     the in-flight count remains zero or one. */
+  if( ctx->inflight_streams > 0 ) {
+    ulong ctl   = fd_frag_meta_ctl( 0, 1 /* som */, 1 /* eom */, 0 /* err */ );
+    ulong tsnow = fd_frag_meta_ts_comp( fd_tickcount() );
+    fd_mcache_publish( ctx->mcache, ctx->depth, *ctx->seq, 1, 0, 0, ctl, tsnow, tsnow );
+    *ctx->seq = fd_seq_inc( *ctx->seq, 1UL );
+  }
+}
+
 /* fd_tpu_stream_create implements fd_quic_cb_stream_new_t */
 static void
 fd_tpu_stream_create( fd_quic_stream_t * stream,
@@ -143,25 +166,7 @@ fd_tpu_stream_create( fd_quic_stream_t * stream,
   msg_ctx->sz        = 0U;
   msg_ctx->tsorig    = (uint)fd_frag_meta_ts_comp( fd_tickcount() );
 
-  /* By default the dcache only has headroom for one in-flight fragment, but
-     QUIC might have many. If we exceed the headroom, we publish a dummy
-     mcache entry to evict the reader from this fragment we want to use so we
-     can start using it.
-     
-     This is not ideal because if the reader is already done with the fragment
-     we are writing a useless mcache entry, so we try and do it only when
-     needed.
-     
-     The QUIC receive path might typically execute stream_create,
-     stream_receive, and stream_notice serially, so it is often the case that
-     even if we are handling multiple new connections in one receive batch,
-     the in-flight count remains zero or one. */
-  if( ctx->inflight_streams > 0 ) {
-    ulong ctl   = fd_frag_meta_ctl( 0, 1 /* som */, 1 /* eom */, 0 /* err */ );
-    ulong tsnow = fd_frag_meta_ts_comp( fd_tickcount() );
-    fd_mcache_publish( ctx->mcache, ctx->depth, *ctx->seq, 1, 0, 0, ctl, tsnow, tsnow );
-    *ctx->seq = fd_seq_inc( *ctx->seq, 1UL );
-  }
+  fd_tpu_dummy_dcache( ctx );
 
   ctx->inflight_streams += 1;
 
@@ -169,6 +174,43 @@ fd_tpu_stream_create( fd_quic_stream_t * stream,
 
   ctx->chunk      = chunk;    /* Update dcache chunk index */
   stream->context = msg_ctx;  /* Update stream dcache entry */
+}
+
+void
+fd_quic_transaction_receive( fd_quic_t *         _ctx,
+                             uchar const *       packet,
+                             uint                packet_sz ) {
+  fd_quic_tpu_ctx_t * ctx = _ctx->cb.quic_ctx;
+
+  /* Load dcache info */
+  uchar * const base       = ctx->base;
+  uchar * const dcache_app = ctx->dcache_app;
+  ulong   const chunk0     = ctx->chunk0;
+  ulong   const wmark      = ctx->wmark;
+  ulong         chunk      = ctx->chunk;
+
+  /* Allocate new dcache entry */
+  chunk = fd_dcache_compact_next( chunk, FD_TPU_DCACHE_MTU, chunk0, wmark );
+
+  fd_quic_tpu_msg_ctx_t * msg_ctx = fd_quic_dcache_msg_ctx( dcache_app, chunk0, chunk );
+  msg_ctx->conn_id   = ULONG_MAX;
+  msg_ctx->stream_id = ULONG_MAX;
+  msg_ctx->data      = fd_chunk_to_laddr( base, chunk );
+  msg_ctx->sz        = packet_sz;
+  msg_ctx->tsorig    = (uint)fd_frag_meta_ts_comp( fd_tickcount() );
+
+  fd_tpu_dummy_dcache( ctx );
+
+  /* Add to local publish queue */
+  if( FD_UNLIKELY( pubq_full( ctx->pubq ) ) ) {
+    FD_LOG_WARNING(( "pubq full, dropping" ));
+    return;
+  }
+
+  fd_memcpy( msg_ctx->data, packet, packet_sz );
+  pubq_push( ctx->pubq, msg_ctx );
+
+  ctx->chunk      = chunk;    /* Update dcache chunk index */
 }
 
 /* fd_tpu_stream_receive implements fd_quic_cb_stream_receive_t */
@@ -259,6 +301,7 @@ int
 fd_quic_tile( fd_cnc_t *         cnc,
               fd_quic_t *        quic,
               fd_xsk_aio_t *     xsk_aio,
+              fd_xsk_aio_t *     lo_xsk_aio,
               fd_frag_meta_t *   mcache,
               uchar *            dcache,
               long               lazy,
@@ -448,6 +491,7 @@ fd_quic_tile( fd_cnc_t *         cnc,
 
     /* Poll network backend */
     fd_xsk_aio_service( xsk_aio );
+    if( FD_UNLIKELY( lo_xsk_aio ) ) fd_xsk_aio_service( lo_xsk_aio );
 
     /* Service QUIC clients */
     fd_quic_service( quic );

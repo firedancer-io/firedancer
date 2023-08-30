@@ -62,13 +62,11 @@ typedef struct configure_stage {
 extern configure_stage_t large_pages;
 extern configure_stage_t shmem;
 extern configure_stage_t sysctl;
-extern configure_stage_t netns;
 extern configure_stage_t xdp;
 extern configure_stage_t xdp_leftover;
 extern configure_stage_t ethtool;
 extern configure_stage_t workspace_leftover;
 extern configure_stage_t workspace;
-extern configure_stage_t cluster;
 
 extern configure_stage_t * STAGES[];
 

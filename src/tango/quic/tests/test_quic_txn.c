@@ -82,7 +82,7 @@ run_quic_client( fd_quic_t *         quic,
                  fd_aio_pkt_info_t * pkt ) {
   uint dst_ip;
   if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( "198.18.0.1", &dst_ip  ) ) ) FD_LOG_ERR(( "invalid --dst-ip" ));
-  ushort dst_port = 9001;
+  ushort dst_port = 9007;
 
 
   #define MSG_SZ_MIN (1UL)
