@@ -114,6 +114,7 @@ struct fd_active_elem {
     uint pingcount;
     fd_hash_t pingtoken;
     long pongtime;
+    int pruned; /* Do not push to me */
 };
 /* Active table */
 typedef struct fd_active_elem fd_active_elem_t;
@@ -426,6 +427,7 @@ fd_gossip_make_ping( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, lo
     val->pingcount = 1;
     val->pongtime = 0;
     fd_memset(val->id.uc, 0, 32U);
+    val->pruned = 0;
   } else {
     if (val->pongtime != 0)
       /* Success */
@@ -898,6 +900,13 @@ fd_gossip_recv_crds_value(fd_gossip_global_t * glob, fd_pubkey_t * pubkey, fd_cr
 }
 
 void
+fd_gossip_handle_prune(fd_gossip_global_t * glob, fd_gossip_network_addr_t * from, fd_gossip_prune_msg_t * msg) {
+  (void)glob;
+  (void)from;
+  (void)msg;
+}
+
+void
 fd_gossip_recv(fd_gossip_global_t * glob, fd_gossip_network_addr_t * from, fd_gossip_msg_t * gmsg, long now) {
   switch (gmsg->discriminant) {
   case fd_gossip_msg_enum_pull_req:
@@ -915,6 +924,7 @@ fd_gossip_recv(fd_gossip_global_t * glob, fd_gossip_network_addr_t * from, fd_go
     break;
   }
   case fd_gossip_msg_enum_prune_msg:
+    fd_gossip_handle_prune(glob, from, &gmsg->inner.prune_msg);
     break;
   case fd_gossip_msg_enum_ping:
     fd_gossip_handle_ping(glob, from, &gmsg->inner.ping);
@@ -937,6 +947,7 @@ fd_gossip_add_active_peer( fd_gossip_global_t * glob, fd_gossip_network_addr_t *
     val->pingcount = 0;
     val->pingtime = val->pongtime = 0;
     fd_memset(val->id.uc, 0, 32U);
+    val->pruned = 0;
   }
   return 0;
 }
