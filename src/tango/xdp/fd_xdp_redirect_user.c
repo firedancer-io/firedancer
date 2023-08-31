@@ -439,12 +439,6 @@ fd_xdp_unhook_iface( char const * app_name,
     return -1;
   }
 
-  if( FD_UNLIKELY( 0!=unlinkat( dir_fd, "xdp_link2", 0 ) && errno != ENOENT ) ) {
-    FD_LOG_WARNING(( "unlinkat(\"%s\",\"xdp_link2\",0) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
-    close( dir_fd );
-    return -1;
-  }
-
   /* Clean up */
 
   close( dir_fd );

@@ -27,6 +27,10 @@ init( fd_frank_args_t * args ) {
     if( FD_UNLIKELY( !args->lo_xsk ) ) FD_LOG_ERR(( "fd_xsk_join (lo) failed" ));
   }
 
+  /* call wallclock so glibc loads VDSO, which requires calling mmap while
+     privileged */
+  fd_log_wallclock();
+
   /* OpenSSL goes and tries to read files and allocate memory and
      other dumb things on a thread local basis, so we need a special
      initializer to do it before seccomp happens in the process. */
@@ -240,8 +244,9 @@ static long allow_syscalls[] = {
   __NR_fsync,     /* logging, WARNING and above fsync immediately */
   __NR_getpid,    /* OpenSSL RAND_bytes checks pid, temporarily used as part of quic_init to generate a certificate */
   __NR_getrandom, /* OpenSSL RAND_bytes reads getrandom, temporarily used as part of quic_init to generate a certificate */
-  __NR_madvise,   /* OpenSSL SSL_do_handshake () uses an arena which eventually calls _rjem_je_pages_purge_forced */
+  __NR_madvise,   /* OpenSSL SSL_do_handshake() uses an arena which eventually calls _rjem_je_pages_purge_forced */
   __NR_sendto,    /* fd_xsk requires sendto */
+  __NR_mmap,      /* OpenSSL again... deep inside SSL_provide_quic_data() some jemalloc code calls mmap */
 };
 
 static ulong

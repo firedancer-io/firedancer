@@ -114,7 +114,6 @@ typedef struct {
 
   struct {
     int sandbox;
-    int sudo;
     struct {
       int  enabled;
       char interface0     [ 256 ];
