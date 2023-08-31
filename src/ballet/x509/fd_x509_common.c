@@ -1273,10 +1273,10 @@ static int parse_UTCTime(const uchar *buf, uint len, uint *eaten,
   yyyy = compute_decimal(buf[0], buf[1]);
   /*@ assert yyyy <= 99; */
   if (yyyy >= 50) {
-    yyyy += 1900;
+    yyyy = (ushort)( yyyy+1900 );
     /*@ assert 1950 <= yyyy <= 1999; */
   } else {
-    yyyy += 2000;
+    yyyy = (ushort)( yyyy+2000 );
     /*@ assert 2000 <= yyyy <= 2049; */
   }
   /*@ assert 1950 <= yyyy <= 2049; */
@@ -2651,7 +2651,7 @@ int parse_nine_bit_named_bit_list(const uchar *buf, uint len, ushort *val)
       @*/
     for (k = 0; k < 8; k++) {
       const uchar mask[8] = {1, 2, 4, 8, 16, 32, 64, 128 };
-      tmp |= (buf[1] & mask[k]) ? mask[7-k] : 0;
+      tmp = (ushort)( tmp | ( (buf[1] & mask[k]) ? mask[7-k] : 0 ) );
     }
     *val = tmp;
 
@@ -2686,9 +2686,9 @@ int parse_nine_bit_named_bit_list(const uchar *buf, uint len, ushort *val)
       @*/
     for (k = 0; k < 8; k++) {
       const uchar mask[8] = {1, 2, 4, 8, 16, 32, 64, 128 };
-      tmp |= (buf[1] & mask[k]) ? mask[7-k] : 0;
+      tmp = (ushort)( tmp | ( (buf[1] & mask[k]) ? mask[7-k] : 0 ) );
     }
-    tmp |= (buf[2] & 0x80) ? 0x0100 : 0x0000;
+    tmp = (ushort)( tmp | ( (buf[2] & 0x80) ? 0x0100 : 0x0000 ) );
     *val = tmp;
     break;
 
