@@ -3834,7 +3834,7 @@ static int check_record_ext_unknown(const _ext_oid *ext,
       goto out;
     }
 
-    pos += 1;
+    pos = (ushort)( pos+1 );
   }
 
   /*
