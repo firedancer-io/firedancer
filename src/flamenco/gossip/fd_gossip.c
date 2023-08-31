@@ -1091,6 +1091,8 @@ fd_gossip_log_stats( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, lo
   FD_LOG_NOTICE(("received %lu dup values and %lu new", glob->recv_dup_cnt, glob->recv_nondup_cnt));
   glob->recv_dup_cnt = glob->recv_nondup_cnt = 0;
 
+  int need_inactive = (glob->inactives_cnt == 0);
+  
   ulong wc = (ulong)(now / (long)1e6);
   ulong expire = wc - 4U*FD_GOSSIP_MESSAGE_EXPIRE;
   for( fd_peer_table_iter_t iter = fd_peer_table_iter_init( glob->peers );
@@ -1108,6 +1110,8 @@ fd_gossip_log_stats( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, lo
                    ele->id.uc,
                    ((double)(wc - ele->wallclock))*0.001,
                    ((act != NULL && act->pongtime != 0) ? "(active)" : "")));
+    if (need_inactive && act == NULL && glob->inactives_cnt < INACTIVES_MAX)
+      fd_memcpy(glob->inactives + (glob->inactives_cnt++), &ele->key, sizeof(ele->key));
   }
 }
 
