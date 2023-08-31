@@ -126,6 +126,14 @@ typedef struct fd_active_elem fd_active_elem_t;
 #include "../../util/tmpl/fd_map_giant.c"
 #define FD_ACTIVE_KEY_MAX (1<<8)
 
+void
+fd_active_new_value(fd_active_elem_t * val) {
+  val->pingcount = 1;
+  val->pingtime = val->pongtime = 0;
+  fd_memset(val->id.uc, 0, 32U);
+  fd_memset(val->pingtoken.uc, 0, 32U);
+}
+
 int fd_hash_eq( const fd_hash_t * key1, const fd_hash_t * key2 ) {
   for (ulong i = 0; i < 32U/sizeof(ulong); ++i)
     if (key1->ul[i] != key2->ul[i])
@@ -308,6 +316,7 @@ fd_gossip_global_set_config( fd_gossip_global_t * glob, const fd_gossip_config_t
   fd_memcpy(&glob->my_contact_info.id.uc, config->my_creds.public_key.uc, 32U);
   fd_memcpy(&glob->my_addr, &config->my_addr, sizeof(fd_gossip_network_addr_t));
   fd_gossip_to_soladdr(&glob->my_contact_info.gossip, &config->my_addr);
+  glob->my_contact_info.shred_version = config->shred_version;
   glob->deliver_fun = config->deliver_fun;
   glob->deliver_fun_arg = config->deliver_fun_arg;
   return 0;
@@ -423,9 +432,7 @@ fd_gossip_make_ping( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, lo
       FD_LOG_WARNING(("too many actives"));
       return;
     }
-    val->pingcount = 1;
-    val->pongtime = 0;
-    fd_memset(val->id.uc, 0, 32U);
+    fd_active_new_value(val);
   } else {
     if (val->pongtime != 0)
       /* Success */
@@ -438,6 +445,10 @@ fd_gossip_make_ping( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, lo
     }
   }
   val->pingtime = now;
+  if (val->pingcount == 1U) {
+    for ( ulong i = 0; i < FD_HASH_FOOTPRINT / sizeof(ulong); ++i )
+      val->pingtoken.ul[i] = fd_rng_ulong(glob->rng);
+  }
 
   /* Keep pinging until we succeed */ 
   fd_pending_event_t * ev = fd_gossip_add_pending( glob, now + (long)2e8 /* 200 ms */ );
@@ -449,16 +460,8 @@ fd_gossip_make_ping( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, lo
   fd_gossip_msg_t gmsg;
   fd_gossip_msg_new_disc(&gmsg, fd_gossip_msg_enum_ping);
   fd_gossip_ping_t * ping = &gmsg.inner.ping;
-
   fd_memcpy( ping->from.uc, glob->my_creds.public_key.uc, 32UL );
-
-  if ( val->pingcount <= 1 ) {
-    for ( ulong i = 0; i < FD_HASH_FOOTPRINT / sizeof(ulong); ++i )
-      ping->token.ul[i] = val->pingtoken.ul[i] = fd_rng_ulong(glob->rng);
-  } else {
-    for ( ulong i = 0; i < FD_HASH_FOOTPRINT / sizeof(ulong); ++i )
-      ping->token.ul[i] = val->pingtoken.ul[i];
-  }
+  fd_memcpy( ping->token.uc, val->pingtoken.uc, 32UL );
 
   /* Sign */
   fd_sha512_t sha[1];
@@ -968,9 +971,8 @@ fd_gossip_add_active_peer( fd_gossip_global_t * glob, fd_gossip_network_addr_t *
       FD_LOG_WARNING(("too many actives"));
       return -1;
     }
-    val->pingcount = 0;
-    val->pingtime = val->pongtime = 0;
-    fd_memset(val->id.uc, 0, 32U);
+    fd_active_new_value(val);
+    val->pingcount = 0; /* Incremented in fd_gossip_make_ping */
   }
   return 0;
 }

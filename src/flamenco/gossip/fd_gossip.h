@@ -37,6 +37,7 @@ typedef void (*fd_gossip_data_deliver_fun)(fd_crds_data_t* data, void* arg, long
 struct fd_gossip_config {
     fd_gossip_credentials_t my_creds;
     fd_gossip_network_addr_t my_addr;
+    ushort shred_version;
     fd_gossip_data_deliver_fun deliver_fun;
     void * deliver_fun_arg;
 };

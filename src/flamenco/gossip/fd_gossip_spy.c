@@ -64,6 +64,8 @@ int main(int argc, char **argv) {
   snprintf(addrbuf, sizeof(addrbuf), "%s:1125", hostname);
   FD_TEST( fd_gossip_resolve_hostport(addrbuf, &config.my_addr) );
 
+  config.shred_version = 61807U;
+
   fd_flamenco_yaml_t * yamldump =
     fd_flamenco_yaml_init( fd_flamenco_yaml_new(
       fd_valloc_malloc( valloc, fd_flamenco_yaml_align(), fd_flamenco_yaml_footprint() ) ),
