@@ -21,6 +21,7 @@
 #define PACKET_DATA_SIZE 1232
 
 #define FD_GOSSIP_MESSAGE_EXPIRE ((ulong)(5*60e3)) /* 5 minutes */
+#define FD_GOSSIP_PULL_TIMEOUT ((ulong)(15e3))     /* 15 seconds */
 
 #define FD_GOSSIP_NETWORK_ADDR_NLONGS (sizeof(fd_gossip_network_addr_t)/sizeof(ulong))
 
@@ -431,11 +432,11 @@ fd_gossip_make_ping( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, lo
   fd_gossip_network_addr_t * key = &arg->key;
   fd_active_elem_t * val = fd_active_table_query(glob->actives, key, NULL);
   if (val == NULL) {
-    val = fd_active_table_insert(glob->actives, key);
-    if (val == NULL) {
+    if (fd_active_table_is_full(glob->actives)) {
       FD_LOG_WARNING(("too many actives"));
       return;
     }
+    val = fd_active_table_insert(glob->actives, key);
     fd_active_new_value(val);
   } else {
     if (val->pongtime != 0)
@@ -716,11 +717,11 @@ fd_gossip_handle_pong( fd_gossip_global_t * glob, fd_gossip_network_addr_t * fro
   /* Remember that this is a good peer */
   fd_peer_elem_t * peerval = fd_peer_table_query(glob->peers, from, NULL);
   if (peerval == NULL) {
-    peerval = fd_peer_table_insert(glob->peers, from);
-    if (peerval == NULL) {
+    if (fd_peer_table_is_full(glob->peers)) {
       FD_LOG_WARNING(("too many peers"));
       return;
     }
+    peerval = fd_peer_table_insert(glob->peers, from);
     peerval->stake = 0;
   }
   peerval->wallclock = (ulong)(now / (long)1e6); /* In millisecs */
@@ -864,11 +865,11 @@ fd_gossip_recv_crds_value(fd_gossip_global_t * glob, fd_pubkey_t * pubkey, fd_cr
     return;
   }
   glob->recv_nondup_cnt++;
-  msg = fd_message_table_insert(glob->messages, &key);
-  if (msg == NULL) {
+  if (fd_message_table_is_full(glob->messages)) {
     FD_LOG_WARNING(("too many messages"));
     return;
   }
+  msg = fd_message_table_insert(glob->messages, &key);
   msg->wallclock = wallclock;
   msg->data = fd_valloc_malloc(glob->valloc, 1U, datalen);
   fd_memcpy(msg->data, buf, datalen);
@@ -883,16 +884,18 @@ fd_gossip_recv_crds_value(fd_gossip_global_t * glob, fd_pubkey_t * pubkey, fd_cr
       fd_gossip_from_soladdr(&pkey, &info->gossip);
       fd_peer_elem_t * val = fd_peer_table_query(glob->peers, &pkey, NULL);
       if (val == NULL) {
-        val = fd_peer_table_insert(glob->peers, &pkey);
-        if (glob->inactives_cnt < INACTIVES_MAX &&
-            fd_active_table_query(glob->actives, &pkey, NULL) == NULL) {
-          /* Queue this peer for potential active status */
-          fd_memcpy(glob->inactives + (glob->inactives_cnt++), &pkey, sizeof(pkey));
+        if (fd_peer_table_is_full(glob->peers)) {
+          FD_LOG_WARNING(("too many peers"));
+        } else {
+          val = fd_peer_table_insert(glob->peers, &pkey);
+          if (glob->inactives_cnt < INACTIVES_MAX &&
+              fd_active_table_query(glob->actives, &pkey, NULL) == NULL) {
+            /* Queue this peer for potential active status */
+            fd_memcpy(glob->inactives + (glob->inactives_cnt++), &pkey, sizeof(pkey));
+          }
         }
       }
-      if (val == NULL)
-        FD_LOG_WARNING(("too many peers"));
-      else {
+      if (val != NULL) {
         val->wallclock = wallclock;
         val->stake = 0;
         fd_memcpy(val->id.uc, info->id.uc, 32U);
@@ -971,7 +974,7 @@ fd_gossip_handle_pull_req(fd_gossip_global_t * glob, fd_gossip_network_addr_t * 
   ulong * keys = filter->filter.keys;
   fd_gossip_bitvec_u64_t * bitvec = &filter->filter.bits;
   ulong * bitvec2 = bitvec->bits->vec;
-  ulong expire = (ulong)(now / (long)1e6) - FD_GOSSIP_MESSAGE_EXPIRE/2;
+  ulong expire = (ulong)(now / (long)1e6) - FD_GOSSIP_PULL_TIMEOUT;
   ulong hits = 0;
   ulong misses = 0;
   uint npackets = 0;
@@ -1064,11 +1067,11 @@ int
 fd_gossip_add_active_peer( fd_gossip_global_t * glob, fd_gossip_network_addr_t * addr ) {
   fd_active_elem_t * val = fd_active_table_query(glob->actives, addr, NULL);
   if (val == NULL) {
-    val = fd_active_table_insert(glob->actives, addr);
-    if (val == NULL) {
+    if (fd_active_table_is_full(glob->actives)) {
       FD_LOG_WARNING(("too many actives"));
       return -1;
     }
+    val = fd_active_table_insert(glob->actives, addr);
     fd_active_new_value(val);
     val->pingcount = 0; /* Incremented in fd_gossip_make_ping */
   }
