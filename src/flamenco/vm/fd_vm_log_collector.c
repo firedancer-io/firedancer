@@ -19,5 +19,7 @@ fd_vm_log_collector_log( fd_vm_log_collector_t *  log_collector,
   }
 
   ulong bytes_to_copy = ( buf_remaining > msg_len ) ? msg_len : buf_remaining;
+  log_collector->buf_used += bytes_to_copy;
+
   fd_memcpy( &log_collector->buf[ buf_used ], msg, bytes_to_copy );
 }
