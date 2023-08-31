@@ -102,9 +102,12 @@ tile_main( void * _args ) {
   fd_log_private_tid_set( args->idx );
   fd_log_thread_set( args->tile->name );
 
+  int pid = getpid1(); /* need to read /proc since we are in a PID namespace now */
+  FD_LOG_NOTICE(( "booting tile %s(%lu) pid(%d)", args->tile->name, args->tile_idx, pid ));
+
   install_tile_signals();
   fd_frank_args_t frank_args = {
-    .pid = getpid1(), /* need to read /proc since we are in a PID namespace now */
+    .pid = pid,
     .tile_idx = args->tile_idx,
     .idx = args->idx,
     .app_name = args->app_name,
@@ -168,8 +171,6 @@ clone_tile( tile_spawner_t * spawn, fd_frank_task_t * task, ulong idx ) {
 
   void * stack = fd_tile_private_stack_new( 1, cpu_idx );
   if( FD_UNLIKELY( !stack ) ) FD_LOG_ERR(( "unable to create a stack for tile process" ));
-
-  FD_LOG_NOTICE(( "booting tile %s(%lu)", task->name, idx ));
 
   tile_main_args_t args = {
     .app_name = spawn->app_name,

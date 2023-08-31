@@ -98,9 +98,6 @@ fini_perm( security_t *     security,
 
 static void
 fini( config_t * const config ) {
-  if( FD_UNLIKELY( config->development.netns.enabled ) )
-    enter_network_namespace( config->tiles.quic.interface );
-
   if( FD_UNLIKELY( fd_xdp_fini( config->name ) ) )
     FD_LOG_ERR(( "fd_xdp_fini failed" ));
 

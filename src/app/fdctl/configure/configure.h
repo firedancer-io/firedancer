@@ -82,9 +82,12 @@ typedef struct {
 } configure_args_t;
 
 /* read_uint_file() reads a uint from the given path, or exits the
-   program with an error if any error was encountered. */
+   program with an error if any error was encountered.  If the path
+   cannot be opened due to ENOENT, the error message is prefixed
+   with the string provided in errmsg_enoent. */
 uint
-read_uint_file( const char * path );
+read_uint_file( const char * path,
+                const char * errmsg_enoent );
 
 /* write_uint_file() writes a uint to the given path, or exits the
    program with an error if any error was encountered. */
