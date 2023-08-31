@@ -1,3 +1,7 @@
+#include "../../util/fd_util_target.h"
+
+#if FD_HAS_AVX
+
 // Source originally from https://github.com/BLAKE3-team/BLAKE3
 // From commit: 64747d48ffe9d1fbf4b71e94cabeb8a211461081
 
@@ -1815,4 +1819,6 @@ CMP_MSB_MASK:
         .long  0x80000000, 0x80000000, 0x80000000, 0x80000000
 BLAKE3_IV:
         .long  0x6A09E667, 0xBB67AE85, 0x3C6EF372, 0xA54FF53A
+
+#endif /* FD_HAS_AVX */
 

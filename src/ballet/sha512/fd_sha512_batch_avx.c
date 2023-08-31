@@ -1,4 +1,7 @@
 #include "fd_sha512.h"
+
+#if FD_HAS_AVX
+
 #include "../../util/simd/fd_avx.h"
 #include "../../util/simd/fd_sse.h"
 
@@ -29,7 +32,7 @@ fd_sha512_private_batch_avx( ulong          batch_cnt,
      vectorization of the bswap. */
 
   ulong const * batch_data = (ulong const *)_batch_data;
-  
+
   ulong batch_tail_data[ FD_SHA512_PRIVATE_BATCH_MAX ] __attribute__((aligned(32)));
   ulong batch_tail_rem [ FD_SHA512_PRIVATE_BATCH_MAX ] __attribute__((aligned(32)));
 
@@ -45,7 +48,7 @@ fd_sha512_private_batch_avx( ulong          batch_cnt,
 
       ulong data = batch_data[ batch_idx ];
       ulong sz   = batch_sz  [ batch_idx ];
-      
+
       ulong tail_data     = scratch_free;
       ulong tail_data_sz  = sz & (FD_SHA512_PRIVATE_BUF_MAX-1UL);
       ulong tail_data_off = fd_ulong_align_dn( sz,                FD_SHA512_PRIVATE_BUF_MAX );
@@ -282,3 +285,5 @@ fd_sha512_private_batch_avx( ulong          batch_cnt,
   }
 }
 
+
+#endif /* FD_HAS_AVX */

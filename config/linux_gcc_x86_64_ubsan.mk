@@ -2,7 +2,6 @@ include config/linux_gcc_x86_64.mk
 BUILDDIR:=linux/gcc/x86_64_ubsan
 
 FD_HAS_UBSAN:=1
-CPPFLAGS+=-DFD_HAS_UBSAN=1
 
 LDFLAGS+=-fsanitize=undefined -static-libubsan
 
