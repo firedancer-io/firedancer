@@ -363,6 +363,8 @@ fd_gossip_global_delete ( void * shmap, fd_valloc_t valloc ) {
   fd_valloc_free(valloc, fd_active_table_delete(fd_active_table_leave(glob->actives)));
   fd_valloc_free(valloc, glob->inactives);
   fd_valloc_free(valloc, glob->need_push);
+  for (ulong i = 0; i < glob->push_states_cnt; ++i)
+    fd_valloc_free(valloc, glob->push_states[i]);
   for( fd_value_table_iter_t iter = fd_value_table_iter_init( glob->values );
        !fd_value_table_iter_done( glob->values, iter );
        iter = fd_value_table_iter_next( glob->values, iter ) ) {
