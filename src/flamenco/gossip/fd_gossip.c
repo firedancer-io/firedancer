@@ -46,6 +46,8 @@
 #define FD_PUSH_VALUE_MAX 9
 /* Max number of push destinations that we track */
 #define FD_PUSH_LIST_MAX 12
+/* Max length of queue of values that need pushing */
+#define FD_NEED_PUSH_MAX (1<<12)
 
 #define FD_GOSSIP_NETWORK_ADDR_NLONGS (sizeof(fd_gossip_network_addr_t)/sizeof(ulong))
 
@@ -301,6 +303,10 @@ struct fd_gossip_global {
     /* Array of push destinations currently in use */
     fd_push_state_t * push_states[FD_PUSH_LIST_MAX];
     ulong push_states_cnt;
+    /* Queue of values that need pushing */
+    fd_hash_t * need_push;
+    ulong need_push_head;
+    ulong need_push_cnt;
     /* Heap/queue of pending timed events */
     fd_pending_event_t * event_pool;
     fd_pending_heap_t * event_heap;
@@ -333,7 +339,7 @@ fd_gossip_global_new ( void * shmem, ulong seed, fd_valloc_t valloc ) {
   shm = fd_valloc_malloc(valloc, fd_active_table_align(), fd_active_table_footprint(FD_ACTIVE_KEY_MAX));
   glob->actives = fd_active_table_join(fd_active_table_new(shm, FD_ACTIVE_KEY_MAX, seed));
   glob->inactives = (fd_gossip_network_addr_t*)fd_valloc_malloc(valloc, alignof(fd_gossip_network_addr_t), INACTIVES_MAX*sizeof(fd_gossip_network_addr_t));
-  glob->inactives_cnt = 0;
+  glob->need_push = (fd_hash_t*)fd_valloc_malloc(valloc, alignof(fd_hash_t), FD_NEED_PUSH_MAX*sizeof(fd_hash_t));
   shm = fd_valloc_malloc(valloc, fd_value_table_align(), fd_value_table_footprint(FD_VALUE_KEY_MAX));
   glob->values = fd_value_table_join(fd_value_table_new(shm, FD_VALUE_KEY_MAX, seed));
   shm = fd_valloc_malloc(valloc, fd_pending_pool_align(), fd_pending_pool_footprint(FD_PENDING_MAX));
@@ -356,6 +362,7 @@ fd_gossip_global_delete ( void * shmap, fd_valloc_t valloc ) {
   fd_valloc_free(valloc, fd_peer_table_delete(fd_peer_table_leave(glob->peers)));
   fd_valloc_free(valloc, fd_active_table_delete(fd_active_table_leave(glob->actives)));
   fd_valloc_free(valloc, glob->inactives);
+  fd_valloc_free(valloc, glob->need_push);
   for( fd_value_table_iter_t iter = fd_value_table_iter_init( glob->values );
        !fd_value_table_iter_done( glob->values, iter );
        iter = fd_value_table_iter_next( glob->values, iter ) ) {
@@ -971,6 +978,12 @@ fd_gossip_recv_crds_value(fd_gossip_global_t * glob, fd_pubkey_t * pubkey, fd_cr
   msg->data = fd_valloc_malloc(glob->valloc, 1U, datalen);
   fd_memcpy(msg->data, buf, datalen);
   msg->datalen = datalen;
+
+  if (glob->need_push_cnt < FD_NEED_PUSH_MAX) {
+    /* Remember that I need to push this value */
+    ulong i = ((glob->need_push_head + (glob->need_push_cnt++)) & (FD_NEED_PUSH_MAX-1U));
+    fd_memcpy(glob->need_push + i, &key, sizeof(key));
+  }
 
   if (crd->data.discriminant == fd_crds_data_enum_contact_info) {
     fd_gossip_contact_info_t * info = &crd->data.inner.contact_info;
