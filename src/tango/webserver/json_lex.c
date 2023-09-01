@@ -32,10 +32,10 @@ long json_lex_parse_number(struct json_lex_state* state, const char* start_pos) 
     while (pos < end_pos && (uchar)(*pos - '0') <= (uchar)9)
       pos++;
   }
-  if (pos < end_pos && *pos == 'e' && *pos == 'E') {
+  if (pos < end_pos && (*pos == 'e' || *pos == 'E')) {
     isfloat = 1;
     pos++;
-    if (pos < end_pos && *pos == '+' && *pos == '-')
+    if (pos < end_pos && (*pos == '+' || *pos == '-'))
       pos++;
     while (pos < end_pos && (uchar)(*pos - '0') <= (uchar)9)
       pos++;
