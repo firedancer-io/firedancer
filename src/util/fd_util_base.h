@@ -179,6 +179,17 @@
 #define FD_HAS_GFNI 0
 #endif
 
+/* FD_HAS_AESNI indicates that the target supports AES-NI extensions,
+   which accelerate AES encryption and decryption.  While AVX predates
+   the original AES-NI extension, the combination of AES-NI+AVX adds
+   additional opcodes (such as vaesenc, a more flexible variant of
+   aesenc).  Thus, implies FD_HAS_AVX.  A conservative estimate for
+   minimum platform support is Intel Haswell or AMD Zen. */
+
+#ifndef FD_HAS_AESNI
+#define FD_HAS_AESNI 0
+#endif
+
 /* FD_HAS_COVERAGE indicates that the build target is built with coverage instrumentation. */
 
 #ifndef FD_HAS_COVERAGE
