@@ -138,58 +138,6 @@ fd_gcm128_encrypt( fd_aes_gcm_t * ctx,
   ctr = fd_uint_bswap( ctx->Yi.d[3] );
 
   n = mres % 16;
-  if (16 % sizeof(ulong) == 0) { /* always true actually */
-    do {
-      if (n) {
-        while (n && len) {
-          ctx->Xn[mres++] = *(out++) = *(in++) ^ ctx->EKi.c[n];
-          --len;
-          n = (n + 1) % 16;
-        }
-        if (n == 0) {
-          fd_gcm_ghash_avx( ctx->Xi.u, ctx->Htable, ctx->Xn, mres );
-          mres = 0;
-        } else {
-          ctx->mres = mres;
-          return 0;
-        }
-      }
-      if (len >= 16 && mres) {
-        fd_gcm_ghash_avx( ctx->Xi.u, ctx->Htable, ctx->Xn, mres );
-        mres = 0;
-      }
-      if ((i = (len & (ulong)-16))) {
-        ulong j = i;
-
-        while (len >= 16) {
-          ulong *out_t = (ulong *)out;
-          const ulong *in_t = (const ulong *)in;
-
-          fd_aesni_encrypt( ctx->Yi.c, ctx->EKi.c, key );
-          ++ctr;
-          ctx->Yi.d[3] = fd_uint_bswap( ctr );
-          for (i = 0; i < 16 / sizeof(ulong); ++i)
-            out_t[i] = in_t[i] ^ ctx->EKi.t[i];
-          out += 16;
-          in += 16;
-          len -= 16;
-        }
-        fd_gcm_ghash_avx( ctx->Xi.u, ctx->Htable, out - j, j );
-      }
-      if (len) {
-        fd_aesni_encrypt( ctx->Yi.c, ctx->EKi.c, key );
-        ++ctr;
-        ctx->Yi.d[3] = fd_uint_bswap( ctr );
-        while (len--) {
-          ctx->Xn[mres++] = out[n] = in[n] ^ ctx->EKi.c[n];
-          ++n;
-        }
-      }
-
-      ctx->mres = mres;
-      return 0;
-    } while (0);
-  }
   for (i = 0; i < len; ++i) {
     if (n == 0) {
       fd_aesni_encrypt( ctx->Yi.c, ctx->EKi.c, key );
@@ -243,56 +191,6 @@ fd_gcm128_decrypt( fd_aes_gcm_t * ctx,
   ctr = fd_uint_bswap( ctx->Yi.d[3] );
 
   n = mres % 16;
-  if (16 % sizeof(ulong) == 0) { /* always true actually */
-    do {
-      if (n) {
-        while (n && len) {
-          *(out++) = (ctx->Xn[mres++] = *(in++)) ^ ctx->EKi.c[n];
-          --len;
-          n = (n + 1) % 16;
-        }
-        if (n == 0) {
-          fd_gcm_ghash_avx( ctx->Xi.u, ctx->Htable, ctx->Xn, mres );
-          mres = 0;
-        } else {
-          ctx->mres = mres;
-          return 0;
-        }
-      }
-      if (len >= 16 && mres) {
-        fd_gcm_ghash_avx( ctx->Xi.u, ctx->Htable, ctx->Xn, mres );
-        mres = 0;
-      }
-      if ((i = (len & (ulong)-16))) {
-        fd_gcm_ghash_avx( ctx->Xi.u, ctx->Htable, in, i );
-        while (len >= 16) {
-          ulong *out_t = (ulong *)out;
-          const ulong *in_t = (const ulong *)in;
-
-          fd_aesni_encrypt( ctx->Yi.c, ctx->EKi.c, key );
-          ++ctr;
-          ctx->Yi.d[3] = fd_uint_bswap( ctr );
-          for (i = 0; i < 16 / sizeof(ulong); ++i)
-              out_t[i] = in_t[i] ^ ctx->EKi.t[i];
-          out += 16;
-          in += 16;
-          len -= 16;
-        }
-      }
-      if (len) {
-        fd_aesni_encrypt( ctx->Yi.c, ctx->EKi.c, key );
-        ++ctr;
-        ctx->Yi.d[3] = fd_uint_bswap( ctr );
-        while (len--) {
-          out[n] = (ctx->Xn[mres++] = in[n]) ^ ctx->EKi.c[n];
-          ++n;
-        }
-      }
-
-      ctx->mres = mres;
-      return 0;
-    } while (0);
-  }
   for (i = 0; i < len; ++i) {
     uchar c;
     if (n == 0) {
