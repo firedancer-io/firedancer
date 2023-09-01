@@ -38,6 +38,14 @@
 #define FD_BLOOM_MAX_KEYS 32U
 /* Max number of packets in an outgoing pull request batch */
 #define FD_BLOOM_MAX_PACKETS 32U
+/* Number of bloom bits in a push prune filter */
+#define FD_PRUNE_NUM_BITS (512U*8U) /* 0.5 Kbyte */
+/* Number of bloom keys in a push prune filter */
+#define FD_PRUNE_NUM_KEYS 4U
+/* Max number of destinations a single message can be pushed */
+#define FD_PUSH_VALUE_MAX 9
+/* Max number of push destinations that we track */
+#define FD_PUSH_LIST_MAX 12
 
 #define FD_GOSSIP_NETWORK_ADDR_NLONGS (sizeof(fd_gossip_network_addr_t)/sizeof(ulong))
 
@@ -216,6 +224,7 @@ void fd_hash_copy( fd_hash_t * keyd, const fd_hash_t * keys ) {
 struct fd_value_elem {
     fd_hash_t key;
     ulong next;
+    fd_pubkey_t origin;
     ulong wallclock; /* Original timestamp of value */
     uchar * data;    /* Serialized form of value (bincode) */
     ulong datalen;
@@ -253,6 +262,19 @@ typedef struct fd_pending_event fd_pending_event_t;
 #define HEAP_LT(e0,e1) (e0->key < e1->key)
 #include "../../util/tmpl/fd_heap.c"
 
+/* Data structure representing an active push destination */
+struct fd_push_state {
+    fd_gossip_network_addr_t addr; /* Destination address */
+    fd_pubkey_t id;                /* Public indentifier */
+    ulong drop_cnt;                /* Number of values dropped due to pruning */
+    ulong prune_keys[FD_PRUNE_NUM_KEYS];     /* Keys used for bloom filter for pruning */
+    ulong prune_bits[FD_PRUNE_NUM_BITS/64U]; /* Bits table used for bloom filter for pruning */
+    uchar packet[FD_ETH_PAYLOAD_MAX]; /* Partially assembled packet containing a fd_gossip_push_msg_t */
+    uchar * packet_end_init;       /* Initial end of the packet when there are zero values */
+    uchar * packet_end;            /* Current end of the packet including values so far */
+};
+typedef struct fd_push_state fd_push_state_t;
+
 /* Global data for gossip service */
 struct fd_gossip_global {
     /* My public/private key */
@@ -276,6 +298,9 @@ struct fd_gossip_global {
 #define INACTIVES_MAX 1024U
     /* Table of crds values that we have received in the last 5 minutes, keys by hash */
     fd_value_elem_t * values;
+    /* Array of push destinations currently in use */
+    fd_push_state_t * push_states[FD_PUSH_LIST_MAX];
+    ulong push_states_cnt;
     /* Heap/queue of pending timed events */
     fd_pending_event_t * event_pool;
     fd_pending_heap_t * event_heap;
@@ -942,6 +967,7 @@ fd_gossip_recv_crds_value(fd_gossip_global_t * glob, fd_pubkey_t * pubkey, fd_cr
   }
   msg = fd_value_table_insert(glob->values, &key);
   msg->wallclock = wallclock;
+  fd_memcpy(msg->origin.uc, pubkey->uc, 32U);
   msg->data = fd_valloc_malloc(glob->valloc, 1U, datalen);
   fd_memcpy(msg->data, buf, datalen);
   msg->datalen = datalen;
@@ -1152,6 +1178,88 @@ fd_gossip_add_active_peer( fd_gossip_global_t * glob, fd_gossip_network_addr_t *
 }
 
 void
+fd_gossip_refresh_push_states( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, long now ) {
+  (void)arg;
+
+  /* Try again in 20 sec */
+  fd_pending_event_t * ev = fd_gossip_add_pending(glob, now + (long)20e9);
+  if (ev) {
+    ev->fun = fd_gossip_refresh_push_states;
+  }
+
+  /* Delete states which no longer have active peers */
+  for (ulong i = 0; i < glob->push_states_cnt; ++i) {
+    fd_push_state_t* s = glob->push_states[i];
+    if (fd_active_table_query(glob->actives, &s->addr, NULL) == NULL) {
+      fd_valloc_free(glob->valloc, s);
+      /* Replace with the one at the end */
+      glob->push_states[i] = glob->push_states[--(glob->push_states_cnt)];
+    }
+  }
+  if (glob->push_states_cnt == FD_PUSH_LIST_MAX) {
+    /* Delete the worst destination */
+    fd_push_state_t * worst_s = glob->push_states[0];
+    ulong worst_i = 0;
+    for (ulong i = 1; i < glob->push_states_cnt; ++i) {
+      fd_push_state_t* s = glob->push_states[i];
+      if (s->drop_cnt > worst_s->drop_cnt) {
+        worst_s = s;
+        worst_i = i;
+      }
+    }
+    fd_valloc_free(glob->valloc, worst_s);
+    /* Replace with the one at the end */
+    glob->push_states[worst_i] = glob->push_states[--(glob->push_states_cnt)];
+  }
+
+  /* Make a list of actives that we are not pushing to */
+  fd_active_elem_t * list[FD_ACTIVE_KEY_MAX];
+  ulong listlen = 0;
+  for( fd_active_table_iter_t iter = fd_active_table_iter_init( glob->actives );
+       !fd_active_table_iter_done( glob->actives, iter );
+       iter = fd_active_table_iter_next( glob->actives, iter ) ) {
+    fd_active_elem_t * ele = fd_active_table_iter_ele( glob->actives, iter );
+    for (ulong i = 0; i < glob->push_states_cnt; ++i) {
+      fd_push_state_t* s = glob->push_states[i];
+      if (fd_gossip_network_addr_eq(&s->addr, &ele->key))
+        goto skipadd;
+    }
+    list[listlen++] = ele;
+    skipadd: ;
+  }
+
+  /* Add random actives as new pushers */
+  while (listlen > 0 && glob->push_states_cnt < FD_PUSH_LIST_MAX) {
+    ulong i = fd_rng_ulong(glob->rng) % listlen;
+    fd_active_elem_t * a = list[i];
+    list[i] = list[--listlen];
+
+    fd_push_state_t * s = (fd_push_state_t *)fd_valloc_malloc(glob->valloc, alignof(fd_push_state_t), sizeof(fd_push_state_t));
+    fd_memset(s, 0, sizeof(fd_push_state_t));
+    fd_memcpy(&s->addr, &a->key, sizeof(fd_gossip_network_addr_t));
+    fd_memcpy(&s->id, &a->id, sizeof(fd_pubkey_t));
+    for (ulong j = 0; j < FD_PRUNE_NUM_KEYS; ++j)
+      s->prune_keys[j] = fd_rng_ulong(glob->rng);
+
+    /* Encode an empty ushas a template */
+    fd_gossip_msg_t gmsg;
+    fd_gossip_msg_new_disc(&gmsg, fd_gossip_msg_enum_push_msg);
+    fd_gossip_push_msg_t * push_msg = &gmsg.inner.push_msg;
+    fd_memcpy( push_msg->pubkey.uc, glob->my_creds.public_key.uc, 32UL );
+    fd_bincode_encode_ctx_t ctx;
+    ctx.data = s->packet;
+    ctx.dataend = s->packet + FD_ETH_PAYLOAD_MAX;
+    if ( fd_gossip_msg_encode( &gmsg, &ctx ) ) {
+      FD_LOG_WARNING(("fd_gossip_msg_encode failed"));
+      return;
+    }
+    s->packet_end_init = s->packet_end = (uchar *)ctx.data;
+
+    glob->push_states[glob->push_states_cnt++] = s;
+  }
+}
+
+void
 fd_gossip_log_stats( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, long now ) {
   (void)arg;
 
@@ -1223,6 +1331,8 @@ fd_gossip_main_loop( fd_gossip_global_t * glob, fd_valloc_t valloc, volatile int
   ev->fun = fd_gossip_random_ping;
   ev = fd_gossip_add_pending(glob, now + (long)60e9);
   ev->fun = fd_gossip_log_stats;
+  ev = fd_gossip_add_pending(glob, now + (long)20e9);
+  ev->fun = fd_gossip_refresh_push_states;
 
 #define VLEN 32U
   struct mmsghdr msgs[VLEN];
