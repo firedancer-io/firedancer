@@ -168,7 +168,7 @@ typedef struct fd_message_elem fd_message_elem_t;
 #define MAP_KEY_COPY fd_hash_copy
 #define MAP_T        fd_message_elem_t
 #include "../../util/tmpl/fd_map_giant.c"
-#define FD_MESSAGE_KEY_MAX (1<<15)
+#define FD_MESSAGE_KEY_MAX (1<<16)
 
 /* Queue of pending timed events */
 union fd_pending_event_arg {
@@ -432,10 +432,8 @@ fd_gossip_make_ping( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, lo
   fd_gossip_network_addr_t * key = &arg->key;
   fd_active_elem_t * val = fd_active_table_query(glob->actives, key, NULL);
   if (val == NULL) {
-    if (fd_active_table_is_full(glob->actives)) {
-      FD_LOG_WARNING(("too many actives"));
+    if (fd_active_table_is_full(glob->actives))
       return;
-    }
     val = fd_active_table_insert(glob->actives, key);
     fd_active_new_value(val);
   } else {
@@ -1220,7 +1218,7 @@ fd_gossip_main_loop( fd_gossip_global_t * glob, fd_valloc_t valloc, volatile int
       }
 
       char tmp[100];
-      FD_LOG_NOTICE(("recv msg type %d from %s", gmsg.discriminant, fd_gossip_addr_str(tmp, sizeof(tmp), &from)));
+      FD_LOG_DEBUG(("recv msg type %d from %s", gmsg.discriminant, fd_gossip_addr_str(tmp, sizeof(tmp), &from)));
                        
       fd_gossip_recv(glob, &from, &gmsg, now);
 
