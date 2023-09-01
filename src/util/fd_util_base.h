@@ -163,7 +163,7 @@
 /* FD_HAS_SHANI indicates that the target supports Intel SHA extensions
    which accelerate SHA-1 and SHA-256 computation.  This extension is
    also called SHA-NI or SHA_NI (Secure Hash Algorithm New
-   Instructiosn).  Although proposed in 2013, they're only supported on
+   Instructions).  Although proposed in 2013, they're only supported on
    Intel Ice Lake and AMD Zen CPUs and newer.  Implies FD_HAS_AVX. */
 
 #ifndef FD_HAS_SHANI
@@ -177,6 +177,17 @@
 
 #ifndef FD_HAS_GFNI
 #define FD_HAS_GFNI 0
+#endif
+
+/* FD_HAS_AESNI indicates that the target supports AES-NI extensions,
+   which accelerate AES encryption and decryption.  While AVX predates
+   the original AES-NI extension, the combination of AES-NI+AVX adds
+   additional opcodes (such as vaesenc, a more flexible variant of
+   aesenc).  Thus, implies FD_HAS_AVX.  A conservative estimate for
+   minimum platform support is Intel Haswell or AMD Zen. */
+
+#ifndef FD_HAS_AESNI
+#define FD_HAS_AESNI 0
 #endif
 
 /* FD_HAS_ASAN indicates that the build target is using ASAN. */

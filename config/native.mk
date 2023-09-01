@@ -55,11 +55,13 @@ $(call map-define,FD_HAS_SSE, __SSE4_2__)
 $(call map-define,FD_HAS_AVX, __AVX2__)
 $(call map-define,FD_HAS_GFNI, __GFNI__)
 $(call map-define,FD_IS_X86_64, __x86_64__)
+$(call map-define,FD_HAS_AESNI, __AES__)
 
 $(info Using FD_HAS_SSE=$(FD_HAS_SSE))
 $(info Using FD_HAS_AVX=$(FD_HAS_AVX))
 $(info Using FD_HAS_GFNI=$(FD_HAS_GFNI))
 $(info Using FD_HAS_SHANI=$(FD_HAS_SHANI))
+$(info Using FD_HAS_AESNI=$(FD_HAS_AESNI))
 
 ifeq ($(FD_HAS_THREADS),1)
 include config/with-threads.mk
