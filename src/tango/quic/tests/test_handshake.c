@@ -7,7 +7,7 @@
 #include "../templ/fd_quic_transport_params.h"
 #include "../../../util/net/fd_ip4.h"
 #include "../../../ballet/ed25519/fd_ed25519_openssl.h"
-#include "../../../ballet/x509/fd_x509_openssl.h"
+#include "../../../ballet/x509/fd_x509_mock.h"
 
 
 // test transport parameters
@@ -83,7 +83,8 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
+  fd_sha512_t _sha[1]; fd_sha512_t * sha = fd_sha512_join( fd_sha512_new( _sha ) );
+  fd_rng_t  _rng[1];   fd_rng_t * rng    = fd_rng_join   ( fd_rng_new   ( _rng, 0U, 0UL ) );
 
   /* Generate certificate key */
   uchar cert_private_key[ 32 ];
@@ -92,8 +93,14 @@ main( int     argc,
   FD_TEST( cert_pkey );
 
   /* Generate X509 certificate */
-  X509 * cert = fd_x509_gen_solana_cert( cert_pkey );
-  FD_TEST( cert );
+  uchar cert_asn1[ FD_X509_MOCK_CERT_SZ ];
+  fd_x509_mock_cert( cert_asn1, cert_private_key, fd_rng_ulong( rng ), sha );
+  X509 * cert;
+  do {
+    uchar const * cert_ptr = cert_asn1;
+    cert = d2i_X509( NULL, &cert_ptr, FD_X509_MOCK_CERT_SZ );
+    FD_TEST( cert );
+  } while(0);
 
   // config parameters
   fd_quic_tls_cfg_t cfg = {
@@ -293,6 +300,7 @@ main( int     argc,
            fd_quic_tls_hs_delete( hs_server );
   FD_TEST( fd_quic_tls_delete   ( quic_tls  ) );
 
+  fd_sha512_delete( fd_sha512_leave( sha ) );
   fd_rng_delete( fd_rng_leave( rng ) );
 
   FD_LOG_NOTICE(( "pass" ));

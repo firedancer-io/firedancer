@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_tango_tls_fd_tls_estate_cli_h
 #define HEADER_fd_src_tango_tls_fd_tls_estate_cli_h
 
-#include "fd_tls.h"
+#include "fd_tls_base.h"
 
 /* fd_tls_estate_cli contains TLS client handshake state while waiting
    for the server to send a message.

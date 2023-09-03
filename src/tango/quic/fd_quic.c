@@ -19,7 +19,7 @@
 #include <openssl/evp.h>
 #include <openssl/x509.h>
 #include "../../ballet/ed25519/fd_ed25519_openssl.h"
-#include "../../ballet/x509/fd_x509_openssl.h"
+#include "../../ballet/x509/fd_x509_mock.h"
 #include <openssl/rand.h>
 
 #define CONN_FMT "%02x%02x%02x%02x%02x%02x%02x%02x"
@@ -339,8 +339,20 @@ fd_quic_init( fd_quic_t * quic ) {
     FD_TEST( cert_pkey );
 
     /* Generate X509 certificate */
-    X509 * cert = fd_x509_gen_solana_cert( cert_pkey );
-    FD_TEST( cert );
+    X509 * cert;
+    do {
+      fd_sha512_t _sha[1];
+      fd_sha512_t * sha = fd_sha512_join( fd_sha512_new( _sha ) );
+      ulong cert_serial;
+      FD_TEST( 1==RAND_bytes( (uchar *)&cert_serial, 8UL ) );
+      uchar cert_asn1[ FD_X509_MOCK_CERT_SZ ];
+      fd_x509_mock_cert( cert_asn1, cert_private_key, cert_serial, sha );
+      fd_sha512_delete( fd_sha512_leave( sha ) );
+
+      uchar const * cert_ptr = cert_asn1;
+      cert = d2i_X509( NULL, &cert_ptr, FD_X509_MOCK_CERT_SZ );
+      FD_TEST( cert );
+    } while(0);
 
     quic->cert_key_object = cert_pkey;
     quic->cert_object     = cert;

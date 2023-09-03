@@ -2,11 +2,9 @@
 #define HEADER_fd_src_tango_tls_fd_tls_server_h
 
 #include "fd_tls_estate_srv.h"
+#include "fd_tls_estate_cli.h"
 
-/* The fd_tls_server_t object provides the server-side functionality
-   of a TLS handshake. */
-
-struct fd_tls_server {
+struct fd_tls {
   fd_tls_rand_t       rand;
   fd_tls_secrets_fn_t secrets_fn;
   fd_tls_sendmsg_fn_t sendmsg_fn;
@@ -31,32 +29,29 @@ struct fd_tls_server {
   ushort quic_tp_sz;
 };
 
-typedef struct fd_tls_server fd_tls_server_t;
+typedef struct fd_tls fd_tls_t;
 
 FD_PROTOTYPES_BEGIN
 
-/* fd_tls_server_{align,footprint} specify requirements for the memory
-   region backing the fd_tls_server_t object. */
+FD_FN_CONST ulong
+fd_tls_align( void );
 
 FD_FN_CONST ulong
-fd_tls_server_align( void );
-
-FD_FN_CONST ulong
-fd_tls_server_footprint( void );
+fd_tls_footprint( void );
 
 /* TODO document new/join/leave/delete */
 
 void *
-fd_tls_server_new( void * mem );
+fd_tls_new( void * mem );
 
-fd_tls_server_t *
-fd_tls_server_join( void * );
-
-void *
-fd_tls_server_leave( fd_tls_server_t * );
+fd_tls_t *
+fd_tls_join( void * );
 
 void *
-fd_tls_server_delete( void * );
+fd_tls_leave( fd_tls_t * );
+
+void *
+fd_tls_delete( void * );
 
 /* fd_tls_server_set_x509 sets the server certificate.  cert points to
    the first byte of the DER serialized X.509 certificate.  cert_sz is
@@ -64,9 +59,9 @@ fd_tls_server_delete( void * );
    for failure include oversz cert. */
 
 static inline int
-fd_tls_server_set_x509( fd_tls_server_t * server,
-                        void const *      cert,
-                        ulong             cert_sz ) {
+fd_tls_set_x509( fd_tls_t * server,
+                 void const *      cert,
+                 ulong             cert_sz ) {
 
   long res = fd_tls_encode_server_cert_x509( cert, cert_sz, server->cert_x509, FD_TLS_SERVER_CERT_MSG_SZ_MAX );
   if( FD_UNLIKELY( res<0 ) ) return 0;
@@ -79,11 +74,19 @@ fd_tls_server_set_x509( fd_tls_server_t * server,
    Returns 0L on success.  On failure, returns negated TLS alert code. */
 
 long
-fd_tls_server_handshake( fd_tls_server_t const * server,
-                         fd_tls_estate_srv_t *   handshake,
-                         void const *            record,
-                         ulong                   record_sz,
-                         int                     encryption_level );
+fd_tls_server_handshake( fd_tls_t const *      tls,
+                         fd_tls_estate_srv_t * handshake,
+                         void const *          record,
+                         ulong                 record_sz,
+                         int                   encryption_level );
+
+
+long
+fd_tls_client_handshake( fd_tls_t const *      client,
+                         fd_tls_estate_cli_t * handshake,
+                         void *                record,
+                         ulong                 record_sz,
+                         int                   encryption_level );
 
 FD_PROTOTYPES_END
 
