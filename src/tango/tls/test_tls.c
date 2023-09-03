@@ -111,7 +111,7 @@ test_tls_proto( void ) {
 
 /* Client/server integration test *************************************/
 
-#include "fd_tls2.h"
+#include "fd_tls.h"
 #include "test_tls_helper.h"
 
 #include "../../ballet/ed25519/fd_ed25519.h"
