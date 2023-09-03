@@ -8,8 +8,9 @@
 
 #include "../../../util/fd_util.h"
 #include "../../../util/net/fd_ip4.h"
+#include "../../../ballet/ed25519/fd_ed25519.h"
 #include "../../../ballet/ed25519/fd_ed25519_openssl.h"
-#include "../../../ballet/x509/fd_x509_openssl.h"
+#include "../../../ballet/x509/fd_x509_mock.h"
 
 // test transport parameters
 uchar test_tp[] = "\x00\x39\x00\x39\x01\x04\x80\x00\xea\x60\x04\x04\x80\x10\x00\x00"
@@ -229,11 +230,21 @@ fd_quic_create_context( int        is_server,
 
   uchar cert_private_key[ 32 ];
   for( ulong b=0; b<32UL; b++ ) cert_private_key[b] = fd_rng_uchar( rng );
+  fd_sha512_t sha[1];
+  uchar cert_public_key[ 32 ];
+  fd_ed25519_public_from_private( cert_public_key, cert_private_key, sha );
   EVP_PKEY * cert_pkey = fd_ed25519_pkey_from_private( cert_private_key );
   FD_TEST( cert_pkey );
 
-  X509 * cert = fd_x509_gen_solana_cert( cert_pkey );
-  FD_TEST( cert );
+  /* Generate X509 certificate */
+  uchar cert_asn1[ FD_X509_MOCK_CERT_SZ ];
+  fd_x509_mock_cert( cert_asn1, cert_public_key );
+  X509 * cert;
+  do {
+    uchar const * cert_ptr = cert_asn1;
+    cert = d2i_X509( NULL, &cert_ptr, FD_X509_MOCK_CERT_SZ );
+    FD_TEST( cert );
+  } while(0);
 
   FD_TEST( 1==SSL_CTX_use_certificate( ctx, cert ) );
   X509_free( cert );

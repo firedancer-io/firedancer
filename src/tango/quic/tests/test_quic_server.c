@@ -14,7 +14,7 @@
 #include "../../xdp/fd_xdp_redirect_user.h"
 
 #include "../../../ballet/ed25519/fd_ed25519_openssl.h"
-#include "../../../ballet/x509/fd_x509_openssl.h"
+#include "../../../ballet/x509/fd_x509_mock.h"
 
 int server_complete = 0;
 
@@ -90,7 +90,15 @@ main( int argc, char ** argv ) {
   FD_LOG_HEXDUMP_NOTICE(( "Solana private key", pkey, 32 ));  /* TODO use base-58 format specifier */
   FD_LOG_HEXDUMP_NOTICE(( "Solana public key", pubkey, 32 ));  /* TODO use base-58 format specifier */
   quic->cert_key_object = fd_ed25519_pkey_from_private( pkey );
-  quic->cert_object     = fd_x509_gen_solana_cert( quic->cert_key_object );
+
+  /* Generate X509 certificate */
+  uchar cert_asn1[ FD_X509_MOCK_CERT_SZ ];
+  fd_x509_mock_cert( cert_asn1, pkey );
+  do {
+    uchar const * cert_ptr = cert_asn1;
+    quic->cert_object = d2i_X509( NULL, &cert_ptr, FD_X509_MOCK_CERT_SZ );
+    FD_TEST( quic->cert_object );
+  } while(0);
 
   FD_LOG_NOTICE(( "Initializing QUIC" ));
   FD_TEST( fd_quic_init( quic ) );
