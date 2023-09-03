@@ -19,8 +19,9 @@
 // TODO ugly -- remove TLS dependency here
 #include <openssl/evp.h>
 #include <openssl/x509.h>
+#include "../../ballet/ed25519/fd_ed25519.h"
 #include "../../ballet/ed25519/fd_ed25519_openssl.h"
-#include "../../ballet/x509/fd_x509_openssl.h"
+#include "../../ballet/x509/fd_x509_mock.h"
 #include <openssl/rand.h>
 
 #define CONN_FMT "%02x%02x%02x%02x%02x%02x%02x%02x"
@@ -335,12 +336,22 @@ fd_quic_init( fd_quic_t * quic ) {
     /* Generate certificate key */
     uchar cert_private_key[ 32 ];
     FD_TEST( 1==RAND_bytes( cert_private_key, 32 ) );
+    fd_sha512_t sha[1];
+    uchar cert_public_key[ 32 ];
+    fd_ed25519_public_from_private( cert_public_key, cert_private_key, sha );
     EVP_PKEY * cert_pkey = fd_ed25519_pkey_from_private( cert_private_key );
     FD_TEST( cert_pkey );
 
     /* Generate X509 certificate */
-    X509 * cert = fd_x509_gen_solana_cert( cert_pkey );
-    FD_TEST( cert );
+    X509 * cert;
+    do {
+      uchar cert_asn1[ FD_X509_MOCK_CERT_SZ ];
+      fd_x509_mock_cert( cert_asn1, cert_public_key );
+
+      uchar const * cert_ptr = cert_asn1;
+      cert = d2i_X509( NULL, &cert_ptr, FD_X509_MOCK_CERT_SZ );
+      FD_TEST( cert );
+    } while(0);
 
     quic->cert_key_object = cert_pkey;
     quic->cert_object     = cert;
