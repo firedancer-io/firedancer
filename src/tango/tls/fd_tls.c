@@ -1,6 +1,5 @@
-#include "fd_tls.h"
-#include "fd_tls_server.h"
-#include "fd_tls_client.h"
+#include "fd_tls_base.h"
+#include "fd_tls2.h"
 #include "fd_tls_proto.h"
 #include "fd_tls_serde.h"
 #include "fd_tls_asn1.h"
@@ -51,48 +50,48 @@ static uchar const handshake_derived[ 32 ] =
     0x16, 0xc0, 0x76, 0x18, 0x9c, 0x48, 0x25, 0x0c,
     0xeb, 0xea, 0xc3, 0x57, 0x6c, 0x36, 0x11, 0xba };
 
-/* fd_tls_server_t boilerplate */
+/* fd_tls_t boilerplate */
 
 ulong
-fd_tls_server_align( void ) {
-  return alignof(fd_tls_server_t);
+fd_tls_align( void ) {
+  return alignof(fd_tls_t);
 }
 
 ulong
-fd_tls_server_footprint( void ) {
-  return sizeof(fd_tls_server_t);
+fd_tls_footprint( void ) {
+  return sizeof(fd_tls_t);
 }
 
 void *
-fd_tls_server_new( void * mem ) {
+fd_tls_new( void * mem ) {
 
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
     return NULL;
   }
 
-  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, fd_tls_server_align() ) ) ) {
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, fd_tls_align() ) ) ) {
     FD_LOG_WARNING(( "unaligned mem" ));
     return NULL;
   }
 
-  ulong fp = fd_tls_server_footprint();
+  ulong fp = fd_tls_footprint();
   memset( mem, 0, fp );
   return mem;
 }
 
-fd_tls_server_t *
-fd_tls_server_join( void * mem ) {
-  return (fd_tls_server_t *)mem;
+fd_tls_t *
+fd_tls_join( void * mem ) {
+  return (fd_tls_t *)mem;
 }
 
 void *
-fd_tls_server_leave( fd_tls_server_t * server ) {
+fd_tls_leave( fd_tls_t * server ) {
   return (void *)server;
 }
 
 void *
-fd_tls_server_delete( void * mem ) {
+fd_tls_delete( void * mem ) {
   return mem;
 }
 
@@ -173,7 +172,7 @@ fd_tls_hkdf_expand_label( void *        out,
    client, 0 otherwise. */
 
 static long
-fd_tls_send_cert_verify( fd_tls_server_t const * this,
+fd_tls_send_cert_verify( fd_tls_t const * this,
                          void *                  hs,
                          fd_sha256_t *           transcript,
                          int                     is_client ) {
@@ -232,17 +231,17 @@ fd_tls_send_cert_verify( fd_tls_server_t const * this,
   return 0L;
 }
 
-static long fd_tls_server_hs_start           ( fd_tls_server_t const *, fd_tls_estate_srv_t *, void const *, ulong, int );
-static long fd_tls_server_hs_wait_cert       ( fd_tls_server_t const *, fd_tls_estate_srv_t *, void const *, ulong, int );
-static long fd_tls_server_hs_wait_cert_verify( fd_tls_server_t const *, fd_tls_estate_srv_t *, void const *, ulong, int );
-static long fd_tls_server_hs_wait_finished   ( fd_tls_server_t const *, fd_tls_estate_srv_t *, void const *, ulong, int );
+static long fd_tls_server_hs_start           ( fd_tls_t const *, fd_tls_estate_srv_t *, void const *, ulong, int );
+static long fd_tls_server_hs_wait_cert       ( fd_tls_t const *, fd_tls_estate_srv_t *, void const *, ulong, int );
+static long fd_tls_server_hs_wait_cert_verify( fd_tls_t const *, fd_tls_estate_srv_t *, void const *, ulong, int );
+static long fd_tls_server_hs_wait_finished   ( fd_tls_t const *, fd_tls_estate_srv_t *, void const *, ulong, int );
 
 long
-fd_tls_server_handshake( fd_tls_server_t const * server,
-                         fd_tls_estate_srv_t *   handshake,
-                         void const *            record,
-                         ulong                   record_sz,
-                         int                     encryption_level ) {
+fd_tls_server_handshake( fd_tls_t const *      server,
+                         fd_tls_estate_srv_t * handshake,
+                         void const *          record,
+                         ulong                 record_sz,
+                         int                   encryption_level ) {
   switch( handshake->state ) {
   case FD_TLS_HS_START:
     return fd_tls_server_hs_start           ( server, handshake, record, record_sz, encryption_level );
@@ -264,11 +263,11 @@ fd_tls_server_handshake( fd_tls_server_t const * server,
    - Finished, completing the server's handshake message sequence */
 
 static long
-fd_tls_server_hs_start( fd_tls_server_t const * const server,
-                        fd_tls_estate_srv_t *   const handshake,
-                        void const *            const record,
-                        ulong                         record_sz,
-                        int                           encryption_level ) {
+fd_tls_server_hs_start( fd_tls_t const *      const server,
+                        fd_tls_estate_srv_t * const handshake,
+                        void const *          const record,
+                        ulong                       record_sz,
+                        int                         encryption_level ) {
 
   if( FD_UNLIKELY( encryption_level != FD_TLS_LEVEL_INITIAL ) )
     return -(long)FD_TLS_ALERT_INTERNAL_ERROR;
@@ -834,11 +833,11 @@ fd_tls_handle_cert_verify( fd_sha256_t const * transcript,
 }
 
 static long
-fd_tls_server_hs_wait_cert( fd_tls_server_t const * server,
-                            fd_tls_estate_srv_t *   handshake,
-                            void const *      const record,
-                            ulong             const record_sz,
-                            int                     encryption_level ) {
+fd_tls_server_hs_wait_cert( fd_tls_t const *      server,
+                            fd_tls_estate_srv_t * handshake,
+                            void const *    const record,
+                            ulong           const record_sz,
+                            int                   encryption_level ) {
 
   (void)server;
 
@@ -868,11 +867,11 @@ fd_tls_server_hs_wait_cert( fd_tls_server_t const * server,
 }
 
 static long
-fd_tls_server_hs_wait_cert_verify( fd_tls_server_t const * server,
-                                   fd_tls_estate_srv_t *   hs,
-                                   void const *      const record,
-                                   ulong             const record_sz,
-                                   int                     encryption_level ) {
+fd_tls_server_hs_wait_cert_verify( fd_tls_t const *      server,
+                                   fd_tls_estate_srv_t * hs,
+                                   void const *    const record,
+                                   ulong           const record_sz,
+                                   int                   encryption_level ) {
 
   (void)server;
 
@@ -897,11 +896,11 @@ fd_tls_server_hs_wait_cert_verify( fd_tls_server_t const * server,
 }
 
 static long
-fd_tls_server_hs_wait_finished( fd_tls_server_t const * server,
-                                fd_tls_estate_srv_t *   handshake,
-                                void const *      const record,
-                                ulong             const record_sz,
-                                int                     encryption_level )  {
+fd_tls_server_hs_wait_finished( fd_tls_t const *      server,
+                                fd_tls_estate_srv_t * handshake,
+                                void const *    const record,
+                                ulong           const record_sz,
+                                int                   encryption_level )  {
 
   (void)server;
 
@@ -966,63 +965,20 @@ fd_tls_server_hs_wait_finished( fd_tls_server_t const * server,
   return 0L;
 }
 
-ulong
-fd_tls_client_align( void ) {
-  return alignof(fd_tls_client_t);
-}
-
-ulong
-fd_tls_client_footprint( void ) {
-  return sizeof(fd_tls_client_t);
-}
-
-void *
-fd_tls_client_new( void * mem ) {
-
-  if( FD_UNLIKELY( !mem ) ) {
-    FD_LOG_WARNING(( "NULL mem" ));
-    return NULL;
-  }
-
-  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, fd_tls_client_align() ) ) ) {
-    FD_LOG_WARNING(( "unaligned mem" ));
-    return NULL;
-  }
-
-  ulong fp = fd_tls_client_footprint();
-  memset( mem, 0, fp );
-  return mem;
-}
-
-fd_tls_client_t *
-fd_tls_client_join( void * mem ) {
-  return (fd_tls_client_t *)mem;
-}
-
-void *
-fd_tls_client_leave( fd_tls_client_t * client ) {
-  return (void *)client;
-}
-
-void *
-fd_tls_client_delete( void * mem ) {
-  return mem;
-}
-
-static long fd_tls_client_hs_start           ( fd_tls_client_t const *, fd_tls_estate_cli_t *                     );
-static long fd_tls_client_hs_wait_sh         ( fd_tls_client_t const *, fd_tls_estate_cli_t *, void *, ulong, int );
-static long fd_tls_client_hs_wait_ee         ( fd_tls_client_t const *, fd_tls_estate_cli_t *, void *, ulong, int );
-static long fd_tls_client_hs_wait_cert_cr    ( fd_tls_client_t const *, fd_tls_estate_cli_t *, void *, ulong, int );
-static long fd_tls_client_hs_wait_cert       ( fd_tls_client_t const *, fd_tls_estate_cli_t *, void *, ulong, int );
-static long fd_tls_client_hs_wait_cert_verify( fd_tls_client_t const *, fd_tls_estate_cli_t *, void *, ulong, int );
-static long fd_tls_client_hs_wait_finished   ( fd_tls_client_t const *, fd_tls_estate_cli_t *, void *, ulong, int );
+static long fd_tls_client_hs_start           ( fd_tls_t const *, fd_tls_estate_cli_t *                     );
+static long fd_tls_client_hs_wait_sh         ( fd_tls_t const *, fd_tls_estate_cli_t *, void *, ulong, int );
+static long fd_tls_client_hs_wait_ee         ( fd_tls_t const *, fd_tls_estate_cli_t *, void *, ulong, int );
+static long fd_tls_client_hs_wait_cert_cr    ( fd_tls_t const *, fd_tls_estate_cli_t *, void *, ulong, int );
+static long fd_tls_client_hs_wait_cert       ( fd_tls_t const *, fd_tls_estate_cli_t *, void *, ulong, int );
+static long fd_tls_client_hs_wait_cert_verify( fd_tls_t const *, fd_tls_estate_cli_t *, void *, ulong, int );
+static long fd_tls_client_hs_wait_finished   ( fd_tls_t const *, fd_tls_estate_cli_t *, void *, ulong, int );
 
 long
-fd_tls_client_handshake( fd_tls_client_t const * client,
-                         fd_tls_estate_cli_t *   handshake,
-                         void *                  record,
-                         ulong                   record_sz,
-                         int                     encryption_level ) {
+fd_tls_client_handshake( fd_tls_t const *      client,
+                         fd_tls_estate_cli_t * handshake,
+                         void *                record,
+                         ulong                 record_sz,
+                         int                   encryption_level ) {
   switch( handshake->state ) {
   case FD_TLS_HS_START:
     /* Record argument is ignored, since ClientHello is always the first record */
@@ -1052,8 +1008,8 @@ fd_tls_client_handshake( fd_tls_client_t const * client,
 }
 
 static long
-fd_tls_client_hs_start( fd_tls_client_t const * const client,
-                        fd_tls_estate_cli_t *   const handshake ) {
+fd_tls_client_hs_start( fd_tls_t const * const      client,
+                        fd_tls_estate_cli_t * const handshake ) {
 
   /* Message buffer */
 # define MSG_BUFSZ 512UL
@@ -1129,11 +1085,11 @@ fd_tls_client_hs_start( fd_tls_client_t const * const client,
 }
 
 static long
-fd_tls_client_hs_wait_sh( fd_tls_client_t const * const client,
-                          fd_tls_estate_cli_t *   const handshake,
-                          void *                  const record,
-                          ulong                   const record_sz,
-                          int                     const encryption_level ) {
+fd_tls_client_hs_wait_sh( fd_tls_t const *      const client,
+                          fd_tls_estate_cli_t * const handshake,
+                          void *                const record,
+                          ulong                 const record_sz,
+                          int                   const encryption_level ) {
 
   if( FD_UNLIKELY( encryption_level != FD_TLS_LEVEL_INITIAL ) )
     return -(long)FD_TLS_ALERT_INTERNAL_ERROR;
@@ -1240,11 +1196,11 @@ fd_tls_client_hs_wait_sh( fd_tls_client_t const * const client,
 }
 
 static long
-fd_tls_client_hs_wait_ee( fd_tls_client_t const * const client,
-                          fd_tls_estate_cli_t *   const handshake,
-                          void *                  const record,
-                          ulong                   const record_sz,
-                          int                     const encryption_level ) {
+fd_tls_client_hs_wait_ee( fd_tls_t const *      const client,
+                          fd_tls_estate_cli_t * const handshake,
+                          void *                const record,
+                          ulong                 const record_sz,
+                          int                   const encryption_level ) {
 
   (void)client;
 
@@ -1365,11 +1321,11 @@ fd_tls_client_handle_cert_chain( fd_tls_estate_cli_t * const handshake,
 }
 
 static long
-fd_tls_client_hs_wait_cert_cr( fd_tls_client_t const * const client,
-                               fd_tls_estate_cli_t *   const handshake,
-                               void *                  const record,
-                               ulong                   const record_sz,
-                               int                     const encryption_level ) {
+fd_tls_client_hs_wait_cert_cr( fd_tls_t const *      const client,
+                               fd_tls_estate_cli_t * const handshake,
+                               void *                const record,
+                               ulong                 const record_sz,
+                               int                   const encryption_level ) {
 
   (void)client;
 
@@ -1416,11 +1372,11 @@ fd_tls_client_hs_wait_cert_cr( fd_tls_client_t const * const client,
 }
 
 static long
-fd_tls_client_hs_wait_cert( fd_tls_client_t const * const client,
-                            fd_tls_estate_cli_t *   const handshake,
-                            void *                  const record,
-                            ulong                   const record_sz,
-                            int                     const encryption_level ) {
+fd_tls_client_hs_wait_cert( fd_tls_t const *      const client,
+                            fd_tls_estate_cli_t * const handshake,
+                            void *                const record,
+                            ulong                 const record_sz,
+                            int                   const encryption_level ) {
 
   (void)client;
 
@@ -1454,11 +1410,11 @@ fd_tls_client_hs_wait_cert( fd_tls_client_t const * const client,
 }
 
 static long
-fd_tls_client_hs_wait_cert_verify( fd_tls_client_t const * const client,
-                                   fd_tls_estate_cli_t *   const hs,
-                                   void *                  const record,
-                                   ulong                   const record_sz,
-                                   int                     const encryption_level ) {
+fd_tls_client_hs_wait_cert_verify( fd_tls_t const *      const client,
+                                   fd_tls_estate_cli_t * const hs,
+                                   void *                const record,
+                                   ulong                 const record_sz,
+                                   int                   const encryption_level ) {
 
   (void)client;
 
@@ -1477,11 +1433,11 @@ fd_tls_client_hs_wait_cert_verify( fd_tls_client_t const * const client,
 }
 
 static long
-fd_tls_client_hs_wait_finished( fd_tls_client_t const * const client,
-                                fd_tls_estate_cli_t *   const hs,
-                                void *                  const record,
-                                ulong                   const record_sz,
-                                int                     const encryption_level ) {
+fd_tls_client_hs_wait_finished( fd_tls_t const *      const client,
+                                fd_tls_estate_cli_t * const hs,
+                                void *                const record,
+                                ulong                 const record_sz,
+                                int                   const encryption_level ) {
 
   if( FD_UNLIKELY( encryption_level != FD_TLS_LEVEL_HANDSHAKE ) )
     return -(long)FD_TLS_ALERT_INTERNAL_ERROR;

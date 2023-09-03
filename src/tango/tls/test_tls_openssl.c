@@ -1,4 +1,4 @@
-#include "fd_tls.h"
+#include "fd_tls_base.h"
 #include "fd_tls_estate_cli.h"
 #include "fd_tls_proto.h"
 #if !FD_HAS_OPENSSL
@@ -8,18 +8,17 @@
 /* Test OpenSSL client to fd_tls server handshake. */
 
 #include "../../ballet/ed25519/fd_ed25519.h"
-#include "../../ballet/ed25519/fd_ed25519_openssl.h"
 #include "../../ballet/ed25519/fd_x25519.h"
-#include "../../ballet/x509/fd_x509_openssl.h"
+#include "../../ballet/x509/fd_x509_mock.h"
 #include "../quic/fd_quic_common.h"
 #include "../quic/templ/fd_quic_transport_params.h"
 
 #include <openssl/ssl.h>
+#include <openssl/evp.h>
 #include <openssl/err.h>
 #include <openssl/tls1.h>
 
-#include "fd_tls_server.h"
-#include "fd_tls_client.h"
+#include "fd_tls2.h"
 #include "test_tls_helper.h"
 
 /* Map between encryption levels */
@@ -101,7 +100,7 @@ _fdtls_sendmsg( void const * handshake,
 }
 
 static void
-_fd_client_respond( fd_tls_client_t *     client,
+_fd_client_respond( fd_tls_t *            client,
                     fd_tls_estate_cli_t * hs ) {
   test_record_t * rec;
   while( (rec = test_record_recv( &_ossl_out )) ) {
@@ -114,7 +113,7 @@ _fd_client_respond( fd_tls_client_t *     client,
 }
 
 static void
-_fd_server_respond( fd_tls_server_t *     server,
+_fd_server_respond( fd_tls_t *            server,
                     fd_tls_estate_srv_t * hs ) {
   test_record_t * rec;
   while( (rec = test_record_recv( &_ossl_out )) ) {
@@ -204,11 +203,11 @@ test_server( SSL_CTX * ctx ) {
   /* Create fd_tls instance */
 
   fd_rng_t  _rng[1];
-  fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
+  fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, (uint)fd_log_wallclock(), 0UL ) );
 
-  fd_tls_server_t _server[1];
-  fd_tls_server_t * server = fd_tls_server_join( fd_tls_server_new( _server ) );
-  *server = (fd_tls_server_t) {
+  fd_tls_t _server[1];
+  fd_tls_t * server = fd_tls_join( fd_tls_new( _server ) );
+  *server = (fd_tls_t) {
     .rand              = fd_tls_test_rand( rng ),
     .secrets_fn        = _fdtls_secrets,
     .sendmsg_fn        = _fdtls_sendmsg,
@@ -229,15 +228,9 @@ test_server( SSL_CTX * ctx ) {
 
   /* Set up server cert */
 
-  EVP_PKEY * pkey = fd_ed25519_pkey_from_private( server->cert_private_key );
-  X509 * cert = fd_x509_gen_solana_cert( pkey );
-  uchar * cert_out = NULL;
-  int cert_sz = i2d_X509( cert, &cert_out );
-  FD_TEST( cert_sz>0 );
-  fd_tls_server_set_x509( server, cert_out, (ulong)cert_sz );
-  EVP_PKEY_free( pkey );
-  X509_free( cert );
-  free( cert_out );
+  uchar cert[ FD_X509_MOCK_CERT_SZ ];
+  fd_x509_mock_cert( cert, server->cert_private_key, fd_rng_ulong( rng ), sha );
+  fd_tls_set_x509( server, cert, FD_X509_MOCK_CERT_SZ );
 
   /* Initialize OpenSSL */
 
@@ -248,28 +241,18 @@ test_server( SSL_CTX * ctx ) {
 
   uchar client_private_key[ 32 ];
   for( ulong b=0; b<32UL; b++ ) client_private_key[b] = fd_rng_uchar( rng );
-
-  EVP_PKEY * client_pkey = fd_ed25519_pkey_from_private( client_private_key );
+  EVP_PKEY * client_pkey = EVP_PKEY_new_raw_private_key( EVP_PKEY_ED25519, NULL, client_private_key, 32UL );
   FD_TEST( client_pkey );
-  X509 * client_cert = fd_x509_gen_solana_cert( client_pkey );
   SSL_use_PrivateKey( ssl, client_pkey );
-  SSL_use_certificate( ssl, client_cert );
   EVP_PKEY_free( client_pkey );
-  X509_free( client_cert );
+
+  fd_x509_mock_cert( cert, client_private_key, fd_rng_ulong( rng ), sha );
+  SSL_use_certificate_ASN1( ssl, cert, FD_X509_MOCK_CERT_SZ );
 
   SSL_set_connect_state( ssl );
 
   /* Set client QUIC transport params */
 
-  //fd_quic_transport_params_t tp = {
-  //  .original_destination_connection_id = {0,1,2,3,4,5,6,7},
-  //  .max_idle_timeout = 1000UL
-  //};
-  //uchar tp_buf[ 1024UL ];
-  //ulong tp_sz = fd_quic_encode_transport_params( tp_buf, 1024UL, &tp );
-  //FD_TEST( (tp_sz!=FD_QUIC_ENCODE_FAIL) & (tp_sz>0UL) );
-
-  /* fd_quic_encode_transport_params is broken */
   uchar tp_buf[] = { 0x01, 0x02, 0x47, 0xd0 };
   ulong tp_sz = 4UL;
   FD_TEST( 1==SSL_set_quic_transport_params( ssl, tp_buf, tp_sz ) );
@@ -303,7 +286,7 @@ test_server( SSL_CTX * ctx ) {
   /* Clean up */
 
   fd_tls_estate_srv_delete( hs );
-  fd_tls_server_delete( fd_tls_server_leave( _server ) );
+  fd_tls_delete( fd_tls_leave( _server ) );
   SSL_free( ssl );
   fd_rng_delete( fd_rng_leave( rng ) );
   fd_sha512_delete( fd_sha512_leave( sha ) );
@@ -335,13 +318,14 @@ test_client( SSL_CTX * ctx ) {
   uchar server_private_key[ 32 ];
   for( ulong b=0; b<32UL; b++ ) server_private_key[b] = fd_rng_uchar( rng );
 
-  EVP_PKEY * server_pkey = fd_ed25519_pkey_from_private( server_private_key );
+  EVP_PKEY * server_pkey = EVP_PKEY_new_raw_private_key( EVP_PKEY_ED25519, NULL, server_private_key, 32UL );
   FD_TEST( server_pkey );
-  X509 * server_cert = fd_x509_gen_solana_cert( server_pkey );
   SSL_use_PrivateKey( ssl, server_pkey );
-  SSL_use_certificate( ssl, server_cert );
   EVP_PKEY_free( server_pkey );
-  X509_free( server_cert );
+
+  uchar cert[ FD_X509_MOCK_CERT_SZ ];
+  fd_x509_mock_cert( cert, server_private_key, fd_rng_ulong( rng ), sha );
+  SSL_use_certificate_ASN1( ssl, cert, FD_X509_MOCK_CERT_SZ );
 
   /* Set server QUIC transport params */
 
@@ -351,9 +335,9 @@ test_client( SSL_CTX * ctx ) {
 
   /* Create fd_tls instance */
 
-  fd_tls_client_t  _client[1];
-  fd_tls_client_t * client = fd_tls_client_join( fd_tls_client_new( _client ) );
-  *client = (fd_tls_client_t) {
+  fd_tls_t  _client[1];
+  fd_tls_t * client = fd_tls_join( fd_tls_new( _client ) );
+  *client = (fd_tls_t) {
     .rand       =  fd_tls_test_rand( rng ),
     .secrets_fn = _fdtls_secrets,
     .sendmsg_fn = _fdtls_sendmsg,
@@ -378,15 +362,8 @@ test_client( SSL_CTX * ctx ) {
 
   /* Set up client cert */
 
-  EVP_PKEY * client_pkey = fd_ed25519_pkey_from_private( client->cert_private_key );
-  X509 * client_cert = fd_x509_gen_solana_cert( client_pkey );
-  uchar * cert_out = NULL;
-  int cert_sz = i2d_X509( client_cert, &cert_out );
-  FD_TEST( cert_sz>0 );
-  fd_tls_server_set_x509( client, cert_out, (ulong)cert_sz );
-  EVP_PKEY_free( client_pkey );
-  X509_free( client_cert );
-  free( cert_out );
+  fd_x509_mock_cert( cert, client->cert_private_key, fd_rng_ulong( rng ), sha );
+  fd_tls_set_x509( client, cert, FD_X509_MOCK_CERT_SZ );
 
   /* Set client QUIC transport params */
 
@@ -411,7 +388,7 @@ test_client( SSL_CTX * ctx ) {
   /* Clean up */
 
   fd_tls_estate_cli_delete( hs );
-  fd_tls_client_delete( fd_tls_client_leave( client ) );
+  fd_tls_delete( fd_tls_leave( client ) );
   SSL_free( ssl );
   fd_rng_delete( fd_rng_leave( rng ) );
   fd_sha512_delete( fd_sha512_leave( sha ) );

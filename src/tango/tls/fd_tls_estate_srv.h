@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_tango_tls_fd_tls_estate_srv_h
 #define HEADER_fd_src_tango_tls_fd_tls_estate_srv_h
 
-#include "fd_tls.h"
+#include "fd_tls_base.h"
 
 /* fd_tls_estate_srv contains compressed TLS server handshake state
    while waiting for the client to send a message.  estate is optimized
