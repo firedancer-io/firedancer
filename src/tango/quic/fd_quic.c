@@ -20,7 +20,6 @@
 #include <openssl/evp.h>
 #include <openssl/x509.h>
 #include "../../ballet/ed25519/fd_ed25519.h"
-#include "../../ballet/ed25519/fd_ed25519_openssl.h"
 #include "../../ballet/x509/fd_x509_mock.h"
 #include <openssl/rand.h>
 
@@ -338,7 +337,7 @@ fd_quic_init( fd_quic_t * quic ) {
     fd_sha512_t sha[1];
     uchar cert_public_key[ 32 ];
     fd_ed25519_public_from_private( cert_public_key, cert_private_key, sha );
-    EVP_PKEY * cert_pkey = fd_ed25519_pkey_from_private( cert_private_key );
+    EVP_PKEY * cert_pkey = EVP_PKEY_new_raw_private_key( EVP_PKEY_ED25519, NULL, cert_private_key, 32UL );
     FD_TEST( cert_pkey );
 
     /* Generate X509 certificate */

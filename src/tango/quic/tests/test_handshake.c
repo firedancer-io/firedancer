@@ -6,7 +6,6 @@
 #include "../tls/fd_quic_tls.h"
 #include "../templ/fd_quic_transport_params.h"
 #include "../../../util/net/fd_ip4.h"
-#include "../../../ballet/ed25519/fd_ed25519_openssl.h"
 #include "../../../ballet/x509/fd_x509_mock.h"
 
 
@@ -88,7 +87,7 @@ main( int     argc,
   /* Generate certificate key */
   uchar cert_private_key[ 32 ];
   for( ulong b=0; b<32UL; b++ ) cert_private_key[b] = fd_rng_uchar( rng );
-  EVP_PKEY * cert_pkey = fd_ed25519_pkey_from_private( cert_private_key );
+  EVP_PKEY * cert_pkey = EVP_PKEY_new_raw_private_key( EVP_PKEY_ED25519, NULL, cert_private_key, 32UL );
   FD_TEST( cert_pkey );
 
   /* Generate X509 certificate */
