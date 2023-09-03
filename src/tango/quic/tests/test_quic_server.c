@@ -13,7 +13,6 @@
 #include "../../xdp/fd_xsk_aio.h"
 #include "../../xdp/fd_xdp_redirect_user.h"
 
-#include "../../../ballet/ed25519/fd_ed25519_openssl.h"
 #include "../../../ballet/x509/fd_x509_mock.h"
 
 int server_complete = 0;
@@ -89,7 +88,7 @@ main( int argc, char ** argv ) {
                             50, 51,  102, 25, 63, 110, 36,  28, 51, 11, 174, 179, 110, 8,  25,  152 };
   FD_LOG_HEXDUMP_NOTICE(( "Solana private key", pkey, 32 ));  /* TODO use base-58 format specifier */
   FD_LOG_HEXDUMP_NOTICE(( "Solana public key", pubkey, 32 ));  /* TODO use base-58 format specifier */
-  quic->cert_key_object = fd_ed25519_pkey_from_private( pkey );
+  quic->cert_key_object = EVP_PKEY_new_raw_private_key( EVP_PKEY_ED25519, NULL, pkey, 32UL );
 
   /* Generate X509 certificate */
   uchar cert_asn1[ FD_X509_MOCK_CERT_SZ ];
