@@ -111,8 +111,7 @@ test_tls_proto( void ) {
 
 /* Client/server integration test *************************************/
 
-#include "fd_tls_client.h"
-#include "fd_tls_server.h"
+#include "fd_tls2.h"
 #include "test_tls_helper.h"
 
 #include "../../ballet/ed25519/fd_ed25519.h"
@@ -138,7 +137,7 @@ test_tls_sendmsg( void const * hs,
 }
 
 static void
-test_tls_client_respond( fd_tls_client_t *     client,
+test_tls_client_respond( fd_tls_t *            client,
                          fd_tls_estate_cli_t * hs ) {
   test_record_t * rec;
   while( (rec = test_record_recv( &test_server_out )) ) {
@@ -151,7 +150,7 @@ test_tls_client_respond( fd_tls_client_t *     client,
 }
 
 static void
-test_tls_server_respond( fd_tls_server_t *     server,
+test_tls_server_respond( fd_tls_t *            server,
                          fd_tls_estate_srv_t * hs ) {
   test_record_t * rec;
   while( (rec = test_record_recv( &test_client_out )) ) {
@@ -178,17 +177,17 @@ test_tls_pair( void ) {
 
   /* Set up client and server objects */
 
-  fd_tls_client_t  _client[1];
-  fd_tls_client_t * client = fd_tls_client_join( fd_tls_client_new( _client ) );
-  *client = (fd_tls_client_t) {
+  fd_tls_t  _client[1];
+  fd_tls_t * client = fd_tls_join( fd_tls_new( _client ) );
+  *client = (fd_tls_t) {
     .rand       =  fd_tls_test_rand( rng ),
     .secrets_fn = test_tls_secrets,
     .sendmsg_fn = test_tls_sendmsg,
   };
 
-  fd_tls_server_t _server[1];
-  fd_tls_server_t * server = fd_tls_server_join( fd_tls_server_new( _server ) );
-  *server = (fd_tls_server_t) {
+  fd_tls_t _server[1];
+  fd_tls_t * server = fd_tls_join( fd_tls_new( _server ) );
+  *server = (fd_tls_t) {
     .rand       = fd_tls_test_rand( rng ),
     .secrets_fn = test_tls_secrets,
     .sendmsg_fn = test_tls_sendmsg,
@@ -244,8 +243,8 @@ test_tls_pair( void ) {
   test_server_hs = NULL;
   fd_tls_estate_srv_delete( srv_hs );
   fd_tls_estate_cli_delete( cli_hs );
-  fd_tls_server_delete( fd_tls_server_leave( server ) );
-  fd_tls_client_delete( fd_tls_client_leave( client ) );
+  fd_tls_delete( fd_tls_leave( server ) );
+  fd_tls_delete( fd_tls_leave( client ) );
   fd_rng_delete( fd_rng_leave( rng ) );
   fd_sha512_delete( fd_sha512_leave( sha ) );
 }
