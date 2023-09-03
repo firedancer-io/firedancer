@@ -18,7 +18,7 @@
 #include <openssl/err.h>
 #include <openssl/tls1.h>
 
-#include "fd_tls2.h"
+#include "fd_tls.h"
 #include "test_tls_helper.h"
 
 /* Map between encryption levels */
