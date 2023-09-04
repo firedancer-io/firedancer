@@ -1874,24 +1874,6 @@ out:
 }
 
 #ifdef TEMPORARY_LAXIST_DIRECTORY_STRING
-/*
- * Teletex string is not supposed to be supported and there is no good
- * defintiion of allowed charset. At the moment, we perform the check
- * using visible string charset. XXX we should revisit that later
- */
-/*@
-  @ requires ((len > 0) && (buf != \null)) ==> \valid_read(buf + (0 .. (len - 1)));
-  @
-  @ ensures \result < 0 || \result == 0;
-  @ ensures (len == 0) ==> \result < 0;
-  @ ensures (buf == \null) ==> \result < 0;
-  @
-  @ assigns \nothing;
-  @*/
-static int check_teletex_string(const uchar *buf, uint len)
-{
-  return check_visible_string(buf, len);
-}
 
 /*@
   @ requires ((len > 0) && (buf != \null)) ==> \valid_read(buf + (0 .. (len - 1)));
@@ -3353,26 +3335,13 @@ static const uchar _dn_oid_org[] =       { 0x06, 0x03, 0x55, 0x04, 0x0a };
 static const uchar _dn_oid_org_unit[] =  { 0x06, 0x03, 0x55, 0x04, 0x0b };
 static const uchar _dn_oid_title[] =     { 0x06, 0x03, 0x55, 0x04, 0x0c };
 static const uchar _dn_oid_name[] =      { 0x06, 0x03, 0x55, 0x04, 0x29 };
-static const uchar _dn_oid_emailaddress[] = { 0x06, 0x09, 0x2a, 0x86, 0x48,
-             0x86, 0xf7, 0x0d, 0x01, 0x09,
-             0x01  };
 static const uchar _dn_oid_given_name[] = { 0x06, 0x03, 0x55, 0x04, 0x2a };
-static const uchar _dn_oid_initials[] =  { 0x06, 0x03, 0x55, 0x04, 0x2b };
 static const uchar _dn_oid_gen_qual[] =  { 0x06, 0x03, 0x55, 0x04, 0x2c };
 static const uchar _dn_oid_dn_qual[] =   { 0x06, 0x03, 0x55, 0x04, 0x2e };
 static const uchar _dn_oid_pseudo[] =    { 0x06, 0x03, 0x55, 0x04, 0x41 };
 static const uchar _dn_oid_dc[] =        { 0x06, 0x0a, 0x09, 0x92, 0x26,
           0x89, 0x93, 0xf2, 0x2c, 0x64,
           0x01, 0x19 };
-static const uchar _dn_oid_ogrn[] =      { 0x06, 0x05, 0x2a, 0x85, 0x03,
-          0x64, 0x01 };
-static const uchar _dn_oid_snils[] =     { 0x06, 0x05, 0x2a, 0x85, 0x03,
-          0x64, 0x03 };
-static const uchar _dn_oid_ogrnip[] =    { 0x06, 0x05, 0x2a, 0x85, 0x03,
-          0x64, 0x05 };
-static const uchar _dn_oid_inn[] =       { 0x06, 0x08, 0x2a, 0x85, 0x03,
-          0x03, 0x81, 0x03, 0x01, 0x01 };
-static const uchar _dn_oid_street_address[] = { 0x06, 0x03, 0x55, 0x04, 0x09 };
 
 /*
  * Most RDN values are encoded using the directory string type
@@ -3385,7 +3354,6 @@ static const uchar _dn_oid_street_address[] = { 0x06, 0x03, 0x55, 0x04, 0x09 };
  * string.
  *
  *  DirectoryString ::= CHOICE {
- *        teletexString           TeletexString (SIZE (1..MAX)),
  *        printableString         PrintableString (SIZE (1..MAX)),
  *        universalString         UniversalString (SIZE (1..MAX)),
  *        utf8String              UTF8String (SIZE (1..MAX)),
@@ -3408,7 +3376,6 @@ static const uchar _dn_oid_street_address[] = { 0x06, 0x03, 0x55, 0x04, 0x09 };
 #define STR_TYPE_UTF8_STRING      12
 #define STR_TYPE_NUMERIC_STRING   18
 #define STR_TYPE_PRINTABLE_STRING 19
-#define STR_TYPE_TELETEX_STRING   20
 #define STR_TYPE_IA5_STRING       22
 #define STR_TYPE_VISIBLE_STRING   26
 #define STR_TYPE_UNIVERSAL_STRING 28
@@ -3475,12 +3442,6 @@ static int parse_directory_string(const uchar *buf, uint len, uint lb, uint ub)
      * profile MUST use either the PrintableString or UTF8String
      * encoding of DirectoryString, with two exceptions
      */
-  case STR_TYPE_TELETEX_STRING:
-    ret = check_teletex_string(buf, len);
-    if (ret) {
-      ERROR_TRACE_APPEND(X509_FILE_LINE_NUM_ERR);
-    }
-    break;
   case STR_TYPE_UNIVERSAL_STRING:
     ret = check_universal_string(buf, len);
     if (ret) {
@@ -3588,70 +3549,6 @@ out:
 }
 
 /*
- * Some RDN values are specifically encoded as NumericString. The function
- * verifies that. It returns -1 on error, 0 on success.
- */
-/*@
-  @ requires ((len > 0) && (buf != \null)) ==> \valid_read(buf + (0 .. (len - 1)));
-  @
-  @ ensures \result < 0 || \result == 0;
-  @ ensures \result == 0 ==> ((len >= 2) && (lb <= len - 2 <= ub));
-  @ ensures (len == 0) ==> \result < 0;
-  @ ensures (buf == \null) ==> \result < 0;
-  @
-  @ assigns \nothing;
-  @*/
-static int parse_numeric_string(const uchar *buf, uint len, uint lb, uint ub)
-{
-  int ret = -X509_FILE_LINE_NUM_ERR;
-  uchar str_type;
-
-  if ((buf == NULL) || (len == 0)) {
-    ret = -X509_FILE_LINE_NUM_ERR;
-    ERROR_TRACE_APPEND(X509_FILE_LINE_NUM_ERR);
-    goto out;
-  }
-
-  if (len < 2) {
-    ret = -X509_FILE_LINE_NUM_ERR;
-    ERROR_TRACE_APPEND(X509_FILE_LINE_NUM_ERR);
-    goto out;
-  }
-
-  str_type = buf[0];
-  if (str_type != STR_TYPE_NUMERIC_STRING) {
-    ret = -X509_FILE_LINE_NUM_ERR;
-    ERROR_TRACE_APPEND(X509_FILE_LINE_NUM_ERR);
-    goto out;
-  }
-
-  len -= 2;
-  if (buf[1] != len) {
-    ret = -X509_FILE_LINE_NUM_ERR;
-    ERROR_TRACE_APPEND(X509_FILE_LINE_NUM_ERR);
-    goto out;
-  }
-  buf += 2;
-
-  if ((len < lb) || (len > ub)) {
-    ret = -X509_FILE_LINE_NUM_ERR;
-    ERROR_TRACE_APPEND(X509_FILE_LINE_NUM_ERR);
-    goto out;
-  }
-
-  ret = check_numeric_string(buf, len);
-  if (ret) {
-    ERROR_TRACE_APPEND(X509_FILE_LINE_NUM_ERR);
-    goto out;
-  }
-
-  ret = 0;
-
-out:
-  return ret;
-}
-
-/*
  * As pointed by RFC 4519 and described by RFC 4517, IA5String
  * is defined in ABNF form as *(%x00-7F).
  */
@@ -3715,68 +3612,6 @@ out:
   return ret;
 }
 
-#ifdef TEMPORARY_LAXIST_EMAILADDRESS_WITH_UTF8_ENCODING
-/*@
-  @ requires ((len > 0) && (buf != \null)) ==> \valid_read(buf + (0 .. (len - 1)));
-  @
-  @ ensures \result < 0 || \result == 0;
-  @ ensures \result == 0 ==> ((len >= 2) && (lb <= len - 2 <= ub));
-  @ ensures (len == 0) ==> \result < 0;
-  @ ensures (buf == \null) ==> \result < 0;
-  @
-  @ assigns \nothing;
-  @*/
-static int parse_utf8_string(const uchar *buf, uint len, uint lb, uint ub)
-{
-  int ret = -X509_FILE_LINE_NUM_ERR;
-  uchar str_type;
-
-  if ((buf == NULL) || (len == 0)) {
-    ret = -X509_FILE_LINE_NUM_ERR;
-    ERROR_TRACE_APPEND(X509_FILE_LINE_NUM_ERR);
-    goto out;
-  }
-
-  if (len < 2) {
-    ret = -X509_FILE_LINE_NUM_ERR;
-    ERROR_TRACE_APPEND(X509_FILE_LINE_NUM_ERR);
-    goto out;
-  }
-
-  str_type = buf[0];
-  if (str_type != STR_TYPE_IA5_STRING) {
-    ret = -X509_FILE_LINE_NUM_ERR;
-    ERROR_TRACE_APPEND(X509_FILE_LINE_NUM_ERR);
-    goto out;
-  }
-
-  len -= 2;
-  if (buf[1] != len) {
-    ret = -X509_FILE_LINE_NUM_ERR;
-    ERROR_TRACE_APPEND(X509_FILE_LINE_NUM_ERR);
-    goto out;
-  }
-  buf += 2;
-
-  if ((len < lb) || (len > ub)) {
-    ret = -X509_FILE_LINE_NUM_ERR;
-    ERROR_TRACE_APPEND(X509_FILE_LINE_NUM_ERR);
-    goto out;
-  }
-
-  ret = check_utf8_string(buf, len);
-  if (ret) {
-    ERROR_TRACE_APPEND(X509_FILE_LINE_NUM_ERR);
-    goto out;
-  }
-
-  ret = 0;
-
-out:
-  return ret;
-}
-#endif
-
 /*
  *
  * -- Naming attributes of type X520CommonName:
@@ -3784,7 +3619,6 @@ out:
  * --
  * -- Expanded to avoid parameterized type:
  * X520CommonName ::= CHOICE {
- *       teletexString     TeletexString   (SIZE (1..ub-common-name)),
  *       printableString   PrintableString (SIZE (1..ub-common-name)),
  *       universalString   UniversalString (SIZE (1..ub-common-name)),
  *       utf8String        UTF8String      (SIZE (1..ub-common-name)),
@@ -3822,54 +3656,6 @@ static int parse_rdn_val_cn(const uchar *buf, uint len)
 static int parse_rdn_val_x520name(const uchar *buf, uint len)
 {
   return parse_directory_string(buf, len, 1, UB_NAME);
-}
-
-#define UB_EMAILADDRESS 255
-/*@
-  @ requires ((len > 0) && (buf != \null)) ==> \valid_read(buf + (0 .. (len - 1)));
-  @
-  @ ensures \result < 0 || \result == 0;
-  @ ensures (len == 0) ==> \result < 0;
-  @ ensures (buf == \null) ==> \result < 0;
-  @
-  @ assigns \nothing;
-  @*/
-static int parse_rdn_val_emailaddress(const uchar *buf, uint len)
-{
-  int ret;
-
-  /* RFC 5280 has:
-   *
-   * "Legacy implementations exist where an electronic mail address is
-   * embedded in the subject distinguished name as an emailAddress
-   * attribute [RFC2985].  The attribute value for emailAddress is of
-   * type IA5String to permit inclusion of the character '@', which is
-   * not part of the PrintableString character set.  emailAddress
-   * attribute values are not case-sensitive (e.g.,
-   * "subscriber@example.com" is the same as "SUBSCRIBER@EXAMPLE.COM").
-   *
-   * Conforming implementations generating new certificates with
-   * electronic mail addresses MUST use the rfc822Name in the subject
-   * alternative name extension (Section 4.2.1.6) to describe such
-   * identities.  Simultaneous inclusion of the emailAddress attribute
-   * in the subject distinguished name to support legacy implementations
-   * is deprecated but permitted."
-   */
-  ret = parse_ia5_string(buf, len, 1, UB_EMAILADDRESS);
-
-  /*
-   * As a side note, tests performed on our set indicates some
-   * implementations currently use UTF8 encoding for emailAddress.
-   * Hence the quirks below to support the (invalid) certificates
-   * generated by those implementations.
-   */
-#ifdef TEMPORARY_LAXIST_EMAILADDRESS_WITH_UTF8_ENCODING
-  if (ret) {
-    ret = parse_utf8_string(buf, len, 1, UB_EMAILADDRESS);
-  }
-#endif
-
-  return ret;
 }
 
 #define UB_SERIAL_NUMBER 64
@@ -4148,91 +3934,6 @@ static int parse_rdn_val_pseudo(const uchar *buf, uint len)
 }
 
 
-/* From section 5.1 of draft-deremin-rfc4491-bis-01 */
-
-/* OGRN is the main state registration number of juridical entities */
-#define UB_OGRN 13
-/*@
-  @ requires ((len > 0) && (buf != \null)) ==> \valid_read(buf + (0 .. (len - 1)));
-  @
-  @ ensures \result < 0 || \result == 0;
-  @ ensures (len == 0) ==> \result < 0;
-  @ ensures (buf == \null) ==> \result < 0;
-  @
-  @ assigns \nothing;
-  @*/
-static int parse_rdn_val_ogrn(const uchar *buf, uint len)
-{
-  return parse_numeric_string(buf, len, 1, UB_OGRN);
-}
-
-/* SNILS is the individual insurance account number */
-#define UB_SNILS 11
-/*@
-  @ requires ((len > 0) && (buf != \null)) ==> \valid_read(buf + (0 .. (len - 1)));
-  @
-  @ ensures \result < 0 || \result == 0;
-  @ ensures (len == 0) ==> \result < 0;
-  @ ensures (buf == \null) ==> \result < 0;
-  @
-  @ assigns \nothing;
-  @*/
-static int parse_rdn_val_snils(const uchar *buf, uint len)
-{
-  return parse_numeric_string(buf, len, 1, UB_SNILS);
-}
-
-/*
- * OGRNIP is the main state registration number of individual
- * enterpreneurs
- */
-#define UB_OGRNIP 15
-/*@
-  @ requires ((len > 0) && (buf != \null)) ==> \valid_read(buf + (0 .. (len - 1)));
-  @
-  @ ensures \result < 0 || \result == 0;
-  @ ensures (len == 0) ==> \result < 0;
-  @ ensures (buf == \null) ==> \result < 0;
-  @
-  @ assigns \nothing;
-  @*/
-static int parse_rdn_val_ogrnip(const uchar *buf, uint len)
-{
-  return parse_numeric_string(buf, len, 1, UB_OGRNIP);
-}
-
-/* INN is the individual taxpayer number (ITN). */
-#define UB_INN 12
-/*@
-  @ requires ((len > 0) && (buf != \null)) ==> \valid_read(buf + (0 .. (len - 1)));
-  @
-  @ ensures \result < 0 || \result == 0;
-  @ ensures (len == 0) ==> \result < 0;
-  @ ensures (buf == \null) ==> \result < 0;
-  @
-  @ assigns \nothing;
-  @*/
-static int parse_rdn_val_inn(const uchar *buf, uint len)
-{
-  return parse_numeric_string(buf, len, 1, UB_INN);
-}
-
-/* street address. */
-#define UB_STREET_ADDRESS 64 /* XXX FIXME Don't know what the limit is */
-/*@
-  @ requires ((len > 0) && (buf != \null)) ==> \valid_read(buf + (0 .. (len - 1)));
-  @
-  @ ensures \result < 0 || \result == 0;
-  @ ensures (len == 0) ==> \result < 0;
-  @ ensures (buf == \null) ==> \result < 0;
-  @
-  @ assigns \nothing;
-  @*/
-static int parse_rdn_val_street_address(const uchar *buf, uint len)
-{
-  return parse_directory_string(buf, len, 1, UB_STREET_ADDRESS);
-}
-
 typedef struct {
   const uchar *oid;
   uchar oid_len;
@@ -4300,16 +4001,8 @@ static const _name_oid known_dn_oids[] = {
     .oid_len = sizeof(_dn_oid_name),
     .parse_rdn_val = parse_rdn_val_x520name
   },
-  { .oid = _dn_oid_emailaddress,
-    .oid_len = sizeof(_dn_oid_emailaddress),
-    .parse_rdn_val = parse_rdn_val_emailaddress
-  },
   { .oid = _dn_oid_given_name,
     .oid_len = sizeof(_dn_oid_given_name),
-    .parse_rdn_val = parse_rdn_val_x520name
-  },
-  { .oid = _dn_oid_initials,
-    .oid_len = sizeof(_dn_oid_initials),
     .parse_rdn_val = parse_rdn_val_x520name
   },
   { .oid = _dn_oid_gen_qual,
@@ -4327,26 +4020,6 @@ static const _name_oid known_dn_oids[] = {
   { .oid = _dn_oid_dc,
     .oid_len = sizeof(_dn_oid_dc),
     .parse_rdn_val = parse_rdn_val_dc
-  },
-  { .oid = _dn_oid_ogrn,
-    .oid_len = sizeof(_dn_oid_ogrn),
-    .parse_rdn_val = parse_rdn_val_ogrn
-  },
-  { .oid = _dn_oid_snils,
-    .oid_len = sizeof(_dn_oid_snils),
-    .parse_rdn_val = parse_rdn_val_snils
-  },
-  { .oid = _dn_oid_ogrnip,
-    .oid_len = sizeof(_dn_oid_ogrnip),
-    .parse_rdn_val = parse_rdn_val_ogrnip
-  },
-  { .oid = _dn_oid_inn,
-    .oid_len = sizeof(_dn_oid_inn),
-    .parse_rdn_val = parse_rdn_val_inn
-  },
-  { .oid = _dn_oid_street_address,
-    .oid_len = sizeof(_dn_oid_street_address),
-    .parse_rdn_val = parse_rdn_val_street_address
   },
 };
 
@@ -4496,10 +4169,6 @@ static int parse_AttributeTypeAndValue(const uchar *buf, uint len, uint *eaten)
       parse_rdn_val_org, parse_rdn_val_org_unit,
       parse_rdn_val_title,  parse_rdn_val_dn_qual,
       parse_rdn_val_pseudo, parse_rdn_val_dc,
-      parse_rdn_val_ogrn, parse_rdn_val_snils,
-      parse_rdn_val_ogrnip, parse_rdn_val_inn,
-      parse_rdn_val_street_address,
-      parse_rdn_val_emailaddress,
       parse_rdn_val_bad_oid };
     @*/
   /*@ calls parse_rdn_val_cn, parse_rdn_val_x520name,
@@ -4508,10 +4177,6 @@ static int parse_AttributeTypeAndValue(const uchar *buf, uint len, uint *eaten)
       parse_rdn_val_org, parse_rdn_val_org_unit,
       parse_rdn_val_title, parse_rdn_val_dn_qual,
       parse_rdn_val_pseudo, parse_rdn_val_dc,
-      parse_rdn_val_ogrn, parse_rdn_val_snils,
-      parse_rdn_val_ogrnip, parse_rdn_val_inn,
-      parse_rdn_val_street_address,
-      parse_rdn_val_emailaddress,
       parse_rdn_val_bad_oid;
     @*/
   ret = cur->parse_rdn_val(buf, data_len);
