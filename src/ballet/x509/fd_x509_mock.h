@@ -9,7 +9,7 @@
    public keys.  As soon as raw public keys are implemented network
    wide, this code should be deleted. */
 
-#include "../fd_ballet_base.h"
+#include "../../util/fd_util_base.h"
 #include "../sha512/fd_sha512.h"
 
 /* FD_X509_MOCK_CERT_SZ is the byte size of the DER serialization of a

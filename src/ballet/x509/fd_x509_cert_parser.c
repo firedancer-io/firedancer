@@ -126,7 +126,7 @@ out:
  * version         [0]  EXPLICIT Version DEFAULT v1,
  */
 /*@
-  @ requires ((u64)off + (u64)len) <= UINT_MAX;
+  @ requires ((ulong)off + (ulong)len) <= UINT_MAX;
   @ requires ((len > 0) && (cert != \null)) ==> \valid_read(cert + (off .. (off + len - 1)));
   @ requires (eaten != NULL) ==> \valid(eaten);
   @ requires (version != NULL) ==> \valid(version);
@@ -189,7 +189,7 @@ out:
 
 /* Specification version for main serial number field of certificate */
 /*@
-  @ requires ((u64)off + (u64)len) <= UINT_MAX;
+  @ requires ((ulong)off + (ulong)len) <= UINT_MAX;
   @ requires ((len > 0) && (cert != \null)) ==> \valid_read(cert + (off .. (off + len - 1)));
   @ requires (eaten != NULL) ==> \valid(eaten);
   @ requires (ctx != NULL) ==> \valid(ctx);
@@ -255,7 +255,7 @@ out:
  * OID are 1.3.101.112 for Ed25519 and 1.3.101.113 for Ed448.
  */
 /*@
-  @ requires ((u64)off + (u64)len) <= UINT_MAX;
+  @ requires ((ulong)off + (ulong)len) <= UINT_MAX;
   @ requires ((len > 0) && (cert != \null)) ==> \valid_read(cert + (off .. (off + len - 1)));
   @ requires (raw_pub_off != NULL) ==> \valid(raw_pub_off);
   @ requires (raw_pub_len != NULL) ==> \valid(raw_pub_len);
@@ -332,7 +332,7 @@ out:
 
 #define ED25519_PUB_LEN 32
 /*@
-  @ requires ((u64)off + (u64)len) <= UINT_MAX;
+  @ requires ((ulong)off + (ulong)len) <= UINT_MAX;
   @ requires ((len > 0) && (cert != \null)) ==> \valid_read(cert + (off .. (off + len - 1)));
   @ requires (ctx != NULL) ==> \valid(ctx);
   @ requires \separated(cert+(..),ctx);
@@ -354,7 +354,7 @@ static int parse_pubkey_ed25519(cert_parsing_ctx *ctx,
 
 #define X25519_PUB_LEN ED25519_PUB_LEN
 /*@
-  @ requires ((u64)off + (u64)len) <= UINT_MAX;
+  @ requires ((ulong)off + (ulong)len) <= UINT_MAX;
   @ requires ((len > 0) && (cert != \null)) ==> \valid_read(cert + (off .. (off + len - 1)));
   @ requires (ctx != NULL) ==> \valid(ctx);
   @ requires \separated(cert+(..),ctx);
@@ -376,7 +376,7 @@ static int parse_pubkey_x25519(cert_parsing_ctx *ctx,
 
 
 /*@
-  @ requires ((u64)off + (u64)len) <= UINT_MAX;
+  @ requires ((ulong)off + (ulong)len) <= UINT_MAX;
   @ requires ((len > 0) && (cert != \null)) ==> \valid_read(cert + (off .. (off + len - 1)));
   @ requires (ctx != NULL) ==> \valid(ctx);
   @ requires \separated(cert+(..), ctx);
@@ -409,7 +409,7 @@ out:
 }
 
 /*@
-  @ requires ((u64)off + (u64)len) <= UINT_MAX;
+  @ requires ((ulong)off + (ulong)len) <= UINT_MAX;
   @ requires ((len > 0) && (cert != \null)) ==> \valid_read(cert + (off .. (off + len - 1)));
   @ requires (ctx != NULL) ==> \valid(ctx);
   @ requires \separated(cert+(..), ctx);
@@ -474,7 +474,7 @@ out:
  * information on success.
  */
 /*@
-  @ requires ((u64)off + (u64)len) <= UINT_MAX;
+  @ requires ((ulong)off + (ulong)len) <= UINT_MAX;
   @ requires ((len > 0) && (cert != \null)) ==> \valid_read(cert + (off .. (off + len - 1)));
   @ requires (ctx != NULL) ==> \valid(ctx);
   @ requires (alg != NULL) ==> \valid(alg);
@@ -571,7 +571,7 @@ static int parse_x509_tbsCert_sig_AlgorithmIdentifier(cert_parsing_ctx *ctx,
       parse_algoid_sig_params_eddsa,
       parse_algoid_sig_params_none }; @*/
   /*@ calls parse_algoid_sig_params_eddsa,
-      parse_algoid_sig_params_none,; @*/
+      parse_algoid_sig_params_none; @*/
   ret = talg->parse_algoid_sig_params(&ctx->sig_alg_params, &ctx->hash_alg, cert, off, param_len);
   if (ret) {
     ERROR_TRACE_APPEND(X509_FILE_LINE_NUM_ERR);
@@ -598,7 +598,7 @@ out:
 }
 
 /*@
-  @ requires ((u64)off + (u64)len) <= UINT_MAX;
+  @ requires ((ulong)off + (ulong)len) <= UINT_MAX;
   @ requires ((len > 0) && (cert != \null)) ==> \valid_read(cert + (off .. (off + len - 1)));
   @ requires (eaten != NULL) ==> \valid(eaten);
   @ requires (alg != NULL) ==> \valid(alg);
@@ -615,12 +615,6 @@ out:
   @ ensures (\result == 0) ==> \initialized(&(ctx->spki_alg));
   @ ensures (\result == 0) ==> \initialized(&(ctx->spki_alg_oid_start));
   @ ensures (\result == 0) ==> \initialized(&(ctx->spki_alg_oid_len));
-  @ ensures (\result == 0) && (*alg)->parse_pubkey == parse_pubkey_bign ==> \initialized(&(ctx->spki_alg_params.bign.curve_order_bit_len));
-  @ ensures (\result == 0) && (*alg)->parse_pubkey == parse_pubkey_bign ==> \initialized(&(ctx->spki_alg_params.bign.curve));
-  @ ensures (\result == 0) && (*alg)->parse_pubkey == parse_pubkey_bign ==> ctx->spki_alg_params.bign.curve_order_bit_len <= 571;
-  @ ensures (\result == 0) && (*alg)->parse_pubkey == parse_pubkey_ec ==> \initialized(&(ctx->spki_alg_params.ecpubkey.curve_order_bit_len));
-  @ ensures (\result == 0) && (*alg)->parse_pubkey == parse_pubkey_ec ==> ctx->spki_alg_params.ecpubkey.curve_order_bit_len <= 571;
-  @ ensures (\result == 0) && (*alg)->parse_pubkey == parse_pubkey_ec ==> \initialized(&(ctx->spki_alg_params.ecpubkey.curve));
   @
   @ assigns *alg, *eaten, *ctx;
   @*/
@@ -685,16 +679,10 @@ static int parse_x509_pubkey_AlgorithmIdentifier(cert_parsing_ctx *ctx,
   param_len = data_len - oid_len;
 
   /*@ assert talg->parse_algoid_pubkey_params \in {
-       parse_algoid_pubkey_params_ecPublicKey,
        parse_algoid_pubkey_params_ed25519,
-       parse_algoid_pubkey_params_x25519,
-       parse_algoid_pubkey_params_none,
-       parse_algoid_pubkey_params_bign}; @*/
-  /*@ calls parse_algoid_pubkey_params_ecPublicKey,
-       parse_algoid_pubkey_params_ed25519,
-       parse_algoid_pubkey_params_x25519,
-       parse_algoid_pubkey_params_none,
-       parse_algoid_pubkey_params_bign; @*/
+       parse_algoid_pubkey_params_x25519}; @*/
+  /*@ calls parse_algoid_pubkey_params_ed25519,
+       parse_algoid_pubkey_params_x25519; @*/
   ret = talg->parse_algoid_pubkey_params(ctx, cert, off, param_len);
   if (ret) {
     ERROR_TRACE_APPEND(X509_FILE_LINE_NUM_ERR);
@@ -704,32 +692,9 @@ static int parse_x509_pubkey_AlgorithmIdentifier(cert_parsing_ctx *ctx,
   ctx->spki_alg_oid_params_start = off;
   ctx->spki_alg_oid_params_len = param_len;
 
-  /*@ assert talg->parse_algoid_pubkey_params == parse_algoid_pubkey_params_bign ==> \initialized(&(ctx->spki_alg_params.bign.curve_order_bit_len)); */
-  /*@ assert talg->parse_algoid_pubkey_params == parse_algoid_pubkey_params_bign ==> ctx->spki_alg_params.bign.curve_order_bit_len <= 571; */
-  /*@ assert talg->parse_algoid_pubkey_params == parse_algoid_pubkey_params_bign ==> \initialized(&(ctx->spki_alg_params.bign.curve)); */
-
-  /*@ assert talg->parse_algoid_pubkey_params == parse_algoid_pubkey_params_ecPublicKey ==> \initialized(&(ctx->spki_alg_params.ecpubkey.curve_order_bit_len)); */
-  /*@ assert talg->parse_algoid_pubkey_params == parse_algoid_pubkey_params_ecPublicKey ==> ctx->spki_alg_params.ecpubkey.curve_order_bit_len <= 571; */
-  /*@ assert talg->parse_algoid_pubkey_params == parse_algoid_pubkey_params_ecPublicKey ==> \initialized(&(ctx->spki_alg_params.ecpubkey.curve)); */
-
-  /*@ assert talg->parse_pubkey == parse_pubkey_bign ==> \initialized(&(ctx->spki_alg_params.bign.curve_order_bit_len)); */
-  /*@ assert talg->parse_pubkey == parse_pubkey_bign ==> ctx->spki_alg_params.bign.curve_order_bit_len <= 571; */
-  /*@ assert talg->parse_pubkey == parse_pubkey_bign ==> \initialized(&(ctx->spki_alg_params.bign.curve)); */
-
-  /*@ assert talg->parse_pubkey == parse_pubkey_ec ==> \initialized(&(ctx->spki_alg_params.ecpubkey.curve_order_bit_len)); */
-  /*@ assert talg->parse_pubkey == parse_pubkey_ec ==> ctx->spki_alg_params.ecpubkey.curve_order_bit_len <= 571; */
-  /*@ assert talg->parse_pubkey == parse_pubkey_ec ==> \initialized(&(ctx->spki_alg_params.ecpubkey.curve)); */
-
   parsed = hdr_len + data_len;
   /*@ assert 1 < parsed <= len; */
   *alg = talg;
-  /*@ assert (*alg)->parse_pubkey == parse_pubkey_bign ==> \initialized(&(ctx->spki_alg_params.bign.curve_order_bit_len)); */
-  /*@ assert (*alg)->parse_pubkey == parse_pubkey_bign ==> ctx->spki_alg_params.bign.curve_order_bit_len <= 571; */
-  /*@ assert (*alg)->parse_pubkey == parse_pubkey_bign ==> \initialized(&(ctx->spki_alg_params.bign.curve)); */
-
-  /*@ assert (*alg)->parse_pubkey == parse_pubkey_ec ==> \initialized(&(ctx->spki_alg_params.ecpubkey.curve_order_bit_len)); */
-  /*@ assert (*alg)->parse_pubkey == parse_pubkey_ec ==> ctx->spki_alg_params.ecpubkey.curve_order_bit_len <= 571; */
-  /*@ assert (*alg)->parse_pubkey == parse_pubkey_ec ==> \initialized(&(ctx->spki_alg_params.ecpubkey.curve)); */
   *eaten = parsed;
   /*@ assert 1 < *eaten <= len; */
   ctx->spki_alg = talg->pubkey_id;
@@ -751,7 +716,7 @@ out:
  * is indeed before notAfter, etc).
  */
 /*@
-  @ requires ((u64)off + (u64)len) <= UINT_MAX;
+  @ requires ((ulong)off + (ulong)len) <= UINT_MAX;
   @ requires ((len > 0) && (cert != \null)) ==> \valid_read(cert + (off .. (off + len - 1)));
   @ requires (ctx != NULL) ==> \valid(ctx);
   @ requires (eaten != NULL) ==> \valid(eaten);
@@ -888,7 +853,7 @@ out:
  *
  */
 /*@
-  @ requires ((u64)off + (u64)len) <= UINT_MAX;
+  @ requires ((ulong)off + (ulong)len) <= UINT_MAX;
   @ requires ((len > 0) && (cert != \null)) ==> \valid_read(cert + (off .. (off + len - 1)));
   @ requires (ctx != NULL) ==> \valid(ctx);
   @ requires (eaten != NULL) ==> \valid(eaten);
@@ -937,13 +902,6 @@ static int parse_x509_subjectPublicKeyInfo(cert_parsing_ctx *ctx,
     goto out;
   }
 
-  /*@ assert alg->parse_pubkey == parse_pubkey_bign ==> \initialized(&(ctx->spki_alg_params.bign.curve_order_bit_len)); */
-  /*@ assert alg->parse_pubkey == parse_pubkey_ec ==> ctx->spki_alg_params.bign.curve_order_bit_len <= 571; */
-  /*@ assert alg->parse_pubkey == parse_pubkey_bign ==> \initialized(&(ctx->spki_alg_params.bign.curve)); */
-  /*@ assert alg->parse_pubkey == parse_pubkey_ec ==> \initialized(&(ctx->spki_alg_params.ecpubkey.curve_order_bit_len)); */
-  /*@ assert alg->parse_pubkey == parse_pubkey_ec ==> ctx->spki_alg_params.ecpubkey.curve_order_bit_len <= 571; */
-  /*@ assert alg->parse_pubkey == parse_pubkey_ec ==> \initialized(&(ctx->spki_alg_params.ecpubkey.curve)); */
-
   buf += parsed;
   remain -= parsed;
   off += parsed;
@@ -960,13 +918,9 @@ static int parse_x509_subjectPublicKeyInfo(cert_parsing_ctx *ctx,
 
   /*@ assert alg->parse_pubkey \in {
       parse_pubkey_ed25519,
-      parse_pubkey_x25519,
-      parse_pubkey_ec,
-      parse_pubkey_bign } ; @*/
+      parse_pubkey_x25519 } ; @*/
   /*@ calls parse_pubkey_ed25519,
-      parse_pubkey_x25519,
-      parse_pubkey_ec,
-      parse_pubkey_bign ; @*/
+      parse_pubkey_x25519; @*/
   ret = alg->parse_pubkey(ctx, cert, off, remain);
   if (ret) {
     ERROR_TRACE_APPEND(X509_FILE_LINE_NUM_ERR);
@@ -1075,7 +1029,7 @@ out:
 
 
 /*@
-  @ requires ((u64)off + (u64)len) <= UINT_MAX;
+  @ requires ((ulong)off + (ulong)len) <= UINT_MAX;
   @ requires ((len > 0) && (cert != \null)) ==> \valid_read(cert + (off .. (off + len - 1)));
   @ requires (ctx != NULL) ==> \valid(ctx);
   @ requires \separated(ctx, cert+(..));
@@ -1130,7 +1084,7 @@ out:
  *
  */
 /*@
-  @ requires ((u64)off + (u64)len) <= UINT_MAX;
+  @ requires ((ulong)off + (ulong)len) <= UINT_MAX;
   @ requires ((len > 0) && (cert != \null)) ==> \valid_read(cert + (off .. (off + len - 1)));
   @ requires (ctx != NULL) ==> \valid(ctx);
   @ requires \separated(ctx, cert+(..));
@@ -1300,7 +1254,7 @@ out:
  * KeyIdentifier ::= OCTET STRING
  */
 /*@
-  @ requires ((u64)off + (u64)len) <= UINT_MAX;
+  @ requires ((ulong)off + (ulong)len) <= UINT_MAX;
   @ requires ((len > 0) && (cert != \null)) ==> \valid_read(cert + (off .. (off + len - 1)));
   @ requires (ctx != NULL) ==> \valid(ctx);
   @ requires \separated(ctx,cert+(..));
@@ -1418,7 +1372,7 @@ out:
 #define KU_decipherOnly      0x0100
 
 /*@
-  @ requires ((u64)off + (u64)len) <= UINT_MAX;
+  @ requires ((ulong)off + (ulong)len) <= UINT_MAX;
   @ requires ((len > 0) && (cert != \null)) ==> \valid_read(cert + (off .. (off + len - 1)));
   @ requires (ctx != NULL) ==> \valid(ctx);
   @ requires \separated(ctx, cert+(..));
@@ -2017,7 +1971,7 @@ out:
  *
  */
 /*@
-  @ requires ((u64)off + (u64)len) <= UINT_MAX;
+  @ requires ((ulong)off + (ulong)len) <= UINT_MAX;
   @ requires ((len > 0) && (cert != \null)) ==> \valid_read(cert + (off .. (off + len - 1)));
   @ requires (ctx != NULL) ==> \valid(ctx);
   @ requires \separated(ctx, cert+(..));
@@ -2116,7 +2070,7 @@ out:
  *
  */
 /*@
-  @ requires ((u64)off + (u64)len) <= UINT_MAX;
+  @ requires ((ulong)off + (ulong)len) <= UINT_MAX;
   @ requires ((len > 0) && (cert != \null)) ==> \valid_read(cert + (off .. (off + len - 1)));
   @ requires (ctx != NULL) ==> \valid(ctx);
   @ requires \separated(ctx,cert+(..));
@@ -2263,7 +2217,7 @@ out:
  *
  */
 /*@
-  @ requires ((u64)off + (u64)len) <= UINT_MAX;
+  @ requires ((ulong)off + (ulong)len) <= UINT_MAX;
   @ requires ((len > 0) && (cert != \null)) ==> \valid_read(cert + (off .. (off + len - 1)));
   @ requires (ctx != NULL) ==> \valid(ctx);
   @ requires \separated(ctx, cert+(..));
@@ -2388,7 +2342,7 @@ out:
 
 /* 4.2.1.7. Issuer Alternative Name */
 /*@
-  @ requires ((u64)off + (u64)len) <= UINT_MAX;
+  @ requires ((ulong)off + (ulong)len) <= UINT_MAX;
   @ requires ((len > 0) && (cert != \null)) ==> \valid_read(cert + (off .. (off + len - 1)));
   @ requires (ctx != NULL) ==> \valid(ctx);
   @ requires \separated(ctx, cert+(..));
@@ -2502,7 +2456,7 @@ out:
  *
  */
 /*@
-  @ requires ((u64)off + (u64)len) <= UINT_MAX;
+  @ requires ((ulong)off + (ulong)len) <= UINT_MAX;
   @ requires ((len > 0) && (cert != \null)) ==> \valid_read(cert + (off .. (off + len - 1)));
   @ requires (ctx != NULL) ==> \valid(ctx);
   @ requires \separated(ctx, cert+(..));
@@ -2606,7 +2560,7 @@ out:
  *
  */
 /*@
-  @ requires ((u64)off + (u64)len) <= UINT_MAX;
+  @ requires ((ulong)off + (ulong)len) <= UINT_MAX;
   @ requires ((len > 0) && (cert != \null)) ==> \valid_read(cert + (off .. (off + len - 1)));
   @ requires (ctx != NULL) ==> \valid(ctx);
   @ requires \separated(ctx, cert+(..));
@@ -2840,7 +2794,7 @@ out:
 
 
 /*@
-  @ requires ((u64)off + (u64)len) <= UINT_MAX;
+  @ requires ((ulong)off + (ulong)len) <= UINT_MAX;
   @ requires ((len > 0) && (cert != \null)) ==> \valid_read(cert + (off .. (off + len - 1)));
   @ requires (ctx != NULL) ==> \valid(ctx);
   @ requires \separated(ctx, cert+(..));
@@ -2963,7 +2917,7 @@ out:
  *
  */
 /*@
-  @ requires ((u64)off + (u64)len) <= UINT_MAX;
+  @ requires ((ulong)off + (ulong)len) <= UINT_MAX;
   @ requires ((len > 0) && (cert != \null)) ==> \valid_read(cert + (off .. (off + len - 1)));
   @ requires (ctx != NULL) ==> \valid(ctx);
   @ requires \separated(ctx, cert+(..));
@@ -3202,7 +3156,7 @@ out:
  *
  */
 /*@
-  @ requires ((u64)off + (u64)len) <= UINT_MAX;
+  @ requires ((ulong)off + (ulong)len) <= UINT_MAX;
   @ requires ((len > 0) && (cert != \null)) ==> \valid_read(cert + (off .. (off + len - 1)));
   @ requires (ctx != NULL) ==> \valid(ctx);
   @ requires \separated(ctx, cert+(..));
@@ -3308,7 +3262,7 @@ out:
  * and parse_crl_ext_FreshestCRL().
  */
 /*@
-  @ requires ((u64)off + (u64)len) <= UINT_MAX;
+  @ requires ((ulong)off + (ulong)len) <= UINT_MAX;
   @ requires ((len > 0) && (cert != \null)) ==> \valid_read(cert + (off .. (off + len - 1)));
   @ requires (ctx != NULL) ==> \valid(ctx);
   @ requires \separated(ctx, cert+(..));
@@ -3395,7 +3349,7 @@ out:
  * SkipCerts ::= INTEGER (0..MAX)
  */
 /*@
-  @ requires ((u64)off + (u64)len) <= UINT_MAX;
+  @ requires ((ulong)off + (ulong)len) <= UINT_MAX;
   @ requires ((len > 0) && (cert != \null)) ==> \valid_read(cert + (off .. (off + len - 1)));
   @ requires (ctx != NULL) ==> \valid(ctx);
   @ requires \separated(ctx, cert+(..));
@@ -3491,7 +3445,7 @@ static const uchar _ext_oid_FreshestCRL[] =       { 0x06, 0x03, 0x55, 0x1d, 0x2e
 static const uchar _ext_oid_inhibitAnyPolicy[] =  { 0x06, 0x03, 0x55, 0x1d, 0x36 };
 
 /*@
-  @ requires ((u64)off + (u64)len) <= UINT_MAX;
+  @ requires ((ulong)off + (ulong)len) <= UINT_MAX;
   @ requires ((len > 0) && (cert != \null)) ==> \valid_read(cert + (off .. (off + len - 1)));
   @ requires (ctx != NULL) ==> \valid(ctx);
   @ requires \separated(ctx, cert+(..));
@@ -3866,7 +3820,7 @@ out:
  *       }
  */
 /*@
-  @ requires ((u64)off + (u64)len) <= UINT_MAX;
+  @ requires ((ulong)off + (ulong)len) <= UINT_MAX;
   @ requires ((len > 0) && (cert != \null)) ==> \valid_read(cert + (off .. (off + len - 1)));
   @ requires (eaten != NULL) ==> \valid(eaten);
   @ requires (ctx != NULL) ==> \valid(ctx);
@@ -4109,7 +4063,7 @@ out:
  *
  */
 /*@
-  @ requires ((u64)off + (u64)len) <= UINT_MAX;
+  @ requires ((ulong)off + (ulong)len) <= UINT_MAX;
   @ requires ((len > 0) && (cert != \null)) ==> \valid_read(cert + (off .. (off + len - 1)));
   @ requires (eaten != NULL) ==> \valid(eaten);
   @ requires (ctx != NULL) ==> \valid(ctx);
@@ -4256,7 +4210,7 @@ out:
  * algorithm found in the signatureAlgorithm field of the certificate.
  */
 /*@
-  @ requires ((u64)off + (u64)len) <= UINT_MAX;
+  @ requires ((ulong)off + (ulong)len) <= UINT_MAX;
   @ requires ((len > 0) && (cert != \null)) ==> \valid_read(cert + (off .. (off + len - 1)));
   @ requires (eaten != NULL) ==> \valid(eaten);
   @ requires (ctx != NULL) ==> \valid(ctx);
@@ -4602,7 +4556,7 @@ out:
  * using the pointers in the context.
  */
 /*@
-  @ requires ((u64)off + (u64)len) <= UINT_MAX;
+  @ requires ((ulong)off + (ulong)len) <= UINT_MAX;
   @ requires ((len > 0) && (cert != \null)) ==> \valid_read(cert + (0 .. (off + len - 1)));
   @ requires (eaten != NULL) ==> \valid(eaten);
   @ requires (ctx != NULL) ==> \valid(ctx);
@@ -4662,7 +4616,7 @@ out:
 
 
 /*@
-  @ requires ((u64)off + (u64)len) <= UINT_MAX;
+  @ requires ((ulong)off + (ulong)len) <= UINT_MAX;
   @ requires ((len > 0) && (cert != \null)) ==> \valid_read(cert + (off .. (off + len - 1)));
   @ requires (sig_alg != \null) ==> \valid_read(sig_alg) && \valid_function(sig_alg->parse_sig);
   @ requires (\initialized(&ctx->sig_alg));
@@ -4704,7 +4658,6 @@ static int parse_x509_signatureValue(cert_parsing_ctx *ctx,
   /*@ assert \valid(params); */
 
   /*@ assert sig_alg->parse_sig \in {
-      parse_sig_ed448,
       parse_sig_ed25519 }; @*/
   /*@ calls parse_sig_ed25519; @*/
   ret = sig_alg->parse_sig(params, cert, off, len, eaten);
