@@ -75,6 +75,18 @@ fd_aesni_decrypt( uchar const *  in,
                   uchar *        out,
                   fd_aes_key_t * key );
 
+#define fd_aes_encrypt         fd_aesni_encrypt
+#define fd_aes_decrypt         fd_aesni_decrypt
+#define fd_aes_set_encrypt_key fd_aesni_set_encrypt_key
+#define fd_aes_set_decrypt_key fd_aesni_set_decrypt_key
+
+#else
+
+#define fd_aes_encrypt         fd_aes_ref_encrypt_core
+#define fd_aes_decrypt         fd_aes_ref_encrypt_core
+#define fd_aes_set_encrypt_key fd_aes_ref_set_encrypt_key
+#define fd_aes_set_decrypt_key fd_aes_ref_set_decrypt_key
+
 #endif /* FD_HAS_AESNI */
 
 #endif /* HEADER_fd_src_ballet_aes_fd_aes_private_h */

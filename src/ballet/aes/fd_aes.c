@@ -27,7 +27,7 @@ fd_aes_gcm_setiv( fd_aes_gcm_t * gcm,
   gcm->Xi.u[0] = 0;
   gcm->Xi.u[1] = 0;
 
-  fd_aesni_encrypt( gcm->Yi.c, gcm->EK0.c, &gcm->key );
+  fd_aes_encrypt( gcm->Yi.c, gcm->EK0.c, &gcm->key );
   ctr++;
 
   gcm->Yi.d[3] = fd_uint_bswap( ctr );
@@ -46,13 +46,13 @@ fd_aes_gcm_init( fd_aes_gcm_t * gcm,
   fd_aes_key_t * ks = &gcm->key;
 
   ulong key_bitcnt = key_sz << 3UL;
-  fd_aesni_set_encrypt_key( key, key_bitcnt, ks );
+  fd_aes_set_encrypt_key( key, key_bitcnt, ks );
 
-  fd_aesni_encrypt( gcm->H.c, gcm->H.c, ks );
+  fd_aes_encrypt( gcm->H.c, gcm->H.c, ks );
   gcm->H.u[ 0 ] = fd_ulong_bswap( gcm->H.u[ 0 ] );
   gcm->H.u[ 1 ] = fd_ulong_bswap( gcm->H.u[ 1 ] );
 
-  fd_gcm_init_avx( gcm->Htable, gcm->H.u );
+  fd_gcm_init( gcm->Htable, gcm->H.u );
   fd_aes_gcm_setiv( gcm, iv );
 }
 
@@ -79,7 +79,7 @@ fd_gcm128_aad( fd_aes_gcm_t * aes_gcm,
       n = (n + 1) % 16;
     }
     if (n == 0)
-      fd_gcm_gmult_avx( aes_gcm->Xi.u, aes_gcm->Htable );
+      fd_gcm_gmult( aes_gcm->Xi.u, aes_gcm->Htable );
     else {
       aes_gcm->ares = n;
       return 0;
@@ -87,7 +87,7 @@ fd_gcm128_aad( fd_aes_gcm_t * aes_gcm,
   }
   ulong i;
   if ((i = (aad_sz & (ulong)-16))) {
-    fd_gcm_ghash_avx( aes_gcm->Xi.u, aes_gcm->Htable, aad, i );
+    fd_gcm_ghash( aes_gcm->Xi.u, aes_gcm->Htable, aad, i );
     aad += i;
     aad_sz -= i;
   }
@@ -124,7 +124,7 @@ fd_gcm128_encrypt( fd_aes_gcm_t * ctx,
   if (ctx->ares) {
     /* First call to encrypt finalizes GHASH(AAD) */
     if (len == 0) {
-      fd_gcm_gmult_avx( ctx->Xi.u, ctx->Htable );
+      fd_gcm_gmult( ctx->Xi.u, ctx->Htable );
       ctx->ares = 0;
       return 0;
     }
@@ -140,14 +140,14 @@ fd_gcm128_encrypt( fd_aes_gcm_t * ctx,
   n = mres % 16;
   for (i = 0; i < len; ++i) {
     if (n == 0) {
-      fd_aesni_encrypt( ctx->Yi.c, ctx->EKi.c, key );
+      fd_aes_encrypt( ctx->Yi.c, ctx->EKi.c, key );
       ++ctr;
       ctx->Yi.d[3] = fd_uint_bswap( ctr );
     }
     ctx->Xn[mres++] = out[i] = in[i] ^ ctx->EKi.c[n];
     n = (n + 1) % 16;
     if (mres == sizeof(ctx->Xn)) {
-      fd_gcm_ghash_avx( ctx->Xi.u, ctx->Htable, ctx->Xn, sizeof(ctx->Xn) );
+      fd_gcm_ghash( ctx->Xi.u, ctx->Htable, ctx->Xn, sizeof(ctx->Xn) );
       mres = 0;
     }
   }
@@ -177,7 +177,7 @@ fd_gcm128_decrypt( fd_aes_gcm_t * ctx,
   if (ctx->ares) {
     /* First call to decrypt finalizes GHASH(AAD) */
     if (len == 0) {
-      fd_gcm_gmult_avx( ctx->Xi.u, ctx->Htable );
+      fd_gcm_gmult( ctx->Xi.u, ctx->Htable );
       ctx->ares = 0;
       return 0;
     }
@@ -194,14 +194,14 @@ fd_gcm128_decrypt( fd_aes_gcm_t * ctx,
   for (i = 0; i < len; ++i) {
     uchar c;
     if (n == 0) {
-      fd_aesni_encrypt( ctx->Yi.c, ctx->EKi.c, key );
+      fd_aes_encrypt( ctx->Yi.c, ctx->EKi.c, key );
       ++ctr;
       ctx->Yi.d[3] = fd_uint_bswap( ctr );
     }
     out[i] = (ctx->Xn[mres++] = c = in[i]) ^ ctx->EKi.c[n];
     n = (n + 1) % 16;
     if (mres == sizeof(ctx->Xn)) {
-      fd_gcm_ghash_avx( ctx->Xi.u, ctx->Htable, ctx->Xn, sizeof(ctx->Xn) );
+      fd_gcm_ghash( ctx->Xi.u, ctx->Htable, ctx->Xn, sizeof(ctx->Xn) );
       mres = 0;
     }
   }
@@ -228,11 +228,11 @@ fd_gcm128_finish( fd_aes_gcm_t * ctx ) {
     memset(ctx->Xn + mres, 0, blocks - mres);
     mres = blocks;
     if (mres == sizeof(ctx->Xn)) {
-      fd_gcm_ghash_avx( ctx->Xi.u, ctx->Htable, ctx->Xn, mres );
+      fd_gcm_ghash( ctx->Xi.u, ctx->Htable, ctx->Xn, mres );
       mres = 0;
     }
   } else if( ctx->ares ) {
-    fd_gcm_gmult_avx( ctx->Xi.u, ctx->Htable );
+    fd_gcm_gmult( ctx->Xi.u, ctx->Htable );
   }
 
   alen = fd_ulong_bswap( alen );
@@ -242,7 +242,7 @@ fd_gcm128_finish( fd_aes_gcm_t * ctx ) {
   bitlen.lo = clen;
   memcpy( ctx->Xn + mres, &bitlen, sizeof(bitlen) );
   mres += (uint)sizeof(bitlen);
-  fd_gcm_ghash_avx( ctx->Xi.u, ctx->Htable, ctx->Xn, mres );
+  fd_gcm_ghash( ctx->Xi.u, ctx->Htable, ctx->Xn, mres );
 
   ctx->Xi.u[0] ^= ctx->EK0.u[0];
   ctx->Xi.u[1] ^= ctx->EK0.u[1];
@@ -260,6 +260,7 @@ fd_aes_gcm_aead_encrypt( fd_aes_gcm_t * aes_gcm,
   fd_gcm128_aad( aes_gcm, aad, aad_sz );
 
   ulong bulk = 0UL;
+# if FD_HAS_AESNI
   if( sz>=32UL ) {
     ulong res = (16UL - aes_gcm->mres ) % 16UL;
     FD_TEST( 0==fd_gcm128_encrypt( aes_gcm, p, c, res ) );
@@ -267,6 +268,7 @@ fd_aes_gcm_aead_encrypt( fd_aes_gcm_t * aes_gcm,
     aes_gcm->len.u[1] += bulk;
     bulk += res;
   }
+# endif
 
   FD_TEST( 0==fd_gcm128_encrypt( aes_gcm, p+bulk, c+bulk, sz-bulk ) );
 
@@ -287,6 +289,7 @@ fd_aes_gcm_aead_decrypt( fd_aes_gcm_t * aes_gcm,
   fd_gcm128_aad( aes_gcm, aad, aad_sz );
 
   ulong bulk = 0UL;
+# if FD_HAS_AESNI
   if( sz>=16UL ) {
     ulong res = (16UL - aes_gcm->mres ) % 16UL;
     FD_TEST( 0==fd_gcm128_decrypt( aes_gcm, c, p, res ) );
@@ -294,6 +297,7 @@ fd_aes_gcm_aead_decrypt( fd_aes_gcm_t * aes_gcm,
     aes_gcm->len.u[1] += bulk;
     bulk += res;
   }
+# endif
 
   FD_TEST( 0==fd_gcm128_decrypt( aes_gcm, c+bulk, p+bulk, sz-bulk ) );
 
