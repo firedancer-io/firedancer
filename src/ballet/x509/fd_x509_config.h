@@ -72,9 +72,6 @@ typedef enum {
 /* Allow CA certificates w/o SKI. */
 #define TEMPORARY_LAXIST_CA_WO_SKI
 
-/* Allow emailAddress using UTF-8 encoding instead for IA5String. */
-#define TEMPORARY_LAXIST_EMAILADDRESS_WITH_UTF8_ENCODING
-
 /*
  * Same for otherwise unsupported extensions but for which we have an
  * internal reference to the OID
