@@ -3,9 +3,17 @@
 
 #include "fd_aes_private.h"
 
-/* AVX accelerated GCM ************************************************/
+union fd_gcm128 {
+  struct {
+    ulong hi;
+    ulong lo;
+  };
+# if FD_HAS_INT128
+  uint128 u128;
+# endif
+};
 
-#if FD_HAS_AVX && FD_HAS_INT128
+typedef union fd_gcm128 fd_gcm128_t;
 
 struct __attribute__((aligned(64UL))) fd_aes_gcm {
   /* Offset of Yi, EKi, EK0, len, Xi, H, and Htable is hardcoded in
@@ -18,7 +26,7 @@ struct __attribute__((aligned(64UL))) fd_aes_gcm {
     uchar c[16];
     ulong t[ 2];
   } Yi, EKi, EK0, len, Xi, H;
-  uint128 Htable[16];
+  fd_gcm128_t Htable[16];
 
   uint    mres, ares;
   uchar   Xn[48];
@@ -28,26 +36,52 @@ struct __attribute__((aligned(64UL))) fd_aes_gcm {
 
 typedef struct fd_aes_gcm fd_aes_gcm_t;
 
+/* AVX accelerated GCM ************************************************/
+
 FD_PROTOTYPES_BEGIN
+
+#if FD_HAS_AVX
 
 __attribute__((sysv_abi))
 void
-fd_gcm_init_avx( uint128     Htable[16],
+fd_gcm_init_avx( fd_gcm128_t Htable[16],
                  ulong const Xi[2] );
 
 __attribute__((sysv_abi))
 void
-fd_gcm_gmult_avx( ulong         Xi[2],
-                  uint128 const Htable[16] );
+fd_gcm_gmult_avx( ulong             Xi[2],
+                  fd_gcm128_t const Htable[16] );
 
 __attribute__((sysv_abi))
 void
-fd_gcm_ghash_avx( ulong         Xi[2],
-                  uint128 const Htable[16],
-                  uchar const * in,
-                  ulong         len);
+fd_gcm_ghash_avx( ulong             Xi[2],
+                  fd_gcm128_t const Htable[16],
+                  uchar const *     in,
+                  ulong             len);
 
-FD_PROTOTYPES_END
+#define fd_gcm_init  fd_gcm_init_avx
+#define fd_gcm_gmult fd_gcm_gmult_avx
+#define fd_gcm_ghash fd_gcm_ghash_avx
+
+#else /* Reference impl */
+
+void
+fd_gcm_init_4bit( fd_gcm128_t Htable[16],
+                  ulong const H[2] );
+
+void
+fd_gcm_gmult_4bit( ulong         Xi[2],
+                   fd_gcm128_t const Htable[16] );
+
+void
+fd_gcm_ghash_4bit( ulong             Xi[2],
+                   fd_gcm128_t const Htable[16],
+                   uchar const *     in,
+                   ulong             len );
+
+#define fd_gcm_init  fd_gcm_init_4bit
+#define fd_gcm_gmult fd_gcm_gmult_4bit
+#define fd_gcm_ghash fd_gcm_ghash_4bit
 
 #endif /* FD_HAS_AVX */
 
