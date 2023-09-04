@@ -7,7 +7,7 @@
 #ifndef HEADER_fd_src_ballet_x509_fd_x509_utils_h
 #define HEADER_fd_src_ballet_x509_fd_x509_utils_h
 
-#include "../fd_ballet_base.h"
+#include "../../util/fd_util_base.h"
 #include <unistd.h>
 #include <string.h>
 #include "fd_x509_config.h"
