@@ -16,7 +16,7 @@
 
 /* TODO Messy code!  Needs cleanup eventually. */
 
-#include "../fd_tango_base.h"
+#include "fd_tls_base.h"
 
 /* TLS Extensions *****************************************************/
 
@@ -141,6 +141,22 @@ struct fd_tls_server_hello {
 };
 
 typedef struct fd_tls_server_hello fd_tls_server_hello_t;
+
+/* fd_tls_enc_ext_t describes a TLS v1.3 EncryptedExtensions message
+   (RFC 8446, Section 4.3.1). */
+
+struct fd_tls_enc_ext_t {
+  fd_tls_ext_cert_type_t server_cert;
+  fd_tls_ext_cert_type_t client_cert;
+
+  ushort quic_tp_sz;
+  uchar  quic_tp[ FD_TLS_EXT_QUIC_PARAMS_SZ_MAX ];
+
+  uchar alpn_sz;
+  uchar alpn[ FD_TLS_EXT_ALPN_SZ_MAX ];
+};
+
+typedef struct fd_tls_enc_ext_t fd_tls_enc_ext_t;
 
 /* fd_tls_cert_verify_t matches the wire representation of
    CertificateVerify (RFC 8446, Section 4.4.3).  Only supports TLS
@@ -387,6 +403,16 @@ long
 fd_tls_encode_server_hello( fd_tls_server_hello_t * in,
                             void *                  wire,
                             ulong                   wire_sz );
+
+long
+fd_tls_decode_enc_ext( fd_tls_enc_ext_t * out,
+                       void const *       wire,
+                       ulong              wire_sz );
+
+long
+fd_tls_encode_enc_ext( fd_tls_enc_ext_t * in,
+                       void *             wire,
+                       ulong              wire_sz );
 
 long
 fd_tls_encode_server_cert_x509( void const * x509,

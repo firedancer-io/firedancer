@@ -1,3 +1,4 @@
+#include "fd_tls_base.h"
 #include "fd_tls_proto.h"
 #include "fd_tls_serde.h"
 #include "fd_tls_asn1.h"
@@ -326,6 +327,9 @@ fd_tls_decode_server_hello( fd_tls_server_hello_t * out,
     if( FD_UNLIKELY( ext_sz > wire_sz ) )
       return -(long)FD_TLS_ALERT_DECODE_ERROR;
 
+    ulong next_field = wire_laddr + ext_sz;
+    ulong next_sz    = wire_sz    - ext_sz;
+
     /* Decode extension data */
     void const * ext_data = (void const *)wire_laddr;
     long ext_parse_res;
@@ -340,12 +344,10 @@ fd_tls_decode_server_hello( fd_tls_server_hello_t * out,
     }
     case FD_TLS_EXT_KEY_SHARE:
       ext_parse_res = fd_tls_decode_key_share( &out->key_share, ext_data, wire_sz );
-      wire_laddr += ext_sz;
       break;
     case FD_TLS_EXT_QUIC_TRANSPORT_PARAMS:
       /* Copy transport params as-is (TODO...) */
       ext_parse_res = (long)ext_sz;
-      wire_laddr += ext_sz;
       break;
     default:
       /* Reject unsolicited extensions */
@@ -356,6 +358,9 @@ fd_tls_decode_server_hello( fd_tls_server_hello_t * out,
       return ext_parse_res;
     if( FD_UNLIKELY( ext_parse_res != (long)ext_sz ) )
       return -(long)FD_TLS_ALERT_DECODE_ERROR;
+
+    wire_laddr = next_field;
+    wire_sz    = next_sz;
   }
   FD_TLS_DECODE_LIST_END
 
@@ -422,6 +427,70 @@ fd_tls_encode_server_hello( fd_tls_server_hello_t * out,
 }
 
 long
+fd_tls_decode_enc_ext( fd_tls_enc_ext_t * const out,
+                       void const *       const wire,
+                       ulong                    wire_sz ) {
+
+  ulong wire_laddr = (ulong)wire;
+
+  /* Initialize */
+  out->server_cert.cert_type = 0;
+  out->client_cert.cert_type = 0;
+  out->alpn_sz               = 0;
+  out->quic_tp_sz            = 0;
+
+  FD_TLS_DECODE_LIST_BEGIN( ushort, alignof(uchar) ) {
+    ushort ext_type;
+    ushort ext_sz;
+#   define FIELDS( FIELD )             \
+      FIELD( 0, &ext_type, ushort, 1 ) \
+      FIELD( 1, &ext_sz,   ushort, 1 )
+      FD_TLS_DECODE_STATIC_BATCH( FIELDS )
+#   undef FIELDS
+
+    /* Bounds check extension data
+       (list_stop declared by DECODE_LIST macro) */
+    if( FD_UNLIKELY( wire_laddr + ext_sz > list_stop ) )
+      return -(long)FD_TLS_ALERT_DECODE_ERROR;
+
+    switch( ext_type ) {
+    case FD_TLS_EXT_ALPN:
+      if( FD_UNLIKELY( ext_sz > FD_TLS_EXT_ALPN_SZ_MAX ) )
+        return -(long)FD_TLS_ALERT_DECODE_ERROR;
+      out->alpn_sz = (uchar)ext_sz;
+      fd_memcpy( out->alpn, (void const *)wire_laddr, ext_sz );
+      break;
+    case FD_TLS_EXT_QUIC_TRANSPORT_PARAMS:
+      if( FD_UNLIKELY( ext_sz > FD_TLS_EXT_QUIC_PARAMS_SZ_MAX ) )
+        return -(long)FD_TLS_ALERT_DECODE_ERROR;
+      out->quic_tp_sz = (ushort)ext_sz;
+      fd_memcpy( out->quic_tp, (void const *)wire_laddr, ext_sz );
+      break;
+    case FD_TLS_EXT_SERVER_CERT_TYPE:
+      if( FD_UNLIKELY( (ext_sz>wire_sz) | (ext_sz!=1) ) )
+        return -(long)FD_TLS_ALERT_DECODE_ERROR;
+      out->server_cert.cert_type = *(uchar const *)wire_laddr;
+      break;
+    case FD_TLS_EXT_CLIENT_CERT_TYPE:
+      if( FD_UNLIKELY( (ext_sz>wire_sz) | (ext_sz!=1) ) )
+        return -(long)FD_TLS_ALERT_DECODE_ERROR;
+      out->client_cert.cert_type = *(uchar const *)wire_laddr;
+      break;
+    default:
+      break;  /* TODO should we error on unknown extensions? */
+    }
+
+    wire_laddr += ext_sz;
+    wire_sz    -= ext_sz;
+  }
+  FD_TLS_DECODE_LIST_END
+
+  /* TODO Fail if trailing bytes detected? */
+
+  return (long)( wire_laddr - (ulong)wire );
+}
+
+long
 fd_tls_encode_server_cert_x509( void const * x509,
                                 ulong        x509_sz,
                                 void *       wire,
@@ -461,6 +530,72 @@ fd_tls_encode_server_cert_x509( void const * x509,
         FIELD( 6, &ext_sz,                       ushort,  1       )
     FD_TLS_ENCODE_STATIC_BATCH( FIELDS )
 # undef FIELDS
+
+  return (long)( wire_laddr - (ulong)wire );
+}
+
+long
+fd_tls_encode_enc_ext( fd_tls_enc_ext_t * in,
+                       void *             wire,
+                       ulong              wire_sz ) {
+
+  ulong wire_laddr = (ulong)wire;
+
+  /* ALPN */
+
+  if( in->alpn_sz ) {
+    ushort ext_type = FD_TLS_EXT_ALPN;
+    ushort ext_sz   = (ushort)in->alpn_sz;
+    uchar * _data   = (uchar *)in->alpn;
+#   define FIELDS( FIELD )                       \
+      FIELD( 0, &ext_type, ushort, 1           ) \
+      FIELD( 1, &ext_sz,   ushort, 1           ) \
+        FIELD( 2, _data,   uchar,  in->alpn_sz )
+      FD_TLS_ENCODE_STATIC_BATCH( FIELDS )
+#   undef FIELDS
+  }
+
+  /* QUIC transport params */
+
+  if( in->quic_tp_sz ) {
+    ushort ext_type = FD_TLS_EXT_QUIC_TRANSPORT_PARAMS;
+    ushort ext_sz   = (ushort)in->quic_tp_sz;
+    uchar * _data   = (uchar *)in->quic_tp;
+#   define FIELDS( FIELD )                          \
+      FIELD( 0, &ext_type, ushort, 1              ) \
+      FIELD( 1, &ext_sz,   ushort, 1              ) \
+        FIELD( 2, _data,   uchar,  in->quic_tp_sz )
+      FD_TLS_ENCODE_STATIC_BATCH( FIELDS )
+#   undef FIELDS
+  }
+
+  /* Server certificate type */
+
+  if( in->server_cert.cert_type ) {
+    ushort ext_type  = FD_TLS_EXT_SERVER_CERT_TYPE;
+    ushort ext_sz    = 1;
+    uchar  cert_type = (uchar)in->server_cert.cert_type;
+#   define FIELDS( FIELD )                \
+      FIELD( 0, &ext_type,    ushort, 1 ) \
+      FIELD( 1, &ext_sz,      ushort, 1 ) \
+        FIELD( 2, &cert_type, uchar,  1 )
+      FD_TLS_ENCODE_STATIC_BATCH( FIELDS )
+#   undef FIELDS
+  }
+
+  /* Client certificate type */
+
+  if( in->client_cert.cert_type ) {
+    ushort ext_type  = FD_TLS_EXT_CLIENT_CERT_TYPE;
+    ushort ext_sz    = 1;
+    uchar  cert_type = (uchar)in->client_cert.cert_type;
+#   define FIELDS( FIELD )                \
+      FIELD( 0, &ext_type,    ushort, 1 ) \
+      FIELD( 1, &ext_sz,      ushort, 1 ) \
+        FIELD( 2, &cert_type, uchar,  1 )
+      FD_TLS_ENCODE_STATIC_BATCH( FIELDS )
+#   undef FIELDS
+  }
 
   return (long)( wire_laddr - (ulong)wire );
 }
@@ -531,7 +666,7 @@ fd_tls_decode_ext_server_name( fd_tls_ext_server_name_t * out,
 #   undef FIELDS
 
     /* Bounds check name */
-    if( FD_UNLIKELY( list_stop - wire_laddr < name_sz ) )
+    if( FD_UNLIKELY( wire_laddr + name_sz > list_stop ) )
       return -(long)FD_TLS_ALERT_DECODE_ERROR;
 
     /* Decode name on first use */

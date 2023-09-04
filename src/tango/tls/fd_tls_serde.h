@@ -99,8 +99,10 @@
     FD_TLS_DECODE_FIELD( &list_sz, LIST_SZ_TYPE );                \
     if( FD_UNLIKELY( !fd_ulong_is_aligned( list_sz, (ALIGN) ) ) ) \
       return -(long)FD_TLS_ALERT_DECODE_ERROR;                    \
-    ulong list_start = wire_laddr;                                \
-    ulong list_stop  = list_start + list_sz;                      \
+    if( FD_UNLIKELY( list_sz > wire_sz ) )                        \
+      return -(long)FD_TLS_ALERT_DECODE_ERROR;                    \
+    ulong const list_start = wire_laddr;                          \
+    ulong const list_stop  = list_start + list_sz;                \
     while( wire_laddr < list_stop )                               \
 
 #define FD_TLS_DECODE_LIST_END                     \

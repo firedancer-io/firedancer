@@ -432,89 +432,57 @@ fd_tls_server_hs_start( fd_tls_t const *      const server,
 
   /* Send EncryptedExtensions (EE) record *****************************/
 
-  /* TODO it is illegal to include extensions that the client didn't
-          request in the ClientHello -- should add some mechanism to
-          remember the requests of the client. */
-
   ulong server_ee_sz;
 
   do {
     ulong wire_laddr = (ulong)msg_buf;
     ulong wire_sz    = MSG_BUFSZ;
 
-    /* Leave space for headers */
+    /* Leave space for record header */
 
-    fd_tls_record_hdr_t * rec_hdr = FD_TLS_SKIP_FIELD( fd_tls_record_hdr_t );
-    ushort *              exts_sz = FD_TLS_SKIP_FIELD( ushort );
+    void * hdr_ptr = FD_TLS_SKIP_FIELD( fd_tls_record_hdr_t );
+    fd_tls_record_hdr_t hdr = { .type = FD_TLS_RECORD_ENCRYPTED_EXT };
+    ushort * ext_sz_ptr = FD_TLS_SKIP_FIELD( ushort );
 
-    /* Add QUIC transport params if requested */
+    /* Construct encrypted extensions */
 
+    fd_tls_enc_ext_t ee = {0};
+
+    /* TODO Add ALPN if requested */
+
+    /* Add QUIC transport params */
     if( server->quic_tp_sz ) {
-      fd_tls_ext_hdr_t * quic_tp_hdr = FD_TLS_SKIP_FIELD( fd_tls_ext_hdr_t );
-      uchar *            quic_tp     = FD_TLS_SKIP_FIELDS( uchar, server->quic_tp_sz );
-
-      fd_memcpy( quic_tp, server->quic_tp, server->quic_tp_sz );
-      *quic_tp_hdr = (fd_tls_ext_hdr_t) {
-        .type = FD_TLS_EXT_QUIC_TRANSPORT_PARAMS,
-        .sz   = (ushort)server->quic_tp_sz
-      };
-      fd_tls_ext_hdr_bswap( quic_tp_hdr );
-    }
-
-    /* Add ALPN if requested */
-
-    ulong alpn_sz = FD_LOAD( ushort, server->alpn );
-    if( alpn_sz ) {
-      fd_tls_ext_hdr_t * alpn_hdr = FD_TLS_SKIP_FIELD( fd_tls_ext_hdr_t );
-      uchar *            alpn     = FD_TLS_SKIP_FIELDS( uchar, alpn_sz );
-
-      fd_memcpy( alpn, server->alpn, alpn_sz );
-      *alpn_hdr = (fd_tls_ext_hdr_t) {
-        .type = FD_TLS_EXT_ALPN,
-        .sz   = (ushort)alpn_sz
-      };
-      fd_tls_ext_hdr_bswap( alpn_hdr );
+      /* server->quic_tp guaranteed to be same size as ee.quic_tp */
+      ee.quic_tp_sz = server->quic_tp_sz;
+      fd_memcpy( ee.quic_tp, server->quic_tp, server->quic_tp_sz );
     }
 
     /* Negotiate raw public keys if available */
 
     if( ch.server_cert_types.raw_pubkey ) {
       handshake->server_cert_rpk = 1;
-      fd_tls_ext_hdr_t * cert_type_hdr = FD_TLS_SKIP_FIELD( fd_tls_ext_hdr_t );
-      uchar *            cert_type     = FD_TLS_SKIP_FIELD( uchar );
-      *cert_type_hdr = (fd_tls_ext_hdr_t) {
-        .type = FD_TLS_EXT_SERVER_CERT_TYPE,
-        .sz   = 1
-      };
-      fd_tls_ext_hdr_bswap( cert_type_hdr );
-      *cert_type = FD_TLS_CERTTYPE_RAW_PUBKEY;
+      ee.server_cert.cert_type   = FD_TLS_CERTTYPE_RAW_PUBKEY;
     } else if( !server->cert_x509_sz ) {
+      /* If server lacks an X.509 certificate and client does not support
+        raw public keys, abort early. */
       return -(long)FD_TLS_ALERT_UNSUPPORTED_CERTIFICATE;
     }
 
     if( ch.client_cert_types.raw_pubkey ) {
       handshake->client_cert_rpk = 1;
-      fd_tls_ext_hdr_t * cert_type_hdr = FD_TLS_SKIP_FIELD( fd_tls_ext_hdr_t );
-      uchar *            cert_type     = FD_TLS_SKIP_FIELD( uchar );
-      *cert_type_hdr = (fd_tls_ext_hdr_t) {
-        .type = FD_TLS_EXT_CLIENT_CERT_TYPE,
-        .sz   = 1
-      };
-      fd_tls_ext_hdr_bswap( cert_type_hdr );
-      *cert_type = FD_TLS_CERTTYPE_RAW_PUBKEY;
+      ee.client_cert.cert_type   = FD_TLS_CERTTYPE_RAW_PUBKEY;
     }
 
-    /* Update headers */
+    /* Encode encrypted extensions */
+
+    ulong msg_sz = FD_TLS_ENCODE_SUB( fd_tls_encode_enc_ext, &ee );
+
+    *ext_sz_ptr = (ushort)fd_ushort_bswap( (ushort)( msg_sz ) );
+
+    hdr.sz = fd_uint_to_tls_u24( (uint)msg_sz + 2U );
+    fd_tls_encode_record_hdr( &hdr, hdr_ptr, 4UL );
 
     server_ee_sz = wire_laddr - (ulong)msg_buf;
-
-    *rec_hdr = (fd_tls_record_hdr_t){
-      .type = FD_TLS_RECORD_ENCRYPTED_EXT,
-      .sz   = fd_uint_to_tls_u24( (uint)( server_ee_sz - 4UL) )
-    };
-    fd_tls_record_hdr_bswap( rec_hdr );
-
-    *exts_sz = fd_ushort_bswap( (ushort)( server_ee_sz - 6UL ) );
   } while(0);
 
   /* Call back with EE */
@@ -1227,57 +1195,30 @@ fd_tls_client_hs_wait_ee( fd_tls_t const *      const client,
 
     /* Decode EncryptedExtensions */
 
-    FD_TLS_DECODE_LIST_BEGIN( ushort, alignof(uchar) ) {
-      ushort ext_type;
-      ushort ext_sz;
-#     define FIELDS( FIELD )             \
-        FIELD( 0, &ext_type, ushort, 1 ) \
-        FIELD( 1, &ext_sz,   ushort, 1 )
-        FD_TLS_DECODE_STATIC_BATCH( FIELDS )
-#     undef FIELDS
+    fd_tls_enc_ext_t ee[1];
+    FD_TLS_DECODE_SUB( fd_tls_decode_enc_ext, ee );
 
-      /* Bounds check extension data
-         (list_stop declared by DECODE_LIST macro) */
-      if( FD_UNLIKELY( (list_stop - wire_laddr) < ext_sz ) )
-        return -(long)FD_TLS_ALERT_DECODE_ERROR;
-
-      switch( ext_type ) {
-      case FD_TLS_EXT_QUIC_TRANSPORT_PARAMS:
-        if( FD_UNLIKELY( ext_sz > FD_TLS_EXT_QUIC_PARAMS_SZ ) )
-          return -(long)FD_TLS_ALERT_DECODE_ERROR;
-        /* TODO ... memcpy QUIC transport params */
-        break;
-      case FD_TLS_EXT_SERVER_CERT_TYPE: {
-        if( FD_UNLIKELY( ( ext_sz>wire_sz )
-                       | ( ext_sz!=1      ) ) )
-          return -(long)FD_TLS_ALERT_DECODE_ERROR;
-        if( *(uchar const *)wire_laddr==FD_TLS_CERTTYPE_RAW_PUBKEY )
-          handshake->server_cert_rpk = 1;
-        break;
-      }
-      case FD_TLS_EXT_CLIENT_CERT_TYPE: {
-        if( FD_UNLIKELY( ( ext_sz>wire_sz )
-                       | ( ext_sz!=1      ) ) )
-          return -(long)FD_TLS_ALERT_DECODE_ERROR;
-        handshake->client_cert_nox509 = 1;
-        switch( *(uchar const *)wire_laddr ) {
-        case FD_TLS_CERTTYPE_RAW_PUBKEY:
-          handshake->client_cert_rpk = 1;
-          break;
-        case FD_TLS_CERTTYPE_X509:
-          handshake->client_cert_nox509 = 0;
-          break;
-        }
-        break;
-      }
-      default:
-        break;  /* TODO should we error on unknown extensions */
-      }
-
-      wire_laddr += ext_sz;
-      wire_sz    -= ext_sz;
+    switch( ee->server_cert.cert_type ) {
+    case FD_TLS_CERTTYPE_X509:
+      break;  /* ok */
+    case FD_TLS_CERTTYPE_RAW_PUBKEY:
+      handshake->server_cert_rpk = 1;
+      break;
+    default:
+      return -(long)FD_TLS_ALERT_UNSUPPORTED_CERTIFICATE;
     }
-    FD_TLS_DECODE_LIST_END
+
+    handshake->client_cert_nox509 = 1;
+    switch( ee->client_cert.cert_type ) {
+    case FD_TLS_CERTTYPE_X509:
+      handshake->client_cert_nox509 = 0;
+      break;
+    case FD_TLS_CERTTYPE_RAW_PUBKEY:
+      handshake->client_cert_rpk = 1;
+      break;
+    default:
+      return -(long)FD_TLS_ALERT_UNSUPPORTED_CERTIFICATE;
+    }
 
     /* Fail if trailing bytes detected */
 
