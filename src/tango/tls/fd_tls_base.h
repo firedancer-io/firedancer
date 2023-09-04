@@ -3,7 +3,6 @@
 
 #include "../fd_tango_base.h"
 #include "../../ballet/sha256/fd_sha256.h"
-#include "fd_tls_proto.h"
 
 /* fd_tls implements a subset of the TLS v1.3 (RFC 8446) handshake
    protocol.
@@ -168,6 +167,16 @@ fd_tls_rand( fd_tls_rand_t const * rand,
    buffered X.509 server certificate message. */
 
 #define FD_TLS_SERVER_CERT_MSG_SZ_MAX (FD_TLS_SERVER_CERT_SZ_MAX+13UL)
+
+/* FD_TLS_EXT_ALPN_SZ_MAX is the max permitted byte size of the ALPN
+   list. */
+
+#define FD_TLS_EXT_ALPN_SZ_MAX (31UL)
+
+/* FD_TLS_EXT_QUIC_PARAMS_SZ is the max permitted byte size of encoded
+   QUIC transport parameters */
+
+# define FD_TLS_EXT_QUIC_PARAMS_SZ_MAX (510UL)
 
 /* Transcripts ********************************************************/
 
