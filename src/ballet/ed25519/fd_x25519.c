@@ -1,7 +1,7 @@
 #include "fd_x25519.h"
 
 #ifndef FD_X25519_IMPL
-#if FD_HAS_GFNI /* TODO: MAKE AVX-512 FLAG */
+#if FD_HAS_AVX512
 #define FD_X25519_IMPL 1
 #else
 #define FD_X25519_IMPL 0
@@ -150,17 +150,18 @@ fd_x25519_scalar_mul( void *       _r,
      representations without needing to change the actual code. */
 
 # define FE_T            r43x6_t
-# define LD(m)           r43x6_unpack( wv_ldu( (m) ) )                           /* uint256   -> unpacked (subset of unreduced) */
+# define LD(m)           r43x6_unpack( wv_ldu( (m) ) )                           /* uint256 -> unpacked (subset of unreduced) */
 # define ST(x,m)         wv_stu( (m), r43x6_pack( r43x6_mod_unreduced( (x) ) ) ) /* unreduced -> uint256 in [0,p) */
 # define ZERO()          r43x6_zero()                                            /* reduced (subset of unreduced) */
 # define ONE()           r43x6_one()                                             /* reduced (subset of unreduced) */
 # define ADD(x,y)        r43x6_fold_unsigned( r43x6_add_fast( (x), (y) ) )       /* unreduced x unreduced -> unreduced */
+# define ADD_FAST(x,y)   r43x6_add_fast( (x), (y) )                              /* ADD but no fold necessary */
 # define SUB(x,y)        r43x6_fold_signed  ( r43x6_sub_fast( (x), (y) ) )       /* unreduced x unreduced -> unreduced */
 # define MUL(x,y)        r43x6_mul_fast( (x), (y) )                              /* unreduced x unreduced -> unreduced */
-# define SQR(x)          r43x6_sqr_fast( (x) )                                   /* unreduced             -> unreduced */
-# define SCALEADD(a,x,y) r43x6_scaleadd_fast((a),(x),(y))                        /* [0,2^47)  x unreduced -> unreduced */
-# define INVERT(x)       r43x6_invert_fast( (x) )                                /* unreduced             -> unreduced */
-# define CSWAP(c,x,y)    r43x6_swap_if((c),(x),(y))                              /* branchless */
+# define SQR(x)          r43x6_sqr_fast( (x) )                                   /* unreduced -> unreduced */
+# define SCALEADD(a,x,y) r43x6_scaleadd_fast( (a), (x), (y) )                    /* unreduced x [0,2^47) x unreduced -> unreduced */
+# define INVERT(x)       r43x6_invert_fast( (x) )                                /* unreduced -> unreduced */
+# define CSWAP(c,x,y)    r43x6_swap_if( (c), (x), (y) )                          /* branchless */
 
   uchar const * k = (uchar const *)_k;
 
@@ -181,23 +182,25 @@ fd_x25519_scalar_mul( void *       _r,
     /* These operations are exactly from the RFC but have been reordered
        slightly to make it easier for the compiler to extract ILP. */
 
-    FE_T A   = ADD( x_2, z_2 );            //   A = x_2 + z_2
-    FE_T B   = SUB( x_2, z_2 );            //   B = x_2 - z_2
-    FE_T C   = ADD( x_3, z_3 );            //   C = x_3 + z_3
-    FE_T D   = SUB( x_3, z_3 );            //   D = x_3 - z_3
-    FE_T AA  = SQR( A );                   //   AA = A^2
-    FE_T BB  = SQR( B );                   //   BB = B^2
-    FE_T DA  = MUL( D, A );                //   DA = D * A
-    FE_T CB  = MUL( C, B );                //   CB = C * B
-    FE_T E   = SUB( AA, BB );              //   E = AA-BB
-    FE_T F   = ADD( DA, CB );
-    FE_T G   = SUB( DA, CB );
-    FE_T GG  = SQR( G );
-    FE_T H   = SCALEADD( AA, 121665L, E );
-    /**/ x_2 = MUL( AA,  BB );             //   x_2 = AA * BB
-    /**/ x_3 = SQR( F );                   //   x_3 = (DA + CB)^2
-    /**/ z_3 = MUL( x_1, GG );             //   z_3 = x_1 * (DA - CB)^2
-    /**/ z_2 = MUL( E, H );                //   z_2 = E * (AA + a24 * E)
+    /* At this point, x_2, x_3, z_2, z_3 limbs are in [0,2^44) */
+
+    FE_T A   = ADD_FAST( x_2, z_2 );       //   A = x_2 + z_2            ... limbs in [0,2^45) (no fold needed)
+    FE_T B   = SUB( x_2, z_2 );            //   B = x_2 - z_2            ... limbs in [0,2^44) (signed so needed to fold)
+    FE_T C   = ADD_FAST( x_3, z_3 );       //   C = x_3 + z_3            ... limbs in [0,2^45) (no fold needed)
+    FE_T D   = SUB( x_3, z_3 );            //   D = x_3 - z_3            ... limbs in [0,2^44) (signed so needed to fold)
+    FE_T AA  = SQR( A );                   //   AA = A^2                 ... limbs in [0,2^44)
+    FE_T BB  = SQR( B );                   //   BB = B^2                 ... limbs in [0,2^44)
+    FE_T DA  = MUL( D, A );                //   DA = D * A               ... limbs in [0,2^44) (TODO: could skip fold here ...)
+    FE_T CB  = MUL( C, B );                //   CB = C * B               ... limbs in [0,2^44) (... and here and fold F instead)
+    FE_T E   = SUB( AA, BB );              //   E = AA-BB                ... limbs in [0,2^44) (signed so needed to fold)
+    FE_T F   = ADD_FAST( DA, CB );         //                            ... limbs in [0,2^45) (no fold needed)
+    FE_T G   = SUB( DA, CB );              //                            ... limbs in [0,2^44) (signed so needed to fold)
+    FE_T H   = SCALEADD( AA, 121665L, E ); //                            ... limbs in [0,2^44)
+    FE_T GG  = SQR( G );                   //                            ... limbs in [0,2^44)
+    /**/ x_2 = MUL( AA,  BB );             //   x_2 = AA * BB            ... limbs in [0,2^44)
+    /**/ x_3 = SQR( F );                   //   x_3 = (DA + CB)^2        ... limbs in [0,2^44)
+    /**/ z_2 = MUL( E, H );                //   z_2 = E * (AA + a24 * E) ... limbs in [0,2^44)
+    /**/ z_3 = MUL( x_1, GG );             //   z_3 = x_1 * (DA - CB)^2  ... limbs in [0,2^44)
   }
 
   CSWAP( swap, x_2, x_3 );                 // (x_2, x_3) = cswap(swap, x_2, x_3)
@@ -211,6 +214,7 @@ fd_x25519_scalar_mul( void *       _r,
 # undef SQR
 # undef MUL
 # undef SUB
+# undef ADD_FAST
 # undef ADD
 # undef ONE
 # undef ZERO

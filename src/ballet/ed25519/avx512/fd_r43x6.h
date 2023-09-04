@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_ballet_ed25519_avx512_r43x6_h
 #define HEADER_fd_src_ballet_ed25519_avx512_r43x6_h
 
-#if FD_HAS_GFNI /* TODO: ADD FLAGS FOR AVX-512 */
+#if FD_HAS_AVX512
 
 #include "../../../util/simd/fd_avx.h"
 #include <x86intrin.h>
@@ -298,8 +298,7 @@ r43x6_pack( r43x6_t r ) {
    additions and subtractions into unreduced results for subsequent
    operations. */
 
-/* TODO: Consider shift and add tricks for instead of mullo here? */
-
+#if 0 /* A mullo based implementation is slightly slower ... */
 #define r43x6_approx_carry_propagate( x ) (__extension__({                                                         \
     long const _m43 = (1L<<43)-1L;                                                                                 \
     long const _m40 = (1L<<40)-1L;                                                                                 \
@@ -309,6 +308,22 @@ r43x6_pack( r43x6_t r ) {
                                           _mm512_permutexvar_epi64( _mm512_setr_epi64( 5L,0L,1L,2L,3L,4L, 6L,7L ), \
                                               _mm512_srav_epi64( _x, _mm512_setr_epi64( 43L,43L,43L,43L,43L,40L, 0L,0L ) ) ) ) ); \
   }))
+#else /* ... than a more obtuse shift-and-add based implementation */
+#define r43x6_approx_carry_propagate( x ) (__extension__({                                                                     \
+    long const _m43 = (1L<<43)-1L;                                                                                             \
+    long const _m40 = (1L<<40)-1L;                                                                                             \
+    __m512i    _x   = (x);                                                                                                     \
+    __m512i    _xl  = _mm512_and_epi64( _x, _mm512_setr_epi64( _m43,_m43,_m43,_m43,_m43,_m40, 0L,0L ) );                       \
+    __m512i    _xh  = _mm512_srav_epi64( _x, _mm512_setr_epi64( 43L,43L,43L,43L,43L,40L, 0L,0L ) );                            \
+    __m512i    _c   = _mm512_permutex2var_epi64( _xh, _mm512_setr_epi64( 5L,0L,1L,2L,3L,4L, 8L,8L ), _mm512_setzero_si512() ); \
+    __m512i    _d   = _mm512_and_epi64( _mm512_add_epi64( _mm512_slli_epi64( _c, 1 ), _mm512_slli_epi64( _c, 4 ) ),            \
+                                        _mm512_setr_epi64( -1L,0L,0L,0L,0L,0L, 0L,0L ) );                                      \
+    /* _xl = <   x0l,x1l,x2l,x3l,x4l,x5l, 0,0> */                                                                              \
+    /* _c  = <   x5h,x0h,x1h,x2h,x3h,x4h, 0,0> */                                                                              \
+    /* _d  = <18*x5h,  0,  0,  0,  0,  0, 0,0> */                                                                              \
+    _mm512_add_epi64( _mm512_add_epi64( _xl, _c ), _d );                                                                       \
+  }))
+#endif
 
 #define r43x6_fold_unsigned( x ) (__extension__({                                                             \
     long const _m43 = (1L<<43)-1L;                                                                            \
@@ -696,7 +711,14 @@ r43x6_mod_nearly_reduced( r43x6_t x ) {
 
 /* r43x6_mul_fast(x,y) returns z = x*y as an unreduced r43x6_t where x
    and y are unreduced r43x6_t's.  Ignores lanes 6 and 7 of x.  Assumes
-   lanes 6 and 7 of y are zero.  Lanes 6 and 7 of z will be zero. */
+   lanes 6 and 7 of y are zero.  Lanes 6 and 7 of z will be zero.
+   The returned limbs will have:
+     z0    in [0,2^43+19*(2^23-1))
+     z1-z4 in [0,2^43+   (2^20-1))
+     z5    in [0,2^40+   (2^20-1))
+   or, more simply (but not as tight), in [0,2^44).  This is a subset of
+   unreduced r43x6_t such that, for example, the results of several
+   multiplies can be added without needing to fold every single add. */
 
 FD_FN_UNUSED FD_FN_CONST static r43x6_t /* Work around -Winline */
 r43x6_mul_fast( r43x6_t x,
@@ -883,16 +905,20 @@ r43x6_mul_fast( r43x6_t x,
                                                 _mm512_add_epi64( _mm512_slli_epi64( zb, 4 ), _mm512_slli_epi64( zb, 3 ) ) ) );
 }
 
+/* TODO: CONSIDER FMA IN STYLE OF SCALEADD BELOW */
+
 /* r43x6_sqr_fast(x) returns z = x^2 as an unreduced r43x6_t where x is
    an unreduced r43x6_t.  Assumes lanes 6 and 7 of x are zero.  Lanes 6
-   and 7 of z will be zero.  TODO: Exploit symmetry somehow? */
+   and 7 of z will be zero.  The returned limbs will have the same range
+   as mul_fast.  TODO: Exploit symmetry somehow? */
 
 FD_FN_CONST static inline r43x6_t r43x6_sqr_fast( r43x6_t x ) { return r43x6_mul_fast( x, x ); }
 
 /* r43x6_repsqr_fast(x,n) returns z = x^(2^n) of an unreduced r43x6_t
    where x is an unreduced r43x6_t.  Computed via n repeated squarings,
    yielding a cost of n sqr.  Assumes lanes 6 and 7 of x are zero.
-   Lanes 6 and 7 of z will be zero. */
+   Lanes 6 and 7 of z will be zero.  The returned limbs will have the
+   same range as mul_fast. */
 
 FD_FN_CONST static inline r43x6_t
 r43x6_repsqr_fast( r43x6_t x,
@@ -946,7 +972,8 @@ r43x6_repsqr_fast( r43x6_t x,
 
 /* r43x6_scale_fast(x0,y) returns z = <x0,0,0,0,0>*y as an unreduced
    r43x6_t where x is in [0,2^47) and y is an unreduced r43x6_t.
-   Assumes y lanes 6-7 are zero.  Lanes 6-7 of z will be zero. */
+   Assumes y lanes 6-7 are zero.  Lanes 6-7 of z will be zero.  The
+   returned limbs will have the same range as mul_fast. */
 
 FD_FN_CONST static inline r43x6_t
 r43x6_scale_fast( long    _x0,
@@ -987,7 +1014,8 @@ r43x6_scale_fast( long    _x0,
 /* r43x6_scaleadd_fast(a,x0,y) returns z = a+<x0,0,0,0,0>*y as an
    unreduced r43x6_t where a is an unreduced r43x6_t, x is in [0,2^47),
    y is an unreduced r43x6_t.  Assumes y lanes 6-7 are zero.  Lanes 6-7
-   of z will be zero. */
+   of z will be zero.  The returned limbs will have the same range as
+   mul_fast. */
 
 FD_FN_CONST static inline r43x6_t
 r43x6_scaleadd_fast( r43x6_t a,
@@ -1031,7 +1059,7 @@ r43x6_scaleadd_fast( r43x6_t a,
 /* r43x6_invert_fast(z) returns the multiplicative inverse of z in GF(p)
    where z is an unreduced r43x6_t.  Assumes lanes 6 and 7 of z are
    zero.  The return will be an unreduced r43x6_t with lanes 6 and 7
-   zero. */
+   zero.  The returned limbs will have the same range as mul_fast.  */
 
 FD_FN_UNUSED FD_FN_CONST static r43x6_t /* Work around -Winline */
 r43x6_invert_fast( r43x6_t z ) {
@@ -1102,6 +1130,6 @@ r43x6_invert_fast( r43x6_t z ) {
 
 FD_PROTOTYPES_END
 
-#endif /* FD_HAS_GFNI */
+#endif /* FD_HAS_AVX512 */
 
 #endif /* HEADER_fd_src_ballet_ed25519_avx512_r43x6_h */
