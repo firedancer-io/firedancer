@@ -7,7 +7,7 @@
 #ifndef HEADER_fd_src_ballet_x509_fd_x509_cert_parser_h
 #define HEADER_fd_src_ballet_x509_fd_x509_cert_parser_h
 
-#include "../fd_ballet_base.h"
+#include "../../util/fd_util_base.h"
 #include "fd_x509_config.h"
 #include "fd_x509_utils.h"
 #include "fd_x509_common.h"
