@@ -12,6 +12,7 @@
 #include "fd_vm_cpi.h"
 #include "../runtime/sysvar/fd_sysvar.h"
 #include "../runtime/fd_account.h"
+#include "../../ballet/base64/fd_base64.h"
 
 #include <stdio.h>
 
@@ -21,7 +22,7 @@
 #endif
 
 static ulong
-fd_vm_syscall_consume(fd_vm_exec_context_t * ctx, ulong cost) {
+fd_vm_consume_compute_meter(fd_vm_exec_context_t * ctx, ulong cost) {
   int exceeded = ctx->compute_meter < cost;
   ctx->compute_meter = fd_ulong_sat_sub(ctx->compute_meter, cost);
   return (exceeded) ? FD_VM_SYSCALL_ERR_INSTR_ERR : FD_VM_SYSCALL_SUCCESS;
@@ -319,6 +320,7 @@ fd_vm_syscall_sol_log(
     ulong * pr0
 ) {
   fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
+  fd_vm_consume_compute_meter( ctx, fd_ulong_max(msg_len, vm_compute_budget.syscall_base_cost) );
 
   void const * msg_host_addr =
       fd_vm_translate_vm_to_host_const( ctx, msg_vm_addr, msg_len, alignof(uchar) );
@@ -341,6 +343,7 @@ fd_vm_syscall_sol_log_64(
     ulong * pr0
 ) {
   fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
+  fd_vm_consume_compute_meter( ctx, vm_compute_budget.log_64_units );
 
   char msg[1024];
   int msg_len = sprintf( msg, "Program log: %lx %lx %lx %lx %lx", r1, r2, r3, r4, r5 );
@@ -362,6 +365,7 @@ fd_vm_syscall_sol_log_pubkey(
     ulong * pr0
 ) {
   fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
+  fd_vm_consume_compute_meter( ctx, vm_compute_budget.log_pubkey_units );
 
   char msg[128];
   char pubkey_str[FD_BASE58_ENCODED_32_SZ];
@@ -395,7 +399,7 @@ fd_vm_syscall_sol_log_compute_units(
     return FD_VM_SYSCALL_ERR_INVOKE_CONTEXT_BORROW_FAILED;
   }
 
-  ulong result = fd_vm_syscall_consume( ctx, vm_compute_budget.syscall_base_cost );
+  ulong result = fd_vm_consume_compute_meter( ctx, vm_compute_budget.syscall_base_cost );
   if (result != FD_VM_SYSCALL_SUCCESS) {
     return result;
   }
@@ -412,39 +416,44 @@ fd_vm_syscall_sol_log_compute_units(
 ulong
 fd_vm_syscall_sol_log_data(
     void * _ctx,
-    ulong msg_vm_addr FD_PARAM_UNUSED,
-    ulong msg_len FD_PARAM_UNUSED,
-    ulong arg2 FD_PARAM_UNUSED,
-    ulong arg3 FD_PARAM_UNUSED,
-    ulong arg4 FD_PARAM_UNUSED,
-    ulong * ret FD_PARAM_UNUSED
+    ulong vm_addr,
+    ulong len,
+    ulong r3 FD_PARAM_UNUSED,
+    ulong r4 FD_PARAM_UNUSED,
+    ulong r5 FD_PARAM_UNUSED,
+    ulong * pr0
 ) {
   fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
-  if ( FD_UNLIKELY (!ctx) ) {
-    return FD_VM_SYSCALL_ERR_INVOKE_CONTEXT_BORROW_FAILED;
+  fd_vm_consume_compute_meter( ctx, vm_compute_budget.syscall_base_cost );
+
+  ulong sz = len / sizeof (fd_vm_vec_t);
+
+  fd_vm_vec_t const * untranslated_fields = fd_vm_translate_slice_vm_to_host_const(
+    ctx, 
+    vm_addr,
+    sz,
+    FD_VM_VEC_ALIGN );
+
+  char msg[102400];
+  ulong msg_len = (ulong) sprintf( msg, "Program data: " );
+
+  ulong total = 0UL;
+  for (ulong i = 0; i < sz; ++i) {
+    total += untranslated_fields[i].len;
+    void const * translated_addr = fd_vm_translate_vm_to_host_const( ctx, untranslated_fields[i].addr, untranslated_fields[i].len, alignof(uchar) );
+    char encoded[1024];
+    ulong encoded_len = fd_base64_encode( (const uchar *) translated_addr, (int)untranslated_fields[i].len, encoded);
+    if ( i !=0 ) {
+      sprintf( msg + msg_len, " ");
+      ++ msg_len;
+    }
+    memcpy( msg + msg_len, encoded, encoded_len);
+    msg_len += encoded_len;
   }
+  fd_vm_consume_compute_meter( ctx, total );
 
-  // ulong result = fd_vm_syscall_consume( ctx, vm_compute_budget.syscall_base_cost );
-  // if (result != FD_VM_SYSCALL_SUCCESS) {
-  //   return result;
-  // }
-
-  // fd_vm_vec_t const * msg_host_addr =
-  //     fd_vm_translate_slice_vm_to_host_const( ctx, msg_vm_addr, msg_len, alignof(uchar) );
-  // if( FD_UNLIKELY( !msg_host_addr ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
-
-  // int result = fd_vm_syscall_consume( ctx, fd_ulong_sat_mul( vm_compute_budget.syscall_base_cost, msg_len) );
-  // if (result != FD_VM_SYSCALL_SUCCESS) {
-  //   return result;
-  // }
-
-  // int result = fd_vm_syscall_consume( ctx, fd_ulong_sat_mul( vm_compute_budget.syscall_base_cost, 100) );
-  // if (result != FD_VM_SYSCALL_SUCCESS) {
-  //   return result;
-  // }
-
-
-  *ret = 0UL;
+  *pr0 = 0;
+  fd_vm_log_collector_log( &ctx->log_collector, msg, msg_len );
   return FD_VM_SYSCALL_SUCCESS;
 
 }

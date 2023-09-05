@@ -112,3 +112,41 @@ fd_base64_decode( uchar *      out,
 
   return out - out_orig;
 }
+
+ulong
+fd_base64_encode( const uchar * data,
+                  int           data_len,
+                  char *        encoded ) {
+  static const char base64_alphabet[] =
+      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+  uint encoded_len = 0;
+  uint accumulator = 0;
+  int bits_collected = 0;
+
+  while( data_len-- ) {
+    accumulator = ( accumulator << 8 ) | *data++;
+    bits_collected += 8;
+
+    while( bits_collected >= 6 ) {
+      encoded[ encoded_len++ ] = base64_alphabet[ ( accumulator >> ( bits_collected - 6) ) & 0x3F ];
+      bits_collected -= 6;
+    }
+  }
+
+  if( bits_collected > 0 ) {
+    // If there are remaining bits, pad the last Base64 character with zeroes
+    accumulator <<= 6 - bits_collected;
+    encoded[ encoded_len++ ] = base64_alphabet[accumulator & 0x3F ];
+  }
+
+  // Add padding characters if necessary
+  while( encoded_len % 4 != 0 ) {
+    encoded[ encoded_len++ ] = '=';
+  }
+
+  // Null-terminate the encoded string
+  encoded[ encoded_len ] = '\0';
+
+  return encoded_len;
+}

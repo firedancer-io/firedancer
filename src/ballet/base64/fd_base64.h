@@ -13,6 +13,11 @@ fd_base64_decode( uchar *      out,
                   char const * in,
                   ulong        in_len );
 
+ulong
+fd_base64_encode( const uchar * data,
+                  int           data_len,
+                  char *        encoded );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_ballet_base64_fd_base64_h */

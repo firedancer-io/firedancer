@@ -176,6 +176,29 @@ test_vm_syscall_sol_log_64(
     FD_LOG_NOTICE(( "Passed test program (%s)", test_case_name ));
 }
 
+static void
+test_vm_syscall_sol_log_data(
+    char *                  test_case_name,
+    fd_vm_exec_context_t *  vm_ctx,
+    ulong                   data_vm_addr,
+    ulong                   data_len,
+    ulong                   expected_ret_code,
+    ulong                   expected_syscall_ret,
+    fd_vm_log_collector_t * expected_log_collector
+) {
+    ulong ret_code = 0UL;
+    ulong syscall_ret = fd_vm_syscall_sol_log_data((void *) vm_ctx, data_vm_addr, data_len, 0, 0, 0, &ret_code);
+    FD_TEST( ret_code == expected_ret_code );
+    FD_TEST( syscall_ret == expected_syscall_ret );
+
+    if (ret_code == 0 && syscall_ret == 0) {
+        FD_TEST( memcmp( (void *)&vm_ctx->log_collector, (void *)expected_log_collector, sizeof(fd_vm_log_collector_t)) == 0 );
+    }
+
+    FD_LOG_NOTICE(( "Passed test program (%s)", test_case_name ));
+}
+
+
 int
 main( int     argc,
       char ** argv ) {
@@ -495,6 +518,29 @@ main( int     argc,
     reset_log_collector(&expected_log_collector);
     reset_log_collector(&vm_ctx.log_collector);
 
+    // test for collecting log_data at the heap region
+    fd_vm_vec_t log_vec = {
+        .addr = FD_VM_MEM_MAP_HEAP_REGION_START + 100,
+        .len = 5UL
+    };
+    ulong data_chunk_num = 5UL;
+    for (ulong i = 0; i < data_chunk_num; ++i) {
+        fd_memcpy((void *) (&vm_ctx.heap[0] + i * sizeof(fd_vm_vec_t)), &log_vec, sizeof(log_vec));
+    }
+    ulong data_len = data_chunk_num * sizeof(fd_vm_vec_t);
+
+    expected_log_collector.buf_used = 58UL;
+    memcpy(&expected_log_collector.buf[0], "Program data: ZGVmZ2g= ZGVmZ2g= ZGVmZ2g= ZGVmZ2g= ZGVmZ2g=", expected_log_collector.buf_used);
+
+    test_vm_syscall_sol_log_data(
+        "test_vm_syscall_sol_log_data: log_data at the heap region",
+        &vm_ctx,
+        FD_VM_MEM_MAP_HEAP_REGION_START,
+        data_len,
+        0,
+        0,
+        &expected_log_collector
+    );
     fd_rng_delete( fd_rng_leave( rng ) );
 
     FD_LOG_NOTICE(( "pass" ));
