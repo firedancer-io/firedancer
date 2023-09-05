@@ -910,9 +910,81 @@ r43x6_mul_fast( r43x6_t x,
 /* r43x6_sqr_fast(x) returns z = x^2 as an unreduced r43x6_t where x is
    an unreduced r43x6_t.  Assumes lanes 6 and 7 of x are zero.  Lanes 6
    and 7 of z will be zero.  The returned limbs will have the same range
-   as mul_fast.  TODO: Exploit symmetry somehow? */
+   as mul_fast. */
 
-FD_FN_CONST static inline r43x6_t r43x6_sqr_fast( r43x6_t x ) { return r43x6_mul_fast( x, x ); }
+FD_FN_CONST static inline r43x6_t r43x6_sqr_fast( r43x6_t x ) {
+  __m512i const zero = _mm512_setzero_si512();
+
+  /* The goal of this implmentation is to compute each product once, but
+     to make sure each product gets generated in the right AVX lane so
+     that we don't have to do a ton of shuffling at the end.  In
+     exchange, we do a lot of permutevars upfront to get everything
+     setup.  It's possible trading permutevars for madd52s might improve
+     performance.
+
+     We'll compute
+         p0 = x{0,0,0,0,0,0,3,3} * x{0,1,2,3,4,5,3,4}
+         p1 = x{4,4,1,1,1,1,1,-} * x{4,5,1,2,3,4,5,-}
+         p2 = x{3,-,5,-,2,2,2,2} * x{5,-,5,-,2,3,4,5}
+     with the scaling of non-square terms omitted above.  A dash
+     indicates a don't care value, since we have to do 24
+     multiplications but there are only 21 unique terms.
+
+     All the terms of p0 belong in the low final result, but the first
+     two terms of p1, and the first and third terms of p2 belong in the
+     high final result.  The other gotcha is that each multiplication
+     has a high and a low component, so we confusingly have two
+     different notions of high/low.
+     */
+  __m512i x0 = _mm512_permutexvar_epi64( _mm512_setr_epi64( 0L, 0L, 0L, 0L, 0L, 0L, 3L, 3L ), x );
+  __m512i x1 = _mm512_permutexvar_epi64( _mm512_setr_epi64( 0L, 1L, 2L, 3L, 4L, 5L, 3L, 4L ), x );
+  __m512i x2 = _mm512_permutexvar_epi64( _mm512_setr_epi64( 4L, 4L, 1L, 1L, 1L, 1L, 1L, 7L ), x );
+  __m512i x3 = _mm512_permutexvar_epi64( _mm512_setr_epi64( 4L, 5L, 1L, 2L, 3L, 4L, 5L, 7L ), x );
+  __m512i x4 = _mm512_permutexvar_epi64( _mm512_setr_epi64( 3L, 7L, 5L, 7L, 2L, 2L, 2L, 2L ), x );
+  __m512i x5 = _mm512_permutexvar_epi64( _mm512_setr_epi64( 5L, 7L, 5L, 7L, 2L, 3L, 4L, 5L ), x );
+
+  /* Double the non-square terms. */
+  x0 = _mm512_sllv_epi64( x0, _mm512_setr_epi64( 0L, 1L, 1L, 1L, 1L, 1L, 0L, 1L ) );
+  x2 = _mm512_sllv_epi64( x2, _mm512_setr_epi64( 0L, 1L, 0L, 1L, 1L, 1L, 1L, 1L ) );
+  x4 = _mm512_sllv_epi64( x4, _mm512_setr_epi64( 1L, 1L, 0L, 1L, 0L, 1L, 1L, 1L ) );
+
+  __m512i p0l = _mm512_madd52lo_epu64( zero, x0, x1 );
+  __m512i p1l = _mm512_madd52lo_epu64( zero, x2, x3 );
+  __m512i p2l = _mm512_madd52lo_epu64( zero, x4, x5 );
+
+  /* Use the same approach as in the multiply to generate the high bits
+     of each individual product. */
+  __m512i p0h = _mm512_slli_epi64( _mm512_madd52hi_epu64( zero, x0, x1 ), 9 );
+  __m512i p1h = _mm512_slli_epi64( _mm512_madd52hi_epu64( zero, x2, x3 ), 9 );
+  __m512i p2h = _mm512_slli_epi64( _mm512_madd52hi_epu64( zero, x4, x5 ), 9 );
+
+  /* Generate masks to split p_i into the terms that belong in the high
+     word and low word. */
+  __m512i mask1 = _mm512_setr_epi64( -1L, -1L, 0L, 0L, 0L, 0L, 0L, 0L );
+  __m512i mask2 = _mm512_setr_epi64( -1L, 0L, -1L, 0L, 0L, 0L, 0L, 0L );
+  __m512i zll = _mm512_add_epi64( p0l,
+                      _mm512_add_epi64( _mm512_andnot_epi32( mask1, p1l ),
+                                        _mm512_andnot_epi32( mask2, p2l ) ) );
+  __m512i zlh = _mm512_add_epi64( p0h,
+                      _mm512_add_epi64( _mm512_andnot_epi32( mask1, p1h ),
+                                        _mm512_andnot_epi32( mask2, p2h ) ) );
+  __m512i zhl = _mm512_add_epi64( _mm512_and_epi32( mask1, p1l ),
+                                  _mm512_and_epi32( mask2, p2l ) );
+  __m512i zhh = _mm512_add_epi64( _mm512_and_epi32( mask1, p1h ),
+                                  _mm512_and_epi32( mask2, p2h ) );
+
+  /* Generate zl and zh as in mul */
+  __m512i zl = _mm512_add_epi64( zll, _mm512_alignr_epi64( zlh, zero, 7 ) );
+  __m512i zh = _mm512_add_epi64( zhl, _mm512_add_epi64( _mm512_alignr_epi64( zhh, zero, 7 ),
+                                                        _mm512_alignr_epi64( zero, zlh, 7 ) ) );
+
+  __m512i za  = _mm512_and_epi64( zl, _mm512_setr_epi64( -1L,-1L,-1L,-1L,-1L,-1L, 0L,0L ) );
+  __m512i zb  = _mm512_alignr_epi64( zh, zl, 6 );
+
+  return r43x6_fold_unsigned( _mm512_add_epi64( _mm512_add_epi64(                    za,      _mm512_slli_epi64( zb, 7 ) ),
+                                                _mm512_add_epi64( _mm512_slli_epi64( zb, 4 ), _mm512_slli_epi64( zb, 3 ) ) ) );
+
+}
 
 /* r43x6_repsqr_fast(x,n) returns z = x^(2^n) of an unreduced r43x6_t
    where x is an unreduced r43x6_t.  Computed via n repeated squarings,
@@ -924,41 +996,50 @@ FD_FN_CONST static inline r43x6_t
 r43x6_repsqr_fast( r43x6_t x,
                    ulong   n ) {
 
- /* The below is r43x6_mul_fast wrapped in a loop to force inlining of
+ /* The below is r43x6_sqr_fast wrapped in a loop to force inlining of
     the loop body and encourage the compiler to hoist various compile
     time constants out of the loop and possibly unroll the loop if
-    useful in context.  See r43x6_mul_fast for detailed explanation how
+    useful in context.  See r43x6_sqr_fast for detailed explanation how
     this works. */
 
   for( ; n; n-- ) {
     __m512i const zero = _mm512_setzero_si512();
 
-    __m512i x0  = _mm512_permutexvar_epi64( zero,                   x );
-    __m512i x1  = _mm512_permutexvar_epi64( _mm512_set1_epi64( 1 ), x );
-    __m512i x2  = _mm512_permutexvar_epi64( _mm512_set1_epi64( 2 ), x );
-    __m512i x3  = _mm512_permutexvar_epi64( _mm512_set1_epi64( 3 ), x );
-    __m512i x4  = _mm512_permutexvar_epi64( _mm512_set1_epi64( 4 ), x );
-    __m512i x5  = _mm512_permutexvar_epi64( _mm512_set1_epi64( 5 ), x );
+    __m512i x0 = _mm512_permutexvar_epi64( _mm512_setr_epi64( 0L, 0L, 0L, 0L, 0L, 0L, 3L, 3L ), x );
+    __m512i x1 = _mm512_permutexvar_epi64( _mm512_setr_epi64( 0L, 1L, 2L, 3L, 4L, 5L, 3L, 4L ), x );
+    __m512i x2 = _mm512_permutexvar_epi64( _mm512_setr_epi64( 4L, 4L, 1L, 1L, 1L, 1L, 1L, 7L ), x );
+    __m512i x3 = _mm512_permutexvar_epi64( _mm512_setr_epi64( 4L, 5L, 1L, 2L, 3L, 4L, 5L, 7L ), x );
+    __m512i x4 = _mm512_permutexvar_epi64( _mm512_setr_epi64( 3L, 7L, 5L, 7L, 2L, 2L, 2L, 2L ), x );
+    __m512i x5 = _mm512_permutexvar_epi64( _mm512_setr_epi64( 5L, 7L, 5L, 7L, 2L, 3L, 4L, 5L ), x );
 
-    __m512i t0  = _mm512_madd52lo_epu64( zero,                                                         x0, x );
-    __m512i t1  = _mm512_madd52lo_epu64( _mm512_slli_epi64( _mm512_madd52hi_epu64( zero, x0, x ), 9 ), x1, x );
-    __m512i t2  = _mm512_madd52lo_epu64( _mm512_slli_epi64( _mm512_madd52hi_epu64( zero, x1, x ), 9 ), x2, x );
-    __m512i t3  = _mm512_madd52lo_epu64( _mm512_slli_epi64( _mm512_madd52hi_epu64( zero, x2, x ), 9 ), x3, x );
-    __m512i t4  = _mm512_madd52lo_epu64( _mm512_slli_epi64( _mm512_madd52hi_epu64( zero, x3, x ), 9 ), x4, x );
-    __m512i t5  = _mm512_madd52lo_epu64( _mm512_slli_epi64( _mm512_madd52hi_epu64( zero, x4, x ), 9 ), x5, x );
-    __m512i t6  =                        _mm512_slli_epi64( _mm512_madd52hi_epu64( zero, x5, x ), 9 );
+    x0 = _mm512_sllv_epi64( x0, _mm512_setr_epi64( 0L, 1L, 1L, 1L, 1L, 1L, 0L, 1L ) );
+    x2 = _mm512_sllv_epi64( x2, _mm512_setr_epi64( 0L, 1L, 0L, 1L, 1L, 1L, 1L, 1L ) );
+    x4 = _mm512_sllv_epi64( x4, _mm512_setr_epi64( 1L, 1L, 0L, 1L, 0L, 1L, 1L, 1L ) );
 
-    __m512i p0j =                      t0;
-    __m512i p1j = _mm512_alignr_epi64( t1, zero, 7 );
-    __m512i p2j = _mm512_alignr_epi64( t2, zero, 6 );
-    __m512i p3j = _mm512_alignr_epi64( t3, zero, 5 ); __m512i q3j = _mm512_alignr_epi64( zero, t3, 5 );
-    __m512i p4j = _mm512_alignr_epi64( t4, zero, 4 ); __m512i q4j = _mm512_alignr_epi64( zero, t4, 4 );
-    __m512i p5j = _mm512_alignr_epi64( t5, zero, 3 ); __m512i q5j = _mm512_alignr_epi64( zero, t5, 3 );
-    __m512i p6j = _mm512_alignr_epi64( t6, zero, 2 ); __m512i q6j = _mm512_alignr_epi64( zero, t6, 2 );
+    __m512i p0l = _mm512_madd52lo_epu64( zero, x0, x1 );
+    __m512i p1l = _mm512_madd52lo_epu64( zero, x2, x3 );
+    __m512i p2l = _mm512_madd52lo_epu64( zero, x4, x5 );
 
-    __m512i zl  = _mm512_add_epi64( _mm512_add_epi64( _mm512_add_epi64( p0j, p1j ), _mm512_add_epi64( p2j, p3j ) ),
-                                    _mm512_add_epi64( _mm512_add_epi64( p4j, p5j ), p6j ) );
-    __m512i zh  = _mm512_add_epi64( _mm512_add_epi64( q3j, q4j ), _mm512_add_epi64( q5j, q6j ) );
+    __m512i p0h = _mm512_slli_epi64( _mm512_madd52hi_epu64( zero, x0, x1 ), 9 );
+    __m512i p1h = _mm512_slli_epi64( _mm512_madd52hi_epu64( zero, x2, x3 ), 9 );
+    __m512i p2h = _mm512_slli_epi64( _mm512_madd52hi_epu64( zero, x4, x5 ), 9 );
+
+    __m512i mask1 = _mm512_setr_epi64( -1L, -1L, 0L, 0L, 0L, 0L, 0L, 0L );
+    __m512i mask2 = _mm512_setr_epi64( -1L, 0L, -1L, 0L, 0L, 0L, 0L, 0L );
+    __m512i zll = _mm512_add_epi64( p0l,
+                        _mm512_add_epi64( _mm512_andnot_epi32( mask1, p1l ),
+                                          _mm512_andnot_epi32( mask2, p2l ) ) );
+    __m512i zlh = _mm512_add_epi64( p0h,
+                        _mm512_add_epi64( _mm512_andnot_epi32( mask1, p1h ),
+                                          _mm512_andnot_epi32( mask2, p2h ) ) );
+    __m512i zhl = _mm512_add_epi64( _mm512_and_epi32( mask1, p1l ),
+                                    _mm512_and_epi32( mask2, p2l ) );
+    __m512i zhh = _mm512_add_epi64( _mm512_and_epi32( mask1, p1h ),
+                                    _mm512_and_epi32( mask2, p2h ) );
+
+    __m512i zl = _mm512_add_epi64( zll, _mm512_alignr_epi64( zlh, zero, 7 ) );
+    __m512i zh = _mm512_add_epi64( zhl, _mm512_add_epi64( _mm512_alignr_epi64( zhh, zero, 7 ),
+                                                          _mm512_alignr_epi64( zero, zlh, 7 ) ) );
 
     __m512i za  = _mm512_and_epi64( zl, _mm512_setr_epi64( -1L,-1L,-1L,-1L,-1L,-1L, 0L,0L ) );
     __m512i zb  = _mm512_alignr_epi64( zh, zl, 6 );
