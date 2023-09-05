@@ -264,6 +264,21 @@ always_ff@(posedge clk_main_a0) begin
     end
 end
 
+logic [4-1:0]                                   vdip_func;
+logic [4-1:0]                                   vdip_sel;
+logic [8-1:0]                                   vdip_byte;
+logic [16-1:0][8-1:0]                           vdip_bytes;
+
+assign {vdip_byte, vdip_sel, vdip_func}         = sh_cl_status_vdip;
+
+always_ff@(posedge clk_main_a0) begin
+    cl_sh_status_vled                                                           <= {vdip_bytes[vdip_sel], vdip_sel, vdip_func};
+    if (vdip_func == 4'hf) begin
+        vdip_bytes[vdip_sel]                                                    <= vdip_byte;
+    end
+end
+
+
 // DDDDDDDDDDDDD        DDDDDDDDDDDDD        RRRRRRRRRRRRRRRRR   
 // D::::::::::::DDD     D::::::::::::DDD     R::::::::::::::::R  
 // D:::::::::::::::DD   D:::::::::::::::DD   R::::::RRRRRR:::::R 
@@ -457,6 +472,7 @@ showahead_fifo #(
 
 
 
+
 //                AAA               PPPPPPPPPPPPPPPPP   PPPPPPPPPPPPPPPPP   
 //               A:::A              P::::::::::::::::P  P::::::::::::::::P  
 //              A:::::A             P::::::PPPPPP:::::P P::::::PPPPPP:::::P 
@@ -490,6 +506,8 @@ showahead_fifo #(
     .avmm_readdata                                      (avmm_fh_readdata[0]),
     .avmm_readdatavalid                                 (avmm_fh_readdatavalid[0]),
     .avmm_waitrequest                                   (avmm_fh_waitrequest[0]),
+
+    .priv_bytes                                         (vdip_bytes),
 
     .pcie_v                                             (st_v),
     .pcie_a                                             (st_addr),

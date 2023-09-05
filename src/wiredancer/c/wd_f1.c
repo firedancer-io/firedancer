@@ -216,6 +216,25 @@ uint32_t _wd_next_slot(wd_wksp_t* wd, uint32_t slot)
     return slot;
 }
 
+int _wd_set_vdip_64(wd_wksp_t* wd, uint32_t slot, uint32_t vi, uint64_t v)
+{
+    (void)wd;
+    for (uint32_t i = 0; i < 8; i ++)
+    {
+        uint32_t vdip = 0xf;
+        vdip |= ((vi * 8) + i) << 4;
+        vdip |= (v & 0xff) << 8;
+        v >>= 8;
+        if (fpga_mgmt_set_vDIP((int)slot, (uint16_t)vdip))
+        {
+            FD_LOG_ERR (( "Unable to set privileged bytes for slot id %d", slot ));
+            return -1;
+        }
+    }
+    return 0;
+}
+
+
 // DDDDDDDDDDDDD        MMMMMMMM               MMMMMMMM               AAA               
 // D::::::::::::DDD     M:::::::M             M:::::::M              A:::A              
 // D:::::::::::::::DD   M::::::::M           M::::::::M             A:::::A             
@@ -294,7 +313,7 @@ wd_ed25519_verify_init_req( wd_wksp_t *        wd,
 {
     wd->sv.req_slot     = _wd_next_slot(wd, 0);
     wd->sv.req_depth    = mcache_depth;
-    wd->sv.dma_phys     = _wd_get_phys(mcache_addr);
+    uint64_t dma_phys   = _wd_get_phys(mcache_addr);
 
     for (uint32_t slot = 0; slot < WD_N_PCI_SLOTS; slot ++)
     {
@@ -314,6 +333,9 @@ wd_ed25519_verify_init_req( wd_wksp_t *        wd,
         _wd_write_32(&wd->pci[slot], 0x14<<2, 10 | (10 << 12));
         // send fails back
         _wd_write_32(&wd->pci[slot], 0x11<<2, send_fails);
+
+        _wd_set_vdip_64(wd, slot, 0, dma_phys);
+        _wd_set_vdip_64(wd, slot, 1, ((wd->sv.req_depth-1) << 5) | 0x1f);
     }
 }
 
@@ -364,7 +386,7 @@ wd_ed25519_verify_req( wd_wksp_t *   wd,
             return -1;
     }
 
-    uint64_t dma_addr = wd->sv.dma_phys + (fd_mcache_line_idx(m_seq, wd->sv.req_depth) << 5);
+    uint64_t dma_addr = fd_mcache_line_idx(m_seq, wd->sv.req_depth) << 5;
 
     wd->stream_buf[0] = WD_PCI_MAGIC;
     wd->stream_buf[1] = src | (((uint32_t)sz + 32 + 32) << 16);

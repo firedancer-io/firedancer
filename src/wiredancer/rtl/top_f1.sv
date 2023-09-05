@@ -52,6 +52,8 @@ module top_f1 #(
     output logic [1-1:0]                                avmm_readdatavalid,
     output logic [1-1:0]                                avmm_waitrequest,
 
+    input wire [16-1:0][8-1:0]                          priv_bytes,
+
     input wire [2-1:0]                                  pcie_v,
     input wire [64-1:0]                                 pcie_a,
     input wire [2-1:0][256-1:0]                         pcie_d,
@@ -232,7 +234,7 @@ always_ff@(posedge clk) begin
 
     case (avmm_address[2+:8])
         8'h00: avmm_readdata            <= 32'h5000_0000;
-        8'h01: avmm_readdata            <= 32'h0002_0005;
+        8'h01: avmm_readdata            <= 32'h0002_0006;
 
         8'h10: avmm_readdata            <= w_i;
         8'h11: avmm_readdata            <= timestamp[0 +:32];
@@ -443,6 +445,9 @@ dma_result #(
     .res_p                      (res_o_p),
 
     .send_fails                 (send_fails),
+
+    .priv_base                  (priv_bytes[0+:8]),
+    .priv_mask                  (priv_bytes[8+:8]),
 
     .clk                        (clk),
     .rst                        (rst_r[2])
