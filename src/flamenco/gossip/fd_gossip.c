@@ -719,7 +719,7 @@ fd_gossip_random_pull( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, 
       npackets = 1U<<nmaskbits;
     } while (1);
   }
-  FD_LOG_NOTICE(("making bloom filter for %lu items with %lu packets and %lu keys %g error\n", nitems, npackets, nkeys, e));
+  FD_LOG_NOTICE(("making bloom filter for %lu items with %lu packets and %lu keys %g error", nitems, npackets, nkeys, e));
 
   /* Generate random keys */
   ulong keys[FD_BLOOM_MAX_KEYS];
@@ -1050,6 +1050,27 @@ fd_gossip_handle_prune(fd_gossip_global_t * glob, fd_gossip_network_addr_t * fro
     FD_LOG_WARNING(("received prune_msg with invalid signature"));
     return;
   }
+
+  fd_push_state_t* ps = NULL;
+  for (ulong i = 0; i < glob->push_states_cnt; ++i) {
+    fd_push_state_t* s = glob->push_states[i];
+    if (memcmp(msg->data.pubkey.uc, s->id.uc, 32U) == 0) {
+      ps = s;
+      break;
+    }
+  }
+  if (ps == NULL)
+    return;
+
+  for (ulong i = 0; i < msg->data.prunes_len; ++i) {
+    fd_pubkey_t * p = msg->data.prunes + i;
+    for (ulong j = 0; j < FD_PRUNE_NUM_KEYS; ++j) {
+      ulong pos = fd_gossip_bloom_pos(p, ps->prune_keys[j], FD_PRUNE_NUM_BITS);
+      ulong * j = ps->prune_bits + (pos>>6U); /* divide by 64 */
+      ulong bit = 1UL<<(pos & 63U);
+      *j |= bit;
+    }
+  }
 }
 
 void
@@ -1296,6 +1317,22 @@ fd_gossip_push( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, long no
     ulong npush = 0;
     for (ulong i = 0; i < glob->push_states_cnt && npush < FD_PUSH_VALUE_MAX; ++i) {
       fd_push_state_t* s = glob->push_states[i];
+
+      int pass = 0;
+      for (ulong j = 0; j < FD_PRUNE_NUM_KEYS; ++j) {
+        ulong pos = fd_gossip_bloom_pos(&msg->origin, s->prune_keys[j], FD_PRUNE_NUM_BITS);
+        ulong * j = s->prune_bits + (pos>>6U); /* divide by 64 */
+        ulong bit = 1UL<<(pos & 63U);
+        if (!(*j & bit)) {
+          pass = 1;
+          break;
+        }
+      }
+      if (!pass) {
+        s->drop_cnt++;
+        continue;
+      }
+      
       ++npush;
       ulong * crds_len = (ulong *)(s->packet_end_init - sizeof(ulong));
       /* Add the value in already encoded form */
