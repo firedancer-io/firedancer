@@ -12,7 +12,6 @@ jobs:
       group: github-v1
     env:
       MACHINE: linux_clang_x86_64_fuzz_asan
-      EXTRA_CPPFLAGS: -isystem /root/include
     steps:
       - uses: actions/checkout@v3
 
