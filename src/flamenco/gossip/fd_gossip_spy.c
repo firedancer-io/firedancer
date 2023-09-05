@@ -62,6 +62,7 @@ int main(int argc, char **argv) {
   gethostname(hostname, sizeof(hostname));
   char addrbuf[100];
   snprintf(addrbuf, sizeof(addrbuf), "%s:1125", hostname);
+  // snprintf(addrbuf, sizeof(addrbuf), "localhost:1125", hostname);
   FD_TEST( fd_gossip_resolve_hostport(addrbuf, &config.my_addr) );
 
   config.shred_version = 61807U;
@@ -88,6 +89,8 @@ int main(int argc, char **argv) {
     return 1;
   if ( fd_gossip_add_active_peer(glob, fd_gossip_resolve_hostport("entrypoint3.testnet.solana.com:8001", &peeraddr)) )
     return 1;
+  // if ( fd_gossip_add_active_peer(glob, fd_gossip_resolve_hostport("localhost:1024", &peeraddr)) )
+  // return 1;
   
   signal(SIGINT, stop);
   signal(SIGPIPE, SIG_IGN);
