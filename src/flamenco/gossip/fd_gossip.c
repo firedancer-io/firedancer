@@ -318,6 +318,10 @@ struct fd_gossip_global {
     ulong recv_dup_cnt;
     /* Total number of non-duplicate values received */
     ulong recv_nondup_cnt;
+    /* Count of values pushed */
+    ulong push_cnt;
+    /* Count of values not pushed due to pruning */
+    ulong not_push_cnt;
     /* Heap allocator */
     fd_valloc_t valloc;
 };
@@ -1330,10 +1334,12 @@ fd_gossip_push( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, long no
       }
       if (!pass) {
         s->drop_cnt++;
+        glob->not_push_cnt++;
         continue;
       }
+      glob->push_cnt++;
+      npush++;
       
-      ++npush;
       ulong * crds_len = (ulong *)(s->packet_end_init - sizeof(ulong));
       /* Add the value in already encoded form */
       if (s->packet_end + msg->datalen - s->packet > PACKET_DATA_SIZE) {
@@ -1378,6 +1384,8 @@ fd_gossip_log_stats( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, lo
 
   FD_LOG_NOTICE(("received %lu dup values and %lu new", glob->recv_dup_cnt, glob->recv_nondup_cnt));
   glob->recv_dup_cnt = glob->recv_nondup_cnt = 0;
+  FD_LOG_NOTICE(("pushed %lu values and filtered %lu", glob->push_cnt, glob->not_push_cnt));
+  glob->push_cnt = glob->not_push_cnt = 0;
 
   int need_inactive = (glob->inactives_cnt == 0);
   
