@@ -9,6 +9,7 @@ OBJDIR:=$(BASEDIR)/$(BUILDDIR)
 CORPUSDIR:=corpus
 
 CPPFLAGS+=-DFD_BUILD_INFO=\"$(OBJDIR)/info\"
+CPPFLAGS+=$(EXTRA_CPPFLAGS)
 
 # Auxiliarily rules that should not set up depenencies
 AUX_RULES:=clean distclean help show-deps lint check-lint run-unit-test
@@ -17,29 +18,30 @@ all: info bin include lib unit-test
 
 help:
 	# Configuration
-	# MACHINE   = $(MACHINE)
-	# EXTRAS    = $(EXTRAS)
-	# SHELL     = $(SHELL)
-	# BASEDIR   = $(BASEDIR)
-	# OBJDIR    = $(OBJDIR)
-	# CPPFLAGS  = $(CPPFLAGS)
-	# CC        = $(CC)
-	# CFLAGS    = $(CFLAGS)
-	# CXX       = $(CXX)
-	# CXXFLAGS  = $(CXXFLAGS)
-	# LD        = $(LD)
-	# LDFLAGS   = $(LDFLAGS)
-	# AR        = $(AR)
-	# ARFLAGS   = $(ARFLAGS)
-	# RANLIB    = $(RANLIB)
-	# CP        = $(CP)
-	# RM        = $(RM)
-	# MKDIR     = $(MKDIR)
-	# RMDIR     = $(RMDIR)
-	# SED       = $(SED)
-	# FIND      = $(FIND)
-	# SCRUB     = $(SCRUB)
-	# FUZZFLAGS = $(FUZZFLAGS)
+	# MACHINE         = $(MACHINE)
+	# EXTRAS          = $(EXTRAS)
+	# SHELL           = $(SHELL)
+	# BASEDIR         = $(BASEDIR)
+	# OBJDIR          = $(OBJDIR)
+	# CPPFLAGS        = $(CPPFLAGS)
+	# CC              = $(CC)
+	# CFLAGS          = $(CFLAGS)
+	# CXX             = $(CXX)
+	# CXXFLAGS        = $(CXXFLAGS)
+	# LD              = $(LD)
+	# LDFLAGS         = $(LDFLAGS)
+	# AR              = $(AR)
+	# ARFLAGS         = $(ARFLAGS)
+	# RANLIB          = $(RANLIB)
+	# CP              = $(CP)
+	# RM              = $(RM)
+	# MKDIR           = $(MKDIR)
+	# RMDIR           = $(RMDIR)
+	# SED             = $(SED)
+	# FIND            = $(FIND)
+	# SCRUB           = $(SCRUB)
+	# FUZZFLAGS       = $(FUZZFLAGS)
+	# EXTRAS_CPPFLAGS = $(EXTRA_CPPFLAGS)
 	# Explicit goals are: all bin include lib unit-test help clean distclean asm ppp
 	# "make all" is equivalent to "make bin include lib unit-test"
 	# "make info" makes build info $(OBJDIR)/info for the current platform (if not already made)
