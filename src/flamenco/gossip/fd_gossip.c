@@ -1208,7 +1208,7 @@ fd_gossip_refresh_push_states( fd_gossip_global_t * glob, fd_pending_event_arg_t
     if (fd_active_table_query(glob->actives, &s->addr, NULL) == NULL) {
       fd_valloc_free(glob->valloc, s);
       /* Replace with the one at the end */
-      glob->push_states[i] = glob->push_states[--(glob->push_states_cnt)];
+      glob->push_states[i--] = glob->push_states[--(glob->push_states_cnt)];
     }
   }
   if (glob->push_states_cnt == FD_PUSH_LIST_MAX) {
@@ -1227,7 +1227,7 @@ fd_gossip_refresh_push_states( fd_gossip_global_t * glob, fd_pending_event_arg_t
     glob->push_states[worst_i] = glob->push_states[--(glob->push_states_cnt)];
   }
 
-  /* Make a list of actives that we are not pushing to */
+  /* Make a list of actives that we are not pushing to yet */
   fd_active_elem_t * list[FD_ACTIVE_KEY_MAX];
   ulong listlen = 0;
   for( fd_active_table_iter_t iter = fd_active_table_iter_init( glob->actives );
@@ -1256,7 +1256,7 @@ fd_gossip_refresh_push_states( fd_gossip_global_t * glob, fd_pending_event_arg_t
     for (ulong j = 0; j < FD_PRUNE_NUM_KEYS; ++j)
       s->prune_keys[j] = fd_rng_ulong(glob->rng);
 
-    /* Encode an empty ushas a template */
+    /* Encode an empty push msg template */
     fd_gossip_msg_t gmsg;
     fd_gossip_msg_new_disc(&gmsg, fd_gossip_msg_enum_push_msg);
     fd_gossip_push_msg_t * push_msg = &gmsg.inner.push_msg;
@@ -1271,6 +1271,61 @@ fd_gossip_refresh_push_states( fd_gossip_global_t * glob, fd_pending_event_arg_t
     s->packet_end_init = s->packet_end = (uchar *)ctx.data;
 
     glob->push_states[glob->push_states_cnt++] = s;
+  }
+}
+
+void
+fd_gossip_push( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, long now ) {
+  (void)arg;
+
+  /* Try again in 100 msec */
+  fd_pending_event_t * ev = fd_gossip_add_pending(glob, now + (long)1e8);
+  if (ev) {
+    ev->fun = fd_gossip_push;
+  }
+
+  ulong expire = (ulong)(now / (long)1e6) - FD_GOSSIP_PULL_TIMEOUT;
+  while (glob->need_push_cnt > 0) {
+    fd_hash_t * h = glob->need_push + ((glob->need_push_head++) & (FD_NEED_PUSH_MAX-1));
+    glob->need_push_cnt--;
+
+    fd_value_elem_t * msg = fd_value_table_query(glob->values, h, NULL);
+    if (msg == NULL || msg->wallclock < expire)
+      continue;
+
+    ulong npush = 0;
+    for (ulong i = 0; i < glob->push_states_cnt && npush < FD_PUSH_VALUE_MAX; ++i) {
+      fd_push_state_t* s = glob->push_states[i];
+      ++npush;
+      ulong * crds_len = (ulong *)(s->packet_end_init - sizeof(ulong));
+      /* Add the value in already encoded form */
+      if (s->packet_end + msg->datalen - s->packet > PACKET_DATA_SIZE) {
+        /* Packet is getting too large. Flush it */
+        ulong sz = (ulong)(s->packet_end - s->packet);
+        fd_gossip_send_raw(glob, &s->addr, s->packet, sz);
+        char tmp[100];
+        FD_LOG_NOTICE(("push to %s size=%lu", fd_gossip_addr_str(tmp, sizeof(tmp), &s->addr), sz));
+        s->packet_end = s->packet_end_init;
+        *crds_len = 0;
+      }
+      fd_memcpy(s->packet_end, msg->data, msg->datalen);
+      s->packet_end += msg->datalen;
+      (*crds_len)++;
+    }
+  }
+
+  /* Flush partially full packets */
+  for (ulong i = 0; i < glob->push_states_cnt; ++i) {
+    fd_push_state_t* s = glob->push_states[i];
+    if (s->packet_end != s->packet_end_init) {
+      ulong * crds_len = (ulong *)(s->packet_end_init - sizeof(ulong));
+      ulong sz = (ulong)(s->packet_end - s->packet);
+      fd_gossip_send_raw(glob, &s->addr, s->packet, sz);
+      char tmp[100];
+      FD_LOG_NOTICE(("push to %s size=%lu", fd_gossip_addr_str(tmp, sizeof(tmp), &s->addr), sz));
+      s->packet_end = s->packet_end_init;
+      *crds_len = 0;
+    }
   }
 }
 
@@ -1348,6 +1403,8 @@ fd_gossip_main_loop( fd_gossip_global_t * glob, fd_valloc_t valloc, volatile int
   ev->fun = fd_gossip_log_stats;
   ev = fd_gossip_add_pending(glob, now + (long)20e9);
   ev->fun = fd_gossip_refresh_push_states;
+  ev = fd_gossip_add_pending(glob, now + (long)1e8);
+  ev->fun = fd_gossip_push;
 
 #define VLEN 32U
   struct mmsghdr msgs[VLEN];
