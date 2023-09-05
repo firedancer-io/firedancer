@@ -62,7 +62,7 @@ WD adopts an asynchronous API.  In fact WD uses the same Tango mcache mechanism 
   - `source $AWS-FPGA/sdk_setup.sh`
 
 + Load WD image on FPGA slot-0
-  - `sudo fpga-load-local-image -S 0 -I agfi-0d26fb98c51ff6b7b`
+  - `sudo fpga-load-local-image -S 0 -I agfi-01051ff14d1bba4e0`
 
 + Make FD with WD support
   - `./deps.sh`
