@@ -51,10 +51,13 @@
 
 #define FD_GOSSIP_NETWORK_ADDR_NLONGS (sizeof(fd_gossip_network_addr_t)/sizeof(ulong))
 
+/* Convert a host:port string to a gossip network address. If host is
+ * missing, it assumes the local hostname. */
 fd_gossip_network_addr_t *
 fd_gossip_resolve_hostport(const char* str /* host:port */, fd_gossip_network_addr_t * res) {
   fd_memset(res, 0, sizeof(fd_gossip_network_addr_t));
-  
+
+  /* Find the : and copy out the host */
   char buf[128];
   uint i;
   for (i = 0; ; ++i) {
@@ -68,12 +71,16 @@ fd_gossip_resolve_hostport(const char* str /* host:port */, fd_gossip_network_ad
     }
     buf[i] = str[i];
   }
+  if (i == 0)
+    /* :port means $HOST:port */
+    gethostname(buf, sizeof(buf));
   
   struct hostent * host = gethostbyname( buf );
   if (host == NULL) {
     FD_LOG_WARNING(("unable to resolve host %s", buf));
     return NULL;
   }
+  /* Convert result to gossip address */
   res->family = (sa_family_t)host->h_addrtype;
   if (res->family == AF_INET) {
     res->addr[0] = ((struct in_addr *)host->h_addr)->s_addr;
@@ -98,6 +105,7 @@ fd_gossip_resolve_hostport(const char* str /* host:port */, fd_gossip_network_ad
   return res;
 }
 
+/* Test if two addresses are equal */
 int fd_gossip_network_addr_eq( const fd_gossip_network_addr_t * key1, const fd_gossip_network_addr_t * key2 ) {
   FD_STATIC_ASSERT(sizeof(fd_gossip_network_addr_t)%sizeof(ulong) == 0,"messed up size");
   const ulong * p1 = (const ulong*)key1;
@@ -108,6 +116,7 @@ int fd_gossip_network_addr_eq( const fd_gossip_network_addr_t * key1, const fd_g
   return 1;
 }
 
+/* Hash an address */
 ulong fd_gossip_network_addr_hash( const fd_gossip_network_addr_t * key, ulong seed ) {
   ulong buf[FD_GOSSIP_NETWORK_ADDR_NLONGS];
   for ( ulong i = 0; i < FD_GOSSIP_NETWORK_ADDR_NLONGS; ++i )
@@ -152,6 +161,7 @@ ulong fd_gossip_network_addr_hash( const fd_gossip_network_addr_t * key, ulong s
   return (r0^r1)^(r2^r3)^(r4^r5);
 }
 
+/* Efficiently copy an address */
 void fd_gossip_network_addr_copy( fd_gossip_network_addr_t * keyd, const fd_gossip_network_addr_t * keys ) {
   FD_STATIC_ASSERT(sizeof(fd_gossip_network_addr_t)%sizeof(ulong) == 0,"messed up size");
   ulong * pd = (ulong*)keyd;
@@ -160,13 +170,13 @@ void fd_gossip_network_addr_copy( fd_gossip_network_addr_t * keyd, const fd_goss
     pd[i] = ps[i];
 }
 
-/* All peers table element */
+/* All peers table element. The peers table is all known validator addresses/ids. */
 struct fd_peer_elem {
     fd_gossip_network_addr_t key;
     ulong next;
     fd_pubkey_t id;  /* Public indentifier */
     ulong wallclock; /* last time we heard about this peer */
-    ulong stake;
+    ulong stake;     /* Staking for this validator. Unimplemented. */
 };
 /* All peers table */
 typedef struct fd_peer_elem fd_peer_elem_t;
@@ -178,7 +188,8 @@ typedef struct fd_peer_elem fd_peer_elem_t;
 #define MAP_T        fd_peer_elem_t
 #include "../../util/tmpl/fd_map_giant.c"
 
-/* Active table element */
+/* Active table element. This table is all validators that we are
+   aggressively pinging for liveness checking. */
 struct fd_active_elem {
     fd_gossip_network_addr_t key;
     ulong next;
@@ -198,6 +209,7 @@ typedef struct fd_active_elem fd_active_elem_t;
 #define MAP_T        fd_active_elem_t
 #include "../../util/tmpl/fd_map_giant.c"
 
+/* Initialize an active table element value */
 void
 fd_active_new_value(fd_active_elem_t * val) {
   val->pingcount = 1;
@@ -206,6 +218,7 @@ fd_active_new_value(fd_active_elem_t * val) {
   fd_memset(val->pingtoken.uc, 0, 32U);
 }
 
+/* Test if two hash values are equal */
 int fd_hash_eq( const fd_hash_t * key1, const fd_hash_t * key2 ) {
   for (ulong i = 0; i < 32U/sizeof(ulong); ++i)
     if (key1->ul[i] != key2->ul[i])
@@ -213,22 +226,25 @@ int fd_hash_eq( const fd_hash_t * key1, const fd_hash_t * key2 ) {
   return 1;
 }
 
+/* Hash a hash value */
 ulong fd_hash_hash( const fd_hash_t * key, ulong seed ) {
   return key->ul[0] ^ seed;
 }
 
+/* Copy a hash value */
 void fd_hash_copy( fd_hash_t * keyd, const fd_hash_t * keys ) {
   for (ulong i = 0; i < 32U/sizeof(ulong); ++i)
     keyd->ul[i] = keys->ul[i];
 }
 
-/* Value table element */
+/* Value table element. This table stores all received crds
+   values. Keyed by the hash of the value data. */
 struct fd_value_elem {
     fd_hash_t key;
     ulong next;
-    fd_pubkey_t origin;
+    fd_pubkey_t origin; /* Where did this value originate */
     ulong wallclock; /* Original timestamp of value */
-    uchar * data;    /* Serialized form of value (bincode) */
+    uchar * data;    /* Serialized form of value (bincode) including signature */
     ulong datalen;
 };
 /* Value table */
@@ -241,7 +257,7 @@ typedef struct fd_value_elem fd_value_elem_t;
 #define MAP_T        fd_value_elem_t
 #include "../../util/tmpl/fd_map_giant.c"
 
-/* Queue of pending timed events */
+/* Queue of pending timed events, stored as a priority heap */
 union fd_pending_event_arg {
     fd_gossip_network_addr_t key;
 };
@@ -264,7 +280,8 @@ typedef struct fd_pending_event fd_pending_event_t;
 #define HEAP_LT(e0,e1) (e0->key < e1->key)
 #include "../../util/tmpl/fd_heap.c"
 
-/* Data structure representing an active push destination */
+/* Data structure representing an active push destination. There are
+   only a small number of these. */
 struct fd_push_state {
     fd_gossip_network_addr_t addr; /* Destination address */
     fd_pubkey_t id;                /* Public indentifier */
@@ -381,6 +398,7 @@ fd_gossip_global_delete ( void * shmap, fd_valloc_t valloc ) {
   return glob;
 }
 
+/* Convert my style of address to solana style */
 int
 fd_gossip_to_soladdr( fd_gossip_socket_addr_t * dst, fd_gossip_network_addr_t const * src ) {
   dst->port = ntohs(src->port);
@@ -402,6 +420,7 @@ fd_gossip_to_soladdr( fd_gossip_socket_addr_t * dst, fd_gossip_network_addr_t co
   }
 }
 
+/* Convert my style of address from solana style */
 int
 fd_gossip_from_soladdr(fd_gossip_network_addr_t * dst, fd_gossip_socket_addr_t const * src ) {
   dst->port = htons(src->port);
@@ -423,6 +442,7 @@ fd_gossip_from_soladdr(fd_gossip_network_addr_t * dst, fd_gossip_socket_addr_t c
   }
 }
 
+/* Convert my style of address to UNIX style */
 int
 fd_gossip_to_sockaddr( uchar * dst, fd_gossip_network_addr_t const * src ) {
   if (src->family == AF_INET) {
@@ -450,6 +470,7 @@ fd_gossip_to_sockaddr( uchar * dst, fd_gossip_network_addr_t const * src ) {
   }
 }
 
+/* Convert an address to a human readable string */
 const char * fd_gossip_addr_str( char * dst, size_t dstlen, fd_gossip_network_addr_t const * src ) {
   if (src->family == AF_INET) {
     char tmp[INET_ADDRSTRLEN];
@@ -464,6 +485,7 @@ const char * fd_gossip_addr_str( char * dst, size_t dstlen, fd_gossip_network_ad
   }
 }
 
+/* Convert my style of address from UNIX style */
 int
 fd_gossip_from_sockaddr( fd_gossip_network_addr_t * dst, uchar const * src ) {
   fd_memset(dst, 0, sizeof(fd_gossip_network_addr_t));
@@ -487,6 +509,7 @@ fd_gossip_from_sockaddr( fd_gossip_network_addr_t * dst, uchar const * src ) {
   return 0;
 }
 
+/* Set the gossip configuration */
 int
 fd_gossip_global_set_config( fd_gossip_global_t * glob, const fd_gossip_config_t * config ) {
   fd_memcpy(&glob->my_creds, &config->my_creds, sizeof(fd_gossip_config_t));
@@ -499,6 +522,8 @@ fd_gossip_global_set_config( fd_gossip_global_t * glob, const fd_gossip_config_t
   return 0;
 }
 
+/* Add an event to the queue of pending timed events. The resulting
+   value needs "fun" and "fun_arg" to be set. */
 fd_pending_event_t *
 fd_gossip_add_pending( fd_gossip_global_t * glob, long when ) {
   fd_pending_event_t * ev = fd_pending_pool_ele_acquire( glob->event_pool );
@@ -509,6 +534,7 @@ fd_gossip_add_pending( fd_gossip_global_t * glob, long when ) {
   return ev;
 }
 
+/* Send raw data as a UDP packet to an address */
 void
 fd_gossip_send_raw( fd_gossip_global_t * glob, fd_gossip_network_addr_t * dest, void * data, size_t sz) {
   uchar saddr[sizeof(struct sockaddr_in6)];
@@ -523,8 +549,10 @@ fd_gossip_send_raw( fd_gossip_global_t * glob, fd_gossip_network_addr_t * dest, 
   }
 }
 
+/* Send a gossip message to an address */
 void
 fd_gossip_send( fd_gossip_global_t * glob, fd_gossip_network_addr_t * dest, fd_gossip_msg_t * gmsg ) {
+  /* Encode the data */
   uchar buf[FD_ETH_PAYLOAD_MAX];
   fd_bincode_encode_ctx_t ctx;
   ctx.data = buf;
@@ -536,11 +564,14 @@ fd_gossip_send( fd_gossip_global_t * glob, fd_gossip_network_addr_t * dest, fd_g
   size_t sz = (size_t)((const uchar *)ctx.data - buf);
   fd_gossip_send_raw( glob, dest, buf, sz);
   char tmp[100];
-  FD_LOG_NOTICE(("sent msg type %d to %s size=%lu", gmsg->discriminant, fd_gossip_addr_str(tmp, sizeof(tmp), dest), sz));
+  FD_LOG_DEBUG(("sent msg type %d to %s size=%lu", gmsg->discriminant, fd_gossip_addr_str(tmp, sizeof(tmp), dest), sz));
 }
 
+/* Initiate the ping/pong protocol to a validator address */
 void
 fd_gossip_make_ping( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, long now ) {
+  /* Update the active table where we track the state of the ping/pong
+     protocol */
   fd_gossip_network_addr_t * key = &arg->key;
   fd_active_elem_t * val = fd_active_table_query(glob->actives, key, NULL);
   if (val == NULL) {
@@ -573,13 +604,14 @@ fd_gossip_make_ping( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, lo
     fd_memcpy(&ev->fun_arg.key, key, sizeof(fd_gossip_network_addr_t));
   }
 
+  /* Build a ping message */
   fd_gossip_msg_t gmsg;
   fd_gossip_msg_new_disc(&gmsg, fd_gossip_msg_enum_ping);
   fd_gossip_ping_t * ping = &gmsg.inner.ping;
   fd_memcpy( ping->from.uc, glob->my_creds.public_key.uc, 32UL );
   fd_memcpy( ping->token.uc, val->pingtoken.uc, 32UL );
 
-  /* Sign */
+  /* Sign it */
   fd_sha512_t sha[1];
   fd_ed25519_sign( /* sig */ ping->signature.uc,
                    /* msg */ ping->token.uc,
@@ -591,6 +623,7 @@ fd_gossip_make_ping( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, lo
   fd_gossip_send( glob, key, &gmsg );
 }
 
+/* Respond to a ping from another validator */
 void
 fd_gossip_handle_ping( fd_gossip_global_t * glob, fd_gossip_network_addr_t * from, fd_gossip_ping_t const * ping ) {
   /* Verify the signature */
@@ -604,6 +637,7 @@ fd_gossip_handle_ping( fd_gossip_global_t * glob, fd_gossip_network_addr_t * fro
     return;
   }
 
+  /* Build a pong message */
   fd_gossip_msg_t gmsg;
   fd_gossip_msg_new_disc(&gmsg, fd_gossip_msg_enum_pong);
   fd_gossip_ping_t * pong = &gmsg.inner.pong;
@@ -617,7 +651,7 @@ fd_gossip_handle_ping( fd_gossip_global_t * glob, fd_gossip_network_addr_t * fro
   fd_sha256_append( sha, ping->token.uc,     32UL );
   fd_sha256_fini( sha, pong->token.uc );
 
-  /* Sign */
+  /* Sign it */
   fd_ed25519_sign( /* sig */ pong->signature.uc,
                    /* msg */ pong->token.uc,
                    /* sz  */ 32UL,
@@ -628,18 +662,74 @@ fd_gossip_handle_ping( fd_gossip_global_t * glob, fd_gossip_network_addr_t * fro
   fd_gossip_send(glob, from, &gmsg);
 }
 
+/* Sign/timestamp an outgoing crds value */
 void
-fd_gossip_sign_crds_value( fd_gossip_global_t * glob, fd_crds_value_t * value ) {
+fd_gossip_sign_crds_value( fd_gossip_global_t * glob, fd_crds_value_t * crd, long now ) {
+  /* Update the identifier and timestamp */
+  fd_pubkey_t * pubkey;
+  ulong * wallclock;
+  switch (crd->data.discriminant) {
+  case fd_crds_data_enum_contact_info:
+    pubkey = &crd->data.inner.contact_info.id;
+    wallclock = &crd->data.inner.contact_info.wallclock;
+    break;
+  case fd_crds_data_enum_vote:
+    pubkey = &crd->data.inner.vote.from;
+    wallclock = &crd->data.inner.vote.wallclock;
+    break;
+  case fd_crds_data_enum_lowest_slot:
+    pubkey = &crd->data.inner.lowest_slot.from;
+    wallclock = &crd->data.inner.lowest_slot.wallclock;
+    break;
+  case fd_crds_data_enum_snapshot_hashes:
+    pubkey = &crd->data.inner.snapshot_hashes.from;
+    wallclock = &crd->data.inner.snapshot_hashes.wallclock;
+    break;
+  case fd_crds_data_enum_accounts_hashes:
+    pubkey = &crd->data.inner.accounts_hashes.from;
+    wallclock = &crd->data.inner.accounts_hashes.wallclock;
+    break;
+  case fd_crds_data_enum_epoch_slots:
+    pubkey = &crd->data.inner.epoch_slots.from;
+    wallclock = &crd->data.inner.epoch_slots.wallclock;
+    break;
+  case fd_crds_data_enum_legacy_version:
+    pubkey = &crd->data.inner.legacy_version.from;
+    wallclock = &crd->data.inner.legacy_version.wallclock;
+    break;
+  case fd_crds_data_enum_version:
+    pubkey = &crd->data.inner.version.from;
+    wallclock = &crd->data.inner.version.wallclock;
+    break;
+  case fd_crds_data_enum_node_instance:
+    pubkey = &crd->data.inner.node_instance.from;
+    wallclock = &crd->data.inner.node_instance.wallclock;
+    break;
+  case fd_crds_data_enum_duplicate_shred:
+    pubkey = &crd->data.inner.duplicate_shred.from;
+    wallclock = &crd->data.inner.duplicate_shred.wallclock;
+    break;
+  case fd_crds_data_enum_incremental_snapshot_hashes:
+    pubkey = &crd->data.inner.incremental_snapshot_hashes.from;
+    wallclock = &crd->data.inner.incremental_snapshot_hashes.wallclock;
+    break;
+  default:
+    return;
+  }
+  fd_memcpy(pubkey->uc, glob->my_creds.public_key.uc, 32U);
+  *wallclock = (ulong)now/1000000; /* convert to ms */
+
+  /* Sign it */
   uchar buf[FD_ETH_PAYLOAD_MAX];
   fd_bincode_encode_ctx_t ctx;
   ctx.data = buf;
   ctx.dataend = buf + FD_ETH_PAYLOAD_MAX;
-  if ( fd_crds_data_encode( &value->data, &ctx ) ) {
+  if ( fd_crds_data_encode( &crd->data, &ctx ) ) {
     FD_LOG_WARNING(("fd_crds_data_encode failed"));
     return;
   }
   fd_sha512_t sha[1];
-  fd_ed25519_sign( /* sig */ value->signature.uc,
+  fd_ed25519_sign( /* sig */ crd->signature.uc,
                    /* msg */ buf,
                    /* sz  */ (ulong)((uchar*)ctx.data - buf),
                    /* public_key  */ glob->my_creds.public_key.uc,
@@ -647,8 +737,9 @@ fd_gossip_sign_crds_value( fd_gossip_global_t * glob, fd_crds_value_t * value ) 
                    sha );
 }
 
+/* Convert a hash to a bloom filter bit position */
 static ulong
-  fd_gossip_bloom_pos( fd_hash_t * hash, ulong key, ulong nbits) {
+fd_gossip_bloom_pos( fd_hash_t * hash, ulong key, ulong nbits) {
   for ( ulong i = 0; i < 32U; ++i) {
     key ^= (ulong)(hash->uc[i]);
     key *= 1099511628211UL;
@@ -659,7 +750,7 @@ static ulong
 /* Chooose a random active peer with good ping count */
 fd_active_elem_t *
 fd_gossip_random_active( fd_gossip_global_t * glob ) {
-  /* Look for a random element with a low ping count */
+  /* Create a list of active peers with minimal pings */
   fd_active_elem_t * list[FD_ACTIVE_KEY_MAX];
   ulong listlen = 0;
   for( fd_active_table_iter_t iter = fd_active_table_iter_init( glob->actives );
@@ -674,6 +765,7 @@ fd_gossip_random_active( fd_gossip_global_t * glob ) {
     } else if (ele->pingcount > list[0]->pingcount) {
       continue;
     } else if (ele->pingcount < list[0]->pingcount) {
+      /* Reset the list */
       list[0] = ele;
       listlen = 1;
     } else {
@@ -682,10 +774,11 @@ fd_gossip_random_active( fd_gossip_global_t * glob ) {
   }
   if (listlen == 0)
     return NULL;
-  // FD_LOG_NOTICE(("choosing from %lu with pingcount %lu", listlen, list[0]->pingcount));
+  /* Choose a random list element */
   return list[fd_rng_ulong(glob->rng) % listlen];
 }
 
+/* Generate a pull request for a random active peer */
 void
 fd_gossip_random_pull( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, long now ) {
   (void)arg;
@@ -701,7 +794,7 @@ fd_gossip_random_pull( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, 
   if (ele == NULL)
     return;
 
-  /* Compute the number of packets */
+  /* Compute the number of packets needed for all the bloom filter parts */
   ulong nitems = fd_value_table_key_cnt(glob->values);
   ulong nkeys = 1;
   ulong npackets = 1;
@@ -742,11 +835,13 @@ fd_gossip_random_pull( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, 
        iter = fd_value_table_iter_next( glob->values, iter ) ) {
     fd_value_elem_t * ele = fd_value_table_iter_ele( glob->values, iter );
     fd_hash_t * hash = &(ele->key);
+    /* Purge expired values */
     if (ele->wallclock < expire) {
       fd_valloc_free( glob->valloc, ele->data );
       fd_value_table_remove( glob->values, hash );
       continue;
     }
+    /* Choose which filter packet based on the high bits in the hash */
     ulong index = (nmaskbits == 0 ? 0UL : ( hash->ul[0] >> (64U - nmaskbits) ));
     ulong * chunk = bits + (index*CHUNKSIZE);
     for (ulong i = 0; i < nkeys; ++i) {
@@ -774,14 +869,15 @@ fd_gossip_random_pull( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, 
   bitvec->len = FD_BLOOM_NUM_BITS;
   bitsbits.vec_len = FD_BLOOM_NUM_BITS/64U;
 
+  /* The "value" in the request is always my own contact info */
   fd_crds_value_t * value = &req->value;
   fd_crds_data_new_disc(&value->data, fd_crds_data_enum_contact_info);
   fd_gossip_contact_info_t * ci = &value->data.inner.contact_info;
   fd_memcpy(ci, &glob->my_contact_info, sizeof(fd_gossip_contact_info_t));
-  ci->wallclock = (ulong)now/1000000; /* convert to ms */
-  fd_gossip_sign_crds_value(glob, value);
+  fd_gossip_sign_crds_value(glob, value, now);
 
   for (uint i = 0; i < npackets; ++i) {
+    /* Update the filter mask specific part */
     filter->mask = (nmaskbits == 0 ? ~0UL : ((i << (64U - nmaskbits)) | (~0UL >> nmaskbits)));
     filter->filter.num_bits_set = num_bits_set[i];
     bitsbits.vec = bits + (i*CHUNKSIZE);
@@ -789,6 +885,7 @@ fd_gossip_random_pull( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, 
   }
 }
 
+/* Handle a pong response */
 void
 fd_gossip_handle_pong( fd_gossip_global_t * glob, fd_gossip_network_addr_t * from, fd_gossip_ping_t const * pong, long now ) {
   fd_active_elem_t * val = fd_active_table_query(glob->actives, from, NULL);
@@ -837,6 +934,8 @@ fd_gossip_handle_pong( fd_gossip_global_t * glob, fd_gossip_network_addr_t * fro
   fd_memcpy(peerval->id.uc, pong->from.uc, 32U);
 }
 
+/* Initiate a ping/pong with a random active partner to confirm it is
+   still alive. */
 void
 fd_gossip_random_ping( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, long now ) {
   (void)arg;
@@ -878,6 +977,7 @@ fd_gossip_random_ping( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, 
   fd_gossip_make_ping(glob, &arg2, now);
 }
 
+/* Process an incoming crds value */
 void
 fd_gossip_recv_crds_value(fd_gossip_global_t * glob, fd_pubkey_t * pubkey, fd_crds_value_t* crd, long now) {
   /* Verify the signature */
@@ -952,7 +1052,7 @@ fd_gossip_recv_crds_value(fd_gossip_global_t * glob, fd_pubkey_t * pubkey, fd_cr
     return;
   }
 
-  /* Perform the value hash */
+  /* Perform the value hash to get the value table key */
   ctx.data = buf;
   ctx.dataend = buf + FD_ETH_PAYLOAD_MAX;
   if ( fd_crds_value_encode( crd, &ctx ) ) {
@@ -966,7 +1066,7 @@ fd_gossip_recv_crds_value(fd_gossip_global_t * glob, fd_pubkey_t * pubkey, fd_cr
   fd_hash_t key;
   fd_sha256_fini( sha2, key.uc );
 
-  /* Store the value */
+  /* Store the value for later pushing/duplicate detection */
   fd_value_elem_t * msg = fd_value_table_query(glob->values, &key, NULL);
   if (msg != NULL) {
     /* Already have this value */
@@ -981,6 +1081,7 @@ fd_gossip_recv_crds_value(fd_gossip_global_t * glob, fd_pubkey_t * pubkey, fd_cr
   msg = fd_value_table_insert(glob->values, &key);
   msg->wallclock = wallclock;
   fd_memcpy(msg->origin.uc, pubkey->uc, 32U);
+  /* We store the serialized form for convenience */
   msg->data = fd_valloc_malloc(glob->valloc, 1U, datalen);
   fd_memcpy(msg->data, buf, datalen);
   msg->datalen = datalen;
@@ -1006,7 +1107,7 @@ fd_gossip_recv_crds_value(fd_gossip_global_t * glob, fd_pubkey_t * pubkey, fd_cr
           val = fd_peer_table_insert(glob->peers, &pkey);
           if (glob->inactives_cnt < INACTIVES_MAX &&
               fd_active_table_query(glob->actives, &pkey, NULL) == NULL) {
-            /* Queue this peer for potential active status */
+            /* Queue this peer for later pinging */
             fd_memcpy(glob->inactives + (glob->inactives_cnt++), &pkey, sizeof(pkey));
           }
         }
@@ -1023,13 +1124,16 @@ fd_gossip_recv_crds_value(fd_gossip_global_t * glob, fd_pubkey_t * pubkey, fd_cr
   (*glob->deliver_fun)(&crd->data, glob->deliver_fun_arg, now);
 }
 
+/* Handle a prune request from somebody else */
 void
 fd_gossip_handle_prune(fd_gossip_global_t * glob, fd_gossip_network_addr_t * from, fd_gossip_prune_msg_t * msg) {
   (void)from;
 
+  /* Confirm the message is for me */
   if (memcmp(msg->data.destination.uc, glob->my_creds.public_key.uc, 32U) != 0)
     return;
 
+  /* Verify the signature. This is hacky for prune messages */
   fd_gossip_prune_sign_data_t signdata;
   signdata.pubkey = msg->data.pubkey;
   signdata.prunes_len = msg->data.prunes_len;
@@ -1055,6 +1159,7 @@ fd_gossip_handle_prune(fd_gossip_global_t * glob, fd_gossip_network_addr_t * fro
     return;
   }
 
+  /* Find the active push state which needs to be pruned */
   fd_push_state_t* ps = NULL;
   for (ulong i = 0; i < glob->push_states_cnt; ++i) {
     fd_push_state_t* s = glob->push_states[i];
@@ -1066,6 +1171,7 @@ fd_gossip_handle_prune(fd_gossip_global_t * glob, fd_gossip_network_addr_t * fro
   if (ps == NULL)
     return;
 
+  /* Set the bloom filter prune bits */
   for (ulong i = 0; i < msg->data.prunes_len; ++i) {
     fd_pubkey_t * p = msg->data.prunes + i;
     for (ulong j = 0; j < FD_PRUNE_NUM_KEYS; ++j) {
@@ -1077,6 +1183,7 @@ fd_gossip_handle_prune(fd_gossip_global_t * glob, fd_gossip_network_addr_t * fro
   }
 }
 
+/* Respond to a pull request */
 void
 fd_gossip_handle_pull_req(fd_gossip_global_t * glob, fd_gossip_network_addr_t * from, fd_gossip_pull_req_t * msg, long now) {
   fd_active_elem_t * val = fd_active_table_query(glob->actives, from, NULL);
@@ -1106,6 +1213,7 @@ fd_gossip_handle_pull_req(fd_gossip_global_t * glob, fd_gossip_network_addr_t * 
   uchar * newend = (uchar *)ctx.data;
   ulong * crds_len = (ulong *)(newend - sizeof(ulong));
 
+  /* Apply the bloom filter to my table of values */
   fd_crds_filter_t * filter = &msg->filter;
   ulong nkeys = filter->filter.keys_len;
   ulong * keys = filter->filter.keys;
@@ -1172,6 +1280,7 @@ fd_gossip_handle_pull_req(fd_gossip_global_t * glob, fd_gossip_network_addr_t * 
     FD_LOG_NOTICE(("responded to pull request with %lu values in %u packets (%lu filtered out)", misses, npackets, hits));
 }
 
+/* Handle any gossip message */
 void
 fd_gossip_recv(fd_gossip_global_t * glob, fd_gossip_network_addr_t * from, fd_gossip_msg_t * gmsg, long now) {
   switch (gmsg->discriminant) {
@@ -1202,6 +1311,7 @@ fd_gossip_recv(fd_gossip_global_t * glob, fd_gossip_network_addr_t * from, fd_go
   }
 }
 
+/* Initiate connection to a peer */
 int
 fd_gossip_add_active_peer( fd_gossip_global_t * glob, fd_gossip_network_addr_t * addr ) {
   fd_active_elem_t * val = fd_active_table_query(glob->actives, addr, NULL);
@@ -1217,6 +1327,7 @@ fd_gossip_add_active_peer( fd_gossip_global_t * glob, fd_gossip_network_addr_t *
   return 0;
 }
 
+/* Improve the set of active push states */
 void
 fd_gossip_refresh_push_states( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, long now ) {
   (void)arg;
@@ -1237,7 +1348,7 @@ fd_gossip_refresh_push_states( fd_gossip_global_t * glob, fd_pending_event_arg_t
     }
   }
   if (glob->push_states_cnt == FD_PUSH_LIST_MAX) {
-    /* Delete the worst destination */
+    /* Delete the worst destination based prune count */
     fd_push_state_t * worst_s = glob->push_states[0];
     ulong worst_i = 0;
     for (ulong i = 1; i < glob->push_states_cnt; ++i) {
@@ -1274,6 +1385,7 @@ fd_gossip_refresh_push_states( fd_gossip_global_t * glob, fd_pending_event_arg_t
     fd_active_elem_t * a = list[i];
     list[i] = list[--listlen];
 
+    /* Build the pusher state */
     fd_push_state_t * s = (fd_push_state_t *)fd_valloc_malloc(glob->valloc, alignof(fd_push_state_t), sizeof(fd_push_state_t));
     fd_memset(s, 0, sizeof(fd_push_state_t));
     fd_memcpy(&s->addr, &a->key, sizeof(fd_gossip_network_addr_t));
@@ -1299,6 +1411,7 @@ fd_gossip_refresh_push_states( fd_gossip_global_t * glob, fd_pending_event_arg_t
   }
 }
 
+/* Push the latest values */
 void
 fd_gossip_push( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, long now ) {
   (void)arg;
@@ -1309,6 +1422,7 @@ fd_gossip_push( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, long no
     ev->fun = fd_gossip_push;
   }
 
+  /* Iterate across recent values */
   ulong expire = (ulong)(now / (long)1e6) - FD_GOSSIP_PULL_TIMEOUT;
   while (glob->need_push_cnt > 0) {
     fd_hash_t * h = glob->need_push + ((glob->need_push_head++) & (FD_NEED_PUSH_MAX-1));
@@ -1318,10 +1432,12 @@ fd_gossip_push( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, long no
     if (msg == NULL || msg->wallclock < expire)
       continue;
 
+    /* Iterate across push states */
     ulong npush = 0;
     for (ulong i = 0; i < glob->push_states_cnt && npush < FD_PUSH_VALUE_MAX; ++i) {
       fd_push_state_t* s = glob->push_states[i];
 
+      /* Apply the pruning bloom filter */
       int pass = 0;
       for (ulong j = 0; j < FD_PRUNE_NUM_KEYS; ++j) {
         ulong pos = fd_gossip_bloom_pos(&msg->origin, s->prune_keys[j], FD_PRUNE_NUM_BITS);
@@ -1347,7 +1463,7 @@ fd_gossip_push( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, long no
         ulong sz = (ulong)(s->packet_end - s->packet);
         fd_gossip_send_raw(glob, &s->addr, s->packet, sz);
         char tmp[100];
-        FD_LOG_NOTICE(("push to %s size=%lu", fd_gossip_addr_str(tmp, sizeof(tmp), &s->addr), sz));
+        FD_LOG_DEBUG(("push to %s size=%lu", fd_gossip_addr_str(tmp, sizeof(tmp), &s->addr), sz));
         s->packet_end = s->packet_end_init;
         *crds_len = 0;
       }
@@ -1365,13 +1481,14 @@ fd_gossip_push( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, long no
       ulong sz = (ulong)(s->packet_end - s->packet);
       fd_gossip_send_raw(glob, &s->addr, s->packet, sz);
       char tmp[100];
-      FD_LOG_NOTICE(("push to %s size=%lu", fd_gossip_addr_str(tmp, sizeof(tmp), &s->addr), sz));
+      FD_LOG_DEBUG(("push to %s size=%lu", fd_gossip_addr_str(tmp, sizeof(tmp), &s->addr), sz));
       s->packet_end = s->packet_end_init;
       *crds_len = 0;
     }
   }
 }
 
+/* Periodically log status. Removes old peers as a side event. */
 void
 fd_gossip_log_stats( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, long now ) {
   (void)arg;
@@ -1396,6 +1513,7 @@ fd_gossip_log_stats( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, lo
        iter = fd_peer_table_iter_next( glob->peers, iter ) ) {
     fd_peer_elem_t * ele = fd_peer_table_iter_ele( glob->peers, iter );
     if (ele->wallclock < expire) {
+      /* Peer hasn't been updated for a long time */
       fd_peer_table_remove( glob->peers, &ele->key );
       continue;
     }
@@ -1504,6 +1622,7 @@ fd_gossip_main_loop( fd_gossip_global_t * glob, fd_valloc_t valloc, volatile int
       if ( fd_gossip_from_sockaddr( &from, msgs[i].msg_hdr.msg_name ) )
         continue;
 
+      /* Deserialize the message */
       fd_gossip_msg_t gmsg;
       fd_gossip_msg_new(&gmsg);
       fd_bincode_decode_ctx_t ctx;

@@ -60,10 +60,8 @@ int main(int argc, char **argv) {
 
   char hostname[64];
   gethostname(hostname, sizeof(hostname));
-  char addrbuf[100];
-  snprintf(addrbuf, sizeof(addrbuf), "%s:1125", hostname);
-  // snprintf(addrbuf, sizeof(addrbuf), "localhost:1125", hostname);
-  FD_TEST( fd_gossip_resolve_hostport(addrbuf, &config.my_addr) );
+
+  FD_TEST( fd_gossip_resolve_hostport(":1125", &config.my_addr) );
 
   config.shred_version = 61807U;
 
