@@ -47,6 +47,9 @@ int fd_gossip_global_set_config( fd_gossip_global_t * glob, const fd_gossip_conf
 
 int fd_gossip_add_active_peer( fd_gossip_global_t * glob, fd_gossip_network_addr_t * addr );
 
+/* Publish an outgoing value. The source id and wallclock are set by this function */
+int fd_gossip_push_value( fd_gossip_global_t * glob, fd_crds_data_t* data );
+
 /* Main loop for socket reading/writing. Does not return until stopflag is non-zero */
 int fd_gossip_main_loop( fd_gossip_global_t * glob, fd_valloc_t valloc, volatile int * stopflag );
 

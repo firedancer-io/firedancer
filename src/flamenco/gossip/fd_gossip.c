@@ -74,7 +74,7 @@ fd_gossip_resolve_hostport(const char* str /* host:port */, fd_gossip_network_ad
   if (i == 0)
     /* :port means $HOST:port */
     gethostname(buf, sizeof(buf));
-  
+
   struct hostent * host = gethostbyname( buf );
   if (host == NULL) {
     FD_LOG_WARNING(("unable to resolve host %s", buf));
@@ -123,7 +123,7 @@ ulong fd_gossip_network_addr_hash( const fd_gossip_network_addr_t * key, ulong s
     buf[i] = ((const ulong *)key)[i];
 
   seed += 7242237688154252699UL;
-  
+
 #define ROLLUP(_result_,_prime_)                       \
   ulong _result_ = 0;                                  \
   do {                                                 \
@@ -243,7 +243,7 @@ struct fd_value_elem {
     fd_hash_t key;
     ulong next;
     fd_pubkey_t origin; /* Where did this value originate */
-    ulong wallclock; /* Original timestamp of value */
+    ulong wallclock; /* Original timestamp of value in millis */
     uchar * data;    /* Serialized form of value (bincode) including signature */
     ulong datalen;
 };
@@ -597,7 +597,7 @@ fd_gossip_make_ping( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, lo
       val->pingtoken.ul[i] = fd_rng_ulong(glob->rng);
   }
 
-  /* Keep pinging until we succeed */ 
+  /* Keep pinging until we succeed */
   fd_pending_event_t * ev = fd_gossip_add_pending( glob, now + (long)2e8 /* 200 ms */ );
   if (ev != NULL) {
     ev->fun = fd_gossip_make_ping;
@@ -916,7 +916,7 @@ fd_gossip_handle_pong( fd_gossip_global_t * glob, fd_gossip_network_addr_t * fro
     FD_LOG_WARNING(("received pong with invalid signature"));
     return;
   }
-  
+
   val->pongtime = now;
   fd_memcpy(val->id.uc, pong->from.uc, 32U);
 
@@ -1455,7 +1455,7 @@ fd_gossip_push( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, long no
       }
       glob->push_cnt++;
       npush++;
-      
+
       ulong * crds_len = (ulong *)(s->packet_end_init - sizeof(ulong));
       /* Add the value in already encoded form */
       if (s->packet_end + msg->datalen - s->packet > PACKET_DATA_SIZE) {
@@ -1488,6 +1488,58 @@ fd_gossip_push( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, long no
   }
 }
 
+/* Publish an outgoing value. The source id and wallclock are set by this function */
+int
+fd_gossip_push_value( fd_gossip_global_t * glob, fd_crds_data_t * data ) {
+  /* Wrap the data in a value stub. Sign it. */
+  fd_crds_value_t crd;
+  fd_memcpy(&crd.data, data, sizeof(fd_crds_data_t));
+  long now = fd_log_wallclock();
+  fd_gossip_sign_crds_value(glob, &crd, now);
+
+  /* Perform the value hash to get the value table key */
+  uchar buf[FD_ETH_PAYLOAD_MAX];
+  fd_bincode_encode_ctx_t ctx;
+  ctx.data = buf;
+  ctx.dataend = buf + FD_ETH_PAYLOAD_MAX;
+  if ( fd_crds_value_encode( &crd, &ctx ) ) {
+    FD_LOG_ERR(("fd_crds_value_encode failed"));
+    return -1;
+  }
+  fd_sha256_t sha2[1];
+  fd_sha256_init( sha2 );
+  ulong datalen = (ulong)((uchar*)ctx.data - buf);
+  fd_sha256_append( sha2, buf, datalen );
+  fd_hash_t key;
+  fd_sha256_fini( sha2, key.uc );
+
+  /* Store the value for later pushing/duplicate detection */
+  fd_value_elem_t * msg = fd_value_table_query(glob->values, &key, NULL);
+  if (msg != NULL) {
+    /* Already have this value, which is strange! */
+    return -1;
+  }
+  if (fd_value_table_is_full(glob->values)) {
+    FD_LOG_WARNING(("too many values"));
+    return -1;
+  }
+  msg = fd_value_table_insert(glob->values, &key);
+  msg->wallclock = (ulong)now/1000000; /* convert to ms */
+  fd_memcpy(msg->origin.uc, glob->my_creds.public_key.uc, 32U);
+  /* We store the serialized form for convenience */
+  msg->data = fd_valloc_malloc(glob->valloc, 1U, datalen);
+  fd_memcpy(msg->data, buf, datalen);
+  msg->datalen = datalen;
+
+  if (glob->need_push_cnt < FD_NEED_PUSH_MAX) {
+    /* Remember that I need to push this value */
+    ulong i = ((glob->need_push_head + (glob->need_push_cnt++)) & (FD_NEED_PUSH_MAX-1U));
+    fd_memcpy(glob->need_push + i, &key, sizeof(key));
+  }
+
+  return 0;
+}
+
 /* Periodically log status. Removes old peers as a side event. */
 void
 fd_gossip_log_stats( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, long now ) {
@@ -1505,7 +1557,7 @@ fd_gossip_log_stats( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, lo
   glob->push_cnt = glob->not_push_cnt = 0;
 
   int need_inactive = (glob->inactives_cnt == 0);
-  
+
   ulong wc = (ulong)(now / (long)1e6);
   ulong expire = wc - 4U*FD_GOSSIP_VALUE_EXPIRE;
   for( fd_peer_table_iter_t iter = fd_peer_table_iter_init( glob->peers );
@@ -1533,7 +1585,7 @@ fd_gossip_log_stats( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, lo
 int
 fd_gossip_main_loop( fd_gossip_global_t * glob, fd_valloc_t valloc, volatile int * stopflag ) {
   glob->valloc = valloc;
-  
+
   int fd;
   if ((fd = socket(glob->my_addr.family, SOCK_DGRAM, 0)) < 0) {
     FD_LOG_ERR(("socket failed: %s", strerror(errno)));
@@ -1580,7 +1632,7 @@ fd_gossip_main_loop( fd_gossip_global_t * glob, fd_valloc_t valloc, volatile int
       FD_LOG_WARNING(("protocol failure, no active peers"));
       break;
     }
-    
+
     fd_memset(msgs, 0, sizeof(msgs));
     for (uint i = 0; i < VLEN; i++) {
       iovecs[i].iov_base          = bufs[i];
@@ -1640,7 +1692,7 @@ fd_gossip_main_loop( fd_gossip_global_t * glob, fd_valloc_t valloc, volatile int
 
       char tmp[100];
       FD_LOG_DEBUG(("recv msg type %d from %s", gmsg.discriminant, fd_gossip_addr_str(tmp, sizeof(tmp), &from)));
-                       
+
       fd_gossip_recv(glob, &from, &gmsg, now);
 
       fd_bincode_destroy_ctx_t ctx2;

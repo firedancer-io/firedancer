@@ -2,7 +2,7 @@
 
    export RUST_LOG=solana_gossip=TRACE
    cargo run --bin solana-test-validator
-   
+
  **/
 
 #include "fd_gossip.h"
@@ -89,7 +89,7 @@ int main(int argc, char **argv) {
     return 1;
   // if ( fd_gossip_add_active_peer(glob, fd_gossip_resolve_hostport("localhost:1024", &peeraddr)) )
   // return 1;
-  
+
   signal(SIGINT, stop);
   signal(SIGPIPE, SIG_IGN);
 
@@ -97,7 +97,7 @@ int main(int argc, char **argv) {
     return 1;
 
   fd_valloc_free(valloc, fd_flamenco_yaml_delete(yamldump));
-  
+
   fd_valloc_free(valloc, fd_gossip_global_delete(fd_gossip_global_leave(glob), valloc));
 
   fd_halt();
