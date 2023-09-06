@@ -76,11 +76,11 @@
    It is safe to discard handshake-level decryption secrets after the
    handshake has been completed. */
 
-typedef int
+typedef void
 (* fd_tls_secrets_fn_t)( void const * handshake,
                          void const * recv_secret,
                          void const * send_secret,
-                         int          encryption_level );
+                         uint         encryption_level );
 
 /* fd_tls_sendmsg_fn_t is called by fd_tls to request transmission of a
    TLS record to the peer.  record points to a buffer containing
@@ -96,7 +96,7 @@ typedef int
 (* fd_tls_sendmsg_fn_t)( void const * handshake,
                          void const * record,
                          ulong        record_sz,
-                         int          encryption_level,
+                         uint         encryption_level,
                          int          flush );
 
 /* fd_tls_rand_vt_t is an abstraction for retrieving secure pseudorandom
@@ -139,17 +139,17 @@ fd_tls_rand( fd_tls_rand_t const * rand,
 /* Handshake state identifiers */
 
 /* Server */
-#define FD_TLS_HS_FAIL          (-1)
-#define FD_TLS_HS_CONNECTED     (-2)
-#define FD_TLS_HS_START         ( 0)
-#define FD_TLS_HS_WAIT_FLIGHT2  ( 2)
-#define FD_TLS_HS_WAIT_CERT     ( 3)
-#define FD_TLS_HS_WAIT_CV       ( 4)
-#define FD_TLS_HS_WAIT_FINISHED ( 5)
+#define FD_TLS_HS_FAIL          ( 0)
+#define FD_TLS_HS_CONNECTED     ( 1)
+#define FD_TLS_HS_START         ( 2)
+#define FD_TLS_HS_WAIT_FLIGHT2  ( 3)
+#define FD_TLS_HS_WAIT_CERT     ( 4)
+#define FD_TLS_HS_WAIT_CV       ( 5)
+#define FD_TLS_HS_WAIT_FINISHED ( 6)
 /* Client */
-#define FD_TLS_HS_WAIT_SH       ( 6)
-#define FD_TLS_HS_WAIT_EE       ( 7)
-#define FD_TLS_HS_WAIT_CERT_CR  ( 8)
+#define FD_TLS_HS_WAIT_SH       ( 7)
+#define FD_TLS_HS_WAIT_EE       ( 8)
+#define FD_TLS_HS_WAIT_CERT_CR  ( 9)
 
 /* TLS encryption levels */
 
@@ -177,6 +177,34 @@ fd_tls_rand( fd_tls_rand_t const * rand,
    QUIC transport parameters */
 
 # define FD_TLS_EXT_QUIC_PARAMS_SZ_MAX (510UL)
+
+/* Extended Alert Reasons *********************************************/
+
+/* fd_tls-specific error codes to identify reasons for alerts */
+
+#define FD_TLS_REASON_NULL          ( 0)
+#define FD_TLS_REASON_ILLEGAL_STATE ( 1)  /* illegal hs state */
+#define FD_TLS_REASON_SENDMSG_FAIL  ( 2)  /* sendmsg callback failed */
+#define FD_TLS_REASON_WRONG_ENC_LVL ( 3)  /* wrong encryption level */
+#define FD_TLS_REASON_RAND_FAIL     ( 4)  /* rand fn failed */
+#define FD_TLS_REASON_CH_EXPECTED   ( 5)  /* wanted ClientHello, got another msg type */
+#define FD_TLS_REASON_CH_TRAILING   ( 6)  /* trailing bytes in ClientHello */
+#define FD_TLS_REASON_CH_CRYPTO_NEG ( 7)  /* ClientHello crypto negotiation failed */
+#define FD_TLS_REASON_X25519_FAIL   ( 8)  /* fd_x25519_exchange failed */
+#define FD_TLS_REASON_NO_X509       ( 9)  /* no X.509 cert */
+#define FD_TLS_REASON_WRONG_PUBKEY  (10)  /* peer cert has different pubkey than expected */
+#define FD_TLS_REASON_ED25519_FAIL  (11)  /* Ed25519 signature validation failed */
+#define FD_TLS_REASON_FINI_FAIL     (12)  /* Finished data mismatch */
+
+FD_PROTOTYPES_BEGIN
+
+FD_FN_PURE char const *
+fd_tls_alert_cstr( uint alert );
+
+FD_FN_PURE char const *
+fd_tls_reason_cstr( uint reason );
+
+FD_PROTOTYPES_END
 
 /* Transcripts ********************************************************/
 

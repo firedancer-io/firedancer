@@ -126,7 +126,7 @@ int
 test_tls_sendmsg( void const * hs,
                   void const * record,
                   ulong        record_sz,
-                  int          encryption_level,
+                  uint         encryption_level,
                   int          flush ) {
   (void)flush;
   int from_server = hs==test_server_hs;
@@ -162,13 +162,11 @@ test_tls_server_respond( fd_tls_t *            server,
   }
 }
 
-static int
+static void
 test_tls_secrets( void const * handshake        FD_FN_UNUSED,
                   void const * recv_secret      FD_FN_UNUSED,
                   void const * send_secret      FD_FN_UNUSED,
-                  int          encryption_level FD_FN_UNUSED ) {
-  return 1;
-}
+                  uint         encryption_level FD_FN_UNUSED ) {}
 
 static void
 test_tls_pair( void ) {
@@ -237,8 +235,8 @@ test_tls_pair( void ) {
   test_tls_server_respond( server, srv_hs );
 
   /* Check if connected */
-  FD_TEST( srv_hs->state==FD_TLS_HS_CONNECTED );
-  FD_TEST( cli_hs->state==FD_TLS_HS_CONNECTED );
+  FD_TEST( srv_hs->base.state==FD_TLS_HS_CONNECTED );
+  FD_TEST( cli_hs->base.state==FD_TLS_HS_CONNECTED );
 
   test_server_hs = NULL;
   fd_tls_estate_srv_delete( srv_hs );
