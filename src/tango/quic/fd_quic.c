@@ -234,7 +234,7 @@ fd_quic_config_from_env( int  *             pargc,
   );
 
   if( keylog_file ) {
-    strncpy( cfg->keylog_file, keylog_file, FD_QUIC_CERT_PATH_LEN );
+    strncpy( cfg->keylog_file, keylog_file, FD_QUIC_PATH_LEN );
   } else {
     cfg->keylog_file[0]='\0';
   }
@@ -323,38 +323,15 @@ fd_quic_init( fd_quic_t * quic ) {
   if( FD_UNLIKELY( !config->role          ) ) { FD_LOG_WARNING(( "cfg.role not set"      )); return NULL; }
   if( FD_UNLIKELY( !config->idle_timeout  ) ) { FD_LOG_WARNING(( "zero cfg.idle_timeout" )); return NULL; }
 
-  if( FD_UNLIKELY( (!quic->cert_object) | (!quic->cert_key_object) ) ) {
-    /* FIXME remove this hack by separating TLS and QUIC management.
-             User should provide pre-initialized SSL_CTX with cert
-             installed.  fd_quic should not touch any certificate
-             handling. */
-    FD_LOG_WARNING(( "Warning: Certificate or key not set. Generating random." ));
-    if( FD_UNLIKELY( quic->cert_object     ) ) X509_free    ( (X509 *)quic->cert_object         );
-    if( FD_UNLIKELY( quic->cert_key_object ) ) EVP_PKEY_free( (EVP_PKEY *)quic->cert_key_object );
+  do {
+    ulong x = 0U;
+    for( ulong i=0UL; i<32UL; i++ ) x |= quic->config.identity_key[i];
 
-    /* Generate certificate key */
-    uchar cert_private_key[ 32 ];
-    FD_TEST( 1==RAND_bytes( cert_private_key, 32 ) );
-    fd_sha512_t sha[1];
-    uchar cert_public_key[ 32 ];
-    fd_ed25519_public_from_private( cert_public_key, cert_private_key, sha );
-    EVP_PKEY * cert_pkey = EVP_PKEY_new_raw_private_key( EVP_PKEY_ED25519, NULL, cert_private_key, 32UL );
-    FD_TEST( cert_pkey );
-
-    /* Generate X509 certificate */
-    X509 * cert;
-    do {
-      uchar cert_asn1[ FD_X509_MOCK_CERT_SZ ];
-      fd_x509_mock_cert( cert_asn1, cert_public_key );
-
-      uchar const * cert_ptr = cert_asn1;
-      cert = d2i_X509( NULL, &cert_ptr, FD_X509_MOCK_CERT_SZ );
-      FD_TEST( cert );
-    } while(0);
-
-    quic->cert_key_object = cert_pkey;
-    quic->cert_object     = cert;
-  }
+    if( FD_UNLIKELY( !x ) ) {
+      FD_LOG_WARNING(( "cfg.identity_key not set" ));
+      return NULL;
+    }
+  } while(0);
 
   switch( config->role ) {
   case FD_QUIC_ROLE_SERVER:
@@ -460,13 +437,10 @@ fd_quic_init( fd_quic_t * quic ) {
     .keylog_cb             = fd_quic_tls_cb_keylog,
 
     /* set up alpn */
-    .alpns                 = (uchar const *)config->alpns,
-    .alpns_sz              = config->alpns_sz,
+    .keylog_fd             = keylog_fd,
 
-    .keylog_fd             = keylog_fd
+    .cert_private_key      = quic->config.identity_key
   };
-  tls_cfg.cert     = (X509 *)    quic->cert_object;     quic->cert_object     = NULL;
-  tls_cfg.cert_key = (EVP_PKEY *)quic->cert_key_object; quic->cert_key_object = NULL;
 
   ulong tls_laddr = (ulong)quic + layout.tls_off;
   state->tls = fd_quic_tls_new( (void *)tls_laddr, &tls_cfg );
@@ -530,9 +504,9 @@ fd_quic_get_ip( fd_quic_t * quic ) {
 static uint
 fd_quic_enc_level_to_pn_space( uint enc_level ) {
   /* TODO improve this map */
-  static uchar el2pn_map[] = { 0, 2, 1, 2 };
+  static uchar const el2pn_map[] = { 0, 2, 1, 2 };
 
-  if( FD_UNLIKELY( enc_level >= 4 ) )
+  if( FD_UNLIKELY( enc_level >= 4U ) )
     FD_LOG_ERR(( "fd_quic_enc_level_to_pn_space called with invalid enc_level" ));
 
   return el2pn_map[ enc_level ];
@@ -671,7 +645,7 @@ fd_quic_tx_enc_level( fd_quic_conn_t * conn ) {
 
   for( uint i = peer_enc_level; i < 4 && i < enc_level; ++i ) {
     if( enc_level == ~0u || enc_level == i ) {
-      hs_data = fd_quic_tls_get_hs_data( conn->tls_hs, (int)i );
+      hs_data = fd_quic_tls_get_hs_data( conn->tls_hs, i );
       if( hs_data ) {
         /* offset within stream */
         ulong offset = conn->hs_sent_bytes[i];
@@ -810,9 +784,6 @@ fd_quic_fini( fd_quic_t * quic ) {
   state->conns    = NULL;
 
   /* Clear join-lifetime memory regions */
-
-  quic->cert_object     = NULL;
-  quic->cert_key_object = NULL;
 
   memset( &quic->cb, 0, sizeof( fd_quic_callbacks_t  ) );
   memset( state,     0, sizeof( fd_quic_state_t      ) );
@@ -2042,7 +2013,11 @@ fd_quic_handle_v1_zero_rtt( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_pkt
 }
 
 ulong
-fd_quic_handle_v1_one_rtt( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_pkt_t * pkt, uchar const * cur_ptr, ulong cur_sz ) {
+fd_quic_handle_v1_one_rtt( fd_quic_t *      quic,
+                           fd_quic_conn_t * conn,
+                           fd_quic_pkt_t *  pkt,
+                           uchar const *    cur_ptr,
+                           ulong            cur_sz ) {
   if( !conn ) {
     /* this can happen */
     return FD_QUIC_PARSE_FAIL;
@@ -2915,18 +2890,11 @@ fd_quic_tls_cb_alert( fd_quic_tls_hs_t * hs,
                       void *             context,
                       int                alert ) {
   (void)hs;
-  (void)context;
+  fd_quic_conn_t * conn = (fd_quic_conn_t *)context;
+  (void)conn;
   (void)alert;
-  FD_DEBUG( fd_quic_conn_t * conn = (fd_quic_conn_t *)context;
-            FD_LOG_DEBUG( ( "TLS : %s\n", conn->server ? "SERVER" : "CLIENT" ) );
-            FD_LOG_DEBUG( ( "TLS alert: %d\n", alert ) );
-            FD_LOG_DEBUG( ( "TLS CALLBACK: %s\n", __func__ ) );
-            FD_LOG_DEBUG( (
-                ( "TLS alert: %s %s\n" ),
-                SSL_alert_type_string_long( alert ),
-                SSL_alert_desc_string_long( alert )
-            ) )
-            );
+  FD_DEBUG( FD_LOG_DEBUG(( "TLS callback: %s", conn->server ? "SERVER" : "CLIENT" ));
+            FD_LOG_DEBUG(( "TLS alert: %d", alert )); );
 
   /* may use the following to retrieve alert information:
 
@@ -2951,7 +2919,7 @@ fd_quic_tls_cb_secret( fd_quic_tls_hs_t *           hs,
 
   /* look up suite */
   /* set secrets */
-  if( FD_UNLIKELY( secret->enc_level < 0 || secret->enc_level >= FD_QUIC_NUM_ENC_LEVELS ) ) {
+  if( FD_UNLIKELY( secret->enc_level >= FD_QUIC_NUM_ENC_LEVELS ) ) {
     FD_LOG_WARNING(( "callback with invalid encryption level" ));
     return;
   }
@@ -3972,7 +3940,7 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
       }
     } else {
       /* if handshake data, add it */
-      fd_quic_tls_hs_data_t * hs_data   = fd_quic_tls_get_hs_data( conn->tls_hs, (int)enc_level );
+      fd_quic_tls_hs_data_t * hs_data   = fd_quic_tls_get_hs_data( conn->tls_hs, enc_level );
       ulong                   hs_offset = 0; /* offset within the current hs_data */
 
       /* either include handshake data or stream data, but not both */
@@ -5737,10 +5705,10 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
       /* remove any unused hs_data */
       fd_quic_tls_hs_data_t * hs_data = NULL;
 
-      hs_data = fd_quic_tls_get_hs_data( conn->tls_hs, (int)enc_level );
+      hs_data = fd_quic_tls_get_hs_data( conn->tls_hs, enc_level );
       while( hs_data && hs_data->offset + hs_data->data_sz <= hs_ackd_bytes ) {
-        fd_quic_tls_pop_hs_data( conn->tls_hs, (int)enc_level );
-        hs_data = fd_quic_tls_get_hs_data( conn->tls_hs, (int)enc_level );
+        fd_quic_tls_pop_hs_data( conn->tls_hs, enc_level );
+        hs_data = fd_quic_tls_get_hs_data( conn->tls_hs, enc_level );
       }
     } else {
       conn->hs_sent_bytes[enc_level] =
@@ -5752,10 +5720,10 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
   if( flags & FD_QUIC_PKT_META_FLAGS_HS_DONE ) {
     fd_quic_tls_hs_data_t * hs_data   = NULL;
 
-    hs_data = fd_quic_tls_get_hs_data( conn->tls_hs, (int)enc_level );
+    hs_data = fd_quic_tls_get_hs_data( conn->tls_hs, enc_level );
     while( hs_data ) {
-      fd_quic_tls_pop_hs_data( conn->tls_hs, (int)enc_level );
-      hs_data = fd_quic_tls_get_hs_data( conn->tls_hs, (int)enc_level );
+      fd_quic_tls_pop_hs_data( conn->tls_hs, enc_level );
+      hs_data = fd_quic_tls_get_hs_data( conn->tls_hs, enc_level );
     }
 
     /* TODO we should be able to free the TLS object now */
@@ -6883,7 +6851,7 @@ fd_quic_frame_handle_handshake_done_frame(
   /* eliminate any remaining hs_data at application level */
   fd_quic_tls_hs_data_t * hs_data = NULL;
 
-  int hs_enc_level = fd_quic_enc_level_appdata_id;
+  uint hs_enc_level = fd_quic_enc_level_appdata_id;
   hs_data = fd_quic_tls_get_hs_data( conn->tls_hs, hs_enc_level );
   /* skip packets we've sent */
   while( hs_data ) {
