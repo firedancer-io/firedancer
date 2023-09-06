@@ -45,7 +45,7 @@ int fd_executor_config_program_execute_instruction( instruction_ctx_t ctx ) {
    /* Read the data from the config account */
    int err = 0;
    uchar const * raw_acc_data = fd_acc_mgr_view_raw(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) config_acc, NULL, &err);
-   if( FD_UNLIKELY( !raw_acc_data ) ) {
+   if (FD_UNLIKELY(!FD_RAW_ACCOUNT_EXISTS(raw_acc_data))) {
       ret = err;
       goto config_program_execute_instruction_cleanup;
    }

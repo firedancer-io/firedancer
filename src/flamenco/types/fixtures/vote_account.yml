@@ -9,7 +9,8 @@ current:
         confirmation_count: 1
   root_slot: 0
   authorized_voters: 
-    - epoch: 0
+    fd_vote_authorized_voter_t: 
+      epoch: 0
       pubkey: '9frWPHZmLVAkZBUZveujokPi2sQRTucnztr3vnCveZBQ'
   prior_voters: 
     buf: 

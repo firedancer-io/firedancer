@@ -90,7 +90,7 @@ fd_sysvar_slot_hashes_read( fd_global_ctx_t *  global,
 
   int err = 0;
   uchar const * raw_acc_data = fd_acc_mgr_view_raw( global->acc_mgr, global->funk_txn, (fd_pubkey_t const *)global->sysvar_slot_hashes, NULL, &err );
-  if( FD_UNLIKELY( !raw_acc_data ) ) return err;
+  if (FD_UNLIKELY(!FD_RAW_ACCOUNT_EXISTS(raw_acc_data))) return err;
 
   fd_account_meta_t const * metadata = (fd_account_meta_t const *)raw_acc_data;
   uchar const *             data     = raw_acc_data + metadata->hlen;

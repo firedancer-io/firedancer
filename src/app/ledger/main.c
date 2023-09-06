@@ -761,7 +761,7 @@ main( int     argc,
     if (snapshot_used) {
       int err = 0;
       char * raw_acc_data = (char*) fd_acc_mgr_view_raw(global->acc_mgr, global->funk_txn, (fd_pubkey_t *) global->sysvar_recent_block_hashes, NULL, &err);
-      if (NULL == raw_acc_data)
+      if (FD_UNLIKELY(!FD_RAW_ACCOUNT_EXISTS(raw_acc_data)))
         FD_LOG_ERR(( "missing recent block hashes account" ));
       fd_account_meta_t *m = (fd_account_meta_t *) raw_acc_data;
 

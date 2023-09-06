@@ -663,9 +663,14 @@ typedef struct fd_lockout_offset fd_lockout_offset_t;
 #define FD_LOCKOUT_OFFSET_FOOTPRINT sizeof(fd_lockout_offset_t)
 #define FD_LOCKOUT_OFFSET_ALIGN (8UL)
 
+/* https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/sdk/program/src/vote/authorized_voters.rs#L9 */
 struct __attribute__((aligned(8UL))) fd_vote_authorized_voter {
   ulong epoch;
   fd_pubkey_t pubkey;
+  ulong parent;
+  ulong left;
+  ulong right;
+  ulong prio;
 };
 typedef struct fd_vote_authorized_voter fd_vote_authorized_voter_t;
 #define FD_VOTE_AUTHORIZED_VOTER_FOOTPRINT sizeof(fd_vote_authorized_voter_t)
@@ -698,15 +703,6 @@ struct __attribute__((aligned(8UL))) fd_vote_epoch_credits {
 typedef struct fd_vote_epoch_credits fd_vote_epoch_credits_t;
 #define FD_VOTE_EPOCH_CREDITS_FOOTPRINT sizeof(fd_vote_epoch_credits_t)
 #define FD_VOTE_EPOCH_CREDITS_ALIGN (8UL)
-
-/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/authorized_voters.rs#L9 */
-struct __attribute__((aligned(8UL))) fd_vote_historical_authorized_voter {
-  ulong epoch;
-  fd_pubkey_t pubkey;
-};
-typedef struct fd_vote_historical_authorized_voter fd_vote_historical_authorized_voter_t;
-#define FD_VOTE_HISTORICAL_AUTHORIZED_VOTER_FOOTPRINT sizeof(fd_vote_historical_authorized_voter_t)
-#define FD_VOTE_HISTORICAL_AUTHORIZED_VOTER_ALIGN (8UL)
 
 struct __attribute__((aligned(8UL))) fd_vote_block_timestamp {
   ulong slot;
@@ -786,18 +782,42 @@ typedef struct fd_vote_state_0_23_5 fd_vote_state_0_23_5_t;
 #define FD_VOTE_STATE_0_23_5_FOOTPRINT sizeof(fd_vote_state_0_23_5_t)
 #define FD_VOTE_STATE_0_23_5_ALIGN (8UL)
 
-#define DEQUE_NAME deq_fd_vote_historical_authorized_voter_t
-#define DEQUE_T fd_vote_historical_authorized_voter_t
-#define DEQUE_MAX 35
-#include "../../util/tmpl/fd_deque.c"
-#undef DEQUE_NAME
-#undef DEQUE_T
-#undef DEQUE_MAX
-static inline fd_vote_historical_authorized_voter_t *
-deq_fd_vote_historical_authorized_voter_t_alloc( fd_valloc_t valloc ) {
-  void * mem = fd_valloc_malloc( valloc, deq_fd_vote_historical_authorized_voter_t_align(), deq_fd_vote_historical_authorized_voter_t_footprint());
-  return deq_fd_vote_historical_authorized_voter_t_join( deq_fd_vote_historical_authorized_voter_t_new( mem ) );
+#define FD_VOTE_AUTHORIZED_VOTERS_MAX 64
+#define POOL_NAME fd_vote_authorized_voters_pool
+#define POOL_T fd_vote_authorized_voter_t
+#define POOL_NEXT parent
+#include "../../util/tmpl/fd_pool.c"
+static inline fd_vote_authorized_voter_t *
+fd_vote_authorized_voters_pool_alloc( fd_valloc_t valloc ) {
+  return fd_vote_authorized_voters_pool_join( fd_vote_authorized_voters_pool_new(
+      fd_valloc_malloc( valloc,
+                        fd_vote_authorized_voters_pool_align(),
+                        fd_vote_authorized_voters_pool_footprint( FD_VOTE_AUTHORIZED_VOTERS_MAX ) ),
+      FD_VOTE_AUTHORIZED_VOTERS_MAX ) );
 }
+#define TREAP_NAME fd_vote_authorized_voters_treap
+#define TREAP_T fd_vote_authorized_voter_t
+#define TREAP_QUERY_T ulong
+#define TREAP_CMP(q,e) (memcmp((&(q)), (&((e)->epoch)), sizeof(ulong)))
+#define TREAP_LT(e0,e1) ((e0)->epoch<(e1)->epoch)
+#include "../../util/tmpl/fd_treap.c"
+static inline fd_vote_authorized_voters_treap_t *
+fd_vote_authorized_voters_treap_alloc( fd_valloc_t valloc ) {
+  return fd_vote_authorized_voters_treap_join( fd_vote_authorized_voters_treap_new(
+      fd_valloc_malloc( valloc,
+                        fd_vote_authorized_voters_treap_align(),
+                        fd_vote_authorized_voters_treap_footprint( FD_VOTE_AUTHORIZED_VOTERS_MAX ) ),
+      FD_VOTE_AUTHORIZED_VOTERS_MAX ) );
+}
+/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L310 */
+struct __attribute__((aligned(8UL))) fd_vote_authorized_voters {
+  fd_vote_authorized_voter_t * pool;
+  fd_vote_authorized_voters_treap_t * treap;
+};
+typedef struct fd_vote_authorized_voters fd_vote_authorized_voters_t;
+#define FD_VOTE_AUTHORIZED_VOTERS_FOOTPRINT sizeof(fd_vote_authorized_voters_t)
+#define FD_VOTE_AUTHORIZED_VOTERS_ALIGN (8UL)
+
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L310 */
 struct __attribute__((aligned(8UL))) fd_vote_state_1_14_11 {
   fd_pubkey_t node_pubkey;
@@ -805,7 +825,7 @@ struct __attribute__((aligned(8UL))) fd_vote_state_1_14_11 {
   uchar commission;
   fd_vote_lockout_t * votes;
   ulong* root_slot;
-  fd_vote_historical_authorized_voter_t * authorized_voters;
+  fd_vote_authorized_voters_t authorized_voters;
   fd_vote_prior_voters_t prior_voters;
   fd_vote_epoch_credits_t * epoch_credits;
   fd_vote_block_timestamp_t last_timestamp;
@@ -833,7 +853,7 @@ struct __attribute__((aligned(8UL))) fd_vote_state {
   uchar commission;
   fd_landed_vote_t * votes;
   ulong* root_slot;
-  fd_vote_historical_authorized_voter_t * authorized_voters;
+  fd_vote_authorized_voters_t authorized_voters;
   fd_vote_prior_voters_t prior_voters;
   fd_vote_epoch_credits_t * epoch_credits;
   fd_vote_block_timestamp_t last_timestamp;
@@ -860,8 +880,7 @@ typedef struct fd_vote_state_versioned fd_vote_state_versioned_t;
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L185 */
 struct __attribute__((aligned(8UL))) fd_vote_state_update {
-  ulong lockouts_len;
-  fd_vote_lockout_t* lockouts;
+  fd_vote_lockout_t * lockouts;
   ulong* root;
   fd_hash_t hash;
   ulong* timestamp;
@@ -2573,15 +2592,6 @@ ulong fd_vote_epoch_credits_size(fd_vote_epoch_credits_t const * self);
 ulong fd_vote_epoch_credits_footprint( void );
 ulong fd_vote_epoch_credits_align( void );
 
-void fd_vote_historical_authorized_voter_new(fd_vote_historical_authorized_voter_t* self);
-int fd_vote_historical_authorized_voter_decode(fd_vote_historical_authorized_voter_t* self, fd_bincode_decode_ctx_t * ctx);
-int fd_vote_historical_authorized_voter_encode(fd_vote_historical_authorized_voter_t const * self, fd_bincode_encode_ctx_t * ctx);
-void fd_vote_historical_authorized_voter_destroy(fd_vote_historical_authorized_voter_t* self, fd_bincode_destroy_ctx_t * ctx);
-void fd_vote_historical_authorized_voter_walk(void * w, fd_vote_historical_authorized_voter_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
-ulong fd_vote_historical_authorized_voter_size(fd_vote_historical_authorized_voter_t const * self);
-ulong fd_vote_historical_authorized_voter_footprint( void );
-ulong fd_vote_historical_authorized_voter_align( void );
-
 void fd_vote_block_timestamp_new(fd_vote_block_timestamp_t* self);
 int fd_vote_block_timestamp_decode(fd_vote_block_timestamp_t* self, fd_bincode_decode_ctx_t * ctx);
 int fd_vote_block_timestamp_encode(fd_vote_block_timestamp_t const * self, fd_bincode_encode_ctx_t * ctx);
@@ -2626,6 +2636,15 @@ void fd_vote_state_0_23_5_walk(void * w, fd_vote_state_0_23_5_t const * self, fd
 ulong fd_vote_state_0_23_5_size(fd_vote_state_0_23_5_t const * self);
 ulong fd_vote_state_0_23_5_footprint( void );
 ulong fd_vote_state_0_23_5_align( void );
+
+void fd_vote_authorized_voters_new(fd_vote_authorized_voters_t* self);
+int fd_vote_authorized_voters_decode(fd_vote_authorized_voters_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_vote_authorized_voters_encode(fd_vote_authorized_voters_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_vote_authorized_voters_destroy(fd_vote_authorized_voters_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_vote_authorized_voters_walk(void * w, fd_vote_authorized_voters_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_vote_authorized_voters_size(fd_vote_authorized_voters_t const * self);
+ulong fd_vote_authorized_voters_footprint( void );
+ulong fd_vote_authorized_voters_align( void );
 
 void fd_vote_state_1_14_11_new(fd_vote_state_1_14_11_t* self);
 int fd_vote_state_1_14_11_decode(fd_vote_state_1_14_11_t* self, fd_bincode_decode_ctx_t * ctx);

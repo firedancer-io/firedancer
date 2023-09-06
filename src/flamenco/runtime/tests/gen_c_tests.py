@@ -188,6 +188,8 @@ def serializeInstructionError(err):
         return -51
     if err == "ActiveVoteAccountClose":
         return -52
+    if err == "ActiveVoteAccountClose":
+        return -53
 
 
 def serializeResult(result):

@@ -50,7 +50,7 @@ int fd_account_is_early_verification_of_account_modifications_enabled(FD_FN_UNUS
 
 static inline
 int fd_account_touch(FD_FN_UNUSED instruction_ctx_t *ctx, FD_FN_UNUSED fd_account_meta_t * acct, FD_FN_UNUSED fd_pubkey_t const * key, FD_FN_UNUSED int *err) {
-  return 1;
+  return OK;
 }
 
 static inline
@@ -138,7 +138,7 @@ int fd_account_is_writable(fd_rawtxn_b_t * txn_raw, fd_txn_t * txn_descriptor, u
 }
 
 static inline
-int fd_account_can_data_be_changed(instruction_ctx_t *ctx, fd_account_meta_t * acct, fd_pubkey_t * key,  int *err) {
+int fd_account_can_data_be_changed(instruction_ctx_t *ctx, fd_account_meta_t * acct, fd_pubkey_t const * key,  int *err) {
   if (!fd_account_is_early_verification_of_account_modifications_enabled(ctx))
     return 1;
 

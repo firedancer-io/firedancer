@@ -80,6 +80,25 @@ fd_acc_mgr_view_raw( fd_acc_mgr_t *         acc_mgr,
                      fd_funk_rec_t const ** opt_out_rec,
                      int *                  opt_err );
 
+static inline int
+FD_RAW_ACCOUNT_EXISTS(void const *ptr) {
+  if (NULL == ptr)
+    return 0;
+
+  fd_account_meta_t const *m = (fd_account_meta_t const *) ptr;
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Waddress-of-packed-member"
+  ulong *ul = (ulong *) &m->info.owner[0];
+#pragma GCC diagnostic pop
+
+  return (0 < m->info.lamports) |
+    (0 < m->dlen) |
+    (FD_LOAD(ulong, &ul[0]) != 0) |
+    (FD_LOAD(ulong, &ul[1]) != 0) |
+    (FD_LOAD(ulong, &ul[2]) != 0) |
+    (FD_LOAD(ulong, &ul[3]) != 0);
+}
+
 /* fd_acc_mgr_view is a convenience wrapper */
 
 static inline int
@@ -92,7 +111,11 @@ fd_acc_mgr_view( fd_acc_mgr_t *             acc_mgr,
 
   int err = FD_ACC_MGR_SUCCESS;
   uchar const * raw = fd_acc_mgr_view_raw( acc_mgr, txn, pubkey, opt_out_rec, &err );
-  if( FD_UNLIKELY( !raw ) ) return err;
+  if (FD_UNLIKELY(!FD_RAW_ACCOUNT_EXISTS(raw))) {
+    if (err != FD_ACC_MGR_SUCCESS)
+      return err;
+    return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
+  }
 
   fd_account_meta_t const * meta = (fd_account_meta_t const *)raw;
   if( opt_out_meta ) *opt_out_meta = meta;

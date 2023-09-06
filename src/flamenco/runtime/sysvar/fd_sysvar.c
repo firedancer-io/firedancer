@@ -42,7 +42,7 @@ fd_sysvar_set( fd_global_ctx_t *   global,
         global->bank.capitalization,
         metadata->info.lamports),
       lamports_before);
-  FD_LOG_NOTICE(("fd_sysvar_set: capitalization={%lu} increased by lamports: %lu for pubkey %32J", global->bank.capitalization, (metadata->info.lamports - lamports_before), pubkey));
+  FD_LOG_DEBUG(("fd_sysvar_set: capitalization={%lu} increased by lamports: %lu for pubkey %32J", global->bank.capitalization, (metadata->info.lamports - lamports_before), pubkey));
 
 
   metadata->dlen = sz;

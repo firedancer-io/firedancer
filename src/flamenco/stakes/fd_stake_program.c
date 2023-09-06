@@ -121,7 +121,7 @@ read_stake_config( fd_global_ctx_t *   global,
 
   int read_result = 0;
   uchar const * acc_rec = fd_acc_mgr_view_raw( global->acc_mgr, global->funk_txn, (fd_pubkey_t const *)global->solana_stake_program_config, NULL, &read_result );
-  if( FD_UNLIKELY( !acc_rec ) ) {
+  if (FD_UNLIKELY(!FD_RAW_ACCOUNT_EXISTS(acc_rec))) {
     FD_LOG_NOTICE(( "failed to read account metadata: %d", read_result ));
     return read_result;
   }
@@ -327,7 +327,7 @@ static ulong get_epoch_from_schedule( fd_epoch_schedule_t * epoch_schedule, ulon
       ulong normal_epoch_index = epoch_schedule->slots_per_epoch ? normal_slot_index / epoch_schedule->slots_per_epoch : 0;
       return fd_ulong_sat_add(epoch_schedule->first_normal_epoch, normal_epoch_index);
     }
-} 
+}
 
 static int new_warmup_cooldown_rate_epoch( instruction_ctx_t* ctx, ulong * result ) {
     if (FD_FEATURE_ACTIVE(ctx->global, reduce_stake_warmup_cooldown)) {
@@ -710,6 +710,11 @@ int fd_executor_stake_program_execute_instruction(
       return res;
     }
 
+    ulong credits = 0;
+    int acc_res = fd_vote_acc_credits( ctx, vote_acc_meta, vote_acc_data, &credits );
+    if( FD_UNLIKELY( acc_res != FD_EXECUTOR_INSTR_SUCCESS ) )
+      return acc_res;  /* FIXME leak */
+
     if ( fd_stake_state_is_initialized( &stake_state ) ) {
       /* Create the new stake state
          https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/stake/src/stake_state.rs#L549 */
@@ -722,10 +727,7 @@ int fd_executor_stake_program_execute_instruction(
       fd_memcpy( &stake_state_stake->stake.delegation.voter_pubkey, vote_acc, sizeof(fd_pubkey_t) );
       stake_state_stake->stake.delegation.warmup_cooldown_rate = stake_config.warmup_cooldown_rate;
 
-      ulong credits = 0;
-      int acc_res = fd_vote_acc_credits( ctx.global, vote_acc_meta, vote_acc_data, &credits );
-      if( FD_UNLIKELY( acc_res != FD_EXECUTOR_INSTR_SUCCESS ) )
-        return acc_res;  /* FIXME leak */
+      
       stake_state_stake->stake.credits_observed = credits;
     } else {
       /* redelegate when fd_stake_state_is_stake( &stake_state )
@@ -734,27 +736,30 @@ int fd_executor_stake_program_execute_instruction(
       ulong new_epoch;
       int err = new_warmup_cooldown_rate_epoch(&ctx, &new_epoch);
       ulong * new_activation_epoch = err == 0 ? &new_epoch : NULL;
+      fd_stake_state_stake_t* stake_state_stake = &stake_state.inner.stake;
+
       if (stake_activating_and_deactivating( &stake_state.inner.stake.stake.delegation, clock.epoch, &history, new_activation_epoch).effective != 0) {
-        ushort stake_lamports_ok = ( FD_FEATURE_ACTIVE( ctx.global, stake_redelegate_instruction ) ) ? stake_acc_meta->info.lamports >= stake_state.inner.stake.stake.delegation.stake : 1;
+        ushort stake_lamports_ok = ( FD_FEATURE_ACTIVE( ctx.global, stake_redelegate_instruction ) ) ? stake_amount >= stake_state.inner.stake.stake.delegation.stake : 1;
         if (stake_lamports_ok && clock.epoch == stake_state.inner.stake.stake.delegation.deactivation_epoch && memcmp( &stake_state.inner.stake.stake.delegation.voter_pubkey, vote_acc, sizeof(fd_pubkey_t) ) == 0) {
-          stake_state.inner.stake.stake.delegation.deactivation_epoch = ULONG_MAX;
+          stake_state_stake->stake.delegation.deactivation_epoch = ULONG_MAX;
         } else {
           ctx.txn_ctx->custom_err = 3;
           return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
         }
+      } else {
+        stake_state_stake->stake.delegation.activation_epoch = clock.epoch;
+        stake_state_stake->stake.delegation.stake = stake_amount;
+        stake_state_stake->stake.delegation.deactivation_epoch = ULONG_MAX;
+        fd_memcpy( &stake_state_stake->stake.delegation.voter_pubkey, vote_acc, sizeof(fd_pubkey_t) );
+        stake_state_stake->stake.credits_observed = credits;
+        stake_state_stake->stake.delegation.warmup_cooldown_rate = stake_config.warmup_cooldown_rate;
       }
 
       stake_state.discriminant = fd_stake_state_enum_stake;
-      fd_stake_state_stake_t* stake_state_stake = &stake_state.inner.stake;
       fd_memcpy( &stake_state_stake->meta, meta, FD_STAKE_STATE_META_FOOTPRINT );
-      stake_state_stake->stake.delegation.activation_epoch = clock.epoch;
-      stake_state_stake->stake.delegation.stake = stake_amount;
-      stake_state_stake->stake.delegation.deactivation_epoch = ULONG_MAX;
-      fd_memcpy( &stake_state_stake->stake.delegation.voter_pubkey, vote_acc, sizeof(fd_pubkey_t) );
-      stake_state_stake->stake.delegation.warmup_cooldown_rate = stake_config.warmup_cooldown_rate;
 
       ulong credits = 0;
-      int acc_res = fd_vote_acc_credits( ctx.global, vote_acc_meta, vote_acc_data, &credits );
+      int acc_res = fd_vote_acc_credits( ctx, vote_acc_meta, vote_acc_data, &credits );
       if( FD_UNLIKELY( acc_res != FD_EXECUTOR_INSTR_SUCCESS ) )
         return acc_res;  /* FIXME leak */
       stake_state_stake->stake.credits_observed = credits;

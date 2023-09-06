@@ -540,8 +540,13 @@
       "type": "struct",
       "fields": [
           { "name": "epoch", "type": "ulong" },
-          { "name": "pubkey", "type": "pubkey" }
-      ]
+          { "name": "pubkey", "type": "pubkey" },
+          { "name": "parent", "type": "ulong", "decode": false, "encode": false, "walk": false },
+          { "name": "left", "type": "ulong", "decode": false, "encode": false, "walk": false },
+          { "name": "right", "type": "ulong", "decode": false, "encode": false, "walk": false },
+          { "name": "prio", "type": "ulong", "decode": false, "encode": false, "walk": false }
+      ],
+      "comment": "https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/sdk/program/src/vote/authorized_voters.rs#L9"
     },
     {
       "name": "vote_prior_voter",
@@ -570,15 +575,6 @@
           { "name": "credits", "type": "ulong" },
           { "name": "prev_credits", "type": "ulong" }
       ]
-    },
-    {
-      "name": "vote_historical_authorized_voter",
-      "type": "struct",
-      "fields": [
-        { "name": "epoch", "type": "ulong" },
-        { "name": "pubkey", "type": "pubkey" }
-      ],
-      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/authorized_voters.rs#L9"
     },
     {
       "name": "vote_block_timestamp",
@@ -635,6 +631,14 @@
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/vote_state_0_23_5.rs#L6"
     },
     {
+      "name": "vote_authorized_voters",
+      "type": "struct",
+      "fields": [
+          { "name": "fd_vote_authorized_voters", "type": "treap", "treap_t": "fd_vote_authorized_voter_t", "treap_query_t": "ulong", "treap_cmp": "(memcmp((&(q)), (&((e)->epoch)), sizeof(ulong)))", "treap_lt": "((e0)->epoch<(e1)->epoch)", "max": 64 }
+      ],
+      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L310"
+    },
+    {
       "name": "vote_state_1_14_11",
       "type": "struct",
       "fields": [
@@ -643,7 +647,7 @@
           { "name": "commission", "type": "uchar" },
           { "name": "votes", "type": "deque", "element": "vote_lockout", "max":35 },
           { "name": "root_slot", "type": "option", "element": "ulong" },
-          { "name": "authorized_voters", "type": "deque", "element": "vote_historical_authorized_voter", "max":35 },
+          { "name": "authorized_voters", "type": "vote_authorized_voters" },
           { "name": "prior_voters", "type": "vote_prior_voters" },
           { "name": "epoch_credits", "type": "deque", "element": "vote_epoch_credits", "max":35 },
           { "name": "last_timestamp", "type": "vote_block_timestamp" }
@@ -659,7 +663,7 @@
           { "name": "commission", "type": "uchar" },
           { "name": "votes", "type": "deque", "element": "landed_vote", "max":35 },
           { "name": "root_slot", "type": "option", "element": "ulong" },
-          { "name": "authorized_voters", "type": "deque", "element": "vote_historical_authorized_voter", "max":35 },
+          { "name": "authorized_voters", "type": "vote_authorized_voters" },
           { "name": "prior_voters", "type": "vote_prior_voters" },
           { "name": "epoch_credits", "type": "deque", "element": "vote_epoch_credits", "max":35 },
           { "name": "last_timestamp", "type": "vote_block_timestamp" }
@@ -680,9 +684,9 @@
       "name": "vote_state_update",
       "type": "struct",
       "fields": [
-        { "name": "lockouts", "type": "vector", "element": "vote_lockout", "comment": "The proposed tower" },
+        { "name": "lockouts", "type": "deque", "element": "vote_lockout", "max": 35 },
         { "name": "root", "type": "option", "element": "ulong" },
-        { "name": "hash", "type": "hash", "comment": "signature of the bank's state at the last slot" },
+        { "name": "hash", "type": "hash" },
         { "name": "timestamp", "type": "option", "element": "ulong" }
       ],
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L185"
