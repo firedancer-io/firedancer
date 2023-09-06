@@ -281,6 +281,14 @@ fd_tls_server_hs_start( fd_tls_t const *      const server,
                         ulong                       record_sz,
                         uint                        encryption_level ) {
 
+  /* Request QUIC transport params */
+  uchar quic_tp[ FD_TLS_EXT_QUIC_PARAMS_SZ_MAX ];
+  long  quic_tp_sz = -1L;
+  if( server->quic )
+    quic_tp_sz = (long)server->quic_tp_self_fn( handshake, quic_tp, FD_TLS_EXT_QUIC_PARAMS_SZ_MAX );
+  if( FD_UNLIKELY( quic_tp_sz > (long)FD_TLS_EXT_QUIC_PARAMS_SZ_MAX ) )
+    return fd_tls_alert( &handshake->base, FD_TLS_ALERT_DECODE_ERROR, FD_TLS_REASON_QUIC_TP_OVERSZ );
+
   if( FD_UNLIKELY( encryption_level != FD_TLS_LEVEL_INITIAL ) )
     return fd_tls_alert( &handshake->base, FD_TLS_ALERT_INTERNAL_ERROR, FD_TLS_REASON_WRONG_ENC_LVL );
 
@@ -324,6 +332,19 @@ fd_tls_server_hs_start( fd_tls_t const *      const server,
                  | ( !ch.signature_algorithms.ed25519     )
                  | ( !ch.cipher_suites.aes_128_gcm_sha256 ) ) )
     return fd_tls_alert( &handshake->base, FD_TLS_ALERT_HANDSHAKE_FAILURE, FD_TLS_REASON_CH_CRYPTO_NEG );
+
+  /* Detect QUIC */
+
+  if( server->quic ) {
+    /* QUIC transport parameters are mandatory in QUIC mode */
+    if( FD_UNLIKELY( !ch.quic_tp.buf ) )
+      return fd_tls_alert( &handshake->base, FD_TLS_ALERT_MISSING_EXTENSION, FD_TLS_REASON_CH_NO_QUIC );
+
+    /* Remember that this is a QUIC-TLS handshake */
+    handshake->base.quic = 1;
+    /* Inform user of peer's QUIC transport parameters */
+    server->quic_tp_peer_fn( handshake, ch.quic_tp.buf, ch.quic_tp.bufsz );
+  }
 
   /* Record client hello in transcript hash */
 
@@ -456,16 +477,14 @@ fd_tls_server_hs_start( fd_tls_t const *      const server,
 
     /* Construct encrypted extensions */
 
-    fd_tls_enc_ext_t ee = {0};
+    fd_tls_enc_ext_t ee = {
+      .quic_tp = {
+        .buf   = (quic_tp_sz>=0L) ? quic_tp : NULL,
+        .bufsz = (ushort)quic_tp_sz,
+      }
+    };
 
     /* TODO Add ALPN if requested */
-
-    /* Add QUIC transport params */
-    if( server->quic_tp_sz ) {
-      /* server->quic_tp guaranteed to be same size as ee.quic_tp */
-      ee.quic_tp_sz = server->quic_tp_sz;
-      fd_memcpy( ee.quic_tp, server->quic_tp, server->quic_tp_sz );
-    }
 
     /* Negotiate raw public keys if available */
 
@@ -637,7 +656,7 @@ fd_tls_server_hs_start( fd_tls_t const *      const server,
                             "s ap traffic",  12UL,
                             transcript_hash, 32UL );
 
-  /* Call back with handshake secrets */
+  /* Call back with application secrets */
 
   server->secrets_fn( handshake,
                       /* read secret  */ client_app_secret,
@@ -943,7 +962,7 @@ fd_tls_server_hs_wait_finished( fd_tls_t const *      server,
   return 0L;
 }
 
-static long fd_tls_client_hs_start           ( fd_tls_t const *, fd_tls_estate_cli_t *                     );
+static long fd_tls_client_hs_start           ( fd_tls_t const *, fd_tls_estate_cli_t *                      );
 static long fd_tls_client_hs_wait_sh         ( fd_tls_t const *, fd_tls_estate_cli_t *, void *, ulong, uint );
 static long fd_tls_client_hs_wait_ee         ( fd_tls_t const *, fd_tls_estate_cli_t *, void *, ulong, uint );
 static long fd_tls_client_hs_wait_cert_cr    ( fd_tls_t const *, fd_tls_estate_cli_t *, void *, ulong, uint );
@@ -989,6 +1008,14 @@ static long
 fd_tls_client_hs_start( fd_tls_t const * const      client,
                         fd_tls_estate_cli_t * const handshake ) {
 
+  /* Request QUIC transport params */
+  uchar quic_tp[ FD_TLS_EXT_QUIC_PARAMS_SZ_MAX ];
+  long  quic_tp_sz = -1L;
+  if( client->quic )
+    quic_tp_sz = (long)client->quic_tp_self_fn( handshake, quic_tp, FD_TLS_EXT_QUIC_PARAMS_SZ_MAX );
+  if( FD_UNLIKELY( quic_tp_sz > (long)FD_TLS_EXT_QUIC_PARAMS_SZ_MAX ) )
+    return fd_tls_alert( &handshake->base, FD_TLS_ALERT_DECODE_ERROR, FD_TLS_REASON_QUIC_TP_OVERSZ );
+
   /* Message buffer */
 # define MSG_BUFSZ 512UL
   uchar msg_buf[ MSG_BUFSZ ];
@@ -1027,8 +1054,10 @@ fd_tls_client_hs_start( fd_tls_t const * const      client,
       .key_share            = { .has_x25519=1 },
       .server_cert_types    = { .x509=!!client->cert_x509_sz, .raw_pubkey=1 },
       .client_cert_types    = { .x509=!!client->cert_x509_sz, .raw_pubkey=1 },
-      .quic_tp              = client->quic_tp,
-      .quic_tp_sz           = client->quic_tp_sz,
+      .quic_tp = {
+        .buf   = (quic_tp_sz>=0L) ? quic_tp : NULL,
+        .bufsz = (ushort)quic_tp_sz,
+      }
     };
     memcpy( ch.random,           client_random,          32UL );
     memcpy( ch.key_share.x25519, client->kex_public_key, 32UL );
@@ -1159,10 +1188,9 @@ fd_tls_client_hs_wait_sh( fd_tls_t const *      const client,
                             empty_hash, 32UL );
 
   static uchar const zeros[ 32 ] = {0};
-  uchar master_secret[ 32 ];
   fd_hmac_sha256( /* data */ zeros,         32UL,
                   /* salt */ master_derive, 32UL,
-                  /* out  */ master_secret );
+                  /* out  */ handshake->master_secret );
 
   /* Finish up ********************************************************/
 
@@ -1205,6 +1233,17 @@ fd_tls_client_hs_wait_ee( fd_tls_t const *      const client,
 
     fd_tls_enc_ext_t ee[1];
     FD_TLS_DECODE_SUB( fd_tls_decode_enc_ext, ee );
+
+    if( client->quic ) {
+      /* QUIC transport parameters are mandatory in QUIC mode */
+      if( FD_UNLIKELY( !ee->quic_tp.buf ) )
+        return fd_tls_alert( &handshake->base, FD_TLS_ALERT_MISSING_EXTENSION, FD_TLS_REASON_EE_NO_QUIC );
+
+      /* Remember that this is a QUIC-TLS handshake */
+      handshake->base.quic = 1;
+      /* Inform user of peer's QUIC transport parameters */
+      client->quic_tp_peer_fn( handshake, ee->quic_tp.buf, ee->quic_tp.bufsz );
+    }
 
     switch( ee->server_cert.cert_type ) {
     case FD_TLS_CERTTYPE_X509:
@@ -1417,11 +1456,11 @@ fd_tls_client_hs_wait_finished( fd_tls_t const *      const client,
                   /* salt */ server_finished_key, 32UL,
                   /* out  */ server_finished_expected );
 
-  /* Record server finished */
+  /* Record ServerFinished */
 
   fd_sha256_append( &hs->transcript, record, record_sz );
 
-  /* Read server Finished *********************************************/
+  /* Read ServerFinished **********************************************/
 
   fd_tls_finished_t server_fin;
 
@@ -1454,6 +1493,34 @@ fd_tls_client_hs_wait_finished( fd_tls_t const *      const client,
     match |= server_fin.verify[i] ^ server_finished_expected[i];
   if( FD_UNLIKELY( match!=0 ) )
     return -(long)FD_TLS_ALERT_DECRYPT_ERROR;
+
+  /* Derive application secrets ***************************************/
+
+  /* Export transcript hash ClientHello..ServerFinished */
+
+  transcript_clone = hs->transcript;
+  fd_sha256_fini( &transcript_clone, transcript_hash );
+
+  /* Derive client/server application secrets */
+
+  uchar client_app_secret[ 32UL ];
+  fd_tls_hkdf_expand_label( client_app_secret,
+                            hs->master_secret,
+                            "c ap traffic",  12UL,
+                            transcript_hash, 32UL );
+
+  uchar server_app_secret[ 32UL ];
+  fd_tls_hkdf_expand_label( server_app_secret,
+                            hs->master_secret,
+                            "s ap traffic",  12UL,
+                            transcript_hash, 32UL );
+
+  /* Call back with application secrets */
+
+  client->secrets_fn( hs,
+                      /* read secret  */ server_app_secret,
+                      /* write secret */ client_app_secret,
+                      FD_TLS_LEVEL_APPLICATION );
 
   if( hs->client_cert ) {
 
@@ -1572,6 +1639,7 @@ fd_tls_alert_cstr( uint alert ) {
   default:
     FD_LOG_WARNING(( "Missing fd_tls_alert_cstr code for %d (memory corruption?)", alert ));
     return "unknown alert";
+  /* TODO add the other alert codes */
   }
 }
 
@@ -1605,6 +1673,7 @@ fd_tls_reason_cstr( uint reason ) {
   default:
     FD_LOG_WARNING(( "Missing fd_tls_reason_cstr code for %#x (memory corruption?)", reason ));
     __attribute__((fallthrough));
+  /* TODO need to add a lot more error reason codes */
   case FD_TLS_REASON_NULL:
     return "unknown reason";
   }

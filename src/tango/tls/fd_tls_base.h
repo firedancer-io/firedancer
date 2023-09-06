@@ -99,6 +99,31 @@ typedef int
                          uint         encryption_level,
                          int          flush );
 
+/* fd_tls_quic_tp_self_fn_t is called by fd_tls to request QUIC
+   transport params to be sent to the peer.  quic_tp points to the
+   buffer that may hold serialized QUIC transport parameters (RFC
+   Section 18). quic_tp_bufsz is the size of the buffer at quic_tp.
+   Return value is actual serialized (<=quic_tp_bufsz) on success.
+   On failure, returns (>quic_tp_bufsz) to indicate insufficient bufsz.
+   (Zero implies success, however!) */
+
+typedef ulong __attribute__((warn_unused_result))
+(* fd_tls_quic_tp_self_fn_t)( void *  handshake,
+                              uchar * quic_tp,
+                              ulong   quic_tp_bufsz );
+
+/* fd_tls_quic_tp_peer_fn_t is called by fd_tls to inform the user of
+   the peer's QUIC transport params RFC.  quic_tp points to the
+   serialized QUIC transport parameters (RFC 9000 Section 18).
+   quic_tp_sz is the serialized size.  Lifetime of quic_tp buffer ends
+   at return. fd_tls does not do any validation on the peer's QUIC TP --
+   Please ensure your deserializer is robust given arbitrary data. */
+
+typedef void
+(* fd_tls_quic_tp_peer_fn_t)( void  *       handshake,
+                              uchar const * quic_tp,
+                              ulong         quic_tp_sz );
+
 /* fd_tls_rand_vt_t is an abstraction for retrieving secure pseudorandom
    values.  When fd_tls needs random values, it calls fd_tls_rand_fn_t.
 
@@ -182,19 +207,22 @@ fd_tls_rand( fd_tls_rand_t const * rand,
 
 /* fd_tls-specific error codes to identify reasons for alerts */
 
-#define FD_TLS_REASON_NULL          ( 0)
-#define FD_TLS_REASON_ILLEGAL_STATE ( 1)  /* illegal hs state */
-#define FD_TLS_REASON_SENDMSG_FAIL  ( 2)  /* sendmsg callback failed */
-#define FD_TLS_REASON_WRONG_ENC_LVL ( 3)  /* wrong encryption level */
-#define FD_TLS_REASON_RAND_FAIL     ( 4)  /* rand fn failed */
-#define FD_TLS_REASON_CH_EXPECTED   ( 5)  /* wanted ClientHello, got another msg type */
-#define FD_TLS_REASON_CH_TRAILING   ( 6)  /* trailing bytes in ClientHello */
-#define FD_TLS_REASON_CH_CRYPTO_NEG ( 7)  /* ClientHello crypto negotiation failed */
-#define FD_TLS_REASON_X25519_FAIL   ( 8)  /* fd_x25519_exchange failed */
-#define FD_TLS_REASON_NO_X509       ( 9)  /* no X.509 cert */
-#define FD_TLS_REASON_WRONG_PUBKEY  (10)  /* peer cert has different pubkey than expected */
-#define FD_TLS_REASON_ED25519_FAIL  (11)  /* Ed25519 signature validation failed */
-#define FD_TLS_REASON_FINI_FAIL     (12)  /* Finished data mismatch */
+#define FD_TLS_REASON_NULL           ( 0)
+#define FD_TLS_REASON_ILLEGAL_STATE  ( 1)  /* illegal hs state */
+#define FD_TLS_REASON_SENDMSG_FAIL   ( 2)  /* sendmsg callback failed */
+#define FD_TLS_REASON_WRONG_ENC_LVL  ( 3)  /* wrong encryption level */
+#define FD_TLS_REASON_RAND_FAIL      ( 4)  /* rand fn failed */
+#define FD_TLS_REASON_CH_EXPECTED    ( 5)  /* wanted ClientHello, got another msg type */
+#define FD_TLS_REASON_CH_TRAILING    ( 6)  /* trailing bytes in ClientHello */
+#define FD_TLS_REASON_CH_CRYPTO_NEG  ( 7)  /* ClientHello crypto negotiation failed */
+#define FD_TLS_REASON_CH_NO_QUIC     ( 8)  /* Missing QUIC transport params in ClientHello */
+#define FD_TLS_REASON_X25519_FAIL    ( 9)  /* fd_x25519_exchange failed */
+#define FD_TLS_REASON_NO_X509        (10)  /* no X.509 cert */
+#define FD_TLS_REASON_WRONG_PUBKEY   (11)  /* peer cert has different pubkey than expected */
+#define FD_TLS_REASON_ED25519_FAIL   (12)  /* Ed25519 signature validation failed */
+#define FD_TLS_REASON_FINI_FAIL      (13)  /* Finished data mismatch */
+#define FD_TLS_REASON_QUIC_TP_OVERSZ (14)  /* Buffer overflow in QUIC transport params callback */
+#define FD_TLS_REASON_EE_NO_QUIC     (15)  /* Missing QUIC transport params in EncryptedExtensions */
 
 FD_PROTOTYPES_BEGIN
 

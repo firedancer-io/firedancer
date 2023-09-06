@@ -10,8 +10,9 @@
 
 struct fd_tls_estate_base {
   uchar  state;
-  uchar  server;  /* 1 if server, 0 if client */
-  ushort reason;  /* FD_TLS_REASON_{...} */
+  uchar  server : 1;  /* 1 if server, 0 if client */
+  uchar  quic   : 1;  /* 1 if QUIC, 0 otherwise ... TODO this is redundant */
+  ushort reason;      /* FD_TLS_REASON_{...} */
 };
 
 typedef struct fd_tls_estate_base fd_tls_estate_base_t;
@@ -132,6 +133,7 @@ struct fd_tls_estate_cli {
   uchar server_pubkey   [ 32 ];
   uchar server_hs_secret[ 32 ];
   uchar client_hs_secret[ 32 ];
+  uchar master_secret   [ 32 ];
 
   uchar client_cert        : 1;  /* 0=anon  1=client auth */
   uchar server_cert_rpk    : 1;
