@@ -2,7 +2,7 @@
 
    export RUST_LOG=solana_gossip=TRACE
    cargo run --bin solana-test-validator
-   
+
  **/
 
 #include "fd_gossip.h"
@@ -60,9 +60,8 @@ int main(int argc, char **argv) {
 
   char hostname[64];
   gethostname(hostname, sizeof(hostname));
-  char addrbuf[100];
-  snprintf(addrbuf, sizeof(addrbuf), "%s:1125", hostname);
-  FD_TEST( fd_gossip_resolve_hostport(addrbuf, &config.my_addr) );
+
+  FD_TEST( fd_gossip_resolve_hostport(":1125", &config.my_addr) );
 
   config.shred_version = 61807U;
 
@@ -88,7 +87,9 @@ int main(int argc, char **argv) {
     return 1;
   if ( fd_gossip_add_active_peer(glob, fd_gossip_resolve_hostport("entrypoint3.testnet.solana.com:8001", &peeraddr)) )
     return 1;
-  
+  // if ( fd_gossip_add_active_peer(glob, fd_gossip_resolve_hostport("localhost:1024", &peeraddr)) )
+  // return 1;
+
   signal(SIGINT, stop);
   signal(SIGPIPE, SIG_IGN);
 
@@ -96,7 +97,7 @@ int main(int argc, char **argv) {
     return 1;
 
   fd_valloc_free(valloc, fd_flamenco_yaml_delete(yamldump));
-  
+
   fd_valloc_free(valloc, fd_gossip_global_delete(fd_gossip_global_leave(glob), valloc));
 
   fd_halt();
