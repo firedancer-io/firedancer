@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_tango_tls_test_tls_helper_h
 #define HEADER_fd_src_tango_tls_test_tls_helper_h
 
-#include "fd_tls_base.h"
+#include "fd_tls.h"
 
 /* Common routines for fd_tls unit tests */
 
@@ -34,7 +34,7 @@ fd_tls_test_rand( fd_rng_t * rng ) {
 
 #define TEST_RECORD_BUFSZ (1024UL)
 struct test_record {
-  int   level;
+  uint  level;
   uchar buf[ TEST_RECORD_BUFSZ ];
   ulong cur;
 };
@@ -57,7 +57,7 @@ test_record_reset( test_record_buf_t * buf ) {
 
 static void
 test_record_send( test_record_buf_t * buf,
-                  int                 level,
+                  uint                level,
                   uchar const *       record,
                   ulong               record_sz ) {
   test_record_t * r = &buf->records[ (buf->send++ % TEST_RECORD_BUF_CNT) ];

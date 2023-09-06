@@ -1,5 +1,4 @@
 #include "fd_tls_base.h"
-#include "fd_tls_estate_cli.h"
 #include "fd_tls_proto.h"
 #if !FD_HAS_OPENSSL
 #error "This test requires OpenSSL"
@@ -26,7 +25,7 @@
 /* direction */
 static uchar _is_ossl_to_fd = 0;
 
-static int const
+static uint const
 _ossl_level_to_fdtls[] = {
   [ssl_encryption_initial]     = FD_TLS_LEVEL_INITIAL,
   [ssl_encryption_early_data]  = FD_TLS_LEVEL_EARLY,
@@ -54,21 +53,20 @@ _ossl_secrets( SSL *                 ssl,
                ulong                 secret_len ) {
   (void)ssl;
   FD_TEST( secret_len==32UL );
-  int level = _ossl_level_to_fdtls[ enc_level ];
+  uint level = _ossl_level_to_fdtls[ enc_level ];
   memcpy( secret[1][ level ][0], write_secret, 32UL );
   memcpy( secret[1][ level ][1], read_secret,  32UL );
   return 1;
 }
 
-static int
+static void
 _fdtls_secrets( void const * handshake,
                 void const * recv_secret,
                 void const * send_secret,
-                int          encryption_level ) {
+                uint         encryption_level ) {
   (void)handshake;
   memcpy( secret[0][ encryption_level ][0], recv_secret, 32UL );
   memcpy( secret[0][ encryption_level ][1], send_secret, 32UL );
-  return 1;
 }
 
 /* Record transport */
@@ -91,7 +89,7 @@ int
 _fdtls_sendmsg( void const * handshake,
                 void const * record,
                 ulong        record_sz,
-                int          encryption_level,
+                uint         encryption_level,
                 int          flush ) {
   (void)handshake;  (void)flush;
   test_record_log( record, record_sz, !!_is_ossl_to_fd );
@@ -281,7 +279,7 @@ test_server( SSL_CTX * ctx ) {
     FD_LOG_WARNING(( "OpenSSL handshake unsuccessful: %d", ssl_res ));
     FD_LOG_ERR(( "SSL_get_error: %d", SSL_get_error( ssl, ssl_res ) ));
   }
-  FD_TEST( hs->state==FD_TLS_HS_CONNECTED );
+  FD_TEST( hs->base.state==FD_TLS_HS_CONNECTED );
 
   /* Clean up */
 
@@ -382,7 +380,7 @@ test_client( SSL_CTX * ctx ) {
   _ossl_respond( ssl );
 
   /* Check if connected */
-  FD_TEST( hs->state==FD_TLS_HS_CONNECTED );
+  FD_TEST( hs->base.state==FD_TLS_HS_CONNECTED );
   FD_TEST( SSL_do_handshake( ssl )==1 );
 
   /* Clean up */

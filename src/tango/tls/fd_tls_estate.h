@@ -1,7 +1,23 @@
-#ifndef HEADER_fd_src_tango_tls_fd_tls_estate_srv_h
-#define HEADER_fd_src_tango_tls_fd_tls_estate_srv_h
+#ifndef HEADER_fd_src_tango_tls_fd_tls_estate_h
+#define HEADER_fd_src_tango_tls_fd_tls_estate_h
 
 #include "fd_tls_base.h"
+
+/* Base ***************************************************************/
+
+/* fd_tls_estate_base_t is the shared header of the
+   fd_tls_estate_{srv,cli} objects. */
+
+struct fd_tls_estate_base {
+  uchar  state;
+  uchar  server;  /* 1 if server, 0 if client */
+  ushort reason;  /* FD_TLS_REASON_{...} */
+};
+
+typedef struct fd_tls_estate_base fd_tls_estate_base_t;
+
+
+/* Server *************************************************************/
 
 /* fd_tls_estate_srv contains compressed TLS server handshake state
    while waiting for the client to send a message.  estate is optimized
@@ -55,10 +71,11 @@
      Finished" verify data. */
 
 struct fd_tls_estate_srv {
-  char  state;  /* FD_TLS_HS_{...} */
-  uchar server_cert_rpk : 1;  /* 0: X.509  1: raw public key */
-  uchar client_cert     : 1;  /* 0: no client auth  1: client cert */
-  uchar client_cert_rpk : 1;  /* 0: X.509  1: raw public key */
+  fd_tls_estate_base_t base;
+
+  uchar  server_cert_rpk : 1;  /* 0: X.509  1: raw public key */
+  uchar  client_cert     : 1;  /* 0: no client auth  1: client cert */
+  uchar  client_cert_rpk : 1;  /* 0: X.509  1: raw public key */
 
   fd_tls_transcript_t transcript;
   uchar               client_hs_secret[32];
@@ -66,6 +83,7 @@ struct fd_tls_estate_srv {
 };
 
 typedef struct fd_tls_estate_srv fd_tls_estate_srv_t;
+
 
 /* Note:  When requesting a cert, the server should consider stopping
    after CertificateVerify to save compute resources (at the expense of
@@ -91,4 +109,62 @@ fd_tls_estate_srv_delete( fd_tls_estate_srv_t * estate ) {
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_tango_tls_fd_tls_estate_srv_h */
+
+/* Client *************************************************************/
+
+/* fd_tls_estate_cli contains TLS client handshake state while waiting
+   for the server to send a message.
+
+   TLS client side handshake state is considerably more complex than
+   the server-side state.  Thus, estate_cli memory requirements are
+   larger than for estate_srv.
+
+   However, clients are not vulnerable to handshake packet floods:
+   - The packet count per handshake is limited
+   - Peers cannot initiate connections to clients (clients will simply
+     drop unsolicited packets)
+
+   Thus, estate_cli is not optimized for memory use. */
+
+struct fd_tls_estate_cli {
+  fd_tls_estate_base_t base;
+
+  uchar server_pubkey   [ 32 ];
+  uchar server_hs_secret[ 32 ];
+  uchar client_hs_secret[ 32 ];
+
+  uchar client_cert        : 1;  /* 0=anon  1=client auth */
+  uchar server_cert_rpk    : 1;
+  uchar client_cert_nox509 : 1;
+  uchar client_cert_rpk    : 1;
+  uchar server_pubkey_pin  : 1;  /* if 1, require cert to match server_pubkey */
+
+  fd_sha256_t transcript;
+};
+
+typedef struct fd_tls_estate_cli fd_tls_estate_cli_t;
+
+FD_PROTOTYPES_BEGIN
+
+fd_tls_estate_cli_t *
+fd_tls_estate_cli_new( void * mem );
+
+static inline void *
+fd_tls_estate_cli_delete( fd_tls_estate_cli_t * estate ) {
+  return (void *)estate;
+}
+
+FD_PROTOTYPES_END
+
+
+/* Common *************************************************************/
+
+union fd_tls_estate {
+  fd_tls_estate_base_t base;
+  fd_tls_estate_srv_t  srv;
+  fd_tls_estate_cli_t  cli;
+};
+
+typedef union fd_tls_estate fd_tls_estate_t;
+
+#endif /* HEADER_fd_src_tango_tls_fd_tls_estate_h */
