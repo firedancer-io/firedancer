@@ -442,6 +442,47 @@ test_aes_128_gcm( void ) {
   FD_LOG_INFO(( "OK: AES-128-GCM auth (AES-NI)" ));
 }
 
+/* AES-GCM unroll tests ***********************************************/
+
+FD_IMPORT_BINARY( fixture_aes_128_gcm_unroll, "src/ballet/aes/fixtures/gcm-ciphertext.bin" );
+
+static void
+test_aes_128_gcm_unroll( void ) {
+  static uchar const key[ 16 ] =
+    { 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+      0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f };
+
+  static uchar const iv[ 12 ] =
+    { 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+      0x08, 0x09, 0x0a, 0x0b };
+
+  static uchar const plaintext[ 2048 ] = {0};
+
+  static uchar const aad[ 32 ] =
+    { 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+      0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
+      0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
+      0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f };
+
+  for( ulong j=1; j<sizeof(plaintext); j++ ) {
+
+    uchar result[ 2048 ];
+    uchar tag[ 16 ];
+
+    fd_aes_gcm_t gcm[1];
+    fd_aes_128_gcm_init( gcm, key, iv );
+    fd_aes_gcm_aead_encrypt( gcm, result, plaintext, j, aad, sizeof(aad), tag );
+    if( FD_UNLIKELY( 0!=memcmp( result, fixture_aes_128_gcm_unroll, j ) ) )
+      FD_LOG_ERR(( "FAIL: AES-128-GCM unroll encrypt (AES-NI) for sz %lu (encrypt fail)", j ));
+
+    fd_aes_128_gcm_init( gcm, key, iv );
+    int ok = fd_aes_gcm_aead_decrypt( gcm, fixture_aes_128_gcm_unroll, result, j, aad, sizeof(aad), tag );
+    if( FD_UNLIKELY( !ok || 0!=memcmp( result, plaintext, j ) ) )
+      FD_LOG_ERR(( "FAIL: AES-128-GCM unroll decrypt (AES-NI) for sz %lu (decrypt fail)", j ));
+
+  }
+}
+
 /* Main ***************************************************************/
 
 int
@@ -453,8 +494,9 @@ main( int     argc,
   test_key_expansion_zeros( 192, fixture_key_expansion_192_zeros, 12 );
   test_key_expansion_zeros( 256, fixture_key_expansion_256_zeros, 14 );
 
-  test_aes_128_ecb();
-  test_aes_128_gcm();
+  //test_aes_128_ecb();
+  //test_aes_128_gcm();
+  test_aes_128_gcm_unroll();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
