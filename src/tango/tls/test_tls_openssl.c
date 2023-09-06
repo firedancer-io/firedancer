@@ -146,6 +146,29 @@ _ossl_flush_flight( SSL * ssl ) {
   return 1;
 }
 
+/* Hardcode QUIC transport parameters */
+
+static uchar const tp_buf[] = { 0x01, 0x02, 0x47, 0xd0 };
+
+static ulong
+_fdtls_quic_tp_self( void *  handshake,
+                     uchar * quic_tp,
+                     ulong   quic_tp_bufsz ) {
+  (void)handshake;
+  FD_TEST( quic_tp_bufsz >= sizeof(tp_buf) );
+  fd_memcpy( quic_tp, tp_buf, sizeof(tp_buf) );
+  return 4UL;
+}
+
+static void
+_fdtls_quic_tp_peer( void  *       handshake,
+                     uchar const * quic_tp,
+                     ulong         quic_tp_sz ) {
+  (void)handshake;
+  FD_TEST( quic_tp_sz == 4UL );
+  FD_TEST( 0==memcmp( quic_tp, tp_buf, 4UL ) );
+}
+
 /* Miscellaneous OpenSSL callbacks */
 
 static int
@@ -206,9 +229,13 @@ test_server( SSL_CTX * ctx ) {
   fd_tls_t _server[1];
   fd_tls_t * server = fd_tls_join( fd_tls_new( _server ) );
   *server = (fd_tls_t) {
-    .rand              = fd_tls_test_rand( rng ),
-    .secrets_fn        = _fdtls_secrets,
-    .sendmsg_fn        = _fdtls_sendmsg,
+    .rand       = fd_tls_test_rand( rng ),
+    .secrets_fn = _fdtls_secrets,
+    .sendmsg_fn = _fdtls_sendmsg,
+
+    .quic = 1,
+    .quic_tp_peer_fn = _fdtls_quic_tp_peer,
+    .quic_tp_self_fn = _fdtls_quic_tp_self,
   };
 
   fd_tls_estate_srv_t hs[1];
@@ -251,14 +278,8 @@ test_server( SSL_CTX * ctx ) {
 
   /* Set client QUIC transport params */
 
-  uchar tp_buf[] = { 0x01, 0x02, 0x47, 0xd0 };
   ulong tp_sz = 4UL;
   FD_TEST( 1==SSL_set_quic_transport_params( ssl, tp_buf, tp_sz ) );
-
-  /* Set server QUIC transport params */
-
-  memcpy( server->quic_tp, tp_buf, tp_sz );
-  server->quic_tp_sz = (ushort)tp_sz;
 
   /* Do handshake */
 
@@ -339,6 +360,10 @@ test_client( SSL_CTX * ctx ) {
     .rand       =  fd_tls_test_rand( rng ),
     .secrets_fn = _fdtls_secrets,
     .sendmsg_fn = _fdtls_sendmsg,
+
+    .quic = 1,
+    .quic_tp_peer_fn = _fdtls_quic_tp_peer,
+    .quic_tp_self_fn = _fdtls_quic_tp_self,
   };
 
   uchar server_public_key[ 32 ];
@@ -362,11 +387,6 @@ test_client( SSL_CTX * ctx ) {
 
   fd_x509_mock_cert( cert, client->cert_private_key, fd_rng_ulong( rng ), sha );
   fd_tls_set_x509( client, cert, FD_X509_MOCK_CERT_SZ );
-
-  /* Set client QUIC transport params */
-
-  memcpy( client->quic_tp, tp_buf, tp_sz );
-  client->quic_tp_sz = (ushort)tp_sz;
 
   /* Do handshake */
 
@@ -427,7 +447,7 @@ main( int     argc,
 
   /* Test client with and without cert */
   SSL_CTX_set_verify( ctx, SSL_VERIFY_NONE, NULL );
-  //test_client( ctx );
+  test_client( ctx );
   SSL_CTX_set_verify( ctx, SSL_VERIFY_PEER, _ossl_verify_callback );
   test_client( ctx );
 

@@ -1,6 +1,7 @@
 #ifndef HEADER_fd_src_tango_tls_fd_tls_h
 #define HEADER_fd_src_tango_tls_fd_tls_h
 
+#include "fd_tls_base.h"
 #include "fd_tls_proto.h"
 #include "fd_tls_estate.h"
 
@@ -8,6 +9,11 @@ struct fd_tls {
   fd_tls_rand_t       rand;
   fd_tls_secrets_fn_t secrets_fn;
   fd_tls_sendmsg_fn_t sendmsg_fn;
+
+  /* QUIC specific callbacks -- Only called if quic flag is set.
+     TODO: Will optional function pointers stall the pipeline? */
+  fd_tls_quic_tp_self_fn_t quic_tp_self_fn;
+  fd_tls_quic_tp_peer_fn_t quic_tp_peer_fn;
 
   /* key_{private,public}_key is an X25519 key pair.  During the TLS
      handshake, it is used to establish symmetric encryption keys.
@@ -49,12 +55,9 @@ struct fd_tls {
      Is not NUL delimited. */
   uchar alpn[ 32 ];
 
-  /* Advertised QUIC transport parameters
-     TODO QUIC transport parameters should not be hardcoded at the
-          server level.  Instead, call back to fd_tls to ask for
-          appropriate tp for the connection. */
-  uchar  quic_tp[ FD_TLS_EXT_QUIC_PARAMS_SZ_MAX ];
-  ushort quic_tp_sz;
+  /* Flags */
+  ulong quic            :  1;
+  ulong _flags_reserved : 63;
 };
 
 typedef struct fd_tls fd_tls_t;
