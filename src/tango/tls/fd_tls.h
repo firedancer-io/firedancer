@@ -2,29 +2,57 @@
 #define HEADER_fd_src_tango_tls_fd_tls_h
 
 #include "fd_tls_proto.h"
-#include "fd_tls_estate_srv.h"
-#include "fd_tls_estate_cli.h"
+#include "fd_tls_estate.h"
 
 struct fd_tls {
   fd_tls_rand_t       rand;
   fd_tls_secrets_fn_t secrets_fn;
   fd_tls_sendmsg_fn_t sendmsg_fn;
 
+  /* key_{private,public}_key is an X25519 key pair.  During the TLS
+     handshake, it is used to establish symmetric encryption keys.
+     kex_private_key is an arbitrary 32 byte vector.  It is recommended
+     to generate a new X25519 key on startup from cryptographically
+     secure randomness. kex_public_key is the corresponding public key
+     curve point derived via fd_x25519_public.
+
+     Security notes:
+     - May not be changed while conns are active.
+     - Using a public key that is not derived from the private key may
+       reveal the private key (!!!) */
   uchar kex_private_key[ 32 ];
   uchar kex_public_key [ 32 ];
 
+  /* cert_{private,public}_key is the Ed25519 key pair that identifies
+     the server. During TLS handshakes, used to sign a transcript of the
+     handshake to prove to the peer that we are in possession of this
+     key. cert_private_key is an arbitrary 32 byte vector.  (Currently,
+     equal to the Solana node identity key.)  cert_public_key is the
+     corresponding public key curve point derived via
+     fd_ed25519_public_from_private.
+
+     Security notes:
+     - May not be changed while conns are active.
+     - Using a public key that is not derived from the private key may
+       reveal the private key (!!!) */
   uchar cert_private_key[ 32 ];
   uchar cert_public_key [ 32 ];
 
-  /* Buffers storing the Certificate record.  This is not a simple copy
-     of the cert but also contains TLS headers/footers.  Do not set
-     directly. */
-  uchar cert_x509[ FD_TLS_SERVER_CERT_MSG_SZ_MAX ];  /* set using fd_tls_server_set_x509 */
+  /* Buffers storing the Certificate handshake message.  This is not a
+     simple copy of the cert but also contains TLS headers/footers.
+     Written by fd_tls_server_set_x509.  Do not write directly. */
+  uchar cert_x509[ FD_TLS_SERVER_CERT_MSG_SZ_MAX ];  /* set using  */
   ulong cert_x509_sz;
 
+  /* ALPN protocol identifier.  Written by fd_tls_server_set_alpn.
+     Format: <1 byte length prefix> <ASCII chars>.
+     Is not NUL delimited. */
   uchar alpn[ 32 ];
 
-  /* Advertised QUIC transport parameters */
+  /* Advertised QUIC transport parameters
+     TODO QUIC transport parameters should not be hardcoded at the
+          server level.  Instead, call back to fd_tls to ask for
+          appropriate tp for the connection. */
   uchar  quic_tp[ FD_TLS_EXT_QUIC_PARAMS_SZ_MAX ];
   ushort quic_tp_sz;
 };
@@ -78,7 +106,7 @@ fd_tls_server_handshake( fd_tls_t const *      tls,
                          fd_tls_estate_srv_t * handshake,
                          void const *          record,
                          ulong                 record_sz,
-                         int                   encryption_level );
+                         uint                  encryption_level );
 
 
 long
@@ -86,7 +114,19 @@ fd_tls_client_handshake( fd_tls_t const *      client,
                          fd_tls_estate_cli_t * handshake,
                          void *                record,
                          ulong                 record_sz,
-                         int                   encryption_level );
+                         uint                  encryption_level );
+
+static inline long
+fd_tls_handshake( fd_tls_t const *  tls,
+                  fd_tls_estate_t * handshake,
+                  void *            record,
+                  ulong             record_sz,
+                  uint              encryption_level ) {
+  if( handshake->base.server )
+    return fd_tls_server_handshake( tls, &handshake->srv, record, record_sz, encryption_level );
+  else
+    return fd_tls_client_handshake( tls, &handshake->cli, record, record_sz, encryption_level );
+}
 
 FD_PROTOTYPES_END
 
