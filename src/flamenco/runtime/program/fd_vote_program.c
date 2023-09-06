@@ -50,15 +50,16 @@ return value `T` will be filled in additional caller-supplied arguments.
 egregious not do so (e.g. `fd_ulong_if`, bitwise ops)... otherwise it preserves the original `if /
 else` construct. */
 
-// https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L369
+// https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/sdk/program/src/vote/state/mod.rs#L29
 #define MAX_LOCKOUT_HISTORY 31UL
 
-// https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L36
+// https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/sdk/program/src/vote/state/mod.rs#L30
 #define INITIAL_LOCKOUT 2UL
 
 // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/sdk/program/src/vote/state/mod.rs#L34
 #define MAX_EPOCH_CREDITS_HISTORY 64UL
 
+https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/sdk/program/src/vote/state/mod.rs#L36
 #define DEFAULT_PRIOR_VOTERS_OFFSET 114
 
 // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/sdk/program/src/clock.rs#L114
@@ -71,7 +72,7 @@ else` construct. */
 /* mod vote_processor                                                 */
 /**********************************************************************/
 
-// https://github.com/firedancer-io/solana/blob/debug-master/programs/vote/src/vote_processor.rs#L21
+// https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_processor.rs#L21
 static int
 vote_processor_process_authorize_with_seed_instruction(
     /* invoke_context */
@@ -109,7 +110,7 @@ vote_state_check_slots_are_valid( fd_vote_state_t *  vote_state,
                                   fd_slot_hashes_t * slot_hashes,
                                   instruction_ctx_t  ctx );
 
-// https://github.com/firedancer-io/solana/blob/debug-master/programs/vote/src/vote_state/mod.rs#L546
+// https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_state/mod.rs#L546
 static int
 vote_state_process_new_vote_state( fd_vote_state_t *   vote_state,
                                    fd_vote_lockout_t * new_state,
@@ -190,7 +191,7 @@ vote_state_verify_and_get_vote_state( fd_borrowed_account_t *       vote_account
                                       instruction_ctx_t   ctx,
                                       /* return */ fd_vote_state_t * vote_state );
 
-// https://github.com/firedancer-io/solana/blob/debug-master/programs/vote/src/vote_state/mod.rs#L996
+// https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_state/mod.rs#L996
 static int
 vote_state_process_vote_with_account( fd_borrowed_account_t *       vote_account,
                                       fd_slot_hashes_t *            slot_hashes,
@@ -200,7 +201,7 @@ vote_state_process_vote_with_account( fd_borrowed_account_t *       vote_account
                                       /* feature_set */
                                       instruction_ctx_t ctx );
 
-// https://github.com/firedancer-io/solana/blob/debug-master/programs/vote/src/vote_state/mod.rs#L1017
+// https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_state/mod.rs#L1017
 static int
 vote_state_process_vote_state_update( fd_borrowed_account_t *       vote_account,
                                       fd_slot_hashes_t *            slot_hashes,
@@ -210,7 +211,7 @@ vote_state_process_vote_state_update( fd_borrowed_account_t *       vote_account
                                       /* feature_set */
                                       instruction_ctx_t ctx );
 
-// https://github.com/firedancer-io/solana/blob/debug-master/programs/vote/src/vote_state/mod.rs#L1036
+// https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_state/mod.rs#L1036
 static int
 vote_state_do_process_vote_state_update( fd_vote_state_t *        vote_state,
                                          fd_slot_hashes_t *       slot_hashes,
@@ -238,7 +239,7 @@ vote_state_size_of( void );
 static void
 vote_state_process_next_vote_slot( fd_vote_state_t * self, ulong next_vote_slot, ulong epoch );
 
-// https://github.com/firedancer-io/solana/blob/debug-master/sdk/program/src/vote/state/mod.rs#L447
+// https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/sdk/program/src/vote/state/mod.rs#L447
 static void
 vote_state_increment_credits( fd_vote_state_t * self, ulong epoch, ulong credits );
 
@@ -270,7 +271,7 @@ vote_state_get_and_update_authorized_voter( fd_vote_state_t *            self,
 static void
 vote_state_pop_expired_votes( fd_vote_state_t * self, ulong next_vote_slot );
 
-// https://github.com/firedancer-io/solana/blob/debug-master/sdk/program/src/vote/state/mod.rs#L614
+// https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/sdk/program/src/vote/state/mod.rs#L614
 static void
 vote_state_double_lockouts( fd_vote_state_t * self );
 
@@ -2666,8 +2667,7 @@ fd_vote_record_timestamp_vote_with_slot( fd_global_ctx_t *   global,
   }
 }
 
-/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L1041
- */
+// https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/sdk/program/src/vote/state/mod.rs#L512
 int
 fd_vote_acc_credits( instruction_ctx_t         ctx,
                      fd_account_meta_t const * vote_acc_meta,

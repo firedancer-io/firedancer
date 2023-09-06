@@ -46,9 +46,6 @@ FD_PROTOTYPES_BEGIN
 int
 fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx );
 
-
-// TODO rewrite below this line
-
 void
 fd_vote_record_timestamp_vote( fd_global_ctx_t * global, fd_pubkey_t const * vote_acc, ulong timestamp );
 
@@ -58,11 +55,9 @@ fd_vote_record_timestamp_vote_with_slot( fd_global_ctx_t *   global,
                                  ulong               timestamp,
                                  ulong               slot );
 
-/* Entry-point for the Solana Vote Program */
 int
 fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx );
 
-/* Number of credits owned to the given vote account from the mining pool. */
 int
 fd_vote_acc_credits( instruction_ctx_t         ctx,
                      fd_account_meta_t const * vote_acc_meta,
