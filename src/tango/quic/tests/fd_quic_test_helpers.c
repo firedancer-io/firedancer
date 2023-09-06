@@ -107,7 +107,8 @@ fd_quic_test_halt( void ) {
 fd_quic_t *
 fd_quic_new_anonymous( fd_wksp_t *              wksp,
                        fd_quic_limits_t const * limits,
-                       int                      role ) {
+                       int                      role,
+                       fd_rng_t *               rng ) {
   fd_ip_t * ip = fd_ip_join( fd_ip_new( fd_wksp_alloc_laddr( wksp, fd_ip_align(), fd_ip_footprint( 256UL, 256UL ), 1UL ), 256UL, 256UL ) );
   void * shquic = fd_quic_new( fd_wksp_alloc_laddr( wksp, fd_quic_align(), fd_quic_footprint( limits ), 1UL ), limits, ip );
   FD_TEST( shquic );
@@ -150,6 +151,9 @@ fd_quic_new_anonymous( fd_wksp_t *              wksp,
   quic->cb.tls_keylog       = fd_quic_test_cb_tls_keylog;
   quic->cb.now              = fd_quic_test_now;
   quic->cb.now_ctx          = NULL;
+
+  for( ulong j=0UL; j<32UL; j++ )
+    quic->config.identity_key[ j ] = (uchar)fd_rng_uchar( rng );
 
   return quic;
 }

@@ -215,6 +215,8 @@ main( int argc, char ** argv ) {
   fd_boot          ( &argc, &argv );
   fd_quic_test_boot( &argc, &argv );
 
+  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
+
   ulong cpu_idx = fd_tile_cpu_id( fd_tile_idx() );
   if( cpu_idx>fd_shmem_cpu_cnt() ) cpu_idx = 0UL;
 
@@ -253,7 +255,7 @@ main( int argc, char ** argv ) {
   FD_TEST( quic_footprint );
 
   FD_LOG_NOTICE(( "CLIENT Creating client QUIC" ));
-  client_quic = fd_quic_new_anonymous( wksp, &quic_limits, FD_QUIC_ROLE_CLIENT );
+  client_quic = fd_quic_new_anonymous( wksp, &quic_limits, FD_QUIC_ROLE_CLIENT, rng );
   FD_TEST( client_quic );
 
   client_quic->cb.conn_new       = my_connection_new;
@@ -334,6 +336,7 @@ main( int argc, char ** argv ) {
   FD_LOG_NOTICE(( "CLIENT Cleaning up" ));
   fd_wksp_free_laddr( fd_quic_delete( fd_quic_leave( fd_quic_fini( client_quic ) ) ) );
   fd_wksp_delete_anonymous( wksp );
+  fd_rng_delete( fd_rng_leave( rng ) );
 
   FD_LOG_NOTICE(( "CLIENT pass" ));
   fd_quic_test_halt();

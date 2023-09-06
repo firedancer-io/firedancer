@@ -41,10 +41,10 @@
 
 
 #define FD_QUIC_ENC_LEVEL_LIST( X, ... ) \
-  X( 0, initial,    ssl_encryption_initial,     __VA_ARGS__ ) \
-  X( 1, early_data, ssl_encryption_early_data,  __VA_ARGS__ ) \
-  X( 2, handshake,  ssl_encryption_handshake,   __VA_ARGS__ ) \
-  X( 3, appdata,    ssl_encryption_application, __VA_ARGS__ )
+  X( 0, initial,    FD_TLS_LEVEL_INITIAL,     __VA_ARGS__ ) \
+  X( 1, early_data, FD_TLS_LEVEL_EARLY,       __VA_ARGS__ ) \
+  X( 2, handshake,  FD_TLS_LEVEL_HANDSHAKE,   __VA_ARGS__ ) \
+  X( 3, appdata,    FD_TLS_LEVEL_APPLICATION, __VA_ARGS__ )
 
 #define FD_QUIC_NUM_ENC_LEVELS 4
 
@@ -324,7 +324,7 @@ fd_quic_gen_initial_secret(
 int
 fd_quic_gen_secrets(
     fd_quic_crypto_secrets_t * secrets,
-    int                        enc_level,
+    uint                       enc_level,
     fd_hmac_fn_t               hmac_fn,
     ulong                      hash_sz );
 
