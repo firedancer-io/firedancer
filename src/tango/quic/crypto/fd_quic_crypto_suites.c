@@ -160,7 +160,7 @@ fd_quic_gen_initial_secret(
 int
 fd_quic_gen_secrets(
     fd_quic_crypto_secrets_t * secrets,
-    int                        enc_level,
+    uint                       enc_level,
     fd_hmac_fn_t               hmac_fn,
     ulong                      hash_sz ) {
   uchar * client_secret = secrets->secret[enc_level][0];

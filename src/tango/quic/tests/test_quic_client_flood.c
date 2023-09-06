@@ -295,8 +295,6 @@ main( int argc, char ** argv ) {
 
   fd_quic_config_t * client_cfg = &quic->config;
   client_cfg->role = FD_QUIC_ROLE_CLIENT;
-  memcpy( client_cfg->alpns, "\xasolana-tpu", 11UL );
-  client_cfg->alpns_sz = 11U;
   FD_TEST( fd_quic_config_from_env( &argc, &argv, client_cfg ) );
   memcpy( client_cfg->link.dst_mac_addr, gateway, 6UL );
   client_cfg->net.ip_addr         = udpsock->listen_ip;

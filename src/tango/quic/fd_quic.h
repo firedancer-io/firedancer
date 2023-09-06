@@ -234,15 +234,12 @@ struct __attribute__((aligned(16UL))) fd_quic_config {
 
   /* TLS config ********************************************/
 
-# define FD_QUIC_CERT_PATH_LEN 1023UL
-  char keylog_file[ FD_QUIC_CERT_PATH_LEN+1UL ];
+  /* identity_key: Ed25519 private key of node identity
+     (Can be random bytes) */
+  uchar identity_key[ 32 ];
 
-  /* alpns: List of supported ALPN IDs in OpenSSL format.
-     Contains packed list of uchar length prefixed strings
-     with total buffer size alpns_sz.
-       e.g.: <0x0a> "solana-tpu" <0x02> "h2" */
-  char alpns[ 256 ];
-  uint alpns_sz;
+# define FD_QUIC_PATH_LEN 1023UL
+  char keylog_file[ FD_QUIC_PATH_LEN+1UL ];
 
   /* Server name indication (client only)
      FIXME: Extend server to validate SNI */
@@ -430,13 +427,6 @@ struct fd_quic {
 
   fd_aio_t aio_rx; /* local AIO */
   fd_aio_t aio_tx; /* remote AIO */
-
-  /* Opaque handles for OpenSSL objects.
-     Owned by fd_quic object (freed on fini).
-     TODO: Instead, provide SSL_CTX object here. */
-
-  void * cert_object;      /* X509 * object */
-  void * cert_key_object;  /* EVP_PKEY * object */
 
   /* ... private variable-length structures follow ... */
 };
@@ -684,7 +674,8 @@ uint fd_quic_tx_buffered_raw(fd_quic_t *quic,
 
 /* FD_DEBUG_MODE: set to enable debug-only code
    TODO move to util? */
-#ifndef FD_DEBUG_MODE
+#define FD_DEBUG_MODE
+#ifdef FD_DEBUG_MODE
 #define FD_DEBUG(...) __VA_ARGS__
 #else
 #define FD_DEBUG(...)

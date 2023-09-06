@@ -208,8 +208,6 @@ main( int argc,
 
   fd_quic_config_t * client_cfg = &quic->config;
   client_cfg->role = FD_QUIC_ROLE_CLIENT;
-  memcpy( client_cfg->alpns, "\xasolana-tpu", 11UL );
-  client_cfg->alpns_sz = 11U;
   FD_TEST( fd_quic_config_from_env( &argc, &argv, client_cfg ) );
   memcpy(client_cfg->link.dst_mac_addr, "\x52\xF1\x7E\xDA\x2C\xE0", 6UL);
   client_cfg->net.ip_addr         = udpsock->listen_ip;
