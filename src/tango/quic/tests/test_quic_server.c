@@ -25,6 +25,8 @@ main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
   fd_quic_test_boot( &argc, &argv );
 
+  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
+
   ulong cpu_idx = fd_tile_cpu_id( fd_tile_idx() );
   if( cpu_idx>=fd_shmem_cpu_cnt() ) cpu_idx = 0UL;
 
@@ -43,7 +45,7 @@ main( int argc, char ** argv ) {
   FD_TEST( wksp );
 
   FD_LOG_NOTICE(( "Creating server QUIC" ));
-  fd_quic_t * quic = fd_quic_new_anonymous( wksp, &quic_limits, FD_QUIC_ROLE_SERVER );
+  fd_quic_t * quic = fd_quic_new_anonymous( wksp, &quic_limits, FD_QUIC_ROLE_SERVER, rng );
   FD_TEST( quic );
 
   fd_quic_udpsock_t _udpsock[1];
@@ -88,16 +90,7 @@ main( int argc, char ** argv ) {
                             50, 51,  102, 25, 63, 110, 36,  28, 51, 11, 174, 179, 110, 8,  25,  152 };
   FD_LOG_HEXDUMP_NOTICE(( "Solana private key", pkey, 32 ));  /* TODO use base-58 format specifier */
   FD_LOG_HEXDUMP_NOTICE(( "Solana public key", pubkey, 32 ));  /* TODO use base-58 format specifier */
-  quic->cert_key_object = EVP_PKEY_new_raw_private_key( EVP_PKEY_ED25519, NULL, pkey, 32UL );
-
-  /* Generate X509 certificate */
-  uchar cert_asn1[ FD_X509_MOCK_CERT_SZ ];
-  fd_x509_mock_cert( cert_asn1, pkey );
-  do {
-    uchar const * cert_ptr = cert_asn1;
-    quic->cert_object = d2i_X509( NULL, &cert_ptr, FD_X509_MOCK_CERT_SZ );
-    FD_TEST( quic->cert_object );
-  } while(0);
+  fd_memcpy( quic_config->identity_key, pkey, 32UL );
 
   FD_LOG_NOTICE(( "Initializing QUIC" ));
   FD_TEST( fd_quic_init( quic ) );
@@ -115,6 +108,7 @@ main( int argc, char ** argv ) {
   fd_wksp_free_laddr( fd_quic_delete( fd_quic_leave( quic ) ) );
   fd_quic_udpsock_destroy( udpsock );
   fd_wksp_delete_anonymous( wksp );
+  fd_rng_delete( fd_rng_leave( rng ) );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_quic_test_halt();
