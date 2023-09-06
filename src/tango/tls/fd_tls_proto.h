@@ -88,6 +88,28 @@ struct fd_tls_ext_cert_type {
 
 typedef struct fd_tls_ext_cert_type fd_tls_ext_cert_type_t;
 
+/* fd_tls_ext_opaque_t holds a pointer to opaque serialized extension
+   data.  Lifetime of buf depends on context -- Look for documentation
+   in usages of this structure.
+
+   This structure can have 3 subtly different meanings:
+     (!!buf) & (!!bufsz)   Extension present, non-zero sz
+     (!!buf) & ( !bufsz)   Extension present, zero sz
+     ( !buf) & ( !bufsz)   Extension absent
+
+   Notably,
+     (!buf  )  ... implies extension is absent
+     (!bufsz)  ... implies extension is absent or zero sz */
+
+struct fd_tls_ext_opaque {
+  uchar const * buf;
+  ulong         bufsz;
+};
+
+typedef struct fd_tls_ext_opaque fd_tls_ext_opaque_t;
+typedef struct fd_tls_ext_opaque fd_tls_ext_quic_tp_t;
+typedef struct fd_tls_ext_opaque fd_tls_ext_alpn_t;
+
 /* TLS Messages *******************************************************/
 
 /* fd_tls_u24_t is a 24-bit / 3 byte big-endian integer.
@@ -123,9 +145,7 @@ struct fd_tls_client_hello {
   fd_tls_key_share_t                key_share;
   fd_tls_ext_cert_type_list_t       server_cert_types;
   fd_tls_ext_cert_type_list_t       client_cert_types;
-
-  uchar const * quic_tp;
-  ushort        quic_tp_sz;
+  fd_tls_ext_quic_tp_t              quic_tp;
 };
 
 typedef struct fd_tls_client_hello fd_tls_client_hello_t;
@@ -148,9 +168,7 @@ typedef struct fd_tls_server_hello fd_tls_server_hello_t;
 struct fd_tls_enc_ext_t {
   fd_tls_ext_cert_type_t server_cert;
   fd_tls_ext_cert_type_t client_cert;
-
-  ushort quic_tp_sz;
-  uchar  quic_tp[ FD_TLS_EXT_QUIC_PARAMS_SZ_MAX ];
+  fd_tls_ext_quic_tp_t   quic_tp;
 
   uchar alpn_sz;
   uchar alpn[ FD_TLS_EXT_ALPN_SZ_MAX ];
@@ -476,6 +494,27 @@ long
 fd_tls_encode_ext_cert_type( fd_tls_ext_cert_type_t in,
                              void const *           wire,
                              ulong                  wire_sz );
+
+/* fd_tls_decode_ext_opaque is special:
+   in->{buf,buf_sz} will be set to {wire,wire_sz}.
+   i.e. lifetime of in->quic_tp is that of wire. */
+
+long
+fd_tls_decode_ext_opaque( fd_tls_ext_opaque_t * const in,
+                          void const *          const wire,
+                          ulong                       wire_sz );
+
+static inline long
+fd_tls_decode_ext_quic_tp( fd_tls_ext_quic_tp_t * const in,
+                           void const *          const wire,
+                           ulong                       wire_sz ) {
+  return fd_tls_decode_ext_opaque( in, wire, wire_sz );
+}
+
+long
+fd_tls_decode_ext_alpn( fd_tls_ext_alpn_t * const in,
+                        void const *        const wire,
+                        ulong                     wire_sz );
 
 FD_PROTOTYPES_END
 

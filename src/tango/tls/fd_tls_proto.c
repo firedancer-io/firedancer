@@ -112,25 +112,28 @@ fd_tls_decode_client_hello( fd_tls_client_hello_t * out,
     long ext_parse_res;
     switch( ext_type ) {
     case FD_TLS_EXT_SUPPORTED_VERSIONS:
-      ext_parse_res = fd_tls_decode_ext_supported_versions( &out->supported_versions, ext_data, wire_sz );
+      ext_parse_res = fd_tls_decode_ext_supported_versions( &out->supported_versions, ext_data, ext_sz );
       break;
     case FD_TLS_EXT_SERVER_NAME:
-      ext_parse_res = fd_tls_decode_ext_server_name( &out->server_name, ext_data, wire_sz );
+      ext_parse_res = fd_tls_decode_ext_server_name( &out->server_name, ext_data, ext_sz );
       break;
     case FD_TLS_EXT_SUPPORTED_GROUPS:
-      ext_parse_res = fd_tls_decode_ext_supported_groups( &out->supported_groups, ext_data, wire_sz );
+      ext_parse_res = fd_tls_decode_ext_supported_groups( &out->supported_groups, ext_data, ext_sz );
       break;
     case FD_TLS_EXT_SIGNATURE_ALGORITHMS:
-      ext_parse_res = fd_tls_decode_ext_signature_algorithms( &out->signature_algorithms, ext_data, wire_sz );
+      ext_parse_res = fd_tls_decode_ext_signature_algorithms( &out->signature_algorithms, ext_data, ext_sz );
       break;
     case FD_TLS_EXT_KEY_SHARE:
-      ext_parse_res = fd_tls_decode_key_share_list( &out->key_share, ext_data, wire_sz );
+      ext_parse_res = fd_tls_decode_key_share_list( &out->key_share, ext_data, ext_sz );
       break;
     case FD_TLS_EXT_SERVER_CERT_TYPE:
-      ext_parse_res = fd_tls_decode_ext_cert_type_list( &out->server_cert_types, ext_data, wire_sz );
+      ext_parse_res = fd_tls_decode_ext_cert_type_list( &out->server_cert_types, ext_data, ext_sz );
       break;
     case FD_TLS_EXT_CLIENT_CERT_TYPE:
-      ext_parse_res = fd_tls_decode_ext_cert_type_list( &out->client_cert_types, ext_data, wire_sz );
+      ext_parse_res = fd_tls_decode_ext_cert_type_list( &out->client_cert_types, ext_data, ext_sz );
+      break;
+    case FD_TLS_EXT_QUIC_TRANSPORT_PARAMS:
+      ext_parse_res = fd_tls_decode_ext_quic_tp( &out->quic_tp, ext_data, ext_sz );
       break;
     default:
       ext_parse_res = (long)ext_sz;
@@ -228,14 +231,14 @@ fd_tls_encode_client_hello( fd_tls_client_hello_t * in,
 
   /* Add QUIC transport params */
 
-  if( in->quic_tp_sz > 0 ) {
+  if( in->quic_tp.buf ) {
     ushort  quic_tp_ext_type = FD_TLS_EXT_QUIC_TRANSPORT_PARAMS;
-    ushort  quic_tp_ext_sz   = in->quic_tp_sz;
-    uchar * quic_tp          = (uchar *)in->quic_tp;
+    ushort  quic_tp_ext_sz   = (ushort)in->quic_tp.bufsz;
+    uchar * quic_tp          = (uchar *)in->quic_tp.buf;
 #   define FIELDS( FIELD )                    \
     FIELD( 0, &quic_tp_ext_type, ushort, 1 ); \
     FIELD( 1, &quic_tp_ext_sz,   ushort, 1 ); \
-    FIELD( 2,  quic_tp,          uchar,  in->quic_tp_sz );
+    FIELD( 2,  quic_tp,          uchar,  in->quic_tp.bufsz );
     FD_TLS_ENCODE_STATIC_BATCH( FIELDS )
 # undef FIELDS
   }
@@ -343,7 +346,7 @@ fd_tls_decode_server_hello( fd_tls_server_hello_t * out,
       break;
     }
     case FD_TLS_EXT_KEY_SHARE:
-      ext_parse_res = fd_tls_decode_key_share( &out->key_share, ext_data, wire_sz );
+      ext_parse_res = fd_tls_decode_key_share( &out->key_share, ext_data, ext_sz );
       break;
     case FD_TLS_EXT_QUIC_TRANSPORT_PARAMS:
       /* Copy transport params as-is (TODO...) */
@@ -437,7 +440,8 @@ fd_tls_decode_enc_ext( fd_tls_enc_ext_t * const out,
   out->server_cert.cert_type = 0;
   out->client_cert.cert_type = 0;
   out->alpn_sz               = 0;
-  out->quic_tp_sz            = 0;
+  out->quic_tp.buf           = NULL;
+  out->quic_tp.bufsz         = 0;
 
   FD_TLS_DECODE_LIST_BEGIN( ushort, alignof(uchar) ) {
     ushort ext_type;
@@ -463,8 +467,8 @@ fd_tls_decode_enc_ext( fd_tls_enc_ext_t * const out,
     case FD_TLS_EXT_QUIC_TRANSPORT_PARAMS:
       if( FD_UNLIKELY( ext_sz > FD_TLS_EXT_QUIC_PARAMS_SZ_MAX ) )
         return -(long)FD_TLS_ALERT_DECODE_ERROR;
-      out->quic_tp_sz = (ushort)ext_sz;
-      fd_memcpy( out->quic_tp, (void const *)wire_laddr, ext_sz );
+      out->quic_tp.buf   = (void *)wire_laddr;
+      out->quic_tp.bufsz = (ushort)ext_sz;
       break;
     case FD_TLS_EXT_SERVER_CERT_TYPE:
       if( FD_UNLIKELY( (ext_sz>wire_sz) | (ext_sz!=1) ) )
@@ -557,14 +561,14 @@ fd_tls_encode_enc_ext( fd_tls_enc_ext_t * in,
 
   /* QUIC transport params */
 
-  if( in->quic_tp_sz ) {
+  if( in->quic_tp.buf ) {
     ushort ext_type = FD_TLS_EXT_QUIC_TRANSPORT_PARAMS;
-    ushort ext_sz   = (ushort)in->quic_tp_sz;
-    uchar * _data   = (uchar *)in->quic_tp;
-#   define FIELDS( FIELD )                          \
-      FIELD( 0, &ext_type, ushort, 1              ) \
-      FIELD( 1, &ext_sz,   ushort, 1              ) \
-        FIELD( 2, _data,   uchar,  in->quic_tp_sz )
+    ushort ext_sz   = (ushort)in->quic_tp.bufsz;
+    uchar * _data   = (uchar *)in->quic_tp.buf;
+#   define FIELDS( FIELD )                             \
+      FIELD( 0, &ext_type, ushort, 1                 ) \
+      FIELD( 1, &ext_sz,   ushort, 1                 ) \
+        FIELD( 2, _data,   uchar,  in->quic_tp.bufsz )
       FD_TLS_ENCODE_STATIC_BATCH( FIELDS )
 #   undef FIELDS
   }
@@ -862,4 +866,25 @@ fd_tls_encode_ext_cert_type( fd_tls_ext_cert_type_t in,
   ulong wire_laddr = (ulong)wire;
   FD_TLS_ENCODE_FIELD( &in.cert_type, uchar );
   return (long)( wire_laddr - (ulong)wire );
+}
+
+long
+fd_tls_decode_ext_opaque( fd_tls_ext_opaque_t * const in,
+                          void const *          const wire,
+                          ulong                       wire_sz ) {
+  in->buf   = wire;
+  in->bufsz = wire_sz;
+  return (long)wire_sz;
+}
+
+long
+fd_tls_decode_ext_alpn( fd_tls_ext_alpn_t * const in,
+                        void const *        const wire,
+                        ulong                     wire_sz ) {
+  ulong wire_laddr = (ulong)wire;
+  ushort alpn_sz;
+  FD_TLS_DECODE_FIELD( &alpn_sz, ushort );
+  if( FD_UNLIKELY( (ulong)alpn_sz != wire_sz ) )
+    return -(long)FD_TLS_ALERT_DECODE_ERROR;
+  return fd_tls_decode_ext_opaque( in, (void const *)wire_laddr, wire_sz );
 }
