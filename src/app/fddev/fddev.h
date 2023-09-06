@@ -4,6 +4,9 @@
 #include "../fdctl/fdctl.h"
 
 void
+update_config_for_dev( config_t * const config );
+
+void
 dev_cmd_args( int *    pargc,
               char *** pargv,
               args_t * args );

@@ -231,6 +231,8 @@ static void parse_key_value( config_t *   config,
   ENTRY_BOOL  ( ., ledger,              bigtable_storage                                          );
   ENTRY_VSTR  ( ., ledger,              account_indexes                                           );
   ENTRY_VSTR  ( ., ledger,              account_index_exclude_keys                                );
+  ENTRY_STR   ( ., ledger,              snapshot_archive_format                                   );
+  ENTRY_BOOL  ( ., ledger,              require_tower                                             );
 
   ENTRY_VSTR  ( ., gossip,              entrypoints                                               );
   ENTRY_BOOL  ( ., gossip,              port_check                                                );
@@ -249,6 +251,7 @@ static void parse_key_value( config_t *   config,
   ENTRY_BOOL  ( ., consensus,           wait_for_vote_to_start_leader                             );
   ENTRY_VUINT ( ., consensus,           hard_fork_at_slots                                        );
   ENTRY_VSTR  ( ., consensus,           known_validators                                          );
+  ENTRY_BOOL  ( ., consensus,           os_network_limits_test                                    );
 
   ENTRY_USHORT( ., rpc,                 port                                                      );
   ENTRY_BOOL  ( ., rpc,                 full_api                                                  );

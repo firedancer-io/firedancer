@@ -59,6 +59,8 @@ typedef struct {
     char  account_indexes[ 4 ][ 32 ];
     ulong account_index_exclude_keys_cnt;
     char  account_index_exclude_keys[ 32 ][ 32 ];
+    int   require_tower;
+    char  snapshot_archive_format[ 10 ];
   } ledger;
 
   struct {
@@ -84,6 +86,7 @@ typedef struct {
     uint   hard_fork_at_slots[ 32 ];
     ulong  known_validators_cnt;
     char   known_validators[ 16 ][ 256 ];
+    int    os_network_limits_test;
   } consensus;
 
   struct {

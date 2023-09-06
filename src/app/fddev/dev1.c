@@ -50,7 +50,7 @@ dev1_cmd_perm( args_t *         args,
 
 void
 dev1_cmd_fn( args_t *         args,
-            config_t * const config ) {
+             config_t * const config ) {
   (void)args;
 
   args_t configure_args = {
@@ -60,9 +60,7 @@ dev1_cmd_fn( args_t *         args,
     configure_args.configure.stages[ i ] = STAGES[ i ];
   configure_cmd_fn( &configure_args, config );
 
-  /* when starting from a new genesis block, this needs to be off else the
-     validator will get stuck forever. */
-  config->consensus.wait_for_vote_to_start_leader = 0;
+  update_config_for_dev( config );
 
   tile_main_args_t tile_args = {
     .app_name = config->name,

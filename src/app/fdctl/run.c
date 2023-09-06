@@ -226,9 +226,12 @@ solana_labs_main( void * args ) {
 
   ADD1( "fdctl" );
   ADD( "--log", "-" );
+  ADD( "--firedancer-app-name", config->name );
 
   if( FD_UNLIKELY( strcmp( config->dynamic_port_range, "" ) ) )
     ADD( "--dynamic-port-range", config->dynamic_port_range );
+
+  ADDU( "--tpu-port", config->tiles.quic.transaction_listen_port );
 
   char ip_addr[16];
   snprintf1( ip_addr, 16, FD_IP4_ADDR_FMT, FD_IP4_ADDR_FMT_ARGS(config->tiles.quic.ip_addr) );
@@ -255,6 +258,15 @@ solana_labs_main( void * args ) {
   for( uint * p = config->consensus.hard_fork_at_slots; *p; p++ ) ADDU( "--hard-fork", *p );
   for( ulong i=0; i<config->consensus.known_validators_cnt; i++ )
     ADD( "--known_validator", config->consensus.known_validators[ i ] );
+
+  ADD( "--snapshot-archive-format", config->ledger.snapshot_archive_format );
+  if( FD_UNLIKELY( config->ledger.require_tower ) ) ADD1( "--require-tower" );
+
+  if( FD_UNLIKELY( !config->consensus.os_network_limits_test ) )
+    ADD1( "--no-os-network-limits-test" );
+
+  if( FD_UNLIKELY( !config->consensus.poh_speed_test ) )
+    ADD1("--no-poh-speed-test" );
 
   /* ledger */
   ADD( "--ledger", config->ledger.path );

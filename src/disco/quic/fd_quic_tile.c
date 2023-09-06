@@ -119,7 +119,7 @@ fd_tpu_dummy_dcache( fd_quic_tpu_ctx_t * ctx ) {
      stream_receive, and stream_notice serially, so it is often the case that
      even if we are handling multiple new connections in one receive batch,
      the in-flight count remains zero or one. */
-  if( ctx->inflight_streams > 0 ) {
+  if( FD_LIKELY( ctx->inflight_streams > 0 ) ) {
     ulong ctl   = fd_frag_meta_ctl( 0, 1 /* som */, 1 /* eom */, 0 /* err */ );
     ulong tsnow = fd_frag_meta_ts_comp( fd_tickcount() );
     fd_mcache_publish( ctx->mcache, ctx->depth, *ctx->seq, 1, 0, 0, ctl, tsnow, tsnow );
@@ -201,6 +201,8 @@ fd_quic_transaction_receive( fd_quic_t *         _ctx,
 
   fd_tpu_dummy_dcache( ctx );
 
+  ctx->inflight_streams += 1;
+
   /* Add to local publish queue */
   if( FD_UNLIKELY( pubq_full( ctx->pubq ) ) ) {
     FD_LOG_WARNING(( "pubq full, dropping" ));
@@ -274,8 +276,10 @@ fd_tpu_stream_notify( fd_quic_stream_t * stream,
 
   ulong conn_id   = stream->conn->local_conn_id;
   ulong stream_id = stream->stream_id;
-  if( FD_UNLIKELY( msg_ctx->conn_id != conn_id || msg_ctx->stream_id != stream_id ) )
+  if( FD_UNLIKELY( msg_ctx->conn_id != conn_id || msg_ctx->stream_id != stream_id ) ) {
+    ctx->inflight_streams -= 1;
     return;  /* overrun */
+  }
 
   /* Mark message as completed */
 
@@ -285,6 +289,7 @@ fd_tpu_stream_notify( fd_quic_stream_t * stream,
 
   if( FD_UNLIKELY( pubq_full( ctx->pubq ) ) ) {
     FD_LOG_WARNING(( "pubq full, dropping" ));
+    ctx->inflight_streams -= 1;
     return;
   }
   pubq_push( ctx->pubq, msg_ctx );
@@ -559,7 +564,6 @@ fd_quic_tile( fd_cnc_t *         cnc,
       ulong tspub  = fd_frag_meta_ts_comp( fd_tickcount() );
 
       fd_mcache_publish( mcache, depth, seq, sig, chunk, sz, ctl, tsorig, tspub );
-      quic_ctx.inflight_streams -= 1;
 
       /* Windup for the next iteration and accumulate diagnostics */
 
@@ -568,6 +572,7 @@ fd_quic_tile( fd_cnc_t *         cnc,
       cnc_diag_tpu_pub_sz += sz;
     }
     pubq_remove_all( msg_pubq );
+    quic_ctx.inflight_streams -= pub_cnt;
 
     now = fd_tickcount();
   }

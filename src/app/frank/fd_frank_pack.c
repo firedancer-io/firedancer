@@ -312,6 +312,7 @@ run( fd_frank_args_t * args ) {
     fd_txn_t const * txn     = (fd_txn_t const *)( dcache_entry + fd_ulong_align_up( payload_sz, 2UL ) );
     fd_memcpy( slot->payload, payload, payload_sz                                                     );
     fd_memcpy( TXN(slot),     txn,     fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
+    slot->payload_sz = payload_sz;
     slot->meta = mline_sig;
 
 #if DETAILED_LOGGING

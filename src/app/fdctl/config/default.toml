@@ -83,6 +83,14 @@ dynamic_port_range = "8000-10000"
     # `--account-index-exclude-key` argument.
     account_index_exclude_keys = []
 
+    # Whether to use compression when storing snapshots. This option is passed
+    # to the Solana Labs client with the `--snapshot-archive-format` argument.
+    snapshot_archive_format = "zstd"
+
+    # Refuse to start if saved tower state is not found. This option is passed
+    # to the Solana Labs client with the `--require-tower` argument.
+    require_tower = false
+
 [gossip]
     # Routable DNS name or IP address and port number to use to rendezvous with
     # the gossip cluster. These entrypoints are passed to the Solana Labs client
@@ -123,7 +131,7 @@ dynamic_port_range = "8000-10000"
     # If the RPC is private, the valdiator's open RPC port is not published in
     # the `solana gossip` command for use by others. This option is passed to
     # the Solana Labs client with the `--private-rpc` argument.
-    private = true
+    private = false
 
     # Enable historical transaction info over JSON RPC, including the
     # `getConfirmedBlock` API. This will cause an increase in disk usage and
@@ -134,7 +142,7 @@ dynamic_port_range = "8000-10000"
     # If enabled, include CPI inner instructions, logs, and return data in the
     # historical transaction info stored. This option is passed to the Solana
     # Labs client with the `--enable-extended-tx-metadata-storage` argument.
-    extended_tx_metadata_storage = false
+    extended_tx_metadata_storage = true
 
     # If true, use the RPC service of known validators only. This option is
     # passed to the Solana Labs client with the `--only-known-rpc` argument.
@@ -224,6 +232,12 @@ dynamic_port_range = "8000-10000"
     # passed to the Solana Labs client (inverted) with the
     # `--no-wait-for-vote-to-start-leader` argument.
     wait_for_vote_to_start_leader = true
+
+    # Perform a network speed test on starting up the validator. If this is not
+    # disabled, and the speed test fails, the validator will refuse to start.
+    # This option is passed to the Solana Labs client (inverted) with the
+    # `--no-os-network-limits-test` argument.
+    os_network_limits_test = true
 
     # If nonempty, add a hard fork at each of the provided slots. These options
     # are passed to the Solana Labs client with the `--hard-fork` argument.
