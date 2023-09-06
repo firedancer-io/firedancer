@@ -26,6 +26,7 @@ pub use crate::generated::{
     fd_wksp_pod_detach,
     fd_wksp_pod_map,
     fd_wksp_pod_unmap,
+    fd_wksp_private,
     fd_wksp_t,
     fd_wksp_unmap,
 };
