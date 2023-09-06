@@ -101,15 +101,7 @@ static ulong fd_vote_state_transcoding_size(fd_vote_state_t const * self) {
   if (NULL !=  self->root_slot) {
     size += sizeof(ulong);
   }
-  if ( self->authorized_voters ) {
-    size += sizeof(ulong);
-    for ( deq_fd_vote_historical_authorized_voter_t_iter_t iter = deq_fd_vote_historical_authorized_voter_t_iter_init( self->authorized_voters ); !deq_fd_vote_historical_authorized_voter_t_iter_done( self->authorized_voters, iter ); iter = deq_fd_vote_historical_authorized_voter_t_iter_next( self->authorized_voters, iter ) ) {
-      fd_vote_historical_authorized_voter_t * ele = deq_fd_vote_historical_authorized_voter_t_iter_ele( self->authorized_voters, iter );
-      size += fd_vote_historical_authorized_voter_size(ele);
-    }
-  } else {
-    size += sizeof(ulong);
-  }
+  size += fd_vote_authorized_voters_size(&self->authorized_voters);
   size += fd_vote_prior_voters_size(&self->prior_voters);
   if ( self->epoch_credits ) {
     size += sizeof(ulong);
@@ -175,20 +167,7 @@ static int fd_vote_transcoding_state_encode(fd_vote_state_t const * self, fd_bin
     err = fd_bincode_option_encode(0, ctx);
     if ( FD_UNLIKELY(err) ) return err;
   }
-  if ( self->authorized_voters ) {
-    ulong authorized_voters_len = deq_fd_vote_historical_authorized_voter_t_cnt(self->authorized_voters);
-    err = fd_bincode_uint64_encode(&authorized_voters_len, ctx);
-    if ( FD_UNLIKELY(err) ) return err;
-    for ( deq_fd_vote_historical_authorized_voter_t_iter_t iter = deq_fd_vote_historical_authorized_voter_t_iter_init( self->authorized_voters ); !deq_fd_vote_historical_authorized_voter_t_iter_done( self->authorized_voters, iter ); iter = deq_fd_vote_historical_authorized_voter_t_iter_next( self->authorized_voters, iter ) ) {
-      fd_vote_historical_authorized_voter_t * ele = deq_fd_vote_historical_authorized_voter_t_iter_ele( self->authorized_voters, iter );
-      err = fd_vote_historical_authorized_voter_encode(ele, ctx);
-      if ( FD_UNLIKELY(err) ) return err;
-    }
-  } else {
-    ulong authorized_voters_len = 0;
-    err = fd_bincode_uint64_encode(&authorized_voters_len, ctx);
-    if ( FD_UNLIKELY(err) ) return err;
-  }
+  err = fd_vote_authorized_voters_encode(&self->authorized_voters, ctx);
   err = fd_vote_prior_voters_encode(&self->prior_voters, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   if ( self->epoch_credits ) {

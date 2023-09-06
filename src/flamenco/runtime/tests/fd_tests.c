@@ -135,7 +135,7 @@ log_test_fail( fd_executor_test_t *             test,
   if( suite->ignore_fail[ test->test_number ] ) {
     FD_LOG_NOTICE(( "Failed test %d (%s) (ignored): %s", test->test_number, test->test_name, buf ));
   } else {
-    FD_LOG_WARNING(( "Failed test %d (%s): %s", test->test_number, test->test_name, buf ));
+    FD_LOG_WARNING(( "Failed test %d (%s) (not_ignored): %s", test->test_number, test->test_name, buf ));
   }
 }
 
@@ -222,6 +222,9 @@ int fd_executor_run_test(
   global->funk_txn = fd_funk_txn_prepare( global->funk, NULL, &xid, 1 );
   if ( NULL == global->funk_txn )
     FD_LOG_ERR(( "failed to prepare funk transaction" ));
+
+  fd_sysvar_rent_init(global);
+
   // TODO: nasty hack to prevent clock overwrite for
   // 1 particular test: test_redelegate_consider_balance_changes
   int num_clock = 0;
@@ -353,7 +356,10 @@ int fd_executor_run_test(
     }
     int exec_result = exec_instr_func( ctx );
     if ( exec_result != test->expected_result ) {
-      log_test_fail( test, suite, "expected transaction result %d, got %d", test->expected_result, exec_result );
+      if (NULL != verbose)
+        log_test_fail( test, suite, "expected transaction result %d, got %d: %s", test->expected_result, exec_result, test->bt );
+      else
+        log_test_fail( test, suite, "expected transaction result %d, got %d", test->expected_result, exec_result );
       ret = -1;
       break;
     }
@@ -374,6 +380,11 @@ int fd_executor_run_test(
         int    err = 0;
         char * raw_acc_data = (char*) fd_acc_mgr_view_raw(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) &test->accs[i].pubkey, NULL, &err);
         if (NULL == raw_acc_data) {
+          if ((test->accs[ i ].result_lamports != 0)) {
+            log_test_fail( test, suite, "expected lamports %ld, found empty account: %s", test->accs[i].result_lamports, (NULL != verbose) ? test->bt : "");
+            ret = -666;
+            break;
+          }
           if ((test->accs[ i ].lamports == 0) && (test->accs[ i ].data_len == 0))
             continue;
           FD_LOG_WARNING(( "bad dog.. no donut..  Ask josh to take a look at this"));
@@ -449,7 +460,7 @@ int fd_executor_run_test(
             do {
               char buf[ PATH_MAX ];
               snprintf( buf, PATH_MAX, "test_%lu_account_%32J_expected.yml", test->test_number, test->accs[i].pubkey.key );
-              FILE * file = fopen( buf, "wb" );
+              FILE * file = fopen( buf, "w" );
               if (NULL != file) {
 
                 fd_scratch_push();
@@ -469,7 +480,7 @@ int fd_executor_run_test(
             do {
               char buf[ PATH_MAX ];
               snprintf( buf, PATH_MAX, "test_%lu_account_%32J_actual.yml", test->test_number, test->accs[i].pubkey.key );
-              FILE * file = fopen( buf, "wb" );
+              FILE * file = fopen( buf, "w" );
               if (NULL != file) {
 
                 fd_scratch_push();

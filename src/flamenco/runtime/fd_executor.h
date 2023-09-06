@@ -19,6 +19,13 @@ struct fd_executor {
 };
 typedef struct fd_executor fd_executor_t;
 
+struct fd_borrowed_account {
+  fd_pubkey_t const * pubkey;
+  fd_account_meta_t * meta;
+  uchar * data;
+};
+typedef struct fd_borrowed_account fd_borrowed_account_t;
+
 #define FD_EXECUTOR_FOOTPRINT ( sizeof(fd_executor_t) )
 
 void* fd_executor_new( void* mem, fd_global_ctx_t* global, ulong footprint );
@@ -29,8 +36,10 @@ void *fd_executor_leave( fd_executor_t* executor );
 
 void* fd_executor_delete( void* mem );
 
+/* TODO make sure these are serialized consistently with solana_program::InstructionError */
+/* TODO FD_EXECUTOR_INSTR_SUCCESS is used like Ok(()) in Rust. But this is both overloaded and a
+ * misnomer, because the instruction hasn't necessarily been executed succesfully yet */
 /* Instruction error codes */
-/* TODO: make sure these are serialized consistently with solana_program::InstructionError */
 #define FD_EXECUTOR_INSTR_SUCCESS                                ( 0 )  /* Instruction executed successfully */
 #define FD_EXECUTOR_INSTR_ERR_GENERIC_ERR                        ( -1 ) /* The program instruction returned an error */
 #define FD_EXECUTOR_INSTR_ERR_INVALID_ARG                        ( -2 ) /* The arguments provided to a program were invalid */
@@ -217,6 +226,15 @@ fd_instr_acc_is_signer(fd_instr_t const * instr, fd_pubkey_t const * acc) {
 
   return 0;
 }
+
+/* fd_executor_get_signers returns the instruction accounts that are signers. Corresponds to
+   https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/sdk/src/transaction_context.rs#L718
+
+   Returns the number of signers, and `signers` will contain the account pubkeys that are signers.
+
+   The caller is responsible for ensuring signers is sufficiently sized. */
+ulong
+fd_executor_get_signers( instruction_ctx_t * ctx, fd_pubkey_t ** signers );
 
 FD_PROTOTYPES_END
 

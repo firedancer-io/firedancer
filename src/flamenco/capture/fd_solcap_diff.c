@@ -20,6 +20,10 @@ _vote_program_address[ 32 ] =
   "\x07\x61\x48\x1d\x35\x74\x74\xbb\x7c\x4d\x76\x24\xeb\xd3\xbd\xb3"
   "\xd8\x35\x5e\x73\xd1\x10\x43\xfc\x0d\xa3\x53\x80\x00\x00\x00\x00";
 
+static const uchar
+_stake_program_address[ 32 ] =
+  "\x06\xa1\xd8\x17\x91\x37\x54\x2a\x98\x34\x37\xbd\xfe\x2a\x7a\xb2"
+  "\x55\x7f\x53\x5c\x8a\x78\x72\x2b\x68\xa4\x9d\xc0\x00\x00\x00\x00";
 
 /* Define routines for sorting the bank hash account delta accounts.
    The solcap format does not mandate accounts to be sorted. */
@@ -147,6 +151,8 @@ fd_solcap_can_pretty_print( uchar const owner [ static 32 ],
 
   if( 0==memcmp( owner, _vote_program_address, 32UL ) )
     return 1;
+  if( 0==memcmp( owner, _stake_program_address, 32UL ) )
+    return 1;
 
   if( 0==memcmp( pubkey, _sysvar_clock, 32UL ) )
     return 1;
@@ -196,6 +202,12 @@ fd_solcap_account_pretty_print( uchar const   pubkey[ static 32 ],
     if( FD_UNLIKELY( err!=0 ) ) return err;
 
     fd_vote_state_versioned_walk( yaml, vote_state, fd_flamenco_yaml_walk, NULL, 0U );
+  } else if( 0==memcmp( owner, _stake_program_address, 32UL ) ) {
+    fd_stake_state_t stake_state[1];
+    int err = fd_stake_state_decode( stake_state, &decode );
+    if( FD_UNLIKELY( err!=0 ) ) return err;
+
+    fd_stake_state_walk( yaml, stake_state, fd_flamenco_yaml_walk, NULL, 0U );
   } else if( 0==memcmp( pubkey, _sysvar_clock, 32UL ) ) {
     fd_sol_sysvar_clock_t clock[1];
     int err = fd_sol_sysvar_clock_decode( clock, &decode );
@@ -229,6 +241,29 @@ fd_solcap_account_pretty_print( uchar const   pubkey[ static 32 ],
 
   fd_flamenco_yaml_delete( yaml );
   return 0;
+}
+
+/* fd_solcap_dump_account_data writes a binary file containing exactly
+   the given account's content. */
+
+static void
+fd_solcap_dump_account_data( fd_solcap_differ_t *            diff,
+                             fd_solcap_AccountMeta const *   meta,
+                             fd_solcap_account_tbl_t const * entry,
+                             void const *                    acc_data ) {
+  /* Create dump file */
+  char path[ FD_BASE58_ENCODED_32_LEN+1+FD_BASE58_ENCODED_32_LEN+4+1 ];
+  int res = snprintf( path, sizeof(path), "%32J-%32J.bin", entry->key, entry->hash );
+  FD_TEST( (res>0) & (res<(int)sizeof(path)) );
+  int fd = openat( diff->dump_dir_fd, path, O_CREAT|O_WRONLY|O_TRUNC, 0666 );
+  if( FD_UNLIKELY( fd<0 ) )
+    FD_LOG_ERR(( "openat(%d,%s) failed (%d-%s)",
+                diff->dump_dir_fd, path, errno, strerror( errno ) ));
+
+  /* Write dump file */
+  FILE * file = fdopen( fd, "wb" );
+  FD_TEST( meta->data_sz == fwrite( acc_data, 1UL, meta->data_sz, file ) );
+  fclose( file );  /* Closes fd */
 }
 
 static void
@@ -271,8 +306,8 @@ fd_solcap_diff_account_data( fd_solcap_differ_t *                  diff,
 
     FD_SCRATCH_SCOPED_FRAME;
     void * acc_data[2];
-           acc_data[0] = fd_scratch_alloc( 1LU, meta[0].data_sz );
-           acc_data[1] = fd_scratch_alloc( 1LU, meta[1].data_sz );
+           acc_data[0] = fd_scratch_alloc( 1UL, meta[0].data_sz );
+           acc_data[1] = fd_scratch_alloc( 1UL, meta[1].data_sz );
 
     for( ulong i=0UL; i<2UL; i++ ) {
       /* Rewind capture stream */
@@ -283,19 +318,7 @@ fd_solcap_diff_account_data( fd_solcap_differ_t *                  diff,
     }
 
     for( ulong i=0; i<2; i++ ) {
-      /* Create dump file */
-      char path[ FD_BASE58_ENCODED_32_LEN+1+FD_BASE58_ENCODED_32_LEN+4+1 ];
-      int res = snprintf( path, sizeof(path), "%32J-%32J.bin", entry[i]->key, entry[i]->hash );
-      FD_TEST( (res>0) & (res<(int)sizeof(path)) );
-      int fd = openat( diff->dump_dir_fd, path, O_CREAT|O_WRONLY|O_TRUNC, 0666 );
-      if( FD_UNLIKELY( fd<0 ) )
-        FD_LOG_ERR(( "openat(%d,%s) failed (%d-%s)",
-                    diff->dump_dir_fd, path, errno, strerror( errno ) ));
-
-      /* Write dump file */
-      FILE * file = fdopen( fd, "wb" );
-      FD_TEST( meta[i].data_sz == fwrite( acc_data[i], 1UL, meta[i].data_sz, file ) );
-      fclose( file );  /* Closes fd */
+      fd_solcap_dump_account_data( diff, meta+i, entry[i], acc_data[i] );
     }
 
     /* Inform user */
@@ -329,8 +352,6 @@ fd_solcap_diff_account_data( fd_solcap_differ_t *                  diff,
 
       /* Inform user */
       printf( "                 vimdiff '%s/%32J-%32J.yml' '%s/%32J-%32J.yml'\n",
-              diff->dump_dir, entry[0]->key, entry[0]->hash,
-              diff->dump_dir, entry[1]->key, entry[1]->hash,
               diff->dump_dir, entry[0]->key, entry[0]->hash,
               diff->dump_dir, entry[1]->key, entry[1]->hash );
 
@@ -404,6 +425,87 @@ fd_solcap_diff_account( fd_solcap_differ_t *                  diff,
   for( ulong i=0UL; i<2UL; i++ ) {
     if( FD_UNLIKELY( 0!=fseek( diff->iter[ i ].stream, orig_off[ i ], SEEK_SET ) ) )
       FD_LOG_ERR(( "fseek failed (%d-%s)", errno, strerror( errno ) ));
+  }
+}
+
+/* fd_solcap_diff_missing_account is like fd_solcap_diff_account but in
+   the case that either side of the account is missing entirely. */
+
+static void
+fd_solcap_diff_missing_account( fd_solcap_differ_t *                  diff,
+                                fd_solcap_account_tbl_t const * const entry,
+                                ulong                           const acc_tbl_goff,
+                                FILE *                                stream,
+                                int                                   prefix ) {
+
+  /* Remember current file offset */
+  long orig_off = ftell( stream );
+  if( FD_UNLIKELY( orig_off<0L ) )
+    FD_LOG_ERR(( "ftell failed (%d-%s)", errno, strerror( errno ) ));
+
+  /* Read account meta */
+  fd_solcap_AccountMeta meta[1];
+  ulong                 data_goff[1];
+  int err = fd_solcap_find_account( stream, meta, data_goff, entry, acc_tbl_goff );
+  FD_TEST( err==0 );
+
+  printf( "    %clamports:   %lu\n",
+          prefix, meta->lamports );
+  printf( "    %cdata_sz:    %lu\n",
+          prefix, meta->data_sz );
+  printf( "    %cowner:      %32J\n",
+          prefix, meta->owner );
+  printf( "    %cslot:       %lu\n",
+          prefix, meta->slot );
+  printf( "    %crent_epoch: %lu\n",
+          prefix, meta->rent_epoch );
+  printf( "    %cexecutable: %d\n",
+          prefix, meta->executable );
+
+  /* Dump account data to file */
+  if( diff->verbose >= 4 ) {
+
+    /* TODO: Remove hardcoded account size check */
+    FD_TEST( meta->data_sz <= 1048576 );
+
+    FD_SCRATCH_SCOPED_FRAME;
+    void * acc_data = fd_scratch_alloc( 1UL, meta->data_sz );
+
+    /* Rewind capture stream */
+    FD_TEST( 0==fseek(stream, (long)*data_goff, SEEK_SET ) );
+
+    /* Copy data */
+    FD_TEST( meta->data_sz == fread( acc_data, 1UL, meta->data_sz, stream ) );
+
+    fd_solcap_dump_account_data( diff, meta, entry, acc_data );
+
+    /* Inform user */
+    printf( "    %cdata:       %s/%32J-%32J.bin\n"
+            "                 xxd '%s/%32J-%32J.bin'\n",
+            prefix,
+            diff->dump_dir, entry->key, entry->hash,
+            diff->dump_dir, entry->key, entry->hash );
+
+    if( fd_solcap_can_pretty_print( meta->owner, entry->key ) ) {
+      /* Create YAML file */
+      char path[ FD_BASE58_ENCODED_32_LEN+1+FD_BASE58_ENCODED_32_LEN+4+1 ];
+      int res = snprintf( path, sizeof(path), "%32J-%32J.yml", entry->key, entry->hash );
+      FD_TEST( (res>0) & (res<(int)sizeof(path)) );
+      int fd = openat( diff->dump_dir_fd, path, O_CREAT|O_WRONLY|O_TRUNC, 0666 );
+      if( FD_UNLIKELY( fd<0 ) )
+        FD_LOG_ERR(( "openat(%d,%s) failed (%d-%s)",
+                    diff->dump_dir_fd, path, errno, strerror( errno ) ));
+
+      /* Write YAML file */
+      FILE * file = fdopen( fd, "wb" );
+      fd_solcap_account_pretty_print( entry->key, meta->owner, acc_data, meta->data_sz, file );
+      fclose( file );  /* closes fd */
+
+      /* Inform user */
+      printf( "                 cat '%s/%32J-%32J.yml'\n",
+              diff->dump_dir, entry->key, entry->hash,
+              diff->dump_dir, entry->key, entry->hash );
+    }
   }
 }
 
@@ -482,22 +584,30 @@ fd_solcap_diff_account_tbl( fd_solcap_differ_t * diff ) {
 
     if( key_cmp<0 ) {
       printf( "  -account: %32J\n", a->key );
+      if( diff->verbose >= 3 )
+        fd_solcap_diff_missing_account( diff, tbl[0], chunk_goff[0], diff->iter[0].stream, '-' );
       tbl[0]++;
       continue;
     }
 
     if( key_cmp>0 ) {
       printf( "  +account: %32J\n", b->key );
+      if( diff->verbose >= 3 )
+        fd_solcap_diff_missing_account( diff, tbl[1], chunk_goff[1], diff->iter[1].stream, '+' );
       tbl[1]++;
       continue;
     }
   }
   while( tbl[0]!=tbl_end[0] ) {
     printf( "  -account: %32J\n", tbl[0]->key );
+    if( diff->verbose >= 3 )
+      fd_solcap_diff_missing_account( diff, tbl[0], chunk_goff[0], diff->iter[0].stream, '-' );
     tbl[0]++;
   }
   while( tbl[1]!=tbl_end[1] ) {
     printf( "  +account: %32J\n", tbl[1]->key );
+    if( diff->verbose >= 3 )
+      fd_solcap_diff_missing_account( diff, tbl[1], chunk_goff[1], diff->iter[1].stream, '+' );
     tbl[1]++;
   }
 

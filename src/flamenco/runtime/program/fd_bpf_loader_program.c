@@ -98,7 +98,7 @@ int fd_executor_bpf_loader_program_execute_program_instruction( instruction_ctx_
 
   int read_result = 0;
   uchar * raw_program_acc_data = (uchar *)fd_acc_mgr_view_raw(ctx.global->acc_mgr, ctx.global->funk_txn, program_acc, NULL, &read_result);
-  if (read_result != FD_ACC_MGR_SUCCESS) {
+  if (FD_UNLIKELY(!FD_RAW_ACCOUNT_EXISTS(raw_program_acc_data))) {
     FD_LOG_WARNING(( "HELLO !!!!"));
     return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
   }
@@ -275,7 +275,7 @@ int fd_executor_bpf_loader_program_execute_instruction( instruction_ctx_t ctx ) 
   fd_funk_rec_t const * con_rec = NULL;
   int read_result = 0;
   uchar const * raw = fd_acc_mgr_view_raw( ctx.global->acc_mgr, ctx.global->funk_txn, program_acc, &con_rec, &read_result );
-  if( FD_UNLIKELY( !raw ) ) {
+  if (FD_UNLIKELY(!FD_RAW_ACCOUNT_EXISTS(raw))) {
     FD_LOG_WARNING(( "failed to read account metadata" ));
     return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
   }

@@ -24,7 +24,7 @@ fd_sysvar_rent_read( fd_global_ctx_t * global,
 
   int err = 0;
   uchar const * record = fd_acc_mgr_view_raw( global->acc_mgr, global->funk_txn, (fd_pubkey_t const *)global->sysvar_rent, NULL, &err );
-  if( FD_UNLIKELY( !record ) ) {
+  if (FD_UNLIKELY(!FD_RAW_ACCOUNT_EXISTS(record))) {
     FD_LOG_WARNING(( "failed to read rent sysvar: %d", err ));
     return err;
   }
@@ -42,7 +42,7 @@ fd_sysvar_rent_read( fd_global_ctx_t * global,
     FD_LOG_WARNING(("fd_rent_decode failed"));
     return err;
   }
-    
+
   return 0;
 }
 

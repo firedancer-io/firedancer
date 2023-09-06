@@ -47,7 +47,7 @@ fd_acc_mgr_view_raw( fd_acc_mgr_t *         acc_mgr,
   fd_funk_t *           funk = acc_mgr->global->funk;
 
   fd_funk_rec_t const * rec = fd_funk_rec_query_global(funk, txn, &id);
-  
+
   if ( FD_UNLIKELY( NULL == rec ) )  {
     fd_int_store_if( !!opt_err, opt_err, FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT );
     return NULL;
@@ -56,16 +56,13 @@ fd_acc_mgr_view_raw( fd_acc_mgr_t *         acc_mgr,
     *orec = rec;
   void const * data = fd_funk_val_cache( funk, rec, opt_err );
   if( FD_UNLIKELY( !data ) ) FD_LOG_CRIT(( "fd_funk_val_cache failed (%d-%s)", *opt_err, fd_funk_strerror( *opt_err ) ));
-  fd_account_meta_t const *metadata = (fd_account_meta_t const *) data;
+  // TODO/FIXME: this check causes issues with some metadata writes
+  fd_account_meta_t const * metadata = (fd_account_meta_t const *)fd_type_pun_const( data );
+  if ( metadata->magic != FD_ACCOUNT_META_MAGIC ) {
+    FD_LOG_NOTICE(("metadata->magic %32J %d %d", pubkey->uc, metadata->magic, metadata->magic == FD_ACCOUNT_META_MAGIC));
+    return NULL;
+  }
   FD_TEST( metadata->magic == FD_ACCOUNT_META_MAGIC );
-
-  ///* Pretend that zero-lamport accounts do not exist, as per Solana
-  //   protocol logic.  In Firedancer, zero-lamport funk_rec are allowed
-  //   to exist, but are garbage collected at a slot boundary. */
-  //if( metadata->info.lamports == 0UL ) {
-  //  fd_int_store_if( !!opt_err, opt_err, FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT );
-  //  return NULL;
-  //}
 
   return data;
 }
@@ -104,9 +101,8 @@ fd_acc_mgr_modify_raw( fd_acc_mgr_t *        acc_mgr,
 
   if( do_create && ret->magic == 0 )
     fd_account_meta_init(ret);
-  else {
-    FD_TEST( ret->magic == FD_ACCOUNT_META_MAGIC );
-  }
+
+  FD_TEST( ret->magic == FD_ACCOUNT_META_MAGIC );
 
   return ret;
 }

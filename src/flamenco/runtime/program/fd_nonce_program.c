@@ -81,7 +81,7 @@ int fd_load_nonce_account(
 
   err = 0;
   char * raw_acc_data = (char*) fd_acc_mgr_view_raw(global->acc_mgr, global->funk_txn, (fd_pubkey_t *) me, NULL, &err);
-  if (NULL == raw_acc_data) {
+  if (FD_UNLIKELY(!FD_RAW_ACCOUNT_EXISTS(raw_acc_data))) {
     *opt_err = FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
     return 0;
   }
@@ -127,7 +127,7 @@ int fd_advance_nonce_account(
 
   fd_funk_rec_t const *con_rec = NULL;
   char *               raw_acc_data = (char*) fd_acc_mgr_view_raw(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) me, &con_rec, NULL);
-  if (NULL == raw_acc_data)
+  if (FD_UNLIKELY(!FD_RAW_ACCOUNT_EXISTS(raw_acc_data)))
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
 
   fd_account_meta_t *m = (fd_account_meta_t *) raw_acc_data;
@@ -248,7 +248,7 @@ int fd_withdraw_nonce_account(
   int err = 0;
   fd_funk_rec_t const * from_con_rec = NULL;
   char *                raw_acc_data = (char*) fd_acc_mgr_view_raw(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) from, &from_con_rec, &err);
-  if (NULL == raw_acc_data)
+  if (FD_UNLIKELY(!FD_RAW_ACCOUNT_EXISTS(raw_acc_data)))
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   fd_account_meta_t *m = (fd_account_meta_t *) raw_acc_data;
 
@@ -302,7 +302,7 @@ int fd_withdraw_nonce_account(
   fd_funk_rec_t const * to_con_rec = NULL;
   raw_acc_data = (char*) fd_acc_mgr_view_raw(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) to, &to_con_rec, NULL);
   ulong              res = requested_lamports;
-  if (NULL != raw_acc_data) {
+  if (FD_UNLIKELY(FD_RAW_ACCOUNT_EXISTS(raw_acc_data))) {
     fd_account_meta_t *m2 = (fd_account_meta_t *) raw_acc_data;
     res = fd_ulong_sat_add(res, m2->info.lamports);
     if (ULONG_MAX == res)
@@ -369,7 +369,7 @@ int fd_initialize_nonce_account(
 
   fd_funk_rec_t const *con_rec = NULL;
   char * raw_acc_data = (char*) fd_acc_mgr_view_raw(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) me, &con_rec, NULL);
-  if (NULL == raw_acc_data)
+  if (FD_UNLIKELY(!FD_RAW_ACCOUNT_EXISTS(raw_acc_data)))
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
 
   fd_account_meta_t *m = (fd_account_meta_t *) raw_acc_data;
@@ -575,7 +575,7 @@ int fd_upgrade_nonce_account(
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
 
   char * raw_acc_data = (char*) fd_acc_mgr_view_raw(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) me, NULL, NULL);
-  if (NULL == raw_acc_data)
+  if (FD_UNLIKELY(!FD_RAW_ACCOUNT_EXISTS(raw_acc_data)))
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   fd_account_meta_t *m = (fd_account_meta_t *) raw_acc_data;
 

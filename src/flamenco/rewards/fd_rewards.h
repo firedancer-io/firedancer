@@ -20,29 +20,6 @@
 #define TEST_COMPARE_PARTITIONED_EPOCH_REWARDS  0
 #define MAX_FACTOR_OF_REWARD_BLOCKS_IN_EPOCH    10
 
-struct fd_vote_reward {
-  fd_pubkey_t * vote_acc;
-  uchar commission;
-  ulong vote_rewards;
-};
-typedef struct fd_vote_reward fd_vote_reward_t;
-
-struct prev_epoch_inflation_rewards {
-    ulong validator_rewards;
-    double prev_epoch_duration_in_years;
-    double validator_rate;
-    double foundation_rate;
-};
-typedef struct prev_epoch_inflation_rewards prev_epoch_inflation_rewards_t;
-
-struct fd_reward_info {
-    fd_reward_type_t reward_type;
-    ulong lamports;
-    ulong post_balance;
-    short commission;
-};
-typedef struct fd_reward_info fd_reward_info_t;
-
 struct fd_vote_reward_t_mapnode {
   fd_pubkey_t vote_pubkey;
   ulong vote_rewards;
@@ -69,23 +46,6 @@ fd_vote_reward_t_map_alloc( fd_valloc_t valloc, int len ) {
   return fd_vote_reward_t_map_join(fd_vote_reward_t_map_new(mem, len));
 }
 
-struct fd_stake_reward {
-    fd_pubkey_t stake_pubkey;
-    fd_reward_info_t reward_info;
-};
-typedef struct fd_stake_reward fd_stake_reward_t;
-
-#define VECT_NAME fd_stake_rewards
-#define VECT_ELEMENT fd_stake_reward_t*
-#include "../runtime/fd_vector.h"
-#undef VECT_NAME
-#undef VECT_ELEMENT
-
-#define VECT_NAME fd_stake_rewards_vector
-#define VECT_ELEMENT fd_stake_rewards_t
-#include "../runtime/fd_vector.h"
-#undef VECT_NAME
-#undef VECT_ELEMENT
 
 #define DEQUE_NAME deq_fd_stake_reward_t
 #define DEQUE_T    fd_stake_reward_t
@@ -145,12 +105,6 @@ struct fd_calculate_rewards_and_distribute_vote_rewards_result {
 };
 typedef struct fd_calculate_rewards_and_distribute_vote_rewards_result fd_calculate_rewards_and_distribute_vote_rewards_result_t;
 
-struct fd_epoch_reward_status {
-  uint is_active;
-  ulong start_block_height;
-  fd_stake_rewards_vector_t * stake_rewards_by_partition;
-};
-typedef struct fd_epoch_reward_status fd_epoch_reward_status_t;
 
 FD_PROTOTYPES_BEGIN
 
@@ -164,15 +118,13 @@ void
 begin_partitioned_rewards(
     fd_firedancer_banks_t * self,
     fd_global_ctx_t * global,
-    ulong parent_epoch,
-    fd_epoch_reward_status_t * result
+    ulong parent_epoch
 );
 
 void
 distribute_partitioned_epoch_rewards(
     fd_firedancer_banks_t * self,
-    fd_global_ctx_t * global,
-    fd_epoch_reward_status_t * epoch_reward_status
+    fd_global_ctx_t * global
 );
 
 FD_PROTOTYPES_END

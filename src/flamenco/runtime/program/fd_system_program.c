@@ -61,7 +61,7 @@ static int transfer(
 
   fd_funk_rec_t const *sender_con_rec = NULL;
   char * raw_acc_data = (char*) fd_acc_mgr_view_raw(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) sender, &sender_con_rec, &err);
-  if (NULL == raw_acc_data)
+  if (FD_UNLIKELY(!FD_RAW_ACCOUNT_EXISTS(raw_acc_data)))
     return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
   fd_account_meta_t *m = (fd_account_meta_t *) raw_acc_data;
   if (m->dlen > 0)
@@ -75,7 +75,7 @@ static int transfer(
   fd_funk_rec_t const * receiver_con_rec = NULL;
   raw_acc_data = (char*) fd_acc_mgr_view_raw(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) receiver, &receiver_con_rec, NULL);
   ulong              res = requested_lamports;
-  if (NULL != raw_acc_data) {
+  if (FD_UNLIKELY(FD_RAW_ACCOUNT_EXISTS(raw_acc_data))) {
     fd_account_meta_t *m2 = (fd_account_meta_t *) raw_acc_data;
     res = fd_ulong_sat_add(res, m2->info.lamports);
     if (ULONG_MAX == res)
@@ -141,7 +141,7 @@ static int fd_system_allocate(
 
   fd_funk_rec_t const *crec = NULL;
   char * raw_acc_data = (char*) fd_acc_mgr_view_raw(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) account, &crec, NULL);
-  if (NULL != raw_acc_data) {
+  if (FD_UNLIKELY(FD_RAW_ACCOUNT_EXISTS(raw_acc_data))) {
     fd_account_meta_t *m = (fd_account_meta_t *) raw_acc_data;
 
     if (instruction->discriminant == fd_system_program_instruction_enum_allocate) {
@@ -203,7 +203,7 @@ static int fd_system_assign_with_seed(
 
   fd_funk_rec_t const *crec = NULL;
   char * raw_acc_data = (char*) fd_acc_mgr_view_raw(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) account, &crec, NULL);
-  if (NULL != raw_acc_data) {
+  if (FD_UNLIKELY(FD_RAW_ACCOUNT_EXISTS(raw_acc_data))) {
     fd_account_meta_t *m = (fd_account_meta_t *) raw_acc_data;
 
     if (memcmp(&t->owner, m->info.owner, sizeof(fd_pubkey_t)) == 0)
@@ -293,7 +293,7 @@ static int create_account(
   fd_funk_rec_t const * from_rec_ro = NULL;
   int err;
   char * raw_acc_data_from = (char*) fd_acc_mgr_view_raw(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) from, &from_rec_ro, &err);
-  if (err == FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
+  if (FD_UNLIKELY(!FD_RAW_ACCOUNT_EXISTS(raw_acc_data_from))) {
     ctx.txn_ctx->custom_err = 0; /* SystemError::AccountAlreadyInUse */
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
@@ -324,22 +324,11 @@ static int create_account(
   err = FD_ACC_MGR_SUCCESS;
   fd_funk_rec_t const * to_rec_ro = NULL;
   char * raw_acc_data_to = (char *) fd_acc_mgr_view_raw(ctx.global->acc_mgr, ctx.global->funk_txn, to, &to_rec_ro, &err);
-  if (err == FD_ACC_MGR_SUCCESS) {
-    /* Check if account was deleted */
-    metadata = (fd_account_meta_t *) raw_acc_data_to;
-    if( metadata->info.lamports != 0 ) {
-      ctx.txn_ctx->custom_err = 0;     /* SystemError::AccountAlreadyInUse */
-      return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
-    }
-  } else if (err != FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
+  if (FD_UNLIKELY(FD_RAW_ACCOUNT_EXISTS(raw_acc_data_to))) {
     ctx.txn_ctx->custom_err = 0;     /* SystemError::AccountAlreadyInUse */
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
-  if (metadata->dlen != 0 || memcmp(metadata->info.owner, ctx.global->solana_system_program, sizeof(metadata->info.owner)) != 0) {
-    ctx.txn_ctx->custom_err = 0;     /* SystemError::AccountAlreadyInUse */
-    return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
-  }
   ulong sz2 = space + sizeof(fd_account_meta_t);
   fd_funk_rec_t * to_rec_rw = NULL;
   raw_acc_data_to = (char*) fd_acc_mgr_modify_raw(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) to, 1, sz2, to_rec_ro, &to_rec_rw, &err);

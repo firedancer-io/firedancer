@@ -50,7 +50,7 @@ void write_clock( fd_global_ctx_t* global, fd_sol_sysvar_clock_t* clock ) {
 int fd_sysvar_clock_read( fd_global_ctx_t* global, fd_sol_sysvar_clock_t* result ) {
   int err = 0;
   char * raw_acc_data = (char*) fd_acc_mgr_view_raw(global->acc_mgr, global->funk_txn, (fd_pubkey_t *) global->sysvar_clock, NULL, &err);
-  if (NULL == raw_acc_data)
+  if (FD_UNLIKELY(!FD_RAW_ACCOUNT_EXISTS(raw_acc_data)))
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   fd_account_meta_t *m = (fd_account_meta_t *) raw_acc_data;
 
@@ -228,7 +228,7 @@ fd_sysvar_clock_update( fd_global_ctx_t * global ) {
   } else {
     FD_LOG_DEBUG(("SLOT IS ZERO!"));
   }
-  
+
   if (0 == clock.unix_timestamp) {
     /* generate timestamp for genesis */
     long timestamp_estimate         = estimate_timestamp( global, ns_per_slot( global->bank.ticks_per_slot ) );

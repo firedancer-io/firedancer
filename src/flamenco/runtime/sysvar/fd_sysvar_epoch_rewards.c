@@ -22,11 +22,11 @@ void
 fd_sysvar_epoch_rewards_read(
     fd_global_ctx_t * global,
     fd_sysvar_epoch_rewards_t * result,
-    fd_acc_lamports_t * acc_lamports 
+    fd_acc_lamports_t * acc_lamports
 ) {
     int err = 0;
     uchar const * record = fd_acc_mgr_view_raw( global->acc_mgr, global->funk_txn, (fd_pubkey_t const *)global->sysvar_epoch_rewards, NULL, &err );
-    if( FD_UNLIKELY( !record ) ) {
+    if (FD_UNLIKELY(!FD_RAW_ACCOUNT_EXISTS(record))) {
     FD_LOG_ERR(( "failed to read fees sysvar: %d", err ));
     return;
     }

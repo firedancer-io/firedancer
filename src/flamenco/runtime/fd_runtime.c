@@ -11,6 +11,7 @@
 #include "../../ballet/bmtree/fd_bmtree.h"
 
 #include "../stakes/fd_stake_program.h"
+#include "../rewards/fd_rewards.h"
 #include "program/fd_system_program.h"
 #include "program/fd_vote_program.h"
 #include <stdio.h>
@@ -251,10 +252,15 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_meta_t* m, const void
   if( global->bank.slot != 0 ) {
     ulong slot_idx;
     ulong new_epoch = fd_slot_to_epoch( &global->bank.epoch_schedule, m->slot, &slot_idx );
+    FD_LOG_NOTICE(( "executing block - slot: %lu, epoch: %lu, slot_idx: %lu", m->slot, new_epoch, slot_idx ));
     if( slot_idx==0UL ) {
       /* Epoch boundary! */
       fd_process_new_epoch( global, new_epoch - 1UL );
     }
+    if ( FD_FEATURE_ACTIVE( global, enable_partitioned_epoch_reward ) ) {
+      distribute_partitioned_epoch_rewards(&global->bank, global);
+    }
+    
   }
 
   /* Get current leader */
@@ -310,7 +316,7 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_meta_t* m, const void
         fd_pubkey_t const * txn_accs = (fd_pubkey_t *)((uchar *)rawtxn.raw + txn->acct_addr_off);
         for (ulong i = 0; i < txn->acct_addr_cnt; i++) {
           char * raw_acc_data = (char*) fd_acc_mgr_view_raw(global->acc_mgr, global->funk_txn, &txn_accs[i], NULL, NULL);
-          if (raw_acc_data) {
+          if (FD_UNLIKELY(FD_RAW_ACCOUNT_EXISTS(raw_acc_data))) {
             fd_account_meta_t * meta = (fd_account_meta_t *)raw_acc_data;
             FD_LOG_WARNING(("ACCT FOR TXN: %lu - %32J, lamps: %lu", i, &txn_accs[i], meta->info.lamports));
           }
@@ -322,7 +328,7 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_meta_t* m, const void
           fd_pubkey_t const * addr_lut_acc = (fd_pubkey_t *)((uchar *)rawtxn.raw + addr_lut->addr_off);
 
           char * raw_acc_data = (char*) fd_acc_mgr_view_raw(global->acc_mgr, global->funk_txn, (fd_pubkey_t *) addr_lut_acc, NULL, NULL);
-          if (!raw_acc_data) {
+          if (FD_UNLIKELY(!FD_RAW_ACCOUNT_EXISTS(raw_acc_data))) {
             FD_LOG_ERR(( "addr lut not found" ));
           }
 
@@ -354,8 +360,8 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_meta_t* m, const void
           uchar * readonly_lut_idxs = (uchar *)rawtxn.raw + addr_lut->readonly_off;
           for (ulong j = 0; j < addr_lut->readonly_cnt; j++) {
             FD_LOG_WARNING(( "LUT ACC READONLY: idx: %3lu, acc: %32J, lut_idx: %3lu, acct_idx: %3lu, %32J", i, addr_lut_acc, j, readonly_lut_idxs[j], &lookup_addrs[readonly_lut_idxs[j]] ));
-          }          
-        } 
+          }
+        }
         fd_execute_txn( &global->executor, txn, &rawtxn );
 
         blockoff += pay_sz;
@@ -932,7 +938,7 @@ fd_runtime_collect_rent_cb( fd_funk_rec_t const * encountered_rec_ro,
 
   /* Upgrade read-only handle to writable */
   fd_account_meta_t * meta_rw = NULL;
-  fd_funk_rec_t *     rec_rw  = NULL; 
+  fd_funk_rec_t *     rec_rw  = NULL;
   err = fd_acc_mgr_modify(
     acc_mgr, txn, key,
       /* do_create   */ 0,
@@ -1009,7 +1015,7 @@ struct fd_validator_stake_pair {
 typedef struct fd_validator_stake_pair fd_validator_stake_pair_t;
 
 int
-fd_validator_stake_pair_compare_before( fd_validator_stake_pair_t const * a, 
+fd_validator_stake_pair_compare_before( fd_validator_stake_pair_t const * a,
                                         fd_validator_stake_pair_t const * b ) {
   if( a->stake > b->stake ) {
     return 1;
@@ -1034,7 +1040,7 @@ fd_runtime_distribute_rent_to_validators( fd_global_ctx_t * global, ulong rent_t
 
   fd_vote_accounts_pair_t_mapnode_t * vote_accounts_pool = global->bank.stakes.vote_accounts.vote_accounts_pool;
   fd_vote_accounts_pair_t_mapnode_t * vote_accounts_root = global->bank.stakes.vote_accounts.vote_accounts_root;
-  
+
   ulong num_validator_stakes = fd_vote_accounts_pair_t_map_size( vote_accounts_pool, vote_accounts_root );
   fd_validator_stake_pair_t * validator_stakes = fd_valloc_malloc( global->valloc, 1UL, sizeof( fd_validator_stake_pair_t ) * num_validator_stakes );
   ulong i = 0;
@@ -1069,13 +1075,13 @@ fd_runtime_distribute_rent_to_validators( fd_global_ctx_t * global, ulong rent_t
   ulong enforce_fix = global->features.no_overflow_rent_distribution;
 
   ulong rent_distributed_in_initial_round = 0;
-  
-  // We now do distribution, reusing the validator stakes array for the rent stares 
+
+  // We now do distribution, reusing the validator stakes array for the rent stares
   if( enforce_fix ) {
     for( i = 0; i < num_validator_stakes; i++ ) {
       ulong staked = validator_stakes[i].stake;
       ulong rent_share = (ulong)( ( (uint128)staked * (uint128)rent_to_be_distributed ) / (uint128)total_staked );
-    
+
       validator_stakes[i].stake = rent_share;
       rent_distributed_in_initial_round += rent_share;
     }
@@ -1097,7 +1103,7 @@ fd_runtime_distribute_rent_to_validators( fd_global_ctx_t * global, ulong rent_t
 
   for( i = 0; i < num_validator_stakes; i++ ) {
     ulong rent_to_be_paid = validator_stakes[i].stake;
-    
+
     // TODO: handle the prevent_rent_paying_rent_recipients feature
     if( !enforce_fix || rent_to_be_paid > 0 ) {
       fd_pubkey_t pubkey = validator_stakes[i].pubkey;
@@ -1130,13 +1136,13 @@ fd_runtime_distribute_rent( fd_global_ctx_t * global ) {
   ulong total_rent_collected = global->bank.collected_rent;
   ulong burned_portion = fd_runtime_calculate_rent_burn( total_rent_collected, &global->bank.rent );
   ulong rent_to_be_distributed = total_rent_collected - burned_portion;
-  
+
   FD_LOG_NOTICE(( "rent distribution - slot: %lu, burned_lamports: %lu, distributed_lamports: %lu, total_rent_collected: %lu", global->bank.slot, burned_portion, rent_to_be_distributed, total_rent_collected ));
   if( rent_to_be_distributed == 0 ) {
     return;
   }
 
-  fd_runtime_distribute_rent_to_validators( global, rent_to_be_distributed );  
+  fd_runtime_distribute_rent_to_validators( global, rent_to_be_distributed );
 }
 
 void
@@ -1163,7 +1169,7 @@ fd_runtime_freeze( fd_global_ctx_t * global ) {
     leader_meta->info.lamports += ( global->bank.collected_fees / 2 );
 
     global->bank.collected_fees = 0;
-  }  
+  }
 
   //self.distribute_rent();
   //self.update_slot_history();
@@ -1332,7 +1338,7 @@ const char PDA_MARKER[] = {"ProgramDerivedAddress"};
 
 int
 fd_pubkey_create_with_seed( uchar const  base [ static 32 ],
-                            char const * seed,  /* FIXME add sz param */
+                            char const * seed,
                             ulong        seed_sz,
                             uchar const  owner[ static 32 ],
                             uchar        out  [ static 32 ] ) {
@@ -1474,7 +1480,7 @@ fd_global_import_stakes(fd_global_ctx_t * global, fd_solana_manifest_t * manifes
     }
 
     if( vote_state_timestamp.slot!=0 || n->elem.stake!=0 ) {
-      record_timestamp_vote_with_slot( global, &n->elem.key, vote_state_timestamp.timestamp, vote_state_timestamp.slot );
+      fd_vote_record_timestamp_vote_with_slot( global, &n->elem.key, vote_state_timestamp.timestamp, vote_state_timestamp.slot );
     }
   }
 
@@ -1592,7 +1598,7 @@ fd_feature_restore( fd_global_ctx_t * global,
                     uchar const       acct[ static 32 ] ) {
 
   char * raw_acc_data = (char*) fd_acc_mgr_view_raw(global->acc_mgr, global->funk_txn, (fd_pubkey_t *) acct, NULL, NULL);
-  if (NULL == raw_acc_data)
+  if (FD_UNLIKELY(!FD_RAW_ACCOUNT_EXISTS(raw_acc_data)))
     return;
   fd_account_meta_t *m = (fd_account_meta_t *) raw_acc_data;
 
@@ -1658,15 +1664,12 @@ fd_process_new_epoch(
            self.update_epoch_stakes(leader_schedule_epoch),
            "update_epoch_stakes",
        ); */
-  fd_epoch_reward_status_t epoch_reward_status[1] = {0};
   if ( FD_FEATURE_ACTIVE( global, enable_partitioned_epoch_reward ) ) {
-    begin_partitioned_rewards( &global->bank, global, parent_epoch, epoch_reward_status);
+    begin_partitioned_rewards( &global->bank, global, parent_epoch );
   } else {
     // TODO: need to complete this path
     update_rewards( global, parent_epoch);
   }
-
-  distribute_partitioned_epoch_rewards( &global->bank, global, epoch_reward_status );
 
   // (TODO) Update sysvars before processing transactions
   // new.update_slot_hashes();

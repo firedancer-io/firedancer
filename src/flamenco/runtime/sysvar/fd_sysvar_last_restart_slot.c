@@ -43,7 +43,7 @@ fd_sysvar_last_restart_slot_read( fd_global_ctx_t const *             global,
       /* out_rec */ NULL,
       &err );
 
-  if( !raw_acc_data )
+  if (FD_UNLIKELY(!FD_RAW_ACCOUNT_EXISTS(raw_acc_data)))
     return err;
 
   fd_account_meta_t const * m = fd_type_pun_const( raw_acc_data );

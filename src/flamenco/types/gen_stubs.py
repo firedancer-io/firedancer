@@ -4,6 +4,7 @@
 import json
 import sys
 
+
 with open('fd_types.json', 'r') as json_file:
     json_object = json.load(json_file)
 
@@ -12,6 +13,7 @@ body = open(sys.argv[2], "w")
 
 namespace = json_object["namespace"]
 entries = json_object["entries"]
+defined = set()
 print("// This is an auto-generated file. To add entries, edit fd_types.json", file=header)
 print("// This is an auto-generated file. To add entries, edit fd_types.json", file=body)
 print("#ifndef HEADER_" + json_object["name"].upper(), file=header)
@@ -72,6 +74,14 @@ def do_map_header(n, f):
     print(f'  {element_type}_mapnode_t * {f["name"]}_pool;', file=header)
     print(f'  {element_type}_mapnode_t * {f["name"]}_root;', file=header)
 
+def do_map_chain_header(n, f):
+    print(f'  {f["map_ele_t"]} * pool;', file=header)
+    print(f'  {f["name"]}_map_t * map;', file=header)
+
+def do_treap_header(n, f):
+    print(f'  {f["treap_t"]} * pool;', file=header)
+    print(f'  {f["name"]}_treap_t * treap;', file=header)
+
 def do_option_header(n, f):
       if f["element"] == "ulong":
           print(f'  {f["element"]}* {f["name"]};', file=header)
@@ -106,10 +116,12 @@ fields_header = {
     "ulong" :     lambda n, f: print(f'  ulong {f["name"]};',     file=header),
     "ushort" :    lambda n, f: print(f'  ushort {f["name"]};',            file=header),
     "vector" :    lambda n, f: do_vector_header(n, f),
-    "deque":      lambda n, f: do_deque_header(n, f),
-    "array":      lambda n, f: do_array_header(n, f),
+    "deque" :     lambda n, f: do_deque_header(n, f),
+    "array" :     lambda n, f: do_array_header(n, f),
     "option" :    lambda n, f: do_option_header(n, f),
     "map" :       lambda n, f: do_map_header(n, f),
+    "map_chain" : lambda n, f: do_map_chain_header(n, f),
+    "treap" :     lambda n, f: do_treap_header(n, f),
 }
 
 def do_vector_body_decode(n, f):
@@ -210,6 +222,56 @@ def do_map_body_decode(n, f):
     print(f'    {mapname}_insert(self->{f["name"]}_pool, &self->{f["name"]}_root, node);', file=body)
     print('  }', file=body)
 
+def do_map_chain_body_decode(n, f):
+    map_name = f['name'] + '_map'
+    map_ele_t = f['map_ele_t']
+    pool = f['name'] + '_pool'
+
+    if "modifier" in f and f["modifier"] == "compact":
+        print(f'  ushort {map_name}_len;', file=body)
+        print(f'  err = fd_bincode_compact_u16_decode(&{map_name}_len, ctx);', file=body)
+    else:
+        print(f'  ulong {map_name}_len;', file=body)
+        print(f'  err = fd_bincode_uint64_decode(&{map_name}_len, ctx);', file=body)
+    print('  if ( FD_UNLIKELY(err) ) return err;', file=body)
+    print(f'  FD_TEST( {map_name}_len < POOL_MAX );', file=body)
+
+    print(f'  self->pool = {pool}_alloc( ctx->valloc );', file=body)
+    print(f'  self->map = {map_name}_alloc( ctx->valloc );', file=body)
+    print(f'  for (ulong i = 0; i < {map_name}_len; ++i) {{', file=body)
+    print(f'    if ( FD_UNLIKELY( err ) ) return err;', file=body)
+    print(f'    {map_ele_t} * ele = {pool}_ele_acquire( self->pool );', file=body)
+    print(f'    err = {map_ele_t.rstrip("_t")}_decode( ele, ctx );', file=body)
+    print(f'    if ( FD_UNLIKELY ( err ) ) return err;', file=body)
+    print(f'    {map_name}_ele_insert( self->map, ele, self->pool ); /* this cannot fail */', file=body);
+    print('  }', file=body)
+
+def do_treap_body_decode(n, f):
+    name = f['name']
+    treap_name = name + '_treap'
+    treap_t = f['treap_t']
+    pool_name = name + '_pool'
+
+    if "modifier" in f and f["modifier"] == "compact":
+        print(f'  ushort {treap_name}_len;', file=body)
+        print(f'  err = fd_bincode_compact_u16_decode(&{treap_name}_len, ctx);', file=body)
+    else:
+        print(f'  ulong {treap_name}_len;', file=body)
+        print(f'  err = fd_bincode_uint64_decode(&{treap_name}_len, ctx);', file=body)
+    print('  if ( FD_UNLIKELY(err) ) return err;', file=body)
+    print(f'  FD_TEST( {treap_name}_len < {name.upper()}_MAX );', file=body)
+
+    print(f'  self->pool = {pool_name}_alloc( ctx->valloc );', file=body)
+    print(f'  self->treap = {treap_name}_alloc( ctx->valloc );', file=body)
+    print(f'  for (ulong i = 0; i < {treap_name}_len; ++i) {{', file=body)
+    print(f'    if ( FD_UNLIKELY( err ) ) return err;', file=body)
+    print(f'    {treap_t} * ele = {pool_name}_ele_acquire( self->pool );', file=body)
+    print(f'    err = {treap_t.rstrip("_t")}_decode( ele, ctx );', file=body)
+    print(f'    if ( FD_UNLIKELY ( err ) ) return err;', file=body)
+    print(f'    ele->prio = (ulong)&ele->pubkey;', file=body)
+    print(f'    {treap_name}_ele_insert( self->treap, ele, self->pool ); /* this cannot fail */', file=body);
+    print('  }', file=body)
+
 def do_array_body_decode(n, f):
 
     el = f'{n}_{f["element"]}'
@@ -267,6 +329,8 @@ def do_string_decode(n, f):
     print(f"  self->{f['name']}[slen] = '\\0';", file=body)
 
 def do_ulong_decode(n, f):
+    if not f.get('decode', True):
+        return
     if "modifier" in f and f["modifier"] == "varint":
         print(f'  err = fd_bincode_varint_decode(&self->{f["name"]}, ctx);', file=body),
     else:
@@ -287,10 +351,12 @@ fields_body_decode = {
     "ulong" :     lambda n, f: do_ulong_decode(n, f),
     "ushort" :    lambda n, f: print(f"""  err = fd_bincode_uint16_decode(&self->{f["name"]}, ctx);\n  if ( FD_UNLIKELY(err) ) return err;""", file=body),
     "vector" :    lambda n, f: do_vector_body_decode(n, f),
-    "deque":      lambda n, f: do_deque_body_decode(n, f),
-    "array":      lambda n, f: do_array_body_decode(n, f),
+    "deque" :     lambda n, f: do_deque_body_decode(n, f),
+    "array" :     lambda n, f: do_array_body_decode(n, f),
     "option" :    lambda n, f: do_option_body_decode(n, f),
     "map" :       lambda n, f: do_map_body_decode(n, f),
+    "map_chain" : lambda n, f: do_map_chain_body_decode(n, f),
+    "treap" :     lambda n, f: do_treap_body_decode(n, f),
 }
 
 # encode
@@ -387,6 +453,69 @@ def do_map_body_encode(n, f):
     print('    if ( FD_UNLIKELY(err) ) return err;', file=body)
     print('  }', file=body)
 
+def do_map_chain_body_encode(n, f):
+    name = f['name']
+    map_name = f['name'] + '_map'
+    map_ele_t = f['map_ele_t']
+    pool = f['name'] + '_pool'
+
+    print(f'  if (self->map) {{', file=body)
+    if "modifier" in f and f["modifier"] == "compact":
+        print(f'    ushort {name}_len = (ushort){pool}_used( self->pool );', file=body)
+        print(f'    err = fd_bincode_compact_u16_encode( &{name}_len, ctx );', file=body)
+    else:
+        print(f'    ulong {name}_len = {pool}_used( self->pool );', file=body)
+        print(f'    err = fd_bincode_uint64_encode( &{name}_len, ctx );', file=body)
+    print('    if ( FD_UNLIKELY( err ) ) return err;', file=body)
+
+    print(f'    for ( {map_name}_iter_t iter = {map_name}_iter_init( self->map, self->pool );', file=body);
+    print(f'          !{map_name}_iter_done( iter, self->map, self->pool );', file=body);
+    print(f'          iter = {map_name}_iter_next( iter, self->map, self->pool ) ) {{', file=body);
+    print(f'      {map_ele_t} * ele = {map_name}_iter_ele( iter, self->map, self->pool );', file=body)
+    print(f'      err = {map_ele_t.rstrip("_t")}_encode( ele, ctx );', file=body)
+    print('      if ( FD_UNLIKELY(err) ) return err;', file=body)
+    print('    }', file=body)
+    print('  } else {', file=body)
+    if "modifier" in f and f["modifier"] == "compact":
+        print(f'    ushort {name}_len = 0;', file=body)
+        print(f'    err = fd_bincode_compact_u16_encode(&{name}_len, ctx);', file=body)
+    else:
+        print(f'    ulong {name}_len = 0;', file=body)
+        print(f'    err = fd_bincode_uint64_encode(&{name}_len, ctx);', file=body)
+    print('    if ( FD_UNLIKELY(err) ) return err;', file=body)
+    print('  }', file=body)
+
+def do_treap_body_encode(n, f):
+    name = f['name']
+    treap_name = name + '_treap'
+    treap_t = f['treap_t']
+
+    print(f'  if (self->treap) {{', file=body)
+    if "modifier" in f and f["modifier"] == "compact":
+        print(f'    ushort {name}_len = {treap_name}_ele_cnt( self->treap );', file=body)
+        print(f'    err = fd_bincode_compact_u16_encode( &{name}_len, ctx );', file=body)
+    else:
+        print(f'    ulong {name}_len = {treap_name}_ele_cnt( self->treap );', file=body)
+        print(f'    err = fd_bincode_uint64_encode( &{name}_len, ctx );', file=body)
+    print('    if ( FD_UNLIKELY( err ) ) return err;', file=body)
+
+    print(f'    for ( {treap_name}_fwd_iter_t iter = {treap_name}_fwd_iter_init( self->treap, self->pool );', file=body);
+    print(f'          !{treap_name}_fwd_iter_done( iter );', file=body);
+    print(f'          iter = {treap_name}_fwd_iter_next( iter, self->pool ) ) {{', file=body);
+    print(f'      {treap_t} * ele = {treap_name}_fwd_iter_ele( iter, self->pool );', file=body)
+    print(f'      err = {treap_t.rstrip("_t")}_encode( ele, ctx );', file=body)
+    print('      if ( FD_UNLIKELY(err) ) return err;', file=body)
+    print('    }', file=body)
+    print('  } else {', file=body)
+    if "modifier" in f and f["modifier"] == "compact":
+        print(f'    ushort {name}_len = 0;', file=body)
+        print(f'    err = fd_bincode_compact_u16_encode(&{name}_len, ctx);', file=body)
+    else:
+        print(f'    ulong {name}_len = 0;', file=body)
+        print(f'    err = fd_bincode_uint64_encode(&{name}_len, ctx);', file=body)
+    print('    if ( FD_UNLIKELY(err) ) return err;', file=body)
+    print('  }', file=body)
+
 def do_array_body_encode(n, f):
     length = f["length"]
 
@@ -432,6 +561,8 @@ def do_string_encode(n, f):
     print('  if ( FD_UNLIKELY(err) ) return err;', file=body)
 
 def do_ulong_encode(n, f):
+    if not f.get('encode', True):
+        return
     if "modifier" in f and f["modifier"] == "varint":
         print(f'  err = fd_bincode_varint_encode(self->{f["name"]}, ctx);', file=body),
     else:
@@ -456,6 +587,8 @@ fields_body_encode = {
     "array" :             lambda n, f: do_array_body_encode(n, f),
     "option" :            lambda n, f: do_option_body_encode(n, f),
     "map" :               lambda n, f: do_map_body_encode(n, f),
+    "map_chain" :         lambda n, f: do_map_chain_body_encode(n, f),
+    "treap" :             lambda n, f: do_treap_body_encode(n, f),
 }
 
 # size
@@ -524,6 +657,46 @@ def do_map_body_size(n, f):
         print('    size += sizeof(ulong);', file=body)
     print('  }', file=body)
 
+def do_map_chain_body_size(n, f):
+    name = f['name']
+    map_name = f['name'] + '_map'
+    map_ele_t = f['map_ele_t']
+    pool = f['name'] + '_pool'
+
+    if "modifier" in f and f["modifier"] == "compact":
+        print(f'  ushort {name}_len = (ushort){pool}_used( self->pool );', file=body)
+        print(f'  size += fd_bincode_compact_u16_size( &{name}_len );', file=body)
+    else:
+        print('  size += sizeof(ulong);', file=body)
+    print(f'  if (self->map) {{', file=body)
+    print(f'    for ( {map_name}_iter_t iter = {map_name}_iter_init( self->map, self->pool );', file=body);
+    print(f'          !{map_name}_iter_done( iter, self->map, self->pool );', file=body);
+    print(f'          iter = {map_name}_iter_next( iter, self->map, self->pool ) ) {{', file=body);
+    print(f'      {map_ele_t} * ele = {map_name}_iter_ele( iter, self->map, self->pool );', file=body)
+    print(f'      size += {map_ele_t.rstrip("_t")}_size( ele );', file=body)
+    print('    }', file=body)
+    print('  }', file=body)
+
+def do_treap_body_size(n, f):
+    name = f['name']
+    treap_name = f['name'] + '_treap'
+    treap_t = f['treap_t']
+    pool = f['name'] + '_pool'
+
+    if "modifier" in f and f["modifier"] == "compact":
+        print(f'  ushort {name}_len = (ushort){pool}_used( self->pool );', file=body)
+        print(f'  size += fd_bincode_compact_u16_size( &{name}_len );', file=body)
+    else:
+        print('  size += sizeof(ulong);', file=body)
+    print(f'  if (self->treap) {{', file=body)
+    print(f'    for ( {treap_name}_fwd_iter_t iter = {treap_name}_fwd_iter_init( self->treap, self->pool );', file=body);
+    print(f'          !{treap_name}_fwd_iter_done( iter );', file=body);
+    print(f'          iter = {treap_name}_fwd_iter_next( iter, self->pool ) ) {{', file=body);
+    print(f'      {treap_t} * ele = {treap_name}_fwd_iter_ele( iter, self->pool );', file=body)
+    print(f'      size += {treap_t.rstrip("_t")}_size( ele );', file=body)
+    print('    }', file=body)
+    print('  }', file=body)
+
 def do_array_body_size(n, f):
     length = f["length"]
 
@@ -572,6 +745,8 @@ fields_body_size = {
     "array" :             lambda n, f: do_array_body_size(n, f),
     "option" :            lambda n, f: do_option_body_size(n, f),
     "map" :               lambda n, f: do_map_body_size(n, f),
+    "map_chain" :         lambda n, f: do_map_chain_body_size(n, f),
+    "treap" :             lambda n, f: do_treap_body_size(n, f),
 }
 
 # new
@@ -609,7 +784,9 @@ fields_body_new = {
     "deque" :     lambda n, f: do_pass(),
     "array" :     lambda n, f: do_array_body_new(n, f),
     "option" :    lambda n, f: do_pass(),
-    "map" :       lambda n, f: do_pass()
+    "map" :       lambda n, f: do_pass(),
+    "map_chain" : lambda n, f: do_pass(),
+    "treap" :     lambda n, f: do_pass(),
 }
 
 # destroy
@@ -659,6 +836,38 @@ def do_map_body_destroy(n, f):
     print(f'  self->{f["name"]}_pool = NULL;', file=body)
     print(f'  self->{f["name"]}_root = NULL;', file=body)
 
+def do_map_chain_body_destroy(n, f):
+    map_name = f['name'] + '_map'
+    map_ele_t = f['map_ele_t']
+    pool = f['name'] + '_pool'
+
+    print(f'    for ( {map_name}_iter_t iter = {map_name}_iter_init( self->map, self->pool );', file=body);
+    print(f'          !{map_name}_iter_done( iter, self->map, self->pool );', file=body);
+    print(f'          iter = {map_name}_iter_next( iter, self->map, self->pool ) ) {{', file=body);
+    print(f'      {map_ele_t} * ele = {map_name}_iter_ele( iter, self->map, self->pool );', file=body)
+    print(f'      {map_ele_t.rstrip("_t")}_destroy( ele, ctx );', file=body)
+    print('    }', file=body)
+    print(f'  fd_valloc_free( ctx->valloc, {map_name}_delete({map_name}_leave( self->map) ) );', file=body)
+    print(f'  fd_valloc_free( ctx->valloc, {pool}_delete({pool}_leave( self->pool) ) );', file=body)
+    print(f'  self->pool = NULL;', file=body)
+    print(f'  self->map = NULL;', file=body)
+
+def do_treap_body_destroy(n, f):
+    treap_name = f['name'] + '_treap'
+    treap_t = f['treap_t']
+    pool = f['name'] + '_pool'
+
+    print(f'    for ( {treap_name}_fwd_iter_t iter = {treap_name}_fwd_iter_init( self->treap, self->pool );', file=body);
+    print(f'          !{treap_name}_fwd_iter_done( iter );', file=body);
+    print(f'          iter = {treap_name}_fwd_iter_next( iter, self->pool ) ) {{', file=body);
+    print(f'      {treap_t} * ele = {treap_name}_fwd_iter_ele( iter, self->pool );', file=body)
+    print(f'      {treap_t.rstrip("_t")}_destroy( ele, ctx );', file=body)
+    print('    }', file=body)
+    print(f'  fd_valloc_free( ctx->valloc, {treap_name}_delete({treap_name}_leave( self->treap) ) );', file=body)
+    print(f'  fd_valloc_free( ctx->valloc, {pool}_delete({pool}_leave( self->pool) ) );', file=body)
+    print(f'  self->pool = NULL;', file=body)
+    print(f'  self->treap = NULL;', file=body)
+
 def do_array_body_destroy(n, f):
     length = f["length"]
 
@@ -703,6 +912,8 @@ fields_body_destroy = {
     "array" :     lambda n, f: do_array_body_destroy(n, f),
     "option" :    lambda n, f: do_option_body_destroy(n, f),
     "map" :       lambda n, f: do_map_body_destroy(n, f),
+    "map_chain" : lambda n, f: do_map_chain_body_destroy(n, f),
+    "treap" :     lambda n, f: do_treap_body_destroy(n, f),
 }
 
 # walk
@@ -795,6 +1006,48 @@ def do_map_body_walk(n, f):
 #    print(f'      {n}_{f["element"]}_walk(w, &n->elem, ctx);', file=body)
 #    print('  }', file=body)
 
+def do_map_chain_body_walk(n, f):
+    map_name = f['name'] + '_map'
+    map_ele_t = f['map_ele_t']
+
+    print(f'  if (self->map) {{', file=body)
+    print(f'    for ( {map_name}_iter_t iter = {map_name}_iter_init( self->map, self->pool );', file=body);
+    print(f'          !{map_name}_iter_done( iter, self->map, self->pool );', file=body);
+    print(f'          iter = {map_name}_iter_next( iter, self->map, self->pool ) ) {{', file=body);
+    print(f'      {map_ele_t} * ele = {map_name}_iter_ele( iter, self->map, self->pool );', file=body)
+
+    if map_ele_t == "uchar":
+        print('      fun(w, ele, "ele", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );', file=body),
+    elif map_ele_t == "ulong":
+        print('      fun(w, ele, "ele", FD_FLAMENCO_TYPE_ULONG, "long",  level );', file=body),
+    elif map_ele_t == "uint":
+        print('      fun(w, ele, "ele", FD_FLAMENCO_TYPE_UINT,  "uint",  level );', file=body),
+    else:
+        print(f'      {map_ele_t.rstrip("_t")}_walk(w, ele, fun, "{map_ele_t}", level );', file=body)
+    print(f'    }}', file=body)
+    print(f'  }}', file=body)
+
+def do_treap_body_walk(n, f):
+    treap_name = f['name'] + '_treap'
+    treap_t = f['treap_t']
+
+    print(f'  if (self->treap) {{', file=body)
+    print(f'    for ( {treap_name}_fwd_iter_t iter = {treap_name}_fwd_iter_init( self->treap, self->pool );', file=body);
+    print(f'          !{treap_name}_fwd_iter_done( iter );', file=body);
+    print(f'          iter = {treap_name}_fwd_iter_next( iter, self->pool ) ) {{', file=body);
+    print(f'      {treap_t} * ele = {treap_name}_fwd_iter_ele( iter, self->pool );', file=body)
+
+    if treap_t == "uchar":
+        print('      fun(w, ele, "ele", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );', file=body),
+    elif treap_t == "ulong":
+        print('      fun(w, ele, "ele", FD_FLAMENCO_TYPE_ULONG, "long",  level );', file=body),
+    elif treap_t == "uint":
+        print('      fun(w, ele, "ele", FD_FLAMENCO_TYPE_UINT,  "uint",  level );', file=body),
+    else:
+        print(f'      {treap_t.rstrip("_t")}_walk(w, ele, fun, "{treap_t}", level );', file=body)
+    print(f'    }}', file=body)
+    print(f'  }}', file=body)
+
 def do_array_body_walk(n, f):
     length = f["length"]
 
@@ -828,6 +1081,8 @@ fields_body_walk = {
     "array" :     lambda n, f, e: do_array_body_walk(n, f),
     "option" :    lambda n, f, e: do_option_body_walk(n, f),
     "map" :       lambda n, f, e: do_map_body_walk(n, f),
+    "map_chain" : lambda n, f, e: do_map_chain_body_walk(n, f),
+    "treap" :     lambda n, f, e: do_treap_body_walk(n, f),
 }
 
 fields_option_walk = {
@@ -941,6 +1196,90 @@ for entry in entries:
             print("}", file=header)
 
             map_element_types[element_type] = f["key"]
+
+          if f["type"] == "map_chain" and f['name'] not in defined:
+            map_name = f['name'] + '_map'
+            map_ele_t = f['map_ele_t']
+            map_seed = f['map_seed']
+            pool = f['name'] + '_pool'
+            pool_max = f["pool_max"]
+
+            print(f"#define POOL_NAME {pool}", file=header)
+            print(f"#define POOL_T {map_ele_t}", file=header)
+            print(f"#define POOL_MAX {pool_max}", file=header)
+            print("#include \"../../util/tmpl/fd_pool.c\"", file=header)
+
+            print(f'static inline {map_ele_t} *', file=header)
+            print(f'{pool}_alloc( fd_valloc_t valloc ) {{', file=header)
+            print(f'  return {pool}_join( {pool}_new(', file=header)
+            print(f'      fd_valloc_malloc( valloc,', file=header)
+            print(f'                        {pool}_align(),', file=header)
+            print(f'                        {pool}_footprint( POOL_MAX ) ),', file=header)
+            print(f'      POOL_MAX ) );', file=header)
+            print("}", file=header)
+
+            print(f"#define MAP_NAME {map_name}", file=header)
+            print(f"#define MAP_ELE_T {map_ele_t}", file=header)
+            if 'map_key' in f:
+                print(f"#define MAP_KEY {f['map_key']}", file=header)
+            print(f"#define MAP_SEED {map_seed}", file=header)
+            print("#include \"../../util/tmpl/fd_map_chain.c\"", file=header)
+
+            print(f'static inline {map_name}_t *', file=header)
+            print(f'{map_name}_alloc( fd_valloc_t valloc ) {{', file=header)
+            print(f'  ulong chain_cnt = {map_name}_chain_cnt_est( POOL_MAX );', file=header)
+            print(f'  return {map_name}_join( {map_name}_new(', file=header)
+            print(f'      fd_valloc_malloc( valloc,', file=header)
+            print(f'                        {map_name}_align(),', file=header)
+            print(f'                        {map_name}_footprint( chain_cnt ) ),', file=header)
+            print(f'      chain_cnt,', file=header)
+            print(f'      MAP_SEED ) );', file=header)
+            print("}", file=header)
+            defined.add(map_name)
+
+          if f["type"] == "treap" and f['name'] not in defined:
+            name = f['name']
+            treap_name = name + '_treap'
+            treap_t = f['treap_t']
+            treap_query_t = f['treap_query_t']
+            treap_cmp = f['treap_cmp']
+            treap_lt = f['treap_lt']
+            pool = name + '_pool'
+            max_name = f"{name.upper()}_MAX"
+
+            print(f"#define {max_name} {f['max']}", file=header)
+            print(f"#define POOL_NAME {pool}", file=header)
+            print(f"#define POOL_T {treap_t}", file=header)
+            print(f"#define POOL_NEXT parent", file=header)
+            print("#include \"../../util/tmpl/fd_pool.c\"", file=header)
+
+            print(f'static inline {treap_t} *', file=header)
+            print(f'{pool}_alloc( fd_valloc_t valloc ) {{', file=header)
+            print(f'  return {pool}_join( {pool}_new(', file=header)
+            print(f'      fd_valloc_malloc( valloc,', file=header)
+            print(f'                        {pool}_align(),', file=header)
+            print(f'                        {pool}_footprint( {max_name} ) ),', file=header)
+            print(f'      {max_name} ) );', file=header)
+            print("}", file=header)
+
+            print(f"#define TREAP_NAME {treap_name}", file=header)
+            print(f"#define TREAP_T {treap_t}", file=header)
+            print(f"#define TREAP_QUERY_T {treap_query_t}", file=header)
+            print(f"#define TREAP_CMP(q,e) {treap_cmp}", file=header)
+            print(f"#define TREAP_LT(e0,e1) {treap_lt}", file=header)
+            if 'treap_prio' in f:
+                print(f"#define TREAP_PRIO {f['treap_prio']}", file=header)
+            print("#include \"../../util/tmpl/fd_treap.c\"", file=header)
+
+            print(f'static inline {treap_name}_t *', file=header)
+            print(f'{treap_name}_alloc( fd_valloc_t valloc ) {{', file=header)
+            print(f'  return {treap_name}_join( {treap_name}_new(', file=header)
+            print(f'      fd_valloc_malloc( valloc,', file=header)
+            print(f'                        {treap_name}_align(),', file=header)
+            print(f'                        {treap_name}_footprint( {name.upper()}_MAX ) ),', file=header)
+            print(f'      {name.upper()}_MAX ) );', file=header)
+            print("}", file=header)
+            defined.add(treap_name)
 
     if "comment" in entry and "type" in entry and entry["type"] != "enum":
       print(f'/* {entry["comment"]} */', file=header)
@@ -1102,6 +1441,7 @@ for entry in entries:
       print(f'  {namespace}_{entry["name"]}_inner_new(&self->inner, self->discriminant);', file=body)
       print("}", file=body)
       print(f'void {n}_new({n}_t* self) {{', file=body)
+      print(f'  fd_memset(self, 0, sizeof(*self));', file=body)
       print(f'  {namespace}_{entry["name"]}_new_disc(self, UINT_MAX);', file=body) # Invalid by default
       print("}", file=body)
     else:
@@ -1167,7 +1507,9 @@ for entry in entries:
     else:
         for f in entry["fields"]:
             if f["type"] in fields_body_walk:
-                fields_body_walk[f["type"]](namespace, f, "")
+                if f.get('walk', True):
+                    
+                    fields_body_walk[f["type"]](namespace, f, "")
             else:
                 print(f'  {namespace}_{f["type"]}_walk(w, &self->{f["name"]}, fun, "{f["name"]}", level);', file=body)
 

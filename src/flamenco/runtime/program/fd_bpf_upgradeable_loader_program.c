@@ -73,7 +73,7 @@ int write_bpf_upgradeable_loader_state(fd_global_ctx_t* global, fd_pubkey_t* pro
 int fd_executor_bpf_upgradeable_loader_program_is_executable_program_account( fd_global_ctx_t * global, fd_pubkey_t const * pubkey ) {
   int err = 0;
   char * raw_acc_data = (char*) fd_acc_mgr_view_raw(global->acc_mgr, global->funk_txn, (fd_pubkey_t *) pubkey, NULL, &err);
-  if (NULL == raw_acc_data)
+  if (FD_UNLIKELY(!FD_RAW_ACCOUNT_EXISTS(raw_acc_data)))
     return -1;
 
   fd_account_meta_t * m = (fd_account_meta_t *) raw_acc_data;
@@ -457,7 +457,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
     fd_funk_rec_t const * buffer_con_rec = NULL;
     int read_result = 0;
     uchar const * buffer_raw = fd_acc_mgr_view_raw( ctx.global->acc_mgr, ctx.global->funk_txn, buffer_acc, &buffer_con_rec, &read_result );
-    if( FD_UNLIKELY( !buffer_raw ) ) {
+    if (FD_UNLIKELY(!FD_RAW_ACCOUNT_EXISTS(buffer_raw))) {
       FD_LOG_WARNING(( "failed to read account metadata" ));
       return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
     }
@@ -754,7 +754,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
     }
 
     uchar const * buffer_raw = fd_acc_mgr_view_raw( ctx.global->acc_mgr, ctx.global->funk_txn, buffer_acc, NULL, &read_result );
-    if( FD_UNLIKELY( !buffer_raw ) ) {
+    if (FD_UNLIKELY(!FD_RAW_ACCOUNT_EXISTS(buffer_raw))) {
       FD_LOG_WARNING(( "failed to read account metadata" ));
       return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
     }

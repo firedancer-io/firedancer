@@ -3312,6 +3312,10 @@ ulong fd_vote_authorized_voter_size(fd_vote_authorized_voter_t const * self) {
   ulong size = 0;
   size += sizeof(ulong);
   size += fd_pubkey_size(&self->pubkey);
+  size += sizeof(ulong);
+  size += sizeof(ulong);
+  size += sizeof(ulong);
+  size += sizeof(ulong);
   return size;
 }
 
@@ -3465,47 +3469,6 @@ int fd_vote_epoch_credits_encode(fd_vote_epoch_credits_t const * self, fd_bincod
   err = fd_bincode_uint64_encode(&self->credits, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_bincode_uint64_encode(&self->prev_credits, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
-  return FD_BINCODE_SUCCESS;
-}
-
-int fd_vote_historical_authorized_voter_decode(fd_vote_historical_authorized_voter_t* self, fd_bincode_decode_ctx_t * ctx) {
-  int err;
-  err = fd_bincode_uint64_decode(&self->epoch, ctx);
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  err = fd_pubkey_decode(&self->pubkey, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
-  return FD_BINCODE_SUCCESS;
-}
-void fd_vote_historical_authorized_voter_new(fd_vote_historical_authorized_voter_t* self) {
-  fd_memset(self, 0, sizeof(fd_vote_historical_authorized_voter_t));
-  fd_pubkey_new(&self->pubkey);
-}
-void fd_vote_historical_authorized_voter_destroy(fd_vote_historical_authorized_voter_t* self, fd_bincode_destroy_ctx_t * ctx) {
-  fd_pubkey_destroy(&self->pubkey, ctx);
-}
-
-ulong fd_vote_historical_authorized_voter_footprint( void ){ return FD_VOTE_HISTORICAL_AUTHORIZED_VOTER_FOOTPRINT; }
-ulong fd_vote_historical_authorized_voter_align( void ){ return FD_VOTE_HISTORICAL_AUTHORIZED_VOTER_ALIGN; }
-
-void fd_vote_historical_authorized_voter_walk(void * w, fd_vote_historical_authorized_voter_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
-  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_vote_historical_authorized_voter", level++);
-  fun( w, &self->epoch, "epoch", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
-  fd_pubkey_walk(w, &self->pubkey, fun, "pubkey", level);
-  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_vote_historical_authorized_voter", level--);
-}
-ulong fd_vote_historical_authorized_voter_size(fd_vote_historical_authorized_voter_t const * self) {
-  ulong size = 0;
-  size += sizeof(ulong);
-  size += fd_pubkey_size(&self->pubkey);
-  return size;
-}
-
-int fd_vote_historical_authorized_voter_encode(fd_vote_historical_authorized_voter_t const * self, fd_bincode_encode_ctx_t * ctx) {
-  int err;
-  err = fd_bincode_uint64_encode(&self->epoch, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
-  err = fd_pubkey_encode(&self->pubkey, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -3928,6 +3891,90 @@ int fd_vote_state_0_23_5_encode(fd_vote_state_0_23_5_t const * self, fd_bincode_
   return FD_BINCODE_SUCCESS;
 }
 
+int fd_vote_authorized_voters_decode(fd_vote_authorized_voters_t* self, fd_bincode_decode_ctx_t * ctx) {
+  int err;
+  ulong fd_vote_authorized_voters_treap_len;
+  err = fd_bincode_uint64_decode(&fd_vote_authorized_voters_treap_len, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  FD_TEST( fd_vote_authorized_voters_treap_len < FD_VOTE_AUTHORIZED_VOTERS_MAX );
+  self->pool = fd_vote_authorized_voters_pool_alloc( ctx->valloc );
+  self->treap = fd_vote_authorized_voters_treap_alloc( ctx->valloc );
+  for (ulong i = 0; i < fd_vote_authorized_voters_treap_len; ++i) {
+    if ( FD_UNLIKELY( err ) ) return err;
+    fd_vote_authorized_voter_t * ele = fd_vote_authorized_voters_pool_ele_acquire( self->pool );
+    err = fd_vote_authorized_voter_decode( ele, ctx );
+    if ( FD_UNLIKELY ( err ) ) return err;
+    ele->prio = (ulong)&ele->pubkey;
+    fd_vote_authorized_voters_treap_ele_insert( self->treap, ele, self->pool ); /* this cannot fail */
+  }
+  return FD_BINCODE_SUCCESS;
+}
+void fd_vote_authorized_voters_new(fd_vote_authorized_voters_t* self) {
+  fd_memset(self, 0, sizeof(fd_vote_authorized_voters_t));
+}
+void fd_vote_authorized_voters_destroy(fd_vote_authorized_voters_t* self, fd_bincode_destroy_ctx_t * ctx) {
+    for ( fd_vote_authorized_voters_treap_fwd_iter_t iter = fd_vote_authorized_voters_treap_fwd_iter_init( self->treap, self->pool );
+          !fd_vote_authorized_voters_treap_fwd_iter_done( iter );
+          iter = fd_vote_authorized_voters_treap_fwd_iter_next( iter, self->pool ) ) {
+      fd_vote_authorized_voter_t * ele = fd_vote_authorized_voters_treap_fwd_iter_ele( iter, self->pool );
+      fd_vote_authorized_voter_destroy( ele, ctx );
+    }
+  fd_valloc_free( ctx->valloc, fd_vote_authorized_voters_treap_delete(fd_vote_authorized_voters_treap_leave( self->treap) ) );
+  fd_valloc_free( ctx->valloc, fd_vote_authorized_voters_pool_delete(fd_vote_authorized_voters_pool_leave( self->pool) ) );
+  self->pool = NULL;
+  self->treap = NULL;
+}
+
+ulong fd_vote_authorized_voters_footprint( void ){ return FD_VOTE_AUTHORIZED_VOTERS_FOOTPRINT; }
+ulong fd_vote_authorized_voters_align( void ){ return FD_VOTE_AUTHORIZED_VOTERS_ALIGN; }
+
+void fd_vote_authorized_voters_walk(void * w, fd_vote_authorized_voters_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_vote_authorized_voters", level++);
+  if (self->treap) {
+    for ( fd_vote_authorized_voters_treap_fwd_iter_t iter = fd_vote_authorized_voters_treap_fwd_iter_init( self->treap, self->pool );
+          !fd_vote_authorized_voters_treap_fwd_iter_done( iter );
+          iter = fd_vote_authorized_voters_treap_fwd_iter_next( iter, self->pool ) ) {
+      fd_vote_authorized_voter_t * ele = fd_vote_authorized_voters_treap_fwd_iter_ele( iter, self->pool );
+      fd_vote_authorized_voter_walk(w, ele, fun, "fd_vote_authorized_voter_t", level );
+    }
+  }
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_vote_authorized_voters", level--);
+}
+ulong fd_vote_authorized_voters_size(fd_vote_authorized_voters_t const * self) {
+  ulong size = 0;
+  size += sizeof(ulong);
+  if (self->treap) {
+    for ( fd_vote_authorized_voters_treap_fwd_iter_t iter = fd_vote_authorized_voters_treap_fwd_iter_init( self->treap, self->pool );
+          !fd_vote_authorized_voters_treap_fwd_iter_done( iter );
+          iter = fd_vote_authorized_voters_treap_fwd_iter_next( iter, self->pool ) ) {
+      fd_vote_authorized_voter_t * ele = fd_vote_authorized_voters_treap_fwd_iter_ele( iter, self->pool );
+      size += fd_vote_authorized_voter_size( ele );
+    }
+  }
+  return size;
+}
+
+int fd_vote_authorized_voters_encode(fd_vote_authorized_voters_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  if (self->treap) {
+    ulong fd_vote_authorized_voters_len = fd_vote_authorized_voters_treap_ele_cnt( self->treap );
+    err = fd_bincode_uint64_encode( &fd_vote_authorized_voters_len, ctx );
+    if ( FD_UNLIKELY( err ) ) return err;
+    for ( fd_vote_authorized_voters_treap_fwd_iter_t iter = fd_vote_authorized_voters_treap_fwd_iter_init( self->treap, self->pool );
+          !fd_vote_authorized_voters_treap_fwd_iter_done( iter );
+          iter = fd_vote_authorized_voters_treap_fwd_iter_next( iter, self->pool ) ) {
+      fd_vote_authorized_voter_t * ele = fd_vote_authorized_voters_treap_fwd_iter_ele( iter, self->pool );
+      err = fd_vote_authorized_voter_encode( ele, ctx );
+      if ( FD_UNLIKELY(err) ) return err;
+    }
+  } else {
+    ulong fd_vote_authorized_voters_len = 0;
+    err = fd_bincode_uint64_encode(&fd_vote_authorized_voters_len, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+  }
+  return FD_BINCODE_SUCCESS;
+}
+
 int fd_vote_state_1_14_11_decode(fd_vote_state_1_14_11_t* self, fd_bincode_decode_ctx_t * ctx) {
   int err;
   err = fd_pubkey_decode(&self->node_pubkey, ctx);
@@ -3958,17 +4005,8 @@ int fd_vote_state_1_14_11_decode(fd_vote_state_1_14_11_t* self, fd_bincode_decod
     } else
       self->root_slot = NULL;
   }
-  ulong authorized_voters_len;
-  err = fd_bincode_uint64_decode( &authorized_voters_len, ctx );
+  err = fd_vote_authorized_voters_decode(&self->authorized_voters, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  self->authorized_voters = deq_fd_vote_historical_authorized_voter_t_alloc( ctx->valloc );
-  if ( authorized_voters_len > deq_fd_vote_historical_authorized_voter_t_max(self->authorized_voters) ) return FD_BINCODE_ERR_SMALL_DEQUE;
-  for (ulong i = 0; i < authorized_voters_len; ++i) {
-    fd_vote_historical_authorized_voter_t * elem = deq_fd_vote_historical_authorized_voter_t_push_tail_nocopy(self->authorized_voters);
-    fd_vote_historical_authorized_voter_new(elem);
-    err = fd_vote_historical_authorized_voter_decode(elem, ctx);
-    if ( FD_UNLIKELY(err) ) return err;
-  }
   err = fd_vote_prior_voters_decode(&self->prior_voters, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   ulong epoch_credits_len;
@@ -3990,6 +4028,7 @@ void fd_vote_state_1_14_11_new(fd_vote_state_1_14_11_t* self) {
   fd_memset(self, 0, sizeof(fd_vote_state_1_14_11_t));
   fd_pubkey_new(&self->node_pubkey);
   fd_pubkey_new(&self->authorized_withdrawer);
+  fd_vote_authorized_voters_new(&self->authorized_voters);
   fd_vote_prior_voters_new(&self->prior_voters);
   fd_vote_block_timestamp_new(&self->last_timestamp);
 }
@@ -4008,14 +4047,7 @@ void fd_vote_state_1_14_11_destroy(fd_vote_state_1_14_11_t* self, fd_bincode_des
     fd_valloc_free( ctx->valloc, self->root_slot);
     self->root_slot = NULL;
   }
-  if ( self->authorized_voters ) {
-    for ( deq_fd_vote_historical_authorized_voter_t_iter_t iter = deq_fd_vote_historical_authorized_voter_t_iter_init( self->authorized_voters ); !deq_fd_vote_historical_authorized_voter_t_iter_done( self->authorized_voters, iter ); iter = deq_fd_vote_historical_authorized_voter_t_iter_next( self->authorized_voters, iter ) ) {
-      fd_vote_historical_authorized_voter_t * ele = deq_fd_vote_historical_authorized_voter_t_iter_ele( self->authorized_voters, iter );
-      fd_vote_historical_authorized_voter_destroy(ele, ctx);
-    }
-    fd_valloc_free( ctx->valloc, deq_fd_vote_historical_authorized_voter_t_delete( deq_fd_vote_historical_authorized_voter_t_leave( self->authorized_voters) ) );
-    self->authorized_voters = NULL;
-  }
+  fd_vote_authorized_voters_destroy(&self->authorized_voters, ctx);
   fd_vote_prior_voters_destroy(&self->prior_voters, ctx);
   if ( self->epoch_credits ) {
     for ( deq_fd_vote_epoch_credits_t_iter_t iter = deq_fd_vote_epoch_credits_t_iter_init( self->epoch_credits ); !deq_fd_vote_epoch_credits_t_iter_done( self->epoch_credits, iter ); iter = deq_fd_vote_epoch_credits_t_iter_next( self->epoch_credits, iter ) ) {
@@ -4055,20 +4087,7 @@ void fd_vote_state_1_14_11_walk(void * w, fd_vote_state_1_14_11_t const * self, 
   } else {
   fun( w, self->root_slot, "root_slot", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
   }
-
-  /* Walk deque */
-  fun( w, self->authorized_voters, "authorized_voters", FD_FLAMENCO_TYPE_ARR, "authorized_voters", level++ );
-  if( self->authorized_voters ) {
-    for( deq_fd_vote_historical_authorized_voter_t_iter_t iter = deq_fd_vote_historical_authorized_voter_t_iter_init( self->authorized_voters );
-         !deq_fd_vote_historical_authorized_voter_t_iter_done( self->authorized_voters, iter );
-         iter = deq_fd_vote_historical_authorized_voter_t_iter_next( self->authorized_voters, iter ) ) {
-      fd_vote_historical_authorized_voter_t * ele = deq_fd_vote_historical_authorized_voter_t_iter_ele( self->authorized_voters, iter );
-      fd_vote_historical_authorized_voter_walk(w, ele, fun, "authorized_voters", level );
-    }
-  }
-  fun( w, self->authorized_voters, "authorized_voters", FD_FLAMENCO_TYPE_ARR_END, "authorized_voters", level-- );
-  /* Done walking deque */
-
+  fd_vote_authorized_voters_walk(w, &self->authorized_voters, fun, "authorized_voters", level);
   fd_vote_prior_voters_walk(w, &self->prior_voters, fun, "prior_voters", level);
 
   /* Walk deque */
@@ -4105,15 +4124,7 @@ ulong fd_vote_state_1_14_11_size(fd_vote_state_1_14_11_t const * self) {
   if (NULL !=  self->root_slot) {
     size += sizeof(ulong);
   }
-  if ( self->authorized_voters ) {
-    size += sizeof(ulong);
-    for ( deq_fd_vote_historical_authorized_voter_t_iter_t iter = deq_fd_vote_historical_authorized_voter_t_iter_init( self->authorized_voters ); !deq_fd_vote_historical_authorized_voter_t_iter_done( self->authorized_voters, iter ); iter = deq_fd_vote_historical_authorized_voter_t_iter_next( self->authorized_voters, iter ) ) {
-      fd_vote_historical_authorized_voter_t * ele = deq_fd_vote_historical_authorized_voter_t_iter_ele( self->authorized_voters, iter );
-      size += fd_vote_historical_authorized_voter_size(ele);
-    }
-  } else {
-    size += sizeof(ulong);
-  }
+  size += fd_vote_authorized_voters_size(&self->authorized_voters);
   size += fd_vote_prior_voters_size(&self->prior_voters);
   if ( self->epoch_credits ) {
     size += sizeof(ulong);
@@ -4159,20 +4170,8 @@ int fd_vote_state_1_14_11_encode(fd_vote_state_1_14_11_t const * self, fd_bincod
     err = fd_bincode_option_encode(0, ctx);
     if ( FD_UNLIKELY(err) ) return err;
   }
-  if ( self->authorized_voters ) {
-    ulong authorized_voters_len = deq_fd_vote_historical_authorized_voter_t_cnt(self->authorized_voters);
-    err = fd_bincode_uint64_encode(&authorized_voters_len, ctx);
-    if ( FD_UNLIKELY(err) ) return err;
-    for ( deq_fd_vote_historical_authorized_voter_t_iter_t iter = deq_fd_vote_historical_authorized_voter_t_iter_init( self->authorized_voters ); !deq_fd_vote_historical_authorized_voter_t_iter_done( self->authorized_voters, iter ); iter = deq_fd_vote_historical_authorized_voter_t_iter_next( self->authorized_voters, iter ) ) {
-      fd_vote_historical_authorized_voter_t * ele = deq_fd_vote_historical_authorized_voter_t_iter_ele( self->authorized_voters, iter );
-      err = fd_vote_historical_authorized_voter_encode(ele, ctx);
-      if ( FD_UNLIKELY(err) ) return err;
-    }
-  } else {
-    ulong authorized_voters_len = 0;
-    err = fd_bincode_uint64_encode(&authorized_voters_len, ctx);
-    if ( FD_UNLIKELY(err) ) return err;
-  }
+  err = fd_vote_authorized_voters_encode(&self->authorized_voters, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
   err = fd_vote_prior_voters_encode(&self->prior_voters, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   if ( self->epoch_credits ) {
@@ -4224,17 +4223,8 @@ int fd_vote_state_decode(fd_vote_state_t* self, fd_bincode_decode_ctx_t * ctx) {
     } else
       self->root_slot = NULL;
   }
-  ulong authorized_voters_len;
-  err = fd_bincode_uint64_decode( &authorized_voters_len, ctx );
+  err = fd_vote_authorized_voters_decode(&self->authorized_voters, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  self->authorized_voters = deq_fd_vote_historical_authorized_voter_t_alloc( ctx->valloc );
-  if ( authorized_voters_len > deq_fd_vote_historical_authorized_voter_t_max(self->authorized_voters) ) return FD_BINCODE_ERR_SMALL_DEQUE;
-  for (ulong i = 0; i < authorized_voters_len; ++i) {
-    fd_vote_historical_authorized_voter_t * elem = deq_fd_vote_historical_authorized_voter_t_push_tail_nocopy(self->authorized_voters);
-    fd_vote_historical_authorized_voter_new(elem);
-    err = fd_vote_historical_authorized_voter_decode(elem, ctx);
-    if ( FD_UNLIKELY(err) ) return err;
-  }
   err = fd_vote_prior_voters_decode(&self->prior_voters, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   ulong epoch_credits_len;
@@ -4256,6 +4246,7 @@ void fd_vote_state_new(fd_vote_state_t* self) {
   fd_memset(self, 0, sizeof(fd_vote_state_t));
   fd_pubkey_new(&self->node_pubkey);
   fd_pubkey_new(&self->authorized_withdrawer);
+  fd_vote_authorized_voters_new(&self->authorized_voters);
   fd_vote_prior_voters_new(&self->prior_voters);
   fd_vote_block_timestamp_new(&self->last_timestamp);
 }
@@ -4274,14 +4265,7 @@ void fd_vote_state_destroy(fd_vote_state_t* self, fd_bincode_destroy_ctx_t * ctx
     fd_valloc_free( ctx->valloc, self->root_slot);
     self->root_slot = NULL;
   }
-  if ( self->authorized_voters ) {
-    for ( deq_fd_vote_historical_authorized_voter_t_iter_t iter = deq_fd_vote_historical_authorized_voter_t_iter_init( self->authorized_voters ); !deq_fd_vote_historical_authorized_voter_t_iter_done( self->authorized_voters, iter ); iter = deq_fd_vote_historical_authorized_voter_t_iter_next( self->authorized_voters, iter ) ) {
-      fd_vote_historical_authorized_voter_t * ele = deq_fd_vote_historical_authorized_voter_t_iter_ele( self->authorized_voters, iter );
-      fd_vote_historical_authorized_voter_destroy(ele, ctx);
-    }
-    fd_valloc_free( ctx->valloc, deq_fd_vote_historical_authorized_voter_t_delete( deq_fd_vote_historical_authorized_voter_t_leave( self->authorized_voters) ) );
-    self->authorized_voters = NULL;
-  }
+  fd_vote_authorized_voters_destroy(&self->authorized_voters, ctx);
   fd_vote_prior_voters_destroy(&self->prior_voters, ctx);
   if ( self->epoch_credits ) {
     for ( deq_fd_vote_epoch_credits_t_iter_t iter = deq_fd_vote_epoch_credits_t_iter_init( self->epoch_credits ); !deq_fd_vote_epoch_credits_t_iter_done( self->epoch_credits, iter ); iter = deq_fd_vote_epoch_credits_t_iter_next( self->epoch_credits, iter ) ) {
@@ -4321,20 +4305,7 @@ void fd_vote_state_walk(void * w, fd_vote_state_t const * self, fd_types_walk_fn
   } else {
   fun( w, self->root_slot, "root_slot", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
   }
-
-  /* Walk deque */
-  fun( w, self->authorized_voters, "authorized_voters", FD_FLAMENCO_TYPE_ARR, "authorized_voters", level++ );
-  if( self->authorized_voters ) {
-    for( deq_fd_vote_historical_authorized_voter_t_iter_t iter = deq_fd_vote_historical_authorized_voter_t_iter_init( self->authorized_voters );
-         !deq_fd_vote_historical_authorized_voter_t_iter_done( self->authorized_voters, iter );
-         iter = deq_fd_vote_historical_authorized_voter_t_iter_next( self->authorized_voters, iter ) ) {
-      fd_vote_historical_authorized_voter_t * ele = deq_fd_vote_historical_authorized_voter_t_iter_ele( self->authorized_voters, iter );
-      fd_vote_historical_authorized_voter_walk(w, ele, fun, "authorized_voters", level );
-    }
-  }
-  fun( w, self->authorized_voters, "authorized_voters", FD_FLAMENCO_TYPE_ARR_END, "authorized_voters", level-- );
-  /* Done walking deque */
-
+  fd_vote_authorized_voters_walk(w, &self->authorized_voters, fun, "authorized_voters", level);
   fd_vote_prior_voters_walk(w, &self->prior_voters, fun, "prior_voters", level);
 
   /* Walk deque */
@@ -4371,15 +4342,7 @@ ulong fd_vote_state_size(fd_vote_state_t const * self) {
   if (NULL !=  self->root_slot) {
     size += sizeof(ulong);
   }
-  if ( self->authorized_voters ) {
-    size += sizeof(ulong);
-    for ( deq_fd_vote_historical_authorized_voter_t_iter_t iter = deq_fd_vote_historical_authorized_voter_t_iter_init( self->authorized_voters ); !deq_fd_vote_historical_authorized_voter_t_iter_done( self->authorized_voters, iter ); iter = deq_fd_vote_historical_authorized_voter_t_iter_next( self->authorized_voters, iter ) ) {
-      fd_vote_historical_authorized_voter_t * ele = deq_fd_vote_historical_authorized_voter_t_iter_ele( self->authorized_voters, iter );
-      size += fd_vote_historical_authorized_voter_size(ele);
-    }
-  } else {
-    size += sizeof(ulong);
-  }
+  size += fd_vote_authorized_voters_size(&self->authorized_voters);
   size += fd_vote_prior_voters_size(&self->prior_voters);
   if ( self->epoch_credits ) {
     size += sizeof(ulong);
@@ -4425,20 +4388,8 @@ int fd_vote_state_encode(fd_vote_state_t const * self, fd_bincode_encode_ctx_t *
     err = fd_bincode_option_encode(0, ctx);
     if ( FD_UNLIKELY(err) ) return err;
   }
-  if ( self->authorized_voters ) {
-    ulong authorized_voters_len = deq_fd_vote_historical_authorized_voter_t_cnt(self->authorized_voters);
-    err = fd_bincode_uint64_encode(&authorized_voters_len, ctx);
-    if ( FD_UNLIKELY(err) ) return err;
-    for ( deq_fd_vote_historical_authorized_voter_t_iter_t iter = deq_fd_vote_historical_authorized_voter_t_iter_init( self->authorized_voters ); !deq_fd_vote_historical_authorized_voter_t_iter_done( self->authorized_voters, iter ); iter = deq_fd_vote_historical_authorized_voter_t_iter_next( self->authorized_voters, iter ) ) {
-      fd_vote_historical_authorized_voter_t * ele = deq_fd_vote_historical_authorized_voter_t_iter_ele( self->authorized_voters, iter );
-      err = fd_vote_historical_authorized_voter_encode(ele, ctx);
-      if ( FD_UNLIKELY(err) ) return err;
-    }
-  } else {
-    ulong authorized_voters_len = 0;
-    err = fd_bincode_uint64_encode(&authorized_voters_len, ctx);
-    if ( FD_UNLIKELY(err) ) return err;
-  }
+  err = fd_vote_authorized_voters_encode(&self->authorized_voters, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
   err = fd_vote_prior_voters_encode(&self->prior_voters, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   if ( self->epoch_credits ) {
@@ -4513,6 +4464,7 @@ void fd_vote_state_versioned_new_disc(fd_vote_state_versioned_t* self, uint disc
   fd_vote_state_versioned_inner_new(&self->inner, self->discriminant);
 }
 void fd_vote_state_versioned_new(fd_vote_state_versioned_t* self) {
+  fd_memset(self, 0, sizeof(*self));
   fd_vote_state_versioned_new_disc(self, UINT_MAX);
 }
 void fd_vote_state_versioned_inner_destroy(fd_vote_state_versioned_inner_t* self, uint discriminant, fd_bincode_destroy_ctx_t * ctx) {
@@ -4608,19 +4560,17 @@ int fd_vote_state_versioned_encode(fd_vote_state_versioned_t const * self, fd_bi
 
 int fd_vote_state_update_decode(fd_vote_state_update_t* self, fd_bincode_decode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint64_decode(&self->lockouts_len, ctx);
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  if (self->lockouts_len != 0) {
-    self->lockouts = (fd_vote_lockout_t *)fd_valloc_malloc( ctx->valloc, FD_VOTE_LOCKOUT_ALIGN, FD_VOTE_LOCKOUT_FOOTPRINT*self->lockouts_len);
-    for( ulong i = 0; i < self->lockouts_len; ++i) {
-      fd_vote_lockout_new(self->lockouts + i);
-    }
-    for( ulong i = 0; i < self->lockouts_len; ++i ) {
-      err = fd_vote_lockout_decode(self->lockouts + i, ctx);
-      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-    }
-  } else
-    self->lockouts = NULL;
+  ulong lockouts_len;
+  err = fd_bincode_uint64_decode( &lockouts_len, ctx );
+  if ( FD_UNLIKELY(err) ) return err;
+  self->lockouts = deq_fd_vote_lockout_t_alloc( ctx->valloc );
+  if ( lockouts_len > deq_fd_vote_lockout_t_max(self->lockouts) ) return FD_BINCODE_ERR_SMALL_DEQUE;
+  for (ulong i = 0; i < lockouts_len; ++i) {
+    fd_vote_lockout_t * elem = deq_fd_vote_lockout_t_push_tail_nocopy(self->lockouts);
+    fd_vote_lockout_new(elem);
+    err = fd_vote_lockout_decode(elem, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+  }
   {
     uchar o;
     err = fd_bincode_option_decode( &o, ctx );
@@ -4652,10 +4602,12 @@ void fd_vote_state_update_new(fd_vote_state_update_t* self) {
   fd_hash_new(&self->hash);
 }
 void fd_vote_state_update_destroy(fd_vote_state_update_t* self, fd_bincode_destroy_ctx_t * ctx) {
-  if (NULL != self->lockouts) {
-    for (ulong i = 0; i < self->lockouts_len; ++i)
-      fd_vote_lockout_destroy(self->lockouts + i, ctx);
-    fd_valloc_free( ctx->valloc, self->lockouts );
+  if ( self->lockouts ) {
+    for ( deq_fd_vote_lockout_t_iter_t iter = deq_fd_vote_lockout_t_iter_init( self->lockouts ); !deq_fd_vote_lockout_t_iter_done( self->lockouts, iter ); iter = deq_fd_vote_lockout_t_iter_next( self->lockouts, iter ) ) {
+      fd_vote_lockout_t * ele = deq_fd_vote_lockout_t_iter_ele( self->lockouts, iter );
+      fd_vote_lockout_destroy(ele, ctx);
+    }
+    fd_valloc_free( ctx->valloc, deq_fd_vote_lockout_t_delete( deq_fd_vote_lockout_t_leave( self->lockouts) ) );
     self->lockouts = NULL;
   }
   if (NULL != self->root) {
@@ -4674,12 +4626,20 @@ ulong fd_vote_state_update_align( void ){ return FD_VOTE_STATE_UPDATE_ALIGN; }
 
 void fd_vote_state_update_walk(void * w, fd_vote_state_update_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_vote_state_update", level++);
-  if (self->lockouts_len != 0) {
-    fun(w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "lockouts", level++);
-    for (ulong i = 0; i < self->lockouts_len; ++i)
-      fd_vote_lockout_walk(w, self->lockouts + i, fun, "vote_lockout", level );
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "lockouts", level-- );
+
+  /* Walk deque */
+  fun( w, self->lockouts, "lockouts", FD_FLAMENCO_TYPE_ARR, "lockouts", level++ );
+  if( self->lockouts ) {
+    for( deq_fd_vote_lockout_t_iter_t iter = deq_fd_vote_lockout_t_iter_init( self->lockouts );
+         !deq_fd_vote_lockout_t_iter_done( self->lockouts, iter );
+         iter = deq_fd_vote_lockout_t_iter_next( self->lockouts, iter ) ) {
+      fd_vote_lockout_t * ele = deq_fd_vote_lockout_t_iter_ele( self->lockouts, iter );
+      fd_vote_lockout_walk(w, ele, fun, "lockouts", level );
+    }
   }
+  fun( w, self->lockouts, "lockouts", FD_FLAMENCO_TYPE_ARR_END, "lockouts", level-- );
+  /* Done walking deque */
+
   if( !self->root ) {
     fun( w, NULL, "root", FD_FLAMENCO_TYPE_NULL, "ulong", level );
   } else {
@@ -4695,9 +4655,15 @@ void fd_vote_state_update_walk(void * w, fd_vote_state_update_t const * self, fd
 }
 ulong fd_vote_state_update_size(fd_vote_state_update_t const * self) {
   ulong size = 0;
-  size += sizeof(ulong);
-  for (ulong i = 0; i < self->lockouts_len; ++i)
-    size += fd_vote_lockout_size(self->lockouts + i);
+  if ( self->lockouts ) {
+    size += sizeof(ulong);
+    for ( deq_fd_vote_lockout_t_iter_t iter = deq_fd_vote_lockout_t_iter_init( self->lockouts ); !deq_fd_vote_lockout_t_iter_done( self->lockouts, iter ); iter = deq_fd_vote_lockout_t_iter_next( self->lockouts, iter ) ) {
+      fd_vote_lockout_t * ele = deq_fd_vote_lockout_t_iter_ele( self->lockouts, iter );
+      size += fd_vote_lockout_size(ele);
+    }
+  } else {
+    size += sizeof(ulong);
+  }
   size += sizeof(char);
   if (NULL !=  self->root) {
     size += sizeof(ulong);
@@ -4712,13 +4678,19 @@ ulong fd_vote_state_update_size(fd_vote_state_update_t const * self) {
 
 int fd_vote_state_update_encode(fd_vote_state_update_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint64_encode(&self->lockouts_len, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
-  if (self->lockouts_len != 0) {
-    for (ulong i = 0; i < self->lockouts_len; ++i) {
-      err = fd_vote_lockout_encode(self->lockouts + i, ctx);
+  if ( self->lockouts ) {
+    ulong lockouts_len = deq_fd_vote_lockout_t_cnt(self->lockouts);
+    err = fd_bincode_uint64_encode(&lockouts_len, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    for ( deq_fd_vote_lockout_t_iter_t iter = deq_fd_vote_lockout_t_iter_init( self->lockouts ); !deq_fd_vote_lockout_t_iter_done( self->lockouts, iter ); iter = deq_fd_vote_lockout_t_iter_next( self->lockouts, iter ) ) {
+      fd_vote_lockout_t * ele = deq_fd_vote_lockout_t_iter_ele( self->lockouts, iter );
+      err = fd_vote_lockout_encode(ele, ctx);
       if ( FD_UNLIKELY(err) ) return err;
     }
+  } else {
+    ulong lockouts_len = 0;
+    err = fd_bincode_uint64_encode(&lockouts_len, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
   }
   if (self->root != NULL) {
     err = fd_bincode_option_encode(1, ctx);
@@ -6033,6 +6005,264 @@ int fd_firedancer_banks_encode(fd_firedancer_banks_t const * self, fd_bincode_en
   return FD_BINCODE_SUCCESS;
 }
 
+int fd_prev_epoch_inflation_rewards_decode(fd_prev_epoch_inflation_rewards_t* self, fd_bincode_decode_ctx_t * ctx) {
+  int err;
+  err = fd_bincode_uint64_decode(&self->validator_rewards, ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_double_decode(&self->prev_epoch_duration_in_years, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_double_decode(&self->validator_rate, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_double_decode(&self->foundation_rate, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_prev_epoch_inflation_rewards_new(fd_prev_epoch_inflation_rewards_t* self) {
+  fd_memset(self, 0, sizeof(fd_prev_epoch_inflation_rewards_t));
+}
+void fd_prev_epoch_inflation_rewards_destroy(fd_prev_epoch_inflation_rewards_t* self, fd_bincode_destroy_ctx_t * ctx) {
+}
+
+ulong fd_prev_epoch_inflation_rewards_footprint( void ){ return FD_PREV_EPOCH_INFLATION_REWARDS_FOOTPRINT; }
+ulong fd_prev_epoch_inflation_rewards_align( void ){ return FD_PREV_EPOCH_INFLATION_REWARDS_ALIGN; }
+
+void fd_prev_epoch_inflation_rewards_walk(void * w, fd_prev_epoch_inflation_rewards_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_prev_epoch_inflation_rewards", level++);
+  fun( w, &self->validator_rewards, "validator_rewards", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
+  fun( w, &self->prev_epoch_duration_in_years, "prev_epoch_duration_in_years", FD_FLAMENCO_TYPE_DOUBLE,  "double",    level );
+  fun( w, &self->validator_rate, "validator_rate", FD_FLAMENCO_TYPE_DOUBLE,  "double",    level );
+  fun( w, &self->foundation_rate, "foundation_rate", FD_FLAMENCO_TYPE_DOUBLE,  "double",    level );
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_prev_epoch_inflation_rewards", level--);
+}
+ulong fd_prev_epoch_inflation_rewards_size(fd_prev_epoch_inflation_rewards_t const * self) {
+  ulong size = 0;
+  size += sizeof(ulong);
+  size += sizeof(double);
+  size += sizeof(double);
+  size += sizeof(double);
+  return size;
+}
+
+int fd_prev_epoch_inflation_rewards_encode(fd_prev_epoch_inflation_rewards_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  err = fd_bincode_uint64_encode(&self->validator_rewards, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_double_encode(&self->prev_epoch_duration_in_years, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_double_encode(&self->validator_rate, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_double_encode(&self->foundation_rate, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+
+FD_FN_PURE uchar fd_reward_type_is_fee(fd_reward_type_t const * self) {
+  return self->discriminant == 0;
+}
+FD_FN_PURE uchar fd_reward_type_is_rent(fd_reward_type_t const * self) {
+  return self->discriminant == 1;
+}
+FD_FN_PURE uchar fd_reward_type_is_staking(fd_reward_type_t const * self) {
+  return self->discriminant == 2;
+}
+FD_FN_PURE uchar fd_reward_type_is_voting(fd_reward_type_t const * self) {
+  return self->discriminant == 3;
+}
+void fd_reward_type_inner_new(fd_reward_type_inner_t* self, uint discriminant);
+int fd_reward_type_inner_decode(fd_reward_type_inner_t* self, uint discriminant, fd_bincode_decode_ctx_t * ctx) {
+  fd_reward_type_inner_new(self, discriminant);
+  int err;
+  switch (discriminant) {
+  case 0: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 1: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 2: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 3: {
+    return FD_BINCODE_SUCCESS;
+  }
+  default: return FD_BINCODE_ERR_ENCODING;
+  }
+}
+int fd_reward_type_decode(fd_reward_type_t* self, fd_bincode_decode_ctx_t * ctx) {
+  int err = fd_bincode_uint32_decode(&self->discriminant, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return fd_reward_type_inner_decode(&self->inner, self->discriminant, ctx);
+}
+void fd_reward_type_inner_new(fd_reward_type_inner_t* self, uint discriminant) {
+  switch (discriminant) {
+  case 0: {
+    break;
+  }
+  case 1: {
+    break;
+  }
+  case 2: {
+    break;
+  }
+  case 3: {
+    break;
+  }
+  default: break; // FD_LOG_ERR(( "unhandled type"));
+  }
+}
+void fd_reward_type_new_disc(fd_reward_type_t* self, uint discriminant) {
+  self->discriminant = discriminant;
+  fd_reward_type_inner_new(&self->inner, self->discriminant);
+}
+void fd_reward_type_new(fd_reward_type_t* self) {
+  fd_memset(self, 0, sizeof(*self));
+  fd_reward_type_new_disc(self, UINT_MAX);
+}
+void fd_reward_type_inner_destroy(fd_reward_type_inner_t* self, uint discriminant, fd_bincode_destroy_ctx_t * ctx) {
+  switch (discriminant) {
+  case 0: {
+    break;
+  }
+  case 1: {
+    break;
+  }
+  case 2: {
+    break;
+  }
+  case 3: {
+    break;
+  }
+  default: break; // FD_LOG_ERR(( "unhandled type" ));
+  }
+}
+void fd_reward_type_destroy(fd_reward_type_t* self, fd_bincode_destroy_ctx_t * ctx) {
+  fd_reward_type_inner_destroy(&self->inner, self->discriminant, ctx);
+}
+
+ulong fd_reward_type_footprint( void ){ return FD_REWARD_TYPE_FOOTPRINT; }
+ulong fd_reward_type_align( void ){ return FD_REWARD_TYPE_ALIGN; }
+
+void fd_reward_type_walk(void * w, fd_reward_type_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_reward_type", level++);
+  // enum fd_double_walk(w, &self->foundation_rate, fun, "foundation_rate", level);
+  switch (self->discriminant) {
+  }
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_reward_type", level--);
+}
+ulong fd_reward_type_size(fd_reward_type_t const * self) {
+  ulong size = 0;
+  size += sizeof(uint);
+  switch (self->discriminant) {
+  }
+  return size;
+}
+
+int fd_reward_type_inner_encode(fd_reward_type_inner_t const * self, uint discriminant, fd_bincode_encode_ctx_t * ctx) {
+  return FD_BINCODE_SUCCESS;
+}
+int fd_reward_type_encode(fd_reward_type_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  err = fd_bincode_uint32_encode(&self->discriminant, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return fd_reward_type_inner_encode(&self->inner, self->discriminant, ctx);
+}
+
+int fd_reward_info_decode(fd_reward_info_t* self, fd_bincode_decode_ctx_t * ctx) {
+  int err;
+  err = fd_reward_type_decode(&self->reward_type, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_decode(&self->lamports, ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_uint64_decode(&self->post_balance, ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_uint64_decode((ulong *) &self->commission, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_reward_info_new(fd_reward_info_t* self) {
+  fd_memset(self, 0, sizeof(fd_reward_info_t));
+  fd_reward_type_new(&self->reward_type);
+}
+void fd_reward_info_destroy(fd_reward_info_t* self, fd_bincode_destroy_ctx_t * ctx) {
+  fd_reward_type_destroy(&self->reward_type, ctx);
+}
+
+ulong fd_reward_info_footprint( void ){ return FD_REWARD_INFO_FOOTPRINT; }
+ulong fd_reward_info_align( void ){ return FD_REWARD_INFO_ALIGN; }
+
+void fd_reward_info_walk(void * w, fd_reward_info_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_reward_info", level++);
+  fd_reward_type_walk(w, &self->reward_type, fun, "reward_type", level);
+  fun( w, &self->lamports, "lamports", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
+  fun( w, &self->post_balance, "post_balance", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
+  fun( w, &self->commission, "commission", FD_FLAMENCO_TYPE_SLONG,   "long",      level );
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_reward_info", level--);
+}
+ulong fd_reward_info_size(fd_reward_info_t const * self) {
+  ulong size = 0;
+  size += fd_reward_type_size(&self->reward_type);
+  size += sizeof(ulong);
+  size += sizeof(ulong);
+  size += sizeof(long);
+  return size;
+}
+
+int fd_reward_info_encode(fd_reward_info_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  err = fd_reward_type_encode(&self->reward_type, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_encode(&self->lamports, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_encode(&self->post_balance, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_encode((ulong *) &self->commission, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+
+int fd_stake_reward_decode(fd_stake_reward_t* self, fd_bincode_decode_ctx_t * ctx) {
+  int err;
+  err = fd_pubkey_decode(&self->stake_pubkey, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_reward_info_decode(&self->reward_info, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_stake_reward_new(fd_stake_reward_t* self) {
+  fd_memset(self, 0, sizeof(fd_stake_reward_t));
+  fd_pubkey_new(&self->stake_pubkey);
+  fd_reward_info_new(&self->reward_info);
+}
+void fd_stake_reward_destroy(fd_stake_reward_t* self, fd_bincode_destroy_ctx_t * ctx) {
+  fd_pubkey_destroy(&self->stake_pubkey, ctx);
+  fd_reward_info_destroy(&self->reward_info, ctx);
+}
+
+ulong fd_stake_reward_footprint( void ){ return FD_STAKE_REWARD_FOOTPRINT; }
+ulong fd_stake_reward_align( void ){ return FD_STAKE_REWARD_ALIGN; }
+
+void fd_stake_reward_walk(void * w, fd_stake_reward_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_stake_reward", level++);
+  fd_pubkey_walk(w, &self->stake_pubkey, fun, "stake_pubkey", level);
+  fd_reward_info_walk(w, &self->reward_info, fun, "reward_info", level);
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_stake_reward", level--);
+}
+ulong fd_stake_reward_size(fd_stake_reward_t const * self) {
+  ulong size = 0;
+  size += fd_pubkey_size(&self->stake_pubkey);
+  size += fd_reward_info_size(&self->reward_info);
+  return size;
+}
+
+int fd_stake_reward_encode(fd_stake_reward_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  err = fd_pubkey_encode(&self->stake_pubkey, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_reward_info_encode(&self->reward_info, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+
 int fd_vote_decode(fd_vote_t* self, fd_bincode_decode_ctx_t * ctx) {
   int err;
   ulong slots_len;
@@ -6247,6 +6477,7 @@ void fd_vote_authorize_new_disc(fd_vote_authorize_t* self, uint discriminant) {
   fd_vote_authorize_inner_new(&self->inner, self->discriminant);
 }
 void fd_vote_authorize_new(fd_vote_authorize_t* self) {
+  fd_memset(self, 0, sizeof(*self));
   fd_vote_authorize_new_disc(self, UINT_MAX);
 }
 void fd_vote_authorize_inner_destroy(fd_vote_authorize_inner_t* self, uint discriminant, fd_bincode_destroy_ctx_t * ctx) {
@@ -6715,6 +6946,7 @@ void fd_vote_instruction_new_disc(fd_vote_instruction_t* self, uint discriminant
   fd_vote_instruction_inner_new(&self->inner, self->discriminant);
 }
 void fd_vote_instruction_new(fd_vote_instruction_t* self) {
+  fd_memset(self, 0, sizeof(*self));
   fd_vote_instruction_new_disc(self, UINT_MAX);
 }
 void fd_vote_instruction_inner_destroy(fd_vote_instruction_inner_t* self, uint discriminant, fd_bincode_destroy_ctx_t * ctx) {
@@ -6977,116 +7209,6 @@ int fd_vote_instruction_encode(fd_vote_instruction_t const * self, fd_bincode_en
   err = fd_bincode_uint32_encode(&self->discriminant, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return fd_vote_instruction_inner_encode(&self->inner, self->discriminant, ctx);
-}
-
-FD_FN_PURE uchar fd_reward_type_is_fee(fd_reward_type_t const * self) {
-  return self->discriminant == 0;
-}
-FD_FN_PURE uchar fd_reward_type_is_rent(fd_reward_type_t const * self) {
-  return self->discriminant == 1;
-}
-FD_FN_PURE uchar fd_reward_type_is_staking(fd_reward_type_t const * self) {
-  return self->discriminant == 2;
-}
-FD_FN_PURE uchar fd_reward_type_is_voting(fd_reward_type_t const * self) {
-  return self->discriminant == 3;
-}
-void fd_reward_type_inner_new(fd_reward_type_inner_t* self, uint discriminant);
-int fd_reward_type_inner_decode(fd_reward_type_inner_t* self, uint discriminant, fd_bincode_decode_ctx_t * ctx) {
-  fd_reward_type_inner_new(self, discriminant);
-  int err;
-  switch (discriminant) {
-  case 0: {
-    return FD_BINCODE_SUCCESS;
-  }
-  case 1: {
-    return FD_BINCODE_SUCCESS;
-  }
-  case 2: {
-    return FD_BINCODE_SUCCESS;
-  }
-  case 3: {
-    return FD_BINCODE_SUCCESS;
-  }
-  default: return FD_BINCODE_ERR_ENCODING;
-  }
-}
-int fd_reward_type_decode(fd_reward_type_t* self, fd_bincode_decode_ctx_t * ctx) {
-  int err = fd_bincode_uint32_decode(&self->discriminant, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
-  return fd_reward_type_inner_decode(&self->inner, self->discriminant, ctx);
-}
-void fd_reward_type_inner_new(fd_reward_type_inner_t* self, uint discriminant) {
-  switch (discriminant) {
-  case 0: {
-    break;
-  }
-  case 1: {
-    break;
-  }
-  case 2: {
-    break;
-  }
-  case 3: {
-    break;
-  }
-  default: break; // FD_LOG_ERR(( "unhandled type"));
-  }
-}
-void fd_reward_type_new_disc(fd_reward_type_t* self, uint discriminant) {
-  self->discriminant = discriminant;
-  fd_reward_type_inner_new(&self->inner, self->discriminant);
-}
-void fd_reward_type_new(fd_reward_type_t* self) {
-  fd_reward_type_new_disc(self, UINT_MAX);
-}
-void fd_reward_type_inner_destroy(fd_reward_type_inner_t* self, uint discriminant, fd_bincode_destroy_ctx_t * ctx) {
-  switch (discriminant) {
-  case 0: {
-    break;
-  }
-  case 1: {
-    break;
-  }
-  case 2: {
-    break;
-  }
-  case 3: {
-    break;
-  }
-  default: break; // FD_LOG_ERR(( "unhandled type" ));
-  }
-}
-void fd_reward_type_destroy(fd_reward_type_t* self, fd_bincode_destroy_ctx_t * ctx) {
-  fd_reward_type_inner_destroy(&self->inner, self->discriminant, ctx);
-}
-
-ulong fd_reward_type_footprint( void ){ return FD_REWARD_TYPE_FOOTPRINT; }
-ulong fd_reward_type_align( void ){ return FD_REWARD_TYPE_ALIGN; }
-
-void fd_reward_type_walk(void * w, fd_reward_type_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
-  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_reward_type", level++);
-  // enum fd_char*_walk(w, &self->current_authority_derived_key_seed, fun, "current_authority_derived_key_seed", level);
-  switch (self->discriminant) {
-  }
-  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_reward_type", level--);
-}
-ulong fd_reward_type_size(fd_reward_type_t const * self) {
-  ulong size = 0;
-  size += sizeof(uint);
-  switch (self->discriminant) {
-  }
-  return size;
-}
-
-int fd_reward_type_inner_encode(fd_reward_type_inner_t const * self, uint discriminant, fd_bincode_encode_ctx_t * ctx) {
-  return FD_BINCODE_SUCCESS;
-}
-int fd_reward_type_encode(fd_reward_type_t const * self, fd_bincode_encode_ctx_t * ctx) {
-  int err;
-  err = fd_bincode_uint32_encode(&self->discriminant, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
-  return fd_reward_type_inner_encode(&self->inner, self->discriminant, ctx);
 }
 
 int fd_system_program_instruction_create_account_decode(fd_system_program_instruction_create_account_t* self, fd_bincode_decode_ctx_t * ctx) {
@@ -7550,6 +7672,7 @@ void fd_system_program_instruction_new_disc(fd_system_program_instruction_t* sel
   fd_system_program_instruction_inner_new(&self->inner, self->discriminant);
 }
 void fd_system_program_instruction_new(fd_system_program_instruction_t* self) {
+  fd_memset(self, 0, sizeof(*self));
   fd_system_program_instruction_new_disc(self, UINT_MAX);
 }
 void fd_system_program_instruction_inner_destroy(fd_system_program_instruction_inner_t* self, uint discriminant, fd_bincode_destroy_ctx_t * ctx) {
@@ -7886,6 +8009,7 @@ void fd_system_error_new_disc(fd_system_error_t* self, uint discriminant) {
   fd_system_error_inner_new(&self->inner, self->discriminant);
 }
 void fd_system_error_new(fd_system_error_t* self) {
+  fd_memset(self, 0, sizeof(*self));
   fd_system_error_new_disc(self, UINT_MAX);
 }
 void fd_system_error_inner_destroy(fd_system_error_inner_t* self, uint discriminant, fd_bincode_destroy_ctx_t * ctx) {
@@ -8126,6 +8250,7 @@ void fd_stake_authorize_new_disc(fd_stake_authorize_t* self, uint discriminant) 
   fd_stake_authorize_inner_new(&self->inner, self->discriminant);
 }
 void fd_stake_authorize_new(fd_stake_authorize_t* self) {
+  fd_memset(self, 0, sizeof(*self));
   fd_stake_authorize_new_disc(self, UINT_MAX);
 }
 void fd_stake_authorize_inner_destroy(fd_stake_authorize_inner_t* self, uint discriminant, fd_bincode_destroy_ctx_t * ctx) {
@@ -8743,6 +8868,7 @@ void fd_stake_instruction_new_disc(fd_stake_instruction_t* self, uint discrimina
   fd_stake_instruction_inner_new(&self->inner, self->discriminant);
 }
 void fd_stake_instruction_new(fd_stake_instruction_t* self) {
+  fd_memset(self, 0, sizeof(*self));
   fd_stake_instruction_new_disc(self, UINT_MAX);
 }
 void fd_stake_instruction_inner_destroy(fd_stake_instruction_inner_t* self, uint discriminant, fd_bincode_destroy_ctx_t * ctx) {
@@ -9151,6 +9277,7 @@ void fd_stake_state_new_disc(fd_stake_state_t* self, uint discriminant) {
   fd_stake_state_inner_new(&self->inner, self->discriminant);
 }
 void fd_stake_state_new(fd_stake_state_t* self) {
+  fd_memset(self, 0, sizeof(*self));
   fd_stake_state_new_disc(self, UINT_MAX);
 }
 void fd_stake_state_inner_destroy(fd_stake_state_inner_t* self, uint discriminant, fd_bincode_destroy_ctx_t * ctx) {
@@ -9326,6 +9453,7 @@ void fd_nonce_state_new_disc(fd_nonce_state_t* self, uint discriminant) {
   fd_nonce_state_inner_new(&self->inner, self->discriminant);
 }
 void fd_nonce_state_new(fd_nonce_state_t* self) {
+  fd_memset(self, 0, sizeof(*self));
   fd_nonce_state_new_disc(self, UINT_MAX);
 }
 void fd_nonce_state_inner_destroy(fd_nonce_state_inner_t* self, uint discriminant, fd_bincode_destroy_ctx_t * ctx) {
@@ -9431,6 +9559,7 @@ void fd_nonce_state_versions_new_disc(fd_nonce_state_versions_t* self, uint disc
   fd_nonce_state_versions_inner_new(&self->inner, self->discriminant);
 }
 void fd_nonce_state_versions_new(fd_nonce_state_versions_t* self) {
+  fd_memset(self, 0, sizeof(*self));
   fd_nonce_state_versions_new_disc(self, UINT_MAX);
 }
 void fd_nonce_state_versions_inner_destroy(fd_nonce_state_versions_inner_t* self, uint discriminant, fd_bincode_destroy_ctx_t * ctx) {
@@ -9614,6 +9743,7 @@ void fd_compute_budget_program_instruction_new_disc(fd_compute_budget_program_in
   fd_compute_budget_program_instruction_inner_new(&self->inner, self->discriminant);
 }
 void fd_compute_budget_program_instruction_new(fd_compute_budget_program_instruction_t* self) {
+  fd_memset(self, 0, sizeof(*self));
   fd_compute_budget_program_instruction_new_disc(self, UINT_MAX);
 }
 void fd_compute_budget_program_instruction_inner_destroy(fd_compute_budget_program_instruction_inner_t* self, uint discriminant, fd_bincode_destroy_ctx_t * ctx) {
@@ -9880,6 +10010,7 @@ void fd_bpf_loader_program_instruction_new_disc(fd_bpf_loader_program_instructio
   fd_bpf_loader_program_instruction_inner_new(&self->inner, self->discriminant);
 }
 void fd_bpf_loader_program_instruction_new(fd_bpf_loader_program_instruction_t* self) {
+  fd_memset(self, 0, sizeof(*self));
   fd_bpf_loader_program_instruction_new_disc(self, UINT_MAX);
 }
 void fd_bpf_loader_program_instruction_inner_destroy(fd_bpf_loader_program_instruction_inner_t* self, uint discriminant, fd_bincode_destroy_ctx_t * ctx) {
@@ -10067,6 +10198,7 @@ void fd_bpf_loader_v4_program_instruction_new_disc(fd_bpf_loader_v4_program_inst
   fd_bpf_loader_v4_program_instruction_inner_new(&self->inner, self->discriminant);
 }
 void fd_bpf_loader_v4_program_instruction_new(fd_bpf_loader_v4_program_instruction_t* self) {
+  fd_memset(self, 0, sizeof(*self));
   fd_bpf_loader_v4_program_instruction_new_disc(self, UINT_MAX);
 }
 void fd_bpf_loader_v4_program_instruction_inner_destroy(fd_bpf_loader_v4_program_instruction_inner_t* self, uint discriminant, fd_bincode_destroy_ctx_t * ctx) {
@@ -10369,6 +10501,7 @@ void fd_bpf_upgradeable_loader_program_instruction_new_disc(fd_bpf_upgradeable_l
   fd_bpf_upgradeable_loader_program_instruction_inner_new(&self->inner, self->discriminant);
 }
 void fd_bpf_upgradeable_loader_program_instruction_new(fd_bpf_upgradeable_loader_program_instruction_t* self) {
+  fd_memset(self, 0, sizeof(*self));
   fd_bpf_upgradeable_loader_program_instruction_new_disc(self, UINT_MAX);
 }
 void fd_bpf_upgradeable_loader_program_instruction_inner_destroy(fd_bpf_upgradeable_loader_program_instruction_inner_t* self, uint discriminant, fd_bincode_destroy_ctx_t * ctx) {
@@ -10704,6 +10837,7 @@ void fd_bpf_upgradeable_loader_state_new_disc(fd_bpf_upgradeable_loader_state_t*
   fd_bpf_upgradeable_loader_state_inner_new(&self->inner, self->discriminant);
 }
 void fd_bpf_upgradeable_loader_state_new(fd_bpf_upgradeable_loader_state_t* self) {
+  fd_memset(self, 0, sizeof(*self));
   fd_bpf_upgradeable_loader_state_new_disc(self, UINT_MAX);
 }
 void fd_bpf_upgradeable_loader_state_inner_destroy(fd_bpf_upgradeable_loader_state_inner_t* self, uint discriminant, fd_bincode_destroy_ctx_t * ctx) {
@@ -10874,6 +11008,7 @@ void fd_frozen_hash_versioned_new_disc(fd_frozen_hash_versioned_t* self, uint di
   fd_frozen_hash_versioned_inner_new(&self->inner, self->discriminant);
 }
 void fd_frozen_hash_versioned_new(fd_frozen_hash_versioned_t* self) {
+  fd_memset(self, 0, sizeof(*self));
   fd_frozen_hash_versioned_new_disc(self, UINT_MAX);
 }
 void fd_frozen_hash_versioned_inner_destroy(fd_frozen_hash_versioned_inner_t* self, uint discriminant, fd_bincode_destroy_ctx_t * ctx) {
@@ -11096,6 +11231,7 @@ void fd_address_lookup_table_state_new_disc(fd_address_lookup_table_state_t* sel
   fd_address_lookup_table_state_inner_new(&self->inner, self->discriminant);
 }
 void fd_address_lookup_table_state_new(fd_address_lookup_table_state_t* self) {
+  fd_memset(self, 0, sizeof(*self));
   fd_address_lookup_table_state_new_disc(self, UINT_MAX);
 }
 void fd_address_lookup_table_state_inner_destroy(fd_address_lookup_table_state_inner_t* self, uint discriminant, fd_bincode_destroy_ctx_t * ctx) {
@@ -11492,6 +11628,7 @@ void fd_gossip_ip_addr_new_disc(fd_gossip_ip_addr_t* self, uint discriminant) {
   fd_gossip_ip_addr_inner_new(&self->inner, self->discriminant);
 }
 void fd_gossip_ip_addr_new(fd_gossip_ip_addr_t* self) {
+  fd_memset(self, 0, sizeof(*self));
   fd_gossip_ip_addr_new_disc(self, UINT_MAX);
 }
 void fd_gossip_ip_addr_inner_destroy(fd_gossip_ip_addr_inner_t* self, uint discriminant, fd_bincode_destroy_ctx_t * ctx) {
@@ -12290,6 +12427,7 @@ void fd_gossip_slots_enum_new_disc(fd_gossip_slots_enum_t* self, uint discrimina
   fd_gossip_slots_enum_inner_new(&self->inner, self->discriminant);
 }
 void fd_gossip_slots_enum_new(fd_gossip_slots_enum_t* self) {
+  fd_memset(self, 0, sizeof(*self));
   fd_gossip_slots_enum_new_disc(self, UINT_MAX);
 }
 void fd_gossip_slots_enum_inner_destroy(fd_gossip_slots_enum_inner_t* self, uint discriminant, fd_bincode_destroy_ctx_t * ctx) {
@@ -13008,6 +13146,7 @@ void fd_crds_data_new_disc(fd_crds_data_t* self, uint discriminant) {
   fd_crds_data_inner_new(&self->inner, self->discriminant);
 }
 void fd_crds_data_new(fd_crds_data_t* self) {
+  fd_memset(self, 0, sizeof(*self));
   fd_crds_data_new_disc(self, UINT_MAX);
 }
 void fd_crds_data_inner_destroy(fd_crds_data_inner_t* self, uint discriminant, fd_bincode_destroy_ctx_t * ctx) {
@@ -13708,6 +13847,7 @@ void fd_gossip_msg_new_disc(fd_gossip_msg_t* self, uint discriminant) {
   fd_gossip_msg_inner_new(&self->inner, self->discriminant);
 }
 void fd_gossip_msg_new(fd_gossip_msg_t* self) {
+  fd_memset(self, 0, sizeof(*self));
   fd_gossip_msg_new_disc(self, UINT_MAX);
 }
 void fd_gossip_msg_inner_destroy(fd_gossip_msg_inner_t* self, uint discriminant, fd_bincode_destroy_ctx_t * ctx) {

@@ -12,6 +12,7 @@
 #include "fd_vm_cpi.h"
 #include "../runtime/sysvar/fd_sysvar.h"
 #include "../runtime/fd_account.h"
+#include "../../ballet/base64/fd_base64.h"
 
 #include <stdio.h>
 
@@ -21,7 +22,7 @@
 #endif
 
 static ulong
-fd_vm_syscall_consume(fd_vm_exec_context_t * ctx, ulong cost) {
+fd_vm_consume_compute_meter(fd_vm_exec_context_t * ctx, ulong cost) {
   int exceeded = ctx->compute_meter < cost;
   ctx->compute_meter = fd_ulong_sat_sub(ctx->compute_meter, cost);
   return (exceeded) ? FD_VM_SYSCALL_ERR_INSTR_ERR : FD_VM_SYSCALL_SUCCESS;
@@ -319,6 +320,7 @@ fd_vm_syscall_sol_log(
     ulong * pr0
 ) {
   fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
+  fd_vm_consume_compute_meter( ctx, fd_ulong_max(msg_len, vm_compute_budget.syscall_base_cost) );
 
   void const * msg_host_addr =
       fd_vm_translate_vm_to_host_const( ctx, msg_vm_addr, msg_len, alignof(uchar) );
@@ -341,6 +343,7 @@ fd_vm_syscall_sol_log_64(
     ulong * pr0
 ) {
   fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
+  fd_vm_consume_compute_meter( ctx, vm_compute_budget.log_64_units );
 
   char msg[1024];
   int msg_len = sprintf( msg, "Program log: %lx %lx %lx %lx %lx", r1, r2, r3, r4, r5 );
@@ -362,6 +365,7 @@ fd_vm_syscall_sol_log_pubkey(
     ulong * pr0
 ) {
   fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
+  fd_vm_consume_compute_meter( ctx, vm_compute_budget.log_pubkey_units );
 
   char msg[128];
   char pubkey_str[FD_BASE58_ENCODED_32_SZ];
@@ -395,7 +399,7 @@ fd_vm_syscall_sol_log_compute_units(
     return FD_VM_SYSCALL_ERR_INVOKE_CONTEXT_BORROW_FAILED;
   }
 
-  ulong result = fd_vm_syscall_consume( ctx, vm_compute_budget.syscall_base_cost );
+  ulong result = fd_vm_consume_compute_meter( ctx, vm_compute_budget.syscall_base_cost );
   if (result != FD_VM_SYSCALL_SUCCESS) {
     return result;
   }
@@ -412,39 +416,44 @@ fd_vm_syscall_sol_log_compute_units(
 ulong
 fd_vm_syscall_sol_log_data(
     void * _ctx,
-    ulong msg_vm_addr FD_PARAM_UNUSED,
-    ulong msg_len FD_PARAM_UNUSED,
-    ulong arg2 FD_PARAM_UNUSED,
-    ulong arg3 FD_PARAM_UNUSED,
-    ulong arg4 FD_PARAM_UNUSED,
-    ulong * ret FD_PARAM_UNUSED
+    ulong vm_addr,
+    ulong len,
+    ulong r3 FD_PARAM_UNUSED,
+    ulong r4 FD_PARAM_UNUSED,
+    ulong r5 FD_PARAM_UNUSED,
+    ulong * pr0
 ) {
   fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
-  if ( FD_UNLIKELY (!ctx) ) {
-    return FD_VM_SYSCALL_ERR_INVOKE_CONTEXT_BORROW_FAILED;
+  fd_vm_consume_compute_meter( ctx, vm_compute_budget.syscall_base_cost );
+
+  ulong sz = len / sizeof (fd_vm_vec_t);
+
+  fd_vm_vec_t const * untranslated_fields = fd_vm_translate_slice_vm_to_host_const(
+    ctx, 
+    vm_addr,
+    sz,
+    FD_VM_VEC_ALIGN );
+
+  char msg[102400];
+  ulong msg_len = (ulong) sprintf( msg, "Program data: " );
+
+  ulong total = 0UL;
+  for (ulong i = 0; i < sz; ++i) {
+    total += untranslated_fields[i].len;
+    void const * translated_addr = fd_vm_translate_vm_to_host_const( ctx, untranslated_fields[i].addr, untranslated_fields[i].len, alignof(uchar) );
+    char encoded[1024];
+    ulong encoded_len = fd_base64_encode( (const uchar *) translated_addr, (int)untranslated_fields[i].len, encoded);
+    if ( i !=0 ) {
+      sprintf( msg + msg_len, " ");
+      ++ msg_len;
+    }
+    memcpy( msg + msg_len, encoded, encoded_len);
+    msg_len += encoded_len;
   }
+  fd_vm_consume_compute_meter( ctx, total );
 
-  // ulong result = fd_vm_syscall_consume( ctx, vm_compute_budget.syscall_base_cost );
-  // if (result != FD_VM_SYSCALL_SUCCESS) {
-  //   return result;
-  // }
-
-  // fd_vm_vec_t const * msg_host_addr =
-  //     fd_vm_translate_slice_vm_to_host_const( ctx, msg_vm_addr, msg_len, alignof(uchar) );
-  // if( FD_UNLIKELY( !msg_host_addr ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
-
-  // int result = fd_vm_syscall_consume( ctx, fd_ulong_sat_mul( vm_compute_budget.syscall_base_cost, msg_len) );
-  // if (result != FD_VM_SYSCALL_SUCCESS) {
-  //   return result;
-  // }
-
-  // int result = fd_vm_syscall_consume( ctx, fd_ulong_sat_mul( vm_compute_budget.syscall_base_cost, 100) );
-  // if (result != FD_VM_SYSCALL_SUCCESS) {
-  //   return result;
-  // }
-
-
-  *ret = 0UL;
+  *pr0 = 0;
+  fd_vm_log_collector_log( &ctx->log_collector, msg, msg_len );
   return FD_VM_SYSCALL_SUCCESS;
 
 }
@@ -509,7 +518,7 @@ fd_vm_syscall_sol_memcmp(
   for( ulong i = 0; i < n; i++ ) {
     uchar byte1 = host_addr1[i];
     uchar byte2 = host_addr2[i];
-    
+
     if( byte1 != byte2 ) {
       *cmp_result_host_addr = (int)byte1 - (int)byte2;
       break;
@@ -604,14 +613,14 @@ fd_vm_syscall_cpi_preflight_check( ulong signers_seeds_cnt,
 }
 
 static void
-fd_vm_syscall_cpi_rust_instruction_to_instr( fd_vm_exec_context_t const * ctx, 
+fd_vm_syscall_cpi_rust_instruction_to_instr( fd_vm_exec_context_t const * ctx,
                                              fd_vm_rust_instruction_t const * cpi_instr,
                                              fd_vm_rust_account_meta_t const * cpi_acct_metas,
                                              fd_pubkey_t const * signers,
                                              ulong signers_cnt,
-                                             uchar const * cpi_instr_data, 
+                                             uchar const * cpi_instr_data,
                                              fd_instr_t * instr ) {
-                                          
+
   fd_pubkey_t * txn_accs = ctx->instr_ctx.txn_ctx->accounts;
   for( ulong i = 0; i < ctx->instr_ctx.txn_ctx->accounts_cnt; i++ ) {
     if( memcmp( &cpi_instr->pubkey, &txn_accs[i], sizeof( fd_pubkey_t ) )==0 ) {
@@ -625,7 +634,7 @@ fd_vm_syscall_cpi_rust_instruction_to_instr( fd_vm_exec_context_t const * ctx,
 
   for( ulong i = 0; i < cpi_instr->accounts.len; i++ ) {
     fd_vm_rust_account_meta_t const * cpi_acct_meta = &cpi_acct_metas[i];
-    
+
     for( ulong j = 0; j < ctx->instr_ctx.txn_ctx->accounts_cnt; j++ ) {
       if( memcmp( &cpi_acct_meta->pubkey, &txn_accs[j], sizeof( fd_pubkey_t ) )==0 ) {
         // TODO: error if not found, if flags are wrong;
@@ -938,30 +947,30 @@ fd_vm_syscall_cpi_c(
  **********************************************************************/
 
 
-static ulong 
-fd_vm_cpi_update_caller_account( fd_vm_exec_context_t * ctx, 
+static ulong
+fd_vm_cpi_update_caller_account( fd_vm_exec_context_t * ctx,
                                  fd_vm_rust_account_info_t const * caller_acc_info,
                                  fd_pubkey_t const * callee_acc_pubkey ) {
   int read_result = FD_ACC_MGR_SUCCESS;
   uchar * raw_callee_acc_data = (uchar *)fd_acc_mgr_view_raw(ctx->instr_ctx.global->acc_mgr, ctx->instr_ctx.global->funk_txn, callee_acc_pubkey, NULL, &read_result);
-  fd_account_meta_t * callee_acc_metadata = (fd_account_meta_t *)raw_callee_acc_data;
-
-  if( read_result != FD_ACC_MGR_SUCCESS ) {
+  if (FD_UNLIKELY(!FD_RAW_ACCOUNT_EXISTS(raw_callee_acc_data))) {
     FD_LOG_WARNING(( "account missing while updating CPI caller account - key: %32J", callee_acc_pubkey ));
     // TODO: do we need to do something anyways?
     return 0;
   }
 
+  fd_account_meta_t * callee_acc_metadata = (fd_account_meta_t *)raw_callee_acc_data;
+
   uchar * callee_acc_data = fd_account_get_data( callee_acc_metadata );
 
-  fd_vm_rc_refcell_t const * caller_acc_lamports_box = fd_vm_translate_vm_to_host_const( 
+  fd_vm_rc_refcell_t const * caller_acc_lamports_box = fd_vm_translate_vm_to_host_const(
     ctx,
     caller_acc_info->lamports_box_addr,
     sizeof(fd_vm_rc_refcell_t),
     FD_VM_RC_REFCELL_ALIGN );
   if( FD_UNLIKELY( !caller_acc_lamports_box ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
 
-  ulong * caller_acc_lamports = fd_vm_translate_vm_to_host( 
+  ulong * caller_acc_lamports = fd_vm_translate_vm_to_host(
     ctx,
     caller_acc_lamports_box->addr,
     sizeof(ulong),
@@ -970,20 +979,20 @@ fd_vm_cpi_update_caller_account( fd_vm_exec_context_t * ctx,
   *caller_acc_lamports = callee_acc_metadata->info.lamports;
 
   fd_vm_rc_refcell_vec_t * caller_acc_data_box = fd_vm_translate_vm_to_host(
-    ctx, 
+    ctx,
     caller_acc_info->data_box_addr,
     sizeof(fd_vm_rc_refcell_vec_t),
     FD_VM_RC_REFCELL_ALIGN );
-  if( FD_UNLIKELY( !caller_acc_data_box ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;  
+  if( FD_UNLIKELY( !caller_acc_data_box ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
 
-  uchar * caller_acc_data = fd_vm_translate_vm_to_host( 
+  uchar * caller_acc_data = fd_vm_translate_vm_to_host(
     ctx,
     caller_acc_data_box->addr,
     caller_acc_data_box->len,
     alignof(uchar) );
   if( FD_UNLIKELY( !caller_acc_data ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
- 
-  uchar * caller_acc_owner = fd_vm_translate_vm_to_host( 
+
+  uchar * caller_acc_owner = fd_vm_translate_vm_to_host(
     ctx,
     caller_acc_info->owner_addr,
     sizeof(fd_pubkey_t),
@@ -994,9 +1003,9 @@ fd_vm_cpi_update_caller_account( fd_vm_exec_context_t * ctx,
 
   if( caller_acc_data_box->len != callee_acc_metadata->dlen ) {
     FD_LOG_WARNING(( "account size mismatch while updating CPI caller account - key: %32J, caller: %lu, callee: %lu", callee_acc_pubkey, caller_acc_data_box->len, callee_acc_metadata->dlen ));
-    
+
     caller_acc_data_box->len = callee_acc_metadata->dlen;
-    
+
     // TODO return instruction error account data size too small.
   }
 
@@ -1479,7 +1488,7 @@ fd_vm_syscall_sol_try_find_program_address(
      leverage SHA's streaming properties to precompute all but the last
      two blocks (1 data, 0 or 1 padding). */
 
-  
+
 
   /* Translate outputs but delay validation.
 
@@ -1521,7 +1530,7 @@ fd_vm_syscall_sol_try_find_program_address(
     fd_sha256_fini( sha, &result );
 
     fd_sha256_delete( fd_sha256_leave( sha ) );
-    
+
     FD_LOG_WARNING(("SOL_TFPA X: %32J %lu", &result, i));
     FD_LOG_HEXDUMP_WARNING(("SOL_TFPA Y", &result, sizeof(fd_pubkey_t)));
 
@@ -1574,7 +1583,7 @@ fini:
 ulong
 fd_vm_syscall_sol_get_processed_sibling_instruction(
     void * _ctx FD_PARAM_UNUSED,
-    ulong arg0 FD_PARAM_UNUSED,      
+    ulong arg0 FD_PARAM_UNUSED,
     ulong arg1 FD_PARAM_UNUSED,
     ulong arg2 FD_PARAM_UNUSED,
     ulong arg3 FD_PARAM_UNUSED,
