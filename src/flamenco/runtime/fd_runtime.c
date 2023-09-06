@@ -11,6 +11,7 @@
 #include "../../ballet/bmtree/fd_bmtree.h"
 
 #include "../stakes/fd_stake_program.h"
+#include "../rewards/fd_rewards.h"
 #include "program/fd_system_program.h"
 #include "program/fd_vote_program.h"
 #include <stdio.h>
@@ -251,10 +252,15 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_meta_t* m, const void
   if( global->bank.slot != 0 ) {
     ulong slot_idx;
     ulong new_epoch = fd_slot_to_epoch( &global->bank.epoch_schedule, m->slot, &slot_idx );
+    FD_LOG_NOTICE(( "executing block - slot: %lu, epoch: %lu, slot_idx: %lu", m->slot, new_epoch, slot_idx ));
     if( slot_idx==0UL ) {
       /* Epoch boundary! */
       fd_process_new_epoch( global, new_epoch - 1UL );
     }
+    if ( FD_FEATURE_ACTIVE( global, enable_partitioned_epoch_reward ) ) {
+      distribute_partitioned_epoch_rewards(&global->bank, global);
+    }
+    
   }
 
   /* Get current leader */
@@ -1658,15 +1664,12 @@ fd_process_new_epoch(
            self.update_epoch_stakes(leader_schedule_epoch),
            "update_epoch_stakes",
        ); */
-  fd_epoch_reward_status_t epoch_reward_status[1] = {0};
   if ( FD_FEATURE_ACTIVE( global, enable_partitioned_epoch_reward ) ) {
-    begin_partitioned_rewards( &global->bank, global, parent_epoch, epoch_reward_status);
+    begin_partitioned_rewards( &global->bank, global, parent_epoch );
   } else {
     // TODO: need to complete this path
     update_rewards( global, parent_epoch);
   }
-
-  distribute_partitioned_epoch_rewards( &global->bank, global, epoch_reward_status );
 
   // (TODO) Update sysvars before processing transactions
   // new.update_slot_hashes();

@@ -3,6 +3,7 @@
 
 #include "../../ballet/txn/fd_txn.h"
 #include "fd_runtime.h"
+#include "program/fd_vote_program.h"
 
 // Once these settle out, we will switch almost everything to not be inlined
 

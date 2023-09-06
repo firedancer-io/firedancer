@@ -10,7 +10,7 @@
 #include "program/fd_builtin_programs.h"
 #include "../leaders/fd_leaders.h"
 #include "../capture/fd_solcap_writer.h"
-#include "../rewards/fd_rewards.h"
+#include "sysvar/fd_sysvar.h"
 
 #define FD_RUNTIME_EXECUTE_SUCCESS                               ( 0 )  /* Slot executed successfully */
 #define FD_RUNTIME_EXECUTE_GENERIC_ERR                          ( -1 ) /* The Slot execute returned an error */
@@ -19,6 +19,26 @@
 #define FD_FEATURE_ACTIVE(_g, _y)  (_g->bank.slot >= _g->features. _y)
 
 #define FD_GLOBAL_CTX_ALIGN (32UL)
+
+#define VECT_NAME fd_stake_rewards
+#define VECT_ELEMENT fd_stake_reward_t*
+#include "../runtime/fd_vector.h"
+#undef VECT_NAME
+#undef VECT_ELEMENT
+
+#define VECT_NAME fd_stake_rewards_vector
+#define VECT_ELEMENT fd_stake_rewards_t
+#include "../runtime/fd_vector.h"
+#undef VECT_NAME
+#undef VECT_ELEMENT
+
+struct fd_epoch_reward_status {
+  uint is_active;
+  ulong start_block_height;
+  fd_stake_rewards_vector_t * stake_rewards_by_partition;
+};
+typedef struct fd_epoch_reward_status fd_epoch_reward_status_t;
+
 struct __attribute__((aligned(FD_GLOBAL_CTX_ALIGN))) fd_global_ctx {
   // TODO: We need to organize this structure in a cache line aware way?
 
@@ -88,6 +108,8 @@ struct __attribute__((aligned(FD_GLOBAL_CTX_ALIGN))) fd_global_ctx {
 
   fd_rent_lists_t *          rentlists;
   ulong                      rent_epoch;
+  fd_epoch_reward_status_t   epoch_reward_status;
+
 };
 
 #define FD_GLOBAL_CTX_FOOTPRINT ( sizeof(fd_global_ctx_t) )

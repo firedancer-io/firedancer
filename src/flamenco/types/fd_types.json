@@ -883,6 +883,45 @@
       ]
     },
     {
+      "name": "prev_epoch_inflation_rewards",
+      "type": "struct",
+      "fields": [
+        { "name": "validator_rewards", "type": "ulong" },
+        { "name": "prev_epoch_duration_in_years", "type": "double" },
+        { "name": "validator_rate", "type": "double" },
+        { "name": "foundation_rate", "type": "double" }
+      ]
+    },
+    {
+      "name": "reward_type",
+      "type": "enum",
+      "variants": [
+        { "name": "fee" },
+        { "name": "rent" },
+        { "name": "staking" },
+        { "name": "voting" }
+      ],
+      "comment": "https://github.com/firedancer-io/solana/blob/de02601d73d626edf98ef63efd772824746f2f33/sdk/src/reward_type.rs#L5-L11"
+    },
+    {
+      "name": "reward_info",
+      "type": "struct",
+      "fields": [
+        { "name": "reward_type", "type": "reward_type" },
+        { "name": "lamports", "type": "ulong" },
+        { "name": "post_balance", "type": "ulong" },
+        { "name": "commission", "type": "long" }
+      ]
+    },
+    {
+      "name": "stake_reward",
+      "type": "struct",
+      "fields": [
+        { "name": "stake_pubkey", "type": "pubkey" },
+        { "name": "reward_info", "type": "reward_info" }
+      ]
+    },
+    {
       "name": "vote",
       "type": "struct",
       "fields": [
@@ -980,17 +1019,6 @@
         { "name": "compact_update_vote_state_switch", "type": "compact_vote_state_update_switch"}
       ],
       "comment": "https://github.com/firedancer-io/solana/blob/53a4e5d6c58b2ffe89b09304e4437f8ca198dadd/programs/vote/src/vote_instruction.rs#L21"
-    },
-    {
-      "name": "reward_type",
-      "type": "enum",
-      "variants": [
-        { "name": "fee" },
-        { "name": "rent" },
-        { "name": "staking" },
-        { "name": "voting" }
-      ],
-      "comment": "https://github.com/firedancer-io/solana/blob/de02601d73d626edf98ef63efd772824746f2f33/sdk/src/reward_type.rs#L5-L11"
     },
     {
       "name": "system_program_instruction_create_account",

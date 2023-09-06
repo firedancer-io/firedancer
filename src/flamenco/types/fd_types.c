@@ -6005,6 +6005,264 @@ int fd_firedancer_banks_encode(fd_firedancer_banks_t const * self, fd_bincode_en
   return FD_BINCODE_SUCCESS;
 }
 
+int fd_prev_epoch_inflation_rewards_decode(fd_prev_epoch_inflation_rewards_t* self, fd_bincode_decode_ctx_t * ctx) {
+  int err;
+  err = fd_bincode_uint64_decode(&self->validator_rewards, ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_double_decode(&self->prev_epoch_duration_in_years, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_double_decode(&self->validator_rate, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_double_decode(&self->foundation_rate, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_prev_epoch_inflation_rewards_new(fd_prev_epoch_inflation_rewards_t* self) {
+  fd_memset(self, 0, sizeof(fd_prev_epoch_inflation_rewards_t));
+}
+void fd_prev_epoch_inflation_rewards_destroy(fd_prev_epoch_inflation_rewards_t* self, fd_bincode_destroy_ctx_t * ctx) {
+}
+
+ulong fd_prev_epoch_inflation_rewards_footprint( void ){ return FD_PREV_EPOCH_INFLATION_REWARDS_FOOTPRINT; }
+ulong fd_prev_epoch_inflation_rewards_align( void ){ return FD_PREV_EPOCH_INFLATION_REWARDS_ALIGN; }
+
+void fd_prev_epoch_inflation_rewards_walk(void * w, fd_prev_epoch_inflation_rewards_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_prev_epoch_inflation_rewards", level++);
+  fun( w, &self->validator_rewards, "validator_rewards", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
+  fun( w, &self->prev_epoch_duration_in_years, "prev_epoch_duration_in_years", FD_FLAMENCO_TYPE_DOUBLE,  "double",    level );
+  fun( w, &self->validator_rate, "validator_rate", FD_FLAMENCO_TYPE_DOUBLE,  "double",    level );
+  fun( w, &self->foundation_rate, "foundation_rate", FD_FLAMENCO_TYPE_DOUBLE,  "double",    level );
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_prev_epoch_inflation_rewards", level--);
+}
+ulong fd_prev_epoch_inflation_rewards_size(fd_prev_epoch_inflation_rewards_t const * self) {
+  ulong size = 0;
+  size += sizeof(ulong);
+  size += sizeof(double);
+  size += sizeof(double);
+  size += sizeof(double);
+  return size;
+}
+
+int fd_prev_epoch_inflation_rewards_encode(fd_prev_epoch_inflation_rewards_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  err = fd_bincode_uint64_encode(&self->validator_rewards, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_double_encode(&self->prev_epoch_duration_in_years, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_double_encode(&self->validator_rate, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_double_encode(&self->foundation_rate, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+
+FD_FN_PURE uchar fd_reward_type_is_fee(fd_reward_type_t const * self) {
+  return self->discriminant == 0;
+}
+FD_FN_PURE uchar fd_reward_type_is_rent(fd_reward_type_t const * self) {
+  return self->discriminant == 1;
+}
+FD_FN_PURE uchar fd_reward_type_is_staking(fd_reward_type_t const * self) {
+  return self->discriminant == 2;
+}
+FD_FN_PURE uchar fd_reward_type_is_voting(fd_reward_type_t const * self) {
+  return self->discriminant == 3;
+}
+void fd_reward_type_inner_new(fd_reward_type_inner_t* self, uint discriminant);
+int fd_reward_type_inner_decode(fd_reward_type_inner_t* self, uint discriminant, fd_bincode_decode_ctx_t * ctx) {
+  fd_reward_type_inner_new(self, discriminant);
+  int err;
+  switch (discriminant) {
+  case 0: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 1: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 2: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 3: {
+    return FD_BINCODE_SUCCESS;
+  }
+  default: return FD_BINCODE_ERR_ENCODING;
+  }
+}
+int fd_reward_type_decode(fd_reward_type_t* self, fd_bincode_decode_ctx_t * ctx) {
+  int err = fd_bincode_uint32_decode(&self->discriminant, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return fd_reward_type_inner_decode(&self->inner, self->discriminant, ctx);
+}
+void fd_reward_type_inner_new(fd_reward_type_inner_t* self, uint discriminant) {
+  switch (discriminant) {
+  case 0: {
+    break;
+  }
+  case 1: {
+    break;
+  }
+  case 2: {
+    break;
+  }
+  case 3: {
+    break;
+  }
+  default: break; // FD_LOG_ERR(( "unhandled type"));
+  }
+}
+void fd_reward_type_new_disc(fd_reward_type_t* self, uint discriminant) {
+  self->discriminant = discriminant;
+  fd_reward_type_inner_new(&self->inner, self->discriminant);
+}
+void fd_reward_type_new(fd_reward_type_t* self) {
+  fd_memset(self, 0, sizeof(*self));
+  fd_reward_type_new_disc(self, UINT_MAX);
+}
+void fd_reward_type_inner_destroy(fd_reward_type_inner_t* self, uint discriminant, fd_bincode_destroy_ctx_t * ctx) {
+  switch (discriminant) {
+  case 0: {
+    break;
+  }
+  case 1: {
+    break;
+  }
+  case 2: {
+    break;
+  }
+  case 3: {
+    break;
+  }
+  default: break; // FD_LOG_ERR(( "unhandled type" ));
+  }
+}
+void fd_reward_type_destroy(fd_reward_type_t* self, fd_bincode_destroy_ctx_t * ctx) {
+  fd_reward_type_inner_destroy(&self->inner, self->discriminant, ctx);
+}
+
+ulong fd_reward_type_footprint( void ){ return FD_REWARD_TYPE_FOOTPRINT; }
+ulong fd_reward_type_align( void ){ return FD_REWARD_TYPE_ALIGN; }
+
+void fd_reward_type_walk(void * w, fd_reward_type_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_reward_type", level++);
+  // enum fd_double_walk(w, &self->foundation_rate, fun, "foundation_rate", level);
+  switch (self->discriminant) {
+  }
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_reward_type", level--);
+}
+ulong fd_reward_type_size(fd_reward_type_t const * self) {
+  ulong size = 0;
+  size += sizeof(uint);
+  switch (self->discriminant) {
+  }
+  return size;
+}
+
+int fd_reward_type_inner_encode(fd_reward_type_inner_t const * self, uint discriminant, fd_bincode_encode_ctx_t * ctx) {
+  return FD_BINCODE_SUCCESS;
+}
+int fd_reward_type_encode(fd_reward_type_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  err = fd_bincode_uint32_encode(&self->discriminant, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return fd_reward_type_inner_encode(&self->inner, self->discriminant, ctx);
+}
+
+int fd_reward_info_decode(fd_reward_info_t* self, fd_bincode_decode_ctx_t * ctx) {
+  int err;
+  err = fd_reward_type_decode(&self->reward_type, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_decode(&self->lamports, ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_uint64_decode(&self->post_balance, ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_uint64_decode((ulong *) &self->commission, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_reward_info_new(fd_reward_info_t* self) {
+  fd_memset(self, 0, sizeof(fd_reward_info_t));
+  fd_reward_type_new(&self->reward_type);
+}
+void fd_reward_info_destroy(fd_reward_info_t* self, fd_bincode_destroy_ctx_t * ctx) {
+  fd_reward_type_destroy(&self->reward_type, ctx);
+}
+
+ulong fd_reward_info_footprint( void ){ return FD_REWARD_INFO_FOOTPRINT; }
+ulong fd_reward_info_align( void ){ return FD_REWARD_INFO_ALIGN; }
+
+void fd_reward_info_walk(void * w, fd_reward_info_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_reward_info", level++);
+  fd_reward_type_walk(w, &self->reward_type, fun, "reward_type", level);
+  fun( w, &self->lamports, "lamports", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
+  fun( w, &self->post_balance, "post_balance", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
+  fun( w, &self->commission, "commission", FD_FLAMENCO_TYPE_SLONG,   "long",      level );
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_reward_info", level--);
+}
+ulong fd_reward_info_size(fd_reward_info_t const * self) {
+  ulong size = 0;
+  size += fd_reward_type_size(&self->reward_type);
+  size += sizeof(ulong);
+  size += sizeof(ulong);
+  size += sizeof(long);
+  return size;
+}
+
+int fd_reward_info_encode(fd_reward_info_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  err = fd_reward_type_encode(&self->reward_type, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_encode(&self->lamports, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_encode(&self->post_balance, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_encode((ulong *) &self->commission, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+
+int fd_stake_reward_decode(fd_stake_reward_t* self, fd_bincode_decode_ctx_t * ctx) {
+  int err;
+  err = fd_pubkey_decode(&self->stake_pubkey, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_reward_info_decode(&self->reward_info, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_stake_reward_new(fd_stake_reward_t* self) {
+  fd_memset(self, 0, sizeof(fd_stake_reward_t));
+  fd_pubkey_new(&self->stake_pubkey);
+  fd_reward_info_new(&self->reward_info);
+}
+void fd_stake_reward_destroy(fd_stake_reward_t* self, fd_bincode_destroy_ctx_t * ctx) {
+  fd_pubkey_destroy(&self->stake_pubkey, ctx);
+  fd_reward_info_destroy(&self->reward_info, ctx);
+}
+
+ulong fd_stake_reward_footprint( void ){ return FD_STAKE_REWARD_FOOTPRINT; }
+ulong fd_stake_reward_align( void ){ return FD_STAKE_REWARD_ALIGN; }
+
+void fd_stake_reward_walk(void * w, fd_stake_reward_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_stake_reward", level++);
+  fd_pubkey_walk(w, &self->stake_pubkey, fun, "stake_pubkey", level);
+  fd_reward_info_walk(w, &self->reward_info, fun, "reward_info", level);
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_stake_reward", level--);
+}
+ulong fd_stake_reward_size(fd_stake_reward_t const * self) {
+  ulong size = 0;
+  size += fd_pubkey_size(&self->stake_pubkey);
+  size += fd_reward_info_size(&self->reward_info);
+  return size;
+}
+
+int fd_stake_reward_encode(fd_stake_reward_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  err = fd_pubkey_encode(&self->stake_pubkey, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_reward_info_encode(&self->reward_info, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+
 int fd_vote_decode(fd_vote_t* self, fd_bincode_decode_ctx_t * ctx) {
   int err;
   ulong slots_len;
@@ -6951,117 +7209,6 @@ int fd_vote_instruction_encode(fd_vote_instruction_t const * self, fd_bincode_en
   err = fd_bincode_uint32_encode(&self->discriminant, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return fd_vote_instruction_inner_encode(&self->inner, self->discriminant, ctx);
-}
-
-FD_FN_PURE uchar fd_reward_type_is_fee(fd_reward_type_t const * self) {
-  return self->discriminant == 0;
-}
-FD_FN_PURE uchar fd_reward_type_is_rent(fd_reward_type_t const * self) {
-  return self->discriminant == 1;
-}
-FD_FN_PURE uchar fd_reward_type_is_staking(fd_reward_type_t const * self) {
-  return self->discriminant == 2;
-}
-FD_FN_PURE uchar fd_reward_type_is_voting(fd_reward_type_t const * self) {
-  return self->discriminant == 3;
-}
-void fd_reward_type_inner_new(fd_reward_type_inner_t* self, uint discriminant);
-int fd_reward_type_inner_decode(fd_reward_type_inner_t* self, uint discriminant, fd_bincode_decode_ctx_t * ctx) {
-  fd_reward_type_inner_new(self, discriminant);
-  int err;
-  switch (discriminant) {
-  case 0: {
-    return FD_BINCODE_SUCCESS;
-  }
-  case 1: {
-    return FD_BINCODE_SUCCESS;
-  }
-  case 2: {
-    return FD_BINCODE_SUCCESS;
-  }
-  case 3: {
-    return FD_BINCODE_SUCCESS;
-  }
-  default: return FD_BINCODE_ERR_ENCODING;
-  }
-}
-int fd_reward_type_decode(fd_reward_type_t* self, fd_bincode_decode_ctx_t * ctx) {
-  int err = fd_bincode_uint32_decode(&self->discriminant, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
-  return fd_reward_type_inner_decode(&self->inner, self->discriminant, ctx);
-}
-void fd_reward_type_inner_new(fd_reward_type_inner_t* self, uint discriminant) {
-  switch (discriminant) {
-  case 0: {
-    break;
-  }
-  case 1: {
-    break;
-  }
-  case 2: {
-    break;
-  }
-  case 3: {
-    break;
-  }
-  default: break; // FD_LOG_ERR(( "unhandled type"));
-  }
-}
-void fd_reward_type_new_disc(fd_reward_type_t* self, uint discriminant) {
-  self->discriminant = discriminant;
-  fd_reward_type_inner_new(&self->inner, self->discriminant);
-}
-void fd_reward_type_new(fd_reward_type_t* self) {
-  fd_memset(self, 0, sizeof(*self));
-  fd_reward_type_new_disc(self, UINT_MAX);
-}
-void fd_reward_type_inner_destroy(fd_reward_type_inner_t* self, uint discriminant, fd_bincode_destroy_ctx_t * ctx) {
-  switch (discriminant) {
-  case 0: {
-    break;
-  }
-  case 1: {
-    break;
-  }
-  case 2: {
-    break;
-  }
-  case 3: {
-    break;
-  }
-  default: break; // FD_LOG_ERR(( "unhandled type" ));
-  }
-}
-void fd_reward_type_destroy(fd_reward_type_t* self, fd_bincode_destroy_ctx_t * ctx) {
-  fd_reward_type_inner_destroy(&self->inner, self->discriminant, ctx);
-}
-
-ulong fd_reward_type_footprint( void ){ return FD_REWARD_TYPE_FOOTPRINT; }
-ulong fd_reward_type_align( void ){ return FD_REWARD_TYPE_ALIGN; }
-
-void fd_reward_type_walk(void * w, fd_reward_type_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
-  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_reward_type", level++);
-  // enum fd_char*_walk(w, &self->current_authority_derived_key_seed, fun, "current_authority_derived_key_seed", level);
-  switch (self->discriminant) {
-  }
-  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_reward_type", level--);
-}
-ulong fd_reward_type_size(fd_reward_type_t const * self) {
-  ulong size = 0;
-  size += sizeof(uint);
-  switch (self->discriminant) {
-  }
-  return size;
-}
-
-int fd_reward_type_inner_encode(fd_reward_type_inner_t const * self, uint discriminant, fd_bincode_encode_ctx_t * ctx) {
-  return FD_BINCODE_SUCCESS;
-}
-int fd_reward_type_encode(fd_reward_type_t const * self, fd_bincode_encode_ctx_t * ctx) {
-  int err;
-  err = fd_bincode_uint32_encode(&self->discriminant, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
-  return fd_reward_type_inner_encode(&self->inner, self->discriminant, ctx);
 }
 
 int fd_system_program_instruction_create_account_decode(fd_system_program_instruction_create_account_t* self, fd_bincode_decode_ctx_t * ctx) {

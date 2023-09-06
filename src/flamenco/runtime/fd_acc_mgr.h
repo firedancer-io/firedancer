@@ -91,11 +91,11 @@ FD_RAW_ACCOUNT_EXISTS(void const *ptr) {
   ulong *ul = (ulong *) &m->info.owner[0];
 #pragma GCC diagnostic pop
 
-  return (0 < m->info.lamports) |
-    (0 < m->dlen) |
-    (FD_LOAD(ulong, &ul[0]) != 0) |
-    (FD_LOAD(ulong, &ul[1]) != 0) |
-    (FD_LOAD(ulong, &ul[2]) != 0) |
+  return (0 < m->info.lamports) ||
+    (0 < m->dlen) ||
+    (FD_LOAD(ulong, &ul[0]) != 0) ||
+    (FD_LOAD(ulong, &ul[1]) != 0) ||
+    (FD_LOAD(ulong, &ul[2]) != 0) ||
     (FD_LOAD(ulong, &ul[3]) != 0);
 }
 

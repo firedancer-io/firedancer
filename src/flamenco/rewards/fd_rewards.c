@@ -107,7 +107,6 @@ static void calculate_stake_points_and_credits (
     } else if (credits_in_stake < final_epoch_credits) {
       earned_credits = (__uint128_t)(final_epoch_credits - new_credits_observed);
     }
-    FD_LOG_NOTICE(("earned_credits: %lu", earned_credits));
     new_credits_observed = fd_ulong_max(new_credits_observed, final_epoch_credits);
 
     __uint128_t stake_amount = (__uint128_t)(stake_activating_and_deactivating(&stake_state->inner.stake.stake.delegation, epoch, stake_history, NULL).effective);
@@ -157,10 +156,6 @@ static void calculate_and_redeem_stake_rewards(
 
 
     ulong rewards = (ulong)(stake_points_result.points * (__uint128_t)point_value->rewards / (__uint128_t) point_value->points);
-    FD_LOG_NOTICE(("stake_points_result.points: %lu", stake_points_result.points));
-    FD_LOG_NOTICE(("point_value->rewards: %lu", point_value->rewards));
-    FD_LOG_NOTICE(("point_value->points: %lu", point_value->points));
-    FD_LOG_NOTICE(("REWARDS REWARDS REWARDS: %lu", rewards));
     fd_commission_split_t split_result;
     fd_vote_commission_split( vote_state_versioned, rewards, &split_result );
     if (split_result.is_split && (split_result.voter_portion == 0 || split_result.staker_portion == 0)) {
@@ -179,7 +174,7 @@ static void calculate_and_redeem_stake_rewards(
 }
 
 int
-redeem_rewards( fd_global_ctx_t *               global,
+stake_state_redeem_rewards( fd_global_ctx_t *   global,
                 fd_stake_history_t *            stake_history,
                 fd_pubkey_t *                   stake_acc,
                 fd_vote_state_versioned_t *     vote_state,
@@ -200,23 +195,10 @@ redeem_rewards( fd_global_ctx_t *               global,
     }
 
     calculate_and_redeem_stake_rewards(stake_history, &stake_state, vote_state, rewarded_epoch, point_value, result);
-    FD_LOG_NOTICE(("result->staker_rewards: %lu", result->staker_rewards));
-    FD_LOG_NOTICE(("result->new_credits_observed: %lu", result->new_credits_observed));
-    FD_LOG_NOTICE(("result->voter_rewards: %lu", result->voter_rewards));
     if (result == NULL) {
         // ctx->txn_ctx->custom_err = 0; /* Err(StakeError::NoCreditsToRedeem.into()) */
         return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
     }
-    err = write_stake_state( global, stake_acc, &stake_state, 0);
-    if (err != 0 ) {
-        return err;
-    }
-
-    fd_account_meta_t * meta = NULL;
-    int read_err = fd_acc_mgr_modify( global->acc_mgr, global->funk_txn, stake_acc, 0, 0UL, NULL, NULL, &meta, NULL );
-    FD_TEST( read_err==0 );
-
-    meta->info.lamports += result->staker_rewards;
 
     return FD_EXECUTOR_INSTR_SUCCESS;
 }
@@ -230,7 +212,6 @@ int calculate_points(
     if (!fd_stake_state_is_stake( stake_state)) {
         return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
     }
-    FD_LOG_NOTICE(("calculate_points"));
     fd_calculate_stake_points_t stake_point_result;
     calculate_stake_points_and_credits(stake_history, stake_state, vote_state_versioned, &stake_point_result);
     *result = stake_point_result.points;
@@ -248,10 +229,6 @@ epoch_duration_in_years(
     ulong slots_in_epoch = (prev_epoch < bank->epoch_schedule.first_normal_epoch) ?
         1UL << fd_ulong_sat_add(prev_epoch, FD_EPOCH_LEN_MIN_TRAILING_ZERO) :
         bank->epoch_schedule.slots_per_epoch;
-    FD_LOG_NOTICE(("epoch_duration_in_years prev_epoch: %lu", prev_epoch));
-    FD_LOG_NOTICE(("epoch_duration_in_years bank->epoch_schedule.first_normal_epoch: %lu", bank->epoch_schedule.first_normal_epoch));
-    FD_LOG_NOTICE(("epoch_duration_in_years slots_in_epoch: %lu", slots_in_epoch));
-    FD_LOG_NOTICE(("epoch_duration_in_years bank->slots_per_year: %f", bank->slots_per_year));
     return (double)slots_in_epoch / (double) bank->slots_per_year;
 }
 
@@ -260,7 +237,7 @@ calculate_previous_epoch_inflation_rewards(
     fd_firedancer_banks_t * bank,
     ulong prev_epoch_capitalization,
     ulong prev_epoch,
-    prev_epoch_inflation_rewards_t * rewards
+    fd_prev_epoch_inflation_rewards_t * rewards
 ) {
     /* https://github.com/firedancer-io/solana/blob/de02601d73d626edf98ef63efd772824746f2f33/runtime/src/bank.rs#L2351-L2376 */
 
@@ -274,10 +251,6 @@ calculate_previous_epoch_inflation_rewards(
     rewards->foundation_rate = foundation(&bank->inflation, slot_in_year);
     rewards->prev_epoch_duration_in_years = epoch_duration_in_years(bank, prev_epoch);
     rewards->validator_rewards = (ulong)(rewards->validator_rate * (double)prev_epoch_capitalization * rewards->prev_epoch_duration_in_years);
-    FD_LOG_NOTICE(("validator_rate: %.32f", rewards->validator_rate));
-    FD_LOG_NOTICE(("prev_epoch_duration_in_years: %.32f", rewards->prev_epoch_duration_in_years));
-    FD_LOG_NOTICE(("prev_epoch_capitalization: %lu", prev_epoch_capitalization));
-    FD_LOG_NOTICE(("validator_rewards: %lu", rewards->validator_rewards));
 }
 
 
@@ -356,7 +329,6 @@ calculate_reward_points_partitioned(
         points += (calculate_points(&stake_state, vote_state, stake_history, &result) == FD_EXECUTOR_INSTR_SUCCESS ? result : 0);
 
     }
-    FD_LOG_NOTICE(("points: %lu", points));
     if (points > 0) {
         result->points = points;
         result->rewards = rewards;
@@ -391,7 +363,6 @@ calculate_stake_vote_rewards(
     fd_acc_lamports_t total_stake_rewards = 0;
     fd_stake_reward_t * stake_reward_deq = deq_fd_stake_reward_t_alloc( global->valloc );
     fd_vote_reward_t_mapnode_t * vote_reward_map = fd_vote_reward_t_map_alloc( global->valloc, 30);
-    FD_LOG_NOTICE(("calculate_stake_vote_rewards WITHIN"));
     for ( fd_delegation_pair_t_mapnode_t * n = fd_delegation_pair_t_map_minimum( bank->stakes.stake_delegations_pool, bank->stakes.stake_delegations_root ); n; n = fd_delegation_pair_t_map_successor( bank->stakes.stake_delegations_pool, n ) ) {
         fd_pubkey_t * voter_acc = &n->elem.delegation.voter_pubkey;
         fd_pubkey_t * stake_acc = &n->elem.account;
@@ -423,8 +394,8 @@ calculate_stake_vote_rewards(
         }
 
         fd_calculated_stake_rewards_t redeemed[1];
-        if (redeem_rewards(global, stake_history, stake_acc, vote_state_versioned, rewarded_epoch, point_value, redeemed) != 0) {
-            FD_LOG_WARNING(("stake_state::redeem_rewards() failed for %32J", stake_acc->key ));
+        if (stake_state_redeem_rewards(global, stake_history, stake_acc, vote_state_versioned, rewarded_epoch, point_value, redeemed) != 0) {
+            FD_LOG_WARNING(("stake_state::stake_state_redeem_rewards() failed for %32J", stake_acc->key ));
             continue;
         }
         int err;
@@ -488,8 +459,6 @@ calculate_validator_rewards(
 
     fd_point_value_t point_value_result[1] = {0};
     calculate_reward_points_partitioned(global, &stake_history, rewards, point_value_result);
-    FD_LOG_NOTICE(("calculate_validator_rewards: point_value_result->points = %lu", point_value_result->points));
-    FD_LOG_NOTICE(("calculate_validator_rewards: point_value_result->rewards = %lu", point_value_result->rewards));
     calculate_stake_vote_rewards(global, &stake_history, rewarded_epoch, point_value_result, result);
 }
 
@@ -547,7 +516,6 @@ hash_rewards_into_partitions(
             (__uint128_t) hash64 /
             ((__uint128_t)ULONG_MAX + 1)
         );
-        FD_LOG_NOTICE(("partition idx={%lu}", partition_index));
         fd_stake_rewards_push(&result->elems[partition_index], ele);
     }
 }
@@ -559,7 +527,7 @@ calculate_rewards_for_partitioning(
     ulong prev_epoch,
     fd_partitioned_rewards_calculation_t * result
 ) {
-    prev_epoch_inflation_rewards_t rewards;
+    fd_prev_epoch_inflation_rewards_t rewards;
     fd_firedancer_banks_t * bank = &global->bank;
     calculate_previous_epoch_inflation_rewards(bank, bank->capitalization, prev_epoch, &rewards);
 
@@ -567,12 +535,10 @@ calculate_rewards_for_partitioning(
 
     fd_validator_reward_calculation_t validator_result[1] = {0};
     calculate_validator_rewards(global, prev_epoch, rewards.validator_rewards, validator_result);
-    FD_LOG_NOTICE(("calculate_rewards_for_partitioning: total_stake_rewards_lamports = %lu", validator_result->total_stake_rewards_lamports));
 
     ulong num_partitions = get_reward_distribution_num_blocks(&global->bank, validator_result->stake_reward_deq);
-    FD_LOG_NOTICE(("calculate_rewards_for_partitioning: num_partitions = %lu", num_partitions));
 
-    fd_stake_rewards_vector_t hash_rewards_result[1] = {0};
+    fd_stake_rewards_vector_t * hash_rewards_result = malloc(sizeof(fd_stake_rewards_vector_t));
     hash_rewards_into_partitions(&global->bank, validator_result->stake_reward_deq, num_partitions, hash_rewards_result);
     *result = (fd_partitioned_rewards_calculation_t) {
         .vote_account_rewards = validator_result->vote_reward_map,
@@ -587,25 +553,11 @@ calculate_rewards_for_partitioning(
     };
 }
 
-static void
-update_reward_history(
-    fd_firedancer_banks_t * bank,
-    fd_stake_rewards_t * stake_rewards,
-    fd_vote_reward_t_mapnode_t * vote_reward_map
-) {
-    (void) bank;
-    (void) stake_rewards;
-    (void) vote_reward_map;
-    // let additional_reserve = stake_rewards.len() + vote_rewards.len();
-    // let mut rewards = self.rewards.write().unwrap();
-    // rewards.reserve(additional_reserve);
-    // rewards.append(&mut vote_rewards);
-    // stake_rewards
-    //     .into_iter()
-    //     .filter(|x| x.get_stake_reward() > 0)
-    //     .for_each(|x| rewards.push((x.stake_pubkey, x.stake_reward_info)));
-    return;
-}
+// static void
+// update_reward_history(
+// ) {
+//     return;
+// }
 // Calculate rewards from previous epoch and distribute vote rewards
 void calculate_rewards_and_distribute_vote_rewards(
     fd_firedancer_banks_t * self,
@@ -615,14 +567,8 @@ void calculate_rewards_and_distribute_vote_rewards(
 ) {
     fd_partitioned_rewards_calculation_t rewards_calc_result[1] = {0};
     calculate_rewards_for_partitioning(global, prev_epoch,  rewards_calc_result);
-    FD_LOG_NOTICE((
-        "calculate_rewards_and_distribute_vote_rewards: %lu, %lu, %lu",
-        rewards_calc_result->total_stake_rewards_lamports,
-        rewards_calc_result->old_vote_balance_and_staked,
-        rewards_calc_result->validator_rewards
-    ));
     /* TODO: update_reward_history */
-    update_reward_history(self, NULL, rewards_calc_result->vote_account_rewards);
+    // update_reward_history();
 
     // This is for vote rewards only.
     ulong new_vote_balance_and_staked = vote_balance_and_staked(&self->stakes);
@@ -669,7 +615,7 @@ pay_validator_rewards(
     fd_point_value_t *point_value_result = NULL;
     calculate_reward_points(ctx, &stake_history, rewards, point_value_result);
     (void) rewarded_epoch;
-    // redeem_rewards(ctx, &stake_history, fd_pubkey_t *stake_acc, fd_vote_state_versioned_t *vote_state, ulong rewarded_epoch, point_value_result, fd_calculated_stake_rewards_t *result);
+    // stake_state_redeem_rewards(ctx, &stake_history, fd_pubkey_t *stake_acc, fd_vote_state_versioned_t *vote_state, ulong rewarded_epoch, point_value_result, fd_calculated_stake_rewards_t *result);
 }
 
 // update rewards based on the previous epoch
@@ -689,8 +635,7 @@ void
 begin_partitioned_rewards(
     fd_firedancer_banks_t * self,
     fd_global_ctx_t * global,
-    ulong parent_epoch,
-    fd_epoch_reward_status_t * result
+    ulong parent_epoch
 ) {
     fd_calculate_rewards_and_distribute_vote_rewards_result_t rewards_result[1] = {0};
     calculate_rewards_and_distribute_vote_rewards(
@@ -702,15 +647,11 @@ begin_partitioned_rewards(
     ulong credit_end_exclusive = self->block_height + REWARD_CALCULATION_NUM_BLOCK + rewards_result->stake_rewards_by_partition->cnt;
 
     // self.set_epoch_reward_status_active(stake_rewards_by_partition);
-    result->is_active = 1;
-    result->stake_rewards_by_partition = rewards_result->stake_rewards_by_partition;
-    result->start_block_height = self->block_height;
-    FD_LOG_NOTICE((
-        "begin_partitioned_rewards: %lu, %lu, %lu",
-        result->start_block_height,
-        credit_end_exclusive,
-        rewards_result->total_rewards
-    ));
+    global->epoch_reward_status = (fd_epoch_reward_status_t){
+        .is_active = 1,
+        .stake_rewards_by_partition = rewards_result->stake_rewards_by_partition,
+        .start_block_height = self->block_height
+    };
     // create EpochRewards sysvar that holds the balance of undistributed rewards with
     // (total_rewards, distributed_rewards, credit_end_exclusive), total capital will increase by (total_rewards - distributed_rewards)
     fd_sysvar_epoch_rewards_init( global, rewards_result->total_rewards, rewards_result->distributed_rewards, credit_end_exclusive);
@@ -720,20 +661,19 @@ begin_partitioned_rewards(
 void
 distribute_partitioned_epoch_rewards(
     fd_firedancer_banks_t * self,
-    fd_global_ctx_t * global,
-    fd_epoch_reward_status_t * epoch_reward_status
+    fd_global_ctx_t * global
 ) {
     /* make sure we are inside the reward interval */
-    if ( !epoch_reward_status->is_active ) {
+    if ( !global->epoch_reward_status.is_active ) {
         return;
     }
 
-    ulong credit_start = epoch_reward_status->start_block_height + REWARD_CALCULATION_NUM_BLOCK;
-    ulong credit_end_exclusive = credit_start + epoch_reward_status->stake_rewards_by_partition->cnt;
+    ulong credit_start = global->epoch_reward_status.start_block_height + REWARD_CALCULATION_NUM_BLOCK;
+    ulong credit_end_exclusive = credit_start + global->epoch_reward_status.stake_rewards_by_partition->cnt;
     if (self->block_height >= credit_start && self->block_height < credit_end_exclusive) {
         ulong partition_index = self->block_height - credit_start;
         ulong total_rewards_in_lamports = 0UL;
-        fd_stake_rewards_t this_partition_stake_rewards = epoch_reward_status->stake_rewards_by_partition->elems[partition_index];
+        fd_stake_rewards_t this_partition_stake_rewards = global->epoch_reward_status.stake_rewards_by_partition->elems[partition_index];
         for (uint i = 0; i < this_partition_stake_rewards.cnt; ++i) {
             total_rewards_in_lamports = fd_ulong_sat_add(total_rewards_in_lamports, this_partition_stake_rewards.elems[i]->reward_info.lamports);
             // store rewards into accounts
@@ -754,7 +694,7 @@ distribute_partitioned_epoch_rewards(
 
     if ( fd_ulong_sat_sub(self->block_height, 1) >= credit_end_exclusive ) {
         // deactivate epoch reward status
-        epoch_reward_status->is_active = 0;
+        global->epoch_reward_status.is_active = 0;
     }
 
 }
