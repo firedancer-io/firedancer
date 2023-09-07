@@ -542,7 +542,7 @@ fd_gossip_from_sockaddr( fd_gossip_network_addr_t * dst, uchar const * src ) {
 int
 fd_gossip_global_set_config( fd_gossip_global_t * glob, const fd_gossip_config_t * config ) {
   fd_memcpy(&glob->my_creds, &config->my_creds, sizeof(fd_gossip_config_t));
-  fd_memcpy(&glob->my_contact_info.id.uc, config->my_creds.public_key.uc, 32U);
+  fd_hash_copy(&glob->my_contact_info.id, &config->my_creds.public_key);
   fd_memcpy(&glob->my_addr, &config->my_addr, sizeof(fd_gossip_network_addr_t));
   fd_gossip_to_soladdr(&glob->my_contact_info.gossip, &config->my_addr);
   glob->my_contact_info.shred_version = config->shred_version;
@@ -637,8 +637,8 @@ fd_gossip_make_ping( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, lo
   fd_gossip_msg_t gmsg;
   fd_gossip_msg_new_disc(&gmsg, fd_gossip_msg_enum_ping);
   fd_gossip_ping_t * ping = &gmsg.inner.ping;
-  fd_memcpy( ping->from.uc, glob->my_creds.public_key.uc, 32UL );
-  fd_memcpy( ping->token.uc, val->pingtoken.uc, 32UL );
+  fd_hash_copy( &ping->from, &glob->my_creds.public_key );
+  fd_hash_copy( &ping->token, &val->pingtoken );
 
   /* Sign it */
   fd_sha512_t sha[1];
@@ -671,7 +671,7 @@ fd_gossip_handle_ping( fd_gossip_global_t * glob, fd_gossip_network_addr_t * fro
   fd_gossip_msg_new_disc(&gmsg, fd_gossip_msg_enum_pong);
   fd_gossip_ping_t * pong = &gmsg.inner.pong;
 
-  fd_memcpy( pong->from.uc, glob->my_creds.public_key.uc, 32UL );
+  fd_hash_copy( &pong->from, &glob->my_creds.public_key );
 
   /* Generate response hash token */
   fd_sha256_t sha[1];
@@ -745,7 +745,7 @@ fd_gossip_sign_crds_value( fd_gossip_global_t * glob, fd_crds_value_t * crd, lon
   default:
     return;
   }
-  fd_memcpy(pubkey->uc, glob->my_creds.public_key.uc, 32U);
+  fd_hash_copy(pubkey, &glob->my_creds.public_key);
   *wallclock = (ulong)now/1000000; /* convert to ms */
 
   /* Sign it */
@@ -947,7 +947,7 @@ fd_gossip_handle_pong( fd_gossip_global_t * glob, fd_gossip_network_addr_t * fro
   }
 
   val->pongtime = now;
-  fd_memcpy(val->id.uc, pong->from.uc, 32U);
+  fd_hash_copy(&val->id, &pong->from);
 
   /* Remember that this is a good peer */
   fd_peer_elem_t * peerval = fd_peer_table_query(glob->peers, from, NULL);
@@ -960,7 +960,7 @@ fd_gossip_handle_pong( fd_gossip_global_t * glob, fd_gossip_network_addr_t * fro
     peerval->stake = 0;
   }
   peerval->wallclock = (ulong)(now / (long)1e6); /* In millisecs */
-  fd_memcpy(peerval->id.uc, pong->from.uc, 32U);
+  fd_hash_copy(&peerval->id, &pong->from);
 }
 
 /* Initiate a ping/pong with a random active partner to confirm it is
@@ -1134,7 +1134,7 @@ fd_gossip_recv_crds_value(fd_gossip_global_t * glob, fd_gossip_network_addr_t * 
   }
   msg = fd_value_table_insert(glob->values, &key);
   msg->wallclock = wallclock;
-  fd_memcpy(msg->origin.uc, pubkey->uc, 32U);
+  fd_hash_copy(&msg->origin, pubkey);
   /* We store the serialized form for convenience */
   msg->data = fd_valloc_malloc(glob->valloc, 1U, datalen);
   fd_memcpy(msg->data, buf, datalen);
@@ -1143,7 +1143,7 @@ fd_gossip_recv_crds_value(fd_gossip_global_t * glob, fd_gossip_network_addr_t * 
   if (glob->need_push_cnt < FD_NEED_PUSH_MAX) {
     /* Remember that I need to push this value */
     ulong i = ((glob->need_push_head + (glob->need_push_cnt++)) & (FD_NEED_PUSH_MAX-1U));
-    fd_memcpy(glob->need_push + i, &key, sizeof(key));
+    fd_hash_copy(glob->need_push + i, &key);
   }
 
   if (crd->data.discriminant == fd_crds_data_enum_contact_info) {
@@ -1169,7 +1169,7 @@ fd_gossip_recv_crds_value(fd_gossip_global_t * glob, fd_gossip_network_addr_t * 
       if (val != NULL) {
         val->wallclock = wallclock;
         val->stake = 0;
-        fd_memcpy(val->id.uc, info->id.uc, 32U);
+        fd_hash_copy(&val->id, &info->id);
       }
     }
   }
@@ -1253,7 +1253,7 @@ fd_gossip_handle_pull_req(fd_gossip_global_t * glob, fd_gossip_network_addr_t * 
   fd_gossip_msg_t gmsg;
   fd_gossip_msg_new_disc(&gmsg, fd_gossip_msg_enum_pull_resp);
   fd_gossip_pull_resp_t * pull_resp = &gmsg.inner.pull_resp;
-  fd_memcpy( pull_resp->pubkey.uc, glob->my_creds.public_key.uc, 32UL );
+  fd_hash_copy( &pull_resp->pubkey, &glob->my_creds.public_key );
 
   uchar buf[FD_ETH_PAYLOAD_MAX];
   fd_bincode_encode_ctx_t ctx;
@@ -1443,7 +1443,7 @@ fd_gossip_refresh_push_states( fd_gossip_global_t * glob, fd_pending_event_arg_t
     fd_push_state_t * s = (fd_push_state_t *)fd_valloc_malloc(glob->valloc, alignof(fd_push_state_t), sizeof(fd_push_state_t));
     fd_memset(s, 0, sizeof(fd_push_state_t));
     fd_memcpy(&s->addr, &a->key, sizeof(fd_gossip_network_addr_t));
-    fd_memcpy(&s->id, &a->id, sizeof(fd_pubkey_t));
+    fd_hash_copy(&s->id, &a->id);
     for (ulong j = 0; j < FD_PRUNE_NUM_KEYS; ++j)
       s->prune_keys[j] = fd_rng_ulong(glob->rng);
 
@@ -1451,7 +1451,7 @@ fd_gossip_refresh_push_states( fd_gossip_global_t * glob, fd_pending_event_arg_t
     fd_gossip_msg_t gmsg;
     fd_gossip_msg_new_disc(&gmsg, fd_gossip_msg_enum_push_msg);
     fd_gossip_push_msg_t * push_msg = &gmsg.inner.push_msg;
-    fd_memcpy( push_msg->pubkey.uc, glob->my_creds.public_key.uc, 32UL );
+    fd_hash_copy( &push_msg->pubkey, &glob->my_creds.public_key );
     fd_bincode_encode_ctx_t ctx;
     ctx.data = s->packet;
     ctx.dataend = s->packet + FD_ETH_PAYLOAD_MAX;
@@ -1579,7 +1579,7 @@ fd_gossip_push_value( fd_gossip_global_t * glob, fd_crds_data_t * data ) {
   }
   msg = fd_value_table_insert(glob->values, &key);
   msg->wallclock = (ulong)now/1000000; /* convert to ms */
-  fd_memcpy(msg->origin.uc, glob->my_creds.public_key.uc, 32U);
+  fd_hash_copy(&msg->origin, &glob->my_creds.public_key);
   /* We store the serialized form for convenience */
   msg->data = fd_valloc_malloc(glob->valloc, 1U, datalen);
   fd_memcpy(msg->data, buf, datalen);
@@ -1588,7 +1588,7 @@ fd_gossip_push_value( fd_gossip_global_t * glob, fd_crds_data_t * data ) {
   if (glob->need_push_cnt < FD_NEED_PUSH_MAX) {
     /* Remember that I need to push this value */
     ulong i = ((glob->need_push_head + (glob->need_push_cnt++)) & (FD_NEED_PUSH_MAX-1U));
-    fd_memcpy(glob->need_push + i, &key, sizeof(key));
+    fd_hash_copy(glob->need_push + i, &key);
   }
 
   return 0;
