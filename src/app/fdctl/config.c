@@ -284,7 +284,6 @@ static void parse_key_value( config_t *   config,
   ENTRY_USHORT( ., tiles.quic,          transaction_listen_port                                   );
   ENTRY_USHORT( ., tiles.quic,          quic_transaction_listen_port                              );
   ENTRY_UINT  ( ., tiles.quic,          max_concurrent_connections                                );
-  ENTRY_UINT  ( ., tiles.quic,          max_concurrent_connection_ids_per_connection              );
   ENTRY_UINT  ( ., tiles.quic,          max_concurrent_streams_per_connection                     );
   ENTRY_UINT  ( ., tiles.quic,          max_concurrent_handshakes                                 );
   ENTRY_UINT  ( ., tiles.quic,          max_inflight_quic_packets                                 );

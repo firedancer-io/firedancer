@@ -394,23 +394,9 @@ dynamic_port_range = "8000-10000"
 
         # Maximum number of simultaneous QUIC connections which can be open. New
         # connections which would exceed this limit will not be accepted.
+        #
+        # This must be >= 2 and also a power of 2.
         max_concurrent_connections = 32
-
-        # While in TCP a connection is identified by (Source IP, Source Port,
-        # Dest IP, Dest Port) in QUIC a connection is uniquely identified by a
-        # connection ID. Because this isn't dependent on network identifiers, it
-        # allows connection migration and continuity across network changes. It
-        # can also offer enhanced privacy by obfuscating the client IP address
-        # and prevent connection-linking by observers.
-        #
-        # Additional connection IDs are simply alises back to the same
-        # connection, and can be created and retired during a connection by
-        # either endpoint. This configuration determines how many different
-        # connection IDs the connection may have simultaneously.
-        #
-        # Currently this option does nothing, as we do not support creating
-        # additional connection IDs.
-        max_concurrent_connection_ids_per_connection = 16
 
         # QUIC allows for multiple streams to be multiplexed over a single
         # connection. This option sets the maximum number of simultaneous

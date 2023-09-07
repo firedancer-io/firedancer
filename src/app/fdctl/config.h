@@ -138,7 +138,6 @@ typedef struct {
       char   xdp_mode[ 8 ];
 
       uint max_concurrent_connections;
-      uint max_concurrent_connection_ids_per_connection;
       uint max_concurrent_streams_per_connection;
       uint max_concurrent_handshakes;
       uint max_inflight_quic_packets;
