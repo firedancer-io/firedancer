@@ -63,7 +63,8 @@ int main(int argc, char **argv) {
 
   FD_TEST( fd_gossip_resolve_hostport(":1125", &config.my_addr) );
 
-  config.shred_version = 61807U;
+  config.shred_version = 56177U;
+  // config.shred_version = 61807U;
 
   fd_flamenco_yaml_t * yamldump =
     fd_flamenco_yaml_init( fd_flamenco_yaml_new(
@@ -81,12 +82,22 @@ int main(int argc, char **argv) {
     return 1;
 
   fd_gossip_network_addr_t peeraddr;
-  if ( fd_gossip_add_active_peer(glob, fd_gossip_resolve_hostport("entrypoint.testnet.solana.com:8001", &peeraddr)) )
+  if ( fd_gossip_add_active_peer(glob, fd_gossip_resolve_hostport("entrypoint.mainnet-beta.solana.com:8001", &peeraddr)) )
     return 1;
-  if ( fd_gossip_add_active_peer(glob, fd_gossip_resolve_hostport("entrypoint2.testnet.solana.com:8001", &peeraddr)) )
+  if ( fd_gossip_add_active_peer(glob, fd_gossip_resolve_hostport("entrypoint2.mainnet-beta.solana.com:8001", &peeraddr)) )
     return 1;
-  if ( fd_gossip_add_active_peer(glob, fd_gossip_resolve_hostport("entrypoint3.testnet.solana.com:8001", &peeraddr)) )
+  if ( fd_gossip_add_active_peer(glob, fd_gossip_resolve_hostport("entrypoint3.mainnet-beta.solana.com:8001", &peeraddr)) )
     return 1;
+  if ( fd_gossip_add_active_peer(glob, fd_gossip_resolve_hostport("entrypoint4.mainnet-beta.solana.com:8001", &peeraddr)) )
+    return 1;
+  if ( fd_gossip_add_active_peer(glob, fd_gossip_resolve_hostport("entrypoint5.mainnet-beta.solana.com:8001", &peeraddr)) )
+    return 1;
+  // if ( fd_gossip_add_active_peer(glob, fd_gossip_resolve_hostport("entrypoint.testnet.solana.com:8001", &peeraddr)) )
+  // return 1;
+  // if ( fd_gossip_add_active_peer(glob, fd_gossip_resolve_hostport("entrypoint2.testnet.solana.com:8001", &peeraddr)) )
+  // return 1;
+  // if ( fd_gossip_add_active_peer(glob, fd_gossip_resolve_hostport("entrypoint3.testnet.solana.com:8001", &peeraddr)) )
+  // return 1;
   // if ( fd_gossip_add_active_peer(glob, fd_gossip_resolve_hostport("localhost:1024", &peeraddr)) )
   // return 1;
 
