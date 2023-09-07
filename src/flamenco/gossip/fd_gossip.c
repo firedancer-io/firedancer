@@ -1316,7 +1316,7 @@ fd_gossip_handle_pull_req(fd_gossip_global_t * glob, fd_gossip_network_addr_t * 
       ulong sz = (ulong)(newend - buf);
       fd_gossip_send_raw(glob, from, buf, sz);
       char tmp[100];
-      FD_LOG_NOTICE(("sent msg type %d to %s size=%lu", gmsg.discriminant, fd_gossip_addr_str(tmp, sizeof(tmp), from), sz));
+      FD_LOG_DEBUG(("sent msg type %d to %s size=%lu", gmsg.discriminant, fd_gossip_addr_str(tmp, sizeof(tmp), from), sz));
       ++npackets;
       newend = (uchar *)ctx.data;
       *crds_len = 0;
@@ -1331,7 +1331,7 @@ fd_gossip_handle_pull_req(fd_gossip_global_t * glob, fd_gossip_network_addr_t * 
     ulong sz = (ulong)(newend - buf);
     fd_gossip_send_raw(glob, from, buf, sz);
     char tmp[100];
-    FD_LOG_NOTICE(("sent msg type %d to %s size=%lu", gmsg.discriminant, fd_gossip_addr_str(tmp, sizeof(tmp), from), sz));
+    FD_LOG_DEBUG(("sent msg type %d to %s size=%lu", gmsg.discriminant, fd_gossip_addr_str(tmp, sizeof(tmp), from), sz));
     ++npackets;
   }
 
