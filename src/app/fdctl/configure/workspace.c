@@ -201,7 +201,24 @@ init( config_t * const config ) {
   fd_quic_limits_t limits = {
     .conn_cnt                                      = config->tiles.quic.max_concurrent_connections,
     .handshake_cnt                                 = config->tiles.quic.max_concurrent_handshakes,
-    .conn_id_cnt                                   = config->tiles.quic.max_concurrent_connection_ids_per_connection,
+
+    /* While in TCP a connection is identified by (Source IP, Source
+       Port, Dest IP, Dest Port) in QUIC a connection is uniquely
+       identified by a connection ID. Because this isn't dependent on
+       network identifiers, it allows connection migration and
+       continuity across network changes. It can also offer enhanced
+       privacy by obfuscating the client IP address and prevent
+       connection-linking by observers.
+
+       Additional connection IDs are simply alises back to the same
+       connection, and can be created and retired during a connection by
+       either endpoint. This configuration determines how many different
+       connection IDs the connection may have simultaneously.
+
+       Currently this option must be hard coded to
+       FD_QUIC_MAX_CONN_ID_PER_CONN because it cannot exceed a buffer
+       size determined by that constant. */
+    .conn_id_cnt                                   = FD_QUIC_MAX_CONN_ID_PER_CONN,
     .conn_id_sparsity                              = 0.0,
     .inflight_pkt_cnt                              = config->tiles.quic.max_inflight_quic_packets,
     .tx_buf_sz                                     = config->tiles.quic.tx_buf_size,
