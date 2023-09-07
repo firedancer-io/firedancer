@@ -1852,6 +1852,7 @@ vote_state_process_vote_with_account( fd_borrowed_account_t *       vote_account
       ulong * ele = deq_ulong_iter_ele( vote->slots, iter );
       max         = fd_ulong_max( max, *ele );
     }
+    fd_vote_record_timestamp_vote(ctx.global, vote_account->pubkey, *vote->timestamp );
   }
 
   return vote_state_set_vote_account_state( vote_account, &vote_state, &ctx );
