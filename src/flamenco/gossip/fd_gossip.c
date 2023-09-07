@@ -48,6 +48,8 @@
 #define FD_PUSH_LIST_MAX 12
 /* Max length of queue of values that need pushing */
 #define FD_NEED_PUSH_MAX (1<<12)
+/* Max size of receive statistics table */
+#define FD_STATS_KEY_MAX (1<<8)
 
 #define FD_GOSSIP_NETWORK_ADDR_NLONGS (sizeof(fd_gossip_network_addr_t)/sizeof(ulong))
 
@@ -294,6 +296,28 @@ struct fd_push_state {
 };
 typedef struct fd_push_state fd_push_state_t;
 
+/* Receive statistics table element. */
+struct fd_stats_elem {
+    fd_gossip_network_addr_t key; /* Keyed by sender */
+    ulong next;
+    long last;    /* Timestamp of last update */
+    /* Duplicate counts by origin */
+    struct {
+        fd_pubkey_t origin;
+        ulong cnt;
+    } dups[8];
+    ulong dups_cnt;
+};
+/* Receive statistics table. */
+typedef struct fd_stats_elem fd_stats_elem_t;
+#define MAP_NAME     fd_stats_table
+#define MAP_KEY_T    fd_gossip_network_addr_t
+#define MAP_KEY_EQ   fd_gossip_network_addr_eq
+#define MAP_KEY_HASH fd_gossip_network_addr_hash
+#define MAP_KEY_COPY fd_gossip_network_addr_copy
+#define MAP_T        fd_stats_elem_t
+#include "../../util/tmpl/fd_map_giant.c"
+
 /* Global data for gossip service */
 struct fd_gossip_global {
     /* My public/private key */
@@ -324,6 +348,8 @@ struct fd_gossip_global {
     fd_hash_t * need_push;
     ulong need_push_head;
     ulong need_push_cnt;
+    /* Table of recieve statistics */
+    fd_stats_elem_t * stats;
     /* Heap/queue of pending timed events */
     fd_pending_event_t * event_pool;
     fd_pending_heap_t * event_heap;
@@ -368,6 +394,8 @@ fd_gossip_global_new ( void * shmem, ulong seed, fd_valloc_t valloc ) {
   shm = fd_valloc_malloc(valloc, fd_pending_heap_align(), fd_pending_heap_footprint(FD_PENDING_MAX));
   glob->event_heap = fd_pending_heap_join(fd_pending_heap_new(shm, FD_PENDING_MAX));
   fd_rng_new(glob->rng, (uint)seed, 0UL);
+  shm = fd_valloc_malloc(valloc, fd_stats_table_align(), fd_stats_table_footprint(FD_STATS_KEY_MAX));
+  glob->stats = fd_stats_table_join(fd_stats_table_new(shm, FD_STATS_KEY_MAX, seed));
   return glob;
 }
 
@@ -395,6 +423,7 @@ fd_gossip_global_delete ( void * shmap, fd_valloc_t valloc ) {
   fd_valloc_free(valloc, fd_value_table_delete(fd_value_table_leave(glob->values)));
   fd_valloc_free(valloc, fd_pending_pool_delete(fd_pending_pool_leave(glob->event_pool)));
   fd_valloc_free(valloc, fd_pending_heap_delete(fd_pending_heap_leave(glob->event_heap)));
+  fd_valloc_free(valloc, fd_stats_table_delete(fd_stats_table_leave(glob->stats)));
   return glob;
 }
 
@@ -979,7 +1008,7 @@ fd_gossip_random_ping( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, 
 
 /* Process an incoming crds value */
 void
-fd_gossip_recv_crds_value(fd_gossip_global_t * glob, fd_pubkey_t * pubkey, fd_crds_value_t* crd, long now) {
+fd_gossip_recv_crds_value(fd_gossip_global_t * glob, fd_gossip_network_addr_t * from, fd_pubkey_t * pubkey, fd_crds_value_t* crd, long now) {
   /* Verify the signature */
   ulong wallclock;
   switch (crd->data.discriminant) {
@@ -1066,13 +1095,38 @@ fd_gossip_recv_crds_value(fd_gossip_global_t * glob, fd_pubkey_t * pubkey, fd_cr
   fd_hash_t key;
   fd_sha256_fini( sha2, key.uc );
 
-  /* Store the value for later pushing/duplicate detection */
   fd_value_elem_t * msg = fd_value_table_query(glob->values, &key, NULL);
   if (msg != NULL) {
     /* Already have this value */
     glob->recv_dup_cnt++;
+    if (from != NULL) {
+      /* Record the dup in the receive statistics table */
+      fd_stats_elem_t * val = fd_stats_table_query(glob->stats, from, NULL);
+      if (val == NULL) {
+        if (!fd_stats_table_is_full(glob->stats)) {
+          val = fd_stats_table_insert(glob->stats, from);
+          val->dups_cnt = 0;
+        }
+      }
+      if (val != NULL) {
+        val->last = now;
+        for (ulong i = 0; i < val->dups_cnt; ++i)
+          if (fd_hash_eq(&val->dups[i].origin, pubkey)) {
+            val->dups[i].cnt++;
+            goto found_origin;
+          }
+        if (val->dups_cnt < 8) {
+          ulong i = val->dups_cnt++;
+          fd_hash_copy(&val->dups[i].origin, pubkey);
+          val->dups[i].cnt = 1;
+        }
+        found_origin: ;
+      }
+    }
     return;
   }
+
+  /* Store the value for later pushing/duplicate detection */
   glob->recv_nondup_cnt++;
   if (fd_value_table_is_full(glob->values)) {
     FD_LOG_WARNING(("too many values"));
@@ -1290,13 +1344,13 @@ fd_gossip_recv(fd_gossip_global_t * glob, fd_gossip_network_addr_t * from, fd_go
   case fd_gossip_msg_enum_pull_resp: {
     fd_gossip_pull_resp_t * pull_resp = &gmsg->inner.pull_resp;
     for (ulong i = 0; i < pull_resp->crds_len; ++i)
-      fd_gossip_recv_crds_value(glob, &pull_resp->pubkey, pull_resp->crds + i, now);
+      fd_gossip_recv_crds_value(glob, NULL, &pull_resp->pubkey, pull_resp->crds + i, now);
     break;
   }
   case fd_gossip_msg_enum_push_msg: {
     fd_gossip_push_msg_t * push_msg = &gmsg->inner.push_msg;
     for (ulong i = 0; i < push_msg->crds_len; ++i)
-      fd_gossip_recv_crds_value(glob, &push_msg->pubkey, push_msg->crds + i, now);
+      fd_gossip_recv_crds_value(glob, from, &push_msg->pubkey, push_msg->crds + i, now);
     break;
   }
   case fd_gossip_msg_enum_prune_msg:
@@ -1540,6 +1594,82 @@ fd_gossip_push_value( fd_gossip_global_t * glob, fd_crds_data_t * data ) {
   return 0;
 }
 
+/* Periodically make prune messages */
+void
+fd_gossip_make_prune( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, long now ) {
+  (void)arg;
+
+  /* Try again in 30 sec */
+  fd_pending_event_t * ev = fd_gossip_add_pending(glob, now + (long)30e9);
+  if (ev) {
+    ev->fun = fd_gossip_make_prune;
+  }
+
+  long expire = now - (long)FD_GOSSIP_VALUE_EXPIRE*((long)1e6);
+  for( fd_stats_table_iter_t iter = fd_stats_table_iter_init( glob->stats );
+       !fd_stats_table_iter_done( glob->stats, iter );
+       iter = fd_stats_table_iter_next( glob->stats, iter ) ) {
+    fd_stats_elem_t * ele = fd_stats_table_iter_ele( glob->stats, iter );
+    if (ele->last < expire) {
+      /* Entry hasn't been updated for a long time */
+      fd_stats_table_remove( glob->stats, &ele->key );
+      continue;
+    }
+    /* Look for high duplicate counts */
+    fd_pubkey_t origins[8];
+    ulong origins_cnt = 0;
+    for (ulong i = 0; i < ele->dups_cnt; ++i) {
+      if (ele->dups[i].cnt >= 20U)
+        fd_hash_copy(&origins[origins_cnt++], &ele->dups[i].origin);
+    }
+    if (origins_cnt == 0U)
+      continue;
+    /* Get the peer id */
+    fd_peer_elem_t * peerval = fd_peer_table_query(glob->peers, &ele->key, NULL);
+    /* Always clean up to restart the dup counter */
+    fd_stats_table_remove( glob->stats, &ele->key );
+    if (peerval == NULL)
+      continue;
+
+    FD_LOG_NOTICE(("sending prune request for %lu origins to %32J", origins_cnt, peerval->id.uc));
+
+    /* Make a prune request */
+    fd_gossip_msg_t gmsg;
+    fd_gossip_msg_new_disc(&gmsg, fd_gossip_msg_enum_prune_msg);
+    fd_gossip_prune_msg_t * prune_msg = &gmsg.inner.prune_msg;
+    fd_hash_copy(&prune_msg->data.pubkey, &glob->my_creds.public_key);
+    prune_msg->data.prunes_len = origins_cnt;
+    prune_msg->data.prunes = origins;;
+    fd_hash_copy(&prune_msg->data.destination, &peerval->id);
+    ulong wc = prune_msg->data.wallclock = (ulong)(now/(long)1e6);
+
+    fd_gossip_prune_sign_data_t signdata;
+    fd_hash_copy(&signdata.pubkey, &glob->my_creds.public_key);
+    signdata.prunes_len = origins_cnt;
+    signdata.prunes = origins;;
+    fd_hash_copy(&signdata.destination, &peerval->id);
+    signdata.wallclock = wc;
+
+    uchar buf[FD_ETH_PAYLOAD_MAX];
+    fd_bincode_encode_ctx_t ctx;
+    ctx.data = buf;
+    ctx.dataend = buf + FD_ETH_PAYLOAD_MAX;
+    if ( fd_gossip_prune_sign_data_encode( &signdata, &ctx ) ) {
+      FD_LOG_ERR(("fd_gossip_prune_sign_data_encode failed"));
+      return;
+    }
+    fd_sha512_t sha[1];
+    fd_ed25519_sign( /* sig */ prune_msg->data.signature.uc,
+                     /* msg */ buf,
+                     /* sz  */ (ulong)((uchar*)ctx.data - buf),
+                     /* public_key  */ glob->my_creds.public_key.uc,
+                     /* private_key */ glob->my_creds.private_key,
+                     sha );
+
+    fd_gossip_send(glob, &peerval->key, &gmsg);
+  }
+}
+
 /* Periodically log status. Removes old peers as a side event. */
 void
 fd_gossip_log_stats( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, long now ) {
@@ -1620,6 +1750,8 @@ fd_gossip_main_loop( fd_gossip_global_t * glob, fd_valloc_t valloc, volatile int
   ev->fun = fd_gossip_refresh_push_states;
   ev = fd_gossip_add_pending(glob, now + (long)1e8);
   ev->fun = fd_gossip_push;
+  ev = fd_gossip_add_pending(glob, now + (long)30e9);
+  ev->fun = fd_gossip_make_prune;
 
 #define VLEN 32U
   struct mmsghdr msgs[VLEN];
