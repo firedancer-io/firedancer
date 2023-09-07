@@ -977,7 +977,7 @@ fd_gossip_random_ping( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, 
 
   if (fd_pending_pool_free( glob->event_pool ) < 100U)
     return;
-  
+
   ulong cnt = fd_active_table_key_cnt(glob->actives);
   if (cnt == 0)
     return;
@@ -1246,6 +1246,8 @@ fd_gossip_handle_pull_req(fd_gossip_global_t * glob, fd_gossip_network_addr_t * 
   fd_active_elem_t * val = fd_active_table_query(glob->actives, from, NULL);
   if (val == NULL || val->pongtime == 0) {
     /* Ping new peers before responding to requests */
+    if (fd_pending_pool_free( glob->event_pool ) < 100U)
+      return;
     fd_pending_event_arg_t arg2;
     fd_gossip_network_addr_copy(&arg2.key, from);
     fd_gossip_make_ping(glob, &arg2, now);
