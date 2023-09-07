@@ -975,6 +975,9 @@ fd_gossip_random_ping( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, 
     ev->fun = fd_gossip_random_ping;
   }
 
+  if (fd_pending_pool_free( glob->event_pool ) < 100U)
+    return;
+  
   ulong cnt = fd_active_table_key_cnt(glob->actives);
   if (cnt == 0)
     return;
