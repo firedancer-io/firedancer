@@ -543,7 +543,7 @@ int
 fd_gossip_global_set_config( fd_gossip_global_t * glob, const fd_gossip_config_t * config ) {
   fd_memcpy(&glob->my_creds, &config->my_creds, sizeof(fd_gossip_config_t));
   fd_hash_copy(&glob->my_contact_info.id, &config->my_creds.public_key);
-  fd_memcpy(&glob->my_addr, &config->my_addr, sizeof(fd_gossip_network_addr_t));
+  fd_gossip_network_addr_copy(&glob->my_addr, &config->my_addr);
   fd_gossip_to_soladdr(&glob->my_contact_info.gossip, &config->my_addr);
   glob->my_contact_info.shred_version = config->shred_version;
   glob->deliver_fun = config->deliver_fun;
@@ -630,7 +630,7 @@ fd_gossip_make_ping( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, lo
   fd_pending_event_t * ev = fd_gossip_add_pending( glob, now + (long)2e8 /* 200 ms */ );
   if (ev != NULL) {
     ev->fun = fd_gossip_make_ping;
-    fd_memcpy(&ev->fun_arg.key, key, sizeof(fd_gossip_network_addr_t));
+    fd_gossip_network_addr_copy(&ev->fun_arg.key, key);
   }
 
   /* Build a ping message */
@@ -1002,7 +1002,7 @@ fd_gossip_random_ping( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, 
   }
 
   fd_pending_event_arg_t arg2;
-  fd_memcpy(&arg2.key, addr, sizeof(fd_gossip_network_addr_t));
+  fd_gossip_network_addr_copy(&arg2.key, addr);
   fd_gossip_make_ping(glob, &arg2, now);
 }
 
@@ -1162,7 +1162,7 @@ fd_gossip_recv_crds_value(fd_gossip_global_t * glob, fd_gossip_network_addr_t * 
           if (glob->inactives_cnt < INACTIVES_MAX &&
               fd_active_table_query(glob->actives, &pkey, NULL) == NULL) {
             /* Queue this peer for later pinging */
-            fd_memcpy(glob->inactives + (glob->inactives_cnt++), &pkey, sizeof(pkey));
+            fd_gossip_network_addr_copy(glob->inactives + (glob->inactives_cnt++), &pkey);
           }
         }
       }
@@ -1244,7 +1244,7 @@ fd_gossip_handle_pull_req(fd_gossip_global_t * glob, fd_gossip_network_addr_t * 
   if (val == NULL || val->pongtime == 0) {
     /* Ping new peers before responding to requests */
     fd_pending_event_arg_t arg2;
-    fd_memcpy(&arg2.key, from, sizeof(fd_gossip_network_addr_t));
+    fd_gossip_network_addr_copy(&arg2.key, from);
     fd_gossip_make_ping(glob, &arg2, now);
     return;
   }
@@ -1442,7 +1442,7 @@ fd_gossip_refresh_push_states( fd_gossip_global_t * glob, fd_pending_event_arg_t
     /* Build the pusher state */
     fd_push_state_t * s = (fd_push_state_t *)fd_valloc_malloc(glob->valloc, alignof(fd_push_state_t), sizeof(fd_push_state_t));
     fd_memset(s, 0, sizeof(fd_push_state_t));
-    fd_memcpy(&s->addr, &a->key, sizeof(fd_gossip_network_addr_t));
+    fd_gossip_network_addr_copy(&s->addr, &a->key);
     fd_hash_copy(&s->id, &a->id);
     for (ulong j = 0; j < FD_PRUNE_NUM_KEYS; ++j)
       s->prune_keys[j] = fd_rng_ulong(glob->rng);
@@ -1707,7 +1707,7 @@ fd_gossip_log_stats( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, lo
                    ((double)(wc - ele->wallclock))*0.001,
                    ((act != NULL && act->pongtime != 0) ? "(active)" : "")));
     if (need_inactive && act == NULL && glob->inactives_cnt < INACTIVES_MAX)
-      fd_memcpy(glob->inactives + (glob->inactives_cnt++), &ele->key, sizeof(ele->key));
+      fd_gossip_network_addr_copy(glob->inactives + (glob->inactives_cnt++), &ele->key);
   }
 }
 
