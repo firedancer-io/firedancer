@@ -74,6 +74,13 @@ static void tcache( void * pod, char * fmt, ulong depth, ... ) {
             fd_tcache_new      ( shmem, depth, 0 ) );
 }
 
+static void mvcc( void * pod, char * fmt, ulong app_sz, ... ) {
+  INSERTER( app_sz,
+            fd_mvcc_align    (               ),
+            fd_mvcc_footprint( app_sz        ),
+            fd_mvcc_new      ( shmem, app_sz ) );
+}
+
 static void quic( void * pod, char * fmt, fd_quic_limits_t * limits, ... ) {
   INSERTER( limits,
             fd_quic_align    (               ),
@@ -222,6 +229,7 @@ init( config_t * const config ) {
         }
         break;
       case wksp_quic_verify:
+        mvcc( pod, "stake_weight", 8UL + 8192UL * (8UL + 32UL)); /* 8 byte length prefix, 8192 entries of (8 byte stake, 32 byte pubkey) */
         for( ulong i=0; i<config->layout.verify_tile_count; i++ ) {
           mcache( pod, "mcache%lu", config->tiles.verify.receive_buffer_size, i );
           fseq  ( pod, "fseq%lu", i );

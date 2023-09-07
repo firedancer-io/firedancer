@@ -38,6 +38,7 @@
 
 #include "../fd_disco_base.h"
 #include "../../tango/quic/fd_quic.h"
+#include "../../tango/quic/fd_quic_stake.h"
 #include "../../tango/xdp/fd_xdp.h"
 #include "../../ballet/txn/fd_txn.h"
 
@@ -124,6 +125,7 @@ fd_quic_tile( fd_cnc_t *         cnc,           /* Local join to the tile's comm
               fd_xsk_aio_t *     lo_xsk_aio,    /* Local join to QUIC XSK aio for loopback interface */
               fd_frag_meta_t *   mcache,        /* Local join to the tile's txn output mcache */
               uchar *            dcache,        /* Local join to the tile's txn output dcache */
+              fd_mvcc_t *        stake_mvcc,    /* Local join to the stake weight mapping written by Solana Labs*/
               long               lazy,          /* Laziness, <=0 means use a reasonable default */
               fd_rng_t *         rng,           /* Local join to the rng this tile should use */
               void *             scratch,       /* Tile scratch memory */

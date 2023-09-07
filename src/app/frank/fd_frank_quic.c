@@ -155,6 +155,9 @@ run( fd_frank_args_t * args ) {
     if( FD_UNLIKELY( !lo_xsk_aio ) ) FD_LOG_ERR(( "fd_xsk_aio_join failed" ));
   }
 
+  fd_mvcc_t * stake_weight = fd_mvcc_join( fd_wksp_pod_map( args->out_pod, "stake_weight" ) );
+  if( FD_UNLIKELY( !stake_weight ) ) FD_LOG_ERR(( "fd_mvcc_join failed" ));
+
   /* Setup local objects used by this tile */
 
   FD_LOG_INFO(( "configuring flow control" ));
@@ -235,7 +238,7 @@ run( fd_frank_args_t * args ) {
   /* Start serving */
 
   FD_LOG_INFO(( "%s(%lu) run", args->tile_name, args->tile_idx ));
-  int err = fd_quic_tile( cnc, quic, xsk_aio, lo_xsk_aio, mcache, dcache, lazy, rng, scratch, args->tick_per_ns );
+  int err = fd_quic_tile( cnc, quic, xsk_aio, lo_xsk_aio, mcache, dcache, stake_weight, lazy, rng, scratch, args->tick_per_ns );
   if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_quic_tile failed (%i)", err ));
 }
 

@@ -309,6 +309,7 @@ fd_quic_tile( fd_cnc_t *         cnc,
               fd_xsk_aio_t *     lo_xsk_aio,
               fd_frag_meta_t *   mcache,
               uchar *            dcache,
+              fd_mvcc_t *        stake_mvcc,
               long               lazy,
               fd_rng_t *         rng,
               void *             scratch,
@@ -460,6 +461,19 @@ fd_quic_tile( fd_cnc_t *         cnc,
 
   ulong tx_idx  = fd_tile_idx();
 
+  ulong stake_app_sz = stake_mvcc->app_sz;
+  int lg_slot_count = fd_ulong_find_msb( (stake_app_sz - 8) / 40 ) + 1;
+
+  fd_quic_stake_t * stake = fd_quic_stake_join( fd_quic_stake_new( fd_wksp_alloc_laddr( fd_wksp_containing( cnc ), /* use local pod workspace for the map */
+                                                                                        fd_quic_stake_align(),
+                                                                                        fd_quic_stake_footprint( lg_slot_count ),
+                                                                                        0 ),
+                                                                   lg_slot_count ) );
+
+  if( FD_UNLIKELY( !stake ) ) FD_LOG_ERR(( "fd_wksp_alloc failed" ));
+  uchar * stake_app = fd_mvcc_app_laddr( stake_mvcc );
+  ulong prev_stake_version = 0;
+
   FD_LOG_INFO(( "running QUIC server" ));
   fd_cnc_signal( cnc, FD_CNC_SIGNAL_RUN );
   long then = fd_tickcount();
@@ -489,6 +503,41 @@ fd_quic_tile( fd_cnc_t *         cnc,
         if( FD_LIKELY( s==FD_CNC_SIGNAL_HALT ) ) break;
         fd_cnc_signal( cnc, FD_CNC_SIGNAL_RUN );
       }
+
+      /* Rebuild stake-weight map */
+      ulong version_a = fd_mvcc_version_query( stake_mvcc );
+      if( FD_LIKELY( !(version_a % 2) && prev_stake_version != version_a ) ) {
+        for(;;) {
+          version_a = fd_mvcc_version_query( stake_mvcc );
+          if( FD_UNLIKELY( version_a % 2 ) ) continue; /* write in progress, spin loop */
+
+          fd_quic_stake_clear( stake );
+
+          /* The format here is just a length prefixed list of (stake, pubkey) pairs,
+             all appended directly into a binary serialization, on the wire it looks like
+
+             [ 8 byte num entries, N, LE ] [ 40 byte entry 0 ] [ 40 byte entry 1 ] .. [ 40 byte entry N ]
+
+             where each entry is,
+
+             [ 8 byte stake, LE ] [ 32 byte pubkey ] */
+          ulong count = *(ulong *)fd_type_pun( stake_app );
+          if( FD_UNLIKELY( 8 + count * 40 > stake_app_sz ) ) FD_LOG_ERR(( "stake_app corrupted" ));
+          for( ulong i=0; i<count; i++ ) {
+            ulong node_stake = *(ulong *)fd_type_pun( stake_app + 8 + i*40 );
+            fd_quic_stake_pubkey_t * pubkey = (fd_quic_stake_pubkey_t *)( fd_type_pun( stake_app + 8 + i*40 + 8 ) );
+            fd_quic_stake_t * node = fd_quic_stake_insert( stake, *pubkey );
+            /* insert guaranteed to succeed, because the producer of
+               stakes already deduplicated the map */
+            if( FD_UNLIKELY( !node ) ) FD_LOG_ERR(( "fd_quic_stake_insert failed" ));
+            node->stake = node_stake;
+          }
+
+          ulong version_b = fd_mvcc_version_query( stake_mvcc );
+          if( FD_LIKELY( version_a == version_b ) ) break; /* read completed cleanly */
+        }
+      }
+      prev_stake_version = version_a;
 
       /* Reload housekeeping timer */
       then = now + (long)fd_tempo_async_reload( rng, async_min );
