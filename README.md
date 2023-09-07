@@ -12,7 +12,7 @@ highly restrictive sandbox and almost no system calls.
 diversity to the Solana network and helps it stay resilient to supply
 chain attacks in build tooling or dependencies.
 
-## Frankendancer
+## Frankendancer 👹💃
 
 Firedancer is a new Solana validator with a new codebase, but it is
 being developed incrementally. To enable testing and deployment before
