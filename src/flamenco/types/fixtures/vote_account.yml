@@ -1,0 +1,121 @@
+current: 
+  node_pubkey: '7QsvAtWRqjhQRjd7BzGVT29x5KrUFqZA1T8pVrHGdxeP'
+  authorized_withdrawer: '9frWPHZmLVAkZBUZveujokPi2sQRTucnztr3vnCveZBQ'
+  commission: 0
+  votes: 
+    - latency: 0
+      lockout: 
+        slot: 1
+        confirmation_count: 1
+  root_slot: 0
+  authorized_voters: 
+    fd_vote_authorized_voter_t: 
+      epoch: 0
+      pubkey: '9frWPHZmLVAkZBUZveujokPi2sQRTucnztr3vnCveZBQ'
+  prior_voters: 
+    buf: 
+      - pubkey: '11111111111111111111111111111111'
+        epoch_start: 0
+        epoch_end: 0
+      - pubkey: '11111111111111111111111111111111'
+        epoch_start: 0
+        epoch_end: 0
+      - pubkey: '11111111111111111111111111111111'
+        epoch_start: 0
+        epoch_end: 0
+      - pubkey: '11111111111111111111111111111111'
+        epoch_start: 0
+        epoch_end: 0
+      - pubkey: '11111111111111111111111111111111'
+        epoch_start: 0
+        epoch_end: 0
+      - pubkey: '11111111111111111111111111111111'
+        epoch_start: 0
+        epoch_end: 0
+      - pubkey: '11111111111111111111111111111111'
+        epoch_start: 0
+        epoch_end: 0
+      - pubkey: '11111111111111111111111111111111'
+        epoch_start: 0
+        epoch_end: 0
+      - pubkey: '11111111111111111111111111111111'
+        epoch_start: 0
+        epoch_end: 0
+      - pubkey: '11111111111111111111111111111111'
+        epoch_start: 0
+        epoch_end: 0
+      - pubkey: '11111111111111111111111111111111'
+        epoch_start: 0
+        epoch_end: 0
+      - pubkey: '11111111111111111111111111111111'
+        epoch_start: 0
+        epoch_end: 0
+      - pubkey: '11111111111111111111111111111111'
+        epoch_start: 0
+        epoch_end: 0
+      - pubkey: '11111111111111111111111111111111'
+        epoch_start: 0
+        epoch_end: 0
+      - pubkey: '11111111111111111111111111111111'
+        epoch_start: 0
+        epoch_end: 0
+      - pubkey: '11111111111111111111111111111111'
+        epoch_start: 0
+        epoch_end: 0
+      - pubkey: '11111111111111111111111111111111'
+        epoch_start: 0
+        epoch_end: 0
+      - pubkey: '11111111111111111111111111111111'
+        epoch_start: 0
+        epoch_end: 0
+      - pubkey: '11111111111111111111111111111111'
+        epoch_start: 0
+        epoch_end: 0
+      - pubkey: '11111111111111111111111111111111'
+        epoch_start: 0
+        epoch_end: 0
+      - pubkey: '11111111111111111111111111111111'
+        epoch_start: 0
+        epoch_end: 0
+      - pubkey: '11111111111111111111111111111111'
+        epoch_start: 0
+        epoch_end: 0
+      - pubkey: '11111111111111111111111111111111'
+        epoch_start: 0
+        epoch_end: 0
+      - pubkey: '11111111111111111111111111111111'
+        epoch_start: 0
+        epoch_end: 0
+      - pubkey: '11111111111111111111111111111111'
+        epoch_start: 0
+        epoch_end: 0
+      - pubkey: '11111111111111111111111111111111'
+        epoch_start: 0
+        epoch_end: 0
+      - pubkey: '11111111111111111111111111111111'
+        epoch_start: 0
+        epoch_end: 0
+      - pubkey: '11111111111111111111111111111111'
+        epoch_start: 0
+        epoch_end: 0
+      - pubkey: '11111111111111111111111111111111'
+        epoch_start: 0
+        epoch_end: 0
+      - pubkey: '11111111111111111111111111111111'
+        epoch_start: 0
+        epoch_end: 0
+      - pubkey: '11111111111111111111111111111111'
+        epoch_start: 0
+        epoch_end: 0
+      - pubkey: '11111111111111111111111111111111'
+        epoch_start: 0
+        epoch_end: 0
+    idx: 31
+    is_empty: 1
+  epoch_credits: 
+    - epoch: 0
+      credits: 1
+      prev_credits: 0
+  last_timestamp: 
+    slot: 1
+    timestamp: 1690200075

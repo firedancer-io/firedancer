@@ -1,0 +1,13 @@
+pull_resp: 
+  pubkey: '9Diwct7c6braQnne86jutswAW4iZmPfcg6VHVp4FBrLn'
+  (null): 
+    - signature: '41fQjMjZF8Uw3ydc4tfSiJZGkBwFSu8SqqaqsDysiDepVrhV1QvYsqETystLsay7swYxPxDnfFVX4mxqMzoFWy4S'
+      data: 
+        version: 
+          from: '9Diwct7c6braQnne86jutswAW4iZmPfcg6VHVp4FBrLn'
+          wallclock: 1660658416907
+          major: 1
+          minor: 12
+          patch: 0
+          commit: null
+          feature_set: 402709457

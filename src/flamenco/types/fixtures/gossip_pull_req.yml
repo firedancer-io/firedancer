@@ -1,0 +1,158 @@
+pull_req: 
+  filter: 
+    filter: 
+      (null): 
+        - 1017661136073509108
+        - 9141639801749198208
+        - 2457319821573164756
+      bits: 
+        bits: 
+          (null): 
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+            - 0
+        len: 6168
+      num_bits_set: 0
+    mask: 288230376151711743
+    mask_bits: 6
+  value: 
+    signature: '2ciwMym6Gg6h8SJhQ9TGoHWPmbjoGKR9YxRUuXvLuHev4x57yaaiHppM6md7SPzfvr118SaxcP39rAPKwvKzitQp'
+    data: 
+      contact_info: 
+        id: 'FtxH6Na6AJk8hM21DzsHtmGCuwgm4qWdUTosAdN9fmTD'
+        gossip: 
+          addr: 
+            ip4: '0.0.0.0'
+          port: 0
+        tvu: 
+          addr: 
+            ip4: '0.0.0.0'
+          port: 0
+        tvu_fwd: 
+          addr: 
+            ip4: '0.0.0.0'
+          port: 0
+        repair: 
+          addr: 
+            ip4: '0.0.0.0'
+          port: 0
+        tpu: 
+          addr: 
+            ip4: '0.0.0.0'
+          port: 0
+        tpu_fwd: 
+          addr: 
+            ip4: '0.0.0.0'
+          port: 0
+        tpu_vote: 
+          addr: 
+            ip4: '0.0.0.0'
+          port: 0
+        rpc: 
+          addr: 
+            ip4: '0.0.0.0'
+          port: 0
+        rpc_pubsub: 
+          addr: 
+            ip4: '0.0.0.0'
+          port: 0
+        serve_repair: 
+          addr: 
+            ip4: '0.0.0.0'
+          port: 0
+        wallclock: 1660627129489
+        shred_version: 0
