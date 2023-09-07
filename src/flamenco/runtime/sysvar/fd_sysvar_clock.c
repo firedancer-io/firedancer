@@ -126,9 +126,7 @@ void fd_calculate_stake_weighted_timestamp(
   long * result_timestamp,
   uint fix_estimate_into_u64
  ) {
-  fd_clock_timestamp_votes_t * unique_timestamps = &global->bank.timestamp_votes;
   ulong slot_duration = (ulong)ns_per_slot( global->bank.ticks_per_slot );
-  FD_LOG_DEBUG(( "slot duration: %lu", slot_duration ));
   fd_sol_sysvar_clock_t clock;
   fd_sysvar_clock_read( global, &clock );
   // get the unique timestamps
@@ -140,33 +138,61 @@ void fd_calculate_stake_weighted_timestamp(
   ele_t * pool = pool_join( pool_new( scratch, 10240UL ) );
   ulong total_stake = 0;
 
-  for(
-    fd_clock_timestamp_vote_t_mapnode_t* n = fd_clock_timestamp_vote_t_map_minimum(unique_timestamps->votes_pool, unique_timestamps->votes_root);
+  fd_vote_accounts_pair_t_mapnode_t * vote_acc_root = global->bank.stakes.vote_accounts.vote_accounts_root;
+  fd_vote_accounts_pair_t_mapnode_t * vote_acc_pool = global->bank.stakes.vote_accounts.vote_accounts_pool;
+  for (
+    fd_vote_accounts_pair_t_mapnode_t* n = fd_vote_accounts_pair_t_map_minimum(vote_acc_pool, vote_acc_root);
     n;
-    n = fd_clock_timestamp_vote_t_map_successor(unique_timestamps->votes_pool, n)
+    n = fd_vote_accounts_pair_t_map_successor(vote_acc_pool, n)
   ) {
-    long estimate = n->elem.timestamp + ((((long)clock.slot - (long)n->elem.slot) * (long)slot_duration) / 1000000000L );
+    /* get timestamp */
+    fd_pubkey_t const * vote_pubkey = &n->elem.key;
+    fd_account_meta_t const * vote_acc_meta = NULL;
+    uchar const * vote_acc_data = NULL;
+    int err = fd_acc_mgr_view( global->acc_mgr, global->funk_txn, vote_pubkey, NULL, &vote_acc_meta, &vote_acc_data );
+    FD_TEST( err == 0 );
+    fd_bincode_decode_ctx_t decode = {
+      .data    = vote_acc_data,
+      .dataend = vote_acc_data + vote_acc_meta->dlen,
+      /* TODO: Make this a instruction-scoped allocator */
+      .valloc  = global->valloc,
+    };
+    fd_vote_state_versioned_t vote_state[1] = {0};
+    ulong vote_timestamp = 0L;
+    ulong vote_slot = 0L;
+    if( FD_UNLIKELY( 0!=fd_vote_state_versioned_decode( vote_state, &decode ) ) )
+      FD_LOG_ERR(( "vote_state_versioned_decode failed" ));
+    switch (vote_state->discriminant) {
+      case fd_vote_state_versioned_enum_current:
+        vote_timestamp = vote_state->inner.current.last_timestamp.timestamp;
+        vote_slot = vote_state->inner.current.last_timestamp.slot;
+        break;
+      case fd_vote_state_versioned_enum_v0_23_5:
+        vote_timestamp = vote_state->inner.v0_23_5.last_timestamp.timestamp;
+        vote_slot = vote_state->inner.v0_23_5.last_timestamp.slot;
+        break;
+      case fd_vote_state_versioned_enum_v1_14_11:
+        vote_timestamp = vote_state->inner.v1_14_11.last_timestamp.timestamp;
+        vote_slot = vote_state->inner.v1_14_11.last_timestamp.slot;
+        break;
+      default:
+        __builtin_unreachable();
+    }
+
+    long estimate = (long)vote_timestamp + ((((long)clock.slot - (long)vote_slot) * (long)slot_duration) / NS_IN_S );
     /* get stake */
-    fd_vote_accounts_pair_t_mapnode_t key;
-    key.elem.key = n->elem.pubkey;
-    fd_vote_accounts_pair_t_mapnode_t * value = fd_vote_accounts_pair_t_map_find(global->bank.stakes.vote_accounts.vote_accounts_pool, global->bank.stakes.vote_accounts.vote_accounts_root, &key);
-    // int result = fd_vote_load_account( &refvote_state, &, ctx.global, reference_vote_acc );
-    ulong stake_weight = (value != NULL) ? value->elem.stake : 0;
-    // FD_LOG_NOTICE(("stk: %32J %lu %lu",&n->elem.pubkey, stake_state.discriminant, stake_state.inner.stake.stake.delegation.stake));
-    // FD_LOG_NOTICE(("clk.slot: %lu, el.slot: %lu, el.ts: %lu, sl_dur: %lu stk_w: %lu, treap_sz: %lu, estimate = %lu", clock.slot, n->elem.slot, n->elem.timestamp, slot_duration, stake_weight, treap_ele_cnt( treap ), estimate));
-    total_stake += stake_weight;
+    total_stake += n->elem.stake;
     ulong idx = pool_idx_acquire( pool );
     pool[ idx ].timestamp = estimate;
-    pool[ idx ].stake = stake_weight;
+    pool[ idx ].stake = n->elem.stake;
     treap_idx_insert( treap, idx, pool );
   }
-  FD_LOG_DEBUG(("total stake: %lu", total_stake));
+
+  *result_timestamp = 0;
   if (total_stake == 0) {
-    *result_timestamp = 0;
     return;
   }
   ulong stake_accumulator = 0;
-  *result_timestamp = 0;
 
   for (treap_fwd_iter_t iter = treap_fwd_iter_init ( treap, pool);
        !treap_fwd_iter_done( iter );
@@ -258,6 +284,9 @@ fd_sysvar_clock_update( fd_global_ctx_t * global ) {
 
   clock.epoch = epoch_new;
   if( epoch_old != epoch_new ) {
+    long timestamp_estimate = 0L;
+    fd_calculate_stake_weighted_timestamp( global, &timestamp_estimate, FD_FEATURE_ACTIVE( global, warp_timestamp_again ) );
+    clock.unix_timestamp = fd_long_max( timestamp_estimate, ancestor_timestamp );
     clock.epoch_start_timestamp = clock.unix_timestamp;
     clock.leader_schedule_epoch = fd_slot_to_leader_schedule_epoch( &global->bank.epoch_schedule, global->bank.slot );
   }
