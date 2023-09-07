@@ -555,9 +555,9 @@ fd_gossip_global_set_config( fd_gossip_global_t * glob, const fd_gossip_config_t
    value needs "fun" and "fun_arg" to be set. */
 fd_pending_event_t *
 fd_gossip_add_pending( fd_gossip_global_t * glob, long when ) {
-  fd_pending_event_t * ev = fd_pending_pool_ele_acquire( glob->event_pool );
-  if (ev == NULL)
+  if (fd_pending_pool_free( glob->event_pool ) == 0)
     return NULL;
+  fd_pending_event_t * ev = fd_pending_pool_ele_acquire( glob->event_pool );
   ev->key = when;
   fd_pending_heap_ele_insert( glob->event_heap, ev, glob->event_pool );
   return ev;
