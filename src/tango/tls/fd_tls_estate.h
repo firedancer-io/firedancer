@@ -13,6 +13,9 @@ struct fd_tls_estate_base {
   uchar  server : 1;  /* 1 if server, 0 if client */
   uchar  quic   : 1;  /* 1 if QUIC, 0 otherwise ... TODO this is redundant */
   ushort reason;      /* FD_TLS_REASON_{...} */
+
+  /* Sadly required for SSLKEYLOGFILE */
+  uchar client_random[ 32 ];
 };
 
 typedef struct fd_tls_estate_base fd_tls_estate_base_t;
