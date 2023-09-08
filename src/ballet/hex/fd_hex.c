@@ -29,3 +29,17 @@ fd_hex_decode( void *       _dst,
   return i;
 }
 
+char *
+fd_hex_encode( char *       dst,
+               void const * _src,
+               ulong        sz ) {
+  uchar const * src = (uchar const *)_src;
+  static char const lut[ 16 ] = "0123456789abcdef";
+  for( ulong j=0UL; j<sz; j++ ) {
+    ulong c = src[j];
+    *dst++ = lut[ c >> 4UL ];
+    *dst++ = lut[ c & 0xfUL ];
+  }
+  return dst;
+}
+
