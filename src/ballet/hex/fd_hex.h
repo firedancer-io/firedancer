@@ -19,5 +19,10 @@ fd_hex_decode( void *       FD_RESTRICT dst,
                char const * FD_RESTRICT src,
                ulong                    sz );
 
+char *
+fd_hex_encode( char *       FD_RESTRICT dst,
+               void const * FD_RESTRICT src,
+               ulong                    sz );
+
 #endif /* HEADER_fd_src_ballet_hex_fd_hex_h */
 
