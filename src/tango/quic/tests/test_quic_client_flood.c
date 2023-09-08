@@ -1,6 +1,8 @@
 #include "../fd_quic.h"
 #include "fd_quic_test_helpers.h"
 
+/* test_quic_client_flood sends a flood of QUIC INITIAL frames. */
+
 #include <stdlib.h>
 
 #include "../../xdp/fd_xdp.h"
