@@ -1,6 +1,8 @@
 #include "../fd_quic.h"
 #include "fd_quic_test_helpers.h"
 
+/* test_quic_conn repeatedly opens and closes QUIC connections. */
+
 #include <stdlib.h>
 
 int state           = 0;
@@ -242,7 +244,7 @@ my_cb_conn_final( fd_quic_conn_t * conn,
 
   fd_quic_conn_t ** ppconn = (fd_quic_conn_t**)fd_quic_conn_get_context( conn );
   if( ppconn ) {
-    FD_LOG_NOTICE(( "my_cb_conn_final %p SUCCESS", (void*)*ppconn ));
+    FD_LOG_INFO(( "my_cb_conn_final %p SUCCESS", (void*)*ppconn ));
     *ppconn = NULL;
   } else {
     FD_LOG_WARNING(( "my_cb_conn_final FAIL" ));
@@ -254,7 +256,7 @@ my_connection_new( fd_quic_conn_t * conn,
                    void *           vp_context ) {
   (void)vp_context;
 
-  FD_LOG_NOTICE(( "server handshake complete" ));
+  FD_LOG_INFO(( "server handshake complete" ));
 
   server_complete = 1;
   server_conn = conn;
@@ -267,7 +269,7 @@ my_handshake_complete( fd_quic_conn_t * conn,
                        void *           vp_context ) {
   (void)vp_context;
 
-  FD_LOG_NOTICE(( "client handshake complete" ));
+  FD_LOG_INFO(( "client handshake complete" ));
 
   client_complete = 1;
 

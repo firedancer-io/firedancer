@@ -137,8 +137,8 @@ fd_quic_new_anonymous( fd_wksp_t *              wksp,
   config->net.ephem_udp_port.hi = 10100;
 
   /* Default settings */
-  config->idle_timeout     = (ulong)100e6; /* 10ms */
-  config->service_interval = (ulong) 10e6; /* 10ms */
+  config->idle_timeout     = (ulong)100e6; /* 100ms */
+  config->service_interval = (ulong) 10e6; /*  10ms */
   strcpy( config->sni, "local" );
 
   /* Default callbacks */

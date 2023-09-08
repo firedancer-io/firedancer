@@ -22,10 +22,6 @@ size_t scratch_sz = 0x4000;
 
 fd_aio_t _aio[1];
 
-static struct {
-  EVP_PKEY * cert_key_object;
-  X509 *     cert_object;
-} quic_cfg;
 
 ulong test_clock(void *ctx) {
   (void)ctx;
@@ -143,10 +139,8 @@ void init_quic(void) {
   fd_aio_t *aio = fd_aio_join(shaio);
   FD_TEST(aio);
 
-  server_quic->cb.now          = test_clock;
-  server_quic->cb.now_ctx      = NULL;
-  server_quic->cert_key_object = EVP_PKEY_dup( quic_cfg.cert_key_object );
-  server_quic->cert_object     = X509_dup( quic_cfg.cert_object );
+  server_quic->cb.now     = test_clock;
+  server_quic->cb.now_ctx = NULL;
 
   fd_quic_set_aio_net_tx(server_quic, aio);
   fd_quic_init( server_quic );
@@ -154,8 +148,6 @@ void init_quic(void) {
 
 void
 destroy_quic( void ) {
-  EVP_PKEY_free( server_quic->cert_key_object );
-  X509_free( server_quic->cert_object );
   fd_quic_fini( server_quic );
 }
 
@@ -195,8 +187,10 @@ int LLVMFuzzerInitialize(int *argc, char ***argv) {
   ulong quic_footprint = fd_quic_footprint(&quic_limits);
   FD_TEST(quic_footprint);
 
-  server_quic = fd_quic_new_anonymous(wksp, &quic_limits, FD_QUIC_ROLE_SERVER);
+  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
+  server_quic = fd_quic_new_anonymous(wksp, &quic_limits, FD_QUIC_ROLE_SERVER, rng);
   FD_TEST(server_quic);
+  fd_rng_delete( fd_rng_leave( rng ) );
 
   fd_quic_config_t *server_config = &server_quic->config;
   server_config->idle_timeout = 5e6;
@@ -213,17 +207,7 @@ int LLVMFuzzerInitialize(int *argc, char ***argv) {
       24,  188, 62,  99,  209, 162, 16,  6,   7,   24,  81,
       152, 128, 139, 234, 170, 93,  88,  204, 245, 205,
   };
-  quic_cfg.cert_key_object = EVP_PKEY_new_raw_private_key( EVP_PKEY_ED25519, NULL, pkey, 32UL );
-  FD_TEST( quic_cfg.cert_key_object );
-
-  /* Generate X509 certificate */
-  uchar cert_asn1[ FD_X509_MOCK_CERT_SZ ];
-  fd_x509_mock_cert( cert_asn1, pkey );
-  do {
-    uchar const * cert_ptr = cert_asn1;
-    quic_cfg.cert_object = d2i_X509( NULL, &cert_ptr, FD_X509_MOCK_CERT_SZ );
-    FD_TEST( quic_cfg.cert_object );
-  } while(0);
+  fd_memcpy( server_quic->config.identity_key, pkey, 32UL );
 
   return 0;
 }
