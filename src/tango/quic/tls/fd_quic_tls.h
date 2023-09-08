@@ -17,10 +17,6 @@
    General operation:
      // set up a quic-tls config object
      fd_quic_tls_cfg_t quic_tls_cfg = {
-       .client_hello_cb       = my_client_hello_cb,  // client_hello receives a callback
-                                                     // to determine whether a handshake
-                                                     // should be accepted
-
        .alert_cb              = my_alert_cb,         // callback for quic-tls to alert of
                                                      // handshake errors
 
@@ -71,9 +67,6 @@
 #define FD_QUIC_TLS_HS_DATA_SZ  (1u<<14u)
 
 /* callback function prototypes */
-typedef int
-(* fd_quic_tls_cb_client_hello_t)( fd_quic_tls_hs_t * hs,
-                                   void *             context );
 
 typedef void
 (* fd_quic_tls_cb_alert_t)( fd_quic_tls_hs_t * hs,
@@ -89,10 +82,6 @@ typedef void
 (* fd_quic_tls_cb_handshake_complete_t)( fd_quic_tls_hs_t * hs,
                                          void *             context  );
 
-typedef void
-(* fd_quic_tls_cb_keylog_t)( fd_quic_tls_hs_t * hs,
-                             char const *       line );
-
 struct fd_quic_tls_secret {
   uint  suite_id;
   uint  enc_level;
@@ -103,19 +92,14 @@ struct fd_quic_tls_secret {
 
 struct fd_quic_tls_cfg {
   // callbacks ../crypto/fd_quic_crypto_suites
-  fd_quic_tls_cb_client_hello_t        client_hello_cb;
   fd_quic_tls_cb_alert_t               alert_cb;
   fd_quic_tls_cb_secret_t              secret_cb;
   fd_quic_tls_cb_handshake_complete_t  handshake_complete_cb;
-  fd_quic_tls_cb_keylog_t              keylog_cb;
 
   ulong          max_concur_handshakes;
 
   /* Ed25519 private key */
   uchar const * cert_private_key;
-
-  /* keylog_fd == 0 indicates no keylogger file */
-  int            keylog_fd;             /* keylogger file */
 };
 
 /* structure for organising handshake data */
@@ -132,11 +116,9 @@ struct fd_quic_tls_hs_data {
 
 struct __attribute__((aligned(128))) fd_quic_tls {
   /* callbacks */
-  fd_quic_tls_cb_client_hello_t        client_hello_cb;
   fd_quic_tls_cb_alert_t               alert_cb;
   fd_quic_tls_cb_secret_t              secret_cb;
   fd_quic_tls_cb_handshake_complete_t  handshake_complete_cb;
-  fd_quic_tls_cb_keylog_t              keylog_cb;
 
   ulong                                max_concur_handshakes;
 
@@ -146,10 +128,6 @@ struct __attribute__((aligned(128))) fd_quic_tls {
 
   /* ssl related */
   fd_tls_t tls;
-
-  /* Regular file descriptor for key logging.
-     Owned by fd_quic. */
-  int keylog_fd;
 
   /* ALPNs in OpenSSL length-prefixed list format */
   uchar const * alpns;
@@ -330,7 +308,6 @@ fd_quic_tls_pop_hs_data( fd_quic_tls_hs_t * self, uint enc_level );
    parses and handles incoming data (delivered via fd_quic_tls_provide_data)
    generates new data to send to peer
    makes callbacks for notification of the following:
-       client_hello_cb        initial handshake. May be used to accept or reject
        alert_cb               a tls alert has occurred and the handshake has failed
        secret_cb              a secret is available
        handshake_complete_cb  the handshake is complete - stream handling can begin */

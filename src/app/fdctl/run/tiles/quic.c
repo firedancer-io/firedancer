@@ -7,9 +7,6 @@
 
 #include <linux/unistd.h>
 
-#include <openssl/err.h>
-#include <openssl/ssl.h>
-
 static void
 init( fd_tile_args_t * args ) {
   (void)args;
@@ -21,16 +18,6 @@ init( fd_tile_args_t * args ) {
   /* calling fd_tempo_tick_per_ns requires nanosleep, it is cached with
      a FD_ONCE */
   fd_tempo_tick_per_ns( NULL );
-
-  /* OpenSSL goes and tries to read files and allocate memory and
-     other dumb things on a thread local basis, so we need a special
-     initializer to do it before seccomp happens in the process. */
-  ERR_STATE * state = ERR_get_state();
-  if( FD_UNLIKELY( !state )) FD_LOG_ERR(( "ERR_get_state failed" ));
-  if( FD_UNLIKELY( !OPENSSL_init_ssl( OPENSSL_INIT_LOAD_SSL_STRINGS , NULL ) ) )
-    FD_LOG_ERR(( "OPENSSL_init_ssl failed" ));
-  if( FD_UNLIKELY( !OPENSSL_init_crypto( OPENSSL_INIT_LOAD_CRYPTO_STRINGS | OPENSSL_INIT_NO_LOAD_CONFIG , NULL ) ) )
-    FD_LOG_ERR(( "OPENSSL_init_crypto failed" ));
 }
 
 static ushort

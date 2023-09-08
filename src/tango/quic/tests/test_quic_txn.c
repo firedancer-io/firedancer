@@ -79,11 +79,9 @@ cb_now( void * context ) {
 int
 run_quic_client( fd_quic_t *         quic,
                  fd_quic_udpsock_t * udpsock,
-                 fd_aio_pkt_info_t * pkt ) {
-  uint dst_ip;
-  if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( "198.18.0.1", &dst_ip  ) ) ) FD_LOG_ERR(( "invalid --dst-ip" ));
-  ushort dst_port = 9007;
-
+                 fd_aio_pkt_info_t * pkt,
+                 uint                dst_ip,
+                 ushort              dst_port ) {
 
   #define MSG_SZ_MIN (1UL)
   #define MSG_SZ_MAX (1232UL-64UL-32UL)
@@ -152,7 +150,20 @@ int
 main( int argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
-  const char * payload = fd_env_strip_cmdline_cstr( &argc, &argv, "--payload-base64-encoded", NULL, NULL );
+
+  const char * payload     = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--payload-base64-encoded", NULL, NULL );
+  const char * dst_ip_cstr = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--dst-ip",   NULL, NULL );
+  ushort       dst_port    = fd_env_strip_cmdline_ushort( &argc, &argv, "--dst-port", NULL, 0U );
+
+  if( FD_UNLIKELY( !dst_ip_cstr ) ) FD_LOG_ERR(( "missing --dst-ip" ));
+  if( FD_UNLIKELY( !dst_port    ) ) FD_LOG_ERR(( "missing --dst-port" ));
+
+  uint dst_ip;
+  if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( dst_ip_cstr, &dst_ip ) ) ) FD_LOG_ERR(( "invalid --dst-ip" ));
+
+  FD_LOG_NOTICE(( "Connecting to " FD_IP4_ADDR_FMT ":%u", FD_IP4_ADDR_FMT_ARGS( dst_ip ), dst_port ));
+
+  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
   fd_aio_pkt_info_t pkt;
   uchar buf[1300];
@@ -214,13 +225,16 @@ main( int argc,
   client_cfg->net.ephem_udp_port.lo = (ushort)udpsock->listen_port;
   client_cfg->net.ephem_udp_port.hi = (ushort)(udpsock->listen_port + 1);
   client_cfg->initial_rx_max_stream_data = 1<<15;
+  for( ulong j=0UL; j<16UL; j++ ) client_cfg->identity_key[ j ] = (uchar)fd_rng_uchar( rng );
 
-  int num_sent = run_quic_client( quic, udpsock, &pkt );
+  int num_sent = run_quic_client( quic, udpsock, &pkt, dst_ip, dst_port );
 
   fd_wksp_free_laddr( fd_quic_delete( fd_quic_leave( quic ) ) );
   fd_quic_udpsock_destroy( udpsock );
   fd_wksp_delete_anonymous( wksp );
+  fd_rng_delete( fd_rng_leave( rng ) );
 
+  FD_LOG_NOTICE(( "pass" ));
   fd_halt();
 
   switch( num_sent ) {

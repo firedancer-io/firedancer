@@ -1,10 +1,12 @@
+/* test_quic_tls_hs performs a handshake using the fd_quic_tls API.
+   (fd_quic_tls is a light wrapper over fd_tls) */
+
 #include <signal.h>
 
 #include "../tls/fd_quic_tls.h"
 #include "../templ/fd_quic_transport_params.h"
 #include "../../../util/net/fd_ip4.h"
 #include "../../../ballet/x509/fd_x509_mock.h"
-
 
 // test transport parameters
 static uchar const test_tp[] =
@@ -59,17 +61,7 @@ my_alert( fd_quic_tls_hs_t * hs,
   FD_LOG_INFO(( "Reason: %d-%s", hs->hs.base.reason, fd_tls_reason_cstr( hs->hs.base.reason ) ));
 }
 
-int
-my_client_hello( fd_quic_tls_hs_t * hs,
-                 void *             context ) {
-  (void)hs;
-  (void)context;
-
-  FD_LOG_INFO(( "callback client hello" ));
-  return FD_QUIC_TLS_SUCCESS;
-}
-
-static uchar test_quic_tls_mem[ 284048UL ] __attribute__((aligned(128)));
+static uchar test_quic_tls_mem[ 288144UL ] __attribute__((aligned(128)));
 
 int
 main( int     argc,
@@ -85,7 +77,6 @@ main( int     argc,
 
   // config parameters
   fd_quic_tls_cfg_t cfg = {
-    .client_hello_cb       = my_client_hello,
     .alert_cb              = my_alert,
     .secret_cb             = my_secrets,
     .handshake_complete_cb = my_hs_complete,

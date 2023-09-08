@@ -47,7 +47,6 @@ struct __attribute__((aligned(16UL))) fd_quic_state_private {
   /* Pointer to OpenSSL TLS state (part of quic memory region) */
 
   fd_quic_tls_t * tls;
-  int             keylog_fd;
 
   /* transport_params: Template for QUIC-TLS transport params extension.
      Contains a mix of mutable and immutable fields.  Immutable fields
@@ -157,11 +156,11 @@ fd_quic_tls_cb_client_hello( fd_quic_tls_hs_t * hs,
                              void *             context );
 
 int
-fd_quic_tls_cb_handshake_data( fd_quic_tls_hs_t *    hs,
-                               void *                context,
-                               OSSL_ENCRYPTION_LEVEL enc_level,
-                               uchar const *         data,
-                               ulong                 data_sz );
+fd_quic_tls_cb_handshake_data( fd_quic_tls_hs_t * hs,
+                               void *             context,
+                               uint               enc_level,
+                               uchar const *      data,
+                               ulong              data_sz );
 
 void
 fd_quic_tls_cb_alert( fd_quic_tls_hs_t * hs,
@@ -172,21 +171,10 @@ void
 fd_quic_tls_cb_secret( fd_quic_tls_hs_t *           hs,
                        void *                       context,
                        fd_quic_tls_secret_t const * secret );
-void
-fd_quic_tls_cb_keylog( fd_quic_tls_hs_t * hs,
-                       char const *       line );
 
 void
 fd_quic_tls_cb_handshake_complete( fd_quic_tls_hs_t * hs,
                                    void *             context  );
-
-int
-fd_quic_tls_cb_alpn_select( SSL * ssl,
-                            uchar const ** out,
-                            uchar       *  outlen,
-                            uchar const *  in,
-                            uint           inlen,
-                            void *         arg );
 
 /* Helpers for calling callbacks **************************************/
 
