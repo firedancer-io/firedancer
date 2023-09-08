@@ -9,14 +9,7 @@ fd_flamenco_txn_decode( fd_flamenco_txn_t *       self,
                         fd_bincode_decode_ctx_t * ctx ) {
   static FD_TLS fd_txn_parse_counters_t counters[1];
   ulong bufsz = (ulong)ctx->dataend - (ulong)ctx->data;
-  ulong sz;
-  ulong res = fd_txn_parse_core( ctx->data, bufsz, self->txn, counters, &sz, 0 );
-  if( FD_UNLIKELY( !res ) ) {
-    /* TODO: Remove this debug print in prod */
-    FD_LOG_DEBUG(( "Failed to decode txn (fd_txn.c:%lu)",
-                   counters->failure_ring[ counters->failure_cnt % FD_TXN_PARSE_COUNTERS_RING_SZ ] ));
-    return -1000001;
-  }
+  ulong sz = fd_txn_parse( ctx->data, bufsz, self->txn, counters );
   fd_memcpy( self->raw, ctx->data, sz );
   self->raw_sz = sz;
   ctx->data = (void *)( (ulong)ctx->data + sz );
@@ -244,7 +237,7 @@ fd_gossip_ip6_addr_walk( void *                       w,
 
   char buf[ 40 ];
   sprintf( buf,
-           "%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x",
+           "%04hx:%04hx:%04hx:%04hx:%04hx:%04hx:%04hx:%04hx",
            self->us[ 0 ], self->us[ 1 ], self->us[ 2 ], self->us[ 3 ],
            self->us[ 4 ], self->us[ 5 ], self->us[ 6 ], self->us[ 7 ] );
   fun( w, buf, name, FD_FLAMENCO_TYPE_CSTR, "ip6_addr", level );

@@ -17,6 +17,8 @@
 #include <stdlib.h>
 
 #pragma GCC diagnostic ignored "-Wstrict-aliasing"
+#pragma GCC diagnostic ignored "-Wformat"
+#pragma GCC diagnostic ignored "-Wformat-extra-args"
 
 /* Maximum size of a network packet */
 #define PACKET_DATA_SIZE 1232

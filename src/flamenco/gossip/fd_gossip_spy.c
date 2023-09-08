@@ -40,7 +40,7 @@ void stop(int sig) { (void)sig; stopflag = 1; }
 
 int main(int argc, char **argv) {
   fd_boot         ( &argc, &argv );
-  fd_flamenco_boot( &argc, &argv );
+  // fd_flamenco_boot( &argc, &argv );
 
   fd_valloc_t valloc = fd_libc_alloc_virtual();
 
