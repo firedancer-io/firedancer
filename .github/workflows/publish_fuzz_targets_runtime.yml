@@ -24,11 +24,10 @@ jobs:
           command: make -j -Otarget fuzz-test
 
       - name: List Artifacts
-        run: |
-          ls build/linux/clang/x86_64_fuzz_asan/fuzz-test
+        run: ls build/linux/clang/x86_64_fuzz_asan/fuzz-test
 
       - uses: firedancer-io/clusterfuzz-action@main
-        if: ${{ github.ref == 'refs/heads/main' }}
+        if: ${{ github.ref == 'refs/heads/runtime' }}
         name: Upload fuzz targets to ClusterFuzz
         with:
           bucket-name: firedancer-builds.isol-clusterfuzz.appspot.com
@@ -38,4 +37,6 @@ jobs:
           service-account-credentials: ${{ secrets.FUZZ_SERVICE_ACCT_JSON_BUNDLE }}
 
       - name: Run Fuzz Tests Against Corpora
-        run: make -k -j -Otarget run-fuzz-test
+        uses: firedancer-io/fuzzbot-builder@main
+        with:
+          command: make -k -j -Otarget run-fuzz-test
