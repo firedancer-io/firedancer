@@ -105,13 +105,12 @@ fetch () {
   #checkout_repo zlib      https://github.com/madler/zlib            "v1.2.13"
   #checkout_repo bzip2     https://sourceware.org/git/bzip2.git      "bzip2-1.0.8"
   #checkout_repo zstd      https://github.com/facebook/zstd          "v1.5.4"
-  checkout_repo openssl   https://github.com/quictls/openssl        "openssl-3.1.2-quic1"
   #checkout_repo rocksdb   https://github.com/facebook/rocksdb       "v7.10.2"
   #checkout_repo secp256k1 https://github.com/bitcoin-core/secp256k1 "v0.3.2"
 }
 
 check_fedora_pkgs () {
-  local REQUIRED_RPMS=( perl autoconf gettext-devel automake flex bison cmake clang )
+  local REQUIRED_RPMS=( clang )
 
   echo "[~] Checking for required RPM packages"
 
@@ -131,7 +130,7 @@ check_fedora_pkgs () {
 }
 
 check_debian_pkgs () {
-  local REQUIRED_DEBS=( perl autoconf gettext automake autopoint flex bison build-essential gcc-multilib )
+  local REQUIRED_DEBS=( build-essential )
 
   echo "[~] Checking for required DEB packages"
 
@@ -151,7 +150,7 @@ check_debian_pkgs () {
 }
 
 check_alpine_pkgs () {
-  local REQUIRED_APKS=( perl autoconf gettext automake flex bison build-base linux-headers )
+  local REQUIRED_APKS=( build-base linux-headers )
 
   echo "[~] Checking for required APK packages"
 
@@ -171,7 +170,7 @@ check_alpine_pkgs () {
 }
 
 check_macos_pkgs () {
-  local REQUIRED_FORMULAE=( perl autoconf gettext automake flex bison )
+  local REQUIRED_FORMULAE=( )
 
   echo "[~] Checking for required brew formulae"
 
@@ -418,7 +417,7 @@ install () {
   #( install_bzip2     )
   #( install_zstd      )
   #( install_secp256k1 )
-  ( install_openssl   )
+  #( install_openssl   )
   #( install_rocksdb   )
 
   # Remove cmake and pkgconfig files, so we don't accidentally

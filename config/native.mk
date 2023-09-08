@@ -49,7 +49,6 @@ FD_HAS_DOUBLE:=1
 CPPFLAGS+=-DFD_HAS_DOUBLE=1
 $(call map-define,FD_HAS_ALLOCA, __linux__)
 $(call map-define,FD_HAS_THREADS, __linux__)
-$(call map-define,FD_HAS_OPENSSL, __linux__)
 $(call map-define,FD_HAS_X86, __x86_64__)
 $(call map-define,FD_HAS_SSE, __SSE4_2__)
 $(call map-define,FD_HAS_AVX, __AVX2__)
@@ -65,10 +64,6 @@ $(info Using FD_HAS_AESNI=$(FD_HAS_AESNI))
 
 ifeq ($(FD_HAS_THREADS),1)
 include config/with-threads.mk
-endif
-
-ifeq ($(FD_HAS_OPENSSL),1)
-include config/with-openssl.mk
 endif
 
 ifeq ($(FD_IS_X86_64),1)
