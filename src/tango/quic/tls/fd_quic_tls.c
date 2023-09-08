@@ -131,12 +131,9 @@ fd_quic_tls_new( void *              mem,
 
   fd_quic_tls_t * self = (fd_quic_tls_t *)mem;
 
-  self->client_hello_cb       = cfg->client_hello_cb;
   self->alert_cb              = cfg->alert_cb;
   self->secret_cb             = cfg->secret_cb;
   self->handshake_complete_cb = cfg->handshake_complete_cb;
-  self->keylog_cb             = cfg->keylog_cb;
-  self->keylog_fd             = cfg->keylog_fd;
   self->max_concur_handshakes = cfg->max_concur_handshakes;
 
   ulong handshakes_laddr = (ulong)mem + layout.handshakes_off;
@@ -189,6 +186,7 @@ fd_quic_tls_init( fd_tls_t *  tls,
 
   /* Generate X.509 cert */
   fd_x509_mock_cert( tls->cert_x509, tls->cert_private_key );
+  tls->cert_x509_sz = FD_X509_MOCK_CERT_SZ;
 
   /* Set ALPN protocol ID
      (Technically, don't need to copy the length prefix but we'll do
@@ -500,59 +498,6 @@ fd_quic_tls_sendmsg( void const * handshake,
 
   return 1;
 }
-
-int
-fd_quic_ssl_client_hello( SSL *  ssl,
-                          int *  alert,
-                          void * arg ) {
-  (void)alert;
-  (void)arg;
-
-#if 1
-  fd_quic_tls_hs_t * hs = SSL_get_app_data( ssl );
-
-  /* TODO does the user need client hello? */
-  /* user may use client hello to decline, in which case the
-     user should be able to set the value of *alert */
-
-  /* forward */
-  int rc = hs->quic_tls->client_hello_cb( hs, hs->context );
-
-  return rc == FD_QUIC_TLS_SUCCESS ? SSL_CLIENT_HELLO_SUCCESS : SSL_CLIENT_HELLO_ERROR;
-#else
-  (void)ssl;
-  return 1;
-#endif
-}
-
-typedef void (*SSL_CTX_keylog_cb_func)(const SSL *ssl, const char *line);
-
-// TODO: keylog support
-///* fd_quic_ssl_keylog bounces an OpenSSL callback to a
-//   user-provided QUIC keylog callback and logs to a
-//   keyfile. */
-//
-//static void
-//fd_quic_ssl_keylog( SSL const *  ssl,
-//                    char const * line ) {
-//
-//  fd_quic_tls_hs_t * hs       = SSL_get_app_data( ssl );
-//  fd_quic_tls_t *    quic_tls = hs->quic_tls;
-//
-//  int fd = quic_tls->keylog_fd;
-//  if( fd>0 ) {
-//    struct iovec iov[ 2 ] = {
-//      { .iov_base=(void *)line, .iov_len=strlen( line ) },
-//      { .iov_base=(void *)"\n", .iov_len=1UL            }
-//    };
-//    /* TODO blocking system call - consider using io_submit */
-//    if( FD_UNLIKELY( writev( fd, iov, 2 )==-1 ) )
-//      FD_LOG_WARNING(( "Keylog write failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-//  }
-//
-//  fd_quic_tls_cb_keylog_t cb = quic_tls->keylog_cb;
-//  if( cb ) cb( hs, line );
-//}
 
 void
 fd_quic_tls_secrets( void const * handshake,

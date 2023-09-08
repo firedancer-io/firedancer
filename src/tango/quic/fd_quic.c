@@ -16,12 +16,9 @@
 #include <fcntl.h>   /* for keylog open(2)  */
 #include <unistd.h>  /* for keylog close(2) */
 
-// TODO ugly -- remove TLS dependency here
-#include <openssl/evp.h>
-#include <openssl/x509.h>
-#include "../../ballet/ed25519/fd_ed25519.h"
+#include <sys/random.h>
 #include "../../ballet/x509/fd_x509_mock.h"
-#include <openssl/rand.h>
+#include "../../ballet/hex/fd_hex.h"
 
 #define CONN_FMT "%02x%02x%02x%02x%02x%02x%02x%02x"
 #define CONN_ID(CONN_ID) (CONN_ID)->conn_id[0], (CONN_ID)->conn_id[1], (CONN_ID)->conn_id[2], (CONN_ID)->conn_id[3],  \
@@ -403,19 +400,6 @@ fd_quic_init( fd_quic_t * quic ) {
     return NULL;
   }
 
-  /* Prepare keylog file */
-
-  char const * keylog_file = config->keylog_file;
-  int keylog_fd = -1;
-  if( FD_UNLIKELY( keylog_file[0] ) ) {
-    keylog_fd = open( keylog_file, O_WRONLY|O_CREAT|O_APPEND, 0660 );
-    if( FD_UNLIKELY( keylog_fd<0 ) )
-      FD_LOG_WARNING(( "Cannot create keylog file at %s (%i-%s)", keylog_file, errno, fd_io_strerror( errno ) ));
-    else
-      FD_LOG_INFO(( "Logging TLS key material to %s", keylog_file ));
-  }
-  state->keylog_fd = keylog_fd;
-
   /* Check TX AIO */
 
   if( FD_UNLIKELY( !quic->aio_tx.send_func ) ) {
@@ -429,14 +413,9 @@ fd_quic_init( fd_quic_t * quic ) {
     .max_concur_handshakes = limits->handshake_cnt,
 
     /* set up callbacks */
-    .client_hello_cb       = fd_quic_tls_cb_client_hello,
     .alert_cb              = fd_quic_tls_cb_alert,
     .secret_cb             = fd_quic_tls_cb_secret,
     .handshake_complete_cb = fd_quic_tls_cb_handshake_complete,
-    .keylog_cb             = fd_quic_tls_cb_keylog,
-
-    /* set up alpn */
-    .keylog_fd             = keylog_fd,
 
     .cert_private_key      = quic->config.identity_key
   };
@@ -760,13 +739,6 @@ fd_quic_fini( fd_quic_t * quic ) {
   /* Deinit TLS */
 
   fd_quic_tls_delete( state->tls ); state->tls = NULL;
-
-  /* Close keylog file */
-
-  if( state->keylog_fd >= 0 ) {
-    close( state->keylog_fd );
-    state->keylog_fd = -1;
-  }
 
   /* Delete service queue */
 
@@ -2108,7 +2080,6 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *      quic,
     /* now we have decrypted packet number */
     /* TODO packet number processing */
     pkt_number = fd_quic_parse_bits( dec_hdr + pn_offset, 0, 8u * pkt_number_sz );
-    FD_DEBUG( FD_LOG_DEBUG(( "one_rtt pkt_number: %lu", pkt_number )) );
 
     /* packet number space */
     uint pn_space = fd_quic_enc_level_to_pn_space( enc_level );
@@ -2203,6 +2174,7 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *      quic,
   while( frame_sz != 0UL ) {
     rc = fd_quic_handle_v1_frame( quic, conn, pkt, frame_ptr, frame_sz, &conn->frame_union );
     if( rc == FD_QUIC_PARSE_FAIL ) {
+      FD_DEBUG( FD_LOG_DEBUG(( "frame failed to parse" )) );
       return FD_QUIC_PARSE_FAIL;
     }
 
@@ -2860,15 +2832,6 @@ fd_quic_aio_cb_receive( void *                    context,
   return FD_AIO_SUCCESS;
 }
 
-/* define callbacks from quic-tls into quic */
-int
-fd_quic_tls_cb_client_hello( fd_quic_tls_hs_t * hs,
-                             void *             context ) {
-  (void)hs;
-  (void)context;
-  return FD_QUIC_TLS_SUCCESS; /* accept everything */
-}
-
 void
 fd_quic_tls_cb_alert( fd_quic_tls_hs_t * hs,
                       void *             context,
@@ -2892,9 +2855,6 @@ void
 fd_quic_tls_cb_secret( fd_quic_tls_hs_t *           hs,
                        void *                       context,
                        fd_quic_tls_secret_t const * secret ) {
-  (void)hs;
-  (void)context;
-  (void)secret;
 
   fd_quic_conn_t *  conn   = (fd_quic_conn_t*)context;
   fd_quic_t *       quic   = conn->quic;
@@ -2903,15 +2863,8 @@ fd_quic_tls_cb_secret( fd_quic_tls_hs_t *           hs,
 
   /* look up suite */
   /* set secrets */
-  if( FD_UNLIKELY( secret->enc_level >= FD_QUIC_NUM_ENC_LEVELS ) ) {
-    FD_LOG_WARNING(( "callback with invalid encryption level" ));
-    return;
-  }
-
-  if( FD_UNLIKELY( secret->secret_len > FD_QUIC_MAX_SECRET_SZ ) ) {
-    FD_LOG_WARNING(( "callback with invalid secret length" ));
-    return;
-  }
+  FD_TEST( secret->enc_level  <  FD_QUIC_NUM_ENC_LEVELS );
+  FD_TEST( secret->secret_len <= FD_QUIC_MAX_SECRET_SZ  );
 
   uint enc_level = secret->enc_level;
 
@@ -2958,6 +2911,57 @@ fd_quic_tls_cb_secret( fd_quic_tls_hs_t *           hs,
       FD_LOG_WARNING(( "fd_quic_gen_keys failed on server" ));
     }
 
+  }
+
+  /* Key logging */
+
+  void *                  keylog_ctx = quic->cb.quic_ctx;
+  fd_quic_cb_tls_keylog_t keylog_fn  = quic->cb.tls_keylog;
+  if( FD_UNLIKELY( keylog_fn ) ) {
+    /* Ignore stdout, stderr, stdin */
+
+    uchar const * recv_secret = secret->read_secret;
+    uchar const * send_secret = secret->write_secret;
+
+    uchar const * client_secret = hs->is_server ? recv_secret : send_secret;
+    uchar const * server_secret = hs->is_server ? send_secret : recv_secret;
+
+    char buf[256];
+    char * s;
+    switch( enc_level ) {
+    case FD_TLS_LEVEL_HANDSHAKE:
+      /*     0 chars */ s = fd_cstr_init( buf );
+      /*  0+32 chars */ s = fd_cstr_append_cstr( s, "CLIENT_HANDSHAKE_TRAFFIC_SECRET " );
+      /* 32+64 chars */ s = fd_hex_encode( s, hs->hs.base.client_random, 32UL );
+      /* 96+ 1 chars */ s = fd_cstr_append_char( s, ' ' );
+      /* 97+64 chars */ s = fd_hex_encode( s, client_secret, 32UL );
+      /*   161 chars */     fd_cstr_fini( s );
+      keylog_fn( keylog_ctx, buf );
+      /*     0 chars */ s = fd_cstr_init( buf );
+      /*  0+32 chars */ s = fd_cstr_append_cstr( s, "SERVER_HANDSHAKE_TRAFFIC_SECRET " );
+      /* 32+64 chars */ s = fd_hex_encode( s, hs->hs.base.client_random, 32UL );
+      /* 96+ 1 chars */ s = fd_cstr_append_char( s, ' ' );
+      /* 97+64 chars */ s = fd_hex_encode( s, server_secret, 32UL );
+      /*   161 chars */     fd_cstr_fini( s );
+      keylog_fn( keylog_ctx, buf );
+      break;
+    case FD_TLS_LEVEL_APPLICATION:
+      /*     0 chars */ s = fd_cstr_init( buf );
+      /*  0+24 chars */ s = fd_cstr_append_cstr( s, "CLIENT_TRAFFIC_SECRET_0 " );
+      /* 24+64 chars */ s = fd_hex_encode( s, hs->hs.base.client_random, 32UL );
+      /* 88+ 1 chars */ s = fd_cstr_append_char( s, ' ' );
+      /* 89+64 chars */ s = fd_hex_encode( s, client_secret, 32UL );
+      /*   153 chars */     fd_cstr_fini( s );
+      keylog_fn( keylog_ctx, buf );
+      /*     0 chars */ s = fd_cstr_init( buf );
+      /*  0+24 chars */ s = fd_cstr_append_cstr( s, "SERVER_TRAFFIC_SECRET_0 " );
+      /* 24+64 chars */ s = fd_hex_encode( s, hs->hs.base.client_random, 32UL );
+      /* 88+ 1 chars */ s = fd_cstr_append_char( s, ' ' );
+      /* 89+64 chars */ s = fd_hex_encode( s, server_secret, 32UL );
+      /*   153 chars */     fd_cstr_fini( s );
+      keylog_fn( keylog_ctx, buf );
+      break;
+    }
   }
 
 }
@@ -3049,17 +3053,6 @@ fd_quic_tls_cb_handshake_complete( fd_quic_tls_hs_t * hs,
   }
 }
 
-void
-fd_quic_tls_cb_keylog( fd_quic_tls_hs_t * hs,
-                       char const *       line ) {
-
-  fd_quic_conn_t * conn = (fd_quic_conn_t *)hs->context;
-  fd_quic_t *      quic = conn->quic;
-
-  if( quic->cb.tls_keylog )
-    quic->cb.tls_keylog( quic->cb.quic_ctx, line );
-}
-
 static ulong
 fd_quic_frame_handle_crypto_frame( void *                   vp_context,
                                    fd_quic_crypto_frame_t * crypto,
@@ -3105,9 +3098,8 @@ fd_quic_frame_handle_crypto_frame( void *                   vp_context,
 
     int process_rc = fd_quic_tls_process( conn->tls_hs );
     if( process_rc == FD_QUIC_TLS_FAILED ) {
-      FD_DEBUG(
-        fprintf( stderr, "fd_quic_tls_process error at: %s %s %d\n", __func__, __FILE__, __LINE__ )
-      );
+      FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_tls_process error at" )); )
+
       /* if TLS fails, ABORT connection */
 
       /* if TLS returns an error, we present that as reason:
@@ -3190,7 +3182,7 @@ fd_quic_service( fd_quic_t * quic ) {
          "... the connection is silently closed and its state is discarded
          when it remains idle for longer than the minimum of the
          max_idle_timeout value advertised by both endpoints." */
-      FD_LOG_WARNING(( "connection closing due to timeout" ));
+      FD_DEBUG( FD_LOG_WARNING(( "conn %p closing due to idle timeout (%g ms)", (void *)conn, (double)conn->idle_timeout / 1e6 )); )
       conn->state = FD_QUIC_CONN_STATE_DEAD;
       quic->metrics.conn_aborted_cnt++;
     } else {
@@ -3698,9 +3690,7 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
     /* do we have space for pkt_meta? */
     pkt_meta = fd_quic_pkt_meta_allocate( &conn->pkt_meta_pool );
     if( FD_UNLIKELY( !pkt_meta ) ) {
-      FD_DEBUG(
-          printf( "%s - packet metadata free list is empty\n", __func__ );
-          )
+      FD_DEBUG( FD_LOG_DEBUG(( "packet metadata free list is empty" )); )
       /* cannot abort here, because there are no pkt_meta
          to use for sending packets */
 
@@ -4839,14 +4829,7 @@ fd_quic_conn_free( fd_quic_t *      quic,
   }
 
   /* destroy keys */
-  fd_quic_free_keys( &conn->keys[0][0] );
-  fd_quic_free_keys( &conn->keys[1][0] );
-  fd_quic_free_keys( &conn->keys[2][0] );
-  fd_quic_free_keys( &conn->keys[3][0] );
-  fd_quic_free_keys( &conn->keys[0][1] );
-  fd_quic_free_keys( &conn->keys[1][1] );
-  fd_quic_free_keys( &conn->keys[2][1] );
-  fd_quic_free_keys( &conn->keys[3][1] );
+  fd_memset( conn->keys, 0, sizeof(conn->keys) );
 
   /* free tls-hs */
   if( conn->tls_hs ) {
@@ -5613,9 +5596,7 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
 
     if( pkt_meta_key_phase != conn->key_phase ) {
       /* key update was acknowledged
-         free old keys, and replace with new ones */
-      fd_quic_free_pkt_keys( &conn->keys[enc_level][0] );
-      fd_quic_free_pkt_keys( &conn->keys[enc_level][1] );
+         replace with new ones */
 
       /* TODO improve this code */
 #     define COPY_KEY(SERVER,KEY)                         \
@@ -5626,8 +5607,6 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
       COPY_KEY(0,iv);
       COPY_KEY(1,pkt_key);
       COPY_KEY(1,iv);
-      conn->keys[enc_level][0].pkt_cipher_ctx = conn->new_keys[0].pkt_cipher_ctx;
-      conn->keys[enc_level][1].pkt_cipher_ctx = conn->new_keys[1].pkt_cipher_ctx;
 #     undef COPY_KEY
 
       /* finally zero out new_keys */
@@ -6637,9 +6616,7 @@ fd_quic_frame_handle_retire_conn_id_frame(
   (void)data;
   (void)p;
   (void)p_sz;
-  FD_DEBUG(
-    printf( "%s:%d  retire_conn_id requested\n", __func__, (int)(__LINE__) ); fflush( stdout );
-    )
+  FD_DEBUG( FD_LOG_DEBUG(( "retire_conn_id requested" )); )
 
   // fd_quic_frame_context_t context = *(fd_quic_frame_context_t*)vp_context;
 

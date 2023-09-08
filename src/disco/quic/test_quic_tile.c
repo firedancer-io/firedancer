@@ -1,6 +1,6 @@
 #include "../../util/fd_util.h"
 
-#if FD_HAS_HOSTED && FD_HAS_X86 && FD_HAS_OPENSSL
+#if FD_HAS_HOSTED && FD_HAS_X86
 
 #include "fd_quic.h"
 #include "../../tango/xdp/fd_xdp.h"
@@ -441,9 +441,9 @@ int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
-  FD_LOG_WARNING(( "skip: unit test requires FD_HAS_HOSTED, FD_HAS_X86, FD_HAS_OPENSSL capabilities" ));
+  FD_LOG_WARNING(( "skip: unit test requires FD_HAS_HOSTED, FD_HAS_X86 capabilities" ));
   fd_halt();
   return 0;
 }
 
-#endif /* FD_HAS_HOSTED && FD_HAS_X86 && FD_HAS_OPENSSL */
+#endif /* FD_HAS_HOSTED && FD_HAS_X86 */
