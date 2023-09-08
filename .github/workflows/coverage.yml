@@ -31,7 +31,6 @@ jobs:
         with:
           submodules: recursive
 
-      - uses: ./.github/actions/deps
       - uses: ./.github/actions/hugepages
 
       - name: 'Authenticate to Google Cloud'

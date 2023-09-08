@@ -17,23 +17,11 @@ RUN dnf install -y \
       gcc-toolset-12 \
       git \
       make \
-      pkgconf \
-      perl \
-      autoconf \
-      gettext-devel \
-      automake \
-      flex \
-      bison \
       clang
-
-# Fetch and build source dependencies
-
-WORKDIR /firedancer
-COPY deps.sh ./
-RUN scl run gcc-toolset-12 -- ./deps.sh install
 
 # Build source tree
 
+WORKDIR /firedancer
 COPY config ./config
 COPY src ./src
 COPY Makefile ./

@@ -50,7 +50,6 @@ Then you can clone and build the application from source,
 ```bash
 $ git clone --recurse-submodules https://github.com/firedancer-io/firedancer.git
 $ cd firedancer
-$ ./deps.sh
 $ make -j run
 ```
 
