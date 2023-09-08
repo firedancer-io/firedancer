@@ -1857,7 +1857,7 @@ vote_state_process_vote_with_account( fd_borrowed_account_t *       vote_account
     ulong * max = deq_ulong_peek_head( vote->slots ) ? deq_ulong_peek_head( vote->slots ) : NULL;
     for ( deq_ulong_iter_t iter = deq_ulong_iter_init( vote->slots );
           !deq_ulong_iter_done( vote->slots, iter );
-          deq_ulong_iter_next( vote->slots, iter ) ) {
+          iter = deq_ulong_iter_next( vote->slots, iter ) ) {
       ulong * ele = deq_ulong_iter_ele( vote->slots, iter );
       *max        = fd_ulong_max( *max, *ele );
     }
