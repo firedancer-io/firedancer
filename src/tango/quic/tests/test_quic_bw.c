@@ -11,6 +11,35 @@ my_conn_final( fd_quic_conn_t * conn,
   (void)conn;
   (void)quic_ctx;
   conn_final_cnt++;
+
+  FD_LOG_NOTICE(( "%s connection final", conn->server ? "SERVER" : "CLIENT" ));
+}
+
+fd_quic_conn_t *   client_conn   = NULL;
+fd_quic_stream_t * client_stream = NULL;
+
+static void
+my_stream_notify_cb( fd_quic_stream_t * stream,
+                     void *             ctx,
+                     int                type ) {
+  (void)stream;
+  (void)ctx;
+  (void)type;
+
+  if( stream == client_stream ) {
+    FD_LOG_WARNING(( "my_stream_notify_cb: client stream ended. Notify type: %d", type ));
+    client_stream = NULL;
+  }
+}
+
+static void
+my_client_conn_final( fd_quic_conn_t * conn,
+                      void *           quic_ctx ) {
+  (void)conn;
+  (void)quic_ctx;
+
+  client_conn = NULL;
+  conn_final_cnt++;
 }
 
 static void
@@ -78,7 +107,7 @@ main( int     argc,
   FD_TEST( wksp );
 
   fd_quic_limits_t const quic_limits = {
-    .conn_cnt         = 10,
+    .conn_cnt         = 2,
     .conn_id_cnt      = 10,
     .conn_id_sparsity = 4.0,
     .handshake_cnt    = 10,
@@ -107,6 +136,8 @@ main( int     argc,
   server_quic->cb.stream_receive   = my_stream_receive_cb;
 
   client_quic->cb.conn_hs_complete = my_handshake_complete;
+  client_quic->cb.stream_notify    = my_stream_notify_cb;
+  client_quic->cb.conn_final       = my_client_conn_final;
 
   server_quic->config.initial_rx_max_stream_data = 1<<20;
   client_quic->config.initial_rx_max_stream_data = 1<<20;
@@ -120,7 +151,7 @@ main( int     argc,
   FD_TEST( fd_quic_init( client_quic ) );
 
   /* make a connection from client to server */
-  fd_quic_conn_t * client_conn = fd_quic_connect(
+  client_conn = fd_quic_connect(
       client_quic,
       server_quic->config.net.ip_addr,
       server_quic->config.net.listen_udp_port,
@@ -171,10 +202,10 @@ main( int     argc,
   FD_TEST( conn_final_cnt==0 );
 
   /* try sending */
-  fd_quic_stream_t * client_stream = fd_quic_conn_new_stream( client_conn, FD_QUIC_TYPE_BIDIR );
+  client_stream = fd_quic_conn_new_stream( client_conn, FD_QUIC_TYPE_BIDIR );
   FD_TEST( client_stream );
 
-  char buf[ 256UL ] = "Hello world!\x00-   ";
+  char buf[ 512UL ] = "Hello world!\x00-   ";
   ulong buf_sz = sizeof(buf);
   fd_aio_pkt_info_t batch[1] = {{ buf, (ushort)buf_sz }};
   int rc = fd_quic_stream_send( client_stream, batch, 1, 0 );
@@ -190,6 +221,25 @@ main( int     argc,
   while(1) {
     fd_quic_service( client_quic );
     fd_quic_service( server_quic );
+
+    if( !client_conn ) {
+      FD_LOG_NOTICE(( "Connecting client..." ));
+      client_conn = fd_quic_connect(
+          client_quic,
+          server_quic->config.net.ip_addr,
+          server_quic->config.net.listen_udp_port,
+          server_quic->config.sni );
+
+      continue;
+    }
+
+    if( !client_stream ) {
+      FD_LOG_NOTICE(( "New client stream..." ));
+
+      client_stream = fd_quic_conn_new_stream( client_conn, FD_QUIC_TYPE_BIDIR );
+
+      continue;
+    }
 
     rc = fd_quic_stream_send( client_stream, batch, 1, 0 );
     if( rc == 1 ) {
@@ -232,6 +282,7 @@ main( int     argc,
     fd_quic_service( server_quic );
   }
 
+  FD_LOG_NOTICE(( "conn_final_cnt: %lu", (ulong)conn_final_cnt ));
   FD_TEST( conn_final_cnt==2 );
 
   FD_LOG_NOTICE(( "Cleaning up" ));

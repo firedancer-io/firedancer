@@ -5974,6 +5974,7 @@ fd_quic_frame_handle_stream_frame(
     /* send a max data update
        must do this before the stream-fin flags are checked */
     conn->rx_max_data   += delivered;
+    stream->rx_max_stream_data += delivered;
     conn->flags         |= FD_QUIC_CONN_FLAGS_MAX_DATA;
     conn->upd_pkt_number = FD_QUIC_PKT_NUM_PENDING;
 
