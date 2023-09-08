@@ -333,6 +333,9 @@ fd_tls_server_hs_start( fd_tls_t const *      const server,
                  | ( !ch.cipher_suites.aes_128_gcm_sha256 ) ) )
     return fd_tls_alert( &handshake->base, FD_TLS_ALERT_HANDSHAKE_FAILURE, FD_TLS_REASON_CH_CRYPTO_NEG );
 
+  /* Remember client random for SSLKEYLOGFILE */
+  fd_memcpy( handshake->base.client_random, ch.random, 32UL );
+
   /* Detect QUIC */
 
   if( server->quic ) {
@@ -1030,6 +1033,9 @@ fd_tls_client_hs_start( fd_tls_t const * const      client,
   uchar client_random[ 32 ];
   if( FD_UNLIKELY( !fd_tls_rand( &client->rand, client_random, 32UL ) ) )
     return -(long)FD_TLS_ALERT_INTERNAL_ERROR;
+
+  /* Remember client random for SSLKEYLOGFILE */
+  fd_memcpy( handshake->base.client_random, client_random, 32UL );
 
   /* Create client hello record */
 
