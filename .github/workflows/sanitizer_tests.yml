@@ -12,7 +12,7 @@ jobs:
     env:
       MACHINE: linux_clang_x86_64_asan
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - uses: ./.github/actions/deps
 
@@ -33,7 +33,7 @@ jobs:
     env:
       MACHINE: linux_clang_x86_64_ubsan
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - uses: ./.github/actions/deps
 
