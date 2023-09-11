@@ -53,18 +53,17 @@ fd_sysvar_epoch_rewards_update(
     fd_global_ctx_t * global,
     ulong distributed
 ) {
-    fd_sysvar_epoch_rewards_t * result = NULL;
-    fd_acc_lamports_t * acc_lamports = NULL;
-    fd_sysvar_epoch_rewards_read( global, result, acc_lamports );
-    FD_TEST( result != NULL );
-    FD_TEST( acc_lamports != NULL);
+    fd_sysvar_epoch_rewards_t result;
+    fd_acc_lamports_t acc_lamports = 0UL;
+    fd_sysvar_epoch_rewards_read( global, &result, &acc_lamports );
+    FD_TEST( acc_lamports != 0 );
 
-    FD_TEST( result->epoch_rewards.distributed_rewards + distributed <= result->epoch_rewards.total_rewards );
-    result->epoch_rewards.distributed_rewards += distributed;
+    FD_TEST( result.epoch_rewards.distributed_rewards + distributed <= result.epoch_rewards.total_rewards );
+    result.epoch_rewards.distributed_rewards += distributed;
 
-    *acc_lamports -= distributed;
+    acc_lamports -= distributed;
 
-    write_epoch_rewards( global, result, acc_lamports);
+    write_epoch_rewards( global, &result, &acc_lamports);
 }
 
 /* Create EpochRewards syavar with calculated rewards */

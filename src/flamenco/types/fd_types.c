@@ -6173,6 +6173,10 @@ int fd_reward_info_decode(fd_reward_info_t* self, fd_bincode_decode_ctx_t * ctx)
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_bincode_uint64_decode(&self->lamports, ctx);
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_uint64_decode(&self->staker_rewards, ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_uint64_decode(&self->new_credits_observed, ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   err = fd_bincode_uint64_decode(&self->post_balance, ctx);
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   err = fd_bincode_uint64_decode((ulong *) &self->commission, ctx);
@@ -6194,6 +6198,8 @@ void fd_reward_info_walk(void * w, fd_reward_info_t const * self, fd_types_walk_
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_reward_info", level++);
   fd_reward_type_walk(w, &self->reward_type, fun, "reward_type", level);
   fun( w, &self->lamports, "lamports", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
+  fun( w, &self->staker_rewards, "staker_rewards", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
+  fun( w, &self->new_credits_observed, "new_credits_observed", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
   fun( w, &self->post_balance, "post_balance", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
   fun( w, &self->commission, "commission", FD_FLAMENCO_TYPE_SLONG,   "long",      level );
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_reward_info", level--);
@@ -6201,6 +6207,8 @@ void fd_reward_info_walk(void * w, fd_reward_info_t const * self, fd_types_walk_
 ulong fd_reward_info_size(fd_reward_info_t const * self) {
   ulong size = 0;
   size += fd_reward_type_size(&self->reward_type);
+  size += sizeof(ulong);
+  size += sizeof(ulong);
   size += sizeof(ulong);
   size += sizeof(ulong);
   size += sizeof(long);
@@ -6212,6 +6220,10 @@ int fd_reward_info_encode(fd_reward_info_t const * self, fd_bincode_encode_ctx_t
   err = fd_reward_type_encode(&self->reward_type, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_bincode_uint64_encode(&self->lamports, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_encode(&self->staker_rewards, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_encode(&self->new_credits_observed, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_bincode_uint64_encode(&self->post_balance, ctx);
   if ( FD_UNLIKELY(err) ) return err;

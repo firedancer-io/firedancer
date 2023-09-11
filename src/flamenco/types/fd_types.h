@@ -1154,6 +1154,8 @@ typedef struct fd_reward_type fd_reward_type_t;
 struct __attribute__((aligned(8UL))) fd_reward_info {
   fd_reward_type_t reward_type;
   ulong lamports;
+  ulong staker_rewards;
+  ulong new_credits_observed;
   ulong post_balance;
   long commission;
 };

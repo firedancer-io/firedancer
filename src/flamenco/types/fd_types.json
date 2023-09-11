@@ -909,6 +909,8 @@
       "fields": [
         { "name": "reward_type", "type": "reward_type" },
         { "name": "lamports", "type": "ulong" },
+        { "name": "staker_rewards", "type": "ulong" },
+        { "name": "new_credits_observed", "type": "ulong" },
         { "name": "post_balance", "type": "ulong" },
         { "name": "commission", "type": "long" }
       ]

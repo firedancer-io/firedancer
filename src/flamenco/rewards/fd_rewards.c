@@ -426,6 +426,8 @@ calculate_stake_vote_rewards(
             .reward_type = { .discriminant = fd_reward_type_enum_staking },
             .commission = (uchar)commission,
             .lamports = redeemed->staker_rewards,
+            .new_credits_observed = redeemed->new_credits_observed,
+            .staker_rewards = redeemed->staker_rewards,
             .post_balance = post_lamports
         };
         deq_fd_stake_reward_t_push_tail( stake_reward_deq, stake_reward );
@@ -678,8 +680,24 @@ distribute_partitioned_epoch_rewards(
             total_rewards_in_lamports = fd_ulong_sat_add(total_rewards_in_lamports, this_partition_stake_rewards.elems[i]->reward_info.lamports);
             // store rewards into accounts
             fd_account_meta_t * acc_meta = NULL;
-            FD_TEST( 0==fd_acc_mgr_modify( global->acc_mgr, global->funk_txn, &this_partition_stake_rewards.elems[i]->stake_pubkey, 0, 0UL, NULL, NULL, &acc_meta, NULL ));
+            fd_pubkey_t const * stake_acc = &this_partition_stake_rewards.elems[i]->stake_pubkey;
+            FD_TEST( 0==fd_acc_mgr_modify( global->acc_mgr, global->funk_txn, stake_acc, 0, 0UL, NULL, NULL, &acc_meta, NULL ));
             acc_meta->info.lamports += this_partition_stake_rewards.elems[i]->reward_info.lamports;
+
+            fd_stake_state_t stake_state;
+            read_stake_state( global, acc_meta, &stake_state );
+            if (!fd_stake_state_is_stake( &stake_state)) {
+               FD_LOG_ERR(("failed to read stake state for %32J", &this_partition_stake_rewards.elems[i]->stake_pubkey ));
+            }
+
+            /* implements the `redeem_stake_rewards` solana function */
+            stake_state.inner.stake.stake.credits_observed += this_partition_stake_rewards.elems[i]->reward_info.new_credits_observed;
+            stake_state.inner.stake.stake.delegation.stake += this_partition_stake_rewards.elems[i]->reward_info.staker_rewards;
+
+            /* write_stake_state */
+            int err = write_stake_state( global, stake_acc, &stake_state, 0);
+            FD_TEST( err == 0 );
+
         }
 
         // increase total capitalization by the distributed rewards
