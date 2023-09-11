@@ -66,6 +66,7 @@ expected_pages( config_t * const config, uint out[2] ) {
       case wksp_pack:
       case wksp_bank:
       case wksp_forward:
+      case wksp_shred:
         num_tiles++;
         break;
     }

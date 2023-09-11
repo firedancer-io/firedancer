@@ -27,6 +27,7 @@ typedef struct {
     wksp_pack,
     wksp_bank,
     wksp_forward,
+    wksp_shred
   } kind;
   char * name;
   ulong kind_idx;
@@ -166,6 +167,12 @@ typedef struct {
     struct {
       uint receive_buffer_size;
     } forward;
+
+    struct {
+      ushort src_port;
+      uint   xdp_tx_queue_size;
+      uint   xdp_aio_depth;
+    } shred;
 
     struct {
       uint signature_cache_size;

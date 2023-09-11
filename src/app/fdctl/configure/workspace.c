@@ -74,6 +74,13 @@ static void tcache( void * pod, char * fmt, ulong depth, ... ) {
             fd_tcache_new      ( shmem, depth, 0 ) );
 }
 
+static void mvcc( void * pod, char * fmt, ulong app_sz, ... ) {
+  INSERTER( app_sz,
+            fd_mvcc_align    (               ),
+            fd_mvcc_footprint( app_sz        ),
+            fd_mvcc_new      ( shmem, app_sz ) );
+}
+
 static void quic( void * pod, char * fmt, fd_quic_limits_t * limits, ... ) {
   INSERTER( limits,
             fd_quic_align    (               ),
@@ -137,6 +144,31 @@ static void buf( void * pod, char * fmt, void * value, ulong sz, ... ) {
   va_end( args );
   if( FD_UNLIKELY( !fd_pod_insert_buf( pod, fmt, value, sz ) ) )
     FD_LOG_ERR(( "failed to initialize workspace" ));
+}
+
+
+
+static inline uchar *
+read_key( char const * key_path,
+          uchar      * key       ) {
+  FILE * key_file = fopen( key_path, "r" );
+  if( FD_UNLIKELY( !key_file ) ) {
+    if( FD_UNLIKELY( errno == ENOENT ) ) FD_LOG_ERR((
+          "The [consensus.identity_path] in your configuration expects a "
+          "keyfile at %s but there is no such file. Either update the "
+          "configuration file to point to your validator identity "
+          "keypair, or generate a new validator identity key by running "
+          "`fdctl keygen`", key_path ));
+    FD_LOG_ERR(( "Opening key file (%s) failed (%i-%s)", key_path,  errno, fd_io_strerror( errno ) ));
+  }
+
+  if( FD_UNLIKELY( 1!=fscanf( key_file, "[%hhu", &key[0] ) ) ) FD_LOG_ERR(( "parsing key file failed at pos=0" ));
+  for( ulong i=1UL; i<64UL; i++ ) if( FD_UNLIKELY( 1!=fscanf( key_file, ",%hhu", &key[i] ) ) ) FD_LOG_ERR(( "parsing key file failed at pos=%lu", i ));
+  if( FD_UNLIKELY( 0!=fscanf( key_file, "] " ) ) ) FD_LOG_ERR(( "parsing key file failed at pos=64" ));
+
+  if( FD_UNLIKELY( !feof( key_file  ) ) ) FD_LOG_ERR(( "key file had trailing garbage" ));
+  if( FD_UNLIKELY( fclose( key_file ) ) ) FD_LOG_ERR(( "fclose failed `%s` (%i-%s)", key_path, errno, fd_io_strerror( errno ) ));
+  return key;
 }
 
 #define WKSP_BEGIN( config, wksp1, cpu_idx ) do {                                                                       \
@@ -325,6 +357,28 @@ init( config_t * const config ) {
         break;
       case wksp_forward:
         cnc   ( pod, "cnc" );
+        break;
+      case wksp_shred:
+        cnc    ( pod, "cnc"                                           );
+        uint1  ( pod, "src_ip",       config->net.ip_addr             );
+        buf    ( pod, "src_mac",      config->net.mac_addr,         6 );
+        ushort1( pod, "src_port",     config->tiles.shred.src_port, 0 );
+
+        uchar key[64];
+        buf    ( pod, "identity_key", read_key( config->consensus.identity_path, key ), 64 );
+
+        mvcc   ( pod, "cluster_nodes", 16UL + (1UL<<20)*46UL          ); /* max of 1M validators */
+
+        xsk    ( pod, "xsk",     2048, 16UL, config->tiles.shred.xdp_tx_queue_size                        );
+        xsk_aio( pod, "xsk_aio", config->tiles.shred.xdp_tx_queue_size, config->tiles.shred.xdp_aio_depth );
+        {
+          char const * shred_xsk_gaddr = fd_pod_query_cstr( pod, "xsk", NULL );
+          void *       shmem           = fd_wksp_map      ( shred_xsk_gaddr );
+          FD_LOG_NOTICE(( "shred binding to %u+%lu", config->layout.verify_tile_count, wksp1->kind_idx ));
+          if( FD_UNLIKELY( !fd_xsk_bind( shmem, config->name, config->net.interface, config->layout.verify_tile_count + (uint)wksp1->kind_idx ) ) )
+            FD_LOG_ERR(( "failed to bind xsk for shred tile %lu", wksp1->kind_idx ));
+          fd_wksp_unmap( shmem );
+        }
         break;
     }
 

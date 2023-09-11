@@ -328,6 +328,13 @@ run_monitor( config_t * const config,
         if( FD_UNLIKELY( fd_cnc_app_sz( tiles[ tile_idx ].cnc )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
         tile_idx++;
         break;
+      case wksp_shred:
+        tiles[ tile_idx ].name = "shred";
+        tiles[ tile_idx ].cnc = fd_cnc_join( fd_wksp_pod_map( pod, "cnc" ) );
+        if( FD_UNLIKELY( !tiles[ tile_idx ].cnc ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
+        if( FD_UNLIKELY( fd_cnc_app_sz( tiles[ tile_idx ].cnc )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
+        tile_idx++;
+        break;
     }
   }
 

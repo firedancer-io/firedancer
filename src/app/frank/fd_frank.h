@@ -58,5 +58,6 @@ extern fd_frank_task_t frank_dedup;
 extern fd_frank_task_t frank_quic;
 extern fd_frank_task_t frank_pack;
 extern fd_frank_task_t frank_forward;
+extern fd_frank_task_t frank_shred;
 
 #endif /* HEADER_fd_src_app_frank_fd_frank_h */

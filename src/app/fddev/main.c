@@ -20,9 +20,9 @@ configure_stage_t * STAGES[ CONFIGURE_STAGE_COUNT ] = {
   &xdp,
   &xdp_leftover,
   &ethtool,
+  &genesis,
   &workspace_leftover,
   &workspace,
-  &genesis,
   NULL,
 };
 

@@ -306,7 +306,7 @@ dynamic_port_range = "8000-10000"
     #
     # It is suggested to use all available CPU cores for Firedancer, so that the
     # Solana network can run as fast as possible.
-    affinity = "0-14"
+    affinity = "0-15"
 
     # How many verify tiles to run. Currently this also configures the number of
     # QUIC tiles to run. QUIC and verify tiles are connected 1:1.
@@ -540,6 +540,19 @@ dynamic_port_range = "8000-10000"
         # available, it can make sense to increase this cache size to protect
         # against denial of service from high volumes of transaction spam.
         signature_cache_size = 4194302
+
+
+    # The shred tile takes entry/microblock batches (composed of
+    # transactions that executed) and distributes them to the rest of
+    # the network.
+    [tiles.shred]
+        # What UDP port should be used as the source for the shreds that
+        # are emitted?  Any ephemeral port is typically fine.
+        src_port = 46582
+
+        # Same meaning as the identically named fields in the [tiles.quic] section.
+        xdp_tx_queue_size = 4096
+        xdp_aio_depth = 256
 
 # These options can be useful for development, but should not be used when
 # connecting to a live cluster, as they may cause the validator to be unsstable

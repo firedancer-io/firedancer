@@ -362,6 +362,7 @@ main_pid_namespace( void * args ) {
       case wksp_pack:
       case wksp_bank:
       case wksp_forward:
+      case wksp_shred:
         tile_cnt++;
         break;
     }
@@ -397,9 +398,10 @@ main_pid_namespace( void * args ) {
 
   for( ulong i=0; i<config->layout.verify_tile_count; i++ ) clone_tile( &spawner, &frank_quic, i );
   for( ulong i=0; i<config->layout.verify_tile_count; i++ ) clone_tile( &spawner, &frank_verify, i );
-  clone_tile( &spawner, &frank_dedup, 0 );
-  clone_tile( &spawner, &frank_pack , 0 );
-  clone_tile( &spawner, &frank_forward , 0 );
+  clone_tile( &spawner, &frank_dedup  , 0 );
+  clone_tile( &spawner, &frank_pack   , 0 );
+  clone_tile( &spawner, &frank_forward, 0 );
+  clone_tile( &spawner, &frank_shred  , 0 );
 
   if( FD_UNLIKELY( sched_setaffinity( 0, sizeof(cpu_set_t), floating_cpu_set ) ) )
     FD_LOG_ERR(( "sched_setaffinity failed (%i-%s)", errno, fd_io_strerror( errno ) ));

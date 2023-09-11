@@ -85,6 +85,9 @@ memlock_max_bytes( config_t * const config ) {
       case wksp_forward:
         TILE_MAX( frank_forward );
         break;
+      case wksp_shred:
+        TILE_MAX( frank_shred );
+        break;
     }
   }
 
@@ -304,6 +307,10 @@ static void parse_key_value( config_t *   config,
   ENTRY_UINT  ( ., tiles.forward,       receive_buffer_size                                       );
 
   ENTRY_UINT  ( ., tiles.dedup,         signature_cache_size                                      );
+
+  ENTRY_USHORT( ., tiles.shred,         src_port                                                  );
+  ENTRY_UINT  ( ., tiles.shred,         xdp_tx_queue_size                                         );
+  ENTRY_UINT  ( ., tiles.shred,         xdp_aio_depth                                             );
 }
 
 void
@@ -566,6 +573,12 @@ init_workspaces( config_t * config ) {
     config->shmem.workspaces[ idx ].kind_idx  = i;
     idx++;
   }
+
+  config->shmem.workspaces[ idx ].kind      = wksp_shred;
+  config->shmem.workspaces[ idx ].name      = "shred";
+  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
+  config->shmem.workspaces[ idx ].num_pages = 1;
+  idx++;
 
   config->shmem.workspaces_cnt = idx;
 }

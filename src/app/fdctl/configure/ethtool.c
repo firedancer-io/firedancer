@@ -91,7 +91,9 @@ init_device( const char * device,
 static void
 init( config_t * const config ) {
   /* we need one channel for both TX and RX on the NIC for each QUIC
-     tile, but the interface probably defaults to one channel total */
+     tile and one for the shred tile, but the interface probably
+     defaults to one channel total. */
+  uint channel_cnt = config->layout.verify_tile_count + 1U;
   if( FD_UNLIKELY( device_is_bonded( config->net.interface ) ) ) {
     /* if using a bonded device, we need to set channels on the
        underlying devices. */
@@ -99,10 +101,10 @@ init( config_t * const config ) {
     device_read_slaves( config->net.interface, line );
     char * saveptr;
     for( char * token=strtok_r( line , " \t", &saveptr ); token!=NULL; token=strtok_r( NULL, " \t", &saveptr ) ) {
-      init_device( token, config->layout.verify_tile_count );
+      init_device( token, channel_cnt );
     }
   } else {
-    init_device( config->net.interface, config->layout.verify_tile_count );
+    init_device( config->net.interface, channel_cnt );
   }
 }
 
@@ -170,10 +172,10 @@ check( config_t * const config ) {
     device_read_slaves( config->net.interface, line );
     char * saveptr;
     for( char * token=strtok_r( line, " \t", &saveptr ); token!=NULL; token=strtok_r( NULL, " \t", &saveptr ) ) {
-      CHECK( check_device( token, config->layout.verify_tile_count ) );
+      CHECK( check_device( token, config->layout.verify_tile_count+1U ) );
     }
   } else {
-    CHECK( check_device( config->net.interface, config->layout.verify_tile_count ) );
+    CHECK( check_device( config->net.interface, config->layout.verify_tile_count+1U ) );
   }
 
   CONFIGURE_OK();
