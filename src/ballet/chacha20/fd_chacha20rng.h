@@ -129,21 +129,68 @@ fd_chacha20rng_ulong( fd_chacha20rng_t * rng ) {
 
    Compatible with Rust type
    <rand_chacha::ChaCha20Rng as rand::Rng>::gen<rand::distributions::Uniform<u64>>()
+   as of version 0.7.0 of the crate
    https://docs.rs/rand/latest/rand/distributions/struct.Uniform.html */
 
 static inline ulong
 fd_chacha20rng_ulong_roll( fd_chacha20rng_t * rng,
                            ulong              n ) {
-  ulong const z    = (ULONG_MAX-n+1) % n;
-  ulong const zone = ULONG_MAX - z;
+  /* We use a pretty standard rejection-sampling based approach here,
+     but for future reference, here's an explanation:
+
+     We know that v can take 2^64 values, and so any method that maps
+     each of the 2^64 values to the range directly [0, n) will not be
+     uniform distribution when 2^64 is not divisible by n.  This
+     motivates using rejection sampling.
+
+     The most basic approach is to map v from [0, n*floor(2^64/n) ) to
+     [0, n) using v%n, but that puts a modulus on the critical path.  To
+     avoid that, the Rust rand crate uses a different approach: compute
+     v*n/2^64, which is also in [0, n).
+
+     Now the question to answer is which values to throw out.  We pick a
+     large integer k such that k*n<=2^64 and map [0, k*n) -> 0, [2^64,
+     2^64+k*n) -> 1, etc.  Since k*n might be 2^64 and then not fit in a
+     long, we define zone=k*n-1 <= ULONG_MAX, and make the intervals
+     closed instead of half-open.
+
+     For small data types (uchar, ushort), the rand crate uses the
+     largest possible value of k, namely floor(2^64/n).  You can compute
+     zone directly as follows:
+               zone  = k*n-1
+                     = floor(2^64/n)*n - 1
+                     = 2^64 - (2^64%n) - 1
+                     = 2^64-1 - (2^64-n)%n, since n<2^64
+                     = 2^64-1 - ((2^64-1)-n+1)%n
+     Which is back to having a mod... But at least if n is a
+     compile-time constant than the whole zone computation becomes a
+     compile-time constant.
+
+     For large data types (uint, ulong), the rand crate uses almost
+     the largest possible power of two for k.  Precisely, it uses the
+     smallest power of two such that k*n >= 2^63, which is the largest
+     power of two such that k*n<=2^64 unless n is a power of two.
+     This approach eliminates the mod calculation but increases the
+     expected number of samples required. */
+  ulong const zone = (n << (63 - fd_ulong_find_msb( n ) )) - 1UL;
   for( int i=0; 1; i++ ) {
     ulong   v   = fd_chacha20rng_ulong( rng );
+#if FD_HAS_INT128
+    /* Compiles to one mulx instruction */
     uint128 res = (uint128)v * (uint128)n;
     ulong   hi  = (ulong)(res>>64);
     ulong   lo  = (ulong) res;
+#else
+    ulong ll = (v & UINT_MAX) * (n & UINT_MAX);
+    ulong hh = (v>>32       ) * (n>>32       );
+    ulong lh = (v>>32       ) * (n & UINT_MAX) +
+               (v & UINT_MAX) * (n>>32       );
+    ulong lo = ll + (lh<<32);
+    ulong hi = hh + (lh>>32) + (lo<ll);
+#endif
 
 #   if FD_CHACHA20RNG_DEBUG
-    FD_LOG_DEBUG(( "roll (attempt %d): n=%016lx z: %016lx zone: %016lx v=%016lx lo=%016lx hi=%016lx", i, n, z, zone, v, lo, hi ));
+    FD_LOG_DEBUG(( "roll (attempt %d): n=%016lx zone: %016lx v=%016lx lo=%016lx hi=%016lx", i, n, zone, v, lo, hi ));
 #   else
     (void)i;
 #   endif /* FD_CHACHA20RNG_DEBUG */
