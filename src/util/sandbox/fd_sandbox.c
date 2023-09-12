@@ -226,7 +226,7 @@ switch_user( uint uid, uint gid ) {
 static void
 unshare_user( uint uid, uint gid ) {
   switch_user( uid, gid );
-  FD_TESTV( !unshare( CLONE_NEWUSER | CLONE_NEWNS | CLONE_NEWNET ) );
+  FD_TESTV( !unshare( CLONE_NEWUSER | CLONE_NEWNS | CLONE_NEWNET | CLONE_NEWCGROUP | CLONE_NEWIPC | CLONE_NEWUTS ) );
   deny_setgroups();
   userns_map( uid, "uid_map" );
   userns_map( gid, "gid_map" );
