@@ -569,7 +569,19 @@ void calculate_rewards_and_distribute_vote_rewards(
 ) {
     fd_partitioned_rewards_calculation_t rewards_calc_result[1] = {0};
     calculate_rewards_for_partitioning(global, prev_epoch,  rewards_calc_result);
-    /* TODO: update_reward_history */
+    fd_vote_reward_t_mapnode_t * ref = rewards_calc_result->vote_account_rewards;
+    for (ulong i = 0; i < fd_vote_reward_t_map_slot_cnt( rewards_calc_result->vote_account_rewards); ++i) {
+        if (fd_vote_reward_t_map_key_equal( ref[i].vote_pubkey, fd_vote_reward_t_map_key_null() ) ) {
+            continue;
+        }
+        fd_pubkey_t const * vote_pubkey = &ref[i].vote_pubkey;
+        fd_account_meta_t * vote_acc_meta = NULL;
+        ulong min_data_sz = 0UL;
+        int err = fd_acc_mgr_modify( global->acc_mgr, global->funk_txn, vote_pubkey, 1, min_data_sz, NULL, NULL, &vote_acc_meta, NULL );
+        FD_TEST( err == 0 );
+        vote_acc_meta->info.lamports = fd_ulong_sat_add(vote_acc_meta->info.lamports, ref[i].vote_rewards);
+    }
+    /* TODO: update_reward_history (not sure if reward history is ever needed?) */
     // update_reward_history();
 
     // This is for vote rewards only.
@@ -710,9 +722,11 @@ distribute_partitioned_epoch_rewards(
         // self.update_reward_history_in_partition(this_partition_stake_rewards);
     }
 
-    if ( fd_ulong_sat_sub(self->block_height, 1) >= credit_end_exclusive ) {
+    if ( fd_ulong_sat_add(self->block_height, 1) >= credit_end_exclusive ) {
         // deactivate epoch reward status
         global->epoch_reward_status.is_active = 0;
+        // burn and purge EpochRewards sysvar account
+        fd_sysvar_epoch_rewards_burn_and_purge( global );
     }
 
 }

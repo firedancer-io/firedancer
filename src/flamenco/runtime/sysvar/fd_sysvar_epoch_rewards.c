@@ -2,6 +2,19 @@
 #include "../../../flamenco/types/fd_types.h"
 #include "fd_sysvar.h"
 
+void
+fd_sysvar_epoch_rewards_burn_and_purge(
+    fd_global_ctx_t * global
+) {
+    fd_account_meta_t * meta = NULL;
+    uchar * data = NULL;
+    fd_acc_mgr_modify( global->acc_mgr, global->funk_txn, (fd_pubkey_t *) global->sysvar_epoch_rewards, 0, 0, NULL, NULL, &meta, &data);
+    // fd_memset(data, 0, meta->dlen);
+    fd_memcpy(meta->info.owner, (fd_pubkey_t *) global->solana_system_program, sizeof(fd_pubkey_t));
+    meta->dlen = 0;
+    meta->info.lamports = 0;
+}
+
 static void
 write_epoch_rewards( fd_global_ctx_t * global, fd_sysvar_epoch_rewards_t * epoch_rewards, fd_acc_lamports_t * acc_lamports) {
   ulong          sz = fd_sysvar_epoch_rewards_size( epoch_rewards );

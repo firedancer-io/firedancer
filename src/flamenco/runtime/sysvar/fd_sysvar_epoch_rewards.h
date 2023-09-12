@@ -7,6 +7,11 @@
 FD_PROTOTYPES_BEGIN
 
 void
+fd_sysvar_epoch_rewards_burn_and_purge(
+    fd_global_ctx_t * global
+);
+
+void
 fd_sysvar_epoch_rewards_read(
     fd_global_ctx_t * global,
     fd_sysvar_epoch_rewards_t * result,

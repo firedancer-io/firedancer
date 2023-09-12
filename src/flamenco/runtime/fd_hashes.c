@@ -4,6 +4,7 @@
 #include <assert.h>
 #include <stdio.h>
 #include "../../ballet/base58/fd_base58.h"
+#include "fd_acc_mgr.h"
 #include "fd_runtime.h"
 #include "fd_account.h"
 
@@ -242,17 +243,22 @@ fd_update_hash_bank( fd_global_ctx_t * global,
 
     fd_pubkey_t const *       acc_key  = fd_type_pun_const( rec->pair.key[0].uc );
     fd_funk_rec_t const *     rec      = NULL;
-    fd_account_meta_t const * acc_meta = NULL;
-    uchar const *             acc_data = NULL;
 
-    int err = fd_acc_mgr_view( acc_mgr, txn, acc_key, &rec, &acc_meta, &acc_data );
+    int err = 0;
+    uchar const * _raw = fd_acc_mgr_view_raw( acc_mgr, txn, acc_key, &rec, &err);
     if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) )
       return err;
+    fd_account_meta_t const * acc_meta = (fd_account_meta_t const *)_raw;
+    uchar const *             acc_data = _raw + acc_meta->hlen;
 
     /* Hash account */
 
     fd_hash_t acc_hash[1];
-    fd_hash_account_current( acc_hash->hash, acc_meta, acc_key->key, acc_data, global );
+    if (FD_UNLIKELY(!FD_RAW_ACCOUNT_EXISTS(_raw))) {
+      fd_memset( acc_hash->hash, 0, FD_HASH_FOOTPRINT );
+    } else {
+      fd_hash_account_current( acc_hash->hash, acc_meta, acc_key->key, acc_data, global );
+    }
 
     /* If hash didn't change, nothing to do */
 
