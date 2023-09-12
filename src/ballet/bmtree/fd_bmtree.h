@@ -24,7 +24,9 @@
         (node) -> (node)
 
    Example derived methods.
-   (TODO not all of them are provided by this header file yet)
+   (TODO now these all are more or less implemented, but not exactly as
+   described. Is this distinction between basic and derived even useful
+   though?)
 
      4. Construct full tree:
 
@@ -158,11 +160,16 @@ typedef struct fd_bmtree_node fd_bmtree_node_t;
 fd_bmtree_node_t * fd_bmtree_hash_leaf( fd_bmtree_node_t * node, void const * data, ulong data_sz, ulong prefix_sz );
 
 /* A fd_bmtree_commit_t stores intermediate state used to compute the
-   root of a binary Merkle tree built incrementally.
+   root of a binary Merkle tree built incrementally.  It can be used for
+   two different typed of calculations:
+     * leaf-based commitment calculations  (fd_bmtree_commit_*)
+     * proof-based commitment calculations (fd_bmtree_commitp_*)
+    but only one at a time.
 
-   It theoretically requires O(log n) space with regard to the number of
-   nodes, although n is currently capped (at an astronomical value), so
-   it requires constant space.
+   For leaf-based commitment calculations, it theoretically requires
+   O(log n) space with regard to the number of nodes, although n is
+   currently capped (at an astronomical value), so it requires constant
+   space.
 
    During the accumulation phase, the data structure consumes all tree
    leaf nodes sequentially while calculating and buffering branch nodes
@@ -252,7 +259,7 @@ struct fd_bmtree_commit_private {
    its index.  To get the left/right child, you add/subtract 1<<layer.
    This ordering makes sense for these trees, because they grow up and
    to the right, the same way the numbers increase, so a node's index
-  never changes as more leaves are added to the tree.
+   never changes as more leaves are added to the tree.
 
    The biggest subtlety comes when there are nodes with incomplete left
    subtrees, e.g.
@@ -279,13 +286,22 @@ struct fd_bmtree_commit_private {
   ulong             prefix_sz;        /* <= 26 bytes */
   ulong             inclusion_proof_sz;
   fd_bmtree_node_t  node_buf[ 63UL ];
-  fd_bmtree_node_t  inclusion_proofs[ 1 ]; /* Indexed [0, inclusion_proof_sz) */
+  /* Dense bit set. Array indexed [0, ceil((inclusion_proof_sz+1)/64)).
+     Points to memory just after the end of the inclusion_proofs array
+     and included in the footprint.  Only used or set in proof-based
+     commits, because it's implicit in the leaf_cnt in leaf-based
+     commits. */
+  ulong *           inclusion_proofs_valid;
+  /* inclusion_proofs is indexed [0, inclusion_proof_sz] where index
+     inclusion_proof_sz is a dummy index used to avoid branches. */
+  fd_bmtree_node_t  inclusion_proofs[ 1 ];
 };
 
 typedef struct fd_bmtree_commit_private fd_bmtree_commit_t;
 
-#define FD_BMTREE_COMMIT_FOOTPRINT( inclusion_proof_layer_cnt ) (sizeof(fd_bmtree_commit_t) + \
-                                                                  ((1UL<<(inclusion_proof_layer_cnt))-1UL)*sizeof(fd_bmtree_node_t))
+#define FD_BMTREE_COMMIT_FOOTPRINT( inclusion_proof_layer_cnt ) ((((sizeof(fd_bmtree_commit_t) + \
+                                                                 ((1UL<<(inclusion_proof_layer_cnt))-1UL)*sizeof(fd_bmtree_node_t)+\
+                                                                 ((1UL<<(inclusion_proof_layer_cnt))+63UL)/64UL*sizeof(ulong))+31UL)/32UL) * 32UL)
 #define FD_BMTREE_COMMIT_ALIGN                         (32UL)
 
 FD_PROTOTYPES_BEGIN
@@ -297,18 +313,23 @@ FD_PROTOTYPES_BEGIN
 ulong          fd_bmtree_commit_align    ( void );
 ulong          fd_bmtree_commit_footprint( ulong inclusion_proof_layer_cnt );
 
-/* bmtree_commit_init starts a vector commitment calculation
-   Assumes mem unused with required alignment and footprint.  Returns
-   mem as a bmtree_commit_t *, commit will be in a calc. prefix_sz is
-   the size (in bytes) of the second-preimage resistance prefix used.
-   It's typically FD_BMTREE_LONG_PREFIX_SZ or FD_BMTREE_SHORT_PREFIX_SZ
-   and must not be greater than FD_BMTREE_LONG_PREFIX_SZ.
+/* bmtree_commit_init starts a vector commitment calculation of either
+   type.  Assumes mem unused with required alignment and footprint.
+   Returns mem as a bmtree_commit_t *, commit will be in a calc.
+   prefix_sz is the size (in bytes) of the second-preimage resistance
+   prefix used.  It's typically FD_BMTREE_LONG_PREFIX_SZ or
+   FD_BMTREE_SHORT_PREFIX_SZ and must not be greater than
+   FD_BMTREE_LONG_PREFIX_SZ.
 
    The calculation can also save some inclusion proof information such
    that if the final tree has no more than inclusion_proof_layer_cnt layers,
    inclusion proofs will be available for all leaves.  If the tree grows
    beyond inclusion_proof_layer_cnt layers, then inclusion proofs may
-   not be available for any leaves. */
+   not be available for any leaves.
+
+   For proof-based commitments, inclusion_proof_layers must be at least
+   as large as the number of layers in the tree.
+   */
 fd_bmtree_commit_t * fd_bmtree_commit_init     ( void * mem, ulong hash_sz, ulong prefix_sz, ulong inclusion_proof_layer_cnt );
 
 /* bmtree_commit_leaf_cnt returns the number of leafs appeneded thus
@@ -325,30 +346,27 @@ FD_FN_CONST ulong fd_bmtree_node_cnt( ulong leaf_cnt );
    leaf_cnt + new_leaf_cnt << 2^63 (which, unless planning on running
    for millenia, is always true). */
 fd_bmtree_commit_t *                                                         /* Returns state */
-fd_bmtree_commit_append( fd_bmtree_commit_t *                 state,         /* Assumed valid and in a calc */
+fd_bmtree_commit_append( fd_bmtree_commit_t *                 state,         /* Assumed valid and in a leaf-based calc */
                          fd_bmtree_node_t const * FD_RESTRICT new_leaf,      /* Indexed [0,new_leaf_cnt) */
                          ulong                                new_leaf_cnt );
 
 /* bmtree_commit_fini seals the commitment calculation by deriving the
-   root node.  Assumes state is valid, in calc on entry with at least
-   one leaf in the tree.  The state will be valid but no longer in a
-   calc on return.  Returns a pointer in the caller's address space to
-   the first byte of a memory region of BMTREE_HASH_SZ with to the root
-   hash on success.  The lifetime of the returned pointer is that of the
-   state or until the memory used for state gets initialized for a new
-   calc. */
+   root node.  Assumes state is valid, in a leaf-based calc on entry
+   with at least one leaf in the tree.  The state will be valid but no
+   longer in a calc on return.  Returns a pointer in the caller's
+   address space to the first byte of a memory region of BMTREE_HASH_SZ
+   with to the root hash on success.  The lifetime of the returned
+   pointer is that of the state or until the memory used for state gets
+   initialized for a new calc. */
 uchar * fd_bmtree_commit_fini( fd_bmtree_commit_t * state );
 
 
-/* bmtree_get_inclusion_proof writes an inclusion proof for the leaf with
-   index leaf_idx to the memory at dest.  state must be a valid
-   finalized bmtree with at least leaf_idx+1 leaves.  state must have
-   been initialized with inclusion_proof_layers_cnt >= the height of the
-   tree, which you can get from
-   fd_bmtree_depth( fd_bmtree_commit_leaf_cnt( state ) ).  dest must
-   point to the first byte of a region of memory with a footprint of
-   hash_sz*(height of tree) although no particular alignment is
-   required.
+/* bmtree_get_proof writes an inclusion proof for the leaf
+   with index leaf_idx to the memory at dest.  state must be a valid
+   sealed bmtree commitment (leaf-based or proof-based) with at least
+   leaf_idx+1 leaves.  state must have been initialized with
+   inclusion_proof_layers_cnt >= the height of the tree, which you can
+   get from fd_bmtree_depth( fd_bmtree_commit_leaf_cnt( state ) ).
 
    If these conditions are met, upon return, dest[ i ] for
    0<=i<hash_sz*(tree depth-1) will contain the inclusion proof, and the
@@ -361,38 +379,89 @@ uchar * fd_bmtree_commit_fini( fd_bmtree_commit_t * state );
    actual root of the tree. */
 /* FIXME: Returning -1 is pretty bad here, but 0 is the legitimate
    proof size of a 1 node tree.  Is that case worth distinguishing? */
-/* FIXME: A better name? fd_bmtree_commit_proof? */
 int
-fd_bmtree_get_inclusion_proof( fd_bmtree_commit_t * state,
-                               uchar *              dest,
-                               ulong                leaf_idx );
+fd_bmtree_get_proof( fd_bmtree_commit_t * state,
+                     uchar *              dest,
+                     ulong                leaf_idx );
 
 /* fd_bmtree_from_proof derives the root of a Merkle tree where the
    element with hash `leaf` is the leaf_idx^th leaf and proof+hash_sz*i
    contains its sibling at the ith level (counting from the bottom).
    The full root hash (i.e. untruncated regardless of hash_sz) will be
    stored in root upon return.
-   Does not retain any read or write interests, and operates
-   independently of normal tree construction, so it neither starts nor
-   ends a calc, and it can safely be done in the middle of a calc.
+   Does not retain any read or write interests after returning, and it
+   operates independently of normal tree construction, so it neither
+   starts nor ends a calc, and it can safely be done in the middle of a
+   calc.
 
    Memory regions should not overlap.
 
    The proof consists of proof_depth hashes, each hash_sz bytes
    concatenated with no padding odered from leaf to root, excluding the
-   root.  proof is not required to have any particular alignment.
+   root.
 
    Returns root if the proof is valid and NULL otherwise.  If the proof
    is invalid, the root will not be stored.  A proof can only be invalid
    if it is too short to possibly correspond to the leaf_idx^th node. */
 /* TODO: Write the caching version of this */
 fd_bmtree_node_t *
-fd_bmtree_validate_inclusion_proof( fd_bmtree_node_t const * leaf,
-                                    ulong                    leaf_idx,
-                                    fd_bmtree_node_t *       root,
-                                    uchar const *            proof,
-                                    ulong                    proof_depth,
-                                    ulong                    hash_sz,
-                                    ulong                    prefix_sz );
+fd_bmtree_from_proof( fd_bmtree_node_t const * leaf,
+                      ulong                    leaf_idx,
+                      fd_bmtree_node_t *       root,
+                      uchar const *            proof,
+                      ulong                    proof_depth,
+                      ulong                    hash_sz,
+                      ulong                    prefix_sz );
+
+
+/* fd_bmtree_commitp_insert_with_proof inserts a leaf at index idx in
+   the proof-based calc, optionally with some proof.  Returns 1 if
+   the leaf and proof are consistent with everything previously added to
+   this calc, or 0 if not.
+
+   fd_bmtree_depth( idx+1 ) must be <= inclusion_proof_layer_cnt used in
+   init.
+
+   Like all the other functions in this file that deal with inclusion
+   proofs, the proof format is leaf to root, excluding the root, where
+   each of the proof_depth hashes occupies hash_sz bytes and there is no
+   padding.  Truncated proof_depths are fine and are interpreted as the
+   first proof_depth elements of the proof, i.e. the ones closer to the
+   leaf.  In particular, a proof_depth of 0 is fine, in which case
+   proof==NULL is fine.
+
+   If this returns success and opt_root is not NULL, the highest node
+   (closest to the root) in the branch containing idx that is known will
+   be written to the memory pointed to by opt_root.  In the case that
+   the inclusion proof is full (contains all the nodes except the root),
+   the node that is stored is the root of the tree; however, in general
+   the tree can grow beyond this, so it isn't possible to garauntee that
+   it is the root in other cases.  If the function returns failure (0)
+   or opt_root==NULL, then the memory pointed to by opt_root will not be
+   accessed.
+
+   If this returns 0, the commitment state will not be modified.  If it
+   returns 1, then the information provided will be cached to speed up
+   other validations in this calc.
+
+   Note that a return value of 1 does not necessarily imply the leaf is
+   correct, as there may not be enough information to determine it yet.
+   In that case, fd_bmtreep_fini or another call to fd_bmtreep_insert
+   will return 0. */
+
+int
+fd_bmtree_commitp_insert_with_proof( fd_bmtree_commit_t *     state,
+                                     ulong                    idx,
+                                     fd_bmtree_node_t const * new_leaf,
+                                     uchar            const * proof,
+                                     ulong                    proof_depth,
+                                     fd_bmtree_node_t       * opt_root );
+
+/* fd_bmtree_commitp_fini finalizes a proof-based calc.  Returns the
+   root of the tree if it can conclusively determine that the entire
+   tree is correct for a commitment of leaf_cnt leaf nodes and NULL
+   otherwise. */
+uchar * fd_bmtree_commitp_fini( fd_bmtree_commit_t * state, ulong leaf_cnt );
+
 FD_PROTOTYPES_END
 #endif /* HEADER_fd_src_ballet_bmtree_fd_bmtree_h */
