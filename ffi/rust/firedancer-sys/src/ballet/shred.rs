@@ -3,7 +3,9 @@ pub use crate::generated::{
     fd_shred_t,
     FD_SHRED_CODE_HEADER_SZ,
     FD_SHRED_DATA_HEADER_SZ,
-    FD_SHRED_SZ,
+    FD_SHRED_MAX_SZ,
+    fd_shredder_count_data_shreds,
+    fd_shredder_count_parity_shreds
 };
 
 pub const FD_SHRED_TYPE_LEGACY_CODE: u8 = 0x5;
