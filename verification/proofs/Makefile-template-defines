@@ -1,0 +1,20 @@
+
+# Absolute path to the root of the source tree.
+#
+SRCDIR ?= $(abspath $(PROOF_ROOT)/../../src)
+
+
+# How to invoke litani.
+# Use "litani" when litani is present in PATH.
+#
+LITANI ?= litani
+
+
+# Name of this proof project, displayed in proof reports. For example,
+# "s2n" or "Amazon FreeRTOS". For projects with multiple proof roots,
+# this may be overridden on the command-line to Make, for example
+#
+#         make PROJECT_NAME="FreeRTOS MQTT" report
+#
+PROJECT_NAME = "Firedancer"
+

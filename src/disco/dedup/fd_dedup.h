@@ -244,18 +244,19 @@ fd_dedup_tile_scratch_footprint( ulong in_cnt,
                                  ulong out_cnt );
 
 int
-fd_dedup_tile( fd_cnc_t *              cnc,       /* Local join to the dedup's command-and-control */
-               ulong                   in_cnt,    /* Number of input mcaches to dedup, inputs are indexed [0,in_cnt) */
-               fd_frag_meta_t const ** in_mcache, /* in_mcache[in_idx] is the local join to input in_idx's mcache */
-               ulong **                in_fseq,   /* in_fseq  [in_idx] is the local join to input in_idx's fseq */
-               fd_tcache_t *           tcache,    /* Local join to the dedup's unique signature cache */
-               fd_frag_meta_t *        mcache,    /* Local join to the dedup's frag stream output mcache */
-               ulong                   out_cnt,   /* Number of reliable consumers, reliable consumers are indexed [0,out_cnt) */
-               ulong **                out_fseq,  /* out_fseq[out_idx] is the local join to reliable consumer out_idx's fseq */
-               ulong                   cr_max,    /* Maximum number of flow control credits, 0 means use a reasonable default */
-               long                    lazy,      /* Lazyiness, <=0 means use a reasonable default */
-               fd_rng_t *              rng,       /* Local join to the rng this dedup should use */
-               void *                  scratch ); /* Tile scratch memory */
+fd_dedup_tile( fd_cnc_t *              cnc,           /* Local join to the dedup's command-and-control */
+               ulong                   in_cnt,        /* Number of input mcaches to dedup, inputs are indexed [0,in_cnt) */
+               fd_frag_meta_t const ** in_mcache,     /* in_mcache[in_idx] is the local join to input in_idx's mcache */
+               ulong **                in_fseq,       /* in_fseq  [in_idx] is the local join to input in_idx's fseq */
+               fd_tcache_t *           tcache,        /* Local join to the dedup's unique signature cache */
+               fd_frag_meta_t *        mcache,        /* Local join to the dedup's frag stream output mcache */
+               ulong                   out_cnt,       /* Number of reliable consumers, reliable consumers are indexed [0,out_cnt) */
+               ulong **                out_fseq,      /* out_fseq[out_idx] is the local join to reliable consumer out_idx's fseq */
+               ulong                   cr_max,        /* Maximum number of flow control credits, 0 means use a reasonable default */
+               long                    lazy,          /* Lazyiness, <=0 means use a reasonable default */
+               fd_rng_t *              rng,           /* Local join to the rng this dedup should use */
+               void *                  scratch,       /* Tile scratch memory */
+               double                  tick_per_ns ); /* Result of fd_tempo_tick_per_ns( NULL ) */
 
 FD_PROTOTYPES_END
 

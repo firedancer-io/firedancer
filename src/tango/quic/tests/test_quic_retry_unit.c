@@ -4,11 +4,6 @@
 #include "../fd_quic_common.h"
 #include "../fd_quic_types.h"
 
-#include "../templ/fd_quic_defs.h"
-#include "../templ/fd_quic_frames_templ.h"
-#include "../templ/fd_quic_templ.h"
-#include "../templ/fd_quic_undefs.h"
-
 #include "../templ/fd_quic_encoders_decl.h"
 #include "../templ/fd_quic_frames_templ.h"
 #include "../templ/fd_quic_templ.h"
@@ -175,9 +170,6 @@ int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
-
-  if ( FD_UNLIKELY( argc > 1 ) )
-    FD_LOG_ERR( ( "unrecognized argument: %s", argv[1] ) );
 
   test_retry_token_encrypt_decrypt();
   test_retry_integrity_tag();

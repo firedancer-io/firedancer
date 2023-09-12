@@ -62,14 +62,11 @@ typedef struct configure_stage {
 extern configure_stage_t large_pages;
 extern configure_stage_t shmem;
 extern configure_stage_t sysctl;
-extern configure_stage_t netns;
 extern configure_stage_t xdp;
 extern configure_stage_t xdp_leftover;
 extern configure_stage_t ethtool;
 extern configure_stage_t workspace_leftover;
 extern configure_stage_t workspace;
-extern configure_stage_t frank;
-extern configure_stage_t cluster;
 
 extern configure_stage_t * STAGES[];
 
@@ -85,9 +82,12 @@ typedef struct {
 } configure_args_t;
 
 /* read_uint_file() reads a uint from the given path, or exits the
-   program with an error if any error was encountered. */
+   program with an error if any error was encountered.  If the path
+   cannot be opened due to ENOENT, the error message is prefixed
+   with the string provided in errmsg_enoent. */
 uint
-read_uint_file( const char * path );
+read_uint_file( const char * path,
+                const char * errmsg_enoent );
 
 /* write_uint_file() writes a uint to the given path, or exits the
    program with an error if any error was encountered. */
@@ -103,7 +103,14 @@ void try_defragment_memory( void );
 /* Enter the network namespace given in the configuration in this
    process. If this call succeeds the process is now inside the
    namespace. */
-void enter_network_namespace( config_t * const config );
+void enter_network_namespace( const char * interface );
+
+void leave_network_namespace( void );
+
+void close_network_namespace_original_fd( void );
+
+void
+expected_pages( config_t * const  config, uint out[2] );
 
 /* Checks if a directory exists and is configured with the given uid,
    gid, and access mode. */

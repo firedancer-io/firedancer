@@ -1,15 +1,35 @@
 #define _GNU_SOURCE
 #include "fddev.h"
 
+#include "../fdctl/configure/configure.h"
+
 #include <unistd.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 
+extern configure_stage_t netns;
+extern configure_stage_t genesis;
+
+configure_stage_t * STAGES[ CONFIGURE_STAGE_COUNT ] = {
+  &netns,
+  &large_pages,
+  &shmem,
+  &sysctl,
+  &xdp,
+  &xdp_leftover,
+  &ethtool,
+  &workspace_leftover,
+  &workspace,
+  &genesis,
+  NULL,
+};
+
 static action_t DEV_ACTIONS[] = {
-  { .name = "dev",  .args = NULL,          .fn = dev_cmd_fn,  .perm = dev_cmd_perm },
+  { .name = "dev",  .args = dev_cmd_args,  .fn = dev_cmd_fn,  .perm = dev_cmd_perm },
   { .name = "dev1", .args = dev1_cmd_args, .fn = dev1_cmd_fn, .perm = dev_cmd_perm },
+  { .name = "txn",  .args = txn_cmd_args,  .fn = txn_cmd_fn,  .perm = txn_cmd_perm },
 };
 
 #define MAX_ARGC 32
@@ -24,14 +44,15 @@ execve_as_root( int     argc,
   char self_exe_path[ PATH_MAX ];
   self_exe( self_exe_path );
 
-  char * args[ MAX_ARGC+3 ];
-  for( int i=2; i<=argc; i++ ) args[i] = argv[i-1];
+  char * args[ MAX_ARGC+4 ];
+  for( int i=1; i<argc; i++ ) args[i+2] = argv[i];
   args[ 0 ]      = "sudo";
-  args[ 1 ]      = self_exe_path;
+  args[ 1 ]      = "-E";
+  args[ 2 ]      = self_exe_path;
   /* always override the log path to use the same one we just opened for ourselves */
-  args[ argc+1 ] = "--log-path";
-  args[ argc+2 ] = fd_log_private_path;
-  args[ argc+3 ] = NULL;
+  args[ argc+2 ] = "--log-path";
+  args[ argc+3 ] = fd_log_private_path;
+  args[ argc+4 ] = NULL;
 
   /* ok to leak these dynamic strings because we are about to execve anyway */
   char * envp[ 3 ] = {0};
@@ -39,15 +60,15 @@ execve_as_root( int     argc,
   int    idx = 0;
   if( FD_LIKELY(( env = getenv( "FIREDANCER_CONFIG_TOML" ) )) ) {
     if( FD_UNLIKELY( asprintf( &envp[ idx++ ], "FIREDANCER_CONFIG_TOML=%s", env ) == -1 ) )
-      FD_LOG_ERR(( "asprintf() failed (%i-%s)", errno, strerror( errno ) ));
+      FD_LOG_ERR(( "asprintf() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
   if( FD_LIKELY(( env = getenv( "TERM" ) )) ) {
     if( FD_UNLIKELY( asprintf( &envp[ idx++ ], "TERM=%s", env ) == -1 ) )
-      FD_LOG_ERR(( "asprintf() failed (%i-%s)", errno, strerror( errno ) ));
+      FD_LOG_ERR(( "asprintf() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
   execve( "/usr/bin/sudo", args, envp );
-  FD_LOG_ERR(( "execve(sudo) failed (%i-%s)", errno, strerror( errno ) ));
+  FD_LOG_ERR(( "execve(sudo) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
 
 int
@@ -64,6 +85,7 @@ main( int     argc,
 
   /* initialize logging */
   fd_boot( &argc, &argv );
+  fd_log_thread_set( "main" );
 
   argc--; argv++;
 
@@ -72,6 +94,8 @@ main( int     argc,
   if( config.is_live_cluster )
     FD_LOG_ERR(( "fddev is for development and test environments but your configuration "
                  "targets a live cluster. use fdctl if this is a production environment" ));
+  int no_sandbox = fd_env_strip_cmdline_contains( &argc, &argv, "--no-sandbox" );
+  config.development.sandbox = config.development.sandbox && !no_sandbox;
 
   const char * action_name = "dev";
   if( FD_UNLIKELY( argc > 0 && argv[ 0 ][ 0 ] != '-' ) ) {
@@ -101,7 +125,9 @@ main( int     argc,
 
   /* check if we are appropriate permissioned to run the desired command */
   if( FD_LIKELY( action->perm ) ) {
-    security_t security;
+    security_t security = {
+      .idx = 0,
+    };
     action->perm( &args, &security, &config );
     if( FD_UNLIKELY( security.idx ) ) {
       execve_as_root( orig_argc, orig_argv );

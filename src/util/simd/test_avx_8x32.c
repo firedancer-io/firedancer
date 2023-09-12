@@ -311,12 +311,14 @@ main( int     argc,
 
     FD_TEST( wi_test( wi_not( x ), ~x0, ~x1, ~x2, ~x3, ~x4, ~x5, ~x6, ~x7  ) );
 
+#   define SHL(x,n)  ((int)(((uint)(x))<<(n)))
 #   define SHRU(x,n) ((int)(((uint)(x))>>(n)))
 #   define ROL(x,n)  fd_int_rotate_left ((x),(n))
 #   define ROR(x,n)  fd_int_rotate_right((x),(n))
 
 #   define _(n)                                                                                    \
-    FD_TEST( wi_test( wi_shl(  x, n ), x0<<n, x1<<n, x2<<n, x3<<n, x4<<n, x5<<n, x6<<n, x7<<n ) ); \
+    FD_TEST( wi_test( wi_shl(  x, n ), SHL( x0,n), SHL (x1,n), SHL( x2,n), SHL( x3,n),             \
+                                       SHL( x4,n), SHL( x5,n), SHL( x6,n), SHL( x7,n) ) );         \
     FD_TEST( wi_test( wi_shr(  x, n ), x0>>n, x1>>n, x2>>n, x3>>n, x4>>n, x5>>n, x6>>n, x7>>n ) ); \
     FD_TEST( wi_test( wi_shru( x, n ), SHRU(x0,n), SHRU(x1,n), SHRU(x2,n), SHRU(x3,n),             \
                                        SHRU(x4,n), SHRU(x5,n), SHRU(x6,n), SHRU(x7,n) ) );         \
@@ -330,7 +332,8 @@ main( int     argc,
 
     for( int n=0; n<32; n++ ) {
       int volatile m[1]; m[0] = n;
-      FD_TEST( wi_test( wi_shl_variable(  x, m[0] ), x0<<n, x1<<n, x2<<n, x3<<n, x4<<n, x5<<n, x6<<n, x7<<n ) );
+      FD_TEST( wi_test( wi_shl_variable(  x, m[0] ), SHL( x0,n), SHL( x1,n), SHL( x2,n), SHL( x3,n),
+                                                     SHL( x4,n), SHL( x5,n), SHL( x6,n), SHL( x7,n) ) );
       FD_TEST( wi_test( wi_shr_variable(  x, m[0] ), x0>>n, x1>>n, x2>>n, x3>>n, x4>>n, x5>>n, x6>>n, x7>>n ) );
       FD_TEST( wi_test( wi_shru_variable( x, m[0] ), SHRU(x0,n), SHRU(x1,n), SHRU(x2,n), SHRU(x3,n),
                                                      SHRU(x4,n), SHRU(x5,n), SHRU(x6,n), SHRU(x7,n) ) );
@@ -343,6 +346,7 @@ main( int     argc,
 #   undef ROR
 #   undef ROL
 #   undef SHRU
+#   undef SHL
 
     FD_TEST( wi_test( wi_and(    x, y ),   x0 &y0,   x1 &y1,   x2 &y2,   x3 &y3,   x4 &y4,   x5 &y5,   x6 &y6,   x7 &y7 ) );
     FD_TEST( wi_test( wi_andnot( x, y ), (~x0)&y0, (~x1)&y1, (~x2)&y2, (~x3)&y3, (~x4)&y4, (~x5)&y5, (~x6)&y6, (~x7)&y7 ) );

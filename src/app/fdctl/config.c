@@ -1,11 +1,11 @@
 #include "fdctl.h"
 
+#include "../frank/fd_frank.h"
 #include "../../util/net/fd_eth.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include <pwd.h>
 #include <sys/stat.h>
 #include <sys/ioctl.h>
 #include <net/if.h>
@@ -14,16 +14,83 @@
 
 FD_IMPORT_CSTR( default_config, "src/app/fdctl/config/default.toml" );
 
+static workspace_config_t *
+find_wksp( config_t * const config,
+           char * name ) {
+  for( ulong i=0; i<config->shmem.workspaces_cnt; i++ ) {
+    workspace_config_t * wksp = &config->shmem.workspaces[ i ];
+    if( FD_UNLIKELY( !strcmp( wksp->name, name ) ) ) return wksp;
+  }
+  FD_LOG_ERR(( "no workspace with name `%s` found", name ));
+}
+
+/* partial frank_bank definition since the tile doesn't really exist */
+static fd_frank_task_t frank_bank = {
+   .in_wksp    = "pack_bank",
+   .out_wksp   = "bank_shred",
+   .extra_wksp = NULL,
+};
+
 ulong
-workspace_bytes( config_t * const config ) {
-  ulong workspace_bytes = 0;
-  if( FD_LIKELY( !strcmp( config->shmem.workspace_page_size, "gigantic" ) ) )
-    workspace_bytes = config->shmem.workspace_page_count * 1024 * 1024 * 1024;
-  else if( FD_LIKELY( !strcmp( config->shmem.workspace_page_size, "huge" ) ) )
-    workspace_bytes = config->shmem.workspace_page_count * 2 * 1024 * 1024;
-  else
-    FD_LOG_ERR(( "invalid workspace_page_size: `%s`", config->shmem.workspace_page_size ));
-  return workspace_bytes;
+memlock_max_bytes( config_t * const config ) {
+  ulong memlock_max_bytes = 0;
+  for( ulong j=0; j<config->shmem.workspaces_cnt; j++ ) {
+    workspace_config_t * wksp = &config->shmem.workspaces[ j ];
+
+#define TILE_MAX( tile ) do {                                                 \
+    ulong in_bytes = 0, out_bytes = 0, extra_bytes = 0;                       \
+    if( FD_LIKELY( tile.in_wksp ) ) {                                         \
+      workspace_config_t * in_wksp = find_wksp( config, tile.in_wksp );       \
+      in_bytes = in_wksp->num_pages * in_wksp->page_size;                     \
+    }                                                                         \
+    if( FD_LIKELY( tile.out_wksp ) ) {                                        \
+      workspace_config_t * out_wksp = find_wksp( config, tile.out_wksp );     \
+      out_bytes = out_wksp->num_pages * out_wksp->page_size;                  \
+    }                                                                         \
+    if( FD_LIKELY( tile.extra_wksp ) ) {                                      \
+      workspace_config_t * extra_wksp = find_wksp( config, tile.extra_wksp ); \
+      extra_bytes = extra_wksp->num_pages * extra_wksp->page_size;            \
+    }                                                                         \
+    memlock_max_bytes = fd_ulong_max( memlock_max_bytes,                      \
+                                      wksp->page_size * wksp->num_pages +     \
+                                      in_bytes +                              \
+                                      out_bytes +                             \
+                                      extra_bytes );                          \
+  } while(0)
+
+    switch ( wksp->kind ) {
+      case wksp_tpu_txn_data:
+      case wksp_quic_verify:
+      case wksp_verify_dedup:
+      case wksp_dedup_pack:
+      case wksp_pack_bank:
+      case wksp_pack_forward:
+      case wksp_bank_shred:
+        break;
+      case wksp_quic:
+        TILE_MAX( frank_quic );
+        break;
+      case wksp_verify:
+        TILE_MAX( frank_verify );
+        break;
+      case wksp_dedup:
+        TILE_MAX( frank_dedup );
+        break;
+      case wksp_pack:
+        TILE_MAX( frank_pack );
+        break;
+      case wksp_bank:
+        TILE_MAX( frank_bank );
+        break;
+      case wksp_forward:
+        TILE_MAX( frank_forward );
+        break;
+    }
+  }
+
+  /* each process only has one thread, so there's only one set of stack pages mlocked */
+  ulong stack_pages = (FD_TILE_PRIVATE_STACK_SZ/FD_SHMEM_HUGE_PAGE_SZ)+2UL;
+  return memlock_max_bytes + FD_SHMEM_HUGE_PAGE_SZ * stack_pages;
 }
 
 static char *
@@ -35,7 +102,7 @@ default_user( void ) {
   if( FD_LIKELY( name ) ) return name;
 
   name = getlogin();
-  if( FD_UNLIKELY( !name ) ) FD_LOG_ERR(( "getlogin failed (%i-%s)", errno, strerror( errno ) ));
+  if( FD_UNLIKELY( !name ) ) FD_LOG_ERR(( "getlogin failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   return name;
 }
 
@@ -164,6 +231,8 @@ static void parse_key_value( config_t *   config,
   ENTRY_BOOL  ( ., ledger,              bigtable_storage                                          );
   ENTRY_VSTR  ( ., ledger,              account_indexes                                           );
   ENTRY_VSTR  ( ., ledger,              account_index_exclude_keys                                );
+  ENTRY_STR   ( ., ledger,              snapshot_archive_format                                   );
+  ENTRY_BOOL  ( ., ledger,              require_tower                                             );
 
   ENTRY_VSTR  ( ., gossip,              entrypoints                                               );
   ENTRY_BOOL  ( ., gossip,              port_check                                                );
@@ -182,6 +251,7 @@ static void parse_key_value( config_t *   config,
   ENTRY_BOOL  ( ., consensus,           wait_for_vote_to_start_leader                             );
   ENTRY_VUINT ( ., consensus,           hard_fork_at_slots                                        );
   ENTRY_VSTR  ( ., consensus,           known_validators                                          );
+  ENTRY_BOOL  ( ., consensus,           os_network_limits_test                                    );
 
   ENTRY_USHORT( ., rpc,                 port                                                      );
   ENTRY_BOOL  ( ., rpc,                 full_api                                                  );
@@ -195,16 +265,12 @@ static void parse_key_value( config_t *   config,
 
   ENTRY_STR   ( ., layout,              affinity                                                  );
   ENTRY_UINT  ( ., layout,              verify_tile_count                                         );
+  ENTRY_UINT  ( ., layout,              bank_tile_count                                           );
 
   ENTRY_STR   ( ., shmem,               gigantic_page_mount_path                                  );
   ENTRY_STR   ( ., shmem,               huge_page_mount_path                                      );
-  ENTRY_UINT  ( ., shmem,               min_kernel_gigantic_pages                                 );
-  ENTRY_UINT  ( ., shmem,               min_kernel_huge_pages                                     );
-  ENTRY_STR   ( ., shmem,               workspace_page_size                                       );
-  ENTRY_UINT  ( ., shmem,               workspace_page_count                                      );
 
   ENTRY_BOOL  ( ., development,         sandbox                                                   );
-  ENTRY_BOOL  ( ., development,         sudo                                                      );
 
   ENTRY_BOOL  ( ., development.netns,   enabled                                                   );
   ENTRY_STR   ( ., development.netns,   interface0                                                );
@@ -215,9 +281,9 @@ static void parse_key_value( config_t *   config,
   ENTRY_STR   ( ., development.netns,   interface1_addr                                           );
 
   ENTRY_STR   ( ., tiles.quic,          interface                                                 );
-  ENTRY_USHORT( ., tiles.quic,          listen_port                                               );
+  ENTRY_USHORT( ., tiles.quic,          transaction_listen_port                                   );
+  ENTRY_USHORT( ., tiles.quic,          quic_transaction_listen_port                              );
   ENTRY_UINT  ( ., tiles.quic,          max_concurrent_connections                                );
-  ENTRY_UINT  ( ., tiles.quic,          max_concurrent_connection_ids_per_connection              );
   ENTRY_UINT  ( ., tiles.quic,          max_concurrent_streams_per_connection                     );
   ENTRY_UINT  ( ., tiles.quic,          max_concurrent_handshakes                                 );
   ENTRY_UINT  ( ., tiles.quic,          max_inflight_quic_packets                                 );
@@ -231,11 +297,10 @@ static void parse_key_value( config_t *   config,
   ENTRY_UINT  ( ., tiles.verify,        mtu                                                       );
 
   ENTRY_UINT  ( ., tiles.pack,          max_pending_transactions                                  );
-  ENTRY_UINT  ( ., tiles.pack,          compute_unit_estimator_table_size                         );
-  ENTRY_UINT  ( ., tiles.pack,          compute_unit_estimator_ema_history                        );
-  ENTRY_UINT  ( ., tiles.pack,          compute_unit_estimator_ema_default                        );
-  ENTRY_UINT  ( ., tiles.pack,          solana_labs_bank_thread_count                             );
-  ENTRY_UINT  ( ., tiles.pack,          solana_labs_bank_thread_compute_units_executed_per_second );
+
+  ENTRY_UINT  ( ., tiles.bank,          receive_buffer_size                                       );
+
+  ENTRY_UINT  ( ., tiles.forward,       receive_buffer_size                                       );
 
   ENTRY_UINT  ( ., tiles.dedup,         signature_cache_size                                      );
 }
@@ -255,7 +320,7 @@ replace( char *       in,
     if( FD_UNLIKELY( total_len >= PATH_MAX ) )
       FD_LOG_ERR(( "configuration scratch directory path too long: `%s`", in ));
 
-    uchar after[PATH_MAX];
+    uchar after[PATH_MAX] = {0};
     fd_memcpy( after, replace + pat_len, strlen( replace + pat_len ) );
     fd_memcpy( replace, sub, sub_len );
     ulong after_len = strlen( ( const char * ) after );
@@ -263,8 +328,6 @@ replace( char *       in,
     in[ total_len ] = '\0';
   }
 }
-
-
 
 static void
 config_parse_array( config_t * config,
@@ -336,7 +399,7 @@ config_parse_line( uint       lineno,
 static void
 config_parse1( const char * config,
                config_t *   out ) {
-  char section[ 4096 ];
+  char section[ 4096 ] = {0};
   char key[ 4096 ];
   uint lineno = 0;
   int in_array = 0;
@@ -363,22 +426,26 @@ static void
 config_parse_file( const char * path,
                    config_t *   out ) {
   FILE * fp = fopen( path, "r" );
-  if( FD_UNLIKELY( !fp ) ) FD_LOG_ERR(( "could not open configuration file `%s`: (%d-%s)", path, errno, strerror( errno ) ));
+  if( FD_UNLIKELY( !fp ) ) FD_LOG_ERR(( "could not open configuration file `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
 
   uint lineno = 0;
   char line[ 4096 ];
   char key[ 4096 ];
   int in_array = 0;
-  char section[ 4096 ];
+  char section[ 4096 ] = {0};
   while( FD_LIKELY( fgets( line, 4096, fp ) ) ) {
     lineno++;
-    if( FD_UNLIKELY( strlen( line ) == 4095 ) ) FD_LOG_ERR(( "line too long in `%s`", path ));
-    config_parse_line( lineno, line, section, &in_array, key, out );
+    ulong len = strlen( line );
+    if( FD_UNLIKELY( len==4095UL ) ) FD_LOG_ERR(( "line %u too long in `%s`", lineno, path ));
+    if( FD_LIKELY( len ) ) {
+      line[ len-1UL ] = '\0'; /* chop off newline */
+      config_parse_line( lineno, line, section, &in_array, key, out );
+    }
   }
   if( FD_UNLIKELY( ferror( fp ) ) )
-    FD_LOG_ERR(( "error reading `%s` (%i-%s)", path, errno, strerror( errno ) ));
+    FD_LOG_ERR(( "error reading `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
   if( FD_LIKELY( fclose( fp ) ) )
-    FD_LOG_ERR(( "error closing `%s` (%i-%s)", path, errno, strerror( errno ) ));
+    FD_LOG_ERR(( "error closing `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
 }
 
 static uint
@@ -388,9 +455,9 @@ listen_address( const char * interface ) {
   ifr.ifr_addr.sa_family = AF_INET;
   strncpy( ifr.ifr_name, interface, IF_NAMESIZE );
   if( FD_UNLIKELY( ioctl( fd, SIOCGIFADDR, &ifr ) ) )
-    FD_LOG_ERR(( "could not get IP address of interface `%s`: (%d-%s)", interface, errno, strerror( errno ) ));
+    FD_LOG_ERR(( "could not get IP address of interface `%s` (%i-%s)", interface, errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( close(fd) ) )
-    FD_LOG_ERR(( "could not close socket (%d-%s)", errno, strerror( errno ) ));
+    FD_LOG_ERR(( "could not close socket (%i-%s)", errno, fd_io_strerror( errno ) ));
   return ((struct sockaddr_in *)fd_type_pun( &ifr.ifr_addr ))->sin_addr.s_addr;
 }
 
@@ -402,10 +469,130 @@ mac_address( const char * interface,
   ifr.ifr_addr.sa_family = AF_INET;
   strncpy( ifr.ifr_name, interface, IF_NAMESIZE );
   if( FD_UNLIKELY( ioctl( fd, SIOCGIFHWADDR, &ifr ) ) )
-    FD_LOG_ERR(( "could not get MAC address of interface `%s`: (%d-%s)", interface, errno, strerror( errno ) ));
+    FD_LOG_ERR(( "could not get MAC address of interface `%s`: (%i-%s)", interface, errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( close(fd) ) )
-    FD_LOG_ERR(( "could not close socket (%d-%s)", errno, strerror( errno ) ));
+    FD_LOG_ERR(( "could not close socket (%i-%s)", errno, fd_io_strerror( errno ) ));
   fd_memcpy( mac, ifr.ifr_hwaddr.sa_data, 6 );
+}
+
+static void
+init_workspaces( config_t * config ) {
+  ulong idx = 0;
+
+  config->shmem.workspaces[ idx ].kind      = wksp_tpu_txn_data;
+  config->shmem.workspaces[ idx ].name      = "tpu_txn_data";
+  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
+  config->shmem.workspaces[ idx ].num_pages = 1;
+  idx++;
+
+  config->shmem.workspaces[ idx ].kind      = wksp_quic_verify;
+  config->shmem.workspaces[ idx ].name      = "quic_verify";
+  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_HUGE_PAGE_SZ;
+  config->shmem.workspaces[ idx ].num_pages = 2;
+  idx++;
+
+  config->shmem.workspaces[ idx ].kind      = wksp_verify_dedup;
+  config->shmem.workspaces[ idx ].name      = "verify_dedup";
+  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_HUGE_PAGE_SZ;
+  config->shmem.workspaces[ idx ].num_pages = 2;
+  idx++;
+
+  config->shmem.workspaces[ idx ].kind      = wksp_dedup_pack;
+  config->shmem.workspaces[ idx ].name      = "dedup_pack";
+  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_HUGE_PAGE_SZ;
+  config->shmem.workspaces[ idx ].num_pages = 1;
+  idx++;
+
+  config->shmem.workspaces[ idx ].kind      = wksp_pack_bank;
+  config->shmem.workspaces[ idx ].name      = "pack_bank";
+  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
+  config->shmem.workspaces[ idx ].num_pages = 1;
+  idx++;
+
+  config->shmem.workspaces[ idx ].kind      = wksp_pack_forward;
+  config->shmem.workspaces[ idx ].name      = "pack_forward";
+  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
+  config->shmem.workspaces[ idx ].num_pages = 1;
+  idx++;
+
+  config->shmem.workspaces[ idx ].kind      = wksp_bank_shred;
+  config->shmem.workspaces[ idx ].name      = "bank_shred";
+  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
+  config->shmem.workspaces[ idx ].num_pages = 1;
+  idx++;
+
+  for( ulong i=0; i<config->layout.verify_tile_count; i++ ) {
+    config->shmem.workspaces[ idx ].kind      = wksp_quic;
+    config->shmem.workspaces[ idx ].name      = "quic";
+    config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
+    config->shmem.workspaces[ idx ].num_pages = 1;
+    config->shmem.workspaces[ idx ].kind_idx  = i;
+    idx++;
+  }
+
+  for( ulong i=0; i<config->layout.verify_tile_count; i++ ) {
+    config->shmem.workspaces[ idx ].kind      = wksp_verify;
+    config->shmem.workspaces[ idx ].name      = "verify";
+    config->shmem.workspaces[ idx ].page_size = FD_SHMEM_HUGE_PAGE_SZ;
+    config->shmem.workspaces[ idx ].num_pages = 1;
+    config->shmem.workspaces[ idx ].kind_idx  = i;
+    idx++;
+  }
+
+  config->shmem.workspaces[ idx ].kind      = wksp_dedup;
+  config->shmem.workspaces[ idx ].name      = "dedup";
+  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
+  config->shmem.workspaces[ idx ].num_pages = 1;
+  idx++;
+
+  config->shmem.workspaces[ idx ].kind      = wksp_pack;
+  config->shmem.workspaces[ idx ].name      = "pack";
+  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
+  config->shmem.workspaces[ idx ].num_pages = 1;
+  idx++;
+
+  config->shmem.workspaces[ idx ].kind      = wksp_forward;
+  config->shmem.workspaces[ idx ].name      = "forward";
+  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
+  config->shmem.workspaces[ idx ].num_pages = 1;
+  idx++;
+
+  for( ulong i=0; i<config->layout.bank_tile_count; i++ ) {
+    config->shmem.workspaces[ idx ].kind      = wksp_bank;
+    config->shmem.workspaces[ idx ].name      = "bank";
+    config->shmem.workspaces[ idx ].page_size = FD_SHMEM_HUGE_PAGE_SZ;
+    config->shmem.workspaces[ idx ].num_pages = 1;
+    config->shmem.workspaces[ idx ].kind_idx  = i;
+    idx++;
+  }
+
+  config->shmem.workspaces_cnt = idx;
+}
+
+static uint
+username_to_uid( char * username ) {
+  FILE * fp = fopen( "/etc/passwd", "rb" );
+  if( FD_UNLIKELY( !fp) ) FD_LOG_ERR(( "could not open /etc/passwd (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  char line[ 4096 ];
+  while( FD_LIKELY( fgets( line, 4096, fp ) ) ) {
+    if( FD_UNLIKELY( strlen( line ) == 4095 ) ) FD_LOG_ERR(( "line too long in /etc/passwd" ));
+    char * s = strchr( line, ':' );
+    if( FD_UNLIKELY( !s ) ) continue;
+    *s = 0;
+    if( FD_LIKELY( strcmp( line, username ) ) ) continue;
+
+    s = strchr( s + 1, ':' );
+    if( FD_UNLIKELY( !s ) ) continue;
+
+    if( FD_UNLIKELY( fclose( fp ) ) ) FD_LOG_ERR(( "could not close /etc/passwd (%i-%s)", errno, fd_io_strerror( errno ) ));
+    char * endptr;
+    ulong uid = strtoul( s + 1, &endptr, 10 );
+    if( FD_UNLIKELY( *endptr != ':' || uid > UINT_MAX ) ) FD_LOG_ERR(( "could not parse uid in /etc/passwd"));
+    return (uint)uid;
+  }
+
+  FD_LOG_ERR(( "configuration file wants firedancer to run as user `%s` but it does not exist", username ));
 }
 
 config_t
@@ -418,11 +605,20 @@ config_parse( int *    pargc,
       pargc,
       pargv,
       "--config",
-      "FIREDANCER_CONFIG_FILE",
+      "FIREDANCER_CONFIG_TOML",
       NULL );
 
   if( FD_LIKELY( user_config ) ) {
     config_parse_file( user_config, &result );
+  }
+
+  int netns = fd_env_strip_cmdline_contains( pargc, pargv, "--netns" );
+  if( FD_UNLIKELY( netns ) ) {
+    result.development.netns.enabled = 1;
+    strncpy( result.tiles.quic.interface,
+             result.development.netns.interface0,
+             sizeof(result.tiles.quic.interface) );
+    result.tiles.quic.interface[ sizeof(result.tiles.quic.interface) - 1 ] = '\0';
   }
 
   if( FD_UNLIKELY( !strcmp( result.user, "" ) ) ) {
@@ -432,7 +628,7 @@ config_parse( int *    pargc,
     strncpy( result.user, user, 256 );
   }
 
-  if( FD_UNLIKELY( !strcmp( result.tiles.quic.interface, "" ) ) ) {
+  if( FD_UNLIKELY( !strcmp( result.tiles.quic.interface, "" ) && !result.development.netns.enabled ) ) {
     int ifindex = internet_routing_interface();
     if( FD_UNLIKELY( ifindex == -1 ) )
       FD_LOG_ERR(( "no network device found which routes to 8.8.8.8. If no network "
@@ -453,8 +649,10 @@ config_parse( int *    pargc,
                    "for development, the configuration file must specify that "
                    "[development.netns.interface0] is the same as [tiles.quic.interface]" ));
 
-    fd_cstr_to_ip4_addr( result.development.netns.interface0_addr, &result.tiles.quic.ip_addr );
-    fd_cstr_to_mac_addr( result.development.netns.interface0_mac, result.tiles.quic.mac_addr );
+    if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( result.development.netns.interface0_addr, &result.tiles.quic.ip_addr ) ) )
+      FD_LOG_ERR(( "configuration specifies invalid netns IP address `%s`", result.development.netns.interface0_addr ));
+    if( FD_UNLIKELY( !fd_cstr_to_mac_addr( result.development.netns.interface0_mac, result.tiles.quic.mac_addr ) ) )
+      FD_LOG_ERR(( "configuration specifies invalid netns MAC address `%s`", result.development.netns.interface0_mac ));
   } else {
     if( FD_UNLIKELY( !if_nametoindex( result.tiles.quic.interface ) ) )
       FD_LOG_ERR(( "configuration specifies network interface `%s` which does not exist", result.tiles.quic.interface ));
@@ -462,15 +660,9 @@ config_parse( int *    pargc,
     mac_address( result.tiles.quic.interface, result.tiles.quic.mac_addr );
   }
 
-  errno = 0;
-  struct passwd * passwd = getpwnam( result.user );
-  if( FD_UNLIKELY( !passwd && !errno ))
-    FD_LOG_ERR(( "configuration file wants firedancer to run as user `%s` but it does not exist", result.user ));
-  else if( FD_UNLIKELY( !passwd ) )
-    FD_LOG_ERR(( "getpwnam failed (%i-%s)", errno, strerror( errno ) ) );
-
-  result.uid = passwd->pw_uid;
-  result.gid = passwd->pw_uid;
+  uint uid = username_to_uid( result.user );
+  result.uid = uid;
+  result.gid = uid;
 
   if( result.uid == 0 || result.gid == 0 )
     FD_LOG_ERR(( "firedancer cannot run as root. please specify a non-root user in the configuration file" ));
@@ -535,85 +727,19 @@ config_parse( int *    pargc,
                    "cluster may destabilize the network. Please do not attempt." ));
 
   if( FD_LIKELY( result.is_live_cluster) ) {
-    if( FD_UNLIKELY( result.development.sudo ) )
-      FD_LOG_ERR(( "trying to join a live cluster, but configuration specified [development.sudo] which is a development only feature" ));
     if( FD_UNLIKELY( !result.development.sandbox ) )
       FD_LOG_ERR(( "trying to join a live cluster, but configuration disables the sandbox which is a a development only feature" ));
     if( FD_UNLIKELY( result.development.netns.enabled ) )
       FD_LOG_ERR(( "trying to join a live cluster, but configuration enables [development.netns] which is a development only feature" ));
   }
 
+  if( FD_UNLIKELY( result.tiles.quic.quic_transaction_listen_port != result.tiles.quic.transaction_listen_port + 6 ) )
+    FD_LOG_ERR(( "configuration specifies invalid [tiles.quic.quic_transaction_listen_port] `%hu`. "
+                 "This must be 6 more than [tiles.quic.transaction_listen_port] `%hu`",
+                 result.tiles.quic.quic_transaction_listen_port,
+                 result.tiles.quic.transaction_listen_port ));
+
+  init_workspaces( &result );
+
   return result;
-}
-
-void
-dump_vars( config_t * const config,
-           const char *     pod,
-           const char *     main_cnc ) {
-  char path[ PATH_MAX ];
-  snprintf1( path, PATH_MAX, "%s/config.cfg", config->scratch_directory );
-
-  mkdir_all( config->scratch_directory, config->uid, config->gid );
-
-  /* switch to non-root uid/gid for file creation. permissions checks still done as root. */
-  gid_t gid = getgid();
-  uid_t uid = getuid();
-  if( FD_LIKELY( gid == 0 && setegid( config->gid ) ) )
-    FD_LOG_ERR(( "setegid() failed (%i-%s)", errno, strerror( errno ) ));
-  if( FD_LIKELY( uid == 0 && seteuid( config->uid ) ) )
-    FD_LOG_ERR(( "seteuid() failed (%i-%s)", errno, strerror( errno ) ));
-
-  FILE * fp = fopen( path, "w" );
-  if( FD_UNLIKELY( !fp ) ) FD_LOG_ERR(( "failed to open `%s` for writing: %s", path, strerror( errno ) ));
-
-  int err = fprintf( fp,
-                     "#!/bin/bash\n"
-                     "# AUTOGENERATED\n"
-                     "WKSP=%s.wksp\n"
-                     "AFFINITY=%s\n"
-                     "APP=%s\n"
-                     "POD=%s\n"
-                     "MAIN_CNC=%s.wksp:%s\n"
-                     "IFACE=%s\n",
-                     config->name,
-                     config->layout.affinity,
-                     config->name,
-                     pod,
-                     config->name,
-                     main_cnc,
-                     config->tiles.quic.interface );
-  if( FD_UNLIKELY( err < 0 ) ) FD_LOG_ERR(( "fprintf failed (%i-%s)", errno, strerror( errno ) ));
-  if( FD_UNLIKELY( fclose( fp ) ) ) FD_LOG_ERR(( "fclose failed `%s` (%d-%s)", path, errno, strerror( errno ) ));
-
-  if( FD_UNLIKELY( seteuid( uid ) ) ) FD_LOG_ERR(( "seteuid() failed (%i-%s)", errno, strerror( errno ) ));
-  if( FD_UNLIKELY( setegid( gid ) ) ) FD_LOG_ERR(( "setegid() failed (%i-%s)", errno, strerror( errno ) ));
-}
-
-const char *
-load_var_pod( config_t * const config,
-              char * name,
-              char line[4096] ) {
-  char path[ PATH_MAX ];
-  snprintf1( path, sizeof(path), "%s/config.cfg", config->scratch_directory );
-
-  FILE * fp = fopen( path, "r" );
-  if( FD_UNLIKELY( !fp ) ) FD_LOG_ERR(( "failed to open %s: (%d-%s)", path, errno, strerror( errno ) ));
-
-  ulong i = 0;
-  while( FD_LIKELY( fgets( line, 4096, fp ) ) ) {
-    if( FD_UNLIKELY( strlen( line ) == 4095 ) ) FD_LOG_ERR(( "line too long in `%s`", path ));
-    if( FD_UNLIKELY( i++<2 ) ) continue;
-
-    char * eq = strchr( line, '=' );
-    if( FD_UNLIKELY( !eq ) ) FD_LOG_ERR(( "malformed config.cfg (expected `=`): `%s`", line ));
-
-    *eq++ = '\0';
-    eq[ strlen( eq ) - 1 ] = '\0';
-    if( FD_UNLIKELY( !strcmp( line, name ) ) ) {
-      if( FD_UNLIKELY( fclose( fp ) ) ) FD_LOG_ERR(( "close failed (%d-%s)", errno, strerror( errno ) ));
-      return eq;
-    }
-  }
-
-  FD_LOG_ERR(( "malformed config.cfg (expected to find `%s=`): `%s`", name, path ));
 }

@@ -11,7 +11,7 @@
 #include "../../util/net/fd_ip4.h"
 
 /* fd_xdp_redirect_prog is eBPF ELF object containing the XDP program.
-   It is embedded into this program. Build with `make ebpf-bin`. */
+   It is embedded into this program. */
 FD_IMPORT_BINARY( fd_xdp_redirect_prog, "src/tango/xdp/fd_xdp_redirect_prog.o" );
 
 FD_IMPORT_CSTR( fd_xdp_ctl_help, "src/tango/xdp/fd_xdp_ctl_help" );
@@ -144,8 +144,9 @@ main( int     argc,
       (void)_proto;
       uint proto = 1UL;
 
-      if( FD_UNLIKELY( 0!=fd_xdp_listen_udp_port( _wksp, ip_addr, (uint)udp_port, proto ) ) )
-        FD_LOG_ERR(( "%i: %s: fd_xdp_listen_udp_port(%s,%s,%lu,%s) failed\n\tDo %s help for help",
+      ushort port = (ushort)udp_port;
+      if( FD_UNLIKELY( 0!=fd_xdp_listen_udp_ports( _wksp, ip_addr, 1, &port, proto ) ) )
+        FD_LOG_ERR(( "%i: %s: fd_xdp_listen_udp_ports(%s,%s,%lu,%s) failed\n\tDo %s help for help",
                      cnt, cmd, _wksp, _ip_addr, udp_port, _proto, bin ));
 
       FD_LOG_NOTICE(( "%i: %s %s %s %lu %s: success", cnt, cmd, _wksp, _ip_addr, udp_port, _proto ));

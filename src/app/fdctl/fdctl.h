@@ -11,7 +11,7 @@
 #include <unistd.h>
 #include <errno.h>
 
-#define CONFIGURE_STAGE_COUNT 10
+#define CONFIGURE_STAGE_COUNT 11
 struct configure_stage;
 
 typedef union {
@@ -20,14 +20,26 @@ typedef union {
     long dt_max;
     long duration;
     uint seed;
+    double ns_per_tic;
+    int drain_output_fd;
   } monitor;
   struct {
     int                      command;
-    struct configure_stage * stages[ CONFIGURE_STAGE_COUNT + 2 ];
+    struct configure_stage * stages[ CONFIGURE_STAGE_COUNT ];
   } configure;
   struct {
     int tile;
   } run1;
+  struct {
+    int monitor;
+    int no_configure;
+  } dev;
+  struct {
+    const char * payload_base64;
+    ulong  count;
+    const char * dst_ip;
+    ushort dst_port;
+  } txn;
 } args_t;
 
 typedef struct security security_t;
@@ -39,7 +51,7 @@ typedef struct {
     void       (*fn  )( args_t * args, config_t * const config );
 } action_t;
 
-extern action_t ACTIONS[ 4 ];
+extern action_t ACTIONS[ 5 ];
 
 int
 main1( int     argc,
@@ -85,5 +97,9 @@ monitor_cmd_fn( args_t *         args,
 void
 keygen_cmd_fn( args_t *         args,
                config_t * const config );
+
+void
+ready_cmd_fn( args_t *         args,
+              config_t * const config );
 
 #endif /* HEADER_fd_src_app_fdctl_fdctl_h */

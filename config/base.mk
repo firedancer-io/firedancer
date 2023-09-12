@@ -7,7 +7,7 @@ CFLAGS:=-std=c17
 CXX:=g++
 CXXFLAGS:=-std=c++17
 LD:=g++
-LDFLAGS:=-lm -lrt -ldl -L./opt/lib -L./opt/lib64
+LDFLAGS:=-lm -lrt -ldl -L./opt/lib
 AR:=ar
 ARFLAGS:=rv
 RANLIB:=ranlib
@@ -25,6 +25,9 @@ CAT:=cat
 LLVM_COV?=llvm-cov
 LLVM_PROFDATA?=llvm-profdata
 
+# Rust
+RUST_PROFILE=debug
+
 # lcov
 GENHTML=genhtml
 
@@ -33,3 +36,6 @@ GENHTML=genhtml
 # useful for some build configs where a library with a main symbol is
 # linked in (e.g. fuzz targets)
 FD_HAS_MAIN:=1
+
+# Parameters passed to libFuzzer tests
+FUZZFLAGS:=-max_total_time=600

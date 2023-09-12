@@ -16,6 +16,40 @@ usage( void ) {
   return 1;
 }
 
+static void
+test_matches_rust( void ) {
+  fd_chacha20rng_t _rng[1];
+  fd_chacha20rng_t * rng = fd_chacha20rng_join( fd_chacha20rng_new( _rng ) );
+  FD_TEST( rng );
+
+  uchar key[ 32 ];
+  memset( key, 0x41, 32UL );
+  fd_chacha20rng_init( rng, key );
+
+  FD_TEST( fd_chacha20rng_ulong_roll( rng, 10UL ) == 8UL );
+  FD_TEST( fd_chacha20rng_ulong_roll( rng, 10UL ) == 7UL );
+  FD_TEST( fd_chacha20rng_ulong_roll( rng, 10UL ) == 2UL );
+  FD_TEST( fd_chacha20rng_ulong_roll( rng, 10UL ) == 5UL );
+  FD_TEST( fd_chacha20rng_ulong_roll( rng, 10UL ) == 7UL );
+  FD_TEST( fd_chacha20rng_ulong_roll( rng, 10UL ) == 6UL );
+  FD_TEST( fd_chacha20rng_ulong_roll( rng, 10UL ) == 5UL );
+  FD_TEST( fd_chacha20rng_ulong_roll( rng, 10UL ) == 6UL );
+  FD_TEST( fd_chacha20rng_ulong_roll( rng, 10UL ) == 9UL );
+  FD_TEST( fd_chacha20rng_ulong_roll( rng, 10UL ) == 6UL );
+
+  FD_TEST( fd_chacha20rng_ulong_roll( rng, 4294967231UL ) == 3252524226UL );
+  FD_TEST( fd_chacha20rng_ulong_roll( rng, 4294967231UL ) == 3847107912UL );
+  FD_TEST( fd_chacha20rng_ulong_roll( rng, 4294967231UL ) == 2388546007UL );
+  FD_TEST( fd_chacha20rng_ulong_roll( rng, 4294967231UL ) == 1795840680UL );
+  FD_TEST( fd_chacha20rng_ulong_roll( rng, 4294967231UL ) == 1493882641UL );
+  FD_TEST( fd_chacha20rng_ulong_roll( rng, 4294967231UL ) == 2627412178UL );
+  FD_TEST( fd_chacha20rng_ulong_roll( rng, 4294967231UL ) == 2509655068UL );
+  FD_TEST( fd_chacha20rng_ulong_roll( rng, 4294967231UL ) == 2770564418UL );
+  FD_TEST( fd_chacha20rng_ulong_roll( rng, 4294967231UL ) ==  368683988UL );
+  FD_TEST( fd_chacha20rng_ulong_roll( rng, 4294967231UL ) ==  318451188UL );
+
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -27,6 +61,8 @@ main( int     argc,
 
   fd_log_level_logfile_set( 0 );
   fd_log_level_stderr_set ( 0 );
+
+  test_matches_rust();
 
   /* Read command-line params */
 

@@ -4,19 +4,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-configure_stage_t * STAGES[ CONFIGURE_STAGE_COUNT ] = {
-  &large_pages,
-  &shmem,
-  &sysctl,
-  &xdp,
-  &xdp_leftover,
-  &ethtool,
-  &workspace_leftover,
-  &workspace,
-  &frank,
-  NULL,
-};
-
 void
 configure_cmd_args( int *    pargc,
                     char *** pargv,
@@ -33,7 +20,7 @@ configure_cmd_args( int *    pargc,
   (*pargv)++;
 
   for( int i=0; i<*pargc; i++ ) {
-    if( FD_UNLIKELY( !strcmp(*pargv[ i ], "all" ) ) ) {
+    if( FD_UNLIKELY( !strcmp( *pargv[ i ], "all" ) ) ) {
       (*pargc) -= i + 1;
       (*pargv) += i + 1;
       for( int j=0; j<CONFIGURE_STAGE_COUNT; j++) args->configure.stages[ j ] = STAGES[ j ];
@@ -44,7 +31,7 @@ configure_cmd_args( int *    pargc,
   if( FD_UNLIKELY( *pargc >= CONFIGURE_STAGE_COUNT ) ) FD_LOG_ERR(( "too many stages specified" ));
 
   ulong nstage = 0;
-  while( pargc ) {
+  while( *pargc ) {
     int found = 0;
     for( configure_stage_t ** stage = STAGES; *stage; stage++ ) {
       if( FD_UNLIKELY( !strcmp( *pargv[0], (*stage)->name ) ) ) {
@@ -174,9 +161,20 @@ configure_cmd_fn( args_t *         args,
                   config_t * const config ) {
   int error = 0;
 
-  for( configure_stage_t ** stage = args->configure.stages; *stage; stage++ ) {
-    if( FD_UNLIKELY( configure_stage( *stage, (configure_cmd_t)args->configure.command, config ) ) ) error = 1;
+  if( FD_LIKELY( (configure_cmd_t)args->configure.command != CONFIGURE_CMD_FINI ) ) {
+    for( configure_stage_t ** stage = args->configure.stages; *stage; stage++ ) {
+      if( FD_UNLIKELY( configure_stage( *stage, (configure_cmd_t)args->configure.command, config ) ) ) error = 1;
+    }
+  } else {
+    ulong i;
+    for( i=0; args->configure.stages[ i ]; i++ ) ;
+    if( FD_LIKELY( i > 0 ) ) {
+      for( ulong j=0; j<i; j++ ) {
+        if( FD_UNLIKELY( configure_stage( args->configure.stages[ i-1-j ], (configure_cmd_t)args->configure.command, config ) ) ) error = 1;
+      }
+    }
   }
+
 
   if( FD_UNLIKELY( error ) ) FD_LOG_ERR(( "failed to configure some stages" ));
 }
@@ -190,7 +188,7 @@ check_path( const char * path,
   struct stat st;
   if( FD_UNLIKELY( stat( path, &st ) ) ) {
     if( FD_LIKELY( errno == ENOENT ) ) PARTIALLY_CONFIGURED( "path `%s` does not exist", path );
-    PARTIALLY_CONFIGURED( "failed to stat `%s` (%i-%s)", path, errno, strerror( errno ) );
+    PARTIALLY_CONFIGURED( "failed to stat `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) );
   }
   if( FD_UNLIKELY( expected_dir && !S_ISDIR( st.st_mode ) ) )
     PARTIALLY_CONFIGURED( "path `%s` is a file, not a directory", path );

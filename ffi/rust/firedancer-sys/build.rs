@@ -47,7 +47,14 @@ fn main() {
         //
         // We would need to `cargo clean` if any Makefile changes, which
         // isn't possible now.
-        println!("cargo:rerun-if-changed=../../../src");
+        println!("cargo:rerun-if-changed=wrapper_util.h");
+        println!("cargo:rerun-if-changed=../../../src/util");
+        println!("cargo:rerun-if-changed=wrapper_ballet.h");
+        println!("cargo:rerun-if-changed=../../../src/ballet");
+        println!("cargo:rerun-if-changed=wrapper_tango.h");
+        println!("cargo:rerun-if-changed=../../../src/tango");
+        println!("cargo:rerun-if-changed=wrapper_disco.h");
+        println!("cargo:rerun-if-changed=../../../src/disco");
 
         "../../../"
     };
@@ -60,6 +67,7 @@ fn main() {
             .allowlist_recursively(false)
             .default_non_copy_union_style(bindgen::NonCopyUnionStyle::ManuallyDrop)
             .clang_arg(format!("-I{prefix}/"))
+            .clang_arg("-std=c17")
             .header(&format!("wrapper_{lib}.h"))
             .blocklist_type("schar|uchar|ushort|uint|ulong")
             .blocklist_item("SORT_QUICK_ORDER_STYLE|SORT_MERGE_THRESH|SORT_QUICK_THRESH|SORT_QUICK_ORDER_STYLE|SORT_QUICK_SWAP_MINIMIZE");

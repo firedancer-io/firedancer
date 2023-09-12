@@ -141,6 +141,7 @@
      by message passing or via shared memory. */
 
 #include "../env/fd_env.h"
+#include "../io/fd_io.h"
 
 /* FD_LOG_NOTICE(( ... printf style arguments ... )) will send a message
    at the NOTICE level to the logger.  E.g. for a typical fd_log
@@ -208,7 +209,12 @@
 
    Note: fd_log_wallclock called outside the arg list to give it a
    linguistically strict point when it is called that is before logging
-   activities commence. */
+   activities commence.
+
+   This family of functions is not async-signal safe. Do not call log functions from
+   a signal handler, it may deadlock or corrupt the log. If you wish to write
+   emergency diagnostics, you can call `write(2)` directly to stderr or the log file,
+   which is safe. */
 
 #define FD_LOG_DEBUG(a)           do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_1( 0, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0           a ); } while(0)
 #define FD_LOG_INFO(a)            do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_1( 1, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0           a ); } while(0)
@@ -427,6 +433,15 @@ FD_FN_CONST char const * fd_log_group( void ); /* ptr is CONST, cstr pointed at 
 
 ulong fd_log_tid( void );
 
+/* fd_log_user_id() returns the user id of the thread group to which the
+   caller belongs.  The user id is intended, at a minimum, to be unique
+   over all users on a host.  In simple cases, this is the OS uid of the
+   process to which the caller belongs.  In general cases, this is
+   typically something provided to the caller when the caller started.
+   This is cheap after the first call. */
+
+FD_FN_PURE ulong fd_log_user_id( void );
+
 /* fd_log_user() returns a non-NULL pointer to a cstr describing the
    user that created the thread group to which the caller belongs.  In
    simple cases, this defaults to the LOGNAME / login that started the
@@ -450,7 +465,31 @@ FD_FN_CONST char const * fd_log_user( void ); /* ptr is CONST, cstr pointed at i
 
 int fd_log_group_id_query( ulong group_id );
 
-/* FIXME: TID DESC? UID? UID_SET? */
+/* FIXME: TID DESC? */
+
+/* Build info APIs ****************************************************/
+
+/* fd_log_build_info points in the caller's address space to the first
+   byte of a memory region of size fd_log_build_info_sz containing a
+   cstr with information about the environment in which the calling code
+   was built.
+
+   If build information was not available at compile time, the build
+   info will be the empty string and size will be one.
+
+   The value in this field is the last time the build info file was
+   generated (such that, in a development compile-execute-debug
+   iteration, the build info reflect the build environment since the
+   last "make clean" or the developer manually deleted the build info).
+
+   Code that is meant to be general purpose should not assume any
+   particular format, contents, length, etc.  The build system,
+   packaging magner, distribution manager, etc might external impose
+   additional requirements on this string for application specific code
+   though. */
+
+extern char const  fd_log_build_info[] __attribute__((aligned(1)));
+extern ulong const fd_log_build_info_sz; /* == strlen( fd_log_build_info ) + 1UL */
 
 /* Logging helper APIs ************************************************/
 
@@ -536,6 +575,9 @@ void fd_log_level_core_set   ( int level );
 
 /* These functions are for fd_log internal use only. */
 
+void
+fd_log_private_fprintf_0( int fd, char const * fmt, ... ) __attribute__((format(printf,2,3))); /* Type check the fmt string at compile time */
+
 char const *
 fd_log_private_0( char const * fmt, ... ) __attribute__((format(printf,1,2))); /* Type check the fmt string at compile time */
 
@@ -584,6 +626,7 @@ void fd_log_private_host_id_set  ( ulong host_id   );
 void fd_log_private_cpu_id_set   ( ulong cpu_id    );
 void fd_log_private_group_id_set ( ulong group_id  );
 void fd_log_private_tid_set      ( ulong tid       );
+void fd_log_private_user_id_set  ( ulong user_id   );
 
 void fd_log_private_app_set  ( char const * app   ); /* Not thread safe */
 void fd_log_private_host_set ( char const * host  ); /* Not thread safe */
@@ -593,4 +636,3 @@ void fd_log_private_user_set ( char const * user  ); /* Not thread safe */
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_util_log_fd_log_h */
-

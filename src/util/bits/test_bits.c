@@ -95,7 +95,8 @@ main( int     argc,
     FD_TEST( fd_uchar_find_msb          ( ones      )==(w-1));
     FD_TEST( fd_uchar_find_msb_w_default( ones , -1 )==(w-1));
     FD_TEST( fd_uchar_find_msb_w_default( zeros, -1 )==-1   );
-    FD_TEST( fd_uchar_pow2_up ( zeros )==(uchar)0 ); FD_TEST( fd_uchar_pow2_up ( ones  )==(uchar)0 );
+    FD_TEST( fd_uchar_pow2_up ( zeros )==(uchar)0 ); FD_TEST( fd_uchar_pow2_up ( ones  )==(uchar)0          );
+    FD_TEST( fd_uchar_pow2_dn ( zeros )==(uchar)1 ); FD_TEST( fd_uchar_pow2_dn ( ones  )==(uchar)(1<<(w-1)) );
     for( int i=1; i<w; i++ ) {
       uchar x = (uchar)(1UL<<i);
       FD_TEST( fd_uchar_pop_lsb ( x )==zeros );
@@ -104,6 +105,7 @@ main( int     argc,
       FD_TEST( fd_uchar_find_lsb_w_default( x , -1 )==i );
       FD_TEST( fd_uchar_find_msb_w_default( x , -1 )==i );
       FD_TEST( fd_uchar_pow2_up ( x )==x     );
+      FD_TEST( fd_uchar_pow2_dn ( x )==x     );
       for( int j=0; j<i; j++ ) {
         uchar y = (uchar)(1UL<<j);
         uchar z = (uchar)(x|y);
@@ -113,6 +115,7 @@ main( int     argc,
         FD_TEST( fd_uchar_find_lsb_w_default( z , -1 )==j );
         FD_TEST( fd_uchar_find_msb_w_default( z , -1 )==i );
         FD_TEST( fd_uchar_pow2_up ( z )==(uchar)(x<<1) );
+        FD_TEST( fd_uchar_pow2_dn ( z )==(uchar) x     );
       }
     }
     for( int n=0; n<=w; n++ ) {
@@ -151,6 +154,10 @@ main( int     argc,
       FD_TEST( fd_uchar_max  ( x, y    )==((x>y) ? x : y)               );
 
       uchar z = x; fd_uchar_store_if( c, &z, y ); FD_TEST( z==(c ? y : x) );
+
+      uchar xx; uchar yy;
+      xx = x; yy = y; fd_swap( xx, yy );       FD_TEST( (xx==y)           & (yy==x)           );
+      xx = x; yy = y; fd_swap_if( c, xx, yy ); FD_TEST( (xx==(c ? y : x)) & (yy==(c ? x : y)) );
 
       int n = (int)fd_rng_uint( rng );
       int s = n & 15;
@@ -233,7 +240,8 @@ main( int     argc,
     FD_TEST( fd_ushort_find_msb          ( ones      )==(w-1));
     FD_TEST( fd_ushort_find_msb_w_default( ones , -1 )==(w-1));
     FD_TEST( fd_ushort_find_msb_w_default( zeros, -1 )==-1   );
-    FD_TEST( fd_ushort_pow2_up ( zeros )==(ushort)0 ); FD_TEST( fd_ushort_pow2_up ( ones )==(ushort)0 );
+    FD_TEST( fd_ushort_pow2_up ( zeros )==(ushort)0 ); FD_TEST( fd_ushort_pow2_up ( ones )==(ushort)0          );
+    FD_TEST( fd_ushort_pow2_dn ( zeros )==(ushort)1 ); FD_TEST( fd_ushort_pow2_dn ( ones )==(ushort)(1<<(w-1)) );
     for( int i=1; i<w; i++ ) {
       ushort x = (ushort)(1UL<<i);
       FD_TEST( fd_ushort_pop_lsb ( x )==zeros );
@@ -242,6 +250,7 @@ main( int     argc,
       FD_TEST( fd_ushort_find_lsb_w_default( x , -1 )==i );
       FD_TEST( fd_ushort_find_msb_w_default( x , -1 )==i );
       FD_TEST( fd_ushort_pow2_up ( x )==x     );
+      FD_TEST( fd_ushort_pow2_dn ( x )==x     );
       for( int j=0; j<i; j++ ) {
         ushort y = (ushort)(1UL<<j);
         ushort z = (ushort)(x|y);
@@ -251,6 +260,7 @@ main( int     argc,
         FD_TEST( fd_ushort_find_lsb_w_default( z , -1 )==j );
         FD_TEST( fd_ushort_find_msb_w_default( z , -1 )==i );
         FD_TEST( fd_ushort_pow2_up ( z )==(ushort)(x<<1) );
+        FD_TEST( fd_ushort_pow2_dn ( z )==(ushort) x     );
       }
     }
     for( int n=0; n<=w; n++ ) { 
@@ -287,6 +297,12 @@ main( int     argc,
       FD_TEST( fd_ushort_abs  ( x       )==x                             );
       FD_TEST( fd_ushort_min  ( x, y    )==((x<y) ? x : y)               );
       FD_TEST( fd_ushort_max  ( x, y    )==((x>y) ? x : y)               );
+
+      ushort z = x; fd_ushort_store_if( c, &z, y ); FD_TEST( z==(c ? y : x) );
+
+      ushort xx; ushort yy;
+      xx = x; yy = y; fd_swap( xx, yy );       FD_TEST( (xx==y)           & (yy==x)           );
+      xx = x; yy = y; fd_swap_if( c, xx, yy ); FD_TEST( (xx==(c ? y : x)) & (yy==(c ? x : y)) );
 
       int n = (int)fd_rng_uint( rng );
       int s = n & 31;
@@ -369,7 +385,8 @@ main( int     argc,
     FD_TEST( fd_uint_find_msb          ( ones      )==(w-1));
     FD_TEST( fd_uint_find_msb_w_default( ones , -1 )==(w-1));
     FD_TEST( fd_uint_find_msb_w_default( zeros, -1 )==-1   );
-    FD_TEST( fd_uint_pow2_up ( zeros )==(uint)0 ); FD_TEST( fd_uint_pow2_up ( ones  )==(uint)0 );
+    FD_TEST( fd_uint_pow2_up ( zeros )==0U ); FD_TEST( fd_uint_pow2_up ( ones  )==0U          );
+    FD_TEST( fd_uint_pow2_dn ( zeros )==1U ); FD_TEST( fd_uint_pow2_dn ( ones  )==(1U<<(w-1)) );
     for( int i=1; i<w; i++ ) {
       uint x = (uint)(1UL<<i);
       FD_TEST( fd_uint_pop_lsb ( x )==zeros );
@@ -378,6 +395,7 @@ main( int     argc,
       FD_TEST( fd_uint_find_lsb_w_default( x , -1 )==i );
       FD_TEST( fd_uint_find_msb_w_default( x , -1 )==i );
       FD_TEST( fd_uint_pow2_up ( x )==x     );
+      FD_TEST( fd_uint_pow2_dn ( x )==x     );
       for( int j=0; j<i; j++ ) {
         uint y = (uint)(1UL<<j);
         uint z = (uint)(x|y);
@@ -387,6 +405,7 @@ main( int     argc,
         FD_TEST( fd_uint_find_lsb_w_default( z , -1 )==j );
         FD_TEST( fd_uint_find_msb_w_default( z , -1 )==i );
         FD_TEST( fd_uint_pow2_up ( z )==(x<<1) );
+        FD_TEST( fd_uint_pow2_dn ( z )== x     );
       }
     }
     for( int n=0; n<=w; n++ ) {  
@@ -425,6 +444,10 @@ main( int     argc,
       FD_TEST( fd_uint_max  ( x, y    )==((x>y) ? x : y)               );
 
       uint z = x; fd_uint_store_if( c, &z, y ); FD_TEST( z==(c ? y : x) );
+
+      uint xx; uint yy;
+      xx = x; yy = y; fd_swap( xx, yy );       FD_TEST( (xx==y)           & (yy==x)           );
+      xx = x; yy = y; fd_swap_if( c, xx, yy ); FD_TEST( (xx==(c ? y : x)) & (yy==(c ? x : y)) );
 
       int n = (int)y;
       int s = n & 63;
@@ -507,7 +530,8 @@ main( int     argc,
     FD_TEST( fd_ulong_find_msb          ( ones      )==(w-1));
     FD_TEST( fd_ulong_find_msb_w_default( ones , -1 )==(w-1));
     FD_TEST( fd_ulong_find_msb_w_default( zeros, -1 )==-1   );
-    FD_TEST( fd_ulong_pow2_up ( zeros )==(ulong)0 ); FD_TEST( fd_ulong_pow2_up ( ones  )==(ulong)0 );
+    FD_TEST( fd_ulong_pow2_up ( zeros )==0UL ); FD_TEST( fd_ulong_pow2_up ( ones  )==0UL          );
+    FD_TEST( fd_ulong_pow2_dn ( zeros )==1UL ); FD_TEST( fd_ulong_pow2_dn ( ones  )==(1UL<<(w-1)) );
     for( int i=1; i<w; i++ ) {
       ulong x = (ulong)(1UL<<i);
       FD_TEST( fd_ulong_pop_lsb ( x )==zeros );
@@ -516,6 +540,7 @@ main( int     argc,
       FD_TEST( fd_ulong_find_lsb_w_default( x , -1 )==i );
       FD_TEST( fd_ulong_find_msb_w_default( x , -1 )==i );
       FD_TEST( fd_ulong_pow2_up ( x )==x     );
+      FD_TEST( fd_ulong_pow2_dn ( x )==x     );
       for( int j=0; j<i; j++ ) {
         ulong y = (ulong)(1UL<<j);
         ulong z = (ulong)(x|y);
@@ -525,6 +550,7 @@ main( int     argc,
         FD_TEST( fd_ulong_find_lsb_w_default( z , -1 )==j );
         FD_TEST( fd_ulong_find_msb_w_default( z , -1 )==i );
         FD_TEST( fd_ulong_pow2_up ( z )==(x<<1) );
+        FD_TEST( fd_ulong_pow2_dn ( z )== x     );
       }
     }
     for( int n=0; n<=w; n++ ) { int sl = n+(w-8)-((n>>3)<<4); 
@@ -567,6 +593,10 @@ main( int     argc,
       FD_TEST( fd_ulong_max  ( x, y    )==((x>y) ? x : y)               );
 
       ulong z = x; fd_ulong_store_if( c, &z, y ); FD_TEST( z==(c ? y : x) );
+
+      ulong xx; ulong yy;
+      xx = x; yy = y; fd_swap( xx, yy );       FD_TEST( (xx==y)           & (yy==x)           );
+      xx = x; yy = y; fd_swap_if( c, xx, yy ); FD_TEST( (xx==(c ? y : x)) & (yy==(c ? x : y)) );
 
       FD_TEST( fd_ptr_if( c, (uchar *)x, (uchar *)y )==(uchar *)(c ? x : y) );
 
@@ -674,7 +704,8 @@ main( int     argc,
     FD_TEST( fd_uint128_find_msb          ( ones      )==(w-1));
     FD_TEST( fd_uint128_find_msb_w_default( ones , -1 )==(w-1));
     FD_TEST( fd_uint128_find_msb_w_default( zeros, -1 )==-1   );
-    FD_TEST( fd_uint128_pow2_up ( zeros )==(uint128)0 ); FD_TEST( fd_uint128_pow2_up ( ones  )==(uint128)0 );
+    FD_TEST( fd_uint128_pow2_up ( zeros )==(uint128)0 ); FD_TEST( fd_uint128_pow2_up ( ones  )==(uint128)0            );
+    FD_TEST( fd_uint128_pow2_dn ( zeros )==(uint128)1 ); FD_TEST( fd_uint128_pow2_dn ( ones  )==(((uint128)1)<<(w-1)) );
     for( int i=1; i<w; i++ ) {
       uint128 x = ((uint128)1)<<i;
       FD_TEST( fd_uint128_pop_lsb ( x )==zeros );
@@ -683,6 +714,7 @@ main( int     argc,
       FD_TEST( fd_uint128_find_lsb_w_default( x , -1 )==i );
       FD_TEST( fd_uint128_find_msb_w_default( x , -1 )==i );
       FD_TEST( fd_uint128_pow2_up ( x )==x     );
+      FD_TEST( fd_uint128_pow2_dn ( x )==x     );
       for( int j=0; j<i; j++ ) {
         uint128 y = ((uint128)1)<<j;
         uint128 z = x|y;
@@ -692,6 +724,7 @@ main( int     argc,
         FD_TEST( fd_uint128_find_lsb_w_default( z , -1 )==j );
         FD_TEST( fd_uint128_find_msb_w_default( z , -1 )==i );
         FD_TEST( fd_uint128_pow2_up ( z )==(x<<1) );
+        FD_TEST( fd_uint128_pow2_dn ( z )== x     );
       }
     }
     for( int n=0; n<=w; n++ ) { int sl = n+(w-8)-((n>>3)<<4); 
@@ -731,6 +764,10 @@ main( int     argc,
 
       uint128 z = x; fd_uint128_store_if( c, &z, y ); FD_TEST( z==(c ? y : x) );
 
+      uint128 xx; uint128 yy;
+      xx = x; yy = y; fd_swap( xx, yy );       FD_TEST( (xx==y)           & (yy==x)           );
+      xx = x; yy = y; fd_swap_if( c, xx, yy ); FD_TEST( (xx==(c ? y : x)) & (yy==(c ? x : y)) );
+
       int n = (int)(uint)y;
       int s = n & 255;
       FD_TEST( fd_uint128_shift_left  ( x, s )==((s>127) ? (uint128)0 : (uint128)(x<<s)) );
@@ -744,10 +781,16 @@ main( int     argc,
   if( 1 ) {
     FD_LOG_NOTICE(( "Testing char" ));
     for( int iter=0; iter<16777216; iter++ ) {
-      int c = (int)(fd_rng_ulong( rng ) & 1UL);
-      schar x = (schar)fd_rng_ulong( rng );
-      schar y = (schar)fd_rng_ulong( rng );
-      FD_TEST( fd_schar_if( c, x, y )==(c ? x : y) );
+      int  c = (int)(fd_rng_ulong( rng ) & 1UL);
+      char x = (char)fd_rng_ulong( rng );
+      char y = (char)fd_rng_ulong( rng );
+      FD_TEST( fd_char_if( c, x, y )==(c ? x : y) );
+
+      char z = x; fd_char_store_if( c, &z, y ); FD_TEST( z==(c ? y : x) );
+
+      char xx; char yy;
+      xx = x; yy = y; fd_swap( xx, yy );       FD_TEST( (xx==y)           & (yy==x)           );
+      xx = x; yy = y; fd_swap_if( c, xx, yy ); FD_TEST( (xx==(c ? y : x)) & (yy==(c ? x : y)) );
     }
   }
 
@@ -769,6 +812,10 @@ main( int     argc,
       FD_TEST( fd_schar_max( x, y    )==((x>y) ? x : y)                         );
 
       schar z = x; fd_schar_store_if( c, &z, y ); FD_TEST( z==(c ? y : x) );
+
+      schar xx; schar yy;
+      xx = x; yy = y; fd_swap( xx, yy );       FD_TEST( (xx==y)           & (yy==x)           );
+      xx = x; yy = y; fd_swap_if( c, xx, yy ); FD_TEST( (xx==(c ? y : x)) & (yy==(c ? x : y)) );
 
       int   n = (int)fd_rng_uint( rng );
       int   s = n & 15;
@@ -811,6 +858,10 @@ main( int     argc,
 
       short z = x; fd_short_store_if( c, &z, y ); FD_TEST( z==(c ? y : x) );
 
+      short xx; short yy;
+      xx = x; yy = y; fd_swap( xx, yy );       FD_TEST( (xx==y)           & (yy==x)           );
+      xx = x; yy = y; fd_swap_if( c, xx, yy ); FD_TEST( (xx==(c ? y : x)) & (yy==(c ? x : y)) );
+
       int    n = (int)fd_rng_uint( rng );
       int    s = n & 31;
       ushort m = (ushort)-(((ushort)x) >> 15);
@@ -851,6 +902,10 @@ main( int     argc,
       FD_TEST( fd_int_max( x, y    )==((x>y) ? x : y)                    );
 
       int z = x; fd_int_store_if( c, &z, y ); FD_TEST( z==(c ? y : x) );
+
+      int xx; int yy;
+      xx = x; yy = y; fd_swap( xx, yy );       FD_TEST( (xx==y)           & (yy==x)           );
+      xx = x; yy = y; fd_swap_if( c, xx, yy ); FD_TEST( (xx==(c ? y : x)) & (yy==(c ? x : y)) );
 
       int  n = (int)fd_rng_uint( rng );
       int  s = n & 63;
@@ -893,6 +948,10 @@ main( int     argc,
 
       long z = x; fd_long_store_if( c, &z, y ); FD_TEST( z==(c ? y : x) );
 
+      long xx; long yy;
+      xx = x; yy = y; fd_swap( xx, yy );       FD_TEST( (xx==y)           & (yy==x)           );
+      xx = x; yy = y; fd_swap_if( c, xx, yy ); FD_TEST( (xx==(c ? y : x)) & (yy==(c ? x : y)) );
+
       int   n = (int)fd_rng_uint( rng );
       int   s = n & 127;
       ulong m = (ulong)-(((ulong)x) >> 63);
@@ -934,6 +993,10 @@ main( int     argc,
       FD_TEST( fd_int128_max( x, y    )==((x>y) ? x : y)                   );
 
       int128 z = x; fd_int128_store_if( c, &z, y ); FD_TEST( z==(c ? y : x) );
+
+      int128 xx; int128 yy;
+      xx = x; yy = y; fd_swap( xx, yy );       FD_TEST( (xx==y)           & (yy==x)           );
+      xx = x; yy = y; fd_swap_if( c, xx, yy ); FD_TEST( (xx==(c ? y : x)) & (yy==(c ? x : y)) );
 
       int     n = (int)fd_rng_uint( rng );
       int     s = n & 255;
@@ -1000,6 +1063,10 @@ main( int     argc,
       FD_TEST( float_as_uint( fd_float_abs( x ) )==(((float_as_uint( x ))<<1)>>1) );
 
       float z = x; fd_float_store_if( c, &z, y ); FD_TEST( fd_float_eq( z, (c ? y : x) ) );
+
+      float xx; float yy;
+      xx = x; yy = y; fd_swap( xx, yy );       FD_TEST( (xx==y)           & (yy==x)           );
+      xx = x; yy = y; fd_swap_if( c, xx, yy ); FD_TEST( (xx==(c ? y : x)) & (yy==(c ? x : y)) );
     }
   }
 
@@ -1046,6 +1113,10 @@ main( int     argc,
       FD_TEST( double_as_ulong( fd_double_abs( x ) )==(((double_as_ulong( x ))<<1)>>1) );
 
       double z = x; fd_double_store_if( c, &z, y ); FD_TEST( fd_double_eq( z, (c ? y : x) ) );
+
+      double xx; double yy;
+      xx = x; yy = y; fd_swap( xx, yy );       FD_TEST( (xx==y)           & (yy==x)           );
+      xx = x; yy = y; fd_swap_if( c, xx, yy ); FD_TEST( (xx==(c ? y : x)) & (yy==(c ? x : y)) );
     }
   }
 # endif

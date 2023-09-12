@@ -1,50 +1,55 @@
 MAKEFLAGS += --no-builtin-rules
 MAKEFLAGS += --no-builtin-variables
 .SUFFIXES:
-.SUFFIXES: .h .hxx .c .cxx .o .a .d .S .i
-.PHONY: all bin fdctl fddev run monitor include lib unit-test fuzz-test run-unit-test help clean distclean asm ppp show-deps lint check-lint cargo
+.PHONY: all info bin rust include lib unit-test fuzz-test run-unit-test help clean distclean asm ppp show-deps lint check-lint
 .SECONDARY:
 .SECONDEXPANSION:
 
 OBJDIR:=$(BASEDIR)/$(BUILDDIR)
+CORPUSDIR:=corpus
+
+CPPFLAGS+=-DFD_BUILD_INFO=\"$(OBJDIR)/info\"
+CPPFLAGS+=$(EXTRA_CPPFLAGS)
 
 # Auxiliarily rules that should not set up depenencies
-AUX_RULES:=clean distclean help show-deps lint check-lint
+AUX_RULES:=clean distclean help show-deps lint check-lint run-unit-test
 
-all: bin include lib unit-test
+all: info bin include lib unit-test
 
 help:
 	# Configuration
-	# MACHINE  = $(MACHINE)
-	# EXTRAS   = $(EXTRAS)
-	# SHELL    = $(SHELL)
-	# BASEDIR  = $(BASEDIR)
-	# OBJDIR   = $(OBJDIR)
-	# CPPFLAGS = $(CPPFLAGS)
-	# CC       = $(CC)
-	# CFLAGS   = $(CFLAGS)
-	# CXX      = $(CXX)
-	# CXXFLAGS = $(CXXFLAGS)
-	# LD       = $(LD)
-	# LDFLAGS  = $(LDFLAGS)
-	# AR       = $(AR)
-	# ARFLAGS  = $(ARFLAGS)
-	# RANLIB   = $(RANLIB)
-	# CP       = $(CP)
-	# RM       = $(RM)
-	# MKDIR    = $(MKDIR)
-	# RMDIR    = $(RMDIR)
-	# SED      = $(SED)
-	# FIND     = $(FIND)
-	# SCRUB    = $(SCRUB)
+	# MACHINE         = $(MACHINE)
+	# EXTRAS          = $(EXTRAS)
+	# SHELL           = $(SHELL)
+	# BASEDIR         = $(BASEDIR)
+	# OBJDIR          = $(OBJDIR)
+	# CPPFLAGS        = $(CPPFLAGS)
+	# CC              = $(CC)
+	# CFLAGS          = $(CFLAGS)
+	# CXX             = $(CXX)
+	# CXXFLAGS        = $(CXXFLAGS)
+	# LD              = $(LD)
+	# LDFLAGS         = $(LDFLAGS)
+	# AR              = $(AR)
+	# ARFLAGS         = $(ARFLAGS)
+	# RANLIB          = $(RANLIB)
+	# CP              = $(CP)
+	# RM              = $(RM)
+	# MKDIR           = $(MKDIR)
+	# RMDIR           = $(RMDIR)
+	# SED             = $(SED)
+	# FIND            = $(FIND)
+	# SCRUB           = $(SCRUB)
+	# FUZZFLAGS       = $(FUZZFLAGS)
+	# EXTRAS_CPPFLAGS = $(EXTRA_CPPFLAGS)
 	# Explicit goals are: all bin include lib unit-test help clean distclean asm ppp
 	# "make all" is equivalent to "make bin include lib unit-test"
-	# "make bin" makes all binaries for the current platform
-	# "make ebpf-bin" makes all eBPF binaries
+	# "make info" makes build info $(OBJDIR)/info for the current platform (if not already made)
+	# "make bin" makes all binaries for the current platform (except those requiring the Rust toolchain)
 	# "make include" makes all include files for the current platform
 	# "make lib" makes all libraries for the current platform
 	# "make unit-test" makes all unit-tests for the current platform
-	# "make fuzz-test" makes all fuzz-tests for the current platform (requires fuzzing profile)
+	# "make rust" makes all binaries for the current platform that require the Rust toolchain
 	# "make run-unit-test" runs all unit-tests for the current platform. NOTE: this will not (re)build the test executables
 	# "make help" prints this message
 	# "make clean" removes editor temp files and the current platform build
@@ -55,19 +60,26 @@ help:
 	# "make cov-report" creates an LCOV coverage report from LLVM profdata. Requires make run-unit-test EXTRAS="llvm-cov"
 	# "make lint" runs the linter on all C source and header files. Creates backup files.
 	# "make check-lint" runs the linter in dry run mode.
+	# Fuzzing (requires fuzzing profile):
+	#   "make fuzz-test" makes all fuzz-tests for the current platform
+	#   "make run-fuzz-test" re-runs all fuzz tests over existing corpora
+	#   "make fuzz_TARGET_unit" re-runs a specific fuzz-test over the existing corpus
+	#   "make fuzz_TARGET_run" runs a specific fuzz-test in explore mode for 600 seconds
+
+info: $(OBJDIR)/info
 
 clean:
 	#######################################################################
 	# Cleaning $(OBJDIR)
 	#######################################################################
-	$(RMDIR) $(OBJDIR) && $(RMDIR) $(BASEDIR)/target && $(RMDIR) $(BASEDIR)/solana/target && \
+	$(RMDIR) $(OBJDIR) && $(RMDIR) target && $(RMDIR) solana/target && \
 $(SCRUB)
 
 distclean:
 	#######################################################################
 	# Cleaning $(BASEDIR)
 	#######################################################################
-	$(RMDIR) $(BASEDIR) && $(RMDIR) $(BASEDIR)/target && $(RMDIR) $(BASEDIR)/solana/target && \
+	$(RMDIR) $(BASEDIR) && $(RMDIR) target && $(RMDIR) solana/target && \
 $(SCRUB)
 
 lint:
@@ -82,40 +94,11 @@ check-lint:
 	#######################################################################
 	$(FIND) src/ -iname "*.c" -or -iname "*.h" | uncrustify -c lint.cfg -F - --check
 
-ifeq (run,$(firstword $(MAKECMDGOALS)))
-  RUN_ARGS := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
-  ifeq ($(RUN_ARGS),)
-    RUN_ARGS := dev
-  endif
-  $(eval $(RUN_ARGS):;@:)
-endif
-
-# Phony target to always rerun cargo build ... it will detect if anything
-# changed on the library side.
-cargo:
-
-solana/target/release/libsolana_validator_fd.a: cargo
-	cd ./solana && ./cargo build --release -p solana-validator-fd
-
-$(OBJDIR)/lib/libsolana_validator_fd.a: solana/target/release/libsolana_validator_fd.a
-	$(MKDIR) $(dir $@) && cp solana/target/release/libsolana_validator_fd.a $@
-
-run: $(OBJDIR)/bin/fddev
-	$(OBJDIR)/bin/fddev $(RUN_ARGS)
-
-fdctl: $(OBJDIR)/bin/fdctl
-fddev: $(OBJDIR)/bin/fddev
-
-ifeq (monitor,$(firstword $(MAKECMDGOALS)))
-  MONITOR_ARGS := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
-  ifeq ($(MONITOR_ARGS),)
-    MONITOR_ARGS :=
-  endif
-  $(eval $(MONITOR_ARGS):;@:)
-endif
-
-monitor: bin
-	$(OBJDIR)/bin/fddev monitor $(MONITOR_ARGS)
+run-unit-test:
+	#######################################################################
+	# Running unit tests
+	#######################################################################
+	config/test.sh --tests $(OBJDIR)/unit-test/automatic.txt $(TEST_OPTS)
 
 ##############################
 # Usage: $(call make-lib,name)
@@ -203,8 +186,8 @@ endif
 ##############################
 # Usage: $(call make-bin,name,objs,libs)
 # Usage: $(call make-unit-test,name,objs,libs)
-# Usage: $(call make-fuzz-test,name,objs,libs)
 # Usage: $(call run-unit-test,name,args)
+# Usage: $(call fuzz-test,name,objs,libs)
 
 # Note: The library arguments require customization of each target
 
@@ -212,73 +195,76 @@ define _make-exe
 
 DEPFILES+=$(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).d))
 
-$(OBJDIR)/$(4)/$(1): $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) $(foreach lib,$(3),$(OBJDIR)/lib/lib$(lib).a)
+$(OBJDIR)/$(5)/$(1): $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) $(foreach lib,$(3),$(OBJDIR)/lib/lib$(lib).a)
 	#######################################################################
-	# Creating $(4) $$@ from $$^
+	# Creating $(5) $$@ from $$^
 	#######################################################################
 	$(MKDIR) $$(dir $$@) && \
 $(LD) -L$(OBJDIR)/lib $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) -Wl,--start-group $(foreach lib,$(3),-l$(lib)) $(LDFLAGS) -Wl,--end-group -o $$@
 
-$(4): $(OBJDIR)/$(4)/$(1)
+$(4): $(OBJDIR)/$(5)/$(1)
 
 endef
 
-UNIT_TEST_DATETIME := $(shell date -u +%Y%m%d-%H%M%S)
-export LLVM_PROFILE_FILE = $(OBJDIR)/cov/raw/%p.profraw
-
+# Generate list of automatic unit tests from $(call run-unit-test,...)
+unit-test: $(OBJDIR)/unit-test/automatic.txt
 define _run-unit-test
+RUN_UNIT_TEST+=$(OBJDIR)/unit-test/$(1)
+endef
+$(OBJDIR)/unit-test/automatic.txt:
+	$(MKDIR) "$(OBJDIR)/unit-test"
+	@$(foreach test,$(RUN_UNIT_TEST),echo $(test)>>$@;)
 
-run-$(1):
-	#######################################################################
-	# Running $(3) from $(1)
-	#######################################################################
-	@$(MKDIR) $(OBJDIR)/log/$(3)/$(1)
-	$(OBJDIR)/$(3)/$(1) --log-path $(OBJDIR)/log/$(3)/$(1)/$(UNIT_TEST_DATETIME).log $(2) > /dev/null 2>&1 || \
-($(CAT) $(OBJDIR)/log/$(3)/$(1)/$(UNIT_TEST_DATETIME).log && \
-exit 1)
+define _fuzz-test
 
-run-$(3): run-$(1)
+$(eval $(call _make-exe,$(1)/$(1),$(2),$(3),fuzz-test,fuzz-test))
+
+.PHONY: $(1)_unit
+$(1)_unit:
+	$(MKDIR) "$(CORPUSDIR)/$(1)"
+	$(FIND) $(CORPUSDIR)/$(1) -type f -exec $(OBJDIR)/fuzz-test/$(1)/$(1) $(FUZZFLAGS) {} +
+
+.PHONY: $(1)_run
+$(1)_run:
+	$(MKDIR) "$(CORPUSDIR)/$(1)/explore"
+	$(OBJDIR)/fuzz-test/$(1)/$(1) $(FUZZFLAGS) $(CORPUSDIR)/$(1)/explore $(CORPUSDIR)/$(1)
+
+run-fuzz-test: $(1)_unit
 
 endef
 
 ifeq "$(FD_HAS_MAIN)" "1"
-make-bin       = $(eval $(call _make-exe,$(1),$(2),$(3),bin))
-make-unit-test = $(eval $(call _make-exe,$(1),$(2),$(3),unit-test))
-make-fuzz-test =
-run-unit-test = $(eval $(call _run-unit-test,$(1),$(2),unit-test))
+make-bin       = $(eval $(call _make-exe,$(1),$(2),$(3),bin,bin))
+make-bin-rust  = $(eval $(call _make-exe,$(1),$(2),$(3),rust,bin))
+make-unit-test = $(eval $(call _make-exe,$(1),$(2),$(3),unit-test,unit-test))
+fuzz-test =
+run-unit-test = $(eval $(call _run-unit-test,$(1)))
+run-fuzz-test:
+	@echo "Requested run-fuzz-test but profile MACHINE=$(MACHINE) does not support fuzzing" >&2
+	@exit 1
 else
 make-bin =
 make-unit-test =
-make-fuzz-test = $(eval $(call _make-exe,$(1),$(2),$(3),fuzz-test))
+fuzz-test = $(eval $(call _fuzz-test,$(1),$(2),$(3)))
 run-unit-test =
 endif
 
 ##############################
-# Usage: $(call make-ebpf-bin,obj)
-
-# TODO support depfiles
-
-EBPF_BINDIR:=$(BASEDIR)/ebpf/clang/bin
-
-define _make-ebpf-bin
-
-$(EBPF_BINDIR)/$(1).o: $(MKPATH)$(1).c
-	#######################################################################
-	# Creating ebpf-bin $$@ from $$^
-	#######################################################################
-	$(MKDIR) $$(dir $$@) && \
-$(EBPF_CC) $(EBPF_CPPFLAGS) $(EBPF_CFLAGS) -c $$< -o $$@
-
-ebpf-bin: $(EBPF_BINDIR)/$(1).o
-
-endef
-
-make-ebpf-bin = $(eval $(call _make-ebpf-bin,$(1)))
-
-##############################
 ## GENERIC RULES
 
-$(OBJDIR)/obj/%.d : src/%.c
+$(OBJDIR)/info :
+	#######################################################################
+	# Saving build info to $(OBJDIR)/info
+	#######################################################################
+	$(MKDIR) $(dir $@) && \
+echo -e \
+"# date     `date +'%Y-%m-%d %H:%M:%S %z'`\n"\
+"# source   `whoami`@`hostname`:`pwd`\n"\
+"# machine  $(MACHINE)\n"\
+"# extras   $(EXTRAS)" > $(OBJDIR)/info && \
+git status --porcelain=2 --branch >> $(OBJDIR)/info
+
+$(OBJDIR)/obj/%.d : src/%.c $(OBJDIR)/info
 	#######################################################################
 	# Generating dependencies for C source $< to $@
 	#######################################################################
@@ -287,7 +273,7 @@ $(CC) $(CPPFLAGS) $(CFLAGS) -M -MP $< -o $@.tmp && \
 $(SED) 's,\($(notdir $*)\)\.o[ :]*,$(OBJDIR)/obj/$*.o $(OBJDIR)/obj/$*.S $(OBJDIR)/obj/$*.i $@ : ,g' < $@.tmp > $@ && \
 $(RM) $@.tmp
 
-$(OBJDIR)/obj/%.d : src/%.cxx
+$(OBJDIR)/obj/%.d : src/%.cxx $(OBJDIR)/info
 	#######################################################################
 	# Generating dependencies for C++ source $< to $@
 	#######################################################################
@@ -296,28 +282,28 @@ $(CXX) $(CPPFLAGS) $(CXXFLAGS) -M -MP $< -o $@.tmp && \
 $(SED) 's,\($(notdir $*)\)\.o[ :]*,$(OBJDIR)/obj/$*.o $(OBJDIR)/obj/$*.S $(OBJDIR)/obj/$*.i $@ : ,g' < $@.tmp > $@ && \
 $(RM) $@.tmp
 
-$(OBJDIR)/obj/%.o : src/%.c
+$(OBJDIR)/obj/%.o : src/%.c $(OBJDIR)/info
 	#######################################################################
 	# Compiling C source $< to $@
 	#######################################################################
 	$(MKDIR) $(dir $@) && \
 $(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
-$(OBJDIR)/obj/%.o : src/%.cxx
+$(OBJDIR)/obj/%.o : src/%.cxx $(OBJDIR)/info
 	#######################################################################
 	# Compiling C++ source $< to $@
 	#######################################################################
 	$(MKDIR) $(dir $@) && \
 $(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
 
-$(OBJDIR)/obj/%.o : src/%.S
+$(OBJDIR)/obj/%.o : src/%.S $(OBJDIR)/info
 	#######################################################################
 	# Compiling asm source $< to $@
 	#######################################################################
 	$(MKDIR) $(dir $@) && \
 $(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
-$(OBJDIR)/obj/%.S : src/%.c
+$(OBJDIR)/obj/%.S : src/%.c $(OBJDIR)/info
 	#######################################################################
 	# Compiling C source $< to assembly $@
 	#######################################################################
@@ -326,7 +312,7 @@ $(CC) $(patsubst -g,,$(CPPFLAGS) $(CFLAGS)) -S -fverbose-asm $< -o $@.tmp && \
 $(SED) 's,^#,                                                                                               #,g' < $@.tmp > $@ && \
 $(RM) $@.tmp
 
-$(OBJDIR)/obj/%.S : src/%.cxx
+$(OBJDIR)/obj/%.S : src/%.cxx $(OBJDIR)/info
 	#######################################################################
 	# Compiling C++ source $< to assembly $@
 	#######################################################################
@@ -335,14 +321,14 @@ $(CXX) $(patsubst -g,,$(CPPFLAGS) $(CXXFLAGS)) -S -fverbose-asm $< -o $@.tmp && 
 $(SED) 's,^#,                                                                                               #,g' < $@.tmp > $@ && \
 $(RM) $@.tmp
 
-$(OBJDIR)/obj/%.i : src/%.c
+$(OBJDIR)/obj/%.i : src/%.c $(OBJDIR)/info
 	#######################################################################
 	# Preprocessing C source $< to $@
 	#######################################################################
 	$(MKDIR) $(dir $@) && \
 $(CC) $(CPPFLAGS) $(CFLAGS) -E $< -o $@
 
-$(OBJDIR)/obj/%.i : src/%.cxx
+$(OBJDIR)/obj/%.i : src/%.cxx $(OBJDIR)/info
 	#######################################################################
 	# Preprocessing C++ source $< to $@
 	#######################################################################
@@ -406,4 +392,3 @@ asm: $(DEPFILES:.d=.S)
 ppp: $(DEPFILES:.d=.i)
 
 endif
-

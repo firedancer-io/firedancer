@@ -83,6 +83,14 @@ dynamic_port_range = "8000-10000"
     # `--account-index-exclude-key` argument.
     account_index_exclude_keys = []
 
+    # Whether to use compression when storing snapshots. This option is passed
+    # to the Solana Labs client with the `--snapshot-archive-format` argument.
+    snapshot_archive_format = "zstd"
+
+    # Refuse to start if saved tower state is not found. This option is passed
+    # to the Solana Labs client with the `--require-tower` argument.
+    require_tower = false
+
 [gossip]
     # Routable DNS name or IP address and port number to use to rendezvous with
     # the gossip cluster. These entrypoints are passed to the Solana Labs client
@@ -112,29 +120,29 @@ dynamic_port_range = "8000-10000"
     # If nonzero, enable JSON RPC on this port, and use the next port for the
     # RPC websocket. If zero, disable JSON RPC. This option is passed to the
     # Solana Labs client with the `--rpc-port` argument.
-    port = 0
+    port = 8899
 
     # If true, all RPC operations are enabled on this validator, including
     # non-default RPC methods for querying chain state and transaction history.
     # This option is passed to the Solana Labs client with the `--full-rpc-api`
     # argument.
-    full_api = false
+    full_api = true
 
     # If the RPC is private, the valdiator's open RPC port is not published in
     # the `solana gossip` command for use by others. This option is passed to
     # the Solana Labs client with the `--private-rpc` argument.
-    private = true
+    private = false
 
     # Enable historical transaction info over JSON RPC, including the
     # `getConfirmedBlock` API. This will cause an increase in disk usage and
     # IOPS. This option is passed to the Solana Labs client with the
     # `--enable-rpc-transaction-history` argument.
-    transaction_history = false
+    transaction_history = true
 
     # If enabled, include CPI inner instructions, logs, and return data in the
     # historical transaction info stored. This option is passed to the Solana
     # Labs client with the `--enable-extended-tx-metadata-storage` argument.
-    extended_tx_metadata_storage = false
+    extended_tx_metadata_storage = true
 
     # If true, use the RPC service of known validators only. This option is
     # passed to the Solana Labs client with the `--only-known-rpc` argument.
@@ -225,6 +233,12 @@ dynamic_port_range = "8000-10000"
     # `--no-wait-for-vote-to-start-leader` argument.
     wait_for_vote_to_start_leader = true
 
+    # Perform a network speed test on starting up the validator. If this is not
+    # disabled, and the speed test fails, the validator will refuse to start.
+    # This option is passed to the Solana Labs client (inverted) with the
+    # `--no-os-network-limits-test` argument.
+    os_network_limits_test = true
+
     # If nonempty, add a hard fork at each of the provided slots. These options
     # are passed to the Solana Labs client with the `--hard-fork` argument.
     hard_fork_at_slots = []
@@ -292,11 +306,15 @@ dynamic_port_range = "8000-10000"
     #
     # It is suggested to use all available CPU cores for Firedancer, so that the
     # Solana network can run as fast as possible.
-    affinity = "0-11"
+    affinity = "0-14"
 
     # How many verify tiles to run. Currently this also configures the number of
     # QUIC tiles to run. QUIC and verify tiles are connected 1:1.
     verify_tile_count = 4
+
+    # How many bank tiles to run. Multiple banks can run in parallel, if they
+    # are not writing to the same accounts at the same time.
+    bank_tile_count = 4
 
 # All memory that will be used in Firedancer is pre-allocated in two kinds of
 # pages: huge and gigantic. Huge pages are 2MB and gigantic pages are 1GB. This
@@ -342,21 +360,11 @@ dynamic_port_range = "8000-10000"
     # privileged programs. This should be at least as many as will be needed by
     # the Firedancer instance. If the kernel has less pages than needed `fdctl
     # configure` will attempt to raise it to meet this requirement.
-    min_kernel_gigantic_pages = 2
+    min_kernel_gigantic_pages = 5
 
     # Minimum number of huge pages the kernel should pre-allocate for privileged
     # programs. Same as above.
     min_kernel_huge_pages = 512
-
-    # Which mount to create the Firedancer workspace inside. Must be either
-    # "gigantic" or "huge". It is strongly recommended to create the workspace
-    # on "gigantic" pages to reduce TLB misses.
-    workspace_page_size = "gigantic"
-
-    # How many of these pages should be used when creating a Firedancer
-    # workspace. Two gigantic pages would mean that the workspace is 2GB in
-    # size.
-    workspace_page_count = 2
 
 # Tiles are described in detail in the layout section above. While the layout
 # configuration determines how many of each tile to place on which CPU core to
@@ -376,28 +384,19 @@ dynamic_port_range = "8000-10000"
         # you can check what this is with `ip route get 8.8.8.8`
         interface = ""
 
-        # Which port to listen on.
-        listen_port = 9001
+        # Which port to listen on for incoming transactions. This could be votes,
+        # user transactions, or transactions forwarded from another validator.
+        transaction_listen_port = 9001
+
+        # Which port to listen on for incoming quic transactions. Currently
+        # this must be exactly 6 more than the transaction_listen_port.
+        quic_transaction_listen_port = 9007
 
         # Maximum number of simultaneous QUIC connections which can be open. New
         # connections which would exceed this limit will not be accepted.
+        #
+        # This must be >= 2 and also a power of 2.
         max_concurrent_connections = 32
-
-        # While in TCP a connection is identified by (Source IP, Source Port,
-        # Dest IP, Dest Port) in QUIC a connection is uniquely identified by a
-        # connection ID. Because this isn't dependent on network identifiers, it
-        # allows connection migration and continuity across network changes. It
-        # can also offer enhanced privacy by obfuscating the client IP address
-        # and prevent connection-linking by observers.
-        #
-        # Additional connection IDs are simply alises back to the same
-        # connection, and can be created and retired during a connection by
-        # either endpoint. This configuration determines how many different
-        # connection IDs the connection may have simultaneously.
-        #
-        # Currently this option does nothing, as we do not support creating
-        # additional connection IDs.
-        max_concurrent_connection_ids_per_connection = 16
 
         # QUIC allows for multiple streams to be multiplexed over a single
         # connection. This option sets the maximum number of simultaneous
@@ -510,50 +509,17 @@ dynamic_port_range = "8000-10000"
         # first. Here the profitability is given by fees generated per compute
         # time spent. A high fee, but fast to execute transaction is an ideal
         # one.
-        #
-        # Fees are provided on the transaction and easy to retrieve, but
-        # determining how costly a transaction will be to run is a difficult
-        # problem. We estimate it by maintaining an EMA for each unique program,
-        # updating it each time the program is executed with a new observation.
-        #
-        # There are many programs and we cannot track all of them individually.
-        # Instead, we bucket programs randomly into groups, and track an EMA for
-        # each group.
-        #
-        # The below option specifies how many unique groups we keep track of. If
-        # a lot of memory is available, it may generate slightly more fees to
-        # set a larger table size so programs can be estimated more accurately.
-        compute_unit_estimator_table_size = 1024
 
-        # How the EMA of expected value and variance decays over time.
-        compute_unit_estimator_ema_history = 1000
+    # The bank tile is what executes transactions and updates the accounting
+    # state as a result of any operations performed by the transactions.
+    [tiles.bank]
+        receive_buffer_size = 128
 
-        # The default value for the compute unit estimator of a bucket of
-        # programs.
-        compute_unit_estimator_ema_default = 200000
-
-        # The pack tile currently has no way of knowing how fast the Solana Labs
-        # bank stage is running and if it is falling behind. If the stage did
-        # fall behind, we could potentially cause it to drop profitable
-        # transactions that have not been executed yet by overwriting them with
-        # new ones. To attempt to prevent this, the pack tile estimates how fast
-        # the bank stage should be running and will not feed it transactions
-        # faster than that rate.
-        #
-        # The first part of this estimator is how many bank stage threads are
-        # running at once.
-        #
-        # TODO: This should be removed, we should just use a standard
-        # backpressure mechanism here.
-        solana_labs_bank_thread_count = 4
-
-        # The second part of the banking stage speed estimator is a simple
-        # constant describing how fast we think the stage can execute compute
-        # units.
-        #
-        # TODO: This should be removed, we should just use a standard
-        # backpressure mechanism here.
-        solana_labs_bank_thread_compute_units_executed_per_second = 12000001
+    # The forward tile sends unprocessed transactions.
+    # Forwarding only occures when the current instance is the leader and it
+    # is unable to process all transactions in its leader slot.
+    [tiles.forward]
+        receive_buffer_size = 128
 
     # All transactions entering into the validator are deduplicated after their
     # signature is verified, to ensure the same transaction is not repeated
@@ -579,6 +545,9 @@ dynamic_port_range = "8000-10000"
     # capabilities of the process after initialization to make the attack
     # surface smaller. This is required in production, but might be too
     # restrictive during development.
+    #
+    # In development, you can disable the sandbox for testing and debugging
+    # with the `--no-sandbox` argument to `fddev`.
     sandbox = true
 
     # Because of how Firedancer uses UDP and XDP together, we do not receive
@@ -594,7 +563,9 @@ dynamic_port_range = "8000-10000"
     # by `fdctl` within that namespace.
     #
     # This is a development only configuration, network namespaces are not
-    # suitable for production use due to performance overhead.
+    # suitable for production use due to performance overhead. In developmemnt
+    # when running with `fddev`, this can also be enabled with the `--netns`
+    # argument.
     [development.netns]
         # If enabled, `fdctl dev` will ensure the network namespaces are
         # configured properly, can route to each other, and that running

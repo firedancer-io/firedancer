@@ -19,6 +19,7 @@
 
 #include "../ebpf/fd_ebpf_base.h"
 #include "fd_xdp_redirect_prog.h"
+#include "fd_xdp_license.h"
 
 #include <linux/bpf.h>
 
@@ -30,9 +31,10 @@
 
 /* Metadata ***********************************************************/
 
-char __license[] __attribute__(( section("license") )) = "Apache-2.0";
+char __license[] __attribute__(( section("license") )) = FD_LICENSE;
 
 /* eBPF syscalls ******************************************************/
+/* https://github.com/torvalds/linux/blob/91aa6c412d7f85e48aead7b00a7d9e91f5cf5863/include/uapi/linux/bpf.h#L5577 */
 
 static void *
 (* bpf_map_lookup_elem)( void *       map,
@@ -44,6 +46,31 @@ static long
                       ulong  key,
                       ulong  flags )
   = (void *)51U;
+
+#ifdef FD_XDP_LOGGING
+
+/* To do logging, you should enable this import and then call it like
+
+     char fmt[] = "hello %d";
+     bpf_trace_printk( fmt, sizeof(fmt), 5 );
+
+   Note that BPF logging only supports certain format specifiers and
+   can take at most three arguments. It is extremely fickle and the
+   program may just start randomly failing to load with a verifier
+   error. Move things around and try again.
+
+   Firedancer is not using a GPL compatible license, and BPF printk
+   is a GPL part of BPF. This means that we cannot use it, or ship
+   this code in the binary. The kernel checks this with the "license"
+   section exported above, which you should not change.
+*/
+static long
+(*bpf_trace_printk)( const char * fmt,
+                     uint         fmt_size,
+                     ... )
+  = (void *) 6;
+
+#endif
 
 /* eBPF maps **********************************************************/
 

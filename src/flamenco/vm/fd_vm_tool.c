@@ -11,7 +11,6 @@
 
 #include "../../ballet/sbpf/fd_sbpf_maps.c"
 
-
 struct fd_vm_tool_prog {
   void *               bin_buf;
   fd_sbpf_program_t *  prog;
@@ -28,11 +27,11 @@ fd_vm_tool_prog_create( fd_vm_tool_prog_t * tool_prog,
 
   FILE * bin_file = fopen( bin_path, "r" );
   if( FD_UNLIKELY( !bin_file ) )
-    FD_LOG_ERR(( "fopen(\"%s\") failed: %s", bin_path, strerror( errno ) ));
+    FD_LOG_ERR(( "fopen(\"%s\") failed (%i-%s)", bin_path, errno, fd_io_strerror( errno ) ));
 
   struct stat bin_stat;
   if( FD_UNLIKELY( 0!=fstat( fileno( bin_file ), &bin_stat ) ) )
-    FD_LOG_ERR(( "fstat() failed: %s", strerror( errno ) ));
+    FD_LOG_ERR(( "fstat() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( !S_ISREG( bin_stat.st_mode ) ) )
     FD_LOG_ERR(( "File \"%s\" not a regular file", bin_path ));
 
@@ -41,12 +40,12 @@ fd_vm_tool_prog_create( fd_vm_tool_prog_t * tool_prog,
   ulong  bin_sz  = (ulong)bin_stat.st_size;
   void * bin_buf = malloc( bin_sz+8UL );
   if( FD_UNLIKELY( !bin_buf ) )
-    FD_LOG_ERR(( "malloc(%#lx) failed: %s", bin_sz, strerror( errno ) ));
+    FD_LOG_ERR(( "malloc(%#lx) failed (%i-%s)", bin_sz, errno, fd_io_strerror( errno ) ));
 
   /* Read program */
 
   if( FD_UNLIKELY( fread( bin_buf, bin_sz, 1UL, bin_file )!=1UL ) )
-    FD_LOG_ERR(( "fread() failed: %s", strerror( errno ) ));
+    FD_LOG_ERR(( "fread() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   FD_TEST( 0==fclose( bin_file ) );
 
   /* Extract ELF info */
@@ -85,7 +84,6 @@ fd_vm_tool_prog_create( fd_vm_tool_prog_t * tool_prog,
   return tool_prog;
 }
 
-
 static void
 fd_vm_tool_prog_free( fd_vm_tool_prog_t * prog ) {
   free( prog->prog->rodata );
@@ -93,7 +91,6 @@ fd_vm_tool_prog_free( fd_vm_tool_prog_t * prog ) {
   free( fd_sbpf_program_delete ( prog->prog     ) );
   free( fd_sbpf_syscalls_delete( prog->syscalls ) );
 }
-
 
 int cmd_disasm( char const * bin_path ) {
 
@@ -127,11 +124,11 @@ read_input_file( char const * input_path, ulong * _input_sz ) {
 
   FILE * input_file = fopen( input_path, "r" );
   if( FD_UNLIKELY( !input_file ) )
-    FD_LOG_ERR(( "fopen(\"%s\") failed: %s", input_path, strerror( errno ) ));
+    FD_LOG_ERR(( "fopen(\"%s\") failed (%i-%s)", input_path, errno, fd_io_strerror( errno ) ));
 
   struct stat input_stat;
   if( FD_UNLIKELY( 0!=fstat( fileno( input_file ), &input_stat ) ) )
-    FD_LOG_ERR(( "fstat() failed: %s", strerror( errno ) ));
+    FD_LOG_ERR(( "fstat() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( !S_ISREG( input_stat.st_mode ) ) )
     FD_LOG_ERR(( "File \"%s\" not a regular file", input_path ));
 
@@ -140,12 +137,12 @@ read_input_file( char const * input_path, ulong * _input_sz ) {
   ulong input_sz  = (ulong)input_stat.st_size;
   void * input_buf = malloc( input_sz );
   if( FD_UNLIKELY( !input_buf ) )
-    FD_LOG_ERR(( "malloc(%#lx) failed: %s", input_sz, strerror( errno ) ));
+    FD_LOG_ERR(( "malloc(%#lx) failed (%i-%s)", input_sz, errno, fd_io_strerror( errno ) ));
 
   /* Read input */
 
   if( FD_UNLIKELY( fread( input_buf, input_sz, 1UL, input_file )!=1UL ) )
-    FD_LOG_ERR(( "fread() failed: %s", strerror( errno ) ));
+    FD_LOG_ERR(( "fread() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   FD_TEST( 0==fclose( input_file ) );
 
   *_input_sz = input_sz;
@@ -328,4 +325,3 @@ main( int     argc,
   fd_halt();
   return 0;
 }
-
