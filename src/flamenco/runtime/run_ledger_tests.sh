@@ -77,7 +77,7 @@ log=/tmp/ledger_log$$
   --validate true \
   --abort-on-mismatch 1 \
   --capture test.solcap \
-  --end-slot 32 >& $log
+  --end-slot 63 >& $log
 
 status=$?
 
