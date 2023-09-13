@@ -205,7 +205,9 @@ fd_tls_rand( fd_tls_rand_t const * rand,
 
 /* Extended Alert Reasons *********************************************/
 
-/* fd_tls-specific error codes to identify reasons for alerts */
+/* fd_tls-specific error codes to identify reasons for alerts.  These
+   can help with debugging when the error cause is not evident by the
+   alert itself. */
 
 #define FD_TLS_REASON_NULL           ( 0)
 #define FD_TLS_REASON_ILLEGAL_STATE  ( 1)  /* illegal hs state */
@@ -223,6 +225,23 @@ fd_tls_rand( fd_tls_rand_t const * rand,
 #define FD_TLS_REASON_FINI_FAIL      (13)  /* Finished data mismatch */
 #define FD_TLS_REASON_QUIC_TP_OVERSZ (14)  /* Buffer overflow in QUIC transport params callback */
 #define FD_TLS_REASON_EE_NO_QUIC     (15)  /* Missing QUIC transport params in EncryptedExtensions */
+#define FD_TLS_REASON_X509_PARSE     (16)  /* X.509 DER parse failed */
+#define FD_TLS_REASON_SPKI_PARSE     (17)  /* Subject public key info parse failed */
+#define FD_TLS_REASON_CV_EXPECTED    (18)  /* wanted CertificateVerify, got another msg type */
+#define FD_TLS_REASON_CV_SIGALG      (19)  /* CertificateVerify sig is not Ed25519 */
+#define FD_TLS_REASON_FINI_PARSE     (20)  /* invalid Finished message */
+#define FD_TLS_REASON_SH_EXPECTED    (21)  /* wanted ServerHello, got another msg type */
+#define FD_TLS_REASON_SH_TRAILING    (22)  /* trailing bytes in ServerHello */
+#define FD_TLS_REASON_EE_EXPECTED    (23)  /* wanted EncryptedExtensions, got another msg type */
+#define FD_TLS_REASON_EE_TRAILING    (24)  /* trailing bytes in EncryptedExtensions */
+#define FD_TLS_REASON_CERT_TYPE      (25)  /* unsupported certificate type */
+#define FD_TLS_REASON_CERT_EXPECTED  (26)  /* wanted Certificate, got another msg type */
+#define FD_TLS_REASON_FINI_EXPECTED  (27)  /* wanted Finished, got another msg type */
+#define FD_TLS_REASON_FINI_TRAILING  (28)  /* trailing bytes in Finished */
+#define FD_TLS_REASON_CERT_CR_EXPECTED (29)  /* wanted Certificate or CertificateRequest, got another msg type */
+#define FD_TLS_REASON_CERT_CHAIN_EMPTY (30)  /* cert chain contains no certs */
+#define FD_TLS_REASON_CERT_CHAIN_PARSE (31)  /* failed to parse cert chain */
+#define FD_TLS_REASON_CV_TRAILING      (32)  /* trailing bytes in CertificateVerify */
 
 FD_PROTOTYPES_BEGIN
 
