@@ -23,9 +23,6 @@ jobs:
         with:
           command: make -j -Otarget fuzz-test
 
-      - name: Filter out non-runtime Artifacts
-        run: find build/linux/clang/x86_64_fuzz_asan/fuzz-test/ -type d ! -name 'fuzz_runtime_*' -exec rm -rf \;
-
       - name: List Artifacts
         run: ls build/linux/clang/x86_64_fuzz_asan/fuzz-test
 
