@@ -92,17 +92,17 @@ static void
 init( config_t * const config ) {
   /* we need one channel for both TX and RX on the NIC for each QUIC
      tile, but the interface probably defaults to one channel total */
-  if( FD_UNLIKELY( device_is_bonded( config->tiles.quic.interface ) ) ) {
+  if( FD_UNLIKELY( device_is_bonded( config->net.interface ) ) ) {
     /* if using a bonded device, we need to set channels on the
        underlying devices. */
     char line[ 4096 ];
-    device_read_slaves( config->tiles.quic.interface, line );
+    device_read_slaves( config->net.interface, line );
     char * saveptr;
     for( char * token=strtok_r( line , " \t", &saveptr ); token!=NULL; token=strtok_r( NULL, " \t", &saveptr ) ) {
       init_device( token, config->layout.verify_tile_count );
     }
   } else {
-    init_device( config->tiles.quic.interface, config->layout.verify_tile_count );
+    init_device( config->net.interface, config->layout.verify_tile_count );
   }
 }
 
@@ -165,15 +165,15 @@ check_device( const char * device,
 
 static configure_result_t
 check( config_t * const config ) {
-  if( FD_UNLIKELY( device_is_bonded( config->tiles.quic.interface ) ) ) {
+  if( FD_UNLIKELY( device_is_bonded( config->net.interface ) ) ) {
     char line[ 4096 ];
-    device_read_slaves( config->tiles.quic.interface, line );
+    device_read_slaves( config->net.interface, line );
     char * saveptr;
     for( char * token=strtok_r( line, " \t", &saveptr ); token!=NULL; token=strtok_r( NULL, " \t", &saveptr ) ) {
       CHECK( check_device( token, config->layout.verify_tile_count ) );
     }
   } else {
-    CHECK( check_device( config->tiles.quic.interface, config->layout.verify_tile_count ) );
+    CHECK( check_device( config->net.interface, config->layout.verify_tile_count ) );
   }
 
   CONFIGURE_OK();

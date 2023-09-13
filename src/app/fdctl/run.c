@@ -234,7 +234,7 @@ solana_labs_main( void * args ) {
   ADDU( "--tpu-port", config->tiles.quic.transaction_listen_port );
 
   char ip_addr[16];
-  snprintf1( ip_addr, 16, FD_IP4_ADDR_FMT, FD_IP4_ADDR_FMT_ARGS(config->tiles.quic.ip_addr) );
+  snprintf1( ip_addr, 16, FD_IP4_ADDR_FMT, FD_IP4_ADDR_FMT_ARGS(config->net.ip_addr) );
   ADD( "--gossip-host", ip_addr );
 
   /* consensus */
@@ -391,7 +391,7 @@ main_pid_namespace( void * args ) {
   clone_solana_labs( &spawner, config );
 
   if( FD_UNLIKELY( config->development.netns.enabled ) )  {
-    enter_network_namespace( config->tiles.quic.interface );
+    enter_network_namespace( config->net.interface );
     close_network_namespace_original_fd();
   }
 
