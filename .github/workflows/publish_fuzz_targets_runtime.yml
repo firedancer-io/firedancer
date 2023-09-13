@@ -12,6 +12,7 @@ jobs:
       group: github-v1
     env:
       MACHINE: linux_clang_x86_64_fuzz_asan
+      EXTRAS: libmicrohttp
     steps:
       - uses: actions/checkout@v4
 
