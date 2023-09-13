@@ -370,6 +370,7 @@ fd_execute_txn( fd_executor_t * executor, fd_txn_t * txn_descriptor, fd_rawtxn_b
   xid.ul[2] = fd_rng_ulong( global->rng );
   xid.ul[3] = fd_rng_ulong( global->rng );
   fd_funk_txn_t * txn = fd_funk_txn_prepare( global->funk, parent_txn, &xid, 1 );
+  // TODO: bad for multi-threading...
   global->funk_txn = txn;
 
   /* Update rent exempt on writable accounts if feature activated
