@@ -270,6 +270,9 @@ static void parse_key_value( config_t *   config,
   ENTRY_STR   ( ., shmem,               gigantic_page_mount_path                                  );
   ENTRY_STR   ( ., shmem,               huge_page_mount_path                                      );
 
+  ENTRY_STR   ( ., net,                 interface                                                 );
+  ENTRY_STR   ( ., net,                 xdp_mode                                                  );
+
   ENTRY_BOOL  ( ., development,         sandbox                                                   );
 
   ENTRY_BOOL  ( ., development.netns,   enabled                                                   );
@@ -280,7 +283,6 @@ static void parse_key_value( config_t *   config,
   ENTRY_STR   ( ., development.netns,   interface1_mac                                            );
   ENTRY_STR   ( ., development.netns,   interface1_addr                                           );
 
-  ENTRY_STR   ( ., tiles.quic,          interface                                                 );
   ENTRY_USHORT( ., tiles.quic,          transaction_listen_port                                   );
   ENTRY_USHORT( ., tiles.quic,          quic_transaction_listen_port                              );
   ENTRY_UINT  ( ., tiles.quic,          max_concurrent_connections                                );
@@ -288,7 +290,6 @@ static void parse_key_value( config_t *   config,
   ENTRY_UINT  ( ., tiles.quic,          max_concurrent_handshakes                                 );
   ENTRY_UINT  ( ., tiles.quic,          max_inflight_quic_packets                                 );
   ENTRY_UINT  ( ., tiles.quic,          tx_buf_size                                               );
-  ENTRY_STR   ( ., tiles.quic,          xdp_mode                                                  );
   ENTRY_UINT  ( ., tiles.quic,          xdp_rx_queue_size                                         );
   ENTRY_UINT  ( ., tiles.quic,          xdp_tx_queue_size                                         );
   ENTRY_UINT  ( ., tiles.quic,          xdp_aio_depth                                             );
@@ -615,10 +616,10 @@ config_parse( int *    pargc,
   int netns = fd_env_strip_cmdline_contains( pargc, pargv, "--netns" );
   if( FD_UNLIKELY( netns ) ) {
     result.development.netns.enabled = 1;
-    strncpy( result.tiles.quic.interface,
+    strncpy( result.net.interface,
              result.development.netns.interface0,
-             sizeof(result.tiles.quic.interface) );
-    result.tiles.quic.interface[ sizeof(result.tiles.quic.interface) - 1 ] = '\0';
+             sizeof(result.net.interface) );
+    result.net.interface[ sizeof(result.net.interface) - 1 ] = '\0';
   }
 
   if( FD_UNLIKELY( !strcmp( result.user, "" ) ) ) {
@@ -628,36 +629,36 @@ config_parse( int *    pargc,
     strncpy( result.user, user, 256 );
   }
 
-  if( FD_UNLIKELY( !strcmp( result.tiles.quic.interface, "" ) && !result.development.netns.enabled ) ) {
+  if( FD_UNLIKELY( !strcmp( result.net.interface, "" ) && !result.development.netns.enabled ) ) {
     int ifindex = internet_routing_interface();
     if( FD_UNLIKELY( ifindex == -1 ) )
       FD_LOG_ERR(( "no network device found which routes to 8.8.8.8. If no network "
                    "interface is specified in the configuration file, Firedancer "
-                   "will use the first network interface found which routes to "
+                   "tries to use the first network interface found which routes to "
                    "8.8.8.8. You can see what this is by running `ip route get 8.8.8.8` "
                    "You can fix this error by specifying a network interface to bind to in "
-                   "your configuration file under [tiles.quic.interface]" ));
+                   "your configuration file under [net.interface]" ));
 
-    if( FD_UNLIKELY( !if_indextoname( (uint)ifindex, result.tiles.quic.interface ) ) )
+    if( FD_UNLIKELY( !if_indextoname( (uint)ifindex, result.net.interface ) ) )
       FD_LOG_ERR(( "could not get name of interface with index %u", ifindex ));
   }
 
   if( FD_UNLIKELY( result.development.netns.enabled ) ) {
-    if( FD_UNLIKELY( strcmp( result.development.netns.interface0, result.tiles.quic.interface ) ) )
-      FD_LOG_ERR(( "netns interface and quic interface are different. If you are using the "
+    if( FD_UNLIKELY( strcmp( result.development.netns.interface0, result.net.interface ) ) )
+      FD_LOG_ERR(( "netns interface and firedancer interface are different. If you are using the "
                    "[development.netns] functionality to run Firedancer in a network namespace "
                    "for development, the configuration file must specify that "
-                   "[development.netns.interface0] is the same as [tiles.quic.interface]" ));
+                   "[development.netns.interface0] is the same as [net.interface]" ));
 
-    if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( result.development.netns.interface0_addr, &result.tiles.quic.ip_addr ) ) )
+    if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( result.development.netns.interface0_addr, &result.net.ip_addr ) ) )
       FD_LOG_ERR(( "configuration specifies invalid netns IP address `%s`", result.development.netns.interface0_addr ));
-    if( FD_UNLIKELY( !fd_cstr_to_mac_addr( result.development.netns.interface0_mac, result.tiles.quic.mac_addr ) ) )
+    if( FD_UNLIKELY( !fd_cstr_to_mac_addr( result.development.netns.interface0_mac, result.net.mac_addr ) ) )
       FD_LOG_ERR(( "configuration specifies invalid netns MAC address `%s`", result.development.netns.interface0_mac ));
   } else {
-    if( FD_UNLIKELY( !if_nametoindex( result.tiles.quic.interface ) ) )
-      FD_LOG_ERR(( "configuration specifies network interface `%s` which does not exist", result.tiles.quic.interface ));
-    result.tiles.quic.ip_addr = listen_address( result.tiles.quic.interface );
-    mac_address( result.tiles.quic.interface, result.tiles.quic.mac_addr );
+    if( FD_UNLIKELY( !if_nametoindex( result.net.interface ) ) )
+      FD_LOG_ERR(( "configuration specifies network interface `%s` which does not exist", result.net.interface ));
+    result.net.ip_addr = listen_address( result.net.interface );
+    mac_address( result.net.interface, result.net.mac_addr );
   }
 
   uint uid = username_to_uid( result.user );
