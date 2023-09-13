@@ -366,6 +366,24 @@ dynamic_port_range = "8000-10000"
     # programs. Same as above.
     min_kernel_huge_pages = 512
 
+
+[net]
+    # Which interface to bind to for QUIC and Turbine traffic. If
+    # developing under a network namespace with [netns] enabled, this
+    # should be the same as [development.netns.interface0].
+    #
+    # If this is empty, the default is interface used to route to 8.8.8.8,
+    # you can check what this is with `ip route get 8.8.8.8`
+    interface = ""
+
+    # Firedancer uses XDP for fast packet processing. XDP supports two
+    # modes, XDP_SKB and XDP_DRV. XDP_DRV is preferred as it is faster,
+    # but is not supported by all drivers.
+    xdp_mode = "skb"
+
+
+
+
 # Tiles are described in detail in the layout section above. While the layout
 # configuration determines how many of each tile to place on which CPU core to
 # create a functioning system, below is the individual settings that can change
@@ -376,14 +394,6 @@ dynamic_port_range = "8000-10000"
     # transactions from clients, and forwarding well formed (but not necessarily
     # valid) transactions to verify tiles.
     [tiles.quic]
-        # Which interface to bind to. If developing under a network namespace
-        # with [netns] enabled, this should be the same as
-        # [development.netns.interface0].
-        #
-        # If this is empty, the default is interface used to route to 8.8.8.8,
-        # you can check what this is with `ip route get 8.8.8.8`
-        interface = ""
-
         # Which port to listen on for incoming transactions. This could be votes,
         # user transactions, or transactions forwarded from another validator.
         transaction_listen_port = 9001
@@ -440,11 +450,6 @@ dynamic_port_range = "8000-10000"
         # TODO: This should be removed. We never transmit stream data so this
         # should be unused.
         tx_buf_size = 4096
-
-        # Firedancer uses XDP for fast packet processing. XDP supports two
-        # modes, XDP_SKB and XDP_DRV. XDP_DRV is preferred as it is faster, but
-        # is not supported by all drivers.
-        xdp_mode = "skb"
 
         # XDP has a metadata queue with memory defined by the driver or kernel
         # that is specially mapped into userspace. With XDP mode XDP_DRV this

@@ -116,6 +116,13 @@ typedef struct {
   } shmem;
 
   struct {
+    char   interface[ IF_NAMESIZE ];
+    uint   ip_addr;
+    uchar  mac_addr[6];
+    char   xdp_mode[ 8 ];
+  } net;
+
+  struct {
     int sandbox;
     struct {
       int  enabled;
@@ -130,12 +137,8 @@ typedef struct {
 
   struct {
     struct {
-      char   interface[ IF_NAMESIZE ];
-      uint   ip_addr;
-      uchar  mac_addr[6];
       ushort transaction_listen_port;
       ushort quic_transaction_listen_port;
-      char   xdp_mode[ 8 ];
 
       uint max_concurrent_connections;
       uint max_concurrent_streams_per_connection;
