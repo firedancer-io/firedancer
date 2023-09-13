@@ -13,7 +13,7 @@ jobs:
     env:
       MACHINE: linux_clang_x86_64_fuzz_asan
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - uses: ./.github/actions/deps
       - run: sudo apt update && sudo apt install -y zip
