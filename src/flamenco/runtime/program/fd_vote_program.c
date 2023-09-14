@@ -68,6 +68,9 @@ else` construct. */
 // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/sdk/program/src/clock.rs#L114
 #define SLOT_MAX ULONG_MAX
 
+#define ACCOUNTS_MAX 4 /* Vote instructions take in at most 4 accounts */
+#define SIGNERS_MAX  3 /* Vote instructions have most 3 signers */
+
 /**********************************************************************/
 /* mod vote_processor                                                 */
 /**********************************************************************/
@@ -134,7 +137,7 @@ static int
 vote_state_authorize( fd_borrowed_account_t * vote_account,
                       fd_pubkey_t const *     authorized,
                       fd_vote_authorize_t     vote_authorize,
-                      fd_pubkey_t const *     signers[static FD_VOTE_SIGNERS_MAX],
+                      fd_pubkey_t const *     signers[static SIGNERS_MAX],
                       fd_sol_sysvar_clock_t * clock,
                       /* feature set */
                       instruction_ctx_t ctx );
@@ -143,7 +146,7 @@ vote_state_authorize( fd_borrowed_account_t * vote_account,
 static int
 vote_state_update_validator_identity( fd_borrowed_account_t * vote_account,
                                       fd_pubkey_t const *     node_pubkey,
-                                      fd_pubkey_t const *     signers[static FD_VOTE_SIGNERS_MAX],
+                                      fd_pubkey_t const *     signers[static SIGNERS_MAX],
                                       /* feature_set */
                                       instruction_ctx_t ctx );
 
@@ -151,14 +154,14 @@ vote_state_update_validator_identity( fd_borrowed_account_t * vote_account,
 static int
 vote_state_update_commission( fd_borrowed_account_t * vote_account,
                               uchar                   commission,
-                              fd_pubkey_t const *     signers[static FD_VOTE_SIGNERS_MAX],
+                              fd_pubkey_t const *     signers[static SIGNERS_MAX],
                               /* feature set */
                               instruction_ctx_t ctx );
 
 // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_state/mod.rs#L877
 static int
 vote_state_verify_authorized_signer( fd_pubkey_t const * authorized,
-                                     fd_pubkey_t const * signers[static FD_VOTE_SIGNERS_MAX] );
+                                     fd_pubkey_t const * signers[static SIGNERS_MAX] );
 
 // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_state/mod.rs#L889
 static int
@@ -168,7 +171,7 @@ vote_state_withdraw(
     fd_borrowed_account_t * vote_account,
     ulong                   lamports,
     ulong                   to_account_index,
-    fd_pubkey_t const *     signers[static FD_VOTE_SIGNERS_MAX],
+    fd_pubkey_t const *     signers[static SIGNERS_MAX],
     fd_rent_t *             rent_sysvar,
     fd_sol_sysvar_clock_t * clock
     /* feature_set */
@@ -178,7 +181,7 @@ vote_state_withdraw(
 static int
 vote_state_initialize_account( fd_borrowed_account_t *       vote_account,
                                fd_vote_init_t *              vote_init,
-                               fd_pubkey_t const *           signers[static FD_VOTE_SIGNERS_MAX],
+                               fd_pubkey_t const *           signers[static SIGNERS_MAX],
                                fd_sol_sysvar_clock_t const * clock,
                                /* feature set contained in ctx */
                                instruction_ctx_t ctx );
@@ -187,7 +190,7 @@ vote_state_initialize_account( fd_borrowed_account_t *       vote_account,
 static int
 vote_state_verify_and_get_vote_state( fd_borrowed_account_t *       vote_account,
                                       fd_sol_sysvar_clock_t const * clock,
-                                      fd_pubkey_t const * signers[static FD_VOTE_SIGNERS_MAX],
+                                      fd_pubkey_t const * signers[static SIGNERS_MAX],
                                       instruction_ctx_t   ctx,
                                       /* return */ fd_vote_state_t * vote_state );
 
@@ -197,7 +200,7 @@ vote_state_process_vote_with_account( fd_borrowed_account_t *       vote_account
                                       fd_slot_hashes_t *            slot_hashes,
                                       fd_sol_sysvar_clock_t const * clock,
                                       fd_vote_t *                   vote,
-                                      fd_pubkey_t const * signers[static FD_VOTE_SIGNERS_MAX],
+                                      fd_pubkey_t const * signers[static SIGNERS_MAX],
                                       /* feature_set */
                                       instruction_ctx_t ctx );
 
@@ -207,7 +210,7 @@ vote_state_process_vote_state_update( fd_borrowed_account_t *       vote_account
                                       fd_slot_hashes_t *            slot_hashes,
                                       fd_sol_sysvar_clock_t const * clock,
                                       fd_vote_state_update_t *      vote_state_update,
-                                      fd_pubkey_t const * signers[static FD_VOTE_SIGNERS_MAX],
+                                      fd_pubkey_t const * signers[static SIGNERS_MAX],
                                       /* feature_set */
                                       instruction_ctx_t ctx );
 
@@ -251,14 +254,14 @@ vote_state_set_new_authorized_voter(
     ulong                                      current_epoch,
     ulong                                      target_epoch,
     /* "verify" closure */ int                 authorized_withdrawer_signer,
-    /* "verify" closure */ fd_pubkey_t const * signers[static FD_VOTE_SIGNERS_MAX],
+    /* "verify" closure */ fd_pubkey_t const * signers[static SIGNERS_MAX],
     instruction_ctx_t                          ctx );
 
 // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_state/mod.rs#L800-L807
 static int
 verify( fd_pubkey_t *       epoch_authorized_voter,
         int                 authorized_withdrawer_signer,
-        fd_pubkey_t const * signers[static FD_VOTE_SIGNERS_MAX] );
+        fd_pubkey_t const * signers[static SIGNERS_MAX] );
 
 // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/sdk/program/src/vote/state/mod.rs#L587
 static int
@@ -483,13 +486,13 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
   }
 
   // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_processor.rs#L72
-  fd_pubkey_t const * signers[FD_VOTE_SIGNERS_MAX] = { 0 };
+  fd_pubkey_t const * signers[SIGNERS_MAX] = { 0 };
   /* ignores if too many signer accounts */
   uchar signers_idx = 0;
   for ( uchar i = 0; i < ctx.instr->acct_cnt; i++ ) {
     if ( FD_UNLIKELY( fd_instr_acc_is_signer_idx( ctx.instr, i ) ) ) {
       signers[signers_idx++] = &txn_accs[instr_acc_idxs[i]];
-      if ( FD_UNLIKELY( signers_idx == FD_VOTE_SIGNERS_MAX ) ) break;
+      if ( FD_UNLIKELY( signers_idx == SIGNERS_MAX ) ) break;
     }
   }
 
@@ -997,8 +1000,8 @@ vote_processor_process_authorize_with_seed_instruction(
   fd_sysvar_clock_read( ctx.global, &clock );
 
   // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_processor.rs#L32
-  fd_pubkey_t * expected_authority_keys[FD_VOTE_SIGNERS_MAX] = { 0 };
-  for ( int i = 0; i < FD_VOTE_SIGNERS_MAX; i++ ) {
+  fd_pubkey_t * expected_authority_keys[SIGNERS_MAX] = { 0 };
+  for ( int i = 0; i < SIGNERS_MAX; i++ ) {
     expected_authority_keys[i] =
         (fd_pubkey_t *)fd_valloc_malloc( ctx.global->valloc, 1, sizeof( fd_pubkey_t ) );
   }
@@ -1029,7 +1032,7 @@ vote_processor_process_authorize_with_seed_instruction(
                              (fd_pubkey_t const **)expected_authority_keys,
                              &clock,
                              ctx );
-  for ( int i = 0; i < FD_VOTE_SIGNERS_MAX; i++ ) {
+  for ( int i = 0; i < SIGNERS_MAX; i++ ) {
     fd_valloc_free( ctx.global->valloc, expected_authority_keys[i] );
   }
 
@@ -1430,7 +1433,7 @@ static int
 vote_state_authorize( fd_borrowed_account_t * vote_account,
                       fd_pubkey_t const *     authorized,
                       fd_vote_authorize_t     vote_authorize,
-                      fd_pubkey_t const *     signers[static FD_VOTE_SIGNERS_MAX],
+                      fd_pubkey_t const *     signers[static SIGNERS_MAX],
                       fd_sol_sysvar_clock_t * clock,
                       /* feature_set */
                       instruction_ctx_t ctx ) {
@@ -1481,7 +1484,7 @@ vote_state_authorize( fd_borrowed_account_t * vote_account,
 static int
 vote_state_update_validator_identity( fd_borrowed_account_t * vote_account,
                                       fd_pubkey_t const *     node_pubkey,
-                                      fd_pubkey_t const *     signers[static FD_VOTE_SIGNERS_MAX],
+                                      fd_pubkey_t const *     signers[static SIGNERS_MAX],
                                       /* feature_set */
                                       instruction_ctx_t ctx ) {
   int rc;
@@ -1514,7 +1517,7 @@ vote_state_update_validator_identity( fd_borrowed_account_t * vote_account,
 static int
 vote_state_update_commission( fd_borrowed_account_t * vote_account,
                               uchar                   commission,
-                              fd_pubkey_t const *     signers[static FD_VOTE_SIGNERS_MAX],
+                              fd_pubkey_t const *     signers[static SIGNERS_MAX],
                               /* feature_set */
                               instruction_ctx_t ctx ) {
   int rc;
@@ -1544,9 +1547,9 @@ vote_state_update_commission( fd_borrowed_account_t * vote_account,
 // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_state/mod.rs#L877
 static inline int
 vote_state_verify_authorized_signer( fd_pubkey_t const * authorized,
-                                     fd_pubkey_t const * signers[static FD_VOTE_SIGNERS_MAX] ) {
+                                     fd_pubkey_t const * signers[static SIGNERS_MAX] ) {
   // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_state/mod.rs#L881
-  for ( ulong i = 0; i < FD_VOTE_SIGNERS_MAX; i++ ) {
+  for ( ulong i = 0; i < SIGNERS_MAX; i++ ) {
     if ( FD_UNLIKELY( signers[i] &&
                       0 == memcmp( signers[i], authorized, sizeof( fd_pubkey_t ) ) ) ) {
       return FD_EXECUTOR_INSTR_SUCCESS;
@@ -1563,7 +1566,7 @@ vote_state_withdraw(
     fd_borrowed_account_t * vote_account,
     ulong                   lamports,
     ulong                   to_account_index,
-    fd_pubkey_t const *     signers[static FD_VOTE_SIGNERS_MAX],
+    fd_pubkey_t const *     signers[static SIGNERS_MAX],
     fd_rent_t *             rent_sysvar,
     fd_sol_sysvar_clock_t * clock
     /* feature_set */
@@ -1755,7 +1758,7 @@ vote_state_process_vote( fd_vote_state_t *  vote_state,
 static int
 vote_state_initialize_account( fd_borrowed_account_t *       vote_account,
                                fd_vote_init_t *              vote_init,
-                               fd_pubkey_t const *           signers[static FD_VOTE_SIGNERS_MAX],
+                               fd_pubkey_t const *           signers[static SIGNERS_MAX],
                                fd_sol_sysvar_clock_t const * clock,
                                /* feature_set */
                                instruction_ctx_t ctx ) {
@@ -1798,7 +1801,7 @@ vote_state_initialize_account( fd_borrowed_account_t *       vote_account,
 static int
 vote_state_verify_and_get_vote_state( fd_borrowed_account_t *        vote_account,
                                       fd_sol_sysvar_clock_t const *  clock,
-                                      fd_pubkey_t const *            signers[FD_VOTE_SIGNERS_MAX],
+                                      fd_pubkey_t const *            signers[SIGNERS_MAX],
                                       instruction_ctx_t              ctx,
                                       /* return */ fd_vote_state_t * vote_state ) {
   int                       rc;
@@ -1834,7 +1837,7 @@ vote_state_process_vote_with_account( fd_borrowed_account_t *       vote_account
                                       fd_slot_hashes_t *            slot_hashes,
                                       fd_sol_sysvar_clock_t const * clock,
                                       fd_vote_t *                   vote,
-                                      fd_pubkey_t const * signers[static FD_VOTE_SIGNERS_MAX],
+                                      fd_pubkey_t const * signers[static SIGNERS_MAX],
                                       instruction_ctx_t   ctx ) {
   int             rc;
   fd_vote_state_t vote_state;
@@ -1877,7 +1880,7 @@ vote_state_process_vote_state_update( fd_borrowed_account_t *       vote_account
                                       fd_slot_hashes_t *            slot_hashes,
                                       fd_sol_sysvar_clock_t const * clock,
                                       fd_vote_state_update_t *      vote_state_update,
-                                      fd_pubkey_t const * signers[static FD_VOTE_SIGNERS_MAX],
+                                      fd_pubkey_t const * signers[static SIGNERS_MAX],
                                       /* feature_set */
                                       instruction_ctx_t ctx ) {
   int rc;
@@ -1945,7 +1948,7 @@ vote_state_size_of( void ) {
 static inline int
 verify( fd_pubkey_t *       epoch_authorized_voter,
         int                 authorized_withdrawer_signer,
-        fd_pubkey_t const * signers[static FD_VOTE_SIGNERS_MAX] ) {
+        fd_pubkey_t const * signers[static SIGNERS_MAX] ) {
   if ( FD_UNLIKELY( authorized_withdrawer_signer ) ) return OK;
   else return vote_state_verify_authorized_signer( epoch_authorized_voter, signers );
 }
@@ -2011,7 +2014,7 @@ vote_state_set_new_authorized_voter(
     ulong                                      current_epoch,
     ulong                                      target_epoch,
     /* "verify" closure */ int                 authorized_withdrawer_signer,
-    /* "verify" closure */ fd_pubkey_t const * signers[static FD_VOTE_SIGNERS_MAX],
+    /* "verify" closure */ fd_pubkey_t const * signers[static SIGNERS_MAX],
     instruction_ctx_t                          ctx ) {
   int           rc;
   fd_pubkey_t * epoch_authorized_voter = NULL;

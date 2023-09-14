@@ -14,9 +14,6 @@ FD_PROTOTYPES_BEGIN
 
 #define OK FD_EXECUTOR_INSTR_SUCCESS /* Corresponds to Result::Ok in Rust */
 
-#define FD_VOTE_ACCOUNTS_MAX 4 /* Vote instructions take in at most 3 accounts */
-#define FD_VOTE_SIGNERS_MAX  3 /* Vote instructions have most 3 signers */
-
 /* Vote error codes */
 /* TODO: serialize these in the correct */
 #define FD_VOTE_VOTE_TOO_OLD                    ( 0 )
