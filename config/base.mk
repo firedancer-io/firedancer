@@ -20,6 +20,7 @@ FIND:=find
 SCRUB:=$(FIND) . -type f -name "*~" -o -name "\#*" | xargs $(RM)
 DATE:=date
 CAT:=cat
+NANOPB:=nanopb_generator.py
 
 # LLVM toolchain
 LLVM_COV?=llvm-cov

@@ -40,7 +40,8 @@ help:
 	# FIND      = $(FIND)
 	# SCRUB     = $(SCRUB)
 	# FUZZFLAGS = $(FUZZFLAGS)
-	# Explicit goals are: all bin include lib unit-test help clean distclean asm ppp
+	# NANOPB    = $(NANOPB)
+	# Explicit goals are: all bin include lib unit-test help clean distclean asm ppp nanopb
 	# "make all" is equivalent to "make bin include lib unit-test"
 	# "make info" makes build info $(OBJDIR)/info for the current platform (if not already made)
 	# "make bin" makes all binaries for the current platform
@@ -53,6 +54,7 @@ help:
 	# "make distclean" removes editor temp files and all platform builds
 	# "make asm" makes all source files into assembly language files
 	# "make ppp" run all source files through the preprocessor
+	# "make nanopb" generate nanopb Protobuf sources (if available)
 	# "make show-deps" shows all the dependencies
 	# "make cov-report" creates an LCOV coverage report from LLVM profdata. Requires make run-unit-test EXTRAS="llvm-cov"
 	# "make lint" runs the linter on all C source and header files. Creates backup files.
@@ -260,7 +262,7 @@ echo -e \
 "# extras   $(EXTRAS)" > $(OBJDIR)/info && \
 git status --porcelain=2 --branch >> $(OBJDIR)/info
 
-$(OBJDIR)/obj/%.d : src/%.c $(OBJDIR)/info
+$(OBJDIR)/obj/%.d : src/%.c $(OBJDIR)/info $(GENERATED)
 	#######################################################################
 	# Generating dependencies for C source $< to $@
 	#######################################################################
@@ -269,7 +271,7 @@ $(CC) $(CPPFLAGS) $(CFLAGS) -M -MP $< -o $@.tmp && \
 $(SED) 's,\($(notdir $*)\)\.o[ :]*,$(OBJDIR)/obj/$*.o $(OBJDIR)/obj/$*.S $(OBJDIR)/obj/$*.i $@ : ,g' < $@.tmp > $@ && \
 $(RM) $@.tmp
 
-$(OBJDIR)/obj/%.d : src/%.cxx $(OBJDIR)/info
+$(OBJDIR)/obj/%.d : src/%.cxx $(OBJDIR)/info $(GENERATED)
 	#######################################################################
 	# Generating dependencies for C++ source $< to $@
 	#######################################################################
@@ -356,6 +358,8 @@ $(CP) $^ $@
 
 ifeq ($(filter $(MAKECMDGOALS),$(AUX_RULES)),)
 # If we are not in an auxiliary rule (aka we need to actually build something/need dep tree)
+
+include config/nanopb.mk
 
 # Include all the make fragments
 
