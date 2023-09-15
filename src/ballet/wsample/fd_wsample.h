@@ -20,6 +20,8 @@
 struct fd_wsample_private;
 typedef struct fd_wsample_private fd_wsample_t;
 
+#define FD_WSAMPLE_ALIGN (32UL)
+#define FD_WSAMPLE_FOOTPRINT( ele_cnt ) ( (ele_cnt>=UINT_MAX) ? 0UL : ( 64UL + 64UL*(ele_cnt) ) )
 /* fd_wsample_{align, footprint} give the alignment and footprint
    repectively required to create a stake weight tree with at most
    ele_cnt stake weights.
