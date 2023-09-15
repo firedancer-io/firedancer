@@ -85,7 +85,7 @@ main( int     argc,
     data = fd_scratch_alloc( /* align */ 1UL, data_sz );
 
     /* Copy file into memory */
-    FD_TEST( 0==read( fd, data, data_sz ) );
+    FD_TEST( (ssize_t)data_sz == read( fd, data, data_sz ) );
     FD_TEST( 0==close( fd ) );
   } while(0);
 
