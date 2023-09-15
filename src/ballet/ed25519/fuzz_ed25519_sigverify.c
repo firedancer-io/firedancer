@@ -40,7 +40,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
 
   uchar sig[ 64 ];
   void * sig_result = fd_ed25519_sign( sig, test->msg, sz, pub, test->prv, sha );
-  int cmp = strncmp( ( char * ) sig, ( char * ) sig_result, 64UL );
+  int cmp = memcmp( ( char * ) sig, ( char * ) sig_result, 64UL );
   if( FD_UNLIKELY( cmp!=0 ) ) {
     __builtin_trap();
   }
