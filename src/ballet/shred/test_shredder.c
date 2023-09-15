@@ -13,7 +13,7 @@ uchar fec_set_memory_1[ 2048UL * FD_REEDSOL_DATA_SHREDS_MAX   ];
 uchar fec_set_memory_2[ 2048UL * FD_REEDSOL_PARITY_SHREDS_MAX ];
 
 /* First 32B of what Solana calls the private key is what we call the
-   private key, second 23B are what we call the public key. */
+   private key, second 32B are what we call the public key. */
 FD_IMPORT_BINARY( test_private_key, "src/ballet/shred/fixtures/demo-shreds.key"  );
 
 #if FD_HAS_HOSTED
@@ -23,11 +23,11 @@ FD_IMPORT_BINARY( test_private_key, "src/ballet/shred/fixtures/demo-shreds.key" 
 FD_IMPORT_BINARY( test_pcap,        "src/ballet/shred/fixtures/demo-shreds.pcap" );
 FD_IMPORT_BINARY( test_bin,         "src/ballet/shred/fixtures/demo-shreds.bin"  );
 
+fd_shredder_t _shredder[ 1 ];
 
 static void
 test_shredder_pcap( void ) {
-  fd_shredder_t _shredder[ 1 ];
-  FD_TEST( _shredder==fd_shredder_new( _shredder ) );
+  FD_TEST( _shredder==fd_shredder_new( _shredder, test_private_key+32UL ) );
   fd_shredder_t * shredder = fd_shredder_join( _shredder );           FD_TEST( shredder );
 
   /* Manually counted values from the pcap */
@@ -54,7 +54,7 @@ test_shredder_pcap( void ) {
     for( ulong j=0UL; j<FD_REEDSOL_DATA_SHREDS_MAX;   j++ ) _set->data_shreds[   j ] = fec_set_memory_1 + 2048UL*j;
     for( ulong j=0UL; j<FD_REEDSOL_PARITY_SHREDS_MAX; j++ ) _set->parity_shreds[ j ] = fec_set_memory_2 + 2048UL*j;
 
-    fd_fec_set_t * set = fd_shredder_next_fec_set( shredder, test_private_key, test_private_key+32UL, _set );
+    fd_fec_set_t * set = fd_shredder_next_fec_set( shredder, test_private_key, _set );
     FD_TEST( set );
 
     FD_TEST( set->data_shred_cnt  ==(i<6UL ? 32UL : 48UL) );
@@ -81,7 +81,7 @@ test_shredder_pcap( void ) {
     for( ulong j=0UL; j<FD_REEDSOL_DATA_SHREDS_MAX;   j++ ) _set->data_shreds[   j ] = fec_set_memory_1 + 2048UL*j;
     for( ulong j=0UL; j<FD_REEDSOL_PARITY_SHREDS_MAX; j++ ) _set->parity_shreds[ j ] = fec_set_memory_2 + 2048UL*j;
 
-    fd_fec_set_t * set = fd_shredder_next_fec_set( shredder, test_private_key, test_private_key+32UL, _set );
+    fd_fec_set_t * set = fd_shredder_next_fec_set( shredder, test_private_key, _set );
     FD_TEST( set );
 
     FD_TEST( set->parity_shred_cnt==(i<6UL ? 32UL : 48UL) );
@@ -158,8 +158,7 @@ perf_test( void ) {
   fd_memset( meta, 0, sizeof(fd_entry_batch_meta_t) );
   meta->block_complete = 1;
 
-  fd_shredder_t _shredder[ 1 ];
-  FD_TEST( _shredder==fd_shredder_new( _shredder ) );
+  FD_TEST( _shredder==fd_shredder_new( _shredder, test_private_key+32UL ) );
   fd_shredder_t * shredder = fd_shredder_join( _shredder );           FD_TEST( shredder );
 
   fd_fec_set_t _set[ 1 ];
@@ -173,7 +172,7 @@ perf_test( void ) {
 
     ulong sets_cnt = fd_shredder_count_fec_sets( PERF_TEST_SZ );
     for( ulong j=0UL; j<sets_cnt; j++ ) {
-      fd_shredder_next_fec_set( shredder, test_private_key, test_private_key+32UL, _set );
+      fd_shredder_next_fec_set( shredder, test_private_key, _set );
     }
     fd_shredder_fini_batch( shredder );
   }
@@ -193,8 +192,7 @@ perf_test2( void ) {
   fd_memset( meta, 0, sizeof(fd_entry_batch_meta_t) );
   meta->block_complete = 1;
 
-  fd_shredder_t _shredder[ 1 ];
-  FD_TEST( _shredder==fd_shredder_new( _shredder ) );
+  FD_TEST( _shredder==fd_shredder_new( _shredder, test_private_key+32UL ) );
   fd_shredder_t * shredder = fd_shredder_join( _shredder );           FD_TEST( shredder );
 
   fd_fec_set_t _set[ 1 ];
@@ -209,7 +207,7 @@ perf_test2( void ) {
 
     ulong sets_cnt = fd_shredder_count_fec_sets( PERF_TEST2_SZ );
     for( ulong j=0UL; j<sets_cnt; j++ ) {
-      fd_shredder_next_fec_set( shredder, test_private_key, test_private_key+32UL, _set );
+      fd_shredder_next_fec_set( shredder, test_private_key, _set );
       bytes_produced += _set->data_shred_cnt * FD_SHRED_MIN_SZ + _set->parity_shred_cnt * FD_SHRED_MAX_SZ;
     }
     fd_shredder_fini_batch( shredder );
@@ -230,6 +228,8 @@ main( int     argc,
 
   FD_TEST( FD_FEC_SET_MAX_BMTREE_DEPTH == fd_bmtree_depth( FD_REEDSOL_DATA_SHREDS_MAX + FD_REEDSOL_PARITY_SHREDS_MAX ) );
 
+  if( sizeof(fd_shredder_t) != FD_SHREDDER_FOOTPRINT )
+    FD_LOG_WARNING(( "sizeof() %lu, footprint: %lu", sizeof(fd_shredder_t), FD_SHREDDER_FOOTPRINT ));
   FD_TEST( sizeof(fd_shredder_t) == FD_SHREDDER_FOOTPRINT );
 
 

@@ -14,7 +14,7 @@ uchar fec_set_memory[ 9UL*2048UL * (FD_REEDSOL_DATA_SHREDS_MAX+FD_REEDSOL_PARITY
 uchar resolver_mem[ 1024UL*1024UL ] __attribute__((aligned(FD_FEC_RESOLVER_ALIGN)));
 
 /* First 32B of what Solana calls the private key is what we call the
-   private key, second 23B are what we call the public key. */
+   private key, second 32B are what we call the public key. */
 FD_IMPORT_BINARY( test_private_key, "src/ballet/shred/fixtures/demo-shreds.key"  );
 
 FD_IMPORT_BINARY( test_bin,         "src/ballet/shred/fixtures/demo-shreds.bin"  );
@@ -52,7 +52,7 @@ allocate_fec_set( fd_fec_set_t * set, uchar * ptr ) {
 static void
 test_one_batch( void ) {
   fd_shredder_t _shredder[ 1 ];
-  FD_TEST( _shredder==fd_shredder_new( _shredder ) );
+  FD_TEST( _shredder==fd_shredder_new( _shredder, test_private_key+32UL ) );
   fd_shredder_t * shredder = fd_shredder_join( _shredder );           FD_TEST( shredder );
 
 
@@ -70,7 +70,7 @@ test_one_batch( void ) {
   for( ulong i=0UL; i<4UL; i++ )  ptr = allocate_fec_set( out_sets+i, ptr );
 
   for( ulong i=0UL; i<7UL; i++ ) {
-    fd_fec_set_t * set = fd_shredder_next_fec_set( shredder, test_private_key, test_private_key+32UL, _set );
+    fd_fec_set_t * set = fd_shredder_next_fec_set( shredder, test_private_key, _set );
 
     fd_fec_resolver_t * resolver;
     resolver = fd_fec_resolver_join( fd_fec_resolver_new( resolver_mem, 4UL, 1UL, out_sets, test_private_key+32UL ) );
@@ -93,7 +93,7 @@ test_one_batch( void ) {
 static void
 test_interleaved( void ) {
   fd_shredder_t _shredder[ 1 ];
-  FD_TEST( _shredder==fd_shredder_new( _shredder ) );
+  FD_TEST( _shredder==fd_shredder_new( _shredder, test_private_key+32UL ) );
   fd_shredder_t * shredder = fd_shredder_join( _shredder );           FD_TEST( shredder );
 
 
@@ -112,8 +112,8 @@ test_interleaved( void ) {
   for( ulong i=0UL; i<4UL; i++ ) ptr = allocate_fec_set( out_sets+i, ptr );
 
 
-  fd_fec_set_t * set0 = fd_shredder_next_fec_set( shredder, test_private_key, test_private_key+32UL, _set     );
-  fd_fec_set_t * set1 = fd_shredder_next_fec_set( shredder, test_private_key, test_private_key+32UL, _set+1UL );
+  fd_fec_set_t * set0 = fd_shredder_next_fec_set( shredder, test_private_key, _set     );
+  fd_fec_set_t * set1 = fd_shredder_next_fec_set( shredder, test_private_key, _set+1UL );
   FD_TEST( fd_shredder_fini_batch( shredder ) );
 
   fd_fec_resolver_t * resolver;
@@ -141,7 +141,7 @@ test_interleaved( void ) {
 static void
 test_rolloff( void ) {
   fd_shredder_t _shredder[ 1 ];
-  FD_TEST( _shredder==fd_shredder_new( _shredder ) );
+  FD_TEST( _shredder==fd_shredder_new( _shredder, test_private_key+32UL ) );
   fd_shredder_t * shredder = fd_shredder_join( _shredder );           FD_TEST( shredder );
 
 
@@ -161,9 +161,9 @@ test_rolloff( void ) {
   for( ulong i=0UL; i<2UL; i++ ) ptr = allocate_fec_set( out_sets+i, ptr );
 
 
-  fd_fec_set_t * set0 = fd_shredder_next_fec_set( shredder, test_private_key, test_private_key+32UL, _set     );
-  fd_fec_set_t * set1 = fd_shredder_next_fec_set( shredder, test_private_key, test_private_key+32UL, _set+1UL );
-  fd_fec_set_t * set2 = fd_shredder_next_fec_set( shredder, test_private_key, test_private_key+32UL, _set+2UL );
+  fd_fec_set_t * set0 = fd_shredder_next_fec_set( shredder, test_private_key, _set     );
+  fd_fec_set_t * set1 = fd_shredder_next_fec_set( shredder, test_private_key, _set+1UL );
+  fd_fec_set_t * set2 = fd_shredder_next_fec_set( shredder, test_private_key, _set+2UL );
   FD_TEST( fd_shredder_fini_batch( shredder ) );
 
   fd_fec_resolver_t * resolver;
@@ -195,7 +195,7 @@ perf_test( void ) {
   meta->block_complete = 1;
 
   fd_shredder_t _shredder[ 1 ];
-  FD_TEST( _shredder==fd_shredder_new( _shredder ) );
+  FD_TEST( _shredder==fd_shredder_new( _shredder, test_private_key+32UL ) );
   fd_shredder_t * shredder = fd_shredder_join( _shredder );           FD_TEST( shredder );
 
   fd_fec_set_t _set[ 1 ];
@@ -210,7 +210,7 @@ perf_test( void ) {
 
     ulong sets_cnt = fd_shredder_count_fec_sets( PERF_TEST_SZ );
     for( ulong j=0UL; j<sets_cnt; j++ ) {
-      fd_shredder_next_fec_set( shredder, test_private_key, test_private_key+32UL, _set );
+      fd_shredder_next_fec_set( shredder, test_private_key, _set );
     }
     fd_shredder_fini_batch( shredder );
   }

@@ -2,7 +2,7 @@
 #include "fd_shred.h"
 
 void *
-fd_shredder_new( void * mem ) {
+fd_shredder_new( void * mem, void const * pubkey ) {
   fd_shredder_t * shredder = (fd_shredder_t *)mem;
 
   if( FD_UNLIKELY( !mem ) ) {
@@ -20,6 +20,12 @@ fd_shredder_new( void * mem ) {
   shredder->offset      = 0UL;
 
   if( FD_UNLIKELY( !fd_sha512_new( shredder->sha512 ) ) ) return NULL;
+
+  if( FD_UNLIKELY( !fd_chacha20rng_join( fd_chacha20rng_new( shredder->sampling_rng ) ) ) ) return NULL;
+  shredder->sampler = fd_wsample_join( fd_wsample_new( shredder->_sampler_footprint, shredder->sampling_rng,
+                                                       NULL, 0UL, FD_WSAMPLE_HINT_POWERLAW_NODELETE ) );
+  shredder->stake_weight_cnt = 0UL;
+  memcpy( shredder->leader_pubkey, pubkey, 32UL );
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( shredder->magic ) = FD_SHREDDER_MAGIC;
@@ -75,10 +81,37 @@ fd_shredder_delete( void *          mem      ) {
   return (void *)shredder;
 }
 
+
+void
+fd_shredder_set_stake_weights( fd_shredder_t * shredder,
+                               ulong         * weights,
+                               ulong           weight_cnt ) {
+
+  fd_wsample_delete( fd_wsample_leave( shredder->sampler ) );
+  /* If we have any non-zero stake weights, we only consider the
+     non-zero stake weights.  Otherwise, we only consider the zero stake
+     weights, and we replace them all with 1. */
+  int any_nonzero = weight_cnt ? weights[             0] >0UL : 0;
+  int any_zero    = weight_cnt ? weights[weight_cnt-1UL]==0UL : 0;
+
+  if( FD_LIKELY( any_nonzero & any_zero ) ) { /* Mix of non-zero and zero */
+    /* Trim off zeros */
+    /* FIXME: Use binary search */
+    while( !weights[weight_cnt-1UL] ) weight_cnt--;
+  } else if( any_zero ) { /* Wasn't a mix, and has zeros, so must be all zeros */
+    for( ulong i=0UL; i<weight_cnt; i++ ) weights[i] = 1UL;
+  }
+
+  shredder->sampler = fd_wsample_join( fd_wsample_new( shredder->_sampler_footprint, shredder->sampling_rng,
+                                                       weights, weight_cnt, FD_WSAMPLE_HINT_POWERLAW_NODELETE ) );
+  shredder->stake_weight_cnt = weight_cnt;
+}
+
 fd_shredder_t *
-fd_shredder_init_batch( fd_shredder_t * shredder,
-    void const * entry_batch, ulong entry_batch_sz,
-    fd_entry_batch_meta_t const * metadata ) {
+fd_shredder_init_batch( fd_shredder_t *               shredder,
+                        void const    *               entry_batch,
+                        ulong                         entry_batch_sz,
+                        fd_entry_batch_meta_t const * metadata ) {
 
   if( FD_UNLIKELY( entry_batch_sz==0UL ) ) return NULL; /* FIXME: should this warn? Silently expand it to 1 byte? */
 
@@ -91,9 +124,21 @@ fd_shredder_init_batch( fd_shredder_t * shredder,
   return shredder;
 }
 
+
+/* This 45 byte struct gets hashed to compute the seed for Chacha20 to
+   compute the shred destinations. */
+struct __attribute__((packed)) shred_dest_input {
+  ulong slot;
+  uchar type; /*     Data = 0b1010_0101, Code = 0b0101_1010 */
+  uint  idx;
+  uchar leader_pubkey[32];
+};
+typedef struct shred_dest_input shred_dest_input_t;
+
+
 fd_fec_set_t *
 fd_shredder_next_fec_set( fd_shredder_t * shredder,
-                          void const * signing_private_key, void const * signing_public_key,
+                          void const * signing_private_key,
                           fd_fec_set_t * result ) {
   uchar const * entry_batch = shredder->entry_batch;
   ulong         offset      = shredder->offset;
@@ -101,6 +146,11 @@ fd_shredder_next_fec_set( fd_shredder_t * shredder,
 
   uchar * * data_shreds   = result->data_shreds;
   uchar * * parity_shreds = result->parity_shreds;
+
+  shred_dest_input_t data_shred_dest_input  [ FD_REEDSOL_DATA_SHREDS_MAX   ];
+  shred_dest_input_t parity_shred_dest_input[ FD_REEDSOL_PARITY_SHREDS_MAX ];
+  uchar              data_shred_dest_hash   [ FD_REEDSOL_DATA_SHREDS_MAX   ][ 32 ];
+  uchar              parity_shred_dest_hash [ FD_REEDSOL_PARITY_SHREDS_MAX ][ 32 ];
 
   fd_ed25519_sig_t __attribute__((aligned(32UL))) root_signature;
 
@@ -129,7 +179,8 @@ fd_shredder_next_fec_set( fd_shredder_t * shredder,
   /* Write headers and copy the data shred payload */
   ulong flags_for_last = ((last_in_batch & (ulong)!!shredder->meta.block_complete)<<7) | (last_in_batch<<6);
   for( ulong i=0UL; i<data_shred_cnt; i++ ) {
-    fd_shred_t * shred = (fd_shred_t *)data_shreds[ i ];
+    fd_shred_t         * shred = (fd_shred_t *)data_shreds[ i ];
+    shred_dest_input_t * dest  = data_shred_dest_input+i;
     /* Size in bytes of the payload section of this data shred,
        excluding any zero-padding */
     ulong shred_payload_sz = fd_ulong_min( entry_sz-offset, data_shred_payload_sz );
@@ -143,14 +194,20 @@ fd_shredder_next_fec_set( fd_shredder_t * shredder,
     shred->data.flags         = (uchar )(fd_ulong_if( i==data_shred_cnt-1UL, flags_for_last, 0UL ) | (shredder->meta.reference_tick & 0x3FUL));
     shred->data.size          = (ushort)(FD_SHRED_DATA_HEADER_SZ + shred_payload_sz);
 
+    dest->slot                = shredder->meta.slot;
+    dest->type                = (uchar)0xA5;
+    dest->idx                 = (uint  )(shredder->meta.data_idx_offset + i);
+    memcpy( dest->leader_pubkey, shredder->leader_pubkey, 32UL );
+
     uchar * payload = fd_memcpy( data_shreds[ i ] + FD_SHRED_DATA_HEADER_SZ , entry_batch+offset, shred_payload_sz );
     offset += shred_payload_sz;
 
     /* Write zero-padding, likely to be a no-op */
     fd_memset( payload+shred_payload_sz, 0, data_shred_payload_sz-shred_payload_sz );
 
-    /* Set the last byte of the signature field to a 0 so that we can
-       use the faster batch sha256 API to compute the Merkle tree */
+    /* Set the last bytes of the signature field to the Merkle tree
+       prefix so we can use the faster batch sha256 API to compute the
+       Merkle tree */
     fd_memcpy( shred->signature + 64UL - 26UL, "\x00SOLANA_MERKLE_SHREDS_LEAF", 26UL );
 
     /* Prepare to generate parity data: data shred starts right after
@@ -159,7 +216,8 @@ fd_shredder_next_fec_set( fd_shredder_t * shredder,
   }
 
   for( ulong j=0UL; j<parity_shred_cnt; j++ ) {
-    fd_shred_t * shred = (fd_shred_t *)parity_shreds[ j ];
+    fd_shred_t         * shred = (fd_shred_t *)parity_shreds[ j ];
+    shred_dest_input_t * dest  = parity_shred_dest_input+j;
 
     shred->variant            = fd_shred_variant( FD_SHRED_TYPE_MERKLE_CODE, (uchar)tree_depth );
     shred->slot               = shredder->meta.slot;
@@ -170,8 +228,11 @@ fd_shredder_next_fec_set( fd_shredder_t * shredder,
     shred->code.code_cnt      = (ushort)(parity_shred_cnt);
     shred->code.idx           = (ushort)(j);
 
-    /* Set the last byte of the signature field to a 0 so that we can
-       use the faster batch sha256 API to compute the Merkle tree */
+    dest->slot                = shredder->meta.slot;
+    dest->type                = (uchar)0x5A;
+    dest->idx                 = (uint  )(shredder->meta.parity_idx_offset + j);
+    memcpy( dest->leader_pubkey, shredder->leader_pubkey, 32UL );
+
     fd_memcpy( shred->signature + 64UL - 26UL, "\x00SOLANA_MERKLE_SHREDS_LEAF", 26UL );
 
     /* Prepare to generate parity data: parity info starts right after
@@ -190,7 +251,7 @@ fd_shredder_next_fec_set( fd_shredder_t * shredder,
     fd_sha256_batch_add( sha256, data_shreds[i]+sizeof(fd_ed25519_sig_t)-26UL,   data_merkle_sz+26UL,   leaves[i].hash );
   for( ulong j=0UL; j<parity_shred_cnt; j++ )
     fd_sha256_batch_add( sha256, parity_shreds[j]+sizeof(fd_ed25519_sig_t)-26UL, parity_merkle_sz+26UL, leaves[j+data_shred_cnt].hash );
-  fd_sha256_batch_fini( shredder->sha256 );
+  fd_sha256_batch_fini( sha256 );
 
 
   /* Generate Merkle Proofs */
@@ -199,7 +260,7 @@ fd_shredder_next_fec_set( fd_shredder_t * shredder,
   uchar * root = fd_bmtree_commit_fini( bmtree );
 
   /* Sign Merkle Root */
-  fd_ed25519_sign( root_signature, root, 32UL, signing_public_key, signing_private_key, shredder->sha512 );
+  fd_ed25519_sign( root_signature, root, 32UL, shredder->leader_pubkey, signing_private_key, shredder->sha512 );
 
   /* Write signature and Merkle proof */
   for( ulong i=0UL; i<data_shred_cnt; i++ ) {
@@ -217,6 +278,24 @@ fd_shredder_next_fec_set( fd_shredder_t * shredder,
 
     uchar * merkle = parity_shreds[ j ] + fd_shred_merkle_off( shred->variant );
     fd_bmtree_get_proof( bmtree, merkle, data_shred_cnt+j );
+  }
+
+  /* Compute the destination index for each shred */
+  /* First compute all the hashes to get the right seeds */
+  sha256 = fd_sha256_batch_init( shredder->sha256 );
+  for( ulong i=0UL; i<data_shred_cnt; i++ )
+    fd_sha256_batch_add( sha256, data_shred_dest_input+i,   sizeof(shred_dest_input_t), data_shred_dest_hash  [ i ] );
+  for( ulong j=0UL; j<parity_shred_cnt; j++ )
+    fd_sha256_batch_add( sha256, parity_shred_dest_input+j, sizeof(shred_dest_input_t), parity_shred_dest_hash[ j ] );
+  fd_sha256_batch_fini( sha256 );
+
+  for( ulong i=0UL; i<data_shred_cnt; i++ ) {
+    fd_wsample_seed_rng( fd_wsample_get_rng( shredder->sampler ), data_shred_dest_hash[ i ] );
+    result->data_shreds_dest_idx[ i ] = fd_wsample_sample( shredder->sampler );
+  }
+  for( ulong j=0UL; j<parity_shred_cnt; j++ ) {
+    fd_wsample_seed_rng( fd_wsample_get_rng( shredder->sampler ), parity_shred_dest_hash[ j ] );
+    result->parity_shreds_dest_idx[ j ] = fd_wsample_sample( shredder->sampler );
   }
 
   shredder->offset                  = offset;

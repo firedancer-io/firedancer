@@ -28,6 +28,9 @@ struct fd_fec_set {
 
   uchar * data_shreds[ FD_REEDSOL_DATA_SHREDS_MAX     ];
   uchar * parity_shreds[ FD_REEDSOL_PARITY_SHREDS_MAX ];
+
+  ulong data_shreds_dest_idx[ FD_REEDSOL_DATA_SHREDS_MAX     ];
+  ulong parity_shreds_dest_idx[ FD_REEDSOL_PARITY_SHREDS_MAX ];
 };
 typedef struct fd_fec_set fd_fec_set_t;
 
