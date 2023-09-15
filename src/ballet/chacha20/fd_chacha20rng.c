@@ -58,6 +58,7 @@ fd_chacha20rng_init( fd_chacha20rng_t * rng,
   memcpy( rng->key, key, FD_CHACHA20_KEY_SZ );
   rng->buf_off  = 0UL;
   rng->buf_fill = 0UL;
+  rng->idx      = 0U ;
   fd_chacha20rng_private_refill( rng );
   return rng;
 }
