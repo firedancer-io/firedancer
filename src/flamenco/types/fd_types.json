@@ -132,14 +132,18 @@
       "type": "struct",
       "fields": [
         { "name": "epoch", "type": "ulong" },
-        { "name": "entry", "type": "stake_history_entry" }
+        { "name": "entry", "type": "stake_history_entry" },
+        { "name": "parent", "type": "ulong", "decode": false, "encode": false, "walk": false },
+        { "name": "left", "type": "ulong", "decode": false, "encode": false, "walk": false },
+        { "name": "right", "type": "ulong", "decode": false, "encode": false, "walk": false },
+        { "name": "prio", "type": "ulong", "decode": false, "encode": false, "walk": false }
       ]
     },
     {
       "name": "stake_history",
       "type": "struct",
       "fields": [
-        { "name": "entries", "type": "map", "element": "stake_history_epochentry_pair", "key": "epoch", "minalloc":10000 }
+        { "name": "fd_stake_history_entries", "type": "treap", "treap_t": "fd_stake_history_epochentry_pair_t", "treap_query_t": "ulong", "treap_cmp": "((int)((long)((e)->epoch)-(long)(q)))", "treap_lt": "((e1)->epoch<(e0)->epoch)", "max": 1024 }
       ],
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake_history.rs#L55"
     },

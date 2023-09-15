@@ -50,6 +50,7 @@ fd_runtime_init_bank_from_genesis( fd_global_ctx_t *     global,
   global->bank.epoch_schedule = genesis_block->epoch_schedule;
   global->bank.inflation = genesis_block->inflation;
   global->bank.rent = genesis_block->rent;
+  global->bank.block_height = 0UL;
 
   fd_block_block_hash_entry_t * hashes = global->bank.recent_block_hashes.hashes =
     deq_fd_block_block_hash_entry_t_alloc( global->valloc );
@@ -77,8 +78,8 @@ fd_runtime_init_bank_from_genesis( fd_global_ctx_t *     global,
   fd_delegation_pair_t_mapnode_t * sacc_pool = fd_delegation_pair_t_map_alloc(global->valloc, 10000);
   fd_delegation_pair_t_mapnode_t * sacc_root = NULL;
 
-  fd_stake_history_epochentry_pair_t_mapnode_t * stake_history_pool = fd_stake_history_epochentry_pair_t_map_alloc(global->valloc, 10000);
-  fd_stake_history_epochentry_pair_t_mapnode_t * stake_history_root = NULL;
+  fd_stake_history_entries_treap_t * stake_history_treap = fd_stake_history_entries_treap_alloc( global->valloc );
+  fd_stake_history_epochentry_pair_t * stake_history_pool = fd_stake_history_entries_pool_alloc( global->valloc );
 
   fd_acc_lamports_t capitalization = 0UL;
 
@@ -203,8 +204,8 @@ fd_runtime_init_bank_from_genesis( fd_global_ctx_t *     global,
       .vote_accounts_root = vacc_root
     },
     .stake_history = (fd_stake_history_t) {
-      .entries_pool = stake_history_pool,
-      .entries_root = stake_history_root
+      .pool = stake_history_pool,
+      .treap = stake_history_treap
     }
   };
 
@@ -253,6 +254,10 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_meta_t* m, const void
     ulong slot_idx;
     ulong new_epoch = fd_slot_to_epoch( &global->bank.epoch_schedule, m->slot, &slot_idx );
     FD_LOG_NOTICE(( "executing block - slot: %lu, epoch: %lu, slot_idx: %lu", m->slot, new_epoch, slot_idx ));
+    if (slot_idx==1UL && new_epoch==0UL) {
+      /* the block after genesis has a height of 1*/
+      global->bank.block_height = 1UL;
+    }
     if( slot_idx==0UL ) {
       /* Epoch boundary! */
       fd_process_new_epoch( global, new_epoch - 1UL );
@@ -1646,7 +1651,6 @@ fd_process_new_epoch(
   ulong epoch = fd_slot_to_epoch(&global->bank.epoch_schedule, global->bank.slot, &slot);
   global->bank.collected_fees = 0;
   global->bank.collected_rent = 0;
-  global->bank.block_height = global->bank.block_height + 1UL;
   global->bank.max_tick_height = (slot + 1) * global->bank.ticks_per_slot;
 
   // activate feature flags

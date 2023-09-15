@@ -34,8 +34,8 @@ int fd_sysvar_stake_history_read( fd_global_ctx_t* global, fd_stake_history_t* r
 
 void fd_sysvar_stake_history_init( fd_global_ctx_t* global ) {
   fd_stake_history_t stake_history = {
-    .entries_pool = fd_stake_history_epochentry_pair_t_map_alloc( global->valloc, 100000UL ),
-    .entries_root = NULL
+    .pool = fd_stake_history_entries_pool_alloc( global->valloc ),
+    .treap = fd_stake_history_entries_treap_alloc( global->valloc )
   };
   write_stake_history( global, &stake_history );
 }
@@ -44,8 +44,10 @@ void fd_sysvar_stake_history_update( fd_global_ctx_t * global, fd_stake_history_
   // Need to make this maybe zero copies of map...
   fd_stake_history_t stake_history;
   fd_sysvar_stake_history_read( global, &stake_history);
-  fd_stake_history_epochentry_pair_t_mapnode_t * node = fd_stake_history_epochentry_pair_t_map_acquire( stake_history.entries_pool );
-  fd_memcpy(&node->elem, entry, sizeof(fd_stake_history_epochentry_pair_t));
-  fd_stake_history_epochentry_pair_t_map_insert( stake_history.entries_pool, &stake_history.entries_root, node );
+  ulong idx = fd_stake_history_entries_pool_idx_acquire( stake_history.pool );
+
+  stake_history.pool[ idx ].epoch = entry->epoch;
+  fd_memcpy(&stake_history.pool[ idx ].entry, &entry->entry, sizeof(fd_stake_history_entry_t));
+  fd_stake_history_entries_treap_idx_insert( stake_history.treap, idx, stake_history.pool );
   write_stake_history( global, &stake_history);
 }

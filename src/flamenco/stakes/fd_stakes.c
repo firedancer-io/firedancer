@@ -174,8 +174,8 @@ fd_stake_history_entry_t stake_and_activating( fd_delegation_t const * delegatio
 
   fd_stake_history_entry_t * cluster_stake_at_activation_epoch = NULL;
 
-  fd_stake_history_epochentry_pair_t_mapnode_t k;
-  k.elem.epoch = delegation->activation_epoch;
+  fd_stake_history_epochentry_pair_t k;
+  k.epoch = delegation->activation_epoch;
 
 
   if (delegation->activation_epoch == ULONG_MAX) {
@@ -208,10 +208,10 @@ fd_stake_history_entry_t stake_and_activating( fd_delegation_t const * delegatio
     return entry;
   }
   else if (stake_history != NULL) {
-    fd_stake_history_epochentry_pair_t_mapnode_t* n = fd_stake_history_epochentry_pair_t_map_find( stake_history->entries_pool, stake_history->entries_root, &k );
+    fd_stake_history_epochentry_pair_t * n = fd_stake_history_entries_treap_ele_query( stake_history->treap, k.epoch, stake_history->pool );
 
     if (NULL != n)
-      cluster_stake_at_activation_epoch = &n->elem.entry;
+      cluster_stake_at_activation_epoch = &n->entry;
 
     if (cluster_stake_at_activation_epoch == NULL) {
       fd_stake_history_entry_t entry = {
@@ -251,13 +251,14 @@ fd_stake_history_entry_t stake_and_activating( fd_delegation_t const * delegatio
       }
 
       // Find the current epoch in history
-      fd_stake_history_epochentry_pair_t_mapnode_t k;
-      k.elem.epoch = current_epoch;
-      fd_stake_history_epochentry_pair_t_mapnode_t* n = fd_stake_history_epochentry_pair_t_map_find( stake_history->entries_pool, stake_history->entries_root, &k );
+      fd_stake_history_epochentry_pair_t k;
+      k.epoch = current_epoch;
+      fd_stake_history_epochentry_pair_t * n = fd_stake_history_entries_treap_ele_query( stake_history->treap, k.epoch, stake_history->pool );
+
 
       if (NULL != n) {
         prev_epoch = current_epoch;
-        prev_cluster_stake = &n->elem.entry;
+        prev_cluster_stake = &n->entry;
       } else
         break;
     }
@@ -287,8 +288,8 @@ fd_stake_history_entry_t stake_activating_and_deactivating( fd_delegation_t cons
 
   fd_stake_history_entry_t * cluster_stake_at_activation_epoch = NULL;
 
-  fd_stake_history_epochentry_pair_t_mapnode_t k;
-  k.elem.epoch = delegation->deactivation_epoch;
+  fd_stake_history_epochentry_pair_t k;
+  k.epoch = delegation->deactivation_epoch;
 
   if (target_epoch < delegation->deactivation_epoch) {
     // if is bootstrap
@@ -315,10 +316,11 @@ fd_stake_history_entry_t stake_activating_and_deactivating( fd_delegation_t cons
     };
     return entry;
   } else if (stake_history != NULL) {
-    fd_stake_history_epochentry_pair_t_mapnode_t* n = fd_stake_history_epochentry_pair_t_map_find( stake_history->entries_pool, stake_history->entries_root, &k );
+    fd_stake_history_epochentry_pair_t * n = fd_stake_history_entries_treap_ele_query( stake_history->treap, k.epoch, stake_history->pool );
+
 
     if (NULL != n) {
-      cluster_stake_at_activation_epoch = &n->elem.entry;
+      cluster_stake_at_activation_epoch = &n->entry;
     }
 
     if (cluster_stake_at_activation_epoch == NULL) {
@@ -357,13 +359,14 @@ fd_stake_history_entry_t stake_activating_and_deactivating( fd_delegation_t cons
       }
 
       // Find the current epoch in history
-      fd_stake_history_epochentry_pair_t_mapnode_t k;
-      k.elem.epoch = current_epoch;
-      fd_stake_history_epochentry_pair_t_mapnode_t* n = fd_stake_history_epochentry_pair_t_map_find( stake_history->entries_pool, stake_history->entries_root, &k );
+      fd_stake_history_epochentry_pair_t k;
+      k.epoch = current_epoch;
+      fd_stake_history_epochentry_pair_t * n = fd_stake_history_entries_treap_ele_query( stake_history->treap, k.epoch, stake_history->pool );
+;
 
       if (NULL != n) {
         prev_epoch = current_epoch;
-        prev_cluster_stake = &n->elem.entry;
+        prev_cluster_stake = &n->entry;
       } else
         break;
     }
@@ -397,28 +400,33 @@ void activate_epoch( fd_global_ctx_t* global, ulong next_epoch ) {
      https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L180 */
   /* Add a new entry to the Stake History sysvar for the previous epoch
      https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L181-L192 */
-  fd_stake_history_epochentry_pair_t_mapnode_t * stake_history_pool = stakes->stake_history.entries_pool;
-  fd_stake_history_epochentry_pair_t_mapnode_t * stake_history_root = stakes->stake_history.entries_root;
+
   fd_stake_history_t history;
   fd_sysvar_stake_history_read( global,  &history);
 
-  fd_stake_history_epochentry_pair_t_mapnode_t * acc = fd_stake_history_epochentry_pair_t_map_acquire( stake_history_pool );
-  acc->elem.entry = (fd_stake_history_entry_t){
+  fd_stake_history_entry_t accumulator = {
     .effective = 0,
     .activating = 0,
     .deactivating = 0
   };
-  acc->elem.epoch = stakes->epoch;
 
-
+  ulong new_rate_activation_epoch = 0UL;
   for ( fd_delegation_pair_t_mapnode_t * n = fd_delegation_pair_t_map_minimum(stakes->stake_delegations_pool, stakes->stake_delegations_root); n; n = fd_delegation_pair_t_map_successor(stakes->stake_delegations_pool, n) ) {
-    fd_stake_history_entry_t new_entry = stake_activating_and_deactivating( &n->elem.delegation, stakes->epoch, &history, NULL );
-    acc->elem.entry.effective += new_entry.effective;
-    acc->elem.entry.activating += new_entry.activating;
-    acc->elem.entry.deactivating += new_entry.deactivating;
+    // FD_LOG_NOTICE(( "iterating delegation stake=%lu activation_epoch=%lu deactivation_epoch=%lu voter_pubkey=%32J warmup_cooldown_rate=%f", n->elem.delegation.stake, n->elem.delegation.activation_epoch, n->elem.delegation.deactivation_epoch, n->elem.delegation.voter_pubkey, n->elem.delegation.warmup_cooldown_rate ));
+    fd_stake_history_entry_t new_entry = stake_activating_and_deactivating( &n->elem.delegation, stakes->epoch, &history, &new_rate_activation_epoch );
+    accumulator.effective += new_entry.effective;
+    accumulator.activating += new_entry.activating;
+    accumulator.deactivating += new_entry.deactivating;
   }
-  acc = fd_stake_history_epochentry_pair_t_map_insert( stake_history_pool, &stake_history_root, acc );
-  fd_sysvar_stake_history_update( global, &acc->elem);
+
+  fd_stake_history_epochentry_pair_t new_elem = {
+    .epoch = stakes->epoch,
+    .entry = accumulator
+  };
+
+  ulong idx = fd_stake_history_entries_pool_idx_acquire( stakes->stake_history.pool );
+  stakes->stake_history.pool[ idx ] = new_elem;
+  fd_sysvar_stake_history_update( global, &new_elem);
 
   /* Update the current epoch value */
   stakes->epoch = next_epoch;
@@ -429,8 +437,9 @@ void activate_epoch( fd_global_ctx_t* global, ulong next_epoch ) {
   fd_stake_weight_t_mapnode_t * pool = fd_stake_weight_t_map_alloc(global->valloc, 10000);
   fd_stake_weight_t_mapnode_t * root = NULL;
 
+  fd_sysvar_stake_history_read( global,  &history);
   for ( fd_delegation_pair_t_mapnode_t * n = fd_delegation_pair_t_map_minimum(stakes->stake_delegations_pool, stakes->stake_delegations_root); n; n = fd_delegation_pair_t_map_successor(stakes->stake_delegations_pool, n) ) {
-    ulong delegation_stake = stake_activating_and_deactivating( &n->elem.delegation, stakes->epoch, &history, NULL ).effective;
+    ulong delegation_stake = stake_activating_and_deactivating( &n->elem.delegation, stakes->epoch, &history, &new_rate_activation_epoch ).effective;
     fd_stake_weight_t_mapnode_t temp;
     fd_memcpy(&temp.elem.key, &n->elem.delegation.voter_pubkey, sizeof(fd_pubkey_t));
     fd_stake_weight_t_mapnode_t * entry  = fd_stake_weight_t_map_find(pool, root, &temp);

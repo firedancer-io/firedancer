@@ -268,7 +268,6 @@ def do_treap_body_decode(n, f):
     print(f'    {treap_t} * ele = {pool_name}_ele_acquire( self->pool );', file=body)
     print(f'    err = {treap_t.rstrip("_t")}_decode( ele, ctx );', file=body)
     print(f'    if ( FD_UNLIKELY ( err ) ) return err;', file=body)
-    print(f'    ele->prio = (ulong)&ele->pubkey;', file=body)
     print(f'    {treap_name}_ele_insert( self->treap, ele, self->pool ); /* this cannot fail */', file=body);
     print('  }', file=body)
 
@@ -857,7 +856,8 @@ def do_treap_body_destroy(n, f):
     treap_t = f['treap_t']
     pool = f['name'] + '_pool'
 
-    print(f'    for ( {treap_name}_fwd_iter_t iter = {treap_name}_fwd_iter_init( self->treap, self->pool );', file=body);
+    print(f'  if ( !self->treap || !self->pool ) return;', file=body)
+    print(f'  for ( {treap_name}_fwd_iter_t iter = {treap_name}_fwd_iter_init( self->treap, self->pool );', file=body);
     print(f'          !{treap_name}_fwd_iter_done( iter );', file=body);
     print(f'          iter = {treap_name}_fwd_iter_next( iter, self->pool ) ) {{', file=body);
     print(f'      {treap_t} * ele = {treap_name}_fwd_iter_ele( iter, self->pool );', file=body)

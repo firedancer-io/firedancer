@@ -168,8 +168,8 @@ static void calculate_and_redeem_stake_rewards(
     result->new_credits_observed = stake_points_result.new_credits_observed;
 
     /* implements the `redeem_stake_rewards` solana function */
-    stake_state->inner.stake.stake.credits_observed += result->new_credits_observed;
-    stake_state->inner.stake.stake.delegation.stake += result->staker_rewards;
+    // stake_state->inner.stake.stake.credits_observed += result->new_credits_observed;
+    // stake_state->inner.stake.stake.delegation.stake += result->staker_rewards;
     return;
 }
 
@@ -301,17 +301,17 @@ calculate_reward_points_partitioned(
             continue;
         }
 
-        fd_account_meta_t const * meta2 = NULL;
+        fd_account_meta_t const * meta = NULL;
         uchar const *             data  = NULL;
-        int read_err = fd_acc_mgr_view( global->acc_mgr, global->funk_txn, voter_acc, NULL, &meta2, &data );
-        if( read_err!=0 || 0!=memcmp( &meta2->info.owner, global->solana_vote_program, sizeof(fd_pubkey_t) ) ) {
+        int read_err = fd_acc_mgr_view( global->acc_mgr, global->funk_txn, voter_acc, NULL, &meta, &data );
+        if( read_err!=0 || 0!=memcmp( &meta->info.owner, global->solana_vote_program, sizeof(fd_pubkey_t) ) ) {
             continue;
         }
 
         /* Deserialize vote account */
         fd_bincode_decode_ctx_t decode = {
             .data    = data,
-            .dataend = data + meta2->dlen,
+            .dataend = data + meta->dlen,
             /* TODO: Make this a instruction-scoped allocator */
             .valloc  = global->valloc,
         };
@@ -659,6 +659,7 @@ begin_partitioned_rewards(
         rewards_result
     );
     ulong credit_end_exclusive = self->block_height + REWARD_CALCULATION_NUM_BLOCK + rewards_result->stake_rewards_by_partition->cnt;
+    FD_LOG_DEBUG(("self->block_height=%lu, rewards_result->stake_rewards_by_parrition->cnt=%lu", self->block_height, rewards_result->stake_rewards_by_partition->cnt));
 
     // self.set_epoch_reward_status_active(stake_rewards_by_partition);
     global->epoch_reward_status = (fd_epoch_reward_status_t){
@@ -703,8 +704,14 @@ distribute_partitioned_epoch_rewards(
             }
 
             /* implements the `redeem_stake_rewards` solana function */
-            stake_state.inner.stake.stake.credits_observed += this_partition_stake_rewards.elems[i]->reward_info.new_credits_observed;
+            stake_state.inner.stake.stake.credits_observed = this_partition_stake_rewards.elems[i]->reward_info.new_credits_observed;
             stake_state.inner.stake.stake.delegation.stake += this_partition_stake_rewards.elems[i]->reward_info.staker_rewards;
+            fd_delegation_pair_t_mapnode_t query_node;
+            fd_memcpy(&query_node.elem.account, stake_acc, sizeof(fd_pubkey_t));
+            fd_delegation_pair_t_mapnode_t * node = fd_delegation_pair_t_map_find(global->bank.stakes.stake_delegations_pool, global->bank.stakes.stake_delegations_root, &query_node);
+            if (node != NULL) {
+                node->elem.delegation.stake += this_partition_stake_rewards.elems[i]->reward_info.staker_rewards;
+            }
 
             /* write_stake_state */
             int err = write_stake_state( global, stake_acc, &stake_state, 0);

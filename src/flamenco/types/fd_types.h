@@ -131,34 +131,46 @@ typedef struct fd_stake_history_entry fd_stake_history_entry_t;
 struct __attribute__((aligned(8UL))) fd_stake_history_epochentry_pair {
   ulong epoch;
   fd_stake_history_entry_t entry;
+  ulong parent;
+  ulong left;
+  ulong right;
+  ulong prio;
 };
 typedef struct fd_stake_history_epochentry_pair fd_stake_history_epochentry_pair_t;
 #define FD_STAKE_HISTORY_EPOCHENTRY_PAIR_FOOTPRINT sizeof(fd_stake_history_epochentry_pair_t)
 #define FD_STAKE_HISTORY_EPOCHENTRY_PAIR_ALIGN (8UL)
 
-typedef struct fd_stake_history_epochentry_pair_t_mapnode fd_stake_history_epochentry_pair_t_mapnode_t;
-#define REDBLK_T fd_stake_history_epochentry_pair_t_mapnode_t
-#define REDBLK_NAME fd_stake_history_epochentry_pair_t_map
-#define REDBLK_IMPL_STYLE 1
-#include "../../util/tmpl/fd_redblack.c"
-#undef REDBLK_T
-#undef REDBLK_NAME
-struct fd_stake_history_epochentry_pair_t_mapnode {
-    fd_stake_history_epochentry_pair_t elem;
-    ulong redblack_parent;
-    ulong redblack_left;
-    ulong redblack_right;
-    int redblack_color;
-};
-static inline fd_stake_history_epochentry_pair_t_mapnode_t *
-fd_stake_history_epochentry_pair_t_map_alloc( fd_valloc_t valloc, ulong len ) {
-  void * mem = fd_valloc_malloc( valloc, fd_stake_history_epochentry_pair_t_map_align(), fd_stake_history_epochentry_pair_t_map_footprint(len));
-  return fd_stake_history_epochentry_pair_t_map_join(fd_stake_history_epochentry_pair_t_map_new(mem, len));
+#define FD_STAKE_HISTORY_ENTRIES_MAX 1024
+#define POOL_NAME fd_stake_history_entries_pool
+#define POOL_T fd_stake_history_epochentry_pair_t
+#define POOL_NEXT parent
+#include "../../util/tmpl/fd_pool.c"
+static inline fd_stake_history_epochentry_pair_t *
+fd_stake_history_entries_pool_alloc( fd_valloc_t valloc ) {
+  return fd_stake_history_entries_pool_join( fd_stake_history_entries_pool_new(
+      fd_valloc_malloc( valloc,
+                        fd_stake_history_entries_pool_align(),
+                        fd_stake_history_entries_pool_footprint( FD_STAKE_HISTORY_ENTRIES_MAX ) ),
+      FD_STAKE_HISTORY_ENTRIES_MAX ) );
+}
+#define TREAP_NAME fd_stake_history_entries_treap
+#define TREAP_T fd_stake_history_epochentry_pair_t
+#define TREAP_QUERY_T ulong
+#define TREAP_CMP(q,e) ((int)((long)((e)->epoch)-(long)(q)))
+#define TREAP_LT(e0,e1) ((e1)->epoch<(e0)->epoch)
+#include "../../util/tmpl/fd_treap.c"
+static inline fd_stake_history_entries_treap_t *
+fd_stake_history_entries_treap_alloc( fd_valloc_t valloc ) {
+  return fd_stake_history_entries_treap_join( fd_stake_history_entries_treap_new(
+      fd_valloc_malloc( valloc,
+                        fd_stake_history_entries_treap_align(),
+                        fd_stake_history_entries_treap_footprint( FD_STAKE_HISTORY_ENTRIES_MAX ) ),
+      FD_STAKE_HISTORY_ENTRIES_MAX ) );
 }
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake_history.rs#L55 */
 struct __attribute__((aligned(8UL))) fd_stake_history {
-  fd_stake_history_epochentry_pair_t_mapnode_t * entries_pool;
-  fd_stake_history_epochentry_pair_t_mapnode_t * entries_root;
+  fd_stake_history_epochentry_pair_t * pool;
+  fd_stake_history_entries_treap_t * treap;
 };
 typedef struct fd_stake_history fd_stake_history_t;
 #define FD_STAKE_HISTORY_FOOTPRINT sizeof(fd_stake_history_t)

@@ -738,6 +738,10 @@ ulong fd_stake_history_epochentry_pair_size(fd_stake_history_epochentry_pair_t c
   ulong size = 0;
   size += sizeof(ulong);
   size += fd_stake_history_entry_size(&self->entry);
+  size += sizeof(ulong);
+  size += sizeof(ulong);
+  size += sizeof(ulong);
+  size += sizeof(ulong);
   return size;
 }
 
@@ -752,17 +756,18 @@ int fd_stake_history_epochentry_pair_encode(fd_stake_history_epochentry_pair_t c
 
 int fd_stake_history_decode(fd_stake_history_t* self, fd_bincode_decode_ctx_t * ctx) {
   int err;
-  ulong entries_len;
-  err = fd_bincode_uint64_decode(&entries_len, ctx);
+  ulong fd_stake_history_entries_treap_len;
+  err = fd_bincode_uint64_decode(&fd_stake_history_entries_treap_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  self->entries_pool = fd_stake_history_epochentry_pair_t_map_alloc(ctx->valloc, fd_ulong_max(entries_len, 10000));
-  self->entries_root = NULL;
-  for (ulong i = 0; i < entries_len; ++i) {
-    fd_stake_history_epochentry_pair_t_mapnode_t* node = fd_stake_history_epochentry_pair_t_map_acquire(self->entries_pool);
-    fd_stake_history_epochentry_pair_new(&node->elem);
-    err = fd_stake_history_epochentry_pair_decode(&node->elem, ctx);
-    if ( FD_UNLIKELY(err) ) return err;
-    fd_stake_history_epochentry_pair_t_map_insert(self->entries_pool, &self->entries_root, node);
+  FD_TEST( fd_stake_history_entries_treap_len < FD_STAKE_HISTORY_ENTRIES_MAX );
+  self->pool = fd_stake_history_entries_pool_alloc( ctx->valloc );
+  self->treap = fd_stake_history_entries_treap_alloc( ctx->valloc );
+  for (ulong i = 0; i < fd_stake_history_entries_treap_len; ++i) {
+    if ( FD_UNLIKELY( err ) ) return err;
+    fd_stake_history_epochentry_pair_t * ele = fd_stake_history_entries_pool_ele_acquire( self->pool );
+    err = fd_stake_history_epochentry_pair_decode( ele, ctx );
+    if ( FD_UNLIKELY ( err ) ) return err;
+    fd_stake_history_entries_treap_ele_insert( self->treap, ele, self->pool ); /* this cannot fail */
   }
   return FD_BINCODE_SUCCESS;
 }
@@ -770,12 +775,17 @@ void fd_stake_history_new(fd_stake_history_t* self) {
   fd_memset(self, 0, sizeof(fd_stake_history_t));
 }
 void fd_stake_history_destroy(fd_stake_history_t* self, fd_bincode_destroy_ctx_t * ctx) {
-  for ( fd_stake_history_epochentry_pair_t_mapnode_t* n = fd_stake_history_epochentry_pair_t_map_minimum(self->entries_pool, self->entries_root); n; n = fd_stake_history_epochentry_pair_t_map_successor(self->entries_pool, n) ) {
-    fd_stake_history_epochentry_pair_destroy(&n->elem, ctx);
-  }
-  fd_valloc_free( ctx->valloc, fd_stake_history_epochentry_pair_t_map_delete(fd_stake_history_epochentry_pair_t_map_leave( self->entries_pool) ) );
-  self->entries_pool = NULL;
-  self->entries_root = NULL;
+  if ( !self->treap || !self->pool ) return;
+  for ( fd_stake_history_entries_treap_fwd_iter_t iter = fd_stake_history_entries_treap_fwd_iter_init( self->treap, self->pool );
+          !fd_stake_history_entries_treap_fwd_iter_done( iter );
+          iter = fd_stake_history_entries_treap_fwd_iter_next( iter, self->pool ) ) {
+      fd_stake_history_epochentry_pair_t * ele = fd_stake_history_entries_treap_fwd_iter_ele( iter, self->pool );
+      fd_stake_history_epochentry_pair_destroy( ele, ctx );
+    }
+  fd_valloc_free( ctx->valloc, fd_stake_history_entries_treap_delete(fd_stake_history_entries_treap_leave( self->treap) ) );
+  fd_valloc_free( ctx->valloc, fd_stake_history_entries_pool_delete(fd_stake_history_entries_pool_leave( self->pool) ) );
+  self->pool = NULL;
+  self->treap = NULL;
 }
 
 ulong fd_stake_history_footprint( void ){ return FD_STAKE_HISTORY_FOOTPRINT; }
@@ -783,39 +793,46 @@ ulong fd_stake_history_align( void ){ return FD_STAKE_HISTORY_ALIGN; }
 
 void fd_stake_history_walk(void * w, fd_stake_history_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_stake_history", level++);
-  if (self->entries_root) {
-    for ( fd_stake_history_epochentry_pair_t_mapnode_t* n = fd_stake_history_epochentry_pair_t_map_minimum(self->entries_pool, self->entries_root); n; n = fd_stake_history_epochentry_pair_t_map_successor(self->entries_pool, n) ) {
-      fd_stake_history_epochentry_pair_walk(w, &n->elem, fun, "entries", level );
+  if (self->treap) {
+    for ( fd_stake_history_entries_treap_fwd_iter_t iter = fd_stake_history_entries_treap_fwd_iter_init( self->treap, self->pool );
+          !fd_stake_history_entries_treap_fwd_iter_done( iter );
+          iter = fd_stake_history_entries_treap_fwd_iter_next( iter, self->pool ) ) {
+      fd_stake_history_epochentry_pair_t * ele = fd_stake_history_entries_treap_fwd_iter_ele( iter, self->pool );
+      fd_stake_history_epochentry_pair_walk(w, ele, fun, "fd_stake_history_epochentry_pair_t", level );
     }
   }
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_stake_history", level--);
 }
 ulong fd_stake_history_size(fd_stake_history_t const * self) {
   ulong size = 0;
-  if (self->entries_root) {
-    size += sizeof(ulong);
-    for ( fd_stake_history_epochentry_pair_t_mapnode_t* n = fd_stake_history_epochentry_pair_t_map_minimum(self->entries_pool, self->entries_root); n; n = fd_stake_history_epochentry_pair_t_map_successor(self->entries_pool, n) ) {
-      size += fd_stake_history_epochentry_pair_size(&n->elem);
+  size += sizeof(ulong);
+  if (self->treap) {
+    for ( fd_stake_history_entries_treap_fwd_iter_t iter = fd_stake_history_entries_treap_fwd_iter_init( self->treap, self->pool );
+          !fd_stake_history_entries_treap_fwd_iter_done( iter );
+          iter = fd_stake_history_entries_treap_fwd_iter_next( iter, self->pool ) ) {
+      fd_stake_history_epochentry_pair_t * ele = fd_stake_history_entries_treap_fwd_iter_ele( iter, self->pool );
+      size += fd_stake_history_epochentry_pair_size( ele );
     }
-  } else {
-    size += sizeof(ulong);
   }
   return size;
 }
 
 int fd_stake_history_encode(fd_stake_history_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  if (self->entries_root) {
-    ulong entries_len = fd_stake_history_epochentry_pair_t_map_size(self->entries_pool, self->entries_root);
-    err = fd_bincode_uint64_encode(&entries_len, ctx);
-    if ( FD_UNLIKELY(err) ) return err;
-    for ( fd_stake_history_epochentry_pair_t_mapnode_t* n = fd_stake_history_epochentry_pair_t_map_minimum(self->entries_pool, self->entries_root); n; n = fd_stake_history_epochentry_pair_t_map_successor(self->entries_pool, n) ) {
-      err = fd_stake_history_epochentry_pair_encode(&n->elem, ctx);
+  if (self->treap) {
+    ulong fd_stake_history_entries_len = fd_stake_history_entries_treap_ele_cnt( self->treap );
+    err = fd_bincode_uint64_encode( &fd_stake_history_entries_len, ctx );
+    if ( FD_UNLIKELY( err ) ) return err;
+    for ( fd_stake_history_entries_treap_fwd_iter_t iter = fd_stake_history_entries_treap_fwd_iter_init( self->treap, self->pool );
+          !fd_stake_history_entries_treap_fwd_iter_done( iter );
+          iter = fd_stake_history_entries_treap_fwd_iter_next( iter, self->pool ) ) {
+      fd_stake_history_epochentry_pair_t * ele = fd_stake_history_entries_treap_fwd_iter_ele( iter, self->pool );
+      err = fd_stake_history_epochentry_pair_encode( ele, ctx );
       if ( FD_UNLIKELY(err) ) return err;
     }
   } else {
-    ulong entries_len = 0;
-    err = fd_bincode_uint64_encode(&entries_len, ctx);
+    ulong fd_stake_history_entries_len = 0;
+    err = fd_bincode_uint64_encode(&fd_stake_history_entries_len, ctx);
     if ( FD_UNLIKELY(err) ) return err;
   }
   return FD_BINCODE_SUCCESS;
@@ -3904,7 +3921,6 @@ int fd_vote_authorized_voters_decode(fd_vote_authorized_voters_t* self, fd_binco
     fd_vote_authorized_voter_t * ele = fd_vote_authorized_voters_pool_ele_acquire( self->pool );
     err = fd_vote_authorized_voter_decode( ele, ctx );
     if ( FD_UNLIKELY ( err ) ) return err;
-    ele->prio = (ulong)&ele->pubkey;
     fd_vote_authorized_voters_treap_ele_insert( self->treap, ele, self->pool ); /* this cannot fail */
   }
   return FD_BINCODE_SUCCESS;
@@ -3913,7 +3929,8 @@ void fd_vote_authorized_voters_new(fd_vote_authorized_voters_t* self) {
   fd_memset(self, 0, sizeof(fd_vote_authorized_voters_t));
 }
 void fd_vote_authorized_voters_destroy(fd_vote_authorized_voters_t* self, fd_bincode_destroy_ctx_t * ctx) {
-    for ( fd_vote_authorized_voters_treap_fwd_iter_t iter = fd_vote_authorized_voters_treap_fwd_iter_init( self->treap, self->pool );
+  if ( !self->treap || !self->pool ) return;
+  for ( fd_vote_authorized_voters_treap_fwd_iter_t iter = fd_vote_authorized_voters_treap_fwd_iter_init( self->treap, self->pool );
           !fd_vote_authorized_voters_treap_fwd_iter_done( iter );
           iter = fd_vote_authorized_voters_treap_fwd_iter_next( iter, self->pool ) ) {
       fd_vote_authorized_voter_t * ele = fd_vote_authorized_voters_treap_fwd_iter_ele( iter, self->pool );
@@ -14004,15 +14021,6 @@ int fd_gossip_msg_encode(fd_gossip_msg_t const * self, fd_bincode_encode_ctx_t *
   return fd_gossip_msg_inner_encode(&self->inner, self->discriminant, ctx);
 }
 
-#define REDBLK_T fd_stake_history_epochentry_pair_t_mapnode_t
-#define REDBLK_NAME fd_stake_history_epochentry_pair_t_map
-#define REDBLK_IMPL_STYLE 2
-#include "../../util/tmpl/fd_redblack.c"
-#undef REDBLK_T
-#undef REDBLK_NAME
-long fd_stake_history_epochentry_pair_t_map_compare(fd_stake_history_epochentry_pair_t_mapnode_t * left, fd_stake_history_epochentry_pair_t_mapnode_t * right) {
-  return (long)(left->elem.epoch - right->elem.epoch);
-}
 #define REDBLK_T fd_vote_accounts_pair_t_mapnode_t
 #define REDBLK_NAME fd_vote_accounts_pair_t_map
 #define REDBLK_IMPL_STYLE 2
