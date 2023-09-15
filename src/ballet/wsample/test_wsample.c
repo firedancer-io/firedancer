@@ -182,12 +182,12 @@ test_matches_solana( void ) {
   fd_chacha20rng_t _rng[1];
   fd_chacha20rng_t * rng = fd_chacha20rng_join( fd_chacha20rng_new( _rng ) );
   uchar zero_seed[32] = {0};
-  fd_chacha20rng_init( rng, zero_seed );
 
   weights[0] = 2UL;
   weights[1] = 1UL;
 
   fd_wsample_t * tree = fd_wsample_join( fd_wsample_new( _shmem, rng, weights, 2UL, FD_WSAMPLE_HINT_FLAT ) );
+  fd_wsample_seed_rng( fd_wsample_get_rng( tree ), zero_seed );
 
   FD_TEST( fd_wsample_sample( tree ) == 0UL );
   FD_TEST( fd_wsample_sample( tree ) == 0UL );
@@ -199,7 +199,6 @@ test_matches_solana( void ) {
   FD_TEST( fd_wsample_sample( tree ) == 0UL );
 
   fd_wsample_delete( fd_wsample_leave( tree ) );
-  fd_chacha20rng_delete( fd_chacha20rng_leave( rng ) );
 
   /* Adopted from test_weighted_shuffle_hard_coded, except they handle
      the special case for 0 weights inside their WeightedShuffle object,
@@ -208,10 +207,11 @@ test_matches_solana( void ) {
   ulong weights2[18] = { 78, 70, 38, 27, 21, 82, 42, 21, 77, 77, 17, 4, 50, 96, 83, 33, 16, 72 };
 
   memset( zero_seed, 48, 32UL );
-  rng = fd_chacha20rng_join( fd_chacha20rng_new( _rng ) );
   fd_chacha20rng_init( rng, zero_seed );
 
   tree = fd_wsample_join( fd_wsample_new( _shmem, rng, weights2, 18UL, FD_WSAMPLE_HINT_FLAT ) );
+  fd_wsample_seed_rng( fd_wsample_get_rng( tree ), zero_seed );
+
   FD_TEST( fd_wsample_sample_and_delete( tree ) ==  9UL );
   FD_TEST( fd_wsample_sample_and_delete( tree ) ==  3UL );
   FD_TEST( fd_wsample_sample_and_delete( tree ) == 12UL );
@@ -232,6 +232,7 @@ test_matches_solana( void ) {
   FD_TEST( fd_wsample_sample_and_delete( tree ) ==  7UL );
 
   fd_wsample_delete( fd_wsample_leave( tree ) );
+  fd_chacha20rng_delete( fd_chacha20rng_leave( rng ) );
 }
 
 static void
@@ -276,16 +277,17 @@ static inline void
 test_map( void ) {
   fd_chacha20rng_t _rng[1];
   fd_chacha20rng_t * rng = fd_chacha20rng_join( fd_chacha20rng_new( _rng ) );
-  fd_chacha20rng_init( rng, seed );
 
   ulong sz=1018UL;
   for( ulong i=0UL; i<sz; i++ ) weights[i] = 2000000UL / (i+1UL);
   fd_wsample_t * tree = fd_wsample_join( fd_wsample_new( _shmem, rng, weights, sz, FD_WSAMPLE_HINT_POWERLAW_NODELETE ) );
+  fd_wsample_seed_rng( fd_wsample_get_rng( tree ), seed );
 
   ulong x = 0UL;
   for( ulong i=0UL; i<sz; i++ ) for( ulong j=0UL; j<weights[i]; j++ ) FD_TEST( fd_wsample_map_sample( tree, x++ )==i );
 
   fd_wsample_delete( fd_wsample_leave( tree ) );
+  fd_chacha20rng_delete( fd_chacha20rng_leave( rng ) );
 }
 
 
@@ -297,6 +299,8 @@ main( int     argc,
   FD_TEST( fd_wsample_footprint( UINT_MAX ) == 0UL         );
   FD_TEST( fd_wsample_footprint( MAX      )                );
   FD_TEST( fd_wsample_footprint( MAX      )<MAX_FOOTPRINT  );
+
+  for( ulong i=0UL; i<=(ulong)UINT_MAX+11UL; i+=11UL ) FD_TEST( fd_wsample_footprint( i ) == FD_WSAMPLE_FOOTPRINT( i ) );
 
   test_matches_solana();
   test_map();
