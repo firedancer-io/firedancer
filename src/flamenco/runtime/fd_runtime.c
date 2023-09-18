@@ -1647,7 +1647,7 @@ fd_process_new_epoch(
   // Add new entry to stakes.stake_history, set appropriate epoch and
   // update vote accounts with warmed up stakes before saving a
   // snapshot of stakes in epoch stakes
-  activate_epoch( global, epoch );
+  fd_stakes_activate_epoch( global, epoch );
 
   // (We might not implement this part)
   /* Save a snapshot of stakes for use in consensus and stake weighted networking

@@ -392,7 +392,9 @@ fd_stake_history_entry_t stake_activating_and_deactivating( fd_delegation_t cons
 
 
 /* https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L169 */
-void activate_epoch( fd_global_ctx_t* global, ulong next_epoch ) {
+void
+fd_stakes_activate_epoch( fd_global_ctx_t * global,
+                          ulong             next_epoch ) {
 
   fd_stakes_t* stakes = &global->bank.stakes;
 
