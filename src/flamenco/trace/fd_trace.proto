@@ -1,0 +1,86 @@
+syntax = "proto2";
+package io.firedancer.trace;
+
+import "nanopb.proto";
+option (nanopb_fileopt).package = "fd_soltrace";
+option (nanopb_fileopt).fallback_type = FT_POINTER;
+
+import "src/flamenco/types/fd_solana_block.proto";
+
+enum CompressionFormat {
+    // None is uncompressed data
+    None = 0;
+
+    // Zstd marks a Zstandard compressed byte stream (no dictionary)
+    Zstd = 1;
+}
+
+message AccountMeta {
+    required uint64 lamports = 1;
+    required uint64 slot = 2;
+    required uint64 rent_epoch = 3;
+    required bytes owner = 4
+        [(nanopb).max_size = 32, (nanopb).fixed_length = true];
+    required bool executable = 5;
+}
+
+message Account {
+    required AccountMeta meta = 1;
+    required CompressionFormat data_compression = 2;
+    required bytes data = 3;
+}
+
+message KeyedAccount {
+    required bytes pubkey = 1
+        [(nanopb).max_size = 32, (nanopb).fixed_length = true];
+    required Account account = 2;
+}
+
+message ValidatorStake {
+    required bytes vote_account_key = 1
+        [(nanopb).max_size = 32, (nanopb).fixed_length = true];
+
+    required uint64 lamports = 2;
+}
+
+message ImplicitState {
+    repeated KeyedAccount sysvars = 1;
+
+    optional uint64 slot = 2;
+
+    optional uint64 prev_slot = 3;
+
+    optional bytes poh = 4
+        [(nanopb).max_size = 32, (nanopb).fixed_length = true];
+
+    optional bytes bank_hash = 5
+        [(nanopb).max_size = 32, (nanopb).fixed_length = true];
+
+    optional uint64 capitalization = 6;
+
+    optional uint64 block_height = 7;
+
+    repeated ValidatorStake epoch_stakes = 8;
+}
+
+// TxnExecInputs contains the complete set of inputs to perform a
+// standalone transaction execution.
+message TxnExecInput {
+    required .solana.storage.ConfirmedBlock.Message transaction = 1;
+
+    // A list of accounts.  Length must match the number of accounts
+    // specified in the transaction.
+    repeated Account accounts = 2;
+
+    required ImplicitState state = 3;
+
+    // TODO set feature set
+}
+
+message ProgTrace {
+    repeated uint32 trace = 1;
+}
+
+message TxnExecTrace {
+    repeated Account account = 1;
+}
