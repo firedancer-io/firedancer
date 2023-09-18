@@ -419,12 +419,20 @@ fd_ed25519_verify( void const *  msg,
 # if FD_ED25519_VERIFY_USE_2POINT
   /* Comparison:
        r.x * R.Z == R.X
-       r.y * R.Z == R.Y */
-  fd_ed25519_fe_t x_Z; fd_ed25519_fe_t y_Z;
-  fd_ed25519_fe_mul2( &x_Z, R->Z, rD->X,
-                      &y_Z, R->Z, rD->Y );
-  return (memcmp( &x_Z, R->X, 32UL ) |
-          memcmp( &y_Z, R->Y, 32UL ) ) ? FD_ED25519_ERR_MSG : FD_ED25519_SUCCESS;
+       r.y * R.Z == R.Y
+     mod p*/
+
+  uchar xcheck[32] __attribute__((aligned(32))); uchar ycheck[32] __attribute__((aligned(32)));
+  fd_ed25519_fe_t dx[1];                         fd_ed25519_fe_t dy[1];
+  fd_ed25519_fe_mul2( dx, R->Z, rD->X,           dy, R->Z, rD->Y );
+  fd_ed25519_fe_sub( dx, dx, R->X );             fd_ed25519_fe_sub( dy, dy, R->Y );
+  fd_ed25519_fe_tobytes( xcheck, dx );           fd_ed25519_fe_tobytes( ycheck, dy );
+
+  uchar zcheck[32] __attribute__((aligned(32)));
+  memset( zcheck, 0, 32UL );
+  if( FD_UNLIKELY( (!!memcmp( xcheck, zcheck, 32UL )) | (!!memcmp( ycheck, zcheck, 32UL )) ) ) return FD_ED25519_ERR_MSG;
+
+  return FD_ED25519_SUCCESS;
 # else
   uchar rcheck[ 32 ];
   fd_ed25519_ge_tobytes( rcheck, R );
