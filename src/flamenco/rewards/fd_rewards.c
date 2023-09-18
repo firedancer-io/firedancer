@@ -361,7 +361,7 @@ calculate_stake_vote_rewards(
     fd_firedancer_banks_t * bank = &global->bank;
     fd_acc_lamports_t total_stake_rewards = 0;
     fd_stake_reward_t * stake_reward_deq = deq_fd_stake_reward_t_alloc( global->valloc );
-    fd_vote_reward_t_mapnode_t * vote_reward_map = fd_vote_reward_t_map_alloc( global->valloc, 30);
+    fd_vote_reward_t_mapnode_t * vote_reward_map = fd_vote_reward_t_map_alloc( global->valloc, 24 );  /* 2^24 slots */
     for ( fd_delegation_pair_t_mapnode_t * n = fd_delegation_pair_t_map_minimum( bank->stakes.stake_delegations_pool, bank->stakes.stake_delegations_root ); n; n = fd_delegation_pair_t_map_successor( bank->stakes.stake_delegations_pool, n ) ) {
         fd_pubkey_t * voter_acc = &n->elem.delegation.voter_pubkey;
         fd_pubkey_t * stake_acc = &n->elem.account;

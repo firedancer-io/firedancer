@@ -41,9 +41,9 @@ typedef struct fd_vote_reward_t_mapnode fd_vote_reward_t_mapnode_t;
 #define MAP_KEY_MOVE(kd,ks) memcpy( &(kd), &(ks),sizeof(fd_pubkey_t))
 #include "../../util/tmpl/fd_map_dynamic.c"
 static inline fd_vote_reward_t_mapnode_t *
-fd_vote_reward_t_map_alloc( fd_valloc_t valloc, int len ) {
-  void * mem = fd_valloc_malloc( valloc, fd_vote_reward_t_map_align(), fd_vote_reward_t_map_footprint(len));
-  return fd_vote_reward_t_map_join(fd_vote_reward_t_map_new(mem, len));
+fd_vote_reward_t_map_alloc( fd_valloc_t valloc, int lg_slot_cnt ) {
+  void * mem = fd_valloc_malloc( valloc, fd_vote_reward_t_map_align(), fd_vote_reward_t_map_footprint( lg_slot_cnt ));
+  return fd_vote_reward_t_map_join(fd_vote_reward_t_map_new(mem, lg_slot_cnt));
 }
 
 
