@@ -455,19 +455,13 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
   /* This next block implements instruction_context.try_borrow_instruction_account
    * https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_processor.rs#L67
    */
-  fd_borrowed_account_t me_ = {
-      .pubkey = &txn_accs[instr_acc_idxs[0]], .meta = NULL, .data = NULL };
-  fd_borrowed_account_t * me = &me_;
+  FD_BORROWED_ACCOUNT_DECL(me);
+
   // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/sdk/src/transaction_context.rs#L685-L690
-  rc = fd_acc_mgr_modify( ctx.global->acc_mgr,
+  rc = fd_acc_mgr_view( ctx.global->acc_mgr,
                           ctx.global->funk_txn,
-                          me->pubkey,
-                          0,
-                          0 /* TODO min_data_sz */,
-                          NULL,
-                          NULL,
-                          &me->meta,
-                          &me->data );
+                          &txn_accs[instr_acc_idxs[0]],
+                          me);
   switch ( rc ) {
   case FD_ACC_MGR_SUCCESS:
     break;
@@ -481,7 +475,7 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
 
   // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_processor.rs#L67-L70
   if ( FD_UNLIKELY( 0 !=
-                    memcmp( &me->meta->info.owner, ctx.global->solana_vote_program, 32UL ) ) ) {
+                    memcmp( &me->const_meta->info.owner, ctx.global->solana_vote_program, 32UL ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
   }
 
@@ -1590,8 +1584,8 @@ vote_state_withdraw(
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
 
   // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_state/mod.rs#L908-L911
-  ulong remaining_balance = vote_account->meta->info.lamports - lamports;
-  if ( FD_UNLIKELY( lamports > vote_account->meta->info.lamports ) ) {
+  ulong remaining_balance = vote_account->const_meta->info.lamports - lamports;
+  if ( FD_UNLIKELY( lamports > vote_account->const_meta->info.lamports ) ) {
     rc                               = FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
     fd_bincode_destroy_ctx_t destroy = { .valloc = ctx.global->valloc };
     fd_vote_state_versioned_destroy( &vote_state_versioned, &destroy );
@@ -1634,32 +1628,37 @@ vote_state_withdraw(
   } else {
     // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_state/mod.rs#L935-L938
     ulong min_rent_exempt_balance =
-        fd_rent_exempt_minimum_balance2( rent_sysvar, vote_account->meta->dlen );
+        fd_rent_exempt_minimum_balance2( rent_sysvar, vote_account->const_meta->dlen );
     if ( remaining_balance < min_rent_exempt_balance ) {
       return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
     }
   }
 
   // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_state/mod.rs#L941
+  rc = fd_acc_mgr_modify( ctx.global->acc_mgr,
+                          ctx.global->funk_txn,
+                          vote_account->pubkey,
+                          0,
+                          0 /* TODO min_data_sz */,
+                          vote_account);
+  if ( FD_UNLIKELY( rc != OK ) ) return rc;
+
   rc = vote_account_checked_sub_lamports( vote_account->meta, lamports );
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
 
   // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_state/mod.rs#L943-L944
-  fd_account_meta_t * to_account_meta = NULL;
-  rc                                  = 0;
-  rc                                  = fd_acc_mgr_modify( ctx.global->acc_mgr,
+  FD_BORROWED_ACCOUNT_DECL(to_account);
+
+  rc = fd_acc_mgr_modify( ctx.global->acc_mgr,
                           ctx.global->funk_txn,
                           &txn_accs[instr_acc_idxs[to_account_index]],
                           0,
                           0 /* TODO min_data_sz */,
-                          NULL,
-                          NULL,
-                          &to_account_meta,
-                          NULL );
+                          to_account);
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
 
   // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_state/mod.rs#L945
-  rc = vote_account_checked_add_lamports( to_account_meta, lamports );
+  rc = vote_account_checked_add_lamports( to_account->meta, lamports );
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
   return OK;
 }
@@ -2345,25 +2344,24 @@ vote_account_checked_sub_lamports( fd_account_meta_t * self, ulong lamports ) {
 // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_state/mod.rs#L959
 static ulong
 vote_account_get_data_len( fd_borrowed_account_t const * self ) {
-  return self->meta->dlen;
+  return self->const_meta->dlen;
 }
 
 static int
 vote_account_set_data_length( fd_borrowed_account_t * self,
                               ulong                   new_length,
                               instruction_ctx_t       ctx ) {
-  int rc;
   // TODO which APIs should i be using?
-  rc = fd_account_can_data_be_resized( &ctx, self->meta, new_length, &rc );
+  int rc = fd_account_can_data_be_resized( &ctx, self->const_meta, new_length, &rc );
   if ( FD_UNLIKELY( !rc ) ) return rc;
 
-  rc = fd_account_can_data_be_changed( &ctx, self->meta, self->pubkey, &rc );
+  rc = fd_account_can_data_be_changed( &ctx, self->const_meta, self->pubkey, &rc );
   if ( FD_UNLIKELY( !rc ) ) return rc;
 
   // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/sdk/src/transaction_context.rs#L933-L935
   if ( FD_UNLIKELY( vote_account_get_data_len( self ) == new_length ) ) return OK;
 
-  rc = fd_account_touch( &ctx, self->meta, self->pubkey, &rc );
+  rc = fd_account_touch( &ctx, self->const_meta, self->pubkey, &rc );
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
 
   // Tell funk we have a new length...
@@ -2372,11 +2370,7 @@ vote_account_set_data_length( fd_borrowed_account_t * self,
                           self->pubkey,
                           0,
                           new_length,
-                          NULL,
-                          NULL,
-                          &self->meta,
-
-                          &self->data );
+                          self);
   switch ( rc ) {
   case FD_ACC_MGR_SUCCESS:
     return OK;
@@ -2398,8 +2392,8 @@ vote_account_get_state( fd_borrowed_account_t *                  self,
   fd_vote_state_versioned_new( versioned );
 
   fd_bincode_decode_ctx_t decode_ctx;
-  decode_ctx.data    = self->data;
-  decode_ctx.dataend = &self->data[self->meta->dlen];
+  decode_ctx.data    = self->const_data;
+  decode_ctx.dataend = &self->const_data[self->const_meta->dlen];
   decode_ctx.valloc  = ctx.global->valloc;
 
   rc = fd_vote_state_versioned_decode( versioned, &decode_ctx );
@@ -2441,16 +2435,25 @@ vote_account_set_state( fd_borrowed_account_t *     self,
   }
 
   int                 err          = 0;
-  char *              raw_acc_data = (char *)self->data;
-  fd_account_meta_t * m            = self->meta;
 
   ulong re  = fd_rent_exempt( ctx.global, serialized_sz );
-  bool  cbr = fd_account_can_data_be_resized( &ctx, m, serialized_sz, &err );
-  if ( ( ( m->dlen < serialized_sz && m->info.lamports < re ) ) || !cbr ) {
+  bool  cbr = fd_account_can_data_be_resized( &ctx, self->const_meta, serialized_sz, &err );
+  if ( ( ( self->const_meta->dlen < serialized_sz && self->const_meta->info.lamports < re ) ) || !cbr ) {
     serialized_sz = original_serialized_sz;
     if ( serialized_sz < v14_sz ) { serialized_sz = v14_sz; }
     add_vote_latency = 0;
   }
+
+  int rc = fd_acc_mgr_modify( ctx.global->acc_mgr,
+                          ctx.global->funk_txn,
+                          self->pubkey,
+                          0,
+                          serialized_sz,
+                          self);
+  if ( FD_UNLIKELY( rc != OK ) ) return rc;
+
+  fd_account_meta_t * m            = self->meta;
+  char *              raw_acc_data = (char *)self->data;
 
   if ( m->dlen < serialized_sz ) {
     fd_memset( raw_acc_data + m->dlen, 0, serialized_sz - m->dlen );
@@ -2497,7 +2500,7 @@ static bool
 vote_account_is_rent_exempt_at_data_length( fd_borrowed_account_t * self,
                                             ulong                   data_length,
                                             instruction_ctx_t       ctx ) {
-  return fd_rent_exempt_minimum_balance( ctx.global, data_length ) <= self->meta->info.lamports;
+  return fd_rent_exempt_minimum_balance( ctx.global, data_length ) <= self->const_meta->info.lamports;
 }
 
 /**********************************************************************/
@@ -2707,8 +2710,8 @@ fd_vote_acc_credits( instruction_ctx_t         ctx,
   /* Read vote account */
   fd_borrowed_account_t vote_account = {
       // FIXME call sites
-      .meta = (fd_account_meta_t *)vote_acc_meta,
-      .data = (uchar *)vote_acc_data,
+      .const_meta = vote_acc_meta,
+      .const_data = vote_acc_data,
   };
 
   rc = OK;

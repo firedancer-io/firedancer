@@ -128,13 +128,13 @@ void SnapshotParser_parsefd_solana_accounts(struct SnapshotParser* self, char co
 
     do {
       /* Check existing account */
-      fd_funk_rec_t const *     rec_ro  = NULL;
-      fd_account_meta_t const * meta_ro = NULL;
-      int read_result = fd_acc_mgr_view( acc_mgr, txn, acc_key, &rec_ro, &meta_ro, /* data_ro */ NULL );
+      FD_BORROWED_ACCOUNT_DECL(rec);
+
+      int read_result = fd_acc_mgr_view( acc_mgr, txn, acc_key, rec);
 
       /* Skip if we previously inserted a newer version */
       if( read_result == FD_ACC_MGR_SUCCESS ) {
-        if( meta_ro->slot > slot ) break;
+        if( rec->const_meta->slot > slot ) break;
       } else if( FD_UNLIKELY( read_result != FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) ) {
         FD_LOG_ERR(( "database error while loading snapshot: %d", read_result ));
       }
@@ -143,31 +143,19 @@ void SnapshotParser_parsefd_solana_accounts(struct SnapshotParser* self, char co
         FD_LOG_ERR(("account too large: %lu bytes", hdr->meta.data_len));
 
       /* Write account */
-      fd_account_meta_t * meta = NULL;
-      uchar *             data = NULL;
-      fd_funk_rec_t *     rec_rw;
-      int write_result = fd_acc_mgr_modify(
-          acc_mgr,
-          txn,
-          acc_key,
-          /* do_create */ 1,
-          hdr->meta.data_len,
-          rec_ro,
-          &rec_rw,
-          &meta,
-          &data );
+      int write_result = fd_acc_mgr_modify(acc_mgr, txn, acc_key, /* do_create */ 1, hdr->meta.data_len, rec);
       if( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) )
         FD_LOG_ERR(("writing account failed"));
 
-      meta->dlen = hdr->meta.data_len;
-      meta->slot = slot;
-      memcpy( &meta->hash, hdr->hash.value, 32UL );
-      memcpy( &meta->info, &hdr->info, sizeof(fd_solana_account_meta_t) );
+      rec->meta->dlen = hdr->meta.data_len;
+      rec->meta->slot = slot;
+      memcpy( &rec->meta->hash, hdr->hash.value, 32UL );
+      memcpy( &rec->meta->info, &hdr->info, sizeof(fd_solana_account_meta_t) );
       if( hdr->meta.data_len )
-        memcpy( data, acc_data, hdr->meta.data_len );
+        memcpy( rec->data, acc_data, hdr->meta.data_len );
 
       /* Skip hashing */
-      int err = fd_funk_rec_persist( acc_mgr->global->funk, rec_rw );
+      int err = fd_funk_rec_persist( acc_mgr->global->funk, rec->rec );
       if( FD_UNLIKELY( err ) )
         FD_LOG_ERR(( "fd_funk_rec_persist failed (%d-%s)", err, fd_funk_strerror( err ) ));
 
@@ -759,15 +747,15 @@ main( int     argc,
     global->log_level = (uchar) loglevel;
 
     if (snapshot_used) {
-      int err = 0;
-      char * raw_acc_data = (char*) fd_acc_mgr_view_raw(global->acc_mgr, global->funk_txn, (fd_pubkey_t *) global->sysvar_recent_block_hashes, NULL, &err);
-      if (FD_UNLIKELY(!FD_RAW_ACCOUNT_EXISTS(raw_acc_data)))
+      FD_BORROWED_ACCOUNT_DECL(block_hashes_rec);
+      int err = fd_acc_mgr_view(global->acc_mgr, global->funk_txn, (fd_pubkey_t *) global->sysvar_recent_block_hashes, block_hashes_rec);
+
+      if( err != FD_ACC_MGR_SUCCESS )
         FD_LOG_ERR(( "missing recent block hashes account" ));
-      fd_account_meta_t *m = (fd_account_meta_t *) raw_acc_data;
 
       fd_bincode_decode_ctx_t ctx = {
-        .data       = raw_acc_data + m->hlen,
-        .dataend    = (char *) ctx.data + m->dlen,
+        .data       = block_hashes_rec->const_data,
+        .dataend    = block_hashes_rec->const_data + block_hashes_rec->const_meta->dlen,
         .valloc     = global->valloc
       };
 
@@ -832,9 +820,7 @@ main( int     argc,
       for( ulong i=0; i < genesis_block.accounts_len; i++ ) {
         fd_pubkey_account_pair_t * a = &genesis_block.accounts[i];
 
-        fd_funk_rec_t *     rec;
-        fd_account_meta_t * meta = NULL;
-        uchar *             data = NULL;
+        FD_BORROWED_ACCOUNT_DECL(rec);
 
         int err = fd_acc_mgr_modify(
             global->acc_mgr,
@@ -842,22 +828,19 @@ main( int     argc,
             &a->key,
             /* do_create */ 1,
             a->account.data_len,
-            /* opt_con_rec */ NULL,
-            &rec,
-            &meta,
-            &data );
+            rec);
         if( FD_UNLIKELY( err ) )
           FD_LOG_ERR(( "fd_acc_mgr_modify failed (%d)", err ));
 
-        meta->dlen            = a->account.data_len;
-        meta->info.lamports   = a->account.lamports;
-        meta->info.rent_epoch = a->account.rent_epoch;
-        meta->info.executable = (char)a->account.executable;
-        memcpy( meta->info.owner, a->account.owner.key, 32UL );
+        rec->meta->dlen            = a->account.data_len;
+        rec->meta->info.lamports   = a->account.lamports;
+        rec->meta->info.rent_epoch = a->account.rent_epoch;
+        rec->meta->info.executable = (char)a->account.executable;
+        memcpy( rec->meta->info.owner, a->account.owner.key, 32UL );
         if( a->account.data_len )
-          memcpy( data, a->account.data, a->account.data_len );
+          memcpy( rec->data, a->account.data, a->account.data_len );
 
-        err = fd_acc_mgr_commit_raw( global->acc_mgr, rec, &a->key, meta, 0UL, 0 );
+        err = fd_acc_mgr_commit_raw( global->acc_mgr, rec->rec, &a->key, rec->meta, 0UL, 0 );
         if( FD_UNLIKELY( err ) )
           FD_LOG_ERR(( "fd_acc_mgr_commit_raw failed (%d)", err ));
       }

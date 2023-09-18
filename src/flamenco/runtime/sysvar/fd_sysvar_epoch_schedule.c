@@ -51,19 +51,17 @@ void
 fd_sysvar_epoch_schedule_read( fd_global_ctx_t *     global,
                                fd_epoch_schedule_t * result ) {
 
-  int err = 0;
-  uchar const * record = fd_acc_mgr_view_raw( global->acc_mgr, global->funk_txn, (fd_pubkey_t const *)global->sysvar_epoch_schedule, NULL, &err );
-  if (FD_UNLIKELY(!FD_RAW_ACCOUNT_EXISTS(record))) {
+  FD_BORROWED_ACCOUNT_DECL(epoch_schedule_rec);
+
+  int err = fd_acc_mgr_view( global->acc_mgr, global->funk_txn, (fd_pubkey_t const *)global->sysvar_epoch_schedule,epoch_schedule_rec );
+  if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
     FD_LOG_ERR(( "failed to read epoch schedule sysvar: %d", err ));
     return;
   }
 
-  fd_account_meta_t const * metadata     = (fd_account_meta_t const *)record;
-  uchar const *             raw_acc_data = record + metadata->hlen;
-
   fd_bincode_decode_ctx_t decode = {
-    .data    = raw_acc_data,
-    .dataend = raw_acc_data + metadata->dlen,
+    .data    = epoch_schedule_rec->const_data,
+    .dataend = epoch_schedule_rec->const_data + epoch_schedule_rec->const_meta->dlen,
     .valloc  = global->valloc
   };
 

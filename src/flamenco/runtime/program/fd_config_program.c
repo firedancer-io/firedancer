@@ -7,7 +7,6 @@ int fd_executor_config_program_execute_instruction( instruction_ctx_t ctx ) {
   int ret = FD_EXECUTOR_INSTR_SUCCESS;
   uchar cleanup_config_account_state = 0;
   uchar cleanup_instruction = 0;
-  uchar const *config_acc_data = NULL;
   fd_bincode_destroy_ctx_t destroy_ctx;
 
   /* Deserialize the Config Program instruction data, which consists only of the ConfigKeys
@@ -43,17 +42,15 @@ int fd_executor_config_program_execute_instruction( instruction_ctx_t ctx ) {
    /* Deserialize the config account data, which must already be a valid ConfigKeys map (zeroed accounts pass this check)
       https://github.com/solana-labs/solana/blob/a03ae63daff987912c48ee286eb8ee7e8a84bf01/programs/config/src/config_processor.rs#L28-L42 */
    /* Read the data from the config account */
-   int err = 0;
-   uchar const * raw_acc_data = fd_acc_mgr_view_raw(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) config_acc, NULL, &err);
-   if (FD_UNLIKELY(!FD_RAW_ACCOUNT_EXISTS(raw_acc_data))) {
+   FD_BORROWED_ACCOUNT_DECL(config_acc_rec);
+   int err = fd_acc_mgr_view(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) config_acc, config_acc_rec);
+   if (FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS)) {
       ret = err;
       goto config_program_execute_instruction_cleanup;
    }
-   fd_account_meta_t const * metadata = (fd_account_meta_t *) raw_acc_data;
-   config_acc_data = raw_acc_data + metadata->hlen;
 
    /* Check that the account owner is correct */
-   if ( memcmp( &metadata->info.owner, &ctx.global->solana_config_program, sizeof(fd_pubkey_t) ) != 0 ) {
+   if ( memcmp( &config_acc_rec->const_meta->info.owner, &ctx.global->solana_config_program, sizeof(fd_pubkey_t) ) != 0 ) {
       ret = FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
       goto config_program_execute_instruction_cleanup;
    }
@@ -61,8 +58,8 @@ int fd_executor_config_program_execute_instruction( instruction_ctx_t ctx ) {
    /* Decode the config state into the ConfigKeys struct */
    fd_bincode_decode_ctx_t config_acc_state_decode_context = {
       .valloc  = ctx.global->valloc,
-      .data    = config_acc_data,
-      .dataend = &config_acc_data[metadata->dlen],
+      .data    = config_acc_rec->const_data,
+      .dataend = config_acc_rec->const_data + config_acc_rec->const_meta->dlen,
    };
    fd_config_keys_t config_account_state;
    decode_result = fd_config_keys_decode( &config_account_state, &config_acc_state_decode_context );
@@ -188,7 +185,7 @@ int fd_executor_config_program_execute_instruction( instruction_ctx_t ctx ) {
 
    /* Check that the config account can fit the new ConfigKeys map
       https://github.com/solana-labs/solana/blob/a03ae63daff987912c48ee286eb8ee7e8a84bf01/programs/config/src/config_processor.rs#L128-L131 */
-   if ( ctx.instr->data_sz > metadata->dlen ) {
+   if ( ctx.instr->data_sz > config_acc_rec->const_meta->dlen ) {
      ret = FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
      goto config_program_execute_instruction_cleanup;
    }
@@ -205,15 +202,21 @@ int fd_executor_config_program_execute_instruction( instruction_ctx_t ctx ) {
       This mimics the semantics of Solana's config_account.get_data_mut()?[..data.len()].copy_from_slice(data)
       (although this can obviously be optimised)
    */
-   ulong new_data_size = fd_ulong_max( ctx.instr->data_sz, metadata->dlen );
-   fd_funk_rec_t * acc_data_rec = NULL;
-   char* raw_acc_to_modify = fd_acc_mgr_modify_raw(ctx.global->acc_mgr, ctx.global->funk_txn, config_acc, 1, new_data_size, NULL, &acc_data_rec, &err);
-   fd_account_meta_t *m = (fd_account_meta_t *) raw_acc_to_modify;
-   fd_memcpy( raw_acc_to_modify + sizeof(fd_account_meta_t), data, ctx.instr->data_sz);
-   m->info.rent_epoch = 0;
-   m->info.executable = 0;
-   m->dlen = new_data_size;
-   err = fd_acc_mgr_commit_raw(ctx.global->acc_mgr, acc_data_rec, config_acc, raw_acc_to_modify, ctx.global->bank.slot, 0);
+
+   ulong new_data_size = fd_ulong_max( ctx.instr->data_sz, config_acc_rec->const_meta->dlen );
+
+   err = fd_acc_mgr_modify(ctx.global->acc_mgr, ctx.global->funk_txn, config_acc, 1, new_data_size, config_acc_rec);
+   if ( err != FD_ACC_MGR_SUCCESS) {
+      FD_LOG_WARNING(( "failed to write account data" ));
+      ret = err;
+      goto config_program_execute_instruction_cleanup;
+   }
+
+   fd_memcpy( config_acc_rec->data, data, ctx.instr->data_sz);
+   config_acc_rec->meta->info.rent_epoch = 0;
+   config_acc_rec->meta->info.executable = 0;
+   config_acc_rec->meta->dlen = new_data_size;
+   err = fd_acc_mgr_commit(ctx.global->acc_mgr, config_acc_rec, ctx.global->bank.slot, 0);
    if ( err != FD_ACC_MGR_SUCCESS) {
       FD_LOG_WARNING(( "failed to write account data" ));
       ret = err;

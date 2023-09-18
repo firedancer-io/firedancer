@@ -77,7 +77,7 @@ log=/tmp/ledger_log$$
   --validate true \
   --abort-on-mismatch 1 \
   --capture test.solcap \
-  --end-slot 63 >& $log
+  --end-slot 100 >& $log
 
 status=$?
 
@@ -99,7 +99,7 @@ status=$?
 if [ $status -ne 0 ]
 then
   echo 'native test failed'
-  grep "Failed" native.log | tail -20
+  grep "not_ignored" native.log | tail -20
   exit $status
 fi
 

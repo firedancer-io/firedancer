@@ -182,14 +182,14 @@ stake_state_redeem_rewards( fd_global_ctx_t *   global,
                 fd_point_value_t *              point_value,
                 fd_calculated_stake_rewards_t * result ) {
 
-    fd_account_meta_t const * stake_acc_meta = NULL;
-    int err = fd_acc_mgr_view( global->acc_mgr, global->funk_txn, stake_acc, NULL, &stake_acc_meta, NULL );
+    FD_BORROWED_ACCOUNT_DECL(stake_acc_rec);
+    int err = fd_acc_mgr_view( global->acc_mgr, global->funk_txn, stake_acc, stake_acc_rec );
     if( FD_UNLIKELY( err ) ) {
         return err;
     }
 
     fd_stake_state_t stake_state;
-    read_stake_state( global, stake_acc_meta, &stake_state );
+    read_stake_state( global, stake_acc_rec->const_meta, &stake_state );
     if (!fd_stake_state_is_stake( &stake_state)) {
         return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
     }
@@ -301,17 +301,16 @@ calculate_reward_points_partitioned(
             continue;
         }
 
-        fd_account_meta_t const * meta = NULL;
-        uchar const *             data  = NULL;
-        int read_err = fd_acc_mgr_view( global->acc_mgr, global->funk_txn, voter_acc, NULL, &meta, &data );
-        if( read_err!=0 || 0!=memcmp( &meta->info.owner, global->solana_vote_program, sizeof(fd_pubkey_t) ) ) {
+        FD_BORROWED_ACCOUNT_DECL(voter_acc_rec);
+        int read_err = fd_acc_mgr_view( global->acc_mgr, global->funk_txn, voter_acc, voter_acc_rec );
+        if( read_err!=0 || 0!=memcmp( &voter_acc_rec->const_meta->info.owner, global->solana_vote_program, sizeof(fd_pubkey_t) ) ) {
             continue;
         }
 
         /* Deserialize vote account */
         fd_bincode_decode_ctx_t decode = {
-            .data    = data,
-            .dataend = data + meta->dlen,
+            .data    = voter_acc_rec->const_data,
+            .dataend = voter_acc_rec->const_data + voter_acc_rec->const_meta->dlen,
             /* TODO: Make this a instruction-scoped allocator */
             .valloc  = global->valloc,
         };
@@ -319,11 +318,11 @@ calculate_reward_points_partitioned(
         if( FD_UNLIKELY( 0!=fd_vote_state_versioned_decode( vote_state, &decode ) ) )
             FD_LOG_ERR(( "vote_state_versioned_decode failed" ));
 
-        fd_account_meta_t const * stake_acc_meta = NULL;
-        FD_TEST( 0==fd_acc_mgr_view( global->acc_mgr, global->funk_txn, stake_acc, NULL, &stake_acc_meta, NULL ) );
+        FD_BORROWED_ACCOUNT_DECL(stake_acc_rec);
+        FD_TEST( 0==fd_acc_mgr_view( global->acc_mgr, global->funk_txn, stake_acc, stake_acc_rec) );
 
         fd_stake_state_t stake_state;
-        read_stake_state( global, stake_acc_meta, &stake_state );
+        read_stake_state( global, stake_acc_rec->const_meta, &stake_state );
 
         __uint128_t result;
         points += (calculate_points(&stake_state, vote_state, stake_history, &result) == FD_EXECUTOR_INSTR_SUCCESS ? result : 0);
@@ -374,17 +373,16 @@ calculate_stake_vote_rewards(
             continue;
         }
 
-        fd_account_meta_t const * meta2 = NULL;
-        uchar const *             data  = NULL;
-        int read_err = fd_acc_mgr_view( global->acc_mgr, global->funk_txn, voter_acc, NULL, &meta2, &data );
-        if( read_err!=0 || 0!=memcmp( &meta2->info.owner, global->solana_vote_program, sizeof(fd_pubkey_t) ) ) {
+        FD_BORROWED_ACCOUNT_DECL(voter_acc_rec);
+        int read_err = fd_acc_mgr_view( global->acc_mgr, global->funk_txn, voter_acc, voter_acc_rec );
+        if( read_err!=0 || 0!=memcmp( &voter_acc_rec->const_meta->info.owner, global->solana_vote_program, sizeof(fd_pubkey_t) ) ) {
             continue;
         }
 
         /* Read vote account */
         fd_bincode_decode_ctx_t decode = {
-            .data    = data,
-            .dataend = data + meta2->dlen,
+            .data    = voter_acc_rec->const_data,
+            .dataend = voter_acc_rec->const_data + voter_acc_rec->const_meta->dlen,
             /* TODO: Make this a instruction-scoped allocator */
             .valloc  = global->valloc,
         };
@@ -398,9 +396,14 @@ calculate_stake_vote_rewards(
             FD_LOG_WARNING(("stake_state::stake_state_redeem_rewards() failed for %32J", stake_acc->key ));
             continue;
         }
-        int err;
-        fd_account_meta_t * metadata = (fd_account_meta_t *) fd_acc_mgr_view_raw(global->acc_mgr, global->funk_txn, stake_acc, NULL, &err);
-        fd_acc_lamports_t post_lamports = metadata->info.lamports;
+        FD_BORROWED_ACCOUNT_DECL(stake_acc_rec);
+        int err = fd_acc_mgr_view(global->acc_mgr, global->funk_txn, stake_acc, stake_acc_rec);
+        if (FD_UNLIKELY(err != FD_ACC_MGR_SUCCESS)) {
+          // TODO: how bad is this?
+          FD_LOG_WARNING(("stake_state::stake_state_redeem_rewards() %32J not found", stake_acc->key ));
+          continue;
+        }
+        fd_acc_lamports_t post_lamports = stake_acc_rec->const_meta->info.lamports;
 
         // track total_stake_rewards
         total_stake_rewards += redeemed->staker_rewards;
@@ -575,11 +578,11 @@ void calculate_rewards_and_distribute_vote_rewards(
             continue;
         }
         fd_pubkey_t const * vote_pubkey = &ref[i].vote_pubkey;
-        fd_account_meta_t * vote_acc_meta = NULL;
         ulong min_data_sz = 0UL;
-        int err = fd_acc_mgr_modify( global->acc_mgr, global->funk_txn, vote_pubkey, 1, min_data_sz, NULL, NULL, &vote_acc_meta, NULL );
+        FD_BORROWED_ACCOUNT_DECL(vote_rec);
+        int err = fd_acc_mgr_modify( global->acc_mgr, global->funk_txn, vote_pubkey, 1, min_data_sz, vote_rec);
         FD_TEST( err == 0 );
-        vote_acc_meta->info.lamports = fd_ulong_sat_add(vote_acc_meta->info.lamports, ref[i].vote_rewards);
+        vote_rec->meta->info.lamports = fd_ulong_sat_add(vote_rec->meta->info.lamports, ref[i].vote_rewards);
     }
     /* TODO: update_reward_history (not sure if reward history is ever needed?) */
     // update_reward_history();
@@ -692,13 +695,13 @@ distribute_partitioned_epoch_rewards(
         for (uint i = 0; i < this_partition_stake_rewards.cnt; ++i) {
             total_rewards_in_lamports = fd_ulong_sat_add(total_rewards_in_lamports, this_partition_stake_rewards.elems[i]->reward_info.lamports);
             // store rewards into accounts
-            fd_account_meta_t * acc_meta = NULL;
             fd_pubkey_t const * stake_acc = &this_partition_stake_rewards.elems[i]->stake_pubkey;
-            FD_TEST( 0==fd_acc_mgr_modify( global->acc_mgr, global->funk_txn, stake_acc, 0, 0UL, NULL, NULL, &acc_meta, NULL ));
-            acc_meta->info.lamports += this_partition_stake_rewards.elems[i]->reward_info.lamports;
+            FD_BORROWED_ACCOUNT_DECL(stake_acc_rec);
+            FD_TEST( 0==fd_acc_mgr_modify( global->acc_mgr, global->funk_txn, stake_acc, 0, 0UL, stake_acc_rec ) );
+            stake_acc_rec->meta->info.lamports += this_partition_stake_rewards.elems[i]->reward_info.lamports;
 
             fd_stake_state_t stake_state;
-            read_stake_state( global, acc_meta, &stake_state );
+            read_stake_state( global, stake_acc_rec->meta, &stake_state );
             if (!fd_stake_state_is_stake( &stake_state)) {
                FD_LOG_ERR(("failed to read stake state for %32J", &this_partition_stake_rewards.elems[i]->stake_pubkey ));
             }

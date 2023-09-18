@@ -59,16 +59,14 @@ fd_sysvar_slot_history_update( fd_global_ctx_t * global ) {
 
   fd_pubkey_t const * key = (fd_pubkey_t *)global->sysvar_slot_history;
 
-  fd_funk_rec_t const *     con_rec = NULL;
-  fd_account_meta_t const * m       = NULL;
-  uchar const *             data    = NULL;
-  int err = fd_acc_mgr_view( global->acc_mgr, global->funk_txn, key, &con_rec, &m, &data );
+  FD_BORROWED_ACCOUNT_DECL(rec);
+  int err = fd_acc_mgr_view( global->acc_mgr, global->funk_txn, key, rec);
   if (err)
     FD_LOG_CRIT(( "fd_acc_mgr_view(slot_history) failed: %d", err ));
 
   fd_bincode_decode_ctx_t ctx;
-  ctx.data    = data;
-  ctx.dataend = data + m->dlen;
+  ctx.data    = rec->const_data;
+  ctx.dataend = rec->const_data + rec->const_meta->dlen;
   ctx.valloc  = global->valloc;
   fd_slot_history_t history[1];
   fd_slot_history_new( history );
@@ -85,27 +83,24 @@ fd_sysvar_slot_history_update( fd_global_ctx_t * global ) {
   if( sz < slot_history_min_account_size )
     sz = slot_history_min_account_size;
 
-  fd_funk_rec_t *     acc_rec  = NULL;
-  fd_account_meta_t * acc_meta = NULL;
-  uchar *             acc_data = NULL;
-  err = fd_acc_mgr_modify( global->acc_mgr, global->funk_txn, key, 1, sz, con_rec, &acc_rec, &acc_meta, &acc_data );
+  err = fd_acc_mgr_modify( global->acc_mgr, global->funk_txn, key, 1, sz, rec );
   if (err)
     FD_LOG_CRIT(( "fd_acc_mgr_modify(slot_history) failed: %d", err ));
 
   fd_bincode_encode_ctx_t e_ctx = {
-    .data    = acc_data,
-    .dataend = acc_data+sz
+    .data    = rec->data,
+    .dataend = rec->data+sz
   };
   if( fd_slot_history_encode( history, &e_ctx ) )
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
 
-  acc_meta->info.lamports = fd_rent_exempt_minimum_balance2( &global->bank.rent, sz );
+  rec->meta->info.lamports = fd_rent_exempt_minimum_balance2( &global->bank.rent, sz );
 
-  acc_meta->dlen = sz;
-  fd_memcpy( acc_meta->info.owner, global->sysvar_owner, 32 );
+  rec->meta->dlen = sz;
+  fd_memcpy( rec->meta->info.owner, global->sysvar_owner, 32 );
 
   fd_bincode_destroy_ctx_t ctx_d = { .valloc = global->valloc };
   fd_slot_history_destroy( history, &ctx_d );
 
-  return fd_acc_mgr_commit_raw(global->acc_mgr, acc_rec, (fd_pubkey_t *) global->sysvar_slot_history, acc_meta, global->bank.slot, 0);
+  return fd_acc_mgr_commit(global->acc_mgr, rec, global->bank.slot, 0);
 }

@@ -429,7 +429,7 @@ fd_vm_syscall_sol_log_data(
   ulong sz = len / sizeof (fd_vm_vec_t);
 
   fd_vm_vec_t const * untranslated_fields = fd_vm_translate_slice_vm_to_host_const(
-    ctx, 
+    ctx,
     vm_addr,
     sz,
     FD_VM_VEC_ALIGN );
@@ -480,7 +480,7 @@ fd_vm_syscall_sol_memcpy(
       fd_vm_translate_vm_to_host      ( ctx, dst_vm_addr, n, alignof(uchar) );
   if( FD_UNLIKELY( !dst_host_addr ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
 
-  void const * src_host_addr = 
+  void const * src_host_addr =
       fd_vm_translate_vm_to_host_const( ctx, src_vm_addr, n, alignof(uchar) );
   if( FD_UNLIKELY( !src_host_addr ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
 
@@ -951,17 +951,13 @@ static ulong
 fd_vm_cpi_update_caller_account( fd_vm_exec_context_t * ctx,
                                  fd_vm_rust_account_info_t const * caller_acc_info,
                                  fd_pubkey_t const * callee_acc_pubkey ) {
-  int read_result = FD_ACC_MGR_SUCCESS;
-  uchar * raw_callee_acc_data = (uchar *)fd_acc_mgr_view_raw(ctx->instr_ctx.global->acc_mgr, ctx->instr_ctx.global->funk_txn, callee_acc_pubkey, NULL, &read_result);
-  if (FD_UNLIKELY(!FD_RAW_ACCOUNT_EXISTS(raw_callee_acc_data))) {
+  FD_BORROWED_ACCOUNT_DECL(callee_acc_rec);
+  int err = fd_acc_mgr_view(ctx->instr_ctx.global->acc_mgr, ctx->instr_ctx.global->funk_txn, callee_acc_pubkey, callee_acc_rec);
+  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
     FD_LOG_WARNING(( "account missing while updating CPI caller account - key: %32J", callee_acc_pubkey ));
     // TODO: do we need to do something anyways?
     return 0;
   }
-
-  fd_account_meta_t * callee_acc_metadata = (fd_account_meta_t *)raw_callee_acc_data;
-
-  uchar * callee_acc_data = fd_account_get_data( callee_acc_metadata );
 
   fd_vm_rc_refcell_t const * caller_acc_lamports_box = fd_vm_translate_vm_to_host_const(
     ctx,
@@ -976,7 +972,7 @@ fd_vm_cpi_update_caller_account( fd_vm_exec_context_t * ctx,
     sizeof(ulong),
     alignof(ulong) );
   if( FD_UNLIKELY( !caller_acc_lamports_box ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
-  *caller_acc_lamports = callee_acc_metadata->info.lamports;
+  *caller_acc_lamports = callee_acc_rec->const_meta->info.lamports;
 
   fd_vm_rc_refcell_vec_t * caller_acc_data_box = fd_vm_translate_vm_to_host(
     ctx,
@@ -998,18 +994,18 @@ fd_vm_cpi_update_caller_account( fd_vm_exec_context_t * ctx,
     sizeof(fd_pubkey_t),
     alignof(uchar) );
 
-  fd_memcpy( caller_acc_owner, callee_acc_metadata->info.owner, sizeof(fd_pubkey_t) );
+  fd_memcpy( caller_acc_owner, callee_acc_rec->const_meta->info.owner, sizeof(fd_pubkey_t) );
   // TODO: deal with all functionality in update_caller_account
 
-  if( caller_acc_data_box->len != callee_acc_metadata->dlen ) {
-    FD_LOG_WARNING(( "account size mismatch while updating CPI caller account - key: %32J, caller: %lu, callee: %lu", callee_acc_pubkey, caller_acc_data_box->len, callee_acc_metadata->dlen ));
+  if( caller_acc_data_box->len != callee_acc_rec->const_meta->dlen ) {
+    FD_LOG_WARNING(( "account size mismatch while updating CPI caller account - key: %32J, caller: %lu, callee: %lu", callee_acc_pubkey, caller_acc_data_box->len, callee_acc_rec->const_meta->dlen ));
 
-    caller_acc_data_box->len = callee_acc_metadata->dlen;
+    caller_acc_data_box->len = callee_acc_rec->const_meta->dlen;
 
     // TODO return instruction error account data size too small.
   }
 
-  fd_memcpy( caller_acc_data, callee_acc_data, callee_acc_metadata->dlen );
+  fd_memcpy( caller_acc_data, callee_acc_rec->const_data, callee_acc_rec->const_meta->dlen );
 
   return 0;
 }

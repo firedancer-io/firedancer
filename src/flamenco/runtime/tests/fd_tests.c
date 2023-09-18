@@ -151,21 +151,20 @@ load_sysvar_cache( fd_global_ctx_t * global,
 
   /* Allocate funk record */
 
-  fd_account_meta_t * acc_meta = NULL;
-  uchar *             acc_data = NULL;
-  int err = fd_acc_mgr_modify( global->acc_mgr, global->funk_txn, (fd_pubkey_t *)pubkey, 1, max_data_sz, NULL, NULL, &acc_meta, &acc_data );
+  FD_BORROWED_ACCOUNT_DECL(acc);
+  int err = fd_acc_mgr_modify( global->acc_mgr, global->funk_txn, (fd_pubkey_t *)pubkey, 1, max_data_sz, acc);
   FD_TEST( !err );
 
   /* Decode Base64 into funk record */
 
-  long sz = fd_base64_decode( acc_data, base64, base64_len );
+  long sz = fd_base64_decode( acc->data, base64, base64_len );
   FD_TEST( sz>=0 );
 
   /* Set metadata */
 
-  fd_memcpy( acc_meta->info.owner, global->sysvar_owner, 32UL );
-  acc_meta->info.lamports = 1UL;  /* chicken-and-egg problem: don't know rent, so can't find rent-exempt balance */
-  acc_meta->dlen = (ulong)sz;
+  fd_memcpy( acc->meta->info.owner, global->sysvar_owner, 32UL );
+  acc->meta->info.lamports = 1UL;  /* chicken-and-egg problem: don't know rent, so can't find rent-exempt balance */
+  acc->meta->dlen = (ulong)sz;
 }
 
 /* TODO: hack to ignore sysvars in account mismatches */
@@ -243,28 +242,26 @@ int fd_executor_run_test(
       /* Insert account */
 
       fd_pubkey_t const * acc_key  = &test->accs[ i ].pubkey;
-      fd_funk_rec_t *     acc_rec  = NULL;
-      fd_account_meta_t * acc_meta = NULL;
-      uchar *             acc_data = NULL;
-      int err = fd_acc_mgr_modify( global->acc_mgr, global->funk_txn, acc_key, 1, test->accs[i].data_len, NULL, &acc_rec, &acc_meta, &acc_data );
+      FD_BORROWED_ACCOUNT_DECL(rec);
+      int err = fd_acc_mgr_modify( global->acc_mgr, global->funk_txn, acc_key, 1, test->accs[i].data_len, rec);
       FD_TEST( !err );
 
-      acc_meta->dlen            = test->accs[ i ].data_len;
-      acc_meta->info.lamports   = test->accs[ i ].lamports;
-      acc_meta->info.rent_epoch = test->accs[ i ].rent_epoch;
-      memcpy( acc_meta->info.owner, test->accs[ i ].owner.uc, 32UL );
-      acc_meta->info.executable = (char)test->accs[ i ].executable;
+      rec->meta->dlen            = test->accs[ i ].data_len;
+      rec->meta->info.lamports   = test->accs[ i ].lamports;
+      rec->meta->info.rent_epoch = test->accs[ i ].rent_epoch;
+      memcpy( rec->meta->info.owner, test->accs[ i ].owner.uc, 32UL );
+      rec->meta->info.executable = (char)test->accs[ i ].executable;
       if( test->accs[ i ].data_len )
-        memcpy( acc_data, test->accs[ i ].data, test->accs[ i ].data_len );
+        memcpy( rec->data, test->accs[ i ].data, test->accs[ i ].data_len );
 
-      err = fd_acc_mgr_commit_raw( global->acc_mgr, acc_rec, acc_key, acc_meta, global->bank.slot, 0 );
+      err = fd_acc_mgr_commit_raw( global->acc_mgr, rec->rec, acc_key, rec->meta, global->bank.slot, 0 );
 
       /* wtf ... */
       if (memcmp(&global->sysvar_recent_block_hashes, &test->accs[i].pubkey, sizeof(test->accs[i].pubkey)) == 0) {
         fd_recent_block_hashes_new( &global->bank.recent_block_hashes );
         fd_bincode_decode_ctx_t ctx2;
-        ctx2.data    = acc_data,
-        ctx2.dataend = acc_data + acc_meta->dlen;
+        ctx2.data    = rec->data,
+        ctx2.dataend = rec->data + rec->meta->dlen;
         ctx2.valloc  = global->valloc;
         if ( fd_recent_block_hashes_decode( &global->bank.recent_block_hashes, &ctx2 ) ) {
           FD_LOG_WARNING(("fd_recent_block_hashes_decode failed"));

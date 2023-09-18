@@ -26,12 +26,4 @@ fd_sysvar_set( fd_global_ctx_t *   state,
                ulong               slot,
                fd_acc_lamports_t * lamports );
 
-int
-fd_sysvar_set_override( fd_global_ctx_t *   state,
-               uchar const *       owner,
-               fd_pubkey_t const * pubkey,
-               uchar *             data,
-               ulong               sz,
-               ulong               slot );
-
 #endif

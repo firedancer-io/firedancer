@@ -265,7 +265,7 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_meta_t* m, const void
     if ( FD_FEATURE_ACTIVE( global, enable_partitioned_epoch_reward ) ) {
       distribute_partitioned_epoch_rewards(&global->bank, global);
     }
-    
+
   }
 
   /* Get current leader */
@@ -320,11 +320,10 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_meta_t* m, const void
         FD_LOG_NOTICE(("executing txn - slot: %lu, txn_idx_in_block: %lu, mblk: %lu, txn_idx: %lu, sig: %s", global->bank.slot, txn_idx_in_block, total_mblks, txn_idx, sig));
         fd_pubkey_t const * txn_accs = (fd_pubkey_t *)((uchar *)rawtxn.raw + txn->acct_addr_off);
         for (ulong i = 0; i < txn->acct_addr_cnt; i++) {
-          char * raw_acc_data = (char*) fd_acc_mgr_view_raw(global->acc_mgr, global->funk_txn, &txn_accs[i], NULL, NULL);
-          if (FD_UNLIKELY(FD_RAW_ACCOUNT_EXISTS(raw_acc_data))) {
-            fd_account_meta_t * meta = (fd_account_meta_t *)raw_acc_data;
-            FD_LOG_WARNING(("ACCT FOR TXN: %lu - %32J, lamps: %lu", i, &txn_accs[i], meta->info.lamports));
-          }
+          FD_BORROWED_ACCOUNT_DECL(accs_rec);
+          int err = fd_acc_mgr_view(global->acc_mgr, global->funk_txn, &txn_accs[i], accs_rec);
+          if( FD_UNLIKELY( err ==FD_ACC_MGR_SUCCESS ) )
+            FD_LOG_WARNING(("ACCT FOR TXN: %lu - %32J, lamps: %lu", i, &txn_accs[i], accs_rec->const_meta->info.lamports));
         }
 
         fd_txn_acct_addr_lut_t * addr_luts = fd_txn_get_address_tables( txn );
@@ -332,21 +331,18 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_meta_t* m, const void
           fd_txn_acct_addr_lut_t * addr_lut = &addr_luts[i];
           fd_pubkey_t const * addr_lut_acc = (fd_pubkey_t *)((uchar *)rawtxn.raw + addr_lut->addr_off);
 
-          char * raw_acc_data = (char*) fd_acc_mgr_view_raw(global->acc_mgr, global->funk_txn, (fd_pubkey_t *) addr_lut_acc, NULL, NULL);
-          if (FD_UNLIKELY(!FD_RAW_ACCOUNT_EXISTS(raw_acc_data))) {
+          FD_BORROWED_ACCOUNT_DECL(lut_acc_rec);
+          int err = fd_acc_mgr_view(global->acc_mgr, global->funk_txn, (fd_pubkey_t *) addr_lut_acc, lut_acc_rec);
+          if( FD_UNLIKELY( err !=FD_ACC_MGR_SUCCESS ) )
             FD_LOG_ERR(( "addr lut not found" ));
-          }
 
-          fd_account_meta_t * meta = (fd_account_meta_t *)raw_acc_data;
-          uchar * acct_data = fd_account_get_data(meta);
-
-          FD_LOG_WARNING(( "LUT ACC: idx: %lu, acc: %32J, meta.dlen; %lu", i, addr_lut_acc, meta->dlen ));
+          FD_LOG_WARNING(( "LUT ACC: idx: %lu, acc: %32J, meta.dlen; %lu", i, addr_lut_acc, lut_acc_rec->const_meta->dlen ));
 
           fd_address_lookup_table_state_t addr_lookup_table_state;
           fd_address_lookup_table_state_new( &addr_lookup_table_state );
           fd_bincode_decode_ctx_t decode_ctx = {
-            .data = acct_data,
-            .dataend = &acct_data[56], // TODO macro const.
+            .data = lut_acc_rec->const_data,
+            .dataend = &lut_acc_rec->const_data[56], // TODO macro const.
             .valloc  = global->valloc,
           };
           if (fd_address_lookup_table_state_decode( &addr_lookup_table_state, &decode_ctx )) {
@@ -356,7 +352,7 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_meta_t* m, const void
             FD_LOG_ERR(("addr lut is uninit"));
           }
 
-          fd_pubkey_t * lookup_addrs = (fd_pubkey_t *)&acct_data[56];
+          fd_pubkey_t * lookup_addrs = (fd_pubkey_t *)&lut_acc_rec->const_data[56];
           uchar * writable_lut_idxs = (uchar *)rawtxn.raw + addr_lut->writable_off;
           for (ulong j = 0; j < addr_lut->writable_cnt; j++) {
             FD_LOG_WARNING(( "LUT ACC WRITABLE: idx: %3lu, acc: %32J, lut_idx: %3lu, acct_idx: %3lu, %32J", i, addr_lut_acc, j, writable_lut_idxs[j], &lookup_addrs[writable_lut_idxs[j]] ));
@@ -924,43 +920,38 @@ fd_runtime_collect_rent_cb( fd_funk_rec_t const * encountered_rec_ro,
   fd_acc_mgr_t *      acc_mgr  = global->acc_mgr;
   fd_pubkey_t const * key      = fd_type_pun_const( &encountered_rec_ro->pair.key[0].uc );
 
-  fd_funk_rec_t const *     rec_ro  = NULL;  /* not necessarily encountered_rec_ro */
-  fd_account_meta_t const * meta_ro = NULL;
-  int err = fd_acc_mgr_view( acc_mgr, txn, key, &rec_ro, &meta_ro, NULL );
+  FD_BORROWED_ACCOUNT_DECL(rec);
+  int err = fd_acc_mgr_view( acc_mgr, txn, key, rec);
 
   /* Account might not exist anymore in the current world */
   if( err==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
     return 0; /* Don't walk again */
   }
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
-    FD_LOG_WARNING(( "fd_runtime_collect_rent_cb: fd_acc_mgr_view_raw failed (%d)", err ));
+    FD_LOG_WARNING(( "fd_runtime_collect_rent_cb: fd_acc_mgr_view failed (%d)", err ));
     return 0; /* Don't walk again */
   }
 
   /* Filter accounts that we've already visited */
   ulong epoch = global->rent_epoch;
-  if( meta_ro->info.rent_epoch > epoch ) return 1;
+  if( rec->const_meta->info.rent_epoch > epoch ) return 1;
 
   /* Upgrade read-only handle to writable */
-  fd_account_meta_t * meta_rw = NULL;
-  fd_funk_rec_t *     rec_rw  = NULL;
   err = fd_acc_mgr_modify(
     acc_mgr, txn, key,
       /* do_create   */ 0,
       /* min_data_sz */ 0UL,
-      /* opt_con_rec */ rec_ro,
-      /* opt_out_rec */ &rec_rw,
-      &meta_rw, NULL );
+                        rec);
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
-    FD_LOG_WARNING(( "fd_runtime_collect_rent_range: fd_acc_mgr_modify_raw failed (%d)", err ));
+    FD_LOG_WARNING(( "fd_runtime_collect_rent_range: fd_acc_mgr_modify failed (%d)", err ));
     return err;
   }
 
   /* Actually invoke rent collection */
-  int changed = fd_runtime_collect_rent_account( global, meta_rw, key, epoch );
+  int changed = fd_runtime_collect_rent_account( global, rec->meta, key, epoch );
 
   if( changed ) {
-    err = fd_acc_mgr_commit_raw(global->acc_mgr, rec_rw, key, meta_rw, global->bank.slot, 0);
+    err = fd_acc_mgr_commit_raw(global->acc_mgr, rec->rec, key, rec->meta, global->bank.slot, 0);
     if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
       FD_LOG_WARNING(( "fd_runtime_collect_rent_range: fd_acc_mgr_commit_raw failed (%d)", err ));
       return err;
@@ -1113,16 +1104,16 @@ fd_runtime_distribute_rent_to_validators( fd_global_ctx_t * global, ulong rent_t
     if( !enforce_fix || rent_to_be_paid > 0 ) {
       fd_pubkey_t pubkey = validator_stakes[i].pubkey;
 
-      fd_account_meta_t * meta = NULL;
-      fd_funk_rec_t * rec = NULL;
-      int err = fd_acc_mgr_modify( global->acc_mgr, global->funk_txn, &pubkey, 0, 0UL, NULL, &rec, &meta, NULL );
+      FD_BORROWED_ACCOUNT_DECL(rec);
+
+      int err = fd_acc_mgr_modify( global->acc_mgr, global->funk_txn, &pubkey, 0, 0UL, rec );
       if( FD_UNLIKELY( err ) ) {
         FD_LOG_WARNING(( "fd_acc_mgr_modify_raw failed (%d)", err ));
       }
 
-      meta->info.lamports += rent_to_be_paid;
+      rec->meta->info.lamports += rent_to_be_paid;
 
-      err = fd_acc_mgr_commit_raw(global->acc_mgr, rec, &pubkey, meta, global->bank.slot, 0);
+      err = fd_acc_mgr_commit_raw(global->acc_mgr, rec->rec, &pubkey, rec->meta, global->bank.slot, 0);
       if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
         FD_LOG_WARNING(( "fd_runtime_distribute_rent_to_validators: fd_acc_mgr_commit_raw failed (%d)", err ));
       }
@@ -1158,20 +1149,21 @@ fd_runtime_freeze( fd_global_ctx_t * global ) {
 
   fd_sysvar_recent_hashes_update ( global );
 
-  // Look at collect_fees... I think this was where I saw the fee payout..
-  fd_account_meta_t * leader_meta = NULL;
-  int err = fd_acc_mgr_modify( global->acc_mgr, global->funk_txn, global->leader, 0, 0UL, NULL, NULL, &leader_meta, NULL );
-  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
-    FD_LOG_WARNING(( "fd_runtime_freeze: fd_acc_mgr_modify_raw for leader (%32J) failed (%d)", leader_meta, err ));
-    return;
-  }
-
   if (global->bank.collected_fees > 0) {
+    // Look at collect_fees... I think this was where I saw the fee payout..
+    FD_BORROWED_ACCOUNT_DECL(rec);
+
+    int err = fd_acc_mgr_modify( global->acc_mgr, global->funk_txn, global->leader, 0, 0UL, rec );
+    if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+      FD_LOG_WARNING(( "fd_runtime_freeze: fd_acc_mgr_modify_raw for leader (%32J) failed (%d)", rec->meta, err ));
+      return;
+    }
+
     if (FD_UNLIKELY(global->log_level > 2)) {
       FD_LOG_WARNING(( "fd_runtime_freeze: slot:%ld global->collected_fees: %ld", global->bank.slot, global->bank.collected_fees ));
     }
 
-    leader_meta->info.lamports += ( global->bank.collected_fees / 2 );
+    rec->meta->info.lamports += ( global->bank.collected_fees / 2 );
 
     global->bank.collected_fees = 0;
   }
@@ -1602,20 +1594,19 @@ fd_feature_restore( fd_global_ctx_t * global,
                     ulong *           f,
                     uchar const       acct[ static 32 ] ) {
 
-  char * raw_acc_data = (char*) fd_acc_mgr_view_raw(global->acc_mgr, global->funk_txn, (fd_pubkey_t *) acct, NULL, NULL);
-  if (FD_UNLIKELY(!FD_RAW_ACCOUNT_EXISTS(raw_acc_data)))
+  FD_BORROWED_ACCOUNT_DECL(acct_rec);
+  int err = fd_acc_mgr_view(global->acc_mgr, global->funk_txn, (fd_pubkey_t *) acct, acct_rec);
+  if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) )
     return;
-  fd_account_meta_t *m = (fd_account_meta_t *) raw_acc_data;
 
   fd_feature_t feature[1];
   fd_feature_new( feature );
 
   FD_SCRATCH_SCOPED_FRAME;
 
-  uchar const * data = (uchar const *)( (ulong)m + m->hlen );
   fd_bincode_decode_ctx_t ctx = {
-    .data    = data,
-    .dataend = data + m->dlen,
+    .data    = acct_rec->const_data,
+    .dataend = acct_rec->const_data + acct_rec->const_meta->dlen,
     .valloc  = fd_scratch_virtual(),
   };
   int decode_err = fd_feature_decode( feature, &ctx );

@@ -267,14 +267,15 @@ fd_update_hash_bank( fd_global_ctx_t * global,
 
     /* Upgrade to writable record */
 
-    fd_account_meta_t * acc_meta_w = NULL;
+    FD_BORROWED_ACCOUNT_DECL(acc_rec);
+    acc_rec->const_rec = rec;
 
-    err = fd_acc_mgr_modify( acc_mgr, txn, acc_key, 0, 0UL, rec, NULL, &acc_meta_w, NULL );
+    err = fd_acc_mgr_modify( acc_mgr, txn, acc_key, 0, 0UL, acc_rec);
     if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) return err;
 
     /* Update hash */
 
-    memcpy( acc_meta_w->hash, acc_hash->hash, sizeof(fd_hash_t) );
+    memcpy( acc_rec->meta->hash, acc_hash->hash, sizeof(fd_hash_t) );
 
     /* Logging ... */
 
@@ -288,11 +289,11 @@ fd_update_hash_bank( fd_global_ctx_t * global,
                         "data_len: %ld",
                         acc_key,
                         slot,
-                        acc_meta_w->info.lamports,
-                        acc_meta_w->info.owner,
-                        acc_meta_w->info.executable ? "true" : "false",
-                        acc_meta_w->info.rent_epoch,
-                        acc_meta_w->dlen ));
+                        acc_rec->meta->info.lamports,
+                        acc_rec->meta->info.owner,
+                        acc_rec->meta->info.executable ? "true" : "false",
+                        acc_rec->meta->info.rent_epoch,
+                        acc_rec->meta->dlen ));
     }
 
     /* Add account to "dirty keys" list, which will be added to the
@@ -308,9 +309,9 @@ fd_update_hash_bank( fd_global_ctx_t * global,
     err = fd_solcap_write_account(
         capture,
         acc_key->uc,
-        &acc_meta_w->info,
+        &acc_rec->meta->info,
         acc_data,
-        acc_meta_w->dlen,
+        acc_rec->meta->dlen,
         acc_hash->hash );
     FD_TEST( err==0 );
   }

@@ -183,14 +183,12 @@ _process_write( instruction_ctx_t                                    ctx,
   fd_pubkey_t const * payer      = NULL;
 
   /* May only be accessed if !!payer */
-  fd_funk_rec_t     const * payer_rec_ro  = NULL;
-  fd_account_meta_t const * payer_meta_ro = NULL;
-  uchar             const * payer_data_ro = NULL;
+  FD_BORROWED_ACCOUNT_DECL(payer_rec);
 
   if( instr_acc_cnt >= 3 ) {
     payer = &txn_accs[ instr_acc_idxs[2] ];
 
-    int err = fd_acc_mgr_view( acc_mgr, funk_txn, payer, &payer_rec_ro, &payer_meta_ro, &payer_data_ro );
+    int err = fd_acc_mgr_view( acc_mgr, funk_txn, payer, payer_rec );
     if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) payer = NULL;
   }
 
@@ -198,29 +196,27 @@ _process_write( instruction_ctx_t                                    ctx,
 
   /* Read program data
      https://github.com/solana-labs/solana/blob/d90e1582869d8ef8d386a1c156eda987404c43be/sdk/src/transaction_context.rs#L861 */
-  fd_funk_rec_t     const * program_rec_ro  = NULL;
-  fd_account_meta_t const * program_meta_ro = NULL;
-  uchar             const * program_data_ro = NULL;
+  FD_BORROWED_ACCOUNT_DECL(program_rec);
   /* TODO: If account does not exist, should we pretend there is a
            zero-length data region instead of erroring out? */
-  int err = fd_acc_mgr_view( acc_mgr, funk_txn, program_id, &program_rec_ro, &program_meta_ro, &program_data_ro );
+  int err = fd_acc_mgr_view( acc_mgr, funk_txn, program_id, program_rec);
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) return err;
 
   /* https://github.com/solana-labs/solana/blob/d90e1582869d8ef8d386a1c156eda987404c43be/programs/loader-v4/src/lib.rs#L252 */
-  int is_initialization = (write->offset==0U) & (program_meta_ro->dlen==0UL);
+  int is_initialization = (write->offset==0U) & (program_rec->const_meta->dlen==0UL);
   if( is_initialization ) {
-    if( FD_UNLIKELY( 0!=memcmp( program_meta_ro->info.owner, global->solana_bpf_loader_v4_program->key, sizeof(fd_pubkey_t) ) ) )
+    if( FD_UNLIKELY( 0!=memcmp( program_rec->const_meta->info.owner, global->solana_bpf_loader_v4_program->key, sizeof(fd_pubkey_t) ) ) )
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
     if( FD_UNLIKELY( !fd_txn_is_writable( ctx.txn_ctx->txn_descriptor, instr_acc_idxs[0] ) ) )
       return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
     if( FD_UNLIKELY( !fd_txn_is_signer( ctx.txn_ctx->txn_descriptor, instr_acc_idxs[1] ) ) )
       return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   } else {
-    int err = check_program_account( ctx, program_meta_ro );
+    int err = check_program_account( ctx, program_rec->const_meta );
     if( FD_UNLIKELY( err!=0 ) ) return err;
 
     fd_bpf_loader_v4_state_t const * state = (fd_bpf_loader_v4_state_t const *)
-      fd_type_pun_const( program_data_ro );
+      fd_type_pun_const( program_rec->const_data );
     if( FD_UNLIKELY( state->is_deployed ) ) {
       // TODO Log: "Program is not retracted"
       return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
@@ -237,7 +233,7 @@ _process_write( instruction_ctx_t                                    ctx,
       return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
 
   /* https://github.com/solana-labs/solana/blob/d90e1582869d8ef8d386a1c156eda987404c43be/programs/loader-v4/src/lib.rs#L285-L286 */
-  ulong program_size = program_meta_ro->dlen;
+  ulong program_size = program_rec->const_meta->dlen;
         program_size = fd_ulong_sat_sub( program_size, sizeof(fd_bpf_loader_v4_state_t) );
 
   /* https://github.com/solana-labs/solana/blob/d90e1582869d8ef8d386a1c156eda987404c43be/programs/loader-v4/src/lib.rs#L290-L291 */
@@ -253,17 +249,17 @@ _process_write( instruction_ctx_t                                    ctx,
   ulong const   end_offset = offset + write->bytes_len;
 
   ulong const program_acc_new_sz =
-    fd_ulong_max( program_meta_ro->dlen, end_offset + sizeof(fd_bpf_loader_v4_state_t) );
+    fd_ulong_max( program_rec->const_meta->dlen, end_offset + sizeof(fd_bpf_loader_v4_state_t) );
 
   fd_rent_t const * rent = &global->bank.rent;
   ulong required_lamports = fd_rent_exempt_minimum_balance2( rent, program_acc_new_sz );
-  ulong transfer_lamports = fd_ulong_sat_sub( required_lamports, program_meta_ro->info.lamports );
+  ulong transfer_lamports = fd_ulong_sat_sub( required_lamports, program_rec->const_meta->info.lamports );
 
   /* Does not linearly match Solana Labs */
 
   int sufficient_lamports =
        ( transfer_lamports==0UL )
-    || ( (!!payer) && (payer_meta_ro->info.lamports >= transfer_lamports) );
+    || ( (!!payer) && (payer_rec->const_meta->info.lamports >= transfer_lamports) );
   if( FD_UNLIKELY( !sufficient_lamports ) ) {
     /* TODO log to program log: "Insufficient lamports, %lu are required" */
     return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
@@ -272,32 +268,26 @@ _process_write( instruction_ctx_t                                    ctx,
   /* https://github.com/solana-labs/solana/blob/d90e1582869d8ef8d386a1c156eda987404c43be/programs/loader-v4/src/lib.rs#L310-L311 */
 
   /* Upgrade program to writable handle */
-  fd_funk_rec_t     * program_rec_rw  = NULL;
-  fd_account_meta_t * program_meta_rw = NULL;
-  uchar             * program_data_rw = NULL;
-  err = fd_acc_mgr_modify( acc_mgr, funk_txn, program_id, 0, program_acc_new_sz, program_rec_ro, &program_rec_rw, &program_meta_rw, &program_data_rw );
+  err = fd_acc_mgr_modify( acc_mgr, funk_txn, program_id, 0, program_acc_new_sz, program_rec);
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) return err;
-  program_meta_rw->dlen = program_acc_new_sz;
+  program_rec->meta->dlen = program_acc_new_sz;
 
   /* https://github.com/solana-labs/solana/blob/d90e1582869d8ef8d386a1c156eda987404c43be/programs/loader-v4/src/lib.rs#L313 */
   if( payer ) {
     /* Upgrade payer to writable handle */
-    fd_funk_rec_t     * payer_rec_rw  = NULL;
-    fd_account_meta_t * payer_meta_rw = NULL;
-    uchar             * payer_data_rw = NULL;
-    err = fd_acc_mgr_modify( acc_mgr, funk_txn, payer, 0, 0UL, payer_rec_ro, &payer_rec_rw, &payer_meta_rw, &payer_data_rw );
+    err = fd_acc_mgr_modify( acc_mgr, funk_txn, payer, 0, 0UL, payer_rec);
     if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) return err;
 
     /* Transfer lamports
        https://github.com/solana-labs/solana/blob/d90e1582869d8ef8d386a1c156eda987404c43be/programs/loader-v4/src/lib.rs#L314 */
-    payer_meta_rw  ->info.lamports -= transfer_lamports;
-    program_meta_rw->info.lamports += transfer_lamports;
+    payer_rec->meta  ->info.lamports -= transfer_lamports;
+    program_rec->meta->info.lamports += transfer_lamports;
   }
 
   /* https://github.com/solana-labs/solana/blob/d90e1582869d8ef8d386a1c156eda987404c43be/programs/loader-v4/src/lib.rs#L317 */
   if( is_initialization ) {
-    FD_TEST( program_meta_rw->dlen >= sizeof(fd_bpf_loader_v4_state_t) );
-    fd_bpf_loader_v4_state_t * state = (fd_bpf_loader_v4_state_t *)fd_type_pun( program_data_rw );
+    FD_TEST( program_rec->meta->dlen >= sizeof(fd_bpf_loader_v4_state_t) );
+    fd_bpf_loader_v4_state_t * state = (fd_bpf_loader_v4_state_t *)fd_type_pun( program_rec->data );
     state->slot          = global->bank.slot;  /* Solana Labs reads from the clock sysvar here */
     state->is_deployed   = 0;
     state->has_authority = 1;
@@ -310,9 +300,9 @@ _process_write( instruction_ctx_t                                    ctx,
 
   ulong const write_off     = sizeof(fd_bpf_loader_v4_state_t) + offset;
   ulong const write_off_end = write_off + bytes_len;
-  FD_TEST( write_off_end <= program_meta_rw->dlen );
+  FD_TEST( write_off_end <= program_rec->const_meta->dlen );
 
-  uchar * write_ptr = program_data_rw + write_off;
+  uchar * write_ptr = program_rec->data + write_off;
   fd_memcpy( write_ptr, bytes, bytes_len );
 
   return 0;
@@ -342,18 +332,16 @@ _process_truncate( instruction_ctx_t ctx,
   fd_pubkey_t const * recipient  = &txn_accs[ recipient_idx  ];
 
   /* Read program account */
-  fd_funk_rec_t     const * program_rec_ro  = NULL;
-  fd_account_meta_t const * program_meta_ro = NULL;
-  uchar             const * program_data_ro = NULL;
-  int err = fd_acc_mgr_view( acc_mgr, funk_txn, program_id, &program_rec_ro, &program_meta_ro, &program_data_ro );
+  FD_BORROWED_ACCOUNT_DECL(program_rec);
+  int err = fd_acc_mgr_view( acc_mgr, funk_txn, program_id, program_rec);
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) return err;
 
   /* Check program account
      https://github.com/solana-labs/solana/blob/d90e1582869d8ef8d386a1c156eda987404c43be/programs/loader-v4/src/lib.rs#L347 */
-  err = check_program_account( ctx, program_meta_ro );
+  err = check_program_account( ctx, program_rec->const_meta);
   if( FD_UNLIKELY( err!=0 ) ) return err;
   fd_bpf_loader_v4_state_t const * state = (fd_bpf_loader_v4_state_t const *)
-    fd_type_pun_const( program_data_ro );
+    fd_type_pun_const( program_rec->const_data );
 
   /* https://github.com/solana-labs/solana/blob/d90e1582869d8ef8d386a1c156eda987404c43be/programs/loader-v4/src/lib.rs#L353 */
   if( FD_UNLIKELY( state->is_deployed ) ) {
@@ -362,7 +350,7 @@ _process_truncate( instruction_ctx_t ctx,
   }
 
   /* https://github.com/solana-labs/solana/blob/d90e1582869d8ef8d386a1c156eda987404c43be/programs/loader-v4/src/lib.rs#L357 */
-  ulong program_size = program_meta_ro->dlen;
+  ulong program_size = program_rec->const_meta->dlen;
         program_size = fd_ulong_sat_sub( program_size, sizeof(fd_bpf_loader_v4_state_t) );
 
   /* https://github.com/solana-labs/solana/blob/d90e1582869d8ef8d386a1c156eda987404c43be/programs/loader-v4/src/lib.rs#L361 */
@@ -388,25 +376,23 @@ _process_truncate( instruction_ctx_t ctx,
      TODO fd_funk does currently not support shrinking records. */
   if( FD_UNLIKELY( !fd_txn_is_writable( ctx.txn_ctx->txn_descriptor, (int)program_id_idx ) ) )
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
-  fd_funk_rec_t     * program_rec_rw  = NULL;
-  fd_account_meta_t * program_meta_rw = NULL;
-  uchar             * program_data_rw = NULL;
-  err = fd_acc_mgr_modify( acc_mgr, funk_txn, program_id, /* do_create */ 0, target_program_acc_sz, program_rec_ro, &program_rec_rw, &program_meta_rw, &program_data_rw );
+  err = fd_acc_mgr_modify( acc_mgr, funk_txn, program_id, /* do_create */ 0, target_program_acc_sz, program_rec);
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) return err;
-  program_meta_rw->dlen = target_program_acc_sz;
+  program_rec->meta->dlen = target_program_acc_sz;
 
   /* Obtain writable handle to recipient account. */
   if( FD_UNLIKELY( !fd_txn_is_writable( ctx.txn_ctx->txn_descriptor, (int)recipient_idx ) ) )
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
-  fd_account_meta_t * recipient_meta_rw = NULL;
-  err = fd_acc_mgr_modify( acc_mgr, funk_txn, recipient, /* flags */ 0UL, /* min_data_sz */ 0UL, NULL, NULL, &recipient_meta_rw, NULL );
+  FD_BORROWED_ACCOUNT_DECL(recipient_rec);
+  // TODO, shouldn't this potentially create the account?
+  err = fd_acc_mgr_modify( acc_mgr, funk_txn, recipient, /* flags */ 0UL, /* min_data_sz */ 0UL, recipient_rec);
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) return err;
 
   /* https://github.com/solana-labs/solana/blob/d90e1582869d8ef8d386a1c156eda987404c43be/programs/loader-v4/src/lib.rs#L375 */
-  ulong transfer_lamports = program_meta_rw->info.lamports - required_lamports;
-  FD_TEST( transfer_lamports <= program_meta_rw->info.lamports );  /* debug assert */
-  program_meta_rw  ->info.lamports -= transfer_lamports;
-  recipient_meta_rw->info.lamports += transfer_lamports;
+  ulong transfer_lamports = program_rec->const_meta->info.lamports - required_lamports;
+  FD_TEST( transfer_lamports <= program_rec->const_meta->info.lamports );  /* debug assert */
+  program_rec->meta  ->info.lamports -= transfer_lamports;
+  recipient_rec->meta->info.lamports += transfer_lamports;
 
   return 0;
 }
@@ -430,16 +416,15 @@ _process_deploy( instruction_ctx_t ctx ) {
     source_program = &txn_accs[instr_acc_idxs[2]];
   }
   // Load program account
-  fd_account_meta_t * program_acc_metadata = NULL;
-  uchar * program_acc_data = NULL;
-  int err = fd_acc_mgr_modify(global->acc_mgr, global->funk_txn, program_acc, 1, 0, NULL, NULL, &program_acc_metadata, &program_acc_data);
+  FD_BORROWED_ACCOUNT_DECL(program_acc_rec);
+  int err = fd_acc_mgr_modify(global->acc_mgr, global->funk_txn, program_acc, 1, 0, program_acc_rec);
   if( FD_UNLIKELY( err ) ) return err;
-  err = check_program_account(ctx, program_acc_metadata);
+  err = check_program_account(ctx, program_acc_rec->meta);
   if( FD_UNLIKELY( err ) ) return err;
 
   // Get bpf v4 state
   fd_bpf_loader_v4_state_t const * state = (fd_bpf_loader_v4_state_t const *)
-      fd_type_pun_const( program_acc_data );
+      fd_type_pun_const( program_acc_rec->const_data );
 
   fd_sol_sysvar_clock_t clock;
   fd_sysvar_clock_read(global, &clock);
@@ -456,30 +441,30 @@ _process_deploy( instruction_ctx_t ctx ) {
   fd_account_meta_t * buffer_metadata = NULL;
   uchar * buffer_data = NULL;
 
+  fd_borrowed_account_t *source_program_rec = NULL;
   if (source_program) {
-    fd_account_meta_t * source_program_metadata = NULL;
-    uchar * source_program_data = NULL;
-    err = fd_acc_mgr_modify(global->acc_mgr, global->funk_txn, source_program, 1, 0, NULL, NULL, &source_program_metadata, &source_program_data);
+    source_program_rec = fd_borrowed_account_init(fd_alloca(FD_BORROWED_ACCOUNT_ALIGN, FD_BORROWED_ACCOUNT_FOOTPRINT));
+    err = fd_acc_mgr_modify(global->acc_mgr, global->funk_txn, source_program, 1, 0, source_program_rec);
     if (FD_UNLIKELY(err != FD_EXECUTOR_INSTR_SUCCESS)) {
       return err;
     }
 
-    err = check_program_account(ctx, source_program_metadata);
+    err = check_program_account(ctx, source_program_rec->const_meta);
     if (FD_UNLIKELY(err != FD_EXECUTOR_INSTR_SUCCESS)) {
       return err;
     }
 
     fd_bpf_loader_v4_state_t const * source_state = (fd_bpf_loader_v4_state_t const *)
-      fd_type_pun_const( source_program_data );
+      fd_type_pun_const( source_program_rec->const_data);
 
     if (source_state->is_deployed) {
       return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
     }
-    buffer_metadata = source_program_metadata;
-    buffer_data = source_program_data;
+    buffer_metadata = source_program_rec->meta;
+    buffer_data = source_program_rec->data;
   } else {
-    buffer_metadata = program_acc_metadata;
-    buffer_data = program_acc_data;
+    buffer_metadata = program_acc_rec->meta;
+    buffer_data = program_acc_rec->data;
   }
 
   // TODO: load_program
@@ -493,23 +478,17 @@ _process_deploy( instruction_ctx_t ctx ) {
   // )?;
 
   if (source_program) {
-    ulong required_lamports = fd_rent_exempt_minimum_balance(global, program_acc_metadata->dlen);
-    ulong transfer_lamports = fd_ulong_sat_sub(program_acc_metadata->info.lamports, required_lamports);
+    ulong required_lamports = fd_rent_exempt_minimum_balance(global, program_acc_rec->meta->dlen);
+    ulong transfer_lamports = fd_ulong_sat_sub(program_acc_rec->meta->info.lamports, required_lamports);
 
-    fd_account_meta_t * source_program_metadata = NULL;
-    uchar * source_program_data = NULL;
-    err = fd_acc_mgr_modify(global->acc_mgr, global->funk_txn, source_program, 1, 0, NULL, NULL, &source_program_metadata, &source_program_data);
-    if (FD_UNLIKELY(err != FD_EXECUTOR_INSTR_SUCCESS)) {
-      return err;
-    }
-    program_acc_metadata->dlen = source_program_metadata->dlen;
-    fd_memcpy(program_acc_data, source_program_data, source_program_metadata->dlen);
-    source_program_metadata->dlen = 0;
-    source_program_metadata->info.lamports -= transfer_lamports;
-    program_acc_metadata->info.lamports += transfer_lamports;
+    program_acc_rec->meta->dlen = source_program_rec->meta->dlen;
+    fd_memcpy(program_acc_rec->data, source_program_rec->data, source_program_rec->meta->dlen);
+    source_program_rec->meta->dlen = 0;
+    source_program_rec->meta->info.lamports -= transfer_lamports;
+    program_acc_rec->meta->info.lamports += transfer_lamports;
   }
 
-  fd_bpf_loader_v4_state_t * mut_state = (fd_bpf_loader_v4_state_t *) program_acc_data;
+  fd_bpf_loader_v4_state_t * mut_state = (fd_bpf_loader_v4_state_t *) program_acc_rec->data;
   mut_state->slot = current_slot;
   mut_state->is_deployed = true;
 
@@ -544,18 +523,17 @@ _process_retract( instruction_ctx_t ctx ) {
   //fd_pubkey_t const * authority  = &txn_accs[ authority_idx  ];
 
   /* Read program account */
-  fd_funk_rec_t     const * program_rec_ro  = NULL;
-  fd_account_meta_t const * program_meta_ro = NULL;
-  uchar             const * program_data_ro = NULL;
-  int err = fd_acc_mgr_view( acc_mgr, funk_txn, program_id, &program_rec_ro, &program_meta_ro, &program_data_ro );
+  FD_BORROWED_ACCOUNT_DECL(program_rec);
+
+  int err = fd_acc_mgr_view( acc_mgr, funk_txn, program_id, program_rec);
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) return err;
 
   /* Check program account
      https://github.com/solana-labs/solana/blob/d90e1582869d8ef8d386a1c156eda987404c43be/programs/loader-v4/src/lib.rs#L498 */
-  err = check_program_account( ctx, program_meta_ro );
+  err = check_program_account( ctx, program_rec->const_meta );
   if( FD_UNLIKELY( err!=0 ) ) return err;
   fd_bpf_loader_v4_state_t const * state = (fd_bpf_loader_v4_state_t const *)
-    fd_type_pun_const( program_data_ro );
+    fd_type_pun_const( program_rec->const_data );
 
   /* Solana Labs reads from the clock sysvar here
      https://github.com/solana-labs/solana/blob/d90e1582869d8ef8d386a1c156eda987404c43be/programs/loader-v4/src/lib.rs#L504 */
@@ -575,12 +553,9 @@ _process_retract( instruction_ctx_t ctx ) {
      https://github.com/solana-labs/solana/blob/d90e1582869d8ef8d386a1c156eda987404c43be/programs/loader-v4/src/lib.rs#L516 */
   if( FD_UNLIKELY( !fd_txn_is_writable( ctx.txn_ctx->txn_descriptor, (int)program_id_idx ) ) )
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
-  fd_funk_rec_t     * program_rec_rw  = NULL;
-  fd_account_meta_t * program_meta_rw = NULL;
-  uchar             * program_data_rw = NULL;
-  err = fd_acc_mgr_modify( acc_mgr, funk_txn, program_id, /* do_create */ 0, 0UL, program_rec_ro, &program_rec_rw, &program_meta_rw, &program_data_rw );
+  err = fd_acc_mgr_modify( acc_mgr, funk_txn, program_id, /* do_create */ 0, 0UL, program_rec);
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) return err;
-  fd_bpf_loader_v4_state_t * state_rw = (fd_bpf_loader_v4_state_t *)fd_type_pun( program_data_rw );
+  fd_bpf_loader_v4_state_t * state_rw = (fd_bpf_loader_v4_state_t *)fd_type_pun( program_rec->data );
 
   /* https://github.com/solana-labs/solana/blob/d90e1582869d8ef8d386a1c156eda987404c43be/programs/loader-v4/src/lib.rs#L517 */
   state_rw->is_deployed = 0;
@@ -620,15 +595,13 @@ _process_transfer_authority( instruction_ctx_t ctx ) {
   }
 
   /* Read program account */
-  fd_funk_rec_t     const * program_rec_ro  = NULL;
-  fd_account_meta_t const * program_meta_ro = NULL;
-  uchar             const * program_data_ro = NULL;
-  int err = fd_acc_mgr_view( acc_mgr, funk_txn, program_id, &program_rec_ro, &program_meta_ro, &program_data_ro );
+  FD_BORROWED_ACCOUNT_DECL(program_rec);
+  int err = fd_acc_mgr_view( acc_mgr, funk_txn, program_id, program_rec );
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) return err;
 
   /* Check program account
      https://github.com/solana-labs/solana/blob/d90e1582869d8ef8d386a1c156eda987404c43be/programs/loader-v4/src/lib.rs#L536 */
-  err = check_program_account( ctx, program_meta_ro );
+  err = check_program_account( ctx, program_rec->const_meta );
   if( FD_UNLIKELY( err!=0 ) ) return err;
 
   /* For some reason, third instruction account is checked later */
@@ -643,12 +616,9 @@ _process_transfer_authority( instruction_ctx_t ctx ) {
      https://github.com/solana-labs/solana/blob/d90e1582869d8ef8d386a1c156eda987404c43be/programs/loader-v4/src/lib.rs#L542 */
   if( FD_UNLIKELY( !fd_txn_is_writable( ctx.txn_ctx->txn_descriptor, (int)program_id_idx ) ) )
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
-  fd_funk_rec_t     * program_rec_rw  = NULL;
-  fd_account_meta_t * program_meta_rw = NULL;
-  uchar             * program_data_rw = NULL;
-  err = fd_acc_mgr_modify( acc_mgr, funk_txn, program_id, /* do_create */ 0, 0UL, program_rec_ro, &program_rec_rw, &program_meta_rw, &program_data_rw );
+  err = fd_acc_mgr_modify( acc_mgr, funk_txn, program_id, /* do_create */ 0, 0UL, program_rec );
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) return err;
-  fd_bpf_loader_v4_state_t * state_rw = (fd_bpf_loader_v4_state_t *)fd_type_pun( program_data_rw );
+  fd_bpf_loader_v4_state_t * state_rw = (fd_bpf_loader_v4_state_t *)fd_type_pun( program_rec->data );
 
   /* https://github.com/solana-labs/solana/blob/d90e1582869d8ef8d386a1c156eda987404c43be/programs/loader-v4/src/lib.rs#L547 */
   if( !new_authority ) {

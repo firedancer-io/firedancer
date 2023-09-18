@@ -16,16 +16,16 @@ int
 fd_executor_bpf_loader_program_is_executable_program_account( fd_global_ctx_t * global,
                                                               fd_pubkey_t const *     pubkey ) {
 
-  fd_account_meta_t const * metadata = NULL;
-  int read_result = fd_acc_mgr_view( global->acc_mgr, global->funk_txn, pubkey, NULL, &metadata, NULL );
+  FD_BORROWED_ACCOUNT_DECL(rec);
+  int read_result = fd_acc_mgr_view( global->acc_mgr, global->funk_txn, pubkey, rec );
   if (read_result != FD_ACC_MGR_SUCCESS)
     return -1;
 
-  if( memcmp( metadata->info.owner, global->solana_bpf_loader_program, sizeof(fd_pubkey_t)) ) {
+  if( memcmp( rec->const_meta->info.owner, global->solana_bpf_loader_program, sizeof(fd_pubkey_t)) ) {
     return -1;
   }
 
-  if( metadata->info.executable != 1) {
+  if( rec->const_meta->info.executable != 1) {
     return -1;
   }
 

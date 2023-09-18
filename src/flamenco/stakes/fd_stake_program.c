@@ -15,6 +15,52 @@
 #define MERGE_KIND_FULLY_ACTIVE ( 2 )
 #define MINIMUM_DELINQUENT_EPOCHS_FOR_DEACTIVATION ( 5 )
 
+
+// These exist until charlie finishes the stake rewrite...
+static inline int
+fd_acc_mgr_modify_old( fd_acc_mgr_t *         acc_mgr,
+                   fd_funk_txn_t *        txn,
+                   fd_pubkey_t const *    pubkey,
+                   int                    do_create,
+                   ulong                  min_data_sz,
+                   fd_funk_rec_t const *  opt_con_rec,
+                   fd_funk_rec_t **       opt_out_rec,
+                   fd_account_meta_t **   opt_out_meta,
+                   uchar **               opt_out_data ) {
+
+  int err = FD_ACC_MGR_SUCCESS;
+  uchar * raw = fd_acc_mgr_modify_raw( acc_mgr, txn, pubkey, do_create, min_data_sz, opt_con_rec, opt_out_rec, &err );
+  if( FD_UNLIKELY( !raw ) ) return err;
+
+  fd_account_meta_t * meta = (fd_account_meta_t *)raw;
+  if( opt_out_meta ) *opt_out_meta = meta;
+  if( opt_out_data ) *opt_out_data = raw + meta->hlen;
+  return FD_ACC_MGR_SUCCESS;
+}
+
+static inline int
+fd_acc_mgr_view_old( fd_acc_mgr_t *             acc_mgr,
+                 fd_funk_txn_t const *      txn,
+                 fd_pubkey_t const *        pubkey,
+                 fd_funk_rec_t const **     opt_out_rec,
+                 fd_account_meta_t const ** opt_out_meta,
+                 uchar const **             opt_out_data ) {
+
+  int err = FD_ACC_MGR_SUCCESS;
+  uchar const * raw = fd_acc_mgr_view_raw( acc_mgr, txn, pubkey, opt_out_rec, &err );
+  if (FD_UNLIKELY(!FD_RAW_ACCOUNT_EXISTS(raw))) {
+    if (err != FD_ACC_MGR_SUCCESS)
+      return err;
+    return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
+  }
+
+  fd_account_meta_t const * meta = (fd_account_meta_t const *)raw;
+  if( opt_out_meta ) *opt_out_meta = meta;
+  if( opt_out_data ) *opt_out_data = raw + meta->hlen;
+  return FD_ACC_MGR_SUCCESS;
+}
+
+
 static fd_acc_lamports_t get_minimum_delegation( fd_global_ctx_t* global ) {
   if ( FD_FEATURE_ACTIVE(global, stake_raise_minimum_delegation_to_1_sol )) {
     return MINIMUM_DELEGATION_SOL * LAMPORTS_PER_SOL;
@@ -96,7 +142,7 @@ write_stake_config( fd_global_ctx_t *         global,
   fd_pubkey_t const * acc_key  = (fd_pubkey_t const *)global->solana_stake_program_config;
   fd_account_meta_t * acc_meta = NULL;
   uchar *             acc_data = NULL;
-  int err = fd_acc_mgr_modify( global->acc_mgr, global->funk_txn, acc_key, 1, data_sz, NULL, NULL, &acc_meta, &acc_data );
+  int err = fd_acc_mgr_modify_old( global->acc_mgr, global->funk_txn, acc_key, 1, data_sz, NULL, NULL, &acc_meta, &acc_data );
   FD_TEST( !err );
 
   acc_meta->dlen            = data_sz;
@@ -196,7 +242,7 @@ static int validate_split_amount(
     // getting all source data
     fd_pubkey_t *             source_acc      = &txn_accs[instr_acc_idxs[source_account_index]];
     fd_account_meta_t const * metadata_source = NULL;
-    int err = fd_acc_mgr_view( ctx.global->acc_mgr, ctx.global->funk_txn, source_acc, NULL, &metadata_source, NULL );
+    int err = fd_acc_mgr_view_old( ctx.global->acc_mgr, ctx.global->funk_txn, source_acc, NULL, &metadata_source, NULL );
     FD_TEST( !err );
     fd_acc_lamports_t source_lamports = metadata_source->info.lamports;
 
@@ -211,7 +257,7 @@ static int validate_split_amount(
     // getting all dest data
     fd_pubkey_t *             dest_acc      = &txn_accs[instr_acc_idxs[destination_account_index]];
     fd_account_meta_t const * metadata_dest = NULL;
-    err = fd_acc_mgr_view( ctx.global->acc_mgr, ctx.global->funk_txn, dest_acc, NULL, &metadata_dest, NULL );
+    err = fd_acc_mgr_view_old( ctx.global->acc_mgr, ctx.global->funk_txn, dest_acc, NULL, &metadata_dest, NULL );
     FD_TEST( !err );
 
     fd_acc_lamports_t destination_lamports = metadata_dest->info.lamports;
@@ -523,7 +569,7 @@ int fd_executor_stake_program_execute_instruction(
   fd_funk_rec_t const *     stake_acc_ro   = NULL;
   fd_account_meta_t const * stake_acc_meta = NULL;
   uchar const *             stake_acc_data = NULL;
-  int read_result = fd_acc_mgr_view( ctx.global->acc_mgr, ctx.global->funk_txn, stake_acc, &stake_acc_ro, &stake_acc_meta, &stake_acc_data );
+  int read_result = fd_acc_mgr_view_old( ctx.global->acc_mgr, ctx.global->funk_txn, stake_acc, &stake_acc_ro, &stake_acc_meta, &stake_acc_data );
   if( FD_UNLIKELY( read_result!=FD_ACC_MGR_SUCCESS ))
     return read_result;
   if( FD_UNLIKELY( 0!=memcmp( stake_acc_meta->info.owner, ctx.global->solana_stake_program, sizeof(fd_pubkey_t) ) ) )
@@ -671,7 +717,7 @@ int fd_executor_stake_program_execute_instruction(
     /* TODO unnecessary meta read */
     fd_account_meta_t const * vote_acc_meta = NULL;
     uchar const *             vote_acc_data = NULL;
-    int err = fd_acc_mgr_view( ctx.global->acc_mgr, ctx.global->funk_txn, vote_acc, NULL, &vote_acc_meta, &vote_acc_data );
+    int err = fd_acc_mgr_view_old( ctx.global->acc_mgr, ctx.global->funk_txn, vote_acc, NULL, &vote_acc_meta, &vote_acc_data );
     if( FD_UNLIKELY( err ) ) return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;  /* ???? -- I think tests are broken here, but our code is also broken, and broken+broken sometimes == correct */
     if( memcmp( vote_acc_meta->info.owner, ctx.global->solana_vote_program, sizeof(fd_pubkey_t) ) != 0 )
       return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
@@ -727,7 +773,7 @@ int fd_executor_stake_program_execute_instruction(
       fd_memcpy( &stake_state_stake->stake.delegation.voter_pubkey, vote_acc, sizeof(fd_pubkey_t) );
       stake_state_stake->stake.delegation.warmup_cooldown_rate = stake_config.warmup_cooldown_rate;
 
-      
+
       stake_state_stake->stake.credits_observed = credits;
     } else {
       /* redelegate when fd_stake_state_is_stake( &stake_state )
@@ -788,7 +834,7 @@ int fd_executor_stake_program_execute_instruction(
     // https://github.com/firedancer-io/solana/blob/56bd357f0dfdb841b27c4a346a58134428173f42/programs/stake/src/stake_state.rs#L666
 
     fd_account_meta_t const * split_metadata = NULL;
-    int read_result = fd_acc_mgr_view( ctx.global->acc_mgr, ctx.global->funk_txn, split_acc, NULL, &split_metadata, NULL );
+    int read_result = fd_acc_mgr_view_old( ctx.global->acc_mgr, ctx.global->funk_txn, split_acc, NULL, &split_metadata, NULL );
     if( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
       FD_LOG_DEBUG(( "failed to read split account metadata" ));
       return read_result;
@@ -951,8 +997,8 @@ int fd_executor_stake_program_execute_instruction(
     if (instr_acc_idxs[0] != instr_acc_idxs[1]) {
       fd_account_meta_t * split_metadata_rw = NULL;
       fd_account_meta_t * stake_metadata_rw = NULL;
-      FD_TEST( 0==fd_acc_mgr_modify( ctx.global->acc_mgr, ctx.global->funk_txn, split_acc, 0, 0UL, NULL, NULL, &split_metadata_rw, NULL ));
-      FD_TEST( 0==fd_acc_mgr_modify( ctx.global->acc_mgr, ctx.global->funk_txn, stake_acc, 0, 0UL, NULL, NULL, &stake_metadata_rw, NULL ));
+      FD_TEST( 0==fd_acc_mgr_modify_old( ctx.global->acc_mgr, ctx.global->funk_txn, split_acc, 0, 0UL, NULL, NULL, &split_metadata_rw, NULL ));
+      FD_TEST( 0==fd_acc_mgr_modify_old( ctx.global->acc_mgr, ctx.global->funk_txn, stake_acc, 0, 0UL, NULL, NULL, &stake_metadata_rw, NULL ));
 
       // add to destination
       split_metadata_rw->info.lamports += lamports;
@@ -1093,12 +1139,12 @@ int fd_executor_stake_program_execute_instruction(
 
     /* Check if account exists */
     fd_funk_rec_t const * to_acc_rec_ro = NULL;
-    read_result = fd_acc_mgr_view( ctx.global->acc_mgr, ctx.global->funk_txn, to_acc, &to_acc_rec_ro, NULL, NULL );
+    read_result = fd_acc_mgr_view_old( ctx.global->acc_mgr, ctx.global->funk_txn, to_acc, &to_acc_rec_ro, NULL, NULL );
     FD_TEST( (read_result==FD_ACC_MGR_SUCCESS) | (read_result==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT) );
 
     fd_account_meta_t * to_acc_metadata = NULL;
     uchar *             to_acc_data     = NULL;
-    int write_result = fd_acc_mgr_modify( ctx.global->acc_mgr, ctx.global->funk_txn, to_acc, 1, 0UL, NULL, NULL, &to_acc_metadata, &to_acc_data );
+    int write_result = fd_acc_mgr_modify_old( ctx.global->acc_mgr, ctx.global->funk_txn, to_acc, 1, 0UL, NULL, NULL, &to_acc_metadata, &to_acc_data );
     FD_TEST( !write_result );
 
     if( FD_UNLIKELY( read_result == FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) ) {
@@ -1121,7 +1167,7 @@ int fd_executor_stake_program_execute_instruction(
     }
 
     fd_account_meta_t * stake_acc_metadata_rw = NULL;
-    write_result = fd_acc_mgr_modify( ctx.global->acc_mgr, ctx.global->funk_txn, stake_acc, 0, 0UL, stake_acc_ro, NULL, &stake_acc_metadata_rw, NULL );
+    write_result = fd_acc_mgr_modify_old( ctx.global->acc_mgr, ctx.global->funk_txn, stake_acc, 0, 0UL, stake_acc_ro, NULL, &stake_acc_metadata_rw, NULL );
     FD_TEST( !write_result );
 
     to_acc_metadata      ->info.lamports += lamports;
@@ -1240,7 +1286,7 @@ int fd_executor_stake_program_execute_instruction(
     fd_pubkey_t* source_acc = &txn_accs[instr_acc_idxs[1]];
     fd_funk_rec_t const *     source_rec_ro   = NULL;
     fd_account_meta_t const * source_metadata = NULL;
-    int read_result = fd_acc_mgr_view( ctx.global->acc_mgr, ctx.global->funk_txn, source_acc, &source_rec_ro, &source_metadata, NULL );
+    int read_result = fd_acc_mgr_view_old( ctx.global->acc_mgr, ctx.global->funk_txn, source_acc, &source_rec_ro, &source_metadata, NULL );
     if( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
       FD_LOG_WARNING(( "failed to read split account metadata" ));
       return read_result;
@@ -1341,9 +1387,9 @@ int fd_executor_stake_program_execute_instruction(
     uchar *             source_data_rw     = NULL;
     fd_account_meta_t * stake_metadata_rw  = NULL;
     uchar *             stake_data_rw      = NULL;
-    int write_result = fd_acc_mgr_modify( ctx.global->acc_mgr, ctx.global->funk_txn, source_acc, 0, 0UL, source_rec_ro, NULL, &source_metadata_rw, &source_data_rw );
+    int write_result = fd_acc_mgr_modify_old( ctx.global->acc_mgr, ctx.global->funk_txn, source_acc, 0, 0UL, source_rec_ro, NULL, &source_metadata_rw, &source_data_rw );
     FD_TEST( !write_result );
-        write_result = fd_acc_mgr_modify( ctx.global->acc_mgr, ctx.global->funk_txn, stake_acc,  0, 0UL, stake_acc_ro,  NULL, &stake_metadata_rw,  &stake_data_rw );
+        write_result = fd_acc_mgr_modify_old( ctx.global->acc_mgr, ctx.global->funk_txn, stake_acc,  0, 0UL, stake_acc_ro,  NULL, &stake_metadata_rw,  &stake_data_rw );
     FD_TEST( !write_result );
 
     /* Note: source_metadata_rw and source_metadata might alias! */
@@ -1669,7 +1715,7 @@ int fd_executor_stake_program_execute_instruction(
     fd_pubkey_t const *       delinquent_vote_acc      = &txn_accs[instr_acc_idxs[1]];
     fd_account_meta_t const * delinquent_vote_acc_meta = NULL;
     uchar const *             delinquent_vote_acc_data = NULL;
-    FD_TEST( 0==fd_acc_mgr_view( ctx.global->acc_mgr, ctx.global->funk_txn, delinquent_vote_acc, NULL, &delinquent_vote_acc_meta, &delinquent_vote_acc_data ) );
+    FD_TEST( 0==fd_acc_mgr_view_old( ctx.global->acc_mgr, ctx.global->funk_txn, delinquent_vote_acc, NULL, &delinquent_vote_acc_meta, &delinquent_vote_acc_data ) );
     if ( memcmp( &delinquent_vote_acc_meta->info.owner, ctx.global->solana_vote_program, sizeof(fd_pubkey_t) ) != 0 ) {
       return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
     }
@@ -1691,7 +1737,7 @@ int fd_executor_stake_program_execute_instruction(
     fd_pubkey_t const *       reference_vote_acc      = &txn_accs[instr_acc_idxs[2]];
     fd_account_meta_t const * reference_vote_acc_meta = NULL;
     uchar const *             reference_vote_acc_data = NULL;
-    FD_TEST( 0==fd_acc_mgr_view( ctx.global->acc_mgr, ctx.global->funk_txn, reference_vote_acc, NULL, &reference_vote_acc_meta, &reference_vote_acc_data ) );
+    FD_TEST( 0==fd_acc_mgr_view_old( ctx.global->acc_mgr, ctx.global->funk_txn, reference_vote_acc, NULL, &reference_vote_acc_meta, &reference_vote_acc_data ) );
     if ( memcmp( &reference_vote_acc_meta->info.owner, ctx.global->solana_vote_program, sizeof(fd_pubkey_t) ) != 0 ) {
       return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
     }
@@ -1785,7 +1831,7 @@ int fd_executor_stake_program_execute_instruction(
 
     fd_funk_rec_t     const * uninitialized_stake_acc_rec_ro   = NULL;
     fd_account_meta_t const * uninitialized_stake_acc_metadata = NULL;
-    result = fd_acc_mgr_view( ctx.global->acc_mgr, ctx.global->funk_txn, uninitialized_stake_acc, &uninitialized_stake_acc_rec_ro, &uninitialized_stake_acc_metadata, NULL );
+    result = fd_acc_mgr_view_old( ctx.global->acc_mgr, ctx.global->funk_txn, uninitialized_stake_acc, &uninitialized_stake_acc_rec_ro, &uninitialized_stake_acc_metadata, NULL );
     if ( FD_UNLIKELY( result != FD_ACC_MGR_SUCCESS ) ) {
       FD_LOG_WARNING(( "failed to read account metadata" ));
       return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
@@ -1811,7 +1857,7 @@ int fd_executor_stake_program_execute_instruction(
     fd_account_meta_t const * vote_meta2 = NULL;
     uchar const *             vote_data  = NULL;
     fd_pubkey_t const *       vote_acc   = &txn_accs[instr_acc_idxs[2]];
-    FD_TEST( 0==fd_acc_mgr_view( ctx.global->acc_mgr, ctx.global->funk_txn, vote_acc, NULL, &vote_meta2, &vote_data ) );
+    FD_TEST( 0==fd_acc_mgr_view_old( ctx.global->acc_mgr, ctx.global->funk_txn, vote_acc, NULL, &vote_meta2, &vote_data ) );
     if( memcmp( &vote_meta2->info.owner, ctx.global->solana_vote_program, sizeof(fd_pubkey_t) ) != 0 ) {
       return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
     }
@@ -1877,14 +1923,14 @@ int fd_executor_stake_program_execute_instruction(
     // transfer the effective stake to the uninitialized stake account
 
     fd_account_meta_t * uninitialized_stake_acc_metadata_rw = NULL;
-    FD_TEST( 0==fd_acc_mgr_modify( ctx.global->acc_mgr, ctx.global->funk_txn, uninitialized_stake_acc, 0, 0UL, NULL, NULL, &uninitialized_stake_acc_metadata_rw, NULL ) );
+    FD_TEST( 0==fd_acc_mgr_modify_old( ctx.global->acc_mgr, ctx.global->funk_txn, uninitialized_stake_acc, 0, 0UL, NULL, NULL, &uninitialized_stake_acc_metadata_rw, NULL ) );
 
     // add to destination
     ulong uninitialized_stake_lamports = uninitialized_stake_acc_metadata->info.lamports;
     uninitialized_stake_acc_metadata_rw->info.lamports += entry.effective;
     // sub from source
     fd_account_meta_t * stake_acc_metadata = NULL;
-    result = fd_acc_mgr_modify( ctx.global->acc_mgr, ctx.global->funk_txn, stake_acc, 0, 0UL, stake_acc_ro, NULL, &stake_acc_metadata, NULL );
+    result = fd_acc_mgr_modify_old( ctx.global->acc_mgr, ctx.global->funk_txn, stake_acc, 0, 0UL, stake_acc_ro, NULL, &stake_acc_metadata, NULL );
     if ( FD_UNLIKELY( result != FD_ACC_MGR_SUCCESS ) ) {
       FD_LOG_WARNING(( "failed to read stake account metadata" ));
       return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;

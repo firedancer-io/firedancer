@@ -88,20 +88,20 @@ fd_sysvar_slot_hashes_read( fd_global_ctx_t *  global,
 
 //  FD_LOG_INFO(( "SysvarS1otHashes111111111111111111111111111 at slot %lu: " FD_LOG_HEX16_FMT, global->bank.slot, FD_LOG_HEX16_FMT_ARGS(     metadata.hash    ) ));
 
-  int err = 0;
-  uchar const * raw_acc_data = fd_acc_mgr_view_raw( global->acc_mgr, global->funk_txn, (fd_pubkey_t const *)global->sysvar_slot_hashes, NULL, &err );
-  if (FD_UNLIKELY(!FD_RAW_ACCOUNT_EXISTS(raw_acc_data))) return err;
-
-  fd_account_meta_t const * metadata = (fd_account_meta_t const *)raw_acc_data;
-  uchar const *             data     = raw_acc_data + metadata->hlen;
+  FD_BORROWED_ACCOUNT_DECL(rec);
+  int err = fd_acc_mgr_view( global->acc_mgr, global->funk_txn, (fd_pubkey_t const *)global->sysvar_slot_hashes, rec );
+  if (FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS))
+    return err;
 
   fd_bincode_decode_ctx_t decode = {
-    .data    = data,
-    .dataend = data + metadata->dlen,
+    .data    = rec->const_data,
+    .dataend = rec->const_data + rec->const_meta->dlen,
     .valloc  = global->valloc /* !!! There is no reason to place this on the global heap.  Use scratch instead. */
   };
+
   err = fd_slot_hashes_decode( result, &decode );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) )
+    return err;
 
   return 0;
 }

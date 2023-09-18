@@ -19,16 +19,21 @@ void write_stake_history( fd_global_ctx_t* global, fd_stake_history_t* stake_his
 }
 
 int fd_sysvar_stake_history_read( fd_global_ctx_t* global, fd_stake_history_t* result ) {
-  int          acc_view_err = 0;
-  char const * raw_acc_data = fd_acc_mgr_view_raw( global->acc_mgr, global->funk_txn, (fd_pubkey_t *) global->sysvar_stake_history, NULL, &acc_view_err );
-  fd_account_meta_t const * metadata = (fd_account_meta_t const *)raw_acc_data;
 
-  fd_bincode_decode_ctx_t ctx;
-  ctx.data = raw_acc_data + metadata->hlen;
-  ctx.dataend = (char *) ctx.data + metadata->dlen;
-  ctx.valloc  = global->valloc;
+  FD_BORROWED_ACCOUNT_DECL(stake_rec);
+  int          err = fd_acc_mgr_view( global->acc_mgr, global->funk_txn, (fd_pubkey_t *) global->sysvar_stake_history, stake_rec);
+  if (FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS))
+    return err;
+
+  fd_bincode_decode_ctx_t ctx = {
+    .data = stake_rec->const_data,
+    .dataend = (char *) stake_rec->const_data + stake_rec->const_meta->dlen,
+    .valloc  = global->valloc
+  };
+
   if ( fd_stake_history_decode( result, &ctx ) )
     FD_LOG_ERR(("fd_stake_history_decode failed"));
+
   return 0;
 }
 

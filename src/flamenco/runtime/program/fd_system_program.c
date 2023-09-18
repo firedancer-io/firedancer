@@ -57,49 +57,41 @@ static int transfer(
   if (!fd_instr_acc_is_signer(ctx.instr, sender))
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
 
-  int    err = 0;
-
-  fd_funk_rec_t const *sender_con_rec = NULL;
-  char * raw_acc_data = (char*) fd_acc_mgr_view_raw(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) sender, &sender_con_rec, &err);
-  if (FD_UNLIKELY(!FD_RAW_ACCOUNT_EXISTS(raw_acc_data)))
+  FD_BORROWED_ACCOUNT_DECL(sender_rec);
+  int err = fd_acc_mgr_view(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) sender, sender_rec);
+  if (FD_UNLIKELY( err ))
     return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
-  fd_account_meta_t *m = (fd_account_meta_t *) raw_acc_data;
-  if (m->dlen > 0)
+  if (sender_rec->const_meta->dlen > 0)
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
 
-  if (m->info.lamports < requested_lamports) {
+  if (sender_rec->const_meta->info.lamports < requested_lamports) {
     ctx.txn_ctx->custom_err = 1;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
-  fd_funk_rec_t const * receiver_con_rec = NULL;
-  raw_acc_data = (char*) fd_acc_mgr_view_raw(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) receiver, &receiver_con_rec, NULL);
+  fd_borrowed_account_t receiver_rec[1];
+  err = fd_acc_mgr_view(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) receiver, fd_borrowed_account_init(receiver_rec));
+
   ulong              res = requested_lamports;
-  if (FD_UNLIKELY(FD_RAW_ACCOUNT_EXISTS(raw_acc_data))) {
-    fd_account_meta_t *m2 = (fd_account_meta_t *) raw_acc_data;
-    res = fd_ulong_sat_add(res, m2->info.lamports);
+  if (FD_EXECUTOR_INSTR_SUCCESS == err) {
+    res = fd_ulong_sat_add(res, receiver_rec->const_meta->info.lamports);
     if (ULONG_MAX == res)
       return FD_EXECUTOR_INSTR_ERR_ARITHMETIC_OVERFLOW;
   }
 
   // Ok, time to do some damage...
-  fd_funk_rec_t * sender_rec = NULL;
-  void *          sender_data = fd_acc_mgr_modify_raw(ctx.global->acc_mgr, ctx.global->funk_txn, sender, 0, 0UL, sender_con_rec, &sender_rec, &err);
+  err = fd_acc_mgr_modify(ctx.global->acc_mgr, ctx.global->funk_txn, sender, 0, 0UL, sender_rec);
   if (FD_EXECUTOR_INSTR_SUCCESS != err)
     return err;
 
-  fd_funk_rec_t * receiver_rec = NULL;
-  void *          receiver_data = fd_acc_mgr_modify_raw(ctx.global->acc_mgr, ctx.global->funk_txn, receiver, 1, 0UL, receiver_con_rec, &receiver_rec, &err);
+  err = fd_acc_mgr_modify(ctx.global->acc_mgr, ctx.global->funk_txn, receiver, 1, 0UL, receiver_rec);
   if (FD_EXECUTOR_INSTR_SUCCESS != err)
     return err;
 
-  ((fd_account_meta_t *) sender_data)->info.lamports = ((fd_account_meta_t *) sender_data)->info.lamports - requested_lamports;
-  ((fd_account_meta_t *) receiver_data)->info.lamports = res;
+  sender_rec->meta->info.lamports = sender_rec->meta->info.lamports - requested_lamports;
+  receiver_rec->meta->info.lamports = res;
 
-  err = fd_acc_mgr_commit_raw(ctx.global->acc_mgr, sender_rec, sender, sender_data, ctx.global->bank.slot, 0);
-  if (FD_EXECUTOR_INSTR_SUCCESS != err)
-    return err;
-  return fd_acc_mgr_commit_raw(ctx.global->acc_mgr, receiver_rec, receiver, receiver_data, ctx.global->bank.slot, 0);
+  return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
 // https://github.com/solana-labs/solana/blob/b00d18cec4011bb452e3fe87a3412a3f0146942e/runtime/src/system_instruction_processor.rs#L507
@@ -139,42 +131,37 @@ static int fd_system_allocate(
     owner = &t->owner;
   }
 
-  fd_funk_rec_t const *crec = NULL;
-  char * raw_acc_data = (char*) fd_acc_mgr_view_raw(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) account, &crec, NULL);
-  if (FD_UNLIKELY(FD_RAW_ACCOUNT_EXISTS(raw_acc_data))) {
-    fd_account_meta_t *m = (fd_account_meta_t *) raw_acc_data;
+  FD_BORROWED_ACCOUNT_DECL(account_rec);
 
+  err = fd_acc_mgr_view(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) account, account_rec);
+  if( FD_UNLIKELY( err == FD_ACC_MGR_SUCCESS ) ) {
     if (instruction->discriminant == fd_system_program_instruction_enum_allocate) {
-      if (memcmp(m->info.owner, ctx.global->solana_system_program, sizeof(m->info.owner)) != 0)
+      if (memcmp(account_rec->const_meta->info.owner, ctx.global->solana_system_program, sizeof(account_rec->const_meta->info.owner)) != 0)
         return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
     }
 
     // This will get handled later in the set_data_length so.. maybe we don't need this here?
-    if (m->dlen > 0)
+    if (account_rec->const_meta->dlen > 0)
       return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
   if (allocate > MAX_PERMITTED_DATA_LENGTH)
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
 
-  fd_funk_rec_t *rec = NULL;
-  err = 0;
-  void *data = fd_acc_mgr_modify_raw(ctx.global->acc_mgr, ctx.global->funk_txn, account, 1, allocate, crec, &rec, &err);
-  if (NULL == rec)
+  err = fd_acc_mgr_modify(ctx.global->acc_mgr, ctx.global->funk_txn, account, 1, allocate, account_rec);
+  if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) )
     return err;
 
-  fd_account_meta_t *m = (fd_account_meta_t *) data;
-
-  if (!fd_account_set_data_length(&ctx, m, account, allocate, 0, &err))
+  if (!fd_account_set_data_length(&ctx, account_rec->meta, account, allocate, 0, &err))
     return err;
 
   if (instruction->discriminant == fd_system_program_instruction_enum_allocate_with_seed) {
-    err = fd_account_set_owner(&ctx, m, account, owner);
+    err = fd_account_set_owner(&ctx, account_rec->meta, account, owner);
     if (FD_ACC_MGR_SUCCESS != err)
       return err;
   }
 
-  err = fd_acc_mgr_commit_raw(ctx.global->acc_mgr, rec, account, data, ctx.global->bank.slot, 0);
+  err = fd_acc_mgr_commit(ctx.global->acc_mgr, account_rec, ctx.global->bank.slot, 0);
   if (FD_ACC_MGR_SUCCESS != err)
     return err;
 
@@ -201,34 +188,29 @@ static int fd_system_assign_with_seed(
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
-  fd_funk_rec_t const *crec = NULL;
-  char * raw_acc_data = (char*) fd_acc_mgr_view_raw(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) account, &crec, NULL);
-  if (FD_UNLIKELY(FD_RAW_ACCOUNT_EXISTS(raw_acc_data))) {
-    fd_account_meta_t *m = (fd_account_meta_t *) raw_acc_data;
 
-    if (memcmp(&t->owner, m->info.owner, sizeof(fd_pubkey_t)) == 0)
+  FD_BORROWED_ACCOUNT_DECL(account_rec);
+  err = fd_acc_mgr_view(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) account, account_rec);
+  if( FD_UNLIKELY( err == FD_ACC_MGR_SUCCESS ) ) {
+    if (memcmp(&t->owner, account_rec->const_meta->info.owner, sizeof(fd_pubkey_t)) == 0)
       return FD_ACC_MGR_SUCCESS;
   }
 
   if (!fd_instr_acc_is_signer(ctx.instr, &t->base))
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
 
-  fd_funk_rec_t *rec = NULL;
-  err = 0;
-  void *data = fd_acc_mgr_modify_raw(ctx.global->acc_mgr, ctx.global->funk_txn, account, 1, 0UL, crec, &rec, &err);
-  if (NULL == rec)
+  err = fd_acc_mgr_modify(ctx.global->acc_mgr, ctx.global->funk_txn, account, 1, 0UL, account_rec);
+  if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) )
     return err;
 
-  fd_account_meta_t *m = (fd_account_meta_t *) data;
-
-  if (memcmp(m->info.owner, ctx.global->solana_system_program, sizeof(m->info.owner)) != 0)
+  if (memcmp(account_rec->const_meta->info.owner, ctx.global->solana_system_program, sizeof(account_rec->const_meta->info.owner)) != 0)
     return FD_EXECUTOR_INSTR_ERR_MODIFIED_PROGRAM_ID;
 
-  err = fd_account_set_owner(&ctx, m, account, &t->owner);
+  err = fd_account_set_owner(&ctx, account_rec->meta, account, &t->owner);
   if (FD_ACC_MGR_SUCCESS != err)
     return err;
 
-  err = fd_acc_mgr_commit_raw(ctx.global->acc_mgr, rec, account, data, ctx.global->bank.slot, 0);
+  err = fd_acc_mgr_commit(ctx.global->acc_mgr, account_rec, ctx.global->bank.slot, 0);
   if (FD_ACC_MGR_SUCCESS != err)
     return err;
 
@@ -290,67 +272,55 @@ static int create_account(
   if (!fd_instr_acc_is_signer(ctx.instr, from))
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
 
-  fd_funk_rec_t const * from_rec_ro = NULL;
-  int err;
-  char * raw_acc_data_from = (char*) fd_acc_mgr_view_raw(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) from, &from_rec_ro, &err);
-  if (FD_UNLIKELY(!FD_RAW_ACCOUNT_EXISTS(raw_acc_data_from))) {
+  FD_BORROWED_ACCOUNT_DECL(from_rec);
+
+  int err = fd_acc_mgr_view(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) from, from_rec);
+  if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
     ctx.txn_ctx->custom_err = 0; /* SystemError::AccountAlreadyInUse */
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
-  fd_account_meta_t *metadata = (fd_account_meta_t *) raw_acc_data_from;
-  if (metadata->dlen > 0) {
+  if (from_rec->const_meta->dlen > 0)
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+
+  FD_BORROWED_ACCOUNT_DECL(to_rec);
+  err = fd_acc_mgr_view(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) to, to_rec);
+  if( FD_UNLIKELY( err == FD_ACC_MGR_SUCCESS ) ) {
+    ctx.txn_ctx->custom_err = 0; /* SystemError::AccountAlreadyInUse */
+    return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
-  fd_acc_lamports_t sender_lamports = metadata->info.lamports;
+  fd_acc_lamports_t sender_lamports = from_rec->const_meta->info.lamports;
 
   if ( FD_UNLIKELY( sender_lamports < lamports ) ) {
     ctx.txn_ctx->custom_err = 1; /* SystemError::ResultWithNegativeLamports */
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
-  fd_funk_rec_t * from_rec_rw = NULL;
-  raw_acc_data_from = fd_acc_mgr_modify_raw(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) from, 0, 0UL, from_rec_ro, &from_rec_rw, &err);
-  FD_TEST( raw_acc_data_from );
-  ((fd_account_meta_t *) raw_acc_data_from)->info.lamports = sender_lamports - lamports;
-  /* Execute the transfer */
-  int write_result = fd_acc_mgr_commit_raw( ctx.global->acc_mgr, from_rec_rw, from, raw_acc_data_from, ctx.global->bank.slot, 0);
-  if ( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) ) {
-    return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
-  }
+  err = fd_acc_mgr_modify(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) from, 0, 0UL, from_rec);
+  FD_TEST( err == FD_ACC_MGR_SUCCESS );
+  from_rec->meta->info.lamports = sender_lamports - lamports;
 
-  /* Check to see if the account is already in use */
-  err = FD_ACC_MGR_SUCCESS;
-  fd_funk_rec_t const * to_rec_ro = NULL;
-  char * raw_acc_data_to = (char *) fd_acc_mgr_view_raw(ctx.global->acc_mgr, ctx.global->funk_txn, to, &to_rec_ro, &err);
-  if (FD_UNLIKELY(FD_RAW_ACCOUNT_EXISTS(raw_acc_data_to))) {
-    ctx.txn_ctx->custom_err = 0;     /* SystemError::AccountAlreadyInUse */
-    return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
-  }
-
-  ulong sz2 = space + sizeof(fd_account_meta_t);
-  fd_funk_rec_t * to_rec_rw = NULL;
-  raw_acc_data_to = (char*) fd_acc_mgr_modify_raw(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) to, 1, sz2, to_rec_ro, &to_rec_rw, &err);
-  FD_TEST( raw_acc_data_to );
-  /* Check that we are not exceeding the MAX_PERMITTED_DATA_LENGTH account size */
   if ( space > MAX_PERMITTED_DATA_LENGTH ) {
     ctx.txn_ctx->custom_err = 3;     /* SystemError::InvalidAccountDataLength */
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
-  metadata = (fd_account_meta_t *) raw_acc_data_to;
-  metadata->info.lamports = lamports;
-  metadata->dlen = space;
-  metadata->info.executable = 0;
-  metadata->info.rent_epoch = 0;
-  /* Initialize the account with all zeroed data and the correct owner */
-  fd_memcpy( metadata->info.owner, owner, sizeof(fd_pubkey_t) );
-  memset( raw_acc_data_to + metadata->hlen, 0, space );
+  err = fd_acc_mgr_modify(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) to, 1, space, to_rec);
+  FD_TEST( err == FD_ACC_MGR_SUCCESS );
+  /* Check that we are not exceeding the MAX_PERMITTED_DATA_LENGTH account size */
 
-  write_result = fd_acc_mgr_commit_raw( ctx.global->acc_mgr, to_rec_rw, to, raw_acc_data_to, ctx.global->bank.slot, 0);
-  if ( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) ) {
-    FD_LOG_NOTICE(( "failed to create account: %d", write_result ));
+  to_rec->meta->info.lamports = lamports;
+  to_rec->meta->dlen = space;
+  to_rec->meta->info.executable = 0;
+  to_rec->meta->info.rent_epoch = 0;
+  /* Initialize the account with all zeroed data and the correct owner */
+  fd_memcpy( to_rec->meta->info.owner, owner, sizeof(fd_pubkey_t) );
+  memset( to_rec->data, 0, space );
+
+  err = fd_acc_mgr_commit( ctx.global->acc_mgr, to_rec, ctx.global->bank.slot, 0);
+  if ( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
+    FD_LOG_NOTICE(( "failed to create account: %d", err ));
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
@@ -372,21 +342,26 @@ static int assign(
   fd_pubkey_t * txn_accs = ctx.txn_ctx->accounts;
   fd_pubkey_t * keyed_account   = &txn_accs[instr_acc_idxs[0]];
 
-  fd_account_meta_t * meta = NULL;
-  int read_result = fd_acc_mgr_modify( ctx.global->acc_mgr, ctx.global->funk_txn, keyed_account, /* do_create */ 0, 0UL, NULL, NULL, &meta, NULL );
+  FD_BORROWED_ACCOUNT_DECL(rec);
+
+  int read_result = fd_acc_mgr_view( ctx.global->acc_mgr, ctx.global->funk_txn, keyed_account, rec);
   if( FD_UNLIKELY( read_result!=FD_ACC_MGR_SUCCESS ) )
     return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
 
   // no work to do when owner is the same
   // #ifdef current_owner
-  if( 0==memcmp( meta->info.owner, owner.key, sizeof(fd_pubkey_t)) )
+  if( 0==memcmp( rec->const_meta->info.owner, owner.key, sizeof(fd_pubkey_t)) )
     return FD_EXECUTOR_INSTR_SUCCESS;
   // #endif
 
   if (!fd_instr_acc_is_signer(ctx.instr, keyed_account))
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
 
-  memcpy( meta->info.owner, owner.key, sizeof(fd_pubkey_t) );
+  read_result = fd_acc_mgr_modify( ctx.global->acc_mgr, ctx.global->funk_txn, keyed_account, /* do_create */ 0, 0UL, rec);
+  if( FD_UNLIKELY( read_result!=FD_ACC_MGR_SUCCESS ) )
+    return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
+
+  memcpy( rec->meta->info.owner, owner.key, sizeof(fd_pubkey_t) );
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 

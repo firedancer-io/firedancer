@@ -7,7 +7,7 @@ static ulong
 instructions_serialized_size( fd_instr_t const *  instrs,
                               ushort              instrs_cnt ) {
   ulong serialized_size = 0;
-  
+
   serialized_size += sizeof(ushort)       // num_instructions
     + (sizeof(ushort) * instrs_cnt);      // instruction offsets
 
@@ -15,7 +15,7 @@ instructions_serialized_size( fd_instr_t const *  instrs,
     fd_instr_t const * instr = &instrs[i];
 
     serialized_size += sizeof(ushort); // num_accounts;
-    
+
     serialized_size += instr->acct_cnt * (
       sizeof(uchar)               // flags (is_signer, is_writeable)
       + sizeof(fd_pubkey_t)         // pubkey
@@ -24,7 +24,7 @@ instructions_serialized_size( fd_instr_t const *  instrs,
     serialized_size += sizeof(fd_pubkey_t)  // program_id pubkey
         + sizeof(ushort)                    // instr_data_len;
         + instr->data_sz;                   // instr_data;
-    
+
   }
 
   serialized_size += sizeof(ushort); // current_instr_idx
@@ -38,29 +38,18 @@ fd_sysvar_instructions_serialize_account( fd_global_ctx_t *   global,
                                           ushort              instrs_cnt ) {
   ulong serialized_sz = instructions_serialized_size( instrs, instrs_cnt );
 
-  int modify_err = FD_ACC_MGR_SUCCESS;
-
-  ulong acc_sz = sizeof(fd_account_meta_t) + serialized_sz;
-
-  // TODO: do we need to undo this acc creation if everything goes to shit?
-  void * raw_acc_data = fd_acc_mgr_modify_raw(global->acc_mgr, global->funk_txn, (fd_pubkey_t const *)global->sysvar_instructions, 1, acc_sz, NULL, NULL, &modify_err);
-  if ( FD_UNLIKELY (NULL == raw_acc_data) )
+  FD_BORROWED_ACCOUNT_DECL(rec);
+  int err = fd_acc_mgr_modify(global->acc_mgr, global->funk_txn, (fd_pubkey_t const *)global->sysvar_instructions, 1, serialized_sz, rec);
+  if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) )
     return FD_ACC_MGR_ERR_READ_FAILED;
 
-  fd_account_meta_t * metadata = (fd_account_meta_t *)raw_acc_data;
+  fd_memcpy( rec->meta->info.owner, global->sysvar_owner, sizeof(fd_pubkey_t) );
+  rec->meta->info.lamports = 0; // TODO: This cannot be right... well, it gets destroyed almost instantly...
+  rec->meta->info.executable = 0;
+  rec->meta->info.rent_epoch = 0;
+  rec->meta->dlen = serialized_sz;
 
-  if ( FD_UNLIKELY( metadata->magic != FD_ACCOUNT_META_MAGIC ) )
-    return FD_ACC_MGR_ERR_WRONG_MAGIC;
-
-  uchar * acc_data = fd_account_get_data( metadata );
-
-  fd_memcpy( metadata->info.owner, global->sysvar_owner, sizeof(fd_pubkey_t) );
-  metadata->info.lamports = 0;
-  metadata->info.executable = 0;
-  metadata->info.rent_epoch = 0;
-  metadata->dlen = serialized_sz;
-
-  uchar * serialized_instructions = (uchar *)acc_data;
+  uchar * serialized_instructions = rec->data;
   ulong offset = 0;
 
   // TODO: do we needs bounds checking?
@@ -107,7 +96,7 @@ fd_sysvar_instructions_serialize_account( fd_global_ctx_t *   global,
     offset += instr->data_sz;
   }
 
-  // 
+  //
   FD_STORE( ushort, serialized_instructions + offset, 0 );
   offset += sizeof(ushort);
 
@@ -118,41 +107,31 @@ fd_sysvar_instructions_serialize_account( fd_global_ctx_t *   global,
 }
 
 int
-fd_sysvar_instructions_cleanup_account( fd_global_ctx_t * global ) {  
+fd_sysvar_instructions_cleanup_account( fd_global_ctx_t * global ) {
   fd_funk_rec_t * acc_data_rec = NULL;
   int modify_err = FD_ACC_MGR_SUCCESS;
 
+  // This uses the raw interface since we are also willing to kill dead accounts here...
   void * raw_acc_data = fd_acc_mgr_modify_raw( global->acc_mgr, global->funk_txn, (fd_pubkey_t const *)global->sysvar_instructions, 0, 0, NULL, &acc_data_rec, &modify_err );
-  if( FD_UNLIKELY( NULL == raw_acc_data ) ) {
+  if( FD_UNLIKELY( NULL == raw_acc_data ) )
     return FD_ACC_MGR_ERR_READ_FAILED;
-  }
 
   int res = fd_funk_rec_remove(global->funk, acc_data_rec, 1);
-  if( res != FD_FUNK_SUCCESS ) {
+  if( res != FD_FUNK_SUCCESS )
     return FD_ACC_MGR_ERR_WRITE_FAILED;
-  }
 
   return FD_ACC_MGR_SUCCESS;
 }
 
-int 
+int
 fd_sysvar_instructions_update_current_instr_idx( fd_global_ctx_t *  global,
                                          ushort             current_instr_idx ) {
-  int modify_err = FD_ACC_MGR_SUCCESS;
-
-  // TODO: do we need to undo this acc creation if everything goes to shit?
-  void * raw_acc_data = fd_acc_mgr_modify_raw(global->acc_mgr, global->funk_txn, (fd_pubkey_t const *)global->sysvar_instructions, 0, 0, NULL, NULL, &modify_err);
-  if ( FD_UNLIKELY (NULL == raw_acc_data) )
+  FD_BORROWED_ACCOUNT_DECL(rec);
+  int err = fd_acc_mgr_modify(global->acc_mgr, global->funk_txn, (fd_pubkey_t const *)global->sysvar_instructions, 0, 0, rec);
+  if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) )
     return FD_ACC_MGR_ERR_READ_FAILED;
-  
-  fd_account_meta_t * metadata = (fd_account_meta_t *)raw_acc_data;
 
-  if ( FD_UNLIKELY( metadata->magic != FD_ACCOUNT_META_MAGIC ) )
-    return FD_ACC_MGR_ERR_WRONG_MAGIC;
-
-  uchar * acc_data = fd_account_get_data( metadata );
-  
-  uchar * serialized_current_instr_idx = acc_data + (metadata->dlen - sizeof(ushort));
+  uchar * serialized_current_instr_idx = rec->data + (rec->meta->dlen - sizeof(ushort));
   FD_STORE( ushort, serialized_current_instr_idx, current_instr_idx );
 
   return FD_ACC_MGR_SUCCESS;

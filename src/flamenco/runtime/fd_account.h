@@ -50,7 +50,7 @@ int fd_account_is_early_verification_of_account_modifications_enabled(FD_FN_UNUS
 }
 
 static inline
-int fd_account_touch(FD_FN_UNUSED instruction_ctx_t *ctx, FD_FN_UNUSED fd_account_meta_t * acct, FD_FN_UNUSED fd_pubkey_t const * key, FD_FN_UNUSED int *err) {
+int fd_account_touch(FD_FN_UNUSED instruction_ctx_t *ctx, FD_FN_UNUSED fd_account_meta_t const * acct, FD_FN_UNUSED fd_pubkey_t const * key, FD_FN_UNUSED int *err) {
   return OK;
 }
 
@@ -139,7 +139,7 @@ int fd_account_is_writable(fd_rawtxn_b_t * txn_raw, fd_txn_t * txn_descriptor, u
 }
 
 static inline
-int fd_account_can_data_be_changed(instruction_ctx_t *ctx, fd_account_meta_t * acct, fd_pubkey_t const * key,  int *err) {
+int fd_account_can_data_be_changed(instruction_ctx_t *ctx, fd_account_meta_t const * acct, fd_pubkey_t const * key,  int *err) {
   if (!fd_account_is_early_verification_of_account_modifications_enabled(ctx))
     return 1;
 
@@ -317,7 +317,7 @@ int fd_account_check_set_data(instruction_ctx_t *ctx, fd_account_meta_t * acct, 
 //    /// Fills it with zeros at the end if is extended or truncates at the end otherwise.
 
 static inline
-int fd_account_check_set_data_length(instruction_ctx_t *ctx, fd_account_meta_t * acct, fd_pubkey_t *key, ulong new_length, int *err) {
+int fd_account_check_set_data_length(instruction_ctx_t *ctx, fd_account_meta_t const * acct, fd_pubkey_t *key, ulong new_length, int *err) {
   if (!fd_account_can_data_be_resized(ctx, acct, new_length, err))
     return 0;
 

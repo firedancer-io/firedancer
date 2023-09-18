@@ -16,21 +16,19 @@ fd_write_builtin_bogus_account( fd_global_ctx_t * global,
   fd_acc_mgr_t *      acc_mgr = global->acc_mgr;
   fd_funk_txn_t *     txn     = global->funk_txn;
   fd_pubkey_t const * key     = (fd_pubkey_t const *)pubkey;
-  fd_funk_rec_t *     rec     = NULL;
-  fd_account_meta_t * meta_rw = NULL;
-  uchar *             data_rw = NULL;
+  FD_BORROWED_ACCOUNT_DECL(rec);
 
-  int err = fd_acc_mgr_modify( acc_mgr, txn, key, 1, sz, NULL, &rec, &meta_rw, &data_rw );
+  int err = fd_acc_mgr_modify( acc_mgr, txn, key, 1, sz, rec);
   FD_TEST( !err );
 
-  meta_rw->dlen            = sz;
-  meta_rw->info.lamports   = 1UL;
-  meta_rw->info.rent_epoch = 0UL;
-  meta_rw->info.executable = 1;
-  fd_memcpy( meta_rw->info.owner, global->solana_native_loader, 32 );
-  memcpy( data_rw, data, sz );
+  rec->meta->dlen            = sz;
+  rec->meta->info.lamports   = 1UL;
+  rec->meta->info.rent_epoch = 0UL;
+  rec->meta->info.executable = 1;
+  fd_memcpy( rec->meta->info.owner, global->solana_native_loader, 32 );
+  memcpy( rec->data, data, sz );
 
-  err = fd_acc_mgr_commit_raw( acc_mgr, rec, key, meta_rw, global->bank.slot, 0 );
+  err = fd_acc_mgr_commit( acc_mgr, rec, global->bank.slot, 0 );
   FD_TEST( !err );
 }
 
@@ -42,9 +40,7 @@ write_inline_spl_native_mint_program_account( fd_global_ctx_t * global ) {
   fd_acc_mgr_t *      acc_mgr = global->acc_mgr;
   fd_funk_txn_t *     txn     = global->funk_txn;
   fd_pubkey_t const * key     = (fd_pubkey_t const *)global->solana_spl_native_mint;
-  fd_funk_rec_t *     rec     = NULL;
-  fd_account_meta_t * meta_rw = NULL;
-  uchar *             data_rw = NULL;
+  FD_BORROWED_ACCOUNT_DECL(rec);
 
   /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/inline_spl_token.rs#L86-L90 */
   static uchar const data[] = {
@@ -52,17 +48,17 @@ write_inline_spl_native_mint_program_account( fd_global_ctx_t * global ) {
       0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 9, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
       0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 
-  int err = fd_acc_mgr_modify( acc_mgr, txn, key, 1, sizeof(data), NULL, &rec, &meta_rw, &data_rw );
+  int err = fd_acc_mgr_modify( acc_mgr, txn, key, 1, sizeof(data), rec );
   FD_TEST( !err );
 
-  meta_rw->dlen            = sizeof(data);
-  meta_rw->info.lamports   = 1000000000UL;
-  meta_rw->info.rent_epoch = 1UL;
-  meta_rw->info.executable = 0;
-  fd_memcpy( meta_rw->info.owner, global->solana_spl_token, 32 );
-  memcpy( data_rw, data, sizeof(data) );
+  rec->meta->dlen            = sizeof(data);
+  rec->meta->info.lamports   = 1000000000UL;
+  rec->meta->info.rent_epoch = 1UL;
+  rec->meta->info.executable = 0;
+  fd_memcpy( rec->meta->info.owner, global->solana_spl_token, 32 );
+  memcpy( rec->data, data, sizeof(data) );
 
-  err = fd_acc_mgr_commit_raw( acc_mgr, rec, key, meta_rw, global->bank.slot, 0 );
+  err = fd_acc_mgr_commit( acc_mgr, rec, global->bank.slot, 0 );
   FD_TEST( !err );
 }
 

@@ -35,25 +35,19 @@ int
 fd_sysvar_last_restart_slot_read( fd_global_ctx_t const *             global,
                                   fd_sol_sysvar_last_restart_slot_t * result ) {
 
-  int err = 0;
-  uchar const * raw_acc_data = fd_acc_mgr_view_raw(
-      global->acc_mgr,
-      global->funk_txn,
-      (fd_pubkey_t const *)global->sysvar_last_restart_slot,
-      /* out_rec */ NULL,
-      &err );
+  FD_BORROWED_ACCOUNT_DECL(rec);
+  int err = fd_acc_mgr_view(global->acc_mgr, global->funk_txn, (fd_pubkey_t const *)global->sysvar_last_restart_slot, rec);
 
-  if (FD_UNLIKELY(!FD_RAW_ACCOUNT_EXISTS(raw_acc_data)))
+  if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) )
     return err;
 
-  fd_account_meta_t const * m = fd_type_pun_const( raw_acc_data );
-
   fd_bincode_decode_ctx_t decode = {
-    .data    = raw_acc_data + m->hlen,
-    .dataend = raw_acc_data + m->hlen + m->dlen
+    .data    = rec->const_data,
+    .dataend = rec->const_data + rec->const_meta->dlen
     /* deliberately not setting valloc here, as the data structure
        does not need dynamic allocations */
   };
+
   err = fd_sol_sysvar_last_restart_slot_decode( result, &decode );
   FD_TEST( err==FD_BINCODE_SUCCESS );
 

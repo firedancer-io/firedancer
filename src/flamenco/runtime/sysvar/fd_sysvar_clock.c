@@ -48,15 +48,21 @@ void write_clock( fd_global_ctx_t* global, fd_sol_sysvar_clock_t* clock ) {
 }
 
 int fd_sysvar_clock_read( fd_global_ctx_t* global, fd_sol_sysvar_clock_t* result ) {
-  int err = 0;
-  char * raw_acc_data = (char*) fd_acc_mgr_view_raw(global->acc_mgr, global->funk_txn, (fd_pubkey_t *) global->sysvar_clock, NULL, &err);
-  if (FD_UNLIKELY(!FD_RAW_ACCOUNT_EXISTS(raw_acc_data)))
+  FD_BORROWED_ACCOUNT_DECL(acc);
+  int rc = fd_acc_mgr_view( global->acc_mgr, global->funk_txn, (fd_pubkey_t *) global->sysvar_clock, acc );
+
+  switch ( rc ) {
+  case FD_ACC_MGR_SUCCESS:
+    break;
+  case FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT:
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
-  fd_account_meta_t *m = (fd_account_meta_t *) raw_acc_data;
+  default:
+    return FD_EXECUTOR_INSTR_ERR_ACC_BORROW_FAILED;
+  }
 
   fd_bincode_decode_ctx_t ctx;
-  ctx.data = raw_acc_data + m->hlen;
-  ctx.dataend = (char *) ctx.data + m->dlen;
+  ctx.data = acc->const_data;
+  ctx.dataend = (char *) ctx.data + acc->const_meta->dlen;
   ctx.valloc  = global->valloc;
 
   return fd_sol_sysvar_clock_decode( result, &ctx );
@@ -147,13 +153,12 @@ void fd_calculate_stake_weighted_timestamp(
   ) {
     /* get timestamp */
     fd_pubkey_t const * vote_pubkey = &n->elem.key;
-    fd_account_meta_t const * vote_acc_meta = NULL;
-    uchar const * vote_acc_data = NULL;
-    int err = fd_acc_mgr_view( global->acc_mgr, global->funk_txn, vote_pubkey, NULL, &vote_acc_meta, &vote_acc_data );
+    FD_BORROWED_ACCOUNT_DECL(acc);
+    int err = fd_acc_mgr_view( global->acc_mgr, global->funk_txn, vote_pubkey, acc);
     FD_TEST( err == 0 );
     fd_bincode_decode_ctx_t decode = {
-      .data    = vote_acc_data,
-      .dataend = vote_acc_data + vote_acc_meta->dlen,
+      .data    = acc->const_data,
+      .dataend = acc->const_data + acc->const_meta->dlen,
       /* TODO: Make this a instruction-scoped allocator */
       .valloc  = global->valloc,
     };
@@ -232,16 +237,14 @@ fd_sysvar_clock_update( fd_global_ctx_t * global ) {
 
   fd_pubkey_t const * key = (fd_pubkey_t const *)global->sysvar_clock;
 
-  fd_funk_rec_t const *     con_rec = NULL;
-  fd_account_meta_t const * m       = NULL;
-  uchar const *             data    = NULL;
-  int err = fd_acc_mgr_view( global->acc_mgr, global->funk_txn, key, &con_rec, &m, &data );
+  FD_BORROWED_ACCOUNT_DECL(rec);
+  int err = fd_acc_mgr_view( global->acc_mgr, global->funk_txn, key, rec);
   if (err)
     FD_LOG_CRIT(( "fd_acc_mgr_view(clock) failed: %d", err ));
 
   fd_bincode_decode_ctx_t ctx;
-  ctx.data    = data;
-  ctx.dataend = data + m->dlen;
+  ctx.data    = rec->const_data;
+  ctx.dataend = rec->const_data + rec->const_meta->dlen;
   ctx.valloc  = global->valloc;
   fd_sol_sysvar_clock_t clock;
   if( fd_sol_sysvar_clock_decode( &clock, &ctx ) )
@@ -299,26 +302,24 @@ fd_sysvar_clock_update( fd_global_ctx_t * global ) {
   FD_LOG_DEBUG(( "clock.unix_timestamp: %ld", clock.unix_timestamp ));
 
   ulong               sz       = fd_sol_sysvar_clock_size(&clock);
-  fd_funk_rec_t *     acc_rec  = NULL;
-  fd_account_meta_t * acc_meta = NULL;
-  uchar *             acc_data = NULL;
-  err = fd_acc_mgr_modify( global->acc_mgr, global->funk_txn, key, 1, sz, con_rec, &acc_rec, &acc_meta, &acc_data );
+  FD_BORROWED_ACCOUNT_DECL(acc);
+  err = fd_acc_mgr_modify( global->acc_mgr, global->funk_txn, key, 1, sz, acc);
   if (err)
     FD_LOG_CRIT(( "fd_acc_mgr_modify(clock) failed: %d", err ));
 
   fd_bincode_encode_ctx_t e_ctx = {
-    .data    = acc_data,
-    .dataend = acc_data+sz,
+    .data    = acc->data,
+    .dataend = acc->data+sz,
   };
   if( fd_sol_sysvar_clock_encode( &clock, &e_ctx ) )
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
 
   ulong lamps = (sz + 128) * ((ulong) ((double)global->bank.rent.lamports_per_uint8_year * global->bank.rent.exemption_threshold));
-  if( acc_meta->info.lamports < lamps )
-    acc_meta->info.lamports = lamps;
+  if( acc->meta->info.lamports < lamps )
+    acc->meta->info.lamports = lamps;
 
-  acc_meta->dlen = sz;
-  fd_memcpy( acc_meta->info.owner, global->sysvar_owner, 32 );
+  acc->meta->dlen = sz;
+  fd_memcpy( acc->meta->info.owner, global->sysvar_owner, 32 );
 
-  return fd_acc_mgr_commit_raw( global->acc_mgr, acc_rec, key, acc_meta, global->bank.slot, 0 );
+  return fd_acc_mgr_commit( global->acc_mgr, acc, global->bank.slot, 0 );
 }

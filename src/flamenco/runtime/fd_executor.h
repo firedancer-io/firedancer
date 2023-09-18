@@ -19,16 +19,9 @@ struct fd_executor {
 };
 typedef struct fd_executor fd_executor_t;
 
-struct fd_borrowed_account {
-  fd_pubkey_t const * pubkey;
-  fd_account_meta_t * meta;
-  uchar * data;
-};
-typedef struct fd_borrowed_account fd_borrowed_account_t;
+void* fd_executor_new( void* mem, fd_global_ctx_t* global, ulong footprint );
 
 #define FD_EXECUTOR_FOOTPRINT ( sizeof(fd_executor_t) )
-
-void* fd_executor_new( void* mem, fd_global_ctx_t* global, ulong footprint );
 
 fd_executor_t *fd_executor_join( void* mem );
 
@@ -139,7 +132,7 @@ struct fd_instr {
 
   uchar *       data;
   fd_pubkey_t   program_id_pubkey;
-  
+
   uchar         acct_txn_idxs[256];
   uchar         acct_flags[256];
   fd_pubkey_t   acct_pubkeys[256];
@@ -167,7 +160,7 @@ struct transaction_ctx {
   fd_txn_t *        txn_descriptor;           /* Descriptor of the transaction. */
   fd_rawtxn_b_t const *   _txn_raw;                  /* Raw bytes of the transaction. */
   uint              custom_err;               /* When a custom error is returned, this is where the numeric value gets stashed */
-  uchar             instr_stack_sz;           
+  uchar             instr_stack_sz;
   instruction_ctx_t instr_stack[6];
   ulong             accounts_cnt;             /* Number of account pubkeys accessed by this transaction */
   fd_pubkey_t       accounts[256];            /* Array of account pubkeys accessed by this transaction. */
@@ -189,7 +182,7 @@ void
 fd_executor_setup_accessed_accounts_for_txn( transaction_ctx_t * txn_ctx, fd_rawtxn_b_t const * txn_raw );
 
 void
-fd_convert_txn_instr_to_instr( fd_txn_t const * txn_descriptor, 
+fd_convert_txn_instr_to_instr( fd_txn_t const * txn_descriptor,
                                fd_rawtxn_b_t const * txn_raw,
                                fd_txn_instr_t const * txn_instr,
                                fd_pubkey_t const * accounts,

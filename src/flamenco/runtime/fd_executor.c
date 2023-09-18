@@ -130,22 +130,20 @@ fd_executor_setup_accessed_accounts_for_txn( transaction_ctx_t * txn_ctx, fd_raw
       fd_txn_acct_addr_lut_t * addr_lut = &addr_luts[i];
       fd_pubkey_t const * addr_lut_acc = (fd_pubkey_t *)((uchar *)txn_raw->raw + addr_lut->addr_off);
 
-      char * raw_acc_data = (char*) fd_acc_mgr_view_raw(global->acc_mgr, global->funk_txn, (fd_pubkey_t *) addr_lut_acc, NULL, NULL);
-      if (FD_UNLIKELY(!FD_RAW_ACCOUNT_EXISTS(raw_acc_data))) {
+      FD_BORROWED_ACCOUNT_DECL(addr_lut_rec);
+      int err = fd_acc_mgr_view(global->acc_mgr, global->funk_txn, (fd_pubkey_t *) addr_lut_acc, addr_lut_rec);
+      if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
         // TODO: return txn err code
         FD_LOG_ERR(( "addr lut not found" ));
       }
 
-      fd_account_meta_t * meta = (fd_account_meta_t *)raw_acc_data;
-      uchar * acct_data = fd_account_get_data(meta);
-
-      FD_LOG_WARNING(( "LUT ACC: idx: %lu, acc: %32J, meta.dlen; %lu", i, addr_lut_acc, meta->dlen ));
+      FD_LOG_WARNING(( "LUT ACC: idx: %lu, acc: %32J, meta.dlen; %lu", i, addr_lut_acc, addr_lut_rec->const_meta->dlen ));
 
       fd_address_lookup_table_state_t addr_lookup_table_state;
       fd_address_lookup_table_state_new( &addr_lookup_table_state );
       fd_bincode_decode_ctx_t decode_ctx = {
-        .data = acct_data,
-        .dataend = &acct_data[56], // TODO macro const.
+        .data = addr_lut_rec->const_data,
+        .dataend = &addr_lut_rec->const_data[56], // TODO macro const.
         .valloc  = global->valloc,
       };
       if (fd_address_lookup_table_state_decode( &addr_lookup_table_state, &decode_ctx )) {
@@ -155,7 +153,7 @@ fd_executor_setup_accessed_accounts_for_txn( transaction_ctx_t * txn_ctx, fd_raw
         FD_LOG_ERR(("addr lut is uninit"));
       }
 
-      fd_pubkey_t * lookup_addrs = (fd_pubkey_t *)&acct_data[56];
+      fd_pubkey_t * lookup_addrs = (fd_pubkey_t *)&addr_lut_rec->const_data[56];
       uchar * writable_lut_idxs = (uchar *)txn_raw->raw + addr_lut->writable_off;
       for (ulong j = 0; j < addr_lut->writable_cnt; j++) {
         FD_LOG_WARNING(( "LUT ACC WRITABLE: idx: %3lu, acc: %32J, lut_idx: %3lu, acct_idx: %3lu, %32J", i, addr_lut_acc, j, writable_lut_idxs[j], &lookup_addrs[writable_lut_idxs[j]] ));
@@ -167,20 +165,18 @@ fd_executor_setup_accessed_accounts_for_txn( transaction_ctx_t * txn_ctx, fd_raw
       fd_txn_acct_addr_lut_t * addr_lut = &addr_luts[i];
       fd_pubkey_t const * addr_lut_acc = (fd_pubkey_t *)((uchar *)txn_raw->raw + addr_lut->addr_off);
 
-      char * raw_acc_data = (char*) fd_acc_mgr_view_raw(global->acc_mgr, global->funk_txn, (fd_pubkey_t *) addr_lut_acc, NULL, NULL);
-      if (FD_UNLIKELY(!FD_RAW_ACCOUNT_EXISTS(raw_acc_data))) {
+      FD_BORROWED_ACCOUNT_DECL(addr_lut_rec);
+      int err = fd_acc_mgr_view(global->acc_mgr, global->funk_txn, (fd_pubkey_t *) addr_lut_acc, addr_lut_rec);
+      if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
         // TODO: return txn err code
         FD_LOG_ERR(( "addr lut not found" ));
       }
 
-      fd_account_meta_t * meta = (fd_account_meta_t *)raw_acc_data;
-      uchar * acct_data = fd_account_get_data(meta);
-
       fd_address_lookup_table_state_t addr_lookup_table_state;
       fd_address_lookup_table_state_new( &addr_lookup_table_state );
       fd_bincode_decode_ctx_t decode_ctx = {
-        .data = acct_data,
-        .dataend = &acct_data[56], // TODO macro const.
+        .data = addr_lut_rec->const_data,
+        .dataend = &addr_lut_rec->const_data[56], // TODO macro const.
         .valloc  = global->valloc,
       };
       if (fd_address_lookup_table_state_decode( &addr_lookup_table_state, &decode_ctx )) {
@@ -190,7 +186,7 @@ fd_executor_setup_accessed_accounts_for_txn( transaction_ctx_t * txn_ctx, fd_raw
         FD_LOG_ERR(("addr lut is uninit"));
       }
 
-      fd_pubkey_t * lookup_addrs = (fd_pubkey_t *)&acct_data[56];
+      fd_pubkey_t * lookup_addrs = (fd_pubkey_t *)&addr_lut_rec->const_data[56];
       uchar * readonly_lut_idxs = (uchar *)txn_raw->raw + addr_lut->readonly_off;
       for (ulong j = 0; j < addr_lut->readonly_cnt; j++) {
         FD_LOG_WARNING(( "LUT ACC READONLY: idx: %3lu, acc: %32J, lut_idx: %3lu, acct_idx: %3lu, %32J", i, addr_lut_acc, j, readonly_lut_idxs[j], &lookup_addrs[readonly_lut_idxs[j]] ));
@@ -205,21 +201,20 @@ static void
 fd_set_exempt_rent_epoch_max( fd_global_ctx_t * global,
                               void const *      addr ) {
 
-  fd_funk_rec_t const *     rec_ro  = NULL;
-  fd_account_meta_t const * meta_ro = NULL;
-  int err = fd_acc_mgr_view( global->acc_mgr, global->funk_txn, (fd_pubkey_t const *)addr, &rec_ro, &meta_ro, NULL );
+  FD_BORROWED_ACCOUNT_DECL(rec);
+
+  int err = fd_acc_mgr_view( global->acc_mgr, global->funk_txn, (fd_pubkey_t const *)addr, rec);
   if( FD_UNLIKELY( err==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) )
     return;
   FD_TEST( err==FD_ACC_MGR_SUCCESS );
 
-  if( meta_ro->info.lamports < fd_rent_exempt_minimum_balance( global, meta_ro->dlen ) ) return;
-  if( meta_ro->info.rent_epoch == ULONG_MAX ) return;
+  if( rec->const_meta->info.lamports < fd_rent_exempt_minimum_balance( global, rec->const_meta->dlen ) ) return;
+  if( rec->const_meta->info.rent_epoch == ULONG_MAX ) return;
 
-  fd_account_meta_t * meta_rw = NULL;
-  err = fd_acc_mgr_modify( global->acc_mgr, global->funk_txn, (fd_pubkey_t const *)addr, 0, 0UL, rec_ro, NULL, &meta_rw, NULL );
+  err = fd_acc_mgr_modify( global->acc_mgr, global->funk_txn, (fd_pubkey_t const *)addr, 0, 0, rec);
   FD_TEST( err==FD_ACC_MGR_SUCCESS );
 
-  meta_rw->info.rent_epoch = ULONG_MAX;
+  rec->meta->info.rent_epoch = ULONG_MAX;
 }
 
 static int
@@ -227,15 +222,16 @@ fd_executor_collect_fee( fd_global_ctx_t *   global,
                          fd_pubkey_t const * account,
                          ulong               fee ) {
 
-  fd_account_meta_t * meta = NULL;
-  int err = fd_acc_mgr_modify( global->acc_mgr, global->funk_txn, account, 0, 0UL, NULL, NULL, &meta, NULL );
+  FD_BORROWED_ACCOUNT_DECL(rec);
+
+  int err = fd_acc_mgr_modify( global->acc_mgr, global->funk_txn, account, 0, 0UL, rec);
   if( FD_UNLIKELY( err ) ) {
-    FD_LOG_WARNING(( "fd_acc_mgr_modify_raw failed (%d)", err ));
+    FD_LOG_WARNING(( "fd_acc_mgr_modify failed (%d)", err ));
     // TODO: The fee payer does not seem to exist?!  what now?
     return -1;
   }
 
-  if (fee > meta->info.lamports) {
+  if (fee > rec->meta->info.lamports) {
     // TODO: Not enough lamports to pay for this txn...
     //
     // (Should this be lamps + whatever is required to keep the payer rent exempt?)
@@ -250,13 +246,13 @@ fd_executor_collect_fee( fd_global_ctx_t *   global,
 
   // TODO: I BELIEVE we charge for the fee BEFORE we create the funk_txn fork
   // since we collect reguardless of the success of the txn execution...
-  meta->info.lamports -= fee;
+  rec->meta->info.lamports -= fee;
   global->bank.collected_fees += fee;
   global->bank.capitalization -= fee;
 
   /* todo rent exempt check */
   if( FD_FEATURE_ACTIVE( global, set_exempt_rent_epoch_max ) )
-    meta->info.rent_epoch = ULONG_MAX;
+    rec->meta->info.rent_epoch = ULONG_MAX;
   return 0;
 }
 

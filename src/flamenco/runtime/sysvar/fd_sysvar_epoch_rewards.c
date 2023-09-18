@@ -6,13 +6,14 @@ void
 fd_sysvar_epoch_rewards_burn_and_purge(
     fd_global_ctx_t * global
 ) {
-    fd_account_meta_t * meta = NULL;
-    uchar * data = NULL;
-    fd_acc_mgr_modify( global->acc_mgr, global->funk_txn, (fd_pubkey_t *) global->sysvar_epoch_rewards, 0, 0, NULL, NULL, &meta, &data);
-    // fd_memset(data, 0, meta->dlen);
-    fd_memcpy(meta->info.owner, (fd_pubkey_t *) global->solana_system_program, sizeof(fd_pubkey_t));
-    meta->dlen = 0;
-    meta->info.lamports = 0;
+    FD_BORROWED_ACCOUNT_DECL(rewards);
+
+    int rc = fd_acc_mgr_modify( global->acc_mgr, global->funk_txn, (fd_pubkey_t *) global->sysvar_epoch_rewards, 0, 0, rewards);
+    if ( FD_UNLIKELY( rc ) ) return; // not good...
+
+    fd_memcpy(rewards->meta->info.owner, (fd_pubkey_t *) global->solana_system_program, sizeof(fd_pubkey_t));
+    rewards->meta->dlen = 0;
+    rewards->meta->info.lamports = 0;
 }
 
 static void
@@ -37,27 +38,25 @@ fd_sysvar_epoch_rewards_read(
     fd_sysvar_epoch_rewards_t * result,
     fd_acc_lamports_t * acc_lamports
 ) {
-    int err = 0;
-    uchar const * record = fd_acc_mgr_view_raw( global->acc_mgr, global->funk_txn, (fd_pubkey_t const *)global->sysvar_epoch_rewards, NULL, &err );
-    if (FD_UNLIKELY(!FD_RAW_ACCOUNT_EXISTS(record))) {
-    FD_LOG_ERR(( "failed to read fees sysvar: %d", err ));
-    return;
-    }
+    FD_BORROWED_ACCOUNT_DECL(rewards_rec);
 
-    fd_account_meta_t const * metadata     = (fd_account_meta_t const *)record;
-    uchar const *             raw_acc_data = record + metadata->hlen;
+    int err = fd_acc_mgr_view( global->acc_mgr, global->funk_txn, (fd_pubkey_t const *)global->sysvar_epoch_rewards, rewards_rec );
+    if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
+      FD_LOG_ERR(( "failed to read fees sysvar: %d", err ));
+      return;
+    }
 
     fd_bincode_decode_ctx_t decode = {
-    .data    = raw_acc_data,
-    .dataend = raw_acc_data + metadata->dlen,
-    .valloc  = global->valloc
+      .data    = rewards_rec->const_data,
+      .dataend = rewards_rec->const_data + rewards_rec->const_meta->dlen,
+      .valloc  = global->valloc
     };
 
-    if( FD_UNLIKELY( fd_sysvar_epoch_rewards_decode( result, &decode ) ) ) {
+    if( FD_UNLIKELY( fd_sysvar_epoch_rewards_decode( result, &decode ) ) )
         FD_LOG_ERR(("fd_sysvar_epoch_rewards_decode failed"));
-    }
 
-    *acc_lamports = metadata->info.lamports;
+    if (NULL != acc_lamports)
+      *acc_lamports = rewards_rec->const_meta->info.lamports;
 }
 
 /* Update EpochRewards sysvar with distributed rewards */

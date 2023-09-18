@@ -15,8 +15,6 @@
 
 #define MAX_ACC_SIZE (10UL<<20) /* 10MB */
 
-FD_PROTOTYPES_BEGIN
-
 /* fd_acc_mgr_t is the main interface for Solana runtime account data.
    (What is the point of this type?  It literally only wraps funky) */
 
@@ -27,6 +25,34 @@ struct __attribute__((aligned(FD_ACC_MGR_ALIGN))) fd_acc_mgr {
   fd_global_ctx_t * global;
 };
 typedef struct fd_acc_mgr fd_acc_mgr_t;
+
+// cache line aligned...
+struct __attribute__((aligned(64UL))) fd_borrowed_account {
+  fd_pubkey_t const         * pubkey;
+
+  fd_account_meta_t const   * const_meta;
+  uchar             const   * const_data;
+  fd_funk_rec_t const       * const_rec;
+
+  fd_account_meta_t         * meta;
+  uchar                     * data;
+  fd_funk_rec_t             * rec;
+  // Only 8 more bytes in this cache line...
+};
+typedef struct fd_borrowed_account fd_borrowed_account_t;
+#define FD_BORROWED_ACCOUNT_FOOTPRINT (sizeof(fd_borrowed_account_t))
+#define FD_BORROWED_ACCOUNT_ALIGN     (64UL)
+
+#define FD_BORROWED_ACCOUNT_DECL(_x)  fd_borrowed_account_t _x[1]; fd_borrowed_account_init(_x);
+
+FD_PROTOTYPES_BEGIN
+
+static inline
+fd_borrowed_account_t *
+fd_borrowed_account_init( void * ptr) {
+  memset(ptr, 0, FD_BORROWED_ACCOUNT_FOOTPRINT);
+  return ptr;
+}
 
 /* fd_acc_mgr_new formats a memory region suitable to hold an
    fd_acc_mgr_t.  Binds newly created object to global and returns
@@ -105,21 +131,26 @@ static inline int
 fd_acc_mgr_view( fd_acc_mgr_t *             acc_mgr,
                  fd_funk_txn_t const *      txn,
                  fd_pubkey_t const *        pubkey,
-                 fd_funk_rec_t const **     opt_out_rec,
-                 fd_account_meta_t const ** opt_out_meta,
-                 uchar const **             opt_out_data ) {
+                 fd_borrowed_account_t *account) {
 
   int err = FD_ACC_MGR_SUCCESS;
-  uchar const * raw = fd_acc_mgr_view_raw( acc_mgr, txn, pubkey, opt_out_rec, &err );
+  uchar const * raw = fd_acc_mgr_view_raw( acc_mgr, txn, pubkey, &account->const_rec, &err );
   if (FD_UNLIKELY(!FD_RAW_ACCOUNT_EXISTS(raw))) {
     if (err != FD_ACC_MGR_SUCCESS)
       return err;
     return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
   }
 
+  account->pubkey = pubkey;
+
   fd_account_meta_t const * meta = (fd_account_meta_t const *)raw;
-  if( opt_out_meta ) *opt_out_meta = meta;
-  if( opt_out_data ) *opt_out_data = raw + meta->hlen;
+
+  if( FD_UNLIKELY( meta->magic != FD_ACCOUNT_META_MAGIC ) )
+    return FD_ACC_MGR_ERR_WRONG_MAGIC;
+
+  account->const_meta = meta;
+  account->const_data = raw + meta->hlen;
+
   return FD_ACC_MGR_SUCCESS;
 }
 
@@ -174,18 +205,22 @@ fd_acc_mgr_modify( fd_acc_mgr_t *         acc_mgr,
                    fd_pubkey_t const *    pubkey,
                    int                    do_create,
                    ulong                  min_data_sz,
-                   fd_funk_rec_t const *  opt_con_rec,
-                   fd_funk_rec_t **       opt_out_rec,
-                   fd_account_meta_t **   opt_out_meta,
-                   uchar **               opt_out_data ) {
-
+                   fd_borrowed_account_t *account) {
   int err = FD_ACC_MGR_SUCCESS;
-  uchar * raw = fd_acc_mgr_modify_raw( acc_mgr, txn, pubkey, do_create, min_data_sz, opt_con_rec, opt_out_rec, &err );
+
+  uchar * raw = fd_acc_mgr_modify_raw( acc_mgr, txn, pubkey, do_create, min_data_sz, account->const_rec, &account->rec, &err );
   if( FD_UNLIKELY( !raw ) ) return err;
 
+  account->pubkey = pubkey;
+
   fd_account_meta_t * meta = (fd_account_meta_t *)raw;
-  if( opt_out_meta ) *opt_out_meta = meta;
-  if( opt_out_data ) *opt_out_data = raw + meta->hlen;
+
+  if( FD_UNLIKELY( meta->magic != FD_ACCOUNT_META_MAGIC ) )
+    return FD_ACC_MGR_ERR_WRONG_MAGIC;
+
+  account->const_meta = account->meta = meta;
+  account->const_data = account->data = raw + meta->hlen;
+
   return FD_ACC_MGR_SUCCESS;
 }
 
@@ -202,6 +237,14 @@ fd_acc_mgr_commit_raw( fd_acc_mgr_t *      acc_mgr,
                        void *              raw,
                        ulong               slot,
                        int                 uncache );
+
+static inline
+int fd_acc_mgr_commit( fd_acc_mgr_t *      acc_mgr,
+                   fd_borrowed_account_t *account,
+                   ulong               slot,
+                   int                 uncache ) {
+  return fd_acc_mgr_commit_raw( acc_mgr, account->rec, account->pubkey, account->meta, slot, uncache );
+}
 
 FD_PROTOTYPES_END
 
