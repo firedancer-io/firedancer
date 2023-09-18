@@ -5,7 +5,7 @@ date: 2023-03-15
 
 There's a lot of history around `-fomit-frame-pointer`.
 
-x86 has always been severely register staved versus other architectures and it was really bad pre-x86_64 (the larger register file in x86_64 was as at least important as having 64-bit registers).
+x86 has always been severely register-starved versus other architectures and it was really bad pre-x86_64 (the larger register file in x86_64 was as at least important as having 64-bit registers).
 
 So, in the way, way back on Linux and x86, you'd use this compile flag in a optimized build to make an extra register available for code. It was pretty dramatic improvement in real world performance to have an extra register when you only had O(6) general purpose-ish registers available (eax,ebx,ecx,edx,edi,esi) ... e.g. fewer spills to stack ("-ish" because the x86 ISA does have lots of hardcoded usages for these registers).
 

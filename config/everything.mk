@@ -1,7 +1,7 @@
 MAKEFLAGS += --no-builtin-rules
 MAKEFLAGS += --no-builtin-variables
 .SUFFIXES:
-.PHONY: all info bin rust include lib unit-test fuzz-test run-unit-test help clean distclean asm ppp show-deps lint check-lint
+.PHONY: all info bin rust include lib unit-test fuzz-test run-unit-test help clean distclean asm ppp show-deps
 .SECONDARY:
 .SECONDEXPANSION:
 
@@ -12,7 +12,7 @@ CPPFLAGS+=-DFD_BUILD_INFO=\"$(OBJDIR)/info\"
 CPPFLAGS+=$(EXTRA_CPPFLAGS)
 
 # Auxiliarily rules that should not set up depenencies
-AUX_RULES:=clean distclean help show-deps lint check-lint run-unit-test
+AUX_RULES:=clean distclean help show-deps run-unit-test
 
 all: info bin include lib unit-test
 
@@ -58,8 +58,6 @@ help:
 	# "make ppp" run all source files through the preprocessor
 	# "make show-deps" shows all the dependencies
 	# "make cov-report" creates an LCOV coverage report from LLVM profdata. Requires make run-unit-test EXTRAS="llvm-cov"
-	# "make lint" runs the linter on all C source and header files. Creates backup files.
-	# "make check-lint" runs the linter in dry run mode.
 	# Fuzzing (requires fuzzing profile):
 	#   "make fuzz-test" makes all fuzz-tests for the current platform
 	#   "make run-fuzz-test" re-runs all fuzz tests over existing corpora
@@ -81,18 +79,6 @@ distclean:
 	#######################################################################
 	$(RMDIR) $(BASEDIR) && $(RMDIR) target && $(RMDIR) solana/target && \
 $(SCRUB)
-
-lint:
-	#######################################################################
-	# Linting src/
-	#######################################################################
-	$(FIND) src/ -iname "*.c" -or -iname "*.h" | uncrustify -c lint.cfg -F - --replace
-
-check-lint:
-	#######################################################################
-	# Checking lint in src/
-	#######################################################################
-	$(FIND) src/ -iname "*.c" -or -iname "*.h" | uncrustify -c lint.cfg -F - --check
 
 run-unit-test:
 	#######################################################################
