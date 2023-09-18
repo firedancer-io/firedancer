@@ -12,7 +12,7 @@ fd_sysvar_set( fd_global_ctx_t *   global,
                uchar *             data,
                ulong               sz,
                ulong               slot,
-               fd_acc_lamports_t * lamports ) {
+               fd_acc_lamports_t const * lamports ) {
 
   fd_acc_mgr_t *  acc_mgr  = global->acc_mgr;
   fd_funk_txn_t * funk_txn = global->funk_txn;

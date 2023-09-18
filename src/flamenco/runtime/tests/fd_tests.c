@@ -189,12 +189,9 @@ int fd_executor_run_test(
 
   /* Create a new global context to execute this test in */
   uchar* global_mem = (uchar*)fd_alloca_check( FD_GLOBAL_CTX_ALIGN, FD_GLOBAL_CTX_FOOTPRINT );
-  fd_memset( global_mem, 0, FD_GLOBAL_CTX_FOOTPRINT );
   fd_global_ctx_t* global = fd_global_ctx_join( fd_global_ctx_new( global_mem ) );
   if ( FD_UNLIKELY( NULL == global ) )
     FD_LOG_ERR(( "failed to join a global context" ));
-
-  fd_firedancer_banks_new(&global->bank);
 
   int ret = 0;
   global->valloc     = suite->valloc;

@@ -19,15 +19,20 @@ struct fd_executor {
 };
 typedef struct fd_executor fd_executor_t;
 
-void* fd_executor_new( void* mem, fd_global_ctx_t* global, ulong footprint );
-
 #define FD_EXECUTOR_FOOTPRINT ( sizeof(fd_executor_t) )
 
-fd_executor_t *fd_executor_join( void* mem );
+void *
+fd_executor_new( void *            mem,
+                 fd_global_ctx_t * global );
 
-void *fd_executor_leave( fd_executor_t* executor );
+fd_executor_t *
+fd_executor_join( void * mem );
 
-void* fd_executor_delete( void* mem );
+void *
+fd_executor_leave( fd_executor_t * executor );
+
+void *
+fd_executor_delete( void * mem );
 
 /* TODO make sure these are serialized consistently with solana_program::InstructionError */
 /* TODO FD_EXECUTOR_INSTR_SUCCESS is used like Ok(()) in Rust. But this is both overloaded and a

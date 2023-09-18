@@ -1196,7 +1196,7 @@ fd_global_ctx_new        ( void * mem ) {
   self->rng  = fd_rng_join( fd_rng_new(&self->rnd_mem, (uint) time(0), 0) );
 
   // Yeah, maybe we should get rid of this?
-  fd_executor_new ( &self->executor, self, FD_EXECUTOR_FOOTPRINT );
+  fd_executor_new ( &self->executor, self );
 
   fd_firedancer_banks_new(&self->bank);
 

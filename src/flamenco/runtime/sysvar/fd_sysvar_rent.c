@@ -5,14 +5,20 @@
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/rent.rs#L36 */
 #define ACCOUNT_STORAGE_OVERHEAD ( 128 )
 
-void write_rent( fd_global_ctx_t* global, fd_rent_t* rent ) {
-  ulong          sz = fd_rent_size( rent );
-  unsigned char *enc = fd_alloca( 1, sz );
+static void
+write_rent( fd_global_ctx_t * global,
+            fd_rent_t const * rent ) {
+
+  uchar enc[ 32 ];
+
+  ulong sz = fd_rent_size( rent );
+  FD_TEST( sz<=sizeof(enc) );
   memset( enc, 0, sz );
+
   fd_bincode_encode_ctx_t ctx;
-  ctx.data = enc;
+  ctx.data    = enc;
   ctx.dataend = enc + sz;
-  if ( fd_rent_encode( rent, &ctx ) )
+  if( fd_rent_encode( rent, &ctx ) )
     FD_LOG_ERR(("fd_rent_encode failed"));
 
   fd_sysvar_set( global, global->sysvar_owner, (fd_pubkey_t *) global->sysvar_rent, enc, sz, global->bank.slot, NULL );

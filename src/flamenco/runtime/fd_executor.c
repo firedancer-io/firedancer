@@ -17,31 +17,35 @@
 
 #include "../../ballet/base58/fd_base58.h"
 
-void * fd_executor_new(void*           mem,
-                      fd_global_ctx_t* global,
-                      ulong            footprint) {
+void *
+fd_executor_new( void *            mem,
+                 fd_global_ctx_t * global ) {
+
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
     return NULL;
   }
 
-  fd_memset( mem, 0, footprint );
+  fd_memset( mem, 0, FD_EXECUTOR_FOOTPRINT );
 
-  fd_executor_t *executor = (fd_executor_t*)mem;
+  fd_executor_t * executor = (fd_executor_t*)mem;
   executor->global = global;
 
   return mem;
 }
 
-fd_executor_t * fd_executor_join(void* mem) {
-  return (fd_executor_t*)mem;
+fd_executor_t *
+fd_executor_join( void * mem ) {
+  return (fd_executor_t *)mem;
 }
 
-void * fd_executor_leave(fd_executor_t* executor) {
+void *
+fd_executor_leave( fd_executor_t * executor ) {
   return (void*)executor;
 }
 
-void * fd_executor_delete(void* mem) {
+void *
+fd_executor_delete( void * mem ) {
   return mem;
 }
 

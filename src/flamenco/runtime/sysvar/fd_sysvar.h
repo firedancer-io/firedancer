@@ -24,6 +24,6 @@ fd_sysvar_set( fd_global_ctx_t *   state,
                uchar *             data,
                ulong               sz,
                ulong               slot,
-               fd_acc_lamports_t * lamports );
+               fd_acc_lamports_t const * lamports );
 
 #endif
