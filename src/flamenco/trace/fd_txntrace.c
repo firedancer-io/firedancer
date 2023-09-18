@@ -199,7 +199,7 @@ static int
 fd_txntrace_replay2( fd_global_ctx_t * global,
                      fd_txn_o_t        to ) {
 
-  fd_execute_txn( &global->executor, to.txn, &to.heap );
+  fd_execute_txn( global, to.txn, &to.heap );
 
   return FD_TXNTRACE_SUCCESS;
 }

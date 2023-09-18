@@ -17,38 +17,6 @@
 
 #include "../../ballet/base58/fd_base58.h"
 
-void *
-fd_executor_new( void *            mem,
-                 fd_global_ctx_t * global ) {
-
-  if( FD_UNLIKELY( !mem ) ) {
-    FD_LOG_WARNING(( "NULL mem" ));
-    return NULL;
-  }
-
-  fd_memset( mem, 0, FD_EXECUTOR_FOOTPRINT );
-
-  fd_executor_t * executor = (fd_executor_t*)mem;
-  executor->global = global;
-
-  return mem;
-}
-
-fd_executor_t *
-fd_executor_join( void * mem ) {
-  return (fd_executor_t *)mem;
-}
-
-void *
-fd_executor_leave( fd_executor_t * executor ) {
-  return (void*)executor;
-}
-
-void *
-fd_executor_delete( void * mem ) {
-  return mem;
-}
-
 void
 fd_convert_txn_instr_to_instr( fd_txn_t const * txn_descriptor,
                                fd_rawtxn_b_t const * txn_raw,
@@ -261,11 +229,11 @@ fd_executor_collect_fee( fd_global_ctx_t *   global,
 }
 
 int
-fd_execute_instr( fd_executor_t * executor, fd_instr_t * instr, transaction_ctx_t * txn_ctx ) {
+fd_execute_instr( fd_global_ctx_t * global, fd_instr_t * instr, transaction_ctx_t * txn_ctx ) {
   fd_pubkey_t const * txn_accs = txn_ctx->accounts;
 
   instruction_ctx_t * ctx = &txn_ctx->instr_stack[txn_ctx->instr_stack_sz++];
-  ctx->global = executor->global;
+  ctx->global = global;
   ctx->instr = instr;
   ctx->txn_ctx = txn_ctx;
 
@@ -281,19 +249,19 @@ fd_execute_instr( fd_executor_t * executor, fd_instr_t * instr, transaction_ctx_
   /* TODO: allow instructions to be failed, and the transaction to be reverted */
   fd_pubkey_t const * program_id_acc = &txn_accs[instr->program_id];
 
-  execute_instruction_func_t exec_instr_func = fd_executor_lookup_native_program( executor->global, program_id_acc );
+  execute_instruction_func_t exec_instr_func = fd_executor_lookup_native_program( global, program_id_acc );
 
   int exec_result = FD_EXECUTOR_INSTR_SUCCESS;
   if (exec_instr_func != NULL) {
     exec_result = exec_instr_func( *ctx );
 
   } else {
-    if (fd_executor_lookup_program(executor->global, program_id_acc) == 0 ) {
+    if (fd_executor_lookup_program( global, program_id_acc ) == 0 ) {
       FD_LOG_NOTICE(( "found BPF upgradeable executable program account - program id: %32J", program_id_acc ));
 
       exec_result = fd_executor_bpf_upgradeable_loader_program_execute_program_instruction(*ctx);
 
-    } else if ( fd_executor_bpf_loader_program_is_executable_program_account(executor->global, program_id_acc) == 0 ) {
+    } else if ( fd_executor_bpf_loader_program_is_executable_program_account( global, program_id_acc ) == 0 ) {
       FD_LOG_NOTICE(( "found BPF v2 executable program account - program id: %32J", program_id_acc ));
 
       exec_result = fd_executor_bpf_loader_program_execute_program_instruction(*ctx);
@@ -316,13 +284,11 @@ fd_execute_instr( fd_executor_t * executor, fd_instr_t * instr, transaction_ctx_
 }
 
 int
-fd_execute_txn( fd_executor_t * executor, fd_txn_t * txn_descriptor, fd_rawtxn_b_t const * txn_raw ) {
+fd_execute_txn( fd_global_ctx_t * global, fd_txn_t * txn_descriptor, fd_rawtxn_b_t const * txn_raw ) {
   fd_pubkey_t * tx_accs   = (fd_pubkey_t *)((uchar *)txn_raw->raw + txn_descriptor->acct_addr_off);
 
-  fd_global_ctx_t * global = executor->global;
-
   transaction_ctx_t txn_ctx = {
-    .global             = executor->global,
+    .global             = global,
     .compute_unit_limit = 200000,
     .compute_unit_price = 0,
     .prioritization_fee_type = FD_COMPUTE_BUDGET_PRIORITIZATION_FEE_TYPE_DEPRECATED,
@@ -408,7 +374,7 @@ fd_execute_txn( fd_executor_t * executor, fd_txn_t * txn_descriptor, fd_rawtxn_b
       return -1;
     }
 
-    int exec_result = fd_execute_instr( executor, &instrs[i], &txn_ctx );
+    int exec_result = fd_execute_instr( global, &instrs[i], &txn_ctx );
     if( exec_result != FD_EXECUTOR_INSTR_SUCCESS ) {
       fd_funk_txn_cancel(global->funk, txn, 0);
       global->funk_txn = parent_txn;

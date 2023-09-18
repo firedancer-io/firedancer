@@ -13,27 +13,6 @@ FD_PROTOTYPES_BEGIN
 
 typedef struct fd_global_ctx fd_global_ctx_t;
 
-// Should we just get rid of fd_executor and pass the fd_global_ctx_t?
-struct fd_executor {
-  fd_global_ctx_t* global;
-};
-typedef struct fd_executor fd_executor_t;
-
-#define FD_EXECUTOR_FOOTPRINT ( sizeof(fd_executor_t) )
-
-void *
-fd_executor_new( void *            mem,
-                 fd_global_ctx_t * global );
-
-fd_executor_t *
-fd_executor_join( void * mem );
-
-void *
-fd_executor_leave( fd_executor_t * executor );
-
-void *
-fd_executor_delete( void * mem );
-
 /* TODO make sure these are serialized consistently with solana_program::InstructionError */
 /* TODO FD_EXECUTOR_INSTR_SUCCESS is used like Ok(()) in Rust. But this is both overloaded and a
  * misnomer, because the instruction hasn't necessarily been executed succesfully yet */
@@ -120,7 +99,7 @@ typedef struct fd_rawtxn_b fd_rawtxn_b_t;
 
   Makes changes to the Funk accounts DB. */
 int
-fd_execute_txn( fd_executor_t* executor, fd_txn_t * txn_descriptor, fd_rawtxn_b_t const * txn_raw ) ;
+fd_execute_txn( fd_global_ctx_t * global, fd_txn_t * txn_descriptor, fd_rawtxn_b_t const * txn_raw ) ;
 
 
 #define FD_COMPUTE_BUDGET_PRIORITIZATION_FEE_TYPE_COMPUTE_UNIT_PRICE (0)
@@ -181,7 +160,7 @@ execute_instruction_func_t
 fd_executor_lookup_native_program( fd_global_ctx_t * global, fd_pubkey_t const * pubkey ) ;
 
 int
-fd_execute_instr( fd_executor_t * executor, fd_instr_t * instr, transaction_ctx_t * txn_ctx );
+fd_execute_instr( fd_global_ctx_t * global, fd_instr_t * instr, transaction_ctx_t * txn_ctx );
 
 void
 fd_executor_setup_accessed_accounts_for_txn( transaction_ctx_t * txn_ctx, fd_rawtxn_b_t const * txn_raw );

@@ -52,7 +52,6 @@ struct __attribute__((aligned(FD_GLOBAL_CTX_ALIGN))) fd_global_ctx {
   fd_wksp_t *                funk_wksp; // Workspace dedicated to funk, KEEP YOUR GRUBBY MITS OFF!
   fd_funk_t*                 funk;
   fd_wksp_t *                local_wksp; // Workspace for allocs local to this process
-  fd_executor_t              executor;  // Amusingly, it is just a pointer to this...
   fd_rng_t*                  rng;
 
   fd_solcap_writer_t *       capture;

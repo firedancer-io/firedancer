@@ -1107,7 +1107,7 @@ fd_vm_syscall_cpi_rust(
   fd_vm_syscall_cpi_rust_instruction_to_instr( ctx, instruction, accounts, signers, signers_seeds_cnt, data, &cpi_instr );
 
   FD_LOG_WARNING(( "CPI: %u %u", cpi_instr.program_id, cpi_instr.acct_cnt, cpi_instr.data_sz ));
-  ulong instr_exec_res = (ulong)fd_execute_instr( &ctx->instr_ctx.global->executor, &cpi_instr, ctx->instr_ctx.txn_ctx );
+  ulong instr_exec_res = (ulong)fd_execute_instr( ctx->instr_ctx.global, &cpi_instr, ctx->instr_ctx.txn_ctx );
   FD_LOG_WARNING(( "AFTER CPI: %lu", *pr0 ));
 
   if( instr_exec_res != 0) {

@@ -363,7 +363,7 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_meta_t* m, const void
             FD_LOG_WARNING(( "LUT ACC READONLY: idx: %3lu, acc: %32J, lut_idx: %3lu, acct_idx: %3lu, %32J", i, addr_lut_acc, j, readonly_lut_idxs[j], &lookup_addrs[readonly_lut_idxs[j]] ));
           }
         }
-        fd_execute_txn( &global->executor, txn, &rawtxn );
+        fd_execute_txn( global, txn, &rawtxn );
 
         blockoff += pay_sz;
         txn_idx_in_block++;
@@ -1193,10 +1193,7 @@ fd_global_ctx_new        ( void * mem ) {
 
   fd_global_ctx_t * self = (fd_global_ctx_t *) mem;
 
-  self->rng  = fd_rng_join( fd_rng_new(&self->rnd_mem, (uint) time(0), 0) );
-
-  // Yeah, maybe we should get rid of this?
-  fd_executor_new ( &self->executor, self );
+  self->rng  = fd_rng_join( fd_rng_new(&self->rnd_mem, (uint) time(0), 0) );;
 
   fd_firedancer_banks_new(&self->bank);
 
