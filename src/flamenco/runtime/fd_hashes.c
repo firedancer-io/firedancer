@@ -229,6 +229,8 @@ fd_update_hash_bank( fd_global_ctx_t * global,
   fd_pubkey_hash_vector_t dirty_keys __attribute__ ((cleanup(fd_pubkey_hash_vector_destroy)));
   fd_pubkey_hash_vector_new(&dirty_keys);
 
+  fd_funk_rec_t const * erase_rec = NULL;
+
   /* Iterate over accounts that have been changed in the current
      database transaction. */
 
@@ -256,6 +258,12 @@ fd_update_hash_bank( fd_global_ctx_t * global,
     fd_hash_t acc_hash[1];
     if (FD_UNLIKELY(!FD_RAW_ACCOUNT_EXISTS(_raw))) {
       fd_memset( acc_hash->hash, 0, FD_HASH_FOOTPRINT );
+      if (NULL != erase_rec) // Erase a pending erase request...  it is safe
+        fd_funk_rec_remove(funk, fd_funk_rec_modify(funk, erase_rec), 1);
+      /* If we erase records instantly, this causes problems with the
+         iterator.  Instead, we will store away the record and erase
+         it later where appropriate.  */
+      erase_rec = rec;
     } else {
       fd_hash_account_current( acc_hash->hash, acc_meta, acc_key->key, acc_data, global );
     }
@@ -323,6 +331,9 @@ fd_update_hash_bank( fd_global_ctx_t * global,
 
   global->signature_cnt = signature_cnt;
   fd_hash_bank( global, hash, &dirty_keys );
+
+  if (NULL != erase_rec)
+    fd_funk_rec_remove(funk, fd_funk_rec_modify(funk, erase_rec), 1);
 
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
