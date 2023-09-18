@@ -393,6 +393,12 @@ fd_txn_get_acct_addrs( fd_txn_t const * txn,
   return (fd_acct_addr_t const *)((ulong)payload + (ulong)txn->acct_addr_off);
 }
 
+/* fd_txn_align is provided for convenience. */
+static inline ulong
+fd_txn_align( void ) {
+  return alignof(fd_txn_t);
+}
+
 /* fd_txn_footprint: Returns the total size of txn, including the
    instructions and the address tables (if any). */
 static inline ulong
@@ -667,7 +673,7 @@ fd_txn_is_writable( fd_txn_t const * txn, int idx ) {
     return 1;
   if ((idx >= txn->signature_cnt) & (idx < (txn->acct_addr_cnt - txn->readonly_unsigned_cnt)))
     return 1;
-  
+
 
   return 0;
 }
