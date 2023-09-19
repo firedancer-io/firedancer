@@ -393,6 +393,12 @@ fd_txn_get_acct_addrs( fd_txn_t const * txn,
   return (fd_acct_addr_t const *)((ulong)payload + (ulong)txn->acct_addr_off);
 }
 
+static inline uchar const *
+fd_txn_get_recent_blockhash( fd_txn_t const * txn,
+                             void     const * payload ) {
+  return (uchar const *)((ulong)payload + (ulong)txn->recent_blockhash_off);
+}
+
 /* fd_txn_align is provided for convenience. */
 static inline ulong
 fd_txn_align( void ) {
