@@ -27,7 +27,7 @@ fd_shredder_t _shredder[ 1 ];
 
 static void
 test_shredder_pcap( void ) {
-  FD_TEST( _shredder==fd_shredder_new( _shredder, test_private_key+32UL ) );
+  FD_TEST( _shredder==fd_shredder_new( _shredder, test_private_key+32UL, (ushort)0 ) );
   fd_shredder_t * shredder = fd_shredder_join( _shredder );           FD_TEST( shredder );
 
   /* Manually counted values from the pcap */
@@ -42,7 +42,6 @@ test_shredder_pcap( void ) {
 
   fd_entry_batch_meta_t meta[1];
   fd_memset( meta, 0, sizeof(fd_entry_batch_meta_t) );
-  meta->block_complete = 1;
 
   /* The pcap has all the data shreds before the parity shreds, so we'll
      make two passes over the data, one to check the data shreds, and
@@ -73,6 +72,12 @@ test_shredder_pcap( void ) {
   }
   FD_TEST( fd_shredder_fini_batch( shredder ) );
 
+  /* Start a dummy batch with a different slot number to reset all the
+     indices. */
+  meta->slot++;
+  FD_TEST( fd_shredder_init_batch( shredder, test_bin, test_bin_sz, meta ) );
+  FD_TEST( fd_shredder_fini_batch( shredder ) );
+  meta->slot--;
 
   FD_TEST( fd_shredder_init_batch( shredder, test_bin, test_bin_sz, meta ) );
   for( ulong i=0UL; i<7UL; i++ ) {
@@ -156,9 +161,8 @@ perf_test( void ) {
 
   fd_entry_batch_meta_t meta[1];
   fd_memset( meta, 0, sizeof(fd_entry_batch_meta_t) );
-  meta->block_complete = 1;
 
-  FD_TEST( _shredder==fd_shredder_new( _shredder, test_private_key+32UL ) );
+  FD_TEST( _shredder==fd_shredder_new( _shredder, test_private_key+32UL, (ushort)0 ) );
   fd_shredder_t * shredder = fd_shredder_join( _shredder );           FD_TEST( shredder );
 
   fd_fec_set_t _set[ 1 ];
@@ -190,9 +194,8 @@ perf_test2( void ) {
 
   fd_entry_batch_meta_t meta[1];
   fd_memset( meta, 0, sizeof(fd_entry_batch_meta_t) );
-  meta->block_complete = 1;
 
-  FD_TEST( _shredder==fd_shredder_new( _shredder, test_private_key+32UL ) );
+  FD_TEST( _shredder==fd_shredder_new( _shredder, test_private_key+32UL, (ushort)0 ) );
   fd_shredder_t * shredder = fd_shredder_join( _shredder );           FD_TEST( shredder );
 
   fd_fec_set_t _set[ 1 ];

@@ -2,7 +2,7 @@
 #include "fd_shred.h"
 
 void *
-fd_shredder_new( void * mem, void const * pubkey ) {
+fd_shredder_new( void * mem, void const * pubkey, ushort shred_version ) {
   fd_shredder_t * shredder = (fd_shredder_t *)mem;
 
   if( FD_UNLIKELY( !mem ) ) {
@@ -15,9 +15,10 @@ fd_shredder_new( void * mem, void const * pubkey ) {
     return NULL;
   }
 
-  shredder->entry_batch = NULL;
-  shredder->sz          = 0UL;
-  shredder->offset      = 0UL;
+  shredder->shred_version = shred_version;
+  shredder->entry_batch   = NULL;
+  shredder->sz            = 0UL;
+  shredder->offset        = 0UL;
 
   if( FD_UNLIKELY( !fd_sha512_new( shredder->sha512 ) ) ) return NULL;
 
@@ -26,6 +27,11 @@ fd_shredder_new( void * mem, void const * pubkey ) {
                                                        NULL, 0UL, FD_WSAMPLE_HINT_POWERLAW_NODELETE ) );
   shredder->stake_weight_cnt = 0UL;
   memcpy( shredder->leader_pubkey, pubkey, 32UL );
+
+  fd_memset( &(shredder->meta), 0, sizeof(fd_entry_batch_meta_t) );
+  shredder->meta.slot         = ULONG_MAX;
+  shredder->data_idx_offset   = 0UL;
+  shredder->parity_idx_offset = 0UL;
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( shredder->magic ) = FD_SHREDDER_MAGIC;
@@ -119,6 +125,11 @@ fd_shredder_init_batch( fd_shredder_t *               shredder,
   shredder->sz          = entry_batch_sz;
   shredder->offset      = 0UL;
 
+  if( FD_UNLIKELY( metadata->slot != shredder->meta.slot ) ) {
+    shredder->data_idx_offset   = 0UL;
+    shredder->parity_idx_offset = 0UL;
+  }
+
   shredder->meta = *metadata;
 
   return shredder;
@@ -172,12 +183,13 @@ fd_shredder_next_fec_set( fd_shredder_t * shredder,
   ulong parity_merkle_sz        = parity_shred_payload_sz + 0x59UL - 0x40UL;
 
   ulong last_in_batch           = (chunk_size+offset==entry_sz);
+  int   block_complete          = shredder->meta.tick==shredder->meta.bank_max_tick_height;
 
   fd_reedsol_t * reedsol = fd_reedsol_encode_init( shredder->reedsol, parity_shred_payload_sz );
 
 
   /* Write headers and copy the data shred payload */
-  ulong flags_for_last = ((last_in_batch & (ulong)!!shredder->meta.block_complete)<<7) | (last_in_batch<<6);
+  ulong flags_for_last = ((last_in_batch & (ulong)block_complete)<<7) | (last_in_batch<<6);
   for( ulong i=0UL; i<data_shred_cnt; i++ ) {
     fd_shred_t         * shred = (fd_shred_t *)data_shreds[ i ];
     shred_dest_input_t * dest  = data_shred_dest_input+i;
@@ -187,16 +199,16 @@ fd_shredder_next_fec_set( fd_shredder_t * shredder,
 
     shred->variant            = fd_shred_variant( FD_SHRED_TYPE_MERKLE_DATA, (uchar)tree_depth );
     shred->slot               = shredder->meta.slot;
-    shred->idx                = (uint  )(shredder->meta.data_idx_offset + i);
-    shred->version            = (ushort)(shredder->meta.version);
-    shred->fec_set_idx        = (uint  )(shredder->meta.data_idx_offset);
+    shred->idx                = (uint  )(shredder->data_idx_offset + i);
+    shred->version            = (ushort)(shredder->shred_version);
+    shred->fec_set_idx        = (uint  )(shredder->data_idx_offset);
     shred->data.parent_off    = (ushort)(shredder->meta.parent_offset);
     shred->data.flags         = (uchar )(fd_ulong_if( i==data_shred_cnt-1UL, flags_for_last, 0UL ) | (shredder->meta.reference_tick & 0x3FUL));
     shred->data.size          = (ushort)(FD_SHRED_DATA_HEADER_SZ + shred_payload_sz);
 
     dest->slot                = shredder->meta.slot;
     dest->type                = (uchar)0xA5;
-    dest->idx                 = (uint  )(shredder->meta.data_idx_offset + i);
+    dest->idx                 = (uint  )(shredder->data_idx_offset + i);
     memcpy( dest->leader_pubkey, shredder->leader_pubkey, 32UL );
 
     uchar * payload = fd_memcpy( data_shreds[ i ] + FD_SHRED_DATA_HEADER_SZ , entry_batch+offset, shred_payload_sz );
@@ -221,16 +233,16 @@ fd_shredder_next_fec_set( fd_shredder_t * shredder,
 
     shred->variant            = fd_shred_variant( FD_SHRED_TYPE_MERKLE_CODE, (uchar)tree_depth );
     shred->slot               = shredder->meta.slot;
-    shred->idx                = (uint  )(shredder->meta.parity_idx_offset + j);
-    shred->version            = (ushort)(shredder->meta.version);
-    shred->fec_set_idx        = (uint  )(shredder->meta.data_idx_offset);
+    shred->idx                = (uint  )(shredder->parity_idx_offset + j);
+    shred->version            = (ushort)(shredder->shred_version);
+    shred->fec_set_idx        = (uint  )(shredder->data_idx_offset);
     shred->code.data_cnt      = (ushort)(data_shred_cnt);
     shred->code.code_cnt      = (ushort)(parity_shred_cnt);
     shred->code.idx           = (ushort)(j);
 
     dest->slot                = shredder->meta.slot;
     dest->type                = (uchar)0x5A;
-    dest->idx                 = (uint  )(shredder->meta.parity_idx_offset + j);
+    dest->idx                 = (uint  )(shredder->parity_idx_offset + j);
     memcpy( dest->leader_pubkey, shredder->leader_pubkey, 32UL );
 
     fd_memcpy( shred->signature + 64UL - 26UL, "\x00SOLANA_MERKLE_SHREDS_LEAF", 26UL );
@@ -298,9 +310,9 @@ fd_shredder_next_fec_set( fd_shredder_t * shredder,
     result->parity_shreds_dest_idx[ j ] = fd_wsample_sample( shredder->sampler );
   }
 
-  shredder->offset                  = offset;
-  shredder->meta.data_idx_offset   += data_shred_cnt;
-  shredder->meta.parity_idx_offset += parity_shred_cnt;
+  shredder->offset             = offset;
+  shredder->data_idx_offset   += data_shred_cnt;
+  shredder->parity_idx_offset += parity_shred_cnt;
 
   result->data_shred_cnt   = data_shred_cnt;
   result->parity_shred_cnt = parity_shred_cnt;

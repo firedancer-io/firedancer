@@ -19,6 +19,8 @@ FD_IMPORT_BINARY( test_private_key, "src/ballet/shred/fixtures/demo-shreds.key" 
 
 FD_IMPORT_BINARY( test_bin,         "src/ballet/shred/fixtures/demo-shreds.bin"  );
 
+fd_shredder_t _shredder[ 1 ];
+
 static int
 sets_eq( fd_fec_set_t const * a, fd_fec_set_t const * b ) {
   if( (a==NULL) ^ (b==NULL) ) return 0;
@@ -51,14 +53,13 @@ allocate_fec_set( fd_fec_set_t * set, uchar * ptr ) {
 
 static void
 test_one_batch( void ) {
-  fd_shredder_t _shredder[ 1 ];
-  FD_TEST( _shredder==fd_shredder_new( _shredder, test_private_key+32UL ) );
+  FD_TEST( _shredder==fd_shredder_new( _shredder, test_private_key+32UL, (ushort)0 ) );
   fd_shredder_t * shredder = fd_shredder_join( _shredder );           FD_TEST( shredder );
 
 
   fd_entry_batch_meta_t meta[1];
   fd_memset( meta, 0, sizeof(fd_entry_batch_meta_t) );
-  meta->block_complete = 1;
+  meta->tick = meta->bank_max_tick_height = 100UL;
 
   FD_TEST( fd_shredder_init_batch( shredder, test_bin, test_bin_sz, meta ) );
 
@@ -92,14 +93,13 @@ test_one_batch( void ) {
 
 static void
 test_interleaved( void ) {
-  fd_shredder_t _shredder[ 1 ];
-  FD_TEST( _shredder==fd_shredder_new( _shredder, test_private_key+32UL ) );
+  FD_TEST( _shredder==fd_shredder_new( _shredder, test_private_key+32UL, (ushort)0 ) );
   fd_shredder_t * shredder = fd_shredder_join( _shredder );           FD_TEST( shredder );
 
 
   fd_entry_batch_meta_t meta[1];
   fd_memset( meta, 0, sizeof(fd_entry_batch_meta_t) );
-  meta->block_complete = 1;
+  meta->tick = meta->bank_max_tick_height = 100UL;
 
   FD_TEST( fd_shredder_init_batch( shredder, test_bin, test_bin_sz, meta ) );
 
@@ -140,14 +140,13 @@ test_interleaved( void ) {
 
 static void
 test_rolloff( void ) {
-  fd_shredder_t _shredder[ 1 ];
-  FD_TEST( _shredder==fd_shredder_new( _shredder, test_private_key+32UL ) );
+  FD_TEST( _shredder==fd_shredder_new( _shredder, test_private_key+32UL, (ushort)0 ) );
   fd_shredder_t * shredder = fd_shredder_join( _shredder );           FD_TEST( shredder );
 
 
   fd_entry_batch_meta_t meta[1];
   fd_memset( meta, 0, sizeof(fd_entry_batch_meta_t) );
-  meta->block_complete = 1;
+  meta->tick = meta->bank_max_tick_height = 100UL;
 
   FD_TEST( fd_shredder_init_batch( shredder, test_bin, test_bin_sz, meta ) );
 
@@ -192,10 +191,9 @@ perf_test( void ) {
 
   fd_entry_batch_meta_t meta[1];
   fd_memset( meta, 0, sizeof(fd_entry_batch_meta_t) );
-  meta->block_complete = 1;
+  meta->tick = meta->bank_max_tick_height = 100UL;
 
-  fd_shredder_t _shredder[ 1 ];
-  FD_TEST( _shredder==fd_shredder_new( _shredder, test_private_key+32UL ) );
+  FD_TEST( _shredder==fd_shredder_new( _shredder, test_private_key+32UL, (ushort)0 ) );
   fd_shredder_t * shredder = fd_shredder_join( _shredder );           FD_TEST( shredder );
 
   fd_fec_set_t _set[ 1 ];

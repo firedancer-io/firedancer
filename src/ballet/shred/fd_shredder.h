@@ -23,12 +23,10 @@
 
 struct fd_entry_batch_meta {
   ulong slot;
-  ulong data_idx_offset;
-  ulong parity_idx_offset;
-  ushort version;
-  ushort parent_offset;
-  uchar reference_tick;
-  int block_complete;
+  ulong parent_offset;
+  ulong bank_max_tick_height;
+  ulong reference_tick;
+  ulong tick;
 };
 typedef struct fd_entry_batch_meta fd_entry_batch_meta_t;
 
@@ -39,7 +37,8 @@ static ulong const fd_shredder_data_to_parity_cnt[ 33UL ] = {
   29UL, 30UL, 30UL, 31UL, 31UL, 31UL, 32UL, 32UL, 32UL };
 
 struct __attribute__((aligned(FD_SHREDDER_ALIGN))) fd_shredder_private {
-  ulong magic;
+  ulong  magic;
+  ushort shred_version;
 
   fd_sha512_t       sha512 [ 1 ]; /* Needed for signing */
   fd_reedsol_t      reedsol[ 1 ];
@@ -56,10 +55,12 @@ struct __attribute__((aligned(FD_SHREDDER_ALIGN))) fd_shredder_private {
 
   fd_wsample_t *    sampler;
   ulong             stake_weight_cnt;
-  fd_chacha20rng_t sampling_rng [  1 ];
+  fd_chacha20rng_t  sampling_rng [  1 ];
   uchar             leader_pubkey[ 32 ];
 
   fd_entry_batch_meta_t meta;
+  ulong data_idx_offset;
+  ulong parity_idx_offset;
 
   uchar _sampler_footprint [ FD_WSAMPLE_FOOTPRINT( FD_SHREDDER_MAX_STAKE_WEIGHTS ) ] __attribute__((aligned(FD_WSAMPLE_ALIGN)));
 };
@@ -72,8 +73,9 @@ FD_FN_CONST static inline ulong fd_shredder_footprint( void ) { return FD_SHREDD
 /* fd_shredder_new formats a region of memory as a shredder object.
    pubkey must point to the first byte of 32 bytes containing the public
    key of the validator that will sign the shreds this shredder
-   produces. */
-void          * fd_shredder_new(  void * mem, void const * pubkey );
+   produces.  The value provided for shred_version will be stored in the
+   shred_version field of each shred that this shredder produces. */
+void          * fd_shredder_new(  void * mem, void const * pubkey, ushort shred_version );
 fd_shredder_t * fd_shredder_join( void * mem );
 void *          fd_shredder_leave(  fd_shredder_t * shredder );
 void *          fd_shredder_delete( void *          mem      );

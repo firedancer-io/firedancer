@@ -270,7 +270,8 @@ run( fd_frank_args_t * args ) {
                                           sizeof(ulong            )*(MAX_SHRED_DESTS                                          ) );
   FD_SCRATCH_ALLOC_FINI( sscratch, 128UL );
 
-  fd_shredder_t * shredder = fd_shredder_join( fd_shredder_new( _shredder, shred_public_key ) );
+  ushort shred_version = (ushort)0; // FIXME
+  fd_shredder_t * shredder = fd_shredder_join( fd_shredder_new( _shredder, shred_public_key, shred_version ) );
 
   fd_shred_dest_t null_dest[1] = { 0 };
 
@@ -436,8 +437,7 @@ run( fd_frank_args_t * args ) {
 
     now = fd_tickcount();
 
-    /* FIXME: passing the size as the signature is a hack */
-    ulong         sz           = mline->sig;
+    ulong         sz           = mline->sz;
     uchar const * dcache_entry = fd_chunk_to_laddr_const( wksp, mline->chunk );
     fd_entry_batch_meta_t const * entry_batch_meta = (fd_entry_batch_meta_t const *)dcache_entry;
     uchar const *                 entry_batch      = dcache_entry + sizeof(fd_entry_batch_meta_t);
