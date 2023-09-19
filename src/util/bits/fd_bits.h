@@ -998,6 +998,14 @@ fd_ulong_svw_dec_tail( uchar const * b,
     (void *)_scratch_alloc;                                                                         \
     }))
 #define FD_SCRATCH_ALLOC_FINI( layout, align ) (_##layout = FD_ULONG_ALIGN_UP( _##layout, (align) ) )
+
+#define FD_SCRATCH_ALLOC_PUBLISH( layout ) (__extension__({            \
+    void * end = (void *)FD_SCRATCH_ALLOC_FINI( layout, 1UL );         \
+    int ok = fd_scratch_publish_is_safe( end );                        \
+    if( ok ) fd_scratch_publish( end );                                \
+    ok;                                                                \
+  }))
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_util_bits_fd_bits_h */

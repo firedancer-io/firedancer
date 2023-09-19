@@ -7,12 +7,34 @@ option (nanopb_fileopt).fallback_type = FT_POINTER;
 
 import "src/flamenco/types/fd_solana_block.proto";
 
-enum CompressionFormat {
-    // None is uncompressed data
-    None = 0;
+// TxnTrace is the top-level structure containing a captured transaction
+// execution input, and optionally a resulting diff.
+message TxnTrace {
+    required TxnInput input = 1
+        [(nanopb).type = FT_POINTER];
 
-    // Zstd marks a Zstandard compressed byte stream (no dictionary)
-    Zstd = 1;
+    optional TxnDiff diff = 2
+        [(nanopb).type = FT_POINTER];
+}
+
+// TxnInput contains the complete set of inputs to perform a
+// standalone transaction execution.
+message TxnInput {
+    required .solana.storage.ConfirmedBlock.Message transaction = 1;
+
+    // A list of accounts.  Length must match the number of accounts
+    // specified in the transaction.
+    repeated Account accounts = 2;
+
+    required ImplicitState state = 3;
+
+    // TODO set feature set
+}
+
+// TxnDiff contains the complete set of changes directly induced
+// by transaction execuction.
+message TxnDiff {
+    repeated Account account = 1;
 }
 
 message AccountMeta {
@@ -26,14 +48,40 @@ message AccountMeta {
 
 message Account {
     required AccountMeta meta = 1;
-    required CompressionFormat data_compression = 2;
-    required bytes data = 3;
+    required bytes data = 2;
 }
 
 message KeyedAccount {
     required bytes pubkey = 1
         [(nanopb).max_size = 32, (nanopb).fixed_length = true];
     required Account account = 2;
+}
+
+// ImplicitState is the complete set of runtime information that is not
+// explicitly mentioned in the transaction message.
+message ImplicitState {
+    // Serialized sysvar accounts.  Includes clock (current slot), rent,
+    // epoch schedule, etc.
+    repeated KeyedAccount sysvars = 1;
+
+    // Slot number of last block.
+    required uint64 prev_slot = 2;
+
+    // Blockhash queue
+    repeated RecentBlockhash blockhash = 3;
+
+    // Bank hash at previous slot.
+    optional bytes bank_hash = 4
+        [(nanopb).max_size = 32, (nanopb).fixed_length = true];
+
+    // Capitalization of native asset.
+    optional uint64 capitalization = 5;
+
+    // Block height including current block.
+    optional uint64 block_height = 6;
+
+    // Active stake per vote account in current epoch.
+    repeated ValidatorStake epoch_stakes = 7;
 }
 
 message ValidatorStake {
@@ -43,44 +91,9 @@ message ValidatorStake {
     required uint64 lamports = 2;
 }
 
-message ImplicitState {
-    repeated KeyedAccount sysvars = 1;
-
-    optional uint64 slot = 2;
-
-    optional uint64 prev_slot = 3;
-
-    optional bytes poh = 4
+message RecentBlockhash {
+    required bytes hash = 1
         [(nanopb).max_size = 32, (nanopb).fixed_length = true];
 
-    optional bytes bank_hash = 5
-        [(nanopb).max_size = 32, (nanopb).fixed_length = true];
-
-    optional uint64 capitalization = 6;
-
-    optional uint64 block_height = 7;
-
-    repeated ValidatorStake epoch_stakes = 8;
-}
-
-// TxnExecInputs contains the complete set of inputs to perform a
-// standalone transaction execution.
-message TxnExecInput {
-    required .solana.storage.ConfirmedBlock.Message transaction = 1;
-
-    // A list of accounts.  Length must match the number of accounts
-    // specified in the transaction.
-    repeated Account accounts = 2;
-
-    required ImplicitState state = 3;
-
-    // TODO set feature set
-}
-
-message ProgTrace {
-    repeated uint32 trace = 1;
-}
-
-message TxnExecTrace {
-    repeated Account account = 1;
+    required uint64 lamports_per_signature = 2;
 }

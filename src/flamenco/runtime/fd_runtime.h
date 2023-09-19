@@ -55,6 +55,7 @@ struct __attribute__((aligned(FD_GLOBAL_CTX_ALIGN))) fd_global_ctx {
   fd_rng_t*                  rng;
 
   fd_solcap_writer_t *       capture;
+  int                        trace_dirfd;
 
   fd_features_t              features;
 

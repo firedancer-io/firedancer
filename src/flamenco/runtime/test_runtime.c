@@ -76,7 +76,8 @@ struct global_state {
 };
 typedef struct global_state global_state_t;
 
-static void usage(const char* progname) {
+static void
+usage( char const * progname ) {
   fprintf( stderr, "USAGE: %s\n", progname );
   fprintf( stderr,
       " --wksp        <name>       workspace name\n"
@@ -89,7 +90,8 @@ static void usage(const char* progname) {
       " --validate    <bool>       Validate the funk db\n"
       " --reset       <bool>       Reset the workspace\n"
       " --capture     <file>       Write bank preimage to capture file\n"
-      " --abort-on-mismatch {0,1}  If 1, stop on bank hash mismatch\n" );
+      " --abort-on-mismatch {0,1}  If 1, stop on bank hash mismatch\n",
+      " --trace       <dir>        Export traces to given directory\n" );
 }
 
 #define SORT_NAME sort_pubkey_hash_pair
@@ -151,7 +153,7 @@ int
 replay( global_state_t * state,
         int              justverify,
         fd_tpool_t *     tpool,
-        ulong            max_workers) {
+        ulong            max_workers ) {
   /* Create scratch allocator */
 
   ulong  smax = 512 /*MiB*/ << 20;
@@ -313,7 +315,9 @@ replay( global_state_t * state,
   return 0;
 }
 
-int main(int argc, char **argv) {
+int
+main( int     argc,
+      char ** argv ) {
   fd_boot         ( &argc, &argv );
   fd_flamenco_boot( &argc, &argv );
 
@@ -343,6 +347,7 @@ int main(int argc, char **argv) {
   char const * validate_db             = fd_env_strip_cmdline_cstr ( &argc, &argv, "--validate",  NULL, NULL );
   char const * log_level               = fd_env_strip_cmdline_cstr ( &argc, &argv, "--log_level", NULL, NULL );
   char const * capture_fpath           = fd_env_strip_cmdline_cstr ( &argc, &argv, "--capture",   NULL, NULL );
+  char const * trace_fpath             = fd_env_strip_cmdline_cstr ( &argc, &argv, "--trace",     NULL, NULL );
 
   char const * confirm_hash            = fd_env_strip_cmdline_cstr ( &argc, &argv, "--confirm_hash",          NULL, NULL);
   char const * confirm_parent          = fd_env_strip_cmdline_cstr ( &argc, &argv, "--confirm_parent",        NULL, NULL);
@@ -466,13 +471,23 @@ int main(int argc, char **argv) {
   if( capture_fpath ) {
     state.capture_file = fopen( capture_fpath, "w+" );
     if( FD_UNLIKELY( !state.capture_file ) )
-      FD_LOG_ERR(( "fopen(%s) failed (%d-%s)", capture_fpath, errno, strerror( errno ) ));
+      FD_LOG_ERR(( "fopen(%s) failed (%d-%s)", capture_fpath, errno, fd_io_strerror( errno ) ));
 
     void * capture_writer_mem = fd_alloc_malloc( alloc, fd_solcap_writer_align(), fd_solcap_writer_footprint() );
     FD_TEST( capture_writer_mem );
     state.global->capture = fd_solcap_writer_new( capture_writer_mem );
 
     FD_TEST( fd_solcap_writer_init( state.global->capture, state.capture_file ) );
+  }
+
+  if( trace_fpath ) {
+    if( FD_UNLIKELY( 0!=mkdir( trace_fpath, 0777 ) && errno!=EEXIST ) )
+      FD_LOG_ERR(( "mkdir(%s) failed (%d-%s)", trace_fpath, errno, fd_io_strerror( errno ) ));
+
+    int fd = open( trace_fpath, O_DIRECTORY );
+    if( FD_UNLIKELY( fd<=0 ) )  /* technically 0 is valid, but it serves as a sentinel here */
+      FD_LOG_ERR(( "open(%s) failed (%d-%s)", trace_fpath, errno, fd_io_strerror( errno ) ));
+    state.global->trace_dirfd = fd;
   }
 
   {
@@ -548,7 +563,8 @@ int main(int argc, char **argv) {
     accounts_hash(&state);
 
   fd_alloc_free( alloc, fd_solcap_writer_delete( fd_solcap_writer_fini( state.global->capture ) ) );
-  if( state.capture_file ) fclose( state.capture_file );
+  if( state.capture_file  ) fclose( state.capture_file );
+  if( state.global->trace_dirfd>0 ) close( state.global->trace_dirfd );
 
   fd_global_ctx_delete(fd_global_ctx_leave(state.global));
 

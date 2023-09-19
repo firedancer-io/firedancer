@@ -14,8 +14,15 @@
 #include "program/fd_bpf_deprecated_loader_program.h"
 #include "program/fd_bpf_loader_v4_program.h"
 #include "program/fd_compute_budget_program.h"
+#include "../trace/fd_txntrace.h"
+#include "../nanopb/pb_encode.h"
 
 #include "../../ballet/base58/fd_base58.h"
+
+#include <errno.h>
+#include <stdio.h>   /* snprintf(3) */
+#include <fcntl.h>   /* openat(2) */
+#include <unistd.h>  /* write(3) */
 
 void
 fd_convert_txn_instr_to_instr( fd_txn_t const * txn_descriptor,
@@ -198,7 +205,7 @@ fd_executor_collect_fee( fd_global_ctx_t *   global,
 
   int err = fd_acc_mgr_modify( global->acc_mgr, global->funk_txn, account, 0, 0UL, rec);
   if( FD_UNLIKELY( err ) ) {
-    FD_LOG_WARNING(( "fd_acc_mgr_modify failed (%d)", err ));
+    FD_LOG_WARNING(( "fd_acc_mgr_modify(%32J) failed (%d-%s)", account->uc, err, fd_acc_mgr_strerror( err ) ));
     // TODO: The fee payer does not seem to exist?!  what now?
     return -1;
   }
@@ -283,9 +290,70 @@ fd_execute_instr( fd_global_ctx_t * global, fd_instr_t * instr, transaction_ctx_
   return exec_result;
 }
 
+/* fd_executor_dump_txntrace creates a new file in the trace dir
+   containing the given binary blob. */
+
+static void
+fd_executor_dump_txntrace( fd_global_ctx_t *            global,
+                           fd_ed25519_sig_t const *     sig,
+                           fd_soltrace_TxnTrace const * trace ) {
+
+  if( FD_UNLIKELY( !fd_scratch_push_is_safe() ) ) return;
+  FD_SCRATCH_SCOPED_FRAME;
+  if( FD_UNLIKELY( !fd_scratch_prepare_is_safe( 1UL ) ) ) return;
+
+  /* Serialize to open-ended scratch frame */
+  ulong   data_bufsz = fd_scratch_free();
+  uchar * data       = fd_scratch_prepare( 1UL );
+  pb_ostream_t ostream = pb_ostream_from_buffer( data, data_bufsz );
+  if( FD_UNLIKELY( !pb_encode( &ostream, fd_soltrace_TxnTrace_fields, trace ) ) ) {
+    FD_LOG_ERR(( "pb_encode of trace %p failed (%lu bufsz, %lu written): %s",
+                     (void *)trace, data_bufsz, ostream.bytes_written, PB_GET_ERROR( &ostream ) ));
+    fd_scratch_cancel();
+    return;
+  }
+  ulong data_sz = ostream.bytes_written;
+  fd_scratch_publish( data+data_sz );
+
+  /* Formulate file name */
+  char filename[ 128UL ];
+  /* 118 (20+1+88+9) chars + null terminator */
+  snprintf( filename, sizeof(filename), "%lu-%64J.txntrace",
+            global->bank.slot, sig );
+
+  /* Create file */
+  int dump_fd = openat( global->trace_dirfd, filename, O_WRONLY|O_CREAT|O_TRUNC, 0666 );
+  if( FD_UNLIKELY( dump_fd<0 ) ) {
+    FD_LOG_WARNING(( "openat(%d, %s) failed (%d-%s)",
+                     global->trace_dirfd, filename, errno, fd_io_strerror( errno ) ));
+    return;
+  }
+
+  /* Write file */
+  long nbytes = write( dump_fd, data, data_sz );
+  if( FD_UNLIKELY( nbytes!=(long)data_sz ) ) {
+    FD_LOG_WARNING(( "write to %s failed (%d-%s)",
+                     filename, errno, fd_io_strerror( errno ) ));
+    close( dump_fd );
+    unlinkat( global->trace_dirfd, filename, 0 );
+    return;
+  }
+  close( dump_fd );
+}
+
 int
-fd_execute_txn( fd_global_ctx_t * global, fd_txn_t * txn_descriptor, fd_rawtxn_b_t const * txn_raw ) {
+fd_execute_txn( fd_global_ctx_t *     global,
+                fd_txn_t *            txn_descriptor,
+                fd_rawtxn_b_t const * txn_raw ) {
+  FD_SCRATCH_SCOPED_FRAME;
+
   fd_pubkey_t * tx_accs   = (fd_pubkey_t *)((uchar *)txn_raw->raw + txn_descriptor->acct_addr_off);
+
+  /* Trace transaction input */
+  fd_soltrace_TxnInput  _trace_pre[1];
+  fd_soltrace_TxnInput * trace_pre = NULL;
+  if( FD_UNLIKELY( global->trace_dirfd > 0 ) )
+    trace_pre = fd_txntrace_capture_pre( _trace_pre, global, txn_descriptor, txn_raw->raw );
 
   transaction_ctx_t txn_ctx = {
     .global             = global,
@@ -388,6 +456,21 @@ fd_execute_txn( fd_global_ctx_t * global, fd_txn_t * txn_descriptor, fd_rawtxn_b
   if( ret != FD_ACC_MGR_SUCCESS ) {
     FD_LOG_WARNING(( "SYSVAR INSTRS FAILED TO CLEANUP!" ));
     return -1;
+  }
+
+  /* Export trace to Protobuf file */
+  if( FD_UNLIKELY( ( global->trace_dirfd > 0 )
+                 & ( !!trace_pre             ) ) ) {
+    fd_soltrace_TxnDiff  _trace_post[1];
+    fd_soltrace_TxnDiff * trace_post = fd_txntrace_capture_post( _trace_post, global, trace_pre );
+    if( trace_post ) {
+      fd_soltrace_TxnTrace trace = {
+        .input = trace_pre,
+        .diff  = trace_post
+      };
+      fd_ed25519_sig_t const * sig0 = &fd_txn_get_signatures( txn_descriptor, txn_raw->raw )[0];
+      fd_executor_dump_txntrace( global, sig0, &trace );
+    }
   }
 
   fd_funk_txn_merge(global->funk, txn, 0);
