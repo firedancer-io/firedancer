@@ -545,6 +545,10 @@ calculate_rewards_for_partitioning(
 
     fd_stake_rewards_vector_t * hash_rewards_result = malloc(sizeof(fd_stake_rewards_vector_t));
     hash_rewards_into_partitions(&global->bank, validator_result->stake_reward_deq, num_partitions, hash_rewards_result);
+
+    /* free stake_reward_deq */
+    deq_fd_stake_reward_t_delete( validator_result->stake_reward_deq );
+
     *result = (fd_partitioned_rewards_calculation_t) {
         .vote_account_rewards = validator_result->vote_reward_map,
         .stake_rewards_by_partition = hash_rewards_result,
@@ -613,6 +617,9 @@ void calculate_rewards_and_distribute_vote_rewards(
         }
     }
     */
+    /* free vote reward map */
+    fd_vote_reward_t_map_delete( rewards_calc_result->vote_account_rewards );
+
     result->total_rewards = fd_ulong_sat_add(validator_rewards_paid,  rewards_calc_result->total_stake_rewards_lamports);
     result->distributed_rewards = validator_rewards_paid;
     result->stake_rewards_by_partition = rewards_calc_result->stake_rewards_by_partition;
@@ -737,6 +744,12 @@ distribute_partitioned_epoch_rewards(
         global->epoch_reward_status.is_active = 0;
         // burn and purge EpochRewards sysvar account
         fd_sysvar_epoch_rewards_burn_and_purge( global );
+        // fixing leaks
+        for ( ulong i = 0; i < global->epoch_reward_status.stake_rewards_by_partition->cnt; ++i ) {
+            fd_stake_rewards_destroy( &global->epoch_reward_status.stake_rewards_by_partition->elems[i] );
+        }
+        fd_stake_rewards_vector_destroy(global->epoch_reward_status.stake_rewards_by_partition);
+        fd_valloc_free( global->valloc, global->epoch_reward_status.stake_rewards_by_partition );
     }
 
 }
