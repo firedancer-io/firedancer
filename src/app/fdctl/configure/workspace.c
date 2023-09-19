@@ -102,7 +102,7 @@ static void xsk_aio( void * pod, char * fmt, ulong tx_depth, ulong batch_count, 
             fd_xsk_aio_new      ( shmem,    tx_depth, batch_count ) );
 }
 
-FD_FN_UNUSED static void alloc( void * pod, char * fmt, ulong align, ulong sz, ... ) {
+static void alloc( void * pod, char * fmt, ulong align, ulong sz, ... ) {
   INSERTER( sz, align, sz, 1 );
 }
 
@@ -275,6 +275,7 @@ init( config_t * const config ) {
           mcache( pod, "mcache%lu", config->tiles.verify.receive_buffer_size, i );
           fseq  ( pod, "fseq%lu", i );
         }
+        mvcc( pod, "stake_weights", 8UL + 1024UL*40UL ); /* 1024 validators */
         break;
       case wksp_verify_dedup:
         ulong1( pod, "cnt", config->layout.verify_tile_count );
@@ -351,6 +352,7 @@ init( config_t * const config ) {
         cnc   ( pod, "cnc" );
         ulong1( pod, "min-gap", config->layout.bank_tile_count - 1UL        );
         ulong1( pod, "depth",   config->tiles.pack.max_pending_transactions );
+        alloc ( pod, "poh_slot",  32UL, 8UL                                 );
         break;
       case wksp_bank:
         cnc   ( pod, "cnc" );

@@ -201,6 +201,7 @@ run_monitor( config_t * const config,
     1 +                                // dedup tile
     1 +                                // pack tile
     config->layout.bank_tile_count +   // bank tiles
+    1 +                                // shred tile
     1;                                 // forward tile
 
   ulong link_cnt =
@@ -209,6 +210,7 @@ run_monitor( config_t * const config,
     1 +                                // dedup <-> pack
     config->layout.bank_tile_count +   // pack <-> bank
     config->layout.bank_tile_count +   // bank <-> pack
+    1 +                                // bank <-> shred
     1;                                 // pack <-> forward
 
   tile_t * tiles = fd_alloca( alignof(tile_t *), sizeof(tile_t)*tile_cnt );
@@ -285,6 +287,13 @@ run_monitor( config_t * const config,
         link_idx++;
         break;
       case wksp_bank_shred:
+        links[ link_idx ].src_name = "bank";
+        links[ link_idx ].dst_name = "shred";
+        links[ link_idx ].mcache = fd_mcache_join( fd_wksp_pod_map( pods[ j ], "mcache0" ) );
+        if( FD_UNLIKELY( !links[ link_idx ].mcache ) ) FD_LOG_ERR(( "fd_mcache_join failed" ));
+        links[ link_idx ].fseq = fd_fseq_join( fd_wksp_pod_map( pods[ j ], "fseq0" ) );
+        if( FD_UNLIKELY( !links[ link_idx ].fseq ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
+        link_idx++;
         break;
       case wksp_quic:
         tiles[ tile_idx ].name = "quic";
@@ -335,9 +344,12 @@ run_monitor( config_t * const config,
         if( FD_UNLIKELY( fd_cnc_app_sz( tiles[ tile_idx ].cnc )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
         tile_idx++;
         break;
+      default:
+        FD_LOG_WARNING(( "Workspace kind %u not handled", wksp->kind ));
     }
   }
 
+  FD_LOG_WARNING(( "Processed %lu/%lu tiles, %lu/%lu links", tile_idx, tile_cnt, link_idx, link_cnt ));
   FD_TEST( tile_idx == tile_cnt );
   FD_TEST( link_idx == link_cnt );
 
