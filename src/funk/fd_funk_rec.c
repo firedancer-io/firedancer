@@ -616,8 +616,10 @@ fd_funk_rec_write_prepare( fd_funk_t *               funk,
     }
 
   } else {
-    if (!do_create)
+    if (!do_create) {
+      if( opt_err ) *opt_err = FD_FUNK_ERR_KEY;
       return NULL;
+    }
 
     /* Create a new record */
     rec = fd_funk_rec_modify( funk, fd_funk_rec_insert( funk, txn, key, opt_err ) );
