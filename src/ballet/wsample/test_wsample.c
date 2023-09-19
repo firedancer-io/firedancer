@@ -60,7 +60,7 @@ chi_squared_test( ulong * observed,
 }
 
 static inline void
-test_probability_dist_replacement() {
+test_probability_dist_replacement( void ) {
   fd_chacha20rng_t _rng[1];
   fd_chacha20rng_t * rng = fd_chacha20rng_join( fd_chacha20rng_new( _rng ) );
   fd_chacha20rng_init( rng, seed );
@@ -94,7 +94,7 @@ test_probability_dist_replacement() {
 }
 
 static inline void
-test_probability_dist_noreplacement() {
+test_probability_dist_noreplacement( void ) {
   fd_chacha20rng_t _rng[1];
   fd_chacha20rng_t * rng = fd_chacha20rng_join( fd_chacha20rng_new( _rng ) );
   fd_chacha20rng_init( rng, seed );
