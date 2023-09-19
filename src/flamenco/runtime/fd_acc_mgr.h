@@ -246,6 +246,9 @@ int fd_acc_mgr_commit( fd_acc_mgr_t *      acc_mgr,
   return fd_acc_mgr_commit_raw( acc_mgr, account->rec, account->pubkey, account->meta, slot, uncache );
 }
 
+FD_FN_CONST char const *
+fd_acc_mgr_strerror( int err );
+
 FD_PROTOTYPES_END
 
 /* Represents the lamport balance associated with an account. */
