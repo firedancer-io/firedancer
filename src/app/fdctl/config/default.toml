@@ -306,7 +306,7 @@ dynamic_port_range = "8000-10000"
     #
     # It is suggested to use all available CPU cores for Firedancer, so that the
     # Solana network can run as fast as possible.
-    affinity = "0-15"
+    affinity = "0-16"
 
     # How many verify tiles to run. Currently this also configures the number of
     # QUIC tiles to run. QUIC and verify tiles are connected 1:1.
@@ -553,6 +553,13 @@ dynamic_port_range = "8000-10000"
         # Same meaning as the identically named fields in the [tiles.quic] section.
         xdp_tx_queue_size = 4096
         xdp_aio_depth = 256
+
+        # How big should the buffer between the shred tile and the
+        # blockstore tile be, measured in FEC sets? Larger buffer
+        # consumes more memory, but makes Firedancer more tolerant of
+        # temporary slowness in the blockstore. Each FEC set is
+        # approximately 200 kB
+        send_buffer_fec_sets = 512
 
 # These options can be useful for development, but should not be used when
 # connecting to a live cluster, as they may cause the validator to be unsstable

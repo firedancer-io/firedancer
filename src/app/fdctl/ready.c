@@ -20,13 +20,15 @@ ready_cmd_fn( args_t *         args,
       case wksp_pack_forward:
       case wksp_bank_shred:
       case wksp_bank:
-      case wksp_forward:
+      case wksp_shred_store:
         break;
       case wksp_quic:
       case wksp_verify:
       case wksp_dedup:
       case wksp_pack:
-      case wksp_shred: {
+      case wksp_forward:
+      case wksp_shred:
+      case wksp_store: {
         const uchar * pod = workspace_pod_join( config->name, wksp->name, wksp->kind_idx );
         fd_cnc_t * cnc = fd_cnc_join( fd_wksp_pod_map( pod, "cnc" ) );
         int first_iter = 1;

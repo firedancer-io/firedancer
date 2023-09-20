@@ -355,6 +355,7 @@ main_pid_namespace( void * args ) {
       case wksp_pack_bank:
       case wksp_pack_forward:
       case wksp_bank_shred:
+      case wksp_shred_store:
         break;
       case wksp_quic:
       case wksp_verify:
@@ -363,6 +364,7 @@ main_pid_namespace( void * args ) {
       case wksp_bank:
       case wksp_forward:
       case wksp_shred:
+      case wksp_store:
         tile_cnt++;
         break;
     }

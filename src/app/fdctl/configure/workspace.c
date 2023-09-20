@@ -304,11 +304,15 @@ init( config_t * const config ) {
         fseq  ( pod, "fseq" );
         break;
       case wksp_bank_shred:
-        for( ulong i=0; i<config->layout.bank_tile_count; i++ ) {
-          mcache( pod, "mcache%lu", config->tiles.bank.receive_buffer_size, i );
-          dcache( pod, "dcache%lu", USHORT_MAX, config->layout.bank_tile_count * (ulong)config->tiles.bank.receive_buffer_size, 0, i );
-          fseq  ( pod, "fseq%lu", i );
-        }
+        /* We may want multiple shred tiles in the future */
+        mcache( pod, "mcache0", config->tiles.bank.receive_buffer_size );
+        dcache( pod, "dcache0", USHORT_MAX, (ulong)config->tiles.bank.receive_buffer_size, 0 );
+        fseq  ( pod, "fseq0" );
+        break;
+      case wksp_shred_store:
+        mcache( pod, "mcache", 4UL*config->tiles.shred.send_buffer_fec_sets );
+        dcache( pod, "dcache", 43216UL, 4UL*config->tiles.shred.send_buffer_fec_sets-2UL, 0 );
+        fseq  ( pod, "fseq" );
         break;
       case wksp_quic:
         cnc    ( pod, "cnc" );
@@ -381,6 +385,9 @@ init( config_t * const config ) {
             FD_LOG_ERR(( "failed to bind xsk for shred tile %lu", wksp1->kind_idx ));
           fd_wksp_unmap( shmem );
         }
+        break;
+      case wksp_store:
+        cnc   ( pod, "cnc" );
         break;
     }
 

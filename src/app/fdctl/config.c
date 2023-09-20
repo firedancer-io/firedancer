@@ -30,6 +30,11 @@ static fd_frank_task_t frank_bank = {
    .out_wksp   = "bank_shred",
    .extra_wksp = NULL,
 };
+static fd_frank_task_t frank_store = {
+   .in_wksp    = "shred_store",
+   .out_wksp   = NULL,
+   .extra_wksp = NULL,
+};
 
 ulong
 memlock_max_bytes( config_t * const config ) {
@@ -66,6 +71,7 @@ memlock_max_bytes( config_t * const config ) {
       case wksp_pack_bank:
       case wksp_pack_forward:
       case wksp_bank_shred:
+      case wksp_shred_store:
         break;
       case wksp_quic:
         TILE_MAX( frank_quic );
@@ -87,6 +93,9 @@ memlock_max_bytes( config_t * const config ) {
         break;
       case wksp_shred:
         TILE_MAX( frank_shred );
+        break;
+      case wksp_store:
+        TILE_MAX( frank_store );
         break;
     }
   }
@@ -311,6 +320,7 @@ static void parse_key_value( config_t *   config,
   ENTRY_USHORT( ., tiles.shred,         src_port                                                  );
   ENTRY_UINT  ( ., tiles.shred,         xdp_tx_queue_size                                         );
   ENTRY_UINT  ( ., tiles.shred,         xdp_aio_depth                                             );
+  ENTRY_UINT  ( ., tiles.shred,         send_buffer_fec_sets                                      );
 }
 
 void
@@ -577,6 +587,18 @@ init_workspaces( config_t * config ) {
   config->shmem.workspaces[ idx ].kind      = wksp_shred;
   config->shmem.workspaces[ idx ].name      = "shred";
   config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
+  config->shmem.workspaces[ idx ].num_pages = 1;
+  idx++;
+
+  config->shmem.workspaces[ idx ].kind      = wksp_shred_store;
+  config->shmem.workspaces[ idx ].name      = "shred_store";
+  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
+  config->shmem.workspaces[ idx ].num_pages = 1;
+  idx++;
+
+  config->shmem.workspaces[ idx ].kind      = wksp_store;
+  config->shmem.workspaces[ idx ].name      = "store";
+  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_HUGE_PAGE_SZ;
   config->shmem.workspaces[ idx ].num_pages = 1;
   idx++;
 

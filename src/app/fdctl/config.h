@@ -21,13 +21,15 @@ typedef struct {
     wksp_pack_bank,
     wksp_pack_forward,
     wksp_bank_shred,
+    wksp_shred_store,
     wksp_quic,
     wksp_verify,
     wksp_dedup,
     wksp_pack,
     wksp_bank,
     wksp_forward,
-    wksp_shred
+    wksp_shred,
+    wksp_store
   } kind;
   char * name;
   ulong kind_idx;
@@ -172,6 +174,7 @@ typedef struct {
       ushort src_port;
       uint   xdp_tx_queue_size;
       uint   xdp_aio_depth;
+      uint   send_buffer_fec_sets;
     } shred;
 
     struct {
