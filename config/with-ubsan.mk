@@ -1,10 +1,15 @@
-include config/linux_clang_x86_64.mk
-BUILDDIR:=linux/clang/x86_64_ubsan
+# Note: This probably needs to after machine specific targets otherwise
+# the -fomit-frame-pointer that occurs there will be silently override
+# the -fno-omit-frame-pointer here.
 
 FD_HAS_UBSAN:=1
 CPPFLAGS+=-DFD_HAS_UBSAN=1
 
+FD_UNALIGNED_ACCESS_STYLE:=0
+CPPFLAGS+=-DFD_UNALIGNED_ACCESS_STYLE=0
+
 LDFLAGS+=-fsanitize=undefined
+
 
 CPPFLAGS+=-fsanitize=undefined \
           -fsanitize=shift -fsanitize=shift-exponent -fsanitize=shift-base \
@@ -26,5 +31,3 @@ CPPFLAGS+=-fsanitize=undefined \
           -fsanitize=vptr \
           -fsanitize=pointer-overflow \
           -fsanitize=builtin
-
-# note that -fsanitize=bounds-strict is not supported by clang 15 \

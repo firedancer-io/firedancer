@@ -32,22 +32,33 @@ jobs:
           submodules: recursive
 
       - uses: ./.github/actions/deps
-
-      - name: Build unit tests
-        run: make -j -Otarget unit-test
-
       - uses: ./.github/actions/hugepages
 
-      - name: Run Unit Tests
+      - name: Build low unit tests
+        env:
+          MACHINE: linux_clang_combi_low
+        run: make -j -Otarget unit-test
+
+      - name: Run low unit tests
+        run: |
+          sudo prlimit --pid $$ --memlock=-1:-1
+          ./test.sh -j --page-sz gigantic
+
+      - name: Build high unit tests
+        env:
+          MACHINE: linux_clang_combi_low
+        run: make -j -Otarget unit-test
+
+      - name: Run high unit tests
         run: |
           sudo prlimit --pid $$ --memlock=-1:-1
           ./test.sh -j --page-sz gigantic
 
       - name: Make Test Coverage Report
         run: |
-          make cov-report
+          make combicov-report
           mkdir -p build/pages/
-          mv build/native/clang/cov/html build/pages/cov
+          mv build/combi-cov/html build/pages/cov
 
       - name: 'Authenticate to Google Cloud'
         uses: 'google-github-actions/auth@v1'
@@ -57,11 +68,13 @@ jobs:
       # Not using fuzzbot-builder because llvm-cov must be ran in the same environment otherwise paths will not match
       - name: Build Fuzz Tests
         env:
-          MACHINE: linux_clang_x86_64_fuzz_asan
+          # Todo: use a matrix strategy
+          MACHINE: linux_clang_combi_high
+          EXTRAS: fuzz asan
         run: make -j -Otarget fuzz-test
 
       - name: Fetch Corpus, Generate Fuzzing Coverage
-        run: ./.github/workflows/scripts/fuzzcov_generate.sh build/linux/clang/x86_64_fuzz_asan/fuzz-test/
+        run: ./.github/workflows/scripts/fuzzcov_generate.sh build/linux/clang/combi/high/fuzz-test/
 
       - name: Publish Fuzzing Coverage to codecov.io
         env:

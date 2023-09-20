@@ -25,7 +25,7 @@ for corpus in "${corpora[@]}"; do
     # Run the fuzzing target if it exists.
     if [[ -f $TARGET ]]; then
         export LLVM_PROFILE_FILE="build/profraw/${BASE}.profraw"
-        find build/fuzzcov/corpus_unpacked/${BASE}/ -type f -exec $TARGET {} +
+        find build/fuzzcov/corpus_unpacked/${BASE}/ -type f -exec "$TARGET {} || true" +
         llvm-profdata merge -sparse "${LLVM_PROFILE_FILE}" -o "build/fuzzcov/profdata/${BASE}.profdata"
         CODECOV_FILE=${BASE}.lcov
         llvm-cov export $TARGET -instr-profile="build/fuzzcov/profdata/${BASE}.profdata" -format=lcov > "build/fuzzcov/lcov/${BASE}.lcov"
