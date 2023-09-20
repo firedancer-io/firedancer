@@ -2,6 +2,7 @@
 #include "../../tango/xdp/fd_xdp.h"
 #include "../../tango/xdp/fd_xsk_private.h" /* FIXME: Needed to get the file descriptor for sandbox */
 #include "../../tango/fd_tango.h"
+#include "../../tango/ip/fd_ip.h"
 #include "../../util/fd_util.h"
 #include "../../util/net/fd_eth.h"
 #include "../../util/net/fd_ip4.h"
@@ -125,6 +126,10 @@ init( fd_frank_args_t * args ) {
   FD_LOG_INFO(( "loading %s", "xsk" ));
   args->xsk = fd_xsk_join( fd_wksp_pod_map( args->tile_pod, "xsk" ) );
   if( FD_UNLIKELY( !args->xsk ) ) FD_LOG_ERR(( "fd_xsk_join failed" ));
+
+  void * _ip = fd_wksp_alloc_laddr( fd_wksp_containing( args->tile_pod ), fd_ip_align(), fd_ip_footprint( 256UL, 256UL ), FD_SHRED_TAG );
+  args->other = fd_ip_join( fd_ip_new( _ip, 256UL, 256UL ) );
+  if( FD_UNLIKELY( !args->other ) ) FD_LOG_ERR(( "fd_ip_join failed" ));
 }
 
 
@@ -330,6 +335,7 @@ run( fd_frank_args_t * args ) {
               alignof(ulong),               sizeof(ulong              ) * MAX_SHRED_DESTS     ),
           128UL );
 
+
   void * shred_scratch = fd_wksp_alloc_laddr( fd_wksp_containing( args->tile_pod ), 128UL, shred_scratch_footprint, FD_SHRED_TAG );
   if( FD_UNLIKELY( !shred_scratch ) ) FD_LOG_ERR(( "allocating memory for shred scratch failed" ));
 
@@ -343,6 +349,7 @@ run( fd_frank_args_t * args ) {
   ulong * stake_weight              = FD_SCRATCH_ALLOC_APPEND( sscratch, alignof(ulong),
                                                                          sizeof (ulong              ) * MAX_SHRED_DESTS       );
   FD_SCRATCH_ALLOC_FINI( sscratch, 128UL );
+
 
   ushort shred_version = (ushort)0; // FIXME
   fd_shredder_t * shredder = fd_shredder_join( fd_shredder_new( _shredder, shred_public_key, shred_version ) );
@@ -451,6 +458,32 @@ run( fd_frank_args_t * args ) {
   FD_TEST( prep_chunk == chunk0 );
   FD_TEST( chunk0 + out_buffer_fec_sets*fec_stride_chunk <= wmark + fec_stride_chunk/DCACHE_ENTRIES_PER_FEC_SET );
 
+  fd_ip_t * ip = (fd_ip_t *)args->other;
+
+  FD_LOG_NOTICE(( "Trying to find route to 1.1.1.1 to warmup the arp cache" ));
+  while( 1 ) {
+    uchar mac[6];
+    uint  out_next_ip[1];
+    uint  out_ifindex[1];
+
+    fd_ip_route_fetch( ip );
+    fd_ip_arp_fetch  ( ip );
+    int res = fd_ip_route_ip_addr( mac, out_next_ip, out_ifindex, ip, 0x01010101 );
+    if( res==FD_IP_NO_ROUTE  ) FD_LOG_ERR(( "Routing is misconfigured" ));
+    if( res==FD_IP_SUCCESS   ) break;
+    if( res!=FD_IP_PROBE_RQD ) FD_LOG_ERR(( "Unicast address resolved to multicast/broadcast" ));
+
+    fd_ip_arp_t arp_packet[1];
+    res = fd_ip_arp_gen_arp_probe( (uchar*)arp_packet, sizeof(fd_ip_arp_t), *out_next_ip, src_mac );
+    if( res!=FD_IP_SUCCESS ) FD_LOG_ERR(( "Generation of arp probe failed" ));
+
+
+    fd_aio_pkt_info_t arp_pkt_info[1] = {{ .buf = arp_packet, .buf_sz = sizeof(fd_ip_arp_t) }};
+    int send_rc = send_loop_helper( tx_aio, arp_pkt_info, 1UL, 1 );
+    if( FD_UNLIKELY( send_rc<0 ) )  FD_LOG_WARNING(( "AIO err sending warmup arp. Error: %s", fd_aio_strerror( send_rc ) ));
+    FD_SPIN_PAUSE();
+  }
+  FD_LOG_NOTICE(( "ARP cache warmed" ));
 
   long now  = fd_tickcount();
   long then = now;
@@ -526,7 +559,37 @@ run( fd_frank_args_t * args ) {
           shred_dest_cnt = 0UL;
 
           for( ulong i=0UL; i<dest_cnt; i++ ) {
-            shred_dest[shred_dest_cnt].d = in_dests[i];
+            /* Resolve the destination */
+            int can_send_to_dest = 0;
+            if( FD_LIKELY( in_dests[i].ip4_addr ) ) {
+
+              uint out_next_ip[1];
+              uint out_ifindex[1];
+              int res = fd_ip_route_ip_addr( shred_dest[shred_dest_cnt].mac_addr, out_next_ip, out_ifindex, ip, in_dests[i].ip4_addr );
+
+              if( FD_LIKELY( res==FD_IP_SUCCESS ) ) {
+                can_send_to_dest = 1;
+                shred_dest[shred_dest_cnt].d = in_dests[i];
+              }
+              else if( FD_LIKELY( res==FD_IP_PROBE_RQD ) ) {
+                fd_ip_arp_t arp_packet[1];
+                res = fd_ip_arp_gen_arp_probe( (uchar*)arp_packet, sizeof(fd_ip_arp_t), *out_next_ip, src_mac );
+                if( res!=FD_IP_SUCCESS ) FD_LOG_ERR(( "Generation of arp probe failed" ));
+
+
+                fd_aio_pkt_info_t arp_pkt_info[1] = {{ .buf = arp_packet, .buf_sz = sizeof(fd_ip_arp_t) }};
+                int send_rc = send_loop_helper( tx_aio, arp_pkt_info, 1UL, 1 );
+                if( FD_UNLIKELY( send_rc<0 ) )  FD_LOG_WARNING(( "AIO err sending arp. Error: %s", fd_aio_strerror( send_rc ) ));
+              } else {
+                /* increment counter */
+              }
+            }
+            if( FD_UNLIKELY( !can_send_to_dest ) ) {
+              shred_dest[shred_dest_cnt].d.ip4_addr =         0U;
+              shred_dest[shred_dest_cnt].d.udp_port = (ushort)0 ;
+              memset( shred_dest[shred_dest_cnt].mac_addr, 0, 6UL );
+            }
+
             stake_weight[shred_dest_cnt] = in_dests[i].stake_lamports;
             if( FD_LIKELY( !memcmp( in_dests[i].pubkey, shred_public_key, 32UL ) ) ) shred_dest_cnt++;
           }
@@ -604,21 +667,27 @@ run( fd_frank_args_t * args ) {
       fd_fec_set_t * set = fd_shredder_next_fec_set( shredder, shred_key, set_meta[set_idx].set );
 
       fd_shred_pkt_34_t * p34 = (fd_shred_pkt_34_t *)fd_chunk_to_laddr_const( out_wksp, chunk );
+      fd_aio_pkt_info_t send_pkts[ FD_REEDSOL_DATA_SHREDS_MAX + FD_REEDSOL_PARITY_SHREDS_MAX ];
+      ulong send_cnt = 0UL;
 
       for( ulong j=0UL; j<set->data_shred_cnt;   j++ ) {
         ulong dest_idx = set->data_shreds_dest_idx[ j ];
         fd_shred_dest_t * dest = fd_ptr_if( dest_idx!=FD_WSAMPLE_EMPTY, shred_dest+dest_idx, null_dest );
 
-        fd_shred_pkt_t * pkt = p34->pkts + (j%34UL);
+        if( FD_LIKELY( dest->d.ip4_addr ) ) {
+          fd_shred_pkt_t * pkt = p34->pkts + (j%34UL);
 
-        fd_memcpy( pkt->eth->dst, dest->mac_addr, 6UL );
+          fd_memcpy( pkt->eth->dst, dest->mac_addr, 6UL );
 
-        pkt->ip4->daddr      = fd_uint_bswap( dest->d.ip4_addr );
-        pkt->ip4->net_id     = fd_ushort_bswap( net_id++ );
-        pkt->ip4->check      = 0U;
-        pkt->ip4->check      = fd_ip4_hdr_check( ( fd_ip4_hdr_t const *) FD_ADDRESS_OF_PACKED_MEMBER( pkt->ip4 ) );
+          pkt->ip4->daddr      = fd_uint_bswap( dest->d.ip4_addr );
+          pkt->ip4->net_id     = fd_ushort_bswap( net_id++ );
+          pkt->ip4->check      = 0U;
+          pkt->ip4->check      = fd_ip4_hdr_check( ( fd_ip4_hdr_t const *) FD_ADDRESS_OF_PACKED_MEMBER( pkt->ip4 ) );
 
-        pkt->udp->net_dport  = fd_ushort_bswap( dest->d.udp_port );
+          pkt->udp->net_dport  = fd_ushort_bswap( dest->d.udp_port );
+
+          send_pkts[send_cnt++] = set_meta[set_idx].d_pkt_info[j];
+        }
 
         if( j==33UL ) p34 = (fd_shred_pkt_34_t *)fd_chunk_to_laddr_const( out_wksp, chunk + 1UL*fec_stride_chunk/4UL );
       }
@@ -629,20 +698,24 @@ run( fd_frank_args_t * args ) {
         ulong dest_idx = set->parity_shreds_dest_idx[ j ];
         fd_shred_dest_t * dest = fd_ptr_if( dest_idx!=FD_WSAMPLE_EMPTY, shred_dest+dest_idx, null_dest );
 
-        fd_shred_pkt_t * pkt = p34->pkts + (j%34UL);
+        if( FD_LIKELY( dest->d.ip4_addr ) ) {
+          fd_shred_pkt_t * pkt = p34->pkts + (j%34UL);
 
-        fd_memcpy( pkt->eth->dst, dest->mac_addr, 6UL );
+          fd_memcpy( pkt->eth->dst, dest->mac_addr, 6UL );
 
-        pkt->ip4->daddr      = fd_uint_bswap( dest->d.ip4_addr );
-        pkt->ip4->net_id     = fd_ushort_bswap( net_id++ );
-        pkt->ip4->check      = 0U;
-        pkt->ip4->check      = fd_ip4_hdr_check( ( fd_ip4_hdr_t const *) FD_ADDRESS_OF_PACKED_MEMBER( pkt->ip4 ) );
+          pkt->ip4->daddr      = fd_uint_bswap( dest->d.ip4_addr );
+          pkt->ip4->net_id     = fd_ushort_bswap( net_id++ );
+          pkt->ip4->check      = 0U;
+          pkt->ip4->check      = fd_ip4_hdr_check( ( fd_ip4_hdr_t const *) FD_ADDRESS_OF_PACKED_MEMBER( pkt->ip4 ) );
 
-        pkt->udp->net_dport  = fd_ushort_bswap( dest->d.udp_port );
+          pkt->udp->net_dport  = fd_ushort_bswap( dest->d.udp_port );
+
+          send_pkts[send_cnt++] = set_meta[set_idx].p_pkt_info[j];
+        }
 
         if( j==33UL ) p34 = (fd_shred_pkt_34_t *)fd_chunk_to_laddr_const( out_wksp, chunk + 3UL*fec_stride_chunk/4UL );
       }
-      FD_LOG_NOTICE(( "Sending %lu + %lu packets", set->data_shred_cnt, set->parity_shred_cnt ));
+      FD_LOG_NOTICE(( "FEC set had %lu + %lu packets. Sending %lu", set->data_shred_cnt, set->parity_shred_cnt, send_cnt ));
 
       /* Check to make sure we haven't been overrun.  We can't un-send
          the packets we've already sent on the network, but it doesn't
@@ -661,12 +734,9 @@ run( fd_frank_args_t * args ) {
       accum_pub_cnt += set->data_shred_cnt;    accum_pub_sz += 1245UL * set->data_shred_cnt;
       accum_pub_cnt += set->parity_shred_cnt;  accum_pub_sz += 1270UL * set->parity_shred_cnt;
 
-      int send_rc;
-      send_rc = send_loop_helper( tx_aio, set_meta[set_idx].d_pkt_info, set->data_shred_cnt, 0 );
-      if( FD_UNLIKELY( send_rc<0 ) )  FD_LOG_WARNING(( "AIO send err for data shreds. Error: %s", fd_aio_strerror( send_rc ) ));
+      int send_rc = send_loop_helper( tx_aio, send_pkts, send_cnt, 1 );
+      if( FD_UNLIKELY( send_rc<0 ) )  FD_LOG_WARNING(( "AIO err sending shreds. Error: %s", fd_aio_strerror( send_rc ) ));
 
-      send_rc = send_loop_helper( tx_aio, set_meta[set_idx].d_pkt_info, set->parity_shred_cnt, 1 );
-      if( FD_UNLIKELY( send_rc<0 ) )  FD_LOG_WARNING(( "AIO send err %s", fd_aio_strerror( send_rc ) ));
 
       ((fd_shred_pkt_34_t *)fd_chunk_to_laddr( out_wksp, chunk + 0UL*fec_stride_chunk/4UL ))->shred_cnt =
                                                                                 fd_ulong_min( set->data_shred_cnt,   34UL );
@@ -712,6 +782,7 @@ static long allow_syscalls[] = {
   __NR_write,     /* logging */
   __NR_fsync,     /* logging, WARNING and above fsync immediately */
   __NR_sendto,    /* fd_xsk requires sendto */
+  __NR_recvfrom,  /* fd_io requires send and recv for ARP */
 };
 
 static ulong
@@ -719,11 +790,12 @@ allow_fds( fd_frank_args_t * args,
            ulong out_fds_sz,
            int * out_fds ) {
   (void)args;
-  if( FD_UNLIKELY( out_fds_sz < 2 ) ) FD_LOG_ERR(( "out_fds_sz %lu", out_fds_sz ));
+  if( FD_UNLIKELY( out_fds_sz < 4 ) ) FD_LOG_ERR(( "out_fds_sz %lu", out_fds_sz ));
   out_fds[ 0 ] = 2; /* stderr */
   out_fds[ 1 ] = 3; /* logfile */
   out_fds[ 2 ] = args->xsk->xsk_fd;
-  return 3UL;
+  out_fds[ 3 ] = fd_ip_netlink_get( (fd_ip_t*)args->other )->fd;
+  return 4UL;
 }
 
 fd_frank_task_t frank_shred = {

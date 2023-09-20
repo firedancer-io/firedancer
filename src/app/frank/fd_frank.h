@@ -39,6 +39,7 @@ typedef struct {
    fd_xsk_t    * xsk;
    fd_xsk_t    * lo_xsk;
    double        tick_per_ns;
+   void        * other;
 } fd_frank_args_t;
 
 typedef struct {
