@@ -38,4 +38,4 @@ GENHTML=genhtml
 FD_HAS_MAIN:=1
 
 # Parameters passed to libFuzzer tests
-FUZZFLAGS:=-max_total_time=600 -timeout=10 -runs=100
+FUZZFLAGS:=-max_total_time=600 -jobs=10 -workers=10 -timeout=10 -runs=10

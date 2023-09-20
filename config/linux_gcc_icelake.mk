@@ -1,4 +1,4 @@
-BUILDDIR:=linux/gcc/icelake
+BUILDDIR?=linux/gcc/icelake
 
 include config/base.mk
 include config/with-gcc.mk

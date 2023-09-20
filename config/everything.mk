@@ -22,6 +22,7 @@ help:
 	# EXTRAS          = $(EXTRAS)
 	# SHELL           = $(SHELL)
 	# BASEDIR         = $(BASEDIR)
+	# BUILDDIR        = $(BUILDDIR)
 	# OBJDIR          = $(OBJDIR)
 	# CPPFLAGS        = $(CPPFLAGS)
 	# CC              = $(CC)
