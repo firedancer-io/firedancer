@@ -274,8 +274,15 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_meta_t* m, const void
   global->leader = fd_epoch_leaders_get( global->leaders, slot_rel/FD_EPOCH_SLOTS_PER_ROTATION );
   FD_LOG_NOTICE(( "executing block - slot: %lu leader: %32J", m->slot, global->leader->key ));
 
+  // let (fee_rate_governor, fee_components_time_us) = measure_us!(
+  //     FeeRateGovernor::new_derived(&parent.fee_rate_governor, parent.signature_count())
+  // );
+  /* https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1fb868e/runtime/src/bank.rs#L1312-L1314 */
+  fd_sysvar_fees_new_derived( global, global->bank.fee_rate_governor, global->signature_cnt );
+
   // TODO: move all these out to a fd_sysvar_update() call...
   fd_sysvar_clock_update( global );
+  fd_sysvar_fees_update( global );
   // It has to go into the current txn previous info but is not in slot 0
   if (global->bank.slot != 0)
     fd_sysvar_slot_hashes_update( global );
