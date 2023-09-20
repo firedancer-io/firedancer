@@ -2129,8 +2129,9 @@ vote_state_process_timestamp( fd_vote_state_t * self,
                               instruction_ctx_t ctx ) {
   if ( FD_UNLIKELY(
            ( slot < self->last_timestamp.slot || timestamp < self->last_timestamp.timestamp ) ||
-           ( slot == self->last_timestamp.slot && slot != self->last_timestamp.slot &&
-             timestamp != self->last_timestamp.timestamp && self->last_timestamp.slot != 0 ) ) ) {
+           ( slot == self->last_timestamp.slot &&
+             ( slot != self->last_timestamp.slot || timestamp != self->last_timestamp.timestamp ) &&
+             self->last_timestamp.slot != 0 ) ) ) {
     ctx.txn_ctx->custom_err = FD_VOTE_TIMESTAMP_TOO_OLD;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
