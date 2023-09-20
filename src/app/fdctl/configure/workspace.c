@@ -1,5 +1,7 @@
 #include "configure.h"
 
+#include "../../../disco/fd_disco.h"
+
 #include "../../../tango/fd_tango.h"
 #include "../../../tango/quic/fd_quic.h"
 #include "../../../tango/xdp/fd_xsk_aio.h"
@@ -65,13 +67,6 @@ static void fseq( void * pod, char * fmt, ... ) {
             fd_fseq_align    (          ),
             fd_fseq_footprint(          ),
             fd_fseq_new      ( shmem, 0 ) );
-}
-
-static void tcache( void * pod, char * fmt, ulong depth, ... ) {
-  INSERTER( depth,
-            fd_tcache_align    (                 ),
-            fd_tcache_footprint( depth, 0        ),
-            fd_tcache_new      ( shmem, depth, 0 ) );
 }
 
 static void quic( void * pod, char * fmt, fd_quic_limits_t * limits, ... ) {
@@ -233,15 +228,11 @@ init( config_t * const config ) {
     WKSP_BEGIN( config, wksp1, 0 );
 
     switch( wksp1->kind ) {
-      case wksp_tpu_txn_data:
-        for( ulong i=0; i<config->layout.verify_tile_count; i++ ) {
-          dcache( pod, "dcache%lu", config->tiles.verify.mtu, config->tiles.verify.receive_buffer_size, config->tiles.verify.receive_buffer_size * 32, i );
-        }
-        break;
       case wksp_quic_verify:
         for( ulong i=0; i<config->layout.verify_tile_count; i++ ) {
           mcache( pod, "mcache%lu", config->tiles.verify.receive_buffer_size, i );
           fseq  ( pod, "fseq%lu", i );
+          dcache( pod, "dcache%lu", FD_TPU_DCACHE_MTU, config->tiles.verify.receive_buffer_size, config->tiles.verify.receive_buffer_size * 32, i );
         }
         break;
       case wksp_verify_dedup:
@@ -249,26 +240,22 @@ init( config_t * const config ) {
         for( ulong i=0; i<config->layout.verify_tile_count; i++ ) {
           mcache( pod, "mcache%lu", config->tiles.verify.receive_buffer_size, i );
           fseq  ( pod, "fseq%lu",   i );
+          dcache( pod, "dcache%lu", FD_TPU_DCACHE_MTU, config->tiles.verify.receive_buffer_size, 0, i );
         }
         break;
       case wksp_dedup_pack:
         mcache( pod, "mcache", config->tiles.verify.receive_buffer_size );
         fseq  ( pod, "fseq" );
+        dcache( pod, "dcache", FD_TPU_DCACHE_MTU, config->tiles.verify.receive_buffer_size, 0 );
         break;
       case wksp_pack_bank:
-        ulong1( pod, "num_tiles", config->layout.bank_tile_count );
+        ulong1( pod, "cnt", config->layout.bank_tile_count );
+        mcache( pod, "mcache", config->tiles.bank.receive_buffer_size );
+        dcache( pod, "dcache", USHORT_MAX, config->layout.bank_tile_count * (ulong)config->tiles.bank.receive_buffer_size, 0 );
         for( ulong i=0; i<config->layout.bank_tile_count; i++ ) {
-          mcache( pod, "mcache%lu", config->tiles.bank.receive_buffer_size, i );
-          dcache( pod, "dcache%lu", USHORT_MAX, config->layout.bank_tile_count * (ulong)config->tiles.bank.receive_buffer_size, 0, i );
-          fseq  ( pod, "fseq%lu", i );
-          mcache( pod, "mcache-back%lu", config->tiles.bank.receive_buffer_size, i );
-          fseq  ( pod, "fseq-back%lu", i );
+          fseq( pod, "fseq%lu", i );
+          fseq( pod, "busy%lu", i );
         }
-        break;
-      case wksp_pack_forward:
-        mcache( pod, "mcache", config->tiles.forward.receive_buffer_size );
-        dcache( pod, "dcache", USHORT_MAX, (ulong)config->tiles.forward.receive_buffer_size, 0 );
-        fseq  ( pod, "fseq" );
         break;
       case wksp_bank_shred:
         for( ulong i=0; i<config->layout.bank_tile_count; i++ ) {
@@ -313,16 +300,13 @@ init( config_t * const config ) {
         break;
       case wksp_dedup:
         cnc   ( pod, "cnc",    pod, wksp );
-        tcache( pod, "tcache", config->tiles.dedup.signature_cache_size );
+        ulong1( pod, "tcache_depth", config->tiles.dedup.signature_cache_size );
         break;
       case wksp_pack:
         cnc   ( pod, "cnc" );
         ulong1( pod, "depth",   config->tiles.pack.max_pending_transactions );
         break;
       case wksp_bank:
-        cnc   ( pod, "cnc" );
-        break;
-      case wksp_forward:
         cnc   ( pod, "cnc" );
         break;
     }
@@ -377,8 +361,8 @@ check( config_t * const config ) {
 
 configure_stage_t workspace = {
   .name            = NAME,
-  /* we can't really verify if a frank workspace has been set up
-     correctly, so if we are running it we just recreate it every time */
+  /* we can't really verify if a workspace has been set up correctly, so
+     if we are running it we just recreate it every time */
   .always_recreate = 1,
   .enabled         = NULL,
   .init_perm       = init_perm,

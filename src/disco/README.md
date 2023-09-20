@@ -1,4 +1,4 @@
-# Frankendancer Frank
+# Firedancer
 
 ## Architecture
 
@@ -119,9 +119,9 @@
 ### Pod layout for low level configuration
 
 ```
-[path to this frank instance's config] {
+[path to this app instance's config] {
 
-  # There are 3 + verify_cnt tiles used by frank.  verify_cnt is implied
+  # There are 3 + verify_cnt tiles used by the app.  verify_cnt is implied
   # by the number of verify pods below.
   #
   # The logical tile indices for the main, pack and dedup tiles are
@@ -229,7 +229,7 @@
 
   }
 
-  # Additional configuration information specific to this frank instance
+  # Additional configuration information specific to this app instance
   # (all unrecognized fields will be silently ignored)
 }
 

@@ -1,7 +1,9 @@
 #define _GNU_SOURCE
 #include "run.h"
 
-#include "configure/configure.h"
+#include "../configure/configure.h"
+
+#include "../../../util/wksp/fd_wksp_private.h"
 
 #include <stdio.h>
 #include <sched.h>
@@ -10,8 +12,6 @@
 #include <sys/xattr.h>
 #include <linux/capability.h>
 #include <linux/unistd.h>
-
-#include "../../util/wksp/fd_wksp_private.h"
 
 void
 run_cmd_perm( args_t *         args,
@@ -61,7 +61,6 @@ typedef struct {
   char  child_names[ FD_TILE_MAX + 1 ][ 32 ];
   uid_t uid;
   gid_t gid;
-  double tick_per_ns;
 } tile_spawner_t;
 
 const uchar *
@@ -106,7 +105,7 @@ tile_main( void * _args ) {
   FD_LOG_NOTICE(( "booting tile %s(%lu) pid(%d)", args->tile->name, args->tile_idx, pid ));
 
   install_tile_signals();
-  fd_frank_args_t frank_args = {
+  fd_tile_args_t tile_args = {
     .pid = pid,
     .tile_idx = args->tile_idx,
     .idx = args->idx,
@@ -114,22 +113,18 @@ tile_main( void * _args ) {
     .tile_name = args->tile->name,
     .in_pod = NULL,
     .out_pod = NULL,
-    .extra_pod = NULL,
-    .tick_per_ns = args->tick_per_ns,
   };
 
-  frank_args.tile_pod = workspace_pod_join( args->app_name, args->tile->name, args->tile_idx );
+  tile_args.tile_pod = workspace_pod_join( args->app_name, args->tile->name, args->tile_idx );
   if( FD_LIKELY( args->tile->in_wksp ) )
-    frank_args.in_pod = workspace_pod_join( args->app_name, args->tile->in_wksp, 0 );
+    tile_args.in_pod = workspace_pod_join( args->app_name, args->tile->in_wksp, 0 );
   if( FD_LIKELY( args->tile->out_wksp ) )
-    frank_args.out_pod = workspace_pod_join( args->app_name, args->tile->out_wksp, 0 );
-  if( FD_LIKELY( args->tile->extra_wksp ) )
-    frank_args.extra_pod = workspace_pod_join( args->app_name, args->tile->extra_wksp, 0 );
+    tile_args.out_pod = workspace_pod_join( args->app_name, args->tile->out_wksp, 0 );
 
-  if( FD_UNLIKELY( args->tile->init ) ) args->tile->init( &frank_args );
+  if( FD_UNLIKELY( args->tile->init ) ) args->tile->init( &tile_args );
 
   int allow_fds[ 32 ];
-  ulong allow_fds_sz = args->tile->allow_fds( &frank_args,
+  ulong allow_fds_sz = args->tile->allow_fds( &tile_args,
                                               sizeof(allow_fds)/sizeof(allow_fds[0]),
                                               allow_fds );
 
@@ -140,12 +135,12 @@ tile_main( void * _args ) {
               allow_fds,
               args->tile->allow_syscalls_sz,
               args->tile->allow_syscalls );
-  args->tile->run( &frank_args );
+  args->tile->run( &tile_args );
   return 0;
 }
 
 static void
-clone_tile( tile_spawner_t * spawn, fd_frank_task_t * task, ulong idx ) {
+clone_tile( tile_spawner_t * spawn, fd_tile_config_t * tile, ulong idx ) {
   ushort cpu_idx = spawn->tile_to_cpu[ spawn->idx ];
   cpu_set_t cpu_set[1];
   if( FD_LIKELY( cpu_idx<65535UL ) ) {
@@ -176,11 +171,10 @@ clone_tile( tile_spawner_t * spawn, fd_frank_task_t * task, ulong idx ) {
     .app_name = spawn->app_name,
     .tile_idx = idx,
     .idx  = spawn->idx,
-    .tile = task,
+    .tile = tile,
     .sandbox = spawn->sandbox,
     .uid = spawn->uid,
     .gid = spawn->gid,
-    .tick_per_ns = spawn->tick_per_ns,
   };
 
   /* also spawn tiles into pid namespaces so they cannot signal each other or the parent */
@@ -189,7 +183,7 @@ clone_tile( tile_spawner_t * spawn, fd_frank_task_t * task, ulong idx ) {
   if( FD_UNLIKELY( pid<0 ) ) FD_LOG_ERR(( "clone() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   spawn->child_pids[ spawn->idx ] = pid;
-  strncpy( spawn->child_names[ spawn->idx ], task->name, 32 );
+  strncpy( spawn->child_names[ spawn->idx ], tile->name, 32 );
   spawn->idx++;
 }
 
@@ -348,12 +342,10 @@ main_pid_namespace( void * args ) {
   ulong tile_cnt = 0;
   for( ulong i=0; i<config->shmem.workspaces_cnt; i++ ) {
     switch( config->shmem.workspaces[ i ].kind ) {
-      case wksp_tpu_txn_data:
       case wksp_quic_verify:
       case wksp_verify_dedup:
       case wksp_dedup_pack:
       case wksp_pack_bank:
-      case wksp_pack_forward:
       case wksp_bank_shred:
         break;
       case wksp_quic:
@@ -361,16 +353,12 @@ main_pid_namespace( void * args ) {
       case wksp_dedup:
       case wksp_pack:
       case wksp_bank:
-      case wksp_forward:
         tile_cnt++;
         break;
     }
   }
   if( FD_UNLIKELY( affinity_tile_cnt<tile_cnt ) ) FD_LOG_ERR(( "at least %lu tiles required for this config", tile_cnt ));
   if( FD_UNLIKELY( affinity_tile_cnt>tile_cnt ) ) FD_LOG_WARNING(( "only %lu tiles required for this config", tile_cnt ));
-
-  /* eat calibration cost at deterministic place */
-  double tick_per_ns = fd_tempo_tick_per_ns( NULL );
 
   /* Save the current affinity, it will be restored after creating any child tiles */
   cpu_set_t floating_cpu_set[1];
@@ -385,7 +373,6 @@ main_pid_namespace( void * args ) {
     .sandbox = config->development.sandbox,
     .uid = config->uid,
     .gid = config->gid,
-    .tick_per_ns = tick_per_ns,
   };
 
   clone_solana_labs( &spawner, config );
@@ -395,11 +382,10 @@ main_pid_namespace( void * args ) {
     close_network_namespace_original_fd();
   }
 
-  for( ulong i=0; i<config->layout.verify_tile_count; i++ ) clone_tile( &spawner, &frank_quic, i );
-  for( ulong i=0; i<config->layout.verify_tile_count; i++ ) clone_tile( &spawner, &frank_verify, i );
-  clone_tile( &spawner, &frank_dedup, 0 );
-  clone_tile( &spawner, &frank_pack , 0 );
-  clone_tile( &spawner, &frank_forward , 0 );
+  for( ulong i=0; i<config->layout.verify_tile_count; i++ ) clone_tile( &spawner, &quic, i );
+  for( ulong i=0; i<config->layout.verify_tile_count; i++ ) clone_tile( &spawner, &verify, i );
+  clone_tile( &spawner, &dedup, 0 );
+  clone_tile( &spawner, &pack , 0 );
 
   if( FD_UNLIKELY( sched_setaffinity( 0, sizeof(cpu_set_t), floating_cpu_set ) ) )
     FD_LOG_ERR(( "sched_setaffinity failed (%i-%s)", errno, fd_io_strerror( errno ) ));

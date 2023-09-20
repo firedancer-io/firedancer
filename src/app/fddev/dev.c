@@ -2,7 +2,7 @@
 #include "fddev.h"
 
 #include "../fdctl/configure/configure.h"
-#include "../fdctl/run.h"
+#include "../fdctl/run/run.h"
 
 #include <stdio.h>
 #include <unistd.h>

@@ -8,11 +8,8 @@
 #include "../../util/net/fd_ip4.h"
 #include "../../ballet/base58/fd_base58.h"
 
-FD_STATIC_ASSERT( FD_QUIC_CNC_DIAG_CHUNK_IDX        == 6UL, unit_test );
-FD_STATIC_ASSERT( FD_QUIC_CNC_DIAG_TPU_PUB_CNT      == 7UL, unit_test );
-FD_STATIC_ASSERT( FD_QUIC_CNC_DIAG_TPU_PUB_SZ       == 8UL, unit_test );
-FD_STATIC_ASSERT( FD_QUIC_CNC_DIAG_TPU_CONN_LIVE_CNT== 9UL, uint_test );
-FD_STATIC_ASSERT( FD_QUIC_CNC_DIAG_TPU_CONN_SEQ     ==10UL, unit_test );
+FD_STATIC_ASSERT( FD_QUIC_CNC_DIAG_TPU_CONN_LIVE_CNT==6UL, uint_test );
+FD_STATIC_ASSERT( FD_QUIC_CNC_DIAG_TPU_CONN_SEQ     ==7UL, unit_test );
 
 FD_STATIC_ASSERT( FD_QUIC_TILE_SCRATCH_ALIGN==128UL, unit_test );
 
@@ -173,28 +170,30 @@ rx_tile_main( int     argc,
 
 static int
 tx_tile_main( int     argc,
-                char ** argv ) {
+              char ** argv ) {
   (void)argc;
   test_cfg_t * cfg = (test_cfg_t *)argv;
 
   fd_rng_t _rng[1];
   fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, cfg->tx_seed, 0UL ) );
 
-  ulong scratch_footprint = fd_quic_tile_scratch_footprint( fd_mcache_depth( cfg->tx_mcache ) );
+  ulong scratch_footprint = fd_quic_tile_scratch_footprint( fd_mcache_depth( cfg->tx_mcache ), 0, 1 );
   void * scratch = fd_alloca( FD_QUIC_TILE_SCRATCH_ALIGN, scratch_footprint );
   FD_TEST( scratch );
 
   FD_TEST( !fd_quic_tile(
       cfg->tx_cnc,
+      0,
       cfg->tx_quic,
-      cfg->xsk_aio,
-      NULL,
+      0,
+      1,
+      &cfg->xsk_aio,
       cfg->tx_mcache,
       cfg->tx_dcache,
+      0,
       cfg->tx_lazy,
       rng,
-      scratch,
-      fd_tempo_tick_per_ns( NULL ) ) );
+      scratch ) );
 
   fd_rng_delete( fd_rng_leave( rng ) );
   return 0;
@@ -366,6 +365,7 @@ int main( int     argc,
                   duration, tx_lazy, cfg->tx_seed, rx_lazy ));
 
   ulong const * tx_cnc_diag = (ulong const *)fd_cnc_app_laddr( cfg->tx_cnc );
+  ulong const * rx_fseq_diag = (ulong const *)fd_fseq_app_laddr_const( cfg->rx_fseq );
 
   long now  = fd_log_wallclock();
   long next = now;
@@ -381,8 +381,8 @@ int main( int     argc,
       FD_COMPILER_MFENCE();
       /* FIXME: add RX_FSEQ / TX_FSEQ / RX_CNC / OTHER TX_CNC stats to
          monitoring, more pretty printing, etc */
-      ulong pub_cnt       = tx_cnc_diag[ FD_QUIC_CNC_DIAG_TPU_PUB_CNT       ];
-      ulong pub_sz        = tx_cnc_diag[ FD_QUIC_CNC_DIAG_TPU_PUB_SZ        ];
+      ulong pub_cnt       = rx_fseq_diag[ FD_FSEQ_DIAG_PUB_CNT ];
+      ulong pub_sz        = rx_fseq_diag[ FD_FSEQ_DIAG_PUB_SZ ];
       ulong conn_live_cnt = tx_cnc_diag[ FD_QUIC_CNC_DIAG_TPU_CONN_LIVE_CNT ];
       ulong conn_seq      = tx_cnc_diag[ FD_QUIC_CNC_DIAG_TPU_CONN_SEQ      ];
       long  tps           = (long)pub_cnt - last_pub_cnt;

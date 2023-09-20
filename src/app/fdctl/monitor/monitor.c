@@ -1,7 +1,7 @@
 #include "../fdctl.h"
 
 #include "helper.h"
-#include "../run.h"
+#include "../run/run.h"
 #include "../../../disco/fd_disco.h"
 
 #include <stdio.h>
@@ -90,13 +90,13 @@ tile_snap( tile_snap_t *     snap_cur,     /* Snaphot for each tile, indexed [0,
     snap->cnc_signal    = fd_cnc_signal_query   ( cnc );
     ulong const * cnc_diag = (ulong const *)fd_cnc_app_laddr_const( cnc );
     FD_COMPILER_MFENCE();
-    snap->cnc_diag_pid         = cnc_diag[ FD_FRANK_CNC_DIAG_PID         ];
-    snap->cnc_diag_in_backp    = cnc_diag[ FD_FRANK_CNC_DIAG_IN_BACKP    ];
-    snap->cnc_diag_backp_cnt   = cnc_diag[ FD_FRANK_CNC_DIAG_BACKP_CNT   ];
-    snap->cnc_diag_ha_filt_cnt = cnc_diag[ FD_FRANK_CNC_DIAG_HA_FILT_CNT ];
-    snap->cnc_diag_ha_filt_sz  = cnc_diag[ FD_FRANK_CNC_DIAG_HA_FILT_SZ  ];
-    snap->cnc_diag_sv_filt_cnt = cnc_diag[ FD_FRANK_CNC_DIAG_SV_FILT_CNT ];
-    snap->cnc_diag_sv_filt_sz  = cnc_diag[ FD_FRANK_CNC_DIAG_SV_FILT_SZ  ];
+    snap->cnc_diag_pid         = cnc_diag[ FD_APP_CNC_DIAG_PID         ];
+    snap->cnc_diag_in_backp    = cnc_diag[ FD_APP_CNC_DIAG_IN_BACKP    ];
+    snap->cnc_diag_backp_cnt   = cnc_diag[ FD_APP_CNC_DIAG_BACKP_CNT   ];
+    snap->cnc_diag_ha_filt_cnt = cnc_diag[ FD_APP_CNC_DIAG_HA_FILT_CNT ];
+    snap->cnc_diag_ha_filt_sz  = cnc_diag[ FD_APP_CNC_DIAG_HA_FILT_SZ  ];
+    snap->cnc_diag_sv_filt_cnt = cnc_diag[ FD_APP_CNC_DIAG_SV_FILT_CNT ];
+    snap->cnc_diag_sv_filt_sz  = cnc_diag[ FD_APP_CNC_DIAG_SV_FILT_SZ  ];
     FD_COMPILER_MFENCE();
   }
 }
@@ -195,21 +195,30 @@ run_monitor( config_t * const config,
              long             duration,
              uint             seed,
              double           ns_per_tic ) {
-  ulong tile_cnt =
-    config->layout.verify_tile_count + // QUIC tiles
-    config->layout.verify_tile_count + // verify tiles
-    1 +                                // dedup tile
-    1 +                                // pack tile
-    config->layout.bank_tile_count +   // bank tiles
-    1;                                 // forward tile
+  ulong tile_cnt = 0;
+  for( ulong i=0; i<config->shmem.workspaces_cnt; i++ ) {
+    switch( config->shmem.workspaces[ i ].kind ) {
+      case wksp_quic_verify:
+      case wksp_verify_dedup:
+      case wksp_dedup_pack:
+      case wksp_pack_bank:
+      case wksp_bank_shred:
+        break;
+      case wksp_quic:
+      case wksp_verify:
+      case wksp_dedup:
+      case wksp_pack:
+      case wksp_bank:
+        tile_cnt++;
+        break;
+    }
+  }
 
   ulong link_cnt =
     config->layout.verify_tile_count + // quic <-> verify
     config->layout.verify_tile_count + // verify <-> dedup
     1 +                                // dedup <-> pack
-    config->layout.bank_tile_count +   // pack <-> bank
-    config->layout.bank_tile_count +   // bank <-> pack
-    1;                                 // pack <-> forward
+    config->layout.bank_tile_count;    // pack <-> bank
 
   tile_t * tiles = fd_alloca( alignof(tile_t *), sizeof(tile_t)*tile_cnt );
   link_t * links = fd_alloca( alignof(link_t *), sizeof(link_t)*link_cnt );
@@ -223,8 +232,6 @@ run_monitor( config_t * const config,
 
     char buf[ 64 ];
     switch( wksp->kind ) {
-      case wksp_tpu_txn_data:
-        break;
       case wksp_quic_verify:
         for( ulong i=0; i<config->layout.verify_tile_count; i++ ) {
           links[ link_idx ].src_name = "quic";
@@ -260,29 +267,12 @@ run_monitor( config_t * const config,
         for( ulong i=0; i<config->layout.bank_tile_count; i++ ) {
           links[ link_idx ].src_name = "pack";
           links[ link_idx ].dst_name = "bank";
-          links[ link_idx ].mcache = fd_mcache_join( fd_wksp_pod_map( pods[ j ], snprintf1( buf, 64, "mcache%lu", i ) ) );
+          links[ link_idx ].mcache = fd_mcache_join( fd_wksp_pod_map( pods[ j ], "mcache" ) ); /* shared mcache from mux tile */
           if( FD_UNLIKELY( !links[ link_idx ].mcache ) ) FD_LOG_ERR(( "fd_mcache_join failed" ));
           links[ link_idx ].fseq = fd_fseq_join( fd_wksp_pod_map( pods[ j ], snprintf1( buf, 64, "fseq%lu", i ) ) );
           if( FD_UNLIKELY( !links[ link_idx ].fseq ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
           link_idx++;
-
-          links[ link_idx ].src_name = "bank";
-          links[ link_idx ].dst_name = "pack";
-          links[ link_idx ].mcache = fd_mcache_join( fd_wksp_pod_map( pods[ j ], snprintf1( buf, 64, "mcache-back%lu", i ) ) );
-          if( FD_UNLIKELY( !links[ link_idx ].mcache ) ) FD_LOG_ERR(( "fd_mcache_join failed" ));
-          links[ link_idx ].fseq = fd_fseq_join( fd_wksp_pod_map( pods[ j ], snprintf1( buf, 64, "fseq-back%lu", i ) ) );
-          if( FD_UNLIKELY( !links[ link_idx ].fseq ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
-          link_idx++;
         }
-        break;
-      case wksp_pack_forward:
-        links[ link_idx ].src_name = "pack";
-        links[ link_idx ].dst_name = "forward";
-        links[ link_idx ].mcache = fd_mcache_join( fd_wksp_pod_map( pods[ j ], "mcache" ) );
-        if( FD_UNLIKELY( !links[ link_idx ].mcache ) ) FD_LOG_ERR(( "fd_mcache_join failed" ));
-        links[ link_idx ].fseq = fd_fseq_join( fd_wksp_pod_map( pods[ j ], "fseq" ) );
-        if( FD_UNLIKELY( !links[ link_idx ].fseq ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
-        link_idx++;
         break;
       case wksp_bank_shred:
         break;
@@ -316,13 +306,6 @@ run_monitor( config_t * const config,
         break;
       case wksp_bank:
         tiles[ tile_idx ].name = "bank";
-        tiles[ tile_idx ].cnc = fd_cnc_join( fd_wksp_pod_map( pod, "cnc" ) );
-        if( FD_UNLIKELY( !tiles[ tile_idx ].cnc ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
-        if( FD_UNLIKELY( fd_cnc_app_sz( tiles[ tile_idx ].cnc )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
-        tile_idx++;
-        break;
-      case wksp_forward:
-        tiles[ tile_idx ].name = "forward";
         tiles[ tile_idx ].cnc = fd_cnc_join( fd_wksp_pod_map( pod, "cnc" ) );
         if( FD_UNLIKELY( !tiles[ tile_idx ].cnc ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
         if( FD_UNLIKELY( fd_cnc_app_sz( tiles[ tile_idx ].cnc )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));

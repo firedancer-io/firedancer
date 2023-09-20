@@ -1,6 +1,7 @@
 #include "fdctl.h"
 
-#include "../frank/fd_frank.h"
+#include "run/run.h"
+
 #include "../../util/net/fd_eth.h"
 
 #include <stdio.h>
@@ -24,11 +25,10 @@ find_wksp( config_t * const config,
   FD_LOG_ERR(( "no workspace with name `%s` found", name ));
 }
 
-/* partial frank_bank definition since the tile doesn't really exist */
-static fd_frank_task_t frank_bank = {
+/* partial bank definition since the tile doesn't really exist */
+static fd_tile_config_t bank = {
    .in_wksp    = "pack_bank",
    .out_wksp   = "bank_shred",
-   .extra_wksp = NULL,
 };
 
 ulong
@@ -38,7 +38,7 @@ memlock_max_bytes( config_t * const config ) {
     workspace_config_t * wksp = &config->shmem.workspaces[ j ];
 
 #define TILE_MAX( tile ) do {                                                 \
-    ulong in_bytes = 0, out_bytes = 0, extra_bytes = 0;                       \
+    ulong in_bytes = 0, out_bytes = 0;                                        \
     if( FD_LIKELY( tile.in_wksp ) ) {                                         \
       workspace_config_t * in_wksp = find_wksp( config, tile.in_wksp );       \
       in_bytes = in_wksp->num_pages * in_wksp->page_size;                     \
@@ -47,43 +47,33 @@ memlock_max_bytes( config_t * const config ) {
       workspace_config_t * out_wksp = find_wksp( config, tile.out_wksp );     \
       out_bytes = out_wksp->num_pages * out_wksp->page_size;                  \
     }                                                                         \
-    if( FD_LIKELY( tile.extra_wksp ) ) {                                      \
-      workspace_config_t * extra_wksp = find_wksp( config, tile.extra_wksp ); \
-      extra_bytes = extra_wksp->num_pages * extra_wksp->page_size;            \
-    }                                                                         \
     memlock_max_bytes = fd_ulong_max( memlock_max_bytes,                      \
                                       wksp->page_size * wksp->num_pages +     \
                                       in_bytes +                              \
-                                      out_bytes +                             \
-                                      extra_bytes );                          \
+                                      out_bytes );                            \
   } while(0)
 
     switch ( wksp->kind ) {
-      case wksp_tpu_txn_data:
       case wksp_quic_verify:
       case wksp_verify_dedup:
       case wksp_dedup_pack:
       case wksp_pack_bank:
-      case wksp_pack_forward:
       case wksp_bank_shred:
         break;
       case wksp_quic:
-        TILE_MAX( frank_quic );
+        TILE_MAX( quic );
         break;
       case wksp_verify:
-        TILE_MAX( frank_verify );
+        TILE_MAX( verify );
         break;
       case wksp_dedup:
-        TILE_MAX( frank_dedup );
+        TILE_MAX( dedup );
         break;
       case wksp_pack:
-        TILE_MAX( frank_pack );
+        TILE_MAX( pack );
         break;
       case wksp_bank:
-        TILE_MAX( frank_bank );
-        break;
-      case wksp_forward:
-        TILE_MAX( frank_forward );
+        TILE_MAX( bank );
         break;
     }
   }
@@ -301,8 +291,6 @@ static void parse_key_value( config_t *   config,
 
   ENTRY_UINT  ( ., tiles.bank,          receive_buffer_size                                       );
 
-  ENTRY_UINT  ( ., tiles.forward,       receive_buffer_size                                       );
-
   ENTRY_UINT  ( ., tiles.dedup,         signature_cache_size                                      );
 }
 
@@ -480,38 +468,26 @@ static void
 init_workspaces( config_t * config ) {
   ulong idx = 0;
 
-  config->shmem.workspaces[ idx ].kind      = wksp_tpu_txn_data;
-  config->shmem.workspaces[ idx ].name      = "tpu_txn_data";
+  config->shmem.workspaces[ idx ].kind      = wksp_quic_verify;
+  config->shmem.workspaces[ idx ].name      = "quic_verify";
   config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
   config->shmem.workspaces[ idx ].num_pages = 1;
   idx++;
 
-  config->shmem.workspaces[ idx ].kind      = wksp_quic_verify;
-  config->shmem.workspaces[ idx ].name      = "quic_verify";
-  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_HUGE_PAGE_SZ;
-  config->shmem.workspaces[ idx ].num_pages = 2;
-  idx++;
-
   config->shmem.workspaces[ idx ].kind      = wksp_verify_dedup;
   config->shmem.workspaces[ idx ].name      = "verify_dedup";
-  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_HUGE_PAGE_SZ;
-  config->shmem.workspaces[ idx ].num_pages = 2;
+  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
+  config->shmem.workspaces[ idx ].num_pages = 1;
   idx++;
 
   config->shmem.workspaces[ idx ].kind      = wksp_dedup_pack;
   config->shmem.workspaces[ idx ].name      = "dedup_pack";
-  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_HUGE_PAGE_SZ;
+  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
   config->shmem.workspaces[ idx ].num_pages = 1;
   idx++;
 
   config->shmem.workspaces[ idx ].kind      = wksp_pack_bank;
   config->shmem.workspaces[ idx ].name      = "pack_bank";
-  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
-  config->shmem.workspaces[ idx ].num_pages = 1;
-  idx++;
-
-  config->shmem.workspaces[ idx ].kind      = wksp_pack_forward;
-  config->shmem.workspaces[ idx ].name      = "pack_forward";
   config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
   config->shmem.workspaces[ idx ].num_pages = 1;
   idx++;
@@ -548,12 +524,6 @@ init_workspaces( config_t * config ) {
 
   config->shmem.workspaces[ idx ].kind      = wksp_pack;
   config->shmem.workspaces[ idx ].name      = "pack";
-  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
-  config->shmem.workspaces[ idx ].num_pages = 1;
-  idx++;
-
-  config->shmem.workspaces[ idx ].kind      = wksp_forward;
-  config->shmem.workspaces[ idx ].name      = "forward";
   config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
   config->shmem.workspaces[ idx ].num_pages = 1;
   idx++;

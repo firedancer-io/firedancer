@@ -30,6 +30,46 @@
 #define FD_MUX_TILE_IN_MAX  FD_FRAG_META_ORIG_MAX
 #define FD_MUX_TILE_OUT_MAX FD_FRAG_META_ORIG_MAX
 
+/* FD_MUX_FLAG_* are user provided flags specifying how to run the mux
+   tile.
+
+   FD_MUX_FLAG_DEFAULT
+      Default mux operating mode.
+`
+   FD_MUX_FLAG_MANUAL_PUBLISH
+      By default, the mux will automatically publish received frags that
+      are not filtered to the output mcache.  If this flag is set, the
+      mux does not publish frags, and publishing must be done by the
+      user provided callbacks.
+
+      Note that it is not safe for a user to publish frags directly to
+      the mcache which is managed by the mux, as the mux would not know
+      about them for flow control purposes.  Instead, you should publish
+      by calling fd_mux_publish.  If the mux is created with
+      MANUAL_PUBLISH the mux will still do flow control on reliable
+      consumers to ensure they are not overrun, other mux properties may
+      no longer hold, particularly about the interleaving and ordering
+      of the frags.
+
+   FD_MUX_FLAG_COPY
+      The mux tile is not zero copy, meaning it copies frag payloads and
+      does not simply republishes a pointer to the incoming frag payload
+      on to downstream consumers.  Because of this, flow control is less
+      complicated since we no longer need to track the number of
+      filtered frags in addition to published ones.  If this flag is
+      set, it means the user promises that all published frags have been
+      copied and the mux does not need to track filtered ones.
+
+      Practically, to implement frag copying, the caller would need to
+      either
+       (a) Pass FD_MUX_FLAG_MANUAL_PUBLISH and call publish manually
+           on fragments they manage.
+       (b) Set the opt_chunk in the fd_mux_after_frag_fn callback to
+           point to a copy of the frag payload. */
+#define FD_MUX_FLAG_DEFAULT        0
+#define FD_MUX_FLAG_MANUAL_PUBLISH 1
+#define FD_MUX_FLAG_COPY           2
+
 /* FD_MUX_TILE_SCRATCH_{ALIGN,FOOTPRINT} specify the alignment and
    footprint needed for a mux tile scratch region that can support
    in_cnt inputs and out_cnt outputs.  ALIGN is an integer power of 2 of
@@ -51,6 +91,189 @@
     alignof(ushort),  ((in_cnt)+(out_cnt)+1UL)*sizeof(ushort) ),        \
     FD_MUX_TILE_SCRATCH_ALIGN )
 
+/* fd_mux_context_t is an opaque type that is passed to the user
+   provided callbacks.  The user can use this mux object to publish
+   messages to the downstream consumers by calling fd_mux_publish( mux )
+   , where mux is the fd_mux_context_t object passed to the callbacks.
+
+   This is the only supported way of publishing, as the mux needs to
+   keep housekeeping information related to flow control.
+
+   The user callback should not modify any fields of the mux context. */
+
+typedef struct {
+   fd_frag_meta_t * mcache;
+   ulong depth;
+   ulong * cr_avail;
+   ulong * seq;
+} fd_mux_context_t;
+
+/* fd_mux_before_credit_fn is called every iteration of the mux run loop,
+   whether there is a new frag ready to receive or not.  This callback
+   is also still invoked even if the mux is backpressured and cannot
+   read any new fragments while waiting for downstream consumers to
+   catch up.
+
+   This callback is useful for things that need to occur even if no new
+   frags are being handled.  For example, servicing network connections
+   could happen here.
+
+   The ctx is a user-provided context object from when the mux tile was
+   initialized.  The mux is the mux which is invoking this callback.
+   The mux should only be used for calling fd_mux_publish to publish
+   a fragment to downstream consumers. */
+typedef void (fd_mux_before_credit_fn)( void *             ctx,
+                                        fd_mux_context_t * mux);
+
+/* fd_mux_after_credit_fn is called every iteration of the mux run loop,
+   whether there is a new frag ready to receive or not, except in cases
+   where the mux is backpressured by a downstream consumer and would not
+   be able to publish.
+
+   The callback might be used for publishing new fragments to downstream
+   consumers in the main loop which are not in response to an incoming
+   fragment.  For example, code that collects incoming fragments over
+   a period of 1 second and joins them together before publishing a
+   large block fragment downstream, would publish the block here.
+
+   The ctx is a user-provided context object from when the mux tile was
+   initialized.  The mux is the mux which is invoking this callback.
+   The mux should only be used for calling fd_mux_publish to publish
+   a fragment to downstream consumers. */
+typedef void (fd_mux_after_credit_fn)( void *             ctx,
+                                       fd_mux_context_t * mux );
+
+/* fd_mux_before_frag_fn is called immediately whenever a new fragment
+   has been detected that was published by an upstream producer.  The
+   signature and sequence number (sig and seq) provided as arguments
+   are read atomically from shared memory, so must both match each other
+   from the published fragment (aka. they will not be torn or partially
+   overwritten).  in_idx is an index in [0, num_ins) indicating which
+   producer published the fragment.
+
+   No fragment data has been read yet here, nor has other metadata, for
+   example the size or timestamps of the fragment.  Mainly this callback
+   is useful for deciding whether to filter the fragment based on its
+   signature.  If opt_filter is set to non-zero, the frag will be
+   skipped completely, no fragment data will be read, and the in will
+   be advanced so that we now wait for the next fragment.
+
+   The ctx is a user-provided context object from when the mux tile was
+   initialized. */
+typedef void (fd_mux_before_frag_fn)( void * ctx,
+                                      ulong  in_idx,
+                                      ulong  sig,
+                                      ulong  seq,
+                                      int *  opt_filter );
+
+/* fd_mux_during_frag_fn is called after the mux has received a new frag
+   from an in, but before the mux has checked that it was overrun.  This
+   callback is not invoked if the mux is backpressured, as it would not
+   try and read a frag from an in in the first place (instead, leaving
+   it on the in mcache to backpressure the upstream producer).  in_idx
+   will be the index of the in that the frag was received from.
+
+   If the producer of the frags is respecting flow control, it is safe
+   to read frag data in any of the callbacks, but it is suggested to
+   copy or read frag data within this callback, as if the producer does
+   not respect flow control, the frag may be torn or corrupt due to an
+   overrun by the reader.  If the frag being read from has been
+   overwritten while this callback is running, the frag will be ignored
+   and the mux will not call the process function.  Instead it will
+   recover from the overrun and continue with new frags.
+
+   This function cannot fail.  If opt_filter is set to non-zero, it
+   means the frag should be filtered and not passed on to downstream
+   consumers of the mux.
+
+   The ctx is a user-provided context object from when the mux tile was
+   initialized.
+
+   sig, chunk, and sz are the respective fields from the mcache fragment
+   that was received.  If the producer is not respecting flow control,
+   these may be corrupt or torn and should not be trusted. */
+
+typedef void (fd_mux_during_frag_fn)( void * ctx,
+                                      ulong  in_idx,
+                                      ulong  sig,
+                                      ulong  chunk,
+                                      ulong  sz,
+                                      int *  opt_filter );
+
+/* fd_mux_after_frag_fn is called immediately after the
+   fd_mux_during_frag_fn, along with an additional check that the reader
+   was not overrun while handling the frag.  If the reader was overrun,
+   the frag is abandoned and this function is not called.  This callback
+   is not invoked if the mux is backpressured, as it would not read a
+   frag in the first place.  It is also not invoked if
+   fd_mux_during_frag sets opt_filter to non-zero, indicating to filter
+   the frag.
+
+   You should not read the frag data directly here, as it might still
+   get overrun, instead it should be copied out of the frag during the
+   read callback if needed later.
+
+   This function cannot fail.  If opt_filter is set to non-zero, it
+   means the frag should be filtered and not passed on to downstream
+   consumers of the mux.
+
+   The ctx is a user-provided context object from when the mux tile was
+   initialized.
+
+   opt_sig, opt_chunk, and opt_sz are the respective fields from the
+   mcache fragment that was received.  The callback can modify these
+   values to change the sig, chunk, and sz of the outgoing frag that is
+   being copied to downstream consumers.  If the producer is not
+   respecting flow control, these may be corrupt or torn and should not
+   be trusted. */
+
+typedef void (fd_mux_after_frag_fn)( void *  ctx,
+                                     ulong * opt_sig,
+                                     ulong * opt_chunk,
+                                     ulong * opt_sz,
+                                     int *   opt_filter );
+
+/* By convention, the mux tile (and other tiles) use the app data region
+   of the joined cnc to store overall tile diagnostics like whether they
+   are backpressured.  fd_mux_cnc_diag_write is called back to let the
+   user add additional diagnostics.  This should not touch cnc_app[0] or
+   cnc_app[1] which are reserved for the mux tile (FD_CNC_DIAG_IN_BACKP
+   and FD_CNC_DIAG_BACKP_CNT).  The user can use cnc_app[2] and beyond,
+   if such additional space was reserved when the cnc was created.
+
+   fd_mux_cnc_diag_write and fd_mux_cnc_diag_clear are a pair of
+   functions to support accumulating counters.  fd_mux_cnc_diag_write is
+   called inside a compiler fence to ensure the writes do not get
+   reordered, which may be important for observers or monitoring tools,
+   but such a guarantee is not needed when clearing local values in the
+   ctx.  A typical usage for a counter is then to increment from a local
+   context counter in write(), and then reset the local context counter
+   to 0 in clear().
+
+   The ctx is a user-provided context object from when the mux tile was
+   initialized. */
+
+typedef void (fd_mux_cnc_diag_write)( void *  ctx,
+                                      ulong * cnc_app );
+
+typedef void (fd_mux_cnc_diag_clear)( void * ctx );
+
+/* fd_mux_callbacks_t will be invoked during mux tile execution, and can
+   be used to alter behavior of the mux tile from the default of copying
+   frags from the inputs directly to the outputs.  Each of the callbacks
+   can be NULL, in which case it will not be executed. */
+
+typedef struct {
+  fd_mux_before_credit_fn * before_credit;
+  fd_mux_after_credit_fn *  after_credit;
+  fd_mux_before_frag_fn * before_frag;
+  fd_mux_during_frag_fn * during_frag;
+  fd_mux_after_frag_fn  * after_frag;
+
+  fd_mux_cnc_diag_write * cnc_diag_write;
+  fd_mux_cnc_diag_clear * cnc_diag_clear;
+} fd_mux_callbacks_t;
+
 FD_PROTOTYPES_BEGIN
 
 /* fd_mux_tile multiplex fragment streams provided through in_cnt
@@ -60,14 +283,15 @@ FD_PROTOTYPES_BEGIN
    implementation as a single slow reliable consumer can backpressure
    _all_ producers and _all_ other consumers using the mux.)
 
-   No frags will be filtered by the multiplexer currently.  The order of
-   frags among a group of streams covered by a single in_mcache will be
-   preserved.  Frags from different groups of streams can be arbitrarily
-   interleaved (but this makes an extreme best effort to avoid
-   starvation and minimize slip between different groups of streams).
+   The order of frags among a group of streams covered by a single
+   in_mcache will be preserved.  Frags from different groups of streams
+   can be arbitrarily interleaved (but this makes an extreme best effort
+   to avoid starvation and minimize slip between different groups of
+   streams).
 
    The signature, chunk, sz, ctl and tsorig input fragment metadata will
-   be unchanged by this tile.
+   be unchanged by this tile, unless they are modified by the user in a
+   callback.
 
    For seq, the mux tile will resequence the frags from all the mcache's
    into a new total order consistent with the above.
@@ -179,7 +403,7 @@ FD_PROTOTYPES_BEGIN
    up to monitoring scripts.  It is recommend that inputs and outputs
    also use their cnc and fseq application regions similarly for
    monitoring simplicity / consistency.
-   
+
    The lifetime of the cnc, mcaches, fseqs, rng and scratch used by this
    tile should be a superset of this tile's lifetime.  While this tile
    is running, no other tile should use cnc for its command and control,
@@ -204,17 +428,33 @@ fd_mux_tile_scratch_footprint( ulong in_cnt,
                                ulong out_cnt );
 
 int
-fd_mux_tile( fd_cnc_t *              cnc,       /* Local join to the mux's command-and-control */
-             ulong                   in_cnt,    /* Number of input mcaches to multiplex, inputs are indexed [0,in_cnt) */
-             fd_frag_meta_t const ** in_mcache, /* in_mcache[in_idx] is the local join to input in_idx's mcache */
-             ulong **                in_fseq,   /* in_fseq  [in_idx] is the local join to input in_idx's fseq */
-             fd_frag_meta_t *        mcache,    /* Local join to the mux's frag stream output mcache */
-             ulong                   out_cnt,   /* Number of reliable consumers, reliable consumers are indexed [0,out_cnt) */
-             ulong **                out_fseq,  /* out_fseq[out_idx] is the local join to reliable consumer out_idx's fseq */
-             ulong                   cr_max,    /* Maximum number of flow control credits, 0 means use a reasonable default */
-             long                    lazy,      /* Lazyiness, <=0 means use a reasonable default */
-             fd_rng_t *              rng,       /* Local join to the rng this mux should use */
-             void *                  scratch ); /* Tile scratch memory */
+fd_mux_tile( fd_cnc_t *              cnc,         /* Local join to the mux's command-and-control */
+             ulong                   pid,         /* Tile PID for diagnostic purposes */
+             ulong                   flags,       /* Any of FD_MUX_FLAGS_* specifying how to run the mux */
+             ulong                   in_cnt,      /* Number of input mcaches to multiplex, inputs are indexed [0,in_cnt) */
+             fd_frag_meta_t const ** in_mcache,   /* in_mcache[in_idx] is the local join to input in_idx's mcache */
+             ulong **                in_fseq,     /* in_fseq  [in_idx] is the local join to input in_idx's fseq */
+             fd_frag_meta_t *        mcache,      /* Local join to the mux's frag stream output mcache */
+             ulong                   out_cnt,     /* Number of reliable consumers, reliable consumers are indexed [0,out_cnt) */
+             ulong **                out_fseq,    /* out_fseq[out_idx] is the local join to reliable consumer out_idx's fseq */
+             ulong                   cr_max,      /* Maximum number of flow control credits, 0 means use a reasonable default */
+             long                    lazy,        /* Lazyiness, <=0 means use a reasonable default */
+             fd_rng_t *              rng,         /* Local join to the rng this mux should use */
+             void *                  scratch,     /* Tile scratch memory */
+             void *                  ctx,         /* User supplied context to be passed to the read and process functions */
+             fd_mux_callbacks_t *    callbacks ); /* User supplied callbacks to be invoked during mux tile execution */
+
+/* If the mux is operating with FD_MUX_FLAG_NO_PUBLISH, the caller can optionally
+   publish fragments to the consumers themself.  To do this, they should call
+   fd_mux_publish with the mux context provided in the  */
+void
+fd_mux_publish( fd_mux_context_t * ctx,
+                ulong              sig,
+                ulong              chunk,
+                ulong              sz,
+                ulong              ctl,
+                ulong              tsorig,
+                ulong              tspub );
 
 FD_PROTOTYPES_END
 

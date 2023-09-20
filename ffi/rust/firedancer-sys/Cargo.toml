@@ -11,7 +11,6 @@ include = [
     "staging",
     "build.rs",
     "wrapper_ballet.h",
-    "wrapper_disco.h",
     "wrapper_tango.h",
     "wrapper_util.h",
 ]

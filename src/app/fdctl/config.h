@@ -14,19 +14,16 @@
 
 typedef struct {
   enum {
-    wksp_tpu_txn_data,
     wksp_quic_verify,
     wksp_verify_dedup,
     wksp_dedup_pack,
     wksp_pack_bank,
-    wksp_pack_forward,
     wksp_bank_shred,
     wksp_quic,
     wksp_verify,
     wksp_dedup,
     wksp_pack,
     wksp_bank,
-    wksp_forward,
   } kind;
   char * name;
   ulong kind_idx;
@@ -162,10 +159,6 @@ typedef struct {
     struct {
       uint receive_buffer_size;
     } bank;
-
-    struct {
-      uint receive_buffer_size;
-    } forward;
 
     struct {
       uint signature_cache_size;

@@ -4,7 +4,7 @@ ifdef FD_HAS_X86
 ifdef FD_HAS_DOUBLE
 
 .PHONY: fddev
-$(call make-bin-rust,fddev,main dev dev1 txn configure/netns configure/genesis,fd_fdctl fd_frank fd_disco fd_ballet fd_tango fd_util fd_quic solana_validator_fd)
+$(call make-bin-rust,fddev,main dev dev1 txn configure/netns configure/genesis,fd_fdctl fd_disco fd_ballet fd_tango fd_util fd_quic solana_validator_fd)
 
 ifeq (run,$(firstword $(MAKECMDGOALS)))
   RUN_ARGS := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))

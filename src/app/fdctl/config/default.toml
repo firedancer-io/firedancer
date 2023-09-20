@@ -306,7 +306,7 @@ dynamic_port_range = "8000-10000"
     #
     # It is suggested to use all available CPU cores for Firedancer, so that the
     # Solana network can run as fast as possible.
-    affinity = "0-14"
+    affinity = "0-13"
 
     # How many verify tiles to run. Currently this also configures the number of
     # QUIC tiles to run. QUIC and verify tiles are connected 1:1.
@@ -480,12 +480,6 @@ dynamic_port_range = "8000-10000"
         # dropped. TODO: ... Should this really be configurable?
         receive_buffer_size = 16384
 
-        # The maximum size of a message from a QUIC tile to a verify tile.
-        #
-        # TODO: This should be removed. Not configuration, should be transaction
-        # MTU.
-        mtu = 4804
-
     # The pack tile takes incoming transactions that have been verified by the
     # verify tile and attempts to order them in an optimal way to generate the
     # most fees per compute resource used to execute them.
@@ -518,12 +512,6 @@ dynamic_port_range = "8000-10000"
     # The bank tile is what executes transactions and updates the accounting
     # state as a result of any operations performed by the transactions.
     [tiles.bank]
-        receive_buffer_size = 128
-
-    # The forward tile sends unprocessed transactions.
-    # Forwarding only occures when the current instance is the leader and it
-    # is unable to process all transactions in its leader slot.
-    [tiles.forward]
         receive_buffer_size = 128
 
     # All transactions entering into the validator are deduplicated after their
