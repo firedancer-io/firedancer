@@ -1713,10 +1713,10 @@ vote_state_process_vote_unfiltered( fd_vote_state_t *  vote_state,
   int rc;
   rc = vote_state_check_slots_are_valid( vote_state, vote_slots, &vote->hash, slot_hashes, ctx );
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
-  for ( deq_ulong_iter_t iter = deq_ulong_iter_init( vote->slots );
-        !deq_ulong_iter_done( vote->slots, iter );
-        iter = deq_ulong_iter_next( vote->slots, iter ) ) {
-    ulong * ele = deq_ulong_iter_ele( vote->slots, iter );
+  for ( deq_ulong_iter_t iter = deq_ulong_iter_init( vote_slots );
+        !deq_ulong_iter_done( vote_slots, iter );
+        iter = deq_ulong_iter_next( vote_slots, iter ) ) {
+    ulong * ele = deq_ulong_iter_ele( vote_slots, iter );
     vote_state_process_next_vote_slot( vote_state, *ele, epoch );
   }
   return OK;
