@@ -1,6 +1,6 @@
 #include "fdctl.h"
 
-#include "run.h"
+#include "run/run.h"
 
 #include "../../tango/fd_tango.h"
 
@@ -12,15 +12,12 @@ ready_cmd_fn( args_t *         args,
   for( ulong i=0; i<config->shmem.workspaces_cnt; i++ ) {
     workspace_config_t * wksp = &config->shmem.workspaces[i];
     switch( wksp->kind ) {
-      case wksp_tpu_txn_data:
       case wksp_quic_verify:
       case wksp_verify_dedup:
       case wksp_dedup_pack:
       case wksp_pack_bank:
-      case wksp_pack_forward:
       case wksp_bank_shred:
       case wksp_bank:
-      case wksp_forward:
         break;
       case wksp_quic:
       case wksp_verify:

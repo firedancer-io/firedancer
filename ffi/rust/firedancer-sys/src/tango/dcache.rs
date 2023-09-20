@@ -4,6 +4,8 @@ pub use crate::generated::{
     fd_dcache_app_laddr_const,
     fd_dcache_app_sz,
     fd_dcache_compact_chunk0,
+    fd_dcache_compact_wmark,
+    fd_dcache_compact_next,
     fd_dcache_compact_is_safe,
     fd_dcache_data_sz,
     fd_dcache_delete,

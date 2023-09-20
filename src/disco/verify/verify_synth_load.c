@@ -1,9 +1,7 @@
-#include "../fd_frank.h"
-
 #include <math.h>
 
 int
-fd_frank_verify_task( int     argc,
+fd_app_verify_task( int     argc,
                       char ** argv ) {
   (void)argc;
   fd_log_thread_set( argv[0] );
@@ -14,7 +12,7 @@ fd_frank_verify_task( int     argc,
 
   char const * pod_gaddr = argv[1];
 
-  /* Load up the configuration for this frank instance */
+  /* Load up the configuration for this app instance */
 
   FD_LOG_INFO(( "using configuration in pod %s at path %s", pod_gaddr, cfg_path ));
   uchar const * pod     = fd_wksp_pod_attach( pod_gaddr );
@@ -38,12 +36,12 @@ fd_frank_verify_task( int     argc,
   int in_backp = 1;
 
   FD_COMPILER_MFENCE();
-  FD_VOLATILE( cnc_diag[ FD_FRANK_CNC_DIAG_IN_BACKP    ] ) = 1UL;
-  FD_VOLATILE( cnc_diag[ FD_FRANK_CNC_DIAG_BACKP_CNT   ] ) = 0UL;
-  FD_VOLATILE( cnc_diag[ FD_FRANK_CNC_DIAG_HA_FILT_CNT ] ) = 0UL;
-  FD_VOLATILE( cnc_diag[ FD_FRANK_CNC_DIAG_HA_FILT_SZ  ] ) = 0UL;
-  FD_VOLATILE( cnc_diag[ FD_FRANK_CNC_DIAG_SV_FILT_CNT ] ) = 0UL;
-  FD_VOLATILE( cnc_diag[ FD_FRANK_CNC_DIAG_SV_FILT_SZ  ] ) = 0UL;
+  FD_VOLATILE( cnc_diag[ FD_APP_CNC_DIAG_IN_BACKP    ] ) = 1UL;
+  FD_VOLATILE( cnc_diag[ FD_APP_CNC_DIAG_BACKP_CNT   ] ) = 0UL;
+  FD_VOLATILE( cnc_diag[ FD_APP_CNC_DIAG_HA_FILT_CNT ] ) = 0UL;
+  FD_VOLATILE( cnc_diag[ FD_APP_CNC_DIAG_HA_FILT_SZ  ] ) = 0UL;
+  FD_VOLATILE( cnc_diag[ FD_APP_CNC_DIAG_SV_FILT_CNT ] ) = 0UL;
+  FD_VOLATILE( cnc_diag[ FD_APP_CNC_DIAG_SV_FILT_SZ  ] ) = 0UL;
   FD_COMPILER_MFENCE();
 
   FD_LOG_INFO(( "joining %s.verify.%s.mcache", cfg_path, verify_name ));
@@ -229,10 +227,10 @@ fd_frank_verify_task( int     argc,
       /* Send diagnostic info */
       fd_cnc_heartbeat( cnc, now );
       FD_COMPILER_MFENCE();
-      FD_VOLATILE( cnc_diag[ FD_FRANK_CNC_DIAG_HA_FILT_CNT ] ) = FD_VOLATILE_CONST( cnc_diag[ FD_FRANK_CNC_DIAG_HA_FILT_CNT ] ) + accum_ha_filt_cnt;
-      FD_VOLATILE( cnc_diag[ FD_FRANK_CNC_DIAG_HA_FILT_SZ  ] ) = FD_VOLATILE_CONST( cnc_diag[ FD_FRANK_CNC_DIAG_HA_FILT_SZ  ] ) + accum_ha_filt_sz;
-      FD_VOLATILE( cnc_diag[ FD_FRANK_CNC_DIAG_SV_FILT_CNT ] ) = FD_VOLATILE_CONST( cnc_diag[ FD_FRANK_CNC_DIAG_SV_FILT_CNT ] ) + accum_sv_filt_cnt;
-      FD_VOLATILE( cnc_diag[ FD_FRANK_CNC_DIAG_SV_FILT_SZ  ] ) = FD_VOLATILE_CONST( cnc_diag[ FD_FRANK_CNC_DIAG_SV_FILT_SZ  ] ) + accum_sv_filt_sz;
+      FD_VOLATILE( cnc_diag[ FD_APP_CNC_DIAG_HA_FILT_CNT ] ) = FD_VOLATILE_CONST( cnc_diag[ FD_APP_CNC_DIAG_HA_FILT_CNT ] ) + accum_ha_filt_cnt;
+      FD_VOLATILE( cnc_diag[ FD_APP_CNC_DIAG_HA_FILT_SZ  ] ) = FD_VOLATILE_CONST( cnc_diag[ FD_APP_CNC_DIAG_HA_FILT_SZ  ] ) + accum_ha_filt_sz;
+      FD_VOLATILE( cnc_diag[ FD_APP_CNC_DIAG_SV_FILT_CNT ] ) = FD_VOLATILE_CONST( cnc_diag[ FD_APP_CNC_DIAG_SV_FILT_CNT ] ) + accum_sv_filt_cnt;
+      FD_VOLATILE( cnc_diag[ FD_APP_CNC_DIAG_SV_FILT_SZ  ] ) = FD_VOLATILE_CONST( cnc_diag[ FD_APP_CNC_DIAG_SV_FILT_SZ  ] ) + accum_sv_filt_sz;
       FD_COMPILER_MFENCE();
       accum_ha_filt_cnt = 0UL;
       accum_ha_filt_sz  = 0UL;
@@ -250,7 +248,7 @@ fd_frank_verify_task( int     argc,
       cr_avail = fd_fctl_tx_cr_update( fctl, cr_avail, seq );
       if( FD_UNLIKELY( in_backp ) ) {
         if( FD_LIKELY( cr_avail ) ) {
-          FD_VOLATILE( cnc_diag[ FD_FRANK_CNC_DIAG_IN_BACKP ] ) = 0UL;
+          FD_VOLATILE( cnc_diag[ FD_APP_CNC_DIAG_IN_BACKP ] ) = 0UL;
           in_backp = 0;
         }
       }
@@ -262,8 +260,8 @@ fd_frank_verify_task( int     argc,
     /* Check if we are backpressured */
     if( FD_UNLIKELY( !cr_avail ) ) {
       if( FD_UNLIKELY( !in_backp ) ) {
-        FD_VOLATILE( cnc_diag[ FD_FRANK_CNC_DIAG_IN_BACKP  ] ) = 1UL;
-        FD_VOLATILE( cnc_diag[ FD_FRANK_CNC_DIAG_BACKP_CNT ] ) = FD_VOLATILE_CONST( cnc_diag[ FD_FRANK_CNC_DIAG_BACKP_CNT ] )+1UL;
+        FD_VOLATILE( cnc_diag[ FD_APP_CNC_DIAG_IN_BACKP  ] ) = 1UL;
+        FD_VOLATILE( cnc_diag[ FD_APP_CNC_DIAG_BACKP_CNT ] ) = FD_VOLATILE_CONST( cnc_diag[ FD_APP_CNC_DIAG_BACKP_CNT ] )+1UL;
         in_backp = 1;
       }
       FD_SPIN_PAUSE();
