@@ -1,7 +1,4 @@
 #include "../fd_util.h"
-
-#if FD_HAS_SSE
-
 #include "fd_sse.h"
 #include <math.h>
 
@@ -169,7 +166,7 @@ main( int     argc,
     FD_TEST( vf_test( vf_sqrt( vf_mul( x, x ) ), fabsf(x0), fabsf(x1), fabsf(x2), fabsf(x3) ) );
 
     vf_t expected;
-    
+
     expected = vf( 1.f/sqrtf(x0+4.f), 1.f/sqrtf(x1+4.f), 1.f/sqrtf(x2+4.f), 1.f/sqrtf(x3+4.f) );
     FD_TEST( !vc_any( vf_gt( vf_abs( vf_div( vf_sub( vf_rsqrt_fast( vf_add( x, vf_bcast(4.f) ) ), expected ), expected ) ),
                              vf_bcast( 1.f/1024.f ) ) ) );
@@ -639,16 +636,3 @@ main( int     argc,
   fd_halt();
   return 0;
 }
-
-#else
-
-int
-main( int     argc,
-      char ** argv ) {
-  fd_boot( &argc, &argv );
-  FD_LOG_WARNING(( "skip: unit test requires FD_HAS_SSE capability" ));
-  fd_halt();
-  return 0;
-}
-
-#endif

@@ -23,18 +23,19 @@
 
 /* Additional fd_util APIs that are not included by default */
 
-//#include "archive/fd_ar.h" /* includes fd_util_base.h */
-//#include "net/fd_eth.h"    /* includes bits/fd_bits.h */
-//#include "net/fd_ip4.h"    /* includes bits/fd_bits.h */
-//#include "net/fd_pcap.h"   /* includes net/fd_eth.h */
-//#include "net/fd_igmp.h"   /* includes net/fd_ip4.h */
-//#include "net/fd_udp.h"    /* includes net/fd_ip4.h */
-//#include "bits/fd_float.h" /* includes bits/fd_bits.h */
-//#include "bits/fd_uwide.h" /* includes bits/fd_bits.h */
-//#include "math/fd_sqrt.h"  /* includes bits/fd_bits.h */
-//#include "math/fd_fxp.h"   /* includes math/fd_sqrt.h, (!FD_HAS_INT128) bits/fd_uwide.h */
-//#include "simd/fd_sse.h"   /* includes bits/fd_bits.h, requires FD_HAS_SSE */
-//#include "simd/fd_avx.h"   /* includes bits/fd_bits.h, requires FD_HAS_AVX */
+//#include "archive/fd_ar.h"  /* includes fd_util_base.h */
+//#include "net/fd_eth.h"     /* includes bits/fd_bits.h */
+//#include "net/fd_ip4.h"     /* includes bits/fd_bits.h */
+//#include "net/fd_pcap.h"    /* includes net/fd_eth.h */
+//#include "net/fd_igmp.h"    /* includes net/fd_ip4.h */
+//#include "net/fd_udp.h"     /* includes net/fd_ip4.h */
+//#include "bits/fd_float.h"  /* includes bits/fd_bits.h */
+//#include "bits/fd_uwide.h"  /* includes bits/fd_bits.h */
+//#include "math/fd_sqrt.h"   /* includes bits/fd_bits.h */
+//#include "math/fd_fxp.h"    /* includes math/fd_sqrt.h, (!FD_HAS_INT128) bits/fd_uwide.h */
+//#include "simd/fd_sse.h"    /* includes bits/fd_bits.h, requires FD_HAS_SSE */
+//#include "simd/fd_avx.h"    /* includes bits/fd_bits.h, requires FD_HAS_AVX */
+//#include "simd/fd_avx512.h" /* includes bits/fd_bits.h, requires FD_HAS_AVX512 */
 
 FD_PROTOTYPES_BEGIN
 

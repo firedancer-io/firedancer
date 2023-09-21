@@ -1,7 +1,4 @@
 #include "../fd_util.h"
-
-#if FD_HAS_SSE
-
 #include "fd_sse.h"
 
 int vc_test( vc_t c, int    c0, int    c1, int    c2, int    c3 );
@@ -219,16 +216,3 @@ main( int     argc,
   fd_halt();
   return 0;
 }
-
-#else
-
-int
-main( int     argc,
-      char ** argv ) {
-  fd_boot( &argc, &argv );
-  FD_LOG_WARNING(( "skip: unit test requires FD_HAS_SSE capability" ));
-  fd_halt();
-  return 0;
-}
-
-#endif

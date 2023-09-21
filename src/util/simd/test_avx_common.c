@@ -1,7 +1,4 @@
 #include "../fd_util.h"
-
-#if FD_HAS_AVX
-
 #include "fd_avx.h"
 
 int wc_test( wc_t c, int c0, int c1, int c2, int c3, int c4, int c5, int c6, int c7 ) {
@@ -518,6 +515,3 @@ int wb_test( wb_t b, uchar const * bi ) {
 
   return 1;
 }
-
-#endif
-
