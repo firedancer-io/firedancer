@@ -618,14 +618,6 @@
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L268"
     },
     {
-      "name": "option_slot",
-      "type": "struct",
-      "fields": [
-        { "name": "is_some", "type": "uchar" },
-        { "name": "slot", "type": "ulong" }
-      ]
-    },
-    {
       "name": "vote_state_0_23_5",
       "type": "struct",
       "fields": [

@@ -3684,45 +3684,6 @@ int fd_landed_vote_encode(fd_landed_vote_t const * self, fd_bincode_encode_ctx_t
   return FD_BINCODE_SUCCESS;
 }
 
-int fd_option_slot_decode(fd_option_slot_t* self, fd_bincode_decode_ctx_t * ctx) {
-  int err;
-  err = fd_bincode_uint8_decode(&self->is_some, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_decode(&self->slot, ctx);
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  return FD_BINCODE_SUCCESS;
-}
-void fd_option_slot_new(fd_option_slot_t* self) {
-  fd_memset(self, 0, sizeof(fd_option_slot_t));
-}
-void fd_option_slot_destroy(fd_option_slot_t* self, fd_bincode_destroy_ctx_t * ctx) {
-}
-
-ulong fd_option_slot_footprint( void ){ return FD_OPTION_SLOT_FOOTPRINT; }
-ulong fd_option_slot_align( void ){ return FD_OPTION_SLOT_ALIGN; }
-
-void fd_option_slot_walk(void * w, fd_option_slot_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
-  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_option_slot", level++);
-  fun( w, &self->is_some, "is_some", FD_FLAMENCO_TYPE_UCHAR,   "uchar",     level );
-  fun( w, &self->slot, "slot", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
-  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_option_slot", level--);
-}
-ulong fd_option_slot_size(fd_option_slot_t const * self) {
-  ulong size = 0;
-  size += sizeof(char);
-  size += sizeof(ulong);
-  return size;
-}
-
-int fd_option_slot_encode(fd_option_slot_t const * self, fd_bincode_encode_ctx_t * ctx) {
-  int err;
-  err = fd_bincode_uint8_encode(&self->is_some, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->slot, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
-  return FD_BINCODE_SUCCESS;
-}
-
 int fd_vote_state_0_23_5_decode(fd_vote_state_0_23_5_t* self, fd_bincode_decode_ctx_t * ctx) {
   int err;
   err = fd_pubkey_decode(&self->node_pubkey, ctx);
