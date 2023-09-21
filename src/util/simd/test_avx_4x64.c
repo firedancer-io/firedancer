@@ -1,7 +1,4 @@
 #include "../fd_util.h"
-
-#if FD_HAS_AVX
-
 #include "fd_avx.h"
 #include <math.h>
 
@@ -75,7 +72,7 @@ main( int     argc,
     FD_TEST( wd_test( wd_sqrt( wd_mul(x,x) ),  fabs(x0),     fabs(x1),     fabs(x2),     fabs(x3) ) );
 
     wd_t expected;
-    
+
     expected = wd( 1./sqrt(x0+4.), 1./sqrt(x1+4.), 1./sqrt(x2+4.), 1./sqrt(x3+4.) );
     FD_TEST( !wc_any( wd_gt( wd_abs( wd_div( wd_sub( wd_rsqrt_fast( wd_add( x, wd_bcast(4.) ) ), expected ), expected ) ),
                              wd_bcast( 1./1024. ) ) ) );
@@ -129,7 +126,7 @@ main( int     argc,
     FD_TEST( wi_test( wd_to_wi( x, wi( 0, 1, 2, 3, 4, 5, 6, 7 ), 0 ), (int)x0, (int)x1, (int)x2, (int)x3, 4, 5, 6, 7 ) );
     FD_TEST( wi_test( wd_to_wi( x, wi( 0, 1, 2, 3, 4, 5, 6, 7 ), 1 ), 0, 1, 2, 3, (int)x0, (int)x1, (int)x2, (int)x3 ) );
 
-    FD_TEST( wi_test( wd_to_wi_fast( x, wi( 0, 1, 2, 3, 4, 5, 6, 7 ), 0 ), 
+    FD_TEST( wi_test( wd_to_wi_fast( x, wi( 0, 1, 2, 3, 4, 5, 6, 7 ), 0 ),
                       (int)rint(x0), (int)rint(x1), (int)rint(x2), (int)rint(x3), 4, 5, 6, 7 ) );
     FD_TEST( wi_test( wd_to_wi_fast( x, wi( 0, 1, 2, 3, 4, 5, 6, 7 ), 1 ),
                       0, 1, 2, 3, (int)rint(x0), (int)rint(x1), (int)rint(x2), (int)rint(x3) ) );
@@ -448,16 +445,3 @@ main( int     argc,
   fd_halt();
   return 0;
 }
-
-#else
-
-int
-main( int     argc,
-      char ** argv ) {
-  fd_boot( &argc, &argv );
-  FD_LOG_WARNING(( "skip: unit test requires FD_HAS_AVX capability" ));
-  fd_halt();
-  return 0;
-}
-
-#endif

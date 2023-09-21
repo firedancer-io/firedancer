@@ -150,6 +150,16 @@
 #define FD_HAS_AVX 0
 #endif
 
+/* FD_HAS_AVX512 indicates the target supports Intel AVX-512 style SIMD
+   (basically do the 512-bit wide parts of "x86intrin.h" work).
+   Recommend using the simd/fd_avx512.h APIs instead of raw Intel
+   intrinsics for readability and to facilitate portability to non-x86
+   platforms.  Implies FD_HAS_AVX. */
+
+#ifndef FD_HAS_AVX512
+#define FD_HAS_AVX512 0
+#endif
+
 /* FD_HAS_SHANI indicates that the target supports Intel SHA extensions
    which accelerate SHA-1 and SHA-256 computation.  This extension is
    also called SHA-NI or SHA_NI (Secure Hash Algorithm New
@@ -161,20 +171,22 @@
 #endif
 
 /* FD_HAS_GFNI indicates that the target supports Intel Galois Field
- * extensions, which accelerate operations over binary extension fields,
- * especially GF(2^8).  These instructions are supported on Intel Ice
- * Lake and newer and AMD Zen4 and newer CPUs.  Implies FD_HAS_AVX. */
+   extensions, which accelerate operations over binary extension fields,
+   especially GF(2^8).  These instructions are supported on Intel Ice
+   Lake and newer and AMD Zen4 and newer CPUs.  Implies FD_HAS_AVX. */
 
 #ifndef FD_HAS_GFNI
 #define FD_HAS_GFNI 0
 #endif
 
 /* FD_HAS_ASAN indicates that the build target is using ASAN. */
+
 #ifndef FD_HAS_ASAN
 #define FD_HAS_ASAN 0
 #endif
 
 /* FD_HAS_UBSAN indicates that the build target is using UBSAN. */
+
 #ifndef FD_HAS_UBSAN
 #define FD_HAS_UBSAN 0
 #endif

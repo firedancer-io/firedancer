@@ -1,7 +1,4 @@
 #include "../fd_util.h"
-
-#if FD_HAS_SSE
-
 #include "fd_sse.h"
 
 int vc_test( vc_t c, int c0, int c1, int c2, int c3 ) {
@@ -356,5 +353,3 @@ int vb_test( vb_t b, uchar const * bi ) {
 
   return 1;
 }
-
-#endif
