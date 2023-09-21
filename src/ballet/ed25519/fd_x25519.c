@@ -167,7 +167,7 @@ fd_x25519_scalar_mul( void *       _r,
 
     int k_t = (k[t>>3] >> (t&7)) & 1;                   //   k_t = (k >> t) & 1;
     swap ^= k_t;                                        //   swap ^= k_t
-    wwl_t perm = wwl_if( (-swap) & 0xff, wwl( 2L,3L,0L,1L, 6L,7L,4L,5L ), wwl( 0L,1L,2L,3L, 4L,5L,6L,7L ) );
+    wwl_t perm = wwl_blend( (-swap) & 0xff, wwl( 0L,1L,2L,3L, 4L,5L,6L,7L ), wwl( 2L,3L,0L,1L, 6L,7L,4L,5L ) );
     Q03 = wwl_permute( perm, Q03 );                     //   (x_2, x_3) = cswap(swap, x_2, x_3)
     Q14 = wwl_permute( perm, Q14 );                     //   (z_2, z_3) = cswap(swap, z_2, z_3)
     Q25 = wwl_permute( perm, Q25 );
@@ -190,8 +190,8 @@ fd_x25519_scalar_mul( void *       _r,
     FD_R43X6_QUAD_LANE_SUB_FAST( P, P, 0,1,0,1, Q, P ); // E = AA-BB,                P  = AA |E  |CB   |CB-DA, in u62|s62|u62|s62
     FD_R43X6_QUAD_LANE_ADD_FAST( P, P, 0,0,1,0, P, Q ); //                           P  = AA |E  |DA+CB|CB-DA, in u62|s62|u63|s62
     FD_R43X6_QUAD_FOLD_SIGNED  ( P, P );                //                           P  = AA |E  |DA+CB|CB-DA, in u44|u44|u44|u44
-    FD_R43X6_QUAD_LANE_IF      ( Q, 0,1,1,0, P, Q );    //                           Q  = BB |E  |DA+CB|CB,    in u62|u44|u44|u62
-    FD_R43X6_QUAD_LANE_IF      ( Q, 0,0,0,1, U, Q );    // x_3 = (DA + CB)^2,        Q  = BB |E  |DA+CB|x_1,   in u62|u44|u44|u44
+    FD_R43X6_QUAD_LANE_BLEND   ( Q, 0,1,1,0, Q, P );    //                           Q  = BB |E  |DA+CB|CB,    in u62|u44|u44|u62
+    FD_R43X6_QUAD_LANE_BLEND   ( Q, 0,0,0,1, Q, U );    // x_3 = (DA + CB)^2,        Q  = BB |E  |DA+CB|x_1,   in u62|u44|u44|u44
     FD_R43X6_QUAD_UNPACK       ( AA, E, F, G, P );
     H  = fd_r43x6_add_fast( AA, fd_r43x6_scale_fast( 121665L, E ) ); //              H  = AA + a24 * E,        in u60
     GG = fd_r43x6_sqr_fast( G );                        //                           GG = (DA - CB)^2,         in u61
@@ -204,7 +204,7 @@ fd_x25519_scalar_mul( void *       _r,
 
   /* At this point, Q in u44|u44|u44|u44 */
 
-  wwl_t perm = wwl_if( (-swap) & 0xff, wwl( 2L,3L,0L,1L, 6L,7L,4L,5L ), wwl( 0L,1L,2L,3L, 4L,5L,6L,7L ) );
+  wwl_t perm = wwl_blend( (-swap) & 0xff, wwl( 0L,1L,2L,3L, 4L,5L,6L,7L ), wwl( 2L,3L,0L,1L, 6L,7L,4L,5L ) );
   Q03 = wwl_permute( perm, Q03 );                       // (x_2, x_3) = cswap(swap, x_2, x_3)
   Q14 = wwl_permute( perm, Q14 );                       // (z_2, z_3) = cswap(swap, z_2, z_3)
   Q25 = wwl_permute( perm, Q25 );
