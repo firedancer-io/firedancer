@@ -1291,6 +1291,8 @@ vote_state_process_new_vote_state( fd_vote_state_t *   vote_state,
                                    ulong               epoch,
                                    /* feature_set */
                                    instruction_ctx_t ctx ) {
+  int rc;
+
   FD_TEST( !deq_fd_vote_lockout_t_empty( new_state ) );
   if ( FD_UNLIKELY( deq_fd_vote_lockout_t_cnt( new_state ) > MAX_LOCKOUT_HISTORY ) ) {
     ctx.txn_ctx->custom_err = FD_VOTE_TOO_MANY_VOTES;
@@ -1396,8 +1398,11 @@ vote_state_process_new_vote_state( fd_vote_state_t *   vote_state,
     else vote_state_increment_credits( vote_state, epoch, 1 );
   }
 
-  if ( timestamp != NULL ) {
-    vote_state->last_timestamp.slot      = deq_fd_vote_lockout_t_peek_tail( new_state )->slot;
+  if ( FD_LIKELY( timestamp != NULL ) ) {
+    /* new_state asserted nonempty at function beginning */
+    ulong last_slot = deq_fd_vote_lockout_t_peek_tail( new_state )->slot;
+    rc              = vote_state_process_timestamp( vote_state, last_slot, *timestamp, ctx );
+    if ( FD_UNLIKELY( !rc ) ) return rc;
     vote_state->last_timestamp.timestamp = *timestamp;
   }
   vote_state->root_slot = new_root;
