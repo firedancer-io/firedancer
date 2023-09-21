@@ -1727,6 +1727,12 @@ vote_state_process_vote( fd_vote_state_t *  vote_state,
                          fd_slot_hashes_t * slot_hashes,
                          ulong              epoch,
                          instruction_ctx_t  ctx ) {
+  // https://github.com/firedancer-io/solana/blob/v1.17/programs/vote/src/vote_state/mod.rs#L742-L744
+  if (FD_UNLIKELY(deq_ulong_empty(vote->slots))) {
+    ctx.txn_ctx->custom_err = FD_VOTE_EMPTY_SLOTS;
+    return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+  }
+
   // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_state/mod.rs#L734
   ulong earliest_slot_in_history = 0;
   if ( FD_UNLIKELY( !deq_fd_slot_hash_t_empty( slot_hashes->hashes ) ) ) {
