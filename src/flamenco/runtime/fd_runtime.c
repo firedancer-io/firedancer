@@ -1162,13 +1162,12 @@ fd_runtime_freeze( fd_global_ctx_t * global ) {
 
     int err = fd_acc_mgr_modify( global->acc_mgr, global->funk_txn, global->leader, 0, 0UL, rec );
     if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
-      FD_LOG_WARNING(( "fd_runtime_freeze: fd_acc_mgr_modify_raw for leader (%32J) failed (%d)", rec->meta, err ));
+      FD_LOG_WARNING(( "fd_runtime_freeze: fd_acc_mgr_modify_raw for leader (%32J) failed (%d)", global->leader, err ));
       return;
     }
 
-    if (FD_UNLIKELY(global->log_level > 2)) {
-      FD_LOG_WARNING(( "fd_runtime_freeze: slot:%ld global->collected_fees: %ld", global->bank.slot, global->bank.collected_fees ));
-    }
+    if (FD_UNLIKELY(global->log_level > 2))
+      FD_LOG_WARNING(( "fd_runtime_freeze: slot:%ld global->collected_fees: %ld, sending %ld to leader (%32J), burning %ld", global->bank.slot, global->bank.collected_fees, global->bank.collected_fees/2, global->leader, global->bank.collected_fees/2 ));
 
     rec->meta->info.lamports += ( global->bank.collected_fees / 2 );
 
