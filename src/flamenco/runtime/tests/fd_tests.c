@@ -323,7 +323,8 @@ int fd_executor_run_test(
       ._txn_raw        = &raw_txn_b,
     };
 
-    fd_executor_setup_accessed_accounts_for_txn( &txn_ctx, &raw_txn_b );
+    uint use_sysvar_instructions = 0;
+    fd_executor_setup_accessed_accounts_for_txn( &txn_ctx, &raw_txn_b, &use_sysvar_instructions);
     // TODO: dirty hack to get around additional account parsed for testing
     if (txn_ctx.txn_descriptor->acct_addr_cnt == test->accs_len + 1) {
       txn_ctx.txn_descriptor->acct_addr_cnt = (ushort)test->accs_len;

@@ -163,7 +163,7 @@ int
 fd_execute_instr( fd_global_ctx_t * global, fd_instr_t * instr, transaction_ctx_t * txn_ctx );
 
 void
-fd_executor_setup_accessed_accounts_for_txn( transaction_ctx_t * txn_ctx, fd_rawtxn_b_t const * txn_raw );
+fd_executor_setup_accessed_accounts_for_txn( transaction_ctx_t * txn_ctx, fd_rawtxn_b_t const * txn_raw, uint * use_sysvar_instructions );
 
 void
 fd_convert_txn_instr_to_instr( fd_txn_t const * txn_descriptor,
