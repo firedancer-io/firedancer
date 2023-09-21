@@ -10,12 +10,14 @@ with open('fd_types.json', 'r') as json_file:
 
 header = open(sys.argv[1], "w")
 body = open(sys.argv[2], "w")
+names = open(sys.argv[3], "w")
 
 namespace = json_object["namespace"]
 entries = json_object["entries"]
 defined = set()
 print("// This is an auto-generated file. To add entries, edit fd_types.json", file=header)
 print("// This is an auto-generated file. To add entries, edit fd_types.json", file=body)
+print("// This is an auto-generated file. To add entries, edit fd_types.json", file=names)
 print("#ifndef HEADER_" + json_object["name"].upper(), file=header)
 print("#define HEADER_" + json_object["name"].upper(), file=header)
 print("", file=header)
@@ -30,6 +32,10 @@ print('#pragma GCC diagnostic ignored "-Wunused-variable"', file=body)
 
 print('#define SOURCE_fd_src_flamenco_types_fd_types_c', file=body)
 print('#include "fd_types_custom.c"', file=body)
+
+type_name_count = sum(1 for e in filter(lambda entry: not "attribute" in entry, entries))
+print(f'#define FD_TYPE_NAME_COUNT {type_name_count}', file=names)
+print("static char const * fd_type_names[FD_TYPE_NAME_COUNT] = {", file=names)
 
 type_map = {
     "int64_t": "long",
@@ -1347,6 +1353,8 @@ for entry in entries:
         continue
     n = namespace + "_" + entry["name"]
 
+    print(f'  \"{entry["name"]}\",', file=names)
+
     if entry["type"] == "enum":
         print(f"void {n}_new_disc({n}_t* self, uint discriminant);", file=header)
     print(f"void {n}_new({n}_t* self);", file=header)
@@ -1607,3 +1615,5 @@ for (element_type,key) in map_element_types.items():
 print("FD_PROTOTYPES_END", file=header)
 print("", file=header)
 print("#endif // HEADER_" + json_object["name"].upper(), file=header)
+
+print("};", file=names)
