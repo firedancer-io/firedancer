@@ -117,7 +117,7 @@ vote_state_check_slots_are_valid( fd_vote_state_t *  vote_state,
 static int
 vote_state_process_new_vote_state( fd_vote_state_t *   vote_state,
                                    fd_vote_lockout_t * new_state,
-                                   ulong *             new_root,
+                                   fd_option_slot_t    new_root,
                                    ulong *             timestamp,
                                    ulong               epoch,
                                    /* feature_set */
@@ -188,10 +188,10 @@ vote_state_initialize_account( fd_borrowed_account_t *       vote_account,
 
 // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_state/mod.rs#L978-L994
 static int
-vote_state_verify_and_get_vote_state( fd_borrowed_account_t *       vote_account,
-                                      fd_sol_sysvar_clock_t const * clock,
-                                      fd_pubkey_t const * signers[static SIGNERS_MAX],
-                                      instruction_ctx_t   ctx,
+vote_state_verify_and_get_vote_state( fd_borrowed_account_t *        vote_account,
+                                      fd_sol_sysvar_clock_t const *  clock,
+                                      fd_pubkey_t const *            signers[static SIGNERS_MAX],
+                                      instruction_ctx_t              ctx,
                                       /* return */ fd_vote_state_t * vote_state );
 
 // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_state/mod.rs#L996
@@ -200,7 +200,7 @@ vote_state_process_vote_with_account( fd_borrowed_account_t *       vote_account
                                       fd_slot_hashes_t *            slot_hashes,
                                       fd_sol_sysvar_clock_t const * clock,
                                       fd_vote_t *                   vote,
-                                      fd_pubkey_t const * signers[static SIGNERS_MAX],
+                                      fd_pubkey_t const *           signers[static SIGNERS_MAX],
                                       /* feature_set */
                                       instruction_ctx_t ctx );
 
@@ -210,7 +210,7 @@ vote_state_process_vote_state_update( fd_borrowed_account_t *       vote_account
                                       fd_slot_hashes_t *            slot_hashes,
                                       fd_sol_sysvar_clock_t const * clock,
                                       fd_vote_state_update_t *      vote_state_update,
-                                      fd_pubkey_t const * signers[static SIGNERS_MAX],
+                                      fd_pubkey_t const *           signers[static SIGNERS_MAX],
                                       /* feature_set */
                                       instruction_ctx_t ctx );
 
@@ -296,6 +296,9 @@ lockout_lockout( fd_vote_lockout_t * self );
 // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/sdk/program/src/vote/state/mod.rs#L90
 static ulong
 lockout_last_locked_out_slot( fd_vote_lockout_t * self );
+
+static ulong
+lockout_is_locked_out_at_slot( fd_vote_lockout_t * self, ulong slot );
 
 /**********************************************************************/
 /* impl VoteState1_14_11                                              */
@@ -455,13 +458,11 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
   /* This next block implements instruction_context.try_borrow_instruction_account
    * https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_processor.rs#L67
    */
-  FD_BORROWED_ACCOUNT_DECL(me);
+  FD_BORROWED_ACCOUNT_DECL( me );
 
   // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/sdk/src/transaction_context.rs#L685-L690
-  rc = fd_acc_mgr_view( ctx.global->acc_mgr,
-                          ctx.global->funk_txn,
-                          &txn_accs[instr_acc_idxs[0]],
-                          me);
+  rc = fd_acc_mgr_view(
+      ctx.global->acc_mgr, ctx.global->funk_txn, &txn_accs[instr_acc_idxs[0]], me );
   switch ( rc ) {
   case FD_ACC_MGR_SUCCESS:
     break;
@@ -474,8 +475,8 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
   }
 
   // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_processor.rs#L67-L70
-  if ( FD_UNLIKELY( 0 !=
-                    memcmp( &me->const_meta->info.owner, ctx.global->solana_vote_program, 32UL ) ) ) {
+  if ( FD_UNLIKELY(
+           0 != memcmp( &me->const_meta->info.owner, ctx.global->solana_vote_program, 32UL ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
   }
 
@@ -943,7 +944,7 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
 
       rc = vote_state_process_vote_state_update( me, &slot_hashes, &clock, &decode, signers, ctx );
 
-      decode.root      = NULL;
+      decode.root      = ( fd_option_slot_t ){ .is_some = false, .slot = ULONG_MAX };
       decode.timestamp = NULL;
 
       fd_vote_state_update_destroy( &decode, &destroy );
@@ -1070,6 +1071,7 @@ vote_state_contains_slot( fd_vote_state_t * vote_state, ulong slot ) {
   return false;
 }
 
+// TODO FD_LIKELY
 // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_state/mod.rs#L178
 static int
 vote_state_check_update_vote_state_slots_are_valid( fd_vote_state_t *        vote_state,
@@ -1108,23 +1110,26 @@ vote_state_check_update_vote_state_slots_are_valid( fd_vote_state_t *        vot
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
-  ulong * original_proposed_root = vote_state_update->root;
-  if ( original_proposed_root ) {
-    ulong new_proposed_root = *original_proposed_root;
+  fd_option_slot_t original_proposed_root = vote_state_update->root;
+  if ( original_proposed_root.is_some ) {
+    ulong new_proposed_root = original_proposed_root.slot;
     if ( earliest_slot_hash_in_history > new_proposed_root ) {
-      vote_state_update->root = vote_state->root_slot;
-      ulong   prev_slot       = ULONG_MAX;
-      ulong * current_root    = vote_state_update->root;
+      vote_state_update->root       = vote_state->root_slot;
+      ulong            prev_slot    = ULONG_MAX;
+      fd_option_slot_t current_root = vote_state_update->root;
       for ( deq_fd_landed_vote_t_iter_t iter = deq_fd_landed_vote_t_iter_init( vote_state->votes );
             !deq_fd_landed_vote_t_iter_done( vote_state->votes, iter );
             iter = deq_fd_landed_vote_t_iter_next( vote_state->votes, iter ) ) {
         fd_landed_vote_t * vote = deq_fd_landed_vote_t_iter_ele( vote_state->votes, iter );
         bool               is_slot_bigger_than_root = true;
-        if ( current_root ) { is_slot_bigger_than_root = vote->lockout.slot > *current_root; }
+        if ( current_root.is_some ) {
+          is_slot_bigger_than_root = vote->lockout.slot > current_root.slot;
+        }
 
         FD_TEST( vote->lockout.slot < prev_slot && is_slot_bigger_than_root );
         if ( vote->lockout.slot <= new_proposed_root ) {
-          vote_state_update->root = &vote->lockout.slot;
+          vote_state_update->root =
+              ( fd_option_slot_t ){ .is_some = true, .slot = vote->lockout.slot };
           break;
         }
         prev_slot = vote->lockout.slot;
@@ -1132,9 +1137,9 @@ vote_state_check_update_vote_state_slots_are_valid( fd_vote_state_t *        vot
     }
   }
 
-  ulong * root_to_check           = vote_state_update->root;
-  ulong   vote_state_update_index = 0;
-  ulong   lockouts_len            = deq_fd_vote_lockout_t_cnt( vote_state_update->lockouts );
+  fd_option_slot_t * root_to_check           = &vote_state_update->root;
+  ulong              vote_state_update_index = 0;
+  ulong              lockouts_len = deq_fd_vote_lockout_t_cnt( vote_state_update->lockouts );
 
   ulong   slot_hashes_index                   = deq_fd_slot_hash_t_cnt( slot_hashes->hashes );
   ulong * vote_state_update_indexes_to_filter = (ulong *)fd_valloc_malloc(
@@ -1142,12 +1147,14 @@ vote_state_check_update_vote_state_slots_are_valid( fd_vote_state_t *        vot
   ulong filter_index = 0;
 
   while ( vote_state_update_index < lockouts_len && slot_hashes_index > 0 ) {
-    ulong proposed_vote_slot = deq_fd_vote_lockout_t_peek_index_const( vote_state_update->lockouts,
-                                                                       vote_state_update_index )
-                                   ->slot;
-    if ( root_to_check ) { proposed_vote_slot = *root_to_check; }
+    ulong proposed_vote_slot =
+        fd_ulong_if( root_to_check->is_some,
+                     root_to_check->slot,
+                     deq_fd_vote_lockout_t_peek_index_const( vote_state_update->lockouts,
+                                                             vote_state_update_index )
+                         ->slot );
 
-    if ( !root_to_check && vote_state_update_index > 0 &&
+    if ( !root_to_check->is_some && vote_state_update_index > 0 &&
          proposed_vote_slot <= deq_fd_vote_lockout_t_peek_index_const( vote_state_update->lockouts,
                                                                        vote_state_update_index - 1 )
                                    ->slot ) {
@@ -1165,17 +1172,18 @@ vote_state_check_update_vote_state_slots_are_valid( fd_vote_state_t *        vot
           vote_state_update_indexes_to_filter[filter_index++] = vote_state_update_index;
         }
 
-        if ( root_to_check ) {
-          FD_TEST( *root_to_check == proposed_vote_slot );
-          FD_TEST( *root_to_check < earliest_slot_hash_in_history );
+        if ( root_to_check->is_some ) {
+          FD_TEST( root_to_check->slot == proposed_vote_slot );
+          FD_TEST( root_to_check->slot < earliest_slot_hash_in_history );
 
-          root_to_check = NULL;
+          root_to_check->is_some = false;
+          root_to_check->slot    = ULONG_MAX;
         } else {
           vote_state_update_index = fd_ulong_sat_add( vote_state_update_index, 1 );
         }
         continue;
       } else {
-        if ( root_to_check ) {
+        if ( root_to_check->is_some ) {
           ctx.txn_ctx->custom_err = FD_VOTE_ROOT_ON_DIFFERENT_FORK;
         } else {
           ctx.txn_ctx->custom_err = FD_VOTE_SLOTS_MISMATCH;
@@ -1186,8 +1194,9 @@ vote_state_check_update_vote_state_slots_are_valid( fd_vote_state_t *        vot
       slot_hashes_index = fd_ulong_sat_sub( slot_hashes_index, 1 );
       continue;
     } else {
-      if ( root_to_check ) {
-        root_to_check = NULL;
+      if ( root_to_check->is_some ) {
+        root_to_check->is_some = false;
+        root_to_check->slot    = ULONG_MAX;
       } else {
         vote_state_update_index = fd_ulong_sat_add( vote_state_update_index, 1 );
         slot_hashes_index       = fd_ulong_sat_sub( slot_hashes_index, 1 );
@@ -1277,7 +1286,7 @@ vote_state_check_slots_are_valid( fd_vote_state_t *  vote_state,
 static int
 vote_state_process_new_vote_state( fd_vote_state_t *   vote_state,
                                    fd_vote_lockout_t * new_state,
-                                   ulong *             new_root,
+                                   fd_option_slot_t    new_root,
                                    ulong *             timestamp,
                                    ulong               epoch,
                                    /* feature_set */
@@ -1289,12 +1298,12 @@ vote_state_process_new_vote_state( fd_vote_state_t *   vote_state,
   };
 
   // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_state/mod.rs#L559-L569
-  if ( FD_UNLIKELY( new_root && vote_state->root_slot ) ) {
-    if ( FD_UNLIKELY( *new_root < *vote_state->root_slot ) ) {
+  if ( FD_UNLIKELY( new_root.is_some && vote_state->root_slot.is_some ) ) {
+    if ( FD_UNLIKELY( new_root.slot < vote_state->root_slot.slot ) ) {
       ctx.txn_ctx->custom_err = FD_VOTE_ROOT_ROLL_BACK;
       return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
     }
-  } else if ( FD_UNLIKELY( !new_root && vote_state->root_slot ) ) {
+  } else if ( FD_UNLIKELY( !new_root.is_some && vote_state->root_slot.is_some ) ) {
     ctx.txn_ctx->custom_err = FD_VOTE_ROOT_ROLL_BACK;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
@@ -1310,8 +1319,8 @@ vote_state_process_new_vote_state( fd_vote_state_t *   vote_state,
     } else if ( FD_UNLIKELY( vote->confirmation_count > MAX_LOCKOUT_HISTORY ) ) {
       ctx.txn_ctx->custom_err = FD_VOTE_CONFIRMATION_TOO_LARGE;
       return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
-    } else if ( FD_LIKELY( new_root ) ) {
-      if ( FD_UNLIKELY( vote->slot <= *new_root && *new_root != SLOT_DEFAULT ) ) {
+    } else if ( FD_LIKELY( new_root.is_some ) ) {
+      if ( FD_UNLIKELY( vote->slot <= new_root.slot && new_root.slot != SLOT_DEFAULT ) ) {
         ctx.txn_ctx->custom_err = FD_VOTE_SLOT_SMALLER_THAN_ROOT;
         return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
       }
@@ -1337,14 +1346,14 @@ vote_state_process_new_vote_state( fd_vote_state_t *   vote_state,
 
   ulong finalized_slot_count = 1;
 
-  if ( FD_LIKELY( new_root ) ) {
+  if ( FD_LIKELY( new_root.is_some ) ) {
     for ( deq_fd_landed_vote_t_iter_t iter = deq_fd_landed_vote_t_iter_init( vote_state->votes );
           !deq_fd_landed_vote_t_iter_done( vote_state->votes, iter );
           iter = deq_fd_landed_vote_t_iter_next( vote_state->votes, iter ) ) {
       fd_landed_vote_t * current_vote = deq_fd_landed_vote_t_iter_ele( vote_state->votes, iter );
-      if ( FD_UNLIKELY( current_vote->lockout.slot <= *new_root ) ) {
+      if ( FD_UNLIKELY( current_vote->lockout.slot <= new_root.slot ) ) {
         current_vote_state_index++;
-        if ( FD_UNLIKELY( current_vote->lockout.slot != *new_root ) ) finalized_slot_count++;
+        if ( FD_UNLIKELY( current_vote->lockout.slot != new_root.slot ) ) finalized_slot_count++;
         continue;
       }
       break;
@@ -1379,44 +1388,32 @@ vote_state_process_new_vote_state( fd_vote_state_t *   vote_state,
     }
   }
 
-  if ( ( ( vote_state->root_slot != NULL ) ^ ( new_root != NULL ) ) ||
-       ( ( ( vote_state->root_slot != NULL ) && ( vote_state->root_slot != NULL ) ) &&
-         ( *new_root != *vote_state->root_slot ) ) ) {
+  bool both_none = !vote_state->root_slot.is_some && !new_root.is_some;
+  if ( ( !both_none && ( vote_state->root_slot.is_some != new_root.is_some ||
+                         vote_state->root_slot.slot != new_root.slot ) ) ) {
     if ( FD_FEATURE_ACTIVE( ctx.global, vote_state_update_credit_per_dequeue ) )
       vote_state_increment_credits( vote_state, epoch, finalized_slot_count );
     else vote_state_increment_credits( vote_state, epoch, 1 );
   }
 
-  /* Update the new root slot, timestamp and votes */
   if ( timestamp != NULL ) {
     vote_state->last_timestamp.slot      = deq_fd_vote_lockout_t_peek_tail( new_state )->slot;
     vote_state->last_timestamp.timestamp = *timestamp;
   }
-
-  /* TODO: add constructors to fd_types */
-  if ( NULL != new_root ) {
-    if ( vote_state->root_slot == NULL )
-      vote_state->root_slot = fd_valloc_malloc( ctx.global->valloc, 8UL, sizeof( ulong ) );
-    *vote_state->root_slot = *new_root;
-  }
+  vote_state->root_slot = new_root;
   deq_fd_landed_vote_t_remove_all( vote_state->votes );
-
   for ( deq_fd_vote_lockout_t_iter_t iter = deq_fd_vote_lockout_t_iter_init( new_state );
         !deq_fd_vote_lockout_t_iter_done( new_state, iter );
         iter = deq_fd_vote_lockout_t_iter_next( new_state, iter ) ) {
-    FD_TEST( !deq_fd_vote_lockout_t_full( new_state ) );
-
-    fd_vote_lockout_t * lockout = deq_fd_vote_lockout_t_iter_ele( new_state, iter );
-
-    fd_landed_vote_t landed_vote = {
-        .latency = 0, // TODO
-        .lockout =
+    fd_vote_lockout_t * lockout     = deq_fd_vote_lockout_t_iter_ele( new_state, iter );
+    fd_landed_vote_t    landed_vote = {
+           .latency = 0,
+           .lockout =
             {
                       .slot               = lockout->slot,
                       .confirmation_count = lockout->confirmation_count,
                       },
     };
-
     deq_fd_landed_vote_t_push_tail( vote_state->votes, landed_vote );
   }
   return OK;
@@ -1640,21 +1637,21 @@ vote_state_withdraw(
                           vote_account->pubkey,
                           0,
                           0 /* TODO min_data_sz */,
-                          vote_account);
+                          vote_account );
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
 
   rc = vote_account_checked_sub_lamports( vote_account->meta, lamports );
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
 
   // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_state/mod.rs#L943-L944
-  FD_BORROWED_ACCOUNT_DECL(to_account);
+  FD_BORROWED_ACCOUNT_DECL( to_account );
 
   rc = fd_acc_mgr_modify( ctx.global->acc_mgr,
                           ctx.global->funk_txn,
                           &txn_accs[instr_acc_idxs[to_account_index]],
                           0,
                           0 /* TODO min_data_sz */,
-                          to_account);
+                          to_account );
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
 
   // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_state/mod.rs#L945
@@ -1710,10 +1707,10 @@ vote_state_process_vote_unfiltered( fd_vote_state_t *  vote_state,
   int rc;
   rc = vote_state_check_slots_are_valid( vote_state, vote_slots, &vote->hash, slot_hashes, ctx );
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
-  for ( deq_ulong_iter_t iter = deq_ulong_iter_init( vote->slots );
-        !deq_ulong_iter_done( vote->slots, iter );
-        iter = deq_ulong_iter_next( vote->slots, iter ) ) {
-    ulong * ele = deq_ulong_iter_ele( vote->slots, iter );
+  for ( deq_ulong_iter_t iter = deq_ulong_iter_init( vote_slots );
+        !deq_ulong_iter_done( vote_slots, iter );
+        iter = deq_ulong_iter_next( vote_slots, iter ) ) {
+    ulong * ele = deq_ulong_iter_ele( vote_slots, iter );
     vote_state_process_next_vote_slot( vote_state, *ele, epoch );
   }
   return OK;
@@ -1836,8 +1833,8 @@ vote_state_process_vote_with_account( fd_borrowed_account_t *       vote_account
                                       fd_slot_hashes_t *            slot_hashes,
                                       fd_sol_sysvar_clock_t const * clock,
                                       fd_vote_t *                   vote,
-                                      fd_pubkey_t const * signers[static SIGNERS_MAX],
-                                      instruction_ctx_t   ctx ) {
+                                      fd_pubkey_t const *           signers[static SIGNERS_MAX],
+                                      instruction_ctx_t             ctx ) {
   int             rc;
   fd_vote_state_t vote_state;
   rc = vote_state_verify_and_get_vote_state( vote_account, clock, signers, ctx, &vote_state );
@@ -1880,7 +1877,7 @@ vote_state_process_vote_state_update( fd_borrowed_account_t *       vote_account
                                       fd_slot_hashes_t *            slot_hashes,
                                       fd_sol_sysvar_clock_t const * clock,
                                       fd_vote_state_update_t *      vote_state_update,
-                                      fd_pubkey_t const * signers[static SIGNERS_MAX],
+                                      fd_pubkey_t const *           signers[static SIGNERS_MAX],
                                       /* feature_set */
                                       instruction_ctx_t ctx ) {
   int rc;
@@ -1964,7 +1961,7 @@ vote_state_process_next_vote_slot( fd_vote_state_t * self, ulong next_vote_slot,
 
   if ( FD_UNLIKELY( deq_fd_landed_vote_t_cnt( self->votes ) == MAX_LOCKOUT_HISTORY ) ) {
     fd_landed_vote_t vote = deq_fd_landed_vote_t_pop_head( self->votes );
-    self->root_slot       = &vote.lockout.slot; // FIXME unsafe lifetime. why is this a pointer?
+    self->root_slot       = ( fd_option_slot_t ){ .is_some = true, .slot = vote.lockout.slot };
 
     vote_state_increment_credits( self, epoch, 1 );
   }
@@ -2095,9 +2092,13 @@ vote_state_get_and_update_authorized_voter( fd_vote_state_t *            self,
 static void
 vote_state_pop_expired_votes( fd_vote_state_t * self, ulong next_vote_slot ) {
   while ( !deq_fd_landed_vote_t_empty( self->votes ) ) {
-    fd_landed_vote_t * vote = deq_fd_landed_vote_t_peek_head( self->votes );
-    if ( vote->lockout.slot >= next_vote_slot ) break;
-    deq_fd_landed_vote_t_pop_head( self->votes );
+    fd_landed_vote_t * vote = deq_fd_landed_vote_t_peek_tail( self->votes );
+    // TODO FD_LIKELY
+    if ( !( lockout_is_locked_out_at_slot( &vote->lockout, next_vote_slot ) ) ) {
+      deq_fd_landed_vote_t_pop_tail( self->votes );
+    } else {
+      break;
+    }
   }
 }
 
@@ -2126,10 +2127,11 @@ vote_state_process_timestamp( fd_vote_state_t * self,
                               ulong             slot,
                               ulong             timestamp,
                               instruction_ctx_t ctx ) {
-  if ( FD_UNLIKELY( ( slot < self->last_timestamp.slot || timestamp < self->last_timestamp.timestamp ) ||
-                    ( slot == self->last_timestamp.slot && slot != self->last_timestamp.slot &&
-                      timestamp != self->last_timestamp.timestamp &&
-                      self->last_timestamp.slot != 0 ) ) ) {
+  if ( FD_UNLIKELY(
+           ( slot < self->last_timestamp.slot || timestamp < self->last_timestamp.timestamp ) ||
+           ( slot == self->last_timestamp.slot &&
+             ( slot != self->last_timestamp.slot || timestamp != self->last_timestamp.timestamp ) &&
+             self->last_timestamp.slot != 0 ) ) ) {
     ctx.txn_ctx->custom_err = FD_VOTE_TIMESTAMP_TOO_OLD;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
@@ -2152,6 +2154,12 @@ lockout_lockout( fd_vote_lockout_t * self ) {
 static inline ulong
 lockout_last_locked_out_slot( fd_vote_lockout_t * self ) {
   return fd_ulong_sat_add( self->slot, lockout_lockout( self ) );
+}
+
+// https://github.com/firedancer-io/solana/blob/v1.17/sdk/program/src/vote/state/mod.rs#L93
+static inline ulong
+lockout_is_locked_out_at_slot( fd_vote_lockout_t * self, ulong slot ) {
+  return lockout_last_locked_out_slot( self ) >= slot;
 }
 
 /**********************************************************************/
@@ -2366,12 +2374,8 @@ vote_account_set_data_length( fd_borrowed_account_t * self,
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
 
   // Tell funk we have a new length...
-  rc = fd_acc_mgr_modify( ctx.global->acc_mgr,
-                          ctx.global->funk_txn,
-                          self->pubkey,
-                          0,
-                          new_length,
-                          self);
+  rc = fd_acc_mgr_modify(
+      ctx.global->acc_mgr, ctx.global->funk_txn, self->pubkey, 0, new_length, self );
   switch ( rc ) {
   case FD_ACC_MGR_SUCCESS:
     return OK;
@@ -2435,22 +2439,19 @@ vote_account_set_state( fd_borrowed_account_t *     self,
     if ( serialized_sz < v14_sz ) serialized_sz = v14_sz;
   }
 
-  int                 err          = 0;
+  int err = 0;
 
   ulong re  = fd_rent_exempt( ctx.global, serialized_sz );
   bool  cbr = fd_account_can_data_be_resized( &ctx, self->const_meta, serialized_sz, &err );
-  if ( ( ( self->const_meta->dlen < serialized_sz && self->const_meta->info.lamports < re ) ) || !cbr ) {
+  if ( ( ( self->const_meta->dlen < serialized_sz && self->const_meta->info.lamports < re ) ) ||
+       !cbr ) {
     serialized_sz = original_serialized_sz;
     if ( serialized_sz < v14_sz ) { serialized_sz = v14_sz; }
     add_vote_latency = 0;
   }
 
-  int rc = fd_acc_mgr_modify( ctx.global->acc_mgr,
-                          ctx.global->funk_txn,
-                          self->pubkey,
-                          0,
-                          serialized_sz,
-                          self);
+  int rc = fd_acc_mgr_modify(
+      ctx.global->acc_mgr, ctx.global->funk_txn, self->pubkey, 0, serialized_sz, self );
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
 
   fd_account_meta_t * m            = self->meta;
@@ -2501,7 +2502,8 @@ static bool
 vote_account_is_rent_exempt_at_data_length( fd_borrowed_account_t * self,
                                             ulong                   data_length,
                                             instruction_ctx_t       ctx ) {
-  return fd_rent_exempt_minimum_balance( ctx.global, data_length ) <= self->const_meta->info.lamports;
+  return fd_rent_exempt_minimum_balance( ctx.global, data_length ) <=
+         self->const_meta->info.lamports;
 }
 
 /**********************************************************************/
@@ -2634,12 +2636,14 @@ decode_compact_update( instruction_ctx_t                ctx,
                        fd_vote_state_update_t *         vote_update ) {
   // Taken from:
   // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/sdk/program/src/vote/state/mod.rs#L712
-  vote_update->root = compact_update->root != ULONG_MAX ? &compact_update->root : NULL;
+  vote_update->root = compact_update->root != ULONG_MAX
+                          ? ( fd_option_slot_t ){ .is_some = true, compact_update->root }
+                          : ( fd_option_slot_t ){ .is_some = false, .slot = ULONG_MAX };
   if ( vote_update->lockouts ) FD_LOG_WARNING( ( "MEM LEAK: %p", (void *)vote_update->lockouts ) );
 
   vote_update->lockouts = deq_fd_vote_lockout_t_alloc( ctx.global->valloc );
   ulong lockouts_len    = compact_update->lockouts_len;
-  ulong slot            = vote_update->root ? *vote_update->root : 0;
+  ulong slot            = fd_ulong_if( vote_update->root.is_some, vote_update->root.slot, 0 );
 
   vote_update->lockouts = deq_fd_vote_lockout_t_alloc( ctx.global->valloc );
   if ( lockouts_len > deq_fd_vote_lockout_t_max( vote_update->lockouts ) )

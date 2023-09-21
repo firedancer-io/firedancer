@@ -1,3 +1,4 @@
+#include "fd_types.h"
 #ifndef SOURCE_fd_src_flamenco_types_fd_types_c
 #error "fd_types_custom.c is part of the fd_types.c compile uint"
 #endif /* !SOURCE_fd_src_flamenco_types_fd_types_c */
@@ -98,9 +99,7 @@ static ulong fd_vote_state_transcoding_size(fd_vote_state_t const * self) {
     size += sizeof(ulong);
   }
   size += sizeof(char);
-  if (NULL !=  self->root_slot) {
-    size += sizeof(ulong);
-  }
+  size += sizeof(fd_option_slot_t);
   size += fd_vote_authorized_voters_size(&self->authorized_voters);
   size += fd_vote_prior_voters_size(&self->prior_voters);
   if ( self->epoch_credits ) {
@@ -158,15 +157,7 @@ static int fd_vote_transcoding_state_encode(fd_vote_state_t const * self, fd_bin
     err = fd_bincode_uint64_encode(&votes_len, ctx);
     if ( FD_UNLIKELY(err) ) return err;
   }
-  if (self->root_slot != NULL) {
-    err = fd_bincode_option_encode(1, ctx);
-    if ( FD_UNLIKELY(err) ) return err;
-    err = fd_bincode_uint64_encode(self->root_slot, ctx);
-    if ( FD_UNLIKELY(err) ) return err;
-  } else {
-    err = fd_bincode_option_encode(0, ctx);
-    if ( FD_UNLIKELY(err) ) return err;
-  }
+  fd_option_slot_encode(&self->root_slot, ctx);
   err = fd_vote_authorized_voters_encode(&self->authorized_voters, ctx);
   err = fd_vote_prior_voters_encode(&self->prior_voters, ctx);
   if ( FD_UNLIKELY(err) ) return err;

@@ -753,6 +753,14 @@ typedef struct fd_landed_vote fd_landed_vote_t;
 #define FD_LANDED_VOTE_FOOTPRINT sizeof(fd_landed_vote_t)
 #define FD_LANDED_VOTE_ALIGN (8UL)
 
+struct __attribute__((aligned(8UL))) fd_option_slot {
+  uchar is_some;
+  ulong slot;
+};
+typedef struct fd_option_slot fd_option_slot_t;
+#define FD_OPTION_SLOT_FOOTPRINT sizeof(fd_option_slot_t)
+#define FD_OPTION_SLOT_ALIGN (8UL)
+
 #define DEQUE_NAME deq_fd_vote_lockout_t
 #define DEQUE_T fd_vote_lockout_t
 #define DEQUE_MAX 100
@@ -786,7 +794,7 @@ struct __attribute__((aligned(8UL))) fd_vote_state_0_23_5 {
   fd_pubkey_t authorized_withdrawer;
   uchar commission;
   fd_vote_lockout_t * votes;
-  ulong* root_slot;
+  fd_option_slot_t root_slot;
   fd_vote_epoch_credits_t * epoch_credits;
   fd_vote_block_timestamp_t last_timestamp;
 };
@@ -836,7 +844,7 @@ struct __attribute__((aligned(8UL))) fd_vote_state_1_14_11 {
   fd_pubkey_t authorized_withdrawer;
   uchar commission;
   fd_vote_lockout_t * votes;
-  ulong* root_slot;
+  fd_option_slot_t root_slot;
   fd_vote_authorized_voters_t authorized_voters;
   fd_vote_prior_voters_t prior_voters;
   fd_vote_epoch_credits_t * epoch_credits;
@@ -864,7 +872,7 @@ struct __attribute__((aligned(8UL))) fd_vote_state {
   fd_pubkey_t authorized_withdrawer;
   uchar commission;
   fd_landed_vote_t * votes;
-  ulong* root_slot;
+  fd_option_slot_t root_slot;
   fd_vote_authorized_voters_t authorized_voters;
   fd_vote_prior_voters_t prior_voters;
   fd_vote_epoch_credits_t * epoch_credits;
@@ -893,7 +901,7 @@ typedef struct fd_vote_state_versioned fd_vote_state_versioned_t;
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L185 */
 struct __attribute__((aligned(8UL))) fd_vote_state_update {
   fd_vote_lockout_t * lockouts;
-  ulong* root;
+  fd_option_slot_t root;
   fd_hash_t hash;
   ulong* timestamp;
 };
@@ -2669,6 +2677,15 @@ void fd_landed_vote_walk(void * w, fd_landed_vote_t const * self, fd_types_walk_
 ulong fd_landed_vote_size(fd_landed_vote_t const * self);
 ulong fd_landed_vote_footprint( void );
 ulong fd_landed_vote_align( void );
+
+void fd_option_slot_new(fd_option_slot_t* self);
+int fd_option_slot_decode(fd_option_slot_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_option_slot_encode(fd_option_slot_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_option_slot_destroy(fd_option_slot_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_option_slot_walk(void * w, fd_option_slot_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_option_slot_size(fd_option_slot_t const * self);
+ulong fd_option_slot_footprint( void );
+ulong fd_option_slot_align( void );
 
 void fd_vote_state_0_23_5_new(fd_vote_state_0_23_5_t* self);
 int fd_vote_state_0_23_5_decode(fd_vote_state_0_23_5_t* self, fd_bincode_decode_ctx_t * ctx);
