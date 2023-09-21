@@ -1117,9 +1117,9 @@ vote_state_check_update_vote_state_slots_are_valid( fd_vote_state_t *        vot
       vote_state_update->root       = vote_state->root_slot;
       ulong            prev_slot    = ULONG_MAX;
       fd_option_slot_t current_root = vote_state_update->root;
-      for ( deq_fd_landed_vote_t_iter_t iter = deq_fd_landed_vote_t_iter_init( vote_state->votes );
-            !deq_fd_landed_vote_t_iter_done( vote_state->votes, iter );
-            iter = deq_fd_landed_vote_t_iter_next( vote_state->votes, iter ) ) {
+      for ( deq_fd_landed_vote_t_iter_t iter = deq_fd_landed_vote_t_iter_init_reverse( vote_state->votes );
+            !deq_fd_landed_vote_t_iter_done_reverse( vote_state->votes, iter );
+            iter = deq_fd_landed_vote_t_iter_next_reverse( vote_state->votes, iter ) ) {
         fd_landed_vote_t * vote = deq_fd_landed_vote_t_iter_ele( vote_state->votes, iter );
         bool               is_slot_bigger_than_root = true;
         if ( current_root.is_some ) {
