@@ -71,6 +71,18 @@ else` construct. */
 #define ACCOUNTS_MAX 4 /* Vote instructions take in at most 4 accounts */
 #define SIGNERS_MAX  3 /* Vote instructions have most 3 signers */
 
+static inline ulong
+checked_add_expect( ulong a, ulong b, char const * expect ) {
+  if ( a + b < a ) FD_LOG_ERR( ( expect ) );
+  return a + b;
+}
+
+static inline ulong
+checked_sub_expect( ulong a, ulong b, char const * expect ) {
+  if ( a - b > a ) FD_LOG_ERR( ( expect ) );
+  return a - b;
+}
+
 /**********************************************************************/
 /* mod vote_processor                                                 */
 /**********************************************************************/
@@ -299,6 +311,11 @@ lockout_last_locked_out_slot( fd_vote_lockout_t * self );
 
 static ulong
 lockout_is_locked_out_at_slot( fd_vote_lockout_t * self, ulong slot );
+
+static void
+lockout_increase_confirmation_count( fd_vote_lockout_t * self, uint by ) {
+  self->confirmation_count = fd_uint_sat_add( self->confirmation_count, by );
+}
 
 /**********************************************************************/
 /* impl VoteState1_14_11                                              */
@@ -1117,7 +1134,8 @@ vote_state_check_update_vote_state_slots_are_valid( fd_vote_state_t *        vot
       vote_state_update->root       = vote_state->root_slot;
       ulong            prev_slot    = ULONG_MAX;
       fd_option_slot_t current_root = vote_state_update->root;
-      for ( deq_fd_landed_vote_t_iter_t iter = deq_fd_landed_vote_t_iter_init_reverse( vote_state->votes );
+      for ( deq_fd_landed_vote_t_iter_t iter =
+                deq_fd_landed_vote_t_iter_init_reverse( vote_state->votes );
             !deq_fd_landed_vote_t_iter_done_reverse( vote_state->votes, iter );
             iter = deq_fd_landed_vote_t_iter_next_reverse( vote_state->votes, iter ) ) {
         fd_landed_vote_t * vote = deq_fd_landed_vote_t_iter_ele( vote_state->votes, iter );
@@ -1153,53 +1171,77 @@ vote_state_check_update_vote_state_slots_are_valid( fd_vote_state_t *        vot
                      deq_fd_vote_lockout_t_peek_index_const( vote_state_update->lockouts,
                                                              vote_state_update_index )
                          ->slot );
-
     if ( !root_to_check->is_some && vote_state_update_index > 0 &&
-         proposed_vote_slot <= deq_fd_vote_lockout_t_peek_index_const( vote_state_update->lockouts,
-                                                                       vote_state_update_index - 1 )
-                                   ->slot ) {
+         proposed_vote_slot <=
+             deq_fd_vote_lockout_t_peek_index_const(
+                 vote_state_update->lockouts,
+                 checked_sub_expect(
+                     vote_state_update_index,
+                     1,
+                     "`vote_state_update_index` is positive when checking `SlotsNotOrdered`" ) )
+                 ->slot ) {
       ctx.txn_ctx->custom_err = FD_VOTE_SLOTS_NOT_ORDERED;
       return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
     }
-
     ulong ancestor_slot =
-        deq_fd_slot_hash_t_peek_index_const( slot_hashes->hashes, slot_hashes_index - 1 )->slot;
+        deq_fd_slot_hash_t_peek_index_const(
+            slot_hashes->hashes,
+            checked_sub_expect( slot_hashes_index,
+                                1,
+                                "`slot_hashes_index` is positive when computing `ancestor_slot`" ) )
+            ->slot;
     if ( proposed_vote_slot < ancestor_slot ) {
-      ulong cnt = deq_fd_slot_hash_t_cnt( slot_hashes->hashes );
-      if ( slot_hashes_index == cnt ) {
+      if ( slot_hashes_index == deq_fd_slot_hash_t_cnt( slot_hashes->hashes ) ) {
         FD_TEST( proposed_vote_slot < earliest_slot_hash_in_history );
-        if ( !vote_state_contains_slot( vote_state, proposed_vote_slot ) && !root_to_check ) {
+        if ( !vote_state_contains_slot( vote_state, proposed_vote_slot ) &&
+             !root_to_check->is_some ) {
           vote_state_update_indexes_to_filter[filter_index++] = vote_state_update_index;
         }
-
         if ( root_to_check->is_some ) {
-          FD_TEST( root_to_check->slot == proposed_vote_slot );
-          FD_TEST( root_to_check->slot < earliest_slot_hash_in_history );
+          ulong new_proposed_root = root_to_check->slot;
+          FD_TEST( new_proposed_root == proposed_vote_slot );
+          FD_TEST( new_proposed_root < earliest_slot_hash_in_history );
 
           root_to_check->is_some = false;
           root_to_check->slot    = ULONG_MAX;
         } else {
-          vote_state_update_index = fd_ulong_sat_add( vote_state_update_index, 1 );
+          vote_state_update_index = checked_add_expect(
+              vote_state_update_index,
+              1,
+              "`vote_state_update_index` is bounded by `MAX_LOCKOUT_HISTORY` when "
+              "`proposed_vote_slot` is too old to be in SlotHashes history" );
         }
         continue;
       } else {
         if ( root_to_check->is_some ) {
           ctx.txn_ctx->custom_err = FD_VOTE_ROOT_ON_DIFFERENT_FORK;
+          return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
         } else {
           ctx.txn_ctx->custom_err = FD_VOTE_SLOTS_MISMATCH;
+          return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
         }
         return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
       }
     } else if ( proposed_vote_slot > ancestor_slot ) {
-      slot_hashes_index = fd_ulong_sat_sub( slot_hashes_index, 1 );
+      slot_hashes_index = checked_sub_expect(
+          slot_hashes_index,
+          1,
+          "`slot_hashes_index` is positive when finding newer slots in SlotHashes history" );
       continue;
     } else {
       if ( root_to_check->is_some ) {
         root_to_check->is_some = false;
         root_to_check->slot    = ULONG_MAX;
       } else {
-        vote_state_update_index = fd_ulong_sat_add( vote_state_update_index, 1 );
-        slot_hashes_index       = fd_ulong_sat_sub( slot_hashes_index, 1 );
+        vote_state_update_index =
+            checked_add_expect( vote_state_update_index,
+                                1,
+                                "`vote_state_update_index` is bounded by `MAX_LOCKOUT_HISTORY` "
+                                "when match is found in SlotHashes history" );
+        slot_hashes_index = checked_sub_expect(
+            slot_hashes_index,
+            1,
+            "`slot_hashes_index` is positive when match is found in SlotHashes history" );
       }
     }
   }
@@ -1243,40 +1285,39 @@ vote_state_check_slots_are_valid( fd_vote_state_t *  vote_state,
     ulong * last_voted_slot = vote_state_last_voted_slot( vote_state );
     if ( FD_UNLIKELY( last_voted_slot &&
                       *deq_ulong_peek_index( vote_slots, i ) <= *last_voted_slot ) ) {
-      if ( FD_UNLIKELY( i + 1 < i ) ) {
-        FD_LOG_ERR( ( "`i` is bounded by `MAX_LOCKOUT_HISTORY` when finding larger slots" ) );
-      }
-      i++;
+      checked_add_expect(
+          i, 1, "`i` is bounded by `MAX_LOCKOUT_HISTORY` when finding larger slots" );
       continue;
     }
 
     // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_state/mod.rs#L457-L463
-    if ( FD_UNLIKELY( j - 1 > j ) ) FD_LOG_ERR( ( "`j` is positive when finding newer slots" ) );
     if ( FD_UNLIKELY( *deq_ulong_peek_index( vote_slots, i ) !=
-                      deq_fd_slot_hash_t_peek_index( slot_hashes->hashes, j - 1 )->slot ) ) {
-      j--;
+                      deq_fd_slot_hash_t_peek_index( slot_hashes->hashes,
+                                                     checked_sub_expect( j, 1, "`j` is positive" ) )
+                          ->slot ) ) {
+      j = checked_sub_expect( j, 1, "`j` is positive when finding newer slots" );
       continue;
     }
 
-    if ( FD_UNLIKELY( i + 1 < i ) ) {
-      FD_LOG_ERR( ( "`i` is bounded by `MAX_LOCKOUT_HISTORY` when hash is found" ) );
-    }
-    i++;
-    if ( FD_UNLIKELY( j - 1 > j ) ) { FD_LOG_ERR( ( "`j` is positive when hash is found" ) ); }
-    j--;
+    i = checked_add_expect( i, 1, "`i` is bounded by `MAX_LOCKOUT_HISTORY` when hash is found" );
+    j = checked_sub_expect( j, 1, "`j` is positive when hash is found" );
   }
 
   if ( FD_UNLIKELY( j == deq_fd_slot_hash_t_cnt( slot_hashes->hashes ) ) ) {
+    FD_LOG_WARNING(
+        ( "{} dropped vote slots {:?}, vote hash: {:?} slot hashes:SlotHash {:?}, too old " ) );
     ctx.txn_ctx->custom_err = FD_VOTE_VOTE_TOO_OLD;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
   if ( FD_UNLIKELY( i != vote_slots_len ) ) {
+    FD_LOG_INFO( ( "{} dropped vote slots {:?} failed to match slot hashes: {:?}" ) );
     ctx.txn_ctx->custom_err = FD_VOTE_SLOTS_MISMATCH;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
   if ( FD_UNLIKELY( 0 != memcmp( &deq_fd_slot_hash_t_peek_index( slot_hashes->hashes, j )->hash,
                                  vote_hash,
                                  32UL ) ) ) {
+    FD_LOG_WARNING( ( "{} dropped vote slots {:?} failed to match hash {} {}" ) );
     ctx.txn_ctx->custom_err = FD_VOTE_SLOT_HASH_MISMATCH;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
@@ -1308,6 +1349,8 @@ vote_state_process_new_vote_state( fd_vote_state_t *   vote_state,
   } else if ( FD_UNLIKELY( !new_root.is_some && vote_state->root_slot.is_some ) ) {
     ctx.txn_ctx->custom_err = FD_VOTE_ROOT_ROLL_BACK;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+  } else {
+    /* no-op */
   }
 
   fd_vote_lockout_t * previous_vote = NULL;
@@ -1728,7 +1771,7 @@ vote_state_process_vote( fd_vote_state_t *  vote_state,
                          ulong              epoch,
                          instruction_ctx_t  ctx ) {
   // https://github.com/firedancer-io/solana/blob/v1.17/programs/vote/src/vote_state/mod.rs#L742-L744
-  if (FD_UNLIKELY(deq_ulong_empty(vote->slots))) {
+  if ( FD_UNLIKELY( deq_ulong_empty( vote->slots ) ) ) {
     ctx.txn_ctx->custom_err = FD_VOTE_EMPTY_SLOTS;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
@@ -2126,9 +2169,17 @@ vote_state_double_lockouts( fd_vote_state_t * self ) {
       FD_LOG_ERR(
           ( "`confirmation_count` and tower_size should be bounded by `MAX_LOCKOUT_HISTORY`" ) );
     }
-    ulong confirmations = i + v->lockout.confirmation_count;
-    if ( stack_depth > confirmations ) v->lockout.confirmation_count++;
-    i++;
+    if ( stack_depth >
+         checked_add_expect(
+             i,
+             v->lockout.confirmation_count,
+             "`confirmation_count` and tower_size should be bounded by `MAX_LOCKOUT_HISTORY`" ) ) {}
+    if ( stack_depth >
+         checked_add_expect(
+             i,
+             (ulong)v->lockout.confirmation_count,
+             "`confirmation_count` and tower_size should be bounded by `MAX_LOCKOUT_HISTORY`" ) )
+      lockout_increase_confirmation_count( &v->lockout, 1 );
   }
 }
 
