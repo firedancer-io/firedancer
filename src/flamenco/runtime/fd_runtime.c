@@ -889,7 +889,8 @@ fd_runtime_collect_rent_account( fd_global_ctx_t *   global,
     if( FD_FEATURE_ACTIVE( global, preserve_rent_epoch_for_rent_exempt_accounts ) ) {
       return 0;
     }
-    info->rent_epoch = epoch;
+//    info->rent_epoch = epoch;
+    info->rent_epoch = 0;
     return 1;
   }
 
