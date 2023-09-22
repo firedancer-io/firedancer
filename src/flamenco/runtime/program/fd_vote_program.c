@@ -934,7 +934,8 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
           &instruction.inner.compact_update_vote_state_switch.compact_vote_state_update;
     }
 
-    if ( FD_LIKELY( FD_FEATURE_ACTIVE( ctx.global, allow_votes_to_directly_update_vote_state ) ) ) {
+    if ( FD_LIKELY( FD_FEATURE_ACTIVE( ctx.global, allow_votes_to_directly_update_vote_state ) &&
+                    FD_FEATURE_ACTIVE( ctx.global, compact_vote_state_updates ) ) ) {
       // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_processor.rs#L212
       fd_slot_hashes_t slot_hashes;
       fd_slot_hashes_new( &slot_hashes );
