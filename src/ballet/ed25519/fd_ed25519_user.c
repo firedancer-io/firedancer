@@ -376,7 +376,7 @@ fd_ed25519_verify( void const *  msg,
        the rest */
 
     static uchar const allzeroes[ 15 ];
-    if( memcmp( s+16, allzeroes, 15UL )!=0 ) return 0;
+    if( memcmp( s+16, allzeroes, 15UL )!=0 ) return FD_ED25519_ERR_SIG;
 
     /* 27742317777372353535851937790883648493 in little endian format */
     static uchar const l_low[16] = {
