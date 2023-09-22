@@ -477,9 +477,8 @@ fd_ed25519_public_from_private( void *        A,
   /* WARNING!  Some implementations do a mod L here (including the go
      implementation but not OpenSSL).  The standard doesn't indicate to
      do this here but it does indicate to do it in the sign operation.
-     The standard does not explicitly indicate to do it in the verify
-     operation but it can be inferred following the sign operation,
-     and OpenSSL does it there. The standard is quite sloppy here.
+     The standard does not indicate to do it in the verify operation but
+     OpenSSL does it there.  The standard is quite sloppy here.
      Commenting out for now to match the standard and OpenSSL behavior. */
 
 //fd_ed25519_sc_reduce( h, h ); /* TODO: AVX-512 VERSION (THIS IS MOD _L_, NOT MOD P) */
@@ -677,10 +676,8 @@ fd_ed25519_verify( void const *  M,
   fd_sha512_fini( fd_sha512_append( fd_sha512_append( fd_sha512_append( fd_sha512_init( sha ),
                   r, 32UL ), A, 32UL ), M, sz ), k );
 
-  /* Note: the spec does not explicitly indicate whether k should be reduced
-     mod l here.  However, it does indicate so when signing (Section 5.1.6
-     step 5, page 14): "... For efficiency, again reduce k modulo L first."
-     This matches OpenSSL and sign implementation above. */
+  /* Note: the spec is vague about whether or not k should be reduced
+     mod l here.  This matches OpenSSL and sign implementation above. */
 
   fd_ed25519_sc_reduce( k, k ); /* TODO: make AVX-512 accelerated version */
 
@@ -732,11 +729,4 @@ fd_ed25519_strerror( int err ) {
   default: break;
   }
   return "unknown";
-}
-
-FD_FN_PURE void const *
-fd_ed25519_validate_public_key( void const * public_key ) {
-  fd_ed25519_ge_p3_t A[1];
-  int err = fd_ed25519_ge_frombytes_vartime( A, public_key );
-  return err == FD_ED25519_SUCCESS ? public_key : NULL;
 }
