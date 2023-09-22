@@ -43,6 +43,44 @@ FD_PROTOTYPES_BEGIN
     P##25 = wwl( 1806891319892L, 1759218604441L, 0L, 4963950264797L,  286998243226L,  879609302220L, 0L,  889305571247L ); \
   } while(0)
 
+/* FD_R43X6_GE_IS_EQ(X,Y) returns 1 if X and Y represent the same curve
+   point and 0 otherwise.  X and Y should be FD_R43X6_QUAD holding u46
+   representations. */
+
+#define FD_R43X6_GE_IS_EQ( X, Y ) fd_r43x6_ge_is_eq( X##03,X##14,X##25, Y##03,Y##14,Y##25 )
+
+FD_FN_UNUSED static int /* let compiler decide if worth inlining */
+fd_r43x6_ge_is_eq( wwl_t X03, wwl_t X14, wwl_t X25,
+                   wwl_t Y03, wwl_t Y14, wwl_t Y25 ) {
+
+  /* We use the same method from the spec to test equality.  It is worth
+     noting that the standard itself specifies using a two point check
+     to avoid doing an unnecessary inversion.  E.g. It is somewhat odd
+     that OpenSSL implementation choses instead to encode R' to r'
+     (slow) compare the encoded r and r' for its equalty check in
+     verify. */
+
+  // Section 6 classEdwardsPoint (page 51)
+  //
+  // #Check that two points are equal.
+  // def __eq__(self,y):
+  //     #Need to check x1/z1 == x2/z2 and similarly for y, so cross
+  //     #multiply to eliminate divisions.
+  //     xn1=self.x*y.z
+  //     xn2=y.x*self.z
+  //     yn1=self.y*y.z
+  //     yn2=y.y*self.z
+  //     return xn1==xn2 and yn1==yn2
+
+  fd_r43x6_t xn1, xn2, yn1, yn2;
+  FD_R43X6_QUAD_PERMUTE ( X, 2,0,2,1, X );         /* X = XZ |XX |XZ |XY,  in u46|u46|u46|u46 */
+  FD_R43X6_QUAD_PERMUTE ( Y, 0,2,1,2, Y );         /* Y = YX |YZ |YY |YZ , in u46|u46|u46|u46 */
+  FD_R43X6_QUAD_MUL_FAST( X, X, Y );               /* X = xn2|xn1|yn2|yn1, in u62|u62|u62|u62 */
+  FD_R43X6_QUAD_UNPACK  ( xn2, xn1, yn2, yn1, X );
+  return (int)(!fd_r43x6_is_nonzero( fd_r43x6_sub_fast( xn1, xn2 ) /* in s62 */ )) &
+         (int)(!fd_r43x6_is_nonzero( fd_r43x6_sub_fast( yn1, yn2 ) /* in s62 */ ));
+}
+
 /* FD_R43X6_QUAD_1122d(Q) does Q = (1,1,2,2*d).  (X,Y,Z,T) will be
    reduced fd_r43x6_t. */
 
@@ -199,6 +237,27 @@ FD_PROTOTYPES_BEGIN
     FD_R43X6_QUAD_MUL_FAST     ( _ta, _ta, _tb );               /* _ta = (X3,       Y3,Z3,  T3), u62|u62|u62|u62 */ \
     FD_R43X6_QUAD_FOLD_UNSIGNED( P3, _ta );                     /* P3  = (X3,       Y3,Z3,  T3), u44|u44|u44|u44 */ \
   } while(0)
+
+/* FD_R43X6_GE_IS_SMALL_ORDER(P) returns 1 if [8]P is the curve neutral
+   point and 0 otherwise.  P should be a FD_R43X6_QUAD holding u44
+   representations of a valid curve point. */
+
+#define FD_R43X6_GE_IS_SMALL_ORDER( P ) fd_r43x6_ge_is_small_order( P##03,P##14,P##25 )
+
+FD_FN_UNUSED static int /* let compiler decide if worth inlining */
+fd_r43x6_ge_is_small_order( wwl_t P03, wwl_t P14, wwl_t P25 ) {
+  for( int i=0; i<3; i++ ) FD_R43X6_GE_DBL( P, P ); /* P = [8]P, in u44|u44|u44|u44 */
+
+  /* We do a faster check than is_eq above by propagating the 0 and 1
+     values of the curve neutral point into the multiplication and
+     simplifying it.  This is equivalent to checking that the result has
+     the form (0|Z|Z|0).  Note that if x is a representation of field
+     element 0, t is also a representation 0 as t = x*y. */
+
+  fd_r43x6_t x, y, z, t;
+  FD_R43X6_QUAD_UNPACK( x, y, z, t, P ); (void)t;
+  return (int)(!fd_r43x6_is_nonzero( x )) & (int)(!fd_r43x6_is_nonzero( fd_r43x6_sub_fast( y, z ) /* in s44 */ ));
+}
 
 /* FD_R43X6_GE_ENCODE(h,P) encodes a curve point P stored in the
    FD_R43X6_QUAD P into a unique compressed representation and writes it
