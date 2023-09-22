@@ -822,77 +822,6 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
     break;
   }
 
-  /* Withdraw
-   *
-   * Instruction:
-   * https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/sdk/program/src/vote/instruction.rs#L50-L56
-   *
-   * Processor:
-   * https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_processor.rs#L227
-   */
-  case fd_vote_instruction_enum_withdraw: {
-    FD_LOG_INFO( ( "executing VoteInstruction::Withdraw instruction" ) );
-    if ( FD_UNLIKELY( ctx.instr->acct_cnt < 2 ) ) {
-      rc = FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
-      break;
-    }
-    fd_rent_t rent_sysvar;
-    fd_sysvar_rent_read( ctx.global, &rent_sysvar );
-    fd_sol_sysvar_clock_t clock_sysvar;
-    fd_sysvar_clock_read( ctx.global, &clock_sysvar );
-
-    rc = vote_state_withdraw(
-        ctx, me, instruction.inner.withdraw, 1, signers, &rent_sysvar, &clock_sysvar );
-
-    break;
-  }
-
-  /* AuthorizeChecked
-   *
-   * Instruction:
-   * https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/sdk/program/src/vote/instruction.rs#L82-L92
-   *
-   * Processor:
-   * https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_processor.rs#L90-L101
-   *
-   * Notes:
-   * - Up to three signers: the vote authority, the authorized withdrawer, and the new authority.
-   * - Feature gated, but live on mainnet.
-   */
-  case fd_vote_instruction_enum_authorize_checked: {
-    FD_LOG_INFO( ( "executing VoteInstruction::AuthorizeChecked instruction" ) );
-    if ( FD_LIKELY( FD_FEATURE_ACTIVE( ctx.global, vote_stake_checked_instructions ) ) ) {
-      if ( FD_UNLIKELY( ctx.instr->acct_cnt < 4 ) ) {
-        rc = FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
-        break;
-      }
-
-      // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_processor.rs#L251-L253
-      fd_pubkey_t const * voter_pubkey = &txn_accs[instr_acc_idxs[3]];
-
-      // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_processor.rs#L254-L256
-      if ( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( ctx.instr, 3 ) ) ) {
-        rc = FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
-        break;
-      }
-
-      // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_processor.rs#L257-L261
-      fd_pubkey_t const * clock_acc_addr = &txn_accs[instr_acc_idxs[1]];
-      if ( FD_UNLIKELY(
-               0 != memcmp( clock_acc_addr, ctx.global->sysvar_clock, sizeof( fd_pubkey_t ) ) ) )
-        return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
-      fd_sol_sysvar_clock_t clock;
-      fd_sysvar_clock_read( ctx.global, &clock );
-
-      rc = vote_state_authorize(
-          me, voter_pubkey, instruction.inner.authorize_checked, signers, &clock, ctx );
-    } else {
-      rc = FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
-    }
-
-    break;
-  }
-
   /* CompactUpdateVoteState
    *
    * Instruction:
@@ -968,6 +897,77 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
       fd_vote_state_update_destroy( &decode, &destroy );
     } else {
       // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_processor.rs#L223
+      rc = FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+    }
+
+    break;
+  }
+
+  /* Withdraw
+   *
+   * Instruction:
+   * https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/sdk/program/src/vote/instruction.rs#L50-L56
+   *
+   * Processor:
+   * https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_processor.rs#L227
+   */
+  case fd_vote_instruction_enum_withdraw: {
+    FD_LOG_INFO( ( "executing VoteInstruction::Withdraw instruction" ) );
+    if ( FD_UNLIKELY( ctx.instr->acct_cnt < 2 ) ) {
+      rc = FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+      break;
+    }
+    fd_rent_t rent_sysvar;
+    fd_sysvar_rent_read( ctx.global, &rent_sysvar );
+    fd_sol_sysvar_clock_t clock_sysvar;
+    fd_sysvar_clock_read( ctx.global, &clock_sysvar );
+
+    rc = vote_state_withdraw(
+        ctx, me, instruction.inner.withdraw, 1, signers, &rent_sysvar, &clock_sysvar );
+
+    break;
+  }
+
+  /* AuthorizeChecked
+   *
+   * Instruction:
+   * https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/sdk/program/src/vote/instruction.rs#L82-L92
+   *
+   * Processor:
+   * https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_processor.rs#L90-L101
+   *
+   * Notes:
+   * - Up to three signers: the vote authority, the authorized withdrawer, and the new authority.
+   * - Feature gated, but live on mainnet.
+   */
+  case fd_vote_instruction_enum_authorize_checked: {
+    FD_LOG_INFO( ( "executing VoteInstruction::AuthorizeChecked instruction" ) );
+    if ( FD_LIKELY( FD_FEATURE_ACTIVE( ctx.global, vote_stake_checked_instructions ) ) ) {
+      if ( FD_UNLIKELY( ctx.instr->acct_cnt < 4 ) ) {
+        rc = FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+        break;
+      }
+
+      // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_processor.rs#L251-L253
+      fd_pubkey_t const * voter_pubkey = &txn_accs[instr_acc_idxs[3]];
+
+      // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_processor.rs#L254-L256
+      if ( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( ctx.instr, 3 ) ) ) {
+        rc = FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+        break;
+      }
+
+      // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_processor.rs#L257-L261
+      fd_pubkey_t const * clock_acc_addr = &txn_accs[instr_acc_idxs[1]];
+      if ( FD_UNLIKELY(
+               0 != memcmp( clock_acc_addr, ctx.global->sysvar_clock, sizeof( fd_pubkey_t ) ) ) )
+        return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+      fd_sol_sysvar_clock_t clock;
+      fd_sysvar_clock_read( ctx.global, &clock );
+
+      rc = vote_state_authorize(
+          me, voter_pubkey, instruction.inner.authorize_checked, signers, &clock, ctx );
+    } else {
       rc = FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
     }
 
