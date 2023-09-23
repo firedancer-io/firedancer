@@ -21,10 +21,13 @@ struct fd_wsample_private;
 typedef struct fd_wsample_private fd_wsample_t;
 
 #define FD_WSAMPLE_ALIGN (32UL)
-#define FD_WSAMPLE_FOOTPRINT( ele_cnt ) ( (ele_cnt>=UINT_MAX) ? 0UL : ( 64UL + 64UL*(ele_cnt) ) )
+#define FD_WSAMPLE_FOOTPRINT( ele_cnt, undelete_enabled ) (((ele_cnt)<UINT_MAX) ? \
+                                                                  ( 64UL + ((undelete_enabled)?64UL:32UL)*(ele_cnt) ) : 0UL)
 /* fd_wsample_{align, footprint} give the alignment and footprint
    repectively required to create a stake weight tree with at most
-   ele_cnt stake weights.
+   ele_cnt stake weights.  If undelete_enabled is zero, calls to
+   wsample_undelete_all will be no-ops, but the footprint required will
+   be smaller.
 
 
    fd_wsample_{join,leave} join and leave a memory region formatted as a
@@ -34,7 +37,7 @@ typedef struct fd_wsample_private fd_wsample_t;
    tree.  Releases all interest in rng. */
 
 FD_FN_CONST ulong fd_wsample_align    ( void          );
-FD_FN_CONST ulong fd_wsample_footprint( ulong ele_cnt );
+FD_FN_CONST ulong fd_wsample_footprint( ulong ele_cnt, int undelete_enabled );
 fd_wsample_t *    fd_wsample_join     ( void * shmem  );
 void *            fd_wsample_leave    ( fd_wsample_t * tree );
 void *            fd_wsample_delete   ( void * shmem  );
@@ -66,12 +69,15 @@ void *            fd_wsample_delete   ( void * shmem  );
    rng to generate random numbers.  The tree owning its own rng seems
    more natural, but this is done to facilitate sharing of rngs between
    stake weight trees, which is useful for Turbine.  weights points to
-   the first element of an array of length ele_cnt.  All elements in
-   weights must be strictly positive, and the sum must be less than
-   ULONG_MAX.  ele_cnt must be less than UINT_MAX.  opt_hint gives a
-   hint of the shape of the weights and the style of queries that will
-   be most common; this hint impacts query performance but not
-   correctness.  opt_hint must be one of FD_WSAMPLE_HINT_*.
+   the first element of an array of length ele_cnt.  If undelete_enabled
+   is set to 0, fd_wsample_undelete_all will not work but the required
+   footprint is smaller. All elements in weights must be strictly
+   positive, and the sum must be less than ULONG_MAX.  ele_cnt must be
+   less than UINT_MAX.  opt_hint gives a hint of the shape of the
+   weights and the style of queries that will be most common; this hint
+   impacts query performance but not correctness.  opt_hint must be one
+   of FD_WSAMPLE_HINT_*.  Retains read/write interest in rng but not in
+   the memory pointed to by weights.
 
    On successful return, the tree contains an element corresponding to
    each provided weight.  Returns shmem on success and NULL on failure.
@@ -80,6 +86,7 @@ void * fd_wsample_new( void             * shmem,
                        fd_chacha20rng_t * rng,
                        ulong            * weights,
                        ulong              ele_cnt,
+                       int                undelete_enabled,
                        int                opt_hint );
 
 /* fd_wsample_get_rng returns the value provided for rng in new. */
@@ -115,9 +122,11 @@ void  fd_wsample_sample_and_delete_many( fd_wsample_t * tree, ulong * idxs, ulon
 
 /* fd_wsample_undelete_all restores all elements deleted with one of the
    sample_and_delete functions with their original stake weight.  This
-   is faster than recreatign the stake weight tree, even if all elements
-   have been deleted. */
-void fd_wsample_undelete_all( fd_wsample_t * tree );
+   is faster than recreating the stake weight tree, even if all elements
+   have been deleted.  Returns tree on success and NULL on failure.  The
+   only error case is if tree was constructed with undelete_enabled set
+   to 0, in which case no elements are restored. */
+fd_wsample_t * fd_wsample_undelete_all( fd_wsample_t * tree );
 
 
 
