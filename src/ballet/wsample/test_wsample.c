@@ -67,7 +67,7 @@ test_probability_dist_replacement( void ) {
 
   for( ulong sz=1UL; sz<1024UL; sz+=113UL ) {
     for( ulong i=0UL; i<sz; i++ ) weights[i] = 2000000UL / (i+1UL);
-    fd_wsample_t * tree = fd_wsample_join( fd_wsample_new( _shmem, rng, weights, sz, FD_WSAMPLE_HINT_POWERLAW_NODELETE ) );
+    fd_wsample_t * tree = fd_wsample_join( fd_wsample_new( _shmem, rng, weights, sz, 0, FD_WSAMPLE_HINT_POWERLAW_NODELETE ) );
 
     ulong weight_sum = 0UL;
     for( ulong i=0UL; i<sz; i++ ) weight_sum += weights[i];
@@ -101,7 +101,7 @@ test_probability_dist_noreplacement( void ) {
 
   for( ulong sz=1UL; sz<1024UL; sz+=113UL ) {
     for( ulong i=0UL; i<sz; i++ ) weights[i] = 2000000UL / (i+1UL);
-    fd_wsample_t * tree = fd_wsample_join( fd_wsample_new( _shmem, rng, weights, sz, FD_WSAMPLE_HINT_POWERLAW_DELETE ) );
+    fd_wsample_t * tree = fd_wsample_join( fd_wsample_new( _shmem, rng, weights, sz, 1, FD_WSAMPLE_HINT_POWERLAW_DELETE ) );
 
     memset( counts, 0, MAX*sizeof(ulong) );
     for( ulong j=0UL; j<sz; j++ ) {
@@ -130,7 +130,7 @@ test_probability_dist_noreplacement( void ) {
      complicated.  We're going to use a 4-element set, and make sure the
      distrubtion of returned 4-tuples matches what we manually compute. */
   weights[0] = 40UL;  weights[1] = 30UL;  weights[2] = 20UL;  weights[3] = 10UL;
-  fd_wsample_t * tree = fd_wsample_join( fd_wsample_new( _shmem, rng, weights, 4UL, 2 ) );
+  fd_wsample_t * tree = fd_wsample_join( fd_wsample_new( _shmem, rng, weights, 4UL, 1, FD_WSAMPLE_HINT_FLAT ) );
   memset( counts, 0, MAX*sizeof(ulong) );
 
   for( ulong sample=0UL; sample<302400UL; sample++ ) {
@@ -186,7 +186,7 @@ test_matches_solana( void ) {
   weights[0] = 2UL;
   weights[1] = 1UL;
 
-  fd_wsample_t * tree = fd_wsample_join( fd_wsample_new( _shmem, rng, weights, 2UL, FD_WSAMPLE_HINT_FLAT ) );
+  fd_wsample_t * tree = fd_wsample_join( fd_wsample_new( _shmem, rng, weights, 2UL, 0, FD_WSAMPLE_HINT_FLAT ) );
   fd_wsample_seed_rng( fd_wsample_get_rng( tree ), zero_seed );
 
   FD_TEST( fd_wsample_sample( tree ) == 0UL );
@@ -209,7 +209,7 @@ test_matches_solana( void ) {
   memset( zero_seed, 48, 32UL );
   fd_chacha20rng_init( rng, zero_seed );
 
-  tree = fd_wsample_join( fd_wsample_new( _shmem, rng, weights2, 18UL, FD_WSAMPLE_HINT_FLAT ) );
+  tree = fd_wsample_join( fd_wsample_new( _shmem, rng, weights2, 18UL, 0, FD_WSAMPLE_HINT_FLAT ) );
   fd_wsample_seed_rng( fd_wsample_get_rng( tree ), zero_seed );
 
   FD_TEST( fd_wsample_sample_and_delete( tree ) ==  9UL );
@@ -247,8 +247,8 @@ test_sharing( void ) {
     fd_chacha20rng_init( rng, zero_seed );
 
 
-    fd_wsample_t * sample1 = fd_wsample_join( fd_wsample_new( _shmem,                   rng, weights, 2UL, FD_WSAMPLE_HINT_FLAT ) );
-    fd_wsample_t * sample2 = fd_wsample_join( fd_wsample_new( _shmem+MAX_FOOTPRINT/2UL, rng, weights, 2UL, FD_WSAMPLE_HINT_FLAT ) );
+    fd_wsample_t * sample1 = fd_wsample_join( fd_wsample_new( _shmem,                   rng, weights, 2UL, 0, FD_WSAMPLE_HINT_FLAT ) );
+    fd_wsample_t * sample2 = fd_wsample_join( fd_wsample_new( _shmem+MAX_FOOTPRINT/2UL, rng, weights, 2UL, 0, FD_WSAMPLE_HINT_FLAT ) );
 
     /* Since they're using the same weights, they are interchangeable. */
 
@@ -268,6 +268,39 @@ test_sharing( void ) {
   }
 }
 
+static void
+test_undelete_disabled( void ) {
+  fd_chacha20rng_t _rng[1];
+  uchar zero_seed[32] = {0};
+  weights[0] = 2UL;
+  weights[1] = 1UL;
+
+  fd_chacha20rng_t * rng = fd_chacha20rng_join( fd_chacha20rng_new( _rng ) );
+  fd_chacha20rng_init( rng, zero_seed );
+
+  fd_wsample_t * sample1 = fd_wsample_join( fd_wsample_new( _shmem,                   rng, weights, 2UL, 0, FD_WSAMPLE_HINT_FLAT ) );
+  fd_wsample_t * sample2 = fd_wsample_join( fd_wsample_new( _shmem+MAX_FOOTPRINT/2UL, rng, weights, 2UL, 1, FD_WSAMPLE_HINT_FLAT ) );
+
+  FD_TEST( fd_wsample_sample_and_delete( sample1 ) != FD_WSAMPLE_EMPTY );
+  FD_TEST( fd_wsample_sample_and_delete( sample1 ) != FD_WSAMPLE_EMPTY );
+  FD_TEST( fd_wsample_sample_and_delete( sample2 ) != FD_WSAMPLE_EMPTY );
+  FD_TEST( fd_wsample_sample_and_delete( sample2 ) != FD_WSAMPLE_EMPTY );
+
+  FD_TEST( fd_wsample_sample_and_delete( sample1 ) == FD_WSAMPLE_EMPTY );
+  FD_TEST( fd_wsample_sample_and_delete( sample2 ) == FD_WSAMPLE_EMPTY );
+
+  FD_TEST( fd_wsample_undelete_all( sample1 ) == NULL    );
+  FD_TEST( fd_wsample_undelete_all( sample2 ) == sample2 );
+
+  FD_TEST( fd_wsample_sample_and_delete( sample1 ) == FD_WSAMPLE_EMPTY );
+  FD_TEST( fd_wsample_sample_and_delete( sample2 ) != FD_WSAMPLE_EMPTY );
+
+  fd_wsample_delete( fd_wsample_leave( sample1 ) );
+  fd_wsample_delete( fd_wsample_leave( sample2 ) );
+
+  fd_chacha20rng_delete( fd_chacha20rng_leave( rng ) );
+}
+
 
 /* FIXME: Probably go back to making this function a static inline and
    delete this test. */
@@ -280,7 +313,7 @@ test_map( void ) {
 
   ulong sz=1018UL;
   for( ulong i=0UL; i<sz; i++ ) weights[i] = 2000000UL / (i+1UL);
-  fd_wsample_t * tree = fd_wsample_join( fd_wsample_new( _shmem, rng, weights, sz, FD_WSAMPLE_HINT_POWERLAW_NODELETE ) );
+  fd_wsample_t * tree = fd_wsample_join( fd_wsample_new( _shmem, rng, weights, sz, 0, FD_WSAMPLE_HINT_POWERLAW_NODELETE ) );
   fd_wsample_seed_rng( fd_wsample_get_rng( tree ), seed );
 
   ulong x = 0UL;
@@ -296,15 +329,17 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-  FD_TEST( fd_wsample_footprint( UINT_MAX ) == 0UL         );
-  FD_TEST( fd_wsample_footprint( MAX      )                );
-  FD_TEST( fd_wsample_footprint( MAX      )<MAX_FOOTPRINT  );
+  FD_TEST( fd_wsample_footprint( UINT_MAX, 1 ) == 0UL         );
+  FD_TEST( fd_wsample_footprint( MAX,      1 )                );
+  FD_TEST( fd_wsample_footprint( MAX,      1 )<MAX_FOOTPRINT  );
 
-  for( ulong i=0UL; i<=(ulong)UINT_MAX+11UL; i+=11UL ) FD_TEST( fd_wsample_footprint( i ) == FD_WSAMPLE_FOOTPRINT( i ) );
+  for( ulong i=0UL; i<=(ulong)UINT_MAX+11UL; i+=11UL ) FD_TEST( fd_wsample_footprint( i,  0 ) == FD_WSAMPLE_FOOTPRINT( i,  0 ) );
+  for( ulong i=0UL; i<=(ulong)UINT_MAX+11UL; i+=11UL ) FD_TEST( fd_wsample_footprint( i, 11 ) == FD_WSAMPLE_FOOTPRINT( i, 21 ) );
 
   test_matches_solana();
   test_map();
   test_sharing();
+  test_undelete_disabled();
 
   test_probability_dist_replacement();
   test_probability_dist_noreplacement();

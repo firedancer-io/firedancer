@@ -25,10 +25,11 @@ typedef struct treap_ele treap_ele_t;
 #include "../../util/tmpl/fd_treap.c"
 
 struct __attribute__((aligned(32UL))) fd_wsample_private {
-  ulong              ele_cnt;
   ulong              total_weight;
   ulong              undeleted_cnt;
   ulong              undeleted_weight;
+  int                undelete_enabled;
+  /* 4 byte padding */
 
   fd_chacha20rng_t * rng;
 
@@ -50,9 +51,9 @@ fd_wsample_align( void ) {
 }
 
 FD_FN_CONST ulong
-fd_wsample_footprint( ulong ele_cnt ) {
+fd_wsample_footprint( ulong ele_cnt, int undelete_enabled ) {
   if( FD_UNLIKELY( ele_cnt >= UINT_MAX ) ) return 0UL;
-  return sizeof(fd_wsample_t) + 2UL*ele_cnt*sizeof(treap_ele_t);
+  return sizeof(fd_wsample_t) + (undelete_enabled?2UL:1UL)*ele_cnt*sizeof(treap_ele_t);
 }
 
 fd_wsample_t *
@@ -125,6 +126,7 @@ fd_wsample_new( void             * shmem,
                 fd_chacha20rng_t * rng,
                 ulong            * weights,
                 ulong              ele_cnt,
+                int                undelete_enabled,
                 int                opt_hint ) {
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL shmem" ));
@@ -142,13 +144,15 @@ fd_wsample_new( void             * shmem,
   }
 
   fd_wsample_t * tree = (fd_wsample_t *)shmem;
-  tree->ele_cnt           = ele_cnt;
   tree->total_weight      = 0UL;
   tree->undeleted_cnt     = ele_cnt;
   tree->undeleted_weight  = 0UL;
+  tree->undelete_enabled  = undelete_enabled;
   tree->rng               = rng;
 
   treap_join( treap_new( (void *)tree->treap, ele_cnt ) );
+  /* Invariant: treap_ele_max( tree->treap ) is always the value of
+     ele_cnt passed to _new. */
 
   if( FD_UNLIKELY( ele_cnt==0UL ) ) return shmem;
 
@@ -233,8 +237,10 @@ fd_wsample_new( void             * shmem,
   tree->total_weight     = nodesum;
   tree->undeleted_weight = nodesum;
 
-  /* Copy the tree to make undelete fast. */
-  fd_memcpy( pool+ele_cnt, pool, ele_cnt*sizeof(treap_ele_t) );
+  if( undelete_enabled ) {
+    /* Copy the tree to make undelete fast. */
+    fd_memcpy( pool+ele_cnt, pool, ele_cnt*sizeof(treap_ele_t) );
+  }
 
   return (void *)tree;
 }
@@ -276,12 +282,16 @@ fd_wsample_seed_rng( fd_chacha20rng_t * rng,
 }
 
 
-void
+fd_wsample_t *
 fd_wsample_undelete_all( fd_wsample_t * tree ) {
-  tree->undeleted_weight = tree->total_weight;
-  tree->undeleted_cnt    = tree->ele_cnt;
+  if( FD_UNLIKELY( !tree->undelete_enabled ) )  return NULL;
 
-  fd_memcpy( tree->pool, tree->pool + tree->ele_cnt, tree->ele_cnt*sizeof(treap_ele_t) );
+  ulong ele_cnt = treap_ele_max( tree->treap );
+  tree->undeleted_weight = tree->total_weight;
+  tree->undeleted_cnt    = ele_cnt;
+
+  fd_memcpy( tree->pool, tree->pool + ele_cnt, ele_cnt*sizeof(treap_ele_t) );
+  return tree;
 }
 
 /* Helper methods for sampling functions */
