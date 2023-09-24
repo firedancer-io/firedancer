@@ -103,21 +103,22 @@ fd_wsample_join( void * shmem  ) {
 
    The math is more complicated with rounding and finite precision, but
    sqrt(lo*hi) is very different from lo and hi unless lo and hi are
-   approximately the same.  In that case, mid>lo ensures that the
-   interval decreases by at least 1 each time, which prevents an
-   infinite loop. */
+   approximately the same.  In that case, lo<mid and mid<hi ensures that
+   both intervals are strictly smaller than the interval they came from,
+   which prevents an infinite loop. */
 static inline void
 seed_recursive( treap_ele_t * pool,
                 uint lo,
                 uint hi,
                 uint prio ) {
   uint mid = (uint)(sqrtf( (float)lo*(float)hi ) + 0.5f);
-  if( mid>lo ) {
+  if( (lo<mid) & (mid<hi) ) {
     /* since we start with lo=1, shift by 1 */
     pool[mid-1U].prio = prio;
     seed_recursive( pool, lo,  mid, prio-1U );
     seed_recursive( pool, mid, hi,  prio-1U );
   }
+
 }
 
 
