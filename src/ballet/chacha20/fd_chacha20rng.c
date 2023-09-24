@@ -11,7 +11,7 @@ fd_chacha20rng_footprint( void ) {
 }
 
 void *
-fd_chacha20rng_new( void * shmem ) {
+fd_chacha20rng_new( void * shmem, int mode ) {
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL shmem" ));
     return NULL;
@@ -21,6 +21,12 @@ fd_chacha20rng_new( void * shmem ) {
     return NULL;
   }
   memset( shmem, 0, sizeof(fd_chacha20rng_t) );
+  if( FD_UNLIKELY( (mode!=FD_CHACHA20RNG_MODE_MOD) & (mode!=FD_CHACHA20RNG_MODE_SHIFT) ) ) {
+    FD_LOG_WARNING(( "invalid mode" ));
+    return NULL;
+  }
+  ((fd_chacha20rng_t *)shmem)->mode = mode;
+
   return shmem;
 }
 
