@@ -9,11 +9,11 @@
    short for "transaction id" and xids have a compile time fixed size
    (e.g. 32-bytes).  keys also have a compile time fixed size (e.g.
    64-bytes).  Record values can vary in length from zero to a compile
-   time maximum size (e.g. 10 MiB) inclusive.  The xid of all zeros is
-   reserved for the "root" transaction described below.  Outside this,
-   there are no restrictions on what a record xid, key or val can be.
-   Individual records can be created, updated, and deleted arbitrarily.
-   They are just binary data as far as funk is concerned.
+   time maximum size.  The xid of all zeros is reserved for the "root"
+   transaction described below.  Outside this, there are no
+   restrictions on what a record xid, key or val can be.  Individual
+   records can be created, updated, and deleted arbitrarily.  They are
+   just binary data as far as funk is concerned.
 
    The maximum number of records is practically only limited by the size
    of the workspace memory backing it.  At present, each record requires
@@ -143,6 +143,7 @@
 //#include "fd_funk_txn.h"  /* Includes fd_funk_base.h */
 //#include "fd_funk_rec.h"  /* Includes fd_funk_txn.h */
 #include "fd_funk_val.h"    /* Includes fd_funk_rec.h */
+#include "fd_funk_part.h"
 
 /* FD_FUNK_{ALIGN,FOOTPRINT} describe the alignment and footprint needed
    for a funk.  ALIGN should be a positive integer power of 2.
@@ -241,6 +242,8 @@ struct __attribute__((aligned(FD_FUNK_ALIGN))) fd_funk_private {
   ulong rec_head_idx;  /* Record map index of the first record, FD_FUNK_REC_IDX_NULL if none (from oldest to youngest) */
   ulong rec_tail_idx;  /* "                       last          " */
 
+  ulong partvec_gaddr; /* Address of partition header vector */
+    
   /* The funk alloc is used for allocating wksp resources for record
      values.  This is a fd_alloc and more details are given in
      fd_funk_val.h.  Allocations from this allocator will be tagged with
@@ -414,6 +417,16 @@ FD_FN_PURE static inline fd_funk_rec_t * /* Lifetime is that of the local join *
 fd_funk_rec_map( fd_funk_t * funk,       /* Assumes current local join */
                  fd_wksp_t * wksp ) {    /* Assumes wksp == fd_funk_wksp( funk ) */
   return (fd_funk_rec_t *)fd_wksp_laddr_fast( wksp, funk->rec_map_gaddr );
+}
+
+/* fd_funk_rec_global_cnt returns current number of records that are held
+   in the funk.  This includes both records of the last published
+   transaction and records for transactions that are in-flight. */
+FD_FN_PURE static inline ulong
+fd_funk_rec_global_cnt( fd_funk_t * funk,       /* Assumes current local join */
+                        fd_wksp_t * wksp ) {    /* Assumes wksp == fd_funk_wksp( funk ) */
+  fd_funk_rec_t * map = (fd_funk_rec_t *)fd_wksp_laddr_fast( wksp, funk->rec_map_gaddr );
+  return fd_funk_rec_map_key_cnt( map );
 }
 
 /* fd_funk_last_publish_rec_{head,tail} returns a pointer in the

@@ -56,6 +56,7 @@
 #define FD_FUNK_ERR_TXN    (-5) /* Failed due to transaction map issue (e.g. funk txn_max too small) */
 #define FD_FUNK_ERR_REC    (-6) /* Failed due to record map issue (e.g. funk rec_max too small) */
 #define FD_FUNK_ERR_MEM    (-7) /* Failed due to wksp issue (e.g. wksp too small) */
+#define FD_FUNK_ERR_SYS    (-8) /* Failed system call (e.g. a file write) */
 
 /* FD_FUNK_REC_KEY_{ALIGN,FOOTPRINT} describe the alignment and
    footprint of a fd_funk_rec_key_t.  ALIGN is a positive integer power

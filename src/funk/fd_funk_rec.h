@@ -32,6 +32,10 @@
 
 #define FD_FUNK_REC_IDX_NULL (ULONG_MAX)
 
+/* FD_FUNK_PART_NULL is the partition number of records that are not
+   in a partition */
+#define FD_FUNK_PART_NULL (UINT_MAX)
+
 /* A fd_funk_rec_t describes a funk record. */
 
 struct fd_funk_rec {
@@ -58,6 +62,10 @@ struct fd_funk_rec {
   ulong val_gaddr; /* Wksp gaddr on record value if any, 0 if erase flag set or val_max is 0
                       If non-zero, the region [val_gaddr,val_gaddr+val_max) will be a current fd_alloc allocation (such that it is
                       has tag wksp_tag) and the owner of the region will be the record.  IMPORTANT! HAS NO GUARANTEED ALIGNMENT! */
+
+  ulong prev_part_idx;  /* Record map index of previous record in partition chain */
+  ulong next_part_idx;  /* Record map index of next record in partition chain */
+  uint  part;           /* Partition number, FD_FUNK_PART_NULL if none */
 
   /* Padding to FD_FUNK_REC_ALIGN here (TODO: consider using self index
      in the structures to accelerate indexing computations if padding
@@ -293,6 +301,15 @@ FD_FN_PURE fd_funk_rec_t *
 fd_funk_rec_modify( fd_funk_t *           funk,
                     fd_funk_rec_t const * rec );
 
+/* Returns 1 if the record has been modified in its transaction
+   compared to the prior incarnation of the record with the same
+   key (or there is no prior incarnation). Returns -1 if rec is part
+   of a published transaction. Return 0 otherwise. */
+
+FD_FN_PURE int
+fd_funk_rec_is_modified( fd_funk_t *           funk,
+                         fd_funk_rec_t const * rec );
+
 /* TODO: Consider instead doing something like: modify_init, modify_fini and
    preventing forking the txn if records are being modified instead of
    the long laundry list of lifetime constraints? */
@@ -438,7 +455,7 @@ fd_funk_rec_remove( fd_funk_t *     funk,
 
 /* fd_funk_rec_write_prepare combines several operations into one
    convenient package. There are 3 basic cases:
-   
+
    1. If the given record key already exists in the transaction, the
    record is returned in modifiable form. This is equivalent to
    fd_funk_rec_query combined with fd_funk_rec_modify.
@@ -446,7 +463,8 @@ fd_funk_rec_remove( fd_funk_t *     funk,
    2. If the record key is entirely new (not present in the
    transaction or any of its ancestors), a new record is inserted and
    returned in modifiable form. This is equivalent to
-   fd_funk_rec_insert combined with fd_funk_rec_modify.
+   fd_funk_rec_insert combined with fd_funk_rec_modify. Note that if
+   the do_create argument is false, a NULL will be returned in this case.
 
    3. Otherwise, the record is copied from the ancestor transaction
    into the given transaction. This is returned in modifiable
@@ -454,13 +472,20 @@ fd_funk_rec_remove( fd_funk_t *     funk,
    fd_funk_rec_insert, fd_funk_val_copy, and fd_funk_rec_modify.
 
    In all cases, the record is grown to min_val_size if it is less
-   than this size, padding with zeros if necessary. */
+   than this size, padding with zeros if necessary.
+
+   The irec argument is the previous incarnation of the record if
+   known (i.e. the result of fd_funk_rec_query_global( funk, txn, key
+   ) ). This allows the elimination of the query in some cases. Use
+   NULL if this value is unavailable. */
 fd_funk_rec_t *
-fd_funk_rec_write_prepare( fd_funk_t *               funk,
-                           fd_funk_txn_t *           txn,
-                           fd_funk_rec_key_t const * key,
-                           ulong                     min_val_size,
-                           int *                     opt_err );
+fd_funk_rec_write_prepare( fd_funk_t *               funk,         /* Funky database */
+                           fd_funk_txn_t *           txn,          /* Write the record into this transaction */
+                           fd_funk_rec_key_t const * key,          /* Key of new/modified record */
+                           ulong                     min_val_size, /* Minimum value size of writable record */
+                           int                       do_create,    /* Can create new record */
+                           fd_funk_rec_t const *     irec,         /* Prior result of fd_funk_rec_query_global if known */
+                           int *                     opt_err );    /* Optional error code return */
 
 /* Misc */
 
