@@ -67,7 +67,7 @@ test_probability_dist_replacement( void ) {
 
   for( ulong sz=1UL; sz<1024UL; sz+=113UL ) {
     for( ulong i=0UL; i<sz; i++ ) weights[i] = 2000000UL / (i+1UL);
-    fd_wsample_t * tree = fd_wsample_join( fd_wsample_new( _shmem, rng, weights, sz, 0, FD_WSAMPLE_HINT_POWERLAW_NODELETE ) );
+    fd_wsample_t * tree = fd_wsample_join( fd_wsample_new( _shmem, rng, weights, sz, 0, FD_WSAMPLE_HINT_POWERLAW_NOREMOVE ) );
 
     ulong weight_sum = 0UL;
     for( ulong i=0UL; i<sz; i++ ) weight_sum += weights[i];
@@ -101,23 +101,23 @@ test_probability_dist_noreplacement( void ) {
 
   for( ulong sz=1UL; sz<1024UL; sz+=113UL ) {
     for( ulong i=0UL; i<sz; i++ ) weights[i] = 2000000UL / (i+1UL);
-    fd_wsample_t * tree = fd_wsample_join( fd_wsample_new( _shmem, rng, weights, sz, 1, FD_WSAMPLE_HINT_POWERLAW_DELETE ) );
+    fd_wsample_t * tree = fd_wsample_join( fd_wsample_new( _shmem, rng, weights, sz, 1, FD_WSAMPLE_HINT_POWERLAW_REMOVE ) );
 
     memset( counts, 0, MAX*sizeof(ulong) );
     for( ulong j=0UL; j<sz; j++ ) {
-      ulong sample = fd_wsample_sample_and_delete( tree );
+      ulong sample = fd_wsample_sample_and_remove( tree );
       FD_TEST( sample<sz );
       counts[sample]++;
     }
-    FD_TEST( fd_wsample_sample_and_delete( tree ) == FD_WSAMPLE_EMPTY );
+    FD_TEST( fd_wsample_sample_and_remove( tree ) == FD_WSAMPLE_EMPTY );
     for( ulong j=0UL; j<sz; j++ ) FD_TEST( counts[j]==1UL );
 
-    fd_wsample_undelete_all( tree );
+    fd_wsample_restore_all( tree );
 
     memset( counts, 0, MAX*sizeof(ulong) );
     for( ulong j=0UL; j<sz; j+=100UL ) {
       ulong samples[100];
-      fd_wsample_sample_and_delete_many( tree, samples, 100UL );
+      fd_wsample_sample_and_remove_many( tree, samples, 100UL );
       for( ulong k=0UL; k<fd_ulong_min( sz-j, 100UL );   k++ ) counts[samples[k]]++;
       for( ulong k=fd_ulong_min( sz-j, 100UL ); k<100UL; k++ ) FD_TEST( samples[k]==FD_WSAMPLE_EMPTY );
     }
@@ -135,8 +135,8 @@ test_probability_dist_noreplacement( void ) {
 
   for( ulong sample=0UL; sample<302400UL; sample++ ) {
     ulong tuple = 0UL;
-    for( ulong j=0UL; j<4UL; j++ ) tuple = (tuple<<4) | fd_wsample_sample_and_delete( tree );
-    fd_wsample_undelete_all( tree );
+    for( ulong j=0UL; j<4UL; j++ ) tuple = (tuple<<4) | fd_wsample_sample_and_remove( tree );
+    fd_wsample_restore_all( tree );
 
     switch( tuple ) {
       case 0x0123: counts[  0 ]++; break;
@@ -215,24 +215,24 @@ test_matches_solana( void ) {
   tree = fd_wsample_join( fd_wsample_new( _shmem, rng, weights2, 18UL, 0, FD_WSAMPLE_HINT_FLAT ) );
   fd_wsample_seed_rng( fd_wsample_get_rng( tree ), zero_seed );
 
-  FD_TEST( fd_wsample_sample_and_delete( tree ) ==  9UL );
-  FD_TEST( fd_wsample_sample_and_delete( tree ) ==  3UL );
-  FD_TEST( fd_wsample_sample_and_delete( tree ) == 12UL );
-  FD_TEST( fd_wsample_sample_and_delete( tree ) == 15UL );
-  FD_TEST( fd_wsample_sample_and_delete( tree ) ==  0UL );
-  FD_TEST( fd_wsample_sample_and_delete( tree ) ==  8UL );
-  FD_TEST( fd_wsample_sample_and_delete( tree ) == 16UL );
-  FD_TEST( fd_wsample_sample_and_delete( tree ) ==  5UL );
-  FD_TEST( fd_wsample_sample_and_delete( tree ) ==  2UL );
-  FD_TEST( fd_wsample_sample_and_delete( tree ) ==  1UL );
-  FD_TEST( fd_wsample_sample_and_delete( tree ) == 14UL );
-  FD_TEST( fd_wsample_sample_and_delete( tree ) ==  6UL );
-  FD_TEST( fd_wsample_sample_and_delete( tree ) == 11UL );
-  FD_TEST( fd_wsample_sample_and_delete( tree ) == 13UL );
-  FD_TEST( fd_wsample_sample_and_delete( tree ) == 17UL );
-  FD_TEST( fd_wsample_sample_and_delete( tree ) == 10UL );
-  FD_TEST( fd_wsample_sample_and_delete( tree ) ==  4UL );
-  FD_TEST( fd_wsample_sample_and_delete( tree ) ==  7UL );
+  FD_TEST( fd_wsample_sample_and_remove( tree ) ==  9UL );
+  FD_TEST( fd_wsample_sample_and_remove( tree ) ==  3UL );
+  FD_TEST( fd_wsample_sample_and_remove( tree ) == 12UL );
+  FD_TEST( fd_wsample_sample_and_remove( tree ) == 15UL );
+  FD_TEST( fd_wsample_sample_and_remove( tree ) ==  0UL );
+  FD_TEST( fd_wsample_sample_and_remove( tree ) ==  8UL );
+  FD_TEST( fd_wsample_sample_and_remove( tree ) == 16UL );
+  FD_TEST( fd_wsample_sample_and_remove( tree ) ==  5UL );
+  FD_TEST( fd_wsample_sample_and_remove( tree ) ==  2UL );
+  FD_TEST( fd_wsample_sample_and_remove( tree ) ==  1UL );
+  FD_TEST( fd_wsample_sample_and_remove( tree ) == 14UL );
+  FD_TEST( fd_wsample_sample_and_remove( tree ) ==  6UL );
+  FD_TEST( fd_wsample_sample_and_remove( tree ) == 11UL );
+  FD_TEST( fd_wsample_sample_and_remove( tree ) == 13UL );
+  FD_TEST( fd_wsample_sample_and_remove( tree ) == 17UL );
+  FD_TEST( fd_wsample_sample_and_remove( tree ) == 10UL );
+  FD_TEST( fd_wsample_sample_and_remove( tree ) ==  4UL );
+  FD_TEST( fd_wsample_sample_and_remove( tree ) ==  7UL );
 
   fd_wsample_delete( fd_wsample_leave( tree ) );
   fd_chacha20rng_delete( fd_chacha20rng_leave( rng ) );
@@ -272,7 +272,7 @@ test_sharing( void ) {
 }
 
 static void
-test_undelete_disabled( void ) {
+test_restore_disabled( void ) {
   fd_chacha20rng_t _rng[1];
   uchar zero_seed[32] = {0};
   weights[0] = 2UL;
@@ -284,19 +284,19 @@ test_undelete_disabled( void ) {
   fd_wsample_t * sample1 = fd_wsample_join( fd_wsample_new( _shmem,                   rng, weights, 2UL, 0, FD_WSAMPLE_HINT_FLAT ) );
   fd_wsample_t * sample2 = fd_wsample_join( fd_wsample_new( _shmem+MAX_FOOTPRINT/2UL, rng, weights, 2UL, 1, FD_WSAMPLE_HINT_FLAT ) );
 
-  FD_TEST( fd_wsample_sample_and_delete( sample1 ) != FD_WSAMPLE_EMPTY );
-  FD_TEST( fd_wsample_sample_and_delete( sample1 ) != FD_WSAMPLE_EMPTY );
-  FD_TEST( fd_wsample_sample_and_delete( sample2 ) != FD_WSAMPLE_EMPTY );
-  FD_TEST( fd_wsample_sample_and_delete( sample2 ) != FD_WSAMPLE_EMPTY );
+  FD_TEST( fd_wsample_sample_and_remove( sample1 ) != FD_WSAMPLE_EMPTY );
+  FD_TEST( fd_wsample_sample_and_remove( sample1 ) != FD_WSAMPLE_EMPTY );
+  FD_TEST( fd_wsample_sample_and_remove( sample2 ) != FD_WSAMPLE_EMPTY );
+  FD_TEST( fd_wsample_sample_and_remove( sample2 ) != FD_WSAMPLE_EMPTY );
 
-  FD_TEST( fd_wsample_sample_and_delete( sample1 ) == FD_WSAMPLE_EMPTY );
-  FD_TEST( fd_wsample_sample_and_delete( sample2 ) == FD_WSAMPLE_EMPTY );
+  FD_TEST( fd_wsample_sample_and_remove( sample1 ) == FD_WSAMPLE_EMPTY );
+  FD_TEST( fd_wsample_sample_and_remove( sample2 ) == FD_WSAMPLE_EMPTY );
 
-  FD_TEST( fd_wsample_undelete_all( sample1 ) == NULL    );
-  FD_TEST( fd_wsample_undelete_all( sample2 ) == sample2 );
+  FD_TEST( fd_wsample_restore_all( sample1 ) == NULL    );
+  FD_TEST( fd_wsample_restore_all( sample2 ) == sample2 );
 
-  FD_TEST( fd_wsample_sample_and_delete( sample1 ) == FD_WSAMPLE_EMPTY );
-  FD_TEST( fd_wsample_sample_and_delete( sample2 ) != FD_WSAMPLE_EMPTY );
+  FD_TEST( fd_wsample_sample_and_remove( sample1 ) == FD_WSAMPLE_EMPTY );
+  FD_TEST( fd_wsample_sample_and_remove( sample2 ) != FD_WSAMPLE_EMPTY );
 
   fd_wsample_delete( fd_wsample_leave( sample1 ) );
   fd_wsample_delete( fd_wsample_leave( sample2 ) );
@@ -304,6 +304,39 @@ test_undelete_disabled( void ) {
   fd_chacha20rng_delete( fd_chacha20rng_leave( rng ) );
 }
 
+static void
+test_remove_idx( void ) {
+  fd_chacha20rng_t _rng[1];
+  uchar zero_seed[32] = {0};
+  weights[0] = 2UL;
+  weights[1] = 1UL;
+
+  fd_chacha20rng_t * rng = fd_chacha20rng_join( fd_chacha20rng_new( _rng, FD_CHACHA20RNG_MODE_SHIFT ) );
+  fd_chacha20rng_init( rng, zero_seed );
+
+  fd_wsample_t * sample = fd_wsample_join( fd_wsample_new( _shmem, rng, weights, 2UL, 1, FD_WSAMPLE_HINT_FLAT ) );
+
+  fd_wsample_remove_idx( sample, 1UL );
+
+  for( ulong j=0UL; j<10UL; j++ ) FD_TEST( fd_wsample_sample( sample ) != 1UL );
+
+  fd_wsample_remove_idx( sample, 1UL ); /* no-op */
+  for( ulong j=0UL; j<10UL; j++ ) FD_TEST( fd_wsample_sample( sample ) == 0UL );
+
+  FD_TEST( fd_wsample_sample_and_remove( sample ) == 0UL );
+  FD_TEST( fd_wsample_sample_and_remove( sample ) == FD_WSAMPLE_EMPTY );
+  FD_TEST( fd_wsample_sample_and_remove( sample ) == FD_WSAMPLE_EMPTY );
+
+  FD_TEST( fd_wsample_restore_all( sample ) );
+
+  FD_TEST( fd_wsample_sample_and_remove( sample ) != FD_WSAMPLE_EMPTY );
+  FD_TEST( fd_wsample_sample_and_remove( sample ) != FD_WSAMPLE_EMPTY );
+  FD_TEST( fd_wsample_sample_and_remove( sample ) == FD_WSAMPLE_EMPTY );
+
+  fd_wsample_delete( fd_wsample_leave( sample ) );
+
+  fd_chacha20rng_delete( fd_chacha20rng_leave( rng ) );
+}
 
 /* FIXME: Probably go back to making this function a static inline and
    delete this test. */
@@ -316,7 +349,7 @@ test_map( void ) {
 
   ulong sz=1018UL;
   for( ulong i=0UL; i<sz; i++ ) weights[i] = 2000000UL / (i+1UL);
-  fd_wsample_t * tree = fd_wsample_join( fd_wsample_new( _shmem, rng, weights, sz, 0, FD_WSAMPLE_HINT_POWERLAW_NODELETE ) );
+  fd_wsample_t * tree = fd_wsample_join( fd_wsample_new( _shmem, rng, weights, sz, 0, FD_WSAMPLE_HINT_POWERLAW_NOREMOVE ) );
   fd_wsample_seed_rng( fd_wsample_get_rng( tree ), seed );
 
   ulong x = 0UL;
@@ -342,7 +375,8 @@ main( int     argc,
   test_matches_solana();
   test_map();
   test_sharing();
-  test_undelete_disabled();
+  test_restore_disabled();
+  test_remove_idx();
 
   test_probability_dist_replacement();
   test_probability_dist_noreplacement();

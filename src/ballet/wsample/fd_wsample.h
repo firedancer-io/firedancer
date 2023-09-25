@@ -21,25 +21,25 @@ struct fd_wsample_private;
 typedef struct fd_wsample_private fd_wsample_t;
 
 #define FD_WSAMPLE_ALIGN (32UL)
-#define FD_WSAMPLE_FOOTPRINT( ele_cnt, undelete_enabled ) (((ele_cnt)<UINT_MAX) ? \
-                                                                  ( 64UL + ((undelete_enabled)?64UL:32UL)*(ele_cnt) ) : 0UL)
+#define FD_WSAMPLE_FOOTPRINT( ele_cnt, restore_enabled ) (((ele_cnt)<UINT_MAX) ? \
+                                                                  ( 64UL + ((restore_enabled)?64UL:32UL)*(ele_cnt) ) : 0UL)
 /* fd_wsample_{align, footprint} give the alignment and footprint
-   repectively required to create a stake weight tree with at most
-   ele_cnt stake weights.  If undelete_enabled is zero, calls to
-   wsample_undelete_all will be no-ops, but the footprint required will
+   repectively required to create a weighted sampler with at most
+   ele_cnt stake weights.  If restore_enabled is zero, calls to
+   wsample_restore_all will be no-ops, but the footprint required will
    be smaller.
 
 
    fd_wsample_{join,leave} join and leave a memory region formatted as a
-   stake weight tree, respectively.  They both are simple casts.
+   weighted sampler, respectively.  They both are simple casts.
 
-   fd_wsample_delete unformats a memory region used as a stake weight
-   tree.  Releases all interest in rng. */
+   fd_wsample_delete unformats a memory region used as a weighted
+   sampler.  Releases all interest in rng. */
 
 FD_FN_CONST ulong fd_wsample_align    ( void          );
-FD_FN_CONST ulong fd_wsample_footprint( ulong ele_cnt, int undelete_enabled );
+FD_FN_CONST ulong fd_wsample_footprint( ulong ele_cnt, int restore_enabled );
 fd_wsample_t *    fd_wsample_join     ( void * shmem  );
-void *            fd_wsample_leave    ( fd_wsample_t * tree );
+void *            fd_wsample_leave    ( fd_wsample_t * sampler );
 void *            fd_wsample_delete   ( void * shmem  );
 
 
@@ -52,81 +52,92 @@ void *            fd_wsample_delete   ( void * shmem  );
 
    The hint can also specify whether sampling will be done with deleting
    or without deleting:
-   DELETE: Sampling will be done without replacement, i.e. mostly with
-       fd_wsample_sample_and_delete and/or
-       fd_wsample_sample_and_delete_many.
-   NODELETE: Sampling will be done with replacement, i.e. mostly with
+   REMOVE: Sampling will be done without replacement, i.e. mostly with
+       fd_wsample_sample_and_remove and/or
+       fd_wsample_sample_and_remove_many.
+   NOREMOVE: Sampling will be done with replacement, i.e. mostly with
        fd_wsample_sample and/or
        fd_wsample_sample_many. */
 #define FD_WSAMPLE_HINT_FLAT              0
-#define FD_WSAMPLE_HINT_POWERLAW_NODELETE 2
-#define FD_WSAMPLE_HINT_POWERLAW_DELETE   3
+#define FD_WSAMPLE_HINT_POWERLAW_NOREMOVE 2
+#define FD_WSAMPLE_HINT_POWERLAW_REMOVE   3
 
 /* fd_wsample_new formats a memory region with the appropriate alignment
-   and footprint to be usable as a stake weight tree.  shmem is a
+   and footprint to be usable as a weighted sampler.  shmem is a
    pointer to the first byte of the memory region to use.  rng must be a
-   local join of a ChaCha20 RNG struct. The stake weight tree will use
-   rng to generate random numbers.  The tree owning its own rng seems
-   more natural, but this is done to facilitate sharing of rngs between
-   stake weight trees, which is useful for Turbine.  weights points to
-   the first element of an array of length ele_cnt.  If undelete_enabled
-   is set to 0, fd_wsample_undelete_all will not work but the required
-   footprint is smaller. All elements in weights must be strictly
-   positive, and the sum must be less than ULONG_MAX.  ele_cnt must be
-   less than UINT_MAX.  opt_hint gives a hint of the shape of the
-   weights and the style of queries that will be most common; this hint
-   impacts query performance but not correctness.  opt_hint must be one
-   of FD_WSAMPLE_HINT_*.  Retains read/write interest in rng but not in
-   the memory pointed to by weights.
+   local join of a ChaCha20 RNG struct. The weighted sampler will use
+   rng to generate random numbers.  It may seem more natural for the
+   weighted sampler to own its own rng, but this is done to facilitate
+   sharing of rngs between weighted samplers, which is useful for
+   Turbine.  weights points to the first element of an array of length
+   ele_cnt.  If restore_enabled is set to 0, fd_wsample_restore_all will
+   not work but the required footprint is smaller. All elements in
+   weights must be strictly positive, and the sum must be less than
+   ULONG_MAX.  ele_cnt must be less than UINT_MAX.  opt_hint gives a
+   hint of the shape of the weights and the style of queries that will
+   be most common; this hint impacts query performance but not
+   correctness.  opt_hint must be one of FD_WSAMPLE_HINT_*.  Retains
+   read/write interest in rng but not in the memory pointed to by
+   weights.
 
-   On successful return, the tree contains an element corresponding to
-   each provided weight.  Returns shmem on success and NULL on failure.
-   Caller is not joined on return. */
+   On successful return, the weighted sampler contains an element
+   corresponding to each provided weight.  Returns shmem on success and
+   NULL on failure.  Caller is not joined on return. */
 void * fd_wsample_new( void             * shmem,
                        fd_chacha20rng_t * rng,
                        ulong            * weights,
                        ulong              ele_cnt,
-                       int                undelete_enabled,
+                       int                restore_enabled,
                        int                opt_hint );
 
 /* fd_wsample_get_rng returns the value provided for rng in new. */
-fd_chacha20rng_t * fd_wsample_get_rng( fd_wsample_t * tree );
+fd_chacha20rng_t * fd_wsample_get_rng( fd_wsample_t * sampler );
 
 /* fd_wsample_seed_rng seeds the ChaCha20 rng with the provided seed in
    preparation for sampling.  This function is compatible with Solana's
    ChaChaRng::from_seed. */
 void fd_wsample_seed_rng( fd_chacha20rng_t * rng, uchar seed[static 32] );
 
-/* fd_wsample_sample{_and_delete}{,_many} produces one or cnt (in the
-   _many case) weighted random samples from the tree.  If the
-   _and_delete variant of the function is called, the returned node will
-   be temporarily deleted from the tree, i.e. for sampling without
+/* fd_wsample_sample{_and_remove}{,_many} produces one or cnt (in the
+   _many case) weighted random samples from the sampler.  If the
+   _and_remove variant of the function is called, the returned node will
+   be temporarily removed from the sampler, i.e. for sampling without
    replacement.  Random samples are produced using the Solana-required
-   method.  The stake weight tree's RNG must be seeded appropriately
+   method.  Sampler's RNG must be seeded appropriately
    prior to using these functions.
 
    The _many variants of the function store the ith index they sampled
    in idxs[i] for i in [0, cnt).  The other variants of the function
    simply return the sampled index.
 
-   If the tree has no undeleted elements, these functions will
+   If the sampler has no unremoved elements, these functions will
    return/store FD_WSAMPLE_EMPTY.
 
    For each index i, fd_wsample_sample returns i with
-   probability weights[i]/sum(weights). */
+   probability weights[i]/sum(weights), only considering weights of
+   elements that have not been removed. */
 #define FD_WSAMPLE_EMPTY UINT_MAX
-ulong fd_wsample_sample                ( fd_wsample_t * tree );
-ulong fd_wsample_sample_and_delete     ( fd_wsample_t * tree );
-void  fd_wsample_sample_many           ( fd_wsample_t * tree, ulong * idxs, ulong cnt );
-void  fd_wsample_sample_and_delete_many( fd_wsample_t * tree, ulong * idxs, ulong cnt );
+ulong fd_wsample_sample                ( fd_wsample_t * sampler );
+ulong fd_wsample_sample_and_remove     ( fd_wsample_t * sampler );
+void  fd_wsample_sample_many           ( fd_wsample_t * sampler, ulong * idxs, ulong cnt );
+void  fd_wsample_sample_and_remove_many( fd_wsample_t * sampler, ulong * idxs, ulong cnt );
 
-/* fd_wsample_undelete_all restores all elements deleted with one of the
-   sample_and_delete functions with their original stake weight.  This
-   is faster than recreating the stake weight tree, even if all elements
-   have been deleted.  Returns tree on success and NULL on failure.  The
-   only error case is if tree was constructed with undelete_enabled set
-   to 0, in which case no elements are restored. */
-fd_wsample_t * fd_wsample_undelete_all( fd_wsample_t * tree );
+/* fd_wsample_remove_idx removes an element by index as if it had been selected
+   for sampling without replacement.  Unless restore_all is called, this
+   index will no longer be returned by any of the sample methods, and
+   its weight will be excluded from the remaining sampling operations.
+   Removing an element that has already been removed is a no-op.  idx
+   must be in [0, ele_cnt). */
+void fd_wsample_remove_idx( fd_wsample_t * sampler, ulong idx );
+
+/* fd_wsample_restore_all restores all elements removed with one of the
+   sample_and_remove functions or with fd_wsample_remove_idx.  The
+   elements with have their original weight.  This is faster than
+   recreating the weighted sampler, even if all elements have been
+   removed.  Returns sampler on success and NULL on failure.  The only
+   error case is if sampler was constructed with restore_enabled set to 0,
+   in which case no elements are restored. */
+fd_wsample_t * fd_wsample_restore_all( fd_wsample_t * sampler );
 
 
 
