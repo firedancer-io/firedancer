@@ -156,7 +156,8 @@ fd_funk_rec_t *
 fd_funk_rec_modify( fd_funk_t *           funk,
                     fd_funk_rec_t const * rec ) {
 
-  if( FD_UNLIKELY( (!funk) | (!rec) ) ) return NULL;
+  if( FD_UNLIKELY( (!funk) | (!rec) ) )
+    return NULL;
 
   fd_wksp_t * wksp = fd_funk_wksp( funk );
 
@@ -169,13 +170,15 @@ fd_funk_rec_modify( fd_funk_t *           funk,
   if( FD_UNLIKELY( (rec_idx>=rec_max) /* Out of map (incl NULL) */ | (rec!=(rec_map+rec_idx)) /* Bad alignment */ ) )
     return NULL;
 
-  if( FD_UNLIKELY( rec!=fd_funk_rec_map_query( rec_map, fd_funk_rec_pair( rec ), NULL ) ) ) return NULL; /* Not live */
+  if( FD_UNLIKELY( rec!=fd_funk_rec_map_query( rec_map, fd_funk_rec_pair( rec ), NULL ) ) )
+    return NULL; /* Not live */
 
   ulong txn_idx = fd_funk_txn_idx( rec->txn_cidx );
 
   if( fd_funk_txn_idx_is_null( txn_idx ) ) { /* Modifying last published transaction */
 
-    if( FD_UNLIKELY( fd_funk_last_publish_is_frozen( funk ) ) ) return NULL;
+    if( FD_UNLIKELY( fd_funk_last_publish_is_frozen( funk ) ) )
+      return NULL;
 
   } else { /* Modifying an in-prep tranaction */
 
@@ -185,10 +188,60 @@ fd_funk_rec_modify( fd_funk_t *           funk,
 
     if( FD_UNLIKELY( txn_idx>=txn_max ) ) FD_LOG_CRIT(( "memory corruption detected (bad idx)" ));
 
-    if( FD_UNLIKELY( fd_funk_txn_is_frozen( &txn_map[ txn_idx ] ) ) ) return NULL;
+    if( FD_UNLIKELY( fd_funk_txn_is_frozen( &txn_map[ txn_idx ] ) ) )
+      return NULL;
   }
 
   return (fd_funk_rec_t *)rec;
+}
+
+FD_FN_PURE int
+fd_funk_rec_is_modified( fd_funk_t *           funk,
+                         fd_funk_rec_t const * rec ) {
+
+  if( FD_UNLIKELY( (!funk) | (!rec) ) ) return 0;
+
+  fd_wksp_t * wksp = fd_funk_wksp( funk );
+
+  fd_funk_rec_t * rec_map = fd_funk_rec_map( funk, wksp );
+  ulong rec_max = funk->rec_max;
+  ulong rec_idx = (ulong)(rec - rec_map);
+  if( FD_UNLIKELY( (rec_idx>=rec_max) /* Out of map (incl NULL) */ | (rec!=(rec_map+rec_idx)) /* Bad alignment */ ) )
+    FD_LOG_CRIT(( "memory corruption detected (bad idx)" ));
+
+  ulong txn_idx = fd_funk_txn_idx( rec->txn_cidx );
+  if( fd_funk_txn_idx_is_null( txn_idx ) )
+    return -1;
+  fd_funk_txn_t * txn_map = fd_funk_txn_map( funk, wksp );
+  ulong txn_max = funk->txn_max;
+  if( FD_UNLIKELY( txn_idx>=txn_max ) )
+    FD_LOG_CRIT(( "memory corruption detected (bad idx)" ));
+  fd_funk_txn_t * txn = txn_map + txn_idx;
+
+  void * val = fd_funk_val( rec, wksp );
+
+  do {
+    /* Go to the parent transaction */
+    fd_funk_xid_key_pair_t pair[1];
+    txn_idx = fd_funk_txn_idx( txn->parent_cidx );
+    if ( fd_funk_txn_idx_is_null( txn_idx ) ) {
+      txn = NULL;
+      fd_funk_xid_key_pair_init( pair, fd_funk_root( funk ), rec->pair.key );
+    } else {
+      txn = txn_map + txn_idx;
+      fd_funk_xid_key_pair_init( pair, fd_funk_txn_xid( txn ), rec->pair.key );
+    }
+
+    fd_funk_rec_t const * rec2 = fd_funk_rec_map_query( rec_map, pair, NULL );
+    if ( rec2 ) {
+      if ( rec->val_sz != rec2->val_sz )
+        return 1;
+      void * val2 = fd_funk_val( rec2, wksp );
+      return memcmp(val, val2, rec->val_sz) != 0;
+    }
+  } while (txn);
+
+  return 1;
 }
 
 fd_funk_rec_t const *
@@ -243,9 +296,9 @@ fd_funk_rec_insert( fd_funk_t *               funk,
   } else { /* Modifying in-prep */
 
     fd_funk_txn_t * txn_map = fd_funk_txn_map( funk, wksp );
-  
+
     ulong txn_max = funk->txn_max;
-  
+
     txn_idx       = (ulong)(txn - txn_map);
     _rec_head_idx = &txn->rec_head_idx;
     _rec_tail_idx = &txn->rec_tail_idx;
@@ -324,6 +377,7 @@ fd_funk_rec_insert( fd_funk_t *               funk,
   *_rec_tail_idx = rec_idx;
 
   fd_funk_val_init( rec );
+  fd_funk_part_init( rec );
 
   fd_int_store_if( !!opt_err, opt_err, FD_FUNK_SUCCESS );
   return rec;
@@ -419,8 +473,11 @@ fd_funk_rec_remove( fd_funk_t *     funk,
 
           if( FD_UNLIKELY( erase_rec->flags & FD_FUNK_REC_FLAG_ERASE ) ) FD_LOG_CRIT(( "memory corruption detected (bad flags)" ));
 
-          rec->flags |= FD_FUNK_REC_FLAG_ERASE;
+          fd_funk_part_set_intern( fd_funk_get_partvec( funk, wksp ), rec_map, rec, FD_FUNK_PART_NULL );
           fd_funk_val_flush( rec, fd_funk_alloc( funk, wksp ), wksp ); /* TODO: consider testing wksp_gaddr has wksp_tag? */
+
+          rec->flags |= FD_FUNK_REC_FLAG_ERASE;
+
           return FD_FUNK_SUCCESS;
 
         }
@@ -455,8 +512,11 @@ fd_funk_rec_remove( fd_funk_t *     funk,
              discard any changes we might have made already in this
              record. */
 
-          rec->flags |= FD_FUNK_REC_FLAG_ERASE;
           fd_funk_val_flush( rec, fd_funk_alloc( funk, wksp ), wksp ); /* TODO: consider testing wksp_gaddr has wksp_tag? */
+          fd_funk_part_set_intern( fd_funk_get_partvec( funk, wksp ), rec_map, rec, FD_FUNK_PART_NULL );
+
+          rec->flags |= FD_FUNK_REC_FLAG_ERASE;
+
           return FD_FUNK_SUCCESS;
         }
 
@@ -479,6 +539,7 @@ fd_funk_rec_remove( fd_funk_t *     funk,
      record */
 
   fd_funk_val_flush( rec, fd_funk_alloc( funk, wksp ), wksp ); /* TODO: consider testing wksp_gaddr has wksp_tag? */
+  fd_funk_part_set_intern( fd_funk_get_partvec( funk, wksp ), rec_map, rec, FD_FUNK_PART_NULL );
 
   ulong prev_idx = rec->prev_idx;
   ulong next_idx = rec->next_idx;
@@ -506,12 +567,19 @@ fd_funk_rec_write_prepare( fd_funk_t *               funk,
                            fd_funk_txn_t *           txn,
                            fd_funk_rec_key_t const * key,
                            ulong                     min_val_size,
+                           int                       do_create,
+                           fd_funk_rec_t const     * irec,
                            int *                     opt_err ) {
-  
+
   fd_wksp_t * wksp = fd_funk_wksp( funk );
-  
+
   fd_funk_rec_t * rec = NULL;
-  fd_funk_rec_t const * rec_con = fd_funk_rec_query_global( funk, txn, key );
+  fd_funk_rec_t const * rec_con = NULL;
+  if ( FD_LIKELY (NULL == irec ) )
+    rec_con = fd_funk_rec_query_global( funk, txn, key );
+  else
+    rec_con = irec;
+
   if ( rec_con ) {
     /* We have an incarnation of the record */
     if ( txn == fd_funk_rec_txn( rec_con,  fd_funk_txn_map( funk, wksp ) ) ) {
@@ -527,13 +595,18 @@ fd_funk_rec_write_prepare( fd_funk_t *               funk,
       rec = fd_funk_rec_modify( funk, fd_funk_rec_insert( funk, txn, key, opt_err ) );
       if ( !rec )
         return NULL;
-      rec = fd_funk_val_copy( rec, fd_funk_val_const(rec_con, wksp), fd_funk_val_sz(rec_con), 
+      rec = fd_funk_val_copy( rec, fd_funk_val_const(rec_con, wksp), fd_funk_val_sz(rec_con),
         fd_ulong_max( fd_funk_val_sz(rec_con), min_val_size ), fd_funk_alloc( funk, wksp ), wksp, opt_err );
       if ( !rec )
         return NULL;
     }
 
   } else {
+    if (!do_create) {
+      if( opt_err ) *opt_err = FD_FUNK_ERR_KEY;
+      return NULL;
+    }
+
     /* Create a new record */
     rec = fd_funk_rec_modify( funk, fd_funk_rec_insert( funk, txn, key, opt_err ) );
     if ( !rec )
@@ -678,4 +751,3 @@ fd_funk_rec_verify( fd_funk_t * funk ) {
 
   return FD_FUNK_SUCCESS;
 }
-

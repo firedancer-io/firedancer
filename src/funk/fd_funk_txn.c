@@ -187,6 +187,7 @@ fd_funk_txn_cancel_childless( fd_funk_t *     funk,
   fd_wksp_t *     wksp    = fd_funk_wksp   ( funk );
   fd_alloc_t *    alloc   = fd_funk_alloc  ( funk, wksp );
   fd_funk_rec_t * rec_map = fd_funk_rec_map( funk, wksp );
+  fd_funk_partvec_t * partvec = fd_funk_get_partvec( funk, wksp );
   ulong           rec_max = funk->rec_max;
 
   ulong rec_idx = map[ txn_idx ].rec_head_idx;
@@ -200,6 +201,7 @@ fd_funk_txn_cancel_childless( fd_funk_t *     funk,
     rec_map[ rec_idx ].txn_cidx = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
 
     fd_funk_val_flush( &rec_map[ rec_idx ], alloc, wksp );
+    fd_funk_part_set_intern( partvec, rec_map, &rec_map[ rec_idx ], FD_FUNK_PART_NULL );
 
     fd_funk_rec_map_remove( rec_map, fd_funk_rec_pair( &rec_map[ rec_idx ] ) );
 
@@ -262,7 +264,7 @@ fd_funk_txn_cancel_family( fd_funk_t *     funk,
   for(;;) {
 
     /* At this point, txn_idx appears to be valid and has been tagged. */
-    
+
     ulong youngest_idx = fd_funk_txn_idx( map[ txn_idx ].child_tail_cidx );
     if( FD_LIKELY( fd_funk_txn_idx_is_null( youngest_idx ) ) ) { /* txn is is childless, opt for incr pub */
 
@@ -274,7 +276,7 @@ fd_funk_txn_cancel_family( fd_funk_t *     funk,
       parent_stack_idx = fd_funk_txn_idx( map[ txn_idx ].stack_cidx );
       continue;
     }
-    
+
     /* txn has at least one child and the youngest is youngest_idx.  Tag
        the youngest child, push txn onto the parent stack and recurse
        into the youngest child. */
@@ -417,7 +419,7 @@ fd_funk_txn_cancel_siblings( fd_funk_t *     funk,
     if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "txn is not a funk transaction" ));
     return 0UL;
   }
-  
+
   ulong oldest_idx = fd_funk_txn_oldest_sibling( funk, map, txn_max, txn_idx );
 
   return fd_funk_txn_cancel_sibling_list( funk, map, txn_max, funk->cycle_tag++, oldest_idx, txn_idx );
@@ -456,8 +458,16 @@ fd_funk_txn_cancel_children( fd_funk_t *     funk,
     oldest_idx = fd_funk_txn_idx( txn->child_head_cidx );
 
   }
-  
+
   return fd_funk_txn_cancel_sibling_list( funk, map, txn_max, funk->cycle_tag++, oldest_idx, FD_FUNK_TXN_IDX_NULL );
+}
+
+/* Cancel all outstanding transactions */
+
+ulong
+fd_funk_txn_cancel_all( fd_funk_t *     funk,
+                        int             verbose ) {
+  return fd_funk_txn_cancel_children( funk, NULL, verbose );
 }
 
 /* fd_funk_txn_update applies the record updates in transaction txn_idx
@@ -496,9 +506,9 @@ fd_funk_txn_update( ulong *                   _dst_rec_head_idx, /* Pointer to t
                     ulong                     rec_max,           /* ==funk->rec_max */
                     fd_funk_txn_t *           txn_map,           /* ==fd_funk_rec_map( funk, wksp ) */
                     fd_funk_rec_t *           rec_map,           /* ==fd_funk_rec_map( funk, wksp ) */
+                    fd_funk_partvec_t *       partvec,           /* ==fd_funk_get_partvec( funk, wksp ) */
                     fd_alloc_t *              alloc,             /* ==fd_funk_alloc( funk, wksp ) */
                     fd_wksp_t *               wksp ) {           /* ==fd_funk_wksp( funk ) */
-
   /* We don't need to to do all the individual removal pointer updates
      as we are removing the whole list from txn_idx.  Likewise, we
      temporarily repurpose txn_cidx as a loop detector for additional
@@ -522,6 +532,9 @@ fd_funk_txn_update( ulong *                   _dst_rec_head_idx, /* Pointer to t
     fd_funk_rec_t * dst_rec = fd_funk_rec_map_query( rec_map, dst_pair, NULL );
 
     if( FD_UNLIKELY( rec_map[ rec_idx ].flags & FD_FUNK_REC_FLAG_ERASE ) ) { /* Erase a published key */
+
+      /* Remove from partition */
+      fd_funk_part_set_intern( partvec, rec_map, &rec_map[rec_idx], FD_FUNK_PART_NULL );
 
       if( FD_UNLIKELY( !dst_rec ) ) {
 
@@ -547,10 +560,10 @@ fd_funk_txn_update( ulong *                   _dst_rec_head_idx, /* Pointer to t
 
         ulong dst_prev_idx = *_dst_rec_tail_idx;
 
-        dst_rec->prev_idx = dst_prev_idx;
-        dst_rec->next_idx = FD_FUNK_REC_IDX_NULL;
-        dst_rec->txn_cidx = fd_funk_txn_cidx( dst_txn_idx );
-        dst_rec->tag      = 0U;
+        dst_rec->prev_idx         = dst_prev_idx;
+        dst_rec->next_idx         = FD_FUNK_REC_IDX_NULL;
+        dst_rec->txn_cidx         = fd_funk_txn_cidx( dst_txn_idx );
+        dst_rec->tag              = 0U;
 
         if( fd_funk_rec_idx_is_null( dst_prev_idx ) ) *_dst_rec_head_idx               = dst_rec_idx;
         else                                          rec_map[ dst_prev_idx ].next_idx = dst_rec_idx;
@@ -558,6 +571,7 @@ fd_funk_txn_update( ulong *                   _dst_rec_head_idx, /* Pointer to t
         *_dst_rec_tail_idx = dst_rec_idx;
 
         fd_funk_val_init( dst_rec );
+        fd_funk_part_init( dst_rec );
         dst_rec->flags |= FD_FUNK_REC_FLAG_ERASE;
 
       } else {
@@ -570,6 +584,7 @@ fd_funk_txn_update( ulong *                   _dst_rec_head_idx, /* Pointer to t
         fd_funk_rec_map_remove( rec_map, fd_funk_rec_pair( &rec_map[ rec_idx ] ) );
 
         fd_funk_val_flush( dst_rec, alloc, wksp );
+        fd_funk_part_set_intern( partvec, rec_map, dst_rec, FD_FUNK_PART_NULL );
 
         ulong prev_idx = dst_rec->prev_idx;
         ulong next_idx = dst_rec->next_idx;
@@ -598,7 +613,9 @@ fd_funk_txn_update( ulong *                   _dst_rec_head_idx, /* Pointer to t
       ulong val_sz    = (ulong)rec_map[ rec_idx ].val_sz;
       ulong val_max   = (ulong)rec_map[ rec_idx ].val_max;
       ulong val_gaddr = rec_map[ rec_idx ].val_gaddr;
+      uint part       = rec_map[ rec_idx ].part;
 
+      fd_funk_part_set_intern( partvec, rec_map, &rec_map[ rec_idx ], FD_FUNK_PART_NULL );
       fd_funk_rec_map_remove( rec_map, fd_funk_rec_pair( &rec_map[ rec_idx ] ) );
 
       if( FD_UNLIKELY( !dst_rec ) ) { /* Create a published key */
@@ -608,10 +625,12 @@ fd_funk_txn_update( ulong *                   _dst_rec_head_idx, /* Pointer to t
         ulong dst_rec_idx  = (ulong)(dst_rec - rec_map);
         ulong dst_prev_idx = *_dst_rec_tail_idx;
 
-        dst_rec->prev_idx = dst_prev_idx;
-        dst_rec->next_idx = FD_FUNK_REC_IDX_NULL;
-        dst_rec->txn_cidx = fd_funk_txn_cidx( dst_txn_idx );
-        dst_rec->tag      = 0U;
+        dst_rec->prev_idx         = dst_prev_idx;
+        dst_rec->next_idx         = FD_FUNK_REC_IDX_NULL;
+        dst_rec->txn_cidx         = fd_funk_txn_cidx( dst_txn_idx );
+        dst_rec->tag              = 0U;
+
+        fd_funk_part_init( dst_rec );
 
         if( fd_funk_rec_idx_is_null( dst_prev_idx ) ) *_dst_rec_head_idx               = dst_rec_idx;
         else                                          rec_map[ dst_prev_idx ].next_idx = dst_rec_idx;
@@ -630,6 +649,9 @@ fd_funk_txn_update( ulong *                   _dst_rec_head_idx, /* Pointer to t
       dst_rec->val_max   = (uint)val_max;
       dst_rec->val_gaddr = val_gaddr;
 
+      /* Use the new partition */
+      
+      fd_funk_part_set_intern( partvec, rec_map, dst_rec, part );
     }
 
     /* Advance to the next record */
@@ -658,7 +680,8 @@ fd_funk_txn_publish_funk_child( fd_funk_t *     funk,
 
   fd_wksp_t * wksp = fd_funk_wksp( funk );
   fd_funk_txn_update( &funk->rec_head_idx, &funk->rec_tail_idx, FD_FUNK_TXN_IDX_NULL, fd_funk_root( funk ),
-                      txn_idx, funk->rec_max, map, fd_funk_rec_map( funk, wksp ), fd_funk_alloc( funk, wksp ), wksp );
+                      txn_idx, funk->rec_max, map, fd_funk_rec_map( funk, wksp ), fd_funk_get_partvec( funk, wksp ),
+                      fd_funk_alloc( funk, wksp ), wksp );
 
   /* Cancel all competing transaction histories */
 
@@ -792,7 +815,7 @@ fd_funk_txn_merge( fd_funk_t *     funk,
     if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "txn must not have children" ));
     return FD_FUNK_ERR_INVAL;
   }
-  
+
   if( FD_UNLIKELY( !fd_funk_txn_is_only_child( txn ) ) ) {
     if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "txn must be an only child" ));
     return FD_FUNK_ERR_INVAL;
@@ -809,7 +832,8 @@ fd_funk_txn_merge( fd_funk_t *     funk,
   /* Merge records from child into parent */
 
   fd_funk_txn_update( &map[ parent_idx ].rec_head_idx, &map[ parent_idx ].rec_tail_idx, parent_idx, &map[ parent_idx ].xid,
-                      txn_idx, funk->rec_max, map, fd_funk_rec_map( funk, wksp ), fd_funk_alloc( funk, wksp ), wksp );
+                      txn_idx, funk->rec_max, map, fd_funk_rec_map( funk, wksp ), fd_funk_get_partvec( funk, wksp ),
+                      fd_funk_alloc( funk, wksp ), wksp );
 
   /* At this point, the record list for the child is empty.  Erase the
      child.  This is easy because we know it is an only child. */
@@ -822,6 +846,34 @@ fd_funk_txn_merge( fd_funk_t *     funk,
   fd_funk_txn_map_remove( map, fd_funk_txn_xid( txn ) );
 
   return FD_FUNK_SUCCESS;
+}
+
+/* Return the first record in a transaction. Returns NULL if the
+   transaction has no records yet. */
+
+FD_FN_PURE fd_funk_rec_t const *
+fd_funk_txn_first_rec( fd_funk_t *           funk,
+                       fd_funk_txn_t const * txn ) {
+  ulong rec_idx;
+  if( FD_UNLIKELY( NULL == txn ))
+    rec_idx = funk->rec_head_idx;
+  else
+    rec_idx = txn->rec_head_idx;
+  if( fd_funk_rec_idx_is_null( rec_idx ) ) return NULL;
+  fd_funk_rec_t const * rec_map = fd_funk_rec_map( funk, fd_funk_wksp( funk ) );
+  return rec_map + rec_idx;
+}
+
+/* Return the next record in a transaction. Returns NULL if the
+   transaction has no more records. */
+
+FD_FN_PURE fd_funk_rec_t const *
+fd_funk_txn_next_rec( fd_funk_t *           funk,
+                      fd_funk_rec_t const * rec ) {
+  ulong rec_idx = rec->next_idx;
+  if( fd_funk_rec_idx_is_null( rec_idx ) ) return NULL;
+  fd_funk_rec_t const * rec_map = fd_funk_rec_map( funk, fd_funk_wksp( funk ) );
+  return rec_map + rec_idx;
 }
 
 int
@@ -986,4 +1038,3 @@ fd_funk_txn_verify( fd_funk_t * funk ) {
 #undef ASSERT_UNTAGGED
 #undef ASSERT_IN_PREP
 #undef ASSERT_IN_MAP
-

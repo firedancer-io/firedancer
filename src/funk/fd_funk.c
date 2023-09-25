@@ -139,6 +139,18 @@ fd_funk_new( void * shmem,
 
   funk->alloc_gaddr = fd_wksp_gaddr_fast( wksp, alloc ); /* Note that this persists the join until delete */
 
+  ulong tmp_max;
+  fd_funk_partvec_t * partvec = (fd_funk_partvec_t *)fd_alloc_malloc_at_least( alloc, fd_funk_partvec_align(), fd_funk_partvec_footprint(0U), &tmp_max );
+  if( FD_UNLIKELY( !partvec ) ) {
+    FD_LOG_WARNING(( "partvec alloc failed" ));
+    fd_wksp_free_laddr( fd_alloc_delete( alloc_shalloc ) );
+    fd_wksp_free_laddr( fd_funk_rec_map_delete( fd_funk_rec_map_leave( rec_map ) ) );
+    fd_wksp_free_laddr( fd_funk_txn_map_delete( fd_funk_txn_map_leave( txn_map ) ) );
+    return NULL;
+  }
+  partvec->num_part = 0U;
+  funk->partvec_gaddr = fd_wksp_gaddr_fast( wksp, partvec );
+
   FD_COMPILER_MFENCE();
   FD_VOLATILE( funk->magic ) = FD_FUNK_MAGIC;
   FD_COMPILER_MFENCE();
@@ -215,7 +227,7 @@ fd_funk_delete( void * shfunk ) {
   fd_wksp_free_laddr( fd_alloc_delete       ( fd_alloc_leave       ( fd_funk_alloc  ( funk, wksp ) ) ) );
   fd_wksp_free_laddr( fd_funk_rec_map_delete( fd_funk_rec_map_leave( fd_funk_rec_map( funk, wksp ) ) ) );
   fd_wksp_free_laddr( fd_funk_txn_map_delete( fd_funk_txn_map_leave( fd_funk_txn_map( funk, wksp ) ) ) );
-
+  
   FD_COMPILER_MFENCE();
   FD_VOLATILE( funk->magic ) = 0UL;
   FD_COMPILER_MFENCE();
@@ -323,6 +335,7 @@ fd_funk_verify( fd_funk_t * funk ) {
   if( !rec_max ) TEST( fd_funk_rec_idx_is_null( rec_tail_idx ) );
 
   TEST( !fd_funk_rec_verify( funk ) );
+  TEST( !fd_funk_part_verify( funk ) );
 
   /* Test values */
 

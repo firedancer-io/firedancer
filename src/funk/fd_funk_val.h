@@ -6,10 +6,9 @@
 
 #include "fd_funk_rec.h" /* Includes fd_funk_txn.h, fd_funk_base.h */
 
-/* FD_FUNK_REC_VAL_MAX is the maximum size of a record value.  The
-   current value is aligned with Solana usages. */
+/* FD_FUNK_REC_VAL_MAX is the maximum size of a record value. */
 
-#define FD_FUNK_REC_VAL_MAX (10UL<<20) /* 10 MiB */
+#define FD_FUNK_REC_VAL_MAX UINT_MAX
 
 FD_PROTOTYPES_BEGIN
 
@@ -40,8 +39,8 @@ fd_funk_val_max( fd_funk_rec_t const * rec ) { /* Assumes pointer in caller's ad
    NULL and vice versa.  Assumes no concurrent operations on rec. */
 
 FD_FN_PURE static inline void *         /* Lifetime is the lesser of rec or the value size is modified */
-fd_funk_val( fd_funk_rec_t *   rec,     /* Assumes pointer in caller's address space to a live funk record */
-             fd_wksp_t const * wksp ) { /* ==fd_funk_wksp( funk ) where funk is a current local join */
+fd_funk_val( fd_funk_rec_t const * rec,     /* Assumes pointer in caller's address space to a live funk record */
+             fd_wksp_t const *     wksp ) { /* ==fd_funk_wksp( funk ) where funk is a current local join */
   ulong val_gaddr = rec->val_gaddr;
   if( !val_gaddr ) return NULL; /* Covers the marked ERASE case too */ /* TODO: consider branchless */
   return fd_wksp_laddr_fast( wksp, val_gaddr );
