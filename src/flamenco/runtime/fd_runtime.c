@@ -724,7 +724,11 @@ void compute_priority_fee( transaction_ctx_t const * txn_ctx, ulong * fee, ulong
 }
 
 ulong
-fd_runtime_calculate_fee( fd_global_ctx_t *global, transaction_ctx_t * txn_ctx, fd_txn_t * txn_descriptor, fd_rawtxn_b_t const * txn_raw ) {
+fd_runtime_calculate_fee( fd_global_ctx_t *     global,
+                          transaction_ctx_t *   txn_ctx,
+                          fd_txn_t *            txn_descriptor,
+                          fd_rawtxn_b_t const * txn_raw ) {
+
 // https://github.com/firedancer-io/solana/blob/08a1ef5d785fe58af442b791df6c4e83fe2e7c74/runtime/src/bank.rs#L4443
 // TODO: implement fee distribution to the collector ... and then charge us the correct amount
   ulong priority = 0;
