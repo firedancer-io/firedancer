@@ -61,42 +61,42 @@ fd_txntrace_capture_post( fd_soltrace_TxnDiff *        out,
                           fd_soltrace_TxnInput const * pre );
 
 /* fd_txntrace_replay replays a single transaction in a reconstructed
-   txn execution context.  Returns a newly allocated diff object.  input
-   points to a previously captured txn execution input (such as returned
-   by fd_txntrace_capture_pre).  wksp is a local join to a workspace
-   with at least 1 GiB of unfragmented free space.
+   txn execution context.  out is the struct to be filled with captured
+   replay data.  Lifetime of pointers in out is that of current scratch
+   frame.  input points to a previously captured execution input (such
+   as returned by fd_txntrace_capture_pre).  wksp is a local join to a
+   workspace.
 
    Example usage:
 
-     fd_soltrace_TxnDiff * diff = fd_txntrace_replay( &diff, &input, wksp );
+     fd_scratch_push();
+     fd_soltrace_TxnDiff diff;
+     int ok = !!fd_txntrace_replay( &diff, &input, wksp );
      if( ok ) dump_diff( diff );
-     fd_wksp_free_laddr( diff );
+     fd_scratch_pop();
+
+   Always frees any allocations made to the wksp.  However, allocs made
+   to fd_scratch must be freed by called (e.g. via fd_scratch_pop()).
 
    On failure, returns NULL.  Reasons for failure include alloc fail or
    fatal runtime error.  (Transaction exec fail is not a failure
    condition, error will be gracefully recorded in trace.)  Writes
-   reason for failure to log.
-
-   ### Memory Management
-
-   Allocates a variable-length memory region from wksp to hold returned
-   structure and nested objects.  Returned pointer points to first byte
-   of memory region, such that it is a valid argument to
-   fd_wksp_free_laddr().
-
-   Caller must have a local join to an fd_scratch with at least 1 GiB
-   of free space.  fd_scratch will be used for temporary allocations,
-   and is restored to the original frame on return.
-
-   TL;DR:
-   - Caller must be attached to fd_scratch.
-   - Caller is responsible for freeing the returned diff object.
-   - Caller must *not* call pb_release() on the return value, as the
-     memory isn't managed by nanopb. */
+   reason for failure to log. */
 
 fd_soltrace_TxnDiff *
-fd_txntrace_replay( fd_soltrace_TxnInput const * input,
+fd_txntrace_replay( fd_soltrace_TxnDiff *        out,
+                    fd_soltrace_TxnInput const * input,
                     fd_wksp_t *                  wksp );
+
+/* fd_txntrace_diff compares two transaction diff results.  Returns 1
+   if identical, 0 otherwise. */
+
+int
+fd_txntrace_diff( fd_soltrace_TxnDiff const * left,
+                  fd_soltrace_TxnDiff const * right );
+
+char const *
+fd_txntrace_diff_cstr( void );
 
 FD_PROTOTYPES_END
 

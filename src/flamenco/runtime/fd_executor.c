@@ -347,6 +347,25 @@ fd_executor_dump_txntrace( fd_global_ctx_t *            global,
   close( dump_fd );
 }
 
+static void
+fd_executor_retrace( fd_global_ctx_t *            global,
+                     fd_soltrace_TxnInput const * trace_pre,
+                     fd_soltrace_TxnDiff  const * trace_post0 ) {
+
+  FD_SCRATCH_SCOPED_FRAME;
+
+  fd_soltrace_TxnDiff  _trace_post1[1];
+  fd_soltrace_TxnDiff * trace_post1 =
+      fd_txntrace_replay( _trace_post1, trace_pre, global->local_wksp );
+
+  if( FD_UNLIKELY( !trace_post1 ) )
+    FD_LOG_ERR(( "fd_txntrace_replay failed" ));
+
+  if( FD_UNLIKELY( !fd_txntrace_diff( trace_post0, trace_post1 ) ) )
+    FD_LOG_ERR(( "fd_txntrace_replay returned incorrect trace:\n%s",
+                 fd_txntrace_diff_cstr() ));
+}
+
 int
 fd_execute_txn( fd_global_ctx_t *     global,
                 fd_txn_t *            txn_descriptor,
@@ -358,7 +377,7 @@ fd_execute_txn( fd_global_ctx_t *     global,
   /* Trace transaction input */
   fd_soltrace_TxnInput  _trace_pre[1];
   fd_soltrace_TxnInput * trace_pre = NULL;
-  if( FD_UNLIKELY( global->trace_dirfd > 0 ) )
+  if( FD_UNLIKELY( global->trace_mode ) )
     trace_pre = fd_txntrace_capture_pre( _trace_pre, global, txn_descriptor, txn_raw->raw );
 
   transaction_ctx_t txn_ctx = {
@@ -474,17 +493,21 @@ fd_execute_txn( fd_global_ctx_t *     global,
   }
 
   /* Export trace to Protobuf file */
-  if( FD_UNLIKELY( ( global->trace_dirfd > 0 )
-                 & ( !!trace_pre             ) ) ) {
+  if( FD_UNLIKELY( trace_pre ) ) {
     fd_soltrace_TxnDiff  _trace_post[1];
     fd_soltrace_TxnDiff * trace_post = fd_txntrace_capture_post( _trace_post, global, trace_pre );
     if( trace_post ) {
-      fd_soltrace_TxnTrace trace = {
-        .input = trace_pre,
-        .diff  = trace_post
-      };
-      fd_ed25519_sig_t const * sig0 = &fd_txn_get_signatures( txn_descriptor, txn_raw->raw )[0];
-      fd_executor_dump_txntrace( global, sig0, &trace );
+      if( global->trace_mode & FD_RUNTIME_TRACE_SAVE ) {
+        fd_soltrace_TxnTrace trace = {
+          .input = trace_pre,
+          .diff  = trace_post
+        };
+        fd_ed25519_sig_t const * sig0 = &fd_txn_get_signatures( txn_descriptor, txn_raw->raw )[0];
+        fd_executor_dump_txntrace( global, sig0, &trace );
+      }
+      if( global->trace_mode & FD_RUNTIME_TRACE_REPLAY ) {
+        fd_executor_retrace( global, trace_pre, trace_post );
+      }
     }
   }
 

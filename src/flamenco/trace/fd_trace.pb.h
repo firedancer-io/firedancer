@@ -23,6 +23,8 @@ typedef struct _fd_soltrace_TxnTrace {
 typedef struct _fd_soltrace_TxnDiff {
     pb_size_t account_count;
     struct _fd_soltrace_Account *account;
+    /* Lamports collected during current slot, after txn execution */
+    uint64_t collected_fees;
 } fd_soltrace_TxnDiff;
 
 typedef struct _fd_soltrace_AccountMeta {
@@ -35,6 +37,7 @@ typedef struct _fd_soltrace_AccountMeta {
 
 typedef struct _fd_soltrace_Account {
     fd_soltrace_AccountMeta meta;
+    /* data, can be ommitted if unchanged. */
     pb_bytes_array_t *data;
 } fd_soltrace_Account;
 
@@ -42,6 +45,24 @@ typedef struct _fd_soltrace_KeyedAccount {
     pb_byte_t pubkey[32];
     fd_soltrace_Account account;
 } fd_soltrace_KeyedAccount;
+
+typedef struct _fd_soltrace_ValidatorStake {
+    pb_byte_t vote_account_key[32];
+    uint64_t lamports;
+} fd_soltrace_ValidatorStake;
+
+typedef struct _fd_soltrace_RecentBlockhash {
+    pb_byte_t hash[32];
+    uint64_t lamports_per_signature;
+} fd_soltrace_RecentBlockhash;
+
+typedef struct _fd_soltrace_FeeRateGovernor {
+    uint64_t target_lamports_per_signature;
+    uint64_t target_signatures_per_slot;
+    uint64_t min_lamports_per_signature;
+    uint64_t max_lamports_per_signature;
+    uint32_t burn_percent;
+} fd_soltrace_FeeRateGovernor;
 
 /* ImplicitState is the complete set of runtime information that is not
  explicitly mentioned in the transaction message. */
@@ -67,6 +88,10 @@ typedef struct _fd_soltrace_ImplicitState {
     /* Active stake per vote account in current epoch. */
     pb_size_t epoch_stakes_count;
     struct _fd_soltrace_ValidatorStake *epoch_stakes;
+    /* Lamports collected during current slot, before executing this txn */
+    uint64_t collected_fees;
+    /* Not a sysvar */
+    fd_soltrace_FeeRateGovernor fee_rate_governor;
 } fd_soltrace_ImplicitState;
 
 /* TxnInput contains the complete set of inputs to perform a
@@ -75,20 +100,10 @@ typedef struct _fd_soltrace_TxnInput {
     solana_storage_ConfirmedBlock_Message transaction;
     /* A list of accounts.  Length must match the number of accounts
  specified in the transaction. */
-    pb_size_t accounts_count;
-    struct _fd_soltrace_Account *accounts;
+    pb_size_t account_count;
+    struct _fd_soltrace_Account *account;
     fd_soltrace_ImplicitState state;
 } fd_soltrace_TxnInput;
-
-typedef struct _fd_soltrace_ValidatorStake {
-    pb_byte_t vote_account_key[32];
-    uint64_t lamports;
-} fd_soltrace_ValidatorStake;
-
-typedef struct _fd_soltrace_RecentBlockhash {
-    pb_byte_t hash[32];
-    uint64_t lamports_per_signature;
-} fd_soltrace_RecentBlockhash;
 
 
 #ifdef __cplusplus
@@ -98,27 +113,30 @@ extern "C" {
 /* Initializer values for message structs */
 #define fd_soltrace_TxnTrace_init_default        {NULL, NULL}
 #define fd_soltrace_TxnInput_init_default        {solana_storage_ConfirmedBlock_Message_init_default, 0, NULL, fd_soltrace_ImplicitState_init_default}
-#define fd_soltrace_TxnDiff_init_default         {0, NULL}
-#define fd_soltrace_AccountMeta_init_default     {0, 0, 0, {0}, 0}
+#define fd_soltrace_TxnDiff_init_default         {0, NULL, 0}
 #define fd_soltrace_Account_init_default         {fd_soltrace_AccountMeta_init_default, NULL}
+#define fd_soltrace_AccountMeta_init_default     {0, 0, 0, {0}, 0}
 #define fd_soltrace_KeyedAccount_init_default    {{0}, fd_soltrace_Account_init_default}
-#define fd_soltrace_ImplicitState_init_default   {0, NULL, 0, 0, NULL, false, {0}, false, 0, false, 0, 0, NULL}
+#define fd_soltrace_ImplicitState_init_default   {0, NULL, 0, 0, NULL, false, {0}, false, 0, false, 0, 0, NULL, 0, fd_soltrace_FeeRateGovernor_init_default}
 #define fd_soltrace_ValidatorStake_init_default  {{0}, 0}
 #define fd_soltrace_RecentBlockhash_init_default {{0}, 0}
+#define fd_soltrace_FeeRateGovernor_init_default {0, 0, 0, 0, 0}
 #define fd_soltrace_TxnTrace_init_zero           {NULL, NULL}
 #define fd_soltrace_TxnInput_init_zero           {solana_storage_ConfirmedBlock_Message_init_zero, 0, NULL, fd_soltrace_ImplicitState_init_zero}
-#define fd_soltrace_TxnDiff_init_zero            {0, NULL}
-#define fd_soltrace_AccountMeta_init_zero        {0, 0, 0, {0}, 0}
+#define fd_soltrace_TxnDiff_init_zero            {0, NULL, 0}
 #define fd_soltrace_Account_init_zero            {fd_soltrace_AccountMeta_init_zero, NULL}
+#define fd_soltrace_AccountMeta_init_zero        {0, 0, 0, {0}, 0}
 #define fd_soltrace_KeyedAccount_init_zero       {{0}, fd_soltrace_Account_init_zero}
-#define fd_soltrace_ImplicitState_init_zero      {0, NULL, 0, 0, NULL, false, {0}, false, 0, false, 0, 0, NULL}
+#define fd_soltrace_ImplicitState_init_zero      {0, NULL, 0, 0, NULL, false, {0}, false, 0, false, 0, 0, NULL, 0, fd_soltrace_FeeRateGovernor_init_zero}
 #define fd_soltrace_ValidatorStake_init_zero     {{0}, 0}
 #define fd_soltrace_RecentBlockhash_init_zero    {{0}, 0}
+#define fd_soltrace_FeeRateGovernor_init_zero    {0, 0, 0, 0, 0}
 
 /* Field tags (for use in manual encoding/decoding) */
 #define fd_soltrace_TxnTrace_input_tag           1
 #define fd_soltrace_TxnTrace_diff_tag            2
 #define fd_soltrace_TxnDiff_account_tag          1
+#define fd_soltrace_TxnDiff_collected_fees_tag   2
 #define fd_soltrace_AccountMeta_lamports_tag     1
 #define fd_soltrace_AccountMeta_slot_tag         2
 #define fd_soltrace_AccountMeta_rent_epoch_tag   3
@@ -128,6 +146,15 @@ extern "C" {
 #define fd_soltrace_Account_data_tag             2
 #define fd_soltrace_KeyedAccount_pubkey_tag      1
 #define fd_soltrace_KeyedAccount_account_tag     2
+#define fd_soltrace_ValidatorStake_vote_account_key_tag 1
+#define fd_soltrace_ValidatorStake_lamports_tag  2
+#define fd_soltrace_RecentBlockhash_hash_tag     1
+#define fd_soltrace_RecentBlockhash_lamports_per_signature_tag 2
+#define fd_soltrace_FeeRateGovernor_target_lamports_per_signature_tag 1
+#define fd_soltrace_FeeRateGovernor_target_signatures_per_slot_tag 2
+#define fd_soltrace_FeeRateGovernor_min_lamports_per_signature_tag 3
+#define fd_soltrace_FeeRateGovernor_max_lamports_per_signature_tag 4
+#define fd_soltrace_FeeRateGovernor_burn_percent_tag 5
 #define fd_soltrace_ImplicitState_sysvars_tag    1
 #define fd_soltrace_ImplicitState_prev_slot_tag  2
 #define fd_soltrace_ImplicitState_blockhash_tag  3
@@ -135,13 +162,11 @@ extern "C" {
 #define fd_soltrace_ImplicitState_capitalization_tag 5
 #define fd_soltrace_ImplicitState_block_height_tag 6
 #define fd_soltrace_ImplicitState_epoch_stakes_tag 7
+#define fd_soltrace_ImplicitState_collected_fees_tag 8
+#define fd_soltrace_ImplicitState_fee_rate_governor_tag 9
 #define fd_soltrace_TxnInput_transaction_tag     1
-#define fd_soltrace_TxnInput_accounts_tag        2
+#define fd_soltrace_TxnInput_account_tag         2
 #define fd_soltrace_TxnInput_state_tag           3
-#define fd_soltrace_ValidatorStake_vote_account_key_tag 1
-#define fd_soltrace_ValidatorStake_lamports_tag  2
-#define fd_soltrace_RecentBlockhash_hash_tag     1
-#define fd_soltrace_RecentBlockhash_lamports_per_signature_tag 2
 
 /* Struct field encoding specification for nanopb */
 #define fd_soltrace_TxnTrace_FIELDLIST(X, a) \
@@ -154,19 +179,27 @@ X(a, POINTER,  OPTIONAL, MESSAGE,  diff,              2)
 
 #define fd_soltrace_TxnInput_FIELDLIST(X, a) \
 X(a, STATIC,   REQUIRED, MESSAGE,  transaction,       1) \
-X(a, POINTER,  REPEATED, MESSAGE,  accounts,          2) \
+X(a, POINTER,  REPEATED, MESSAGE,  account,           2) \
 X(a, STATIC,   REQUIRED, MESSAGE,  state,             3)
 #define fd_soltrace_TxnInput_CALLBACK NULL
 #define fd_soltrace_TxnInput_DEFAULT NULL
 #define fd_soltrace_TxnInput_transaction_MSGTYPE solana_storage_ConfirmedBlock_Message
-#define fd_soltrace_TxnInput_accounts_MSGTYPE fd_soltrace_Account
+#define fd_soltrace_TxnInput_account_MSGTYPE fd_soltrace_Account
 #define fd_soltrace_TxnInput_state_MSGTYPE fd_soltrace_ImplicitState
 
 #define fd_soltrace_TxnDiff_FIELDLIST(X, a) \
-X(a, POINTER,  REPEATED, MESSAGE,  account,           1)
+X(a, POINTER,  REPEATED, MESSAGE,  account,           1) \
+X(a, STATIC,   REQUIRED, UINT64,   collected_fees,    2)
 #define fd_soltrace_TxnDiff_CALLBACK NULL
 #define fd_soltrace_TxnDiff_DEFAULT NULL
 #define fd_soltrace_TxnDiff_account_MSGTYPE fd_soltrace_Account
+
+#define fd_soltrace_Account_FIELDLIST(X, a) \
+X(a, STATIC,   REQUIRED, MESSAGE,  meta,              1) \
+X(a, POINTER,  OPTIONAL, BYTES,    data,              2)
+#define fd_soltrace_Account_CALLBACK NULL
+#define fd_soltrace_Account_DEFAULT NULL
+#define fd_soltrace_Account_meta_MSGTYPE fd_soltrace_AccountMeta
 
 #define fd_soltrace_AccountMeta_FIELDLIST(X, a) \
 X(a, STATIC,   REQUIRED, UINT64,   lamports,          1) \
@@ -176,13 +209,6 @@ X(a, STATIC,   REQUIRED, FIXED_LENGTH_BYTES, owner,             4) \
 X(a, STATIC,   REQUIRED, BOOL,     executable,        5)
 #define fd_soltrace_AccountMeta_CALLBACK NULL
 #define fd_soltrace_AccountMeta_DEFAULT NULL
-
-#define fd_soltrace_Account_FIELDLIST(X, a) \
-X(a, STATIC,   REQUIRED, MESSAGE,  meta,              1) \
-X(a, POINTER,  REQUIRED, BYTES,    data,              2)
-#define fd_soltrace_Account_CALLBACK NULL
-#define fd_soltrace_Account_DEFAULT NULL
-#define fd_soltrace_Account_meta_MSGTYPE fd_soltrace_AccountMeta
 
 #define fd_soltrace_KeyedAccount_FIELDLIST(X, a) \
 X(a, STATIC,   REQUIRED, FIXED_LENGTH_BYTES, pubkey,            1) \
@@ -198,12 +224,15 @@ X(a, POINTER,  REPEATED, MESSAGE,  blockhash,         3) \
 X(a, STATIC,   OPTIONAL, FIXED_LENGTH_BYTES, bank_hash,         4) \
 X(a, STATIC,   OPTIONAL, UINT64,   capitalization,    5) \
 X(a, STATIC,   OPTIONAL, UINT64,   block_height,      6) \
-X(a, POINTER,  REPEATED, MESSAGE,  epoch_stakes,      7)
+X(a, POINTER,  REPEATED, MESSAGE,  epoch_stakes,      7) \
+X(a, STATIC,   REQUIRED, UINT64,   collected_fees,    8) \
+X(a, STATIC,   REQUIRED, MESSAGE,  fee_rate_governor,   9)
 #define fd_soltrace_ImplicitState_CALLBACK NULL
 #define fd_soltrace_ImplicitState_DEFAULT NULL
 #define fd_soltrace_ImplicitState_sysvars_MSGTYPE fd_soltrace_KeyedAccount
 #define fd_soltrace_ImplicitState_blockhash_MSGTYPE fd_soltrace_RecentBlockhash
 #define fd_soltrace_ImplicitState_epoch_stakes_MSGTYPE fd_soltrace_ValidatorStake
+#define fd_soltrace_ImplicitState_fee_rate_governor_MSGTYPE fd_soltrace_FeeRateGovernor
 
 #define fd_soltrace_ValidatorStake_FIELDLIST(X, a) \
 X(a, STATIC,   REQUIRED, FIXED_LENGTH_BYTES, vote_account_key,   1) \
@@ -217,26 +246,37 @@ X(a, STATIC,   REQUIRED, UINT64,   lamports_per_signature,   2)
 #define fd_soltrace_RecentBlockhash_CALLBACK NULL
 #define fd_soltrace_RecentBlockhash_DEFAULT NULL
 
+#define fd_soltrace_FeeRateGovernor_FIELDLIST(X, a) \
+X(a, STATIC,   REQUIRED, UINT64,   target_lamports_per_signature,   1) \
+X(a, STATIC,   REQUIRED, UINT64,   target_signatures_per_slot,   2) \
+X(a, STATIC,   REQUIRED, UINT64,   min_lamports_per_signature,   3) \
+X(a, STATIC,   REQUIRED, UINT64,   max_lamports_per_signature,   4) \
+X(a, STATIC,   REQUIRED, UINT32,   burn_percent,      5)
+#define fd_soltrace_FeeRateGovernor_CALLBACK NULL
+#define fd_soltrace_FeeRateGovernor_DEFAULT NULL
+
 extern const pb_msgdesc_t fd_soltrace_TxnTrace_msg;
 extern const pb_msgdesc_t fd_soltrace_TxnInput_msg;
 extern const pb_msgdesc_t fd_soltrace_TxnDiff_msg;
-extern const pb_msgdesc_t fd_soltrace_AccountMeta_msg;
 extern const pb_msgdesc_t fd_soltrace_Account_msg;
+extern const pb_msgdesc_t fd_soltrace_AccountMeta_msg;
 extern const pb_msgdesc_t fd_soltrace_KeyedAccount_msg;
 extern const pb_msgdesc_t fd_soltrace_ImplicitState_msg;
 extern const pb_msgdesc_t fd_soltrace_ValidatorStake_msg;
 extern const pb_msgdesc_t fd_soltrace_RecentBlockhash_msg;
+extern const pb_msgdesc_t fd_soltrace_FeeRateGovernor_msg;
 
 /* Defines for backwards compatibility with code written before nanopb-0.4.0 */
 #define fd_soltrace_TxnTrace_fields &fd_soltrace_TxnTrace_msg
 #define fd_soltrace_TxnInput_fields &fd_soltrace_TxnInput_msg
 #define fd_soltrace_TxnDiff_fields &fd_soltrace_TxnDiff_msg
-#define fd_soltrace_AccountMeta_fields &fd_soltrace_AccountMeta_msg
 #define fd_soltrace_Account_fields &fd_soltrace_Account_msg
+#define fd_soltrace_AccountMeta_fields &fd_soltrace_AccountMeta_msg
 #define fd_soltrace_KeyedAccount_fields &fd_soltrace_KeyedAccount_msg
 #define fd_soltrace_ImplicitState_fields &fd_soltrace_ImplicitState_msg
 #define fd_soltrace_ValidatorStake_fields &fd_soltrace_ValidatorStake_msg
 #define fd_soltrace_RecentBlockhash_fields &fd_soltrace_RecentBlockhash_msg
+#define fd_soltrace_FeeRateGovernor_fields &fd_soltrace_FeeRateGovernor_msg
 
 /* Maximum encoded size of messages (where known) */
 /* fd_soltrace_TxnTrace_size depends on runtime parameters */
@@ -246,6 +286,7 @@ extern const pb_msgdesc_t fd_soltrace_RecentBlockhash_msg;
 /* fd_soltrace_KeyedAccount_size depends on runtime parameters */
 /* fd_soltrace_ImplicitState_size depends on runtime parameters */
 #define fd_soltrace_AccountMeta_size             69
+#define fd_soltrace_FeeRateGovernor_size         50
 #define fd_soltrace_RecentBlockhash_size         45
 #define fd_soltrace_ValidatorStake_size          45
 
@@ -253,12 +294,13 @@ extern const pb_msgdesc_t fd_soltrace_RecentBlockhash_msg;
 #define io_firedancer_trace_TxnTrace fd_soltrace_TxnTrace
 #define io_firedancer_trace_TxnInput fd_soltrace_TxnInput
 #define io_firedancer_trace_TxnDiff fd_soltrace_TxnDiff
-#define io_firedancer_trace_AccountMeta fd_soltrace_AccountMeta
 #define io_firedancer_trace_Account fd_soltrace_Account
+#define io_firedancer_trace_AccountMeta fd_soltrace_AccountMeta
 #define io_firedancer_trace_KeyedAccount fd_soltrace_KeyedAccount
 #define io_firedancer_trace_ImplicitState fd_soltrace_ImplicitState
 #define io_firedancer_trace_ValidatorStake fd_soltrace_ValidatorStake
 #define io_firedancer_trace_RecentBlockhash fd_soltrace_RecentBlockhash
+#define io_firedancer_trace_FeeRateGovernor fd_soltrace_FeeRateGovernor
 
 #ifdef __cplusplus
 } /* extern "C" */

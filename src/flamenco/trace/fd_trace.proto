@@ -24,7 +24,7 @@ message TxnInput {
 
     // A list of accounts.  Length must match the number of accounts
     // specified in the transaction.
-    repeated Account accounts = 2;
+    repeated Account account = 2;
 
     required ImplicitState state = 3;
 
@@ -35,6 +35,16 @@ message TxnInput {
 // by transaction execuction.
 message TxnDiff {
     repeated Account account = 1;
+
+    // Lamports collected during current slot, after txn execution
+    required uint64 collected_fees = 2;
+}
+
+message Account {
+    required AccountMeta meta = 1;
+
+    // data, can be ommitted if unchanged.
+    optional bytes data = 2;
 }
 
 message AccountMeta {
@@ -44,11 +54,6 @@ message AccountMeta {
     required bytes owner = 4
         [(nanopb).max_size = 32, (nanopb).fixed_length = true];
     required bool executable = 5;
-}
-
-message Account {
-    required AccountMeta meta = 1;
-    required bytes data = 2;
 }
 
 message KeyedAccount {
@@ -82,6 +87,12 @@ message ImplicitState {
 
     // Active stake per vote account in current epoch.
     repeated ValidatorStake epoch_stakes = 7;
+
+    // Lamports collected during current slot, before executing this txn
+    required uint64 collected_fees = 8;
+
+    // Not a sysvar
+    required FeeRateGovernor fee_rate_governor = 9;
 }
 
 message ValidatorStake {
@@ -96,4 +107,12 @@ message RecentBlockhash {
         [(nanopb).max_size = 32, (nanopb).fixed_length = true];
 
     required uint64 lamports_per_signature = 2;
+}
+
+message FeeRateGovernor {
+    required uint64 target_lamports_per_signature = 1;
+    required uint64 target_signatures_per_slot    = 2;
+    required uint64 min_lamports_per_signature    = 3;
+    required uint64 max_lamports_per_signature    = 4;
+    required uint32 burn_percent                  = 5;
 }
