@@ -26,9 +26,9 @@ typedef struct treap_ele treap_ele_t;
 
 struct __attribute__((aligned(32UL))) fd_wsample_private {
   ulong              total_weight;
-  ulong              undeleted_cnt;
-  ulong              undeleted_weight;
-  int                undelete_enabled;
+  ulong              unremoved_cnt;
+  ulong              unremoved_weight;
+  int                restore_enabled;
   /* 4 byte padding */
 
   fd_chacha20rng_t * rng;
@@ -38,7 +38,7 @@ struct __attribute__((aligned(32UL))) fd_wsample_private {
   /* pool: Actually logically two pools.  Elements [0, ele_cnt) are the
      pool used for the treap.  Elements [ele_cnt, 2*ele_cnt) are a copy
      of the pool after construction but before any sampling so that we
-     can implement undelete as a memcpy. */
+     can implement restore as a memcpy. */
   treap_ele_t        pool[];
 };
 
@@ -51,9 +51,9 @@ fd_wsample_align( void ) {
 }
 
 FD_FN_CONST ulong
-fd_wsample_footprint( ulong ele_cnt, int undelete_enabled ) {
+fd_wsample_footprint( ulong ele_cnt, int restore_enabled ) {
   if( FD_UNLIKELY( ele_cnt >= UINT_MAX ) ) return 0UL;
-  return sizeof(fd_wsample_t) + (undelete_enabled?2UL:1UL)*ele_cnt*sizeof(treap_ele_t);
+  return sizeof(fd_wsample_t) + (restore_enabled?2UL:1UL)*ele_cnt*sizeof(treap_ele_t);
 }
 
 fd_wsample_t *
@@ -127,7 +127,7 @@ fd_wsample_new( void             * shmem,
                 fd_chacha20rng_t * rng,
                 ulong            * weights,
                 ulong              ele_cnt,
-                int                undelete_enabled,
+                int                restore_enabled,
                 int                opt_hint ) {
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL shmem" ));
@@ -144,23 +144,24 @@ fd_wsample_new( void             * shmem,
     return NULL;
   }
 
-  fd_wsample_t * tree = (fd_wsample_t *)shmem;
-  tree->total_weight      = 0UL;
-  tree->undeleted_cnt     = ele_cnt;
-  tree->undeleted_weight  = 0UL;
-  tree->undelete_enabled  = undelete_enabled;
-  tree->rng               = rng;
+  fd_wsample_t *  sampler = (fd_wsample_t *)shmem;
 
-  treap_join( treap_new( (void *)tree->treap, ele_cnt ) );
-  /* Invariant: treap_ele_max( tree->treap ) is always the value of
+  sampler->total_weight      = 0UL;
+  sampler->unremoved_cnt     = ele_cnt;
+  sampler->unremoved_weight  = 0UL;
+  sampler->restore_enabled   = restore_enabled;
+  sampler->rng               = rng;
+
+  treap_join( treap_new( (void *)sampler->treap, ele_cnt ) );
+  /* Invariant: treap_ele_max( sampler->treap ) is always the value of
      ele_cnt passed to _new. */
 
   if( FD_UNLIKELY( ele_cnt==0UL ) ) return shmem;
 
-  treap_ele_t * pool = tree->pool;
+  treap_ele_t * pool = sampler->pool;
 
   /* 100 is fine as a starting prio.  See note above. */
-  if( opt_hint==FD_WSAMPLE_HINT_POWERLAW_NODELETE ) seed_recursive( pool, 1U, (uint)ele_cnt, 100U               );
+  if( opt_hint==FD_WSAMPLE_HINT_POWERLAW_NOREMOVE ) seed_recursive( pool, 1U, (uint)ele_cnt, 100U               );
   else                                              treap_seed    ( pool,           ele_cnt, ele_cnt^0xBADF00DU );
 
   ulong weight_sum = 0UL;
@@ -178,7 +179,7 @@ fd_wsample_new( void             * shmem,
 
     weight_sum    += w;
     pool[i].weight = w;
-    treap_idx_insert( tree->treap, i, pool );
+    treap_idx_insert( sampler->treap, i, pool );
   }
 
   /* Populate left_sum values */
@@ -197,7 +198,7 @@ fd_wsample_new( void             * shmem,
 
      Traverse each link in both directions in the normal order. */
   uint i = (uint)treap_idx_null();
-  uint j = tree->treap->root;
+  uint j = sampler->treap->root;
   /* Start from left-most node */
   while( FD_LIKELY( !treap_idx_is_null( j ) ) ) { i = j; j = pool[ j ].left; }
   pool[ i ].left_sum = 0UL; /* No left child, so left_sum==0 */
@@ -235,25 +236,25 @@ fd_wsample_new( void             * shmem,
     }
   }
 
-  tree->total_weight     = nodesum;
-  tree->undeleted_weight = nodesum;
+  sampler->total_weight     = nodesum;
+  sampler->unremoved_weight = nodesum;
 
-  if( undelete_enabled ) {
-    /* Copy the tree to make undelete fast. */
+  if( restore_enabled ) {
+    /* Copy the sampler to make restore fast. */
     fd_memcpy( pool+ele_cnt, pool, ele_cnt*sizeof(treap_ele_t) );
   }
 
-  return (void *)tree;
+  return (void *)sampler;
 }
 
 void *
-fd_wsample_leave( fd_wsample_t * tree ) {
-  if( FD_UNLIKELY( !tree ) ) {
-    FD_LOG_WARNING(( "NULL tree" ));
+fd_wsample_leave( fd_wsample_t * sampler ) {
+  if( FD_UNLIKELY( !sampler ) ) {
+    FD_LOG_WARNING(( "NULL sampler" ));
     return NULL;
   }
 
-  return (void *)tree;
+  return (void *)sampler;
 }
 
 void *
@@ -272,7 +273,7 @@ fd_wsample_delete( void * shmem  ) {
 
 
 
-fd_chacha20rng_t * fd_wsample_get_rng( fd_wsample_t * tree ) { return tree->rng; }
+fd_chacha20rng_t * fd_wsample_get_rng( fd_wsample_t * sampler ) { return sampler->rng; }
 
 
 /* TODO: Should this function exist at all? */
@@ -284,24 +285,24 @@ fd_wsample_seed_rng( fd_chacha20rng_t * rng,
 
 
 fd_wsample_t *
-fd_wsample_undelete_all( fd_wsample_t * tree ) {
-  if( FD_UNLIKELY( !tree->undelete_enabled ) )  return NULL;
+fd_wsample_restore_all( fd_wsample_t * sampler ) {
+  if( FD_UNLIKELY( !sampler->restore_enabled ) )  return NULL;
 
-  ulong ele_cnt = treap_ele_max( tree->treap );
-  tree->undeleted_weight = tree->total_weight;
-  tree->undeleted_cnt    = ele_cnt;
+  ulong ele_cnt = treap_ele_max( sampler->treap );
+  sampler->unremoved_weight = sampler->total_weight;
+  sampler->unremoved_cnt    = ele_cnt;
 
-  fd_memcpy( tree->pool, tree->pool + ele_cnt, ele_cnt*sizeof(treap_ele_t) );
-  return tree;
+  fd_memcpy( sampler->pool, sampler->pool + ele_cnt, ele_cnt*sizeof(treap_ele_t) );
+  return sampler;
 }
 
 /* Helper methods for sampling functions */
 uint
 //static inline uint
-fd_wsample_map_sample( fd_wsample_t * tree,
+fd_wsample_map_sample( fd_wsample_t * sampler,
                        ulong         query ) {
-  treap_ele_t * pool = tree->pool;
-  uint          root = tree->treap->root;
+  treap_ele_t * pool = sampler->pool;
+  uint          root = sampler->treap->root;
   for(;;) {
     if( FD_LIKELY( query < pool[root].left_sum ) ) root = pool[root].left;
     else {
@@ -314,17 +315,17 @@ fd_wsample_map_sample( fd_wsample_t * tree,
 }
 
 
-static inline void
-fd_stake_weight_remove( fd_wsample_t * tree,
-                        uint idx ) {
+void
+fd_wsample_remove_idx( fd_wsample_t * sampler,
+                       ulong          idx ) {
   /* TODO: Actually remove the node from the treap so that it doesn't
      get junked up with a bunch of zero-weight nodes. */
-  treap_ele_t * pool = tree->pool;
+  treap_ele_t * pool = sampler->pool;
 
   ulong weight = pool[idx].weight;
   pool[idx].weight = 0UL;
 
-  uint i = idx;
+  uint i = (uint)idx;
   uint p = pool[i].parent;
 
   while( !treap_idx_is_null( p ) ) {
@@ -333,41 +334,41 @@ fd_stake_weight_remove( fd_wsample_t * tree,
     p = pool[p].parent;
   }
 
-  tree->undeleted_cnt--;
-  tree->undeleted_weight -= weight;
+  sampler->unremoved_cnt--;
+  sampler->unremoved_weight -= weight;
 }
 
 /* For now, implement the _many functions as loops over the single
    sample functions.  It is possible to do better though. */
 
 void
-fd_wsample_sample_many( fd_wsample_t * tree,
+fd_wsample_sample_many( fd_wsample_t * sampler,
                         ulong        * idxs,
                         ulong          cnt  ) {
-  for( ulong i=0UL; i<cnt; i++ ) idxs[i] = fd_wsample_sample( tree );
+  for( ulong i=0UL; i<cnt; i++ ) idxs[i] = fd_wsample_sample( sampler );
 }
 
 void
-fd_wsample_sample_and_delete_many( fd_wsample_t * tree,
+fd_wsample_sample_and_remove_many( fd_wsample_t * sampler,
                                    ulong        * idxs,
                                    ulong          cnt   ) {
-  for( ulong i=0UL; i<cnt; i++ ) idxs[i] = fd_wsample_sample_and_delete( tree );
+  for( ulong i=0UL; i<cnt; i++ ) idxs[i] = fd_wsample_sample_and_remove( sampler );
 }
 
 
 
 ulong
-fd_wsample_sample( fd_wsample_t * tree ) {
-  if( FD_UNLIKELY( !tree->undeleted_weight ) ) return FD_WSAMPLE_EMPTY;
-  ulong unif = fd_chacha20rng_ulong_roll( tree->rng, tree->undeleted_weight );
-  return (ulong)fd_wsample_map_sample( tree, unif );
+fd_wsample_sample( fd_wsample_t * sampler ) {
+  if( FD_UNLIKELY( !sampler->unremoved_weight ) ) return FD_WSAMPLE_EMPTY;
+  ulong unif = fd_chacha20rng_ulong_roll( sampler->rng, sampler->unremoved_weight );
+  return (ulong)fd_wsample_map_sample( sampler, unif );
 }
 
 ulong
-fd_wsample_sample_and_delete( fd_wsample_t * tree ) {
-  if( FD_UNLIKELY( !tree->undeleted_weight ) ) return FD_WSAMPLE_EMPTY;
-  ulong unif = fd_chacha20rng_ulong_roll( tree->rng, tree->undeleted_weight );
-  uint idx = fd_wsample_map_sample( tree, unif );
-  fd_stake_weight_remove( tree, idx );
+fd_wsample_sample_and_remove( fd_wsample_t * sampler ) {
+  if( FD_UNLIKELY( !sampler->unremoved_weight ) ) return FD_WSAMPLE_EMPTY;
+  ulong unif = fd_chacha20rng_ulong_roll( sampler->rng, sampler->unremoved_weight );
+  uint idx = fd_wsample_map_sample( sampler, unif );
+  fd_wsample_remove_idx( sampler, idx );
   return (ulong)idx;
 }
