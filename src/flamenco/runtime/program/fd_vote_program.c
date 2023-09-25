@@ -1865,7 +1865,8 @@ vote_state_process_vote_with_account( fd_borrowed_account_t *       vote_account
       return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
     }
     // https://github.com/firedancer-io/solana/blob/debug-master/programs/vote/src/vote_state/mod.rs#L1012
-    vote_state_process_timestamp( &vote_state, *max, *vote->timestamp, ctx );
+    rc = vote_state_process_timestamp( &vote_state, *max, *vote->timestamp, ctx );
+    if ( FD_UNLIKELY( rc != OK ) ) return rc;
 
     // FD-specific: update the global.bank.timestamp_votes pool
     fd_vote_record_timestamp_vote( ctx.global, vote_account->pubkey, *vote->timestamp );
@@ -1963,7 +1964,7 @@ vote_state_process_next_vote_slot( fd_vote_state_t * self, ulong next_vote_slot,
 
   if ( FD_UNLIKELY( deq_fd_landed_vote_t_cnt( self->votes ) == MAX_LOCKOUT_HISTORY ) ) {
     fd_landed_vote_t vote = deq_fd_landed_vote_t_pop_head( self->votes );
-    self->root_slot       = &vote.lockout.slot; // FIXME unsafe lifetime. why is this a pointer?
+    *self->root_slot       = vote.lockout.slot; // FIXME is a null check required here?
 
     vote_state_increment_credits( self, epoch, 1 );
   }
@@ -2094,9 +2095,10 @@ vote_state_get_and_update_authorized_voter( fd_vote_state_t *            self,
 static void
 vote_state_pop_expired_votes( fd_vote_state_t * self, ulong next_vote_slot ) {
   while ( !deq_fd_landed_vote_t_empty( self->votes ) ) {
-    fd_landed_vote_t * vote = deq_fd_landed_vote_t_peek_head( self->votes );
-    if ( vote->lockout.slot >= next_vote_slot ) break;
-    deq_fd_landed_vote_t_pop_head( self->votes );
+    fd_landed_vote_t * vote = deq_fd_landed_vote_t_peek_tail( self->votes );
+    ulong last_locked_out_slot = lockout_last_locked_out_slot(&vote->lockout);
+    if ( last_locked_out_slot >= next_vote_slot ) break;
+    deq_fd_landed_vote_t_pop_tail( self->votes );
   }
 }
 
@@ -2125,14 +2127,15 @@ vote_state_process_timestamp( fd_vote_state_t * self,
                               ulong             slot,
                               ulong             timestamp,
                               instruction_ctx_t ctx ) {
-  if ( FD_UNLIKELY( ( self->last_timestamp.slot || timestamp < self->last_timestamp.timestamp ) ||
+  if ( FD_UNLIKELY( ( slot < self->last_timestamp.slot || timestamp < self->last_timestamp.timestamp ) ||
                     ( slot == self->last_timestamp.slot && slot != self->last_timestamp.slot &&
                       timestamp != self->last_timestamp.timestamp &&
                       self->last_timestamp.slot != 0 ) ) ) {
     ctx.txn_ctx->custom_err = FD_VOTE_TIMESTAMP_TOO_OLD;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
-  self->last_timestamp = ( fd_vote_block_timestamp_t ){ .slot = slot, .timestamp = timestamp };
+  self->last_timestamp.slot = slot;
+  self->last_timestamp.timestamp = timestamp;
 
   return OK;
 }
