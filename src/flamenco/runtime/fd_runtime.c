@@ -909,6 +909,9 @@ fd_runtime_collect_rent_account( fd_global_ctx_t *   global,
   if( FD_UNLIKELY( due_ >= info->lamports ) ) {
     global->bank.collected_rent += info->lamports;
     acc->info.lamports = 0UL;
+    fd_memset(acc->info.owner, 0, sizeof(acc->info.owner));
+    acc->dlen = 0;
+
     return 1;
   }
 
@@ -956,15 +959,9 @@ fd_runtime_collect_rent_cb( fd_funk_rec_t const * encountered_rec_ro,
   }
 
   /* Actually invoke rent collection */
-  int changed = fd_runtime_collect_rent_account( global, rec->meta, key, epoch );
+  (void) fd_runtime_collect_rent_account( global, rec->meta, key, epoch );
 
-  if( changed ) {
-    err = fd_acc_mgr_commit_raw(global->acc_mgr, rec->rec, key, rec->meta, global->bank.slot, 0);
-    if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
-      FD_LOG_WARNING(( "fd_runtime_collect_rent_range: fd_acc_mgr_commit_raw failed (%d)", err ));
-      return err;
-    }
-  }
+  rec->meta->slot = global->bank.slot;
 
   return 1;
 }
