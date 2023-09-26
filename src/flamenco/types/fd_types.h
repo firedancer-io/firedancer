@@ -7,3 +7,4 @@
 #define FD_ACCOUNT_META_MAGIC 9823
 
 /* sdk/program/src/feature.rs#L22 */
+struct __attribute__((aligned(8UL))) fd_feature {
