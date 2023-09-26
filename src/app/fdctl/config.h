@@ -14,12 +14,12 @@
 
 typedef struct {
   enum {
-    wksp_quic_verify,
+    wksp_serve_verify,
     wksp_verify_dedup,
     wksp_dedup_pack,
     wksp_pack_bank,
     wksp_bank_shred,
-    wksp_quic,
+    wksp_serve,
     wksp_verify,
     wksp_dedup,
     wksp_pack,
@@ -44,8 +44,6 @@ typedef struct {
   uint gid;
 
   char scratch_directory[ PATH_MAX ];
-
-  char dynamic_port_range[ 32 ];
 
   struct {
     char  path[ PATH_MAX ];
@@ -113,10 +111,11 @@ typedef struct {
   } shmem;
 
   struct {
-    char   interface[ IF_NAMESIZE ];
-    uint   ip_addr;
-    uchar  mac_addr[6];
-    char   xdp_mode[ 8 ];
+    char  interface[ IF_NAMESIZE ];
+    uint  ip_addr;
+    uchar mac_addr[6];
+    char  xdp_mode[ 8 ];
+    char  dynamic_port_range[ 32 ];
   } net;
 
   struct {
@@ -134,18 +133,24 @@ typedef struct {
 
   struct {
     struct {
-      ushort transaction_listen_port;
-      ushort quic_transaction_listen_port;
-
-      uint max_concurrent_connections;
-      uint max_concurrent_streams_per_connection;
-      uint max_concurrent_handshakes;
-      uint max_inflight_quic_packets;
       uint tx_buf_size;
       uint xdp_rx_queue_size;
       uint xdp_tx_queue_size;
       uint xdp_aio_depth;
-    } quic;
+
+      struct {
+        ushort transaction_listen_port;
+      } regular;
+
+      struct {
+        ushort transaction_listen_port;
+
+        uint max_concurrent_connections;
+        uint max_concurrent_streams_per_connection;
+        uint max_concurrent_handshakes;
+        uint max_inflight_quic_packets;
+      } quic;
+    } serve;
 
     struct {
       uint receive_buffer_size;
@@ -153,16 +158,16 @@ typedef struct {
     } verify;
 
     struct {
+      uint signature_cache_size;
+    } dedup;
+
+    struct {
       uint max_pending_transactions;
     } pack;
 
     struct {
       uint receive_buffer_size;
-    } bank;
-
-    struct {
-      uint signature_cache_size;
-    } dedup;
+    } shred;
   } tiles;
 } config_t;
 

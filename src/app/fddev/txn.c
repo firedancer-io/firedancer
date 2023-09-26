@@ -188,7 +188,7 @@ txn_cmd_fn( args_t *         args,
   if( FD_UNLIKELY( args->txn.dst_ip ) )
     if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( args->txn.dst_ip, &dst_ip  ) ) ) FD_LOG_ERR(( "invalid --dst-ip" ));
 
-  ushort dst_port = config->tiles.quic.quic_transaction_listen_port;
+  ushort dst_port = config->tiles.serve.quic.transaction_listen_port;
   if( FD_UNLIKELY( args->txn.dst_port ) ) dst_port = args->txn.dst_port;
 
   FD_LOG_NOTICE(( "sending %lu transactions to "FD_IP4_ADDR_FMT":%hu", args->txn.count, FD_IP4_ADDR_FMT_ARGS(dst_ip), dst_port ));

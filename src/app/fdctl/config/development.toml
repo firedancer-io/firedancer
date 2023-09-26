@@ -3,5 +3,5 @@
     sandbox = false
     [development.netns]
         enabled = true
-[tiles.quic]
+[tiles.serve]
     interface = "veth_test_xdp_0"

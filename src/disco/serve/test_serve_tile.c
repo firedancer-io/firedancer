@@ -2,16 +2,16 @@
 
 #if FD_HAS_HOSTED && FD_HAS_X86 && FD_HAS_OPENSSL
 
-#include "fd_quic.h"
+#include "fd_serve.h"
 #include "../../tango/xdp/fd_xdp.h"
 #include "../../util/net/fd_eth.h"
 #include "../../util/net/fd_ip4.h"
 #include "../../ballet/base58/fd_base58.h"
 
-FD_STATIC_ASSERT( FD_QUIC_CNC_DIAG_TPU_CONN_LIVE_CNT==6UL, uint_test );
-FD_STATIC_ASSERT( FD_QUIC_CNC_DIAG_TPU_CONN_SEQ     ==7UL, unit_test );
+FD_STATIC_ASSERT( FD_SERVE_CNC_DIAG_CONN_LIVE_CNT==6UL, uint_test );
+FD_STATIC_ASSERT( FD_SERVE_CNC_DIAG_QUIC_CONN_SEQ==7UL, unit_test );
 
-FD_STATIC_ASSERT( FD_QUIC_TILE_SCRATCH_ALIGN==128UL, unit_test );
+FD_STATIC_ASSERT( FD_SERVE_TILE_SCRATCH_ALIGN==128UL, unit_test );
 
 struct test_cfg {
   fd_wksp_t * wksp;
@@ -177,11 +177,11 @@ tx_tile_main( int     argc,
   fd_rng_t _rng[1];
   fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, cfg->tx_seed, 0UL ) );
 
-  ulong scratch_footprint = fd_quic_tile_scratch_footprint( fd_mcache_depth( cfg->tx_mcache ), 0, 1 );
-  void * scratch = fd_alloca( FD_QUIC_TILE_SCRATCH_ALIGN, scratch_footprint );
+  ulong scratch_footprint = fd_serve_tile_scratch_footprint( fd_mcache_depth( cfg->tx_mcache ), 0, 1 );
+  void * scratch = fd_alloca( FD_SERVE_TILE_SCRATCH_ALIGN, scratch_footprint );
   FD_TEST( scratch );
 
-  FD_TEST( !fd_quic_tile(
+  FD_TEST( !fd_serve_tile(
       cfg->tx_cnc,
       0,
       cfg->tx_quic,
@@ -208,7 +208,7 @@ int main( int     argc,
   uint rng_seq = 0U;
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, rng_seq++, 0UL ) );
 
-  FD_TEST( fd_quic_tile_scratch_align()==FD_QUIC_TILE_SCRATCH_ALIGN );
+  FD_TEST( fd_serve_tile_scratch_align()==FD_SERVE_TILE_SCRATCH_ALIGN );
 
   ulong cpu_idx = fd_tile_cpu_id( fd_tile_idx() );
   if( cpu_idx>fd_shmem_cpu_cnt() ) cpu_idx = 0UL;
@@ -280,7 +280,7 @@ int main( int     argc,
   FD_TEST( cfg->tx_mcache );
 
   FD_LOG_NOTICE(( "Creating tx dcache (--tx-mtu %lu, burst 1, compact 1, app_sz 0)", FD_TPU_DCACHE_MTU ));
-  ulong tx_app_sz  = fd_quic_dcache_app_footprint( tx_depth );
+  ulong tx_app_sz  = fd_serve_dcache_app_footprint( tx_depth );
   ulong tx_data_sz = fd_dcache_req_data_sz( FD_TPU_DCACHE_MTU, tx_depth, 1UL, 1 ); FD_TEST( tx_data_sz );
   cfg->tx_dcache = fd_dcache_join( fd_dcache_new( fd_wksp_alloc_laddr( cfg->wksp,
                                                                        fd_dcache_align(), fd_dcache_footprint( tx_data_sz, tx_app_sz ),
@@ -383,13 +383,13 @@ int main( int     argc,
          monitoring, more pretty printing, etc */
       ulong pub_cnt       = rx_fseq_diag[ FD_FSEQ_DIAG_PUB_CNT ];
       ulong pub_sz        = rx_fseq_diag[ FD_FSEQ_DIAG_PUB_SZ ];
-      ulong conn_live_cnt = tx_cnc_diag[ FD_QUIC_CNC_DIAG_TPU_CONN_LIVE_CNT ];
-      ulong conn_seq      = tx_cnc_diag[ FD_QUIC_CNC_DIAG_TPU_CONN_SEQ      ];
+      ulong conn_live_cnt = tx_cnc_diag[ FD_SERVE_CNC_DIAG_CONN_LIVE_CNT ];
+      ulong quic_conn_seq = tx_cnc_diag[ FD_SERVE_CNC_DIAG_QUIC_CONN_SEQ      ];
       long  tps           = (long)pub_cnt - last_pub_cnt;
       FD_COMPILER_MFENCE();
       FD_LOG_NOTICE(( "monitor\n\t"
-                      "tx_seq: %14lu  tx_tot_sz: %16lu  conn_cnt: %8lu  conn_seq: %8lu  tps: %8ld",
-                      pub_cnt, pub_sz, conn_live_cnt, conn_seq, tps ));
+                      "tx_seq: %14lu  tx_tot_sz: %16lu  conn_cnt: %8lu  quic_conn_seq: %8lu  tps: %8ld",
+                      pub_cnt, pub_sz, conn_live_cnt, quic_conn_seq, tps ));
       next += (long)1e9;
       last_pub_cnt = (long)pub_cnt;
     }

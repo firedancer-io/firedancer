@@ -198,13 +198,13 @@ run_monitor( config_t * const config,
   ulong tile_cnt = 0;
   for( ulong i=0; i<config->shmem.workspaces_cnt; i++ ) {
     switch( config->shmem.workspaces[ i ].kind ) {
-      case wksp_quic_verify:
+      case wksp_serve_verify:
       case wksp_verify_dedup:
       case wksp_dedup_pack:
       case wksp_pack_bank:
       case wksp_bank_shred:
         break;
-      case wksp_quic:
+      case wksp_serve:
       case wksp_verify:
       case wksp_dedup:
       case wksp_pack:
@@ -215,7 +215,7 @@ run_monitor( config_t * const config,
   }
 
   ulong link_cnt =
-    config->layout.verify_tile_count + // quic <-> verify
+    config->layout.verify_tile_count + // serve <-> verify
     config->layout.verify_tile_count + // verify <-> dedup
     1 +                                // dedup <-> pack
     config->layout.bank_tile_count;    // pack <-> bank
@@ -232,9 +232,9 @@ run_monitor( config_t * const config,
 
     char buf[ 64 ];
     switch( wksp->kind ) {
-      case wksp_quic_verify:
+      case wksp_serve_verify:
         for( ulong i=0; i<config->layout.verify_tile_count; i++ ) {
-          links[ link_idx ].src_name = "quic";
+          links[ link_idx ].src_name = "serve";
           links[ link_idx ].dst_name = "verify";
           links[ link_idx ].mcache = fd_mcache_join( fd_wksp_pod_map( pods[ j ], snprintf1( buf, 64, "mcache%lu", i ) ) );
           if( FD_UNLIKELY( !links[ link_idx ].mcache ) ) FD_LOG_ERR(( "fd_mcache_join failed" ));
@@ -276,8 +276,8 @@ run_monitor( config_t * const config,
         break;
       case wksp_bank_shred:
         break;
-      case wksp_quic:
-        tiles[ tile_idx ].name = "quic";
+      case wksp_serve:
+        tiles[ tile_idx ].name = "serve";
         tiles[ tile_idx ].cnc = fd_cnc_join( fd_wksp_pod_map( pod, "cnc" ) );
         if( FD_UNLIKELY( !tiles[ tile_idx ].cnc ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
         if( FD_UNLIKELY( fd_cnc_app_sz( tiles[ tile_idx ].cnc )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));

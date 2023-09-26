@@ -4,7 +4,7 @@
 //#include "fd_disco_base.h"  /* includes ../tango/fd_tango.h */
 #include "dedup/fd_dedup.h"   /* includes fd_disco_base.h */
 #include "verify/fd_verify.h" /* includes fd_disco_base.h */
-#include "quic/fd_quic.h"     /* includes fd_disco_base.h */
+#include "serve/fd_serve.h"   /* includes fd_disco_base.h */
 #include "pack/fd_pack.h"     /* includes fd_disco_base.h */
 #include "mux/fd_mux.h"       /* includes fd_disco_base.h */
 #include "replay/fd_replay.h" /* includes fd_disco_base.h */

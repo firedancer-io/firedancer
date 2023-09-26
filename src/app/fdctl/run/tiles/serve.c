@@ -42,7 +42,8 @@ init( fd_tile_args_t * args ) {
 }
 
 static ushort
-initialize_quic( fd_quic_config_t * config, uchar const * pod ) {
+initialize_quic( fd_quic_config_t * config,
+                 uchar const * pod ) {
   uint ip_addr = fd_pod_query_uint( pod, "ip_addr", 0 );
   if( FD_UNLIKELY( !ip_addr ) ) FD_LOG_ERR(( "ip_addr not set" ));
 
@@ -94,18 +95,18 @@ run( fd_tile_args_t * args ) {
   ulong depth = fd_mcache_depth( mcache );
 
   fd_rng_t _rng[ 1 ];
-  fd_quic_tile( fd_cnc_join( fd_wksp_pod_map( args->tile_pod, "cnc" ) ),
-                (ulong)args->pid,
-                quic,
-                legacy_transaction_port,
-                xsk_aio_cnt,
-                xsk_aio,
-                mcache,
-                fd_dcache_join( fd_wksp_pod_map( args->out_pod, dcache ) ),
-                0,
-                0,
-                fd_rng_join( fd_rng_new( _rng, 0, 0UL ) ),
-                fd_alloca( FD_QUIC_TILE_SCRATCH_ALIGN, fd_quic_tile_scratch_footprint( depth, 0, 1 ) ) );
+  fd_serve_tile( fd_cnc_join( fd_wksp_pod_map( args->tile_pod, "cnc" ) ),
+                 (ulong)args->pid,
+                 quic,
+                 legacy_transaction_port,
+                 xsk_aio_cnt,
+                 xsk_aio,
+                 mcache,
+                 fd_dcache_join( fd_wksp_pod_map( args->out_pod, dcache ) ),
+                 0,
+                 0,
+                 fd_rng_join( fd_rng_new( _rng, 0, 0UL ) ),
+                 fd_alloca( FD_SERVE_TILE_SCRATCH_ALIGN, fd_serve_tile_scratch_footprint( depth, 0, 1 ) ) );
 }
 
 static long allow_syscalls[] = {
@@ -130,10 +131,10 @@ allow_fds( fd_tile_args_t * args,
   return args->lo_xsk ? 4 : 3;
 }
 
-fd_tile_config_t quic = {
-  .name              = "quic",
+fd_tile_config_t serve = {
+  .name              = "serve",
   .in_wksp           = NULL,
-  .out_wksp          = "quic_verify",
+  .out_wksp          = "serve_verify",
   .allow_syscalls_sz = sizeof(allow_syscalls)/sizeof(allow_syscalls[ 0 ]),
   .allow_syscalls    = allow_syscalls,
   .allow_fds         = allow_fds,

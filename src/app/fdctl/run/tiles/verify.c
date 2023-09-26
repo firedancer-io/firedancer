@@ -59,7 +59,7 @@ allow_fds( fd_tile_args_t * args,
 
 fd_tile_config_t verify = {
   .name              = "verify",
-  .in_wksp           = "quic_verify",
+  .in_wksp           = "serve_verify",
   .out_wksp          = "verify_dedup",
   .allow_syscalls_sz = sizeof(allow_syscalls)/sizeof(allow_syscalls[ 0 ]),
   .allow_syscalls    = allow_syscalls,

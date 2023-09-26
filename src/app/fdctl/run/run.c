@@ -222,10 +222,10 @@ solana_labs_main( void * args ) {
   ADD( "--log", "-" );
   ADD( "--firedancer-app-name", config->name );
 
-  if( FD_UNLIKELY( strcmp( config->dynamic_port_range, "" ) ) )
-    ADD( "--dynamic-port-range", config->dynamic_port_range );
+  if( FD_UNLIKELY( strcmp( config->net.dynamic_port_range, "" ) ) )
+    ADD( "--dynamic-port-range", config->net.dynamic_port_range );
 
-  ADDU( "--tpu-port", config->tiles.quic.transaction_listen_port );
+  ADDU( "--tpu-port", config->tiles.serve.regular.transaction_listen_port );
 
   char ip_addr[16];
   snprintf1( ip_addr, 16, FD_IP4_ADDR_FMT, FD_IP4_ADDR_FMT_ARGS(config->net.ip_addr) );
@@ -342,13 +342,13 @@ main_pid_namespace( void * args ) {
   ulong tile_cnt = 0;
   for( ulong i=0; i<config->shmem.workspaces_cnt; i++ ) {
     switch( config->shmem.workspaces[ i ].kind ) {
-      case wksp_quic_verify:
+      case wksp_serve_verify:
       case wksp_verify_dedup:
       case wksp_dedup_pack:
       case wksp_pack_bank:
       case wksp_bank_shred:
         break;
-      case wksp_quic:
+      case wksp_serve:
       case wksp_verify:
       case wksp_dedup:
       case wksp_pack:
@@ -382,7 +382,7 @@ main_pid_namespace( void * args ) {
     close_network_namespace_original_fd();
   }
 
-  for( ulong i=0; i<config->layout.verify_tile_count; i++ ) clone_tile( &spawner, &quic, i );
+  for( ulong i=0; i<config->layout.verify_tile_count; i++ ) clone_tile( &spawner, &serve, i );
   for( ulong i=0; i<config->layout.verify_tile_count; i++ ) clone_tile( &spawner, &verify, i );
   clone_tile( &spawner, &dedup, 0 );
   clone_tile( &spawner, &pack , 0 );

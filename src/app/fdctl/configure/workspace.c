@@ -194,8 +194,8 @@ init( config_t * const config ) {
     FD_LOG_ERR(( "seteuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   fd_quic_limits_t limits = {
-    .conn_cnt                                      = config->tiles.quic.max_concurrent_connections,
-    .handshake_cnt                                 = config->tiles.quic.max_concurrent_handshakes,
+    .conn_cnt                                      = config->tiles.serve.quic.max_concurrent_connections,
+    .handshake_cnt                                 = config->tiles.serve.quic.max_concurrent_handshakes,
 
     /* While in TCP a connection is identified by (Source IP, Source
        Port, Dest IP, Dest Port) in QUIC a connection is uniquely
@@ -215,11 +215,11 @@ init( config_t * const config ) {
        size determined by that constant. */
     .conn_id_cnt                                   = FD_QUIC_MAX_CONN_ID_PER_CONN,
     .conn_id_sparsity                              = 0.0,
-    .inflight_pkt_cnt                              = config->tiles.quic.max_inflight_quic_packets,
-    .tx_buf_sz                                     = config->tiles.quic.tx_buf_size,
+    .inflight_pkt_cnt                              = config->tiles.serve.quic.max_inflight_quic_packets,
+    .tx_buf_sz                                     = config->tiles.serve.tx_buf_size,
     .stream_cnt[ FD_QUIC_STREAM_TYPE_BIDI_CLIENT ] = 0,
     .stream_cnt[ FD_QUIC_STREAM_TYPE_BIDI_SERVER ] = 0,
-    .stream_cnt[ FD_QUIC_STREAM_TYPE_UNI_CLIENT  ] = config->tiles.quic.max_concurrent_streams_per_connection,
+    .stream_cnt[ FD_QUIC_STREAM_TYPE_UNI_CLIENT  ] = config->tiles.serve.quic.max_concurrent_streams_per_connection,
     .stream_cnt[ FD_QUIC_STREAM_TYPE_UNI_SERVER  ] = 0,
   };
 
@@ -228,7 +228,7 @@ init( config_t * const config ) {
     WKSP_BEGIN( config, wksp1, 0 );
 
     switch( wksp1->kind ) {
-      case wksp_quic_verify:
+      case wksp_serve_verify:
         for( ulong i=0; i<config->layout.verify_tile_count; i++ ) {
           mcache( pod, "mcache%lu", config->tiles.verify.receive_buffer_size, i );
           fseq  ( pod, "fseq%lu", i );
@@ -250,8 +250,8 @@ init( config_t * const config ) {
         break;
       case wksp_pack_bank:
         ulong1( pod, "cnt", config->layout.bank_tile_count );
-        mcache( pod, "mcache", config->tiles.bank.receive_buffer_size );
-        dcache( pod, "dcache", USHORT_MAX, config->layout.bank_tile_count * (ulong)config->tiles.bank.receive_buffer_size, 0 );
+        mcache( pod, "mcache", 128 );
+        dcache( pod, "dcache", USHORT_MAX, 128UL, 0 );
         for( ulong i=0; i<config->layout.bank_tile_count; i++ ) {
           fseq( pod, "fseq%lu", i );
           fseq( pod, "busy%lu", i );
@@ -259,39 +259,39 @@ init( config_t * const config ) {
         break;
       case wksp_bank_shred:
         for( ulong i=0; i<config->layout.bank_tile_count; i++ ) {
-          mcache( pod, "mcache%lu", config->tiles.bank.receive_buffer_size, i );
-          dcache( pod, "dcache%lu", USHORT_MAX, config->layout.bank_tile_count * (ulong)config->tiles.bank.receive_buffer_size, 0, i );
+          mcache( pod, "mcache%lu", 128, i );
+          dcache( pod, "dcache%lu", USHORT_MAX, 128UL, 0, i );
           fseq  ( pod, "fseq%lu", i );
         }
         break;
-      case wksp_quic:
+      case wksp_serve:
         cnc    ( pod, "cnc" );
         quic   ( pod, "quic",    &limits );
-        xsk    ( pod, "xsk",     2048, config->tiles.quic.xdp_rx_queue_size, config->tiles.quic.xdp_tx_queue_size );
-        xsk_aio( pod, "xsk_aio", config->tiles.quic.xdp_tx_queue_size, config->tiles.quic.xdp_aio_depth );
+        xsk    ( pod, "xsk",     2048, config->tiles.serve.xdp_rx_queue_size, config->tiles.serve.xdp_tx_queue_size );
+        xsk_aio( pod, "xsk_aio", config->tiles.serve.xdp_tx_queue_size, config->tiles.serve.xdp_aio_depth );
 
         char const * quic_xsk_gaddr = fd_pod_query_cstr( pod, "xsk", NULL );
         void *       shmem          = fd_wksp_map      ( quic_xsk_gaddr );
         if( FD_UNLIKELY( !fd_xsk_bind( shmem, config->name, config->net.interface, (uint)wksp1->kind_idx ) ) )
-          FD_LOG_ERR(( "failed to bind xsk for quic tile %lu", wksp1->kind_idx ));
+          FD_LOG_ERR(( "failed to bind xsk for serve tile %lu", wksp1->kind_idx ));
         fd_wksp_unmap( shmem );
 
         if( FD_UNLIKELY( strcmp( config->net.interface, "lo") && !wksp1->kind_idx ) ) {
-          // First QUIC tile (0) can also listen to loopback XSK.
-          xsk    ( pod, "lo_xsk",     2048, config->tiles.quic.xdp_rx_queue_size, config->tiles.quic.xdp_tx_queue_size );
-          xsk_aio( pod, "lo_xsk_aio", config->tiles.quic.xdp_tx_queue_size, config->tiles.quic.xdp_aio_depth );
+          // First serve tile (0) can also listen to loopback XSK.
+          xsk    ( pod, "lo_xsk",     2048, config->tiles.serve.xdp_rx_queue_size, config->tiles.serve.xdp_tx_queue_size );
+          xsk_aio( pod, "lo_xsk_aio", config->tiles.serve.xdp_tx_queue_size, config->tiles.serve.xdp_aio_depth );
 
           char const * lo_xsk_gaddr = fd_pod_query_cstr( pod, "lo_xsk", NULL );
           void *       lo_shmem     = fd_wksp_map      ( lo_xsk_gaddr );
           if( FD_UNLIKELY( !fd_xsk_bind( lo_shmem, config->name, "lo", (uint)wksp1->kind_idx ) ) )
-            FD_LOG_ERR(( "failed to bind lo_xsk for quic tile %lu", wksp1->kind_idx ));
+            FD_LOG_ERR(( "failed to bind lo_xsk for serve tile %lu", wksp1->kind_idx ));
           fd_wksp_unmap( lo_shmem );
         }
 
         uint1  ( pod, "ip_addr",                      config->net.ip_addr     );
         buf    ( pod, "src_mac_addr",                 config->net.mac_addr, 6 );
-        ushort1( pod, "transaction_listen_port",      config->tiles.quic.transaction_listen_port, 0 );
-        ushort1( pod, "quic_transaction_listen_port", config->tiles.quic.quic_transaction_listen_port, 0 );
+        ushort1( pod, "transaction_listen_port",      config->tiles.serve.regular.transaction_listen_port, 0 );
+        ushort1( pod, "quic_transaction_listen_port", config->tiles.serve.quic.transaction_listen_port, 0 );
         ulong1 ( pod, "idle_timeout_ms",              1000 );
         ulong1 ( pod, "initial_rx_max_stream_data",   1<<15 );
         break;

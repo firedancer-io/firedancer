@@ -31,7 +31,7 @@ typedef struct {
 
 extern fd_tile_config_t verify;
 extern fd_tile_config_t dedup;
-extern fd_tile_config_t quic;
+extern fd_tile_config_t serve;
 extern fd_tile_config_t pack;
 
 typedef struct {

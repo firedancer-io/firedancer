@@ -1,12 +1,12 @@
-#include "fd_quic.h"
+#include "fd_serve.h"
 
 #include "../mux/fd_mux.h"
 
-/* fd_quic_msg_ctx_t is the message context of a txn being received by
-   the QUIC tile over the TPU protocol.  It is used to detect dcache
-   overruns by identifying which QUIC stream is currently bound to a
-   dcache chunk.  An array of fd_quic_msg_ctx_t to fit <depth> entries
-   forms the dcache's app region.
+/* fd_serve_msg_ctx_t is the message context of a transaction being
+   received by the serve tile over the TPU protocol.  It is used to
+   detect dcache overruns by identifying which QUIC stream is currently
+   bound to a dcache chunk.  An array of fd_serve_msg_ctx_t to fit
+   <depth> entries forms the dcache's app region.
 
    This is necessary for stream defrag, during which multiple QUIC
    streams produce into multiple dcache chunks concurrently.  In the
@@ -22,7 +22,7 @@ typedef struct __attribute__((aligned(32UL))) {
   uchar * data;       /* Points to first byte of dcache entry */
   uint    sz;
   uint    tsorig;
-} fd_quic_msg_ctx_t;
+} fd_serve_msg_ctx_t;
 
 /* When QUIC is being serviced and a transaction is completely received
    from the network peer, the completed message will have been written
@@ -30,11 +30,11 @@ typedef struct __attribute__((aligned(32UL))) {
    append a pointer to this message into a simple queue so that the core
    tile code can later publish it the outgoing mcache. */
 #define QUEUE_NAME pubq
-#define QUEUE_T    fd_quic_msg_ctx_t *
+#define QUEUE_T    fd_serve_msg_ctx_t *
 #include "../../util/tmpl/fd_queue_dynamic.c"
 
 typedef struct {
-  fd_quic_msg_ctx_t ** pubq;
+  fd_serve_msg_ctx_t ** pubq;
 
   fd_mux_context_t * mux;
 
@@ -48,32 +48,32 @@ typedef struct {
 
   ulong inflight_streams; /* number of QUIC network streams currently open, used for flow control */
   ulong conn_cnt; /* count of live connections, put into the cnc for diagnostics */
-  ulong conn_seq; /* current quic connection sequence number, put into cnc for idagnostics */
+  ulong quic_conn_seq; /* current quic connection sequence number, put into cnc for idagnostics */
 
   void  * out_wksp;
   uchar * out_dcache_app;
   ulong   out_chunk0;
   ulong   out_wmark;
   ulong   out_chunk;
-} fd_quic_ctx_t;
+} fd_serve_ctx_t;
 
-/* fd_quic_dcache_app_footprint returns the required footprint in bytes
-   for the QUIC tile's out dcache app region of the given depth. */
+/* fd_serve_dcache_app_footprint returns the required footprint in bytes
+   for the net tile's out dcache app region of the given depth. */
 
 FD_FN_CONST ulong
-fd_quic_dcache_app_footprint( ulong depth ) {
-  return depth * sizeof(fd_quic_msg_ctx_t);
+fd_serve_dcache_app_footprint( ulong depth ) {
+  return depth * sizeof(fd_serve_msg_ctx_t);
 }
 
 FD_FN_CONST ulong
-fd_quic_tile_scratch_align( void ) {
-  return FD_QUIC_TILE_SCRATCH_ALIGN;
+fd_serve_tile_scratch_align( void ) {
+  return FD_SERVE_TILE_SCRATCH_ALIGN;
 }
 
 FD_FN_CONST ulong
-fd_quic_tile_scratch_footprint( ulong depth,
-                                ulong in_cnt,
-                                ulong out_cnt ) {
+fd_serve_tile_scratch_footprint( ulong depth,
+                                 ulong in_cnt,
+                                 ulong out_cnt ) {
   if( FD_UNLIKELY( in_cnt >FD_MUX_TILE_IN_MAX  ) ) return 0UL;
   if( FD_UNLIKELY( out_cnt>FD_MUX_TILE_OUT_MAX ) ) return 0UL;
   ulong scratch_top = 0UL;
@@ -81,20 +81,19 @@ fd_quic_tile_scratch_footprint( ulong depth,
   SCRATCH_ALLOC( fd_aio_align(), fd_aio_footprint() );
   SCRATCH_ALLOC( pubq_align(), pubq_footprint( depth ) );
   SCRATCH_ALLOC( fd_mux_tile_scratch_align(), fd_mux_tile_scratch_footprint( in_cnt, out_cnt ) );
-  return fd_ulong_align_up( scratch_top, fd_quic_tile_scratch_align() );
+  return fd_ulong_align_up( scratch_top, fd_serve_tile_scratch_align() );
 }
 
-/* This tile always publishes messages downstream, even if there are
-   no credits available.  It ignores the flow control of the downstream
-   verify tile.  This is OK as the verify tile is written to expect
-   this behavior, and enables the QUIC tile to publish as fast as it
-   can.  It would currently be difficult trying to backpressure further
-   up the stack to the network itself. */
+/* This tile always publishes messages downstream, even if there are no
+   credits available.  It ignores the flow control of the downstream
+   verify tile.  This is OK as the verify tile is written to expect this
+   behavior, and enables the serve tile to publish as fast as it can.
+   It would currently be difficult trying to backpressure further up the
+   stack to the network itself. */
 static inline void
 before_credit( void * _ctx,
                fd_mux_context_t * mux ) {
-  fd_quic_ctx_t * ctx = (fd_quic_ctx_t *)_ctx;
-
+  fd_serve_ctx_t * ctx = (fd_serve_ctx_t *)_ctx;
   ctx->mux = mux;
 
   /* Poll network backend */
@@ -106,8 +105,7 @@ before_credit( void * _ctx,
   /* Publish completed messages */
   ulong pub_cnt = pubq_cnt( ctx->pubq );
   for( ulong i=0; i<pub_cnt; i++ ) {
-
-    fd_quic_msg_ctx_t * msg = ctx->pubq[ i ];
+    fd_serve_msg_ctx_t * msg = ctx->pubq[ i ];
 
     if( FD_UNLIKELY( msg->stream_id != ULONG_MAX ) )
       continue;  /* overrun */
@@ -170,32 +168,33 @@ before_credit( void * _ctx,
 }
 
 static inline void
-cnc_diag_write( void * _ctx, ulong * cnc_diag ) {
-  fd_quic_ctx_t * ctx = (fd_quic_ctx_t *)_ctx;
+cnc_diag_write( void * _ctx,
+                ulong * cnc_diag ) {
+  fd_serve_ctx_t * ctx = (fd_serve_ctx_t *)_ctx;
 
-  cnc_diag[ FD_QUIC_CNC_DIAG_TPU_CONN_LIVE_CNT ]  = ctx->conn_cnt;
-  cnc_diag[ FD_QUIC_CNC_DIAG_TPU_CONN_SEQ      ]  = ctx->conn_seq;
+  cnc_diag[ FD_SERVE_CNC_DIAG_CONN_LIVE_CNT ]  = ctx->conn_cnt;
+  cnc_diag[ FD_SERVE_CNC_DIAG_QUIC_CONN_SEQ ]  = ctx->quic_conn_seq;
 }
 
 FD_FN_CONST static inline ulong
-fd_quic_chunk_idx( ulong chunk0,
-                   ulong chunk ) {
+fd_serve_chunk_idx( ulong chunk0,
+                    ulong chunk ) {
   return ((chunk-chunk0)*FD_CHUNK_FOOTPRINT) / fd_ulong_align_up( FD_TPU_DCACHE_MTU, FD_CHUNK_FOOTPRINT );
 }
 
-/* fd_quic_dcache_msg_ctx returns a pointer to the TPU/QUIC message
+/* fd_net_dcache_msg_ctx returns a pointer to the TPU/QUIC message
    context struct for the given dcache app laddr and chunk.  app_laddr
    points to the first byte of the dcache's app region in the tile's
    local address space and has FD_DCACHE_ALIGN alignment (see
    fd_dcache_app_laddr()).  chunk must be within the valid bounds for
    this dcache. */
 
-FD_FN_CONST static inline fd_quic_msg_ctx_t *
-fd_quic_dcache_msg_ctx( uchar * app_laddr,
-                        ulong   chunk0,
-                        ulong   chunk ) {
-  fd_quic_msg_ctx_t * msg_arr = (fd_quic_msg_ctx_t *)app_laddr;
-  return &msg_arr[ fd_quic_chunk_idx( chunk0, chunk ) ];
+FD_FN_CONST static inline fd_serve_msg_ctx_t *
+fd_serve_dcache_msg_ctx( uchar * app_laddr,
+                         ulong   chunk0,
+                         ulong   chunk ) {
+  fd_serve_msg_ctx_t * msg_arr = (fd_serve_msg_ctx_t *)app_laddr;
+  return &msg_arr[ fd_serve_chunk_idx( chunk0, chunk ) ];
 }
 
 /* quic_now is called by the QUIC engine to get the current timestamp in
@@ -208,7 +207,7 @@ quic_now( void * ctx ) {
 }
 
 /* Tile-local sequence number for conns */
-static FD_TLS ulong conn_seq = 0UL;
+static FD_TLS ulong quic_conn_seq = 0UL;
 
 /* quic_conn_new is invoked by the QUIC engine whenever a new connection
    is being established. */
@@ -216,10 +215,10 @@ static void
 quic_conn_new( fd_quic_conn_t * conn,
                void *           _ctx ) {
 
-  conn->local_conn_id = ++conn_seq;
+  conn->local_conn_id = ++quic_conn_seq;
 
-  fd_quic_ctx_t * ctx = (fd_quic_ctx_t *)_ctx;
-  ctx->conn_seq = conn_seq;
+  fd_serve_ctx_t * ctx = (fd_serve_ctx_t *)_ctx;
+  ctx->quic_conn_seq = quic_conn_seq;
   ctx->conn_cnt++;
 }
 
@@ -231,7 +230,7 @@ quic_conn_final( fd_quic_conn_t * conn,
                  void *           _ctx ) {
   (void)conn;
 
-  fd_quic_ctx_t * ctx = (fd_quic_ctx_t *)_ctx;
+  fd_serve_ctx_t * ctx = (fd_serve_ctx_t *)_ctx;
   ctx->conn_cnt--;
 }
 
@@ -250,7 +249,7 @@ quic_conn_final( fd_quic_conn_t * conn,
    batch, the in-flight count remains zero or one. */
 
 static inline void
-fd_tpu_dummy_dcache( fd_quic_ctx_t * ctx ) {
+fd_tpu_dummy_dcache( fd_serve_ctx_t * ctx ) {
   if( FD_LIKELY( ctx->inflight_streams > 0 ) ) {
     ulong ctl   = fd_frag_meta_ctl( 0, 1 /* som */, 1 /* eom */, 0 /* err */ );
     ulong tsnow = fd_frag_meta_ts_comp( fd_tickcount() );
@@ -274,7 +273,7 @@ quic_stream_new( fd_quic_stream_t * stream,
 
   /* Load QUIC state */
 
-  fd_quic_ctx_t * ctx = (fd_quic_ctx_t *)_ctx;
+  fd_serve_ctx_t * ctx = (fd_serve_ctx_t *)_ctx;
 
   ulong conn_id   = stream->conn->local_conn_id;
   ulong stream_id = stream->stream_id;
@@ -283,7 +282,7 @@ quic_stream_new( fd_quic_stream_t * stream,
 
   ulong chunk = fd_dcache_compact_next( ctx->out_chunk, FD_TPU_DCACHE_MTU, ctx->out_chunk0, ctx->out_wmark );
 
-  fd_quic_msg_ctx_t * msg_ctx = fd_quic_dcache_msg_ctx( ctx->out_dcache_app, ctx->out_chunk0, chunk );
+  fd_serve_msg_ctx_t * msg_ctx = fd_serve_dcache_msg_ctx( ctx->out_dcache_app, ctx->out_chunk0, chunk );
   msg_ctx->conn_id   = conn_id;
   msg_ctx->stream_id = stream_id;
   msg_ctx->data      = fd_chunk_to_laddr( ctx->out_wksp, chunk );
@@ -336,7 +335,7 @@ quic_stream_receive( fd_quic_stream_t * stream,
 
   /* Load existing dcache chunk ctx */
 
-  fd_quic_msg_ctx_t * msg_ctx = (fd_quic_msg_ctx_t *)stream_ctx;
+  fd_serve_msg_ctx_t * msg_ctx = (fd_serve_msg_ctx_t *)stream_ctx;
   if( FD_UNLIKELY( msg_ctx->conn_id != conn_id || msg_ctx->stream_id != stream_id ) ) {
     //fd_quic_stream_close( stream, 0x03 ); /* FIXME fd_quic_stream_close not implemented */
     FD_LOG_WARNING(( "dcache overflow while demuxing %lu!=%lu %lu!=%lu", conn_id, msg_ctx->conn_id, stream_id, msg_ctx->stream_id ));
@@ -366,10 +365,10 @@ quic_stream_notify( fd_quic_stream_t * stream,
                     int                type ) {
   /* Load QUIC state */
 
-  fd_quic_msg_ctx_t * msg_ctx = (fd_quic_msg_ctx_t *)stream_ctx;
+  fd_serve_msg_ctx_t * msg_ctx = (fd_serve_msg_ctx_t *)stream_ctx;
   fd_quic_conn_t *    conn    = stream->conn;
   fd_quic_t *         quic    = conn->quic;
-  fd_quic_ctx_t *     ctx     = quic->cb.quic_ctx; /* TODO ugly */
+  fd_serve_ctx_t *    ctx     = quic->cb.quic_ctx; /* TODO ugly */
 
   if( FD_UNLIKELY( type!=FD_QUIC_NOTIFY_END ) ) {
     ctx->inflight_streams -= 1;
@@ -409,13 +408,13 @@ static void
 legacy_stream_notify( void *        _ctx,
                       uchar const * packet,
                       uint          packet_sz ) {
-  fd_quic_ctx_t * ctx = (fd_quic_ctx_t *)_ctx;
+  fd_serve_ctx_t * ctx = (fd_serve_ctx_t *)_ctx;
 
   if( FD_UNLIKELY( packet_sz > FD_TPU_MTU ) ) return;
 
   ulong chunk = fd_dcache_compact_next( ctx->out_chunk, FD_TPU_DCACHE_MTU, ctx->out_chunk0, ctx->out_wmark );
 
-  fd_quic_msg_ctx_t * msg_ctx = fd_quic_dcache_msg_ctx( ctx->out_dcache_app, ctx->out_chunk0, chunk );
+  fd_serve_msg_ctx_t * msg_ctx = fd_serve_dcache_msg_ctx( ctx->out_dcache_app, ctx->out_chunk0, chunk );
   msg_ctx->conn_id   = ULONG_MAX;
   msg_ctx->stream_id = ULONG_MAX;
   msg_ctx->data      = fd_chunk_to_laddr( ctx->out_wksp, chunk );
@@ -424,12 +423,12 @@ legacy_stream_notify( void *        _ctx,
 
   fd_tpu_dummy_dcache( ctx );
 
-  ctx->inflight_streams += 1;
-
   if( FD_UNLIKELY( pubq_full( ctx->pubq ) ) ) {
     FD_LOG_WARNING(( "pubq full, dropping" ));
     return;
   }
+
+  ctx->inflight_streams += 1;
 
   FD_TEST( packet_sz <= FD_TPU_MTU ); /* paranoia */
   fd_memcpy( msg_ctx->data, packet, packet_sz );
@@ -456,7 +455,7 @@ net_rx_aio_send( void *                    _ctx,
                  ulong                     batch_cnt,
                  ulong *                   opt_batch_idx,
                  int                       flush ) {
-  fd_quic_ctx_t * ctx = (fd_quic_ctx_t *)_ctx;
+  fd_serve_ctx_t * ctx = (fd_serve_ctx_t *)_ctx;
 
   for( ulong i=0; i<batch_cnt; i++ ) {
     uchar const * packet = batch[i].buf;
@@ -508,19 +507,19 @@ net_rx_aio_send( void *                    _ctx,
 }
 
 int
-fd_quic_tile( fd_cnc_t *       cnc,
-              ulong            pid,
-              fd_quic_t *      quic,
-              ushort           legacy_transaction_port,
-              ulong            xsk_aio_cnt,
-              fd_xsk_aio_t **  xsk_aio,
-              fd_frag_meta_t * mcache,
-              uchar *          dcache,
-              ulong            cr_max,
-              long             lazy,
-              fd_rng_t *       rng,
-              void *           scratch ) {
-  fd_quic_ctx_t ctx[1];
+fd_serve_tile( fd_cnc_t *       cnc,
+               ulong            pid,
+               fd_quic_t *      quic,
+               ushort           legacy_transaction_port,
+               ulong            xsk_aio_cnt,
+               fd_xsk_aio_t **  xsk_aio,
+               fd_frag_meta_t * mcache,
+               uchar *          dcache,
+               ulong            cr_max,
+               long             lazy,
+               fd_rng_t *       rng,
+               void *           scratch ) {
+  fd_serve_ctx_t ctx[1];
 
   fd_mux_callbacks_t callbacks[1] = { 0 };
   callbacks->before_credit = before_credit;
@@ -554,9 +553,9 @@ fd_quic_tile( fd_cnc_t *       cnc,
       return 1;
     }
 
-    if( FD_UNLIKELY( fd_dcache_app_sz( dcache ) < fd_quic_dcache_app_footprint( depth ) ) ) {
+    if( FD_UNLIKELY( fd_dcache_app_sz( dcache ) < fd_serve_dcache_app_footprint( depth ) ) ) {
       FD_LOG_WARNING(( "dcache app sz too small (min=%lu have=%lu)",
-                       fd_quic_dcache_app_footprint( depth ),
+                       fd_serve_dcache_app_footprint( depth ),
                        fd_dcache_app_sz( dcache ) ));
       return 1;
     }
@@ -569,7 +568,7 @@ fd_quic_tile( fd_cnc_t *       cnc,
 
     ctx->inflight_streams = 0UL;
     ctx->conn_cnt = 0UL;
-    ctx->conn_seq = 0UL;
+    ctx->quic_conn_seq = 0UL;
 
     ctx->quic = quic;
 

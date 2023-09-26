@@ -13,7 +13,7 @@ typedef enum {
   DEV1_PACK,
   DEV1_DEDUP,
   DEV1_VERIFY,
-  DEV1_QUIC,
+  DEV1_SERVE,
   DEV1_BANK,
   DEV1_SOLANA,
 } tile_t;
@@ -28,7 +28,7 @@ dev1_cmd_args( int *    pargc,
   if( FD_LIKELY( !strcmp( *pargv[ 0 ], "pack" ) ) )             args->run1.tile = DEV1_PACK;
   else if( FD_LIKELY( !strcmp( *pargv[ 0 ], "dedup" ) ) )       args->run1.tile = DEV1_DEDUP;
   else if( FD_LIKELY( !strcmp( *pargv[ 0 ], "verify" ) ) )      args->run1.tile = DEV1_VERIFY;
-  else if( FD_LIKELY( !strcmp( *pargv[ 0 ], "quic" ) ) )        args->run1.tile = DEV1_QUIC;
+  else if( FD_LIKELY( !strcmp( *pargv[ 0 ], "serve" ) ) )       args->run1.tile = DEV1_SERVE;
   else if( FD_LIKELY( !strcmp( *pargv[ 0 ], "bank" ) ) )        args->run1.tile = DEV1_BANK;
   else if( FD_LIKELY( !strcmp( *pargv[ 0 ], "labs" ) ) )        args->run1.tile = DEV1_SOLANA;
   else if( FD_LIKELY( !strcmp( *pargv[ 0 ], "solana" ) ) )      args->run1.tile = DEV1_SOLANA;
@@ -73,7 +73,7 @@ dev1_cmd_fn( args_t *         args,
     case DEV1_PACK:    tile_args.tile = &pack; break;
     case DEV1_DEDUP:   tile_args.tile = &dedup; break;
     case DEV1_VERIFY:  tile_args.tile = &verify; break;
-    case DEV1_QUIC:    tile_args.tile = &quic; break;
+    case DEV1_SERVE:   tile_args.tile = &serve; break;
     case DEV1_SOLANA: break;
     default: FD_LOG_ERR(( "unknown tile %d", args->run1.tile ));
   }

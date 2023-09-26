@@ -12,14 +12,14 @@ ready_cmd_fn( args_t *         args,
   for( ulong i=0; i<config->shmem.workspaces_cnt; i++ ) {
     workspace_config_t * wksp = &config->shmem.workspaces[i];
     switch( wksp->kind ) {
-      case wksp_quic_verify:
+      case wksp_serve_verify:
       case wksp_verify_dedup:
       case wksp_dedup_pack:
       case wksp_pack_bank:
       case wksp_bank_shred:
       case wksp_bank:
         break;
-      case wksp_quic:
+      case wksp_serve:
       case wksp_verify:
       case wksp_dedup:
       case wksp_pack: {

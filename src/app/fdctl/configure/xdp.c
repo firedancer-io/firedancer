@@ -80,7 +80,7 @@ init( config_t * const config ) {
   }
 
 
-  ushort udp_ports[] = { config->tiles.quic.transaction_listen_port, config->tiles.quic.quic_transaction_listen_port };
+  ushort udp_ports[] = { config->tiles.serve.regular.transaction_listen_port, config->tiles.serve.quic.transaction_listen_port };
   if( FD_UNLIKELY( fd_xdp_listen_udp_ports( config->name,
                                             config->net.ip_addr,
                                             2,

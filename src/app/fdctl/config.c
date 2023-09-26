@@ -54,14 +54,14 @@ memlock_max_bytes( config_t * const config ) {
   } while(0)
 
     switch ( wksp->kind ) {
-      case wksp_quic_verify:
+      case wksp_serve_verify:
       case wksp_verify_dedup:
       case wksp_dedup_pack:
       case wksp_pack_bank:
       case wksp_bank_shred:
         break;
-      case wksp_quic:
-        TILE_MAX( quic );
+      case wksp_serve:
+        TILE_MAX( serve );
         break;
       case wksp_verify:
         TILE_MAX( verify );
@@ -213,7 +213,6 @@ static void parse_key_value( config_t *   config,
   ENTRY_STR   ( , ,                     name                                                      );
   ENTRY_STR   ( , ,                     user                                                      );
   ENTRY_STR   ( , ,                     scratch_directory                                         );
-  ENTRY_STR   ( , ,                     dynamic_port_range                                        );
 
   ENTRY_STR   ( ., ledger,              path                                                      );
   ENTRY_STR   ( ., ledger,              accounts_path                                             );
@@ -262,6 +261,29 @@ static void parse_key_value( config_t *   config,
 
   ENTRY_STR   ( ., net,                 interface                                                 );
   ENTRY_STR   ( ., net,                 xdp_mode                                                  );
+  ENTRY_STR   ( ., net,                 dynamic_port_range                                        );
+
+  ENTRY_UINT  ( ., tiles.serve,         tx_buf_size                                               );
+  ENTRY_UINT  ( ., tiles.serve,         xdp_rx_queue_size                                         );
+  ENTRY_UINT  ( ., tiles.serve,         xdp_tx_queue_size                                         );
+  ENTRY_UINT  ( ., tiles.serve,         xdp_aio_depth                                             );
+
+  ENTRY_USHORT( ., tiles.serve.regular, transaction_listen_port                                   );
+
+  ENTRY_USHORT( ., tiles.serve.quic,    transaction_listen_port                                   );
+  ENTRY_UINT  ( ., tiles.serve.quic,    max_concurrent_connections                                );
+  ENTRY_UINT  ( ., tiles.serve.quic,    max_concurrent_streams_per_connection                     );
+  ENTRY_UINT  ( ., tiles.serve.quic,    max_concurrent_handshakes                                 );
+  ENTRY_UINT  ( ., tiles.serve.quic,    max_inflight_quic_packets                                 );
+
+  ENTRY_UINT  ( ., tiles.verify,        receive_buffer_size                                       );
+  ENTRY_UINT  ( ., tiles.verify,        mtu                                                       );
+
+  ENTRY_UINT  ( ., tiles.pack,          max_pending_transactions                                  );
+
+  ENTRY_UINT  ( ., tiles.dedup,         signature_cache_size                                      );
+
+  ENTRY_UINT  ( ., tiles.shred,         receive_buffer_size                                       );
 
   ENTRY_BOOL  ( ., development,         sandbox                                                   );
 
@@ -272,26 +294,6 @@ static void parse_key_value( config_t *   config,
   ENTRY_STR   ( ., development.netns,   interface1                                                );
   ENTRY_STR   ( ., development.netns,   interface1_mac                                            );
   ENTRY_STR   ( ., development.netns,   interface1_addr                                           );
-
-  ENTRY_USHORT( ., tiles.quic,          transaction_listen_port                                   );
-  ENTRY_USHORT( ., tiles.quic,          quic_transaction_listen_port                              );
-  ENTRY_UINT  ( ., tiles.quic,          max_concurrent_connections                                );
-  ENTRY_UINT  ( ., tiles.quic,          max_concurrent_streams_per_connection                     );
-  ENTRY_UINT  ( ., tiles.quic,          max_concurrent_handshakes                                 );
-  ENTRY_UINT  ( ., tiles.quic,          max_inflight_quic_packets                                 );
-  ENTRY_UINT  ( ., tiles.quic,          tx_buf_size                                               );
-  ENTRY_UINT  ( ., tiles.quic,          xdp_rx_queue_size                                         );
-  ENTRY_UINT  ( ., tiles.quic,          xdp_tx_queue_size                                         );
-  ENTRY_UINT  ( ., tiles.quic,          xdp_aio_depth                                             );
-
-  ENTRY_UINT  ( ., tiles.verify,        receive_buffer_size                                       );
-  ENTRY_UINT  ( ., tiles.verify,        mtu                                                       );
-
-  ENTRY_UINT  ( ., tiles.pack,          max_pending_transactions                                  );
-
-  ENTRY_UINT  ( ., tiles.bank,          receive_buffer_size                                       );
-
-  ENTRY_UINT  ( ., tiles.dedup,         signature_cache_size                                      );
 }
 
 void
@@ -468,8 +470,8 @@ static void
 init_workspaces( config_t * config ) {
   ulong idx = 0;
 
-  config->shmem.workspaces[ idx ].kind      = wksp_quic_verify;
-  config->shmem.workspaces[ idx ].name      = "quic_verify";
+  config->shmem.workspaces[ idx ].kind      = wksp_serve_verify;
+  config->shmem.workspaces[ idx ].name      = "serve_verify";
   config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
   config->shmem.workspaces[ idx ].num_pages = 1;
   idx++;
@@ -499,8 +501,8 @@ init_workspaces( config_t * config ) {
   idx++;
 
   for( ulong i=0; i<config->layout.verify_tile_count; i++ ) {
-    config->shmem.workspaces[ idx ].kind      = wksp_quic;
-    config->shmem.workspaces[ idx ].name      = "quic";
+    config->shmem.workspaces[ idx ].kind      = wksp_serve;
+    config->shmem.workspaces[ idx ].name      = "serve";
     config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
     config->shmem.workspaces[ idx ].num_pages = 1;
     config->shmem.workspaces[ idx ].kind_idx  = i;
@@ -704,11 +706,11 @@ config_parse( int *    pargc,
       FD_LOG_ERR(( "trying to join a live cluster, but configuration enables [development.netns] which is a development only feature" ));
   }
 
-  if( FD_UNLIKELY( result.tiles.quic.quic_transaction_listen_port != result.tiles.quic.transaction_listen_port + 6 ) )
-    FD_LOG_ERR(( "configuration specifies invalid [tiles.quic.quic_transaction_listen_port] `%hu`. "
-                 "This must be 6 more than [tiles.quic.transaction_listen_port] `%hu`",
-                 result.tiles.quic.quic_transaction_listen_port,
-                 result.tiles.quic.transaction_listen_port ));
+  if( FD_UNLIKELY( result.tiles.serve.quic.transaction_listen_port != result.tiles.serve.regular.transaction_listen_port + 6 ) )
+    FD_LOG_ERR(( "configuration specifies invalid [tiles.serve.quic.transaction_listen_port] `%hu`. "
+                 "This must be 6 more than [tiles.serve.regular.transaction_listen_port] `%hu`",
+                 result.tiles.serve.quic.transaction_listen_port,
+                 result.tiles.serve.regular.transaction_listen_port ));
 
   init_workspaces( &result );
 
