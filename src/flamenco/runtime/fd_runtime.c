@@ -962,10 +962,9 @@ fd_runtime_collect_rent_cb( fd_funk_rec_t const * encountered_rec_ro,
   (void) fd_runtime_collect_rent_account( global, rec->meta, key, epoch );
 
   if ( !FD_FEATURE_ACTIVE( global, skip_rent_rewrites ) )
-    // but get the hash for all these accounts even if collected rent is 0 (= not updated).
-    // Also, there's another subtle side-effect from rewrites: this
-    // ensures we verify the whole on-chain state (= all accounts)
-    // via the bank delta hash slowly once per an epoch.
+    // By changing the slot, this causes this account to be updated
+    // into the account_delta_hash which matches the "rent rewrite"
+    // behavior in solana.
     rec->meta->slot = global->bank.slot;
 
   return 1;
