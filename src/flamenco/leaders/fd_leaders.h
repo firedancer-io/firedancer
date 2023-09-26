@@ -50,11 +50,8 @@ typedef struct fd_stake_weight fd_stake_weight_t;
     alignof(fd_epoch_leaders_t), sizeof(fd_epoch_leaders_t)                            ),      \
     32UL,                        (pub_cnt  )*32UL                                      ),      \
     alignof(ulong),              (                                                             \
-      (slot_cnt+FD_EPOCH_SLOTS_PER_ROTATION-1UL)/FD_EPOCH_SLOTS_PER_ROTATION*sizeof(uint)>     \
-      (pub_cnt)*sizeof(ulong) ? /* Take the MAX of the two */                                  \
-      (slot_cnt+FD_EPOCH_SLOTS_PER_ROTATION-1UL)/FD_EPOCH_SLOTS_PER_ROTATION*sizeof(uint) :    \
-      (pub_cnt)*sizeof(ulong)  )                                                               \
-      ),                                                                                       \
+      (slot_cnt+FD_EPOCH_SLOTS_PER_ROTATION-1UL)/FD_EPOCH_SLOTS_PER_ROTATION*sizeof(uint)      \
+      )                                                                                ),      \
     FD_EPOCH_LEADERS_ALIGN                                                             )
 
 #define FD_EPOCH_SLOTS_PER_ROTATION (4UL)

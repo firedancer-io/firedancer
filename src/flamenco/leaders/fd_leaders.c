@@ -46,28 +46,19 @@ fd_epoch_leaders_new( void                    * shmem,
      all the memory we need right here in shmem, we just need to be
      careful about how we use it.
      In order to construct a wsample object, we need a footprint of
-     64+32*pub_cnt bytes as well as a list of weights, which is
-     8*pub_cnt bytes.  The footprint fits nicely in the space we'll use
-     for the struct and the list of pubkeys, while the list of weights
-     probably fits in the space we'll use for indices.
+     64+32*pub_cnt bytes.  The footprint fits nicely in the space we'll use
+     for the struct and the list of pubkeys.
 
-     This works out because we only need the list of weights until we've
-     finished constructing the wsample object, and we can delay copying
-     the pubkeys until we're done with the wsample object.
-     There's a lot of type punning going on here, so watch out. */
+     This works out because we can delay copying the pubkeys until we're
+     done with the wsample object.  There's a lot of type punning going
+     on here, so watch out. */
 
   laddr = (ulong)shmem;
   laddr  = fd_ulong_align_up( laddr, fd_wsample_align() );
   void * wsample_mem = (void *)fd_type_pun( (void *)laddr );
   laddr += fd_wsample_footprint( pub_cnt, 0 );
 
-  laddr  = fd_ulong_align_up( laddr, alignof(ulong) );
-  ulong * weights     = (ulong *)fd_type_pun( (void *)laddr );
-  laddr += pub_cnt*sizeof(ulong);
-
   FD_TEST( laddr-(ulong)shmem <= fd_epoch_leaders_footprint( pub_cnt, slot_cnt ) );
-
-  for( ulong i=0UL; i<pub_cnt; i++ ) weights[i] = stakes[i].stake;
 
   /* Create and seed ChaCha20Rng */
   fd_chacha20rng_t _rng[1];
@@ -76,8 +67,9 @@ fd_epoch_leaders_new( void                    * shmem,
   memcpy( key, &epoch, sizeof(ulong) );
   fd_chacha20rng_init( rng, key );
 
-  fd_wsample_t * wsample = fd_wsample_join( fd_wsample_new( wsample_mem, rng, weights, pub_cnt, 0,
-                                                            FD_WSAMPLE_HINT_POWERLAW_NODELETE ) );
+  void * _wsample = fd_wsample_new_init( wsample_mem, rng, pub_cnt, 0, FD_WSAMPLE_HINT_POWERLAW_NOREMOVE );
+  for( ulong i=0UL; i<pub_cnt; i++ ) _wsample = fd_wsample_new_add( _wsample, stakes[i].stake );
+  fd_wsample_t * wsample = fd_wsample_join( fd_wsample_new_fini( _wsample ) );
 
   /* Compute the eventual addresses */
   laddr = (ulong)shmem;
@@ -92,8 +84,6 @@ fd_epoch_leaders_new( void                    * shmem,
   laddr  = fd_ulong_align_up( laddr, alignof(uint) );
   uint * sched     = (uint *)fd_type_pun( (void *)laddr );
   ulong sched_cnt = (slot_cnt+FD_EPOCH_SLOTS_PER_ROTATION-1UL)/FD_EPOCH_SLOTS_PER_ROTATION;
-
-  FD_TEST( (ulong)sched >= (ulong)weights );
 
   /* Generate samples.  We need uints, so we can't use sample_many. */
   for( ulong i=0UL; i<sched_cnt; i++ ) sched[ i ] = (uint)fd_wsample_sample( wsample );

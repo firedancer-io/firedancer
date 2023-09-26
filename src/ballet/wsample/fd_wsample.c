@@ -123,12 +123,11 @@ seed_recursive( treap_ele_t * pool,
 
 
 void *
-fd_wsample_new( void             * shmem,
-                fd_chacha20rng_t * rng,
-                ulong            * weights,
-                ulong              ele_cnt,
-                int                restore_enabled,
-                int                opt_hint ) {
+fd_wsample_new_init( void             * shmem,
+                     fd_chacha20rng_t * rng,
+                     ulong              ele_cnt,
+                     int                restore_enabled,
+                     int                opt_hint ) {
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL shmem" ));
     return NULL;
@@ -147,7 +146,7 @@ fd_wsample_new( void             * shmem,
   fd_wsample_t *  sampler = (fd_wsample_t *)shmem;
 
   sampler->total_weight      = 0UL;
-  sampler->unremoved_cnt     = ele_cnt;
+  sampler->unremoved_cnt     = 0UL;
   sampler->unremoved_weight  = 0UL;
   sampler->restore_enabled   = restore_enabled;
   sampler->rng               = rng;
@@ -163,25 +162,45 @@ fd_wsample_new( void             * shmem,
   /* 100 is fine as a starting prio.  See note above. */
   if( opt_hint==FD_WSAMPLE_HINT_POWERLAW_NOREMOVE ) seed_recursive( pool, 1U, (uint)ele_cnt, 100U               );
   else                                              treap_seed    ( pool,           ele_cnt, ele_cnt^0xBADF00DU );
+  return shmem;
+}
 
-  ulong weight_sum = 0UL;
-  for( ulong i=0UL; i<ele_cnt; i++ ) {
-    ulong w = weights[i];
+void *
+fd_wsample_new_add( void * shmem,
+                    ulong  weight ) {
+  fd_wsample_t *  sampler = (fd_wsample_t *)shmem;
+  if( FD_UNLIKELY( !sampler ) ) return NULL;
 
-    if( FD_UNLIKELY( w==0UL ) ) {
-      FD_LOG_WARNING(( "zero weight entry found" ));
-      return NULL;
-    }
-    if( FD_UNLIKELY( weight_sum+w<w ) ) {
-      FD_LOG_WARNING(( "total weight too large" ));
-      return NULL;
-    }
-
-    weight_sum    += w;
-    pool[i].weight = w;
-    treap_idx_insert( sampler->treap, i, pool );
+  if( FD_UNLIKELY( weight==0UL ) ) {
+    FD_LOG_WARNING(( "zero weight entry found" ));
+    return NULL;
+  }
+  if( FD_UNLIKELY( sampler->total_weight+weight<weight ) ) {
+    FD_LOG_WARNING(( "total weight too large" ));
+    return NULL;
   }
 
+  treap_ele_t * pool = sampler->pool;
+  ulong i = sampler->unremoved_cnt++;
+  sampler->total_weight += weight;
+  pool[i].weight = weight;
+  treap_idx_insert( sampler->treap, i, pool );
+
+  return shmem;
+}
+
+void *
+fd_wsample_new_fini( void * shmem ) {
+  fd_wsample_t *  sampler = (fd_wsample_t *)shmem;
+  if( FD_UNLIKELY( !sampler ) ) return NULL;
+
+  if( FD_UNLIKELY( sampler->unremoved_cnt != treap_ele_max( sampler->treap ) ) ) {
+    FD_LOG_WARNING(( "fd_wsample_new_add_weight called %lu times, but expected %lu weights", sampler->unremoved_cnt,
+                                                                                             treap_ele_max( sampler->treap ) ));
+    return NULL;
+  }
+
+  treap_ele_t * pool = sampler->pool;
   /* Populate left_sum values */
 
   ulong nodesum = 0UL; /* Tracks sum of current node and all its children */
@@ -236,11 +255,12 @@ fd_wsample_new( void             * shmem,
     }
   }
 
-  sampler->total_weight     = nodesum;
+  FD_TEST( sampler->total_weight == nodesum );
   sampler->unremoved_weight = nodesum;
 
-  if( restore_enabled ) {
+  if( sampler->restore_enabled ) {
     /* Copy the sampler to make restore fast. */
+    ulong ele_cnt = treap_ele_max( sampler->treap );
     fd_memcpy( pool+ele_cnt, pool, ele_cnt*sizeof(treap_ele_t) );
   }
 

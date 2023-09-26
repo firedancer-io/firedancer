@@ -65,9 +65,12 @@ test_probability_dist_replacement( void ) {
   fd_chacha20rng_t * rng = fd_chacha20rng_join( fd_chacha20rng_new( _rng, FD_CHACHA20RNG_MODE_SHIFT ) );
   fd_chacha20rng_init( rng, seed );
 
+  for( ulong i=0UL; i<1024UL; i++ ) weights[i] = 2000000UL / (i+1UL);
+
   for( ulong sz=1UL; sz<1024UL; sz+=113UL ) {
-    for( ulong i=0UL; i<sz; i++ ) weights[i] = 2000000UL / (i+1UL);
-    fd_wsample_t * tree = fd_wsample_join( fd_wsample_new( _shmem, rng, weights, sz, 0, FD_WSAMPLE_HINT_POWERLAW_NOREMOVE ) );
+    void * partial = fd_wsample_new_init( _shmem, rng, sz, 0, FD_WSAMPLE_HINT_POWERLAW_NOREMOVE );
+    for( ulong i=0UL; i<sz; i++ ) partial = fd_wsample_new_add( partial, weights[i] );
+    fd_wsample_t * tree = fd_wsample_join( fd_wsample_new_fini( partial ) );
 
     ulong weight_sum = 0UL;
     for( ulong i=0UL; i<sz; i++ ) weight_sum += weights[i];
@@ -100,8 +103,9 @@ test_probability_dist_noreplacement( void ) {
   fd_chacha20rng_init( rng, seed );
 
   for( ulong sz=1UL; sz<1024UL; sz+=113UL ) {
-    for( ulong i=0UL; i<sz; i++ ) weights[i] = 2000000UL / (i+1UL);
-    fd_wsample_t * tree = fd_wsample_join( fd_wsample_new( _shmem, rng, weights, sz, 1, FD_WSAMPLE_HINT_POWERLAW_REMOVE ) );
+    void * partial = fd_wsample_new_init( _shmem, rng, sz, 1, FD_WSAMPLE_HINT_POWERLAW_REMOVE );
+    for( ulong i=0UL; i<sz; i++ ) partial = fd_wsample_new_add( partial, 2000000UL / (i+1UL) );
+    fd_wsample_t * tree = fd_wsample_join( fd_wsample_new_fini( partial ) );
 
     memset( counts, 0, MAX*sizeof(ulong) );
     for( ulong j=0UL; j<sz; j++ ) {
@@ -129,8 +133,9 @@ test_probability_dist_noreplacement( void ) {
   /* Expected probabilities of sampling without replacement get
      complicated.  We're going to use a 4-element set, and make sure the
      distrubtion of returned 4-tuples matches what we manually compute. */
-  weights[0] = 40UL;  weights[1] = 30UL;  weights[2] = 20UL;  weights[3] = 10UL;
-  fd_wsample_t * tree = fd_wsample_join( fd_wsample_new( _shmem, rng, weights, 4UL, 1, FD_WSAMPLE_HINT_FLAT ) );
+  void * partial = fd_wsample_new_init( _shmem, rng, 4UL, 1, FD_WSAMPLE_HINT_FLAT );
+  partial = fd_wsample_new_add( fd_wsample_new_add( fd_wsample_new_add( fd_wsample_new_add( partial, 40UL ), 30UL ), 20UL ), 10UL );
+  fd_wsample_t * tree = fd_wsample_join( fd_wsample_new_fini( partial ) );
   memset( counts, 0, MAX*sizeof(ulong) );
 
   for( ulong sample=0UL; sample<302400UL; sample++ ) {
@@ -183,10 +188,8 @@ test_matches_solana( void ) {
   fd_chacha20rng_t * rng = fd_chacha20rng_join( fd_chacha20rng_new( _rng, FD_CHACHA20RNG_MODE_MOD ) );
   uchar zero_seed[32] = {0};
 
-  weights[0] = 2UL;
-  weights[1] = 1UL;
-
-  fd_wsample_t * tree = fd_wsample_join( fd_wsample_new( _shmem, rng, weights, 2UL, 0, FD_WSAMPLE_HINT_FLAT ) );
+  void * partial = fd_wsample_new_init( _shmem, rng, 2UL, 0, FD_WSAMPLE_HINT_FLAT );
+  fd_wsample_t * tree = fd_wsample_join( fd_wsample_new_fini( fd_wsample_new_add( fd_wsample_new_add( partial, 2UL ), 1UL ) ) );
   fd_wsample_seed_rng( fd_wsample_get_rng( tree ), zero_seed );
 
   FD_TEST( fd_wsample_sample( tree ) == 0UL );
@@ -212,7 +215,9 @@ test_matches_solana( void ) {
   memset( zero_seed, 48, 32UL );
   fd_chacha20rng_init( rng, zero_seed );
 
-  tree = fd_wsample_join( fd_wsample_new( _shmem, rng, weights2, 18UL, 0, FD_WSAMPLE_HINT_FLAT ) );
+  partial = fd_wsample_new_init( _shmem, rng, 18UL, 0, FD_WSAMPLE_HINT_FLAT );
+  for( ulong i=0UL; i<18UL; i++ ) partial = fd_wsample_new_add( partial, weights2[i] );
+  tree = fd_wsample_join( fd_wsample_new_fini( partial ) );
   fd_wsample_seed_rng( fd_wsample_get_rng( tree ), zero_seed );
 
   FD_TEST( fd_wsample_sample_and_remove( tree ) ==  9UL );
@@ -242,16 +247,15 @@ static void
 test_sharing( void ) {
   fd_chacha20rng_t _rng[1];
   uchar zero_seed[32] = {0};
-  weights[0] = 2UL;
-  weights[1] = 1UL;
 
   for( ulong i=0UL; i<0x100UL; i++ ) {
     fd_chacha20rng_t * rng = fd_chacha20rng_join( fd_chacha20rng_new( _rng, FD_CHACHA20RNG_MODE_SHIFT ) );
     fd_chacha20rng_init( rng, zero_seed );
 
-
-    fd_wsample_t * sample1 = fd_wsample_join( fd_wsample_new( _shmem,                   rng, weights, 2UL, 0, FD_WSAMPLE_HINT_FLAT ) );
-    fd_wsample_t * sample2 = fd_wsample_join( fd_wsample_new( _shmem+MAX_FOOTPRINT/2UL, rng, weights, 2UL, 0, FD_WSAMPLE_HINT_FLAT ) );
+    void * pl1 = fd_wsample_new_init( _shmem,                   rng, 2UL, 0, FD_WSAMPLE_HINT_FLAT );
+    void * pl2 = fd_wsample_new_init( _shmem+MAX_FOOTPRINT/2UL, rng, 2UL, 0, FD_WSAMPLE_HINT_FLAT );
+    fd_wsample_t * sample1 = fd_wsample_join( fd_wsample_new_fini( fd_wsample_new_add( fd_wsample_new_add( pl1, 2UL ), 1UL ) ) );
+    fd_wsample_t * sample2 = fd_wsample_join( fd_wsample_new_fini( fd_wsample_new_add( fd_wsample_new_add( pl2, 2UL ), 1UL ) ) );
 
     /* Since they're using the same weights, they are interchangeable. */
 
@@ -275,14 +279,14 @@ static void
 test_restore_disabled( void ) {
   fd_chacha20rng_t _rng[1];
   uchar zero_seed[32] = {0};
-  weights[0] = 2UL;
-  weights[1] = 1UL;
 
   fd_chacha20rng_t * rng = fd_chacha20rng_join( fd_chacha20rng_new( _rng, FD_CHACHA20RNG_MODE_SHIFT ) );
   fd_chacha20rng_init( rng, zero_seed );
 
-  fd_wsample_t * sample1 = fd_wsample_join( fd_wsample_new( _shmem,                   rng, weights, 2UL, 0, FD_WSAMPLE_HINT_FLAT ) );
-  fd_wsample_t * sample2 = fd_wsample_join( fd_wsample_new( _shmem+MAX_FOOTPRINT/2UL, rng, weights, 2UL, 1, FD_WSAMPLE_HINT_FLAT ) );
+  void * partial1 = fd_wsample_new_init( _shmem,                   rng, 2UL, 0, FD_WSAMPLE_HINT_FLAT );
+  void * partial2 = fd_wsample_new_init( _shmem+MAX_FOOTPRINT/2UL, rng, 2UL, 1, FD_WSAMPLE_HINT_FLAT );
+  fd_wsample_t * sample1 = fd_wsample_join( fd_wsample_new_fini( fd_wsample_new_add( fd_wsample_new_add( partial1, 2UL ), 1UL ) ) );
+  fd_wsample_t * sample2 = fd_wsample_join( fd_wsample_new_fini( fd_wsample_new_add( fd_wsample_new_add( partial2, 2UL ), 1UL ) ) );
 
   FD_TEST( fd_wsample_sample_and_remove( sample1 ) != FD_WSAMPLE_EMPTY );
   FD_TEST( fd_wsample_sample_and_remove( sample1 ) != FD_WSAMPLE_EMPTY );
@@ -308,13 +312,13 @@ static void
 test_remove_idx( void ) {
   fd_chacha20rng_t _rng[1];
   uchar zero_seed[32] = {0};
-  weights[0] = 2UL;
-  weights[1] = 1UL;
 
   fd_chacha20rng_t * rng = fd_chacha20rng_join( fd_chacha20rng_new( _rng, FD_CHACHA20RNG_MODE_SHIFT ) );
   fd_chacha20rng_init( rng, zero_seed );
 
-  fd_wsample_t * sample = fd_wsample_join( fd_wsample_new( _shmem, rng, weights, 2UL, 1, FD_WSAMPLE_HINT_FLAT ) );
+  void * partial = fd_wsample_new_init( _shmem, rng, 2UL, 1, FD_WSAMPLE_HINT_FLAT );
+  fd_wsample_t * sample = fd_wsample_join( fd_wsample_new_fini( fd_wsample_new_add( fd_wsample_new_add( partial, 2UL ), 1UL ) ) );
+  FD_TEST( sample );
 
   fd_wsample_remove_idx( sample, 1UL );
 
@@ -348,9 +352,9 @@ test_map( void ) {
   fd_chacha20rng_t * rng = fd_chacha20rng_join( fd_chacha20rng_new( _rng, FD_CHACHA20RNG_MODE_SHIFT ) );
 
   ulong sz=1018UL;
-  for( ulong i=0UL; i<sz; i++ ) weights[i] = 2000000UL / (i+1UL);
-  fd_wsample_t * tree = fd_wsample_join( fd_wsample_new( _shmem, rng, weights, sz, 0, FD_WSAMPLE_HINT_POWERLAW_NOREMOVE ) );
-  fd_wsample_seed_rng( fd_wsample_get_rng( tree ), seed );
+  void * partial = fd_wsample_new_init( _shmem, rng, sz, 0, FD_WSAMPLE_HINT_POWERLAW_NOREMOVE );
+  for( ulong i=0UL; i<sz; i++ ) partial = fd_wsample_new_add( partial, 2000000UL / (i+1UL) );
+  fd_wsample_t * tree = fd_wsample_join( fd_wsample_new_fini( partial ) );
 
   ulong x = 0UL;
   for( ulong i=0UL; i<sz; i++ ) for( ulong j=0UL; j<weights[i]; j++ ) FD_TEST( fd_wsample_map_sample( tree, x++ )==i );
