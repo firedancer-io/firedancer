@@ -2432,7 +2432,7 @@ vote_state_versions_vote_state_size_of( int is_current ) {
 // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/sdk/src/transaction_context.rs#L841
 static inline int
 vote_account_checked_add_lamports( fd_account_meta_t * self, ulong lamports ) {
-  if ( FD_UNLIKELY( self->info.lamports > ( ULONG_MAX - lamports ) ) ) {
+  if ( FD_UNLIKELY( self->info.lamports + lamports < self->info.lamports ) ) {
     return FD_EXECUTOR_INSTR_ERR_ARITHMETIC_OVERFLOW;
   };
   self->info.lamports += lamports;
@@ -2442,7 +2442,7 @@ vote_account_checked_add_lamports( fd_account_meta_t * self, ulong lamports ) {
 // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/sdk/src/transaction_context.rs#L851
 static inline int
 vote_account_checked_sub_lamports( fd_account_meta_t * self, ulong lamports ) {
-  if ( FD_UNLIKELY( lamports > self->info.lamports ) ) {
+  if ( FD_UNLIKELY( self->info.lamports - lamports > self->info.lamports ) ) {
     return FD_EXECUTOR_INSTR_ERR_ARITHMETIC_OVERFLOW;
   };
   self->info.lamports -= lamports;
