@@ -77,7 +77,7 @@ fd_vote_commission_split( fd_vote_state_versioned_t * vote_state_versioned,
                           fd_commission_split_t *     result );
 
 // Public API wrapper for `vote_account_get_state`. Used by stake program.
-static int
+int
 fd_vote_account_get_state( fd_borrowed_account_t *                  self,
                            instruction_ctx_t                        ctx,
                            /* return */ fd_vote_state_versioned_t * versioned );

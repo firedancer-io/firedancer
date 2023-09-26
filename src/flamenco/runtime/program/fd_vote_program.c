@@ -998,7 +998,7 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
 /* Public API                                                         */
 /**********************************************************************/
 
-static int
+int
 fd_vote_account_get_state( fd_borrowed_account_t *                  self,
                            instruction_ctx_t                        ctx,
                            /* return */ fd_vote_state_versioned_t * versioned ) {
