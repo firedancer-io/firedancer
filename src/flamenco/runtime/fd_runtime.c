@@ -962,8 +962,8 @@ fd_runtime_collect_rent_cb( fd_funk_rec_t const * encountered_rec_ro,
   (void) fd_runtime_collect_rent_account( global, rec->meta, key, epoch );
 
   if ( !FD_FEATURE_ACTIVE( global, skip_rent_rewrites ) )
-    // By changing the slot, this causes this account to be updated
-    // into the account_delta_hash which matches the "rent rewrite"
+    // By changing the slot, this forces the account to be updated
+    // in the account_delta_hash which matches the "rent rewrite"
     // behavior in solana.
     rec->meta->slot = global->bank.slot;
 
