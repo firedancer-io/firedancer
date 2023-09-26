@@ -67,10 +67,9 @@ typedef struct _fd_soltrace_FeeRateGovernor {
 /* ImplicitState is the complete set of runtime information that is not
  explicitly mentioned in the transaction message. */
 typedef struct _fd_soltrace_ImplicitState {
-    /* Serialized sysvar accounts.  Includes clock (current slot), rent,
- epoch schedule, etc. */
-    pb_size_t sysvars_count;
-    struct _fd_soltrace_KeyedAccount *sysvars;
+    /* Sysvars includes clock (current slot), rent, epoch schedule, etc. */
+    pb_size_t sysvar_count;
+    struct _fd_soltrace_KeyedAccount *sysvar;
     /* Slot number of last block. */
     uint64_t prev_slot;
     /* Blockhash queue */
@@ -92,6 +91,9 @@ typedef struct _fd_soltrace_ImplicitState {
     uint64_t collected_fees;
     /* Not a sysvar */
     fd_soltrace_FeeRateGovernor fee_rate_governor;
+    /* Feature accounts */
+    pb_size_t feature_count;
+    struct _fd_soltrace_KeyedAccount *feature;
 } fd_soltrace_ImplicitState;
 
 /* TxnInput contains the complete set of inputs to perform a
@@ -117,7 +119,7 @@ extern "C" {
 #define fd_soltrace_Account_init_default         {fd_soltrace_AccountMeta_init_default, NULL}
 #define fd_soltrace_AccountMeta_init_default     {0, 0, 0, {0}, 0}
 #define fd_soltrace_KeyedAccount_init_default    {{0}, fd_soltrace_Account_init_default}
-#define fd_soltrace_ImplicitState_init_default   {0, NULL, 0, 0, NULL, false, {0}, false, 0, false, 0, 0, NULL, 0, fd_soltrace_FeeRateGovernor_init_default}
+#define fd_soltrace_ImplicitState_init_default   {0, NULL, 0, 0, NULL, false, {0}, false, 0, false, 0, 0, NULL, 0, fd_soltrace_FeeRateGovernor_init_default, 0, NULL}
 #define fd_soltrace_ValidatorStake_init_default  {{0}, 0}
 #define fd_soltrace_RecentBlockhash_init_default {{0}, 0}
 #define fd_soltrace_FeeRateGovernor_init_default {0, 0, 0, 0, 0}
@@ -127,7 +129,7 @@ extern "C" {
 #define fd_soltrace_Account_init_zero            {fd_soltrace_AccountMeta_init_zero, NULL}
 #define fd_soltrace_AccountMeta_init_zero        {0, 0, 0, {0}, 0}
 #define fd_soltrace_KeyedAccount_init_zero       {{0}, fd_soltrace_Account_init_zero}
-#define fd_soltrace_ImplicitState_init_zero      {0, NULL, 0, 0, NULL, false, {0}, false, 0, false, 0, 0, NULL, 0, fd_soltrace_FeeRateGovernor_init_zero}
+#define fd_soltrace_ImplicitState_init_zero      {0, NULL, 0, 0, NULL, false, {0}, false, 0, false, 0, 0, NULL, 0, fd_soltrace_FeeRateGovernor_init_zero, 0, NULL}
 #define fd_soltrace_ValidatorStake_init_zero     {{0}, 0}
 #define fd_soltrace_RecentBlockhash_init_zero    {{0}, 0}
 #define fd_soltrace_FeeRateGovernor_init_zero    {0, 0, 0, 0, 0}
@@ -155,7 +157,7 @@ extern "C" {
 #define fd_soltrace_FeeRateGovernor_min_lamports_per_signature_tag 3
 #define fd_soltrace_FeeRateGovernor_max_lamports_per_signature_tag 4
 #define fd_soltrace_FeeRateGovernor_burn_percent_tag 5
-#define fd_soltrace_ImplicitState_sysvars_tag    1
+#define fd_soltrace_ImplicitState_sysvar_tag     1
 #define fd_soltrace_ImplicitState_prev_slot_tag  2
 #define fd_soltrace_ImplicitState_blockhash_tag  3
 #define fd_soltrace_ImplicitState_bank_hash_tag  4
@@ -164,6 +166,7 @@ extern "C" {
 #define fd_soltrace_ImplicitState_epoch_stakes_tag 7
 #define fd_soltrace_ImplicitState_collected_fees_tag 8
 #define fd_soltrace_ImplicitState_fee_rate_governor_tag 9
+#define fd_soltrace_ImplicitState_feature_tag    10
 #define fd_soltrace_TxnInput_transaction_tag     1
 #define fd_soltrace_TxnInput_account_tag         2
 #define fd_soltrace_TxnInput_state_tag           3
@@ -218,7 +221,7 @@ X(a, STATIC,   REQUIRED, MESSAGE,  account,           2)
 #define fd_soltrace_KeyedAccount_account_MSGTYPE fd_soltrace_Account
 
 #define fd_soltrace_ImplicitState_FIELDLIST(X, a) \
-X(a, POINTER,  REPEATED, MESSAGE,  sysvars,           1) \
+X(a, POINTER,  REPEATED, MESSAGE,  sysvar,            1) \
 X(a, STATIC,   REQUIRED, UINT64,   prev_slot,         2) \
 X(a, POINTER,  REPEATED, MESSAGE,  blockhash,         3) \
 X(a, STATIC,   OPTIONAL, FIXED_LENGTH_BYTES, bank_hash,         4) \
@@ -226,13 +229,15 @@ X(a, STATIC,   OPTIONAL, UINT64,   capitalization,    5) \
 X(a, STATIC,   OPTIONAL, UINT64,   block_height,      6) \
 X(a, POINTER,  REPEATED, MESSAGE,  epoch_stakes,      7) \
 X(a, STATIC,   REQUIRED, UINT64,   collected_fees,    8) \
-X(a, STATIC,   REQUIRED, MESSAGE,  fee_rate_governor,   9)
+X(a, STATIC,   REQUIRED, MESSAGE,  fee_rate_governor,   9) \
+X(a, POINTER,  REPEATED, MESSAGE,  feature,          10)
 #define fd_soltrace_ImplicitState_CALLBACK NULL
 #define fd_soltrace_ImplicitState_DEFAULT NULL
-#define fd_soltrace_ImplicitState_sysvars_MSGTYPE fd_soltrace_KeyedAccount
+#define fd_soltrace_ImplicitState_sysvar_MSGTYPE fd_soltrace_KeyedAccount
 #define fd_soltrace_ImplicitState_blockhash_MSGTYPE fd_soltrace_RecentBlockhash
 #define fd_soltrace_ImplicitState_epoch_stakes_MSGTYPE fd_soltrace_ValidatorStake
 #define fd_soltrace_ImplicitState_fee_rate_governor_MSGTYPE fd_soltrace_FeeRateGovernor
+#define fd_soltrace_ImplicitState_feature_MSGTYPE fd_soltrace_KeyedAccount
 
 #define fd_soltrace_ValidatorStake_FIELDLIST(X, a) \
 X(a, STATIC,   REQUIRED, FIXED_LENGTH_BYTES, vote_account_key,   1) \

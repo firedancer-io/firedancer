@@ -10,26 +10,40 @@
 
 /* Capture ************************************************************/
 
+#define FD_TXNTRACE_SYSVAR_ITER( x )  \
+  x( sysvar_recent_block_hashes ) \
+  x( sysvar_clock               ) \
+  x( sysvar_slot_history        ) \
+  x( sysvar_slot_hashes         ) \
+  x( sysvar_epoch_schedule      ) \
+  x( sysvar_epoch_rewards       ) \
+  x( sysvar_fees                ) \
+  x( sysvar_rent                ) \
+  x( sysvar_stake_history       ) \
+  x( sysvar_last_restart_slot   )
+
+#define FD_TXNTRACE_SYSVAR_CNT_HELPER(x) +1UL
+#define FD_TXNTRACE_SYSVAR_CNT (0UL FD_TXNTRACE_SYSVAR_ITER( FD_TXNTRACE_SYSVAR_CNT_HELPER ))
+
 static fd_soltrace_Account *
 fd_txntrace_capture_acct( fd_soltrace_Account *       acc_out,
                           fd_global_ctx_t const *     global,
-                          fd_pubkey_t const *         acc_addr,
+                          uchar const                 acc_addr[ static 32 ],
                           fd_soltrace_Account const * acc_pre ) {
   fd_acc_mgr_t *  acc_mgr  = global->acc_mgr;
   fd_funk_txn_t * funk_txn = global->funk_txn;
 
   /* Lookup account */
-  fd_borrowed_account_t acc[1] = {{0}};
-  if( FD_UNLIKELY( fd_acc_mgr_view( acc_mgr, funk_txn, acc_addr, acc )
-                   !=FD_ACC_MGR_SUCCESS ) )
+  FD_BORROWED_ACCOUNT_DECL(acc);
+  int err = fd_acc_mgr_view( acc_mgr, funk_txn, fd_type_pun_const( acc_addr ), acc );
+  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+    FD_LOG_DEBUG(( "fd_acc_mgr_view(%32J) failed (%d-%s)",
+                   acc_addr, err, fd_acc_mgr_strerror( err ) ));
     return NULL;
+  }
+  ulong data_sz = acc->const_meta->dlen;
 
   fd_memset( acc_out, 0, sizeof(fd_soltrace_Account) );
-
-  /* Allocate account data */
-  ulong data_sz = acc->const_meta->dlen;
-  if( FD_UNLIKELY( !fd_scratch_alloc_is_safe( alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( data_sz ) ) ) ) return NULL;
-  acc_out->data = fd_scratch_alloc( alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( data_sz ) );
 
   /* Capture account */
   acc_out->meta = (fd_soltrace_AccountMeta) {
@@ -46,9 +60,18 @@ fd_txntrace_capture_acct( fd_soltrace_Account *       acc_out,
       && 0==memcmp( acc_pre->data->bytes, acc->const_data, data_sz ) ) {
     acc_out->data = NULL;
   } else {
-    acc_out->data->size = (uint)data_sz;
-    fd_memcpy( acc_out->data->bytes, acc->const_data, data_sz );
+    /* Allocate account data */
+    if( FD_LIKELY( fd_scratch_alloc_is_safe( alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( data_sz ) ) ) ) {
+      acc_out->data = fd_scratch_alloc( alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( data_sz ) );
+
+      acc_out->data->size = (pb_size_t)data_sz;
+      fd_memcpy( acc_out->data->bytes, acc->const_data, data_sz );
+    } else {
+      acc_out = NULL;
+    }
   }
+
+  fd_funk_val_uncache( global->funk, acc->rec );
 
   return acc_out;
 }
@@ -92,7 +115,7 @@ fd_txntrace_capture_pre( fd_soltrace_TxnInput * input,
     if( FD_UNLIKELY( !FD_SCRATCH_ALLOC_PUBLISH( txn_layout ) ) ) return NULL;
   }
 
-  /* Allocate and capture variable-length implicit state */
+  /* Allocate variable-length implicit state */
   ulong blockhash_cnt = deq_fd_block_block_hash_entry_t_cnt( global->bank.recent_block_hashes.hashes );
   {
     if( FD_UNLIKELY( !fd_scratch_prepare_is_safe( 1UL ) ) ) return NULL;
@@ -103,18 +126,86 @@ fd_txntrace_capture_pre( fd_soltrace_TxnInput * input,
         alignof(fd_soltrace_RecentBlockhash),
         sizeof (fd_soltrace_RecentBlockhash) * blockhash_cnt );
 
-    if( FD_UNLIKELY( !FD_SCRATCH_ALLOC_PUBLISH( state_layout ) ) ) return NULL;
+    input->state.feature_count = FD_FEATURE_ID_CNT;
+    input->state.feature = FD_SCRATCH_ALLOC_APPEND( state_layout,
+        alignof(fd_soltrace_KeyedAccount),
+        sizeof (fd_soltrace_KeyedAccount) * FD_FEATURE_ID_CNT );
 
-    int i = 0;
+    input->state.sysvar_count = FD_TXNTRACE_SYSVAR_CNT;
+    input->state.sysvar = FD_SCRATCH_ALLOC_APPEND( state_layout,
+        alignof(fd_soltrace_KeyedAccount),
+        sizeof (fd_soltrace_KeyedAccount) * input->state.sysvar_count );
+
+    if( FD_UNLIKELY( !FD_SCRATCH_ALLOC_PUBLISH( state_layout ) ) ) return NULL;
+  }
+
+  /* Capture blockhash queue */
+  {
+    ulong i=0;
     for( deq_fd_block_block_hash_entry_t_iter_t iter =
          deq_fd_block_block_hash_entry_t_iter_init( global->bank.recent_block_hashes.hashes );
          deq_fd_block_block_hash_entry_t_iter_done( global->bank.recent_block_hashes.hashes, iter );
-         iter = deq_fd_block_block_hash_entry_t_iter_next( global->bank.recent_block_hashes.hashes, iter ) ) {
+         iter = deq_fd_block_block_hash_entry_t_iter_next( global->bank.recent_block_hashes.hashes, iter ),
+         i++ ) {
       fd_block_block_hash_entry_t const * elem = deq_fd_block_block_hash_entry_t_iter_ele( global->bank.recent_block_hashes.hashes, iter );
-      fd_soltrace_RecentBlockhash * bh = &input->state.blockhash[i++];
+      fd_soltrace_RecentBlockhash * bh = &input->state.blockhash[i];
       bh->lamports_per_signature = elem->fee_calculator.lamports_per_signature;
       fd_memcpy( bh->hash, elem->blockhash.uc, 32UL );
     }
+  }
+
+  /* Capture sysvar accounts */
+  {
+    fd_soltrace_KeyedAccount * sysvar = input->state.sysvar;
+
+#   define CAPTURE_SYSVAR( NAME )                                                          \
+    do {                                                                                   \
+      fd_memcpy( sysvar->pubkey, global->NAME, 32UL );                                     \
+      int ok = !!fd_txntrace_capture_acct( &sysvar->account, global, global->NAME, NULL ); \
+      if( FD_UNLIKELY( !ok ) ) break;  /* skip */                                          \
+      sysvar++;                                                                            \
+    } while(0);
+
+    FD_TXNTRACE_SYSVAR_ITER( CAPTURE_SYSVAR )
+
+#   undef CAPTURE_SYSVAR
+
+    input->state.sysvar_count = (pb_size_t)( sysvar - input->state.sysvar );
+  }
+
+  /* Capture feature accounts */
+  {
+    ulong i=0;
+    for( fd_feature_id_t const * id = fd_feature_iter_init();
+         !fd_feature_iter_done( id );
+         id = fd_feature_iter_next( id ) ) {
+
+      /* Lookup account
+         (Allocates funk memory that will be released once funk_txn
+         expires) */
+
+      FD_BORROWED_ACCOUNT_DECL(acc_rec);
+      int err = fd_acc_mgr_view( global->acc_mgr, global->funk_txn, &id->id, acc_rec );
+      if( err==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
+        if( FD_UNLIKELY( *fd_features_ptr_const( &global->features, id ) <= global->bank.slot ) ) {
+          FD_LOG_ERR(( "Feature %32J activated at slot %lu according to cache, "
+                       "but corresponding feature account does not exist",
+                       id->id.uc ));
+        }
+      } else if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+        FD_LOG_ERR(( "fd_acc_mgr_view(%32J) failed (%d-%s)",
+                     id->id.uc, err, fd_acc_mgr_strerror( err ) ));
+      }
+
+      fd_soltrace_KeyedAccount * acc = &input->state.feature[ i ];
+      fd_memcpy( acc->pubkey, id->id.uc, 32UL );
+      if( FD_UNLIKELY( !fd_txntrace_capture_acct( &acc->account, global, id->id.uc, NULL ) ) )
+        return NULL;
+
+      i++;
+    }
+    input->state.feature_count = (pb_size_t)i;
+    FD_LOG_DEBUG(( "Captured %lu feature accounts", i ));
   }
 
   /* Allocate variable-length instruction structures */
@@ -139,9 +230,8 @@ fd_txntrace_capture_pre( fd_soltrace_TxnInput * input,
   for( ulong i=0UL; i < txn->acct_addr_cnt; i++ ) {
     fd_soltrace_Account *  acc_out   = &input->account[i];
     fd_acct_addr_t const * acc_addr  = &fd_txn_get_acct_addrs( txn, txn_data )[i];
-    fd_pubkey_t    const * acc_addr2 = fd_type_pun_const( acc_addr );  /* silly */
 
-    if( FD_UNLIKELY( !fd_txntrace_capture_acct( acc_out, global, acc_addr2, NULL ) ) )
+    if( FD_UNLIKELY( !fd_txntrace_capture_acct( acc_out, global, acc_addr->b, NULL ) ) )
       return NULL;
   }
 
@@ -221,9 +311,8 @@ fd_txntrace_capture_post( fd_soltrace_TxnDiff *        out,
     fd_soltrace_Account * acc_out   = &out->account[i];
     fd_soltrace_Account * acc_in    = &pre->account[i];
     uchar const *         acc_addr  = pre->transaction.account_keys[i];
-    fd_pubkey_t const *   acc_addr2 = fd_type_pun_const( acc_addr );  /* silly */
 
-    if( FD_UNLIKELY( !fd_txntrace_capture_acct( acc_out, global, acc_addr2, acc_in ) ) )
+    if( FD_UNLIKELY( !fd_txntrace_capture_acct( acc_out, global, acc_addr, acc_in ) ) )
       return NULL;
   }
 
@@ -238,6 +327,49 @@ static fd_rent_t const default_rent = {
   .burn_percent            = 50
 };
 
+static void
+fd_txntrace_load_defaults( fd_global_ctx_t * global ) {
+
+  fd_memcpy( &global->bank.rent, &default_rent, sizeof(fd_rent_t) );
+  fd_sysvar_rent_init( global );
+
+}
+
+static void
+fd_txntrace_load_acct( fd_global_ctx_t *           global,
+                       uchar const                 pubkey_[ static 32 ],
+                       fd_soltrace_Account const * acc ) {
+
+  /* Create account and acquire write handle */
+
+  FD_BORROWED_ACCOUNT_DECL(rec);
+
+  fd_acc_mgr_t *      acc_mgr  = global->acc_mgr;
+  fd_funk_txn_t *     funk_txn = global->funk_txn;
+  fd_pubkey_t const * pubkey   = (fd_pubkey_t const *)pubkey_;
+
+  int err = fd_acc_mgr_modify( acc_mgr, funk_txn, pubkey, 1, acc->data->size, rec );
+  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) )
+    FD_LOG_ERR(( "fd_acc_mgr_modify failed (%d-%s)", err, fd_acc_mgr_strerror( err ) ));
+
+  /* Copy content */
+
+  rec->meta->dlen            = acc->data->size;
+  rec->meta->slot            = acc->meta.slot;
+  rec->meta->info.lamports   = acc->meta.lamports;
+  rec->meta->info.rent_epoch = acc->meta.rent_epoch;
+  memcpy( rec->meta->info.owner, acc->meta.owner, 32UL );
+  rec->meta->info.executable = acc->meta.executable;
+
+  fd_memcpy( rec->data, acc->data->bytes, acc->data->size );
+
+  /* Update account hash */
+
+  err = fd_acc_mgr_commit( global->acc_mgr, rec, acc->meta.slot, 0 );
+  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) )
+    FD_LOG_ERR(( "fd_acc_mgr_commit failed (%d-%s)", err, fd_acc_mgr_strerror( err ) ));
+}
+
 /* TODO: fd_txntrace_load_sysvars logic is duplicated.  There should be
    some common place to restore sysvars. */
 
@@ -248,17 +380,12 @@ fd_txntrace_load_sysvars( fd_global_ctx_t *                global,
 
   for( ulong i=0UL; i<sysvar_cnt; i++ ) {
 
-    uchar const *                   key  = sysvar[i].pubkey;
-    fd_soltrace_Account     const * acc  = &sysvar[i].account;
-    fd_soltrace_AccountMeta const * meta = &acc->meta;
-
-    fd_sysvar_set( global, meta->owner, (fd_pubkey_t const *)key,
-                   acc->data->bytes, acc->data->size,
-                   meta->slot, &meta->lamports );
+    fd_txntrace_load_acct( global, sysvar[i].pubkey, &sysvar[i].account );
 
     /* Update sysvar cache (ugly!) */
 
-    if( 0==memcmp( key, global->sysvar_rent, sizeof(fd_pubkey_t) ) ) {
+    uchar const * pubkey = sysvar->pubkey;
+    if( 0==memcmp( pubkey, global->sysvar_rent, sizeof(fd_pubkey_t) ) ) {
       FD_TEST( 0==fd_sysvar_rent_read( global, &global->bank.rent ) );
     }
 
@@ -267,19 +394,17 @@ fd_txntrace_load_sysvars( fd_global_ctx_t *                global,
 }
 
 static void
-fd_txntrace_load_defaults( fd_global_ctx_t * global ) {
-
-  fd_memcpy( &global->bank.rent, &default_rent, sizeof(fd_rent_t) );
-  fd_sysvar_rent_init( global );
-
-}
-
-static void
 fd_txntrace_load_state( fd_global_ctx_t *                 global,
                         fd_soltrace_ImplicitState const * state ) {
 
   fd_txntrace_load_defaults( global );
-  fd_txntrace_load_sysvars( global, state->sysvars, state->sysvars_count );
+  fd_txntrace_load_sysvars ( global, state->sysvar,  state->sysvar_count  );
+
+  for( ulong i=0UL; i < state->feature_count; i++ ) {
+    fd_soltrace_KeyedAccount const * acc = &state->feature[i];
+    fd_txntrace_load_acct( global, acc->pubkey, &acc->account );
+  }
+  fd_features_restore( global );  /* populate feature cache */
 
   fd_firedancer_banks_t * bank = &global->bank;
   bank->prev_slot = state->prev_slot;
@@ -305,28 +430,6 @@ fd_txntrace_load_state( fd_global_ctx_t *                 global,
     memcpy( entry->blockhash.uc, state->blockhash[i].hash, 32UL );
   }
 
-}
-
-static void
-fd_txntrace_load_account( fd_global_ctx_t *     global,
-                          uchar const           addr[ static 32 ],
-                          fd_soltrace_Account * acc ) {
-
-  fd_pubkey_t const * pubkey = (fd_pubkey_t const *)addr;
-  fd_borrowed_account_t handle[1] = {{0}};
-  int err = fd_acc_mgr_modify( global->acc_mgr, global->funk_txn, pubkey, 1, acc->data->size, handle );
-  FD_TEST( err==FD_ACC_MGR_SUCCESS );
-
-  handle->meta->dlen            = acc->data->size;
-  handle->meta->slot            = acc->meta.slot;
-  handle->meta->info.lamports   = acc->meta.lamports;
-  handle->meta->info.rent_epoch = acc->meta.rent_epoch;
-  handle->meta->info.executable = acc->meta.executable;
-  memcpy( handle->meta->info.owner, acc->meta.owner, 32UL );
-
-  fd_memcpy( handle->data, acc->data->bytes, acc->data->size );
-
-  fd_acc_mgr_commit( global->acc_mgr, handle, acc->meta.slot, 0 );
 }
 
 /* fd_txn_o_t is a handle to a txn created by fd_txntrace_create.
@@ -429,12 +532,15 @@ fd_txntrace_create( fd_solblock_Message const * msg ) {
     /* Allocate instruction parts */
 
     uchar * instr_accts = heap;
-    heap += src->accounts->size;
+    heap += src_accs->size;
 
     uchar * data = heap;
-    heap += src->data->size;
+    heap += src_data->size;
 
     FD_TEST( (ulong)heap - heap_base <= USHORT_MAX );
+
+    fd_memcpy( instr_accts, src_accs->bytes, src_accs->size );
+    fd_memcpy( data,        src_data->bytes, src_data->size );
 
     /* Assemble instruction */
 
@@ -464,6 +570,8 @@ fd_txntrace_replay( fd_soltrace_TxnDiff *        out,
                     fd_soltrace_TxnInput const * in,
                     fd_wksp_t *                  wksp ) {
 
+  FD_LOG_DEBUG(( "fd_txntrace_replay start" ));
+
   /* Create funk database */
 
   ulong       const funk_seed = 123UL;
@@ -492,14 +600,18 @@ fd_txntrace_replay( fd_soltrace_TxnDiff *        out,
 
   fd_txntrace_load_state( global, &in->state );
   for( ulong i=0UL; i < in->account_count; i++ )
-    fd_txntrace_load_account( global, in->transaction.account_keys[i], &in->account[i] );
+    fd_txntrace_load_acct( global, in->transaction.account_keys[i], &in->account[i] );
+
+  /* Prevent recursion */
+  global->trace_mode = 0;
 
   /* Create and replay transaction */
 
   fd_scratch_push();
   fd_txn_o_t to = fd_txntrace_create( &in->transaction );
-  if( to.txn )
-    fd_execute_txn( global, to.txn, &to.heap );
+  if( FD_UNLIKELY( !to.txn ) )
+    FD_LOG_ERR(( "fd_txntrace_create failed (out of scratch memory?)" ));
+  fd_execute_txn( global, to.txn, &to.heap );
   fd_scratch_pop();
 
   /* Export diff */
@@ -511,6 +623,8 @@ fd_txntrace_replay( fd_soltrace_TxnDiff *        out,
   fd_funk_txn_cancel( funk, funk_txn, 1 );
   fd_global_ctx_delete( fd_global_ctx_leave( global ) );
   fd_wksp_free_laddr( fd_funk_delete( fd_funk_leave( funk ) ) );
+
+  FD_LOG_DEBUG(( "fd_txntrace_replay success" ));
 
   /* out may be NULL */
   return out;
@@ -571,17 +685,20 @@ fd_txntrace_diff( fd_soltrace_TxnDiff const * left,
                       i, i );
       return 0;
     }
-    if( FD_UNLIKELY( left_acc->data->size != right_acc->data->size ) ) {
-      fd_cstr_printf( diff_cstr, sizeof(diff_cstr), NULL,
-                      "account[%lu].data->size %u != %u",
-                      i, left_acc->data->size, right_acc->data->size );
-      return 0;
-    }
-    if( FD_UNLIKELY( 0!=memcmp( left_acc->data->bytes, right_acc->data->bytes, left_acc->data->size ) ) ) {
-      fd_cstr_printf( diff_cstr, sizeof(diff_cstr), NULL,
-                      "account[%lu].data->bytes != account[%lu].data->bytes",
-                      i, i );
-      return 0;
+    /* TODO properly detect case where account didn't change */
+    if( (!!left_acc->data) & (!!right_acc->data) ) {
+      if( FD_UNLIKELY( left_acc->data->size != right_acc->data->size ) ) {
+        fd_cstr_printf( diff_cstr, sizeof(diff_cstr), NULL,
+                        "account[%lu].data->size %u != %u",
+                        i, left_acc->data->size, right_acc->data->size );
+        return 0;
+      }
+      if( FD_UNLIKELY( 0!=memcmp( left_acc->data->bytes, right_acc->data->bytes, left_acc->data->size ) ) ) {
+        fd_cstr_printf( diff_cstr, sizeof(diff_cstr), NULL,
+                        "account[%lu].data->bytes != account[%lu].data->bytes",
+                        i, i );
+        return 0;
+      }
     }
   }
 

@@ -377,8 +377,11 @@ fd_execute_txn( fd_global_ctx_t *     global,
   /* Trace transaction input */
   fd_soltrace_TxnInput  _trace_pre[1];
   fd_soltrace_TxnInput * trace_pre = NULL;
-  if( FD_UNLIKELY( global->trace_mode ) )
+  if( FD_UNLIKELY( global->trace_mode ) ) {
     trace_pre = fd_txntrace_capture_pre( _trace_pre, global, txn_descriptor, txn_raw->raw );
+    if( FD_UNLIKELY( !trace_pre ) )
+      FD_LOG_WARNING(( "fd_txntrace_capture_pre failed (out of scratch memory?)" ));
+  }
 
   transaction_ctx_t txn_ctx = {
     .global             = global,
@@ -476,6 +479,7 @@ fd_execute_txn( fd_global_ctx_t *     global,
 
     int exec_result = fd_execute_instr( global, &instrs[i], &txn_ctx );
     if( exec_result != FD_EXECUTOR_INSTR_SUCCESS ) {
+      FD_LOG_DEBUG(( "fd_execute_instr failed (%d)", exec_result ));
       fd_funk_txn_cancel(global->funk, txn, 0);
       global->funk_txn = parent_txn;
       return -1;

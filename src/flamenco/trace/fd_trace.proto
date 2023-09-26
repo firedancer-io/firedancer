@@ -27,8 +27,6 @@ message TxnInput {
     repeated Account account = 2;
 
     required ImplicitState state = 3;
-
-    // TODO set feature set
 }
 
 // TxnDiff contains the complete set of changes directly induced
@@ -65,9 +63,8 @@ message KeyedAccount {
 // ImplicitState is the complete set of runtime information that is not
 // explicitly mentioned in the transaction message.
 message ImplicitState {
-    // Serialized sysvar accounts.  Includes clock (current slot), rent,
-    // epoch schedule, etc.
-    repeated KeyedAccount sysvars = 1;
+    // Sysvars includes clock (current slot), rent, epoch schedule, etc.
+    repeated KeyedAccount sysvar = 1;
 
     // Slot number of last block.
     required uint64 prev_slot = 2;
@@ -93,6 +90,9 @@ message ImplicitState {
 
     // Not a sysvar
     required FeeRateGovernor fee_rate_governor = 9;
+
+    // Feature accounts
+    repeated KeyedAccount feature = 10;
 }
 
 message ValidatorStake {
