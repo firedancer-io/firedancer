@@ -1151,18 +1151,18 @@ for entry in entries:
     if "type" in entry and entry["type"] == "struct":
       if a == "":
           a = "__attribute__((aligned(" + alignment + "UL))) "
-      print(f'struct {a}{namespace} {{', file=header)
+      print(f'struct {a}{n} {{', file=header)
       for f in entry["fields"]:
           if f["type"] in fields_header:
               fields_header[f["type"]](namespace, f)
           else:
-               print(f'  {namespace}_{f["type"]}_t {self.name};', file=header)
+               print(f'  {namespace}_{f["type"]}_t {f["name"]};', file=header)
 
       print("};", file=header)
-      print(f'typedef struct {namespace} {namespace}_t;', file=header)
+      print(f'typedef struct {n} {n}_t;', file=header)
 
     elif "type" in entry and entry["type"] == "enum":
-      print(f'union {a}{namespace}_inner {{', file=header)
+      print(f'union {a}{n}_inner {{', file=header)
 
       empty = True
       for v in entry["variants"]:
@@ -1176,18 +1176,18 @@ for entry in entries:
           print('  uchar nonempty; /* Hack to support enums with no inner structures */ ', file=header)
 
       print("};", file=header)
-      print(f"typedef union {namespace}_inner {namespace}_inner_t;\n", file=header)
+      print(f"typedef union {n}_inner {n}_inner_t;\n", file=header)
 
       if "comment" in entry:
         print("/* " + entry["comment"] + " */", file=header)
 
-      print(f"struct {a}{namespace} {{", file=header)
+      print(f"struct {a}{n} {{", file=header)
       print('  uint discriminant;', file=header)
-      print(f'  {namespace}_inner_t inner;', file=header)
+      print(f'  {n}_inner_t inner;', file=header)
       print("};", file=header)
-      print(f"typedef struct {namespace} {namespace}_t;", file=header)
+      print(f"typedef struct {n} {n}_t;", file=header)
 
-    print(f"#define {n.upper()}_FOOTPRINT sizeof({namespace}_t)", file=header)
+    print(f"#define {n.upper()}_FOOTPRINT sizeof({n}_t)", file=header)
     print(f"#define {n.upper()}_ALIGN ({alignment}UL)", file=header)
     print("", file=header)
 
@@ -1201,33 +1201,33 @@ for entry in entries:
     n = namespace + "_" + entry["name"]
 
     if entry["type"] == "enum":
-        print(f"void {namespace}_new_disc({namespace}_t* self, uint discriminant);", file=header)
-    print(f"void {namespace}_new({namespace}_t* self);", file=header)
-    print(f"int {namespace}_decode({namespace}_t* self, fd_bincode_decode_ctx_t * ctx);", file=header)
-    print(f"int {namespace}_encode({namespace}_t const * self, fd_bincode_encode_ctx_t * ctx);", file=header)
-    print(f"void {namespace}_destroy({namespace}_t* self, fd_bincode_destroy_ctx_t * ctx);", file=header)
-    print(f"void {namespace}_walk(void * w, {namespace}_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);", file=header)
-    print(f"ulong {namespace}_size({namespace}_t const * self);", file=header)
-    print(f'ulong {namespace}_footprint( void );', file=header)
-    print(f'ulong {namespace}_align( void );', file=header)
+        print(f"void {n}_new_disc({n}_t* self, uint discriminant);", file=header)
+    print(f"void {n}_new({n}_t* self);", file=header)
+    print(f"int {n}_decode({n}_t* self, fd_bincode_decode_ctx_t * ctx);", file=header)
+    print(f"int {n}_encode({n}_t const * self, fd_bincode_encode_ctx_t * ctx);", file=header)
+    print(f"void {n}_destroy({n}_t* self, fd_bincode_destroy_ctx_t * ctx);", file=header)
+    print(f"void {n}_walk(void * w, {n}_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);", file=header)
+    print(f"ulong {n}_size({n}_t const * self);", file=header)
+    print(f'ulong {n}_footprint( void );', file=header)
+    print(f'ulong {n}_align( void );', file=header)
     print("", file=header)
 
     if entry["type"] == "enum":
         for i, v in enumerate(entry["variants"]):
-            print(f'FD_FN_PURE uchar {namespace}_is_{v["name"]}({self.namespace}_t const * self);', file=header)
-            print(f'FD_FN_PURE uchar {self.namespace}_is_{v["name"]}({self.namespace}_t const * self) {{', file=body)
+            print(f'FD_FN_PURE uchar {n}_is_{v["name"]}({n}_t const * self);', file=header)
+            print(f'FD_FN_PURE uchar {n}_is_{v["name"]}({n}_t const * self) {{', file=body)
             print(f'  return self->discriminant == {i};', file=body)
             print("}", file=body)
         print("enum {", file=header)
 
         for i, v in enumerate(entry["variants"]):
-            print(f'{self.namespace}_enum_{v["name"]} = {i},', file=header)
+            print(f'{n}_enum_{v["name"]} = {i},', file=header)
         print("}; ", file=header)
 
     if entry["type"] == "enum":
-        print(f'void {self.namespace}_inner_new({self.namespace}_inner_t* self, uint discriminant);', file=body)
-        print(f'int {self.namespace}_inner_decode({self.namespace}_inner_t* self, uint discriminant, fd_bincode_decode_ctx_t * ctx) {{', file=body)
-        print(f'  {self.namespace}_inner_new(self, discriminant);', file=body)
+        print(f'void {n}_inner_new({n}_inner_t* self, uint discriminant);', file=body)
+        print(f'int {n}_inner_decode({n}_inner_t* self, uint discriminant, fd_bincode_decode_ctx_t * ctx) {{', file=body)
+        print(f'  {n}_inner_new(self, discriminant);', file=body)
         print('  int err;', file=body)
         print('  switch (discriminant) {', file=body)
 
@@ -1249,7 +1249,7 @@ for entry in entries:
         print('  }', file=body)
         print("}", file=body)
 
-        print(f'int {self.namespace}_decode({self.namespace}_t* self, fd_bincode_decode_ctx_t * ctx) {{', file=body)
+        print(f'int {n}_decode({n}_t* self, fd_bincode_decode_ctx_t * ctx) {{', file=body)
         if "compact" in entry and entry["compact"]:
             print('  ushort tmp = 0;', file=body)
             print('  int err = fd_bincode_compact_u16_decode(&tmp, ctx);', file=body)
@@ -1261,20 +1261,20 @@ for entry in entries:
         print(f'  return {namespace}_{entry["name"]}_inner_decode(&self->inner, self->discriminant, ctx);', file=body)
         print("}", file=body)
     else:
-      print(f'int {self.namespace}_decode({self.namespace}_t* self, fd_bincode_decode_ctx_t * ctx) {{', file=body)
+      print(f'int {n}_decode({n}_t* self, fd_bincode_decode_ctx_t * ctx) {{', file=body)
       print('  int err;', file=body)
       assert "fields" in entry, "no fields in " + entry["name"]
       for f in entry["fields"]:
           if f["type"] in fields_body_decode:
               fields_body_decode[f["type"]](namespace, f)
           else:
-              print(f'  err = {namespace}_{f["type"]}_decode(&self->{self.name}, ctx);', file=body)
+              print(f'  err = {namespace}_{f["type"]}_decode(&self->{f["name"]}, ctx);', file=body)
               print('  if ( FD_UNLIKELY(err) ) return err;', file=body)
       print('  return FD_BINCODE_SUCCESS;', file=body)
       print("}", file=body)
 
     if entry["type"] == "enum":
-      print(f'void {self.namespace}_inner_new({self.namespace}_inner_t* self, uint discriminant) {{', file=body)
+      print(f'void {n}_inner_new({n}_inner_t* self, uint discriminant) {{', file=body)
       print('  switch (discriminant) {', file=body)
       for i, v in enumerate(entry["variants"]):
         print(f'  case {i}: {{', file=body)
@@ -1289,26 +1289,26 @@ for entry in entries:
       print('  }', file=body)
       print("}", file=body)
 
-      print(f'void {self.namespace}_new_disc({self.namespace}_t* self, uint discriminant) {{', file=body)
+      print(f'void {n}_new_disc({n}_t* self, uint discriminant) {{', file=body)
       print('  self->discriminant = discriminant;', file=body)
       print(f'  {namespace}_{entry["name"]}_inner_new(&self->inner, self->discriminant);', file=body)
       print("}", file=body)
-      print(f'void {self.namespace}_new({self.namespace}_t* self) {{', file=body)
+      print(f'void {n}_new({n}_t* self) {{', file=body)
       print(f'  fd_memset(self, 0, sizeof(*self));', file=body)
       print(f'  {namespace}_{entry["name"]}_new_disc(self, UINT_MAX);', file=body) # Invalid by default
       print("}", file=body)
     else:
-      print(f'void {self.namespace}_new({self.namespace}_t* self) {{', file=body)
-      print(f'  fd_memset(self, 0, sizeof({self.namespace}_t));', file=body)
+      print(f'void {n}_new({n}_t* self) {{', file=body)
+      print(f'  fd_memset(self, 0, sizeof({n}_t));', file=body)
       for f in entry["fields"]:
           if f["type"] in fields_body_new:
               fields_body_new[f["type"]](namespace, f)
           else:
-              print(f'  {namespace}_{f["type"]}_new(&self->{self.name});', file=body)
+              print(f'  {namespace}_{f["type"]}_new(&self->{f["name"]});', file=body)
       print("}", file=body)
 
     if entry["type"] == "enum":
-      print(f'void {self.namespace}_inner_destroy({self.namespace}_inner_t* self, uint discriminant, fd_bincode_destroy_ctx_t * ctx) {{', file=body)
+      print(f'void {n}_inner_destroy({n}_inner_t* self, uint discriminant, fd_bincode_destroy_ctx_t * ctx) {{', file=body)
       print('  switch (discriminant) {', file=body)
       for i, v in enumerate(entry["variants"]):
         print(f'  case {i}: {{', file=body)
@@ -1323,28 +1323,28 @@ for entry in entries:
       print('  }', file=body)
       print("}", file=body)
 
-      print(f'void {self.namespace}_destroy({self.namespace}_t* self, fd_bincode_destroy_ctx_t * ctx) {{', file=body)
+      print(f'void {n}_destroy({n}_t* self, fd_bincode_destroy_ctx_t * ctx) {{', file=body)
       print(f'  {namespace}_{entry["name"]}_inner_destroy(&self->inner, self->discriminant, ctx);', file=body)
       print("}", file=body)
     else:
-      print(f'void {self.namespace}_destroy({self.namespace}_t* self, fd_bincode_destroy_ctx_t * ctx) {{', file=body)
+      print(f'void {n}_destroy({n}_t* self, fd_bincode_destroy_ctx_t * ctx) {{', file=body)
       for f in entry["fields"]:
           if f["type"] in fields_body_destroy:
               fields_body_destroy[f["type"]](namespace, f)
           else:
-              print(f'  {namespace}_{f["type"]}_destroy(&self->{self.name}, ctx);', file=body)
+              print(f'  {namespace}_{f["type"]}_destroy(&self->{f["name"]}, ctx);', file=body)
       print("}", file=body)
     print("", file=body)
 
-    print(f'ulong {self.namespace}_footprint( void ){{ return {n.upper()}_FOOTPRINT; }}', file=body)
-    print(f'ulong {self.namespace}_align( void ){{ return {n.upper()}_ALIGN; }}', file=body)
+    print(f'ulong {n}_footprint( void ){{ return {n.upper()}_FOOTPRINT; }}', file=body)
+    print(f'ulong {n}_align( void ){{ return {n.upper()}_ALIGN; }}', file=body)
     print("", file=body)
 
-    print(f'void {self.namespace}_walk(void * w, {self.namespace}_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {{', file=body)
-    print(f'  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "{self.namespace}", level++);', file=body)
+    print(f'void {n}_walk(void * w, {n}_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {{', file=body)
+    print(f'  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "{n}", level++);', file=body)
 
     if entry["type"] == "enum":
-        print(f'  // enum {namespace}_{f["type"]}_walk(w, &self->{self.name}, fun, "{self.name}", level);', file=body)
+        print(f'  // enum {namespace}_{f["type"]}_walk(w, &self->{f["name"]}, fun, "{f["name"]}", level);', file=body)
 
         print('  switch (self->discriminant) {', file=body)
         for i, v in enumerate(entry["variants"]):
@@ -1364,12 +1364,12 @@ for entry in entries:
                     
                     fields_body_walk[f["type"]](namespace, f, "")
             else:
-                print(f'  {namespace}_{f["type"]}_walk(w, &self->{self.name}, fun, "{self.name}", level);', file=body)
+                print(f'  {namespace}_{f["type"]}_walk(w, &self->{f["name"]}, fun, "{f["name"]}", level);', file=body)
 
-    print(f'  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "{self.namespace}", level--);', file=body)
+    print(f'  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "{n}", level--);', file=body)
     print("}", file=body)
 
-    print(f'ulong {self.namespace}_size({self.namespace}_t const * self) {{', file=body)
+    print(f'ulong {n}_size({n}_t const * self) {{', file=body)
 
     if entry["type"] == "enum":
       print('  ulong size = 0;', file=body)
@@ -1393,13 +1393,13 @@ for entry in entries:
           if f["type"] in fields_body_size:
               fields_body_size[f["type"]](namespace, f)
           else:
-              print(f'  size += {namespace}_{f["type"]}_size(&self->{self.name});', file=body)
+              print(f'  size += {namespace}_{f["type"]}_size(&self->{f["name"]});', file=body)
 
     print('  return size;', file=body)
     print("}", file=body)
     print("", file=body)
     if entry["type"] == "enum":
-        print(f'int {self.namespace}_inner_encode({self.namespace}_inner_t const * self, uint discriminant, fd_bincode_encode_ctx_t * ctx) {{', file=body)
+        print(f'int {n}_inner_encode({n}_inner_t const * self, uint discriminant, fd_bincode_encode_ctx_t * ctx) {{', file=body)
         first = True
         for i, v in enumerate(entry["variants"]):
             if "type" in v:
@@ -1421,21 +1421,21 @@ for entry in entries:
         print('  return FD_BINCODE_SUCCESS;', file=body)
         print("}", file=body)
 
-        print(f'int {self.namespace}_encode({self.namespace}_t const * self, fd_bincode_encode_ctx_t * ctx) {{', file=body)
+        print(f'int {n}_encode({n}_t const * self, fd_bincode_encode_ctx_t * ctx) {{', file=body)
         print('  int err;', file=body)
         print('  err = fd_bincode_uint32_encode(&self->discriminant, ctx);', file=body)
         print('  if ( FD_UNLIKELY(err) ) return err;', file=body)
         print(f'  return {namespace}_{entry["name"]}_inner_encode(&self->inner, self->discriminant, ctx);', file=body)
         print("}", file=body)
     else:
-      print(f'int {self.namespace}_encode({self.namespace}_t const * self, fd_bincode_encode_ctx_t * ctx) {{', file=body)
+      print(f'int {n}_encode({n}_t const * self, fd_bincode_encode_ctx_t * ctx) {{', file=body)
       print('  int err;', file=body)
       if "fields" in entry:
         for f in entry["fields"]:
             if f["type"] in fields_body_encode:
                 fields_body_encode[f["type"]](namespace, f)
             else:
-                print(f'  err = {namespace}_{f["type"]}_encode(&self->{self.name}, ctx);', file=body)
+                print(f'  err = {namespace}_{f["type"]}_encode(&self->{f["name"]}, ctx);', file=body)
                 print('  if ( FD_UNLIKELY(err) ) return err;', file=body)
       print('  return FD_BINCODE_SUCCESS;', file=body)
       print("}", file=body)
