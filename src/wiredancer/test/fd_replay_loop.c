@@ -328,48 +328,6 @@ fd_replay_tile( fd_cnc_t *       cnc,
   return 0;
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 int
 fd_replay_tile_loop(  fd_cnc_t *       cnc,
                       char const *     pcap_path,
