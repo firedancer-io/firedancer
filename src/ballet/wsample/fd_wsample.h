@@ -62,33 +62,57 @@ void *            fd_wsample_delete   ( void * shmem  );
 #define FD_WSAMPLE_HINT_POWERLAW_NOREMOVE 2
 #define FD_WSAMPLE_HINT_POWERLAW_REMOVE   3
 
-/* fd_wsample_new formats a memory region with the appropriate alignment
-   and footprint to be usable as a weighted sampler.  shmem is a
-   pointer to the first byte of the memory region to use.  rng must be a
-   local join of a ChaCha20 RNG struct. The weighted sampler will use
+/* fd_wsample_new_init, fd_wsample_new_add_weight, and
+   fd_wsample_new_fini format a memory region with the appropriate
+   alignment and footprint to be usable as a weighted sampler.  This
+   multi-function initialization process prevents needing to construct a
+   flat array of weights, which is often inconvenient.
+
+   The caller must first call fd_wsample_new_init, then new_add_weight
+   ele_cnt times, and finally new_fini.  Only at that point will the
+   region of memory be ready to be joined.
+
+   fd_wsample_new_init begins the formatting a memory region.  shmem is
+   a pointer to the first byte of the memory region to use.  rng must be
+   a local join of a ChaCha20 RNG struct.  The weighted sampler will use
    rng to generate random numbers.  It may seem more natural for the
    weighted sampler to own its own rng, but this is done to facilitate
    sharing of rngs between weighted samplers, which is useful for
-   Turbine.  weights points to the first element of an array of length
-   ele_cnt.  If restore_enabled is set to 0, fd_wsample_restore_all will
-   not work but the required footprint is smaller. All elements in
-   weights must be strictly positive, and the sum must be less than
-   ULONG_MAX.  ele_cnt must be less than UINT_MAX.  opt_hint gives a
-   hint of the shape of the weights and the style of queries that will
-   be most common; this hint impacts query performance but not
-   correctness.  opt_hint must be one of FD_WSAMPLE_HINT_*.  Retains
-   read/write interest in rng but not in the memory pointed to by
-   weights.
+   Turbine.  ele_cnt specifies the number of elements that can be
+   sampled from and must be less than UINT_MAX.  If restore_enabled is
+   set to 0, fd_wsample_restore_all will not work but the required
+   footprint is smaller.  opt_hint gives a hint of the shape of the
+   weights and the style of queries that will be most common; this hint
+   impacts query performance but not correctness.  opt_hint must be one
+   of FD_WSAMPLE_HINT_*.
 
-   On successful return, the weighted sampler contains an element
-   corresponding to each provided weight.  Returns shmem on success and
-   NULL on failure.  Caller is not joined on return. */
-void * fd_wsample_new( void             * shmem,
-                       fd_chacha20rng_t * rng,
-                       ulong            * weights,
-                       ulong              ele_cnt,
-                       int                restore_enabled,
-                       int                opt_hint );
+   fd_wsample_new_add adds a weight to a partially formatted memory
+   region.  shmem must be a partially constructed region of memory, as
+   returned by fd_wsample_new_init or fd_wsample_new_add_weight weight
+   must be strictly positive, and the cumulative sum of this weight and
+   all other weights must be less than ULONG_MAX.
+
+   fd_wsample_new_fini finalizes the formatting of a partially formatted
+   memory region.  shmem must be a partially constructed region of
+   memory, as returned by fd_wsample_new_add_weight (or
+   fd_wsample_new_init if ele_cnt==0).
+
+   Retains read/write interest in rng.
+
+   Each function returns shmem on success and NULL on failure.  It's
+   safe to pass NULL as shmem, in which case NULL will be returned, so
+   you only need to check the final result.
+
+   On successful completion of the formatting process, the weighted
+   sampler will contain an element corresponding to each provided
+   weight.  Caller is not joined on return. */
+void * fd_wsample_new_init( void             * shmem,
+                            fd_chacha20rng_t * rng,
+                            ulong              ele_cnt,
+                            int                restore_enabled,
+                            int                opt_hint );
+void * fd_wsample_new_add ( void * shmem, ulong weight );
+void * fd_wsample_new_fini( void * shmem               );
 
 /* fd_wsample_get_rng returns the value provided for rng in new. */
 fd_chacha20rng_t * fd_wsample_get_rng( fd_wsample_t * sampler );
