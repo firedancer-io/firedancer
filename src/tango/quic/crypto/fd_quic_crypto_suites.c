@@ -321,39 +321,48 @@ fd_quic_gen_keys(
   }
   keys->iv_sz = iv_sz;
 
-  /* initialize the cipher context */
+  /* initialize the cipher contexts */
   EVP_CIPHER_CTX * pkt_cipher_ctx = EVP_CIPHER_CTX_new();
   if( FD_UNLIKELY( !pkt_cipher_ctx ) ) {
-    FD_LOG_ERR(( "fd_quic_crypto_encrypt: Error creating cipher ctx" ));
-  }
-
-  if( FD_UNLIKELY( EVP_CipherInit_ex( pkt_cipher_ctx, suite->pkt_cipher, NULL, NULL, NULL, 1 /* encryption */ ) != 1 ) ) {
-    FD_LOG_ERR(( "fd_quic_crypto_encrypt: EVP_CipherInit_ex failed" ));
-  }
-
-  if( FD_UNLIKELY( EVP_CIPHER_CTX_ctrl( pkt_cipher_ctx, EVP_CTRL_AEAD_SET_IVLEN, FD_QUIC_NONCE_SZ, NULL ) != 1 ) ) {
-    FD_LOG_ERR(( "fd_quic_crypto_encrypt: EVP_CIPHER_CTX_ctrl failed" ));
+    FD_LOG_ERR(( "fd_quic_crypto_encrypt: Error creating cipher (pkt) ctx" ));
   }
 
   EVP_CIPHER_CTX * hp_cipher_ctx = EVP_CIPHER_CTX_new();
   if( FD_UNLIKELY( !hp_cipher_ctx ) ) {
-    FD_LOG_ERR(( "fd_quic_crypto_encrypt: Error creating cipher ctx" ));
+    FD_LOG_WARNING(( "fd_quic_crypto_encrypt: EVP_CIPHER_CTX_new (hp) failed" ));
+    goto fd_quic_gen_keys_error;
+  }
+
+  if( FD_UNLIKELY( EVP_CipherInit_ex( pkt_cipher_ctx, suite->pkt_cipher, NULL, NULL, NULL, 1 /* encryption */ ) != 1 ) ) {
+    FD_LOG_WARNING(( "fd_quic_crypto_encrypt: EVP_CipherInit_ex failed" ));
+    goto fd_quic_gen_keys_error;
+  }
+
+  if( FD_UNLIKELY( EVP_CIPHER_CTX_ctrl( pkt_cipher_ctx, EVP_CTRL_AEAD_SET_IVLEN, FD_QUIC_NONCE_SZ, NULL ) != 1 ) ) {
+    FD_LOG_WARNING(( "fd_quic_crypto_encrypt: EVP_CIPHER_CTX_ctrl failed" ));
+    goto fd_quic_gen_keys_error;
   }
 
   if( FD_UNLIKELY( EVP_CipherInit_ex( hp_cipher_ctx, suite->hp_cipher, NULL, NULL, NULL, 1 /* encryption */ ) != 1 ) ) {
-    FD_LOG_ERR(( "fd_quic_crypto_encrypt: EVP_CipherInit_ex (hp) failed" ));
-    EVP_CIPHER_CTX_free( hp_cipher_ctx );
+    FD_LOG_WARNING(( "fd_quic_crypto_encrypt: EVP_CipherInit_ex failed" ));
+    goto fd_quic_gen_keys_error;
   }
 
   if(FD_UNLIKELY(  EVP_EncryptInit_ex( hp_cipher_ctx, NULL, NULL, keys->hp_key, NULL ) != 1 ) ) {
-    FD_LOG_ERR(( "fd_quic_crypto_encrypt: EVP_EncryptInit_ex failed" ));
-    EVP_CIPHER_CTX_free( hp_cipher_ctx );
+    FD_LOG_WARNING(( "fd_quic_crypto_encrypt: EVP_EncryptInit_ex failed" ));
+    goto fd_quic_gen_keys_error;
   }
 
   keys->pkt_cipher_ctx = pkt_cipher_ctx;
   keys->hp_cipher_ctx  = hp_cipher_ctx;
 
   return FD_QUIC_SUCCESS;
+
+fd_quic_gen_keys_error:
+  if( pkt_cipher_ctx ) EVP_CIPHER_CTX_free( pkt_cipher_ctx );
+  if( hp_cipher_ctx )  EVP_CIPHER_CTX_free( hp_cipher_ctx );
+
+  return FD_QUIC_FAILED;
 }
 
 
@@ -672,27 +681,30 @@ fd_quic_crypto_decrypt(
 
   EVP_CIPHER_CTX * cipher_ctx = keys->pkt_cipher_ctx;
   if( FD_UNLIKELY( !cipher_ctx ) ) {
-    FD_LOG_ERR(( "fd_quic_crypto_decrypt: Error creating cipher ctx" ));
+    return FD_QUIC_FAILED;
   }
 
   if( FD_UNLIKELY( EVP_DecryptInit_ex( cipher_ctx, suite->pkt_cipher, NULL, keys->pkt_key, nonce ) != 1 ) ) {
-    FD_LOG_ERR(( "fd_quic_crypto_decrypt: EVP_DecryptInit_ex failed" ));
+    return FD_QUIC_FAILED;
   }
 
   /* auth data added with NULL output - still require out length */
   int tmp = 0;
   if( FD_UNLIKELY( EVP_DecryptUpdate( cipher_ctx, NULL, &tmp, hdr, (int)hdr_sz ) != 1 ) ) {
-    FD_LOG_ERR(( "fd_quic_crypto_decrypt: EVP_DecryptUpdate failed auth_data" ));
+    FD_DEBUG( FD_LOG_WARNING(( "fd_quic_crypto_decrypt: EVP_DecryptUpdate failed auth_data" )) );
+    return FD_QUIC_FAILED;
   }
 
   int i_block_sz = EVP_CIPHER_block_size( suite->pkt_cipher );
   if( FD_UNLIKELY( FD_UNLIKELY( i_block_sz < 0 ) ) ) {
+    /* logic error - crash */
     FD_LOG_ERR(( "fd_quic_crypto_decrypt: EVP_CIPHER_block_size returned negative" ));
   }
 
   ulong block_sz = (ulong)i_block_sz;
-  if( FD_UNLIKELY( FD_UNLIKELY( cipher_text_sz + block_sz > *plain_text_sz + hdr_sz + FD_QUIC_CRYPTO_TAG_SZ ) ) ) {
-    FD_LOG_ERR(( "fd_quic_crypto_decrypt: not enough room for plain text" ));
+  if( FD_UNLIKELY( cipher_text_sz + block_sz > *plain_text_sz + hdr_sz + FD_QUIC_CRYPTO_TAG_SZ ) ) {
+    /* do not crash here as remotely triggerable */
+    return FD_QUIC_FAILED;
   }
 
   uchar *       payload    = plain_text + hdr_sz;
@@ -700,16 +712,17 @@ fd_quic_crypto_decrypt(
   uchar const * tag        = cipher_text + cipher_text_sz - FD_QUIC_CRYPTO_TAG_SZ;
   int           out_sz     = 0;
   if( FD_UNLIKELY( EVP_DecryptUpdate( cipher_ctx, payload, &out_sz, cipher_text + hdr_sz, (int)payload_sz ) != 1 ) ) {
-    FD_LOG_ERR(( "fd_quic_crypto_decrypt: EVP_DecryptUpdate failed" ));
+    return FD_QUIC_FAILED;
   }
 
   /* set tag before final */
   if( FD_UNLIKELY( EVP_CIPHER_CTX_ctrl( cipher_ctx, EVP_CTRL_AEAD_SET_TAG, FD_QUIC_CRYPTO_TAG_SZ, (void*)tag ) != 1 ) ) {
-    FD_LOG_ERR(( "fd_quic_crypto_decrypt: EVP_CTRL_AEAD_GET_TAG failed" ));
+    return FD_QUIC_FAILED;
   }
 
   if( FD_UNLIKELY( out_sz < 0 ) ) {
-    FD_LOG_ERR(( "fd_quic_crypto_decrypt: EVP_CIPHER_CTX_ctrl returned negative value in out_sz" ));
+    FD_LOG_WARNING(( "fd_quic_crypto_decrypt: EVP_CIPHER_CTX_ctrl returned negative value in out_sz" ));
+    return FD_QUIC_FAILED;
   }
 
   ulong offset = (ulong)out_sz;
