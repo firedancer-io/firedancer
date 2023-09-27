@@ -1823,6 +1823,11 @@ fd_quic_handle_v1_handshake(
     }
   }
 
+  /* check body size large enough for required elements */
+  if( FD_UNLIKELY( body_sz < pkt_number_sz + FD_QUIC_CRYPTO_TAG_SZ ) ) {
+    return FD_QUIC_PARSE_FAIL;
+  }
+
   /* if peer encryption level increases, consider prior encryption
      level pkt_meta acked */
   fd_quic_ack_enc_level( conn, enc_level );
