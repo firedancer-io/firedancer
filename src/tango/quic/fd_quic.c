@@ -6379,6 +6379,8 @@ fd_quic_frame_handle_common_frag(
    may select a reason code */
 void
 fd_quic_conn_close( fd_quic_conn_t * conn, uint app_reason ) {
+  if( FD_UNLIKELY( !conn ) ) return;
+
   switch( conn->state ) {
     case FD_QUIC_CONN_STATE_DEAD:
     case FD_QUIC_CONN_STATE_ABORT:
