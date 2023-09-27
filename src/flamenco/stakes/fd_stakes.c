@@ -412,10 +412,9 @@ fd_stakes_activate_epoch( fd_global_ctx_t * global,
     .deactivating = 0
   };
 
-  ulong new_rate_activation_epoch = 0UL;
+  ulong * new_rate_activation_epoch = NULL;
   for ( fd_delegation_pair_t_mapnode_t * n = fd_delegation_pair_t_map_minimum(stakes->stake_delegations_pool, stakes->stake_delegations_root); n; n = fd_delegation_pair_t_map_successor(stakes->stake_delegations_pool, n) ) {
-    // FD_LOG_NOTICE(( "iterating delegation stake=%lu activation_epoch=%lu deactivation_epoch=%lu voter_pubkey=%32J warmup_cooldown_rate=%f", n->elem.delegation.stake, n->elem.delegation.activation_epoch, n->elem.delegation.deactivation_epoch, n->elem.delegation.voter_pubkey, n->elem.delegation.warmup_cooldown_rate ));
-    fd_stake_history_entry_t new_entry = stake_activating_and_deactivating( &n->elem.delegation, stakes->epoch, &history, &new_rate_activation_epoch );
+    fd_stake_history_entry_t new_entry = stake_activating_and_deactivating( &n->elem.delegation, stakes->epoch, &history, new_rate_activation_epoch );
     accumulator.effective += new_entry.effective;
     accumulator.activating += new_entry.activating;
     accumulator.deactivating += new_entry.deactivating;
@@ -441,7 +440,7 @@ fd_stakes_activate_epoch( fd_global_ctx_t * global,
 
   fd_sysvar_stake_history_read( global,  &history);
   for ( fd_delegation_pair_t_mapnode_t * n = fd_delegation_pair_t_map_minimum(stakes->stake_delegations_pool, stakes->stake_delegations_root); n; n = fd_delegation_pair_t_map_successor(stakes->stake_delegations_pool, n) ) {
-    ulong delegation_stake = stake_activating_and_deactivating( &n->elem.delegation, stakes->epoch, &history, &new_rate_activation_epoch ).effective;
+    ulong delegation_stake = stake_activating_and_deactivating( &n->elem.delegation, stakes->epoch, &history, new_rate_activation_epoch ).effective;
     fd_stake_weight_t_mapnode_t temp;
     fd_memcpy(&temp.elem.key, &n->elem.delegation.voter_pubkey, sizeof(fd_pubkey_t));
     fd_stake_weight_t_mapnode_t * entry  = fd_stake_weight_t_map_find(pool, root, &temp);
