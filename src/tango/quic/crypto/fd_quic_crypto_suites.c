@@ -651,7 +651,8 @@ fd_quic_crypto_decrypt(
 
   /* must have at least a short header and a TAG */
   if( FD_UNLIKELY( cipher_text_sz < FD_QUIC_CRYPTO_TAG_SZ ) ) {
-    FD_LOG_ERR(( "fd_quic_crypto_decrypt: cipher text too small" ));
+    FD_LOG_WARNING(( "fd_quic_crypto_decrypt: cipher text too small" ));
+    return FD_QUIC_FAILED;
   }
 
   /* must have space for cipher_text_sz - FD_QUIC_CRYPTO_TAG_SZ */
@@ -753,7 +754,7 @@ fd_quic_crypto_decrypt_hdr(
 
   /* must have at least a short header */
   if( FD_UNLIKELY( cipher_text_sz < FD_QUIC_CRYPTO_TAG_SZ ) ) {
-    FD_DEBUG( FD_LOG_WARNING( ( "fd_quic_crypto_decrypt: cipher text too small" ) ) );
+    FD_LOG_WARNING(( "fd_quic_crypto_decrypt: cipher text too small" ));
     return FD_QUIC_FAILED;
   }
 
