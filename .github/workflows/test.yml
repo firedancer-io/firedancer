@@ -74,7 +74,7 @@ jobs:
   make-fuzz:
     # Only build fuzzers if sanitizer tests pass
     needs: test-with-sanitizers
-    name: Build Fuzzers for ${{ matrix.feature_set }} feature set (publish on main)
+    name: Build Fuzzers for ${{ matrix.feature_set }} feature set
     strategy:
       matrix:
         # add lowend once it's fixed
