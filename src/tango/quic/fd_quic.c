@@ -1177,6 +1177,13 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
   ulong rc = fd_quic_decode_initial( initial, cur_ptr, cur_sz );
   if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) return FD_QUIC_PARSE_FAIL;
 
+  /* check bounds on initial */
+
+  /* len indicated the number of bytes after the packet number offset
+     so verify this value is within the packet */
+  ulong len = (ulong)( initial->pkt_num_pnoff + initial->len );
+  if( FD_UNLIKELY( len > cur_sz ) ) return FD_QUIC_PARSE_FAIL;
+
   /* Check it is valid for a token to be present in an initial packet in the current context.
 
      quic->config.role == FD_QUIC_ROLE_CLIENT
@@ -1696,6 +1703,13 @@ fd_quic_handle_v1_handshake(
                    ( handshake->dst_conn_id_len > FD_QUIC_MAX_CONN_ID_SZ ) ) ) {
     return FD_QUIC_PARSE_FAIL;
   }
+
+  /* check bounds on handshake */
+
+  /* len indicated the number of bytes after the packet number offset
+     so verify this value is within the packet */
+  ulong len = (ulong)( handshake->pkt_num_pnoff + handshake->len );
+  if( FD_UNLIKELY( len > cur_sz ) ) return FD_QUIC_PARSE_FAIL;
 
   /* connection ids should already be in the relevant structures */
 
