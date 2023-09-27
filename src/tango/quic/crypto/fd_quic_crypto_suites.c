@@ -691,9 +691,7 @@ fd_quic_crypto_decrypt(
   }
 
   ulong block_sz = (ulong)i_block_sz;
-  ulong plain_out_bound = cipher_text_sz - hdr_sz - FD_QUIC_CRYPTO_TAG_SZ + block_sz;
-
-  if( FD_UNLIKELY( FD_UNLIKELY( plain_out_bound > *plain_text_sz ) ) ) {
+  if( FD_UNLIKELY( FD_UNLIKELY( cipher_text_sz + block_sz > *plain_text_sz + hdr_sz + FD_QUIC_CRYPTO_TAG_SZ ) ) ) {
     FD_LOG_ERR(( "fd_quic_crypto_decrypt: not enough room for plain text" ));
   }
 
