@@ -1,6 +1,3 @@
-# This stub generator is horrible...  the resulting code is horrible...  please... rewrite
-# It must die.
-
 import json
 import sys
 
@@ -31,13 +28,13 @@ print('#pragma GCC diagnostic ignored "-Wunused-variable"', file=body)
 print('#define SOURCE_fd_src_flamenco_types_fd_types_c', file=body)
 print('#include "fd_types_custom.c"', file=body)
 
+
 class VectorMember:
     def __init__(self, namespace, json):
         self.namespace = namespace
         self.name = json["name"]
         self.element = json["element"]
         self.compact = ("modifier" in json and json["modifier"] == "compact")
-
 
     def emitMember(self):
         if self.compact:
@@ -172,7 +169,7 @@ class VectorMember:
             print(f'    fun(w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "{self.name}", level++);', file=body)
             print(f'    for (ulong i = 0; i < self->{self.name}_len; ++i)', file=body)
     
-        if self.element in fields_body_vector_walk:
+        if self.element in VectorMember.emitWalkMap:
             body.write("    ")
             VectorMember.emitWalkMap[self.element](self.name)
         else:
@@ -969,17 +966,57 @@ class PrimitiveMember:
 
 
 
+memberTypeMap = {
+    "vector" :    VectorMember,
+    "deque" :     DequeMember,
+    "array" :     ArrayMember,
+    "option" :    OptionMember,
+    "map" :       MapMember,
+    "treap" :     TreapMember
+}
+
+def parseMember(namespace, json):
+    type = json["type"]
+    if type in memberTypeMap:
+        c = memberTypeMap[type]
+    else:
+        c = PrimitiveMember
+    return c(namespace, json)
 
 
+class StructType:
+    def __init__(self, json):
+        n = f'{namespace}_{entry["name"]}'
+        self.fields = []
+        for f in entry["fields"]:
+            self.fields.append(parseMember(n, f))
 
 
+class UnionType:
+    def __init__(self, json):
+        n = f'{namespace}_{entry["name"]}'
+        self.variants = []
+        for f in entry["variants"]:
+            self.variants.append(parseMember(n, f))
 
 
-# Generate one instance of the fd_deque.c template for each unique element type.
-deque_element_types = set()
+class NumericEnumType:
+    def __init__(self, json):
+        self.variants = []
+        for f in entry["variants"]:
+            self.variants.append(f['name'])
 
-map_element_types = dict()
-
+alltypes = []
+for entry in entries:
+    print(json.dumps(entry))
+    if entry['type'] == 'struct':
+        alltypes.append(StructType(entry))
+    if entry['type'] == 'enum':
+        if 'type' in entry['variants'][0]:
+            alltypes.append(UnionType(entry))
+        else:
+            alltypes.append(NumericEnumType(entry))
+            
 for entry in entries:
     # Create the dynamic vector types needed for this entry
     if "fields" in entry:
