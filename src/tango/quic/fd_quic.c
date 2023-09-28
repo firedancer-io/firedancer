@@ -2724,11 +2724,13 @@ fd_quic_process_packet( fd_quic_t *   quic,
           return;
       }
 
-      if( rc == FD_QUIC_PARSE_FAIL ) {
+      /* 0UL means no progress, so fail */
+      if( FD_UNLIKELY( ( rc == FD_QUIC_PARSE_FAIL ) |
+                       ( rc == 0UL ) )) {
         return;
       }
 
-      if( rc > cur_sz ) {
+      if( FD_UNLIKELY( rc > cur_sz ) ) {
         return;
       }
 
