@@ -182,7 +182,8 @@ fd_wsample_new_add( void * shmem,
 
   treap_ele_t * pool = sampler->pool;
   ulong i = sampler->unremoved_cnt++;
-  sampler->total_weight += weight;
+  sampler->unremoved_weight += weight;
+  sampler->total_weight     += weight;
   pool[i].weight = weight;
   treap_idx_insert( sampler->treap, i, pool );
 
@@ -199,6 +200,8 @@ fd_wsample_new_fini( void * shmem ) {
                                                                                              treap_ele_max( sampler->treap ) ));
     return NULL;
   }
+
+  if( FD_UNLIKELY( sampler->unremoved_cnt==0UL ) )  return (void *)sampler;
 
   treap_ele_t * pool = sampler->pool;
   /* Populate left_sum values */
@@ -256,7 +259,6 @@ fd_wsample_new_fini( void * shmem ) {
   }
 
   FD_TEST( sampler->total_weight == nodesum );
-  sampler->unremoved_weight = nodesum;
 
   if( sampler->restore_enabled ) {
     /* Copy the sampler to make restore fast. */

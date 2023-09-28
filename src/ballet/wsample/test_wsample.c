@@ -363,6 +363,20 @@ test_map( void ) {
   fd_chacha20rng_delete( fd_chacha20rng_leave( rng ) );
 }
 
+static void
+test_empty( void ) {
+  fd_chacha20rng_t _rng[1];
+  fd_chacha20rng_t * rng = fd_chacha20rng_join( fd_chacha20rng_new( _rng, FD_CHACHA20RNG_MODE_SHIFT ) );
+
+  void * partial = fd_wsample_new_init( _shmem, rng, 0UL, 0, FD_WSAMPLE_HINT_POWERLAW_NOREMOVE );
+  fd_wsample_t * tree = fd_wsample_join( fd_wsample_new_fini( partial ) );
+  FD_TEST( tree );
+
+  FD_TEST( fd_wsample_sample           ( tree ) == FD_WSAMPLE_EMPTY );
+  FD_TEST( fd_wsample_sample_and_remove( tree ) == FD_WSAMPLE_EMPTY );
+  fd_wsample_delete( fd_wsample_leave( tree ) );
+  fd_chacha20rng_delete( fd_chacha20rng_leave( rng ) );
+}
 
 int
 main( int     argc,
@@ -381,6 +395,7 @@ main( int     argc,
   test_sharing();
   test_restore_disabled();
   test_remove_idx();
+  test_empty();
 
   test_probability_dist_replacement();
   test_probability_dist_noreplacement();
