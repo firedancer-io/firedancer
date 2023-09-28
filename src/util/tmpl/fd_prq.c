@@ -96,6 +96,11 @@
     tune this are detailed below. */
 
 #include "../bits/fd_bits.h"
+#include <stddef.h>
+
+#ifndef offsetof
+#  define offsetof(TYPE,MEMB) ((ulong)((TYPE*)0)->MEMB)
+#endif
 
 #ifndef PRQ_NAME
 #error "Define PRQ_NAME"
