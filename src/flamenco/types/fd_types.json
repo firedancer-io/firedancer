@@ -628,7 +628,7 @@
           { "name": "authorized_withdrawer", "type": "pubkey" },
           { "name": "commission", "type": "uchar" },
           { "name": "votes", "type": "deque", "element": "vote_lockout", "max":100 },
-          { "name": "root_slot", "type": "option", "element": "ulong" },
+          { "name": "root_slot", "type": "option_slot" },
           { "name": "epoch_credits", "type": "deque", "element": "vote_epoch_credits", "max":100 },
           { "name": "last_timestamp", "type": "vote_block_timestamp" }
       ],
@@ -650,7 +650,7 @@
           { "name": "authorized_withdrawer", "type": "pubkey" },
           { "name": "commission", "type": "uchar" },
           { "name": "votes", "type": "deque", "element": "vote_lockout", "max":35 },
-          { "name": "root_slot", "type": "option", "element": "ulong" },
+          { "name": "root_slot", "type": "option_slot" },
           { "name": "authorized_voters", "type": "vote_authorized_voters" },
           { "name": "prior_voters", "type": "vote_prior_voters" },
           { "name": "epoch_credits", "type": "deque", "element": "vote_epoch_credits", "max":35 },
@@ -666,7 +666,7 @@
           { "name": "authorized_withdrawer", "type": "pubkey" },
           { "name": "commission", "type": "uchar" },
           { "name": "votes", "type": "deque", "element": "landed_vote", "max":35 },
-          { "name": "root_slot", "type": "option", "element": "ulong" },
+          { "name": "root_slot", "type": "option_slot" },
           { "name": "authorized_voters", "type": "vote_authorized_voters" },
           { "name": "prior_voters", "type": "vote_prior_voters" },
           { "name": "epoch_credits", "type": "deque", "element": "vote_epoch_credits", "max":35 },
@@ -689,7 +689,7 @@
       "type": "struct",
       "fields": [
         { "name": "lockouts", "type": "deque", "element": "vote_lockout", "max": 35 },
-        { "name": "root", "type": "option", "element": "ulong" },
+        { "name": "root", "type": "option_slot" },
         { "name": "hash", "type": "hash" },
         { "name": "timestamp", "type": "option", "element": "ulong" }
       ],

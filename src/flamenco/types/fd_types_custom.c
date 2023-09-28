@@ -1,3 +1,4 @@
+#include "fd_types.h"
 #ifndef SOURCE_fd_src_flamenco_types_fd_types_c
 #error "fd_types_custom.c is part of the fd_types.c compile uint"
 #endif /* !SOURCE_fd_src_flamenco_types_fd_types_c */
@@ -82,6 +83,41 @@ int fd_epoch_schedule_encode(fd_epoch_schedule_t const * self, fd_bincode_encode
   return FD_BINCODE_SUCCESS;
 }
 
+void fd_option_slot_new(fd_option_slot_t* self) {
+  fd_memset(self, 0, sizeof(fd_option_slot_t));
+}
+int fd_option_slot_decode(fd_option_slot_t* self, fd_bincode_decode_ctx_t * ctx) {
+  int err;
+  err = fd_bincode_uint8_decode(&self->is_some, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  if ( !self->is_some ) return FD_BINCODE_SUCCESS;
+  err = fd_bincode_uint64_decode(&self->slot, ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+int fd_option_slot_encode(fd_option_slot_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  err = fd_bincode_uint8_encode(&self->is_some, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  if ( !self->is_some ) return FD_BINCODE_SUCCESS;
+  err = fd_bincode_uint64_encode(&self->slot, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_option_slot_destroy(fd_option_slot_t* self, fd_bincode_destroy_ctx_t * ctx) {
+}
+ulong fd_option_slot_footprint( void ){ return FD_OPTION_SLOT_FOOTPRINT; }
+ulong fd_option_slot_align( void ){ return FD_OPTION_SLOT_ALIGN; }
+void fd_option_slot_walk(void * w, fd_option_slot_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun( w, &self->slot, name, FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
+}
+ulong fd_option_slot_size(fd_option_slot_t const * self) {
+  ulong size = 0;
+  size += sizeof(char);
+  if (self->is_some) size += sizeof(ulong);
+  return size;
+}
+
 // This blob of code turns a "current" vote_state into a 1_14_11 on the fly...
 static ulong fd_vote_state_transcoding_size(fd_vote_state_t const * self) {
   ulong size = 0;
@@ -98,9 +134,7 @@ static ulong fd_vote_state_transcoding_size(fd_vote_state_t const * self) {
     size += sizeof(ulong);
   }
   size += sizeof(char);
-  if (NULL !=  self->root_slot) {
-    size += sizeof(ulong);
-  }
+  size += sizeof(fd_option_slot_t);
   size += fd_vote_authorized_voters_size(&self->authorized_voters);
   size += fd_vote_prior_voters_size(&self->prior_voters);
   if ( self->epoch_credits ) {
@@ -158,15 +192,7 @@ static int fd_vote_transcoding_state_encode(fd_vote_state_t const * self, fd_bin
     err = fd_bincode_uint64_encode(&votes_len, ctx);
     if ( FD_UNLIKELY(err) ) return err;
   }
-  if (self->root_slot != NULL) {
-    err = fd_bincode_option_encode(1, ctx);
-    if ( FD_UNLIKELY(err) ) return err;
-    err = fd_bincode_uint64_encode(self->root_slot, ctx);
-    if ( FD_UNLIKELY(err) ) return err;
-  } else {
-    err = fd_bincode_option_encode(0, ctx);
-    if ( FD_UNLIKELY(err) ) return err;
-  }
+  fd_option_slot_encode(&self->root_slot, ctx);
   err = fd_vote_authorized_voters_encode(&self->authorized_voters, ctx);
   err = fd_vote_prior_voters_encode(&self->prior_voters, ctx);
   if ( FD_UNLIKELY(err) ) return err;

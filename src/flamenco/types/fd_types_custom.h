@@ -100,6 +100,21 @@ void fd_epoch_schedule_destroy(fd_epoch_schedule_t* self, fd_bincode_destroy_ctx
 void fd_epoch_schedule_walk(void * w, fd_epoch_schedule_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
 ulong fd_epoch_schedule_size(fd_epoch_schedule_t const * self);
 
+struct __attribute__((aligned(8UL))) fd_option_slot {
+  uchar is_some;
+  ulong slot;
+};
+typedef struct fd_option_slot fd_option_slot_t;
+#define FD_OPTION_SLOT_FOOTPRINT sizeof(fd_option_slot_t)
+#define FD_OPTION_SLOT_ALIGN (8UL)
+
+void fd_option_slot_new(fd_option_slot_t* self);
+int fd_option_slot_decode(fd_option_slot_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_option_slot_encode(fd_option_slot_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_option_slot_destroy(fd_option_slot_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_option_slot_walk(void * w, fd_option_slot_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_option_slot_size(fd_option_slot_t const * self);
+
 /* Index structure needed for transaction status (metadata) blocks */
 struct fd_txnstatusidx {
     fd_ed25519_sig_t sig;

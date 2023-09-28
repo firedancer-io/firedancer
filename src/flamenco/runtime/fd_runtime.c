@@ -274,8 +274,15 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_meta_t* m, const void
   global->leader = fd_epoch_leaders_get( global->leaders, slot_rel/FD_EPOCH_SLOTS_PER_ROTATION );
   FD_LOG_NOTICE(( "executing block - slot: %lu leader: %32J", m->slot, global->leader->key ));
 
+  // let (fee_rate_governor, fee_components_time_us) = measure_us!(
+  //     FeeRateGovernor::new_derived(&parent.fee_rate_governor, parent.signature_count())
+  // );
+  /* https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1fb868e/runtime/src/bank.rs#L1312-L1314 */
+  fd_sysvar_fees_new_derived( global, global->bank.fee_rate_governor, global->signature_cnt );
+
   // TODO: move all these out to a fd_sysvar_update() call...
   fd_sysvar_clock_update( global );
+  fd_sysvar_fees_update( global );
   // It has to go into the current txn previous info but is not in slot 0
   if (global->bank.slot != 0)
     fd_sysvar_slot_hashes_update( global );
@@ -886,7 +893,8 @@ fd_runtime_collect_rent_account( fd_global_ctx_t *   global,
     if( FD_FEATURE_ACTIVE( global, preserve_rent_epoch_for_rent_exempt_accounts ) ) {
       return 0;
     }
-    info->rent_epoch = epoch;
+//    info->rent_epoch = epoch;
+    info->rent_epoch = 0;
     return 1;
   }
 
@@ -905,6 +913,9 @@ fd_runtime_collect_rent_account( fd_global_ctx_t *   global,
   if( FD_UNLIKELY( due_ >= info->lamports ) ) {
     global->bank.collected_rent += info->lamports;
     acc->info.lamports = 0UL;
+    fd_memset(acc->info.owner, 0, sizeof(acc->info.owner));
+    acc->dlen = 0;
+
     return 1;
   }
 
@@ -952,15 +963,13 @@ fd_runtime_collect_rent_cb( fd_funk_rec_t const * encountered_rec_ro,
   }
 
   /* Actually invoke rent collection */
-  int changed = fd_runtime_collect_rent_account( global, rec->meta, key, epoch );
+  (void) fd_runtime_collect_rent_account( global, rec->meta, key, epoch );
 
-  if( changed ) {
-    err = fd_acc_mgr_commit_raw(global->acc_mgr, rec->rec, key, rec->meta, global->bank.slot, 0);
-    if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
-      FD_LOG_WARNING(( "fd_runtime_collect_rent_range: fd_acc_mgr_commit_raw failed (%d)", err ));
-      return err;
-    }
-  }
+  if ( !FD_FEATURE_ACTIVE( global, skip_rent_rewrites ) )
+    // By changing the slot, this forces the account to be updated
+    // in the account_delta_hash which matches the "rent rewrite"
+    // behavior in solana.
+    rec->meta->slot = global->bank.slot;
 
   return 1;
 }
@@ -1159,13 +1168,12 @@ fd_runtime_freeze( fd_global_ctx_t * global ) {
 
     int err = fd_acc_mgr_modify( global->acc_mgr, global->funk_txn, global->leader, 0, 0UL, rec );
     if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
-      FD_LOG_WARNING(( "fd_runtime_freeze: fd_acc_mgr_modify_raw for leader (%32J) failed (%d)", rec->meta, err ));
+      FD_LOG_WARNING(( "fd_runtime_freeze: fd_acc_mgr_modify_raw for leader (%32J) failed (%d)", global->leader, err ));
       return;
     }
 
-    if (FD_UNLIKELY(global->log_level > 2)) {
-      FD_LOG_WARNING(( "fd_runtime_freeze: slot:%ld global->collected_fees: %ld", global->bank.slot, global->bank.collected_fees ));
-    }
+    if (FD_UNLIKELY(global->log_level > 2))
+      FD_LOG_WARNING(( "fd_runtime_freeze: slot:%ld global->collected_fees: %ld, sending %ld to leader (%32J), burning %ld", global->bank.slot, global->bank.collected_fees, global->bank.collected_fees/2, global->leader, global->bank.collected_fees/2 ));
 
     rec->meta->info.lamports += ( global->bank.collected_fees / 2 );
 

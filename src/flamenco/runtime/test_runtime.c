@@ -90,8 +90,9 @@ usage( char const * progname ) {
       " --validate    <bool>       Validate the funk db\n"
       " --reset       <bool>       Reset the workspace\n"
       " --capture     <file>       Write bank preimage to capture file\n"
-      " --abort-on-mismatch {0,1}  If 1, stop on bank hash mismatch\n"
-      " --trace       <dir>        Export traces to given directory\n"
+      " --abort-on-mismatch {0,1}  If 1, stop on bank hash mismatch\n",
+      " --loglevel    <level>      Set logging level\n",
+      " --trace       <dir>        Export traces to given directory\n",
       " --retrace     <bool>       Immediately replay captured traces\n" );
 }
 
@@ -346,7 +347,7 @@ main( int     argc,
 
   char const * index_max_opt           = fd_env_strip_cmdline_cstr ( &argc, &argv, "--index-max", NULL, NULL );
   char const * validate_db             = fd_env_strip_cmdline_cstr ( &argc, &argv, "--validate",  NULL, NULL );
-  char const * log_level               = fd_env_strip_cmdline_cstr ( &argc, &argv, "--log_level", NULL, NULL );
+  char const * log_level               = fd_env_strip_cmdline_cstr ( &argc, &argv, "--loglevel", NULL, NULL );
   char const * capture_fpath           = fd_env_strip_cmdline_cstr ( &argc, &argv, "--capture",   NULL, NULL );
   char const * trace_fpath             = fd_env_strip_cmdline_cstr ( &argc, &argv, "--trace",     NULL, NULL );
   int          retrace                 = fd_env_strip_cmdline_int  ( &argc, &argv, "--retrace",   NULL, 0    );
@@ -522,6 +523,9 @@ main( int     argc,
                     (long)state.global->bank.slot,
                     state.global->bank.banks_hash.hash,
                     state.global->bank.poh.hash ));
+
+    state.global->bank.collected_fees = 0;
+    state.global->bank.collected_rent = 0;
   }
 
   ulong tcnt = fd_tile_cnt();
