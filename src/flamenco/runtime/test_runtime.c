@@ -92,7 +92,7 @@ usage( char const * progname ) {
       " --capture     <file>       Write bank preimage to capture file\n"
       " --abort-on-mismatch {0,1}  If 1, stop on bank hash mismatch\n",
       " --loglevel    <level>      Set logging level\n",
-      " --trace       <dir>        Export traces to given directory\n" );
+      " --trace       <dir>        Export traces to given directory\n",
       " --retrace     <bool>       Immediately replay captured traces\n" );
 }
 
