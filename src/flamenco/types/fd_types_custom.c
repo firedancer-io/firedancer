@@ -109,10 +109,7 @@ void fd_option_slot_destroy(fd_option_slot_t* self, fd_bincode_destroy_ctx_t * c
 ulong fd_option_slot_footprint( void ){ return FD_OPTION_SLOT_FOOTPRINT; }
 ulong fd_option_slot_align( void ){ return FD_OPTION_SLOT_ALIGN; }
 void fd_option_slot_walk(void * w, fd_option_slot_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
-  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_option_slot", level++);
-  fun( w, &self->is_some, "is_some", FD_FLAMENCO_TYPE_UCHAR,   "uchar",     level );
-  if ( self->is_some ) fun( w, &self->slot, "slot", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
-  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_option_slot", level--);
+  fun( w, &self->slot, name, FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
 }
 ulong fd_option_slot_size(fd_option_slot_t const * self) {
   ulong size = 0;
