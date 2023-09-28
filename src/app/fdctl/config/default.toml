@@ -448,7 +448,7 @@ dynamic_port_range = "8000-10000"
         # connections which would exceed this limit will not be accepted.
         #
         # This must be >= 2 and also a power of 2.
-        max_concurrent_connections = 32
+        max_concurrent_connections = 1024
 
         # QUIC allows for multiple streams to be multiplexed over a single
         # connection. This option sets the maximum number of simultaneous
@@ -464,7 +464,7 @@ dynamic_port_range = "8000-10000"
         # constrained by this option rather than the underlying link bandwidth.
         # Supporting more streams per connection currently has a memory
         # footprint cost on the order of kilobytes per stream, per connection.
-        max_concurrent_streams_per_connection = 64
+        max_concurrent_streams_per_connection = 16
 
         # QUIC has a handshake process which establishes a secure connection
         # between two endpoints. The structures for this can be expensive, so in
@@ -475,7 +475,7 @@ dynamic_port_range = "8000-10000"
         # same value as the `max_concurrent_connections` above.
         #
         # TODO: This should be removed.
-        max_concurrent_handshakes = 32
+        max_concurrent_handshakes = 1000
 
         # QUIC has a concept of a "QUIC packet", there can be multiple of these
         # inside a UDP packet. Each QUIC packet we send to the peer needs to be
@@ -487,7 +487,7 @@ dynamic_port_range = "8000-10000"
         # throughput could be constrained by this option rather than the
         # underlying link bandwidth. If you have a lot of memory available and
         # are constrained by this, it can make sense to increase.
-        max_inflight_quic_packets = 1024
+        max_inflight_quic_packets = 4096
 
         # TODO: This should be removed. We never transmit stream data so this
         # should be unused.

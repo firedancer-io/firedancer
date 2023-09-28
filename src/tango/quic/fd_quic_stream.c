@@ -19,7 +19,7 @@ fd_quic_buffer_store( fd_quic_buffer_t * buf,
   ulong   mtail = tail & mask;
   ulong   mhead = head & mask;
 
-  /* not enough room */
+  /* not enough room - caller responsible for checking available space */
   if( data_sz > free ) {
     return;
   }
@@ -52,15 +52,19 @@ fd_quic_buffer_store( fd_quic_buffer_t * buf,
    load data from cirular buffer */
 void
 fd_quic_buffer_load( fd_quic_buffer_t * buf,
+                     ulong              offs,
                      uchar *            data,
                      ulong              data_sz ) {
   uchar * raw   = buf->buf;
   ulong   cap   = buf->cap;
   ulong   mask  = cap - 1ul;
   ulong   head  = buf->head;
-  ulong   tail  = buf->tail;
+  ulong   tail  = offs;
   ulong   mtail = tail & mask;
   ulong   mhead = head & mask;
+
+  /* caller responsible for checking operation valid */
+  if( FD_UNLIKELY( tail > head || offs < buf->tail ) ) return;
 
   /* two cases:
      1. data fits within free contiguous space at m_tail
