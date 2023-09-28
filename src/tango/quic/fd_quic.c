@@ -4188,13 +4188,18 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
 
               /* over? */
               ulong over = 0;
-              if( payload_ptr + frame_sz > payload_end ) {
+              if( (long)frame_sz > payload_end - payload_ptr ) {
                 over = frame_sz - (ulong)( payload_end - payload_ptr );
 
                 /* since we are not sending the last byte of the stream
                    reset these values */
                 frame.stream.fin_opt = (uchar)0;
                 last_byte            = 0;
+              }
+
+              if( over >= data_sz ) {
+                /* can't send in this packet */
+                break;
               }
 
               /* adjust to fit */
