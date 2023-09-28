@@ -28,8 +28,8 @@ print('#pragma GCC diagnostic ignored "-Wunused-variable"', file=body)
 print('#define SOURCE_fd_src_flamenco_types_fd_types_c', file=body)
 print('#include "fd_types_custom.c"', file=body)
 
-
 preambletypes = set()
+postambletypes = set()
 indent = ''
 
 class PrimitiveMember:
@@ -50,6 +50,9 @@ class PrimitiveMember:
             return t
 
     def emitPreamble(self):
+        pass
+
+    def emitPostamble(self):
         pass
 
     def emitNew(self):
@@ -190,6 +193,9 @@ class StructMember:
     def emitPreamble(self):
         pass
 
+    def emitPostamble(self):
+        pass
+
     def emitMember(self):
         print(f'{indent}  {namespace}_{self.type}_t {self.name};', file=header)
 
@@ -221,6 +227,9 @@ class VectorMember:
         self.compact = ("modifier" in json and json["modifier"] == "compact")
 
     def emitPreamble(self):
+        pass
+
+    def emitPostamble(self):
         pass
 
     def emitMember(self):
@@ -422,6 +431,9 @@ class DequeMember:
             print(f'  return {dp}_join( {dp}_new( mem, max ) );', file=header)
             print("}", file=header)
 
+    def emitPostamble(self):
+        pass
+
     def emitMember(self):
         print(f'  {self.elem_type()} * {self.name};', file=header)
 
@@ -573,6 +585,7 @@ class MapMember:
     def __init__(self, container, json):
         self.name = json["name"]
         self.element = json["element"]
+        self.key = json["key"]
         self.compact = ("modifier" in json and json["modifier"] == "compact")
         self.minalloc = (int(json["minalloc"]) if "minalloc" in json else 0)
 
@@ -612,6 +625,27 @@ class MapMember:
         print(f'  void * mem = fd_valloc_malloc( valloc, {mapname}_align(), {mapname}_footprint(len));', file=header)
         print(f'  return {mapname}_join({mapname}_new(mem, len));', file=header)
         print("}", file=header)
+
+    def emitPostamble(self):
+        element_type = self.elem_type()
+        mapname = element_type + "_map"
+        if mapname in postambletypes:
+            return
+        postambletypes.add(mapname)
+        nodename = element_type + "_mapnode_t"
+        print(f'#define REDBLK_T {nodename}', file=body)
+        print(f'#define REDBLK_NAME {mapname}', file=body)
+        print(f'#define REDBLK_IMPL_STYLE 2', file=body)
+        print(f'#include "../../util/tmpl/fd_redblack.c"', file=body)
+        print(f'#undef REDBLK_T', file=body)
+        print(f'#undef REDBLK_NAME', file=body)
+        print(f'long {mapname}_compare({nodename} * left, {nodename} * right) {{', file=body)
+        key = self.key
+        if key == "pubkey" or key == "account" or key == "key":
+            print(f'  return memcmp(left->elem.{key}.uc, right->elem.{key}.uc, sizeof(right->elem.{key}));', file=body)
+        else:
+            print(f'  return (long)(left->elem.{key} - right->elem.{key});', file=body)
+        print("}", file=body)
 
     def emitMember(self):
         element_type = self.elem_type()
@@ -780,6 +814,9 @@ class TreapMember:
         print(f'      {name.upper()}_MAX ) );', file=header)
         print("}", file=header)
 
+    def emitPostamble(self):
+        pass
+
     def emitMember(self):
         print(f'  {self.treap_t} * pool;', file=header)
         print(f'  {self.name}_treap_t * treap;', file=header)
@@ -909,6 +946,9 @@ class OptionMember:
     def emitPreamble(self):
         pass
 
+    def emitPostamble(self):
+        pass
+
     def emitMember(self):
         if self.element == "ulong":
             print(f'  {self.element}* {self.name};', file=header)
@@ -1016,6 +1056,9 @@ class ArrayMember:
         self.length = int(json["length"])
 
     def emitPreamble(self):
+        pass
+
+    def emitPostamble(self):
         pass
 
     def emitMember(self):
@@ -1246,7 +1289,11 @@ class StructType:
         print('  return FD_BINCODE_SUCCESS;', file=body)
         print("}", file=body)
         print("", file=body)
-        
+
+    def emitPostamble(self):
+        for f in self.fields:
+            f.emitPostamble()
+
 class EnumType:
     def __init__(self, json):
         self.fullname = f'{namespace}_{entry["name"]}'
@@ -1266,7 +1313,7 @@ class EnumType:
         else:
             self.attribute = ''
             self.alignment = 8
-        self.compact = ("modifier" in json and json["modifier"] == "compact")
+        self.compact = (json["compact"] if "compact" in json else False)
 
     def emitHeader(self):
         for v in self.variants:
@@ -1458,6 +1505,11 @@ class EnumType:
 
         indent = ''
 
+    def emitPostamble(self):
+        for v in self.variants:
+            if not isinstance(v, str):
+                v.emitPostamble()
+
 alltypes = []
 for entry in entries:
     if entry['type'] == 'struct':
@@ -1482,20 +1534,5 @@ print("#endif // HEADER_" + json_object["name"].upper(), file=header)
 for t in alltypes:
     t.emitImpls()
 
-sys.exit()
-
-for (element_type,key) in map_element_types.items():
-    mapname = element_type + "_map"
-    nodename = element_type + "_mapnode_t"
-    print(f'#define REDBLK_T {nodename}', file=body)
-    print(f'#define REDBLK_NAME {mapname}', file=body)
-    print(f'#define REDBLK_IMPL_STYLE 2', file=body)
-    print(f'#include "../../util/tmpl/fd_redblack.c"', file=body)
-    print(f'#undef REDBLK_T', file=body)
-    print(f'#undef REDBLK_NAME', file=body)
-    print(f'long {mapname}_compare({nodename} * left, {nodename} * right) {{', file=body)
-    if key == "pubkey" or key == "account" or key == "key":
-        print(f'  return memcmp(left->elem.{key}.uc, right->elem.{key}.uc, sizeof(right->elem.{key}));', file=body)
-    else:
-        print(f'  return (long)(left->elem.{key} - right->elem.{key});', file=body)
-    print("}", file=body)
+for t in alltypes:
+    t.emitPostamble()
