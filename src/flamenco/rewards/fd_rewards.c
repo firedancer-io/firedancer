@@ -277,18 +277,6 @@ vote_balance_and_staked(fd_stakes_t * stakes) {
 }
 
 static void
-calculate_reward_points(
-    instruction_ctx_t * ctx,
-    fd_stake_history_t * stake_history,
-    ulong rewards,
-    fd_point_value_t * result
-) {
-    (void)ctx;
-    (void)stake_history;
-    (void)rewards;
-    (void)result;
-}
-static void
 calculate_reward_points_partitioned(
     fd_global_ctx_t * global,
     fd_stake_history_t * stake_history,
@@ -637,21 +625,95 @@ void calculate_rewards_and_distribute_vote_rewards(
     result->stake_rewards_by_partition = rewards_calc_result->stake_rewards_by_partition;
 }
 
+static void
+bank_redeem_rewards(
+    fd_global_ctx_t * global,
+    ulong rewarded_epoch,
+    fd_point_value_t * point_value,
+    fd_stake_history_t * stake_history,
+    fd_validator_reward_calculation_t * result
+) {
+    calculate_stake_vote_rewards( global, stake_history, rewarded_epoch, point_value, result );
+}
+
+static void
+calculate_reward_points(
+    fd_global_ctx_t * global,
+    fd_stake_history_t * stake_history,
+    ulong rewards,
+    fd_point_value_t * result
+) {
+    calculate_reward_points_partitioned( global, stake_history, rewards, result );
+}
+
 // pay_validator_rewards_with_thread_pool
 /* Load, calculate and payout epoch rewards for stake and vote accounts */
 void
 pay_validator_rewards(
-    instruction_ctx_t * ctx,
+    fd_global_ctx_t * global,
     ulong rewarded_epoch,
     ulong rewards
 ) {
     fd_stake_history_t stake_history;
-    fd_sysvar_stake_history_read( ctx->global, &stake_history);
+    fd_sysvar_stake_history_read( global, &stake_history);
 
-    fd_point_value_t *point_value_result = NULL;
-    calculate_reward_points(ctx, &stake_history, rewards, point_value_result);
-    (void) rewarded_epoch;
-    // stake_state_redeem_rewards(ctx, &stake_history, fd_pubkey_t *stake_acc, fd_vote_state_versioned_t *vote_state, ulong rewarded_epoch, point_value_result, fd_calculated_stake_rewards_t *result);
+    fd_point_value_t point_value_result[1];
+    calculate_reward_points(global, &stake_history, rewards, point_value_result);
+
+    fd_validator_reward_calculation_t rewards_calc_result[1] = {0};
+    bank_redeem_rewards( global, rewarded_epoch, point_value_result, &stake_history, rewards_calc_result );
+
+    /* store vote accounts */
+    fd_vote_reward_t_mapnode_t * ref = rewards_calc_result->vote_reward_map;
+    for (ulong i = 0; i < fd_vote_reward_t_map_slot_cnt( rewards_calc_result->vote_reward_map); ++i) {
+        if (fd_vote_reward_t_map_key_equal( ref[i].vote_pubkey, fd_vote_reward_t_map_key_null() ) ) {
+            continue;
+        }
+        fd_pubkey_t const * vote_pubkey = &ref[i].vote_pubkey;
+        ulong min_data_sz = 0UL;
+        FD_BORROWED_ACCOUNT_DECL(vote_rec);
+        int err = fd_acc_mgr_modify( global->acc_mgr, global->funk_txn, vote_pubkey, 1, min_data_sz, vote_rec);
+        FD_TEST( err == 0 );
+        vote_rec->meta->info.lamports = fd_ulong_sat_add(vote_rec->meta->info.lamports, ref[i].vote_rewards);
+    }
+
+    /* store stake accounts */
+    for (
+        deq_fd_stake_reward_t_iter_t iter = deq_fd_stake_reward_t_iter_init(rewards_calc_result->stake_reward_deq );
+        !deq_fd_stake_reward_t_iter_done( rewards_calc_result->stake_reward_deq, iter );
+        iter =  deq_fd_stake_reward_t_iter_next( rewards_calc_result->stake_reward_deq, iter)
+    ) {
+        fd_stake_reward_t * ele =  deq_fd_stake_reward_t_iter_ele( rewards_calc_result->stake_reward_deq, iter );
+        fd_pubkey_t const * stake_pubkey = &ele->stake_pubkey;
+        ulong min_data_sz = 0UL;
+        FD_BORROWED_ACCOUNT_DECL(stake_rec);
+        int err = fd_acc_mgr_modify( global->acc_mgr, global->funk_txn, stake_pubkey, 1, min_data_sz, stake_rec);
+        FD_TEST( err == 0 );
+        stake_rec->meta->info.lamports = fd_ulong_sat_add(stake_rec->meta->info.lamports, ele->reward_info.lamports);
+
+        fd_stake_state_t stake_state;
+        read_stake_state( global, stake_rec->meta, &stake_state );
+        if (!fd_stake_state_is_stake( &stake_state)) {
+            FD_LOG_ERR(("failed to read stake state for %32J", stake_pubkey ));
+        }
+
+            /* implements the `redeem_stake_rewards` solana function */
+            stake_state.inner.stake.stake.credits_observed = ele->reward_info.new_credits_observed;
+            stake_state.inner.stake.stake.delegation.stake += ele->reward_info.staker_rewards;
+            fd_delegation_pair_t_mapnode_t query_node;
+            fd_memcpy(&query_node.elem.account, stake_pubkey, sizeof(fd_pubkey_t));
+            fd_delegation_pair_t_mapnode_t * node = fd_delegation_pair_t_map_find(global->bank.stakes.stake_delegations_pool, global->bank.stakes.stake_delegations_root, &query_node);
+            if (node != NULL) {
+                node->elem.delegation.stake += ele->reward_info.staker_rewards;
+            }
+
+        /* write_stake_state */
+        err = write_stake_state( global, stake_pubkey, &stake_state, 0);
+        FD_TEST( err == 0 );
+    }
+    // self.store_stake_accounts(thread_pool, &stake_rewards, metrics);
+    // let vote_rewards = self.store_vote_accounts(vote_account_rewards, metrics);
+    // self.update_reward_history(stake_rewards, vote_rewards);
 }
 
 // update rewards based on the previous epoch
@@ -661,8 +723,23 @@ update_rewards(
     fd_global_ctx_t * global,
     ulong prev_epoch
 ) {
-    (void) global;
-    (void) prev_epoch;
+    /* calculate_previous_epoch_inflation_rewards */
+    fd_prev_epoch_inflation_rewards_t rewards;
+    fd_firedancer_banks_t * bank = &global->bank;
+    calculate_previous_epoch_inflation_rewards(bank, bank->capitalization, prev_epoch, &rewards);
+
+    ulong old_vote_balanced_and_staked = vote_balance_and_staked( &global->bank.stakes );
+    /* pay_validator_rewards_with_thread_pool */
+    pay_validator_rewards(global, prev_epoch, rewards.validator_rewards);
+
+    ulong new_vote_balanced_and_staked = vote_balance_and_staked( &global->bank.stakes );
+    ulong validator_rewards_paid = fd_ulong_sat_sub(new_vote_balanced_and_staked, old_vote_balanced_and_staked);
+
+    FD_TEST( rewards.validator_rewards >= validator_rewards_paid );
+
+    FD_LOG_INFO(("distributed inflation: %lu (rounded from: %lu)", validator_rewards_paid, rewards.validator_rewards));
+
+    global->bank.capitalization = fd_ulong_sat_add(global->bank.capitalization, validator_rewards_paid);
 }
 
 // begin_partitioned_rewards

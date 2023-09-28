@@ -2874,6 +2874,16 @@ fd_vote_commission_split( fd_vote_state_versioned_t * vote_state_versioned,
   }
   /* Note: order of operations may matter for int division. That's why I didn't make the
    * optimization of getting out the common calculations */
+
+  // ... This is copied from the solana comments...
+  //
+  // Calculate mine and theirs independently and symmetrically instead
+  // of using the remainder of the other to treat them strictly
+  // equally. This is also to cancel the rewarding if either of the
+  // parties should receive only fractional lamports, resulting in not
+  // being rewarded at all. Thus, note that we intentionally discard
+  // any residual fractional lamports.
+
   result->voter_portion =
       (ulong)( (__uint128_t)on * (__uint128_t)commission_split / (__uint128_t)100 );
   result->staker_portion =
