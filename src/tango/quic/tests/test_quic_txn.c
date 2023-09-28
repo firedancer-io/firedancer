@@ -113,7 +113,26 @@ run_quic_client( fd_quic_t *         quic,
   FD_TEST( stream );
   int rc = 0;
   if( stream ) {
-    rc = fd_quic_stream_send( stream, pkt, 1, 1 );
+    #define CHUNK_SIZE 500
+    #define MAX_CHUNKS 5
+    fd_aio_pkt_info_t chunks[MAX_CHUNKS] = { 0};
+    ulong num_chunks = 0;
+    for( ulong i=0; i<5; i++ ) {
+        ulong offset = ( ushort ) ( i * CHUNK_SIZE );
+        chunks[i].buf = (uchar *)pkt->buf + offset;
+        if( (i+1)*CHUNK_SIZE <= pkt->buf_sz ) {
+          chunks[i].buf_sz = CHUNK_SIZE;
+        } else {
+          chunks[i].buf_sz = ( ushort ) ( pkt->buf_sz - (i*CHUNK_SIZE) );
+          num_chunks = i+1;
+          break;
+        }
+    }
+    for( ulong j=0; j < MAX_CHUNKS; j++ ) {
+      FD_LOG_NOTICE(( "chunk %lu %d", j, chunks[j].buf_sz));
+    }
+
+    rc = fd_quic_stream_send( stream, chunks, num_chunks, 1 );
     FD_LOG_NOTICE(( "rc %d", rc ));
   }
   while ( FD_UNLIKELY( !( g_stream_notify || g_conn_final ) ) ) {
@@ -208,6 +227,8 @@ main( int argc,
 
   switch( num_sent ) {
     case 1: return 0; /* If no packets were successfully transmitted return one. */
+    case 2: return 0; /* If no packets were successfully transmitted return one. */
+    case 3: return 0; /* If no packets were successfully transmitted return one. */
     case 0: return 1; /* If the single packet was transmitted successfully return zero. */
     default: return -num_sent;
   }
