@@ -219,12 +219,14 @@ FD_PROTOTYPES_BEGIN
 
 FD_FN_CONST static inline PRQ_(private_t) *
 PRQ_(private_from_heap)( PRQ_T * heap ) {
-  return (PRQ_(private_t) *)( (ulong)heap - (ulong)(((PRQ_(private_t) *)NULL)->heap) );
+  ulong ofs = offsetof( PRQ_(private_t), heap );
+  return (PRQ_(private_t) *)( (ulong)heap - (ulong)(ofs) );
 }
 
 FD_FN_CONST static inline PRQ_(private_t) const *
 PRQ_(private_from_heap_const)( PRQ_T const * heap ) {
-  return (PRQ_(private_t) const *)( (ulong)heap - (ulong)(((PRQ_(private_t) *)NULL)->heap) );
+  ulong ofs = offsetof( PRQ_(private_t), heap );
+  return (PRQ_(private_t) const *)( (ulong)heap - (ulong)(ofs) );
 }
 
 /* fill_hole_up fills the hole in heap with event and then bubbles it

@@ -3213,15 +3213,17 @@ fd_quic_tx_buffered_raw(
   /* todo use fd_util Ethernet / IPv4 impl */
 
   ulong rc = fd_quic_encode_eth( cur_ptr, cur_sz, pkt.eth );
-  if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) )
+  if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) {
     FD_LOG_ERR(( "fd_quic_encode_eth failed with buffer overrun" ));
+  }
 
   cur_ptr += rc;
   cur_sz  -= rc;
 
   rc = fd_quic_encode_ip4( cur_ptr, cur_sz, pkt.ip4 );
-  if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) )
+  if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) {
     FD_LOG_ERR(( "fd_quic_encode_ip4 failed with buffer overrun" ));
+  }
 
   /* Compute checksum over network byte order header */
   fd_ip4_hdr_t * ip4_encoded = (fd_ip4_hdr_t *)fd_type_pun( cur_ptr );
@@ -3231,8 +3233,9 @@ fd_quic_tx_buffered_raw(
   cur_sz  -= rc;
 
   rc = fd_quic_encode_udp( cur_ptr, cur_sz, pkt.udp );
-  if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) )
+  if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) {
     FD_LOG_ERR(( "fd_quic_encode_udp failed with buffer overrun" ));
+  }
 
   cur_ptr += rc;
   cur_sz  -= rc;
