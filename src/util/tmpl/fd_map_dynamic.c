@@ -158,7 +158,7 @@
 #include <stddef.h>
 
 #ifndef offsetof
-#  error "no offsetof"
+#  define offsetof(TYPE,MEMB) ((ulong)((TYPE*)0)->MEMB)
 #endif
 
 #ifndef MAP_NAME
