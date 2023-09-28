@@ -1542,7 +1542,8 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
   ulong   pkt_number_sz    = (ulong)-1;
   ulong   tot_sz           = (ulong)-1;
 
-  /* TODO TESTING - remove */
+#ifdef FD_QUIC_TEST_INSECURE
+  /* testing/sanitizing code */
   uchar zeros[16] = {0};
   if( memcmp( cur_ptr + cur_sz - 16, zeros, 16 ) == 0 ) {
     /* TEST: not encrypted */
@@ -1571,6 +1572,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
     /* set packet number on the context */
     pkt->pkt_number = pkt_number;
   } else {
+#endif
     /* this decrypts the header */
     int server = conn->server;
 
@@ -1629,7 +1631,9 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
       quic->metrics.conn_err_tls_fail_cnt++;
       return FD_QUIC_PARSE_FAIL;
     }
+#ifdef FD_QUIC_TEST_INSECURE
   }
+#endif
 
   /* check if reply conn id needs to change */
   if( !( conn->server | conn->established ) ) {
@@ -1669,8 +1673,11 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
   conn->last_activity = fd_quic_now( quic );
 
   /* update expected packet number */
-  uint pn_space = fd_quic_enc_level_to_pn_space( enc_level );
-  conn->exp_pkt_number[pn_space] = pkt_number + 1u;
+  do {
+    /* make pn_space local to this code segment due to FD_QUIC_TEST_INSECURE */
+    uint pn_space = fd_quic_enc_level_to_pn_space( enc_level );
+    conn->exp_pkt_number[pn_space] = pkt_number + 1u;
+  } while(0);
 
   FD_DEBUG( FD_LOG_DEBUG(( "new connection success" )) );
 
@@ -1758,7 +1765,8 @@ fd_quic_handle_v1_handshake(
   ulong    pkt_number_sz    = (ulong)-1;
   ulong    tot_sz           = (ulong)-1;
 
-  /* TODO TESTING - remove */
+#ifdef FD_QUIC_TEST_INSECURE
+  /* testing/sanitizing code */
   uchar zeros[16] = {0};
   if( memcmp( cur_ptr + cur_sz - 16, zeros, 16 ) == 0 ) {
     /* TEST: not encrypted */
@@ -1787,6 +1795,7 @@ fd_quic_handle_v1_handshake(
     /* set packet number on the context */
     pkt->pkt_number = pkt_number;
   } else {
+#endif
 
     /* this decrypts the header */
     int server    = conn->server;
@@ -1844,7 +1853,9 @@ fd_quic_handle_v1_handshake(
       quic->metrics.conn_err_tls_fail_cnt++;
       return FD_QUIC_PARSE_FAIL;
     }
+#ifdef FD_QUIC_TEST_INSECURE
   }
+#endif
 
   /* if peer encryption level increases, consider prior encryption
      level pkt_meta acked */
@@ -1874,8 +1885,11 @@ fd_quic_handle_v1_handshake(
   conn->last_activity = fd_quic_now( quic );
 
   /* update expected packet number */
-  uint pn_space = fd_quic_enc_level_to_pn_space( enc_level );
-  conn->exp_pkt_number[pn_space] = pkt_number + 1u;
+  do {
+    /* make pn_space local to this code segment due to FD_QUIC_TEST_INSECURE */
+    uint pn_space = fd_quic_enc_level_to_pn_space( enc_level );
+    conn->exp_pkt_number[pn_space] = pkt_number + 1u;
+  } while(0);
 
   /* return number of bytes consumed */
   return tot_sz;
@@ -2034,7 +2048,8 @@ fd_quic_handle_v1_one_rtt( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_pkt_
   ulong    pkt_number_sz    = (ulong)-1;
   ulong    tot_sz           = (ulong)-1;
 
-  /* TODO TESTING - remove */
+#ifdef FD_QUIC_TEST_INSECURE
+  /* testing/sanitizing code */
   uchar zeros[16] = {0};
   if( memcmp( cur_ptr + cur_sz - 16, zeros, 16 ) == 0 ) {
     /* TEST: not encrypted */
@@ -2069,6 +2084,7 @@ fd_quic_handle_v1_one_rtt( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_pkt_
     conn->spin_bit = (uchar)( spin_bit ^ ( (uint)conn->server ^ 1u ) );
 
   } else {
+#endif
 
     /* this decrypts the header */
     int server = conn->server;
@@ -2186,7 +2202,9 @@ fd_quic_handle_v1_one_rtt( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_pkt_
       quic->metrics.conn_err_tls_fail_cnt++;
       return FD_QUIC_PARSE_FAIL;
     }
+#ifdef FD_QUIC_TEST_INSECURE
   }
+#endif
 
   /* if peer encryption level increases, consider prior encryption
      level pkt_meta acked */
@@ -2216,8 +2234,11 @@ fd_quic_handle_v1_one_rtt( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_pkt_
   conn->last_activity = fd_quic_now( quic );
 
   /* update expected packet number */
-  uint pn_space = fd_quic_enc_level_to_pn_space( enc_level );
-  conn->exp_pkt_number[pn_space] = pkt_number + 1u;
+  do {
+    /* make pn_space local to this code segment due to FD_QUIC_TEST_INSECURE */
+    uint pn_space = fd_quic_enc_level_to_pn_space( enc_level );
+    conn->exp_pkt_number[pn_space] = pkt_number + 1u;
+  } while(0);
 
   return tot_sz;
 }
