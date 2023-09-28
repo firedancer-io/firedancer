@@ -149,22 +149,22 @@ class PrimitiveMember:
             PrimitiveMember.emitEncodeMap[self.type](self.name, self.varint);
 
     emitSizeMap = {
-        "char" :      lambda n: print(f'{indent}  size += sizeof(char);', file=body),
-        "char*" :     lambda n: print(f'{indent}  size += sizeof(ulong) + strlen(self->{n});', file=body),
-        "char[32]" :  lambda n: print(f'{indent}  size += sizeof(char) * 32;', file=body),
-        "char[7]" :   lambda n: print(f'{indent}  size += sizeof(char) * 7;', file=body),
-        "double" :    lambda n: print(f'{indent}  size += sizeof(double);', file=body),
-        "long" :      lambda n: print(f'{indent}  size += sizeof(long);', file=body),
-        "uint" :      lambda n: print(f'{indent}  size += sizeof(uint);', file=body),
-        "uint128" :   lambda n: print(f'{indent}  size += sizeof(uint128);', file=body),
-        "uchar" :     lambda n: print(f'{indent}  size += sizeof(char);', file=body),
-        "uchar[32]" : lambda n: print(f'{indent}  size += sizeof(char) * 32;', file=body),
-        "ulong" :     lambda n: print(f'{indent}  size += sizeof(ulong);', file=body), # FIX varint case!!!!
-        "ushort" :    lambda n: print(f'{indent}  size += sizeof(ushort);', file=body)
+        "char" :      lambda n, varint: print(f'{indent}  size += sizeof(char);', file=body),
+        "char*" :     lambda n, varint: print(f'{indent}  size += sizeof(ulong) + strlen(self->{n});', file=body),
+        "char[32]" :  lambda n, varint: print(f'{indent}  size += sizeof(char) * 32;', file=body),
+        "char[7]" :   lambda n, varint: print(f'{indent}  size += sizeof(char) * 7;', file=body),
+        "double" :    lambda n, varint: print(f'{indent}  size += sizeof(double);', file=body),
+        "long" :      lambda n, varint: print(f'{indent}  size += sizeof(long);', file=body),
+        "uint" :      lambda n, varint: print(f'{indent}  size += sizeof(uint);', file=body),
+        "uint128" :   lambda n, varint: print(f'{indent}  size += sizeof(uint128);', file=body),
+        "uchar" :     lambda n, varint: print(f'{indent}  size += sizeof(char);', file=body),
+        "uchar[32]" : lambda n, varint: print(f'{indent}  size += sizeof(char) * 32;', file=body),
+        "ulong" :     lambda n, varint: print(f'{indent}  size += { ("fd_bincode_varint_size(self->" + n + ");") if varint else "sizeof(ulong);" }', file=body),
+        "ushort" :    lambda n, varint: print(f'{indent}  size += sizeof(ushort);', file=body)
     }
 
     def emitSize(self, inner):
-        PrimitiveMember.emitSizeMap[self.type](self.name);
+        PrimitiveMember.emitSizeMap[self.type](self.name, self.varint);
 
     emitWalkMap = {
         "char" :      lambda n, inner: print(f'  fun( w, &self->{inner}{n}, "{n}", FD_FLAMENCO_TYPE_SCHAR,   "char",      level );', file=body),
@@ -336,7 +336,11 @@ class VectorMember:
         print('  }', file=body)
 
     def emitSize(self, inner):
-        print('  size += sizeof(ulong);', file=body)  # FIX COMPACT CASE!!!
+        if self.compact:
+            print(f'  ushort tmp = (ushort)self->{self.name}_len;', file=body)
+            print(f'  size += fd_bincode_compact_u16_size(&tmp);', file=body)
+        else:
+            print('  size += sizeof(ulong);', file=body)
         if self.element == "uchar":
             print(f'  size += self->{self.name}_len;', file=body)
         elif self.element == "ulong":
