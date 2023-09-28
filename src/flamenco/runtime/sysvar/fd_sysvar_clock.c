@@ -184,33 +184,44 @@ void fd_calculate_stake_weighted_timestamp(
         __builtin_unreachable();
     }
 
-    long estimate = (long)vote_timestamp + ((((long)clock.slot - (long)vote_slot) * (long)slot_duration) / NS_IN_S );
+    ulong slot_delta = fd_ulong_sat_sub(global->bank.slot, vote_slot);
+    if (slot_delta > global->bank.epoch_schedule.slots_per_epoch) {
+      continue;
+    }
+    long offset = ((((long)global->bank.slot - (long)vote_slot) * (long)slot_duration) / NS_IN_S );
+    long estimate = (long)vote_timestamp + offset;
     /* get stake */
     total_stake += n->elem.stake;
-    ulong idx = pool_idx_acquire( pool );
-    pool[ idx ].timestamp = estimate;
-    pool[ idx ].stake = n->elem.stake;
-    treap_idx_insert( treap, idx, pool );
+    ulong treap_idx = treap_idx_query( treap, estimate, pool );
+    if ( FD_LIKELY( treap_idx < ULONG_MAX ) ) {
+      pool[ treap_idx ].stake += n->elem.stake;
+    } else {
+      ulong idx = pool_idx_acquire( pool );
+      pool[ idx ].timestamp = estimate;
+      pool[ idx ].stake = n->elem.stake;
+      treap_idx_insert( treap, idx, pool );
+    }
   }
 
   *result_timestamp = 0;
   if (total_stake == 0) {
     return;
   }
+  // FIXME: this should be a uint128
   ulong stake_accumulator = 0;
 
   for (treap_fwd_iter_t iter = treap_fwd_iter_init ( treap, pool);
        !treap_fwd_iter_done( iter );
        iter = treap_fwd_iter_next( iter, pool ) ) {
     ulong idx = treap_fwd_iter_idx( iter );
-    stake_accumulator += pool[ idx ].stake;
-    if (stake_accumulator > total_stake / 2) {
+    stake_accumulator = fd_ulong_sat_add(stake_accumulator, pool[ idx ].stake);
+    if (stake_accumulator > (total_stake / 2)) {
       *result_timestamp = pool[ idx ].timestamp;
       break;
     }
   }
 
-  FD_LOG_DEBUG(( "stake weighted timestamp: %lu", *result_timestamp ));
+  FD_LOG_DEBUG(( "stake weighted timestamp: %lu total stake %lu", *result_timestamp, total_stake ));
 
   // Bound estimate by `max_allowable_drift` since the start of the epoch
   fd_epoch_schedule_t schedule;
