@@ -62,6 +62,9 @@ FD_PROTOTYPES_BEGIN
    The last element has offset==ULONG_MAX. */
 extern fd_feature_id_t const ids[];
 
+/* FEATURE_ID_CNT is the number of featuers in ids */
+#define FD_FEATURE_ID_CNT ({len(fm)}UL)
+
 /* fd_features_disable_all disables all available features. */
 void
 fd_features_disable_all( fd_features_t * f );

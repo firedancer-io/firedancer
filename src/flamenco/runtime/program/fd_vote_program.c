@@ -765,7 +765,7 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
     fd_slot_hashes_t slot_hashes;
     fd_slot_hashes_new( &slot_hashes );
     rc = fd_sysvar_slot_hashes_read( ctx.global, &slot_hashes );
-    if ( FD_UNLIKELY( rc != OK ) ) return rc;
+    if ( FD_UNLIKELY( rc != OK ) ) return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
 
     // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_processor.rs#L170-L171
     if ( 0 !=
@@ -775,7 +775,7 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
     }
     fd_sol_sysvar_clock_t clock;
     rc = fd_sysvar_clock_read( ctx.global, &clock );
-    if ( FD_UNLIKELY( rc != OK ) ) return rc;
+    if ( FD_UNLIKELY( rc != OK ) ) return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
 
     rc = vote_state_process_vote_with_account( me, &slot_hashes, &clock, vote, signers, ctx );
 
@@ -818,11 +818,11 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
       fd_slot_hashes_t slot_hashes;
       fd_slot_hashes_new( &slot_hashes );
       rc = fd_sysvar_slot_hashes_read( ctx.global, &slot_hashes );
-      if ( FD_UNLIKELY( rc != OK ) ) return rc;
+      if ( FD_UNLIKELY( rc != OK ) ) return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
 
       fd_sol_sysvar_clock_t clock;
       rc = fd_sysvar_clock_read( ctx.global, &clock );
-      if ( FD_UNLIKELY( rc != OK ) ) return rc;
+      if ( FD_UNLIKELY( rc != OK ) ) return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
 
       rc = vote_state_process_vote_state_update(
           me, &slot_hashes, &clock, vote_state_update, signers, ctx );
@@ -2234,7 +2234,8 @@ vote_state_process_timestamp( fd_vote_state_t * self,
     ctx.txn_ctx->custom_err = TIMESTAMP_TOO_OLD;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
-  self->last_timestamp = ( fd_vote_block_timestamp_t ){ .slot = slot, .timestamp = timestamp };
+  self->last_timestamp.slot = slot;
+  self->last_timestamp.timestamp = timestamp;
 
   return OK;
 }

@@ -128,10 +128,10 @@ FD_RAW_ACCOUNT_EXISTS(void const *ptr) {
 /* fd_acc_mgr_view is a convenience wrapper */
 
 static inline int
-fd_acc_mgr_view( fd_acc_mgr_t *             acc_mgr,
-                 fd_funk_txn_t const *      txn,
-                 fd_pubkey_t const *        pubkey,
-                 fd_borrowed_account_t *account) {
+fd_acc_mgr_view( fd_acc_mgr_t *          acc_mgr,
+                 fd_funk_txn_t const *   txn,
+                 fd_pubkey_t const *     pubkey,
+                 fd_borrowed_account_t * account) {
 
   int err = FD_ACC_MGR_SUCCESS;
   uchar const * raw = fd_acc_mgr_view_raw( acc_mgr, txn, pubkey, &account->const_rec, &err );

@@ -90,7 +90,7 @@ fd_txntrace_mutate_acct_addr( fd_soltrace_TxnInput * input,
                               fd_rng_t *             rng ) {
 
   /* Flip a bit */
-  ulong   acct_idx = fd_rng_ulong_roll( rng, input->accounts_count );
+  ulong   acct_idx = fd_rng_ulong_roll( rng, input->account_count );
   uchar * addr     = input->transaction.account_keys[ acct_idx ];
   ulong   bit_idx  = fd_rng_ulong( rng ) & 255UL;
 
@@ -115,8 +115,8 @@ static void
 fd_txntrace_mutate_acct_data( fd_soltrace_TxnInput * input,
                               fd_rng_t *             rng ) {
 
-  ulong              acct_idx = fd_rng_ulong_roll( rng, input->accounts_count );
-  pb_bytes_array_t * data     = input->accounts[ acct_idx ].data;
+  ulong              acct_idx = fd_rng_ulong_roll( rng, input->account_count );
+  pb_bytes_array_t * data     = input->account[ acct_idx ].data;
 
   /* Raw account data mutate.
      TODO add program-aware mutate
@@ -222,6 +222,8 @@ int
 LLVMFuzzerTestOneInput( uchar const * data,
                         ulong         size ) {
 
+  FD_SCRATCH_SCOPED_FRAME;
+
   /* Deserialize */
   pb_istream_t stream = pb_istream_from_buffer( data, size );
   fd_soltrace_TxnInput in[1];
@@ -230,10 +232,13 @@ LLVMFuzzerTestOneInput( uchar const * data,
     return -1;
 
   /* Execute */
-  fd_soltrace_TxnDiff * diff = fd_txntrace_replay( in, fuzz_txntrace_wksp );
-  fd_wksp_free_laddr( diff );
+  fd_soltrace_TxnDiff  _diff[1];
+  fd_soltrace_TxnDiff * diff = fd_txntrace_replay( _diff, in, fuzz_txntrace_wksp );
+  if( FD_UNLIKELY( !diff ) )
+    return -1;
 
   /* Clean up */
+  fd_wksp_free_laddr( diff );
   pb_release( fd_soltrace_TxnInput_fields, in );
 
   return 0;

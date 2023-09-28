@@ -93,6 +93,7 @@ usage( char const * progname ) {
       " --abort-on-mismatch {0,1}  If 1, stop on bank hash mismatch\n",
       " --loglevel    <level>      Set logging level\n",
       " --trace       <dir>        Export traces to given directory\n" );
+      " --retrace     <bool>       Immediately replay captured traces\n" );
 }
 
 #define SORT_NAME sort_pubkey_hash_pair
@@ -349,6 +350,7 @@ main( int     argc,
   char const * log_level               = fd_env_strip_cmdline_cstr ( &argc, &argv, "--loglevel", NULL, NULL );
   char const * capture_fpath           = fd_env_strip_cmdline_cstr ( &argc, &argv, "--capture",   NULL, NULL );
   char const * trace_fpath             = fd_env_strip_cmdline_cstr ( &argc, &argv, "--trace",     NULL, NULL );
+  int          retrace                 = fd_env_strip_cmdline_int  ( &argc, &argv, "--retrace",   NULL, 0    );
 
   char const * confirm_hash            = fd_env_strip_cmdline_cstr ( &argc, &argv, "--confirm_hash",          NULL, NULL);
   char const * confirm_parent          = fd_env_strip_cmdline_cstr ( &argc, &argv, "--confirm_parent",        NULL, NULL);
@@ -437,10 +439,10 @@ main( int     argc,
   FD_LOG_NOTICE(( "funky at global address 0x%lx", fd_wksp_gaddr_fast( funk_wksp, shmem ) ));
 
   if ((validate_db != NULL) && (strcmp(validate_db, "true") == 0)) {
-    FD_LOG_WARNING(("starting validate"));
+    FD_LOG_INFO(("starting validate"));
     if ( fd_funk_verify(state.global->funk) != FD_FUNK_SUCCESS )
       FD_LOG_ERR(("valdation failed"));
-    FD_LOG_WARNING(("finishing validate"));
+    FD_LOG_INFO(("finishing validate"));
   }
 
   if (NULL != log_level)
@@ -482,13 +484,23 @@ main( int     argc,
   }
 
   if( trace_fpath ) {
+    FD_LOG_NOTICE(( "Exporting traces to %s", trace_fpath ));
+
     if( FD_UNLIKELY( 0!=mkdir( trace_fpath, 0777 ) && errno!=EEXIST ) )
       FD_LOG_ERR(( "mkdir(%s) failed (%d-%s)", trace_fpath, errno, fd_io_strerror( errno ) ));
 
     int fd = open( trace_fpath, O_DIRECTORY );
     if( FD_UNLIKELY( fd<=0 ) )  /* technically 0 is valid, but it serves as a sentinel here */
       FD_LOG_ERR(( "open(%s) failed (%d-%s)", trace_fpath, errno, fd_io_strerror( errno ) ));
+
+    state.global->trace_mode |= FD_RUNTIME_TRACE_SAVE;
     state.global->trace_dirfd = fd;
+  }
+
+  if( retrace ) {
+    FD_LOG_NOTICE(( "Retrace mode enabled" ));
+
+    state.global->trace_mode |= FD_RUNTIME_TRACE_REPLAY;
   }
 
   {

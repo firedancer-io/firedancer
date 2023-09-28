@@ -48,14 +48,14 @@ fd_acc_mgr_view_raw( fd_acc_mgr_t *         acc_mgr,
 
   fd_funk_rec_t const * rec = fd_funk_rec_query_global(funk, txn, &id);
 
-  if ( FD_UNLIKELY( NULL == rec ) )  {
+  if( FD_UNLIKELY( !rec || !!( rec->flags & FD_FUNK_REC_FLAG_ERASE ) ) )  {
     fd_int_store_if( !!opt_err, opt_err, FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT );
     return NULL;
   }
   if (NULL != orec)
     *orec = rec;
   void const * data = fd_funk_val_cache( funk, rec, opt_err );
-  if( FD_UNLIKELY( !data ) ) FD_LOG_CRIT(( "fd_funk_val_cache failed (%d-%s)", *opt_err, fd_funk_strerror( *opt_err ) ));
+  if( FD_UNLIKELY( !data ) ) FD_LOG_CRIT(( "fd_funk_val_cache(%32J) failed (%d-%s)", pubkey->uc, *opt_err, fd_funk_strerror( *opt_err ) ));
   // TODO/FIXME: this check causes issues with some metadata writes
   fd_account_meta_t const * metadata = (fd_account_meta_t const *)fd_type_pun_const( data );
   if ( metadata->magic != FD_ACCOUNT_META_MAGIC ) {
