@@ -520,7 +520,10 @@ fd_quic_tls_secrets( void const * handshake,
 }
 
 fd_quic_tls_hs_data_t *
-fd_quic_tls_get_hs_data( fd_quic_tls_hs_t * self, uint enc_level ) {
+fd_quic_tls_get_hs_data( fd_quic_tls_hs_t * self,
+                         uint               enc_level ) {
+  if( !self ) return NULL;
+
   uint idx = self->hs_data_pend_idx[enc_level];
   if( idx == FD_QUIC_TLS_HS_DATA_UNUSED ) return NULL;
 

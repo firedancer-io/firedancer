@@ -3036,7 +3036,7 @@ fd_quic_tls_cb_handshake_complete( fd_quic_tls_hs_t * hs,
       }
 
     default:
-      FD_LOG_WARNING(( "%s : handshake in unexpected state: %u", __func__, (uint)conn->state ));
+      FD_LOG_WARNING(( "handshake in unexpected state: %u", conn->state ));
   }
 }
 
@@ -3057,15 +3057,15 @@ fd_quic_frame_handle_crypto_frame( void *                   vp_context,
   ulong           rcv_offset = crypto->offset;
   ulong           rcv_sz     = crypto->length;
 
-  /* do we have bytes we can use? */
-  if( FD_LIKELY( rcv_offset <= exp_offset && rcv_offset + rcv_sz > exp_offset ) ) {
-    if( !conn->tls_hs ) {
-      conn->state = FD_QUIC_CONN_STATE_DEAD;
-      conn->quic->metrics.conn_aborted_cnt++;
-      conn->quic->metrics.conn_err_tls_fail_cnt++;
-      return FD_QUIC_TLS_FAILED;
-    }
-
+  if( !conn->tls_hs ) {
+    /* Handshake already completed. Ignore frame */
+    /* TODO consider aborting conn if too many unsoliticted crypto frames arrive */
+  } else if( FD_UNLIKELY( rcv_offset > exp_offset && rcv_offset + rcv_sz <= exp_offset ) ) {
+    /* if data arrived early, we could buffer, but for now we simply won't ack */
+    /* TODO buffer handshake data */
+    if( rcv_offset > exp_offset ) return FD_QUIC_PARSE_FAIL;
+  } else {
+    /* We have bytes that we can use */
     ulong skip = 0;
     if( rcv_offset < exp_offset ) skip = exp_offset - rcv_offset;
 
@@ -3105,10 +3105,12 @@ fd_quic_frame_handle_crypto_frame( void *                   vp_context,
 
     /* successful, update rx_crypto_offset */
     conn->rx_crypto_offset[enc_level] += rcv_sz;
-  } else {
-    /* if data arrived early, we could buffer, but for now we simply won't ack */
-    /* TODO buffer handshake data */
-    if( rcv_offset > exp_offset ) return FD_QUIC_PARSE_FAIL;
+
+    /* Deallocate tls_hs once completed */
+    if( conn->tls_hs->state == FD_QUIC_TLS_HS_STATE_COMPLETE ) {
+      fd_quic_tls_hs_delete( conn->tls_hs );
+      conn->tls_hs = NULL;
+    }
   }
 
   /* ack-eliciting */
@@ -3117,7 +3119,7 @@ fd_quic_frame_handle_crypto_frame( void *                   vp_context,
   (void)context; (void)p; (void)p_sz;
 
   /* no "additional" bytes - all already accounted for */
-  return 0;
+  return FD_QUIC_SUCCESS;
 }
 
 void
