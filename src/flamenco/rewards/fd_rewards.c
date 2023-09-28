@@ -691,7 +691,7 @@ pay_validator_rewards(
         FD_TEST( err == 0 );
         stake_rec->meta->info.lamports = fd_ulong_sat_add(stake_rec->meta->info.lamports, ele->reward_info.lamports);
 
-        fd_stake_state_t stake_state;
+        fd_stake_state_v2_t stake_state;
         read_stake_state( global, stake_rec->meta, &stake_state );
         if (!fd_stake_state_is_stake( &stake_state)) {
             FD_LOG_ERR(("failed to read stake state for %32J", stake_pubkey ));
