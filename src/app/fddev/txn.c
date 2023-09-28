@@ -169,13 +169,13 @@ txn_cmd_fn( args_t *         args,
 
   fd_aio_pkt_info_t pkt[ MAX_TXN_COUNT ];
 
+  uchar buf[1300];
   if( FD_LIKELY( !args->txn.payload_base64 ) ) {
     for( ulong i=0; i<args->txn.count; i++ ) {
       pkt[ i ].buf    = (void * )sample_transaction;
       pkt[ i ].buf_sz = (ushort )sample_transaction_sz;
     }
   } else {
-    uchar buf[1300];
     int buf_sz = fd_base64_decode( args->txn.payload_base64, buf );
     if( FD_UNLIKELY( buf_sz == -1 ) ) FD_LOG_ERR(( "bad payload input `%s`", args->txn.payload_base64 ));
     for( ulong i=0; i<args->txn.count; i++ ) {
