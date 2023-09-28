@@ -203,11 +203,11 @@ fd_solcap_account_pretty_print( uchar const   pubkey[ static 32 ],
 
     fd_vote_state_versioned_walk( yaml, vote_state, fd_flamenco_yaml_walk, NULL, 0U );
   } else if( 0==memcmp( owner, _stake_program_address, 32UL ) ) {
-    fd_stake_state_t stake_state[1];
-    int err = fd_stake_state_decode( stake_state, &decode );
+    fd_stake_state_v2_t stake_state[1];
+    int err = fd_stake_state_v2_decode( stake_state, &decode );
     if( FD_UNLIKELY( err!=0 ) ) return err;
 
-    fd_stake_state_walk( yaml, stake_state, fd_flamenco_yaml_walk, NULL, 0U );
+    fd_stake_state_v2_walk( yaml, stake_state, fd_flamenco_yaml_walk, NULL, 0U );
   } else if( 0==memcmp( pubkey, _sysvar_clock, 32UL ) ) {
     fd_sol_sysvar_clock_t clock[1];
     int err = fd_sol_sysvar_clock_decode( clock, &decode );

@@ -4,6 +4,14 @@
 #include "../runtime/sysvar/fd_sysvar.h"
 #include <limits.h>
 
+/* FD_DEBUG_MODE: set to enable debug-only code
+   TODO move to util? */
+#ifndef FD_DEBUG_MODE
+#define FD_DEBUG( ... ) __VA_ARGS__
+#else
+#define FD_DEBUG( ... )
+#endif
+
 /**********************************************************************/
 /* Errors                                                     */
 /**********************************************************************/
@@ -160,6 +168,14 @@ set_state( fd_borrowed_account_t const * self, fd_stake_state_v2_t const * state
 /* Prototypes                                                         */
 /**********************************************************************/
 
+int
+get_if_mergeable( instruction_ctx_t *           invoke_context,
+                  fd_stake_state_v2_t const *   stake_state,
+                  ulong                         stake_lamports,
+                  fd_sol_sysvar_clock_t const * clock,
+                  fd_stake_history_t const *    stake_history,
+                  merge_kind_t *                out );
+
 effective_activating_t
 stake_and_activating( fd_delegation_t const *    self,
                       ulong                      target_epoch,
@@ -180,7 +196,8 @@ stake_state_validate_split_amount( instruction_ctx_t *       invoke_context,
                                    uchar                     destination_account_index,
                                    ulong                     lamports,
                                    fd_stake_meta_t const *   source_meta,
-                                   ulong                     additional_required_lamports );
+                                   ulong                     additional_required_lamports,
+                                   validated_split_info_t *  out );
 
 static ulong
 stake_state_v2_size_of( void );
@@ -193,9 +210,9 @@ stake_split( fd_stake_t * self,
              fd_stake_t * out );
 
 static int
-authorized_check( fd_stake_authorized_t * self,
-                  fd_pubkey_t const *     signers[static FD_TXN_SIG_MAX],
-                  fd_stake_authorize_t    stake_authorize );
+authorized_check( fd_stake_authorized_t const * self,
+                  fd_pubkey_t const *           signers[static FD_TXN_SIG_MAX],
+                  fd_stake_authorize_t          stake_authorize );
 
 static int
 authorized_authorize( fd_stake_authorized_t *                  self,
@@ -246,19 +263,25 @@ instruction_checked_sub( ulong a, ulong b, ulong * out ) {
 // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/sdk/src/transaction_context.rs#L841
 static inline int
 checked_add_lamports( fd_borrowed_account_t * self, ulong lamports ) {
-  return fd_int_if(
-      __builtin_uaddl_overflow( self->meta->info.lamports, lamports, &self->meta->info.lamports ),
-      FD_EXECUTOR_INSTR_ERR_ARITHMETIC_OVERFLOW,
-      OK );
+  // FIXME suppress warning
+  ulong temp;
+  int   rc = fd_int_if( __builtin_uaddl_overflow( self->meta->info.lamports, lamports, &temp ),
+                      FD_EXECUTOR_INSTR_ERR_ARITHMETIC_OVERFLOW,
+                      OK );
+  self->meta->info.lamports = temp;
+  return rc;
 }
 
 // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/sdk/src/transaction_context.rs#L851
 static inline int
 checked_sub_lamports( fd_borrowed_account_t * self, ulong lamports ) {
-  return fd_int_if(
-      __builtin_usubl_overflow( self->meta->info.lamports, lamports, &self->meta->info.lamports ),
-      FD_EXECUTOR_INSTR_ERR_ARITHMETIC_OVERFLOW,
-      OK );
+  // FIXME suppress warning
+  ulong temp;
+  int   rc = fd_int_if( __builtin_usubl_overflow( self->meta->info.lamports, lamports, &temp ),
+                      FD_EXECUTOR_INSTR_ERR_ARITHMETIC_OVERFLOW,
+                      OK );
+  self->meta->info.lamports = temp;
+  return rc;
 }
 
 /**********************************************************************/
@@ -473,7 +496,8 @@ meta_set_lockup( fd_stake_meta_t *             self,
   } else if ( !signers_contains( signers, &self->authorized.withdrawer ) ) {
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   }
-  if ( lockup->unix_timestamp ) self->lockup.unix_timestamp = *lockup->unix_timestamp;
+  if ( lockup->unix_timestamp )
+    self->lockup.unix_timestamp = (long)( *lockup->unix_timestamp ); // TODO
   if ( lockup->epoch ) self->lockup.epoch = *lockup->epoch;
   if ( lockup->custodian ) self->lockup.custodian = *lockup->custodian;
   return OK;
@@ -750,9 +774,9 @@ stake_deactivate( fd_stake_t * self, ulong epoch, uint * custom_err ) {
 
 // https://github.com/firedancer-io/solana/blob/v1.17/sdk/program/src/stake/state.rs#L291
 static int
-authorized_check( fd_stake_authorized_t * self,
-                  fd_pubkey_t const *     signers[static FD_TXN_SIG_MAX],
-                  fd_stake_authorize_t    stake_authorize ) {
+authorized_check( fd_stake_authorized_t const * self,
+                  fd_pubkey_t const *           signers[static FD_TXN_SIG_MAX],
+                  fd_stake_authorize_t          stake_authorize ) {
   /* clang-format off */
   switch ( stake_authorize.discriminant ) {
   case fd_stake_authorize_enum_staker:
@@ -812,7 +836,7 @@ authorized_authorize( fd_stake_authorized_t *                  self,
           }
         }
       }
-      rc = authorized_check( self, signers, stake_authorize );
+      rc = authorized_check( self, signers, *stake_authorize );
       if ( FD_UNLIKELY( rc != OK ) ) return rc;
       self->withdrawer = *new_authorized;
     }
@@ -896,12 +920,12 @@ new_warmup_cooldown_rate_epoch( instruction_ctx_t * invoke_context, /* out */ ul
     fd_epoch_schedule_t epoch_schedule;
     fd_sysvar_epoch_schedule_read( invoke_context->global, &epoch_schedule );
     ulong slot = invoke_context->global->features.reduce_stake_warmup_cooldown;
-    *epoch    = get_epoch_from_schedule( &epoch_schedule, slot );
+    *epoch     = get_epoch_from_schedule( &epoch_schedule, slot );
   }
 }
 
 // https://github.com/firedancer-io/solana/blob/v1.17/programs/stake/src/stake_state.rs#L160
-static fd_stake_t
+FD_FN_UNUSED static fd_stake_t
 new_stake( ulong                   stake,
            fd_pubkey_t const *     voter_pubkey,
            fd_vote_state_t const * vote_state,
@@ -1081,6 +1105,10 @@ stake_state_delegate( instruction_ctx_t *           invoke_context,
                       fd_valloc_t *                 valloc
                       /* feature set */
 ) {
+  (void)vote_account_index;
+  (void)clock;
+  (void)stake_history;
+  // TODO
   int rc;
 
   fd_borrowed_account_t vote_account = { 0 };
@@ -1094,7 +1122,8 @@ stake_state_delegate( instruction_ctx_t *           invoke_context,
     return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
   }
 
-  fd_pubkey_t const *       vote_pubkey = vote_account.pubkey;
+  // fd_pubkey_t const *       vote_pubkey = vote_account.pubkey;
+  // TODO
   fd_vote_state_versioned_t vote_state  = { 0 };
   rc = fd_vote_get_state( &vote_account, *invoke_context, &vote_state );
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
@@ -1117,12 +1146,16 @@ stake_state_delegate( instruction_ctx_t *           invoke_context,
                                                                          .inner        = { 0 } } );
     if ( FD_UNLIKELY( rc != OK ) ) return rc;
 
-    rc = stake_state_validate_delegated_amount( &stake_account, meta, invoke_context->global );
+    validated_delegated_info_t out;
+    rc =
+        stake_state_validate_delegated_amount( &stake_account, meta, invoke_context->global, &out );
     if ( FD_UNLIKELY( rc != OK ) ) return rc;
+    // TODO new_stake
+    break;
   }
   case fd_stake_state_v2_enum_stake: {
-    fd_stake_meta_t * meta = &stake_state.inner.initialized.meta;
-    rc                     = authorized_check( meta, signers, stake_authorize );
+    fd_stake_meta_t const * meta = &stake_state.inner.initialized.meta;
+    rc                     = authorized_check( &meta->authorized, signers, STAKE_AUTHORIZE_STAKER );
     break;
   }
   }
@@ -1136,18 +1169,18 @@ stake_state_deactivate( fd_borrowed_account_t *       stake_account,
   int rc;
 
   fd_stake_state_v2_t state = { 0 };
-  rc                        = stake_account_get_state( stake_account, &ctx.global->valloc, &state );
-  if ( FD_UNLIKELY( rc != OK ) ) return rc;
+  // rc                        = get_state( stake_account, &ctx.global->valloc, &state );
+  // if ( FD_UNLIKELY( rc != OK ) ) return rc;
 
-  if ( stake_state.discriminant == fd_stake_state_v2_enum_stake ) {
-    fd_stake_meta_t * meta  = &stake_state.inner.stake.meta;
-    fd_stake_t *      stake = &stake_state.inner.stake.stake;
+  if ( state.discriminant == fd_stake_state_v2_enum_stake ) {
+    fd_stake_meta_t * meta  = &state.inner.stake.meta;
+    fd_stake_t *      stake = &state.inner.stake.stake;
 
-    rc = authorized_check( meta->authorized, signers, STAKE_AUTHORIZE_STAKER );
+    rc = authorized_check( &meta->authorized, signers, STAKE_AUTHORIZE_STAKER );
     if ( FD_UNLIKELY( rc != OK ) ) return rc;
     rc = stake_deactivate( stake, clock->epoch, custom_err );
     if ( FD_UNLIKELY( rc != OK ) ) return rc;
-    rc = set_state( stake_account, state );
+    rc = set_state( stake_account, &state );
   } else {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
@@ -1162,18 +1195,21 @@ stake_state_set_lockup( fd_borrowed_account_t *       stake_account,
   int rc;
 
   fd_stake_state_v2_t state = { 0 };
-  rc                        = stake_account_get_state( stake_account, &ctx.global->valloc, &state );
+  // TODO
+  // rc                        = get_state( stake_account, &ctx.global->valloc, &state );
 
-  switch ( state->discriminant ) {
+  switch ( state.discriminant ) {
   case fd_stake_state_v2_enum_initialized: {
-    rc = meta_set_lockup( lockup, signers, clock );
+    fd_stake_meta_t * meta = &state.inner.initialized.meta;
+    rc                     = meta_set_lockup( meta, lockup, signers, clock );
     if ( FD_UNLIKELY( rc != OK ) ) return rc;
-    return set_state( stake_account, state );
+    return set_state( stake_account, &state );
   }
   case fd_stake_state_v2_enum_stake: {
-    rc = meta_set_lockup( lockup, signers, clock );
+    fd_stake_meta_t * meta = &state.inner.stake.meta;
+    rc                     = meta_set_lockup( meta, lockup, signers, clock );
     if ( FD_UNLIKELY( rc != OK ) ) return rc;
-    return set_state( stake_account, state );
+    return set_state( stake_account, &state );
   }
   default:
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
@@ -1249,7 +1285,8 @@ stake_state_split( instruction_ctx_t *       invoke_context,
                                             split_index,
                                             lamports,
                                             meta,
-                                            minimum_delegation );
+                                            minimum_delegation,
+                                            &validated_split_info );
     if ( FD_UNLIKELY( rc != OK ) ) return rc;
 
     // https://github.com/firedancer-io/solana/blob/v1.17/programs/stake/src/stake_state.rs#L710-L744
@@ -1322,10 +1359,9 @@ stake_state_split( instruction_ctx_t *       invoke_context,
                                             transaction_context,
                                             instruction_context,
                                             stake_account_index,
-                                            destination_account_index,
                                             split_index,
                                             lamports,
-                                            &meta,
+                                            meta,
                                             0,
                                             &validated_split_info );
     if ( FD_UNLIKELY( rc != OK ) ) return rc;
@@ -1426,17 +1462,17 @@ stake_state_merge( instruction_ctx_t *           invoke_context,
 
   fd_borrowed_account_t stake_account = { 0 };
   rc                                  = try_borrow_instruction_account(
-      instruction_context, transaction_context, stake_account_index, stake_account );
+      instruction_context, transaction_context, stake_account_index, &stake_account );
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
 
   fd_stake_state_v2_t stake_account_state = { 0 };
-  rc = stake_account_get_state( stake_account, &ctx.global->valloc, &stake_account_state );
+  rc = get_state( &stake_account, &invoke_context->global->valloc, &stake_account_state );
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
 
-  FD_DEBUG( FD_LOG_INFO( ( "Checking if destination stake is mergeable" ) ) );
+  FD_DEBUG( FD_LOG_WARNING( ( "Checking if destination stake is mergeable" ) ) );
   merge_kind_t stake_merge_kind = { 0 };
   rc                            = get_if_mergeable( invoke_context,
-                         stake_account_state,
+                         &stake_account_state,
                          stake_account.meta->info.lamports,
                          clock,
                          stake_history,
@@ -1444,17 +1480,17 @@ stake_state_merge( instruction_ctx_t *           invoke_context,
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
 
   rc = authorized_check(
-      merge_kind_meta( &stake_merge_kind )->authorized, signers, STAKE_AUTHORIZE_STAKER );
+      &merge_kind_meta( &stake_merge_kind )->authorized, signers, STAKE_AUTHORIZE_STAKER );
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
 
   FD_DEBUG( FD_LOG_INFO( ( "Checking if source stake is mergeable" ) ) );
   fd_stake_state_v2_t source_account_state = { 0 };
-  rc = stake_account_get_state( stake_account, &ctx.global->valloc, &source_account_state );
+  rc = get_state( &stake_account, &invoke_context->global->valloc, &source_account_state );
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
 
   merge_kind_t source_merge_kind = { 0 };
   rc                             = get_if_mergeable( invoke_context,
-                         source_account_state,
+                         &source_account_state,
                          source_account.meta->info.lamports,
                          clock,
                          stake_history,
@@ -1463,17 +1499,19 @@ stake_state_merge( instruction_ctx_t *           invoke_context,
 
   FD_DEBUG( FD_LOG_INFO( ( "Merging stake accounts" ) ) );
 
-  merge_kind_t merged_state = { 0 };
-  rc = merge_kind_merge( stake_merge_kind, invoke_context, source_merge_kind, merged_state );
+  // TODO
+  // merge_kind_t merged_state = { 0 };
+  // rc = merge_kind_merge( stake_merge_kind, invoke_context, source_merge_kind, merged_state );
   // FIXME necessary? simulates Rust "move" semantics
-  memset( stake_merge_kind, 0, sizeof( merge_kind_t ) );
+  memset( &stake_merge_kind, 0, sizeof( merge_kind_t ) );
   // FIXME necessary? simulates Rust "move" semantics
-  memset( source_merge_kind, 0, sizeof( merge_kind_t ) );
+  memset( &source_merge_kind, 0, sizeof( merge_kind_t ) );
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
-  if ( FD_LIKELY( merged_kind_merge ) ) {
-    rc = set_state( &merged_state );
-    if ( FD_UNLIKELY( rc != OK ) ) return rc;
-  }
+  // TODO
+  // if ( FD_LIKELY( merge_kind_merge() ) ) {
+  //   rc = set_state( &merged_state );
+  //   if ( FD_UNLIKELY( rc != OK ) ) return rc;
+  // }
 
   fd_stake_state_v2_t uninitialized = { 0 };
   uninitialized.discriminant        = fd_stake_state_v2_enum_uninitialized;
@@ -1481,9 +1519,9 @@ stake_state_merge( instruction_ctx_t *           invoke_context,
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
 
   ulong lamports = source_account.meta->info.lamports;
-  rc             = checked_sub_lamports( source_account, lamports );
+  rc             = checked_sub_lamports( &source_account, lamports );
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
-  rc = checked_add_lamports( stake_account, lamports );
+  rc = checked_add_lamports( &stake_account, lamports );
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
   return OK;
 }
@@ -1499,7 +1537,7 @@ redelegate( instruction_ctx_t *       invoke_context,
   int rc;
 
   fd_sol_sysvar_clock_t clock = { 0 };
-  rc                          = fd_sysvar_clock_read( invoke_context->global, clock );
+  rc                          = fd_sysvar_clock_read( invoke_context->global, &clock );
   if ( FD_UNLIKELY( rc != OK ) ) return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
 
   fd_borrowed_account_t uninitialized_stake_account = { 0 };
@@ -1509,51 +1547,54 @@ redelegate( instruction_ctx_t *       invoke_context,
                                        &uninitialized_stake_account );
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
 
-  if ( FD_UNLIKELY( 0 != memcmp( &uninitialized_stake_account->meta->info.owner,
+  if ( FD_UNLIKELY( 0 != memcmp( &uninitialized_stake_account.meta->info.owner,
                                  SOLANA_STAKE_PROGRAM_ID,
                                  sizeof( fd_pubkey_t ) ) ) ) {
-    FD_DEBUG( FD_LOG_WARNING( "expected uninitialized stake account owner to be {}, not {}" ) );
+    FD_DEBUG( FD_LOG_WARNING( ( "expected uninitialized stake account owner to be {}, not {}" ) ) );
     return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
   }
 
   if ( FD_UNLIKELY( stake_account->meta->dlen != stake_state_v2_size_of() ) ) {
-    FD_DEBUG( FD_LOG_WARNING( "expected uninitialized stake account data len to be {}, not {}" ) );
+    FD_DEBUG(
+        FD_LOG_WARNING( ( "expected uninitialized stake account data len to be {}, not {}" ) ) );
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
 
   fd_stake_state_v2_t uninitialized_stake_account_state = { 0 };
-  rc = get_state( stake_account, valloc, &uninitialized_stake_account_state );
+  rc                                                    = get_state(
+      stake_account, &invoke_context->global->valloc, &uninitialized_stake_account_state );
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
   if ( FD_UNLIKELY( uninitialized_stake_account_state.discriminant !=
                     fd_stake_state_v2_enum_uninitialized ) ) {
-    FD_DEBUG( FD_LOG_WARNING( "expected uninitialized stake account to be uninitialized" ) );
+    FD_DEBUG( FD_LOG_WARNING( ( "expected uninitialized stake account to be uninitialized" ) ) );
     return FD_EXECUTOR_INSTR_ERR_ACC_ALREADY_INITIALIZED;
   }
 
   fd_borrowed_account_t vote_account = { 0 };
   rc                                 = try_borrow_instruction_account(
-      instruction_context, transaction_context, vote_account_index, vote_account );
+      instruction_context, transaction_context, vote_account_index, &vote_account );
   if ( FD_UNLIKELY( 0 != memcmp( &vote_account.meta->info.owner,
                                  invoke_context->global->solana_vote_program,
                                  32UL ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
   }
 
-  fd_pubkey_t               vote_pubkey = vote_account.pubkey;
-  (void)vote_pubkey; // TODO
-  fd_vote_state_versioned_t vote_state  = { 0 };
+  // fd_pubkey_t vote_pubkey = vote_account.pubkey;
+  // (void)vote_pubkey; // TODO
+  fd_vote_state_versioned_t vote_state = { 0 };
   rc = fd_vote_get_state( &vote_account, *invoke_context, &vote_state );
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
 
-  fd_stake_meta_t     meta;
+  fd_stake_meta_t     stake_meta;
   ulong               effective_stake;
   fd_stake_state_v2_t stake_state = { 0 };
-  rc = get_state( stake_account, invoke_context->global->valloc, &stake_state );
+  rc = get_state( stake_account, &invoke_context->global->valloc, &stake_state );
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
-  if ( FD_LIKELY( uninitialized_stake_account_state.discriminant !=
+  if ( FD_LIKELY( uninitialized_stake_account_state.discriminant ==
                   fd_stake_state_v2_enum_stake ) ) {
-    stake_meta      = meta;
-    effective_stake = status.effective;
+    // stake_meta      = meta;
+    // effective_stake = status.effective;
+    // TODO
   } else {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
@@ -1568,7 +1609,8 @@ redelegate( instruction_ctx_t *       invoke_context,
   rc = checked_add_lamports( &uninitialized_stake_account, effective_stake );
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
 
-  rc = fd_sysvar_rent_read( invoke_context->global, &rent );
+  fd_rent_t rent = { 0 };
+  rc             = fd_sysvar_rent_read( invoke_context->global, &rent );
   if ( FD_UNLIKELY( rc != OK ) ) return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
 
   fd_stake_meta_t uninitialized_stake_meta = stake_meta;
@@ -1620,8 +1662,9 @@ stake_state_withdraw( instruction_ctx_t *           invoke_context,
   int rc;
 
   uchar withdraw_authority_transaction_index = FD_TXN_ACCT_ADDR_MAX;
+  uchar index_in_transaction                 = FD_TXN_ACCT_ADDR_MAX;
   rc                                         = get_index_of_instruction_account_in_transaction(
-      instruction_context, withdraw_authority_index, uchar * index_in_transaction );
+      instruction_context, withdraw_authority_index, &index_in_transaction );
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
   fd_pubkey_t * withdraw_authority_pubkey = { 0 };
   rc                                      = get_key_of_account_at_index(
@@ -1643,7 +1686,7 @@ stake_state_withdraw( instruction_ctx_t *           invoke_context,
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
 
   fd_stake_state_v2_t stake_state = { 0 };
-  rc = stake_account_get_state( &stake_account, &invoke_context->global->valloc, &stake_state );
+  rc = get_state( &stake_account, &invoke_context->global->valloc, &stake_state );
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
 
   fd_stake_lockup_t lockup;
@@ -2009,8 +2052,8 @@ get_stake_account( transaction_ctx_t const * transaction_context,
                    fd_global_ctx_t const *   global,
                    fd_borrowed_account_t *   out ) {
   int rc;
-  if ( FD_UNLIKELY( rc != OK ) ) return rc;
   rc = try_borrow_instruction_account( instruction_context, transaction_context, 0, out );
+  if ( FD_UNLIKELY( rc != OK ) ) return rc;
   // https://github.com/firedancer-io/solana/blob/debug-master/programs/stake/src/stake_instruction.rs#L69-L71
   if ( FD_UNLIKELY( 0 != memcmp( &out->meta->info.owner, global->solana_stake_program, 32UL ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
@@ -2038,13 +2081,6 @@ fd_executor_stake_program_execute_instruction( instruction_ctx_t ctx ) {
   default:
     // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/sdk/src/transaction_context.rs#L639
     return FD_EXECUTOR_INSTR_ERR_ACC_BORROW_FAILED;
-  }
-
-  // https://github.com/firedancer-io/solana/blob/debug-master/programs/stake/src/stake_instruction.rs#L69-L71
-  if ( FD_UNLIKELY( 0 != memcmp( &get_stake_account.meta->info.owner,
-                                 ctx.global->solana_stake_program,
-                                 32UL ) ) ) {
-    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
   }
 
   // https://github.com/firedancer-io/solana/blob/debug-master/programs/stake/src/stake_instruction.rs#L75
@@ -2122,7 +2158,7 @@ fd_executor_stake_program_execute_instruction( instruction_ctx_t ctx ) {
       if ( FD_UNLIKELY( rc != OK ) ) return rc;
       int rc = check_number_of_instruction_accounts( ctx.instr, 3 );
       if ( FD_UNLIKELY( rc != OK ) ) return rc;
-      fd_pubkey_t const * custodian_pubkey;
+      fd_pubkey_t const * custodian_pubkey = NULL;
       rc = get_optional_pubkey( ctx, 3, false, &custodian_pubkey );
       rc = stake_state_authorize( &me,
                                   signers,
@@ -2175,7 +2211,7 @@ fd_executor_stake_program_execute_instruction( instruction_ctx_t ctx ) {
       rc = get_sysvar_with_account_check_clock( &ctx, ctx.instr, 2, &clock );
       if ( FD_UNLIKELY( rc != OK ) ) return rc;
 
-      fd_pubkey_t const * custodian_pubkey;
+      fd_pubkey_t const * custodian_pubkey = NULL;
       rc = get_optional_pubkey( ctx, 3, false, &custodian_pubkey );
       if ( FD_UNLIKELY( rc != OK ) ) return rc;
 
@@ -2508,7 +2544,7 @@ fd_executor_stake_program_execute_instruction( instruction_ctx_t ctx ) {
       if ( FD_UNLIKELY( rc != OK ) ) return rc;
       if ( FD_UNLIKELY( !is_signer ) ) return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
 
-      fd_pubkey_t const * custodian_pubkey;
+      fd_pubkey_t const * custodian_pubkey = NULL;
       rc = get_optional_pubkey( ctx, 4, false, &custodian_pubkey );
       if ( FD_UNLIKELY( rc != OK ) ) return rc;
 
@@ -2538,7 +2574,8 @@ fd_executor_stake_program_execute_instruction( instruction_ctx_t ctx ) {
    * https://github.com/firedancer-io/solana/blob/v1.17/programs/stake/src/stake_instruction.rs#L343
    */
   case fd_stake_instruction_enum_authorize_checked_with_seed: {
-    fd_authorize_with_seed_args_t const * args = &instruction.inner.authorize_checked_with_seed;
+    fd_authorize_checked_with_seed_args_t const * args =
+        &instruction.inner.authorize_checked_with_seed;
 
     fd_borrowed_account_t me = { 0 };
     rc                       = get_stake_account( ctx.txn_ctx, ctx.instr, ctx.global, &me );
@@ -2568,7 +2605,7 @@ fd_executor_stake_program_execute_instruction( instruction_ctx_t ctx ) {
       if ( FD_UNLIKELY( rc != OK ) ) return rc;
       if ( FD_UNLIKELY( !is_signer ) ) return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
 
-      fd_pubkey_t const * custodian_pubkey;
+      fd_pubkey_t const * custodian_pubkey = NULL;
       rc = get_optional_pubkey( ctx, 4, false, &custodian_pubkey );
       if ( FD_UNLIKELY( rc != OK ) ) return rc;
 
@@ -2578,7 +2615,7 @@ fd_executor_stake_program_execute_instruction( instruction_ctx_t ctx ) {
                                             1,
                                             args->authority_seed,
                                             &args->authority_owner,
-                                            &args->new_authorized_pubkey,
+                                            &authorized_pubkey,
                                             &args->stake_authorize,
                                             true,
                                             &clock,
@@ -2600,20 +2637,20 @@ fd_executor_stake_program_execute_instruction( instruction_ctx_t ctx ) {
    * https://github.com/firedancer-io/solana/blob/v1.17/programs/stake/src/stake_instruction.rs#L382
    */
   case fd_stake_instruction_enum_set_lockup_checked: {
-    fd_lockup_args_t * lockup_checked = &instruction.inner.set_lockup_checked;
+    fd_lockup_checked_args_t * lockup_checked = &instruction.inner.set_lockup_checked;
 
     fd_borrowed_account_t me = { 0 };
     rc                       = get_stake_account( ctx.txn_ctx, ctx.instr, ctx.global, &me );
     if ( FD_UNLIKELY( rc != OK ) ) return rc;
 
     if ( FD_LIKELY( FD_FEATURE_ACTIVE( ctx.global, vote_stake_checked_instructions ) ) ) {
-      fd_pubkey_t * custodian_pubkey;
+      fd_pubkey_t const * custodian_pubkey = NULL;
       rc = get_optional_pubkey( ctx, 3, false, &custodian_pubkey );
       if ( FD_UNLIKELY( rc != OK ) ) return rc;
 
       fd_lockup_args_t lockup = { .unix_timestamp = lockup_checked->unix_timestamp,
                                   .epoch          = lockup_checked->epoch,
-                                  .custodian      = custodian_pubkey };
+                                  .custodian      = (fd_pubkey_t *)custodian_pubkey }; // TODO
 
       fd_sol_sysvar_clock_t clock;
       rc = fd_sysvar_clock_read( ctx.global, &clock );
@@ -2732,3 +2769,6 @@ fd_stake_get_state( fd_borrowed_account_t const * self,
                     fd_stake_state_v2_t *         out ) {
   return get_state( self, valloc, out );
 }
+
+void
+fd_stake_program_config_init( fd_global_ctx_t * global ) { (void)global; }

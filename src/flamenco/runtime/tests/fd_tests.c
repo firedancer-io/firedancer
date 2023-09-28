@@ -47,10 +47,10 @@ fd_account_pretty_print( fd_global_ctx_t const * global,
     if( FD_UNLIKELY( err!=0 ) ) return err;
     fd_vote_state_versioned_walk( yaml, vote_state, fd_flamenco_yaml_walk, NULL, 0U );
   } else if( 0==memcmp( owner, global->solana_stake_program, 32UL ) ) {
-    fd_stake_state_t stake_state[1];
-    int err = fd_stake_state_decode( stake_state, &decode );
+    fd_stake_state_v2_t stake_state[1];
+    int err = fd_stake_state_v2_decode( stake_state, &decode );
     if( FD_UNLIKELY( err!=0 ) ) return err;
-    fd_stake_state_walk( yaml, stake_state, fd_flamenco_yaml_walk, NULL, 0U );
+    fd_stake_state_v2_walk( yaml, stake_state, fd_flamenco_yaml_walk, NULL, 0U );
   } else {
     fwrite( "???", 1, 3, file );
   }

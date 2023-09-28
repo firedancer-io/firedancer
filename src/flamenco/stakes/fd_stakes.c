@@ -194,12 +194,14 @@ fd_stakes_activate_epoch( fd_global_ctx_t * global,
     accumulator.deactivating += new_entry.deactivating;
   }
 
-  fd_stake_history_epochentry_pair_t new_elem = {
+  fd_stake_history_entry_t new_elem = {
     .epoch = stakes->epoch,
-    .entry = accumulator
+    .effective = accumulator.effective,
+    .activating = accumulator.activating,
+    .deactivating = accumulator.deactivating
   };
 
-  ulong idx = fd_stake_history_entries_pool_idx_acquire( stakes->stake_history.pool );
+  ulong idx = fd_stake_history_pool_idx_acquire( stakes->stake_history.pool );
   stakes->stake_history.pool[ idx ] = new_elem;
   fd_sysvar_stake_history_update( global, &new_elem);
 
@@ -238,10 +240,12 @@ fd_stakes_activate_epoch( fd_global_ctx_t * global,
 int
 write_stake_state( fd_global_ctx_t *   global,
                    fd_pubkey_t const * stake_acc,
-                   fd_stake_state_t *  stake_state,
+                   fd_stake_state_v2_t *  stake_state,
                    ushort              is_new_account ) {
+                    // TODO
+                    (void)stake_state;
 
-  ulong encoded_stake_state_size = (is_new_account) ? STAKE_ACCOUNT_SIZE : fd_stake_state_size(stake_state);
+  ulong encoded_stake_state_size = (is_new_account) ? STAKE_ACCOUNT_SIZE : fd_stake_state_v2_size(stake_state);
 
   FD_BORROWED_ACCOUNT_DECL(stake_acc_rec);
 
@@ -257,7 +261,7 @@ write_stake_state( fd_global_ctx_t *   global,
   fd_bincode_encode_ctx_t ctx3;
   ctx3.data    = stake_acc_rec->data;
   ctx3.dataend = stake_acc_rec->data + encoded_stake_state_size;
-  if( FD_UNLIKELY( fd_stake_state_encode( stake_state, &ctx3 )!=FD_BINCODE_SUCCESS ) )
+  if( FD_UNLIKELY( fd_stake_state_v2_encode( stake_state, &ctx3 )!=FD_BINCODE_SUCCESS ) )
     FD_LOG_ERR(("fd_stake_state_encode failed"));
 
   if( is_new_account )
