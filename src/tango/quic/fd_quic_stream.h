@@ -44,7 +44,7 @@ struct fd_quic_stream {
 
   fd_quic_buffer_t rx_buf;                       /* receive reorder buffer */
 
-  uint flags;   /* flags representing elements that require sending */
+  uint stream_flags;   /* flags representing elements that require sending */
 # define FD_QUIC_STREAM_FLAGS_TX_FIN          (1u<<0u)
 # define FD_QUIC_STREAM_FLAGS_RX_FIN          (1u<<1u)
 # define FD_QUIC_STREAM_FLAGS_MAX_STREAM_DATA (1u<<2u)
@@ -149,6 +149,7 @@ fd_quic_buffer_store( fd_quic_buffer_t * buf,
    load data from circular buffer */
 void
 fd_quic_buffer_load( fd_quic_buffer_t * buf,
+                     ulong              offs,
                      uchar *            data,
                      ulong              data_sz );
 

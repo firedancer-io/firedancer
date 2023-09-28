@@ -129,8 +129,8 @@ fd_quic_stream_spam_service( fd_quic_conn_t *        conn,
     stream->context = NULL; /* remove back reference, as stream no longer in stack */
 
     /* Generate stream payload */
-    uchar payload_buf[ 512UL ];
-    fd_aio_pkt_info_t batch[1] = { { .buf=payload_buf, .buf_sz=512UL } };
+    uchar payload_buf[ 4096UL ];
+    fd_aio_pkt_info_t batch[1] = { { .buf=payload_buf, .buf_sz=4096UL } };
     spam->gen_fn( /* ctx */ NULL, &batch[ 0 ], stream );
 
     /* Send data */
