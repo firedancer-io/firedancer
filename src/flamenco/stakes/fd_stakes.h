@@ -41,7 +41,7 @@ fd_stake_history_entry_t stake_activating_and_deactivating( fd_delegation_t cons
 int write_stake_state(
     fd_global_ctx_t* global,
     fd_pubkey_t const * stake_acc,
-    fd_stake_state_t* stake_state,
+    fd_stake_state_v2_t* stake_state,
     ushort is_new_account
 );
 

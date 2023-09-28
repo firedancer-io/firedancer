@@ -15,7 +15,7 @@ void fd_sysvar_stake_history_init( fd_global_ctx_t* global );
 int fd_sysvar_stake_history_read( fd_global_ctx_t* global, fd_stake_history_t* result );
 
 /* Update the stake history sysvar account - called during epoch boundary*/
-void fd_sysvar_stake_history_update( fd_global_ctx_t * global, fd_stake_history_epochentry_pair_t * entry);
+void fd_sysvar_stake_history_update( fd_global_ctx_t * global, fd_stake_history_t * entry);
 
 FD_PROTOTYPES_END
 

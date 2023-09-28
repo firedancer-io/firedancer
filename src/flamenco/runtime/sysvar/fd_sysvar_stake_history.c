@@ -39,8 +39,8 @@ int fd_sysvar_stake_history_read( fd_global_ctx_t* global, fd_stake_history_t* r
 
 void fd_sysvar_stake_history_init( fd_global_ctx_t* global ) {
   fd_stake_history_t stake_history = {
-    .pool = fd_stake_history_entries_pool_alloc( global->valloc ),
-    .treap = fd_stake_history_entries_treap_alloc( global->valloc )
+    .pool = fd_stake_history_pool_alloc( global->valloc ),
+    .treap = fd_stake_history_treap_alloc( global->valloc )
   };
   write_stake_history( global, &stake_history );
 }

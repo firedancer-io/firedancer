@@ -12,6 +12,8 @@ FD_PROTOTYPES_BEGIN
 /* Vote Program                                                       */
 /**********************************************************************/
 
+#define SOLANA_VOTE_PROGRAM_ID ( "Vote111111111111111111111111111111111111111" )
+
 #define OK FD_EXECUTOR_INSTR_SUCCESS /* Corresponds to Result::Ok in Rust */
 
 /* Vote error codes */
@@ -76,11 +78,17 @@ fd_vote_commission_split( fd_vote_state_versioned_t * vote_state_versioned,
                           ulong                       on,
                           fd_commission_split_t *     result );
 
-// Public API wrapper for `vote_account_get_state`. Used by stake program.
+/**********************************************************************/
+/* Public API                                                         */
+/**********************************************************************/
+
 int
-fd_vote_account_get_state( fd_borrowed_account_t *                  self,
-                           instruction_ctx_t                        ctx,
-                           /* return */ fd_vote_state_versioned_t * versioned );
+fd_vote_get_state( fd_borrowed_account_t const *            self,
+                   instruction_ctx_t                        ctx,
+                   /* return */ fd_vote_state_versioned_t * versioned );
+
+void
+fd_vote_convert_to_current( fd_vote_state_versioned_t * self, instruction_ctx_t ctx );
 
 FD_PROTOTYPES_END
 
