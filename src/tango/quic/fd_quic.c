@@ -5871,6 +5871,11 @@ fd_quic_frame_handle_stream_frame(
 
   ulong data_sz   = data->length_opt ? data->length : p_sz;
 
+  /* quick sanity check */
+  if( FD_UNLIKELY( data_sz > p_sz ) ) {
+    return FD_QUIC_PARSE_FAIL;
+  }
+
   /* find stream */
   fd_quic_stream_t *     stream       = NULL;
   fd_quic_stream_map_t * stream_entry = fd_quic_stream_map_query( context.conn->stream_map, stream_id, NULL );
@@ -6332,13 +6337,17 @@ fd_quic_frame_handle_conn_close_0_frame(
     uchar const *                  p,
     ulong                          p_sz ) {
   (void)p;
-  (void)p_sz;
+
+  ulong reason_phrase_length = data->reason_phrase_length;
+  if( FD_UNLIKELY( reason_phrase_length > p_sz ) ) {
+    return FD_QUIC_PARSE_FAIL;
+  }
 
   FD_LOG_NOTICE(( "Closing with error code: %lu", data->error_code ));
 
   fd_quic_frame_handle_conn_close_frame( vp_context );
 
-  return data->reason_phrase_length;
+  return reason_phrase_length;
 }
 
 static ulong
@@ -6348,13 +6357,17 @@ fd_quic_frame_handle_conn_close_1_frame(
     uchar const *                  p,
     ulong                          p_sz ) {
   (void)p;
-  (void)p_sz;
+
+  ulong reason_phrase_length = data->reason_phrase_length;
+  if( FD_UNLIKELY( reason_phrase_length > p_sz ) ) {
+    return FD_QUIC_PARSE_FAIL;
+  }
 
   FD_LOG_NOTICE(( "Closing with error code: %lu", data->error_code ));
 
   fd_quic_frame_handle_conn_close_frame( vp_context );
 
-  return data->reason_phrase_length;
+  return reason_phrase_length;
 }
 
 static ulong
