@@ -1952,7 +1952,8 @@ fd_quic_handle_v1_zero_rtt( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_pkt
   (void)cur_ptr;
   (void)cur_sz;
   FD_DEBUG( FD_LOG_DEBUG(( "stub" )) );
-  return 0;
+  /* since we do not support zero-rtt, simply fail the packet */
+  return FD_QUIC_PARSE_FAIL;
 }
 
 ulong
@@ -2556,6 +2557,11 @@ fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
 
     rc = fd_quic_handle_v1_one_rtt( quic, conn, pkt, cur_ptr, cur_sz );
     if( rc == FD_QUIC_PARSE_FAIL ) return FD_QUIC_PARSE_FAIL;
+  }
+
+  if( rc == 0UL ) {
+    /* this is an error because it causes infinite looping */
+    return FD_QUIC_PARSE_FAIL;
   }
 
   /* if we get here we parsed all the frames, so ack the packet */

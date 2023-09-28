@@ -93,7 +93,7 @@
    remaining bits are all data bits
    checks for capacity before writing */
 #define FD_TEMPL_MBR_ELEM_VARINT(NAME,TYPE)                            \
-    do{                                                                \
+    do {                                                               \
       buf += (cur_bit != 0);                                           \
       cur_bit = 0;                                                     \
       tmp_len = FD_QUIC_ENCODE_VARINT_LEN(frame->NAME);                \
@@ -138,6 +138,9 @@
             (ulong)( tmp_len * 8 ) ));                                 \
       return FD_QUIC_PARSE_FAIL;                                       \
     }                                                                  \
+    if( FD_UNLIKELY( (ulong)buf + tmp_len > (ulong)buf_end ) ) {       \
+      return FD_QUIC_PARSE_FAIL;                                       \
+    }                                                                  \
     fd_memcpy( buf, frame->NAME, tmp_len );                            \
     buf += tmp_len;
 
@@ -158,6 +161,9 @@
             (ulong)BITS_MAX,                                           \
             (ulong)frame->LEN_NAME,                                    \
             (ulong)( tmp_len * 8 ) ));                                 \
+      return FD_QUIC_PARSE_FAIL;                                       \
+    }                                                                  \
+    if( FD_UNLIKELY( (ulong)buf + tmp_len > (ulong)buf_end ) ) {       \
       return FD_QUIC_PARSE_FAIL;                                       \
     }                                                                  \
     fd_memcpy( buf, frame->NAME, tmp_len );                            \
