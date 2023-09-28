@@ -382,12 +382,8 @@ class DequeMember:
         self.growth = (json["growth"] if "growth" in json else None)
 
     def elem_type(self):
-        if self.element == "uchar":
-            return "uchar"
-        elif self.element == "ulong":
-            return "ulong"
-        elif self.element == "uint":
-            return "uint"
+        if self.element in simpletypes:
+            return self.element
         else:
             return f'{namespace}_{self.element}_t'
 
@@ -575,12 +571,8 @@ class MapMember:
         self.minalloc = (int(json["minalloc"]) if "minalloc" in json else 0)
 
     def elem_type(self):
-        if self.element == "uchar":
-            return "uchar"
-        elif self.element == "ulong":
-            return "ulong"
-        elif self.element == "uint":
-            return "uint"
+        if self.element in simpletypes:
+            return self.element
         else:
             return f'{namespace}_{self.element}_t'
 
@@ -1079,15 +1071,15 @@ class ArrayMember:
         if self.element == "uchar":
             print(f'  err = fd_bincode_bytes_encode(self->{self.name}, {length}, ctx);', file=body)
             print('  if ( FD_UNLIKELY(err) ) return err;', file=body)
+            return
 
+        print(f'  for (ulong i = 0; i < {length}; ++i) {{', file=body)
+        if self.element in simpletypes:
+            print(f'    err = fd_bincode_{simpletypes[self.element]}_encode(self->{self.name} + i, ctx);', file=body)
         else:
-            print(f'  for (ulong i = 0; i < {length}; ++i) {{', file=body)
-            if self.element in simpletypes:
-                print(f'    err = fd_bincode_{simpletypes[self.element]}_encode(self->{self.name} + i, ctx);', file=body)
-            else:
-                print(f'    err = {namespace}_{self.element}_encode(self->{self.name} + i, ctx);', file=body)
-            print('    if ( FD_UNLIKELY(err) ) return err;', file=body)
-            print('  }', file=body)
+            print(f'    err = {namespace}_{self.element}_encode(self->{self.name} + i, ctx);', file=body)
+        print('    if ( FD_UNLIKELY(err) ) return err;', file=body)
+        print('  }', file=body)
 
     def emitSize(self, inner):
         length = self.length
@@ -1109,7 +1101,6 @@ class ArrayMember:
 
         print(f'  fun(w, NULL, "{self.name}", FD_FLAMENCO_TYPE_ARR, "{self.element}[]", level++);', file=body)
         print(f'  for (ulong i = 0; i < {length}; ++i)', file=body)
-
         if self.element in VectorMember.emitWalkMap:
             body.write("  ")
             VectorMember.emitWalkMap[self.element](self.name)
