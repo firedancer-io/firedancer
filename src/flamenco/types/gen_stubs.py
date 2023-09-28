@@ -32,6 +32,19 @@ preambletypes = set()
 postambletypes = set()
 indent = ''
 
+# Map from primitive types to bincode function names
+simpletypes = dict()
+for t,t2 in [("char","int8"),
+             ("uchar","uint8"),
+             ("double","double"),
+             ("short","int16"),
+             ("ushort","uint16"),
+             ("int","int32"),
+             ("uint","uint32"),
+             ("long","int64"),
+             ("ulong","uint64")]:
+    simpletypes[t] = t2
+
 class PrimitiveMember:
     def __init__(self, container, json):
         self.name = json["name"]
@@ -237,12 +250,7 @@ class VectorMember:
             print(f'  ushort {self.name}_len;', file=header)
         else:
             print(f'  ulong {self.name}_len;', file=header)
-
-        if self.element == "uchar":
-            print(f'  {self.element}* {self.name};', file=header)
-        elif self.element == "ulong":
-            print(f'  {self.element}* {self.name};', file=header)
-        elif self.element == "uint":
+        if self.element in simpletypes:
             print(f'  {self.element}* {self.name};', file=header)
         else:
             print(f'  {namespace}_{self.element}_t* {self.name};', file=header)
@@ -252,11 +260,7 @@ class VectorMember:
 
     def emitDestroy(self):
         print(f'  if (NULL != self->{self.name}) {{', file=body)
-        if self.element == "uchar":
-            pass
-        elif self.element == "ulong":
-            pass
-        elif self.element == "uint":
+        if self.element in simpletypes:
             pass
         else:
             print(f'    for (ulong i = 0; i < self->{self.name}_len; ++i)', file=body)
@@ -281,21 +285,15 @@ class VectorMember:
             print(f'    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
 
         else:
-            if self.element == "ulong":
-                print(f'    self->{self.name} = fd_valloc_malloc( ctx->valloc, 8UL, sizeof(ulong)*self->{self.name}_len );', file=body)
-            elif self.element == "uint":
-                print(f'    self->{self.name} = fd_valloc_malloc( ctx->valloc, 8UL, sizeof(uint)*self->{self.name}_len );', file=body)
-            elif self.element == "ushort":
-                print(f'    self->{self.name} = fd_valloc_malloc( ctx->valloc, 8UL, sizeof(ushort)*self->{self.name}_len );', file=body)
+            if self.element in simpletypes:
+                print(f'    self->{self.name} = fd_valloc_malloc( ctx->valloc, 8UL, sizeof({self.element})*self->{self.name}_len );', file=body)
             else:
                 print(f'    self->{self.name} = ({namespace}_{self.element}_t *)fd_valloc_malloc( ctx->valloc, {el}_ALIGN, {el}_FOOTPRINT*self->{self.name}_len);', file=body)
 
             print(f'    for( ulong i = 0; i < self->{self.name}_len; ++i) {{', file=body)
 
-            if self.element == "ulong":
-                print(f'      err = fd_bincode_uint64_decode(self->{self.name} + i, ctx);', file=body)
-            elif self.element == "uint":
-                print(f'      err = fd_bincode_uint32_decode(self->{self.name} + i, ctx);', file=body)
+            if self.element in simpletypes:
+                print(f'      err = fd_bincode_{simpletypes[self.element]}_decode(self->{self.name} + i, ctx);', file=body)
             else:
                 print(f'      {namespace}_{self.element}_new(self->{self.name} + i);', file=body)
                 print(f'    }}', file=body)
@@ -323,10 +321,8 @@ class VectorMember:
         else:
             print(f'    for (ulong i = 0; i < self->{self.name}_len; ++i) {{', file=body)
 
-            if self.element == "ulong":
-                print(f'      err = fd_bincode_uint64_encode(self->{self.name} + i, ctx);', file=body)
-            elif self.element == "uint":
-                print(f'      err = fd_bincode_uint32_encode(self->{self.name} + i, ctx);', file=body)
+            if self.element in simpletypes:
+                print(f'      err = fd_bincode_{simpletypes[self.element]}_encode(self->{self.name} + i, ctx);', file=body)
             else:
                 print(f'      err = {namespace}_{self.element}_encode(self->{self.name} + i, ctx);', file=body)
                 print('      if ( FD_UNLIKELY(err) ) return err;', file=body)
@@ -343,10 +339,8 @@ class VectorMember:
             print('  size += sizeof(ulong);', file=body)
         if self.element == "uchar":
             print(f'  size += self->{self.name}_len;', file=body)
-        elif self.element == "ulong":
-            print(f'  size += self->{self.name}_len * sizeof(ulong);', file=body)
-        elif self.element == "uint":
-            print(f'  size += self->{self.name}_len * sizeof(uint);', file=body)
+        elif self.element in simpletypes:
+            print(f'  size += self->{self.name}_len * sizeof({self.element});', file=body)
         else:
             print(f'  for (ulong i = 0; i < self->{self.name}_len; ++i)', file=body)
             print(f'    size += {namespace}_{self.element}_size(self->{self.name} + i);', file=body)
@@ -446,11 +440,7 @@ class DequeMember:
 
     def emitDestroy(self):
         print(f'  if ( self->{self.name} ) {{', file=body)
-        if self.element == "uchar":
-            pass
-        elif self.element == "ulong":
-            pass
-        elif self.element == "uint":
+        if self.element in simpletypes:
             pass
         else:
             print(f'    for ( {self.prefix()}_iter_t iter = {self.prefix()}_iter_init( self->{self.name} ); !{self.prefix()}_iter_done( self->{self.name}, iter ); iter = {self.prefix()}_iter_next( self->{self.name}, iter ) ) {{', file=body)
@@ -478,10 +468,8 @@ class DequeMember:
         print(f'  for (ulong i = 0; i < {self.name}_len; ++i) {{', file=body)
         print(f'    {self.elem_type()} * elem = {self.prefix()}_push_tail_nocopy(self->{self.name});', file=body);
 
-        if self.element == "ulong":
-            print(f'    err = fd_bincode_uint64_decode(elem, ctx);', file=body)
-        elif self.element == "uint":
-            print(f'    err = fd_bincode_uint32_decode(elem, ctx);', file=body)
+        if self.element in simpletypes:
+            print(f'    err = fd_bincode_{simpletypes[self.element]}_decode(elem, ctx);', file=body)
         else:
             print(f'    {namespace}_{self.element}_new(elem);', file=body)
             print(f'    err = {namespace}_{self.element}_decode(elem, ctx);', file=body)
@@ -503,12 +491,8 @@ class DequeMember:
         print(f'    for ( {self.prefix()}_iter_t iter = {self.prefix()}_iter_init( self->{self.name} ); !{self.prefix()}_iter_done( self->{self.name}, iter ); iter = {self.prefix()}_iter_next( self->{self.name}, iter ) ) {{', file=body)
         print(f'      {self.elem_type()} * ele = {self.prefix()}_iter_ele( self->{self.name}, iter );', file=body)
 
-        if self.element == "uchar":
-            print('      err = fd_bincode_uint8_encode(ele, ctx);', file=body)
-        elif self.element == "ulong":
-            print('      err = fd_bincode_uint64_encode(ele, ctx);', file=body)
-        elif self.element == "uint":
-            print('      err = fd_bincode_uint32_encode(ele, ctx);', file=body)
+        if self.element in simpletypes:
+            print(f'      err = fd_bincode_{simpletypes[self.element]}_encode(ele, ctx);', file=body)
         else:
             print(f'      err = {namespace}_{self.element}_encode(ele, ctx);', file=body)
             print('      if ( FD_UNLIKELY(err) ) return err;', file=body)
@@ -537,12 +521,9 @@ class DequeMember:
         if self.element == "uchar":
             print(f'    ulong {self.name}_len = {self.prefix()}_cnt(self->{self.name});', file=body)
             print(f'    size += {self.name}_len;', file=body)
-        elif self.element == "ulong":
+        elif self.element in simpletypes:
             print(f'    ulong {self.name}_len = {self.prefix()}_cnt(self->{self.name});', file=body)
-            print(f'    size += {self.name}_len * sizeof(ulong);', file=body)
-        elif self.element == "uint":
-            print(f'    ulong {self.name}_len = {self.prefix()}_cnt(self->{self.name});', file=body)
-            print(f'    size += {self.name}_len * sizeof(uint);', file=body)
+            print(f'    size += {self.name}_len * sizeof({self.element});', file=body)
         else:
             print(f'    for ( {self.prefix()}_iter_t iter = {self.prefix()}_iter_init( self->{self.name} ); !{self.prefix()}_iter_done( self->{self.name}, iter ); iter = {self.prefix()}_iter_next( self->{self.name}, iter ) ) {{', file=body)
             print(f'      {self.elem_type()} * ele = {self.prefix()}_iter_ele( self->{self.name}, iter );', file=body)
@@ -954,9 +935,7 @@ class OptionMember:
         pass
 
     def emitMember(self):
-        if self.element == "ulong":
-            print(f'  {self.element}* {self.name};', file=header)
-        elif self.element == "uint":
+        if self.element in simpletypes:
             print(f'  {self.element}* {self.name};', file=header)
         else:
             print(f'  {namespace}_{self.element}_t* {self.name};', file=header)
@@ -966,9 +945,7 @@ class OptionMember:
 
     def emitDestroy(self):
         print(f'  if (NULL != self->{self.name}) {{', file=body)
-        if self.element == "ulong":
-            pass
-        elif self.element == "uint":
+        if self.element in simpletypes:
             pass
         else:
             print(f'    {namespace}_{self.element}_destroy(self->{self.name}, ctx);', file=body)
@@ -983,12 +960,9 @@ class OptionMember:
         print('    err = fd_bincode_option_decode( &o, ctx );', file=body)
         print('    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
         print('    if( o ) {', file=body)
-        if self.element == "ulong":
-            print(f'      self->{self.name} = fd_valloc_malloc( ctx->valloc, 8, sizeof(ulong) );', file=body)
-            print(f'      err = fd_bincode_uint64_decode( self->{self.name}, ctx );', file=body)
-        elif self.element == "uint":
-            print(f'      self->{self.name} = fd_valloc_malloc( ctx->valloc, 8, sizeof(uint) );', file=body)
-            print(f'      err = fd_bincode_uint32_decode( self->{self.name}, ctx );', file=body)
+        if self.element in simpletypes:
+            print(f'      self->{self.name} = fd_valloc_malloc( ctx->valloc, 8, sizeof({self.element}) );', file=body)
+            print(f'      err = fd_bincode_{simpletypes[self.element]}_decode( self->{self.name}, ctx );', file=body)
         else:
             el = f'{namespace}_{self.element}'
             el = el.upper()
@@ -1005,10 +979,8 @@ class OptionMember:
         print('    err = fd_bincode_option_encode(1, ctx);', file=body)
         print('    if ( FD_UNLIKELY(err) ) return err;', file=body)
 
-        if self.element == "ulong":
-            print(f'    err = fd_bincode_uint64_encode(self->{self.name}, ctx);', file=body)
-        elif self.element == "uint":
-            print(f'    err = fd_bincode_uint32_encode(self->{self.name}, ctx);', file=body)
+        if self.element in simpletypes:
+            print(f'    err = fd_bincode_{simpletypes[self.element]}_encode(self->{self.name}, ctx);', file=body)
         else:
             print(f'    err = {namespace}_{self.element}_encode(self->{self.name}, ctx);', file=body)
         print('    if ( FD_UNLIKELY(err) ) return err;', file=body)
@@ -1020,11 +992,8 @@ class OptionMember:
     def emitSize(self, inner):
         print('  size += sizeof(char);', file=body)
         print(f'  if (NULL !=  self->{self.name}) {{', file=body)
-
-        if self.element == "ulong":
-            print('    size += sizeof(ulong);', file=body)
-        elif self.element == "uint":
-            print('    size += sizeof(uint);', file=body)
+        if self.element in simpletypes:
+            print(f'    size += sizeof({self.element});', file=body)
         else:
             print(f'    size += {namespace}_{self.element}_size(self->{self.name});', file=body)
         print('  }', file=body)
@@ -1066,23 +1035,14 @@ class ArrayMember:
         pass
 
     def emitMember(self):
-        if self.element == "uchar":
-            print(f'  {self.element} {self.name}[{self.length}];', file=header)
-        elif self.element == "ulong":
-            print(f'  {self.element} {self.name}[{self.length}];', file=header)
-        elif self.element == "uint":
+        if self.element in simpletypes:
             print(f'  {self.element} {self.name}[{self.length}];', file=header)
         else:
             print(f'  {namespace}_{self.element}_t {self.name}[{self.length}];', file=header)
 
     def emitNew(self):
         length = self.length
-
-        if self.element == "uchar":
-            pass
-        elif self.element == "ulong":
-            pass
-        elif self.element == "uint":
+        if self.element in simpletypes:
             pass
         else:
             print(f'  for (ulong i = 0; i < {length}; ++i)', file=body)
@@ -1091,11 +1051,7 @@ class ArrayMember:
     def emitDestroy(self):
         length = self.length
 
-        if self.element == "uchar":
-            pass
-        elif self.element == "ulong":
-            pass
-        elif self.element == "uint":
+        if self.element in simpletypes:
             pass
         else:
             print(f'  for (ulong i = 0; i < {length}; ++i)', file=body)
@@ -1110,15 +1066,11 @@ class ArrayMember:
             return
 
         print(f'  for (ulong i = 0; i < {length}; ++i) {{', file=body)
-
-        if self.element == "ulong":
-            print(f'    err = fd_bincode_uint64_decode(self->{self.name} + i, ctx);', file=body)
-        elif self.element == "uint":
-            print(f'    err = fd_bincode_uint32_decode(self->{self.name} + i, ctx);', file=body)
+        if self.element in simpletypes:
+            print(f'    err = fd_bincode_{simpletypes[self.element]}_decode(self->{self.name} + i, ctx);', file=body)
         else:
             print(f'    err = {namespace}_{self.element}_decode(self->{self.name} + i, ctx);', file=body)
         print('    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
-
         print('  }', file=body)
 
     def emitEncode(self):
@@ -1130,15 +1082,11 @@ class ArrayMember:
 
         else:
             print(f'  for (ulong i = 0; i < {length}; ++i) {{', file=body)
-
-            if self.element == "ulong":
-                print(f'    err = fd_bincode_uint64_encode(self->{self.name} + i, ctx);', file=body)
-            elif self.element == "uint":
-                print(f'    err = fd_bincode_uint32_encode(self->{self.name} + i, ctx);', file=body)
+            if self.element in simpletypes:
+                print(f'    err = fd_bincode_{simpletypes[self.element]}_encode(self->{self.name} + i, ctx);', file=body)
             else:
                 print(f'    err = {namespace}_{self.element}_encode(self->{self.name} + i, ctx);', file=body)
             print('    if ( FD_UNLIKELY(err) ) return err;', file=body)
-
             print('  }', file=body)
 
     def emitSize(self, inner):
@@ -1146,10 +1094,8 @@ class ArrayMember:
 
         if self.element == "uchar":
             print(f'  size += {length};', file=body)
-        elif self.element == "ulong":
-            print(f'  size += {length} * sizeof(ulong);', file=body)
-        elif self.element == "uint":
-            print(f'  size += {length} * sizeof(uint);', file=body)
+        elif self.element in simpletypes:
+            print(f'  size += {length} * sizeof({self.element});', file=body)
         else:
             print(f'  for (ulong i = 0; i < {length}; ++i)', file=body)
             print(f'    size += {namespace}_{self.element}_size(self->{self.name} + i);', file=body)
