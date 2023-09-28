@@ -416,11 +416,13 @@ fd_quic_gen_new_keys(
   }
 
   if( FD_UNLIKELY( EVP_CipherInit_ex( pkt_cipher_ctx, suite->pkt_cipher, NULL, NULL, NULL, 1 /* encryption */ ) != 1 ) ) {
-    FD_LOG_ERR(( "fd_quic_crypto_encrypt: EVP_CipherInit_ex failed" ));
+    FD_LOG_WARNING(( "fd_quic_crypto_encrypt: EVP_CipherInit_ex failed" ));
+    return FD_QUIC_FAILED;
   }
 
   if( FD_UNLIKELY( EVP_CIPHER_CTX_ctrl( pkt_cipher_ctx, EVP_CTRL_AEAD_SET_IVLEN, FD_QUIC_NONCE_SZ, NULL ) != 1 ) ) {
-    FD_LOG_ERR(( "fd_quic_crypto_encrypt: EVP_CIPHER_CTX_ctrl failed" ));
+    FD_LOG_WARNING(( "fd_quic_crypto_encrypt: EVP_CIPHER_CTX_ctrl failed" ));
+    return FD_QUIC_FAILED;
   }
 
   keys->pkt_cipher_ctx = pkt_cipher_ctx;
@@ -685,17 +687,6 @@ fd_quic_crypto_decrypt(
     return FD_QUIC_FAILED;
   }
 
-  if( FD_UNLIKELY( EVP_DecryptInit_ex( cipher_ctx, suite->pkt_cipher, NULL, keys->pkt_key, nonce ) != 1 ) ) {
-    return FD_QUIC_FAILED;
-  }
-
-  /* auth data added with NULL output - still require out length */
-  int tmp = 0;
-  if( FD_UNLIKELY( EVP_DecryptUpdate( cipher_ctx, NULL, &tmp, hdr, (int)hdr_sz ) != 1 ) ) {
-    FD_DEBUG( FD_LOG_WARNING(( "fd_quic_crypto_decrypt: EVP_DecryptUpdate failed auth_data" )) );
-    return FD_QUIC_FAILED;
-  }
-
   int i_block_sz = EVP_CIPHER_block_size( suite->pkt_cipher );
   if( FD_UNLIKELY( FD_UNLIKELY( i_block_sz < 0 ) ) ) {
     /* logic error - crash */
@@ -705,6 +696,21 @@ fd_quic_crypto_decrypt(
   ulong block_sz = (ulong)i_block_sz;
   if( FD_UNLIKELY( cipher_text_sz + block_sz > *plain_text_sz + hdr_sz + FD_QUIC_CRYPTO_TAG_SZ ) ) {
     /* do not crash here as remotely triggerable */
+    return FD_QUIC_FAILED;
+  }
+
+  if( FD_UNLIKELY( cipher_text_sz  < hdr_sz + FD_QUIC_CRYPTO_TAG_SZ ) ) {
+    return FD_QUIC_FAILED;
+  }
+
+  if( FD_UNLIKELY( EVP_DecryptInit_ex( cipher_ctx, suite->pkt_cipher, NULL, keys->pkt_key, nonce ) != 1 ) ) {
+    return FD_QUIC_FAILED;
+  }
+
+  /* auth data added with NULL output - still require out length */
+  int tmp = 0;
+  if( FD_UNLIKELY( EVP_DecryptUpdate( cipher_ctx, NULL, &tmp, hdr, (int)hdr_sz ) != 1 ) ) {
+    FD_DEBUG( FD_LOG_WARNING(( "fd_quic_crypto_decrypt: EVP_DecryptUpdate failed auth_data" )) );
     return FD_QUIC_FAILED;
   }
 

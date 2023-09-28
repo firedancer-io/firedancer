@@ -213,7 +213,7 @@ int LLVMFuzzerTestOneInput(uchar const *data, ulong size) {
   fd_quic_init(server_quic);
 
   while (s > 2) {
-    ushort payload_sz = *(ushort *)ptr;
+    ushort payload_sz = (ushort)( ptr[0] + ( ptr[1] << 8u ) );
     ptr += 2;
     s -= 2;
     if (payload_sz <= s) {
