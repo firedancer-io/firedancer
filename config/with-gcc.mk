@@ -9,3 +9,9 @@ CPPFLAGS+=-DFD_USING_GCC=1
 
 FD_USING_GCC:=1
 
+# Check for GCC version and disable -Wdangling-pointer if we are using 
+# gcc 13 as it is giving a false positive 
+ifeq "$(CC_MAJOR_VERSION)" "13"
+CPPFLAGS+="-Wno-dangling-pointer"
+endif
+
