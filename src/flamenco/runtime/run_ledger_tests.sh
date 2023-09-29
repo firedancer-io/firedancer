@@ -70,15 +70,21 @@ fi
 
 log=/tmp/ledger_log$$
 
-"$OBJDIR"/unit-test/test_runtime \
-  --load test_ledger_backup \
+ARGS=" --load test_ledger_backup \
   --cmd replay \
   --gaddr `cat gaddr` \
   --pages 1 \
   --validate true \
   --abort-on-mismatch 1 \
   --capture test.solcap \
-  --end-slot 931 >& $log
+  --end-slot 993"
+
+if [ -e dump/$LEDGER/capitalization.csv ]
+then
+  ARGS="$ARGS --cap dump/$LEDGER/capitalization.csv"
+fi
+
+"$OBJDIR"/unit-test/test_runtime $ARGS >& $log
 
 status=$?
 
