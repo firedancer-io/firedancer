@@ -3286,7 +3286,7 @@ void fd_lockout_offset_walk(void * w, fd_lockout_offset_t const * self, fd_types
 }
 ulong fd_lockout_offset_size(fd_lockout_offset_t const * self) {
   ulong size = 0;
-  size += sizeof(ulong);
+  size += fd_bincode_varint_size(self->offset);
   size += sizeof(char);
   return size;
 }
@@ -4443,13 +4443,19 @@ int fd_vote_state_versioned_inner_decode(fd_vote_state_versioned_inner_t* self, 
   int err;
   switch (discriminant) {
   case 0: {
-    return fd_vote_state_0_23_5_decode(&self->v0_23_5, ctx);
+    err = fd_vote_state_0_23_5_decode(&self->v0_23_5, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 1: {
-    return fd_vote_state_1_14_11_decode(&self->v1_14_11, ctx);
+    err = fd_vote_state_1_14_11_decode(&self->v1_14_11, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 2: {
-    return fd_vote_state_decode(&self->current, ctx);
+    err = fd_vote_state_decode(&self->current, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
   }
   default: return FD_BINCODE_ERR_ENCODING;
   }
@@ -4510,7 +4516,6 @@ ulong fd_vote_state_versioned_align( void ){ return FD_VOTE_STATE_VERSIONED_ALIG
 
 void fd_vote_state_versioned_walk(void * w, fd_vote_state_versioned_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_vote_state_versioned", level++);
-  // enum fd_vote_block_timestamp_walk(w, &self->last_timestamp, fun, "last_timestamp", level);
   switch (self->discriminant) {
   case 0: {
     fd_vote_state_0_23_5_walk(w, &self->inner.v0_23_5, fun, "v0_23_5", level);
@@ -4805,7 +4810,8 @@ void fd_compact_vote_state_update_walk(void * w, fd_compact_vote_state_update_t 
 ulong fd_compact_vote_state_update_size(fd_compact_vote_state_update_t const * self) {
   ulong size = 0;
   size += sizeof(ulong);
-  size += sizeof(ulong);
+  ushort tmp = (ushort)self->lockouts_len;
+  size += fd_bincode_compact_u16_size(&tmp);
   for (ulong i = 0; i < self->lockouts_len; ++i)
     size += fd_lockout_offset_size(self->lockouts + i);
   size += fd_hash_size(&self->hash);
@@ -5745,7 +5751,8 @@ void fd_stake_config_walk(void * w, fd_stake_config_t const * self, fd_types_wal
 }
 ulong fd_stake_config_size(fd_stake_config_t const * self) {
   ulong size = 0;
-  size += sizeof(ulong);
+  ushort tmp = (ushort)self->config_keys_len;
+  size += fd_bincode_compact_u16_size(&tmp);
   for (ulong i = 0; i < self->config_keys_len; ++i)
     size += fd_config_keys_pair_size(self->config_keys + i);
   size += sizeof(double);
@@ -6137,18 +6144,6 @@ void fd_reward_type_new(fd_reward_type_t* self) {
 }
 void fd_reward_type_inner_destroy(fd_reward_type_inner_t* self, uint discriminant, fd_bincode_destroy_ctx_t * ctx) {
   switch (discriminant) {
-  case 0: {
-    break;
-  }
-  case 1: {
-    break;
-  }
-  case 2: {
-    break;
-  }
-  case 3: {
-    break;
-  }
   default: break; // FD_LOG_ERR(( "unhandled type" ));
   }
 }
@@ -6161,7 +6156,6 @@ ulong fd_reward_type_align( void ){ return FD_REWARD_TYPE_ALIGN; }
 
 void fd_reward_type_walk(void * w, fd_reward_type_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_reward_type", level++);
-  // enum fd_double_walk(w, &self->foundation_rate, fun, "foundation_rate", level);
   switch (self->discriminant) {
   }
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_reward_type", level--);
@@ -6511,12 +6505,6 @@ void fd_vote_authorize_new(fd_vote_authorize_t* self) {
 }
 void fd_vote_authorize_inner_destroy(fd_vote_authorize_inner_t* self, uint discriminant, fd_bincode_destroy_ctx_t * ctx) {
   switch (discriminant) {
-  case 0: {
-    break;
-  }
-  case 1: {
-    break;
-  }
   default: break; // FD_LOG_ERR(( "unhandled type" ));
   }
 }
@@ -6529,7 +6517,6 @@ ulong fd_vote_authorize_align( void ){ return FD_VOTE_AUTHORIZE_ALIGN; }
 
 void fd_vote_authorize_walk(void * w, fd_vote_authorize_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_vote_authorize", level++);
-  // enum fd_uchar_walk(w, &self->commission, fun, "commission", level);
   switch (self->discriminant) {
   }
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_vote_authorize", level--);
@@ -6859,17 +6846,23 @@ int fd_vote_instruction_inner_decode(fd_vote_instruction_inner_t* self, uint dis
   int err;
   switch (discriminant) {
   case 0: {
-    return fd_vote_init_decode(&self->initialize_account, ctx);
+    err = fd_vote_init_decode(&self->initialize_account, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 1: {
-    return fd_vote_authorize_pubkey_decode(&self->authorize, ctx);
+    err = fd_vote_authorize_pubkey_decode(&self->authorize, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 2: {
-    return fd_vote_decode(&self->vote, ctx);
+    err = fd_vote_decode(&self->vote, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 3: {
     err = fd_bincode_uint64_decode(&self->withdraw, ctx);
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     return FD_BINCODE_SUCCESS;
   }
   case 4: {
@@ -6881,28 +6874,44 @@ int fd_vote_instruction_inner_decode(fd_vote_instruction_inner_t* self, uint dis
     return FD_BINCODE_SUCCESS;
   }
   case 6: {
-    return fd_vote_switch_decode(&self->vote_switch, ctx);
+    err = fd_vote_switch_decode(&self->vote_switch, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 7: {
-    return fd_vote_authorize_decode(&self->authorize_checked, ctx);
+    err = fd_vote_authorize_decode(&self->authorize_checked, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 8: {
-    return fd_vote_state_update_decode(&self->update_vote_state, ctx);
+    err = fd_vote_state_update_decode(&self->update_vote_state, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 9: {
-    return fd_update_vote_state_switch_decode(&self->update_vote_state_switch, ctx);
+    err = fd_update_vote_state_switch_decode(&self->update_vote_state_switch, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 10: {
-    return fd_vote_authorize_with_seed_args_decode(&self->authorize_with_seed, ctx);
+    err = fd_vote_authorize_with_seed_args_decode(&self->authorize_with_seed, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 11: {
-    return fd_vote_authorize_checked_with_seed_args_decode(&self->authorize_checked_with_seed, ctx);
+    err = fd_vote_authorize_checked_with_seed_args_decode(&self->authorize_checked_with_seed, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 12: {
-    return fd_compact_vote_state_update_decode(&self->compact_update_vote_state, ctx);
+    err = fd_compact_vote_state_update_decode(&self->compact_update_vote_state, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 13: {
-    return fd_compact_vote_state_update_switch_decode(&self->compact_update_vote_state_switch, ctx);
+    err = fd_compact_vote_state_update_switch_decode(&self->compact_update_vote_state_switch, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
   }
   default: return FD_BINCODE_ERR_ENCODING;
   }
@@ -6995,9 +7004,6 @@ void fd_vote_instruction_inner_destroy(fd_vote_instruction_inner_t* self, uint d
   case 3: {
     break;
   }
-  case 4: {
-    break;
-  }
   case 5: {
     break;
   }
@@ -7045,7 +7051,6 @@ ulong fd_vote_instruction_align( void ){ return FD_VOTE_INSTRUCTION_ALIGN; }
 
 void fd_vote_instruction_walk(void * w, fd_vote_instruction_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_vote_instruction", level++);
-  // enum fd_char*_walk(w, &self->current_authority_derived_key_seed, fun, "current_authority_derived_key_seed", level);
   switch (self->discriminant) {
   case 0: {
     fd_vote_init_walk(w, &self->inner.initialize_account, fun, "initialize_account", level);
@@ -7182,7 +7187,7 @@ int fd_vote_instruction_inner_encode(fd_vote_instruction_inner_t const * self, u
   }
   case 3: {
     err = fd_bincode_uint64_encode(&self->withdraw, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
+    if ( FD_UNLIKELY(err) ) return err;
     break;
   }
   case 5: {
@@ -7592,46 +7597,62 @@ int fd_system_program_instruction_inner_decode(fd_system_program_instruction_inn
   int err;
   switch (discriminant) {
   case 0: {
-    return fd_system_program_instruction_create_account_decode(&self->create_account, ctx);
+    err = fd_system_program_instruction_create_account_decode(&self->create_account, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 1: {
-    return fd_pubkey_decode(&self->assign, ctx);
+    err = fd_pubkey_decode(&self->assign, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 2: {
     err = fd_bincode_uint64_decode(&self->transfer, ctx);
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     return FD_BINCODE_SUCCESS;
   }
   case 3: {
-    return fd_system_program_instruction_create_account_with_seed_decode(&self->create_account_with_seed, ctx);
+    err = fd_system_program_instruction_create_account_with_seed_decode(&self->create_account_with_seed, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 4: {
     return FD_BINCODE_SUCCESS;
   }
   case 5: {
     err = fd_bincode_uint64_decode(&self->withdraw_nonce_account, ctx);
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     return FD_BINCODE_SUCCESS;
   }
   case 6: {
-    return fd_pubkey_decode(&self->initialize_nonce_account, ctx);
+    err = fd_pubkey_decode(&self->initialize_nonce_account, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 7: {
-    return fd_pubkey_decode(&self->authorize_nonce_account, ctx);
+    err = fd_pubkey_decode(&self->authorize_nonce_account, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 8: {
     err = fd_bincode_uint64_decode(&self->allocate, ctx);
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     return FD_BINCODE_SUCCESS;
   }
   case 9: {
-    return fd_system_program_instruction_allocate_with_seed_decode(&self->allocate_with_seed, ctx);
+    err = fd_system_program_instruction_allocate_with_seed_decode(&self->allocate_with_seed, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 10: {
-    return fd_system_program_instruction_assign_with_seed_decode(&self->assign_with_seed, ctx);
+    err = fd_system_program_instruction_assign_with_seed_decode(&self->assign_with_seed, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 11: {
-    return fd_system_program_instruction_transfer_with_seed_decode(&self->transfer_with_seed, ctx);
+    err = fd_system_program_instruction_transfer_with_seed_decode(&self->transfer_with_seed, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 12: {
     return FD_BINCODE_SUCCESS;
@@ -7721,9 +7742,6 @@ void fd_system_program_instruction_inner_destroy(fd_system_program_instruction_i
     fd_system_program_instruction_create_account_with_seed_destroy(&self->create_account_with_seed, ctx);
     break;
   }
-  case 4: {
-    break;
-  }
   case 5: {
     break;
   }
@@ -7750,9 +7768,6 @@ void fd_system_program_instruction_inner_destroy(fd_system_program_instruction_i
     fd_system_program_instruction_transfer_with_seed_destroy(&self->transfer_with_seed, ctx);
     break;
   }
-  case 12: {
-    break;
-  }
   default: break; // FD_LOG_ERR(( "unhandled type" ));
   }
 }
@@ -7765,7 +7780,6 @@ ulong fd_system_program_instruction_align( void ){ return FD_SYSTEM_PROGRAM_INST
 
 void fd_system_program_instruction_walk(void * w, fd_system_program_instruction_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_system_program_instruction", level++);
-  // enum fd_pubkey_walk(w, &self->from_owner, fun, "from_owner", level);
   switch (self->discriminant) {
   case 0: {
     fd_system_program_instruction_create_account_walk(w, &self->inner.create_account, fun, "create_account", level);
@@ -7881,7 +7895,7 @@ int fd_system_program_instruction_inner_encode(fd_system_program_instruction_inn
   }
   case 2: {
     err = fd_bincode_uint64_encode(&self->transfer, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
+    if ( FD_UNLIKELY(err) ) return err;
     break;
   }
   case 3: {
@@ -7891,7 +7905,7 @@ int fd_system_program_instruction_inner_encode(fd_system_program_instruction_inn
   }
   case 5: {
     err = fd_bincode_uint64_encode(&self->withdraw_nonce_account, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
+    if ( FD_UNLIKELY(err) ) return err;
     break;
   }
   case 6: {
@@ -7906,7 +7920,7 @@ int fd_system_program_instruction_inner_encode(fd_system_program_instruction_inn
   }
   case 8: {
     err = fd_bincode_uint64_encode(&self->allocate, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
+    if ( FD_UNLIKELY(err) ) return err;
     break;
   }
   case 9: {
@@ -8043,33 +8057,6 @@ void fd_system_error_new(fd_system_error_t* self) {
 }
 void fd_system_error_inner_destroy(fd_system_error_inner_t* self, uint discriminant, fd_bincode_destroy_ctx_t * ctx) {
   switch (discriminant) {
-  case 0: {
-    break;
-  }
-  case 1: {
-    break;
-  }
-  case 2: {
-    break;
-  }
-  case 3: {
-    break;
-  }
-  case 4: {
-    break;
-  }
-  case 5: {
-    break;
-  }
-  case 6: {
-    break;
-  }
-  case 7: {
-    break;
-  }
-  case 8: {
-    break;
-  }
   default: break; // FD_LOG_ERR(( "unhandled type" ));
   }
 }
@@ -8082,7 +8069,6 @@ ulong fd_system_error_align( void ){ return FD_SYSTEM_ERROR_ALIGN; }
 
 void fd_system_error_walk(void * w, fd_system_error_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_system_error", level++);
-  // enum fd_pubkey_walk(w, &self->from_owner, fun, "from_owner", level);
   switch (self->discriminant) {
   }
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_system_error", level--);
@@ -8284,12 +8270,6 @@ void fd_stake_authorize_new(fd_stake_authorize_t* self) {
 }
 void fd_stake_authorize_inner_destroy(fd_stake_authorize_inner_t* self, uint discriminant, fd_bincode_destroy_ctx_t * ctx) {
   switch (discriminant) {
-  case 0: {
-    break;
-  }
-  case 1: {
-    break;
-  }
   default: break; // FD_LOG_ERR(( "unhandled type" ));
   }
 }
@@ -8302,7 +8282,6 @@ ulong fd_stake_authorize_align( void ){ return FD_STAKE_AUTHORIZE_ALIGN; }
 
 void fd_stake_authorize_walk(void * w, fd_stake_authorize_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_stake_authorize", level++);
-  // enum fd_stake_lockup_walk(w, &self->lockup, fun, "lockup", level);
   switch (self->discriminant) {
   }
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_stake_authorize", level--);
@@ -8773,47 +8752,61 @@ int fd_stake_instruction_inner_decode(fd_stake_instruction_inner_t* self, uint d
   int err;
   switch (discriminant) {
   case 0: {
-    return fd_stake_instruction_initialize_decode(&self->initialize, ctx);
+    err = fd_stake_instruction_initialize_decode(&self->initialize, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 1: {
-    return fd_stake_instruction_authorize_decode(&self->authorize, ctx);
+    err = fd_stake_instruction_authorize_decode(&self->authorize, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 2: {
     return FD_BINCODE_SUCCESS;
   }
   case 3: {
     err = fd_bincode_uint64_decode(&self->split, ctx);
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     return FD_BINCODE_SUCCESS;
   }
   case 4: {
     err = fd_bincode_uint64_decode(&self->withdraw, ctx);
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     return FD_BINCODE_SUCCESS;
   }
   case 5: {
     return FD_BINCODE_SUCCESS;
   }
   case 6: {
-    return fd_lockup_args_decode(&self->set_lockup, ctx);
+    err = fd_lockup_args_decode(&self->set_lockup, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 7: {
     return FD_BINCODE_SUCCESS;
   }
   case 8: {
-    return fd_authorize_with_seed_args_decode(&self->authorize_with_seed, ctx);
+    err = fd_authorize_with_seed_args_decode(&self->authorize_with_seed, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 9: {
     return FD_BINCODE_SUCCESS;
   }
   case 10: {
-    return fd_stake_authorize_decode(&self->authorize_checked, ctx);
+    err = fd_stake_authorize_decode(&self->authorize_checked, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 11: {
-    return fd_authorize_checked_with_seed_args_decode(&self->authorize_checked_with_seed, ctx);
+    err = fd_authorize_checked_with_seed_args_decode(&self->authorize_checked_with_seed, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 12: {
-    return fd_lockup_checked_args_decode(&self->set_lockup_checked, ctx);
+    err = fd_lockup_checked_args_decode(&self->set_lockup_checked, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 13: {
     return FD_BINCODE_SUCCESS;
@@ -8910,30 +8903,18 @@ void fd_stake_instruction_inner_destroy(fd_stake_instruction_inner_t* self, uint
     fd_stake_instruction_authorize_destroy(&self->authorize, ctx);
     break;
   }
-  case 2: {
-    break;
-  }
   case 3: {
     break;
   }
   case 4: {
     break;
   }
-  case 5: {
-    break;
-  }
   case 6: {
     fd_lockup_args_destroy(&self->set_lockup, ctx);
     break;
   }
-  case 7: {
-    break;
-  }
   case 8: {
     fd_authorize_with_seed_args_destroy(&self->authorize_with_seed, ctx);
-    break;
-  }
-  case 9: {
     break;
   }
   case 10: {
@@ -8948,15 +8929,6 @@ void fd_stake_instruction_inner_destroy(fd_stake_instruction_inner_t* self, uint
     fd_lockup_checked_args_destroy(&self->set_lockup_checked, ctx);
     break;
   }
-  case 13: {
-    break;
-  }
-  case 14: {
-    break;
-  }
-  case 15: {
-    break;
-  }
   default: break; // FD_LOG_ERR(( "unhandled type" ));
   }
 }
@@ -8969,7 +8941,6 @@ ulong fd_stake_instruction_align( void ){ return FD_STAKE_INSTRUCTION_ALIGN; }
 
 void fd_stake_instruction_walk(void * w, fd_stake_instruction_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_stake_instruction", level++);
-  // enum fd_option_walk(w, &self->epoch, fun, "epoch", level);
   switch (self->discriminant) {
   case 0: {
     fd_stake_instruction_initialize_walk(w, &self->inner.initialize, fun, "initialize", level);
@@ -9069,12 +9040,12 @@ int fd_stake_instruction_inner_encode(fd_stake_instruction_inner_t const * self,
   }
   case 3: {
     err = fd_bincode_uint64_encode(&self->split, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
+    if ( FD_UNLIKELY(err) ) return err;
     break;
   }
   case 4: {
     err = fd_bincode_uint64_encode(&self->withdraw, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
+    if ( FD_UNLIKELY(err) ) return err;
     break;
   }
   case 6: {
@@ -9266,10 +9237,14 @@ int fd_stake_state_inner_decode(fd_stake_state_inner_t* self, uint discriminant,
     return FD_BINCODE_SUCCESS;
   }
   case 1: {
-    return fd_stake_state_meta_decode(&self->initialized, ctx);
+    err = fd_stake_state_meta_decode(&self->initialized, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 2: {
-    return fd_stake_state_stake_decode(&self->stake, ctx);
+    err = fd_stake_state_stake_decode(&self->stake, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 3: {
     return FD_BINCODE_SUCCESS;
@@ -9311,18 +9286,12 @@ void fd_stake_state_new(fd_stake_state_t* self) {
 }
 void fd_stake_state_inner_destroy(fd_stake_state_inner_t* self, uint discriminant, fd_bincode_destroy_ctx_t * ctx) {
   switch (discriminant) {
-  case 0: {
-    break;
-  }
   case 1: {
     fd_stake_state_meta_destroy(&self->initialized, ctx);
     break;
   }
   case 2: {
     fd_stake_state_stake_destroy(&self->stake, ctx);
-    break;
-  }
-  case 3: {
     break;
   }
   default: break; // FD_LOG_ERR(( "unhandled type" ));
@@ -9337,7 +9306,6 @@ ulong fd_stake_state_align( void ){ return FD_STAKE_STATE_ALIGN; }
 
 void fd_stake_state_walk(void * w, fd_stake_state_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_stake_state", level++);
-  // enum fd_stake_walk(w, &self->stake, fun, "stake", level);
   switch (self->discriminant) {
   case 1: {
     fd_stake_state_meta_walk(w, &self->inner.initialized, fun, "initialized", level);
@@ -9455,7 +9423,9 @@ int fd_nonce_state_inner_decode(fd_nonce_state_inner_t* self, uint discriminant,
     return FD_BINCODE_SUCCESS;
   }
   case 1: {
-    return fd_nonce_data_decode(&self->initialized, ctx);
+    err = fd_nonce_data_decode(&self->initialized, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
   }
   default: return FD_BINCODE_ERR_ENCODING;
   }
@@ -9487,9 +9457,6 @@ void fd_nonce_state_new(fd_nonce_state_t* self) {
 }
 void fd_nonce_state_inner_destroy(fd_nonce_state_inner_t* self, uint discriminant, fd_bincode_destroy_ctx_t * ctx) {
   switch (discriminant) {
-  case 0: {
-    break;
-  }
   case 1: {
     fd_nonce_data_destroy(&self->initialized, ctx);
     break;
@@ -9506,7 +9473,6 @@ ulong fd_nonce_state_align( void ){ return FD_NONCE_STATE_ALIGN; }
 
 void fd_nonce_state_walk(void * w, fd_nonce_state_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_nonce_state", level++);
-  // enum fd_fee_calculator_walk(w, &self->fee_calculator, fun, "fee_calculator", level);
   switch (self->discriminant) {
   case 1: {
     fd_nonce_data_walk(w, &self->inner.initialized, fun, "initialized", level);
@@ -9557,10 +9523,14 @@ int fd_nonce_state_versions_inner_decode(fd_nonce_state_versions_inner_t* self, 
   int err;
   switch (discriminant) {
   case 0: {
-    return fd_nonce_state_decode(&self->legacy, ctx);
+    err = fd_nonce_state_decode(&self->legacy, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 1: {
-    return fd_nonce_state_decode(&self->current, ctx);
+    err = fd_nonce_state_decode(&self->current, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
   }
   default: return FD_BINCODE_ERR_ENCODING;
   }
@@ -9613,7 +9583,6 @@ ulong fd_nonce_state_versions_align( void ){ return FD_NONCE_STATE_VERSIONS_ALIG
 
 void fd_nonce_state_versions_walk(void * w, fd_nonce_state_versions_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_nonce_state_versions", level++);
-  // enum fd_fee_calculator_walk(w, &self->fee_calculator, fun, "fee_calculator", level);
   switch (self->discriminant) {
   case 0: {
     fd_nonce_state_walk(w, &self->inner.legacy, fun, "legacy", level);
@@ -9722,7 +9691,9 @@ int fd_compute_budget_program_instruction_inner_decode(fd_compute_budget_program
   int err;
   switch (discriminant) {
   case 0: {
-    return fd_compute_budget_program_instruction_request_units_deprecated_decode(&self->request_units_deprecated, ctx);
+    err = fd_compute_budget_program_instruction_request_units_deprecated_decode(&self->request_units_deprecated, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 1: {
     err = fd_bincode_uint32_decode(&self->request_heap_frame, ctx);
@@ -9736,7 +9707,7 @@ int fd_compute_budget_program_instruction_inner_decode(fd_compute_budget_program
   }
   case 3: {
     err = fd_bincode_uint64_decode(&self->set_compute_unit_price, ctx);
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     return FD_BINCODE_SUCCESS;
   }
   default: return FD_BINCODE_ERR_ENCODING;
@@ -9802,7 +9773,6 @@ ulong fd_compute_budget_program_instruction_align( void ){ return FD_COMPUTE_BUD
 
 void fd_compute_budget_program_instruction_walk(void * w, fd_compute_budget_program_instruction_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_compute_budget_program_instruction", level++);
-  // enum fd_uint_walk(w, &self->additional_fee, fun, "additional_fee", level);
   switch (self->discriminant) {
   case 0: {
     fd_compute_budget_program_instruction_request_units_deprecated_walk(w, &self->inner.request_units_deprecated, fun, "request_units_deprecated", level);
@@ -9867,7 +9837,7 @@ int fd_compute_budget_program_instruction_inner_encode(fd_compute_budget_program
   }
   case 3: {
     err = fd_bincode_uint64_encode(&self->set_compute_unit_price, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
+    if ( FD_UNLIKELY(err) ) return err;
     break;
   }
   }
@@ -9924,7 +9894,8 @@ void fd_config_keys_walk(void * w, fd_config_keys_t const * self, fd_types_walk_
 }
 ulong fd_config_keys_size(fd_config_keys_t const * self) {
   ulong size = 0;
-  size += sizeof(ulong);
+  ushort tmp = (ushort)self->keys_len;
+  size += fd_bincode_compact_u16_size(&tmp);
   for (ulong i = 0; i < self->keys_len; ++i)
     size += fd_config_keys_pair_size(self->keys + i);
   return size;
@@ -10009,7 +9980,9 @@ int fd_bpf_loader_program_instruction_inner_decode(fd_bpf_loader_program_instruc
   int err;
   switch (discriminant) {
   case 0: {
-    return fd_bpf_loader_program_instruction_write_decode(&self->write, ctx);
+    err = fd_bpf_loader_program_instruction_write_decode(&self->write, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 1: {
     return FD_BINCODE_SUCCESS;
@@ -10048,9 +10021,6 @@ void fd_bpf_loader_program_instruction_inner_destroy(fd_bpf_loader_program_instr
     fd_bpf_loader_program_instruction_write_destroy(&self->write, ctx);
     break;
   }
-  case 1: {
-    break;
-  }
   default: break; // FD_LOG_ERR(( "unhandled type" ));
   }
 }
@@ -10063,7 +10033,6 @@ ulong fd_bpf_loader_program_instruction_align( void ){ return FD_BPF_LOADER_PROG
 
 void fd_bpf_loader_program_instruction_walk(void * w, fd_bpf_loader_program_instruction_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_bpf_loader_program_instruction", level++);
-  // enum fd_vector_walk(w, &self->bytes, fun, "bytes", level);
   switch (self->discriminant) {
   case 0: {
     fd_bpf_loader_program_instruction_write_walk(w, &self->inner.write, fun, "write", level);
@@ -10177,7 +10146,9 @@ int fd_bpf_loader_v4_program_instruction_inner_decode(fd_bpf_loader_v4_program_i
   int err;
   switch (discriminant) {
   case 0: {
-    return fd_bpf_loader_v4_program_instruction_write_decode(&self->write, ctx);
+    err = fd_bpf_loader_v4_program_instruction_write_decode(&self->write, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 1: {
     err = fd_bincode_uint32_decode(&self->truncate, ctx);
@@ -10239,15 +10210,6 @@ void fd_bpf_loader_v4_program_instruction_inner_destroy(fd_bpf_loader_v4_program
   case 1: {
     break;
   }
-  case 2: {
-    break;
-  }
-  case 3: {
-    break;
-  }
-  case 4: {
-    break;
-  }
   default: break; // FD_LOG_ERR(( "unhandled type" ));
   }
 }
@@ -10260,7 +10222,6 @@ ulong fd_bpf_loader_v4_program_instruction_align( void ){ return FD_BPF_LOADER_V
 
 void fd_bpf_loader_v4_program_instruction_walk(void * w, fd_bpf_loader_v4_program_instruction_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_bpf_loader_v4_program_instruction", level++);
-  // enum fd_vector_walk(w, &self->bytes, fun, "bytes", level);
   switch (self->discriminant) {
   case 0: {
     fd_bpf_loader_v4_program_instruction_write_walk(w, &self->inner.write, fun, "write", level);
@@ -10465,10 +10426,14 @@ int fd_bpf_upgradeable_loader_program_instruction_inner_decode(fd_bpf_upgradeabl
     return FD_BINCODE_SUCCESS;
   }
   case 1: {
-    return fd_bpf_upgradeable_loader_program_instruction_write_decode(&self->write, ctx);
+    err = fd_bpf_upgradeable_loader_program_instruction_write_decode(&self->write, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 2: {
-    return fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len_decode(&self->deploy_with_max_data_len, ctx);
+    err = fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len_decode(&self->deploy_with_max_data_len, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 3: {
     return FD_BINCODE_SUCCESS;
@@ -10480,7 +10445,9 @@ int fd_bpf_upgradeable_loader_program_instruction_inner_decode(fd_bpf_upgradeabl
     return FD_BINCODE_SUCCESS;
   }
   case 6: {
-    return fd_bpf_upgradeable_loader_program_instruction_extend_program_decode(&self->extend_program, ctx);
+    err = fd_bpf_upgradeable_loader_program_instruction_extend_program_decode(&self->extend_program, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 7: {
     return FD_BINCODE_SUCCESS;
@@ -10535,9 +10502,6 @@ void fd_bpf_upgradeable_loader_program_instruction_new(fd_bpf_upgradeable_loader
 }
 void fd_bpf_upgradeable_loader_program_instruction_inner_destroy(fd_bpf_upgradeable_loader_program_instruction_inner_t* self, uint discriminant, fd_bincode_destroy_ctx_t * ctx) {
   switch (discriminant) {
-  case 0: {
-    break;
-  }
   case 1: {
     fd_bpf_upgradeable_loader_program_instruction_write_destroy(&self->write, ctx);
     break;
@@ -10546,20 +10510,8 @@ void fd_bpf_upgradeable_loader_program_instruction_inner_destroy(fd_bpf_upgradea
     fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len_destroy(&self->deploy_with_max_data_len, ctx);
     break;
   }
-  case 3: {
-    break;
-  }
-  case 4: {
-    break;
-  }
-  case 5: {
-    break;
-  }
   case 6: {
     fd_bpf_upgradeable_loader_program_instruction_extend_program_destroy(&self->extend_program, ctx);
-    break;
-  }
-  case 7: {
     break;
   }
   default: break; // FD_LOG_ERR(( "unhandled type" ));
@@ -10574,7 +10526,6 @@ ulong fd_bpf_upgradeable_loader_program_instruction_align( void ){ return FD_BPF
 
 void fd_bpf_upgradeable_loader_program_instruction_walk(void * w, fd_bpf_upgradeable_loader_program_instruction_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_bpf_upgradeable_loader_program_instruction", level++);
-  // enum fd_uint_walk(w, &self->additional_bytes, fun, "additional_bytes", level);
   switch (self->discriminant) {
   case 1: {
     fd_bpf_upgradeable_loader_program_instruction_write_walk(w, &self->inner.write, fun, "write", level);
@@ -10825,13 +10776,19 @@ int fd_bpf_upgradeable_loader_state_inner_decode(fd_bpf_upgradeable_loader_state
     return FD_BINCODE_SUCCESS;
   }
   case 1: {
-    return fd_bpf_upgradeable_loader_state_buffer_decode(&self->buffer, ctx);
+    err = fd_bpf_upgradeable_loader_state_buffer_decode(&self->buffer, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 2: {
-    return fd_bpf_upgradeable_loader_state_program_decode(&self->program, ctx);
+    err = fd_bpf_upgradeable_loader_state_program_decode(&self->program, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 3: {
-    return fd_bpf_upgradeable_loader_state_program_data_decode(&self->program_data, ctx);
+    err = fd_bpf_upgradeable_loader_state_program_data_decode(&self->program_data, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
   }
   default: return FD_BINCODE_ERR_ENCODING;
   }
@@ -10871,9 +10828,6 @@ void fd_bpf_upgradeable_loader_state_new(fd_bpf_upgradeable_loader_state_t* self
 }
 void fd_bpf_upgradeable_loader_state_inner_destroy(fd_bpf_upgradeable_loader_state_inner_t* self, uint discriminant, fd_bincode_destroy_ctx_t * ctx) {
   switch (discriminant) {
-  case 0: {
-    break;
-  }
   case 1: {
     fd_bpf_upgradeable_loader_state_buffer_destroy(&self->buffer, ctx);
     break;
@@ -10898,7 +10852,6 @@ ulong fd_bpf_upgradeable_loader_state_align( void ){ return FD_BPF_UPGRADEABLE_L
 
 void fd_bpf_upgradeable_loader_state_walk(void * w, fd_bpf_upgradeable_loader_state_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_bpf_upgradeable_loader_state", level++);
-  // enum fd_option_walk(w, &self->upgrade_authority_address, fun, "upgrade_authority_address", level);
   switch (self->discriminant) {
   case 1: {
     fd_bpf_upgradeable_loader_state_buffer_walk(w, &self->inner.buffer, fun, "buffer", level);
@@ -11013,7 +10966,9 @@ int fd_frozen_hash_versioned_inner_decode(fd_frozen_hash_versioned_inner_t* self
   int err;
   switch (discriminant) {
   case 0: {
-    return fd_frozen_hash_status_decode(&self->current, ctx);
+    err = fd_frozen_hash_status_decode(&self->current, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
   }
   default: return FD_BINCODE_ERR_ENCODING;
   }
@@ -11058,7 +11013,6 @@ ulong fd_frozen_hash_versioned_align( void ){ return FD_FROZEN_HASH_VERSIONED_AL
 
 void fd_frozen_hash_versioned_walk(void * w, fd_frozen_hash_versioned_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_frozen_hash_versioned", level++);
-  // enum fd_uchar_walk(w, &self->frozen_status, fun, "frozen_status", level);
   switch (self->discriminant) {
   case 0: {
     fd_frozen_hash_status_walk(w, &self->inner.current, fun, "current", level);
@@ -11233,7 +11187,9 @@ int fd_address_lookup_table_state_inner_decode(fd_address_lookup_table_state_inn
     return FD_BINCODE_SUCCESS;
   }
   case 1: {
-    return fd_address_lookup_table_decode(&self->lookup_table, ctx);
+    err = fd_address_lookup_table_decode(&self->lookup_table, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
   }
   default: return FD_BINCODE_ERR_ENCODING;
   }
@@ -11265,9 +11221,6 @@ void fd_address_lookup_table_state_new(fd_address_lookup_table_state_t* self) {
 }
 void fd_address_lookup_table_state_inner_destroy(fd_address_lookup_table_state_inner_t* self, uint discriminant, fd_bincode_destroy_ctx_t * ctx) {
   switch (discriminant) {
-  case 0: {
-    break;
-  }
   case 1: {
     fd_address_lookup_table_destroy(&self->lookup_table, ctx);
     break;
@@ -11284,7 +11237,6 @@ ulong fd_address_lookup_table_state_align( void ){ return FD_ADDRESS_LOOKUP_TABL
 
 void fd_address_lookup_table_state_walk(void * w, fd_address_lookup_table_state_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_address_lookup_table_state", level++);
-  // enum fd_lookup_table_meta_walk(w, &self->meta, fun, "meta", level);
   switch (self->discriminant) {
   case 1: {
     fd_address_lookup_table_walk(w, &self->inner.lookup_table, fun, "lookup_table", level);
@@ -11626,10 +11578,14 @@ int fd_gossip_ip_addr_inner_decode(fd_gossip_ip_addr_inner_t* self, uint discrim
   int err;
   switch (discriminant) {
   case 0: {
-    return fd_gossip_ip4_addr_decode(&self->ip4, ctx);
+    err = fd_gossip_ip4_addr_decode(&self->ip4, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 1: {
-    return fd_gossip_ip6_addr_decode(&self->ip6, ctx);
+    err = fd_gossip_ip6_addr_decode(&self->ip6, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
   }
   default: return FD_BINCODE_ERR_ENCODING;
   }
@@ -11682,7 +11638,6 @@ ulong fd_gossip_ip_addr_align( void ){ return FD_GOSSIP_IP_ADDR_ALIGN; }
 
 void fd_gossip_ip_addr_walk(void * w, fd_gossip_ip_addr_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_ip_addr", level++);
-  // enum fd_signature_walk(w, &self->signature, fun, "signature", level);
   switch (self->discriminant) {
   case 0: {
     fd_gossip_ip4_addr_walk(w, &self->inner.ip4, fun, "ip4", level);
@@ -12425,10 +12380,14 @@ int fd_gossip_slots_enum_inner_decode(fd_gossip_slots_enum_inner_t* self, uint d
   int err;
   switch (discriminant) {
   case 0: {
-    return fd_gossip_flate2_slots_decode(&self->flate2, ctx);
+    err = fd_gossip_flate2_slots_decode(&self->flate2, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 1: {
-    return fd_gossip_slots_decode(&self->uncompressed, ctx);
+    err = fd_gossip_slots_decode(&self->uncompressed, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
   }
   default: return FD_BINCODE_ERR_ENCODING;
   }
@@ -12481,7 +12440,6 @@ ulong fd_gossip_slots_enum_align( void ){ return FD_GOSSIP_SLOTS_ENUM_ALIGN; }
 
 void fd_gossip_slots_enum_walk(void * w, fd_gossip_slots_enum_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_slots_enum", level++);
-  // enum fd_vector_walk(w, &self->compressed, fun, "compressed", level);
   switch (self->discriminant) {
   case 0: {
     fd_gossip_flate2_slots_walk(w, &self->inner.flate2, fun, "flate2", level);
@@ -13081,37 +13039,59 @@ int fd_crds_data_inner_decode(fd_crds_data_inner_t* self, uint discriminant, fd_
   int err;
   switch (discriminant) {
   case 0: {
-    return fd_gossip_contact_info_decode(&self->contact_info, ctx);
+    err = fd_gossip_contact_info_decode(&self->contact_info, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 1: {
-    return fd_gossip_vote_decode(&self->vote, ctx);
+    err = fd_gossip_vote_decode(&self->vote, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 2: {
-    return fd_gossip_lowest_slot_decode(&self->lowest_slot, ctx);
+    err = fd_gossip_lowest_slot_decode(&self->lowest_slot, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 3: {
-    return fd_gossip_slot_hashes_decode(&self->snapshot_hashes, ctx);
+    err = fd_gossip_slot_hashes_decode(&self->snapshot_hashes, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 4: {
-    return fd_gossip_slot_hashes_decode(&self->accounts_hashes, ctx);
+    err = fd_gossip_slot_hashes_decode(&self->accounts_hashes, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 5: {
-    return fd_gossip_epoch_slots_decode(&self->epoch_slots, ctx);
+    err = fd_gossip_epoch_slots_decode(&self->epoch_slots, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 6: {
-    return fd_gossip_legacy_version_decode(&self->legacy_version, ctx);
+    err = fd_gossip_legacy_version_decode(&self->legacy_version, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 7: {
-    return fd_gossip_version_decode(&self->version, ctx);
+    err = fd_gossip_version_decode(&self->version, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 8: {
-    return fd_gossip_node_instance_decode(&self->node_instance, ctx);
+    err = fd_gossip_node_instance_decode(&self->node_instance, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 9: {
-    return fd_gossip_duplicate_shred_decode(&self->duplicate_shred, ctx);
+    err = fd_gossip_duplicate_shred_decode(&self->duplicate_shred, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 10: {
-    return fd_gossip_incremental_snapshot_hashes_decode(&self->incremental_snapshot_hashes, ctx);
+    err = fd_gossip_incremental_snapshot_hashes_decode(&self->incremental_snapshot_hashes, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
   }
   default: return FD_BINCODE_ERR_ENCODING;
   }
@@ -13236,7 +13216,6 @@ ulong fd_crds_data_align( void ){ return FD_CRDS_DATA_ALIGN; }
 
 void fd_crds_data_walk(void * w, fd_crds_data_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_crds_data", level++);
-  // enum fd_ulong_walk(w, &self->wallclock, fun, "wallclock", level);
   switch (self->discriminant) {
   case 0: {
     fd_gossip_contact_info_walk(w, &self->inner.contact_info, fun, "contact_info", level);
@@ -13817,22 +13796,34 @@ int fd_gossip_msg_inner_decode(fd_gossip_msg_inner_t* self, uint discriminant, f
   int err;
   switch (discriminant) {
   case 0: {
-    return fd_gossip_pull_req_decode(&self->pull_req, ctx);
+    err = fd_gossip_pull_req_decode(&self->pull_req, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 1: {
-    return fd_gossip_pull_resp_decode(&self->pull_resp, ctx);
+    err = fd_gossip_pull_resp_decode(&self->pull_resp, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 2: {
-    return fd_gossip_push_msg_decode(&self->push_msg, ctx);
+    err = fd_gossip_push_msg_decode(&self->push_msg, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 3: {
-    return fd_gossip_prune_msg_decode(&self->prune_msg, ctx);
+    err = fd_gossip_prune_msg_decode(&self->prune_msg, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 4: {
-    return fd_gossip_ping_decode(&self->ping, ctx);
+    err = fd_gossip_ping_decode(&self->ping, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 5: {
-    return fd_gossip_ping_decode(&self->pong, ctx);
+    err = fd_gossip_ping_decode(&self->pong, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
   }
   default: return FD_BINCODE_ERR_ENCODING;
   }
@@ -13917,7 +13908,6 @@ ulong fd_gossip_msg_align( void ){ return FD_GOSSIP_MSG_ALIGN; }
 
 void fd_gossip_msg_walk(void * w, fd_gossip_msg_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_msg", level++);
-  // enum fd_gossip_prune_data_walk(w, &self->data, fun, "data", level);
   switch (self->discriminant) {
   case 0: {
     fd_gossip_pull_req_walk(w, &self->inner.pull_req, fun, "pull_req", level);
