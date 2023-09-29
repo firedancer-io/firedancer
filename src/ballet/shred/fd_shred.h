@@ -1,6 +1,7 @@
 #ifndef HEADER_fd_src_ballet_shred_fd_shred_h
 #define HEADER_fd_src_ballet_shred_fd_shred_h
 
+#include <stdio.h>
 /* Shreds form the on-wire representation of Solana block data
    optimized for transmission over unreliable links/WAN.
 
@@ -59,13 +60,18 @@
    Shreds are signed by the block producer.
    Consequentially, only the block producer is able to create valid shreds for any given block. */
 
-#include "../fd_ballet_base.h"
-#include "../../util/fd_util_base.h"
+#include "../fd_ballet.h"
 
-/* FD_SHRED_SZ: The byte size of a shred.
-   This limit derives from the IPv6 MTU of 1280 bytes,
-   minus 48 bytes for the UDP/IPv6 headers and another 4 bytes for good measure. */
-#define FD_SHRED_SZ (1228UL)
+
+/* FD_SHRED_MAX_SZ: The max byte size of a shred.
+   This limit derives from the IPv6 MTU of 1280 bytes, minus 48 bytes
+   for the UDP/IPv6 headers and another 4 bytes for good measure.  Most
+   shreds are this size, but Merkle data shreds may be smaller. */
+#define FD_SHRED_MAX_SZ (1228UL)
+/* FD_SHRED_MIN_SZ: The minimum byte size of a shred.
+   A code shred of the max size covers a data shred of the minimum size
+   with no padding. */
+#define FD_SHRED_MIN_SZ (1203UL)
 /* FD_SHRED_DATA_HEADER_SZ: size of all headers for data type shreds. */
 #define FD_SHRED_DATA_HEADER_SZ (0x58UL)
 /* FD_SHRED_CODE_HEADER_SZ: size of all headers for coding type shreds. */
@@ -75,18 +81,20 @@
    It is located at the four high bits of byte 0x40 (64) of the shred header
    and can be extracted using the fd_shred_type() function. */
 /* FD_SHRED_TYPE_LEGACY_DATA: A shred carrying raw binary data. */
-#define FD_SHRED_TYPE_LEGACY_DATA ((uchar)0xA)
+#define FD_SHRED_TYPE_LEGACY_DATA ((uchar)0xA0)
 /* FD_SHRED_TYPE_LEGACY_CODE: A shred carrying Reed-Solomon ECC. */
-#define FD_SHRED_TYPE_LEGACY_CODE ((uchar)0x5)
+#define FD_SHRED_TYPE_LEGACY_CODE ((uchar)0x50)
 /* FD_SHRED_TYPE_MERKLE_DATA: A shred carrying raw binary data and a merkle inclusion proof. */
-#define FD_SHRED_TYPE_MERKLE_DATA ((uchar)0x8)
+#define FD_SHRED_TYPE_MERKLE_DATA ((uchar)0x80)
 /* FD_SHRED_TYPE_MERKLE_CODE: A shred carrying Reed-Solomon ECC and a merkle inclusion proof. */
-#define FD_SHRED_TYPE_MERKLE_CODE ((uchar)0x4)
+#define FD_SHRED_TYPE_MERKLE_CODE ((uchar)0x40)
 
-/* FD_ED25519_SIG_SZ: the size of an Ed25519 signature in bytes. */
-#define FD_ED25519_SIG_SZ (64UL)
-/* An Ed25519 signature. */
-typedef uchar fd_ed25519_sig_t[FD_ED25519_SIG_SZ];
+/* FD_SHRED_TYPEMASK_DATA: bitwise AND with type matches data shred */
+#define FD_SHRED_TYPEMASK_DATA FD_SHRED_TYPE_MERKLE_DATA
+/* FD_SHRED_TYPEMASK_CODE: bitwise AND with type matches code shred */
+#define FD_SHRED_TYPEMASK_CODE FD_SHRED_TYPE_MERKLE_CODE
+/* FD_SHRED_TYPEMASK_LEGACY: bitwise AND with type matches legacy shred */
+#define FD_SHRED_TYPEMASK_LEGACY ((uchar)0x30)
 
 /* FD_SHRED_MERKLE_NODE_SZ: the size of a merkle inclusion proof node in bytes. */
 #define FD_SHRED_MERKLE_NODE_SZ (20UL)
@@ -95,12 +103,25 @@ typedef uchar fd_shred_merkle_t[FD_SHRED_MERKLE_NODE_SZ];
 
 /* Constants relating to the data shred "flags" field. */
 
-/* Mask of the "reference tick" field in shred.data.flags */
-#define FD_SHRED_DATA_REF_TICK_MASK         ((uchar)0x3f)
-/* Mask of the "slot complete" bit in shred.data.flags */
-#define FD_SHRED_DATA_FLAG_SLOT_COMPLETE    ((uchar)0x80)
-/* Mask of the "FEC set complete" bit in shred.data.flags */
-#define FD_SHRED_DATA_FLAG_FEC_SET_COMPLETE ((uchar)0x40)
+/* Mask of the "reference tick"    field in shred.data.flags */
+#define FD_SHRED_DATA_REF_TICK_MASK      ((uchar)0x3f)
+/* Mask of the "slot complete"       bit in shred.data.flags
+   Indicates the last shred in a slot. */
+#define FD_SHRED_DATA_FLAG_SLOT_COMPLETE ((uchar)0x80)
+/* Mask of the "data batch complete" bit in shred.data.flags */
+#define FD_SHRED_DATA_FLAG_DATA_COMPLETE ((uchar)0x40)
+
+/* Firedancer-specific internal error codes.
+
+   These are not part of the Solana protocol. */
+
+#define FD_SHRED_EBATCH  0x4000 /* End of batch reached (success)
+                                   no more shreds and found FD_SHRED_DATA_FLAG_DATA_COMPLETE */
+#define FD_SHRED_ESLOT   0x8000 /* End of slot reached (success)
+                                   no more shreds and found FD_SHRED_DATA_FLAG_SLOT_COMPLETE */
+#define FD_SHRED_ENOMEM      12 /* Error: Target buffer too small */
+#define FD_SHRED_EINVAL      22 /* Error: Invalid shred data */
+#define FD_SHRED_EPIPE       32 /* Error: Expected data in source buffer, got EOF */
 
 /* Primary shred data structure.
    Relies heavily on packed fields and unaligned memory accesses. */
@@ -142,8 +163,8 @@ struct __attribute__((packed)) fd_shred {
       /* Bit field (MSB first)
          See FD_SHRED_DATA_FLAG_*
 
-          [XX.. ....] Block complete?   0b00=no 0b11=yes (implies FEC set complete)
-          [.X.. ....] FEC Set complete?  0b0=no  0b1=yes
+          [XX.. ....] Block complete?       0b00=no 0b11=yes (implies Entry batch complete)
+          [.X.. ....] Entry batch complete?  0b0=no  0b1=yes
           [..XX XXXX] Reference tick number */
       /* 0x55 */ uchar  flags;
 
@@ -169,17 +190,18 @@ typedef struct fd_shred fd_shred_t;
 FD_PROTOTYPES_BEGIN
 
 /* fd_shred_parse: Parses and validates an untrusted shred header.
-   The provided buffer must be at least FD_SHRED_SZ bytes long.
+   The provided buffer must be at least FD_SHRED_MIN_SZ bytes long.
 
    The returned pointer either equals the input pointer
    or is NULL if the given shred is malformed. */
 FD_FN_PURE fd_shred_t const *
-fd_shred_parse( uchar const * buf );
+fd_shred_parse( uchar const * buf,
+                ulong         sz );
 
 /* fd_shred_type: Returns the value of the shred's type field. (FD_SHRED_TYPE_*) */
 FD_FN_CONST static inline uchar
 fd_shred_type( uchar variant ) {
-  return variant >> 4;
+  return variant & 0xf0;
 }
 
 /* fd_shred_variant: Returns the encoded variant field
@@ -187,11 +209,18 @@ fd_shred_type( uchar variant ) {
 FD_FN_CONST static inline uchar
 fd_shred_variant( uchar type,
                   uchar merkle_cnt ) {
-  merkle_cnt--;
-  if( FD_UNLIKELY( type==FD_SHRED_TYPE_LEGACY_DATA || type==FD_SHRED_TYPE_LEGACY_CODE ) ) {
-    merkle_cnt = type^0xf;
-  }
-  return (uchar)((type<<4U) | merkle_cnt);
+  if( FD_LIKELY( type==FD_SHRED_TYPE_LEGACY_DATA ) )
+    merkle_cnt = 0x05;
+  if( FD_LIKELY( type==FD_SHRED_TYPE_LEGACY_CODE ) )
+    merkle_cnt = 0x0a;
+  return (uchar)(type | merkle_cnt);
+}
+
+FD_FN_CONST static inline ulong
+fd_shred_sz( fd_shred_t const * shred ) {
+  return fd_ulong_if( shred->variant & FD_SHRED_TYPEMASK_CODE, FD_SHRED_MAX_SZ,
+         fd_ulong_if( fd_shred_type( shred->variant )==FD_SHRED_TYPE_MERKLE_DATA, FD_SHRED_MIN_SZ,
+                                                                                  shred->data.size ) ); /* Legacy data */
 }
 
 /* fd_shred_header_sz: Returns the header size of a shred.
@@ -200,25 +229,23 @@ fd_shred_variant( uchar type,
    Accesses offsets up to FD_SHRED_HEADER_MIN_SZ. */
 FD_FN_CONST static inline ulong
 fd_shred_header_sz( uchar variant ) {
-  uchar shred_type = fd_shred_type( variant );
-  if( FD_LIKELY( shred_type==FD_SHRED_TYPE_MERKLE_DATA || shred_type==FD_SHRED_TYPE_LEGACY_DATA ) ) {
+  uchar type = fd_shred_type( variant );
+  if( FD_LIKELY( (type==FD_SHRED_TYPE_MERKLE_DATA) | (type==FD_SHRED_TYPE_LEGACY_DATA) ) )
     return FD_SHRED_DATA_HEADER_SZ;
-  }
-  if( FD_LIKELY( shred_type==FD_SHRED_TYPE_MERKLE_CODE || shred_type==FD_SHRED_TYPE_LEGACY_CODE ) ) {
+  if( FD_LIKELY( (type==FD_SHRED_TYPE_MERKLE_CODE) | (type==FD_SHRED_TYPE_LEGACY_CODE) ) )
     return FD_SHRED_CODE_HEADER_SZ;
-  }
   return 0;
 }
 
-/* fd_shred_merkle_cnt: Returns number of nodes in the merkle inclusion proof.
-   Returns zero if the given shred is not a merkle variant. */
+/* fd_shred_merkle_cnt: Returns number of nodes in the merkle inclusion
+   proof.  Note that this excludes the root.  Returns zero if the given
+   shred is not a merkle variant. */
 FD_FN_CONST static inline uint
 fd_shred_merkle_cnt( uchar variant ) {
   uchar type = fd_shred_type( variant );
-  if( FD_UNLIKELY( type!=FD_SHRED_TYPE_MERKLE_DATA && type!=FD_SHRED_TYPE_MERKLE_CODE ) ) {
+  if( FD_UNLIKELY( type & FD_SHRED_TYPEMASK_LEGACY ) )
     return 0;
-  }
-  return (variant&0xfU)+1U;
+  return (variant&0xfU);
 }
 
 /* fd_shred_merkle_sz: Returns the size in bytes of the merkle inclusion proof.
@@ -229,18 +256,23 @@ fd_shred_merkle_sz( uchar variant ) {
 }
 
 /* fd_shred_payload_sz: Returns the payload size of a shred.
-   Returns an arbitrary value if the variant is invalid. */
-FD_FN_CONST static inline ulong
-fd_shred_payload_sz( uchar variant ) {
-  return FD_SHRED_SZ - fd_shred_header_sz( variant ) - fd_shred_merkle_sz( variant );
+   Undefined behavior if the shred has not passed `fd_shred_parse`. */
+FD_FN_PURE static inline ulong
+fd_shred_payload_sz( fd_shred_t const * shred ) {
+  if( FD_LIKELY( fd_shred_type( shred->variant ) & FD_SHRED_TYPEMASK_DATA ) ) {
+    return shred->data.size - FD_SHRED_DATA_HEADER_SZ;
+  } else {
+    return fd_shred_sz( shred ) - FD_SHRED_CODE_HEADER_SZ - fd_shred_merkle_sz( shred->variant );
+  }
+
 }
 
 /* fd_shred_merkle_off: Returns the byte offset of the merkle inclusion proof of a shred.
 
    The provided shred must have passed validation in fd_shred_parse(). */
 FD_FN_CONST static inline ulong
-fd_shred_merkle_off( uchar variant ) {
-  return FD_SHRED_SZ - fd_shred_merkle_sz( variant );
+fd_shred_merkle_off( fd_shred_t const * shred ) {
+  return fd_shred_sz( shred ) - fd_shred_merkle_sz( shred->variant );
 }
 
 /* fd_shred_merkle_nodes: Returns a pointer to the shred's merkle proof data.
@@ -249,7 +281,7 @@ fd_shred_merkle_off( uchar variant ) {
 FD_FN_PURE static inline fd_shred_merkle_t const *
 fd_shred_merkle_nodes( fd_shred_t const * shred ) {
   uchar const * ptr = (uchar const *)shred;
-  ptr += fd_shred_merkle_off( shred->variant );
+  ptr += fd_shred_merkle_off( shred );
   return (fd_shred_merkle_t const *)ptr;
 }
 
@@ -272,8 +304,6 @@ FD_FN_CONST static inline uchar const *
 fd_shred_code_payload( fd_shred_t const * shred ) {
   return (uchar const *)shred + FD_SHRED_CODE_HEADER_SZ;
 }
-
-/*  */
 
 FD_PROTOTYPES_END
 
