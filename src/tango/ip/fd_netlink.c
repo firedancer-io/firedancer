@@ -701,7 +701,7 @@ fd_nl_update_arp_table( fd_nl_t * nl,
   rqs_rat->rta_len =  RTA_LENGTH(4);
 
   memcpy( RTA_DATA(rqs_rat), &net_ip_addr, 4 );
-  nl_request.nlh.nlmsg_len += sizeof(struct rtattr) + 4;
+  nl_request.nlh.nlmsg_len += (int)sizeof(struct rtattr) + 4;
 
   ulong nl_request_sz = (ulong)nl_request.nlh.nlmsg_len;
 
