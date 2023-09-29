@@ -1,5 +1,8 @@
 ifdef FD_HAS_INT128
 $(call add-objs,fd_shred_dest,fd_disco)
+$(call add-objs,fd_shredder,fd_disco)
 $(call make-unit-test,test_shred_dest,test_shred_dest,fd_ballet fd_util fd_flamenco fd_disco)
-$(call run-unit-test,test_shred_dest)
+$(call make-unit-test,test_shredder,test_shredder,fd_ballet fd_util fd_flamenco fd_disco fd_reedsol)
+$(call run-unit-test,test_shred_dest,)
+$(call run-unit-test,test_shredder,)
 endif
