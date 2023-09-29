@@ -257,5 +257,17 @@ fd_bincode_varint_encode( ulong                     val,
   }
 }
 
+static inline ulong
+fd_bincode_varint_size( ulong val ) {
+  ulong sz = 0;
+  while (1) {
+    if ( val < 0x80UL ) {
+      return sz+1;
+    }
+    sz++;
+    val >>= 7;
+  }
+}
+
 
 #endif /* HEADER_fd_src_util_encoders_fd_bincode_h */
