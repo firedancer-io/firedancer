@@ -360,7 +360,7 @@ fd_tls_u24_to_uint( fd_tls_u24_t x ) {
 
 static inline fd_tls_u24_t
 fd_uint_to_tls_u24( uint x ) {
-  fd_tls_u24_t ret = {{ (uchar)x, (uchar)(x<<8), (uchar)(x<<16) }};
+  fd_tls_u24_t ret = {{ (uchar)x, (uchar)(x>>8), (uchar)(x>>16) }};
   return ret;
 }
 
