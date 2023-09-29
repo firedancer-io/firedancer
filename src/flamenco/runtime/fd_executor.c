@@ -233,7 +233,6 @@ fd_executor_collect_fee( fd_global_ctx_t *   global,
   // since we collect reguardless of the success of the txn execution...
   rec->meta->info.lamports -= fee;
   global->bank.collected_fees += fee;
-  global->bank.capitalization -= fee;
 
   /* todo rent exempt check */
   if( FD_FEATURE_ACTIVE( global, set_exempt_rent_epoch_max ) )

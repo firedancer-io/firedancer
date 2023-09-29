@@ -1144,7 +1144,9 @@ fd_runtime_distribute_rent_to_validators( fd_global_ctx_t * global, ulong rent_t
   if (enforce_fix) {
     FD_TEST( leftover_lamports == 0);
   } else {
+    ulong old = global->bank.capitalization;
     global->bank.capitalization = fd_ulong_sat_sub( global->bank.capitalization, leftover_lamports);
+    FD_LOG_WARNING(( "fd_runtime_distribute_rent_to_validators: burn %lu, capitalization %ld->%ld ", leftover_lamports, old, global->bank.capitalization));
   }
   fd_valloc_free( global->valloc, validator_stakes );
 }
@@ -1181,10 +1183,16 @@ fd_runtime_freeze( fd_global_ctx_t * global ) {
       return;
     }
 
-    if (FD_UNLIKELY(global->log_level > 2))
-      FD_LOG_WARNING(( "fd_runtime_freeze: slot:%ld global->collected_fees: %ld, sending %ld to leader (%32J), burning %ld", global->bank.slot, global->bank.collected_fees, global->bank.collected_fees/2, global->leader, global->bank.collected_fees/2 ));
+    ulong fees = ( global->bank.collected_fees / 2 );
 
-    rec->meta->info.lamports += ( global->bank.collected_fees / 2 );
+    if (FD_UNLIKELY(global->log_level > 2))
+      FD_LOG_WARNING(( "fd_runtime_freeze: slot:%ld global->collected_fees: %ld, sending %ld to leader (%32J), burning %ld", global->bank.slot, global->bank.collected_fees, fees, global->leader, fees ));
+
+    rec->meta->info.lamports += fees;
+
+    ulong old = global->bank.capitalization;
+    global->bank.capitalization = fd_ulong_sat_sub( global->bank.capitalization, fees);
+    FD_LOG_WARNING(( "fd_runtime_freeze: burn %lu, capitalization %ld->%ld ", fees, old, global->bank.capitalization));
 
     global->bank.collected_fees = 0;
   }
