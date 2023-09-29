@@ -61,6 +61,21 @@ typedef struct fd_bincode_destroy_ctx fd_bincode_destroy_ctx_t;
     return FD_BINCODE_SUCCESS; \
   } \
   static inline int \
+  fd_bincode_##name##_decode_preflight( fd_bincode_decode_ctx_t * ctx ) { \
+    uchar const * ptr = (uchar const *) ctx->data; \
+    if ( FD_UNLIKELY((void const *)(ptr + sizeof(type)) > ctx->dataend ) ) \
+      return FD_BINCODE_ERR_UNDERFLOW; \
+    ctx->data = ptr + sizeof(type); \
+    return FD_BINCODE_SUCCESS; \
+  } \
+  static inline void \
+  fd_bincode_##name##_decode_unsafe( type *                    self, \
+                                     fd_bincode_decode_ctx_t * ctx ) { \
+    uchar const * ptr = (uchar const *) ctx->data; \
+    memcpy( self, ptr, sizeof(type) );  /* unaligned */ \
+    ctx->data = ptr + sizeof(type); \
+  } \
+  static inline int \
   fd_bincode_##name##_encode( type const *              self, \
                               fd_bincode_encode_ctx_t * ctx ) { \
     uchar * ptr = (uchar *) ctx->data; \
@@ -93,6 +108,27 @@ fd_bincode_bytes_decode( uchar *                   self,
 }
 
 static inline int
+fd_bincode_bytes_decode_preflight( ulong                     len,
+                                   fd_bincode_decode_ctx_t * ctx ) {
+  uchar * ptr = (uchar *) ctx->data;
+  if ( FD_UNLIKELY((void *) (ptr + len) > ctx->dataend ) )
+    return FD_BINCODE_ERR_UNDERFLOW;
+
+  ctx->data = ptr + len;
+
+  return FD_BINCODE_SUCCESS;
+}
+
+static inline void
+fd_bincode_bytes_decode_unsafe( uchar *                   self,
+                                ulong                     len,
+                                fd_bincode_decode_ctx_t * ctx ) {
+  uchar * ptr = (uchar *) ctx->data;
+  fd_memcpy(self, ptr, len);
+  ctx->data = ptr + len;
+}
+
+static inline int
 fd_bincode_bytes_encode( uchar const *             self,
                          ulong                     len,
                          fd_bincode_encode_ctx_t * ctx ) {
@@ -117,6 +153,14 @@ fd_bincode_option_decode( uchar *                   self,
   ctx->data = ptr + 1;
 
   return FD_BINCODE_SUCCESS;
+}
+
+static inline void
+fd_bincode_option_decode_unsafe( uchar *                   self,
+                                 fd_bincode_decode_ctx_t * ctx ) {
+  uchar * ptr = (uchar *) ctx->data;
+  *self = *ptr;
+  ctx->data = ptr + 1;
 }
 
 static inline int
@@ -162,6 +206,30 @@ fd_bincode_compact_u16_decode( ushort *                  self,
   }
 
   return FD_BINCODE_ERR_UNDERFLOW;
+}
+
+static inline void
+fd_bincode_compact_u16_decode_unsafe( ushort *                  self,
+                                      fd_bincode_decode_ctx_t * ctx ) {
+  const uchar * ptr = (const uchar*) ctx->data;
+
+  if( FD_LIKELY( (void *) (ptr + 1) <= ctx->dataend && !(0x80U & ptr[0]) ) ) {
+    *self = (ushort)ptr[0];
+    ctx->data = ptr + 1;
+    return;
+  }
+
+  if( FD_LIKELY( (void *) (ptr + 2) <= ctx->dataend && !(0x80U & ptr[1]) ) ) {
+    *self = (ushort)((ulong)(ptr[0]&0x7FUL) + (((ulong)ptr[1])<<7));
+    ctx->data = ptr + 2;
+    return;
+  }
+
+  if( FD_LIKELY( (void *) (ptr + 3) <= ctx->dataend && !(0xFCU & ptr[2]) ) ) {
+    *self = (ushort)((ulong)(ptr[0]&0x7FUL) + (((ulong)(ptr[1]&0x7FUL))<<7) + (((ulong)ptr[2])<<14));
+    ctx->data = ptr + 3;
+    return;
+  }
 }
 
 static inline int
@@ -235,6 +303,42 @@ fd_bincode_varint_decode( ulong *                   self,
       *self = val;
       ctx->data = ptr;
       return FD_BINCODE_SUCCESS;
+    }
+    shift += 7;
+  }
+}
+
+static inline int
+fd_bincode_varint_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
+  const uchar * ptr = (const uchar*) ctx->data;
+  ulong val = 0;
+  ulong shift = 0;
+  while (1) {
+    if ( FD_UNLIKELY((void *) (ptr + 1) > ctx->dataend ) )
+      return FD_BINCODE_ERR_UNDERFLOW;
+    ulong c = *(ptr++);
+    val += (c&0x7FUL)<<shift;
+    if ( !(c&0x80UL) ) {
+      ctx->data = ptr;
+      return FD_BINCODE_SUCCESS;
+    }
+    shift += 7;
+  }
+}
+
+static inline void
+fd_bincode_varint_decode_unsafe( ulong *                   self,
+                                 fd_bincode_decode_ctx_t * ctx ) {
+  const uchar * ptr = (const uchar*) ctx->data;
+  ulong val = 0;
+  ulong shift = 0;
+  while (1) {
+    ulong c = *(ptr++);
+    val += (c&0x7FUL)<<shift;
+    if ( !(c&0x80UL) ) {
+      *self = val;
+      ctx->data = ptr;
+      return;
     }
     shift += 7;
   }
