@@ -1330,42 +1330,42 @@ class StructType:
         print(f'  {n}_decode_unsafe(self, ctx);', file=body)
         print(f'  return FD_BINCODE_SUCCESS;', file=body)
         print(f'}}', file=body)
-  
+
         print(f'int {n}_decode_preflight(fd_bincode_decode_ctx_t * ctx) {{', file=body)
         print('  int err;', file=body)
         for f in self.fields:
             f.emitDecodePreflight()
         print('  return FD_BINCODE_SUCCESS;', file=body)
         print("}", file=body)
-  
+
         print(f'void {n}_decode_unsafe({n}_t* self, fd_bincode_decode_ctx_t * ctx) {{', file=body)
         for f in self.fields:
             f.emitDecodeUnsafe()
         print("}", file=body)
-  
+
         print(f'void {n}_new({n}_t* self) {{', file=body)
         print(f'  fd_memset(self, 0, sizeof({n}_t));', file=body)
         for f in self.fields:
             f.emitNew()
         print("}", file=body)
-  
+
         print(f'void {n}_destroy({n}_t* self, fd_bincode_destroy_ctx_t * ctx) {{', file=body)
         for f in self.fields:
             f.emitDestroy()
         print("}", file=body)
         print("", file=body)
-        
+
         print(f'ulong {n}_footprint( void ){{ return {n.upper()}_FOOTPRINT; }}', file=body)
         print(f'ulong {n}_align( void ){{ return {n.upper()}_ALIGN; }}', file=body)
         print("", file=body)
-        
+
         print(f'void {n}_walk(void * w, {n}_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {{', file=body)
         print(f'  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "{n}", level++);', file=body)
         for f in self.fields:
             f.emitWalk('')
         print(f'  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "{n}", level--);', file=body)
         print("}", file=body)
-    
+
         print(f'ulong {n}_size({n}_t const * self) {{', file=body)
         print('  ulong size = 0;', file=body)
         for f in self.fields:
@@ -1464,7 +1464,7 @@ class EnumType:
 
     def emitImpls(self):
         global indent
-        
+
         n = self.fullname
         indent = '  '
 
@@ -1475,7 +1475,7 @@ class EnumType:
             print("}", file=body)
 
         print(f'void {n}_inner_new({n}_inner_t* self, uint discriminant);', file=body)
-        
+
         print(f'int {n}_inner_decode_preflight(uint discriminant, fd_bincode_decode_ctx_t * ctx) {{', file=body)
         print('  int err;', file=body)
         print('  switch (discriminant) {', file=body)
@@ -1509,7 +1509,7 @@ class EnumType:
         print(f'  {n}_decode_unsafe(self, ctx);', file=body)
         print(f'  return FD_BINCODE_SUCCESS;', file=body)
         print(f'}}', file=body)
-  
+
         print(f'int {n}_decode_preflight(fd_bincode_decode_ctx_t * ctx) {{', file=body)
         if self.compact:
             print('  ushort discriminant = 0;', file=body)
@@ -1520,7 +1520,7 @@ class EnumType:
         print('  if ( FD_UNLIKELY(err) ) return err;', file=body)
         print(f'  return {n}_inner_decode_preflight(discriminant, ctx);', file=body)
         print("}", file=body)
-  
+
         print(f'void {n}_decode_unsafe({n}_t* self, fd_bincode_decode_ctx_t * ctx) {{', file=body)
         if self.compact:
             print('  ushort tmp = 0;', file=body)
@@ -1530,7 +1530,7 @@ class EnumType:
             print('  fd_bincode_uint32_decode_unsafe(&self->discriminant, ctx);', file=body)
         print(f'  {n}_inner_decode_unsafe(&self->inner, self->discriminant, ctx);', file=body)
         print("}", file=body)
-  
+
         print(f'void {n}_inner_new({n}_inner_t* self, uint discriminant) {{', file=body)
         print('  switch (discriminant) {', file=body)
         for i, v in enumerate(self.variants):
@@ -1542,17 +1542,17 @@ class EnumType:
         print('  default: break; // FD_LOG_ERR(( "unhandled type"));', file=body)
         print('  }', file=body)
         print("}", file=body)
-  
+
         print(f'void {n}_new_disc({n}_t* self, uint discriminant) {{', file=body)
         print('  self->discriminant = discriminant;', file=body)
         print(f'  {n}_inner_new(&self->inner, self->discriminant);', file=body)
         print("}", file=body)
-        
+
         print(f'void {n}_new({n}_t* self) {{', file=body)
         print(f'  fd_memset(self, 0, sizeof(*self));', file=body)
         print(f'  {n}_new_disc(self, UINT_MAX);', file=body) # Invalid by default
         print("}", file=body)
-  
+
         print(f'void {n}_inner_destroy({n}_inner_t* self, uint discriminant, fd_bincode_destroy_ctx_t * ctx) {{', file=body)
         print('  switch (discriminant) {', file=body)
         for i, v in enumerate(self.variants):
@@ -1564,16 +1564,16 @@ class EnumType:
         print('  default: break; // FD_LOG_ERR(( "unhandled type" ));', file=body)
         print('  }', file=body)
         print("}", file=body)
-  
+
         print(f'void {n}_destroy({n}_t* self, fd_bincode_destroy_ctx_t * ctx) {{', file=body)
         print(f'  {n}_inner_destroy(&self->inner, self->discriminant, ctx);', file=body)
         print("}", file=body)
         print("", file=body)
-  
+
         print(f'ulong {n}_footprint( void ){{ return {n.upper()}_FOOTPRINT; }}', file=body)
         print(f'ulong {n}_align( void ){{ return {n.upper()}_ALIGN; }}', file=body)
         print("", file=body)
-    
+
         print(f'void {n}_walk(void * w, {n}_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {{', file=body)
         print(f'  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "{n}", level++);', file=body)
         print('  switch (self->discriminant) {', file=body)
@@ -1586,7 +1586,7 @@ class EnumType:
         print('  }', file=body)
         print(f'  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "{n}", level--);', file=body)
         print("}", file=body)
-    
+
         print(f'ulong {n}_size({n}_t const * self) {{', file=body)
         print('  ulong size = 0;', file=body)
         print('  size += sizeof(uint);', file=body)
@@ -1601,7 +1601,7 @@ class EnumType:
         print('  return size;', file=body)
         print("}", file=body)
         print("", file=body)
-  
+
         print(f'int {n}_inner_encode({n}_inner_t const * self, uint discriminant, fd_bincode_encode_ctx_t * ctx) {{', file=body)
         first = True
         for i, v in enumerate(self.variants):
@@ -1618,7 +1618,7 @@ class EnumType:
             print('  }', file=body)
         print('  return FD_BINCODE_SUCCESS;', file=body)
         print("}", file=body)
-        
+
         print(f'int {n}_encode({n}_t const * self, fd_bincode_encode_ctx_t * ctx) {{', file=body)
         print('  int err;', file=body)
         print('  err = fd_bincode_uint32_encode(&self->discriminant, ctx);', file=body)

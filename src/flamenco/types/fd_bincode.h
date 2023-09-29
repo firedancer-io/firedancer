@@ -213,23 +213,20 @@ fd_bincode_compact_u16_decode_unsafe( ushort *                  self,
                                       fd_bincode_decode_ctx_t * ctx ) {
   const uchar * ptr = (const uchar*) ctx->data;
 
-  if( FD_LIKELY( (void *) (ptr + 1) <= ctx->dataend && !(0x80U & ptr[0]) ) ) {
+  if( !(0x80U & ptr[0]) ) {
     *self = (ushort)ptr[0];
     ctx->data = ptr + 1;
     return;
   }
 
-  if( FD_LIKELY( (void *) (ptr + 2) <= ctx->dataend && !(0x80U & ptr[1]) ) ) {
+  if( !(0x80U & ptr[1]) ) {
     *self = (ushort)((ulong)(ptr[0]&0x7FUL) + (((ulong)ptr[1])<<7));
     ctx->data = ptr + 2;
     return;
   }
 
-  if( FD_LIKELY( (void *) (ptr + 3) <= ctx->dataend && !(0xFCU & ptr[2]) ) ) {
-    *self = (ushort)((ulong)(ptr[0]&0x7FUL) + (((ulong)(ptr[1]&0x7FUL))<<7) + (((ulong)ptr[2])<<14));
-    ctx->data = ptr + 3;
-    return;
-  }
+  *self = (ushort)((ulong)(ptr[0]&0x7FUL) + (((ulong)(ptr[1]&0x7FUL))<<7) + (((ulong)ptr[2])<<14));
+  ctx->data = ptr + 3;
 }
 
 static inline int
@@ -311,13 +308,11 @@ fd_bincode_varint_decode( ulong *                   self,
 static inline int
 fd_bincode_varint_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
   const uchar * ptr = (const uchar*) ctx->data;
-  ulong val = 0;
   ulong shift = 0;
   while (1) {
     if ( FD_UNLIKELY((void *) (ptr + 1) > ctx->dataend ) )
       return FD_BINCODE_ERR_UNDERFLOW;
     ulong c = *(ptr++);
-    val += (c&0x7FUL)<<shift;
     if ( !(c&0x80UL) ) {
       ctx->data = ptr;
       return FD_BINCODE_SUCCESS;
