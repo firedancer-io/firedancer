@@ -889,12 +889,21 @@ fd_runtime_collect_rent_account( fd_global_ctx_t *   global,
       &global->bank.epoch_schedule,
        global->bank.slots_per_year );
 
+  /* https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1fb868e/accounts-db/src/rent_collector.rs#L170-L182 */
+
+  /* https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1fb868e/accounts-db/src/rent_collector.rs#L117-L146 */
+
+  /* RentResult: Exempt situation of fn collect_from_existing_account */
   if( due == FD_RENT_EXEMPT ) {
-    if( FD_FEATURE_ACTIVE( global, preserve_rent_epoch_for_rent_exempt_accounts ) ) {
+    /* let set_exempt_rent_epoch_max: bool = self
+            .feature_set
+            .is_active(&solana_sdk::feature_set::set_exempt_rent_epoch_max::id()); */
+    /* entry point here: https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1fb868e/runtime/src/bank.rs#L5972-L5982 */
+    if( FD_FEATURE_ACTIVE( global, set_exempt_rent_epoch_max ) ) {
+      info->rent_epoch = ULONG_MAX;
       return 0;
     }
-//    info->rent_epoch = epoch;
-    info->rent_epoch = 0;
+
     return 1;
   }
 
