@@ -727,7 +727,8 @@ pay_validator_rewards(
         FD_TEST( err == 0 );
     }
 
-    fd_valloc_free( global->valloc, rewards_calc_result->stake_reward_deq );
+    /* free stake_reward_deq and vote_reward_map */
+    deq_fd_stake_reward_t_delete( rewards_calc_result->stake_reward_deq );
     fd_vote_reward_t_map_delete( rewards_calc_result->vote_reward_map );
 
     // self.update_reward_history(stake_rewards, vote_rewards);

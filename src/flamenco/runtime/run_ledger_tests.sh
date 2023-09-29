@@ -77,7 +77,7 @@ ARGS=" --load test_ledger_backup \
   --validate true \
   --abort-on-mismatch 1 \
   --capture test.solcap \
-  --end-slot 933"
+  --end-slot 993"
 
 if [ -e dump/$LEDGER/capitalization.csv ]
 then
