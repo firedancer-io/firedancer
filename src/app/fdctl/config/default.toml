@@ -433,7 +433,7 @@ dynamic_port_range = "8000-10000"
         # same value as the `max_concurrent_connections` above.
         #
         # TODO: This should be removed.
-        max_concurrent_handshakes = 1000
+        max_concurrent_handshakes = 1024
 
         # QUIC has a concept of a "QUIC packet", there can be multiple of these
         # inside a UDP packet. Each QUIC packet we send to the peer needs to be
