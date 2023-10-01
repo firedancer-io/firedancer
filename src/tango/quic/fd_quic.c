@@ -1895,8 +1895,11 @@ ulong fd_quic_handle_v1_retry(
     }
     return FD_QUIC_PARSE_FAIL;
   }
-  fd_quic_retry_t retry_pkt;
-  fd_quic_decode_retry(&retry_pkt, cur_ptr, cur_sz);
+  fd_quic_retry_t retry_pkt = {0};
+  ulong decode_rc = fd_quic_decode_retry( &retry_pkt, cur_ptr, cur_sz );
+  if( FD_UNLIKELY( decode_rc == FD_QUIC_PARSE_FAIL ) ) {
+    return FD_QUIC_PARSE_FAIL;
+  }
 
   fd_quic_conn_id_t * orig_dst_conn_id = &conn->peer->conn_id;
 
