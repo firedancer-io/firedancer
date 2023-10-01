@@ -1649,9 +1649,14 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
   ulong         payload_off = pn_offset + pkt_number_sz;
   uchar const * frame_ptr   = crypt_scratch + payload_off;
   ulong         frame_sz    = body_sz - pkt_number_sz - FD_QUIC_CRYPTO_TAG_SZ; /* total size of all frames in packet */
-  while( frame_sz > 0 ) {
+  while( frame_sz != 0UL ) {
     rc = fd_quic_handle_v1_frame( quic, conn, pkt, frame_ptr, frame_sz, &conn->frame_union );
     if( rc == FD_QUIC_PARSE_FAIL ) {
+      return FD_QUIC_PARSE_FAIL;
+    }
+
+    if( FD_UNLIKELY( rc > frame_sz ) ) {
+      fd_quic_conn_close( conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION );
       return FD_QUIC_PARSE_FAIL;
     }
 
@@ -1849,9 +1854,14 @@ fd_quic_handle_v1_handshake(
   ulong         payload_off = pn_offset + pkt_number_sz;
   uchar const * frame_ptr   = crypt_scratch + payload_off;
   ulong         frame_sz    = body_sz - pkt_number_sz - FD_QUIC_CRYPTO_TAG_SZ; /* total size of all frames in packet */
-  while( frame_sz > 0 ) {
+  while( frame_sz != 0UL ) {
     rc = fd_quic_handle_v1_frame( quic, conn, pkt, frame_ptr, frame_sz, &conn->frame_union );
     if( rc == FD_QUIC_PARSE_FAIL ) {
+      return FD_QUIC_PARSE_FAIL;
+    }
+
+    if( FD_UNLIKELY( rc > frame_sz ) ) {
+      fd_quic_conn_close( conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION );
       return FD_QUIC_PARSE_FAIL;
     }
 
@@ -2186,9 +2196,14 @@ fd_quic_handle_v1_one_rtt( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_pkt_
   ulong         payload_off = pn_offset + pkt_number_sz;
   uchar const * frame_ptr   = crypt_scratch + payload_off;
   ulong         frame_sz    = cur_sz - pn_offset - pkt_number_sz - FD_QUIC_CRYPTO_TAG_SZ; /* total size of all frames in packet */
-  while( frame_sz > 0 ) {
+  while( frame_sz != 0UL ) {
     rc = fd_quic_handle_v1_frame( quic, conn, pkt, frame_ptr, frame_sz, &conn->frame_union );
     if( rc == FD_QUIC_PARSE_FAIL ) {
+      return FD_QUIC_PARSE_FAIL;
+    }
+
+    if( FD_UNLIKELY( rc > frame_sz ) ) {
+      fd_quic_conn_close( conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION );
       return FD_QUIC_PARSE_FAIL;
     }
 
