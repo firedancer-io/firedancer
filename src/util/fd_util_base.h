@@ -531,7 +531,15 @@ fd_type_pun_const( void const * p ) {
 
 /* FD_TYPE_PACKED indicates that a type is to be packed, reseting its alignment
    to 1. */
+
 #define FD_TYPE_PACKED __attribute__((packed))
+
+/* FD_WARN_UNUSED tells the compiler the result (from a function) should
+   be checked. This is useful to force callers to either check the result
+   or deliberately and explicitly ignore it. Good for result codes and
+   errors */
+
+#define FD_WARN_UNUSED __attribute__ ((warn_unused_result))
 
 /* FD_COMPILER_FORGET(var):  Tells the compiler that it shouldn't use
    any knowledge it has about the provided register-compatible variable
