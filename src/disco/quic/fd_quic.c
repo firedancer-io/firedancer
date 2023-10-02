@@ -43,18 +43,34 @@ typedef struct {
 
   ushort legacy_transaction_port; /* port for receiving non-QUIC (raw UDP) transactions on*/
 
-  ulong xsk_aio_cnt;
-  fd_xsk_aio_t ** xsk_aio;
+  uchar buffer[ FD_NET_MTU ];
 
   ulong inflight_streams; /* number of QUIC network streams currently open, used for flow control */
   ulong conn_cnt; /* count of live connections, put into the cnc for diagnostics */
   ulong conn_seq; /* current quic connection sequence number, put into cnc for idagnostics */
 
-  void  * out_wksp;
-  uchar * out_dcache_app;
-  ulong   out_chunk0;
-  ulong   out_wmark;
-  ulong   out_chunk;
+  ulong round_robin_cnt;
+  ulong round_robin_id;
+
+  void * in_wksp;
+  ulong  in_chunk0;
+  ulong  in_wmark;
+
+  fd_frag_meta_t * net_out_mcache;
+  ulong *          net_out_sync;
+  ulong            net_out_depth;
+  ulong            net_out_seq;
+
+  void *  net_out_wksp;
+  ulong   net_out_chunk0;
+  ulong   net_out_wmark;
+  ulong   net_out_chunk;
+
+  void  * verify_out_wksp;
+  uchar * verify_out_dcache_app;
+  ulong   verify_out_chunk0;
+  ulong   verify_out_wmark;
+  ulong   verify_out_chunk;
 } fd_quic_ctx_t;
 
 /* fd_quic_dcache_app_footprint returns the required footprint in bytes
@@ -84,21 +100,111 @@ fd_quic_tile_scratch_footprint( ulong depth,
   return fd_ulong_align_up( scratch_top, fd_quic_tile_scratch_align() );
 }
 
+FD_FN_CONST static inline ulong
+fd_quic_chunk_idx( ulong chunk0,
+                   ulong chunk ) {
+  return ((chunk-chunk0)*FD_CHUNK_FOOTPRINT) / fd_ulong_align_up( FD_TPU_DCACHE_MTU, FD_CHUNK_FOOTPRINT );
+}
+
+/* fd_quic_dcache_msg_ctx returns a pointer to the TPU/QUIC message
+   context struct for the given dcache app laddr and chunk.  app_laddr
+   points to the first byte of the dcache's app region in the tile's
+   local address space and has FD_DCACHE_ALIGN alignment (see
+   fd_dcache_app_laddr()).  chunk must be within the valid bounds for
+   this dcache. */
+
+FD_FN_CONST static inline fd_quic_msg_ctx_t *
+fd_quic_dcache_msg_ctx( uchar * app_laddr,
+                        ulong   chunk0,
+                        ulong   chunk ) {
+  fd_quic_msg_ctx_t * msg_arr = (fd_quic_msg_ctx_t *)app_laddr;
+  return &msg_arr[ fd_quic_chunk_idx( chunk0, chunk ) ];
+}
+
+/* By default the dcache only has headroom for one in-flight fragment,
+   but QUIC might have many.  If we exceed the headroom, we publish a
+   dummy mcache entry to evict the reader from this fragment we want to
+   use so we can start using it.
+
+   This is not ideal because if the reader is already done with the
+   fragment we are writing a useless mcache entry, so we try and do it
+   only when needed.
+
+   The QUIC receive path might typically execute stream_create,
+   stream_receive, and stream_notice serially, so it is often the case
+   that even if we are handling multiple new connections in one receive
+   batch, the in-flight count remains zero or one. */
+
+static inline void
+fd_tpu_dummy_dcache( fd_quic_ctx_t * ctx ) {
+  if( FD_LIKELY( ctx->inflight_streams > 0 ) ) {
+    ulong ctl   = fd_frag_meta_ctl( 0, 1 /* som */, 1 /* eom */, 0 /* err */ );
+    ulong tsnow = fd_frag_meta_ts_comp( fd_tickcount() );
+    fd_mux_publish( ctx->mux, 1, 0, 0, ctl, tsnow, tsnow );
+  }
+}
+
+/* legacy_stream_notify is called when a non-QUIC transaction is
+   received, that is, a regular unencrypted UDP packet transaction.  For
+   now both QUIC and non-QUIC transactions are accepted, with traffic
+   type determined by port.
+
+   UDP transactions must fit in one packet and cannot be fragmented, and
+   notify here means the entire packet was received. */
+
+static void
+legacy_stream_notify( fd_quic_ctx_t * ctx,
+                      uchar *         packet,
+                      uint            packet_sz ) {
+  if( FD_UNLIKELY( packet_sz > FD_TPU_MTU ) ) FD_LOG_ERR(( "corrupt packet too large" ));
+
+  ulong chunk = fd_dcache_compact_next( ctx->verify_out_chunk, FD_TPU_DCACHE_MTU, ctx->verify_out_chunk0, ctx->verify_out_wmark );
+
+  fd_quic_msg_ctx_t * msg_ctx = fd_quic_dcache_msg_ctx( ctx->verify_out_dcache_app, ctx->verify_out_chunk0, chunk );
+  msg_ctx->conn_id   = ULONG_MAX;
+  msg_ctx->stream_id = ULONG_MAX;
+  msg_ctx->data      = fd_chunk_to_laddr( ctx->verify_out_wksp, chunk );
+  msg_ctx->sz        = packet_sz;
+  msg_ctx->tsorig    = (uint)fd_frag_meta_ts_comp( fd_tickcount() );
+
+  fd_tpu_dummy_dcache( ctx );
+
+  ctx->inflight_streams += 1;
+
+  if( FD_UNLIKELY( pubq_full( ctx->pubq ) ) ) {
+    FD_LOG_WARNING(( "pubq full, dropping" ));
+    return;
+  }
+
+  FD_TEST( packet_sz <= FD_TPU_MTU ); /* paranoia */
+  fd_memcpy( msg_ctx->data, packet, packet_sz );
+  pubq_push( ctx->pubq, msg_ctx );
+
+  ctx->verify_out_chunk = chunk;
+}
+
+/* Because of the separate mcache for publishing network fragments
+   back to networking tiles, which is not managed by the mux, we
+   need to periodically update the sync. */
+static void
+during_housekeeping( void * _ctx ) {
+  fd_quic_ctx_t * ctx = (fd_quic_ctx_t *)_ctx;
+
+  fd_mcache_seq_update( ctx->net_out_sync, ctx->net_out_seq );
+}
+
 /* This tile always publishes messages downstream, even if there are
    no credits available.  It ignores the flow control of the downstream
    verify tile.  This is OK as the verify tile is written to expect
    this behavior, and enables the QUIC tile to publish as fast as it
    can.  It would currently be difficult trying to backpressure further
    up the stack to the network itself. */
-static inline void
+static void
 before_credit( void * _ctx,
                fd_mux_context_t * mux ) {
   fd_quic_ctx_t * ctx = (fd_quic_ctx_t *)_ctx;
 
   ctx->mux = mux;
-
-  /* Poll network backend */
-  for( ulong i=0; i<ctx->xsk_aio_cnt; i++ ) fd_xsk_aio_service( ctx->xsk_aio[i] );
 
   /* Service QUIC clients */
   fd_quic_service( ctx->quic );
@@ -155,7 +261,7 @@ before_credit( void * _ctx,
 
     /* Create mcache entry */
 
-    ulong chunk  = fd_laddr_to_chunk( ctx->out_wksp, msg->data );
+    ulong chunk  = fd_laddr_to_chunk( ctx->verify_out_wksp, msg->data );
     ulong sz     = (ulong)msg_end - (ulong)msg->data;
     ulong sig    = 0; /* A non-dummy entry representing a finished transaction */
     ulong ctl    = fd_frag_meta_ctl( 0, 1 /* som */, 1 /* eom */, 0 /* err */ );
@@ -177,25 +283,89 @@ cnc_diag_write( void * _ctx, ulong * cnc_diag ) {
   cnc_diag[ FD_QUIC_CNC_DIAG_TPU_CONN_SEQ      ]  = ctx->conn_seq;
 }
 
-FD_FN_CONST static inline ulong
-fd_quic_chunk_idx( ulong chunk0,
-                   ulong chunk ) {
-  return ((chunk-chunk0)*FD_CHUNK_FOOTPRINT) / fd_ulong_align_up( FD_TPU_DCACHE_MTU, FD_CHUNK_FOOTPRINT );
+static void
+before_frag( void * _ctx,
+             ulong  in_idx,
+             ulong  seq,
+             ulong  sig,
+             int *  opt_filter ) {
+  (void)in_idx;
+  (void)seq;
+
+  fd_quic_ctx_t * ctx = (fd_quic_ctx_t *)_ctx;
+
+  ushort dst_port    = fd_disco_netmux_sig_port( sig );
+  ulong  src_ip_addr = fd_disco_netmux_sig_ip_addr( sig );
+  ushort src_tile    = fd_disco_netmux_sig_src_tile( sig );
+
+  if( FD_UNLIKELY( src_tile != SRC_TILE_NET ) ) {
+    *opt_filter = 1;
+    return;
+  }
+
+  int handled_port = dst_port == ctx->legacy_transaction_port ||
+                     dst_port == ctx->quic->config.net.listen_udp_port;
+
+  if( FD_UNLIKELY( !handled_port ) ) {
+    FD_LOG_ERR(( "Firedancer received a UDP packet on port %hu which was not expected. "
+                 "Only ports %hu and %hu should be configured to forward packets. Do "
+                 "you need to reload the XDP program?",
+                 dst_port, ctx->quic->config.net.listen_udp_port, ctx->legacy_transaction_port ));
+  }
+
+  int handled_ip_address = (src_ip_addr % ctx->round_robin_cnt) == ctx->round_robin_id;
+
+  if( FD_UNLIKELY( !handled_port || !handled_ip_address ) ) {
+    *opt_filter = 1;
+  }
 }
 
-/* fd_quic_dcache_msg_ctx returns a pointer to the TPU/QUIC message
-   context struct for the given dcache app laddr and chunk.  app_laddr
-   points to the first byte of the dcache's app region in the tile's
-   local address space and has FD_DCACHE_ALIGN alignment (see
-   fd_dcache_app_laddr()).  chunk must be within the valid bounds for
-   this dcache. */
+static void
+during_frag( void * _ctx,
+             ulong  in_idx,
+             ulong  sig,
+             ulong  chunk,
+             ulong  sz,
+             int *  opt_filter ) {
+  (void)in_idx;
+  (void)sig;
+  (void)opt_filter;
 
-FD_FN_CONST static inline fd_quic_msg_ctx_t *
-fd_quic_dcache_msg_ctx( uchar * app_laddr,
-                        ulong   chunk0,
-                        ulong   chunk ) {
-  fd_quic_msg_ctx_t * msg_arr = (fd_quic_msg_ctx_t *)app_laddr;
-  return &msg_arr[ fd_quic_chunk_idx( chunk0, chunk ) ];
+  fd_quic_ctx_t * ctx = (fd_quic_ctx_t *)_ctx;
+
+  if( FD_UNLIKELY( chunk<ctx->in_chunk0 || chunk>=ctx->in_wmark || sz > FD_NET_MTU ) )
+    FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu)", chunk, sz, ctx->in_chunk0, ctx->in_wmark ));
+
+  uchar * src = (uchar *)fd_chunk_to_laddr( ctx->in_wksp, chunk );
+  fd_memcpy( ctx->buffer, src, sz ); /* TODO: Eliminate copy... fd_aio needs refactoring */
+}
+
+static void
+after_frag( void *  _ctx,
+            ulong * opt_sig,
+            ulong * opt_chunk,
+            ulong * opt_sz,
+            int *   opt_filter ) {
+  (void)opt_chunk;
+  (void)opt_filter;
+
+  fd_quic_ctx_t * ctx = (fd_quic_ctx_t *)_ctx;
+
+  ushort dst_port    = fd_disco_netmux_sig_port( *opt_sig );
+
+  if( FD_LIKELY( dst_port == ctx->quic->config.net.listen_udp_port ) ) {
+    fd_aio_pkt_info_t pkt = { .buf = ctx->buffer, .buf_sz = (ushort)*opt_sz };
+    fd_aio_send( ctx->quic_rx_aio, &pkt, 1, NULL, 1 );
+  } else if( FD_LIKELY( dst_port == ctx->legacy_transaction_port ) ) {
+    if( FD_UNLIKELY( *opt_sz < 15U ) ) FD_LOG_ERR(( "corrupt packet received (%lu)", *opt_sz ));
+
+    uchar * iphdr = ctx->buffer + 14U;
+    uint iplen = ( ( (uint)iphdr[0] ) & 0x0FU ) * 4U;
+    uchar * data = iphdr + iplen + 8U;
+
+    if( FD_UNLIKELY( 8U + 14U + iplen >= *opt_sz ) ) FD_LOG_ERR(( "corrupt packet received (%lu)", *opt_sz ));
+    legacy_stream_notify( ctx, data, (uint)(*opt_sz - 8UL - 14UL - iplen) );
+  }
 }
 
 /* quic_now is called by the QUIC engine to get the current timestamp in
@@ -235,29 +405,6 @@ quic_conn_final( fd_quic_conn_t * conn,
   ctx->conn_cnt--;
 }
 
-/* By default the dcache only has headroom for one in-flight fragment,
-   but QUIC might have many.  If we exceed the headroom, we publish a
-   dummy mcache entry to evict the reader from this fragment we want to
-   use so we can start using it.
-
-   This is not ideal because if the reader is already done with the
-   fragment we are writing a useless mcache entry, so we try and do it
-   only when needed.
-
-   The QUIC receive path might typically execute stream_create,
-   stream_receive, and stream_notice serially, so it is often the case
-   that even if we are handling multiple new connections in one receive
-   batch, the in-flight count remains zero or one. */
-
-static inline void
-fd_tpu_dummy_dcache( fd_quic_ctx_t * ctx ) {
-  if( FD_LIKELY( ctx->inflight_streams > 0 ) ) {
-    ulong ctl   = fd_frag_meta_ctl( 0, 1 /* som */, 1 /* eom */, 0 /* err */ );
-    ulong tsnow = fd_frag_meta_ts_comp( fd_tickcount() );
-    fd_mux_publish( ctx->mux, 1, 0, 0, ctl, tsnow, tsnow );
-  }
-}
-
 /* quic_stream_new is called back by the QUIC engine whenever an open
    connection creates a new stream, at the time this is called, both the
    client and server must have agreed to open the stream.  In case the
@@ -281,12 +428,12 @@ quic_stream_new( fd_quic_stream_t * stream,
 
   /* Allocate new dcache entry */
 
-  ulong chunk = fd_dcache_compact_next( ctx->out_chunk, FD_TPU_DCACHE_MTU, ctx->out_chunk0, ctx->out_wmark );
+  ulong chunk = fd_dcache_compact_next( ctx->verify_out_chunk, FD_TPU_DCACHE_MTU, ctx->verify_out_chunk0, ctx->verify_out_wmark );
 
-  fd_quic_msg_ctx_t * msg_ctx = fd_quic_dcache_msg_ctx( ctx->out_dcache_app, ctx->out_chunk0, chunk );
+  fd_quic_msg_ctx_t * msg_ctx = fd_quic_dcache_msg_ctx( ctx->verify_out_dcache_app, ctx->verify_out_chunk0, chunk );
   msg_ctx->conn_id   = conn_id;
   msg_ctx->stream_id = stream_id;
-  msg_ctx->data      = fd_chunk_to_laddr( ctx->out_wksp, chunk );
+  msg_ctx->data      = fd_chunk_to_laddr( ctx->verify_out_wksp, chunk );
   msg_ctx->sz        = 0U;
   msg_ctx->tsorig    = (uint)fd_frag_meta_ts_comp( fd_tickcount() );
 
@@ -296,8 +443,8 @@ quic_stream_new( fd_quic_stream_t * stream,
 
   /* Wind up for next callback */
 
-  ctx->out_chunk  = chunk;    /* Update dcache chunk index */
-  stream->context = msg_ctx;  /* Update stream dcache entry */
+  ctx->verify_out_chunk  = chunk; /* Update dcache chunk index */
+  stream->context = msg_ctx;      /* Update stream dcache entry */
 }
 
 /* quic_stream_receive is called back by the QUIC engine when any stream
@@ -397,109 +544,39 @@ quic_stream_notify( fd_quic_stream_t * stream,
   pubq_push( ctx->pubq, msg_ctx );
 }
 
-/* legacy_stream_notify is called when a non-QUIC transaction is
-   received, that is, a regular unencrypted UDP packet transaction.  For
-   now both QUIC and non-QUIC transactions are accepted, with traffic
-   type determined by port.
-
-   UDP transactions must fit in one packet and cannot be fragmented, and
-   notify here means the entire packet was received. */
-
-static void
-legacy_stream_notify( void *        _ctx,
-                      uchar const * packet,
-                      uint          packet_sz ) {
-  fd_quic_ctx_t * ctx = (fd_quic_ctx_t *)_ctx;
-
-  if( FD_UNLIKELY( packet_sz > FD_TPU_MTU ) ) return;
-
-  ulong chunk = fd_dcache_compact_next( ctx->out_chunk, FD_TPU_DCACHE_MTU, ctx->out_chunk0, ctx->out_wmark );
-
-  fd_quic_msg_ctx_t * msg_ctx = fd_quic_dcache_msg_ctx( ctx->out_dcache_app, ctx->out_chunk0, chunk );
-  msg_ctx->conn_id   = ULONG_MAX;
-  msg_ctx->stream_id = ULONG_MAX;
-  msg_ctx->data      = fd_chunk_to_laddr( ctx->out_wksp, chunk );
-  msg_ctx->sz        = packet_sz;
-  msg_ctx->tsorig    = (uint)fd_frag_meta_ts_comp( fd_tickcount() );
-
-  fd_tpu_dummy_dcache( ctx );
-
-  ctx->inflight_streams += 1;
-
-  if( FD_UNLIKELY( pubq_full( ctx->pubq ) ) ) {
-    FD_LOG_WARNING(( "pubq full, dropping" ));
-    return;
-  }
-
-  FD_TEST( packet_sz <= FD_TPU_MTU ); /* paranoia */
-  fd_memcpy( msg_ctx->data, packet, packet_sz );
-  pubq_push( ctx->pubq, msg_ctx );
-
-  ctx->out_chunk = chunk;
-}
-
-/* net_rx_aio_send is a callback invoked by aio when new data is
-   received on an incoming xsk.  The xsk might be bound to any interface
-   or ports, so the purpose of this callback is to determine if the
-   packet might be a valid transaction, and whether it is QUIC or
-   non-QUIC (raw UDP) before forwarding to the appropriate handler.
-
-   This callback is supposed to return the number of packets in the
-   batch which were successfully processed, but we always return
-   batch_cnt since there is no logic in place to backpressure this far
-   up the stack there is no sane way to "not handle" an incoming packet.
-   */
-
 static int
-net_rx_aio_send( void *                    _ctx,
-                 fd_aio_pkt_info_t const * batch,
-                 ulong                     batch_cnt,
-                 ulong *                   opt_batch_idx,
-                 int                       flush ) {
+quic_tx_aio_send( void *                    _ctx,
+                  fd_aio_pkt_info_t const * batch,
+                  ulong                     batch_cnt,
+                  ulong *                   opt_batch_idx,
+                  int                       flush ) {
+  (void)flush;
+
   fd_quic_ctx_t * ctx = (fd_quic_ctx_t *)_ctx;
 
   for( ulong i=0; i<batch_cnt; i++ ) {
-    uchar const * packet = batch[i].buf;
-    uchar const * packet_end = packet + batch[i].buf_sz;
+    void * dst = fd_chunk_to_laddr( ctx->net_out_wksp, ctx->net_out_chunk );
+    fd_memcpy( dst, batch[ i ].buf, batch[ i ].buf_sz );
 
-    uchar const * iphdr = packet + 14U;
+    /* send packets are just round-robined by sequence number, so for now
+       just indicate where they came from so they don't bounce back */
+    ulong sig = fd_disco_netmux_sig( 0, 0, SRC_TILE_QUIC, 0 );
 
-    /* Filter for UDP/IPv4 packets. Test for ethtype and ipproto in 1
-       branch */
-    uint test_ethip = ( (uint)packet[12] << 16u ) | ( (uint)packet[13] << 8u ) | (uint)packet[23];
-    if( FD_UNLIKELY( test_ethip!=0x080011 ) )
-      FD_LOG_ERR(( "Firedancer received a packet from the XDP program that was either "
-                   "not an IPv4 packet, or not a UDP packet. It is likely your XDP program "
-                   "is not configured correctly." ));
+    ulong tspub  = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
+    fd_mcache_publish( ctx->net_out_mcache,
+                       ctx->net_out_depth,
+                       ctx->net_out_seq,
+                       sig,
+                       ctx->net_out_chunk,
+                       batch[ i ].buf_sz,
+                       0,
+                       0,
+                       tspub );
 
-    /* IPv4 is variable-length, so lookup IHL to find start of UDP */
-    uint iplen = ( ( (uint)iphdr[0] ) & 0x0FU ) * 4U;
-    uchar const * udp = iphdr + iplen;
-
-    /* Ignore if UDP header is too short */
-    if( FD_UNLIKELY( udp+4U > packet_end ) ) continue;
-
-    /* Extract IP dest addr and UDP dest port */
-    ulong  ip_dstaddr  = *(uint   *)( iphdr+16UL );
-    (void) ip_dstaddr;
-    ushort udp_dstport = *(ushort *)( udp+2UL    );
-
-    uchar const * data = udp + 8U;
-    uint data_sz = (uint)(packet_end - data);
-
-    if( FD_LIKELY( fd_ushort_bswap( udp_dstport ) == ctx->quic->config.net.listen_udp_port ) )
-      fd_aio_send( ctx->quic_rx_aio, batch + i, 1, NULL, flush );
-    else if( FD_LIKELY( fd_ushort_bswap( udp_dstport ) == ctx->legacy_transaction_port ) )
-      legacy_stream_notify( ctx, data, data_sz );
-    else
-      FD_LOG_ERR(( "Firedancer received a UDP packet on port %hu which was not expected. "
-                  "Only ports %hu and %hu should be configured to forward packets. Do "
-                  "you need to reload the XDP program?",
-                  fd_ushort_bswap( udp_dstport ), ctx->quic->config.net.listen_udp_port, ctx->legacy_transaction_port ));
+    ctx->net_out_seq   = fd_seq_inc( ctx->net_out_seq, 1UL );
+    ctx->net_out_chunk = fd_dcache_compact_next( ctx->net_out_chunk, FD_NET_MTU, ctx->net_out_chunk0, ctx->net_out_wmark );
   }
 
-  /* the assumption here at present is that any packet that could not be
-     processed is simply dropped hence, all packets were consumed */
   if( FD_LIKELY( opt_batch_idx ) ) {
     *opt_batch_idx = batch_cnt;
   }
@@ -508,23 +585,32 @@ net_rx_aio_send( void *                    _ctx,
 }
 
 int
-fd_quic_tile( fd_cnc_t *       cnc,
-              ulong            pid,
-              fd_quic_t *      quic,
-              ushort           legacy_transaction_port,
-              ulong            xsk_aio_cnt,
-              fd_xsk_aio_t **  xsk_aio,
-              fd_frag_meta_t * mcache,
-              uchar *          dcache,
-              ulong            cr_max,
-              long             lazy,
-              fd_rng_t *       rng,
-              void *           scratch ) {
+fd_quic_tile( fd_cnc_t *              cnc,
+              ulong                   pid,
+              ulong                   in_cnt,
+              const fd_frag_meta_t ** in_mcache,
+              ulong **                in_fseq,
+              ulong                   round_robin_cnt,
+              ulong                   round_robin_id,
+              fd_frag_meta_t *        net_mcache,
+              uchar *                 net_dcache,
+              fd_quic_t *             quic,
+              ushort                  legacy_transaction_port,
+              fd_frag_meta_t *        mcache,
+              uchar *                 dcache,
+              ulong                   cr_max,
+              long                    lazy,
+              fd_rng_t *              rng,
+              void *                  scratch ) {
   fd_quic_ctx_t ctx[1];
 
   fd_mux_callbacks_t callbacks[1] = { 0 };
-  callbacks->before_credit = before_credit;
-  callbacks->cnc_diag_write = cnc_diag_write;
+  callbacks->during_housekeeping = during_housekeeping;
+  callbacks->before_credit       = before_credit;
+  callbacks->before_frag         = before_frag;
+  callbacks->during_frag         = during_frag;
+  callbacks->after_frag          = after_frag;
+  callbacks->cnc_diag_write      = cnc_diag_write;
 
   ulong scratch_top = (ulong)scratch;
 
@@ -542,11 +628,10 @@ fd_quic_tile( fd_cnc_t *       cnc,
     quic->cb.now_ctx          = NULL;
     quic->cb.quic_ctx         = ctx;
 
-    if( FD_UNLIKELY( !xsk_aio_cnt ) ) { FD_LOG_WARNING(( "no xsk_aio" )); return 1; }
-    fd_quic_set_aio_net_tx( quic, fd_xsk_aio_get_tx( xsk_aio[0] ) );
+    fd_aio_t * quic_tx_aio = fd_aio_join( fd_aio_new( SCRATCH_ALLOC( fd_aio_align(), fd_aio_footprint() ), ctx, quic_tx_aio_send ) );
+    fd_quic_set_aio_net_tx( quic, quic_tx_aio );
 
     if( FD_UNLIKELY( !fd_quic_init( quic ) ) ) { FD_LOG_WARNING(( "fd_quic_init failed" )); return 1; }
-    fd_aio_t * net_rx_aio = fd_aio_join( fd_aio_new( SCRATCH_ALLOC( fd_aio_align(), fd_aio_footprint() ), ctx, net_rx_aio_send ) );
 
     ulong depth = fd_mcache_depth( mcache );
     if( FD_UNLIKELY( !fd_dcache_compact_is_safe( fd_wksp_containing( dcache ), dcache, FD_TPU_DCACHE_MTU, depth  ) ) ) {
@@ -561,24 +646,42 @@ fd_quic_tile( fd_cnc_t *       cnc,
       return 1;
     }
 
-    ctx->out_wksp       = fd_wksp_containing( dcache );
-    ctx->out_dcache_app = fd_dcache_app_laddr( dcache );
-    ctx->out_chunk0     = fd_dcache_compact_chunk0( ctx->out_wksp, dcache );
-    ctx->out_wmark      = fd_dcache_compact_wmark ( ctx->out_wksp, dcache, FD_TPU_DCACHE_MTU );
-    ctx->out_chunk      = ctx->out_chunk0;
+    ctx->in_wksp  = fd_wksp_containing( net_mcache );
+
+    /* Put a bound on chunks we read from the input, to make sure they
+       are within in the data region of the workspace. */
+    ctx->in_chunk0 = fd_disco_compact_chunk0( ctx->in_wksp );
+    ctx->in_wmark  = fd_disco_compact_wmark ( ctx->in_wksp, FD_NET_MTU );
+
+
+    ctx->net_out_mcache = net_mcache;
+    ctx->net_out_sync  = fd_mcache_seq_laddr( net_mcache );
+    ctx->net_out_depth = fd_mcache_depth( net_mcache );
+    ctx->net_out_seq    = fd_mcache_seq_query( ctx->net_out_sync );
+    ctx->net_out_chunk0 = fd_dcache_compact_chunk0( fd_wksp_containing( net_dcache ), net_dcache );
+    ctx->net_out_wksp   = fd_wksp_containing( net_dcache );
+    ctx->net_out_wmark  = fd_dcache_compact_wmark ( ctx->net_out_wksp, net_dcache, FD_NET_MTU );
+    ctx->net_out_chunk  = ctx->net_out_chunk0;
+
+    ctx->verify_out_wksp       = fd_wksp_containing( dcache );
+    ctx->verify_out_dcache_app = fd_dcache_app_laddr( dcache );
+    ctx->verify_out_chunk0     = fd_dcache_compact_chunk0( ctx->verify_out_wksp, dcache );
+    ctx->verify_out_wmark      = fd_dcache_compact_wmark ( ctx->verify_out_wksp, dcache, FD_TPU_DCACHE_MTU );
+    ctx->verify_out_chunk      = ctx->verify_out_chunk0;
 
     ctx->inflight_streams = 0UL;
     ctx->conn_cnt = 0UL;
     ctx->conn_seq = 0UL;
 
     ctx->quic = quic;
+    ctx->quic_rx_aio = fd_quic_get_aio_net_rx( quic );
+
+    if( FD_UNLIKELY( !round_robin_cnt ) ) { FD_LOG_WARNING(( "round_robin_cnt is zero" )); return 1; }
+    if( FD_UNLIKELY( round_robin_id >= round_robin_cnt ) ) { FD_LOG_WARNING(( "round_robin_id is too large" )); return 1; }
+    ctx->round_robin_cnt = round_robin_cnt;
+    ctx->round_robin_id  = round_robin_id;
 
     ctx->legacy_transaction_port = legacy_transaction_port;
-
-    ctx->xsk_aio_cnt = xsk_aio_cnt;
-    ctx->xsk_aio = xsk_aio;
-    ctx->quic_rx_aio = fd_quic_get_aio_net_rx( quic );
-    for( ulong i=0; i<xsk_aio_cnt; i++ ) fd_xsk_aio_set_rx( xsk_aio[i], net_rx_aio );
 
     ctx->pubq = pubq_join( pubq_new( SCRATCH_ALLOC( pubq_align(), pubq_footprint( depth ) ), depth ) );
   } while(0);
@@ -586,9 +689,9 @@ fd_quic_tile( fd_cnc_t *       cnc,
   return fd_mux_tile( cnc,
                       pid,
                       FD_MUX_FLAG_MANUAL_PUBLISH | FD_MUX_FLAG_COPY,
-                      0,
-                      NULL,
-                      NULL,
+                      in_cnt,
+                      in_mcache,
+                      in_fseq,
                       mcache,
                       0, /* no reliable consumers, verify tiles may be overrun */
                       NULL,

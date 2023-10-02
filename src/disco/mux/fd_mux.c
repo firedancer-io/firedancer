@@ -442,6 +442,9 @@ fd_mux_tile( fd_cnc_t *              cnc,
              reset the cr_filt counter. */
           cr_filt = fd_ulong_if( cr_avail==cr_max, 0UL, cr_filt );
         }
+
+        /* user callback */
+        if( FD_UNLIKELY( callbacks->during_housekeeping ) ) callbacks->during_housekeeping( ctx );
       }
 
       /* Select which event to do next (randomized round robin) and
@@ -520,18 +523,6 @@ fd_mux_tile( fd_cnc_t *              cnc,
 
     __m128i seq_sig = fd_frag_meta_seq_sig_query( this_in_mline );
     ulong seq_found = fd_frag_meta_sse0_seq( seq_sig );
-    if( FD_UNLIKELY( callbacks->before_frag ) ) {
-      int filter;
-      callbacks->before_frag( ctx, (ulong)this_in->idx, seq, fd_frag_meta_sse0_sig( seq_sig ), &filter );
-      if( FD_UNLIKELY( filter ) ) {
-        if( FD_UNLIKELY( !(flags & FD_MUX_FLAG_COPY) ) ) cr_filt += (ulong)(cr_avail<cr_max);
-        this_in_seq    = fd_seq_inc( this_in_seq, 1UL );
-        this_in->seq   = this_in_seq;
-        this_in->mline = this_in->mcache + fd_mcache_line_idx( this_in_seq, this_in->depth );
-        now = fd_tickcount();
-        continue;
-      }
-    }
 
     long diff = fd_seq_diff( this_in_seq, seq_found );
     if( FD_UNLIKELY( diff ) ) { /* Caught up or overrun, optimize for new frag case */
@@ -544,6 +535,20 @@ fd_mux_tile( fd_cnc_t *              cnc,
       continue;
     }
 
+    ulong sig = fd_frag_meta_sse0_sig( seq_sig );
+    if( FD_UNLIKELY( callbacks->before_frag ) ) {
+      int filter = 0;
+      callbacks->before_frag( ctx, (ulong)this_in->idx, seq_found, sig, &filter );
+      if( FD_UNLIKELY( filter ) ) {
+        if( FD_UNLIKELY( !(flags & FD_MUX_FLAG_COPY) ) ) cr_filt += (ulong)(cr_avail<cr_max);
+        this_in_seq    = fd_seq_inc( this_in_seq, 1UL );
+        this_in->seq   = this_in_seq;
+        this_in->mline = this_in->mcache + fd_mcache_line_idx( this_in_seq, this_in->depth );
+        now = fd_tickcount();
+        continue;
+      }
+    }
+
     /* We have a new fragment to mux.  Try to load it.  This attempt
       should always be successful if in producers are honoring our flow
       control.  Since we can cheaply detect if there are
@@ -553,7 +558,6 @@ fd_mux_tile( fd_cnc_t *              cnc,
       by a flat AVX load of the metadata and an extraction of the found
       sequence number for higher performance. */
     FD_COMPILER_MFENCE();
-    ulong sig      =        this_in_mline->sig;
     ulong chunk    = (ulong)this_in_mline->chunk;
     ulong sz       = (ulong)this_in_mline->sz;
     ulong ctl      = (ulong)this_in_mline->ctl;

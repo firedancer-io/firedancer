@@ -127,8 +127,8 @@ check_fds( ulong allow_fds_sz,
 }
 
 static void
-install_seccomp( ushort allow_syscalls_sz, long * allow_syscalls ) {
-  FD_TEST( allow_syscalls_sz < 32 - 5 );
+install_seccomp( ushort allow_syscalls_cnt, long * allow_syscalls ) {
+  FD_TEST( allow_syscalls_cnt < 32 - 5 );
 
   struct sock_filter filter [ 128 ] = {
     /* validate architecture, load the arch number */
@@ -143,7 +143,7 @@ install_seccomp( ushort allow_syscalls_sz, long * allow_syscalls ) {
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, ( offsetof( struct seccomp_data, nr ) ) ),
   };
 
-  for( ulong i=0; i<allow_syscalls_sz; i++ ) {
+  for( ulong i=0; i<allow_syscalls_cnt; i++ ) {
     /* If the syscall does not match, jump over RET_ALLOW */
     struct sock_filter jmp = BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, (uint)allow_syscalls[i], 0, 1);
     struct sock_filter ret = BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW);
@@ -153,12 +153,12 @@ install_seccomp( ushort allow_syscalls_sz, long * allow_syscalls ) {
 
   /* none of the syscalls approved were matched: die */
   struct sock_filter kill = BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS);
-  filter[ 4+(allow_syscalls_sz*2) ] = kill;
+  filter[ 4+(allow_syscalls_cnt*2) ] = kill;
 
   FD_TESTV( 0 == prctl( PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0 ) );
 
   struct sock_fprog default_prog = {
-    .len = (ushort)(5+(allow_syscalls_sz*2)),
+    .len = (ushort)(5+(allow_syscalls_cnt*2)),
     .filter = filter,
   };
   FD_TESTV( 0 == syscall( SYS_seccomp, SECCOMP_SET_MODE_FILTER, 0, &default_prog ) );
@@ -263,11 +263,11 @@ fd_sandbox( int    full_sandbox,
             uint   gid,
             ulong  allow_fds_sz,
             int *  allow_fds,
-            ushort allow_syscalls_sz,
+            ushort allow_syscalls_cnt,
             long * allow_syscalls ) {
   if( FD_LIKELY( full_sandbox ) ) {
     sandbox_unthreaded( allow_fds_sz, allow_fds, uid, gid );
-    install_seccomp( allow_syscalls_sz, allow_syscalls );
+    install_seccomp( allow_syscalls_cnt, allow_syscalls );
     FD_LOG_INFO(( "sandbox: full sandbox is now enabled" ));
   } else {
     switch_user( uid, gid );

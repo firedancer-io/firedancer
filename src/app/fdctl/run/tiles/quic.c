@@ -1,3 +1,4 @@
+#include "tiles.h"
 #include "../../fdctl.h"
 #include "../run.h"
 
@@ -11,16 +12,7 @@
 
 static void
 init( fd_tile_args_t * args ) {
-  FD_LOG_INFO(( "loading %s", "xsk" ));
-  args->xsk = fd_xsk_join( fd_wksp_pod_map( args->tile_pod, "xsk" ) );
-  if( FD_UNLIKELY( !args->xsk ) ) FD_LOG_ERR(( "fd_xsk_join failed" ));
-
-  args->lo_xsk = NULL;
-  if( FD_UNLIKELY( fd_pod_query_cstr( args->tile_pod, "lo_xsk", NULL ) ) ) {
-    FD_LOG_INFO(( "loading %s", "lo_xsk" ));
-    args->lo_xsk = fd_xsk_join( fd_wksp_pod_map( args->tile_pod, "lo_xsk" ) );
-    if( FD_UNLIKELY( !args->lo_xsk ) ) FD_LOG_ERR(( "fd_xsk_join (lo) failed" ));
-  }
+  (void)args;
 
   /* call wallclock so glibc loads VDSO, which requires calling mmap while
      privileged */
@@ -42,7 +34,8 @@ init( fd_tile_args_t * args ) {
 }
 
 static ushort
-initialize_quic( fd_quic_config_t * config, uchar const * pod ) {
+initialize_quic( fd_quic_config_t * config,
+                 uchar const * pod ) {
   uint ip_addr = fd_pod_query_uint( pod, "ip_addr", 0 );
   if( FD_UNLIKELY( !ip_addr ) ) FD_LOG_ERR(( "ip_addr not set" ));
 
@@ -73,39 +66,39 @@ initialize_quic( fd_quic_config_t * config, uchar const * pod ) {
 
 static void
 run( fd_tile_args_t * args ) {
-  char _mcache[32], fseq[32], dcache[32];
-  snprintf( _mcache, sizeof(_mcache), "mcache%lu", args->tile_idx );
-  snprintf( fseq, sizeof(fseq), "fseq%lu", args->tile_idx );
-  snprintf( dcache, sizeof(dcache), "dcache%lu", args->tile_idx );
+  const uchar * tile_pod = args->wksp_pod[ 0 ];
+  const uchar * mux_pod  = args->wksp_pod[ 1 ];
+  const uchar * out_pod  = args->wksp_pod[ 2 ];
 
-  fd_quic_t * quic = fd_quic_join( fd_wksp_pod_map( args->tile_pod, "quic" ) );
+  fd_quic_t * quic = fd_quic_join( fd_wksp_pod_map1( tile_pod, "quic%lu", args->tile_idx ) );
   if( FD_UNLIKELY( !quic ) ) FD_LOG_ERR(( "fd_quic_join failed" ));
-  ushort legacy_transaction_port = initialize_quic( &quic->config, args->tile_pod );
+  ushort legacy_transaction_port = initialize_quic( &quic->config, tile_pod );
 
-  ulong xsk_aio_cnt = 1;
-  fd_xsk_aio_t * xsk_aio[2] = { fd_xsk_aio_join( fd_wksp_pod_map( args->tile_pod, "xsk_aio" ), args->xsk ), NULL };
-  if( FD_UNLIKELY( args->lo_xsk ) ) {
-    xsk_aio[1] = fd_xsk_aio_join( fd_wksp_pod_map( args->tile_pod, "lo_xsk_aio" ), args->lo_xsk );
-    xsk_aio_cnt += 1;
-  }
-
-  fd_frag_meta_t * mcache = fd_mcache_join( fd_wksp_pod_map( args->out_pod, _mcache ) );
+  fd_frag_meta_t * mcache = fd_mcache_join( fd_wksp_pod_map1( out_pod, "mcache%lu", args->tile_idx ) );
   if( FD_UNLIKELY( !mcache ) ) FD_LOG_ERR(( "fd_mcache_join failed" ));
   ulong depth = fd_mcache_depth( mcache );
 
+  ulong cnt = fd_pod_query_ulong( mux_pod, "quic-cnt", 0UL );
+  if( FD_UNLIKELY( !cnt ) ) FD_LOG_ERR(( "quic-cnt not set" ));
+
   fd_rng_t _rng[ 1 ];
-  fd_quic_tile( fd_cnc_join( fd_wksp_pod_map( args->tile_pod, "cnc" ) ),
+  fd_quic_tile( fd_cnc_join( fd_wksp_pod_map1( tile_pod, "cnc%lu", args->tile_idx ) ),
                 (ulong)args->pid,
+                1,
+                (const fd_frag_meta_t **)&(fd_frag_meta_t*){ fd_mcache_join( fd_wksp_pod_map( mux_pod, "mcache" ) ) },
+                &(ulong*){ fd_fseq_join( fd_wksp_pod_map1( mux_pod, "quic-in-fseq%lu", args->tile_idx ) ) },
+                cnt,
+                args->tile_idx,
+                fd_mcache_join( fd_wksp_pod_map1( mux_pod, "quic-out-mcache%lu", args->tile_idx ) ),
+                fd_dcache_join( fd_wksp_pod_map1( mux_pod, "quic-out-dcache%lu", args->tile_idx ) ),
                 quic,
                 legacy_transaction_port,
-                xsk_aio_cnt,
-                xsk_aio,
                 mcache,
-                fd_dcache_join( fd_wksp_pod_map( args->out_pod, dcache ) ),
+                fd_dcache_join( fd_wksp_pod_map1( out_pod, "dcache%lu", args->tile_idx ) ),
                 0,
                 0,
                 fd_rng_join( fd_rng_new( _rng, 0, 0UL ) ),
-                fd_alloca( FD_QUIC_TILE_SCRATCH_ALIGN, fd_quic_tile_scratch_footprint( depth, 0, 1 ) ) );
+                fd_alloca( FD_QUIC_TILE_SCRATCH_ALIGN, fd_quic_tile_scratch_footprint( depth, 1, 1 ) ) );
 }
 
 static long allow_syscalls[] = {
@@ -114,29 +107,33 @@ static long allow_syscalls[] = {
   __NR_getpid,    /* OpenSSL RAND_bytes checks pid, temporarily used as part of quic_init to generate a certificate */
   __NR_getrandom, /* OpenSSL RAND_bytes reads getrandom, temporarily used as part of quic_init to generate a certificate */
   __NR_madvise,   /* OpenSSL SSL_do_handshake() uses an arena which eventually calls _rjem_je_pages_purge_forced */
-  __NR_sendto,    /* fd_xsk requires sendto */
   __NR_mmap,      /* OpenSSL again... deep inside SSL_provide_quic_data() some jemalloc code calls mmap */
+};
+
+static workspace_kind_t allow_workspaces[] = {
+  wksp_quic,         /* the tile itself */
+  wksp_netmux_inout, /* sending / receiving packets from network */
+  wksp_quic_verify,  /* send path for transactions */
 };
 
 static ulong
 allow_fds( fd_tile_args_t * args,
            ulong            out_fds_sz,
            int *            out_fds ) {
-  if( FD_UNLIKELY( out_fds_sz < 4 ) ) FD_LOG_ERR(( "out_fds_sz %lu", out_fds_sz ));
+  (void)args;
+  if( FD_UNLIKELY( out_fds_sz < 2 ) ) FD_LOG_ERR(( "out_fds_sz %lu", out_fds_sz ));
   out_fds[ 0 ] = 2; /* stderr */
   out_fds[ 1 ] = 3; /* logfile */
-  out_fds[ 2 ] = args->xsk->xsk_fd;
-  out_fds[ 3 ] = args->lo_xsk ? args->lo_xsk->xsk_fd : -1;
-  return args->lo_xsk ? 4 : 3;
+  return 2;
 }
 
 fd_tile_config_t quic = {
-  .name              = "quic",
-  .in_wksp           = NULL,
-  .out_wksp          = "quic_verify",
-  .allow_syscalls_sz = sizeof(allow_syscalls)/sizeof(allow_syscalls[ 0 ]),
-  .allow_syscalls    = allow_syscalls,
-  .allow_fds         = allow_fds,
-  .init              = init,
-  .run               = run,
+  .name                 = "quic",
+  .allow_workspaces_cnt = sizeof(allow_workspaces)/sizeof(allow_workspaces[ 0 ]),
+  .allow_workspaces     = allow_workspaces,
+  .allow_syscalls_cnt   = sizeof(allow_syscalls)/sizeof(allow_syscalls[ 0 ]),
+  .allow_syscalls       = allow_syscalls,
+  .allow_fds            = allow_fds,
+  .init                 = init,
+  .run                  = run,
 };

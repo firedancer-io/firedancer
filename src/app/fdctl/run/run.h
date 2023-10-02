@@ -6,33 +6,35 @@
 #include "../../../tango/xdp/fd_xsk.h"
 
 typedef struct {
-   int           pid;
-   char *        app_name;
-   char *        tile_name;
-   ulong         tile_idx;
-   ulong         idx;
-   uchar const * tile_pod;
-   uchar const * in_pod;
-   uchar const * out_pod;
-   fd_xsk_t    * xsk;
-   fd_xsk_t    * lo_xsk;
+   int                pid;
+   char *             app_name;
+   char *             tile_name;
+   ulong              tile_idx;
+   ulong              idx;
+   const uchar *      wksp_pod[ 16 ];
+   fd_xsk_t *         xsk;
+   fd_xsk_t *         lo_xsk;
 } fd_tile_args_t;
 
 typedef struct {
-   char *  name;
-   char *  in_wksp;
-   char *  out_wksp;
-   ushort  allow_syscalls_sz;
-   long *  allow_syscalls;
+   char *             name;
+   ushort             allow_workspaces_cnt;
+   workspace_kind_t * allow_workspaces;
+   ushort             allow_syscalls_cnt;
+   long *             allow_syscalls;
+
    ulong (*allow_fds)( fd_tile_args_t * args, ulong out_fds_sz, int * out_fds );
    void  (*init)( fd_tile_args_t * args );
    void  (*run )( fd_tile_args_t * args );
 } fd_tile_config_t;
 
+extern fd_tile_config_t net;
+extern fd_tile_config_t netmux;
+extern fd_tile_config_t quic;
 extern fd_tile_config_t verify;
 extern fd_tile_config_t dedup;
-extern fd_tile_config_t quic;
 extern fd_tile_config_t pack;
+extern fd_tile_config_t bank;
 
 typedef struct {
   fd_tile_config_t * tile;
@@ -46,8 +48,7 @@ typedef struct {
 
 const uchar *
 workspace_pod_join( char * app_name,
-                    char * tile_name,
-                    ulong tile_idx );
+                    char * workspace_name );
 
 int
 solana_labs_main( void * args );

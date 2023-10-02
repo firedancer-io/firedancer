@@ -160,7 +160,7 @@ static void
 workspace_name( config_t * const config,
                 workspace_config_t * wksp,
                 char out[ FD_WKSP_CSTR_MAX ] ) {
-  snprintf1( out, PATH_MAX, "%s_%s%lu.wksp", config->name, wksp->name, wksp->kind_idx );
+  snprintf1( out, PATH_MAX, "%s_%s.wksp", config->name, wksp->name );
 }
 
 static void
@@ -182,7 +182,7 @@ init( config_t * const config ) {
   /* enter network namespace for bind. this is only needed for a check
      that the interface exists.. we can probably skip that */
   if( FD_UNLIKELY( config->development.netns.enabled ) )  {
-    enter_network_namespace( config->net.interface );
+    enter_network_namespace( config->tiles.net.interface );
   }
 
   /* switch to non-root uid/gid for workspace creation. permissions checks still done as root. */
@@ -228,6 +228,23 @@ init( config_t * const config ) {
     WKSP_BEGIN( config, wksp1, 0 );
 
     switch( wksp1->kind ) {
+      case wksp_netmux_inout:
+        ulong1( pod, "net-cnt", config->layout.net_tile_count );
+        ulong1( pod, "quic-cnt", config->layout.verify_tile_count );
+        mcache( pod, "mcache", config->tiles.net.send_buffer_size );
+        for( ulong i=0; i<config->layout.net_tile_count; i++ ) {
+          mcache( pod, "net-out-mcache%lu", config->tiles.net.send_buffer_size, i );
+          fseq  ( pod, "net-out-fseq%lu", i );
+          dcache( pod, "net-out-dcache%lu", FD_NET_MTU, config->tiles.net.send_buffer_size, 0, i );
+          fseq  ( pod, "net-in-fseq%lu", i );
+        }
+        for( ulong i=0; i<config->layout.verify_tile_count; i++ ) {
+          mcache( pod, "quic-out-mcache%lu", config->tiles.net.send_buffer_size, i );
+          fseq  ( pod, "quic-out-fseq%lu", i );
+          dcache( pod, "quic-out-dcache%lu", FD_NET_MTU, config->tiles.net.send_buffer_size, 0, i );
+          fseq  ( pod, "quic-in-fseq%lu", i );
+        }
+        break;
       case wksp_quic_verify:
         for( ulong i=0; i<config->layout.verify_tile_count; i++ ) {
           mcache( pod, "mcache%lu", config->tiles.verify.receive_buffer_size, i );
@@ -264,42 +281,58 @@ init( config_t * const config ) {
           fseq  ( pod, "fseq%lu", i );
         }
         break;
+      case wksp_net:
+        for( ulong i=0; i<config->layout.net_tile_count; i++ ) {
+          cnc    ( pod, "cnc%lu", i );
+          xsk    ( pod, "xsk%lu",     FD_NET_MTU, config->tiles.net.xdp_rx_queue_size, config->tiles.net.xdp_tx_queue_size, i );
+          xsk_aio( pod, "xsk_aio%lu", config->tiles.net.xdp_tx_queue_size, config->tiles.net.xdp_aio_depth, i );
+
+          char xsk_str[32];
+          snprintf1( xsk_str, 32, "xsk%lu", i );
+          char const * quic_xsk_gaddr = fd_pod_query_cstr( pod, xsk_str, NULL );
+          void *       shmem          = fd_wksp_map      ( quic_xsk_gaddr );
+          if( FD_UNLIKELY( !fd_xsk_bind( shmem, config->name, config->tiles.net.interface, (uint)i ) ) )
+            FD_LOG_ERR(( "failed to bind xsk for net tile %lu", i ));
+          fd_wksp_unmap( shmem );
+
+          if( FD_UNLIKELY( strcmp( config->tiles.net.interface, "lo" ) && !i ) ) {
+            // First net tile (0) can also listen to loopback XSK.
+            xsk    ( pod, "lo_xsk%lu",     FD_NET_MTU, config->tiles.net.xdp_rx_queue_size, config->tiles.net.xdp_tx_queue_size, i );
+            xsk_aio( pod, "lo_xsk_aio%lu", config->tiles.net.xdp_tx_queue_size, config->tiles.net.xdp_aio_depth, i );
+
+            char lo_xsk_str[32];
+            snprintf1( lo_xsk_str, 32, "lo_xsk%lu", i );
+            char const * lo_xsk_gaddr = fd_pod_query_cstr( pod, lo_xsk_str, NULL );
+            void *       lo_shmem     = fd_wksp_map      ( lo_xsk_gaddr );
+            if( FD_UNLIKELY( !fd_xsk_bind( lo_shmem, config->name, "lo", (uint)i ) ) )
+              FD_LOG_ERR(( "failed to bind lo_xsk for net tile %lu", i ));
+            fd_wksp_unmap( lo_shmem );
+          }
+        }
+        break;
+      case wksp_netmux:
+        cnc   ( pod, "cnc" );
+        break;
       case wksp_quic:
-        cnc    ( pod, "cnc" );
-        quic   ( pod, "quic",    &limits );
-        xsk    ( pod, "xsk",     2048, config->tiles.quic.xdp_rx_queue_size, config->tiles.quic.xdp_tx_queue_size );
-        xsk_aio( pod, "xsk_aio", config->tiles.quic.xdp_tx_queue_size, config->tiles.quic.xdp_aio_depth );
-
-        char const * quic_xsk_gaddr = fd_pod_query_cstr( pod, "xsk", NULL );
-        void *       shmem          = fd_wksp_map      ( quic_xsk_gaddr );
-        if( FD_UNLIKELY( !fd_xsk_bind( shmem, config->name, config->net.interface, (uint)wksp1->kind_idx ) ) )
-          FD_LOG_ERR(( "failed to bind xsk for quic tile %lu", wksp1->kind_idx ));
-        fd_wksp_unmap( shmem );
-
-        if( FD_UNLIKELY( strcmp( config->net.interface, "lo") && !wksp1->kind_idx ) ) {
-          // First QUIC tile (0) can also listen to loopback XSK.
-          xsk    ( pod, "lo_xsk",     2048, config->tiles.quic.xdp_rx_queue_size, config->tiles.quic.xdp_tx_queue_size );
-          xsk_aio( pod, "lo_xsk_aio", config->tiles.quic.xdp_tx_queue_size, config->tiles.quic.xdp_aio_depth );
-
-          char const * lo_xsk_gaddr = fd_pod_query_cstr( pod, "lo_xsk", NULL );
-          void *       lo_shmem     = fd_wksp_map      ( lo_xsk_gaddr );
-          if( FD_UNLIKELY( !fd_xsk_bind( lo_shmem, config->name, "lo", (uint)wksp1->kind_idx ) ) )
-            FD_LOG_ERR(( "failed to bind lo_xsk for quic tile %lu", wksp1->kind_idx ));
-          fd_wksp_unmap( lo_shmem );
+        for( ulong i=0; i<config->layout.verify_tile_count; i++ ) {
+          cnc    ( pod, "cnc%lu", i );
+          quic   ( pod, "quic%lu",    &limits, i );
         }
 
-        uint1  ( pod, "ip_addr",                      config->net.ip_addr     );
-        buf    ( pod, "src_mac_addr",                 config->net.mac_addr, 6 );
+        uint1  ( pod, "ip_addr",                      config->tiles.net.ip_addr     );
+        buf    ( pod, "src_mac_addr",                 config->tiles.net.mac_addr, 6 );
         ushort1( pod, "transaction_listen_port",      config->tiles.quic.transaction_listen_port, 0 );
         ushort1( pod, "quic_transaction_listen_port", config->tiles.quic.quic_transaction_listen_port, 0 );
         ulong1 ( pod, "idle_timeout_ms",              1000 );
         ulong1 ( pod, "initial_rx_max_stream_data",   1<<15 );
         break;
       case wksp_verify:
-        cnc( pod, "cnc" );
+        for( ulong i=0; i<config->layout.verify_tile_count; i++ ) {
+          cnc( pod, "cnc%lu", i );
+        }
         break;
       case wksp_dedup:
-        cnc   ( pod, "cnc",    pod, wksp );
+        cnc   ( pod, "cnc" );
         ulong1( pod, "tcache_depth", config->tiles.dedup.signature_cache_size );
         break;
       case wksp_pack:
@@ -307,7 +340,9 @@ init( config_t * const config ) {
         ulong1( pod, "depth",   config->tiles.pack.max_pending_transactions );
         break;
       case wksp_bank:
-        cnc   ( pod, "cnc" );
+        for( ulong i=0; i<config->layout.verify_tile_count; i++ ) {
+          cnc   ( pod, "cnc%lu", i );
+        }
         break;
     }
 

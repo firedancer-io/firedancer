@@ -108,6 +108,19 @@ typedef struct {
    ulong * seq;
 } fd_mux_context_t;
 
+/* fd_mux_during_housekeeping_fn is called during the housekeeping routine,
+   which happens infrequently on a schedule determined by the mux (based on
+   the lazy parameter, see fd_tempo.h for more information).
+   
+   It is appropriate to do slightly expensive things here that wouldn't be
+   OK to do in the main loop, like updating sequence numbers that are shared
+   with other tiles (e.g. synchronization information), or sending batched
+   information somewhere.
+   
+   The ctx is a user-provided context object from when the mux tile was
+   initialized. */
+typedef void (fd_mux_during_housekeeping_fn)( void * ctx );
+
 /* fd_mux_before_credit_fn is called every iteration of the mux run loop,
    whether there is a new frag ready to receive or not.  This callback
    is also still invoked even if the mux is backpressured and cannot
@@ -162,8 +175,8 @@ typedef void (fd_mux_after_credit_fn)( void *             ctx,
    initialized. */
 typedef void (fd_mux_before_frag_fn)( void * ctx,
                                       ulong  in_idx,
-                                      ulong  sig,
                                       ulong  seq,
+                                      ulong  sig,
                                       int *  opt_filter );
 
 /* fd_mux_during_frag_fn is called after the mux has received a new frag
@@ -264,8 +277,11 @@ typedef void (fd_mux_cnc_diag_clear)( void * ctx );
    can be NULL, in which case it will not be executed. */
 
 typedef struct {
+  fd_mux_during_housekeeping_fn * during_housekeeping;
+
   fd_mux_before_credit_fn * before_credit;
   fd_mux_after_credit_fn *  after_credit;
+
   fd_mux_before_frag_fn * before_frag;
   fd_mux_during_frag_fn * during_frag;
   fd_mux_after_frag_fn  * after_frag;

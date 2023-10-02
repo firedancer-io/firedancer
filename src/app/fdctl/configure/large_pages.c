@@ -52,12 +52,15 @@ expected_pages( config_t * const config, uint out[2] ) {
 
   for( ulong i=0; i<config->shmem.workspaces_cnt; i++ ) {
     switch( config->shmem.workspaces[ i ].kind ) {
+      case wksp_netmux_inout:
       case wksp_quic_verify:
       case wksp_verify_dedup:
       case wksp_dedup_pack:
       case wksp_pack_bank:
       case wksp_bank_shred:
         break;
+      case wksp_net:
+      case wksp_netmux:
       case wksp_quic:
       case wksp_verify:
       case wksp_dedup:

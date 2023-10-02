@@ -12,21 +12,28 @@
 /* Maximum size of the string describing the CPU affinity of Firedancer */
 #define AFFINITY_SZ 256
 
+typedef enum {
+  wksp_netmux_inout,
+  wksp_quic_verify,
+  wksp_verify_dedup,
+  wksp_dedup_pack,
+  wksp_pack_bank,
+  wksp_bank_shred,
+  wksp_net,
+  wksp_netmux,
+  wksp_quic,
+  wksp_verify,
+  wksp_dedup,
+  wksp_pack,
+  wksp_bank,
+} workspace_kind_t;
+
+FD_FN_CONST char *
+workspace_kind_str( workspace_kind_t kind );
+
 typedef struct {
-  enum {
-    wksp_quic_verify,
-    wksp_verify_dedup,
-    wksp_dedup_pack,
-    wksp_pack_bank,
-    wksp_bank_shred,
-    wksp_quic,
-    wksp_verify,
-    wksp_dedup,
-    wksp_pack,
-    wksp_bank,
-  } kind;
+  workspace_kind_t kind;
   char * name;
-  ulong kind_idx;
   ulong page_size;
   ulong num_pages;
 } workspace_config_t;
@@ -100,6 +107,7 @@ typedef struct {
 
   struct {
     char affinity[ AFFINITY_SZ ];
+    uint net_tile_count;
     uint verify_tile_count;
     uint bank_tile_count;
   } layout;
@@ -111,13 +119,6 @@ typedef struct {
     ulong workspaces_cnt;
     workspace_config_t workspaces[ 256 ];
   } shmem;
-
-  struct {
-    char   interface[ IF_NAMESIZE ];
-    uint   ip_addr;
-    uchar  mac_addr[6];
-    char   xdp_mode[ 8 ];
-  } net;
 
   struct {
     int sandbox;
@@ -134,6 +135,19 @@ typedef struct {
 
   struct {
     struct {
+      char   interface[ IF_NAMESIZE ];
+      uint   ip_addr;
+      uchar  mac_addr[6];
+      char   xdp_mode[ 8 ];
+
+      uint xdp_rx_queue_size;
+      uint xdp_tx_queue_size;
+      uint xdp_aio_depth;
+
+      uint send_buffer_size;
+    } net;
+
+    struct {
       ushort transaction_listen_port;
       ushort quic_transaction_listen_port;
 
@@ -142,9 +156,7 @@ typedef struct {
       uint max_concurrent_handshakes;
       uint max_inflight_quic_packets;
       uint tx_buf_size;
-      uint xdp_rx_queue_size;
-      uint xdp_tx_queue_size;
-      uint xdp_aio_depth;
+
     } quic;
 
     struct {
