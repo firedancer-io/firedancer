@@ -127,6 +127,18 @@
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/rent.rs#L11"
     },
     {
+      "name": "epoch_schedule",
+      "type": "struct",
+      "fields": [
+        { "name": "slots_per_epoch", "type": "ulong" },
+        { "name": "leader_schedule_slot_offset", "type": "ulong" },
+        { "name": "warmup", "type": "uchar" },
+        { "name": "first_normal_epoch", "type": "ulong" },
+        { "name": "first_normal_slot", "type": "ulong" }
+      ],
+      "comment":"https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/epoch_schedule.rs#L26"
+    },
+    {
       "name": "rent_collector",
       "type": "struct",
       "fields": [
