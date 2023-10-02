@@ -263,8 +263,6 @@ replay( global_state_t * state,
     FD_LOG_INFO(("reading slot %ld (epoch %lu)", slot, epoch));
 
     fd_slot_meta_t m;
-    fd_memset(&m, 0, sizeof(m));
-    fd_slot_meta_new(&m);
 
     /* Read block meta */
 

@@ -372,7 +372,6 @@ int fd_executor_system_program_execute_instruction(
   uchar *      data            = ctx.instr->data;
 
   fd_system_program_instruction_t instruction;
-  fd_system_program_instruction_new( &instruction );
   fd_bincode_decode_ctx_t ctx2;
   ctx2.data = data;
   ctx2.dataend = &data[ctx.instr->data_sz];

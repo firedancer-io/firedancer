@@ -346,7 +346,6 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_meta_t* m, const void
           FD_LOG_WARNING(( "LUT ACC: idx: %lu, acc: %32J, meta.dlen; %lu", i, addr_lut_acc, lut_acc_rec->const_meta->dlen ));
 
           fd_address_lookup_table_state_t addr_lookup_table_state;
-          fd_address_lookup_table_state_new( &addr_lookup_table_state );
           fd_bincode_decode_ctx_t decode_ctx = {
             .data = lut_acc_rec->const_data,
             .dataend = &lut_acc_rec->const_data[56], // TODO macro const.
@@ -1626,7 +1625,6 @@ fd_feature_restore( fd_global_ctx_t * global,
     return;
 
   fd_feature_t feature[1];
-  fd_feature_new( feature );
 
   FD_SCRATCH_SCOPED_FRAME;
 

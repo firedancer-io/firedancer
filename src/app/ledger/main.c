@@ -174,8 +174,6 @@ void SnapshotParser_parseSnapshots(struct SnapshotParser* self, const void* data
   fd_global_ctx_t* global = self->global_;
 
   self->manifest_ = fd_valloc_malloc( global->valloc, FD_SOLANA_MANIFEST_ALIGN, FD_SOLANA_MANIFEST_FOOTPRINT );
-  memset(self->manifest_, 0, FD_SOLANA_MANIFEST_FOOTPRINT);
-  fd_solana_manifest_new(self->manifest_);
   fd_bincode_decode_ctx_t ctx;
   ctx.data = data;
   ctx.dataend = (char const *)data + datalen;
