@@ -26,18 +26,13 @@ fd_flamenco_txn_decode( fd_flamenco_txn_t *       self,
 
 int
 fd_flamenco_txn_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
-  static FD_TLS fd_txn_parse_counters_t counters[1];
   ulong bufsz = (ulong)ctx->dataend - (ulong)ctx->data;
-  ulong sz;
-  fd_flamenco_txn_t self;
-  ulong res = fd_txn_parse_core( ctx->data, bufsz, self.txn, counters, &sz, 0 );
+  fd_txn_xray_result_t t;
+  ulong res = fd_txn_xray( ctx->data, bufsz, &t );
   if( FD_UNLIKELY( !res ) ) {
-    /* TODO: Remove this debug print in prod */
-    FD_LOG_DEBUG(( "Failed to decode txn (fd_txn.c:%lu)",
-                   counters->failure_ring[ counters->failure_cnt % FD_TXN_PARSE_COUNTERS_RING_SZ ] ));
     return -1000001;
   }
-  ctx->data = (void *)( (ulong)ctx->data + sz );
+  ctx->data = (void *)( (ulong)ctx->data + res );
   return 0;
 }
 
