@@ -44,6 +44,17 @@ fd_hash_decode( fd_hash_t *               self,
   return fd_bincode_bytes_decode( &self->hash[0], sizeof(self->hash), ctx );
 }
 
+static inline int
+fd_hash_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
+  return fd_bincode_bytes_decode_preflight( FD_HASH_FOOTPRINT, ctx );
+}
+
+static inline void
+fd_hash_decode_unsafe( fd_hash_t *               self,
+                       fd_bincode_decode_ctx_t * ctx ) {
+  fd_bincode_bytes_decode_unsafe( &self->hash[0], sizeof(self->hash), ctx );
+}
+
 static inline void
 fd_hash_destroy( fd_hash_t const *          self FD_FN_UNUSED,
                  fd_bincode_destroy_ctx_t * ctx  FD_FN_UNUSED ) {}
@@ -71,14 +82,16 @@ fd_hash_walk( void *             w,
 #define fd_hash_check_zero(_x) (!((_x)->ul[0] | (_x)->ul[1] | (_x)->ul[2] | (_x)->ul[3]))
 #define fd_hash_set_zero(_x)   {((_x)->ul[0] = 0); ((_x)->ul[1] = 0); ((_x)->ul[2] = 0); ((_x)->ul[3] = 0);}
 
-#define fd_pubkey_new         fd_hash_new
-#define fd_pubkey_decode      fd_hash_decode
-#define fd_pubkey_encode      fd_hash_encode
-#define fd_pubkey_destroy     fd_hash_destroy
-#define fd_pubkey_size        fd_hash_size
-#define fd_pubkey_check_zero  fd_hash_check_zero
-#define fd_pubkey_set_zero    fd_hash_set_zero
-#define fd_pubkey_walk        fd_hash_walk
+#define fd_pubkey_new              fd_hash_new
+#define fd_pubkey_decode           fd_hash_decode
+#define fd_pubkey_decode_preflight fd_hash_decode_preflight
+#define fd_pubkey_decode_unsafe    fd_hash_decode_unsafe
+#define fd_pubkey_encode           fd_hash_encode
+#define fd_pubkey_destroy          fd_hash_destroy
+#define fd_pubkey_size             fd_hash_size
+#define fd_pubkey_check_zero       fd_hash_check_zero
+#define fd_pubkey_set_zero         fd_hash_set_zero
+#define fd_pubkey_walk             fd_hash_walk
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/epoch_schedule.rs#L26 */
 struct fd_epoch_schedule {
@@ -95,6 +108,8 @@ typedef struct fd_epoch_schedule fd_epoch_schedule_t;
 
 void fd_epoch_schedule_new(fd_epoch_schedule_t* self);
 int fd_epoch_schedule_decode(fd_epoch_schedule_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_epoch_schedule_decode_preflight(fd_bincode_decode_ctx_t * ctx);
+void fd_epoch_schedule_decode_unsafe(fd_epoch_schedule_t* self, fd_bincode_decode_ctx_t * ctx);
 int fd_epoch_schedule_encode(fd_epoch_schedule_t const * self, fd_bincode_encode_ctx_t * ctx);
 void fd_epoch_schedule_destroy(fd_epoch_schedule_t* self, fd_bincode_destroy_ctx_t * ctx);
 void fd_epoch_schedule_walk(void * w, fd_epoch_schedule_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
@@ -110,6 +125,8 @@ typedef struct fd_option_slot fd_option_slot_t;
 
 void fd_option_slot_new(fd_option_slot_t* self);
 int fd_option_slot_decode(fd_option_slot_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_option_slot_decode_preflight(fd_bincode_decode_ctx_t * ctx);
+void fd_option_slot_decode_unsafe(fd_option_slot_t* self, fd_bincode_decode_ctx_t * ctx);
 int fd_option_slot_encode(fd_option_slot_t const * self, fd_bincode_encode_ctx_t * ctx);
 void fd_option_slot_destroy(fd_option_slot_t* self, fd_bincode_destroy_ctx_t * ctx);
 void fd_option_slot_walk(void * w, fd_option_slot_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
@@ -132,6 +149,17 @@ static inline int
 fd_signature_decode( fd_signature_t *          self,
                      fd_bincode_decode_ctx_t * ctx ) {
   return fd_bincode_bytes_decode( &self->uc[0], 64UL, ctx );
+}
+
+static inline int
+fd_signature_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
+  return fd_bincode_bytes_decode_preflight( 64UL, ctx );
+}
+
+static inline void
+fd_signature_decode_unsafe( fd_signature_t *          self,
+                            fd_bincode_decode_ctx_t * ctx ) {
+  fd_bincode_bytes_decode_unsafe( &self->uc[0], 64UL, ctx );
 }
 
 static inline void
@@ -169,6 +197,17 @@ static inline int
 fd_gossip_ip4_addr_decode( fd_gossip_ip4_addr_t *    self,
                            fd_bincode_decode_ctx_t * ctx ) {
   return fd_bincode_uint32_decode( self, ctx );
+}
+
+static inline int
+fd_gossip_ip4_addr_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
+  return fd_bincode_uint32_decode_preflight( ctx );
+}
+
+static inline void
+fd_gossip_ip4_addr_decode_unsafe( fd_gossip_ip4_addr_t *    self,
+                           fd_bincode_decode_ctx_t * ctx ) {
+  fd_bincode_uint32_decode_unsafe( self, ctx );
 }
 
 static inline void
@@ -210,6 +249,17 @@ static inline int
 fd_gossip_ip6_addr_decode( fd_gossip_ip6_addr_t *    self,
                            fd_bincode_decode_ctx_t * ctx ) {
   return fd_bincode_bytes_decode( &self->uc[0], 16UL, ctx );
+}
+
+static inline int
+fd_gossip_ip6_addr_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
+  return fd_bincode_bytes_decode_preflight( 16UL, ctx );
+}
+
+static inline void
+fd_gossip_ip6_addr_decode_unsafe( fd_gossip_ip6_addr_t *    self,
+                                  fd_bincode_decode_ctx_t * ctx ) {
+  fd_bincode_bytes_decode_unsafe( &self->uc[0], 16UL, ctx );
 }
 
 static inline void
@@ -256,6 +306,13 @@ fd_flamenco_txn_new( fd_flamenco_txn_t * self FD_FN_UNUSED ) {}
 int
 fd_flamenco_txn_decode( fd_flamenco_txn_t *       self,
                         fd_bincode_decode_ctx_t * ctx );
+
+int
+fd_flamenco_txn_decode_preflight( fd_bincode_decode_ctx_t * ctx );
+
+void
+fd_flamenco_txn_decode_unsafe( fd_flamenco_txn_t *       self,
+                               fd_bincode_decode_ctx_t * ctx );
 
 static inline void
 fd_flamenco_txn_destroy( fd_flamenco_txn_t const *  self FD_FN_UNUSED,
