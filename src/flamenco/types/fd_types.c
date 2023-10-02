@@ -996,6 +996,7 @@ void fd_stake_history_decode_unsafe(fd_stake_history_t* self, fd_bincode_decode_
   self->treap = fd_stake_history_entries_treap_alloc( ctx->valloc );
   for (ulong i = 0; i < fd_stake_history_entries_treap_len; ++i) {
     fd_stake_history_epochentry_pair_t * ele = fd_stake_history_entries_pool_ele_acquire( self->pool );
+    fd_stake_history_epochentry_pair_new( ele );
     fd_stake_history_epochentry_pair_decode_unsafe( ele, ctx );
     fd_stake_history_entries_treap_ele_insert( self->treap, ele, self->pool ); /* this cannot fail */
   }
@@ -4877,6 +4878,7 @@ void fd_vote_authorized_voters_decode_unsafe(fd_vote_authorized_voters_t* self, 
   self->treap = fd_vote_authorized_voters_treap_alloc( ctx->valloc );
   for (ulong i = 0; i < fd_vote_authorized_voters_treap_len; ++i) {
     fd_vote_authorized_voter_t * ele = fd_vote_authorized_voters_pool_ele_acquire( self->pool );
+    fd_vote_authorized_voter_new( ele );
     fd_vote_authorized_voter_decode_unsafe( ele, ctx );
     fd_vote_authorized_voters_treap_ele_insert( self->treap, ele, self->pool ); /* this cannot fail */
   }

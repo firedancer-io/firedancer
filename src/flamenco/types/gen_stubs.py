@@ -944,6 +944,7 @@ class TreapMember:
         print(f'  self->treap = {treap_name}_alloc( ctx->valloc );', file=body)
         print(f'  for (ulong i = 0; i < {treap_name}_len; ++i) {{', file=body)
         print(f'    {treap_t} * ele = {pool_name}_ele_acquire( self->pool );', file=body)
+        print(f'    {treap_t.rstrip("_t")}_new( ele );', file=body)
         print(f'    {treap_t.rstrip("_t")}_decode_unsafe( ele, ctx );', file=body)
         print(f'    {treap_name}_ele_insert( self->treap, ele, self->pool ); /* this cannot fail */', file=body);
         print('  }', file=body)
