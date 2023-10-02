@@ -1265,9 +1265,78 @@ def parseMember(namespace, json):
     return c(namespace, json)
 
 
+class OpaqueType:
+    def __init__(self, json):
+        self.fullname = f'{namespace}_{json["name"]}'
+        self.walktype = (json["walktype"] if "walktype" in json else None)
+
+    def emitHeader(self):
+        pass
+
+    def emitPrototypes(self):
+        n = self.fullname
+        print(f"void {n}_new({n}_t* self);", file=header)
+        print(f"int {n}_decode({n}_t* self, fd_bincode_decode_ctx_t * ctx);", file=header)
+        print(f"int {n}_decode_preflight(fd_bincode_decode_ctx_t * ctx);", file=header)
+        print(f"void {n}_decode_unsafe({n}_t* self, fd_bincode_decode_ctx_t * ctx);", file=header)
+        print(f"int {n}_encode({n}_t const * self, fd_bincode_encode_ctx_t * ctx);", file=header)
+        print(f"void {n}_destroy({n}_t* self, fd_bincode_destroy_ctx_t * ctx);", file=header)
+        print(f"void {n}_walk(void * w, {n}_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);", file=header)
+        print(f"ulong {n}_size({n}_t const * self);", file=header)
+        print(f'ulong {n}_footprint( void );', file=header)
+        print(f'ulong {n}_align( void );', file=header)
+        print("", file=header)
+
+    def emitImpls(self):
+        n = self.fullname
+
+        print(f'int {n}_decode({n}_t* self, fd_bincode_decode_ctx_t * ctx) {{', file=body)
+        print(f'  void const * data = ctx->data;', file=body)
+        print(f'  int err = {n}_decode_preflight(ctx);', file=body)
+        print(f'  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
+        print(f'  ctx->data = data;', file=body)
+        print(f'  {n}_new(self);', file=body)
+        print(f'  {n}_decode_unsafe(self, ctx);', file=body)
+        print(f'  return FD_BINCODE_SUCCESS;', file=body)
+        print(f'}}', file=body)
+
+        print(f'int {n}_decode_preflight(fd_bincode_decode_ctx_t * ctx) {{', file=body)
+        print(f'  return fd_bincode_bytes_decode_preflight( sizeof({n}_t), ctx );', file=body)
+        print("}", file=body)
+
+        print(f'void {n}_decode_unsafe({n}_t* self, fd_bincode_decode_ctx_t * ctx) {{', file=body)
+        print(f'  fd_bincode_bytes_decode_unsafe( (uchar*)self, sizeof({n}_t), ctx );', file=body)
+        print("}", file=body)
+
+        print(f'void {n}_new({n}_t* self) {{', file=body)
+        print(f'  fd_memset(self, 0, sizeof({n}_t));', file=body)
+        print("}", file=body)
+
+        print(f'void {n}_destroy({n}_t* self, fd_bincode_destroy_ctx_t * ctx) {{ }}', file=body)
+
+        print(f'ulong {n}_footprint( void ){{ return sizeof({n}_t); }}', file=body)
+        print(f'ulong {n}_align( void ){{ return alignof({n}_t); }}', file=body)
+
+        print(f'ulong {n}_size({n}_t const * self) {{ (void)self; return sizeof({n}_t); }}', file=body)
+
+        print(f'int {n}_encode({n}_t const * self, fd_bincode_encode_ctx_t * ctx) {{', file=body)
+        print(f'  return fd_bincode_bytes_encode( (uchar const *)&self, sizeof({n}_t), ctx );', file=body)
+        print("}", file=body)
+
+        if self.walktype is not None:
+            print(f"void {n}_walk(void * w, {n}_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {{", file=body)
+            print(f'  fun( w, (uchar const*)&self, name, {self.walktype}, name, level );', file=body)
+            print("}", file=body)
+
+        print("", file=body)
+
+    def emitPostamble(self):
+        pass
+
+
 class StructType:
     def __init__(self, json):
-        self.fullname = f'{namespace}_{entry["name"]}'
+        self.fullname = f'{namespace}_{json["name"]}'
         self.fields = []
         for f in entry["fields"]:
             self.fields.append(parseMember(self.fullname, f))
@@ -1387,9 +1456,10 @@ class StructType:
         for f in self.fields:
             f.emitPostamble()
 
+
 class EnumType:
     def __init__(self, json):
-        self.fullname = f'{namespace}_{entry["name"]}'
+        self.fullname = f'{namespace}_{json["name"]}'
         self.variants = []
         for f in entry["variants"]:
             if 'type' in f:
@@ -1637,6 +1707,8 @@ class EnumType:
 
 alltypes = []
 for entry in entries:
+    if entry['type'] == 'opaque':
+        alltypes.append(OpaqueType(entry))
     if entry['type'] == 'struct':
         alltypes.append(StructType(entry))
     if entry['type'] == 'enum':

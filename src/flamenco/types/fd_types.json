@@ -8,6 +8,19 @@
   ],
   "entries": [
     {
+      "name": "signature",
+      "type": "opaque",
+      "walktype": "FD_FLAMENCO_TYPE_SIG512"
+    },
+    {
+      "name": "gossip_ip4_addr",
+      "type": "opaque"
+    },
+    {
+      "name": "gossip_ip6_addr",
+      "type": "opaque"
+    },
+    {
       "name": "feature",
       "type": "struct",
       "fields": [
