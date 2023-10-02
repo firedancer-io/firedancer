@@ -393,6 +393,20 @@ fd_txn_get_acct_addrs( fd_txn_t const * txn,
   return (fd_acct_addr_t const *)((ulong)payload + (ulong)txn->acct_addr_off);
 }
 
+static inline uchar const *
+fd_txn_get_recent_blockhash( fd_txn_t const * txn,
+                             void     const * payload ) {
+  return (uchar const *)((ulong)payload + (ulong)txn->recent_blockhash_off);
+}
+
+/* fd_txn_align returns the alignment in bytes required of a region of
+   memory to be used as a fd_txn_t.  It is the same as
+   alignof(fd_txn_t). */
+static inline ulong
+fd_txn_align( void ) {
+  return alignof(fd_txn_t);
+}
+
 /* fd_txn_footprint: Returns the total size of txn, including the
    instructions and the address tables (if any). */
 static inline ulong
@@ -608,8 +622,6 @@ fd_txn_acct_iter_next( ulong   cur,
 
 static inline ulong FD_FN_CONST fd_txn_acct_iter_end( void ) { return FD_TXN_ACCT_ADDR_MAX; }
 
-
-
 /* fd_txn_parse: Parses a transaction from the canonical encoding, i.e.
    the format used on the wire.
 
@@ -632,7 +644,52 @@ static inline ulong FD_FN_CONST fd_txn_acct_iter_end( void ) { return FD_TXN_ACC
    the parsing process will be accumulated into the struct pointed to by
    counters_opt. Note: The returned txn object is not self-contained
    since it refers to byte ranges inside the payload. */
-ulong fd_txn_parse( uchar const * payload, ulong payload_sz, void * out_buf, fd_txn_parse_counters_t * counters_opt );
+
+ulong
+fd_txn_parse_core( uchar const             * payload,
+                   ulong                     payload_sz,
+                   void                    * out_buf,
+                   fd_txn_parse_counters_t * counters_opt,
+                   ulong *                   payload_sz_opt,
+                   int allow_zero_signatures );
+
+static inline ulong fd_txn_parse( uchar const * payload, ulong payload_sz, void * out_buf, fd_txn_parse_counters_t * counters_opt ) {
+  return fd_txn_parse_core(payload, payload_sz, out_buf, counters_opt, NULL, 0);
+}
+
+struct fd_txn_xray_result {
+  uchar       signature_cnt;
+  ushort      signature_off;
+};
+typedef struct fd_txn_xray_result fd_txn_xray_result_t;
+
+ulong
+fd_txn_xray( uchar const             * payload,
+             ulong                     payload_sz,
+             fd_txn_xray_result_t    * result );
+
+static inline int
+fd_txn_is_writable( fd_txn_t const * txn, int idx ) {
+  if (txn->transaction_version == FD_TXN_V0 && idx >= txn->acct_addr_cnt) {
+    if (idx < (txn->acct_addr_cnt + txn->addr_table_adtl_writable_cnt)) {
+      return 1;
+    }
+    return 0;
+  }
+
+  if (idx < (txn->signature_cnt - txn->readonly_signed_cnt))
+    return 1;
+  if ((idx >= txn->signature_cnt) & (idx < (txn->acct_addr_cnt - txn->readonly_unsigned_cnt)))
+    return 1;
+
+
+  return 0;
+}
+
+static inline int
+fd_txn_is_signer( fd_txn_t const * txn, int idx ) {
+  return idx < txn->signature_cnt;
+}
 
 FD_PROTOTYPES_END
 
