@@ -9,6 +9,6 @@ NUM_TRANSACTIONS=${1:-8102}
 TX_FILE=${2:-all.txns}
 NUM_JOBS=${3:-64}
 set +e
-head -n $NUM_TRANSACTIONS $TX_FILE | parallel -j $NUM_JOBS "sudo nsenter --net=/var/run/netns/veth_test_xdp_1 fdddev txn --payload-base64-encoded {} > /tmp/run-{#} 2>&1"
+head -n $NUM_TRANSACTIONS $TX_FILE | parallel -j $NUM_JOBS "sudo nsenter --net=/var/run/netns/veth_test_xdp_1 fddev txn --payload-base64-encoded {} > /tmp/run-{#} 2>&1"
 set -e
 echo " $(grep -E 'rc 1|rc 2|rc 3' /tmp/run* | wc -l) / $NUM_TRANSACTIONS successfully transmitted by clients ($NUM_JOBS at a time)"
