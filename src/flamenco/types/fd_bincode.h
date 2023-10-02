@@ -308,7 +308,6 @@ fd_bincode_varint_decode( ulong *                   self,
 static inline int
 fd_bincode_varint_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
   const uchar * ptr = (const uchar*) ctx->data;
-  ulong shift = 0;
   while (1) {
     if ( FD_UNLIKELY((void *) (ptr + 1) > ctx->dataend ) )
       return FD_BINCODE_ERR_UNDERFLOW;
@@ -317,7 +316,6 @@ fd_bincode_varint_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
       ctx->data = ptr;
       return FD_BINCODE_SUCCESS;
     }
-    shift += 7;
   }
 }
 
