@@ -19,18 +19,16 @@ int fd_hash_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
 void fd_hash_decode_unsafe(fd_hash_t* self, fd_bincode_decode_ctx_t * ctx) {
   fd_bincode_bytes_decode_unsafe( (uchar*)self, sizeof(fd_hash_t), ctx );
 }
-void fd_hash_new(fd_hash_t* self) {
-  fd_memset(self, 0, sizeof(fd_hash_t));
-}
+void fd_hash_new(fd_hash_t* self) { }
 void fd_hash_destroy(fd_hash_t* self, fd_bincode_destroy_ctx_t * ctx) { }
 ulong fd_hash_footprint( void ){ return sizeof(fd_hash_t); }
 ulong fd_hash_align( void ){ return alignof(fd_hash_t); }
 ulong fd_hash_size(fd_hash_t const * self) { (void)self; return sizeof(fd_hash_t); }
 int fd_hash_encode(fd_hash_t const * self, fd_bincode_encode_ctx_t * ctx) {
-  return fd_bincode_bytes_encode( (uchar const *)&self, sizeof(fd_hash_t), ctx );
+  return fd_bincode_bytes_encode( (uchar const *)self, sizeof(fd_hash_t), ctx );
 }
 void fd_hash_walk(void * w, fd_hash_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
-  fun( w, (uchar const*)&self, name, FD_FLAMENCO_TYPE_HASH256, name, level );
+  fun( w, (uchar const*)self, name, FD_FLAMENCO_TYPE_HASH256, name, level );
 }
 
 int fd_signature_decode(fd_signature_t* self, fd_bincode_decode_ctx_t * ctx) {
@@ -48,18 +46,16 @@ int fd_signature_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
 void fd_signature_decode_unsafe(fd_signature_t* self, fd_bincode_decode_ctx_t * ctx) {
   fd_bincode_bytes_decode_unsafe( (uchar*)self, sizeof(fd_signature_t), ctx );
 }
-void fd_signature_new(fd_signature_t* self) {
-  fd_memset(self, 0, sizeof(fd_signature_t));
-}
+void fd_signature_new(fd_signature_t* self) { }
 void fd_signature_destroy(fd_signature_t* self, fd_bincode_destroy_ctx_t * ctx) { }
 ulong fd_signature_footprint( void ){ return sizeof(fd_signature_t); }
 ulong fd_signature_align( void ){ return alignof(fd_signature_t); }
 ulong fd_signature_size(fd_signature_t const * self) { (void)self; return sizeof(fd_signature_t); }
 int fd_signature_encode(fd_signature_t const * self, fd_bincode_encode_ctx_t * ctx) {
-  return fd_bincode_bytes_encode( (uchar const *)&self, sizeof(fd_signature_t), ctx );
+  return fd_bincode_bytes_encode( (uchar const *)self, sizeof(fd_signature_t), ctx );
 }
 void fd_signature_walk(void * w, fd_signature_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
-  fun( w, (uchar const*)&self, name, FD_FLAMENCO_TYPE_SIG512, name, level );
+  fun( w, (uchar const*)self, name, FD_FLAMENCO_TYPE_SIG512, name, level );
 }
 
 int fd_gossip_ip4_addr_decode(fd_gossip_ip4_addr_t* self, fd_bincode_decode_ctx_t * ctx) {
@@ -77,15 +73,13 @@ int fd_gossip_ip4_addr_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
 void fd_gossip_ip4_addr_decode_unsafe(fd_gossip_ip4_addr_t* self, fd_bincode_decode_ctx_t * ctx) {
   fd_bincode_bytes_decode_unsafe( (uchar*)self, sizeof(fd_gossip_ip4_addr_t), ctx );
 }
-void fd_gossip_ip4_addr_new(fd_gossip_ip4_addr_t* self) {
-  fd_memset(self, 0, sizeof(fd_gossip_ip4_addr_t));
-}
+void fd_gossip_ip4_addr_new(fd_gossip_ip4_addr_t* self) { }
 void fd_gossip_ip4_addr_destroy(fd_gossip_ip4_addr_t* self, fd_bincode_destroy_ctx_t * ctx) { }
 ulong fd_gossip_ip4_addr_footprint( void ){ return sizeof(fd_gossip_ip4_addr_t); }
 ulong fd_gossip_ip4_addr_align( void ){ return alignof(fd_gossip_ip4_addr_t); }
 ulong fd_gossip_ip4_addr_size(fd_gossip_ip4_addr_t const * self) { (void)self; return sizeof(fd_gossip_ip4_addr_t); }
 int fd_gossip_ip4_addr_encode(fd_gossip_ip4_addr_t const * self, fd_bincode_encode_ctx_t * ctx) {
-  return fd_bincode_bytes_encode( (uchar const *)&self, sizeof(fd_gossip_ip4_addr_t), ctx );
+  return fd_bincode_bytes_encode( (uchar const *)self, sizeof(fd_gossip_ip4_addr_t), ctx );
 }
 
 int fd_gossip_ip6_addr_decode(fd_gossip_ip6_addr_t* self, fd_bincode_decode_ctx_t * ctx) {
@@ -103,15 +97,13 @@ int fd_gossip_ip6_addr_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
 void fd_gossip_ip6_addr_decode_unsafe(fd_gossip_ip6_addr_t* self, fd_bincode_decode_ctx_t * ctx) {
   fd_bincode_bytes_decode_unsafe( (uchar*)self, sizeof(fd_gossip_ip6_addr_t), ctx );
 }
-void fd_gossip_ip6_addr_new(fd_gossip_ip6_addr_t* self) {
-  fd_memset(self, 0, sizeof(fd_gossip_ip6_addr_t));
-}
+void fd_gossip_ip6_addr_new(fd_gossip_ip6_addr_t* self) { }
 void fd_gossip_ip6_addr_destroy(fd_gossip_ip6_addr_t* self, fd_bincode_destroy_ctx_t * ctx) { }
 ulong fd_gossip_ip6_addr_footprint( void ){ return sizeof(fd_gossip_ip6_addr_t); }
 ulong fd_gossip_ip6_addr_align( void ){ return alignof(fd_gossip_ip6_addr_t); }
 ulong fd_gossip_ip6_addr_size(fd_gossip_ip6_addr_t const * self) { (void)self; return sizeof(fd_gossip_ip6_addr_t); }
 int fd_gossip_ip6_addr_encode(fd_gossip_ip6_addr_t const * self, fd_bincode_encode_ctx_t * ctx) {
-  return fd_bincode_bytes_encode( (uchar const *)&self, sizeof(fd_gossip_ip6_addr_t), ctx );
+  return fd_bincode_bytes_encode( (uchar const *)self, sizeof(fd_gossip_ip6_addr_t), ctx );
 }
 
 int fd_feature_decode(fd_feature_t* self, fd_bincode_decode_ctx_t * ctx) {

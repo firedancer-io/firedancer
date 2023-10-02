@@ -1308,9 +1308,7 @@ class OpaqueType:
         print(f'  fd_bincode_bytes_decode_unsafe( (uchar*)self, sizeof({n}_t), ctx );', file=body)
         print("}", file=body)
 
-        print(f'void {n}_new({n}_t* self) {{', file=body)
-        print(f'  fd_memset(self, 0, sizeof({n}_t));', file=body)
-        print("}", file=body)
+        print(f'void {n}_new({n}_t* self) {{ }}', file=body)
 
         print(f'void {n}_destroy({n}_t* self, fd_bincode_destroy_ctx_t * ctx) {{ }}', file=body)
 
@@ -1320,12 +1318,12 @@ class OpaqueType:
         print(f'ulong {n}_size({n}_t const * self) {{ (void)self; return sizeof({n}_t); }}', file=body)
 
         print(f'int {n}_encode({n}_t const * self, fd_bincode_encode_ctx_t * ctx) {{', file=body)
-        print(f'  return fd_bincode_bytes_encode( (uchar const *)&self, sizeof({n}_t), ctx );', file=body)
+        print(f'  return fd_bincode_bytes_encode( (uchar const *)self, sizeof({n}_t), ctx );', file=body)
         print("}", file=body)
 
         if self.walktype is not None:
             print(f"void {n}_walk(void * w, {n}_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {{", file=body)
-            print(f'  fun( w, (uchar const*)&self, name, {self.walktype}, name, level );', file=body)
+            print(f'  fun( w, (uchar const*)self, name, {self.walktype}, name, level );', file=body)
             print("}", file=body)
 
         print("", file=body)
