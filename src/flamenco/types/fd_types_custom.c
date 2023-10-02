@@ -42,7 +42,12 @@ fd_flamenco_txn_decode_unsafe( fd_flamenco_txn_t *       self,
   static FD_TLS fd_txn_parse_counters_t counters[1];
   ulong bufsz = (ulong)ctx->dataend - (ulong)ctx->data;
   ulong sz;
-  (void) fd_txn_parse_core( ctx->data, bufsz, self->txn, counters, &sz, 0 );
+  ulong res = fd_txn_parse_core( ctx->data, bufsz, self->txn, counters, &sz, 0 );
+  if( FD_UNLIKELY( !res ) ) {
+    FD_LOG_ERR(( "Failed to decode txn (fd_txn.c:%lu)",
+                 counters->failure_ring[ counters->failure_cnt % FD_TXN_PARSE_COUNTERS_RING_SZ ] ));
+    return;
+  }
   fd_memcpy( self->raw, ctx->data, sz );
   self->raw_sz = sz;
   ctx->data = (void *)( (ulong)ctx->data + sz );
