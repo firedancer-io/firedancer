@@ -54,7 +54,6 @@ int fd_load_nonce_account(
   uchar *      data            = instr.data;
 
   fd_system_program_instruction_t instruction;
-  fd_system_program_instruction_new( &instruction );
   fd_bincode_decode_ctx_t ctx2 = {
     .data = data,
     .dataend = &data[instr.data_sz],
@@ -135,7 +134,6 @@ int fd_advance_nonce_account(
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
 
   fd_nonce_state_versions_t state;
-  fd_nonce_state_versions_new( &state );
   fd_bincode_decode_ctx_t ctx2 = {
     .data = me_rec->const_data,
     .dataend = me_rec->const_data + me_rec->const_meta->dlen,
@@ -255,7 +253,6 @@ int fd_withdraw_nonce_account(
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
 
   fd_nonce_state_versions_t state;
-  fd_nonce_state_versions_new( &state );
   fd_bincode_decode_ctx_t ctx2 = {
     .data = from_rec->const_data,
     .dataend = from_rec->const_data + from_rec->const_meta->dlen,
@@ -376,7 +373,6 @@ int fd_initialize_nonce_account(
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
 
   fd_nonce_state_versions_t state;
-  fd_nonce_state_versions_new( &state );
   fd_bincode_decode_ctx_t ctx2 = {
     .data = me_rec->const_data,
     .dataend = me_rec->const_data + me_rec->const_meta->dlen,
@@ -476,7 +472,6 @@ int fd_authorize_nonce_account(
   int ret = -1;
 
   fd_nonce_state_versions_t state;
-  fd_nonce_state_versions_new( &state );
   fd_bincode_decode_ctx_t ctx2;
   ctx2.data    = rec->const_data;
   ctx2.dataend = rec->const_data + rec->const_meta->dlen;
@@ -568,7 +563,6 @@ int fd_upgrade_nonce_account(
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
 
   fd_nonce_state_versions_t state;
-  fd_nonce_state_versions_new( &state );
   fd_bincode_decode_ctx_t ctx2;
   ctx2.data    = acc->const_data;
   ctx2.dataend = acc->const_data + acc->const_meta->dlen;

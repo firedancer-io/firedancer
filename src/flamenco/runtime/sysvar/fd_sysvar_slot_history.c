@@ -69,7 +69,6 @@ fd_sysvar_slot_history_update( fd_global_ctx_t * global ) {
   ctx.dataend = rec->const_data + rec->const_meta->dlen;
   ctx.valloc  = global->valloc;
   fd_slot_history_t history[1];
-  fd_slot_history_new( history );
   if( fd_slot_history_decode( history, &ctx ) )
     FD_LOG_ERR(("fd_slot_history_decode failed"));
 

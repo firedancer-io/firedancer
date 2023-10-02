@@ -65,7 +65,6 @@ fd_sysvar_epoch_schedule_read( fd_global_ctx_t *     global,
     .valloc  = global->valloc
   };
 
-  fd_epoch_schedule_new( result );
   if( FD_UNLIKELY( fd_epoch_schedule_decode( result, &decode ) ) )
     FD_LOG_ERR(("fd_epoch_schedule_decode failed"));
 }
