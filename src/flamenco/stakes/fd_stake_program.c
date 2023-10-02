@@ -201,6 +201,8 @@ read_stake_state( fd_global_ctx_t const *   global,
                   fd_account_meta_t const * metadata,
                   fd_stake_state_t *        result ) {
 
+  fd_memset ( result, 0, FD_STAKE_STATE_FOOTPRINT );
+
   uchar const * raw_acc_data = (uchar const *)metadata + metadata->hlen;
 
   fd_bincode_decode_ctx_t ctx;
