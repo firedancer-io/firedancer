@@ -1373,7 +1373,10 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
           memcpy(&retry_pseudo_pkt.retry_token, &retry_pkt.retry_token, FD_QUIC_RETRY_TOKEN_SZ);
 
           ulong retry_pseudo_footprint = fd_quic_encode_footprint_retry_pseudo(&retry_pseudo_pkt);
-          uchar retry_pseudo_buf[retry_pseudo_footprint];
+          uchar retry_pseudo_buf[FD_QUIC_MAX_FOOTPRINT(retry_pseudo)];
+          if( FD_UNLIKELY( retry_pseudo_footprint > sizeof(retry_pseudo_buf) ) ) {
+            FD_LOG_ERR(( "retry_pseudo_footprint is larger than allocated size" ));
+          }
           fd_quic_encode_retry_pseudo(retry_pseudo_buf, retry_pseudo_footprint, &retry_pseudo_pkt);
           fd_quic_retry_integrity_tag_encrypt(retry_pseudo_buf, (int) retry_pseudo_footprint, retry_pkt.retry_integrity_tag);
 
