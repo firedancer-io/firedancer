@@ -8,6 +8,11 @@
   ],
   "entries": [
     {
+      "name": "hash",
+      "type": "opaque",
+      "walktype": "FD_FLAMENCO_TYPE_HASH256"
+    },
+    {
       "name": "signature",
       "type": "opaque",
       "walktype": "FD_FLAMENCO_TYPE_SIG512"

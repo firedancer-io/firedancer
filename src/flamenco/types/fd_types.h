@@ -2166,6 +2166,17 @@ typedef struct fd_gossip_msg fd_gossip_msg_t;
 
 FD_PROTOTYPES_BEGIN
 
+void fd_hash_new(fd_hash_t* self);
+int fd_hash_decode(fd_hash_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_hash_decode_preflight(fd_bincode_decode_ctx_t * ctx);
+void fd_hash_decode_unsafe(fd_hash_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_hash_encode(fd_hash_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_hash_destroy(fd_hash_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_hash_walk(void * w, fd_hash_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_hash_size(fd_hash_t const * self);
+ulong fd_hash_footprint( void );
+ulong fd_hash_align( void );
+
 void fd_signature_new(fd_signature_t* self);
 int fd_signature_decode(fd_signature_t* self, fd_bincode_decode_ctx_t * ctx);
 int fd_signature_decode_preflight(fd_bincode_decode_ctx_t * ctx);

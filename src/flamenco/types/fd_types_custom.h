@@ -35,50 +35,6 @@ typedef union fd_signature fd_signature_t;
 
 FD_PROTOTYPES_BEGIN
 
-static inline void
-fd_hash_new( fd_hash_t * self FD_FN_UNUSED ) {}
-
-static inline int
-fd_hash_decode( fd_hash_t *               self,
-                fd_bincode_decode_ctx_t * ctx ) {
-  return fd_bincode_bytes_decode( &self->hash[0], sizeof(self->hash), ctx );
-}
-
-static inline int
-fd_hash_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
-  return fd_bincode_bytes_decode_preflight( FD_HASH_FOOTPRINT, ctx );
-}
-
-static inline void
-fd_hash_decode_unsafe( fd_hash_t *               self,
-                       fd_bincode_decode_ctx_t * ctx ) {
-  fd_bincode_bytes_decode_unsafe( &self->hash[0], sizeof(self->hash), ctx );
-}
-
-static inline void
-fd_hash_destroy( fd_hash_t const *          self FD_FN_UNUSED,
-                 fd_bincode_destroy_ctx_t * ctx  FD_FN_UNUSED ) {}
-
-static inline ulong
-fd_hash_size( fd_hash_t const * self FD_FN_UNUSED ) {
-  return 32;
-}
-
-static inline int
-fd_hash_encode( fd_hash_t const *         self,
-                fd_bincode_encode_ctx_t * ctx ) {
-  return fd_bincode_bytes_encode( &self->hash[0], sizeof(self->hash), ctx );
-}
-
-static inline void
-fd_hash_walk( void *             w,
-              fd_hash_t const *  self,
-              fd_types_walk_fn_t fun,
-              char const *       name,
-              uint               level ) {
-  fun( w, self->hash, name, FD_FLAMENCO_TYPE_HASH256, name, level );
-}
-
 #define fd_hash_check_zero(_x) (!((_x)->ul[0] | (_x)->ul[1] | (_x)->ul[2] | (_x)->ul[3]))
 #define fd_hash_set_zero(_x)   {((_x)->ul[0] = 0); ((_x)->ul[1] = 0); ((_x)->ul[2] = 0); ((_x)->ul[3] = 0);}
 

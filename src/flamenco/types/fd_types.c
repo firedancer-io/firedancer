@@ -4,6 +4,35 @@
 #pragma GCC diagnostic ignored "-Wunused-variable"
 #define SOURCE_fd_src_flamenco_types_fd_types_c
 #include "fd_types_custom.c"
+int fd_hash_decode(fd_hash_t* self, fd_bincode_decode_ctx_t * ctx) {
+  void const * data = ctx->data;
+  int err = fd_hash_decode_preflight(ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  ctx->data = data;
+  fd_hash_new(self);
+  fd_hash_decode_unsafe(self, ctx);
+  return FD_BINCODE_SUCCESS;
+}
+int fd_hash_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
+  return fd_bincode_bytes_decode_preflight( sizeof(fd_hash_t), ctx );
+}
+void fd_hash_decode_unsafe(fd_hash_t* self, fd_bincode_decode_ctx_t * ctx) {
+  fd_bincode_bytes_decode_unsafe( (uchar*)self, sizeof(fd_hash_t), ctx );
+}
+void fd_hash_new(fd_hash_t* self) {
+  fd_memset(self, 0, sizeof(fd_hash_t));
+}
+void fd_hash_destroy(fd_hash_t* self, fd_bincode_destroy_ctx_t * ctx) { }
+ulong fd_hash_footprint( void ){ return sizeof(fd_hash_t); }
+ulong fd_hash_align( void ){ return alignof(fd_hash_t); }
+ulong fd_hash_size(fd_hash_t const * self) { (void)self; return sizeof(fd_hash_t); }
+int fd_hash_encode(fd_hash_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  return fd_bincode_bytes_encode( (uchar const *)&self, sizeof(fd_hash_t), ctx );
+}
+void fd_hash_walk(void * w, fd_hash_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun( w, (uchar const*)&self, name, FD_FLAMENCO_TYPE_HASH256, name, level );
+}
+
 int fd_signature_decode(fd_signature_t* self, fd_bincode_decode_ctx_t * ctx) {
   void const * data = ctx->data;
   int err = fd_signature_decode_preflight(ctx);
