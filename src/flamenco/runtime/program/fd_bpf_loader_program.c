@@ -240,7 +240,6 @@ int fd_executor_bpf_loader_program_execute_instruction( instruction_ctx_t ctx ) 
   uchar * data            = ctx.instr->data;
 
   fd_bpf_loader_program_instruction_t instruction;
-  fd_bpf_loader_program_instruction_new( &instruction );
   fd_bincode_decode_ctx_t decode_ctx;
   decode_ctx.data    = data;
   decode_ctx.dataend = &data[ctx.instr->data_sz];

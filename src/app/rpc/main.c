@@ -648,7 +648,6 @@ int main(int argc, char** argv)
     FD_LOG_ERR(( "failed to join a funky" ));
 
   {
-    fd_firedancer_banks_new(&bank);
     fd_funk_rec_key_t id = fd_runtime_banks_key();
     fd_funk_rec_t const * rec = fd_funk_rec_query_global(funk, NULL, &id);
     if ( rec == NULL )

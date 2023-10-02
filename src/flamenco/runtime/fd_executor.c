@@ -125,7 +125,6 @@ fd_executor_setup_accessed_accounts_for_txn( transaction_ctx_t * txn_ctx, fd_raw
       FD_LOG_WARNING(( "LUT ACC: idx: %lu, acc: %32J, meta.dlen; %lu", i, addr_lut_acc, addr_lut_rec->const_meta->dlen ));
 
       fd_address_lookup_table_state_t addr_lookup_table_state;
-      fd_address_lookup_table_state_new( &addr_lookup_table_state );
       fd_bincode_decode_ctx_t decode_ctx = {
         .data = addr_lut_rec->const_data,
         .dataend = &addr_lut_rec->const_data[56], // TODO macro const.
@@ -158,7 +157,6 @@ fd_executor_setup_accessed_accounts_for_txn( transaction_ctx_t * txn_ctx, fd_raw
       }
 
       fd_address_lookup_table_state_t addr_lookup_table_state;
-      fd_address_lookup_table_state_new( &addr_lookup_table_state );
       fd_bincode_decode_ctx_t decode_ctx = {
         .data = addr_lut_rec->const_data,
         .dataend = &addr_lut_rec->const_data[56], // TODO macro const.

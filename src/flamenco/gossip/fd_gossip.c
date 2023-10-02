@@ -1813,7 +1813,6 @@ fd_gossip_main_loop( fd_gossip_global_t * glob, fd_valloc_t valloc, volatile int
 
       /* Deserialize the message */
       fd_gossip_msg_t gmsg;
-      fd_gossip_msg_new(&gmsg);
       fd_bincode_decode_ctx_t ctx;
       ctx.data    = bufs[i];
       ctx.dataend = bufs[i] + msgs[i].msg_len;

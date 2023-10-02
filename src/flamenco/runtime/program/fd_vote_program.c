@@ -527,7 +527,6 @@ fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) {
 
   // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_processor.rs#L73
   fd_vote_instruction_t instruction;
-  fd_vote_instruction_new( &instruction );
   fd_bincode_decode_ctx_t decode_ctx = {
       .data    = data,
       .dataend = (void const *)( (ulong)data + ctx.instr->data_sz ),
@@ -2507,7 +2506,6 @@ vote_account_get_state( fd_borrowed_account_t *                  self,
                         instruction_ctx_t                        ctx,
                         /* return */ fd_vote_state_versioned_t * versioned ) {
   int rc;
-  fd_vote_state_versioned_new( versioned );
 
   fd_bincode_decode_ctx_t decode_ctx;
   decode_ctx.data    = self->const_data;
@@ -2589,7 +2587,6 @@ vote_account_set_state( fd_borrowed_account_t *     self,
 #if 0
   {
     fd_vote_state_versioned_t p;
-    fd_vote_state_versioned_new( &p );
 
     fd_bincode_decode_ctx_t decode = {
       .data    = raw_acc_data,

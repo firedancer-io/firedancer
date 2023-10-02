@@ -28,8 +28,6 @@ read_bpf_upgradeable_loader_state( fd_global_ctx_t* global, fd_pubkey_t* program
     .valloc  = global->valloc,
   };
 
-  fd_bpf_upgradeable_loader_state_new(result);
-
   if ( fd_bpf_upgradeable_loader_state_decode( result, &ctx ) ) {
     FD_LOG_DEBUG(("fd_bpf_upgradeable_loader_state_decode failed"));
     *opt_err = FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
@@ -90,7 +88,6 @@ int fd_executor_bpf_upgradeable_loader_program_is_executable_program_account( fd
   };
 
   fd_bpf_upgradeable_loader_state_t loader_state;
-  fd_bpf_upgradeable_loader_state_new(&loader_state);
   if ( fd_bpf_upgradeable_loader_state_decode( &loader_state, &ctx ) ) {
     FD_LOG_WARNING(("fd_bpf_upgradeable_loader_state_decode failed"));
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
@@ -383,7 +380,6 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( instruction_
   uchar * data            = ctx.instr->data;
 
   fd_bpf_upgradeable_loader_program_instruction_t instruction;
-  fd_bpf_upgradeable_loader_program_instruction_new( &instruction );
   fd_bincode_decode_ctx_t decode_ctx;
   decode_ctx.data = data;
   decode_ctx.dataend = &data[ctx.instr->data_sz];

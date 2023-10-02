@@ -255,7 +255,6 @@ main( int     argc,
 
   long dt = -fd_log_wallclock();
   fd_solana_manifest_t manifest;
-  fd_solana_manifest_new( &manifest );
 
   fd_bincode_decode_ctx_t decode = {
     .valloc  = scratch_valloc,
