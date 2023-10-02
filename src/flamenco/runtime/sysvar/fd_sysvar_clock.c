@@ -227,7 +227,7 @@ void fd_calculate_stake_weighted_timestamp(
   fd_epoch_schedule_t schedule;
   fd_sysvar_epoch_schedule_read( global, &schedule );
   ulong epoch_start_slot = fd_epoch_slot0( &schedule, clock.epoch );
-  ulong poh_estimate_offset = fd_ulong_sat_mul(slot_duration, fd_ulong_sat_sub(clock.slot, epoch_start_slot));
+  ulong poh_estimate_offset = fd_ulong_sat_mul(slot_duration, fd_ulong_sat_sub(global->bank.slot, epoch_start_slot));
   ulong estimate_offset = fd_ulong_sat_mul(NS_IN_S, (fix_estimate_into_u64) ? fd_ulong_sat_sub((ulong)*result_timestamp, (ulong)clock.epoch_start_timestamp) : (ulong)(*result_timestamp - clock.epoch_start_timestamp));
   ulong max_delta_fast = fd_ulong_sat_mul(poh_estimate_offset, MAX_ALLOWABLE_DRIFT_FAST) / 100;
   ulong max_delta_slow = fd_ulong_sat_mul(poh_estimate_offset, MAX_ALLOWABLE_DRIFT_SLOW) / 100;
