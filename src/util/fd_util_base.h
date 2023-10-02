@@ -524,6 +524,13 @@ fd_type_pun_const( void const * p ) {
 
 #define FD_FN_UNUSED __attribute__((unused))
 
+/* FD_WARN_UNUSED tells the compiler the result (from a function) should
+   be checked. This is useful to force callers to either check the result
+   or deliberately and explicitly ignore it. Good for result codes and
+   errors */
+
+#define FD_WARN_UNUSED __attribute__ ((warn_unused_result))
+
 /* FD_COMPILER_FORGET(var):  Tells the compiler that it shouldn't use
    any knowledge it has about the provided register-compatible variable
    var for optimizations going forward (i.e. the variable has changed in
