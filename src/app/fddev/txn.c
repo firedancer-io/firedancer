@@ -80,10 +80,10 @@ send_quic_transactions( fd_quic_t *         quic,
   fd_quic_set_aio_net_tx( quic, udpsock->aio );
   FD_TEST( fd_quic_init( quic ) );
 
-  quic->cb.now = cb_now;
-  quic->cb.conn_final = cb_conn_final;
+  quic->cb.now              = cb_now;
+  quic->cb.conn_final       = cb_conn_final;
   quic->cb.conn_hs_complete = cb_conn_hs_complete;
-  quic->cb.stream_notify = cb_stream_notify;
+  quic->cb.stream_notify    = cb_stream_notify;
 
   fd_quic_conn_t * conn = fd_quic_connect( quic, dst_ip, dst_port, NULL );
   while ( FD_LIKELY( !( g_conn_hs_complete || g_conn_final ) ) ) {
@@ -159,7 +159,7 @@ txn_cmd_fn( args_t *         args,
   client_cfg->role = FD_QUIC_ROLE_CLIENT;
   memcpy( client_cfg->alpns, "\xasolana-tpu", 11UL );
   client_cfg->alpns_sz = 11U;
-  memcpy( client_cfg->link.dst_mac_addr, config->net.mac_addr, 6UL );
+  memcpy( client_cfg->link.dst_mac_addr, config->tiles.net.mac_addr, 6UL );
   client_cfg->net.ip_addr           = udpsock->listen_ip;
   client_cfg->net.ephem_udp_port.lo = (ushort)udpsock->listen_port;
   client_cfg->net.ephem_udp_port.hi = (ushort)(udpsock->listen_port + 1);
@@ -184,7 +184,7 @@ txn_cmd_fn( args_t *         args,
     }
   }
 
-  uint dst_ip = config->net.ip_addr;
+  uint dst_ip = config->tiles.net.ip_addr;
   if( FD_UNLIKELY( args->txn.dst_ip ) )
     if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( args->txn.dst_ip, &dst_ip  ) ) ) FD_LOG_ERR(( "invalid --dst-ip" ));
 

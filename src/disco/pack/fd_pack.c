@@ -63,7 +63,6 @@ after_credit( void *             _ctx,
      thread, if it's not busy... */
   for( ulong i=0UL; i<ctx->out_cnt; i++ ) {
     if( FD_LIKELY( fd_fseq_query( ctx->out_busy[i] ) == *mux->seq ) ) { /* optimize for the case we send a microblock */
-      FD_LOG_WARNING(( "out_busy[%lu] is %lu, expected %lu", i, fd_fseq_query( ctx->out_busy[i] ), *mux->seq ));
       fd_pack_microblock_complete( ctx->pack, i );
 
       void * microblock_dst = fd_chunk_to_laddr( ctx->out_wksp, ctx->out_chunk );
@@ -78,8 +77,6 @@ after_credit( void *             _ctx,
 
         ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, msg_sz, ctx->out_chunk0, ctx->out_wmark );
       }
-    } else {
-      FD_LOG_WARNING(( "out_busy[%lu] is %lu, expected %lu", i, fd_fseq_query( ctx->out_busy[i] ), *mux->seq ));
     }
   }
 }

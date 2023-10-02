@@ -1,3 +1,4 @@
+#include "tiles.h"
 #include "../../fdctl.h"
 #include "../run.h"
 
@@ -18,7 +19,11 @@ init( fd_tile_args_t * args ) {
 
 static void
 run( fd_tile_args_t * args ) {
-  ulong out_cnt = fd_pod_query_ulong( args->out_pod, "cnt", 0UL );
+  const uchar * tile_pod = args->wksp_pod[ 0 ];
+  const uchar * in_pod   = args->wksp_pod[ 1 ];
+  const uchar * out_pod  = args->wksp_pod[ 2 ];
+
+  ulong out_cnt = fd_pod_query_ulong( out_pod, "cnt", 0UL );
   if( FD_UNLIKELY( !out_cnt ) ) FD_LOG_ERR(( "num_tiles unset or set to zero" ));
 
   ulong ** out_fseq = (ulong **)fd_alloca( alignof(ulong *), sizeof(ulong *)*out_cnt );
@@ -26,15 +31,11 @@ run( fd_tile_args_t * args ) {
   if( FD_UNLIKELY( !out_fseq || !out_busy ) ) FD_LOG_ERR(( "fd_alloca failed" ));
 
   for( ulong i=0; i<out_cnt; i++ ) {
-    char fseq[32], busy[32];
-    snprintf( fseq, 32, "fseq%lu", i );
-    snprintf( busy, 32, "busy%lu", i );
-
-    out_fseq[i] = fd_fseq_join( fd_wksp_pod_map( args->out_pod, fseq ) );
-    out_busy[i] = fd_fseq_join( fd_wksp_pod_map( args->out_pod, busy ) );
+    out_fseq[i] = fd_fseq_join( fd_wksp_pod_map1( out_pod, "fseq%lu", i ) );
+    out_busy[i] = fd_fseq_join( fd_wksp_pod_map1( out_pod, "busy%lu", i ) );
   }
 
-  ulong pack_depth = fd_pod_query_ulong( args->tile_pod, "depth", 0UL );
+  ulong pack_depth = fd_pod_query_ulong( tile_pod, "depth", 0UL );
   if( FD_UNLIKELY( !pack_depth ) ) FD_LOG_ERR(( "depth unset or set to zero" ));
 
   ulong max_txn_per_microblock = MAX_MICROBLOCK_SZ/sizeof(fd_txn_p_t);
@@ -44,15 +45,15 @@ run( fd_tile_args_t * args ) {
 
   fd_rng_t   _rng[1];
   fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0, 0UL ) );
-  fd_pack_tile( fd_cnc_join( fd_wksp_pod_map( args->tile_pod, "cnc" ) ),
+  fd_pack_tile( fd_cnc_join( fd_wksp_pod_map( tile_pod, "cnc" ) ),
                 (ulong)args->pid,
                 1,
-                (const fd_frag_meta_t **)&(fd_frag_meta_t*){ fd_mcache_join( fd_wksp_pod_map( args->in_pod, "mcache" ) ) },
-                &(ulong*){ fd_fseq_join( fd_wksp_pod_map( args->in_pod, "fseq" ) ) },
-                (const uchar **)&(uchar*){ fd_dcache_join( fd_wksp_pod_map( args->in_pod, "dcache" ) ) },
-                fd_pack_join( fd_pack_new( fd_wksp_alloc_laddr( fd_wksp_containing( args->tile_pod ), fd_pack_align(), pack_footprint, FD_PACK_TAG ), pack_depth, out_cnt, max_txn_per_microblock, rng ) ),
-                fd_mcache_join( fd_wksp_pod_map( args->out_pod, "mcache" ) ),
-                fd_dcache_join( fd_wksp_pod_map( args->out_pod, "dcache" ) ),
+                (const fd_frag_meta_t **)&(fd_frag_meta_t*){ fd_mcache_join( fd_wksp_pod_map( in_pod, "mcache" ) ) },
+                &(ulong*){ fd_fseq_join( fd_wksp_pod_map( in_pod, "fseq" ) ) },
+                (const uchar **)&(uchar*){ fd_dcache_join( fd_wksp_pod_map( in_pod, "dcache" ) ) },
+                fd_pack_join( fd_pack_new( fd_wksp_alloc_laddr( fd_wksp_containing( tile_pod ), fd_pack_align(), pack_footprint, FD_PACK_TAG ), pack_depth, out_cnt, max_txn_per_microblock, rng ) ),
+                fd_mcache_join( fd_wksp_pod_map( out_pod, "mcache" ) ),
+                fd_dcache_join( fd_wksp_pod_map( out_pod, "dcache" ) ),
                 out_cnt,
                 out_fseq,
                 out_busy,
@@ -67,6 +68,12 @@ static long allow_syscalls[] = {
   __NR_fsync,     /* logging, WARNING and above fsync immediately */
 };
 
+static workspace_kind_t allow_workspaces[] = {
+  wksp_pack,       /* the tile itself */
+  wksp_dedup_pack, /* receive path */
+  wksp_pack_bank,  /* send path */
+};
+
 static ulong
 allow_fds( fd_tile_args_t * args,
            ulong            out_fds_sz,
@@ -79,12 +86,12 @@ allow_fds( fd_tile_args_t * args,
 }
 
 fd_tile_config_t pack = {
-  .name              = "pack",
-  .in_wksp           = "dedup_pack",
-  .out_wksp          = "pack_bank",
-  .allow_syscalls_sz = sizeof(allow_syscalls)/sizeof(allow_syscalls[ 0 ]),
-  .allow_syscalls    = allow_syscalls,
-  .allow_fds         = allow_fds,
-  .init              = init,
-  .run               = run,
+  .name                 = "pack",
+  .allow_workspaces_cnt = sizeof(allow_workspaces)/sizeof(allow_workspaces[ 0 ]),
+  .allow_workspaces     = allow_workspaces,
+  .allow_syscalls_cnt   = sizeof(allow_syscalls)/sizeof(allow_syscalls[ 0 ]),
+  .allow_syscalls       = allow_syscalls,
+  .allow_fds            = allow_fds,
+  .init                 = init,
+  .run                  = run,
 };

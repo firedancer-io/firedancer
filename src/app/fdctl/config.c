@@ -15,21 +15,35 @@
 
 FD_IMPORT_CSTR( default_config, "src/app/fdctl/config/default.toml" );
 
-static workspace_config_t *
-find_wksp( config_t * const config,
-           char * name ) {
-  for( ulong i=0; i<config->shmem.workspaces_cnt; i++ ) {
-    workspace_config_t * wksp = &config->shmem.workspaces[ i ];
-    if( FD_UNLIKELY( !strcmp( wksp->name, name ) ) ) return wksp;
+FD_FN_CONST char *
+workspace_kind_str( workspace_kind_t kind ) {
+  switch( kind ) {
+    case wksp_netmux_inout: return "netmux_inout";
+    case wksp_quic_verify: return "quic_verify";
+    case wksp_verify_dedup: return "verify_dedup";
+    case wksp_dedup_pack: return "dedup_pack";
+    case wksp_pack_bank: return "pack_bank";
+    case wksp_bank_shred: return "bank_shred";
+    case wksp_net: return "net";
+    case wksp_netmux: return "netmux";
+    case wksp_quic: return "quic";
+    case wksp_verify: return "verify";
+    case wksp_dedup: return "dedup";
+    case wksp_pack: return "pack";
+    case wksp_bank: return "bank";
   }
-  FD_LOG_ERR(( "no workspace with name `%s` found", name ));
+  return NULL;
 }
 
-/* partial bank definition since the tile doesn't really exist */
-static fd_tile_config_t bank = {
-   .in_wksp    = "pack_bank",
-   .out_wksp   = "bank_shred",
-};
+static workspace_config_t *
+find_wksp( config_t * const config,
+           workspace_kind_t kind ) {
+  for( ulong i=0; i<config->shmem.workspaces_cnt; i++ ) {
+    workspace_config_t * wksp = &config->shmem.workspaces[ i ];
+    if( FD_UNLIKELY( kind == wksp->kind  ) ) return wksp;
+  }
+  FD_LOG_ERR(( "no workspace with kind `%s` found", workspace_kind_str( kind ) ));
+}
 
 ulong
 memlock_max_bytes( config_t * const config ) {
@@ -37,28 +51,30 @@ memlock_max_bytes( config_t * const config ) {
   for( ulong j=0; j<config->shmem.workspaces_cnt; j++ ) {
     workspace_config_t * wksp = &config->shmem.workspaces[ j ];
 
-#define TILE_MAX( tile ) do {                                                 \
-    ulong in_bytes = 0, out_bytes = 0;                                        \
-    if( FD_LIKELY( tile.in_wksp ) ) {                                         \
-      workspace_config_t * in_wksp = find_wksp( config, tile.in_wksp );       \
-      in_bytes = in_wksp->num_pages * in_wksp->page_size;                     \
-    }                                                                         \
-    if( FD_LIKELY( tile.out_wksp ) ) {                                        \
-      workspace_config_t * out_wksp = find_wksp( config, tile.out_wksp );     \
-      out_bytes = out_wksp->num_pages * out_wksp->page_size;                  \
-    }                                                                         \
-    memlock_max_bytes = fd_ulong_max( memlock_max_bytes,                      \
-                                      wksp->page_size * wksp->num_pages +     \
-                                      in_bytes +                              \
-                                      out_bytes );                            \
+#define TILE_MAX( tile ) do {                                   \
+    ulong used_bytes = 0;                                       \
+    for( ulong i=0; i<tile.allow_workspaces_cnt; i++ ) {        \
+      workspace_kind_t kind = tile.allow_workspaces[ i ];       \
+      workspace_config_t * in_wksp = find_wksp( config, kind ); \
+      used_bytes += in_wksp->num_pages * in_wksp->page_size;    \
+    }                                                           \
+    memlock_max_bytes = fd_ulong_max( memlock_max_bytes,        \
+                                      used_bytes );             \
   } while(0)
 
     switch ( wksp->kind ) {
+      case wksp_netmux_inout:
       case wksp_quic_verify:
       case wksp_verify_dedup:
       case wksp_dedup_pack:
       case wksp_pack_bank:
       case wksp_bank_shred:
+        break;
+      case wksp_net:
+        TILE_MAX( net );
+        break;
+      case wksp_netmux:
+        TILE_MAX( netmux );
         break;
       case wksp_quic:
         TILE_MAX( quic );
@@ -254,14 +270,12 @@ static void parse_key_value( config_t *   config,
   ENTRY_BOOL  ( ., rpc,                 incremental_snapshots                                     );
 
   ENTRY_STR   ( ., layout,              affinity                                                  );
+  ENTRY_UINT  ( ., layout,              net_tile_count                                            );
   ENTRY_UINT  ( ., layout,              verify_tile_count                                         );
   ENTRY_UINT  ( ., layout,              bank_tile_count                                           );
 
   ENTRY_STR   ( ., shmem,               gigantic_page_mount_path                                  );
   ENTRY_STR   ( ., shmem,               huge_page_mount_path                                      );
-
-  ENTRY_STR   ( ., net,                 interface                                                 );
-  ENTRY_STR   ( ., net,                 xdp_mode                                                  );
 
   ENTRY_BOOL  ( ., development,         sandbox                                                   );
 
@@ -273,6 +287,13 @@ static void parse_key_value( config_t *   config,
   ENTRY_STR   ( ., development.netns,   interface1_mac                                            );
   ENTRY_STR   ( ., development.netns,   interface1_addr                                           );
 
+  ENTRY_STR   ( ., tiles.net,           interface                                                 );
+  ENTRY_STR   ( ., tiles.net,           xdp_mode                                                  );
+  ENTRY_UINT  ( ., tiles.net,           xdp_rx_queue_size                                         );
+  ENTRY_UINT  ( ., tiles.net,           xdp_tx_queue_size                                         );
+  ENTRY_UINT  ( ., tiles.net,           xdp_aio_depth                                             );
+  ENTRY_UINT  ( ., tiles.net,           send_buffer_size                                          );
+
   ENTRY_USHORT( ., tiles.quic,          transaction_listen_port                                   );
   ENTRY_USHORT( ., tiles.quic,          quic_transaction_listen_port                              );
   ENTRY_UINT  ( ., tiles.quic,          max_concurrent_connections                                );
@@ -280,9 +301,6 @@ static void parse_key_value( config_t *   config,
   ENTRY_UINT  ( ., tiles.quic,          max_concurrent_handshakes                                 );
   ENTRY_UINT  ( ., tiles.quic,          max_inflight_quic_packets                                 );
   ENTRY_UINT  ( ., tiles.quic,          tx_buf_size                                               );
-  ENTRY_UINT  ( ., tiles.quic,          xdp_rx_queue_size                                         );
-  ENTRY_UINT  ( ., tiles.quic,          xdp_tx_queue_size                                         );
-  ENTRY_UINT  ( ., tiles.quic,          xdp_aio_depth                                             );
 
   ENTRY_UINT  ( ., tiles.verify,        receive_buffer_size                                       );
   ENTRY_UINT  ( ., tiles.verify,        mtu                                                       );
@@ -468,6 +486,12 @@ static void
 init_workspaces( config_t * config ) {
   ulong idx = 0;
 
+  config->shmem.workspaces[ idx ].kind      = wksp_netmux_inout;
+  config->shmem.workspaces[ idx ].name      = "netmux_inout";
+  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
+  config->shmem.workspaces[ idx ].num_pages = 1;
+  idx++;
+
   config->shmem.workspaces[ idx ].kind      = wksp_quic_verify;
   config->shmem.workspaces[ idx ].name      = "quic_verify";
   config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
@@ -498,23 +522,29 @@ init_workspaces( config_t * config ) {
   config->shmem.workspaces[ idx ].num_pages = 1;
   idx++;
 
-  for( ulong i=0; i<config->layout.verify_tile_count; i++ ) {
-    config->shmem.workspaces[ idx ].kind      = wksp_quic;
-    config->shmem.workspaces[ idx ].name      = "quic";
-    config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
-    config->shmem.workspaces[ idx ].num_pages = 1;
-    config->shmem.workspaces[ idx ].kind_idx  = i;
-    idx++;
-  }
+  config->shmem.workspaces[ idx ].kind      = wksp_net;
+  config->shmem.workspaces[ idx ].name      = "net";
+  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
+  config->shmem.workspaces[ idx ].num_pages = 1;
+  idx++;
 
-  for( ulong i=0; i<config->layout.verify_tile_count; i++ ) {
-    config->shmem.workspaces[ idx ].kind      = wksp_verify;
-    config->shmem.workspaces[ idx ].name      = "verify";
-    config->shmem.workspaces[ idx ].page_size = FD_SHMEM_HUGE_PAGE_SZ;
-    config->shmem.workspaces[ idx ].num_pages = 1;
-    config->shmem.workspaces[ idx ].kind_idx  = i;
-    idx++;
-  }
+  config->shmem.workspaces[ idx ].kind      = wksp_netmux;
+  config->shmem.workspaces[ idx ].name      = "netmux";
+  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_HUGE_PAGE_SZ;
+  config->shmem.workspaces[ idx ].num_pages = 1;
+  idx++;
+
+  config->shmem.workspaces[ idx ].kind      = wksp_quic;
+  config->shmem.workspaces[ idx ].name      = "quic";
+  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
+  config->shmem.workspaces[ idx ].num_pages = 1;
+  idx++;
+
+  config->shmem.workspaces[ idx ].kind      = wksp_verify;
+  config->shmem.workspaces[ idx ].name      = "verify";
+  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_HUGE_PAGE_SZ;
+  config->shmem.workspaces[ idx ].num_pages = 1;
+  idx++;
 
   config->shmem.workspaces[ idx ].kind      = wksp_dedup;
   config->shmem.workspaces[ idx ].name      = "dedup";
@@ -528,14 +558,11 @@ init_workspaces( config_t * config ) {
   config->shmem.workspaces[ idx ].num_pages = 1;
   idx++;
 
-  for( ulong i=0; i<config->layout.bank_tile_count; i++ ) {
-    config->shmem.workspaces[ idx ].kind      = wksp_bank;
-    config->shmem.workspaces[ idx ].name      = "bank";
-    config->shmem.workspaces[ idx ].page_size = FD_SHMEM_HUGE_PAGE_SZ;
-    config->shmem.workspaces[ idx ].num_pages = 1;
-    config->shmem.workspaces[ idx ].kind_idx  = i;
-    idx++;
-  }
+  config->shmem.workspaces[ idx ].kind      = wksp_bank;
+  config->shmem.workspaces[ idx ].name      = "bank";
+  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_HUGE_PAGE_SZ;
+  config->shmem.workspaces[ idx ].num_pages = 1;
+  idx++;
 
   config->shmem.workspaces_cnt = idx;
 }
@@ -586,10 +613,10 @@ config_parse( int *    pargc,
   int netns = fd_env_strip_cmdline_contains( pargc, pargv, "--netns" );
   if( FD_UNLIKELY( netns ) ) {
     result.development.netns.enabled = 1;
-    strncpy( result.net.interface,
+    strncpy( result.tiles.net.interface,
              result.development.netns.interface0,
-             sizeof(result.net.interface) );
-    result.net.interface[ sizeof(result.net.interface) - 1 ] = '\0';
+             sizeof(result.tiles.net.interface) );
+    result.tiles.net.interface[ sizeof(result.tiles.net.interface) - 1 ] = '\0';
   }
 
   if( FD_UNLIKELY( !strcmp( result.user, "" ) ) ) {
@@ -599,7 +626,7 @@ config_parse( int *    pargc,
     strncpy( result.user, user, 256 );
   }
 
-  if( FD_UNLIKELY( !strcmp( result.net.interface, "" ) && !result.development.netns.enabled ) ) {
+  if( FD_UNLIKELY( !strcmp( result.tiles.net.interface, "" ) && !result.development.netns.enabled ) ) {
     int ifindex = internet_routing_interface();
     if( FD_UNLIKELY( ifindex == -1 ) )
       FD_LOG_ERR(( "no network device found which routes to 8.8.8.8. If no network "
@@ -609,26 +636,26 @@ config_parse( int *    pargc,
                    "You can fix this error by specifying a network interface to bind to in "
                    "your configuration file under [net.interface]" ));
 
-    if( FD_UNLIKELY( !if_indextoname( (uint)ifindex, result.net.interface ) ) )
+    if( FD_UNLIKELY( !if_indextoname( (uint)ifindex, result.tiles.net.interface ) ) )
       FD_LOG_ERR(( "could not get name of interface with index %u", ifindex ));
   }
 
   if( FD_UNLIKELY( result.development.netns.enabled ) ) {
-    if( FD_UNLIKELY( strcmp( result.development.netns.interface0, result.net.interface ) ) )
+    if( FD_UNLIKELY( strcmp( result.development.netns.interface0, result.tiles.net.interface ) ) )
       FD_LOG_ERR(( "netns interface and firedancer interface are different. If you are using the "
                    "[development.netns] functionality to run Firedancer in a network namespace "
                    "for development, the configuration file must specify that "
                    "[development.netns.interface0] is the same as [net.interface]" ));
 
-    if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( result.development.netns.interface0_addr, &result.net.ip_addr ) ) )
+    if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( result.development.netns.interface0_addr, &result.tiles.net.ip_addr ) ) )
       FD_LOG_ERR(( "configuration specifies invalid netns IP address `%s`", result.development.netns.interface0_addr ));
-    if( FD_UNLIKELY( !fd_cstr_to_mac_addr( result.development.netns.interface0_mac, result.net.mac_addr ) ) )
+    if( FD_UNLIKELY( !fd_cstr_to_mac_addr( result.development.netns.interface0_mac, result.tiles.net.mac_addr ) ) )
       FD_LOG_ERR(( "configuration specifies invalid netns MAC address `%s`", result.development.netns.interface0_mac ));
   } else {
-    if( FD_UNLIKELY( !if_nametoindex( result.net.interface ) ) )
-      FD_LOG_ERR(( "configuration specifies network interface `%s` which does not exist", result.net.interface ));
-    result.net.ip_addr = listen_address( result.net.interface );
-    mac_address( result.net.interface, result.net.mac_addr );
+    if( FD_UNLIKELY( !if_nametoindex( result.tiles.net.interface ) ) )
+      FD_LOG_ERR(( "configuration specifies network interface `%s` which does not exist", result.tiles.net.interface ));
+    result.tiles.net.ip_addr = listen_address( result.tiles.net.interface );
+    mac_address( result.tiles.net.interface, result.tiles.net.mac_addr );
   }
 
   uint uid = username_to_uid( result.user );

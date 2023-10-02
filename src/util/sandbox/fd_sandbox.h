@@ -72,7 +72,7 @@ fd_sandbox( int    full_sandbox,
             uint   gid,
             ulong  allow_fds_sz,
             int *  allow_fds,
-            ushort allow_syscalls_sz,
+            ushort allow_syscalls_cnt,
             long * allow_syscalls );
 
 #endif /* HEADER_fd_src_util_sandbox_fd_sandbox_h */

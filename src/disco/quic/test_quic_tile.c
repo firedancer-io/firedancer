@@ -16,9 +16,6 @@ FD_STATIC_ASSERT( FD_QUIC_TILE_SCRATCH_ALIGN==128UL, unit_test );
 struct test_cfg {
   fd_wksp_t * wksp;
 
-  fd_xsk_t *     xsk;
-  fd_xsk_aio_t * xsk_aio;
-
   fd_cnc_t *         tx_cnc;
   fd_frag_meta_t *   tx_mcache;
   uchar *            tx_dcache;
@@ -26,6 +23,12 @@ struct test_cfg {
   uint               tx_seed;
   fd_quic_t *        tx_quic;
   fd_quic_config_t * tx_quic_cfg;
+
+  fd_frag_meta_t *   in_mcache;
+  ulong *            in_fseq;
+
+  fd_frag_meta_t * net_mcache;
+  uchar *          net_dcache;
 
   fd_cnc_t *       rx_cnc;
   ulong *          rx_fseq;
@@ -184,10 +187,15 @@ tx_tile_main( int     argc,
   FD_TEST( !fd_quic_tile(
       cfg->tx_cnc,
       0,
+      1,
+      (const fd_frag_meta_t **)&cfg->in_mcache,
+      &cfg->in_fseq,
+      1,
+      0,
+      cfg->net_mcache,
+      cfg->net_dcache,
       cfg->tx_quic,
       0,
-      1,
-      &cfg->xsk_aio,
       cfg->tx_mcache,
       cfg->tx_dcache,
       0,
@@ -214,16 +222,14 @@ int main( int     argc,
   if( cpu_idx>fd_shmem_cpu_cnt() ) cpu_idx = 0UL;
 
   ulong        tx_depth     =       fd_env_strip_cmdline_ulong ( &argc, &argv, "--tx-depth",       NULL, 32768UL                      );
+  ulong        net_depth    =       fd_env_strip_cmdline_ulong ( &argc, &argv, "--net-depth",      NULL, 32768UL                      );
+  ulong        in_depth     =       fd_env_strip_cmdline_ulong ( &argc, &argv, "--in-depth",       NULL, 32768UL                      );
   char const * _page_sz     =       fd_env_strip_cmdline_cstr  ( &argc, &argv, "--page-sz",        NULL, "gigantic"                   );
   ulong        page_cnt     =       fd_env_strip_cmdline_ulong ( &argc, &argv, "--page-cnt",       NULL, 1UL                          );
   ulong        numa_idx     =       fd_env_strip_cmdline_ulong ( &argc, &argv, "--numa-idx",       NULL, fd_shmem_numa_idx( cpu_idx ) );
   long         tx_lazy      =       fd_env_strip_cmdline_long  ( &argc, &argv, "--tx-lazy",        NULL, 0L /* use default */         );
   int          rx_lazy      =       fd_env_strip_cmdline_int   ( &argc, &argv, "--rx-lazy",        NULL, 7                            );
   long         duration     = (long)fd_env_strip_cmdline_double( &argc, &argv, "--duration",       NULL, (long)10e9                   );
-  ulong        xdp_mtu      =       fd_env_strip_cmdline_ulong ( &argc, &argv, "--xdp-mtu",        NULL, 2048UL                       );
-  ulong        xdp_depth    =       fd_env_strip_cmdline_ulong ( &argc, &argv, "--xdp-depth",      NULL, 1024UL                       );
-  char const * iface        =       fd_env_strip_cmdline_cstr  ( &argc, &argv, "--iface",          NULL, NULL                         );
-  uint         ifqueue      =       fd_env_strip_cmdline_uint  ( &argc, &argv, "--ifqueue",        NULL, 0U                           );
   char const * _listen_addr =       fd_env_strip_cmdline_cstr  ( &argc, &argv, "--listen",         NULL, NULL                         );
   ushort       udp_port     =       fd_env_strip_cmdline_ushort( &argc, &argv, "--port",           NULL, 8080U                        );
   char const * _hwaddr      =       fd_env_strip_cmdline_cstr  ( &argc, &argv, "--hwaddr",         NULL, NULL                         );
@@ -235,9 +241,6 @@ int main( int     argc,
 
   if( FD_UNLIKELY( fd_tile_cnt()<3UL ) )
     FD_LOG_ERR(( "this unit test requires at least 3 tiles" ));
-
-  if( FD_UNLIKELY( !iface ) )
-    FD_LOG_ERR(( "missing --iface" ));
 
   if( FD_UNLIKELY( !_listen_addr ) )
     FD_LOG_ERR(( "missing --listen" ));
@@ -279,6 +282,27 @@ int main( int     argc,
                                                   tx_depth, 0UL, seq0 ) );
   FD_TEST( cfg->tx_mcache );
 
+  FD_LOG_NOTICE(( "Creating in mcache (--in-depth %lu, app_sz 0, seq0 %lu)", in_depth, seq0 ));
+  cfg->in_mcache = fd_mcache_join( fd_mcache_new( fd_wksp_alloc_laddr( cfg->wksp,
+                                                                       fd_mcache_align(), fd_mcache_footprint( in_depth, 0UL ),
+                                                                       1UL ),
+                                                   in_depth, 0UL, seq0 ) );
+  FD_TEST( cfg->in_mcache );
+
+  FD_LOG_NOTICE(( "Creating net fseq" ));
+  cfg->in_fseq = fd_fseq_join( fd_fseq_new( fd_wksp_alloc_laddr( cfg->wksp,
+                                                                 fd_fseq_align(), fd_fseq_footprint(),
+                                                                 1UL ),
+                                            seq0 ) );
+  FD_TEST( cfg->in_fseq );
+
+  FD_LOG_NOTICE(( "Creating net mcache (--net-depth %lu, app_sz 0, seq0 %lu)", net_depth, seq0 ));
+  cfg->net_mcache = fd_mcache_join( fd_mcache_new( fd_wksp_alloc_laddr( cfg->wksp,
+                                                                        fd_mcache_align(), fd_mcache_footprint( net_depth, 0UL ),
+                                                                        1UL ),
+                                                   net_depth, 0UL, seq0 ) );
+  FD_TEST( cfg->net_mcache );
+
   FD_LOG_NOTICE(( "Creating tx dcache (--tx-mtu %lu, burst 1, compact 1, app_sz 0)", FD_TPU_DCACHE_MTU ));
   ulong tx_app_sz  = fd_quic_dcache_app_footprint( tx_depth );
   ulong tx_data_sz = fd_dcache_req_data_sz( FD_TPU_DCACHE_MTU, tx_depth, 1UL, 1 ); FD_TEST( tx_data_sz );
@@ -287,6 +311,15 @@ int main( int     argc,
                                                                        1UL ),
                                                   tx_data_sz, tx_app_sz ) );
   FD_TEST( cfg->tx_dcache );
+
+  FD_LOG_NOTICE(( "Creating net dcache (--net-mtu %lu, burst 1, compact 1, app_sz 0)", FD_NET_MTU ));
+  ulong net_app_sz  = fd_quic_dcache_app_footprint( net_depth );
+  ulong net_data_sz = fd_dcache_req_data_sz( FD_NET_MTU, net_depth, 1UL, 1 ); FD_TEST( net_data_sz );
+  cfg->net_dcache = fd_dcache_join( fd_dcache_new( fd_wksp_alloc_laddr( cfg->wksp,
+                                                                        fd_dcache_align(), fd_dcache_footprint( net_data_sz, net_app_sz ),
+                                                                        1UL ),
+                                                  net_data_sz, net_app_sz ) );
+  FD_TEST( cfg->net_dcache );
 
   cfg->tx_lazy   = tx_lazy;
   cfg->tx_seed   = rng_seq++;
@@ -302,30 +335,6 @@ int main( int     argc,
 
   cfg->rx_seed = rng_seq++;
   cfg->rx_lazy = rx_lazy;
-
-  FD_LOG_NOTICE(( "Creating xsk (depth %lu)", xdp_depth ));
-  ulong xsk_footprint = fd_xsk_footprint( xdp_mtu, xdp_depth, xdp_depth, xdp_depth, xdp_depth );
-  void * shxsk = fd_xsk_new( fd_wksp_alloc_laddr( cfg->wksp, fd_xsk_align(), xsk_footprint, 1UL ),
-                              xdp_mtu, xdp_depth, xdp_depth, xdp_depth, xdp_depth );
-  FD_TEST( shxsk );
-
-  FD_LOG_NOTICE(( "Binding xsk (iface %s ifqueue %u)", iface, ifqueue ));
-  FD_TEST( fd_xsk_bind( shxsk, bpf_dir, iface, ifqueue ) );
-
-  FD_LOG_NOTICE(( "Listening on " FD_IP4_ADDR_FMT ":%u",
-                  FD_IP4_ADDR_FMT_ARGS( listen_addr ), udp_port ));
-  FD_TEST( 0==fd_xdp_listen_udp_ports( bpf_dir, listen_addr, 1, &udp_port, 0U ) );
-
-  FD_LOG_NOTICE(( "Joining xsk" ));
-  cfg->xsk = fd_xsk_join( shxsk );
-  FD_TEST( cfg->xsk );
-
-  FD_LOG_NOTICE(( "Creating xsk_aio" ));
-  ulong xsk_aio_footprint = fd_xsk_aio_footprint( xdp_depth, xdp_depth );
-  cfg->xsk_aio = fd_xsk_aio_join( fd_xsk_aio_new( fd_wksp_alloc_laddr( cfg->wksp, fd_xsk_aio_align(), xsk_aio_footprint, 1UL ),
-                                                  xdp_depth, xdp_depth ),
-                                  cfg->xsk );
-  FD_TEST( cfg->xsk_aio );
 
   FD_LOG_NOTICE(( "Creating QUIC" ));
   ulong quic_footprint = fd_quic_footprint( &quic_limits );
@@ -349,9 +358,6 @@ int main( int     argc,
   quic_cfg->net.listen_udp_port = (ushort)udp_port;
 
   memcpy( quic_cfg->link.src_mac_addr, hwaddr,  6UL );
-
-  fd_quic_set_aio_net_tx( cfg->tx_quic, fd_xsk_aio_get_tx     ( cfg->xsk_aio ) );
-  fd_xsk_aio_set_rx     ( cfg->xsk_aio, fd_quic_get_aio_net_rx( cfg->tx_quic ) );
 
   FD_LOG_NOTICE(( "Booting" ));
 
@@ -417,8 +423,6 @@ int main( int     argc,
 
   fd_wksp_free_laddr( (void *)cfg->tx_quic_cfg                                );
   fd_wksp_free_laddr( fd_quic_delete   ( fd_quic_leave   ( cfg->tx_quic   ) ) );
-  fd_wksp_free_laddr( fd_xsk_aio_delete( fd_xsk_aio_leave( cfg->xsk_aio   ) ) );
-  fd_wksp_free_laddr( fd_xsk_delete    ( fd_xsk_leave    ( cfg->xsk       ) ) );
   fd_wksp_free_laddr( fd_fseq_delete   ( fd_fseq_leave   ( cfg->rx_fseq   ) ) );
   fd_wksp_free_laddr( fd_cnc_delete    ( fd_cnc_leave    ( cfg->rx_cnc    ) ) );
   fd_wksp_free_laddr( fd_dcache_delete ( fd_dcache_leave ( cfg->tx_dcache ) ) );

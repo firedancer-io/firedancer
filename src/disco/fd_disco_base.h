@@ -4,6 +4,16 @@
 #include "../tango/fd_tango.h"
 #include "../ballet/txn/fd_txn.h"
 
+#include "../util/wksp/fd_wksp_private.h"
+
+#define SRC_TILE_NET  (0UL)
+#define SRC_TILE_QUIC (1UL)
+
+/* FD_NET_MTU is the max full packet size, with ethernet, IP, and UDP
+   headers that can go in or out of the net tile.  2048 is the maximum
+   XSK entry size, so this value follows naturally. */
+#define FD_NET_MTU (2048UL)
+
 /* FD_TPU_MTU is the max serialized byte size of a txn sent over TPU. */
 #define FD_TPU_MTU (1232UL)
 
@@ -37,12 +47,34 @@
 
 #define FD_APP_CNC_DIAG_PID         (128UL)
 
-//FD_PROTOTYPES_BEGIN
+FD_PROTOTYPES_BEGIN
 
-/* This is currently just a stub in anticipation of future common tile
-   functionality */
+FD_FN_CONST static inline ulong
+fd_disco_netmux_sig( ulong  ip_addr,
+                     ushort port,
+                     ushort src_tile,
+                     ushort dst_idx ) {
+  return (((ulong)ip_addr)<<32UL) | (((ulong)port)<<16UL) | ((src_tile&0xFUL)<<12UL) | (dst_idx&0xFUL);
+}
 
-//FD_PROTOTYPES_END
+FD_FN_CONST static inline ulong  fd_disco_netmux_sig_ip_addr ( ulong sig ) { return (sig>>32UL) & 0xFFFFUL; }
+FD_FN_CONST static inline ushort fd_disco_netmux_sig_port    ( ulong sig ) { return (sig>>16UL) & 0xFFFFUL; }
+FD_FN_CONST static inline ushort fd_disco_netmux_sig_src_tile( ulong sig ) { return (sig>>12UL) & 0xFUL; }
+FD_FN_CONST static inline ushort fd_disco_netmux_sig_dst_idx ( ulong sig ) { return (sig>> 0UL) & 0xFUL; }
+
+FD_FN_PURE static inline ulong
+fd_disco_compact_chunk0( void * wksp ) {
+  return (((struct fd_wksp_private *)wksp)->gaddr_lo) >> FD_CHUNK_LG_SZ;
+}
+
+FD_FN_PURE static inline ulong
+fd_disco_compact_wmark( void * wksp, ulong mtu ) {
+  ulong chunk_mtu  = ((mtu + 2UL*FD_CHUNK_SZ-1UL) >> (1+FD_CHUNK_LG_SZ)) << 1;
+  ulong wksp_hi = ((struct fd_wksp_private *)wksp)->gaddr_hi;
+  return (wksp_hi >> FD_CHUNK_LG_SZ) - chunk_mtu;
+}
+
+FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_disco_fd_disco_base_h */
 

@@ -65,10 +65,9 @@ typedef struct {
 
 const uchar *
 workspace_pod_join( char * app_name,
-                    char * tile_name,
-                    ulong tile_idx ) {
+                    char * workspace_name ) {
   char name[ FD_WKSP_CSTR_MAX ];
-  snprintf( name, FD_WKSP_CSTR_MAX, "%s_%s%lu.wksp", app_name, tile_name, tile_idx );
+  snprintf( name, FD_WKSP_CSTR_MAX, "%s_%s.wksp", app_name, workspace_name );
 
   fd_wksp_t * wksp = fd_wksp_attach( name );
   if( FD_UNLIKELY( !wksp ) ) FD_LOG_ERR(( "could not attach to workspace `%s`", name ));
@@ -111,15 +110,14 @@ tile_main( void * _args ) {
     .idx = args->idx,
     .app_name = args->app_name,
     .tile_name = args->tile->name,
-    .in_pod = NULL,
-    .out_pod = NULL,
   };
 
-  tile_args.tile_pod = workspace_pod_join( args->app_name, args->tile->name, args->tile_idx );
-  if( FD_LIKELY( args->tile->in_wksp ) )
-    tile_args.in_pod = workspace_pod_join( args->app_name, args->tile->in_wksp, 0 );
-  if( FD_LIKELY( args->tile->out_wksp ) )
-    tile_args.out_pod = workspace_pod_join( args->app_name, args->tile->out_wksp, 0 );
+  FD_TEST( tile_args.wksp_pod );
+  FD_TEST( args->tile->allow_workspaces_cnt <= sizeof(tile_args.wksp_pod) );
+  for( ulong i=0; i<args->tile->allow_workspaces_cnt; i++ ) {
+    /* preload pods before sandboxing, so workspace memory is already mapped */
+    tile_args.wksp_pod[ i ] = workspace_pod_join( args->app_name, workspace_kind_str( args->tile->allow_workspaces[ i ] ) );
+  }
 
   if( FD_UNLIKELY( args->tile->init ) ) args->tile->init( &tile_args );
 
@@ -133,7 +131,7 @@ tile_main( void * _args ) {
               args->gid,
               allow_fds_sz,
               allow_fds,
-              args->tile->allow_syscalls_sz,
+              args->tile->allow_syscalls_cnt,
               args->tile->allow_syscalls );
   args->tile->run( &tile_args );
   return 0;
@@ -228,7 +226,7 @@ solana_labs_main( void * args ) {
   ADDU( "--tpu-port", config->tiles.quic.transaction_listen_port );
 
   char ip_addr[16];
-  snprintf1( ip_addr, 16, FD_IP4_ADDR_FMT, FD_IP4_ADDR_FMT_ARGS(config->net.ip_addr) );
+  snprintf1( ip_addr, 16, FD_IP4_ADDR_FMT, FD_IP4_ADDR_FMT_ARGS(config->tiles.net.ip_addr) );
   ADD( "--gossip-host", ip_addr );
 
   /* consensus */
@@ -342,18 +340,31 @@ main_pid_namespace( void * args ) {
   ulong tile_cnt = 0;
   for( ulong i=0; i<config->shmem.workspaces_cnt; i++ ) {
     switch( config->shmem.workspaces[ i ].kind ) {
+      case wksp_netmux_inout:
       case wksp_quic_verify:
       case wksp_verify_dedup:
       case wksp_dedup_pack:
       case wksp_pack_bank:
       case wksp_bank_shred:
         break;
+      case wksp_net:
+        tile_cnt += config->layout.net_tile_count;
+        break;
+      case wksp_netmux:
+        tile_cnt++;
+        break;
       case wksp_quic:
       case wksp_verify:
+        tile_cnt += config->layout.verify_tile_count;
+        break;
       case wksp_dedup:
-      case wksp_pack:
-      case wksp_bank:
         tile_cnt++;
+        break;
+      case wksp_pack:
+        tile_cnt++;
+        break;
+      case wksp_bank:
+        /* not included here, not a real pinned tile*/
         break;
     }
   }
@@ -378,10 +389,12 @@ main_pid_namespace( void * args ) {
   clone_solana_labs( &spawner, config );
 
   if( FD_UNLIKELY( config->development.netns.enabled ) )  {
-    enter_network_namespace( config->net.interface );
+    enter_network_namespace( config->tiles.net.interface );
     close_network_namespace_original_fd();
   }
 
+  for( ulong i=0; i<config->layout.net_tile_count; i++ ) clone_tile( &spawner, &net, i );
+  clone_tile( &spawner, &netmux, 0 );
   for( ulong i=0; i<config->layout.verify_tile_count; i++ ) clone_tile( &spawner, &quic, i );
   for( ulong i=0; i<config->layout.verify_tile_count; i++ ) clone_tile( &spawner, &verify, i );
   clone_tile( &spawner, &dedup, 0 );

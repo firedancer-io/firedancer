@@ -257,7 +257,8 @@ dynamic_port_range = "8000-10000"
 #
 # Consider a validator node needing to do six essential pieces of work:
 #
-#  1. quic      Receive client transactions on a network device
+#  1. quic      Parse received QUIC packets into transactions, and respond
+#               to the client appropriately
 #  2. verify    Verify the signature of the transaction, dropping invalid ones
 #  3. dedup     Drop duplicated or repeatedly sent transactions
 #  4. pack      Decide which transactions to execute, ordering them by
@@ -306,7 +307,16 @@ dynamic_port_range = "8000-10000"
     #
     # It is suggested to use all available CPU cores for Firedancer, so that the
     # Solana network can run as fast as possible.
-    affinity = "0-13"
+    affinity = "0-14"
+
+    # How many net tiles to run.  Each networking tile will service exactly one
+    # queue from a network device being listened to.  If there are less net
+    # tiles than queues, some queues will not get drained and packets will be
+    # lost, and if there are more tiles than queues, some tiles will spin a CPU
+    # core doing nothing since no packets will ever arrive.
+    #
+    # See the comments for the [tiles.net] section below for more information.
+    net_tile_count = 4
 
     # How many verify tiles to run. Currently this also configures the number of
     # QUIC tiles to run. QUIC and verify tiles are connected 1:1.
@@ -366,29 +376,61 @@ dynamic_port_range = "8000-10000"
     # programs. Same as above.
     min_kernel_huge_pages = 512
 
-
-[net]
-    # Which interface to bind to for QUIC and Turbine traffic. If
-    # developing under a network namespace with [netns] enabled, this
-    # should be the same as [development.netns.interface0].
-    #
-    # If this is empty, the default is interface used to route to 8.8.8.8,
-    # you can check what this is with `ip route get 8.8.8.8`
-    interface = ""
-
-    # Firedancer uses XDP for fast packet processing. XDP supports two
-    # modes, XDP_SKB and XDP_DRV. XDP_DRV is preferred as it is faster,
-    # but is not supported by all drivers.
-    xdp_mode = "skb"
-
-
-
-
 # Tiles are described in detail in the layout section above. While the layout
 # configuration determines how many of each tile to place on which CPU core to
 # create a functioning system, below is the individual settings that can change
 # behavior of the tiles.
 [tiles]
+    # A networking tile is responsible for sending and receiving packets on the
+    # the network.  Each networking tile is bound to a specific queue on a
+    # network device.  For example, if you have one network device with four
+    # queues, you must run four net tiles.
+    #
+    # Net tiles will multiplex in both directions, fanning out packets to
+    # multiple parts of Firedancer that can receive and handled them, like QUIC
+    # tiles and the Turbine retransmission engine.  Then also fanning in from
+    # these various network senders to transmit on the queues we have available.
+    [tiles.net]
+        # Which interface to bind to for network traffic. Currently only one
+        # interface is supported for networking.  If this is empty, the default
+        # is interface used to route to 8.8.8.8, you can check what this is with
+        # `ip route get 8.8.8.8`
+        #
+        # If developing under a network namespace with [netns] enabled, this
+        # should be the same as [development.netns.interface0].
+        interface = ""
+
+        # Firedancer uses XDP for fast packet processing. XDP supports two
+        # modes, XDP_SKB and XDP_DRV. XDP_DRV is preferred as it is faster,
+        # but is not supported by all drivers.
+        xdp_mode = "skb"
+
+        # XDP has a metadata queue with memory defined by the driver or kernel
+        # that is specially mapped into userspace. With XDP mode XDP_DRV this
+        # could be MMIO to a PCIE device, but in SKB it's kernel memory made
+        # available to userspace that is copied in and out of the device.
+        #
+        # This setting defines the size of these metadata queues. A larger value
+        # is probably better if supported by the hardware, as we will drop less
+        # packets when bursting in high bandwidth scenarios.
+        #
+        # TODO: This probably shouldn't be configurable, we should just use the
+        # maximum available to the hardware?
+        xdp_rx_queue_size = 4096
+        xdp_tx_queue_size = 4096
+
+        # When writing multiple queue entries to XDP, we may wish to batch them
+        # together if it's expensive to do them one at a time. This might be the
+        # case for example if the writes go directly to the network device. A
+        # large batch size may not be ideal either, as it adds latency and
+        # jitter to packet handling.
+        xdp_aio_depth = 256
+
+        # The maximum number of messages in-flight between a net tile and
+        # downstream consumers, after which additional messages begin being
+        # dropped. TODO: ... Should this really be configurable?
+        send_buffer_size = 8192
+
     # QUIC tiles are responsible for implementing the QUIC protocol, including
     # binding and listening to network devices on the system to receive
     # transactions from clients, and forwarding well formed (but not necessarily
@@ -450,27 +492,6 @@ dynamic_port_range = "8000-10000"
         # TODO: This should be removed. We never transmit stream data so this
         # should be unused.
         tx_buf_size = 4096
-
-        # XDP has a metadata queue with memory defined by the driver or kernel
-        # that is specially mapped into userspace. With XDP mode XDP_DRV this
-        # could be MMIO to a PCIE device, but in SKB it's kernel memory made
-        # available to userspace that is copied in and out of the device.
-        #
-        # This setting defines the size of these metadata queues. A larger value
-        # is probably better if supported by the hardware, as we will drop less
-        # packets when bursting in high bandwidth scenarios.
-        #
-        # TODO: This probably shouldn't be configurable, we should just use the
-        # maximum available to the hardware?
-        xdp_rx_queue_size = 4096
-        xdp_tx_queue_size = 4096
-
-        # When writing multiple queue entries to XDP, we may wish to batch them
-        # together if it's expensive to do them one at a time. This might be the
-        # case for example if the writes go directly to the network device. A
-        # large batch size may not be ideal either, as it adds latency and
-        # jitter to packet handling.
-        xdp_aio_depth = 256
 
     # Verify tiles perform initial verification of incoming transactions, making
     # sure that they have a valid signature.

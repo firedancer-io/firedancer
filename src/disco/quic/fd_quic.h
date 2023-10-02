@@ -51,8 +51,8 @@
    startup (as such that they can be accumulated over multiple runs).
    Clearing is up to monitoring scripts. */
 
-#define FD_QUIC_CNC_DIAG_TPU_CONN_LIVE_CNT (6UL) /* ", frequently */
-#define FD_QUIC_CNC_DIAG_TPU_CONN_SEQ      (7UL) /* ", frequently */
+#define FD_QUIC_CNC_DIAG_TPU_CONN_LIVE_CNT (6UL)
+#define FD_QUIC_CNC_DIAG_TPU_CONN_SEQ      (7UL)
 
 #define FD_QUIC_TILE_SCRATCH_ALIGN (128UL)
 
@@ -70,18 +70,23 @@ fd_quic_tile_scratch_footprint( ulong depth,
                                 ulong out_cnt );
 
 int
-fd_quic_tile( fd_cnc_t *       cnc,                     /* Local join to the quic's command-and-control */
-              ulong            pid,                     /* Tile PID for diagnostic purposes */
-              fd_quic_t *      quic,                    /* Local join to the quic's quic context */
-              ushort           legacy_transaction_port, /* Port to "listen" on for non-QUIC (raw UDP) transactions */
-              ulong            xsk_aio_cnt,             /* Number of xsk_aio producers to poll, indexed [0,xsk_aio_cnt)] */
-              fd_xsk_aio_t **  xsk_aio,                 /* xsk_aio[xsk_aio_idx] is the local join to xsk_aio producer */
-              fd_frag_meta_t * mcache,                  /* Local join to the quic's frag stream output mcache */
-              uchar *          dcache,                  /* Local join to the quic's frag stream output dcache */
-              ulong            cr_max,                  /* Maximum number of flow control credits, 0 means use a reasonable default */
-              long             lazy,                    /* Lazyiness, <=0 means use a reasonable default */
-              fd_rng_t *       rng,                     /* Local join to the rng this quic should use */
-              void *           scratch );               /* Tile scratch memory */
+fd_quic_tile( fd_cnc_t *              cnc,                     /* Local join to the quic's command-and-control */
+              ulong                   pid,                     /* Tile PID for diagnostic purposes */
+              ulong                   in_cnt,
+              const fd_frag_meta_t ** in_mcache,
+              ulong **                in_fseq,
+              ulong                   round_robin_cnt,
+              ulong                   round_robin_id,
+              fd_frag_meta_t *        net_mcache,
+              uchar *                 net_dcache,
+              fd_quic_t *             quic,                    /* Local join to the quic's quic context */
+              ushort                  legacy_transaction_port, /* Port to "listen" on for non-QUIC (raw UDP) transactions */
+              fd_frag_meta_t *        mcache,                  /* Local join to the quic's frag stream output mcache */
+              uchar *                 dcache,                  /* Local join to the quic's frag stream output dcache */
+              ulong                   cr_max,                  /* Maximum number of flow control credits, 0 means use a reasonable default */
+              long                    lazy,                    /* Lazyiness, <=0 means use a reasonable default */
+              fd_rng_t *              rng,                     /* Local join to the rng this quic should use */
+              void *                  scratch );               /* Tile scratch memory */
 
 FD_PROTOTYPES_END
 
