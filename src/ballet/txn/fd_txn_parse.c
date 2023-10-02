@@ -1,13 +1,15 @@
+/* https://docs.solana.com/developing/programming-model/transactions#anatomy-of-a-transaction */
+
 #include "fd_txn.h"
 #include "fd_compact_u16.h"
 
-
-
 ulong
-fd_txn_parse( uchar const             * payload,
-              ulong                     payload_sz,
-              void                    * out_buf,
-              fd_txn_parse_counters_t * counters_opt ) {
+fd_txn_parse_core( uchar const             * payload,
+                   ulong                     payload_sz,
+                   void                    * out_buf,
+                   fd_txn_parse_counters_t * counters_opt,
+                   ulong *                   payload_sz_opt,
+                   int allow_zero_signatures ) {
   ulong i = 0UL;
   /* This code does non-trivial parsing of untrusted user input, which is a potentially dangerous thing.
      The main invariants we need to ensure are
@@ -78,7 +80,7 @@ fd_txn_parse( uchar const             * payload,
      u8 are represented the same way. */
   CHECK_LEFT( 1UL                               );   uchar signature_cnt  = payload[ i ];     i++;
   /* Must have at least one signer for the fee payer */
-  CHECK( (1UL<=signature_cnt) & (signature_cnt<=FD_TXN_SIG_MAX) );
+  CHECK( allow_zero_signatures | ((1UL<=signature_cnt) & (signature_cnt<=FD_TXN_SIG_MAX)) );
   CHECK_LEFT( FD_TXN_SIGNATURE_SZ*signature_cnt );   ulong signature_off  =          i  ;     i+=FD_TXN_SIGNATURE_SZ*signature_cnt;
 
   /* Not actually parsing anything, just store. */   ulong message_off    =          i  ;
@@ -97,7 +99,7 @@ fd_txn_parse( uchar const             * payload,
   }
   CHECK_LEFT( 1UL                               );   uchar ro_signed_cnt  = payload[ i ];     i++;
   /* Must have at least one writable signer for the fee payer */
-  CHECK( ro_signed_cnt<signature_cnt );
+  CHECK( allow_zero_signatures | (ro_signed_cnt<signature_cnt ) );
 
   CHECK_LEFT( 1UL                               );   uchar ro_unsigned_cnt= payload[ i ];     i++;
 
@@ -105,6 +107,8 @@ fd_txn_parse( uchar const             * payload,
   READ_CHECKED_COMPACT_U16( bytes_consumed,                acct_addr_cnt,            i );     i+=bytes_consumed;
   CHECK( (signature_cnt<=acct_addr_cnt) & (acct_addr_cnt<=FD_TXN_ACCT_ADDR_MAX) );
   CHECK( (ulong)signature_cnt+(ulong)ro_unsigned_cnt<=(ulong)acct_addr_cnt );
+
+
 
   CHECK_LEFT( FD_TXN_ACCT_ADDR_SZ*acct_addr_cnt );   ulong acct_addr_off  =          i  ;     i+=FD_TXN_ACCT_ADDR_SZ*acct_addr_cnt;
   CHECK_LEFT( FD_TXN_BLOCKHASH_SZ               );   ulong recent_blockhash_off =    i  ;     i+=FD_TXN_BLOCKHASH_SZ;
@@ -114,25 +118,29 @@ fd_txn_parse( uchar const             * payload,
 
   CHECK( (ulong)instr_cnt<=FD_TXN_INSTR_MAX     );
   CHECK_LEFT( MIN_INSTR_SZ*instr_cnt            );
-  CHECK( (ulong)acct_addr_cnt>(!!instr_cnt)     ); /* If it has >0 instructions, it must have at least one other account address (the program id) that can't be the fee payer */
+  CHECK( allow_zero_signatures | ((ulong)acct_addr_cnt>(!!instr_cnt))     ); /* If it has >0 instructions, it must have at least one other account address (the program id) that can't be the fee payer */
 
   fd_txn_t * parsed = (fd_txn_t *)out_buf;
 
-  parsed->transaction_version           = transaction_version;
-  parsed->signature_cnt                 = signature_cnt;
-  parsed->signature_off                 = (ushort)signature_off;
-  parsed->message_off                   = (ushort)message_off;
-  parsed->readonly_signed_cnt           = ro_signed_cnt;
-  parsed->readonly_unsigned_cnt         = ro_unsigned_cnt;
-  parsed->acct_addr_cnt                 = acct_addr_cnt;
-  parsed->acct_addr_off                 = (ushort)acct_addr_off;
-  parsed->recent_blockhash_off          = (ushort)recent_blockhash_off;
-  /* Need to assign addr_table_lookup_cnt, addr_table_adtl_writable_cnt,
-     addr_table_adtl_cnt, _padding_reserved_1 later */
-  parsed->instr_cnt                     = instr_cnt;
-
+  if (NULL != parsed) {
+    parsed->transaction_version           = transaction_version;
+    parsed->signature_cnt                 = signature_cnt;
+    parsed->signature_off                 = (ushort)signature_off;
+    parsed->message_off                   = (ushort)message_off;
+    parsed->readonly_signed_cnt           = ro_signed_cnt;
+    parsed->readonly_unsigned_cnt         = ro_unsigned_cnt;
+    parsed->acct_addr_cnt                 = acct_addr_cnt;
+    parsed->acct_addr_off                 = (ushort)acct_addr_off;
+    parsed->recent_blockhash_off          = (ushort)recent_blockhash_off;
+    /* Need to assign addr_table_lookup_cnt, addr_table_adtl_writable_cnt,
+       addr_table_adtl_cnt, _padding_reserved_1 later */
+    parsed->instr_cnt                     = instr_cnt;
+  }
 
   for( ulong j=0UL; j<instr_cnt; j++ ) {
+
+    /* parsing instruction */
+
     ushort acct_cnt = (ushort)0;
     ushort data_sz  = (ushort)0;
     CHECK_LEFT( MIN_INSTR_SZ                    );   uchar program_id     = payload[ i ];     i++;
@@ -147,16 +155,18 @@ fd_txn_parse( uchar const             * payload,
        permitted to own any executable account.
        As of https://github.com/solana-labs/solana/issues/25034, the program ID
        can't come from a table. */
-    CHECK( (0UL < (ulong)program_id) & ((ulong)program_id < (ulong)acct_addr_cnt) );
+    CHECK( allow_zero_signatures | ((0UL < (ulong)program_id) & ((ulong)program_id < (ulong)acct_addr_cnt) ) );
 
-    parsed->instr[ j ].program_id          = program_id;
-    parsed->instr[ j ]._padding_reserved_1 = (uchar)0;
-    parsed->instr[ j ].acct_cnt            = acct_cnt;
-    parsed->instr[ j ].data_sz             = data_sz;
-    /* By our invariant, i<size when it was copied into acct_off and data_off,
-       and size<=USHORT_MAX from above, so this cast is safe */
-    parsed->instr[ j ].acct_off            = (ushort)acct_off;
-    parsed->instr[ j ].data_off            = (ushort)data_off;
+    if( NULL != parsed ){
+      parsed->instr[ j ].program_id          = program_id;
+      parsed->instr[ j ]._padding_reserved_1 = (uchar)0;
+      parsed->instr[ j ].acct_cnt            = acct_cnt;
+      parsed->instr[ j ].data_sz             = data_sz;
+      /* By our invariant, i<size when it was copied into acct_off and data_off,
+         and size<=USHORT_MAX from above, so this cast is safe */
+      parsed->instr[ j ].acct_off            = (ushort)acct_off;
+      parsed->instr[ j ].data_off            = (ushort)data_off;
+    }
   }
   #undef MIN_INSTR_SIZE
 
@@ -165,7 +175,7 @@ fd_txn_parse( uchar const             * payload,
   ulong  addr_table_adtl_cnt          = 0;
 
   /* parsed->instr_cnt set above, so calling get_address_tables is safe */
-  fd_txn_acct_addr_lut_t * address_tables = fd_txn_get_address_tables( parsed );
+  fd_txn_acct_addr_lut_t * address_tables = (parsed == NULL) ? NULL : fd_txn_get_address_tables( parsed );
   if( FD_LIKELY( transaction_version==FD_TXN_V0 ) ) {
   #define MIN_ADDR_LUT_SIZE (34UL)
     READ_CHECKED_COMPACT_U16( bytes_consumed,             addr_table_cnt,            i );     i+=bytes_consumed;
@@ -184,36 +194,41 @@ fd_txn_parse( uchar const             * payload,
 
       CHECK( writable_cnt<=FD_TXN_ACCT_ADDR_MAX-acct_addr_cnt ); /* implies <256 */
       CHECK( readonly_cnt<=FD_TXN_ACCT_ADDR_MAX-acct_addr_cnt );
-      address_tables[ j ].addr_off      = (ushort)addr_off;
-      address_tables[ j ].writable_cnt  = (uchar )writable_cnt;
-      address_tables[ j ].readonly_cnt  = (uchar )readonly_cnt;
-      address_tables[ j ].writable_off  = (ushort)writable_off;
-      address_tables[ j ].readonly_off  = (ushort)readonly_off;
+      if (NULL != address_tables) {
+        address_tables[ j ].addr_off      = (ushort)addr_off;
+        address_tables[ j ].writable_cnt  = (uchar )writable_cnt;
+        address_tables[ j ].readonly_cnt  = (uchar )readonly_cnt;
+        address_tables[ j ].writable_off  = (ushort)writable_off;
+        address_tables[ j ].readonly_off  = (ushort)readonly_off;
+      }
 
       addr_table_adtl_writable_cnt += (ulong)writable_cnt;
       addr_table_adtl_cnt          += (ulong)writable_cnt + (ulong)readonly_cnt;
     }
   }
   #undef MIN_ADDR_LUT_SIZE
-  /* Check for leftover bytes */
-  CHECK( i==payload_sz );
+  /* Check for leftover bytes if out_sz_opt not specified. */
+  CHECK( payload_sz_opt!=NULL || i==payload_sz );
 
   CHECK( acct_addr_cnt+addr_table_adtl_cnt<=FD_TXN_ACCT_ADDR_MAX ); /* implies addr_table_adtl_cnt<256 */
 
-
-  /* Final validation that all the account address indices are in range */
-  for( ulong j=0; j<instr_cnt; j++ ) {
-    for( ulong k=0; k<parsed->instr[ j ].acct_cnt; k++ ) {
-      CHECK( payload[ parsed->instr[ j ].acct_off + k ] < acct_addr_cnt + addr_table_adtl_cnt );
+  if (NULL != parsed) {
+    /* Final validation that all the account address indices are in range */
+    for( ulong j=0; j<instr_cnt; j++ ) {
+      for( ulong k=0; k<parsed->instr[ j ].acct_cnt; k++ ) {
+        CHECK( payload[ parsed->instr[ j ].acct_off + k ] < acct_addr_cnt + addr_table_adtl_cnt );
+      }
     }
-  }
-  /* Assign final variables */
-  parsed->addr_table_lookup_cnt         = (uchar)addr_table_cnt;
-  parsed->addr_table_adtl_writable_cnt  = (uchar)addr_table_adtl_writable_cnt;
-  parsed->addr_table_adtl_cnt           = (uchar)addr_table_adtl_cnt;
-  parsed->_padding_reserved_1           = (uchar)0;
 
-  if( FD_LIKELY( counters_opt ) ) counters_opt->success_cnt++;
+    /* Assign final variables */
+    parsed->addr_table_lookup_cnt         = (uchar)addr_table_cnt;
+    parsed->addr_table_adtl_writable_cnt  = (uchar)addr_table_adtl_writable_cnt;
+    parsed->addr_table_adtl_cnt           = (uchar)addr_table_adtl_cnt;
+    parsed->_padding_reserved_1           = (uchar)0;
+  }
+
+  if( FD_LIKELY( counters_opt   ) ) counters_opt->success_cnt++;
+  if( FD_LIKELY( payload_sz_opt ) ) *payload_sz_opt = i;
   return fd_txn_footprint( instr_cnt, addr_table_cnt );
 
   #undef CHECK
