@@ -252,7 +252,6 @@ fd_txn_xray( uchar const             * payload,
     (where) += _out_sz;                                                  \
   } while( 0 )
 
-  if ( FD_UNLIKELY( payload_sz >= 1) ) return 0UL;
   uchar signature_cnt  = payload[ i ]; i++;
   ulong signature_off  =          i  ;
   result->signature_cnt = signature_cnt;

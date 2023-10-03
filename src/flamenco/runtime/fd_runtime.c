@@ -312,9 +312,9 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_meta_t* m, const void
         uchar txn_out[FD_TXN_MAX_SZ];
         ulong pay_sz = 0;
         const uchar* raw = (const uchar *)block + blockoff;
-        ulong txn_sz = fd_txn_parse_core(raw, fd_ulong_min(blocklen - blockoff, USHORT_MAX), txn_out, NULL, &pay_sz, 0);
-        if ( txn_sz == 0 || txn_sz > FD_TXN_MAX_SZ ) {
-          txn_sz = fd_txn_parse_core(raw, fd_ulong_min(blocklen - blockoff, USHORT_MAX), txn_out, NULL, &pay_sz, 0);
+        ulong txn_sz = fd_txn_parse_core(raw, fd_ulong_min(blocklen - blockoff, FD_TXN_MTU), txn_out, NULL, &pay_sz, 0);
+        if ( txn_sz == 0 || txn_sz > FD_TXN_MTU ) {
+          txn_sz = fd_txn_parse_core(raw, fd_ulong_min(blocklen - blockoff, FD_TXN_MTU), txn_out, NULL, &pay_sz, 0);
           FD_LOG_ERR(("failed to parse transaction -  slot: %lu, txn_idx_in_block: %lu, mblk: %lu, txn_idx: %lu", global->bank.slot, txn_idx_in_block, mblk, txn_idx));
         }
 
