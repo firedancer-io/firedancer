@@ -1177,6 +1177,13 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
   ulong rc = fd_quic_decode_initial( initial, cur_ptr, cur_sz );
   if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) return FD_QUIC_PARSE_FAIL;
 
+  /* check bounds on initial */
+
+  /* len indicated the number of bytes after the packet number offset
+     so verify this value is within the packet */
+  ulong len = (ulong)( initial->pkt_num_pnoff + initial->len );
+  if( FD_UNLIKELY( len > cur_sz ) ) return FD_QUIC_PARSE_FAIL;
+
   /* Check it is valid for a token to be present in an initial packet in the current context.
 
      quic->config.role == FD_QUIC_ROLE_CLIENT
@@ -1373,7 +1380,10 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
           memcpy(&retry_pseudo_pkt.retry_token, &retry_pkt.retry_token, FD_QUIC_RETRY_TOKEN_SZ);
 
           ulong retry_pseudo_footprint = fd_quic_encode_footprint_retry_pseudo(&retry_pseudo_pkt);
-          uchar retry_pseudo_buf[retry_pseudo_footprint];
+          uchar retry_pseudo_buf[FD_QUIC_MAX_FOOTPRINT(retry_pseudo)];
+          if( FD_UNLIKELY( retry_pseudo_footprint > sizeof(retry_pseudo_buf) ) ) {
+            FD_LOG_ERR(( "retry_pseudo_footprint is larger than allocated size" ));
+          }
           fd_quic_encode_retry_pseudo(retry_pseudo_buf, retry_pseudo_footprint, &retry_pseudo_pkt);
           fd_quic_retry_integrity_tag_encrypt(retry_pseudo_buf, (int) retry_pseudo_footprint, retry_pkt.retry_integrity_tag);
 
@@ -1693,6 +1703,13 @@ fd_quic_handle_v1_handshake(
                    ( handshake->dst_conn_id_len > FD_QUIC_MAX_CONN_ID_SZ ) ) ) {
     return FD_QUIC_PARSE_FAIL;
   }
+
+  /* check bounds on handshake */
+
+  /* len indicated the number of bytes after the packet number offset
+     so verify this value is within the packet */
+  ulong len = (ulong)( handshake->pkt_num_pnoff + handshake->len );
+  if( FD_UNLIKELY( len > cur_sz ) ) return FD_QUIC_PARSE_FAIL;
 
   /* connection ids should already be in the relevant structures */
 
@@ -2721,11 +2738,13 @@ fd_quic_process_packet( fd_quic_t *   quic,
           return;
       }
 
-      if( rc == FD_QUIC_PARSE_FAIL ) {
+      /* 0UL means no progress, so fail */
+      if( FD_UNLIKELY( ( rc == FD_QUIC_PARSE_FAIL ) |
+                       ( rc == 0UL ) )) {
         return;
       }
 
-      if( rc > cur_sz ) {
+      if( FD_UNLIKELY( rc > cur_sz ) ) {
         return;
       }
 

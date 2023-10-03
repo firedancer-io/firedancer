@@ -78,11 +78,10 @@
 
 /* FIXED is an array of elements, each of the same size,
    with length constant */
-#define FD_TEMPL_MBR_ELEM_FIXED(NAME,TYPE,BYTES)                         \
+#define FD_TEMPL_MBR_ELEM_FIXED(NAME,TYPE,ELEMS)                         \
     buf += (cur_bit != 0);                                               \
     cur_bit = 0;                                                         \
-    tmp_len = BYTES / sizeof(fd_quic_##TYPE);                            \
-    buf += tmp_len * sizeof( fd_quic_##TYPE );                           \
+    buf += ELEMS * sizeof( fd_quic_##TYPE );
 
 /* TODO remove abort() once tested */
 #define FD_TEMPL_MBR_OPT(TYPE,NAME,MASK,...)                             \

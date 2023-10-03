@@ -1,6 +1,7 @@
 #ifndef HEADER_fd_src_ballet_shred_fd_shred_h
 #define HEADER_fd_src_ballet_shred_fd_shred_h
 
+#include <stdio.h>
 /* Shreds form the on-wire representation of Solana block data
    optimized for transmission over unreliable links/WAN.
 
@@ -59,14 +60,18 @@
    Shreds are signed by the block producer.
    Consequentially, only the block producer is able to create valid shreds for any given block. */
 
-#include "../fd_ballet_base.h"
-#include "../block/fd_microblock.h"
-#include "../ed25519/fd_ed25519.h"
+#include "../fd_ballet.h"
 
-/* FD_SHRED_SZ: The byte size of a shred.
-   This limit derives from the IPv6 MTU of 1280 bytes,
-   minus 48 bytes for the UDP/IPv6 headers and another 4 bytes for good measure. */
-#define FD_SHRED_SZ (1228UL)
+
+/* FD_SHRED_MAX_SZ: The max byte size of a shred.
+   This limit derives from the IPv6 MTU of 1280 bytes, minus 48 bytes
+   for the UDP/IPv6 headers and another 4 bytes for good measure.  Most
+   shreds are this size, but Merkle data shreds may be smaller. */
+#define FD_SHRED_MAX_SZ (1228UL)
+/* FD_SHRED_MIN_SZ: The minimum byte size of a shred.
+   A code shred of the max size covers a data shred of the minimum size
+   with no padding. */
+#define FD_SHRED_MIN_SZ (1203UL)
 /* FD_SHRED_DATA_HEADER_SZ: size of all headers for data type shreds. */
 #define FD_SHRED_DATA_HEADER_SZ (0x58UL)
 /* FD_SHRED_CODE_HEADER_SZ: size of all headers for coding type shreds. */
@@ -185,7 +190,7 @@ typedef struct fd_shred fd_shred_t;
 FD_PROTOTYPES_BEGIN
 
 /* fd_shred_parse: Parses and validates an untrusted shred header.
-   The provided buffer must be at least FD_SHRED_SZ bytes long.
+   The provided buffer must be at least FD_SHRED_MIN_SZ bytes long.
 
    The returned pointer either equals the input pointer
    or is NULL if the given shred is malformed. */
@@ -204,12 +209,18 @@ fd_shred_type( uchar variant ) {
 FD_FN_CONST static inline uchar
 fd_shred_variant( uchar type,
                   uchar merkle_cnt ) {
-  merkle_cnt--;
   if( FD_LIKELY( type==FD_SHRED_TYPE_LEGACY_DATA ) )
     merkle_cnt = 0x05;
   if( FD_LIKELY( type==FD_SHRED_TYPE_LEGACY_CODE ) )
     merkle_cnt = 0x0a;
   return (uchar)(type | merkle_cnt);
+}
+
+FD_FN_CONST static inline ulong
+fd_shred_sz( fd_shred_t const * shred ) {
+  return fd_ulong_if( shred->variant & FD_SHRED_TYPEMASK_CODE, FD_SHRED_MAX_SZ,
+         fd_ulong_if( fd_shred_type( shred->variant )==FD_SHRED_TYPE_MERKLE_DATA, FD_SHRED_MIN_SZ,
+                                                                                  shred->data.size ) ); /* Legacy data */
 }
 
 /* fd_shred_header_sz: Returns the header size of a shred.
@@ -219,15 +230,16 @@ fd_shred_variant( uchar type,
 FD_FN_CONST static inline ulong
 fd_shred_header_sz( uchar variant ) {
   uchar type = fd_shred_type( variant );
-  if( FD_LIKELY( type & (FD_SHRED_TYPE_MERKLE_DATA|FD_SHRED_TYPE_LEGACY_DATA) ) )
+  if( FD_LIKELY( (type==FD_SHRED_TYPE_MERKLE_DATA) | (type==FD_SHRED_TYPE_LEGACY_DATA) ) )
     return FD_SHRED_DATA_HEADER_SZ;
-  if( FD_LIKELY( type & (FD_SHRED_TYPE_MERKLE_CODE|FD_SHRED_TYPE_LEGACY_CODE) ) )
+  if( FD_LIKELY( (type==FD_SHRED_TYPE_MERKLE_CODE) | (type==FD_SHRED_TYPE_LEGACY_CODE) ) )
     return FD_SHRED_CODE_HEADER_SZ;
   return 0;
 }
 
-/* fd_shred_merkle_cnt: Returns number of nodes in the merkle inclusion proof.
-   Returns zero if the given shred is not a merkle variant. */
+/* fd_shred_merkle_cnt: Returns number of nodes in the merkle inclusion
+   proof.  Note that this excludes the root.  Returns zero if the given
+   shred is not a merkle variant. */
 FD_FN_CONST static inline uint
 fd_shred_merkle_cnt( uchar variant ) {
   uchar type = fd_shred_type( variant );
@@ -247,18 +259,20 @@ fd_shred_merkle_sz( uchar variant ) {
    Undefined behavior if the shred has not passed `fd_shred_parse`. */
 FD_FN_PURE static inline ulong
 fd_shred_payload_sz( fd_shred_t const * shred ) {
-  if( FD_LIKELY( fd_shred_type( shred->variant ) & FD_SHRED_TYPEMASK_DATA ) )
+  if( FD_LIKELY( fd_shred_type( shred->variant ) & FD_SHRED_TYPEMASK_DATA ) ) {
     return shred->data.size - FD_SHRED_DATA_HEADER_SZ;
-  else
-    return FD_SHRED_SZ -      FD_SHRED_CODE_HEADER_SZ - fd_shred_merkle_sz( shred->variant );
+  } else {
+    return fd_shred_sz( shred ) - FD_SHRED_CODE_HEADER_SZ - fd_shred_merkle_sz( shred->variant );
+  }
+
 }
 
 /* fd_shred_merkle_off: Returns the byte offset of the merkle inclusion proof of a shred.
 
    The provided shred must have passed validation in fd_shred_parse(). */
 FD_FN_CONST static inline ulong
-fd_shred_merkle_off( uchar variant ) {
-  return FD_SHRED_SZ - fd_shred_merkle_sz( variant );
+fd_shred_merkle_off( fd_shred_t const * shred ) {
+  return fd_shred_sz( shred ) - fd_shred_merkle_sz( shred->variant );
 }
 
 /* fd_shred_merkle_nodes: Returns a pointer to the shred's merkle proof data.
@@ -267,7 +281,7 @@ fd_shred_merkle_off( uchar variant ) {
 FD_FN_PURE static inline fd_shred_merkle_t const *
 fd_shred_merkle_nodes( fd_shred_t const * shred ) {
   uchar const * ptr = (uchar const *)shred;
-  ptr += fd_shred_merkle_off( shred->variant );
+  ptr += fd_shred_merkle_off( shred );
   return (fd_shred_merkle_t const *)ptr;
 }
 
@@ -290,82 +304,6 @@ FD_FN_CONST static inline uchar const *
 fd_shred_code_payload( fd_shred_t const * shred ) {
   return (uchar const *)shred + FD_SHRED_CODE_HEADER_SZ;
 }
-
-/* fd_deshredder_t: Deserializes a vector of shreds into block entries. */
-
-struct fd_deshredder {
-  /* Vector of data shreds */
-  fd_shred_t const * const * shreds;
-
-  /* Number of shreds left in buffer */
-  uint shred_cnt;
-
-  /* Data offset in next shred */
-  uint data_off;
-
-  /* Cursor to target buffer
-
-     Note that this points to the end of the data
-     that was previously deserialized. */
-  uchar * buf;
-
-  /* Free space in target target buffer */
-  ulong bufsz;
-
-  /* Cached return code */
-  long result;
-};
-typedef struct fd_deshredder fd_deshredder_t;
-
-/* fd_deshredder_init: Initializes the deshredder.
-
-   `buf` is the buffer into which dconcatenated shreds get written.
-
-   `bufsz` is the size of `buf` in bytes.
-
-   `shreds` is a contiguous vector of data shreds:
-   The shred `idx` of each shred increments by exactly by one,
-   The `slot` and `version` must be the same.
-
-   `shred_cnt` is the number of `fd_shred_t` in the `shreds` buffer.
-
-   Each shred must have passed the validation checks in `fd_shred_parse`
-   and ideally should have passed authentication checks (sig verify). */
-void
-fd_deshredder_init( fd_deshredder_t *          shredder,
-                    void *                     buf,
-                    ulong                      bufsz,
-                    fd_shred_t const * const * shreds,
-                    ulong                      shred_cnt );
-
-/* fd_deshredder_next: Concatenates a batch of shreds.
-
-   Concatenates a batch of shreds provided by the caller in
-   `fd_deshredder_init`.
-
-   Note that it usually takes multiple calls to process to process all
-   provided shreds because each block can have up to 64 batches.
-
-   If a new batch was created, returns the number of bytes written to
-   `buf` which the caller previously provided in `fd_deshredder_init`.
-
-   Otherwise, returns a negative value indicating the error code.
-   In the error case, the caller must not make any further calls to
-   `fd_deshredder_next` on this shredder.
-
-   Returns `-FD_SHRED_EBATCH` if no more shreds are available
-   and the end of the current batch has been reached.
-   Also implies that there are more shreds/batches in this slot.
-
-   Returns `-FD_SHRED_ESLOT`  if no more shreds are available
-   and the end of the current slot has been reached.
-
-   Returns `-FD_SHRED_EPIPE`  if no more shreds are available
-   but we are in the middle of concatenating a batch.
-
-   Returns `-FD_SHRED_ENOMEM` if the target buffer is too small. */
-long
-fd_deshredder_next( fd_deshredder_t * shredder );
 
 FD_PROTOTYPES_END
 
