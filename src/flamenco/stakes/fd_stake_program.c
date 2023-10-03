@@ -166,7 +166,7 @@ get_sysvar_with_account_check_stake_history( instruction_ctx_t const * invoke_co
   rc = get_sysvar_with_account_check_check_sysvar_account( invoke_context->txn_ctx,
                                                            instruction_context,
                                                            instruction_account_index,
-                                                           invoke_context->global->sysvar_rent );
+                                                           invoke_context->global->sysvar_stake_history );
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
 
   rc = fd_sysvar_stake_history_read( invoke_context->global, stake_history );
@@ -2640,7 +2640,7 @@ fd_executor_stake_program_execute_instruction( instruction_ctx_t ctx ) {
 
     fd_stake_history_t stake_history = { 0 };
     rc = get_sysvar_with_account_check_stake_history( &ctx, ctx.instr, 3, &stake_history );
-    // if ( FD_UNLIKELY( rc != OK ) ) return rc;
+    if ( FD_UNLIKELY( rc != OK ) ) return rc;
 
     rc = check_number_of_instruction_accounts( instruction_context, 5 );
     if ( FD_UNLIKELY( rc != OK ) ) return rc;
