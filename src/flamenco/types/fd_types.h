@@ -109,6 +109,18 @@ typedef struct fd_rent fd_rent_t;
 #define FD_RENT_FOOTPRINT sizeof(fd_rent_t)
 #define FD_RENT_ALIGN (8UL)
 
+/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/epoch_schedule.rs#L26 */
+struct __attribute__((aligned(1UL))) fd_epoch_schedule {
+  ulong slots_per_epoch;
+  ulong leader_schedule_slot_offset;
+  uchar warmup;
+  ulong first_normal_epoch;
+  ulong first_normal_slot;
+};
+typedef struct fd_epoch_schedule fd_epoch_schedule_t;
+#define FD_EPOCH_SCHEDULE_FOOTPRINT sizeof(fd_epoch_schedule_t)
+#define FD_EPOCH_SCHEDULE_ALIGN (1UL)
+
 struct __attribute__((aligned(8UL))) fd_rent_collector {
   ulong epoch;
   fd_epoch_schedule_t epoch_schedule;
@@ -2166,6 +2178,50 @@ typedef struct fd_gossip_msg fd_gossip_msg_t;
 
 FD_PROTOTYPES_BEGIN
 
+void fd_hash_new(fd_hash_t* self);
+int fd_hash_decode(fd_hash_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_hash_decode_preflight(fd_bincode_decode_ctx_t * ctx);
+void fd_hash_decode_unsafe(fd_hash_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_hash_encode(fd_hash_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_hash_destroy(fd_hash_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_hash_walk(void * w, fd_hash_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_hash_size(fd_hash_t const * self);
+ulong fd_hash_footprint( void );
+ulong fd_hash_align( void );
+
+void fd_signature_new(fd_signature_t* self);
+int fd_signature_decode(fd_signature_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_signature_decode_preflight(fd_bincode_decode_ctx_t * ctx);
+void fd_signature_decode_unsafe(fd_signature_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_signature_encode(fd_signature_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_signature_destroy(fd_signature_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_signature_walk(void * w, fd_signature_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_signature_size(fd_signature_t const * self);
+ulong fd_signature_footprint( void );
+ulong fd_signature_align( void );
+
+void fd_gossip_ip4_addr_new(fd_gossip_ip4_addr_t* self);
+int fd_gossip_ip4_addr_decode(fd_gossip_ip4_addr_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_gossip_ip4_addr_decode_preflight(fd_bincode_decode_ctx_t * ctx);
+void fd_gossip_ip4_addr_decode_unsafe(fd_gossip_ip4_addr_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_gossip_ip4_addr_encode(fd_gossip_ip4_addr_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_gossip_ip4_addr_destroy(fd_gossip_ip4_addr_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_gossip_ip4_addr_walk(void * w, fd_gossip_ip4_addr_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_gossip_ip4_addr_size(fd_gossip_ip4_addr_t const * self);
+ulong fd_gossip_ip4_addr_footprint( void );
+ulong fd_gossip_ip4_addr_align( void );
+
+void fd_gossip_ip6_addr_new(fd_gossip_ip6_addr_t* self);
+int fd_gossip_ip6_addr_decode(fd_gossip_ip6_addr_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_gossip_ip6_addr_decode_preflight(fd_bincode_decode_ctx_t * ctx);
+void fd_gossip_ip6_addr_decode_unsafe(fd_gossip_ip6_addr_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_gossip_ip6_addr_encode(fd_gossip_ip6_addr_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_gossip_ip6_addr_destroy(fd_gossip_ip6_addr_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_gossip_ip6_addr_walk(void * w, fd_gossip_ip6_addr_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_gossip_ip6_addr_size(fd_gossip_ip6_addr_t const * self);
+ulong fd_gossip_ip6_addr_footprint( void );
+ulong fd_gossip_ip6_addr_align( void );
+
 void fd_feature_new(fd_feature_t* self);
 int fd_feature_decode(fd_feature_t* self, fd_bincode_decode_ctx_t * ctx);
 int fd_feature_decode_preflight(fd_bincode_decode_ctx_t * ctx);
@@ -2286,6 +2342,17 @@ void fd_rent_walk(void * w, fd_rent_t const * self, fd_types_walk_fn_t fun, cons
 ulong fd_rent_size(fd_rent_t const * self);
 ulong fd_rent_footprint( void );
 ulong fd_rent_align( void );
+
+void fd_epoch_schedule_new(fd_epoch_schedule_t* self);
+int fd_epoch_schedule_decode(fd_epoch_schedule_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_epoch_schedule_decode_preflight(fd_bincode_decode_ctx_t * ctx);
+void fd_epoch_schedule_decode_unsafe(fd_epoch_schedule_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_epoch_schedule_encode(fd_epoch_schedule_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_epoch_schedule_destroy(fd_epoch_schedule_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_epoch_schedule_walk(void * w, fd_epoch_schedule_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_epoch_schedule_size(fd_epoch_schedule_t const * self);
+ulong fd_epoch_schedule_footprint( void );
+ulong fd_epoch_schedule_align( void );
 
 void fd_rent_collector_new(fd_rent_collector_t* self);
 int fd_rent_collector_decode(fd_rent_collector_t* self, fd_bincode_decode_ctx_t * ctx);
