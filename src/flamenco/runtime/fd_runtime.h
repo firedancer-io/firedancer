@@ -54,6 +54,9 @@ struct __attribute__((aligned(FD_GLOBAL_CTX_ALIGN))) fd_global_ctx {
   fd_wksp_t *                local_wksp; // Workspace for allocs local to this process
   fd_rng_t*                  rng;
 
+  fd_tpool_t *               tpool;
+  ulong                      max_workers;
+
   fd_solcap_writer_t *       capture;
   int                        trace_mode;
   int                        trace_dirfd;
@@ -201,6 +204,9 @@ fd_process_new_epoch(
     fd_global_ctx_t * global,
     ulong parent_epoch
 );
+
+void
+fd_runtime_update_leaders( fd_global_ctx_t * global, ulong slot);
 
 FD_PROTOTYPES_END
 

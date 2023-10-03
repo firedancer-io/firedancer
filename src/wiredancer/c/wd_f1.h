@@ -45,7 +45,6 @@ typedef struct {
 
     uint32_t            req_slot;
     uint64_t            req_depth;
-    uint64_t            dma_phys;
 
 } wd_ed25519_verify_t;
 

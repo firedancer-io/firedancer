@@ -12,7 +12,7 @@
 
 #define FD_PACK_ALIGN     (32UL)
 
-#define FD_PACK_MAX_GAP 64UL
+#define FD_PACK_MAX_BANK_TILES 63UL
 
 
 /* NOTE: THE FOLLOWING CONSTANTS ARE CONSENSUS CRITICAL AND CANNOT BE
@@ -56,11 +56,9 @@ typedef struct fd_pack_private fd_pack_t;
    pack_depth sets the maximum number of pending transactions that pack
    stores and may eventually schedule.
 
-   gap sets the number of microblocks between any two conflicting uses
-   of an account. For example, if gap==2, then if pack schedules a
-   transaction that writes to an account A, the following microblock
-   will not contain any transactions that read or write to A, but the
-   microblock after that one may.  gap must be in [1, FD_PACK_MAX_GAP].
+   bank_tile_cnt sets the number of bank tiles to which this pack object
+   can schedule transactions.  bank_tile_cnt must be in [1,
+   FD_PACK_MAX_BANK_TILES].
 
    max_txn_per_microblock sets the maximum number of transactions that
    pack will schedule in a single microblock. */
@@ -69,21 +67,22 @@ FD_FN_CONST static inline ulong fd_pack_align       ( void ) { return FD_PACK_AL
 
 FD_FN_CONST ulong
 fd_pack_footprint( ulong pack_depth,
-                   ulong gap,
+                   ulong bank_tile_cnt,
                    ulong max_txn_per_microblock );
 
 
 /* fd_pack_new formats a region of memory to be suitable for use as a
    pack object.  mem is a non-NULL pointer to a region of memory in the
    local address space with the required alignment and footprint.
-   pack_depth, gap, and max_txn_per_microblock are as above.  rng is a
-   local join to a random number generator used to perturb estimates.
+   pack_depth, bank_tile_cnt, and max_txn_per_microblock are as above.
+   rng is a local join to a random number generator used to perturb
+   estimates.
 
    Returns `mem` (which will be properly formatted as a pack object) on
    success and NULL on failure.  Logs details on failure.  The caller
    will not be joined to the pack object when this function returns. */
 void * fd_pack_new( void * mem,
-    ulong pack_depth, ulong gap, ulong max_txn_per_microblock,
+    ulong pack_depth, ulong bank_tile_cnt, ulong max_txn_per_microblock,
     fd_rng_t * rng );
 
 /* fd_pack_join joins the caller to the pack object.  Every successful
@@ -98,10 +97,11 @@ fd_pack_t * fd_pack_join( void * mem );
 
 FD_FN_PURE ulong fd_pack_avail_txn_cnt( fd_pack_t * pack );
 
-/* fd_pack_gap: returns the value of gap provided in pack when the pack
-   object was initialized with fd_pack_new.  pack must be a valid local
-   join.  The result will be in [1, FD_PACK_MAX_GAP]. */
-FD_FN_PURE ulong fd_pack_gap( fd_pack_t * pack );
+/* fd_pack_bank_tile_cnt: returns the value of bank_tile_cnt provided in
+   pack when the pack object was initialized with fd_pack_new.  pack
+   must be a valid local join.  The result will be in [1,
+   FD_PACK_MAX_BANK_TILES]. */
+FD_FN_PURE ulong fd_pack_bank_tile_cnt( fd_pack_t * pack );
 
 /* fd_pack_insert_txn_{init,fini,cancel} execute the process of
    inserting a new transaction into the pool of available transactions
@@ -147,7 +147,14 @@ void         fd_pack_insert_txn_cancel( fd_pack_t * pack, fd_txn_p_t * txn );
    return value may be 0 if there are no eligible transactions at the
    moment. */
 
-ulong fd_pack_schedule_next_microblock( fd_pack_t * pack, ulong total_cus, float vote_fraction, fd_txn_p_t * out );
+ulong fd_pack_schedule_next_microblock( fd_pack_t * pack, ulong total_cus, float vote_fraction, ulong bank_tile, fd_txn_p_t * out );
+
+
+/* fd_pack_microblock_complete signals that the bank_tile with index
+   bank_tile has completed its previously scheduled microblock.  This
+   permits the scheduling of transactions that conflict with the
+   previously scheduled microblock. */
+void fd_pack_microblock_complete( fd_pack_t * pack, ulong bank_tile );
 
 /* fd_pack_delete_txn removes a transaction (identified by its first
    signature) from the pool of available transactions.  Returns 1 if the

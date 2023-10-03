@@ -175,6 +175,9 @@ replay( global_state_t * state,
         ulong            max_workers ) {
   /* Create scratch allocator */
 
+  state->global->tpool = tpool;
+  state->global->max_workers = max_workers;
+
   ulong  smax = 512 /*MiB*/ << 20;
   void * smem = fd_wksp_alloc_laddr( state->global->local_wksp, fd_scratch_smem_align(), smax, 1UL );
   if( FD_UNLIKELY( !smem ) ) FD_LOG_ERR(( "Failed to alloc scratch mem" ));
@@ -205,62 +208,14 @@ replay( global_state_t * state,
   if (mm.end_slot < state->end_slot)
     state->end_slot = mm.end_slot;
 
-  /* Load epoch schedule sysvar */
-  fd_epoch_schedule_t schedule;
-  fd_sysvar_epoch_schedule_read( state->global, &schedule );
-  FD_LOG_INFO(( "schedule->slots_per_epoch = %lu", schedule.slots_per_epoch ));
-  FD_LOG_INFO(( "schedule->leader_schedule_slot_offset = %lu", schedule.leader_schedule_slot_offset ));
-  FD_LOG_INFO(( "schedule->warmup = %d", schedule.warmup ));
-  FD_LOG_INFO(( "schedule->first_normal_epoch = %lu", schedule.first_normal_epoch ));
-  FD_LOG_INFO(( "schedule->first_normal_slot = %lu", schedule.first_normal_slot ));
-
-  /* Slot of next epoch boundary */
-  ulong epoch           = fd_slot_to_epoch( &schedule, state->global->bank.slot+1, NULL );
-  ulong last_epoch_slot = fd_epoch_slot0  ( &schedule, epoch+1UL );
-
-  /* Find epoch stakes for current epoch */
-  fd_vote_accounts_t const * epoch_vaccs = &state->global->bank.epoch_stakes;
-
-  FD_LOG_INFO(( "starting rent list init" ));
-  state->global->rentlists = fd_rent_lists_new(fd_epoch_slot_cnt( &schedule, epoch ));
-  fd_funk_set_notify(state->global->funk, fd_rent_lists_cb, state->global->rentlists);
-  fd_rent_lists_startup_done_tpool(state->global->rentlists, tpool, max_workers);
-  FD_LOG_INFO(( "rent list init done" ));
-  ulong stake_weight_cnt;
-  {
-    FD_SCRATCH_SCOPED_FRAME;
-
-    /* Derive node stake weights for epoch vote accounts */
-
-    ulong vote_acc_cnt = fd_vote_accounts_pair_t_map_size( epoch_vaccs->vote_accounts_pool, epoch_vaccs->vote_accounts_root );
-    fd_stake_weight_t * epoch_weights = fd_scratch_alloc( alignof(fd_stake_weight_t), vote_acc_cnt * sizeof(fd_stake_weight_t) );
-    if( FD_UNLIKELY( !epoch_weights ) ) FD_LOG_ERR(( "fd_scratch_alloc() failed" ));
-
-    stake_weight_cnt = fd_stake_weights_by_node( epoch_vaccs, epoch_weights );
-    if( FD_UNLIKELY( stake_weight_cnt==ULONG_MAX ) ) FD_LOG_ERR(( "fd_stake_weights_by_node() failed" ));
-
-    /* Derive leader schedule */
-    /* TODO This wksp alloc probably shouldn't be here */
-    ulong sched_cnt = fd_epoch_slot_cnt( &schedule, epoch ) / 4UL;  /* Every leader rotation lasts four slots - TODO remove hardcode */
-    FD_LOG_INFO(( "stake_weight_cnt=%lu sched_cnt=%lu", stake_weight_cnt, sched_cnt ));
-    ulong epoch_leaders_footprint = fd_epoch_leaders_footprint( stake_weight_cnt, sched_cnt );
-    FD_LOG_INFO(( "epoch_leaders_footprint=%lu", epoch_leaders_footprint ));
-    if( FD_LIKELY( epoch_leaders_footprint ) ) {
-      /* Only available when we are importing from snapshot */
-      void * epoch_leaders_mem = fd_wksp_alloc_laddr( state->global->local_wksp, fd_epoch_leaders_align(), epoch_leaders_footprint, 1UL );
-      state->global->leaders = fd_epoch_leaders_join( fd_epoch_leaders_new( epoch_leaders_mem, stake_weight_cnt, sched_cnt ) );
-      FD_TEST( state->global->leaders );
-      /* Derive */
-      fd_epoch_leaders_derive( state->global->leaders, epoch_weights, epoch );
-    }
-  }
+  fd_runtime_update_leaders(state->global, state->global->bank.slot);
 
   ulong prev_slot = state->global->bank.slot;
   for ( ulong slot = state->global->bank.slot+1; slot < state->end_slot; ++slot ) {
     state->global->bank.prev_slot = prev_slot;
     state->global->bank.slot      = slot;
 
-    FD_LOG_INFO(("reading slot %ld (epoch %lu)", slot, epoch));
+    FD_LOG_INFO(("reading slot %ld", slot));
 
     fd_slot_meta_t m;
 
@@ -320,10 +275,6 @@ replay( global_state_t * state,
         if (state->global->bank.capitalization != c->capitalization)
           FD_LOG_NOTICE(( "capitalization missmatch!  slot=%lu got=%ld != expected=%ld  (%ld)", slot, state->global->bank.capitalization, c->capitalization,  state->global->bank.capitalization - c->capitalization  ));
       }
-    }
-
-    if( slot == last_epoch_slot ) {
-      FD_LOG_NOTICE(( "EPOCH TRANSITION" ));
     }
 
     prev_slot = slot;

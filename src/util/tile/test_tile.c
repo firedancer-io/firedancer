@@ -4,6 +4,7 @@
 
 char const * _argv[] = { "Hey", "You", NULL };
 
+#if !defined (FD_HAS_ASAN) || !FD_HAS_ASAN
 static void
 test_stack( void ) {
   ulong stack0 = (ulong)fd_tile_stack0();
@@ -40,6 +41,10 @@ test_stack( void ) {
     for( ulong stack=stack0; stack<stack1; stack++ ) FD_VOLATILE_CONST( *(uchar const *)stack );
   }
 }
+#else
+static void
+test_stack( void ) {}
+#endif
 
 int
 tile_main( int     argc,

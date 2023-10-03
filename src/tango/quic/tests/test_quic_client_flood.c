@@ -119,7 +119,7 @@ run_quic_client(
     FD_TEST( client_conn->state == FD_QUIC_CONN_STATE_ACTIVE );
 
     /* create and sign fake ref message txns */
-    /* generate a message for every possible message size, using code from fd_frank_verify_synth_load */
+    /* generate a message for every possible message size, using code from verify_synth_load */
     fd_rng_t _rng[ 1 ];
     uint seed = (uint)fd_tile_id();
     fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, seed, 0UL ) );

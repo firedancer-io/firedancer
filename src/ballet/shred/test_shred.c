@@ -1,22 +1,21 @@
 #include "fd_shred.h"
-#include <stddef.h>
 
-FD_STATIC_ASSERT( offsetof( fd_shred_t, signature       )==0x00, unit_test );
-FD_STATIC_ASSERT( offsetof( fd_shred_t, variant         )==0x40, unit_test );
-FD_STATIC_ASSERT( offsetof( fd_shred_t, slot            )==0x41, unit_test );
-FD_STATIC_ASSERT( offsetof( fd_shred_t, idx             )==0x49, unit_test );
-FD_STATIC_ASSERT( offsetof( fd_shred_t, version         )==0x4d, unit_test );
-FD_STATIC_ASSERT( offsetof( fd_shred_t, fec_set_idx     )==0x4f, unit_test );
+FD_STATIC_ASSERT( __builtin_offsetof( fd_shred_t, signature       )==0x00, unit_test );
+FD_STATIC_ASSERT( __builtin_offsetof( fd_shred_t, variant         )==0x40, unit_test );
+FD_STATIC_ASSERT( __builtin_offsetof( fd_shred_t, slot            )==0x41, unit_test );
+FD_STATIC_ASSERT( __builtin_offsetof( fd_shred_t, idx             )==0x49, unit_test );
+FD_STATIC_ASSERT( __builtin_offsetof( fd_shred_t, version         )==0x4d, unit_test );
+FD_STATIC_ASSERT( __builtin_offsetof( fd_shred_t, fec_set_idx     )==0x4f, unit_test );
 
-FD_STATIC_ASSERT( offsetof( fd_shred_t, code.data_cnt   )==0x53, unit_test );
-FD_STATIC_ASSERT( offsetof( fd_shred_t, code.code_cnt   )==0x55, unit_test );
-FD_STATIC_ASSERT( offsetof( fd_shred_t, code.idx        )==0x57, unit_test );
+FD_STATIC_ASSERT( __builtin_offsetof( fd_shred_t, code.data_cnt   )==0x53, unit_test );
+FD_STATIC_ASSERT( __builtin_offsetof( fd_shred_t, code.code_cnt   )==0x55, unit_test );
+FD_STATIC_ASSERT( __builtin_offsetof( fd_shred_t, code.idx        )==0x57, unit_test );
 
-FD_STATIC_ASSERT( offsetof( fd_shred_t, data.parent_off )==0x53, unit_test );
-FD_STATIC_ASSERT( offsetof( fd_shred_t, data.flags      )==0x55, unit_test );
-FD_STATIC_ASSERT( offsetof( fd_shred_t, data.size       )==0x56, unit_test );
+FD_STATIC_ASSERT( __builtin_offsetof( fd_shred_t, data.parent_off )==0x53, unit_test );
+FD_STATIC_ASSERT( __builtin_offsetof( fd_shred_t, data.flags      )==0x55, unit_test );
+FD_STATIC_ASSERT( __builtin_offsetof( fd_shred_t, data.size       )==0x56, unit_test );
 
-static uchar const fixture_legacy_coding_shred[FD_SHRED_SZ] = {
+static uchar const fixture_legacy_coding_shred[FD_SHRED_MAX_SZ] = {
   0x12,0x5f,0x43,0x31,0xbe,0x64,0x52,0x07,0x88,0xc8,0x2b,0x22,0x71,0x4a,0xb9,0x2c,
   0xa9,0x46,0xfb,0x2f,0xc6,0x50,0xc6,0xf8,0x30,0x23,0x4e,0x1e,0x96,0x76,0xf3,0xab,
   0x6f,0xf1,0x7c,0x41,0x2e,0xe7,0x39,0x37,0x6b,0x37,0x94,0x60,0x14,0x92,0x65,0x4e,
@@ -31,7 +30,7 @@ static uchar const fixture_legacy_coding_shred[FD_SHRED_SZ] = {
   0xf5,0xa2,0xeb,0xda,0xee,0x9d,0xb3,
 };
 
-static uchar const fixture_legacy_data_shred[FD_SHRED_SZ] = {
+static uchar const fixture_legacy_data_shred[FD_SHRED_MAX_SZ] = {
   0xfb,0x2b,0x54,0xe1,0xe8,0x81,0x25,0xb2,0xde,0xe1,0x9a,0xd4,0x94,0x41,0x1c,0x31,
   0xeb,0xc2,0x3a,0xc4,0x85,0xfa,0x1b,0x8c,0x22,0x69,0x18,0xcb,0xf6,0x6d,0xac,0x25,
   0x73,0xd0,0x1c,0x76,0x14,0xfa,0x1f,0x2c,0x94,0xd2,0xa2,0x13,0x42,0xee,0x8f,0x33,
@@ -46,7 +45,7 @@ static uchar const fixture_legacy_data_shred[FD_SHRED_SZ] = {
   0x6b,0x51,0x6a,0x54,0x9b,0xcf,0x39,
 };
 
-static uchar const fixture_legacy_data_shred_empty[FD_SHRED_SZ] = {
+static uchar const fixture_legacy_data_shred_empty[FD_SHRED_MAX_SZ] = {
   0x61,0x57,0xad,0x27,0x31,0xa7,0xf6,0x15,0x29,0xd2,0x29,0x6a,0x88,0xad,0xd9,0x81,
   0x84,0xb7,0xdf,0x1c,0x7f,0x92,0x45,0x12,0x0f,0x42,0x31,0x14,0xcf,0xaa,0xe1,0x6d,
   0x89,0xd0,0x12,0x0e,0x70,0x57,0xc0,0xad,0x65,0x27,0xc3,0x68,0x44,0x10,0x0f,0x90,
@@ -65,7 +64,7 @@ main( int     argc,
   /* Test shred parsing rules. */
   for( uint i = 0; i < 0x100U; i++ ) {
     /* Create fake shred */
-    uchar buf[FD_SHRED_SZ] = {0};
+    uchar buf[FD_SHRED_MAX_SZ] = {0};
     buf[0x40] = (uchar)i;
 
     /* Make sure our buffer is larger than the smallest size of the largest shred variant. */
@@ -84,11 +83,11 @@ main( int     argc,
     if( FD_LIKELY( is_data   ) ) header_sz = 0x58;
     if( FD_LIKELY( is_code   ) ) header_sz = 0x59;
     ulong merkle_sz = 0;
-    if( FD_LIKELY( is_merkle ) ) merkle_sz = ((i&0x0f)+1)*FD_SHRED_MERKLE_NODE_SZ;
-    ulong payload_sz = sizeof(buf) - header_sz - merkle_sz;
+    if( FD_LIKELY( is_merkle ) ) merkle_sz = (i&0x0f)*FD_SHRED_MERKLE_NODE_SZ;
+    ulong payload_sz = ((is_merkle&is_data) ? FD_SHRED_MIN_SZ : FD_SHRED_MAX_SZ) - header_sz - merkle_sz;
 
     if( is_data )
-      *(ushort*)(buf+0x56) = (ushort)(sizeof(buf) - merkle_sz); /* write data.size */
+      *(ushort*)(buf+0x56) = (ushort)(payload_sz + header_sz); /* write data.size */
 
     /* Test type-specific bounds checks */
     if( FD_LIKELY( is_valid )) {
@@ -97,7 +96,7 @@ main( int     argc,
       FD_TEST( (is_merkle || merkle_cnt==0) && merkle_cnt<=16 );
 
       FD_TEST( header_sz > 0 );
-      FD_TEST( !!merkle_sz==is_merkle );
+      FD_TEST( !merkle_sz || is_merkle ); /* !is_merkle implies merkle_sz == 0 */
 
       FD_LOG_NOTICE(( "shred variant 0x%02x: type=%s header_sz=0x%lx merkle_sz=0x%lx payload_sz=0x%lx",
                       i, is_data ? "data" : "code", header_sz, merkle_sz, payload_sz ));
