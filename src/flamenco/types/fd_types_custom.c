@@ -33,7 +33,7 @@ fd_flamenco_txn_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
   if( FD_UNLIKELY( !res ) ) {
     return -1000001;
   }
-  ctx->data = (void *)( (ulong)ctx->data + res );
+  ctx->data = (void *)( (ulong)ctx->data + sz );
   return 0;
 }
 
