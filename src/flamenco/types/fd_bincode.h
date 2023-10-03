@@ -98,7 +98,7 @@ fd_bincode_bytes_decode( uchar *                   self,
                          ulong                     len,
                          fd_bincode_decode_ctx_t * ctx ) {
   uchar * ptr = (uchar *) ctx->data;
-  if ( FD_UNLIKELY((void *) (ptr + len) > ctx->dataend ) )
+  if ( FD_UNLIKELY((ulong)( (uchar *) ctx->dataend - ptr) < len ) ) // Get wrap-around case right
     return FD_BINCODE_ERR_UNDERFLOW;
 
   fd_memcpy(self, ptr, len);
@@ -111,7 +111,7 @@ static inline int
 fd_bincode_bytes_decode_preflight( ulong                     len,
                                    fd_bincode_decode_ctx_t * ctx ) {
   uchar * ptr = (uchar *) ctx->data;
-  if ( FD_UNLIKELY((void *) (ptr + len) > ctx->dataend ) )
+  if ( FD_UNLIKELY((ulong)( (uchar *) ctx->dataend - ptr) < len ) ) // Get wrap-around case right
     return FD_BINCODE_ERR_UNDERFLOW;
 
   ctx->data = ptr + len;
