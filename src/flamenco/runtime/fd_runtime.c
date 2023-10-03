@@ -271,7 +271,8 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_meta_t* m, const void
   /* Get current leader */
   ulong slot_rel;
   fd_slot_to_epoch( &global->bank.epoch_schedule, m->slot, &slot_rel );
-  global->leader = fd_epoch_leaders_get( global->leaders, slot_rel/FD_EPOCH_SLOTS_PER_ROTATION );
+  global->leader = fd_epoch_leaders_get( global->leaders, m->slot );
+  FD_TEST( NULL != global->leader );
   FD_LOG_NOTICE(( "executing block - slot: %lu leader: %32J", m->slot, global->leader->key ));
 
   // let (fee_rate_governor, fee_components_time_us) = measure_us!(

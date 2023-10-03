@@ -135,7 +135,7 @@ action_leaders( fd_solana_manifest_t const * manifest,
 
   ulong slot = slot0;
   for( ulong i=0; i<sched_cnt; i++ ) {
-    fd_pubkey_t const * leader = fd_epoch_leaders_get( leaders, i );
+    fd_pubkey_t const * leader = fd_epoch_leaders_get( leaders, slot );
     char keyB58[ FD_BASE58_ENCODED_32_SZ ];
     fd_base58_encode_32( leader->key, NULL, keyB58 );
     for( ulong j=0; j<FD_EPOCH_SLOTS_PER_ROTATION; j++ ) {
