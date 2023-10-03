@@ -245,7 +245,6 @@ fd_txn_xray( uchar const             * payload,
 #define READ_COMPACT_U16( var_name, where )                              \
   do {                                                                   \
     ulong _where = (where);                                              \
-    if ( FD_UNLIKELY( payload_sz <= _where ) ) return 0UL;               \
     ulong _out_sz = fd_cu16_dec_sz( payload+_where, payload_sz-_where ); \
     if ( FD_UNLIKELY( !_out_sz ) ) return 0UL;                           \
     (var_name) = fd_cu16_dec_fixed( payload+_where, _out_sz );           \
