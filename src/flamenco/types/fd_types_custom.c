@@ -27,12 +27,13 @@ fd_flamenco_txn_decode( fd_flamenco_txn_t *       self,
 int
 fd_flamenco_txn_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
   ulong bufsz = (ulong)ctx->dataend - (ulong)ctx->data;
-  fd_txn_xray_result_t t;
-  ulong res = fd_txn_xray( ctx->data, bufsz, &t );
+  fd_flamenco_txn_t self;
+  ulong sz;
+  ulong res = fd_txn_parse_core( ctx->data, bufsz, self.txn, NULL, &sz, 0 );
   if( FD_UNLIKELY( !res ) ) {
     return -1000001;
   }
-  ctx->data = (void *)( (ulong)ctx->data + res );
+  ctx->data = (void *)( (ulong)ctx->data + sz );
   return 0;
 }
 

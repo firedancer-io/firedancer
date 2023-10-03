@@ -7,12 +7,14 @@ with open('fd_types.json', 'r') as json_file:
 
 header = open(sys.argv[1], "w")
 body = open(sys.argv[2], "w")
+names = open(sys.argv[3], "w")
 
 namespace = json_object["namespace"]
 entries = json_object["entries"]
 
 print("// This is an auto-generated file. To add entries, edit fd_types.json", file=header)
 print("// This is an auto-generated file. To add entries, edit fd_types.json", file=body)
+print("// This is an auto-generated file. To add entries, edit fd_types.json", file=names)
 print("#ifndef HEADER_" + json_object["name"].upper(), file=header)
 print("#define HEADER_" + json_object["name"].upper(), file=header)
 print("", file=header)
@@ -1731,3 +1733,11 @@ for t in alltypes:
 
 for t in alltypes:
     t.emitPostamble()
+
+nametypes = [t for t in alltypes if not (hasattr(t, 'nomethods') and t.nomethods)]
+type_name_count = len(nametypes)
+print(f'#define FD_TYPE_NAME_COUNT {type_name_count}', file=names)
+print("static char const * fd_type_names[FD_TYPE_NAME_COUNT] = {", file=names)
+for t in nametypes:
+    print(f' \"{t.fullname}\",', file=names)
+print("};", file=names)
