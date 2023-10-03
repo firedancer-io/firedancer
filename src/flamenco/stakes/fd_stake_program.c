@@ -229,7 +229,7 @@ try_borrow_account( FD_PARAM_UNUSED fd_instr_t const * self,
   rc = fd_acc_mgr_modify( transaction_context->global->acc_mgr,
                           transaction_context->global->funk_txn,
                           out->pubkey,
-                          0,
+                          1,
                           0, // FIXME
                           out );
   switch ( rc ) {
@@ -2190,7 +2190,8 @@ withdraw( instruction_ctx_t *           invoke_context,
   // FIXME necessary? mimicking Rust `drop`
   memset( &stake_account, 0, sizeof( fd_borrowed_account_t ) );
   fd_borrowed_account_t to = { 0 };
-  try_borrow_instruction_account( instruction_context, transaction_context, to_index, &to );
+rc =   try_borrow_instruction_account( instruction_context, transaction_context, to_index, &to );
+  if ( FD_UNLIKELY( rc != OK ) ) return rc;
   rc = checked_add_lamports( &to, lamports );
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
   return OK;
