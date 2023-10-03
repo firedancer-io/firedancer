@@ -12,8 +12,6 @@ FD_PROTOTYPES_BEGIN
 /* Vote Program                                                       */
 /**********************************************************************/
 
-#define SOLANA_VOTE_PROGRAM_ID ( "Vote111111111111111111111111111111111111111" )
-
 #define OK FD_EXECUTOR_INSTR_SUCCESS /* Corresponds to Result::Ok in Rust */
 
 /* Vote error codes */
