@@ -2519,7 +2519,7 @@ fd_executor_stake_program_execute_instruction( instruction_ctx_t ctx ) {
     // FIXME FD_LIKELY
     // https://github.com/firedancer-io/solana/blob/v1.17/programs/stake/src/stake_instruction.rs#L176-L188
     if ( FD_UNLIKELY( !FD_FEATURE_ACTIVE( ctx.global, reduce_stake_warmup_cooldown ) ) ) {
-      fd_borrowed_account_t config_account;
+      fd_borrowed_account_t config_account = { 0 };
       rc = try_borrow_instruction_account(
           instruction_context, transaction_context, 4, &config_account );
       if ( FD_UNLIKELY( rc != OK ) ) return rc;
