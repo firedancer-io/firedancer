@@ -1642,7 +1642,7 @@ split( instruction_ctx_t *       invoke_context,
     return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
 
   fd_stake_state_v2_t stake_state = { 0 };
-  rc = get_state( &split, &invoke_context->global->valloc, &stake_state );
+  rc = get_state( &stake_account, &invoke_context->global->valloc, &stake_state );
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
 
   memset( &stake_account,
