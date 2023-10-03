@@ -1999,7 +1999,7 @@ redelegate( instruction_ctx_t *       invoke_context,
     }
 
     if ( FD_UNLIKELY( 0 == memcmp( &stake.delegation.voter_pubkey,
-                                   &vote_pubkey,
+                                   vote_pubkey,
                                    sizeof( fd_pubkey_t ) ) ) ) {
       FD_DEBUG( FD_LOG_WARNING( ( "redelegating to the same vote account not permitted" ) ) );
       *custom_err = FD_STAKE_ERR_REDELEGATE_TO_SAME_VOTE_ACCOUNT;
