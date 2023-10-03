@@ -2065,14 +2065,13 @@ withdraw( instruction_ctx_t *           invoke_context,
           ulong *                       new_rate_activation_epoch ) {
   int rc;
 
-  uchar withdraw_authority_transaction_index = FD_TXN_ACCT_ADDR_MAX;
-  uchar index_in_transaction                 = FD_TXN_ACCT_ADDR_MAX;
-  rc                                         = get_index_of_instruction_account_in_transaction(
+  uchar index_in_transaction = FD_TXN_ACCT_ADDR_MAX;
+  rc = get_index_of_instruction_account_in_transaction(
       instruction_context, withdraw_authority_index, &index_in_transaction );
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
-  fd_pubkey_t * withdraw_authority_pubkey = { 0 };
+  fd_pubkey_t withdraw_authority_pubkey = { 0 };
   rc                                      = get_key_of_account_at_index(
-      transaction_context, withdraw_authority_transaction_index, withdraw_authority_pubkey );
+      transaction_context, index_in_transaction, &withdraw_authority_pubkey );
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
 
   // https://github.com/firedancer-io/solana/blob/v1.17/programs/stake/src/stake_state.rs#L1010-L1012
@@ -2081,7 +2080,7 @@ withdraw( instruction_ctx_t *           invoke_context,
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
   if ( FD_UNLIKELY( !is_signer ) ) return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
 
-  fd_pubkey_t const * signers[FD_TXN_SIG_MAX] = { withdraw_authority_pubkey };
+  fd_pubkey_t const * signers[FD_TXN_SIG_MAX] = { &withdraw_authority_pubkey };
 
   fd_borrowed_account_t stake_account = { 0 };
   rc                                  = try_borrow_instruction_account(
@@ -2641,7 +2640,7 @@ fd_executor_stake_program_execute_instruction( instruction_ctx_t ctx ) {
 
     fd_stake_history_t stake_history = { 0 };
     rc = get_sysvar_with_account_check_stake_history( &ctx, ctx.instr, 3, &stake_history );
-    if ( FD_UNLIKELY( rc != OK ) ) return rc;
+    // if ( FD_UNLIKELY( rc != OK ) ) return rc;
 
     rc = check_number_of_instruction_accounts( instruction_context, 5 );
     if ( FD_UNLIKELY( rc != OK ) ) return rc;
@@ -3037,7 +3036,46 @@ fd_stake_get_state( fd_borrowed_account_t const * self,
   return get_state( self, valloc, out );
 }
 
+static void
+write_stake_config( fd_global_ctx_t * global, fd_stake_config_t const * stake_config ) {
+
+  ulong                 data_sz  = fd_stake_config_size( stake_config );
+  fd_pubkey_t const *   acc_key  = (fd_pubkey_t const *)global->solana_stake_program_config;
+  fd_account_meta_t *   acc_meta = NULL;
+  uchar *               acc_data = NULL;
+  fd_borrowed_account_t acc      = {
+           .pubkey = acc_key,
+           .data   = NULL,
+           .meta   = NULL,
+  };
+  int err = fd_acc_mgr_modify( global->acc_mgr, global->funk_txn, acc_key, 1, data_sz, &acc );
+  FD_TEST( !err );
+
+  acc_meta                  = acc.meta;
+  acc_data                  = acc.data;
+  acc_meta->dlen            = data_sz;
+  acc_meta->info.lamports   = 960480UL;
+  acc_meta->info.rent_epoch = 0UL;
+  acc_meta->info.executable = 0;
+
+  fd_bincode_encode_ctx_t ctx3;
+  ctx3.data    = acc_data;
+  ctx3.dataend = acc_data + data_sz;
+  if ( fd_stake_config_encode( stake_config, &ctx3 ) )
+    FD_LOG_ERR( ( "fd_stake_config_encode failed" ) );
+
+  fd_memset( acc_data, 0, data_sz );
+  fd_memcpy( acc_data, stake_config, sizeof( fd_stake_config_t ) );
+}
+
 void
 fd_stake_program_config_init( fd_global_ctx_t * global ) {
-  (void)global;
+  /* Defaults taken from
+     https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/config.rs#L8-L11
+   */
+  fd_stake_config_t stake_config = {
+      .warmup_cooldown_rate = 0.25,
+      .slash_penalty        = 12,
+  };
+  write_stake_config( global, &stake_config );
 }
