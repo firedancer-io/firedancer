@@ -217,6 +217,8 @@ replay( global_state_t * state,
   /* Slot of next epoch boundary */
   ulong epoch           = fd_slot_to_epoch( &schedule, state->global->bank.slot+1, NULL );
   ulong last_epoch_slot = fd_epoch_slot0  ( &schedule, epoch+1UL );
+  ulong slot0             = fd_epoch_slot0   ( &schedule, epoch );
+  ulong slot_cnt          = fd_epoch_slot_cnt( &schedule, epoch );
 
   /* Find epoch stakes for current epoch */
   fd_vote_accounts_t const * epoch_vaccs = &state->global->bank.epoch_stakes;
@@ -248,7 +250,7 @@ replay( global_state_t * state,
     if( FD_LIKELY( epoch_leaders_footprint ) ) {
       /* Only available when we are importing from snapshot */
       void * epoch_leaders_mem = fd_wksp_alloc_laddr( state->global->local_wksp, fd_epoch_leaders_align(), epoch_leaders_footprint, 1UL );
-      state->global->leaders = fd_epoch_leaders_join( fd_epoch_leaders_new( epoch_leaders_mem, stake_weight_cnt, sched_cnt ) );
+      state->global->leaders = fd_epoch_leaders_join( fd_epoch_leaders_new( epoch_leaders_mem, epoch, slot0,  slot_cnt, stake_weight_cnt, epoch_weights ) );
       FD_TEST( state->global->leaders );
       /* Derive */
       fd_epoch_leaders_derive( state->global->leaders, epoch_weights, epoch );
