@@ -272,7 +272,8 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_meta_t* m, const void
   ulong slot_rel;
   fd_slot_to_epoch( &global->bank.epoch_schedule, m->slot, &slot_rel );
   global->leader = fd_epoch_leaders_get( global->leaders, m->slot );
-  FD_TEST( NULL != global->leader );
+  if (NULL == global->leader )
+    FD_TEST( NULL != global->leader );
   FD_LOG_NOTICE(( "executing block - slot: %lu leader: %32J", m->slot, global->leader->key ));
 
   // let (fee_rate_governor, fee_components_time_us) = measure_us!(
@@ -1658,6 +1659,57 @@ fd_features_restore( fd_global_ctx_t * global ) {
   }
 }
 
+void fd_runtime_update_leaders( fd_global_ctx_t * global, ulong slot) {
+  FD_SCRATCH_SCOPED_FRAME;
+
+  fd_epoch_schedule_t schedule;
+  fd_sysvar_epoch_schedule_read( global, &schedule );
+  FD_LOG_INFO(( "schedule->slots_per_epoch = %lu", schedule.slots_per_epoch ));
+  FD_LOG_INFO(( "schedule->leader_schedule_slot_offset = %lu", schedule.leader_schedule_slot_offset ));
+  FD_LOG_INFO(( "schedule->warmup = %d", schedule.warmup ));
+  FD_LOG_INFO(( "schedule->first_normal_epoch = %lu", schedule.first_normal_epoch ));
+  FD_LOG_INFO(( "schedule->first_normal_slot = %lu", schedule.first_normal_slot ));
+
+  fd_vote_accounts_t const * epoch_vaccs = &global->bank.epoch_stakes;
+
+  ulong epoch           = fd_slot_to_epoch( &schedule, slot, NULL );
+  ulong slot0           = fd_epoch_slot0   ( &schedule, epoch );
+  ulong slot_cnt        = fd_epoch_slot_cnt( &schedule, epoch );
+
+  FD_LOG_INFO(( "starting rent list init" ));
+  if (NULL != global->rentlists)
+    fd_rent_lists_delete(global->rentlists);
+  global->rentlists = fd_rent_lists_new(fd_epoch_slot_cnt( &schedule, epoch ));
+  fd_funk_set_notify(global->funk, fd_rent_lists_cb, global->rentlists);
+  fd_rent_lists_startup_done_tpool(global->rentlists, global->tpool, global->max_workers);
+  FD_LOG_INFO(( "rent list init done" ));
+
+  ulong vote_acc_cnt = fd_vote_accounts_pair_t_map_size( epoch_vaccs->vote_accounts_pool, epoch_vaccs->vote_accounts_root );
+  fd_stake_weight_t * epoch_weights = fd_scratch_alloc( alignof(fd_stake_weight_t), vote_acc_cnt * sizeof(fd_stake_weight_t) );
+  if( FD_UNLIKELY( !epoch_weights ) ) FD_LOG_ERR(( "fd_scratch_alloc() failed" ));
+
+  ulong stake_weight_cnt = fd_stake_weights_by_node( epoch_vaccs, epoch_weights );
+
+  if( FD_UNLIKELY( stake_weight_cnt==ULONG_MAX ) ) FD_LOG_ERR(( "fd_stake_weights_by_node() failed" ));
+
+  /* Derive leader schedule */
+  /* TODO This wksp alloc probably shouldn't be here */
+
+  ulong sched_cnt = fd_epoch_slot_cnt( &schedule, epoch ) / 4UL;  /* Every leader rotation lasts four slots - TODO remove hardcode */
+  FD_LOG_INFO(( "stake_weight_cnt=%lu sched_cnt=%lu", stake_weight_cnt, sched_cnt ));
+  ulong epoch_leaders_footprint = fd_epoch_leaders_footprint( stake_weight_cnt, sched_cnt );
+  FD_LOG_INFO(( "epoch_leaders_footprint=%lu", epoch_leaders_footprint ));
+  if( FD_LIKELY( epoch_leaders_footprint ) ) {
+    void * epoch_leaders_mem = fd_valloc_malloc(global->valloc, fd_epoch_leaders_align(), epoch_leaders_footprint );
+    if (NULL != global->leaders)
+      fd_valloc_free(global->valloc, global->leaders);
+    global->leaders = fd_epoch_leaders_join( fd_epoch_leaders_new( epoch_leaders_mem, epoch, slot0,  slot_cnt, stake_weight_cnt, epoch_weights ) );
+    FD_TEST( global->leaders );
+    /* Derive */
+    fd_epoch_leaders_derive( global->leaders, epoch_weights, epoch );
+  }
+}
+
 /* process for the start of a new epoch */
 void
 fd_process_new_epoch(
@@ -1681,6 +1733,12 @@ fd_process_new_epoch(
   // (We might not implement this part)
   /* Save a snapshot of stakes for use in consensus and stake weighted networking
   let leader_schedule_epoch = self.epoch_schedule.get_leader_schedule_epoch(slot);
+
+  */
+
+  fd_runtime_update_leaders(global, global->bank.slot);
+
+      /*
   let (_, update_epoch_stakes_time) = measure!(
            self.update_epoch_stakes(leader_schedule_epoch),
            "update_epoch_stakes",
