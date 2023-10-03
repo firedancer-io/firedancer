@@ -1,11 +1,7 @@
 MAKEFLAGS += --no-builtin-rules
 MAKEFLAGS += --no-builtin-variables
 .SUFFIXES:
-<<<<<<< HEAD
-.PHONY: all info bin include lib unit-test fuzz-test run-unit-test help clean distclean asm ppp show-deps lint check-lint
-=======
 .PHONY: all info bin rust include lib unit-test fuzz-test run-unit-test help clean distclean asm ppp show-deps
->>>>>>> master/main
 .SECONDARY:
 .SECONDEXPANSION:
 
