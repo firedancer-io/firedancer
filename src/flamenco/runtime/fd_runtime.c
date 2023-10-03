@@ -773,7 +773,7 @@ fd_runtime_calculate_fee( fd_global_ctx_t *     global,
 //            let write_lock_fee = Self::get_num_write_locks_in_message(message)
 //                .saturating_mul(fee_structure.lamports_per_write_lock);
   ulong lamports_per_write_lock = 0;
-  double write_lock_fee = (double)fd_ulong_sat_mul( fd_txn_num_writable_accounts( txn_descriptor ), lamports_per_write_lock );
+  double write_lock_fee = (double)fd_ulong_sat_mul( fd_txn_account_cnt( txn_descriptor, FD_TXN_ACCT_CAT_WRITABLE ), lamports_per_write_lock );
 
 // TODO: the fee_structure bin is static and default..
 //

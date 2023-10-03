@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include <stdlib.h>
 #include "../../util/bits/fd_bits.h"
+#include "../../ballet/shred/fd_deshredder.h"
 
 char *
 fd_rocksdb_init( fd_rocksdb_t * db,
