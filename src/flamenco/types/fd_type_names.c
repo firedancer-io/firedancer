@@ -1,5 +1,5 @@
 // This is an auto-generated file. To add entries, edit fd_types.json
-#define FD_TYPE_NAME_COUNT 179
+#define FD_TYPE_NAME_COUNT 174
 static char const * fd_type_names[FD_TYPE_NAME_COUNT] = {
  "fd_hash",
  "fd_signature",
@@ -22,11 +22,6 @@ static char const * fd_type_names[FD_TYPE_NAME_COUNT] = {
  "fd_stake_history_epochentry_pair",
  "fd_stake_history",
  "fd_solana_account",
- "fd_solana_account_stored_meta",
- "fd_solana_account_meta",
- "fd_solana_account_fd_hash",
- "fd_solana_account_hdr",
- "fd_account_meta",
  "fd_vote_accounts_pair",
  "fd_vote_accounts",
  "fd_stake_weight",

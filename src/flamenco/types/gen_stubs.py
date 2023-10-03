@@ -1734,9 +1734,10 @@ for t in alltypes:
 for t in alltypes:
     t.emitPostamble()
 
-type_name_count = len(alltypes)
+nametypes = [t for t in alltypes if not (hasattr(t, 'nomethods') and t.nomethods)]
+type_name_count = len(nametypes)
 print(f'#define FD_TYPE_NAME_COUNT {type_name_count}', file=names)
 print("static char const * fd_type_names[FD_TYPE_NAME_COUNT] = {", file=names)
-for t in alltypes:
+for t in nametypes:
     print(f' \"{t.fullname}\",', file=names)
 print("};", file=names)
