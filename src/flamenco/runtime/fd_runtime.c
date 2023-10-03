@@ -403,7 +403,7 @@ fd_runtime_block_verify( fd_global_ctx_t * global,
   fd_txn_parse_counters_t counters;
   fd_memset(&counters, 0, sizeof(counters));
 
-  uchar commit_mem[FD_BMTREE32_COMMIT_FOOTPRINT] __attribute__((aligned(FD_BMTREE32_COMMIT_ALIGN)));
+  fd_bmtree_commit_t commit_mem[1];
 
   /* Loop across batches */
   ulong blockoff = 0;
@@ -427,7 +427,7 @@ fd_runtime_block_verify( fd_global_ctx_t * global,
         if (hdr->hash_cnt > 0)
           fd_poh_append(&global->bank.poh, hdr->hash_cnt - 1);
 
-        fd_bmtree32_commit_t * tree = fd_bmtree32_commit_init( commit_mem );
+        fd_bmtree_commit_t * tree = fd_bmtree_commit_init( commit_mem, 32UL, 1UL, 0UL );
 
         /* Loop across transactions */
         for ( ulong txn_idx = 0; txn_idx < hdr->txn_cnt; txn_idx++ ) {
@@ -440,15 +440,15 @@ fd_runtime_block_verify( fd_global_ctx_t * global,
           /* Loop across signatures */
           fd_ed25519_sig_t const * sigs = (fd_ed25519_sig_t const *)((ulong)raw + (ulong)xray.signature_off);
           for ( ulong j = 0; j < xray.signature_cnt; j++ ) {
-            fd_bmtree32_node_t leaf;
-            fd_bmtree32_hash_leaf( &leaf, &sigs[j], sizeof(fd_ed25519_sig_t) );
-            fd_bmtree32_commit_append( tree, (fd_bmtree32_node_t const *)&leaf, 1 );
+            fd_bmtree_node_t leaf;
+            fd_bmtree_hash_leaf( &leaf, &sigs[j], sizeof(fd_ed25519_sig_t) , 1);
+            fd_bmtree_commit_append( tree, (fd_bmtree_node_t const *)&leaf, 1 );
           }
 
           blockoff += pay_sz;
         }
 
-        uchar * root = fd_bmtree32_commit_fini( tree );
+        uchar * root = fd_bmtree_commit_fini( tree );
         fd_poh_mixin(&global->bank.poh, root);
       }
 
@@ -500,8 +500,9 @@ static void fd_runtime_block_verify_task( void * tpool,
     if (hdr->hash_cnt > 0)
       fd_poh_append(&micro->poh, hdr->hash_cnt - 1);
 
-    uchar commit_mem[FD_BMTREE32_COMMIT_FOOTPRINT] __attribute__((aligned(FD_BMTREE32_COMMIT_ALIGN)));
-    fd_bmtree32_commit_t * tree = fd_bmtree32_commit_init( commit_mem );
+    fd_bmtree_commit_t commit_mem[1];
+
+    fd_bmtree_commit_t * tree = fd_bmtree_commit_init( commit_mem, 32UL, 1UL, 0UL );
 
     /* Loop across transactions */
     for ( ulong txn_idx = 0; txn_idx < hdr->txn_cnt; txn_idx++ ) {
@@ -516,15 +517,15 @@ static void fd_runtime_block_verify_task( void * tpool,
       /* Loop across signatures */
       fd_ed25519_sig_t const * sigs = (fd_ed25519_sig_t const *)((ulong)raw + (ulong)xray.signature_off);
       for ( ulong j = 0; j < xray.signature_cnt; j++ ) {
-        fd_bmtree32_node_t leaf;
-        fd_bmtree32_hash_leaf( &leaf, &sigs[j], sizeof(fd_ed25519_sig_t) );
-        fd_bmtree32_commit_append( tree, (fd_bmtree32_node_t const *)&leaf, 1 );
+        fd_bmtree_node_t leaf;
+        fd_bmtree_hash_leaf( &leaf, &sigs[j], sizeof(fd_ed25519_sig_t), 1 );
+        fd_bmtree_commit_append( tree, (fd_bmtree_node_t const *)&leaf, 1 );
       }
 
       blockoff += pay_sz;
     }
 
-    uchar * root = fd_bmtree32_commit_fini( tree );
+    uchar * root = fd_bmtree_commit_fini( tree );
     fd_poh_mixin(&micro->poh, root);
   }
 

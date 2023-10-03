@@ -30,16 +30,6 @@
 #include "../fd_flamenco_base.h"
 #include "../types/fd_types.h"
 
-/* fd_stake_weight_t assigns an Ed25519 public key (node identity) a
-   stake weight number measured in lamports */
-struct __attribute__((aligned(8UL))) fd_stake_weight {
-  fd_pubkey_t key;
-  ulong stake;
-};
-typedef struct fd_stake_weight fd_stake_weight_t;
-#define FD_STAKE_WEIGHT_FOOTPRINT sizeof(fd_stake_weight_t)
-#define FD_STAKE_WEIGHT_ALIGN (8UL)
-
 /* FD_EPOCH_LEADERS_{ALIGN,FOOTPRINT} are const-friendly versions of the
    fd_epoch_leaders_{align,footprint} functions. */
 
@@ -125,7 +115,6 @@ fd_epoch_leaders_leave( fd_epoch_leaders_t * leaders );
 void *
 fd_epoch_leaders_delete( void * shleaders );
 
-<<<<<<< HEAD
 /* fd_epoch_leaders_derive derives the leader schedule for a given epoch
    and stake weights.  leaders is a join to an epoch schedule object.
    stakes is an array of stake weights sorted by tuple (stake, pubkey)
@@ -140,15 +129,6 @@ fd_epoch_leaders_derive( fd_epoch_leaders_t *      leaders,
                          ulong                     epoch );
 
 /* fd_epoch_leaders_get returns a pointer to the selected public key
-   given an index in the schedule.  sched_idx < leaders->sched_cnt */
-
-FD_FN_PURE static inline fd_pubkey_t const *
-fd_epoch_leaders_get( fd_epoch_leaders_t const * leaders,
-                      ulong                      sched_idx ) {
-  return (fd_pubkey_t const *)( leaders->pub + leaders->sched[ sched_idx ] );
-=======
-
-/* fd_epoch_leaders_get returns a pointer to the selected public key
    given a slot.  Returns NULL if slot is not in [slot0, slot0+slot_cnt)
    given the values supplied in fd_epoch_leaders_new. */
 
@@ -159,7 +139,6 @@ fd_epoch_leaders_get( fd_epoch_leaders_t const * leaders,
   if( FD_UNLIKELY( slot      < leaders->slot0    ) ) return NULL;
   if( FD_UNLIKELY( slot_delta>=leaders->slot_cnt ) ) return NULL;
   return (fd_pubkey_t const *)( leaders->pub + leaders->sched[ slot_delta/FD_EPOCH_SLOTS_PER_ROTATION ] );
->>>>>>> master/main
 }
 
 FD_PROTOTYPES_END
