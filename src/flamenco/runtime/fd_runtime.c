@@ -1693,11 +1693,9 @@ void fd_runtime_update_leaders( fd_global_ctx_t * global, ulong slot) {
   if( FD_UNLIKELY( stake_weight_cnt==ULONG_MAX ) ) FD_LOG_ERR(( "fd_stake_weights_by_node() failed" ));
 
   /* Derive leader schedule */
-  /* TODO This wksp alloc probably shouldn't be here */
 
-  ulong sched_cnt = fd_epoch_slot_cnt( &schedule, epoch ) / 4UL;  /* Every leader rotation lasts four slots - TODO remove hardcode */
-  FD_LOG_INFO(( "stake_weight_cnt=%lu sched_cnt=%lu", stake_weight_cnt, sched_cnt ));
-  ulong epoch_leaders_footprint = fd_epoch_leaders_footprint( stake_weight_cnt, sched_cnt );
+  FD_LOG_INFO(( "stake_weight_cnt=%lu slot_cnt=%lu", stake_weight_cnt, slot_cnt ));
+  ulong epoch_leaders_footprint = fd_epoch_leaders_footprint( stake_weight_cnt, slot_cnt );
   FD_LOG_INFO(( "epoch_leaders_footprint=%lu", epoch_leaders_footprint ));
   if( FD_LIKELY( epoch_leaders_footprint ) ) {
     void * epoch_leaders_mem = fd_valloc_malloc(global->valloc, fd_epoch_leaders_align(), epoch_leaders_footprint );
