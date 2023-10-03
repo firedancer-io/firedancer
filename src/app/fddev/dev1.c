@@ -2,7 +2,7 @@
 #include "fddev.h"
 
 #include "../fdctl/configure/configure.h"
-#include "../fdctl/run.h"
+#include "../fdctl/run/run.h"
 
 #include <stdio.h>
 #include <unistd.h>
@@ -15,7 +15,6 @@ typedef enum {
   DEV1_VERIFY,
   DEV1_QUIC,
   DEV1_BANK,
-  DEV1_FORWARD,
   DEV1_SOLANA,
 } tile_t;
 
@@ -31,7 +30,6 @@ dev1_cmd_args( int *    pargc,
   else if( FD_LIKELY( !strcmp( *pargv[ 0 ], "verify" ) ) )      args->run1.tile = DEV1_VERIFY;
   else if( FD_LIKELY( !strcmp( *pargv[ 0 ], "quic" ) ) )        args->run1.tile = DEV1_QUIC;
   else if( FD_LIKELY( !strcmp( *pargv[ 0 ], "bank" ) ) )        args->run1.tile = DEV1_BANK;
-  else if( FD_LIKELY( !strcmp( *pargv[ 0 ], "forward" ) ) )     args->run1.tile = DEV1_FORWARD;
   else if( FD_LIKELY( !strcmp( *pargv[ 0 ], "labs" ) ) )        args->run1.tile = DEV1_SOLANA;
   else if( FD_LIKELY( !strcmp( *pargv[ 0 ], "solana" ) ) )      args->run1.tile = DEV1_SOLANA;
   else if( FD_LIKELY( !strcmp( *pargv[ 0 ], "solana-labs" ) ) ) args->run1.tile = DEV1_SOLANA;
@@ -50,7 +48,7 @@ dev1_cmd_perm( args_t *         args,
 
 void
 dev1_cmd_fn( args_t *         args,
-            config_t * const config ) {
+             config_t * const config ) {
   (void)args;
 
   args_t configure_args = {
@@ -60,9 +58,7 @@ dev1_cmd_fn( args_t *         args,
     configure_args.configure.stages[ i ] = STAGES[ i ];
   configure_cmd_fn( &configure_args, config );
 
-  /* when starting from a new genesis block, this needs to be off else the
-     validator will get stuck forever. */
-  config->consensus.wait_for_vote_to_start_leader = 0;
+  update_config_for_dev( config );
 
   tile_main_args_t tile_args = {
     .app_name = config->name,
@@ -74,14 +70,16 @@ dev1_cmd_fn( args_t *         args,
   };
 
   switch( args->run1.tile ) {
-    case DEV1_PACK:    tile_args.tile = &frank_pack; break;
-    case DEV1_DEDUP:   tile_args.tile = &frank_dedup; break;
-    case DEV1_VERIFY:  tile_args.tile = &frank_verify; break;
-    case DEV1_QUIC:    tile_args.tile = &frank_quic; break;
-    case DEV1_FORWARD: tile_args.tile = &frank_forward; break;
+    case DEV1_PACK:    tile_args.tile = &pack; break;
+    case DEV1_DEDUP:   tile_args.tile = &dedup; break;
+    case DEV1_VERIFY:  tile_args.tile = &verify; break;
+    case DEV1_QUIC:    tile_args.tile = &quic; break;
     case DEV1_SOLANA: break;
     default: FD_LOG_ERR(( "unknown tile %d", args->run1.tile ));
   }
+
+  if( FD_UNLIKELY( close( 0 ) ) ) FD_LOG_ERR(( "close(0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( close( 1 ) ) ) FD_LOG_ERR(( "close(1) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   int result;
   if( args->run1.tile == DEV1_SOLANA ) result = solana_labs_main( config );

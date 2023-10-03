@@ -30,25 +30,41 @@
 #include "../fd_flamenco_base.h"
 #include "../types/fd_types.h"
 
+/* fd_stake_weight_t assigns an Ed25519 public key (node identity) a
+   stake weight number measured in lamports */
+struct __attribute__((aligned(8UL))) fd_stake_weight {
+  fd_pubkey_t key;
+  ulong stake;
+};
+typedef struct fd_stake_weight fd_stake_weight_t;
+#define FD_STAKE_WEIGHT_FOOTPRINT sizeof(fd_stake_weight_t)
+#define FD_STAKE_WEIGHT_ALIGN (8UL)
+
 /* FD_EPOCH_LEADERS_{ALIGN,FOOTPRINT} are const-friendly versions of the
    fd_epoch_leaders_{align,footprint} functions. */
 
 #define FD_EPOCH_LEADERS_ALIGN (64UL)
-#define FD_EPOCH_LEADERS_FOOTPRINT( pub_cnt, sched_cnt )                \
-  FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( \
-  FD_LAYOUT_INIT,                                                       \
-    alignof(fd_epoch_leaders_t), sizeof(fd_epoch_leaders_t) ),          \
-    32UL,                        (pub_cnt  )*32UL           ),          \
-    alignof(uint),               (sched_cnt)*sizeof(uint)   ),          \
-    FD_EPOCH_LEADERS_ALIGN                                  )
+#define FD_EPOCH_LEADERS_FOOTPRINT( pub_cnt, slot_cnt )                                        \
+  FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND(                        \
+  FD_LAYOUT_INIT,                                                                              \
+    alignof(fd_epoch_leaders_t), sizeof(fd_epoch_leaders_t)                            ),      \
+    32UL,                        (pub_cnt  )*32UL                                      ),      \
+    alignof(ulong),              (                                                             \
+      (slot_cnt+FD_EPOCH_SLOTS_PER_ROTATION-1UL)/FD_EPOCH_SLOTS_PER_ROTATION*sizeof(uint)      \
+      )                                                                                ),      \
+    FD_EPOCH_LEADERS_ALIGN                                                             )
 
 #define FD_EPOCH_SLOTS_PER_ROTATION (4UL)
-
-/* FIXME make position-independent? */
 
 /* fd_epoch_leaders_t contains the leader schedule of a Solana epoch. */
 
 struct fd_epoch_leaders {
+  /* This struct contains the schedule for epoch `epoch` which spans
+     slots [slot0, slot0+slot_cnt). */
+  ulong epoch;
+  ulong slot0;
+  ulong slot_cnt;
+
   /* pub is a lookup table for node public keys with length pub_cnt */
   fd_pubkey_t * pub;
   ulong         pub_cnt;
@@ -64,28 +80,35 @@ FD_PROTOTYPES_BEGIN
 
 /* fd_epoch_leaders_{align,footprint} describe the required footprint
    and alignment of the leader schedule object.  pub_cnt is the number
-   of unique public keys.  sched_cnt is the number of rotations in the
-   leader schedule.  (Not to be confused with the number of slots, as
-   each rotation spans FD_EPOCH_SLOTS_PER_ROTATION slots) */
+   of unique public keys.  slot_cnt is the number of slots in the
+   epoch. */
 
 FD_FN_CONST ulong
 fd_epoch_leaders_align( void );
 
 FD_FN_CONST ulong
 fd_epoch_leaders_footprint( ulong pub_cnt,
-                            ulong sched_cnt );
+                            ulong slot_cnt );
 
 /* fd_epoch_leaders_new formats a memory region for use as a leader
    schedule object.  shmem points to the first byte of a memory region
-   with matching alignment and footprint requirements.  pub_cnt is the
-   number of unique public keys in this schedule.  sched_cnt is the
-   number of slots in the schedule (usually the length of an epoch).
+   with matching alignment and footprint requirements.  The leader
+   schedule object will contain the leader schedule for epoch `epoch`
+   which spans slots [slot0, slot0+slot_cnt).  `slot0` must be the first
+   slot in the epoch, but slot_cnt can be less than the length of the
+   epoch to derive only the first portion of the leader schedule.
+   pub_cnt is the number of unique public keys in this schedule.
+   `stakes` points to the first entry of pub_cnt entries of stake
+   weights sorted by tuple (stake, pubkey) in descending order.
+   Does NOT retain a read interest in stakes upon return.
    The caller is not joined to the object on return. */
-
 void *
-fd_epoch_leaders_new( void * shmem,
-                      ulong  pub_cnt,
-                      ulong  sched_cnt );
+fd_epoch_leaders_new( void                    * shmem,
+                      ulong                     epoch,
+                      ulong                     slot0,
+                      ulong                     slot_cnt,
+                      ulong                     pub_cnt,
+                      fd_stake_weight_t const * stakes ); /* indexed [0, pub_cnt) */
 
 /* fd_epoch_leaders_join joins the caller to the leader schedule object.
    fd_epoch_leaders_leave undoes an existing join. */
@@ -102,6 +125,7 @@ fd_epoch_leaders_leave( fd_epoch_leaders_t * leaders );
 void *
 fd_epoch_leaders_delete( void * shleaders );
 
+<<<<<<< HEAD
 /* fd_epoch_leaders_derive derives the leader schedule for a given epoch
    and stake weights.  leaders is a join to an epoch schedule object.
    stakes is an array of stake weights sorted by tuple (stake, pubkey)
@@ -122,6 +146,20 @@ FD_FN_PURE static inline fd_pubkey_t const *
 fd_epoch_leaders_get( fd_epoch_leaders_t const * leaders,
                       ulong                      sched_idx ) {
   return (fd_pubkey_t const *)( leaders->pub + leaders->sched[ sched_idx ] );
+=======
+
+/* fd_epoch_leaders_get returns a pointer to the selected public key
+   given a slot.  Returns NULL if slot is not in [slot0, slot0+slot_cnt)
+   given the values supplied in fd_epoch_leaders_new. */
+
+FD_FN_PURE static inline fd_pubkey_t const *
+fd_epoch_leaders_get( fd_epoch_leaders_t const * leaders,
+                      ulong                      slot ) {
+  ulong slot_delta = slot - leaders->slot0;
+  if( FD_UNLIKELY( slot      < leaders->slot0    ) ) return NULL;
+  if( FD_UNLIKELY( slot_delta>=leaders->slot_cnt ) ) return NULL;
+  return (fd_pubkey_t const *)( leaders->pub + leaders->sched[ slot_delta/FD_EPOCH_SLOTS_PER_ROTATION ] );
+>>>>>>> master/main
 }
 
 FD_PROTOTYPES_END

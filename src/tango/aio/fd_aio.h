@@ -209,6 +209,9 @@ struct fd_aio_private {
 
 typedef struct fd_aio_private fd_aio_t;
 
+#define FD_AIO_ALIGN (alignof(fd_aio_t))
+#define FD_AIO_FOOTPRINT (sizeof(fd_aio_t))
+
 FD_PROTOTYPES_BEGIN
 
 /* FIXME: document these.  Also fd_aio_{align,footprint,new} are

@@ -5,12 +5,12 @@
 
 ulong
 fd_aio_align( void ) {
-  return alignof(fd_aio_t);
+  return FD_AIO_ALIGN;
 }
 
 ulong
 fd_aio_footprint( void ) {
-  return sizeof(fd_aio_t);
+  return FD_AIO_FOOTPRINT;
 }
 
 void *

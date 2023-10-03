@@ -2,7 +2,7 @@
 #include "fddev.h"
 
 #include "../fdctl/configure/configure.h"
-#include "../fdctl/run.h"
+#include "../fdctl/run/run.h"
 
 #include <stdio.h>
 #include <unistd.h>
@@ -15,20 +15,21 @@ dev_cmd_args( int *    pargc,
               char *** pargv,
               args_t * args ) {
   args->dev.monitor = fd_env_strip_cmdline_contains( pargc, pargv, "--monitor" );
+  args->dev.no_configure = fd_env_strip_cmdline_contains( pargc, pargv, "--no-configure" );
 }
 
 void
 dev_cmd_perm( args_t *         args,
               security_t *     security,
               config_t * const config ) {
-  (void)args;
-
-  args_t configure_args = {
-    .configure.command = CONFIGURE_CMD_INIT,
-  };
-  for( ulong i=0; i<CONFIGURE_STAGE_COUNT; i++ )
-    configure_args.configure.stages[ i ] = STAGES[ i ];
-  configure_cmd_perm( &configure_args, security, config );
+  if( FD_LIKELY( !args->dev.no_configure ) ) {
+    args_t configure_args = {
+      .configure.command = CONFIGURE_CMD_INIT,
+    };
+    for( ulong i=0; i<CONFIGURE_STAGE_COUNT; i++ )
+      configure_args.configure.stages[ i ] = STAGES[ i ];
+    configure_cmd_perm( &configure_args, security, config );
+  }
 
   run_cmd_perm( NULL, security, config );
 }
@@ -61,27 +62,31 @@ install_parent_signals( void ) {
 }
 
 void
-dev_cmd_fn( args_t *         args,
-            config_t * const config ) {
-  args_t configure_args = {
-    .configure.command = CONFIGURE_CMD_INIT,
-  };
-  for( ulong i=0; i<CONFIGURE_STAGE_COUNT; i++ )
-    configure_args.configure.stages[ i ] = STAGES[ i ];
-  configure_cmd_fn( &configure_args, config );
-
+update_config_for_dev( config_t * const config ) {
   /* when starting from a new genesis block, this needs to be off else the
      validator will get stuck forever. */
   config->consensus.wait_for_vote_to_start_leader = 0;
-
-  config->consensus.genesis_fetch = 0;
-  config->consensus.snapshot_fetch = 0;
 
   if( FD_LIKELY( !strcmp( config->consensus.vote_account_path, "" ) ) )
     snprintf1( config->consensus.vote_account_path,
                sizeof( config->consensus.vote_account_path ),
                "%s/vote-account.json",
                config->scratch_directory );
+}
+
+void
+dev_cmd_fn( args_t *         args,
+            config_t * const config ) {
+  if( FD_LIKELY( !args->dev.no_configure ) ) {
+    args_t configure_args = {
+      .configure.command = CONFIGURE_CMD_INIT,
+    };
+    for( ulong i=0; i<CONFIGURE_STAGE_COUNT; i++ )
+      configure_args.configure.stages[ i ] = STAGES[ i ];
+    configure_cmd_fn( &configure_args, config );
+  }
+
+  update_config_for_dev( config );
 
   if( FD_UNLIKELY( config->development.netns.enabled ) ) {
     /* if we entered a network namespace during configuration, leave it

@@ -1,7 +1,11 @@
 MAKEFLAGS += --no-builtin-rules
 MAKEFLAGS += --no-builtin-variables
 .SUFFIXES:
+<<<<<<< HEAD
 .PHONY: all info bin include lib unit-test fuzz-test run-unit-test help clean distclean asm ppp show-deps lint check-lint
+=======
+.PHONY: all info bin rust include lib unit-test fuzz-test run-unit-test help clean distclean asm ppp show-deps
+>>>>>>> master/main
 .SECONDARY:
 .SECONDEXPANSION:
 
@@ -9,39 +13,42 @@ OBJDIR:=$(BASEDIR)/$(BUILDDIR)
 CORPUSDIR:=corpus
 
 CPPFLAGS+=-DFD_BUILD_INFO=\"$(OBJDIR)/info\"
+CPPFLAGS+=$(EXTRA_CPPFLAGS)
 
 # Auxiliarily rules that should not set up depenencies
-AUX_RULES:=clean distclean help show-deps lint check-lint run-unit-test
+AUX_RULES:=clean distclean help show-deps run-unit-test
 
 all: info bin include lib unit-test
 
 help:
 	# Configuration
-	# MACHINE   = $(MACHINE)
-	# EXTRAS    = $(EXTRAS)
-	# SHELL     = $(SHELL)
-	# BASEDIR   = $(BASEDIR)
-	# OBJDIR    = $(OBJDIR)
-	# CPPFLAGS  = $(CPPFLAGS)
-	# CC        = $(CC)
-	# CFLAGS    = $(CFLAGS)
-	# CXX       = $(CXX)
-	# CXXFLAGS  = $(CXXFLAGS)
-	# LD        = $(LD)
-	# LDFLAGS   = $(LDFLAGS)
-	# AR        = $(AR)
-	# ARFLAGS   = $(ARFLAGS)
-	# RANLIB    = $(RANLIB)
-	# CP        = $(CP)
-	# RM        = $(RM)
-	# MKDIR     = $(MKDIR)
-	# RMDIR     = $(RMDIR)
-	# SED       = $(SED)
-	# FIND      = $(FIND)
-	# SCRUB     = $(SCRUB)
-	# FUZZFLAGS = $(FUZZFLAGS)
-	# NANOPB    = $(NANOPB)
-	# Explicit goals are: all bin include lib unit-test help clean distclean asm ppp nanopb
+	# MACHINE         = $(MACHINE)
+	# EXTRAS          = $(EXTRAS)
+	# SHELL           = $(SHELL)
+	# BASEDIR         = $(BASEDIR)
+	# BUILDDIR        = $(BUILDDIR)
+	# OBJDIR          = $(OBJDIR)
+	# CPPFLAGS        = $(CPPFLAGS)
+	# CC              = $(CC)
+	# CFLAGS          = $(CFLAGS)
+	# CXX             = $(CXX)
+	# CXXFLAGS        = $(CXXFLAGS)
+	# LD              = $(LD)
+	# LDFLAGS         = $(LDFLAGS)
+	# AR              = $(AR)
+	# ARFLAGS         = $(ARFLAGS)
+	# RANLIB          = $(RANLIB)
+	# CP              = $(CP)
+	# RM              = $(RM)
+	# MKDIR           = $(MKDIR)
+	# RMDIR           = $(RMDIR)
+	# SED             = $(SED)
+	# FIND            = $(FIND)
+	# SCRUB           = $(SCRUB)
+	# NANOPB          = $(NANOPB)
+	# FUZZFLAGS       = $(FUZZFLAGS)
+	# EXTRAS_CPPFLAGS = $(EXTRA_CPPFLAGS)
+	# Explicit goals are: all bin include lib unit-test help clean distclean asm ppp
 	# "make all" is equivalent to "make bin include lib unit-test"
 	# "make info" makes build info $(OBJDIR)/info for the current platform (if not already made)
 	# "make bin" makes all binaries for the current platform
@@ -57,8 +64,6 @@ help:
 	# "make nanopb" generate nanopb Protobuf sources (if available)
 	# "make show-deps" shows all the dependencies
 	# "make cov-report" creates an LCOV coverage report from LLVM profdata. Requires make run-unit-test EXTRAS="llvm-cov"
-	# "make lint" runs the linter on all C source and header files. Creates backup files.
-	# "make check-lint" runs the linter in dry run mode.
 	# Fuzzing (requires fuzzing profile):
 	#   "make fuzz-test" makes all fuzz-tests for the current platform
 	#   "make run-fuzz-test" re-runs all fuzz tests over existing corpora
@@ -80,18 +85,6 @@ distclean:
 	#######################################################################
 	$(RMDIR) $(BASEDIR) && $(RMDIR) target && $(RMDIR) solana/target && \
 $(SCRUB)
-
-lint:
-	#######################################################################
-	# Linting src/
-	#######################################################################
-	$(FIND) src/ -iname "*.c" -or -iname "*.h" | uncrustify -c lint.cfg -F - --replace
-
-check-lint:
-	#######################################################################
-	# Checking lint in src/
-	#######################################################################
-	$(FIND) src/ -iname "*.c" -or -iname "*.h" | uncrustify -c lint.cfg -F - --check
 
 run-unit-test:
 	#######################################################################
@@ -226,7 +219,7 @@ $(1)_unit:
 .PHONY: $(1)_run
 $(1)_run:
 	$(MKDIR) "$(CORPUSDIR)/$(1)/explore"
-	$(OBJDIR)/fuzz-test/$(1)/$(1) $(FUZZFLAGS) $(CORPUSDIR)/$(1)/explore $(CORPUSDIR)/$(1)
+	$(OBJDIR)/fuzz-test/$(1)/$(1) -artifact_prefix=$(CORPUSDIR)/$(1)/ $(FUZZFLAGS) $(CORPUSDIR)/$(1)/explore $(CORPUSDIR)/$(1)
 
 run-fuzz-test: $(1)_unit
 

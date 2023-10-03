@@ -1,0 +1,28 @@
+name: Test Fuzz Regressions
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  make-fuzz:
+    name: Publish ${{ matrix.feature_set }} feature set
+    strategy:
+      matrix:
+        feature_set: [high, low]
+    runs-on:
+      group: github-v1
+    env:
+      MACHINE: linux_clang_combi_${{ matrix.feature_set }}
+      EXTRAS: fuzz asan ubsan
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/deps
+
+      - name: Build Fuzz Tests
+        run: make -j -Otarget fuzz-test
+
+      - name: Run Fuzz Tests Against Corpora
+        run: make -k -j -Otarget run-fuzz-test

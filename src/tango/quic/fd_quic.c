@@ -1862,7 +1862,9 @@ ulong fd_quic_handle_v1_retry(
 ) {
   (void)pkt;
   if ( FD_UNLIKELY ( quic->config.role == FD_QUIC_ROLE_SERVER ) ) {
-    fd_quic_conn_close( conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION );
+    if ( FD_UNLIKELY( conn ) ) { /* likely a misbehaving client w/o a conn */
+      fd_quic_conn_close( conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION );
+    }
     return FD_QUIC_PARSE_FAIL;
   }
   fd_quic_retry_t retry_pkt;
@@ -6377,6 +6379,8 @@ fd_quic_frame_handle_common_frag(
    may select a reason code */
 void
 fd_quic_conn_close( fd_quic_conn_t * conn, uint app_reason ) {
+  if( FD_UNLIKELY( !conn ) ) return;
+
   switch( conn->state ) {
     case FD_QUIC_CONN_STATE_DEAD:
     case FD_QUIC_CONN_STATE_ABORT:

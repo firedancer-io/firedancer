@@ -1,3 +1,53 @@
+/* Wiredancer Unit Test.
+  This test is intended to be run in AWS-F1. Its main goal is to check Wiredancer
+  against x86. A "replay" tile feeds packets to a "parser" tile. The latter parses
+  the transaction (it assumes 1 txn per packet for this test), and sends sigverify
+  workload downstream (as many requests as needed per txn). This can be fed into
+  an x86-based "verify" tile and/or Wiredancer. Due to the (substantial) difference
+  in throughput, the x86-based "verify" tile will constantly try to catch up by
+  skipping sequence numbers (i.e. signature verification requests). However, the
+  "checker" tile will check every output from x86 against the corresponding output
+  from Wiredancer (by matching the sequence numbers).
+
+  This unit test can also be run with either Wiredancer or x86 separately (in which
+  case the "checker" will just consume either output).
+
+  General notes:
+    It is assumed that all FPGAs have already been programmed with the Wiredancer
+    image.
+
+    The test replays a pcap in a loop. The packets in that pcap are expected to be
+    network packets ( i.e. they must contain eth/ip4/udp headers + txn ).
+
+    The FPGA slots in AWS-F1 need to be passed using 1-hot encoding:
+      * 1x fpga in slot 0: --wd-slots 1
+      * 1x fpga in slot 1: --wd-slots 2
+      * 2x fpga(s) in slots 1 and 2: --wd-slots 3
+
+    The duration of the test is set in ns. If "--duration 0" is passed, then the
+    test will continue indefinitely (unit Ctrl+c).
+
+    Transactions can be randomly corrupted (approx 50% of the time) by setting
+    "--rand-txn-corrupt 1".
+
+  Sample tests:
+    # Check Wiredancer vs x86 ( 1 fpga in slot 0, with random txn corruption enabled ) #
+      sudo ${BUILD_FOLDER}/linux/gcc/x86_64/unit-test/test_wiredancer_demo --replay-pcap ${PCAP_PATH} --tile-cpus 1,2,3,4,5 --duration 0 --v-x86-enabled 1 --v--wd-enabled 1 --wd-slots 1 --rand-txn-corrupt 1
+
+    # Check Wiredancer vs x86 ( 2 fpgas in slot 0 and 1, with random txn corruption enabled ) #
+      sudo ${BUILD_FOLDER}/linux/gcc/x86_64/unit-test/test_wiredancer_demo --replay-pcap ${PCAP_PATH} --tile-cpus 1,2,3,4,5 --duration 0 --v-x86-enabled 1 --v--wd-enabled 1 --wd-slots 3 --rand-txn-corrupt 1
+
+    # Wiredancer only ( 2 fpgas in slot 0 and 1 ) #
+      sudo ${BUILD_FOLDER}/linux/gcc/x86_64/unit-test/test_wiredancer_demo --replay-pcap ${PCAP_PATH} --tile-cpus 1,2,3,4,5 --duration 0 --v-x86-enabled 0 --v--wd-enabled 1 --wd-slots 3 --rand-txn-corrupt 0
+
+    # x86 only #
+      sudo ${BUILD_FOLDER}/linux/gcc/x86_64/unit-test/test_wiredancer_demo --replay-pcap ${PCAP_PATH} --tile-cpus 1,2,3,4,5 --duration 0 --v-x86-enabled 1 --v--wd-enabled 0 --wd-slots 0 --rand-txn-corrupt 0
+
+    * x86 only (5 seconds) #
+      sudo ${BUILD_FOLDER}/linux/gcc/x86_64/unit-test/test_wiredancer_demo --replay-pcap ${PCAP_PATH} --tile-cpus 1,2,3,4,5 --duration 5000000000 --v-x86-enabled 1 --v--wd-enabled 0 --wd-slots 0 --rand-txn-corrupt 0
+*/
+
+
 #include "fd_replay_loop.h"
 #include "../../util/net/fd_eth.h"
 #include "../../util/net/fd_ip4.h"
@@ -22,8 +72,8 @@
 #define DEMO_PARSER_CNC_OUT_SEQ_IDX 3
 #define DEMO_PARSER_CNC_OUT_SIG_IDX 4
 
-#define DEMO_V__X86_CNC_TXN_CNT_IDX 0
-#define DEMO_V__X86_CNC_SIG_CNT_IDX 1
+#define DEMO_V_X86_CNC_TXN_CNT_IDX 0
+#define DEMO_V_X86_CNC_SIG_CNT_IDX 1
 
 #define DEMO_VCHECK_CNC_SIG__X86_CNT_IDX 0
 #define DEMO_VCHECK_CNC_SIG_FPGA_CNT_IDX 1
@@ -83,14 +133,14 @@ struct test_cfg {
   ulong *           parser_replay_fseq;
   int               parser_rand_txn_corrupt;
 
-  fd_cnc_t *        v__x86_cnc;
-  fd_frag_meta_t *  v__x86_mcache;
-  int               v__x86_lazy;
-  uint              v__x86_seed;
-  int               v__x86_enabled;
+  fd_cnc_t *        v_x86_cnc;
+  fd_frag_meta_t *  v_x86_mcache;
+  int               v_x86_lazy;
+  uint              v_x86_seed;
+  int               v_x86_enabled;
 
-  int               v___wd_enabled;
-  fd_frag_meta_t *  v___wd_mcache;
+  int               v__wd_enabled;
+  fd_frag_meta_t *  v__wd_mcache;
 
   fd_cnc_t *        vcheck_cnc;
   uint              vcheck_seed;
@@ -249,15 +299,14 @@ parser_tile_main( int     argc,
   cnc_diag[ DEMO_PARSER_CNC_OUT_SIG_IDX ] = out_sig;
 
   /* Enabled consumers */
-  int v__x86_enabled = cfg->v__x86_enabled;
-  int v___wd_enabled = cfg->v___wd_enabled;
+  int v_x86_enabled = cfg->v_x86_enabled;
+  int v__wd_enabled = cfg->v__wd_enabled;
 
   /* Hook up wd mcache */
-  fd_frag_meta_t * v___wd_mcache = ( !!v___wd_enabled )? cfg->v___wd_mcache                   : NULL;
-  ulong            v___wd_depth  = ( !!v___wd_enabled )? fd_mcache_depth( v___wd_mcache )     : 0UL;
-  ulong *          v___wd_sync   = ( !!v___wd_enabled )? fd_mcache_seq_laddr( v___wd_mcache ) : NULL;
-  ulong            v___wd_seq    = ( !!v___wd_enabled )? fd_mcache_seq_query( v___wd_sync )   : 0UL;
-  // ulong            v___wd_sig    = 0UL; /* this works as a counter (in this demo) */
+  fd_frag_meta_t * v__wd_mcache = ( !!v__wd_enabled )? cfg->v__wd_mcache                   : NULL;
+  ulong            v__wd_depth  = ( !!v__wd_enabled )? fd_mcache_depth( v__wd_mcache )     : 0UL;
+  ulong *          v__wd_sync   = ( !!v__wd_enabled )? fd_mcache_seq_laddr( v__wd_mcache ) : NULL;
+  ulong            v__wd_seq    = ( !!v__wd_enabled )? fd_mcache_seq_query( v__wd_sync )   : 0UL;
 
   /* Hook up to the random number generator */
   fd_rng_t _rng[1];
@@ -278,8 +327,7 @@ parser_tile_main( int     argc,
   int wd_split = cfg->wd_split;
   uint64_t wd_slots = cfg->wd_slots;
   FD_TEST( !wd_init_pci( &wd, wd_slots ) );
-  // wd_ed25519_verify_rst( &wd );
-  wd_ed25519_verify_init_req( &wd, 1, v___wd_depth, v___wd_mcache );
+  wd_ed25519_verify_init_req( &wd, 1, v__wd_depth, v__wd_mcache );
   FD_TEST( !!wd_split );
 
   /* Main loop */
@@ -376,7 +424,7 @@ parser_tile_main( int     argc,
         if( FD_LIKELY( !!rand_txn_corrupt ) ) { msg_sz -= (fd_rng_uint( rng ) & 0x1); }
 
         /* x86 */
-        if( FD_LIKELY( !!v__x86_enabled )) {
+        if( FD_LIKELY( !!v_x86_enabled )) {
 
           /* prepare compressed metadata */
           parsed_txn_compressed_meta_t meta;
@@ -406,21 +454,14 @@ parser_tile_main( int     argc,
         }
 
         /* Wiredancer */
-        if( FD_LIKELY( !!v___wd_enabled )) {
+        if( FD_LIKELY( !!v__wd_enabled )) {
           ulong do_halt = 0UL;
           ulong out_sz  = 0UL;
           ulong out_ctl = fd_frag_meta_ctl( parser_idx, 1 /*som*/, 1 /*eom*/, 0 /*err*/ );
           /* Iterate trying to send the request */
-          while( wd_ed25519_verify_req(&wd, msg, msg_sz, signature, public_key,
-                                       v___wd_seq, (uint)chunk, (uint16_t)out_ctl, (uint16_t)out_sz ) ) {
-            /* Receive command-and-control signals */
-            ulong s = fd_cnc_signal_query( cnc );
-            if( FD_UNLIKELY( s!=FD_CNC_SIGNAL_RUN ) ) {
-              if( FD_UNLIKELY( s!=FD_CNC_SIGNAL_HALT ) ) FD_LOG_ERR(( "Unexpected signal" ));
-              do_halt = 1UL;
-              break;
-            }
-          }
+          FD_TEST( !wd_ed25519_verify_req(&wd, msg, msg_sz, signature, public_key,
+                            v__wd_seq, (uint)chunk, (uint16_t)out_ctl, (uint16_t)out_sz ) );
+          v__wd_seq = fd_seq_inc( v__wd_seq, 1UL );
           if( !!do_halt ) { break; }
         }
 
@@ -476,23 +517,23 @@ parser_tile_main( int     argc,
 // XXXXXXX       XXXXXXX     888888888          666666666                                                           
                                                                            
 
-/* V__X86 tile ************************************************************/
+/* V_X86 tile ************************************************************/
 
 static int
-v__x86_tile_main( int     argc,
+v_x86_tile_main( int     argc,
                   char ** argv ) {
-  ulong    v__x86_idx = (ulong)argc;
+  ulong    v_x86_idx = (ulong)argc;
   test_cfg_t * cfg    = (test_cfg_t *)argv;
   fd_wksp_t *  wksp   = cfg->wksp;
-  (void)v__x86_idx;
+  (void)v_x86_idx;
   
-  FD_LOG_NOTICE(( "active: v__x86_tile_main" ));
+  FD_LOG_NOTICE(( "active: v_x86_tile_main" ));
 
   /* Test version */
   int test_version = cfg->test_version;
 
-  /* Hook up to v__x86 cnc */
-  fd_cnc_t * cnc = cfg->v__x86_cnc;
+  /* Hook up to v_x86 cnc */
+  fd_cnc_t * cnc = cfg->v_x86_cnc;
 
   /* Hook up to parser cnc */
   fd_cnc_t * parser_cnc = cfg->parser_cnc;
@@ -500,7 +541,8 @@ v__x86_tile_main( int     argc,
 
   /* Command and control */
   ulong * cnc_diag = (ulong *)fd_cnc_app_laddr( cnc );
-  cnc_diag[ 0 ] = 0ULL; // TODO make generic (macro) index
+  cnc_diag[ DEMO_V_X86_CNC_TXN_CNT_IDX ] = 0UL;
+  cnc_diag[ DEMO_V_X86_CNC_SIG_CNT_IDX ] = 0UL;
 
   /* Hook up to parser mcache */
   fd_frag_meta_t const * mcache = cfg->parser_mcache;
@@ -511,7 +553,7 @@ v__x86_tile_main( int     argc,
   /* Hook up to parser flow control */
 
   /* Hook up to the output mcache */
-  fd_frag_meta_t * out_mcache = cfg->v__x86_mcache;
+  fd_frag_meta_t * out_mcache = cfg->v_x86_mcache;
   ulong            out_depth  = fd_mcache_depth( out_mcache );
   ulong *          out_sync   = fd_mcache_seq_laddr( out_mcache );
   ulong            out_seq    = fd_mcache_seq_query( out_sync );
@@ -522,7 +564,7 @@ v__x86_tile_main( int     argc,
 
   /* Hook up to the random number generator */
   fd_rng_t _rng[1];
-  fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, cfg->v__x86_seed, 0UL ) );
+  fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, cfg->v_x86_seed, 0UL ) );
 
   /* Debug only */
   ulong parser_seq_unavailable_cnt = 0UL;
@@ -602,7 +644,7 @@ v__x86_tile_main( int     argc,
       /* publish in output mcache */
       uint out_chunk    = (uint)(verif & 0x1);
       ulong out_sz      = 0UL;
-      ulong out_ctl     = fd_frag_meta_ctl( v__x86_idx, 1 /*som*/, 1 /*eom*/, 0 /*err*/ );
+      ulong out_ctl     = fd_frag_meta_ctl( v_x86_idx, 1 /*som*/, 1 /*eom*/, 0 /*err*/ );
       long out_now      = fd_tickcount();
       ulong out_tsorig  = fd_frag_meta_ts_comp( out_now );
       ulong out_tspub   = out_tsorig;
@@ -623,8 +665,8 @@ v__x86_tile_main( int     argc,
 
     /* Wind up for the next iteration */
     seq = fd_seq_inc( seq, 1UL );
-    cnc_diag[ DEMO_V__X86_CNC_TXN_CNT_IDX ] += 1ULL;
-    cnc_diag[ DEMO_V__X86_CNC_SIG_CNT_IDX ] = out_sig;
+    cnc_diag[ DEMO_V_X86_CNC_TXN_CNT_IDX ] += 1ULL;
+    cnc_diag[ DEMO_V_X86_CNC_SIG_CNT_IDX ] = out_sig;
   }
 
   /* Debug only */
@@ -678,20 +720,20 @@ vcheck_tile_main( int     argc,
   cnc_diag[ DEMO_VCHECK_CNC_SIG_FAIL_CNT_IDX ] = 0UL;
 
   /* Enabled producers */
-  int v__x86_enabled = cfg->v__x86_enabled;
-  int v___wd_enabled = cfg->v___wd_enabled;
+  int v_x86_enabled = cfg->v_x86_enabled;
+  int v__wd_enabled = cfg->v__wd_enabled;
 
-  /* Hook up to v__x86 mcache */
-  fd_frag_meta_t const * v__x86_mcache = ( !!v__x86_enabled )? cfg->v__x86_mcache                         : NULL;
-  ulong                  v__x86_depth  = ( !!v__x86_enabled )? fd_mcache_depth( v__x86_mcache )           : 0UL;
-  ulong const *          v__x86_sync   = ( !!v__x86_enabled )? fd_mcache_seq_laddr_const( v__x86_mcache ) : NULL;
-  ulong                  v__x86_seq    = ( !!v__x86_enabled )? fd_mcache_seq_query( v__x86_sync )         : 0UL;
+  /* Hook up to v_x86 mcache */
+  fd_frag_meta_t const * v_x86_mcache = ( !!v_x86_enabled )? cfg->v_x86_mcache                         : NULL;
+  ulong                  v_x86_depth  = ( !!v_x86_enabled )? fd_mcache_depth( v_x86_mcache )           : 0UL;
+  ulong const *          v_x86_sync   = ( !!v_x86_enabled )? fd_mcache_seq_laddr_const( v_x86_mcache ) : NULL;
+  ulong                  v_x86_seq    = ( !!v_x86_enabled )? fd_mcache_seq_query( v_x86_sync )         : 0UL;
 
   /* Hook up wd mcache */
-  fd_frag_meta_t * v___wd_mcache = ( !!v___wd_enabled )? cfg->v___wd_mcache                   : NULL;
-  ulong            v___wd_depth  = ( !!v___wd_enabled )? fd_mcache_depth( v___wd_mcache )     : 0UL;
-  ulong *          v___wd_sync   = ( !!v___wd_enabled )? fd_mcache_seq_laddr( v___wd_mcache ) : NULL;
-  ulong            v___wd_seq    = ( !!v___wd_enabled )? fd_mcache_seq_query( v___wd_sync )   : 0UL;
+  fd_frag_meta_t * v__wd_mcache = ( !!v__wd_enabled )? cfg->v__wd_mcache                   : NULL;
+  ulong            v__wd_depth  = ( !!v__wd_enabled )? fd_mcache_depth( v__wd_mcache )     : 0UL;
+  ulong *          v__wd_sync   = ( !!v__wd_enabled )? fd_mcache_seq_laddr( v__wd_mcache ) : NULL;
+  ulong            v__wd_seq    = ( !!v__wd_enabled )? fd_mcache_seq_query( v__wd_sync )   : 0UL;
 
   /* Hook up to the random number generator */
   fd_rng_t _rng[1];
@@ -706,7 +748,6 @@ vcheck_tile_main( int     argc,
   // int wd_split = cfg->wd_split;
   uint64_t wd_slots = cfg->wd_slots;
   FD_TEST( !wd_init_pci( &wd, wd_slots ) );
-  // wd_ed25519_verify_rst( &wd );
   wd_ed25519_verify_init_resp( &wd );
 
   /* debug */
@@ -719,29 +760,29 @@ vcheck_tile_main( int     argc,
 
     /* Wait for frag seq while doing housekeeping in the background */
     
-    fd_frag_meta_t const * v__x86_mline     = NULL;
-    ulong                  v__x86_seq_found = 0UL;
-    long                   v__x86_diff      = 0L;
-    ulong                  v__x86_chunk     = 0UL;
-    ulong                  v__x86_sig       = exp_sig; /* by default */
+    fd_frag_meta_t const * v_x86_mline     = NULL;
+    ulong                  v_x86_seq_found = 0UL;
+    long                   v_x86_diff      = 0L;
+    ulong                  v_x86_chunk     = 0UL;
+    ulong                  v_x86_sig       = exp_sig; /* by default */
 
     ulong do_halt = 0ULL;
 
-    /* Poll v__x86 */
-    if( FD_LIKELY( !!v__x86_enabled ) ) {
+    /* Poll v_x86 */
+    if( FD_LIKELY( !!v_x86_enabled ) ) {
       ulong sig;
       ulong chunk;
       ulong sz;
       ulong ctl;
       ulong tsorig;
       ulong tspub;
-      ulong v__x86_async_rem = 0UL;
+      ulong v_x86_async_rem = 0UL;
       do {
-        v__x86_async_rem = 2UL;
-        FD_MCACHE_WAIT_REG( sig, chunk, sz, ctl, tsorig, tspub, v__x86_mline, v__x86_seq_found, v__x86_diff, v__x86_async_rem, v__x86_mcache, v__x86_depth, v__x86_seq );
+        v_x86_async_rem = 2UL;
+        FD_MCACHE_WAIT_REG( sig, chunk, sz, ctl, tsorig, tspub, v_x86_mline, v_x86_seq_found, v_x86_diff, v_x86_async_rem, v_x86_mcache, v_x86_depth, v_x86_seq );
         (void)ctl; (void)sz; (void)tsorig; (void)tspub;
 
-        if( !v__x86_async_rem ) {
+        if( !v_x86_async_rem ) {
           /* Send diagnostic info */
           fd_cnc_heartbeat( cnc, fd_tickcount() );
           /* Receive command-and-control signals */
@@ -752,43 +793,43 @@ vcheck_tile_main( int     argc,
             break;
           }
         } else {
-          if( FD_UNLIKELY( v__x86_diff ) ) FD_LOG_ERR(( "Overrun while polling v__x86" ));
+          if( FD_UNLIKELY( v_x86_diff ) ) FD_LOG_ERR(( "Overrun while polling v_x86" ));
         }
-      } while( (!do_halt) & (!v__x86_async_rem) );
+      } while( (!do_halt) & (!v_x86_async_rem) );
       
       /* Extract the required values */
-      sig_delta    = sig - exp_sig;
-      exp_sig      = sig; /* override expected sig */
-      v__x86_sig   = sig;
-      v__x86_chunk = chunk;
+      sig_delta   = sig - exp_sig;
+      exp_sig     = sig; /* override expected sig */
+      v_x86_sig   = sig;
+      v_x86_chunk = chunk;
       cnc_diag[ DEMO_VCHECK_CNC_SIG__X86_CNT_IDX ] += 1UL;
       /* halt if instructed to do so */
       if( FD_UNLIKELY( !!do_halt )) { break; }
     }
 
     /* Poll wiredancer */
-    fd_frag_meta_t const * v___wd_mline     = NULL;
-    ulong                  v___wd_seq_found = 0UL;
-    long                   v___wd_diff      = 0L;
-    ulong                  v___wd_chunk     = 0UL;
-    ulong                  v___wd_sig       = exp_sig; /* by default */
+    fd_frag_meta_t const * v__wd_mline     = NULL;
+    ulong                  v__wd_seq_found = 0UL;
+    long                   v__wd_diff      = 0L;
+    ulong                  v__wd_chunk     = 0UL;
+    ulong                  v__wd_sig       = exp_sig; /* by default */
 
-    if( FD_LIKELY( !!v___wd_enabled ) ) {
+    if( FD_LIKELY( !!v__wd_enabled ) ) {
       ulong sig;
       ulong chunk;
       ulong sz;
       ulong ctl;
       ulong tsorig;
       ulong tspub;
-      ulong v___wd_async_rem = 0UL;
-      v___wd_seq += sig_delta; // Jump directly to where is x86 is currently at
+      ulong v__wd_async_rem = 0UL;
+      /* Jump directly to where is x86 is currently at */
+      v__wd_seq += sig_delta;
       do {
-        v___wd_async_rem = 2UL;
-        FD_MCACHE_WAIT_REG( sig, chunk, sz, ctl, tsorig, tspub, v___wd_mline, v___wd_seq_found, v___wd_diff, v___wd_async_rem, v___wd_mcache, v___wd_depth, v___wd_seq );
+        v__wd_async_rem = 2UL;
+        FD_MCACHE_WAIT_REG( sig, chunk, sz, ctl, tsorig, tspub, v__wd_mline, v__wd_seq_found, v__wd_diff, v__wd_async_rem, v__wd_mcache, v__wd_depth, v__wd_seq );
         (void)chunk; (void)sz; (void)tsorig; (void)tspub;
-        (void)v___wd_diff;
         
-        if( !v___wd_async_rem ) {
+        if( !v__wd_async_rem ) {
           /* Send diagnostic info */
           fd_cnc_heartbeat( cnc, fd_tickcount() );
           /* Receive command-and-control signals */
@@ -799,61 +840,61 @@ vcheck_tile_main( int     argc,
             break;
           }
         }
-        // else {
-        //   if( FD_UNLIKELY( v___wd_diff ) ) FD_LOG_ERR(( "Overrun while polling v___wd" ));
-        // }
-      } while( (!do_halt) & (!v___wd_async_rem) );
+        else {
+          if( FD_UNLIKELY( v__wd_diff ) ) FD_LOG_ERR(( "Overrun while polling v__wd" ));
+        }
+      } while( (!do_halt) & (!v__wd_async_rem) );
       
       /* Extract the required values */
-      v___wd_sig   = sig;
-      v___wd_chunk = (ctl>>2)&0x1;
-      // FD_TEST(v___wd_chunk == chunk);
-      cnc_diag[ DEMO_VCHECK_CNC_SIG_FPGA_CNT_IDX ] = exp_sig; // TODO make this more robust
+      v__wd_sig   = sig;
+      v__wd_chunk = (ctl>>2)&0x1;
+      /* This is essentially the latest sig that has been processed */
+      cnc_diag[ DEMO_VCHECK_CNC_SIG_FPGA_CNT_IDX ] = exp_sig;
       /* halt if instructed to do so */
       if( FD_UNLIKELY( !!do_halt )) { break; }
     }
 
 
     /* Process x86 */
-    if( FD_LIKELY( !!v__x86_enabled )) { 
+    if( FD_LIKELY( !!v_x86_enabled )) {
       /* Check that we weren't overrun while processing */
-      v__x86_seq_found = fd_frag_meta_seq_query( v__x86_mline );
-      if( FD_UNLIKELY( fd_seq_ne( v__x86_seq_found, v__x86_seq ) ) ) {
-        FD_LOG_ERR(( "Overrun while processing v__x86" ));
+      v_x86_seq_found = fd_frag_meta_seq_query( v_x86_mline );
+      if( FD_UNLIKELY( fd_seq_ne( v_x86_seq_found, v_x86_seq ) ) ) {
+        FD_LOG_ERR(( "Overrun while processing v_x86" ));
         FD_TEST( 0 );
       }
       /* Wind up for the next iteration */
-      v__x86_seq = fd_seq_inc( v__x86_seq, 1UL );
+      v_x86_seq = fd_seq_inc( v_x86_seq, 1UL );
     }
 
     /* Process wiredancer */
-    if( FD_LIKELY( !!v___wd_enabled )) {
+    if( FD_LIKELY( !!v__wd_enabled )) {
       /* Check that we weren't overrun while processing */
-      v___wd_seq_found = fd_frag_meta_seq_query( v___wd_mline );
-      if( FD_UNLIKELY( fd_seq_ne( v___wd_seq_found, v___wd_seq ) ) ) {
-        FD_LOG_ERR(( "Overrun while processing v___wd (exp_sig: %lu)", exp_sig ));
-        ulong * p = (ulong*)v___wd_mline;
+      v__wd_seq_found = fd_frag_meta_seq_query( v__wd_mline );
+      if( FD_UNLIKELY( fd_seq_ne( v__wd_seq_found, v__wd_seq ) ) ) {
+        FD_LOG_ERR(( "Overrun while processing v__wd (exp_sig: %lu)", exp_sig ));
+        ulong * p = (ulong*)v__wd_mline;
         FD_LOG_NOTICE(("mcache line %016lx_%016lx_%016lx_%016lx",*(p+0),*(p+1),*(p+2),*(p+3) ));
-        FD_LOG_NOTICE(("v___wd_seq_found %016lx", v___wd_seq_found));
-        FD_LOG_NOTICE(("v___wd_seq       %016lx", v___wd_seq));
+        FD_LOG_NOTICE(("v__wd_seq_found %016lx", v__wd_seq_found));
+        FD_LOG_NOTICE(("v__wd_seq       %016lx", v__wd_seq));
         FD_TEST( 0 );
       }
       /* Wind up for the next iteration */
-      v___wd_seq = fd_seq_inc( v___wd_seq, 1UL );
+      v__wd_seq = fd_seq_inc( v__wd_seq, 1UL );
       /* Validate */
-      // FD_TEST( v___wd_sig == exp_sig );
-      cnc_diag[ DEMO_VCHECK_CNC_SIG_PASS_CNT_IDX ] += ((v___wd_chunk & 0x01U) == FD_ED25519_SUCCESS)? 1UL : 0;
-      cnc_diag[ DEMO_VCHECK_CNC_SIG_FAIL_CNT_IDX ] += ((v___wd_chunk & 0x01U) != FD_ED25519_SUCCESS)? 1UL : 0;
+      // FD_TEST( v__wd_sig == exp_sig );
+      cnc_diag[ DEMO_VCHECK_CNC_SIG_PASS_CNT_IDX ] += ((v__wd_chunk & 0x01U) == FD_ED25519_SUCCESS)? 1UL : 0;
+      cnc_diag[ DEMO_VCHECK_CNC_SIG_FAIL_CNT_IDX ] += ((v__wd_chunk & 0x01U) != FD_ED25519_SUCCESS)? 1UL : 0;
     }
 
     /* Compare x86 and wiredancer (if both enabled) */
-    if( FD_LIKELY( ( !!v__x86_enabled ) & ( !!v___wd_enabled ) ) ) {
-      if( v__x86_chunk != v___wd_chunk ) { FD_LOG_NOTICE(( "(0x%016lx) verif x86 0x%lx vs 0x%lx wd verif (0x%016lx) - v___wd_seq 0x%016lx", 
-                                                          v__x86_sig, v__x86_chunk, v___wd_chunk, v___wd_sig, v___wd_seq )); }
-      // FD_TEST( v__x86_sig   == v___wd_sig   );
-      FD_TEST( v__x86_chunk == v___wd_chunk );
+    if( FD_LIKELY( ( !!v_x86_enabled ) & ( !!v__wd_enabled ) ) ) {
+      if( v_x86_chunk != v__wd_chunk ) { FD_LOG_NOTICE(( "(0x%016lx) verif x86 0x%lx vs 0x%lx wd verif (0x%016lx) - v__wd_seq 0x%016lx",
+                                                          v_x86_sig, v_x86_chunk, v__wd_chunk, v__wd_sig, v__wd_seq )); }
+      // FD_TEST( v_x86_sig   == v__wd_sig   );
+      FD_TEST( v_x86_chunk == v__wd_chunk );
       cnc_diag[ DEMO_VCHECK_CNC_VALIDATE_CNT_IDX ] += 1UL;
-      if( (v___wd_chunk & 0x01U) == FD_ED25519_SUCCESS ) {
+      if( (v__wd_chunk & 0x01U) == FD_ED25519_SUCCESS ) {
         cnt_sig_ok +=1UL;
       } else {
         cnt_sig_ng +=1UL;
@@ -893,21 +934,31 @@ vcheck_tile_main( int     argc,
 // MMMMMMMM               MMMMMMMMAAAAAAA                   AAAAAAAIIIIIIIIIINNNNNNNN         NNNNNNN
 
 
-/* MAIN tail **********************************************************/
+/* MAIN tile **********************************************************/
 
-/* command line examples:
-  # to check Wiredancer against x86 with random-txn-corruption, the version below uses two
-  # fpgas in AWS-F1, slots 0 and 1 (1-hot encoding --wd-slots 3)
-  sudo ./build/linux/gcc/x86_64/unit-test/test_wiredancer_demo --replay-pcap <PATH_TO_PCAP> \
-    --tile-cpus 0,1,2,3,4,5 --duration 10000000000 --v--x86-enabled 1 --v---wd-enabled 1 \
-    --test-version 0 --wd-slots 3 --rand-txn-corrupt 1
+#include <stdio.h>
+#include <signal.h>
 
-  # to check Wiredancer maximum throughput (without random-txn-corruption), the version
-  # below uses two fpgas in AWS-F1, slots 0 and 1 (1-hot encoding --wd-slots 3)
-  sudo ./build/linux/gcc/x86_64/unit-test/test_wiredancer_demo --replay-pcap <PATH_TO_PCAP> \
-    --tile-cpus 0,1,2,3,4,5 --duration 10000000000 --v--x86-enabled 0 --v---wd-enabled 1 \
-    --test-version 0 --wd-slots 3 --rand-txn-corrupt 0
-*/
+ulong test_halt = 0UL;
+
+static void
+test_sigaction( int         sig,
+                siginfo_t * info,
+                void *      context ) {
+  (void)info;
+  (void)context;
+  FD_LOG_NOTICE(( "received POSIX signal %i; sending halt to main", sig ));
+  test_halt = 1UL;
+}
+
+static void
+test_signal_trap( int sig ) {
+  struct sigaction act[1];
+  act->sa_sigaction = test_sigaction;
+  if( FD_UNLIKELY( sigemptyset( &act->sa_mask ) ) ) FD_LOG_ERR(( "sigempty set failed" ));
+  act->sa_flags = (int)(SA_SIGINFO | SA_RESETHAND);
+  if( FD_UNLIKELY( sigaction( sig, act, NULL ) ) ) FD_LOG_ERR(( "unable to override signal %i", sig ));
+}
 
 int
 main( int     argc,
@@ -938,13 +989,13 @@ main( int     argc,
   long         replay_lazy      = fd_env_strip_cmdline_long ( &argc, &argv, "--replay-lazy",      NULL, 0L /* use default */          );
   ulong        parser_depth     = fd_env_strip_cmdline_ulong( &argc, &argv, "--parser-depth",     NULL, 131072UL                      );
   int          parser_lazy      = fd_env_strip_cmdline_int  ( &argc, &argv, "--parser-lazy",      NULL, 7                             );
-  int          v__x86_enabled   = fd_env_strip_cmdline_int  ( &argc, &argv, "--v--x86-enabled",   NULL, 0                             );
-  ulong        v__x86_depth     = fd_env_strip_cmdline_ulong( &argc, &argv, "--v--x86-depth",     NULL, 131072UL /* test req*/        );
-  int          v__x86_lazy      = fd_env_strip_cmdline_int  ( &argc, &argv, "--v--x86-lazy",      NULL, 7                             );
-  int          v___wd_enabled   = fd_env_strip_cmdline_int  ( &argc, &argv, "--v---wd-enabled",   NULL, 0                             );
-  ulong        v___wd_depth     = fd_env_strip_cmdline_ulong( &argc, &argv, "--v---wd-depth",     NULL, 131072UL /* test req*/        );
+  int          v_x86_enabled    = fd_env_strip_cmdline_int  ( &argc, &argv, "--v-x86-enabled",    NULL, 0                             );
+  ulong        v_x86_depth      = fd_env_strip_cmdline_ulong( &argc, &argv, "--v-x86-depth",      NULL, 131072UL /* test req*/        );
+  int          v_x86_lazy       = fd_env_strip_cmdline_int  ( &argc, &argv, "--v-x86-lazy",       NULL, 7                             );
+  int          v__wd_enabled    = fd_env_strip_cmdline_int  ( &argc, &argv, "--v--wd-enabled",    NULL, 0                             );
+  ulong        v__wd_depth      = fd_env_strip_cmdline_ulong( &argc, &argv, "--v--wd-depth",      NULL, 131072UL /* test req*/        );
   int          vcheck_lazy      = fd_env_strip_cmdline_int  ( &argc, &argv, "--vcheck-lazy",      NULL, 7                             );
-  int          test_version     = fd_env_strip_cmdline_int  ( &argc, &argv, "--test-version",     NULL, 0                             );
+  int          test_version     = fd_env_strip_cmdline_int  ( &argc, &argv, "--test-version",     NULL, DEMO_TEST_VERSION_SIGVERIFY   );
   long         duration         = fd_env_strip_cmdline_long ( &argc, &argv, "--duration",         NULL, (long)10e9                    );
   ulong        wd_slots         = fd_env_strip_cmdline_ulong( &argc, &argv, "--wd-slots",         NULL, 1UL                           );
   int          rand_txn_corrupt = fd_env_strip_cmdline_int  ( &argc, &argv, "--rand-txn-corrupt", NULL, 1UL                           );
@@ -959,8 +1010,7 @@ main( int     argc,
   /* Check minimum number of tiles */
   ulong req_tile_cnt = 1 /* main */ + (( !!replay_enabled )? 1UL : 0UL) +
                                       (( !!parser_enabled )? 1UL : 0UL) +
-                                      (( !!v__x86_enabled )? 1UL : 0UL) +
-                                      // (( !!v___wd_enabled )? 1UL : 0UL) +
+                                      (( !!v_x86_enabled )? 1UL : 0UL) +
                                       (( !!vcheck_enabled )? 1UL : 0UL);
   if( FD_UNLIKELY( fd_tile_cnt()<req_tile_cnt ) ) FD_LOG_ERR(( "this unit test requires (at least) %lu tiles", req_tile_cnt ));
 
@@ -992,11 +1042,14 @@ main( int     argc,
   ulong replay_fseq_cnt = DEMO_REPLAY_FSEQ_CNT_MAX;
   ulong parser_replay_fseq_idx = 0UL;
 
+  /* default cnc_app_sz: 64UL minimum + 64UL extra margin (future use) */
+  ulong default_cnc_app_sz = 128UL;
+
   /* Configure replay */
   if( 1 ) {
     FD_LOG_NOTICE(( "Creating replay cnc (app_sz 64, type 0, heartbeat0 %li)", hb0 ));
-    cfg->replay_cnc = fd_cnc_join( fd_cnc_new( fd_wksp_alloc_laddr( cfg->wksp, fd_cnc_align(), fd_cnc_footprint( 64UL ), 1UL ),
-                                               64UL, 0UL, hb0 ) );
+    cfg->replay_cnc = fd_cnc_join( fd_cnc_new( fd_wksp_alloc_laddr( cfg->wksp, fd_cnc_align(), fd_cnc_footprint( default_cnc_app_sz ), 1UL ),
+                                               default_cnc_app_sz, 0UL, hb0 ) );
     FD_TEST( cfg->replay_cnc );
 
     cfg->replay_pcap = replay_pcap;
@@ -1028,8 +1081,8 @@ main( int     argc,
   cfg->parser_enabled = parser_enabled;
   if( !!parser_enabled ) {
     FD_LOG_NOTICE(( "Creating parser cnc (app_sz 64, type 1, heartbeat0 %li)", hb0 ));
-    cfg->parser_cnc = fd_cnc_join( fd_cnc_new( fd_wksp_alloc_laddr( cfg->wksp, fd_cnc_align(), fd_cnc_footprint( 64UL ), 1UL ),
-                                          64UL, 1UL, hb0 ) );
+    cfg->parser_cnc = fd_cnc_join( fd_cnc_new( fd_wksp_alloc_laddr( cfg->wksp, fd_cnc_align(), fd_cnc_footprint( default_cnc_app_sz ), 1UL ),
+                                          default_cnc_app_sz, 1UL, hb0 ) );
     FD_TEST( cfg->parser_cnc );
     FD_LOG_NOTICE(( "Creating parser mcache (--replay-depth %lu, app_sz 0, seq0 %lu)", parser_depth, seq0 ));
     cfg->parser_mcache = fd_mcache_join( fd_mcache_new( fd_wksp_alloc_laddr( cfg->wksp,
@@ -1044,42 +1097,42 @@ main( int     argc,
     cfg->parser_rand_txn_corrupt = rand_txn_corrupt;
   }
 
-  /* Configure v__x86 */
-  cfg->v__x86_enabled = v__x86_enabled;
-  if( !!v__x86_enabled ) {
-    FD_LOG_NOTICE(( "Creating v__x86 cnc (app_sz 64, type 1, heartbeat0 %li)", hb0 ));
-    cfg->v__x86_cnc = fd_cnc_join( fd_cnc_new( fd_wksp_alloc_laddr( cfg->wksp, fd_cnc_align(), fd_cnc_footprint( 64UL ), 1UL ),
-                                          64UL, 1UL, hb0 ) );
-    FD_TEST( cfg->v__x86_cnc );
-    FD_LOG_NOTICE(( "Creating v__x86 mcache (--v--x86-depth %lu, app_sz 0, seq0 %lu)", v__x86_depth, seq0 ));
-    cfg->v__x86_mcache = fd_mcache_join( fd_mcache_new( fd_wksp_alloc_laddr( cfg->wksp,
-                                                                        fd_mcache_align(), fd_mcache_footprint( v__x86_depth, 0UL ),
+  /* Configure v_x86 */
+  cfg->v_x86_enabled = v_x86_enabled;
+  if( !!v_x86_enabled ) {
+    FD_LOG_NOTICE(( "Creating v_x86 cnc (app_sz 64, type 1, heartbeat0 %li)", hb0 ));
+    cfg->v_x86_cnc = fd_cnc_join( fd_cnc_new( fd_wksp_alloc_laddr( cfg->wksp, fd_cnc_align(), fd_cnc_footprint( default_cnc_app_sz ), 1UL ),
+                                          default_cnc_app_sz, 1UL, hb0 ) );
+    FD_TEST( cfg->v_x86_cnc );
+    FD_LOG_NOTICE(( "Creating v_x86 mcache (--v--x86-depth %lu, app_sz 0, seq0 %lu)", v_x86_depth, seq0 ));
+    cfg->v_x86_mcache = fd_mcache_join( fd_mcache_new( fd_wksp_alloc_laddr( cfg->wksp,
+                                                                        fd_mcache_align(), fd_mcache_footprint( v_x86_depth, 0UL ),
                                                                         1UL ),
-                                                    v__x86_depth, 0UL, seq0 ) );
-    FD_TEST( cfg->v__x86_mcache );
-    cfg->v__x86_seed        = rng_seq++;
-    cfg->v__x86_lazy        = v__x86_lazy;
-    cfg->v__x86_enabled     = v__x86_enabled;
+                                                    v_x86_depth, 0UL, seq0 ) );
+    FD_TEST( cfg->v_x86_mcache );
+    cfg->v_x86_seed        = rng_seq++;
+    cfg->v_x86_lazy        = v_x86_lazy;
+    cfg->v_x86_enabled     = v_x86_enabled;
   }
 
-  /* v___wd */
-  cfg->v___wd_enabled = v___wd_enabled;
-  if (!!v___wd_enabled) {
-    FD_LOG_NOTICE(( "Creating v___wd mcache (--v--x86-depth %lu, app_sz 0, seq0 %lu)", v___wd_depth, seq0 ));
-    cfg->v___wd_mcache = fd_mcache_join( fd_mcache_new( fd_wksp_alloc_laddr( cfg->wksp,
-                                                                        fd_mcache_align(), fd_mcache_footprint( v___wd_depth, 0UL ),
+  /* v__wd */
+  cfg->v__wd_enabled = v__wd_enabled;
+  if (!!v__wd_enabled) {
+    FD_LOG_NOTICE(( "Creating v__wd mcache (--v--x86-depth %lu, app_sz 0, seq0 %lu)", v__wd_depth, seq0 ));
+    cfg->v__wd_mcache = fd_mcache_join( fd_mcache_new( fd_wksp_alloc_laddr( cfg->wksp,
+                                                                        fd_mcache_align(), fd_mcache_footprint( v__wd_depth, 0UL ),
                                                                         1UL ),
-                                                    v___wd_depth, 0UL, seq0 ) );
-    FD_TEST( cfg->v___wd_mcache );
+                                                    v__wd_depth, 0UL, seq0 ) );
+    FD_TEST( cfg->v__wd_mcache );
   }
-  cfg->wd_split       = 1UL; // TODO where set?
+  cfg->wd_split       = 1UL; /* fixed */
   cfg->wd_slots       = wd_slots;
 
   /* consumer */
   if( 1 ) {
     FD_LOG_NOTICE(( "Creating consum cnc (app_sz 64, type 1, heartbeat0 %li)", hb0 ));
-    cfg->vcheck_cnc = fd_cnc_join( fd_cnc_new( fd_wksp_alloc_laddr( cfg->wksp, fd_cnc_align(), fd_cnc_footprint( 64UL ), 1UL ),
-                                               64UL, 1UL, hb0 ) );
+    cfg->vcheck_cnc = fd_cnc_join( fd_cnc_new( fd_wksp_alloc_laddr( cfg->wksp, fd_cnc_align(), fd_cnc_footprint( default_cnc_app_sz ), 1UL ),
+                                               default_cnc_app_sz, 1UL, hb0 ) );
     FD_TEST( cfg->vcheck_cnc );
     cfg->vcheck_seed = rng_seq++;
     cfg->vcheck_lazy = vcheck_lazy;
@@ -1087,31 +1140,29 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "Booting" ));
 
-  fd_tile_exec_t * v__x86_exec = ( !!v__x86_enabled )? fd_tile_exec_new( 3UL, v__x86_tile_main, 0, (char **)fd_type_pun( cfg ) ) : NULL;
-  // fd_tile_exec_t * v___wd_exec = ( !!v___wd_enabled )? fd_tile_exec_new( 4UL, v___wd_tile_main, 0, (char **)fd_type_pun( cfg ) ) : NULL;
+  fd_tile_exec_t * v_x86_exec = ( !!v_x86_enabled )? fd_tile_exec_new( 3UL, v_x86_tile_main, 0, (char **)fd_type_pun( cfg ) ) : NULL;
+  // fd_tile_exec_t * v__wd_exec = ( !!v__wd_enabled )? fd_tile_exec_new( 4UL, v__wd_tile_main, 0, (char **)fd_type_pun( cfg ) ) : NULL;
   fd_tile_exec_t * vcheck_exec = ( !!vcheck_enabled )? fd_tile_exec_new( 4UL, vcheck_tile_main, 0, (char **)fd_type_pun( cfg ) ) : NULL;
   fd_tile_exec_t * parser_exec = ( !!parser_enabled )? fd_tile_exec_new( 2UL, parser_tile_main, 0, (char **)fd_type_pun( cfg ) ) : NULL;
   fd_tile_exec_t * replay_exec = ( !!replay_enabled )? fd_tile_exec_new( 1UL, replay_tile_main, 0, (char **)fd_type_pun( cfg ) ) : NULL;
 
-  if( !!v__x86_enabled ) { FD_TEST( v__x86_exec ); }
+  if( !!v_x86_enabled  ) { FD_TEST( v_x86_exec ); }
   if( !!vcheck_enabled ) { FD_TEST( vcheck_exec ); }
   if( !!parser_enabled ) { FD_TEST( parser_exec ); }
   if( !!replay_enabled ) { FD_TEST( replay_exec ); }
 
   if( !!replay_enabled ) { FD_TEST( fd_cnc_wait( cfg->replay_cnc, FD_CNC_SIGNAL_BOOT, (long)5e9, NULL )==FD_CNC_SIGNAL_RUN ); }
   if( !!parser_enabled ) { FD_TEST( fd_cnc_wait( cfg->parser_cnc, FD_CNC_SIGNAL_BOOT, (long)5e9, NULL )==FD_CNC_SIGNAL_RUN ); }
-  if( !!v__x86_enabled ) { FD_TEST( fd_cnc_wait( cfg->v__x86_cnc, FD_CNC_SIGNAL_BOOT, (long)5e9, NULL )==FD_CNC_SIGNAL_RUN ); }
+  if( !!v_x86_enabled  ) { FD_TEST( fd_cnc_wait( cfg->v_x86_cnc,  FD_CNC_SIGNAL_BOOT, (long)5e9, NULL )==FD_CNC_SIGNAL_RUN ); }
   if( !!vcheck_enabled ) { FD_TEST( fd_cnc_wait( cfg->vcheck_cnc, FD_CNC_SIGNAL_BOOT, (long)5e9, NULL )==FD_CNC_SIGNAL_RUN ); }
 
   /* FIXME improve notice */
   FD_LOG_NOTICE(( "Running (--duration %li ns, --replay-lazy %li ns, --replay-cr-max %lu, replay_seed %u, --parser-lazy %i, --v--x86-lazy %i, --vcheck-lazy %i)",
-                  duration, replay_lazy, replay_cr_max, cfg->replay_seed, parser_lazy, v__x86_lazy, vcheck_lazy ));
+                  duration, replay_lazy, replay_cr_max, cfg->replay_seed, parser_lazy, v_x86_lazy, vcheck_lazy ));
 
   ulong const * replay_cnc_diag = ( !!replay_enabled )? (ulong const *)fd_cnc_app_laddr( cfg->replay_cnc ) : NULL;
-  // ulong const * parser_cnc_diag = ( !!parser_enabled )? (ulong const *)fd_cnc_app_laddr( cfg->parser_cnc ) : NULL;
+  ulong const * parser_cnc_diag = ( !!parser_enabled )? (ulong const *)fd_cnc_app_laddr( cfg->parser_cnc ) : NULL;
   ulong const * vcheck_cnc_diag = ( !!vcheck_enabled )? (ulong const *)fd_cnc_app_laddr( cfg->vcheck_cnc ) : NULL;
-
-  FD_LOG_NOTICE(("Checkpoint 000"));
 
   /* Wiredancer Monitor */
 #ifdef FD_HAS_WIREDANCER 
@@ -1119,28 +1170,34 @@ main( int     argc,
   wd_mon_state.recv_cnt[0]= 0UL;
   wd_mon_state.recv_cnt[1]= 0UL;
   wd_mon_state.send_cnt   = 0UL;
-  wd_mon_state.cnt__x86   = 0UL;
-  wd_mon_state.cnt___wd   = 0UL;
-  wd_mon_state.rate__x86  = 0UL;
-  wd_mon_state.rate___wd  = 0UL;
+  wd_mon_state.cnt_replay = 0UL;
+  wd_mon_state.cnt_parser = 0UL;
+  wd_mon_state.cnt_x86    = 0UL;
+  wd_mon_state.cnt__wd    = 0UL;
+  wd_mon_state.rate_replay= 0UL;
+  wd_mon_state.rate_parser= 0UL;
+  wd_mon_state.rate_x86   = 0UL;
+  wd_mon_state.rate__wd   = 0UL;
   wd_mon_state.sig_pass   = 0UL;
   wd_mon_state.sig_fail   = 0UL;
   wd_mon_state.cnt_checked= 0UL;
   wd_mon_state.running    = 1;
   FD_TEST( !wd_init_pci( &wd_mon_state.wd, wd_slots ) );
   pthread_t wd_mon_thread;
-  FD_LOG_NOTICE(("Checkpoint 001"));
   FD_TEST( !pthread_create( &wd_mon_thread, NULL, mon_thread, &wd_mon_state)  );
 #endif
-  FD_LOG_NOTICE(("Checkpoint 002"));
+
+  /* signal trap */
+  test_signal_trap( SIGTERM );
+  test_signal_trap( SIGINT  );
 
   /* main loop */
   long now  = fd_log_wallclock();
   long next = now;
-  long done = now + duration;
+  long done = (!!duration)? now + duration : (long)((~(ulong)0UL)>>1);
   for(;;) {
     long now = fd_log_wallclock();
-    if( FD_UNLIKELY( (now-done) >= 0L ) ) {
+    if( FD_UNLIKELY( (now-done) >= 0L ) | ( !!test_halt )) {
       break;
     }
     if( FD_UNLIKELY( (now-next) >= 0L ) ) {
@@ -1150,11 +1207,15 @@ main( int     argc,
       }
 #ifdef FD_HAS_WIREDANCER
       /* compute the rates first */
-      wd_mon_state.rate__x86   = vcheck_cnc_diag[ DEMO_VCHECK_CNC_SIG__X86_CNT_IDX ] - wd_mon_state.cnt__x86; /* per second */
-      wd_mon_state.rate___wd   = vcheck_cnc_diag[ DEMO_VCHECK_CNC_SIG_FPGA_CNT_IDX ] - wd_mon_state.cnt___wd; /* per second */
+      wd_mon_state.rate_replay = replay_cnc_diag[ FD_REPLAY_CNC_DIAG_PCAP_PUB_CNT  ] - wd_mon_state.cnt_replay; /* per second */
+      wd_mon_state.rate_parser = parser_cnc_diag[ DEMO_PARSER_CNC_SIG_CNT_IDX      ] - wd_mon_state.cnt_parser; /* per second */
+      wd_mon_state.rate_x86    = vcheck_cnc_diag[ DEMO_VCHECK_CNC_SIG__X86_CNT_IDX ] - wd_mon_state.cnt_x86; /* per second */
+      wd_mon_state.rate__wd    = vcheck_cnc_diag[ DEMO_VCHECK_CNC_SIG_FPGA_CNT_IDX ] - wd_mon_state.cnt__wd; /* per second */
       /* update the counts second */
-      wd_mon_state.cnt__x86    = vcheck_cnc_diag[ DEMO_VCHECK_CNC_SIG__X86_CNT_IDX ];
-      wd_mon_state.cnt___wd    = vcheck_cnc_diag[ DEMO_VCHECK_CNC_SIG_FPGA_CNT_IDX ];
+      wd_mon_state.cnt_replay  = replay_cnc_diag[ FD_REPLAY_CNC_DIAG_PCAP_PUB_CNT  ];
+      wd_mon_state.cnt_parser  = parser_cnc_diag[ DEMO_PARSER_CNC_SIG_CNT_IDX      ];
+      wd_mon_state.cnt_x86     = vcheck_cnc_diag[ DEMO_VCHECK_CNC_SIG__X86_CNT_IDX ];
+      wd_mon_state.cnt__wd     = vcheck_cnc_diag[ DEMO_VCHECK_CNC_SIG_FPGA_CNT_IDX ];
       wd_mon_state.cnt_checked = vcheck_cnc_diag[ DEMO_VCHECK_CNC_VALIDATE_CNT_IDX ];
       wd_mon_state.sig_pass    = vcheck_cnc_diag[ DEMO_VCHECK_CNC_SIG_PASS_CNT_IDX ];
       wd_mon_state.sig_fail    = vcheck_cnc_diag[ DEMO_VCHECK_CNC_SIG_FAIL_CNT_IDX ];
@@ -1179,7 +1240,7 @@ main( int     argc,
 
   if( !!replay_enabled ) { FD_TEST( !fd_cnc_open( cfg->replay_cnc ) ); }
   if( !!parser_enabled ) { FD_TEST( !fd_cnc_open( cfg->parser_cnc ) ); }
-  if( !!v__x86_enabled ) { FD_TEST( !fd_cnc_open( cfg->v__x86_cnc ) ); }
+  if( !!v_x86_enabled ) { FD_TEST( !fd_cnc_open( cfg->v_x86_cnc ) ); }
   if( !!vcheck_enabled ) { FD_TEST( !fd_cnc_open( cfg->vcheck_cnc ) ); }
 
   /* halt: replay */
@@ -1191,15 +1252,14 @@ main( int     argc,
   if( !!parser_enabled ) { fd_cnc_signal( cfg->parser_cnc, FD_CNC_SIGNAL_HALT ); }
   if( !!parser_enabled ) { FD_TEST( fd_cnc_wait( cfg->parser_cnc, FD_CNC_SIGNAL_HALT, (long)5e9, NULL )==FD_CNC_SIGNAL_BOOT ); }
   if( !!parser_enabled ) { FD_LOG_NOTICE(( "successfully stopped parser")); }
-  // ulong fgpa_req_cnt = ( !!parser_enabled )? parser_cnc_diag[ DEMO_PARSER_CNC_SIG_CNT_IDX ] : 0UL;
 
   /* halt: vcheck (part 1) */
   if( !!vcheck_enabled ) { fd_cnc_signal( cfg->vcheck_cnc, FD_CNC_SIGNAL_HALT ); }
 
   /* halt: x86 */  
-  if( !!v__x86_enabled ) { fd_cnc_signal( cfg->v__x86_cnc, FD_CNC_SIGNAL_HALT ); }
-  if( !!v__x86_enabled ) { FD_TEST( fd_cnc_wait( cfg->v__x86_cnc, FD_CNC_SIGNAL_HALT, (long)5e9, NULL )==FD_CNC_SIGNAL_BOOT ); }
-  if( !!v__x86_enabled ) { FD_LOG_NOTICE(( "successfully stopped x86"));  }
+  if( !!v_x86_enabled ) { fd_cnc_signal( cfg->v_x86_cnc, FD_CNC_SIGNAL_HALT ); }
+  if( !!v_x86_enabled ) { FD_TEST( fd_cnc_wait( cfg->v_x86_cnc, FD_CNC_SIGNAL_HALT, (long)5e9, NULL )==FD_CNC_SIGNAL_BOOT ); }
+  if( !!v_x86_enabled ) { FD_LOG_NOTICE(( "successfully stopped x86"));  }
 
   /* halt: vcheck (part 2) */
   if( !!vcheck_enabled ) { FD_LOG_NOTICE(( "successfully checked wiredancer vs x86 on %lu sigverify(s) (sig_ok %lu vs sig_err %lu, --rand_txn_corrupt %s)",
@@ -1210,13 +1270,13 @@ main( int     argc,
 
   if( !!replay_enabled ) { fd_cnc_close( cfg->replay_cnc ); }
   if( !!parser_enabled ) { fd_cnc_close( cfg->parser_cnc ); }
-  if( !!v__x86_enabled ) { fd_cnc_close( cfg->v__x86_cnc ); }
+  if( !!v_x86_enabled ) { fd_cnc_close( cfg->v_x86_cnc ); }
   if( !!vcheck_enabled ) { fd_cnc_close( cfg->vcheck_cnc ); }
 
   int ret;
   if( !!replay_enabled ) { FD_TEST( !fd_tile_exec_delete( replay_exec, &ret ) ); FD_TEST( !ret ); }
   if( !!parser_enabled ) { FD_TEST( !fd_tile_exec_delete( parser_exec, &ret ) ); FD_TEST( !ret ); }
-  if( !!v__x86_enabled ) { FD_TEST( !fd_tile_exec_delete( v__x86_exec, &ret ) ); FD_TEST( !ret ); }
+  if( !!v_x86_enabled ) { FD_TEST( !fd_tile_exec_delete( v_x86_exec, &ret ) ); FD_TEST( !ret ); }
   if( !!vcheck_enabled ) { FD_TEST( !fd_tile_exec_delete( vcheck_exec, &ret ) ); FD_TEST( !ret ); }
 
   FD_LOG_NOTICE(( "Cleaning up" ));
@@ -1228,9 +1288,9 @@ main( int     argc,
   if( !!replay_enabled ) { fd_wksp_free_laddr( fd_cnc_delete   ( fd_cnc_leave   ( cfg->replay_cnc     ) ) ); }
   if( !!parser_enabled ) { fd_wksp_free_laddr( fd_mcache_delete( fd_mcache_leave( cfg->parser_mcache  ) ) ); }
   if( !!parser_enabled ) { fd_wksp_free_laddr( fd_cnc_delete   ( fd_cnc_leave   ( cfg->parser_cnc     ) ) ); }
-  if( !!v__x86_enabled ) { fd_wksp_free_laddr( fd_cnc_delete   ( fd_cnc_leave   ( cfg->v__x86_cnc     ) ) ); }
-  if( !!v__x86_enabled ) { fd_wksp_free_laddr( fd_mcache_delete( fd_mcache_leave( cfg->v__x86_mcache  ) ) ); }
-  if( !!v___wd_enabled ) { fd_wksp_free_laddr( fd_mcache_delete( fd_mcache_leave( cfg->v___wd_mcache  ) ) ); }
+  if( !!v_x86_enabled ) { fd_wksp_free_laddr( fd_cnc_delete   ( fd_cnc_leave   ( cfg->v_x86_cnc     ) ) ); }
+  if( !!v_x86_enabled ) { fd_wksp_free_laddr( fd_mcache_delete( fd_mcache_leave( cfg->v_x86_mcache  ) ) ); }
+  if( !!v__wd_enabled ) { fd_wksp_free_laddr( fd_mcache_delete( fd_mcache_leave( cfg->v__wd_mcache  ) ) ); }
   if( !!vcheck_enabled ) { fd_wksp_free_laddr( fd_cnc_delete   ( fd_cnc_leave   ( cfg->vcheck_cnc     ) ) ); }
   
   fd_wksp_delete_anonymous( cfg->wksp );
