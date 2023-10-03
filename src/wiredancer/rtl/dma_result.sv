@@ -24,6 +24,9 @@ module dma_result #(
     output logic [N_PCIE-1:0][1-1:0]                    res_f,
     output logic [N_PCIE-1:0][1-1:0]                    res_p,
 
+    input wire [64-1:0]                                 priv_base,
+    input wire [64-1:0]                                 priv_mask,
+
     input wire [1-1:0]                                  send_fails,
 
     input wire clk,
@@ -42,8 +45,8 @@ generate
 
     for (genvar g_i = 0; g_i < N_PCIE; g_i ++) begin: P_IN
 
-        logic [1-1:0]                       ext_p_v;
-        pcie_meta_t                         ext_p_m;
+        logic [1-1:0]                       ext_p_v, ext_pp_v;
+        pcie_meta_t                         ext_p_m, ext_pp_m;
 
         logic [1-1:0]                       dma_m_v;
         logic [16-1:0]                      dma_m_ctrl;
@@ -71,18 +74,24 @@ generate
             .reset                      (rst)
         );
 
+        always_ff@(posedge clk) begin
+            ext_pp_v                    <= ext_p_v;
+            ext_pp_m                    <= ext_p_m;
+            ext_pp_m.dma_addr           <= (ext_p_m.dma_addr & priv_mask) + priv_base;
+        end
+
         showahead_fifo #(
-            .WIDTH                      ($bits({ext_p_m.sig_l[0+:64], ext_p_m.dma_chunk, ext_p_m.dma_seq, ext_p_m.dma_addr, ext_p_m.dma_ctrl, ext_p_m.dma_size})),
+            .WIDTH                      ($bits({ext_pp_m.sig_l[0+:64], ext_pp_m.dma_chunk, ext_pp_m.dma_seq, ext_pp_m.dma_addr, ext_pp_m.dma_ctrl, ext_pp_m.dma_size})),
             .DEPTH                      (512)
         ) dma_m_fifo_inst (
             .aclr                       (rst),
 
             .wr_clk                     (clk),
-            .wr_req                     (ext_p_v),
+            .wr_req                     (ext_pp_v),
             .wr_full                    (),
             .wr_full_b                  (),
             .wr_count                   (),
-            .wr_data                    ({ext_p_m.sig_l[0+:64], ext_p_m.dma_chunk, ext_p_m.dma_seq, ext_p_m.dma_addr, ext_p_m.dma_ctrl, ext_p_m.dma_size}),
+            .wr_data                    ({ext_pp_m.sig_l[0+:64], ext_pp_m.dma_chunk, ext_pp_m.dma_seq, ext_pp_m.dma_addr, ext_pp_m.dma_ctrl, ext_pp_m.dma_size}),
 
             .rd_clk                     (clk),
             .rd_req                     (dma_m_v & res_o_v & dma_p_r[g_i]),

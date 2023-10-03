@@ -352,36 +352,41 @@ DEQUE_(remove_all)( DEQUE_T * deque ) {
   return deque;
 }
 
-typedef ulong DEQUE_(iter_t);
+typedef struct { ulong rem; ulong idx; } DEQUE_(iter_t);
 
 static inline DEQUE_(iter_t)
 DEQUE_(iter_init)( DEQUE_T const * deque ) {
   DEQUE_(private_t) const * hdr = DEQUE_(private_const_hdr_from_deque)( deque );
-  return hdr->start;
+  DEQUE_(iter_t) iter;
+  iter.rem = hdr->cnt;
+  iter.idx = hdr->start;
+  return iter;
 }
 
 static inline int
 DEQUE_(iter_done)( DEQUE_T const * deque, DEQUE_(iter_t) iter ) {
-  DEQUE_(private_t) const * hdr = DEQUE_(private_const_hdr_from_deque)( deque );
-  return iter == hdr->end;
+  (void)deque;
+  return !iter.rem;
 }
 
 static inline DEQUE_(iter_t)
 DEQUE_(iter_next)( DEQUE_T const * deque, DEQUE_(iter_t) iter ) {
   DEQUE_(private_t) const * hdr = DEQUE_(private_const_hdr_from_deque)( deque );
-  return DEQUE_(private_next)( iter, hdr->max1 );
+  iter.rem--;
+  iter.idx = DEQUE_(private_next)( iter.idx, hdr->max1 );
+  return iter;
 }
 
 static inline DEQUE_T *
 DEQUE_(iter_ele)( DEQUE_T * deque, DEQUE_(iter_t) iter ) {
   DEQUE_(private_t) * hdr = DEQUE_(private_hdr_from_deque)( deque );
-  return hdr->deque + iter;
+  return hdr->deque + iter.idx;
 }
 
 static inline DEQUE_T const *
 DEQUE_(iter_ele_const)( DEQUE_T const * deque, DEQUE_(iter_t) iter ) {
   DEQUE_(private_t) const * hdr = DEQUE_(private_const_hdr_from_deque)( deque );
-  return hdr->deque + iter;
+  return hdr->deque + iter.idx;
 }
 
 FD_PROTOTYPES_END

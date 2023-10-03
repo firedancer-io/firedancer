@@ -5,9 +5,10 @@
 
 struct __attribute__((aligned(64))) fd_mux_tile_in {
   fd_frag_meta_t const * mcache;   /* local join to this in's mcache */
-  ulong                  depth;    /* == fd_mcache_depth( mcache ), depth of this in's cache (const) */
+  uint                   depth;    /* == fd_mcache_depth( mcache ), depth of this in's cache (const) */
+  uint                   idx;      /* index of this in in the list of providers, [0, in_cnt) */
   ulong                  seq;      /* sequence number of next frag expected from the upstream producer,
-                                      updated when frag from this in published/filtered */
+                                      updated when frag from this in is published / filtered */
   fd_frag_meta_t const * mline;    /* == mcache + fd_mcache_line_idx( seq, depth ), location to poll next */
   ulong *                fseq;     /* local join to the fseq used to return flow control credits the in */
   uint                   accum[6]; /* local diagnostic accumualtors.  These are drained during in housekeeping. */
@@ -63,12 +64,6 @@ fd_mux_tile_in_update( fd_mux_tile_in_t * in,
   accum[3] = 0U;              accum[4] = 0U;              accum[5] = 0U;
 }
 
-#define SCRATCH_ALLOC( a, s ) (__extension__({                    \
-    ulong _scratch_alloc = fd_ulong_align_up( scratch_top, (a) ); \
-    scratch_top = _scratch_alloc + (s);                           \
-    (void *)_scratch_alloc;                                       \
-  }))
-
 FD_STATIC_ASSERT( alignof(fd_mux_tile_in_t)<=FD_MUX_TILE_SCRATCH_ALIGN, packing );
 
 ulong
@@ -92,6 +87,8 @@ fd_mux_tile_scratch_footprint( ulong in_cnt,
 
 int
 fd_mux_tile( fd_cnc_t *              cnc,
+             ulong                   pid,
+             ulong                   flags,
              ulong                   in_cnt,
              fd_frag_meta_t const ** in_mcache,
              ulong **                in_fseq,
@@ -101,7 +98,9 @@ fd_mux_tile( fd_cnc_t *              cnc,
              ulong                   cr_max,
              long                    lazy,
              fd_rng_t *              rng,
-             void *                  scratch ) {
+             void *                  scratch,
+             void *                  ctx,
+             fd_mux_callbacks_t *    callbacks ) {
 
   /* cnc state */
   ulong * cnc_diag;           /* ==fd_cnc_app_laddr( cnc ), local address of the mux tile cnc diagnostic region */
@@ -121,15 +120,16 @@ fd_mux_tile( fd_cnc_t *              cnc,
 
   /* out flow control state */
   ulong          cr_avail; /* number of flow control credits available to publish downstream, in [0,cr_max] */
+  ulong          cr_filt;  /* number of filtered fragments we need to account for in the flow control state */
   ulong const ** out_fseq; /* out_fseq[out_idx] for out_idx in [0,out_cnt) is where to receive fctl credits from outs */
   ulong **       out_slow; /* out_slow[out_idx] for out_idx in [0,out_cnt) is where to accumulate slow events */
   ulong *        out_seq;  /* out_seq [out_idx] is the most recent observation of out_fseq[out_idx] */
 
   /* housekeeping state */
-  ulong      event_cnt; /* ==in_cnt+out_cnt+1, total number of housekeeping events */
-  ulong      event_seq; /* current position in housekeeping event sequence, in [0,event_cnt) */
-  ushort *   event_map; /* current mapping of event_seq to event idx, event_map[ event_seq ] is next event to process */
-  ulong      async_min; /* minimum number of ticks between processing a housekeeping event, positive integer power of 2 */
+  ulong    event_cnt; /* ==in_cnt+out_cnt+1, total number of housekeeping events */
+  ulong    event_seq; /* current position in housekeeping event sequence, in [0,event_cnt) */
+  ushort * event_map; /* current mapping of event_seq to event idx, event_map[ event_seq ] is next event to process */
+  ulong    async_min; /* minimum number of ticks between processing a housekeeping event, positive integer power of 2 */
 
   do {
 
@@ -156,6 +156,7 @@ fd_mux_tile( fd_cnc_t *              cnc,
     if( FD_UNLIKELY( fd_cnc_signal_query( cnc )!=FD_CNC_SIGNAL_BOOT ) ) { FD_LOG_WARNING(( "already booted" )); return 1; }
 
     cnc_diag = (ulong *)fd_cnc_app_laddr( cnc );
+    cnc_diag[FD_APP_CNC_DIAG_PID] = pid;
 
     /* in_backp==1, backp_cnt==0 indicates waiting for initial credits,
        cleared during first housekeeping if credits available */
@@ -171,6 +172,7 @@ fd_mux_tile( fd_cnc_t *              cnc,
 
     if( FD_UNLIKELY( !!in_cnt && !in_mcache ) ) { FD_LOG_WARNING(( "NULL in_mcache" )); return 1; }
     if( FD_UNLIKELY( !!in_cnt && !in_fseq   ) ) { FD_LOG_WARNING(( "NULL in_fseq"   )); return 1; }
+    if( FD_UNLIKELY( in_cnt > UINT_MAX ) ) { FD_LOG_WARNING(( "in_cnt too large" )); return 1; }
     for( ulong in_idx=0UL; in_idx<in_cnt; in_idx++ ) {
 
       /* FIXME: CONSIDER NULL OR EMPTY CSTR IN_FCTL[ IN_IDX ] TO SPECIFY
@@ -184,9 +186,12 @@ fd_mux_tile( fd_cnc_t *              cnc,
       this_in->fseq   = in_fseq  [ in_idx ];
       ulong const * this_in_sync = fd_mcache_seq_laddr_const( this_in->mcache );
 
-      this_in->depth  = fd_mcache_depth( this_in->mcache ); min_in_depth = fd_ulong_min( min_in_depth, this_in->depth );
-      this_in->seq    = fd_mcache_seq_query( this_in_sync ); /* FIXME: ALLOW OPTION FOR MANUAL SPECIFICATION? */
-      this_in->mline  = this_in->mcache + fd_mcache_line_idx( this_in->seq, this_in->depth );
+      ulong depth    = fd_mcache_depth( this_in->mcache ); min_in_depth = fd_ulong_min( min_in_depth, depth );
+      if( FD_UNLIKELY( depth > UINT_MAX ) ) { FD_LOG_WARNING(( "in_mcache[%lu] too deep", in_idx )); return 1; }
+      this_in->depth = (uint)depth;
+      this_in->idx   = (uint)in_idx;
+      this_in->seq   = fd_mcache_seq_query( this_in_sync ); /* FIXME: ALLOW OPTION FOR MANUAL SPECIFICATION? */
+      this_in->mline = this_in->mcache + fd_mcache_line_idx( this_in->seq, this_in->depth );
 
       this_in->accum[0] = 0U; this_in->accum[1] = 0U; this_in->accum[2] = 0U;
       this_in->accum[3] = 0U; this_in->accum[4] = 0U; this_in->accum[5] = 0U;
@@ -205,23 +210,25 @@ fd_mux_tile( fd_cnc_t *              cnc,
 
     /* Since cr_avail is decremented everytime a frag is exposed to the
        outs by the mux, exposed_cnt=cr_max-cr_avail is the number frags
-       that are currently exposed.  Exposed frags can be arbitrarily
-       distributed over all ins and, in the worst case, could all be
-       from just one particular in.
+       that are currently exposed.  Similarly there might be up to
+       cr_filt duplicate frags that were filtered.  Exposed frags can be
+       arbitrarily distributed over all ins and, in the worst case,
+       could all be from just one particular in.
 
        When the mux sends flow control credits to an in, the mux
        decrements the actual mux's position in sequence space by this
        upper bound.  This guarantees, even in the worst case (all frags
-       exposed downstream came from the smallest depth in), the ins will
-       never overrun any outs.  It also means that the mux tile doesn't
-       have to keep track of how exposed frags are distributed over the
-       ins (simplifying the implementation and increasing performance).
+       exposed downstream and filtered came from the smallest depth in),
+       the ins will never overrun any outs.  It also means that the mux
+       tile doesn't have to keep track of how these frags are
+       distributed over the ins (simplifying the implementation and
+       increasing performance).
 
        This also implies that cr_max must be at most
-       min(in_mcache[*].depth) such that the mux cannot never expose
-       more frags from an in than the in itself can cache.  It also
-       can't be larger than depth such that at most_depth frags will
-       ever be exposed to outs.
+       min(in_mcache[*].depth) such that the mux cannot expose a frag
+       from further back than the in itself can cache.  It also can't be
+       larger than depth such that at most_depth frags will ever be
+       exposed to outs.
 
        This further implies that the mux should continuously replenish
        its credits from the outs whenever it has less than cr_max
@@ -256,7 +263,7 @@ fd_mux_tile( fd_cnc_t *              cnc,
        Note that:
 
          mux_in_seq = in_seq - mux_lag
-         
+
        where mux lag is the number of frags behind the mux is from the
        in and, because of in<>mux flow control, this is in
        [0,in_cr_max].  Simplifying, we need to insure:
@@ -272,14 +279,16 @@ fd_mux_tile( fd_cnc_t *              cnc,
        in_cr_max is positive though, this can never be true.
 
        With continuous replenishing, exposed_cnt will always improve as
-       the outs make progress and this improvement will then always be
-       reflected all the way to all the ins, preventing deadlock /
-       livelock situations.  (Note this also handles the situation where
-       mux_lag==in_cr_max as, when exposed count improves, it will make
-       credits available for publication that the mux can use because it
-       will see there are fragments ready for publication in the in's
-       mcache given the positive mux_lag and will advance mux_in_seq
-       accordingly when it publishes them).
+       the outs make progress and filt_cnt can always be cleared
+       whenever exposed_cnt gets to 0.  This improvement will then
+       always be reflected all the way to all the ins, preventing
+       deadlock / livelock situations.  (Note this also handles the
+       situation like mux_lag==in_cr_max and cr_filt==0 as, when exposed
+       count improves, it will make credits available for publication
+       that the mux can use because it will see there are fragments
+       ready for publication in the in's mcache given the positive
+       mux_lag and will advance mux_in_seq accordingly when it publishes
+       them).
 
        Since we need to continuously replenish our credits when all the
        outs aren't full caught up and we want to optimize for the common
@@ -304,6 +313,7 @@ fd_mux_tile( fd_cnc_t *              cnc,
     }
 
     cr_avail = 0UL; /* Will be initialized by run loop */
+    cr_filt  = 0UL;
 
     out_fseq = (ulong const **)SCRATCH_ALLOC( alignof(ulong const *), out_cnt*sizeof(ulong const *) );
     out_slow = (ulong **)      SCRATCH_ALLOC( alignof(ulong *),       out_cnt*sizeof(ulong *)       );
@@ -322,9 +332,9 @@ fd_mux_tile( fd_cnc_t *              cnc,
     if( lazy<=0L ) lazy = fd_tempo_lazy_default( cr_max );
     FD_LOG_INFO(( "Configuring housekeeping (lazy %li ns)", lazy ));
 
-    /* Initialize the initial housekeeping event sequence to immediately
-       update cr_avail on the first run loop iteration and then update
-       all the ins accordingly. */
+    /* Initialize the initial event sequence to immediately update
+       cr_avail on the first run loop iteration and then update all the
+       ins accordingly. */
 
     event_cnt = in_cnt + 1UL + out_cnt;
     event_map = (ushort *)SCRATCH_ALLOC( alignof(ushort), event_cnt*sizeof(ushort) );
@@ -366,13 +376,19 @@ fd_mux_tile( fd_cnc_t *              cnc,
         ulong in_idx = event_idx - out_cnt - 1UL;
 
         /* Send flow control credits and drain flow control diagnostics
-           for this in.  Note that there are at most cr_max-cr_avail
-           frags exposed downstream.  We don't know how this is
-           distributed so we conservatively assume they are all from
-           this in.  FIXME: COULD DO A NUMBER OF TRICKS FOR AN EVEN
-           TIGHTER BOUND HERE (E.G. EXPLICITLY TRACKING THE NUMBER OF
-           FRAGS EXPOSED PER UPSTREAM CONSUMER FOR EXAMPLE). */
-        fd_mux_tile_in_update( &in[ in_idx ], cr_max-cr_avail );
+           for in_idx.  At this point, there are at most
+           exposed_cnt=cr_max-cr_avail frags exposed to reliable
+           consumers mixed with up to cr_filt frags that got filtered by
+           the mux.  We don't know how these frags were distributed
+           across all ins but, in the worst case, they all might have
+           come from the this in.  The sequence number of the oldest
+           exposed frag then is at least cr_max-cr_avail+cr_filt before
+           the next sequence number the mux expects to receive from
+           that in (e.g. the mux might have received cr_max-cr_avail
+           exposed frags first followed by cr_filt frags that got
+           filtered). */
+
+        fd_mux_tile_in_update( &in[ in_idx ], cr_max - cr_avail + cr_filt );
 
       } else { /* event_idx==out_cnt, housekeeping event */
 
@@ -387,9 +403,11 @@ fd_mux_tile( fd_cnc_t *              cnc,
            of execution. */
         fd_cnc_heartbeat( cnc, now );
         FD_COMPILER_MFENCE();
+        if( FD_LIKELY( callbacks->cnc_diag_write ) ) callbacks->cnc_diag_write( ctx, cnc_diag );
         cnc_diag[ FD_CNC_DIAG_IN_BACKP  ]  = cnc_diag_in_backp;
         cnc_diag[ FD_CNC_DIAG_BACKP_CNT ] += cnc_diag_backp_cnt;
         FD_COMPILER_MFENCE();
+        if( FD_LIKELY( callbacks->cnc_diag_clear ) ) callbacks->cnc_diag_clear( ctx );
         cnc_diag_backp_cnt = 0UL;
 
         /* Receive command-and-control signals */
@@ -412,13 +430,21 @@ fd_mux_tile( fd_cnc_t *              cnc,
             slowest_out = fd_ulong_if( out_cr_avail<cr_avail, out_idx, slowest_out );
             cr_avail    = fd_ulong_min( out_cr_avail, cr_avail );
           }
-          /* See notes abve about use of quasi-atomic diagnostic accum */
+          /* See notes above about use of quasi-atomic diagnostic accum */
           if( FD_LIKELY( slowest_out!=ULONG_MAX ) ) {
             FD_COMPILER_MFENCE();
             out_slow[ slowest_out ]++;
             FD_COMPILER_MFENCE();
           }
+
+          /* If we are fully caught up, we know the cr_filt filter frags
+             aren't interspersed with any exposed frags downstream so we
+             reset the cr_filt counter. */
+          cr_filt = fd_ulong_if( cr_avail==cr_max, 0UL, cr_filt );
         }
+
+        /* user callback */
+        if( FD_UNLIKELY( callbacks->during_housekeeping ) ) callbacks->during_housekeeping( ctx );
       }
 
       /* Select which event to do next (randomized round robin) and
@@ -442,26 +468,37 @@ fd_mux_tile( fd_cnc_t *              cnc,
            correlated order frag origins from different inputs
            downstream at extreme fan in and extreme in load. */
 
-        swap_idx = (ulong)fd_rng_uint_roll( rng, (uint)in_cnt );
-        fd_mux_tile_in_t in_tmp;
-        in_tmp         = in[ swap_idx ];
-        in[ swap_idx ] = in[ 0        ];
-        in[ 0        ] = in_tmp;
+        if( FD_LIKELY( in_cnt>1UL ) ) {
+          swap_idx = (ulong)fd_rng_uint_roll( rng, (uint)in_cnt );
+          fd_mux_tile_in_t in_tmp;
+          in_tmp         = in[ swap_idx ];
+          in[ swap_idx ] = in[ 0        ];
+          in[ 0        ] = in_tmp;
+        }
       }
 
       /* Reload housekeeping timer */
       then = now + (long)fd_tempo_async_reload( rng, async_min );
     }
 
+    fd_mux_context_t mux = {
+      .mcache = mcache,
+      .depth = depth,
+      .cr_avail = &cr_avail,
+      .seq = &seq,
+    };
+
+    if( FD_LIKELY( callbacks->before_credit ) ) callbacks->before_credit( ctx, &mux );
+
     /* Check if we are backpressured.  If so, count any transition into
        a backpressured regime and spin to wait for flow control credits
        to return.  We don't do a fully atomic update here as it is only
-       diagnostic and it will still be correct the usual case where
+       diagnostic and it will still be correct in the usual case where
        individual diagnostic counters aren't used by writers in
        different threads of execution.  We only count the transition
        from not backpressured to backpressured. */
 
-    if( FD_UNLIKELY( !cr_avail ) ) {
+    if( FD_UNLIKELY( cr_avail<=cr_filt ) ) {
       cnc_diag_backp_cnt += (ulong)!cnc_diag_in_backp;
       cnc_diag_in_backp   = 1UL;
       FD_SPIN_PAUSE();
@@ -469,6 +506,8 @@ fd_mux_tile( fd_cnc_t *              cnc,
       continue;
     }
     cnc_diag_in_backp = 0UL;
+
+    if( FD_LIKELY( callbacks->after_credit ) ) callbacks->after_credit( ctx, &mux );
 
     /* Select which in to poll next (randomized round robin) */
 
@@ -482,9 +521,8 @@ fd_mux_tile( fd_cnc_t *              cnc,
     ulong                  this_in_seq   = this_in->seq;
     fd_frag_meta_t const * this_in_mline = this_in->mline; /* Already at appropriate line for this_in_seq */
 
-    FD_COMPILER_MFENCE();
-    ulong seq_found = this_in_mline->seq;
-    FD_COMPILER_MFENCE();
+    __m128i seq_sig = fd_frag_meta_seq_sig_query( this_in_mline );
+    ulong seq_found = fd_frag_meta_sse0_seq( seq_sig );
 
     long diff = fd_seq_diff( this_in_seq, seq_found );
     if( FD_UNLIKELY( diff ) ) { /* Caught up or overrun, optimize for new frag case */
@@ -497,17 +535,29 @@ fd_mux_tile( fd_cnc_t *              cnc,
       continue;
     }
 
-    /* We have a new fragment to mux.  Try to load it.  This attempt
-       should always be successful if in producers are honoring our flow
-       control.  Since we can cheaply detect if there are
-       misconfigurations (should be an L1 cache hit / predictable branch
-       in the properly configured case), we do so anyway.  Note that if
-       we are on a platform where AVX is atomic, this could be replaced
-       by a flat AVX load of the metadata and an extraction of the found
-       sequence number for higher performance. */
+    ulong sig = fd_frag_meta_sse0_sig( seq_sig );
+    if( FD_UNLIKELY( callbacks->before_frag ) ) {
+      int filter = 0;
+      callbacks->before_frag( ctx, (ulong)this_in->idx, seq_found, sig, &filter );
+      if( FD_UNLIKELY( filter ) ) {
+        if( FD_UNLIKELY( !(flags & FD_MUX_FLAG_COPY) ) ) cr_filt += (ulong)(cr_avail<cr_max);
+        this_in_seq    = fd_seq_inc( this_in_seq, 1UL );
+        this_in->seq   = this_in_seq;
+        this_in->mline = this_in->mcache + fd_mcache_line_idx( this_in_seq, this_in->depth );
+        now = fd_tickcount();
+        continue;
+      }
+    }
 
+    /* We have a new fragment to mux.  Try to load it.  This attempt
+      should always be successful if in producers are honoring our flow
+      control.  Since we can cheaply detect if there are
+      misconfigurations (should be an L1 cache hit / predictable branch
+      in the properly configured case), we do so anyway.  Note that if
+      we are on a platform where AVX is atomic, this could be replaced
+      by a flat AVX load of the metadata and an extraction of the found
+      sequence number for higher performance. */
     FD_COMPILER_MFENCE();
-    ulong sig      =        this_in_mline->sig;
     ulong chunk    = (ulong)this_in_mline->chunk;
     ulong sz       = (ulong)this_in_mline->sz;
     ulong ctl      = (ulong)this_in_mline->ctl;
@@ -515,6 +565,9 @@ fd_mux_tile( fd_cnc_t *              cnc,
     FD_COMPILER_MFENCE();
     ulong seq_test =        this_in_mline->seq;
     FD_COMPILER_MFENCE();
+
+    int filter = 0;
+    if( FD_LIKELY( callbacks->during_frag ) ) callbacks->during_frag( ctx, (ulong)this_in->idx, sig, chunk, sz, &filter );
 
     if( FD_UNLIKELY( fd_seq_ne( seq_test, seq_found ) ) ) { /* Overrun while reading (impossible if this_in honoring our fctl) */
       this_in->seq = seq_test; /* Resume from here (probably reasonably current, could query in mcache sync instead) */
@@ -524,18 +577,29 @@ fd_mux_tile( fd_cnc_t *              cnc,
       continue;
     }
 
-    /* We have successfully loaded the metadata.  Decide whether it
-       is interesting downstream.  If so, publish it. */
+    if( FD_LIKELY( !filter ) ) {
+      /* We have successfully loaded the metadata.  Decide whether it
+          is interesting downstream and publish or filter accordingly. */
 
-    ulong should_filter = 0UL; /* FIXME: FILTERING LOGIC HERE */
+      if( FD_LIKELY( callbacks->after_frag ) ) callbacks->after_frag( ctx, &sig, &chunk, &sz, &filter );
+    }
 
-    if( FD_UNLIKELY( should_filter ) ) now = fd_tickcount(); /* Optimize for forwarding path */
-    else {
-      now = fd_tickcount();
+    now = fd_tickcount();
+    if( FD_UNLIKELY( filter ) ) {
+      /* If there are any frags from this in that are currently exposed
+         downstream, this frag needs to be taken into acount in the flow
+         control info we send to this in (see note above).  Since we do
+         not track the distribution of the source of exposed frags (or
+         how filtered frags might be interspersed with them), we do not
+         know this exactly.  But we do not need to for flow control
+         purposes.  If cr_avail==cr_max, we are guaranteed nothing is
+         exposed at all from this in (because nothing is exposed from
+         any in).  If cr_avail<cr_max, we assume the worst (that all
+         exposed_frags are from this in) and increment cr_filt. */
+      if( FD_UNLIKELY( !(flags & FD_MUX_FLAG_COPY) ) ) cr_filt += (ulong)(cr_avail<cr_max);
+    } else if( FD_LIKELY( !(flags & FD_MUX_FLAG_MANUAL_PUBLISH ) ) ) {
       ulong tspub = (ulong)fd_frag_meta_ts_comp( now );
-      fd_mcache_publish( mcache, depth, seq, sig, chunk, sz, ctl, tsorig, tspub );
-      cr_avail--;
-      seq = fd_seq_inc( seq, 1UL );
+      fd_mux_publish( &mux, sig, chunk, sz, ctl, tsorig, tspub );
     }
 
     /* Windup for the next in poll and accumulate diagnostics */
@@ -544,7 +608,7 @@ fd_mux_tile( fd_cnc_t *              cnc,
     this_in->seq   = this_in_seq;
     this_in->mline = this_in->mcache + fd_mcache_line_idx( this_in_seq, this_in->depth );
 
-    ulong diag_idx = FD_FSEQ_DIAG_PUB_CNT + should_filter*2UL;
+    ulong diag_idx = FD_FSEQ_DIAG_PUB_CNT + 2UL*(ulong)filter;
     this_in->accum[ diag_idx     ]++;
     this_in->accum[ diag_idx+1UL ] += (uint)sz;
   }
@@ -565,6 +629,19 @@ fd_mux_tile( fd_cnc_t *              cnc,
   } while(0);
 
   return 0;
+}
+
+void
+fd_mux_publish( fd_mux_context_t * ctx,
+                ulong              sig,
+                ulong              chunk,
+                ulong              sz,
+                ulong              ctl,
+                ulong              tsorig,
+                ulong              tspub ) {
+  fd_mcache_publish( ctx->mcache, ctx->depth, *ctx->seq, sig, chunk, sz, ctl, tsorig, tspub );
+  (*ctx->cr_avail)--;
+  *ctx->seq = fd_seq_inc( *ctx->seq, 1UL );
 }
 
 #undef SCRATCH_ALLOC

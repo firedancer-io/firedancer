@@ -271,7 +271,9 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_meta_t* m, const void
   /* Get current leader */
   ulong slot_rel;
   fd_slot_to_epoch( &global->bank.epoch_schedule, m->slot, &slot_rel );
-  global->leader = fd_epoch_leaders_get( global->leaders, slot_rel/FD_EPOCH_SLOTS_PER_ROTATION );
+  global->leader = fd_epoch_leaders_get( global->leaders, m->slot );
+  if (NULL == global->leader )
+    FD_TEST( NULL != global->leader );
   FD_LOG_NOTICE(( "executing block - slot: %lu leader: %32J", m->slot, global->leader->key ));
 
   // let (fee_rate_governor, fee_components_time_us) = measure_us!(
@@ -310,9 +312,9 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_meta_t* m, const void
         uchar txn_out[FD_TXN_MAX_SZ];
         ulong pay_sz = 0;
         const uchar* raw = (const uchar *)block + blockoff;
-        ulong txn_sz = fd_txn_parse_core(raw, fd_ulong_min(blocklen - blockoff, USHORT_MAX), txn_out, NULL, &pay_sz, 0);
-        if ( txn_sz == 0 || txn_sz > FD_TXN_MAX_SZ ) {
-          txn_sz = fd_txn_parse_core(raw, fd_ulong_min(blocklen - blockoff, USHORT_MAX), txn_out, NULL, &pay_sz, 0);
+        ulong txn_sz = fd_txn_parse_core(raw, fd_ulong_min(blocklen - blockoff, FD_TXN_MTU), txn_out, NULL, &pay_sz, 0);
+        if ( txn_sz == 0 || txn_sz > FD_TXN_MTU ) {
+          txn_sz = fd_txn_parse_core(raw, fd_ulong_min(blocklen - blockoff, FD_TXN_MTU), txn_out, NULL, &pay_sz, 0);
           FD_LOG_ERR(("failed to parse transaction -  slot: %lu, txn_idx_in_block: %lu, mblk: %lu, txn_idx: %lu", global->bank.slot, txn_idx_in_block, mblk, txn_idx));
         }
 
@@ -403,7 +405,7 @@ fd_runtime_block_verify( fd_global_ctx_t * global,
   fd_txn_parse_counters_t counters;
   fd_memset(&counters, 0, sizeof(counters));
 
-  uchar commit_mem[FD_BMTREE32_COMMIT_FOOTPRINT] __attribute__((aligned(FD_BMTREE32_COMMIT_ALIGN)));
+  fd_bmtree_commit_t commit_mem[1];
 
   /* Loop across batches */
   ulong blockoff = 0;
@@ -427,7 +429,7 @@ fd_runtime_block_verify( fd_global_ctx_t * global,
         if (hdr->hash_cnt > 0)
           fd_poh_append(&global->bank.poh, hdr->hash_cnt - 1);
 
-        fd_bmtree32_commit_t * tree = fd_bmtree32_commit_init( commit_mem );
+        fd_bmtree_commit_t * tree = fd_bmtree_commit_init( commit_mem, 32UL, 1UL, 0UL );
 
         /* Loop across transactions */
         for ( ulong txn_idx = 0; txn_idx < hdr->txn_cnt; txn_idx++ ) {
@@ -440,15 +442,15 @@ fd_runtime_block_verify( fd_global_ctx_t * global,
           /* Loop across signatures */
           fd_ed25519_sig_t const * sigs = (fd_ed25519_sig_t const *)((ulong)raw + (ulong)xray.signature_off);
           for ( ulong j = 0; j < xray.signature_cnt; j++ ) {
-            fd_bmtree32_node_t leaf;
-            fd_bmtree32_hash_leaf( &leaf, &sigs[j], sizeof(fd_ed25519_sig_t) );
-            fd_bmtree32_commit_append( tree, (fd_bmtree32_node_t const *)&leaf, 1 );
+            fd_bmtree_node_t leaf;
+            fd_bmtree_hash_leaf( &leaf, &sigs[j], sizeof(fd_ed25519_sig_t) , 1);
+            fd_bmtree_commit_append( tree, (fd_bmtree_node_t const *)&leaf, 1 );
           }
 
           blockoff += pay_sz;
         }
 
-        uchar * root = fd_bmtree32_commit_fini( tree );
+        uchar * root = fd_bmtree_commit_fini( tree );
         fd_poh_mixin(&global->bank.poh, root);
       }
 
@@ -500,8 +502,9 @@ static void fd_runtime_block_verify_task( void * tpool,
     if (hdr->hash_cnt > 0)
       fd_poh_append(&micro->poh, hdr->hash_cnt - 1);
 
-    uchar commit_mem[FD_BMTREE32_COMMIT_FOOTPRINT] __attribute__((aligned(FD_BMTREE32_COMMIT_ALIGN)));
-    fd_bmtree32_commit_t * tree = fd_bmtree32_commit_init( commit_mem );
+    fd_bmtree_commit_t commit_mem[1];
+
+    fd_bmtree_commit_t * tree = fd_bmtree_commit_init( commit_mem, 32UL, 1UL, 0UL );
 
     /* Loop across transactions */
     for ( ulong txn_idx = 0; txn_idx < hdr->txn_cnt; txn_idx++ ) {
@@ -516,15 +519,15 @@ static void fd_runtime_block_verify_task( void * tpool,
       /* Loop across signatures */
       fd_ed25519_sig_t const * sigs = (fd_ed25519_sig_t const *)((ulong)raw + (ulong)xray.signature_off);
       for ( ulong j = 0; j < xray.signature_cnt; j++ ) {
-        fd_bmtree32_node_t leaf;
-        fd_bmtree32_hash_leaf( &leaf, &sigs[j], sizeof(fd_ed25519_sig_t) );
-        fd_bmtree32_commit_append( tree, (fd_bmtree32_node_t const *)&leaf, 1 );
+        fd_bmtree_node_t leaf;
+        fd_bmtree_hash_leaf( &leaf, &sigs[j], sizeof(fd_ed25519_sig_t), 1 );
+        fd_bmtree_commit_append( tree, (fd_bmtree_node_t const *)&leaf, 1 );
       }
 
       blockoff += pay_sz;
     }
 
-    uchar * root = fd_bmtree32_commit_fini( tree );
+    uchar * root = fd_bmtree_commit_fini( tree );
     fd_poh_mixin(&micro->poh, root);
   }
 
@@ -770,7 +773,7 @@ fd_runtime_calculate_fee( fd_global_ctx_t *     global,
 //            let write_lock_fee = Self::get_num_write_locks_in_message(message)
 //                .saturating_mul(fee_structure.lamports_per_write_lock);
   ulong lamports_per_write_lock = 0;
-  double write_lock_fee = (double)fd_ulong_sat_mul( fd_txn_num_writable_accounts( txn_descriptor ), lamports_per_write_lock );
+  double write_lock_fee = (double)fd_ulong_sat_mul( fd_txn_account_cnt( txn_descriptor, FD_TXN_ACCT_CAT_WRITABLE ), lamports_per_write_lock );
 
 // TODO: the fee_structure bin is static and default..
 //
@@ -1656,6 +1659,55 @@ fd_features_restore( fd_global_ctx_t * global ) {
   }
 }
 
+void fd_runtime_update_leaders( fd_global_ctx_t * global, ulong slot) {
+  FD_SCRATCH_SCOPED_FRAME;
+
+  fd_epoch_schedule_t schedule;
+  fd_sysvar_epoch_schedule_read( global, &schedule );
+  FD_LOG_INFO(( "schedule->slots_per_epoch = %lu", schedule.slots_per_epoch ));
+  FD_LOG_INFO(( "schedule->leader_schedule_slot_offset = %lu", schedule.leader_schedule_slot_offset ));
+  FD_LOG_INFO(( "schedule->warmup = %d", schedule.warmup ));
+  FD_LOG_INFO(( "schedule->first_normal_epoch = %lu", schedule.first_normal_epoch ));
+  FD_LOG_INFO(( "schedule->first_normal_slot = %lu", schedule.first_normal_slot ));
+
+  fd_vote_accounts_t const * epoch_vaccs = &global->bank.epoch_stakes;
+
+  ulong epoch           = fd_slot_to_epoch( &schedule, slot, NULL );
+  ulong slot0           = fd_epoch_slot0   ( &schedule, epoch );
+  ulong slot_cnt        = fd_epoch_slot_cnt( &schedule, epoch );
+
+  FD_LOG_INFO(( "starting rent list init" ));
+  if (NULL != global->rentlists)
+    fd_rent_lists_delete(global->rentlists);
+  global->rentlists = fd_rent_lists_new(fd_epoch_slot_cnt( &schedule, epoch ));
+  fd_funk_set_notify(global->funk, fd_rent_lists_cb, global->rentlists);
+  fd_rent_lists_startup_done_tpool(global->rentlists, global->tpool, global->max_workers);
+  FD_LOG_INFO(( "rent list init done" ));
+
+  ulong vote_acc_cnt = fd_vote_accounts_pair_t_map_size( epoch_vaccs->vote_accounts_pool, epoch_vaccs->vote_accounts_root );
+  fd_stake_weight_t * epoch_weights = fd_scratch_alloc( alignof(fd_stake_weight_t), vote_acc_cnt * sizeof(fd_stake_weight_t) );
+  if( FD_UNLIKELY( !epoch_weights ) ) FD_LOG_ERR(( "fd_scratch_alloc() failed" ));
+
+  ulong stake_weight_cnt = fd_stake_weights_by_node( epoch_vaccs, epoch_weights );
+
+  if( FD_UNLIKELY( stake_weight_cnt==ULONG_MAX ) ) FD_LOG_ERR(( "fd_stake_weights_by_node() failed" ));
+
+  /* Derive leader schedule */
+
+  FD_LOG_INFO(( "stake_weight_cnt=%lu slot_cnt=%lu", stake_weight_cnt, slot_cnt ));
+  ulong epoch_leaders_footprint = fd_epoch_leaders_footprint( stake_weight_cnt, slot_cnt );
+  FD_LOG_INFO(( "epoch_leaders_footprint=%lu", epoch_leaders_footprint ));
+  if( FD_LIKELY( epoch_leaders_footprint ) ) {
+    void * epoch_leaders_mem = fd_valloc_malloc(global->valloc, fd_epoch_leaders_align(), epoch_leaders_footprint );
+    if (NULL != global->leaders)
+      fd_valloc_free(global->valloc, global->leaders);
+    global->leaders = fd_epoch_leaders_join( fd_epoch_leaders_new( epoch_leaders_mem, epoch, slot0,  slot_cnt, stake_weight_cnt, epoch_weights ) );
+    FD_TEST( global->leaders );
+    /* Derive */
+    fd_epoch_leaders_derive( global->leaders, epoch_weights, epoch );
+  }
+}
+
 /* process for the start of a new epoch */
 void
 fd_process_new_epoch(
@@ -1679,6 +1731,12 @@ fd_process_new_epoch(
   // (We might not implement this part)
   /* Save a snapshot of stakes for use in consensus and stake weighted networking
   let leader_schedule_epoch = self.epoch_schedule.get_leader_schedule_epoch(slot);
+
+  */
+
+  fd_runtime_update_leaders(global, global->bank.slot);
+
+      /*
   let (_, update_epoch_stakes_time) = measure!(
            self.update_epoch_stakes(leader_schedule_epoch),
            "update_epoch_stakes",

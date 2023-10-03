@@ -12,24 +12,28 @@
 /* Maximum size of the string describing the CPU affinity of Firedancer */
 #define AFFINITY_SZ 256
 
+typedef enum {
+  wksp_netmux_inout,
+  wksp_quic_verify,
+  wksp_verify_dedup,
+  wksp_dedup_pack,
+  wksp_pack_bank,
+  wksp_bank_shred,
+  wksp_net,
+  wksp_netmux,
+  wksp_quic,
+  wksp_verify,
+  wksp_dedup,
+  wksp_pack,
+  wksp_bank,
+} workspace_kind_t;
+
+FD_FN_CONST char *
+workspace_kind_str( workspace_kind_t kind );
+
 typedef struct {
-  enum {
-    wksp_tpu_txn_data,
-    wksp_quic_verify,
-    wksp_verify_dedup,
-    wksp_dedup_pack,
-    wksp_pack_bank,
-    wksp_pack_forward,
-    wksp_bank_shred,
-    wksp_quic,
-    wksp_verify,
-    wksp_dedup,
-    wksp_pack,
-    wksp_bank,
-    wksp_forward,
-  } kind;
+  workspace_kind_t kind;
   char * name;
-  ulong kind_idx;
   ulong page_size;
   ulong num_pages;
 } workspace_config_t;
@@ -59,6 +63,8 @@ typedef struct {
     char  account_indexes[ 4 ][ 32 ];
     ulong account_index_exclude_keys_cnt;
     char  account_index_exclude_keys[ 32 ][ 32 ];
+    int   require_tower;
+    char  snapshot_archive_format[ 10 ];
   } ledger;
 
   struct {
@@ -84,6 +90,7 @@ typedef struct {
     uint   hard_fork_at_slots[ 32 ];
     ulong  known_validators_cnt;
     char   known_validators[ 16 ][ 256 ];
+    int    os_network_limits_test;
   } consensus;
 
   struct {
@@ -100,6 +107,7 @@ typedef struct {
 
   struct {
     char affinity[ AFFINITY_SZ ];
+    uint net_tile_count;
     uint verify_tile_count;
     uint bank_tile_count;
   } layout;
@@ -114,7 +122,6 @@ typedef struct {
 
   struct {
     int sandbox;
-    int sudo;
     struct {
       int  enabled;
       char interface0     [ 256 ];
@@ -131,19 +138,25 @@ typedef struct {
       char   interface[ IF_NAMESIZE ];
       uint   ip_addr;
       uchar  mac_addr[6];
-      ushort transaction_listen_port;
-      ushort quic_transaction_listen_port;
       char   xdp_mode[ 8 ];
 
+      uint xdp_rx_queue_size;
+      uint xdp_tx_queue_size;
+      uint xdp_aio_depth;
+
+      uint send_buffer_size;
+    } net;
+
+    struct {
+      ushort transaction_listen_port;
+      ushort quic_transaction_listen_port;
+
       uint max_concurrent_connections;
-      uint max_concurrent_connection_ids_per_connection;
       uint max_concurrent_streams_per_connection;
       uint max_concurrent_handshakes;
       uint max_inflight_quic_packets;
       uint tx_buf_size;
-      uint xdp_rx_queue_size;
-      uint xdp_tx_queue_size;
-      uint xdp_aio_depth;
+
     } quic;
 
     struct {
@@ -158,10 +171,6 @@ typedef struct {
     struct {
       uint receive_buffer_size;
     } bank;
-
-    struct {
-      uint receive_buffer_size;
-    } forward;
 
     struct {
       uint signature_cache_size;

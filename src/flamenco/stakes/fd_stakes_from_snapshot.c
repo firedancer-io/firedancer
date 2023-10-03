@@ -127,7 +127,7 @@ action_leaders( fd_solana_manifest_t const * manifest,
   ulong sched_cnt = slot_cnt/FD_EPOCH_SLOTS_PER_ROTATION;
 
   void * leaders_mem = fd_scratch_alloc( fd_epoch_leaders_align(), fd_epoch_leaders_footprint( weight_cnt, sched_cnt ) );
-         leaders_mem = fd_epoch_leaders_new( leaders_mem, weight_cnt, sched_cnt );
+         leaders_mem = fd_epoch_leaders_new( leaders_mem, epoch, slot0, slot_cnt, weight_cnt, weights );
   fd_epoch_leaders_t * leaders = fd_epoch_leaders_join( leaders_mem );
   FD_TEST( leaders );
 
@@ -135,7 +135,7 @@ action_leaders( fd_solana_manifest_t const * manifest,
 
   ulong slot = slot0;
   for( ulong i=0; i<sched_cnt; i++ ) {
-    fd_pubkey_t const * leader = fd_epoch_leaders_get( leaders, i );
+    fd_pubkey_t const * leader = fd_epoch_leaders_get( leaders, slot );
     char keyB58[ FD_BASE58_ENCODED_32_SZ ];
     fd_base58_encode_32( leader->key, NULL, keyB58 );
     for( ulong j=0; j<FD_EPOCH_SLOTS_PER_ROTATION; j++ ) {

@@ -399,7 +399,9 @@ fd_txn_get_recent_blockhash( fd_txn_t const * txn,
   return (uchar const *)((ulong)payload + (ulong)txn->recent_blockhash_off);
 }
 
-/* fd_txn_align is provided for convenience. */
+/* fd_txn_align returns the alignment in bytes required of a region of
+   memory to be used as a fd_txn_t.  It is the same as
+   alignof(fd_txn_t). */
 static inline ulong
 fd_txn_align( void ) {
   return alignof(fd_txn_t);
@@ -687,11 +689,6 @@ fd_txn_is_writable( fd_txn_t const * txn, int idx ) {
 static inline int
 fd_txn_is_signer( fd_txn_t const * txn, int idx ) {
   return idx < txn->signature_cnt;
-}
-
-static inline ulong fd_txn_num_writable_accounts( fd_txn_t * txn ) {
-  return (ulong)((txn->signature_cnt - txn->readonly_signed_cnt)
-      + ((txn->acct_addr_cnt - txn->readonly_unsigned_cnt) - txn->signature_cnt));
 }
 
 FD_PROTOTYPES_END

@@ -4,7 +4,7 @@ on:
     - cron: '0 0 * * *'
   push:
     branches:
-        - runtime
+        - main
   workflow_dispatch:
 
 permissions:
@@ -32,42 +32,15 @@ jobs:
           submodules: recursive
 
       - uses: ./.github/actions/deps
-
-      - name: Build unit tests
-        run: make -j -Otarget unit-test
-
       - uses: ./.github/actions/hugepages
 
-      - name: Run Unit Tests
-        run: |
-          sudo prlimit --pid $$ --memlock=-1:-1
-          ./test.sh -j --page-sz gigantic
+      - name: 'Authenticate to Google Cloud'
+        uses: 'google-github-actions/auth@v1'
+        with:
+          credentials_json: ${{ secrets.FUZZ_SERVICE_ACCT_JSON_BUNDLE }}
 
-      - name: Make Test Coverage Report
-        run: |
-          make cov-report
-          mkdir -p build/pages/
-          mv build/native/clang/cov/html build/pages/cov
-
-      - name: Drop an Index
-        run: |
-          cat <<EOS > build/pages/index.html
-          <!DOCTYPE html>
-          <html>
-          <head>
-          <title>🔥💃 Pages</title>
-          </head>
-
-          <body>
-          <h1>🔥💃 Pages</h1>
-          <h2>Links 🔗</h2>
-          <ul>
-          <li><a href="./cov/">Test Coverage</li>
-          </ul>
-          </body>
-
-          </html>
-          EOS
+      - name: Generate all coverage
+        run: ./.github/workflows/scripts/cov_all.sh
 
       - name: Setup Pages
         uses: actions/configure-pages@v3

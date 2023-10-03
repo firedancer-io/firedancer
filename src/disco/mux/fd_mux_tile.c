@@ -81,7 +81,8 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "Run" ));
 
-  int err = fd_mux_tile( cnc, in_cnt, in_mcache, in_fseq, mcache, out_cnt, out_fseq, cr_max, lazy, rng, scratch );
+  fd_mux_callbacks_t callbacks = {0};
+  int err = fd_mux_tile( cnc, 0, FD_MUX_FLAG_DEFAULT, in_cnt, in_mcache, in_fseq, mcache, out_cnt, out_fseq, cr_max, lazy, rng, scratch, NULL, &callbacks );
   if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_mux_tile failed (%i)", err ));
 
   FD_LOG_NOTICE(( "Fini" ));
