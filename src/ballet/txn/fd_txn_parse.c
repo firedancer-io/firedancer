@@ -254,6 +254,7 @@ fd_txn_xray( uchar const             * payload,
 
   if ( FD_UNLIKELY( payload_sz == 0) ) return 0UL;
   uchar signature_cnt  = payload[ i ]; i++;
+  if ( FD_UNLIKELY( !((1UL<=signature_cnt) & (signature_cnt<=FD_TXN_SIG_MAX)) ) ) return 0UL;
   ulong signature_off  =          i  ;
   result->signature_cnt = signature_cnt;
   result->signature_off = (ushort)signature_off;
@@ -265,10 +266,13 @@ fd_txn_xray( uchar const             * payload,
   if( FD_LIKELY( (ulong)header_b0 & 0x80UL ) ) {
     /* This is a versioned transaction */
     transaction_version = header_b0 & 0x7F;
+    if ( FD_UNLIKELY( !( transaction_version==FD_TXN_V0 ) ) ) return 0UL; /* Only recognized one so far */
+
     /* Only recognized one so far */
     i++;
   } else {
     transaction_version = FD_TXN_VLEGACY;
+    if ( FD_UNLIKELY( !( signature_cnt==header_b0 ) ) ) return 0UL;
   }
   i++;
   i++;
