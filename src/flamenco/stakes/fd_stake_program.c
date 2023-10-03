@@ -163,10 +163,11 @@ get_sysvar_with_account_check_stake_history( instruction_ctx_t const * invoke_co
                                              /* out */ fd_stake_history_t * stake_history ) {
   int rc;
 
-  rc = get_sysvar_with_account_check_check_sysvar_account( invoke_context->txn_ctx,
-                                                           instruction_context,
-                                                           instruction_account_index,
-                                                           invoke_context->global->sysvar_stake_history );
+  rc = get_sysvar_with_account_check_check_sysvar_account(
+      invoke_context->txn_ctx,
+      instruction_context,
+      instruction_account_index,
+      invoke_context->global->sysvar_stake_history );
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
 
   rc = fd_sysvar_stake_history_read( invoke_context->global, stake_history );
@@ -1465,8 +1466,9 @@ delegate( instruction_ctx_t *           invoke_context,
       instruction_context, transaction_context, vote_account_index, &vote_account );
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
 
-  if ( FD_UNLIKELY( 0 !=
-                    memcmp( &vote_account.meta->info.owner, SOLANA_VOTE_PROGRAM_ID, 32UL ) ) ) {
+  if ( FD_UNLIKELY( 0 != memcmp( &vote_account.meta->info.owner,
+                                 invoke_context->global->solana_vote_program,
+                                 32UL ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
   }
 
@@ -1933,7 +1935,7 @@ redelegate( instruction_ctx_t *       invoke_context,
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
 
   if ( FD_UNLIKELY( 0 != memcmp( &uninitialized_stake_account.meta->info.owner,
-                                 SOLANA_STAKE_PROGRAM_ID,
+                                 invoke_context->global->solana_stake_program,
                                  sizeof( fd_pubkey_t ) ) ) ) {
     FD_DEBUG( FD_LOG_WARNING( ( "expected uninitialized stake account owner to be {}, not {}" ) ) );
     return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
@@ -1998,9 +2000,8 @@ redelegate( instruction_ctx_t *       invoke_context,
       return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
     }
 
-    if ( FD_UNLIKELY( 0 == memcmp( &stake.delegation.voter_pubkey,
-                                   vote_pubkey,
-                                   sizeof( fd_pubkey_t ) ) ) ) {
+    if ( FD_UNLIKELY(
+             0 == memcmp( &stake.delegation.voter_pubkey, vote_pubkey, sizeof( fd_pubkey_t ) ) ) ) {
       FD_DEBUG( FD_LOG_WARNING( ( "redelegating to the same vote account not permitted" ) ) );
       *custom_err = FD_STAKE_ERR_REDELEGATE_TO_SAME_VOTE_ACCOUNT;
       return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
@@ -2066,11 +2067,11 @@ withdraw( instruction_ctx_t *           invoke_context,
   int rc;
 
   uchar index_in_transaction = FD_TXN_ACCT_ADDR_MAX;
-  rc = get_index_of_instruction_account_in_transaction(
+  rc                         = get_index_of_instruction_account_in_transaction(
       instruction_context, withdraw_authority_index, &index_in_transaction );
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
   fd_pubkey_t withdraw_authority_pubkey = { 0 };
-  rc                                      = get_key_of_account_at_index(
+  rc                                    = get_key_of_account_at_index(
       transaction_context, index_in_transaction, &withdraw_authority_pubkey );
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
 
@@ -2203,8 +2204,9 @@ deactivate_delinquent( transaction_ctx_t const * transaction_context,
                        uchar                     delinquent_vote_account_index,
                        uchar                     reference_vote_account_index,
                        ulong                     current_epoch,
-                       uint *                    custom_err,
-                       fd_valloc_t const *       valloc ) {
+                       fd_global_ctx_t const *   global,
+                       fd_valloc_t const *       valloc,
+                       uint *                    custom_err ) {
   int rc;
 
   uchar delinquent_vote_account_txn_i = FD_TXN_ACCT_ADDR_MAX;
@@ -2224,7 +2226,7 @@ deactivate_delinquent( transaction_ctx_t const * transaction_context,
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
 
   if ( FD_UNLIKELY( 0 != memcmp( &delinquent_vote_account.meta->info.owner,
-                                 SOLANA_VOTE_PROGRAM_ID,
+                                 global->solana_vote_program,
                                  32UL ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
   }
@@ -2244,7 +2246,7 @@ deactivate_delinquent( transaction_ctx_t const * transaction_context,
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
 
   if ( FD_UNLIKELY( 0 != memcmp( &reference_vote_account.meta->info.owner,
-                                 SOLANA_VOTE_PROGRAM_ID,
+                                 global->solana_vote_program,
                                  32UL ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
   }
@@ -2535,7 +2537,7 @@ fd_executor_stake_program_execute_instruction( instruction_ctx_t ctx ) {
       if ( FD_UNLIKELY( rc != OK ) ) return rc;
 
       if ( FD_UNLIKELY( 0 == memcmp( config_account_key.uc,
-                                     ctx.global->solana_stake_program_config,
+                                     ctx.global->solana_config_program,
                                      sizeof( config_account_key.uc ) ) ) ) {
         return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
       }
@@ -2962,8 +2964,9 @@ fd_executor_stake_program_execute_instruction( instruction_ctx_t ctx ) {
                                 1,
                                 2,
                                 clock.epoch,
-                                &ctx.txn_ctx->custom_err,
-                                &ctx.global->valloc );
+                                ctx.global,
+                                &ctx.global->valloc,
+                                &ctx.txn_ctx->custom_err );
     break;
   }
 

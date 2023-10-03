@@ -8,8 +8,6 @@
 
 FD_PROTOTYPES_BEGIN
 
-#define SOLANA_STAKE_PROGRAM_ID ( (uchar *)"Stake11111111111111111111111111111111111111" )
-
 /* Entry-point for the Solana Stake Program */
 int
 fd_executor_stake_program_execute_instruction( instruction_ctx_t ctx );
