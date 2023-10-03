@@ -201,7 +201,7 @@ read_stake_state( fd_global_ctx_t const *   global,
                   fd_account_meta_t const * metadata,
                   fd_stake_state_t *        result ) {
 
-  fd_memset( result, 0, FD_STAKE_STATE_FOOTPRINT );
+  fd_memset ( result, 0, FD_STAKE_STATE_FOOTPRINT );
 
   uchar const * raw_acc_data = (uchar const *)metadata + metadata->hlen;
 
@@ -546,7 +546,6 @@ int fd_executor_stake_program_execute_instruction(
   uchar *data            = ctx.instr->data;
 
   fd_stake_instruction_t instruction;
-  fd_stake_instruction_new( &instruction );
   fd_bincode_decode_ctx_t ctx2;
   ctx2.data = data;
   ctx2.dataend = &data[ctx.instr->data_sz];
@@ -598,7 +597,6 @@ int fd_executor_stake_program_execute_instruction(
     }
 
     fd_stake_state_t stake_state;
-    fd_stake_state_new( &stake_state );
     fd_bincode_decode_ctx_t ctx3;
     ctx3.data    = stake_acc_data;
     ctx3.dataend = stake_acc_data + stake_acc_meta->dlen;
@@ -1496,7 +1494,6 @@ int fd_executor_stake_program_execute_instruction(
       }
 
       fd_stake_state_t stake_state;
-      fd_stake_state_new( &stake_state );
       fd_bincode_decode_ctx_t ctx3;
       ctx3.data    = stake_acc_data;
       ctx3.dataend = stake_acc_data + stake_acc_meta->dlen;

@@ -125,7 +125,6 @@ fd_executor_setup_accessed_accounts_for_txn( transaction_ctx_t * txn_ctx, fd_raw
       FD_LOG_WARNING(( "LUT ACC: idx: %lu, acc: %32J, meta.dlen; %lu", i, addr_lut_acc, addr_lut_rec->const_meta->dlen ));
 
       fd_address_lookup_table_state_t addr_lookup_table_state;
-      fd_address_lookup_table_state_new( &addr_lookup_table_state );
       fd_bincode_decode_ctx_t decode_ctx = {
         .data = addr_lut_rec->const_data,
         .dataend = &addr_lut_rec->const_data[56], // TODO macro const.
@@ -158,7 +157,6 @@ fd_executor_setup_accessed_accounts_for_txn( transaction_ctx_t * txn_ctx, fd_raw
       }
 
       fd_address_lookup_table_state_t addr_lookup_table_state;
-      fd_address_lookup_table_state_new( &addr_lookup_table_state );
       fd_bincode_decode_ctx_t decode_ctx = {
         .data = addr_lut_rec->const_data,
         .dataend = &addr_lut_rec->const_data[56], // TODO macro const.
@@ -233,7 +231,6 @@ fd_executor_collect_fee( fd_global_ctx_t *   global,
   // since we collect reguardless of the success of the txn execution...
   rec->meta->info.lamports -= fee;
   global->bank.collected_fees += fee;
-  global->bank.capitalization -= fee;
 
   /* todo rent exempt check */
   if( FD_FEATURE_ACTIVE( global, set_exempt_rent_epoch_max ) )
@@ -347,6 +344,25 @@ fd_executor_dump_txntrace( fd_global_ctx_t *            global,
   close( dump_fd );
 }
 
+static void
+fd_executor_retrace( fd_global_ctx_t *            global,
+                     fd_soltrace_TxnInput const * trace_pre,
+                     fd_soltrace_TxnDiff  const * trace_post0 ) {
+
+  FD_SCRATCH_SCOPED_FRAME;
+
+  fd_soltrace_TxnDiff  _trace_post1[1];
+  fd_soltrace_TxnDiff * trace_post1 =
+      fd_txntrace_replay( _trace_post1, trace_pre, global->local_wksp );
+
+  if( FD_UNLIKELY( !trace_post1 ) )
+    FD_LOG_ERR(( "fd_txntrace_replay failed" ));
+
+  if( FD_UNLIKELY( !fd_txntrace_diff( trace_post0, trace_post1 ) ) )
+    FD_LOG_ERR(( "fd_txntrace_replay returned incorrect trace:\n%s",
+                 fd_txntrace_diff_cstr() ));
+}
+
 int
 fd_execute_txn( fd_global_ctx_t *     global,
                 fd_txn_t *            txn_descriptor,
@@ -358,8 +374,11 @@ fd_execute_txn( fd_global_ctx_t *     global,
   /* Trace transaction input */
   fd_soltrace_TxnInput  _trace_pre[1];
   fd_soltrace_TxnInput * trace_pre = NULL;
-  if( FD_UNLIKELY( global->trace_dirfd > 0 ) )
+  if( FD_UNLIKELY( global->trace_mode ) ) {
     trace_pre = fd_txntrace_capture_pre( _trace_pre, global, txn_descriptor, txn_raw->raw );
+    if( FD_UNLIKELY( !trace_pre ) )
+      FD_LOG_WARNING(( "fd_txntrace_capture_pre failed (out of scratch memory?)" ));
+  }
 
   transaction_ctx_t txn_ctx = {
     .global             = global,
@@ -457,6 +476,7 @@ fd_execute_txn( fd_global_ctx_t *     global,
 
     int exec_result = fd_execute_instr( global, &instrs[i], &txn_ctx );
     if( exec_result != FD_EXECUTOR_INSTR_SUCCESS ) {
+      FD_LOG_DEBUG(( "fd_execute_instr failed (%d)", exec_result ));
       fd_funk_txn_cancel(global->funk, txn, 0);
       global->funk_txn = parent_txn;
       return -1;
@@ -474,17 +494,21 @@ fd_execute_txn( fd_global_ctx_t *     global,
   }
 
   /* Export trace to Protobuf file */
-  if( FD_UNLIKELY( ( global->trace_dirfd > 0 )
-                 & ( !!trace_pre             ) ) ) {
+  if( FD_UNLIKELY( trace_pre ) ) {
     fd_soltrace_TxnDiff  _trace_post[1];
     fd_soltrace_TxnDiff * trace_post = fd_txntrace_capture_post( _trace_post, global, trace_pre );
     if( trace_post ) {
-      fd_soltrace_TxnTrace trace = {
-        .input = trace_pre,
-        .diff  = trace_post
-      };
-      fd_ed25519_sig_t const * sig0 = &fd_txn_get_signatures( txn_descriptor, txn_raw->raw )[0];
-      fd_executor_dump_txntrace( global, sig0, &trace );
+      if( global->trace_mode & FD_RUNTIME_TRACE_SAVE ) {
+        fd_soltrace_TxnTrace trace = {
+          .input = trace_pre,
+          .diff  = trace_post
+        };
+        fd_ed25519_sig_t const * sig0 = &fd_txn_get_signatures( txn_descriptor, txn_raw->raw )[0];
+        fd_executor_dump_txntrace( global, sig0, &trace );
+      }
+      if( global->trace_mode & FD_RUNTIME_TRACE_REPLAY ) {
+        fd_executor_retrace( global, trace_pre, trace_post );
+      }
     }
   }
 

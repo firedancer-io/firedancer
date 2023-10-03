@@ -8,6 +8,24 @@
   ],
   "entries": [
     {
+      "name": "hash",
+      "type": "opaque",
+      "walktype": "FD_FLAMENCO_TYPE_HASH256"
+    },
+    {
+      "name": "signature",
+      "type": "opaque",
+      "walktype": "FD_FLAMENCO_TYPE_SIG512"
+    },
+    {
+      "name": "gossip_ip4_addr",
+      "type": "opaque"
+    },
+    {
+      "name": "gossip_ip6_addr",
+      "type": "opaque"
+    },
+    {
       "name": "feature",
       "type": "struct",
       "fields": [
@@ -107,6 +125,19 @@
         { "name": "burn_percent", "type": "uchar" }
       ],
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/rent.rs#L11"
+    },
+    {
+      "name": "epoch_schedule",
+      "type": "struct",
+      "alignment": 1,
+      "fields": [
+        { "name": "slots_per_epoch", "type": "ulong" },
+        { "name": "leader_schedule_slot_offset", "type": "ulong" },
+        { "name": "warmup", "type": "uchar" },
+        { "name": "first_normal_epoch", "type": "ulong" },
+        { "name": "first_normal_slot", "type": "ulong" }
+      ],
+      "comment":"https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/epoch_schedule.rs#L26"
     },
     {
       "name": "rent_collector",
@@ -628,7 +659,7 @@
           { "name": "authorized_withdrawer", "type": "pubkey" },
           { "name": "commission", "type": "uchar" },
           { "name": "votes", "type": "deque", "element": "vote_lockout", "max":100 },
-          { "name": "root_slot", "type": "option", "element": "ulong" },
+          { "name": "root_slot", "type": "option_slot" },
           { "name": "epoch_credits", "type": "deque", "element": "vote_epoch_credits", "max":100 },
           { "name": "last_timestamp", "type": "vote_block_timestamp" }
       ],
@@ -650,7 +681,7 @@
           { "name": "authorized_withdrawer", "type": "pubkey" },
           { "name": "commission", "type": "uchar" },
           { "name": "votes", "type": "deque", "element": "vote_lockout", "max":35 },
-          { "name": "root_slot", "type": "option", "element": "ulong" },
+          { "name": "root_slot", "type": "option_slot" },
           { "name": "authorized_voters", "type": "vote_authorized_voters" },
           { "name": "prior_voters", "type": "vote_prior_voters" },
           { "name": "epoch_credits", "type": "deque", "element": "vote_epoch_credits", "max":35 },
@@ -666,7 +697,7 @@
           { "name": "authorized_withdrawer", "type": "pubkey" },
           { "name": "commission", "type": "uchar" },
           { "name": "votes", "type": "deque", "element": "landed_vote", "max":35 },
-          { "name": "root_slot", "type": "option", "element": "ulong" },
+          { "name": "root_slot", "type": "option_slot" },
           { "name": "authorized_voters", "type": "vote_authorized_voters" },
           { "name": "prior_voters", "type": "vote_prior_voters" },
           { "name": "epoch_credits", "type": "deque", "element": "vote_epoch_credits", "max":35 },
@@ -689,7 +720,7 @@
       "type": "struct",
       "fields": [
         { "name": "lockouts", "type": "deque", "element": "vote_lockout", "max": 35 },
-        { "name": "root", "type": "option", "element": "ulong" },
+        { "name": "root", "type": "option_slot" },
         { "name": "hash", "type": "hash" },
         { "name": "timestamp", "type": "option", "element": "ulong" }
       ],

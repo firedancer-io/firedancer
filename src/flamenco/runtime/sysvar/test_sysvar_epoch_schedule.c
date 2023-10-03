@@ -6,7 +6,6 @@ FD_STATIC_ASSERT( alignof ( fd_epoch_schedule_t                              )==
 FD_STATIC_ASSERT( offsetof( fd_epoch_schedule_t, slots_per_epoch             )==0x00UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_epoch_schedule_t, leader_schedule_slot_offset )==0x08UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_epoch_schedule_t, warmup                      )==0x10UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_epoch_schedule_t, _pad11                      )==0x11UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_epoch_schedule_t, first_normal_epoch          )==0x18UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_epoch_schedule_t, first_normal_slot           )==0x20UL, layout );
 FD_STATIC_ASSERT( sizeof  ( fd_epoch_schedule_t                              )==0x28UL, layout );

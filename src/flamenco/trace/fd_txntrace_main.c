@@ -45,8 +45,19 @@ replay( char const * path,
   }
 
   /* Replay */
-  fd_soltrace_TxnDiff * diff = fd_txntrace_replay( trace->input, wksp );
-  fd_wksp_free_laddr( diff );
+  fd_scratch_push();
+  fd_soltrace_TxnDiff _diff[1];
+  fd_soltrace_TxnDiff * diff = fd_txntrace_replay( _diff, trace->input, wksp );
+  if( !diff && trace->diff ) {
+    FD_LOG_WARNING(( "fd_txntrace_replay() failed" ));
+    diff++;
+  } else if( trace->diff && diff ) {
+    if( FD_UNLIKELY( !fd_txntrace_diff( trace->diff, diff ) ) ) {
+      FD_LOG_WARNING(( "%s", fd_txntrace_diff_cstr() ));
+      fail++;
+    }
+  }
+  fd_scratch_pop();
 
   /* Cleanup */
   pb_release( fd_soltrace_TxnTrace_fields, trace );

@@ -1,6 +1,3 @@
-# This stub generator is horrible...  the resulting code is horrible...  please... rewrite
-# It must die.
-
 import json
 import sys
 
@@ -14,7 +11,7 @@ names = open(sys.argv[3], "w")
 
 namespace = json_object["namespace"]
 entries = json_object["entries"]
-defined = set()
+
 print("// This is an auto-generated file. To add entries, edit fd_types.json", file=header)
 print("// This is an auto-generated file. To add entries, edit fd_types.json", file=body)
 print("// This is an auto-generated file. To add entries, edit fd_types.json", file=names)
@@ -33,1544 +30,1661 @@ print('#pragma GCC diagnostic ignored "-Wunused-variable"', file=body)
 print('#define SOURCE_fd_src_flamenco_types_fd_types_c', file=body)
 print('#include "fd_types_custom.c"', file=body)
 
-type_name_count = sum(1 for e in filter(lambda entry: not "attribute" in entry, entries))
-print(f'#define FD_TYPE_NAME_COUNT {type_name_count}', file=names)
-print("static char const * fd_type_names[FD_TYPE_NAME_COUNT] = {", file=names)
+preambletypes = set()
+postambletypes = set()
+indent = ''
 
-type_map = {
-    "int64_t": "long",
-    "uint64_t": "ulong",
-    "ulong": "ulong",
-    "uchar": "uchar"
-}
+# Map from primitive types to bincode function names
+simpletypes = dict()
+for t,t2 in [("char","int8"),
+             ("uchar","uint8"),
+             ("double","double"),
+             ("short","int16"),
+             ("ushort","uint16"),
+             ("int","int32"),
+             ("uint","uint32"),
+             ("long","int64"),
+             ("ulong","uint64")]:
+    simpletypes[t] = t2
 
-def do_vector_header(n, f):
-    if "modifier" in f and f["modifier"] == "compact":
-        print(f'  ushort {f["name"]}_len;', file=header)
-    else:
-        print(f'  ulong {f["name"]}_len;', file=header)
+class PrimitiveMember:
+    def __init__(self, container, json):
+        self.name = json["name"]
+        self.type = json["type"]
+        self.varint = ("modifier" in json and json["modifier"] == "varint")
+        self.decode = ("decode" not in json or json["decode"])
+        self.encode = ("encode" not in json or json["encode"])
+        self.walk = ("walk" not in json or json["walk"])
 
-    if f["element"] == "uchar":
-        print(f'  {f["element"]}* {f["name"]};', file=header)
-    elif f["element"] == "ulong":
-        print(f'  {f["element"]}* {f["name"]};', file=header)
-    elif f["element"] == "uint":
-        print(f'  {f["element"]}* {f["name"]};', file=header)
-    else:
-        print(f'  {n}_{f["element"]}_t* {f["name"]};', file=header)
-
-def deque_elem_type(n, f):
-  if f["element"] == "uchar":
-    return "uchar"
-  elif f["element"] == "ulong":
-      return "ulong"
-  elif f["element"] == "uint":
-      return "uint"
-  else:
-      return f'{n}_{f["element"]}_t'
-
-def deque_prefix(n, f):
-    return f'deq_{deque_elem_type(n, f)}'
-
-def do_deque_header(n, f):
-    print(f'  {deque_elem_type(n, f)} * {f["name"]};', file=header)
-
-def do_map_header(n, f):
-    element_type = deque_elem_type(n, f)
-    print(f'  {element_type}_mapnode_t * {f["name"]}_pool;', file=header)
-    print(f'  {element_type}_mapnode_t * {f["name"]}_root;', file=header)
-
-def do_map_chain_header(n, f):
-    print(f'  {f["map_ele_t"]} * pool;', file=header)
-    print(f'  {f["name"]}_map_t * map;', file=header)
-
-def do_treap_header(n, f):
-    print(f'  {f["treap_t"]} * pool;', file=header)
-    print(f'  {f["name"]}_treap_t * treap;', file=header)
-
-def do_option_header(n, f):
-      if f["element"] == "ulong":
-          print(f'  {f["element"]}* {f["name"]};', file=header)
-      elif f["element"] == "uint":
-          print(f'  {f["element"]}* {f["name"]};', file=header)
-      else:
-          print(f'  {n}_{f["element"]}_t* {f["name"]};', file=header)
-
-def do_array_header(n, f):
-    length = f["length"]
-
-    if f["element"] == "uchar":
-        print(f'  {f["element"]} {f["name"]}[{length}];', file=header)
-    elif f["element"] == "ulong":
-        print(f'  {f["element"]} {f["name"]}[{length}];', file=header)
-    elif f["element"] == "uint":
-        print(f'  {f["element"]} {f["name"]}[{length}];', file=header)
-    else:
-        print(f'  {n}_{f["element"]}_t {f["name"]}[{length}];', file=header)
-
-fields_header = {
-    "char" :      lambda n, f: print(f'  char {f["name"]};',              file=header),
-    "char*" :     lambda n, f: print(f'  char* {f["name"]};',             file=header),
-    "char[32]" :  lambda n, f: print(f'  char {f["name"]}[32];',          file=header),
-    "char[7]" :   lambda n, f: print(f'  char {f["name"]}[7];',           file=header),
-    "double" :    lambda n, f: print(f'  double {f["name"]};',            file=header),
-    "long" :      lambda n, f: print(f'  long {f["name"]};',              file=header),
-    "uint" :      lambda n, f: print(f'  uint {f["name"]};',              file=header),
-    "uint128" :   lambda n, f: print(f'  uint128 {f["name"]};',           file=header),
-    "uchar" :     lambda n, f: print(f'  uchar {f["name"]};',     file=header),
-    "uchar[32]" : lambda n, f: print(f'  uchar {f["name"]}[32];', file=header),
-    "ulong" :     lambda n, f: print(f'  ulong {f["name"]};',     file=header),
-    "ushort" :    lambda n, f: print(f'  ushort {f["name"]};',            file=header),
-    "vector" :    lambda n, f: do_vector_header(n, f),
-    "deque" :     lambda n, f: do_deque_header(n, f),
-    "array" :     lambda n, f: do_array_header(n, f),
-    "option" :    lambda n, f: do_option_header(n, f),
-    "map" :       lambda n, f: do_map_header(n, f),
-    "map_chain" : lambda n, f: do_map_chain_header(n, f),
-    "treap" :     lambda n, f: do_treap_header(n, f),
-}
-
-def do_vector_body_decode(n, f):
-    if "modifier" in f and f["modifier"] == "compact":
-        print(f'  err = fd_bincode_compact_u16_decode(&self->{f["name"]}_len, ctx);', file=body)
-    else:
-        print(f'  err = fd_bincode_uint64_decode(&self->{f["name"]}_len, ctx);', file=body)
-    print(f'  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
-    print(f'  if (self->{f["name"]}_len != 0) {{', file=body)
-    el = f'{n}_{f["element"]}'
-    el = el.upper()
-
-    if f["element"] == "uchar":
-        print(f'    self->{f["name"]} = fd_valloc_malloc( ctx->valloc, 8UL, self->{f["name"]}_len );', file=body)
-        print(f'    err = fd_bincode_bytes_decode(self->{f["name"]}, self->{f["name"]}_len, ctx);', file=body)
-        print(f'    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
-
-    else:
-        if f["element"] == "ulong":
-            print(f'    self->{f["name"]} = fd_valloc_malloc( ctx->valloc, 8UL, sizeof(ulong)*self->{f["name"]}_len );', file=body)
-        elif f["element"] == "uint":
-            print(f'    self->{f["name"]} = fd_valloc_malloc( ctx->valloc, 8UL, sizeof(uint)*self->{f["name"]}_len );', file=body)
-        elif f["element"] == "ushort":
-            print(f'    self->{f["name"]} = fd_valloc_malloc( ctx->valloc, 8UL, sizeof(ushort)*self->{f["name"]}_len );', file=body)
+    def fixupType(t):
+        if t == 'uint64_t':
+            return 'ulong'
+        elif t == 'int64_t':
+            return 'long'
         else:
-            print(f'    self->{f["name"]} = ({n}_{f["element"]}_t *)fd_valloc_malloc( ctx->valloc, {el}_ALIGN, {el}_FOOTPRINT*self->{f["name"]}_len);', file=body)
+            return t
 
-        print(f'    for( ulong i = 0; i < self->{f["name"]}_len; ++i) {{', file=body)
+    def emitPreamble(self):
+        pass
 
-        if f["element"] == "ulong":
-            print(f'      err = fd_bincode_uint64_decode(self->{f["name"]} + i, ctx);', file=body)
-        elif f["element"] == "uint":
-            print(f'      err = fd_bincode_uint32_decode(self->{f["name"]} + i, ctx);', file=body)
+    def emitPostamble(self):
+        pass
+
+    def emitNew(self):
+        pass
+
+    def emitDestroy(self):
+        if self.type == "char*":
+            print(f"""  if (NULL != self->{self.name}) {{\n    fd_valloc_free( ctx->valloc, self->{self.name});\n    self->{self.name} = NULL;\n  }}""", file=body)
+
+    emitMemberMap = {
+        "char" :      lambda n: print(f'  char {n};',      file=header),
+        "char*" :     lambda n: print(f'  char* {n};',     file=header),
+        "char[32]" :  lambda n: print(f'  char {n}[32];',  file=header),
+        "char[7]" :   lambda n: print(f'  char {n}[7];',   file=header),
+        "double" :    lambda n: print(f'  double {n};',    file=header),
+        "long" :      lambda n: print(f'  long {n};',      file=header),
+        "uint" :      lambda n: print(f'  uint {n};',      file=header),
+        "uint128" :   lambda n: print(f'  uint128 {n};',   file=header),
+        "uchar" :     lambda n: print(f'  uchar {n};',     file=header),
+        "uchar[32]" : lambda n: print(f'  uchar {n}[32];', file=header),
+        "ulong" :     lambda n: print(f'  ulong {n};',     file=header),
+        "ushort" :    lambda n: print(f'  ushort {n};',    file=header)
+    }
+
+    def emitMember(self):
+        PrimitiveMember.emitMemberMap[self.type](self.name);
+
+    def string_decode_preflight(n, varint):
+        print(f'{indent}  ulong slen;', file=body)
+        print(f'{indent}  err = fd_bincode_uint64_decode( &slen, ctx );', file=body)
+        print(f'{indent}  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
+        print(f'{indent}  err = fd_bincode_bytes_decode_preflight( slen, ctx );', file=body)
+        print(f'{indent}  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
+
+    def ulong_decode_preflight(n, varint):
+        if varint:
+            print(f'{indent}  err = fd_bincode_varint_decode_preflight(ctx);', file=body),
         else:
-            print(f'      {n}_{f["element"]}_new(self->{f["name"]} + i);', file=body)
-            print(f'    }}', file=body)
-            print(f'    for( ulong i = 0; i < self->{f["name"]}_len; ++i ) {{', file=body)
-            print(f'      err = {n}_{f["element"]}_decode(self->{f["name"]} + i, ctx);', file=body)
+            print(f'{indent}  err = fd_bincode_uint64_decode_preflight(ctx);', file=body),
+        print(f'{indent}  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
 
-        print(f'      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
-        print('    }', file=body)
+    emitDecodePreflightMap = {
+        "char" :      lambda n, varint: print(f'{indent}  err = fd_bincode_uint8_decode_preflight(ctx);\n  if ( FD_UNLIKELY(err) ) return err;', file=body),
+        "char*" :     lambda n, varint: PrimitiveMember.string_decode_preflight(n, varint),
+        "char[32]" :  lambda n, varint: print(f'{indent}  err = fd_bincode_bytes_decode_preflight(32, ctx);\n  if ( FD_UNLIKELY(err) ) return err;', file=body),
+        "char[7]" :   lambda n, varint: print(f'{indent}  err = fd_bincode_bytes_decode_preflight(7, ctx);\n  if ( FD_UNLIKELY(err) ) return err;', file=body),
+        "double" :    lambda n, varint: print(f'{indent}  err = fd_bincode_double_decode_preflight(ctx);\n  if ( FD_UNLIKELY(err) ) return err;', file=body),
+        "long" :      lambda n, varint: print(f'{indent}  err = fd_bincode_uint64_decode_preflight(ctx);\n  if ( FD_UNLIKELY(err) ) return err;', file=body),
+        "uint" :      lambda n, varint: print(f'{indent}  err = fd_bincode_uint32_decode_preflight(ctx);\n  if ( FD_UNLIKELY(err) ) return err;', file=body),
+        "uint128" :   lambda n, varint: print(f'{indent}  err = fd_bincode_uint128_decode_preflight(ctx);\n  if ( FD_UNLIKELY(err) ) return err;', file=body),
+        "uchar" :     lambda n, varint: print(f'{indent}  err = fd_bincode_uint8_decode_preflight(ctx);\n  if ( FD_UNLIKELY(err) ) return err;', file=body),
+        "uchar[32]" : lambda n, varint: print(f'{indent}  err = fd_bincode_bytes_decode_preflight(32, ctx);\n  if ( FD_UNLIKELY(err) ) return err;', file=body),
+        "ulong" :     lambda n, varint: PrimitiveMember.ulong_decode_preflight(n, varint),
+        "ushort" :    lambda n, varint: print(f'{indent}  err = fd_bincode_uint16_decode_preflight(ctx);\n  if ( FD_UNLIKELY(err) ) return err;', file=body)
+    }
 
-    print('  } else', file=body)
-    print(f'    self->{f["name"]} = NULL;', file=body)
+    def emitDecodePreflight(self):
+        if self.decode:
+            PrimitiveMember.emitDecodePreflightMap[self.type](self.name, self.varint);
+
+    def string_decode_unsafe(n, varint):
+        print(f'{indent}  ulong slen;', file=body)
+        print(f'{indent}  fd_bincode_uint64_decode_unsafe( &slen, ctx );', file=body)
+        print(f'{indent}  self->{n} = fd_valloc_malloc( ctx->valloc, 1, slen + 1 );', file=body)
+        print(f'{indent}  fd_bincode_bytes_decode_unsafe( (uchar *)self->{n}, slen, ctx );', file=body)
+        print(f"{indent}  self->{n}[slen] = '\\0';", file=body)
+
+    def ulong_decode_unsafe(n, varint):
+        if varint:
+            print(f'{indent}  fd_bincode_varint_decode_unsafe(&self->{n}, ctx);', file=body),
+        else:
+            print(f'{indent}  fd_bincode_uint64_decode_unsafe(&self->{n}, ctx);', file=body),
+
+    emitDecodeUnsafeMap = {
+        "char" :      lambda n, varint: print(f'{indent}  fd_bincode_uint8_decode_unsafe((uchar *) &self->{n}, ctx);', file=body),
+        "char*" :     lambda n, varint: PrimitiveMember.string_decode_unsafe(n, varint),
+        "char[32]" :  lambda n, varint: print(f'{indent}  fd_bincode_bytes_decode_unsafe(&self->{n}[0], sizeof(self->{n}), ctx);', file=body),
+        "char[7]" :   lambda n, varint: print(f'{indent}  fd_bincode_bytes_decode_unsafe(&self->{n}[0], sizeof(self->{n}), ctx);', file=body),
+        "double" :    lambda n, varint: print(f'{indent}  fd_bincode_double_decode_unsafe(&self->{n}, ctx);', file=body),
+        "long" :      lambda n, varint: print(f'{indent}  fd_bincode_uint64_decode_unsafe((ulong *) &self->{n}, ctx);', file=body),
+        "uint" :      lambda n, varint: print(f'{indent}  fd_bincode_uint32_decode_unsafe(&self->{n}, ctx);', file=body),
+        "uint128" :   lambda n, varint: print(f'{indent}  fd_bincode_uint128_decode_unsafe(&self->{n}, ctx);', file=body),
+        "uchar" :     lambda n, varint: print(f'{indent}  fd_bincode_uint8_decode_unsafe(&self->{n}, ctx);', file=body),
+        "uchar[32]" : lambda n, varint: print(f'{indent}  fd_bincode_bytes_decode_unsafe(&self->{n}[0], sizeof(self->{n}), ctx);', file=body),
+        "ulong" :     lambda n, varint: PrimitiveMember.ulong_decode_unsafe(n, varint),
+        "ushort" :    lambda n, varint: print(f'{indent}  fd_bincode_uint16_decode_unsafe(&self->{n}, ctx);', file=body)
+    }
+
+    def emitDecodeUnsafe(self):
+        if self.decode:
+            PrimitiveMember.emitDecodeUnsafeMap[self.type](self.name, self.varint);
+
+    def string_encode(n, varint):
+        print(f'{indent}  ulong slen = strlen( (char *) self->{n} );', file=body)
+        print(f'{indent}  err = fd_bincode_uint64_encode(&slen, ctx);', file=body)
+        print(f'{indent}  if ( FD_UNLIKELY(err) ) return err;', file=body)
+        print(f'{indent}  err = fd_bincode_bytes_encode((uchar *) self->{n}, slen, ctx);', file=body)
+        print(f'{indent}  if ( FD_UNLIKELY(err) ) return err;', file=body)
+
+    def ulong_encode(n, varint):
+        if varint:
+            print(f'{indent}  err = fd_bincode_varint_encode(self->{n}, ctx);', file=body),
+        else:
+            print(f'{indent}  err = fd_bincode_uint64_encode(&self->{n}, ctx);', file=body),
+        print(f'{indent}  if ( FD_UNLIKELY(err) ) return err;', file=body)
+
+    emitEncodeMap = {
+        "char" :      lambda n, varint: print(f'{indent}  err = fd_bincode_uint8_encode((uchar *) &self->{n}, ctx);\n  if ( FD_UNLIKELY(err) ) return err;', file=body),
+        "char*" :     lambda n, varint: PrimitiveMember.string_encode(n, varint),
+        "char[32]" :  lambda n, varint: print(f'{indent}  err = fd_bincode_bytes_encode(&self->{n}[0], sizeof(self->{n}), ctx);\n  if ( FD_UNLIKELY(err) ) return err;', file=body),
+        "char[7]" :   lambda n, varint: print(f'{indent}  err = fd_bincode_bytes_encode(&self->{n}[0], sizeof(self->{n}), ctx);\n  if ( FD_UNLIKELY(err) ) return err;', file=body),
+        "double" :    lambda n, varint: print(f'{indent}  err = fd_bincode_double_encode(&self->{n}, ctx);\n  if ( FD_UNLIKELY(err) ) return err;', file=body),
+        "long" :      lambda n, varint: print(f'{indent}  err = fd_bincode_uint64_encode((ulong *) &self->{n}, ctx);\n  if ( FD_UNLIKELY(err) ) return err;', file=body),
+        "uint" :      lambda n, varint: print(f'{indent}  err = fd_bincode_uint32_encode(&self->{n}, ctx);\n  if ( FD_UNLIKELY(err) ) return err;', file=body),
+        "uint128" :   lambda n, varint: print(f'{indent}  err = fd_bincode_uint128_encode(&self->{n}, ctx);\n  if ( FD_UNLIKELY(err) ) return err;', file=body),
+        "uchar" :     lambda n, varint: print(f'{indent}  err = fd_bincode_uint8_encode(&self->{n}, ctx);\n  if ( FD_UNLIKELY(err) ) return err;', file=body),
+        "uchar[32]" : lambda n, varint: print(f'{indent}  err = fd_bincode_bytes_encode(&self->{n}[0], sizeof(self->{n}), ctx);\n  if ( FD_UNLIKELY(err) ) return err;', file=body),
+        "ulong" :     lambda n, varint: PrimitiveMember.ulong_encode(n, varint),
+        "ushort" :    lambda n, varint: print(f'{indent}  err = fd_bincode_uint16_encode(&self->{n}, ctx);\n  if ( FD_UNLIKELY(err) ) return err;', file=body),
+    }
+
+    def emitEncode(self):
+        if self.encode:
+            PrimitiveMember.emitEncodeMap[self.type](self.name, self.varint);
+
+    emitSizeMap = {
+        "char" :      lambda n, varint: print(f'{indent}  size += sizeof(char);', file=body),
+        "char*" :     lambda n, varint: print(f'{indent}  size += sizeof(ulong) + strlen(self->{n});', file=body),
+        "char[32]" :  lambda n, varint: print(f'{indent}  size += sizeof(char) * 32;', file=body),
+        "char[7]" :   lambda n, varint: print(f'{indent}  size += sizeof(char) * 7;', file=body),
+        "double" :    lambda n, varint: print(f'{indent}  size += sizeof(double);', file=body),
+        "long" :      lambda n, varint: print(f'{indent}  size += sizeof(long);', file=body),
+        "uint" :      lambda n, varint: print(f'{indent}  size += sizeof(uint);', file=body),
+        "uint128" :   lambda n, varint: print(f'{indent}  size += sizeof(uint128);', file=body),
+        "uchar" :     lambda n, varint: print(f'{indent}  size += sizeof(char);', file=body),
+        "uchar[32]" : lambda n, varint: print(f'{indent}  size += sizeof(char) * 32;', file=body),
+        "ulong" :     lambda n, varint: print(f'{indent}  size += { ("fd_bincode_varint_size(self->" + n + ");") if varint else "sizeof(ulong);" }', file=body),
+        "ushort" :    lambda n, varint: print(f'{indent}  size += sizeof(ushort);', file=body)
+    }
+
+    def emitSize(self, inner):
+        PrimitiveMember.emitSizeMap[self.type](self.name, self.varint);
+
+    emitWalkMap = {
+        "char" :      lambda n, inner: print(f'  fun( w, &self->{inner}{n}, "{n}", FD_FLAMENCO_TYPE_SCHAR,   "char",      level );', file=body),
+        "char*" :     lambda n, inner: print(f'  fun( w,  self->{inner}{n}, "{n}", FD_FLAMENCO_TYPE_CSTR,    "char*",     level );', file=body),
+        "double" :    lambda n, inner: print(f'  fun( w, &self->{inner}{n}, "{n}", FD_FLAMENCO_TYPE_DOUBLE,  "double",    level );', file=body),
+        "long" :      lambda n, inner: print(f'  fun( w, &self->{inner}{n}, "{n}", FD_FLAMENCO_TYPE_SLONG,   "long",      level );', file=body),
+        "uint" :      lambda n, inner: print(f'  fun( w, &self->{inner}{n}, "{n}", FD_FLAMENCO_TYPE_UINT,    "uint",      level );', file=body),
+        "uint128" :   lambda n, inner: print(f'  fun( w, &self->{inner}{n}, "{n}", FD_FLAMENCO_TYPE_UINT128, "uint128",   level );', file=body),
+        "uchar" :     lambda n, inner: print(f'  fun( w, &self->{inner}{n}, "{n}", FD_FLAMENCO_TYPE_UCHAR,   "uchar",     level );', file=body),
+        "uchar[32]" : lambda n, inner: print(f'  fun( w,  self->{inner}{n}, "{n}", FD_FLAMENCO_TYPE_HASH256, "uchar[32]", level );', file=body),
+        "ulong" :     lambda n, inner: print(f'  fun( w, &self->{inner}{n}, "{n}", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );', file=body),
+        "ushort" :    lambda n, inner: print(f'  fun( w, &self->{inner}{n}, "{n}", FD_FLAMENCO_TYPE_USHORT,  "ushort",    level );', file=body)
+    }
+
+    def emitWalk(self, inner):
+        if self.walk:
+            PrimitiveMember.emitWalkMap[self.type](self.name, inner);
 
 
-def do_deque_body_decode(n, f):
-    if "modifier" in f and f["modifier"] == "compact":
-        print(f'  ushort {f["name"]}_len;', file=body)
-        print(f'  err = fd_bincode_compact_u16_decode( &{f["name"]}_len, ctx );', file=body)
-    else:
-        print(f'  ulong {f["name"]}_len;', file=body)
-        print(f'  err = fd_bincode_uint64_decode( &{f["name"]}_len, ctx );', file=body)
-    print(f'  if ( FD_UNLIKELY(err) ) return err;', file=body)
-    if "max" in f:
-        print(f'  self->{f["name"]} = {deque_prefix(n, f)}_alloc( ctx->valloc );', file=body)
-    else:
-        print(f'  self->{f["name"]} = {deque_prefix(n, f)}_alloc( ctx->valloc, {f["name"]}_len );', file=body)
-    print(f'  if ( {f["name"]}_len > {deque_prefix(n, f)}_max(self->{f["name"]}) ) return FD_BINCODE_ERR_SMALL_DEQUE;', file=body)
+# This is a member which IS a struct, NOT a member OF a struct
+class StructMember:
+    def __init__(self, container, json):
+        self.name = json["name"]
+        self.type = json["type"]
 
-    print(f'  for (ulong i = 0; i < {f["name"]}_len; ++i) {{', file=body)
-    print(f'    {deque_elem_type(n, f)} * elem = {deque_prefix(n, f)}_push_tail_nocopy(self->{f["name"]});', file=body);
+    def emitPreamble(self):
+        pass
 
-    if f["element"] == "ulong":
-        print(f'    err = fd_bincode_uint64_decode(elem, ctx);', file=body)
-    elif f["element"] == "uint":
-        print(f'    err = fd_bincode_uint32_decode(elem, ctx);', file=body)
-    else:
-        print(f'    {n}_{f["element"]}_new(elem);', file=body)
-        print(f'    err = {n}_{f["element"]}_decode(elem, ctx);', file=body)
-    print(f'    if ( FD_UNLIKELY(err) ) return err;', file=body)
+    def emitPostamble(self):
+        pass
 
-    print('  }', file=body)
+    def emitMember(self):
+        print(f'{indent}  {namespace}_{self.type}_t {self.name};', file=header)
 
-def do_map_body_decode(n, f):
-    element_type = deque_elem_type(n, f)
-    mapname = element_type + "_map"
-    nodename = element_type + "_mapnode_t"
+    def emitNew(self):
+        print(f'{indent}  {namespace}_{self.type}_new(&self->{self.name});', file=body)
 
-    if "modifier" in f and f["modifier"] == "compact":
-        print(f'  ushort {f["name"]}_len;', file=body)
-        print(f'  err = fd_bincode_compact_u16_decode(&{f["name"]}_len, ctx);', file=body)
-    else:
-        print(f'  ulong {f["name"]}_len;', file=body)
-        print(f'  err = fd_bincode_uint64_decode(&{f["name"]}_len, ctx);', file=body)
-    print('  if ( FD_UNLIKELY(err) ) return err;', file=body)
+    def emitDestroy(self):
+        print(f'{indent}  {namespace}_{self.type}_destroy(&self->{self.name}, ctx);', file=body)
 
-    if "minalloc" in f:
-        print(f'  self->{f["name"]}_pool = {mapname}_alloc(ctx->valloc, fd_ulong_max({f["name"]}_len, {f["minalloc"]}));', file=body)
-    else:
-        print(f'  self->{f["name"]}_pool = {mapname}_alloc(ctx->valloc, {f["name"]}_len);', file=body)
-    print(f'  self->{f["name"]}_root = NULL;', file=body)
-    print(f'  for (ulong i = 0; i < {f["name"]}_len; ++i) {{', file=body)
-    print(f'    {nodename}* node = {mapname}_acquire(self->{f["name"]}_pool);', file=body);
-    print(f'    {n}_{f["element"]}_new(&node->elem);', file=body)
-    print(f'    err = {n}_{f["element"]}_decode(&node->elem, ctx);', file=body)
-    print(f'    if ( FD_UNLIKELY(err) ) return err;', file=body)
-    print(f'    {mapname}_insert(self->{f["name"]}_pool, &self->{f["name"]}_root, node);', file=body)
-    print('  }', file=body)
+    def emitDecodePreflight(self):
+        print(f'{indent}  err = {namespace}_{self.type}_decode_preflight(ctx);', file=body)
+        print(f'{indent}  if ( FD_UNLIKELY(err) ) return err;', file=body)
 
-def do_map_chain_body_decode(n, f):
-    map_name = f['name'] + '_map'
-    map_ele_t = f['map_ele_t']
-    pool = f['name'] + '_pool'
+    def emitDecodeUnsafe(self):
+        print(f'{indent}  {namespace}_{self.type}_decode_unsafe(&self->{self.name}, ctx);', file=body)
 
-    if "modifier" in f and f["modifier"] == "compact":
-        print(f'  ushort {map_name}_len;', file=body)
-        print(f'  err = fd_bincode_compact_u16_decode(&{map_name}_len, ctx);', file=body)
-    else:
-        print(f'  ulong {map_name}_len;', file=body)
-        print(f'  err = fd_bincode_uint64_decode(&{map_name}_len, ctx);', file=body)
-    print('  if ( FD_UNLIKELY(err) ) return err;', file=body)
-    print(f'  FD_TEST( {map_name}_len < POOL_MAX );', file=body)
+    def emitEncode(self):
+        print(f'{indent}  err = {namespace}_{self.type}_encode(&self->{self.name}, ctx);', file=body)
+        print(f'{indent}  if ( FD_UNLIKELY(err) ) return err;', file=body)
 
-    print(f'  self->pool = {pool}_alloc( ctx->valloc );', file=body)
-    print(f'  self->map = {map_name}_alloc( ctx->valloc );', file=body)
-    print(f'  for (ulong i = 0; i < {map_name}_len; ++i) {{', file=body)
-    print(f'    if ( FD_UNLIKELY( err ) ) return err;', file=body)
-    print(f'    {map_ele_t} * ele = {pool}_ele_acquire( self->pool );', file=body)
-    print(f'    err = {map_ele_t.rstrip("_t")}_decode( ele, ctx );', file=body)
-    print(f'    if ( FD_UNLIKELY ( err ) ) return err;', file=body)
-    print(f'    {map_name}_ele_insert( self->map, ele, self->pool ); /* this cannot fail */', file=body);
-    print('  }', file=body)
+    def emitSize(self, inner):
+        print(f'{indent}  size += {namespace}_{self.type}_size(&self->{inner}{self.name});', file=body)
 
-def do_treap_body_decode(n, f):
-    name = f['name']
-    treap_name = name + '_treap'
-    treap_t = f['treap_t']
-    pool_name = name + '_pool'
+    def emitWalk(self, inner):
+        print(f'{indent}  {namespace}_{self.type}_walk(w, &self->{inner}{self.name}, fun, "{self.name}", level);', file=body)
 
-    if "modifier" in f and f["modifier"] == "compact":
-        print(f'  ushort {treap_name}_len;', file=body)
-        print(f'  err = fd_bincode_compact_u16_decode(&{treap_name}_len, ctx);', file=body)
-    else:
-        print(f'  ulong {treap_name}_len;', file=body)
-        print(f'  err = fd_bincode_uint64_decode(&{treap_name}_len, ctx);', file=body)
-    print('  if ( FD_UNLIKELY(err) ) return err;', file=body)
-    print(f'  FD_TEST( {treap_name}_len < {name.upper()}_MAX );', file=body)
 
-    print(f'  self->pool = {pool_name}_alloc( ctx->valloc );', file=body)
-    print(f'  self->treap = {treap_name}_alloc( ctx->valloc );', file=body)
-    print(f'  for (ulong i = 0; i < {treap_name}_len; ++i) {{', file=body)
-    print(f'    if ( FD_UNLIKELY( err ) ) return err;', file=body)
-    print(f'    {treap_t} * ele = {pool_name}_ele_acquire( self->pool );', file=body)
-    print(f'    err = {treap_t.rstrip("_t")}_decode( ele, ctx );', file=body)
-    print(f'    if ( FD_UNLIKELY ( err ) ) return err;', file=body)
-    print(f'    {treap_name}_ele_insert( self->treap, ele, self->pool ); /* this cannot fail */', file=body);
-    print('  }', file=body)
+class VectorMember:
+    def __init__(self, container, json):
+        self.name = json["name"]
+        self.element = json["element"]
+        self.compact = ("modifier" in json and json["modifier"] == "compact")
 
-def do_array_body_decode(n, f):
+    def emitPreamble(self):
+        pass
 
-    el = f'{n}_{f["element"]}'
-    el = el.upper()
+    def emitPostamble(self):
+        pass
 
-    length = f["length"]
+    def emitMember(self):
+        if self.compact:
+            print(f'  ushort {self.name}_len;', file=header)
+        else:
+            print(f'  ulong {self.name}_len;', file=header)
+        if self.element in simpletypes:
+            print(f'  {self.element}* {self.name};', file=header)
+        else:
+            print(f'  {namespace}_{self.element}_t* {self.name};', file=header)
 
-    if f["element"] == "uchar":
-        print(f'  err = fd_bincode_bytes_decode( self->{f["name"]}, {length}, ctx );', file=body)
+    def emitNew(self):
+        pass
+
+    def emitDestroy(self):
+        print(f'  if (NULL != self->{self.name}) {{', file=body)
+        if self.element in simpletypes:
+            pass
+        else:
+            print(f'    for (ulong i = 0; i < self->{self.name}_len; ++i)', file=body)
+            print(f'      {namespace}_{self.element}_destroy(self->{self.name} + i, ctx);', file=body)
+        print(f'    fd_valloc_free( ctx->valloc, self->{self.name} );', file=body)
+        print(f'    self->{self.name} = NULL;', file=body)
+        print('  }', file=body)
+
+    def emitDecodePreflight(self):
+        if self.compact:
+            print(f'  ushort {self.name}_len;', file=body)
+            print(f'  err = fd_bincode_compact_u16_decode(&{self.name}_len, ctx);', file=body)
+        else:
+            print(f'  ulong {self.name}_len;', file=body)
+            print(f'  err = fd_bincode_uint64_decode(&{self.name}_len, ctx);', file=body)
         print(f'  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
-        return
-
-    print(f'  for (ulong i = 0; i < {length}; ++i) {{', file=body)
-
-    if f["element"] == "ulong":
-        print(f'    err = fd_bincode_uint64_decode(self->{f["name"]} + i, ctx);', file=body)
-    elif f["element"] == "uint":
-        print(f'    err = fd_bincode_uint32_decode(self->{f["name"]} + i, ctx);', file=body)
-    else:
-        print(f'    err = {n}_{f["element"]}_decode(self->{f["name"]} + i, ctx);', file=body)
-    print('    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
-
-    print('  }', file=body)
-
-def do_option_body_decode(n, f):
-    print('  {', file=body)
-    print('    uchar o;', file=body)
-    print('    err = fd_bincode_option_decode( &o, ctx );', file=body)
-    print('    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
-    print('    if( o ) {', file=body)
-    if f["element"] == "ulong":
-        print(f'      self->{f["name"]} = fd_valloc_malloc( ctx->valloc, 8, sizeof(ulong) );', file=body)
-        print(f'      err = fd_bincode_uint64_decode( self->{f["name"]}, ctx );', file=body)
-    elif f["element"] == "uint":
-        print(f'      self->{f["name"]} = fd_valloc_malloc( ctx->valloc, 8, sizeof(uint) );', file=body)
-        print(f'      err = fd_bincode_uint32_decode( self->{f["name"]}, ctx );', file=body)
-    else:
-        el = f'{n}_{f["element"]}'
+        print(f'  if ({self.name}_len != 0) {{', file=body)
+        el = f'{namespace}_{self.element}'
         el = el.upper()
-        print(f'      self->{f["name"]} = ({n}_{f["element"]}_t*)fd_valloc_malloc( ctx->valloc, {el}_ALIGN, {el}_FOOTPRINT );', file=body)
-        print(f'      {n}_{f["element"]}_new( self->{f["name"]} );', file=body)
-        print(f'      err = {n}_{f["element"]}_decode( self->{f["name"]}, ctx );', file=body)
-    print('      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
-    print('    } else', file=body)
-    print(f'      self->{f["name"]} = NULL;', file=body)
-    print('  }', file=body)
 
-def do_string_decode(n, f):
-    print('  ulong slen;', file=body)
-    print('  err = fd_bincode_uint64_decode( &slen, ctx );', file=body)
-    print('  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
-    print(f'  self->{f["name"]} = fd_valloc_malloc( ctx->valloc, 1, slen + 1 );', file=body)
-    print(f'  err = fd_bincode_bytes_decode( (uchar *)self->{f["name"]}, slen, ctx );', file=body)
-    print('  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
-    print(f"  self->{f['name']}[slen] = '\\0';", file=body)
+        if self.element == "uchar":
+            print(f'    err = fd_bincode_bytes_decode_preflight({self.name}_len, ctx);', file=body)
+            print(f'    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
 
-def do_ulong_decode(n, f):
-    if not f.get('decode', True):
-        return
-    if "modifier" in f and f["modifier"] == "varint":
-        print(f'  err = fd_bincode_varint_decode(&self->{f["name"]}, ctx);', file=body),
-    else:
-        print(f'  err = fd_bincode_uint64_decode(&self->{f["name"]}, ctx);', file=body),
-    print('  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
+        else:
+            print(f'    for( ulong i = 0; i < {self.name}_len; ++i) {{', file=body)
 
-fields_body_decode = {
-    "char" :      lambda n, f: print(f"""  err = fd_bincode_uint8_decode((uchar *) &self->{f["name"]}, ctx);\n  if ( FD_UNLIKELY(err) ) return err;""", file=body),
-    "char*" :     lambda n, f: do_string_decode(n, f),
-    "char[32]" :  lambda n, f: print(f"""  err = fd_bincode_bytes_decode(&self->{f["name"]}[0], sizeof(self->{f["name"]}), ctx);\n  if ( FD_UNLIKELY(err) ) return err;""", file=body),
-    "char[7]" :   lambda n, f: print(f"""  err = fd_bincode_bytes_decode(&self->{f["name"]}[0], sizeof(self->{f["name"]}), ctx);\n  if ( FD_UNLIKELY(err) ) return err;""", file=body),
-    "double" :    lambda n, f: print(f"""  err = fd_bincode_double_decode(&self->{f["name"]}, ctx);\n  if ( FD_UNLIKELY(err) ) return err;""", file=body),
-    "long" :      lambda n, f: print(f"""  err = fd_bincode_uint64_decode((ulong *) &self->{f["name"]}, ctx);\n  if ( FD_UNLIKELY(err) ) return err;""", file=body),
-    "uint" :      lambda n, f: print(f"""  err = fd_bincode_uint32_decode(&self->{f["name"]}, ctx);\n  if ( FD_UNLIKELY(err) ) return err;""", file=body),
-    "uint128" :   lambda n, f: print(f"""  err = fd_bincode_uint128_decode(&self->{f["name"]}, ctx);\n  if ( FD_UNLIKELY(err) ) return err;""", file=body),
-    "uchar" :     lambda n, f: print(f"""  err = fd_bincode_uint8_decode(&self->{f["name"]}, ctx);\n  if ( FD_UNLIKELY(err) ) return err;""", file=body),
-    "uchar[32]" : lambda n, f: print(f"""  err = fd_bincode_bytes_decode(&self->{f["name"]}[0], sizeof(self->{f["name"]}), ctx);\n  if ( FD_UNLIKELY(err) ) return err;""", file=body),
-    "ulong" :     lambda n, f: do_ulong_decode(n, f),
-    "ushort" :    lambda n, f: print(f"""  err = fd_bincode_uint16_decode(&self->{f["name"]}, ctx);\n  if ( FD_UNLIKELY(err) ) return err;""", file=body),
-    "vector" :    lambda n, f: do_vector_body_decode(n, f),
-    "deque" :     lambda n, f: do_deque_body_decode(n, f),
-    "array" :     lambda n, f: do_array_body_decode(n, f),
-    "option" :    lambda n, f: do_option_body_decode(n, f),
-    "map" :       lambda n, f: do_map_body_decode(n, f),
-    "map_chain" : lambda n, f: do_map_chain_body_decode(n, f),
-    "treap" :     lambda n, f: do_treap_body_decode(n, f),
-}
+            if self.element in simpletypes:
+                print(f'      err = fd_bincode_{simpletypes[self.element]}_decode_preflight(ctx);', file=body)
+            else:
+                print(f'      err = {namespace}_{self.element}_decode_preflight(ctx);', file=body)
 
-# encode
+            print(f'      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
+            print('    }', file=body)
 
-def do_vector_body_encode(n, f):
-    if "modifier" in f and f["modifier"] == "compact":
-        print(f'  err = fd_bincode_compact_u16_encode(&self->{f["name"]}_len, ctx);', file=body)
-    else:
-        print(f'  err = fd_bincode_uint64_encode(&self->{f["name"]}_len, ctx);', file=body)
-    print(f'  if ( FD_UNLIKELY(err) ) return err;', file=body)
-    print(f'  if (self->{f["name"]}_len != 0) {{', file=body)
+        print('  }', file=body)
 
-    if f["element"] == "uchar":
-        print(f'    err = fd_bincode_bytes_encode(self->{f["name"]}, self->{f["name"]}_len, ctx);', file=body)
+    def emitDecodeUnsafe(self):
+        if self.compact:
+            print(f'  fd_bincode_compact_u16_decode_unsafe(&self->{self.name}_len, ctx);', file=body)
+        else:
+            print(f'  fd_bincode_uint64_decode_unsafe(&self->{self.name}_len, ctx);', file=body)
+        print(f'  if (self->{self.name}_len != 0) {{', file=body)
+        el = f'{namespace}_{self.element}'
+        el = el.upper()
+
+        if self.element == "uchar":
+            print(f'    self->{self.name} = fd_valloc_malloc( ctx->valloc, 8UL, self->{self.name}_len );', file=body)
+            print(f'    fd_bincode_bytes_decode_unsafe(self->{self.name}, self->{self.name}_len, ctx);', file=body)
+
+        else:
+            if self.element in simpletypes:
+                print(f'    self->{self.name} = fd_valloc_malloc( ctx->valloc, 8UL, sizeof({self.element})*self->{self.name}_len );', file=body)
+            else:
+                print(f'    self->{self.name} = ({namespace}_{self.element}_t *)fd_valloc_malloc( ctx->valloc, {el}_ALIGN, {el}_FOOTPRINT*self->{self.name}_len);', file=body)
+
+            print(f'    for( ulong i = 0; i < self->{self.name}_len; ++i) {{', file=body)
+
+            if self.element in simpletypes:
+                print(f'      fd_bincode_{simpletypes[self.element]}_decode_unsafe(self->{self.name} + i, ctx);', file=body)
+            else:
+                print(f'      {namespace}_{self.element}_new(self->{self.name} + i);', file=body)
+                print(f'      {namespace}_{self.element}_decode_unsafe(self->{self.name} + i, ctx);', file=body)
+
+            print('    }', file=body)
+
+        print('  } else', file=body)
+        print(f'    self->{self.name} = NULL;', file=body)
+
+    def emitEncode(self):
+        if self.compact:
+            print(f'  err = fd_bincode_compact_u16_encode(&self->{self.name}_len, ctx);', file=body)
+        else:
+            print(f'  err = fd_bincode_uint64_encode(&self->{self.name}_len, ctx);', file=body)
+        print(f'  if ( FD_UNLIKELY(err) ) return err;', file=body)
+        print(f'  if (self->{self.name}_len != 0) {{', file=body)
+
+        if self.element == "uchar":
+            print(f'    err = fd_bincode_bytes_encode(self->{self.name}, self->{self.name}_len, ctx);', file=body)
+            print(f'    if ( FD_UNLIKELY(err) ) return err;', file=body)
+
+        else:
+            print(f'    for (ulong i = 0; i < self->{self.name}_len; ++i) {{', file=body)
+
+            if self.element in simpletypes:
+                print(f'      err = fd_bincode_{simpletypes[self.element]}_encode(self->{self.name} + i, ctx);', file=body)
+            else:
+                print(f'      err = {namespace}_{self.element}_encode(self->{self.name} + i, ctx);', file=body)
+                print('      if ( FD_UNLIKELY(err) ) return err;', file=body)
+
+            print('    }', file=body)
+
+        print('  }', file=body)
+
+    def emitSize(self, inner):
+        if self.compact:
+            print(f'  ushort tmp = (ushort)self->{self.name}_len;', file=body)
+            print(f'  size += fd_bincode_compact_u16_size(&tmp);', file=body)
+        else:
+            print('  size += sizeof(ulong);', file=body)
+        if self.element == "uchar":
+            print(f'  size += self->{self.name}_len;', file=body)
+        elif self.element in simpletypes:
+            print(f'  size += self->{self.name}_len * sizeof({self.element});', file=body)
+        else:
+            print(f'  for (ulong i = 0; i < self->{self.name}_len; ++i)', file=body)
+            print(f'    size += {namespace}_{self.element}_size(self->{self.name} + i);', file=body)
+
+    emitWalkMap = {
+        "double" :  lambda n: print(f'  fun( w, self->{n} + i, "{n}", FD_FLAMENCO_TYPE_DOUBLE,  "double",  level );', file=body),
+        "long" :    lambda n: print(f'  fun( w, self->{n} + i, "{n}", FD_FLAMENCO_TYPE_LONG,    "long",    level );', file=body),
+        "uint" :    lambda n: print(f'  fun( w, self->{n} + i, "{n}", FD_FLAMENCO_TYPE_UINT,    "uint",    level );', file=body),
+        "uint128" : lambda n: print(f'  fun( w, self->{n} + i, "{n}", FD_FLAMENCO_TYPE_UINT128, "uint128", level );', file=body),
+        "ulong" :   lambda n: print(f'  fun( w, self->{n} + i, "{n}", FD_FLAMENCO_TYPE_ULONG,   "ulong",   level );', file=body),
+        "ushort" :  lambda n: print(f'  fun( w, self->{n} + i, "{n}", FD_FLAMENCO_TYPE_USHORT,  "ushort",  level );', file=body)
+    }
+
+    def emitWalk(self, inner):
+        if self.element == "uchar":
+            print(f'  fun(w, self->{self.name}, "{self.name}", FD_FLAMENCO_TYPE_UCHAR, "{self.element}", level );', file=body),
+            return
+        else:
+            print(f'  if (self->{self.name}_len != 0) {{', file=body)
+            print(f'    fun(w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "{self.name}", level++);', file=body)
+            print(f'    for (ulong i = 0; i < self->{self.name}_len; ++i)', file=body)
+
+        if self.element in VectorMember.emitWalkMap:
+            body.write("    ")
+            VectorMember.emitWalkMap[self.element](self.name)
+        else:
+            print(f'      {namespace}_{self.element}_walk(w, self->{self.name} + i, fun, "{self.element}", level );', file=body)
+
+        print(f'    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "{self.name}", level-- );', file=body)
+        print('  }', file=body)
+
+
+class DequeMember:
+    def __init__(self, container, json):
+        self.name = json["name"]
+        self.element = json["element"]
+        self.compact = ("modifier" in json and json["modifier"] == "compact")
+        self.max = (json["max"] if "max" in json else None)
+        self.growth = (json["growth"] if "growth" in json else None)
+
+    def elem_type(self):
+        if self.element in simpletypes:
+            return self.element
+        else:
+            return f'{namespace}_{self.element}_t'
+
+    def prefix(self):
+        return f'deq_{self.elem_type()}'
+
+    def emitPreamble(self):
+        dp = self.prefix()
+        if dp in preambletypes:
+            return
+        preambletypes.add(dp)
+        element_type = self.elem_type()
+        if self.max is not None:
+            print("#define DEQUE_NAME " + dp, file=header)
+            print("#define DEQUE_T " + element_type, file=header)
+            print(f'#define DEQUE_MAX {self.max}', file=header)
+            print('#include "../../util/tmpl/fd_deque.c"', file=header)
+            print("#undef DEQUE_NAME", file=header)
+            print("#undef DEQUE_T", file=header)
+            print("#undef DEQUE_MAX", file=header)
+            print(f'static inline {element_type} *', file=header)
+            print(f'{dp}_alloc( fd_valloc_t valloc ) {{', file=header)
+            print(f'  void * mem = fd_valloc_malloc( valloc, {dp}_align(), {dp}_footprint());', file=header)
+            print(f'  return {dp}_join( {dp}_new( mem ) );', file=header)
+            print("}", file=header)
+        else:
+            print("#define DEQUE_NAME " + dp, file=header)
+            print("#define DEQUE_T " + element_type, file=header)
+            print('#include "../../util/tmpl/fd_deque_dynamic.c"', file=header)
+            print("#undef DEQUE_NAME", file=header)
+            print("#undef DEQUE_T\n", file=header)
+            print(f'static inline {element_type} *', file=header)
+            print(f'{dp}_alloc( fd_valloc_t valloc, ulong len ) {{', file=header)
+            if self.growth is not None:
+                print(f'  ulong max = len + {self.growth};', file=header) # Provide headroom
+            else:
+                print(f'  ulong max = len + len/5 + 10;', file=header) # Provide headroom
+            print(f'  void * mem = fd_valloc_malloc( valloc, {dp}_align(), {dp}_footprint( max ));', file=header)
+            print(f'  return {dp}_join( {dp}_new( mem, max ) );', file=header)
+            print("}", file=header)
+
+    def emitPostamble(self):
+        pass
+
+    def emitMember(self):
+        print(f'  {self.elem_type()} * {self.name};', file=header)
+
+    def emitNew(self):
+        pass
+
+    def emitDestroy(self):
+        print(f'  if ( self->{self.name} ) {{', file=body)
+        if self.element in simpletypes:
+            pass
+        else:
+            print(f'    for ( {self.prefix()}_iter_t iter = {self.prefix()}_iter_init( self->{self.name} ); !{self.prefix()}_iter_done( self->{self.name}, iter ); iter = {self.prefix()}_iter_next( self->{self.name}, iter ) ) {{', file=body)
+            print(f'      {self.elem_type()} * ele = {self.prefix()}_iter_ele( self->{self.name}, iter );', file=body)
+            print(f'      {namespace}_{self.element}_destroy(ele, ctx);', file=body)
+            print('    }', file=body)
+        print(f'    fd_valloc_free( ctx->valloc, {self.prefix()}_delete( {self.prefix()}_leave( self->{self.name}) ) );', file=body)
+        print(f'    self->{self.name} = NULL;', file=body)
+        print('  }', file=body)
+
+    def emitDecodePreflight(self):
+        if self.compact:
+            print(f'  ushort {self.name}_len;', file=body)
+            print(f'  err = fd_bincode_compact_u16_decode( &{self.name}_len, ctx );', file=body)
+        else:
+            print(f'  ulong {self.name}_len;', file=body)
+            print(f'  err = fd_bincode_uint64_decode( &{self.name}_len, ctx );', file=body)
+        print(f'  if ( FD_UNLIKELY(err) ) return err;', file=body)
+        if self.max is not None:
+            print(f'  if ( {self.name}_len > {self.max} ) return FD_BINCODE_ERR_SMALL_DEQUE;', file=body)
+
+        print(f'  for (ulong i = 0; i < {self.name}_len; ++i) {{', file=body)
+
+        if self.element in simpletypes:
+            print(f'    err = fd_bincode_{simpletypes[self.element]}_decode_preflight(ctx);', file=body)
+        else:
+            print(f'    err = {namespace}_{self.element}_decode_preflight(ctx);', file=body)
         print(f'    if ( FD_UNLIKELY(err) ) return err;', file=body)
 
-    else:
-        print(f'    for (ulong i = 0; i < self->{f["name"]}_len; ++i) {{', file=body)
+        print('  }', file=body)
 
-        if f["element"] == "ulong":
-            print(f'      err = fd_bincode_uint64_encode(self->{f["name"]} + i, ctx);', file=body)
-        elif f["element"] == "uint":
-            print(f'      err = fd_bincode_uint32_encode(self->{f["name"]} + i, ctx);', file=body)
+    def emitDecodeUnsafe(self):
+        if self.compact:
+            print(f'  ushort {self.name}_len;', file=body)
+            print(f'  fd_bincode_compact_u16_decode_unsafe( &{self.name}_len, ctx );', file=body)
         else:
-            print(f'      err = {n}_{f["element"]}_encode(self->{f["name"]} + i, ctx);', file=body)
+            print(f'  ulong {self.name}_len;', file=body)
+            print(f'  fd_bincode_uint64_decode_unsafe( &{self.name}_len, ctx );', file=body)
+        if self.max is not None:
+            print(f'  self->{self.name} = {self.prefix()}_alloc( ctx->valloc );', file=body)
+        else:
+            print(f'  self->{self.name} = {self.prefix()}_alloc( ctx->valloc, {self.name}_len );', file=body)
+
+        print(f'  for (ulong i = 0; i < {self.name}_len; ++i) {{', file=body)
+        print(f'    {self.elem_type()} * elem = {self.prefix()}_push_tail_nocopy(self->{self.name});', file=body);
+
+        if self.element in simpletypes:
+            print(f'    fd_bincode_{simpletypes[self.element]}_decode_unsafe(elem, ctx);', file=body)
+        else:
+            print(f'    {namespace}_{self.element}_new(elem);', file=body)
+            print(f'    {namespace}_{self.element}_decode_unsafe(elem, ctx);', file=body)
+
+        print('  }', file=body)
+
+    def emitEncode(self):
+        print(f'  if ( self->{self.name} ) {{', file=body)
+
+        if self.compact:
+            print(f'    ushort {self.name}_len = (ushort){self.prefix()}_cnt(self->{self.name});', file=body)
+            print(f'    err = fd_bincode_compact_u16_encode(&{self.name}_len, ctx);', file=body)
+        else:
+            print(f'    ulong {self.name}_len = {self.prefix()}_cnt(self->{self.name});', file=body)
+            print(f'    err = fd_bincode_uint64_encode(&{self.name}_len, ctx);', file=body)
+        print('    if ( FD_UNLIKELY(err) ) return err;', file=body)
+
+        print(f'    for ( {self.prefix()}_iter_t iter = {self.prefix()}_iter_init( self->{self.name} ); !{self.prefix()}_iter_done( self->{self.name}, iter ); iter = {self.prefix()}_iter_next( self->{self.name}, iter ) ) {{', file=body)
+        print(f'      {self.elem_type()} * ele = {self.prefix()}_iter_ele( self->{self.name}, iter );', file=body)
+
+        if self.element in simpletypes:
+            print(f'      err = fd_bincode_{simpletypes[self.element]}_encode(ele, ctx);', file=body)
+        else:
+            print(f'      err = {namespace}_{self.element}_encode(ele, ctx);', file=body)
             print('      if ( FD_UNLIKELY(err) ) return err;', file=body)
 
         print('    }', file=body)
 
-    print('  }', file=body)
-
-
-def do_deque_body_encode(n, f):
-    print(f'  if ( self->{f["name"]} ) {{', file=body)
-
-    if "modifier" in f and f["modifier"] == "compact":
-        print(f'    ushort {f["name"]}_len = (ushort){deque_prefix(n, f)}_cnt(self->{f["name"]});', file=body)
-        print(f'    err = fd_bincode_compact_u16_encode(&{f["name"]}_len, ctx);', file=body)
-    else:
-        print(f'    ulong {f["name"]}_len = {deque_prefix(n, f)}_cnt(self->{f["name"]});', file=body)
-        print(f'    err = fd_bincode_uint64_encode(&{f["name"]}_len, ctx);', file=body)
-    print('    if ( FD_UNLIKELY(err) ) return err;', file=body)
-
-    print(f'    for ( {deque_prefix(n, f)}_iter_t iter = {deque_prefix(n, f)}_iter_init( self->{f["name"]} ); !{deque_prefix(n, f)}_iter_done( self->{f["name"]}, iter ); iter = {deque_prefix(n, f)}_iter_next( self->{f["name"]}, iter ) ) {{', file=body)
-    print(f'      {deque_elem_type(n, f)} * ele = {deque_prefix(n, f)}_iter_ele( self->{f["name"]}, iter );', file=body)
-
-    if f["element"] == "uchar":
-        print('      err = fd_bincode_uint8_encode(ele, ctx);', file=body)
-    elif f["element"] == "ulong":
-        print('      err = fd_bincode_uint64_encode(ele, ctx);', file=body)
-    elif f["element"] == "uint":
-        print('      err = fd_bincode_uint32_encode(ele, ctx);', file=body)
-    else:
-        print(f'      err = {n}_{f["element"]}_encode(ele, ctx);', file=body)
-        print('      if ( FD_UNLIKELY(err) ) return err;', file=body)
-
-    print('    }', file=body)
-
-    print('  } else {', file=body)
-    if "modifier" in f and f["modifier"] == "compact":
-        print(f'    ushort {f["name"]}_len = 0;', file=body)
-        print(f'    err = fd_bincode_compact_u16_encode(&{f["name"]}_len, ctx);', file=body)
-    else:
-        print(f'    ulong {f["name"]}_len = 0;', file=body)
-        print(f'    err = fd_bincode_uint64_encode(&{f["name"]}_len, ctx);', file=body)
-    print('    if ( FD_UNLIKELY(err) ) return err;', file=body)
-    print('  }', file=body)
-
-def do_map_body_encode(n, f):
-    element_type = deque_elem_type(n, f)
-    mapname = element_type + "_map"
-    nodename = element_type + "_mapnode_t"
-
-    print(f'  if (self->{f["name"]}_root) {{', file=body)
-    if "modifier" in f and f["modifier"] == "compact":
-        print(f'    ushort {f["name"]}_len = (ushort){mapname}_size(self->{f["name"]}_pool, self->{f["name"]}_root);', file=body)
-        print(f'    err = fd_bincode_compact_u16_encode(&{f["name"]}_len, ctx);', file=body)
-    else:
-        print(f'    ulong {f["name"]}_len = {mapname}_size(self->{f["name"]}_pool, self->{f["name"]}_root);', file=body)
-        print(f'    err = fd_bincode_uint64_encode(&{f["name"]}_len, ctx);', file=body)
-    print('    if ( FD_UNLIKELY(err) ) return err;', file=body)
-
-    print(f'    for ( {nodename}* n = {mapname}_minimum(self->{f["name"]}_pool, self->{f["name"]}_root); n; n = {mapname}_successor(self->{f["name"]}_pool, n) ) {{', file=body);
-    print(f'      err = {n}_{f["element"]}_encode(&n->elem, ctx);', file=body)
-    print('      if ( FD_UNLIKELY(err) ) return err;', file=body)
-    print('    }', file=body)
-    print('  } else {', file=body)
-    if "modifier" in f and f["modifier"] == "compact":
-        print(f'    ushort {f["name"]}_len = 0;', file=body)
-        print(f'    err = fd_bincode_compact_u16_encode(&{f["name"]}_len, ctx);', file=body)
-    else:
-        print(f'    ulong {f["name"]}_len = 0;', file=body)
-        print(f'    err = fd_bincode_uint64_encode(&{f["name"]}_len, ctx);', file=body)
-    print('    if ( FD_UNLIKELY(err) ) return err;', file=body)
-    print('  }', file=body)
-
-def do_map_chain_body_encode(n, f):
-    name = f['name']
-    map_name = f['name'] + '_map'
-    map_ele_t = f['map_ele_t']
-    pool = f['name'] + '_pool'
-
-    print(f'  if (self->map) {{', file=body)
-    if "modifier" in f and f["modifier"] == "compact":
-        print(f'    ushort {name}_len = (ushort){pool}_used( self->pool );', file=body)
-        print(f'    err = fd_bincode_compact_u16_encode( &{name}_len, ctx );', file=body)
-    else:
-        print(f'    ulong {name}_len = {pool}_used( self->pool );', file=body)
-        print(f'    err = fd_bincode_uint64_encode( &{name}_len, ctx );', file=body)
-    print('    if ( FD_UNLIKELY( err ) ) return err;', file=body)
-
-    print(f'    for ( {map_name}_iter_t iter = {map_name}_iter_init( self->map, self->pool );', file=body);
-    print(f'          !{map_name}_iter_done( iter, self->map, self->pool );', file=body);
-    print(f'          iter = {map_name}_iter_next( iter, self->map, self->pool ) ) {{', file=body);
-    print(f'      {map_ele_t} * ele = {map_name}_iter_ele( iter, self->map, self->pool );', file=body)
-    print(f'      err = {map_ele_t.rstrip("_t")}_encode( ele, ctx );', file=body)
-    print('      if ( FD_UNLIKELY(err) ) return err;', file=body)
-    print('    }', file=body)
-    print('  } else {', file=body)
-    if "modifier" in f and f["modifier"] == "compact":
-        print(f'    ushort {name}_len = 0;', file=body)
-        print(f'    err = fd_bincode_compact_u16_encode(&{name}_len, ctx);', file=body)
-    else:
-        print(f'    ulong {name}_len = 0;', file=body)
-        print(f'    err = fd_bincode_uint64_encode(&{name}_len, ctx);', file=body)
-    print('    if ( FD_UNLIKELY(err) ) return err;', file=body)
-    print('  }', file=body)
-
-def do_treap_body_encode(n, f):
-    name = f['name']
-    treap_name = name + '_treap'
-    treap_t = f['treap_t']
-
-    print(f'  if (self->treap) {{', file=body)
-    if "modifier" in f and f["modifier"] == "compact":
-        print(f'    ushort {name}_len = {treap_name}_ele_cnt( self->treap );', file=body)
-        print(f'    err = fd_bincode_compact_u16_encode( &{name}_len, ctx );', file=body)
-    else:
-        print(f'    ulong {name}_len = {treap_name}_ele_cnt( self->treap );', file=body)
-        print(f'    err = fd_bincode_uint64_encode( &{name}_len, ctx );', file=body)
-    print('    if ( FD_UNLIKELY( err ) ) return err;', file=body)
-
-    print(f'    for ( {treap_name}_fwd_iter_t iter = {treap_name}_fwd_iter_init( self->treap, self->pool );', file=body);
-    print(f'          !{treap_name}_fwd_iter_done( iter );', file=body);
-    print(f'          iter = {treap_name}_fwd_iter_next( iter, self->pool ) ) {{', file=body);
-    print(f'      {treap_t} * ele = {treap_name}_fwd_iter_ele( iter, self->pool );', file=body)
-    print(f'      err = {treap_t.rstrip("_t")}_encode( ele, ctx );', file=body)
-    print('      if ( FD_UNLIKELY(err) ) return err;', file=body)
-    print('    }', file=body)
-    print('  } else {', file=body)
-    if "modifier" in f and f["modifier"] == "compact":
-        print(f'    ushort {name}_len = 0;', file=body)
-        print(f'    err = fd_bincode_compact_u16_encode(&{name}_len, ctx);', file=body)
-    else:
-        print(f'    ulong {name}_len = 0;', file=body)
-        print(f'    err = fd_bincode_uint64_encode(&{name}_len, ctx);', file=body)
-    print('    if ( FD_UNLIKELY(err) ) return err;', file=body)
-    print('  }', file=body)
-
-def do_array_body_encode(n, f):
-    length = f["length"]
-
-    if f["element"] == "uchar":
-        print(f'  err = fd_bincode_bytes_encode(self->{f["name"]}, {length}, ctx);', file=body)
-        print('  if ( FD_UNLIKELY(err) ) return err;', file=body)
-
-    else:
-        print(f'  for (ulong i = 0; i < {length}; ++i) {{', file=body)
-
-        if f["element"] == "ulong":
-            print(f'    err = fd_bincode_uint64_encode(self->{f["name"]} + i, ctx);', file=body)
-        elif f["element"] == "uint":
-            print(f'    err = fd_bincode_uint32_encode(self->{f["name"]} + i, ctx);', file=body)
+        print('  } else {', file=body)
+        if self.compact:
+            print(f'    ushort {self.name}_len = 0;', file=body)
+            print(f'    err = fd_bincode_compact_u16_encode(&{self.name}_len, ctx);', file=body)
         else:
-            print(f'    err = {n}_{f["element"]}_encode(self->{f["name"]} + i, ctx);', file=body)
+            print(f'    ulong {self.name}_len = 0;', file=body)
+            print(f'    err = fd_bincode_uint64_encode(&{self.name}_len, ctx);', file=body)
         print('    if ( FD_UNLIKELY(err) ) return err;', file=body)
-
         print('  }', file=body)
 
-def do_option_body_encode(n, f):
-    print(f'  if (self->{f["name"]} != NULL) {{', file=body)
-    print('    err = fd_bincode_option_encode(1, ctx);', file=body)
-    print('    if ( FD_UNLIKELY(err) ) return err;', file=body)
+    def emitSize(self, inner):
+        print(f'  if ( self->{self.name} ) {{', file=body)
 
-    if f["element"] == "ulong":
-        print(f'    err = fd_bincode_uint64_encode(self->{f["name"]}, ctx);', file=body)
-    elif f["element"] == "uint":
-        print(f'    err = fd_bincode_uint32_encode(self->{f["name"]}, ctx);', file=body)
-    else:
-        print(f'    err = {n}_{f["element"]}_encode(self->{f["name"]}, ctx);', file=body)
-    print('    if ( FD_UNLIKELY(err) ) return err;', file=body)
-    print('  } else {', file=body)
-    print('    err = fd_bincode_option_encode(0, ctx);', file=body)
-    print('    if ( FD_UNLIKELY(err) ) return err;', file=body)
-    print('  }', file=body)
+        if self.compact:
+            print(f'    ushort {self.name}_len = (ushort){self.prefix()}_cnt(self->{self.name});', file=body)
+            print(f'    size += fd_bincode_compact_u16_size(&{self.name}_len);', file=body)
+        else:
+            print('    size += sizeof(ulong);', file=body)
 
-def do_string_encode(n, f):
-    print(f'  ulong slen = strlen( (char *) self->{f["name"]} );', file=body)
-    print('  err = fd_bincode_uint64_encode(&slen, ctx);', file=body)
-    print('  if ( FD_UNLIKELY(err) ) return err;', file=body)
-    print(f'  err = fd_bincode_bytes_encode((uchar *) self->{f["name"]}, slen, ctx);', file=body)
-    print('  if ( FD_UNLIKELY(err) ) return err;', file=body)
+        if self.element == "uchar":
+            print(f'    ulong {self.name}_len = {self.prefix()}_cnt(self->{self.name});', file=body)
+            print(f'    size += {self.name}_len;', file=body)
+        elif self.element in simpletypes:
+            print(f'    ulong {self.name}_len = {self.prefix()}_cnt(self->{self.name});', file=body)
+            print(f'    size += {self.name}_len * sizeof({self.element});', file=body)
+        else:
+            print(f'    for ( {self.prefix()}_iter_t iter = {self.prefix()}_iter_init( self->{self.name} ); !{self.prefix()}_iter_done( self->{self.name}, iter ); iter = {self.prefix()}_iter_next( self->{self.name}, iter ) ) {{', file=body)
+            print(f'      {self.elem_type()} * ele = {self.prefix()}_iter_ele( self->{self.name}, iter );', file=body)
+            print(f'      size += {namespace}_{self.element}_size(ele);', file=body)
+            print('    }', file=body)
 
-def do_ulong_encode(n, f):
-    if not f.get('encode', True):
-        return
-    if "modifier" in f and f["modifier"] == "varint":
-        print(f'  err = fd_bincode_varint_encode(self->{f["name"]}, ctx);', file=body),
-    else:
-        print(f'  err = fd_bincode_uint64_encode(&self->{f["name"]}, ctx);', file=body),
-    print('  if ( FD_UNLIKELY(err) ) return err;', file=body)
+        print('  } else {', file=body)
+        if self.compact:
+            print('    size += 1;', file=body)
+        else:
+            print('    size += sizeof(ulong);', file=body)
+        print('  }', file=body)
 
-fields_body_encode = {
-    "char" :              lambda n, f: print(f"""  err = fd_bincode_uint8_encode((uchar *) &self->{f["name"]}, ctx);\n  if ( FD_UNLIKELY(err) ) return err;""", file=body),
-    "char*" :             lambda n, f: do_string_encode(n, f),
-    "char[32]" :          lambda n, f: print(f"""  err = fd_bincode_bytes_encode(&self->{f["name"]}[0], sizeof(self->{f["name"]}), ctx);\n  if ( FD_UNLIKELY(err) ) return err;""", file=body),
-    "char[7]" :           lambda n, f: print(f"""  err = fd_bincode_bytes_encode(&self->{f["name"]}[0], sizeof(self->{f["name"]}), ctx);\n  if ( FD_UNLIKELY(err) ) return err;""", file=body),
-    "double" :            lambda n, f: print(f"""  err = fd_bincode_double_encode(&self->{f["name"]}, ctx);\n  if ( FD_UNLIKELY(err) ) return err;""", file=body),
-    "long" :              lambda n, f: print(f"""  err = fd_bincode_uint64_encode((ulong *) &self->{f["name"]}, ctx);\n  if ( FD_UNLIKELY(err) ) return err;""", file=body),
-    "uint" :              lambda n, f: print(f"""  err = fd_bincode_uint32_encode(&self->{f["name"]}, ctx);\n  if ( FD_UNLIKELY(err) ) return err;""", file=body),
-    "uint128" :           lambda n, f: print(f"""  err = fd_bincode_uint128_encode(&self->{f["name"]}, ctx);\n  if ( FD_UNLIKELY(err) ) return err;""", file=body),
-    "uchar" :     lambda n, f: print(f"""  err = fd_bincode_uint8_encode(&self->{f["name"]}, ctx);\n  if ( FD_UNLIKELY(err) ) return err;""", file=body),
-    "uchar[32]" : lambda n, f: print(f"""  err = fd_bincode_bytes_encode(&self->{f["name"]}[0], sizeof(self->{f["name"]}), ctx);\n  if ( FD_UNLIKELY(err) ) return err;""", file=body),
-    "ulong" :     lambda n, f: do_ulong_encode(n, f),
-    "ushort" :            lambda n, f: print(f"""  err = fd_bincode_uint16_encode(&self->{f["name"]}, ctx);\n  if ( FD_UNLIKELY(err) ) return err;""", file=body),
-    "vector" :            lambda n, f: do_vector_body_encode(n, f),
-    "deque" :             lambda n, f: do_deque_body_encode(n, f),
-    "array" :             lambda n, f: do_array_body_encode(n, f),
-    "option" :            lambda n, f: do_option_body_encode(n, f),
-    "map" :               lambda n, f: do_map_body_encode(n, f),
-    "map_chain" :         lambda n, f: do_map_chain_body_encode(n, f),
-    "treap" :             lambda n, f: do_treap_body_encode(n, f),
-}
-
-# size
-
-def do_vector_body_size(n, f):
-    print('  size += sizeof(ulong);', file=body)
-    if f["element"] == "uchar":
-        print(f'  size += self->{f["name"]}_len;', file=body)
-    elif f["element"] == "ulong":
-        print(f'  size += self->{f["name"]}_len * sizeof(ulong);', file=body)
-    elif f["element"] == "uint":
-        print(f'  size += self->{f["name"]}_len * sizeof(uint);', file=body)
-    else:
-        print(f'  for (ulong i = 0; i < self->{f["name"]}_len; ++i)', file=body)
-        print(f'    size += {n}_{f["element"]}_size(self->{f["name"]} + i);', file=body)
-
-def do_deque_body_size(n, f):
-    print(f'  if ( self->{f["name"]} ) {{', file=body)
-
-    if "modifier" in f and f["modifier"] == "compact":
-        print(f'    ushort {f["name"]}_len = (ushort){deque_prefix(n, f)}_cnt(self->{f["name"]});', file=body)
-        print(f'    size += fd_bincode_compact_u16_size(&{f["name"]}_len);', file=body)
-    else:
-        print('    size += sizeof(ulong);', file=body)
-
-    if f["element"] == "uchar":
-        print(f'    ulong {f["name"]}_len = {deque_prefix(n, f)}_cnt(self->{f["name"]});', file=body)
-        print(f'    size += {f["name"]}_len;', file=body)
-    elif f["element"] == "ulong":
-        print(f'    ulong {f["name"]}_len = {deque_prefix(n, f)}_cnt(self->{f["name"]});', file=body)
-        print(f'    size += {f["name"]}_len * sizeof(ulong);', file=body)
-    elif f["element"] == "uint":
-        print(f'    ulong {f["name"]}_len = {deque_prefix(n, f)}_cnt(self->{f["name"]});', file=body)
-        print(f'    size += {f["name"]}_len * sizeof(uint);', file=body)
-    else:
-        print(f'    for ( {deque_prefix(n, f)}_iter_t iter = {deque_prefix(n, f)}_iter_init( self->{f["name"]} ); !{deque_prefix(n, f)}_iter_done( self->{f["name"]}, iter ); iter = {deque_prefix(n, f)}_iter_next( self->{f["name"]}, iter ) ) {{', file=body)
-        print(f'      {deque_elem_type(n, f)} * ele = {deque_prefix(n, f)}_iter_ele( self->{f["name"]}, iter );', file=body)
-        print(f'      size += {n}_{f["element"]}_size(ele);', file=body)
-        print('    }', file=body)
-
-    print('  } else {', file=body)
-    if "modifier" in f and f["modifier"] == "compact":
-        print('    size += 1;', file=body)
-    else:
-        print('    size += sizeof(ulong);', file=body)
-    print('  }', file=body)
-
-def do_map_body_size(n, f):
-    element_type = deque_elem_type(n, f)
-    mapname = element_type + "_map"
-    nodename = element_type + "_mapnode_t"
-
-    print(f'  if (self->{f["name"]}_root) {{', file=body)
-    if "modifier" in f and f["modifier"] == "compact":
-        print(f'    ushort {f["name"]}_len = (ushort){mapname}_size(self->{f["name"]}_pool, self->{f["name"]}_root);', file=body)
-        print(f'    size += fd_bincode_compact_u16_size(&{f["name"]}_len);', file=body)
-    else:
-        print('    size += sizeof(ulong);', file=body)
-    print(f'    for ( {nodename}* n = {mapname}_minimum(self->{f["name"]}_pool, self->{f["name"]}_root); n; n = {mapname}_successor(self->{f["name"]}_pool, n) ) {{', file=body);
-    print(f'      size += {n}_{f["element"]}_size(&n->elem);', file=body)
-    print('    }', file=body)
-    print('  } else {', file=body)
-    if "modifier" in f and f["modifier"] == "compact":
-        print('    size += 1;', file=body)
-    else:
-        print('    size += sizeof(ulong);', file=body)
-    print('  }', file=body)
-
-def do_map_chain_body_size(n, f):
-    name = f['name']
-    map_name = f['name'] + '_map'
-    map_ele_t = f['map_ele_t']
-    pool = f['name'] + '_pool'
-
-    if "modifier" in f and f["modifier"] == "compact":
-        print(f'  ushort {name}_len = (ushort){pool}_used( self->pool );', file=body)
-        print(f'  size += fd_bincode_compact_u16_size( &{name}_len );', file=body)
-    else:
-        print('  size += sizeof(ulong);', file=body)
-    print(f'  if (self->map) {{', file=body)
-    print(f'    for ( {map_name}_iter_t iter = {map_name}_iter_init( self->map, self->pool );', file=body);
-    print(f'          !{map_name}_iter_done( iter, self->map, self->pool );', file=body);
-    print(f'          iter = {map_name}_iter_next( iter, self->map, self->pool ) ) {{', file=body);
-    print(f'      {map_ele_t} * ele = {map_name}_iter_ele( iter, self->map, self->pool );', file=body)
-    print(f'      size += {map_ele_t.rstrip("_t")}_size( ele );', file=body)
-    print('    }', file=body)
-    print('  }', file=body)
-
-def do_treap_body_size(n, f):
-    name = f['name']
-    treap_name = f['name'] + '_treap'
-    treap_t = f['treap_t']
-    pool = f['name'] + '_pool'
-
-    if "modifier" in f and f["modifier"] == "compact":
-        print(f'  ushort {name}_len = (ushort){pool}_used( self->pool );', file=body)
-        print(f'  size += fd_bincode_compact_u16_size( &{name}_len );', file=body)
-    else:
-        print('  size += sizeof(ulong);', file=body)
-    print(f'  if (self->treap) {{', file=body)
-    print(f'    for ( {treap_name}_fwd_iter_t iter = {treap_name}_fwd_iter_init( self->treap, self->pool );', file=body);
-    print(f'          !{treap_name}_fwd_iter_done( iter );', file=body);
-    print(f'          iter = {treap_name}_fwd_iter_next( iter, self->pool ) ) {{', file=body);
-    print(f'      {treap_t} * ele = {treap_name}_fwd_iter_ele( iter, self->pool );', file=body)
-    print(f'      size += {treap_t.rstrip("_t")}_size( ele );', file=body)
-    print('    }', file=body)
-    print('  }', file=body)
-
-def do_array_body_size(n, f):
-    length = f["length"]
-
-    if f["element"] == "uchar":
-        print(f'  size += {length};', file=body)
-    elif f["element"] == "ulong":
-        print(f'  size += {length} * sizeof(ulong);', file=body)
-    elif f["element"] == "uint":
-        print(f'  size += {length} * sizeof(uint);', file=body)
-    else:
-        print(f'  for (ulong i = 0; i < {length}; ++i)', file=body)
-        print(f'    size += {n}_{f["element"]}_size(self->{f["name"]} + i);', file=body)
-
-def do_option_body_size(n, f):
-    print('  size += sizeof(char);', file=body)
-    print(f'  if (NULL !=  self->{f["name"]}) {{', file=body)
-
-    if f["element"] == "ulong":
-        print('    size += sizeof(ulong);', file=body)
-    elif f["element"] == "uint":
-        print('    size += sizeof(uint);', file=body)
-    else:
-        el = f'{n}_{f["element"]}'
-        el = el.upper()
-        print(f'    size += {n}_{f["element"]}_size(self->{f["name"]});', file=body)
-    print('  }', file=body)
-
-def do_string_size(n, f):
-    print(f'  size += sizeof(ulong) + strlen(self->{f["name"]});', file=body)
-
-fields_body_size = {
-    "char" :              lambda n, f: print('  size += sizeof(char);', file=body),
-    "char*" :             lambda n, f: do_string_size(n, f),
-    "char[32]" :          lambda n, f: print('  size += sizeof(char) * 32;', file=body),
-    "char[7]" :           lambda n, f: print('  size += sizeof(char) * 7;', file=body),
-    "double" :            lambda n, f: print('  size += sizeof(double);', file=body),
-    "long" :              lambda n, f: print('  size += sizeof(long);', file=body),
-    "uint" :              lambda n, f: print('  size += sizeof(uint);', file=body),
-    "uint128" :           lambda n, f: print('  size += sizeof(uint128);', file=body),
-    "uchar" :     lambda n, f: print('  size += sizeof(char);', file=body),
-    "uchar[32]" : lambda n, f: print('  size += sizeof(char) * 32;', file=body),
-    "ulong" :     lambda n, f: print('  size += sizeof(ulong);', file=body),
-    "ushort" :            lambda n, f: print('  size += sizeof(ushort);', file=body),
-    "vector" :            lambda n, f: do_vector_body_size(n, f),
-    "deque" :             lambda n, f: do_deque_body_size(n, f),
-    "array" :             lambda n, f: do_array_body_size(n, f),
-    "option" :            lambda n, f: do_option_body_size(n, f),
-    "map" :               lambda n, f: do_map_body_size(n, f),
-    "map_chain" :         lambda n, f: do_map_chain_body_size(n, f),
-    "treap" :             lambda n, f: do_treap_body_size(n, f),
-}
-
-# new
-
-def do_array_body_new(n, f):
-    length = f["length"]
-
-    if f["element"] == "uchar":
-        pass
-    elif f["element"] == "ulong":
-        pass
-    elif f["element"] == "uint":
-        pass
-    else:
-        print(f'  for (ulong i = 0; i < {length}; ++i)', file=body)
-        print(f'    {n}_{f["element"]}_new(self->{f["name"]} + i);', file=body)
-
-def do_pass():
-    pass
-
-fields_body_new = {
-    "char" :      lambda n, f: do_pass(),
-    "char*" :     lambda n, f: do_pass(),
-    "char[32]" :  lambda n, f: do_pass(),
-    "char[7]" :   lambda n, f: do_pass(),
-    "double" :    lambda n, f: do_pass(),
-    "long" :      lambda n, f: do_pass(),
-    "uint" :      lambda n, f: do_pass(),
-    "uint128" :   lambda n, f: do_pass(),
-    "uchar" :     lambda n, f: do_pass(),
-    "uchar[32]" : lambda n, f: do_pass(),
-    "ulong" :     lambda n, f: do_pass(),
-    "ushort" :    lambda n, f: do_pass(),
-    "vector" :    lambda n, f: do_pass(),
-    "deque" :     lambda n, f: do_pass(),
-    "array" :     lambda n, f: do_array_body_new(n, f),
-    "option" :    lambda n, f: do_pass(),
-    "map" :       lambda n, f: do_pass(),
-    "map_chain" : lambda n, f: do_pass(),
-    "treap" :     lambda n, f: do_pass(),
-}
-
-# destroy
-
-def do_vector_body_destroy(n, f):
-    print(f'  if (NULL != self->{f["name"]}) {{', file=body)
-    if f["element"] == "uchar":
-        pass
-    elif f["element"] == "ulong":
-        pass
-    elif f["element"] == "uint":
-        pass
-    else:
-        print(f'    for (ulong i = 0; i < self->{f["name"]}_len; ++i)', file=body)
-        print(f'      {n}_{f["element"]}_destroy(self->{f["name"]} + i, ctx);', file=body)
-    print(f'    fd_valloc_free( ctx->valloc, self->{f["name"]} );', file=body)
-    print(f'    self->{f["name"]} = NULL;', file=body)
-    print('  }', file=body)
-
-
-def do_deque_body_destroy(n, f):
-    print(f'  if ( self->{f["name"]} ) {{', file=body)
-    if f["element"] == "uchar":
-        pass
-    elif f["element"] == "ulong":
-        pass
-    elif f["element"] == "uint":
-        pass
-    else:
-        print(f'    for ( {deque_prefix(n, f)}_iter_t iter = {deque_prefix(n, f)}_iter_init( self->{f["name"]} ); !{deque_prefix(n, f)}_iter_done( self->{f["name"]}, iter ); iter = {deque_prefix(n, f)}_iter_next( self->{f["name"]}, iter ) ) {{', file=body)
-        print(f'      {deque_elem_type(n, f)} * ele = {deque_prefix(n, f)}_iter_ele( self->{f["name"]}, iter );', file=body)
-        print(f'      {n}_{f["element"]}_destroy(ele, ctx);', file=body)
-        print('    }', file=body)
-    print(f'    fd_valloc_free( ctx->valloc, {deque_prefix(n, f)}_delete( {deque_prefix(n, f)}_leave( self->{f["name"]}) ) );', file=body)
-    print(f'    self->{f["name"]} = NULL;', file=body)
-    print('  }', file=body)
-
-def do_map_body_destroy(n, f):
-    element_type = deque_elem_type(n, f)
-    mapname = element_type + "_map"
-    nodename = element_type + "_mapnode_t"
-
-    print(f'  for ( {nodename}* n = {mapname}_minimum(self->{f["name"]}_pool, self->{f["name"]}_root); n; n = {mapname}_successor(self->{f["name"]}_pool, n) ) {{', file=body);
-    print(f'    {n}_{f["element"]}_destroy(&n->elem, ctx);', file=body)
-    print('  }', file=body)
-    print(f'  fd_valloc_free( ctx->valloc, {mapname}_delete({mapname}_leave( self->{f["name"]}_pool) ) );', file=body)
-    print(f'  self->{f["name"]}_pool = NULL;', file=body)
-    print(f'  self->{f["name"]}_root = NULL;', file=body)
-
-def do_map_chain_body_destroy(n, f):
-    map_name = f['name'] + '_map'
-    map_ele_t = f['map_ele_t']
-    pool = f['name'] + '_pool'
-
-    print(f'    for ( {map_name}_iter_t iter = {map_name}_iter_init( self->map, self->pool );', file=body);
-    print(f'          !{map_name}_iter_done( iter, self->map, self->pool );', file=body);
-    print(f'          iter = {map_name}_iter_next( iter, self->map, self->pool ) ) {{', file=body);
-    print(f'      {map_ele_t} * ele = {map_name}_iter_ele( iter, self->map, self->pool );', file=body)
-    print(f'      {map_ele_t.rstrip("_t")}_destroy( ele, ctx );', file=body)
-    print('    }', file=body)
-    print(f'  fd_valloc_free( ctx->valloc, {map_name}_delete({map_name}_leave( self->map) ) );', file=body)
-    print(f'  fd_valloc_free( ctx->valloc, {pool}_delete({pool}_leave( self->pool) ) );', file=body)
-    print(f'  self->pool = NULL;', file=body)
-    print(f'  self->map = NULL;', file=body)
-
-def do_treap_body_destroy(n, f):
-    treap_name = f['name'] + '_treap'
-    treap_t = f['treap_t']
-    pool = f['name'] + '_pool'
-
-    print(f'  if ( !self->treap || !self->pool ) return;', file=body)
-    print(f'  for ( {treap_name}_fwd_iter_t iter = {treap_name}_fwd_iter_init( self->treap, self->pool );', file=body);
-    print(f'          !{treap_name}_fwd_iter_done( iter );', file=body);
-    print(f'          iter = {treap_name}_fwd_iter_next( iter, self->pool ) ) {{', file=body);
-    print(f'      {treap_t} * ele = {treap_name}_fwd_iter_ele( iter, self->pool );', file=body)
-    print(f'      {treap_t.rstrip("_t")}_destroy( ele, ctx );', file=body)
-    print('    }', file=body)
-    print(f'  fd_valloc_free( ctx->valloc, {treap_name}_delete({treap_name}_leave( self->treap) ) );', file=body)
-    print(f'  fd_valloc_free( ctx->valloc, {pool}_delete({pool}_leave( self->pool) ) );', file=body)
-    print(f'  self->pool = NULL;', file=body)
-    print(f'  self->treap = NULL;', file=body)
-
-def do_array_body_destroy(n, f):
-    length = f["length"]
-
-    if f["element"] == "uchar":
-        pass
-    elif f["element"] == "ulong":
-        pass
-    elif f["element"] == "uint":
-        pass
-    else:
-        print(f'  for (ulong i = 0; i < {length}; ++i)', file=body)
-        print(f'    {n}_{f["element"]}_destroy(self->{f["name"]} + i, ctx);', file=body)
-
-def do_option_body_destroy(n, f):
-    print(f'  if (NULL != self->{f["name"]}) {{', file=body)
-    if f["element"] == "ulong":
-        pass
-    elif f["element"] == "uint":
-        pass
-    else:
-        print(f'    {n}_{f["element"]}_destroy(self->{f["name"]}, ctx);', file=body)
-
-    print(f'    fd_valloc_free( ctx->valloc, self->{f["name"]});', file=body)
-    print(f'    self->{f["name"]} = NULL;', file=body)
-    print('  }', file=body)
-
-fields_body_destroy = {
-    "char" :      lambda n, f: do_pass(),
-    "char*" :     lambda n, f: print(f"""  if (NULL != self->{f["name"]}) {{\n    fd_valloc_free( ctx->valloc, self->{f["name"]});\n    self->{f["name"]} = NULL;\n  }}""", file=body),
-    "char[32]" :  lambda n, f: do_pass(),
-    "char[7]" :   lambda n, f: do_pass(),
-    "double" :    lambda n, f: do_pass(),
-    "long" :      lambda n, f: do_pass(),
-    "uint" :      lambda n, f: do_pass(),
-    "uint128" :   lambda n, f: do_pass(),
-    "uchar" :     lambda n, f: do_pass(),
-    "uchar[32]" : lambda n, f: do_pass(),
-    "ulong" :     lambda n, f: do_pass(),
-    "ushort" :    lambda n, f: do_pass(),
-    "vector" :    lambda n, f: do_vector_body_destroy(n, f),
-    "deque" :     lambda n, f: do_deque_body_destroy(n, f),
-    "array" :     lambda n, f: do_array_body_destroy(n, f),
-    "option" :    lambda n, f: do_option_body_destroy(n, f),
-    "map" :       lambda n, f: do_map_body_destroy(n, f),
-    "map_chain" : lambda n, f: do_map_chain_body_destroy(n, f),
-    "treap" :     lambda n, f: do_treap_body_destroy(n, f),
-}
-
-# walk
-
-fields_body_vector_walk = {
-    "double" :  lambda n, f: print(f'  fun( w, self->{f["name"]} + i, "{f["name"]}", FD_FLAMENCO_TYPE_DOUBLE,  "double",  level );', file=body),
-    "long" :    lambda n, f: print(f'  fun( w, self->{f["name"]} + i, "{f["name"]}", FD_FLAMENCO_TYPE_LONG,    "long",    level );', file=body),
-    "uint" :    lambda n, f: print(f'  fun( w, self->{f["name"]} + i, "{f["name"]}", FD_FLAMENCO_TYPE_UINT,    "uint",    level );', file=body),
-    "uint128" : lambda n, f: print(f'  fun( w, self->{f["name"]} + i, "{f["name"]}", FD_FLAMENCO_TYPE_UINT128, "uint128", level );', file=body),
-    "ulong" :   lambda n, f: print(f'  fun( w, self->{f["name"]} + i, "{f["name"]}", FD_FLAMENCO_TYPE_ULONG,   "ulong",   level );', file=body),
-    "ushort" :  lambda n, f: print(f'  fun( w, self->{f["name"]} + i, "{f["name"]}", FD_FLAMENCO_TYPE_USHORT,  "ushort",  level );', file=body),
-}
-
-def do_vector_body_walk(n, f):
-
-    if f["element"] == "uchar":
-        print(f'  fun(w, self->{f["name"]}, "{f["name"]}", FD_FLAMENCO_TYPE_UCHAR, "{f["element"]}", level );', file=body),
-        return
-    else:
-        print(f'  if (self->{f["name"]}_len != 0) {{', file=body)
-        print(f'    fun(w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "{f["name"]}", level++);', file=body)
-        print(f'    for (ulong i = 0; i < self->{f["name"]}_len; ++i)', file=body)
-
-    if f["element"] in fields_body_vector_walk:
-        body.write("    ")
-        fields_body_vector_walk[f["element"]](namespace, f)
-    else:
-        print(f'      {n}_{f["element"]}_walk(w, self->{f["name"]} + i, fun, "{f["element"]}", level );', file=body)
-
-    print(f'    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "{f["name"]}", level-- );', file=body)
-    print('  }', file=body)
-
-def do_deque_body_walk(n, f):
-    print(
-        f'''
+    def emitWalk(self, inner):
+        print(
+            f'''
   /* Walk deque */
-  fun( w, self->{f["name"]}, "{f["name"]}", FD_FLAMENCO_TYPE_ARR, "{f["name"]}", level++ );
-  if( self->{f["name"]} ) {{
-    for( {deque_prefix(n, f)}_iter_t iter = {deque_prefix(n, f)}_iter_init( self->{f["name"]} );
-         !{deque_prefix(n, f)}_iter_done( self->{f["name"]}, iter );
-         iter = {deque_prefix(n, f)}_iter_next( self->{f["name"]}, iter ) ) {{
-      {deque_elem_type(n, f)} * ele = {deque_prefix(n, f)}_iter_ele( self->{f["name"]}, iter );''',
-      file=body
-  )
+  fun( w, self->{self.name}, "{self.name}", FD_FLAMENCO_TYPE_ARR, "{self.name}", level++ );
+  if( self->{self.name} ) {{
+    for( {self.prefix()}_iter_t iter = {self.prefix()}_iter_init( self->{self.name} );
+         !{self.prefix()}_iter_done( self->{self.name}, iter );
+         iter = {self.prefix()}_iter_next( self->{self.name}, iter ) ) {{
+      {self.elem_type()} * ele = {self.prefix()}_iter_ele( self->{self.name}, iter );''',
+            file=body
+        )
 
-    if f["element"] == "uchar":
-        print('      fun(w, ele, "ele", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );', file=body),
-    elif f["element"] == "ulong":
-        print('      fun(w, ele, "ele", FD_FLAMENCO_TYPE_ULONG, "long",  level );', file=body),
-    elif f["element"] == "uint":
-        print('      fun(w, ele, "ele", FD_FLAMENCO_TYPE_UINT,  "uint",  level );', file=body),
-    else:
-        print(f'      {n}_{f["element"]}_walk(w, ele, fun, "{f["name"]}", level );', file=body)
+        if self.element == "uchar":
+            print('      fun(w, ele, "ele", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );', file=body),
+        elif self.element == "ulong":
+            print('      fun(w, ele, "ele", FD_FLAMENCO_TYPE_ULONG, "long",  level );', file=body),
+        elif self.element == "uint":
+            print('      fun(w, ele, "ele", FD_FLAMENCO_TYPE_UINT,  "uint",  level );', file=body),
+        else:
+            print(f'      {namespace}_{self.element}_walk(w, ele, fun, "{self.name}", level );', file=body)
 
-    print(f'''    }}
+        print(f'''    }}
   }}
-  fun( w, self->{f["name"]}, "{f["name"]}", FD_FLAMENCO_TYPE_ARR_END, "{f["name"]}", level-- );
+  fun( w, self->{self.name}, "{self.name}", FD_FLAMENCO_TYPE_ARR_END, "{self.name}", level-- );
   /* Done walking deque */
 ''', file=body)
 
-def do_map_body_walk(n, f):
-    element_type = deque_elem_type(n, f)
-    mapname = element_type + "_map"
-    nodename = element_type + "_mapnode_t"
-    print(f'  if (self->{f["name"]}_root) {{', file=body)
-    print(f'    for ( {nodename}* n = {mapname}_minimum(self->{f["name"]}_pool, self->{f["name"]}_root); n; n = {mapname}_successor(self->{f["name"]}_pool, n) ) {{', file=body);
 
-    if f["element"] == "uchar":
-        print('      fun(w, &n->elem, "ele", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );', file=body),
-    elif f["element"] == "ulong":
-        print('      fun(w, &n->elem, "ele", FD_FLAMENCO_TYPE_ULONG, "long",  level );', file=body),
-    elif f["element"] == "uint":
-        print('      fun(w, &n->elem, "ele", FD_FLAMENCO_TYPE_UINT,  "uint",  level );', file=body),
-    else:
-        print(f'      {n}_{f["element"]}_walk(w, &n->elem, fun, "{f["name"]}", level );', file=body)
-    print(f'    }}', file=body)
-    print(f'  }}', file=body)
+class MapMember:
+    def __init__(self, container, json):
+        self.name = json["name"]
+        self.element = json["element"]
+        self.key = json["key"]
+        self.compact = ("modifier" in json and json["modifier"] == "compact")
+        self.minalloc = (int(json["minalloc"]) if "minalloc" in json else 0)
 
-#    element_type = deque_elem_type(n, f)
-#    mapname = element_type + "_map"
-#    nodename = element_type + "_mapnode_t"
-#
-#    if "modifier" in f and f["modifier"] == "compact":
-#        print(f'  ushort {f["name"]}_len = (ushort){mapname}_size(self->{f["name"]}, self->{f["name"]}_root);', file=body)
-#        print(f'  fd_walk_short_u16(&{f["name"]}_len, ctx);', file=body)
-#    else:
-#        print(f'  ulong {f["name"]}_len = {mapname}_size(self->{f["name"]}, self->{f["name"]}_root);', file=body)
-#        print(f'  fd_bincode_uint64_walk(w, &{f["name"]}_len, ctx);', file=body)
-#    print(f'  for ( {nodename}* n = {mapname}_minimum(self->{f["name"]}, self->{f["name"]}_root); n; n = {mapname}_successor(self->{f["name"]}, n) ) {{', file=body);
-#    print(f'      {n}_{f["element"]}_walk(w, &n->elem, ctx);', file=body)
-#    print('  }', file=body)
+    def elem_type(self):
+        if self.element in simpletypes:
+            return self.element
+        else:
+            return f'{namespace}_{self.element}_t'
 
-def do_map_chain_body_walk(n, f):
-    map_name = f['name'] + '_map'
-    map_ele_t = f['map_ele_t']
+    def emitPreamble(self):
+        element_type = self.elem_type()
+        mapname = element_type + "_map"
+        if mapname in preambletypes:
+            return
+        preambletypes.add(mapname)
+        nodename = element_type + "_mapnode"
+        print(f"typedef struct {nodename} {nodename}_t;", file=header)
+        print(f"#define REDBLK_T {nodename}_t", file=header)
+        print(f"#define REDBLK_NAME {mapname}", file=header)
+        print(f"#define REDBLK_IMPL_STYLE 1", file=header)
+        print(f'#include "../../util/tmpl/fd_redblack.c"', file=header)
+        print(f"#undef REDBLK_T", file=header)
+        print(f"#undef REDBLK_NAME", file=header)
+        print(f"struct {nodename} {{", file=header)
+        print(f"    {element_type} elem;", file=header)
+        print(f"    ulong redblack_parent;", file=header)
+        print(f"    ulong redblack_left;", file=header)
+        print(f"    ulong redblack_right;", file=header)
+        print(f"    int redblack_color;", file=header)
+        print("};", file=header)
+        print(f'static inline {nodename}_t *', file=header)
+        print(f'{mapname}_alloc( fd_valloc_t valloc, ulong len ) {{', file=header)
+        print(f'  void * mem = fd_valloc_malloc( valloc, {mapname}_align(), {mapname}_footprint(len));', file=header)
+        print(f'  return {mapname}_join({mapname}_new(mem, len));', file=header)
+        print("}", file=header)
 
-    print(f'  if (self->map) {{', file=body)
-    print(f'    for ( {map_name}_iter_t iter = {map_name}_iter_init( self->map, self->pool );', file=body);
-    print(f'          !{map_name}_iter_done( iter, self->map, self->pool );', file=body);
-    print(f'          iter = {map_name}_iter_next( iter, self->map, self->pool ) ) {{', file=body);
-    print(f'      {map_ele_t} * ele = {map_name}_iter_ele( iter, self->map, self->pool );', file=body)
+    def emitPostamble(self):
+        element_type = self.elem_type()
+        mapname = element_type + "_map"
+        if mapname in postambletypes:
+            return
+        postambletypes.add(mapname)
+        nodename = element_type + "_mapnode_t"
+        print(f'#define REDBLK_T {nodename}', file=body)
+        print(f'#define REDBLK_NAME {mapname}', file=body)
+        print(f'#define REDBLK_IMPL_STYLE 2', file=body)
+        print(f'#include "../../util/tmpl/fd_redblack.c"', file=body)
+        print(f'#undef REDBLK_T', file=body)
+        print(f'#undef REDBLK_NAME', file=body)
+        print(f'long {mapname}_compare({nodename} * left, {nodename} * right) {{', file=body)
+        key = self.key
+        if key == "pubkey" or key == "account" or key == "key":
+            print(f'  return memcmp(left->elem.{key}.uc, right->elem.{key}.uc, sizeof(right->elem.{key}));', file=body)
+        else:
+            print(f'  return (long)(left->elem.{key} - right->elem.{key});', file=body)
+        print("}", file=body)
 
-    if map_ele_t == "uchar":
-        print('      fun(w, ele, "ele", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );', file=body),
-    elif map_ele_t == "ulong":
-        print('      fun(w, ele, "ele", FD_FLAMENCO_TYPE_ULONG, "long",  level );', file=body),
-    elif map_ele_t == "uint":
-        print('      fun(w, ele, "ele", FD_FLAMENCO_TYPE_UINT,  "uint",  level );', file=body),
-    else:
-        print(f'      {map_ele_t.rstrip("_t")}_walk(w, ele, fun, "{map_ele_t}", level );', file=body)
-    print(f'    }}', file=body)
-    print(f'  }}', file=body)
+    def emitMember(self):
+        element_type = self.elem_type()
+        print(f'  {element_type}_mapnode_t * {self.name}_pool;', file=header)
+        print(f'  {element_type}_mapnode_t * {self.name}_root;', file=header)
 
-def do_treap_body_walk(n, f):
-    treap_name = f['name'] + '_treap'
-    treap_t = f['treap_t']
+    def emitNew(self):
+        pass
 
-    print(f'  if (self->treap) {{', file=body)
-    print(f'    for ( {treap_name}_fwd_iter_t iter = {treap_name}_fwd_iter_init( self->treap, self->pool );', file=body);
-    print(f'          !{treap_name}_fwd_iter_done( iter );', file=body);
-    print(f'          iter = {treap_name}_fwd_iter_next( iter, self->pool ) ) {{', file=body);
-    print(f'      {treap_t} * ele = {treap_name}_fwd_iter_ele( iter, self->pool );', file=body)
+    def emitDestroy(self):
+        element_type = self.elem_type()
+        mapname = element_type + "_map"
+        nodename = element_type + "_mapnode_t"
 
-    if treap_t == "uchar":
-        print('      fun(w, ele, "ele", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );', file=body),
-    elif treap_t == "ulong":
-        print('      fun(w, ele, "ele", FD_FLAMENCO_TYPE_ULONG, "long",  level );', file=body),
-    elif treap_t == "uint":
-        print('      fun(w, ele, "ele", FD_FLAMENCO_TYPE_UINT,  "uint",  level );', file=body),
-    else:
-        print(f'      {treap_t.rstrip("_t")}_walk(w, ele, fun, "{treap_t}", level );', file=body)
-    print(f'    }}', file=body)
-    print(f'  }}', file=body)
+        print(f'  for ( {nodename}* n = {mapname}_minimum(self->{self.name}_pool, self->{self.name}_root); n; n = {mapname}_successor(self->{self.name}_pool, n) ) {{', file=body);
+        print(f'    {namespace}_{self.element}_destroy(&n->elem, ctx);', file=body)
+        print('  }', file=body)
+        print(f'  fd_valloc_free( ctx->valloc, {mapname}_delete({mapname}_leave( self->{self.name}_pool) ) );', file=body)
+        print(f'  self->{self.name}_pool = NULL;', file=body)
+        print(f'  self->{self.name}_root = NULL;', file=body)
 
-def do_array_body_walk(n, f):
-    length = f["length"]
+    def emitDecodePreflight(self):
+        element_type = self.elem_type()
+        mapname = element_type + "_map"
+        nodename = element_type + "_mapnode_t"
 
-    if f["element"] == "uchar":
-        print(f'fd_bincode_bytes_walk(w, self->{f["name"]}, {length}, ctx);', file=body)
-        return
+        if self.compact:
+            print(f'  ushort {self.name}_len;', file=body)
+            print(f'  err = fd_bincode_compact_u16_decode(&{self.name}_len, ctx);', file=body)
+        else:
+            print(f'  ulong {self.name}_len;', file=body)
+            print(f'  err = fd_bincode_uint64_decode(&{self.name}_len, ctx);', file=body)
+        print('  if ( FD_UNLIKELY(err) ) return err;', file=body)
 
-    print(f'  fun(w, NULL, "{f["name"]}", FD_FLAMENCO_TYPE_ARR, "{f["element"]}[]", level++);', file=body)
-    print(f'  for (ulong i = 0; i < {length}; ++i)', file=body)
+        print(f'  for (ulong i = 0; i < {self.name}_len; ++i) {{', file=body)
+        print(f'    err = {namespace}_{self.element}_decode_preflight(ctx);', file=body)
+        print('    if ( FD_UNLIKELY(err) ) return err;', file=body)
+        print('  }', file=body)
 
-    if f["element"] in fields_body_vector_walk:
-        body.write("  ")
-        fields_body_vector_walk[f["element"]](namespace, f)
-    else:
-        print(f'    {n}_{f["element"]}_walk(w, self->{f["name"]} + i, fun, "{f["element"]}", level );', file=body)
-    print(f'  fun(w, NULL, "{f["name"]}", FD_FLAMENCO_TYPE_ARR_END, "{f["element"]}[]", level--);', file=body)
+    def emitDecodeUnsafe(self):
+        element_type = self.elem_type()
+        mapname = element_type + "_map"
+        nodename = element_type + "_mapnode_t"
 
-fields_body_walk = {
-    "char" :      lambda n, f, e: print(f'  fun( w, &self->{e}{f["name"]}, "{f["name"]}", FD_FLAMENCO_TYPE_SCHAR,   "char",      level );', file=body),
-    "char*" :     lambda n, f, e: print(f'  fun( w,  self->{e}{f["name"]}, "{f["name"]}", FD_FLAMENCO_TYPE_CSTR,    "char*",     level );', file=body),
-    "double" :    lambda n, f, e: print(f'  fun( w, &self->{e}{f["name"]}, "{f["name"]}", FD_FLAMENCO_TYPE_DOUBLE,  "double",    level );', file=body),
-    "long" :      lambda n, f, e: print(f'  fun( w, &self->{e}{f["name"]}, "{f["name"]}", FD_FLAMENCO_TYPE_SLONG,   "long",      level );', file=body),
-    "uint" :      lambda n, f, e: print(f'  fun( w, &self->{e}{f["name"]}, "{f["name"]}", FD_FLAMENCO_TYPE_UINT,    "uint",      level );', file=body),
-    "uint128" :   lambda n, f, e: print(f'  fun( w, &self->{e}{f["name"]}, "{f["name"]}", FD_FLAMENCO_TYPE_UINT128, "uint128",   level );', file=body),
-    "uchar" :     lambda n, f, e: print(f'  fun( w, &self->{e}{f["name"]}, "{f["name"]}", FD_FLAMENCO_TYPE_UCHAR,   "uchar",     level );', file=body),
-    "uchar[32]" : lambda n, f, e: print(f'  fun( w,  self->{e}{f["name"]}, "{f["name"]}", FD_FLAMENCO_TYPE_HASH256, "uchar[32]", level );', file=body),
-    "ulong" :     lambda n, f, e: print(f'  fun( w, &self->{e}{f["name"]}, "{f["name"]}", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );', file=body),
-    "ushort" :    lambda n, f, e: print(f'  fun( w, &self->{e}{f["name"]}, "{f["name"]}", FD_FLAMENCO_TYPE_USHORT,  "ushort",    level );', file=body),
-    "vector" :    lambda n, f, e: do_vector_body_walk(n, f),
-    "deque" :     lambda n, f, e: do_deque_body_walk(n, f),
-    "array" :     lambda n, f, e: do_array_body_walk(n, f),
-    "option" :    lambda n, f, e: do_option_body_walk(n, f),
-    "map" :       lambda n, f, e: do_map_body_walk(n, f),
-    "map_chain" : lambda n, f, e: do_map_chain_body_walk(n, f),
-    "treap" :     lambda n, f, e: do_treap_body_walk(n, f),
-}
+        if self.compact:
+            print(f'  ushort {self.name}_len;', file=body)
+            print(f'  fd_bincode_compact_u16_decode_unsafe(&{self.name}_len, ctx);', file=body)
+        else:
+            print(f'  ulong {self.name}_len;', file=body)
+            print(f'  fd_bincode_uint64_decode_unsafe(&{self.name}_len, ctx);', file=body)
 
-fields_option_walk = {
-    "char" :      lambda n, f, e: print(f'  fun( w, self->{e}{f["name"]}, "{f["name"]}", FD_FLAMENCO_TYPE_SCHAR,   "char",      level );', file=body),
-    "char*" :     lambda n, f, e: print(f'  fun( w, self->{e}{f["name"]}, "{f["name"]}", FD_FLAMENCO_TYPE_CSTR,    "char*",     level );', file=body),
-    "double" :    lambda n, f, e: print(f'  fun( w, self->{e}{f["name"]}, "{f["name"]}", FD_FLAMENCO_TYPE_DOUBLE,  "double",    level );', file=body),
-    "long" :      lambda n, f, e: print(f'  fun( w, self->{e}{f["name"]}, "{f["name"]}", FD_FLAMENCO_TYPE_SLONG,   "long",      level );', file=body),
-    "uint" :      lambda n, f, e: print(f'  fun( w, self->{e}{f["name"]}, "{f["name"]}", FD_FLAMENCO_TYPE_UINT,    "uint",      level );', file=body),
-    "uint128" :   lambda n, f, e: print(f'  fun( w, self->{e}{f["name"]}, "{f["name"]}", FD_FLAMENCO_TYPE_UINT128, "uint128",   level );', file=body),
-    "uchar" :     lambda n, f, e: print(f'  fun( w, self->{e}{f["name"]}, "{f["name"]}", FD_FLAMENCO_TYPE_UCHAR,   "uchar",     level );', file=body),
-    "uchar[32]" : lambda n, f, e: print(f'  fun( w, self->{e}{f["name"]}, "{f["name"]}", FD_FLAMENCO_TYPE_HASH256, "uchar[32]", level );', file=body),
-    "ulong" :     lambda n, f, e: print(f'  fun( w, self->{e}{f["name"]}, "{f["name"]}", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );', file=body),
-    "ushort" :    lambda n, f, e: print(f'  fun( w, self->{e}{f["name"]}, "{f["name"]}", FD_FLAMENCO_TYPE_USHORT,  "ushort",    level );', file=body),
-}
+        if self.minalloc > 0:
+            print(f'  self->{self.name}_pool = {mapname}_alloc(ctx->valloc, fd_ulong_max({self.name}_len, {self.minalloc}));', file=body)
+        else:
+            print(f'  self->{self.name}_pool = {mapname}_alloc(ctx->valloc, {self.name}_len);', file=body)
+        print(f'  self->{self.name}_root = NULL;', file=body)
+        print(f'  for (ulong i = 0; i < {self.name}_len; ++i) {{', file=body)
+        print(f'    {nodename}* node = {mapname}_acquire(self->{self.name}_pool);', file=body);
+        print(f'    {namespace}_{self.element}_new(&node->elem);', file=body)
+        print(f'    {namespace}_{self.element}_decode_unsafe(&node->elem, ctx);', file=body)
+        print(f'    {mapname}_insert(self->{self.name}_pool, &self->{self.name}_root, node);', file=body)
+        print('  }', file=body)
 
-def do_option_body_walk(n, f):
-    print(f'''  if( !self->{f["name"]} ) {{
-    fun( w, NULL, "{f["name"]}", FD_FLAMENCO_TYPE_NULL, "{f["element"]}", level );
+    def emitEncode(self):
+        element_type = self.elem_type()
+        mapname = element_type + "_map"
+        nodename = element_type + "_mapnode_t"
+
+        print(f'  if (self->{self.name}_root) {{', file=body)
+        if self.compact:
+            print(f'    ushort {self.name}_len = (ushort){mapname}_size(self->{self.name}_pool, self->{self.name}_root);', file=body)
+            print(f'    err = fd_bincode_compact_u16_encode(&{self.name}_len, ctx);', file=body)
+        else:
+            print(f'    ulong {self.name}_len = {mapname}_size(self->{self.name}_pool, self->{self.name}_root);', file=body)
+            print(f'    err = fd_bincode_uint64_encode(&{self.name}_len, ctx);', file=body)
+        print('    if ( FD_UNLIKELY(err) ) return err;', file=body)
+
+        print(f'    for ( {nodename}* n = {mapname}_minimum(self->{self.name}_pool, self->{self.name}_root); n; n = {mapname}_successor(self->{self.name}_pool, n) ) {{', file=body);
+        print(f'      err = {namespace}_{self.element}_encode(&n->elem, ctx);', file=body)
+        print('      if ( FD_UNLIKELY(err) ) return err;', file=body)
+        print('    }', file=body)
+        print('  } else {', file=body)
+        if self.compact:
+            print(f'    ushort {self.name}_len = 0;', file=body)
+            print(f'    err = fd_bincode_compact_u16_encode(&{self.name}_len, ctx);', file=body)
+        else:
+            print(f'    ulong {self.name}_len = 0;', file=body)
+            print(f'    err = fd_bincode_uint64_encode(&{self.name}_len, ctx);', file=body)
+        print('    if ( FD_UNLIKELY(err) ) return err;', file=body)
+        print('  }', file=body)
+
+    def emitSize(self, inner):
+        element_type = self.elem_type()
+        mapname = element_type + "_map"
+        nodename = element_type + "_mapnode_t"
+
+        print(f'  if (self->{self.name}_root) {{', file=body)
+        if self.compact:
+            print(f'    ushort {self.name}_len = (ushort){mapname}_size(self->{self.name}_pool, self->{self.name}_root);', file=body)
+            print(f'    size += fd_bincode_compact_u16_size(&{self.name}_len);', file=body)
+        else:
+            print('    size += sizeof(ulong);', file=body)
+        print(f'    for ( {nodename}* n = {mapname}_minimum(self->{self.name}_pool, self->{self.name}_root); n; n = {mapname}_successor(self->{self.name}_pool, n) ) {{', file=body);
+        print(f'      size += {namespace}_{self.element}_size(&n->elem);', file=body)
+        print('    }', file=body)
+        print('  } else {', file=body)
+        if self.compact:
+            print('    size += 1;', file=body)
+        else:
+            print('    size += sizeof(ulong);', file=body)
+        print('  }', file=body)
+
+    def emitWalk(self, inner):
+        element_type = self.elem_type()
+        mapname = element_type + "_map"
+        nodename = element_type + "_mapnode_t"
+        print(f'  if (self->{self.name}_root) {{', file=body)
+        print(f'    for ( {nodename}* n = {mapname}_minimum(self->{self.name}_pool, self->{self.name}_root); n; n = {mapname}_successor(self->{self.name}_pool, n) ) {{', file=body);
+
+        if self.element == "uchar":
+            print('      fun(w, &n->elem, "ele", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );', file=body),
+        elif self.element == "ulong":
+            print('      fun(w, &n->elem, "ele", FD_FLAMENCO_TYPE_ULONG, "long",  level );', file=body),
+        elif self.element == "uint":
+            print('      fun(w, &n->elem, "ele", FD_FLAMENCO_TYPE_UINT,  "uint",  level );', file=body),
+        else:
+            print(f'      {namespace}_{self.element}_walk(w, &n->elem, fun, "{self.name}", level );', file=body)
+        print(f'    }}', file=body)
+        print(f'  }}', file=body)
+
+
+class TreapMember:
+    def __init__(self, container, json):
+        self.name = json["name"]
+        self.treap_t = json["treap_t"]
+        self.treap_query_t = json["treap_query_t"]
+        self.treap_cmp = json["treap_cmp"]
+        self.treap_lt = json["treap_lt"]
+        self.max = int(json["max"])
+        self.compact = ("modifier" in json and json["modifier"] == "compact")
+        self.treap_prio = (json["treap_prio"] if "treap_prio" in json else None)
+
+    def emitPreamble(self):
+        name = self.name
+        treap_name = name + '_treap'
+        treap_t = self.treap_t
+        if treap_t in preambletypes:
+            return
+        preambletypes.add(treap_t)
+        treap_query_t = self.treap_query_t
+        treap_cmp = self.treap_cmp
+        treap_lt = self.treap_lt
+        pool = name + '_pool'
+        max_name = f"{name.upper()}_MAX"
+        print(f"#define {max_name} {self.max}", file=header)
+        print(f"#define POOL_NAME {pool}", file=header)
+        print(f"#define POOL_T {treap_t}", file=header)
+        print(f"#define POOL_NEXT parent", file=header)
+        print("#include \"../../util/tmpl/fd_pool.c\"", file=header)
+        print(f'static inline {treap_t} *', file=header)
+        print(f'{pool}_alloc( fd_valloc_t valloc ) {{', file=header)
+        print(f'  return {pool}_join( {pool}_new(', file=header)
+        print(f'      fd_valloc_malloc( valloc,', file=header)
+        print(f'                        {pool}_align(),', file=header)
+        print(f'                        {pool}_footprint( {max_name} ) ),', file=header)
+        print(f'      {max_name} ) );', file=header)
+        print("}", file=header)
+        print(f"#define TREAP_NAME {treap_name}", file=header)
+        print(f"#define TREAP_T {treap_t}", file=header)
+        print(f"#define TREAP_QUERY_T {treap_query_t}", file=header)
+        print(f"#define TREAP_CMP(q,e) {treap_cmp}", file=header)
+        print(f"#define TREAP_LT(e0,e1) {treap_lt}", file=header)
+        if self.treap_prio is not None:
+            print(f"#define TREAP_PRIO {self.treap_prio}", file=header)
+        print("#include \"../../util/tmpl/fd_treap.c\"", file=header)
+        print(f'static inline {treap_name}_t *', file=header)
+        print(f'{treap_name}_alloc( fd_valloc_t valloc ) {{', file=header)
+        print(f'  return {treap_name}_join( {treap_name}_new(', file=header)
+        print(f'      fd_valloc_malloc( valloc,', file=header)
+        print(f'                        {treap_name}_align(),', file=header)
+        print(f'                        {treap_name}_footprint( {name.upper()}_MAX ) ),', file=header)
+        print(f'      {name.upper()}_MAX ) );', file=header)
+        print("}", file=header)
+
+    def emitPostamble(self):
+        pass
+
+    def emitMember(self):
+        print(f'  {self.treap_t} * pool;', file=header)
+        print(f'  {self.name}_treap_t * treap;', file=header)
+
+    def emitNew(self):
+        pass
+
+    def emitDestroy(self):
+        treap_name = self.name + '_treap'
+        treap_t = self.treap_t
+        pool = self.name + '_pool'
+
+        print(f'  if ( !self->treap || !self->pool ) return;', file=body)
+        print(f'  for ( {treap_name}_fwd_iter_t iter = {treap_name}_fwd_iter_init( self->treap, self->pool );', file=body);
+        print(f'          !{treap_name}_fwd_iter_done( iter );', file=body);
+        print(f'          iter = {treap_name}_fwd_iter_next( iter, self->pool ) ) {{', file=body);
+        print(f'      {treap_t} * ele = {treap_name}_fwd_iter_ele( iter, self->pool );', file=body)
+        print(f'      {treap_t.rstrip("_t")}_destroy( ele, ctx );', file=body)
+        print('    }', file=body)
+        print(f'  fd_valloc_free( ctx->valloc, {treap_name}_delete({treap_name}_leave( self->treap) ) );', file=body)
+        print(f'  fd_valloc_free( ctx->valloc, {pool}_delete({pool}_leave( self->pool) ) );', file=body)
+        print(f'  self->pool = NULL;', file=body)
+        print(f'  self->treap = NULL;', file=body)
+
+    def emitDecodePreflight(self):
+        treap_name = self.name + '_treap'
+        treap_t = self.treap_t
+        pool_name = self.name + '_pool'
+
+        if self.compact:
+            print(f'  ushort {treap_name}_len;', file=body)
+            print(f'  err = fd_bincode_compact_u16_decode(&{treap_name}_len, ctx);', file=body)
+        else:
+            print(f'  ulong {treap_name}_len;', file=body)
+            print(f'  err = fd_bincode_uint64_decode(&{treap_name}_len, ctx);', file=body)
+        print('  if ( FD_UNLIKELY(err) ) return err;', file=body)
+        print(f'  if ( {treap_name}_len > {self.name.upper()}_MAX ) return FD_BINCODE_ERR_SMALL_DEQUE;', file=body)
+
+        print(f'  for (ulong i = 0; i < {treap_name}_len; ++i) {{', file=body)
+        print(f'    err = {treap_t.rstrip("_t")}_decode_preflight( ctx );', file=body)
+        print(f'    if ( FD_UNLIKELY ( err ) ) return err;', file=body)
+        print('  }', file=body)
+
+    def emitDecodeUnsafe(self):
+        treap_name = self.name + '_treap'
+        treap_t = self.treap_t
+        pool_name = self.name + '_pool'
+
+        if self.compact:
+            print(f'  ushort {treap_name}_len;', file=body)
+            print(f'  fd_bincode_compact_u16_decode_unsafe(&{treap_name}_len, ctx);', file=body)
+        else:
+            print(f'  ulong {treap_name}_len;', file=body)
+            print(f'  fd_bincode_uint64_decode_unsafe(&{treap_name}_len, ctx);', file=body)
+
+        print(f'  self->pool = {pool_name}_alloc( ctx->valloc );', file=body)
+        print(f'  self->treap = {treap_name}_alloc( ctx->valloc );', file=body)
+        print(f'  for (ulong i = 0; i < {treap_name}_len; ++i) {{', file=body)
+        print(f'    {treap_t} * ele = {pool_name}_ele_acquire( self->pool );', file=body)
+        print(f'    {treap_t.rstrip("_t")}_new( ele );', file=body)
+        print(f'    {treap_t.rstrip("_t")}_decode_unsafe( ele, ctx );', file=body)
+        print(f'    {treap_name}_ele_insert( self->treap, ele, self->pool ); /* this cannot fail */', file=body);
+        print('  }', file=body)
+
+    def emitEncode(self):
+        name = self.name
+        treap_name = name + '_treap'
+        treap_t = self.treap_t
+
+        print(f'  if (self->treap) {{', file=body)
+        if self.compact:
+            print(f'    ushort {name}_len = {treap_name}_ele_cnt( self->treap );', file=body)
+            print(f'    err = fd_bincode_compact_u16_encode( &{name}_len, ctx );', file=body)
+        else:
+            print(f'    ulong {name}_len = {treap_name}_ele_cnt( self->treap );', file=body)
+            print(f'    err = fd_bincode_uint64_encode( &{name}_len, ctx );', file=body)
+        print('    if ( FD_UNLIKELY( err ) ) return err;', file=body)
+
+        print(f'    for ( {treap_name}_fwd_iter_t iter = {treap_name}_fwd_iter_init( self->treap, self->pool );', file=body);
+        print(f'          !{treap_name}_fwd_iter_done( iter );', file=body);
+        print(f'          iter = {treap_name}_fwd_iter_next( iter, self->pool ) ) {{', file=body);
+        print(f'      {treap_t} * ele = {treap_name}_fwd_iter_ele( iter, self->pool );', file=body)
+        print(f'      err = {treap_t.rstrip("_t")}_encode( ele, ctx );', file=body)
+        print('      if ( FD_UNLIKELY(err) ) return err;', file=body)
+        print('    }', file=body)
+        print('  } else {', file=body)
+        if self.compact:
+            print(f'    ushort {name}_len = 0;', file=body)
+            print(f'    err = fd_bincode_compact_u16_encode(&{name}_len, ctx);', file=body)
+        else:
+            print(f'    ulong {name}_len = 0;', file=body)
+            print(f'    err = fd_bincode_uint64_encode(&{name}_len, ctx);', file=body)
+        print('    if ( FD_UNLIKELY(err) ) return err;', file=body)
+        print('  }', file=body)
+
+    def emitSize(self, inner):
+        name = self.name
+        treap_name = name + '_treap'
+        treap_t = self.treap_t
+        pool = name + '_pool'
+
+        if self.compact:
+            print(f'  ushort {name}_len = (ushort){pool}_used( self->pool );', file=body)
+            print(f'  size += fd_bincode_compact_u16_size( &{name}_len );', file=body)
+        else:
+            print('  size += sizeof(ulong);', file=body)
+        print(f'  if (self->treap) {{', file=body)
+        print(f'    for ( {treap_name}_fwd_iter_t iter = {treap_name}_fwd_iter_init( self->treap, self->pool );', file=body);
+        print(f'          !{treap_name}_fwd_iter_done( iter );', file=body);
+        print(f'          iter = {treap_name}_fwd_iter_next( iter, self->pool ) ) {{', file=body);
+        print(f'      {treap_t} * ele = {treap_name}_fwd_iter_ele( iter, self->pool );', file=body)
+        print(f'      size += {treap_t.rstrip("_t")}_size( ele );', file=body)
+        print('    }', file=body)
+        print('  }', file=body)
+
+    def emitWalk(self, inner):
+        treap_name = self.name + '_treap'
+        treap_t = self.treap_t
+
+        print(f'  if (self->treap) {{', file=body)
+        print(f'    for ( {treap_name}_fwd_iter_t iter = {treap_name}_fwd_iter_init( self->treap, self->pool );', file=body);
+        print(f'          !{treap_name}_fwd_iter_done( iter );', file=body);
+        print(f'          iter = {treap_name}_fwd_iter_next( iter, self->pool ) ) {{', file=body);
+        print(f'      {treap_t} * ele = {treap_name}_fwd_iter_ele( iter, self->pool );', file=body)
+
+        if treap_t == "uchar":
+            print('      fun(w, ele, "ele", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );', file=body),
+        elif treap_t == "ulong":
+            print('      fun(w, ele, "ele", FD_FLAMENCO_TYPE_ULONG, "long",  level );', file=body),
+        elif treap_t == "uint":
+            print('      fun(w, ele, "ele", FD_FLAMENCO_TYPE_UINT,  "uint",  level );', file=body),
+        else:
+            print(f'      {treap_t.rstrip("_t")}_walk(w, ele, fun, "{treap_t}", level );', file=body)
+        print(f'    }}', file=body)
+        print(f'  }}', file=body)
+
+
+class OptionMember:
+    def __init__(self, container, json):
+        self.name = json["name"]
+        self.element = json["element"]
+
+    def emitPreamble(self):
+        pass
+
+    def emitPostamble(self):
+        pass
+
+    def emitMember(self):
+        if self.element in simpletypes:
+            print(f'  {self.element}* {self.name};', file=header)
+        else:
+            print(f'  {namespace}_{self.element}_t* {self.name};', file=header)
+
+    def emitNew(self):
+        pass
+
+    def emitDestroy(self):
+        print(f'  if (NULL != self->{self.name}) {{', file=body)
+        if self.element in simpletypes:
+            pass
+        else:
+            print(f'    {namespace}_{self.element}_destroy(self->{self.name}, ctx);', file=body)
+
+        print(f'    fd_valloc_free( ctx->valloc, self->{self.name});', file=body)
+        print(f'    self->{self.name} = NULL;', file=body)
+        print('  }', file=body)
+
+    def emitDecodePreflight(self):
+        print('  {', file=body)
+        print('    uchar o;', file=body)
+        print('    err = fd_bincode_option_decode( &o, ctx );', file=body)
+        print('    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
+        print('    if( o ) {', file=body)
+        if self.element in simpletypes:
+            print(f'      err = fd_bincode_{simpletypes[self.element]}_decode_preflight( ctx );', file=body)
+        else:
+            el = f'{namespace}_{self.element}'
+            el = el.upper()
+            print(f'      err = {namespace}_{self.element}_decode_preflight( ctx );', file=body)
+        print('      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
+        print('    }', file=body)
+        print('  }', file=body)
+
+    def emitDecodeUnsafe(self):
+        print('  {', file=body)
+        print('    uchar o;', file=body)
+        print('    fd_bincode_option_decode_unsafe( &o, ctx );', file=body)
+        print('    if( o ) {', file=body)
+        if self.element in simpletypes:
+            print(f'      self->{self.name} = fd_valloc_malloc( ctx->valloc, 8, sizeof({self.element}) );', file=body)
+            print(f'      fd_bincode_{simpletypes[self.element]}_decode_unsafe( self->{self.name}, ctx );', file=body)
+        else:
+            el = f'{namespace}_{self.element}'
+            el = el.upper()
+            print(f'      self->{self.name} = ({namespace}_{self.element}_t*)fd_valloc_malloc( ctx->valloc, {el}_ALIGN, {el}_FOOTPRINT );', file=body)
+            print(f'      {namespace}_{self.element}_new( self->{self.name} );', file=body)
+            print(f'      {namespace}_{self.element}_decode_unsafe( self->{self.name}, ctx );', file=body)
+        print('    } else', file=body)
+        print(f'      self->{self.name} = NULL;', file=body)
+        print('  }', file=body)
+
+    def emitEncode(self):
+        print(f'  if (self->{self.name} != NULL) {{', file=body)
+        print('    err = fd_bincode_option_encode(1, ctx);', file=body)
+        print('    if ( FD_UNLIKELY(err) ) return err;', file=body)
+
+        if self.element in simpletypes:
+            print(f'    err = fd_bincode_{simpletypes[self.element]}_encode(self->{self.name}, ctx);', file=body)
+        else:
+            print(f'    err = {namespace}_{self.element}_encode(self->{self.name}, ctx);', file=body)
+        print('    if ( FD_UNLIKELY(err) ) return err;', file=body)
+        print('  } else {', file=body)
+        print('    err = fd_bincode_option_encode(0, ctx);', file=body)
+        print('    if ( FD_UNLIKELY(err) ) return err;', file=body)
+        print('  }', file=body)
+
+    def emitSize(self, inner):
+        print('  size += sizeof(char);', file=body)
+        print(f'  if (NULL !=  self->{self.name}) {{', file=body)
+        if self.element in simpletypes:
+            print(f'    size += sizeof({self.element});', file=body)
+        else:
+            print(f'    size += {namespace}_{self.element}_size(self->{self.name});', file=body)
+        print('  }', file=body)
+
+    emitWalkMap = {
+        "char" :      lambda n: print(f'  fun( w, self->{n}, "{n}", FD_FLAMENCO_TYPE_SCHAR,   "char",      level );', file=body),
+        "char*" :     lambda n: print(f'  fun( w, self->{n}, "{n}", FD_FLAMENCO_TYPE_CSTR,    "char*",     level );', file=body),
+        "double" :    lambda n: print(f'  fun( w, self->{n}, "{n}", FD_FLAMENCO_TYPE_DOUBLE,  "double",    level );', file=body),
+        "long" :      lambda n: print(f'  fun( w, self->{n}, "{n}", FD_FLAMENCO_TYPE_SLONG,   "long",      level );', file=body),
+        "uint" :      lambda n: print(f'  fun( w, self->{n}, "{n}", FD_FLAMENCO_TYPE_UINT,    "uint",      level );', file=body),
+        "uint128" :   lambda n: print(f'  fun( w, self->{n}, "{n}", FD_FLAMENCO_TYPE_UINT128, "uint128",   level );', file=body),
+        "uchar" :     lambda n: print(f'  fun( w, self->{n}, "{n}", FD_FLAMENCO_TYPE_UCHAR,   "uchar",     level );', file=body),
+        "uchar[32]" : lambda n: print(f'  fun( w, self->{n}, "{n}", FD_FLAMENCO_TYPE_HASH256, "uchar[32]", level );', file=body),
+        "ulong" :     lambda n: print(f'  fun( w, self->{n}, "{n}", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );', file=body),
+        "ushort" :    lambda n: print(f'  fun( w, self->{n}, "{n}", FD_FLAMENCO_TYPE_USHORT,  "ushort",    level );', file=body),
+       }
+
+    def emitWalk(self, inner):
+        print(f'''  if( !self->{self.name} ) {{
+    fun( w, NULL, "{self.name}", FD_FLAMENCO_TYPE_NULL, "{self.element}", level );
   }} else {{''', file=body)
-    if f["element"] in fields_option_walk:
-        fields_option_walk[f["element"]](n, f, "")
+        if self.element in OptionMember.emitWalkMap:
+            OptionMember.emitWalkMap[self.element](self.name)
+        else:
+            print(f'  {namespace}_{self.element}_walk( w, self->{self.name}, fun, "{self.name}", level );', file=body)
+        print(f'  }}', file=body)
+
+
+class ArrayMember:
+    def __init__(self, container, json):
+        self.name = json["name"]
+        self.element = json["element"]
+        self.length = int(json["length"])
+
+    def emitPreamble(self):
+        pass
+
+    def emitPostamble(self):
+        pass
+
+    def emitMember(self):
+        if self.element in simpletypes:
+            print(f'  {self.element} {self.name}[{self.length}];', file=header)
+        else:
+            print(f'  {namespace}_{self.element}_t {self.name}[{self.length}];', file=header)
+
+    def emitNew(self):
+        length = self.length
+        if self.element in simpletypes:
+            pass
+        else:
+            print(f'  for (ulong i = 0; i < {length}; ++i)', file=body)
+            print(f'    {namespace}_{self.element}_new(self->{self.name} + i);', file=body)
+
+    def emitDestroy(self):
+        length = self.length
+
+        if self.element in simpletypes:
+            pass
+        else:
+            print(f'  for (ulong i = 0; i < {length}; ++i)', file=body)
+            print(f'    {namespace}_{self.element}_destroy(self->{self.name} + i, ctx);', file=body)
+
+    def emitDecodePreflight(self):
+        length = self.length
+
+        if self.element == "uchar":
+            print(f'  err = fd_bincode_bytes_decode_preflight( {length}, ctx );', file=body)
+            print(f'  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
+            return
+
+        print(f'  for (ulong i = 0; i < {length}; ++i) {{', file=body)
+        if self.element in simpletypes:
+            print(f'    err = fd_bincode_{simpletypes[self.element]}_decode_preflight(ctx);', file=body)
+        else:
+            print(f'    err = {namespace}_{self.element}_decode_preflight(ctx);', file=body)
+        print('    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
+        print('  }', file=body)
+
+    def emitDecodeUnsafe(self):
+        length = self.length
+
+        if self.element == "uchar":
+            print(f'  fd_bincode_bytes_decode_unsafe( self->{self.name}, {length}, ctx );', file=body)
+            return
+
+        print(f'  for (ulong i = 0; i < {length}; ++i) {{', file=body)
+        if self.element in simpletypes:
+            print(f'    fd_bincode_{simpletypes[self.element]}_decode_unsafe(self->{self.name} + i, ctx);', file=body)
+        else:
+            print(f'    {namespace}_{self.element}_decode_unsafe(self->{self.name} + i, ctx);', file=body)
+        print('  }', file=body)
+
+    def emitEncode(self):
+        length = self.length
+
+        if self.element == "uchar":
+            print(f'  err = fd_bincode_bytes_encode(self->{self.name}, {length}, ctx);', file=body)
+            print('  if ( FD_UNLIKELY(err) ) return err;', file=body)
+            return
+
+        print(f'  for (ulong i = 0; i < {length}; ++i) {{', file=body)
+        if self.element in simpletypes:
+            print(f'    err = fd_bincode_{simpletypes[self.element]}_encode(self->{self.name} + i, ctx);', file=body)
+        else:
+            print(f'    err = {namespace}_{self.element}_encode(self->{self.name} + i, ctx);', file=body)
+        print('    if ( FD_UNLIKELY(err) ) return err;', file=body)
+        print('  }', file=body)
+
+    def emitSize(self, inner):
+        length = self.length
+
+        if self.element == "uchar":
+            print(f'  size += {length};', file=body)
+        elif self.element in simpletypes:
+            print(f'  size += {length} * sizeof({self.element});', file=body)
+        else:
+            print(f'  for (ulong i = 0; i < {length}; ++i)', file=body)
+            print(f'    size += {namespace}_{self.element}_size(self->{self.name} + i);', file=body)
+
+    def emitWalk(self, inner):
+        length = self.length
+
+        if self.element == "uchar":
+            print(f'fd_bincode_bytes_walk(w, self->{self.name}, {length}, ctx);', file=body)
+            return
+
+        print(f'  fun(w, NULL, "{self.name}", FD_FLAMENCO_TYPE_ARR, "{self.element}[]", level++);', file=body)
+        print(f'  for (ulong i = 0; i < {length}; ++i)', file=body)
+        if self.element in VectorMember.emitWalkMap:
+            body.write("  ")
+            VectorMember.emitWalkMap[self.element](self.name)
+        else:
+            print(f'    {namespace}_{self.element}_walk(w, self->{self.name} + i, fun, "{self.element}", level );', file=body)
+        print(f'  fun(w, NULL, "{self.name}", FD_FLAMENCO_TYPE_ARR_END, "{self.element}[]", level--);', file=body)
+
+
+memberTypeMap = {
+    "vector" :    VectorMember,
+    "deque" :     DequeMember,
+    "array" :     ArrayMember,
+    "option" :    OptionMember,
+    "map" :       MapMember,
+    "treap" :     TreapMember
+}
+
+def parseMember(namespace, json):
+    type = PrimitiveMember.fixupType(str(json["type"]))
+    if type in memberTypeMap:
+        c = memberTypeMap[type]
+    elif type in PrimitiveMember.emitMemberMap:
+        json["type"] = type
+        c = PrimitiveMember
     else:
-        print(f'  {n}_{f["element"]}_walk( w, self->{f["name"]}, fun, "{f["name"]}", level );', file=body)
-    print(f'  }}', file=body)
+        c = StructMember
+    return c(namespace, json)
 
-# Map different names for the same times into how firedancer knows them
-for entry in entries:
-    if "fields" in entry:
-      for f in entry["fields"]:
-          if f["type"] in type_map:
-              f["type"] = type_map[f["type"]]
-          if "element" in f:
-              if f["element"] in type_map:
-                  f["element"] = type_map[f["element"]]
-    if "variants" in entry:
-      for v in entry["variants"]:
-          if "type" in v and v["type"] in type_map:
-              v["type"] = type_map[v["type"]]
 
-# Generate one instance of the fd_deque.c template for each unique element type.
-deque_element_types = set()
+class OpaqueType:
+    def __init__(self, json):
+        self.fullname = f'{namespace}_{json["name"]}'
+        self.walktype = (json["walktype"] if "walktype" in json else None)
 
-map_element_types = dict()
+    def emitHeader(self):
+        pass
 
-for entry in entries:
-    # Create the dynamic vector types needed for this entry
-    if "fields" in entry:
-      for f in entry["fields"]:
-          if f["type"] == "deque":
-              element_type = deque_elem_type(namespace, f)
-              if element_type in deque_element_types:
-                  continue
+    def emitPrototypes(self):
+        n = self.fullname
+        print(f"void {n}_new({n}_t* self);", file=header)
+        print(f"int {n}_decode({n}_t* self, fd_bincode_decode_ctx_t * ctx);", file=header)
+        print(f"int {n}_decode_preflight(fd_bincode_decode_ctx_t * ctx);", file=header)
+        print(f"void {n}_decode_unsafe({n}_t* self, fd_bincode_decode_ctx_t * ctx);", file=header)
+        print(f"int {n}_encode({n}_t const * self, fd_bincode_encode_ctx_t * ctx);", file=header)
+        print(f"void {n}_destroy({n}_t* self, fd_bincode_destroy_ctx_t * ctx);", file=header)
+        print(f"void {n}_walk(void * w, {n}_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);", file=header)
+        print(f"ulong {n}_size({n}_t const * self);", file=header)
+        print(f'ulong {n}_footprint( void );', file=header)
+        print(f'ulong {n}_align( void );', file=header)
+        print("", file=header)
 
-              dp = deque_prefix(namespace, f)
-              if "max" in f:
-                  print("#define DEQUE_NAME " + dp, file=header)
-                  print("#define DEQUE_T " + element_type, file=header)
-                  print(f'#define DEQUE_MAX {f["max"]}', file=header)
-                  print('#include "../../util/tmpl/fd_deque.c"', file=header)
-                  print("#undef DEQUE_NAME", file=header)
-                  print("#undef DEQUE_T", file=header)
-                  print("#undef DEQUE_MAX", file=header)
-                  print(f'static inline {element_type} *', file=header)
-                  print(f'{dp}_alloc( fd_valloc_t valloc ) {{', file=header)
-                  print(f'  void * mem = fd_valloc_malloc( valloc, {dp}_align(), {dp}_footprint());', file=header)
-                  print(f'  return {dp}_join( {dp}_new( mem ) );', file=header)
-                  print("}", file=header)
-              else:
-                  print("#define DEQUE_NAME " + dp, file=header)
-                  print("#define DEQUE_T " + element_type, file=header)
-                  print('#include "../../util/tmpl/fd_deque_dynamic.c"', file=header)
-                  print("#undef DEQUE_NAME", file=header)
-                  print("#undef DEQUE_T\n", file=header)
-                  print(f'static inline {element_type} *', file=header)
-                  print(f'{dp}_alloc( fd_valloc_t valloc, ulong len ) {{', file=header)
-                  if "growth" in f:
-                      print(f'  ulong max = len + {f["growth"]};', file=header) # Provide headroom
-                  else:
-                      print(f'  ulong max = len + len/5 + 10;', file=header) # Provide headroom
-                  print(f'  void * mem = fd_valloc_malloc( valloc, {dp}_align(), {dp}_footprint( max ));', file=header)
-                  print(f'  return {dp}_join( {dp}_new( mem, max ) );', file=header)
-                  print("}", file=header)
+    def emitImpls(self):
+        n = self.fullname
 
-              deque_element_types.add(element_type)
+        print(f'int {n}_decode({n}_t* self, fd_bincode_decode_ctx_t * ctx) {{', file=body)
+        print(f'  void const * data = ctx->data;', file=body)
+        print(f'  int err = {n}_decode_preflight(ctx);', file=body)
+        print(f'  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
+        print(f'  ctx->data = data;', file=body)
+        print(f'  {n}_new(self);', file=body)
+        print(f'  {n}_decode_unsafe(self, ctx);', file=body)
+        print(f'  return FD_BINCODE_SUCCESS;', file=body)
+        print(f'}}', file=body)
 
-          if f["type"] == "map":
-            element_type = deque_elem_type(namespace, f)
-            if element_type in map_element_types:
-                continue
+        print(f'int {n}_decode_preflight(fd_bincode_decode_ctx_t * ctx) {{', file=body)
+        print(f'  return fd_bincode_bytes_decode_preflight( sizeof({n}_t), ctx );', file=body)
+        print("}", file=body)
 
-            mapname = element_type + "_map"
-            nodename = element_type + "_mapnode"
-            print(f"typedef struct {nodename} {nodename}_t;", file=header)
-            print(f"#define REDBLK_T {nodename}_t", file=header)
-            print(f"#define REDBLK_NAME {mapname}", file=header)
-            print(f"#define REDBLK_IMPL_STYLE 1", file=header)
-            print(f'#include "../../util/tmpl/fd_redblack.c"', file=header)
-            print(f"#undef REDBLK_T", file=header)
-            print(f"#undef REDBLK_NAME", file=header)
-            print(f"struct {nodename} {{", file=header)
-            print(f"    {element_type} elem;", file=header)
-            print(f"    ulong redblack_parent;", file=header)
-            print(f"    ulong redblack_left;", file=header)
-            print(f"    ulong redblack_right;", file=header)
-            print(f"    int redblack_color;", file=header)
-            print("};", file=header)
-            print(f'static inline {nodename}_t *', file=header)
-            print(f'{mapname}_alloc( fd_valloc_t valloc, ulong len ) {{', file=header)
-            print(f'  void * mem = fd_valloc_malloc( valloc, {mapname}_align(), {mapname}_footprint(len));', file=header)
-            print(f'  return {mapname}_join({mapname}_new(mem, len));', file=header)
-            print("}", file=header)
+        print(f'void {n}_decode_unsafe({n}_t* self, fd_bincode_decode_ctx_t * ctx) {{', file=body)
+        print(f'  fd_bincode_bytes_decode_unsafe( (uchar*)self, sizeof({n}_t), ctx );', file=body)
+        print("}", file=body)
 
-            map_element_types[element_type] = f["key"]
+        print(f'void {n}_new({n}_t* self) {{ }}', file=body)
 
-          if f["type"] == "map_chain" and f['name'] not in defined:
-            map_name = f['name'] + '_map'
-            map_ele_t = f['map_ele_t']
-            map_seed = f['map_seed']
-            pool = f['name'] + '_pool'
-            pool_max = f["pool_max"]
+        print(f'void {n}_destroy({n}_t* self, fd_bincode_destroy_ctx_t * ctx) {{ }}', file=body)
 
-            print(f"#define POOL_NAME {pool}", file=header)
-            print(f"#define POOL_T {map_ele_t}", file=header)
-            print(f"#define POOL_MAX {pool_max}", file=header)
-            print("#include \"../../util/tmpl/fd_pool.c\"", file=header)
+        print(f'ulong {n}_footprint( void ){{ return sizeof({n}_t); }}', file=body)
+        print(f'ulong {n}_align( void ){{ return alignof({n}_t); }}', file=body)
 
-            print(f'static inline {map_ele_t} *', file=header)
-            print(f'{pool}_alloc( fd_valloc_t valloc ) {{', file=header)
-            print(f'  return {pool}_join( {pool}_new(', file=header)
-            print(f'      fd_valloc_malloc( valloc,', file=header)
-            print(f'                        {pool}_align(),', file=header)
-            print(f'                        {pool}_footprint( POOL_MAX ) ),', file=header)
-            print(f'      POOL_MAX ) );', file=header)
-            print("}", file=header)
+        print(f'ulong {n}_size({n}_t const * self) {{ (void)self; return sizeof({n}_t); }}', file=body)
 
-            print(f"#define MAP_NAME {map_name}", file=header)
-            print(f"#define MAP_ELE_T {map_ele_t}", file=header)
-            if 'map_key' in f:
-                print(f"#define MAP_KEY {f['map_key']}", file=header)
-            print(f"#define MAP_SEED {map_seed}", file=header)
-            print("#include \"../../util/tmpl/fd_map_chain.c\"", file=header)
+        print(f'int {n}_encode({n}_t const * self, fd_bincode_encode_ctx_t * ctx) {{', file=body)
+        print(f'  return fd_bincode_bytes_encode( (uchar const *)self, sizeof({n}_t), ctx );', file=body)
+        print("}", file=body)
 
-            print(f'static inline {map_name}_t *', file=header)
-            print(f'{map_name}_alloc( fd_valloc_t valloc ) {{', file=header)
-            print(f'  ulong chain_cnt = {map_name}_chain_cnt_est( POOL_MAX );', file=header)
-            print(f'  return {map_name}_join( {map_name}_new(', file=header)
-            print(f'      fd_valloc_malloc( valloc,', file=header)
-            print(f'                        {map_name}_align(),', file=header)
-            print(f'                        {map_name}_footprint( chain_cnt ) ),', file=header)
-            print(f'      chain_cnt,', file=header)
-            print(f'      MAP_SEED ) );', file=header)
-            print("}", file=header)
-            defined.add(map_name)
-
-          if f["type"] == "treap" and f['name'] not in defined:
-            name = f['name']
-            treap_name = name + '_treap'
-            treap_t = f['treap_t']
-            treap_query_t = f['treap_query_t']
-            treap_cmp = f['treap_cmp']
-            treap_lt = f['treap_lt']
-            pool = name + '_pool'
-            max_name = f"{name.upper()}_MAX"
-
-            print(f"#define {max_name} {f['max']}", file=header)
-            print(f"#define POOL_NAME {pool}", file=header)
-            print(f"#define POOL_T {treap_t}", file=header)
-            print(f"#define POOL_NEXT parent", file=header)
-            print("#include \"../../util/tmpl/fd_pool.c\"", file=header)
-
-            print(f'static inline {treap_t} *', file=header)
-            print(f'{pool}_alloc( fd_valloc_t valloc ) {{', file=header)
-            print(f'  return {pool}_join( {pool}_new(', file=header)
-            print(f'      fd_valloc_malloc( valloc,', file=header)
-            print(f'                        {pool}_align(),', file=header)
-            print(f'                        {pool}_footprint( {max_name} ) ),', file=header)
-            print(f'      {max_name} ) );', file=header)
-            print("}", file=header)
-
-            print(f"#define TREAP_NAME {treap_name}", file=header)
-            print(f"#define TREAP_T {treap_t}", file=header)
-            print(f"#define TREAP_QUERY_T {treap_query_t}", file=header)
-            print(f"#define TREAP_CMP(q,e) {treap_cmp}", file=header)
-            print(f"#define TREAP_LT(e0,e1) {treap_lt}", file=header)
-            if 'treap_prio' in f:
-                print(f"#define TREAP_PRIO {f['treap_prio']}", file=header)
-            print("#include \"../../util/tmpl/fd_treap.c\"", file=header)
-
-            print(f'static inline {treap_name}_t *', file=header)
-            print(f'{treap_name}_alloc( fd_valloc_t valloc ) {{', file=header)
-            print(f'  return {treap_name}_join( {treap_name}_new(', file=header)
-            print(f'      fd_valloc_malloc( valloc,', file=header)
-            print(f'                        {treap_name}_align(),', file=header)
-            print(f'                        {treap_name}_footprint( {name.upper()}_MAX ) ),', file=header)
-            print(f'      {name.upper()}_MAX ) );', file=header)
-            print("}", file=header)
-            defined.add(treap_name)
-
-    if "comment" in entry and "type" in entry and entry["type"] != "enum":
-      print(f'/* {entry["comment"]} */', file=header)
-
-    n = f'{namespace}_{entry["name"]}'
-
-    if "attribute" in entry:
-        a = f'__attribute__{entry["attribute"]} '
-    else:
-        a = ""
-
-    alignment = "8"
-    if "alignment" in entry:
-        alignment = entry["alignment"]
-
-    if "type" in entry and entry["type"] == "struct":
-      if a == "":
-          a = "__attribute__((aligned(" + alignment + "UL))) "
-      print(f'struct {a}{n} {{', file=header)
-      for f in entry["fields"]:
-          if f["type"] in fields_header:
-              fields_header[f["type"]](namespace, f)
-          else:
-               print(f'  {namespace}_{f["type"]}_t {f["name"]};', file=header)
-
-      print("};", file=header)
-      print(f'typedef struct {n} {n}_t;', file=header)
-
-    elif "type" in entry and entry["type"] == "enum":
-      print(f'union {a}{n}_inner {{', file=header)
-
-      empty = True
-      for v in entry["variants"]:
-          if "type" in v:
-            empty = False
-            if v["type"] in fields_header:
-                fields_header[v["type"]](namespace, v)
-            else:
-                print(f'  {namespace}_{v["type"]}_t {v["name"]};', file=header)
-      if empty:
-          print('  uchar nonempty; /* Hack to support enums with no inner structures */ ', file=header)
-
-      print("};", file=header)
-      print(f"typedef union {n}_inner {n}_inner_t;\n", file=header)
-
-      if "comment" in entry:
-        print("/* " + entry["comment"] + " */", file=header)
-
-      print(f"struct {a}{n} {{", file=header)
-      print('  uint discriminant;', file=header)
-      print(f'  {n}_inner_t inner;', file=header)
-      print("};", file=header)
-      print(f"typedef struct {n} {n}_t;", file=header)
-
-    print(f"#define {n.upper()}_FOOTPRINT sizeof({n}_t)", file=header)
-    print(f"#define {n.upper()}_ALIGN ({alignment}UL)", file=header)
-    print("", file=header)
-
-print("", file=header)
-print("FD_PROTOTYPES_BEGIN", file=header)
-print("", file=header)
-
-for entry in entries:
-    if "attribute" in entry:
-        continue
-    n = namespace + "_" + entry["name"]
-
-    print(f'  \"{entry["name"]}\",', file=names)
-
-    if entry["type"] == "enum":
-        print(f"void {n}_new_disc({n}_t* self, uint discriminant);", file=header)
-    print(f"void {n}_new({n}_t* self);", file=header)
-    print(f"int {n}_decode({n}_t* self, fd_bincode_decode_ctx_t * ctx);", file=header)
-    print(f"int {n}_encode({n}_t const * self, fd_bincode_encode_ctx_t * ctx);", file=header)
-    print(f"void {n}_destroy({n}_t* self, fd_bincode_destroy_ctx_t * ctx);", file=header)
-    print(f"void {n}_walk(void * w, {n}_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);", file=header)
-    print(f"ulong {n}_size({n}_t const * self);", file=header)
-    print(f'ulong {n}_footprint( void );', file=header)
-    print(f'ulong {n}_align( void );', file=header)
-    print("", file=header)
-
-    if entry["type"] == "enum":
-        for i, v in enumerate(entry["variants"]):
-            print(f'FD_FN_PURE uchar {n}_is_{v["name"]}({n}_t const * self);', file=header)
-            print(f'FD_FN_PURE uchar {n}_is_{v["name"]}({n}_t const * self) {{', file=body)
-            print(f'  return self->discriminant == {i};', file=body)
+        if self.walktype is not None:
+            print(f"void {n}_walk(void * w, {n}_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {{", file=body)
+            print(f'  fun( w, (uchar const*)self, name, {self.walktype}, name, level );', file=body)
             print("}", file=body)
-        print("enum {", file=header)
 
-        for i, v in enumerate(entry["variants"]):
-            print(f'{n}_enum_{v["name"]} = {i},', file=header)
+        print("", file=body)
+
+    def emitPostamble(self):
+        pass
+
+
+class StructType:
+    def __init__(self, json):
+        self.fullname = f'{namespace}_{json["name"]}'
+        self.fields = []
+        for f in entry["fields"]:
+            self.fields.append(parseMember(self.fullname, f))
+        self.comment = (json["comment"] if "comment" in json else None)
+        self.nomethods = ("attribute" in json)
+        if "alignment" in json:
+            self.attribute = f'__attribute__((aligned({json["alignment"]}UL))) '
+            self.alignment = json["alignment"]
+        elif "attribute" in json:
+            self.attribute = f'__attribute__{json["attribute"]} '
+            self.alignment = 8
+        else:
+            self.attribute = f'__attribute__((aligned(8UL))) '
+            self.alignment = 8
+
+    def emitHeader(self):
+        for f in self.fields:
+            f.emitPreamble()
+
+        if self.comment is not None:
+            print(f'/* {self.comment} */', file=header)
+
+        n = self.fullname
+        print(f'struct {self.attribute}{n} {{', file=header)
+        for f in self.fields:
+            f.emitMember()
+        print("};", file=header)
+        print(f'typedef struct {n} {n}_t;', file=header)
+
+        print(f"#define {n.upper()}_FOOTPRINT sizeof({n}_t)", file=header)
+        print(f"#define {n.upper()}_ALIGN ({self.alignment}UL)", file=header)
+        print("", file=header)
+
+    def emitPrototypes(self):
+        if self.nomethods:
+            return
+        n = self.fullname
+        print(f"void {n}_new({n}_t* self);", file=header)
+        print(f"int {n}_decode({n}_t* self, fd_bincode_decode_ctx_t * ctx);", file=header)
+        print(f"int {n}_decode_preflight(fd_bincode_decode_ctx_t * ctx);", file=header)
+        print(f"void {n}_decode_unsafe({n}_t* self, fd_bincode_decode_ctx_t * ctx);", file=header)
+        print(f"int {n}_encode({n}_t const * self, fd_bincode_encode_ctx_t * ctx);", file=header)
+        print(f"void {n}_destroy({n}_t* self, fd_bincode_destroy_ctx_t * ctx);", file=header)
+        print(f"void {n}_walk(void * w, {n}_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);", file=header)
+        print(f"ulong {n}_size({n}_t const * self);", file=header)
+        print(f'ulong {n}_footprint( void );', file=header)
+        print(f'ulong {n}_align( void );', file=header)
+        print("", file=header)
+
+    def emitImpls(self):
+        if self.nomethods:
+            return
+        n = self.fullname
+
+        print(f'int {n}_decode({n}_t* self, fd_bincode_decode_ctx_t * ctx) {{', file=body)
+        print(f'  void const * data = ctx->data;', file=body)
+        print(f'  int err = {n}_decode_preflight(ctx);', file=body)
+        print(f'  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
+        print(f'  ctx->data = data;', file=body)
+        print(f'  {n}_new(self);', file=body)
+        print(f'  {n}_decode_unsafe(self, ctx);', file=body)
+        print(f'  return FD_BINCODE_SUCCESS;', file=body)
+        print(f'}}', file=body)
+
+        print(f'int {n}_decode_preflight(fd_bincode_decode_ctx_t * ctx) {{', file=body)
+        print('  int err;', file=body)
+        for f in self.fields:
+            f.emitDecodePreflight()
+        print('  return FD_BINCODE_SUCCESS;', file=body)
+        print("}", file=body)
+
+        print(f'void {n}_decode_unsafe({n}_t* self, fd_bincode_decode_ctx_t * ctx) {{', file=body)
+        for f in self.fields:
+            f.emitDecodeUnsafe()
+        print("}", file=body)
+
+        print(f'void {n}_new({n}_t* self) {{', file=body)
+        print(f'  fd_memset(self, 0, sizeof({n}_t));', file=body)
+        for f in self.fields:
+            f.emitNew()
+        print("}", file=body)
+
+        print(f'void {n}_destroy({n}_t* self, fd_bincode_destroy_ctx_t * ctx) {{', file=body)
+        for f in self.fields:
+            f.emitDestroy()
+        print("}", file=body)
+        print("", file=body)
+
+        print(f'ulong {n}_footprint( void ){{ return {n.upper()}_FOOTPRINT; }}', file=body)
+        print(f'ulong {n}_align( void ){{ return {n.upper()}_ALIGN; }}', file=body)
+        print("", file=body)
+
+        print(f'void {n}_walk(void * w, {n}_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {{', file=body)
+        print(f'  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "{n}", level++);', file=body)
+        for f in self.fields:
+            f.emitWalk('')
+        print(f'  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "{n}", level--);', file=body)
+        print("}", file=body)
+
+        print(f'ulong {n}_size({n}_t const * self) {{', file=body)
+        print('  ulong size = 0;', file=body)
+        for f in self.fields:
+            f.emitSize('')
+        print('  return size;', file=body)
+        print("}", file=body)
+        print("", file=body)
+
+        print(f'int {n}_encode({n}_t const * self, fd_bincode_encode_ctx_t * ctx) {{', file=body)
+        print('  int err;', file=body)
+        for f in self.fields:
+            f.emitEncode()
+        print('  return FD_BINCODE_SUCCESS;', file=body)
+        print("}", file=body)
+        print("", file=body)
+
+    def emitPostamble(self):
+        for f in self.fields:
+            f.emitPostamble()
+
+
+class EnumType:
+    def __init__(self, json):
+        self.fullname = f'{namespace}_{json["name"]}'
+        self.variants = []
+        for f in entry["variants"]:
+            if 'type' in f:
+                self.variants.append(parseMember(self.fullname, f))
+            else:
+                self.variants.append(str(f['name']))
+        self.comment = (json["comment"] if "comment" in json else None)
+        if "alignment" in json:
+            self.attribute = f'__attribute__((aligned({json["alignment"]}UL))) '
+            self.alignment = json["alignment"]
+        elif "attribute" in json:
+            self.attribute = f'__attribute__{json["attribute"]} '
+            self.alignment = 8
+        else:
+            self.attribute = ''
+            self.alignment = 8
+        self.compact = (json["compact"] if "compact" in json else False)
+
+    def emitHeader(self):
+        for v in self.variants:
+            if not isinstance(v, str):
+                v.emitPreamble()
+
+        n = self.fullname
+        print(f'union {self.attribute}{n}_inner {{', file=header)
+        empty = True
+        for v in self.variants:
+            if not isinstance(v, str):
+              empty = False
+              v.emitMember()
+        if empty:
+            print('  uchar nonempty; /* Hack to support enums with no inner structures */ ', file=header)
+        print("};", file=header)
+        print(f"typedef union {n}_inner {n}_inner_t;\n", file=header)
+
+        if self.comment is not None:
+            print(f'/* {self.comment} */', file=header)
+
+        print(f"struct {self.attribute}{n} {{", file=header)
+        print('  uint discriminant;', file=header)
+        print(f'  {n}_inner_t inner;', file=header)
+        print("};", file=header)
+        print(f"typedef struct {n} {n}_t;", file=header)
+
+        print(f"#define {n.upper()}_FOOTPRINT sizeof({n}_t)", file=header)
+        print(f"#define {n.upper()}_ALIGN ({self.alignment}UL)", file=header)
+        print("", file=header)
+
+    def emitPrototypes(self):
+        n = self.fullname
+        print(f"void {n}_new_disc({n}_t* self, uint discriminant);", file=header)
+        print(f"void {n}_new({n}_t* self);", file=header)
+        print(f"int {n}_decode({n}_t* self, fd_bincode_decode_ctx_t * ctx);", file=header)
+        print(f"int {n}_decode_preflight(fd_bincode_decode_ctx_t * ctx);", file=header)
+        print(f"void {n}_decode_unsafe({n}_t* self, fd_bincode_decode_ctx_t * ctx);", file=header)
+        print(f"int {n}_encode({n}_t const * self, fd_bincode_encode_ctx_t * ctx);", file=header)
+        print(f"void {n}_destroy({n}_t* self, fd_bincode_destroy_ctx_t * ctx);", file=header)
+        print(f"void {n}_walk(void * w, {n}_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);", file=header)
+        print(f"ulong {n}_size({n}_t const * self);", file=header)
+        print(f'ulong {n}_footprint( void );', file=header)
+        print(f'ulong {n}_align( void );', file=header)
+        print("", file=header)
+
+        for i, v in enumerate(self.variants):
+            name = (v if isinstance(v, str) else v.name)
+            print(f'FD_FN_PURE uchar {n}_is_{name}({n}_t const * self);', file=header)
+
+        print("enum {", file=header)
+        for i, v in enumerate(self.variants):
+            name = (v if isinstance(v, str) else v.name)
+            print(f'{n}_enum_{name} = {i},', file=header)
         print("}; ", file=header)
 
-    if entry["type"] == "enum":
+    def emitImpls(self):
+        global indent
+
+        n = self.fullname
+        indent = '  '
+
+        for i, v in enumerate(self.variants):
+            name = (v if isinstance(v, str) else v.name)
+            print(f'FD_FN_PURE uchar {n}_is_{name}({n}_t const * self) {{', file=body)
+            print(f'  return self->discriminant == {i};', file=body)
+            print("}", file=body)
+
         print(f'void {n}_inner_new({n}_inner_t* self, uint discriminant);', file=body)
-        print(f'int {n}_inner_decode({n}_inner_t* self, uint discriminant, fd_bincode_decode_ctx_t * ctx) {{', file=body)
-        print(f'  {n}_inner_new(self, discriminant);', file=body)
+
+        print(f'int {n}_inner_decode_preflight(uint discriminant, fd_bincode_decode_ctx_t * ctx) {{', file=body)
         print('  int err;', file=body)
         print('  switch (discriminant) {', file=body)
-
-        for i, v in enumerate(entry["variants"]):
+        for i, v in enumerate(self.variants):
             print(f'  case {i}: {{', file=body)
-            if "type" in v:
-                if v["type"] in fields_body_decode:
-                    body.write("  ")
-                    fields_body_decode[v["type"]](namespace, v)
-                    print('    return FD_BINCODE_SUCCESS;', file=body)
-                else:
-                    print(f'    return {namespace}_{v["type"]}_decode(&self->{v["name"]}, ctx);', file=body)
-            else:
-                print('    return FD_BINCODE_SUCCESS;', file=body)
+            if not isinstance(v, str):
+                v.emitDecodePreflight()
+            print('    return FD_BINCODE_SUCCESS;', file=body)
             print('  }', file=body)
-
         print('  default: return FD_BINCODE_ERR_ENCODING;', file=body);
+        print('  }', file=body)
+        print("}", file=body)
 
+        print(f'void {n}_inner_decode_unsafe({n}_inner_t* self, uint discriminant, fd_bincode_decode_ctx_t * ctx) {{', file=body)
+        print('  switch (discriminant) {', file=body)
+        for i, v in enumerate(self.variants):
+            print(f'  case {i}: {{', file=body)
+            if not isinstance(v, str):
+                v.emitDecodeUnsafe()
+            print('    break;', file=body)
+            print('  }', file=body)
         print('  }', file=body)
         print("}", file=body)
 
         print(f'int {n}_decode({n}_t* self, fd_bincode_decode_ctx_t * ctx) {{', file=body)
-        if "compact" in entry and entry["compact"]:
+        print(f'  void const * data = ctx->data;', file=body)
+        print(f'  int err = {n}_decode_preflight(ctx);', file=body)
+        print(f'  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
+        print(f'  ctx->data = data;', file=body)
+        print(f'  {n}_new(self);', file=body)
+        print(f'  {n}_decode_unsafe(self, ctx);', file=body)
+        print(f'  return FD_BINCODE_SUCCESS;', file=body)
+        print(f'}}', file=body)
+
+        print(f'int {n}_decode_preflight(fd_bincode_decode_ctx_t * ctx) {{', file=body)
+        if self.compact:
+            print('  ushort discriminant = 0;', file=body)
+            print('  int err = fd_bincode_compact_u16_decode(&discriminant, ctx);', file=body)
+        else:
+            print('  uint discriminant = 0;', file=body)
+            print('  int err = fd_bincode_uint32_decode(&discriminant, ctx);', file=body)
+        print('  if ( FD_UNLIKELY(err) ) return err;', file=body)
+        print(f'  return {n}_inner_decode_preflight(discriminant, ctx);', file=body)
+        print("}", file=body)
+
+        print(f'void {n}_decode_unsafe({n}_t* self, fd_bincode_decode_ctx_t * ctx) {{', file=body)
+        if self.compact:
             print('  ushort tmp = 0;', file=body)
-            print('  int err = fd_bincode_compact_u16_decode(&tmp, ctx);', file=body)
+            print('  fd_bincode_compact_u16_decode_unsafe(&tmp, ctx);', file=body)
             print('  self->discriminant = tmp;', file=body)
         else:
-            print('  int err = fd_bincode_uint32_decode(&self->discriminant, ctx);', file=body)
-
-        print('  if ( FD_UNLIKELY(err) ) return err;', file=body)
-        print(f'  return {namespace}_{entry["name"]}_inner_decode(&self->inner, self->discriminant, ctx);', file=body)
+            print('  fd_bincode_uint32_decode_unsafe(&self->discriminant, ctx);', file=body)
+        print(f'  {n}_inner_decode_unsafe(&self->inner, self->discriminant, ctx);', file=body)
         print("}", file=body)
-    else:
-      print(f'int {n}_decode({n}_t* self, fd_bincode_decode_ctx_t * ctx) {{', file=body)
-      print('  int err;', file=body)
-      assert "fields" in entry, "no fields in " + entry["name"]
-      for f in entry["fields"]:
-          if f["type"] in fields_body_decode:
-              fields_body_decode[f["type"]](namespace, f)
-          else:
-              print(f'  err = {namespace}_{f["type"]}_decode(&self->{f["name"]}, ctx);', file=body)
-              print('  if ( FD_UNLIKELY(err) ) return err;', file=body)
-      print('  return FD_BINCODE_SUCCESS;', file=body)
-      print("}", file=body)
 
-    if entry["type"] == "enum":
-      print(f'void {n}_inner_new({n}_inner_t* self, uint discriminant) {{', file=body)
-      print('  switch (discriminant) {', file=body)
-      for i, v in enumerate(entry["variants"]):
-        print(f'  case {i}: {{', file=body)
-        if "type" in v:
-            if v["type"] in fields_body_new:
-                fields_body_new[v["type"]](namespace, v)
-            else:
-                print(f'    {namespace}_{v["type"]}_new(&self->{v["name"]});', file=body)
-        print('    break;', file=body)
+        print(f'void {n}_inner_new({n}_inner_t* self, uint discriminant) {{', file=body)
+        print('  switch (discriminant) {', file=body)
+        for i, v in enumerate(self.variants):
+            print(f'  case {i}: {{', file=body)
+            if not isinstance(v, str):
+                v.emitNew()
+            print('    break;', file=body)
+            print('  }', file=body)
+        print('  default: break; // FD_LOG_ERR(( "unhandled type"));', file=body)
         print('  }', file=body)
-      print('  default: break; // FD_LOG_ERR(( "unhandled type"));', file=body)
-      print('  }', file=body)
-      print("}", file=body)
+        print("}", file=body)
 
-      print(f'void {n}_new_disc({n}_t* self, uint discriminant) {{', file=body)
-      print('  self->discriminant = discriminant;', file=body)
-      print(f'  {namespace}_{entry["name"]}_inner_new(&self->inner, self->discriminant);', file=body)
-      print("}", file=body)
-      print(f'void {n}_new({n}_t* self) {{', file=body)
-      print(f'  fd_memset(self, 0, sizeof(*self));', file=body)
-      print(f'  {namespace}_{entry["name"]}_new_disc(self, UINT_MAX);', file=body) # Invalid by default
-      print("}", file=body)
-    else:
-      print(f'void {n}_new({n}_t* self) {{', file=body)
-      print(f'  fd_memset(self, 0, sizeof({n}_t));', file=body)
-      for f in entry["fields"]:
-          if f["type"] in fields_body_new:
-              fields_body_new[f["type"]](namespace, f)
-          else:
-              print(f'  {namespace}_{f["type"]}_new(&self->{f["name"]});', file=body)
-      print("}", file=body)
+        print(f'void {n}_new_disc({n}_t* self, uint discriminant) {{', file=body)
+        print('  self->discriminant = discriminant;', file=body)
+        print(f'  {n}_inner_new(&self->inner, self->discriminant);', file=body)
+        print("}", file=body)
 
-    if entry["type"] == "enum":
-      print(f'void {n}_inner_destroy({n}_inner_t* self, uint discriminant, fd_bincode_destroy_ctx_t * ctx) {{', file=body)
-      print('  switch (discriminant) {', file=body)
-      for i, v in enumerate(entry["variants"]):
-        print(f'  case {i}: {{', file=body)
-        if "type" in v:
-            if v["type"] in fields_body_destroy:
-                fields_body_destroy[v["type"]](namespace, v)
-            else:
-                print(f'    {namespace}_{v["type"]}_destroy(&self->{v["name"]}, ctx);', file=body)
-        print('    break;', file=body)
+        print(f'void {n}_new({n}_t* self) {{', file=body)
+        print(f'  fd_memset(self, 0, sizeof(*self));', file=body)
+        print(f'  {n}_new_disc(self, UINT_MAX);', file=body) # Invalid by default
+        print("}", file=body)
+
+        print(f'void {n}_inner_destroy({n}_inner_t* self, uint discriminant, fd_bincode_destroy_ctx_t * ctx) {{', file=body)
+        print('  switch (discriminant) {', file=body)
+        for i, v in enumerate(self.variants):
+            if not isinstance(v, str):
+                print(f'  case {i}: {{', file=body)
+                v.emitDestroy()
+                print('    break;', file=body)
+                print('  }', file=body)
+        print('  default: break; // FD_LOG_ERR(( "unhandled type" ));', file=body)
         print('  }', file=body)
-      print('  default: break; // FD_LOG_ERR(( "unhandled type" ));', file=body)
-      print('  }', file=body)
-      print("}", file=body)
+        print("}", file=body)
 
-      print(f'void {n}_destroy({n}_t* self, fd_bincode_destroy_ctx_t * ctx) {{', file=body)
-      print(f'  {namespace}_{entry["name"]}_inner_destroy(&self->inner, self->discriminant, ctx);', file=body)
-      print("}", file=body)
-    else:
-      print(f'void {n}_destroy({n}_t* self, fd_bincode_destroy_ctx_t * ctx) {{', file=body)
-      for f in entry["fields"]:
-          if f["type"] in fields_body_destroy:
-              fields_body_destroy[f["type"]](namespace, f)
-          else:
-              print(f'  {namespace}_{f["type"]}_destroy(&self->{f["name"]}, ctx);', file=body)
-      print("}", file=body)
-    print("", file=body)
+        print(f'void {n}_destroy({n}_t* self, fd_bincode_destroy_ctx_t * ctx) {{', file=body)
+        print(f'  {n}_inner_destroy(&self->inner, self->discriminant, ctx);', file=body)
+        print("}", file=body)
+        print("", file=body)
 
-    print(f'ulong {n}_footprint( void ){{ return {n.upper()}_FOOTPRINT; }}', file=body)
-    print(f'ulong {n}_align( void ){{ return {n.upper()}_ALIGN; }}', file=body)
-    print("", file=body)
+        print(f'ulong {n}_footprint( void ){{ return {n.upper()}_FOOTPRINT; }}', file=body)
+        print(f'ulong {n}_align( void ){{ return {n.upper()}_ALIGN; }}', file=body)
+        print("", file=body)
 
-    print(f'void {n}_walk(void * w, {n}_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {{', file=body)
-    print(f'  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "{n}", level++);', file=body)
-
-    if entry["type"] == "enum":
-        print(f'  // enum {namespace}_{f["type"]}_walk(w, &self->{f["name"]}, fun, "{f["name"]}", level);', file=body)
-
+        print(f'void {n}_walk(void * w, {n}_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {{', file=body)
+        print(f'  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "{n}", level++);', file=body)
         print('  switch (self->discriminant) {', file=body)
-        for i, v in enumerate(entry["variants"]):
-          if "type" in v:
-            print(f'  case {i}: {{', file=body)
-            if v["type"] in fields_body_walk:
-                fields_body_walk[v["type"]](namespace, v, "inner.")
-            else:
-                print(f'    {namespace}_{v["type"]}_walk(w, &self->inner.{v["name"]}, fun, "{v["name"]}", level);', file=body)
-            print('    break;', file=body)
-            print('  }', file=body)
+        for i, v in enumerate(self.variants):
+            if not isinstance(v, str):
+                print(f'  case {i}: {{', file=body)
+                v.emitWalk("inner.")
+                print('    break;', file=body)
+                print('  }', file=body)
         print('  }', file=body)
-    else:
-        for f in entry["fields"]:
-            if f["type"] in fields_body_walk:
-                if f.get('walk', True):
-                    
-                    fields_body_walk[f["type"]](namespace, f, "")
-            else:
-                print(f'  {namespace}_{f["type"]}_walk(w, &self->{f["name"]}, fun, "{f["name"]}", level);', file=body)
+        print(f'  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "{n}", level--);', file=body)
+        print("}", file=body)
 
-    print(f'  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "{n}", level--);', file=body)
-    print("}", file=body)
+        print(f'ulong {n}_size({n}_t const * self) {{', file=body)
+        print('  ulong size = 0;', file=body)
+        print('  size += sizeof(uint);', file=body)
+        print('  switch (self->discriminant) {', file=body)
+        for i, v in enumerate(self.variants):
+            if not isinstance(v, str):
+                print(f'  case {i}: {{', file=body)
+                v.emitSize('inner.')
+                print('    break;', file=body)
+                print('  }', file=body)
+        print('  }', file=body)
+        print('  return size;', file=body)
+        print("}", file=body)
+        print("", file=body)
 
-    print(f'ulong {n}_size({n}_t const * self) {{', file=body)
-
-    if entry["type"] == "enum":
-      print('  ulong size = 0;', file=body)
-      print('  size += sizeof(uint);', file=body)
-      print('  switch (self->discriminant) {', file=body)
-      for i, v in enumerate(entry["variants"]):
-          if "type" in v:
-            print(f'  case {i}: {{', file=body)
-            if v["type"] in fields_body_size:
-                body.write("  ")
-                fields_body_size[v["type"]](namespace, v)
-            else:
-                print(f'    size += {namespace}_{v["type"]}_size(&self->inner.{v["name"]});', file=body)
-            print('    break;', file=body)
-            print('  }', file=body)
-      print('  }', file=body)
-
-    else:
-      print('  ulong size = 0;', file=body)
-      for f in entry["fields"]:
-          if f["type"] in fields_body_size:
-              fields_body_size[f["type"]](namespace, f)
-          else:
-              print(f'  size += {namespace}_{f["type"]}_size(&self->{f["name"]});', file=body)
-
-    print('  return size;', file=body)
-    print("}", file=body)
-    print("", file=body)
-    if entry["type"] == "enum":
         print(f'int {n}_inner_encode({n}_inner_t const * self, uint discriminant, fd_bincode_encode_ctx_t * ctx) {{', file=body)
         first = True
-        for i, v in enumerate(entry["variants"]):
-            if "type" in v:
-              if first:
-                  print('  int err;', file=body)
-                  print('  switch (discriminant) {', file=body)
-                  first = False
-              print(f'  case {i}: {{', file=body)
-              if v["type"] in fields_body_encode:
-                  body.write("  ")
-                  fields_body_encode[v["type"]](namespace, v)
-              else:
-                  print(f'    err = {namespace}_{v["type"]}_encode(&self->{v["name"]}, ctx);', file=body)
-                  print('    if ( FD_UNLIKELY(err) ) return err;', file=body)
-              print('    break;', file=body)
-              print('  }', file=body)
+        for i, v in enumerate(self.variants):
+            if not isinstance(v, str):
+                if first:
+                    print('  int err;', file=body)
+                    print('  switch (discriminant) {', file=body)
+                    first = False
+                print(f'  case {i}: {{', file=body)
+                v.emitEncode()
+                print('    break;', file=body)
+                print('  }', file=body)
         if not first:
             print('  }', file=body)
         print('  return FD_BINCODE_SUCCESS;', file=body)
@@ -1580,40 +1694,49 @@ for entry in entries:
         print('  int err;', file=body)
         print('  err = fd_bincode_uint32_encode(&self->discriminant, ctx);', file=body)
         print('  if ( FD_UNLIKELY(err) ) return err;', file=body)
-        print(f'  return {namespace}_{entry["name"]}_inner_encode(&self->inner, self->discriminant, ctx);', file=body)
+        print(f'  return {n}_inner_encode(&self->inner, self->discriminant, ctx);', file=body)
         print("}", file=body)
-    else:
-      print(f'int {n}_encode({n}_t const * self, fd_bincode_encode_ctx_t * ctx) {{', file=body)
-      print('  int err;', file=body)
-      if "fields" in entry:
-        for f in entry["fields"]:
-            if f["type"] in fields_body_encode:
-                fields_body_encode[f["type"]](namespace, f)
-            else:
-                print(f'  err = {namespace}_{f["type"]}_encode(&self->{f["name"]}, ctx);', file=body)
-                print('  if ( FD_UNLIKELY(err) ) return err;', file=body)
-      print('  return FD_BINCODE_SUCCESS;', file=body)
-      print("}", file=body)
-    print("", file=body)
+        print("", file=body)
 
-for (element_type,key) in map_element_types.items():
-    mapname = element_type + "_map"
-    nodename = element_type + "_mapnode_t"
-    print(f'#define REDBLK_T {nodename}', file=body)
-    print(f'#define REDBLK_NAME {mapname}', file=body)
-    print(f'#define REDBLK_IMPL_STYLE 2', file=body)
-    print(f'#include "../../util/tmpl/fd_redblack.c"', file=body)
-    print(f'#undef REDBLK_T', file=body)
-    print(f'#undef REDBLK_NAME', file=body)
-    print(f'long {mapname}_compare({nodename} * left, {nodename} * right) {{', file=body)
-    if key == "pubkey" or key == "account" or key == "key":
-        print(f'  return memcmp(left->elem.{key}.uc, right->elem.{key}.uc, sizeof(right->elem.{key}));', file=body)
-    else:
-        print(f'  return (long)(left->elem.{key} - right->elem.{key});', file=body)
-    print("}", file=body)
+        indent = ''
+
+    def emitPostamble(self):
+        for v in self.variants:
+            if not isinstance(v, str):
+                v.emitPostamble()
+
+alltypes = []
+for entry in entries:
+    if entry['type'] == 'opaque':
+        alltypes.append(OpaqueType(entry))
+    if entry['type'] == 'struct':
+        alltypes.append(StructType(entry))
+    if entry['type'] == 'enum':
+        alltypes.append(EnumType(entry))
+
+for t in alltypes:
+    t.emitHeader()
+
+print("", file=header)
+print("FD_PROTOTYPES_BEGIN", file=header)
+print("", file=header)
+
+for t in alltypes:
+    t.emitPrototypes()
 
 print("FD_PROTOTYPES_END", file=header)
 print("", file=header)
 print("#endif // HEADER_" + json_object["name"].upper(), file=header)
 
+for t in alltypes:
+    t.emitImpls()
+
+for t in alltypes:
+    t.emitPostamble()
+
+type_name_count = len(alltypes)
+print(f'#define FD_TYPE_NAME_COUNT {type_name_count}', file=names)
+print("static char const * fd_type_names[FD_TYPE_NAME_COUNT] = {", file=names)
+for t in alltypes:
+    print(f' \"{t.fullname}\",', file=names)
 print("};", file=names)

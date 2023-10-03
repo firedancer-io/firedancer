@@ -57,20 +57,36 @@ build/native/gcc/unit-test/test_runtime --wksp giant_wksp --gaddr 0xc7ce180 --cm
 
 #include <dirent.h>
 
+struct slot_capitalization {
+  ulong key;
+  uint  hash;
+  ulong capitalization;
+};
+typedef struct slot_capitalization slot_capitalization_t;
+
+#define MAP_NAME        capitalization_map
+#define MAP_T           slot_capitalization_t
+#define LG_SLOT_CNT 15
+#define MAP_LG_SLOT_CNT LG_SLOT_CNT
+#include "../../util/tmpl/fd_map.c"
+
 struct global_state {
-  fd_global_ctx_t*    global;
+  fd_global_ctx_t*       global;
 
-  int                 argc;
-  char       **       argv;
+  int                    argc;
+  char       **          argv;
 
-  char const *        name;
-  ulong               pages;
-  char const *        gaddr;
-  char const *        persist;
-  ulong               end_slot;
-  char const *        cmd;
-  char const *        reset;
-  char const *        load;
+  char const *           name;
+  ulong                  pages;
+  char const *           gaddr;
+  char const *           persist;
+  ulong                  end_slot;
+  char const *           cmd;
+  char const *           reset;
+  char const *           load;
+  char const *           capitalization_file;
+  slot_capitalization_t  capitalization_map_mem[ 1UL << LG_SLOT_CNT ];
+  slot_capitalization_t *map;
 
   FILE * capture_file;
 };
@@ -91,7 +107,10 @@ usage( char const * progname ) {
       " --reset       <bool>       Reset the workspace\n"
       " --capture     <file>       Write bank preimage to capture file\n"
       " --abort-on-mismatch {0,1}  If 1, stop on bank hash mismatch\n",
-      " --trace       <dir>        Export traces to given directory\n" );
+      " --loglevel    <level>      Set logging level\n",
+      " --cap         <file>       Slot capitalization file\n",
+      " --trace       <dir>        Export traces to given directory\n",
+      " --retrace     <bool>       Immediately replay captured traces\n" );
 }
 
 #define SORT_NAME sort_pubkey_hash_pair
@@ -244,8 +263,6 @@ replay( global_state_t * state,
     FD_LOG_INFO(("reading slot %ld (epoch %lu)", slot, epoch));
 
     fd_slot_meta_t m;
-    fd_memset(&m, 0, sizeof(m));
-    fd_slot_meta_new(&m);
 
     /* Read block meta */
 
@@ -297,6 +314,14 @@ replay( global_state_t * state,
       }
     }
 
+    if (NULL != state->capitalization_file) {
+      slot_capitalization_t *c = capitalization_map_query(state->map, slot, NULL);
+      if (NULL != c) {
+        if (state->global->bank.capitalization != c->capitalization)
+          FD_LOG_NOTICE(( "capitalization missmatch!  slot=%lu got=%ld != expected=%ld  (%ld)", slot, state->global->bank.capitalization, c->capitalization,  state->global->bank.capitalization - c->capitalization  ));
+      }
+    }
+
     if( slot == last_epoch_slot ) {
       FD_LOG_NOTICE(( "EPOCH TRANSITION" ));
     }
@@ -340,14 +365,16 @@ main( int     argc,
   state.cmd                 = fd_env_strip_cmdline_cstr ( &argc, &argv, "--cmd",          NULL, NULL);
   state.reset               = fd_env_strip_cmdline_cstr ( &argc, &argv, "--reset",        NULL, NULL);
   state.load                = fd_env_strip_cmdline_cstr ( &argc, &argv, "--load",         NULL, NULL);
+  state.capitalization_file = fd_env_strip_cmdline_cstr ( &argc, &argv, "--cap",          NULL, NULL);
 
   state.pages               = fd_env_strip_cmdline_ulong ( &argc, &argv, "--pages",      NULL, 5);
 
   char const * index_max_opt           = fd_env_strip_cmdline_cstr ( &argc, &argv, "--index-max", NULL, NULL );
   char const * validate_db             = fd_env_strip_cmdline_cstr ( &argc, &argv, "--validate",  NULL, NULL );
-  char const * log_level               = fd_env_strip_cmdline_cstr ( &argc, &argv, "--log_level", NULL, NULL );
+  char const * log_level               = fd_env_strip_cmdline_cstr ( &argc, &argv, "--loglevel", NULL, NULL );
   char const * capture_fpath           = fd_env_strip_cmdline_cstr ( &argc, &argv, "--capture",   NULL, NULL );
   char const * trace_fpath             = fd_env_strip_cmdline_cstr ( &argc, &argv, "--trace",     NULL, NULL );
+  int          retrace                 = fd_env_strip_cmdline_int  ( &argc, &argv, "--retrace",   NULL, 0    );
 
   char const * confirm_hash            = fd_env_strip_cmdline_cstr ( &argc, &argv, "--confirm_hash",          NULL, NULL);
   char const * confirm_parent          = fd_env_strip_cmdline_cstr ( &argc, &argv, "--confirm_parent",        NULL, NULL);
@@ -360,6 +387,23 @@ main( int     argc,
   if (state.cmd == NULL) {
     usage(argv[0]);
     return 1;
+  }
+
+  state.map = capitalization_map_join(capitalization_map_new(state.capitalization_map_mem));
+
+  if (NULL != state.capitalization_file) {
+    FILE *fp = fopen(state.capitalization_file, "r");
+    if (NULL == fp) {
+      perror(state.capitalization_file);
+      return -1;
+    }
+    ulong slot = 0;
+    ulong cap = 0;
+    while (fscanf(fp, "%ld,%ld", &slot, &cap) == 2) {
+      slot_capitalization_t *c = capitalization_map_insert(state.map, slot);
+      c->capitalization = cap;
+    }
+    fclose(fp);
   }
 
   char hostname[64];
@@ -436,10 +480,10 @@ main( int     argc,
   FD_LOG_NOTICE(( "funky at global address 0x%lx", fd_wksp_gaddr_fast( funk_wksp, shmem ) ));
 
   if ((validate_db != NULL) && (strcmp(validate_db, "true") == 0)) {
-    FD_LOG_WARNING(("starting validate"));
+    FD_LOG_INFO(("starting validate"));
     if ( fd_funk_verify(state.global->funk) != FD_FUNK_SUCCESS )
       FD_LOG_ERR(("valdation failed"));
-    FD_LOG_WARNING(("finishing validate"));
+    FD_LOG_INFO(("finishing validate"));
   }
 
   if (NULL != log_level)
@@ -481,13 +525,23 @@ main( int     argc,
   }
 
   if( trace_fpath ) {
+    FD_LOG_NOTICE(( "Exporting traces to %s", trace_fpath ));
+
     if( FD_UNLIKELY( 0!=mkdir( trace_fpath, 0777 ) && errno!=EEXIST ) )
       FD_LOG_ERR(( "mkdir(%s) failed (%d-%s)", trace_fpath, errno, fd_io_strerror( errno ) ));
 
     int fd = open( trace_fpath, O_DIRECTORY );
     if( FD_UNLIKELY( fd<=0 ) )  /* technically 0 is valid, but it serves as a sentinel here */
       FD_LOG_ERR(( "open(%s) failed (%d-%s)", trace_fpath, errno, fd_io_strerror( errno ) ));
+
+    state.global->trace_mode |= FD_RUNTIME_TRACE_SAVE;
     state.global->trace_dirfd = fd;
+  }
+
+  if( retrace ) {
+    FD_LOG_NOTICE(( "Retrace mode enabled" ));
+
+    state.global->trace_mode |= FD_RUNTIME_TRACE_REPLAY;
   }
 
   {
@@ -510,6 +564,13 @@ main( int     argc,
                     (long)state.global->bank.slot,
                     state.global->bank.banks_hash.hash,
                     state.global->bank.poh.hash ));
+
+    state.global->bank.collected_fees = 0;
+    state.global->bank.collected_rent = 0;
+
+    FD_LOG_NOTICE(( "decoded slot=%ld capitalization=%ld",
+                    (long)state.global->bank.slot,
+                    state.global->bank.capitalization));
   }
 
   ulong tcnt = fd_tile_cnt();

@@ -1,3 +1,4 @@
+#include "fd_types.h"
 #ifndef SOURCE_fd_src_flamenco_types_fd_types_c
 #error "fd_types_custom.c is part of the fd_types.c compile uint"
 #endif /* !SOURCE_fd_src_flamenco_types_fd_types_c */
@@ -23,63 +24,83 @@ fd_flamenco_txn_decode( fd_flamenco_txn_t *       self,
   return 0;
 }
 
-int fd_epoch_schedule_decode(fd_epoch_schedule_t* self, fd_bincode_decode_ctx_t * ctx) {
+int
+fd_flamenco_txn_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
+  ulong bufsz = (ulong)ctx->dataend - (ulong)ctx->data;
+  fd_txn_xray_result_t t;
+  ulong res = fd_txn_xray( ctx->data, bufsz, &t );
+  if( FD_UNLIKELY( !res ) ) {
+    return -1000001;
+  }
+  ctx->data = (void *)( (ulong)ctx->data + res );
+  return 0;
+}
+
+void
+fd_flamenco_txn_decode_unsafe( fd_flamenco_txn_t *       self,
+                               fd_bincode_decode_ctx_t * ctx ) {
+  static FD_TLS fd_txn_parse_counters_t counters[1];
+  ulong bufsz = (ulong)ctx->dataend - (ulong)ctx->data;
+  ulong sz;
+  ulong res = fd_txn_parse_core( ctx->data, bufsz, self->txn, counters, &sz, 0 );
+  if( FD_UNLIKELY( !res ) ) {
+    FD_LOG_ERR(( "Failed to decode txn (fd_txn.c:%lu)",
+                 counters->failure_ring[ counters->failure_cnt % FD_TXN_PARSE_COUNTERS_RING_SZ ] ));
+    return;
+  }
+  fd_memcpy( self->raw, ctx->data, sz );
+  self->raw_sz = sz;
+  ctx->data = (void *)( (ulong)ctx->data + sz );
+}
+
+void fd_option_slot_new(fd_option_slot_t* self) {
+  fd_memset(self, 0, sizeof(fd_option_slot_t));
+}
+int fd_option_slot_decode(fd_option_slot_t* self, fd_bincode_decode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint64_decode(&self->slots_per_epoch, ctx);
+  err = fd_bincode_uint8_decode(&self->is_some, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_decode(&self->leader_schedule_slot_offset, ctx);
+  if ( !self->is_some ) return FD_BINCODE_SUCCESS;
+  err = fd_bincode_uint64_decode(&self->slot, ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+int fd_option_slot_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
+  int err;
+  uchar is_some;
+  err = fd_bincode_uint8_decode(&is_some, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint8_decode(&self->warmup, ctx);
+  if ( !is_some ) return FD_BINCODE_SUCCESS;
+  err = fd_bincode_uint64_decode_preflight(ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_option_slot_decode_unsafe(fd_option_slot_t* self, fd_bincode_decode_ctx_t * ctx) {
+  fd_bincode_uint8_decode_unsafe(&self->is_some, ctx);
+  if ( !self->is_some ) return;
+  fd_bincode_uint64_decode_unsafe(&self->slot, ctx);
+}
+int fd_option_slot_encode(fd_option_slot_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  err = fd_bincode_uint8_encode(&self->is_some, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_decode(&self->first_normal_epoch, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_decode(&self->first_normal_slot, ctx);
+  if ( !self->is_some ) return FD_BINCODE_SUCCESS;
+  err = fd_bincode_uint64_encode(&self->slot, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
-void fd_epoch_schedule_new(fd_epoch_schedule_t* self) {
-  self->slots_per_epoch = 0;
-  self->leader_schedule_slot_offset = 0;
-  self->warmup = 0;
-  memset( self->_pad11, 0, 7UL );
-  self->first_normal_epoch = 0;
-  self->first_normal_slot = 0;
+void fd_option_slot_destroy(fd_option_slot_t* self, fd_bincode_destroy_ctx_t * ctx) {
 }
-void fd_epoch_schedule_destroy(fd_epoch_schedule_t* self, fd_bincode_destroy_ctx_t * ctx) {
+ulong fd_option_slot_footprint( void ){ return FD_OPTION_SLOT_FOOTPRINT; }
+ulong fd_option_slot_align( void ){ return FD_OPTION_SLOT_ALIGN; }
+void fd_option_slot_walk(void * w, fd_option_slot_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun( w, &self->slot, name, FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
 }
-
-void fd_epoch_schedule_walk(void * w, fd_epoch_schedule_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
-  fun(w, self, name, 32, "fd_epoch_schedule", level++);
-  fun(w, &self->slots_per_epoch, "slots_per_epoch", 11, "ulong", level + 1);
-  fun(w, &self->leader_schedule_slot_offset, "leader_schedule_slot_offset", 11, "ulong", level + 1);
-  fun(w, &self->warmup, "warmup", 9, "uchar", level + 1);
-  fun(w, &self->first_normal_epoch, "first_normal_epoch", 11, "ulong", level + 1);
-  fun(w, &self->first_normal_slot, "first_normal_slot", 11, "ulong", level + 1);
-  fun(w, self, name, 33, "fd_epoch_schedule", --level);
-}
-ulong fd_epoch_schedule_size(fd_epoch_schedule_t const * self) {
+ulong fd_option_slot_size(fd_option_slot_t const * self) {
   ulong size = 0;
-  size += sizeof(ulong);
-  size += sizeof(ulong);
   size += sizeof(char);
-  size += sizeof(ulong);
-  size += sizeof(ulong);
+  if (self->is_some) size += sizeof(ulong);
   return size;
-}
-
-int fd_epoch_schedule_encode(fd_epoch_schedule_t const * self, fd_bincode_encode_ctx_t * ctx) {
-  int err;
-  err = fd_bincode_uint64_encode(&self->slots_per_epoch, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->leader_schedule_slot_offset, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint8_encode(&self->warmup, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->first_normal_epoch, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->first_normal_slot, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
-  return FD_BINCODE_SUCCESS;
 }
 
 // This blob of code turns a "current" vote_state into a 1_14_11 on the fly...
@@ -98,9 +119,7 @@ static ulong fd_vote_state_transcoding_size(fd_vote_state_t const * self) {
     size += sizeof(ulong);
   }
   size += sizeof(char);
-  if (NULL !=  self->root_slot) {
-    size += sizeof(ulong);
-  }
+  size += sizeof(fd_option_slot_t);
   size += fd_vote_authorized_voters_size(&self->authorized_voters);
   size += fd_vote_prior_voters_size(&self->prior_voters);
   if ( self->epoch_credits ) {
@@ -158,15 +177,7 @@ static int fd_vote_transcoding_state_encode(fd_vote_state_t const * self, fd_bin
     err = fd_bincode_uint64_encode(&votes_len, ctx);
     if ( FD_UNLIKELY(err) ) return err;
   }
-  if (self->root_slot != NULL) {
-    err = fd_bincode_option_encode(1, ctx);
-    if ( FD_UNLIKELY(err) ) return err;
-    err = fd_bincode_uint64_encode(self->root_slot, ctx);
-    if ( FD_UNLIKELY(err) ) return err;
-  } else {
-    err = fd_bincode_option_encode(0, ctx);
-    if ( FD_UNLIKELY(err) ) return err;
-  }
+  fd_option_slot_encode(&self->root_slot, ctx);
   err = fd_vote_authorized_voters_encode(&self->authorized_voters, ctx);
   err = fd_vote_prior_voters_encode(&self->prior_voters, ctx);
   if ( FD_UNLIKELY(err) ) return err;

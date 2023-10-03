@@ -100,8 +100,8 @@ fd_sysvar_instructions_serialize_account( fd_global_ctx_t *   global,
   FD_STORE( ushort, serialized_instructions + offset, 0 );
   offset += sizeof(ushort);
 
-  FD_LOG_WARNING(( "SYSVAR INSTR SERIALIZE %u", offset ));
-  FD_LOG_HEXDUMP_WARNING(( "SYSVAR INSTR SERIALIZE dump", serialized_instructions, serialized_sz ));
+  FD_LOG_DEBUG(( "SYSVAR INSTR SERIALIZE %u", offset ));
+  FD_LOG_HEXDUMP_DEBUG(( "SYSVAR INSTR SERIALIZE dump", serialized_instructions, serialized_sz ));
 
   return FD_ACC_MGR_SUCCESS;
 }
