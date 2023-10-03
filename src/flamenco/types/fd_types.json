@@ -129,6 +129,7 @@
     {
       "name": "epoch_schedule",
       "type": "struct",
+      "alignment": 1,
       "fields": [
         { "name": "slots_per_epoch", "type": "ulong" },
         { "name": "leader_schedule_slot_offset", "type": "ulong" },

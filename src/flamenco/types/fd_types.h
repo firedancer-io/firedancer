@@ -110,7 +110,7 @@ typedef struct fd_rent fd_rent_t;
 #define FD_RENT_ALIGN (8UL)
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/epoch_schedule.rs#L26 */
-struct __attribute__((aligned(8UL))) fd_epoch_schedule {
+struct __attribute__((aligned(1UL))) fd_epoch_schedule {
   ulong slots_per_epoch;
   ulong leader_schedule_slot_offset;
   uchar warmup;
@@ -119,7 +119,7 @@ struct __attribute__((aligned(8UL))) fd_epoch_schedule {
 };
 typedef struct fd_epoch_schedule fd_epoch_schedule_t;
 #define FD_EPOCH_SCHEDULE_FOOTPRINT sizeof(fd_epoch_schedule_t)
-#define FD_EPOCH_SCHEDULE_ALIGN (8UL)
+#define FD_EPOCH_SCHEDULE_ALIGN (1UL)
 
 struct __attribute__((aligned(8UL))) fd_rent_collector {
   ulong epoch;
