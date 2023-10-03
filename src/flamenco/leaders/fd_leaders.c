@@ -172,7 +172,7 @@ fd_epoch_leaders_derive( fd_epoch_leaders_t *      leaders,
 
   /* Create and seed ChaCha20Rng */
   fd_chacha20rng_t _rng[1];
-  fd_chacha20rng_t * rng = fd_chacha20rng_join( fd_chacha20rng_new( _rng ) );
+  fd_chacha20rng_t * rng = fd_chacha20rng_join( fd_chacha20rng_new( _rng, FD_CHACHA20RNG_MODE_MOD ) );
   uchar key[ 32 ] = {0};
   memcpy( key, &epoch, sizeof(ulong) );
   fd_chacha20rng_init( rng, key );
