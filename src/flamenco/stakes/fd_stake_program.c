@@ -865,7 +865,7 @@ stake_deactivate( fd_stake_t * self, ulong epoch, uint * custom_err ) {
     *custom_err = FD_STAKE_ERR_ALREADY_DEACTIVATED;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
-  self->delegation.activation_epoch = epoch;
+  self->delegation.deactivation_epoch = epoch;
   return OK;
 }
 
@@ -1548,12 +1548,13 @@ static int
 deactivate( fd_borrowed_account_t *       stake_account,
             fd_sol_sysvar_clock_t const * clock,
             fd_pubkey_t const *           signers[static FD_TXN_SIG_MAX],
+            fd_valloc_t const *           valloc,
             uint *                        custom_err ) {
   int rc;
 
   fd_stake_state_v2_t state = { 0 };
-  // rc                        = get_state( stake_account, &ctx.global->valloc, &state );
-  // if ( FD_UNLIKELY( rc != OK ) ) return rc;
+  rc                        = get_state( stake_account, valloc, &state );
+  if ( FD_UNLIKELY( rc != OK ) ) return rc;
 
   if ( state.discriminant == fd_stake_state_v2_enum_stake ) {
     fd_stake_meta_t * meta  = &state.inner.stake.meta;
@@ -1563,11 +1564,10 @@ deactivate( fd_borrowed_account_t *       stake_account,
     if ( FD_UNLIKELY( rc != OK ) ) return rc;
     rc = stake_deactivate( stake, clock->epoch, custom_err );
     if ( FD_UNLIKELY( rc != OK ) ) return rc;
-    rc = set_state( stake_account, &state );
+    return set_state( stake_account, &state );
   } else {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
-  return rc;
 }
 
 static int
@@ -2015,7 +2015,11 @@ redelegate( instruction_ctx_t *       invoke_context,
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
 
-  rc = deactivate( stake_account, &clock, signers, &invoke_context->txn_ctx->custom_err );
+  rc = deactivate( stake_account,
+                   &clock,
+                   signers,
+                   &invoke_context->global->valloc,
+                   &invoke_context->txn_ctx->custom_err );
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
 
   rc = checked_sub_lamports( stake_account, effective_stake );
@@ -2192,7 +2196,7 @@ withdraw( instruction_ctx_t *           invoke_context,
   // FIXME necessary? mimicking Rust `drop`
   memset( &stake_account, 0, sizeof( fd_borrowed_account_t ) );
   fd_borrowed_account_t to = { 0 };
-rc =   try_borrow_instruction_account( instruction_context, transaction_context, to_index, &to );
+  rc = try_borrow_instruction_account( instruction_context, transaction_context, to_index, &to );
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
   rc = checked_add_lamports( &to, lamports );
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
@@ -2524,7 +2528,7 @@ fd_executor_stake_program_execute_instruction( instruction_ctx_t ctx ) {
     // https://github.com/firedancer-io/solana/blob/v1.17/programs/stake/src/stake_instruction.rs#L176-L188
     if ( FD_UNLIKELY( !FD_FEATURE_ACTIVE( ctx.global, reduce_stake_warmup_cooldown ) ) ) {
       fd_borrowed_account_t config_account = { 0 };
-      rc = try_borrow_instruction_account(
+      rc                                   = try_borrow_instruction_account(
           instruction_context, transaction_context, 4, &config_account );
       if ( FD_UNLIKELY( rc != OK ) ) return rc;
 
@@ -2684,10 +2688,10 @@ fd_executor_stake_program_execute_instruction( instruction_ctx_t ctx ) {
     if ( FD_UNLIKELY( rc != OK ) ) return rc;
 
     fd_sol_sysvar_clock_t clock = { 0 };
-    rc                          = get_sysvar_with_account_check_clock( &ctx, ctx.instr, 2, &clock );
+    rc                          = get_sysvar_with_account_check_clock( &ctx, ctx.instr, 1, &clock );
     if ( FD_UNLIKELY( rc != OK ) ) return rc;
 
-    rc = deactivate( &me, &clock, signers, &ctx.txn_ctx->custom_err );
+    rc = deactivate( &me, &clock, signers, &ctx.global->valloc, &ctx.txn_ctx->custom_err );
     break;
   }
 
