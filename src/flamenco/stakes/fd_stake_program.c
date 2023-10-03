@@ -1515,6 +1515,7 @@ delegate( instruction_ctx_t *           invoke_context,
     fd_stake_t       stake       = stake_state.inner.stake.stake;
     fd_stake_flags_t stake_flags = stake_state.inner.stake.stake_flags;
     rc = authorized_check( &meta.authorized, signers, STAKE_AUTHORIZE_STAKER );
+    if ( FD_UNLIKELY( rc != OK ) ) return rc;
     validated_delegated_info_t validated_delegated_info;
     rc = validate_delegated_amount(
         &stake_account, &meta, invoke_context->global, &validated_delegated_info );
