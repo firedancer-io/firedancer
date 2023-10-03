@@ -16,28 +16,28 @@ int fd_flamenco_type_lookup(const char *type, fd_types_funcs_t * t) {
   char fp[255];
 
 #pragma GCC diagnostic ignored "-Wpedantic"
-  sprintf(fp, "fd_%s_footprint", type);
+  sprintf(fp, "%s_footprint", type);
   t->footprint_fun = dlsym(RTLD_DEFAULT, fp);
 
-  sprintf(fp, "fd_%s_align", type);
+  sprintf(fp, "%s_align", type);
   t->align_fun =  dlsym(RTLD_DEFAULT, fp);
 
-  sprintf(fp, "fd_%s_new", type);
+  sprintf(fp, "%s_new", type);
   t->new_fun =  dlsym(RTLD_DEFAULT, fp);
 
-  sprintf(fp, "fd_%s_decode", type);
+  sprintf(fp, "%s_decode", type);
   t->decode_fun =  dlsym(RTLD_DEFAULT, fp);
 
-  sprintf(fp, "fd_%s_walk", type);
+  sprintf(fp, "%s_walk", type);
   t->walk_fun =  dlsym(RTLD_DEFAULT, fp);
 
-  sprintf(fp, "fd_%s_encode", type);
+  sprintf(fp, "%s_encode", type);
   t->encode_fun =  dlsym(RTLD_DEFAULT, fp);
 
-  sprintf(fp, "fd_%s_destroy", type);
+  sprintf(fp, "%s_destroy", type);
   t->destroy_fun =  dlsym(RTLD_DEFAULT, fp);
 
-  sprintf(fp, "fd_%s_size", type);
+  sprintf(fp, "%s_size", type);
   t->size_fun =  dlsym(RTLD_DEFAULT, fp);
 
   if ((  t->footprint_fun == NULL) ||
