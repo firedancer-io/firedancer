@@ -13,7 +13,7 @@ test_route_query( fd_nl_route_entry_t * test_table,
                   long                  expected_idx ) {
   fd_nl_route_entry_t * result = fd_nl_route_query( test_table, test_table_sz, ip_addr );
 
-  long idx = result == NULL ? -1 : (long)( result - test_table ); 
+  long idx = result == NULL ? -1 : (long)( result - test_table );
 
   FD_LOG_NOTICE(( "route test %08x matched idx %ld  %s", ip_addr, idx,
         idx == expected_idx ? "PASSED" : "FAILED" ));
@@ -34,9 +34,9 @@ test_arp_query( fd_nl_arp_entry_t * arp_table,
 
 
 void
-test_routes() {
+test_routes( void ) {
   /* construct a table and test the entries directly */
-                                
+
   uint flags = FD_NL_RT_FLAGS_USED;
 
   fd_nl_route_entry_t test_table[] = {
@@ -104,9 +104,9 @@ test_routes() {
 }
 
 void
-test_arp_queries() {
+test_arp_queries( void ) {
   /* construct a table and test the entries directly */
-                                
+
   uint flags = FD_NL_ARP_FLAGS_USED;
 
   fd_nl_arp_entry_t test_table[] = {
