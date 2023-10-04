@@ -869,16 +869,16 @@ fd_tls_encode_ext_cert_type( fd_tls_ext_cert_type_t in,
 }
 
 long
-fd_tls_decode_ext_opaque( fd_tls_ext_opaque_t * const in,
+fd_tls_decode_ext_opaque( fd_tls_ext_opaque_t * const out,
                           void const *          const wire,
                           ulong                       wire_sz ) {
-  in->buf   = wire;
-  in->bufsz = wire_sz;
+  out->buf   = wire;
+  out->bufsz = wire_sz;
   return (long)wire_sz;
 }
 
 long
-fd_tls_decode_ext_alpn( fd_tls_ext_alpn_t * const in,
+fd_tls_decode_ext_alpn( fd_tls_ext_alpn_t * const out,
                         void const *        const wire,
                         ulong                     wire_sz ) {
   ulong wire_laddr = (ulong)wire;
@@ -886,5 +886,5 @@ fd_tls_decode_ext_alpn( fd_tls_ext_alpn_t * const in,
   FD_TLS_DECODE_FIELD( &alpn_sz, ushort );
   if( FD_UNLIKELY( (ulong)alpn_sz != wire_sz ) )
     return -(long)FD_TLS_ALERT_DECODE_ERROR;
-  return fd_tls_decode_ext_opaque( in, (void const *)wire_laddr, wire_sz );
+  return fd_tls_decode_ext_opaque( out, (void const *)wire_laddr, wire_sz );
 }

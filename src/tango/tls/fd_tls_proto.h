@@ -495,23 +495,23 @@ fd_tls_encode_ext_cert_type( fd_tls_ext_cert_type_t in,
                              ulong                  wire_sz );
 
 /* fd_tls_decode_ext_opaque is special:
-   in->{buf,buf_sz} will be set to {wire,wire_sz}.
-   i.e. lifetime of in->quic_tp is that of wire. */
+   out->{buf,buf_sz} will be set to {wire,wire_sz}.
+   i.e. lifetime of out->quic_tp is that of wire. */
 
 long
-fd_tls_decode_ext_opaque( fd_tls_ext_opaque_t * const in,
+fd_tls_decode_ext_opaque( fd_tls_ext_opaque_t * const out,
                           void const *          const wire,
                           ulong                       wire_sz );
 
 static inline long
-fd_tls_decode_ext_quic_tp( fd_tls_ext_quic_tp_t * const in,
-                           void const *          const wire,
-                           ulong                       wire_sz ) {
-  return fd_tls_decode_ext_opaque( in, wire, wire_sz );
+fd_tls_decode_ext_quic_tp( fd_tls_ext_quic_tp_t * const out,
+                           void const *           const wire,
+                           ulong                        wire_sz ) {
+  return fd_tls_decode_ext_opaque( out, wire, wire_sz );
 }
 
 long
-fd_tls_decode_ext_alpn( fd_tls_ext_alpn_t * const in,
+fd_tls_decode_ext_alpn( fd_tls_ext_alpn_t * const out,
                         void const *        const wire,
                         ulong                     wire_sz );
 
