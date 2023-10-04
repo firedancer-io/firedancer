@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -x
+
 if [ $# -lt 1 ] || [ ! -f tmp/test_ipc.conf ]; then
   echo ""
   echo "        Usage: $0 [RX_CNT] [tx command line options]"
