@@ -101,5 +101,5 @@ fd_sysvar_slot_history_update( fd_global_ctx_t * global ) {
   fd_bincode_destroy_ctx_t ctx_d = { .valloc = global->valloc };
   fd_slot_history_destroy( history, &ctx_d );
 
-  return fd_acc_mgr_commit(global->acc_mgr, rec, global->bank.slot, 0);
+  return fd_acc_mgr_commit(global->acc_mgr, rec, global->bank.slot);
 }

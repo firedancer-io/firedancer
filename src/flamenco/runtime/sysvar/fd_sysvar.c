@@ -39,5 +39,5 @@ fd_sysvar_set( fd_global_ctx_t *   global,
 
   rec->meta->dlen = sz;
   fd_memcpy(rec->meta->info.owner, owner, 32);
-  return fd_acc_mgr_commit( global->acc_mgr, rec, slot, 0 );
+  return fd_acc_mgr_commit( global->acc_mgr, rec, slot );
 }

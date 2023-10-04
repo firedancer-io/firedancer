@@ -1137,7 +1137,7 @@ fd_runtime_distribute_rent_to_validators( fd_global_ctx_t * global, ulong rent_t
 
       rec->meta->info.lamports += rent_to_be_paid;
 
-      err = fd_acc_mgr_commit_raw(global->acc_mgr, rec->rec, &pubkey, rec->meta, global->bank.slot, 0);
+      err = fd_acc_mgr_commit_raw(global->acc_mgr, rec->rec, &pubkey, rec->meta, global->bank.slot);
       if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
         FD_LOG_WARNING(( "fd_runtime_distribute_rent_to_validators: fd_acc_mgr_commit_raw failed (%d)", err ));
       }
@@ -1412,12 +1412,7 @@ fd_runtime_save_banks( fd_global_ctx_t * global ) {
     return opt_err;
   }
 
-  uchar * buf = fd_funk_val_cache( global->funk, rec, &opt_err );
-  if (NULL == buf) {
-    FD_LOG_WARNING(("fd_runtime_save_banks failed: %s", fd_funk_strerror(opt_err)));
-    return opt_err;
-  }
-
+  uchar * buf = fd_funk_val( rec, fd_funk_wksp(global->funk) );
   fd_bincode_encode_ctx_t ctx = {
     .data = buf,
     .dataend = buf + sz,
@@ -1429,7 +1424,6 @@ fd_runtime_save_banks( fd_global_ctx_t * global ) {
 
   FD_LOG_NOTICE(( "Slot frozen, slot=%d bank_hash=%32J poh_hash=%32J", global->bank.slot, global->bank.banks_hash.hash, global->bank.poh.hash ));
   global->bank.block_height += 1UL;
-  fd_funk_rec_persist(global->funk, rec);
 
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }

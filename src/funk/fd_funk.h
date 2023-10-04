@@ -257,12 +257,6 @@ struct __attribute__((aligned(FD_FUNK_ALIGN))) fd_funk_private {
 
   ulong alloc_gaddr; /* Non-zero wksp gaddr with tag wksp tag */
 
-  /* File descriptor of the persistence file, -1 if one isn't open */
-  int persist_fd;
-  ulong persist_size;        /* Logical size of persistence file */
-  ulong persist_frees_gaddr; /* Address of free list tree */
-  long persist_frees_root;   /* Index of root of free list tree */
-
   /* Callback used to notify application that a new record was
      created/updated/removed. */
   fd_funk_notify_cb_t notify_cb;
@@ -333,28 +327,6 @@ fd_funk_leave( fd_funk_t * funk );
 
 void *
 fd_funk_delete( void * shfunk );
-
-/* Open a persistent store file and recover database content. Future
-   updates are persisted back to this file. An error code may be
-   returned. If cache_all is true, all records are loaded into
-   memory. If not, fd_funk_val_cache must be used to safely access values. */
-
-int
-fd_funk_persist_open( fd_funk_t * funk, const char * filename, int cache_all );
-
-/* Open a persistent store file but don't bother recovering
-   records. This API assumes that the shared memory version of the
-   database matches the persistence file, and everything was
-   previously shutdown in good order. This is the typical,
-   nothing-on-fire case. */
-
-int
-fd_funk_persist_open_fast( fd_funk_t * funk, const char * filename );
-
-/* Close the persistent store file. */
-
-void
-fd_funk_persist_close( fd_funk_t * funk );
 
 /* Accessors */
 

@@ -224,7 +224,7 @@ int fd_advance_nonce_account(
   me_rec->meta->dlen = sz;
   fd_memcpy(me_rec->data, enc, sz);
 
-  return fd_acc_mgr_commit(ctx.global->acc_mgr, me_rec, ctx.global->bank.slot, 0);
+  return fd_acc_mgr_commit(ctx.global->acc_mgr, me_rec, ctx.global->bank.slot);
 }
 
 // https://github.com/firedancer-io/solana/blob/8fb537409eb901444e064f50ea8dd7dcafb12a00/runtime/src/system_instruction_processor.rs#L366
@@ -319,10 +319,10 @@ int fd_withdraw_nonce_account(
   from_rec->meta->info.lamports -= requested_lamports;
   to_rec->meta->info.lamports = res;
 
-  err = fd_acc_mgr_commit(ctx.global->acc_mgr, from_rec, ctx.global->bank.slot, 0);
+  err = fd_acc_mgr_commit(ctx.global->acc_mgr, from_rec, ctx.global->bank.slot);
   if (FD_EXECUTOR_INSTR_SUCCESS != err)
     return err;
-  return fd_acc_mgr_commit(ctx.global->acc_mgr, to_rec, ctx.global->bank.slot, 0);
+  return fd_acc_mgr_commit(ctx.global->acc_mgr, to_rec, ctx.global->bank.slot);
 }
 
 // https://github.com/firedancer-io/solana/blob/8fb537409eb901444e064f50ea8dd7dcafb12a00/runtime/src/system_instruction_processor.rs#L380
@@ -426,7 +426,7 @@ int fd_initialize_nonce_account(
       FD_LOG_ERR(("fd_nonce_state_versions_encode failed"));
 
     me_rec->meta->dlen = sz;
-    return fd_acc_mgr_commit(ctx.global->acc_mgr, me_rec, ctx.global->bank.slot, 0);
+    return fd_acc_mgr_commit(ctx.global->acc_mgr, me_rec, ctx.global->bank.slot);
   }
 
   case fd_nonce_state_enum_initialized: {

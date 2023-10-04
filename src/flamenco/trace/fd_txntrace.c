@@ -71,8 +71,6 @@ fd_txntrace_capture_acct( fd_soltrace_Account *       acc_out,
     }
   }
 
-  fd_funk_val_uncache( global->funk, acc->rec );
-
   return acc_out;
 }
 
@@ -365,7 +363,7 @@ fd_txntrace_load_acct( fd_global_ctx_t *           global,
 
   /* Update account hash */
 
-  err = fd_acc_mgr_commit( global->acc_mgr, rec, acc->meta.slot, 0 );
+  err = fd_acc_mgr_commit( global->acc_mgr, rec, acc->meta.slot );
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) )
     FD_LOG_ERR(( "fd_acc_mgr_commit failed (%d-%s)", err, fd_acc_mgr_strerror( err ) ));
 }
