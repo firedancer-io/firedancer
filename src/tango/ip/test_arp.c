@@ -70,7 +70,7 @@ get_ip_addr( char const * intf, int fd ) {
 
 
 void
-print_help() {
+print_help( void ) {
   printf(
       "NAME\n"
       "\t"  "test_arp - test ARP API in Firedancer\n"
