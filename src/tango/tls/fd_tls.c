@@ -124,16 +124,36 @@ fd_tls_estate_cli_new( void * mem ) {
   return hs;
 }
 
+/* fd_tls_hkdf_expand_label implements the TLS 1.3 HKDF-Expand function
+   with SHA-256.  Writes the resulting hash to out.  secret is a 32 byte
+   secret value.  label points to the label string.  label_sz is the
+   number of chars in label (not including terminating NUL).  context
+   points to the context byte array.  context_sz is the number of bytes
+   in context.
+
+   Constraints:
+
+     out   !=NULL
+     secret!=NULL
+     label_sz  ==0 || label  !=NULL
+     context_sz==0 || context!=NULL
+     0<=label_sz  <=64
+     0<=context_sz<=64 */
+
 static void *
-fd_tls_hkdf_expand_label( void *        out,
-                          uchar const * secret,
+fd_tls_hkdf_expand_label( uchar         out[ static 32 ],
+                          uchar const   secret[ static 32 ],
                           char const *  label,
                           ulong         label_sz,
                           uchar const * context,
                           ulong         context_sz ) {
 
+# define LABEL_BUFSZ (64UL)
+  FD_TEST( label_sz  <=LABEL_BUFSZ );
+  FD_TEST( context_sz<=LABEL_BUFSZ );
+
   /* Create HKDF info */
-  uchar info[ 2+1+256+1+256+1 ];
+  uchar info[ 2+1+6+LABEL_BUFSZ+1+LABEL_BUFSZ+1 ];
   ulong info_sz = 0UL;
 
   /* Length of hash output (hardcoded to be 32) */
@@ -165,6 +185,7 @@ fd_tls_hkdf_expand_label( void *        out,
   /* Compute result of HKDF-Expand-Label */
   fd_hmac_sha256( info, info_sz, secret, 32UL, out );
   return out;
+# undef LABEL_BUFSZ
 }
 
 /* fd_tls_alert is a convenience function for setting a handshake
