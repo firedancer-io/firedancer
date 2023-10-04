@@ -1547,7 +1547,9 @@ typedef struct fd_stake_state_v2_initialized fd_stake_state_v2_initialized_t;
 
 /* https://github.com/firedancer-io/solana/blob/v1.17/sdk/program/src/stake/state.rs#L136 */
 struct __attribute__((aligned(8UL))) fd_stake_state_v2_stake {
-  fd_stake_meta_t meta; fd_stake_t stake; fd_stake_flags_t stake_flags;
+  fd_stake_meta_t meta;
+  fd_stake_t stake;
+  fd_stake_flags_t stake_flags;
 };
 typedef struct fd_stake_state_v2_stake fd_stake_state_v2_stake_t;
 #define FD_STAKE_STATE_V2_STAKE_FOOTPRINT sizeof(fd_stake_state_v2_stake_t)
