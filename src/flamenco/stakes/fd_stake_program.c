@@ -789,21 +789,16 @@ delegation_stake( fd_delegation_t const *    self,
 /* mod tools                                                          */
 /**********************************************************************/
 
-// TODO Test #306... epoch credits coming from vote account are suspicious... don't match running the test with Labs
 static bool
 acceptable_reference_epoch_credits( fd_vote_epoch_credits_t * epoch_credits, ulong current_epoch ) {
   ulong len            = deq_fd_vote_epoch_credits_t_cnt( epoch_credits );
   ulong epoch_index[1] = { ULONG_MAX };
   // FIXME FD_LIKELY
   if ( !__builtin_usubl_overflow( len, MINIMUM_DELINQUENT_EPOCHS_FOR_DEACTIVATION, epoch_index ) ) {
-    FD_LOG_NOTICE(("epoch_index %lu", *epoch_index));
     ulong epoch = current_epoch;
     for ( ulong i = len - 1; i >= *epoch_index; i-- ) {
       ulong vote_epoch = deq_fd_vote_epoch_credits_t_peek_index( epoch_credits, i )->epoch;
-      FD_LOG_NOTICE(("vote_epoch: %lu %lu", vote_epoch, epoch));
-      if ( vote_epoch != epoch ) {
-        return false;
-      }
+      if ( vote_epoch != epoch ) { return false; }
       epoch = fd_ulong_sat_sub( epoch, 1 );
     }
     return true;
@@ -2226,13 +2221,13 @@ deactivate_delinquent( transaction_ctx_t *     transaction_context,
                        uint *                  custom_err ) {
   int rc;
 
-  uchar delinquent_vote_account_txn_i = FD_TXN_ACCT_ADDR_MAX;
-  rc                                  = get_index_of_instruction_account_in_transaction(
-      instruction_context, 2, &delinquent_vote_account_txn_i );
+  uchar index_in_transaction = FD_TXN_ACCT_ADDR_MAX;
+  rc                         = get_index_of_instruction_account_in_transaction(
+      instruction_context, delinquent_vote_account_index, &index_in_transaction );
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
   fd_pubkey_t delinquent_vote_account_pubkey = { 0 };
   rc                                         = get_key_of_account_at_index(
-      transaction_context, delinquent_vote_account_txn_i, &delinquent_vote_account_pubkey );
+      transaction_context, index_in_transaction, &delinquent_vote_account_pubkey );
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
 
   FD_BORROWED_ACCOUNT_DECL( delinquent_vote_account );
@@ -2292,6 +2287,7 @@ deactivate_delinquent( transaction_ctx_t *     transaction_context,
                                    &delinquent_vote_account_pubkey,
                                    sizeof( fd_pubkey_t ) ) ) ) {
       *custom_err = FD_STAKE_ERR_VOTE_ADDRESS_MISMATCH;
+      return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
     }
 
     if ( FD_LIKELY( eligible_for_deactivate_delinquent( delinquent_vote_state.epoch_credits,
@@ -2373,7 +2369,7 @@ fd_executor_stake_program_execute_instruction( instruction_ctx_t ctx ) {
   };
   if ( FD_UNLIKELY( FD_EXECUTOR_INSTR_SUCCESS !=
                     fd_stake_instruction_decode( &instruction, &decode_ctx ) ) ) {
-    FD_LOG_INFO( ( "fd_stake_instruction_decode failed" ) );
+    FD_DEBUG( FD_LOG_WARNING( ( "fd_stake_instruction_decode failed" ) ) );
     fd_stake_instruction_destroy( &instruction, &destroy );
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
