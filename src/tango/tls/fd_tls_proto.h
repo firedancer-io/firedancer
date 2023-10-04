@@ -292,26 +292,36 @@ typedef struct fd_tls_finished fd_tls_finished_t;
 
 /* ### Decode functions
 
-   All deserializers follow the same prototype:
+   Most deserializers follow the same prototype:
 
      long
-     fd_tls_decode_TYPE( TYPE_t *     out,
-                         void const * wire,
-                         ulong        wire_sz );
+     fd_tls_decode_TYPE( TYPE_t * out,
+                         void *   wire,
+                         ulong    wire_sz );
 
-   They consume bytes of the provided and populate the data structure
-   pointed to by out.  out points to the structure to be filled in
-   initialized state.  wire points to the first byte of the encoded
-   payload that may span up to wire_sz bytes.  Returns number of bytes
-   read from wire on success. On failure, returns a negated TLS error
-   code.
+   Consumes bytes of the provided and populates the data structure
+   pointed to by out.  out must be zero-initialized, as the decoder does
+   promise to fill in all fields.  wire points to the first byte of the
+   encoded payload that may span up to wire_sz bytes.  Returns number of
+   bytes read from wire on success.  On failure, returns a negated TLS
+   error code.  (Typically DECODE_ERROR alert)
 
-   Common reasons for failure include:  FD_TLS_ALERT_DECODE_ERROR
-   if input violates encoding rules.  ... TODO
+   wire (input) may get mangled for endianness conversion.  Thus, decode
+   may not be called twice on the same input buffer.
 
    ### Encode functions
 
-   ... TODO */
+   Most serializers follow the same prototype:
+
+     long
+     fd_tls_encode_TYPE( TYPE_t const * in,
+                         void *         wire,
+                         ulong          wire_sz );
+
+   Writes bytes containing serialized version of data structure pointed
+   to by in.  wire points to the first byte of the buffer to fill.
+   wire_sz is the size of that buffer.  Returns number of bytes written
+   on success (can be 0).  On failure, returns a negated TLS error code. */
 
 FD_PROTOTYPES_BEGIN
 
