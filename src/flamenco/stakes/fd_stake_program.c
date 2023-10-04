@@ -1712,16 +1712,16 @@ split( instruction_ctx_t *       invoke_context,
     fd_stake_meta_t split_meta     = *meta;
     split_meta.rent_exempt_reserve = validated_split_info.destination_rent_exempt_reserve;
 
-    fd_borrowed_account_t stake_account;
+    FD_BORROWED_ACCOUNT_DECL(stake_account);
     rc = try_borrow_instruction_account(
-        instruction_context, transaction_context, stake_account_index, &stake_account );
+        instruction_context, transaction_context, stake_account_index, stake_account );
     if ( FD_UNLIKELY( rc != OK ) ) return rc;
-    rc = set_state( &stake_account, &stake_state );
+    rc = set_state( stake_account, &stake_state );
     if ( FD_UNLIKELY( rc != OK ) ) return rc;
 
-    fd_borrowed_account_t split;
+    FD_BORROWED_ACCOUNT_DECL(split);
     rc = try_borrow_instruction_account(
-        instruction_context, transaction_context, split_index, &split );
+        instruction_context, transaction_context, split_index, split );
     if ( FD_UNLIKELY( rc != OK ) ) return rc;
     fd_stake_state_v2_t temp = { .discriminant = fd_stake_state_v2_enum_stake,
                                  .inner        = { .stake = {
@@ -1729,7 +1729,7 @@ split( instruction_ctx_t *       invoke_context,
                                                        .stake       = split_stake,
                                                        .stake_flags = *stake_flags,
                                             } } };
-    rc                       = set_state( &split, &temp );
+    rc                       = set_state( split, &temp );
     if ( FD_UNLIKELY( rc != OK ) ) return rc;
     break;
   }
