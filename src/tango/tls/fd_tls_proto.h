@@ -393,16 +393,6 @@ fd_tls_record_hdr_bswap( fd_tls_record_hdr_t * x ) {
 
 STATIC_SERDE( record_hdr, fd_tls_record_hdr_t )
 
-/* Static serde methods for fd_tls_cert_verify_t */
-
-static inline void
-fd_tls_cert_verify_bswap( fd_tls_cert_verify_t * x ) {
-  x->sig_alg = fd_ushort_bswap( x->sig_alg );
-  x->sig_sz  = fd_ushort_bswap( x->sig_sz );
-}
-
-STATIC_SERDE( cert_verify, fd_tls_cert_verify_t )
-
 /* Static serde methods for fd_tls_finished_t */
 
 static inline void fd_tls_finished_bswap( fd_tls_finished_t * x FD_FN_UNUSED ) {}
@@ -450,8 +440,19 @@ fd_tls_encode_server_cert_x509( void const * x509,
 
 long
 fd_tls_encode_raw_public_key( void const * ed25519_pubkey,
-                                     void *       wire,
-                                     ulong        wire_sz );
+                              void *       wire,
+                              ulong        wire_sz );
+
+long
+fd_tls_decode_cert_verify( fd_tls_cert_verify_t * out,
+                           void const *           wire,
+                           ulong                  wire_sz );
+
+static inline void
+fd_tls_cert_verify_bswap( fd_tls_cert_verify_t * x ) {
+  x->sig_alg = fd_ushort_bswap( x->sig_alg );
+  x->sig_sz  = fd_ushort_bswap( x->sig_sz );
+}
 
 long
 fd_tls_decode_ext_server_name( fd_tls_ext_server_name_t * out,

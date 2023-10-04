@@ -651,6 +651,24 @@ fd_tls_encode_raw_public_key( void const * key,
 }
 
 long
+fd_tls_decode_cert_verify( fd_tls_cert_verify_t * out,
+                           void const *           wire,
+                           ulong                  wire_sz ) {
+
+  if( FD_UNLIKELY( wire_sz != sizeof(fd_tls_cert_verify_t) ) )
+    return -(long)FD_TLS_ALERT_DECODE_ERROR;
+
+  memcpy( out, wire, sizeof(fd_tls_cert_verify_t) );
+  fd_tls_cert_verify_bswap( out );
+
+  if( FD_UNLIKELY( ( out->sig_alg != FD_TLS_SIGNATURE_ED25519 )
+                 | ( out->sig_sz  != 0x40UL                   ) ) )
+    return -(long)FD_TLS_ALERT_ILLEGAL_PARAMETER;
+
+  return (long)sizeof(fd_tls_cert_verify_t);
+}
+
+long
 fd_tls_decode_ext_server_name( fd_tls_ext_server_name_t * out,
                                void const *               wire,
                                ulong                      wire_sz ) {
