@@ -312,7 +312,7 @@ fd_tls_server_hs_start( fd_tls_t const *      const server,
 
     /* Decode record header */
 
-    fd_tls_record_hdr_t record_hdr;
+    fd_tls_record_hdr_t record_hdr = {0};
     FD_TLS_DECODE_SUB( fd_tls_decode_record_hdr, &record_hdr );
 
     if( FD_UNLIKELY( record_hdr.type != FD_TLS_RECORD_CLIENT_HELLO ) )
@@ -789,7 +789,7 @@ fd_tls_handle_cert_verify( fd_tls_estate_base_t * hs,
 
   /* Read CertificateVerify *******************************************/
 
-  fd_tls_cert_verify_t vfy[1];
+  fd_tls_cert_verify_t vfy[1] = {{0}};
 
   do {
     ulong wire_laddr = (ulong)record;
@@ -797,7 +797,7 @@ fd_tls_handle_cert_verify( fd_tls_estate_base_t * hs,
 
     /* Decode record header */
 
-    fd_tls_record_hdr_t record_hdr;
+    fd_tls_record_hdr_t record_hdr = {0};
     FD_TLS_DECODE_SUB( fd_tls_decode_record_hdr, &record_hdr );
 
     if( FD_UNLIKELY( record_hdr.type != FD_TLS_RECORD_CERT_VERIFY ) )
@@ -861,7 +861,7 @@ fd_tls_server_hs_wait_cert( fd_tls_t const *      server,
 
   /* Decode incoming client Certificate *******************************/
 
-  fd_tls_record_hdr_t hdr[1];
+  fd_tls_record_hdr_t hdr[1] = {{0}};
   if( FD_UNLIKELY( fd_tls_decode_record_hdr( hdr, record, record_sz )<0L ) )
     return -(long)FD_TLS_ALERT_DECODE_ERROR;
   if( FD_UNLIKELY( hdr->type != FD_TLS_RECORD_CERT ) )
@@ -927,7 +927,7 @@ fd_tls_server_hs_wait_finished( fd_tls_t const *      server,
   if( FD_UNLIKELY( record_sz!=0x24 ) )
     return fd_tls_alert( &handshake->base, FD_TLS_ALERT_DECODE_ERROR, FD_TLS_REASON_FINI_PARSE );
 
-  fd_tls_record_hdr_t hdr[1];
+  fd_tls_record_hdr_t hdr[1] = {{0}};
   if( FD_UNLIKELY( fd_tls_decode_record_hdr( hdr, record, record_sz )<0L ) )
     return fd_tls_alert( &handshake->base, FD_TLS_ALERT_DECODE_ERROR, FD_TLS_REASON_FINI_PARSE );
 
@@ -935,7 +935,7 @@ fd_tls_server_hs_wait_finished( fd_tls_t const *      server,
                  | ( fd_tls_u24_to_uint( hdr->sz )!=0x20 ) ) )
     return fd_tls_alert( &handshake->base, FD_TLS_ALERT_DECODE_ERROR, FD_TLS_REASON_FINI_PARSE );
 
-  fd_tls_finished_t finished;
+  fd_tls_finished_t finished = {0};
   if( FD_UNLIKELY( fd_tls_decode_finished( &finished, (uchar const *)record+4, 0x20UL )<0L ) )
     return fd_tls_alert( &handshake->base, FD_TLS_ALERT_DECODE_ERROR, FD_TLS_REASON_FINI_PARSE );
 
@@ -1123,7 +1123,7 @@ fd_tls_client_hs_wait_sh( fd_tls_t const *      const client,
 
   /* Read server hello ************************************************/
 
-  fd_tls_server_hello_t sh[1];
+  fd_tls_server_hello_t sh[1] = {0};
 
   do {
     ulong wire_laddr = (ulong)record;
@@ -1131,7 +1131,7 @@ fd_tls_client_hs_wait_sh( fd_tls_t const *      const client,
 
     /* Decode record header */
 
-    fd_tls_record_hdr_t record_hdr;
+    fd_tls_record_hdr_t record_hdr = {0};
     FD_TLS_DECODE_SUB( fd_tls_decode_record_hdr, &record_hdr );
 
     if( FD_UNLIKELY( record_hdr.type != FD_TLS_RECORD_SERVER_HELLO ) )
@@ -1239,7 +1239,7 @@ fd_tls_client_hs_wait_ee( fd_tls_t const *      const client,
 
     /* Decode record header */
 
-    fd_tls_record_hdr_t record_hdr;
+    fd_tls_record_hdr_t record_hdr = {0};
     FD_TLS_DECODE_SUB( fd_tls_decode_record_hdr, &record_hdr );
 
     if( FD_UNLIKELY( record_hdr.type != FD_TLS_RECORD_ENCRYPTED_EXT ) )
@@ -1247,7 +1247,7 @@ fd_tls_client_hs_wait_ee( fd_tls_t const *      const client,
 
     /* Decode EncryptedExtensions */
 
-    fd_tls_enc_ext_t ee[1];
+    fd_tls_enc_ext_t ee[1] = {0};
     FD_TLS_DECODE_SUB( fd_tls_decode_enc_ext, ee );
 
     if( client->quic ) {
@@ -1356,7 +1356,7 @@ fd_tls_client_hs_wait_cert_cr( fd_tls_t const *      const client,
 
     /* Decode record header */
 
-    fd_tls_record_hdr_t record_hdr;
+    fd_tls_record_hdr_t record_hdr = {0};
     FD_TLS_DECODE_SUB( fd_tls_decode_record_hdr, &record_hdr );
 
     long res;
@@ -1404,7 +1404,7 @@ fd_tls_client_hs_wait_cert( fd_tls_t const *      const client,
 
     /* Decode record header */
 
-    fd_tls_record_hdr_t record_hdr;
+    fd_tls_record_hdr_t record_hdr = {0};
     FD_TLS_DECODE_SUB( fd_tls_decode_record_hdr, &record_hdr );
 
     if( FD_UNLIKELY( record_hdr.type != FD_TLS_RECORD_CERT ) )
@@ -1480,7 +1480,7 @@ fd_tls_client_hs_wait_finished( fd_tls_t const *      const client,
 
   /* Read ServerFinished **********************************************/
 
-  fd_tls_finished_t server_fin;
+  fd_tls_finished_t server_fin = {0};
 
   do {
     ulong wire_laddr = (ulong)record;
@@ -1488,7 +1488,7 @@ fd_tls_client_hs_wait_finished( fd_tls_t const *      const client,
 
     /* Decode record header */
 
-    fd_tls_record_hdr_t record_hdr;
+    fd_tls_record_hdr_t record_hdr = {0};
     FD_TLS_DECODE_SUB( fd_tls_decode_record_hdr, &record_hdr );
 
     if( FD_UNLIKELY( record_hdr.type != FD_TLS_RECORD_FINISHED ) )
