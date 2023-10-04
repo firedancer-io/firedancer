@@ -82,8 +82,9 @@ fd_quic_decode_ip4( fd_ip4_hdr_t * FD_RESTRICT out,
 
   /* FIXME unaligned accesses */
   fd_ip4_hdr_t const * peek = (fd_ip4_hdr_t const *)fd_type_pun_const( buf );
-  ulong hdr_len = peek->ihl * 4UL;
-  if( FD_UNLIKELY( (peek->version!=4) | (hdr_len<20UL) | (sz<hdr_len) ) ) {
+  ulong hdr_len = FD_IP4_GET_LEN(*peek);
+  ulong version = FD_IP4_GET_VERSION(*peek);
+  if( FD_UNLIKELY( (version!=4) | (hdr_len<20UL) | (sz<hdr_len) ) ) {
     return FD_QUIC_PARSE_FAIL;
   }
 

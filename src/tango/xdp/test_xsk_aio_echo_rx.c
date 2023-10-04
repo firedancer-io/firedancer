@@ -120,7 +120,7 @@ fd_xsk_aio_echo_pkt( fd_aio_pkt_info_t       * pkt_dst,
   /* Find headers, bounds check */
   fd_eth_hdr_t const * eth_orig = pkt_src->buf;
   fd_ip4_hdr_t const * ip4_orig = (fd_ip4_hdr_t const *)( (ulong)( eth_orig+1 ) );
-  fd_udp_hdr_t const * udp_orig = (fd_udp_hdr_t const *)( (ulong)ip4_orig + ((ulong)ip4_orig->ihl << 2UL) );
+  fd_udp_hdr_t const * udp_orig = (fd_udp_hdr_t const *)( (ulong)ip4_orig + ((ulong)FD_IP4_GET_LEN(*ip4_orig)) );
   if( FD_UNLIKELY( ( (ulong)udp_orig + sizeof(fd_udp_hdr_t) > pkt_src_end )
                  | ( ip4_orig->ttl == 0                                   )
                  | ( ip4_orig->protocol != FD_IP4_HDR_PROTOCOL_UDP        ) ) )
@@ -138,11 +138,12 @@ fd_xsk_aio_echo_pkt( fd_aio_pkt_info_t       * pkt_dst,
   memcpy( eth->src, eth_orig->dst, 6 );
   memcpy( eth->dst, eth_orig->src, 6 );
 
+#define FD_IP4_EXPAND(addr) { (addr)[0], (addr)[1], (addr)[2], (addr)[3] }
+
   /* Create IP4 header */
   fd_ip4_hdr_t * ip4 = (fd_ip4_hdr_t *)( (ulong)( eth+1 ) );
   *ip4 = (fd_ip4_hdr_t) {
-    .version      = 4,
-    .ihl          = 5,
+    .verihl       = FD_IP4_VERIHL(4,5),
     .tos          = 0,
     .net_tot_len  = fd_ushort_bswap( (ushort)( 20U + sizeof(fd_udp_hdr_t) + payload_sz ) ),
     .net_id       = ip4_orig->net_id,
@@ -150,8 +151,8 @@ fd_xsk_aio_echo_pkt( fd_aio_pkt_info_t       * pkt_dst,
     .ttl          = (uchar)( ip4_orig->ttl - 1u ), 
     .protocol     = FD_IP4_HDR_PROTOCOL_UDP,
     .check        = 0,
-    .saddr        = ip4_orig->daddr,
-    .daddr        = ip4_orig->saddr,
+    .saddr_c      = FD_IP4_EXPAND(ip4_orig->daddr_c),
+    .daddr_c      = FD_IP4_EXPAND(ip4_orig->saddr_c),
   };
   ip4->check = fd_ip4_hdr_check( ip4 );
 

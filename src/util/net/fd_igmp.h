@@ -1,6 +1,8 @@
 #ifndef HEADER_fd_src_util_net_fd_igmp_h
 #define HEADER_fd_src_util_net_fd_igmp_h
 
+#include <string.h>
+
 #include "fd_ip4.h"
 
 /* FIXME: IGMP CRASH COURSE HERE */
@@ -81,8 +83,7 @@ fd_ip4_igmp( void * _msg,
              uint   igmp_group ) {
   fd_ip4_igmp_t * msg = (fd_ip4_igmp_t *)_msg;
 
-  msg->ip4->ihl          = 6U;
-  msg->ip4->version      = 4U;
+  msg->ip4->verihl       = FD_IP4_VERIHL(6U,4U);
   msg->ip4->tos          = FD_IP4_HDR_TOS_PREC_INTERNETCONTROL;
   msg->ip4->net_tot_len  = fd_ushort_bswap( (ushort)32 );
   msg->ip4->net_id       = (ushort)0;
@@ -90,8 +91,9 @@ fd_ip4_igmp( void * _msg,
   msg->ip4->ttl          = (uchar)1;
   msg->ip4->protocol     = FD_IP4_HDR_PROTOCOL_IGMP;
   msg->ip4->check        = (ushort)0; /* Computation completed below */
-  msg->ip4->saddr        = ip4_saddr;
-  msg->ip4->daddr        = ip4_daddr;
+
+  memcpy( msg->ip4->saddr_c, &ip4_saddr, 4U );
+  memcpy( msg->ip4->daddr_c, &ip4_daddr, 4U );
 
   msg->opt[0]            = FD_IP4_OPT_RA;
   msg->opt[1]            = (uchar)4;

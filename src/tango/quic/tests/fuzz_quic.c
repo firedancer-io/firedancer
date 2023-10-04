@@ -72,8 +72,7 @@ uint send_packet(uchar const *payload, size_t payload_sz) {
   memcpy(pkt.eth->src, "\x52\xF1\x7E\xDA\x2C\xE0", 6);
   pkt.eth->net_type = FD_ETH_HDR_TYPE_IP;
 
-  pkt.ip4->version = 4;
-  pkt.ip4->ihl = 5;
+  pkt.ip4->verihl = FD_IP4_VERIHL(4,5);
   pkt.ip4->tos = 0;
   pkt.ip4->net_tot_len = (ushort)(20 + 8 + payload_sz);
   pkt.ip4->net_id = 0;
