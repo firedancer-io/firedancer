@@ -4,6 +4,8 @@
 #include "../runtime/sysvar/fd_sysvar.h"
 #include <limits.h>
 
+#define FD_DEBUG_MODE 0
+
 #ifndef FD_DEBUG_MODE
 #define FD_DEBUG( ... ) __VA_ARGS__
 #else
@@ -456,8 +458,8 @@ validate_split_amount( instruction_ctx_t *       invoke_context,
   rc = try_borrow_instruction_account(
       instruction_context, transaction_context, destination_account_index, destination_account );
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
-  ulong destination_lamports = source_account->meta->info.lamports;
-  ulong destination_data_len = source_account->meta->dlen;
+  ulong destination_lamports = destination_account->meta->info.lamports;
+  ulong destination_data_len = destination_account->meta->dlen;
 
   if ( FD_UNLIKELY( lamports == 0 ) ) return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
   if ( FD_UNLIKELY( lamports > source_lamports ) ) return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
@@ -482,8 +484,9 @@ validate_split_amount( instruction_ctx_t *       invoke_context,
       fd_ulong_sat_add( destination_rent_exempt_reserve, additional_required_lamports );
   ulong destination_balance_deficit =
       fd_ulong_sat_sub( destination_minimum_balance, destination_lamports );
-  if ( FD_UNLIKELY( lamports < destination_balance_deficit ) )
+  if ( FD_UNLIKELY( lamports < destination_balance_deficit ) ) {
     return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
+  }
 
   out->source_remaining_balance        = source_remaining_balance;
   out->destination_rent_exempt_reserve = destination_rent_exempt_reserve;
@@ -520,12 +523,12 @@ authorized_check( fd_stake_authorized_t const * self,
     if ( FD_LIKELY( signers_contains( signers, &self->staker ) ) ) {
       return OK;
     }
-    __attribute__((fallthrough));
+    return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   case fd_stake_authorize_enum_withdrawer:
     if ( FD_LIKELY( signers_contains( signers, &self->withdrawer ) ) ) {
       return OK;
     }
-    __attribute__((fallthrough));
+    return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   default:
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   }
@@ -665,6 +668,7 @@ stake_and_activating( fd_delegation_t const *    self,
           (double)prev_cluster_stake->effective * warmup_cooldown_rate_;
       ulong newly_effective_stake =
           fd_ulong_max( ( (ulong)( weight * newly_effective_cluster_stake ) ), 1 );
+      FD_LOG_NOTICE( ( "newly_effective_stake %lu", newly_effective_stake ) );
 
       current_effective_stake += newly_effective_stake;
       if ( FD_LIKELY( current_effective_stake >= delegated_stake ) ) {
@@ -677,7 +681,18 @@ stake_and_activating( fd_delegation_t const *    self,
                           self->deactivation_epoch ) ) { // FIXME always optimize loop break
         break;
       }
-      fd_stake_history_entry_t const * current_cluster_stake = NULL;
+      FD_LOG_NOTICE( ( "current epoch %lu", current_epoch ) );
+
+      for ( fd_stake_history_treap_fwd_iter_t iter =
+                fd_stake_history_treap_fwd_iter_init( history->treap, history->pool );
+            !fd_stake_history_treap_fwd_iter_done( iter );
+            iter = fd_stake_history_treap_fwd_iter_next( iter, history->pool ) ) {
+        fd_stake_history_entry_t * ele = fd_stake_history_treap_fwd_iter_ele( iter, history->pool );
+        FD_LOG_NOTICE( ( "iterating %lu", ele->epoch ) );
+      }
+
+      fd_stake_history_entry_t const * current_cluster_stake =
+          fd_stake_history_treap_ele_query_const( history->treap, current_epoch, history->pool );
       if ( FD_UNLIKELY( current_cluster_stake = fd_stake_history_treap_ele_query_const(
                             history->treap, current_epoch, history->pool ) ) ) {
         prev_epoch         = current_epoch;
@@ -974,7 +989,6 @@ get_if_mergeable( instruction_ctx_t *           invoke_context,
                   uint *                        custom_err ) {
   // stake_history must be non-NULL
   // https://github.com/firedancer-io/solana/blob/v1.17/programs/stake/src/stake_state.rs#L1295
-  FD_TEST( stake_history );
   switch ( stake_state->discriminant ) {
   case fd_stake_state_v2_enum_stake: {
     fd_stake_meta_t const *  meta        = &stake_state->inner.stake.meta;
@@ -1060,7 +1074,7 @@ active_delegations_can_merge( FD_FN_UNUSED instruction_ctx_t const * invoke_cont
                               fd_delegation_t const *                stake,
                               fd_delegation_t const *                source,
                               uint *                                 custom_err ) {
-  if ( 0 == memcmp( &stake->voter_pubkey, &source->voter_pubkey, sizeof( fd_pubkey_t ) ) ) {
+  if ( 0 != memcmp( &stake->voter_pubkey, &source->voter_pubkey, sizeof( fd_pubkey_t ) ) ) {
     FD_DEBUG( FD_LOG_WARNING( ( "Unable to merge due to voter mismatch" ) ) );
     *custom_err = FD_STAKE_ERR_MERGE_MISMATCH;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
@@ -1646,8 +1660,9 @@ split( instruction_ctx_t *       invoke_context,
       instruction_context, transaction_context, stake_account_index, stake_account );
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
 
-  if ( FD_UNLIKELY( lamports > stake_account->meta->info.lamports ) )
+  if ( FD_UNLIKELY( lamports > stake_account->meta->info.lamports ) ) {
     return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
+  }
 
   fd_stake_state_v2_t stake_state = { 0 };
   rc = get_state( stake_account, &invoke_context->global->valloc, &stake_state );
@@ -1762,7 +1777,7 @@ split( instruction_ctx_t *       invoke_context,
     rc = try_borrow_instruction_account(
         instruction_context, transaction_context, split_index, split );
     if ( FD_UNLIKELY( rc != OK ) ) return rc;
-    fd_stake_state_v2_t temp = { .discriminant = fd_stake_state_v2_enum_stake,
+    fd_stake_state_v2_t temp = { .discriminant = fd_stake_state_v2_enum_initialized,
                                  .inner        = { .initialized = { .meta = split_meta } } };
     rc                       = set_state( split, &temp );
     if ( FD_UNLIKELY( rc != OK ) ) return rc;
@@ -1843,9 +1858,9 @@ merge( instruction_ctx_t *           invoke_context,
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
   uchar source_account_i = FD_TXN_ACCT_ADDR_MAX;
   rc                     = get_index_of_instruction_account_in_transaction(
-      instruction_context, stake_account_index, &source_account_i );
+      instruction_context, source_account_index, &source_account_i );
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
-  if ( FD_UNLIKELY( stake_account_i == stake_account_i ) ) {
+  if ( FD_UNLIKELY( stake_account_i == source_account_i ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
   }
 
