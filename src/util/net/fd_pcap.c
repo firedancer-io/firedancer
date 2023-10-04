@@ -283,8 +283,9 @@ fd_pcap_iter_next_split( fd_pcap_iter_t * iter,
       return 0;
     }
 
-    ulong options_len = sizeof(uint)*(((fd_ip4_hdr_t *)_hdr_buf)->ihl - 5U);
-    uchar protocol   = ((fd_ip4_hdr_t *)_hdr_buf)->protocol;
+    fd_ip4_hdr_t * ip4 = (fd_ip4_hdr_t *)_hdr_buf;
+    ulong options_len  = 4u * ( FD_IP4_GET_IHL(*ip4) - 5u );
+    uchar protocol     = ip4->protocol;
 
     _hdr_buf += sizeof(fd_ip4_hdr_t);
     hdr_rem  -= sizeof(fd_ip4_hdr_t);

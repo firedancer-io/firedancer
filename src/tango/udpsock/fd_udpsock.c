@@ -286,8 +286,7 @@ fd_udpsock_service( fd_udpsock_t * sock ) {
 
     fd_ip4_hdr_t * ip4 = (fd_ip4_hdr_t *)((ulong)eth + sizeof(fd_eth_hdr_t));
     *ip4 = (fd_ip4_hdr_t) {
-      .ihl          = 5,
-      .version      = 4,
+      .verihl       = FD_IP4_VERIHL(4,5),
       .tos          = 0,
       .net_tot_len  = (ushort)( sock->rx_msg[i].msg_len
                       + sizeof(fd_ip4_hdr_t)
@@ -348,7 +347,7 @@ fd_udpsock_send( void *                    ctx,
       fd_ip4_hdr_bswap( ip4 );  /* convert to host byte order */
       uint daddr = 0;
       memcpy( &daddr, ip4->daddr_c, 4 );
-      fd_udp_hdr_t * udp = (fd_udp_hdr_t *)( (ulong)ip4 + (ulong)ip4->ihl*4 );
+      fd_udp_hdr_t * udp = (fd_udp_hdr_t *)( (ulong)ip4 + (ulong)FD_IP4_GET_LEN(*ip4) );
       fd_udp_hdr_bswap( udp );  /* convert to host byte order */
       ushort dport = udp->net_dport;
 

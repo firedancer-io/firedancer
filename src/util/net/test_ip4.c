@@ -50,9 +50,8 @@ main( int     argc,
   FD_TEST( (ulong)( &(((fd_ip4_hdr_t *)NULL)->ttl         ) )== 8UL );
   FD_TEST( (ulong)( &(((fd_ip4_hdr_t *)NULL)->protocol    ) )== 9UL );
   FD_TEST( (ulong)( &(((fd_ip4_hdr_t *)NULL)->check       ) )==10UL );
-  FD_TEST( (ulong)( &(((fd_ip4_hdr_t *)NULL)->saddr       ) )==12UL );
-  FD_TEST( (ulong)( &(((fd_ip4_hdr_t *)NULL)->daddr       ) )==16UL );
-  FD_TEST( (ulong)(  (((fd_ip4_hdr_t *)NULL)->u           ) )== 0UL );
+  FD_TEST( (ulong)( &(((fd_ip4_hdr_t *)NULL)->saddr_c     ) )==12UL );
+  FD_TEST( (ulong)( &(((fd_ip4_hdr_t *)NULL)->daddr_c     ) )==16UL );
 
   uint ip4_addr_ucast = FD_IP4_ADDR(  1,  2,  3,  4); FD_TEST( ip4_addr_ucast==0x04030201U );
   uint ip4_addr_mcast = FD_IP4_ADDR(239, 17, 34, 51); FD_TEST( ip4_addr_mcast==0x332211efU );
