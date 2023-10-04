@@ -20,12 +20,17 @@ for MACHINE in $MACHINES; do
     export MACHINE
     export EXTRAS=llvm-cov
     make clean
-    make -j -o=target unit-test
+    make -j -o=target all
     ./test.sh -j --page-sz gigantic
-    make cov-report
 done
 
 for LEVEL in $(ls -1 build/linux/clang/combi/); do
+  export MACHINE="linux_clang_combi_${LEVEL}"
+  # Run script tests
+  export LLVM_PROFILE_FILE="build/linux/clang/combi/${LEVEL}/cov/raw/script_tests_%p.profraw"
+  sudo --preserve-env=LLVM_PROFILE_FILE,MACHINE make run-script-test
+  make cov-report
+
   rm -rf "build/pages/cov/test/${LEVEL}" || true
   mv "build/linux/clang/combi/${LEVEL}/cov/html/" "build/pages/cov/test/${LEVEL}"
 done
@@ -82,7 +87,6 @@ for FEATURES in $FEATURE_SETS_BUILT; do
       fi
     done
 
-    # llvm-profdata merge -o "build/linux/clang/combi/${FEATURES}/cov.profdata" -sparse "${LLVM_PROFILE_FILE}"
     llvm-profdata merge -o "build/linux/clang/combi/${FEATURES}/cov.profdata" $(ls -1 build/linux/clang/combi/${FEATURES}/cov/raw/*.profraw)
     llvm-cov export $TARGET -instr-profile="build/linux/clang/combi/${FEATURES}/cov.profdata" -format=lcov > "build/linux/clang/combi/${FEATURES}/cov.lcov"
     make cov-report
