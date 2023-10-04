@@ -82,8 +82,9 @@ fd_tls_decode_client_hello( fd_tls_client_hello_t * out,
     FD_TLS_DECODE_STATIC_BATCH( FIELDS )
 # undef FIELDS
 
-  if( FD_UNLIKELY( legacy_compression_method_cnt != 1 ) )
-    return -(long)FD_TLS_ALERT_PROTOCOL_VERSION;
+  if( FD_UNLIKELY( ( legacy_compression_method_cnt != 1 )
+                 | ( legacy_compression_methods[0] != 0 ) ) )
+    return -(long)FD_TLS_ALERT_ILLEGAL_PARAMETER;
 
   /* Byte range occupied by extensions */
 
@@ -151,8 +152,7 @@ fd_tls_decode_client_hello( fd_tls_client_hello_t * out,
     wire_sz    -= ext_sz;
   }
 
-  /* Assert: wire_laddr == ext_stop */
-
+  FD_TEST( wire_laddr==ext_stop );
   return (long)( wire_laddr - (ulong)wire );
 }
 
