@@ -1279,8 +1279,8 @@ redelegate_stake( instruction_ctx_t *           invoke_context,
   stake->delegation.deactivation_epoch = ULONG_MAX;
   stake->delegation.voter_pubkey       = *voter_pubkey;
   stake->credits_observed =
-      fd_ulong_if( deq_fd_vote_epoch_credits_t_empty( vote_state->epoch_credits ),
-                   0,
+      ( deq_fd_vote_epoch_credits_t_empty( vote_state->epoch_credits ) ?
+                   0 :
                    deq_fd_vote_epoch_credits_t_peek_index(
                        vote_state->epoch_credits,
                        deq_fd_vote_epoch_credits_t_cnt( vote_state->epoch_credits ) - 1 )
@@ -1296,8 +1296,8 @@ new_stake( ulong                   stake,
            ulong                   activation_epoch ) {
   // https://github.com/firedancer-io/solana/blob/v1.17/sdk/program/src/vote/state/mod.rs#L512
   ulong credits =
-      fd_ulong_if( deq_fd_vote_epoch_credits_t_empty( vote_state->epoch_credits ),
-                   0,
+      ( deq_fd_vote_epoch_credits_t_empty( vote_state->epoch_credits ) ?
+                   0 :
                    deq_fd_vote_epoch_credits_t_peek_index(
                        vote_state->epoch_credits,
                        deq_fd_vote_epoch_credits_t_cnt( vote_state->epoch_credits ) - 1 )
@@ -2109,10 +2109,10 @@ withdraw( instruction_ctx_t *           invoke_context,
     rc = authorized_check( &meta->authorized, signers, STAKE_AUTHORIZE_WITHDRAWER );
     if ( FD_UNLIKELY( rc != OK ) ) return rc;
 
-    ulong staked = fd_ulong_if(
-        clock->epoch >= stake->delegation.deactivation_epoch,
+    ulong staked = (
+        clock->epoch >= stake->delegation.deactivation_epoch ?
         delegation_stake(
-            &stake->delegation, clock->epoch, stake_history, new_rate_activation_epoch ),
+            &stake->delegation, clock->epoch, stake_history, new_rate_activation_epoch ) :
         stake->delegation.stake );
 
     ulong staked_and_reserve = ULONG_MAX;

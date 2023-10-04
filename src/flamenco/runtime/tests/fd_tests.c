@@ -525,6 +525,18 @@ fd_executor_run_cleanup:
 int
 main( int     argc,
       char ** argv ) {
+#if 0
+class, what does the following print?
+
+  ulong a = 5;
+  ulong *b =&a;
+
+  printf("%d\n", fd_ulong_if(1, ++(*b), --a));
+  printf("%d\n", a);
+  printf("%d\n", 1 ? ++(*b):  --a);
+  exit(0);
+#endif
+
   fd_boot         ( &argc, &argv );
   fd_flamenco_boot( &argc, &argv );
 
