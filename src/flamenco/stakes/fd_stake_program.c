@@ -2179,7 +2179,7 @@ withdraw( instruction_ctx_t *           invoke_context,
 
   if ( FD_UNLIKELY( is_staked && lamports_and_reserve > stake_account->meta->info.lamports ) ) {
     // https://github.com/firedancer-io/solana/blob/v1.17/programs/stake/src/stake_state.rs#L1083
-    FD_TEST( !is_staked );
+    FD_DEBUG( FD_LOG_WARNING( ( "!is_staked" ) ) );
     return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
   }
 
