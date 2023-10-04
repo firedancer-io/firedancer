@@ -91,9 +91,6 @@ during_frag( void * _ctx,
              ulong  chunk,
              ulong  sz,
              int *  opt_filter ) {
-  (void)sig;
-  (void)opt_filter;
-
   fd_pack_ctx_t * ctx = (fd_pack_ctx_t *)_ctx;
 
   if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>=ctx->in[ in_idx ].wmark || sz > FD_TPU_DCACHE_MTU ) )
@@ -102,19 +99,41 @@ during_frag( void * _ctx,
   ctx->cur_slot              = fd_pack_insert_txn_init( ctx->pack );
 
   uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->in[in_idx].wksp, chunk );
-  /* Assume that the dcache entry is:
-        Payload ....... (payload_sz bytes)
-        0 or 1 byte of padding (since alignof(fd_txn) is 2)
-        fd_txn ....... (size computed by fd_txn_footprint)
-        payload_sz  (2B)
-    mline->sz includes all three fields and the padding */
-  ulong payload_sz = *(ushort*)(dcache_entry + sz - sizeof(ushort));
-  uchar    const * payload = dcache_entry;
-  fd_txn_t const * txn     = (fd_txn_t const *)( dcache_entry + fd_ulong_align_up( payload_sz, 2UL ) );
-  fd_memcpy( ctx->cur_slot->payload, payload, payload_sz                                                     );
-  fd_memcpy( TXN(ctx->cur_slot),     txn,     fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
-  ctx->cur_slot->payload_sz = payload_sz;
-  ctx->cur_slot->meta = sig;
+
+  ulong payload_sz;
+  /* There are two senders, one (dedup tile) which has already parsed the
+     transaction, and one (gossip vote receiver in Solana Labs) which has
+     not.  In either case, the transaction has already been verified.
+
+     The dedup tile sets sig to 0, while the gossip receiver sets sig to
+     1 so they can be distinguished. */
+  if( FD_LIKELY( !sig ) ) {
+    /* Assume that the dcache entry is:
+          Payload ....... (payload_sz bytes)
+          0 or 1 byte of padding (since alignof(fd_txn) is 2)
+          fd_txn ....... (size computed by fd_txn_footprint)
+          payload_sz  (2B)
+      mline->sz includes all three fields and the padding */
+    payload_sz = *(ushort*)(dcache_entry + sz - sizeof(ushort));
+    uchar    const * payload = dcache_entry;
+    fd_txn_t const * txn     = (fd_txn_t const *)( dcache_entry + fd_ulong_align_up( payload_sz, 2UL ) );
+    fd_memcpy( ctx->cur_slot->payload, payload, payload_sz                                                     );
+    fd_memcpy( TXN(ctx->cur_slot),     txn,     fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
+    ctx->cur_slot->payload_sz = payload_sz;
+  } else {
+    /* Here there is just a transaction payload, so it needs to be
+       parsed.  We can parse right out into the pack structure. */
+    payload_sz = sz;
+    fd_memcpy( ctx->cur_slot->payload, dcache_entry, sz );
+    ulong txn_t_sz = fd_txn_parse( ctx->cur_slot->payload, sz, TXN(ctx->cur_slot), NULL );
+    if( FD_UNLIKELY( !txn_t_sz ) ) {
+      FD_LOG_WARNING(( "fd_txn_parse failed for gossiped vote" ));
+      fd_pack_insert_txn_cancel( ctx->pack, ctx->cur_slot );
+      *opt_filter = 1;
+      return;
+    }
+    ctx->cur_slot->payload_sz = payload_sz;
+  }
 
 #if DETAILED_LOGGING
   FD_LOG_NOTICE(( "Pack got a packet. Payload size: %lu, txn footprint: %lu", payload_sz,
