@@ -301,8 +301,8 @@ get_signers( fd_instr_t const *        self,
 
 static inline bool
 signers_contains( fd_pubkey_t const * signers[FD_TXN_SIG_MAX], fd_pubkey_t const * pubkey ) {
-  for ( ulong i = 0; i < FD_TXN_SIG_MAX; i++ ) {
-    if ( FD_UNLIKELY( signers[i] && 0 == memcmp( signers[i], pubkey, sizeof( fd_pubkey_t ) ) ) ) {
+  for ( ulong i = 0; i < FD_TXN_SIG_MAX && signers[i]; i++ ) {
+    if ( FD_UNLIKELY( 0 == memcmp( signers[i], pubkey, sizeof( fd_pubkey_t ) ) ) ) {
       return true;
     }
   }
@@ -1416,6 +1416,7 @@ authorize_with_seed( transaction_ctx_t *          transaction_context,
                      fd_valloc_t const *          valloc ) {
   int                 rc;
   fd_pubkey_t const * signers[FD_TXN_SIG_MAX] = { 0 };
+  fd_pubkey_t out = { 0 };
   if ( FD_LIKELY( fd_instr_acc_is_signer_idx( instruction_context, authority_base_index ) ) ) {
 
     // https://github.com/firedancer-io/solana/blob/debug-master/programs/stake/src/stake_state.rs#L550-L553
@@ -1428,7 +1429,6 @@ authorize_with_seed( transaction_ctx_t *          transaction_context,
     if ( FD_UNLIKELY( rc != OK ) ) return rc;
 
     // https://github.com/firedancer-io/solana/blob/debug-master/programs/stake/src/stake_state.rs#L554-L558
-    fd_pubkey_t out = { 0 };
     rc              = fd_pubkey_create_with_seed( base_pubkey.uc,
                                      authority_seed,
                                      strlen( authority_seed ),
