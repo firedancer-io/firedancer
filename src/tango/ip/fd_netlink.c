@@ -112,7 +112,7 @@ fd_nda_type_to_label( uint nda_type ) {
 
 
 int
-fd_nl_create_socket( ) {
+fd_nl_create_socket( void ) {
   int fd = socket( AF_NETLINK, SOCK_RAW | SOCK_NONBLOCK, NETLINK_ROUTE );
 
   if( fd < 0 ) {
