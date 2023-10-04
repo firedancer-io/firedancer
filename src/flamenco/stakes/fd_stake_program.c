@@ -789,15 +789,19 @@ delegation_stake( fd_delegation_t const *    self,
 /* mod tools                                                          */
 /**********************************************************************/
 
+// TODO Test #306... epoch credits coming from vote account are suspicious... don't match running the test with Labs
 static bool
 acceptable_reference_epoch_credits( fd_vote_epoch_credits_t * epoch_credits, ulong current_epoch ) {
   ulong len            = deq_fd_vote_epoch_credits_t_cnt( epoch_credits );
   ulong epoch_index[1] = { ULONG_MAX };
   // FIXME FD_LIKELY
   if ( !__builtin_usubl_overflow( len, MINIMUM_DELINQUENT_EPOCHS_FOR_DEACTIVATION, epoch_index ) ) {
+    FD_LOG_NOTICE(("epoch_index %lu", *epoch_index));
     ulong epoch = current_epoch;
     for ( ulong i = len - 1; i >= *epoch_index; i-- ) {
-      if ( deq_fd_vote_epoch_credits_t_peek_index( epoch_credits, i )->epoch != epoch ) {
+      ulong vote_epoch = deq_fd_vote_epoch_credits_t_peek_index( epoch_credits, i )->epoch;
+      FD_LOG_NOTICE(("vote_epoch: %lu %lu", vote_epoch, epoch));
+      if ( vote_epoch != epoch ) {
         return false;
       }
       epoch = fd_ulong_sat_sub( epoch, 1 );
