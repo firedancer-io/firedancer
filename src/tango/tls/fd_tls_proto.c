@@ -63,7 +63,9 @@ fd_tls_decode_client_hello( fd_tls_client_hello_t * out,
     case FD_TLS_CIPHER_SUITE_AES_128_GCM_SHA256:
       out->cipher_suites.aes_128_gcm_sha256 = 1;
       break;
-    /* Add more cipher suites here */
+    default:
+      /* Ignore unsupported cipher suites ... */
+      break;
     }
   }
 
@@ -606,8 +608,8 @@ fd_tls_encode_enc_ext( fd_tls_enc_ext_t * in,
 
 long
 fd_tls_encode_raw_public_key( void const * key,
-                                     void *       wire,
-                                     ulong        wire_sz ) {
+                              void *       wire,
+                              ulong        wire_sz ) {
 
   ulong wire_laddr = (ulong)wire;
 
@@ -723,7 +725,9 @@ fd_tls_decode_ext_supported_groups( fd_tls_ext_supported_groups_t * out,
     case FD_TLS_GROUP_X25519:
       out->x25519 = 1;
       break;
-    /* Add more groups here */
+    default:
+      /* Ignore unsupported groups ... */
+      break;
     }
   }
   FD_TLS_DECODE_LIST_END
@@ -745,7 +749,9 @@ fd_tls_decode_ext_supported_versions( fd_tls_ext_supported_versions_t * out,
     case FD_TLS_VERSION_TLS13:
       out->tls13 = 1;
       break;
-    /* Add more versions here */
+    default:
+      /* Ignore unsupported TLS versions ... */
+      break;
     }
   }
   FD_TLS_DECODE_LIST_END
@@ -767,7 +773,9 @@ fd_tls_decode_ext_signature_algorithms( fd_tls_ext_signature_algorithms_t * out,
     case FD_TLS_SIGNATURE_ED25519:
       out->ed25519 = 1;
       break;
-    /* Add more groups here */
+    default:
+      /* Ignore unsupported signature algorithms ... */
+      break;
     }
   }
   FD_TLS_DECODE_LIST_END
@@ -777,8 +785,8 @@ fd_tls_decode_ext_signature_algorithms( fd_tls_ext_signature_algorithms_t * out,
 
 long
 fd_tls_decode_key_share( fd_tls_key_share_t * out,
-                               void const *             wire,
-                               ulong                    wire_sz ) {
+                         void const *         wire,
+                         ulong                wire_sz ) {
 
   ulong wire_laddr = (ulong)wire;
 
@@ -802,7 +810,9 @@ fd_tls_decode_key_share( fd_tls_key_share_t * out,
     out->has_x25519 = 1;
     memcpy( out->x25519, (void const *)wire_laddr, 32UL );
     break;
-  /* Add more groups here */
+  default:
+    /* Ignore unsupported key share groups ... */
+    break;
   }
 
   /* Seek to next group */
@@ -841,7 +851,9 @@ fd_tls_decode_ext_cert_type_list( fd_tls_ext_cert_type_list_t * out,
     switch( cert_type ) {
     case FD_TLS_CERTTYPE_X509:       out->x509 = 1;       break;
     case FD_TLS_CERTTYPE_RAW_PUBKEY: out->raw_pubkey = 1; break;
-    /* Add more cert types here */
+    default:
+      /* Ignore unsupported cert types ... */
+      break;
     }
   }
   FD_TLS_DECODE_LIST_END
