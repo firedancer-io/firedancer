@@ -2204,13 +2204,13 @@ withdraw( instruction_ctx_t *           invoke_context,
 }
 
 int
-deactivate_delinquent( transaction_ctx_t const * transaction_context,
-                       fd_instr_t const *        instruction_context,
+deactivate_delinquent( transaction_ctx_t       * transaction_context,
+                       fd_instr_t       *        instruction_context,
                        fd_borrowed_account_t *   stake_account,
                        uchar                     delinquent_vote_account_index,
                        uchar                     reference_vote_account_index,
                        ulong                     current_epoch,
-                       fd_global_ctx_t const *   global,
+                       fd_global_ctx_t       *   global,
                        fd_valloc_t const *       valloc,
                        uint *                    custom_err ) {
   int rc;
@@ -2238,7 +2238,8 @@ deactivate_delinquent( transaction_ctx_t const * transaction_context,
   }
 
   fd_vote_state_versioned_t delinquent_vote_state_versioned = { 0 };
-  instruction_ctx_t         ctx                             = { 0 };
+  // TODO .. maybe we should have just passed this down instead of rebuilding it?
+  instruction_ctx_t         ctx                             = { .global = global, .instr = instruction_context,  .txn_ctx = transaction_context };
   rc = fd_vote_get_state( delinquent_vote_account, ctx, &delinquent_vote_state_versioned );
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
   fd_vote_convert_to_current( &delinquent_vote_state_versioned, ctx );
@@ -2341,8 +2342,8 @@ fd_executor_stake_program_execute_instruction( instruction_ctx_t ctx ) {
   fd_bincode_destroy_ctx_t destroy = { .valloc = ctx.global->valloc };
 
   // https://github.com/firedancer-io/solana/blob/v1.17/programs/stake/src/stake_instruction.rs#L61-L63
-  transaction_ctx_t const * transaction_context = ctx.txn_ctx;
-  fd_instr_t const *        instruction_context = ctx.instr;
+  transaction_ctx_t  *      transaction_context = ctx.txn_ctx;
+  fd_instr_t       *        instruction_context = ctx.instr;
   uchar *                   data                = ctx.instr->data;
 
   // https://github.com/firedancer-io/solana/blob/debug-master/programs/stake/src/stake_instruction.rs#L75
