@@ -1257,8 +1257,11 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
                 address. Works for all symmetric setups, which is the
                 case for most Solana validator deployments. */
       ulong  dst_mac_addr = fd_ulong_load_6( pkt->eth->src );
-      uint   dst_ip_addr  = pkt->ip4->saddr;
+      uint   dst_ip_addr  = 0;
       ushort dst_udp_port = pkt->udp->net_sport;
+
+      /* copy to avoid aligment issues */
+      memcpy( &dst_ip_addr, pkt->ip4->saddr_c, 4 );
 
       /* For now, only supporting QUIC v1.
          QUIC v2 is an active IETF draft as of 2023-Mar:
@@ -1341,13 +1344,17 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
           );
           fd_memcpy( retry_pkt.src_conn_id, &new_conn_id.conn_id, retry_pkt.src_conn_id_len );
 
+          /* copy to avoid aligment issues */
+          uint saddr = 0;
+          memcpy( &saddr, pkt->ip4->saddr_c, 4 );
+
           /* Retry token */
           ulong now = fd_quic_now(quic);
           int   rc  = fd_quic_retry_token_encrypt(
               &orig_dst_conn_id,
               now,
               &new_conn_id,
-              pkt->ip4->saddr,
+              saddr,
               pkt->udp->net_sport,
               retry_pkt.retry_token
           );
@@ -3271,15 +3278,17 @@ fd_quic_tx_buffered_raw(
   pkt.ip4->ttl          = 64; /* TODO make configurable */
   pkt.ip4->protocol     = FD_IP4_HDR_PROTOCOL_UDP;
   pkt.ip4->check        = 0;
-  /* TODO saddr could be zero -- should use the kernel routing table to
-     determine an appropriate source address */
-  pkt.ip4->saddr    = config->net.ip_addr;
-  pkt.ip4->daddr    = dst_ipv4_addr;
-
   pkt.udp->net_sport = src_udp_port;
   pkt.udp->net_dport = dst_udp_port;
   pkt.udp->net_len   = (ushort)( 8 + payload_sz );
   pkt.udp->check     = 0x0000;
+
+  /* TODO saddr could be zero -- should use the kernel routing table to
+     determine an appropriate source address */
+
+  /* copy to avoid aligment issues */
+  memcpy( &pkt.ip4->saddr_c, &config->net.ip_addr, 4 );
+  memcpy( &pkt.ip4->daddr_c, &dst_ipv4_addr,       4 );
 
   /* todo use fd_util Ethernet / IPv4 impl */
 

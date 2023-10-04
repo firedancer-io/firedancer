@@ -23,8 +23,8 @@
 
 union fd_ip4_hdr {
   struct {
-    uint   ihl     : 4;  /* Header length in words (>=5) */
-    uint   version : 4;  /* IP version (==4), assumes little endian */
+    uchar  ihl     : 4;  /* Header length in words (>=5) */
+    uchar  version : 4;  /* IP version (==4), assumes little endian */
     uchar  tos;          /* Type of service */
     ushort net_tot_len;  /* Frag size in bytes, incl ip hdr, net order */
     ushort net_id;       /* Frag id, unique from sender for long enough, net order */
@@ -32,8 +32,8 @@ union fd_ip4_hdr {
     uchar  ttl;          /* Frag time to live */
     uchar  protocol;     /* Type of payload */
     ushort check;        /* Header checksum ("invariant" order) */
-    uint   saddr;        /* Address of sender, technically net order but all APIs below work with this directly */
-    uint   daddr;        /* Address of destination, tecnically net order but all APIs below work with this directly */
+    uchar  saddr_c[4];   /* Address of sender, technically net order but all APIs below work with this directly */
+    uchar  daddr_c[4];   /* Address of destination, tecnically net order but all APIs below work with this directly */
     /* Up to 40 bytes of options here */
   };
   uint u[5]; /* Actually ihl long, used for checksum calcs */

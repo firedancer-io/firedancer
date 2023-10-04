@@ -278,6 +278,12 @@ fd_udpsock_service( fd_udpsock_t * sock ) {
     memcpy( eth->src, sock->eth_peer_addr, 6 );
     eth->net_type = fd_ushort_bswap( FD_ETH_HDR_TYPE_IP );
 
+    /* copy to avoid alignment issues */
+    uchar saddr[4];
+    uchar daddr[4];
+    memcpy( saddr, &addr->sin_addr.s_addr, 4 );
+    memcpy( daddr, &sock->ip_self_addr,    4 );
+
     fd_ip4_hdr_t * ip4 = (fd_ip4_hdr_t *)((ulong)eth + sizeof(fd_eth_hdr_t));
     *ip4 = (fd_ip4_hdr_t) {
       .ihl          = 5,
@@ -291,9 +297,10 @@ fd_udpsock_service( fd_udpsock_t * sock ) {
       .ttl          = 64,
       .protocol     = FD_IP4_HDR_PROTOCOL_UDP,
       .check        = 0,
-      .saddr        = addr->sin_addr.s_addr,
-      .daddr        = sock->ip_self_addr
+      .saddr_c      = { saddr[0], saddr[1], saddr[2], saddr[3] },
+      .daddr_c      = { daddr[0], daddr[1], daddr[2], daddr[3] }
     };
+
     fd_ip4_hdr_bswap( ip4 );  /* convert to "network" byte order */
     ip4->check = fd_ip4_hdr_check_fast( ip4 );
 
@@ -339,7 +346,8 @@ fd_udpsock_send( void *                    ctx,
     if( FD_LIKELY( batch[i].buf_sz >= sizeof(fd_eth_hdr_t)+sizeof(fd_ip4_hdr_t) ) ) {
       fd_ip4_hdr_t * ip4 = (fd_ip4_hdr_t *)( (ulong)batch[i].buf + sizeof(fd_eth_hdr_t) );
       fd_ip4_hdr_bswap( ip4 );  /* convert to host byte order */
-      uint daddr = ip4->daddr;
+      uint daddr = 0;
+      memcpy( &daddr, ip4->daddr_c, 4 );
       fd_udp_hdr_t * udp = (fd_udp_hdr_t *)( (ulong)ip4 + (ulong)ip4->ihl*4 );
       fd_udp_hdr_bswap( udp );  /* convert to host byte order */
       ushort dport = udp->net_dport;
