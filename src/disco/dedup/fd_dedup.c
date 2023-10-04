@@ -77,6 +77,7 @@ after_frag( void * _ctx,
   *opt_filter = is_dup;
   if( FD_LIKELY( !*opt_filter ) ) {
     *opt_chunk     = ctx->out_chunk;
+    *opt_sig       = 0; /* indicate this txn is coming from dedup, and has already been parsed */
     ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, *opt_sz, ctx->out_chunk0, ctx->out_wmark );
   }
 }

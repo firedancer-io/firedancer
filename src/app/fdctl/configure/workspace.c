@@ -264,6 +264,12 @@ init( config_t * const config ) {
         mcache( pod, "mcache", config->tiles.verify.receive_buffer_size );
         fseq  ( pod, "fseq" );
         dcache( pod, "dcache", FD_TPU_DCACHE_MTU, config->tiles.verify.receive_buffer_size, 0 );
+
+        mcache( pod, "gossip-mcache", config->tiles.verify.receive_buffer_size );
+        fseq  ( pod, "gossip-fseq" );
+        /* could be FD_TPU_MTU for now, since txns are not parsed, but
+           better to just share one size for all the ins */
+        dcache( pod, "gossip-dcache", FD_TPU_DCACHE_MTU, config->tiles.verify.receive_buffer_size, 0 );
         break;
       case wksp_pack_bank:
         ulong1( pod, "cnt", config->layout.bank_tile_count );

@@ -43,14 +43,29 @@ run( fd_tile_args_t * args ) {
 
   FD_LOG_INFO(( "packing blocks of at most %lu transactions to %lu bank tiles", max_txn_per_microblock, out_cnt ));
 
+  const fd_frag_meta_t * in_mcache[2] = {
+    fd_mcache_join( fd_wksp_pod_map( in_pod, "mcache" ) ),
+    fd_mcache_join( fd_wksp_pod_map( in_pod, "gossip-mcache" ) ),
+  };
+
+  ulong * in_fseq[2] = {
+    fd_fseq_join( fd_wksp_pod_map( in_pod, "fseq" ) ),
+    fd_fseq_join( fd_wksp_pod_map( in_pod, "gossip-fseq" ) ),
+  };
+
+  const uchar * in_dcache[2] = {
+    fd_dcache_join( fd_wksp_pod_map( in_pod, "dcache" ) ),
+    fd_dcache_join( fd_wksp_pod_map( in_pod, "gossip-dcache" ) ),
+  };
+
   fd_rng_t   _rng[1];
   fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0, 0UL ) );
   fd_pack_tile( fd_cnc_join( fd_wksp_pod_map( tile_pod, "cnc" ) ),
                 (ulong)args->pid,
-                1,
-                (const fd_frag_meta_t **)&(fd_frag_meta_t*){ fd_mcache_join( fd_wksp_pod_map( in_pod, "mcache" ) ) },
-                &(ulong*){ fd_fseq_join( fd_wksp_pod_map( in_pod, "fseq" ) ) },
-                (const uchar **)&(uchar*){ fd_dcache_join( fd_wksp_pod_map( in_pod, "dcache" ) ) },
+                2,
+                in_mcache,
+                in_fseq,
+                in_dcache,
                 fd_pack_join( fd_pack_new( fd_wksp_alloc_laddr( fd_wksp_containing( tile_pod ), fd_pack_align(), pack_footprint, FD_PACK_TAG ), pack_depth, out_cnt, max_txn_per_microblock, rng ) ),
                 fd_mcache_join( fd_wksp_pod_map( out_pod, "mcache" ) ),
                 fd_dcache_join( fd_wksp_pod_map( out_pod, "dcache" ) ),
@@ -60,7 +75,7 @@ run( fd_tile_args_t * args ) {
                 0,
                 0,
                 rng,
-                fd_alloca( FD_PACK_TILE_SCRATCH_ALIGN, FD_PACK_TILE_SCRATCH_FOOTPRINT( 1, out_cnt ) ) );
+                fd_alloca( FD_PACK_TILE_SCRATCH_ALIGN, FD_PACK_TILE_SCRATCH_FOOTPRINT( 2, out_cnt ) ) );
 }
 
 static long allow_syscalls[] = {
