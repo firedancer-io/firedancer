@@ -22,13 +22,16 @@ echo_aio_recv( void *                    ctx,
   for( ulong i=0UL; i<batch_cnt; i++ ) {
     fd_eth_hdr_t * eth_hdr = (fd_eth_hdr_t *)batch[i].buf;
     fd_ip4_hdr_t * ip4_hdr = (fd_ip4_hdr_t *)(eth_hdr+1);
-    fd_udp_hdr_t * udp_hdr = (fd_udp_hdr_t *)((ulong)ip4_hdr+((ulong)ip4_hdr->ihl<<2));
-    uint           ip4_src = ip4_hdr->saddr;
-    uint           ip4_dst = ip4_hdr->daddr;
+    fd_udp_hdr_t * udp_hdr = (fd_udp_hdr_t *)((ulong)ip4_hdr+((ulong)FD_IP4_GET_LEN(*ip4_hdr)));
+    uint           ip4_src;
+    uint           ip4_dst;
+    memcpy( &ip4_src, ip4_hdr->saddr_c, 4U );
+    memcpy( &ip4_dst, ip4_hdr->daddr_c, 4U );
     ushort         udp_src = udp_hdr->net_sport;
     ushort         udp_dst = udp_hdr->net_dport;
-    ip4_hdr->saddr     = ip4_dst;
-    ip4_hdr->daddr     = ip4_src;
+    /* switch source and destination */
+    memcpy( &ip4_dst, ip4_hdr->saddr_c, 4U );
+    memcpy( &ip4_src, ip4_hdr->daddr_c, 4U );
     ip4_hdr->ttl--;
     udp_hdr->net_sport = udp_dst;
     udp_hdr->net_dport = udp_src;
