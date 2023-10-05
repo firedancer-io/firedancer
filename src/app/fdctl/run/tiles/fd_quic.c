@@ -3,6 +3,7 @@
 #include "../../../../tango/quic/fd_quic.h"
 #include "../../../../tango/xdp/fd_xsk_aio.h"
 #include "../../../../tango/xdp/fd_xsk.h"
+#include "../../../../tango/ip/fd_netlink.h"
 
 #include <openssl/err.h>
 #include <openssl/ssl.h>
@@ -679,6 +680,9 @@ privileged_init( fd_topo_t *      topo,
   (void)tile;
   (void)scratch;
 
+  /* initialize fd_netlink */
+  (void)fd_nl_get();
+
   /* call wallclock so glibc loads VDSO, which requires calling mmap while
      privileged */
   fd_log_wallclock();
@@ -804,6 +808,8 @@ static long allow_syscalls[] = {
   __NR_getrandom, /* OpenSSL RAND_bytes reads getrandom, temporarily used as part of quic_init to generate a certificate */
   __NR_madvise,   /* OpenSSL SSL_do_handshake() uses an arena which eventually calls _rjem_je_pages_purge_forced */
   __NR_mmap,      /* OpenSSL again... deep inside SSL_provide_quic_data() some jemalloc code calls mmap */
+  __NR_sendto,    /* allows to make requests on netlink socket */
+  __NR_recvfrom,  /* allows to receive responses on netlink socket */
 };
 
 static ulong
@@ -811,10 +817,15 @@ allow_fds( void * scratch,
            ulong  out_fds_cnt,
            int *  out_fds ) {
   (void)scratch;
-  if( FD_UNLIKELY( out_fds_cnt < 2 ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
-  out_fds[ 0 ] = 2; /* stderr */
-  out_fds[ 1 ] = 3; /* logfile */
-  return 2;
+  if( FD_UNLIKELY( out_fds_cnt < 3 ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  fd_nl_t * nl = fd_nl_get();
+  if( nl->init == 0 ) {
+    FD_LOG_ERR(( "netlink not initialized" ));
+  }
+  out_fds[ 0 ] = 2;      /* stderr */
+  out_fds[ 1 ] = 3;      /* logfile */
+  out_fds[ 2 ] = nl->fd; /* netlink socket */
+  return 3;
 }
 
 fd_tile_config_t fd_tile_quic = {

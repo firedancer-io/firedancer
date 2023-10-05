@@ -520,11 +520,6 @@ dynamic_port_range = "8900-9000"
     # forward well formed (but not necessarily valid) ones to verify
     # tiles.
     [tiles.quic]
-        # The duration after which an idle connection will be timed out,
-        # and the connection will be closed.  An idle connection is one
-        # where no data is received from the peer.
-        idle_timeout_millis = 10000
-
         # Which port to listen on for incoming, regular UDP transactions
         # that are not over QUIC.  These could be votes, user
         # transactions, or transactions forwarded from another
@@ -590,6 +585,15 @@ dynamic_port_range = "8900-9000"
         # TODO: This should be removed.  We never transmit stream data
         # so this should be unused.
         tx_buf_size = 4096
+
+        # QUIC has a concept of an idle connection, one where neither
+        # the client nor the server has sent any packet to the other for
+        # a period of time.  Once this timeout is reached the connection
+        # will be terminated.
+        # An idle connection will be terminated if it remains idle longer than
+        # some threshold. "idle_timeout_millis" represents this threshold in
+        # milliseconds
+        idle_timeout_millis = 10000
 
     # Verify tiles perform signature verification of incoming
     # transactions, making sure that the data is well-formed, and that
