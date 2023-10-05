@@ -666,6 +666,8 @@ int fd_rent_collector_encode(fd_rent_collector_t const * self, fd_bincode_encode
 
 int fd_stake_history_entry_decode(fd_stake_history_entry_t* self, fd_bincode_decode_ctx_t * ctx) {
   int err;
+  err = fd_bincode_uint64_decode(&self->epoch, ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   err = fd_bincode_uint64_decode(&self->effective, ctx);
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   err = fd_bincode_uint64_decode(&self->activating, ctx);
@@ -685,6 +687,7 @@ ulong fd_stake_history_entry_align( void ){ return FD_STAKE_HISTORY_ENTRY_ALIGN;
 
 void fd_stake_history_entry_walk(void * w, fd_stake_history_entry_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_stake_history_entry", level++);
+  fun( w, &self->epoch, "epoch", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
   fun( w, &self->effective, "effective", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
   fun( w, &self->activating, "activating", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
   fun( w, &self->deactivating, "deactivating", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
@@ -705,6 +708,8 @@ ulong fd_stake_history_entry_size(fd_stake_history_entry_t const * self) {
 
 int fd_stake_history_entry_encode(fd_stake_history_entry_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
+  err = fd_bincode_uint64_encode(&self->epoch, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
   err = fd_bincode_uint64_encode(&self->effective, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_bincode_uint64_encode(&self->activating, ctx);

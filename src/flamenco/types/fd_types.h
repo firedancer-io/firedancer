@@ -120,10 +120,10 @@ typedef struct fd_rent_collector fd_rent_collector_t;
 #define FD_RENT_COLLECTOR_ALIGN (8UL)
 
 struct __attribute__((aligned(8UL))) fd_stake_history_entry {
+  ulong epoch;
   ulong effective;
   ulong activating;
   ulong deactivating;
-  ulong epoch;
   ulong parent;
   ulong left;
   ulong right;
@@ -133,7 +133,7 @@ typedef struct fd_stake_history_entry fd_stake_history_entry_t;
 #define FD_STAKE_HISTORY_ENTRY_FOOTPRINT sizeof(fd_stake_history_entry_t)
 #define FD_STAKE_HISTORY_ENTRY_ALIGN (8UL)
 
-#define FD_STAKE_HISTORY_MAX 512
+#define FD_STAKE_HISTORY_MAX 1024
 #define POOL_NAME fd_stake_history_pool
 #define POOL_T fd_stake_history_entry_t
 #define POOL_NEXT parent
