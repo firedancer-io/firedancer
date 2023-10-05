@@ -2130,14 +2130,15 @@ withdraw( instruction_ctx_t *           invoke_context,
     rc = authorized_check( &meta->authorized, signers, STAKE_AUTHORIZE_WITHDRAWER );
     if ( FD_UNLIKELY( rc != OK ) ) return rc;
 
-    ulong staked =
-        ( clock->epoch >= stake->delegation.deactivation_epoch
-              ? delegation_stake(
-                    &stake->delegation, clock->epoch, stake_history, new_rate_activation_epoch )
-              : stake->delegation.stake );
+    ulong staked = fd_ulong_if(
+        clock->epoch >= stake->delegation.deactivation_epoch,
+        delegation_stake(
+            &stake->delegation, clock->epoch, stake_history, new_rate_activation_epoch ),
+        stake->delegation.stake );
 
     ulong staked_and_reserve = ULONG_MAX;
     rc = checked_add( staked, meta->rent_exempt_reserve, &staked_and_reserve );
+    if ( FD_UNLIKELY( rc != OK ) ) return rc;
 
     lockup    = meta->lockup;
     reserve   = staked_and_reserve;
@@ -2199,8 +2200,13 @@ withdraw( instruction_ctx_t *           invoke_context,
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
 
   if ( FD_UNLIKELY( is_staked && lamports_and_reserve > stake_account->meta->info.lamports ) ) {
+    return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
+  }
+
+  if ( FD_UNLIKELY( lamports != stake_account->meta->info.lamports && lamports_and_reserve > stake_account->meta->info.lamports ) ) {
     // https://github.com/firedancer-io/solana/blob/v1.17/programs/stake/src/stake_state.rs#L1083
     FD_DEBUG( FD_LOG_WARNING( ( "!is_staked .. this is bad...  fix me?" ) ) );
+    FD_TEST(!is_staked);
     return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
   }
 
