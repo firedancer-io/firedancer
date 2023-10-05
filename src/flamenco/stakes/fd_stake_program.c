@@ -2182,8 +2182,9 @@ withdraw( instruction_ctx_t *           invoke_context,
       rc                         = get_index_of_instruction_account_in_transaction(
           instruction_context, *custodian_index, &index_in_transaction );
       if ( FD_UNLIKELY( rc != OK ) ) return rc;
-      return get_key_of_account_at_index(
+      rc = get_key_of_account_at_index(
           transaction_context, index_in_transaction, custodian_pubkey );
+      if ( FD_UNLIKELY( rc != OK ) ) return rc;
     } else {
       custodian_pubkey = NULL;
     }
@@ -2205,7 +2206,6 @@ withdraw( instruction_ctx_t *           invoke_context,
 
   if ( FD_UNLIKELY( lamports != stake_account->meta->info.lamports && lamports_and_reserve > stake_account->meta->info.lamports ) ) {
     // https://github.com/firedancer-io/solana/blob/v1.17/programs/stake/src/stake_state.rs#L1083
-    FD_DEBUG( FD_LOG_WARNING( ( "!is_staked .. this is bad...  fix me?" ) ) );
     FD_TEST(!is_staked);
     return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
   }
