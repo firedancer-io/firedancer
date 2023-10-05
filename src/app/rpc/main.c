@@ -594,17 +594,17 @@ int main(int argc, char** argv)
   if (wksp == NULL)
     FD_LOG_ERR(( "failed to attach to workspace %s", wkspname ));
   
-  const char* gaddr = fd_env_strip_cmdline_cstr(&argc, &argv, "--gaddr", NULL, NULL);
-  if (gaddr == NULL)
-    FD_LOG_ERR(( "--gaddr not specified" ));
   void* shmem;
-  if (gaddr[0] == '0' && gaddr[1] == 'x')
-    shmem = fd_wksp_laddr_fast( wksp, (ulong)strtol(gaddr+2, NULL, 16) );
-  else
-    shmem = fd_wksp_laddr_fast( wksp, (ulong)strtol(gaddr, NULL, 10) );
-  funk = fd_funk_join(shmem);
-  if (funk == NULL)
+  fd_wksp_tag_query_info_t info;
+  ulong tag = FD_FUNK_MAGIC;
+  if (fd_wksp_tag_query(wksp, &tag, 1, &info, 1) > 0) {
+    shmem = fd_wksp_laddr_fast( wksp, info.gaddr_lo );
+    funk = fd_funk_join(shmem);
+    if (funk == NULL)
+      FD_LOG_ERR(( "failed to join a funky" ));
+  } else {
     FD_LOG_ERR(( "failed to join a funky" ));
+  }
 
   {
     fd_funk_rec_key_t id = fd_runtime_banks_key();

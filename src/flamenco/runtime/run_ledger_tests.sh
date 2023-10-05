@@ -55,7 +55,6 @@ set -x
   --indexmax 10000 \
   --txnmax 100 \
   --backup test_ledger_backup \
-  --gaddrout gaddr \
   --pages 1
 
 status=$?
@@ -72,7 +71,6 @@ log=/tmp/ledger_log$$
 
 ARGS=" --load test_ledger_backup \
   --cmd replay \
-  --gaddr `cat gaddr` \
   --pages 1 \
   --validate true \
   --abort-on-mismatch 1 \
