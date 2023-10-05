@@ -235,15 +235,13 @@ fd_acc_mgr_commit_raw( fd_acc_mgr_t *      acc_mgr,
                        fd_funk_rec_t *     rec,
                        fd_pubkey_t const * pubkey,
                        void *              raw,
-                       ulong               slot,
-                       int                 uncache );
+                       ulong               slot );
 
 static inline
 int fd_acc_mgr_commit( fd_acc_mgr_t *      acc_mgr,
-                   fd_borrowed_account_t *account,
-                   ulong               slot,
-                   int                 uncache ) {
-  return fd_acc_mgr_commit_raw( acc_mgr, account->rec, account->pubkey, account->meta, slot, uncache );
+                       fd_borrowed_account_t *account,
+                       ulong               slot ) {
+  return fd_acc_mgr_commit_raw( acc_mgr, account->rec, account->pubkey, account->meta, slot );
 }
 
 FD_FN_CONST char const *

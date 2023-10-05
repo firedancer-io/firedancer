@@ -54,8 +54,7 @@ fd_acc_mgr_view_raw( fd_acc_mgr_t *         acc_mgr,
   }
   if (NULL != orec)
     *orec = rec;
-  void const * data = fd_funk_val_cache( funk, rec, opt_err );
-  if( FD_UNLIKELY( !data ) ) FD_LOG_CRIT(( "fd_funk_val_cache(%32J) failed (%d-%s)", pubkey->uc, *opt_err, fd_funk_strerror( *opt_err ) ));
+  void const * data = fd_funk_val( rec, fd_funk_wksp(funk) );
   // TODO/FIXME: this check causes issues with some metadata writes
   fd_account_meta_t const * metadata = (fd_account_meta_t const *)fd_type_pun_const( data );
   if ( metadata->magic != FD_ACCOUNT_META_MAGIC ) {
@@ -95,10 +94,7 @@ fd_acc_mgr_modify_raw( fd_acc_mgr_t *        acc_mgr,
   if (NULL != opt_out_rec)
     *opt_out_rec = rec;
 
-  fd_account_meta_t * ret = fd_funk_val_cache( funk, rec, opt_err );
-  if( FD_UNLIKELY( !ret ) )
-    FD_LOG_CRIT(( "Internal funky error: fd_funk_val_cache failed (%d-%s)", *opt_err, fd_funk_strerror( *opt_err ) ));
-
+  fd_account_meta_t * ret = fd_funk_val( rec, fd_funk_wksp(funk) );
   if( do_create && ret->magic == 0 )
     fd_account_meta_init(ret);
 
@@ -112,11 +108,9 @@ fd_acc_mgr_commit_raw( fd_acc_mgr_t *      acc_mgr,
                        fd_funk_rec_t *     rec,
                        fd_pubkey_t const * pubkey,
                        void *              raw_acc,
-                       ulong               slot,
-                       int                 uncache ) {
+                       ulong               slot ) {
 
   fd_global_ctx_t const * global = acc_mgr->global;
-  fd_funk_t *             funk   = global->funk;
   fd_account_meta_t *     m      = (fd_account_meta_t *)raw_acc;
   void const *            data   = (void const *)( (ulong)raw_acc + m->hlen );
 
@@ -132,19 +126,6 @@ fd_acc_mgr_commit_raw( fd_acc_mgr_t *      acc_mgr,
     }
 
     FD_TEST( rec );
-    int err = fd_funk_rec_persist(funk, rec);
-    if( FD_UNLIKELY( err ) ) {
-      FD_LOG_WARNING(( "fd_funk_rec_persist failed (%d-%s)", err, fd_funk_strerror( err ) ));
-      return FD_ACC_MGR_ERR_WRITE_FAILED;
-    }
-
-    if( uncache ) {
-      err = fd_funk_val_uncache(funk, rec);
-      if( FD_UNLIKELY( err ) ) {
-        FD_LOG_WARNING(( "fd_funk_val_uncache failed (%d-%s)", err, fd_funk_strerror( err ) ));
-        return FD_ACC_MGR_ERR_WRITE_FAILED;
-      }
-    }
   }
 
   return FD_ACC_MGR_SUCCESS;

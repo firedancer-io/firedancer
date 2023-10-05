@@ -32,11 +32,8 @@ static void usage(char const * progname) {
   fprintf(stderr, "              --rocksdb <file>                    also ingest a rocks database file\n");
   fprintf(stderr, "                --txnstatus true                    also ingest transaction status from rocksdb\n");
   fprintf(stderr, "              --genesis <file>                    also ingest a genesis file\n");
-  fprintf(stderr, " --cmd recover                                    recover in-memory database from persistence file\n");
-  fprintf(stderr, " --cmd repersist                                  persist in-memory database to persistence file\n");
   fprintf(stderr, " --wksp <name>                                    workspace name\n");
   fprintf(stderr, " --reset true                                     reset workspace before ingesting\n");
-  fprintf(stderr, " --persist <file>                                 read/write to persistence file\n");
   fprintf(stderr, " --backup <file>                                  make a funky backup file\n");
   fprintf(stderr, " --gaddr <address>                                join funky at the address instead of making a new one\n");
   fprintf(stderr, " --gaddrout <file>                                write the funky address to the given file\n");
@@ -58,11 +55,9 @@ struct SnapshotParser {
   fd_global_ctx_t*      global_;
 
   fd_solana_manifest_t* manifest_;
-
-  int uncache_;
 };
 
-void SnapshotParser_init(struct SnapshotParser* self, fd_global_ctx_t* global, int uncache) {
+void SnapshotParser_init(struct SnapshotParser* self, fd_global_ctx_t* global) {
   fd_tar_stream_init( &self->tarreader_, global->valloc );
   size_t tmpsize = 1<<30;
   self->tmpstart_ = self->tmpcur_ = (char*)malloc(tmpsize);
@@ -71,8 +66,6 @@ void SnapshotParser_init(struct SnapshotParser* self, fd_global_ctx_t* global, i
   self->global_ = global;
 
   self->manifest_ = NULL;
-
-  self->uncache_ = uncache;
 }
 
 void SnapshotParser_destroy(struct SnapshotParser* self) {
@@ -153,11 +146,6 @@ void SnapshotParser_parsefd_solana_accounts(struct SnapshotParser* self, char co
       memcpy( &rec->meta->info, &hdr->info, sizeof(fd_solana_account_meta_t) );
       if( hdr->meta.data_len )
         memcpy( rec->data, acc_data, hdr->meta.data_len );
-
-      /* Skip hashing */
-      int err = fd_funk_rec_persist( acc_mgr->global->funk, rec->rec );
-      if( FD_UNLIKELY( err ) )
-        FD_LOG_ERR(( "fd_funk_rec_persist failed (%d-%s)", err, fd_funk_strerror( err ) ));
 
       /* TODO Check if calculated hash fails to match account hash from snapshot. */
     } while (0);
@@ -408,9 +396,6 @@ ingest_txnstatus( fd_global_ctx_t * global,
   val += vec_idx.cnt*sizeof(fd_txnstatusidx_t);
   fd_memcpy(val, data, datalen);
 
-  fd_funk_rec_persist( global->funk, rec );
-  fd_funk_val_uncache( global->funk, rec );
-
   vec_fd_txnstatusidx_destroy(&vec_idx);
   free(data);
 }
@@ -467,7 +452,6 @@ ingest_rocksdb( fd_global_ctx_t * global,
   ctx.dataend = (uchar *)val + sz;
   if ( fd_slot_meta_meta_encode( &mm, &ctx ) )
     FD_LOG_ERR(("fd_slot_meta_meta_encode failed"));
-  fd_funk_rec_persist( global->funk, rec );
 
   fd_rocksdb_root_iter_t iter;
   fd_rocksdb_root_iter_new ( &iter );
@@ -498,7 +482,6 @@ ingest_rocksdb( fd_global_ctx_t * global,
     ctx2.data = val;
     ctx2.dataend = (uchar *)val + sz;
     FD_TEST( fd_slot_meta_encode( &m, &ctx2 ) == FD_BINCODE_SUCCESS );
-    fd_funk_rec_persist( global->funk, rec );
 
     /* Read and deshred block from RocksDB */
 
@@ -515,8 +498,6 @@ ingest_rocksdb( fd_global_ctx_t * global,
     rec = fd_funk_val_truncate( rec, block_sz, global->valloc.self, global->funk_wksp, &ret );
     if( FD_UNLIKELY( !rec ) ) FD_LOG_ERR(( "fd_funk_val_truncate failed with code %d", ret ));
     fd_memcpy( fd_funk_val( rec, global->funk_wksp ), block, block_sz );
-    fd_funk_rec_persist( global->funk, rec );
-    fd_funk_val_uncache( global->funk, rec );
 
     /* Read bank hash from RocksDB */
 
@@ -532,8 +513,6 @@ ingest_rocksdb( fd_global_ctx_t * global,
       rec = fd_funk_val_truncate( rec, sz, (fd_alloc_t *)global->valloc.self, global->funk_wksp, &ret );
       if( FD_UNLIKELY( !rec ) ) FD_LOG_ERR(( "fd_funk_val_truncate failed with code %d", ret ));
       memcpy( fd_funk_val( rec, global->funk_wksp ), hash.hash, sizeof(fd_hash_t) );
-      fd_funk_rec_persist( global->funk, rec );
-      fd_funk_val_uncache( global->funk, rec );
       FD_LOG_DEBUG(( "slot=%lu bank_hash=%32J", slot, hash.hash ));
     }
 
@@ -589,7 +568,6 @@ main( int     argc,
   char const * verifyfunky  = fd_env_strip_cmdline_cstr ( &argc, &argv, "--verifyfunky",  NULL, "false"   );
   char const * gaddr        = fd_env_strip_cmdline_cstr ( &argc, &argv, "--gaddr",        NULL, NULL      );
   char const * gaddrout     = fd_env_strip_cmdline_cstr ( &argc, &argv, "--gaddrout",     NULL, NULL      );
-  char const * persist      = fd_env_strip_cmdline_cstr ( &argc, &argv, "--persist",      NULL, NULL      );
   char const * snapshotfile = fd_env_strip_cmdline_cstr ( &argc, &argv, "--snapshotfile", NULL, NULL      );
   char const * incremental  = fd_env_strip_cmdline_cstr ( &argc, &argv, "--incremental",  NULL, NULL      );
   ulong        loglevel     = fd_env_strip_cmdline_ulong( &argc, &argv, "--loglevel",     NULL, 0         );
@@ -640,9 +618,6 @@ main( int     argc,
 
   void* shmem;
   if (gaddr == NULL) {
-    if (strcmp(cmd, "repersist") == 0)
-      FD_LOG_ERR(( "repersist requires --gaddr flag" ));
-
     shmem = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint(), 1 );
     if (shmem == NULL)
       FD_LOG_ERR(( "failed to allocate a funky" ));
@@ -706,17 +681,11 @@ main( int     argc,
     // Do nothing
 
   } else if (strcmp(cmd, "ingest") == 0) {
-    if (persist != NULL) {
-      unlink(persist);
-      if (fd_funk_persist_open(funk, persist, 0) != FD_FUNK_SUCCESS)
-        FD_LOG_ERR(( "failed to read file %s", persist ));
-    }
-
     uchar snapshot_used = 0;
 
     if( snapshotfile ) {
       struct SnapshotParser parser;
-      SnapshotParser_init(&parser, global, persist != NULL);
+      SnapshotParser_init(&parser, global);
       FD_LOG_NOTICE(( "reading %s", snapshotfile ));
       if( 0==strcmp( snapshotfile + strlen(snapshotfile) - 4, ".zst" ) )
         decompressZSTD( snapshotfile, SnapshotParser_moreData, &parser );
@@ -730,7 +699,7 @@ main( int     argc,
 
     if( incremental ) {
       struct SnapshotParser parser;
-      SnapshotParser_init(&parser, global, persist != NULL);
+      SnapshotParser_init(&parser, global);
       FD_LOG_NOTICE(( "reading %s", incremental ));
       if( 0==strcmp( incremental + strlen(incremental) - 4, ".zst" ) )
         decompressZSTD( incremental, SnapshotParser_moreData, &parser );
@@ -838,7 +807,7 @@ main( int     argc,
         if( a->account.data_len )
           memcpy( rec->data, a->account.data, a->account.data_len );
 
-        err = fd_acc_mgr_commit_raw( global->acc_mgr, rec->rec, &a->key, rec->meta, 0UL, 0 );
+        err = fd_acc_mgr_commit_raw( global->acc_mgr, rec->rec, &a->key, rec->meta, 0UL );
         if( FD_UNLIKELY( err ) )
           FD_LOG_ERR(( "fd_acc_mgr_commit_raw failed (%d)", err ));
       }
@@ -893,27 +862,6 @@ main( int     argc,
       ulong activated_at = *fd_features_ptr_const( &global->features, id );
       if( activated_at )
         FD_LOG_DEBUG(( "feature %32J activated at slot %lu", id->id.key, activated_at ));
-    }
-
-  } else if (strcmp(cmd, "recover") == 0) {
-    if (persist != NULL) {
-      if (fd_funk_persist_open(funk, persist, 0) != FD_FUNK_SUCCESS)
-        FD_LOG_ERR(( "failed to read file %s", persist ));
-    } else
-      FD_LOG_ERR(( "recover requires --persist flag" ));
-
-  } else if (strcmp(cmd, "repersist") == 0) {
-    if (persist != NULL) {
-      if (fd_funk_persist_open(funk, persist, 0) != FD_FUNK_SUCCESS)
-        FD_LOG_ERR(( "failed to read file %s", persist ));
-    } else
-      FD_LOG_ERR(( "repersist requires --persist flag" ));
-    fd_funk_rec_t * rec_map  = fd_funk_rec_map( funk, wksp );
-    for( fd_funk_rec_map_iter_t iter = fd_funk_rec_map_iter_init( rec_map );
-         !fd_funk_rec_map_iter_done( rec_map, iter );
-         iter = fd_funk_rec_map_iter_next( rec_map, iter ) ) {
-      fd_funk_rec_t * rec = fd_funk_rec_map_iter_ele( rec_map, iter );
-      fd_funk_rec_persist( funk, rec );
     }
   }
 

@@ -332,5 +332,5 @@ fd_sysvar_clock_update( fd_global_ctx_t * global ) {
   acc->meta->dlen = sz;
   fd_memcpy( acc->meta->info.owner, global->sysvar_owner, 32 );
 
-  return fd_acc_mgr_commit( global->acc_mgr, acc, global->bank.slot, 0 );
+  return fd_acc_mgr_commit( global->acc_mgr, acc, global->bank.slot );
 }

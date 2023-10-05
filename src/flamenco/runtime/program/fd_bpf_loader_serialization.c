@@ -281,7 +281,7 @@ fd_bpf_loader_input_deserialize_aligned( instruction_ctx_t ctx,
 
         fd_memcpy( acc_data, post_data, post_data_len );
 
-        if( fd_acc_mgr_commit_raw(ctx.global->acc_mgr, acc_data_rec, acc, raw_acc_data, ctx.global->bank.slot, 0) != FD_ACC_MGR_SUCCESS ) {
+        if( fd_acc_mgr_commit_raw(ctx.global->acc_mgr, acc_data_rec, acc, raw_acc_data, ctx.global->bank.slot) != FD_ACC_MGR_SUCCESS ) {
           return -1;
         }
       } else if ( view_err == FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {

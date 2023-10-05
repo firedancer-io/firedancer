@@ -216,7 +216,7 @@ int fd_executor_config_program_execute_instruction( instruction_ctx_t ctx ) {
    config_acc_rec->meta->info.rent_epoch = 0;
    config_acc_rec->meta->info.executable = 0;
    config_acc_rec->meta->dlen = new_data_size;
-   err = fd_acc_mgr_commit(ctx.global->acc_mgr, config_acc_rec, ctx.global->bank.slot, 0);
+   err = fd_acc_mgr_commit(ctx.global->acc_mgr, config_acc_rec, ctx.global->bank.slot);
    if ( err != FD_ACC_MGR_SUCCESS) {
       FD_LOG_WARNING(( "failed to write account data" ));
       ret = err;

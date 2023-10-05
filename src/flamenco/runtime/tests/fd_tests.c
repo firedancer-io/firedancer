@@ -251,7 +251,7 @@ int fd_executor_run_test(
       if( test->accs[ i ].data_len )
         memcpy( rec->data, test->accs[ i ].data, test->accs[ i ].data_len );
 
-      err = fd_acc_mgr_commit_raw( global->acc_mgr, rec->rec, acc_key, rec->meta, global->bank.slot, 0 );
+      err = fd_acc_mgr_commit_raw( global->acc_mgr, rec->rec, acc_key, rec->meta, global->bank.slot );
 
       /* wtf ... */
       if (memcmp(&global->sysvar_recent_block_hashes, &test->accs[i].pubkey, sizeof(test->accs[i].pubkey)) == 0) {

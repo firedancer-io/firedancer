@@ -59,9 +59,6 @@ struct fd_funk_rec {
                       If non-zero, the region [val_gaddr,val_gaddr+val_max) will be a current fd_alloc allocation (such that it is
                       has tag wksp_tag) and the owner of the region will be the record.  IMPORTANT! HAS NO GUARANTEED ALIGNMENT! */
 
-  ulong persist_pos; /* Position in persistence file. FD_FUNK_REC_IDX_NULL if not persisted. */
-  ulong persist_alloc_sz; /* Allocatioon size in persistence file. FD_FUNK_REC_IDX_NULL if not persisted. */
-
   /* Padding to FD_FUNK_REC_ALIGN here (TODO: consider using self index
      in the structures to accelerate indexing computations if padding
      permits as this structure is currently has 8 bytes of padding) */
@@ -445,32 +442,6 @@ int
 fd_funk_rec_remove( fd_funk_t *     funk,
                     fd_funk_rec_t * rec,
                     int             erase );
-
-/* fd_funk_rec_persist causes the current state of the record to be
-   written to the backing file, if one has been opened with
-   fd_funk_persist_open. This function only makes sense on records
-   that are part of the root or last published
-   transaction. Persistence is automatic for all records in a
-   transaction when transactions are published, which is the usual
-   case. Therefore, fd_funk_rec_persist does nothing if there is no
-   open backing file or the record is unpublished.
-
-   An error code is returned on failure. */
-
-int
-fd_funk_rec_persist( fd_funk_t *     funk,
-                     fd_funk_rec_t * rec );
-
-/* fd_funk_rec_persist_erase causes the current state of the record to
-   be deleted from the backing file. fd_funk_rec_persist_erase does
-   nothing if there is no open backing file, the record is
-   unpublished, or the record's state was never written to the file.
-
-   An error code is returned on failure. */
-
-int
-fd_funk_rec_persist_erase( fd_funk_t *     funk,
-                           fd_funk_rec_t * rec );
 
 /* fd_funk_rec_write_prepare combines several operations into one
    convenient package. There are 3 basic cases:

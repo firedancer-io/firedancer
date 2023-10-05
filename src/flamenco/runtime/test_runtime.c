@@ -79,7 +79,6 @@ struct global_state {
   char const *           name;
   ulong                  pages;
   char const *           gaddr;
-  char const *           persist;
   ulong                  end_slot;
   char const *           cmd;
   char const *           reset;
@@ -98,7 +97,6 @@ usage( char const * progname ) {
   fprintf( stderr,
       " --wksp        <name>       workspace name\n"
       " --gaddr       <num>        global address of funky in the workspace\n"
-      " --persist     <file>       funky persistence file\n"
       " --load        <file>       load funky backup file\n"
       " --end-slot    <num>        stop iterating at block...\n"
       " --cmd         <operation>  What operation should we test\n"
@@ -194,10 +192,7 @@ replay( global_state_t * state,
   if (rec == NULL)
     FD_LOG_ERR(("missing meta record"));
   fd_slot_meta_meta_t mm;
-  int err;
-  const void * val = fd_funk_val_cache( state->global->funk, rec, &err );
-  if (val == NULL)
-    FD_LOG_ERR(("corrupt meta record"));
+  const void * val = fd_funk_val( rec, fd_funk_wksp(state->global->funk) );
   fd_bincode_decode_ctx_t ctx2;
   ctx2.data    = val;
   ctx2.dataend = (uchar*)val + fd_funk_val_sz(rec);
@@ -224,8 +219,7 @@ replay( global_state_t * state,
     key = fd_runtime_block_meta_key(slot);
     rec = fd_funk_rec_query( state->global->funk, NULL, &key );
     if( FD_UNLIKELY( !rec ) ) continue;
-    val = fd_funk_val_cache( state->global->funk, rec, &err );
-    if( FD_UNLIKELY( !val ) ) FD_LOG_ERR(("corrupt meta record"));
+    val = fd_funk_val( rec, fd_funk_wksp(state->global->funk) );
     fd_bincode_decode_ctx_t ctx3;
     ctx3.data = val;
     ctx3.dataend = (uchar*)val + fd_funk_val_sz(rec);
@@ -238,8 +232,7 @@ replay( global_state_t * state,
     key = fd_runtime_block_key( slot );
     rec = fd_funk_rec_query( state->global->funk, NULL, &key );
     if( FD_UNLIKELY( !rec ) ) FD_LOG_ERR(("missing block record"));
-    val = fd_funk_val_cache( state->global->funk, rec, &err );
-    if( FD_UNLIKELY( !val ) ) FD_LOG_ERR(("missing block record"));
+    val = fd_funk_val( rec, fd_funk_wksp(state->global->funk) );
 
     if ( justverify ) {
       if ( tpool )
@@ -311,7 +304,6 @@ main( int     argc,
 
   state.name                = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp",         NULL, NULL );
   state.gaddr               = fd_env_strip_cmdline_cstr ( &argc, &argv, "--gaddr",        NULL, NULL);
-  state.persist             = fd_env_strip_cmdline_cstr ( &argc, &argv, "--persist",      NULL, NULL);
   state.end_slot            = fd_env_strip_cmdline_ulong( &argc, &argv, "--end-slot",     NULL, ULONG_MAX);
   state.cmd                 = fd_env_strip_cmdline_cstr ( &argc, &argv, "--cmd",          NULL, NULL);
   state.reset               = fd_env_strip_cmdline_cstr ( &argc, &argv, "--reset",        NULL, NULL);
@@ -457,12 +449,6 @@ main( int     argc,
   state.global->local_wksp = local_wksp;
   state.global->valloc = fd_libc_alloc_virtual();
 
-  if (NULL != state.persist) {
-    FD_LOG_NOTICE(("using %s for persistence", state.persist));
-    if ( fd_funk_persist_open_fast( state.global->funk, state.persist ) != FD_FUNK_SUCCESS )
-      FD_LOG_ERR(("failed to open persistence file"));
-  }
-
   if( capture_fpath ) {
     state.capture_file = fopen( capture_fpath, "w+" );
     if( FD_UNLIKELY( !state.capture_file ) )
@@ -501,10 +487,7 @@ main( int     argc,
     fd_funk_rec_t const * rec = fd_funk_rec_query_global(state.global->funk, NULL, &id);
     if ( rec == NULL )
       FD_LOG_ERR(("failed to read banks record"));
-    int err;
-    void * val = fd_funk_val_cache( state.global->funk, rec, &err );
-    if (val == NULL )
-      FD_LOG_ERR(("failed to read banks record"));
+    void * val = fd_funk_val( rec, fd_funk_wksp(state.global->funk) );
     fd_bincode_decode_ctx_t ctx2;
     ctx2.data = val;
     ctx2.dataend = (uchar*)val + fd_funk_val_sz( rec );

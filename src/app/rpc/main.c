@@ -73,13 +73,9 @@ int method_getAccountInfo(struct fd_web_replier* replier, struct json_values* va
     fd_web_replier_done(replier);
     return 0;
   }
-  
-  int err;
-  void * val = fd_funk_val_cache(funk, rec, &err);
-  if (val == NULL ) {
-    fd_web_replier_error(replier, "failed to load account data for %s", (const char*)arg);
-    return 0;
-  }
+
+  fd_wksp_t * wksp = fd_funk_wksp(funk);
+  void * val = fd_funk_val(rec, wksp);
   ulong val_sz = fd_funk_val_sz(rec);
   fd_account_meta_t * metadata = (fd_account_meta_t *)val;
   if (val_sz < metadata->hlen) {
@@ -208,12 +204,7 @@ int method_getBalance(struct fd_web_replier* replier, struct json_values* values
     fd_web_replier_error(replier, "failed to load account data for %s", (const char*)arg);
     return 0;
   }
-  int err;
-  void * val = fd_funk_val_cache(funk, rec, &err);
-  if (val == NULL ) {
-    fd_web_replier_error(replier, "failed to load account data for %s", (const char*)arg);
-    return 0;
-  }
+  void * val = fd_funk_val(rec, fd_funk_wksp(funk));
   fd_account_meta_t * metadata = (fd_account_meta_t *)val;
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
   fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" API_VERSION "\",\"slot\":%lu},\"value\":%lu},\"id\":%lu}" CRLF,
@@ -306,24 +297,13 @@ int method_getBlock(struct fd_web_replier* replier, struct json_values* values, 
     fd_web_replier_error(replier, "failed to load block for slot %lu", slotn);
     return 0;
   }
-  int err;
-  void * val = fd_funk_val_cache(funk, rec, &err);
-  if (val == NULL ) {
-    fd_web_replier_error(replier, "failed to load block for slot %lu", slotn);
-    return 0;
-  }
-  
+  void * val = fd_funk_val(rec, fd_funk_wksp(funk));
   fd_funk_rec_key_t recid2 = fd_runtime_block_txnstatus_key(slotn);
   fd_funk_rec_t const * rec2 = fd_funk_rec_query_global(funk, NULL, &recid2);
   void * val2 = NULL;
   ulong val2_sz = 0;
   if (rec2) {
-    int err;
-    val2 = fd_funk_val_cache(funk, rec2, &err);
-    if (val2 == NULL ) {
-      fd_web_replier_error(replier, "failed to load block for slot %lu", slotn);
-      return 0;
-    }
+    val2 = fd_funk_val(rec2, fd_funk_wksp(funk));
     val2_sz = fd_funk_val_sz(rec2);
   }
   
@@ -396,25 +376,14 @@ int method_getTransaction(struct fd_web_replier* replier, struct json_values* va
     fd_web_replier_error(replier, "failed to load block for slot %lu", elem->slot);
     return 0;
   }
-  int err;
-  void * val = fd_funk_val_cache(funk, rec, &err);
-  if (val == NULL ) {
-    fd_web_replier_error(replier, "failed to load block for slot %lu", elem->slot);
-    return 0;
-  }
-
+  void * val = fd_funk_val(rec, fd_funk_wksp(funk));
   void * val2 = NULL;
   ulong val2_sz = 0;
   if (elem->txn_stat_off != ULONG_MAX) {
     fd_funk_rec_key_t recid2 = fd_runtime_block_txnstatus_key(elem->slot);
     fd_funk_rec_t const * rec2 = fd_funk_rec_query_global(funk, NULL, &recid2);
     if (rec2) {
-      int err;
-      val2 = fd_funk_val_cache(funk, rec2, &err);
-      if (val2 == NULL ) {
-        fd_web_replier_error(replier, "failed to load block for slot %lu", elem->slot);
-        return 0;
-      }
+      val2 = fd_funk_val(rec2, fd_funk_wksp(funk));
       val2 = (uchar*)val2 + elem->txn_stat_off;
       val2_sz = elem->txn_stat_sz;
     }
@@ -517,10 +486,7 @@ void prescan(void)  {
   if (rec == NULL)
     FD_LOG_ERR(("missing meta record"));
   fd_slot_meta_meta_t mm;
-  int err;
-  const void * val = fd_funk_val_cache( funk, rec, &err );
-  if (val == NULL)
-    FD_LOG_ERR(("corrupt meta record"));
+  const void * val = fd_funk_val( rec, fd_funk_wksp(funk) );
   fd_bincode_decode_ctx_t ctx2;
   ctx2.data    = val;
   ctx2.dataend = (uchar*)val + fd_funk_val_sz(rec);
@@ -539,12 +505,7 @@ void prescan(void)  {
     rec = fd_funk_rec_query_global(funk, NULL, &recid);
     if (rec == NULL)
       continue;
-    int err;
-    const void * block = fd_funk_val_cache(funk, rec, &err);
-    if (block == NULL) {
-      FD_LOG_WARNING(("failed to load block for slot %lu", slot));
-      continue;
-    }
+    const void * block = fd_funk_val(rec, fd_funk_wksp(funk));
     ulong blocklen = fd_funk_val_sz( rec );
 
     /* Loop across batches */
@@ -596,9 +557,7 @@ void prescan(void)  {
     rec = fd_funk_rec_query( funk, NULL, &key );
     if (rec == NULL)
       continue;
-    val = fd_funk_val_cache( funk, rec, &err );
-    if (val == NULL)
-      continue;
+    val = fd_funk_val( rec, fd_funk_wksp(funk) );
     ulong val_sz = fd_funk_val_sz( rec );
     if (val_sz < sizeof(ulong))
       FD_LOG_ERR(("garbage txn status block at slot %lu", slot));
@@ -652,10 +611,7 @@ int main(int argc, char** argv)
     fd_funk_rec_t const * rec = fd_funk_rec_query_global(funk, NULL, &id);
     if ( rec == NULL )
       FD_LOG_ERR(("failed to read banks record"));
-    int err;
-    void * val = fd_funk_val_cache( funk, rec, &err );
-    if (val == NULL )
-      FD_LOG_ERR(("failed to read banks record"));
+    void * val = fd_funk_val( rec, fd_funk_wksp(funk) );
     fd_bincode_decode_ctx_t ctx;
     ctx.data = val;
     ctx.dataend = (uchar*)val + fd_funk_val_sz( rec );

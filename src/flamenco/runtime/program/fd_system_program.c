@@ -161,7 +161,7 @@ static int fd_system_allocate(
       return err;
   }
 
-  err = fd_acc_mgr_commit(ctx.global->acc_mgr, account_rec, ctx.global->bank.slot, 0);
+  err = fd_acc_mgr_commit(ctx.global->acc_mgr, account_rec, ctx.global->bank.slot);
   if (FD_ACC_MGR_SUCCESS != err)
     return err;
 
@@ -210,7 +210,7 @@ static int fd_system_assign_with_seed(
   if (FD_ACC_MGR_SUCCESS != err)
     return err;
 
-  err = fd_acc_mgr_commit(ctx.global->acc_mgr, account_rec, ctx.global->bank.slot, 0);
+  err = fd_acc_mgr_commit(ctx.global->acc_mgr, account_rec, ctx.global->bank.slot);
   if (FD_ACC_MGR_SUCCESS != err)
     return err;
 
@@ -318,7 +318,7 @@ static int create_account(
   fd_memcpy( to_rec->meta->info.owner, owner, sizeof(fd_pubkey_t) );
   memset( to_rec->data, 0, space );
 
-  err = fd_acc_mgr_commit( ctx.global->acc_mgr, to_rec, ctx.global->bank.slot, 0);
+  err = fd_acc_mgr_commit( ctx.global->acc_mgr, to_rec, ctx.global->bank.slot);
   if ( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
     FD_LOG_NOTICE(( "failed to create account: %d", err ));
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
