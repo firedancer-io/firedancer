@@ -581,16 +581,13 @@ main( int     argc,
   char const * capture_fpath = fd_env_strip_cmdline_cstr ( &argc, &argv, "--capture",      NULL, NULL      );
 
   fd_wksp_t* wksp;
-  ulong wkspsize;
   if (wkspname == NULL) {
     FD_LOG_NOTICE(( "--wksp not specified, using an anonymous local workspace" ));
     wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, pages, 0, "wksp", 0UL );
-    wkspsize = FD_SHMEM_GIGANTIC_PAGE_SZ * pages;
   } else {
     fd_shmem_info_t shmem_info[1];
     if ( FD_UNLIKELY( fd_shmem_info( wkspname, 0UL, shmem_info ) ) )
       FD_LOG_ERR(( "unable to query region \"%s\"\n\tprobably does not exist or bad permissions", wkspname ));
-    wkspsize = shmem_info->page_sz * shmem_info->page_cnt;
     wksp = fd_wksp_attach(wkspname);
   }
   if (wksp == NULL)
@@ -929,18 +926,10 @@ main( int     argc,
   if (backup) {
     /* Copy the entire workspace into a file in the most naive way */
     FD_LOG_NOTICE(("writing %s", backup));
-    int fd = open(backup, O_RDWR|O_CREAT|O_TRUNC, 0666);
-    if (fd == -1)
-      FD_LOG_ERR(("backup failed: %s", strerror(errno)));
-    const uchar* p = (const uchar*)wksp;
-    const uchar* pend = p + wkspsize;
-    while ( p < pend ) {
-      ulong sz = fd_ulong_min((ulong)(pend - p), 4UL<<20);
-      if ( write(fd, p, sz) < 0 )
-        FD_LOG_ERR(("backup failed: %s", strerror(errno)));
-      p += sz;
-    }
-    close(fd);
+    unlink(backup);
+    int err = fd_wksp_checkpt(wksp, backup, 0666, 0, NULL);
+    if (err)
+      FD_LOG_ERR(("backup failed: error %d", err));
   }
   FD_LOG_NOTICE(( "funky at global address 0x%016lx", fd_wksp_gaddr_fast( wksp, shmem ) ));
 

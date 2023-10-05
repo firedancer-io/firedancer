@@ -372,21 +372,9 @@ main( int     argc,
 
   if (NULL != state.load) {
     FD_LOG_NOTICE(("loading %s", state.load));
-    int fd = open(state.load, O_RDONLY);
-    if (fd == -1)
-      FD_LOG_ERR(("restore failed: %s", strerror(errno)));
-    struct stat statbuf;
-    if (fstat(fd, &statbuf) == -1)
-      FD_LOG_ERR(("restore failed: %s", strerror(errno)));
-    uchar* p = (uchar*)funk_wksp;
-    uchar* pend = p + statbuf.st_size;
-    while ( p < pend ) {
-      ulong sz = fd_ulong_min((ulong)(pend - p), 4UL<<20);
-      if ( read(fd, p, sz) < 0 )
-        FD_LOG_ERR(("restore failed: %s", strerror(errno)));
-      p += sz;
-    }
-    close(fd);
+    int err = fd_wksp_restore(funk_wksp, state.load, (uint)hashseed);
+    if (err)
+      FD_LOG_ERR(("restore failed: error %d", err));
   }
 
   void* shmem;
