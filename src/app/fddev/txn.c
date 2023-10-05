@@ -113,7 +113,15 @@ send_quic_transactions( fd_quic_t *         quic,
     fd_quic_udpsock_service( udpsock );
   }
 
-  fd_quic_conn_close( conn, 0 );
+  /* close and wait for connection to complete */
+  if( !g_conn_final ) {
+    fd_quic_conn_close( conn, 0 );
+    while( !g_conn_final ) {
+      fd_quic_service( quic );
+      fd_quic_udpsock_service( udpsock );
+    }
+  }
+
   fd_quic_fini( quic );
 }
 
@@ -165,7 +173,7 @@ txn_cmd_fn( args_t *         args,
   client_cfg->net.ephem_udp_port.lo = (ushort)udpsock->listen_port;
   client_cfg->net.ephem_udp_port.hi = (ushort)(udpsock->listen_port + 1);
   client_cfg->initial_rx_max_stream_data = 1<<15;
-  client_cfg->idle_timeout = 100UL * 1000UL * 1000UL; /* 100 millis */
+  client_cfg->idle_timeout = 200UL * 1000UL * 1000UL; /* 5000 millis */
   client_cfg->initial_rx_max_stream_data = FD_QUIC_DEFAULT_INITIAL_RX_MAX_STREAM_DATA;
 
   fd_aio_pkt_info_t pkt[ MAX_TXN_COUNT ];

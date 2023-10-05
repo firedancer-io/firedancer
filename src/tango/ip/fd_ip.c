@@ -12,11 +12,14 @@ ulong
 fd_ip_footprint( ulong arp_entries,
                  ulong route_entries ) {
 
+  /* use 256 as a default */
+  if( arp_entries   == 0 ) arp_entries   = 256;
+  if( route_entries == 0 ) route_entries = 256;
+
   ulong l;
 
   l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, FD_IP_ALIGN, sizeof(fd_ip_t)                             );
-  l = FD_LAYOUT_APPEND( l, FD_IP_ALIGN, sizeof(fd_nl_t)                             );
   l = FD_LAYOUT_APPEND( l, FD_IP_ALIGN, arp_entries   * sizeof(fd_nl_arp_entry_t)   );
   l = FD_LAYOUT_APPEND( l, FD_IP_ALIGN, route_entries * sizeof(fd_nl_route_entry_t) );
 
@@ -33,6 +36,10 @@ fd_ip_new( void * shmem,
     return NULL;
   }
 
+  /* use 256 as a default */
+  if( arp_entries   == 0 ) arp_entries   = 256;
+  if( route_entries == 0 ) route_entries = 256;
+
   ulong l;
   uchar * mem = (uchar*)shmem;
 
@@ -40,9 +47,6 @@ fd_ip_new( void * shmem,
 
   fd_ip_t * ip = (fd_ip_t*)mem;
   l = FD_LAYOUT_APPEND( l, FD_IP_ALIGN, sizeof(fd_ip_t)                             );
-
-  ulong ofs_netlink = l;
-  l = FD_LAYOUT_APPEND( l, FD_IP_ALIGN, sizeof(fd_nl_t)                             );
 
   ulong ofs_arp_table   = FD_ULONG_ALIGN_UP( l, FD_IP_ALIGN );
   l = FD_LAYOUT_APPEND( l, FD_IP_ALIGN, arp_entries   * sizeof(fd_nl_arp_entry_t)   );
@@ -58,13 +62,15 @@ fd_ip_new( void * shmem,
   /* set values in ip */
   ip->num_arp_entries      = arp_entries;
   ip->num_route_entries    = route_entries;
-  ip->ofs_netlink          = ofs_netlink;
   ip->ofs_arp_table        = ofs_arp_table;
   ip->ofs_route_table      = ofs_route_table;
 
   /* set magic last, after a fence */
   FD_COMPILER_MFENCE();
   ip->magic                = FD_IP_MAGIC;
+
+  /* initialize netlink */
+  (void)fd_nl_get();
 
   return (void*)ip;
 }
@@ -90,11 +96,7 @@ fd_ip_join( void * mem ) {
   }
 
   /* initialize netlink */
-  fd_nl_t * netlink = fd_ip_netlink_get( ip );
-  if( fd_nl_init( netlink, 0 ) ) {
-    FD_LOG_ERR(( "Failed to initialize fd_netlink." ));
-    return NULL;
-  }
+  (void)fd_nl_get();
 
   return ip;
 }
@@ -113,10 +115,6 @@ fd_ip_leave( fd_ip_t * ip ) {
   /* then fence */
   FD_COMPILER_MFENCE();
 
-  /* finalize the netlink */
-  fd_nl_t * netlink = fd_ip_netlink_get( ip );
-  fd_nl_fini( netlink );
-
   fd_memset( ip, 0, sizeof( *ip ) );
 
   return (void*)ip;
@@ -126,9 +124,8 @@ fd_ip_leave( fd_ip_t * ip ) {
 /* get pointer to fd_nl_t */
 fd_nl_t *
 fd_ip_netlink_get( fd_ip_t * ip ) {
-  ulong mem = (ulong)ip;
-
-  return (fd_nl_t*)( mem + ip->ofs_netlink );
+  (void)ip;
+  return fd_nl_get();
 }
 
 
@@ -171,9 +168,9 @@ fd_ip_arp_fetch( fd_ip_t * ip ) {
    searches for an IP address in the table
 
    if found, the resulting data is written into the destination and the function
-       returns 0
+       returns FD_IP_SUCCESS
 
-   otherwise, the function returns 1 */
+   otherwise, the function returns FD_IP_ERROR */
 
 int
 fd_ip_arp_query( fd_ip_t *            ip,
@@ -184,11 +181,11 @@ fd_ip_arp_query( fd_ip_t *            ip,
 
   fd_ip_arp_entry_t * entry = fd_nl_arp_query( arp_table, arp_table_cap, ip_addr );
 
-  if( FD_UNLIKELY( !entry ) ) return 1;
+  if( FD_UNLIKELY( !entry ) ) return FD_IP_ERROR;
 
   *arp = entry;
 
-  return 0;
+  return FD_IP_SUCCESS;
 }
 
 
@@ -199,10 +196,10 @@ fd_ip_arp_query( fd_ip_t *            ip,
 
    writes ARP packet into dest
 
-   if successful, returns 0
+   if successful, returns FD_IP_SUCCESS
 
    if unable to generate ARP, if the dest capacity (dest_cap) is not enough space
-     then the function returns 1 */
+     then the function returns FD_IP_ERROR */
 
 int
 fd_ip_arp_gen_arp_probe( uchar *         buf,
@@ -212,7 +209,7 @@ fd_ip_arp_gen_arp_probe( uchar *         buf,
                          uint            src_ip_addr,
                          uchar const *   src_mac_addr ) {
   if( buf_cap < sizeof( fd_ip_arp_t ) ) {
-    return 1;
+    return FD_IP_ERROR;
   }
 
   /* convert ip_addr */
@@ -239,7 +236,7 @@ fd_ip_arp_gen_arp_probe( uchar *         buf,
 
   if( arp_len ) *arp_len = sizeof( *arp );
 
-  return 0;
+  return FD_IP_SUCCESS;
 }
 
 
@@ -268,9 +265,9 @@ fd_ip_route_fetch( fd_ip_t * ip ) {
    the provided IP address is looked up in the routing table
 
    if an appropriate entry is found, the details are written into
-     the destination and 0 is returned
+     the destination and FD_IP_SUCCESS is returned
 
-   otherwise, 1 is returned */
+   otherwise, FD_IP_ERROR is returned */
 
 int
 fd_ip_route_query( fd_ip_t *              ip,
@@ -281,11 +278,11 @@ fd_ip_route_query( fd_ip_t *              ip,
 
   fd_ip_route_entry_t * entry = fd_nl_route_query( route_table, route_table_cap, ip_addr );
 
-  if( FD_UNLIKELY( !entry ) ) return 1;
+  if( FD_UNLIKELY( !entry ) ) return FD_IP_ERROR;
 
   *route = entry;
 
-  return 0;
+  return FD_IP_SUCCESS;
 }
 
 
@@ -372,13 +369,17 @@ fd_ip_route_ip_addr( uchar *   out_dst_mac,
   fd_ip_arp_entry_t * arp_entry = NULL;
   int arp_rtn = fd_ip_arp_query( ip, &arp_entry, next_ip_addr );
   if( arp_rtn ) {
-    return FD_IP_PROBE_RQD; /* send probe */
+    return FD_IP_PROBE_RQD; /* no entry, so send probe */
   }
 
   /* arp entry found - store mac addr in out_dst_mac */
   fd_memcpy( out_dst_mac, arp_entry->mac_addr, 6 );
 
-  return FD_IP_SUCCESS;
+  /* check the status */
+  if( arp_entry->state == NUD_REACHABLE ) return FD_IP_SUCCESS;
+
+  /* all other statutes, try probing */
+  return FD_IP_PROBE_RQD;
 }
 
 
@@ -388,5 +389,21 @@ fd_ip_update_arp_table( fd_ip_t * ip,
                         uint      ifindex ) {
   fd_nl_t * netlink = fd_ip_netlink_get( ip );
 
-  return fd_nl_update_arp_table( netlink, ip_addr, ifindex );
+  /* ensure the table is up-to-date */
+  fd_ip_arp_fetch( ip );
+
+  /* query the table */
+  fd_ip_arp_entry_t * arp = NULL;
+
+  if( fd_ip_arp_query( ip, &arp, ip_addr ) == FD_IP_SUCCESS ) {
+
+    return fd_nl_update_arp_table( netlink,
+                                   fd_ip_arp_table_get(ip),
+                                   ip->num_arp_entries,
+                                   ip_addr,
+                                   ifindex );
+  } else {
+    /* arp entry already in cache, so return success */
+    return FD_IP_SUCCESS;
+  }
 }

@@ -1,0 +1,20 @@
+#!/bin/bash -x
+
+PGM="$0"
+BIN="$1"
+IFACE="$2"
+
+shift 2
+CMD="$*"
+
+# ensure bpf is mounted
+if ! mount | grep -q /sys/fs/bpf
+then
+  mount -t bpf bpf /sys/fs/bpf
+fi
+
+$BIN/fd_xdp_ctl init "$IFACE" 0750 "$USER" ""
+$BIN/fd_xdp_ctl hook-iface "$IFACE" "$IFACE" skb
+
+bash -c "$CMD" || exit $?
+

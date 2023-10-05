@@ -194,6 +194,9 @@ struct __attribute__((aligned(16UL))) fd_quic_limits {
 
   ulong  tx_buf_sz;        /* per-stream, tx buf sz in bytes          */
   /* the user consumes rx directly from the network buffer */
+
+  ulong  arp_entries;      /* instance-wide, number of ARP cache entries */
+  ulong  routing_entries;  /* instance-wide, number of routing entries */
 };
 typedef struct fd_quic_limits fd_quic_limits_t;
 
@@ -431,6 +434,8 @@ struct fd_quic {
   fd_aio_t aio_rx; /* local AIO */
   fd_aio_t aio_tx; /* remote AIO */
 
+  ulong ip_off;     /* offset of fd_ip from beginning of fd_quic_t */
+
   /* Opaque handles for OpenSSL objects.
      Owned by fd_quic object (freed on fini).
      TODO: Instead, provide SSL_CTX object here. */
@@ -664,19 +669,19 @@ fd_quic_stream_fin( fd_quic_stream_t * stream );
 
 FD_PROTOTYPES_END
 
-uint fd_quic_tx_buffered_raw(fd_quic_t *quic,
-                             uchar **tx_ptr_ptr,
-                             uchar *tx_buf,
-                             ulong tx_buf_sz,
-                             ulong *tx_sz,
-                             uchar *crypt_scratch,
-                             ulong crypt_scratch_sz,
-                             uchar *dst_mac_addr,
-                             ushort *ipv4_id,
-                             uint dst_ipv4_addr,
-                             ushort src_udp_port,
-                             ushort dst_udp_port,
-                             int flush);
+uint fd_quic_tx_buffered_raw( fd_quic_t      * quic,
+                              uchar **         tx_ptr_ptr,
+                              uchar *          tx_buf,
+                              ulong            tx_buf_sz,
+                              ulong *          tx_sz,
+                              uchar *          crypt_scratch,
+                              ulong            crypt_scratch_sz,
+                              uchar *          dst_mac_addr,
+                              ushort *         ipv4_id,
+                              uint             dst_ipv4_addr,
+                              ushort           src_udp_port,
+                              ushort           dst_udp_port,
+                              int              flush );
 
 /* Convenience exports for consumers of API */
 #include "fd_quic_conn.h"

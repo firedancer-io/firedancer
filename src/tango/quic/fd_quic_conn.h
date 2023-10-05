@@ -283,6 +283,14 @@ struct fd_quic_conn {
   fd_quic_conn_t *     next;
   ulong token_len;
   uchar token[FD_QUIC_TOKEN_SZ_MAX];
+
+  /* are we waiting for routing/ARP to complete? */
+# define FD_ARP_STATUS_NONE     0
+# define FD_ARP_STATUS_RESOLVED 1
+# define FD_ARP_STATUS_REQUIRED 2
+# define FD_ARP_STATUS_WAITING  3
+  int   arp_status;
+  ulong arp_update; /* last time ARP was updated */
 };
 
 FD_PROTOTYPES_BEGIN

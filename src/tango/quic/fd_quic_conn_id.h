@@ -66,7 +66,6 @@ typedef struct fd_quic_net_endpoint fd_quic_net_endpoint_t;
 struct fd_quic_endpoint {
   fd_quic_conn_id_t      conn_id;
   fd_quic_net_endpoint_t net;
-  /* FIXME: use ARP table */
   uchar                  mac_addr[6];
 };
 typedef struct fd_quic_endpoint fd_quic_endpoint_t;

@@ -71,12 +71,23 @@ ip netns exec "$IFACE1" ip address add "$IFACE1_ADDR/$IP_CLASS" dev "$IFACE1" ||
 ip netns exec "$IFACE0" ip link set dev "$IFACE0" up || exit $?
 ip netns exec "$IFACE1" ip link set dev "$IFACE1" up || exit $?
 
+# set timeout to 60ms to allow the test to complete in a reasonable time
+ip netns exec "$IFACE0" bash -c "/bin/echo 60 > /proc/sys/net/ipv4/neigh/""$IFACE0""/base_reachable_time_ms"
+ip netns exec "$IFACE0" bash -c "/bin/cat /proc/sys/net/ipv4/neigh/""$IFACE0""/base_reachable_time_ms"
+
+ip netns exec "$IFACE0" arp -d $IFACE1_ADDR
+ip netns exec "$IFACE0" arp -n
+
 # run test in namespace "$IFACE0"
 ip netns exec "$IFACE0" $UNIT_TEST/test_arp "$IFACE0" "$IFACE1_ADDR" || exit $?
+
+ip netns exec "$IFACE0" arp -n
 
 # there is a race here, so wait for reply to update kernel ARP table
 # this should not take long!
 sleep "0.1s"
+
+ip netns exec "$IFACE0" arp -n
 
 # check arp table after
 # verify the ip address and mac address are listed together
