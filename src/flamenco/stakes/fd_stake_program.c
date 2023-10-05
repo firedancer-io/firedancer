@@ -102,82 +102,6 @@ checked_sub_lamports( fd_borrowed_account_t * self, ulong lamports ) {
 }
 
 /**********************************************************************/
-/* mod get_sysvar_with_account_check                                  */
-/**********************************************************************/
-
-// https://github.com/firedancer-io/solana/blob/debug-master/program-runtime/src/sysvar_cache.rs#L223
-static int
-get_sysvar_with_account_check_check_sysvar_account( transaction_ctx_t const * transaction_context,
-                                                    fd_instr_t const *        instruction_context,
-                                                    uchar instruction_account_index,
-                                                    uchar check_id[static FD_PUBKEY_FOOTPRINT] ) {
-  uchar index_in_transaction = instruction_context->acct_txn_idxs[instruction_account_index];
-  if ( FD_UNLIKELY(
-           0 != memcmp( &transaction_context->accounts[index_in_transaction], check_id, 32 ) ) ) {
-    return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
-  }
-  return OK;
-}
-
-// https://github.com/firedancer-io/solana/blob/debug-master/program-runtime/src/sysvar_cache.rs#L236
-static int
-get_sysvar_with_account_check_clock( instruction_ctx_t const *         invoke_context,
-                                     fd_instr_t const *                instruction_context,
-                                     uchar                             instruction_account_index,
-                                     /* out */ fd_sol_sysvar_clock_t * clock ) {
-  int rc;
-
-  rc = get_sysvar_with_account_check_check_sysvar_account( invoke_context->txn_ctx,
-                                                           instruction_context,
-                                                           instruction_account_index,
-                                                           invoke_context->global->sysvar_clock );
-  if ( FD_UNLIKELY( rc != OK ) ) return rc;
-
-  rc = fd_sysvar_clock_read( invoke_context->global, clock );
-  if ( FD_UNLIKELY( rc != OK ) ) return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
-  return OK;
-}
-
-// https://github.com/firedancer-io/solana/blob/debug-master/program-runtime/src/sysvar_cache.rs#L249
-static int
-get_sysvar_with_account_check_rent( instruction_ctx_t const * invoke_context,
-                                    fd_instr_t const *        instruction_context,
-                                    uchar                     instruction_account_index,
-                                    /* out */ fd_rent_t *     rent ) {
-  int rc;
-
-  rc = get_sysvar_with_account_check_check_sysvar_account( invoke_context->txn_ctx,
-                                                           instruction_context,
-                                                           instruction_account_index,
-                                                           invoke_context->global->sysvar_rent );
-  if ( FD_UNLIKELY( rc != OK ) ) return rc;
-
-  rc = fd_sysvar_rent_read( invoke_context->global, rent );
-  if ( FD_UNLIKELY( rc != OK ) ) return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
-  return OK;
-}
-
-// https://github.com/firedancer-io/solana/blob/debug-master/program-runtime/src/sysvar_cache.rs#L289
-static int
-get_sysvar_with_account_check_stake_history( instruction_ctx_t const * invoke_context,
-                                             fd_instr_t const *        instruction_context,
-                                             uchar                     instruction_account_index,
-                                             /* out */ fd_stake_history_t * stake_history ) {
-  int rc;
-
-  rc = get_sysvar_with_account_check_check_sysvar_account(
-      invoke_context->txn_ctx,
-      instruction_context,
-      instruction_account_index,
-      invoke_context->global->sysvar_stake_history );
-  if ( FD_UNLIKELY( rc != OK ) ) return rc;
-
-  rc = fd_sysvar_stake_history_read( invoke_context->global, stake_history );
-  if ( FD_UNLIKELY( rc != OK ) ) return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
-  return OK;
-}
-
-/**********************************************************************/
 /* impl TransactionContext                                            */
 /**********************************************************************/
 
@@ -307,6 +231,89 @@ signers_contains( fd_pubkey_t const * signers[FD_TXN_SIG_MAX], fd_pubkey_t const
     if ( FD_UNLIKELY( 0 == memcmp( signers[i], pubkey, sizeof( fd_pubkey_t ) ) ) ) return true;
   }
   return false;
+}
+
+/**********************************************************************/
+/* mod get_sysvar_with_account_check                                  */
+/**********************************************************************/
+
+// https://github.com/firedancer-io/solana/blob/debug-master/program-runtime/src/sysvar_cache.rs#L223
+static int
+get_sysvar_with_account_check_check_sysvar_account( transaction_ctx_t const * transaction_context,
+                                                    fd_instr_t const *        instruction_context,
+                                                    uchar instruction_account_index,
+                                                    uchar check_id[static FD_PUBKEY_FOOTPRINT] ) {
+                                                      int rc;
+
+  uchar index_in_transaction = FD_TXN_ACCT_ADDR_MAX;
+  rc = get_index_of_instruction_account_in_transaction( instruction_context,
+                                                   instruction_account_index,
+                                                   &index_in_transaction );
+  if ( FD_UNLIKELY( rc != OK ) ) return rc;
+
+  if ( FD_UNLIKELY(
+           0 != memcmp( &transaction_context->accounts[index_in_transaction], check_id, 32 ) ) ) {
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+  }
+  return OK;
+}
+
+// https://github.com/firedancer-io/solana/blob/debug-master/program-runtime/src/sysvar_cache.rs#L236
+static int
+get_sysvar_with_account_check_clock( instruction_ctx_t const *         invoke_context,
+                                     fd_instr_t const *                instruction_context,
+                                     uchar                             instruction_account_index,
+                                     /* out */ fd_sol_sysvar_clock_t * clock ) {
+  int rc;
+
+  rc = get_sysvar_with_account_check_check_sysvar_account( invoke_context->txn_ctx,
+                                                           instruction_context,
+                                                           instruction_account_index,
+                                                           invoke_context->global->sysvar_clock );
+  if ( FD_UNLIKELY( rc != OK ) ) return rc;
+
+  rc = fd_sysvar_clock_read( invoke_context->global, clock );
+  if ( FD_UNLIKELY( rc != OK ) ) return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+  return OK;
+}
+
+// https://github.com/firedancer-io/solana/blob/debug-master/program-runtime/src/sysvar_cache.rs#L249
+static int
+get_sysvar_with_account_check_rent( instruction_ctx_t const * invoke_context,
+                                    fd_instr_t const *        instruction_context,
+                                    uchar                     instruction_account_index,
+                                    /* out */ fd_rent_t *     rent ) {
+  int rc;
+
+  rc = get_sysvar_with_account_check_check_sysvar_account( invoke_context->txn_ctx,
+                                                           instruction_context,
+                                                           instruction_account_index,
+                                                           invoke_context->global->sysvar_rent );
+  if ( FD_UNLIKELY( rc != OK ) ) return rc;
+
+  rc = fd_sysvar_rent_read( invoke_context->global, rent );
+  if ( FD_UNLIKELY( rc != OK ) ) return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+  return OK;
+}
+
+// https://github.com/firedancer-io/solana/blob/debug-master/program-runtime/src/sysvar_cache.rs#L289
+static int
+get_sysvar_with_account_check_stake_history( instruction_ctx_t const * invoke_context,
+                                             fd_instr_t const *        instruction_context,
+                                             uchar                     instruction_account_index,
+                                             /* out */ fd_stake_history_t * stake_history ) {
+  int rc;
+
+  rc = get_sysvar_with_account_check_check_sysvar_account(
+      invoke_context->txn_ctx,
+      instruction_context,
+      instruction_account_index,
+      invoke_context->global->sysvar_stake_history );
+  if ( FD_UNLIKELY( rc != OK ) ) return rc;
+
+  rc = fd_sysvar_stake_history_read( invoke_context->global, stake_history );
+  if ( FD_UNLIKELY( rc != OK ) ) return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+  return OK;
 }
 
 /**********************************************************************/
@@ -2667,6 +2674,9 @@ fd_executor_stake_program_execute_instruction( instruction_ctx_t ctx ) {
    */
   case fd_stake_instruction_enum_withdraw: {
     ulong lamports = instruction.inner.withdraw;
+
+    rc = check_number_of_instruction_accounts( instruction_context, 2 );
+    if ( FD_UNLIKELY( rc != OK ) ) return rc;
 
     FD_BORROWED_ACCOUNT_DECL( me );
     rc = get_stake_account( ctx.txn_ctx, ctx.instr, ctx.global, me );
