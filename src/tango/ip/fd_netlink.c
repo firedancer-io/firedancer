@@ -111,6 +111,21 @@ fd_nda_type_to_label( uint nda_type ) {
 }
 
 
+FD_TLS fd_nl_t fd_nl_gbl = {0};
+
+
+fd_nl_t *
+fd_nl_get( void ) {
+  if( FD_UNLIKELY( fd_nl_gbl.init == 0 ) ) {
+    if( fd_nl_init( &fd_nl_gbl, 1 ) ) {
+      FD_LOG_ERR(( "Unable to initialize netlink" ));
+    }
+  }
+
+  return &fd_nl_gbl;
+}
+
+
 int
 fd_nl_create_socket( void ) {
   int fd = socket( AF_NETLINK, SOCK_RAW | SOCK_NONBLOCK, NETLINK_ROUTE );
@@ -167,8 +182,9 @@ fd_nl_read_socket( int fd, uchar * buf, ulong buf_sz ) {
 
 int
 fd_nl_init( fd_nl_t * nl, uint seq ) {
-  nl->seq = seq;
-  nl->fd  = fd_nl_create_socket();
+  nl->seq  = seq;
+  nl->fd   = fd_nl_create_socket();
+  nl->init = 1;
 
   /* returns 1 for failure, 0 for success */
   return nl->fd < 0 ? 1 : 0;
@@ -685,7 +701,7 @@ fd_nl_update_arp_table( fd_nl_t * nl,
   /* request IPv4 entries */
   nl_request.ndm.ndm_family  = AF_INET;
   nl_request.ndm.ndm_ifindex = (int)ifindex;
-  nl_request.ndm.ndm_state   = NUD_INCOMPLETE;
+  nl_request.ndm.ndm_state   = NUD_STALE;
   nl_request.ndm.ndm_flags   = 0;
   nl_request.ndm.ndm_type    = RTN_UNICAST;
 

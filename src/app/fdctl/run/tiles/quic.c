@@ -4,6 +4,7 @@
 
 #include "../../../../disco/fd_disco.h"
 #include "../../../../tango/xdp/fd_xsk_private.h"
+#include "../../../../tango/ip/fd_netlink.h"
 
 #include <linux/unistd.h>
 
@@ -31,6 +32,9 @@ init( fd_tile_args_t * args ) {
     FD_LOG_ERR(( "OPENSSL_init_ssl failed" ));
   if( FD_UNLIKELY( !OPENSSL_init_crypto( OPENSSL_INIT_LOAD_CRYPTO_STRINGS | OPENSSL_INIT_NO_LOAD_CONFIG , NULL ) ) )
     FD_LOG_ERR(( "OPENSSL_init_crypto failed" ));
+
+  /* ensure netlink is initialized before sandboxing */
+  (void)fd_nl_get();
 }
 
 static ushort
@@ -48,8 +52,8 @@ initialize_quic( fd_quic_config_t * config,
   ushort quic_transaction_listen_port = fd_pod_query_ushort( pod, "quic_transaction_listen_port", 0 );
   if( FD_UNLIKELY( !quic_transaction_listen_port ) ) FD_LOG_ERR(( "quic_transaction_listen_port not set" ));
 
-  ulong idle_timeout_ms = fd_pod_query_ulong( pod, "idle_timeout_ms", 0 );
-  if( FD_UNLIKELY( !idle_timeout_ms ) ) FD_LOG_ERR(( "idle_timeout_ms not set" ));
+  ulong idle_timeout_millis = fd_pod_query_ulong( pod, "idle_timeout_millis", 0 );
+  if( FD_UNLIKELY( !idle_timeout_millis ) ) FD_LOG_ERR(( "idle_timeout_millis not set" ));
 
   ulong initial_rx_max_stream_data = fd_pod_query_ulong( pod, "initial_rx_max_stream_data", 1<<15 );
   if( FD_UNLIKELY( !initial_rx_max_stream_data ) ) FD_LOG_ERR(( "initial_rx_max_stream_data not set" ));
@@ -58,7 +62,7 @@ initialize_quic( fd_quic_config_t * config,
   config->net.ip_addr = ip_addr;
   fd_memcpy( config->link.src_mac_addr, src_mac, 6 );
   config->net.listen_udp_port = quic_transaction_listen_port;
-  config->idle_timeout = idle_timeout_ms * 1000000UL;
+  config->idle_timeout = idle_timeout_millis * 1000000UL;
   config->initial_rx_max_stream_data = initial_rx_max_stream_data;
 
   return transaction_listen_port;
@@ -102,12 +106,14 @@ run( fd_tile_args_t * args ) {
 }
 
 static long allow_syscalls[] = {
-  __NR_write,     /* logging */
-  __NR_fsync,     /* logging, WARNING and above fsync immediately */
-  __NR_getpid,    /* OpenSSL RAND_bytes checks pid, temporarily used as part of quic_init to generate a certificate */
-  __NR_getrandom, /* OpenSSL RAND_bytes reads getrandom, temporarily used as part of quic_init to generate a certificate */
-  __NR_madvise,   /* OpenSSL SSL_do_handshake() uses an arena which eventually calls _rjem_je_pages_purge_forced */
-  __NR_mmap,      /* OpenSSL again... deep inside SSL_provide_quic_data() some jemalloc code calls mmap */
+  __NR_write,       /* logging */
+  __NR_fsync,       /* logging, WARNING and above fsync immediately */
+  __NR_getpid,      /* OpenSSL RAND_bytes checks pid, temporarily used as part of quic_init to generate a certificate */
+  __NR_getrandom,   /* OpenSSL RAND_bytes reads getrandom, temporarily used as part of quic_init to generate a certificate */
+  __NR_madvise,     /* OpenSSL SSL_do_handshake() uses an arena which eventually calls _rjem_je_pages_purge_forced */
+  __NR_mmap,        /* OpenSSL again... deep inside SSL_provide_quic_data() some jemalloc code calls mmap */
+  __NR_sendto,      /* allows to make requests on netlink socket */
+  __NR_recvfrom,    /* allows to receive responses on netlink socket */
 };
 
 static workspace_kind_t allow_workspaces[] = {
@@ -121,10 +127,15 @@ allow_fds( fd_tile_args_t * args,
            ulong            out_fds_sz,
            int *            out_fds ) {
   (void)args;
-  if( FD_UNLIKELY( out_fds_sz < 2 ) ) FD_LOG_ERR(( "out_fds_sz %lu", out_fds_sz ));
-  out_fds[ 0 ] = 2; /* stderr */
-  out_fds[ 1 ] = 3; /* logfile */
-  return 2;
+  if( FD_UNLIKELY( out_fds_sz < 3 ) ) FD_LOG_ERR(( "out_fds_sz %lu", out_fds_sz ));
+  fd_nl_t * nl = fd_nl_get();
+  if( nl->init == 0 ) {
+    FD_LOG_ERR(( "netlink not initialized" ));
+  }
+  out_fds[ 0 ] = 2;      /* stderr */
+  out_fds[ 1 ] = 3;      /* logfile */
+  out_fds[ 2 ] = nl->fd; /* netlink socket */
+  return 3;
 }
 
 fd_tile_config_t quic = {

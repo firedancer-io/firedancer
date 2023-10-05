@@ -493,6 +493,13 @@ dynamic_port_range = "8000-10000"
         # should be unused.
         tx_buf_size = 4096
 
+        # QUIC has a concept of an "idle" connection - one where neither the
+        # client nor the server has sent any packet to the other.
+        # An idle connection will be terminated if it remains idle longer than
+        # some threshold. "idle_timeout_millis" represents this threshold in
+        # milliseconds
+        idle_timeout_millis = 2500
+
     # Verify tiles perform initial verification of incoming transactions, making
     # sure that they have a valid signature.
     [tiles.verify]

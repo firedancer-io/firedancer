@@ -22,6 +22,8 @@ $(call make-unit-test,test_quic_tls_both,test_tls_quic_both,fd_quic fd_ballet fd
 # $(call make-unit-test,test_quic_flow_control,test_quic_flow_control,fd_aio fd_quic fd_ballet fd_tango fd_util)
 $(call make-unit-test,test_quic_retry_unit,test_quic_retry_unit,fd_aio fd_quic fd_ballet fd_tango fd_util)
 $(call make-unit-test,test_quic_retry_integration,test_quic_retry_integration,fd_aio fd_quic fd_ballet fd_tango fd_util)
+$(call make-unit-test,test_quic_arp_server,arp/test_quic_arp_server,fd_aio fd_quic fd_ballet fd_tango fd_util)
+$(call make-unit-test,test_quic_arp_client,arp/test_quic_arp_client,fd_aio fd_quic fd_ballet fd_tango fd_util fd_fibre)
 
 $(call fuzz-test,fuzz_quic,fuzz_quic,fd_aio fd_quic fd_ballet fd_tango fd_util)
 
