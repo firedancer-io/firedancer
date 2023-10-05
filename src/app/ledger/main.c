@@ -7,10 +7,9 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <errno.h>
-#include <zstd.h>      // presumes zstd library is installed
-#include <bzlib.h>     // presumes bz2 library is installed
 #include "../../util/fd_util.h"
 #include "../../util/archive/fd_tar.h"
+#include "../../util/compress/fd_compress.h"
 #include "../../flamenco/fd_flamenco.h"
 #include "../../flamenco/nanopb/pb_decode.h"
 #include "../../flamenco/runtime/fd_banks_solana.h"
@@ -184,120 +183,12 @@ void SnapshotParser_tarEntry(void* arg, char const * name, const void* data, siz
 }
 
 // Return non-zero on end of tarball
-int SnapshotParser_moreData(void* arg, const void* data, size_t datalen) {
+int
+SnapshotParser_moreData( void *        arg,
+                         uchar const * data,
+                         ulong         datalen ) {
   struct SnapshotParser* self = (struct SnapshotParser*)arg;
   return fd_tar_stream_moreData(&self->tarreader_, data, datalen, SnapshotParser_tarEntry, self);
-}
-
-typedef int (*decompressCallback)(void* arg, const void* data, size_t datalen);
-static void decompressZSTD(char const * fname, decompressCallback cb, void* arg) {
-  int const fin = open(fname, O_RDONLY);
-  if (fin == -1) {
-    FD_LOG_ERR(( "unable to read file %s: %s", fname, strerror(errno) ));
-  }
-  size_t const buffInSize = ZSTD_DStreamInSize();
-  void*        buffIn = alloca(buffInSize);
-  size_t const buffOutSize = ZSTD_DStreamOutSize();  /* Guarantee to successfully flush at least one complete compressed block in all circumstances. */
-  void*        buffOut = alloca(buffOutSize);
-
-  ZSTD_DCtx* const dctx = ZSTD_createDCtx();
-  if (dctx == NULL) {
-    FD_LOG_ERR(( "ZSTD_createDCtx() failed!"));
-  }
-
-  /* This loop assumes that the input file is one or more concatenated zstd
-   * streams. This example won't work if there is trailing non-zstd data at
-   * the end, but streaming decompression in general handles this case.
-   * ZSTD_decompressStream() returns 0 exactly when the frame is completed,
-   * and doesn't consume input after the frame.
-   */
-  ssize_t readRet;
-  while ( (readRet = read(fin, buffIn, buffInSize)) ) {
-    if (readRet == -1) {
-      FD_LOG_ERR(( "unable to read file %s: %s", fname, strerror(errno) ));
-    }
-    ZSTD_inBuffer input = { buffIn, (unsigned)readRet, 0 };
-    /* Given a valid frame, zstd won't consume the last byte of the frame
-     * until it has flushed all of the decompressed data of the frame.
-     * Therefore, instead of checking if the return code is 0, we can
-     * decompress just check if input.pos < input.size.
-     */
-    while (input.pos < input.size) {
-      ZSTD_outBuffer output = { buffOut, buffOutSize, 0 };
-      /* The return code is zero if the frame is complete, but there may
-       * be multiple frames concatenated together. Zstd will automatically
-       * reset the context when a frame is complete. Still, calling
-       * ZSTD_DCtx_reset() can be useful to reset the context to a clean
-       * state, for instance if the last decompression call returned an
-       * error.
-       */
-      size_t const ret = ZSTD_decompressStream(dctx, &output, &input);
-      if (ZSTD_isError(ret)) {
-        FD_LOG_ERR(( "zstd decompression failed: %s", ZSTD_getErrorName( ret ) ));
-        goto done;
-      }
-      if ((*cb)(arg, buffOut, output.pos))
-        goto done;
-    }
-  }
-
-  done:
-  ZSTD_freeDCtx(dctx);
-  close(fin);
-}
-
-static void decompressBZ2(char const * fname, decompressCallback cb, void* arg) {
-  int const fin = open(fname, O_RDONLY);
-  if (fin == -1) {
-    FD_LOG_ERR(( "unable to read file %s: %s", fname, strerror(errno) ));
-  }
-
-  bz_stream bStream;
-  bStream.next_in = NULL;
-  bStream.avail_in = 0;
-  bStream.bzalloc = NULL;
-  bStream.bzfree = NULL;
-  bStream.opaque = NULL;
-  int bReturn = BZ2_bzDecompressInit(&bStream, 0, 0);
-  if (bReturn != BZ_OK)
-    FD_LOG_ERR(( "Error occurred during BZIP initialization.  BZIP error code: %d", bReturn ));
-
-  size_t const buffInMax = 128<<10;
-  void*        buffIn = alloca(buffInMax);
-  size_t       buffInSize = 0;
-  size_t const buffOutMax = 512<<10;
-  void*        buffOut = alloca(buffOutMax);
-
-  for (;;) {
-    ssize_t r = read(fin, (char*)buffIn + buffInSize, buffInMax - buffInSize);
-    if (r < 0) {
-      FD_LOG_ERR(( "unable to read file %s: %s", fname, strerror(errno) ));
-      break;
-    }
-    buffInSize += (size_t)r;
-
-    bStream.next_in = buffIn;
-    bStream.avail_in = (uint)buffInSize;
-    bStream.next_out = buffOut;
-    bStream.avail_out = (uint)buffOutMax;
-
-    bReturn = BZ2_bzDecompress(&bStream);
-    if (bReturn != BZ_OK && bReturn != BZ_STREAM_END) {
-      FD_LOG_ERR(( "Error occurred during BZIP decompression.  BZIP error code: %d", bReturn ));
-      break;
-    }
-    if ((*cb)(arg, buffOut, buffOutMax - bStream.avail_out))
-      break;
-    if (bReturn == BZ_STREAM_END && r == 0)
-      break;
-
-    if (bStream.avail_in)
-      memmove(buffIn, (char*)buffIn + buffInSize - bStream.avail_in, bStream.avail_in);
-    buffInSize = bStream.avail_in;
-  }
-
-  BZ2_bzDecompressEnd(&bStream);
-  close(fin);
 }
 
 #define VECT_NAME vec_fd_txnstatusidx
@@ -686,13 +577,26 @@ main( int     argc,
     if( snapshotfile ) {
       struct SnapshotParser parser;
       SnapshotParser_init(&parser, global);
+
       FD_LOG_NOTICE(( "reading %s", snapshotfile ));
+      int fd = open( snapshotfile, O_RDONLY );
+      if( FD_UNLIKELY( fd<0 ) )
+        FD_LOG_ERR(( "open(%s) failed (%d-%s)", snapshotfile, errno, fd_io_strerror( errno ) ));
+
+      int err = 0;
       if( 0==strcmp( snapshotfile + strlen(snapshotfile) - 4, ".zst" ) )
-        decompressZSTD( snapshotfile, SnapshotParser_moreData, &parser );
+        err = fd_decompress_zstd( fd, SnapshotParser_moreData, &parser );
       else if( 0==strcmp( snapshotfile + strlen(snapshotfile) - 4, ".bz2" ) )
-        decompressBZ2( snapshotfile, SnapshotParser_moreData, &parser );
+        err = fd_decompress_bz2( fd, SnapshotParser_moreData, &parser );
       else
         FD_LOG_ERR(( "unknown snapshot compression suffix" ));
+
+      if( err ) FD_LOG_ERR(( "failed to load snapshot (%d-%s)", err, fd_io_strerror( err ) ));
+
+      err = close(fd);
+      if( FD_UNLIKELY( err ) )
+        FD_LOG_ERR(( "close(%s) failed (%d-%s)", snapshotfile, errno, fd_io_strerror( errno ) ));
+
       SnapshotParser_destroy(&parser);
       snapshot_used = 1;
     }
@@ -700,13 +604,26 @@ main( int     argc,
     if( incremental ) {
       struct SnapshotParser parser;
       SnapshotParser_init(&parser, global);
+
       FD_LOG_NOTICE(( "reading %s", incremental ));
+      int fd = open( incremental, O_RDONLY );
+      if( FD_UNLIKELY( fd<0 ) )
+        FD_LOG_ERR(( "open(%s) failed (%d-%s)", incremental, errno, fd_io_strerror( errno ) ));
+
+      int err = 0;
       if( 0==strcmp( incremental + strlen(incremental) - 4, ".zst" ) )
-        decompressZSTD( incremental, SnapshotParser_moreData, &parser );
+        err = fd_decompress_zstd( fd, SnapshotParser_moreData, &parser );
       else if( 0==strcmp( incremental + strlen(incremental) - 4, ".bz2" ) )
-        decompressBZ2( incremental, SnapshotParser_moreData, &parser );
+        err = fd_decompress_bz2( fd, SnapshotParser_moreData, &parser );
       else
         FD_LOG_ERR(( "unknown snapshot compression suffix" ));
+
+      if( err ) FD_LOG_ERR(( "failed to load snapshot (%d-%s)", err, fd_io_strerror( err ) ));
+
+      err = close(fd);
+      if( FD_UNLIKELY( err ) )
+        FD_LOG_ERR(( "close(%s) failed (%d-%s)", incremental, errno, fd_io_strerror( errno ) ));
+
       SnapshotParser_destroy(&parser);
       snapshot_used = 1;
     }
