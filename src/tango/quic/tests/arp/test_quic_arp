@@ -1,0 +1,201 @@
+#!/bin/bash -x
+
+# this test sets up a few routes to test QUIC
+
+# three namespaces are created, with two networks
+# two point to point networks:
+#   IFACE0 <--> IFACE1
+#   IFACE2 <--> IFACE3
+
+# these are placed in network namespaces as follows:
+#   IFACE0 is in NETNS0
+#   IFACE1 is in NETNS1
+#   IFACE2 is in NETNS1
+#   IFACE2 is in NETNS2
+# NETNS0 can only contact NETNS2 by routing thru NETNS1
+
+#  ----NETNS0----          -------------NETNS1--------------          ----NETNS2----
+#  IFACE0          <--->   IFACE1             IFACE2          <--->   IFACE3
+#  192.168.32.0/24         192.168.32.0/24    192.168.64.0/24         192.168.64.0/24
+#  192.168.32.10           192.168.32.11      192.168.64.12           192.168.64.13
+
+#  routes
+#  NETNS0  192.168.32.*  -> IFACE0
+#  NETNS0  *             -> 192.168.32.11
+
+#  NETNS1  192.168.32.*  -> IFACE1
+#  NETNS1  192.168.64.*  -> IFACE2
+
+#  NETNS2  192.168.64.*  -> IFACE3
+#  NETNS2  *             -> 192.168.64.12
+
+: "${IFACE0:=veth_test_arp_0}"
+: "${IFACE1:=veth_test_arp_1}"
+
+: "${IFACE2:=veth_test_arp_2}"
+: "${IFACE3:=veth_test_arp_3}"
+
+NETNS0=test_arp_ns_0
+NETNS1=test_arp_ns_1
+NETNS2=test_arp_ns_2
+
+: "${IFACE0_MAC:=40:00:00:80:00:f0}"
+: "${IFACE1_MAC:=40:00:00:80:00:f1}"
+: "${IFACE2_MAC:=40:00:00:80:00:f2}"
+: "${IFACE3_MAC:=40:00:00:80:00:f3}"
+
+: "${IP_CLASS:=24}"
+: "${NET0_ADDR:=192.168.32.0}"
+: "${NET1_ADDR:=192.168.64.0}"
+: "${IFACE0_ADDR:=192.168.32.10}"
+: "${IFACE1_ADDR:=192.168.32.11}"
+: "${IFACE2_ADDR:=192.168.64.12}"
+: "${IFACE3_ADDR:=192.168.64.13}"
+
+SCRDIR=${0%/*}
+
+########################################################################
+USAGE=\
+"\t                                                             \n"\
+"\tUsage: $0 [BUILD_DIRECTORY]                                  \n"\
+"\t                                                             \n"\
+"\tCreates two network namespaces with a network config in each \n"\
+"\tRuns ARP tests between them                                  \n"\
+"\t                                                             \n"
+
+if [ $# -ne 1 ]; then
+  echo -e "$USAGE"
+  exit 1
+fi
+
+BIN=$1/bin
+UNIT_TEST=$1/unit-test
+
+# Disable permanant log for all the controls we are going to run in here
+
+FD_LOG_PATH=""
+export FD_LOG_PATH
+
+# Delete any existing netns and interface
+ip netns delete "$NETNS0" &> /dev/null
+ip netns delete "$NETNS1" &> /dev/null
+ip netns delete "$NETNS2" &> /dev/null
+
+ip link del dev "$IFACE0" &> /dev/null
+ip link del dev "$IFACE1" &> /dev/null
+ip link del dev "$IFACE2" &> /dev/null
+ip link del dev "$IFACE3" &> /dev/null
+
+# (Re-)create veth virtual network devices
+
+# create namespaces
+ip netns add "$NETNS0" || exit $?
+ip netns add "$NETNS1" || exit $?
+ip netns add "$NETNS2" || exit $?
+
+# create pair of connected interfaces
+# number of queues should be 1 to allow for one XSK instance
+ip link add dev "$IFACE0"       \
+            type veth           \
+            peer name "$IFACE1" \
+            numtxqueues 1       \
+            numrxqueues 1       \
+  || exit $?
+
+ip link add dev "$IFACE2"       \
+            type veth           \
+            peer name "$IFACE3" \
+            numtxqueues 1       \
+            numrxqueues 1       \
+  || exit $?
+
+# add MAC addresses
+ip link set dev "$IFACE0" address "$IFACE0_MAC" || exit $?
+ip link set dev "$IFACE1" address "$IFACE1_MAC" || exit $?
+ip link set dev "$IFACE2" address "$IFACE2_MAC" || exit $?
+ip link set dev "$IFACE3" address "$IFACE3_MAC" || exit $?
+
+# attach interfaces to namespaces
+ip link set "$IFACE0" netns "$NETNS0" || exit $?
+ip link set "$IFACE1" netns "$NETNS1" || exit $?
+ip link set "$IFACE2" netns "$NETNS1" || exit $?
+ip link set "$IFACE3" netns "$NETNS2" || exit $?
+
+# add IP addresses
+ip netns exec "$NETNS0" ip address add "$IFACE0_ADDR" dev "$IFACE0" || exit $?
+ip netns exec "$NETNS1" ip address add "$IFACE1_ADDR" dev "$IFACE1" || exit $?
+ip netns exec "$NETNS1" ip address add "$IFACE2_ADDR" dev "$IFACE2" || exit $?
+ip netns exec "$NETNS2" ip address add "$IFACE3_ADDR" dev "$IFACE3" || exit $?
+
+# raise interfaces
+ip netns exec "$NETNS0" ip link set dev "$IFACE0" up || exit $?
+ip netns exec "$NETNS1" ip link set dev "$IFACE1" up || exit $?
+ip netns exec "$NETNS1" ip link set dev "$IFACE2" up || exit $?
+ip netns exec "$NETNS2" ip link set dev "$IFACE3" up || exit $?
+
+# add routes
+ip netns exec "$NETNS0" ip route add unicast "${NET0_ADDR}"/"${IP_CLASS}" dev "$IFACE0"
+ip netns exec "$NETNS0" ip route add unicast default via "$IFACE1_ADDR" dev "$IFACE0"
+
+ip netns exec "$NETNS1" ip route add unicast "${NET0_ADDR}"/"${IP_CLASS}" dev "$IFACE1"
+ip netns exec "$NETNS1" ip route add unicast "${NET1_ADDR}"/"${IP_CLASS}" dev "$IFACE2"
+
+ip netns exec "$NETNS2" ip route add unicast "${NET1_ADDR}"/"${IP_CLASS}" dev "$IFACE3"
+ip netns exec "$NETNS2" ip route add unicast default via "$IFACE2_ADDR" dev "$IFACE3"
+
+
+function run_test() {
+  SERVER_NETNS=$1      ; shift
+  SERVER_IFACE=$1      ; shift
+  SERVER_IFACE_ADDR=$1 ; shift
+  SERVER_IFACE_MAC=$1  ; shift
+
+  CLIENT_NETNS=$1      ; shift
+  CLIENT_IFACE=$1      ; shift
+  CLIENT_IFACE_ADDR=$1 ; shift
+  CLIENT_IFACE_MAC=$1  ; shift
+
+  # run server in namespace "$SERVER_NETNS" in background
+  ip netns exec "$SERVER_NETNS" $SCRDIR/test_quic_arp_run "$BIN" "$SERVER_IFACE" \
+    $UNIT_TEST/test_quic_arp_server --iface "$SERVER_IFACE" \
+    --ifqueue 0 --src-mac "$SERVER_IFACE_MAC" --listen-ip "$SERVER_IFACE_ADDR" \
+    --listen-port 4242 --bpf-dir "$SERVER_IFACE" &
+
+  # run client in namespace "$CLIENT_NETNS"
+  ip netns exec "$CLIENT_NETNS" $SCRDIR/test_quic_arp_run "$BIN" "$CLIENT_IFACE" \
+    $UNIT_TEST/test_quic_arp_client --iface "$CLIENT_IFACE" \
+    --listen-ip "$CLIENT_IFACE_ADDR" --listen-port 4242 --bpf-dir "$CLIENT_IFACE" \
+    --ifqueue 0 --src-mac "$CLIENT_IFACE_MAC" --server-ip "$SERVER_IFACE_ADDR" \
+    --server-port 4242 || exit $?
+
+  # wait for server to complete
+  wait || exit $?
+}
+
+# test from NETNS0 to NETNS1 via IFACE1_ADDR
+# this uses a local route
+run_test $NETNS1 $IFACE1 $IFACE1_ADDR $IFACE1_MAC $NETNS0 $IFACE0 $IFACE0_ADDR $IFACE0_MAC || exit $?
+
+# test from NETNS0 to NETNS1 via IFACE2_ADDR
+# this uses a local route
+run_test $NETNS1 $IFACE1 $IFACE2_ADDR $IFACE1_MAC $NETNS0 $IFACE0 $IFACE0_ADDR $IFACE0_MAC || exit $?
+
+# test from NETNS2 to NETNS0
+# this uses a default route via a gateway in NETNS1
+run_test $NETNS0 $IFACE0 $IFACE0_ADDR $IFACE0_MAC $NETNS2 $IFACE3 $IFACE3_ADDR $IFACE3_MAC || exit $?
+
+# Clean up
+
+# delete namespaces
+ip netns delete "$NETNS0" &> /dev/null
+ip netns delete "$NETNS1" &> /dev/null
+ip netns delete "$NETNS2" &> /dev/null
+
+# delete interfaces
+ip link del dev "$IFACE0" &> /dev/null
+ip link del dev "$IFACE1" &> /dev/null
+ip link del dev "$IFACE2" &> /dev/null
+ip link del dev "$IFACE3" &> /dev/null
+
+echo pass
+exit 0

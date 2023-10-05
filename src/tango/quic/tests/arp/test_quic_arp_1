@@ -1,0 +1,115 @@
+#!/bin/bash -x
+
+: "${IFACE0:=veth_test_arp_0}"
+: "${IFACE1:=veth_test_arp_1}"
+
+NETNS0=/var/run/netns/"$IFACE0"
+NETNS1=/var/run/netns/"$IFACE1"
+
+: "${IFACE0_MAC:=40:00:00:80:00:f0}"
+: "${IFACE1_MAC:=40:00:00:80:00:f1}"
+
+# this test sets up two /24 networks, to test routing to a specific subnet
+: "${IP_CLASS:=24}"
+: "${IFACE0_ADDR:=192.168.42.10}"
+: "${IFACE1_ADDR:=192.168.36.1}"
+
+CONF=tmp/test_arp.conf
+
+SCRDIR=${0%/*}
+
+########################################################################
+USAGE=\
+"\t                                                             \n"\
+"\tUsage: $0 [BUILD_DIRECTORY]                                  \n"\
+"\t                                                             \n"\
+"\tCreates two network namespaces with a network config in each \n"\
+"\tRuns ARP tests between them                                  \n"\
+"\t                                                             \n"
+
+if [ $# -ne 1 ]; then
+  echo -e "$USAGE"
+  exit 1
+fi
+
+BIN=$1/bin
+UNIT_TEST=$1/unit-test
+
+# Disable permanant log for all the controls we are going to run in here
+
+FD_LOG_PATH=""
+export FD_LOG_PATH
+
+# Delete any existing netns and interface
+ip netns delete "$IFACE0" &> /dev/null
+ip netns delete "$IFACE1" &> /dev/null
+
+ip link del dev "$IFACE0" &> /dev/null # Destroys IFACE1 too. Okay if this fails
+ip link del dev "$IFACE1" &> /dev/null # Just in case
+
+# (Re-)create veth virtual network devices
+
+# create namespaces
+ip netns add "$IFACE0" || exit $?
+ip netns add "$IFACE1" || exit $?
+
+# create pair of connected interfaces
+# number of queues should be 1 to allow for one XSK instance
+ip link add dev "$IFACE0"       \
+            type veth           \
+            peer name "$IFACE1" \
+            numtxqueues 1       \
+            numrxqueues 2       \
+  || exit $?
+
+# add MAC addresses
+ip link set dev "$IFACE0" address "$IFACE0_MAC" || exit $?
+ip link set dev "$IFACE1" address "$IFACE1_MAC" || exit $?
+
+# attach interfaces to namespaces
+ip link set "$IFACE0" netns "$IFACE0" || exit $?
+ip link set "$IFACE1" netns "$IFACE1" || exit $?
+
+# add IP addresses
+ip netns exec "$IFACE0" ip address add "$IFACE0_ADDR/$IP_CLASS" dev "$IFACE0" || exit $?
+ip netns exec "$IFACE1" ip address add "$IFACE1_ADDR/$IP_CLASS" dev "$IFACE1" || exit $?
+
+# raise interfaces
+ip netns exec "$IFACE0" ip link set dev "$IFACE0" up || exit $?
+ip netns exec "$IFACE1" ip link set dev "$IFACE1" up || exit $?
+
+# add routes
+ip netns exec "$IFACE1" ip route add unicast 192.168.42.0/24 dev "$IFACE1"
+ip netns exec "$IFACE0" ip route add unicast 192.168.36.0/24 dev "$IFACE0"
+
+# tcp dump
+# ip netns exec "$IFACE0" tcpdump -i "$IFACE0" -nn &
+
+# run server in namespace "$IFACE0" in background
+ip netns exec "$IFACE0" $SCRDIR/test_quic_arp_run "$BIN" "$IFACE0" \
+  $UNIT_TEST/test_quic_arp_server --iface "$IFACE0" \
+  --ifqueue 0 --src-mac "$IFACE0_MAC" --listen-ip "$IFACE0_ADDR" \
+  --listen-port 4242 --bpf-dir "$IFACE0" &
+
+# run client in namespace "$IFACE1"
+ip netns exec "$IFACE1" $SCRDIR/test_quic_arp_run "$BIN" "$IFACE1" \
+  $UNIT_TEST/test_quic_arp_client --iface "$IFACE1" \
+  --listen-ip "$IFACE1_ADDR" --listen-port 4242 --bpf-dir "$IFACE1" \
+  --ifqueue 0 --src-mac "$IFACE1_MAC" --server-ip "$IFACE0_ADDR" \
+  --server-port 4242 || exit $?
+
+# wait for server to complete
+wait || exit $?
+
+# Clean up
+
+# delete namespaces
+ip netns delete "$IFACE0" &> /dev/null
+ip netns delete "$IFACE1" &> /dev/null
+
+# delete interfaces
+ip link del dev "$IFACE0" &> /dev/null
+ip link del dev "$IFACE1" &> /dev/null
+
+echo pass
+exit 0

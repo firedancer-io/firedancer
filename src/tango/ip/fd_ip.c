@@ -12,6 +12,10 @@ ulong
 fd_ip_footprint( ulong arp_entries,
                  ulong route_entries ) {
 
+  /* use 32 as a default */
+  if( arp_entries   == 0 ) arp_entries   = 32;
+  if( route_entries == 0 ) route_entries = 32;
+
   ulong l;
 
   l = FD_LAYOUT_INIT;
@@ -32,6 +36,10 @@ fd_ip_new( void * shmem,
     FD_LOG_ERR(( "Attempt to fd_ip_new with unaligned memory" ));
     return NULL;
   }
+
+  /* use 32 as a default */
+  if( arp_entries   == 0 ) arp_entries   = 32;
+  if( route_entries == 0 ) route_entries = 32;
 
   ulong l;
   uchar * mem = (uchar*)shmem;
