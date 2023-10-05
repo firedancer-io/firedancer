@@ -90,7 +90,9 @@ FD_BINCODE_PRIMITIVE_STUBS( uint8,   uchar   )
 FD_BINCODE_PRIMITIVE_STUBS( uint16,  ushort  )
 FD_BINCODE_PRIMITIVE_STUBS( uint32,  uint    )
 FD_BINCODE_PRIMITIVE_STUBS( uint64,  ulong   )
+#if FD_HAS_INT128
 FD_BINCODE_PRIMITIVE_STUBS( uint128, uint128 )
+#endif
 FD_BINCODE_PRIMITIVE_STUBS( double,  double  )
 
 static inline int

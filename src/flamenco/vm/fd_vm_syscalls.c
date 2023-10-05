@@ -21,6 +21,10 @@
 #pragma GCC diagnostic ignored "-Wsuggest-attribute=const"
 #endif
 
+#if !FD_HAS_SECP256K1
+#error "This file requires secp256k1"
+#endif
+
 static ulong
 fd_vm_consume_compute_meter(fd_vm_exec_context_t * ctx, ulong cost) {
   int exceeded = ctx->compute_meter < cost;

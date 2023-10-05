@@ -67,6 +67,7 @@ $(info Using FD_HAS_SHANI=$(FD_HAS_SHANI))
 ifeq ($(FD_HAS_X86),1)
 include config/with-threads.mk
 include config/with-openssl.mk
+include config/with-bz2.mk
 include config/with-zstd.mk
 include config/with-rocksdb.mk
 include config/with-secp256k1.mk

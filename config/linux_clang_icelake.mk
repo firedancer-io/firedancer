@@ -9,6 +9,7 @@ include config/with-threads.mk
 include config/with-openssl.mk
 include config/with-rocksdb.mk
 include config/with-secp256k1.mk
+include config/with-bz2.mk
 include config/with-zstd.mk
 
 # Clang sadly doesn't support important optimizations.  This practically

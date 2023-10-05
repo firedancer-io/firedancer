@@ -4,7 +4,6 @@
 /* fd_poh provides a software-based implementation of the Proof-of-History hashchain. */
 
 #include "../sha256/fd_sha256.h"
-#include "../../flamenco/types/fd_types.h"
 
 FD_PROTOTYPES_BEGIN
 

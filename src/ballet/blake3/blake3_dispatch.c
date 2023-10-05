@@ -17,7 +17,6 @@
 #endif
 #endif
 
-// #define BLAKE3_NO_AVX2
 #define BLAKE3_NO_AVX512
 #define BLAKE3_NO_SSE41
 #define BLAKE3_NO_SSE2
@@ -214,7 +213,7 @@ void blake3_hash_many(const uint8_t *const *inputs, size_t num_inputs,
     return;
   }
 #endif
-#if !defined(BLAKE3_NO_AVX2)
+#if FD_HAS_AVX
   if (features & AVX2) {
     blake3_hash_many_avx2(inputs, num_inputs, blocks, key, counter,
                           increment_counter, flags, flags_start, flags_end,
@@ -261,7 +260,7 @@ size_t blake3_simd_degree(void) {
     return 16;
   }
 #endif
-#if !defined(BLAKE3_NO_AVX2)
+#if FD_HAS_AVX
   if (features & AVX2) {
     return 8;
   }
