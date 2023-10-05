@@ -613,7 +613,9 @@ class, what does the following print?
     }
   }
 
-  FD_LOG_NOTICE(( "Progress: %lu/%lu tests (%lu tests failed but ignored, %lu regressions)", success_cnt, executed_cnt, ignored_cnt, executed_cnt - success_cnt - ignored_cnt ));
+  ulong regressions = executed_cnt - success_cnt - ignored_cnt;
+
+  FD_LOG_NOTICE(( "Progress: %lu/%lu tests (%lu tests failed but ignored, %lu(%f%%) regressions)", success_cnt, executed_cnt, ignored_cnt, regressions,  100.0 * ((double) regressions / (double) executed_cnt) ));
 
   if (NULL != filter)
     regfree(&suite.filter_ex);
