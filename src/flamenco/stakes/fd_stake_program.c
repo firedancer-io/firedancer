@@ -13,7 +13,7 @@
 #endif
 
 /**********************************************************************/
-/* Errors                                                     */
+/* Errors                                                             */
 /**********************************************************************/
 
 // DO NOT REORDER: https://github.com/bincode-org/bincode/blob/trunk/docs/spec.md#enums
@@ -36,7 +36,7 @@
 #define FD_STAKE_ERR_REDELEGATED_STAKE_MUST_FULLY_ACTIVATE_BEFORE_DEACTIVATION_IS_PERMITTED ( 15 )
 
 /**********************************************************************/
-/* Constants                                                    */
+/* Constants                                                          */
 /**********************************************************************/
 
 // https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/mod.rs#L12
@@ -412,8 +412,22 @@ get_minimum_delegation( fd_global_ctx_t * feature_set /* feature set */ ) {
                       MINIMUM_STAKE_DELEGATION );
 }
 
+
 /**********************************************************************/
-/* Validate                                                           */
+/* mod stake/state                                                    */
+/**********************************************************************/
+
+double
+warmup_cooldown_rate( ulong current_epoch, ulong * new_rate_activation_epoch ) {
+  return fd_double_if( current_epoch <
+                           ( new_rate_activation_epoch ? *new_rate_activation_epoch : ULONG_MAX ),
+                       DEFAULT_WARMUP_COOLDOWN_RATE,
+                       NEW_WARMUP_COOLDOWN_RATE );
+}
+
+
+/**********************************************************************/
+/* validated                                                          */
 /**********************************************************************/
 
 struct validated_delegated_info {
@@ -592,7 +606,7 @@ authorized_authorize( fd_stake_authorized_t *                  self,
 }
 
 /**********************************************************************/
-/* impl Meta                                                    */
+/* impl Meta                                                          */
 /**********************************************************************/
 
 // https://github.com/firedancer-io/solana/blob/v1.17/sdk/program/src/stake/state.rs#L366
@@ -615,18 +629,6 @@ set_lockup_meta( fd_stake_meta_t *             self,
   if ( lockup->epoch ) self->lockup.epoch = *lockup->epoch;
   if ( lockup->custodian ) self->lockup.custodian = *lockup->custodian;
   return OK;
-}
-
-/**********************************************************************/
-/* mod state                                                          */
-/**********************************************************************/
-
-double
-warmup_cooldown_rate( ulong current_epoch, ulong * new_rate_activation_epoch ) {
-  return fd_double_if( current_epoch <
-                           ( new_rate_activation_epoch ? *new_rate_activation_epoch : ULONG_MAX ),
-                       DEFAULT_WARMUP_COOLDOWN_RATE,
-                       NEW_WARMUP_COOLDOWN_RATE );
 }
 
 /**********************************************************************/
