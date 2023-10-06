@@ -80,9 +80,9 @@ FD_PROTOTYPES_BEGIN
     wwl_t _c26 = _mm512_unpacklo_epi64( _t2, _t3 );                     \
     wwl_t _c37 = _mm512_unpackhi_epi64( _t2, _t3 );                     \
     /* At this point _c04 = x0 y0 z0 t0 x4 y4 z4 t4 */                  \
-    /*               _c15 = x1 y1 t1 t1 x5 y5 z4 t5 */                  \
+    /*               _c15 = x1 y1 t1 t1 x5 y5 z5 t5 */                  \
     /*               _c26 = x2 y2 z2 t2 -- -- -- -- */                  \
-    /*               _c37 = x3 y3 z2 t3 -- -- -- -- */                  \
+    /*               _c37 = x3 y3 z3 t3 -- -- -- -- */                  \
     Q##03 = wwl_pack_halves( _c04,0, _c37,0 );                          \
     Q##14 = wwl_pack_h0_h1 ( _c15,   _c04   );                          \
     Q##25 = wwl_pack_h0_h1 ( _c26,   _c15   );                          \
@@ -128,7 +128,7 @@ FD_PROTOTYPES_BEGIN
   } while(0)
 
 /* FD_R43X6_QUAD_LANE_BLEND does:
-     D = [ imm0 ? SX : TX, imm1 ? SY : TY, imm2 ? SZ : TZ, imm3 ? ST : TT ]
+     D = [ imm0 ? TX : SX, imm1 ? TY : SY, imm2 ? TZ : SZ, imm3 ? TT : ST ]
    imm* should be in [0,1]. */
 
 #define FD_R43X6_QUAD_LANE_BLEND( D, imm0,imm1,imm2,imm3, S, T ) do {                  \
@@ -277,22 +277,22 @@ fd_r43x6_quad_mul_fast( fd_r43x6_t * _z03, fd_r43x6_t * _z14, fd_r43x6_t * _z25,
      the low partials, organized:
 
        [ p00l p03l ], [ p01l p04l ], [ p02l p05l ],
-       [ p10l p03l ], [ p11l p14l ], [ p12l p15l ],
-       [ p20l p03l ], [ p21l p24l ], [ p22l p25l ],
-       [ p30l p03l ], [ p31l p34l ], [ p32l p35l ],
-       [ p40l p03l ], [ p41l p44l ], [ p42l p45l ],
-       [ p50l p03l ], [ p51l p54l ], [ p52l p55l ]
+       [ p10l p13l ], [ p11l p14l ], [ p12l p15l ],
+       [ p20l p23l ], [ p21l p24l ], [ p22l p25l ],
+       [ p30l p33l ], [ p31l p34l ], [ p32l p35l ],
+       [ p40l p43l ], [ p41l p44l ], [ p42l p45l ],
+       [ p50l p53l ], [ p51l p54l ], [ p52l p55l ]
 
      If we use the lower half of these results to accumulate the
      partials for the first 3 rows, we have:
 
        p0_q3 = [ p00l p03l ]
-       p1_q4 = [ p10l p04l ] + [ p01l p04l ]
-       p2_q5 = [ p20l p05l ] + [ p11l p15l ] + [ p02l p05l ]
-       p3_q6 = [ p30l p06l ] + [ p21l p26l ] + [ p12l p15l ]
-       p4_q7 = [ p40l p07l ] + [ p31l p37l ] + [ p22l p25l ]
-       p5_q8 = [ p50l p08l ] + [ p41l p48l ] + [ p32l p35l ]
-       p6_q9 =                 [ p51l p59l ] + [ p42l p45l ]
+       p1_q4 = [ p10l p13l ] + [ p01l p04l ]
+       p2_q5 = [ p20l p23l ] + [ p11l p14l ] + [ p02l p05l ]
+       p3_q6 = [ p30l p33l ] + [ p21l p24l ] + [ p12l p15l ]
+       p4_q7 = [ p40l p43l ] + [ p31l p34l ] + [ p22l p25l ]
+       p5_q8 = [ p50l p53l ] + [ p41l p44l ] + [ p32l p35l ]
+       p6_q9 =                 [ p51l p54l ] + [ p42l p45l ]
        p7_qa =                                 [ p52l p55l ]
 
      We also see that doing this implicitly accumulates the last 3 rows
