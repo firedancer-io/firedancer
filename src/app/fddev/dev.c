@@ -45,7 +45,7 @@ parent_signal( int sig ) {
     if( kill( firedancer_pid, SIGINT ) ) err = 1;
   if( FD_LIKELY( monitor_pid ) )
     if( kill( monitor_pid, SIGKILL ) ) err = 1;
-  fd_log_private_fprintf_0( STDERR_FILENO, "Log at \"%s\"\n", fd_log_private_path );
+  fd_log_private_fprintf_nolock_0( STDERR_FILENO, "Log at \"%s\"\n", fd_log_private_path );
   exit_group( err );
 }
 
@@ -128,7 +128,7 @@ dev_cmd_fn( args_t *         args,
     int wstatus;
     pid_t exited_pid = wait4( -1, &wstatus, (int)__WALL, NULL );
     if( FD_UNLIKELY( exited_pid == -1 ) ) {
-      fd_log_private_fprintf_0( STDERR_FILENO, "wait4() failed (%i-%s)", errno, fd_io_strerror( errno ) );
+      fd_log_private_fprintf_nolock_0( STDERR_FILENO, "wait4() failed (%i-%s)", errno, fd_io_strerror( errno ) );
       exit_group( 1 );
     }
 

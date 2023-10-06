@@ -557,6 +557,59 @@ fd_log_private_fprintf_0( int          fd,
 
 }
 
+/* This is the same as fd_log_private_fprintf_0 except that it does not try to
+   take a lock when writing to the log file.  This should almost never be used
+   except in exceptional cases when logging while the process is shutting down.
+   
+   It exists because if a child process dies while holding the lock, we may
+   want to log some diagnostic messages when tearing down the process tree. */
+void
+fd_log_private_fprintf_nolock_0( int          fd,
+                                 char const * fmt, ... ) {
+
+  /* Note: while this function superfically looks vdprintf-ish, we don't
+     use that as it can do all sorts of unpleasantness under the hood
+     (fflush, mutex / futex on fd, non-AS-safe buffering, ...) that this
+     function deliberately avoids.  Also, the function uses the shared
+     lock to help keep messages generated from processes that share the
+     same log fd sane. */
+
+  /* TODO:
+     - Consider moving to util/io as fd_io_printf or renaming to
+       fd_log_printf?
+     - Is msg better to have on stack or in thread local storage?
+     - Is msg even necessary given shared lock? (probably still useful to
+       keep the message write to be a single-system-call best effort)
+     - Allow partial write to fd_io_write?  (e.g. src_min=0 such that
+       the fd_io_write below is guaranteed to be a single system call) */
+
+  char msg[ FD_LOG_BUF_SZ ];
+
+  va_list ap;
+  va_start( ap, fmt );
+  int len = vsnprintf( msg, FD_LOG_BUF_SZ, fmt, ap );
+  if( len<0                        ) len = 0;                        /* cmov */
+  if( len>(int)(FD_LOG_BUF_SZ-1UL) ) len = (int)(FD_LOG_BUF_SZ-1UL); /* cmov */
+  msg[ len ] = '\0';
+  va_end( ap );
+
+# if FD_HAS_ATOMIC
+  FD_COMPILER_MFENCE();
+  while(( FD_LIKELY( FD_ATOMIC_CAS( fd_log_private_shared_lock, 0, 1 ) ) )) ;
+  FD_COMPILER_MFENCE();
+# endif
+
+  ulong wsz;
+  fd_io_write( fd, msg, (ulong)len, (ulong)len, &wsz ); /* Note: we ignore errors because what are we doing to do? log them? */
+
+# if FD_HAS_ATOMIC
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( *fd_log_private_shared_lock ) = 0;
+  FD_COMPILER_MFENCE();
+# endif
+
+}
+
 /* Log buffer used by fd_log_private_0 and fd_log_private_hexdump_msg */
 
 static FD_TLS char fd_log_private_log_msg[ FD_LOG_BUF_SZ ];
