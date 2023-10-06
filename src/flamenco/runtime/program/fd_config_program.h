@@ -14,7 +14,7 @@ https://github.com/solana-labs/solana/blob/a03ae63daff987912c48ee286eb8ee7e8a84b
 FD_PROTOTYPES_BEGIN
 
 /* Entry-point for the Solana Config Program */
-int fd_executor_config_program_execute_instruction( instruction_ctx_t ctx ) ;
+int fd_executor_config_program_execute_instruction( fd_exec_instr_ctx_t ctx ) ;
 
 FD_PROTOTYPES_END
 

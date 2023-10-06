@@ -22,15 +22,15 @@ enum MERGE_KIND_STATE {
 };
 
 /* Entry-point for the Solana Stake Program */
-int fd_executor_stake_program_execute_instruction( instruction_ctx_t ctx ) ;
+int fd_executor_stake_program_execute_instruction( fd_exec_instr_ctx_t ctx ) ;
 
 /* Initializes an account which holds configuration used by the stake program.
    https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/config.rs
  */
-void fd_stake_program_config_init( fd_global_ctx_t* global );
+void fd_stake_program_config_init( fd_exec_slot_ctx_t * slot_ctx );
 
 int
-read_stake_state( fd_global_ctx_t const *   global,
+read_stake_state( fd_exec_slot_ctx_t const * slot_ctx,
                   fd_account_meta_t const * metadata,
                   fd_stake_state_t *        result );
 

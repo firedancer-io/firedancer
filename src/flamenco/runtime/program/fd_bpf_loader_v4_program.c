@@ -2,16 +2,17 @@
 #include "../fd_runtime.h"
 #include "../../types/fd_types.h"
 #include "../../../util/bits/fd_sat.h"
+#include "../fd_system_ids.h"
 
 #define DEPLOYMENT_COOLDOWN_IN_SLOTS (750)
 
 /* Methods for processing specific BPF Loader v4 instructions */
 
-static int _process_write             ( instruction_ctx_t, fd_bpf_loader_v4_program_instruction_write_t const * );
-static int _process_truncate          ( instruction_ctx_t, uint );
-static int _process_deploy            ( instruction_ctx_t );
-static int _process_retract           ( instruction_ctx_t );
-static int _process_transfer_authority( instruction_ctx_t );
+static int _process_write             ( fd_exec_instr_ctx_t, fd_bpf_loader_v4_program_instruction_write_t const * );
+static int _process_truncate          ( fd_exec_instr_ctx_t, uint );
+static int _process_deploy            ( fd_exec_instr_ctx_t );
+static int _process_retract           ( fd_exec_instr_ctx_t );
+static int _process_transfer_authority( fd_exec_instr_ctx_t );
 
 /* check_program_account runs a sequence of checks on an account owned
    by the BPF Loader v4 program.  Used by most instruction handlers.
@@ -33,12 +34,11 @@ static int _process_transfer_authority( instruction_ctx_t );
    https://github.com/solana-labs/solana/blob/d90e1582869d8ef8d386a1c156eda987404c43be/programs/loader-v4/src/lib.rs#L203 */
 
 static int
-check_program_account( instruction_ctx_t         ctx,
+check_program_account( fd_exec_instr_ctx_t         ctx,
                        fd_account_meta_t const * program_meta ) {
 
   /* Unpack arguments */
 
-  fd_global_ctx_t const * global         = ctx.global;
   uchar const * instr_acc_idxs = ctx.instr->acct_txn_idxs;
   fd_pubkey_t * txn_accs =  ctx.txn_ctx->accounts;
   ulong                   instr_acc_cnt  = ctx.instr->acct_cnt;
@@ -50,7 +50,7 @@ check_program_account( instruction_ctx_t         ctx,
   fd_pubkey_t const * authority = &txn_accs[ instr_acc_idxs[1] ];
 
   /* https://github.com/solana-labs/solana/blob/d90e1582869d8ef8d386a1c156eda987404c43be/programs/loader-v4/src/lib.rs#L209 */
-  if( FD_UNLIKELY( 0!=memcmp( program_meta->info.owner, global->solana_bpf_loader_v4_program->key, sizeof(fd_pubkey_t) ) ) ) {
+  if( FD_UNLIKELY( 0!=memcmp( program_meta->info.owner, fd_solana_bpf_loader_v4_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
     // TODO Log: "Program not owner by loader"
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
   }
@@ -98,7 +98,7 @@ check_program_account( instruction_ctx_t         ctx,
    BPF Loader v4 program (i.e. instruction's program ID matches) */
 
 static int
-_process_meta_instruction( instruction_ctx_t ctx ) {
+_process_meta_instruction( fd_exec_instr_ctx_t ctx ) {
 
   /* TODO: Consume DEFAULT_COMPUTE_UNITS upfront if feature_set::native_programs_consume_cu is active
      https://github.com/solana-labs/solana/blob/d90e1582869d8ef8d386a1c156eda987404c43be/programs/loader-v4/src/lib.rs#L577 */
@@ -140,14 +140,13 @@ _process_meta_instruction( instruction_ctx_t ctx ) {
 }
 
 int
-fd_executor_bpf_loader_v4_program_execute_instruction( instruction_ctx_t ctx ) {
+fd_executor_bpf_loader_v4_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
 
   /* Query program ID */
-  fd_global_ctx_t *   global     = ctx.global;
   fd_pubkey_t const * txn_accs =  ctx.txn_ctx->accounts;
   fd_pubkey_t const * program_id = &txn_accs[ ctx.instr->program_id ];
 
-  if( 0==memcmp( program_id, &global->solana_bpf_loader_v4_program->key, sizeof(fd_pubkey_t) ) ) {
+  if( 0==memcmp( program_id, fd_solana_bpf_loader_v4_program_id.key, sizeof(fd_pubkey_t) ) ) {
     return _process_meta_instruction( ctx );
   } else {
     FD_LOG_WARNING(( "BPF loader v4 program execution not yet supported" ));
@@ -156,17 +155,16 @@ fd_executor_bpf_loader_v4_program_execute_instruction( instruction_ctx_t ctx ) {
 }
 
 static int
-_process_write( instruction_ctx_t                                    ctx,
+_process_write( fd_exec_instr_ctx_t                                    ctx,
                 fd_bpf_loader_v4_program_instruction_write_t const * write ) {
 
   /* Context */
 
-  fd_global_ctx_t *   global         = ctx.global;
   uchar const * instr_acc_idxs = ctx.instr->acct_txn_idxs;
   fd_pubkey_t * txn_accs =  ctx.txn_ctx->accounts;
   ulong               instr_acc_cnt  = ctx.instr->acct_cnt;
-  fd_acc_mgr_t *      acc_mgr        = global->acc_mgr;
-  fd_funk_txn_t *     funk_txn       = global->funk_txn;
+  fd_acc_mgr_t *      acc_mgr        = ctx.acc_mgr;
+  fd_funk_txn_t *     funk_txn       = ctx.funk_txn;
 
   /* Unpack accounts
 
@@ -205,7 +203,7 @@ _process_write( instruction_ctx_t                                    ctx,
   /* https://github.com/solana-labs/solana/blob/d90e1582869d8ef8d386a1c156eda987404c43be/programs/loader-v4/src/lib.rs#L252 */
   int is_initialization = (write->offset==0U) & (program_rec->const_meta->dlen==0UL);
   if( is_initialization ) {
-    if( FD_UNLIKELY( 0!=memcmp( program_rec->const_meta->info.owner, global->solana_bpf_loader_v4_program->key, sizeof(fd_pubkey_t) ) ) )
+    if( FD_UNLIKELY( 0!=memcmp( program_rec->const_meta->info.owner, fd_solana_bpf_loader_v4_program_id.key, sizeof(fd_pubkey_t) ) ) )
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
     if( FD_UNLIKELY( !fd_txn_is_writable( ctx.txn_ctx->txn_descriptor, instr_acc_idxs[0] ) ) )
       return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
@@ -251,7 +249,7 @@ _process_write( instruction_ctx_t                                    ctx,
   ulong const program_acc_new_sz =
     fd_ulong_max( program_rec->const_meta->dlen, end_offset + sizeof(fd_bpf_loader_v4_state_t) );
 
-  fd_rent_t const * rent = &global->bank.rent;
+  fd_rent_t const * rent = &ctx.slot_ctx->bank.rent;
   ulong required_lamports = fd_rent_exempt_minimum_balance2( rent, program_acc_new_sz );
   ulong transfer_lamports = fd_ulong_sat_sub( required_lamports, program_rec->const_meta->info.lamports );
 
@@ -288,7 +286,7 @@ _process_write( instruction_ctx_t                                    ctx,
   if( is_initialization ) {
     FD_TEST( program_rec->meta->dlen >= sizeof(fd_bpf_loader_v4_state_t) );
     fd_bpf_loader_v4_state_t * state = (fd_bpf_loader_v4_state_t *)fd_type_pun( program_rec->data );
-    state->slot          = global->bank.slot;  /* Solana Labs reads from the clock sysvar here */
+    state->slot          = ctx.slot_ctx->bank.slot;  /* Solana Labs reads from the clock sysvar here */
     state->is_deployed   = 0;
     state->has_authority = 1;
     memcpy( state->authority_addr, authority->key, sizeof(fd_pubkey_t) );
@@ -309,16 +307,15 @@ _process_write( instruction_ctx_t                                    ctx,
 }
 
 static int
-_process_truncate( instruction_ctx_t ctx,
+_process_truncate( fd_exec_instr_ctx_t ctx,
                    uint              offset ) {
 
   /* Accounts */
 
-  fd_global_ctx_t *   global         = ctx.global;
   uchar const * instr_acc_idxs = ctx.instr->acct_txn_idxs;
   fd_pubkey_t const * txn_accs =  ctx.txn_ctx->accounts;
-  fd_acc_mgr_t *      acc_mgr        = global->acc_mgr;
-  fd_funk_txn_t *     funk_txn       = global->funk_txn;
+  fd_acc_mgr_t *      acc_mgr        = ctx.acc_mgr;
+  fd_funk_txn_t *     funk_txn       = ctx.funk_txn;
 
   if( FD_UNLIKELY( ctx.instr->acct_cnt < 3 ) )
     return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
@@ -369,7 +366,7 @@ _process_truncate( instruction_ctx_t ctx,
     required_lamports     = 0UL;
   } else {
     target_program_acc_sz = sizeof(fd_bpf_loader_v4_state_t) + offset;
-    required_lamports     = fd_rent_exempt_minimum_balance2( &global->bank.rent, target_program_acc_sz );
+    required_lamports     = fd_rent_exempt_minimum_balance2( &ctx.slot_ctx->bank.rent, target_program_acc_sz );
   }
 
   /* Upgrade to writable handle and shrink account.
@@ -398,11 +395,9 @@ _process_truncate( instruction_ctx_t ctx,
 }
 
 static int
-_process_deploy( instruction_ctx_t ctx ) {
+_process_deploy( fd_exec_instr_ctx_t ctx ) {
 
   /* Accounts */
-
-  fd_global_ctx_t *   global         = ctx.global;
   uchar const * instr_acc_idxs = ctx.instr->acct_txn_idxs;
   fd_pubkey_t const * txn_accs =  ctx.txn_ctx->accounts;
   if (ctx.instr->acct_cnt < 2) {
@@ -417,7 +412,7 @@ _process_deploy( instruction_ctx_t ctx ) {
   }
   // Load program account
   FD_BORROWED_ACCOUNT_DECL(program_acc_rec);
-  int err = fd_acc_mgr_modify(global->acc_mgr, global->funk_txn, program_acc, 1, 0, program_acc_rec);
+  int err = fd_acc_mgr_modify(ctx.acc_mgr, ctx.funk_txn, program_acc, 1, 0, program_acc_rec);
   if( FD_UNLIKELY( err ) ) return err;
   err = check_program_account(ctx, program_acc_rec->meta);
   if( FD_UNLIKELY( err ) ) return err;
@@ -427,7 +422,7 @@ _process_deploy( instruction_ctx_t ctx ) {
       fd_type_pun_const( program_acc_rec->const_data );
 
   fd_sol_sysvar_clock_t clock;
-  fd_sysvar_clock_read(global, &clock);
+  fd_sysvar_clock_read(ctx.slot_ctx, &clock);
   ulong current_slot = clock.slot;
 
   if (fd_ulong_sat_add(state->slot, DEPLOYMENT_COOLDOWN_IN_SLOTS) > current_slot) {
@@ -444,7 +439,7 @@ _process_deploy( instruction_ctx_t ctx ) {
   fd_borrowed_account_t *source_program_rec = NULL;
   if (source_program) {
     source_program_rec = fd_borrowed_account_init(fd_alloca(FD_BORROWED_ACCOUNT_ALIGN, FD_BORROWED_ACCOUNT_FOOTPRINT));
-    err = fd_acc_mgr_modify(global->acc_mgr, global->funk_txn, source_program, 1, 0, source_program_rec);
+    err = fd_acc_mgr_modify(ctx.acc_mgr, ctx.funk_txn, source_program, 1, 0, source_program_rec);
     if (FD_UNLIKELY(err != FD_EXECUTOR_INSTR_SUCCESS)) {
       return err;
     }
@@ -478,7 +473,7 @@ _process_deploy( instruction_ctx_t ctx ) {
   // )?;
 
   if (source_program) {
-    ulong required_lamports = fd_rent_exempt_minimum_balance(global, program_acc_rec->meta->dlen);
+    ulong required_lamports = fd_rent_exempt_minimum_balance(ctx.slot_ctx, program_acc_rec->meta->dlen);
     ulong transfer_lamports = fd_ulong_sat_sub(program_acc_rec->meta->info.lamports, required_lamports);
 
     program_acc_rec->meta->dlen = source_program_rec->meta->dlen;
@@ -499,15 +494,13 @@ _process_deploy( instruction_ctx_t ctx ) {
 }
 
 static int
-_process_retract( instruction_ctx_t ctx ) {
+_process_retract( fd_exec_instr_ctx_t ctx ) {
 
   /* Context */
-
-  fd_global_ctx_t *   global         = ctx.global;
   uchar const * instr_acc_idxs = ctx.instr->acct_txn_idxs;
   fd_pubkey_t const * txn_accs =  ctx.txn_ctx->accounts;
-  fd_acc_mgr_t *      acc_mgr        = global->acc_mgr;
-  fd_funk_txn_t *     funk_txn       = global->funk_txn;
+  fd_acc_mgr_t *      acc_mgr        = ctx.acc_mgr;
+  fd_funk_txn_t *     funk_txn       = ctx.funk_txn;
 
   /* Unpack accounts
 
@@ -537,7 +530,7 @@ _process_retract( instruction_ctx_t ctx ) {
 
   /* Solana Labs reads from the clock sysvar here
      https://github.com/solana-labs/solana/blob/d90e1582869d8ef8d386a1c156eda987404c43be/programs/loader-v4/src/lib.rs#L504 */
-  ulong current_slot = global->bank.slot;
+  ulong current_slot = ctx.slot_ctx->bank.slot;
   if( state->slot + DEPLOYMENT_COOLDOWN_IN_SLOTS > current_slot ) {
     // TODO Log: "Program was deployed recently, cooldown stil in effect"
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
@@ -564,15 +557,13 @@ _process_retract( instruction_ctx_t ctx ) {
 }
 
 static int
-_process_transfer_authority( instruction_ctx_t ctx ) {
+_process_transfer_authority( fd_exec_instr_ctx_t ctx ) {
 
   /* Context */
-
-  fd_global_ctx_t *   global         = ctx.global;
   uchar const * instr_acc_idxs = ctx.instr->acct_txn_idxs;
   fd_pubkey_t const * txn_accs =  ctx.txn_ctx->accounts;
-  fd_acc_mgr_t *      acc_mgr        = global->acc_mgr;
-  fd_funk_txn_t *     funk_txn       = global->funk_txn;
+  fd_acc_mgr_t *      acc_mgr        = ctx.acc_mgr;
+  fd_funk_txn_t *     funk_txn       = ctx.funk_txn;
 
   /* Unpack accounts
 

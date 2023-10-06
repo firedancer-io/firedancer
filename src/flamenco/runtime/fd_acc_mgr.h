@@ -6,6 +6,7 @@
 #include "../../funk/fd_funk.h"
 #include "fd_banks_solana.h"
 #include "fd_hashes.h"
+#include "fd_borrowed_account.h"
 
 #define FD_ACC_MGR_SUCCESS             (0)
 #define FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT (-1)
@@ -22,45 +23,19 @@
 #define FD_ACC_MGR_ALIGN     (8UL)
 
 struct __attribute__((aligned(FD_ACC_MGR_ALIGN))) fd_acc_mgr {
-  fd_global_ctx_t * global;
+  fd_funk_t * funk;
 };
 typedef struct fd_acc_mgr fd_acc_mgr_t;
 
-// cache line aligned...
-struct __attribute__((aligned(64UL))) fd_borrowed_account {
-  fd_pubkey_t const         * pubkey;
-
-  fd_account_meta_t const   * const_meta;
-  uchar             const   * const_data;
-  fd_funk_rec_t const       * const_rec;
-
-  fd_account_meta_t         * meta;
-  uchar                     * data;
-  fd_funk_rec_t             * rec;
-  // Only 8 more bytes in this cache line...
-};
-typedef struct fd_borrowed_account fd_borrowed_account_t;
-#define FD_BORROWED_ACCOUNT_FOOTPRINT (sizeof(fd_borrowed_account_t))
-#define FD_BORROWED_ACCOUNT_ALIGN     (64UL)
-
-#define FD_BORROWED_ACCOUNT_DECL(_x)  fd_borrowed_account_t _x[1]; fd_borrowed_account_init(_x);
-
 FD_PROTOTYPES_BEGIN
-
-static inline
-fd_borrowed_account_t *
-fd_borrowed_account_init( void * ptr) {
-  memset(ptr, 0, FD_BORROWED_ACCOUNT_FOOTPRINT);
-  return ptr;
-}
 
 /* fd_acc_mgr_new formats a memory region suitable to hold an
    fd_acc_mgr_t.  Binds newly created object to global and returns
    cast. */
 
 fd_acc_mgr_t *
-fd_acc_mgr_new( void *            mem,
-                fd_global_ctx_t * global );
+fd_acc_mgr_new( void *      mem,
+                fd_funk_t * funk );
 
 /* fd_acc_mgr_key returns a fd_funk database key given a pubkey. */
 
@@ -132,7 +107,6 @@ fd_acc_mgr_view( fd_acc_mgr_t *          acc_mgr,
                  fd_funk_txn_t const *   txn,
                  fd_pubkey_t const *     pubkey,
                  fd_borrowed_account_t * account) {
-
   int err = FD_ACC_MGR_SUCCESS;
   uchar const * raw = fd_acc_mgr_view_raw( acc_mgr, txn, pubkey, &account->const_rec, &err );
   if (FD_UNLIKELY(!FD_RAW_ACCOUNT_EXISTS(raw))) {
@@ -140,6 +114,8 @@ fd_acc_mgr_view( fd_acc_mgr_t *          acc_mgr,
       return err;
     return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
   }
+
+  FD_TEST(FD_BORROWED_ACCOUNT_MAGIC == account->magic);
 
   account->pubkey = pubkey;
 
@@ -150,6 +126,12 @@ fd_acc_mgr_view( fd_acc_mgr_t *          acc_mgr,
 
   account->const_meta = meta;
   account->const_data = raw + meta->hlen;
+
+  if (ULONG_MAX == account->starting_dlen)
+    account->starting_dlen = meta->dlen;
+
+  if (ULONG_MAX == account->starting_lamports)
+    account->starting_lamports = meta->info.lamports;
 
   return FD_ACC_MGR_SUCCESS;
 }
@@ -211,6 +193,8 @@ fd_acc_mgr_modify( fd_acc_mgr_t *         acc_mgr,
   uchar * raw = fd_acc_mgr_modify_raw( acc_mgr, txn, pubkey, do_create, min_data_sz, account->const_rec, &account->rec, &err );
   if( FD_UNLIKELY( !raw ) ) return err;
 
+  FD_TEST(FD_BORROWED_ACCOUNT_MAGIC == account->magic);
+
   account->pubkey = pubkey;
 
   fd_account_meta_t * meta = (fd_account_meta_t *)raw;
@@ -218,8 +202,15 @@ fd_acc_mgr_modify( fd_acc_mgr_t *         acc_mgr,
   if( FD_UNLIKELY( meta->magic != FD_ACCOUNT_META_MAGIC ) )
     return FD_ACC_MGR_ERR_WRONG_MAGIC;
 
+  account->const_rec = account->rec;
   account->const_meta = account->meta = meta;
   account->const_data = account->data = raw + meta->hlen;
+
+  if (ULONG_MAX == account->starting_dlen)
+    account->starting_dlen = meta->dlen;
+
+  if (ULONG_MAX == account->starting_lamports)
+    account->starting_lamports = meta->info.lamports;
 
   return FD_ACC_MGR_SUCCESS;
 }
@@ -235,13 +226,13 @@ fd_acc_mgr_commit_raw( fd_acc_mgr_t *      acc_mgr,
                        fd_funk_rec_t *     rec,
                        fd_pubkey_t const * pubkey,
                        void *              raw,
-                       ulong               slot );
+                       fd_exec_slot_ctx_t * slot_ctx );
 
 static inline
 int fd_acc_mgr_commit( fd_acc_mgr_t *      acc_mgr,
                        fd_borrowed_account_t *account,
-                       ulong               slot ) {
-  return fd_acc_mgr_commit_raw( acc_mgr, account->rec, account->pubkey, account->meta, slot );
+                       fd_exec_slot_ctx_t *  slot_ctx ) {
+  return fd_acc_mgr_commit_raw( acc_mgr, account->rec, account->pubkey, account->meta, slot_ctx );
 }
 
 FD_FN_CONST char const *

@@ -2,6 +2,7 @@
 #include "../../../flamenco/types/fd_types.h"
 #include "fd_sysvar.h"
 #include "math.h"
+#include "../fd_system_ids.h"
 
 fd_epoch_schedule_t *
 fd_epoch_schedule_derive( fd_epoch_schedule_t * schedule,
@@ -32,7 +33,7 @@ fd_epoch_schedule_derive( fd_epoch_schedule_t * schedule,
 }
 
 static void
-write_epoch_schedule( fd_global_ctx_t *     global,
+write_epoch_schedule( fd_exec_slot_ctx_t  * slot_ctx,
                       fd_epoch_schedule_t * epoch_schedule ) {
   ulong   sz  = fd_epoch_schedule_size( epoch_schedule );
   /* TODO remove alloca */
@@ -44,16 +45,16 @@ write_epoch_schedule( fd_global_ctx_t *     global,
   if ( fd_epoch_schedule_encode( epoch_schedule, &ctx ) )
     FD_LOG_ERR(("fd_epoch_schedule_encode failed"));
 
-  fd_sysvar_set( global, global->sysvar_owner, (fd_pubkey_t *) global->sysvar_epoch_schedule, enc, sz, global->bank.slot, NULL );
+  fd_sysvar_set( slot_ctx, fd_sysvar_owner_id.key, &fd_sysvar_epoch_schedule_id, enc, sz, slot_ctx->bank.slot, NULL );
 }
 
 void
-fd_sysvar_epoch_schedule_read( fd_global_ctx_t *     global,
+fd_sysvar_epoch_schedule_read( fd_exec_slot_ctx_t  * slot_ctx,
                                fd_epoch_schedule_t * result ) {
 
   FD_BORROWED_ACCOUNT_DECL(epoch_schedule_rec);
 
-  int err = fd_acc_mgr_view( global->acc_mgr, global->funk_txn, (fd_pubkey_t const *)global->sysvar_epoch_schedule,epoch_schedule_rec );
+  int err = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, &fd_sysvar_epoch_schedule_id, epoch_schedule_rec );
   if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
     FD_LOG_ERR(( "failed to read epoch schedule sysvar: %d", err ));
     return;
@@ -62,7 +63,7 @@ fd_sysvar_epoch_schedule_read( fd_global_ctx_t *     global,
   fd_bincode_decode_ctx_t decode = {
     .data    = epoch_schedule_rec->const_data,
     .dataend = epoch_schedule_rec->const_data + epoch_schedule_rec->const_meta->dlen,
-    .valloc  = global->valloc
+    .valloc  = slot_ctx->valloc
   };
 
   if( FD_UNLIKELY( fd_epoch_schedule_decode( result, &decode ) ) )
@@ -70,8 +71,8 @@ fd_sysvar_epoch_schedule_read( fd_global_ctx_t *     global,
 }
 
 void
-fd_sysvar_epoch_schedule_init( fd_global_ctx_t* global ) {
-  write_epoch_schedule( global, &global->bank.epoch_schedule );
+fd_sysvar_epoch_schedule_init( fd_exec_slot_ctx_t * slot_ctx ) {
+  write_epoch_schedule( slot_ctx, &slot_ctx->bank.epoch_schedule );
 }
 
 /* https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/sdk/program/src/epoch_schedule.rs#L105 */

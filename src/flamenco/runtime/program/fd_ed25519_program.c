@@ -24,7 +24,7 @@ static const ulong SIGNATURE_OFFSETS_START = 2;
 FD_STATIC_ASSERT( alignof( fd_ed25519_signature_offsets_t )==sizeof( ushort ), fd_ballet );
 FD_STATIC_ASSERT( sizeof( fd_ed25519_signature_offsets_t )==14, fd_ballet );
 
-static int fd_executor_ed25519_program_get_data( instruction_ctx_t ctx, ulong index, ulong offset, ulong sz, void const ** res ) {
+static int fd_executor_ed25519_program_get_data( fd_exec_instr_ctx_t ctx, ulong index, ulong offset, ulong sz, void const ** res ) {
   uchar const * data;
   ulong data_sz;
   if ( index == USHORT_MAX) {
@@ -44,7 +44,7 @@ static int fd_executor_ed25519_program_get_data( instruction_ctx_t ctx, ulong in
   return 0;
 }
 
-int fd_executor_ed25519_program_execute_instruction( instruction_ctx_t ctx ) {
+int fd_executor_ed25519_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
   uchar const * data = ctx.instr->data;
   ulong data_sz = ctx.instr->data_sz;
 

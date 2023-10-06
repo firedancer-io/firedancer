@@ -71,7 +71,8 @@ typedef struct slot_capitalization slot_capitalization_t;
 #include "../../util/tmpl/fd_map.c"
 
 struct global_state {
-  fd_global_ctx_t*       global;
+  fd_exec_slot_ctx_t *   slot_ctx;
+  fd_exec_epoch_ctx_t *  epoch_ctx;
 
   int                    argc;
   char       **          argv;
@@ -87,6 +88,8 @@ struct global_state {
   slot_capitalization_t *map;
 
   FILE * capture_file;
+  fd_tpool_t *     tpool;
+  ulong            max_workers;
 };
 typedef struct global_state global_state_t;
 
@@ -116,7 +119,7 @@ usage( char const * progname ) {
 
 int
 accounts_hash( global_state_t *state ) {
-  fd_funk_t * funk = state->global->funk;
+  fd_funk_t * funk = state->slot_ctx->acc_mgr->funk;
   fd_wksp_t * wksp = fd_funk_wksp( funk );
   fd_funk_rec_t * rec_map  = fd_funk_rec_map( funk, wksp );
   ulong num_iter_accounts = fd_funk_rec_map_key_cnt( rec_map );
@@ -125,7 +128,7 @@ accounts_hash( global_state_t *state ) {
 
   ulong zero_accounts = 0;
   ulong num_pairs = 0;
-  fd_pubkey_hash_pair_t * pairs = fd_valloc_malloc( state->global->valloc, 8UL, num_iter_accounts*sizeof(fd_pubkey_hash_pair_t));
+  fd_pubkey_hash_pair_t * pairs = fd_valloc_malloc( state->slot_ctx->valloc, 8UL, num_iter_accounts*sizeof(fd_pubkey_hash_pair_t));
   for( fd_funk_rec_map_iter_t iter = fd_funk_rec_map_iter_init( rec_map );
        !fd_funk_rec_map_iter_done( rec_map, iter );
        iter = fd_funk_rec_map_iter_next( rec_map, iter ) ) {
@@ -156,7 +159,7 @@ accounts_hash( global_state_t *state ) {
   FD_LOG_WARNING(("num_iter_accounts %ld zero_accounts %lu", num_iter_accounts, zero_accounts));
   FD_LOG_NOTICE(( "HASHING ACCOUNTS" ));
   fd_hash_t accounts_hash;
-  fd_hash_account_deltas(state->global, pairs, num_pairs, &accounts_hash);
+  fd_hash_account_deltas(pairs, num_pairs, &accounts_hash);
 
   FD_LOG_WARNING(("accounts_hash %32J", accounts_hash.hash));
   FD_LOG_WARNING(("num_iter_accounts %ld", num_iter_accounts));
@@ -171,42 +174,42 @@ replay( global_state_t * state,
         ulong            max_workers ) {
   /* Create scratch allocator */
 
-  state->global->tpool = tpool;
-  state->global->max_workers = max_workers;
+  state->tpool = tpool;
+  state->max_workers = max_workers;
 
   ulong  smax = 512 /*MiB*/ << 20;
-  void * smem = fd_wksp_alloc_laddr( state->global->local_wksp, fd_scratch_smem_align(), smax, 1UL );
+  void * smem = fd_wksp_alloc_laddr( state->slot_ctx->local_wksp, fd_scratch_smem_align(), smax, 1UL );
   if( FD_UNLIKELY( !smem ) ) FD_LOG_ERR(( "Failed to alloc scratch mem" ));
   ulong  scratch_depth = 4UL;
-  void * fmem = fd_wksp_alloc_laddr( state->global->local_wksp, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( scratch_depth ), 2UL );
+  void * fmem = fd_wksp_alloc_laddr( state->slot_ctx->local_wksp, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( scratch_depth ), 2UL );
   if( FD_UNLIKELY( !fmem ) ) FD_LOG_ERR(( "Failed to alloc scratch frames" ));
 
   fd_scratch_attach( smem, fmem, smax, scratch_depth );
 
-  fd_features_restore( state->global );
+  fd_features_restore( state->slot_ctx );
 
   fd_funk_rec_key_t key = fd_runtime_block_meta_key(ULONG_MAX);
-  fd_funk_rec_t const * rec = fd_funk_rec_query( state->global->funk, NULL, &key );
+  fd_funk_rec_t const * rec = fd_funk_rec_query( state->slot_ctx->acc_mgr->funk, NULL, &key );
   if (rec == NULL)
     FD_LOG_ERR(("missing meta record"));
   fd_slot_meta_meta_t mm;
-  const void * val = fd_funk_val( rec, fd_funk_wksp(state->global->funk) );
+  const void * val = fd_funk_val( rec, fd_funk_wksp(state->slot_ctx->acc_mgr->funk) );
   fd_bincode_decode_ctx_t ctx2;
   ctx2.data    = val;
   ctx2.dataend = (uchar*)val + fd_funk_val_sz(rec);
-  ctx2.valloc  = state->global->valloc;
+  ctx2.valloc  = state->slot_ctx->valloc;
   if ( fd_slot_meta_meta_decode( &mm, &ctx2 ) )
     FD_LOG_ERR(("fd_slot_meta_meta_decode failed"));
 
   if (mm.end_slot < state->end_slot)
     state->end_slot = mm.end_slot;
 
-  fd_runtime_update_leaders(state->global, state->global->bank.slot);
+  fd_runtime_update_leaders(state->slot_ctx, state->slot_ctx->bank.slot);
 
-  ulong prev_slot = state->global->bank.slot;
-  for ( ulong slot = state->global->bank.slot+1; slot < state->end_slot; ++slot ) {
-    state->global->bank.prev_slot = prev_slot;
-    state->global->bank.slot      = slot;
+  ulong prev_slot = state->slot_ctx->bank.slot;
+  for ( ulong slot = state->slot_ctx->bank.slot+1; slot < state->end_slot; ++slot ) {
+    state->slot_ctx->bank.prev_slot = prev_slot;
+    state->slot_ctx->bank.slot      = slot;
 
     FD_LOG_INFO(("reading slot %ld", slot));
 
@@ -215,66 +218,62 @@ replay( global_state_t * state,
     /* Read block meta */
 
     key = fd_runtime_block_meta_key(slot);
-    rec = fd_funk_rec_query( state->global->funk, NULL, &key );
+    rec = fd_funk_rec_query( state->slot_ctx->acc_mgr->funk, NULL, &key );
     if( FD_UNLIKELY( !rec ) ) continue;
-    val = fd_funk_val( rec, fd_funk_wksp(state->global->funk) );
+    val = fd_funk_val( rec, fd_funk_wksp(state->slot_ctx->acc_mgr->funk) );
     fd_bincode_decode_ctx_t ctx3;
     ctx3.data = val;
     ctx3.dataend = (uchar*)val + fd_funk_val_sz(rec);
-    ctx3.valloc  = state->global->valloc;
+    ctx3.valloc  = state->slot_ctx->valloc;
     if( FD_UNLIKELY( fd_slot_meta_decode( &m, &ctx3 )!=FD_BINCODE_SUCCESS ) )
       FD_LOG_ERR(("fd_slot_meta_decode failed"));
 
     /* Read block */
 
     key = fd_runtime_block_key( slot );
-    rec = fd_funk_rec_query( state->global->funk, NULL, &key );
+    rec = fd_funk_rec_query( state->slot_ctx->acc_mgr->funk, NULL, &key );
     if( FD_UNLIKELY( !rec ) ) FD_LOG_ERR(("missing block record"));
-    val = fd_funk_val( rec, fd_funk_wksp(state->global->funk) );
+    val = fd_funk_val( rec, fd_funk_wksp(state->slot_ctx->acc_mgr->funk) );
 
     if ( justverify ) {
       if ( tpool )
-        fd_runtime_block_verify_tpool( state->global, &m, val, fd_funk_val_sz(rec), tpool, max_workers );
+        fd_runtime_block_verify_tpool( state->slot_ctx, &m, val, fd_funk_val_sz(rec), tpool, max_workers );
       else
-        fd_runtime_block_verify( state->global, &m, val, fd_funk_val_sz(rec) );
+        fd_runtime_block_verify( state->slot_ctx, &m, val, fd_funk_val_sz(rec) );
     } else {
-      FD_TEST (fd_runtime_block_eval( state->global, &m, val, fd_funk_val_sz(rec) ) == FD_RUNTIME_EXECUTE_SUCCESS);
+      FD_TEST (fd_runtime_block_eval( state->slot_ctx, &m, val, fd_funk_val_sz(rec) ) == FD_RUNTIME_EXECUTE_SUCCESS);
     }
 
-    fd_bincode_destroy_ctx_t ctx = { .valloc = state->global->valloc };
+    fd_bincode_destroy_ctx_t ctx = { .valloc = state->slot_ctx->valloc };
     fd_slot_meta_destroy(&m, &ctx);
 
     /* Read bank hash */
 
-    fd_hash_t const * known_bank_hash = fd_get_bank_hash( state->global->funk, slot );
+    fd_hash_t const * known_bank_hash = fd_get_bank_hash( state->slot_ctx->acc_mgr->funk, slot );
     if( known_bank_hash ) {
-      if( FD_UNLIKELY( 0!=memcmp( state->global->bank.banks_hash.hash, known_bank_hash->hash, 32UL ) ) ) {
+      if( FD_UNLIKELY( 0!=memcmp( state->slot_ctx->bank.banks_hash.hash, known_bank_hash->hash, 32UL ) ) ) {
         FD_LOG_WARNING(( "Bank hash mismatch! slot=%lu expected=%32J, got=%32J",
                          slot,
                          known_bank_hash->hash,
-                         state->global->bank.banks_hash.hash ));
-        if( state->global->abort_on_mismatch ) {
-          fd_solcap_writer_fini( state->global->capture );
-          return 1;
-        }
+                         state->slot_ctx->bank.banks_hash.hash ));
       }
     }
 
     if (NULL != state->capitalization_file) {
       slot_capitalization_t *c = capitalization_map_query(state->map, slot, NULL);
       if (NULL != c) {
-        if (state->global->bank.capitalization != c->capitalization)
-          FD_LOG_NOTICE(( "capitalization missmatch!  slot=%lu got=%ld != expected=%ld  (%ld)", slot, state->global->bank.capitalization, c->capitalization,  state->global->bank.capitalization - c->capitalization  ));
+        if (state->slot_ctx->bank.capitalization != c->capitalization)
+          FD_LOG_NOTICE(( "capitalization missmatch!  slot=%lu got=%ld != expected=%ld  (%ld)", slot, state->slot_ctx->bank.capitalization, c->capitalization,  state->slot_ctx->bank.capitalization - c->capitalization  ));
       }
     }
 
     prev_slot = slot;
   }
 
-  // fd_funk_txn_publish( state->global->funk, state->global->funk_txn, 1);
+  // fd_funk_txn_publish( state->slot_ctx->acc_mgr->funk, state->slot_ctx->acc_mgr->funk_txn, 1);
 
-  fd_rent_lists_delete(state->global->rentlists);
-  state->global->rentlists = NULL;
+  fd_rent_lists_delete(state->epoch_ctx->rentlists);
+  state->epoch_ctx->rentlists = NULL;
 
   FD_TEST( fd_scratch_frame_used()==0UL );
   fd_wksp_free_laddr( fd_scratch_detach( NULL ) );
@@ -291,11 +290,15 @@ main( int     argc,
   global_state_t state;
   fd_memset(&state, 0, sizeof(state));
 
-  char global_mem[FD_GLOBAL_CTX_FOOTPRINT] __attribute__((aligned(FD_GLOBAL_CTX_ALIGN)));
-  state.global = fd_global_ctx_join( fd_global_ctx_new( global_mem ) );
+  uchar epoch_ctx_mem[FD_EXEC_EPOCH_CTX_FOOTPRINT] __attribute__((aligned(FD_EXEC_EPOCH_CTX_ALIGN)));
+  state.epoch_ctx = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem ) );
+
+  uchar slot_ctx_mem[FD_EXEC_SLOT_CTX_FOOTPRINT] __attribute__((aligned(FD_EXEC_SLOT_CTX_ALIGN)));
+  state.slot_ctx = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem ) );
+  state.slot_ctx->epoch_ctx = state.epoch_ctx;
 
   fd_acc_mgr_t _acc_mgr[1];
-  state.global->acc_mgr = fd_acc_mgr_new( _acc_mgr, state.global );
+  state.slot_ctx->acc_mgr = fd_acc_mgr_new( _acc_mgr, NULL );
 
   state.argc = argc;
   state.argv = argv;
@@ -311,7 +314,6 @@ main( int     argc,
 
   char const * index_max_opt           = fd_env_strip_cmdline_cstr ( &argc, &argv, "--index-max", NULL, NULL );
   char const * validate_db             = fd_env_strip_cmdline_cstr ( &argc, &argv, "--validate",  NULL, NULL );
-  char const * log_level               = fd_env_strip_cmdline_cstr ( &argc, &argv, "--loglevel", NULL, NULL );
   char const * capture_fpath           = fd_env_strip_cmdline_cstr ( &argc, &argv, "--capture",   NULL, NULL );
   char const * trace_fpath             = fd_env_strip_cmdline_cstr ( &argc, &argv, "--trace",     NULL, NULL );
   int          retrace                 = fd_env_strip_cmdline_int  ( &argc, &argv, "--retrace",   NULL, 0    );
@@ -321,8 +323,6 @@ main( int     argc,
   char const * confirm_account_delta   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--confirm_account_delta", NULL, NULL);
   char const * confirm_signature       = fd_env_strip_cmdline_cstr ( &argc, &argv, "--confirm_signature",     NULL, NULL);
   char const * confirm_last_block      = fd_env_strip_cmdline_cstr ( &argc, &argv, "--confirm_last_block",    NULL, NULL);
-
-  state.global->abort_on_mismatch = (uchar)fd_env_strip_cmdline_int( &argc, &argv, "--abort-on-mismatch", NULL, 0 );
 
   if (state.cmd == NULL) {
     usage(argv[0]);
@@ -379,8 +379,8 @@ main( int     argc,
   ulong tag = FD_FUNK_MAGIC;
   if (fd_wksp_tag_query(funk_wksp, &tag, 1, &info, 1) > 0) {
     shmem = fd_wksp_laddr_fast( funk_wksp, info.gaddr_lo );
-    state.global->funk = fd_funk_join(shmem);
-    if (state.global->funk == NULL)
+    state.slot_ctx->acc_mgr->funk = fd_funk_join(shmem);
+    if (state.slot_ctx->acc_mgr->funk == NULL)
       FD_LOG_ERR(( "failed to join a funky" ));
   } else {
     shmem = fd_wksp_alloc_laddr( funk_wksp, fd_funk_align(), fd_funk_footprint(), FD_FUNK_MAGIC );
@@ -391,22 +391,19 @@ main( int     argc,
       index_max = (ulong) atoi((char *) index_max_opt);
     ulong xactions_max = 100;     // Maximum size (count) of transaction index
     FD_LOG_NOTICE(("creating new funk db, index_max=%lu xactions_max=%lu", index_max, xactions_max));
-    state.global->funk = fd_funk_join(fd_funk_new(shmem, 1, hashseed, xactions_max, index_max));
-    if (state.global->funk == NULL) {
+    state.slot_ctx->acc_mgr->funk = fd_funk_join(fd_funk_new(shmem, 1, hashseed, xactions_max, index_max));
+    if (state.slot_ctx->acc_mgr->funk == NULL) {
       fd_wksp_free_laddr(shmem);
       FD_LOG_ERR(( "failed to allocate a funky" ));
     }
   }
 
   if ((validate_db != NULL) && (strcmp(validate_db, "true") == 0)) {
-    FD_LOG_INFO(("starting validate"));
-    if ( fd_funk_verify(state.global->funk) != FD_FUNK_SUCCESS )
+    FD_LOG_WARNING(("starting validate"));
+    if ( fd_funk_verify(state.slot_ctx->acc_mgr->funk) != FD_FUNK_SUCCESS )
       FD_LOG_ERR(("valdation failed"));
     FD_LOG_INFO(("finishing validate"));
   }
-
-  if (NULL != log_level)
-    state.global->log_level = (uchar) atoi(log_level);
 
   void * alloc_shmem = fd_wksp_alloc_laddr( local_wksp, fd_alloc_align(), fd_alloc_footprint(), 3UL );
   if( FD_UNLIKELY( !alloc_shmem ) ) {
@@ -421,9 +418,9 @@ main( int     argc,
     FD_LOG_ERR(( "fd_alloc_join failed" ));
   }
 
-  state.global->funk_wksp = funk_wksp;
-  state.global->local_wksp = local_wksp;
-  state.global->valloc = fd_libc_alloc_virtual();
+  state.slot_ctx->funk_wksp = funk_wksp;
+  state.slot_ctx->local_wksp = local_wksp;
+  state.slot_ctx->valloc = fd_libc_alloc_virtual();
 
   if( capture_fpath ) {
     state.capture_file = fopen( capture_fpath, "w+" );
@@ -432,9 +429,9 @@ main( int     argc,
 
     void * capture_writer_mem = fd_alloc_malloc( alloc, fd_solcap_writer_align(), fd_solcap_writer_footprint() );
     FD_TEST( capture_writer_mem );
-    state.global->capture = fd_solcap_writer_new( capture_writer_mem );
+    state.slot_ctx->capture = fd_solcap_writer_new( capture_writer_mem );
 
-    FD_TEST( fd_solcap_writer_init( state.global->capture, state.capture_file ) );
+    FD_TEST( fd_solcap_writer_init( state.slot_ctx->capture, state.capture_file ) );
   }
 
   if( trace_fpath ) {
@@ -447,40 +444,40 @@ main( int     argc,
     if( FD_UNLIKELY( fd<=0 ) )  /* technically 0 is valid, but it serves as a sentinel here */
       FD_LOG_ERR(( "open(%s) failed (%d-%s)", trace_fpath, errno, fd_io_strerror( errno ) ));
 
-    state.global->trace_mode |= FD_RUNTIME_TRACE_SAVE;
-    state.global->trace_dirfd = fd;
+    state.slot_ctx->trace_mode |= FD_RUNTIME_TRACE_SAVE;
+    state.slot_ctx->trace_dirfd = fd;
   }
 
   if( retrace ) {
     FD_LOG_NOTICE(( "Retrace mode enabled" ));
 
-    state.global->trace_mode |= FD_RUNTIME_TRACE_REPLAY;
+    state.slot_ctx->trace_mode |= FD_RUNTIME_TRACE_REPLAY;
   }
 
   {
     FD_LOG_NOTICE(("reading banks record"));
     fd_funk_rec_key_t id = fd_runtime_banks_key();
-    fd_funk_rec_t const * rec = fd_funk_rec_query_global(state.global->funk, NULL, &id);
+    fd_funk_rec_t const * rec = fd_funk_rec_query_global(state.slot_ctx->acc_mgr->funk, NULL, &id);
     if ( rec == NULL )
       FD_LOG_ERR(("failed to read banks record"));
-    void * val = fd_funk_val( rec, fd_funk_wksp(state.global->funk) );
+    void * val = fd_funk_val( rec, fd_funk_wksp(state.slot_ctx->acc_mgr->funk) );
     fd_bincode_decode_ctx_t ctx2;
     ctx2.data = val;
     ctx2.dataend = (uchar*)val + fd_funk_val_sz( rec );
-    ctx2.valloc  = state.global->valloc;
-    FD_TEST( fd_firedancer_banks_decode(&state.global->bank, &ctx2 )==FD_BINCODE_SUCCESS );
+    ctx2.valloc  = state.slot_ctx->valloc;
+    FD_TEST( fd_firedancer_banks_decode(&state.slot_ctx->bank, &ctx2 )==FD_BINCODE_SUCCESS );
 
     FD_LOG_NOTICE(( "decoded slot=%ld banks_hash=%32J poh_hash %32J",
-                    (long)state.global->bank.slot,
-                    state.global->bank.banks_hash.hash,
-                    state.global->bank.poh.hash ));
+                    (long)state.slot_ctx->bank.slot,
+                    state.slot_ctx->bank.banks_hash.hash,
+                    state.slot_ctx->bank.poh.hash ));
 
-    state.global->bank.collected_fees = 0;
-    state.global->bank.collected_rent = 0;
+    state.slot_ctx->bank.collected_fees = 0;
+    state.slot_ctx->bank.collected_rent = 0;
 
     FD_LOG_NOTICE(( "decoded slot=%ld capitalization=%ld",
-                    (long)state.global->bank.slot,
-                    state.global->bank.capitalization));
+                    (long)state.slot_ctx->bank.slot,
+                    state.slot_ctx->bank.capitalization));
   }
 
   ulong tcnt = fd_tile_cnt();
@@ -503,28 +500,28 @@ main( int     argc,
     if (NULL != confirm_hash) {
       uchar h[32];
       fd_base58_decode_32( confirm_hash,  h);
-      FD_TEST(memcmp(h, &state.global->bank.banks_hash, sizeof(h)) == 0);
+      FD_TEST(memcmp(h, &state.slot_ctx->bank.banks_hash, sizeof(h)) == 0);
     }
 
     if (NULL != confirm_parent) {
       uchar h[32];
       fd_base58_decode_32( confirm_parent,  h);
-      FD_TEST(memcmp(h, state.global->prev_banks_hash.uc, sizeof(h)) == 0);
+      FD_TEST(memcmp(h, state.slot_ctx->prev_banks_hash.uc, sizeof(h)) == 0);
     }
 
     if (NULL != confirm_account_delta) {
       uchar h[32];
       fd_base58_decode_32( confirm_account_delta,  h);
-      FD_TEST(memcmp(h, state.global->account_delta_hash.uc, sizeof(h)) == 0);
+      FD_TEST(memcmp(h, state.slot_ctx->account_delta_hash.uc, sizeof(h)) == 0);
     }
 
     if (NULL != confirm_signature)
-      FD_TEST((ulong) atoi(confirm_signature) == state.global->signature_cnt);
+      FD_TEST((ulong) atoi(confirm_signature) == state.slot_ctx->signature_cnt);
 
     if (NULL != confirm_last_block) {
       uchar h[32];
       fd_base58_decode_32( confirm_last_block,  h);
-      FD_TEST(memcmp(h, &state.global->bank.poh, sizeof(h)) == 0);
+      FD_TEST(memcmp(h, &state.slot_ctx->bank.poh, sizeof(h)) == 0);
     }
 
   }
@@ -533,18 +530,19 @@ main( int     argc,
   if (strcmp(state.cmd, "accounts_hash") == 0)
     accounts_hash(&state);
 
-  fd_alloc_free( alloc, fd_solcap_writer_delete( fd_solcap_writer_fini( state.global->capture ) ) );
+  fd_alloc_free( alloc, fd_solcap_writer_delete( fd_solcap_writer_fini( state.slot_ctx->capture ) ) );
   if( state.capture_file  ) fclose( state.capture_file );
-  if( state.global->trace_dirfd>0 ) close( state.global->trace_dirfd );
+  if( state.slot_ctx->trace_dirfd>0 ) close( state.slot_ctx->trace_dirfd );
 
-  fd_global_ctx_delete(fd_global_ctx_leave(state.global));
+  fd_exec_slot_ctx_delete(fd_exec_slot_ctx_leave(state.slot_ctx));
+  fd_exec_epoch_ctx_delete(fd_exec_epoch_ctx_leave(state.epoch_ctx));
 
   FD_TEST(fd_alloc_is_empty(alloc));
   fd_wksp_free_laddr( fd_alloc_delete( fd_alloc_leave( alloc ) ) );
 
-  fd_wksp_delete_anonymous( state.global->local_wksp );
+  fd_wksp_delete_anonymous( state.slot_ctx->local_wksp );
   if( state.name )
-    fd_wksp_detach( state.global->funk_wksp );
+    fd_wksp_detach( state.slot_ctx->funk_wksp );
 
   FD_LOG_NOTICE(( "pass" ));
 

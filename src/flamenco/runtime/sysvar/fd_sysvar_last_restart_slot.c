@@ -1,16 +1,17 @@
 #include "fd_sysvar_last_restart_slot.h"
 #include "../../../flamenco/types/fd_types.h"
 #include "fd_sysvar.h"
+#include "../fd_system_ids.h"
 
 void
-fd_sysvar_last_restart_slot_init( fd_global_ctx_t * global ) {
+fd_sysvar_last_restart_slot_init( fd_exec_slot_ctx_t * slot_ctx ) {
 
-  if( !FD_FEATURE_ACTIVE( global, last_restart_slot_sysvar ) ) {
+  if( !FD_FEATURE_ACTIVE( slot_ctx, last_restart_slot_sysvar ) ) {
     FD_LOG_INFO(( "sysvar LastRestartSlot not supported by this ledger version!" ));
     return;
   }
 
-  fd_sol_sysvar_last_restart_slot_t const * sysvar = &global->bank.last_restart_slot;
+  fd_sol_sysvar_last_restart_slot_t const * sysvar = &slot_ctx->bank.last_restart_slot;
 
   ulong sz = fd_sol_sysvar_last_restart_slot_size( sysvar );
   uchar enc[ sz ];
@@ -23,20 +24,20 @@ fd_sysvar_last_restart_slot_init( fd_global_ctx_t * global ) {
   int err = fd_sol_sysvar_last_restart_slot_encode( sysvar, &encode );
   FD_TEST( err==FD_BINCODE_SUCCESS );
 
-  fd_sysvar_set( global,
-                 global->sysvar_owner,
-                 (fd_pubkey_t const *)global->sysvar_last_restart_slot,
+  fd_sysvar_set( slot_ctx,
+                 fd_sysvar_owner_id.key,
+                 &fd_sysvar_last_restart_slot_id,
                  enc, sz,
-                 global->bank.slot,
+                 slot_ctx->bank.slot,
                  NULL );
 }
 
 int
-fd_sysvar_last_restart_slot_read( fd_global_ctx_t const *             global,
+fd_sysvar_last_restart_slot_read( fd_exec_slot_ctx_t const *             slot_ctx,
                                   fd_sol_sysvar_last_restart_slot_t * result ) {
 
   FD_BORROWED_ACCOUNT_DECL(rec);
-  int err = fd_acc_mgr_view(global->acc_mgr, global->funk_txn, (fd_pubkey_t const *)global->sysvar_last_restart_slot, rec);
+  int err = fd_acc_mgr_view(slot_ctx->acc_mgr, slot_ctx->funk_txn, &fd_sysvar_last_restart_slot_id, rec);
 
   if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) )
     return err;
@@ -55,15 +56,15 @@ fd_sysvar_last_restart_slot_read( fd_global_ctx_t const *             global,
 }
 
 void
-fd_sysvar_last_restart_slot_update( fd_global_ctx_t * global ) {
-  if( !FD_FEATURE_ACTIVE( global, last_restart_slot_sysvar ) ) return;
+fd_sysvar_last_restart_slot_update( fd_exec_slot_ctx_t * slot_ctx ) {
+  if( !FD_FEATURE_ACTIVE( slot_ctx, last_restart_slot_sysvar ) ) return;
 
   /* Set this every slot? */
   uchar data[ 8 ];
-  memcpy( data, &global->bank.last_restart_slot, 8 );
-  fd_sysvar_set( global, global->sysvar_owner,
-                 (fd_pubkey_t const *)global->sysvar_last_restart_slot,
+  memcpy( data, &slot_ctx->bank.last_restart_slot, 8 );
+  fd_sysvar_set( slot_ctx, fd_sysvar_owner_id.key,
+                 &fd_sysvar_last_restart_slot_id,
                  data, /* sz */ 8UL,
-                 global->bank.slot,
+                 slot_ctx->bank.slot,
                  NULL );
 }

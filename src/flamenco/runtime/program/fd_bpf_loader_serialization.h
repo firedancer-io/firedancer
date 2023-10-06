@@ -10,16 +10,16 @@
 FD_PROTOTYPES_BEGIN
 
 uchar *
-fd_bpf_loader_input_serialize_aligned( instruction_ctx_t ctx, ulong * sz, ulong * pre_lens );
+fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t ctx, ulong * sz, ulong * pre_lens );
 
 int
-fd_bpf_loader_input_deserialize_aligned( instruction_ctx_t ctx, ulong const * pre_lens, uchar * input, ulong input_sz );
+fd_bpf_loader_input_deserialize_aligned( fd_exec_instr_ctx_t ctx, ulong const * pre_lens, uchar * input, ulong input_sz );
 
 uchar *
-fd_bpf_loader_input_serialize_unaligned( instruction_ctx_t ctx, ulong * sz, ulong * pre_lens );
+fd_bpf_loader_input_serialize_unaligned( fd_exec_instr_ctx_t ctx, ulong * sz, ulong * pre_lens );
 
 int
-fd_bpf_loader_input_deserialize_unaligned( instruction_ctx_t ctx, ulong const * pre_lens, uchar * input, ulong input_sz );
+fd_bpf_loader_input_deserialize_unaligned( fd_exec_instr_ctx_t ctx, ulong const * pre_lens, uchar * input, ulong input_sz );
 
 
 FD_PROTOTYPES_END

@@ -7,7 +7,7 @@
 FD_PROTOTYPES_BEGIN
 
 /* Entry-point for the Solana Ed25519 Program */
-int fd_executor_ed25519_program_execute_instruction( instruction_ctx_t ctx ) ;
+int fd_executor_ed25519_program_execute_instruction( fd_exec_instr_ctx_t ctx ) ;
 
 FD_PROTOTYPES_END
 

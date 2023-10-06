@@ -42,24 +42,22 @@ FD_PROTOTYPES_BEGIN
 /**********************************************************************/
 
 int
-fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx );
+fd_executor_vote_program_execute_instruction( fd_exec_instr_ctx_t ctx );
 
 void
-fd_vote_record_timestamp_vote( fd_global_ctx_t *   global,
-                               fd_pubkey_t const * vote_acc,
-                               ulong               timestamp );
+fd_vote_record_timestamp_vote( fd_exec_slot_ctx_t * slot_ctx, fd_pubkey_t const * vote_acc, ulong timestamp );
 
 void
-fd_vote_record_timestamp_vote_with_slot( fd_global_ctx_t *   global,
+fd_vote_record_timestamp_vote_with_slot( fd_exec_slot_ctx_t * slot_ctx,
                                          fd_pubkey_t const * vote_acc,
                                          ulong               timestamp,
                                          ulong               slot );
 
 int
-fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx );
+fd_executor_vote_program_execute_instruction( fd_exec_instr_ctx_t ctx );
 
 int
-fd_vote_acc_credits( instruction_ctx_t         ctx,
+fd_vote_acc_credits( fd_exec_instr_ctx_t         ctx,
                      fd_account_meta_t const * vote_acc_meta,
                      uchar const *             vote_acc_data,
                      ulong *                   result );
@@ -79,7 +77,7 @@ fd_vote_commission_split( fd_vote_state_versioned_t * vote_state_versioned,
 // Public API wrapper for `vote_account_get_state`. Used by stake program.
 int
 fd_vote_account_get_state( fd_borrowed_account_t *                  self,
-                           instruction_ctx_t                        ctx,
+                           fd_exec_instr_ctx_t                      ctx,
                            /* return */ fd_vote_state_versioned_t * versioned );
 
 FD_PROTOTYPES_END

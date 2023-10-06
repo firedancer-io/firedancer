@@ -58,13 +58,13 @@ FD_PROTOTYPES_BEGIN
    account.  FIXME document what this actually does. */
 
 void
-fd_sysvar_epoch_schedule_init( fd_global_ctx_t * global );
+fd_sysvar_epoch_schedule_init( fd_exec_slot_ctx_t * slot_ctx );
 
 /* fd_sysvar_epoch_schedule_read reads the current value of the epoch
    schedule sysvar into result. */
 
 void
-fd_sysvar_epoch_schedule_read( fd_global_ctx_t *     global,
+fd_sysvar_epoch_schedule_read( fd_exec_slot_ctx_t * slot_ctx,
                                fd_epoch_schedule_t * result );
 
 /* fd_epoch_schedule_derive derives an epoch schedule config from the

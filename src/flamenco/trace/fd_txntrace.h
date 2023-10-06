@@ -7,6 +7,7 @@
 
 #include "../fd_flamenco_base.h"
 #include "fd_trace.pb.h"
+#include "../runtime/fd_executor.h"
 
 /* FD_TXNTRACE_SCRATCH_SPACE is the recommended amount of scratch memory
    available for txn execution captures and replays. */
@@ -51,13 +52,13 @@ FD_PROTOTYPES_BEGIN
 
 fd_soltrace_TxnInput *
 fd_txntrace_capture_pre( fd_soltrace_TxnInput * out,
-                         fd_global_ctx_t *      global,
+                         fd_exec_slot_ctx_t *   slot_ctx,
                          fd_txn_t const *       txn,
                          uchar const *          txn_data );
 
 fd_soltrace_TxnDiff *
 fd_txntrace_capture_post( fd_soltrace_TxnDiff *        out,
-                          fd_global_ctx_t *            global,
+                          fd_exec_slot_ctx_t *         slot_ctx,
                           fd_soltrace_TxnInput const * pre );
 
 /* fd_txntrace_replay replays a single transaction in a reconstructed

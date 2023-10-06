@@ -4,12 +4,13 @@
 #include "../../ballet/txn/fd_txn.h"
 #include "fd_runtime.h"
 #include "program/fd_vote_program.h"
+#include "fd_system_ids.h"
 
 // Once these settle out, we will switch almost everything to not be inlined
 
 static inline
 int fd_account_sanity_check_raw(
-  fd_instr_t const * instr,
+  fd_instr_info_t const * instr,
   fd_txn_t *         txn_descriptor,
   int cnt
 ) {
@@ -27,7 +28,7 @@ int fd_account_sanity_check_raw(
 }
 
 static inline
-int fd_account_sanity_check(instruction_ctx_t const * ctx, int cnt) {
+int fd_account_sanity_check(fd_exec_instr_ctx_t const * ctx, int cnt) {
   return fd_account_sanity_check_raw(ctx->instr, ctx->txn_ctx->txn_descriptor, cnt);
 }
 
@@ -37,7 +38,7 @@ void * fd_account_get_data(fd_account_meta_t *m) {
 }
 
 static inline
-int fd_account_is_early_verification_of_account_modifications_enabled(FD_FN_UNUSED instruction_ctx_t *ctx) {
+int fd_account_is_early_verification_of_account_modifications_enabled(FD_FN_UNUSED fd_exec_instr_ctx_t *ctx) {
   // this seems to be based on if rent is enabled in the transaction
   // context instead on if the feature flag is enabled..   Then, you
   // go look for the feature flag usage it is also confused...  Lets
@@ -50,18 +51,18 @@ int fd_account_is_early_verification_of_account_modifications_enabled(FD_FN_UNUS
 }
 
 static inline
-int fd_account_touch(FD_FN_UNUSED instruction_ctx_t *ctx, FD_FN_UNUSED fd_account_meta_t const * acct, FD_FN_UNUSED fd_pubkey_t const * key, FD_FN_UNUSED int *err) {
+int fd_account_touch(FD_FN_UNUSED fd_exec_instr_ctx_t *ctx, FD_FN_UNUSED fd_account_meta_t const * acct, FD_FN_UNUSED fd_pubkey_t const * key, FD_FN_UNUSED int *err) {
   return OK;
 }
 
 static inline
-int fd_account_is_executable(FD_FN_UNUSED instruction_ctx_t *ctx,  const FD_FN_UNUSED fd_account_meta_t *acct, FD_FN_UNUSED  int *err) {
+int fd_account_is_executable(FD_FN_UNUSED fd_exec_instr_ctx_t *ctx,  const FD_FN_UNUSED fd_account_meta_t *acct, FD_FN_UNUSED  int *err) {
   return acct->info.executable;
 }
 
 //    /// Returns true if the owner of this account is the current `InstructionContext`s last program (instruction wide)
 static inline
-int fd_account_is_owned_by_current_program(const FD_FN_UNUSED instruction_ctx_t *ctx, const FD_FN_UNUSED fd_account_meta_t * acct, FD_FN_UNUSED  int *err) {
+int fd_account_is_owned_by_current_program(const FD_FN_UNUSED fd_exec_instr_ctx_t *ctx, const FD_FN_UNUSED fd_account_meta_t * acct, FD_FN_UNUSED  int *err) {
 //        self.instruction_context
 //            .get_last_program_key(self.transaction_context)
 //            .map(|key| key == self.get_owner())
@@ -70,7 +71,7 @@ int fd_account_is_owned_by_current_program(const FD_FN_UNUSED instruction_ctx_t 
 }
 
 static inline
-int fd_account_can_data_be_resized(instruction_ctx_t *ctx, const fd_account_meta_t * acct, ulong new_length, int *err) {
+int fd_account_can_data_be_resized(fd_exec_instr_ctx_t *ctx, const fd_account_meta_t * acct, ulong new_length, int *err) {
   if (!fd_account_is_early_verification_of_account_modifications_enabled(ctx))
     return 1;
 
@@ -106,22 +107,18 @@ int fd_account_is_writable_idx( fd_txn_t const * txn_descriptor,
   return fd_txn_is_writable(txn_descriptor, idx);
 }
 
-/* TODO just check the owner ... */
 static inline
-int fd_account_is_sysvar(instruction_ctx_t * ctx, fd_pubkey_t * acct) {
-  if (memcmp(acct, ctx->global->sysvar_owner, sizeof(fd_pubkey_t)) == 0) return 1;
-  if (memcmp(acct, ctx->global->sysvar_recent_block_hashes, sizeof(fd_pubkey_t)) == 0) return 1;
-  if (memcmp(acct, ctx->global->sysvar_clock, sizeof(fd_pubkey_t)) == 0) return 1;
-  if (memcmp(acct, ctx->global->sysvar_slot_history, sizeof(fd_pubkey_t)) == 0) return 1;
-  if (memcmp(acct, ctx->global->sysvar_slot_hashes, sizeof(fd_pubkey_t)) == 0) return 1;
-  if (memcmp(acct, ctx->global->sysvar_epoch_schedule, sizeof(fd_pubkey_t)) == 0) return 1;
-  if (memcmp(acct, ctx->global->sysvar_epoch_rewards, sizeof(fd_pubkey_t)) == 0) return 1;
-  if (memcmp(acct, ctx->global->sysvar_fees, sizeof(fd_pubkey_t)) == 0) return 1;
-  if (memcmp(acct, ctx->global->sysvar_rent, sizeof(fd_pubkey_t)) == 0) return 1;
-  if (memcmp(acct, ctx->global->sysvar_stake_history, sizeof(fd_pubkey_t)) == 0) return 1;
-  if (memcmp(acct, ctx->global->sysvar_last_restart_slot, sizeof(fd_pubkey_t)) == 0) return 1;
-  if (memcmp(acct, ctx->global->sysvar_instructions, sizeof(fd_pubkey_t)) == 0) return 1;
-  return 0;
+int fd_txn_account_is_writable_idx( fd_txn_t const * txn_descriptor,
+                                    int idx ) {
+  int acct_addr_cnt = txn_descriptor->acct_addr_cnt;
+  if (txn_descriptor->transaction_version == FD_TXN_V0) {
+    acct_addr_cnt += txn_descriptor->addr_table_adtl_cnt;
+  }
+
+  if (idx == acct_addr_cnt)
+    return 0;
+
+  return fd_txn_is_writable(txn_descriptor, idx);
 }
 
 static inline
@@ -139,7 +136,7 @@ int fd_account_is_writable(fd_rawtxn_b_t * txn_raw, fd_txn_t * txn_descriptor, u
 }
 
 static inline
-int fd_account_can_data_be_changed(instruction_ctx_t *ctx, fd_account_meta_t const * acct, fd_pubkey_t const * key,  int *err) {
+int fd_account_can_data_be_changed(fd_exec_instr_ctx_t *ctx, fd_account_meta_t const * acct, fd_pubkey_t const * key,  int *err) {
   if (!fd_account_is_early_verification_of_account_modifications_enabled(ctx))
     return 1;
 
@@ -184,7 +181,7 @@ int fd_account_is_zeroed(fd_account_meta_t * acct) {
 }
 
 static inline
-int fd_account_set_owner(instruction_ctx_t *ctx, fd_account_meta_t * acct, fd_pubkey_t const * key, fd_pubkey_t * pubkey) {
+int fd_account_set_owner(fd_exec_instr_ctx_t *ctx, fd_account_meta_t * acct, fd_pubkey_t const * key, fd_pubkey_t * pubkey) {
   if (fd_account_is_early_verification_of_account_modifications_enabled(ctx)) {
     int err = 0;
     if (!fd_account_is_owned_by_current_program(ctx, acct, &err))
@@ -197,7 +194,7 @@ int fd_account_set_owner(instruction_ctx_t *ctx, fd_account_meta_t * acct, fd_pu
       return FD_EXECUTOR_INSTR_ERR_MODIFIED_PROGRAM_ID;
     if (memcmp(&acct->info.owner, pubkey, sizeof(fd_pubkey_t)) == 0)
       return FD_ACC_MGR_SUCCESS;
-    if (memcmp(acct->info.owner, ctx->global->solana_system_program, sizeof(acct->info.owner)) != 0)
+    if (memcmp(acct->info.owner, fd_solana_system_program_id.key, sizeof(acct->info.owner)) != 0)
       return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
     // shouldn't the touch and compare here be outside the if?
     if (!fd_account_touch(ctx, acct, key, &err))
@@ -275,7 +272,7 @@ int fd_account_set_owner(instruction_ctx_t *ctx, fd_account_meta_t * acct, fd_pu
 //    /// Overwrites the account data and size (transaction wide)
 
 static inline
-int fd_account_check_set_data(instruction_ctx_t *ctx, fd_account_meta_t * acct, fd_pubkey_t *key, uchar *data, ulong new_length, int space_check, int *err) {
+int fd_account_check_set_data(fd_exec_instr_ctx_t *ctx, fd_account_meta_t * acct, fd_pubkey_t *key, uchar *data, ulong new_length, int space_check, int *err) {
   if (!fd_account_can_data_be_resized(ctx, acct, new_length, err))
     return 0;
 
@@ -316,19 +313,28 @@ int fd_account_check_set_data(instruction_ctx_t *ctx, fd_account_meta_t * acct, 
 //    ///
 //    /// Fills it with zeros at the end if is extended or truncates at the end otherwise.
 
-static inline
-int fd_account_check_set_data_length(instruction_ctx_t *ctx, fd_account_meta_t const * acct, fd_pubkey_t *key, ulong new_length, int *err) {
-  if (!fd_account_can_data_be_resized(ctx, acct, new_length, err))
+static inline int 
+fd_account_check_set_data_length( fd_exec_instr_ctx_t * ctx, 
+                                  fd_account_meta_t const * acct, 
+                                  fd_pubkey_t const * key, 
+                                  ulong new_length, 
+                                  int * err ) {
+  if (!fd_account_can_data_be_resized( ctx, acct, new_length, err ))
     return 0;
 
-  if (!fd_account_can_data_be_changed(ctx, acct, key, err))
+  if (!fd_account_can_data_be_changed( ctx, acct, key, err ))
     return 0;
 
   return 1;
 }
 
-static inline
-int fd_account_set_data_length(instruction_ctx_t *ctx, fd_account_meta_t * acct, fd_pubkey_t *key, ulong new_length, int space_check, int *err) {
+static inline int 
+fd_account_set_data_length( fd_exec_instr_ctx_t * ctx,
+                            fd_account_meta_t * acct, 
+                            fd_pubkey_t const * key,
+                            ulong new_length,
+                            int space_check,
+                            int * err) {
   if (!fd_account_can_data_be_resized(ctx, acct, new_length, err))
     return 0;
 
@@ -420,12 +426,13 @@ int fd_account_set_data_length(instruction_ctx_t *ctx, fd_account_meta_t * acct,
 //    /// Returns whether this account is a signer (instruction wide)
 
 static inline
-int fd_account_is_signer_(instruction_ctx_t const *ctx, fd_pubkey_t const * account) {
-  uchar *       instr_acc_idxs = ctx->instr->acct_txn_idxs;
-  fd_pubkey_t * txn_accs = ctx->txn_ctx->accounts;
+int fd_account_is_signer_( fd_exec_instr_ctx_t const * ctx,
+                           fd_pubkey_t const * account ) {
+  uchar const *       instr_acc_idxs = ctx->instr->acct_txn_idxs;
+  fd_pubkey_t const * txn_accs = ctx->txn_ctx->accounts;
   for ( ulong i = 0; i < ctx->instr->acct_cnt; i++ ) {
     if ( instr_acc_idxs[i] < ctx->txn_ctx->txn_descriptor->signature_cnt ) {
-      fd_pubkey_t * signer = &txn_accs[instr_acc_idxs[i]];
+      fd_pubkey_t const * signer = &txn_accs[instr_acc_idxs[i]];
       if ( memcmp( signer, account, sizeof(fd_pubkey_t) ) == 0 )
         return 1;
     }
@@ -446,8 +453,8 @@ int fd_account_is_signer_(instruction_ctx_t const *ctx, fd_pubkey_t const * acco
 
 static inline
 fd_hash_t const *
-fd_get_bank_hash( fd_funk_t *       funk,
-               ulong             slot ) {
+fd_get_bank_hash( fd_funk_t * funk,
+                  ulong       slot ) {
 
   fd_funk_rec_key_t key = fd_runtime_bank_hash_key( slot );
   fd_funk_rec_t const * rec = fd_funk_rec_query_global( funk, NULL, &key );
@@ -462,20 +469,21 @@ fd_get_bank_hash( fd_funk_t *       funk,
 }
 
 static inline
-int fd_account_set_executable(instruction_ctx_t ctx, fd_pubkey_t * program_acc, fd_account_meta_t * metadata, char is_executable) {
+int fd_account_set_executable( fd_exec_instr_ctx_t * ctx, 
+                               fd_pubkey_t const * program_acc, fd_account_meta_t * metadata, char is_executable) {
   fd_rent_t rent;
   fd_rent_new( &rent );
-  if (fd_sysvar_rent_read( ctx.global, &rent ) == 0) {
-    ulong min_balance = fd_rent_exempt_minimum_balance(ctx.global, metadata->dlen);
+  if (fd_sysvar_rent_read( ctx->slot_ctx, &rent ) == 0) {
+    ulong min_balance = fd_rent_exempt_minimum_balance(ctx->slot_ctx, metadata->dlen);
     if (metadata->info.lamports < min_balance) {
       return FD_EXECUTOR_INSTR_ERR_EXECUTABLE_ACCOUNT_NOT_RENT_EXEMPT;
     }
 
-    if (0 != memcmp(metadata->info.owner, ctx.global->solana_bpf_loader_program, sizeof(fd_pubkey_t))) {
+    if (0 != memcmp(metadata->info.owner, fd_solana_bpf_loader_program_id.uc, sizeof(fd_pubkey_t))) {
       return FD_EXECUTOR_INSTR_ERR_EXECUTABLE_MODIFIED;
     }
 
-    if (!fd_instr_acc_is_writable(ctx.instr, program_acc)) {
+    if (!fd_instr_acc_is_writable(ctx->instr, program_acc)) {
       return FD_EXECUTOR_INSTR_ERR_EXECUTABLE_MODIFIED;
     }
 

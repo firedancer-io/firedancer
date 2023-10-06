@@ -97,7 +97,7 @@ lib: $(OBJDIR)/lib/lib$(1).a
 
 endef
 
-make-lib = $(eval $(call _make-lib,$(1)))
+make-lib = $(eval $(call _make-lib,$(strip $(1))))
 
 ##############################
 # Usage: $(call add-objs,objs,lib)
@@ -110,7 +110,7 @@ $(OBJDIR)/lib/lib$(2).a: $(foreach obj,$(1),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)
 
 endef
 
-add-objs = $(eval $(call _add-objs,$(1),$(2)))
+add-objs = $(eval $(call _add-objs,$(strip $(1)),$(strip $(2))))
 
 ##############################
 # Usage: $(call add-asms,asms,lib)
@@ -132,7 +132,7 @@ include: $(foreach hdr,$(1),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/include/%,$(OBJ
 
 endef
 
-add-hdrs = $(eval $(call _add-hdrs,$(1)))
+add-hdrs = $(eval $(call _add-hdrs,$(strip $(1))))
 
 ##############################
 # Usage: $(call add-examples,examples)
@@ -143,7 +143,7 @@ include: $(foreach example,$(1),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/example/%,$
 
 endef
 
-add-examples = $(eval $(call _add-examples,$(1)))
+add-examples = $(eval $(call _add-examples,$(strip $(1))))
 
 ##############################
 # Usage: $(call add-scripts,scripts)
@@ -167,8 +167,8 @@ $(1): $(OBJDIR)/$(1)/$(2)
 endef
 
 ifeq "$(FD_HAS_MAIN)" "1"
-add-scripts = $(foreach script,$(1),$(eval $(call _add-script,bin,$(script))))
-add-test-scripts = $(foreach script,$(1),$(eval $(call _add-script,unit-test,$(script))))
+add-scripts = $(foreach script,$(strip $(1)),$(eval $(call _add-script,bin,$(script))))
+add-test-scripts = $(foreach script,$(strip $(1)),$(eval $(call _add-script,unit-test,$(script))))
 endif
 
 ##############################
@@ -222,17 +222,17 @@ run-fuzz-test: $(1)_unit
 endef
 
 ifeq "$(FD_HAS_MAIN)" "1"
-make-bin       = $(eval $(call _make-exe,$(1),$(2),$(3),bin))
-make-unit-test = $(eval $(call _make-exe,$(1),$(2),$(3),unit-test))
+make-bin       = $(eval $(call _make-exe,$(strip $(1)),$(strip $(2)),$(strip $(3)),bin))
+make-unit-test = $(eval $(call _make-exe,$(strip $(1)),$(strip $(2)),$(strip $(3)),unit-test))
 fuzz-test =
-run-unit-test = $(eval $(call _run-unit-test,$(1)))
+run-unit-test = $(eval $(call _run-unit-test,$(strip $(1))))
 run-fuzz-test:
 	@echo "Requested run-fuzz-test but profile MACHINE=$(MACHINE) does not support fuzzing" >&2
 	@exit 1
 else
 make-bin =
 make-unit-test =
-fuzz-test = $(eval $(call _fuzz-test,$(1),$(2),$(3)))
+fuzz-test = $(eval $(call _fuzz-test,$(strip $(1)),$(strip $(2)),$(strip $(3))))
 run-unit-test =
 endif
 

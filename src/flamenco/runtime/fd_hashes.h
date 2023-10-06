@@ -3,13 +3,13 @@
 
 #include "fd_banks_solana.h"
 
+typedef struct fd_exec_slot_ctx fd_exec_slot_ctx_t;
+
 struct fd_pubkey_hash_pair {
   fd_pubkey_t pubkey;
   fd_hash_t   hash;
 };
 typedef struct fd_pubkey_hash_pair fd_pubkey_hash_pair_t;
-
-typedef struct fd_global_ctx fd_global_ctx_t;
 
 #define VECT_NAME fd_pubkey_hash_vector
 #define VECT_ELEMENT fd_pubkey_hash_pair_t
@@ -19,9 +19,9 @@ typedef struct fd_global_ctx fd_global_ctx_t;
 
 FD_PROTOTYPES_BEGIN
 
-void fd_hash_account_deltas(fd_global_ctx_t *global, fd_pubkey_hash_pair_t * pairs, ulong pairs_len, fd_hash_t * hash );
+void fd_hash_account_deltas( fd_pubkey_hash_pair_t * pairs, ulong pairs_len, fd_hash_t * hash );
 
-int fd_update_hash_bank( fd_global_ctx_t * global, fd_hash_t * hash, ulong signature_cnt );
+int fd_update_hash_bank( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t * hash, ulong signature_cnt );
 
 /* fd_hash_account_v0 is the legacy method to compute the account
    hash.  It includes the following content:
@@ -58,11 +58,11 @@ fd_hash_account_v1( uchar                     hash  [ static 32 ],
    based on feature activation state. */
 
 void const *
-fd_hash_account_current( uchar                     hash  [ static 32 ],
-                         fd_account_meta_t const * account,
-                         uchar const               pubkey[ static 32 ],
-                         uchar const             * data,
-                         fd_global_ctx_t const   * global );
+fd_hash_account_current( uchar                      hash  [ static 32 ],
+                         fd_account_meta_t const *  account,
+                         uchar const                pubkey[ static 32 ],
+                         uchar const *              data,
+                         fd_exec_slot_ctx_t const * slot_ctx );
 
 FD_PROTOTYPES_END
 

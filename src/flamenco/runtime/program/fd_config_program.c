@@ -3,7 +3,7 @@
 #include "../fd_runtime.h"
 
 /* https://github.com/solana-labs/solana/blob/a03ae63daff987912c48ee286eb8ee7e8a84bf01/programs/config/src/config_processor.rs#L18 */
-int fd_executor_config_program_execute_instruction( instruction_ctx_t ctx ) {
+int fd_executor_config_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
   int ret = FD_EXECUTOR_INSTR_SUCCESS;
   uchar cleanup_config_account_state = 0;
   uchar cleanup_instruction = 0;
@@ -13,7 +13,7 @@ int fd_executor_config_program_execute_instruction( instruction_ctx_t ctx ) {
      https://github.com/solana-labs/solana/blob/a03ae63daff987912c48ee286eb8ee7e8a84bf01/programs/config/src/config_processor.rs#L25 */
   uchar *data = ctx.instr->data;
   fd_bincode_decode_ctx_t instruction_decode_context = {
-    .valloc  = ctx.global->valloc,
+    .valloc  = ctx.valloc,
     .data    = data,
     .dataend = &data[ctx.instr->data_sz],
   };
@@ -35,29 +35,29 @@ int fd_executor_config_program_execute_instruction( instruction_ctx_t ctx ) {
      goto config_program_execute_instruction_cleanup;
    }
 
-   uchar * instr_acc_idxs = ctx.instr->acct_txn_idxs;
-   fd_pubkey_t * txn_accs = ctx.txn_ctx->accounts;
-   fd_pubkey_t * config_acc = &txn_accs[instr_acc_idxs[0]];
+   uchar const * instr_acc_idxs = ctx.instr->acct_txn_idxs;
+   fd_pubkey_t const * txn_accs = ctx.txn_ctx->accounts;
+   fd_pubkey_t const * config_acc = &txn_accs[instr_acc_idxs[0]];
 
    /* Deserialize the config account data, which must already be a valid ConfigKeys map (zeroed accounts pass this check)
       https://github.com/solana-labs/solana/blob/a03ae63daff987912c48ee286eb8ee7e8a84bf01/programs/config/src/config_processor.rs#L28-L42 */
    /* Read the data from the config account */
-   FD_BORROWED_ACCOUNT_DECL(config_acc_rec);
-   int err = fd_acc_mgr_view(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) config_acc, config_acc_rec);
+   fd_borrowed_account_t * config_acc_rec = NULL;
+   int err = fd_instr_borrowed_account_view(&ctx,  (fd_pubkey_t *) config_acc, & config_acc_rec);
    if (FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS)) {
       ret = err;
       goto config_program_execute_instruction_cleanup;
    }
 
    /* Check that the account owner is correct */
-   if ( memcmp( &config_acc_rec->const_meta->info.owner, &ctx.global->solana_config_program, sizeof(fd_pubkey_t) ) != 0 ) {
+   if ( memcmp( &config_acc_rec->const_meta->info.owner, fd_solana_config_program_id.key, sizeof(fd_pubkey_t) ) != 0 ) {
       ret = FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
       goto config_program_execute_instruction_cleanup;
    }
 
    /* Decode the config state into the ConfigKeys struct */
    fd_bincode_decode_ctx_t config_acc_state_decode_context = {
-      .valloc  = ctx.global->valloc,
+      .valloc  = ctx.valloc,
       .data    = config_acc_rec->const_data,
       .dataend = config_acc_rec->const_data + config_acc_rec->const_meta->dlen,
    };
@@ -112,7 +112,7 @@ int fd_executor_config_program_execute_instruction( instruction_ctx_t ctx ) {
       uchar acc_signed = 0;
       for ( ulong i = 0; i < ctx.instr->acct_cnt; i++ ) {
         if ( instr_acc_idxs[i] < ctx.txn_ctx->txn_descriptor->signature_cnt ) {
-          fd_pubkey_t * signer = &txn_accs[instr_acc_idxs[i]];
+          fd_pubkey_t const * signer = &txn_accs[instr_acc_idxs[i]];
           if ( !memcmp( signer, &elem->key, sizeof(fd_pubkey_t) ) ) {
             acc_signed = 1;
             break;
@@ -155,7 +155,7 @@ int fd_executor_config_program_execute_instruction( instruction_ctx_t ctx ) {
 
    /* Disallow duplicate keys
       https://github.com/solana-labs/solana/blob/a03ae63daff987912c48ee286eb8ee7e8a84bf01/programs/config/src/config_processor.rs#L105-L115 */
-   if( FD_FEATURE_ACTIVE( ctx.global, dedupe_config_program_signers ) ) {
+   if( FD_FEATURE_ACTIVE( ctx.slot_ctx, dedupe_config_program_signers ) ) {
       for ( ulong i = 0; i < instruction.keys_len; i++ ) {
          for ( ulong j = 0; j < instruction.keys_len; j++ ) {
             if ( i == j ) {
@@ -205,7 +205,7 @@ int fd_executor_config_program_execute_instruction( instruction_ctx_t ctx ) {
 
    ulong new_data_size = fd_ulong_max( ctx.instr->data_sz, config_acc_rec->const_meta->dlen );
 
-   err = fd_acc_mgr_modify(ctx.global->acc_mgr, ctx.global->funk_txn, config_acc, 1, new_data_size, config_acc_rec);
+   err = fd_instr_borrowed_account_modify(&ctx,  config_acc,  1,  new_data_size, & config_acc_rec);
    if ( err != FD_ACC_MGR_SUCCESS) {
       FD_LOG_WARNING(( "failed to write account data" ));
       ret = err;
@@ -216,14 +216,14 @@ int fd_executor_config_program_execute_instruction( instruction_ctx_t ctx ) {
    config_acc_rec->meta->info.rent_epoch = 0;
    config_acc_rec->meta->info.executable = 0;
    config_acc_rec->meta->dlen = new_data_size;
-   err = fd_acc_mgr_commit(ctx.global->acc_mgr, config_acc_rec, ctx.global->bank.slot);
+   err = fd_acc_mgr_commit(ctx.acc_mgr, config_acc_rec, ctx.slot_ctx );
    if ( err != FD_ACC_MGR_SUCCESS) {
       FD_LOG_WARNING(( "failed to write account data" ));
       ret = err;
    }
 
 config_program_execute_instruction_cleanup:
-   destroy_ctx.valloc = ctx.global->valloc;
+   destroy_ctx.valloc = ctx.valloc;
 
    if (cleanup_config_account_state)
      fd_config_keys_destroy( &config_account_state, &destroy_ctx );

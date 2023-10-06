@@ -2,9 +2,10 @@
 #include "../fd_acc_mgr.h"
 #include "../fd_account.h"
 #include "../fd_runtime.h"
+#include "../fd_system_ids.h"
 
 static ulong
-instructions_serialized_size( fd_instr_t const *  instrs,
+instructions_serialized_size( fd_instr_info_t const *  instrs,
                               ushort              instrs_cnt ) {
   ulong serialized_size = 0;
 
@@ -12,7 +13,7 @@ instructions_serialized_size( fd_instr_t const *  instrs,
     + (sizeof(ushort) * instrs_cnt);      // instruction offsets
 
   for ( ushort i = 0; i < instrs_cnt; ++i ) {
-    fd_instr_t const * instr = &instrs[i];
+    fd_instr_info_t const * instr = &instrs[i];
 
     serialized_size += sizeof(ushort); // num_accounts;
 
@@ -33,17 +34,17 @@ instructions_serialized_size( fd_instr_t const *  instrs,
 }
 
 int
-fd_sysvar_instructions_serialize_account( fd_global_ctx_t *   global,
-                                          fd_instr_t const *  instrs,
+fd_sysvar_instructions_serialize_account( fd_exec_slot_ctx_t *   slot_ctx,
+                                          fd_instr_info_t const *  instrs,
                                           ushort              instrs_cnt ) {
   ulong serialized_sz = instructions_serialized_size( instrs, instrs_cnt );
 
   FD_BORROWED_ACCOUNT_DECL(rec);
-  int err = fd_acc_mgr_modify(global->acc_mgr, global->funk_txn, (fd_pubkey_t const *)global->sysvar_instructions, 1, serialized_sz, rec);
+  int err = fd_acc_mgr_modify(slot_ctx->acc_mgr, slot_ctx->funk_txn, &fd_sysvar_instructions_id, 1, serialized_sz, rec);
   if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) )
     return FD_ACC_MGR_ERR_READ_FAILED;
 
-  fd_memcpy( rec->meta->info.owner, global->sysvar_owner, sizeof(fd_pubkey_t) );
+  fd_memcpy( rec->meta->info.owner, fd_sysvar_owner_id.key, sizeof(fd_pubkey_t) );
   rec->meta->info.lamports = 0; // TODO: This cannot be right... well, it gets destroyed almost instantly...
   rec->meta->info.executable = 0;
   rec->meta->info.rent_epoch = 0;
@@ -67,7 +68,7 @@ fd_sysvar_instructions_serialize_account( fd_global_ctx_t *   global,
     FD_STORE( ushort, serialized_instruction_offsets, (ushort) offset );
     serialized_instruction_offsets += sizeof(ushort);
 
-    fd_instr_t const * instr = &instrs[i];
+    fd_instr_info_t const * instr = &instrs[i];
 
     // num_accounts
     FD_STORE( ushort, serialized_instructions + offset, instr->acct_cnt );
@@ -107,16 +108,16 @@ fd_sysvar_instructions_serialize_account( fd_global_ctx_t *   global,
 }
 
 int
-fd_sysvar_instructions_cleanup_account( fd_global_ctx_t * global ) {
+fd_sysvar_instructions_cleanup_account( fd_exec_slot_ctx_t * slot_ctx ) {
   fd_funk_rec_t * acc_data_rec = NULL;
   int modify_err = FD_ACC_MGR_SUCCESS;
 
   // This uses the raw interface since we are also willing to kill dead accounts here...
-  void * raw_acc_data = fd_acc_mgr_modify_raw( global->acc_mgr, global->funk_txn, (fd_pubkey_t const *)global->sysvar_instructions, 0, 0, NULL, &acc_data_rec, &modify_err );
+  void * raw_acc_data = fd_acc_mgr_modify_raw( slot_ctx->acc_mgr, slot_ctx->funk_txn, &fd_sysvar_instructions_id, 0, 0, NULL, &acc_data_rec, &modify_err );
   if( FD_UNLIKELY( NULL == raw_acc_data ) )
     return FD_ACC_MGR_ERR_READ_FAILED;
 
-  int res = fd_funk_rec_remove(global->funk, acc_data_rec, 1);
+  int res = fd_funk_rec_remove(slot_ctx->acc_mgr->funk, acc_data_rec, 1);
   if( res != FD_FUNK_SUCCESS )
     return FD_ACC_MGR_ERR_WRITE_FAILED;
 
@@ -124,10 +125,10 @@ fd_sysvar_instructions_cleanup_account( fd_global_ctx_t * global ) {
 }
 
 int
-fd_sysvar_instructions_update_current_instr_idx( fd_global_ctx_t *  global,
+fd_sysvar_instructions_update_current_instr_idx( fd_exec_slot_ctx_t *  slot_ctx,
                                          ushort             current_instr_idx ) {
   FD_BORROWED_ACCOUNT_DECL(rec);
-  int err = fd_acc_mgr_modify(global->acc_mgr, global->funk_txn, (fd_pubkey_t const *)global->sysvar_instructions, 0, 0, rec);
+  int err = fd_acc_mgr_modify(slot_ctx->acc_mgr, slot_ctx->funk_txn, &fd_sysvar_instructions_id, 0, 0, rec);
   if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) )
     return FD_ACC_MGR_ERR_READ_FAILED;
 

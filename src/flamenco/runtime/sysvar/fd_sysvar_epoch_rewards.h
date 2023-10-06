@@ -8,12 +8,12 @@ FD_PROTOTYPES_BEGIN
 
 void
 fd_sysvar_epoch_rewards_burn_and_purge(
-    fd_global_ctx_t * global
+    fd_exec_slot_ctx_t * slot_ctx
 );
 
 void
 fd_sysvar_epoch_rewards_read(
-    fd_global_ctx_t * global,
+    fd_exec_slot_ctx_t * slot_ctx,
     fd_sysvar_epoch_rewards_t * result,
     fd_acc_lamports_t * acc_lamports 
 );
@@ -21,13 +21,13 @@ fd_sysvar_epoch_rewards_read(
 /* Update EpochRewards sysvar with distributed rewards */
 void
 fd_sysvar_epoch_rewards_update(
-    fd_global_ctx_t * global,
+    fd_exec_slot_ctx_t * slot_ctx,
     ulong distributed
 );
 
 /* Initialize the epoch rewards sysvar account. */
 void fd_sysvar_epoch_rewards_init(
-    fd_global_ctx_t* global,
+    fd_exec_slot_ctx_t * slot_ctx,
     ulong total_rewards,
     ulong distributed_rewards,
     ulong distribution_complete_block_height

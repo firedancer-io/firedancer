@@ -1,5 +1,7 @@
 #include "fd_stakes.h"
 
+#include "../runtime/fd_system_ids.h"
+
 /* fd_stakes_accum_by_node converts Stakes (unordered list of (vote acc,
    active stake) tuples) to StakedNodes (rbtree mapping (node identity)
    => (active stake) ordered by node identity).  Returns the tree root. */
@@ -393,10 +395,10 @@ fd_stake_history_entry_t stake_activating_and_deactivating( fd_delegation_t cons
 
 /* https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L169 */
 void
-fd_stakes_activate_epoch( fd_global_ctx_t * global,
-                          ulong             next_epoch ) {
+fd_stakes_activate_epoch( fd_exec_slot_ctx_t * slot_ctx,
+                          ulong                next_epoch ) {
 
-  fd_stakes_t* stakes = &global->bank.stakes;
+  fd_stakes_t* stakes = &slot_ctx->bank.stakes;
 
   /* Current stake delegations: list of all current delegations in stake_delegations
      https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L180 */
@@ -404,7 +406,7 @@ fd_stakes_activate_epoch( fd_global_ctx_t * global,
      https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L181-L192 */
 
   fd_stake_history_t history;
-  fd_sysvar_stake_history_read( global,  &history);
+  fd_sysvar_stake_history_read( slot_ctx,  &history);
 
   fd_stake_history_entry_t accumulator = {
     .effective = 0,
@@ -427,7 +429,7 @@ fd_stakes_activate_epoch( fd_global_ctx_t * global,
 
   ulong idx = fd_stake_history_entries_pool_idx_acquire( stakes->stake_history.pool );
   stakes->stake_history.pool[ idx ] = new_elem;
-  fd_sysvar_stake_history_update( global, &new_elem);
+  fd_sysvar_stake_history_update( slot_ctx, &new_elem);
 
   /* Update the current epoch value */
   stakes->epoch = next_epoch;
@@ -435,10 +437,10 @@ fd_stakes_activate_epoch( fd_global_ctx_t * global,
   /* Refresh the stake distribution of vote accounts for the next epoch,
      using the updated Stake History.
      https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L194-L216 */
-  fd_stake_weight_t_mapnode_t * pool = fd_stake_weight_t_map_alloc(global->valloc, 10000);
+  fd_stake_weight_t_mapnode_t * pool = fd_stake_weight_t_map_alloc(slot_ctx->valloc, 10000);
   fd_stake_weight_t_mapnode_t * root = NULL;
 
-  fd_sysvar_stake_history_read( global,  &history);
+  fd_sysvar_stake_history_read( slot_ctx,  &history);
   for ( fd_delegation_pair_t_mapnode_t * n = fd_delegation_pair_t_map_minimum(stakes->stake_delegations_pool, stakes->stake_delegations_root); n; n = fd_delegation_pair_t_map_successor(stakes->stake_delegations_pool, n) ) {
     ulong delegation_stake = stake_activating_and_deactivating( &n->elem.delegation, stakes->epoch, &history, new_rate_activation_epoch ).effective;
     fd_stake_weight_t_mapnode_t temp;
@@ -462,16 +464,16 @@ fd_stakes_activate_epoch( fd_global_ctx_t * global,
 }
 
 int
-write_stake_state( fd_global_ctx_t *   global,
-                   fd_pubkey_t const * stake_acc,
-                   fd_stake_state_t *  stake_state,
-                   ushort              is_new_account ) {
+write_stake_state( fd_exec_slot_ctx_t * slot_ctx,
+                   fd_pubkey_t const *  stake_acc,
+                   fd_stake_state_t *   stake_state,
+                   ushort               is_new_account ) {
 
   ulong encoded_stake_state_size = (is_new_account) ? STAKE_ACCOUNT_SIZE : fd_stake_state_size(stake_state);
 
   FD_BORROWED_ACCOUNT_DECL(stake_acc_rec);
 
-  int err = fd_acc_mgr_modify( global->acc_mgr, global->funk_txn, stake_acc, !!is_new_account, encoded_stake_state_size, stake_acc_rec );
+  int err = fd_acc_mgr_modify( slot_ctx->acc_mgr, slot_ctx->funk_txn, stake_acc, !!is_new_account, encoded_stake_state_size, stake_acc_rec );
   if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
     FD_LOG_WARNING(( "write_stake_state failed" ));
     return err;
@@ -491,7 +493,7 @@ write_stake_state( fd_global_ctx_t *   global,
   /* TODO Lamports? */
   stake_acc_rec->meta->info.executable = 0;
   stake_acc_rec->meta->info.rent_epoch = 0UL;
-  memcpy( &stake_acc_rec->meta->info.owner, global->solana_stake_program, sizeof(fd_pubkey_t) );
+  memcpy( &stake_acc_rec->meta->info.owner, fd_solana_stake_program_id.key, sizeof(fd_pubkey_t) );
 
   return FD_EXECUTOR_INSTR_SUCCESS;
 }

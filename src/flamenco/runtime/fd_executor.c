@@ -16,6 +16,7 @@
 #include "program/fd_compute_budget_program.h"
 #include "../trace/fd_txntrace.h"
 #include "../nanopb/pb_encode.h"
+#include "../../util/rng/fd_rng.h"
 
 #include "../../ballet/base58/fd_base58.h"
 
@@ -23,13 +24,15 @@
 #include <stdio.h>   /* snprintf(3) */
 #include <fcntl.h>   /* openat(2) */
 #include <unistd.h>  /* write(3) */
+#include <time.h>
 
 void
-fd_convert_txn_instr_to_instr( fd_txn_t const * txn_descriptor,
-                               fd_rawtxn_b_t const * txn_raw,
-                               fd_txn_instr_t const * txn_instr,
-                               fd_pubkey_t const * accounts,
-                               fd_instr_t * instr ) {
+fd_convert_txn_instr_to_instr( fd_txn_t const *                 txn_descriptor,
+                               fd_rawtxn_b_t const *            txn_raw,
+                               fd_txn_instr_t const *           txn_instr,
+                               fd_pubkey_t const *              accounts,
+                               fd_borrowed_account_t *          borrowed_accounts,
+                               fd_instr_info_t *                instr ) {
   instr->program_id = txn_instr->program_id;
   instr->program_id_pubkey = accounts[txn_instr->program_id];
   instr->acct_cnt = txn_instr->acct_cnt;
@@ -40,6 +43,7 @@ fd_convert_txn_instr_to_instr( fd_txn_t const * txn_descriptor,
   for( ulong i = 0; i < instr->acct_cnt; i++ ) {
     instr->acct_txn_idxs[i] = instr_acc_idxs[i];
     instr->acct_pubkeys[i] = accounts[instr_acc_idxs[i]];
+    instr->borrowed_accounts[i] = &borrowed_accounts[instr_acc_idxs[i]];
 
     instr->acct_flags[i] = 0;
     if( fd_account_is_writable_idx( txn_descriptor, txn_instr->program_id, instr_acc_idxs[i] ) ) {
@@ -53,29 +57,29 @@ fd_convert_txn_instr_to_instr( fd_txn_t const * txn_descriptor,
 
 /* Look up a native program given it's pubkey key */
 execute_instruction_func_t
-fd_executor_lookup_native_program( fd_global_ctx_t * global,  fd_pubkey_t const * pubkey ) {
+fd_executor_lookup_native_program( fd_pubkey_t const * pubkey ) {
   /* TODO: replace with proper lookup table */
-  if ( !memcmp( pubkey, global->solana_vote_program, sizeof( fd_pubkey_t ) ) ) {
+  if ( !memcmp( pubkey, fd_solana_vote_program_id.key, sizeof( fd_pubkey_t ) ) ) {
     return fd_executor_vote_program_execute_instruction;
-  } else if ( !memcmp( pubkey, global->solana_system_program, sizeof( fd_pubkey_t ) ) ) {
+  } else if ( !memcmp( pubkey, fd_solana_system_program_id.key, sizeof( fd_pubkey_t ) ) ) {
     return fd_executor_system_program_execute_instruction;
-  } else if ( !memcmp( pubkey, global->solana_config_program, sizeof( fd_pubkey_t ) ) ) {
+  } else if ( !memcmp( pubkey, fd_solana_config_program_id.key, sizeof( fd_pubkey_t ) ) ) {
     return fd_executor_config_program_execute_instruction;
-  } else if ( !memcmp( pubkey, global->solana_stake_program, sizeof( fd_pubkey_t ) ) ) {
+  } else if ( !memcmp( pubkey, fd_solana_stake_program_id.key, sizeof( fd_pubkey_t ) ) ) {
     return fd_executor_stake_program_execute_instruction;
-  } else if ( !memcmp( pubkey, global->solana_ed25519_sig_verify_program, sizeof( fd_pubkey_t ) ) ) {
+  } else if ( !memcmp( pubkey, fd_solana_ed25519_sig_verify_program_id.key, sizeof( fd_pubkey_t ) ) ) {
     return fd_executor_ed25519_program_execute_instruction;
-  } else if ( !memcmp( pubkey, global->solana_keccak_secp_256k_program, sizeof( fd_pubkey_t ) ) ) {
+  } else if ( !memcmp( pubkey, fd_solana_keccak_secp_256k_program_id.key, sizeof( fd_pubkey_t ) ) ) {
     return fd_executor_secp256k1_program_execute_instruction;
-  } else if ( !memcmp( pubkey, global->solana_bpf_loader_upgradeable_program, sizeof( fd_pubkey_t ) ) ) {
+  } else if ( !memcmp( pubkey, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof( fd_pubkey_t ) ) ) {
     return fd_executor_bpf_upgradeable_loader_program_execute_instruction;
-  } else if ( !memcmp( pubkey, global->solana_bpf_loader_program, sizeof( fd_pubkey_t ) ) ) {
+  } else if ( !memcmp( pubkey, fd_solana_bpf_loader_program_id.key, sizeof( fd_pubkey_t ) ) ) {
     return fd_executor_bpf_loader_program_execute_instruction;
-  } else if ( !memcmp( pubkey, global->solana_bpf_loader_deprecated_program, sizeof( fd_pubkey_t ) ) ) {
+  } else if ( !memcmp( pubkey, fd_solana_bpf_loader_deprecated_program_id.key, sizeof( fd_pubkey_t ) ) ) {
     return fd_executor_bpf_deprecated_loader_program_execute_instruction;
-  } else if ( !memcmp( pubkey, global->solana_compute_budget_program, sizeof( fd_pubkey_t ) ) ) {
+  } else if ( !memcmp( pubkey, fd_solana_compute_budget_program_id.key, sizeof( fd_pubkey_t ) ) ) {
     return fd_executor_compute_budget_program_execute_instruction_nop;
-  } else if( !memcmp( pubkey, global->solana_bpf_loader_v4_program->key, sizeof(fd_pubkey_t) ) ) {
+  } else if( !memcmp( pubkey, fd_solana_bpf_loader_v4_program_id.key, sizeof(fd_pubkey_t) ) ) {
     return fd_executor_bpf_loader_v4_program_execute_instruction;
   } else {
     return NULL; /* FIXME */
@@ -83,8 +87,9 @@ fd_executor_lookup_native_program( fd_global_ctx_t * global,  fd_pubkey_t const 
 }
 
 int
-fd_executor_lookup_program( fd_global_ctx_t * global, fd_pubkey_t const * pubkey ) {
-  if( fd_executor_bpf_upgradeable_loader_program_is_executable_program_account( global, pubkey )==0 ) {
+fd_executor_lookup_program( fd_exec_slot_ctx_t * slot_ctx, 
+                            fd_pubkey_t const * pubkey ) {
+  if( fd_executor_bpf_upgradeable_loader_program_is_executable_program_account( slot_ctx, pubkey )==0 ) {
     return 0;
   }
 
@@ -93,16 +98,14 @@ fd_executor_lookup_program( fd_global_ctx_t * global, fd_pubkey_t const * pubkey
 
 // TODO: handle error codes
 void
-fd_executor_setup_accessed_accounts_for_txn( transaction_ctx_t * txn_ctx, fd_rawtxn_b_t const * txn_raw, uint * use_sysvar_instructions ) {
-  fd_global_ctx_t * global = txn_ctx->global;
-
+fd_executor_setup_accessed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx, fd_rawtxn_b_t const * txn_raw, uint * use_sysvar_instructions ) {
   fd_pubkey_t *tx_accs   = (fd_pubkey_t *)((uchar *)txn_raw->raw + txn_ctx->txn_descriptor->acct_addr_off);
 
   for( ulong i = 0; i < txn_ctx->txn_descriptor->acct_addr_cnt; i++ ) {
     txn_ctx->accounts[i] = tx_accs[i];
     if ( FD_UNLIKELY(
         *use_sysvar_instructions
-        || memcmp(&txn_ctx->accounts[i], global->sysvar_instructions, sizeof(fd_pubkey_t))==0
+        || memcmp(&txn_ctx->accounts[i], fd_sysvar_instructions_id.key, sizeof(fd_pubkey_t))==0
       ) ) {
       *use_sysvar_instructions = 1;
     }
@@ -116,7 +119,7 @@ fd_executor_setup_accessed_accounts_for_txn( transaction_ctx_t * txn_ctx, fd_raw
       fd_pubkey_t const * addr_lut_acc = (fd_pubkey_t *)((uchar *)txn_raw->raw + addr_lut->addr_off);
 
       FD_BORROWED_ACCOUNT_DECL(addr_lut_rec);
-      int err = fd_acc_mgr_view(global->acc_mgr, global->funk_txn, (fd_pubkey_t *) addr_lut_acc, addr_lut_rec);
+      int err = fd_acc_mgr_view(txn_ctx->acc_mgr, txn_ctx->funk_txn, (fd_pubkey_t *) addr_lut_acc, addr_lut_rec);
       if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
         // TODO: return txn err code
         FD_LOG_ERR(( "addr lut not found" ));
@@ -128,7 +131,7 @@ fd_executor_setup_accessed_accounts_for_txn( transaction_ctx_t * txn_ctx, fd_raw
       fd_bincode_decode_ctx_t decode_ctx = {
         .data = addr_lut_rec->const_data,
         .dataend = &addr_lut_rec->const_data[56], // TODO macro const.
-        .valloc  = global->valloc,
+        .valloc  = txn_ctx->valloc,
       };
       if (fd_address_lookup_table_state_decode( &addr_lookup_table_state, &decode_ctx )) {
         FD_LOG_ERR(("fd_address_lookup_table_state_decode failed"));
@@ -150,7 +153,7 @@ fd_executor_setup_accessed_accounts_for_txn( transaction_ctx_t * txn_ctx, fd_raw
       fd_pubkey_t const * addr_lut_acc = (fd_pubkey_t *)((uchar *)txn_raw->raw + addr_lut->addr_off);
 
       FD_BORROWED_ACCOUNT_DECL(addr_lut_rec);
-      int err = fd_acc_mgr_view(global->acc_mgr, global->funk_txn, (fd_pubkey_t *) addr_lut_acc, addr_lut_rec);
+      int err = fd_acc_mgr_view(txn_ctx->acc_mgr, txn_ctx->funk_txn, (fd_pubkey_t *) addr_lut_acc, addr_lut_rec);
       if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
         // TODO: return txn err code
         FD_LOG_ERR(( "addr lut not found" ));
@@ -160,7 +163,7 @@ fd_executor_setup_accessed_accounts_for_txn( transaction_ctx_t * txn_ctx, fd_raw
       fd_bincode_decode_ctx_t decode_ctx = {
         .data = addr_lut_rec->const_data,
         .dataend = &addr_lut_rec->const_data[56], // TODO macro const.
-        .valloc  = global->valloc,
+        .valloc  = txn_ctx->valloc,
       };
       if (fd_address_lookup_table_state_decode( &addr_lookup_table_state, &decode_ctx )) {
         FD_LOG_ERR(("fd_address_lookup_table_state_decode failed"));
@@ -181,33 +184,33 @@ fd_executor_setup_accessed_accounts_for_txn( transaction_ctx_t * txn_ctx, fd_raw
 
 /* todo rent exempt check */
 static void
-fd_set_exempt_rent_epoch_max( fd_global_ctx_t * global,
-                              void const *      addr ) {
+fd_set_exempt_rent_epoch_max( fd_exec_slot_ctx_t * slot_ctx,
+                              void const *         addr ) {
 
   FD_BORROWED_ACCOUNT_DECL(rec);
 
-  int err = fd_acc_mgr_view( global->acc_mgr, global->funk_txn, (fd_pubkey_t const *)addr, rec);
+  int err = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, (fd_pubkey_t const *)addr, rec);
   if( FD_UNLIKELY( err==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) )
     return;
   FD_TEST( err==FD_ACC_MGR_SUCCESS );
 
-  if( rec->const_meta->info.lamports < fd_rent_exempt_minimum_balance( global, rec->const_meta->dlen ) ) return;
+  if( rec->const_meta->info.lamports < fd_rent_exempt_minimum_balance( slot_ctx, rec->const_meta->dlen ) ) return;
   if( rec->const_meta->info.rent_epoch == ULONG_MAX ) return;
 
-  err = fd_acc_mgr_modify( global->acc_mgr, global->funk_txn, (fd_pubkey_t const *)addr, 0, 0, rec);
+  err = fd_acc_mgr_modify( slot_ctx->acc_mgr, slot_ctx->funk_txn, (fd_pubkey_t const *)addr, 0, 0, rec);
   FD_TEST( err==FD_ACC_MGR_SUCCESS );
 
   rec->meta->info.rent_epoch = ULONG_MAX;
 }
 
 static int
-fd_executor_collect_fee( fd_global_ctx_t *   global,
-                         fd_pubkey_t const * account,
-                         ulong               fee ) {
+fd_executor_collect_fee( fd_exec_slot_ctx_t * slot_ctx,
+                         fd_pubkey_t const *  account,
+                         ulong                fee ) {
 
   FD_BORROWED_ACCOUNT_DECL(rec);
 
-  int err = fd_acc_mgr_modify( global->acc_mgr, global->funk_txn, account, 0, 0UL, rec);
+  int err = fd_acc_mgr_modify( slot_ctx->acc_mgr, slot_ctx->funk_txn, account, 0, 0UL, rec);
   if( FD_UNLIKELY( err ) ) {
     FD_LOG_WARNING(( "fd_acc_mgr_modify(%32J) failed (%d-%s)", account->uc, err, fd_acc_mgr_strerror( err ) ));
     // TODO: The fee payer does not seem to exist?!  what now?
@@ -221,31 +224,33 @@ fd_executor_collect_fee( fd_global_ctx_t *   global,
     FD_LOG_WARNING(( "Not enough lamps" ));
     return -1;
   }
-
-  if (FD_UNLIKELY(global->log_level > 2)) {
-    FD_LOG_WARNING(( "fd_execute_txn: global->collected: %ld->%ld (%ld)", global->bank.collected_fees, global->bank.collected_fees + fee, fee));
-    FD_LOG_DEBUG(( "calling set_lamports to charge the fee %lu", fee));
-  }
+  
+  FD_LOG_DEBUG(( "fd_execute_txn: global->collected: %ld->%ld (%ld)", slot_ctx->bank.collected_fees, slot_ctx->bank.collected_fees + fee, fee));
+  FD_LOG_DEBUG(( "calling set_lamports to charge the fee %lu", fee));
 
   // TODO: I BELIEVE we charge for the fee BEFORE we create the funk_txn fork
   // since we collect reguardless of the success of the txn execution...
   rec->meta->info.lamports -= fee;
-  global->bank.collected_fees += fee;
+  slot_ctx->bank.collected_fees += fee;
 
   /* todo rent exempt check */
-  if( FD_FEATURE_ACTIVE( global, set_exempt_rent_epoch_max ) )
+  if( FD_FEATURE_ACTIVE( slot_ctx, set_exempt_rent_epoch_max ) )
     rec->meta->info.rent_epoch = ULONG_MAX;
   return 0;
 }
 
 int
-fd_execute_instr( fd_global_ctx_t * global, fd_instr_t * instr, transaction_ctx_t * txn_ctx ) {
+fd_execute_instr( fd_instr_info_t * instr, fd_exec_txn_ctx_t * txn_ctx ) {
   fd_pubkey_t const * txn_accs = txn_ctx->accounts;
 
-  instruction_ctx_t * ctx = &txn_ctx->instr_stack[txn_ctx->instr_stack_sz++];
-  ctx->global = global;
+  fd_exec_instr_ctx_t * ctx = &txn_ctx->instr_stack[txn_ctx->instr_stack_sz++];
   ctx->instr = instr;
   ctx->txn_ctx = txn_ctx;
+  ctx->epoch_ctx = txn_ctx->epoch_ctx;
+  ctx->slot_ctx = txn_ctx->slot_ctx;
+  ctx->valloc = txn_ctx->valloc;
+  ctx->acc_mgr = txn_ctx->acc_mgr;
+  ctx->funk_txn = txn_ctx->funk_txn;
 
   // defense in depth
   if (instr->program_id >= txn_ctx->txn_descriptor->acct_addr_cnt + txn_ctx->txn_descriptor->addr_table_adtl_cnt) {
@@ -259,19 +264,19 @@ fd_execute_instr( fd_global_ctx_t * global, fd_instr_t * instr, transaction_ctx_
   /* TODO: allow instructions to be failed, and the transaction to be reverted */
   fd_pubkey_t const * program_id_acc = &txn_accs[instr->program_id];
 
-  execute_instruction_func_t exec_instr_func = fd_executor_lookup_native_program( global, program_id_acc );
+  execute_instruction_func_t exec_instr_func = fd_executor_lookup_native_program( program_id_acc );
 
   int exec_result = FD_EXECUTOR_INSTR_SUCCESS;
   if (exec_instr_func != NULL) {
     exec_result = exec_instr_func( *ctx );
 
   } else {
-    if (fd_executor_lookup_program( global, program_id_acc ) == 0 ) {
+    if (fd_executor_lookup_program( ctx->slot_ctx, program_id_acc ) == 0 ) {
       FD_LOG_NOTICE(( "found BPF upgradeable executable program account - program id: %32J", program_id_acc ));
 
       exec_result = fd_executor_bpf_upgradeable_loader_program_execute_program_instruction(*ctx);
 
-    } else if ( fd_executor_bpf_loader_program_is_executable_program_account( global, program_id_acc ) == 0 ) {
+    } else if ( fd_executor_bpf_loader_program_is_executable_program_account( ctx->slot_ctx, program_id_acc ) == 0 ) {
       FD_LOG_NOTICE(( "found BPF v2 executable program account - program id: %32J", program_id_acc ));
 
       exec_result = fd_executor_bpf_loader_program_execute_program_instruction(*ctx);
@@ -297,7 +302,7 @@ fd_execute_instr( fd_global_ctx_t * global, fd_instr_t * instr, transaction_ctx_
    containing the given binary blob. */
 
 static void
-fd_executor_dump_txntrace( fd_global_ctx_t *            global,
+fd_executor_dump_txntrace( fd_exec_slot_ctx_t *         slot_ctx,
                            fd_ed25519_sig_t const *     sig,
                            fd_soltrace_TxnTrace const * trace ) {
 
@@ -322,13 +327,13 @@ fd_executor_dump_txntrace( fd_global_ctx_t *            global,
   char filename[ 128UL ];
   /* 118 (20+1+88+9) chars + null terminator */
   snprintf( filename, sizeof(filename), "%lu-%64J.txntrace",
-            global->bank.slot, sig );
+            slot_ctx->bank.slot, sig );
 
   /* Create file */
-  int dump_fd = openat( global->trace_dirfd, filename, O_WRONLY|O_CREAT|O_TRUNC, 0666 );
+  int dump_fd = openat( slot_ctx->trace_dirfd, filename, O_WRONLY|O_CREAT|O_TRUNC, 0666 );
   if( FD_UNLIKELY( dump_fd<0 ) ) {
     FD_LOG_WARNING(( "openat(%d, %s) failed (%d-%s)",
-                     global->trace_dirfd, filename, errno, fd_io_strerror( errno ) ));
+                     slot_ctx->trace_dirfd, filename, errno, fd_io_strerror( errno ) ));
     return;
   }
 
@@ -338,14 +343,35 @@ fd_executor_dump_txntrace( fd_global_ctx_t *            global,
     FD_LOG_WARNING(( "write to %s failed (%d-%s)",
                      filename, errno, fd_io_strerror( errno ) ));
     close( dump_fd );
-    unlinkat( global->trace_dirfd, filename, 0 );
+    unlinkat( slot_ctx->trace_dirfd, filename, 0 );
     return;
   }
   close( dump_fd );
 }
 
+void
+fd_executor_setup_borrowed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
+  for( ulong i = 0; i < txn_ctx->accounts_cnt; i++ ) {
+    fd_pubkey_t * acc = &txn_ctx->accounts[i];
+    fd_borrowed_account_t * borrowed_account = fd_borrowed_account_init( &txn_ctx->borrowed_accounts[i] );
+    if( fd_txn_account_is_writable_idx( txn_ctx->txn_descriptor, (int)i ) ) {
+      int err = fd_acc_mgr_modify( txn_ctx->acc_mgr, txn_ctx->funk_txn, acc, 0, 0UL, borrowed_account);
+
+      if( FD_UNLIKELY( err ) ) {
+      //   FD_LOG_WARNING(( "fd_acc_mgr_modify(%32J) failed (%d-%s)", acc->uc, err, fd_acc_mgr_strerror( err ) ));
+      }
+    } else {
+      int err = fd_acc_mgr_view( txn_ctx->acc_mgr, txn_ctx->funk_txn, acc, borrowed_account );
+
+      if( FD_UNLIKELY( err ) ) {
+      //   FD_LOG_WARNING(( "fd_acc_mgr_view(%32J) failed (%d-%s)", acc->uc, err, fd_acc_mgr_strerror( err ) ));
+      }
+    }
+  }
+}
+
 static void
-fd_executor_retrace( fd_global_ctx_t *            global,
+fd_executor_retrace( fd_exec_slot_ctx_t *          slot_ctx,
                      fd_soltrace_TxnInput const * trace_pre,
                      fd_soltrace_TxnDiff  const * trace_post0 ) {
 
@@ -353,7 +379,7 @@ fd_executor_retrace( fd_global_ctx_t *            global,
 
   fd_soltrace_TxnDiff  _trace_post1[1];
   fd_soltrace_TxnDiff * trace_post1 =
-      fd_txntrace_replay( _trace_post1, trace_pre, global->local_wksp );
+      fd_txntrace_replay( _trace_post1, trace_pre, slot_ctx->local_wksp );
 
   if( FD_UNLIKELY( !trace_post1 ) )
     FD_LOG_ERR(( "fd_txntrace_replay failed" ));
@@ -364,7 +390,7 @@ fd_executor_retrace( fd_global_ctx_t *            global,
 }
 
 int
-fd_execute_txn( fd_global_ctx_t *     global,
+fd_execute_txn( fd_exec_slot_ctx_t *  slot_ctx,
                 fd_txn_t *            txn_descriptor,
                 fd_rawtxn_b_t const * txn_raw ) {
   FD_SCRATCH_SCOPED_FRAME;
@@ -374,14 +400,18 @@ fd_execute_txn( fd_global_ctx_t *     global,
   /* Trace transaction input */
   fd_soltrace_TxnInput  _trace_pre[1];
   fd_soltrace_TxnInput * trace_pre = NULL;
-  if( FD_UNLIKELY( global->trace_mode ) ) {
-    trace_pre = fd_txntrace_capture_pre( _trace_pre, global, txn_descriptor, txn_raw->raw );
+  if( FD_UNLIKELY( slot_ctx->trace_mode ) ) {
+    trace_pre = fd_txntrace_capture_pre( _trace_pre, slot_ctx, txn_descriptor, txn_raw->raw );
     if( FD_UNLIKELY( !trace_pre ) )
       FD_LOG_WARNING(( "fd_txntrace_capture_pre failed (out of scratch memory?)" ));
   }
 
-  transaction_ctx_t txn_ctx = {
-    .global             = global,
+  fd_exec_txn_ctx_t txn_ctx = {
+    .epoch_ctx          = slot_ctx->epoch_ctx,
+    .slot_ctx           = slot_ctx,
+    .funk_txn           = slot_ctx->funk_txn,
+    .acc_mgr            = slot_ctx->acc_mgr,
+    .valloc             = slot_ctx->valloc,
     .compute_unit_limit = 200000,
     .compute_unit_price = 0,
     .prioritization_fee_type = FD_COMPUTE_BUDGET_PRIORITIZATION_FEE_TYPE_DEPRECATED,
@@ -396,9 +426,10 @@ fd_execute_txn( fd_global_ctx_t *     global,
   fd_executor_setup_accessed_accounts_for_txn( &txn_ctx, txn_raw, &use_sysvar_instructions );
   int compute_budget_status = fd_executor_compute_budget_program_execute_instructions( &txn_ctx, txn_raw );
   (void)compute_budget_status;
+  fd_executor_setup_borrowed_accounts_for_txn( &txn_ctx );
 
-  ulong fee = fd_runtime_calculate_fee ( global, &txn_ctx, txn_descriptor, txn_raw );
-  if( fd_executor_collect_fee( global, &tx_accs[0], fee ) ) {
+  ulong fee = fd_runtime_calculate_fee( &txn_ctx, txn_descriptor, txn_raw );
+  if( fd_executor_collect_fee( slot_ctx, &tx_accs[0], fee ) ) {
     return -1;
   }
 
@@ -423,62 +454,61 @@ fd_execute_txn( fd_global_ctx_t *     global,
 
   /* TODO: execute within a transaction context, which can be reverted */
 
-  fd_funk_txn_t* parent_txn = global->funk_txn;
+  fd_funk_txn_t* parent_txn = slot_ctx->funk_txn;
   fd_funk_txn_xid_t xid;
-  xid.ul[0] = fd_rng_ulong( global->rng );
-  xid.ul[1] = fd_rng_ulong( global->rng );
-  xid.ul[2] = fd_rng_ulong( global->rng );
-  xid.ul[3] = fd_rng_ulong( global->rng );
-  fd_funk_txn_t * txn = fd_funk_txn_prepare( global->funk, parent_txn, &xid, 1 );
+  xid.ul[0] = fd_rng_ulong( slot_ctx->rng );
+  xid.ul[1] = fd_rng_ulong( slot_ctx->rng );
+  xid.ul[2] = fd_rng_ulong( slot_ctx->rng );
+  xid.ul[3] = fd_rng_ulong( slot_ctx->rng );
+  fd_funk_txn_t * txn = fd_funk_txn_prepare( slot_ctx->acc_mgr->funk, parent_txn, &xid, 1 );
   // TODO: bad for multi-threading...
-  global->funk_txn = txn;
+  txn_ctx.funk_txn = txn;
 
   /* Update rent exempt on writable accounts if feature activated
     TODO this should probably not run on executable accounts
         Also iterate over LUT accounts */
-  if( FD_FEATURE_ACTIVE( global, set_exempt_rent_epoch_max ) ) {
+  if( FD_FEATURE_ACTIVE( slot_ctx, set_exempt_rent_epoch_max ) ) {
     fd_txn_acct_iter_t ctrl;
     for( ulong i=fd_txn_acct_iter_init( txn_descriptor, FD_TXN_ACCT_CAT_WRITABLE, &ctrl );
           i<fd_txn_acct_iter_end(); i=fd_txn_acct_iter_next( i, &ctrl ) ) {
       if( i==0 ) continue;
-      fd_set_exempt_rent_epoch_max( global, &tx_accs[i] );
+      fd_set_exempt_rent_epoch_max( slot_ctx, &tx_accs[i] );
     }
   }
 
-  fd_instr_t instrs[txn_descriptor->instr_cnt];
-
+  fd_instr_info_t instrs[txn_descriptor->instr_cnt];
   for ( ushort i = 0; i < txn_descriptor->instr_cnt; ++i ) {
     fd_txn_instr_t *  txn_instr = &txn_descriptor->instr[i];
-    fd_convert_txn_instr_to_instr( txn_descriptor, txn_raw, txn_instr, txn_ctx.accounts, &instrs[i] );
+    fd_convert_txn_instr_to_instr( txn_descriptor, txn_raw, txn_instr, txn_ctx.accounts, txn_ctx.borrowed_accounts, &instrs[i] );
   }
 
   int ret = 0L;
   if ( FD_UNLIKELY( use_sysvar_instructions ) ) {
-    fd_sysvar_instructions_serialize_account( global, instrs, txn_descriptor->instr_cnt );
+    fd_sysvar_instructions_serialize_account( slot_ctx, instrs, txn_descriptor->instr_cnt );
     if( ret != FD_ACC_MGR_SUCCESS ) {
       FD_LOG_WARNING(( "SYSVAR INSTRS FAILED TO SERIALIZE!" ));
-      fd_funk_txn_cancel(global->funk, txn, 0);
-      global->funk_txn = parent_txn;
+      fd_funk_txn_cancel(slot_ctx->acc_mgr->funk, txn, 0);
+      slot_ctx->funk_txn = parent_txn;
       return -1;
     }
   }
 
   for ( ushort i = 0; i < txn_descriptor->instr_cnt; ++i ) {
     if ( FD_UNLIKELY( use_sysvar_instructions ) ) {
-      ret = fd_sysvar_instructions_update_current_instr_idx( global, i );
+      ret = fd_sysvar_instructions_update_current_instr_idx( slot_ctx, i );
       if( ret != FD_ACC_MGR_SUCCESS ) {
         FD_LOG_WARNING(( "SYSVAR INSTRS FAILED TO UPDATE CURRENT INSTR IDX!" ));
-        fd_funk_txn_cancel(global->funk, txn, 0);
-        global->funk_txn = parent_txn;
+        fd_funk_txn_cancel(slot_ctx->acc_mgr->funk, txn, 0);
+        slot_ctx->funk_txn = parent_txn;
         return -1;
       }
     }
 
-    int exec_result = fd_execute_instr( global, &instrs[i], &txn_ctx );
+    int exec_result = fd_execute_instr( &instrs[i], &txn_ctx );
     if( exec_result != FD_EXECUTOR_INSTR_SUCCESS ) {
       FD_LOG_DEBUG(( "fd_execute_instr failed (%d)", exec_result ));
-      fd_funk_txn_cancel(global->funk, txn, 0);
-      global->funk_txn = parent_txn;
+      fd_funk_txn_cancel(slot_ctx->acc_mgr->funk, txn, 0);
+      slot_ctx->funk_txn = parent_txn;
       return -1;
     }
 
@@ -486,7 +516,7 @@ fd_execute_txn( fd_global_ctx_t *     global,
   }
 
   if ( FD_UNLIKELY( use_sysvar_instructions ) ) {
-    ret = fd_sysvar_instructions_cleanup_account( global );
+    ret = fd_sysvar_instructions_cleanup_account( slot_ctx );
     if( ret != FD_ACC_MGR_SUCCESS ) {
       FD_LOG_WARNING(( "SYSVAR INSTRS FAILED TO CLEANUP!" ));
       return -1;
@@ -496,23 +526,269 @@ fd_execute_txn( fd_global_ctx_t *     global,
   /* Export trace to Protobuf file */
   if( FD_UNLIKELY( trace_pre ) ) {
     fd_soltrace_TxnDiff  _trace_post[1];
-    fd_soltrace_TxnDiff * trace_post = fd_txntrace_capture_post( _trace_post, global, trace_pre );
+    fd_soltrace_TxnDiff * trace_post = fd_txntrace_capture_post( _trace_post, slot_ctx, trace_pre );
     if( trace_post ) {
-      if( global->trace_mode & FD_RUNTIME_TRACE_SAVE ) {
+      if( slot_ctx->trace_mode & FD_RUNTIME_TRACE_SAVE ) {
         fd_soltrace_TxnTrace trace = {
           .input = trace_pre,
           .diff  = trace_post
         };
         fd_ed25519_sig_t const * sig0 = &fd_txn_get_signatures( txn_descriptor, txn_raw->raw )[0];
-        fd_executor_dump_txntrace( global, sig0, &trace );
+        fd_executor_dump_txntrace( slot_ctx, sig0, &trace );
       }
-      if( global->trace_mode & FD_RUNTIME_TRACE_REPLAY ) {
-        fd_executor_retrace( global, trace_pre, trace_post );
+      if( slot_ctx->trace_mode & FD_RUNTIME_TRACE_REPLAY ) {
+        fd_executor_retrace( slot_ctx, trace_pre, trace_post );
       }
     }
   }
 
-  fd_funk_txn_merge(global->funk, txn, 0);
-  global->funk_txn = parent_txn;
+  fd_funk_txn_merge(slot_ctx->acc_mgr->funk, txn, 0);
+  slot_ctx->funk_txn = parent_txn;
   return 0;
+}
+
+inline int
+fd_instr_borrowed_account_view_idx( fd_exec_instr_ctx_t * ctx,
+                                    uchar idx,
+                                    fd_borrowed_account_t * *  account ) {
+  if( idx >= ctx->instr->acct_cnt ) {
+    return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
+  }
+
+  // TODO: check if readable???
+  fd_borrowed_account_t * instr_account = ctx->instr->borrowed_accounts[idx];
+  *account = instr_account;
+  return FD_ACC_MGR_SUCCESS;
+}
+
+int
+fd_instr_borrowed_account_view( fd_exec_instr_ctx_t * ctx,
+                                fd_pubkey_t const *      pubkey,
+                                fd_borrowed_account_t * * account ) {
+  for( ulong i = 0; i < ctx->instr->acct_cnt; i++ ) {
+    if( memcmp( pubkey->uc, ctx->instr->acct_pubkeys[i].uc, sizeof(fd_pubkey_t) )==0 ) {
+      // TODO: check if readable???
+      fd_borrowed_account_t * instr_account = ctx->instr->borrowed_accounts[i];
+      *account = instr_account;
+
+      if (FD_UNLIKELY(!FD_RAW_ACCOUNT_EXISTS(instr_account->const_meta)))
+        return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
+
+      return FD_ACC_MGR_SUCCESS;
+    }
+  }
+
+  return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
+}
+
+int
+fd_instr_borrowed_account_modify_idx( fd_exec_instr_ctx_t * ctx,
+                                uchar idx,
+                                int do_create,
+                                ulong min_data_sz,
+                                fd_borrowed_account_t * *  account ) {
+  if( idx >= ctx->instr->acct_cnt ) {
+    return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
+  }
+
+  fd_borrowed_account_t * instr_account = ctx->instr->borrowed_accounts[idx];
+  int err = fd_acc_mgr_modify( ctx->acc_mgr, ctx->funk_txn, &ctx->instr->acct_pubkeys[idx], do_create, min_data_sz, instr_account );
+  if( err != FD_ACC_MGR_SUCCESS ) {
+    return err;
+  }
+  // TODO: check if writable???
+  *account = instr_account;
+  return FD_ACC_MGR_SUCCESS;
+}
+
+int
+fd_instr_borrowed_account_modify( fd_exec_instr_ctx_t * ctx,
+                                  fd_pubkey_t const * pubkey,
+                                  int do_create,
+                                  ulong min_data_sz,
+                                  fd_borrowed_account_t * * account ) {
+  for( ulong i = 0; i < ctx->instr->acct_cnt; i++ ) {
+    if( memcmp( pubkey->uc, ctx->instr->acct_pubkeys[i].uc, sizeof(fd_pubkey_t) )==0 ) {
+      // TODO: check if writable???
+      fd_borrowed_account_t * instr_account = ctx->instr->borrowed_accounts[i];
+      int err = fd_acc_mgr_modify( ctx->acc_mgr, ctx->funk_txn, &ctx->instr->acct_pubkeys[i], do_create, min_data_sz, instr_account );
+      if( err != FD_ACC_MGR_SUCCESS ) {
+        return err;
+      }
+      *account = instr_account;
+      return FD_ACC_MGR_SUCCESS;
+    }
+  }
+
+  return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
+}
+
+void *
+fd_exec_slot_ctx_new( void * mem ) {
+  if( FD_UNLIKELY( !mem ) ) {
+    FD_LOG_WARNING(( "NULL mem" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, FD_EXEC_SLOT_CTX_ALIGN ) ) ) {
+    FD_LOG_WARNING(( "misaligned mem" ));
+    return NULL;
+  }
+
+  fd_memset(mem, 0, FD_EXEC_SLOT_CTX_FOOTPRINT);
+
+  fd_exec_slot_ctx_t * self = (fd_exec_slot_ctx_t *) mem;
+
+  self->rng = fd_rng_join( fd_rng_new(&self->rnd_mem, (uint) time(0), 0) );;
+
+  fd_firedancer_banks_new(&self->bank);
+
+  FD_COMPILER_MFENCE();
+  self->magic = FD_EXEC_SLOT_CTX_MAGIC;
+  FD_COMPILER_MFENCE();
+
+  return mem;
+}
+
+fd_exec_slot_ctx_t *
+fd_exec_slot_ctx_join( void * mem ) {
+  if( FD_UNLIKELY( !mem ) ) {
+    FD_LOG_WARNING(( "NULL block" ));
+    return NULL;
+  }
+
+  fd_exec_slot_ctx_t * ctx = (fd_exec_slot_ctx_t *) mem;
+
+  if( FD_UNLIKELY( ctx->magic!=FD_EXEC_SLOT_CTX_MAGIC ) ) {
+    FD_LOG_WARNING(( "bad magic" ));
+    return NULL;
+  }
+
+  return ctx;
+}
+
+void *
+fd_exec_slot_ctx_leave( fd_exec_slot_ctx_t * ctx) {
+  if( FD_UNLIKELY( !ctx ) ) {
+    FD_LOG_WARNING(( "NULL block" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( ctx->magic!=FD_EXEC_SLOT_CTX_MAGIC ) ) {
+    FD_LOG_WARNING(( "bad magic" ));
+    return NULL;
+  }
+
+  return (void *) ctx;
+}
+
+void *
+fd_exec_slot_ctx_delete( void * mem ) {
+  if( FD_UNLIKELY( !mem ) ) {
+    FD_LOG_WARNING(( "NULL mem" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, FD_EXEC_SLOT_CTX_ALIGN) ) )  {
+    FD_LOG_WARNING(( "misaligned mem" ));
+    return NULL;
+  }
+
+  fd_exec_slot_ctx_t * hdr = (fd_exec_slot_ctx_t *)mem;
+  if( FD_UNLIKELY( hdr->magic!=FD_EXEC_SLOT_CTX_MAGIC ) ) {
+    FD_LOG_WARNING(( "bad magic" ));
+    return NULL;
+  }
+
+  fd_bincode_destroy_ctx_t ctx = { .valloc = hdr->valloc };
+  fd_firedancer_banks_destroy(&hdr->bank, &ctx);
+
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( hdr->magic ) = 0UL;
+  FD_COMPILER_MFENCE();
+
+  return mem;
+}
+
+void *
+fd_exec_epoch_ctx_new( void * mem ) {
+  if( FD_UNLIKELY( !mem ) ) {
+    FD_LOG_WARNING(( "NULL mem" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, FD_EXEC_EPOCH_CTX_ALIGN ) ) ) {
+    FD_LOG_WARNING(( "misaligned mem" ));
+    return NULL;
+  }
+
+  fd_memset(mem, 0, FD_EXEC_EPOCH_CTX_FOOTPRINT);
+
+  fd_exec_epoch_ctx_t * self = (fd_exec_epoch_ctx_t *) mem;
+
+  // all features are disabled by default.
+  fd_features_disable_all(&self->features);
+
+  FD_COMPILER_MFENCE();
+  self->magic = FD_EXEC_EPOCH_CTX_MAGIC;
+  FD_COMPILER_MFENCE();
+
+  return mem;
+}
+
+fd_exec_epoch_ctx_t *
+fd_exec_epoch_ctx_join( void * mem ) {
+  if( FD_UNLIKELY( !mem ) ) {
+    FD_LOG_WARNING(( "NULL block" ));
+    return NULL;
+  }
+
+  fd_exec_epoch_ctx_t * ctx = (fd_exec_epoch_ctx_t *) mem;
+
+  if( FD_UNLIKELY( ctx->magic!=FD_EXEC_EPOCH_CTX_MAGIC ) ) {
+    FD_LOG_WARNING(( "bad magic" ));
+    return NULL;
+  }
+
+  return ctx;
+}
+
+void *
+fd_exec_epoch_ctx_leave( fd_exec_epoch_ctx_t * ctx ) {
+  if( FD_UNLIKELY( !ctx ) ) {
+    FD_LOG_WARNING(( "NULL block" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( ctx->magic!=FD_EXEC_EPOCH_CTX_MAGIC ) ) {
+    FD_LOG_WARNING(( "bad magic" ));
+    return NULL;
+  }
+
+  return (void *) ctx;
+}
+
+void *
+fd_exec_epoch_ctx_delete( void * mem ) {
+  if( FD_UNLIKELY( !mem ) ) {
+    FD_LOG_WARNING(( "NULL mem" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, FD_EXEC_EPOCH_CTX_ALIGN) ) )  {
+    FD_LOG_WARNING(( "misaligned mem" ));
+    return NULL;
+  }
+
+  fd_exec_epoch_ctx_t * hdr = (fd_exec_epoch_ctx_t *)mem;
+  if( FD_UNLIKELY( hdr->magic!=FD_EXEC_EPOCH_CTX_MAGIC ) ) {
+    FD_LOG_WARNING(( "bad magic" ));
+    return NULL;
+  }
+
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( hdr->magic ) = 0UL;
+  FD_COMPILER_MFENCE();
+
+  return mem;
 }

@@ -7,12 +7,12 @@
 
 FD_PROTOTYPES_BEGIN
 
-int fd_executor_bpf_loader_program_is_executable_program_account( fd_global_ctx_t * global, fd_pubkey_t const * pubkey );
+int fd_executor_bpf_loader_program_is_executable_program_account( fd_exec_slot_ctx_t * slot_ctx, fd_pubkey_t const * pubkey );
 
 /* Entry-point for the Solana BPF Loader Program */
-int fd_executor_bpf_loader_program_execute_instruction( instruction_ctx_t ctx );
+int fd_executor_bpf_loader_program_execute_instruction( fd_exec_instr_ctx_t ctx );
 
-int fd_executor_bpf_loader_program_execute_program_instruction( instruction_ctx_t ctx );
+int fd_executor_bpf_loader_program_execute_program_instruction( fd_exec_instr_ctx_t ctx );
 
 FD_PROTOTYPES_END
 

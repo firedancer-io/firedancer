@@ -5,9 +5,12 @@
 #include <errno.h>
 #include <stdio.h>
 #include <unistd.h>
+#include <sys/types.h>
+#include <signal.h>
 #include "../../types/fd_types_yaml.h"
 #include "../../../ballet/base64/fd_base64.h"
 #include "../program/fd_bpf_loader_v4_program.h"  /* TODO remove this */
+#include "../fd_system_ids.h"
 
 const char *verbose = NULL;
 const char *fail_fast = NULL;
@@ -21,8 +24,7 @@ int fd_alloc_fprintf( fd_alloc_t * join, FILE *       stream );
 
 
 static int
-fd_account_pretty_print( fd_global_ctx_t const * global,
-                         uchar const             owner[ static 32 ],
+fd_account_pretty_print( uchar const             owner[ static 32 ],
                          uchar const *           data,
                          ulong                   data_sz,
                          FILE *                  file ) {
@@ -41,12 +43,17 @@ fd_account_pretty_print( fd_global_ctx_t const * global,
       file );
   FD_TEST( yaml );
 
-  if( 0==memcmp( owner, global->solana_vote_program, 32UL ) ) {
+  if( 0==memcmp( owner, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t) ) ) {
     fd_vote_state_versioned_t vote_state[1];
     int err = fd_vote_state_versioned_decode( vote_state, &decode );
     if( FD_UNLIKELY( err!=0 ) ) return err;
     fd_vote_state_versioned_walk( yaml, vote_state, fd_flamenco_yaml_walk, NULL, 0U );
-  } else if( 0==memcmp( owner, global->solana_stake_program, 32UL ) ) {
+  } else if( 0==memcmp( owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) ) {
+    fd_bpf_upgradeable_loader_state_t stake_state[1];
+    int err = fd_bpf_upgradeable_loader_state_decode( stake_state, &decode );
+    if( FD_UNLIKELY( err!=0 ) ) return err;
+    fd_bpf_upgradeable_loader_state_walk( yaml, stake_state, fd_flamenco_yaml_walk, NULL, 0U );
+  } else if( 0==memcmp( owner, fd_solana_stake_program_id.key, sizeof(fd_pubkey_t) ) ) {
     fd_stake_state_t stake_state[1];
     int err = fd_stake_state_decode( stake_state, &decode );
     if( FD_UNLIKELY( err!=0 ) ) return err;
@@ -136,11 +143,32 @@ log_test_fail( fd_executor_test_t *             test,
     FD_LOG_NOTICE(( "Failed test %d (%s) (ignored): %s", test->test_number, test->test_name, buf ));
   } else {
     FD_LOG_WARNING(( "Failed test %d (%s) (not_ignored): %s", test->test_number, test->test_name, buf ));
+    if (NULL != fail_fast) {
+      // There must be a better way of doing this...
+      int in_gdb = 0;
+      FILE *fp = fopen("/proc/self/status", "r");
+      if (NULL != fp) {
+        char buf[255];
+        while (NULL != fgets(buf, sizeof(buf), fp)) {
+          char *p = strtok(buf, ":");
+          if (NULL == p) continue;
+          if (strcmp(p, "TracerPid") == 0) {
+            p = strtok(NULL, ":");
+            if (strlen(p) != 3 && p[1] != '0')
+              in_gdb = 1;
+            break;
+          }
+        }
+        fclose(fp);
+      }
+      if (in_gdb)
+        kill(getpid(), SIGTRAP);
+    }
   }
 }
 
 static void
-load_sysvar_cache( fd_global_ctx_t * global,
+load_sysvar_cache( fd_exec_slot_ctx_t * slot_ctx,
                    uchar const       pubkey[ static 32 ],
                    char const *      base64 ) {
 
@@ -152,7 +180,7 @@ load_sysvar_cache( fd_global_ctx_t * global,
   /* Allocate funk record */
 
   FD_BORROWED_ACCOUNT_DECL(acc);
-  int err = fd_acc_mgr_modify( global->acc_mgr, global->funk_txn, (fd_pubkey_t *)pubkey, 1, max_data_sz, acc);
+  int err = fd_acc_mgr_modify( slot_ctx->acc_mgr, slot_ctx->funk_txn, (fd_pubkey_t *)pubkey, 1, max_data_sz, acc);
   FD_TEST( !err );
 
   /* Decode Base64 into funk record */
@@ -162,64 +190,55 @@ load_sysvar_cache( fd_global_ctx_t * global,
 
   /* Set metadata */
 
-  fd_memcpy( acc->meta->info.owner, global->sysvar_owner, 32UL );
+  fd_memcpy( acc->meta->info.owner, fd_sysvar_owner_id.key, 32UL );
   acc->meta->info.lamports = 1UL;  /* chicken-and-egg problem: don't know rent, so can't find rent-exempt balance */
   acc->meta->dlen = (ulong)sz;
 }
 
 /* TODO: hack to ignore sysvars in account mismatches */
-static int
-is_sysvar( fd_global_ctx_t const * global,
-           uchar const             pubkey[ static 32 ] ) {
-  if( 0==memcmp( pubkey, global->sysvar_clock, 32UL ) ) return 1;
-  if( 0==memcmp( pubkey, global->sysvar_epoch_schedule, 32UL ) ) return 1;
-  if( 0==memcmp( pubkey, global->sysvar_epoch_rewards, 32UL ) ) return 1;
-  if( 0==memcmp( pubkey, global->sysvar_fees, 32UL ) ) return 1;
-  if( 0==memcmp( pubkey, global->sysvar_rent, 32UL ) ) return 1;
-  if( 0==memcmp( pubkey, global->sysvar_slot_hashes, 32UL ) ) return 1;
-  if( 0==memcmp( pubkey, global->sysvar_recent_block_hashes, 32UL ) ) return 1;
-  if( 0==memcmp( pubkey, global->sysvar_stake_history, 32UL ) ) return 1;
-  if( 0==memcmp( pubkey, global->sysvar_slot_history, 32UL ) ) return 1;
-  return 0;
-}
 
 int fd_executor_run_test(
   fd_executor_test_t*       test,
   fd_executor_test_suite_t* suite) {
 
-  /* Create a new global context to execute this test in */
-  uchar* global_mem = (uchar*)fd_alloca_check( FD_GLOBAL_CTX_ALIGN, FD_GLOBAL_CTX_FOOTPRINT );
-  fd_global_ctx_t* global = fd_global_ctx_join( fd_global_ctx_new( global_mem ) );
-  if ( FD_UNLIKELY( NULL == global ) )
-    FD_LOG_ERR(( "failed to join a global context" ));
+  /* Create a new slot_ctx context to execute this test in */
+
+  uchar * epoch_ctx_mem = (uchar *)fd_alloca_check( FD_EXEC_EPOCH_CTX_ALIGN, FD_EXEC_EPOCH_CTX_FOOTPRINT );
+  fd_exec_epoch_ctx_t * epoch_ctx = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem ) );
+
+  uchar * slot_ctx_mem = (uchar *)fd_alloca_check( FD_EXEC_SLOT_CTX_ALIGN, FD_EXEC_SLOT_CTX_FOOTPRINT );
+  fd_exec_slot_ctx_t * slot_ctx = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem ) );
+  slot_ctx->epoch_ctx = epoch_ctx;
+
+  if ( FD_UNLIKELY( NULL == slot_ctx ) )
+    FD_LOG_ERR(( "failed to join a slot context" ));
 
   int ret = 0;
-  global->valloc     = suite->valloc;
-  global->funk       = suite->funk;
-  global->funk_wksp  = suite->wksp;
-  global->local_wksp = suite->wksp;
+  slot_ctx->valloc     = suite->valloc;
+  slot_ctx->funk_wksp  = suite->wksp;
+  slot_ctx->local_wksp = suite->wksp;
 
-  global->bank.rent.lamports_per_uint8_year = 3480;
-  global->bank.rent.exemption_threshold = 2;
-  global->bank.rent.burn_percent = 50;
+  slot_ctx->bank.rent.lamports_per_uint8_year = 3480;
+  slot_ctx->bank.rent.exemption_threshold = 2;
+  slot_ctx->bank.rent.burn_percent = 50;
 
-  memcpy(&global->features, &suite->features, sizeof(suite->features));
+  memcpy(&slot_ctx->epoch_ctx->features, &suite->features, sizeof(suite->features));
   if (test->disable_cnt > 0) {
     for (uint i = 0; i < test->disable_cnt; i++)
-      ((ulong *) fd_type_pun( &global->features ))[test->disable_feature[i]] = ULONG_MAX;
+      ((ulong *) fd_type_pun( &epoch_ctx->features ))[test->disable_feature[i]] = ULONG_MAX;
   }
 
   fd_acc_mgr_t _acc_mgr[1];
-  global->acc_mgr = fd_acc_mgr_new( _acc_mgr, global );
+  slot_ctx->acc_mgr = fd_acc_mgr_new( _acc_mgr, suite->funk );
 
   /* Prepare a new Funk transaction to execute this test in */
   fd_funk_txn_xid_t xid;
   fd_funk_txn_xid_set_unique( &xid );
-  global->funk_txn = fd_funk_txn_prepare( global->funk, NULL, &xid, 1 );
-  if ( NULL == global->funk_txn )
+  slot_ctx->funk_txn = fd_funk_txn_prepare( slot_ctx->acc_mgr->funk, NULL, &xid, 1 );
+  if ( NULL == slot_ctx->funk_txn )
     FD_LOG_ERR(( "failed to prepare funk transaction" ));
 
-  fd_sysvar_rent_init(global);
+  fd_sysvar_rent_init(slot_ctx);
 
   // TODO: nasty hack to prevent clock overwrite for
   // 1 particular test: test_redelegate_consider_balance_changes
@@ -232,7 +251,7 @@ int fd_executor_run_test(
       // if ((test->accs[ i ].lamports == 0) && (test->accs[ i ].data_len == 0) && memcmp(global->solana_system_program, test->accs[i].owner.hash, 32 ) == 0) {
       //   continue;
       // }
-      if (memcmp(&test->accs[i].pubkey, global->sysvar_clock, sizeof(fd_pubkey_t)) == 0) {
+      if (memcmp(&test->accs[i].pubkey, fd_sysvar_clock_id.key, sizeof(fd_pubkey_t)) == 0) {
         num_clock++;
       }
 
@@ -240,7 +259,7 @@ int fd_executor_run_test(
 
       fd_pubkey_t const * acc_key  = &test->accs[ i ].pubkey;
       FD_BORROWED_ACCOUNT_DECL(rec);
-      int err = fd_acc_mgr_modify( global->acc_mgr, global->funk_txn, acc_key, 1, test->accs[i].data_len, rec);
+      int err = fd_acc_mgr_modify( slot_ctx->acc_mgr, slot_ctx->funk_txn, acc_key, 1, test->accs[i].data_len, rec);
       FD_TEST( !err );
 
       rec->meta->dlen            = test->accs[ i ].data_len;
@@ -251,16 +270,17 @@ int fd_executor_run_test(
       if( test->accs[ i ].data_len )
         memcpy( rec->data, test->accs[ i ].data, test->accs[ i ].data_len );
 
-      err = fd_acc_mgr_commit_raw( global->acc_mgr, rec->rec, acc_key, rec->meta, global->bank.slot );
+      err = fd_acc_mgr_commit_raw( slot_ctx->acc_mgr, rec->rec, acc_key, rec->meta, slot_ctx );
+      FD_TEST( !err );
 
       /* wtf ... */
-      if (memcmp(&global->sysvar_recent_block_hashes, &test->accs[i].pubkey, sizeof(test->accs[i].pubkey)) == 0) {
-        fd_recent_block_hashes_new( &global->bank.recent_block_hashes );
+      if (memcmp(fd_sysvar_recent_block_hashes_id.key, &test->accs[i].pubkey, sizeof(test->accs[i].pubkey)) == 0) {
+        fd_recent_block_hashes_new( &slot_ctx->bank.recent_block_hashes );
         fd_bincode_decode_ctx_t ctx2;
         ctx2.data    = rec->data,
         ctx2.dataend = rec->data + rec->meta->dlen;
-        ctx2.valloc  = global->valloc;
-        if ( fd_recent_block_hashes_decode( &global->bank.recent_block_hashes, &ctx2 ) ) {
+        ctx2.valloc  = slot_ctx->valloc;
+        if ( fd_recent_block_hashes_decode( &slot_ctx->bank.recent_block_hashes, &ctx2 ) ) {
           FD_LOG_WARNING(("fd_recent_block_hashes_decode failed"));
           ret = FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
           goto fd_executor_run_cleanup;
@@ -268,35 +288,35 @@ int fd_executor_run_test(
       }
     }
 
-    global->bank.slot = 200880004;
+    slot_ctx->bank.slot = 200880004;
 
     /* Load sysvar cache */
     if( 0!=strcmp( test->sysvar_cache.clock, "" ) )
-      load_sysvar_cache( global, global->sysvar_clock, test->sysvar_cache.clock );
+      load_sysvar_cache( slot_ctx, fd_sysvar_clock_id.key, test->sysvar_cache.clock );
     if( 0!=strcmp( test->sysvar_cache.epoch_schedule, "" ) )
-      load_sysvar_cache( global, global->sysvar_epoch_schedule, test->sysvar_cache.epoch_schedule );
+      load_sysvar_cache( slot_ctx, fd_sysvar_epoch_schedule_id.key, test->sysvar_cache.epoch_schedule );
     if( 0!=strcmp( test->sysvar_cache.epoch_rewards, "" ) )
-      load_sysvar_cache( global, global->sysvar_epoch_rewards, test->sysvar_cache.epoch_rewards );
+      load_sysvar_cache( slot_ctx, fd_sysvar_epoch_rewards_id.key, test->sysvar_cache.epoch_rewards );
     if( 0!=strcmp( test->sysvar_cache.fees, "" ) )
-      load_sysvar_cache( global, global->sysvar_fees, test->sysvar_cache.fees );
+      load_sysvar_cache( slot_ctx, fd_sysvar_fees_id.key, test->sysvar_cache.fees );
     if( 0!=strcmp( test->sysvar_cache.rent, "" ) )
-      load_sysvar_cache( global, global->sysvar_rent, test->sysvar_cache.rent );
+      load_sysvar_cache( slot_ctx, fd_sysvar_rent_id.key, test->sysvar_cache.rent );
     if( 0!=strcmp( test->sysvar_cache.slot_hashes, "" ) )
-      load_sysvar_cache( global, global->sysvar_slot_hashes, test->sysvar_cache.slot_hashes );
+      load_sysvar_cache( slot_ctx, fd_sysvar_slot_hashes_id.key, test->sysvar_cache.slot_hashes );
     //if( 0!=strcmp( test->sysvar_cache.recent_block_hashes, "" ) )
     //  load_sysvar_cache( global, global->sysvar_recent_block_hashes, test->sysvar_cache.recent_block_hashes );
     if( 0!=strcmp( test->sysvar_cache.stake_history, "" ) )
-      load_sysvar_cache( global, global->sysvar_stake_history, test->sysvar_cache.stake_history );
+      load_sysvar_cache( slot_ctx, fd_sysvar_stake_history_id.key, test->sysvar_cache.stake_history );
     if( 0!=strcmp( test->sysvar_cache.slot_history, "" ) )
-      load_sysvar_cache( global, global->sysvar_slot_history, test->sysvar_cache.slot_history );
+      load_sysvar_cache( slot_ctx, fd_sysvar_slot_history_id.key, test->sysvar_cache.slot_history );
 
     /* Restore slot number
        TODO The slot number should not be in bank */
     do {
       fd_sol_sysvar_clock_t clock[1];
-      int err = fd_sysvar_clock_read( global, clock );
+      int err = fd_sysvar_clock_read( slot_ctx, clock );
       if( err==0 )
-        global->bank.slot = clock->slot;
+        slot_ctx->bank.slot = clock->slot;
     } while(0);
 
     /* Parse the raw transaction */
@@ -317,30 +337,40 @@ int fd_executor_run_test(
       .raw    = (void*)test->raw_tx,
       .txn_sz = (ushort)test->raw_tx_len,
     };
-    transaction_ctx_t          txn_ctx = {
-      .global         = global,
-      .txn_descriptor = txn_descriptor,
+    fd_exec_txn_ctx_t          txn_ctx = {
+      .epoch_ctx       = epoch_ctx,
+      .slot_ctx        = slot_ctx,
+      .acc_mgr         = slot_ctx->acc_mgr,
+      .valloc          = slot_ctx->valloc,
+      .funk_txn        = slot_ctx->funk_txn,
+      .txn_descriptor  = txn_descriptor,
       ._txn_raw        = &raw_txn_b,
+      .instr_stack_sz = 0,
     };
 
     uint use_sysvar_instructions = 0;
     fd_executor_setup_accessed_accounts_for_txn( &txn_ctx, &raw_txn_b, &use_sysvar_instructions);
+    fd_executor_setup_borrowed_accounts_for_txn( &txn_ctx );
     // TODO: dirty hack to get around additional account parsed for testing
     if (txn_ctx.txn_descriptor->acct_addr_cnt == test->accs_len + 1) {
       txn_ctx.txn_descriptor->acct_addr_cnt = (ushort)test->accs_len;
       txn_ctx.txn_descriptor->readonly_unsigned_cnt--;
     }
 
-    fd_instr_t instr;
-    fd_convert_txn_instr_to_instr( (fd_txn_t const *)txn_descriptor, &raw_txn_b, txn_instr, txn_ctx.accounts, &instr );
+    fd_instr_info_t instr;
+    fd_convert_txn_instr_to_instr( (fd_txn_t const *)txn_descriptor, &raw_txn_b, txn_instr, txn_ctx.accounts, txn_ctx.borrowed_accounts, &instr );
 
-    instruction_ctx_t          ctx = {
-      .global         = global,
-      .instr          = &instr,
+    fd_exec_instr_ctx_t ctx = {
+      .epoch_ctx      = epoch_ctx,
+      .slot_ctx       = slot_ctx,
       .txn_ctx        = &txn_ctx,
+      .acc_mgr        = txn_ctx.acc_mgr,
+      .valloc         = txn_ctx.valloc,
+      .funk_txn       = txn_ctx.funk_txn,
+      .instr          = &instr,
     };
 
-    execute_instruction_func_t exec_instr_func = fd_executor_lookup_native_program( global, &test->program_id );
+    execute_instruction_func_t exec_instr_func = fd_executor_lookup_native_program( &test->program_id );
     if (NULL == exec_instr_func) {
       char buf[50];
       fd_base58_encode_32((uchar *) &test->program_id, NULL, buf);
@@ -370,10 +400,10 @@ int fd_executor_run_test(
     if (FD_EXECUTOR_INSTR_SUCCESS == exec_result) {
       /* Confirm account updates */
       for ( ulong i = 0; i < test->accs_len; i++ ) {
-        if( is_sysvar( global, test->accs[i].pubkey.key ) ) continue;
+        if( fd_pubkey_is_sysvar_id( &test->accs[i].pubkey ) ) continue;
 
         int    err = 0;
-        char * raw_acc_data = (char*) fd_acc_mgr_view_raw(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) &test->accs[i].pubkey, NULL, &err);
+        char * raw_acc_data = (char*) fd_acc_mgr_view_raw(ctx.acc_mgr, ctx.funk_txn, (fd_pubkey_t *) &test->accs[i].pubkey, NULL, &err);
         if (NULL == raw_acc_data) {
           if ((test->accs[ i ].result_lamports != 0)) {
             log_test_fail( test, suite, "expected lamports %ld, found empty account: %s", test->accs[i].result_lamports, (NULL != verbose) ? test->bt : "");
@@ -386,7 +416,7 @@ int fd_executor_run_test(
           ret = err;
           break;
         }
-        if (memcmp(&test->accs[i].pubkey, global->sysvar_clock, sizeof(fd_pubkey_t)) == 0) {
+        if (memcmp(&test->accs[i].pubkey, fd_sysvar_clock_id.key, sizeof(fd_pubkey_t)) == 0) {
           if (--num_clock) {
             continue;
           }
@@ -464,7 +494,7 @@ int fd_executor_run_test(
                       fd_scratch_alloc( fd_flamenco_yaml_align(), fd_flamenco_yaml_footprint() ) ),
                     file );
                 FD_TEST( yaml );
-                fd_account_pretty_print( global, test->accs[i].owner.key, test->accs[i].result_data, test->accs[i].result_data_len, file );
+                fd_account_pretty_print( test->accs[i].owner.key, test->accs[i].result_data, test->accs[i].result_data_len, file );
                 fd_scratch_pop();
 
                 fclose( file );
@@ -484,7 +514,7 @@ int fd_executor_run_test(
                       fd_scratch_alloc( fd_flamenco_yaml_align(), fd_flamenco_yaml_footprint() ) ),
                     file );
                 FD_TEST( yaml );
-                fd_account_pretty_print( global, test->accs[i].owner.key, d, m->dlen, file );
+                fd_account_pretty_print( test->accs[i].owner.key, d, m->dlen, file );
                 fd_scratch_pop();
 
                 fclose( file );
@@ -516,9 +546,9 @@ int fd_executor_run_test(
 
   /* Revert the Funk transaction */
 fd_executor_run_cleanup:
-  fd_funk_txn_cancel( suite->funk, global->funk_txn, 0 );
-  fd_bincode_destroy_ctx_t destroy_ctx = { .valloc = global->valloc };
-  fd_firedancer_banks_destroy(&global->bank, &destroy_ctx);
+  fd_funk_txn_cancel( suite->funk, slot_ctx->funk_txn, 0 );
+  fd_bincode_destroy_ctx_t destroy_ctx = { .valloc = slot_ctx->valloc };
+  fd_firedancer_banks_destroy(&slot_ctx->bank, &destroy_ctx);
   return ret;
 }
 

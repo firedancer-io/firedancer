@@ -18,12 +18,12 @@
 #include "fd_sysvar_instructions.h"
 
 int
-fd_sysvar_set( fd_global_ctx_t *   state,
-               uchar const *       owner,
-               fd_pubkey_t const * pubkey,
-               uchar *             data,
-               ulong               sz,
-               ulong               slot,
+fd_sysvar_set( fd_exec_slot_ctx_t * state,
+               uchar const *        owner,
+               fd_pubkey_t const *  pubkey,
+               uchar *              data,
+               ulong                sz,
+               ulong                slot,
                fd_acc_lamports_t const * lamports );
 
 #endif

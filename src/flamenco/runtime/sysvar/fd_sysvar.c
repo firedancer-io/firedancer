@@ -6,16 +6,16 @@
 #include "fd_sysvar.h"
 
 int
-fd_sysvar_set( fd_global_ctx_t *   global,
+fd_sysvar_set( fd_exec_slot_ctx_t *   slot_ctx,
                uchar const *       owner,
                fd_pubkey_t const * pubkey,
                uchar *             data,
                ulong               sz,
-               ulong               slot,
+               ulong               slot FD_PARAM_UNUSED,
                fd_acc_lamports_t const * lamports ) {
 
-  fd_acc_mgr_t *  acc_mgr  = global->acc_mgr;
-  fd_funk_txn_t * funk_txn = global->funk_txn;
+  fd_acc_mgr_t *  acc_mgr  = slot_ctx->acc_mgr;
+  fd_funk_txn_t * funk_txn = slot_ctx->funk_txn;
 
   FD_BORROWED_ACCOUNT_DECL(rec);
 
@@ -28,16 +28,16 @@ fd_sysvar_set( fd_global_ctx_t *   global,
   // solana code base?  Do I only adjust the lamports if the data
   // increases but not decreases?  I am inventing money here...
   fd_acc_lamports_t lamports_before = rec->meta->info.lamports;
-  rec->meta->info.lamports = (lamports == NULL) ? fd_rent_exempt_minimum_balance2(&global->bank.rent, sz) : *lamports;
-  global->bank.capitalization = fd_ulong_sat_sub(
+  rec->meta->info.lamports = (lamports == NULL) ? fd_rent_exempt_minimum_balance2(&slot_ctx->bank.rent, sz) : *lamports;
+  slot_ctx->bank.capitalization = fd_ulong_sat_sub(
       fd_ulong_sat_add(
-        global->bank.capitalization,
+        slot_ctx->bank.capitalization,
         rec->meta->info.lamports),
       lamports_before);
-  FD_LOG_DEBUG(("fd_sysvar_set: capitalization={%lu} increased by lamports: %lu for pubkey %32J", global->bank.capitalization, (rec->meta->info.lamports - lamports_before), pubkey));
+  FD_LOG_DEBUG(("fd_sysvar_set: capitalization={%lu} increased by lamports: %lu for pubkey %32J", slot_ctx->bank.capitalization, (rec->meta->info.lamports - lamports_before), pubkey));
 
 
   rec->meta->dlen = sz;
   fd_memcpy(rec->meta->info.owner, owner, 32);
-  return fd_acc_mgr_commit( global->acc_mgr, rec, slot );
+  return fd_acc_mgr_commit( slot_ctx->acc_mgr, rec, slot_ctx );
 }
