@@ -145,14 +145,16 @@ during_frag( void * _ctx,
 }
 
 static void
-after_frag( void *  _ctx,
-            ulong * opt_sig,
-            ulong * opt_chunk,
-            ulong * opt_sz,
-            int *   opt_filter ) {
+after_frag( void *             _ctx,
+            ulong *            opt_sig,
+            ulong *            opt_chunk,
+            ulong *            opt_sz,
+            int *              opt_filter,
+            fd_mux_context_t * mux ) {
   (void)opt_sig;
   (void)opt_chunk;
   (void)opt_filter;
+  (void)mux;
 
   fd_net_ctx_t * ctx = (fd_net_ctx_t *)_ctx;
 
@@ -234,6 +236,7 @@ fd_net_tile( fd_cnc_t *              cnc,
                       mcache,
                       0, /* no reliable consumers, downstream tiles may be overrun */
                       NULL,
+                      1UL, /* burst */
                       cr_max,
                       lazy,
                       rng,

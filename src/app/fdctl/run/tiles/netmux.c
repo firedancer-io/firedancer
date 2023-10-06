@@ -50,6 +50,7 @@ run( fd_tile_args_t * args ) {
                fd_mcache_join( fd_wksp_pod_map( mux_pod, "mcache" ) ),
                0, /* no reliable consumers, consumers are unreliable */
                NULL,
+               1UL, /* burst */
                0,
                0,
                fd_rng_join( fd_rng_new( _rng, 0, 0UL ) ),

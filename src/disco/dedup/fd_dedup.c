@@ -69,7 +69,10 @@ after_frag( void * _ctx,
             ulong * opt_sig,
             ulong * opt_chunk,
             ulong * opt_sz,
-            int   * opt_filter ) {
+            int   * opt_filter,
+            fd_mux_context_t * mux ) {
+  (void)mux;
+
   fd_dedup_ctx_t * ctx = (fd_dedup_ctx_t *)_ctx;
 
   int is_dup;
@@ -147,6 +150,7 @@ fd_dedup_tile( fd_cnc_t *              cnc,
                       mcache,
                       out_cnt,
                       out_fseq,
+                      1UL, /* burst */
                       cr_max,
                       lazy,
                       rng,
