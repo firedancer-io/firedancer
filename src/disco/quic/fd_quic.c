@@ -341,13 +341,15 @@ during_frag( void * _ctx,
 }
 
 static void
-after_frag( void *  _ctx,
-            ulong * opt_sig,
-            ulong * opt_chunk,
-            ulong * opt_sz,
-            int *   opt_filter ) {
+after_frag( void *             _ctx,
+            ulong *            opt_sig,
+            ulong *            opt_chunk,
+            ulong *            opt_sz,
+            int *              opt_filter,
+            fd_mux_context_t * mux ) {
   (void)opt_chunk;
   (void)opt_filter;
+  (void)mux;
 
   fd_quic_ctx_t * ctx = (fd_quic_ctx_t *)_ctx;
 
@@ -695,6 +697,7 @@ fd_quic_tile( fd_cnc_t *              cnc,
                       0, /* no reliable consumers, verify tiles may be overrun */
                       NULL,
                       cr_max,
+                      1UL,
                       lazy,
                       rng,
                       (void*)fd_ulong_align_up( scratch_top, FD_MUX_TILE_SCRATCH_ALIGN ),
