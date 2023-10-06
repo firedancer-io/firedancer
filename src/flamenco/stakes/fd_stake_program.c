@@ -674,7 +674,6 @@ stake_and_activating( fd_delegation_t const *    self,
           (double)prev_cluster_stake->effective * warmup_cooldown_rate_;
       ulong newly_effective_stake =
           fd_ulong_max( ( (ulong)( weight * newly_effective_cluster_stake ) ), 1 );
-      FD_LOG_NOTICE( ( "newly_effective_stake %lu", newly_effective_stake ) );
 
       current_effective_stake += newly_effective_stake;
       if ( FD_LIKELY( current_effective_stake >= delegated_stake ) ) {
@@ -686,15 +685,6 @@ stake_and_activating( fd_delegation_t const *    self,
                       current_epoch >=
                           self->deactivation_epoch ) ) { // FIXME always optimize loop break
         break;
-      }
-      FD_LOG_NOTICE( ( "current epoch %lu", current_epoch ) );
-
-      for ( fd_stake_history_treap_fwd_iter_t iter =
-                fd_stake_history_treap_fwd_iter_init( history->treap, history->pool );
-            !fd_stake_history_treap_fwd_iter_done( iter );
-            iter = fd_stake_history_treap_fwd_iter_next( iter, history->pool ) ) {
-        fd_stake_history_entry_t * ele = fd_stake_history_treap_fwd_iter_ele( iter, history->pool );
-        FD_LOG_NOTICE( ( "iterating %lu", ele->epoch ) );
       }
 
       fd_stake_history_entry_t const * current_cluster_stake =
@@ -895,7 +885,7 @@ stake_deactivate( fd_stake_t * self, ulong epoch, uint * custom_err ) {
 
 // https://github.com/firedancer-io/solana/blob/v1.17/sdk/program/src/stake/state.rs#L185
 FD_FN_CONST static inline ulong
-size_of_stake_state_v2( void ) {
+stake_state_v2_size_of( void ) {
   return 200;
 }
 
@@ -1339,7 +1329,7 @@ initialize( fd_borrowed_account_t const * stake_account,
             fd_rent_t const *             rent,
             fd_valloc_t const *           valloc ) {
   int rc;
-  if ( FD_UNLIKELY( stake_account->meta->dlen != size_of_stake_state_v2() ) ) {
+  if ( FD_UNLIKELY( stake_account->meta->dlen != stake_state_v2_size_of() ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
   fd_stake_state_v2_t stake_state = { 0 };
@@ -1644,7 +1634,7 @@ split( instruction_ctx_t *       invoke_context,
     return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
   }
 
-  if ( FD_UNLIKELY( split->meta->dlen != size_of_stake_state_v2() ) ) {
+  if ( FD_UNLIKELY( split->meta->dlen != stake_state_v2_size_of() ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
 
@@ -1957,7 +1947,7 @@ redelegate( instruction_ctx_t *       invoke_context,
     return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
   }
 
-  if ( FD_UNLIKELY( stake_account->meta->dlen != size_of_stake_state_v2() ) ) {
+  if ( FD_UNLIKELY( stake_account->meta->dlen != stake_state_v2_size_of() ) ) {
     FD_DEBUG(
         FD_LOG_WARNING( ( "expected uninitialized stake account data len to be {}, not {}" ) ) );
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
@@ -1967,6 +1957,8 @@ redelegate( instruction_ctx_t *       invoke_context,
   rc                                                    = get_state(
       stake_account, &invoke_context->global->valloc, &uninitialized_stake_account_state );
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
+  FD_LOG_NOTICE( ( "uninitialized_stake_account_state.discriminant %d",
+                   uninitialized_stake_account_state.discriminant ) );
   if ( FD_UNLIKELY( uninitialized_stake_account_state.discriminant !=
                     fd_stake_state_v2_enum_uninitialized ) ) {
     FD_DEBUG( FD_LOG_WARNING( ( "expected uninitialized stake account to be uninitialized" ) ) );
@@ -3006,33 +2998,41 @@ fd_executor_stake_program_execute_instruction( instruction_ctx_t ctx ) {
     rc = get_stake_account( ctx.txn_ctx, ctx.instr, ctx.global, me );
     if ( FD_UNLIKELY( rc != OK ) ) return rc;
 
+    // FIXME FD_LIKELY
     if ( FD_LIKELY( FD_FEATURE_ACTIVE( ctx.global, stake_redelegate_instruction ) ) ) {
       rc = check_number_of_instruction_accounts( instruction_context, 3 );
       if ( FD_UNLIKELY( rc != OK ) ) return rc;
 
-      FD_BORROWED_ACCOUNT_DECL( config_account );
-      rc = try_borrow_instruction_account(
-          instruction_context, transaction_context, 3, config_account );
-      if ( FD_UNLIKELY( rc != OK ) ) return rc;
+      // FIXME FD_LIKELY
+      if ( FD_UNLIKELY( !FD_FEATURE_ACTIVE( ctx.global, reduce_stake_warmup_cooldown ) ) ) {
+        FD_BORROWED_ACCOUNT_DECL( config_account );
+        rc = try_borrow_instruction_account(
+            instruction_context, transaction_context, 3, config_account );
+        if ( FD_UNLIKELY( rc != OK ) ) return rc;
 
-      fd_pubkey_t config_account_key = { 0 };
-      rc = get_key_of_account_at_index( transaction_context, 3, &config_account_key );
-      if ( FD_UNLIKELY( rc != OK ) ) return rc;
-      if ( FD_UNLIKELY( 0 == memcmp( config_account_key.uc,
-                                     ctx.global->solana_stake_program_config,
-                                     sizeof( config_account_key.uc ) ) ) ) {
-        return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+        uchar index_in_transaction = FD_TXN_ACCT_ADDR_MAX;
+        rc                         = get_index_of_instruction_account_in_transaction(
+            instruction_context, 3, &index_in_transaction );
+        if ( FD_UNLIKELY( rc != OK ) ) return rc;
+        fd_pubkey_t config_account_key = { 0 };
+        rc                             = get_key_of_account_at_index(
+            transaction_context, index_in_transaction, &config_account_key );
+        if ( FD_UNLIKELY( rc != OK ) ) return rc;
+        if ( FD_UNLIKELY( 0 == memcmp( config_account_key.uc,
+                                       ctx.global->solana_stake_program_config,
+                                       sizeof( config_account_key.uc ) ) ) ) {
+          return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+        }
+        // https://github.com/firedancer-io/solana/blob/v1.17/programs/stake/src/stake_instruction.rs#L442
+        fd_bincode_decode_ctx_t decode_ctx;
+        decode_ctx.data    = config_account->data;
+        decode_ctx.dataend = config_account->data + config_account->meta->dlen;
+        decode_ctx.valloc  = decode_ctx.valloc;
+
+        fd_stake_config_t stake_config;
+        rc = fd_stake_config_decode( &stake_config, &decode_ctx );
+        if ( FD_UNLIKELY( rc != FD_BINCODE_SUCCESS ) ) return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
       }
-
-      // https://github.com/firedancer-io/solana/blob/v1.17/programs/stake/src/stake_instruction.rs#L442
-      fd_bincode_decode_ctx_t decode_ctx;
-      decode_ctx.data    = config_account->data;
-      decode_ctx.dataend = config_account->data + config_account->meta->dlen;
-      decode_ctx.valloc  = decode_ctx.valloc;
-
-      fd_stake_config_t stake_config;
-      rc = fd_stake_config_decode( &stake_config, &decode_ctx );
-      if ( FD_UNLIKELY( rc != FD_BINCODE_SUCCESS ) ) return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
 
       rc = redelegate( &ctx,
                        transaction_context,
