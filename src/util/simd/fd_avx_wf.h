@@ -6,7 +6,7 @@
 
 /* A wf_t is a vector where each 32-bit wide lane holds a single
    precision IEEE 754 floating point value (a "float").
-   
+
    Inputs to all operations assume that the values aren't exotic (no
    NaNs, no +/-Infs, no denorms) and, if the output of an operation
    would produce an exotic value in the IEEE 754 standard, the results
@@ -182,7 +182,7 @@ wf_insert_variable( wf_t a, int n, float v ) {
    wf_copysign(a,b) returns [ copysignf(a0,b0) copysignf(a1,b1) ... copysignf(a7,b7) ]
    wf_flipsign(a,b) returns [ flipsignf(a0,b0) flipsignf(a1,b1) ... flipsignf(a7,b7) ]
 
-   wf_fma(a,b,c)    returns [  fmaf(a0,b0, c0)  fmaf(a1,b1, c1) ...  fmaf(a7,b7, c7) ] (i.e.  a.*b+c) 
+   wf_fma(a,b,c)    returns [  fmaf(a0,b0, c0)  fmaf(a1,b1, c1) ...  fmaf(a7,b7, c7) ] (i.e.  a.*b+c)
    wf_fms(a,b,c)    returns [  fmaf(a0,b0,-c0)  fmaf(a1,b1,-c1) ...  fmaf(a7,b7,-c7) ] (i.e.  a.*b-c)
    wf_fnma(a,b,c)   returns [ -fmaf(a0,b0,-c0) -fmaf(a1,b1,-c1) ... -fmaf(a7,b7,-c7) ] (i.e. -a.*b+c)
 
@@ -325,6 +325,23 @@ static inline __m256i wf_to_wv( wf_t f, int imm_hi ) { /* FIXME: workaround wv_t
 
 #define wf_to_wi_fast(a) _mm256_cvtps_epi32( (a) )
 
+/* Note: Given that _mm256_cvtps_epi32 existed for a long time, Intel
+   clearly had the hardware under the hood for _mm256_cvtps_epu32 but
+   didn't bother to expose it pre-Skylake-X ... sigh (all too typical
+   unfortunately).  We use _mm256_cvtps_epu32 where supported because
+   it is faster and it replicates the same IB behaviors as the compiler
+   generated scalar ASM for float to uint casts on these targets.
+
+   Pre-Skylake-X, we emulate it by noting that subtracting 2^31 from
+   a float holding an integer in [2^31,2^32) is exact and the result can
+   be exactly converted to a signed integer by _mm256_cvtps_epi32.  We
+   then use twos complement hacks to add back any shift.  This also
+   replicates the compiler's IB behaviors on these ISAs for float to
+   int casts. */
+
+#if defined(__AVX512F__) && defined(__AVX512VL__)
+#define wf_to_wu_fast( a ) _mm256_cvtps_epu32( (a) )
+#else
 static inline __m256i wf_to_wu_fast( wf_t a ) { /* FIXME: workaround wu_t isn't declared at this point */
 
   /* Note: Given that _mm256_cvtps_epi32 exists, Intel clearly has the

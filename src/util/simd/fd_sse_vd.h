@@ -137,7 +137,7 @@ vd_insert_variable( vd_t a, int n, double v ) {
    vd_copysign(a,b) returns [ copysign(a0,b0) copysign(a1,b1) ]
    vd_flipsign(a,b) returns [ flipsign(a0,b0) flipsign(a1,b1) ]
 
-   vd_fma( a,b,c)   returns [  fma(a0,b0, c0)  fma(a1,b1, c1) ] (i.e.  a.*b+c) 
+   vd_fma( a,b,c)   returns [  fma(a0,b0, c0)  fma(a1,b1, c1) ] (i.e.  a.*b+c)
    vd_fms( a,b,c)   returns [  fma(a0,b0,-c0)  fma(a1,b1,-c1) ] (i.e.  a.*b-c)
    vd_fnma(a,b,c)   returns [ -fma(a0,b0,-c0) -fma(a1,b1,-c1) ] (i.e. -a.*b+c)
 
@@ -277,14 +277,23 @@ static inline vi_t vd_to_vi_fast( vd_t d, vi_t i, int imm_hi ) {
 
 static inline vu_t vd_to_vu_fast( vd_t d, vu_t u, int imm_hi ) {
 
-  /* Note: Given that _mm_cvtpd_epi32 exists, Intel clearly has the
-     hardware under the hood to support a _mm_cvtpd_epu32 but didn't
-     bother to expose it pre-AVX512 ... sigh (all too typical
-     unfortunately).  We note that subtracting 2^31 from a double
-     storing an integer in [0,2^32) is exact and the result can be
-     exactly converted to a signed integer by _mm_cvtpd_epi32.  We then
-     use twos complement hacks to add any shift. */
+/* Note: Given that _mm_cvtpd_epi32 existed for a long time, Intel
+   clearly had the hardware under the hood for _mm_cvtpd_epu32 but
+   didn't bother to expose it pre-Skylake-X ... sigh (all too typical
+   unfortunately).  We use _mm_cvtpd_epu32 where supported because it
+   is faster and it replicates the same IB behaviors as the compiler
+   generated scalar ASM for float to uint casts on these targets.
 
+   Pre-Skylake-X, we emulate it by noting that subtracting 2^31
+   from a double holding an integer in [0,2^32) is exact and the
+   result can be exactly converted to a signed integer by
+   _mm_cvtpd_epi32.  We then use twos complement hacks to add back
+   any shift.  This also replicates the compiler's IB behaviors on
+   these ISAs for float to int casts. */
+
+# if defined(__AVX512F__) && defined(__AVX512VL__)
+  vu_t v = _mm_cvtpd_epu32( d );
+# else
   /**/                                                 // Assumes d is integer in [0,2^32)
   vd_t s  = vd_bcast( (double)(1UL<<31) );             // (double)2^31
   vc_t c  = vd_lt ( d, s );                            // -1L if d<2^31, 0L o.w.

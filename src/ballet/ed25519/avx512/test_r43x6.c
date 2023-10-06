@@ -625,11 +625,6 @@ main( int     argc,
       FD_TEST( fd_r43x6_eq( y0, z0 ) ); FD_TEST( fd_r43x6_eq( y1, z1 ) );
       FD_TEST( fd_r43x6_eq( y2, z2 ) ); FD_TEST( fd_r43x6_eq( y3, z3 ) );
 
-      FD_R43X6_QUAD_MOV( Z, Y );
-      FD_R43X6_QUAD_UNPACK( z0,z1,z2,z3, Z );
-      FD_TEST( fd_r43x6_eq( y0, z0 ) ); FD_TEST( fd_r43x6_eq( y1, z1 ) );
-      FD_TEST( fd_r43x6_eq( y2, z2 ) ); FD_TEST( fd_r43x6_eq( y3, z3 ) );
-
       uint perm = fd_rng_uint( rng );
       int p0 = (int)(perm & 3U); perm >>= 2; int p1 = (int)(perm & 3U); perm >>= 4;
       int p2 = (int)(perm & 3U); perm >>= 6; int p3 = (int)(perm & 3U); perm >>= 8;
