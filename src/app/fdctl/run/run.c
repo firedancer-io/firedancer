@@ -429,7 +429,7 @@ main_pid_namespace( void * args ) {
   int wstatus;
   pid_t exited_pid = wait4( -1, &wstatus, (int)__WCLONE, NULL );
   if( FD_UNLIKELY( exited_pid == -1 ) ) {
-    fd_log_private_fprintf_0( STDERR_FILENO, "wait4() failed (%i-%s)", errno, fd_io_strerror( errno ) );
+    fd_log_private_fprintf_nolock_0( STDERR_FILENO, "wait4() failed (%i-%s)", errno, fd_io_strerror( errno ) );
     exit_group( 1 );
   }
 
@@ -444,10 +444,10 @@ main_pid_namespace( void * args ) {
   }
 
   if( FD_UNLIKELY( !WIFEXITED( wstatus ) ) ) {
-    fd_log_private_fprintf_0( STDERR_FILENO, "tile %lu (%s) exited with signal %d (%s)\n", tile_idx, name, WTERMSIG( wstatus ), fd_io_strsignal( WTERMSIG( wstatus ) ) );
+    fd_log_private_fprintf_nolock_0( STDERR_FILENO, "tile %lu (%s) exited with signal %d (%s)\n", tile_idx, name, WTERMSIG( wstatus ), fd_io_strsignal( WTERMSIG( wstatus ) ) );
     exit_group( WTERMSIG( wstatus ) ? WTERMSIG( wstatus ) : 1 );
   }
-  fd_log_private_fprintf_0( STDERR_FILENO, "tile %lu (%s) exited with code %d\n", tile_idx, name, WEXITSTATUS( wstatus ) );
+  fd_log_private_fprintf_nolock_0( STDERR_FILENO, "tile %lu (%s) exited with code %d\n", tile_idx, name, WEXITSTATUS( wstatus ) );
   exit_group( WEXITSTATUS( wstatus ) ? WEXITSTATUS( wstatus ) : 1 );
   return 0;
 }
@@ -459,7 +459,7 @@ static void
 parent_signal( int sig ) {
   (void)sig;
   if( pid_namespace ) kill( pid_namespace, SIGKILL );
-  fd_log_private_fprintf_0( STDERR_FILENO, "Log at \"%s\"\n", fd_log_private_path );
+  fd_log_private_fprintf_nolock_0( STDERR_FILENO, "Log at \"%s\"\n", fd_log_private_path );
   exit_group( 0 );
 }
 
@@ -516,7 +516,7 @@ run_firedancer( config_t * const config ) {
   int wstatus;
   pid_t pid2 = wait4( pid_namespace, &wstatus, (int)__WCLONE, NULL );
   if( FD_UNLIKELY( pid2 == -1 ) ) {
-    fd_log_private_fprintf_0( STDERR_FILENO, "error waiting for child process to exit\nLog at \"%s\"\n", fd_log_private_path );
+    fd_log_private_fprintf_nolock_0( STDERR_FILENO, "error waiting for child process to exit\nLog at \"%s\"\n", fd_log_private_path );
     exit_group( 1 );
   }
   if( FD_UNLIKELY( WIFSIGNALED( wstatus ) ) ) exit_group( WTERMSIG( wstatus ) ? WTERMSIG( wstatus ) : 1 );
