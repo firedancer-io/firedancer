@@ -243,12 +243,11 @@ get_sysvar_with_account_check_check_sysvar_account( transaction_ctx_t const * tr
                                                     fd_instr_t const *        instruction_context,
                                                     uchar instruction_account_index,
                                                     uchar check_id[static FD_PUBKEY_FOOTPRINT] ) {
-                                                      int rc;
+  int rc;
 
   uchar index_in_transaction = FD_TXN_ACCT_ADDR_MAX;
-  rc = get_index_of_instruction_account_in_transaction( instruction_context,
-                                                   instruction_account_index,
-                                                   &index_in_transaction );
+  rc                         = get_index_of_instruction_account_in_transaction(
+      instruction_context, instruction_account_index, &index_in_transaction );
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
 
   if ( FD_UNLIKELY(
@@ -273,7 +272,7 @@ get_sysvar_with_account_check_clock( instruction_ctx_t const *         invoke_co
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
 
   rc = fd_sysvar_clock_read( invoke_context->global, clock );
-  if ( FD_UNLIKELY( rc != OK ) ) return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+  if ( FD_UNLIKELY( rc != FD_ACC_MGR_SUCCESS ) ) return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
   return OK;
 }
 
@@ -292,7 +291,7 @@ get_sysvar_with_account_check_rent( instruction_ctx_t const * invoke_context,
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
 
   rc = fd_sysvar_rent_read( invoke_context->global, rent );
-  if ( FD_UNLIKELY( rc != OK ) ) return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+  if ( FD_UNLIKELY( rc != FD_ACC_MGR_SUCCESS ) ) return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
   return OK;
 }
 
@@ -312,7 +311,7 @@ get_sysvar_with_account_check_stake_history( instruction_ctx_t const * invoke_co
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
 
   rc = fd_sysvar_stake_history_read( invoke_context->global, stake_history );
-  if ( FD_UNLIKELY( rc != OK ) ) return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+  if ( FD_UNLIKELY( rc != FD_ACC_MGR_SUCCESS ) ) return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
   return OK;
 }
 
@@ -412,7 +411,6 @@ get_minimum_delegation( fd_global_ctx_t * feature_set /* feature set */ ) {
                       MINIMUM_STAKE_DELEGATION );
 }
 
-
 /**********************************************************************/
 /* mod stake/state                                                    */
 /**********************************************************************/
@@ -424,7 +422,6 @@ warmup_cooldown_rate( ulong current_epoch, ulong * new_rate_activation_epoch ) {
                        DEFAULT_WARMUP_COOLDOWN_RATE,
                        NEW_WARMUP_COOLDOWN_RATE );
 }
-
 
 /**********************************************************************/
 /* validated                                                          */
@@ -1343,7 +1340,7 @@ initialize( fd_borrowed_account_t const * stake_account,
             fd_valloc_t const *           valloc ) {
   int rc;
   if ( FD_UNLIKELY( stake_account->meta->dlen != size_of_stake_state_v2() ) ) {
-    return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
   fd_stake_state_v2_t stake_state = { 0 };
   rc                              = get_state( stake_account, valloc, &stake_state );
@@ -1955,7 +1952,7 @@ redelegate( instruction_ctx_t *       invoke_context,
 
   fd_sol_sysvar_clock_t clock = { 0 };
   rc                          = fd_sysvar_clock_read( invoke_context->global, &clock );
-  if ( FD_UNLIKELY( rc != OK ) ) return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+  if ( FD_UNLIKELY( rc != FD_ACC_MGR_SUCCESS ) ) return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
 
   FD_BORROWED_ACCOUNT_DECL( uninitialized_stake_account );
   rc = try_borrow_instruction_account( instruction_context,
@@ -2213,9 +2210,10 @@ withdraw( instruction_ctx_t *           invoke_context,
     return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
   }
 
-  if ( FD_UNLIKELY( lamports != stake_account->meta->info.lamports && lamports_and_reserve > stake_account->meta->info.lamports ) ) {
+  if ( FD_UNLIKELY( lamports != stake_account->meta->info.lamports &&
+                    lamports_and_reserve > stake_account->meta->info.lamports ) ) {
     // https://github.com/firedancer-io/solana/blob/v1.17/programs/stake/src/stake_state.rs#L1083
-    FD_TEST(!is_staked);
+    FD_TEST( !is_staked );
     return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
   }
 
@@ -2753,8 +2751,8 @@ fd_executor_stake_program_execute_instruction( instruction_ctx_t ctx ) {
     if ( FD_UNLIKELY( rc != OK ) ) return rc;
 
     fd_sol_sysvar_clock_t clock = { 0 };
-    rc                          = get_sysvar_with_account_check_clock( &ctx, ctx.instr, 2, &clock );
-    if ( FD_UNLIKELY( rc != OK ) ) return rc;
+    rc                          = fd_sysvar_clock_read( ctx.global, &clock );
+    if ( FD_UNLIKELY( rc != FD_ACC_MGR_SUCCESS ) ) return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
 
     rc = set_lockup( me, lockup, signers, &clock, &ctx.global->valloc );
     break;
@@ -2958,7 +2956,7 @@ fd_executor_stake_program_execute_instruction( instruction_ctx_t ctx ) {
 
       fd_sol_sysvar_clock_t clock;
       rc = fd_sysvar_clock_read( ctx.global, &clock );
-      if ( FD_UNLIKELY( rc != FD_BINCODE_SUCCESS ) ) {
+      if ( FD_UNLIKELY( rc != FD_ACC_MGR_SUCCESS ) ) {
         return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
       }
 
@@ -3002,9 +3000,7 @@ fd_executor_stake_program_execute_instruction( instruction_ctx_t ctx ) {
 
     fd_sol_sysvar_clock_t clock;
     rc = fd_sysvar_clock_read( ctx.global, &clock );
-    if ( FD_UNLIKELY( rc != FD_BINCODE_SUCCESS ) ) {
-      return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
-    }
+    if ( FD_UNLIKELY( rc != FD_ACC_MGR_SUCCESS ) ) return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
 
     rc = deactivate_delinquent( transaction_context,
                                 instruction_context,
