@@ -359,14 +359,11 @@ after_frag( void *             _ctx,
     fd_aio_pkt_info_t pkt = { .buf = ctx->buffer, .buf_sz = (ushort)*opt_sz };
     fd_aio_send( ctx->quic_rx_aio, &pkt, 1, NULL, 1 );
   } else if( FD_LIKELY( dst_port == ctx->legacy_transaction_port ) ) {
-    if( FD_UNLIKELY( *opt_sz < 15U ) ) FD_LOG_ERR(( "corrupt packet received (%lu)", *opt_sz ));
+    ulong network_hdr_sz = fd_disco_netmux_sig_hdr_sz( *opt_sig );
+    if( FD_UNLIKELY( *opt_sz < network_hdr_sz ) )
+      FD_LOG_ERR(( "corrupt packet received (%lu bytes. header %lu)", *opt_sz, network_hdr_sz ));
 
-    uchar * iphdr = ctx->buffer + 14U;
-    uint iplen = ( ( (uint)iphdr[0] ) & 0x0FU ) * 4U;
-    uchar * data = iphdr + iplen + 8U;
-
-    if( FD_UNLIKELY( 8U + 14U + iplen >= *opt_sz ) ) FD_LOG_ERR(( "corrupt packet received (%lu)", *opt_sz ));
-    legacy_stream_notify( ctx, data, (uint)(*opt_sz - 8UL - 14UL - iplen) );
+    legacy_stream_notify( ctx, ctx->buffer+network_hdr_sz, (uint)(*opt_sz - network_hdr_sz) );
   }
 }
 
@@ -562,7 +559,7 @@ quic_tx_aio_send( void *                    _ctx,
 
     /* send packets are just round-robined by sequence number, so for now
        just indicate where they came from so they don't bounce back */
-    ulong sig = fd_disco_netmux_sig( 0, 0, SRC_TILE_QUIC, 0 );
+    ulong sig = fd_disco_netmux_sig( 0, 0, FD_NETMUX_SIG_MIN_HDR_SZ, SRC_TILE_QUIC, 0 );
 
     ulong tspub  = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
     fd_mcache_publish( ctx->net_out_mcache,

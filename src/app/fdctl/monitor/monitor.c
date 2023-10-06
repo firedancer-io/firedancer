@@ -205,6 +205,7 @@ run_monitor( config_t * const config,
       case wksp_dedup_pack:
       case wksp_pack_bank:
       case wksp_bank_shred:
+      case wksp_shred_store:
         break;
       case wksp_net:
         tile_cnt += config->layout.net_tile_count;
@@ -225,6 +226,12 @@ run_monitor( config_t * const config,
       case wksp_bank:
         tile_cnt += config->layout.bank_tile_count;
         break;
+      case wksp_shred:
+        tile_cnt += 1;
+        break;
+      case wksp_store:
+        tile_cnt += 1;
+        break;
     }
   }
 
@@ -236,7 +243,9 @@ run_monitor( config_t * const config,
     config->layout.verify_tile_count + // quic -> verify
     config->layout.verify_tile_count + // verify -> dedup
     1 +                                // dedup -> pack
-    config->layout.bank_tile_count;    // pack -> bank
+    config->layout.bank_tile_count +   // pack -> bank
+    config->layout.bank_tile_count +   // bank -> shred
+    3;                                 // shred->store, shred <-> netmux
 
   tile_t * tiles = fd_alloca( alignof(tile_t *), sizeof(tile_t)*tile_cnt );
   link_t * links = fd_alloca( alignof(link_t *), sizeof(link_t)*link_cnt );
@@ -287,6 +296,21 @@ run_monitor( config_t * const config,
           if( FD_UNLIKELY( !links[ link_idx ].fseq ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
           link_idx++;
         }
+        links[ link_idx ].src_name = "netmux";
+        links[ link_idx ].dst_name = "shred";
+        links[ link_idx ].mcache = fd_mcache_join( fd_wksp_pod_map( pods[ j ], "mcache" ) );
+        if( FD_UNLIKELY( !links[ link_idx ].mcache ) ) FD_LOG_ERR(( "fd_mcache_join failed" ));
+        links[ link_idx ].fseq = fd_fseq_join( fd_wksp_pod_map( pods[ j ], "shred-in-fseq" ) );
+        if( FD_UNLIKELY( !links[ link_idx ].fseq ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
+        link_idx++;
+
+        links[ link_idx ].src_name = "shred";
+        links[ link_idx ].dst_name = "netmux";
+        links[ link_idx ].mcache = fd_mcache_join( fd_wksp_pod_map( pods[ j ], "shred-out-mcache" ) );
+        if( FD_UNLIKELY( !links[ link_idx ].mcache ) ) FD_LOG_ERR(( "fd_mcache_join failed" ));
+        links[ link_idx ].fseq = fd_fseq_join( fd_wksp_pod_map( pods[ j ], "shred-out-fseq" ) );
+        if( FD_UNLIKELY( !links[ link_idx ].fseq ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
+        link_idx++;
         break;
       case wksp_quic_verify:
         for( ulong i=0; i<config->layout.verify_tile_count; i++ ) {
@@ -331,6 +355,24 @@ run_monitor( config_t * const config,
         }
         break;
       case wksp_bank_shred:
+        for( ulong i=0; i<config->layout.bank_tile_count; i++ ) {
+          links[ link_idx ].src_name = "bank";
+          links[ link_idx ].dst_name = "shred";
+          links[ link_idx ].mcache = fd_mcache_join( fd_wksp_pod_map( pods[ j ], snprintf1( buf, 64, "mcache%lu", i ) ) );
+          if( FD_UNLIKELY( !links[ link_idx ].mcache ) ) FD_LOG_ERR(( "fd_mcache_join failed" ));
+          links[ link_idx ].fseq = fd_fseq_join( fd_wksp_pod_map( pods[ j ], snprintf1( buf, 64, "fseq%lu", i ) ) );
+          if( FD_UNLIKELY( !links[ link_idx ].fseq ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
+          link_idx++;
+        }
+        break;
+      case wksp_shred_store:
+        links[ link_idx ].src_name = "shred";
+        links[ link_idx ].dst_name = "store";
+        links[ link_idx ].mcache = fd_mcache_join( fd_wksp_pod_map( pods[ j ], "mcache" ) );
+        if( FD_UNLIKELY( !links[ link_idx ].mcache ) ) FD_LOG_ERR(( "fd_mcache_join failed" ));
+        links[ link_idx ].fseq = fd_fseq_join( fd_wksp_pod_map( pods[ j ], "fseq" ) );
+        if( FD_UNLIKELY( !links[ link_idx ].fseq ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
+        link_idx++;
         break;
       case wksp_net:
         for( ulong i=0; i<config->layout.net_tile_count; i++ ) {
@@ -388,6 +430,20 @@ run_monitor( config_t * const config,
           if( FD_UNLIKELY( fd_cnc_app_sz( tiles[ tile_idx ].cnc )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
           tile_idx++;
         }
+        break;
+      case wksp_shred:
+        tiles[ tile_idx ].name = "shred";
+        tiles[ tile_idx ].cnc = fd_cnc_join( fd_wksp_pod_map( pod, "cnc" ) );
+        if( FD_UNLIKELY( !tiles[ tile_idx ].cnc ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
+        if( FD_UNLIKELY( fd_cnc_app_sz( tiles[ tile_idx ].cnc )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
+        tile_idx++;
+        break;
+      case wksp_store:
+        tiles[ tile_idx ].name = "store";
+        tiles[ tile_idx ].cnc = fd_cnc_join( fd_wksp_pod_map( pod, "cnc" ) );
+        if( FD_UNLIKELY( !tiles[ tile_idx ].cnc ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
+        if( FD_UNLIKELY( fd_cnc_app_sz( tiles[ tile_idx ].cnc )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
+        tile_idx++;
         break;
     }
   }

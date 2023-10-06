@@ -487,6 +487,7 @@ fd_mux_tile( fd_cnc_t *              cnc,
       .depth = depth,
       .cr_avail = &cr_avail,
       .seq = &seq,
+      .cr_decrement_amount = fd_ulong_if( out_cnt>0UL, 1UL, 0UL ),
     };
 
     if( FD_LIKELY( callbacks->before_credit ) ) callbacks->before_credit( ctx, &mux );
@@ -641,8 +642,7 @@ fd_mux_publish( fd_mux_context_t * ctx,
                 ulong              tsorig,
                 ulong              tspub ) {
   fd_mcache_publish( ctx->mcache, ctx->depth, *ctx->seq, sig, chunk, sz, ctl, tsorig, tspub );
-  FD_TEST( *ctx->cr_avail > 0UL );
-  (*ctx->cr_avail)--;
+  *ctx->cr_avail -= ctx->cr_decrement_amount;
   *ctx->seq = fd_seq_inc( *ctx->seq, 1UL );
 }
 

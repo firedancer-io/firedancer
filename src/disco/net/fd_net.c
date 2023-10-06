@@ -68,7 +68,7 @@ net_rx_aio_send( void *                    _ctx,
     uchar const * udp = iphdr + iplen;
 
     /* Ignore if UDP header is too short */
-    if( FD_UNLIKELY( udp+4U > packet_end ) ) continue;
+    if( FD_UNLIKELY( udp+8U > packet_end ) ) continue;
 
     /* Extract IP dest addr and UDP dest port */
     uint ip_srcaddr    = *(uint   *)( iphdr+12UL );
@@ -77,7 +77,7 @@ net_rx_aio_send( void *                    _ctx,
     fd_memcpy( fd_chunk_to_laddr( ctx->out_wksp, ctx->out_chunk ), packet, batch[i].buf_sz );
 
     /* tile can decide how to partition based on src ip addr and port */
-    ulong sig = fd_disco_netmux_sig( ip_srcaddr, fd_ushort_bswap( udp_dstport ), SRC_TILE_NET, 0 );
+    ulong sig = fd_disco_netmux_sig( ip_srcaddr, fd_ushort_bswap( udp_dstport ), 14UL+8UL+iplen, SRC_TILE_NET, 0 );
 
     ulong tspub  = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
     fd_mux_publish( ctx->mux, sig, ctx->out_chunk, batch[i].buf_sz, 0, 0, tspub );
