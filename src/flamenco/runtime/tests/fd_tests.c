@@ -5,6 +5,8 @@
 #include <errno.h>
 #include <stdio.h>
 #include <unistd.h>
+#include <sys/types.h>
+#include <signal.h>
 #include "../../types/fd_types_yaml.h"
 #include "../../../ballet/base64/fd_base64.h"
 #include "../program/fd_bpf_loader_v4_program.h"  /* TODO remove this */
@@ -136,6 +138,27 @@ log_test_fail( fd_executor_test_t *             test,
     FD_LOG_NOTICE(( "Failed test %d (%s) (ignored): %s", test->test_number, test->test_name, buf ));
   } else {
     FD_LOG_WARNING(( "Failed test %d (%s) (not_ignored): %s", test->test_number, test->test_name, buf ));
+    if (NULL != fail_fast) {
+      // There must be a better way of doing this...
+      int in_gdb = 0;
+      FILE *fp = fopen("/proc/self/status", "r");
+      if (NULL != fp) {
+        char buf[255];
+        while (NULL != fgets(buf, sizeof(buf), fp)) {
+          char *p = strtok(buf, ":");
+          if (NULL == p) continue;
+          if (strcmp(p, "TracerPid") == 0) {
+            p = strtok(NULL, ":");
+            if (strlen(p) != 3 && p[1] != '0')
+              in_gdb = 1;
+            break;
+          }
+        }
+        fclose(fp);
+      }
+      if (in_gdb)
+        kill(getpid(), SIGTRAP);
+    }
   }
 }
 
@@ -524,19 +547,8 @@ fd_executor_run_cleanup:
 
 int
 main( int     argc,
-      char ** argv ) {
-#if 0
-class, what does the following print?
-
-  ulong a = 5;
-  ulong *b =&a;
-
-  printf("%d\n", fd_ulong_if(1, ++(*b), --a));
-  printf("%d\n", a);
-  printf("%d\n", 1 ? ++(*b):  --a);
-  exit(0);
-#endif
-
+      char ** argv
+ ) {
   fd_boot         ( &argc, &argv );
   fd_flamenco_boot( &argc, &argv );
 
