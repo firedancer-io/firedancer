@@ -139,7 +139,7 @@ FD_PROTOTYPES_BEGIN
    zero (reduced), one (reduced), 2^255-19 (the non-trivial nearly
    reduced representation), d (reduced), 2*d (reduced) and sqrt(-1)
    (reduced) respectively.  d is defined as per IETF RFC 8032 Section
-   5.1 (page 5) as -121665/121666.  imag^2 = -1 mod p = p-1.  These
+   5.1 (page 9) as -121665/121666.  imag^2 = -1 mod p = p-1.  These
    macros are robust.  Lanes 6 and 7 will be zero. */
 
 #define fd_r43x6_zero() wwl_zero()

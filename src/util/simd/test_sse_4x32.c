@@ -214,8 +214,12 @@ main( int     argc,
     FD_TEST( vi_test( vf_to_vi( x ), (int)x0, (int)x1, (int)x2, (int)x3 ) );
     FD_TEST( vi_test( vf_to_vi_fast( x ), (int)rintf(x0), (int)rintf(x1), (int)rintf(x2), (int)rintf(x3) ) );
 
-    FD_TEST( vu_test( vf_to_vu( x ), (uint)x0, (uint)x1, (uint)x2, (uint)x3 ) );
-    FD_TEST( vu_test( vf_to_vu_fast( x ), (uint)rintf(x0), (uint)rintf(x1), (uint)rintf(x2), (uint)rintf(x3) ) );
+    /* The behaviour when converting from negative float to uint is highly
+       dependent on the compiler version and the flags used ( e.g. gcc 8.5
+       vs 9.3 with -march=native ).  Refer also to vf_to_vu_fast.  In order
+       to make the test portable, negative values need to be excluded. */
+    FD_TEST( vu_test( vf_to_vu( vf_abs( x ) ), (uint)fabsf(x0), (uint)fabsf(x1), (uint)fabsf(x2), (uint)fabsf(x3) ) );
+    FD_TEST( vu_test( vf_to_vu_fast( vf_abs( x ) ), (uint)rintf(fabsf(x0)), (uint)rintf(fabsf(x1)), (uint)rintf(fabsf(x2)), (uint)rintf(fabsf(x3)) ) );
 
     FD_TEST( vd_test( vf_to_vd( x, 0, 0 ), (double)x0, (double)x0 ) );
     FD_TEST( vd_test( vf_to_vd( x, 0, 1 ), (double)x0, (double)x1 ) );

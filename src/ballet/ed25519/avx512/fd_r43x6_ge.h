@@ -29,7 +29,7 @@ FD_PROTOTYPES_BEGIN
 #define FD_R43X6_GE_ZERO(P) do { P##03 = wwl( 0L,1L,1L,0L, 0L,0L,0L,0L ); P##14 = wwl_zero(); P##25 = wwl_zero(); } while(0)
 
 /* FD_R43X6_GE_ONE(P) does P = the curve "base" point.  (X,Y,Z,T) are all
-   reduced representations with Z==1.  Section 5.1 (page 5):
+   reduced representations with Z==1.  Section 5.1 (page 9):
 
      B = (15112221349535400772501151409588531511454012693041857206046113283949847762202,
           46316835694926478169428394003475163141307993866256225615783033603165251855960)

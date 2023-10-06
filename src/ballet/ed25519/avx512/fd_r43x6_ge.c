@@ -75,17 +75,17 @@ fd_r43x6_ge_decode( wwl_t * _P03, wwl_t * _P14, wwl_t * _P25,
 
   // If the resulting value is >= p, decoding fails.
 
-  /* To do this, we add 19 to y (which yields a 257-bit result) and see
-     if bits 255 and/or 256 are set.  If so, then y+19>=2^255, which
-     implies y>=p. */
+  /* To do this, we add 19 to y ( which yields a 256-bit result, since y
+     is in [0,2^255) after clearing the most significant bit of y3 ) and
+     see if bit 255 is set.  If so, then y+19>=2^255, which implies y>=p. */
 
   ulong c = 19UL;
   ulong t;
   t = y0 + c; c = (ulong)(t<c);
   t = y1 + c; c = (ulong)(t<c);
   t = y2 + c; c = (ulong)(t<c);
-  t = y3 + c; c = (ulong)(t<c);
-  if( FD_UNLIKELY( (c | (t>>63)) ) ) goto fail;
+  t = y3 + c;
+  if( FD_UNLIKELY( t>>63 ) ) goto fail;
 
   fd_r43x6_t y = fd_r43x6_unpack( wv( y0, y1, y2, y3 ) );
 
@@ -215,9 +215,9 @@ fd_r43x6_ge_decode2( wwl_t * _Pa03, wwl_t * _Pa14, wwl_t * _Pa25,
   ta = y0a + ca; ca = (ulong)(ta<ca);                              tb = y0b + cb; cb = (ulong)(tb<cb);
   ta = y1a + ca; ca = (ulong)(ta<ca);                              tb = y1b + cb; cb = (ulong)(tb<cb);
   ta = y2a + ca; ca = (ulong)(ta<ca);                              tb = y2b + cb; cb = (ulong)(tb<cb);
-  ta = y3a + ca; ca = (ulong)(ta<ca);                              tb = y3b + cb; cb = (ulong)(tb<cb);
-  if( FD_UNLIKELY( (ca | (ta>>63)) ) ) goto faila;
-  /**/                                                             if( FD_UNLIKELY( (cb | (tb>>63)) ) ) goto failb;
+  ta = y3a + ca;                                                   tb = y3b + cb;
+  if( FD_UNLIKELY( ta>>63 ) ) goto faila;
+  /**/                                                             if( FD_UNLIKELY( tb>>63 ) ) goto failb;
 
   _sa[0] = y0a;                                                    _sb[0] = y0b;
   _sa[1] = y1a;                                                    _sb[1] = y1b;
@@ -318,7 +318,7 @@ fd_r43x6_ge_smul_base_large( wwl_t * _R03, wwl_t * _R14, wwl_t * _R25,
 
      Reshape the sum:
 
-       R = sum_{i in [0,2)} sum_{j in [0,16]} sum_{k in [0,8)} s_l 2^l B
+       R = sum_{i in [0,2)} sum_{j in [0,16)} sum_{k in [0,8)} s_l 2^l B
 
      where:
 
@@ -326,7 +326,7 @@ fd_r43x6_ge_smul_base_large( wwl_t * _R03, wwl_t * _R14, wwl_t * _R25,
 
      Factoring out the 2^(8*i), we have:
 
-       R = sum_{i in [0,2)} 2^(8 i) sum_{j in [0,16]} sum_{k in [0,8)} s_l 2^(16 j + k) B
+       R = sum_{i in [0,2)} 2^(8 i) sum_{j in [0,16)} sum_{k in [0,8)} s_l 2^(16 j + k) B
 
      The k sums can be precomputed into a table:
 
@@ -334,13 +334,13 @@ fd_r43x6_ge_smul_base_large( wwl_t * _R03, wwl_t * _R14, wwl_t * _R25,
 
      The table is indexed [0,16)x[0,256).  With this table, we have:
 
-       R = sum_{i in [0,2)} 2^(8 i) sum_{j in [0,16]} table(j,s_{m+7:m})
+       R = sum_{i in [0,2)} 2^(8 i) sum_{j in [0,16)} table(j,s_{m+7:m})
 
      where m = 16*j + 8*i.  That is, when i=0 / i=1, we are summing
      table lookups over the even / odd bytes of s.  Expanding the i sum:
 
-       R = (2^8) sum_{j in [0,16]} table(j,s[2j+1]))
-         +       sum_{j in [0,16]} table(j,s[2j  ]))
+       R = (2^8) sum_{j in [0,16)} table(j,s[2j+1])
+         +       sum_{j in [0,16)} table(j,s[2j  ])
 
      As such, we accumulate all the odd bytes, double the result 8 times
      and then finish accumulating the even bytes.  This yields the basic
@@ -360,8 +360,8 @@ fd_r43x6_ge_smul_base_large( wwl_t * _R03, wwl_t * _R14, wwl_t * _R25,
      Using this, we can transform s[i] from the range [0,256) to the
      range [-128,128] quickly.  This yields:
 
-       R = (2^8) sum_{j in [0,16]} (sgn s[2j+1]) table(j,|s[2j+1])|)
-         +       sum_{j in [0,16]} (sgn s[2j  ]) table(j,|s[2j  ])|)
+       R = (2^8) sum_{j in [0,16)} (sgn s[2j+1]) table(j,|s[2j+1])|)
+         +       sum_{j in [0,16)} (sgn s[2j  ]) table(j,|s[2j  ])|)
 
      where sgn x is -1,0,+1 if x is negative,zero,positive.  The benefit
      of this is that we now only need to index the table [0x16)x[1,128).
@@ -374,7 +374,7 @@ fd_r43x6_ge_smul_base_large( wwl_t * _R03, wwl_t * _R14, wwl_t * _R25,
      (Y-X,Y+X,2*Z,2*d*T) and we can normalize the table such that Z is
      1.  This allows us to store:
 
-       (Y-X,Y+X,-2*d*T,2*d*t)
+       (Y-X,Y+X,-2*d*T,2*d*T)
 
      as reduced fd_r43x6_t in a FD_R43X6_QUAD in the table.  When we
      load a table entry, if we need to negate it, we swap the lanes 0,1
@@ -414,7 +414,7 @@ fd_r43x6_ge_smul_base_large( wwl_t * _R03, wwl_t * _R14, wwl_t * _R25,
      result in the best result practically. */
 
   /* Transform s into a 32 signed 16-bit int limb representation.  At
-     this point, _s[0:31] are in [0,256) and _s[31] is in [0,128). */
+     this point, _s[0:30] are in [0,256) and _s[31] is in [0,128). */
 
   short _t[32];
 
