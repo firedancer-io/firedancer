@@ -350,6 +350,37 @@ init( config_t * const config ) {
           cnc   ( pod, "cnc%lu", i );
         }
         break;
+      case wksp_metrics:
+        cnc   ( pod, "cnc" );
+        ulong1( pod, "quic_count", config->layout.verify_tile_count );
+        ulong1( pod, "verify_count", config->layout.verify_tile_count );
+        ulong1( pod, "bank_count", config->layout.bank_tile_count );
+        ulong1( pod, "depth", config->tiles.metrics.depth );
+        ulong1( pod, "buffer_size", config->tiles.metrics.buffer_size );
+        fd_pod_insert_cstr( pod, "server",    config->tiles.metrics.server );
+        ushort1(            pod, "port", config->tiles.metrics.port, 0 );
+        fd_pod_insert_cstr( pod, "user_pass", config->tiles.metrics.user_pass );
+        fd_pod_insert_cstr( pod, "db", config->tiles.metrics.db );
+        ulong1(             pod, "post_interval_ms", config->tiles.metrics.post_interval_ms );
+        break;
+      case wksp_metrics_quic:
+      case wksp_metrics_verify:
+        for( ulong i=0; i<config->layout.verify_tile_count; i++ ) {
+          mcache( pod, "mcache%lu", config->tiles.metrics.depth, i );
+          dcache( pod, "dcache%lu", sizeof(Datapoint), (ulong)config->tiles.metrics.depth, 0 , i );
+        }
+        break;
+      case wksp_metrics_dedup:
+      case wksp_metrics_pack:
+        mcache( pod, "mcache0", config->tiles.metrics.depth );
+        dcache( pod, "dcache0", sizeof(Datapoint), (ulong)config->tiles.metrics.depth, 0 );
+        break;
+      case wksp_metrics_bank:
+        for( ulong i=0; i<config->layout.bank_tile_count; i++ ) {
+          mcache( pod, "mcache%lu", config->tiles.metrics.depth, i );
+          dcache( pod, "dcache%lu", sizeof(Datapoint), (ulong)config->tiles.metrics.depth, 0, i );
+        }
+        break;
     }
 
     WKSP_END();

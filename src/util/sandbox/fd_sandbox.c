@@ -224,9 +224,9 @@ switch_user( uint uid, uint gid ) {
 }
 
 static void
-unshare_user( uint uid, uint gid ) {
+unshare_user( uint uid, uint gid, int unshare_flags ) {
   switch_user( uid, gid );
-  FD_TESTV( !unshare( CLONE_NEWUSER | CLONE_NEWNS | CLONE_NEWNET | CLONE_NEWCGROUP | CLONE_NEWIPC | CLONE_NEWUTS ) );
+  FD_TESTV( !unshare( unshare_flags ) );
   deny_setgroups();
   userns_map( uid, "uid_map" );
   userns_map( gid, "gid_map" );
@@ -247,10 +247,24 @@ static void
 sandbox_unthreaded( ulong allow_fds_sz,
                     int * allow_fds,
                     uint uid,
-                    uint gid ) {
+                    uint gid,
+                    sandbox_mode_t sandbox_mode ) {
   check_fds( allow_fds_sz, allow_fds );
-  unshare_user( uid, gid );
-  struct rlimit limit = { .rlim_cur = 0, .rlim_max = 0 };
+  /* SANDBOX_MODE_METRICS relaxes the full sandbox so it is able to create sockets to the InfluxDB server.
+   * Note the rlimit that allows the creation of files and lack of network namespace, CLONE_NEWNET. */
+  rlim_t lim;
+  int unshare_flags;
+  if( FD_LIKELY( sandbox_mode == SANDBOX_MODE_FULL ) ) {
+    lim = 0;
+    unshare_flags = CLONE_NEWUSER | CLONE_NEWNS | CLONE_NEWNET | CLONE_NEWCGROUP | CLONE_NEWIPC | CLONE_NEWUTS;
+  } else if( FD_LIKELY( sandbox_mode == SANDBOX_MODE_METRICS ) ) {
+    lim = 2;
+    unshare_flags = CLONE_NEWUSER | CLONE_NEWNS |                CLONE_NEWCGROUP | CLONE_NEWIPC | CLONE_NEWUTS;
+  } else {
+    FD_LOG_ERR(( "invalid sandbox mode %d", sandbox_mode ));
+  }
+  unshare_user( uid, gid, unshare_flags );
+  struct rlimit limit = { .rlim_cur = lim, .rlim_max = lim };
   FD_TESTV( !setrlimit( RLIMIT_NOFILE, &limit ));
   setup_mountns();
   drop_capabilities();
@@ -258,19 +272,23 @@ sandbox_unthreaded( ulong allow_fds_sz,
 }
 
 void
-fd_sandbox( int    full_sandbox,
-            uint   uid,
-            uint   gid,
-            ulong  allow_fds_sz,
-            int *  allow_fds,
-            ushort allow_syscalls_cnt,
-            long * allow_syscalls ) {
-  if( FD_LIKELY( full_sandbox ) ) {
-    sandbox_unthreaded( allow_fds_sz, allow_fds, uid, gid );
-    install_seccomp( allow_syscalls_cnt, allow_syscalls );
-    FD_LOG_INFO(( "sandbox: full sandbox is now enabled" ));
-  } else {
-    switch_user( uid, gid );
-    FD_LOG_INFO(( "sandbox: no sandbox enabled" ));
+fd_sandbox( sandbox_mode_t sandbox_mode,
+            uint           uid,
+            uint           gid,
+            ulong          allow_fds_sz,
+            int *          allow_fds,
+            ushort         allow_syscalls_cnt,
+            long *         allow_syscalls ) {
+  switch( sandbox_mode ) {
+    case SANDBOX_MODE_FULL:
+    case SANDBOX_MODE_METRICS:
+      sandbox_unthreaded( allow_fds_sz, allow_fds, uid, gid, sandbox_mode );
+      install_seccomp( allow_syscalls_cnt, allow_syscalls );
+      FD_LOG_INFO(( "sandbox: %s sandbox is now enabled", sandbox_mode == SANDBOX_MODE_FULL ? "full" : "metrics" ));
+      break;
+    case SANDBOX_MODE_NONE:
+      switch_user( uid, gid );
+      FD_LOG_INFO(( "sandbox: no sandbox enabled" ));
+      break;
   }
 }

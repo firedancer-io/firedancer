@@ -307,7 +307,7 @@ dynamic_port_range = "8000-10000"
     #
     # It is suggested to use all available CPU cores for Firedancer, so that the
     # Solana network can run as fast as possible.
-    affinity = "0-14"
+    affinity = "0-15"
 
     # How many net tiles to run.  Each networking tile will service exactly one
     # queue from a network device being listened to.  If there are less net
@@ -534,6 +534,29 @@ dynamic_port_range = "8000-10000"
     # state as a result of any operations performed by the transactions.
     [tiles.bank]
         receive_buffer_size = 128
+
+    # The metrics tile is responsible for collecting metrics from the other tiles
+    # and forwarding them to metrics.solana.com which uses InfluxDB.
+    [tiles.metrics]
+        # This is the size of the mcache which is used to buffer metrics before
+        # the metrics tile processes them. There each tile has its own mcache.
+        depth = 128
+        # This is the internal buffer size of the metrics tile. It is used to
+        # store the body of the metrics post in InfluxDB line protocol before it
+        # is sent to the server.
+        buffer_size = 16777216
+        # This is the IP and port for InfluxDB at metrics.solana.com. We use an IP
+        # for now instead of a DNS name because we don't want to support DNS right
+        # now due to sandbox concerns.
+        server = "35.206.116.166:8086"
+        # This is the username and password for the InfluxDB server. They are public
+        # credentials.
+        user_pass = "scratch_writer:topsecret"
+        # The solana cluster name. This is a database in InfluxDB.
+        db = "devnet"
+        # How long to wait between posting metrics to the server. For now this needs to be
+        # set above
+        post_interval_ms = 5000
 
     # All transactions entering into the validator are deduplicated after their
     # signature is verified, to ensure the same transaction is not repeated

@@ -15,6 +15,7 @@ typedef enum {
   DEV1_VERIFY,
   DEV1_QUIC,
   DEV1_BANK,
+  DEV1_METRICS,
   DEV1_SOLANA,
 } tile_t;
 
@@ -30,6 +31,7 @@ dev1_cmd_args( int *    pargc,
   else if( FD_LIKELY( !strcmp( *pargv[ 0 ], "verify" ) ) )      args->run1.tile = DEV1_VERIFY;
   else if( FD_LIKELY( !strcmp( *pargv[ 0 ], "quic" ) ) )        args->run1.tile = DEV1_QUIC;
   else if( FD_LIKELY( !strcmp( *pargv[ 0 ], "bank" ) ) )        args->run1.tile = DEV1_BANK;
+  else if( FD_LIKELY( !strcmp( *pargv[ 0 ], "metrics" ) ) )     args->run1.tile = DEV1_METRICS;
   else if( FD_LIKELY( !strcmp( *pargv[ 0 ], "labs" ) ) )        args->run1.tile = DEV1_SOLANA;
   else if( FD_LIKELY( !strcmp( *pargv[ 0 ], "solana" ) ) )      args->run1.tile = DEV1_SOLANA;
   else if( FD_LIKELY( !strcmp( *pargv[ 0 ], "solana-labs" ) ) ) args->run1.tile = DEV1_SOLANA;
@@ -74,6 +76,7 @@ dev1_cmd_fn( args_t *         args,
     case DEV1_DEDUP:   tile_args.tile = &dedup; break;
     case DEV1_VERIFY:  tile_args.tile = &verify; break;
     case DEV1_QUIC:    tile_args.tile = &quic; break;
+    case DEV1_METRICS: tile_args.tile = &metrics; break;
     case DEV1_SOLANA: break;
     default: FD_LOG_ERR(( "unknown tile %d", args->run1.tile ));
   }

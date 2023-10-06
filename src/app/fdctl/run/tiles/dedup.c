@@ -17,9 +17,11 @@ init( fd_tile_args_t * args ) {
 
 static void
 run( fd_tile_args_t * args ) {
-  const uchar * tile_pod = args->wksp_pod[ 0 ];
-  const uchar * in_pod   = args->wksp_pod[ 1 ];
-  const uchar * out_pod  = args->wksp_pod[ 2 ];
+  const uchar * tile_pod     = args->wksp_pod[ 0 ];
+  const uchar * in_pod       = args->wksp_pod[ 1 ];
+  const uchar * out_pod      = args->wksp_pod[ 2 ];
+  const uchar * metrics_pod  = args->wksp_pod[ 3 ];
+  fd_metrics_boot( metrics_pod, metrics_dedup, args->tile_idx );
 
   ulong in_cnt = fd_pod_query_ulong( in_pod, "cnt", 0UL );
   if( FD_UNLIKELY( !in_cnt ) ) FD_LOG_ERR(( "in_cnt not set" ));
@@ -65,6 +67,7 @@ static workspace_kind_t allow_workspaces[] = {
   wksp_dedup,        /* the tile itself */
   wksp_verify_dedup, /* receive path */
   wksp_dedup_pack,   /* send path */
+  wksp_metrics_dedup /* metrics */
 };
 
 static ulong

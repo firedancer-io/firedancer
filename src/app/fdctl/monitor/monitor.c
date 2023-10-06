@@ -205,6 +205,11 @@ run_monitor( config_t * const config,
       case wksp_dedup_pack:
       case wksp_pack_bank:
       case wksp_bank_shred:
+      case wksp_metrics_quic:
+      case wksp_metrics_verify:
+      case wksp_metrics_dedup:
+      case wksp_metrics_pack:
+      case wksp_metrics_bank:
         break;
       case wksp_net:
         tile_cnt += config->layout.net_tile_count;
@@ -221,6 +226,8 @@ run_monitor( config_t * const config,
         break;
       case wksp_pack:
         tile_cnt += 1;
+        break;
+      case wksp_metrics:
         break;
       case wksp_bank:
         tile_cnt += config->layout.bank_tile_count;
@@ -388,6 +395,13 @@ run_monitor( config_t * const config,
           if( FD_UNLIKELY( fd_cnc_app_sz( tiles[ tile_idx ].cnc )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
           tile_idx++;
         }
+        break;
+      case wksp_metrics:
+      case wksp_metrics_quic:
+      case wksp_metrics_verify:
+      case wksp_metrics_dedup:
+      case wksp_metrics_pack:
+      case wksp_metrics_bank:
         break;
     }
   }
@@ -577,7 +591,7 @@ monitor_cmd_fn( args_t *         args,
   ushort allow_syscalls_cnt = args->monitor.drain_output_fd >= 0 ? num_syscalls : (ushort)(num_syscalls - 1);
 
   if( FD_UNLIKELY( close( 0 ) ) ) FD_LOG_ERR(( "close(0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  fd_sandbox( config->development.sandbox,
+  fd_sandbox( config->development.sandbox ? SANDBOX_MODE_FULL : SANDBOX_MODE_NONE,
               config->uid,
               config->gid,
               allow_fds_sz,

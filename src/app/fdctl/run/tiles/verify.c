@@ -17,9 +17,11 @@ init( fd_tile_args_t * args ) {
 
 static void
 run( fd_tile_args_t * args ) {
-  const uchar * tile_pod = args->wksp_pod[ 0 ];
-  const uchar * in_pod   = args->wksp_pod[ 1 ];
-  const uchar * out_pod  = args->wksp_pod[ 2 ];
+  const uchar * tile_pod     = args->wksp_pod[ 0 ];
+  const uchar * in_pod       = args->wksp_pod[ 1 ];
+  const uchar * out_pod      = args->wksp_pod[ 2 ];
+  const uchar * metrics_pod  = args->wksp_pod[ 3 ];
+  fd_metrics_boot( metrics_pod, metrics_verify, args->tile_idx );
 
   char mcache[32], fseq[32], dcache[32];
   snprintf( mcache, sizeof(mcache), "mcache%lu", args->tile_idx );
@@ -52,9 +54,10 @@ static long allow_syscalls[] = {
 };
 
 static workspace_kind_t allow_workspaces[] = {
-  wksp_verify,       /* the tile itself */
-  wksp_quic_verify,  /* receive path  */
-  wksp_verify_dedup, /* send path */
+  wksp_verify,        /* the tile itself */
+  wksp_quic_verify,   /* receive path  */
+  wksp_verify_dedup,  /* send path */
+  wksp_metrics_verify /* metrics */
 };
 
 static ulong
