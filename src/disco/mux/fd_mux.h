@@ -231,7 +231,8 @@ typedef void (fd_mux_during_frag_fn)( void * ctx,
    consumers of the mux.
 
    The ctx is a user-provided context object from when the mux tile was
-   initialized.
+   initialized.  mux should only be used for calling fd_mux_publish to
+   publish a fragment to downstream consumers.
 
    opt_sig, opt_chunk, and opt_sz are the respective fields from the
    mcache fragment that was received.  The callback can modify these
@@ -240,11 +241,12 @@ typedef void (fd_mux_during_frag_fn)( void * ctx,
    respecting flow control, these may be corrupt or torn and should not
    be trusted. */
 
-typedef void (fd_mux_after_frag_fn)( void *  ctx,
-                                     ulong * opt_sig,
-                                     ulong * opt_chunk,
-                                     ulong * opt_sz,
-                                     int *   opt_filter );
+typedef void (fd_mux_after_frag_fn)( void *             ctx,
+                                     ulong *            opt_sig,
+                                     ulong *            opt_chunk,
+                                     ulong *            opt_sz,
+                                     int *              opt_filter,
+                                     fd_mux_context_t * mux );
 
 /* By convention, the mux tile (and other tiles) use the app data region
    of the joined cnc to store overall tile diagnostics like whether they
@@ -446,13 +448,14 @@ fd_mux_tile_scratch_footprint( ulong in_cnt,
 int
 fd_mux_tile( fd_cnc_t *              cnc,         /* Local join to the mux's command-and-control */
              ulong                   pid,         /* Tile PID for diagnostic purposes */
-             ulong                   flags,       /* Any of FD_MUX_FLAGS_* specifying how to run the mux */
+             ulong                   flags,       /* Any of FD_MUX_FLAG_* specifying how to run the mux */
              ulong                   in_cnt,      /* Number of input mcaches to multiplex, inputs are indexed [0,in_cnt) */
              fd_frag_meta_t const ** in_mcache,   /* in_mcache[in_idx] is the local join to input in_idx's mcache */
              ulong **                in_fseq,     /* in_fseq  [in_idx] is the local join to input in_idx's fseq */
              fd_frag_meta_t *        mcache,      /* Local join to the mux's frag stream output mcache */
              ulong                   out_cnt,     /* Number of reliable consumers, reliable consumers are indexed [0,out_cnt) */
              ulong **                out_fseq,    /* out_fseq[out_idx] is the local join to reliable consumer out_idx's fseq */
+             ulong                   burst,       /* The maximum number of frags this tile publishes per input frag */
              ulong                   cr_max,      /* Maximum number of flow control credits, 0 means use a reasonable default */
              long                    lazy,        /* Lazyiness, <=0 means use a reasonable default */
              fd_rng_t *              rng,         /* Local join to the rng this mux should use */
