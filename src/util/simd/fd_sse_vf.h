@@ -256,19 +256,19 @@ vf_insert_variable( vf_t a, int n, float v ) {
 
 #define vf_to_vi_fast(a)          _mm_cvtps_epi32(  (a) )
 
-/* Note: Given that _mm_cvtpd_epi32 existed for a long time, Intel
-   clearly had the hardware under the hood for _mm_cvtpd_epu32 but
-   didn't bother to expose it pre-Cascade Lake ... sigh (all too typical
-   unfortunately).  We use _mm_cvtpd_epu32 where supported because it is
-   faster and it replicates the same IB behaviors as the compiler
+/* Note: Given that _mm_cvtps_epi32 existed for a long time, Intel
+   clearly had the hardware under the hood for _mm_cvtps_epu32 but
+   didn't bother to expose it pre-Skylake-X ... sigh (all too typical
+   unfortunately).  We use _mm_cvtps_epu32 where supported because it
+   is faster and it replicates the same IB behaviors as the compiler
    generated scalar ASM for float to uint casts on these targets.
 
-   Pre-Cascade Lake, we emulate it by noting that subtracting 2^31 from
-   a double holding an integer in [0,2^32) is exact and the result can
-   be exactly converted to a signed integer by _mm256_cvtpd_epi32.  We
-   then use twos complement hacks to add back any shift.  This also
-   replicates the compiler's IB behaviors on these ISAs for float to int
-   casts. */
+   Pre-Skylake-X, we emulate it by noting that subtracting 2^31 from
+   a float holding an integer in [2^31,2^32) is exact and the result
+   can be exactly converted to a signed integer by _mm_cvtps_epi32.
+   We then use twos complement hacks to add back any shift.  This also
+   replicates the compiler's IB behaviors on these ISAs for float to
+   int casts. */
 
 #if defined(__AVX512F__) && defined(__AVX512VL__)
 #define vf_to_vu_fast( a ) _mm_cvtps_epu32( (a) )

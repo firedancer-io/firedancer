@@ -127,37 +127,37 @@ FD_PROTOTYPES_BEGIN
     D##25 = wwl_permute( _perm, S##25 );                                                         \
   } while(0)
 
-/* FD_R43X6_QUAD_LANE_IF does:
-     D = [ imm0 ? SX : TX, imm1 ? SY : TY, imm2 ? SZ : TZ, imm3 ? ST : TT ]
+/* FD_R43X6_QUAD_LANE_BLEND does:
+     D = [ imm0 ? TX : SX, imm1 ? TY : SY, imm2 ? TZ : SZ, imm3 ? TT : ST ]
    imm* should be in [0,1]. */
 
-#define FD_R43X6_QUAD_LANE_IF( D, imm0,imm1,imm2,imm3, S, T ) do { \
-    int _mask = 17*(imm0) + 34*(imm1) + 68*(imm2) + 136*(imm3);    \
-    D##03 = wwl_if( _mask, S##03, T##03 );                         \
-    D##14 = wwl_if( _mask, S##14, T##14 );                         \
-    D##25 = wwl_if( _mask, S##25, T##25 );                         \
+#define FD_R43X6_QUAD_LANE_BLEND( D, imm0,imm1,imm2,imm3, S, T ) do {                  \
+    __mmask8 const _mask = (__mmask8)(17*(imm0) + 34*(imm1) + 68*(imm2) + 136*(imm3)); \
+    D##03 = wwl_blend( _mask, S##03, T##03 );                                          \
+    D##14 = wwl_blend( _mask, S##14, T##14 );                                          \
+    D##25 = wwl_blend( _mask, S##25, T##25 );                                          \
   } while(0)
 
 /* FD_R43X6_QUAD_LANE_ADD_FAST does:
      D = [ (imm0 ? (PX+QX) : SX) (imm1 ? (PY+QY) : SY) (imm2 ? (PZ+QZ) : SZ) (imm3 ? (PT+QT) : ST) ]
    imm* should be in [0,1]. */
 
-#define FD_R43X6_QUAD_LANE_ADD_FAST( D, S, imm0,imm1,imm2,imm3, P, Q ) do { \
-    int _mask = 17*(imm0) + 34*(imm1) + 68*(imm2) + 136*(imm3);             \
-    D##03 = wwv_add_if( _mask, P##03, Q##03, S##03 );                       \
-    D##14 = wwv_add_if( _mask, P##14, Q##14, S##14 );                       \
-    D##25 = wwv_add_if( _mask, P##25, Q##25, S##25 );                       \
+#define FD_R43X6_QUAD_LANE_ADD_FAST( D, S, imm0,imm1,imm2,imm3, P, Q ) do {            \
+    __mmask8 const _mask = (__mmask8)(17*(imm0) + 34*(imm1) + 68*(imm2) + 136*(imm3)); \
+    D##03 = _mm512_mask_add_epi64( S##03, _mask, P##03, Q##03 );                       \
+    D##14 = _mm512_mask_add_epi64( S##14, _mask, P##14, Q##14 );                       \
+    D##25 = _mm512_mask_add_epi64( S##25, _mask, P##25, Q##25 );                       \
   } while(0)
 
 /* FD_R43X6_QUAD_LANE_SUB_FAST does:
      D = [ (imm0 ? (PX-QX) : SX) (imm1 ? (PY-QY) : SY) (imm2 ? (PZ-QZ) : SZ) (imm3 ? (PT-QT) : ST) ]
    imm* should be in [0,1]. */
 
-#define FD_R43X6_QUAD_LANE_SUB_FAST( D, S, imm0,imm1,imm2,imm3, P, Q ) do { \
-    int _mask = 17*(imm0) + 34*(imm1) + 68*(imm2) + 136*(imm3);             \
-    D##03 = wwv_sub_if( _mask, P##03, Q##03, S##03 );                       \
-    D##14 = wwv_sub_if( _mask, P##14, Q##14, S##14 );                       \
-    D##25 = wwv_sub_if( _mask, P##25, Q##25, S##25 );                       \
+#define FD_R43X6_QUAD_LANE_SUB_FAST( D, S, imm0,imm1,imm2,imm3, P, Q ) do {            \
+    __mmask8 const _mask = (__mmask8)(17*(imm0) + 34*(imm1) + 68*(imm2) + 136*(imm3)); \
+    D##03 = _mm512_mask_sub_epi64( S##03, _mask, P##03, Q##03 );                       \
+    D##14 = _mm512_mask_sub_epi64( S##14, _mask, P##14, Q##14 );                       \
+    D##25 = _mm512_mask_sub_epi64( S##25, _mask, P##25, Q##25 );                       \
   } while(0)
 
 /* FD_R43X6_QUAD_FOLD_UNSIGNED(R,P) does:
@@ -361,13 +361,13 @@ fd_r43x6_quad_mul_fast( fd_r43x6_t * _z03, fd_r43x6_t * _z14, fd_r43x6_t * _z25,
   wwl_t q7_p4 = wwl_pack_halves( p4_q7,1, p4_q7,0 );
   wwl_t q8_p5 = wwl_pack_halves( p5_q8,1, p5_q8,0 );
 
-  wwl_t za03  = wwv_add_if( 0xF0, p0_q3, q6_p3, p0_q3 );
-  wwl_t za14  = wwv_add_if( 0xF0, p1_q4, q7_p4, p1_q4 );
-  wwl_t za25  = wwv_add_if( 0xF0, p2_q5, q8_p5, p2_q5 );
+  wwl_t za03  = _mm512_mask_add_epi64( p0_q3, (__mmask8)0xF0, p0_q3, q6_p3 );
+  wwl_t za14  = _mm512_mask_add_epi64( p1_q4, (__mmask8)0xF0, p1_q4, q7_p4 );
+  wwl_t za25  = _mm512_mask_add_epi64( p2_q5, (__mmask8)0xF0, p2_q5, q8_p5 );
 
-  wwl_t zb03  = wwv_add_if( 0x0F, p6_q9, q6_p3, p6_q9 );
-  wwl_t zb14  = wwv_add_if( 0x0F, p7_qa, q7_p4, p7_qa );
-  wwl_t zb25  = wwv_add_if( 0x0F, p8_qb, q8_p5, p8_qb );
+  wwl_t zb03  = _mm512_mask_add_epi64( p6_q9, (__mmask8)0x0F, p6_q9, q6_p3 );
+  wwl_t zb14  = _mm512_mask_add_epi64( p7_qa, (__mmask8)0x0F, p7_qa, q7_p4 );
+  wwl_t zb25  = _mm512_mask_add_epi64( p8_qb, (__mmask8)0x0F, p8_qb, q8_p5 );
 
   /* At this point:
 
