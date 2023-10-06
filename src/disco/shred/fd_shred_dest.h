@@ -20,7 +20,7 @@
 typedef ushort fd_shred_dest_idx_t;
 
 
-#define FD_SHRED_DEST_MAX_SHRED_CNT (67UL)
+#define FD_SHRED_DEST_MAX_SHRED_CNT (134UL) /* DATA_SHREDS_MAX+PARITY_SHREDS_MAX */
 #define FD_SHRED_DEST_NO_DEST       (USHORT_MAX)
 
 /* fd_shred_dest_weighted_t specifies a destination to which a shred might be
@@ -134,10 +134,10 @@ void * fd_shred_dest_delete( void * mem );
    which is why it operates on several shreds at the same time as
    opposed to one at a time. */
 fd_shred_dest_idx_t *
-fd_shred_dest_compute_first( fd_shred_dest_t     * sdest,
-                             fd_shred_t const    * input_shreds,
-                             ulong                 shred_cnt,
-                             fd_shred_dest_idx_t * out );
+fd_shred_dest_compute_first( fd_shred_dest_t          * sdest,
+                             fd_shred_t const * const * input_shreds,
+                             ulong                      shred_cnt,
+                             fd_shred_dest_idx_t      * out );
 
 /* fd_shred_dest_compute_children computes the source validator's
    children in the Turbine tree for each of the provided shreds.
@@ -163,7 +163,7 @@ fd_shred_dest_compute_first( fd_shred_dest_t     * sdest,
      shred0 dest1, shred1 dest1, shred2 dest1, ... (skip until 2stride)
      ...
      shred0 dest dest_cnt-1, ... ].
-   out_stride must be at least dest_cnt.
+   out_stride must be at least shred_cnt.
    If opt_max_dest_cnt is non-NULL, the maximum number of real
    destinations for any of the provided shreds will be stored in
    opt_max_dest_cnt.  This value is always <= dest_cnt, but in many
@@ -174,14 +174,14 @@ fd_shred_dest_compute_first( fd_shred_dest_t     * sdest,
 /* TODO: Would it be better if out were transposed? Should I get rid of
    stride? */
 fd_shred_dest_idx_t *
-fd_shred_dest_compute_children( fd_shred_dest_t     * sdest,
-                                fd_shred_t const    * input_shreds,
-                                ulong                 shred_cnt,
-                                fd_shred_dest_idx_t * out,
-                                ulong                 out_stride,
-                                ulong                 fanout,
-                                ulong                 dest_cnt,
-                                ulong               * opt_max_dest_cnt );
+fd_shred_dest_compute_children( fd_shred_dest_t          * sdest,
+                                fd_shred_t const * const * input_shreds,
+                                ulong                      shred_cnt,
+                                fd_shred_dest_idx_t      * out,
+                                ulong                      out_stride,
+                                ulong                      fanout,
+                                ulong                      dest_cnt,
+                                ulong                    * opt_max_dest_cnt );
 
 /* fd_shred_dest_idx_to_dest maps a destination index (as produced by
    fd_shred_dest_compute_children or fd_shred_dest_compute_first) to an
