@@ -36,6 +36,7 @@ test_compute_first_matches_solana( void ) {
 
   fd_shred_dest_idx_t result[1];
   fd_shred_t shred[1];
+  fd_shred_t const * shred_ptr[ 1 ] = { shred };
 
   ulong j=0UL;
   for( ulong slot=0UL; slot<10000UL; slot++ ) {
@@ -45,7 +46,7 @@ test_compute_first_matches_solana( void ) {
       shred->variant = fd_shred_variant( type==0 ? FD_SHRED_TYPE_MERKLE_DATA : FD_SHRED_TYPE_MERKLE_CODE, 2 );
       for( ulong idx=(ulong)(type+1); idx<67UL; idx += 3UL ) {
         shred->idx = (uint)idx;
-        FD_TEST( fd_shred_dest_compute_first( sdest, shred, 1UL, result ) );
+        FD_TEST( fd_shred_dest_compute_first( sdest, shred_ptr, 1UL, result ) );
         fd_shred_dest_weighted_t const * rresult = fd_shred_dest_idx_to_dest( sdest, *result );
         /* The test stores a 0 pubkey when we don't know the contact info
            even if we know the pubkey. */
@@ -86,6 +87,7 @@ test_compute_children_matches_solana( void ) {
 
   fd_shred_dest_idx_t result[200];
   fd_shred_t shred[1];
+  fd_shred_t const * shred_ptr[ 1 ] = { shred };
 
   ulong j=0UL;
   for( ulong slot=1UL; slot<2000UL; slot += 97UL ) {
@@ -95,7 +97,7 @@ test_compute_children_matches_solana( void ) {
       for( ulong idx=(ulong)(type+1); idx<67UL; idx += 3UL ) {
         shred->idx = (uint)idx;
         ulong max_dest_cnt[1] = { 0UL };
-        FD_TEST( fd_shred_dest_compute_children( sdest, shred, 1UL, result, 1UL, 200UL, 200UL, max_dest_cnt ) );
+        FD_TEST( fd_shred_dest_compute_children( sdest, shred_ptr, 1UL, result, 1UL, 200UL, 200UL, max_dest_cnt ) );
 
         ulong answer_cnt = ans_ul[j++];
         FD_TEST( *max_dest_cnt == answer_cnt );
@@ -119,6 +121,7 @@ test_distribution_is_tree( fd_shred_dest_weighted_t const * info, ulong cnt, fd_
   uchar hit[2048] = { 0 };
   fd_shred_dest_idx_t out[1024];
   fd_shred_t shred[1];
+  fd_shred_t const * shred_ptr[ 1 ] = { shred };
 
   /* If any of these fail, adjust test */
   FD_TEST(    cnt<2048UL );
@@ -138,13 +141,13 @@ test_distribution_is_tree( fd_shred_dest_weighted_t const * info, ulong cnt, fd_
     ulong dest_cnt = 0UL;
     if( !memcmp( &(info[src_idx].pubkey), leader, 32UL ) ) {
       //FD_LOG_NOTICE(( "%lu is leader", src_idx ));
-      FD_TEST( out==fd_shred_dest_compute_first( sdest, shred, 1UL, out ) );
+      FD_TEST( out==fd_shred_dest_compute_first( sdest, shred_ptr, 1UL, out ) );
       FD_TEST( !hit[ src_idx ] );
       hit[ src_idx ] = 1;
       dest_cnt = 1UL;
     } else {
       //FD_LOG_NOTICE(( "%lu is not leader", src_idx ));
-      FD_TEST( out==fd_shred_dest_compute_children( sdest, shred, 1UL, out, 1UL, fanout, fanout, &dest_cnt ) );
+      FD_TEST( out==fd_shred_dest_compute_children( sdest, shred_ptr, 1UL, out, 1UL, fanout, fanout, &dest_cnt ) );
     }
 
     for( ulong i=0; i<dest_cnt; i++ ) {
@@ -186,6 +189,8 @@ test_batching( void ) {
     fd_shred_dest_idx_t result1[BATCH_CNT*BATCH_CNT];
     fd_shred_dest_idx_t result2[BATCH_CNT*BATCH_CNT];
     fd_shred_t shred[BATCH_CNT];
+    fd_shred_t const * shred_ptr[ BATCH_CNT ];
+    for( ulong j=0UL; j<BATCH_CNT; j++ ) shred_ptr[j] = shred+j;
 
     memset( result1, 0x11, sizeof(result1) );
     memset( result2, 0x22, sizeof(result2) );
@@ -198,16 +203,16 @@ test_batching( void ) {
       }
       if( FD_LIKELY( memcmp( fd_epoch_leaders_get( lsched, slot ), src_key, 32UL ) ) ) {
         /* Not leader */
-        FD_TEST( fd_shred_dest_compute_children( sdest, shred, 5UL, result1, 5UL, 5UL, 5UL, NULL ) );
+        FD_TEST( fd_shred_dest_compute_children( sdest, shred_ptr, 5UL, result1, 5UL, 5UL, 5UL, NULL ) );
         for( ulong j=0UL; j<BATCH_CNT; j++ ) {
-          FD_TEST( fd_shred_dest_compute_children( sdest, shred+j, 1UL, result2+j, 5UL, 5UL, 5UL, NULL ) );
+          FD_TEST( fd_shred_dest_compute_children( sdest, shred_ptr+j, 1UL, result2+j, 5UL, 5UL, 5UL, NULL ) );
         }
         for( ulong j=0UL; j<BATCH_CNT*BATCH_CNT; j++ ) FD_TEST( result1[j]==result2[j] );
       } else {
         /* Leader */
-        FD_TEST( fd_shred_dest_compute_first( sdest, shred, 5UL, result1 ) );
+        FD_TEST( fd_shred_dest_compute_first( sdest, shred_ptr, 5UL, result1 ) );
         for( ulong j=0UL; j<BATCH_CNT; j++ ) {
-          FD_TEST( fd_shred_dest_compute_first( sdest, shred+j, 1UL, result2+j ) );
+          FD_TEST( fd_shred_dest_compute_first( sdest, shred_ptr+j, 1UL, result2+j ) );
           FD_TEST( result1[j]==result2[j] );
         }
       }
