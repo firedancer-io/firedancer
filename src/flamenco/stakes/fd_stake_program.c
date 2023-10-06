@@ -1957,8 +1957,6 @@ redelegate( instruction_ctx_t *       invoke_context,
   rc                                                    = get_state(
       uninitialized_stake_account, &invoke_context->global->valloc, &uninitialized_stake_account_state );
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
-  FD_LOG_NOTICE( ( "uninitialized_stake_account_state.discriminant %d",
-                   uninitialized_stake_account_state.discriminant ) );
   if ( FD_UNLIKELY( uninitialized_stake_account_state.discriminant !=
                     fd_stake_state_v2_enum_uninitialized ) ) {
     FD_DEBUG( FD_LOG_WARNING( ( "expected uninitialized stake account to be uninitialized" ) ) );
@@ -1991,7 +1989,7 @@ redelegate( instruction_ctx_t *       invoke_context,
 
     fd_stake_history_t stake_history = { 0 };
     rc = fd_sysvar_stake_history_read( invoke_context->global, &stake_history );
-    if ( FD_UNLIKELY( rc != OK ) ) return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+    if ( FD_UNLIKELY( rc != OK ) ) return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
 
     ulong new_rate_activation_epoch = ULONG_MAX;
     bool  is_some = new_warmup_cooldown_rate_epoch( invoke_context, &new_rate_activation_epoch );
@@ -2003,7 +2001,7 @@ redelegate( instruction_ctx_t *       invoke_context,
 
     if ( FD_UNLIKELY( status.effective == 0 || status.activating != 0 ||
                       status.deactivating != 0 ) ) {
-      FD_LOG_WARNING( ( "stake is not active" ) );
+      FD_DEBUG ( FD_LOG_WARNING( ( "stake is not active" ) ) );
       *custom_err = FD_STAKE_ERR_REDELEGATE_TRANSIENT_OR_INACTIVE_STAKE;
       return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
     }
@@ -3018,7 +3016,7 @@ fd_executor_stake_program_execute_instruction( instruction_ctx_t ctx ) {
         rc                             = get_key_of_account_at_index(
             transaction_context, index_in_transaction, &config_account_key );
         if ( FD_UNLIKELY( rc != OK ) ) return rc;
-        if ( FD_UNLIKELY( 0 == memcmp( config_account_key.uc,
+        if ( FD_UNLIKELY( 0 != memcmp( config_account_key.uc,
                                        ctx.global->solana_stake_program_config,
                                        sizeof( config_account_key.uc ) ) ) ) {
           return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
