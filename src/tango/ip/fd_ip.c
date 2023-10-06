@@ -205,12 +205,12 @@ fd_ip_arp_query( fd_ip_t *            ip,
      then the function returns 1 */
 
 int
-fd_ip_arp_gen_arp_probe( uchar *   buf,
-                         ulong     buf_cap,
-                         ulong *   arp_len,
-                         uint      dst_ip_addr,
-                         uint      src_ip_addr,
-                         uchar *   src_mac_addr ) {
+fd_ip_arp_gen_arp_probe( uchar *         buf,
+                         ulong           buf_cap,
+                         ulong *         arp_len,
+                         uint            dst_ip_addr,
+                         uint            src_ip_addr,
+                         uchar const *   src_mac_addr ) {
   if( buf_cap < sizeof( fd_ip_arp_t ) ) {
     return 1;
   }

@@ -203,12 +203,12 @@ fd_ip_arp_query( fd_ip_t * ip, fd_ip_arp_entry_t ** arp, uint ip_addr );
      1 on failure (buf_cap not large enough) */
 
 int
-fd_ip_arp_gen_arp_probe( uchar *   buf,
-                         ulong     buf_cap,
-                         ulong *   arp_len,
-                         uint      dst_ip_addr,
-                         uint      src_ip_addr,
-                         uchar *   src_mac_addr );
+fd_ip_arp_gen_arp_probe( uchar *       buf,
+                         ulong         buf_cap,
+                         ulong *       arp_len,
+                         uint          dst_ip_addr,
+                         uint          src_ip_addr,
+                         uchar const * src_mac_addr );
 
 
 /* fetch the routing table from the kernel
