@@ -378,7 +378,7 @@ get_state( fd_borrowed_account_t const * self,
   bincode_ctx.valloc  = *valloc;
 
   rc = fd_stake_state_v2_decode( out, &bincode_ctx );
-  if ( FD_UNLIKELY( rc != OK ) ) return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+  if ( FD_UNLIKELY( rc != FD_BINCODE_SUCCESS ) ) return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
 
   return OK;
 }
@@ -396,7 +396,7 @@ set_state( fd_borrowed_account_t const * self, fd_stake_state_v2_t const * state
       .dataend = data + serialized_size,
   };
   rc = fd_stake_state_v2_encode( state, &ctx );
-  if ( FD_UNLIKELY( rc != OK ) ) return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
+  if ( FD_UNLIKELY( rc != FD_BINCODE_SUCCESS ) ) return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
   return OK;
 }
 
