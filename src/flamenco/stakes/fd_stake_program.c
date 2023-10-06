@@ -1488,8 +1488,6 @@ delegate( instruction_ctx_t *           invoke_context,
   fd_vote_state_versioned_t vote_state  = { 0 };
   rc = fd_vote_get_state( vote_account, *invoke_context, &vote_state );
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
-  memset(
-      &vote_account, 0, sizeof( fd_borrowed_account_t ) ); // FIXME necessary? mimicking Rust `drop`
 
   FD_BORROWED_ACCOUNT_DECL( stake_account );
   rc = try_borrow_instruction_account(
@@ -1653,8 +1651,6 @@ split( instruction_ctx_t *       invoke_context,
 
   ulong split_lamport_balance = split->meta->info.lamports;
 
-  memset( &split, 0, sizeof( fd_borrowed_account_t ) ); // FIXME necessary? mimicking Rust `drop`
-
   FD_BORROWED_ACCOUNT_DECL( stake_account );
   rc = try_borrow_instruction_account(
       instruction_context, transaction_context, stake_account_index, stake_account );
@@ -1667,10 +1663,6 @@ split( instruction_ctx_t *       invoke_context,
   fd_stake_state_v2_t stake_state = { 0 };
   rc = get_state( stake_account, &invoke_context->global->valloc, &stake_state );
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
-
-  memset( &stake_account,
-          0,
-          sizeof( fd_borrowed_account_t ) ); // FIXME necessary? mimicking Rust `drop`
 
   switch ( stake_state.discriminant ) {
   case fd_stake_state_v2_enum_stake: {
@@ -1811,9 +1803,6 @@ split( instruction_ctx_t *       invoke_context,
     rc                                = set_state( stake_account, &uninitialized );
     if ( FD_UNLIKELY( rc != OK ) ) return rc;
   };
-  memset( &stake_account,
-          0,
-          sizeof( fd_borrowed_account_t ) ); // FIXME necessary? mimicking Rust `drop`
 
   // https://github.com/firedancer-io/solana/blob/v1.17/programs/stake/src/stake_state.rs#L796-L803
   rc = try_borrow_instruction_account(
@@ -1821,7 +1810,7 @@ split( instruction_ctx_t *       invoke_context,
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
   rc = checked_add_lamports( split, lamports );
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
-  memset( &split, 0, sizeof( fd_borrowed_account_t ) ); // FIXME necessary? mimicking Rust `drop`
+
   rc = try_borrow_instruction_account(
       instruction_context, transaction_context, stake_account_index, stake_account );
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
@@ -2107,7 +2096,7 @@ withdraw( instruction_ctx_t *           invoke_context,
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
   if ( FD_UNLIKELY( !is_signer ) ) return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
 
-  fd_pubkey_t const * signers[FD_TXN_SIG_MAX] = { &withdraw_authority_pubkey };
+  fd_pubkey_t const * signers[FD_TXN_SIG_MAX] = { &withdraw_authority_pubkey }; // TODO: This feels wrong
 
   FD_BORROWED_ACCOUNT_DECL( stake_account );
   rc = try_borrow_instruction_account(
@@ -2214,8 +2203,6 @@ withdraw( instruction_ctx_t *           invoke_context,
 
   rc = checked_sub_lamports( stake_account, lamports );
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
-  // FIXME necessary? mimicking Rust `drop`
-  memset( &stake_account, 0, sizeof( fd_borrowed_account_t ) );
   FD_BORROWED_ACCOUNT_DECL( to );
   rc = try_borrow_instruction_account( instruction_context, transaction_context, to_index, to );
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
@@ -2546,8 +2533,6 @@ fd_executor_stake_program_execute_instruction( instruction_ctx_t ctx ) {
     rc = check_number_of_instruction_accounts( ctx.instr, 5 );
     if ( FD_UNLIKELY( rc != OK ) ) return rc;
 
-    memset( &me, 0, sizeof( fd_borrowed_account_t ) ); // FIXME necessary? mimicking Rust `drop`
-
     // FIXME FD_LIKELY
     // https://github.com/firedancer-io/solana/blob/v1.17/programs/stake/src/stake_instruction.rs#L176-L188
     if ( FD_UNLIKELY( !FD_FEATURE_ACTIVE( ctx.global, reduce_stake_warmup_cooldown ) ) ) {
@@ -2613,8 +2598,6 @@ fd_executor_stake_program_execute_instruction( instruction_ctx_t ctx ) {
     rc = check_number_of_instruction_accounts( instruction_context, 2 );
     if ( FD_UNLIKELY( rc != OK ) ) return rc;
 
-    memset( &me, 0, sizeof( fd_borrowed_account_t ) ); // FIXME necessary? mimicking Rust `drop`
-
     rc = split( &ctx, transaction_context, instruction_context, 0, lamports, 1, signers );
     break;
   }
@@ -2642,8 +2625,6 @@ fd_executor_stake_program_execute_instruction( instruction_ctx_t ctx ) {
     fd_stake_history_t stake_history = { 0 };
     rc = get_sysvar_with_account_check_stake_history( &ctx, ctx.instr, 3, &stake_history );
     if ( FD_UNLIKELY( rc != OK ) ) return rc;
-
-    memset( &me, 0, sizeof( fd_borrowed_account_t ) ); // FIXME necessary? mimicking Rust `drop`
 
     rc = merge(
         &ctx, transaction_context, instruction_context, 0, 1, &clock, &stake_history, signers );
@@ -2676,8 +2657,6 @@ fd_executor_stake_program_execute_instruction( instruction_ctx_t ctx ) {
 
     rc = check_number_of_instruction_accounts( instruction_context, 5 );
     if ( FD_UNLIKELY( rc != OK ) ) return rc;
-
-    memset( &me, 0, sizeof( fd_borrowed_account_t ) ); // FIXME necessary? mimicking Rust `drop`
 
     uchar custodian_index           = 5;
     ulong new_rate_activation_epoch = ULONG_MAX;

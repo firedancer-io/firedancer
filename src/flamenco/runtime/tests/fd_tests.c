@@ -395,28 +395,28 @@ int fd_executor_run_test(
         void*              d = (void *)(raw_acc_data + m->hlen);
 
         if (m->info.lamports != test->accs[i].result_lamports) {
-          log_test_fail( test, suite, "expected lamports %ld, got %ld: %s", test->accs[i].result_lamports, m->info.lamports, (NULL != verbose) ? test->bt : "");
+          log_test_fail( test, suite, "account %ld: expected lamports %ld, got %ld: %s", i, test->accs[i].result_lamports, m->info.lamports, (NULL != verbose) ? test->bt : "");
           ret = -666;
           break;
         }
         if (m->info.executable != test->accs[i].result_executable) {
-          log_test_fail( test, suite, "expected executable %u, got %u: %s", test->accs[i].result_executable, m->info.executable, (NULL != verbose) ? test->bt : "");
+          log_test_fail( test, suite, "account %ld: expected executable %u, got %u: %s", i, test->accs[i].result_executable, m->info.executable, (NULL != verbose) ? test->bt : "");
           ret = -667;
           break;
         }
         if (m->info.rent_epoch != test->accs[i].result_rent_epoch) {
-          log_test_fail( test, suite, "expected rent_epoch %ld, got %ld: %s", test->accs[i].result_rent_epoch, m->info.rent_epoch, (NULL != verbose) ? test->bt : "");
+          log_test_fail( test, suite, "account %ld: expected rent_epoch %ld, got %ld: %s", i, test->accs[i].result_rent_epoch, m->info.rent_epoch, (NULL != verbose) ? test->bt : "");
           ret = -668;
           break;
         }
         if (memcmp(&m->info.owner, &test->accs[i].result_owner, sizeof(fd_pubkey_t)) != 0) {
-          log_test_fail( test, suite, "expected owner %32J, got %32J: %s", test->accs[i].result_owner.key, m->info.owner, (NULL != verbose) ? test->bt : "" );
+          log_test_fail( test, suite, "account %ld: expected owner %32J, got %32J: %s", i, test->accs[i].result_owner.key, m->info.owner, (NULL != verbose) ? test->bt : "" );
           ret = -668;
           break;
         }
         FD_TEST( (!!test->accs[i].result_data_len) ^ (!test->accs[i].result_data) );
         if (test->accs[i].result_data_len == 0 && m->dlen != 0) {
-          log_test_fail( test, suite, "expected data len %ld, got %ld: %s", test->accs[i].result_data_len, m->dlen, (NULL != verbose) ? test->bt : "");
+          log_test_fail( test, suite, "account %ld: expected data len %ld, got %ld: %s", i, test->accs[i].result_data_len, m->dlen, (NULL != verbose) ? test->bt : "");
           ret = -669;
           break;
         }
