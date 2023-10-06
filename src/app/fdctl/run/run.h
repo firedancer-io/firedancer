@@ -35,6 +35,7 @@ extern fd_tile_config_t verify;
 extern fd_tile_config_t dedup;
 extern fd_tile_config_t pack;
 extern fd_tile_config_t bank;
+extern fd_tile_config_t shred;
 
 typedef struct {
   fd_tile_config_t * tile;

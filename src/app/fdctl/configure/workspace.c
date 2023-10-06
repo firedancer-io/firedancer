@@ -5,6 +5,7 @@
 #include "../../../tango/fd_tango.h"
 #include "../../../tango/quic/fd_quic.h"
 #include "../../../tango/xdp/fd_xsk_aio.h"
+#include "../../../disco/shred/fd_shred_tile.h"
 
 #include <sys/stat.h>
 #include <linux/capability.h>
@@ -69,6 +70,13 @@ static void fseq( void * pod, char * fmt, ... ) {
             fd_fseq_new      ( shmem, 0 ) );
 }
 
+static void mvcc( void * pod, char * fmt, ulong app_sz, ... ) {
+  INSERTER( app_sz,
+            fd_mvcc_align    (               ),
+            fd_mvcc_footprint( app_sz        ),
+            fd_mvcc_new      ( shmem, app_sz ) );
+}
+
 static void quic( void * pod, char * fmt, fd_quic_limits_t * limits, ... ) {
   INSERTER( limits,
             fd_quic_align    (               ),
@@ -110,6 +118,10 @@ static void ulong1( void * pod, char * fmt, ulong value, ... ) {
 
 static void uint1( void * pod, char * fmt, uint value, ... ) {
   VALUE( uint, value );
+}
+
+static void cstr1( void * pod, char * fmt, char const * value, ... ) {
+  VALUE( cstr, value );
 }
 
 /* need a dummy argument so we can locate va_args (value would be default
@@ -244,6 +256,10 @@ init( config_t * const config ) {
           dcache( pod, "quic-out-dcache%lu", FD_NET_MTU, config->tiles.net.send_buffer_size, 0, i );
           fseq  ( pod, "quic-in-fseq%lu", i );
         }
+        mcache( pod, "shred-out-mcache", config->tiles.net.send_buffer_size );
+        fseq  ( pod, "shred-out-fseq" );
+        dcache( pod, "shred-out-dcache", FD_NET_MTU, config->tiles.net.send_buffer_size, 0 );
+        fseq  ( pod, "shred-in-fseq" );
         break;
       case wksp_quic_verify:
         for( ulong i=0; i<config->layout.verify_tile_count; i++ ) {
@@ -270,6 +286,11 @@ init( config_t * const config ) {
         /* could be FD_TPU_MTU for now, since txns are not parsed, but
            better to just share one size for all the ins */
         dcache( pod, "gossip-dcache", FD_TPU_DCACHE_MTU, config->tiles.verify.receive_buffer_size, 0 );
+
+        const ulong FD_LSCHED_MTU = 16UL + 432000UL * 32UL;
+        mcache( pod, "lsched-mcache", 128UL );
+        fseq  ( pod, "lsched-fseq" );
+        dcache( pod, "lsched-dcache", FD_LSCHED_MTU, 128UL, 0 );
         break;
       case wksp_pack_bank:
         ulong1( pod, "cnt", config->layout.bank_tile_count );
@@ -281,11 +302,19 @@ init( config_t * const config ) {
         }
         break;
       case wksp_bank_shred:
+        ulong1( pod, "cnt", config->layout.bank_tile_count );
         for( ulong i=0; i<config->layout.bank_tile_count; i++ ) {
-          mcache( pod, "mcache%lu", 128, i );
+          mcache( pod, "mcache%lu", 128UL, i );
           dcache( pod, "dcache%lu", USHORT_MAX, 128UL, 0, i );
           fseq  ( pod, "fseq%lu", i );
         }
+        break;
+      case wksp_shred_store:
+        mcache( pod, "mcache", 128 );
+        fseq  ( pod, "fseq" );
+        /* See long comment in fd_shred_tile.c for an explanation about
+           the size of this dcache. */
+        dcache( pod, "dcache", FD_SHRED_STORE_MTU, 4UL*(4UL+config->tiles.shred.max_pending_shred_sets+128), 0 );
         break;
       case wksp_net:
         for( ulong i=0; i<config->layout.net_tile_count; i++ ) {
@@ -343,13 +372,30 @@ init( config_t * const config ) {
         break;
       case wksp_pack:
         cnc   ( pod, "cnc" );
-        ulong1( pod, "depth",   config->tiles.pack.max_pending_transactions );
+        ulong1( pod, "depth",            config->tiles.pack.max_pending_transactions );
+        alloc ( pod, "poh_slot",         32UL, 8UL                                   );
+        alloc ( pod, "poh_parent_slot",  32UL, 8UL                                   );
         break;
       case wksp_bank:
-        for( ulong i=0; i<config->layout.verify_tile_count; i++ ) {
+        for( ulong i=0; i<config->layout.bank_tile_count; i++ ) {
           cnc   ( pod, "cnc%lu", i );
         }
         break;
+      case wksp_shred:
+        cnc    ( pod, "cnc" );
+        alloc  ( pod, "shred_version",        8UL, 8UL                                             );
+        uint1  ( pod, "ip_addr",              config->tiles.net.ip_addr                            );
+        buf    ( pod, "src_mac_addr",         config->tiles.net.mac_addr, 6                        );
+        ulong1 ( pod, "fec_resolver_depth",   config->tiles.shred.max_pending_shred_sets           );
+        mvcc   ( pod, "cluster_nodes",        16UL + 50000UL*46UL                                  ); /* max of 50k validators */
+        cstr1  ( pod, "identity_key_path",    config->consensus.identity_path                      );
+        ushort1( pod, "shred_listen_port",    config->tiles.shred.shred_listen_port, 0             );
+        ulong * shred_version = fd_wksp_pod_map( pod, "shred_version" );
+        *shred_version = (ulong)config->consensus.expected_shred_version;
+        fd_wksp_pod_unmap( shred_version );
+        break;
+      case wksp_store:
+        cnc( pod, "cnc" );
     }
 
     WKSP_END();

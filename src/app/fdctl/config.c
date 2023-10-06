@@ -19,18 +19,21 @@ FD_FN_CONST char *
 workspace_kind_str( workspace_kind_t kind ) {
   switch( kind ) {
     case wksp_netmux_inout: return "netmux_inout";
-    case wksp_quic_verify: return "quic_verify";
+    case wksp_quic_verify:  return "quic_verify";
     case wksp_verify_dedup: return "verify_dedup";
-    case wksp_dedup_pack: return "dedup_pack";
-    case wksp_pack_bank: return "pack_bank";
-    case wksp_bank_shred: return "bank_shred";
-    case wksp_net: return "net";
-    case wksp_netmux: return "netmux";
-    case wksp_quic: return "quic";
-    case wksp_verify: return "verify";
-    case wksp_dedup: return "dedup";
-    case wksp_pack: return "pack";
-    case wksp_bank: return "bank";
+    case wksp_dedup_pack:   return "dedup_pack";
+    case wksp_pack_bank:    return "pack_bank";
+    case wksp_bank_shred:   return "bank_shred";
+    case wksp_shred_store:  return "shred_store";
+    case wksp_net:          return "net";
+    case wksp_netmux:       return "netmux";
+    case wksp_quic:         return "quic";
+    case wksp_verify:       return "verify";
+    case wksp_dedup:        return "dedup";
+    case wksp_pack:         return "pack";
+    case wksp_bank:         return "bank";
+    case wksp_shred:        return "shred";
+    case wksp_store:        return "store";
   }
   return NULL;
 }
@@ -69,6 +72,7 @@ memlock_max_bytes( config_t * const config ) {
       case wksp_dedup_pack:
       case wksp_pack_bank:
       case wksp_bank_shred:
+      case wksp_shred_store:
         break;
       case wksp_net:
         TILE_MAX( net );
@@ -90,6 +94,12 @@ memlock_max_bytes( config_t * const config ) {
         break;
       case wksp_bank:
         TILE_MAX( bank );
+        break;
+      case wksp_shred:
+        TILE_MAX( shred );
+        break;
+      case wksp_store:
+        TILE_MAX( shred );
         break;
     }
   }
@@ -267,7 +277,10 @@ static int parse_key_value( config_t *   config,
   ENTRY_BOOL  ( ., rpc,                 only_known                                                );
   ENTRY_BOOL  ( ., rpc,                 pubsub_enable_block_subscription                          );
   ENTRY_BOOL  ( ., rpc,                 pubsub_enable_vote_subscription                           );
-  ENTRY_BOOL  ( ., rpc,                 incremental_snapshots                                     );
+
+  ENTRY_BOOL  ( ., snapshots,           incremental_snapshots                                     );
+  ENTRY_UINT  ( ., snapshots,           full_snapshot_interval_slots                              );
+  ENTRY_UINT  ( ., snapshots,           incremental_snapshot_interval_slots                       );
 
   ENTRY_STR   ( ., layout,              affinity                                                  );
   ENTRY_UINT  ( ., layout,              net_tile_count                                            );
@@ -299,6 +312,9 @@ static int parse_key_value( config_t *   config,
   ENTRY_UINT  ( ., tiles.dedup,         signature_cache_size                                      );
 
   ENTRY_UINT  ( ., tiles.pack,          max_pending_transactions                                  );
+
+  ENTRY_UINT  ( ., tiles.shred,         max_pending_shred_sets                                    );
+  ENTRY_USHORT( ., tiles.shred,         shred_listen_port                                         );
 
   ENTRY_BOOL  ( ., development,         sandbox                                                   );
 
@@ -525,7 +541,7 @@ init_workspaces( config_t * config ) {
   config->shmem.workspaces[ idx ].kind      = wksp_dedup_pack;
   config->shmem.workspaces[ idx ].name      = "dedup_pack";
   config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
-  config->shmem.workspaces[ idx ].num_pages = 1;
+  config->shmem.workspaces[ idx ].num_pages = 2;
   idx++;
 
   config->shmem.workspaces[ idx ].kind      = wksp_pack_bank;
@@ -538,6 +554,12 @@ init_workspaces( config_t * config ) {
   config->shmem.workspaces[ idx ].name      = "bank_shred";
   config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
   config->shmem.workspaces[ idx ].num_pages = 1;
+  idx++;
+
+  config->shmem.workspaces[ idx ].kind      = wksp_shred_store;
+  config->shmem.workspaces[ idx ].name      = "shred_store";
+  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
+  config->shmem.workspaces[ idx ].num_pages = 3;
   idx++;
 
   config->shmem.workspaces[ idx ].kind      = wksp_net;
@@ -578,6 +600,18 @@ init_workspaces( config_t * config ) {
 
   config->shmem.workspaces[ idx ].kind      = wksp_bank;
   config->shmem.workspaces[ idx ].name      = "bank";
+  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_HUGE_PAGE_SZ;
+  config->shmem.workspaces[ idx ].num_pages = 1;
+  idx++;
+
+  config->shmem.workspaces[ idx ].kind      = wksp_shred;
+  config->shmem.workspaces[ idx ].name      = "shred";
+  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
+  config->shmem.workspaces[ idx ].num_pages = 3;
+  idx++;
+
+  config->shmem.workspaces[ idx ].kind      = wksp_store;
+  config->shmem.workspaces[ idx ].name      = "store";
   config->shmem.workspaces[ idx ].page_size = FD_SHMEM_HUGE_PAGE_SZ;
   config->shmem.workspaces[ idx ].num_pages = 1;
   idx++;
