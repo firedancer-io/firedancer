@@ -13,6 +13,13 @@
 #define FD_CHACHA20RNG_DEBUG 0
 #endif
 
+/* Solana uses different mechanisms of mapping a ulong to an unbiased
+   integer in [0, n) in different parts of the code.  In particular,
+   leader schedule generation uses MODE_MOD and Turbine uses MODE_SHIFT.
+   See the note in fd_chacha20rng_ulong_roll for more details. */
+#define FD_CHACHA20RNG_MODE_MOD   1
+#define FD_CHACHA20RNG_MODE_SHIFT 2
+
 /* FD_CHACHA20RNG_BUFSZ is the internal buffer size of pre-generated
    ChaCha20 blocks.  Multiple of block size (64 bytes) and a power of 2. */
 
@@ -28,6 +35,8 @@ struct __attribute__((aligned(32UL))) fd_chacha20rng_private {
   uint  buf_fill;  /* Total number of bytes produced
                       Always aligned by FD_CHACHA20_BLOCK_SZ */
 
+  int mode;
+
   /* ChaCha20 block index */
   uint idx;
 };
@@ -41,9 +50,11 @@ FD_PROTOTYPES_BEGIN
    fd_chacha20rng_new formats a memory region with suitable alignment
    and footprint for holding a chacha20rng object.  Assumes shmem
    points on the caller to the first byte of the memory region owned by
-   the caller to use.  Returns shmem on success and NULL on failure
-   (logs details).  The memory region will be owned by the object on
-   successful return.  The caller is not joined on return.
+   the caller to use.  `mode` must be one of the FD_CHACHA20RNG_MODE_*
+   constants defined above and dictates what mode this object will use
+   to generate random numbers. Returns shmem on success and NULL on
+   failure (logs details).  The memory region will be owned by the
+   object on successful return.  The caller is not joined on return.
 
    fd_chacha20rng_join joins the caller to a chacha20rng object.
    Assumes shrng points to the first byte of the memory region holding
@@ -71,7 +82,7 @@ FD_FN_CONST ulong
 fd_chacha20rng_footprint( void );
 
 void *
-fd_chacha20rng_new( void * shmem );
+fd_chacha20rng_new( void * shmem, int mode );
 
 fd_chacha20rng_t *
 fd_chacha20rng_join( void * shrng );
@@ -154,9 +165,10 @@ fd_chacha20rng_ulong_roll( fd_chacha20rng_t * rng,
      long, we define zone=k*n-1 <= ULONG_MAX, and make the intervals
      closed instead of half-open.
 
-     For small data types (uchar, ushort), the rand crate uses the
-     largest possible value of k, namely floor(2^64/n).  You can compute
-     zone directly as follows:
+     Here's where the mode comes in.  Depending on what method you call
+     and what datatype you use, the Rust crate uses different values of
+     k.  When MODE_MOD is set, we use largest possible value of k,
+     namely floor(2^64/n).  You can compute zone directly as follows:
                zone  = k*n-1
                      = floor(2^64/n)*n - 1
                      = 2^64 - (2^64%n) - 1
@@ -166,13 +178,16 @@ fd_chacha20rng_ulong_roll( fd_chacha20rng_t * rng,
      compile-time constant than the whole zone computation becomes a
      compile-time constant.
 
-     For large data types (uint, ulong), the rand crate uses almost
-     the largest possible power of two for k.  Precisely, it uses the
-     smallest power of two such that k*n >= 2^63, which is the largest
-     power of two such that k*n<=2^64 unless n is a power of two.
-     This approach eliminates the mod calculation but increases the
-     expected number of samples required. */
-  ulong const zone = (n << (63 - fd_ulong_find_msb( n ) )) - 1UL;
+     When MODE_SHIFT is set, we use uses almost the largest possible
+     power of two for k.  Precisely, it uses the smallest power of two
+     such that k*n >= 2^63, which is the largest power of two such that
+     k*n<=2^64 unless n is a power of two.  This approach eliminates the
+     mod calculation but increases the expected number of samples
+     required. */
+  ulong const zone = fd_ulong_if( rng->mode==FD_CHACHA20RNG_MODE_MOD,
+                                  ULONG_MAX - (ULONG_MAX-n+1UL)%n,
+                                  (n << (63 - fd_ulong_find_msb( n ) )) - 1UL );
+
   for( int i=0; 1; i++ ) {
     ulong   v   = fd_chacha20rng_ulong( rng );
 #if FD_HAS_INT128

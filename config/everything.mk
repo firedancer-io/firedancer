@@ -22,6 +22,7 @@ help:
 	# EXTRAS          = $(EXTRAS)
 	# SHELL           = $(SHELL)
 	# BASEDIR         = $(BASEDIR)
+	# BUILDDIR        = $(BUILDDIR)
 	# OBJDIR          = $(OBJDIR)
 	# CPPFLAGS        = $(CPPFLAGS)
 	# CC              = $(CC)
@@ -213,7 +214,7 @@ $(1)_unit:
 .PHONY: $(1)_run
 $(1)_run:
 	$(MKDIR) "$(CORPUSDIR)/$(1)/explore"
-	$(OBJDIR)/fuzz-test/$(1)/$(1) $(FUZZFLAGS) $(CORPUSDIR)/$(1)/explore $(CORPUSDIR)/$(1)
+	$(OBJDIR)/fuzz-test/$(1)/$(1) -artifact_prefix=$(CORPUSDIR)/$(1)/ $(FUZZFLAGS) $(CORPUSDIR)/$(1)/explore $(CORPUSDIR)/$(1)
 
 run-fuzz-test: $(1)_unit
 

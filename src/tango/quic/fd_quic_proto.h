@@ -16,6 +16,11 @@
 #include "templ/fd_quic_frames_templ.h"
 #include "templ/fd_quic_undefs.h"
 
+#include "templ/fd_quic_max_footprint.h"
+#include "templ/fd_quic_templ.h"
+#include "templ/fd_quic_frames_templ.h"
+#include "templ/fd_quic_undefs.h"
+
 #include "templ/fd_quic_encoders_decl.h"
 #include "templ/fd_quic_templ.h"
 #include "templ/fd_quic_frames_templ.h"
@@ -55,8 +60,9 @@ static inline ulong
 fd_quic_encode_eth( uchar *              buf,
                     ulong                sz,
                     fd_eth_hdr_t const * frame ) {
-  if( FD_UNLIKELY( sz < sizeof(fd_eth_hdr_t) ) )
+  if( FD_UNLIKELY( sz < sizeof(fd_eth_hdr_t) ) ) {
     return FD_QUIC_PARSE_FAIL;
+  }
   fd_eth_hdr_t netorder = *frame;
   netorder.net_type = (ushort)fd_ushort_bswap( (ushort)netorder.net_type );
   memcpy( buf, &netorder, sizeof(fd_eth_hdr_t) );
@@ -70,13 +76,17 @@ static inline ulong
 fd_quic_decode_ip4( fd_ip4_hdr_t * FD_RESTRICT out,
                     uchar const *  FD_RESTRICT buf,
                     ulong                      sz ) {
-  if( FD_UNLIKELY( sz < sizeof( fd_ip4_hdr_t ) ) )
+  if( FD_UNLIKELY( sz < sizeof( fd_ip4_hdr_t ) ) ) {
     return FD_QUIC_PARSE_FAIL;
+  }
 
+  /* FIXME unaligned accesses */
   fd_ip4_hdr_t const * peek = (fd_ip4_hdr_t const *)fd_type_pun_const( buf );
-  ulong hdr_len = peek->ihl * 4UL;
-  if( FD_UNLIKELY( (peek->version!=4) | (hdr_len<20UL) | (sz<hdr_len) ) )
+  ulong hdr_len = FD_IP4_GET_LEN(*peek);
+  ulong version = FD_IP4_GET_VERSION(*peek);
+  if( FD_UNLIKELY( (version!=4) | (hdr_len<20UL) | (sz<hdr_len) ) ) {
     return FD_QUIC_PARSE_FAIL;
+  }
 
   *out = *peek;
   fd_ip4_hdr_bswap( out );
@@ -92,8 +102,9 @@ static inline ulong
 fd_quic_encode_ip4( uchar *              buf,
                     ulong                sz,
                     fd_ip4_hdr_t const * frame ) {
-  if( FD_UNLIKELY( sz < sizeof(fd_ip4_hdr_t) ) )
+  if( FD_UNLIKELY( sz < sizeof(fd_ip4_hdr_t) ) ) {
     return FD_QUIC_PARSE_FAIL;
+  }
   fd_ip4_hdr_t netorder = *frame;
   fd_ip4_hdr_bswap( &netorder );
   memcpy( buf, &netorder, sizeof(fd_ip4_hdr_t) );
@@ -107,8 +118,9 @@ static inline ulong
 fd_quic_decode_udp( fd_udp_hdr_t * FD_RESTRICT out,
                     uchar const *  FD_RESTRICT buf,
                     ulong                      sz ) {
-  if( FD_UNLIKELY( sz < sizeof(fd_udp_hdr_t) ) )
+  if( FD_UNLIKELY( sz < sizeof(fd_udp_hdr_t) ) ) {
     return FD_QUIC_PARSE_FAIL;
+  }
   memcpy( out, buf, sizeof(fd_udp_hdr_t) );
   fd_udp_hdr_bswap( out );
   return sizeof(fd_udp_hdr_t);
@@ -123,8 +135,9 @@ static inline ulong
 fd_quic_encode_udp( uchar *              buf,
                     ulong                sz,
                     fd_udp_hdr_t const * frame ) {
-  if( FD_UNLIKELY( sz < sizeof(fd_udp_hdr_t) ) )
+  if( FD_UNLIKELY( sz < sizeof(fd_udp_hdr_t) ) ) {
     return FD_QUIC_PARSE_FAIL;
+  }
   fd_udp_hdr_t netorder = *frame;
   fd_udp_hdr_bswap( &netorder );
   memcpy( buf, &netorder, sizeof(fd_udp_hdr_t) );

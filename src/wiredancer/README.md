@@ -48,7 +48,45 @@ WD adopts an asynchronous API.  In fact WD uses the same Tango mcache mechanism 
 + Rebuild `<AWS-FPGA>/hdk/cl/examples/cl_dram_dma` with the same instructions from AWS repo as before.
 
 
+#  #
+# Running WD #
 
+## AWS-F1 Series ##
+
++ To run FD with WD support, you need an EC2 F1 machine.
+
++ Inside the machine, clone AWS-FPGA git repo
+  - `git clone https://github.com/aws/aws-fpga`
+
++ Install the SDK inside the repo:
+  - `source $AWS-FPGA/sdk_setup.sh`
+
++ Load WD image on FPGA slot-0
+  - `sudo fpga-load-local-image -S 0 -I agfi-01051ff14d1bba4e0`
+
++ Make FD with WD support
+  - `./deps.sh`
+  - `source activate-opt`
+  - `make MACHINE=linux_gcc_wd_f1 -j`
+
++ Configure FD
+  - `sudo build/linux/gcc/x86_64/bin/fd_shmem_cfg reset`
+  - `sudo build/linux/gcc/x86_64/bin/fd_shmem_cfg fini`
+  - `sudo build/linux/gcc/x86_64/bin/fd_shmem_cfg alloc 32 gigantic 0  alloc 512 huge 0`
+  - `sudo build/linux/gcc/x86_64/bin/fd_shmem_cfg init 0700 $USER ""`
+  - `sudo build/linux/gcc/x86_64/bin/fd_shmem_cfg query`
+
++ Configure app-frank
+  - `sudo ./build/linux/gcc/x86_64/bin/fd_frank_init_demo frank 1-6 ./build/linux/gcc/x86_64 /tmp/solana.pcap 0 0 1 0`
+
++ Run app-frank
+  - `sudo ./build/linux/gcc/x86_64/bin/fd_frank_run frank "1-6"`
+
++ Run wd-monitor
+  - `sudo taskset -c 7 build/linux/gcc/x86_64/bin/wd_frank_mon frank --duration 0`
+
++ Run fd-monitor
+  - `sudo taskset -c 7 build/linux/gcc/x86_64/bin/fd_frank_mon frank --duration 10e12 --dt-min 1e7 --dt-max 1e7`
 
 
 
@@ -123,7 +161,7 @@ Pseudocode below outlines an algorithmically optimized ED25519 verification proc
 
 `SHA`: This step is a straight forward SHA-512 of the message and modular reduction.  We implement this steps as a fully pipelined module, with a variable latency (based on message size) of `1-3.5` microsecond at `250MHz`.  Since the latency of this step is dependent on the message size, output can be out of order.
 
-`SV0`: This step includes many data-dependent control flows.  As such, we opt to create a custom processor/scheduler to execute necessary instructions for each transaction.  The sequence of instructions to be executed is extracted from a reference python model, utilizing the `Expr` class, details of which are provided inside `ed25519_lib.py`.  A single processor can accommodate `22` pending transactions at a time, with a latency of `101` microseconds at `250MHz`.  Accordingly, we require five instances of the processor to achieve a throughput of `1.08` million per second.
+`SV0`: This step includes many data-dependent control flows.  As such, we opt to create a custom processor/scheduler to execute necessary instructions for each transaction.  The sequence of instructions to be executed is extracted from a reference python model, utilizing the `Expr` class, details of which are provided inside `ed25510_lib.py`.  A single processor can accommodate `22` pending transactions at a time, with a latency of `101` microseconds at `250MHz`.  Accordingly, we require five instances of the processor to achieve a throughput of `1.08` million per second.
 
 `SV1`: This step includes the optimized double-scalar double-point multiplication, similar to the algorithm mentioned [here](https://cryptojedi.org/peter/data/eccss-20130911b.pdf).  This algorithm is very regular in terms of dataflow, and all the if-statements can be accommodated with simple multiplexers.  However, the dynamic execution includes many invocations of modular-multiplications, hence creating a fully-pipelined implementation is required to keep latency reasonable.  Our implementation achieves `~96` microseconds of latency at `266MHz`, and a throughput of `1.04` million per second.
 

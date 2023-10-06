@@ -9,6 +9,7 @@ $(call make-unit-test,test_quic_drops,test_quic_drops,fd_aio fd_quic fd_ballet f
 $(call make-unit-test,test_quic_server,test_quic_server,fd_aio fd_ballet fd_quic fd_tango fd_util)
 $(call make-unit-test,test_quic_client_flood,test_quic_client_flood,fd_aio fd_quic fd_ballet fd_tango fd_util)
 $(call make-unit-test,test_quic_txn,test_quic_txn,fd_aio fd_quic fd_ballet fd_tango fd_util)
+$(call make-unit-test,test_quic_txns,test_quic_txns,fd_aio fd_quic fd_ballet fd_tango fd_util)
 $(call make-unit-test,test_quic_bw,test_quic_bw,fd_aio fd_quic fd_ballet fd_tango fd_util)
 $(call make-unit-test,test_quic_handshake,test_handshake,fd_aio fd_ballet fd_quic fd_util)
 $(call make-unit-test,test_quic_crypto,test_crypto,fd_quic fd_ballet fd_util)

@@ -92,17 +92,17 @@ static void
 init( config_t * const config ) {
   /* we need one channel for both TX and RX on the NIC for each QUIC
      tile, but the interface probably defaults to one channel total */
-  if( FD_UNLIKELY( device_is_bonded( config->net.interface ) ) ) {
+  if( FD_UNLIKELY( device_is_bonded( config->tiles.net.interface ) ) ) {
     /* if using a bonded device, we need to set channels on the
        underlying devices. */
     char line[ 4096 ];
-    device_read_slaves( config->net.interface, line );
+    device_read_slaves( config->tiles.net.interface, line );
     char * saveptr;
     for( char * token=strtok_r( line , " \t", &saveptr ); token!=NULL; token=strtok_r( NULL, " \t", &saveptr ) ) {
       init_device( token, config->layout.verify_tile_count );
     }
   } else {
-    init_device( config->net.interface, config->layout.verify_tile_count );
+    init_device( config->tiles.net.interface, config->layout.verify_tile_count );
   }
 }
 
@@ -146,11 +146,11 @@ check_device( const char * device,
   if( FD_UNLIKELY( current_channels != expected_channel_count ) ) {
     if( FD_UNLIKELY( !supports_channels ) )
       FD_LOG_ERR(( "Network device `%s` does not support setting number of channels, "
-                   "but you are running with more than one QUIC tile (expected {%u}), "
+                   "but you are running with more than one net tile (expected {%u}), "
                    "and there must be one channel per tile. You can either use a NIC "
                    "that supports multiple channels, or run Firedancer with only one "
-                   "QUIC tile. You can configure Firedancer to run with only one QUIC "
-                   "tile by setting `layout.verify_tile_count` to 1 in your "
+                   "net tile. You can configure Firedancer to run with only one QUIC "
+                   "tile by setting `layout.net_tile_count` to 1 in your "
                    "configuration file. It is not recommended to do this in production "
                    "as it will limit network performance.",
                    device, expected_channel_count ));
@@ -165,15 +165,15 @@ check_device( const char * device,
 
 static configure_result_t
 check( config_t * const config ) {
-  if( FD_UNLIKELY( device_is_bonded( config->net.interface ) ) ) {
+  if( FD_UNLIKELY( device_is_bonded( config->tiles.net.interface ) ) ) {
     char line[ 4096 ];
-    device_read_slaves( config->net.interface, line );
+    device_read_slaves( config->tiles.net.interface, line );
     char * saveptr;
     for( char * token=strtok_r( line, " \t", &saveptr ); token!=NULL; token=strtok_r( NULL, " \t", &saveptr ) ) {
-      CHECK( check_device( token, config->layout.verify_tile_count ) );
+      CHECK( check_device( token, config->layout.net_tile_count ) );
     }
   } else {
-    CHECK( check_device( config->net.interface, config->layout.verify_tile_count ) );
+    CHECK( check_device( config->tiles.net.interface, config->layout.net_tile_count ) );
   }
 
   CONFIGURE_OK();

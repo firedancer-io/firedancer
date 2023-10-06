@@ -32,65 +32,15 @@ jobs:
           submodules: recursive
 
       - uses: ./.github/actions/deps
-
-      - name: Build unit tests
-        run: make -j -Otarget unit-test
-
       - uses: ./.github/actions/hugepages
-
-      - name: Run Unit Tests
-        run: |
-          sudo prlimit --pid $$ --memlock=-1:-1
-          ./test.sh -j --page-sz gigantic
-
-      - name: Make Test Coverage Report
-        run: |
-          make cov-report
-          mkdir -p build/pages/
-          mv build/native/clang/cov/html build/pages/cov
 
       - name: 'Authenticate to Google Cloud'
         uses: 'google-github-actions/auth@v1'
         with:
           credentials_json: ${{ secrets.FUZZ_SERVICE_ACCT_JSON_BUNDLE }}
 
-      # Not using fuzzbot-builder because llvm-cov must be ran in the same environment otherwise paths will not match
-      - name: Build Fuzz Tests
-        env:
-          MACHINE: linux_clang_x86_64_fuzz_asan
-        run: make -j -Otarget fuzz-test
-
-      - name: Fetch Corpus, Generate Fuzzing Coverage
-        run: ./.github/workflows/scripts/fuzzcov_generate.sh build/linux/clang/x86_64_fuzz_asan/fuzz-test/
-
-      - name: Publish Fuzzing Coverage to codecov.io
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
-        run: ./.github/workflows/scripts/fuzzcov_publish_codecov.sh
-
-      - name: Generate HTML Fuzzing Coverage Reports
-        run: ./.github/workflows/scripts/fuzzcov_genhtml.sh "${{ github.sha }}"
-
-      - name: Drop an Index
-        run: |
-          cat <<EOS > build/pages/index.html
-          <!DOCTYPE html>
-          <html>
-          <head>
-          <title>🔥💃 Pages</title>
-          </head>
-
-          <body>
-          <h1>🔥💃 Pages</h1>
-          <h2>Links 🔗</h2>
-          <ul>
-          <li><a href="./cov/">Test Coverage</li>
-          <li><a href="./fuzzcov/">Fuzzing Coverage</li>
-          </ul>
-          </body>
-
-          </html>
-          EOS
+      - name: Generate all coverage
+        run: ./.github/workflows/scripts/cov_all.sh
 
       - name: Setup Pages
         uses: actions/configure-pages@v3

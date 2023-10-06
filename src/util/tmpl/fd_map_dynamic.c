@@ -155,6 +155,11 @@
     ... MAP_MOVE( dst_slot, src_slot ) */
 
 #include "../bits/fd_bits.h"
+#include <stddef.h>
+
+#ifndef offsetof
+#  define offsetof(TYPE,MEMB) ((ulong)((TYPE*)0)->MEMB)
+#endif
 
 #ifndef MAP_NAME
 #error "Define MAP_NAME"
@@ -293,12 +298,14 @@ FD_PROTOTYPES_BEGIN
 
 FD_FN_CONST static inline MAP_(private_t) *
 MAP_(private_from_slot)( MAP_T * slot ) {
-  return (MAP_(private_t) *)( (ulong)slot - (ulong)&(((MAP_(private_t) *)NULL)->slot) );
+  ulong slot_ofs = offsetof( MAP_(private_t), slot );
+  return (MAP_(private_t) *)( (ulong)slot - (ulong)slot_ofs );
 }
 
 FD_FN_CONST static inline MAP_(private_t) const *
 MAP_(private_from_slot_const)( MAP_T const * slot ) {
-  return (MAP_(private_t) const *)( (ulong)slot - (ulong)&(((MAP_(private_t) *)NULL)->slot) );
+  ulong slot_ofs = offsetof( MAP_(private_t), slot );
+  return (MAP_(private_t) const *)( (ulong)slot - (ulong)slot_ofs );
 }
 
 /* Get the linear probing starting slot for a key and the slot to probe

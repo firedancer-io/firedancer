@@ -53,13 +53,11 @@ fn main() {
         println!("cargo:rerun-if-changed=../../../src/ballet");
         println!("cargo:rerun-if-changed=wrapper_tango.h");
         println!("cargo:rerun-if-changed=../../../src/tango");
-        println!("cargo:rerun-if-changed=wrapper_disco.h");
-        println!("cargo:rerun-if-changed=../../../src/disco");
 
         "../../../"
     };
 
-    for lib in ["util", "ballet", "tango", "disco"] {
+    for lib in ["util", "ballet", "tango"] {
         // Generate bindings to the header files
         let mut builder = bindgen::Builder::default()
             .wrap_static_fns(true)
@@ -179,12 +177,9 @@ fn main() {
             .env("CC", "gcc") // Always use GCC for building FFI
             .env("BASEDIR", out_dir.join("build"));
 
-        // No statics in disco yet so no extern wrapper file is produced
-        if lib != "disco" {
-            let key = format!("{}_STATIC_EXTERN_OBJECT", lib.to_uppercase());
-            let value = out_dir.join(&format!("gen_{}.c", lib));
-            command.env(key, value);
-        }
+        let key = format!("{}_STATIC_EXTERN_OBJECT", lib.to_uppercase());
+        let value = out_dir.join(&format!("gen_{}.c", lib));
+        command.env(key, value);
 
         let output = command.output().unwrap_or_else(|_| {
             panic!(
@@ -211,7 +206,6 @@ fn main() {
     );
     println!("cargo:rustc-link-lib=static=fd_util");
     println!("cargo:rustc-link-lib=static=fd_tango");
-    println!("cargo:rustc-link-lib=static=fd_disco");
     println!("cargo:rustc-link-lib=static=fd_ballet");
     println!("cargo:rustc-link-lib=stdc++");
 }

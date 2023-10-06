@@ -147,12 +147,12 @@ main( int     argc,
       break;
 
     case 8: /* push head nocopy */
-      if( FD_UNLIKELY( buf_cnt>=TEST_DEQUE_MAX ) ) break; /* skip when full */
+      if( FD_UNLIKELY( buf_cnt>=max ) ) break; /* skip when full */
       buf_push_head( val ); *test_deque_push_head_nocopy( deque ) = val;
       break;
 
     case 9: /* push tail nocopy */
-      if( FD_UNLIKELY( buf_cnt>=TEST_DEQUE_MAX ) ) break; /* skip when full */
+      if( FD_UNLIKELY( buf_cnt>=max ) ) break; /* skip when full */
       buf_push_tail( val ); *test_deque_push_tail_nocopy( deque ) = val;
       break;
 

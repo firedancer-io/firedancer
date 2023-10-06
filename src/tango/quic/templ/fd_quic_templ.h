@@ -96,7 +96,7 @@ FD_TEMPL_DEF_STRUCT_BEGIN(initial)
   FD_TEMPL_MBR_ELEM_VAR      ( src_conn_id,      0,160,  src_conn_id_len )
 
   FD_TEMPL_MBR_ELEM_VARINT   ( token_len,        ulong                   )
-  FD_TEMPL_MBR_ELEM_VAR      ( token,            0,616, token_len       )
+  FD_TEMPL_MBR_ELEM_VAR      ( token,            0,616,  token_len       )
   FD_TEMPL_MBR_ELEM_VARINT   ( len,              ulong                   )
   FD_TEMPL_MBR_ELEM_PKTNUM   ( pkt_num,          ulong                   )
 
