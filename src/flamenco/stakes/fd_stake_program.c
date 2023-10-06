@@ -2785,7 +2785,7 @@ fd_executor_stake_program_execute_instruction( instruction_ctx_t ctx ) {
 
       uchar withdrawer_txn_i = FD_TXN_ACCT_ADDR_MAX;
       rc                     = get_index_of_instruction_account_in_transaction(
-          instruction_context, 2, &withdrawer_txn_i );
+          instruction_context, 3, &withdrawer_txn_i );
       if ( FD_UNLIKELY( rc != OK ) ) return rc;
       fd_pubkey_t withdrawer_pubkey = { 0 };
       rc = get_key_of_account_at_index( transaction_context, withdrawer_txn_i, &withdrawer_pubkey );
@@ -2836,7 +2836,7 @@ fd_executor_stake_program_execute_instruction( instruction_ctx_t ctx ) {
 
       uchar authorized_txn_i = FD_TXN_ACCT_ADDR_MAX;
       rc                     = get_index_of_instruction_account_in_transaction(
-          instruction_context, 2, &authorized_txn_i );
+          instruction_context, 3, &authorized_txn_i );
       if ( FD_UNLIKELY( rc != OK ) ) return rc;
       fd_pubkey_t authorized_pubkey = { 0 };
       rc = get_key_of_account_at_index( transaction_context, authorized_txn_i, &authorized_pubkey );
