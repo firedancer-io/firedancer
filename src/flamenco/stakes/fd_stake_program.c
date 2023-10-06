@@ -1688,7 +1688,6 @@ split( instruction_ctx_t *       invoke_context,
     if ( validated_split_info.source_remaining_balance == 0 ) {
       remaining_stake_delta = fd_ulong_sat_sub( lamports, meta->rent_exempt_reserve );
       split_stake_amount    = remaining_stake_delta;
-      return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
     } else {
       if ( FD_UNLIKELY( fd_ulong_sat_sub( stake->delegation.stake, lamports ) <
                         minimum_delegation ) ) {
