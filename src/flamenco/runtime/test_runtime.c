@@ -78,7 +78,6 @@ struct global_state {
 
   char const *           name;
   ulong                  pages;
-  char const *           gaddr;
   ulong                  end_slot;
   char const *           cmd;
   char const *           reset;
@@ -96,7 +95,6 @@ usage( char const * progname ) {
   fprintf( stderr, "USAGE: %s\n", progname );
   fprintf( stderr,
       " --wksp        <name>       workspace name\n"
-      " --gaddr       <num>        global address of funky in the workspace\n"
       " --load        <file>       load funky backup file\n"
       " --end-slot    <num>        stop iterating at block...\n"
       " --cmd         <operation>  What operation should we test\n"
@@ -303,7 +301,6 @@ main( int     argc,
   state.argv = argv;
 
   state.name                = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp",         NULL, NULL );
-  state.gaddr               = fd_env_strip_cmdline_cstr ( &argc, &argv, "--gaddr",        NULL, NULL);
   state.end_slot            = fd_env_strip_cmdline_ulong( &argc, &argv, "--end-slot",     NULL, ULONG_MAX);
   state.cmd                 = fd_env_strip_cmdline_cstr ( &argc, &argv, "--cmd",          NULL, NULL);
   state.reset               = fd_env_strip_cmdline_cstr ( &argc, &argv, "--reset",        NULL, NULL);
@@ -372,28 +369,21 @@ main( int     argc,
 
   if (NULL != state.load) {
     FD_LOG_NOTICE(("loading %s", state.load));
-    int fd = open(state.load, O_RDONLY);
-    if (fd == -1)
-      FD_LOG_ERR(("restore failed: %s", strerror(errno)));
-    struct stat statbuf;
-    if (fstat(fd, &statbuf) == -1)
-      FD_LOG_ERR(("restore failed: %s", strerror(errno)));
-    uchar* p = (uchar*)funk_wksp;
-    uchar* pend = p + statbuf.st_size;
-    while ( p < pend ) {
-      ulong sz = fd_ulong_min((ulong)(pend - p), 4UL<<20);
-      if ( read(fd, p, sz) < 0 )
-        FD_LOG_ERR(("restore failed: %s", strerror(errno)));
-      p += sz;
-    }
-    close(fd);
+    int err = fd_wksp_restore(funk_wksp, state.load, (uint)hashseed);
+    if (err)
+      FD_LOG_ERR(("restore failed: error %d", err));
   }
 
   void* shmem;
-  if( !state.gaddr ) {
-    if (NULL != state.load)
-      FD_LOG_ERR(( "when you load a backup, you still need a --gaddr" ));
-    shmem = fd_wksp_alloc_laddr( funk_wksp, fd_funk_align(), fd_funk_footprint(), 1 );
+  fd_wksp_tag_query_info_t info;
+  ulong tag = FD_FUNK_MAGIC;
+  if (fd_wksp_tag_query(funk_wksp, &tag, 1, &info, 1) > 0) {
+    shmem = fd_wksp_laddr_fast( funk_wksp, info.gaddr_lo );
+    state.global->funk = fd_funk_join(shmem);
+    if (state.global->funk == NULL)
+      FD_LOG_ERR(( "failed to join a funky" ));
+  } else {
+    shmem = fd_wksp_alloc_laddr( funk_wksp, fd_funk_align(), fd_funk_footprint(), FD_FUNK_MAGIC );
     if (shmem == NULL)
       FD_LOG_ERR(( "failed to allocate a funky" ));
     ulong index_max = 1000000;    // Maximum size (count) of master index
@@ -406,21 +396,7 @@ main( int     argc,
       fd_wksp_free_laddr(shmem);
       FD_LOG_ERR(( "failed to allocate a funky" ));
     }
-
-  } else {
-    if (state.gaddr[0] == '0' && state.gaddr[1] == 'x')
-      shmem = fd_wksp_laddr_fast( funk_wksp, (ulong)strtol(state.gaddr+2, NULL, 16) );
-    else
-      shmem = fd_wksp_laddr_fast( funk_wksp, (ulong)strtol(state.gaddr, NULL, 10) );
-    state.global->funk = fd_funk_join(shmem);
-    if (state.global->funk == NULL) {
-      FD_LOG_ERR(( "failed to join a funky" ));
-    }
-    ulong r = fd_funk_txn_cancel_all( state.global->funk, 1 );
-    if (r)
-      FD_LOG_NOTICE(("cancelled %lu old transactions", r));
   }
-  FD_LOG_NOTICE(( "funky at global address 0x%lx", fd_wksp_gaddr_fast( funk_wksp, shmem ) ));
 
   if ((validate_db != NULL) && (strcmp(validate_db, "true") == 0)) {
     FD_LOG_INFO(("starting validate"));
