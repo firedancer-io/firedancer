@@ -2926,7 +2926,7 @@ fd_executor_stake_program_execute_instruction( instruction_ctx_t ctx ) {
 
     if ( FD_LIKELY( FD_FEATURE_ACTIVE( ctx.global, vote_stake_checked_instructions ) ) ) {
       fd_pubkey_t const * custodian_pubkey = NULL;
-      rc = get_optional_pubkey( ctx, 3, false, &custodian_pubkey );
+      rc = get_optional_pubkey( ctx, 3, true, &custodian_pubkey );
       if ( FD_UNLIKELY( rc != OK ) ) return rc;
 
       fd_lockup_args_t lockup = { .unix_timestamp = lockup_checked->unix_timestamp,
