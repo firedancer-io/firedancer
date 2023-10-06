@@ -1947,7 +1947,7 @@ redelegate( instruction_ctx_t *       invoke_context,
     return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
   }
 
-  if ( FD_UNLIKELY( stake_account->meta->dlen != stake_state_v2_size_of() ) ) {
+  if ( FD_UNLIKELY( uninitialized_stake_account->meta->dlen != stake_state_v2_size_of() ) ) {
     FD_DEBUG(
         FD_LOG_WARNING( ( "expected uninitialized stake account data len to be {}, not {}" ) ) );
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
@@ -1955,7 +1955,7 @@ redelegate( instruction_ctx_t *       invoke_context,
 
   fd_stake_state_v2_t uninitialized_stake_account_state = { 0 };
   rc                                                    = get_state(
-      stake_account, &invoke_context->global->valloc, &uninitialized_stake_account_state );
+      uninitialized_stake_account, &invoke_context->global->valloc, &uninitialized_stake_account_state );
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
   FD_LOG_NOTICE( ( "uninitialized_stake_account_state.discriminant %d",
                    uninitialized_stake_account_state.discriminant ) );
@@ -1981,13 +1981,13 @@ redelegate( instruction_ctx_t *       invoke_context,
 
   fd_stake_meta_t     stake_meta      = { 0 };
   ulong               effective_stake = ULONG_MAX;
-  fd_stake_state_v2_t stake_state     = { 0 };
-  rc = get_state( stake_account, &invoke_context->global->valloc, &stake_state );
+  fd_stake_state_v2_t stake_account_state     = { 0 };
+  rc = get_state( stake_account, &invoke_context->global->valloc, &stake_account_state );
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
-  if ( FD_LIKELY( uninitialized_stake_account_state.discriminant ==
+  if ( FD_LIKELY( stake_account_state.discriminant ==
                   fd_stake_state_v2_enum_stake ) ) {
-    fd_stake_meta_t meta  = stake_state.inner.stake.meta;
-    fd_stake_t      stake = stake_state.inner.stake.stake;
+    fd_stake_meta_t meta  = stake_account_state.inner.stake.meta;
+    fd_stake_t      stake = stake_account_state.inner.stake.stake;
 
     fd_stake_history_t stake_history = { 0 };
     rc = fd_sysvar_stake_history_read( invoke_context->global, &stake_history );
