@@ -11,6 +11,7 @@
 
 extern configure_stage_t netns;
 extern configure_stage_t genesis;
+extern configure_stage_t keygen;
 
 configure_stage_t * STAGES[ CONFIGURE_STAGE_COUNT ] = {
   &netns,
@@ -20,6 +21,7 @@ configure_stage_t * STAGES[ CONFIGURE_STAGE_COUNT ] = {
   &xdp,
   &xdp_leftover,
   &ethtool,
+  &keygen,
   &workspace_leftover,
   &workspace,
   &genesis,

@@ -198,10 +198,25 @@ dynamic_port_range = "8900-9000"
     # with the `--rpc-pubsub-enable-vote-subscription` argument.
     pubsub_enable_vote_subscription = false
 
+# The Solana Labs client periodically takes and stores snapshots of the
+# chain's state.  Other clients, especially as they bootstrap or catch
+# up to the head of the chain, may request a snapshot.
+[snapshots]
     # Enable incremental snapshots by setting this flag.  This option is
-    # passed to the Solana Labs client with the
-    # `--incremental-snapshots` flag.
-    incremental_snapshots = false
+    # passed to the Solana Labs client (inverted) with the
+    # `--no-incremental-snapshots` flag.
+    incremental_snapshots = true
+
+    # Set how frequently full snapshots are taken, measured in slots,
+    # where one slot is about 400ms on production chains.  It's
+    # recommended to leave this to the default or to set it to the same
+    # value that the known validators are using.
+    full_snapshot_interval_slots = 25000
+
+    # Set how frequently incremental snapshots are taken, measured in
+    # slots.  Must be a multiple of the accounts hash interval (which is
+    # 100 by default).
+    incremental_snapshot_interval_slots = 100
 
 [consensus]
     # Absolute path to a `keypair.json` file containing the identity of
@@ -268,9 +283,15 @@ dynamic_port_range = "8900-9000"
     # `--expected-bank-hash` argument.
     expected_bank_hash = ""
 
-    # If nonzero, require the shred version to be this value.  This
-    # option is passed to the Solana Labs client with the
-    # `--expected-shred-version` argument.
+    # The shred version is a small hash of the genesis block and any
+    # subsequent hard forks.  The Solana Labs client uses it to filter
+    # out any shred traffic from validators that disagree with this
+    # validator on the genesis hash or the set of hard forks.  If
+    # nonzero, ignore any shreds that have a different shred version
+    # than this value.  If zero, the expected shred version is
+    # automatically determined by copying the shred version that the
+    # entrypoint validator is using.  This option is passed to the
+    # Solana Labs client with the `--expected-shred-version` argument.
     expected_shred_version = 0
 
     # If the validator starts up with no ledger, it will wait to start
@@ -362,7 +383,7 @@ dynamic_port_range = "8900-9000"
     #
     # It is suggested to use all available CPU cores for Firedancer, so
     # that the Solana network can run as fast as possible.
-    affinity = "0-14"
+    affinity = "0-15"
 
     # How many net tiles to run.  Each networking tile will service
     # exactly one queue from a network device being listened to.  If
@@ -634,6 +655,30 @@ dynamic_port_range = "8900-9000"
     # transactions.  Currently the bank tile is implemented by the
     # Solana Labs execution engine and is not configurable.
     [tiles.bank]
+
+    # The shred tile distributes processed transactions that have been
+    # executed to the rest of the cluster in the form of shred packets.
+    [tiles.shred]
+        # When this validator is not the leader, it receives the most
+        # recent processed transactions from the leader and other
+        # validators in the form of shred packets.  Shreds are grouped
+        # in sets for error correction purposes, and the full validation
+        # of a shred packet requires receiving at least half of the set.
+        # Since shreds frequently arrive out of order, the shred tile
+        # needs a relatively large buffer to hold sets of shreds until
+        # they can be fully validated.  This option specifies the size
+        # of this buffer.
+        #
+        # To compute an appropriate value, multiply the expected Turbine
+        # worst-case latency (tenths of seconds) by the expected
+        # transaction rate, and divide by approx 25.
+        max_pending_shred_sets = 16384
+
+        # The shred tile listens on a specific port for shreds to
+        # forward.  This argument controls which port that is.  The port
+        # is broadcast over gossip so other validators know how to reach
+        # this one.
+        shred_listen_port = 8003
 
 # These options can be useful for development, but should not be used
 # when connecting to a live cluster, as they may cause the validator to

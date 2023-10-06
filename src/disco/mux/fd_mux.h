@@ -106,6 +106,7 @@ typedef struct {
    ulong depth;
    ulong * cr_avail;
    ulong * seq;
+   ulong   cr_decrement_amount;
 } fd_mux_context_t;
 
 /* fd_mux_during_housekeeping_fn is called during the housekeeping routine,

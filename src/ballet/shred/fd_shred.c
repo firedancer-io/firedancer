@@ -31,7 +31,7 @@ fd_shred_parse( uchar const * const buf,
   if( FD_LIKELY( type & (FD_SHRED_TYPE_LEGACY_DATA|FD_SHRED_TYPE_MERKLE_DATA) ) ) {
     if( FD_UNLIKELY( shred->data.size<header_sz ) ) return NULL;
     payload_sz = (ulong)shred->data.size - header_sz; /* between 0 and USHORT_MAX */
-    if( FD_UNLIKELY( (variant!=FD_SHRED_TYPE_LEGACY_DATA) & (sz<FD_SHRED_MIN_SZ) ) ) return NULL;
+    if( FD_UNLIKELY( (type!=FD_SHRED_TYPE_LEGACY_DATA) & (sz<FD_SHRED_MIN_SZ) ) ) return NULL;
 
     /* legacy data shreds might be shorter than the normal
        FD_SHRED_MIN_SZ, but they don't have Merkle proofs, so everything
