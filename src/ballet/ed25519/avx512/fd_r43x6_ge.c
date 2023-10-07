@@ -650,7 +650,7 @@ fd_r43x6_ge_sparse_table( wwl_t *    table,
     table[ l + 1 ] = T14;
     table[ l + 2 ] = T25;
 
-    FD_R43X6_QUAD_PACK( T, YpX, YmX, Z2, nT2d );               /* T    = Y+X|Y-X|2*Z|-T*2*d, in s44|u45|u45|s62 */
+    FD_R43X6_QUAD_PACK( T, YpX, YmX, Z2, nT2d );               /* T    = Y+X|Y-X|2*Z|-T*2*d, in u45|s44|u45|s62 */
     FD_R43X6_QUAD_FOLD_SIGNED( T, T );                         /* T    = Y+X|Y-X|2*Z|-T*2*d, in u44|u44|u44|u44 */
     l = 3*((max-w)>>1);
     table[ l + 0 ] = T03;
