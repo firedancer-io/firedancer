@@ -36,7 +36,7 @@
    - reduced:        limbs 0-4 are in [0,2^43), limb 5 is in [0,2^40), the packed uint256 value is in [0,p)
 
    As a frequently used shorthand when analyzing range of limbs, unn
-   indicates limbs are in [0,2^nn) and snn indicates limbs aer in
+   indicates limbs are in [0,2^nn) and snn indicates limbs are in
    (-2^nn,2^nn).
 
    Note:
@@ -1014,7 +1014,7 @@ fd_r43x6_sqr_fast( fd_r43x6_t x ) {
   /* By the same type of analysis above, we can still do the sum
      directly as:
 
-       z{0,1,2,3,4,5} < 2^51 {1826,1675,1222,767,618,163} < 2^62
+       z{0,1,2,3,4,5} < 2^51 {1826,1371,1222,767,618,163} < 2^62
 
      (Note that the result is fits into u62 instead of u63 like for
      mul_fast.) */
