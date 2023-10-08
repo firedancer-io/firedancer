@@ -216,7 +216,7 @@ solana_labs_main( void * args ) {
     }
   }
 
-  ADD1( "fdctl" );
+  ADD1( "fdxxctl" );
   ADD( "--log", "-" );
   ADD( "--firedancer-app-name", config->name );
 
@@ -496,6 +496,8 @@ run_firedancer( config_t * const config ) {
     __NR_wait4,      /* wait for children */
     __NR_exit_group, /* exit process */
     __NR_kill,       /* kill the pid namespaced child process */
+    __NR_rt_sigaction,/* set a signal handler */
+    41
   };
 
   int allow_fds[] = {

@@ -994,6 +994,29 @@ fd_log_private_sig_trap( int sig ) {
 }
 #endif
 
+
+static void
+handler_sigact( int i, siginfo_t * info, void * vp ) {
+  (void)vp;
+  (void)i;
+
+  FD_LOG_WARNING(( "syscall disallowed by policy: %d", info->si_syscall ));
+
+  abort();
+}
+
+static void
+install_sigsys( void ) {
+  // int sigaction(int signum,
+  //     const struct sigaction *_Nullable restrict act,
+  //     struct sigaction *_Nullable restrict oldact);
+  struct sigaction oldact;
+  struct sigaction newact = { .sa_sigaction = &handler_sigact, .sa_flags = SA_SIGINFO };
+  if( sigaction( SIGSYS, &newact, &oldact ) ) {
+    FD_LOG_ERR(( "unable to install handler for SIGACT" ));
+  }
+}
+
 void
 fd_log_private_boot( int  *   pargc,
                      char *** pargv ) {
@@ -1151,13 +1174,15 @@ fd_log_private_boot( int  *   pargc,
     fd_log_private_sig_trap( SIGBUS    );
     fd_log_private_sig_trap( SIGPOLL   );
     fd_log_private_sig_trap( SIGPROF   );
-    fd_log_private_sig_trap( SIGSYS    );
+    //fd_log_private_sig_trap( SIGSYS    );
     fd_log_private_sig_trap( SIGTRAP   );
     fd_log_private_sig_trap( SIGVTALRM );
     fd_log_private_sig_trap( SIGXCPU   );
     fd_log_private_sig_trap( SIGXFSZ   );
 #endif
   }
+
+  install_sigsys( );
 
   /* Hook up the permanent log */
 

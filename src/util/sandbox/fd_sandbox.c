@@ -152,7 +152,7 @@ install_seccomp( ushort allow_syscalls_cnt, long * allow_syscalls ) {
   }
 
   /* none of the syscalls approved were matched: die */
-  struct sock_filter kill = BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS);
+  struct sock_filter kill = BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_TRAP);
   filter[ 4+(allow_syscalls_cnt*2) ] = kill;
 
   FD_TESTV( 0 == prctl( PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0 ) );

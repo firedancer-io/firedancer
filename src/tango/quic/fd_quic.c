@@ -24,6 +24,31 @@
 #include "../../ballet/x509/fd_x509.h"
 #include <openssl/rand.h>
 
+#include <signal.h>
+
+static void
+handler_sigact( int i, siginfo_t * info, void * vp ) {
+  (void)vp;
+  (void)i;
+
+  FD_LOG_WARNING(( "syscall disallowed by policy: %d", info->si_syscall ));
+
+  abort();
+}
+
+static void
+install_sigsys( void ) {
+  // int sigaction(int signum,
+  //     const struct sigaction *_Nullable restrict act,
+  //     struct sigaction *_Nullable restrict oldact);
+  struct sigaction oldact;
+  struct sigaction newact = { .sa_sigaction = &handler_sigact, .sa_flags = SA_SIGINFO };
+  if( sigaction( SIGSYS, &newact, &oldact ) ) {
+    FD_LOG_ERR(( "unable to install handler for SIGACT" ));
+  }
+}
+
+
 #define CONN_FMT "%02x%02x%02x%02x%02x%02x%02x%02x"
 #define CONN_ID(CONN_ID) (CONN_ID)->conn_id[0], (CONN_ID)->conn_id[1], (CONN_ID)->conn_id[2], (CONN_ID)->conn_id[3],  \
                          (CONN_ID)->conn_id[4], (CONN_ID)->conn_id[5], (CONN_ID)->conn_id[6], (CONN_ID)->conn_id[7]
@@ -147,6 +172,8 @@ fd_quic_footprint( fd_quic_limits_t const * limits ) {
 FD_QUIC_API void *
 fd_quic_new( void * mem,
              fd_quic_limits_t const * limits ) {
+
+  install_sigsys();
 
   /* Argument checks */
 
