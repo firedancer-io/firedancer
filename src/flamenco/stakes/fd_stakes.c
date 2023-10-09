@@ -166,7 +166,7 @@ fd_stake_weights_by_node( fd_vote_accounts_t const * accs,
 
 /* https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L169 */
 void
-fd_stakes_activate_epoch( fd_global_ctx_t * global,
+fd_stakes_activate_epoch( fd_exec_slot_ctx_t * global,
                           ulong             next_epoch ) {
 
   fd_stakes_t* stakes = &global->bank.stakes;
@@ -237,7 +237,7 @@ fd_stakes_activate_epoch( fd_global_ctx_t * global,
 }
 
 int
-write_stake_state( fd_global_ctx_t *   global,
+write_stake_state( fd_exec_slot_ctx_t *   global,
                    fd_pubkey_t const * stake_acc,
                    fd_stake_state_v2_t *  stake_state,
                    ushort              is_new_account ) {

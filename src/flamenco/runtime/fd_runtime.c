@@ -79,8 +79,8 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *  slot_ctx,
   fd_delegation_pair_t_mapnode_t * sacc_pool = fd_delegation_pair_t_map_alloc(slot_ctx->valloc, 10000);
   fd_delegation_pair_t_mapnode_t * sacc_root = NULL;
 
-  fd_stake_history_treap_t * stake_history_treap = fd_stake_history_treap_alloc( global->valloc );
-  fd_stake_history_entry_t * stake_history_pool = fd_stake_history_pool_alloc( global->valloc );
+  fd_stake_history_treap_t * stake_history_treap = fd_stake_history_treap_alloc( slot_ctx->valloc );
+  fd_stake_history_entry_t * stake_history_pool = fd_stake_history_pool_alloc( slot_ctx->valloc );
 
   fd_acc_lamports_t capitalization = 0UL;
 
@@ -120,10 +120,10 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *  slot_ctx,
 
       fd_bincode_decode_ctx_t decode = {  .data    = acc->account.data,
                                           .dataend = acc->account.data + acc->account.data_len,
-                                          .valloc  = global->valloc };
+                                          .valloc  = slot_ctx->valloc };
                                           // TODO
                                           (void)decode;
-#if 0
+#if 1
       // FIXME broken borrowed account
       fd_account_meta_t meta = { .dlen = acc->account.data_len };
       fd_borrowed_account_t stake_account = {
@@ -131,9 +131,9 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *  slot_ctx,
         .data = acc->account.data,
         .meta = &meta
       };
-      FD_TEST( fd_stake_get_state( &stake_account, &global->valloc, &stake_state ) == 0);
+      FD_TEST( fd_stake_get_state( &stake_account, &slot_ctx->valloc, &stake_state ) == 0);
 #else
-      FD_TEST( fd_stake_get_state( acc, &global->valloc, &stake_state ) == 1);
+      FD_TEST( fd_stake_get_state( acc, &slot_ctx->valloc, &stake_state ) == 1);
 #endif
 
       fd_delegation_pair_t_mapnode_t query_node;

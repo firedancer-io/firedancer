@@ -259,7 +259,7 @@ get_sysvar_with_account_check_check_sysvar_account( transaction_ctx_t const * tr
 
 // https://github.com/firedancer-io/solana/blob/debug-master/program-runtime/src/sysvar_cache.rs#L236
 static int
-get_sysvar_with_account_check_clock( instruction_ctx_t const *         invoke_context,
+get_sysvar_with_account_check_clock( fd_exec_instr_ctx_t const *         invoke_context,
                                      fd_instr_t const *                instruction_context,
                                      uchar                             instruction_account_index,
                                      /* out */ fd_sol_sysvar_clock_t * clock ) {
@@ -278,7 +278,7 @@ get_sysvar_with_account_check_clock( instruction_ctx_t const *         invoke_co
 
 // https://github.com/firedancer-io/solana/blob/debug-master/program-runtime/src/sysvar_cache.rs#L249
 static int
-get_sysvar_with_account_check_rent( instruction_ctx_t const * invoke_context,
+get_sysvar_with_account_check_rent( fd_exec_instr_ctx_t const * invoke_context,
                                     fd_instr_t const *        instruction_context,
                                     uchar                     instruction_account_index,
                                     /* out */ fd_rent_t *     rent ) {
@@ -297,7 +297,7 @@ get_sysvar_with_account_check_rent( instruction_ctx_t const * invoke_context,
 
 // https://github.com/firedancer-io/solana/blob/debug-master/program-runtime/src/sysvar_cache.rs#L289
 static int
-get_sysvar_with_account_check_stake_history( instruction_ctx_t const * invoke_context,
+get_sysvar_with_account_check_stake_history( fd_exec_instr_ctx_t const * invoke_context,
                                              fd_instr_t const *        instruction_context,
                                              uchar                     instruction_account_index,
                                              /* out */ fd_stake_history_t * stake_history ) {
@@ -405,7 +405,7 @@ set_state( fd_borrowed_account_t const * self, fd_stake_state_v2_t const * state
 /**********************************************************************/
 
 static inline ulong
-get_minimum_delegation( fd_global_ctx_t * feature_set /* feature set */ ) {
+get_minimum_delegation( fd_exec_slot_ctx_t * feature_set /* feature set */ ) {
   return fd_ulong_if( FD_FEATURE_ACTIVE( feature_set, stake_raise_minimum_delegation_to_1_sol ),
                       MINIMUM_STAKE_DELEGATION * LAMPORTS_PER_SOL,
                       MINIMUM_STAKE_DELEGATION );
@@ -435,7 +435,7 @@ typedef struct validated_delegated_info validated_delegated_info_t;
 int
 validate_delegated_amount( fd_borrowed_account_t *      account,
                            fd_stake_meta_t const *      meta,
-                           fd_global_ctx_t *            feature_set,
+                           fd_exec_slot_ctx_t *            feature_set,
                            validated_delegated_info_t * out,
                            uint *                       custom_err ) {
   ulong stake_amount = fd_ulong_sat_sub( account->meta->info.lamports, meta->rent_exempt_reserve );
@@ -455,7 +455,7 @@ struct validated_split_info {
 typedef struct validated_split_info validated_split_info_t;
 
 int
-validate_split_amount( instruction_ctx_t *       invoke_context,
+validate_split_amount( fd_exec_instr_ctx_t *       invoke_context,
                        transaction_ctx_t const * transaction_context,
                        fd_instr_t const *        instruction_context,
                        uchar                     source_account_index,
@@ -932,7 +932,7 @@ get_epoch_from_schedule( fd_epoch_schedule_t * epoch_schedule, ulong slot ) {
 
 // https://github.com/firedancer-io/solana/blob/v1.17/programs/stake/src/stake_state.rs#L99
 static bool
-new_warmup_cooldown_rate_epoch( instruction_ctx_t * invoke_context, /* out */ ulong * epoch ) {
+new_warmup_cooldown_rate_epoch( fd_exec_instr_ctx_t * invoke_context, /* out */ ulong * epoch ) {
   if ( FD_FEATURE_ACTIVE( invoke_context->global, reduce_stake_warmup_cooldown ) ) {
     fd_epoch_schedule_t epoch_schedule;
     fd_sysvar_epoch_schedule_read( invoke_context->global, &epoch_schedule );
@@ -976,7 +976,7 @@ active_stake( merge_kind_t const * self ) {
 }
 
 int
-get_if_mergeable( instruction_ctx_t *           invoke_context,
+get_if_mergeable( fd_exec_instr_ctx_t *           invoke_context,
                   fd_stake_state_v2_t const *   stake_state,
                   ulong                         stake_lamports,
                   fd_sol_sysvar_clock_t const * clock,
@@ -1045,7 +1045,7 @@ get_if_mergeable( instruction_ctx_t *           invoke_context,
 }
 
 int
-metas_can_merge( FD_FN_UNUSED instruction_ctx_t const * invoke_context,
+metas_can_merge( FD_FN_UNUSED fd_exec_instr_ctx_t const * invoke_context,
                  fd_stake_meta_t const *                stake,
                  fd_stake_meta_t const *                source,
                  fd_sol_sysvar_clock_t const *          clock,
@@ -1066,7 +1066,7 @@ metas_can_merge( FD_FN_UNUSED instruction_ctx_t const * invoke_context,
 }
 
 int
-active_delegations_can_merge( FD_FN_UNUSED instruction_ctx_t const * invoke_context,
+active_delegations_can_merge( FD_FN_UNUSED fd_exec_instr_ctx_t const * invoke_context,
                               fd_delegation_t const *                stake,
                               fd_delegation_t const *                source,
                               uint *                                 custom_err ) {
@@ -1085,7 +1085,7 @@ active_delegations_can_merge( FD_FN_UNUSED instruction_ctx_t const * invoke_cont
 }
 
 int
-active_stakes_can_merge( FD_FN_UNUSED instruction_ctx_t const * invoke_context,
+active_stakes_can_merge( FD_FN_UNUSED fd_exec_instr_ctx_t const * invoke_context,
                          fd_stake_t const *                     stake,
                          fd_stake_t const *                     source,
                          uint *                                 custom_err ) {
@@ -1128,7 +1128,7 @@ stake_weighted_credits_observed( fd_stake_t const * stake,
 
 // https://github.com/firedancer-io/solana/blob/v1.17/programs/stake/src/stake_state.rs#L1456
 int
-merge_delegation_stake_and_credits_observed( instruction_ctx_t const * invoke_context,
+merge_delegation_stake_and_credits_observed( fd_exec_instr_ctx_t const * invoke_context,
                                              fd_stake_t *              stake,
                                              ulong                     absorbed_lamports,
                                              ulong                     absorbed_credits_observed ) {
@@ -1145,7 +1145,7 @@ merge_delegation_stake_and_credits_observed( instruction_ctx_t const * invoke_co
 
 int
 merge_kind_merge( merge_kind_t                  self,
-                  instruction_ctx_t const *     invoke_context,
+                  fd_exec_instr_ctx_t const *     invoke_context,
                   merge_kind_t                  source,
                   fd_sol_sysvar_clock_t const * clock,
                   fd_stake_state_v2_t *         out,
@@ -1246,7 +1246,7 @@ merge_kind_merge( merge_kind_t                  self,
 /* mod stake_state                                                    */
 /**********************************************************************/
 int
-redelegate_stake( instruction_ctx_t *           invoke_context,
+redelegate_stake( fd_exec_instr_ctx_t *           invoke_context,
                   fd_stake_t *                  stake,
                   ulong                         stake_lamports,
                   fd_pubkey_t const *           voter_pubkey,
@@ -1457,7 +1457,7 @@ authorize_with_seed( transaction_ctx_t *          transaction_context,
 }
 
 static int
-delegate( instruction_ctx_t *           invoke_context,
+delegate( fd_exec_instr_ctx_t *           invoke_context,
           transaction_ctx_t const *     transaction_context,
           fd_instr_t const *            instruction_context,
           uchar                         stake_account_index,
@@ -1466,7 +1466,7 @@ delegate( instruction_ctx_t *           invoke_context,
           fd_stake_history_t *          stake_history,
           fd_pubkey_t const *           signers[static FD_TXN_SIG_MAX],
           fd_valloc_t *                 valloc,
-          fd_global_ctx_t *             feature_set ) {
+          fd_exec_slot_ctx_t *             feature_set ) {
   int rc;
 
   FD_BORROWED_ACCOUNT_DECL( vote_account );
@@ -1614,7 +1614,7 @@ set_lockup( fd_borrowed_account_t *       stake_account,
 }
 
 int
-split( instruction_ctx_t *       invoke_context,
+split( fd_exec_instr_ctx_t *       invoke_context,
        transaction_ctx_t const * transaction_context,
        fd_instr_t const *        instruction_context,
        uchar                     stake_account_index,
@@ -1815,7 +1815,7 @@ split( instruction_ctx_t *       invoke_context,
 }
 
 int
-merge( instruction_ctx_t *           invoke_context,
+merge( fd_exec_instr_ctx_t *           invoke_context,
        transaction_ctx_t const *     transaction_context,
        fd_instr_t const *            instruction_context,
        uchar                         stake_account_index,
@@ -1918,7 +1918,7 @@ merge( instruction_ctx_t *           invoke_context,
 }
 
 int
-redelegate( instruction_ctx_t *       invoke_context,
+redelegate( fd_exec_instr_ctx_t *       invoke_context,
             transaction_ctx_t const * transaction_context,
             fd_instr_t const *        instruction_context,
             fd_borrowed_account_t *   stake_account,
@@ -2063,7 +2063,7 @@ redelegate( instruction_ctx_t *       invoke_context,
 }
 
 int
-withdraw( instruction_ctx_t *           invoke_context,
+withdraw( fd_exec_instr_ctx_t *           invoke_context,
           transaction_ctx_t const *     transaction_context,
           fd_instr_t const *            instruction_context,
           uchar                         stake_account_index,
@@ -2221,7 +2221,7 @@ deactivate_delinquent( transaction_ctx_t *     transaction_context,
                        uchar                   delinquent_vote_account_index,
                        uchar                   reference_vote_account_index,
                        ulong                   current_epoch,
-                       fd_global_ctx_t *       global,
+                       fd_exec_slot_ctx_t *       global,
                        fd_valloc_t const *     valloc,
                        uint *                  custom_err ) {
   int rc;
@@ -2250,7 +2250,7 @@ deactivate_delinquent( transaction_ctx_t *     transaction_context,
 
   fd_vote_state_versioned_t delinquent_vote_state_versioned = { 0 };
   // TODO .. maybe we should have just passed this down instead of rebuilding it?
-  instruction_ctx_t ctx = {
+  fd_exec_instr_ctx_t ctx = {
       .global = global, .instr = instruction_context, .txn_ctx = transaction_context };
   rc = fd_vote_get_state( delinquent_vote_account, ctx, &delinquent_vote_state_versioned );
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
@@ -2315,7 +2315,7 @@ deactivate_delinquent( transaction_ctx_t *     transaction_context,
 
 // https://github.com/firedancer-io/solana/blob/v1.17/programs/stake/src/stake_instruction.rs#L29
 int
-get_optional_pubkey( instruction_ctx_t              ctx,
+get_optional_pubkey( fd_exec_instr_ctx_t              ctx,
                      uchar                          instruction_account_index,
                      bool                           should_be_signer,
                      /* out */ fd_pubkey_t const ** pubkey ) {
@@ -2337,7 +2337,7 @@ get_optional_pubkey( instruction_ctx_t              ctx,
 int
 get_stake_account( transaction_ctx_t const * transaction_context,
                    fd_instr_t const *        instruction_context,
-                   fd_global_ctx_t const *   global,
+                   fd_exec_slot_ctx_t const *   global,
                    fd_borrowed_account_t *   out ) {
   int rc;
   rc = try_borrow_instruction_account( instruction_context, transaction_context, 0, out );
@@ -2350,7 +2350,7 @@ get_stake_account( transaction_ctx_t const * transaction_context,
 }
 
 int
-fd_executor_stake_program_execute_instruction( instruction_ctx_t ctx ) {
+fd_executor_stake_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
   int                      rc;
   fd_bincode_destroy_ctx_t destroy = { .valloc = ctx.global->valloc };
 
@@ -3061,7 +3061,7 @@ fd_stake_get_state( fd_borrowed_account_t const * self,
 }
 
 static void
-write_stake_config( fd_global_ctx_t * global, fd_stake_config_t const * stake_config ) {
+write_stake_config( fd_exec_slot_ctx_t * global, fd_stake_config_t const * stake_config ) {
 
   ulong               data_sz  = fd_stake_config_size( stake_config );
   fd_pubkey_t const * acc_key  = (fd_pubkey_t const *)global->solana_stake_program_config;
@@ -3089,7 +3089,7 @@ write_stake_config( fd_global_ctx_t * global, fd_stake_config_t const * stake_co
 }
 
 void
-fd_stake_program_config_init( fd_global_ctx_t * global ) {
+fd_stake_program_config_init( fd_exec_slot_ctx_t * global ) {
   /* Defaults taken from
      https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/config.rs#L8-L11
    */
