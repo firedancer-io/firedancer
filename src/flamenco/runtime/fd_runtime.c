@@ -10,6 +10,7 @@
 #include "../../ballet/bmtree/fd_bmtree.h"
 
 #include "../stakes/fd_stake_program.h"
+#include "../stakes/fd_stakes.h"
 #include "../rewards/fd_rewards.h"
 #include "program/fd_system_program.h"
 #include "program/fd_vote_program.h"
@@ -78,8 +79,8 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *  slot_ctx,
   fd_delegation_pair_t_mapnode_t * sacc_pool = fd_delegation_pair_t_map_alloc(slot_ctx->valloc, 10000);
   fd_delegation_pair_t_mapnode_t * sacc_root = NULL;
 
-  fd_stake_history_entries_treap_t * stake_history_treap = fd_stake_history_entries_treap_alloc( slot_ctx->valloc );
-  fd_stake_history_epochentry_pair_t * stake_history_pool = fd_stake_history_entries_pool_alloc( slot_ctx->valloc );
+  fd_stake_history_treap_t * stake_history_treap = fd_stake_history_treap_alloc( slot_ctx->valloc );
+  fd_stake_history_entry_t * stake_history_pool = fd_stake_history_pool_alloc( slot_ctx->valloc );
 
   fd_acc_lamports_t capitalization = 0UL;
 
@@ -115,12 +116,25 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *  slot_ctx,
 
     } else if ( 0==memcmp( acc->account.owner.key , fd_solana_stake_program_id.key, sizeof(fd_pubkey_t ) ) ) {
       /* stake program account */
-      fd_stake_state_t stake_state;
+      fd_stake_state_v2_t stake_state = {0};
 
       fd_bincode_decode_ctx_t decode = {  .data    = acc->account.data,
                                           .dataend = acc->account.data + acc->account.data_len,
                                           .valloc  = slot_ctx->valloc };
-      FD_TEST( fd_stake_state_decode( &stake_state, &decode ) == 0);
+                                          // TODO
+                                          (void)decode;
+#if 1
+      // FIXME broken borrowed account
+      fd_account_meta_t meta = { .dlen = acc->account.data_len };
+      fd_borrowed_account_t stake_account = {
+        .const_data = acc->account.data,
+        .data = acc->account.data,
+        .meta = &meta
+      };
+      FD_TEST( fd_stake_get_state( &stake_account, &slot_ctx->valloc, &stake_state ) == 0);
+#else
+      FD_TEST( fd_stake_get_state( acc, &slot_ctx->valloc, &stake_state ) == 1);
+#endif
 
       fd_delegation_pair_t_mapnode_t query_node;
       fd_memcpy( &query_node.elem.account, acc->key.key, sizeof(fd_pubkey_t) );
@@ -255,7 +269,7 @@ fd_runtime_init_program( fd_exec_slot_ctx_t * slot_ctx ) {
 int
 fd_runtime_block_execute( fd_exec_slot_ctx_t * slot_ctx,
                           fd_slot_meta_t *  m,
-                          void const *      block, 
+                          void const *      block,
                           ulong             blocklen ) {
   fd_solcap_writer_set_slot( slot_ctx->capture, m->slot );
   if( slot_ctx->bank.slot != 0 ) {

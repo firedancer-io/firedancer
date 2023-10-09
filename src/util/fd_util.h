@@ -284,7 +284,6 @@ FD_PROTOTYPES_BEGIN
 void
 fd_boot( int *    pargc,
          char *** pargv );
-
 void
 fd_halt( void );
 

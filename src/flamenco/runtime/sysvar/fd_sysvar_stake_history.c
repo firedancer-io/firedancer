@@ -40,20 +40,20 @@ int fd_sysvar_stake_history_read( fd_exec_slot_ctx_t * slot_ctx, fd_stake_histor
 
 void fd_sysvar_stake_history_init( fd_exec_slot_ctx_t * slot_ctx ) {
   fd_stake_history_t stake_history = {
-    .pool = fd_stake_history_entries_pool_alloc( slot_ctx->valloc ),
-    .treap = fd_stake_history_entries_treap_alloc( slot_ctx->valloc )
+    .pool = fd_stake_history_pool_alloc( slot_ctx->valloc ),
+    .treap = fd_stake_history_treap_alloc( slot_ctx->valloc )
   };
   write_stake_history( slot_ctx, &stake_history );
 }
 
-void fd_sysvar_stake_history_update( fd_exec_slot_ctx_t  * slot_ctx, fd_stake_history_epochentry_pair_t * entry) {
+void fd_sysvar_stake_history_update( fd_exec_slot_ctx_t * global, fd_stake_history_entry_t * entry) {
   // Need to make this maybe zero copies of map...
   fd_stake_history_t stake_history;
-  fd_sysvar_stake_history_read( slot_ctx, &stake_history);
-  ulong idx = fd_stake_history_entries_pool_idx_acquire( stake_history.pool );
+  fd_sysvar_stake_history_read( global, &stake_history);
+  ulong idx = fd_stake_history_pool_idx_acquire( stake_history.pool );
 
   stake_history.pool[ idx ].epoch = entry->epoch;
-  fd_memcpy(&stake_history.pool[ idx ].entry, &entry->entry, sizeof(fd_stake_history_entry_t));
-  fd_stake_history_entries_treap_idx_insert( stake_history.treap, idx, stake_history.pool );
-  write_stake_history( slot_ctx, &stake_history);
+  fd_memcpy(&stake_history.pool[ idx ], &entry, sizeof(fd_stake_history_entry_t));
+  fd_stake_history_treap_idx_insert( stake_history.treap, idx, stake_history.pool );
+  write_stake_history( global, &stake_history);
 }

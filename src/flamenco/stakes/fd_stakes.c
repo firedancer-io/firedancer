@@ -1,5 +1,4 @@
 #include "fd_stakes.h"
-
 #include "../runtime/fd_system_ids.h"
 
 /* fd_stakes_accum_by_node converts Stakes (unordered list of (vote acc,
@@ -166,239 +165,12 @@ fd_stake_weights_by_node( fd_vote_accounts_t const * accs,
   return weights_cnt;
 }
 
-double warmup_cooldown_rate( ulong current_epoch, ulong * new_rate_activation_epoch ) {
-  ulong unwrapped = new_rate_activation_epoch ? *new_rate_activation_epoch : ULONG_MAX;
-  return current_epoch < unwrapped ? 0.25 : 0.09;
-}
-
-fd_stake_history_entry_t stake_and_activating( fd_delegation_t const * delegation, ulong target_epoch, fd_stake_history_t * stake_history, ulong * new_rate_activation_epoch ) {
-  ulong delegated_stake = delegation->stake;
-
-  fd_stake_history_entry_t * cluster_stake_at_activation_epoch = NULL;
-
-  fd_stake_history_epochentry_pair_t k;
-  k.epoch = delegation->activation_epoch;
-
-
-  if (delegation->activation_epoch == ULONG_MAX) {
-    // if is bootstrap
-    fd_stake_history_entry_t entry = {
-      .effective = delegated_stake,
-      .activating = 0
-    };
-
-    return entry;
-  } else if (delegation->activation_epoch == delegation->deactivation_epoch) {
-    fd_stake_history_entry_t entry = {
-      .effective = 0,
-      .activating = 0
-    };
-
-    return entry;
-  } else if ( target_epoch == delegation->activation_epoch ) {
-    fd_stake_history_entry_t entry = {
-      .effective = 0,
-      .activating = delegated_stake
-    };
-
-    return entry;
-  } else if ( target_epoch < delegation->activation_epoch ) {
-    fd_stake_history_entry_t entry = {
-      .effective = 0,
-      .activating = 0
-    };
-    return entry;
-  }
-  else if (stake_history != NULL) {
-    fd_stake_history_epochentry_pair_t * n = fd_stake_history_entries_treap_ele_query( stake_history->treap, k.epoch, stake_history->pool );
-
-    if (NULL != n)
-      cluster_stake_at_activation_epoch = &n->entry;
-
-    if (cluster_stake_at_activation_epoch == NULL) {
-      fd_stake_history_entry_t entry = {
-        .effective = delegated_stake,
-        .activating = 0,
-      };
-
-      return entry;
-    }
-
-    ulong prev_epoch = delegation->activation_epoch;
-    fd_stake_history_entry_t * prev_cluster_stake = cluster_stake_at_activation_epoch;
-
-    ulong current_epoch;
-    ulong current_effective_stake = 0;
-    for (;;) {
-      current_epoch = prev_epoch + 1;
-      if (prev_cluster_stake->activating == 0) {
-        break;
-      }
-
-      ulong remaining_activating_stake = delegated_stake - current_effective_stake;
-      double weight = (double)remaining_activating_stake / (double)prev_cluster_stake->activating;
-
-      double newly_effective_cluster_stake = (double)prev_cluster_stake->effective * warmup_cooldown_rate(current_epoch, new_rate_activation_epoch);
-      ulong newly_effective_stake = (ulong)(weight * newly_effective_cluster_stake);
-      newly_effective_stake = (newly_effective_stake == 0) ? 1 : newly_effective_stake;
-
-      current_effective_stake += newly_effective_stake;
-      if (current_effective_stake >= delegated_stake) {
-          current_effective_stake = delegated_stake;
-          break;
-      }
-
-      if (current_epoch >= target_epoch || current_epoch >= delegation->deactivation_epoch) {
-        break;
-      }
-
-      // Find the current epoch in history
-      fd_stake_history_epochentry_pair_t k;
-      k.epoch = current_epoch;
-      fd_stake_history_epochentry_pair_t * n = fd_stake_history_entries_treap_ele_query( stake_history->treap, k.epoch, stake_history->pool );
-
-
-      if (NULL != n) {
-        prev_epoch = current_epoch;
-        prev_cluster_stake = &n->entry;
-      } else
-        break;
-    }
-
-    fd_stake_history_entry_t entry = {
-      .effective = current_effective_stake,
-      .activating = delegated_stake - current_effective_stake,
-    };
-    return entry;
-  } else {
-    // no history or I've dropped out of history, so assume fully effective
-    fd_stake_history_entry_t entry = {
-      .effective = delegated_stake,
-      .activating = 0,
-    };
-
-    return entry;
-  }
-}
-
-fd_stake_history_entry_t stake_activating_and_deactivating( fd_delegation_t const * delegation, ulong target_epoch, fd_stake_history_t * stake_history, ulong * new_rate_activation_epoch ) {
-
-  fd_stake_history_entry_t stake_and_activating_entry = stake_and_activating( delegation, target_epoch, stake_history, new_rate_activation_epoch );
-
-  ulong effective_stake = stake_and_activating_entry.effective;
-  ulong activating_stake = stake_and_activating_entry.activating;
-
-  fd_stake_history_entry_t * cluster_stake_at_activation_epoch = NULL;
-
-  fd_stake_history_epochentry_pair_t k;
-  k.epoch = delegation->deactivation_epoch;
-
-  if (target_epoch < delegation->deactivation_epoch) {
-    // if is bootstrap
-    if (activating_stake == 0) {
-      fd_stake_history_entry_t entry = {
-        .effective = effective_stake,
-        .deactivating = 0,
-        .activating = 0
-      };
-      return entry;
-    } else {
-      fd_stake_history_entry_t entry = {
-        .effective = effective_stake,
-        .deactivating = 0,
-        .activating = activating_stake
-      };
-      return entry;
-    }
-  } else if (target_epoch == delegation->deactivation_epoch) {
-    fd_stake_history_entry_t entry = {
-      .effective = effective_stake,
-      .deactivating = effective_stake,
-      .activating = 0
-    };
-    return entry;
-  } else if (stake_history != NULL) {
-    fd_stake_history_epochentry_pair_t * n = fd_stake_history_entries_treap_ele_query( stake_history->treap, k.epoch, stake_history->pool );
-
-
-    if (NULL != n) {
-      cluster_stake_at_activation_epoch = &n->entry;
-    }
-
-    if (cluster_stake_at_activation_epoch == NULL) {
-      fd_stake_history_entry_t entry = {
-        .effective = 0,
-        .activating = 0,
-        .deactivating = 0
-      };
-
-      return entry;
-    }
-    ulong prev_epoch = delegation->deactivation_epoch;
-    fd_stake_history_entry_t * prev_cluster_stake = cluster_stake_at_activation_epoch;
-
-    ulong current_epoch;
-    ulong current_effective_stake = effective_stake;
-    for (;;) {
-      current_epoch = prev_epoch + 1;
-      if (prev_cluster_stake->deactivating == 0) {
-        break;
-      }
-
-      double weight = (double)current_effective_stake / (double)prev_cluster_stake->deactivating;
-
-      double newly_not_effective_cluster_stake = (double)prev_cluster_stake->effective * warmup_cooldown_rate(current_epoch, new_rate_activation_epoch);
-      ulong newly_not_effective_stake = (ulong)(weight * newly_not_effective_cluster_stake);
-      newly_not_effective_stake = (newly_not_effective_stake == 0) ? 1 : newly_not_effective_stake;
-
-      current_effective_stake = fd_ulong_sat_sub(current_effective_stake, newly_not_effective_stake);
-      if (current_effective_stake == 0) {
-          break;
-      }
-
-      if (current_epoch >= target_epoch) {
-        break;
-      }
-
-      // Find the current epoch in history
-      fd_stake_history_epochentry_pair_t k;
-      k.epoch = current_epoch;
-      fd_stake_history_epochentry_pair_t * n = fd_stake_history_entries_treap_ele_query( stake_history->treap, k.epoch, stake_history->pool );
-;
-
-      if (NULL != n) {
-        prev_epoch = current_epoch;
-        prev_cluster_stake = &n->entry;
-      } else
-        break;
-    }
-
-    fd_stake_history_entry_t entry = {
-      .effective = current_effective_stake,
-      .deactivating = current_effective_stake,
-      .activating = 0
-    };
-
-    return entry;
-  } else {
-     fd_stake_history_entry_t entry = {
-      .effective = 0,
-      .activating = 0,
-      .deactivating = 0
-    };
-
-    return entry;
-  }
-}
-
-
-
 /* https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L169 */
 void
-fd_stakes_activate_epoch( fd_exec_slot_ctx_t * slot_ctx,
-                          ulong                next_epoch ) {
+fd_stakes_activate_epoch( fd_exec_slot_ctx_t * global,
+                          ulong             next_epoch ) {
 
-  fd_stakes_t* stakes = &slot_ctx->bank.stakes;
+  fd_stakes_t* stakes = &global->bank.stakes;
 
   /* Current stake delegations: list of all current delegations in stake_delegations
      https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L180 */
@@ -406,7 +178,7 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t * slot_ctx,
      https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L181-L192 */
 
   fd_stake_history_t history;
-  fd_sysvar_stake_history_read( slot_ctx,  &history);
+  fd_sysvar_stake_history_read( global,  &history);
 
   fd_stake_history_entry_t accumulator = {
     .effective = 0,
@@ -422,14 +194,16 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t * slot_ctx,
     accumulator.deactivating += new_entry.deactivating;
   }
 
-  fd_stake_history_epochentry_pair_t new_elem = {
+  fd_stake_history_entry_t new_elem = {
     .epoch = stakes->epoch,
-    .entry = accumulator
+    .effective = accumulator.effective,
+    .activating = accumulator.activating,
+    .deactivating = accumulator.deactivating
   };
 
-  ulong idx = fd_stake_history_entries_pool_idx_acquire( stakes->stake_history.pool );
+  ulong idx = fd_stake_history_pool_idx_acquire( stakes->stake_history.pool );
   stakes->stake_history.pool[ idx ] = new_elem;
-  fd_sysvar_stake_history_update( slot_ctx, &new_elem);
+  fd_sysvar_stake_history_update( global, &new_elem);
 
   /* Update the current epoch value */
   stakes->epoch = next_epoch;
@@ -437,10 +211,10 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t * slot_ctx,
   /* Refresh the stake distribution of vote accounts for the next epoch,
      using the updated Stake History.
      https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L194-L216 */
-  fd_stake_weight_t_mapnode_t * pool = fd_stake_weight_t_map_alloc(slot_ctx->valloc, 10000);
+  fd_stake_weight_t_mapnode_t * pool = fd_stake_weight_t_map_alloc(global->valloc, 10000);
   fd_stake_weight_t_mapnode_t * root = NULL;
 
-  fd_sysvar_stake_history_read( slot_ctx,  &history);
+  fd_sysvar_stake_history_read( global,  &history);
   for ( fd_delegation_pair_t_mapnode_t * n = fd_delegation_pair_t_map_minimum(stakes->stake_delegations_pool, stakes->stake_delegations_root); n; n = fd_delegation_pair_t_map_successor(stakes->stake_delegations_pool, n) ) {
     ulong delegation_stake = stake_activating_and_deactivating( &n->elem.delegation, stakes->epoch, &history, new_rate_activation_epoch ).effective;
     fd_stake_weight_t_mapnode_t temp;
@@ -464,16 +238,18 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t * slot_ctx,
 }
 
 int
-write_stake_state( fd_exec_slot_ctx_t * slot_ctx,
-                   fd_pubkey_t const *  stake_acc,
-                   fd_stake_state_t *   stake_state,
-                   ushort               is_new_account ) {
+write_stake_state( fd_exec_slot_ctx_t *   global,
+                   fd_pubkey_t const * stake_acc,
+                   fd_stake_state_v2_t *  stake_state,
+                   ushort              is_new_account ) {
+                    // TODO
+                    (void)stake_state;
 
-  ulong encoded_stake_state_size = (is_new_account) ? STAKE_ACCOUNT_SIZE : fd_stake_state_size(stake_state);
+  ulong encoded_stake_state_size = (is_new_account) ? STAKE_ACCOUNT_SIZE : fd_stake_state_v2_size(stake_state);
 
   FD_BORROWED_ACCOUNT_DECL(stake_acc_rec);
 
-  int err = fd_acc_mgr_modify( slot_ctx->acc_mgr, slot_ctx->funk_txn, stake_acc, !!is_new_account, encoded_stake_state_size, stake_acc_rec );
+  int err = fd_acc_mgr_modify( global->acc_mgr, global->funk_txn, stake_acc, !!is_new_account, encoded_stake_state_size, stake_acc_rec );
   if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
     FD_LOG_WARNING(( "write_stake_state failed" ));
     return err;
@@ -485,7 +261,7 @@ write_stake_state( fd_exec_slot_ctx_t * slot_ctx,
   fd_bincode_encode_ctx_t ctx3;
   ctx3.data    = stake_acc_rec->data;
   ctx3.dataend = stake_acc_rec->data + encoded_stake_state_size;
-  if( FD_UNLIKELY( fd_stake_state_encode( stake_state, &ctx3 )!=FD_BINCODE_SUCCESS ) )
+  if( FD_UNLIKELY( fd_stake_state_v2_encode( stake_state, &ctx3 )!=FD_BINCODE_SUCCESS ) )
     FD_LOG_ERR(("fd_stake_state_encode failed"));
 
   if( is_new_account )

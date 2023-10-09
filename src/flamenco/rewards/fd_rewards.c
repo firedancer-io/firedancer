@@ -67,7 +67,7 @@ get_inflation_num_slots(fd_firedancer_banks_t * bank) {
 static void
 calculate_stake_points_and_credits (
   fd_stake_history_t * stake_history,
-  fd_stake_state_t * stake_state,
+  fd_stake_state_v2_t * stake_state,
   fd_vote_state_versioned_t * vote_state_versioned,
   fd_calculate_stake_points_t * result
 ) {
@@ -129,7 +129,7 @@ calculate_stake_points_and_credits (
 static void
 calculate_stake_rewards(
   fd_stake_history_t * stake_history,
-  fd_stake_state_t * stake_state,
+  fd_stake_state_v2_t * stake_state,
   fd_vote_state_versioned_t * vote_state_versioned,
   ulong rewarded_epoch,
   fd_point_value_t * point_value,
@@ -145,6 +145,7 @@ calculate_stake_rewards(
     * new value for credits_observed in the stake
     returns None if there's no payout or if any deserved payout is < 1 lamport */
     fd_calculate_stake_points_t stake_points_result;
+    // TODO
     calculate_stake_points_and_credits( stake_history, stake_state, vote_state_versioned, &stake_points_result);
 
     // Drive credits_observed forward unconditionally when rewards are disabled
@@ -198,11 +199,16 @@ stake_state_redeem_rewards( fd_exec_slot_ctx_t *   slot_ctx,
         return err;
     }
 
-    fd_stake_state_t stake_state;
-    read_stake_state( slot_ctx, stake_acc_rec->const_meta, &stake_state );
-    if (!fd_stake_state_is_stake( &stake_state)) {
-        return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+    fd_stake_state_v2_t stake_state = {0};
+    int rc = fd_stake_get_state(stake_acc_rec, &slot_ctx->valloc, &stake_state);
+    if ( rc != 0 ) {
+      return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
     }
+    // fd_stake_state_t stake_state;
+    // read_stake_state( global, stake_acc_rec->const_meta, &stake_state );
+    // if (!fd_stake_state_is_stake( &stake_state)) {
+    //     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+    // }
 
     calculate_stake_rewards(stake_history, &stake_state, vote_state, rewarded_epoch, point_value, result);
     if (result == NULL) {
@@ -213,17 +219,16 @@ stake_state_redeem_rewards( fd_exec_slot_ctx_t *   slot_ctx,
     return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
-static int
-calculate_points(
-    fd_stake_state_t * stake_state,
+int calculate_points(
+    fd_stake_state_v2_t * stake_state,
     fd_vote_state_versioned_t * vote_state_versioned,
     fd_stake_history_t * stake_history,
     __uint128_t * result
 ) {
-    /* https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1fb868e/programs/stake/src/stake_state.rs#L1575-L1592 */
-    if (!fd_stake_state_is_stake( stake_state)) {
-        return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
-    }
+    // TODO
+    // if (!fd_stake_state_is_stake( stake_state)) {
+    //     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+    // }
     fd_calculate_stake_points_t stake_point_result;
     calculate_stake_points_and_credits(stake_history, stake_state, vote_state_versioned, &stake_point_result);
     *result = stake_point_result.points;
@@ -324,8 +329,13 @@ calculate_reward_points_partitioned(
         FD_BORROWED_ACCOUNT_DECL(stake_acc_rec);
         FD_TEST( 0==fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, stake_acc, stake_acc_rec) );
 
-        fd_stake_state_t stake_state;
-        read_stake_state( slot_ctx, stake_acc_rec->const_meta, &stake_state );
+        // fd_stake_state_t stake_state;
+        // read_stake_state( global, stake_acc_rec->const_meta, &stake_state );
+        fd_stake_state_v2_t stake_state = {0};
+        int rc = fd_stake_get_state(stake_acc_rec, &slot_ctx->valloc, &stake_state);
+        if ( rc != 0 ) {
+          FD_LOG_ERR(("failed to read"));
+        }
 
         __uint128_t result;
         points += (calculate_points(&stake_state, vote_state, stake_history, &result) == FD_EXECUTOR_INSTR_SUCCESS ? result : 0);
@@ -709,9 +719,9 @@ pay_validator_rewards(
         FD_TEST( err == 0 );
         stake_rec->meta->info.lamports = fd_ulong_sat_add(stake_rec->meta->info.lamports, ele->reward_info.lamports);
 
-        fd_stake_state_t stake_state;
-        read_stake_state( slot_ctx, stake_rec->meta, &stake_state );
-        if (!fd_stake_state_is_stake( &stake_state)) {
+        fd_stake_state_v2_t stake_state;
+        int rc = fd_stake_get_state(stake_rec, &slot_ctx->valloc, &stake_state);
+        if ( rc != 0 ) {
             FD_LOG_ERR(("failed to read stake state for %32J", stake_pubkey ));
         }
 
@@ -820,11 +830,16 @@ distribute_partitioned_epoch_rewards(
             FD_TEST( 0==fd_acc_mgr_modify( slot_ctx->acc_mgr, slot_ctx->funk_txn, stake_acc, 0, 0UL, stake_acc_rec ) );
             stake_acc_rec->meta->info.lamports += this_partition_stake_rewards.elems[i]->reward_info.lamports;
 
-            fd_stake_state_t stake_state;
-            read_stake_state( slot_ctx, stake_acc_rec->meta, &stake_state );
-            if (!fd_stake_state_is_stake( &stake_state)) {
+            fd_stake_state_v2_t stake_state = {0};
+            int rc = fd_stake_get_state(stake_acc_rec, &slot_ctx->valloc, &stake_state);
+            if ( rc != 0 ) {
                FD_LOG_ERR(("failed to read stake state for %32J", &this_partition_stake_rewards.elems[i]->stake_pubkey ));
             }
+            // fd_stake_state_t stake_state;
+            // read_stake_state( global, stake_acc_rec->meta, &stake_state );
+            // if (!fd_stake_state_is_stake( &stake_state)) {
+            //    FD_LOG_ERR(("failed to read stake state for %32J", &this_partition_stake_rewards.elems[i]->stake_pubkey ));
+            // }
 
             /* implements the `redeem_stake_rewards` solana function */
             stake_state.inner.stake.stake.credits_observed = this_partition_stake_rewards.elems[i]->reward_info.new_credits_observed;
