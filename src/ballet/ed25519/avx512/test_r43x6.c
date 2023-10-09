@@ -396,7 +396,7 @@ fd_r43x6_sqr_fast_ref( fd_r43x6_t y ) {
   ulong z7 = 0UL;
 
   zz.lane[0] = z0; FD_TEST( z0<(1826UL<<51) );
-  zz.lane[1] = z1; FD_TEST( z1<(1675UL<<51) );
+  zz.lane[1] = z1; FD_TEST( z1<(1371UL<<51) );
   zz.lane[2] = z2; FD_TEST( z2<(1222UL<<51) );
   zz.lane[3] = z3; FD_TEST( z3<( 767UL<<51) );
   zz.lane[4] = z4; FD_TEST( z4<( 618UL<<51) );
