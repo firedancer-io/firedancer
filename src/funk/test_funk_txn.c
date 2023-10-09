@@ -16,7 +16,7 @@ FD_STATIC_ASSERT( FD_FUNK_TXN_IDX_NULL==(ulong)UINT_MAX, unit_test );
 
 static fd_funk_txn_xid_t *
 fd_funk_txn_xid_set_unique( fd_funk_txn_xid_t * xid ) {
-  static FD_TLS ulong tag = 0UL;
+  static FD_TL ulong tag = 0UL;
   xid->ul[0] = fd_log_app_id();
   xid->ul[1] = fd_log_thread_id();
   xid->ul[2] = ++tag;
@@ -64,7 +64,7 @@ main( int     argc,
   fd_funk_t * funk = fd_funk_join( fd_funk_new( fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint(), wksp_tag ),
                                                 wksp_tag, seed, txn_max, rec_max ) );
   if( FD_UNLIKELY( !funk ) ) FD_LOG_ERR(( "Unable to create funk" ));
-  
+
   fd_funk_txn_t * map = fd_funk_txn_map( funk, wksp );
 
   for( ulong rem=1000000UL; rem; rem-- ) {
@@ -247,10 +247,10 @@ main( int     argc,
       if( txn_max && !fd_funk_txn_query( fd_funk_txn_xid( &map[0] ), map ) ) dead = &map[0];
 
       fd_funk_txn_t bad[1]; fd_funk_txn_xid_copy( &bad->xid, xid );
-      
+
       /* Too many in-prep already tested */
       /* Live xid cases already tested */
-      
+
       FD_TEST( !fd_funk_txn_prepare( NULL, txn, xid,             verbose ) ); /* NULL funk */
       FD_TEST( !fd_funk_txn_prepare( funk, txn, NULL,            verbose ) ); /* NULL xid */
       FD_TEST( !fd_funk_txn_prepare( funk, txn, last_publish,    verbose ) ); /* last published xid */
