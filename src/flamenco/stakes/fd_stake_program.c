@@ -838,7 +838,7 @@ eligible_for_deactivate_delinquent( fd_vote_epoch_credits_t * epoch_credits, ulo
 }
 
 /**********************************************************************/
-/* impl StakeFlags                                                  */
+/* impl StakeFlags                                                    */
 /**********************************************************************/
 
 static inline fd_stake_flags_t
@@ -847,7 +847,7 @@ stake_flags_empty( void ) {
 }
 
 /**********************************************************************/
-/* impl Stake                                                  */
+/* impl Stake                                                         */
 /**********************************************************************/
 
 static int
