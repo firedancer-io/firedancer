@@ -374,8 +374,8 @@ get_state( fd_borrowed_account_t const * self,
   int rc;
 
   fd_bincode_decode_ctx_t bincode_ctx;
-  bincode_ctx.data    = self->data;
-  bincode_ctx.dataend = self->data + self->meta->dlen;
+  bincode_ctx.data    = self->const_data;
+  bincode_ctx.dataend = self->const_data + self->const_meta->dlen;
   bincode_ctx.valloc  = *valloc;
 
   rc = fd_stake_state_v2_decode( out, &bincode_ctx );
