@@ -1,6 +1,11 @@
+#define FD_SHA512_BATCH_IMPL 1
+
 #include "fd_sha512.h"
 #include "../../util/simd/fd_avx.h"
-#include "../../util/simd/fd_sse.h"
+
+FD_STATIC_ASSERT( FD_SHA512_BATCH_MAX==4UL, compat );
+
+/* TODO: CONSIDER SSE IMPL FOR BATCH_CNT==2 CASE? */
 
 void
 fd_sha512_private_batch_avx( ulong          batch_cnt,
@@ -25,15 +30,15 @@ fd_sha512_private_batch_avx( ulong          batch_cnt,
      probably be SIMD optimized slightly more (this is where all the
      really performance suboptimally designed parts of SHA live so it is
      just inherently gross).  The main optimization would probably be to
-     allow tailing reading to use a faster memcpy and then maybe some
+     allow tail reading to use a faster memcpy and then maybe some
      vectorization of the bswap. */
 
   ulong const * batch_data = (ulong const *)_batch_data;
-  
-  ulong batch_tail_data[ FD_SHA512_PRIVATE_BATCH_MAX ] __attribute__((aligned(32)));
-  ulong batch_tail_rem [ FD_SHA512_PRIVATE_BATCH_MAX ] __attribute__((aligned(32)));
 
-  uchar scratch[ FD_SHA512_PRIVATE_BATCH_MAX*2UL*FD_SHA512_PRIVATE_BUF_MAX ] __attribute__((aligned(128)));
+  ulong batch_tail_data[ FD_SHA512_BATCH_MAX ] __attribute__((aligned(32)));
+  ulong batch_tail_rem [ FD_SHA512_BATCH_MAX ] __attribute__((aligned(32)));
+
+  uchar scratch[ FD_SHA512_BATCH_MAX*2UL*FD_SHA512_PRIVATE_BUF_MAX ] __attribute__((aligned(128)));
   do {
     ulong scratch_free = (ulong)scratch;
 
@@ -45,7 +50,7 @@ fd_sha512_private_batch_avx( ulong          batch_cnt,
 
       ulong data = batch_data[ batch_idx ];
       ulong sz   = batch_sz  [ batch_idx ];
-      
+
       ulong tail_data     = scratch_free;
       ulong tail_data_sz  = sz & (FD_SHA512_PRIVATE_BUF_MAX-1UL);
       ulong tail_data_off = fd_ulong_align_dn( sz,                FD_SHA512_PRIVATE_BUF_MAX );
@@ -67,17 +72,15 @@ fd_sha512_private_batch_avx( ulong          batch_cnt,
       wv_st( (ulong *)(tail_data+128), zero ); wv_st( (ulong *)(tail_data+160), zero );
       wv_st( (ulong *)(tail_data+192), zero ); wv_st( (ulong *)(tail_data+224), zero );
 
-#     if 1
-      /* See notes in fd_sha256_batch_avx.c for more details here */
+#     if 1 /* See notes in fd_sha256_batch_avx.c for more details here */
       ulong src = data + tail_data_off;
       ulong dst = tail_data;
       ulong rem = tail_data_sz;
       while( rem>=32UL ) { wv_st( (ulong *)dst, wv_ldu( (ulong const *)src ) ); dst += 32UL; src += 32UL; rem -= 32UL; }
-      if(    rem>=16UL ) { vv_st( (ulong *)dst, vv_ldu( (ulong const *)src ) ); dst += 16UL; src += 16UL; rem -= 16UL; }
-      if(    rem>= 8UL ) { *(ulong  *)dst = FD_LOAD( ulong,  src );             dst +=  8UL; src +=  8UL; rem -=  8UL; }
-      if(    rem>= 4UL ) { *(uint   *)dst = FD_LOAD( uint,   src );             dst +=  4UL; src +=  4UL; rem -=  4UL; }
-      if(    rem>= 2UL ) { *(ushort *)dst = FD_LOAD( ushort, src );             dst +=  2UL; src +=  2UL; rem -=  2UL; }
-      if(    rem       ) { *(uchar  *)dst = FD_LOAD( uchar,  src );             dst++;                                 }
+      while( rem>= 8UL ) { *(ulong  *)dst = FD_LOAD( ulong,  src );             dst +=  8UL; src +=  8UL; rem -=  8UL; }
+      if   ( rem>= 4UL ) { *(uint   *)dst = FD_LOAD( uint,   src );             dst +=  4UL; src +=  4UL; rem -=  4UL; }
+      if   ( rem>= 2UL ) { *(ushort *)dst = FD_LOAD( ushort, src );             dst +=  2UL; src +=  2UL; rem -=  2UL; }
+      if   ( rem       ) { *(uchar  *)dst = FD_LOAD( uchar,  src );             dst++;                                 }
       *(uchar *)dst = (uchar)0x80;
 #     else
       fd_memcpy( (void *)tail_data, (void const *)(data + tail_data_off), tail_data_sz );
@@ -281,4 +284,3 @@ fd_sha512_private_batch_avx( ulong          batch_cnt,
   default: break;
   }
 }
-
