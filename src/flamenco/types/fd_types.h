@@ -483,14 +483,6 @@ typedef struct fd_deserializable_versioned_bank fd_deserializable_versioned_bank
 #define FD_DESERIALIZABLE_VERSIONED_BANK_FOOTPRINT sizeof(fd_deserializable_versioned_bank_t)
 #define FD_DESERIALIZABLE_VERSIONED_BANK_ALIGN (16UL)
 
-struct __attribute__((aligned(8UL))) fd_serializable_account_storage_entry {
-  ulong id;
-  ulong accounts_current_len;
-};
-typedef struct fd_serializable_account_storage_entry fd_serializable_account_storage_entry_t;
-#define FD_SERIALIZABLE_ACCOUNT_STORAGE_ENTRY_FOOTPRINT sizeof(fd_serializable_account_storage_entry_t)
-#define FD_SERIALIZABLE_ACCOUNT_STORAGE_ENTRY_ALIGN (8UL)
-
 struct __attribute__((aligned(8UL))) fd_bank_hash_stats {
   ulong num_updated_accounts;
   ulong num_removed_accounts;
@@ -511,34 +503,6 @@ typedef struct fd_bank_hash_info fd_bank_hash_info_t;
 #define FD_BANK_HASH_INFO_FOOTPRINT sizeof(fd_bank_hash_info_t)
 #define FD_BANK_HASH_INFO_ALIGN (8UL)
 
-typedef struct fd_serializable_account_storage_entry_t_mapnode fd_serializable_account_storage_entry_t_mapnode_t;
-#define REDBLK_T fd_serializable_account_storage_entry_t_mapnode_t
-#define REDBLK_NAME fd_serializable_account_storage_entry_t_map
-#define REDBLK_IMPL_STYLE 1
-#include "../../util/tmpl/fd_redblack.c"
-#undef REDBLK_T
-#undef REDBLK_NAME
-struct fd_serializable_account_storage_entry_t_mapnode {
-    fd_serializable_account_storage_entry_t elem;
-    ulong redblack_parent;
-    ulong redblack_left;
-    ulong redblack_right;
-    int redblack_color;
-};
-static inline fd_serializable_account_storage_entry_t_mapnode_t *
-fd_serializable_account_storage_entry_t_map_alloc( fd_valloc_t valloc, ulong len ) {
-  void * mem = fd_valloc_malloc( valloc, fd_serializable_account_storage_entry_t_map_align(), fd_serializable_account_storage_entry_t_map_footprint(len));
-  return fd_serializable_account_storage_entry_t_map_join(fd_serializable_account_storage_entry_t_map_new(mem, len));
-}
-struct __attribute__((aligned(8UL))) fd_slot_account_pair {
-  ulong slot;
-  fd_serializable_account_storage_entry_t_mapnode_t * accounts_pool;
-  fd_serializable_account_storage_entry_t_mapnode_t * accounts_root;
-};
-typedef struct fd_slot_account_pair fd_slot_account_pair_t;
-#define FD_SLOT_ACCOUNT_PAIR_FOOTPRINT sizeof(fd_slot_account_pair_t)
-#define FD_SLOT_ACCOUNT_PAIR_ALIGN (8UL)
-
 struct __attribute__((aligned(8UL))) fd_slot_map_pair {
   ulong slot;
   fd_hash_t hash;
@@ -547,28 +511,27 @@ typedef struct fd_slot_map_pair fd_slot_map_pair_t;
 #define FD_SLOT_MAP_PAIR_FOOTPRINT sizeof(fd_slot_map_pair_t)
 #define FD_SLOT_MAP_PAIR_ALIGN (8UL)
 
-typedef struct fd_slot_account_pair_t_mapnode fd_slot_account_pair_t_mapnode_t;
-#define REDBLK_T fd_slot_account_pair_t_mapnode_t
-#define REDBLK_NAME fd_slot_account_pair_t_map
-#define REDBLK_IMPL_STYLE 1
-#include "../../util/tmpl/fd_redblack.c"
-#undef REDBLK_T
-#undef REDBLK_NAME
-struct fd_slot_account_pair_t_mapnode {
-    fd_slot_account_pair_t elem;
-    ulong redblack_parent;
-    ulong redblack_left;
-    ulong redblack_right;
-    int redblack_color;
+struct __attribute__((aligned(8UL))) fd_snapshot_acc_vec {
+  ulong id;
+  ulong file_sz;
 };
-static inline fd_slot_account_pair_t_mapnode_t *
-fd_slot_account_pair_t_map_alloc( fd_valloc_t valloc, ulong len ) {
-  void * mem = fd_valloc_malloc( valloc, fd_slot_account_pair_t_map_align(), fd_slot_account_pair_t_map_footprint(len));
-  return fd_slot_account_pair_t_map_join(fd_slot_account_pair_t_map_new(mem, len));
-}
+typedef struct fd_snapshot_acc_vec fd_snapshot_acc_vec_t;
+#define FD_SNAPSHOT_ACC_VEC_FOOTPRINT sizeof(fd_snapshot_acc_vec_t)
+#define FD_SNAPSHOT_ACC_VEC_ALIGN (8UL)
+
+struct __attribute__((aligned(8UL))) fd_snapshot_slot_acc_vecs {
+  ulong slot;
+  ulong account_vecs_len;
+  fd_snapshot_acc_vec_t* account_vecs;
+};
+typedef struct fd_snapshot_slot_acc_vecs fd_snapshot_slot_acc_vecs_t;
+#define FD_SNAPSHOT_SLOT_ACC_VECS_FOOTPRINT sizeof(fd_snapshot_slot_acc_vecs_t)
+#define FD_SNAPSHOT_SLOT_ACC_VECS_ALIGN (8UL)
+
+/* Accounts DB related fields in a snapshot */
 struct __attribute__((aligned(8UL))) fd_solana_accounts_db_fields {
-  fd_slot_account_pair_t_mapnode_t * storages_pool;
-  fd_slot_account_pair_t_mapnode_t * storages_root;
+  ulong storages_len;
+  fd_snapshot_slot_acc_vecs_t* storages;
   ulong version;
   ulong slot;
   fd_bank_hash_info_t bank_hash_info;
@@ -2709,17 +2672,6 @@ ulong fd_deserializable_versioned_bank_size(fd_deserializable_versioned_bank_t c
 ulong fd_deserializable_versioned_bank_footprint( void );
 ulong fd_deserializable_versioned_bank_align( void );
 
-void fd_serializable_account_storage_entry_new(fd_serializable_account_storage_entry_t* self);
-int fd_serializable_account_storage_entry_decode(fd_serializable_account_storage_entry_t* self, fd_bincode_decode_ctx_t * ctx);
-int fd_serializable_account_storage_entry_decode_preflight(fd_bincode_decode_ctx_t * ctx);
-void fd_serializable_account_storage_entry_decode_unsafe(fd_serializable_account_storage_entry_t* self, fd_bincode_decode_ctx_t * ctx);
-int fd_serializable_account_storage_entry_encode(fd_serializable_account_storage_entry_t const * self, fd_bincode_encode_ctx_t * ctx);
-void fd_serializable_account_storage_entry_destroy(fd_serializable_account_storage_entry_t* self, fd_bincode_destroy_ctx_t * ctx);
-void fd_serializable_account_storage_entry_walk(void * w, fd_serializable_account_storage_entry_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
-ulong fd_serializable_account_storage_entry_size(fd_serializable_account_storage_entry_t const * self);
-ulong fd_serializable_account_storage_entry_footprint( void );
-ulong fd_serializable_account_storage_entry_align( void );
-
 void fd_bank_hash_stats_new(fd_bank_hash_stats_t* self);
 int fd_bank_hash_stats_decode(fd_bank_hash_stats_t* self, fd_bincode_decode_ctx_t * ctx);
 int fd_bank_hash_stats_decode_preflight(fd_bincode_decode_ctx_t * ctx);
@@ -2742,17 +2694,6 @@ ulong fd_bank_hash_info_size(fd_bank_hash_info_t const * self);
 ulong fd_bank_hash_info_footprint( void );
 ulong fd_bank_hash_info_align( void );
 
-void fd_slot_account_pair_new(fd_slot_account_pair_t* self);
-int fd_slot_account_pair_decode(fd_slot_account_pair_t* self, fd_bincode_decode_ctx_t * ctx);
-int fd_slot_account_pair_decode_preflight(fd_bincode_decode_ctx_t * ctx);
-void fd_slot_account_pair_decode_unsafe(fd_slot_account_pair_t* self, fd_bincode_decode_ctx_t * ctx);
-int fd_slot_account_pair_encode(fd_slot_account_pair_t const * self, fd_bincode_encode_ctx_t * ctx);
-void fd_slot_account_pair_destroy(fd_slot_account_pair_t* self, fd_bincode_destroy_ctx_t * ctx);
-void fd_slot_account_pair_walk(void * w, fd_slot_account_pair_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
-ulong fd_slot_account_pair_size(fd_slot_account_pair_t const * self);
-ulong fd_slot_account_pair_footprint( void );
-ulong fd_slot_account_pair_align( void );
-
 void fd_slot_map_pair_new(fd_slot_map_pair_t* self);
 int fd_slot_map_pair_decode(fd_slot_map_pair_t* self, fd_bincode_decode_ctx_t * ctx);
 int fd_slot_map_pair_decode_preflight(fd_bincode_decode_ctx_t * ctx);
@@ -2763,6 +2704,28 @@ void fd_slot_map_pair_walk(void * w, fd_slot_map_pair_t const * self, fd_types_w
 ulong fd_slot_map_pair_size(fd_slot_map_pair_t const * self);
 ulong fd_slot_map_pair_footprint( void );
 ulong fd_slot_map_pair_align( void );
+
+void fd_snapshot_acc_vec_new(fd_snapshot_acc_vec_t* self);
+int fd_snapshot_acc_vec_decode(fd_snapshot_acc_vec_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_snapshot_acc_vec_decode_preflight(fd_bincode_decode_ctx_t * ctx);
+void fd_snapshot_acc_vec_decode_unsafe(fd_snapshot_acc_vec_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_snapshot_acc_vec_encode(fd_snapshot_acc_vec_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_snapshot_acc_vec_destroy(fd_snapshot_acc_vec_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_snapshot_acc_vec_walk(void * w, fd_snapshot_acc_vec_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_snapshot_acc_vec_size(fd_snapshot_acc_vec_t const * self);
+ulong fd_snapshot_acc_vec_footprint( void );
+ulong fd_snapshot_acc_vec_align( void );
+
+void fd_snapshot_slot_acc_vecs_new(fd_snapshot_slot_acc_vecs_t* self);
+int fd_snapshot_slot_acc_vecs_decode(fd_snapshot_slot_acc_vecs_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_snapshot_slot_acc_vecs_decode_preflight(fd_bincode_decode_ctx_t * ctx);
+void fd_snapshot_slot_acc_vecs_decode_unsafe(fd_snapshot_slot_acc_vecs_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_snapshot_slot_acc_vecs_encode(fd_snapshot_slot_acc_vecs_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_snapshot_slot_acc_vecs_destroy(fd_snapshot_slot_acc_vecs_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_snapshot_slot_acc_vecs_walk(void * w, fd_snapshot_slot_acc_vecs_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_snapshot_slot_acc_vecs_size(fd_snapshot_slot_acc_vecs_t const * self);
+ulong fd_snapshot_slot_acc_vecs_footprint( void );
+ulong fd_snapshot_slot_acc_vecs_align( void );
 
 void fd_solana_accounts_db_fields_new(fd_solana_accounts_db_fields_t* self);
 int fd_solana_accounts_db_fields_decode(fd_solana_accounts_db_fields_t* self, fd_bincode_decode_ctx_t * ctx);

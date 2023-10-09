@@ -410,14 +410,6 @@
       "comment": "https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/bank.rs#L967"
     },
     {
-      "name": "serializable_account_storage_entry",
-      "type": "struct",
-      "fields": [
-        { "name": "id", "type": "ulong" },
-        { "name": "accounts_current_len", "type": "ulong" }
-      ]
-    },
-    {
       "name": "bank_hash_stats",
       "type": "struct",
       "fields": [
@@ -438,14 +430,6 @@
       ]
     },
     {
-      "name": "slot_account_pair",
-      "type": "struct",
-      "fields": [
-        { "name": "slot", "type": "ulong" },
-        { "name": "accounts", "type": "map", "element": "serializable_account_storage_entry", "key": "id" }
-      ]
-    },
-    {
       "name": "slot_map_pair",
       "type": "struct",
       "fields": [
@@ -454,16 +438,33 @@
       ]
     },
     {
+      "name": "snapshot_acc_vec",
+      "type": "struct",
+      "fields": [
+        { "name": "id", "type": "ulong" },
+        { "name": "file_sz", "type": "ulong" }
+      ]
+    },
+    {
+      "name": "snapshot_slot_acc_vecs",
+      "type": "struct",
+      "fields": [
+        { "name": "slot", "type": "ulong" },
+        { "name": "account_vecs", "type": "vector", "element": "snapshot_acc_vec" }
+      ]
+    },
+    {
       "name": "solana_accounts_db_fields",
       "type": "struct",
       "fields": [
-        { "name": "storages", "type": "map", "element": "slot_account_pair", "key": "slot" },
+        { "name": "storages", "type": "vector", "element": "snapshot_slot_acc_vecs" },
         { "name": "version", "type": "ulong" },
         { "name": "slot", "type": "ulong" },
         { "name": "bank_hash_info", "type": "bank_hash_info" },
         { "name": "historical_roots", "type": "vector", "element": "ulong" },
         { "name": "historical_roots_with_hash", "type": "vector", "element": "slot_map_pair" }
-      ]
+      ],
+      "comment": "Accounts DB related fields in a snapshot"
     },
     {
       "name": "solana_manifest",

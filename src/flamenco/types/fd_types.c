@@ -2915,58 +2915,6 @@ int fd_deserializable_versioned_bank_encode(fd_deserializable_versioned_bank_t c
   return FD_BINCODE_SUCCESS;
 }
 
-int fd_serializable_account_storage_entry_decode(fd_serializable_account_storage_entry_t* self, fd_bincode_decode_ctx_t * ctx) {
-  void const * data = ctx->data;
-  int err = fd_serializable_account_storage_entry_decode_preflight(ctx);
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  ctx->data = data;
-  fd_serializable_account_storage_entry_new(self);
-  fd_serializable_account_storage_entry_decode_unsafe(self, ctx);
-  return FD_BINCODE_SUCCESS;
-}
-int fd_serializable_account_storage_entry_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
-  int err;
-  err = fd_bincode_uint64_decode_preflight(ctx);
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  err = fd_bincode_uint64_decode_preflight(ctx);
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  return FD_BINCODE_SUCCESS;
-}
-void fd_serializable_account_storage_entry_decode_unsafe(fd_serializable_account_storage_entry_t* self, fd_bincode_decode_ctx_t * ctx) {
-  fd_bincode_uint64_decode_unsafe(&self->id, ctx);
-  fd_bincode_uint64_decode_unsafe(&self->accounts_current_len, ctx);
-}
-void fd_serializable_account_storage_entry_new(fd_serializable_account_storage_entry_t* self) {
-  fd_memset(self, 0, sizeof(fd_serializable_account_storage_entry_t));
-}
-void fd_serializable_account_storage_entry_destroy(fd_serializable_account_storage_entry_t* self, fd_bincode_destroy_ctx_t * ctx) {
-}
-
-ulong fd_serializable_account_storage_entry_footprint( void ){ return FD_SERIALIZABLE_ACCOUNT_STORAGE_ENTRY_FOOTPRINT; }
-ulong fd_serializable_account_storage_entry_align( void ){ return FD_SERIALIZABLE_ACCOUNT_STORAGE_ENTRY_ALIGN; }
-
-void fd_serializable_account_storage_entry_walk(void * w, fd_serializable_account_storage_entry_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
-  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_serializable_account_storage_entry", level++);
-  fun( w, &self->id, "id", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
-  fun( w, &self->accounts_current_len, "accounts_current_len", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
-  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_serializable_account_storage_entry", level--);
-}
-ulong fd_serializable_account_storage_entry_size(fd_serializable_account_storage_entry_t const * self) {
-  ulong size = 0;
-  size += sizeof(ulong);
-  size += sizeof(ulong);
-  return size;
-}
-
-int fd_serializable_account_storage_entry_encode(fd_serializable_account_storage_entry_t const * self, fd_bincode_encode_ctx_t * ctx) {
-  int err;
-  err = fd_bincode_uint64_encode(&self->id, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->accounts_current_len, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
-  return FD_BINCODE_SUCCESS;
-}
-
 int fd_bank_hash_stats_decode(fd_bank_hash_stats_t* self, fd_bincode_decode_ctx_t * ctx) {
   void const * data = ctx->data;
   int err = fd_bank_hash_stats_decode_preflight(ctx);
@@ -3105,100 +3053,6 @@ int fd_bank_hash_info_encode(fd_bank_hash_info_t const * self, fd_bincode_encode
   return FD_BINCODE_SUCCESS;
 }
 
-int fd_slot_account_pair_decode(fd_slot_account_pair_t* self, fd_bincode_decode_ctx_t * ctx) {
-  void const * data = ctx->data;
-  int err = fd_slot_account_pair_decode_preflight(ctx);
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  ctx->data = data;
-  fd_slot_account_pair_new(self);
-  fd_slot_account_pair_decode_unsafe(self, ctx);
-  return FD_BINCODE_SUCCESS;
-}
-int fd_slot_account_pair_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
-  int err;
-  err = fd_bincode_uint64_decode_preflight(ctx);
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  ulong accounts_len;
-  err = fd_bincode_uint64_decode(&accounts_len, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
-  for (ulong i = 0; i < accounts_len; ++i) {
-    err = fd_serializable_account_storage_entry_decode_preflight(ctx);
-    if ( FD_UNLIKELY(err) ) return err;
-  }
-  return FD_BINCODE_SUCCESS;
-}
-void fd_slot_account_pair_decode_unsafe(fd_slot_account_pair_t* self, fd_bincode_decode_ctx_t * ctx) {
-  fd_bincode_uint64_decode_unsafe(&self->slot, ctx);
-  ulong accounts_len;
-  fd_bincode_uint64_decode_unsafe(&accounts_len, ctx);
-  self->accounts_pool = fd_serializable_account_storage_entry_t_map_alloc(ctx->valloc, accounts_len);
-  self->accounts_root = NULL;
-  for (ulong i = 0; i < accounts_len; ++i) {
-    fd_serializable_account_storage_entry_t_mapnode_t* node = fd_serializable_account_storage_entry_t_map_acquire(self->accounts_pool);
-    fd_serializable_account_storage_entry_new(&node->elem);
-    fd_serializable_account_storage_entry_decode_unsafe(&node->elem, ctx);
-    fd_serializable_account_storage_entry_t_map_insert(self->accounts_pool, &self->accounts_root, node);
-  }
-}
-void fd_slot_account_pair_new(fd_slot_account_pair_t* self) {
-  fd_memset(self, 0, sizeof(fd_slot_account_pair_t));
-}
-void fd_slot_account_pair_destroy(fd_slot_account_pair_t* self, fd_bincode_destroy_ctx_t * ctx) {
-  for ( fd_serializable_account_storage_entry_t_mapnode_t* n = fd_serializable_account_storage_entry_t_map_minimum(self->accounts_pool, self->accounts_root); n; n = fd_serializable_account_storage_entry_t_map_successor(self->accounts_pool, n) ) {
-    fd_serializable_account_storage_entry_destroy(&n->elem, ctx);
-  }
-  fd_valloc_free( ctx->valloc, fd_serializable_account_storage_entry_t_map_delete(fd_serializable_account_storage_entry_t_map_leave( self->accounts_pool) ) );
-  self->accounts_pool = NULL;
-  self->accounts_root = NULL;
-}
-
-ulong fd_slot_account_pair_footprint( void ){ return FD_SLOT_ACCOUNT_PAIR_FOOTPRINT; }
-ulong fd_slot_account_pair_align( void ){ return FD_SLOT_ACCOUNT_PAIR_ALIGN; }
-
-void fd_slot_account_pair_walk(void * w, fd_slot_account_pair_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
-  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_slot_account_pair", level++);
-  fun( w, &self->slot, "slot", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
-  if (self->accounts_root) {
-    for ( fd_serializable_account_storage_entry_t_mapnode_t* n = fd_serializable_account_storage_entry_t_map_minimum(self->accounts_pool, self->accounts_root); n; n = fd_serializable_account_storage_entry_t_map_successor(self->accounts_pool, n) ) {
-      fd_serializable_account_storage_entry_walk(w, &n->elem, fun, "accounts", level );
-    }
-  }
-  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_slot_account_pair", level--);
-}
-ulong fd_slot_account_pair_size(fd_slot_account_pair_t const * self) {
-  ulong size = 0;
-  size += sizeof(ulong);
-  if (self->accounts_root) {
-    size += sizeof(ulong);
-    for ( fd_serializable_account_storage_entry_t_mapnode_t* n = fd_serializable_account_storage_entry_t_map_minimum(self->accounts_pool, self->accounts_root); n; n = fd_serializable_account_storage_entry_t_map_successor(self->accounts_pool, n) ) {
-      size += fd_serializable_account_storage_entry_size(&n->elem);
-    }
-  } else {
-    size += sizeof(ulong);
-  }
-  return size;
-}
-
-int fd_slot_account_pair_encode(fd_slot_account_pair_t const * self, fd_bincode_encode_ctx_t * ctx) {
-  int err;
-  err = fd_bincode_uint64_encode(&self->slot, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
-  if (self->accounts_root) {
-    ulong accounts_len = fd_serializable_account_storage_entry_t_map_size(self->accounts_pool, self->accounts_root);
-    err = fd_bincode_uint64_encode(&accounts_len, ctx);
-    if ( FD_UNLIKELY(err) ) return err;
-    for ( fd_serializable_account_storage_entry_t_mapnode_t* n = fd_serializable_account_storage_entry_t_map_minimum(self->accounts_pool, self->accounts_root); n; n = fd_serializable_account_storage_entry_t_map_successor(self->accounts_pool, n) ) {
-      err = fd_serializable_account_storage_entry_encode(&n->elem, ctx);
-      if ( FD_UNLIKELY(err) ) return err;
-    }
-  } else {
-    ulong accounts_len = 0;
-    err = fd_bincode_uint64_encode(&accounts_len, ctx);
-    if ( FD_UNLIKELY(err) ) return err;
-  }
-  return FD_BINCODE_SUCCESS;
-}
-
 int fd_slot_map_pair_decode(fd_slot_map_pair_t* self, fd_bincode_decode_ctx_t * ctx) {
   void const * data = ctx->data;
   int err = fd_slot_map_pair_decode_preflight(ctx);
@@ -3253,6 +3107,146 @@ int fd_slot_map_pair_encode(fd_slot_map_pair_t const * self, fd_bincode_encode_c
   return FD_BINCODE_SUCCESS;
 }
 
+int fd_snapshot_acc_vec_decode(fd_snapshot_acc_vec_t* self, fd_bincode_decode_ctx_t * ctx) {
+  void const * data = ctx->data;
+  int err = fd_snapshot_acc_vec_decode_preflight(ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  ctx->data = data;
+  fd_snapshot_acc_vec_new(self);
+  fd_snapshot_acc_vec_decode_unsafe(self, ctx);
+  return FD_BINCODE_SUCCESS;
+}
+int fd_snapshot_acc_vec_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
+  int err;
+  err = fd_bincode_uint64_decode_preflight(ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_uint64_decode_preflight(ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_snapshot_acc_vec_decode_unsafe(fd_snapshot_acc_vec_t* self, fd_bincode_decode_ctx_t * ctx) {
+  fd_bincode_uint64_decode_unsafe(&self->id, ctx);
+  fd_bincode_uint64_decode_unsafe(&self->file_sz, ctx);
+}
+void fd_snapshot_acc_vec_new(fd_snapshot_acc_vec_t* self) {
+  fd_memset(self, 0, sizeof(fd_snapshot_acc_vec_t));
+}
+void fd_snapshot_acc_vec_destroy(fd_snapshot_acc_vec_t* self, fd_bincode_destroy_ctx_t * ctx) {
+}
+
+ulong fd_snapshot_acc_vec_footprint( void ){ return FD_SNAPSHOT_ACC_VEC_FOOTPRINT; }
+ulong fd_snapshot_acc_vec_align( void ){ return FD_SNAPSHOT_ACC_VEC_ALIGN; }
+
+void fd_snapshot_acc_vec_walk(void * w, fd_snapshot_acc_vec_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_snapshot_acc_vec", level++);
+  fun( w, &self->id, "id", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
+  fun( w, &self->file_sz, "file_sz", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_snapshot_acc_vec", level--);
+}
+ulong fd_snapshot_acc_vec_size(fd_snapshot_acc_vec_t const * self) {
+  ulong size = 0;
+  size += sizeof(ulong);
+  size += sizeof(ulong);
+  return size;
+}
+
+int fd_snapshot_acc_vec_encode(fd_snapshot_acc_vec_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  err = fd_bincode_uint64_encode(&self->id, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_encode(&self->file_sz, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+
+int fd_snapshot_slot_acc_vecs_decode(fd_snapshot_slot_acc_vecs_t* self, fd_bincode_decode_ctx_t * ctx) {
+  void const * data = ctx->data;
+  int err = fd_snapshot_slot_acc_vecs_decode_preflight(ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  ctx->data = data;
+  fd_snapshot_slot_acc_vecs_new(self);
+  fd_snapshot_slot_acc_vecs_decode_unsafe(self, ctx);
+  return FD_BINCODE_SUCCESS;
+}
+int fd_snapshot_slot_acc_vecs_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
+  int err;
+  err = fd_bincode_uint64_decode_preflight(ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  ulong account_vecs_len;
+  err = fd_bincode_uint64_decode(&account_vecs_len, ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  if (account_vecs_len != 0) {
+    for( ulong i = 0; i < account_vecs_len; ++i) {
+      err = fd_snapshot_acc_vec_decode_preflight(ctx);
+      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    }
+  }
+  return FD_BINCODE_SUCCESS;
+}
+void fd_snapshot_slot_acc_vecs_decode_unsafe(fd_snapshot_slot_acc_vecs_t* self, fd_bincode_decode_ctx_t * ctx) {
+  fd_bincode_uint64_decode_unsafe(&self->slot, ctx);
+  fd_bincode_uint64_decode_unsafe(&self->account_vecs_len, ctx);
+  if (self->account_vecs_len != 0) {
+    self->account_vecs = (fd_snapshot_acc_vec_t *)fd_valloc_malloc( ctx->valloc, FD_SNAPSHOT_ACC_VEC_ALIGN, FD_SNAPSHOT_ACC_VEC_FOOTPRINT*self->account_vecs_len);
+    for( ulong i = 0; i < self->account_vecs_len; ++i) {
+      fd_snapshot_acc_vec_new(self->account_vecs + i);
+      fd_snapshot_acc_vec_decode_unsafe(self->account_vecs + i, ctx);
+    }
+  } else
+    self->account_vecs = NULL;
+}
+void fd_snapshot_slot_acc_vecs_new(fd_snapshot_slot_acc_vecs_t* self) {
+  fd_memset(self, 0, sizeof(fd_snapshot_slot_acc_vecs_t));
+}
+void fd_snapshot_slot_acc_vecs_destroy(fd_snapshot_slot_acc_vecs_t* self, fd_bincode_destroy_ctx_t * ctx) {
+  if (NULL != self->account_vecs) {
+    for (ulong i = 0; i < self->account_vecs_len; ++i)
+      fd_snapshot_acc_vec_destroy(self->account_vecs + i, ctx);
+    fd_valloc_free( ctx->valloc, self->account_vecs );
+    self->account_vecs = NULL;
+  }
+}
+
+ulong fd_snapshot_slot_acc_vecs_footprint( void ){ return FD_SNAPSHOT_SLOT_ACC_VECS_FOOTPRINT; }
+ulong fd_snapshot_slot_acc_vecs_align( void ){ return FD_SNAPSHOT_SLOT_ACC_VECS_ALIGN; }
+
+void fd_snapshot_slot_acc_vecs_walk(void * w, fd_snapshot_slot_acc_vecs_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_snapshot_slot_acc_vecs", level++);
+  fun( w, &self->slot, "slot", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
+  if (self->account_vecs_len != 0) {
+    fun(w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "account_vecs", level++);
+    for (ulong i = 0; i < self->account_vecs_len; ++i)
+      fd_snapshot_acc_vec_walk(w, self->account_vecs + i, fun, "snapshot_acc_vec", level );
+    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "account_vecs", level-- );
+  }
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_snapshot_slot_acc_vecs", level--);
+}
+ulong fd_snapshot_slot_acc_vecs_size(fd_snapshot_slot_acc_vecs_t const * self) {
+  ulong size = 0;
+  size += sizeof(ulong);
+  do {
+    size += sizeof(ulong);
+    for (ulong i = 0; i < self->account_vecs_len; ++i)
+      size += fd_snapshot_acc_vec_size(self->account_vecs + i);
+  } while(0);
+  return size;
+}
+
+int fd_snapshot_slot_acc_vecs_encode(fd_snapshot_slot_acc_vecs_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  err = fd_bincode_uint64_encode(&self->slot, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_encode(&self->account_vecs_len, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  if (self->account_vecs_len != 0) {
+    for (ulong i = 0; i < self->account_vecs_len; ++i) {
+      err = fd_snapshot_acc_vec_encode(self->account_vecs + i, ctx);
+      if ( FD_UNLIKELY(err) ) return err;
+    }
+  }
+  return FD_BINCODE_SUCCESS;
+}
+
 int fd_solana_accounts_db_fields_decode(fd_solana_accounts_db_fields_t* self, fd_bincode_decode_ctx_t * ctx) {
   void const * data = ctx->data;
   int err = fd_solana_accounts_db_fields_decode_preflight(ctx);
@@ -3266,10 +3260,12 @@ int fd_solana_accounts_db_fields_decode_preflight(fd_bincode_decode_ctx_t * ctx)
   int err;
   ulong storages_len;
   err = fd_bincode_uint64_decode(&storages_len, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
-  for (ulong i = 0; i < storages_len; ++i) {
-    err = fd_slot_account_pair_decode_preflight(ctx);
-    if ( FD_UNLIKELY(err) ) return err;
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  if (storages_len != 0) {
+    for( ulong i = 0; i < storages_len; ++i) {
+      err = fd_snapshot_slot_acc_vecs_decode_preflight(ctx);
+      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    }
   }
   err = fd_bincode_uint64_decode_preflight(ctx);
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
@@ -3298,16 +3294,15 @@ int fd_solana_accounts_db_fields_decode_preflight(fd_bincode_decode_ctx_t * ctx)
   return FD_BINCODE_SUCCESS;
 }
 void fd_solana_accounts_db_fields_decode_unsafe(fd_solana_accounts_db_fields_t* self, fd_bincode_decode_ctx_t * ctx) {
-  ulong storages_len;
-  fd_bincode_uint64_decode_unsafe(&storages_len, ctx);
-  self->storages_pool = fd_slot_account_pair_t_map_alloc(ctx->valloc, storages_len);
-  self->storages_root = NULL;
-  for (ulong i = 0; i < storages_len; ++i) {
-    fd_slot_account_pair_t_mapnode_t* node = fd_slot_account_pair_t_map_acquire(self->storages_pool);
-    fd_slot_account_pair_new(&node->elem);
-    fd_slot_account_pair_decode_unsafe(&node->elem, ctx);
-    fd_slot_account_pair_t_map_insert(self->storages_pool, &self->storages_root, node);
-  }
+  fd_bincode_uint64_decode_unsafe(&self->storages_len, ctx);
+  if (self->storages_len != 0) {
+    self->storages = (fd_snapshot_slot_acc_vecs_t *)fd_valloc_malloc( ctx->valloc, FD_SNAPSHOT_SLOT_ACC_VECS_ALIGN, FD_SNAPSHOT_SLOT_ACC_VECS_FOOTPRINT*self->storages_len);
+    for( ulong i = 0; i < self->storages_len; ++i) {
+      fd_snapshot_slot_acc_vecs_new(self->storages + i);
+      fd_snapshot_slot_acc_vecs_decode_unsafe(self->storages + i, ctx);
+    }
+  } else
+    self->storages = NULL;
   fd_bincode_uint64_decode_unsafe(&self->version, ctx);
   fd_bincode_uint64_decode_unsafe(&self->slot, ctx);
   fd_bank_hash_info_decode_unsafe(&self->bank_hash_info, ctx);
@@ -3334,12 +3329,12 @@ void fd_solana_accounts_db_fields_new(fd_solana_accounts_db_fields_t* self) {
   fd_bank_hash_info_new(&self->bank_hash_info);
 }
 void fd_solana_accounts_db_fields_destroy(fd_solana_accounts_db_fields_t* self, fd_bincode_destroy_ctx_t * ctx) {
-  for ( fd_slot_account_pair_t_mapnode_t* n = fd_slot_account_pair_t_map_minimum(self->storages_pool, self->storages_root); n; n = fd_slot_account_pair_t_map_successor(self->storages_pool, n) ) {
-    fd_slot_account_pair_destroy(&n->elem, ctx);
+  if (NULL != self->storages) {
+    for (ulong i = 0; i < self->storages_len; ++i)
+      fd_snapshot_slot_acc_vecs_destroy(self->storages + i, ctx);
+    fd_valloc_free( ctx->valloc, self->storages );
+    self->storages = NULL;
   }
-  fd_valloc_free( ctx->valloc, fd_slot_account_pair_t_map_delete(fd_slot_account_pair_t_map_leave( self->storages_pool) ) );
-  self->storages_pool = NULL;
-  self->storages_root = NULL;
   fd_bank_hash_info_destroy(&self->bank_hash_info, ctx);
   if (NULL != self->historical_roots) {
     fd_valloc_free( ctx->valloc, self->historical_roots );
@@ -3358,10 +3353,11 @@ ulong fd_solana_accounts_db_fields_align( void ){ return FD_SOLANA_ACCOUNTS_DB_F
 
 void fd_solana_accounts_db_fields_walk(void * w, fd_solana_accounts_db_fields_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_solana_accounts_db_fields", level++);
-  if (self->storages_root) {
-    for ( fd_slot_account_pair_t_mapnode_t* n = fd_slot_account_pair_t_map_minimum(self->storages_pool, self->storages_root); n; n = fd_slot_account_pair_t_map_successor(self->storages_pool, n) ) {
-      fd_slot_account_pair_walk(w, &n->elem, fun, "storages", level );
-    }
+  if (self->storages_len != 0) {
+    fun(w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "storages", level++);
+    for (ulong i = 0; i < self->storages_len; ++i)
+      fd_snapshot_slot_acc_vecs_walk(w, self->storages + i, fun, "snapshot_slot_acc_vecs", level );
+    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "storages", level-- );
   }
   fun( w, &self->version, "version", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
   fun( w, &self->slot, "slot", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
@@ -3382,14 +3378,11 @@ void fd_solana_accounts_db_fields_walk(void * w, fd_solana_accounts_db_fields_t 
 }
 ulong fd_solana_accounts_db_fields_size(fd_solana_accounts_db_fields_t const * self) {
   ulong size = 0;
-  if (self->storages_root) {
+  do {
     size += sizeof(ulong);
-    for ( fd_slot_account_pair_t_mapnode_t* n = fd_slot_account_pair_t_map_minimum(self->storages_pool, self->storages_root); n; n = fd_slot_account_pair_t_map_successor(self->storages_pool, n) ) {
-      size += fd_slot_account_pair_size(&n->elem);
-    }
-  } else {
-    size += sizeof(ulong);
-  }
+    for (ulong i = 0; i < self->storages_len; ++i)
+      size += fd_snapshot_slot_acc_vecs_size(self->storages + i);
+  } while(0);
   size += sizeof(ulong);
   size += sizeof(ulong);
   size += fd_bank_hash_info_size(&self->bank_hash_info);
@@ -3407,18 +3400,13 @@ ulong fd_solana_accounts_db_fields_size(fd_solana_accounts_db_fields_t const * s
 
 int fd_solana_accounts_db_fields_encode(fd_solana_accounts_db_fields_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  if (self->storages_root) {
-    ulong storages_len = fd_slot_account_pair_t_map_size(self->storages_pool, self->storages_root);
-    err = fd_bincode_uint64_encode(&storages_len, ctx);
-    if ( FD_UNLIKELY(err) ) return err;
-    for ( fd_slot_account_pair_t_mapnode_t* n = fd_slot_account_pair_t_map_minimum(self->storages_pool, self->storages_root); n; n = fd_slot_account_pair_t_map_successor(self->storages_pool, n) ) {
-      err = fd_slot_account_pair_encode(&n->elem, ctx);
+  err = fd_bincode_uint64_encode(&self->storages_len, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  if (self->storages_len != 0) {
+    for (ulong i = 0; i < self->storages_len; ++i) {
+      err = fd_snapshot_slot_acc_vecs_encode(self->storages + i, ctx);
       if ( FD_UNLIKELY(err) ) return err;
     }
-  } else {
-    ulong storages_len = 0;
-    err = fd_bincode_uint64_encode(&storages_len, ctx);
-    if ( FD_UNLIKELY(err) ) return err;
   }
   err = fd_bincode_uint64_encode(&self->version, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -18619,24 +18607,6 @@ long fd_stake_weight_t_map_compare(fd_stake_weight_t_mapnode_t * left, fd_stake_
 #undef REDBLK_NAME
 long fd_delegation_pair_t_map_compare(fd_delegation_pair_t_mapnode_t * left, fd_delegation_pair_t_mapnode_t * right) {
   return memcmp(left->elem.account.uc, right->elem.account.uc, sizeof(right->elem.account));
-}
-#define REDBLK_T fd_serializable_account_storage_entry_t_mapnode_t
-#define REDBLK_NAME fd_serializable_account_storage_entry_t_map
-#define REDBLK_IMPL_STYLE 2
-#include "../../util/tmpl/fd_redblack.c"
-#undef REDBLK_T
-#undef REDBLK_NAME
-long fd_serializable_account_storage_entry_t_map_compare(fd_serializable_account_storage_entry_t_mapnode_t * left, fd_serializable_account_storage_entry_t_mapnode_t * right) {
-  return (long)(left->elem.id - right->elem.id);
-}
-#define REDBLK_T fd_slot_account_pair_t_mapnode_t
-#define REDBLK_NAME fd_slot_account_pair_t_map
-#define REDBLK_IMPL_STYLE 2
-#include "../../util/tmpl/fd_redblack.c"
-#undef REDBLK_T
-#undef REDBLK_NAME
-long fd_slot_account_pair_t_map_compare(fd_slot_account_pair_t_mapnode_t * left, fd_slot_account_pair_t_mapnode_t * right) {
-  return (long)(left->elem.slot - right->elem.slot);
 }
 #define REDBLK_T fd_clock_timestamp_vote_t_mapnode_t
 #define REDBLK_NAME fd_clock_timestamp_vote_t_map
