@@ -1,4 +1,5 @@
 #include "fd_stakes.h"
+#include "../runtime/fd_system_ids.h"
 
 /* fd_stakes_accum_by_node converts Stakes (unordered list of (vote acc,
    active stake) tuples) to StakedNodes (rbtree mapping (node identity)
@@ -268,7 +269,7 @@ write_stake_state( fd_exec_slot_ctx_t *   global,
   /* TODO Lamports? */
   stake_acc_rec->meta->info.executable = 0;
   stake_acc_rec->meta->info.rent_epoch = 0UL;
-  memcpy( &stake_acc_rec->meta->info.owner, global->solana_stake_program, sizeof(fd_pubkey_t) );
+  memcpy( &stake_acc_rec->meta->info.owner, fd_solana_stake_program_id.key, sizeof(fd_pubkey_t) );
 
   return FD_EXECUTOR_INSTR_SUCCESS;
 }

@@ -199,7 +199,7 @@ stake_state_redeem_rewards( fd_exec_slot_ctx_t *   slot_ctx,
     }
 
     fd_stake_state_v2_t stake_state = {0};
-    int rc = fd_stake_get_state(stake_acc_rec, &global->valloc, &stake_state);
+    int rc = fd_stake_get_state(stake_acc_rec, &slot_ctx->valloc, &stake_state);
     if ( rc != 0 ) {
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
     }
@@ -331,7 +331,7 @@ calculate_reward_points_partitioned(
         // fd_stake_state_t stake_state;
         // read_stake_state( global, stake_acc_rec->const_meta, &stake_state );
         fd_stake_state_v2_t stake_state = {0};
-        int rc = fd_stake_get_state(stake_acc_rec, &global->valloc, &stake_state);
+        int rc = fd_stake_get_state(stake_acc_rec, &slot_ctx->valloc, &stake_state);
         if ( rc != 0 ) {
           FD_LOG_ERR(("failed to read"));
         }
@@ -719,7 +719,7 @@ pay_validator_rewards(
         stake_rec->meta->info.lamports = fd_ulong_sat_add(stake_rec->meta->info.lamports, ele->reward_info.lamports);
 
         fd_stake_state_v2_t stake_state;
-        int rc = fd_stake_get_state(stake_rec, &global->valloc, &stake_state);
+        int rc = fd_stake_get_state(stake_rec, &slot_ctx->valloc, &stake_state);
         if ( rc != 0 ) {
             FD_LOG_ERR(("failed to read stake state for %32J", stake_pubkey ));
         }
@@ -830,7 +830,7 @@ distribute_partitioned_epoch_rewards(
             stake_acc_rec->meta->info.lamports += this_partition_stake_rewards.elems[i]->reward_info.lamports;
 
             fd_stake_state_v2_t stake_state = {0};
-            int rc = fd_stake_get_state(stake_acc_rec, &global->valloc, &stake_state);
+            int rc = fd_stake_get_state(stake_acc_rec, &slot_ctx->valloc, &stake_state);
             if ( rc != 0 ) {
                FD_LOG_ERR(("failed to read stake state for %32J", &this_partition_stake_rewards.elems[i]->stake_pubkey ));
             }
