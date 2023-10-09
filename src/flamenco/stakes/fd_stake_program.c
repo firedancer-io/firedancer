@@ -1475,7 +1475,7 @@ delegate( fd_exec_instr_ctx_t *           invoke_context,
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
 
   if ( FD_UNLIKELY( 0 != memcmp( &vote_account->meta->info.owner,
-                                 invoke_context->global->solana_vote_program,
+                                 fd_solana_vote_program_id.key,
                                  32UL ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
   }
