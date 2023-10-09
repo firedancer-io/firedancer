@@ -2,9 +2,14 @@
 #define HEADER_fd_src_flamenco_runtime_fd_account_h
 
 #include "../../ballet/txn/fd_txn.h"
-#include "fd_runtime.h"
 #include "program/fd_vote_program.h"
 #include "fd_system_ids.h"
+#include "fd_runtime.h"
+
+#define MAX_PERMITTED_DATA_LENGTH ( 10 * 1024 * 1024 )
+
+/* Represents the lamport balance associated with an account. */
+typedef ulong fd_acc_lamports_t;
 
 // Once these settle out, we will switch almost everything to not be inlined
 

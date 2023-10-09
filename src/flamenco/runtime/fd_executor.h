@@ -1,18 +1,11 @@
 #ifndef HEADER_fd_src_flamenco_runtime_fd_executor_h
 #define HEADER_fd_src_flamenco_runtime_fd_executor_h
 
-#include "../fd_flamenco_base.h"
-#include "../../ballet/txn/fd_txn.h"
+
 #include "../../ballet/block/fd_microblock.h"
-#include "fd_banks_solana.h"
-#include "fd_acc_mgr.h"
-#include "../../funk/fd_funk.h"
 #include "../../ballet/poh/fd_poh.h"
-#include "fd_borrowed_account.h"
-#include "../leaders/fd_leaders.h"
-#include "../features/fd_features.h"
-#include "fd_rent_lists.h"
-#include "../capture/fd_solcap_writer.h"
+#include "context/fd_exec_instr_ctx.h"
+#include "fd_rawtxn.h"
 
 FD_PROTOTYPES_BEGIN
 
@@ -88,158 +81,12 @@ FD_PROTOTYPES_BEGIN
 #define FD_EXECUTOR_SIGN_ERR_INSTRUCTION_DATA_SIZE               (-101)
 #define FD_EXECUTOR_SIGN_ERR_SIGNATURE                           (-102)
 
-struct fd_rawtxn_b {
-  /* Pointer to txn in local wksp */
-  void * raw;
-
-  /* Size of txn */
-  ushort txn_sz;
-};
-typedef struct fd_rawtxn_b fd_rawtxn_b_t;
-
-
 #define FD_COMPUTE_BUDGET_PRIORITIZATION_FEE_TYPE_COMPUTE_UNIT_PRICE (0)
 #define FD_COMPUTE_BUDGET_PRIORITIZATION_FEE_TYPE_DEPRECATED         (1)
 
 #define FD_INSTR_ACCT_FLAGS_IS_SIGNER   (0x01)
 #define FD_INSTR_ACCT_FLAGS_IS_WRITABLE (0x02)
 
-
-#define VECT_NAME fd_stake_rewards
-#define VECT_ELEMENT fd_stake_reward_t*
-#include "fd_vector.h"
-#undef VECT_NAME
-#undef VECT_ELEMENT
-
-#define VECT_NAME fd_stake_rewards_vector
-#define VECT_ELEMENT fd_stake_rewards_t
-#include "fd_vector.h"
-#undef VECT_NAME
-#undef VECT_ELEMENT
-
-struct fd_epoch_reward_status {
-  uint is_active;
-  ulong start_block_height;
-  fd_stake_rewards_vector_t * stake_rewards_by_partition;
-};
-typedef struct fd_epoch_reward_status fd_epoch_reward_status_t;
-
-struct fd_instr_info {
-  uchar                 program_id;
-  ushort                data_sz;
-  ushort                acct_cnt;
-
-  uchar *               data;
-  fd_pubkey_t           program_id_pubkey;
-
-  uchar                 acct_txn_idxs[128];
-  uchar                 acct_flags[128];
-  fd_pubkey_t           acct_pubkeys[128];
-
-  fd_borrowed_account_t * borrowed_accounts[128];
-};
-typedef struct fd_instr_info fd_instr_info_t;
-
-struct fd_exec_txn_ctx;
-typedef struct fd_exec_txn_ctx fd_exec_txn_ctx_t;
-
-/* Context needed to execute a single epoch. */
-#define FD_EXEC_EPOCH_CTX_ALIGN (8UL)
-struct __attribute__((aligned(FD_EXEC_EPOCH_CTX_ALIGN))) fd_exec_epoch_ctx {
-  ulong magic; /* ==FD_EXEC_EPOCH_CTX_MAGIC */
-
-  fd_epoch_leaders_t * leaders;  /* Current epoch only */
-  fd_features_t        features;
-  fd_rent_lists_t *    rentlists;
-  ulong                rent_epoch;
-};
-typedef struct fd_exec_epoch_ctx fd_exec_epoch_ctx_t;
-#define FD_EXEC_EPOCH_CTX_FOOTPRINT ( sizeof(fd_exec_epoch_ctx_t) )
-#define FD_EXEC_EPOCH_CTX_MAGIC (0x3E64F44C9F44366AUL) /* random */
-
-/* Context needed to execute a single microblock. */
-struct fd_exec_mircoblock_ctx {
-  int x;
-};
-typedef struct fd_exec_microblock_ctx fd_exec_microblock_ctx_t;
-
-/* Context needed to execute a single block. */
-struct fd_exec_block_ctx {
-  int x;
-};
-typedef struct fd_exec_block_ctx fd_exec_block_ctx_t;
-
-#define FD_EXEC_SLOT_CTX_ALIGN (8UL)
-struct __attribute__((aligned(FD_EXEC_SLOT_CTX_ALIGN))) fd_exec_slot_ctx {
-  ulong magic; /* ==FD_EXEC_SLOT_CTX_MAGIC */
-
-  fd_exec_epoch_ctx_t * epoch_ctx;
-  
-  // TODO: needs to move out
-  fd_funk_txn_t * funk_txn_tower[32];
-  ushort          funk_txn_index;
-  fd_wksp_t *     funk_wksp; // Workspace dedicated to funk, KEEP YOUR GRUBBY MITS OFF!
-  fd_wksp_t *     local_wksp; // Workspace for allocs local to this process
-
-  fd_funk_txn_t *      funk_txn;
-  fd_acc_mgr_t *       acc_mgr;
-  fd_valloc_t          valloc;
-  fd_solcap_writer_t * capture;
-  int                  trace_dirfd;
-  int                  trace_mode;
-  fd_rng_t             rnd_mem;
-  fd_rng_t *           rng;
-
-  fd_epoch_reward_status_t epoch_reward_status;
-  ulong                    signature_cnt;
-  fd_hash_t                account_delta_hash;
-  fd_hash_t                prev_banks_hash;
-  
-  fd_pubkey_t const * leader;   /* Current leader */
-  fd_firedancer_banks_t bank;
-};
-typedef struct fd_exec_slot_ctx fd_exec_slot_ctx_t;
-#define FD_EXEC_SLOT_CTX_FOOTPRINT ( sizeof(fd_exec_slot_ctx_t) )
-#define FD_EXEC_SLOT_CTX_MAGIC (0xC2287BA2A5E6FC3DUL) /* random */
-
-/* Context needed to execute a single instruction. TODO: split into a hierarchy of layered contexts.  */
-struct fd_exec_instr_ctx {
-  fd_exec_epoch_ctx_t const * epoch_ctx;
-  fd_exec_block_ctx_t const * block_ctx;
-  fd_exec_slot_ctx_t *        slot_ctx; // TOOD: needs to be made const to be thread safe.
-  fd_exec_txn_ctx_t *         txn_ctx;  /* The transaction context for this instruction */
-
-  fd_funk_txn_t * funk_txn;
-  fd_acc_mgr_t *  acc_mgr;
-  fd_valloc_t     valloc;
-  
-  fd_instr_info_t const *     instr;    /* The instruction */
-};
-typedef struct fd_exec_instr_ctx fd_exec_instr_ctx_t;
-
-/* Context needed to execute a single transaction. */
-struct fd_exec_txn_ctx {
-  fd_exec_epoch_ctx_t const * epoch_ctx;
-  fd_exec_slot_ctx_t *        slot_ctx;
-
-  fd_funk_txn_t * funk_txn;
-  fd_acc_mgr_t *  acc_mgr;
-  fd_valloc_t     valloc;
-
-  ulong                 compute_unit_limit;       /* Compute unit limit for this transaction. */
-  ulong                 compute_unit_price;       /* Compute unit price for this transaction. */
-  ulong                 heap_size;                /* Heap size for VMs for this transaction. */
-  uint                  prioritization_fee_type;  /* The type of prioritization fee to use. */
-  fd_txn_t *            txn_descriptor;           /* Descriptor of the transaction. */
-  fd_rawtxn_b_t const * _txn_raw;                 /* Raw bytes of the transaction. */
-  uint                  custom_err;               /* When a custom error is returned, this is where the numeric value gets stashed */
-  uchar                 instr_stack_sz;           /* Current depth of the instruction execution stack. */
-  fd_exec_instr_ctx_t   instr_stack[6];           /* Instruction execution stack. */
-  ulong                 accounts_cnt;             /* Number of account pubkeys accessed by this transaction. */
-  fd_pubkey_t           accounts[128];            /* Array of account pubkeys accessed by this transaction. */
-  fd_borrowed_account_t borrowed_accounts[128];   /* Array of borrowed accounts accessed by this transaction. */
-};
-typedef struct fd_exec_txn_ctx fd_exec_txn_ctx_t;
 
 /* Type definition for native programs, akin to an interface for native programs.
    The executor will execute instructions designated for a given native program by invoking a function of this type. */
@@ -329,39 +176,6 @@ fd_instr_borrowed_account_modify( fd_exec_instr_ctx_t * ctx,
                                   ulong min_data_sz,
                                   fd_borrowed_account_t * * account );
 
-
-/* fd_executor_get_signers returns the instruction accounts that are signers. Corresponds to
-   https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/sdk/src/transaction_context.rs#L718
-
-   Returns the number of signers, and `signers` will contain the account pubkeys that are signers.
-
-   The caller is responsible for ensuring signers is sufficiently sized. */
-ulong
-fd_executor_get_signers( fd_exec_instr_ctx_t * ctx, fd_pubkey_t ** signers );
-
-void *
-fd_exec_slot_ctx_new( void * mem );
-
-fd_exec_slot_ctx_t *
-fd_exec_slot_ctx_join( void * mem );
-
-void *
-fd_exec_slot_ctx_leave( fd_exec_slot_ctx_t * ctx );
-
-void *
-fd_exec_slot_ctx_delete( void * mem );
-
-void *
-fd_exec_epoch_ctx_new( void * mem );
-
-fd_exec_epoch_ctx_t *
-fd_exec_epoch_ctx_join( void * mem );
-
-void *
-fd_exec_epoch_ctx_leave( fd_exec_epoch_ctx_t * ctx );
-
-void *
-fd_exec_epoch_ctx_delete( void * mem );
 
 FD_PROTOTYPES_END
 

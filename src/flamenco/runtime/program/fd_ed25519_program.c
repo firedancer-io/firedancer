@@ -4,6 +4,7 @@
 #include "../fd_executor.h"
 #include "fd_ed25519_program.h"
 #include "../fd_acc_mgr.h"
+#include "../context/fd_exec_txn_ctx.h"
 
 struct fd_ed25519_signature_offsets {
   ushort signature_offset;

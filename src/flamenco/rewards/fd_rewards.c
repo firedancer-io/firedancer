@@ -1,4 +1,5 @@
 #include "fd_rewards.h"
+#include "fd_rewards_types.h"
 #include "math.h"
 
 #include "../runtime/fd_system_ids.h"

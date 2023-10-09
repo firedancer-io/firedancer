@@ -2,7 +2,7 @@
 #define HEADER_fd_src_flamenco_runtime_fd_sysvar_rent_h
 
 #include "../../fd_flamenco_base.h"
-#include "../fd_executor.h"
+#include "../context/fd_exec_slot_ctx.h"
 
 /* The rent sysvar contains the rent of rate. */
 

@@ -151,6 +151,9 @@ fd_flamenco_txn_walk( void *                    w,
   fun( w, sig0, name, FD_FLAMENCO_TYPE_SIG512, "txn", level );
 }
 
+/* Represents the lamport balance associated with an account. */
+typedef ulong fd_acc_lamports_t;
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_types_custom */

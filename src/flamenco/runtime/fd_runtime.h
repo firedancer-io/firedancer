@@ -10,6 +10,9 @@
 #include "program/fd_builtin_programs.h"
 #include "../leaders/fd_leaders.h"
 #include "sysvar/fd_sysvar.h"
+#include "context/fd_exec_slot_ctx.h"
+#include "context/fd_exec_txn_ctx.h"
+#include "fd_instr_info.h"
 
 #define FD_RUNTIME_EXECUTE_SUCCESS                               ( 0 )  /* Slot executed successfully */
 #define FD_RUNTIME_EXECUTE_GENERIC_ERR                          ( -1 ) /* The Slot execute returned an error */
@@ -39,8 +42,8 @@ FD_PROTOTYPES_BEGIN
 ulong
 fd_runtime_lamports_per_signature( fd_firedancer_banks_t const * bank );
 
-ulong
- fd_runtime_txn_lamports_per_signature( fd_exec_txn_ctx_t * txn_ctx, 
+ulong 
+fd_runtime_txn_lamports_per_signature( fd_exec_txn_ctx_t * txn_ctx, 
                                        fd_txn_t * txn_descriptor,
                                        fd_rawtxn_b_t const * txn_raw );
 
@@ -92,13 +95,8 @@ fd_runtime_block_meta_key( ulong slot );
 fd_funk_rec_key_t
 fd_runtime_banks_key( void );
 
-static inline fd_funk_rec_key_t
-fd_runtime_bank_hash_key( ulong slot ) {
-  fd_funk_rec_key_t id = {0};
-  id.ul[ 0 ] = slot;
-  id.c[ FD_FUNK_REC_KEY_FOOTPRINT - 1 ] = FD_BANK_HASH_TYPE;
-  return id;
-}
+fd_funk_rec_key_t
+fd_runtime_bank_hash_key( ulong slot );
 
 static inline fd_funk_rec_key_t
 fd_runtime_block_txnstatus_key( ulong slot ) {
