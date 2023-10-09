@@ -4650,7 +4650,7 @@ fd_quic_conn_service( fd_quic_t * quic, fd_quic_conn_t * conn, ulong now ) {
   (void)now;
   /* are we handling ARP? */
   int   arp_status        = conn->arp_status;
-  ulong arp_update_period = (ulong)( 5e+9 );
+  ulong arp_update_period = (ulong)( 50e6 );
   if( FD_UNLIKELY( arp_status == FD_ARP_STATUS_WAITING  ||
                    arp_status == FD_ARP_STATUS_REQUIRED ||
                    now        >  conn->arp_update + arp_update_period ) ) {
@@ -4690,7 +4690,10 @@ fd_quic_conn_service( fd_quic_t * quic, fd_quic_conn_t * conn, ulong now ) {
 
           /* wait for a millisecond - ARPs do not take long */
           fd_quic_reschedule_conn( conn, (ulong)1e6 );
-          return;
+
+          /* no MAC address, but may resolve later
+             udpsock, for example */
+          break;
 
         case FD_IP_NO_ROUTE:
           FD_LOG_WARNING(( "No route to host 0x%08x", dst_ip_addr ));
