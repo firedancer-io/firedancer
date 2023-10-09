@@ -51,7 +51,6 @@ struct fd_ip {
   ulong cur_num_arp_entries;
   ulong cur_num_route_entries;
 
-  ulong ofs_netlink;
   ulong ofs_arp_table;
   ulong ofs_route_table;
 };

@@ -111,9 +111,51 @@ fd_nda_type_to_label( uint nda_type ) {
 }
 
 
+FD_TLS fd_nl_t fd_nl_gbl;
+
+
+fd_nl_t *
+fd_nl_get( void ) {
+  if( FD_UNLIKELY( fd_nl_gbl.init == 0 ) ) {
+    if( fd_nl_init( &fd_nl_gbl, 1 ) ) {
+      FD_LOG_ERR(( "Unable to initialize netlink" ));
+    }
+  }
+
+  return &fd_nl_gbl;
+}
+
+
+/* change the fd of the socket to the specified value */
+int
+fd_nl_set_fd( int fd ) {
+  if( fd < 0 ) {
+    FD_LOG_ERR(( "fd_nl_set_fd called with invalid value" ));
+  }
+
+  fd_nl_t * nl = fd_nl_get();
+  int old_fd = nl->fd;
+  int new_fd = dup2( old_fd, fd );
+  if( new_fd < 0 ) {
+    return 1; /* error */
+  }
+
+  close( old_fd );
+
+  FD_LOG_NOTICE(( "fd_nl_set_fd: new_fd: %d", new_fd ));
+
+  /* success, so set nl->fd to fd */
+  nl->fd = new_fd;
+
+  return 0; /* success */
+}
+
+
 int
 fd_nl_create_socket( void ) {
+  FD_LOG_NOTICE(( "creating socket" ));
   int fd = socket( AF_NETLINK, SOCK_RAW | SOCK_NONBLOCK, NETLINK_ROUTE );
+  FD_LOG_NOTICE(( "done creating socket" ));
 
   if( fd < 0 ) {
     FD_LOG_WARNING(( "Unable to create netlink socket. Error: %d %s", errno,
@@ -167,8 +209,9 @@ fd_nl_read_socket( int fd, uchar * buf, ulong buf_sz ) {
 
 int
 fd_nl_init( fd_nl_t * nl, uint seq ) {
-  nl->seq = seq;
-  nl->fd  = fd_nl_create_socket();
+  nl->seq  = seq;
+  nl->fd   = fd_nl_create_socket();
+  nl->init = 1;
 
   /* returns 1 for failure, 0 for success */
   return nl->fd < 0 ? 1 : 0;

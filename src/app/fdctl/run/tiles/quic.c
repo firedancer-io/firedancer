@@ -1,9 +1,11 @@
+#define _GNU_SOURCE
 #include "tiles.h"
 #include "../../fdctl.h"
 #include "../run.h"
 
 #include "../../../../disco/fd_disco.h"
 #include "../../../../tango/xdp/fd_xsk_private.h"
+#include "../../../../tango/ip/fd_netlink.h"
 
 #include <linux/unistd.h>
 
@@ -27,10 +29,18 @@ init( fd_tile_args_t * args ) {
      initializer to do it before seccomp happens in the process. */
   ERR_STATE * state = ERR_get_state();
   if( FD_UNLIKELY( !state )) FD_LOG_ERR(( "ERR_get_state failed" ));
-  if( FD_UNLIKELY( !OPENSSL_init_ssl( OPENSSL_INIT_LOAD_SSL_STRINGS , NULL ) ) )
+  if( FD_UNLIKELY( !OPENSSL_init_ssl( OPENSSL_INIT_LOAD_SSL_STRINGS , NULL ) ) ) {
     FD_LOG_ERR(( "OPENSSL_init_ssl failed" ));
-  if( FD_UNLIKELY( !OPENSSL_init_crypto( OPENSSL_INIT_LOAD_CRYPTO_STRINGS | OPENSSL_INIT_NO_LOAD_CONFIG , NULL ) ) )
+  }
+  if( FD_UNLIKELY( !OPENSSL_init_crypto( OPENSSL_INIT_LOAD_CRYPTO_STRINGS | OPENSSL_INIT_NO_LOAD_CONFIG , NULL ) ) ) {
     FD_LOG_ERR(( "OPENSSL_init_crypto failed" ));
+  }
+
+  /* ensure netlink is initialized before sandboxing,
+     and set fd to 4 */
+  if( fd_nl_set_fd( 4 ) ) {
+    FD_LOG_ERR(( "fd_nl_set_fd failed" ));
+  }
 }
 
 static ushort
@@ -109,7 +119,9 @@ static long allow_syscalls[] = {
   __NR_madvise,   /* OpenSSL SSL_do_handshake() uses an arena which eventually calls _rjem_je_pages_purge_forced */
   __NR_mmap,      /* OpenSSL again... deep inside SSL_provide_quic_data() some jemalloc code calls mmap */
   __NR_rt_sigaction, /* allows a signal handler for SYSSIG - to debug syscalls */
-  __NR_socket,       /* allows netlink to create sockets */
+  __NR_socket,       /* allows to create netlink socket */
+  __NR_sendto,       /* allows to make requests on netlink socket */
+  __NR_recvfrom,     /* allows to receive responses on netlink socket */
 };
 
 static workspace_kind_t allow_workspaces[] = {
@@ -123,10 +135,11 @@ allow_fds( fd_tile_args_t * args,
            ulong            out_fds_sz,
            int *            out_fds ) {
   (void)args;
-  if( FD_UNLIKELY( out_fds_sz < 2 ) ) FD_LOG_ERR(( "out_fds_sz %lu", out_fds_sz ));
+  if( FD_UNLIKELY( out_fds_sz < 3 ) ) FD_LOG_ERR(( "out_fds_sz %lu", out_fds_sz ));
   out_fds[ 0 ] = 2; /* stderr */
   out_fds[ 1 ] = 3; /* logfile */
-  return 2;
+  out_fds[ 2 ] = 4; /* netlink socket */
+  return 3;
 }
 
 fd_tile_config_t quic = {
