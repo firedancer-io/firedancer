@@ -1873,7 +1873,7 @@ merge( instruction_ctx_t *           invoke_context,
 
   FD_DEBUG( FD_LOG_INFO( ( "Checking if source stake is mergeable" ) ) );
   fd_stake_state_v2_t source_account_state = { 0 };
-  rc = get_state( stake_account, &invoke_context->global->valloc, &source_account_state );
+  rc = get_state( source_account, &invoke_context->global->valloc, &source_account_state );
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
 
   merge_kind_t source_merge_kind = { 0 };
