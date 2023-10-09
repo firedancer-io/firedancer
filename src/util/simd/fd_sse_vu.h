@@ -52,13 +52,14 @@ vu_bcast_wide( uint u0, uint u1 ) {
    16-byte sized location p as 4 uints.  vu_stu is the same but p does
    not have to be aligned.  In all these lane l will be at p[l].  FIXME:
    USE ATTRIBUTES ON P PASSED TO THESE?
-   
+
    Note: gcc knows a __m128i may alias. */
 
-static inline vu_t vu_ld(  uint const * p   ) { return _mm_load_si128(  (__m128i const *)p ); }
-static inline vu_t vu_ldu( uint const * p   ) { return _mm_loadu_si128( (__m128i const *)p ); }
-static inline void vu_st(  uint * p, vu_t i ) { _mm_store_si128(  (__m128i *)p, i ); }
-static inline void vu_stu( uint * p, vu_t i ) { _mm_storeu_si128( (__m128i *)p, i ); }
+static inline vu_t vu_ld( uint const * p ) { return _mm_load_si128(  (__m128i const *)p ); }
+static inline void vu_st( uint * p, vu_t i ) { _mm_store_si128(  (__m128i *)p, i ); }
+
+static inline vu_t vu_ldu( void const * p ) { return _mm_loadu_si128( (__m128i const *)p ); }
+static inline void vu_stu( void * p, vu_t i ) { _mm_storeu_si128( (__m128i *)p, i ); }
 
 /* vu_ldif is an optimized equivalent to vu_notczero(c,vu_ldu(p)) (may
    have different behavior if c is not a proper vector conditional).  It
@@ -77,7 +78,7 @@ static inline void vu_stu( uint * p, vu_t i ) { _mm_storeu_si128( (__m128i *)p, 
    compile time constant in 0:3.  vu_extract_variable and
    vu_insert_variable are the slower but the lane n does not have to be
    known at compile time (should be in 0:3).
-   
+
    Note: C99 TC3 allows type punning through a union. */
 
 #define vu_extract(a,imm)  ((uint)_mm_extract_epi32( (a), (imm) ))
