@@ -7,17 +7,15 @@
 #include "../sysvar/fd_sysvar.h"
 #include "../../../ballet/base58/fd_base58.h"
 
-static int transfer(
-  instruction_ctx_t                ctx,
-  fd_system_program_instruction_t *instruction
-  ) {
+static int transfer( fd_exec_instr_ctx_t               ctx,
+                     fd_system_program_instruction_t * instruction ) {
   /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/system_instruction_processor.rs#L327 */
 
   /* Pull out sender (acc idx 0) and recipient (acc idx 1) */
-  uchar *       instr_acc_idxs = ctx.instr->acct_txn_idxs;
-  fd_pubkey_t * txn_accs = ctx.txn_ctx->accounts;
-  fd_pubkey_t * sender = NULL;
-  fd_pubkey_t * receiver = NULL;
+  uchar const *       instr_acc_idxs = ctx.instr->acct_txn_idxs;
+  fd_pubkey_t const * txn_accs = ctx.txn_ctx->accounts;
+  fd_pubkey_t const * sender = NULL;
+  fd_pubkey_t const * receiver = NULL;
 
   ulong requested_lamports;
   if (instruction->discriminant == fd_system_program_instruction_enum_transfer) {
@@ -25,7 +23,7 @@ static int transfer(
     if (FD_UNLIKELY(FD_EXECUTOR_INSTR_SUCCESS != err))
       return err;
 
-    sender   = &txn_accs[instr_acc_idxs[0]];
+    sender = &txn_accs[instr_acc_idxs[0]];
     receiver = &txn_accs[instr_acc_idxs[1]];
     requested_lamports = instruction->inner.transfer;
   } else if (instruction->discriminant == fd_system_program_instruction_enum_transfer_with_seed) {
@@ -33,9 +31,9 @@ static int transfer(
     if (FD_UNLIKELY(FD_EXECUTOR_INSTR_SUCCESS != err))
       return err;
 
-    sender      = &txn_accs[instr_acc_idxs[0]];
-    fd_pubkey_t * sender_base = &txn_accs[instr_acc_idxs[1]];
-    receiver    = &txn_accs[instr_acc_idxs[2]];
+    sender = &txn_accs[instr_acc_idxs[0]];
+    fd_pubkey_t const * sender_base = &txn_accs[instr_acc_idxs[1]];
+    receiver = &txn_accs[instr_acc_idxs[2]];
     requested_lamports = instruction->inner.transfer_with_seed.lamports;
 
     fd_pubkey_t      address_with_seed;
@@ -57,8 +55,8 @@ static int transfer(
   if (!fd_instr_acc_is_signer(ctx.instr, sender))
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
 
-  FD_BORROWED_ACCOUNT_DECL(sender_rec);
-  int err = fd_acc_mgr_view(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) sender, sender_rec);
+  fd_borrowed_account_t * sender_rec = NULL;
+    int err = fd_instr_borrowed_account_view( &ctx, sender, &sender_rec );
   if (FD_UNLIKELY( err ))
     return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
   if (sender_rec->const_meta->dlen > 0)
@@ -69,8 +67,8 @@ static int transfer(
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
-  fd_borrowed_account_t receiver_rec[1];
-  err = fd_acc_mgr_view(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) receiver, fd_borrowed_account_init(receiver_rec));
+  fd_borrowed_account_t * receiver_rec = NULL;
+  err = fd_instr_borrowed_account_view( &ctx, receiver, &receiver_rec);
 
   ulong              res = requested_lamports;
   if (FD_EXECUTOR_INSTR_SUCCESS == err) {
@@ -80,11 +78,11 @@ static int transfer(
   }
 
   // Ok, time to do some damage...
-  err = fd_acc_mgr_modify(ctx.global->acc_mgr, ctx.global->funk_txn, sender, 0, 0UL, sender_rec);
+  err = fd_instr_borrowed_account_modify(&ctx,  sender,  0,  0UL, & sender_rec);
   if (FD_EXECUTOR_INSTR_SUCCESS != err)
     return err;
 
-  err = fd_acc_mgr_modify(ctx.global->acc_mgr, ctx.global->funk_txn, receiver, 1, 0UL, receiver_rec);
+  err = fd_instr_borrowed_account_modify(&ctx,  receiver,  1,  0UL, & receiver_rec);
   if (FD_EXECUTOR_INSTR_SUCCESS != err)
     return err;
 
@@ -98,15 +96,15 @@ static int transfer(
 // https://github.com/solana-labs/solana/blob/b00d18cec4011bb452e3fe87a3412a3f0146942e/runtime/src/system_instruction_processor.rs#L525
 
 static int fd_system_allocate(
-  instruction_ctx_t                ctx,
+  fd_exec_instr_ctx_t                ctx,
   fd_system_program_instruction_t *instruction
   ) {
     int err = fd_account_sanity_check(&ctx, 1);
     if (FD_UNLIKELY(FD_EXECUTOR_INSTR_SUCCESS != err))
       return err;
-  uchar *       instr_acc_idxs = ctx.instr->acct_txn_idxs;
-  fd_pubkey_t * txn_accs = ctx.txn_ctx->accounts;
-  fd_pubkey_t * account     = &txn_accs[instr_acc_idxs[0]];
+  uchar const *       instr_acc_idxs = ctx.instr->acct_txn_idxs;
+  fd_pubkey_t const * txn_accs = ctx.txn_ctx->accounts;
+  fd_pubkey_t const * account     = &txn_accs[instr_acc_idxs[0]];
   fd_pubkey_t*  owner = NULL;
 
   unsigned long allocate = 0;
@@ -131,12 +129,12 @@ static int fd_system_allocate(
     owner = &t->owner;
   }
 
-  FD_BORROWED_ACCOUNT_DECL(account_rec);
+  fd_borrowed_account_t * account_rec = NULL;
+  err = fd_instr_borrowed_account_view_idx( &ctx, 0, &account_rec );
 
-  err = fd_acc_mgr_view(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) account, account_rec);
   if( FD_UNLIKELY( err == FD_ACC_MGR_SUCCESS ) ) {
     if (instruction->discriminant == fd_system_program_instruction_enum_allocate) {
-      if (memcmp(account_rec->const_meta->info.owner, ctx.global->solana_system_program, sizeof(account_rec->const_meta->info.owner)) != 0)
+      if (memcmp(account_rec->const_meta->info.owner, fd_solana_system_program_id.key, sizeof(account_rec->const_meta->info.owner)) != 0)
         return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
     }
 
@@ -148,7 +146,7 @@ static int fd_system_allocate(
   if (allocate > MAX_PERMITTED_DATA_LENGTH)
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
 
-  err = fd_acc_mgr_modify(ctx.global->acc_mgr, ctx.global->funk_txn, account, 1, allocate, account_rec);
+  err = fd_instr_borrowed_account_modify(&ctx,  account,  1,  allocate, & account_rec);
   if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) )
     return err;
 
@@ -161,7 +159,7 @@ static int fd_system_allocate(
       return err;
   }
 
-  err = fd_acc_mgr_commit(ctx.global->acc_mgr, account_rec, ctx.global->bank.slot, 0);
+  err = fd_acc_mgr_commit(ctx.acc_mgr, account_rec, ctx.slot_ctx);
   if (FD_ACC_MGR_SUCCESS != err)
     return err;
 
@@ -170,7 +168,7 @@ static int fd_system_allocate(
 
 // https://github.com/solana-labs/solana/blob/b00d18cec4011bb452e3fe87a3412a3f0146942e/runtime/src/system_instruction_processor.rs#L545
 static int fd_system_assign_with_seed(
-  instruction_ctx_t                                ctx,
+  fd_exec_instr_ctx_t                                ctx,
   fd_system_program_instruction_assign_with_seed_t*t
   ) {
   int err = fd_account_sanity_check(&ctx, 1);
@@ -178,8 +176,8 @@ static int fd_system_assign_with_seed(
     return err;
 
   uchar const * instr_acc_idxs = ctx.instr->acct_txn_idxs;
-  fd_pubkey_t * txn_accs = ctx.txn_ctx->accounts;
-  fd_pubkey_t * account     = &txn_accs[instr_acc_idxs[0]];
+  fd_pubkey_t const * txn_accs = ctx.txn_ctx->accounts;
+  fd_pubkey_t const * account     = &txn_accs[instr_acc_idxs[0]];
 
   fd_pubkey_t      address_with_seed;
   fd_pubkey_create_with_seed( t->base.uc, t->seed, strlen( t->seed ), t->owner.uc, address_with_seed.uc );
@@ -189,8 +187,8 @@ static int fd_system_assign_with_seed(
   }
 
 
-  FD_BORROWED_ACCOUNT_DECL(account_rec);
-  err = fd_acc_mgr_view(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) account, account_rec);
+  fd_borrowed_account_t * account_rec = NULL;
+  err = fd_instr_borrowed_account_view_idx( &ctx, 0, &account_rec );
   if( FD_UNLIKELY( err == FD_ACC_MGR_SUCCESS ) ) {
     if (memcmp(&t->owner, account_rec->const_meta->info.owner, sizeof(fd_pubkey_t)) == 0)
       return FD_ACC_MGR_SUCCESS;
@@ -199,18 +197,18 @@ static int fd_system_assign_with_seed(
   if (!fd_instr_acc_is_signer(ctx.instr, &t->base))
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
 
-  err = fd_acc_mgr_modify(ctx.global->acc_mgr, ctx.global->funk_txn, account, 1, 0UL, account_rec);
+  err = fd_instr_borrowed_account_modify(&ctx,  account,  1,  0UL, & account_rec);
   if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) )
     return err;
 
-  if (memcmp(account_rec->const_meta->info.owner, ctx.global->solana_system_program, sizeof(account_rec->const_meta->info.owner)) != 0)
+  if (memcmp(account_rec->const_meta->info.owner, fd_solana_system_program_id.key, sizeof(account_rec->const_meta->info.owner)) != 0)
     return FD_EXECUTOR_INSTR_ERR_MODIFIED_PROGRAM_ID;
 
   err = fd_account_set_owner(&ctx, account_rec->meta, account, &t->owner);
   if (FD_ACC_MGR_SUCCESS != err)
     return err;
 
-  err = fd_acc_mgr_commit(ctx.global->acc_mgr, account_rec, ctx.global->bank.slot, 0);
+  err = fd_acc_mgr_commit(ctx.acc_mgr, account_rec, ctx.slot_ctx);
   if (FD_ACC_MGR_SUCCESS != err)
     return err;
 
@@ -218,7 +216,7 @@ static int fd_system_assign_with_seed(
 }
 
 static int create_account(
-  instruction_ctx_t                ctx,
+  fd_exec_instr_ctx_t                ctx,
   fd_system_program_instruction_t *instruction
   ) {
   if (ctx.txn_ctx->txn_descriptor->acct_addr_cnt < 2) {
@@ -230,9 +228,9 @@ static int create_account(
    */
 
   uchar const * instr_acc_idxs = ctx.instr->acct_txn_idxs;
-  fd_pubkey_t * txn_accs = ctx.txn_ctx->accounts;
-  fd_pubkey_t * from     = &txn_accs[instr_acc_idxs[0]];
-  fd_pubkey_t * to       = &txn_accs[instr_acc_idxs[1]];
+  fd_pubkey_t const * txn_accs = ctx.txn_ctx->accounts;
+  fd_pubkey_t const * from     = &txn_accs[instr_acc_idxs[0]];
+  fd_pubkey_t const * to       = &txn_accs[instr_acc_idxs[1]];
 
   ulong             lamports = 0;
   ulong             space = 0;
@@ -272,9 +270,8 @@ static int create_account(
   if (!fd_instr_acc_is_signer(ctx.instr, from))
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
 
-  FD_BORROWED_ACCOUNT_DECL(from_rec);
-
-  int err = fd_acc_mgr_view(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) from, from_rec);
+  fd_borrowed_account_t * from_rec = NULL;
+  int err = fd_instr_borrowed_account_view( &ctx, (fd_pubkey_t *)from, &from_rec );
   if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
     ctx.txn_ctx->custom_err = 0; /* SystemError::AccountAlreadyInUse */
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
@@ -283,8 +280,8 @@ static int create_account(
   if (from_rec->const_meta->dlen > 0)
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
 
-  FD_BORROWED_ACCOUNT_DECL(to_rec);
-  err = fd_acc_mgr_view(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) to, to_rec);
+  fd_borrowed_account_t * to_rec = NULL;
+  err = fd_instr_borrowed_account_view( &ctx, (fd_pubkey_t *)to, &to_rec );
   if( FD_UNLIKELY( err == FD_ACC_MGR_SUCCESS ) ) {
     ctx.txn_ctx->custom_err = 0; /* SystemError::AccountAlreadyInUse */
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
@@ -297,7 +294,7 @@ static int create_account(
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
-  err = fd_acc_mgr_modify(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) from, 0, 0UL, from_rec);
+  err = fd_instr_borrowed_account_modify(&ctx,  (fd_pubkey_t *) from,  0,  0UL, & from_rec);
   FD_TEST( err == FD_ACC_MGR_SUCCESS );
   from_rec->meta->info.lamports = sender_lamports - lamports;
 
@@ -306,7 +303,7 @@ static int create_account(
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
-  err = fd_acc_mgr_modify(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) to, 1, space, to_rec);
+  err = fd_instr_borrowed_account_modify(&ctx,  (fd_pubkey_t *) to,  1,  space, & to_rec);
   FD_TEST( err == FD_ACC_MGR_SUCCESS );
   /* Check that we are not exceeding the MAX_PERMITTED_DATA_LENGTH account size */
 
@@ -318,7 +315,7 @@ static int create_account(
   fd_memcpy( to_rec->meta->info.owner, owner, sizeof(fd_pubkey_t) );
   memset( to_rec->data, 0, space );
 
-  err = fd_acc_mgr_commit( ctx.global->acc_mgr, to_rec, ctx.global->bank.slot, 0);
+  err = fd_acc_mgr_commit( ctx.acc_mgr, to_rec, ctx.slot_ctx);
   if ( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
     FD_LOG_NOTICE(( "failed to create account: %d", err ));
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
@@ -330,7 +327,7 @@ static int create_account(
 // https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/system_instruction_processor.rs#L321-L326
 // https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/system_instruction_processor.rs#L111
 static int assign(
-  instruction_ctx_t ctx,
+  fd_exec_instr_ctx_t ctx,
   fd_pubkey_t       owner
   ) {
   int err = fd_account_sanity_check(&ctx, 1);
@@ -338,13 +335,12 @@ static int assign(
     return err;
 
   /* Pull out the account to be assigned an owner (acc idx 0) */
-  uchar *       instr_acc_idxs = ctx.instr->acct_txn_idxs;
-  fd_pubkey_t * txn_accs = ctx.txn_ctx->accounts;
-  fd_pubkey_t * keyed_account   = &txn_accs[instr_acc_idxs[0]];
+  uchar const * instr_acc_idxs = ctx.instr->acct_txn_idxs;
+  fd_pubkey_t const * txn_accs = ctx.txn_ctx->accounts;
+  fd_pubkey_t const * keyed_account   = &txn_accs[instr_acc_idxs[0]];
 
-  FD_BORROWED_ACCOUNT_DECL(rec);
-
-  int read_result = fd_acc_mgr_view( ctx.global->acc_mgr, ctx.global->funk_txn, keyed_account, rec);
+  fd_borrowed_account_t * rec = NULL;
+  int read_result = fd_instr_borrowed_account_view_idx( &ctx, 0, &rec );
   if( FD_UNLIKELY( read_result!=FD_ACC_MGR_SUCCESS ) )
     return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
 
@@ -357,7 +353,7 @@ static int assign(
   if (!fd_instr_acc_is_signer(ctx.instr, keyed_account))
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
 
-  read_result = fd_acc_mgr_modify( ctx.global->acc_mgr, ctx.global->funk_txn, keyed_account, /* do_create */ 0, 0UL, rec);
+  read_result = fd_instr_borrowed_account_modify(&ctx,  keyed_account,  /* do_create */ 0,  0UL, & rec);
   if( FD_UNLIKELY( read_result!=FD_ACC_MGR_SUCCESS ) )
     return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
 
@@ -366,17 +362,16 @@ static int assign(
 }
 
 int fd_executor_system_program_execute_instruction(
-  instruction_ctx_t ctx
+  fd_exec_instr_ctx_t ctx
   ) {
   /* Deserialize the SystemInstruction enum */
   uchar *      data            = ctx.instr->data;
 
   fd_system_program_instruction_t instruction;
-  fd_system_program_instruction_new( &instruction );
   fd_bincode_decode_ctx_t ctx2;
   ctx2.data = data;
   ctx2.dataend = &data[ctx.instr->data_sz];
-  ctx2.valloc  = ctx.global->valloc;
+  ctx2.valloc  = ctx.valloc;
   if ( fd_system_program_instruction_decode( &instruction, &ctx2 ) ) {
     FD_LOG_WARNING(("fd_system_program_instruction_decode failed"));
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
@@ -447,7 +442,7 @@ int fd_executor_system_program_execute_instruction(
   }
   }
 
-  fd_bincode_destroy_ctx_t ctx3 = { .valloc = ctx.global->valloc };
+  fd_bincode_destroy_ctx_t ctx3 = { .valloc = ctx.valloc };
   fd_system_program_instruction_destroy( &instruction, &ctx3 );
   return result;
 }

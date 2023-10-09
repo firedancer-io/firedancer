@@ -7,15 +7,15 @@
 
 FD_PROTOTYPES_BEGIN
 /* Initialize the fees sysvar account. */
-void fd_sysvar_fees_init( fd_global_ctx_t* global );
+void fd_sysvar_fees_init( fd_exec_slot_ctx_t * slot_ctx );
 
 /* Reads the current value of the fees sysvar */
-void fd_sysvar_fees_read( fd_global_ctx_t* global, fd_sysvar_fees_t* result );
+void fd_sysvar_fees_read( fd_exec_slot_ctx_t * slot_ctx, fd_sysvar_fees_t* result );
 
-void fd_sysvar_fees_update( fd_global_ctx_t * global );
+void fd_sysvar_fees_update( fd_exec_slot_ctx_t * slot_ctx );
 
 void
-fd_sysvar_fees_new_derived( fd_global_ctx_t * global, fd_fee_rate_governor_t base_fee_rate_governor, ulong latest_singatures_per_slot );
+fd_sysvar_fees_new_derived( fd_exec_slot_ctx_t * slot_ctx, fd_fee_rate_governor_t base_fee_rate_governor, ulong latest_singatures_per_slot );
 
 FD_PROTOTYPES_END
 

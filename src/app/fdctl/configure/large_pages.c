@@ -10,12 +10,12 @@ init_perm( security_t *     security,
 }
 
 uint
-read_uint_file( const char * path ) {
+read_uint_file( const char * path, const char * errmsg_enoent ) {
   FILE * fp = fopen( path, "r" );
   if( FD_UNLIKELY( !fp ) ) {
     if( errno == ENOENT)
-      FD_LOG_ERR(( "please confirm your host is configured for gigantic pages! fopen failed `%s` (%i-%s)",
-                   path, errno, fd_io_strerror( errno ) ));
+      FD_LOG_ERR(( "%s fopen failed `%s` (%i-%s)",
+                   errmsg_enoent, path, errno, fd_io_strerror( errno ) ));
     else
       FD_LOG_ERR(( "fopen failed `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
   }
@@ -52,20 +52,20 @@ expected_pages( config_t * const config, uint out[2] ) {
 
   for( ulong i=0; i<config->shmem.workspaces_cnt; i++ ) {
     switch( config->shmem.workspaces[ i ].kind ) {
-      case wksp_tpu_txn_data:
+      case wksp_netmux_inout:
       case wksp_quic_verify:
       case wksp_verify_dedup:
       case wksp_dedup_pack:
       case wksp_pack_bank:
-      case wksp_pack_forward:
       case wksp_bank_shred:
         break;
+      case wksp_net:
+      case wksp_netmux:
       case wksp_quic:
       case wksp_verify:
       case wksp_dedup:
       case wksp_pack:
       case wksp_bank:
-      case wksp_forward:
         num_tiles++;
         break;
     }
@@ -88,6 +88,8 @@ expected_pages( config_t * const config, uint out[2] ) {
   out[ 0 ] += ( num_tiles + 2 ) * 6;
 }
 
+static const char * ERR_MSG = "please confirm your host is configured for gigantic pages,";
+
 static void init( config_t * const config ) {
   char * paths[ 2 ] = {
     "/sys/devices/system/node/node0/hugepages/hugepages-2048kB/nr_hugepages",
@@ -97,7 +99,7 @@ static void init( config_t * const config ) {
   expected_pages( config, expected );
 
   for( int i=0; i<2; i++ ) {
-    uint actual = read_uint_file( paths[ i ] );
+    uint actual = read_uint_file( paths[ i ], ERR_MSG );
 
     try_defragment_memory();
     if( FD_UNLIKELY( actual < expected[ i ] ) )
@@ -114,7 +116,7 @@ static configure_result_t check( config_t * const config ) {
   expected_pages( config, expected );
 
   for( int i=0; i<2; i++ ) {
-    uint actual = read_uint_file( paths[i] );
+    uint actual = read_uint_file( paths[i], ERR_MSG );
     if( FD_UNLIKELY( actual < expected[i] ) )
       NOT_CONFIGURED( "expected at least %u %s pages, but there are %u",
                       expected[i],

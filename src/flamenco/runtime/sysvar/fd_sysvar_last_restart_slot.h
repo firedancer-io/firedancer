@@ -10,7 +10,7 @@ FD_PROTOTYPES_BEGIN
    state. */
 
 void
-fd_sysvar_last_restart_slot_init( fd_global_ctx_t * global );
+fd_sysvar_last_restart_slot_init( fd_exec_slot_ctx_t * slot_ctx );
 
 /* fd_sysvar_last_restart_slot_read queries the sysvar cache (?) for the
    slot number at which the last hard fork occurred.  This matches the
@@ -22,14 +22,14 @@ fd_sysvar_last_restart_slot_init( fd_global_ctx_t * global );
    error. */
 
 int
-fd_sysvar_last_restart_slot_read( fd_global_ctx_t const *             global,
+fd_sysvar_last_restart_slot_read( fd_exec_slot_ctx_t const *             slot_ctx,
                                   fd_sol_sysvar_last_restart_slot_t * result );
 
 /* fd_sysvar_last_restart_slot_update performs a sysvar update before
    transaction processing.  TODO not completely implemented. */
 
 void
-fd_sysvar_last_restart_slot_update( fd_global_ctx_t * global );
+fd_sysvar_last_restart_slot_update( fd_exec_slot_ctx_t * slot_ctx );
 
 FD_PROTOTYPES_END
 

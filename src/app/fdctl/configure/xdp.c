@@ -28,13 +28,13 @@ FD_IMPORT_BINARY( fd_xdp_redirect_prog, "src/tango/xdp/fd_xdp_redirect_prog.o" )
 static void
 init( config_t * const config ) {
   if( FD_UNLIKELY( config->development.netns.enabled ) )
-    enter_network_namespace( config->tiles.quic.interface );
+    enter_network_namespace( config->tiles.net.interface );
 
   uint mode = 0;
-  if(      FD_LIKELY( !strcmp( config->tiles.quic.xdp_mode, "skb" ) ) ) mode = XDP_FLAGS_SKB_MODE;
-  else if( FD_LIKELY( !strcmp( config->tiles.quic.xdp_mode, "drv" ) ) ) mode = XDP_FLAGS_DRV_MODE;
-  else if( FD_LIKELY( !strcmp( config->tiles.quic.xdp_mode, "hw"  ) ) ) mode = XDP_FLAGS_HW_MODE;
-  else FD_LOG_ERR(( "unknown XDP mode `%s`", config->tiles.quic.xdp_mode ));
+  if(      FD_LIKELY( !strcmp( config->tiles.net.xdp_mode, "skb" ) ) ) mode = XDP_FLAGS_SKB_MODE;
+  else if( FD_LIKELY( !strcmp( config->tiles.net.xdp_mode, "drv" ) ) ) mode = XDP_FLAGS_DRV_MODE;
+  else if( FD_LIKELY( !strcmp( config->tiles.net.xdp_mode, "hw"  ) ) ) mode = XDP_FLAGS_HW_MODE;
+  else FD_LOG_ERR(( "unknown XDP mode `%s`", config->tiles.net.xdp_mode ));
 
   if( FD_UNLIKELY( fd_xdp_init( config->name,
                                 0750,
@@ -43,7 +43,7 @@ init( config_t * const config ) {
     FD_LOG_ERR(( "fd_xdp_init failed" ));
 
   if( FD_UNLIKELY( fd_xdp_hook_iface( config->name,
-                                      config->tiles.quic.interface,
+                                      config->tiles.net.interface,
                                       mode,
                                       fd_xdp_redirect_prog,
                                       fd_xdp_redirect_prog_sz ) ) )
@@ -70,7 +70,7 @@ init( config_t * const config ) {
      small performance hit for other traffic, but we only
      redirect packets destined for our target IP and port so
      it will not otherwise interfere. */
-  if( FD_LIKELY( strcmp( config->tiles.quic.interface, "lo" ) ) ) {
+  if( FD_LIKELY( strcmp( config->tiles.net.interface, "lo" ) ) ) {
     if( FD_UNLIKELY( fd_xdp_hook_iface( config->name,
                                         "lo",
                                         mode,
@@ -82,7 +82,7 @@ init( config_t * const config ) {
 
   ushort udp_ports[] = { config->tiles.quic.transaction_listen_port, config->tiles.quic.quic_transaction_listen_port };
   if( FD_UNLIKELY( fd_xdp_listen_udp_ports( config->name,
-                                            config->tiles.quic.ip_addr,
+                                            config->tiles.net.ip_addr,
                                             2,
                                             udp_ports,
                                             1 ) ) )
@@ -98,9 +98,6 @@ fini_perm( security_t *     security,
 
 static void
 fini( config_t * const config ) {
-  if( FD_UNLIKELY( config->development.netns.enabled ) )
-    enter_network_namespace( config->tiles.quic.interface );
-
   if( FD_UNLIKELY( fd_xdp_fini( config->name ) ) )
     FD_LOG_ERR(( "fd_xdp_fini failed" ));
 
@@ -109,7 +106,7 @@ fini( config_t * const config ) {
   nanosleep1( 1, 0 );
 
   char path[ PATH_MAX ];
-  snprintf1( path, PATH_MAX, "/sys/fs/bpf/%s/%s", config->name, config->tiles.quic.interface );
+  snprintf1( path, PATH_MAX, "/sys/fs/bpf/%s/%s", config->name, config->tiles.net.interface );
   if( FD_UNLIKELY( rmdir( path ) && errno != ENOENT ) ) FD_LOG_ERR(( "rmdir failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   snprintf1( path, PATH_MAX, "/sys/fs/bpf/%s/lo", config->name );
   if( FD_UNLIKELY( rmdir( path ) && errno != ENOENT ) ) FD_LOG_ERR(( "rmdir failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -133,8 +130,8 @@ check( config_t * const config ) {
   snprintf1( xdp_path, PATH_MAX, "/sys/fs/bpf/%s/udp_dsts", config->name );
   CHECK( check_file( xdp_path,      config->uid, config->uid, S_IFREG | S_IRUSR | S_IWUSR | S_IRGRP ) );
 
-  char * interfaces[] = { config->tiles.quic.interface, "lo" };
-  ulong interfaces_sz = !strcmp( config->tiles.quic.interface, "lo" ) ? 1 : 2;
+  char * interfaces[] = { config->tiles.net.interface, "lo" };
+  ulong interfaces_sz = !strcmp( config->tiles.net.interface, "lo" ) ? 1 : 2;
   for( ulong i=0; i<interfaces_sz; i++ ) {
     snprintf1( xdp_path, PATH_MAX, "/sys/fs/bpf/%s/%s/xdp_link", config->name, interfaces[i] );
     CHECK( check_file( xdp_path,      config->uid, config->uid, S_IFREG | S_IRUSR | S_IWUSR | S_IRGRP ) );

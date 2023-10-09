@@ -1,7 +1,7 @@
 MAKEFLAGS += --no-builtin-rules
 MAKEFLAGS += --no-builtin-variables
 .SUFFIXES:
-.PHONY: all info bin include lib unit-test fuzz-test run-unit-test help clean distclean asm ppp show-deps lint check-lint
+.PHONY: all info bin rust include lib unit-test fuzz-test run-unit-test help clean distclean asm ppp show-deps
 .SECONDARY:
 .SECONDEXPANSION:
 
@@ -9,39 +9,42 @@ OBJDIR:=$(BASEDIR)/$(BUILDDIR)
 CORPUSDIR:=corpus
 
 CPPFLAGS+=-DFD_BUILD_INFO=\"$(OBJDIR)/info\"
+CPPFLAGS+=$(EXTRA_CPPFLAGS)
 
 # Auxiliarily rules that should not set up depenencies
-AUX_RULES:=clean distclean help show-deps lint check-lint run-unit-test
+AUX_RULES:=clean distclean help show-deps run-unit-test
 
 all: info bin include lib unit-test
 
 help:
 	# Configuration
-	# MACHINE   = $(MACHINE)
-	# EXTRAS    = $(EXTRAS)
-	# SHELL     = $(SHELL)
-	# BASEDIR   = $(BASEDIR)
-	# OBJDIR    = $(OBJDIR)
-	# CPPFLAGS  = $(CPPFLAGS)
-	# CC        = $(CC)
-	# CFLAGS    = $(CFLAGS)
-	# CXX       = $(CXX)
-	# CXXFLAGS  = $(CXXFLAGS)
-	# LD        = $(LD)
-	# LDFLAGS   = $(LDFLAGS)
-	# AR        = $(AR)
-	# ARFLAGS   = $(ARFLAGS)
-	# RANLIB    = $(RANLIB)
-	# CP        = $(CP)
-	# RM        = $(RM)
-	# MKDIR     = $(MKDIR)
-	# RMDIR     = $(RMDIR)
-	# SED       = $(SED)
-	# FIND      = $(FIND)
-	# SCRUB     = $(SCRUB)
-	# FUZZFLAGS = $(FUZZFLAGS)
-	# NANOPB    = $(NANOPB)
-	# Explicit goals are: all bin include lib unit-test help clean distclean asm ppp nanopb
+	# MACHINE         = $(MACHINE)
+	# EXTRAS          = $(EXTRAS)
+	# SHELL           = $(SHELL)
+	# BASEDIR         = $(BASEDIR)
+	# BUILDDIR        = $(BUILDDIR)
+	# OBJDIR          = $(OBJDIR)
+	# CPPFLAGS        = $(CPPFLAGS)
+	# CC              = $(CC)
+	# CFLAGS          = $(CFLAGS)
+	# CXX             = $(CXX)
+	# CXXFLAGS        = $(CXXFLAGS)
+	# LD              = $(LD)
+	# LDFLAGS         = $(LDFLAGS)
+	# AR              = $(AR)
+	# ARFLAGS         = $(ARFLAGS)
+	# RANLIB          = $(RANLIB)
+	# CP              = $(CP)
+	# RM              = $(RM)
+	# MKDIR           = $(MKDIR)
+	# RMDIR           = $(RMDIR)
+	# SED             = $(SED)
+	# FIND            = $(FIND)
+	# SCRUB           = $(SCRUB)
+	# NANOPB          = $(NANOPB)
+	# FUZZFLAGS       = $(FUZZFLAGS)
+	# EXTRAS_CPPFLAGS = $(EXTRA_CPPFLAGS)
+	# Explicit goals are: all bin include lib unit-test help clean distclean asm ppp
 	# "make all" is equivalent to "make bin include lib unit-test"
 	# "make info" makes build info $(OBJDIR)/info for the current platform (if not already made)
 	# "make bin" makes all binaries for the current platform
@@ -57,8 +60,6 @@ help:
 	# "make nanopb" generate nanopb Protobuf sources (if available)
 	# "make show-deps" shows all the dependencies
 	# "make cov-report" creates an LCOV coverage report from LLVM profdata. Requires make run-unit-test EXTRAS="llvm-cov"
-	# "make lint" runs the linter on all C source and header files. Creates backup files.
-	# "make check-lint" runs the linter in dry run mode.
 	# Fuzzing (requires fuzzing profile):
 	#   "make fuzz-test" makes all fuzz-tests for the current platform
 	#   "make run-fuzz-test" re-runs all fuzz tests over existing corpora
@@ -81,18 +82,6 @@ distclean:
 	$(RMDIR) $(BASEDIR) && $(RMDIR) target && $(RMDIR) solana/target && \
 $(SCRUB)
 
-lint:
-	#######################################################################
-	# Linting src/
-	#######################################################################
-	$(FIND) src/ -iname "*.c" -or -iname "*.h" | uncrustify -c lint.cfg -F - --replace
-
-check-lint:
-	#######################################################################
-	# Checking lint in src/
-	#######################################################################
-	$(FIND) src/ -iname "*.c" -or -iname "*.h" | uncrustify -c lint.cfg -F - --check
-
 run-unit-test:
 	#######################################################################
 	# Running unit tests
@@ -108,7 +97,7 @@ lib: $(OBJDIR)/lib/lib$(1).a
 
 endef
 
-make-lib = $(eval $(call _make-lib,$(1)))
+make-lib = $(eval $(call _make-lib,$(strip $(1))))
 
 ##############################
 # Usage: $(call add-objs,objs,lib)
@@ -121,7 +110,7 @@ $(OBJDIR)/lib/lib$(2).a: $(foreach obj,$(1),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)
 
 endef
 
-add-objs = $(eval $(call _add-objs,$(1),$(2)))
+add-objs = $(eval $(call _add-objs,$(strip $(1)),$(strip $(2))))
 
 ##############################
 # Usage: $(call add-asms,asms,lib)
@@ -143,7 +132,7 @@ include: $(foreach hdr,$(1),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/include/%,$(OBJ
 
 endef
 
-add-hdrs = $(eval $(call _add-hdrs,$(1)))
+add-hdrs = $(eval $(call _add-hdrs,$(strip $(1))))
 
 ##############################
 # Usage: $(call add-examples,examples)
@@ -154,7 +143,7 @@ include: $(foreach example,$(1),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/example/%,$
 
 endef
 
-add-examples = $(eval $(call _add-examples,$(1)))
+add-examples = $(eval $(call _add-examples,$(strip $(1))))
 
 ##############################
 # Usage: $(call add-scripts,scripts)
@@ -178,8 +167,8 @@ $(1): $(OBJDIR)/$(1)/$(2)
 endef
 
 ifeq "$(FD_HAS_MAIN)" "1"
-add-scripts = $(foreach script,$(1),$(eval $(call _add-script,bin,$(script))))
-add-test-scripts = $(foreach script,$(1),$(eval $(call _add-script,unit-test,$(script))))
+add-scripts = $(foreach script,$(strip $(1)),$(eval $(call _add-script,bin,$(script))))
+add-test-scripts = $(foreach script,$(strip $(1)),$(eval $(call _add-script,unit-test,$(script))))
 endif
 
 ##############################
@@ -226,24 +215,24 @@ $(1)_unit:
 .PHONY: $(1)_run
 $(1)_run:
 	$(MKDIR) "$(CORPUSDIR)/$(1)/explore"
-	$(OBJDIR)/fuzz-test/$(1)/$(1) $(FUZZFLAGS) $(CORPUSDIR)/$(1)/explore $(CORPUSDIR)/$(1)
+	$(OBJDIR)/fuzz-test/$(1)/$(1) -artifact_prefix=$(CORPUSDIR)/$(1)/ $(FUZZFLAGS) $(CORPUSDIR)/$(1)/explore $(CORPUSDIR)/$(1)
 
 run-fuzz-test: $(1)_unit
 
 endef
 
 ifeq "$(FD_HAS_MAIN)" "1"
-make-bin       = $(eval $(call _make-exe,$(1),$(2),$(3),bin))
-make-unit-test = $(eval $(call _make-exe,$(1),$(2),$(3),unit-test))
+make-bin       = $(eval $(call _make-exe,$(strip $(1)),$(strip $(2)),$(strip $(3)),bin))
+make-unit-test = $(eval $(call _make-exe,$(strip $(1)),$(strip $(2)),$(strip $(3)),unit-test))
 fuzz-test =
-run-unit-test = $(eval $(call _run-unit-test,$(1)))
+run-unit-test = $(eval $(call _run-unit-test,$(strip $(1))))
 run-fuzz-test:
 	@echo "Requested run-fuzz-test but profile MACHINE=$(MACHINE) does not support fuzzing" >&2
 	@exit 1
 else
 make-bin =
 make-unit-test =
-fuzz-test = $(eval $(call _fuzz-test,$(1),$(2),$(3)))
+fuzz-test = $(eval $(call _fuzz-test,$(strip $(1)),$(strip $(2)),$(strip $(3))))
 run-unit-test =
 endif
 

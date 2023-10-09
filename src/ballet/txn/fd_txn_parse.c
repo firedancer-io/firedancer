@@ -72,7 +72,7 @@ fd_txn_parse_core( uchar const             * payload,
 
   /* Minimal instr has 1B for program id, 1B acct_addr list, 1B for no data */
   #define MIN_INSTR_SZ (3UL)
-//  CHECK( payload_sz<=FD_TXN_MTU );
+  CHECK( payload_sz<=FD_TXN_MTU );
 
   /* The documentation sometimes calls this field a compact-u16 and sometimes a u8.
      Because of transaction size caps, even allowing for a 3k transaction caps the
@@ -157,7 +157,7 @@ fd_txn_parse_core( uchar const             * payload,
        can't come from a table. */
     CHECK( allow_zero_signatures | ((0UL < (ulong)program_id) & ((ulong)program_id < (ulong)acct_addr_cnt) ) );
 
-    if (NULL != parsed) {
+    if( NULL != parsed ){
       parsed->instr[ j ].program_id          = program_id;
       parsed->instr[ j ]._padding_reserved_1 = (uchar)0;
       parsed->instr[ j ].acct_cnt            = acct_cnt;
@@ -245,29 +245,34 @@ fd_txn_xray( uchar const             * payload,
 #define READ_COMPACT_U16( var_name, where )                              \
   do {                                                                   \
     ulong _where = (where);                                              \
+    if ( FD_UNLIKELY( (where) >= payload_sz ) ) return 0UL;              \
     ulong _out_sz = fd_cu16_dec_sz( payload+_where, payload_sz-_where ); \
     if ( FD_UNLIKELY( !_out_sz ) ) return 0UL;                           \
     (var_name) = fd_cu16_dec_fixed( payload+_where, _out_sz );           \
     (where) += _out_sz;                                                  \
   } while( 0 )
 
-  if ( FD_UNLIKELY( i >= payload_sz ) ) return 0UL;
+  if ( FD_UNLIKELY( payload_sz == 0) ) return 0UL;
   uchar signature_cnt  = payload[ i ]; i++;
+  if ( FD_UNLIKELY( !((1UL<=signature_cnt) & (signature_cnt<=FD_TXN_SIG_MAX)) ) ) return 0UL;
   ulong signature_off  =          i  ;
-  i += FD_TXN_SIGNATURE_SZ*signature_cnt;
   result->signature_cnt = signature_cnt;
   result->signature_off = (ushort)signature_off;
 
+  i += FD_TXN_SIGNATURE_SZ*signature_cnt;
   if ( FD_UNLIKELY( i >= payload_sz ) ) return 0UL;
   uchar header_b0      = payload[ i ]; i++;
   uchar transaction_version;
   if( FD_LIKELY( (ulong)header_b0 & 0x80UL ) ) {
     /* This is a versioned transaction */
     transaction_version = header_b0 & 0x7F;
+    if ( FD_UNLIKELY( !( transaction_version==FD_TXN_V0 ) ) ) return 0UL; /* Only recognized one so far */
+
     /* Only recognized one so far */
     i++;
   } else {
     transaction_version = FD_TXN_VLEGACY;
+    if ( FD_UNLIKELY( !( signature_cnt==header_b0 ) ) ) return 0UL;
   }
   i++;
   i++;

@@ -16,6 +16,115 @@ usage( void ) {
   return 1;
 }
 
+static void
+test_matches_rust_sample_single( void ) {
+  fd_chacha20rng_t _rng[1];
+  fd_chacha20rng_t * rng = fd_chacha20rng_join( fd_chacha20rng_new( _rng, FD_CHACHA20RNG_MODE_SHIFT ) );
+  FD_TEST( rng );
+
+  uchar key[ 32 ];
+  memset( key, 0x41, 32UL );
+  fd_chacha20rng_init( rng, key );
+  /* Generated with this:
+      use rand::distributions::uniform::SampleUniform;
+      use rand::distributions::uniform::UniformSampler;
+      use rand::SeedableRng;
+      use rand_chacha::ChaChaRng;
+      fn main() {
+          let seed = [0x41u8; 32];
+          let mut rng = ChaChaRng::from_seed(seed);
+          for _ in 0..10 {
+              println!(
+                  "{}",
+                  <u64 as SampleUniform>::Sampler::sample_single(0u64, 10u64, &mut rng)
+              );
+          }
+          for _ in 0..10 {
+              println!(
+                  "{}",
+                  <u64 as SampleUniform>::Sampler::sample_single(0u64, 4294967231u64, &mut rng)
+              );
+          }
+      }
+  */
+
+  FD_TEST( fd_chacha20rng_ulong_roll( rng, 10UL ) == 8UL );
+  FD_TEST( fd_chacha20rng_ulong_roll( rng, 10UL ) == 7UL );
+  FD_TEST( fd_chacha20rng_ulong_roll( rng, 10UL ) == 2UL );
+  FD_TEST( fd_chacha20rng_ulong_roll( rng, 10UL ) == 5UL );
+  FD_TEST( fd_chacha20rng_ulong_roll( rng, 10UL ) == 7UL );
+  FD_TEST( fd_chacha20rng_ulong_roll( rng, 10UL ) == 6UL );
+  FD_TEST( fd_chacha20rng_ulong_roll( rng, 10UL ) == 5UL );
+  FD_TEST( fd_chacha20rng_ulong_roll( rng, 10UL ) == 6UL );
+  FD_TEST( fd_chacha20rng_ulong_roll( rng, 10UL ) == 9UL );
+  FD_TEST( fd_chacha20rng_ulong_roll( rng, 10UL ) == 6UL );
+
+  FD_TEST( fd_chacha20rng_ulong_roll( rng, 4294967231UL ) == 3252524226UL );
+  FD_TEST( fd_chacha20rng_ulong_roll( rng, 4294967231UL ) == 3847107912UL );
+  FD_TEST( fd_chacha20rng_ulong_roll( rng, 4294967231UL ) == 2388546007UL );
+  FD_TEST( fd_chacha20rng_ulong_roll( rng, 4294967231UL ) == 1795840680UL );
+  FD_TEST( fd_chacha20rng_ulong_roll( rng, 4294967231UL ) == 1493882641UL );
+  FD_TEST( fd_chacha20rng_ulong_roll( rng, 4294967231UL ) == 2627412178UL );
+  FD_TEST( fd_chacha20rng_ulong_roll( rng, 4294967231UL ) == 2509655068UL );
+  FD_TEST( fd_chacha20rng_ulong_roll( rng, 4294967231UL ) == 2770564418UL );
+  FD_TEST( fd_chacha20rng_ulong_roll( rng, 4294967231UL ) ==  368683988UL );
+  FD_TEST( fd_chacha20rng_ulong_roll( rng, 4294967231UL ) ==  318451188UL );
+
+  FD_TEST( (ulong)fd_chacha20rng_delete( fd_chacha20rng_leave( rng ) )==(ulong)_rng );
+}
+
+static void
+test_matches_rust_sample( void ) {
+  fd_chacha20rng_t _rng[1];
+  fd_chacha20rng_t * rng = fd_chacha20rng_join( fd_chacha20rng_new( _rng, FD_CHACHA20RNG_MODE_MOD ) );
+  FD_TEST( rng );
+
+  uchar key[ 32 ];
+  memset( key, 0x41, 32UL );
+  fd_chacha20rng_init( rng, key );
+  /* Generated with this:
+     use rand::distributions::uniform::SampleUniform;
+     use rand::distributions::uniform::UniformSampler;
+     use rand::SeedableRng;
+     use rand_chacha::ChaChaRng;
+     fn main() {
+         let seed = [0x41u8; 32];
+         let mut rng = ChaChaRng::from_seed(seed);
+         let sampler1 = <u64 as SampleUniform>::Sampler::new(0, 10u64);
+         for _ in 0..10 {
+             println!("{}", sampler1.sample(&mut rng));
+         }
+         let sampler2 = <u64 as SampleUniform>::Sampler::new(0, 4294967231u64);
+         for _ in 0..10 {
+             println!("{}", sampler2.sample(&mut rng));
+         }
+     } */
+
+  FD_TEST( fd_chacha20rng_ulong_roll( rng, 10UL ) == 8UL );
+  FD_TEST( fd_chacha20rng_ulong_roll( rng, 10UL ) == 7UL );
+  FD_TEST( fd_chacha20rng_ulong_roll( rng, 10UL ) == 1UL );
+  FD_TEST( fd_chacha20rng_ulong_roll( rng, 10UL ) == 2UL );
+  FD_TEST( fd_chacha20rng_ulong_roll( rng, 10UL ) == 5UL );
+  FD_TEST( fd_chacha20rng_ulong_roll( rng, 10UL ) == 7UL );
+  FD_TEST( fd_chacha20rng_ulong_roll( rng, 10UL ) == 6UL );
+  FD_TEST( fd_chacha20rng_ulong_roll( rng, 10UL ) == 2UL );
+  FD_TEST( fd_chacha20rng_ulong_roll( rng, 10UL ) == 9UL );
+  FD_TEST( fd_chacha20rng_ulong_roll( rng, 10UL ) == 5UL );
+
+  FD_TEST( fd_chacha20rng_ulong_roll( rng, 4294967231UL ) == 2659576357UL );
+  FD_TEST( fd_chacha20rng_ulong_roll( rng, 4294967231UL ) == 4036770383UL );
+  FD_TEST( fd_chacha20rng_ulong_roll( rng, 4294967231UL ) == 2578672018UL );
+  FD_TEST( fd_chacha20rng_ulong_roll( rng, 4294967231UL ) == 3252524226UL );
+  FD_TEST( fd_chacha20rng_ulong_roll( rng, 4294967231UL ) == 3847107912UL );
+  FD_TEST( fd_chacha20rng_ulong_roll( rng, 4294967231UL ) == 2388546007UL );
+  FD_TEST( fd_chacha20rng_ulong_roll( rng, 4294967231UL ) == 1795840680UL );
+  FD_TEST( fd_chacha20rng_ulong_roll( rng, 4294967231UL ) == 1493882641UL );
+  FD_TEST( fd_chacha20rng_ulong_roll( rng, 4294967231UL ) == 2627412178UL );
+  FD_TEST( fd_chacha20rng_ulong_roll( rng, 4294967231UL ) == 2509655068UL );
+
+  FD_TEST( (ulong)fd_chacha20rng_delete( fd_chacha20rng_leave( rng ) )==(ulong)_rng );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -28,6 +137,10 @@ main( int     argc,
   fd_log_level_logfile_set( 0 );
   fd_log_level_stderr_set ( 0 );
 
+  test_matches_rust_sample_single();
+  test_matches_rust_sample();
+  FD_LOG_NOTICE(( "Passed built-in tests" ));
+
   /* Read command-line params */
 
   ulong n    = fd_env_strip_cmdline_ulong( &argc, &argv, "--range", NULL, 0UL );
@@ -39,7 +152,7 @@ main( int     argc,
   /* Create RNG */
 
   fd_chacha20rng_t _rng[1];
-  fd_chacha20rng_t * rng = fd_chacha20rng_join( fd_chacha20rng_new( _rng ) );
+  fd_chacha20rng_t * rng = fd_chacha20rng_join( fd_chacha20rng_new( _rng, FD_CHACHA20RNG_MODE_MOD ) );
   FD_TEST( rng );
 
   uchar key[ 32 ] = {0};

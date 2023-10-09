@@ -8,7 +8,8 @@
 FD_PROTOTYPES_BEGIN
 
 /* Initialize the builtin program accounts */
-void fd_builtin_programs_init( fd_global_ctx_t* global );
+void
+fd_builtin_programs_init( fd_exec_slot_ctx_t * slot_ctx );
 
 FD_PROTOTYPES_END
 

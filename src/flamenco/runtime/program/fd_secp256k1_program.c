@@ -34,7 +34,7 @@ static const ulong SIGNATURE_OFFSETS_SERIALIZED_SIZE = 11;
 FD_STATIC_ASSERT( alignof( fd_secp256k1_signature_offsets_t )==1, fd_ballet );
 FD_STATIC_ASSERT( sizeof( fd_secp256k1_signature_offsets_t )==11, fd_ballet );
 
-static int fd_executor_secp256k1_program_get_data( instruction_ctx_t ctx, ulong index, ulong offset, ulong sz, void const ** res ) {
+static int fd_executor_secp256k1_program_get_data( fd_exec_instr_ctx_t ctx, ulong index, ulong offset, ulong sz, void const ** res ) {
   uchar const * data;
   ulong data_sz;
   if ( index == USHORT_MAX) {
@@ -54,7 +54,7 @@ static int fd_executor_secp256k1_program_get_data( instruction_ctx_t ctx, ulong 
   return 0;
 }
 
-int fd_executor_secp256k1_program_execute_instruction( instruction_ctx_t ctx ) {
+int fd_executor_secp256k1_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
   uchar const * data = ctx.instr->data;
   ulong data_sz = ctx.instr->data_sz;
 
@@ -134,7 +134,7 @@ int fd_executor_secp256k1_program_execute_instruction( instruction_ctx_t ctx ) {
 
 #else
 
-int fd_executor_secp256k1_program_execute_instruction( instruction_ctx_t ctx ) {
+int fd_executor_secp256k1_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
   (void)ctx;
   FD_LOG_WARNING(("secp256k1 not supported in this build"));
   return FD_EXECUTOR_SIGN_ERR_SIGNATURE;

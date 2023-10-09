@@ -55,7 +55,6 @@ set -x
   --indexmax 10000 \
   --txnmax 100 \
   --backup test_ledger_backup \
-  --gaddrout gaddr \
   --pages 1
 
 status=$?
@@ -70,15 +69,20 @@ fi
 
 log=/tmp/ledger_log$$
 
-"$OBJDIR"/unit-test/test_runtime \
-  --load test_ledger_backup \
+ARGS=" --load test_ledger_backup \
   --cmd replay \
-  --gaddr `cat gaddr` \
   --pages 1 \
   --validate true \
   --abort-on-mismatch 1 \
   --capture test.solcap \
-  --end-slot 1020 >& $log
+  --end-slot 1010"
+
+if [ -e dump/$LEDGER/capitalization.csv ]
+then
+  ARGS="$ARGS --cap dump/$LEDGER/capitalization.csv"
+fi
+
+"$OBJDIR"/unit-test/test_runtime $ARGS >& $log
 
 status=$?
 

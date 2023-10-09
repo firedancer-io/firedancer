@@ -25,17 +25,19 @@ void fd_durable_nonce_from_blockhash(fd_hash_t *hash, fd_hash_t *out) {
   fd_sha256_fini( &sha, out->hash );
 }
 
-int fd_load_nonce_account(
-  fd_global_ctx_t *global, transaction_ctx_t * txn_ctx, fd_txn_t * txn_descriptor, fd_rawtxn_b_t const * txn_raw, fd_nonce_state_versions_t *state, int *opt_err
-  ) {
+int fd_load_nonce_account( fd_exec_txn_ctx_t * txn_ctx, 
+                           fd_txn_t * txn_descriptor, 
+                           fd_rawtxn_b_t const * txn_raw, 
+                           fd_nonce_state_versions_t * state,
+                           int * opt_err ) {
   if (txn_descriptor->instr_cnt == 0) {
     *opt_err = FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
     return 0;
   }
 
   fd_txn_instr_t * txn_instr = &txn_descriptor->instr[0];
-  fd_instr_t instr;
-  fd_convert_txn_instr_to_instr(txn_descriptor, txn_raw, txn_instr, txn_ctx->accounts, &instr);
+  fd_instr_info_t instr;
+  fd_convert_txn_instr_to_instr(txn_descriptor, txn_raw, txn_instr, txn_ctx->accounts, txn_ctx->borrowed_accounts, &instr);
 
   // A little defense in depth?
   int err = fd_account_sanity_check_raw(&instr, txn_descriptor, instr.program_id + 1);
@@ -47,18 +49,17 @@ int fd_load_nonce_account(
   fd_pubkey_t * tx_accs   = (fd_pubkey_t *)((uchar *)txn_raw->raw + txn_descriptor->acct_addr_off);
   fd_pubkey_t * pubkey = &tx_accs[instr.program_id];
 
-  if ( memcmp( pubkey, global->solana_system_program, sizeof( fd_pubkey_t ) ) )
+  if ( memcmp( pubkey, fd_solana_system_program_id.key, sizeof( fd_pubkey_t ) ) )
     return 0;
 
   /* Deserialize the SystemInstruction enum */
   uchar *      data            = instr.data;
 
   fd_system_program_instruction_t instruction;
-  fd_system_program_instruction_new( &instruction );
   fd_bincode_decode_ctx_t ctx2 = {
     .data = data,
     .dataend = &data[instr.data_sz],
-    .valloc  = global->valloc
+    .valloc  = txn_ctx->valloc
   };
   if ( fd_system_program_instruction_decode( &instruction, &ctx2 ) ) {
     FD_LOG_WARNING(("fd_system_program_instruction_decode failed"));
@@ -82,7 +83,7 @@ int fd_load_nonce_account(
 
 
   FD_BORROWED_ACCOUNT_DECL(me_rec);
-  err = fd_acc_mgr_view(global->acc_mgr, global->funk_txn, (fd_pubkey_t *) me, me_rec);
+  err = fd_acc_mgr_view(txn_ctx->acc_mgr, txn_ctx->funk_txn, (fd_pubkey_t *) me, me_rec);
   if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
     *opt_err = FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
     return 0;
@@ -91,7 +92,7 @@ int fd_load_nonce_account(
   fd_bincode_decode_ctx_t ctx = {
     .data = me_rec->const_data,
     .dataend = me_rec->const_data + me_rec->const_meta->dlen,
-    .valloc  = global->valloc
+    .valloc  = txn_ctx->valloc
   };
 
   if ( fd_nonce_state_versions_decode( state, &ctx ) ) {
@@ -104,9 +105,7 @@ int fd_load_nonce_account(
 }
 
 // https://github.com/firedancer-io/solana/blob/8fb537409eb901444e064f50ea8dd7dcafb12a00/runtime/src/system_instruction_processor.rs#L351
-int fd_advance_nonce_account(
-  instruction_ctx_t ctx
-  ) {
+int fd_advance_nonce_account( fd_exec_instr_ctx_t ctx ) {
 //        {pubkey: params.noncePubkey, isSigner: false, isWritable: true},
 //        {pubkey: SYSVAR_RECENT_BLOCKHASHES_PUBKEY, isSigner: false, isWritable: false,},
 //        {pubkey: params.authorizedPubkey, isSigner: true, isWritable: false},
@@ -114,15 +113,15 @@ int fd_advance_nonce_account(
     return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
   }
 
-  uchar *       instr_acc_idxs = ctx.instr->acct_txn_idxs;
+  uchar const * instr_acc_idxs = ctx.instr->acct_txn_idxs;
 
   if (!fd_instr_acc_is_writable_idx(ctx.instr, 0))
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
 
-  fd_pubkey_t * txn_accs = ctx.txn_ctx->accounts;
-  fd_pubkey_t * me   = &txn_accs[instr_acc_idxs[0]];
+  fd_pubkey_t const * txn_accs = ctx.txn_ctx->accounts;
+  fd_pubkey_t const * me = &txn_accs[instr_acc_idxs[0]];
 
-  if (0 != memcmp(&txn_accs[instr_acc_idxs[1]], ctx.global->sysvar_recent_block_hashes, sizeof(fd_pubkey_t))) {
+  if (0 != memcmp(&txn_accs[instr_acc_idxs[1]], fd_sysvar_recent_block_hashes_id.key, sizeof(fd_pubkey_t))) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
   }
 
@@ -130,16 +129,15 @@ int fd_advance_nonce_account(
 
 
   FD_BORROWED_ACCOUNT_DECL(me_rec);
-  int err = fd_acc_mgr_view(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) me, me_rec);
+  int err = fd_acc_mgr_view(ctx.acc_mgr, ctx.funk_txn, (fd_pubkey_t *) me, me_rec);
    if (FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS))
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
 
   fd_nonce_state_versions_t state;
-  fd_nonce_state_versions_new( &state );
   fd_bincode_decode_ctx_t ctx2 = {
     .data = me_rec->const_data,
     .dataend = me_rec->const_data + me_rec->const_meta->dlen,
-    .valloc  = ctx.global->valloc
+    .valloc  = ctx.valloc
   };
   if ( fd_nonce_state_versions_decode( &state, &ctx2 ) )
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
@@ -164,7 +162,7 @@ int fd_advance_nonce_account(
 
 //                let (next_durable_nonce, separate_domains) = get_durable_nonce(invoke_context);
 
-  fd_block_block_hash_entry_t * hashes = ctx.global->bank.recent_block_hashes.hashes;
+  fd_block_block_hash_entry_t * hashes = ctx.slot_ctx->bank.recent_block_hashes.hashes;
   if ( deq_fd_block_block_hash_entry_t_cnt( hashes ) == 0) {
     ctx.txn_ctx->custom_err = 6;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
@@ -198,7 +196,7 @@ int fd_advance_nonce_account(
 
   state.discriminant = fd_nonce_state_versions_enum_current;
   fd_memcpy(state.inner.current.inner.initialized.durable_nonce.hash, durable_nonce.hash, sizeof(state.inner.current.inner.initialized.durable_nonce.hash));
-  state.inner.current.inner.initialized.fee_calculator.lamports_per_signature = fd_runtime_lamports_per_signature(ctx.global);
+  state.inner.current.inner.initialized.fee_calculator.lamports_per_signature = fd_runtime_lamports_per_signature(&ctx.slot_ctx->bank);
 
 //                self.set_state(&Versions::new(
 //                    State::Initialized(new_data),
@@ -219,19 +217,19 @@ int fd_advance_nonce_account(
   if (!fd_account_check_set_data_length(&ctx, me_rec->const_meta, me, sz, &err))
     return err;
 
-  err = fd_acc_mgr_modify(ctx.global->acc_mgr, ctx.global->funk_txn, me, 1, sz, me_rec);
+  err = fd_acc_mgr_modify(ctx.acc_mgr, ctx.funk_txn, me, 1, sz, me_rec);
   if (FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS))
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
 
   me_rec->meta->dlen = sz;
   fd_memcpy(me_rec->data, enc, sz);
 
-  return fd_acc_mgr_commit(ctx.global->acc_mgr, me_rec, ctx.global->bank.slot, 0);
+  return fd_acc_mgr_commit(ctx.acc_mgr, me_rec, ctx.slot_ctx);
 }
 
 // https://github.com/firedancer-io/solana/blob/8fb537409eb901444e064f50ea8dd7dcafb12a00/runtime/src/system_instruction_processor.rs#L366
 int fd_withdraw_nonce_account(
-  instruction_ctx_t               ctx,
+  fd_exec_instr_ctx_t               ctx,
   unsigned long                   requested_lamports
   )
 {
@@ -249,17 +247,16 @@ int fd_withdraw_nonce_account(
   fd_pubkey_t * from   = &txn_accs[instr_acc_idxs[0]];
   fd_pubkey_t * to  = &txn_accs[instr_acc_idxs[1]];
 
-  FD_BORROWED_ACCOUNT_DECL(from_rec);
-  int err = fd_acc_mgr_view(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) from, from_rec);
+  fd_borrowed_account_t * from_rec = NULL;
+  int err = fd_instr_borrowed_account_view(&ctx,  (fd_pubkey_t *) from, & from_rec);
   if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) )
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
 
   fd_nonce_state_versions_t state;
-  fd_nonce_state_versions_new( &state );
   fd_bincode_decode_ctx_t ctx2 = {
     .data = from_rec->const_data,
     .dataend = from_rec->const_data + from_rec->const_meta->dlen,
-    .valloc  = ctx.global->valloc
+    .valloc  = ctx.valloc
   };
   if ( fd_nonce_state_versions_decode( &state, &ctx2 ) )
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
@@ -273,10 +270,10 @@ int fd_withdraw_nonce_account(
   }
   case fd_nonce_state_enum_initialized: {
     if (  from_rec->const_meta->info.lamports == requested_lamports ) {
-      if (deq_fd_block_block_hash_entry_t_cnt(ctx.global->bank.recent_block_hashes.hashes) == 0)
+      if (deq_fd_block_block_hash_entry_t_cnt(ctx.slot_ctx->bank.recent_block_hashes.hashes) == 0)
         return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
 
-      fd_block_block_hash_entry_t *re = deq_fd_block_block_hash_entry_t_peek_head(ctx.global->bank.recent_block_hashes.hashes);
+      fd_block_block_hash_entry_t *re = deq_fd_block_block_hash_entry_t_peek_head(ctx.slot_ctx->bank.recent_block_hashes.hashes);
       fd_hash_t                    durable_nonce;
       fd_durable_nonce_from_blockhash(&re->blockhash, &durable_nonce);
       if (!memcmp(state.inner.current.inner.initialized.durable_nonce.hash, durable_nonce.hash, sizeof(state.inner.current.inner.initialized.durable_nonce.hash)))
@@ -285,7 +282,7 @@ int fd_withdraw_nonce_account(
       state.inner.current.discriminant = fd_nonce_state_enum_uninitialized;
 
     } else {
-      ulong minimum_rent_exempt_balance = fd_rent_exempt_minimum_balance( ctx.global, from_rec->const_meta->dlen );
+      ulong minimum_rent_exempt_balance = fd_rent_exempt_minimum_balance( ctx.slot_ctx, from_rec->const_meta->dlen );
       ulong amount = fd_ulong_sat_add(from_rec->const_meta->info.lamports, minimum_rent_exempt_balance);
       if ( FD_UNLIKELY (amount > from_rec->const_meta->info.lamports) )
         return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
@@ -302,10 +299,10 @@ int fd_withdraw_nonce_account(
   if (!fd_instr_acc_is_signer(ctx.instr, from))
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
 
-  FD_BORROWED_ACCOUNT_DECL(to_rec);
+  fd_borrowed_account_t * to_rec = NULL;
   ulong              res = requested_lamports;
 
-  err = fd_acc_mgr_view(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) to, to_rec);
+  err = fd_instr_borrowed_account_view(&ctx,  (fd_pubkey_t *) to, & to_rec);
 
   if( FD_UNLIKELY( err == FD_ACC_MGR_SUCCESS ) ) {
     res = fd_ulong_sat_add(res, to_rec->const_meta->info.lamports);
@@ -316,16 +313,16 @@ int fd_withdraw_nonce_account(
   FD_TEST (requested_lamports <= from_rec->const_meta->info.lamports);
 
   // Ok, time to do some damage...
-  err = fd_acc_mgr_modify(ctx.global->acc_mgr, ctx.global->funk_txn, from, 0, 0UL, from_rec);
-  err = fd_acc_mgr_modify(ctx.global->acc_mgr, ctx.global->funk_txn, to, 1, 0UL, to_rec);
+  err = fd_instr_borrowed_account_modify(&ctx,  from,  0,  0UL, & from_rec);
+  err = fd_instr_borrowed_account_modify(&ctx,  to,  1,  0UL, & to_rec);
 
   from_rec->meta->info.lamports -= requested_lamports;
   to_rec->meta->info.lamports = res;
 
-  err = fd_acc_mgr_commit(ctx.global->acc_mgr, from_rec, ctx.global->bank.slot, 0);
+  err = fd_acc_mgr_commit(ctx.acc_mgr, from_rec, ctx.slot_ctx);
   if (FD_EXECUTOR_INSTR_SUCCESS != err)
     return err;
-  return fd_acc_mgr_commit(ctx.global->acc_mgr, to_rec, ctx.global->bank.slot, 0);
+  return fd_acc_mgr_commit(ctx.acc_mgr, to_rec, ctx.slot_ctx);
 }
 
 // https://github.com/firedancer-io/solana/blob/8fb537409eb901444e064f50ea8dd7dcafb12a00/runtime/src/system_instruction_processor.rs#L380
@@ -349,7 +346,7 @@ int fd_withdraw_nonce_account(
 
 // https://github.com/firedancer-io/solana/blob/8fb537409eb901444e064f50ea8dd7dcafb12a00/runtime/src/system_instruction_processor.rs#L380
 int fd_initialize_nonce_account(
-  instruction_ctx_t   ctx,
+  fd_exec_instr_ctx_t   ctx,
   fd_pubkey_t        *initialize_nonce_account
   ) {
   if (ctx.txn_ctx->txn_descriptor->acct_addr_cnt < 2) {
@@ -364,23 +361,22 @@ int fd_initialize_nonce_account(
 
   fd_pubkey_t * me   = &txn_accs[instr_acc_idxs[0]];
 
-  if (0 != memcmp(&txn_accs[instr_acc_idxs[1]], ctx.global->sysvar_recent_block_hashes, sizeof(fd_pubkey_t))) {
+  if (0 != memcmp(&txn_accs[instr_acc_idxs[1]], fd_sysvar_recent_block_hashes_id.key, sizeof(fd_pubkey_t))) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
   }
   if (!fd_instr_acc_is_signer_idx(ctx.instr, 0))
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG; // Really? This was the error?!
 
-  FD_BORROWED_ACCOUNT_DECL(me_rec);
-  int err = fd_acc_mgr_view(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) me, me_rec);
+  fd_borrowed_account_t * me_rec = NULL;
+  int err = fd_instr_borrowed_account_view(&ctx,  (fd_pubkey_t *) me, & me_rec);
   if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) )
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
 
   fd_nonce_state_versions_t state;
-  fd_nonce_state_versions_new( &state );
   fd_bincode_decode_ctx_t ctx2 = {
     .data = me_rec->const_data,
     .dataend = me_rec->const_data + me_rec->const_meta->dlen,
-    .valloc  = ctx.global->valloc
+    .valloc  = ctx.valloc
   };
 
   if ( fd_nonce_state_versions_decode( &state, &ctx2 ) ) {
@@ -390,11 +386,11 @@ int fd_initialize_nonce_account(
 
   switch (state.inner.current.discriminant) {
   case fd_nonce_state_enum_uninitialized: {
-    ulong minimum_rent_exempt_balance = fd_rent_exempt_minimum_balance( ctx.global, me_rec->const_meta->dlen );
+    ulong minimum_rent_exempt_balance = fd_rent_exempt_minimum_balance( ctx.slot_ctx, me_rec->const_meta->dlen );
     if ( me_rec->const_meta->info.lamports < minimum_rent_exempt_balance )
       return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
 
-    fd_block_block_hash_entry_t * hashes = ctx.global->bank.recent_block_hashes.hashes;
+    fd_block_block_hash_entry_t * hashes = ctx.slot_ctx->bank.recent_block_hashes.hashes;
     if ( deq_fd_block_block_hash_entry_t_cnt( hashes ) == 0) {
       ctx.txn_ctx->custom_err = 6;
       return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
@@ -410,7 +406,7 @@ int fd_initialize_nonce_account(
 
     state.inner.current.inner.initialized.authority = *initialize_nonce_account;
     fd_memcpy(state.inner.current.inner.initialized.durable_nonce.hash, durable_nonce.hash, sizeof(state.inner.current.inner.initialized.durable_nonce.hash));
-    state.inner.current.inner.initialized.fee_calculator.lamports_per_signature = fd_runtime_lamports_per_signature_for_blockhash(ctx.global, &re->blockhash);
+    state.inner.current.inner.initialized.fee_calculator.lamports_per_signature = fd_runtime_lamports_per_signature_for_blockhash(ctx.slot_ctx, &re->blockhash);
 
     ulong          sz = fd_nonce_state_versions_size(&state);
 
@@ -418,7 +414,7 @@ int fd_initialize_nonce_account(
     if (!fd_account_check_set_data_length(&ctx, me_rec->const_meta, me, sz, &err))
       return err;
 
-    err = fd_acc_mgr_modify(ctx.global->acc_mgr, ctx.global->funk_txn, me, 1, sz, me_rec );
+    err = fd_instr_borrowed_account_modify(&ctx,  me,  1,  sz, & me_rec );
     if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) )
       return err;
 
@@ -430,7 +426,7 @@ int fd_initialize_nonce_account(
       FD_LOG_ERR(("fd_nonce_state_versions_encode failed"));
 
     me_rec->meta->dlen = sz;
-    return fd_acc_mgr_commit(ctx.global->acc_mgr, me_rec, ctx.global->bank.slot, 0);
+    return fd_acc_mgr_commit(ctx.acc_mgr, me_rec, ctx.slot_ctx);
   }
 
   case fd_nonce_state_enum_initialized: {
@@ -448,7 +444,7 @@ int fd_initialize_nonce_account(
 
 // https://github.com/firedancer-io/solana/blob/8fb537409eb901444e064f50ea8dd7dcafb12a00/runtime/src/system_instruction_processor.rs#L400
 int fd_authorize_nonce_account(
-  instruction_ctx_t   ctx,
+  fd_exec_instr_ctx_t   ctx,
   fd_pubkey_t        *authorize_nonce_account
   ) {
 //        {pubkey: params.noncePubkey, isSigner: false, isWritable: true},
@@ -467,7 +463,7 @@ int fd_authorize_nonce_account(
   fd_pubkey_t const *       me           = &txn_accs[instr_acc_idxs[0]];
   fd_borrowed_account_t  * rec = fd_borrowed_account_init(fd_alloca(FD_BORROWED_ACCOUNT_ALIGN, FD_BORROWED_ACCOUNT_FOOTPRINT));
 
-  int err = fd_acc_mgr_view( ctx.global->acc_mgr, ctx.global->funk_txn, me, rec );
+  int err = fd_instr_borrowed_account_view(&ctx,  me, & rec );
   if( FD_UNLIKELY( err ) ) {
     FD_LOG_WARNING(( "fd_acc_mgr_view failed: %d", err ));
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
@@ -476,11 +472,10 @@ int fd_authorize_nonce_account(
   int ret = -1;
 
   fd_nonce_state_versions_t state;
-  fd_nonce_state_versions_new( &state );
   fd_bincode_decode_ctx_t ctx2;
   ctx2.data    = rec->const_data;
   ctx2.dataend = rec->const_data + rec->const_meta->dlen;
-  ctx2.valloc  = ctx.global->valloc;
+  ctx2.valloc  = ctx.valloc;
   if ( fd_nonce_state_versions_decode( &state, &ctx2 ) )
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
 
@@ -499,7 +494,7 @@ int fd_authorize_nonce_account(
     state.inner.current.inner.initialized.authority = *authorize_nonce_account;
 
     ulong          sz = fd_nonce_state_versions_size(&state);
-    err = fd_acc_mgr_modify( ctx.global->acc_mgr, ctx.global->funk_txn, me, 1, sz, rec );
+    err = fd_instr_borrowed_account_modify(&ctx,  me,  1,  sz, & rec );
     if( FD_UNLIKELY( err ) ) {
       FD_LOG_WARNING(( "fd_acc_mgr_modify failed: %d", err ));
       ret = FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
@@ -520,14 +515,14 @@ int fd_authorize_nonce_account(
   } while (0);
 
   fd_bincode_destroy_ctx_t ctx3;
-  ctx3.valloc = ctx.global->valloc;
+  ctx3.valloc = ctx.valloc;
   fd_nonce_state_versions_destroy( &state, &ctx3 );
 
   return ret;
 }
 
 int fd_upgrade_nonce_account(
-  instruction_ctx_t   ctx
+  fd_exec_instr_ctx_t   ctx
   ) {
 //            instruction_context.check_number_of_instruction_accounts(1)?;
 //            let mut nonce_account =
@@ -553,26 +548,25 @@ int fd_upgrade_nonce_account(
   fd_pubkey_t * txn_accs = ctx.txn_ctx->accounts;
   uchar const * instr_acc_idxs = ctx.instr->acct_txn_idxs;
   fd_pubkey_t *             me             = &txn_accs[instr_acc_idxs[0]];
-  FD_BORROWED_ACCOUNT_DECL(acc);
+  fd_borrowed_account_t * acc = NULL;
 
-  int err = fd_acc_mgr_view( ctx.global->acc_mgr, ctx.global->funk_txn, me, acc );
+  int err = fd_instr_borrowed_account_view(&ctx,  me, & acc );
   if( FD_UNLIKELY( err ) ) {
     FD_LOG_WARNING(( "fd_acc_mgr_view failed: %d", err ));
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
-  if (memcmp(acc->const_meta->info.owner, ctx.global->solana_system_program, sizeof(acc->const_meta->info.owner)) != 0)
+  if (memcmp(acc->const_meta->info.owner, fd_solana_system_program_id.key, sizeof(acc->const_meta->info.owner)) != 0)
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
 
   if (!fd_instr_acc_is_writable_idx(ctx.instr, 0))
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
 
   fd_nonce_state_versions_t state;
-  fd_nonce_state_versions_new( &state );
   fd_bincode_decode_ctx_t ctx2;
   ctx2.data    = acc->const_data;
   ctx2.dataend = acc->const_data + acc->const_meta->dlen;
-  ctx2.valloc  = ctx.global->valloc;
+  ctx2.valloc  = ctx.valloc;
 
   if ( fd_nonce_state_versions_decode( &state, &ctx2 ) ) {
     FD_LOG_WARNING(("fd_nonce_state_versions_decode failed"));
@@ -598,7 +592,7 @@ int fd_upgrade_nonce_account(
     memcpy(&state.inner.current.inner.initialized.durable_nonce, &durable_nonce, sizeof(durable_nonce));
 
     ulong          sz = fd_nonce_state_versions_size(&state);
-    err = fd_acc_mgr_modify( ctx.global->acc_mgr, ctx.global->funk_txn, me, 1, sz, acc );
+    err = fd_instr_borrowed_account_modify(&ctx,  me,  1,  sz, & acc );
     if( FD_UNLIKELY( err ) ) {
       FD_LOG_WARNING(( "fd_acc_mgr_modify failed: %d", err ));
       ret = FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
@@ -619,7 +613,7 @@ int fd_upgrade_nonce_account(
     ret = FD_EXECUTOR_INSTR_SUCCESS;
   } while (false);
 
-  fd_bincode_destroy_ctx_t ctx3 = { .valloc = ctx.global->valloc };
+  fd_bincode_destroy_ctx_t ctx3 = { .valloc = ctx.valloc };
   fd_nonce_state_versions_destroy( &state, &ctx3 );
 
   return ret;

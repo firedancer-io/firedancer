@@ -1,15 +1,14 @@
 #include "fd_bpf_deprecated_loader_program.h"
 
-int fd_executor_bpf_deprecated_loader_program_execute_instruction( instruction_ctx_t ctx ) {
+int fd_executor_bpf_deprecated_loader_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
   /* Deserialize the Stake instruction */
   uchar * data            = (uchar *)ctx.instr->data;
 
   fd_bpf_loader_program_instruction_t instruction;
-  fd_bpf_loader_program_instruction_new( &instruction );
   fd_bincode_decode_ctx_t decode_ctx;
   decode_ctx.data = data;
   decode_ctx.dataend = &data[ctx.instr->data_sz];
-  decode_ctx.valloc  = ctx.global->valloc;
+  decode_ctx.valloc  = ctx.valloc;
 
   if ( fd_bpf_loader_program_instruction_decode( &instruction, &decode_ctx ) ) {
     FD_LOG_DEBUG(("fd_bpf_loader_program_instruction_decode failed"));

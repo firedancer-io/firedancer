@@ -275,8 +275,9 @@ mux_tile_main( int     argc,
   fd_rng_t _rng[1];
   fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, cfg->mux_seed, 0UL ) );
 
-  int err = fd_mux_tile( cnc, cfg->tx_cnt, tx_mcache, tx_fseq, mux_mcache, cfg->rx_cnt, rx_fseq,
-                         cfg->mux_cr_max, cfg->mux_lazy, rng, cfg->mux_scratch_mem );
+  fd_mux_callbacks_t callbacks = {0};
+  int err = fd_mux_tile( cnc, 0, FD_MUX_FLAG_DEFAULT, cfg->tx_cnt, tx_mcache, tx_fseq, mux_mcache, cfg->rx_cnt, rx_fseq,
+                         cfg->mux_cr_max, cfg->mux_lazy, rng, cfg->mux_scratch_mem, NULL, &callbacks );
   if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_mux_tile failed (%i)", err ));
 
   fd_rng_delete( fd_rng_leave( rng ) );

@@ -54,13 +54,13 @@ FD_PROTOTYPES_BEGIN
 /* The clock sysvar provides an approximate measure of network time. */
 
 /* Initialize the clock sysvar account. */
-void fd_sysvar_clock_init( fd_global_ctx_t* global );
+void fd_sysvar_clock_init( fd_exec_slot_ctx_t * slot_ctx );
 
 /* Update the clock sysvar account. This should be called at the start of every slot, before execution commences. */
-int fd_sysvar_clock_update( fd_global_ctx_t* global );
+int fd_sysvar_clock_update( fd_exec_slot_ctx_t * slot_ctx );
 
 /* Reads the current value of the clock sysvar */
-int fd_sysvar_clock_read( fd_global_ctx_t* global, fd_sol_sysvar_clock_t* result );
+int fd_sysvar_clock_read( fd_exec_slot_ctx_t * slot_ctx, fd_sol_sysvar_clock_t * result );
 
 /* fd_slot_cnt_2day returns the number of slots in two days.
    Used in rent collection. */

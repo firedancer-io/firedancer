@@ -7,12 +7,14 @@
    of Rust's primitive `saturating_add`, `saturating_sub`, `saturating_mul` operations.
    These saturate at the boundaries of the integer representation, instead of overflowing
    or underflowing.
-   
+
    Note that this is a placeholder API, and the implementations will be optimised and hardened in future.
    The intent of this is to to provide an abstraction for saturating operations which
    can be used throughout the codebase, providing a single place to optimize these. */
 
 FD_PROTOTYPES_BEGIN
+
+#if FD_HAS_INT128
 
 FD_FN_CONST static inline __uint128_t
 fd_uint128_sat_add( __uint128_t x, __uint128_t y ) {
@@ -32,6 +34,8 @@ fd_uint128_sat_sub( __uint128_t x, __uint128_t y ) {
   __uint128_t res = x - y;
   return fd_uint128_if( res > x, 0, res );
 }
+
+#endif /* FD_HAS_INT128 */
 
 FD_FN_CONST static inline ulong
 fd_ulong_sat_add( ulong x, ulong y ) {

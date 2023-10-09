@@ -90,17 +90,16 @@ fd_cu16_dec( uchar const * buf,
 
 static inline uint
 fd_cu16_enc( ushort val, uchar * out ) {
-  ulong _i = val;
-  uint j = 0;
-  while( 1 ) {
-    out[ j ] = _i&0x7F;
-    _i >>= 7;
-    if( _i ) 
-      out[ j++ ] |= 0x80;
-    else {
-      return j + 1;
-    }
-  }
+  ulong v = (ulong)val;
+  ulong byte0 = (v    )&0x7FUL;
+  ulong byte1 = (v>> 7)&0x7FUL;
+  ulong byte2 = (v>>14);
+  int needs_byte1 = (v>0x007FUL);
+  int needs_byte2 = (v>0x3FFFUL);
+  fd_uchar_store_if( 1,           out + 0, (uchar)(byte0 | ((ulong)needs_byte1<<7)) );
+  fd_uchar_store_if( needs_byte1, out + 1, (uchar)(byte1 | ((ulong)needs_byte2<<7)) );
+  fd_uchar_store_if( needs_byte2, out + 2, (uchar)(byte2                          ) );
+  return (uint)(1+needs_byte1+needs_byte2);
 }
 
 FD_PROTOTYPES_END

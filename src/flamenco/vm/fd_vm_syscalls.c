@@ -21,6 +21,10 @@
 #pragma GCC diagnostic ignored "-Wsuggest-attribute=const"
 #endif
 
+#if !FD_HAS_SECP256K1
+#error "This file requires secp256k1"
+#endif
+
 static ulong
 fd_vm_consume_compute_meter(fd_vm_exec_context_t * ctx, ulong cost) {
   int exceeded = ctx->compute_meter < cost;
@@ -619,7 +623,7 @@ fd_vm_syscall_cpi_rust_instruction_to_instr( fd_vm_exec_context_t const * ctx,
                                              fd_pubkey_t const * signers,
                                              ulong signers_cnt,
                                              uchar const * cpi_instr_data,
-                                             fd_instr_t * instr ) {
+                                             fd_instr_info_t * instr ) {
 
   fd_pubkey_t * txn_accs = ctx->instr_ctx.txn_ctx->accounts;
   for( ulong i = 0; i < ctx->instr_ctx.txn_ctx->accounts_cnt; i++ ) {
@@ -679,7 +683,7 @@ fd_vm_syscall_cpi_check_instruction( fd_vm_exec_context_t const * ctx,
                                      ulong                        acct_cnt,
                                      ulong                        data_sz ) {
 
-  if( FD_FEATURE_ACTIVE( ctx->instr_ctx.global, loosen_cpi_size_restriction ) ) {
+  if( FD_FEATURE_ACTIVE( ctx->instr_ctx.slot_ctx, loosen_cpi_size_restriction ) ) {
     if( FD_UNLIKELY( data_sz > 0x2800UL ) ) {
       FD_LOG_WARNING(( "cpi: data too long (%#lx)", data_sz ));
       return FD_VM_SYSCALL_ERR_INVAL;
@@ -952,7 +956,7 @@ fd_vm_cpi_update_caller_account( fd_vm_exec_context_t * ctx,
                                  fd_vm_rust_account_info_t const * caller_acc_info,
                                  fd_pubkey_t const * callee_acc_pubkey ) {
   FD_BORROWED_ACCOUNT_DECL(callee_acc_rec);
-  int err = fd_acc_mgr_view(ctx->instr_ctx.global->acc_mgr, ctx->instr_ctx.global->funk_txn, callee_acc_pubkey, callee_acc_rec);
+  int err = fd_acc_mgr_view(ctx->instr_ctx.acc_mgr, ctx->instr_ctx.funk_txn, callee_acc_pubkey, callee_acc_rec);
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
     FD_LOG_WARNING(( "account missing while updating CPI caller account - key: %32J", callee_acc_pubkey ));
     // TODO: do we need to do something anyways?
@@ -1103,11 +1107,11 @@ fd_vm_syscall_cpi_rust(
            For now, we'll just log parameters. */
 
 
-  fd_instr_t cpi_instr;
+  fd_instr_info_t cpi_instr;
   fd_vm_syscall_cpi_rust_instruction_to_instr( ctx, instruction, accounts, signers, signers_seeds_cnt, data, &cpi_instr );
 
   FD_LOG_WARNING(( "CPI: %u %u", cpi_instr.program_id, cpi_instr.acct_cnt, cpi_instr.data_sz ));
-  ulong instr_exec_res = (ulong)fd_execute_instr( ctx->instr_ctx.global, &cpi_instr, ctx->instr_ctx.txn_ctx );
+  ulong instr_exec_res = (ulong)fd_execute_instr( &cpi_instr, ctx->instr_ctx.txn_ctx );
   FD_LOG_WARNING(( "AFTER CPI: %lu", *pr0 ));
 
   if( instr_exec_res != 0) {
@@ -1225,7 +1229,7 @@ fd_vm_syscall_sol_get_clock_sysvar(
 
   fd_sol_sysvar_clock_t clock;
   fd_sol_sysvar_clock_new( &clock );
-  fd_sysvar_clock_read( ctx->instr_ctx.global, &clock );
+  fd_sysvar_clock_read( ctx->instr_ctx.slot_ctx, &clock );
 
   void * out = fd_vm_translate_vm_to_host(
       ctx,
@@ -1254,7 +1258,7 @@ fd_vm_syscall_sol_get_epoch_schedule_sysvar(
 
   fd_epoch_schedule_t schedule;
   fd_epoch_schedule_new( &schedule );
-  fd_sysvar_epoch_schedule_read( ctx->instr_ctx.global, &schedule );
+  fd_sysvar_epoch_schedule_read( ctx->instr_ctx.slot_ctx, &schedule );
 
   void * out = fd_vm_translate_vm_to_host(
       ctx,
@@ -1283,7 +1287,7 @@ fd_vm_syscall_sol_get_fees_sysvar(
 
   fd_sysvar_fees_t fees;
   fd_sysvar_fees_new( &fees );
-  fd_sysvar_fees_read( ctx->instr_ctx.global, &fees );
+  fd_sysvar_fees_read( ctx->instr_ctx.slot_ctx, &fees );
 
   void * out = fd_vm_translate_vm_to_host(
       ctx,
@@ -1312,7 +1316,7 @@ fd_vm_syscall_sol_get_rent_sysvar(
 
   fd_rent_t rent;
   fd_rent_new( &rent );
-  fd_sysvar_rent_read( ctx->instr_ctx.global, &rent );
+  fd_sysvar_rent_read( ctx->instr_ctx.slot_ctx, &rent );
 
   void * out = fd_vm_translate_vm_to_host(
       ctx,

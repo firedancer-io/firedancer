@@ -1,5 +1,4 @@
 #include "fd_funk.h"
-#include "fd_funk_persist.h"
 #include <stdio.h>
 
 /* Provide the actual transaction map implementation */
@@ -574,8 +573,6 @@ fd_funk_txn_update( fd_funk_t *               funk,
         dst_rec->next_idx         = FD_FUNK_REC_IDX_NULL;
         dst_rec->txn_cidx         = fd_funk_txn_cidx( dst_txn_idx );
         dst_rec->tag              = 0U;
-        dst_rec->persist_pos      = FD_FUNK_REC_IDX_NULL;
-        dst_rec->persist_alloc_sz = FD_FUNK_REC_IDX_NULL;
 
         if( fd_funk_rec_idx_is_null( dst_prev_idx ) ) *_dst_rec_head_idx               = dst_rec_idx;
         else                                          rec_map[ dst_prev_idx ].next_idx = dst_rec_idx;
@@ -593,12 +590,6 @@ fd_funk_txn_update( fd_funk_t *               funk,
            sequence and unmap (dst_xid,key) */
 
         fd_funk_rec_map_remove( rec_map, fd_funk_rec_pair( &rec_map[ rec_idx ] ) );
-
-        if ( FD_LIKELY( fd_funk_txn_idx_is_null( dst_txn_idx ) ) ) {
-          int err = fd_funk_rec_persist_erase_unsafe( funk, dst_rec );
-          if ( err != FD_FUNK_SUCCESS )
-            FD_LOG_ERR(( "failed to update persistence file, code %s", fd_funk_strerror( err ) ));
-        }
 
         fd_funk_val_flush( dst_rec, alloc, wksp );
 
@@ -649,8 +640,6 @@ fd_funk_txn_update( fd_funk_t *               funk,
         dst_rec->next_idx         = FD_FUNK_REC_IDX_NULL;
         dst_rec->txn_cidx         = fd_funk_txn_cidx( dst_txn_idx );
         dst_rec->tag              = 0U;
-        dst_rec->persist_pos      = FD_FUNK_REC_IDX_NULL;
-        dst_rec->persist_alloc_sz = FD_FUNK_REC_IDX_NULL;
 
         if( fd_funk_rec_idx_is_null( dst_prev_idx ) ) *_dst_rec_head_idx               = dst_rec_idx;
         else                                          rec_map[ dst_prev_idx ].next_idx = dst_rec_idx;
@@ -671,12 +660,6 @@ fd_funk_txn_update( fd_funk_t *               funk,
 
       if ( funk->notify_cb )
         (*funk->notify_cb)( dst_rec, NULL, funk->notify_cb_arg );
-
-      if ( FD_LIKELY( fd_funk_txn_idx_is_null( dst_txn_idx ) ) ) {
-        int err = fd_funk_rec_persist_unsafe( funk, dst_rec );
-        if ( err != FD_FUNK_SUCCESS )
-          FD_LOG_ERR(( "failed to update persistence file, code %s", fd_funk_strerror( err ) ));
-      }
     }
 
     /* Advance to the next record */
@@ -701,22 +684,11 @@ fd_funk_txn_publish_funk_child( fd_funk_t *     funk,
                                 ulong           tag,
                                 ulong           txn_idx ) {
 
-  /* Write the write-ahead log */
-
-  ulong wa_pos, wa_alloc;
-  int err = fd_funk_txn_persist_writeahead( funk, map, txn_idx, &wa_pos, &wa_alloc );
-  if ( err )
-    return err;
-
   /* Apply the updates in txn to the last published transactions */
 
   fd_wksp_t * wksp = fd_funk_wksp( funk );
   fd_funk_txn_update( funk, &funk->rec_head_idx, &funk->rec_tail_idx, FD_FUNK_TXN_IDX_NULL, fd_funk_root( funk ),
                       txn_idx, funk->rec_max, map, fd_funk_rec_map( funk, wksp ), fd_funk_alloc( funk, wksp ), wksp );
-
-  /* Erase the write-ahead log */
-
-  fd_funk_txn_persist_writeahead_erase( funk, wa_pos, wa_alloc );
 
   /* Cancel all competing transaction histories */
 

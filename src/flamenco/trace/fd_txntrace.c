@@ -5,14 +5,79 @@
 #include "../runtime/fd_runtime.h"
 #include "../runtime/fd_executor.h"
 #include "../nanopb/pb_encode.h"
+#include "../runtime/fd_system_ids.h"
 
 #include <stdbool.h>
 
 /* Capture ************************************************************/
 
+#define FD_TXNTRACE_SYSVAR_ITER( x )  \
+  x( fd_sysvar_recent_block_hashes_id ) \
+  x( fd_sysvar_clock_id               ) \
+  x( fd_sysvar_slot_history_id        ) \
+  x( fd_sysvar_slot_hashes_id         ) \
+  x( fd_sysvar_epoch_schedule_id      ) \
+  x( fd_sysvar_epoch_rewards_id       ) \
+  x( fd_sysvar_fees_id                ) \
+  x( fd_sysvar_rent_id                ) \
+  x( fd_sysvar_stake_history_id       ) \
+  x( fd_sysvar_last_restart_slot_id  )
+
+#define FD_TXNTRACE_SYSVAR_CNT_HELPER(x) +1UL
+#define FD_TXNTRACE_SYSVAR_CNT (0UL FD_TXNTRACE_SYSVAR_ITER( FD_TXNTRACE_SYSVAR_CNT_HELPER ))
+
+static fd_soltrace_Account *
+fd_txntrace_capture_acct( fd_soltrace_Account *       acc_out,
+                          fd_exec_slot_ctx_t const *    slot_ctx,
+                          uchar const                 acc_addr[ static 32 ],
+                          fd_soltrace_Account const * acc_pre ) {
+  fd_acc_mgr_t *  acc_mgr  = slot_ctx->acc_mgr;
+  fd_funk_txn_t * funk_txn = slot_ctx->funk_txn;
+
+  /* Lookup account */
+  FD_BORROWED_ACCOUNT_DECL(acc);
+  int err = fd_acc_mgr_view( acc_mgr, funk_txn, fd_type_pun_const( acc_addr ), acc );
+  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+    FD_LOG_DEBUG(( "fd_acc_mgr_view(%32J) failed (%d-%s)",
+                   acc_addr, err, fd_acc_mgr_strerror( err ) ));
+    return NULL;
+  }
+  ulong data_sz = acc->const_meta->dlen;
+
+  fd_memset( acc_out, 0, sizeof(fd_soltrace_Account) );
+
+  /* Capture account */
+  acc_out->meta = (fd_soltrace_AccountMeta) {
+    .lamports   = acc->const_meta->info.lamports,
+    .slot       = acc->const_meta->slot,
+    .rent_epoch = acc->const_meta->info.rent_epoch,
+    .executable = acc->const_meta->info.executable
+  };
+  memcpy( acc_out->meta.owner, acc->const_meta->info.owner, 32UL );
+
+  /* Omit data if it didn't change */
+  if(    acc_pre
+      && acc_pre->data->size == data_sz
+      && 0==memcmp( acc_pre->data->bytes, acc->const_data, data_sz ) ) {
+    acc_out->data = NULL;
+  } else {
+    /* Allocate account data */
+    if( FD_LIKELY( fd_scratch_alloc_is_safe( alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( data_sz ) ) ) ) {
+      acc_out->data = fd_scratch_alloc( alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( data_sz ) );
+
+      acc_out->data->size = (pb_size_t)data_sz;
+      fd_memcpy( acc_out->data->bytes, acc->const_data, data_sz );
+    } else {
+      acc_out = NULL;
+    }
+  }
+
+  return acc_out;
+}
+
 fd_soltrace_TxnInput *
 fd_txntrace_capture_pre( fd_soltrace_TxnInput * input,
-                         fd_global_ctx_t *      global,
+                         fd_exec_slot_ctx_t *   slot_ctx,
                          fd_txn_t const *       txn,
                          uchar const *          txn_data ) {
 
@@ -41,16 +106,16 @@ fd_txntrace_capture_pre( fd_soltrace_TxnInput * input,
     input->transaction.address_table_lookups = NULL;
     input->transaction.address_table_lookups_count = 0UL;
 
-    input->accounts = FD_SCRATCH_ALLOC_APPEND( txn_layout,
+    input->account = FD_SCRATCH_ALLOC_APPEND( txn_layout,
         alignof(fd_soltrace_Account),
         sizeof (fd_soltrace_Account) * txn->acct_addr_cnt );
-    input->accounts_count = txn->acct_addr_cnt;
+    input->account_count = txn->acct_addr_cnt;
 
     if( FD_UNLIKELY( !FD_SCRATCH_ALLOC_PUBLISH( txn_layout ) ) ) return NULL;
-    }
+  }
 
   /* Allocate variable-length implicit state */
-  ulong blockhash_cnt = deq_fd_block_block_hash_entry_t_cnt( global->bank.recent_block_hashes.hashes );
+  ulong blockhash_cnt = deq_fd_block_block_hash_entry_t_cnt( slot_ctx->bank.recent_block_hashes.hashes );
   {
     if( FD_UNLIKELY( !fd_scratch_prepare_is_safe( 1UL ) ) ) return NULL;
     FD_SCRATCH_ALLOC_INIT( state_layout, fd_scratch_prepare( 1UL ) );
@@ -60,7 +125,86 @@ fd_txntrace_capture_pre( fd_soltrace_TxnInput * input,
         alignof(fd_soltrace_RecentBlockhash),
         sizeof (fd_soltrace_RecentBlockhash) * blockhash_cnt );
 
+    input->state.feature_count = FD_FEATURE_ID_CNT;
+    input->state.feature = FD_SCRATCH_ALLOC_APPEND( state_layout,
+        alignof(fd_soltrace_KeyedAccount),
+        sizeof (fd_soltrace_KeyedAccount) * FD_FEATURE_ID_CNT );
+
+    input->state.sysvar_count = FD_TXNTRACE_SYSVAR_CNT;
+    input->state.sysvar = FD_SCRATCH_ALLOC_APPEND( state_layout,
+        alignof(fd_soltrace_KeyedAccount),
+        sizeof (fd_soltrace_KeyedAccount) * input->state.sysvar_count );
+
     if( FD_UNLIKELY( !FD_SCRATCH_ALLOC_PUBLISH( state_layout ) ) ) return NULL;
+  }
+
+  /* Capture blockhash queue */
+  {
+    ulong i=0;
+    for( deq_fd_block_block_hash_entry_t_iter_t iter =
+         deq_fd_block_block_hash_entry_t_iter_init( slot_ctx->bank.recent_block_hashes.hashes );
+         deq_fd_block_block_hash_entry_t_iter_done( slot_ctx->bank.recent_block_hashes.hashes, iter );
+         iter = deq_fd_block_block_hash_entry_t_iter_next( slot_ctx->bank.recent_block_hashes.hashes, iter ),
+         i++ ) {
+      fd_block_block_hash_entry_t const * elem = deq_fd_block_block_hash_entry_t_iter_ele( slot_ctx->bank.recent_block_hashes.hashes, iter );
+      fd_soltrace_RecentBlockhash * bh = &input->state.blockhash[i];
+      bh->lamports_per_signature = elem->fee_calculator.lamports_per_signature;
+      fd_memcpy( bh->hash, elem->blockhash.uc, 32UL );
+    }
+  }
+
+  /* Capture sysvar accounts */
+  {
+    fd_soltrace_KeyedAccount * sysvar = input->state.sysvar;
+
+#   define CAPTURE_SYSVAR( NAME )                                                          \
+    do {                                                                                   \
+      fd_memcpy( sysvar->pubkey, NAME .key, 32UL );                                     \
+      int ok = !!fd_txntrace_capture_acct( &sysvar->account, slot_ctx, NAME .key, NULL ); \
+      if( FD_UNLIKELY( !ok ) ) break;  /* skip */                                          \
+      sysvar++;                                                                            \
+    } while(0);
+
+    FD_TXNTRACE_SYSVAR_ITER( CAPTURE_SYSVAR )
+
+#   undef CAPTURE_SYSVAR
+
+    input->state.sysvar_count = (pb_size_t)( sysvar - input->state.sysvar );
+  }
+
+  /* Capture feature accounts */
+  {
+    ulong i=0;
+    for( fd_feature_id_t const * id = fd_feature_iter_init();
+         !fd_feature_iter_done( id );
+         id = fd_feature_iter_next( id ) ) {
+
+      /* Lookup account
+         (Allocates funk memory that will be released once funk_txn
+         expires) */
+
+      FD_BORROWED_ACCOUNT_DECL(acc_rec);
+      int err = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, &id->id, acc_rec );
+      if( err==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
+        if( FD_UNLIKELY( *fd_features_ptr_const( &slot_ctx->epoch_ctx->features, id ) <= slot_ctx->bank.slot ) ) {
+          FD_LOG_ERR(( "Feature %32J activated at slot %lu according to cache, "
+                       "but corresponding feature account does not exist",
+                       id->id.uc ));
+        }
+      } else if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+        FD_LOG_ERR(( "fd_acc_mgr_view(%32J) failed (%d-%s)",
+                     id->id.uc, err, fd_acc_mgr_strerror( err ) ));
+      }
+
+      fd_soltrace_KeyedAccount * acc = &input->state.feature[ i ];
+      fd_memcpy( acc->pubkey, id->id.uc, 32UL );
+      if( FD_UNLIKELY( !fd_txntrace_capture_acct( &acc->account, slot_ctx, id->id.uc, NULL ) ) )
+        return NULL;
+
+      i++;
+    }
+    input->state.feature_count = (pb_size_t)i;
+    FD_LOG_DEBUG(( "Captured %lu feature accounts", i ));
   }
 
   /* Allocate variable-length instruction structures */
@@ -81,39 +225,13 @@ fd_txntrace_capture_pre( fd_soltrace_TxnInput * input,
     if( FD_UNLIKELY( !FD_SCRATCH_ALLOC_PUBLISH( instr_layout ) ) ) return NULL;
   }
 
-  fd_acc_mgr_t *  acc_mgr  = global->acc_mgr;
-  fd_funk_txn_t * funk_txn = global->funk_txn;
-
   /* Allocate and capture accounts */
   for( ulong i=0UL; i < txn->acct_addr_cnt; i++ ) {
-    fd_soltrace_Account *  acc_out   = &input->accounts[i];
+    fd_soltrace_Account *  acc_out   = &input->account[i];
     fd_acct_addr_t const * acc_addr  = &fd_txn_get_acct_addrs( txn, txn_data )[i];
-    fd_pubkey_t    const * acc_addr2 = fd_type_pun_const( acc_addr );  /* silly */
 
-    /* Lookup account */
-    fd_borrowed_account_t acc_in[1];
-    if( FD_UNLIKELY( fd_acc_mgr_view( acc_mgr, funk_txn, acc_addr2, acc_in )
-                     !=FD_ACC_MGR_SUCCESS ) )
+    if( FD_UNLIKELY( !fd_txntrace_capture_acct( acc_out, slot_ctx, acc_addr->b, NULL ) ) )
       return NULL;
-
-    fd_memset( acc_out, 0, sizeof(fd_soltrace_Account) );
-
-    /* Allocate account data */
-    ulong data_sz = acc_in->const_meta->dlen;
-    if( FD_UNLIKELY( !fd_scratch_alloc_is_safe( alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( data_sz ) ) ) ) return NULL;
-    acc_out->data = fd_scratch_alloc( alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( data_sz ) );
-
-    /* Capture account */
-    acc_out->meta = (fd_soltrace_AccountMeta) {
-      .lamports   = acc_in->const_meta->info.lamports,
-      .slot       = acc_in->const_meta->slot,
-      .rent_epoch = acc_in->const_meta->info.rent_epoch,
-      .executable = acc_in->const_meta->info.executable
-    };
-    memcpy( acc_out->meta.owner, acc_in->const_meta->info.owner, 32UL );
-
-    acc_out->data->size = (uint)data_sz;
-    fd_memcpy( acc_out->data->bytes, acc_in->const_data, data_sz );
   }
 
   /* Capture transaction */
@@ -149,12 +267,19 @@ fd_txntrace_capture_pre( fd_soltrace_TxnInput * input,
 
   /* Capture implicit state */
   fd_soltrace_ImplicitState * state = &input->state;
-  state->prev_slot = global->bank.prev_slot;
+  state->prev_slot = slot_ctx->bank.prev_slot;
+  state->fee_rate_governor = (fd_soltrace_FeeRateGovernor) {
+    .target_lamports_per_signature = slot_ctx->bank.fee_rate_governor.target_lamports_per_signature,
+    .target_signatures_per_slot    = slot_ctx->bank.fee_rate_governor.target_signatures_per_slot,
+    .min_lamports_per_signature    = slot_ctx->bank.fee_rate_governor.min_lamports_per_signature,
+    .max_lamports_per_signature    = slot_ctx->bank.fee_rate_governor.max_lamports_per_signature,
+    .burn_percent                  = slot_ctx->bank.fee_rate_governor.burn_percent,
+  };
   for( ulong i=0UL; i<blockhash_cnt; i++ ) {
     state->blockhash[ i ].lamports_per_signature =
-        global->bank.recent_block_hashes.hashes[i].fee_calculator.lamports_per_signature;
+        slot_ctx->bank.recent_block_hashes.hashes[i].fee_calculator.lamports_per_signature;
     fd_memcpy( state->blockhash[ i ].hash,
-               global->bank.recent_block_hashes.hashes[i].blockhash.uc,
+               slot_ctx->bank.recent_block_hashes.hashes[i].blockhash.uc,
                32UL );
   }
 
@@ -163,10 +288,33 @@ fd_txntrace_capture_pre( fd_soltrace_TxnInput * input,
 
 fd_soltrace_TxnDiff *
 fd_txntrace_capture_post( fd_soltrace_TxnDiff *        out,
-                          fd_global_ctx_t *            global,
+                          fd_exec_slot_ctx_t *         slot_ctx,
                           fd_soltrace_TxnInput const * pre ) {
-  (void)global; (void)pre;
   fd_memset( out, 0, sizeof(fd_soltrace_TxnDiff) );
+
+  {
+    if( FD_UNLIKELY( !fd_scratch_prepare_is_safe( 1UL ) ) ) return NULL;
+    FD_SCRATCH_ALLOC_INIT( layout, fd_scratch_prepare( 1UL ) );
+
+    out->account_count = pre->account_count;
+    out->account = FD_SCRATCH_ALLOC_APPEND( layout,
+          alignof(fd_soltrace_Account),
+          sizeof (fd_soltrace_Account) * pre->account_count );
+
+    if( FD_UNLIKELY( !FD_SCRATCH_ALLOC_PUBLISH( layout ) ) ) return NULL;
+    fd_memset( out->account, 0, sizeof(fd_soltrace_Account) * out->account_count );
+  }
+
+  /* Allocate and capture accounts */
+  for( ulong i=0UL; i < pre->account_count; i++ ) {
+    fd_soltrace_Account * acc_out   = &out->account[i];
+    fd_soltrace_Account * acc_in    = &pre->account[i];
+    uchar const *         acc_addr  = pre->transaction.account_keys[i];
+
+    if( FD_UNLIKELY( !fd_txntrace_capture_acct( acc_out, slot_ctx, acc_addr, acc_in ) ) )
+      return NULL;
+  }
+
   return out;
 }
 
@@ -178,28 +326,66 @@ static fd_rent_t const default_rent = {
   .burn_percent            = 50
 };
 
+static void
+fd_txntrace_load_defaults( fd_exec_slot_ctx_t * slot_ctx ) {
+
+  fd_memcpy( &slot_ctx->bank.rent, &default_rent, sizeof(fd_rent_t) );
+  fd_sysvar_rent_init( slot_ctx );
+
+}
+
+static void
+fd_txntrace_load_acct( fd_exec_slot_ctx_t *           slot_ctx,
+                       uchar const                 pubkey_[ static 32 ],
+                       fd_soltrace_Account const * acc ) {
+
+  /* Create account and acquire write handle */
+
+  FD_BORROWED_ACCOUNT_DECL(rec);
+
+  fd_acc_mgr_t *      acc_mgr  = slot_ctx->acc_mgr;
+  fd_funk_txn_t *     funk_txn = slot_ctx->funk_txn;
+  fd_pubkey_t const * pubkey   = (fd_pubkey_t const *)pubkey_;
+
+  int err = fd_acc_mgr_modify( acc_mgr, funk_txn, pubkey, 1, acc->data->size, rec );
+  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) )
+    FD_LOG_ERR(( "fd_acc_mgr_modify failed (%d-%s)", err, fd_acc_mgr_strerror( err ) ));
+
+  /* Copy content */
+
+  rec->meta->dlen            = acc->data->size;
+  rec->meta->slot            = acc->meta.slot;
+  rec->meta->info.lamports   = acc->meta.lamports;
+  rec->meta->info.rent_epoch = acc->meta.rent_epoch;
+  memcpy( rec->meta->info.owner, acc->meta.owner, 32UL );
+  rec->meta->info.executable = acc->meta.executable;
+
+  fd_memcpy( rec->data, acc->data->bytes, acc->data->size );
+
+  /* Update account hash */
+
+  err = fd_acc_mgr_commit( slot_ctx->acc_mgr, rec, slot_ctx );
+  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) )
+    FD_LOG_ERR(( "fd_acc_mgr_commit failed (%d-%s)", err, fd_acc_mgr_strerror( err ) ));
+}
+
 /* TODO: fd_txntrace_load_sysvars logic is duplicated.  There should be
    some common place to restore sysvars. */
 
 static void
-fd_txntrace_load_sysvars( fd_global_ctx_t *                global,
+fd_txntrace_load_sysvars( fd_exec_slot_ctx_t *             slot_ctx,
                           fd_soltrace_KeyedAccount const * sysvar,
                           ulong                            sysvar_cnt ) {
 
   for( ulong i=0UL; i<sysvar_cnt; i++ ) {
 
-    uchar const *                   key  = sysvar[i].pubkey;
-    fd_soltrace_Account     const * acc  = &sysvar[i].account;
-    fd_soltrace_AccountMeta const * meta = &acc->meta;
-
-    fd_sysvar_set( global, meta->owner, (fd_pubkey_t const *)key,
-                   acc->data->bytes, acc->data->size,
-                   meta->slot, &meta->lamports );
+    fd_txntrace_load_acct( slot_ctx, sysvar[i].pubkey, &sysvar[i].account );
 
     /* Update sysvar cache (ugly!) */
 
-    if( 0==memcmp( key, global->sysvar_rent, sizeof(fd_pubkey_t) ) ) {
-      FD_TEST( 0==fd_sysvar_rent_read( global, &global->bank.rent ) );
+    uchar const * pubkey = sysvar->pubkey;
+    if( 0==memcmp( pubkey, fd_sysvar_rent_id.key, sizeof(fd_pubkey_t) ) ) {
+      FD_TEST( 0==fd_sysvar_rent_read( slot_ctx, &slot_ctx->bank.rent ) );
     }
 
   }
@@ -207,51 +393,42 @@ fd_txntrace_load_sysvars( fd_global_ctx_t *                global,
 }
 
 static void
-fd_txntrace_load_defaults( fd_global_ctx_t * global ) {
-
-  fd_memcpy( &global->bank.rent, &default_rent, sizeof(fd_rent_t) );
-  fd_sysvar_rent_init( global );
-
-}
-
-static void
-fd_txntrace_load_state( fd_global_ctx_t *                 global,
+fd_txntrace_load_state( fd_exec_slot_ctx_t *              slot_ctx,
                         fd_soltrace_ImplicitState const * state ) {
 
-  fd_txntrace_load_defaults( global );
-  fd_txntrace_load_sysvars( global, state->sysvars, state->sysvars_count );
+  fd_txntrace_load_defaults( slot_ctx );
+  fd_txntrace_load_sysvars ( slot_ctx, state->sysvar,  state->sysvar_count  );
 
-  fd_firedancer_banks_t * bank = &global->bank;
+  for( ulong i=0UL; i < state->feature_count; i++ ) {
+    fd_soltrace_KeyedAccount const * acc = &state->feature[i];
+    fd_txntrace_load_acct( slot_ctx, acc->pubkey, &acc->account );
+  }
+  fd_features_restore( slot_ctx );  /* populate feature cache */
+
+  fd_firedancer_banks_t * bank = &slot_ctx->bank;
   bank->prev_slot = state->prev_slot;
   memcpy( bank->banks_hash.uc, state->bank_hash, 32UL );
   bank->capitalization = state->capitalization;
   bank->block_height = state->block_height;
 
+  bank->fee_rate_governor = (fd_fee_rate_governor_t) {
+    .target_lamports_per_signature = state->fee_rate_governor.target_lamports_per_signature,
+    .target_signatures_per_slot    = state->fee_rate_governor.target_signatures_per_slot,
+    .min_lamports_per_signature    = state->fee_rate_governor.min_lamports_per_signature,
+    .max_lamports_per_signature    = state->fee_rate_governor.max_lamports_per_signature,
+    .burn_percent                  = (uchar)state->fee_rate_governor.burn_percent
+  };
+
   void * mem = fd_scratch_alloc( deq_fd_block_block_hash_entry_t_align(), deq_fd_block_block_hash_entry_t_footprint() );
   bank->recent_block_hashes.hashes = deq_fd_block_block_hash_entry_t_join( deq_fd_block_block_hash_entry_t_new( mem ) );
+  FD_TEST( !!bank->recent_block_hashes.hashes );
+  for( ulong i=0UL; i < state->blockhash_count; i++ ) {
+    fd_block_block_hash_entry_t * entry =
+      deq_fd_block_block_hash_entry_t_push_tail_nocopy( bank->recent_block_hashes.hashes );
+    entry->fee_calculator.lamports_per_signature = state->blockhash[i].lamports_per_signature;
+    memcpy( entry->blockhash.uc, state->blockhash[i].hash, 32UL );
+  }
 
-}
-
-static void
-fd_txntrace_load_account( fd_global_ctx_t *     global,
-                          uchar const           addr[ static 32 ],
-                          fd_soltrace_Account * acc ) {
-
-  fd_pubkey_t const * pubkey = (fd_pubkey_t const *)addr;
-  fd_borrowed_account_t handle[1] = {{0}};
-  int err = fd_acc_mgr_modify( global->acc_mgr, global->funk_txn, pubkey, 1, acc->data->size, handle );
-  FD_TEST( err==FD_ACC_MGR_SUCCESS );
-
-  handle->meta->dlen            = acc->data->size;
-  handle->meta->slot            = acc->meta.slot;
-  handle->meta->info.lamports   = acc->meta.lamports;
-  handle->meta->info.rent_epoch = acc->meta.rent_epoch;
-  handle->meta->info.executable = acc->meta.executable;
-  memcpy( handle->meta->info.owner, acc->meta.owner, 32UL );
-
-  fd_memcpy( handle->data, acc->data->bytes, acc->data->size );
-
-  fd_acc_mgr_commit( global->acc_mgr, handle, acc->meta.slot, 0 );
 }
 
 /* fd_txn_o_t is a handle to a txn created by fd_txntrace_create.
@@ -354,12 +531,15 @@ fd_txntrace_create( fd_solblock_Message const * msg ) {
     /* Allocate instruction parts */
 
     uchar * instr_accts = heap;
-    heap += src->accounts->size;
+    heap += src_accs->size;
 
     uchar * data = heap;
-    heap += src->data->size;
+    heap += src_data->size;
 
     FD_TEST( (ulong)heap - heap_base <= USHORT_MAX );
+
+    fd_memcpy( instr_accts, src_accs->bytes, src_accs->size );
+    fd_memcpy( data,        src_data->bytes, src_data->size );
 
     /* Assemble instruction */
 
@@ -384,18 +564,12 @@ fd_txntrace_create( fd_solblock_Message const * msg ) {
   };
 }
 
-static bool
-fd_txntrace_replay2( fd_global_ctx_t * global,
-                     fd_txn_o_t        to ) {
-
-  fd_execute_txn( global, to.txn, &to.heap );
-
-  return true;
-}
-
 fd_soltrace_TxnDiff *
-fd_txntrace_replay( fd_soltrace_TxnInput const * in,
+fd_txntrace_replay( fd_soltrace_TxnDiff *        out,
+                    fd_soltrace_TxnInput const * in,
                     fd_wksp_t *                  wksp ) {
+
+  FD_LOG_DEBUG(( "fd_txntrace_replay start" ));
 
   /* Create funk database */
 
@@ -412,35 +586,125 @@ fd_txntrace_replay( fd_soltrace_TxnInput const * in,
 
   /* Create a global context */
 
-  fd_global_ctx_t * global = fd_global_ctx_join( fd_global_ctx_new(
-      fd_scratch_alloc( FD_GLOBAL_CTX_ALIGN, FD_GLOBAL_CTX_FOOTPRINT ) ) );
-  FD_TEST( global );
+  fd_exec_slot_ctx_t * slot_ctx = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new(
+      fd_scratch_alloc( FD_EXEC_SLOT_CTX_ALIGN, FD_EXEC_SLOT_CTX_FOOTPRINT ) ) );
+  FD_TEST( slot_ctx );
+
+ fd_exec_epoch_ctx_t * epoch_ctx = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new(
+      fd_scratch_alloc( FD_EXEC_EPOCH_CTX_ALIGN, FD_EXEC_EPOCH_CTX_FOOTPRINT ) ) );
+  FD_TEST( epoch_ctx );
+  slot_ctx->epoch_ctx = epoch_ctx;
 
   fd_acc_mgr_t _acc_mgr[1];
-  global->acc_mgr = fd_acc_mgr_new( _acc_mgr, global );
+  slot_ctx->acc_mgr = fd_acc_mgr_new( _acc_mgr, funk );
 
-  global->valloc   = fd_scratch_virtual();
-  global->funk     = funk;
-  global->funk_txn = funk_txn;
+  slot_ctx->valloc   = fd_scratch_virtual();
+  slot_ctx->funk_txn = funk_txn;
 
-  fd_txntrace_load_state( global, &in->state );
-  for( ulong i=0UL; i < in->accounts_count; i++ )
-    fd_txntrace_load_account( global, in->transaction.account_keys[i], &in->accounts[i] );
+  fd_txntrace_load_state( slot_ctx, &in->state );
+  for( ulong i=0UL; i < in->account_count; i++ )
+    fd_txntrace_load_acct( slot_ctx, in->transaction.account_keys[i], &in->account[i] );
+
+  /* Prevent recursion */
+  slot_ctx->trace_mode = 0;
 
   /* Create and replay transaction */
 
   fd_scratch_push();
   fd_txn_o_t to = fd_txntrace_create( &in->transaction );
-  if( to.txn )
-    fd_txntrace_replay2( global, to );
+  if( FD_UNLIKELY( !to.txn ) )
+    FD_LOG_ERR(( "fd_txntrace_create failed (out of scratch memory?)" ));
+  fd_execute_txn( slot_ctx, to.txn, &to.heap );
   fd_scratch_pop();
+
+  /* Export diff */
+
+  out = fd_txntrace_capture_post( out, slot_ctx, in );
 
   /* Clean up */
 
   fd_funk_txn_cancel( funk, funk_txn, 1 );
-  fd_global_ctx_delete( fd_global_ctx_leave( global ) );
+  fd_exec_slot_ctx_delete( fd_exec_slot_ctx_leave( slot_ctx ) );
+  fd_exec_epoch_ctx_delete( fd_exec_epoch_ctx_leave( epoch_ctx ) );
   fd_wksp_free_laddr( fd_funk_delete( fd_funk_leave( funk ) ) );
 
+  FD_LOG_DEBUG(( "fd_txntrace_replay success" ));
+
   /* out may be NULL */
-  return NULL;
+  return out;
+}
+
+/* Diff ***************************************************************/
+
+static FD_TLS char diff_cstr[ 2048UL ];
+
+char const *
+fd_txntrace_diff_cstr( void ) {
+  return diff_cstr;
+}
+
+int
+fd_txntrace_diff( fd_soltrace_TxnDiff const * left,
+                  fd_soltrace_TxnDiff const * right ) {
+  if( FD_UNLIKELY( left->account_count != right->account_count ) ) {
+    fd_cstr_printf( diff_cstr, sizeof(diff_cstr), NULL,
+                    "account_count %u != %u",
+                    left->account_count, right->account_count );
+    return 0;
+  }
+
+  /* TODO use fd_capture diff API */
+
+  for( ulong i=0UL; i<left->account_count; i++ ) {
+    fd_soltrace_Account const * left_acc  = &left->account[i];
+    fd_soltrace_Account const * right_acc = &right->account[i];
+
+    if( FD_UNLIKELY( left_acc->meta.lamports != right_acc->meta.lamports ) ) {
+      fd_cstr_printf( diff_cstr, sizeof(diff_cstr), NULL,
+                      "account[%lu].meta.lamports %lu != %lu",
+                      i, left_acc->meta.lamports, right_acc->meta.lamports );
+      return 0;
+    }
+    if( FD_UNLIKELY( left_acc->meta.slot != right_acc->meta.slot ) ) {
+      fd_cstr_printf( diff_cstr, sizeof(diff_cstr), NULL,
+                      "account[%lu].meta.slot %lu != %lu",
+                      i, left_acc->meta.slot, right_acc->meta.slot );
+      return 0;
+    }
+    if( FD_UNLIKELY( left_acc->meta.rent_epoch != right_acc->meta.rent_epoch ) ) {
+      fd_cstr_printf( diff_cstr, sizeof(diff_cstr), NULL,
+                      "account[%lu].meta.rent_epoch %lu != %lu",
+                      i, left_acc->meta.rent_epoch, right_acc->meta.rent_epoch );
+      return 0;
+    }
+    if( FD_UNLIKELY( left_acc->meta.executable != right_acc->meta.executable ) ) {
+      fd_cstr_printf( diff_cstr, sizeof(diff_cstr), NULL,
+                      "account[%lu].meta.executable %u != %u",
+                      i, left_acc->meta.executable, right_acc->meta.executable );
+      return 0;
+    }
+    if( FD_UNLIKELY( 0!=memcmp( left_acc->meta.owner, right_acc->meta.owner, 32UL ) ) ) {
+      fd_cstr_printf( diff_cstr, sizeof(diff_cstr), NULL,
+                      "account[%lu].meta.owner != account[%lu].meta.owner",
+                      i, i );
+      return 0;
+    }
+    /* TODO properly detect case where account didn't change */
+    if( (!!left_acc->data) & (!!right_acc->data) ) {
+      if( FD_UNLIKELY( left_acc->data->size != right_acc->data->size ) ) {
+        fd_cstr_printf( diff_cstr, sizeof(diff_cstr), NULL,
+                        "account[%lu].data->size %u != %u",
+                        i, left_acc->data->size, right_acc->data->size );
+        return 0;
+      }
+      if( FD_UNLIKELY( 0!=memcmp( left_acc->data->bytes, right_acc->data->bytes, left_acc->data->size ) ) ) {
+        fd_cstr_printf( diff_cstr, sizeof(diff_cstr), NULL,
+                        "account[%lu].data->bytes != account[%lu].data->bytes",
+                        i, i );
+        return 0;
+      }
+    }
+  }
+
+  return 1;
 }

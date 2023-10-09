@@ -28,13 +28,16 @@ static uint limits[] = {
   1000000,
 };
 
+static const char * ERR_MSG = "system might not support configuring sysctl,";
+
+
 /* These sysctl limits are needed for the Solana Labs client, not Firedancer.
    We set them on their behalf to make configuration easier for users. */
 static void
 init( config_t * const config ) {
   (void)config;
   for( ulong i=0; i<sizeof( params ) / sizeof( params[ 0 ] ); i++ ) {
-    uint param = read_uint_file( params[ i ] );
+    uint param = read_uint_file( params[ i ], ERR_MSG );
     if( FD_UNLIKELY( param < limits[ i ] ) )
       write_uint_file( params[ i ], limits[ i ] );
   }
@@ -44,7 +47,7 @@ static configure_result_t
 check( config_t * const config ) {
   (void)config;
   for( ulong i=0; i<sizeof( params ) / sizeof( params[ 0 ] ); i++ ) {
-    uint param = read_uint_file( params[ i ] );
+    uint param = read_uint_file( params[ i ], ERR_MSG );
     if( FD_UNLIKELY( param < limits[ i ] ) )
       NOT_CONFIGURED( "kernel parameter `%s` is too low (%u < %lu)", params[ i ], param, limits[ i ] );
   }

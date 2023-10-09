@@ -16,6 +16,11 @@
 #include "templ/fd_quic_frames_templ.h"
 #include "templ/fd_quic_undefs.h"
 
+#include "templ/fd_quic_max_footprint.h"
+#include "templ/fd_quic_templ.h"
+#include "templ/fd_quic_frames_templ.h"
+#include "templ/fd_quic_undefs.h"
+
 #include "templ/fd_quic_encoders_decl.h"
 #include "templ/fd_quic_templ.h"
 #include "templ/fd_quic_frames_templ.h"

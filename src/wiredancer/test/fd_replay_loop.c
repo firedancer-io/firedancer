@@ -318,7 +318,7 @@ fd_replay_tile( fd_cnc_t *       cnc,
 
     FD_LOG_INFO(( "Closing pcap" ));
     if( FD_UNLIKELY( fclose( fd_pcap_iter_delete( pcap_iter ) ) ) )
-      FD_LOG_WARNING(( "fclose failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      FD_LOG_WARNING(( "fclose failed (%i-%s)", errno, strerror( errno ) ));
 
     FD_LOG_INFO(( "Halted replay" ));
     fd_cnc_signal( cnc, FD_CNC_SIGNAL_BOOT );
@@ -497,7 +497,7 @@ fd_replay_tile_loop(  fd_cnc_t *       cnc,
   fd_cnc_signal( cnc, FD_CNC_SIGNAL_RUN );
   long then = fd_tickcount();
   long now  = then;
-  FD_LOG_WARNING(("replay-loop running ..."));
+  FD_LOG_NOTICE(("replay-loop running ..."));
   for(;;) {
 
     /* FIXME remove when ready - debug only */
@@ -628,7 +628,7 @@ fd_replay_tile_loop(  fd_cnc_t *       cnc,
 
     FD_LOG_INFO(( "Closing pcap" ));
     if( FD_UNLIKELY( fclose( fd_pcap_iter_delete( pcap_iter ) ) ) )
-      FD_LOG_WARNING(( "fclose failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      FD_LOG_WARNING(( "fclose failed (%i-%s)", errno, strerror( errno ) ));
 
     FD_LOG_INFO(( "Halted replay" ));
     fd_cnc_signal( cnc, FD_CNC_SIGNAL_BOOT );
@@ -637,6 +637,7 @@ fd_replay_tile_loop(  fd_cnc_t *       cnc,
 
   return 0;
 }
+
 
 #undef SCRATCH_ALLOC
 

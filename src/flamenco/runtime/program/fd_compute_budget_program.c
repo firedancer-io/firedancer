@@ -1,21 +1,23 @@
 #include "fd_compute_budget_program.h"
 
+#include "../fd_system_ids.h"
+
 #define DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT  (200000)
 #define MAX_COMPUTE_UNIT_LIMIT                  (1400000)
 
 static inline int
-is_compute_budget_instruction( transaction_ctx_t * ctx, fd_txn_instr_t * instr ) {
+is_compute_budget_instruction( fd_exec_txn_ctx_t * ctx, fd_txn_instr_t * instr ) {
   fd_pubkey_t * txn_accs = ctx->accounts;
   fd_pubkey_t * program_pubkey = &txn_accs[instr->program_id];
-  return !memcmp(program_pubkey, ctx->global->solana_compute_budget_program, sizeof(fd_pubkey_t));
+  return !memcmp(program_pubkey, fd_solana_compute_budget_program_id.key, sizeof(fd_pubkey_t));
 }
 
 // No-op as compute budget instructions are processed prior.
-int fd_executor_compute_budget_program_execute_instruction_nop( FD_FN_UNUSED instruction_ctx_t ctx ) {
+int fd_executor_compute_budget_program_execute_instruction_nop( FD_FN_UNUSED fd_exec_instr_ctx_t ctx ) {
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
-int fd_executor_compute_budget_program_execute_instructions( transaction_ctx_t * ctx, fd_rawtxn_b_t const * txn_raw ) {
+int fd_executor_compute_budget_program_execute_instructions( fd_exec_txn_ctx_t * ctx, fd_rawtxn_b_t const * txn_raw ) {
   uint has_compute_units_limit_update = 0;
   uint has_compute_units_price_update = 0;
   uint has_requested_heap_size = 0;
@@ -43,7 +45,7 @@ int fd_executor_compute_budget_program_execute_instructions( transaction_ctx_t *
     fd_bincode_decode_ctx_t decode_ctx = {
       .data = data,
       .dataend = &data[instr->data_sz],
-      .valloc  = ctx->global->valloc,
+      .valloc  = ctx->valloc,
     };
 
     int ret = fd_compute_budget_program_instruction_decode( &instruction, &decode_ctx );

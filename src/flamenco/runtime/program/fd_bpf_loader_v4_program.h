@@ -50,7 +50,7 @@ fd_bpf_loader_v4_get_state( fd_account_meta_t const * meta,
    instruction processing entrypoint for the Solana BPF loader program */
 
 int
-fd_executor_bpf_loader_v4_program_execute_instruction( instruction_ctx_t ctx );
+fd_executor_bpf_loader_v4_program_execute_instruction( fd_exec_instr_ctx_t ctx );
 
 FD_PROTOTYPES_END
 

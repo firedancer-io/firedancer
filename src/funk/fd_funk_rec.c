@@ -217,12 +217,7 @@ fd_funk_rec_is_modified( fd_funk_t *           funk,
     FD_LOG_CRIT(( "memory corruption detected (bad idx)" ));
   fd_funk_txn_t * txn = txn_map + txn_idx;
 
-  int err;
-  void * val = fd_funk_val_cache( funk, rec, &err );
-  if ( NULL == val ) {
-    FD_LOG_WARNING(("failed to load record: error %d", err));
-    return 1;
-  }
+  void * val = fd_funk_val( rec, wksp );
 
   do {
     /* Go to the parent transaction */
@@ -240,11 +235,7 @@ fd_funk_rec_is_modified( fd_funk_t *           funk,
     if ( rec2 ) {
       if ( rec->val_sz != rec2->val_sz )
         return 1;
-      void * val2 = fd_funk_val_cache( funk, rec2, &err );
-      if ( NULL == val2 ) {
-        FD_LOG_WARNING(("failed to load record: error %d", err));
-        return 1;
-      }
+      void * val2 = fd_funk_val( rec2, wksp );
       return memcmp(val, val2, rec->val_sz) != 0;
     }
   } while (txn);
@@ -378,8 +369,6 @@ fd_funk_rec_insert( fd_funk_t *               funk,
   rec->txn_cidx = fd_funk_txn_cidx( txn_idx );
   rec->tag      = 0U;
   rec->flags    = 0UL;
-  rec->persist_pos = FD_FUNK_REC_IDX_NULL;
-  rec->persist_alloc_sz = FD_FUNK_REC_IDX_NULL;
 
   if( first_born ) *_rec_head_idx                   = rec_idx;
   else             rec_map[ rec_prev_idx ].next_idx = rec_idx;
@@ -589,12 +578,6 @@ fd_funk_rec_write_prepare( fd_funk_t *               funk,
     rec_con = irec;
 
   if ( rec_con ) {
-    if ( rec_con->val_gaddr == 0UL && rec_con->persist_pos != FD_FUNK_REC_IDX_NULL ) {
-      /* Read the value into the cache */
-      if ( fd_funk_val_cache( funk, rec_con, opt_err ) == NULL )
-        return NULL;
-    }
-
     /* We have an incarnation of the record */
     if ( txn == fd_funk_rec_txn( rec_con,  fd_funk_txn_map( funk, wksp ) ) ) {
       /* The record is already in the right transaction */

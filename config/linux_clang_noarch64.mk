@@ -1,4 +1,4 @@
-BUILDDIR:=linux/clang/noarch64
+BUILDDIR?=linux/clang/noarch64
 
 include config/base.mk
 include config/with-clang.mk

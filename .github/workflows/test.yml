@@ -1,0 +1,116 @@
+# On every PR and main commit:
+# - Build on GCC and Clang
+# - Test on GCC
+
+name: Unit Tests
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - next
+  merge_group:
+    types: [checks_requested]
+  workflow_dispatch:
+jobs:
+  make-test:
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [gcc]
+    runs-on:
+      group: github-v1
+    env:
+      CC: ${{ matrix.compiler }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: dtolnay/rust-toolchain@1.69.0
+
+      - uses: ./.github/actions/deps
+
+      - name: Build everything
+        run: make -j -Otarget all rust
+
+      - uses: ./.github/actions/hugepages
+
+      - name: Run unit tests
+        run: |
+          sudo prlimit --pid $$ --memlock=-1:-1
+          ./test.sh -j --page-sz gigantic
+  test-with-sanitizers:
+    # Only run sanitizer tests if the gcc tests passed
+    needs: make-test
+    continue-on-error: true
+    strategy:
+      matrix:
+        # add lowend once its fixed
+        # highend cannot be tested on the hosted runners due to lack of AVX-512
+        feature_set: [modern]
+        sanitizer: [asan, ubsan]
+    runs-on:
+      group: github-v1
+    env:
+      MACHINE: linux_clang_combi_${{ matrix.feature_set }}
+      EXTRAS: ${{ matrix.sanitizer }}
+    steps:
+      - run: lscpu
+
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/deps
+      - uses: ./.github/actions/hugepages
+
+      - name: Build unit tests
+        run: make -j -Otarget unit-test
+
+      - name: Run unit tests
+        run: |
+          sudo prlimit --pid $$ --memlock=-1:-1
+          ./test.sh -j --page-sz gigantic
+
+  make-fuzz:
+    # Only build fuzzers if sanitizer tests pass
+    needs: test-with-sanitizers
+    name: Build Fuzzers for ${{ matrix.feature_set }} feature set
+    strategy:
+      matrix:
+        # add lowend once it's fixed
+        feature_set: [modern, highend]
+    runs-on:
+      group: github-v1
+    env:
+      MACHINE: linux_clang_combi_${{ matrix.feature_set }}
+      EXTRAS: fuzz asan ubsan
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/hugepages
+      - uses: ./.github/actions/deps
+
+      - run: sudo apt update && sudo apt install -y zip
+
+      - uses: firedancer-io/fuzzbot-builder@main
+        name: Build fuzz tests
+        with:
+          command: make -j -Otarget fuzz-test
+
+      - name: List Artifacts
+        run: |
+          ls build/linux/clang/combi/${{ matrix.feature_set }}/fuzz-test
+
+      - uses: firedancer-io/clusterfuzz-action@main
+        # Only publish fuzz targets if on main or next
+        if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/next' }}
+        name: Upload fuzz targets to ClusterFuzz
+        with:
+          bucket-name: firedancer-builds.isol-clusterfuzz.appspot.com
+          artifact-dir: build/linux/clang/combi/${{ matrix.feature_set }}/fuzz-test
+          object-prefix: main/libfuzzer/${{ matrix.feature_set }}/firedancer
+          project-id: isol-clusterfuzz
+          qualifier: ${{ matrix.feature_set }}
+          service-account-credentials: ${{ secrets.FUZZ_SERVICE_ACCT_JSON_BUNDLE }}
+
+

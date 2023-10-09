@@ -427,7 +427,8 @@ fd_scratch_alloc( ulong align,
   ulong end  = smem + sz;
 
 # if FD_SCRATCH_USE_HANDHOLDING
-  if( FD_UNLIKELY( end < smem ) ) FD_LOG_ERR(( "sz (%lu) overflow", sz ));
+  if( FD_UNLIKELY( end < smem ) )
+    FD_LOG_ERR(( "sz (%lu) overflow", sz ));
 # endif
 
   fd_scratch_publish( (void *)end );
