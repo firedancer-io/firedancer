@@ -2221,7 +2221,7 @@ deactivate_delinquent( fd_exec_txn_ctx_t *     transaction_context,
                        uchar                   delinquent_vote_account_index,
                        uchar                   reference_vote_account_index,
                        ulong                   current_epoch,
-                       fd_valloc_t const *     valloc,
+                       fd_valloc_t       *     valloc,
                        uint *                  custom_err ) {
   int rc;
 
@@ -2250,7 +2250,7 @@ deactivate_delinquent( fd_exec_txn_ctx_t *     transaction_context,
   fd_vote_state_versioned_t delinquent_vote_state_versioned = { 0 };
   // TODO .. maybe we should have just passed this down instead of rebuilding it?
   fd_exec_instr_ctx_t ctx = {
-      .instr = instruction_context, .txn_ctx = transaction_context };
+      .instr = instruction_context, .txn_ctx = transaction_context, .valloc = *valloc};
   rc = fd_vote_get_state( delinquent_vote_account, ctx, &delinquent_vote_state_versioned );
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
   fd_vote_convert_to_current( &delinquent_vote_state_versioned, ctx );
