@@ -216,7 +216,7 @@ solana_labs_main( void * args ) {
     }
   }
 
-  ADD1( "fdxxctl" );
+  ADD1( "fdctl" );
   ADD( "--log", "-" );
   ADD( "--firedancer-app-name", config->name );
 
