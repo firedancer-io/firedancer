@@ -1953,8 +1953,9 @@ redelegate( instruction_ctx_t *       invoke_context,
   }
 
   fd_stake_state_v2_t uninitialized_stake_account_state = { 0 };
-  rc                                                    = get_state(
-      uninitialized_stake_account, &invoke_context->global->valloc, &uninitialized_stake_account_state );
+  rc                                                    = get_state( uninitialized_stake_account,
+                  &invoke_context->global->valloc,
+                  &uninitialized_stake_account_state );
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
   if ( FD_UNLIKELY( uninitialized_stake_account_state.discriminant !=
                     fd_stake_state_v2_enum_uninitialized ) ) {
@@ -1976,13 +1977,12 @@ redelegate( instruction_ctx_t *       invoke_context,
   rc = fd_vote_get_state( vote_account, *invoke_context, &vote_state );
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
 
-  fd_stake_meta_t     stake_meta      = { 0 };
-  ulong               effective_stake = ULONG_MAX;
-  fd_stake_state_v2_t stake_account_state     = { 0 };
+  fd_stake_meta_t     stake_meta          = { 0 };
+  ulong               effective_stake     = ULONG_MAX;
+  fd_stake_state_v2_t stake_account_state = { 0 };
   rc = get_state( stake_account, &invoke_context->global->valloc, &stake_account_state );
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
-  if ( FD_LIKELY( stake_account_state.discriminant ==
-                  fd_stake_state_v2_enum_stake ) ) {
+  if ( FD_LIKELY( stake_account_state.discriminant == fd_stake_state_v2_enum_stake ) ) {
     fd_stake_meta_t meta  = stake_account_state.inner.stake.meta;
     fd_stake_t      stake = stake_account_state.inner.stake.stake;
 
@@ -2000,7 +2000,7 @@ redelegate( instruction_ctx_t *       invoke_context,
 
     if ( FD_UNLIKELY( status.effective == 0 || status.activating != 0 ||
                       status.deactivating != 0 ) ) {
-      FD_DEBUG ( FD_LOG_WARNING( ( "stake is not active" ) ) );
+      FD_DEBUG( FD_LOG_WARNING( ( "stake is not active" ) ) );
       *custom_err = FD_STAKE_ERR_REDELEGATE_TRANSIENT_OR_INACTIVE_STAKE;
       return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
     }
@@ -2091,7 +2091,8 @@ withdraw( instruction_ctx_t *           invoke_context,
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
   if ( FD_UNLIKELY( !is_signer ) ) return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
 
-  fd_pubkey_t const * signers[FD_TXN_SIG_MAX] = { &withdraw_authority_pubkey }; // TODO: This feels wrong
+  fd_pubkey_t const * signers[FD_TXN_SIG_MAX] = {
+      &withdraw_authority_pubkey }; // TODO: This feels wrong
 
   FD_BORROWED_ACCOUNT_DECL( stake_account );
   rc = try_borrow_instruction_account(
@@ -2915,7 +2916,7 @@ fd_executor_stake_program_execute_instruction( instruction_ctx_t ctx ) {
 
     if ( FD_LIKELY( FD_FEATURE_ACTIVE( ctx.global, vote_stake_checked_instructions ) ) ) {
       fd_pubkey_t const * custodian_pubkey = NULL;
-      rc = get_optional_pubkey( ctx, 3, true, &custodian_pubkey );
+      rc                                   = get_optional_pubkey( ctx, 3, true, &custodian_pubkey );
       if ( FD_UNLIKELY( rc != OK ) ) return rc;
 
       fd_lockup_args_t lockup = { .unix_timestamp = lockup_checked->unix_timestamp,
