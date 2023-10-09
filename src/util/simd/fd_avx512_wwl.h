@@ -124,8 +124,6 @@ static inline wwl_t wwl_ror_vector( wwl_t a, wwl_t b ) {
 #define wwl_to_wwv(x)     (x) /* wwv( (ulong)x0, (ulong)x1, ... (ulong)x7 ) */
 #define wwl_to_wwv_raw(x) (x) /* reinterp raw bits as a wwv */
 
-#define wwl_blend(m,x,y) wwl_if((m),(y),(x)) /* TODO: DEPRECATE */
-
 /* Misc operations */
 
 /* wwl_pack_halves(x,imm0,y,imm1) packs half of x and half of y into a
