@@ -25,7 +25,7 @@ int
 fd_pcapng_idb_defaults( fd_pcapng_idb_opts_t * opt,
                         uint                   if_idx ) {
 # if defined(__linux__)
-  static FD_TLS char _name[ IF_NAMESIZE ];
+  static FD_TL char _name[ IF_NAMESIZE ];
   char * name = if_indextoname( if_idx, _name );
   if( FD_UNLIKELY( !name ) ) return 0;
   FD_STATIC_ASSERT( 16>=IF_NAMESIZE, ifname_sz );
@@ -70,7 +70,7 @@ fd_pcapng_iter_footprint( void ) {
 static char const *
 fd_pcapng_iter_strerror( int    error,
                          FILE * file ) {
-  static FD_TLS char err_cstr_buf[ 1024UL ];
+  static FD_TL char err_cstr_buf[ 1024UL ];
 
   char * err_cstr = fd_cstr_init( err_cstr_buf );
   switch( error ) {
@@ -242,7 +242,7 @@ fd_pcapng_iter_delete( fd_pcapng_iter_t * iter ) {
 fd_pcapng_frame_t const *
 fd_pcapng_iter_next( fd_pcapng_iter_t * iter ) {
 
-  static FD_TLS fd_pcapng_frame_t pkt;
+  static FD_TL fd_pcapng_frame_t pkt;
 
   /* Clear fields */
   pkt.ts      = 0L;
