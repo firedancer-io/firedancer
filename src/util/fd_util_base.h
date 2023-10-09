@@ -713,7 +713,7 @@ fd_type_pun_const( void const * p ) {
 
 #endif /* FD_HAS_ATOMIC */
 
-/* FD_TLS:  This indicates that the variable should be thread local.
+/* FD_TL:  This indicates that the variable should be thread local.
 
    FD_ONCE_{BEGIN,END}:  The block:
 
@@ -761,8 +761,8 @@ fd_type_pun_const( void const * p ) {
 
 #if FD_HAS_THREADS /* Potentially more than one thread in the process */
 
-#ifndef FD_TLS
-#define FD_TLS __thread
+#ifndef FD_TL
+#define FD_TL __thread
 #endif
 
 #define FD_ONCE_BEGIN do {                                                \
@@ -785,9 +785,9 @@ fd_type_pun_const( void const * p ) {
     }                             \
   } while(0)
 
-#define FD_THREAD_ONCE_BEGIN do {                        \
-    static FD_TLS int _fd_thread_once_block_state = 0;   \
-    if( FD_UNLIKELY( !_fd_thread_once_block_state ) ) {  \
+#define FD_THREAD_ONCE_BEGIN do {                       \
+    static FD_TL int _fd_thread_once_block_state = 0;   \
+    if( FD_UNLIKELY( !_fd_thread_once_block_state ) ) { \
       do
 
 #define FD_THREAD_ONCE_END             \
@@ -798,8 +798,8 @@ fd_type_pun_const( void const * p ) {
 
 #else /* Only one thread in the process */
 
-#ifndef FD_TLS
-#define FD_TLS /**/
+#ifndef FD_TL
+#define FD_TL /**/
 #endif
 
 #define FD_ONCE_BEGIN do {                       \

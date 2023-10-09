@@ -4,8 +4,8 @@
 #define DEPTH (16UL)
 
 #if !FD_HAS_ALLOCA
-static FD_TLS uchar smem[ SMAX  ] __attribute__((aligned(FD_SCRATCH_SMEM_ALIGN)));
-static FD_TLS ulong fmem[ DEPTH ];
+static FD_TL uchar smem[ SMAX  ] __attribute__((aligned(FD_SCRATCH_SMEM_ALIGN)));
+static FD_TL ulong fmem[ DEPTH ];
 #endif
 
 int
@@ -189,4 +189,3 @@ main( int     argc,
   fd_halt();
   return 0;
 }
-

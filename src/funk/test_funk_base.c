@@ -27,7 +27,7 @@ FD_STATIC_ASSERT( FD_FUNK_XID_KEY_PAIR_FOOTPRINT==96UL,                         
 FD_STATIC_ASSERT( FD_FUNK_XID_KEY_PAIR_ALIGN    ==alignof(fd_funk_xid_key_pair_t), unit_test );
 FD_STATIC_ASSERT( FD_FUNK_XID_KEY_PAIR_FOOTPRINT==sizeof (fd_funk_xid_key_pair_t), unit_test );
 
-static FD_TLS ulong unique_tag = 0UL;
+static FD_TL ulong unique_tag = 0UL;
 
 static fd_funk_rec_key_t *
 fd_funk_rec_key_set_unique( fd_funk_rec_key_t * key ) {
@@ -161,4 +161,3 @@ main( int     argc,
   fd_halt();
   return 0;
 }
-
