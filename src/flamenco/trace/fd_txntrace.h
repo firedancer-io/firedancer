@@ -8,6 +8,7 @@
 #include "../fd_flamenco_base.h"
 #include "fd_trace.pb.h"
 #include "../runtime/fd_executor.h"
+#include "../runtime/context/fd_exec_slot_ctx.h"
 
 /* FD_TXNTRACE_SCRATCH_SPACE is the recommended amount of scratch memory
    available for txn execution captures and replays. */

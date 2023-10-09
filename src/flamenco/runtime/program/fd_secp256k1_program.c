@@ -6,6 +6,7 @@
 #ifdef FD_HAS_SECP256K1
 
 #include "fd_secp256k1_program.h"
+#include "../context/fd_exec_txn_ctx.h"
 #include "../../../ballet/keccak256/fd_keccak256.h"
 #include "../../../ballet/secp256k1/fd_secp256k1.h"
 

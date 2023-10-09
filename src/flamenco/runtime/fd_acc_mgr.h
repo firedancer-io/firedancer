@@ -7,6 +7,7 @@
 #include "fd_banks_solana.h"
 #include "fd_hashes.h"
 #include "fd_borrowed_account.h"
+#include "context/fd_exec_slot_ctx.h"
 
 #define FD_ACC_MGR_SUCCESS             (0)
 #define FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT (-1)
@@ -239,8 +240,5 @@ FD_FN_CONST char const *
 fd_acc_mgr_strerror( int err );
 
 FD_PROTOTYPES_END
-
-/* Represents the lamport balance associated with an account. */
-typedef ulong fd_acc_lamports_t;
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_acc_mgr_h */

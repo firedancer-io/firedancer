@@ -1654,3 +1654,11 @@ fd_borrowed_account_init( void * ptr) {
 
   return ret;
 }
+
+fd_funk_rec_key_t
+fd_runtime_bank_hash_key( ulong slot ) {
+  fd_funk_rec_key_t id = {0};
+  id.ul[ 0 ] = slot;
+  id.c[ FD_FUNK_REC_KEY_FOOTPRINT - 1 ] = FD_BANK_HASH_TYPE;
+  return id;
+}

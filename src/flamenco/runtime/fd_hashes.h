@@ -2,6 +2,7 @@
 #define HEADER_fd_src_flamenco_runtime_fd_hashes_h
 
 #include "fd_banks_solana.h"
+#include "context/fd_exec_slot_ctx.h"
 
 typedef struct fd_exec_slot_ctx fd_exec_slot_ctx_t;
 

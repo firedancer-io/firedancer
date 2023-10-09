@@ -3,6 +3,7 @@
 
 #include "../../fd_flamenco_base.h"
 #include "../fd_executor.h"
+#include "../context/fd_exec_slot_ctx.h"
 
 /* The slot hashes sysvar contains the most recent hashes of the slot's parent bank hashes. */
 

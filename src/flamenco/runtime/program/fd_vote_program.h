@@ -1,10 +1,11 @@
 #ifndef HEADER_fd_src_flamenco_runtime_program_fd_vote_program_h
 #define HEADER_fd_src_flamenco_runtime_program_fd_vote_program_h
 
-#include <stdbool.h>
-
 #include "../../fd_flamenco_base.h"
 #include "../fd_executor.h"
+#include "../context/fd_exec_slot_ctx.h"
+#include "../context/fd_exec_instr_ctx.h"
+
 
 FD_PROTOTYPES_BEGIN
 
