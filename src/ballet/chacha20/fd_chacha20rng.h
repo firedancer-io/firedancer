@@ -6,6 +6,9 @@
    fd_rng is a better choice in all other cases. */
 
 #include "fd_chacha20.h"
+#if !FD_HAS_INT128
+#include "../../util/bits/fd_uwide.h"
+#endif
 
 /* FD_CHACHA20RNG_DEBUG controls debug logging.  0 is off; 1 is on. */
 
@@ -199,12 +202,8 @@ fd_chacha20rng_ulong_roll( fd_chacha20rng_t * rng,
     ulong   hi  = (ulong)(res>>64);
     ulong   lo  = (ulong) res;
 #else
-    ulong ll = (v & UINT_MAX) * (n & UINT_MAX);
-    ulong hh = (v>>32       ) * (n>>32       );
-    ulong lh = (v>>32       ) * (n & UINT_MAX) +
-               (v & UINT_MAX) * (n>>32       );
-    ulong lo = ll + (lh<<32);
-    ulong hi = hh + (lh>>32) + (lo<ll);
+    ulong hi, lo;
+    fd_uwide_mul( &hi, &lo, v, n );
 #endif
 
 #   if FD_CHACHA20RNG_DEBUG
