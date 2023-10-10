@@ -1181,10 +1181,10 @@ int fd_stake_history_encode(fd_stake_history_t const * self, fd_bincode_encode_c
     ulong fd_stake_history_len = fd_stake_history_treap_ele_cnt( self->treap );
     err = fd_bincode_uint64_encode( &fd_stake_history_len, ctx );
     if ( FD_UNLIKELY( err ) ) return err;
-    for ( fd_stake_history_treap_fwd_iter_t iter = fd_stake_history_treap_fwd_iter_init( self->treap, self->pool );
-          !fd_stake_history_treap_fwd_iter_done( iter );
-          iter = fd_stake_history_treap_fwd_iter_next( iter, self->pool ) ) {
-      fd_stake_history_entry_t * ele = fd_stake_history_treap_fwd_iter_ele( iter, self->pool );
+    for ( fd_stake_history_treap_rev_iter_t iter = fd_stake_history_treap_rev_iter_init( self->treap, self->pool );
+          !fd_stake_history_treap_rev_iter_done( iter );
+          iter = fd_stake_history_treap_rev_iter_next( iter, self->pool ) ) {
+      fd_stake_history_entry_t * ele = fd_stake_history_treap_rev_iter_ele( iter, self->pool );
       err = fd_stake_history_entry_encode( ele, ctx );
       if ( FD_UNLIKELY(err) ) return err;
     }

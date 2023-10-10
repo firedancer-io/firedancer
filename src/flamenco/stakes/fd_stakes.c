@@ -201,8 +201,6 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t * global,
     .deactivating = accumulator.deactivating
   };
 
-  ulong idx = fd_stake_history_pool_idx_acquire( stakes->stake_history.pool );
-  stakes->stake_history.pool[ idx ] = new_elem;
   fd_sysvar_stake_history_update( global, &new_elem);
 
   /* Update the current epoch value */

@@ -53,7 +53,7 @@ void fd_sysvar_stake_history_update( fd_exec_slot_ctx_t * global, fd_stake_histo
   ulong idx = fd_stake_history_pool_idx_acquire( stake_history.pool );
 
   stake_history.pool[ idx ].epoch = entry->epoch;
-  fd_memcpy(&stake_history.pool[ idx ], &entry, sizeof(fd_stake_history_entry_t));
+  fd_memcpy(&stake_history.pool[ idx ], entry, sizeof(fd_stake_history_entry_t));
   fd_stake_history_treap_idx_insert( stake_history.treap, idx, stake_history.pool );
   write_stake_history( global, &stake_history);
 }

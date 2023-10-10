@@ -841,6 +841,7 @@ class TreapMember:
         self.max = int(json["max"])
         self.compact = ("modifier" in json and json["modifier"] == "compact")
         self.treap_prio = (json["treap_prio"] if "treap_prio" in json else None)
+        self.rev = json.get("rev", False)
 
     def emitPreamble(self):
         name = self.name
@@ -965,14 +966,24 @@ class TreapMember:
             print(f'    err = fd_bincode_uint64_encode( &{name}_len, ctx );', file=body)
         print('    if ( FD_UNLIKELY( err ) ) return err;', file=body)
 
-        print(f'    for ( {treap_name}_fwd_iter_t iter = {treap_name}_fwd_iter_init( self->treap, self->pool );', file=body);
-        print(f'          !{treap_name}_fwd_iter_done( iter );', file=body);
-        print(f'          iter = {treap_name}_fwd_iter_next( iter, self->pool ) ) {{', file=body);
-        print(f'      {treap_t} * ele = {treap_name}_fwd_iter_ele( iter, self->pool );', file=body)
-        print(f'      err = {treap_t.rstrip("_t")}_encode( ele, ctx );', file=body)
-        print('      if ( FD_UNLIKELY(err) ) return err;', file=body)
-        print('    }', file=body)
-        print('  } else {', file=body)
+        if self.rev:
+            print(f'    for ( {treap_name}_rev_iter_t iter = {treap_name}_rev_iter_init( self->treap, self->pool );', file=body);
+            print(f'          !{treap_name}_rev_iter_done( iter );', file=body);
+            print(f'          iter = {treap_name}_rev_iter_next( iter, self->pool ) ) {{', file=body);
+            print(f'      {treap_t} * ele = {treap_name}_rev_iter_ele( iter, self->pool );', file=body)
+            print(f'      err = {treap_t.rstrip("_t")}_encode( ele, ctx );', file=body)
+            print('      if ( FD_UNLIKELY(err) ) return err;', file=body)
+            print('    }', file=body)
+            print('  } else {', file=body)
+        else:
+            print(f'    for ( {treap_name}_fwd_iter_t iter = {treap_name}_fwd_iter_init( self->treap, self->pool );', file=body);
+            print(f'          !{treap_name}_fwd_iter_done( iter );', file=body);
+            print(f'          iter = {treap_name}_fwd_iter_next( iter, self->pool ) ) {{', file=body);
+            print(f'      {treap_t} * ele = {treap_name}_fwd_iter_ele( iter, self->pool );', file=body)
+            print(f'      err = {treap_t.rstrip("_t")}_encode( ele, ctx );', file=body)
+            print('      if ( FD_UNLIKELY(err) ) return err;', file=body)
+            print('    }', file=body)
+            print('  } else {', file=body)
         if self.compact:
             print(f'    ushort {name}_len = 0;', file=body)
             print(f'    err = fd_bincode_compact_u16_encode(&{name}_len, ctx);', file=body)
