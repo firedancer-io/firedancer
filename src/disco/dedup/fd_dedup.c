@@ -51,8 +51,8 @@ during_frag( void * _ctx,
 
   fd_dedup_ctx_t * ctx = (fd_dedup_ctx_t *)_ctx;
 
-  if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>=ctx->in[ in_idx ].wmark || sz > FD_TPU_DCACHE_MTU ) )
-    FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu)", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
+  if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz > FD_TPU_DCACHE_MTU ) )
+    FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
   uchar * src = (uchar *)fd_chunk_to_laddr( ctx->in[in_idx].wksp, chunk );
   uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->out_wksp, ctx->out_chunk );

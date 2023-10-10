@@ -93,8 +93,8 @@ during_frag( void * _ctx,
              int *  opt_filter ) {
   fd_pack_ctx_t * ctx = (fd_pack_ctx_t *)_ctx;
 
-  if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>=ctx->in[ in_idx ].wmark || sz > FD_TPU_DCACHE_MTU ) )
-    FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu)", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
+  if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz > FD_TPU_DCACHE_MTU ) )
+    FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
   ctx->cur_slot              = fd_pack_insert_txn_init( ctx->pack );
 
