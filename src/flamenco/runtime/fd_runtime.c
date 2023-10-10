@@ -346,15 +346,21 @@ fd_runtime_block_execute( fd_exec_slot_ctx_t * slot_ctx,
         rawtxn.txn_sz = (ushort)txn_sz;
         signature_cnt += txn->signature_cnt;
 
+#ifndef USER_jsiegel
         char sig[FD_BASE58_ENCODED_64_SZ];
         fd_base58_encode_64(raw+txn->signature_off, NULL, sig);
         FD_LOG_NOTICE(("executing txn - slot: %lu, txn_idx_in_block: %lu, mblk: %lu, txn_idx: %lu, sig: %s", slot_ctx->bank.slot, txn_idx_in_block, total_mblks, txn_idx, sig));
+#endif
         fd_pubkey_t const * txn_accs = (fd_pubkey_t *)((uchar *)rawtxn.raw + txn->acct_addr_off);
         for (ulong i = 0; i < txn->acct_addr_cnt; i++) {
           FD_BORROWED_ACCOUNT_DECL(accs_rec);
           int err = fd_acc_mgr_view(slot_ctx->acc_mgr, slot_ctx->funk_txn, &txn_accs[i], accs_rec);
+#ifndef USER_jsiegel
           if( FD_UNLIKELY( err ==FD_ACC_MGR_SUCCESS ) )
             FD_LOG_WARNING(("ACCT FOR TXN: %lu - %32J, lamps: %lu", i, &txn_accs[i], accs_rec->const_meta->info.lamports));
+#else
+          (void)err;
+#endif
         }
 
         fd_txn_acct_addr_lut_t * addr_luts = fd_txn_get_address_tables( txn );

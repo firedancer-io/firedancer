@@ -1,2 +1,2 @@
-CPPFLAGS+=-g
+CPPFLAGS+=-g -DUSER_$(USER)
 LDFLAGS+=-rdynamic

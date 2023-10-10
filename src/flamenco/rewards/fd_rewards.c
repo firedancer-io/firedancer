@@ -691,6 +691,8 @@ pay_validator_rewards(
     fd_validator_reward_calculation_t rewards_calc_result[1] = {0};
     bank_redeem_rewards( slot_ctx, rewarded_epoch, point_value_result, &stake_history, rewards_calc_result );
 
+    ulong validator_rewards_paid = 0;
+
     /* store vote accounts */
     fd_vote_reward_t_mapnode_t * ref = rewards_calc_result->vote_reward_map;
     for (ulong i = 0; i < fd_vote_reward_t_map_slot_cnt( rewards_calc_result->vote_reward_map); ++i) {
@@ -703,6 +705,7 @@ pay_validator_rewards(
         int err = fd_acc_mgr_modify( slot_ctx->acc_mgr, slot_ctx->funk_txn, vote_pubkey, 1, min_data_sz, vote_rec);
         FD_TEST( err == 0 );
         vote_rec->meta->info.lamports = fd_ulong_sat_add(vote_rec->meta->info.lamports, ref[i].vote_rewards);
+        validator_rewards_paid = fd_ulong_sat_add(validator_rewards_paid, ref[i].vote_rewards);
     }
 
     /* store stake accounts */
@@ -718,6 +721,7 @@ pay_validator_rewards(
         int err = fd_acc_mgr_modify( slot_ctx->acc_mgr, slot_ctx->funk_txn, stake_pubkey, 1, min_data_sz, stake_rec);
         FD_TEST( err == 0 );
         stake_rec->meta->info.lamports = fd_ulong_sat_add(stake_rec->meta->info.lamports, ele->reward_info.lamports);
+        validator_rewards_paid = fd_ulong_sat_add(validator_rewards_paid, ele->reward_info.lamports);
 
         fd_stake_state_v2_t stake_state;
         int rc = fd_stake_get_state(stake_rec, &slot_ctx->valloc, &stake_state);
@@ -739,6 +743,8 @@ pay_validator_rewards(
         err = write_stake_state( slot_ctx, stake_pubkey, &stake_state, 0);
         FD_TEST( err == 0 );
     }
+
+    slot_ctx->bank.capitalization = fd_ulong_sat_add(slot_ctx->bank.capitalization, validator_rewards_paid);
 
     /* free stake_reward_deq and vote_reward_map */
     deq_fd_stake_reward_t_delete( rewards_calc_result->stake_reward_deq );
@@ -816,6 +822,8 @@ distribute_partitioned_epoch_rewards(
         return;
     }
 
+    ulong validator_rewards_paid = 0;
+
     ulong credit_start = slot_ctx->epoch_reward_status.start_block_height + REWARD_CALCULATION_NUM_BLOCK;
     ulong credit_end_exclusive = credit_start + slot_ctx->epoch_reward_status.stake_rewards_by_partition->cnt;
     if (self->block_height >= credit_start && self->block_height < credit_end_exclusive) {
@@ -829,6 +837,7 @@ distribute_partitioned_epoch_rewards(
             FD_BORROWED_ACCOUNT_DECL(stake_acc_rec);
             FD_TEST( 0==fd_acc_mgr_modify( slot_ctx->acc_mgr, slot_ctx->funk_txn, stake_acc, 0, 0UL, stake_acc_rec ) );
             stake_acc_rec->meta->info.lamports += this_partition_stake_rewards.elems[i]->reward_info.lamports;
+            validator_rewards_paid = fd_ulong_sat_add(validator_rewards_paid, this_partition_stake_rewards.elems[i]->reward_info.lamports);
 
             fd_stake_state_v2_t stake_state = {0};
             int rc = fd_stake_get_state(stake_acc_rec, &slot_ctx->valloc, &stake_state);
@@ -880,4 +889,5 @@ distribute_partitioned_epoch_rewards(
         fd_valloc_free( slot_ctx->valloc, slot_ctx->epoch_reward_status.stake_rewards_by_partition );
     }
 
+    slot_ctx->bank.capitalization = fd_ulong_sat_add(slot_ctx->bank.capitalization, validator_rewards_paid);
 }

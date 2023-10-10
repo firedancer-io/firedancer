@@ -272,7 +272,7 @@ replay( global_state_t * state,
       slot_capitalization_t *c = capitalization_map_query(state->map, slot, NULL);
       if (NULL != c) {
         if (state->slot_ctx->bank.capitalization != c->capitalization)
-          FD_LOG_NOTICE(( "capitalization missmatch!  slot=%lu got=%ld != expected=%ld  (%ld)", slot, state->slot_ctx->bank.capitalization, c->capitalization,  state->slot_ctx->bank.capitalization - c->capitalization  ));
+          FD_LOG_ERR(( "capitalization missmatch!  slot=%lu got=%ld != expected=%ld  (%ld)", slot, state->slot_ctx->bank.capitalization, c->capitalization,  state->slot_ctx->bank.capitalization - c->capitalization  ));
       }
     }
 
