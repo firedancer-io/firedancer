@@ -6,6 +6,7 @@
 #include "../sysvar/fd_sysvar_rent.h"
 #include "../sysvar/fd_sysvar.h"
 #include "../../../ballet/base58/fd_base58.h"
+#include "../fd_pubkey_utils.h"
 
 static int transfer( fd_exec_instr_ctx_t               ctx,
                      fd_system_program_instruction_t * instruction ) {

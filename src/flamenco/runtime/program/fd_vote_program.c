@@ -8,6 +8,7 @@
 #include "../fd_executor.h"
 #include "../fd_runtime.h"
 #include "../sysvar/fd_sysvar.h"
+#include "../fd_pubkey_utils.h"
 
 #include "../../types/fd_types_yaml.h"
 #include "fd_vote_program.h"

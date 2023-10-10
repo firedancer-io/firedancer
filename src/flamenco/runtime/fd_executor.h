@@ -84,10 +84,6 @@ FD_PROTOTYPES_BEGIN
 #define FD_COMPUTE_BUDGET_PRIORITIZATION_FEE_TYPE_COMPUTE_UNIT_PRICE (0)
 #define FD_COMPUTE_BUDGET_PRIORITIZATION_FEE_TYPE_DEPRECATED         (1)
 
-#define FD_INSTR_ACCT_FLAGS_IS_SIGNER   (0x01)
-#define FD_INSTR_ACCT_FLAGS_IS_WRITABLE (0x02)
-
-
 /* Type definition for native programs, akin to an interface for native programs.
    The executor will execute instructions designated for a given native program by invoking a function of this type. */
 typedef int(*execute_instruction_func_t) ( fd_exec_instr_ctx_t ctx );
@@ -114,67 +110,6 @@ fd_executor_setup_accessed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx,
 
 void
 fd_executor_setup_borrowed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx );
-
-void
-fd_convert_txn_instr_to_instr( fd_txn_t const *        txn_descriptor,
-                               fd_rawtxn_b_t const *   txn_raw,
-                               fd_txn_instr_t const *  txn_instr,
-                               fd_pubkey_t const *     accounts,
-                               fd_borrowed_account_t * borrowed_accounts,
-                               fd_instr_info_t *       instr );
-
-static inline uint
-fd_instr_acc_is_writable_idx(fd_instr_info_t const * instr, uchar idx) {
-  return !!(instr->acct_flags[idx] & FD_INSTR_ACCT_FLAGS_IS_WRITABLE);
-}
-
-static inline uint
-fd_instr_acc_is_writable(fd_instr_info_t const * instr, fd_pubkey_t const * acc) {
-  for( uchar i = 0; i < instr->acct_cnt; i++ ) {
-    if( memcmp( &instr->acct_pubkeys[i], acc, sizeof( fd_pubkey_t ) )==0 ) {
-      return fd_instr_acc_is_writable_idx( instr, i );
-    }
-  }
-
-  return 0;
-}
-
-static inline uint
-fd_instr_acc_is_signer_idx(fd_instr_info_t const * instr, uchar idx) {
-  return !!(instr->acct_flags[idx] & FD_INSTR_ACCT_FLAGS_IS_SIGNER);
-}
-
-static inline uint
-fd_instr_acc_is_signer(fd_instr_info_t const * instr, fd_pubkey_t const * acc) {
-  for( uchar i = 0; i < instr->acct_cnt; i++ ) {
-    if( memcmp( &instr->acct_pubkeys[i], acc, sizeof( fd_pubkey_t ) )==0 ) {
-      return fd_instr_acc_is_signer_idx( instr, i );
-    }
-  }
-
-  return 0;
-}
-
-int
-fd_instr_borrowed_account_view_idx( fd_exec_instr_ctx_t * ctx,
-                                    uchar idx,
-                                    fd_borrowed_account_t * * account );
-int
-fd_instr_borrowed_account_view( fd_exec_instr_ctx_t * ctx,
-                                fd_pubkey_t const *      pubkey,
-                                fd_borrowed_account_t * * account );
-int
-fd_instr_borrowed_account_modify_idx( fd_exec_instr_ctx_t * ctx,
-                                uchar idx,
-                                int do_create,
-                                ulong min_data_sz,
-                                fd_borrowed_account_t * *  account );
-int
-fd_instr_borrowed_account_modify( fd_exec_instr_ctx_t * ctx,
-                                  fd_pubkey_t const * pubkey,
-                                  int do_create,
-                                  ulong min_data_sz,
-                                  fd_borrowed_account_t * * account );
 
 
 FD_PROTOTYPES_END

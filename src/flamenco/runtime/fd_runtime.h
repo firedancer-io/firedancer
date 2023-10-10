@@ -107,13 +107,6 @@ fd_runtime_block_txnstatus_key( ulong slot ) {
 }
 
 int
-fd_pubkey_create_with_seed( uchar const  base [ static 32 ],
-                            char const * seed,
-                            ulong        seed_sz,
-                            uchar const  owner[ static 32 ],
-                            uchar        out  [ static 32 ] );
-
-int
 fd_runtime_save_banks( fd_exec_slot_ctx_t * slot_ctx );
 
 int

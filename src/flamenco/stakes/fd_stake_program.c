@@ -3,6 +3,8 @@
 #include "../runtime/program/fd_vote_program.h"
 #include "../runtime/sysvar/fd_sysvar.h"
 #include "../runtime/fd_system_ids.h"
+#include "../runtime/fd_pubkey_utils.h"
+
 #include <limits.h>
 
 #define FD_DEBUG_MODE 0
