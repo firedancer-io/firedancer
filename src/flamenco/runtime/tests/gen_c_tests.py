@@ -75,7 +75,8 @@ def read_test_cases(path):
         if file.endswith(".json"):
             with open(path+'/'+file, "r") as f:
                 print(file)
-                data = json.loads('[' + f.read()[:-1] + ']')
+                s = f.read().rstrip(", \n")
+                data = json.loads('[' + s + ']')
                 tests = tests + sorted(data, key=lambda k: cmp_key(k))
 #    return tests.sort(key=lambda k: cmp_key(k))
     return tests

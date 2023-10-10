@@ -175,6 +175,15 @@ struct fd_features {
   ulong checked_arithmetic_in_fee_validation;
   ulong last_restart_slot_sysvar;
   ulong reduce_stake_warmup_cooldown;
+  ulong revise_turbine_epoch_stakes;
+  ulong enable_poseidon_syscall;
+  ulong timely_vote_credits;
+  ulong remaining_compute_units_syscall_enabled;
+  ulong enable_program_runtime_v2_and_loader_v4;
+  ulong require_rent_exempt_split_destination;
+  ulong better_error_codes_for_tx_lamport_check;
+  ulong enable_alt_bn128_compression_syscall;
+  ulong programify_feature_gate_program;
 };
 typedef struct fd_features fd_features_t;
 
@@ -195,7 +204,7 @@ FD_PROTOTYPES_BEGIN
 extern fd_feature_id_t const ids[];
 
 /* FEATURE_ID_CNT is the number of featuers in ids */
-#define FD_FEATURE_ID_CNT (161UL)
+#define FD_FEATURE_ID_CNT (170UL)
 
 /* fd_features_disable_all disables all available features. */
 void
