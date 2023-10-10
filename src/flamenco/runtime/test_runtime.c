@@ -57,6 +57,7 @@ build/native/gcc/unit-test/test_runtime --wksp giant_wksp --gaddr 0xc7ce180 --cm
 #include "../stakes/fd_stakes.h"
 
 #include <dirent.h>
+#include <signal.h>
 
 struct slot_capitalization {
   ulong key;
@@ -88,11 +89,13 @@ struct global_state {
   slot_capitalization_t  capitalization_map_mem[ 1UL << LG_SLOT_CNT ];
   slot_capitalization_t *map;
 
-  FILE * capture_file;
-  fd_tpool_t *     tpool;
-  ulong            max_workers;
+  FILE                  *capture_file;
+  fd_tpool_t *           tpool;
+  ulong                  max_workers;
+  uchar                  abort_on_mismatch;
 };
 typedef struct global_state global_state_t;
+
 
 static void
 usage( char const * progname ) {
@@ -257,6 +260,11 @@ replay( global_state_t * state,
                          slot,
                          known_bank_hash->hash,
                          state->slot_ctx->bank.banks_hash.hash ));
+        if( state->abort_on_mismatch ) {
+          fd_solcap_writer_fini( state->slot_ctx->capture );
+          kill(getpid(), SIGTRAP);
+          return 1;
+        }
       }
     }
 
@@ -331,6 +339,8 @@ main( int     argc,
   }
 
   state.map = capitalization_map_join(capitalization_map_new(state.capitalization_map_mem));
+
+  state.abort_on_mismatch = (uchar)fd_env_strip_cmdline_int( &argc, &argv, "--abort-on-mismatch", NULL, 0 );
 
   if (NULL != state.capitalization_file) {
     FILE *fp = fopen(state.capitalization_file, "r");
