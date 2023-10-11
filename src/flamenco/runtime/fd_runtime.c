@@ -15,6 +15,7 @@
 #include "program/fd_system_program.h"
 #include "program/fd_vote_program.h"
 #include "fd_system_ids.h"
+#include "../vm/fd_vm_context.h"
 #include <stdio.h>
 #include <ctype.h>
 
@@ -760,8 +761,10 @@ void compute_priority_fee( fd_exec_txn_ctx_t const * txn_ctx, ulong * fee, ulong
   }
 }
 
+#define ACCOUNT_DATA_COST_PAGE_SIZE ((double)32 * 1024)
+
 ulong
-fd_runtime_calculate_fee( fd_exec_txn_ctx_t * txn_ctx, fd_txn_t * txn_descriptor, fd_rawtxn_b_t const * txn_raw ) {
+fd_runtime_calculate_fee( fd_exec_txn_ctx_t * txn_ctx, fd_txn_t * txn_descriptor, fd_rawtxn_b_t const * txn_raw, bool remove_congestion_multiplier, FD_PARAM_UNUSED bool include_loaded_account_data_size_in_fee ) {
 // https://github.com/firedancer-io/solana/blob/08a1ef5d785fe58af442b791df6c4e83fe2e7c74/runtime/src/bank.rs#L4443
 // TODO: implement fee distribution to the collector ... and then charge us the correct amount
   ulong priority = 0;
@@ -771,7 +774,9 @@ fd_runtime_calculate_fee( fd_exec_txn_ctx_t * txn_ctx, fd_txn_t * txn_descriptor
 
   double BASE_CONGESTION = 5000.0;
   double current_congestion = (BASE_CONGESTION > (double)lamports_per_signature) ? BASE_CONGESTION : (double)lamports_per_signature;
-  double congestion_multiplier = (lamports_per_signature == 0) ? 0.0 : (BASE_CONGESTION / current_congestion);
+  double congestion_multiplier = (lamports_per_signature == 0) ? 0.0 
+                                : remove_congestion_multiplier ? 1.0 
+                                : (BASE_CONGESTION / current_congestion);
 
 //  bool support_set_compute_unit_price_ix = false;
 //  bool use_default_units_per_instruction = false;
@@ -800,19 +805,32 @@ fd_runtime_calculate_fee( fd_exec_txn_ctx_t * txn_ctx, fd_txn_t * txn_descriptor
   double write_lock_fee = (double)fd_ulong_sat_mul( fd_txn_account_cnt( txn_descriptor, FD_TXN_ACCT_CAT_WRITABLE ), lamports_per_write_lock );
 
 // TODO: the fee_structure bin is static and default..
-//
-//            let compute_fee = fee_structure
-//                .compute_fee_bins
-//                .iter()
-//                .find(|bin| compute_budget.compute_unit_limit <= bin.limit)
-//                .map(|bin| bin.fee)
-//                .unwrap_or_else(|| {
-//                    fee_structure
-//                        .compute_fee_bins
-//                        .last()
-//                        .map(|bin| bin.fee)
-//                        .unwrap_or_default()
-//                });
+//        let loaded_accounts_data_size_cost = if include_loaded_account_data_size_in_fee {
+//            FeeStructure::calculate_memory_usage_cost(
+//                budget_limits.loaded_accounts_data_size_limit,
+//                budget_limits.heap_cost,
+//            )
+//        } else {
+//            0_u64
+//        };
+//        let total_compute_units =
+//            loaded_accounts_data_size_cost.saturating_add(budget_limits.compute_unit_limit);
+//        let compute_fee = self
+//            .compute_fee_bins
+//            .iter()
+//            .find(|bin| total_compute_units <= bin.limit)
+//            .map(|bin| bin.fee)
+//            .unwrap_or_else(|| {
+//                self.compute_fee_bins
+//                    .last()
+//                    .map(|bin| bin.fee)
+//                    .unwrap_or_default()
+//            });  
+  double MEMORY_USAGE_COST = ((((double)vm_compute_budget.loaded_accounts_data_size_limit + (ACCOUNT_DATA_COST_PAGE_SIZE - 1)) / ACCOUNT_DATA_COST_PAGE_SIZE) * (double)vm_compute_budget.heap_cost);
+  double loaded_accounts_data_size_cost = include_loaded_account_data_size_in_fee ? MEMORY_USAGE_COST : 0.0;
+  double total_compute_units = loaded_accounts_data_size_cost + (double)vm_compute_budget.compute_unit_limit;
+  /* unused */
+  (void)total_compute_units;
   double compute_fee = 0;
 
   double fee = (prioritization_fee + signature_fee + write_lock_fee + compute_fee) * congestion_multiplier;

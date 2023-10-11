@@ -139,10 +139,14 @@ struct fd_vm_exec_compute_budget {
     ulong heap_cost;
     /// Memory operation syscall base cost
     ulong mem_op_base_cost;
+    /// Maximum accounts data size, in bytes, that a transaction is allowed to load; The
+    /// value is capped by MAX_LOADED_ACCOUNTS_DATA_SIZE_BYTES to prevent overuse of memory.
+    ulong loaded_accounts_data_size_limit;
 };
 typedef struct fd_vm_exec_compute_budget fd_vm_exec_compute_budget_t;
 
 #define MAX_COMPUTE_UNIT_LIMIT 1400000
+#define MAX_LOADED_ACCOUNTS_DATA_SIZE_BYTES (64 * 1024 * 1024)
 static const fd_vm_exec_compute_budget_t vm_compute_budget = {
   .compute_unit_limit = MAX_COMPUTE_UNIT_LIMIT,
   .log_64_units = 100,
@@ -174,7 +178,8 @@ static const fd_vm_exec_compute_budget_t vm_compute_budget = {
   .curve25519_ristretto_msm_incremental_cost = 788,
   // .heap_size = NULL,
   .heap_cost = 8,
-  .mem_op_base_cost = 10
+  .mem_op_base_cost = 10,
+  .loaded_accounts_data_size_limit = MAX_LOADED_ACCOUNTS_DATA_SIZE_BYTES, // 64MiB
 };
 
 
