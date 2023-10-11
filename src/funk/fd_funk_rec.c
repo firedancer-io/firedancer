@@ -469,9 +469,10 @@ fd_funk_rec_remove( fd_funk_t *     funk,
 
           if( FD_UNLIKELY( erase_rec->flags & FD_FUNK_REC_FLAG_ERASE ) ) FD_LOG_CRIT(( "memory corruption detected (bad flags)" ));
 
-          rec->flags |= FD_FUNK_REC_FLAG_ERASE;
-          fd_funk_val_flush( rec, fd_funk_alloc( funk, wksp ), wksp ); /* TODO: consider testing wksp_gaddr has wksp_tag? */
           fd_funk_part_set_intern( fd_funk_get_partvec( funk, wksp ), rec_map, rec, FD_FUNK_PART_NULL );
+          fd_funk_val_flush( rec, fd_funk_alloc( funk, wksp ), wksp ); /* TODO: consider testing wksp_gaddr has wksp_tag? */
+
+          rec->flags |= FD_FUNK_REC_FLAG_ERASE;
   
           return FD_FUNK_SUCCESS;
 
@@ -507,9 +508,10 @@ fd_funk_rec_remove( fd_funk_t *     funk,
              discard any changes we might have made already in this
              record. */
 
-          rec->flags |= FD_FUNK_REC_FLAG_ERASE;
           fd_funk_val_flush( rec, fd_funk_alloc( funk, wksp ), wksp ); /* TODO: consider testing wksp_gaddr has wksp_tag? */
           fd_funk_part_set_intern( fd_funk_get_partvec( funk, wksp ), rec_map, rec, FD_FUNK_PART_NULL );
+
+          rec->flags |= FD_FUNK_REC_FLAG_ERASE;
 
           return FD_FUNK_SUCCESS;
         }

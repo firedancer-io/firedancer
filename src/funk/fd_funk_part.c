@@ -73,6 +73,7 @@ fd_funk_part_set_intern( fd_funk_partvec_t * partvec,
                          fd_funk_rec_t *     rec,
                          uint                part) {
   if (part == rec->part) return FD_FUNK_SUCCESS;
+  if ((rec->flags & FD_FUNK_REC_FLAG_ERASE)) return FD_FUNK_ERR_INVAL;
 
   int err;
   if (rec->part != FD_FUNK_PART_NULL) {
