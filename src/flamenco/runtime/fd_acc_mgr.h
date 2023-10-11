@@ -25,6 +25,8 @@
 
 struct __attribute__((aligned(FD_ACC_MGR_ALIGN))) fd_acc_mgr {
   fd_funk_t * funk;
+  ulong slots_per_epoch;
+  ulong part_width;
 };
 typedef struct fd_acc_mgr fd_acc_mgr_t;
 
@@ -48,6 +50,12 @@ fd_acc_mgr_key( fd_pubkey_t const * pubkey );
 
 int
 fd_acc_mgr_is_key( fd_funk_rec_key_t const * id );
+
+/* Change the number of epochs per slot, repartition funk */
+
+void
+fd_acc_mgr_set_slots_per_epoch( fd_acc_mgr_t * acc_mgr,
+                                ulong slots_per_epoch );
 
 /* fd_acc_mgr_view_raw requests a read-only handle to account data.
    acc_mgr is the global account manager object.  txn is the database

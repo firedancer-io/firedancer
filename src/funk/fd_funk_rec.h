@@ -32,6 +32,10 @@
 
 #define FD_FUNK_REC_IDX_NULL (ULONG_MAX)
 
+/* FD_FUNK_PART_NULL is the partition number of records that are not
+   in a partition */
+#define FD_FUNK_PART_NULL (UINT_MAX)
+
 /* A fd_funk_rec_t describes a funk record. */
 
 struct fd_funk_rec {
@@ -58,6 +62,10 @@ struct fd_funk_rec {
   ulong val_gaddr; /* Wksp gaddr on record value if any, 0 if erase flag set or val_max is 0
                       If non-zero, the region [val_gaddr,val_gaddr+val_max) will be a current fd_alloc allocation (such that it is
                       has tag wksp_tag) and the owner of the region will be the record.  IMPORTANT! HAS NO GUARANTEED ALIGNMENT! */
+
+  ulong prev_part_idx;  /* Record map index of previous record in partition chain */
+  ulong next_part_idx;  /* Record map index of next record in partition chain */
+  uint  part;           /* Partition number, FD_FUNK_PART_NULL if none */
 
   /* Padding to FD_FUNK_REC_ALIGN here (TODO: consider using self index
      in the structures to accelerate indexing computations if padding

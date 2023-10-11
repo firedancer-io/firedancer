@@ -143,6 +143,7 @@
 //#include "fd_funk_txn.h"  /* Includes fd_funk_base.h */
 //#include "fd_funk_rec.h"  /* Includes fd_funk_txn.h */
 #include "fd_funk_val.h"    /* Includes fd_funk_rec.h */
+#include "fd_funk_part.h"
 
 /* FD_FUNK_{ALIGN,FOOTPRINT} describe the alignment and footprint needed
    for a funk.  ALIGN should be a positive integer power of 2.
@@ -156,10 +157,6 @@
    inlining various operations. */
 
 #define FD_FUNK_MAGIC (0xf17eda2ce7fc2c00UL) /* firedancer funk version 0 */
-
-typedef void (*fd_funk_notify_cb_t)( fd_funk_rec_t const * updated,
-                                     fd_funk_rec_t const * removed,
-                                     void *                arg );
 
 struct __attribute__((aligned(FD_FUNK_ALIGN))) fd_funk_private {
 
@@ -245,6 +242,8 @@ struct __attribute__((aligned(FD_FUNK_ALIGN))) fd_funk_private {
   ulong rec_head_idx;  /* Record map index of the first record, FD_FUNK_REC_IDX_NULL if none (from oldest to youngest) */
   ulong rec_tail_idx;  /* "                       last          " */
 
+  ulong partvec_gaddr; /* Address of partition header vector */
+    
   /* The funk alloc is used for allocating wksp resources for record
      values.  This is a fd_alloc and more details are given in
      fd_funk_val.h.  Allocations from this allocator will be tagged with
@@ -256,11 +255,6 @@ struct __attribute__((aligned(FD_FUNK_ALIGN))) fd_funk_private {
      that and allocating exclusively from that? */
 
   ulong alloc_gaddr; /* Non-zero wksp gaddr with tag wksp tag */
-
-  /* Callback used to notify application that a new record was
-     created/updated/removed. */
-  fd_funk_notify_cb_t notify_cb;
-  void * notify_cb_arg;
 
   /* Padding to FD_FUNK_ALIGN here */
 };
@@ -486,15 +480,6 @@ fd_funk_last_publish_descendant( fd_funk_t *     funk,
   if( fd_funk_txn_idx_is_null( child_idx ) ) return NULL;
   return fd_funk_txn_descendant( txn_map + child_idx, txn_map );
 }
-
-/* Set the new record callback notification function. This is called
-   whenever a new record is created/updated/removed, allowing the
-   application to track the latest version. fd_funk_set_notify calls
-   the function immediately on all existing records. */
-void
-fd_funk_set_notify( fd_funk_t *         funk,
-                    fd_funk_notify_cb_t notify_cb,
-                    void *              notify_cb_arg);
 
 /* Misc */
 

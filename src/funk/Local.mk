@@ -1,6 +1,6 @@
 $(call make-lib,fd_funk)
-$(call add-hdrs,fd_funk_base.h fd_funk_txn.h fd_funk_rec.h fd_funk_val.h fd_funk.h)
-$(call add-objs,fd_funk_base fd_funk_txn fd_funk_rec fd_funk_val fd_funk,fd_funk)
+$(call add-hdrs,fd_funk_base.h fd_funk_txn.h fd_funk_rec.h fd_funk_val.h fd_funk_part.h fd_funk.h)
+$(call add-objs,fd_funk_base fd_funk_txn fd_funk_rec fd_funk_val fd_funk_part fd_funk,fd_funk)
 $(call make-unit-test,test_funk_base,test_funk_base,fd_funk fd_util)
 $(call make-unit-test,test_funk_txn,test_funk_txn,fd_funk fd_util)
 $(call make-unit-test,test_funk_rec,test_funk_rec test_funk_common,fd_funk fd_util)

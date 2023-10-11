@@ -188,9 +188,6 @@ fd_funk_rec_modify( fd_funk_t *           funk,
     if( FD_UNLIKELY( fd_funk_txn_is_frozen( &txn_map[ txn_idx ] ) ) ) return NULL;
   }
 
-  if ( funk->notify_cb )
-    (*funk->notify_cb)( rec, NULL, funk->notify_cb_arg );
-
   return (fd_funk_rec_t *)rec;
 }
 
@@ -376,6 +373,7 @@ fd_funk_rec_insert( fd_funk_t *               funk,
   *_rec_tail_idx = rec_idx;
 
   fd_funk_val_init( rec );
+  fd_funk_part_init( rec );
 
   fd_int_store_if( !!opt_err, opt_err, FD_FUNK_SUCCESS );
   return rec;
@@ -473,6 +471,8 @@ fd_funk_rec_remove( fd_funk_t *     funk,
 
           rec->flags |= FD_FUNK_REC_FLAG_ERASE;
           fd_funk_val_flush( rec, fd_funk_alloc( funk, wksp ), wksp ); /* TODO: consider testing wksp_gaddr has wksp_tag? */
+          fd_funk_part_set_intern( fd_funk_get_partvec( funk, wksp ), rec_map, rec, FD_FUNK_PART_NULL );
+  
           return FD_FUNK_SUCCESS;
 
         }
@@ -507,11 +507,10 @@ fd_funk_rec_remove( fd_funk_t *     funk,
              discard any changes we might have made already in this
              record. */
 
-          if ( funk->notify_cb )
-            (*funk->notify_cb)( NULL, rec, funk->notify_cb_arg );
-
           rec->flags |= FD_FUNK_REC_FLAG_ERASE;
           fd_funk_val_flush( rec, fd_funk_alloc( funk, wksp ), wksp ); /* TODO: consider testing wksp_gaddr has wksp_tag? */
+          fd_funk_part_set_intern( fd_funk_get_partvec( funk, wksp ), rec_map, rec, FD_FUNK_PART_NULL );
+
           return FD_FUNK_SUCCESS;
         }
 
@@ -534,6 +533,7 @@ fd_funk_rec_remove( fd_funk_t *     funk,
      record */
 
   fd_funk_val_flush( rec, fd_funk_alloc( funk, wksp ), wksp ); /* TODO: consider testing wksp_gaddr has wksp_tag? */
+  fd_funk_part_set_intern( fd_funk_get_partvec( funk, wksp ), rec_map, rec, FD_FUNK_PART_NULL );
 
   ulong prev_idx = rec->prev_idx;
   ulong next_idx = rec->next_idx;
@@ -550,9 +550,6 @@ fd_funk_rec_remove( fd_funk_t *     funk,
 
   if( next_null ) *_rec_tail_idx               = prev_idx;
   else            rec_map[ next_idx ].prev_idx = prev_idx;
-
-  if ( funk->notify_cb )
-    (*funk->notify_cb)( NULL, rec, funk->notify_cb_arg );
 
   fd_funk_rec_map_remove( rec_map, fd_funk_rec_pair( rec ) );
 
@@ -615,23 +612,6 @@ fd_funk_rec_write_prepare( fd_funk_t *               funk,
     rec = fd_funk_val_truncate( rec, min_val_size, fd_funk_alloc( funk, wksp ), wksp, opt_err );
 
   return rec;
-}
-
-void
-fd_funk_set_notify( fd_funk_t *         funk,
-                    fd_funk_notify_cb_t notify_cb,
-                    void *              notify_cb_arg) {
-  funk->notify_cb = notify_cb;
-  funk->notify_cb_arg = notify_cb_arg;
-
-  fd_wksp_t *     wksp    = fd_funk_wksp( funk );
-  fd_funk_rec_t * rec_map = fd_funk_rec_map( funk, wksp );
-  for( fd_funk_rec_map_iter_t iter = fd_funk_rec_map_iter_init( rec_map );
-       !fd_funk_rec_map_iter_done( rec_map, iter );
-       iter = fd_funk_rec_map_iter_next( rec_map, iter ) ) {
-    fd_funk_rec_t * rec = fd_funk_rec_map_iter_ele( rec_map, iter );
-    (*notify_cb)(rec, NULL, notify_cb_arg);
-  }
 }
 
 int

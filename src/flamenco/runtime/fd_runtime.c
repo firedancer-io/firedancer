@@ -977,52 +977,60 @@ fd_runtime_collect_rent_account( fd_exec_slot_ctx_t *   slot_ctx,
   // RentCollector::collect_from_existing_account (exit)
 }
 
-static int
-fd_runtime_collect_rent_cb( fd_funk_rec_t const * encountered_rec_ro,
-                            void *                arg ) {
-
-  fd_exec_slot_ctx_t *   slot_ctx   = (fd_exec_slot_ctx_t *)arg;
+static void
+fd_runtime_collect_rent_for_slot( fd_exec_slot_ctx_t * slot_ctx, ulong off ) {
   fd_funk_txn_t *     txn      = slot_ctx->funk_txn;
   fd_acc_mgr_t *      acc_mgr  = slot_ctx->acc_mgr;
-  fd_pubkey_t const * key      = fd_type_pun_const( &encountered_rec_ro->pair.key[0].uc );
+  fd_funk_t *         funk     = slot_ctx->acc_mgr->funk;
+  fd_wksp_t *         wksp     = fd_funk_wksp( funk );
+  fd_funk_partvec_t * partvec  = fd_funk_get_partvec( funk, wksp );
+  fd_funk_rec_t *     rec_map  = fd_funk_rec_map( funk, wksp );
 
-  FD_BORROWED_ACCOUNT_DECL(rec);
-  int err = fd_acc_mgr_view( acc_mgr, txn, key, rec);
-
-  /* Account might not exist anymore in the current world */
-  if( err==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
-    return 0; /* Don't walk again */
+  for ( fd_funk_rec_t const * rec_ro = fd_funk_part_head( partvec, (uint)off, rec_map);
+        rec_ro != NULL;
+        rec_ro = fd_funk_part_next( rec_ro, rec_map ) ) {
+    fd_pubkey_t const * key = fd_type_pun_const( rec_ro->pair.key[0].uc );
+    
+    FD_BORROWED_ACCOUNT_DECL(rec);
+    int err = fd_acc_mgr_view( acc_mgr, txn, key, rec);
+    
+    /* Account might not exist anymore in the current world */
+    if( err==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
+      continue;
+    }
+    if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+      FD_LOG_WARNING(( "fd_runtime_collect_rent: fd_acc_mgr_view failed (%d)", err ));
+      continue;
+    }
+    /* Check if latest version in this transaction */
+    if ( rec_ro != rec->const_rec )
+      continue;
+    
+    /* Filter accounts that we've already visited */
+    ulong epoch = slot_ctx->epoch_ctx->rent_epoch;
+    if( rec->const_meta->info.rent_epoch > epoch )
+      continue;
+    
+    /* Upgrade read-only handle to writable */
+    err = fd_acc_mgr_modify(
+      acc_mgr, txn, key,
+        /* do_create   */ 0,
+        /* min_data_sz */ 0UL,
+        rec);
+    if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+      FD_LOG_WARNING(( "fd_runtime_collect_rent_range: fd_acc_mgr_modify failed (%d)", err ));
+      continue;
+    }
+    
+    /* Actually invoke rent collection */
+    (void) fd_runtime_collect_rent_account( slot_ctx, rec->meta, key, epoch );
+    
+    if ( !FD_FEATURE_ACTIVE( slot_ctx, skip_rent_rewrites ) )
+      // By changing the slot, this forces the account to be updated
+      // in the account_delta_hash which matches the "rent rewrite"
+      // behavior in solana.
+      rec->meta->slot = slot_ctx->bank.slot;
   }
-  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
-    FD_LOG_WARNING(( "fd_runtime_collect_rent_cb: fd_acc_mgr_view failed (%d)", err ));
-    return 0; /* Don't walk again */
-  }
-
-  /* Filter accounts that we've already visited */
-  ulong epoch = slot_ctx->epoch_ctx->rent_epoch;
-  if( rec->const_meta->info.rent_epoch > epoch ) return 1;
-
-  /* Upgrade read-only handle to writable */
-  err = fd_acc_mgr_modify(
-    acc_mgr, txn, key,
-      /* do_create   */ 0,
-      /* min_data_sz */ 0UL,
-                        rec);
-  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
-    FD_LOG_WARNING(( "fd_runtime_collect_rent_range: fd_acc_mgr_modify failed (%d)", err ));
-    return err;
-  }
-
-  /* Actually invoke rent collection */
-  (void) fd_runtime_collect_rent_account( slot_ctx, rec->meta, key, epoch );
-
-  if ( !FD_FEATURE_ACTIVE( slot_ctx, skip_rent_rewrites ) )
-    // By changing the slot, this forces the account to be updated
-    // in the account_delta_hash which matches the "rent rewrite"
-    // behavior in solana.
-    rec->meta->slot = slot_ctx->bank.slot;
-
-  return 1;
 }
 
 static void
@@ -1048,15 +1056,11 @@ fd_runtime_collect_rent( fd_exec_slot_ctx_t * slot_ctx ) {
     ulong epoch = fd_slot_to_epoch( schedule, s, &off );
 
     /* Reconstruct rent lists if the number of slots per epoch changes */
-    if ( fd_rent_lists_get_slots_per_epoch( slot_ctx->epoch_ctx->rentlists ) != fd_epoch_slot_cnt( schedule, epoch ) ) {
-      fd_rent_lists_delete( slot_ctx->epoch_ctx->rentlists );
-      slot_ctx->epoch_ctx->rentlists = fd_rent_lists_new(fd_epoch_slot_cnt( schedule, epoch ));
-      fd_funk_set_notify(slot_ctx->acc_mgr->funk, fd_rent_lists_cb, slot_ctx->epoch_ctx->rentlists);
-      fd_rent_lists_startup_done(slot_ctx->epoch_ctx->rentlists);
-    }
+    fd_acc_mgr_set_slots_per_epoch( slot_ctx->acc_mgr, fd_epoch_slot_cnt( schedule, epoch ) );
 
     slot_ctx->epoch_ctx->rent_epoch = epoch;
-    fd_rent_lists_walk( slot_ctx->epoch_ctx->rentlists, off, fd_runtime_collect_rent_cb, slot_ctx );
+
+    fd_runtime_collect_rent_for_slot(slot_ctx, off);
   }
 
   FD_LOG_NOTICE(( "Rent collected - lamports: %lu", slot_ctx->bank.collected_rent ));
@@ -1545,11 +1549,7 @@ void fd_runtime_update_leaders( fd_exec_slot_ctx_t * slot_ctx, ulong slot) {
   ulong slot_cnt        = fd_epoch_slot_cnt( &schedule, epoch );
 
   FD_LOG_INFO(( "starting rent list init" ));
-  if (NULL != slot_ctx->epoch_ctx->rentlists)
-    fd_rent_lists_delete(slot_ctx->epoch_ctx->rentlists);
-  slot_ctx->epoch_ctx->rentlists = fd_rent_lists_new(fd_epoch_slot_cnt( &schedule, epoch ));
-  fd_funk_set_notify(slot_ctx->acc_mgr->funk, fd_rent_lists_cb, slot_ctx->epoch_ctx->rentlists);
-  fd_rent_lists_startup_done(slot_ctx->epoch_ctx->rentlists);
+  fd_acc_mgr_set_slots_per_epoch( slot_ctx->acc_mgr, fd_epoch_slot_cnt( &schedule, epoch ) );
   FD_LOG_INFO(( "rent list init done" ));
 
   ulong vote_acc_cnt = fd_vote_accounts_pair_t_map_size( epoch_vaccs->vote_accounts_pool, epoch_vaccs->vote_accounts_root );

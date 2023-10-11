@@ -281,9 +281,6 @@ replay( global_state_t * state,
 
   // fd_funk_txn_publish( state->slot_ctx->acc_mgr->funk, state->slot_ctx->acc_mgr->funk_txn, 1);
 
-  fd_rent_lists_delete(state->epoch_ctx->rentlists);
-  state->epoch_ctx->rentlists = NULL;
-
   FD_TEST( fd_scratch_frame_used()==0UL );
   fd_wksp_free_laddr( fd_scratch_detach( NULL ) );
   fd_wksp_free_laddr( fmem                      );

@@ -2,6 +2,7 @@
 #include "../../ballet/base58/fd_base58.h"
 #include "fd_hashes.h"
 #include "fd_runtime.h"
+#include "fd_rent_lists.h"
 #include <stdio.h>
 
 fd_acc_mgr_t *
@@ -34,6 +35,34 @@ fd_acc_mgr_key( fd_pubkey_t const * pubkey ) {
 inline int
 fd_acc_mgr_is_key( fd_funk_rec_key_t const* id ) {
   return id->c[ FD_FUNK_REC_KEY_FOOTPRINT - 1 ] == FD_ACC_MGR_KEY_TYPE;
+}
+
+static ulong
+fd_rent_lists_key_to_bucket( fd_acc_mgr_t * acc_mgr,
+                             fd_funk_rec_t const * rec ) {
+  fd_pubkey_t const * key = fd_type_pun_const( &rec->pair.key[0].uc );
+  ulong prefixX_be = key->ul[0];
+  ulong prefixX    = fd_ulong_bswap( prefixX_be );
+  return fd_rent_key_to_partition( prefixX, acc_mgr->part_width, acc_mgr->slots_per_epoch );
+}
+
+static uint
+fd_rent_lists_cb(fd_funk_rec_t * rec, uint num_part, void * cb_arg) {
+  (void)num_part;
+  fd_acc_mgr_t * acc_mgr = (fd_acc_mgr_t *)cb_arg;
+  if ( fd_acc_mgr_is_key( rec->pair.key ) )
+    return (uint)fd_rent_lists_key_to_bucket( acc_mgr, rec );
+  return FD_FUNK_PART_NULL;
+}
+
+void
+fd_acc_mgr_set_slots_per_epoch( fd_acc_mgr_t * acc_mgr,
+                                ulong slots_per_epoch ) {
+  if (slots_per_epoch == acc_mgr->slots_per_epoch )
+    return;
+  acc_mgr->slots_per_epoch = slots_per_epoch;
+  acc_mgr->part_width      = fd_rent_partition_width( slots_per_epoch );
+  fd_funk_repartition(acc_mgr->funk, (uint)slots_per_epoch, fd_rent_lists_cb, acc_mgr);
 }
 
 void const *
@@ -93,6 +122,9 @@ fd_acc_mgr_modify_raw( fd_acc_mgr_t *        acc_mgr,
 
   if (NULL != opt_out_rec)
     *opt_out_rec = rec;
+
+  if ( acc_mgr->slots_per_epoch != 0 )
+    fd_funk_part_set(funk, rec, (uint)fd_rent_lists_key_to_bucket( acc_mgr, rec ));
 
   fd_account_meta_t * ret = fd_funk_val( rec, fd_funk_wksp(funk) );
   if( do_create && ret->magic == 0 )

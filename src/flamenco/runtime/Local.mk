@@ -25,7 +25,6 @@ $(call add-objs, \
 	fd_acc_mgr \
 	fd_hashes \
 	fd_runtime \
-	fd_rent_lists \
 	fd_system_ids \
 	fd_instr_info \
 	fd_pubkey_utils \
