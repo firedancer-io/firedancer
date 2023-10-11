@@ -9,9 +9,9 @@
 #include "../../ballet/txn/fd_txn.h"
 #include "../../ballet/bmtree/fd_bmtree.h"
 
-#include "../stakes/fd_stake_program.h"
 #include "../stakes/fd_stakes.h"
 #include "../rewards/fd_rewards.h"
+#include "program/fd_stake_program.h"
 #include "program/fd_system_program.h"
 #include "program/fd_vote_program.h"
 #include "fd_system_ids.h"
