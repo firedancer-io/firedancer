@@ -9,6 +9,7 @@ on:
     branches:
       - main
       - next
+      - runtime
   merge_group:
     types: [checks_requested]
   workflow_dispatch:
@@ -103,12 +104,12 @@ jobs:
 
       - uses: firedancer-io/clusterfuzz-action@main
         # Only publish fuzz targets if on main or next
-        if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/next' }}
+        if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/next' || github.ref == 'refs/heads/runtime' }}
         name: Upload fuzz targets to ClusterFuzz
         with:
           bucket-name: firedancer-builds.isol-clusterfuzz.appspot.com
           artifact-dir: build/linux/clang/combi/${{ matrix.feature_set }}/fuzz-test
-          object-prefix: main/libfuzzer/${{ matrix.feature_set }}/firedancer
+          object-prefix: runtime/libfuzzer/${{ matrix.feature_set }}/firedancer
           project-id: isol-clusterfuzz
           qualifier: ${{ matrix.feature_set }}
           service-account-credentials: ${{ secrets.FUZZ_SERVICE_ACCT_JSON_BUNDLE }}
