@@ -84,7 +84,7 @@ jobs:
       group: github-v1
     env:
       MACHINE: linux_clang_combi_${{ matrix.feature_set }}
-      EXTRAS: fuzz asan ubsan
+      EXTRAS: fuzz asan ubsan libmicrohttp
     steps:
       - uses: actions/checkout@v4
 
