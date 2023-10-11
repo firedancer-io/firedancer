@@ -15,7 +15,7 @@
 #include "program/fd_system_program.h"
 #include "program/fd_vote_program.h"
 #include "fd_system_ids.h"
-#include "fd_vm_context.h"
+#include "../vm/fd_vm_context.h"
 #include <stdio.h>
 #include <ctype.h>
 
@@ -826,9 +826,11 @@ fd_runtime_calculate_fee( fd_exec_txn_ctx_t * txn_ctx, fd_txn_t * txn_descriptor
 //                    .map(|bin| bin.fee)
 //                    .unwrap_or_default()
 //            });  
-  double MEMORY_USAGE_COST = (((vm_compute_budget.loaded_accounts_data_size_limit + (ACCOUNT_DATA_COST_PAGE_SIZE - 1)) / ACCOUNT_DATA_COST_PAGE_SIZE) * vm_compute_budget.heap_cost);
+  double MEMORY_USAGE_COST = ((((double)vm_compute_budget.loaded_accounts_data_size_limit + (ACCOUNT_DATA_COST_PAGE_SIZE - 1)) / ACCOUNT_DATA_COST_PAGE_SIZE) * (double)vm_compute_budget.heap_cost);
   double loaded_accounts_data_size_cost = include_loaded_account_data_size_in_fee ? MEMORY_USAGE_COST : 0.0;
-  double total_compute_units = loaded_accounts_data_size_cost + vm_compute_budget.compute_unit_limit;
+  double total_compute_units = loaded_accounts_data_size_cost + (double)vm_compute_budget.compute_unit_limit;
+  /* unused */
+  (void)total_compute_units;
   double compute_fee = 0;
 
   double fee = (prioritization_fee + signature_fee + write_lock_fee + compute_fee) * congestion_multiplier;
