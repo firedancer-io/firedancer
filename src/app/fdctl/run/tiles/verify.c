@@ -47,8 +47,9 @@ run( fd_tile_args_t * args ) {
 }
 
 static long allow_syscalls[] = {
-  __NR_write,     /* logging */
-  __NR_fsync,     /* logging, WARNING and above fsync immediately */
+  __NR_write,       /* logging */
+  __NR_fsync,       /* logging, WARNING and above fsync immediately */
+  __NR_sched_yield, /* sched_yield used by fd_log */
 };
 
 static workspace_kind_t allow_workspaces[] = {
