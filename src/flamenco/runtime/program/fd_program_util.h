@@ -6,6 +6,7 @@
 #include "../context/fd_exec_slot_ctx.h"
 #include "../fd_executor.h"
 #include "../fd_runtime.h"
+#include "../fd_system_ids.h"
 
 #define FD_DEBUG_MODE 0
 
@@ -106,25 +107,22 @@ fd_instr_ctx_get_index_of_instruction_account_in_transaction(
 }
 
 int
-fd_instr_ctx_try_borrow_account( FD_PARAM_UNUSED fd_instr_info_t const * self,
-                                 fd_exec_txn_ctx_t const *               transaction_context,
-                                 uchar                                   index_in_transaction,
-                                 FD_PARAM_UNUSED uchar                   index_in_instruction,
-                                 fd_borrowed_account_t *                 out ) {
+fd_instr_ctx_try_borrow_account( fd_exec_instr_ctx_t *     self,
+                                 fd_exec_txn_ctx_t const * transaction_context,
+                                 uchar                     index_in_transaction,
+                                 uchar                     index_in_instruction,
+                                 fd_borrowed_account_t **  out ) {
   int rc;
   if ( FD_UNLIKELY( index_in_transaction >= transaction_context->accounts_cnt ) ) {
     return FD_EXECUTOR_INSTR_ERR_ACC_BORROW_FAILED;
   }
-  out->pubkey = &transaction_context->accounts[index_in_transaction];
-
   // FIXME implement `const` versions for instructions that don't need write
   // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/sdk/src/transaction_context.rs#L685-L690
-  rc = fd_acc_mgr_modify( transaction_context->acc_mgr,
-                          transaction_context->funk_txn,
-                          out->pubkey,
-                          1,
-                          0, // FIXME
-                          out );
+  rc = fd_instr_borrowed_account_modify_idx( self,
+                                             index_in_instruction,
+                                             1,
+                                             0, // FIXME
+                                             out );
   switch ( rc ) {
   case FD_ACC_MGR_SUCCESS:
     return FD_PROGRAM_OK;
@@ -138,15 +136,15 @@ fd_instr_ctx_try_borrow_account( FD_PARAM_UNUSED fd_instr_info_t const * self,
 }
 
 int
-fd_instr_ctx_try_borrow_instruction_account( fd_instr_info_t const *   self,
+fd_instr_ctx_try_borrow_instruction_account( fd_exec_instr_ctx_t *     self,
                                              fd_exec_txn_ctx_t const * transaction_context,
                                              uchar                     instruction_account_index,
-                                             fd_borrowed_account_t *   out ) {
+                                             fd_borrowed_account_t **  out ) {
   int rc;
 
   uchar index_in_transaction = FD_TXN_ACCT_ADDR_MAX;
   rc                         = fd_instr_ctx_get_index_of_instruction_account_in_transaction(
-      self, instruction_account_index, &index_in_transaction );
+      self->instr, instruction_account_index, &index_in_transaction );
   if ( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
 
   rc = fd_instr_ctx_try_borrow_account( self,
@@ -220,18 +218,16 @@ fd_instr_ctx_signers_contains( fd_pubkey_t const * signers[FD_TXN_SIG_MAX],
     }                                                                                                    \
   } while ( 0 )
 
-#define FD_SYSVAR_CHECKED_READ( invFD_PROGRAM_OKe_context,                                         \
+#define FD_SYSVAR_CHECKED_READ( invoke_context,                                                    \
                                 instruction_context,                                               \
                                 instruction_account_index,                                         \
                                 fd_sysvar_id,                                                      \
                                 fd_sysvar_read,                                                    \
                                 out )                                                              \
   do {                                                                                             \
-    FD_SYSVAR_CHECK_SYSVAR_ACCOUNT( invFD_PROGRAM_OKe_context->txn_ctx,                            \
-                                    instruction_context,                                           \
-                                    instruction_account_index,                                     \
-                                    fd_sysvar_id );                                                \
-    int rc = fd_sysvar_read( invFD_PROGRAM_OKe_context->slot_ctx, out );                           \
+    FD_SYSVAR_CHECK_SYSVAR_ACCOUNT(                                                                \
+        invoke_context->txn_ctx, instruction_context, instruction_account_index, fd_sysvar_id );   \
+    int rc = fd_sysvar_read( invoke_context->slot_ctx, out );                                      \
     if ( FD_UNLIKELY( rc != FD_ACC_MGR_SUCCESS ) )                                                 \
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;                                             \
     return FD_PROGRAM_OK;                                                                          \
@@ -239,11 +235,11 @@ fd_instr_ctx_signers_contains( fd_pubkey_t const * signers[FD_TXN_SIG_MAX],
 
 // https://github.com/firedancer-io/solana/blob/debug-master/program-runtime/src/sysvar_cache.rs#L236
 static int
-fd_sysvar_clock_checked_read( fd_exec_instr_ctx_t const *       invFD_PROGRAM_OKe_context,
+fd_sysvar_clock_checked_read( fd_exec_instr_ctx_t const *       invoke_context,
                               fd_instr_info_t const *           instruction_context,
                               uchar                             instruction_account_index,
                               /* out */ fd_sol_sysvar_clock_t * clock ) {
-  FD_SYSVAR_CHECKED_READ( invFD_PROGRAM_OKe_context,
+  FD_SYSVAR_CHECKED_READ( invoke_context,
                           instruction_context,
                           instruction_account_index,
                           fd_sysvar_clock_id,
@@ -253,11 +249,11 @@ fd_sysvar_clock_checked_read( fd_exec_instr_ctx_t const *       invFD_PROGRAM_OK
 
 // https://github.com/firedancer-io/solana/blob/debug-master/program-runtime/src/sysvar_cache.rs#L249
 static int
-fd_sysvar_rent_checked_read( fd_exec_instr_ctx_t const * invFD_PROGRAM_OKe_context,
+fd_sysvar_rent_checked_read( fd_exec_instr_ctx_t const * invoke_context,
                              fd_instr_info_t const *     instruction_context,
                              uchar                       instruction_account_index,
                              /* out */ fd_rent_t *       rent ) {
-  FD_SYSVAR_CHECKED_READ( invFD_PROGRAM_OKe_context,
+  FD_SYSVAR_CHECKED_READ( invoke_context,
                           instruction_context,
                           instruction_account_index,
                           fd_sysvar_rent_id,
@@ -267,11 +263,11 @@ fd_sysvar_rent_checked_read( fd_exec_instr_ctx_t const * invFD_PROGRAM_OKe_conte
 
 // https://github.com/firedancer-io/solana/blob/debug-master/program-runtime/src/sysvar_cache.rs#L289
 static int
-fd_sysvar_stake_history_checked_read( fd_exec_instr_ctx_t const *    invFD_PROGRAM_OKe_context,
+fd_sysvar_stake_history_checked_read( fd_exec_instr_ctx_t const *    invoke_context,
                                       fd_instr_info_t const *        instruction_context,
                                       uchar                          instruction_account_index,
                                       /* out */ fd_stake_history_t * stake_history ) {
-  FD_SYSVAR_CHECKED_READ( invFD_PROGRAM_OKe_context,
+  FD_SYSVAR_CHECKED_READ( invoke_context,
                           instruction_context,
                           instruction_account_index,
                           fd_sysvar_stake_history_id,
