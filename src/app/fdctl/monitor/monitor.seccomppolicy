@@ -1,0 +1,21 @@
+unsigned int drain_output_fd
+
+# logging
+write: (or (eq (arg 0) 1)
+           (eq (arg 0) 2) 
+           (eq (arg 0) 3))
+
+# logging: 'WARNING' and above fsync immediately
+fsync: (eq (arg 0) 3)
+
+# fd_log_wait_until
+nanosleep
+
+# fd_log_wait_until
+sched_yield
+
+# exit process
+exit_group
+
+# read from firedancer stdout to interpose their log messages
+read: (eq (arg 0) drain_output_fd)
