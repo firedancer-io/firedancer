@@ -53,7 +53,7 @@ build/native/gcc/unit-test/test_runtime --wksp giant_wksp --gaddr 0xc7ce180 --cm
 #include "sysvar/fd_sysvar.h"
 #include "fd_runtime.h"
 #include "sysvar/fd_sysvar_epoch_schedule.h"
-#include "../stakes/fd_stake_program.h"
+#include "program/fd_stake_program.h"
 #include "../stakes/fd_stakes.h"
 
 #include <dirent.h>

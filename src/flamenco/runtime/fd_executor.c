@@ -3,20 +3,20 @@
 #include "fd_hashes.h"
 #include "fd_runtime.h"
 
-#include "program/fd_system_program.h"
-#include "program/fd_vote_program.h"
-#include "../stakes/fd_stake_program.h"
+#include "../../util/rng/fd_rng.h"
+#include "../nanopb/pb_encode.h"
+#include "../trace/fd_txntrace.h"
+#include "program/fd_bpf_deprecated_loader_program.h"
+#include "program/fd_bpf_loader_program.h"
+#include "program/fd_bpf_loader_v4_program.h"
+#include "program/fd_bpf_upgradeable_loader_program.h"
+#include "program/fd_compute_budget_program.h"
 #include "program/fd_config_program.h"
 #include "program/fd_ed25519_program.h"
 #include "program/fd_secp256k1_program.h"
-#include "program/fd_bpf_loader_program.h"
-#include "program/fd_bpf_upgradeable_loader_program.h"
-#include "program/fd_bpf_deprecated_loader_program.h"
-#include "program/fd_bpf_loader_v4_program.h"
-#include "program/fd_compute_budget_program.h"
-#include "../trace/fd_txntrace.h"
-#include "../nanopb/pb_encode.h"
-#include "../../util/rng/fd_rng.h"
+#include "program/fd_stake_program.h"
+#include "program/fd_system_program.h"
+#include "program/fd_vote_program.h"
 
 #include "../../ballet/base58/fd_base58.h"
 
@@ -517,4 +517,3 @@ fd_execute_txn( fd_exec_slot_ctx_t *  slot_ctx,
   slot_ctx->funk_txn = parent_txn;
   return 0;
 }
-
