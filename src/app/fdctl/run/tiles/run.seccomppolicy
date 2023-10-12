@@ -1,0 +1,15 @@
+int pid_namespace
+
+# logging
+write (eq (arg 0) 2)
+
+# wait for children
+wait4: (and (eq (arg 0) pid_namespace) 
+            (eq (arg 2) __WCLONE) 
+            (eq (arg 3) 0))
+
+# exit process
+exit_group
+
+# kill the pid namespaced child process
+kill: (eq (arg 1) SIGKILL)
