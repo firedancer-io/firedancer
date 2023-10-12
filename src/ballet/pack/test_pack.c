@@ -2,6 +2,7 @@
 #include "fd_pack.h"
 #include "fd_compute_budget_program.h"
 #include "../txn/fd_txn.h"
+#include "../base58/fd_base58.h"
 #include <math.h>
 
 FD_IMPORT_BINARY( sample_vote, "src/ballet/pack/sample_vote.bin" );
@@ -587,6 +588,48 @@ test_limits( void ) {
   }
 }
 
+static inline void
+test_reject_writes_to_sysvars( void ) {
+  FD_LOG_NOTICE(( "TEST SYSVARS" ));
+  fd_pack_t * pack = init_all( 1024UL, 1UL, 128UL, &outcome );
+  char const * sysvars[] = {
+    "Sysvar1111111111111111111111111111111111111",
+    "SysvarRecentB1ockHashes11111111111111111111",
+    "SysvarC1ock11111111111111111111111111111111",
+    "SysvarS1otHistory11111111111111111111111111",
+    "SysvarS1otHashes111111111111111111111111111",
+    "SysvarEpochSchedu1e111111111111111111111111",
+    "SysvarFees111111111111111111111111111111111",
+    "SysvarRent111111111111111111111111111111111",
+    "SysvarStakeHistory1111111111111111111111111",
+    "SysvarLastRestartS1ot1111111111111111111111",
+    "Sysvar1nstructions1111111111111111111111111",
+    "NativeLoader1111111111111111111111111111111",
+    "Feature111111111111111111111111111111111111",
+    "Config1111111111111111111111111111111111111",
+    "Stake11111111111111111111111111111111111111",
+    "StakeConfig11111111111111111111111111111111",
+    "11111111111111111111111111111111",
+    "Vote111111111111111111111111111111111111111",
+    "BPFLoader1111111111111111111111111111111111",
+    "BPFLoader2111111111111111111111111111111111",
+    "BPFLoaderUpgradeab1e11111111111111111111111",
+    "LoaderV411111111111111111111111111111111111",
+    "Ed25519SigVerify111111111111111111111111111",
+    "KeccakSecp256k11111111111111111111111111111",
+    "ComputeBudget111111111111111111111111111111",
+    "AddressLookupTab1e1111111111111111111111111",
+    "So11111111111111111111111111111111111111112",
+    "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA" };
+  for( ulong i=0UL; i<27UL; i++ ) {
+    make_transaction( i, 1000001U, 11.0, "A", "B" );
+    fd_base58_decode_32( sysvars[ i ], payload_scratch[ i ] + 97UL );
+    insert( i, pack );
+    FD_TEST( fd_pack_avail_txn_cnt( pack )==0UL );
+  }
+}
+
+
 
 int
 main( int     argc,
@@ -603,6 +646,7 @@ main( int     argc,
   test_delete();
   test_gap();
   test_limits();
+  test_reject_writes_to_sysvars();
 
   fd_rng_delete( fd_rng_leave( rng ) );
 
