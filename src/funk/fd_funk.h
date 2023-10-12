@@ -419,12 +419,12 @@ fd_funk_rec_map( fd_funk_t * funk,       /* Assumes current local join */
   return (fd_funk_rec_t *)fd_wksp_laddr_fast( wksp, funk->rec_map_gaddr );
 }
 
-/* fd_funk_rec_size returns current number of records that are held
+/* fd_funk_rec_global_cnt returns current number of records that are held
    in the funk.  This includes both records of the last published
    transaction and records for transactions that are in-flight. */
 FD_FN_PURE static inline ulong
-fd_funk_rec_size( fd_funk_t * funk,       /* Assumes current local join */
-                  fd_wksp_t * wksp ) {    /* Assumes wksp == fd_funk_wksp( funk ) */
+fd_funk_rec_global_cnt( fd_funk_t * funk,       /* Assumes current local join */
+                        fd_wksp_t * wksp ) {    /* Assumes wksp == fd_funk_wksp( funk ) */
   fd_funk_rec_t * map = (fd_funk_rec_t *)fd_wksp_laddr_fast( wksp, funk->rec_map_gaddr );
   return fd_funk_rec_map_key_cnt( map );
 }

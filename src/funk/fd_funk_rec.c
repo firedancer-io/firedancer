@@ -207,7 +207,7 @@ fd_funk_rec_is_modified( fd_funk_t *           funk,
 
   ulong txn_idx = fd_funk_txn_idx( rec->txn_cidx );
   if( fd_funk_txn_idx_is_null( txn_idx ) )
-    return 1;
+    return -1;
   fd_funk_txn_t * txn_map = fd_funk_txn_map( funk, wksp );
   ulong txn_max = funk->txn_max;
   if( FD_UNLIKELY( txn_idx>=txn_max ) )
