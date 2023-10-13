@@ -1053,10 +1053,7 @@ vote_processor_process_authorize_with_seed_instruction(
 
   // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_processor.rs#L32
   fd_pubkey_t * expected_authority_keys[SIGNERS_MAX] = { 0 };
-  for ( int i = 0; i < SIGNERS_MAX; i++ ) {
-    expected_authority_keys[i] =
-        (fd_pubkey_t *)fd_valloc_malloc( ctx.valloc, 1, sizeof( fd_pubkey_t ) );
-  }
+  fd_pubkey_t single_signer = { 0 };
 
   // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_processor.rs#L33
   if ( FD_UNLIKELY( fd_instr_acc_is_signer_idx( ctx.instr, 2 ) ) ) {
@@ -1065,6 +1062,7 @@ vote_processor_process_authorize_with_seed_instruction(
     fd_pubkey_t const * base_pubkey = &ctx.txn_ctx->accounts[ctx.instr->acct_txn_idxs[2]];
 
     // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_processor.rs#L37-L41
+    expected_authority_keys[0] = &single_signer;
     if ( FD_UNLIKELY(
              rc = fd_pubkey_create_with_seed( base_pubkey->uc,
                                               current_authority_derived_key_seed,
@@ -1084,9 +1082,6 @@ vote_processor_process_authorize_with_seed_instruction(
                              (fd_pubkey_t const **)expected_authority_keys,
                              &clock,
                              ctx );
-  for ( int i = 0; i < SIGNERS_MAX; i++ ) {
-    fd_valloc_free( ctx.valloc, expected_authority_keys[i] );
-  }
 
   return rc;
 }
@@ -1642,10 +1637,11 @@ vote_state_verify_authorized_signer( fd_pubkey_t const * authorized,
                                      fd_pubkey_t const * signers[static SIGNERS_MAX] ) {
   // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_state/mod.rs#L881
   for ( ulong i = 0; i < SIGNERS_MAX; i++ ) {
-    if ( FD_UNLIKELY( signers[i] &&
-                      0 == memcmp( signers[i], authorized, sizeof( fd_pubkey_t ) ) ) ) {
-      return FD_EXECUTOR_INSTR_SUCCESS;
-    }
+    if (NULL != signers[i]) {
+      if (0 == memcmp( signers[i], authorized, sizeof( fd_pubkey_t ) ) )
+        return FD_EXECUTOR_INSTR_SUCCESS;
+    } else
+      break;
   }
   return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
 }
