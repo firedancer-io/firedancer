@@ -1,0 +1,49 @@
+pull_resp: 
+  pubkey: '9Diwct7c6braQnne86jutswAW4iZmPfcg6VHVp4FBrLn'
+  (null): 
+    - signature: '39P8nJ2kNPZBLkJ4YmMimiCBNSto4qBijbGNVKbbwKoQJCm1s3kEuPPijzqR52rgvrKicpDVLptQ3SeNZvKwc1p6'
+      data: 
+        contact_info: 
+          id: '9Diwct7c6braQnne86jutswAW4iZmPfcg6VHVp4FBrLn'
+          gossip: 
+            addr: 
+              ip4: '127.0.0.1'
+            port: 1024
+          tvu: 
+            addr: 
+              ip4: '127.0.0.1'
+            port: 1025
+          tvu_fwd: 
+            addr: 
+              ip4: '127.0.0.1'
+            port: 1026
+          repair: 
+            addr: 
+              ip4: '127.0.0.1'
+            port: 1031
+          tpu: 
+            addr: 
+              ip4: '127.0.0.1'
+            port: 1027
+          tpu_fwd: 
+            addr: 
+              ip4: '127.0.0.1'
+            port: 1028
+          tpu_vote: 
+            addr: 
+              ip4: '127.0.0.1'
+            port: 1029
+          rpc: 
+            addr: 
+              ip4: '127.0.0.1'
+            port: 8899
+          rpc_pubsub: 
+            addr: 
+              ip4: '127.0.0.1'
+            port: 8900
+          serve_repair: 
+            addr: 
+              ip4: '127.0.0.1'
+            port: 1032
+          wallclock: 1660658416429
+          shred_version: 25514
