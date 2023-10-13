@@ -26,6 +26,7 @@
    */
 
 #define FD_IP_NO_ROUTE -1
+#define FD_IP_ERROR    -1
 #define FD_IP_SUCCESS   0
 #define FD_IP_PROBE_RQD 1
 #define FD_IP_MULTICAST 2
@@ -171,9 +172,9 @@ fd_ip_arp_fetch( fd_ip_t * ip );
    searches for an IP address in the table
 
    if found, *arp is set to point to the entry and the function
-       returns 0
+       returns FD_IP_SUCCESS
 
-   otherwise, the function returns 1 */
+   otherwise, the function returns FD_IP_ERROR */
 
 int
 fd_ip_arp_query( fd_ip_t * ip, fd_ip_arp_entry_t ** arp, uint ip_addr );
@@ -186,10 +187,10 @@ fd_ip_arp_query( fd_ip_t * ip, fd_ip_arp_entry_t ** arp, uint ip_addr );
 
    writes ARP packet into buf
 
-   if successful, returns 0
+   if successful, returns FD_IP_SUCCESS
 
    if unable to generate ARP, if the dest capacity (dest_cap) is not enough space
-     then the function returns 1
+     then the function returns FD_IP_ERROR
 
    args
      buf          the buffer used to accept the raw ethernet packet
@@ -199,8 +200,8 @@ fd_ip_arp_query( fd_ip_t * ip, fd_ip_arp_entry_t ** arp, uint ip_addr );
      src_mac_addr the MAC address of the source (caller)
 
    returns
-     0 on success
-     1 on failure (buf_cap not large enough) */
+     FD_IP_SUCCESS on success
+     FD_IP_ERROR   on failure (buf_cap not large enough) */
 
 int
 fd_ip_arp_gen_arp_probe( uchar *   buf,
@@ -225,9 +226,9 @@ fd_ip_route_fetch( fd_ip_t * ip );
    the provided IP address is looked up in the routing table
 
    if an appropriate entry is found, *route is set to point to it
-     and 0 is returned
+     and FD_IP_SUCCESS is returned
 
-   otherwise, 1 is returned */
+   otherwise, FD_IP_ERROR is returned */
 
 int
 fd_ip_route_query( fd_ip_t *              ip,
@@ -283,6 +284,10 @@ fd_ip_route_ip_addr( uchar *   out_dst_mac,
    It only adds an entry in the case one does not already exist
    The entry added is in state "INCOMPLETE", and gets updated to a
    resolved address when the matching response arrives
+
+   returns
+     FD_IP_SUCCESS  if the operation completed successfully
+     FD_IP_ERROR    otherwise
    */
 int
 fd_ip_update_arp_table( fd_ip_t * ip,

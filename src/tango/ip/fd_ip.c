@@ -168,9 +168,9 @@ fd_ip_arp_fetch( fd_ip_t * ip ) {
    searches for an IP address in the table
 
    if found, the resulting data is written into the destination and the function
-       returns 0
+       returns FD_IP_SUCCESS
 
-   otherwise, the function returns 1 */
+   otherwise, the function returns FD_IP_ERROR */
 
 int
 fd_ip_arp_query( fd_ip_t *            ip,
@@ -181,11 +181,11 @@ fd_ip_arp_query( fd_ip_t *            ip,
 
   fd_ip_arp_entry_t * entry = fd_nl_arp_query( arp_table, arp_table_cap, ip_addr );
 
-  if( FD_UNLIKELY( !entry ) ) return 1;
+  if( FD_UNLIKELY( !entry ) ) return FD_IP_ERROR;
 
   *arp = entry;
 
-  return 0;
+  return FD_IP_SUCCESS;
 }
 
 
@@ -196,10 +196,10 @@ fd_ip_arp_query( fd_ip_t *            ip,
 
    writes ARP packet into dest
 
-   if successful, returns 0
+   if successful, returns FD_IP_SUCCESS
 
    if unable to generate ARP, if the dest capacity (dest_cap) is not enough space
-     then the function returns 1 */
+     then the function returns FD_IP_ERROR */
 
 int
 fd_ip_arp_gen_arp_probe( uchar *   buf,
@@ -209,7 +209,7 @@ fd_ip_arp_gen_arp_probe( uchar *   buf,
                          uint      src_ip_addr,
                          uchar *   src_mac_addr ) {
   if( buf_cap < sizeof( fd_ip_arp_t ) ) {
-    return 1;
+    return FD_IP_ERROR;
   }
 
   /* convert ip_addr */
@@ -236,7 +236,7 @@ fd_ip_arp_gen_arp_probe( uchar *   buf,
 
   if( arp_len ) *arp_len = sizeof( *arp );
 
-  return 0;
+  return FD_IP_SUCCESS;
 }
 
 
@@ -265,9 +265,9 @@ fd_ip_route_fetch( fd_ip_t * ip ) {
    the provided IP address is looked up in the routing table
 
    if an appropriate entry is found, the details are written into
-     the destination and 0 is returned
+     the destination and FD_IP_SUCCESS is returned
 
-   otherwise, 1 is returned */
+   otherwise, FD_IP_ERROR is returned */
 
 int
 fd_ip_route_query( fd_ip_t *              ip,
@@ -278,11 +278,11 @@ fd_ip_route_query( fd_ip_t *              ip,
 
   fd_ip_route_entry_t * entry = fd_nl_route_query( route_table, route_table_cap, ip_addr );
 
-  if( FD_UNLIKELY( !entry ) ) return 1;
+  if( FD_UNLIKELY( !entry ) ) return FD_IP_ERROR;
 
   *route = entry;
 
-  return 0;
+  return FD_IP_SUCCESS;
 }
 
 
@@ -385,5 +385,16 @@ fd_ip_update_arp_table( fd_ip_t * ip,
                         uint      ifindex ) {
   fd_nl_t * netlink = fd_ip_netlink_get( ip );
 
-  return fd_nl_update_arp_table( netlink, ip_addr, ifindex );
+  /* ensure the table is up-to-date */
+  fd_ip_arp_fetch( ip );
+
+  /* query the table */
+  fd_ip_arp_entry_t * arp = NULL;
+
+  if( fd_ip_arp_query( ip, &arp, ip_addr ) == FD_IP_SUCCESS ) {
+    return fd_nl_update_arp_table( netlink, ip_addr, ifindex ) ? FD_IP_ERROR : FD_IP_SUCCESS;
+  } else {
+    /* arp entry already in cache, so return success */
+    return FD_IP_SUCCESS;
+  }
 }
