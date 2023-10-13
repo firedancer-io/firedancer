@@ -293,8 +293,8 @@ fd_io_read( int     fd,
 /* fd_io_write behaves virtually identical to fd_io_read but the
    direction of the transfer is from memory to the stream and there is
    no notion of EOF handling.  Assumes src is non-NULL,
-   src_min<=src_max, src_max is positive, src_sz is non-NULL and
-   non-overlapping with src.  Summarizing:
+   src_min<=src_max, src_sz is non-NULL and non-overlapping with src.
+   src_max==0UL is a no-op.  Summarizing:
 
    - src_min is positive:
 
