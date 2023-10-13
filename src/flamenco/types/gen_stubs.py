@@ -202,9 +202,11 @@ def do_map_body_decode(n, f):
     print("  if ( FD_UNLIKELY(err) ) return err;", file=body)
 
     print("  self->" + f["name"] + "_pool = " + mapname + "_alloc(ctx->allocf, ctx->allocf_arg, " + f["name"] + "_len);", file=body)
+    print("  if( FD_UNLIKELY( !self->" + f["name"] + "_pool ) ) return FD_BINCODE_ERR_ALLOC;", file=body)
     print("  self->" + f["name"] + "_root = NULL;", file=body)
     print("  for (ulong i = 0; i < " + f["name"] + "_len; ++i) {", file=body)
     print("    " + nodename + "* node = " + mapname + "_acquire(self->" + f["name"] + "_pool);", file=body);
+    print("    if( FD_UNLIKELY( !node ) ) return FD_BINCODE_ERR_ALLOC;", file=body)
     print("    " + n + "_" + f["element"] + "_new(&node->elem);", file=body)
     print("    err = " + n + "_" + f["element"] + "_decode(&node->elem, ctx);", file=body)
     print("    if ( FD_UNLIKELY(err) ) return err;", file=body)
