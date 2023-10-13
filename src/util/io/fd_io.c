@@ -24,6 +24,11 @@ fd_io_read( int     fd,
             ulong   dst_max,
             ulong * _dst_sz ) {
 
+  if( FD_UNLIKELY( dst_max==0UL ) ) {
+    *_dst_sz = 0UL;
+    return 0;
+  }
+
   uchar * dst = (uchar *)_dst;
 
   ulong dst_sz = 0UL;

@@ -219,10 +219,10 @@ FD_PROTOTYPES_BEGIN
    normal-ish file descriptor (it is okay for fd to be non-blocking).
    dst points in the caller's address space with arbitrary alignment to
    the first byte of the dst_max byte memory region to use (assumes dst
-   non-NULL, dst_max is positive and dst_min is at most dst_max).  The
-   caller should not read or write this region during the call and no
-   interest in dst is retained on return.  If dst_min is 0, this will
-   try to read dst_max from the stream exactly once.
+   non-NULL, and dst_min is at most dst_max).  The caller should not
+   read or write this region during the call and no interest in dst is
+   retained on return.  If dst_min is 0, this will try to read dst_max
+   from the stream exactly once.  If dst_max is 0, is a no-op.
 
    Returns 0 on success.  On success, *_dst_sz will be the number of
    bytes read into dst.  Will be in [dst_min,dst_max].
@@ -294,7 +294,7 @@ fd_io_read( int     fd,
    direction of the transfer is from memory to the stream and there is
    no notion of EOF handling.  Assumes src is non-NULL,
    src_min<=src_max, src_sz is non-NULL and non-overlapping with src.
-   src_max==0UL is a no-op.  Summarizing:
+   If src_max is 0, is a no-op.  Summarizing:
 
    - src_min is positive:
 
