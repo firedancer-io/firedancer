@@ -21,12 +21,20 @@ print("", file=header)
 
 print("#include \"" + sys.argv[1] + "\"", file=body)
 
+print("", file=body)
+print("/* FIXME: Temporary scaffolding */", file=body)
+print("#pragma GCC diagnostic push", file=body)
 print("#pragma GCC diagnostic ignored \"-Wunused-parameter\"", file=body)
 print("#pragma GCC diagnostic ignored \"-Wunused-variable\"", file=body)
-
+print("#if FD_USING_GCC==1 /* Clang doesn't understand these options */", file=body)
+print("#pragma GCC diagnostic ignored \"-Wsuggest-attribute=const\"", file=body)
+print("#pragma GCC diagnostic ignored \"-Wsuggest-attribute=pure\"", file=body)
+print("#endif", file=body)
+print("", file=body)
 print("#ifdef _DISABLE_OPTIMIZATION", file=body)
 print("#pragma GCC optimize (\"O0\")", file=body)
 print("#endif", file=body)
+print("", file=body)
 
 type_map = {
     "int64_t": "long",
@@ -1155,3 +1163,7 @@ for (element_type,key) in map_element_types.items():
 print("FD_PROTOTYPES_END", file=header)
 print("", file=header)
 print("#endif // HEADER_" + json_object["name"].upper(), file=header)
+
+print("", file=body)
+print("/* FIXME: SEE ABOVE PUSH */", file=body)
+print("#pragma GCC diagnostic pop", file=body)
