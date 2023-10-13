@@ -593,21 +593,8 @@ fd_log_private_fprintf_nolock_0( int          fd,
   msg[ len ] = '\0';
   va_end( ap );
 
-# if FD_HAS_ATOMIC
-  FD_COMPILER_MFENCE();
-  while(( FD_LIKELY( FD_ATOMIC_CAS( fd_log_private_shared_lock, 0, 1 ) ) )) ;
-  FD_COMPILER_MFENCE();
-# endif
-
   ulong wsz;
   fd_io_write( fd, msg, (ulong)len, (ulong)len, &wsz ); /* Note: we ignore errors because what are we doing to do? log them? */
-
-# if FD_HAS_ATOMIC
-  FD_COMPILER_MFENCE();
-  FD_VOLATILE( *fd_log_private_shared_lock ) = 0;
-  FD_COMPILER_MFENCE();
-# endif
-
 }
 
 /* Log buffer used by fd_log_private_0 and fd_log_private_hexdump_msg */
