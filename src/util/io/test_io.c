@@ -291,6 +291,20 @@ main( int     argc,
   FD_LOG_NOTICE(( "fd_io_strerror(     0 ) \"%s\"", fd_io_strerror(     0 ) ));
   FD_LOG_NOTICE(( "fd_io_strerror( EBADF ) \"%s\"", fd_io_strerror( EBADF ) ));
 
+  wsz = 42UL;
+  FD_TEST( fd_io_write( -1, NULL, 0UL, 0UL, &wsz )==0 );
+  FD_TEST( wsz==0UL );
+  wsz = 42UL;
+  FD_TEST( fd_io_write( fd, NULL, 0UL, 0UL, &wsz )==0 );
+  FD_TEST( wsz==0UL );
+
+  rsz = 42UL;
+  FD_TEST( fd_io_read( -1, NULL, 0UL, 0UL, &rsz )==0 );
+  FD_TEST( wsz==0UL );
+  rsz = 42UL;
+  FD_TEST( fd_io_read( fd, NULL, 0UL, 0UL, &rsz )==0 );
+  FD_TEST( wsz==0UL );
+
   fd_rng_delete( fd_rng_leave( rng ) );
 
   FD_LOG_NOTICE(( "pass" ));
