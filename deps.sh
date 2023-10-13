@@ -314,8 +314,6 @@ install_openssl () {
     no-tls1-method \
     no-tls1_1 \
     no-tls1_1-method \
-    no-tls1_2 \
-    no-tls1_2-method \
     enable-tls1_3 \
     no-shared \
     no-legacy \
@@ -360,7 +358,6 @@ install_openssl () {
     no-sm4 \
     no-srp \
     no-srtp \
-    no-sock \
     no-ts \
     no-whirlpool
   echo "[+] Configured OpenSSL"

@@ -66,9 +66,11 @@ initialize_quic( fd_quic_config_t * config,
 
 static void
 run( fd_tile_args_t * args ) {
-  const uchar * tile_pod = args->wksp_pod[ 0 ];
-  const uchar * mux_pod  = args->wksp_pod[ 1 ];
-  const uchar * out_pod  = args->wksp_pod[ 2 ];
+  const uchar * tile_pod     = args->wksp_pod[ 0 ];
+  const uchar * mux_pod      = args->wksp_pod[ 1 ];
+  const uchar * out_pod      = args->wksp_pod[ 2 ];
+  const uchar * metrics_pod  = args->wksp_pod[ 3 ];
+  fd_metrics_boot( metrics_pod, metrics_quic, args->tile_idx );
 
   fd_quic_t * quic = fd_quic_join( fd_wksp_pod_map1( tile_pod, "quic%lu", args->tile_idx ) );
   if( FD_UNLIKELY( !quic ) ) FD_LOG_ERR(( "fd_quic_join failed" ));
@@ -114,6 +116,7 @@ static workspace_kind_t allow_workspaces[] = {
   wksp_quic,         /* the tile itself */
   wksp_netmux_inout, /* sending / receiving packets from network */
   wksp_quic_verify,  /* send path for transactions */
+  wksp_metrics_quic  /* metrics */
 };
 
 static ulong

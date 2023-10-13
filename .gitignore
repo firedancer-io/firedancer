@@ -38,3 +38,6 @@ deps-bundle.tar.zst
 
 # Logs
 *.log
+
+# JetBrains
+.idea

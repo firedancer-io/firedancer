@@ -19,9 +19,11 @@ init( fd_tile_args_t * args ) {
 
 static void
 run( fd_tile_args_t * args ) {
-  const uchar * tile_pod = args->wksp_pod[ 0 ];
-  const uchar * in_pod   = args->wksp_pod[ 1 ];
-  const uchar * out_pod  = args->wksp_pod[ 2 ];
+  const uchar * tile_pod     = args->wksp_pod[ 0 ];
+  const uchar * in_pod       = args->wksp_pod[ 1 ];
+  const uchar * out_pod      = args->wksp_pod[ 2 ];
+  const uchar * metrics_pod  = args->wksp_pod[ 3 ];
+  fd_metrics_boot( metrics_pod, metrics_pack, args->tile_idx );
 
   ulong out_cnt = fd_pod_query_ulong( out_pod, "cnt", 0UL );
   if( FD_UNLIKELY( !out_cnt ) ) FD_LOG_ERR(( "num_tiles unset or set to zero" ));
@@ -84,9 +86,10 @@ static long allow_syscalls[] = {
 };
 
 static workspace_kind_t allow_workspaces[] = {
-  wksp_pack,       /* the tile itself */
-  wksp_dedup_pack, /* receive path */
-  wksp_pack_bank,  /* send path */
+  wksp_pack,        /* the tile itself */
+  wksp_dedup_pack,  /* receive path */
+  wksp_pack_bank,   /* send path */
+  wksp_metrics_pack /* metrics */
 };
 
 static ulong

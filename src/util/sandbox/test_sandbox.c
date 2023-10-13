@@ -78,17 +78,17 @@
 void
 check_open_fds( void ) {
   TEST_FORK_EXIT_NON_0(
-    sandbox_unthreaded( 0, NULL, getuid(), getgid() );
+    sandbox_unthreaded( 0, NULL, getuid(), getgid(), SANDBOX_MODE_FULL );
   );
 
   int fds[ 5 ] = { 0, 1, 2, 3, 101 };
   TEST_FORK_EXIT_NON_0(
-    sandbox_unthreaded( SIZEOFA( fds ), fds, getuid(), getgid() );
+    sandbox_unthreaded( SIZEOFA( fds ), fds, getuid(), getgid(), SANDBOX_MODE_FULL );
   );
 
   int fds2[ 4 ] = { 0, 1, 2, 3 };
   TEST_FORK_OK(
-    sandbox_unthreaded( SIZEOFA( fds2 ), fds2, getuid(), getgid() );
+    sandbox_unthreaded( SIZEOFA( fds2 ), fds2, getuid(), getgid(), SANDBOX_MODE_FULL );
   );
 }
 
@@ -101,7 +101,7 @@ resource_limits( void ) {
     FD_TEST( -1 != open( "/etc/passwd", O_RDONLY ) );
   );
   TEST_FORK_OK(
-    sandbox_unthreaded( SIZEOFA( fds ), fds, getuid(), getgid() );
+    sandbox_unthreaded( SIZEOFA( fds ), fds, getuid(), getgid(), SANDBOX_MODE_FULL );
     FD_TEST( -1 == open( "/etc/passwd", O_RDONLY ) );
     FD_TEST( EMFILE == errno );
   );
@@ -112,7 +112,7 @@ not_dumpable( void ) {
   int fds[ 4 ] = { 0, 1, 2, 3 };
   TEST_FORK_OK(
     FD_TEST( prctl( PR_GET_DUMPABLE ) );
-    sandbox_unthreaded( SIZEOFA( fds ), fds, getuid(), getgid() );
+    sandbox_unthreaded( SIZEOFA( fds ), fds, getuid(), getgid(), SANDBOX_MODE_FULL );
     FD_TEST( !prctl( PR_GET_DUMPABLE ) );
   );
 }
@@ -126,7 +126,7 @@ no_capabilities( void ) {
     FD_TEST( 0 == syscall( SYS_capget, &hdr, data ) );
     FD_TEST( data[0].effective || data[1].effective );
 
-    sandbox_unthreaded( SIZEOFA( fds ), fds, getuid(), getgid() );
+    sandbox_unthreaded( SIZEOFA( fds ), fds, getuid(), getgid(), SANDBOX_MODE_FULL );
 
     FD_TEST( 0 == syscall( SYS_capget, &hdr, data ) );
     FD_TEST( !data[0].effective && !data[1].effective );
@@ -138,7 +138,7 @@ no_capabilities( void ) {
 void
 change_userns( void ) {
   TEST_FORK_OK(
-    unshare_user( getuid(), getgid() );
+    unshare_user( getuid(), getgid(), CLONE_NEWUSER | CLONE_NEWNS | CLONE_NEWNET | CLONE_NEWCGROUP | CLONE_NEWIPC | CLONE_NEWUTS );
 
     // Inside the sandbox
     FD_TEST( getuid() == 0 );
@@ -169,7 +169,7 @@ netns( void ) {
 
     /* can't call fd_sandbox_private_unthreaded here because
        we wouldn't be able to call if_nameindex after */
-    unshare_user( getuid(), getgid() );
+    unshare_user( getuid(), getgid(), CLONE_NEWUSER | CLONE_NEWNS | CLONE_NEWNET | CLONE_NEWCGROUP | CLONE_NEWIPC | CLONE_NEWUTS );
 
     ifs = if_nameindex();
     if( !ifs ) FD_LOG_ERR(( "if_nameindex failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -214,7 +214,7 @@ seccomp_default_filter( void ) {
     FD_TEST( -1 != waitpid( pid, &wstatus, WUNTRACED ) );
     FD_TEST( WIFSIGNALED( wstatus ) && WTERMSIG( wstatus ) == SIGSYS );
   } else { // child
-    fd_sandbox( 1, getuid(), getgid(), SIZEOFA( fds ), fds, 0, NULL );
+    fd_sandbox( SANDBOX_MODE_FULL, getuid(), getgid(), SIZEOFA( fds ), fds, 0, NULL );
     // This should fail with SIGSYS
     execl( "/bin/true", "" );
     exit( EXIT_FAILURE );

@@ -4,6 +4,7 @@
 #include "../fdctl.h"
 
 #include "../../../tango/xdp/fd_xsk.h"
+#include "../../../util/sandbox/fd_sandbox.h"
 
 typedef struct {
    int                pid;
@@ -22,10 +23,10 @@ typedef struct {
    workspace_kind_t * allow_workspaces;
    ushort             allow_syscalls_cnt;
    long *             allow_syscalls;
-
    ulong (*allow_fds)( fd_tile_args_t * args, ulong out_fds_sz, int * out_fds );
    void  (*init)( fd_tile_args_t * args );
    void  (*run )( fd_tile_args_t * args );
+   sandbox_mode_t sandbox_mode;
 } fd_tile_config_t;
 
 extern fd_tile_config_t net;
@@ -34,6 +35,7 @@ extern fd_tile_config_t quic;
 extern fd_tile_config_t verify;
 extern fd_tile_config_t dedup;
 extern fd_tile_config_t pack;
+extern fd_tile_config_t metrics;
 extern fd_tile_config_t bank;
 
 typedef struct {

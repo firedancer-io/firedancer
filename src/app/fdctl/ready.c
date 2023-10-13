@@ -39,6 +39,11 @@ ready_cmd_fn( args_t *         args,
       case wksp_pack_bank:
       case wksp_bank_shred:
       case wksp_bank:
+      case wksp_metrics_quic:
+      case wksp_metrics_verify:
+      case wksp_metrics_dedup:
+      case wksp_metrics_pack:
+      case wksp_metrics_bank:
         break;
       case wksp_net:
         for( ulong i=0; i<config->layout.net_tile_count; i++ ) {
@@ -58,6 +63,7 @@ ready_cmd_fn( args_t *         args,
       }
       case wksp_netmux:
       case wksp_dedup:
+      case wksp_metrics:
       case wksp_pack: {
         wait_for( config->name, wksp->name, "cnc" );
         break;

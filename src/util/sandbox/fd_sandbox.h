@@ -64,15 +64,21 @@
       We have the luxury of disallowing all of the syscalls that might
       have received less scrutiny. */
 
+typedef enum {
+  SANDBOX_MODE_FULL    = 0,
+  SANDBOX_MODE_NONE    = 1,
+  SANDBOX_MODE_METRICS = 2,
+} sandbox_mode_t;
+
 /* fd_sandbox sandboxes the current process, performing both privileged and
    private steps. */
 void
-fd_sandbox( int    full_sandbox,
-            uint   uid,
-            uint   gid,
-            ulong  allow_fds_sz,
-            int *  allow_fds,
-            ushort allow_syscalls_cnt,
-            long * allow_syscalls );
+fd_sandbox( sandbox_mode_t sandbox_mode,
+            uint           uid,
+            uint           gid,
+            ulong          allow_fds_sz,
+            int *          allow_fds,
+            ushort         allow_syscalls_cnt,
+            long *         allow_syscalls );
 
 #endif /* HEADER_fd_src_util_sandbox_fd_sandbox_h */

@@ -126,7 +126,7 @@ tile_main( void * _args ) {
                                               sizeof(allow_fds)/sizeof(allow_fds[0]),
                                               allow_fds );
 
-  fd_sandbox( args->sandbox,
+  fd_sandbox( args->sandbox ? args->tile->sandbox_mode : SANDBOX_MODE_NONE,
               args->uid,
               args->gid,
               allow_fds_sz,
@@ -191,7 +191,7 @@ int
 solana_labs_main( void * args ) {
   config_t * const config = args;
 
-  fd_sandbox( 0, config->uid, config->gid, 0, NULL, 0, NULL );
+  fd_sandbox( SANDBOX_MODE_NONE, config->uid, config->gid, 0, NULL, 0, NULL );
 
   uint idx = 0;
   char * argv[ 128 ];
@@ -346,6 +346,11 @@ main_pid_namespace( void * args ) {
       case wksp_dedup_pack:
       case wksp_pack_bank:
       case wksp_bank_shred:
+      case wksp_metrics_quic:
+      case wksp_metrics_verify:
+      case wksp_metrics_dedup:
+      case wksp_metrics_pack:
+      case wksp_metrics_bank:
         break;
       case wksp_net:
         tile_cnt += config->layout.net_tile_count;
@@ -363,6 +368,8 @@ main_pid_namespace( void * args ) {
       case wksp_pack:
         tile_cnt++;
         break;
+      case wksp_metrics:
+        tile_cnt++;
       case wksp_bank:
         /* not included here, not a real pinned tile*/
         break;
@@ -399,6 +406,7 @@ main_pid_namespace( void * args ) {
   for( ulong i=0; i<config->layout.verify_tile_count; i++ ) clone_tile( &spawner, &verify, i );
   clone_tile( &spawner, &dedup, 0 );
   clone_tile( &spawner, &pack , 0 );
+  clone_tile( &spawner, &metrics , 0 );
 
   if( FD_UNLIKELY( sched_setaffinity( 0, sizeof(cpu_set_t), floating_cpu_set ) ) )
     FD_LOG_ERR(( "sched_setaffinity failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -414,7 +422,7 @@ main_pid_namespace( void * args ) {
     3, /* logfile */
   };
 
-  fd_sandbox( config->development.sandbox,
+  fd_sandbox( config->development.sandbox ? SANDBOX_MODE_FULL : SANDBOX_MODE_NONE,
               config->uid,
               config->gid,
               sizeof(allow_fds)/sizeof(allow_fds[ 0 ]),
@@ -503,7 +511,7 @@ run_firedancer( config_t * const config ) {
     3, /* logfile */
   };
 
-  fd_sandbox( config->development.sandbox,
+  fd_sandbox( config->development.sandbox ? SANDBOX_MODE_FULL : SANDBOX_MODE_NONE,
               config->uid,
               config->gid,
               sizeof(allow_fds)/sizeof(allow_fds[ 0 ]),

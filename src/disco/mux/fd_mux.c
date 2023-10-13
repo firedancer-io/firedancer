@@ -1,4 +1,5 @@
 #include "fd_mux.h"
+#include "../metrics/fd_metrics.h"
 
 /* A fd_mux_tile_in has all the state needed for muxing frags from an
    in.  It fits on exactly one cache line. */
@@ -642,6 +643,7 @@ fd_mux_publish( fd_mux_context_t * ctx,
   fd_mcache_publish( ctx->mcache, ctx->depth, *ctx->seq, sig, chunk, sz, ctl, tsorig, tspub );
   (*ctx->cr_avail)--;
   *ctx->seq = fd_seq_inc( *ctx->seq, 1UL );
+  fd_metrics_push( METRIC_MUX_TEST_TAG, *ctx->seq );
 }
 
 #undef SCRATCH_ALLOC

@@ -26,6 +26,12 @@ typedef enum {
   wksp_dedup,
   wksp_pack,
   wksp_bank,
+  wksp_metrics,
+  wksp_metrics_quic,
+  wksp_metrics_verify,
+  wksp_metrics_dedup,
+  wksp_metrics_pack,
+  wksp_metrics_bank,
 } workspace_kind_t;
 
 FD_FN_CONST char *
@@ -171,6 +177,16 @@ typedef struct {
     struct {
       uint receive_buffer_size;
     } bank;
+
+    struct {
+      uint   depth;
+      uint   buffer_size;
+      char   server[ PATH_MAX ];
+      ushort port;
+      char   user_pass[ PATH_MAX ];
+      char   db[ PATH_MAX ];
+      uint   post_interval_ms;
+    } metrics;
 
     struct {
       uint signature_cache_size;
