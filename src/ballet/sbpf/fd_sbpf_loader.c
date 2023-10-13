@@ -1048,7 +1048,7 @@ fd_sbpf_relocate( fd_sbpf_loader_t   const * loader,
   /* Resolve DT_REL virtual address to file offset
      First, attempt to find segment containing DT_REL */
 
-  ulong rel_off;
+  ulong rel_off = ULONG_MAX;
 
   fd_elf64_phdr const * phdrs = (fd_elf64_phdr const *)( elf->bin + elf->ehdr.e_phoff );
   ulong rel_phnum;
