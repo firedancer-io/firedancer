@@ -790,7 +790,7 @@ fd_pod_query_subpod( uchar const * FD_RESTRICT pod,
    untouched otherwise.  The return pointer's lifetime is the pod's
    local join lifetime or an invalidating operation is done on the pod. */
 
-FD_FN_PURE static inline void const *
+static inline void const *
 fd_pod_query_buf( uchar const * FD_RESTRICT pod,
                   char const  * FD_RESTRICT path,
                   ulong       * FD_RESTRICT opt_buf_sz ) {
