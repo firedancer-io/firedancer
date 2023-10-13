@@ -42,6 +42,7 @@ typedef struct fd_bincode_destroy_ctx fd_bincode_destroy_ctx_t;
 #define FD_BINCODE_ERR_OVERFLOW -2  /* Attempted to write past end of buffer */
 #define FD_BINCODE_ERR_ENCODING -3  /* Invalid encoding */
 #define FD_BINCODE_ERR_SMALL_DEQUE -4 /* deque max size is too small */
+#define FD_BINCODE_ERR_ALLOC -5
 
 static inline int
 fd_bincode_uint128_decode(uint128 * self, fd_bincode_decode_ctx_t * ctx) {
