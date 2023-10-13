@@ -112,7 +112,15 @@ send_quic_transactions( fd_quic_t *         quic,
     fd_quic_udpsock_service( udpsock );
   }
 
-  fd_quic_conn_close( conn, 0 );
+  /* close and wait for connection to complete */
+  if( !g_conn_final ) {
+    fd_quic_conn_close( conn, 0 );
+    while( !g_conn_final ) {
+      fd_quic_service( quic );
+      fd_quic_udpsock_service( udpsock );
+    }
+  }
+
   fd_quic_fini( quic );
 }
 
