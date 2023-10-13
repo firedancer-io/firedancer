@@ -903,15 +903,6 @@ fd_executor_vote_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
 
       decode_compact_update( ctx, vote_state_update, &decode );
 
-#if 0
-      fd_flamenco_yaml_t * yaml =
-        fd_flamenco_yaml_init( fd_flamenco_yaml_new(
-            fd_valloc_malloc(ctx.valloc, fd_flamenco_yaml_align(), fd_flamenco_yaml_footprint() ) ),
-          stdout );
-
-      fd_vote_state_update_walk(yaml, &decode, fd_flamenco_yaml_walk, NULL, 0U );
-#endif
-
       rc = vote_state_process_vote_state_update( me, &slot_hashes, &clock, &decode, signers, ctx );
 
       decode.root      = ( fd_option_slot_t ){ .is_some = false, .slot = ULONG_MAX };
@@ -2507,15 +2498,6 @@ get_state( fd_borrowed_account_t const *            self,
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
 
-#if 0
-  fd_flamenco_yaml_t * yaml =
-    fd_flamenco_yaml_init( fd_flamenco_yaml_new(
-        fd_valloc_malloc(ctx.valloc, fd_flamenco_yaml_align(), fd_flamenco_yaml_footprint() ) ),
-      stdout );
-
-  fd_vote_state_versioned_walk(yaml, versioned, fd_flamenco_yaml_walk, NULL, 0U );
-#endif
-
   return OK;
 }
 
@@ -2571,26 +2553,6 @@ set_state( fd_borrowed_account_t *     self,
     if ( FD_UNLIKELY( 0 != fd_vote_transcoding_state_versioned_encode( state, &encode ) ) )
       FD_LOG_ERR( ( "fd_vote_state_versioned_encode failed" ) );
   }
-
-#if 0
-  {
-    fd_vote_state_versioned_t p;
-
-    fd_bincode_decode_ctx_t decode = {
-      .data    = raw_acc_data,
-      .dataend = encode.dataend,
-      .valloc  = ctx.valloc
-    };
-
-    fd_flamenco_yaml_t * yaml =
-      fd_flamenco_yaml_init( fd_flamenco_yaml_new(
-          fd_valloc_malloc(ctx.valloc, fd_flamenco_yaml_align(), fd_flamenco_yaml_footprint() ) ),
-        stdout );
-
-    fd_vote_state_versioned_decode(&p, &decode);
-    fd_vote_state_versioned_walk(yaml, &p, fd_flamenco_yaml_walk, NULL, 0U );
-  }
-#endif
 
   return 0;
 }
