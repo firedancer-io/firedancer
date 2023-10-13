@@ -146,7 +146,7 @@ fd_executor_bpf_loader_v4_program_execute_instruction( fd_exec_instr_ctx_t ctx )
   fd_pubkey_t const * txn_accs =  ctx.txn_ctx->accounts;
   fd_pubkey_t const * program_id = &txn_accs[ ctx.instr->program_id ];
 
-  if( 0==memcmp( program_id, fd_solana_bpf_loader_v4_program_id.key, sizeof(fd_pubkey_t) ) ) {
+  if( FD_FEATURE_ACTIVE( ctx.slot_ctx, enable_program_runtime_v2_and_loader_v4 ) && 0==memcmp( program_id, fd_solana_bpf_loader_v4_program_id.key, sizeof(fd_pubkey_t) ) ) {
     return _process_meta_instruction( ctx );
   } else {
     FD_LOG_WARNING(( "BPF loader v4 program execution not yet supported" ));
