@@ -21,12 +21,20 @@ print("", file=header)
 
 print("#include \"" + sys.argv[1] + "\"", file=body)
 
+print("", file=body)
+print("/* FIXME: Temporary scaffolding */", file=body)
+print("#pragma GCC diagnostic push", file=body)
 print("#pragma GCC diagnostic ignored \"-Wunused-parameter\"", file=body)
 print("#pragma GCC diagnostic ignored \"-Wunused-variable\"", file=body)
-
+print("#if FD_USING_GCC==1 /* Clang doesn't understand these options */", file=body)
+print("#pragma GCC diagnostic ignored \"-Wsuggest-attribute=const\"", file=body)
+print("#pragma GCC diagnostic ignored \"-Wsuggest-attribute=pure\"", file=body)
+print("#endif", file=body)
+print("", file=body)
 print("#ifdef _DISABLE_OPTIMIZATION", file=body)
 print("#pragma GCC optimize (\"O0\")", file=body)
 print("#endif", file=body)
+print("", file=body)
 
 type_map = {
     "int64_t": "long",
@@ -194,9 +202,11 @@ def do_map_body_decode(n, f):
     print("  if ( FD_UNLIKELY(err) ) return err;", file=body)
 
     print("  self->" + f["name"] + "_pool = " + mapname + "_alloc(ctx->allocf, ctx->allocf_arg, " + f["name"] + "_len);", file=body)
+    print("  if( FD_UNLIKELY( !self->" + f["name"] + "_pool ) ) return FD_BINCODE_ERR_ALLOC;", file=body)
     print("  self->" + f["name"] + "_root = NULL;", file=body)
     print("  for (ulong i = 0; i < " + f["name"] + "_len; ++i) {", file=body)
     print("    " + nodename + "* node = " + mapname + "_acquire(self->" + f["name"] + "_pool);", file=body);
+    print("    if( FD_UNLIKELY( !node ) ) return FD_BINCODE_ERR_ALLOC;", file=body)
     print("    " + n + "_" + f["element"] + "_new(&node->elem);", file=body)
     print("    err = " + n + "_" + f["element"] + "_decode(&node->elem, ctx);", file=body)
     print("    if ( FD_UNLIKELY(err) ) return err;", file=body)
@@ -1155,3 +1165,7 @@ for (element_type,key) in map_element_types.items():
 print("FD_PROTOTYPES_END", file=header)
 print("", file=header)
 print("#endif // HEADER_" + json_object["name"].upper(), file=header)
+
+print("", file=body)
+print("/* FIXME: SEE ABOVE PUSH */", file=body)
+print("#pragma GCC diagnostic pop", file=body)

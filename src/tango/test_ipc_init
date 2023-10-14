@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -x
+
 NUMA_IDX=0
 
 WKSP=test_ipc

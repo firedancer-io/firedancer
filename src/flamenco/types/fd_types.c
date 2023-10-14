@@ -2074,9 +2074,11 @@ int fd_slot_account_pair_decode(fd_slot_account_pair_t* self, fd_bincode_decode_
   err = fd_bincode_uint64_decode(&accounts_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   self->accounts_pool = fd_serializable_account_storage_entry_t_map_alloc(ctx->allocf, ctx->allocf_arg, accounts_len);
+  if( FD_UNLIKELY( !self->accounts_pool ) ) return FD_BINCODE_ERR_ALLOC;
   self->accounts_root = NULL;
   for (ulong i = 0; i < accounts_len; ++i) {
     fd_serializable_account_storage_entry_t_mapnode_t* node = fd_serializable_account_storage_entry_t_map_acquire(self->accounts_pool);
+    if( FD_UNLIKELY( !node ) ) return FD_BINCODE_ERR_ALLOC;
     fd_serializable_account_storage_entry_new(&node->elem);
     err = fd_serializable_account_storage_entry_decode(&node->elem, ctx);
     if ( FD_UNLIKELY(err) ) return err;
@@ -2170,9 +2172,11 @@ int fd_solana_accounts_db_fields_decode(fd_solana_accounts_db_fields_t* self, fd
   err = fd_bincode_uint64_decode(&storages_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   self->storages_pool = fd_slot_account_pair_t_map_alloc(ctx->allocf, ctx->allocf_arg, storages_len);
+  if( FD_UNLIKELY( !self->storages_pool ) ) return FD_BINCODE_ERR_ALLOC;
   self->storages_root = NULL;
   for (ulong i = 0; i < storages_len; ++i) {
     fd_slot_account_pair_t_mapnode_t* node = fd_slot_account_pair_t_map_acquire(self->storages_pool);
+    if( FD_UNLIKELY( !node ) ) return FD_BINCODE_ERR_ALLOC;
     fd_slot_account_pair_new(&node->elem);
     err = fd_slot_account_pair_decode(&node->elem, ctx);
     if ( FD_UNLIKELY(err) ) return err;

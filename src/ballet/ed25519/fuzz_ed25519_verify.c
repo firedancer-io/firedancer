@@ -37,9 +37,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
   fd_sha512_t *sha = fd_sha512_join( fd_sha512_new( _sha ) );
 
   int result = fd_ed25519_verify( test->msg, sz, test->sig, test->pub, sha );
-  __asm__ volatile( "" : "+m,r"(result) : : "memory" ); /* prevent optimization */
-
-  if ( FD_UNLIKELY( result == FD_ED25519_SUCCESS ) ) {
+  if( FD_UNLIKELY( result == FD_ED25519_SUCCESS ) ) {
     // was able to verify fuzz input
     __builtin_trap();
   }
