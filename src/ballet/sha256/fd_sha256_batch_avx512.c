@@ -99,11 +99,11 @@ fd_sha256_private_batch_avx512( ulong          batch_cnt,
       ulong src = data + tail_data_off;
       ulong dst = tail_data;
       ulong rem = tail_data_sz;
-      while( rem>=32UL ) { wv_st( (ulong *)dst, wv_ldu( (ulong const *)src ) ); dst += 32UL; src += 32UL; rem -= 32UL; }
-      while( rem>= 8UL ) { *(ulong  *)dst = FD_LOAD( ulong,  src );             dst +=  8UL; src +=  8UL; rem -=  8UL; }
-      if   ( rem>= 4UL ) { *(uint   *)dst = FD_LOAD( uint,   src );             dst +=  4UL; src +=  4UL; rem -=  4UL; }
-      if   ( rem>= 2UL ) { *(ushort *)dst = FD_LOAD( ushort, src );             dst +=  2UL; src +=  2UL; rem -=  2UL; }
-      if   ( rem       ) { *(uchar  *)dst = FD_LOAD( uchar,  src );             dst++;                                 }
+      while( rem>=64UL ) { wwv_st( (ulong *)dst, wwv_ldu( (ulong const *)src ) ); dst += 64UL; src += 64UL; rem -= 64UL; }
+      while( rem>= 8UL ) { *(ulong  *)dst = FD_LOAD( ulong,  src );               dst +=  8UL; src +=  8UL; rem -=  8UL; }
+      if   ( rem>= 4UL ) { *(uint   *)dst = FD_LOAD( uint,   src );               dst +=  4UL; src +=  4UL; rem -=  4UL; }
+      if   ( rem>= 2UL ) { *(ushort *)dst = FD_LOAD( ushort, src );               dst +=  2UL; src +=  2UL; rem -=  2UL; }
+      if   ( rem       ) { *(uchar  *)dst = FD_LOAD( uchar,  src );               dst++;                                 }
       *(uchar *)dst = (uchar)0x80;
 #     else
       fd_memcpy( (void *)tail_data, (void const *)(data + tail_data_off), tail_data_sz );
