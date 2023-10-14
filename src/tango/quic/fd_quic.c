@@ -5117,7 +5117,7 @@ fd_quic_conn_create( fd_quic_t *               quic,
   return conn;
 }
 
-extern inline FD_FN_CONST
+extern inline FD_FN_PURE
 int
 fd_quic_handshake_complete( fd_quic_conn_t * conn );
 
