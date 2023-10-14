@@ -56,8 +56,8 @@ static inline void  wwi_stu( void * m, wwi_t x ) { _mm512_storeu_epi32( m, x ); 
 
 /* Arithmetic operations */
 
-#define wwi_neg(x)           _mm512_sub_epi32( _mm512_setzero_si512(), (x) ) /* wwi( -x0,  -x1,  ... -xf  ) */
-#define wwi_abs(x)           _mm512_abs_epi32( (x) )                         /* wwi( |x0|, |x1|, ... |xf| ) */
+#define wwi_neg(x)           _mm512_sub_epi32( _mm512_setzero_si512(), (x) ) /* wwi( -x0, -x1, ... -xf ) */
+#define wwi_abs(x)           (x)                                             /* wwi(  x0,  x1, ...  xf ) */
 
 #define wwi_min(x,y)         _mm512_min_epi32  ( (x), (y) ) /* wwi( min(x0,y0), min(x1,y1), ... min(xf,yf) ) */
 #define wwi_max(x,y)         _mm512_max_epi32  ( (x), (y) ) /* wwi( max(x0,y0), max(x1,y1), ... max(xf,yf) ) */
@@ -274,7 +274,7 @@ static inline wwi_t wwi_ror_vector( wwi_t a, wwi_t b ) {
     /**/  (cf)               = _mm512_unpackhi_epi32( _wwi_transpose_te, _wwi_transpose_tf );      \
   } while(0)
 
-/* wwi_transpose_2x8x8 transposes the 2 8x8 matrices whose rows are
+/* wwi_transpose_2x8x8 transposes the 2 8x8 matrices whos rows are in
    held in the lower and upper halves of wwi_t's r0,r1...r7 and
    stores the result in c0,c1...c7.  In-place operation fine. */
 
