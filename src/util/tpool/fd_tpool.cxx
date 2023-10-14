@@ -9,7 +9,7 @@ struct fd_tpool_private_worker_cfg {
 
 typedef struct fd_tpool_private_worker_cfg fd_tpool_private_worker_cfg_t;
 
-/* This is not not static to allow tile 0 to attach to this if desired. */
+/* This is not static to allow tile 0 to attach to this if desired. */
 
 FD_TL ulong fd_tpool_private_scratch_frame[ FD_TPOOL_WORKER_SCRATCH_DEPTH ] __attribute((aligned(FD_SCRATCH_FMEM_ALIGN)));
 
