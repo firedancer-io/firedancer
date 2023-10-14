@@ -152,7 +152,7 @@
 
 #ifndef POOL_SENTINEL
 #define POOL_SENTINEL 0
-#endif  
+#endif
 
 /* POOL_MAGIC is the magic number that should be used to identify
    pools of this type in shared memory.  Should be non-zero. */
@@ -321,14 +321,14 @@ FD_FN_CONST static inline POOL_T const * POOL_(ele_sentinel_const)( POOL_T const
 
 /* Address space conversion */
 
-FD_FN_CONST static inline int
+FD_FN_PURE static inline int
 POOL_(idx_test)( POOL_T const * join,
                  ulong          idx ) {
   ulong max = POOL_(private_meta_const)( join )->max;
   return (idx<max) | (idx==POOL_IDX_NULL);
 }
 
-FD_FN_CONST static inline int
+FD_FN_PURE static inline int
 POOL_(ele_test)( POOL_T const * join,
                  POOL_T const * ele ) {
   ulong max = POOL_(private_meta_const)( join )->max;
@@ -410,4 +410,3 @@ FD_PROTOTYPES_END
 #undef POOL_NEXT
 #undef POOL_T
 #undef POOL_NAME
-
