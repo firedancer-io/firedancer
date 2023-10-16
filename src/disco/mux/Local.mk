@@ -1,4 +1,4 @@
-ifdef FD_HAS_X86
+ifdef FD_HAS_SSE
 $(call add-hdrs,fd_mux.h)
 $(call add-objs,fd_mux,fd_disco)
 $(call make-unit-test,test_mux,test_mux,fd_disco fd_tango fd_util)
