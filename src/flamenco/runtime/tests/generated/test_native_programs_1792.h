@@ -75,3 +75,4 @@ int test_1792(fd_executor_test_suite_t *suite) {
 
   return fd_executor_run_test( &test, suite );
 }
+// https://explorer.solana.com/tx/inspector?message=AQECBMunRqdQH%2BRt7oyCqovZzaW4DtASUFbub1YeDz%2Boqka5okUoPSPdgGwdAN1NTb5logyEC8j3bos1%2BdwLUxO%2FG1sGodgXkTdUKpg0N73%2BKnqyVX9TXIp4citopJ3AAAAAAAan1RcYx3TJKFZjmGkdXraLXrijm0ttXHNVWyEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAgMBAwAoAQAAADYFghmF8A9uBeePt4KrRdwVY4eiYZKwx1%2FN0faXPSrVAQAAAA%3D%3D

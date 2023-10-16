@@ -16,6 +16,8 @@
 
 import argparse
 import base58
+import base64
+import urllib
 from hashlib import sha256
 import json
 import os
@@ -342,6 +344,8 @@ def main():
         tx = Transaction().add(instruction)
         message = tx.serialize_message()
 
+        url = "https://explorer.solana.com/tx/inspector?message="+ urllib.parse.quote_plus(base64.b64encode(message).decode('utf-8'))
+
         components = signatures
         components.append(message)
         #    print(components)
@@ -369,6 +373,7 @@ def main():
         print("")
         print("  return fd_executor_run_test( &test, suite );")
         print("}")
+        print("// {}".format(url))
     #    sys.exit(0)
 
     set_stdout("test_native_programs.c")

@@ -73,3 +73,4 @@ int test_1487(fd_executor_test_suite_t *suite) {
 
   return fd_executor_run_test( &test, suite );
 }
+// https://explorer.solana.com/tx/inspector?message=AQECBMCrCogit%2BoS6cWBKs7WzLGZWhVOe8iOatdpdARQjJmRfOeo0H%2BMQFHpLEhJOeKeIzrDPVPqyOTJLuh7FeBMnWQHYUgdNXR0u3xNdiTr072z2DVec9EQQ%2FwNo1OAAAAAAIs6st8zn5X3PRCbP%2BxjZ%2FKsLWUG6iaVCt3XTp8CRiW6AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAgMBAAMEBAAAAA%3D%3D
