@@ -775,6 +775,7 @@ fd_nl_update_arp_table( fd_nl_t * nl,
 
       /* all other errors are reported */
 
+      FD_LOG_NOTICE(( "netlink adding addr %08x to interface index %u", (uint)ip_addr, (uint)ifindex ));
       FD_LOG_WARNING(( "netlink returned data with error: %d %s", -err->error, strerror( -err->error ) ));
 
       /* error occurred - don't switch to new routing table */
