@@ -319,9 +319,6 @@ def main():
                     account["pubkey"] = test_case["transaction_accounts"][int(account["index_in_transaction"])]["pubkey"]
                 else:
                     pkey = sha256(str(account).encode('utf-8')).digest()
-#                    print(account, file=sys.stderr)
-#                    sys.exit(-1)
-#                    pkey = bytearray(random.getrandbits(8) for _ in range(0, 32))
                     account["pubkey"] = base58.b58encode(pkey).decode("utf-8")
             if bool(account["is_signer"]) and (account["pubkey"] not in signer_pubkeys):
                 num_signers += 1
