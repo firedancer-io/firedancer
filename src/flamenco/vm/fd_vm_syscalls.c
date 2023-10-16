@@ -599,7 +599,8 @@ fd_vm_syscall_sol_memmove(
 
 static ulong
 fd_vm_syscall_cpi_preflight_check( ulong signers_seeds_cnt,
-                                   ulong acct_info_cnt ) {
+                                   ulong acct_info_cnt,
+                                   fd_exec_slot_ctx_t * slot_ctx ) {
 
   /* TODO use MAX_SIGNERS constant */
 
@@ -608,7 +609,9 @@ fd_vm_syscall_cpi_preflight_check( ulong signers_seeds_cnt,
     return FD_VM_SYSCALL_ERR_INVAL;
   }
 
-  if( FD_UNLIKELY( acct_info_cnt > 64UL ) ) {
+  unsigned long MAX_CPI_ACCOUNT_INFOS = FD_FEATURE_ACTIVE( slot_ctx, increase_tx_account_lock_limit ) ? 128UL : 64UL;
+
+  if( FD_UNLIKELY( acct_info_cnt > MAX_CPI_ACCOUNT_INFOS ) ) {
     FD_LOG_ERR(( "TODO: return max instruction account infos exceeded" ));
     return FD_VM_SYSCALL_ERR_INVAL;
   }
@@ -894,7 +897,7 @@ fd_vm_syscall_cpi_c(
 
   /* Pre-flight checks ************************************************/
 
-  ulong res = fd_vm_syscall_cpi_preflight_check( signers_seeds_cnt, acct_info_cnt);
+  ulong res = fd_vm_syscall_cpi_preflight_check( signers_seeds_cnt, acct_info_cnt, ctx->instr_ctx.slot_ctx);
   if( FD_UNLIKELY( res != FD_VM_SYSCALL_SUCCESS ) ) return res;
 
   /* Translate instruction ********************************************/
@@ -1031,7 +1034,7 @@ fd_vm_syscall_cpi_rust(
   /* Pre-flight checks ************************************************/
   FD_LOG_WARNING(( "CPI1: %lu %lu %lu %lu %lu", instruction_va, acct_infos_va, acct_info_cnt, signers_seeds_va, signers_seeds_cnt ));
 
-  ulong res = fd_vm_syscall_cpi_preflight_check( signers_seeds_cnt, acct_info_cnt );
+  ulong res = fd_vm_syscall_cpi_preflight_check( signers_seeds_cnt, acct_info_cnt, ctx->instr_ctx.slot_ctx );
   if( FD_UNLIKELY( res != FD_VM_SYSCALL_SUCCESS ) ) return res;
   FD_LOG_WARNING(( "CPI2: %lu %lu %lu %lu %lu", instruction_va, acct_infos_va, acct_info_cnt, signers_seeds_va, signers_seeds_cnt ));
 
