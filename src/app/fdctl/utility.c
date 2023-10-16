@@ -61,8 +61,8 @@ exit_group( int status ) {
 
 void
 mkdir_all( const char * _path,
-           uid_t uid,
-           gid_t gid ) {
+           uid_t        uid,
+           gid_t        gid ) {
   char path[ PATH_MAX + 1 ] = {0};
   strncpy( path, _path, PATH_MAX );
 
@@ -71,22 +71,32 @@ mkdir_all( const char * _path,
   while( FD_LIKELY( *p ) ) {
     if( FD_UNLIKELY( *p == '/' ) ) {
       *p = '\0';
-      if( FD_UNLIKELY( mkdir( path, 0777 ) && errno != EEXIST ) )
+      int error = mkdir( path, 0777 );
+      if( FD_UNLIKELY( error && errno != EEXIST ) )
         FD_LOG_ERR(( "mkdir( `%s` ) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ) );
-      if( FD_UNLIKELY( chown( path, uid, gid ) ) )
-        FD_LOG_ERR(( "chown `%s` failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
-      if( FD_UNLIKELY( chmod( path, S_IRUSR | S_IWUSR | S_IXUSR ) ) )
-        FD_LOG_ERR(( "chmod `%s` failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+      if( FD_LIKELY( !error ) ) {
+        /* only take ownership if we succeeded in creating (did not exist) */
+        if( FD_UNLIKELY( chown( path, uid, gid ) ) )
+          FD_LOG_ERR(( "chown `%s` failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+        if( FD_UNLIKELY( chmod( path, S_IRUSR | S_IWUSR | S_IXUSR ) ) )
+          FD_LOG_ERR(( "chmod `%s` failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+      }
+
       *p = '/';
     }
     p++;
   }
-  if( FD_UNLIKELY( mkdir( path, 0777 ) && errno != EEXIST ) )
+
+  int error = mkdir( path, 0777 );
+  if( FD_UNLIKELY( error && errno != EEXIST ) )
     FD_LOG_ERR(( "mkdir( `%s` ) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ) );
-  if( FD_UNLIKELY( chown( path, uid, gid ) ) )
-    FD_LOG_ERR(( "chown `%s` failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
-  if( FD_UNLIKELY( chmod( path, S_IRUSR | S_IWUSR | S_IXUSR ) ) )
-    FD_LOG_ERR(( "chmod `%s` failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+  if( FD_LIKELY( !error ) ) {
+    /* only take ownership if we succeeded in creating (did not exist) */
+    if( FD_UNLIKELY( chown( path, uid, gid ) ) )
+      FD_LOG_ERR(( "chown `%s` failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( chmod( path, S_IRUSR | S_IWUSR | S_IXUSR ) ) )
+      FD_LOG_ERR(( "chmod `%s` failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+  }
 }
 
 int
