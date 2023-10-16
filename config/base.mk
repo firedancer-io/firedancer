@@ -1,7 +1,7 @@
 BASEDIR?=build
 
 SHELL:=bash
-CPPFLAGS:=-isystem ./opt/include -DFD_LOG_UNCLEAN_EXIT=1
+CPPFLAGS:=-isystem ./opt/include -DFD_LOG_UNCLEAN_EXIT=1 -DFD_WKSP_NO_LOCK_RECLAIM=1
 CC:=gcc
 CFLAGS:=-std=c17 -fPIE
 CXX:=g++

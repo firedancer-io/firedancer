@@ -2,8 +2,9 @@
 
 int
 fd_wksp_private_lock( fd_wksp_t * wksp ) {
-
+# if !FD_WKSP_NO_LOCK_RECLAIM
   int   warning = 0;
+#endif
   ulong me      = fd_log_group_id();
 
   ulong * _owner = &wksp->owner;
@@ -25,6 +26,13 @@ fd_wksp_private_lock( fd_wksp_t * wksp ) {
 
     if( FD_LIKELY( pid==ULONG_MAX ) ) return FD_WKSP_SUCCESS;
 
+    /* We support a FD_WKSP_NO_LOCK_RECLAIM mode which prevents us from
+       trying to recover the lock from dead processes.  This is useful,
+       for example, if we know that the lock will not get acquired by
+       another process, or that if another acquiring process dies that
+       all potential users will get exited.  It prevents a syscall on
+       various common workspace paths (eg, alloc). */
+# if !FD_WKSP_NO_LOCK_RECLAIM
     int status = fd_log_group_id_query( pid );
     if( FD_UNLIKELY( status==FD_LOG_GROUP_ID_QUERY_DEAD ) ) { /* A process died while holding the lock, try to recover the lock */
 
@@ -79,6 +87,14 @@ fd_wksp_private_lock( fd_wksp_t * wksp ) {
        contention and try again. */
 
     FD_YIELD();
+# else
+
+    /* If we are running with FD_WKSP_NO_LOCK_RECLAIM then it is assumed
+       that the contention is caused by a tile pinned to another core,
+       and that this core is itself pinned so spin locking is best. */
+    FD_SPIN_PAUSE();
+
+#endif
   }
 
   /* never get here */
