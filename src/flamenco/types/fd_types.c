@@ -14,6 +14,9 @@
 #pragma GCC optimize ("O0")
 #endif
 
+#define SOURCE_fd_src_flamenco_types_fd_types_c
+#include "fd_types_custom.c"
+
 int fd_hash_decode(fd_hash_t* self, fd_bincode_decode_ctx_t * ctx) {
   void const * data = ctx->data;
   int err = fd_hash_decode_preflight(ctx);
