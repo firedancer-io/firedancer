@@ -396,7 +396,7 @@ fd_r43x6_sqr_fast_ref( fd_r43x6_t y ) {
   ulong z7 = 0UL;
 
   zz.lane[0] = z0; FD_TEST( z0<(1826UL<<51) );
-  zz.lane[1] = z1; FD_TEST( z1<(1675UL<<51) );
+  zz.lane[1] = z1; FD_TEST( z1<(1371UL<<51) );
   zz.lane[2] = z2; FD_TEST( z2<(1222UL<<51) );
   zz.lane[3] = z3; FD_TEST( z3<( 767UL<<51) );
   zz.lane[4] = z4; FD_TEST( z4<( 618UL<<51) );
@@ -637,7 +637,7 @@ main( int     argc,
       /* Test LANE inlines */
 
       p0 &= 1; p1 &= 1; p2 &= 1; p3 &= 1;
-      FD_R43X6_QUAD_LANE_BLEND( Z, p0,p1,p2,p3, X, Y );
+      FD_R43X6_QUAD_LANE_IF( Z, p0,p1,p2,p3, Y, X );
       FD_R43X6_QUAD_UNPACK( z0,z1,z2,z3, Z );
       FD_TEST( fd_r43x6_eq( p0?y0:x0, z0 ) ); FD_TEST( fd_r43x6_eq( p1?y1:x1, z1 ) );
       FD_TEST( fd_r43x6_eq( p2?y2:x2, z2 ) ); FD_TEST( fd_r43x6_eq( p3?y3:x3, z3 ) );
@@ -838,7 +838,7 @@ main( int     argc,
 
     BENCH( FD_R43X6_QUAD_PACK( X, x0,x1,x2,x3 ); FD_R43X6_QUAD_UNPACK( x0,x1,x2,x3, X ) );
     BENCH( FD_R43X6_QUAD_PERMUTE( X, 1,2,3,0, X ) );
-    BENCH( FD_R43X6_QUAD_LANE_BLEND( X, 0,0,1,1, X, Y ) );
+    BENCH( FD_R43X6_QUAD_LANE_IF( X, 0,0,1,1, Y, X ) );
     BENCH( FD_R43X6_QUAD_LANE_ADD_FAST( X, X, 0,1,0,1, X, Y ) );
     BENCH( FD_R43X6_QUAD_LANE_SUB_FAST( X, X, 1,0,1,1, X, Y ) );
     BENCH( FD_R43X6_QUAD_FOLD_UNSIGNED( X, X ) );

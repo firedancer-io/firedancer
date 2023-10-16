@@ -58,16 +58,16 @@ FD_PROTOTYPES_BEGIN
 /* Private APIs *******************************************************/
 
 #if FD_SCRATCH_USE_HANDHOLDING
-extern FD_TLS int     fd_scratch_in_prepare;
+extern FD_TL int     fd_scratch_in_prepare;
 #endif
 
-extern FD_TLS ulong   fd_scratch_private_start;
-extern FD_TLS ulong   fd_scratch_private_free;
-extern FD_TLS ulong   fd_scratch_private_stop;
+extern FD_TL ulong   fd_scratch_private_start;
+extern FD_TL ulong   fd_scratch_private_free;
+extern FD_TL ulong   fd_scratch_private_stop;
 
-extern FD_TLS ulong * fd_scratch_private_frame;
-extern FD_TLS ulong   fd_scratch_private_frame_cnt;
-extern FD_TLS ulong   fd_scratch_private_frame_max;
+extern FD_TL ulong * fd_scratch_private_frame;
+extern FD_TL ulong   fd_scratch_private_frame_cnt;
+extern FD_TL ulong   fd_scratch_private_frame_max;
 
 FD_FN_CONST static inline int
 fd_scratch_private_align_is_valid( ulong align ) {
@@ -651,7 +651,7 @@ fd_scratch_virtual( void ) {
 
 #if !FD_HAS_ASAN
 
-extern FD_TLS ulong fd_alloca_check_private_sz;
+extern FD_TL ulong fd_alloca_check_private_sz;
 
 #define fd_alloca_check( align, sz )                                                                             \
    ( fd_alloca_check_private_sz = (sz),                                                                          \

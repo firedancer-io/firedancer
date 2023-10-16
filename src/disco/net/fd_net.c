@@ -137,8 +137,8 @@ during_frag( void * _ctx,
 
   fd_net_ctx_t * ctx = (fd_net_ctx_t *)_ctx;
 
-  if( FD_UNLIKELY( chunk<ctx->in_chunk0 || chunk>=ctx->in_wmark || sz > FD_NET_MTU ) )
-    FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu)", chunk, sz, ctx->in_chunk0, ctx->in_wmark ));
+  if( FD_UNLIKELY( chunk<ctx->in_chunk0 || chunk>ctx->in_wmark || sz > FD_NET_MTU ) )
+    FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in_chunk0, ctx->in_wmark ));
 
   uchar * src = (uchar *)fd_chunk_to_laddr( ctx->in_wksp, chunk );
   fd_memcpy( ctx->frame, src, sz ); // TODO: Change xsk_aio interface to eliminate this copy

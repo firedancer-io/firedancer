@@ -9,6 +9,10 @@ struct fd_tpool_private_worker_cfg {
 
 typedef struct fd_tpool_private_worker_cfg fd_tpool_private_worker_cfg_t;
 
+/* This is not static to allow tile 0 to attach to this if desired. */
+
+FD_TL ulong fd_tpool_private_scratch_frame[ FD_TPOOL_WORKER_SCRATCH_DEPTH ] __attribute((aligned(FD_SCRATCH_FMEM_ALIGN)));
+
 static int
 fd_tpool_private_worker( int     argc,
                          char ** argv ) {
@@ -29,8 +33,7 @@ fd_tpool_private_worker( int     argc,
   worker->scratch    = scratch;
   worker->scratch_sz = scratch_sz;
 
-  ulong scratch_frame[ FD_TPOOL_WORKER_SCRATCH_DEPTH ] __attribute((aligned(FD_SCRATCH_FMEM_ALIGN)));
-  if( scratch_sz ) fd_scratch_attach( scratch, scratch_frame, scratch_sz, FD_TPOOL_WORKER_SCRATCH_DEPTH );
+  if( scratch_sz ) fd_scratch_attach( scratch, fd_tpool_private_scratch_frame, scratch_sz, FD_TPOOL_WORKER_SCRATCH_DEPTH );
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( worker->state ) = FD_TPOOL_WORKER_STATE_IDLE;
@@ -393,4 +396,3 @@ fd_tpool_worker_state_cstr( int state ) {
   }
   return "unknown";
 }
-

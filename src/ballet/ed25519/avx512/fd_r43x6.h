@@ -1086,18 +1086,18 @@ fd_r43x6_invert( fd_r43x6_t z );
 /* fd_r43x6_if(c,x,y) returns x if c is non-zero and y if not.
    Branchless for deterministic timing.  This macro is robust. */
 
-#define fd_r43x6_if(c,x,y) wwl_blend( (-!(c)) & 0xff, (x), (y) )
+#define fd_r43x6_if(c,x,y) wwl_if( (-!(c)) & 0xff, (y), (x) )
 
 /* fd_r43x6_swap_if(c,x,y) will swap the contents of x and y if c is
    non-zero and leave the contents of x and y unchanged otherwise.
    Branchless for deterministic timing.  This macro is robust. */
 
-#define fd_r43x6_swap_if(c,x,y) do {    \
-    wwl_t _x = (x);                     \
-    wwl_t _y = (y);                     \
-    int   _m = (-!(c)) & 0xff;          \
-    (x)      = wwl_blend( _m, _y, _x ); \
-    (y)      = wwl_blend( _m, _x, _y ); \
+#define fd_r43x6_swap_if(c,x,y) do { \
+    wwl_t _x = (x);                  \
+    wwl_t _y = (y);                  \
+    int   _m = (-!(c)) & 0xff;       \
+    (x)      = wwl_if( _m, _x, _y ); \
+    (y)      = wwl_if( _m, _y, _x ); \
   } while(0)
 
 /* fd_r43x6_is_nonzero(x) reduces a signed fd_r43x6_t x (i.e. in s62)

@@ -26,7 +26,7 @@ syn keyword cOperator     FD_STRINGIFY
 syn keyword cOperator     FD_CONCAT2 FD_CONCAT3 FD_CONCAT4
 syn keyword cOperator     FD_EXPAND_THEN_STRINGIFY
 syn keyword cOperator     FD_EXPAND_THEN_CONCAT2 FD_EXPAND_THEN_CONCAT3 FD_EXPAND_THEN_CONCAT4
-syn keyword cOperator     FD_SRC_LOCATION 
+syn keyword cOperator     FD_SRC_LOCATION
 syn keyword cOperator     FD_STATIC_ASSERT
 syn keyword cOperator     FD_ADDRESS_OF_PACKED_MEMBER
 syn keyword cStorageClass FD_PROTOTYPES_BEGIN FD_PROTOTYPES_END
@@ -46,7 +46,7 @@ syn keyword cStatement    FD_COMPILER_MFENCE
 syn keyword cStatement    FD_SPIN_PAUSE FD_YIELD
 syn keyword cOperator     FD_VOLATILE_CONST FD_VOLATILE
 syn keyword cOperator     FD_ATOMIC_FETCH_AND_ADD FD_ATOMIC_FETCH_AND_SUB FD_ATOMIC_FETCH_AND_OR FD_ATOMIC_FETCH_AND_AND FD_ATOMIC_FETCH_AND_XOR FD_ATOMIC_ADD_AND_FETCH FD_ATOMIC_SUB_AND_FETCH FD_ATOMIC_OR_AND_FETCH FD_ATOMIC_AND_AND_FETCH FD_ATOMIC_XOR_AND_FETCH FD_ATOMIC_CAS FD_ATOMIC_XCHG
-syn keyword cStorageClass FD_TLS
+syn keyword cStorageClass FD_TL
 syn keyword cStatement    FD_ONCE_BEGIN FD_ONCE_END FD_THREAD_ONCE_BEGIN FD_THREAD_ONCE_END
 
 " Logging
@@ -57,4 +57,3 @@ syn keyword cOperator     FD_LOG_HEXDUMP_DEBUG FD_LOG_HEXDUMP_INFO FD_LOG_HEXDUM
 " Testing
 
 syn keyword cOperator     FD_TEST
-

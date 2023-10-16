@@ -1,9 +1,19 @@
 // This is an auto-generated file. To add entries, edit fd_types.json
 #include "fd_types.h"
+
+/* FIXME: Temporary scaffolding */
+#pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-parameter"
 #pragma GCC diagnostic ignored "-Wunused-variable"
-#define SOURCE_fd_src_flamenco_types_fd_types_c
-#include "fd_types_custom.c"
+#if FD_USING_GCC==1 /* Clang doesn't understand these options */
+#pragma GCC diagnostic ignored "-Wsuggest-attribute=const"
+#pragma GCC diagnostic ignored "-Wsuggest-attribute=pure"
+#endif
+
+#ifdef _DISABLE_OPTIMIZATION
+#pragma GCC optimize ("O0")
+#endif
+
 int fd_hash_decode(fd_hash_t* self, fd_bincode_decode_ctx_t * ctx) {
   void const * data = ctx->data;
   int err = fd_hash_decode_preflight(ctx);
