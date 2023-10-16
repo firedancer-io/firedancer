@@ -16,6 +16,7 @@ const char *verbose = NULL;
 const char *fail_fast = NULL;
 
 static ulong scratch_mb = 0UL;
+long fail_before = -1;
 
 uchar do_leakcheck = 0;
 const char * do_dump = NULL;
@@ -379,6 +380,10 @@ int fd_executor_run_test(
       ret = -1;
       break;
     }
+
+    if (fail_before == test->test_number)
+      kill(getpid(), SIGTRAP);
+
     int exec_result = exec_instr_func( ctx );
     if ( exec_result != test->expected_result ) {
       if (NULL != verbose)
@@ -567,6 +572,7 @@ main( int     argc,
                fail_fast        = fd_env_strip_cmdline_cstr ( &argc, &argv, "--fail_fast",        NULL, NULL      );
                do_dump          = fd_env_strip_cmdline_cstr ( &argc, &argv, "--do_dump",          NULL, NULL      );
                scratch_mb       = fd_env_strip_cmdline_ulong( &argc, &argv, "--scratch-mb",       NULL, 1024      );
+               fail_before      = fd_env_strip_cmdline_long ( &argc, &argv, "--fail_before",      NULL, -1        );
 
   if (-1 != do_test)
     test_start = test_end = (ulong)do_test;

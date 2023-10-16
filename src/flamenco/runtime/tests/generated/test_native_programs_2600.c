@@ -52,3 +52,5 @@ extern int fd_executor_test_suite_check_filter(fd_executor_test_suite_t *suite, 
 #include "test_native_programs_2645.h"
 #include "test_native_programs_2646.h"
 #include "test_native_programs_2647.h"
+#include "test_native_programs_2648.h"
+#include "test_native_programs_2649.h"
