@@ -44,6 +44,8 @@ typedef struct fd_bincode_destroy_ctx fd_bincode_destroy_ctx_t;
 #define FD_BINCODE_ERR_SMALL_DEQUE -4 /* deque max size is too small */
 #define FD_BINCODE_ERR_ALLOC -5
 
+#if FD_HAS_INT128
+
 static inline int
 fd_bincode_uint128_decode(uint128 * self, fd_bincode_decode_ctx_t * ctx) {
   const uint128 * ptr = (const uint128 *) ctx->data;
@@ -67,6 +69,8 @@ fd_bincode_uint128_encode(uint128 const * self, fd_bincode_encode_ctx_t * ctx) {
 
   return FD_BINCODE_SUCCESS;
 }
+
+#endif /* FD_HAS_INT128 */
 
 static inline int
 fd_bincode_uint64_decode( ulong *                   self,

@@ -1,3 +1,4 @@
+ifdef FD_HAS_INT128
 $(call add-objs,fd_shred_dest,fd_disco)
 $(call add-objs,fd_shredder,fd_disco)
 $(call add-objs,fd_fec_resolver,fd_disco)
@@ -7,3 +8,4 @@ $(call make-unit-test,test_fec_resolver,test_fec_resolver,fd_ballet fd_util fd_t
 $(call run-unit-test,test_shred_dest,)
 $(call run-unit-test,test_shredder,)
 $(call run-unit-test,test_fec_resolver,)
+endif
