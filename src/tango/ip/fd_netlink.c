@@ -111,7 +111,7 @@ fd_nda_type_to_label( uint nda_type ) {
 }
 
 
-FD_TLS fd_nl_t fd_nl_gbl = {0};
+FD_TL fd_nl_t fd_nl_gbl = {0};
 
 
 fd_nl_t *
