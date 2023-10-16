@@ -170,7 +170,7 @@ fd_xsk_unbind( void * shxsk ) {
   /* Reset */
 
   fd_memset( xsk->if_name_cstr, 0, IF_NAMESIZE );
-  xsk->if_queue_id = 0U; /* TODO should reset to -1? */
+  xsk->if_queue_id = UINT_MAX;
 
   return shxsk;
 }
@@ -487,6 +487,8 @@ fd_xsk_init( fd_xsk_t * xsk ) {
     .sxdp_family   = PF_XDP,
     .sxdp_ifindex  = xsk->if_idx,
     .sxdp_queue_id = xsk->if_queue_id,
+    /* See extended commentary below for details on on
+       XDP_USE_NEED_WAKEUP flag. */
     .sxdp_flags    = XDP_USE_NEED_WAKEUP | (ushort)xsk->params.zerocopy
   };
 
@@ -651,7 +653,57 @@ fd_xsk_rx_enqueue( fd_xsk_t * xsk,
                 fill->cached_prod   = prod;
   FD_VOLATILE( *fill->prod        ) = prod;
 
-  /* TODO do we need to check for wakeup here? */
+  /* Be sure to see additional comments below about the TX path.
+
+     XDP by default operates in a mode where if it runs out of buffers
+     to stick arriving packets into (a/k/a the fill ring is empty) then
+     the driver will busy spin waiting for the fill ring to be
+     replenished, so it can pick that up and start writing incoming
+     packets again.
+
+     Some applications don't like this, because if the driver is pinning
+     a core waiting for the fill ring, the application might be trying
+     to use that core to replenish it and never get a chance, leading to
+     a kind of CPU pinned deadlock.
+
+     So the kernel introduced a new flag to fix this,
+     XDP_USE_NEED_WAKEUP.  The way this flag works is that if it's set,
+     then the driver won't busy loop when it runs out of fill ring
+     entries, it'll just park itself and wait for a notification from
+     the kernel that there are new entries available to use.
+
+     So the application needs to tell the kernel to wake the driver,
+     when there are new fill ring entries, which it can do by calling
+     recvmsg on the XSK file descriptor.  This is, according to the
+     kernel docs, a performance win for applications where the driver
+     would busy loop on its own core as well, since it allows you to
+     avoid spurious syscalls in the TX path (see the comments on that
+     below), and we should only rarely need to invoke the syscall here,
+     since it requires running out of frames in the fill ring.
+
+     That situation describes us (we pin all cores specially), so this
+     is really just a super minor performance optimization for the TX
+     path, to sometimes avoid a `sendto` syscall. But anyway...
+
+     This flag requires special driver support to actually be faster. If
+     the driver does not support then the kernel will default to
+     rx_need_wakeup always returning false, tx_need_wakeup always
+     returning true, and the driver busy spinning same as it did before,
+     the application doesn't need to know about driver support or not.
+
+     Finally, note that none of this is what we actually want.  What we
+     want is to never call any of this stuff, and just have the driver
+     spin two cores for us permanently, one for the TX path and one for
+     the RX path.  Then we never need to notify, never need to make
+     syscalls, and the performance would be even better.  Sadly, this
+     is not possible. */
+  if( FD_UNLIKELY( fd_xsk_rx_need_wakeup( xsk ) ) ) {
+    if( FD_UNLIKELY( -1==recvmsg( xsk->xsk_fd, NULL, MSG_DONTWAIT ) ) ) {
+      if( FD_UNLIKELY( errno!=EAGAIN ) ) {
+        FD_LOG_WARNING(( "xsk recvmsg failed xsk_fd=%d (%i-%s)", xsk->xsk_fd, errno, fd_io_strerror( errno ) ));
+      }
+    }
+  }
 
   return sz;
 }
@@ -701,7 +753,14 @@ fd_xsk_rx_enqueue2( fd_xsk_t *            xsk,
                 fill->cached_prod   = prod;
   FD_VOLATILE( *fill->prod        ) = prod;
 
-  /* TODO do we need to check for wakeup here? */
+  /* See the corresponding comments in fd_xsk_rx_enqueue */
+  if( FD_UNLIKELY( fd_xsk_rx_need_wakeup( xsk ) ) ) {
+    if( FD_UNLIKELY( -1==recvmsg( xsk->xsk_fd, NULL, MSG_DONTWAIT ) ) ) {
+      if( FD_UNLIKELY( errno!=EAGAIN ) ) {
+        FD_LOG_WARNING(( "xsk recvmsg failed xsk_fd=%d (%i-%s)", xsk->xsk_fd, errno, fd_io_strerror( errno ) ));
+      }
+    }
+  }
 
   return sz;
 }
@@ -730,12 +789,6 @@ fd_xsk_tx_enqueue( fd_xsk_t *            xsk,
 
   /* sz is min( available, count ) */
   uint sz = cap - ( prod - cons );
-  /* TODO this doesn't work as expected
-     if we early exit here, no wakeup occurs, sendto doesn't get called again
-     and the ring doesn't get serviced
-     This implies we need to call sendto AGAIN even if the ring hasn't changed
-  if( sz == 0 )    return 0;
-  */
   if( sz > (uint)count ) sz = (uint)count;
 
   /* set ring[j] to the specified indices */
@@ -761,7 +814,32 @@ fd_xsk_tx_enqueue( fd_xsk_t *            xsk,
     /* update producer */
     FD_VOLATILE( *tx->prod ) = prod;
 
-    /* XDP tells us whether we need to specifically wake up the driver/hw */
+    /* In the TX path of XDP, we always need to call sendto to inform
+       the kernel there are new messages in the TX ring and it should
+       wake the driver (how else would they know? there is no kthread
+       polling for it).
+
+       There is a small optimization: if the XDP_USE_NEED_WAKEUP flag is
+       provided, then we can ask the kernel if a wakeup is needed.  Why
+       wouldn't it be?  Just for a very special case: if the driver is
+       already about to be woken up, because it has a completion IRQ
+       already scheduled.  The only effect of this is to save a syscall
+       in certain cases so it's a somewhat minor optimization.
+
+       None the less, we enable XDP_USE_NEED_WAKEUP, so we might as well
+       check this and save a syscall rather than calling sendto always.
+
+       Notice that XDP_USE_NEED_WAKEUP is an optimization, and it
+       requires special driver support.  In the case that the driver
+       does not support this, the kernel will default to always
+       returning true from the need wakeup, so it reverts to the
+       non-optimized behavior.
+
+       The flush argument here allows us to coalesce transactions
+       together, and isn't really related to the `sendto` syscall, but
+       we only call `sendto` if flush is true, because otherwise there
+       are no new TX messages in the ring and waking up the driver will
+       have no effect. */
     if( fd_xsk_tx_need_wakeup( xsk ) ) {
       if( FD_UNLIKELY( -1==sendto( xsk->xsk_fd, NULL, 0, MSG_DONTWAIT, NULL, 0 ) ) ) {
         if( FD_UNLIKELY( errno!=EAGAIN ) ) {
