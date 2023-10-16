@@ -333,8 +333,8 @@ during_frag( void * _ctx,
 
   fd_quic_ctx_t * ctx = (fd_quic_ctx_t *)_ctx;
 
-  if( FD_UNLIKELY( chunk<ctx->in_chunk0 || chunk>=ctx->in_wmark || sz > FD_NET_MTU ) )
-    FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu)", chunk, sz, ctx->in_chunk0, ctx->in_wmark ));
+  if( FD_UNLIKELY( chunk<ctx->in_chunk0 || chunk>ctx->in_wmark || sz > FD_NET_MTU ) )
+    FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in_chunk0, ctx->in_wmark ));
 
   uchar * src = (uchar *)fd_chunk_to_laddr( ctx->in_wksp, chunk );
   fd_memcpy( ctx->buffer, src, sz ); /* TODO: Eliminate copy... fd_aio needs refactoring */
@@ -378,7 +378,7 @@ quic_now( void * ctx ) {
 }
 
 /* Tile-local sequence number for conns */
-static FD_TLS ulong conn_seq = 0UL;
+static FD_TL ulong conn_seq = 0UL;
 
 /* quic_conn_new is invoked by the QUIC engine whenever a new connection
    is being established. */
@@ -652,7 +652,6 @@ fd_quic_tile( fd_cnc_t *              cnc,
        are within in the data region of the workspace. */
     ctx->in_chunk0 = fd_disco_compact_chunk0( ctx->in_wksp );
     ctx->in_wmark  = fd_disco_compact_wmark ( ctx->in_wksp, FD_NET_MTU );
-
 
     ctx->net_out_mcache = net_mcache;
     ctx->net_out_sync  = fd_mcache_seq_laddr( net_mcache );

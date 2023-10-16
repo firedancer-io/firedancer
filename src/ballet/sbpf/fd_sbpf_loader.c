@@ -12,10 +12,10 @@
 
 /* Thread local storage last error value */
 
-static FD_TLS int ldr_errno     =  0;
-static FD_TLS int ldr_err_srcln = -1;
+static FD_TL int ldr_errno     =  0;
+static FD_TL int ldr_err_srcln = -1;
 #define FD_SBPF_ERRBUF_SZ (128UL)
-static FD_TLS char fd_sbpf_errbuf[ FD_SBPF_ERRBUF_SZ ] = {0};
+static FD_TL char fd_sbpf_errbuf[ FD_SBPF_ERRBUF_SZ ] = {0};
 
 /* fd_sbpf_loader_seterr remembers the error ID and line number of the
    current file at which the last error occurred. */
@@ -465,7 +465,6 @@ fd_sbpf_elf_peek( fd_sbpf_elf_info_t * info,
   return _fd_sbpf_elf_peek( info, bin, elf_sz )==0 ? info : NULL;
 }
 
-
 /* ELF loader, part 2 **************************************************
 
    Prepare a copy of a subrange of the ELF content: The rodata segment.
@@ -482,7 +481,6 @@ fd_sbpf_elf_peek( fd_sbpf_elf_info_t * info,
      V: Virtual address, i.e. the target value that the relocation
         handler is about to write into where the implicit addend was
         previously stored */
-
 
 ulong
 fd_sbpf_program_align( void ) {
@@ -585,7 +583,6 @@ typedef struct fd_sbpf_loader fd_sbpf_loader_t;
    including zero terminator. */
 
 #define FD_SBPF_SYM_NAME_SZ_MAX (64UL)
-
 
 static int
 fd_sbpf_find_dynamic( fd_sbpf_loader_t *         loader,
@@ -1048,7 +1045,7 @@ fd_sbpf_relocate( fd_sbpf_loader_t   const * loader,
   /* Resolve DT_REL virtual address to file offset
      First, attempt to find segment containing DT_REL */
 
-  ulong rel_off;
+  ulong rel_off = ULONG_MAX;
 
   fd_elf64_phdr const * phdrs = (fd_elf64_phdr const *)( elf->bin + elf->ehdr.e_phoff );
   ulong rel_phnum;

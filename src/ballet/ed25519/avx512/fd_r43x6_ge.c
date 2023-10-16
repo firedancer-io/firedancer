@@ -469,10 +469,10 @@ fd_r43x6_ge_smul_base_large( wwl_t * _R03, wwl_t * _R14, wwl_t * _R25,
 
       if( FD_UNLIKELY( !w ) ) continue; /* Shortcut if nothing to do */
       int l = (3*128)*j + 3*((int)fd_int_abs( w ) - 1);
-      wwl_t perm = wwl_blend( w<0 ? 0x00 : 0xff, wwl( 1L,0L,3L,2L,5L,4L,7L,6L ), wwl( 0L,1L,2L,3L,4L,5L,6L,7L ) );
-      T03 = wwl_blend( (1<<2)|(1<<6), wwl_permute( perm, fd_r43x6_ge_smul_base_large_table[ l + 0 ] ), two03 );
-      T14 = wwl_blend( (1<<2)|(1<<6), wwl_permute( perm, fd_r43x6_ge_smul_base_large_table[ l + 1 ] ), two14 );
-      T25 = wwl_blend( (1<<2)|(1<<6), wwl_permute( perm, fd_r43x6_ge_smul_base_large_table[ l + 2 ] ), two25 );
+      wwl_t perm = wwl_if( w<0 ? 0xff : 0x00, wwl( 1L,0L,3L,2L,5L,4L,7L,6L ), wwl( 0L,1L,2L,3L,4L,5L,6L,7L ) );
+      T03 = wwl_if( (1<<2)|(1<<6), two03, wwl_permute( perm, fd_r43x6_ge_smul_base_large_table[ l + 0 ] ) );
+      T14 = wwl_if( (1<<2)|(1<<6), two14, wwl_permute( perm, fd_r43x6_ge_smul_base_large_table[ l + 1 ] ) );
+      T25 = wwl_if( (1<<2)|(1<<6), two25, wwl_permute( perm, fd_r43x6_ge_smul_base_large_table[ l + 2 ] ) );
 
 #     else /* OpenSSL style timing attack mitigations */
 
@@ -481,16 +481,16 @@ fd_r43x6_ge_smul_base_large( wwl_t * _R03, wwl_t * _R14, wwl_t * _R25,
       T14 = wwl_zero();
       T25 = wwl_zero();
       for( int k=0; k<128; k++ ) {
-        int keep = (idx==k) ? 0x00 : 0xff;
+        int keep = (idx==k) ? 0xff : 0x00;
         int l    = (3*128)*j + 3*k;
-        T03 = wwl_blend( keep, fd_r43x6_ge_smul_base_large_table[ l + 0 ], T03 );
-        T14 = wwl_blend( keep, fd_r43x6_ge_smul_base_large_table[ l + 1 ], T14 );
-        T25 = wwl_blend( keep, fd_r43x6_ge_smul_base_large_table[ l + 2 ], T25 );
+        T03 = wwl_if( keep, fd_r43x6_ge_smul_base_large_table[ l + 0 ], T03 );
+        T14 = wwl_if( keep, fd_r43x6_ge_smul_base_large_table[ l + 1 ], T14 );
+        T25 = wwl_if( keep, fd_r43x6_ge_smul_base_large_table[ l + 2 ], T25 );
       }
-      wwl_t perm = wwl_blend( (w<0) ? 0x00 : 0xff, wwl( 1L,0L,3L,2L,5L,4L,7L,6L ), wwl( 0L,1L,2L,3L,4L,5L,6L,7L ) );
-      T03 = wwl_blend( (1<<2)|(1<<6), wwl_permute( perm, T03 ), two03 );
-      T14 = wwl_blend( (1<<2)|(1<<6), wwl_permute( perm, T14 ), two14 );
-      T25 = wwl_blend( (1<<2)|(1<<6), wwl_permute( perm, T25 ), two25 );
+      wwl_t perm = wwl_if( (w<0) ? 0xff : 0x00, wwl( 1L,0L,3L,2L,5L,4L,7L,6L ), wwl( 0L,1L,2L,3L,4L,5L,6L,7L ) );
+      T03 = wwl_if( (1<<2)|(1<<6), two03, wwl_permute( perm, T03 ) );
+      T14 = wwl_if( (1<<2)|(1<<6), two14, wwl_permute( perm, T14 ) );
+      T25 = wwl_if( (1<<2)|(1<<6), two25, wwl_permute( perm, T25 ) );
 
 #     endif
 
@@ -563,10 +563,10 @@ fd_r43x6_ge_smul_base_small( wwl_t * _R03, wwl_t * _R14, wwl_t * _R25,
 
       if( FD_UNLIKELY( !w ) ) continue; /* Shortcut if nothing to do */
       int l = (3*8)*j + 3*((int)fd_int_abs( w ) - 1);
-      wwl_t perm = wwl_blend( w<0 ? 0x00 : 0xff, wwl( 1L,0L,3L,2L,5L,4L,7L,6L ), wwl( 0L,1L,2L,3L,4L,5L,6L,7L ) );
-      T03 = wwl_blend( (1<<2)|(1<<6), wwl_permute( perm, fd_r43x6_ge_smul_base_small_table[ l + 0 ] ), two03 );
-      T14 = wwl_blend( (1<<2)|(1<<6), wwl_permute( perm, fd_r43x6_ge_smul_base_small_table[ l + 1 ] ), two14 );
-      T25 = wwl_blend( (1<<2)|(1<<6), wwl_permute( perm, fd_r43x6_ge_smul_base_small_table[ l + 2 ] ), two25 );
+      wwl_t perm = wwl_if( w<0 ? 0xff : 0x00, wwl( 1L,0L,3L,2L,5L,4L,7L,6L ), wwl( 0L,1L,2L,3L,4L,5L,6L,7L ) );
+      T03 = wwl_if( (1<<2)|(1<<6), two03, wwl_permute( perm, fd_r43x6_ge_smul_base_small_table[ l + 0 ] ) );
+      T14 = wwl_if( (1<<2)|(1<<6), two14, wwl_permute( perm, fd_r43x6_ge_smul_base_small_table[ l + 1 ] ) );
+      T25 = wwl_if( (1<<2)|(1<<6), two25, wwl_permute( perm, fd_r43x6_ge_smul_base_small_table[ l + 2 ] ) );
 
 #     else /* OpenSSL style timing attack mitigations */
 
@@ -575,16 +575,16 @@ fd_r43x6_ge_smul_base_small( wwl_t * _R03, wwl_t * _R14, wwl_t * _R25,
       T14 = wwl_zero();
       T25 = wwl_zero();
       for( int k=0; k<8; k++ ) {
-        int keep = (idx==k) ? 0x00 : 0xff;
+        int keep = (idx==k) ? 0xff : 0x00;
         int l    = (3*8)*j + 3*k;
-        T03 = wwl_blend( keep, fd_r43x6_ge_smul_base_small_table[ l + 0 ], T03 );
-        T14 = wwl_blend( keep, fd_r43x6_ge_smul_base_small_table[ l + 1 ], T14 );
-        T25 = wwl_blend( keep, fd_r43x6_ge_smul_base_small_table[ l + 2 ], T25 );
+        T03 = wwl_if( keep, fd_r43x6_ge_smul_base_small_table[ l + 0 ], T03 );
+        T14 = wwl_if( keep, fd_r43x6_ge_smul_base_small_table[ l + 1 ], T14 );
+        T25 = wwl_if( keep, fd_r43x6_ge_smul_base_small_table[ l + 2 ], T25 );
       }
-      wwl_t perm = wwl_blend( (w<0) ? 0x00 : 0xff, wwl( 1L,0L,3L,2L,5L,4L,7L,6L ), wwl( 0L,1L,2L,3L,4L,5L,6L,7L ) );
-      T03 = wwl_blend( (1<<2)|(1<<6), wwl_permute( perm, T03 ), two03 );
-      T14 = wwl_blend( (1<<2)|(1<<6), wwl_permute( perm, T14 ), two14 );
-      T25 = wwl_blend( (1<<2)|(1<<6), wwl_permute( perm, T25 ), two25 );
+      wwl_t perm = wwl_if( (w<0) ? 0xff : 0x00, wwl( 1L,0L,3L,2L,5L,4L,7L,6L ), wwl( 0L,1L,2L,3L,4L,5L,6L,7L ) );
+      T03 = wwl_if( (1<<2)|(1<<6), two03, wwl_permute( perm, T03 ) );
+      T14 = wwl_if( (1<<2)|(1<<6), two14, wwl_permute( perm, T14 ) );
+      T25 = wwl_if( (1<<2)|(1<<6), two25, wwl_permute( perm, T25 ) );
 
 #     endif
 

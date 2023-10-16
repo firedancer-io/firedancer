@@ -24,17 +24,8 @@ main( int     argc,
      onto the proper domain, we also ensure that it rejects everything outside
      its domain. */
 
-  for( ulong i = 0; i < TEST_U16_MAX; i++ ) {
-    ulong _i = i;
-    ulong j = 0;
-    while( (j==0) || (_i > 0) ) {
-      compact_u16[ i ][ j ] = _i&0x7F;
-      _i >>= 7;
-      if( _i ) compact_u16[ i ][ j ] |= 0x80;
-      j++;
-    }
-    encoded_sz[ i ] = (uchar)j;
-  }
+  for( ulong i = 0; i < TEST_U16_MAX; i++ )
+    encoded_sz[ i ] = (uchar) fd_cu16_enc((ushort)i, compact_u16[ i ]);
 
   for( ulong test_j = 0UL; test_j<=TEST_U16_BUF_SZ; test_j++ ) {
     ulong max = 1UL << (8*test_j);

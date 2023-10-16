@@ -40,13 +40,14 @@
    16-byte sized location p as 2 longs.  vl_stu is the same but p does
    not have to be aligned.  In all these 64-bit lane l vlll be at p[l].
    FIXME: USE ATTRIBUTES ON P PASSED TO THESE?
-   
+
    Note: gcc knows a __m128i may alias. */
 
-static inline vl_t vl_ld(  long const * p   ) { return _mm_load_si128(  (__m128i const *)p ); }
-static inline vl_t vl_ldu( long const * p   ) { return _mm_loadu_si128( (__m128i const *)p ); }
-static inline void vl_st(  long * p, vl_t i ) { _mm_store_si128(  (__m128i *)p, i ); }
-static inline void vl_stu( long * p, vl_t i ) { _mm_storeu_si128( (__m128i *)p, i ); }
+static inline vl_t vl_ld( long const * p ) { return _mm_load_si128(  (__m128i const *)p ); }
+static inline void vl_st( long * p, vl_t i ) { _mm_store_si128(  (__m128i *)p, i ); }
+
+static inline vl_t vl_ldu( void const * p ) { return _mm_loadu_si128( (__m128i const *)p ); }
+static inline void vl_stu( void * p, vl_t i ) { _mm_storeu_si128( (__m128i *)p, i ); }
 
 /* vl_ldif is an optimized equivalent to vl_notczero(c,vl_ldu(p)) (may
    have different behavior if c is not a proper vector conditional).  It
@@ -65,7 +66,7 @@ static inline void vl_stu( long * p, vl_t i ) { _mm_storeu_si128( (__m128i *)p, 
    compile time known in 0:1.  vl_extract_variable and
    vl_insert_variable are the slower but the lane n does not have to be
    known at compile time (should still be in 0:1).
-   
+
    Note: C99 TC3 allows type punning through a union. */
 
 #define vl_extract(a,imm)  _mm_extract_epi64( (a), (imm) )
@@ -91,18 +92,17 @@ vl_insert_variable( vl_t a, int n, long v ) {
 
 /* Arithmetic operations */
 
-/* Note: _mm_{abs,min,max}_epi64 are missing in AVX.  We emulate these
-   below.  Likewise, there is no _mm_mullo_epi64 in AVX.  Since this is
-   not cheap to emulate, we do not provide a wl_mul for the time being.
-   There is a 64L*64L->64 multiply (where the lower 32-bits will be sign
-   extended to 64-bits beforehand) though and that is very useful.  So
-   we do provide that. */
-
 #define vl_neg(a)   _mm_sub_epi64( _mm_setzero_si128(), (a) ) /* [ -a0  -a1  ] (twos complement handling) */
-//#define vl_abs(a) _mm_abs_epi64( (a) )                      /* [ |a0| |a1| ] (twos complement handling) */
 
-//#define vl_min(a,b)  _mm_min_epi64(   (a), (b) ) /* [ min(a0,b0) min(a1,b1) ] */
-//#define vl_max(a,b)  _mm_max_epi64(   (a), (b) ) /* [ max(a0,b0) max(a1,b1) ] */
+/* Note: _mm_{abs,min,max}_epi64 are missing pre AVX-512.  We emulate
+   these below (and use the AVX-512 versions if possible).  Likewise,
+   there is no _mm_mullo_epi64 pre AVX-512.  Since this is not cheap to
+   emulate, we do not provide a vl_mul for the time being (we could
+   consider exposing it on AVX-512 targets though).  There is a
+   64L*64L->64 multiply (where the lower 32-bits will be sign extended
+   to 64-bits beforehand) though and that is very useful.  So we do
+   provide that. */
+
 #define vl_add(a,b)    _mm_add_epi64(   (a), (b) ) /* [ a0 +b0     a1 +b1     ] */
 #define vl_sub(a,b)    _mm_sub_epi64(   (a), (b) ) /* [ a0 -b0     a1 -b1     ] */
 //#define vl_mul(a,b)  _mm_mullo_epi64( (a), (b) ) /* [ a0 *b0     a1 *b1     ] */
@@ -170,10 +170,16 @@ static inline vl_t vl_ror_vector( vl_t a, vl_t b ) {
 
 #define vl_if(c,t,f) _mm_blendv_epi8(  (f), (t), (c) ) /* [ c0?t0:f0 c1?t1:f1 ] */
 
-/* See note above */
+#if defined(__AVX512F__) && defined(__AVX512VL__) /* See note above */
+#define vl_abs(a)   _mm_abs_epi64( (a) )
+#define vl_min(a,b) _mm_min_epi64( (a), (b) )
+#define vl_max(a,b) _mm_max_epi64( (a), (b) )
+#else
 static inline vl_t vl_abs( vl_t a )         { return vl_if( vl_lt( a, vl_zero() ), vl_neg( a ), a ); }
-static inline vl_t vl_min( vl_t a, vl_t b ) { return vl_if( vl_lt( a, b ), a, b ); } 
+static inline vl_t vl_min( vl_t a, vl_t b ) { return vl_if( vl_lt( a, b ), a, b ); }
 static inline vl_t vl_max( vl_t a, vl_t b ) { return vl_if( vl_gt( a, b ), a, b ); }
+#endif
+
 static inline vl_t vl_shr( vl_t a, int imm ) {
   vc_t c = vl_lt( a, vl_zero() ); /* Note that vc_t is binary compat with vl_t */
   return _mm_xor_si128( _mm_srli_epi64( _mm_xor_si128( a, c ), imm ), c );
@@ -191,7 +197,7 @@ static inline vl_t vl_shr_vector( vl_t a, vl_t n ) {
 
 /* Summarizing:
 
-   vl_to_vc(d)     returns [ !!l0 !!l0 !!l1 !!l1 ] 
+   vl_to_vc(d)     returns [ !!l0 !!l0 !!l1 !!l1 ]
 
    vl_to_vf(l,f,0) returns [ (float)l0 (float)l1 f2 f3 ]
    vl_to_vf(l,f,1) returns [ f0 f1 (float)l0 (float)l1 ]

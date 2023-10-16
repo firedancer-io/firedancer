@@ -1,5 +1,5 @@
 #include <stdio.h>
-#define FD_CHACHA20RNG_DEBUG 1
+/* #define FD_CHACHA20RNG_DEBUG 1 */
 #include "fd_chacha20rng.h"
 
 int
@@ -125,6 +125,37 @@ test_matches_rust_sample( void ) {
   FD_TEST( (ulong)fd_chacha20rng_delete( fd_chacha20rng_leave( rng ) )==(ulong)_rng );
 }
 
+static void
+test_iterated( void ) {
+  fd_chacha20rng_t _rng[1];
+  fd_chacha20rng_t * rng = fd_chacha20rng_join( fd_chacha20rng_new( _rng, FD_CHACHA20RNG_MODE_MOD ) );
+  FD_TEST( rng );
+
+  uchar key[ 32 ];
+  memset( key, 0x41, 32UL );
+  fd_chacha20rng_init( rng, key );
+  /* Generated with this:
+     use rand::distributions::uniform::SampleUniform;
+     use rand::distributions::uniform::UniformSampler;
+     use rand::SeedableRng;
+     use rand_chacha::ChaChaRng;
+     fn main() {
+         let seed = [0x41u8; 32];
+         let mut rng = ChaChaRng::from_seed(seed);
+         let mut n = 100000000u64;
+         for _ in 0..1000000000u64 {
+             let sampler = <u64 as SampleUniform>::Sampler::new(0, n);
+             n = sampler.sample(&mut rng).wrapping_mul(3).wrapping_add(3);
+         }
+         println!("{}", n);
+     } */
+
+  ulong n = 100000000UL;
+  for( ulong i=0UL; i<1000000000UL; i++ ) n = 3UL*fd_chacha20rng_ulong_roll( rng, n )+3UL;
+
+  FD_TEST( n==10620388038139726539UL );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -139,6 +170,9 @@ main( int     argc,
 
   test_matches_rust_sample_single();
   test_matches_rust_sample();
+
+  test_iterated();
+
   FD_LOG_NOTICE(( "Passed built-in tests" ));
 
   /* Read command-line params */

@@ -90,6 +90,65 @@ struct fd_pack_sig_to_txn {
 typedef struct fd_pack_sig_to_txn fd_pack_sig_to_txn_t;
 
 
+/* Table of special addresses that are not allowed to be written to.  We
+   immediately reject and refuse to pack any transaction that tries to
+   write to one of these accounts.  Because we reject any writes to any
+   of these accounts, we actually don't need to track reads of them
+   either.  This is nice, because fd_map_dynamic requires a null address
+   that we promise never to insert.  The zero address is a sysvar, so
+   now we meet that part of the fd_map_dynamic contract. */
+#define MAP_PERFECT_NAME      fd_pack_unwritable
+#define MAP_PERFECT_LG_TBL_SZ 5
+#define MAP_PERFECT_T         fd_acct_addr_t
+#define MAP_PERFECT_HASH_C    3995341266U
+#define MAP_PERFECT_KEY       b
+#define MAP_PERFECT_KEY_T     fd_acct_addr_t const *
+#define MAP_PERFECT_ZERO_KEY  (0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0)
+#define MAP_PERFECT_COMPLEX_KEY 1
+#define MAP_PERFECT_KEYS_EQUAL(k1,k2) (!memcmp( (k1), (k2), 32UL ))
+
+#define PERFECT_HASH( u ) (((MAP_PERFECT_HASH_C*(u))>>27)&0x1FU)
+
+#define MAP_PERFECT_HASH_PP( a00,a01,a02,a03,a04,a05,a06,a07,a08,a09,a10,a11,a12,a13,a14,a15, \
+                             a16,a17,a18,a19,a20,a21,a22,a23,a24,a25,a26,a27,a28,a29,a30,a31) \
+                                          PERFECT_HASH( (a08 | (a09<<8) | (a10<<16) | (a11<<24)) )
+#define MAP_PERFECT_HASH_R( ptr ) PERFECT_HASH( fd_uint_load_4( (uchar const *)ptr->b + 8UL ) )
+
+/* SysvarEpochRewards1111111111111111111111111, and
+   ZkTokenProof1111111111111111111111111111111 omitted from this list
+   due to lack of use and lack of space in the table. */
+#define MAP_PERFECT_0  ( SYSVAR_PROG_ID           ),
+#define MAP_PERFECT_1  ( SYSVAR_RECENT_BLKHASH_ID ),
+#define MAP_PERFECT_2  ( SYSVAR_CLOCK_ID          ),
+#define MAP_PERFECT_3  ( SYSVAR_SLOT_HIST_ID      ),
+#define MAP_PERFECT_4  ( SYSVAR_SLOT_HASHES_ID    ),
+#define MAP_PERFECT_5  ( SYSVAR_EPOCH_SCHED_ID    ),
+#define MAP_PERFECT_6  ( SYSVAR_FEES_ID           ),
+#define MAP_PERFECT_7  ( SYSVAR_RENT_ID           ),
+#define MAP_PERFECT_8  ( SYSVAR_STAKE_HIST_ID     ),
+#define MAP_PERFECT_9  ( SYSVAR_LAST_RESTART_ID   ),
+#define MAP_PERFECT_10 ( SYSVAR_INSTRUCTIONS_ID   ),
+#define MAP_PERFECT_11 ( NATIVE_LOADER_ID         ),
+#define MAP_PERFECT_12 ( FEATURE_ID               ),
+#define MAP_PERFECT_13 ( CONFIG_PROG_ID           ),
+#define MAP_PERFECT_14 ( STAKE_PROG_ID            ),
+#define MAP_PERFECT_15 ( STAKE_CONFIG_PROG_ID     ),
+#define MAP_PERFECT_16 ( SYS_PROG_ID              ),
+#define MAP_PERFECT_17 ( VOTE_PROG_ID             ),
+#define MAP_PERFECT_18 ( BPF_LOADER_1_PROG_ID     ),
+#define MAP_PERFECT_19 ( BPF_LOADER_2_PROG_ID     ),
+#define MAP_PERFECT_20 ( BPF_UPGRADEABLE_PROG_ID  ),
+#define MAP_PERFECT_21 ( LOADER_V4_PROG_ID        ),
+#define MAP_PERFECT_22 ( ED25519_SV_PROG_ID       ),
+#define MAP_PERFECT_23 ( KECCAK_SECP_PROG_ID      ),
+#define MAP_PERFECT_24 ( COMPUTE_BUDGET_PROG_ID   ),
+#define MAP_PERFECT_25 ( ADDR_LUT_PROG_ID         ),
+#define MAP_PERFECT_26 ( NATIVE_MINT_ID           ),
+#define MAP_PERFECT_27 ( TOKEN_PROG_ID            ),
+
+#include "../../util/tmpl/fd_map_perfect.c"
+
+
 /* Returns 1 if x.rewards/x.compute < y.rewards/y.compute. Not robust. */
 #define COMPARE_WORSE(x,y) ( ((ulong)((x)->rewards)*(ulong)((y)->compute_est)) < ((ulong)((y)->rewards)*(ulong)((x)->compute_est)) )
 
@@ -412,6 +471,15 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
   /*           ... that are so big they'll never run */
   if( FD_UNLIKELY( ord->compute_est >= FD_PACK_MAX_COST_PER_BLOCK       ) ) { trp_pool_ele_release( pack->pool, ord ); return; }
 
+  fd_txn_acct_iter_t ctrl[1];
+  int writes_to_sysvar = 0;
+  for( ulong i=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE & FD_TXN_ACCT_CAT_IMM, ctrl ); i<fd_txn_acct_iter_end();
+      i=fd_txn_acct_iter_next( i, ctrl ) ) {
+    writes_to_sysvar |= fd_pack_unwritable_contains( accts+i );
+  }
+  /*           ... try to write to a sysvar */
+  if( FD_UNLIKELY( writes_to_sysvar )                                     ) { trp_pool_ele_release( pack->pool, ord ); return; }
+
   /* TODO: Add recent blockhash based expiry here */
 
   if( FD_UNLIKELY( pack->pending_txn_cnt == pack->pack_depth ) ) {
@@ -521,6 +589,7 @@ fd_pack_schedule_microblock_impl( fd_pack_t  * pack,
        current writers */
     for( ulong i=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_READONLY & FD_TXN_ACCT_CAT_IMM, ctrl ); i<fd_txn_acct_iter_end();
         i=fd_txn_acct_iter_next( i, ctrl ) ) {
+      if( fd_pack_unwritable_contains( acct+i ) ) continue; /* No need to track sysvars because they can't be writable */
 
       fd_pack_addr_use_t * use = acct_uses_query( acct_in_use,  acct[i], NULL );
       if( use ) conflicts |= (use->in_use_by & FD_PACK_IN_USE_WRITABLE) ? use->in_use_by : 0UL;
@@ -551,6 +620,8 @@ fd_pack_schedule_microblock_impl( fd_pack_t  * pack,
       for( ulong i=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_READONLY & FD_TXN_ACCT_CAT_IMM, ctrl ); i<fd_txn_acct_iter_end();
           i=fd_txn_acct_iter_next( i, ctrl ) ) {
         fd_acct_addr_t acct_addr = acct[i];
+
+        if( fd_pack_unwritable_contains( acct+i ) ) continue; /* No need to track sysvars because they can't be writable */
 
         fd_pack_addr_use_t * use = acct_uses_query( acct_in_use,  acct_addr, NULL );
         if( !use ) { use = acct_uses_insert( acct_in_use, acct_addr ); use->in_use_by = 0UL; }

@@ -354,7 +354,7 @@ fd_ed25519_ge_frombytes_vartime_2( fd_ed25519_ge_p3_t * h0, uchar const * s0,
 
   if( fd_ed25519_fe_isnonzero( check1 ) ) { /* unclear prob */
     fd_ed25519_fe_add( check1, vxx1, u1 );  /* vx^2+u */
-    if( FD_UNLIKELY( fd_ed25519_fe_isnonzero( check1 ) ) ) return FD_ED25519_ERR_PUBKEY;
+    if( FD_UNLIKELY( fd_ed25519_fe_isnonzero( check1 ) ) ) return FD_ED25519_ERR_SIG;
     fd_ed25519_fe_mul( h1->X, h1->X, sqrtm1 );
   }
   if( fd_ed25519_fe_isnegative( h1->X )!=(s1[31] >> 7) ) fd_ed25519_fe_neg( h1->X, h1->X ); /* unclear prob */

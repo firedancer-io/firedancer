@@ -205,10 +205,10 @@ ulong fd_tile_id0( void ) { return fd_tile_private_id0; }
 ulong fd_tile_id1( void ) { return fd_tile_private_id1; }
 ulong fd_tile_cnt( void ) { return fd_tile_private_cnt; }
 
-static FD_TLS ulong fd_tile_private_id;     /* Zeroed at app/thread start, initialized by the boot / tile manager */
-static FD_TLS ulong fd_tile_private_idx;    /* " */
-/**/   FD_TLS ulong fd_tile_private_stack0; /* " */
-/**/   FD_TLS ulong fd_tile_private_stack1; /* " */
+static FD_TL ulong fd_tile_private_id;     /* Zeroed at app/thread start, initialized by the boot / tile manager */
+static FD_TL ulong fd_tile_private_idx;    /* " */
+/**/   FD_TL ulong fd_tile_private_stack0; /* " */
+/**/   FD_TL ulong fd_tile_private_stack1; /* " */
 
 ulong fd_tile_id ( void ) { return fd_tile_private_id;  }
 ulong fd_tile_idx( void ) { return fd_tile_private_idx; }

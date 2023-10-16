@@ -93,8 +93,8 @@ fd_log_private_thread_id_next( void ) {
 }
 #endif
 
-static FD_TLS ulong fd_log_private_thread_id;      /* 0 at thread start */
-static FD_TLS int   fd_log_private_thread_id_init; /* 0 at thread start */
+static FD_TL ulong fd_log_private_thread_id;      /* 0 at thread start */
+static FD_TL int   fd_log_private_thread_id_init; /* 0 at thread start */
 
 void
 fd_log_private_thread_id_set( ulong thread_id ) {
@@ -122,8 +122,8 @@ fd_log_private_thread_default( char * name ) { /* FD_LOG_NAME_MAX bytes */
   sprintf( name, "%lu", fd_log_thread_id() );
 }
 
-static FD_TLS char fd_log_private_thread[ FD_LOG_NAME_MAX ]; /* "" at thread start */
-static FD_TLS int  fd_log_private_thread_init;               /* 0 at thread start */
+static FD_TL char fd_log_private_thread[ FD_LOG_NAME_MAX ]; /* "" at thread start */
+static FD_TL int  fd_log_private_thread_init;               /* 0 at thread start */
 
 void
 fd_log_thread_set( char const * thread ) {
@@ -177,8 +177,8 @@ fd_log_private_cpu_id_default( void ) {
   return ULONG_MAX;
 }
 
-static FD_TLS ulong fd_log_private_cpu_id;      /* 0 at thread start */
-static FD_TLS int   fd_log_private_cpu_id_init; /* 0 at thread start */
+static FD_TL ulong fd_log_private_cpu_id;      /* 0 at thread start */
+static FD_TL int   fd_log_private_cpu_id_init; /* 0 at thread start */
 
 void
 fd_log_private_cpu_id_set( ulong cpu_id ) {
@@ -211,8 +211,8 @@ fd_log_private_cpu_default( char * name ) { /* FD_LOG_NAME_MAX bytes */
   sprintf( name, (cnt>1) ? "f%lu" : "%lu", idx );
 }
 
-static FD_TLS char fd_log_private_cpu[ FD_LOG_NAME_MAX ]; /* "" at thread start */
-static FD_TLS int  fd_log_private_cpu_init;               /* 0  at thread start */
+static FD_TL char fd_log_private_cpu[ FD_LOG_NAME_MAX ]; /* "" at thread start */
+static FD_TL int  fd_log_private_cpu_init;               /* 0  at thread start */
 
 void
 fd_log_cpu_set( char const * cpu ) {
@@ -262,8 +262,8 @@ fd_log_private_tid_default( void ) {
   return fd_ulong_if( tid>0L, (ulong)tid, ULONG_MAX );
 }
 
-static FD_TLS ulong fd_log_private_tid;      /* 0 at thread start */
-static FD_TLS int   fd_log_private_tid_init; /* 0 at thread start */
+static FD_TL ulong fd_log_private_tid;      /* 0 at thread start */
+static FD_TL int   fd_log_private_tid_init; /* 0 at thread start */
 
 void
 fd_log_private_tid_set( ulong tid ) {
@@ -349,13 +349,13 @@ fd_log_wallclock_cstr( long   now,
   static long const ns_per_m = 60000000000L;
   static long const ns_per_s =  1000000000L;
 
-  static FD_TLS long now_ref  = 1262325600000000000L; /* 2010-01-01 00:00:00.000000000 GMT-06 */
-  static FD_TLS uint YYYY_ref = 2010U;                /* Initialized to what now0 corresponds to */
-  static FD_TLS uint MM_ref   = 1U;                   /* " */
-  static FD_TLS uint DD_ref   = 1U;                   /* " */
-  static FD_TLS uint hh_ref   = 0U;                   /* " */
-  static FD_TLS uint mm_ref   = 0U;                   /* " */
-  static FD_TLS int  tz_ref   = -6;                   /* " */
+  static FD_TL long now_ref  = 1262325600000000000L; /* 2010-01-01 00:00:00.000000000 GMT-06 */
+  static FD_TL uint YYYY_ref = 2010U;                /* Initialized to what now0 corresponds to */
+  static FD_TL uint MM_ref   = 1U;                   /* " */
+  static FD_TL uint DD_ref   = 1U;                   /* " */
+  static FD_TL uint hh_ref   = 0U;                   /* " */
+  static FD_TL uint mm_ref   = 0U;                   /* " */
+  static FD_TL int  tz_ref   = -6;                   /* " */
 
   if( FD_LIKELY( (now_ref<=now) & (now<(now_ref+ns_per_m)) ) ) {
 
@@ -378,7 +378,7 @@ fd_log_wallclock_cstr( long   now,
     time_t t = (time_t)_t;
 
     struct tm tm[1];
-    static FD_TLS int localtime_broken = 0;
+    static FD_TL int localtime_broken = 0;
     if( FD_UNLIKELY( !localtime_broken && !localtime_r( &t, tm ) ) ) localtime_broken = 1;
     if( FD_UNLIKELY( localtime_broken ) ) { /* If localtime_r doesn't work, pretty print as a raw UNIX time */
       /* Note: These can all run in parallel */
@@ -560,7 +560,7 @@ fd_log_private_fprintf_0( int          fd,
 /* This is the same as fd_log_private_fprintf_0 except that it does not try to
    take a lock when writing to the log file.  This should almost never be used
    except in exceptional cases when logging while the process is shutting down.
-   
+
    It exists because if a child process dies while holding the lock, we may
    want to log some diagnostic messages when tearing down the process tree. */
 void
@@ -593,26 +593,13 @@ fd_log_private_fprintf_nolock_0( int          fd,
   msg[ len ] = '\0';
   va_end( ap );
 
-# if FD_HAS_ATOMIC
-  FD_COMPILER_MFENCE();
-  while(( FD_LIKELY( FD_ATOMIC_CAS( fd_log_private_shared_lock, 0, 1 ) ) )) ;
-  FD_COMPILER_MFENCE();
-# endif
-
   ulong wsz;
   fd_io_write( fd, msg, (ulong)len, (ulong)len, &wsz ); /* Note: we ignore errors because what are we doing to do? log them? */
-
-# if FD_HAS_ATOMIC
-  FD_COMPILER_MFENCE();
-  FD_VOLATILE( *fd_log_private_shared_lock ) = 0;
-  FD_COMPILER_MFENCE();
-# endif
-
 }
 
 /* Log buffer used by fd_log_private_0 and fd_log_private_hexdump_msg */
 
-static FD_TLS char fd_log_private_log_msg[ FD_LOG_BUF_SZ ];
+static FD_TL char fd_log_private_log_msg[ FD_LOG_BUF_SZ ];
 
 char const *
 fd_log_private_0( char const * fmt, ... ) {
@@ -745,9 +732,9 @@ fd_log_private_1( int          level,
 
     static long const dedup_interval = 20000000L; /* 1/50 s */
 
-    static FD_TLS int   init;      /* 0   on thread start */
-    static FD_TLS ulong last_hash; /* 0UL on thread start */
-    static FD_TLS long  then;      /* 0L  on thread start */
+    static FD_TL int   init;      /* 0   on thread start */
+    static FD_TL ulong last_hash; /* 0UL on thread start */
+    static FD_TL long  then;      /* 0L  on thread start */
 
     int is_dup = init & (hash==last_hash) & ((now-then)<dedup_interval);
     init = 1;
@@ -755,8 +742,8 @@ fd_log_private_1( int          level,
     /* Update how many messages from this thread in row have been
        duplicates */
 
-    static FD_TLS ulong dedup_cnt;   /* 0UL on thread start */
-    static FD_TLS int   in_dedup;    /* 0   on thread start */
+    static FD_TL ulong dedup_cnt;   /* 0UL on thread start */
+    static FD_TL int   in_dedup;    /* 0   on thread start */
 
     if( is_dup ) dedup_cnt++;
     else {
@@ -794,7 +781,7 @@ fd_log_private_1( int          level,
     static ulong const dedup_thresh   = 3UL;         /* let initial dedup_thresh duplicates go out the door */
     static long  const dedup_throttle = 1000000000L; /* ~1s, how often to update status on current duplication */
 
-    static FD_TLS long dedup_last; /* 0L on thread start */
+    static FD_TL long dedup_last; /* 0L on thread start */
 
     if( dedup_cnt < dedup_thresh ) dedup_last = now;
     else {

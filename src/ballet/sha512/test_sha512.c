@@ -214,7 +214,7 @@ main( int     argc,
   FD_LOG_NOTICE(( "Benchmarking batched" ));
   for( ulong idx=0U; idx<2UL; idx++ ) {
     ulong sz = bench_sz[ idx ];
-    for( ulong batch_cnt=1UL; batch_cnt<16UL; batch_cnt++ ) {
+    for( ulong batch_cnt=1UL; batch_cnt<=24UL; batch_cnt++ ) {
 
       /* warmup */
       for( ulong rem=10UL; rem; rem-- ) {
@@ -276,4 +276,3 @@ main( int     argc,
   fd_halt();
   return 0;
 }
-
