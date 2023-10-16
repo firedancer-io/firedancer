@@ -64,9 +64,10 @@ run( fd_tile_args_t * args ) {
 }
 
 static long allow_syscalls[] = {
-  __NR_write,  /* logging */
-  __NR_fsync,  /* logging, WARNING and above fsync immediately */
-  __NR_sendto, /* performance optimization for send/recv path, should be investigated */
+  __NR_write,   /* logging */
+  __NR_fsync,   /* logging, WARNING and above fsync immediately */
+  __NR_sendto,  /* XDP requires calling sendto to notify the driver there are new entries in the TX ring */
+  __NR_recvmsg, /* XDP requires calling recvmsg to notify the driver there are new entries in the fill ring */
 };
 
 static workspace_kind_t allow_workspaces[] = {
