@@ -19,10 +19,10 @@ enabled( config_t * const config ) {
 }
 
 static void
-init_perm( security_t *     security,
+init_perm( fd_caps_ctx_t *  caps,
            config_t * const config ) {
   (void)config;
-  check_root( security, NAME, "increase network device channels with `ethtool --set-channels`" );
+  fd_caps_check_root( caps, NAME, "increase network device channels with `ethtool --set-channels`" );
 }
 
 static int

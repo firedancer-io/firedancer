@@ -13,24 +13,26 @@
 #include <linux/capability.h>
 #include <linux/unistd.h>
 
+#define NAME "run"
+
 void
 run_cmd_perm( args_t *         args,
-              security_t *     security,
+              fd_caps_ctx_t *  caps,
               config_t * const config ) {
   (void)args;
 
   ulong limit = memlock_max_bytes( config );
-  check_res( security, "run", RLIMIT_MEMLOCK, limit, "increase `RLIMIT_MEMLOCK` to lock the workspace in memory with `mlock(2)`" );
-  check_res( security, "run", RLIMIT_NICE, 40, "call `setpriority(2)` to increase thread priorities" );
-  check_res( security, "run", RLIMIT_NOFILE, 1024000, "increase `RLIMIT_NOFILE` to allow more open files for Solana Labs" );
-  check_cap( security, "run", CAP_NET_RAW, "call `bind(2)` to bind to a socket with `SOCK_RAW`" );
-  check_cap( security, "run", CAP_SYS_ADMIN, "initialize XDP by calling `bpf_obj_get`" );
+  fd_caps_check_resource(   caps, NAME, RLIMIT_MEMLOCK, limit,   "increase `RLIMIT_MEMLOCK` to lock the workspace in memory with `mlock(2)`" );
+  fd_caps_check_resource(   caps, NAME, RLIMIT_NICE,    40,      "call `setpriority(2)` to increase thread priorities" );
+  fd_caps_check_resource(   caps, NAME, RLIMIT_NOFILE,  1024000, "increase `RLIMIT_NOFILE` to allow more open files for Solana Labs" );
+  fd_caps_check_capability( caps, NAME, CAP_NET_RAW,             "call `bind(2)` to bind to a socket with `SOCK_RAW`" );
+  fd_caps_check_capability( caps, NAME, CAP_SYS_ADMIN,           "initialize XDP by calling `bpf_obj_get`" );
   if( FD_LIKELY( getuid() != config->uid ) )
-    check_cap( security, "run", CAP_SETUID, "switch uid by calling `setuid(2)`" );
+    fd_caps_check_capability( caps, NAME, CAP_SETUID,            "switch uid by calling `setuid(2)`" );
   if( FD_LIKELY( getgid() != config->gid ) )
-    check_cap( security, "run", CAP_SETGID, "switch gid by calling `setgid(2)`" );
+    fd_caps_check_capability( caps, NAME, CAP_SETGID,            "switch gid by calling `setgid(2)`" );
   if( FD_UNLIKELY( config->development.netns.enabled ) )
-    check_cap( security, "run", CAP_SYS_ADMIN, "enter a network namespace by calling `setns(2)`" );
+    fd_caps_check_capability( caps, NAME, CAP_SYS_ADMIN,         "enter a network namespace by calling `setns(2)`" );
 }
 
 static void

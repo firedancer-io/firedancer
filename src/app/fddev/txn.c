@@ -17,12 +17,12 @@ static int g_stream_notify = 0;
 
 void
 txn_cmd_perm( args_t *         args,
-              security_t *     security,
+              fd_caps_ctx_t *  caps,
               config_t * const config ) {
   (void)args;
 
   if( FD_UNLIKELY( config->development.netns.enabled ) )
-    check_cap( security, "txn", CAP_SYS_ADMIN, "enter a network namespace by calling `setns(2)`" );
+    fd_caps_check_capability( caps, "txn", CAP_SYS_ADMIN, "enter a network namespace by calling `setns(2)`" );
 }
 
 void

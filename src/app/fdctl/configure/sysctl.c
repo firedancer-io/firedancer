@@ -6,10 +6,10 @@
 #include <linux/capability.h>
 
 static void
-init_perm( security_t *     security,
+init_perm( fd_caps_ctx_t *  caps,
            config_t * const config ) {
   (void)config;
-  check_cap( security, NAME, CAP_SYS_ADMIN, "set kernel parameters in `/proc/sys`" );
+  fd_caps_check_capability( caps, NAME, CAP_SYS_ADMIN, "set kernel parameters in `/proc/sys`" );
 }
 
 static const char * params[] = {

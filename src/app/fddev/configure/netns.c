@@ -11,17 +11,17 @@ enabled( config_t * const config ) {
 }
 
 static void
-init_perm( security_t *     security,
+init_perm( fd_caps_ctx_t *  caps,
            config_t * const config ) {
   (void)config;
-  check_root( security, NAME, "create and enter network namespaces" );
+  fd_caps_check_root( caps, NAME, "create and enter network namespaces" );
 }
 
 static void
-fini_perm( security_t *     security,
+fini_perm( fd_caps_ctx_t *  caps,
            config_t * const config ) {
   (void)config;
-  check_root( security, NAME, "remove network namespaces" );
+  fd_caps_check_root( caps, NAME, "remove network namespaces" );
 }
 
 static void

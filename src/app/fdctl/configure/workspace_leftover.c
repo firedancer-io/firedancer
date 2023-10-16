@@ -7,10 +7,10 @@
 #define NAME "workspace-leftover"
 
 void
-fini_perm( security_t *     security,
+fini_perm( fd_caps_ctx_t *  caps,
            config_t * const config ) {
   (void)config;
-  check_root( security, NAME, "check all open file descriptors in `/proc/`" );
+  fd_caps_check_root( caps, NAME, "check all open file descriptors in `/proc/`" );
 }
 
 static configure_result_t

@@ -11,13 +11,13 @@
 #define NAME "xdp"
 
 static void
-init_perm( security_t *     security,
+init_perm( fd_caps_ctx_t *  caps,
            config_t * const config ) {
   if( FD_UNLIKELY( config->development.netns.enabled ) )
-    check_cap( security, NAME, CAP_SYS_ADMIN, "enter a network namespace by calling `setns(2)`" );
+    fd_caps_check_capability( caps, NAME, CAP_SYS_ADMIN, "enter a network namespace by calling `setns(2)`" );
   else {
-    check_cap( security, NAME, CAP_SYS_ADMIN, "create a BPF map with `bpf_map_create`" );
-    check_cap( security, NAME, CAP_NET_ADMIN, "create an XSK map with `bpf_map_create`" );
+    fd_caps_check_capability( caps, NAME, CAP_SYS_ADMIN, "create a BPF map with `bpf_map_create`" );
+    fd_caps_check_capability( caps, NAME, CAP_NET_ADMIN, "create an XSK map with `bpf_map_create`" );
   }
 }
 
@@ -90,10 +90,10 @@ init( config_t * const config ) {
 }
 
 static void
-fini_perm( security_t *     security,
+fini_perm( fd_caps_ctx_t *  caps,
            config_t * const config ) {
   if( FD_UNLIKELY( config->development.netns.enabled ) )
-    check_cap( security, NAME, CAP_SYS_ADMIN, "enter a network namespace by calling `setns(2)`" );
+    fd_caps_check_capability( caps, NAME, CAP_SYS_ADMIN, "enter a network namespace by calling `setns(2)`" );
 }
 
 static void
