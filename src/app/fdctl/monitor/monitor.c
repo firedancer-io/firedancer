@@ -28,16 +28,16 @@ monitor_cmd_args( int *    pargc,
 
 void
 monitor_cmd_perm( args_t *         args,
-                  security_t *     security,
+                  fd_caps_ctx_t *  caps,
                   config_t * const config ) {
   (void)args;
 
   ulong limit = memlock_max_bytes( config );
-  check_res( security, "monitor", RLIMIT_MEMLOCK, limit, "increase `RLIMIT_MEMLOCK` to lock the workspace in memory with `mlock(2)`" );
+  fd_caps_check_resource( caps, "monitor", RLIMIT_MEMLOCK, limit, "increase `RLIMIT_MEMLOCK` to lock the workspace in memory with `mlock(2)`" );
   if( getuid() != config->uid )
-    check_cap( security, "monitor", CAP_SETUID, "switch uid by calling `setuid(2)`" );
+    fd_caps_check_capability( caps, "monitor", CAP_SETUID, "switch uid by calling `setuid(2)`" );
   if( getgid() != config->gid )
-    check_cap( security, "monitor", CAP_SETGID, "switch gid by calling `setgid(2)`" );
+    fd_caps_check_capability( caps, "monitor", CAP_SETGID, "switch gid by calling `setgid(2)`" );
 }
 
 typedef struct {

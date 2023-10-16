@@ -3,10 +3,10 @@
 #include <stdio.h>
 
 static void
-init_perm( security_t *     security,
+init_perm( fd_caps_ctx_t *  caps,
            config_t * const config ) {
   (void)config;
-  check_root( security, "large-pages", "write to a system control file `/proc/sys/vm/nr_hugepages`" );
+  fd_caps_check_root( caps, "large-pages", "write to a system control file `/proc/sys/vm/nr_hugepages`" );
 }
 
 uint

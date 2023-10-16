@@ -125,11 +125,9 @@ main( int     argc,
 
   /* check if we are appropriate permissioned to run the desired command */
   if( FD_LIKELY( action->perm ) ) {
-    security_t security = {
-      .idx = 0,
-    };
-    action->perm( &args, &security, &config );
-    if( FD_UNLIKELY( security.idx ) ) {
+    fd_caps_ctx_t caps = {0};
+    action->perm( &args, &caps, &config );
+    if( FD_UNLIKELY( caps.err_cnt ) ) {
       execve_as_root( orig_argc, orig_argv );
     }
   }

@@ -5,7 +5,7 @@
 #include "../../util/net/fd_ip4.h"
 
 #include "config.h"
-#include "security.h"
+#include "caps.h"
 #include "utility.h"
 
 #include <unistd.h>
@@ -42,12 +42,12 @@ typedef union {
   } txn;
 } args_t;
 
-typedef struct security security_t;
+typedef struct fd_caps_ctx fd_caps_ctx_t;
 
 typedef struct {
     const char * name;
     void       (*args)( int * pargc, char *** pargv, args_t * args );
-    void       (*perm)( args_t * args, security_t * security, config_t * const config );
+    void       (*perm)( args_t * args, fd_caps_ctx_t * caps, config_t * const config );
     void       (*fn  )( args_t * args, config_t * const config );
 } action_t;
 
@@ -67,7 +67,7 @@ configure_cmd_args( int *    pargc,
                     args_t * args );
 void
 configure_cmd_perm( args_t *         args,
-                    security_t *     security,
+                    fd_caps_ctx_t *  caps,
                     config_t * const config );
 void
 configure_cmd_fn( args_t *         args,
@@ -75,7 +75,7 @@ configure_cmd_fn( args_t *         args,
 
 void
 run_cmd_perm( args_t *         args,
-              security_t *     security,
+              fd_caps_ctx_t *  caps,
               config_t * const config );
 
 void
@@ -88,7 +88,7 @@ monitor_cmd_args( int *    pargc,
                   args_t * args );
 void
 monitor_cmd_perm( args_t *         args,
-                  security_t *     security,
+                  fd_caps_ctx_t *  caps,
                   config_t * const config );
 void
 monitor_cmd_fn( args_t *         args,
