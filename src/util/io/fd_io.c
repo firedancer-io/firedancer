@@ -87,6 +87,11 @@ fd_io_write( int          fd,
              ulong        src_max,
              ulong *      _src_sz ) {
 
+  if( FD_UNLIKELY( src_max==0UL ) ) {
+    *_src_sz = 0UL;
+    return 0;
+  }
+
   /* Note: this is virtually identical to read.  See read for more
      details. */
 
