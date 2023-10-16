@@ -101,6 +101,7 @@ tile_main( void * _args ) {
   fd_log_thread_set( args->tile->name );
 
   int pid = getpid1(); /* need to read /proc since we are in a PID namespace now */
+  fd_log_private_group_id_set( (ulong)pid );
   FD_LOG_NOTICE(( "booting tile %s(%lu) pid(%d)", args->tile->name, args->tile_idx, pid ));
 
   install_tile_signals();
@@ -191,6 +192,7 @@ int
 solana_labs_main( void * args ) {
   config_t * const config = args;
 
+  fd_log_private_group_id_set( (ulong)getpid1() );
   fd_sandbox( 0, config->uid, config->gid, 0, NULL, 0, NULL );
 
   uint idx = 0;
@@ -318,6 +320,7 @@ clone_solana_labs( tile_spawner_t * spawner, config_t * const config ) {
 static int
 main_pid_namespace( void * args ) {
   fd_log_thread_set( "pidns" );
+  fd_log_private_group_id_set( (ulong)getpid1() );
 
   config_t * const config = args;
 
