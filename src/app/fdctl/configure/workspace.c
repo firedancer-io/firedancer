@@ -12,13 +12,13 @@
 #define NAME "workspace"
 
 static void
-init_perm( security_t *     security,
+init_perm( fd_caps_ctx_t *  caps,
            config_t * const config ) {
   if( FD_UNLIKELY( config->development.netns.enabled ) )
-    check_cap( security, NAME, CAP_SYS_ADMIN, "enter a network namespace" );
+    fd_caps_check_capability( caps, NAME, CAP_SYS_ADMIN, "enter a network namespace" );
 
   ulong limit = memlock_max_bytes( config );
-  check_res( security, NAME, RLIMIT_MEMLOCK, limit, "increase `RLIMIT_MEMLOCK` to lock the workspace in memory" );
+  fd_caps_check_resource( caps, NAME, RLIMIT_MEMLOCK, limit, "increase `RLIMIT_MEMLOCK` to lock the workspace in memory" );
 }
 
 #define INSERTER(arg, align, footprint, new) do {                                   \
