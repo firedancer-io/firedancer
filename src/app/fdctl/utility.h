@@ -7,11 +7,12 @@
 
 /* mkdir_all() is like `mkdir -p`, it creates all directories
    needed as part of the path. Logs an error and exits the process
-   if anything goes wrong. */
+   if anything goes wrong.  Directories that did not already
+   exist will be created with the given uid and gid. */
 void
-mkdir_all( const char * _path,
-           uid_t uid,
-           gid_t gid );
+mkdir_all( const char * path,
+           uid_t        uid,
+           gid_t        gid );
 
 void
 exit_group( int status );
