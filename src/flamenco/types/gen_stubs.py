@@ -39,6 +39,10 @@ print("#pragma GCC optimize (\"O0\")", file=body)
 print("#endif", file=body)
 print("", file=body)
 
+print('#define SOURCE_fd_src_flamenco_types_fd_types_c', file=body)
+print('#include "fd_types_custom.c"', file=body)
+print("", file=body)
+
 preambletypes = set()
 postambletypes = set()
 indent = ''
