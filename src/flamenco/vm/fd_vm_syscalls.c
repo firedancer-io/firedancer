@@ -600,7 +600,7 @@ fd_vm_syscall_sol_memmove(
 static ulong
 fd_vm_syscall_cpi_preflight_check( ulong signers_seeds_cnt,
                                    ulong acct_info_cnt,
-                                   fd_exec_slot_ctx_t * slot_ctx ) {
+                                   fd_exec_slot_ctx_t const * slot_ctx ) {
 
   /* TODO use MAX_SIGNERS constant */
 
@@ -609,7 +609,7 @@ fd_vm_syscall_cpi_preflight_check( ulong signers_seeds_cnt,
     return FD_VM_SYSCALL_ERR_INVAL;
   }
 
-  unsigned long MAX_CPI_ACCOUNT_INFOS = FD_FEATURE_ACTIVE( slot_ctx, increase_tx_account_lock_limit ) ? 128UL : 64UL;
+  ulong MAX_CPI_ACCOUNT_INFOS = FD_FEATURE_ACTIVE( slot_ctx, increase_tx_account_lock_limit ) ? 128UL : 64UL;
 
   if( FD_UNLIKELY( acct_info_cnt > MAX_CPI_ACCOUNT_INFOS ) ) {
     FD_LOG_ERR(( "TODO: return max instruction account infos exceeded" ));
