@@ -95,8 +95,8 @@ fd_tar_read_hdr( fd_tar_reader_t * reader,
 
   /* Copy to header */
   fd_memcpy( reader->buf + reader->buf_ctr, cur, (ulong)chunk_sz );
-  cur             +=         chunk_sz;
-  reader->buf_ctr += (ushort)chunk_sz;
+  cur             +=        chunk_sz;
+  reader->buf_ctr += (ulong)chunk_sz;
 
   /* Handle complete header */
   int ret = 0;
@@ -176,7 +176,7 @@ fd_tar_set_octal( char  buf[ static 12 ],
                   ulong val ) {
   buf[ 11 ] = '\0';
   for( int i=10; i>=0; i-- ) {
-    buf[ i ] = '0' + (char)( val&7UL );
+    buf[ i ] = (char)( '0' + (char)( val&7UL ) );
     val>>=3;
   }
   return val==0UL;
