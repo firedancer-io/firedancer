@@ -227,7 +227,7 @@ solana_labs_main( void * args ) {
   if( FD_UNLIKELY( strcmp( config->dynamic_port_range, "" ) ) )
     ADD( "--dynamic-port-range", config->dynamic_port_range );
 
-  ADDU( "--tpu-port", config->tiles.quic.transaction_listen_port );
+  ADDU( "--tpu-port", config->tiles.quic.regular_transaction_listen_port );
 
   char ip_addr[16];
   snprintf1( ip_addr, 16, FD_IP4_ADDR_FMT, FD_IP4_ADDR_FMT_ARGS(config->tiles.net.ip_addr) );
