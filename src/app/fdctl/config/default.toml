@@ -510,6 +510,10 @@ dynamic_port_range = "8900-9000"
     # forward well formed (but not necessarily valid) ones to verify
     # tiles.
     [tiles.quic]
+        # The period in which there are no active requests.
+        # When the idle timeout is reached the connection will be closed.
+        idle_timeout_ms = 10000
+
         # Which port to listen on for incoming, regular UDP transactions
         # that are not over QUIC.  These could be votes, user
         # transactions, or transactions forwarded from another
