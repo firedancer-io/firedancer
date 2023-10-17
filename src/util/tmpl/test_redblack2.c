@@ -435,7 +435,7 @@ int unit_test_atomic_insertion( void )
     {'D', 'B'}, /* d.left (balanced) */
     {'D', 'F'}, /* d.right (balanced) */
 
-		/* 3-children node becomes 4-children node */
+    /* 3-children node becomes 4-children node */
     {'D', 'F', 'B'}, /* d.left (balanced) */
     {'D', 'B', 'F'}, /* d.right (balanced) */
     {'D', 'B', 'A'}, /* d.left.left */
