@@ -834,3 +834,14 @@
     h##8 = wl_subadd_12( f##8 ); h##9 = wl_subadd_12( f##9 ); \
   } while(0)
 
+/* FE_AVX_INL_ADDSUB_12( h, f ) does
+     [ha hb hc hd] = [fa fb+fc fb-fc fd]
+   In place operation fine. */
+
+#define FE_AVX_INL_ADDSUB_12( h, f ) do {                     \
+    h##0 = wl_addsub_12( f##0 ); h##1 = wl_addsub_12( f##1 ); \
+    h##2 = wl_addsub_12( f##2 ); h##3 = wl_addsub_12( f##3 ); \
+    h##4 = wl_addsub_12( f##4 ); h##5 = wl_addsub_12( f##5 ); \
+    h##6 = wl_addsub_12( f##6 ); h##7 = wl_addsub_12( f##7 ); \
+    h##8 = wl_addsub_12( f##8 ); h##9 = wl_addsub_12( f##9 ); \
+  } while(0)

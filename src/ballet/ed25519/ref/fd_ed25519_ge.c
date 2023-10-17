@@ -1,4 +1,5 @@
 #include "../fd_ed25519_private.h"
+#include "../fd_ed25519_ge.h"
 
 /* Internal use representations of a ed25519 group element:
 
@@ -262,8 +263,8 @@ fd_ed25519_ge_frombytes_vartime( fd_ed25519_ge_p3_t * h,
   fd_ed25519_fe_t v3[1];
   fd_ed25519_fe_sq ( v3,   v       );
   fd_ed25519_fe_mul( v3,   v3, v   );       /* v3 = v^3 */
-  fd_ed25519_fe_sq ( h->X, v3      );      
-  fd_ed25519_fe_mul( h->X, h->X, v );      
+  fd_ed25519_fe_sq ( h->X, v3      );
+  fd_ed25519_fe_mul( h->X, h->X, v );
   fd_ed25519_fe_mul( h->X, h->X, u );       /* x = uv^7 */
 
   fd_ed25519_fe_pow22523( h->X, h->X     ); /* x = (uv^7)^((q-5)/8) */
@@ -505,3 +506,52 @@ fd_ed25519_ge_double_scalarmult_vartime( fd_ed25519_ge_p2_t *       r,
   return r;
 }
 
+/**********************************************************************/
+
+fd_ed25519_point_t *
+fd_ed25519_point_decompress( fd_ed25519_point_t * h_,
+                             uchar const          s[ static 32 ] ) {
+  fd_ed25519_ge_p3_t * h = fd_type_pun( h_ );
+  return fd_ed25519_ge_frombytes_vartime( h, s )==FD_ED25519_SUCCESS ? h_ : NULL;
+}
+
+uchar *
+fd_ed25519_point_compress( uchar                      s[ static 32 ],
+                           fd_ed25519_point_t const * f_ ) {
+  fd_ed25519_ge_p3_t const * f = fd_type_pun_const( f_ );
+  return fd_ed25519_ge_p3_tobytes( s, f );
+}
+
+fd_ed25519_point_t *
+fd_ed25519_point_add( fd_ed25519_point_t *       h_,
+                      fd_ed25519_point_t const * f_,
+                      fd_ed25519_point_t const * g_ ) {
+  fd_ed25519_ge_p3_t * h = (fd_ed25519_ge_p3_t *)h_;
+  fd_ed25519_ge_p3_t * f = (fd_ed25519_ge_p3_t *)f_;
+  fd_ed25519_ge_p3_t * g = (fd_ed25519_ge_p3_t *)g_;
+
+  fd_ed25519_ge_p1p1_t   r [1];
+  fd_ed25519_ge_cached_t gc[1];
+  fd_ed25519_ge_p3_to_cached( gc, g );
+  fd_ed25519_ge_add( r, f, gc );
+  /* Consider converting to p2 instead of p3 */
+  fd_ed25519_ge_p1p1_to_p3( h, r );
+  return h_;
+}
+
+fd_ed25519_point_t *
+fd_ed25519_point_sub( fd_ed25519_point_t *       h_,
+                      fd_ed25519_point_t const * f_,
+                      fd_ed25519_point_t const * g_ ) {
+  fd_ed25519_ge_p3_t * h = (fd_ed25519_ge_p3_t *)h_;
+  fd_ed25519_ge_p3_t * f = (fd_ed25519_ge_p3_t *)f_;
+  fd_ed25519_ge_p3_t * g = (fd_ed25519_ge_p3_t *)g_;
+
+  fd_ed25519_ge_p1p1_t   r [1];
+  fd_ed25519_ge_cached_t gc[1];
+  fd_ed25519_ge_p3_to_cached( gc, g );
+  fd_ed25519_ge_sub( r, f, gc );
+  /* Consider converting to p2 instead of p3 */
+  fd_ed25519_ge_p1p1_to_p3( h, r );
+  return h_;
+}

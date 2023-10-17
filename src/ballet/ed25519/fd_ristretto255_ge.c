@@ -1,4 +1,5 @@
 #include "fd_ristretto255_ge.h"
+#include "fd_ristretto255_ge_private.h"
 
 fd_ed25519_ge_p3_t *
 fd_ristretto255_ge_frombytes_vartime( fd_ed25519_ge_p3_t * h,
@@ -147,4 +148,18 @@ fd_ristretto255_ge_tobytes( uchar *                    b,
 
   fd_ed25519_fe_tobytes( b, s );
   return b;
+}
+
+fd_ristretto255_point_t *
+fd_ristretto255_point_decompress( fd_ristretto255_point_t * h_,
+                                  uchar const               s[ static 32 ] ) {
+  fd_ed25519_ge_p3_t * h = fd_type_pun( h_ );
+  return fd_type_pun( fd_ristretto255_ge_frombytes_vartime( h, s ) );
+}
+
+uchar *
+fd_ristretto255_point_compress( uchar                           s[ static 32 ],
+                                fd_ristretto255_point_t const * f_ ) {
+  fd_ed25519_ge_p3_t const * f = fd_type_pun_const( f_ );
+  return fd_ristretto255_ge_tobytes( s, f );
 }

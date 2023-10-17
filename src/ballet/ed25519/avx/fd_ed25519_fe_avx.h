@@ -68,6 +68,18 @@ wl_subadd_12( wl_t f ) {
                  wl_and( _mm256_unpacklo_epi64( _tmp, wl_sub( _zero, _tmp ) ), _mask ) ); /*     + [  0 -C  C  0 ] */
 }
 
+/* wl_addsub_12(f) for f = [fa fb fc fd] returns
+   [fa fb+fc fb-fc fd] */
+
+static inline wl_t
+wl_addsub_12( wl_t f ) {
+  wl_t _zero = wl_zero();           /* Should be hoisted */
+  wl_t _mask = wl( 0L,-1L,-1L, 0L); /* Should be hoisted */
+  wl_t _tmp = wl_permute( f, 2,2,2,2 );                                                   /* tmp = [  C  C  C  C ] */ \
+  return wl_add( wl_permute( f, 0,1,1,3 ),                                                /* h   = [  A  B  B  D ] */ \
+                 wl_and( _mm256_unpackhi_epi64( _tmp, wl_sub( _zero, _tmp ) ), _mask ) ); /*     + [  0  C -C  0 ] */
+}
+
 FD_PROTOTYPES_END
 
 #include "fd_ed25519_fe_avx_inl.h"

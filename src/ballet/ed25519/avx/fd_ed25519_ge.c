@@ -1,5 +1,6 @@
 #include "../fd_ed25519_private.h"
 #include "fd_ed25519_fe_avx.h"
+#include "../fd_ed25519_ge.h"
 
 /* Internal use representations of a ed25519 group element:
 
@@ -193,8 +194,8 @@ fd_ed25519_ge_frombytes_vartime( fd_ed25519_ge_p3_t * h,
   fd_ed25519_fe_t v3[1];
   fd_ed25519_fe_sq ( v3,   v       );
   fd_ed25519_fe_mul( v3,   v3, v   );       /* v3 = v^3 */
-  fd_ed25519_fe_sq ( h->X, v3      );      
-  fd_ed25519_fe_mul( h->X, h->X, v );      
+  fd_ed25519_fe_sq ( h->X, v3      );
+  fd_ed25519_fe_mul( h->X, h->X, v );
   fd_ed25519_fe_mul( h->X, h->X, u );       /* x = uv^7 */
 
   fd_ed25519_fe_pow22523( h->X, h->X     ); /* x = (uv^7)^((q-5)/8) */
@@ -655,3 +656,118 @@ fd_ed25519_ge_double_scalarmult_vartime( fd_ed25519_ge_p2_t *       r,
 }
 
 #endif
+
+/**********************************************************************/
+
+fd_ed25519_point_t *
+fd_ed25519_point_decompress( fd_ed25519_point_t * h_,
+                             uchar const          s[ static 32 ] ) {
+  fd_ed25519_ge_p3_t * h = fd_type_pun( h_ );
+  return fd_ed25519_ge_frombytes_vartime( h, s )==FD_ED25519_SUCCESS ? h_ : NULL;
+}
+
+uchar *
+fd_ed25519_point_compress( uchar                      s[ static 32 ],
+                           fd_ed25519_point_t const * f_ ) {
+  fd_ed25519_ge_p3_t const * f = fd_type_pun_const( f_ );
+  return fd_ed25519_ge_p3_tobytes( s, f );
+}
+
+fd_ed25519_point_t *
+fd_ed25519_point_add( fd_ed25519_point_t *       h_,
+                      fd_ed25519_point_t const * f_,
+                      fd_ed25519_point_t const * g_ ) {
+
+  fd_ed25519_ge_p3_t * h = (fd_ed25519_ge_p3_t *)h_;
+  fd_ed25519_ge_p3_t * f = (fd_ed25519_ge_p3_t *)f_;
+  fd_ed25519_ge_p3_t * g = (fd_ed25519_ge_p3_t *)g_;
+
+  FE_AVX_INL_DECL( vh );
+  FE_AVX_INL_DECL( vf );
+  FE_AVX_INL_DECL( vg );
+  FE_AVX_INL_DECL( vt );
+
+  static long const l111d2[40] __attribute__((aligned(64))) = { /* This holds 1 | 1 | 1 | d2 */
+    1L, 1L, 1L, (long)(uint)-21827239, /* Do not sign extend */
+    0L, 0L, 0L, (long)(uint) -5839606, /* " */
+    0L, 0L, 0L, (long)(uint)-30745221, /* " */
+    0L, 0L, 0L, (long)(uint) 13898782, /* " */
+    0L, 0L, 0L, (long)(uint)   229458, /* " */
+    0L, 0L, 0L, (long)(uint) 15978800, /* " */
+    0L, 0L, 0L, (long)(uint)-12551817, /* " */
+    0L, 0L, 0L, (long)(uint) -6495438, /* " */
+    0L, 0L, 0L, (long)(uint) 29715968, /* " */
+    0L, 0L, 0L, (long)(uint)  9444199  /* " */
+  };
+  FE_AVX_INL_DECL( v111d2 );
+  FE_AVX_INL_LD( v111d2, l111d2 );
+
+  FE_AVX_INL_SWIZZLE_IN4( vf, f->Z, f->Y, f->X, f->T );
+  FE_AVX_INL_SWIZZLE_IN4( vg, g->Z, g->Y, g->X, g->T );
+
+//fd_ed25519_ge_p3_to_cached( gc, g );
+  FE_AVX_INL_MUL      ( vg, vg, v111d2 );
+  FE_AVX_INL_SUBADD_12( vg, vg         );
+
+//fd_ed25519_ge_add( r, f, gc );
+  FE_AVX_INL_MUL      ( vh, vf, vg     );
+  FE_AVX_INL_SUB_MIX  ( vh, vh         );
+
+//fd_ed25519_ge_p1p1_to_p3( h, r );
+  FE_AVX_INL_PERMUTE  ( vt, vh, 2,1,0,0 );
+  FE_AVX_INL_PERMUTE  ( vh, vh, 3,2,3,1 );
+  FE_AVX_INL_MUL      ( vh, vh, vt      );
+
+  FE_AVX_INL_SWIZZLE_OUT4( h->Z, h->Y, h->X, h->T, vh );
+  return h_;
+}
+
+fd_ed25519_point_t *
+fd_ed25519_point_sub( fd_ed25519_point_t *       h_,
+                      fd_ed25519_point_t const * f_,
+                      fd_ed25519_point_t const * g_ ) {
+
+  fd_ed25519_ge_p3_t * h = (fd_ed25519_ge_p3_t *)h_;
+  fd_ed25519_ge_p3_t * f = (fd_ed25519_ge_p3_t *)f_;
+  fd_ed25519_ge_p3_t * g = (fd_ed25519_ge_p3_t *)g_;
+
+  FE_AVX_INL_DECL( vh );
+  FE_AVX_INL_DECL( vf );
+  FE_AVX_INL_DECL( vg );
+  FE_AVX_INL_DECL( vt );
+
+  static long const l111d2[40] __attribute__((aligned(64))) = { /* This holds 1 | 1 | 1 | d2 */
+    1L, 1L, 1L, (long)(uint)-21827239, /* Do not sign extend */
+    0L, 0L, 0L, (long)(uint) -5839606, /* " */
+    0L, 0L, 0L, (long)(uint)-30745221, /* " */
+    0L, 0L, 0L, (long)(uint) 13898782, /* " */
+    0L, 0L, 0L, (long)(uint)   229458, /* " */
+    0L, 0L, 0L, (long)(uint) 15978800, /* " */
+    0L, 0L, 0L, (long)(uint)-12551817, /* " */
+    0L, 0L, 0L, (long)(uint) -6495438, /* " */
+    0L, 0L, 0L, (long)(uint) 29715968, /* " */
+    0L, 0L, 0L, (long)(uint)  9444199  /* " */
+  };
+  FE_AVX_INL_DECL( v111d2 );
+  FE_AVX_INL_LD( v111d2, l111d2 );
+
+  FE_AVX_INL_SWIZZLE_IN4( vf, f->Z, f->Y, f->X, f->T );
+  FE_AVX_INL_SWIZZLE_IN4( vg, g->Z, g->Y, g->X, g->T );
+
+//fd_ed25519_ge_p3_to_cached( gc, g  );
+//fd_ed25519_ge_neg         ( gc, gc );
+  FE_AVX_INL_MUL      ( vg, vg, v111d2 );
+  FE_AVX_INL_ADDSUB_12( vg, vg         );
+
+//fd_ed25519_ge_add( r, f, gc );
+  FE_AVX_INL_MUL      ( vh, vf, vg     );
+  FE_AVX_INL_SUB_MIX  ( vh, vh         );
+
+//fd_ed25519_ge_p1p1_to_p3( h, r );
+  FE_AVX_INL_PERMUTE  ( vt, vh, 2,1,0,0 );
+  FE_AVX_INL_PERMUTE  ( vh, vh, 3,2,3,1 );
+  FE_AVX_INL_MUL      ( vh, vh, vt      );
+
+  FE_AVX_INL_SWIZZLE_OUT4( h->Z, h->Y, h->X, h->T, vh );
+  return h_;
+}
