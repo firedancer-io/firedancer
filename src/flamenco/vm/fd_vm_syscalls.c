@@ -45,8 +45,8 @@ fd_vm_register_syscall( fd_sbpf_syscalls_t *     syscalls,
   syscall_entry->name = name;
 }
 
-void
-fd_vm_syscall_register_all( fd_sbpf_syscalls_t * syscalls ) {
+static void
+fd_vm_syscall_register_base( fd_sbpf_syscalls_t * syscalls ) {
   fd_vm_register_syscall( syscalls, "abort",                  fd_vm_syscall_abort     );
   fd_vm_register_syscall( syscalls, "sol_panic_",             fd_vm_syscall_sol_panic );
 
@@ -81,6 +81,25 @@ fd_vm_syscall_register_all( fd_sbpf_syscalls_t * syscalls ) {
   fd_vm_register_syscall( syscalls, "sol_create_program_address",            fd_vm_syscall_sol_create_program_address            );
   fd_vm_register_syscall( syscalls, "sol_try_find_program_address",          fd_vm_syscall_sol_try_find_program_address          );
   fd_vm_register_syscall( syscalls, "sol_get_processed_sibling_instruction", fd_vm_syscall_sol_get_processed_sibling_instruction );
+}
+
+static void
+fd_vm_syscall_register_curve25519( fd_sbpf_syscalls_t * syscalls ) {
+  fd_vm_register_syscall( syscalls, "sol_curve_validate_point", fd_vm_syscall_sol_curve_validate_point );
+}
+
+void
+fd_vm_syscall_register_ctx( fd_sbpf_syscalls_t *       syscalls,
+                            fd_exec_slot_ctx_t const * slot_ctx ) {
+  fd_vm_syscall_register_base( syscalls );
+  if( FD_FEATURE_ACTIVE( slot_ctx, curve25519_syscall_enabled ) )
+    fd_vm_syscall_register_curve25519( syscalls );
+}
+
+void
+fd_vm_syscall_register_all( fd_sbpf_syscalls_t * syscalls ) {
+  fd_vm_syscall_register_base      ( syscalls );
+  fd_vm_syscall_register_curve25519( syscalls );
 }
 
 ulong

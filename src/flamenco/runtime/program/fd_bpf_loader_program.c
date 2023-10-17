@@ -55,7 +55,7 @@ setup_program(fd_exec_instr_ctx_t ctx, uchar * program_data, ulong program_data_
   fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new( fd_valloc_malloc( ctx.valloc, fd_sbpf_syscalls_align(), fd_sbpf_syscalls_footprint() ) );
   FD_TEST( syscalls );
 
-  fd_vm_syscall_register_all( syscalls );
+  fd_vm_syscall_register_ctx( syscalls, ctx.slot_ctx );
   /* Load program */
 
   if(  0!=fd_sbpf_program_load( prog, program_data, program_data_len, syscalls ) ) {

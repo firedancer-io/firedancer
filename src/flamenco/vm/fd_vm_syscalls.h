@@ -27,10 +27,18 @@ fd_vm_register_syscall( fd_sbpf_syscalls_t *     syscalls,
                         char const *             name,
                         fd_sbpf_syscall_fn_ptr_t fn_ptr );
 
-/* Registers all standard syscalls with the VM */
+/* fd_vm_syscall_register all reigsters all syscalls implemented.
+   May change between Firedancer versions without warning. */
 
 void
 fd_vm_syscall_register_all( fd_sbpf_syscalls_t * syscalls );
+
+/* fd_vm_syscall_register_ctx registers all syscalls appropriate for
+   slot context. */
+
+void
+fd_vm_syscall_register_ctx( fd_sbpf_syscalls_t *       syscalls,
+                            fd_exec_slot_ctx_t const * slot_ctx );
 
 /* Syscall function declarations **************************************/
 

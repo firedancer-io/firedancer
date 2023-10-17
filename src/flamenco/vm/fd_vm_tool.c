@@ -21,7 +21,7 @@ typedef struct fd_vm_tool_prog fd_vm_tool_prog_t;
 
 static fd_vm_tool_prog_t *
 fd_vm_tool_prog_create( fd_vm_tool_prog_t * tool_prog,
-                          char const *          bin_path ) {
+                        char const *        bin_path ) {
 
   /* Open file */
 
