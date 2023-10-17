@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_ballet_ed25519_fd_ristretto255_h
-#define HEADER_fd_src_ballet_ed25519_fd_ristretto255_h
+#ifndef HEADER_fd_src_ballet_ed25519_fd_ristretto255_ge_h
+#define HEADER_fd_src_ballet_ed25519_fd_ristretto255_ge_h
 
 #include "fd_ed25519_private.h"
 
@@ -17,4 +17,4 @@ fd_ristretto255_ge_tobytes( uchar *                    s,
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_ballet_ed25519_fd_ristretto255_h */
+#endif /* HEADER_fd_src_ballet_ed25519_fd_ristretto255_ge_h */
