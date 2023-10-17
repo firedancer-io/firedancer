@@ -591,6 +591,49 @@ username_to_uid( char * username ) {
   FD_LOG_ERR(( "configuration file wants firedancer to run as user `%s` but it does not exist", username ));
 }
 
+static void
+validate_ports( config_t * result ) {
+  char dynamic_port_range[ 32 ];
+  fd_memcpy( dynamic_port_range, result->dynamic_port_range, sizeof(dynamic_port_range) );
+
+  char * dash = strstr( dynamic_port_range, "-" );
+  if( FD_UNLIKELY( !dash ) )
+    FD_LOG_ERR(( "configuration specifies invalid [dynamic_port_range] `%s`. "
+                 "This must be formatted like `<min>-<max>`",
+                 result->dynamic_port_range ));
+
+  *dash = '\0';
+  char * endptr;
+  ulong solana_port_min = strtoul( dynamic_port_range, &endptr, 10 );
+  if( FD_UNLIKELY( *endptr != '\0' || solana_port_min > USHORT_MAX ) )
+    FD_LOG_ERR(( "configuration specifies invalid [dynamic_port_range] `%s`. "
+                 "This must be formatted like `<min>-<max>`",
+                 result->dynamic_port_range ));
+  ulong solana_port_max = strtoul( dash + 1, &endptr, 10 );
+  if( FD_UNLIKELY( *endptr != '\0' || solana_port_max > USHORT_MAX ) )
+    FD_LOG_ERR(( "configuration specifies invalid [dynamic_port_range] `%s`. "
+                 "This must be formatted like `<min>-<max>`",
+                 result->dynamic_port_range ));
+  if( FD_UNLIKELY( solana_port_min > solana_port_max ) )
+    FD_LOG_ERR(( "configuration specifies invalid [dynamic_port_range] `%s`. "
+                 "The minimum port must be less than or equal to the maximum port",
+                 result->dynamic_port_range ));
+
+  if( FD_UNLIKELY( result->tiles.quic.regular_transaction_listen_port >= solana_port_min &&
+                   result->tiles.quic.regular_transaction_listen_port < solana_port_max ) )
+    FD_LOG_ERR(( "configuration specifies invalid [tiles.quic.transaction_listen_port] `%hu`. "
+                 "This must be outside the dynamic port range `%s`",
+                 result->tiles.quic.regular_transaction_listen_port,
+                 result->dynamic_port_range ));
+
+  if( FD_UNLIKELY( result->tiles.quic.quic_transaction_listen_port >= solana_port_min &&
+                   result->tiles.quic.quic_transaction_listen_port < solana_port_max ) )
+    FD_LOG_ERR(( "configuration specifies invalid [tiles.quic.quic_transaction_listen_port] `%hu`. "
+                 "This must be outside the dynamic port range `%s`",
+                 result->tiles.quic.quic_transaction_listen_port,
+                 result->dynamic_port_range ));
+}
+
 config_t
 config_parse( int *    pargc,
               char *** pargv ) {
@@ -734,6 +777,8 @@ config_parse( int *    pargc,
                  "This must be 6 more than [tiles.quic.regular_transaction_listen_port] `%hu`",
                  result.tiles.quic.quic_transaction_listen_port,
                  result.tiles.quic.regular_transaction_listen_port ));
+
+  validate_ports( &result );
 
   init_workspaces( &result );
 
