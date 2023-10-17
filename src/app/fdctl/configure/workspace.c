@@ -273,8 +273,8 @@ init( config_t * const config ) {
         break;
       case wksp_pack_bank:
         ulong1( pod, "cnt", config->layout.bank_tile_count );
-        mcache( pod, "mcache", config->tiles.bank.receive_buffer_size );
-        dcache( pod, "dcache", USHORT_MAX, config->layout.bank_tile_count * (ulong)config->tiles.bank.receive_buffer_size, 0 );
+        mcache( pod, "mcache", 128 );
+        dcache( pod, "dcache", USHORT_MAX, 128UL, 0 );
         for( ulong i=0; i<config->layout.bank_tile_count; i++ ) {
           fseq( pod, "fseq%lu", i );
           fseq( pod, "busy%lu", i );
@@ -282,8 +282,8 @@ init( config_t * const config ) {
         break;
       case wksp_bank_shred:
         for( ulong i=0; i<config->layout.bank_tile_count; i++ ) {
-          mcache( pod, "mcache%lu", config->tiles.bank.receive_buffer_size, i );
-          dcache( pod, "dcache%lu", USHORT_MAX, config->layout.bank_tile_count * (ulong)config->tiles.bank.receive_buffer_size, 0, i );
+          mcache( pod, "mcache%lu", 128, i );
+          dcache( pod, "dcache%lu", USHORT_MAX, 128UL, 0, i );
           fseq  ( pod, "fseq%lu", i );
         }
         break;
@@ -327,7 +327,7 @@ init( config_t * const config ) {
 
         uint1  ( pod, "ip_addr",                      config->tiles.net.ip_addr     );
         buf    ( pod, "src_mac_addr",                 config->tiles.net.mac_addr, 6 );
-        ushort1( pod, "transaction_listen_port",      config->tiles.quic.transaction_listen_port, 0 );
+        ushort1( pod, "transaction_listen_port",      config->tiles.quic.regular_transaction_listen_port, 0 );
         ushort1( pod, "quic_transaction_listen_port", config->tiles.quic.quic_transaction_listen_port, 0 );
         ulong1 ( pod, "idle_timeout_ms",              1000 );
         ulong1 ( pod, "initial_rx_max_stream_data",   1<<15 );

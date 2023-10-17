@@ -277,16 +277,6 @@ static void parse_key_value( config_t *   config,
   ENTRY_STR   ( ., shmem,               gigantic_page_mount_path                                  );
   ENTRY_STR   ( ., shmem,               huge_page_mount_path                                      );
 
-  ENTRY_BOOL  ( ., development,         sandbox                                                   );
-
-  ENTRY_BOOL  ( ., development.netns,   enabled                                                   );
-  ENTRY_STR   ( ., development.netns,   interface0                                                );
-  ENTRY_STR   ( ., development.netns,   interface0_mac                                            );
-  ENTRY_STR   ( ., development.netns,   interface0_addr                                           );
-  ENTRY_STR   ( ., development.netns,   interface1                                                );
-  ENTRY_STR   ( ., development.netns,   interface1_mac                                            );
-  ENTRY_STR   ( ., development.netns,   interface1_addr                                           );
-
   ENTRY_STR   ( ., tiles.net,           interface                                                 );
   ENTRY_STR   ( ., tiles.net,           xdp_mode                                                  );
   ENTRY_UINT  ( ., tiles.net,           xdp_rx_queue_size                                         );
@@ -294,7 +284,7 @@ static void parse_key_value( config_t *   config,
   ENTRY_UINT  ( ., tiles.net,           xdp_aio_depth                                             );
   ENTRY_UINT  ( ., tiles.net,           send_buffer_size                                          );
 
-  ENTRY_USHORT( ., tiles.quic,          transaction_listen_port                                   );
+  ENTRY_USHORT( ., tiles.quic,          regular_transaction_listen_port                           );
   ENTRY_USHORT( ., tiles.quic,          quic_transaction_listen_port                              );
   ENTRY_UINT  ( ., tiles.quic,          max_concurrent_connections                                );
   ENTRY_UINT  ( ., tiles.quic,          max_concurrent_streams_per_connection                     );
@@ -305,11 +295,19 @@ static void parse_key_value( config_t *   config,
   ENTRY_UINT  ( ., tiles.verify,        receive_buffer_size                                       );
   ENTRY_UINT  ( ., tiles.verify,        mtu                                                       );
 
+  ENTRY_UINT  ( ., tiles.dedup,         signature_cache_size                                      );
+
   ENTRY_UINT  ( ., tiles.pack,          max_pending_transactions                                  );
 
-  ENTRY_UINT  ( ., tiles.bank,          receive_buffer_size                                       );
+  ENTRY_BOOL  ( ., development,         sandbox                                                   );
 
-  ENTRY_UINT  ( ., tiles.dedup,         signature_cache_size                                      );
+  ENTRY_BOOL  ( ., development.netns,   enabled                                                   );
+  ENTRY_STR   ( ., development.netns,   interface0                                                );
+  ENTRY_STR   ( ., development.netns,   interface0_mac                                            );
+  ENTRY_STR   ( ., development.netns,   interface0_addr                                           );
+  ENTRY_STR   ( ., development.netns,   interface1                                                );
+  ENTRY_STR   ( ., development.netns,   interface1_mac                                            );
+  ENTRY_STR   ( ., development.netns,   interface1_addr                                           );
 }
 
 void
@@ -731,11 +729,11 @@ config_parse( int *    pargc,
       FD_LOG_ERR(( "trying to join a live cluster, but configuration enables [development.netns] which is a development only feature" ));
   }
 
-  if( FD_UNLIKELY( result.tiles.quic.quic_transaction_listen_port != result.tiles.quic.transaction_listen_port + 6 ) )
+  if( FD_UNLIKELY( result.tiles.quic.quic_transaction_listen_port != result.tiles.quic.regular_transaction_listen_port + 6 ) )
     FD_LOG_ERR(( "configuration specifies invalid [tiles.quic.quic_transaction_listen_port] `%hu`. "
-                 "This must be 6 more than [tiles.quic.transaction_listen_port] `%hu`",
+                 "This must be 6 more than [tiles.quic.regular_transaction_listen_port] `%hu`",
                  result.tiles.quic.quic_transaction_listen_port,
-                 result.tiles.quic.transaction_listen_port ));
+                 result.tiles.quic.regular_transaction_listen_port ));
 
   init_workspaces( &result );
 
