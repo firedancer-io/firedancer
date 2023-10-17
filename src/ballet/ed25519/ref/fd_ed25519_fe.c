@@ -599,3 +599,67 @@ fd_ed25519_fe_mul121666( fd_ed25519_fe_t *       h,
   h->limb[ 0 ] += 19 * (int)(tmp >> 25);
 }
 
+int
+fd_ed25519_fe_sqrt_ratio( fd_ed25519_fe_t *       r,
+                          fd_ed25519_fe_t const * u,
+                          fd_ed25519_fe_t const * v ) {
+
+  /* TODO Deduplicate constants */
+
+  static const fd_ed25519_fe_t sqrtm1[1] = {{
+    { -32595792, -7943725, 9377950, 3500415, 12389472, -272473, -25146209, -2005654, 326686, 11406482 }
+  }};
+
+  /* r = (u * v^3) * (u * v^7)^((p-5)/8) */
+
+  fd_ed25519_fe_t  v2[1]; fd_ed25519_fe_sq (  v2, v      );
+  fd_ed25519_fe_t  v3[1]; fd_ed25519_fe_mul(  v3, v2, v  );
+  fd_ed25519_fe_t uv3[1]; fd_ed25519_fe_mul( uv3, u,  v3 );
+  fd_ed25519_fe_t  v6[1]; fd_ed25519_fe_sq (  v6, v3     );
+  fd_ed25519_fe_t  v7[1]; fd_ed25519_fe_mul(  v7, v6, v  );
+  fd_ed25519_fe_t uv7[1]; fd_ed25519_fe_mul( uv7, u,  v7 );
+  fd_ed25519_fe_pow22523( r, uv7     );
+  fd_ed25519_fe_mul     ( r, r, uv3 );
+
+  /* check = v * r^2 */
+
+  fd_ed25519_fe_t check[1];
+  fd_ed25519_fe_sq ( check, r        );
+  fd_ed25519_fe_mul( check, check, v );
+
+  /* Test whether any of these expressions are true
+
+     (correct_sign_sqrt)    check == u
+     (flipped_sign_sqrt)    check == !u
+     (flipped_sign_sqrt_i)  check == (!u * SQRT_M1)
+
+     We don't have an fe_eq (due to malleability introduced by carry
+     handling), so we compress points to an unambiguous representation.
+     Consider using a constant-time memcmp. */
+
+  fd_ed25519_fe_t u_neg[1];        fd_ed25519_fe_neg( u_neg,        u );
+  fd_ed25519_fe_t u_neg_sqrtm1[1]; fd_ed25519_fe_mul( u_neg_sqrtm1, u_neg, sqrtm1 );
+
+  uchar check_comp       [32]; fd_ed25519_fe_tobytes( check_comp,        check        );
+  uchar u_comp           [32]; fd_ed25519_fe_tobytes( u_comp,            u            );
+  uchar u_neg_comp       [32]; fd_ed25519_fe_tobytes( u_neg_comp,        u_neg        );
+  uchar u_neg_sqrtm1_comp[32]; fd_ed25519_fe_tobytes( u_neg_sqrtm1_comp, u_neg_sqrtm1 );
+
+  int correct_sign_sqrt   = 0==memcmp( check_comp, u_comp,            32 );
+  int flipped_sign_sqrt   = 0==memcmp( check_comp, u_neg_comp,        32 );
+  int flipped_sign_sqrt_i = 0==memcmp( check_comp, u_neg_sqrtm1_comp, 32 );
+
+  /* r_prime = SQRT_M1 * r */
+
+  fd_ed25519_fe_t r_prime[1];
+  fd_ed25519_fe_mul( r_prime, r, sqrtm1 );
+
+  /* r = CT_SELECT(r_prime IF flipped_sign_sqrt | flipped_sign_sqrt_i ELSE r) */
+
+  fd_ed25519_fe_if( r, flipped_sign_sqrt|flipped_sign_sqrt_i, r_prime, r );
+
+  fd_ed25519_fe_t rneg[1]; fd_ed25519_fe_neg( rneg, r );
+  fd_ed25519_fe_if( r, flipped_sign_sqrt, rneg, r );
+
+  return correct_sign_sqrt|flipped_sign_sqrt;
+}
