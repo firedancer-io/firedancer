@@ -5,14 +5,22 @@
 
 #include "../fd_vm_syscalls.h"
 
-/* FD_FLAMENCO_CURVE_{...} declares curve IDs specified via syscall. */
+/* FD_FLAMENCO_ECC_{...} declares curve IDs specified via syscall. */
 
-#define FD_FLAMENCO_CURVE_25519_EDWARDS   (0UL)
-#define FD_FLAMENCO_CURVE_25519_RISTRETTO (1UL)
+#define FD_FLAMENCO_ECC_ED25519      (0UL)
+#define FD_FLAMENCO_ECC_RISTRETTO255 (1UL)
+
+/* FD_FLAMENCO_ECC_G_{...} declares IDs of operations on elliptic curve
+   groups. */
+
+#define FD_FLAMENCO_ECC_G_ADD (0UL)  /* add */
+#define FD_FLAMENCO_ECC_G_SUB (1UL)  /* add inverse */
+#define FD_FLAMENCO_ECC_G_MUL (2UL)  /* scalar mult */
 
 FD_PROTOTYPES_BEGIN
 
 FD_VM_SYSCALL_DECL( sol_curve_validate_point );
+FD_VM_SYSCALL_DECL( sol_curve_group_op       );
 
 FD_PROTOTYPES_END
 
