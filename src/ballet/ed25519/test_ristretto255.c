@@ -1,4 +1,4 @@
-#include "fd_ristretto255_ge.h"
+#include "fd_ristretto255_ge_private.h"
 
 static uchar const bad_encodings[][32] = {
   /* Non-canonical field encodings */
