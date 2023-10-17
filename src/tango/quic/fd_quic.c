@@ -3017,7 +3017,7 @@ fd_quic_tls_cb_handshake_complete( fd_quic_tls_hs_t * hs,
         conn->tx_initial_max_stream_data_bidi_local  = peer_tp->initial_max_stream_data_bidi_local;
         conn->tx_initial_max_stream_data_bidi_remote = peer_tp->initial_max_stream_data_bidi_remote;
 
-	      fd_quic_state_t * state = fd_quic_get_state( conn->quic );
+        fd_quic_state_t * state = fd_quic_get_state( conn->quic );
         fd_quic_transport_params_t * our_tp = &state->transport_params;
         conn->rx_max_data                            = our_tp->initial_max_data;
         conn->rx_initial_max_stream_data_uni         = our_tp->initial_max_stream_data_uni;
