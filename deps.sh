@@ -108,6 +108,7 @@ fetch () {
   checkout_repo openssl   https://github.com/quictls/openssl        "openssl-3.1.2-quic1"
   #checkout_repo rocksdb   https://github.com/facebook/rocksdb       "v7.10.2"
   #checkout_repo secp256k1 https://github.com/bitcoin-core/secp256k1 "v0.3.2"
+  checkout_repo libff      https://github.com/firedancer-io/libff.git "develop"
 }
 
 check_fedora_pkgs () {
@@ -409,6 +410,23 @@ install_rocksdb () {
   make install
 }
 
+install_libff () {
+  cd ./opt/git/libff
+  git submodule init
+  git submodule update
+  mkdir -p build
+  cd build
+  cmake .. \
+    -G"Unix Makefiles" \
+    -DCMAKE_INSTALL_PREFIX:PATH="$PREFIX" \
+    -DCMAKE_INSTALL_LIBDIR="lib"
+  local NJOBS
+  NJOBS=$(( $(nproc) / 2 ))
+  NJOBS=$((NJOBS>0 ? NJOBS : 1))
+  make -j $NJOBS
+  make install
+}
+
 install () {
   CC="$(command -v gcc)"
   cc="$CC"
@@ -420,6 +438,7 @@ install () {
   #( install_secp256k1 )
   ( install_openssl   )
   #( install_rocksdb   )
+  ( install_libff     )
 
   # Remove cmake and pkgconfig files, so we don't accidentally
   # depend on them.
