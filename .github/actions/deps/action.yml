@@ -13,6 +13,32 @@ outputs: {}
 runs:
   using: composite
   steps:
+    - id: debian-os
+      shell: bash
+      run: |
+        set +e
+        awk -F= '/^ID_LIKE=/{print $2}' /etc/os-release | grep -q "debian"
+        echo "debian=$?" >> "$GITHUB_OUTPUT"
+
+    - id: fedora-os
+      shell: bash
+      run: |
+        set +e
+        awk -F= '/^ID_LIKE=/{print $2}' /etc/os-release | grep -q "fedora\|rhel"
+        echo "fedora=$?" >> "$GITHUB_OUTPUT"
+
+    - id: install-debian
+      shell: bash
+      run: |
+        sudo dpkg-query -l libudev-dev || sudo apt-get install -y libudev-dev
+      if: steps.debian-os.outputs.debian == 0
+
+    - id: install-fedora
+      shell: bash
+      run: |
+        sudo rpm -qa | grep -q systemd-devel || sudo dnf install -y libudev-devel
+      if: steps.fedora-os.outputs.fedora == 0
+
     - id: deps-sh-hash
       shell: bash
       run: sha256sum '${{ inputs.deps-script-path }}' | awk '{print "HASH=" $1}' >> "$GITHUB_OUTPUT"
