@@ -15,7 +15,7 @@ fd_vm_syscall_sol_curve_validate_point(
 
   fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
 
-  ulong ret;
+  ulong ret = 1UL;
   switch( curve_id ) {
   case FD_FLAMENCO_CURVE_25519_EDWARDS: {
     /* TODO consume CU
@@ -38,8 +38,7 @@ fd_vm_syscall_sol_curve_validate_point(
     break;
   }
   default:
-    ret = 1UL;
-    return FD_VM_SYSCALL_SUCCESS;
+    break;
   }
   *pret = ret;
   return FD_VM_SYSCALL_SUCCESS;
