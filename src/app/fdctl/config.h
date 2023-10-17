@@ -148,7 +148,7 @@ typedef struct {
     } net;
 
     struct {
-      ushort transaction_listen_port;
+      ushort regular_transaction_listen_port;
       ushort quic_transaction_listen_port;
 
       uint max_concurrent_connections;
@@ -165,16 +165,12 @@ typedef struct {
     } verify;
 
     struct {
-      uint max_pending_transactions;
-    } pack;
-
-    struct {
-      uint receive_buffer_size;
-    } bank;
-
-    struct {
       uint signature_cache_size;
     } dedup;
+
+    struct {
+      uint max_pending_transactions;
+    } pack;
   } tiles;
 } config_t;
 
