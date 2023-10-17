@@ -1,6 +1,7 @@
 pub use crate::generated::{
     fd_pod_cnt_subpod,
     fd_pod_info_t,
+    fd_pod_insert_ushort,
     fd_pod_join,
     fd_pod_leave,
     fd_pod_query,
