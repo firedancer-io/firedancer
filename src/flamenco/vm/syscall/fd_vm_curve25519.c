@@ -95,7 +95,7 @@ fd_vm_syscall_sol_curve_group_op(
     }
     case FD_FLAMENCO_ECC_G_SUB: {
       /* TODO consume CU
-         https://github.com/solana-labs/solana/blob/c0fbfc6422fa5b739049c01bfda48a0da1bf6a46/programs/bpf_loader/src/syscalls/mod.rs#L1027 */
+         https://github.com/solana-labs/solana/blob/c0fbfc6422fa5b739049c01bfda48a0da1bf6a46/programs/bpf_loader/src/syscalls/mod.rs#L1055 */
 
       uchar const * p0c = fd_vm_translate_vm_to_host_const( ctx, in0_addr, POINT_SZ, POINT_ALIGN );
       if( FD_UNLIKELY( !p0c ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
@@ -119,7 +119,27 @@ fd_vm_syscall_sol_curve_group_op(
       break;
     }
     case FD_FLAMENCO_ECC_G_MUL: {
-      FD_LOG_WARNING(( "TODO: ED25519 G_MUL" ));
+      /* TODO consume CU
+         https://github.com/solana-labs/solana/blob/c0fbfc6422fa5b739049c01bfda48a0da1bf6a46/programs/bpf_loader/src/syscalls/mod.rs#L1083 */
+
+      uchar const * s  = fd_vm_translate_vm_to_host_const( ctx, in0_addr, SCALAR_SZ, SCALAR_ALIGN );
+      if( FD_UNLIKELY( !s  ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
+      uchar const * pc = fd_vm_translate_vm_to_host_const( ctx, in1_addr, POINT_SZ,  POINT_ALIGN  );
+      if( FD_UNLIKELY( !pc ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
+
+      fd_ed25519_point_t p[1];
+      int pv = !!fd_ed25519_point_decompress( p, pc );
+      int sv = !!fd_ed25519_scalar_validate ( s );
+
+      if( FD_LIKELY( pv && sv ) ) {
+        uchar * hc = fd_vm_translate_vm_to_host( ctx, out_addr, POINT_SZ, POINT_ALIGN );
+        if( FD_UNLIKELY( !hc ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
+
+        fd_ed25519_point_t h[1];
+        fd_ed25519_point_scalarmult( h, s, p );
+        fd_ed25519_point_compress( hc, h );
+        ret = 0UL;
+      }
       break;
     }
     }
@@ -154,7 +174,7 @@ fd_vm_syscall_sol_curve_group_op(
     }
     case FD_FLAMENCO_ECC_G_SUB: {
       /* TODO consume CU
-         https://github.com/solana-labs/solana/blob/c0fbfc6422fa5b739049c01bfda48a0da1bf6a46/programs/bpf_loader/src/syscalls/mod.rs#L1027 */
+         https://github.com/solana-labs/solana/blob/c0fbfc6422fa5b739049c01bfda48a0da1bf6a46/programs/bpf_loader/src/syscalls/mod.rs#L1143 */
 
       uchar const * p0c = fd_vm_translate_vm_to_host_const( ctx, in0_addr, POINT_SZ, POINT_ALIGN );
       if( FD_UNLIKELY( !p0c ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
@@ -178,7 +198,27 @@ fd_vm_syscall_sol_curve_group_op(
       break;
     }
     case FD_FLAMENCO_ECC_G_MUL: {
-      FD_LOG_WARNING(( "TODO: RISTRETTO255 G_MUL" ));
+      /* TODO consume CU
+         https://github.com/solana-labs/solana/blob/c0fbfc6422fa5b739049c01bfda48a0da1bf6a46/programs/bpf_loader/src/syscalls/mod.rs#L1173 */
+
+      uchar const * s  = fd_vm_translate_vm_to_host_const( ctx, in0_addr, SCALAR_SZ, SCALAR_ALIGN );
+      if( FD_UNLIKELY( !s  ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
+      uchar const * pc = fd_vm_translate_vm_to_host_const( ctx, in1_addr, POINT_SZ,  POINT_ALIGN  );
+      if( FD_UNLIKELY( !pc ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
+
+      fd_ristretto255_point_t p[1];
+      int pv = !!fd_ristretto255_point_decompress( p, pc );
+      int sv = !!fd_ristretto255_scalar_validate ( s );
+
+      if( FD_LIKELY( pv && sv ) ) {
+        uchar * hc = fd_vm_translate_vm_to_host( ctx, out_addr, POINT_SZ, POINT_ALIGN );
+        if( FD_UNLIKELY( !hc ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
+
+        fd_ristretto255_point_t h[1];
+        fd_ristretto255_point_scalarmult( h, s, p );
+        fd_ristretto255_point_compress( hc, h );
+        ret = 0UL;
+      }
       break;
     }
     }
