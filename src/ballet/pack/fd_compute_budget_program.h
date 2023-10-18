@@ -59,7 +59,7 @@ struct fd_compute_budget_program_private_state {
      above for their meaning. */
   ushort  flags;
   /* compute_budge_instr_cnt: How many compute budget instructions have been
-     parsed so far? compute_budget_instr_cnt in [0, 3]. */
+     parsed so far? compute_budget_instr_cnt in [0, 4]. */
   ushort  compute_budget_instr_cnt;
   /* compute_units: if SET_CU is in flags, this stores the total requested
      compute units for the whole transaction. Otherwise 0. Realistically should
