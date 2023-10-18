@@ -657,6 +657,11 @@ fd_executor_vote_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
     fd_vote_authorize_checked_with_seed_args_t const * args =
         &instruction.inner.authorize_checked_with_seed;
 
+    /* https://github.com/solana-labs/solana/blob/43daa37937907c10099e30af10a5a0b43e2dd2fe/programs/vote/src/vote_processor.rs#L122 */
+    if( !FD_FEATURE_ACTIVE( ctx.slot_ctx, vote_authorize_with_seed ) ) {
+      return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+    }
+
     // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_processor.rs#L116
     if ( FD_UNLIKELY( ctx.instr->acct_cnt < 4 ) ) {
       rc = FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
@@ -1028,6 +1033,11 @@ vote_processor_process_authorize_with_seed_instruction(
     char *                  current_authority_derived_key_seed ) {
   int               rc;
   fd_exec_instr_ctx_t ctx = instruction_context;
+
+  /* https://github.com/solana-labs/solana/blob/43daa37937907c10099e30af10a5a0b43e2dd2fe/programs/vote/src/vote_processor.rs#L101 */
+  if( !FD_FEATURE_ACTIVE( ctx.slot_ctx, vote_authorize_with_seed ) ) {
+    return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+  }
 
   /* This is intentionally duplicative with the entrypoint to vote process instruction to match Labs
    * https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_processor.rs#L34-L36
