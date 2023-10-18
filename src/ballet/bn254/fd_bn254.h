@@ -33,13 +33,13 @@ struct __attribute__((aligned(FD_BN254_ALIGN))) fd_bn254_point_g2_compressed {
 };
 typedef struct fd_bn254_point_g2_compressed fd_bn254_point_g2_compressed_t;
 
-void fd_bn254_g1_compress( fd_bn254_point_g1 const * in, fd_bn254_point_g1_compressed * out );
+void fd_bn254_g1_compress( fd_bn254_point_g1_t const * in, fd_bn254_point_g1_compressed_t * out );
 
-void fd_bn254_g1_decompress( fd_bn254_point_g1_compressed const * in, fd_bn254_point_g1 * out );
+void fd_bn254_g1_decompress( fd_bn254_point_g1_compressed_t const * in, fd_bn254_point_g1_t * out );
 
-void fd_bn254_g2_compress( fd_bn254_point_g2 const * in, fd_bn254_point_g2_compressed * out );
+void fd_bn254_g2_compress( fd_bn254_point_g2_t const * in, fd_bn254_point_g2_compressed_t * out );
 
-void fd_bn254_g2_decompress( fd_bn254_point_g2_compressed const * in, fd_bn254_point_g2 * out );
+void fd_bn254_g2_decompress( fd_bn254_point_g2_compressed_t const * in, fd_bn254_point_g2_t * out );
 
 FD_PROTOTYPES_END
 
