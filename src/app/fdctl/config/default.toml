@@ -450,17 +450,6 @@ dynamic_port_range = "8900-9000"
     # already exists it should be writable by the Firedancer user.
     huge_page_mount_path = "/mnt/.fd/.huge"
 
-    # Minimum number of gigantic pages the kernel should pre-allocate
-    # for privileged programs.  This should be at least as many as will
-    # be needed by the Firedancer instance.  If the kernel has less
-    # pages than needed `fdctl configure` will attempt to raise it to
-    # meet this requirement.
-    min_kernel_gigantic_pages = 5
-
-    # Minimum number of huge pages the kernel should pre-allocate for
-    # privileged programs.  Same as above.
-    min_kernel_huge_pages = 512
-
 # Tiles are described in detail in the layout section above.  While the
 # layout configuration determines how many of each tile to place on
 # which CPU core to create a functioning system, below is the individual
@@ -531,6 +520,11 @@ dynamic_port_range = "8900-9000"
     # forward well formed (but not necessarily valid) ones to verify
     # tiles.
     [tiles.quic]
+        # The duration after which an idle connection will be timed out,
+        # and the connection will be closed.  An idle connection is one
+        # where no data is received from the peer.
+        idle_timeout_millis = 10000
+
         # Which port to listen on for incoming, regular UDP transactions
         # that are not over QUIC.  These could be votes, user
         # transactions, or transactions forwarded from another

@@ -164,6 +164,7 @@ typedef struct {
       uint max_concurrent_handshakes;
       uint max_inflight_quic_packets;
       uint tx_buf_size;
+      uint idle_timeout_millis;
 
     } quic;
 

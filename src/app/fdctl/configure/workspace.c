@@ -358,7 +358,7 @@ init( config_t * const config ) {
         buf    ( pod, "src_mac_addr",                 config->tiles.net.mac_addr, 6 );
         ushort1( pod, "transaction_listen_port",      config->tiles.quic.regular_transaction_listen_port, 0 );
         ushort1( pod, "quic_transaction_listen_port", config->tiles.quic.quic_transaction_listen_port, 0 );
-        ulong1 ( pod, "idle_timeout_ms",              1000 );
+        ulong1 ( pod, "idle_timeout_ms",              config->tiles.quic.idle_timeout_millis );
         ulong1 ( pod, "initial_rx_max_stream_data",   1<<15 );
         break;
       case wksp_verify:
