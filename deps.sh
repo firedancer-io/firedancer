@@ -108,7 +108,7 @@ fetch () {
   checkout_repo openssl   https://github.com/quictls/openssl        "openssl-3.1.2-quic1"
   #checkout_repo rocksdb   https://github.com/facebook/rocksdb       "v7.10.2"
   #checkout_repo secp256k1 https://github.com/bitcoin-core/secp256k1 "v0.3.2"
-  #checkout_repo libff     https://github.com/firedancer-io/libff.git "develop"
+  checkout_repo libff     https://github.com/firedancer-io/libff.git "develop"
 }
 
 check_fedora_pkgs () {
@@ -438,7 +438,7 @@ install () {
   #( install_secp256k1 )
   ( install_openssl   )
   #( install_rocksdb   )
-  #( install_libff     )
+  ( install_libff     )
 
   # Remove cmake and pkgconfig files, so we don't accidentally
   # depend on them.

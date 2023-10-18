@@ -78,3 +78,5 @@ include config/x86-64-clang-flags.mk
 include config/with-clang.mk
 	endif
 endif
+
+include config/with-libff.mk
