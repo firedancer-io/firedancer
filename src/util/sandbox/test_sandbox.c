@@ -208,17 +208,64 @@ mountns_null( void ) {
 void
 seccomp_default_filter( void ) {
   int fds[ 4 ] = { 0, 1, 2, 3 };
+  long allow_syscalls[ 3 ] = {
+    __NR_write,     /* logging */
+    __NR_fsync,     /* logging, WARNING and above fsync immediately */
+    __NR_exit_group /* returns from main */
+  };
+
+  TEST_FORK_OK( fd_sandbox( 1, getuid(), getgid(), SIZEOFA( fds ), fds, 3UL, allow_syscalls ); );
+
   pid_t pid = fork();
   if ( pid ) {
     int wstatus;
     FD_TEST( -1 != waitpid( pid, &wstatus, WUNTRACED ) );
     FD_TEST( WIFSIGNALED( wstatus ) && WTERMSIG( wstatus ) == SIGSYS );
   } else { // child
-    fd_sandbox( 1, getuid(), getgid(), SIZEOFA( fds ), fds, 0, NULL );
+    fd_sandbox( 1, getuid(), getgid(), SIZEOFA( fds ), fds, 3UL, allow_syscalls );
     // This should fail with SIGSYS
     execl( "/bin/true", "" );
+  }
+}
+
+
+void
+test_protected_pages( void ) {
+
+  pid_t pid = fork();
+  if ( pid ) {
+    int wstatus;
+    FD_TEST( -1 != waitpid( pid, &wstatus, WUNTRACED ) );
+    FD_TEST( WIFSIGNALED( wstatus ) && WTERMSIG( wstatus ) == SIGSEGV );
+  } else { // child
+    uchar * allocated = fd_sandbox_alloc_protected_pages( 1UL, 1UL );
+    /* This should trigger a segfault */
+    uchar c = FD_VOLATILE_CONST( allocated[ 4096 ] );
+    (void)c;
     exit( EXIT_FAILURE );
   }
+
+  pid = fork();
+  if ( pid ) {
+    int wstatus;
+    FD_TEST( -1 != waitpid( pid, &wstatus, WUNTRACED ) );
+    FD_TEST( WIFSIGNALED( wstatus ) && WTERMSIG( wstatus ) == SIGSEGV );
+  } else { // child
+    uchar * allocated = fd_sandbox_alloc_protected_pages( 1UL, 1UL );
+    /* This should trigger a segfault */
+    uchar c = FD_VOLATILE_CONST( allocated[ -1 ] );
+    (void)c;
+    exit( EXIT_FAILURE );
+  }
+
+  uchar * allocated = fd_sandbox_alloc_protected_pages( 1UL, 1UL );
+  for( ulong i=0UL; i<4096UL; i++ ) FD_TEST( allocated[i]==0 );
+  for( ulong i=0UL; i<4096UL; i++ ) allocated[i]=1;
+
+  /* Wiped on fork */
+  TEST_FORK_OK( for( ulong i=0UL; i<4096UL; i++ ) FD_TEST( allocated[i]==0 ); );
+  /* But not in parent */
+  for( ulong i=0UL; i<4096UL; i++ ) FD_TEST( allocated[i]==1 );
 }
 
 int
@@ -227,7 +274,7 @@ main( int     argc,
   (void) argc;
   (void) argv;
 
-  fd_log_private_boot  ( &argc, &argv );
+  fd_log_private_boot( &argc, &argv );
 
   check_open_fds();
   resource_limits();
@@ -237,6 +284,8 @@ main( int     argc,
   netns();
   mountns_null();
   seccomp_default_filter();
+  test_protected_pages();
+  FD_LOG_NOTICE(( "pass" ));
   return 0;
 }
 
