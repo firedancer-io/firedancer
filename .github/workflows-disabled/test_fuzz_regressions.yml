@@ -7,10 +7,10 @@ on:
 
 jobs:
   make-fuzz:
-    name: Publish ${{ matrix.feature_set }} feature set
+    name: Test Fuzz Regressions on ${{ matrix.feature_set }}
     strategy:
       matrix:
-        feature_set: [high, low]
+        feature_set: [modern]
     runs-on:
       group: github-v1
     env:
