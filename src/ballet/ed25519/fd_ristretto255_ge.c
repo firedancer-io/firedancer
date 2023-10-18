@@ -96,10 +96,9 @@ fd_ristretto255_ge_tobytes( uchar *                    b,
 
   /* invsqrt = SQRT_RATIO_M1(1, u1 * u2^2) */
   fd_ed25519_fe_t u2_sq[1]; fd_ed25519_fe_sq( u2_sq, u2 );
-  fd_ed25519_fe_1  ( tmp0 );
   fd_ed25519_fe_mul( tmp1, u1, u2_sq );
   fd_ed25519_fe_t inv_sqrt[1];
-  fd_ed25519_fe_sqrt_ratio( inv_sqrt, tmp0, tmp1 );
+  fd_ed25519_fe_inv_sqrt( inv_sqrt, tmp1 );
 
   /* den1 = invsqrt * u1
      den2 = invsqrt * u2 */

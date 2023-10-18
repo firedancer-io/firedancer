@@ -627,9 +627,7 @@ fd_ed25519_fe_sqrt_ratio( fd_ed25519_fe_t *       r,
   fd_ed25519_fe_sq ( check, r        );
   fd_ed25519_fe_mul( check, check, v );
 
-  /* Test whether any of these expressions are true
-
-     (correct_sign_sqrt)    check == u
+  /* (correct_sign_sqrt)    check == u
      (flipped_sign_sqrt)    check == !u
      (flipped_sign_sqrt_i)  check == (!u * SQRT_M1)
 
@@ -658,8 +656,6 @@ fd_ed25519_fe_sqrt_ratio( fd_ed25519_fe_t *       r,
 
   fd_ed25519_fe_if( r, flipped_sign_sqrt|flipped_sign_sqrt_i, r_prime, r );
 
-  fd_ed25519_fe_t rneg[1]; fd_ed25519_fe_neg( rneg, r );
-  fd_ed25519_fe_if( r, flipped_sign_sqrt, rneg, r );
-
+  fd_ed25519_fe_abs( r, r );
   return correct_sign_sqrt|flipped_sign_sqrt;
 }

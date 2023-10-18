@@ -2,9 +2,9 @@
 #define HEADER_fd_src_ballet_ed25519_fd_ristretto255_ge_private_h
 
 #include "fd_ed25519_private.h"
-#include "fd_ristretto255_ge.h"
 
-/* fd_ristretto255 provides APIs for the ristretto255 prime order group */
+/* fd_ristretto255 provides internal APIs for the ristretto255 prime
+   order group.  TODO These are experimental and have not been audited! */
 
 FD_PROTOTYPES_BEGIN
 

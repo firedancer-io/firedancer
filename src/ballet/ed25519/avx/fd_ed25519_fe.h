@@ -214,5 +214,12 @@ fd_ed25519_fe_sqrt_ratio( fd_ed25519_fe_t *       r,
                           fd_ed25519_fe_t const * u,
                           fd_ed25519_fe_t const * v );
 
+static inline int
+fd_ed25519_fe_inv_sqrt( fd_ed25519_fe_t *       h,
+                       fd_ed25519_fe_t const * f ) {
+  fd_ed25519_fe_t g[1]; fd_ed25519_fe_1( g );
+  return fd_ed25519_fe_sqrt_ratio( h, g, f );
+}
+
 FD_PROTOTYPES_END
 
