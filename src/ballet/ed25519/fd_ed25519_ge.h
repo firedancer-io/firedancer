@@ -46,6 +46,9 @@ uchar *
 fd_ed25519_point_compress( uchar                      s[ static 32 ],
                            fd_ed25519_point_t const * f );
 
+fd_ed25519_point_t *
+fd_ed25519_point_0( fd_ed25519_point_t * h );
+
 /* fd_ed25519_point_{add,sub} compute `f+g` and `f-g` respectively.
    Stores the result into h and returns h.  Return value is never NULL. */
 

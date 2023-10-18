@@ -533,6 +533,12 @@ fd_ed25519_point_compress( uchar                      s[ static 32 ],
 }
 
 fd_ed25519_point_t *
+fd_ed25519_point_0( fd_ed25519_point_t * h ) {
+  fd_ed25519_ge_p3_0( fd_type_pun( h ) );
+  return h;
+}
+
+fd_ed25519_point_t *
 fd_ed25519_point_add( fd_ed25519_point_t *       h_,
                       fd_ed25519_point_t const * f_,
                       fd_ed25519_point_t const * g_ ) {

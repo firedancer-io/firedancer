@@ -93,7 +93,9 @@ fd_vm_syscall_register_blake3( fd_sbpf_syscalls_t * syscalls ) {
 
 static void
 fd_vm_syscall_register_curve25519( fd_sbpf_syscalls_t * syscalls ) {
-  fd_vm_register_syscall( syscalls, "sol_curve_validate_point", fd_vm_syscall_sol_curve_validate_point );
+  fd_vm_register_syscall( syscalls, "sol_curve_validate_point",  fd_vm_syscall_sol_curve_validate_point  );
+  fd_vm_register_syscall( syscalls, "sol_curve_group_op",        fd_vm_syscall_sol_curve_group_op        );
+  fd_vm_register_syscall( syscalls, "sol_curve_multiscalar_mul", fd_vm_syscall_sol_curve_multiscalar_mul );
 }
 
 void

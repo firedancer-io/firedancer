@@ -19,8 +19,9 @@
 
 FD_PROTOTYPES_BEGIN
 
-FD_VM_SYSCALL_DECL( sol_curve_validate_point );
-FD_VM_SYSCALL_DECL( sol_curve_group_op       );
+FD_VM_SYSCALL_DECL( sol_curve_validate_point  );
+FD_VM_SYSCALL_DECL( sol_curve_group_op        );
+FD_VM_SYSCALL_DECL( sol_curve_multiscalar_mul );
 
 FD_PROTOTYPES_END
 

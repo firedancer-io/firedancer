@@ -231,3 +231,105 @@ fd_vm_syscall_sol_curve_group_op(
   *pret = ret;
   return FD_VM_SYSCALL_SUCCESS;
 }
+
+/* Crappy MSM implementations */
+
+static void *
+ed25519_msm( fd_ed25519_point_t * r,
+             uchar const *        s,
+             uchar const *        pc,
+             ulong                cnt ) {
+  fd_ed25519_point_0( r );
+  for( ulong i=0UL; i<cnt; i++ ) {
+    fd_ed25519_point_t f[1];
+    if( FD_UNLIKELY( !fd_ed25519_point_decompress( f, pc ) ) )
+      return NULL;
+    fd_ed25519_point_scalarmult( f, s, f );
+    fd_ed25519_point_add( r, r, f );
+    pc+=POINT_SZ;
+    s +=SCALAR_SZ;
+  }
+  return r;
+}
+
+static void *
+ristretto255_msm( fd_ristretto255_point_t * r,
+                  uchar const *             s,
+                  uchar const *             pc,
+                  ulong                     cnt ) {
+  fd_ristretto255_point_0( r );
+  for( ulong i=0UL; i<cnt; i++ ) {
+    fd_ristretto255_point_t f[1];
+    if( FD_UNLIKELY( !fd_ristretto255_point_decompress( f, pc ) ) )
+      return NULL;
+    fd_ristretto255_point_scalarmult( f, s, f );
+    fd_ristretto255_point_add( r, r, f );
+    pc+=POINT_SZ;
+    s +=SCALAR_SZ;
+  }
+  return r;
+}
+
+ulong
+fd_vm_syscall_sol_curve_multiscalar_mul(
+    void *  _ctx,
+    ulong   curve_id,
+    ulong   scalar_addr,
+    ulong   point_addr,
+    ulong   point_cnt,
+    ulong   result_point_addr,
+    ulong * pret
+) {
+  fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
+
+  ulong ret = 1UL;
+
+  ulong scalar_list_sz = fd_ulong_sat_mul( point_cnt, SCALAR_SZ );
+  ulong point_list_sz  = fd_ulong_sat_mul( point_cnt, POINT_SZ  );
+
+  switch( curve_id ) {
+  case FD_FLAMENCO_ECC_ED25519: {
+    /* TODO consume CU
+       https://github.com/solana-labs/solana/blob/d6aba9dc483a79ab569b47b7f3df19e6535f6722/programs/bpf_loader/src/syscalls/mod.rs#L1233 */
+
+    uchar const * s  = fd_vm_translate_vm_to_host_const( ctx, scalar_addr, scalar_list_sz, SCALAR_ALIGN );
+    if( FD_UNLIKELY( !s  ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
+    uchar const * pc = fd_vm_translate_vm_to_host_const( ctx, point_addr,  point_list_sz,  POINT_ALIGN  );
+    if( FD_UNLIKELY( !pc ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
+
+    fd_ed25519_point_t r_[1];
+    fd_ed25519_point_t * r = ed25519_msm( r_, s, pc, point_cnt );
+    if( FD_LIKELY( r ) ) {
+      uchar * rc = fd_vm_translate_vm_to_host( ctx, result_point_addr, POINT_SZ, POINT_ALIGN );
+      if( FD_UNLIKELY( !rc ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
+      fd_ed25519_point_compress( rc, r );
+      ret = 0UL;
+    }
+    break;
+  }
+  case FD_FLAMENCO_ECC_RISTRETTO255: {
+    /* TODO consume CU
+       https://github.com/solana-labs/solana/blob/d6aba9dc483a79ab569b47b7f3df19e6535f6722/programs/bpf_loader/src/syscalls/mod.rs#L1273 */
+
+    uchar const * s  = fd_vm_translate_vm_to_host_const( ctx, scalar_addr, scalar_list_sz, SCALAR_ALIGN );
+    if( FD_UNLIKELY( !s  ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
+    uchar const * pc = fd_vm_translate_vm_to_host_const( ctx, point_addr,  point_list_sz,  POINT_ALIGN  );
+    if( FD_UNLIKELY( !pc ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
+
+    fd_ristretto255_point_t r_[1];
+    fd_ristretto255_point_t * r = ristretto255_msm( r_, s, pc, point_cnt );
+    if( FD_LIKELY( r ) ) {
+      uchar * rc = fd_vm_translate_vm_to_host( ctx, result_point_addr, POINT_SZ, POINT_ALIGN );
+      if( FD_UNLIKELY( !rc ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
+      fd_ristretto255_point_compress( rc, r );
+      ret = 0UL;
+    }
+    break;
+  }
+  default:
+    break;
+  }
+
+  *pret = ret;
+  return FD_VM_SYSCALL_SUCCESS;
+}
