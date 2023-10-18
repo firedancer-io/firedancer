@@ -46,6 +46,9 @@ uchar *
 fd_ed25519_point_compress( uchar                      s[ static 32 ],
                            fd_ed25519_point_t const * f );
 
+/* fd_ed25519_point_{add,sub} compute `f+g` and `f-g` respectively.
+   Stores the result into h and returns h.  Return value is never NULL. */
+
 fd_ed25519_point_t *
 fd_ed25519_point_add( fd_ed25519_point_t *       h,
                       fd_ed25519_point_t const * f,
@@ -55,6 +58,23 @@ fd_ed25519_point_t *
 fd_ed25519_point_sub( fd_ed25519_point_t *       h,
                       fd_ed25519_point_t const * f,
                       fd_ed25519_point_t const * g );
+
+/* fd_ed25519_scalar_validate checks whether the given Ed25519 scalar
+   matches the canonical byte representation.  Not constant time and
+   thus should not be exposed to secret data.  Returns s if canonical,
+   NULL otherwise. */
+
+uchar const *
+fd_ed25519_scalar_validate( uchar const s[ static 32 ] );
+
+/* fd_ed25519_point_scalarmult computes a scalar multiplication.
+   Stores the result of `[a]A` into h.  a must be valid Ed25519 scalar
+   (see fd_ed25519_scalar_validate).  Returns h. */
+
+fd_ed25519_point_t *
+fd_ed25519_point_scalarmult( fd_ed25519_point_t *       h,
+                             uchar const                a[ static 32 ],
+                             fd_ed25519_point_t const * A );
 
 FD_PROTOTYPES_END
 

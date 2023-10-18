@@ -1,4 +1,5 @@
 #include "fd_ed25519_private.h"
+#include "fd_ed25519_ge.h"
 
 #if FD_ED25519_FE_IMPL == 0
 #include "ref/fd_ed25519_ge.c"
@@ -63,4 +64,11 @@ fd_ed25519_ge_p3_is_small_order( fd_ed25519_ge_p3_t * const p ) {
   fd_ed25519_ge_p3_t t[ 1 ];
   fd_ed25519_ge_p3_mul_by_pow_2( t, p, 3 );
   return fd_ed25519_ge_p3_is_identity( t );
+}
+
+uchar const *
+fd_ed25519_scalar_validate( uchar const s[ static 32 ] ) {
+  uchar r[ 32 ];
+  fd_ed25519_sc_reduce( r, s );
+  return (0==memcmp( r, s, 32 )) ? s : NULL;
 }

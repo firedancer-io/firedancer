@@ -39,8 +39,10 @@ uchar *
 fd_ristretto255_point_compress( uchar                           s[ static 32 ],
                                 fd_ristretto255_point_t const * f );
 
-#define fd_ristretto255_point_add fd_ed25519_point_add
-#define fd_ristretto255_point_sub fd_ed25519_point_sub
+#define fd_ristretto255_point_add        fd_ed25519_point_add
+#define fd_ristretto255_point_sub        fd_ed25519_point_sub
+#define fd_ristretto255_scalar_validate  fd_ed25519_scalar_validate
+#define fd_ristretto255_point_scalarmult fd_ed25519_point_scalarmult
 
 FD_PROTOTYPES_END
 
