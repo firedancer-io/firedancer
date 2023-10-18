@@ -119,7 +119,7 @@ fd_quic_tls_new( int is_server, SSL_CTX * ssl_ctx ) {
     char err_buf[256];
     char const * file;
     int line;
-    ERR_error_string_n(ERR_get_error_line(&file, &line), err_buf, sizeof(err_buf));
+    ERR_error_string_n(ERR_get_error_all(&file, &line, NULL, NULL, NULL), err_buf, sizeof(err_buf));
     FD_LOG_NOTICE(( "%s:%d %s", file, line, err_buf ));
   } else {
     FD_LOG_NOTICE(( "tp_rc ok" ));
@@ -287,7 +287,7 @@ main( int     argc,
     char err_buf[256];
     char const * file;
     int line;
-    ERR_error_string_n(ERR_get_error_line(&file, &line), err_buf, sizeof(err_buf));
+    ERR_error_string_n(ERR_get_error_all(&file, &line, NULL, NULL, NULL), err_buf, sizeof(err_buf));
     FD_LOG_NOTICE(( "%s:%d %s", file, line, err_buf ));
   } else {
     FD_LOG_NOTICE(( "tp_rc ok" ));
@@ -301,7 +301,7 @@ main( int     argc,
     char err_buf[256];
     char const * file;
     int line;
-    ERR_error_string_n(ERR_get_error_line(&file, &line), err_buf, sizeof(err_buf));
+    ERR_error_string_n(ERR_get_error_all(&file, &line, NULL, NULL, NULL), err_buf, sizeof(err_buf));
     printf( "%s:%d %s\n", file, line, err_buf );
   } else {
     FD_LOG_NOTICE(( "tp_rc ok" ));
@@ -380,7 +380,7 @@ main( int     argc,
               char err_buf[256];
               char const * file = 0;
               int line = 0;
-              ERR_error_string_n(ERR_get_error_line(&file, &line), err_buf, sizeof(err_buf));
+              ERR_error_string_n(ERR_get_error_all(&file, &line, NULL, NULL, NULL), err_buf, sizeof(err_buf));
               FD_LOG_ERR(( "%s:%d %s", file, line, err_buf ));
             }
           }
@@ -397,7 +397,7 @@ main( int     argc,
               char err_buf[256];
               char const * file = 0;
               int line = 0;
-              ERR_error_string_n(ERR_get_error_line(&file, &line), err_buf, sizeof(err_buf));
+              ERR_error_string_n(ERR_get_error_all(&file, &line, NULL, NULL, NULL), err_buf, sizeof(err_buf));
               FD_LOG_ERR(( "%s:%d %s", file, line, err_buf ));
             }
           }
@@ -428,7 +428,7 @@ main( int     argc,
               char err_buf[256];
               char const * file = 0;
               int line = 0;
-              ERR_error_string_n(ERR_get_error_line(&file, &line), err_buf, sizeof(err_buf));
+              ERR_error_string_n(ERR_get_error_all(&file, &line, NULL, NULL, NULL), err_buf, sizeof(err_buf));
               FD_LOG_ERR(( "%s:%d %s", file, line, err_buf ));
             }
           }
@@ -445,7 +445,7 @@ main( int     argc,
               char err_buf[256];
               char const * file = 0;
               int line = 0;
-              ERR_error_string_n(ERR_get_error_line(&file, &line), err_buf, sizeof(err_buf));
+              ERR_error_string_n(ERR_get_error_all(&file, &line, NULL, NULL, NULL), err_buf, sizeof(err_buf));
               FD_LOG_ERR(( "%s:%d %s", file, line, err_buf ));
             }
           }

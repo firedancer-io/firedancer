@@ -25,8 +25,6 @@ init( fd_tile_args_t * args ) {
   /* OpenSSL goes and tries to read files and allocate memory and
      other dumb things on a thread local basis, so we need a special
      initializer to do it before seccomp happens in the process. */
-  ERR_STATE * state = ERR_get_state();
-  if( FD_UNLIKELY( !state )) FD_LOG_ERR(( "ERR_get_state failed" ));
   if( FD_UNLIKELY( !OPENSSL_init_ssl( OPENSSL_INIT_LOAD_SSL_STRINGS , NULL ) ) )
     FD_LOG_ERR(( "OPENSSL_init_ssl failed" ));
   if( FD_UNLIKELY( !OPENSSL_init_crypto( OPENSSL_INIT_LOAD_CRYPTO_STRINGS | OPENSSL_INIT_NO_LOAD_CONFIG , NULL ) ) )
