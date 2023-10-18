@@ -18,6 +18,7 @@ static const char * params[] = {
   "/proc/sys/net/core/wmem_max",
   "/proc/sys/net/core/wmem_default",
   "/proc/sys/vm/max_map_count",
+  "/proc/sys/net/core/bpf_jit_enable",
 };
 
 static uint limits[] = {
@@ -26,6 +27,7 @@ static uint limits[] = {
   134217728,
   134217728,
   1000000,
+  1,
 };
 
 static const char * ERR_MSG = "system might not support configuring sysctl,";
