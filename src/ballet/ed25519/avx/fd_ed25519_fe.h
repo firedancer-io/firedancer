@@ -45,6 +45,14 @@ fd_ed25519_fe_1( fd_ed25519_fe_t * h ) {
   return h;
 }
 
+static inline fd_ed25519_fe_t *
+fd_ed25519_fe_2( fd_ed25519_fe_t * h ) {
+  wi_t z = wi_zero();
+  wi_st( h->limb, z ); wi_st( h->limb+8, z );
+  h->limb[0] = 2;
+  return h;
+}
+
 FD_FN_UNUSED static fd_ed25519_fe_t * /* Work around -Winline */
 fd_ed25519_fe_rng( fd_ed25519_fe_t * h,
                    fd_rng_t *        rng ) {
@@ -141,6 +149,18 @@ fd_ed25519_fe_isnegative( fd_ed25519_fe_t const * f ) {
   return ((int)(uint)s[0]) & 1;
 }
 
+static inline fd_ed25519_fe_t *
+fd_ed25519_fe_abs( fd_ed25519_fe_t *       h,
+                   fd_ed25519_fe_t const * f ) {
+  wi_t m   = wc_bcast( !!fd_ed25519_fe_isnegative( f ) );
+  wi_t f07 = wi_ld( f->limb );      wi_t f89 = wi_ld( f->limb+8 );
+  wi_t z   = wi_zero();
+  wi_t g07 = wi_sub( z, f07 );      wi_t g89 = wi_sub( z, f89 );
+  wi_t h07 = wi_if ( m, g07, f07 ); wi_t h89 = wi_if ( m, g89, f89 );
+  wi_st( h->limb, h07 );            wi_st( h->limb+8, h89 );
+  return h;
+}
+
 fd_ed25519_fe_t *
 fd_ed25519_fe_sq2( fd_ed25519_fe_t *       h,
                    fd_ed25519_fe_t const * f );
@@ -188,6 +208,18 @@ fd_ed25519_fe_pow22523_2( fd_ed25519_fe_t * out0, fd_ed25519_fe_t const * z0,
 void
 fd_ed25519_fe_mul121666( fd_ed25519_fe_t *       h,
                          fd_ed25519_fe_t const * f );
+
+int
+fd_ed25519_fe_sqrt_ratio( fd_ed25519_fe_t *       r,
+                          fd_ed25519_fe_t const * u,
+                          fd_ed25519_fe_t const * v );
+
+static inline int
+fd_ed25519_fe_inv_sqrt( fd_ed25519_fe_t *       h,
+                       fd_ed25519_fe_t const * f ) {
+  fd_ed25519_fe_t g[1]; fd_ed25519_fe_1( g );
+  return fd_ed25519_fe_sqrt_ratio( h, g, f );
+}
 
 FD_PROTOTYPES_END
 
