@@ -1,9 +1,9 @@
 #include "fd_compute_budget_program.h"
 
 #include "../fd_system_ids.h"
+#include "../../vm/fd_vm_context.h"
 
 #define DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT  (200000)
-#define MAX_COMPUTE_UNIT_LIMIT                  (1400000)
 
 static inline int
 is_compute_budget_instruction( fd_exec_txn_ctx_t * ctx, fd_txn_instr_t * instr ) {
@@ -21,6 +21,7 @@ int fd_executor_compute_budget_program_execute_instructions( fd_exec_txn_ctx_t *
   uint has_compute_units_limit_update = 0;
   uint has_compute_units_price_update = 0;
   uint has_requested_heap_size = 0;
+  uint has_loaded_accounts_data_size_limit_update = 0;
 
   uint num_non_compute_budget_instrs = 0;
 
@@ -28,6 +29,7 @@ int fd_executor_compute_budget_program_execute_instructions( fd_exec_txn_ctx_t *
   ulong updated_compute_unit_price = 0;
   uint updated_requested_heap_size = 0;
   ulong request_heap_frame_instr_idx = 0;
+  uint updated_loaded_accounts_data_size_limit = 0;
 
   uint prioritization_fee_type = FD_COMPUTE_BUDGET_PRIORITIZATION_FEE_TYPE_COMPUTE_UNIT_PRICE;
 
@@ -105,6 +107,17 @@ int fd_executor_compute_budget_program_execute_instructions( fd_exec_txn_ctx_t *
 
         break;
       }
+      case fd_compute_budget_program_instruction_enum_set_loaded_accounts_data_size_limit: {
+          if( has_loaded_accounts_data_size_limit_update ) {
+            /* FIXME: RETURN TXN ERR DUPLICATE TXN! */
+            return 1;
+          }
+
+          has_loaded_accounts_data_size_limit_update = 1;
+          updated_loaded_accounts_data_size_limit = instruction.inner.set_loaded_accounts_data_size_limit;          
+
+          break;
+      }        
       default: {
         FD_LOG_WARNING(( "unsupported compute budget program instruction: discriminant: %d", instruction.discriminant ));
       }
@@ -139,6 +152,10 @@ int fd_executor_compute_budget_program_execute_instructions( fd_exec_txn_ctx_t *
 
     }
   }
+
+  if ( has_loaded_accounts_data_size_limit_update ) {
+    ctx->loaded_accounts_data_size_limit = fd_ulong_min(MAX_LOADED_ACCOUNTS_DATA_SIZE_BYTES, updated_loaded_accounts_data_size_limit);
+  } 
 
   /* TODO use this? */
   (void)num_non_compute_budget_instrs;

@@ -21,18 +21,19 @@ struct fd_exec_txn_ctx {
   fd_acc_mgr_t *  acc_mgr;
   fd_valloc_t     valloc;
 
-  ulong                 compute_unit_limit;       /* Compute unit limit for this transaction. */
-  ulong                 compute_unit_price;       /* Compute unit price for this transaction. */
-  ulong                 heap_size;                /* Heap size for VMs for this transaction. */
-  uint                  prioritization_fee_type;  /* The type of prioritization fee to use. */
-  fd_txn_t *            txn_descriptor;           /* Descriptor of the transaction. */
-  fd_rawtxn_b_t const * _txn_raw;                 /* Raw bytes of the transaction. */
-  uint                  custom_err;               /* When a custom error is returned, this is where the numeric value gets stashed */
-  uchar                 instr_stack_sz;           /* Current depth of the instruction execution stack. */
-  fd_exec_instr_ctx_t   instr_stack[6];           /* Instruction execution stack. */
-  ulong                 accounts_cnt;             /* Number of account pubkeys accessed by this transaction. */
-  fd_pubkey_t           accounts[128];            /* Array of account pubkeys accessed by this transaction. */
-  fd_borrowed_account_t borrowed_accounts[128];   /* Array of borrowed accounts accessed by this transaction. */
+  ulong                 compute_unit_limit;              /* Compute unit limit for this transaction. */
+  ulong                 compute_unit_price;              /* Compute unit price for this transaction. */
+  ulong                 heap_size;                       /* Heap size for VMs for this transaction. */
+  ulong                 loaded_accounts_data_size_limit; /* Loaded accounts data size limit for this transaction. */
+  uint                  prioritization_fee_type;         /* The type of prioritization fee to use. */
+  fd_txn_t *            txn_descriptor;                  /* Descriptor of the transaction. */
+  fd_rawtxn_b_t const * _txn_raw;                        /* Raw bytes of the transaction. */
+  uint                  custom_err;                      /* When a custom error is returned, this is where the numeric value gets stashed */
+  uchar                 instr_stack_sz;                  /* Current depth of the instruction execution stack. */
+  fd_exec_instr_ctx_t   instr_stack[6];                  /* Instruction execution stack. */
+  ulong                 accounts_cnt;                    /* Number of account pubkeys accessed by this transaction. */
+  fd_pubkey_t           accounts[128];                   /* Array of account pubkeys accessed by this transaction. */
+  fd_borrowed_account_t borrowed_accounts[128];          /* Array of borrowed accounts accessed by this transaction. */
 };
 typedef struct fd_exec_txn_ctx fd_exec_txn_ctx_t;
 

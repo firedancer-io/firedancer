@@ -1635,6 +1635,7 @@ union fd_compute_budget_program_instruction_inner {
   uint request_heap_frame;
   uint set_compute_unit_limit;
   ulong set_compute_unit_price;
+  uint set_loaded_accounts_data_size_limit;
 };
 typedef union fd_compute_budget_program_instruction_inner fd_compute_budget_program_instruction_inner_t;
 
@@ -3775,11 +3776,13 @@ FD_FN_PURE uchar fd_compute_budget_program_instruction_is_request_units_deprecat
 FD_FN_PURE uchar fd_compute_budget_program_instruction_is_request_heap_frame(fd_compute_budget_program_instruction_t const * self);
 FD_FN_PURE uchar fd_compute_budget_program_instruction_is_set_compute_unit_limit(fd_compute_budget_program_instruction_t const * self);
 FD_FN_PURE uchar fd_compute_budget_program_instruction_is_set_compute_unit_price(fd_compute_budget_program_instruction_t const * self);
+FD_FN_PURE uchar fd_compute_budget_program_instruction_is_set_loaded_accounts_data_size_limit(fd_compute_budget_program_instruction_t const * self);
 enum {
 fd_compute_budget_program_instruction_enum_request_units_deprecated = 0,
 fd_compute_budget_program_instruction_enum_request_heap_frame = 1,
 fd_compute_budget_program_instruction_enum_set_compute_unit_limit = 2,
 fd_compute_budget_program_instruction_enum_set_compute_unit_price = 3,
+fd_compute_budget_program_instruction_enum_set_loaded_accounts_data_size_limit = 4,
 }; 
 void fd_config_keys_new(fd_config_keys_t* self);
 int fd_config_keys_decode(fd_config_keys_t* self, fd_bincode_decode_ctx_t * ctx);
