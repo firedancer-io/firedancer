@@ -58,8 +58,6 @@ fd_vm_syscall_register_base( fd_sbpf_syscalls_t * syscalls ) {
 
   fd_vm_register_syscall( syscalls, "sol_sha256",             fd_vm_syscall_sol_sha256            );
   fd_vm_register_syscall( syscalls, "sol_keccak256",          fd_vm_syscall_sol_keccak256         );
-  fd_vm_register_syscall( syscalls, "sol_blake3",             fd_vm_syscall_sol_blake3            );
-  fd_vm_register_syscall( syscalls, "sol_secp256k1_recover",  fd_vm_syscall_sol_secp256k1_recover );
 
   fd_vm_register_syscall( syscalls, "sol_memcpy_",            fd_vm_syscall_sol_memcpy  );
   fd_vm_register_syscall( syscalls, "sol_memcmp_",            fd_vm_syscall_sol_memcmp  );
@@ -84,6 +82,16 @@ fd_vm_syscall_register_base( fd_sbpf_syscalls_t * syscalls ) {
 }
 
 static void
+fd_vm_syscall_register_secp256k1( fd_sbpf_syscalls_t * syscalls ) {
+  fd_vm_register_syscall( syscalls, "sol_secp256k1_recover", fd_vm_syscall_sol_secp256k1_recover );
+}
+
+static void
+fd_vm_syscall_register_blake3( fd_sbpf_syscalls_t * syscalls ) {
+  fd_vm_register_syscall( syscalls, "sol_blake3", fd_vm_syscall_sol_blake3 );
+}
+
+static void
 fd_vm_syscall_register_curve25519( fd_sbpf_syscalls_t * syscalls ) {
   fd_vm_register_syscall( syscalls, "sol_curve_validate_point", fd_vm_syscall_sol_curve_validate_point );
 }
@@ -92,6 +100,10 @@ void
 fd_vm_syscall_register_ctx( fd_sbpf_syscalls_t *       syscalls,
                             fd_exec_slot_ctx_t const * slot_ctx ) {
   fd_vm_syscall_register_base( syscalls );
+  if( FD_FEATURE_ACTIVE( slot_ctx, secp256k1_recover_syscall_enabled ) )
+    fd_vm_syscall_register_secp256k1( syscalls );
+  if( FD_FEATURE_ACTIVE( slot_ctx, blake3_syscall_enabled ) )
+    fd_vm_syscall_register_blake3( syscalls );
   if( FD_FEATURE_ACTIVE( slot_ctx, curve25519_syscall_enabled ) )
     fd_vm_syscall_register_curve25519( syscalls );
 }
@@ -99,6 +111,8 @@ fd_vm_syscall_register_ctx( fd_sbpf_syscalls_t *       syscalls,
 void
 fd_vm_syscall_register_all( fd_sbpf_syscalls_t * syscalls ) {
   fd_vm_syscall_register_base      ( syscalls );
+  fd_vm_syscall_register_blake3    ( syscalls );
+  fd_vm_syscall_register_secp256k1 ( syscalls );
   fd_vm_syscall_register_curve25519( syscalls );
 }
 
