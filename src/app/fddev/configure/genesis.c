@@ -44,7 +44,8 @@ init( config_t * const config ) {
 
   ADD( "--faucet-pubkey", faucet );
   ADD( "--hashes-per-tick", "sleep" );
-  ADDU( "--faucet-lamports", 500000000000000000UL );
+  ADDU( "--faucet-lamports",              2399348000000000UL );
+  ADDU( "--bootstrap-validator-lamports", 2399348000000000UL );
   ADD( "--bootstrap-validator", config->consensus.identity_path ); ADD1( vote ); ADD1( stake );
   ADD( "--ledger", config->ledger.path );
   ADD( "--cluster-type", "development" );

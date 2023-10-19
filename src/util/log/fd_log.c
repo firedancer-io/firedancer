@@ -618,8 +618,8 @@ fd_log_private_hexdump_msg( char const * descr,
                             void const * mem,
                             ulong        sz ) {
 
-# define FD_LOG_HEXDUMP_BYTES_PER_LINE           (16UL)
-# define FD_LOG_HEXDUMP_BLOB_DESCRIPTION_MAX_LEN (32UL)
+# define FD_LOG_HEXDUMP_BYTES_PER_LINE           (1664UL)
+# define FD_LOG_HEXDUMP_BLOB_DESCRIPTION_MAX_LEN (1664UL)
 # define FD_LOG_HEXDUMP_MAX_INPUT_BLOB_SZ        (1664UL) /* multiple of 128 >= 1542 */
 
 # define FD_LOG_HEXDUMP_ADD_TO_LOG_BUF(...)  do { log_buf_ptr += fd_int_max( sprintf( log_buf_ptr, __VA_ARGS__ ), 0 ); } while(0)

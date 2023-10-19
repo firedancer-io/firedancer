@@ -232,7 +232,7 @@ unshare_user( uint uid, uint gid ) {
   userns_map( uid, "uid_map" );
   userns_map( gid, "gid_map" );
 
-  FD_TESTV( !prctl( PR_SET_DUMPABLE, 0, 0, 0, 0 ) );
+//  FD_TESTV( !prctl( PR_SET_DUMPABLE, 0, 0, 0, 0 ) );
   for ( int cap = 0; cap <= CAP_LAST_CAP; cap++ ) {
     FD_TESTV( !prctl( PR_CAPBSET_DROP, cap, 0, 0, 0 ) );
   }
