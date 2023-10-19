@@ -168,5 +168,10 @@
   {"name":"require_rent_exempt_split_destination","pubkey": "D2aip4BBr8NPWtU9vLrwrBvbuaQ8w1zV38zFLxx4pfBV"},
   {"name":"better_error_codes_for_tx_lamport_check","pubkey": "Ffswd3egL3tccB6Rv3XY6oqfdzn913vUcjCSnpvCKpfx"},
   {"name":"enable_alt_bn128_compression_syscall","pubkey": "EJJewYSddEEtSZHiqugnvhQHiWyZKjkFDQASd7oKSagn"},
-  {"name":"programify_feature_gate_program","pubkey": "8GdovDzVwWU5edz2G697bbB7GZjrUc6aQZLWyNNAtHdg"}
+  {"name":"programify_feature_gate_program","pubkey": "8GdovDzVwWU5edz2G697bbB7GZjrUc6aQZLWyNNAtHdg"},
+  {"name":"update_hashes_per_tick2","pubkey":"EWme9uFqfy1ikK1jhJs8fM5hxWnK336QJpbscNtizkTU"},
+  {"name":"update_hashes_per_tick3","pubkey":"8C8MCtsab5SsfammbzvYz65HHauuUYdbY2DZ4sznH6h5"},
+  {"name":"update_hashes_per_tick4","pubkey":"8We4E7DPwF2WfAN8tRTtWQNhi98B99Qpuj7JoZ3Aikgg"},
+  {"name":"update_hashes_per_tick5","pubkey":"BsKLKAn1WM4HVhPRDsjosmqSg2J8Tq5xP2s2daDS6Ni4"},
+  {"name":"update_hashes_per_tick6","pubkey":"FKu1qYwLQSiehz644H6Si65U5ZQ2cp9GxsyFUfYcuADv"}
 ]

@@ -18,6 +18,14 @@
 #define FD_RUNTIME_EXECUTE_GENERIC_ERR                          ( -1 ) /* The Slot execute returned an error */
 #define MAX_PERMITTED_DATA_LENGTH ( 10 * 1024 * 1024 )
 
+#define DEFAULT_HASHES_PER_TICK  12500
+#define UPDATED_HASHES_PER_TICK2  17500
+#define UPDATED_HASHES_PER_TICK3  27500
+#define UPDATED_HASHES_PER_TICK4  47500
+#define UPDATED_HASHES_PER_TICK5  57500
+#define UPDATED_HASHES_PER_TICK6  62500
+
+
 #define FD_RUNTIME_TRACE_NONE   (0)
 #define FD_RUNTIME_TRACE_SAVE   (1)
 #define FD_RUNTIME_TRACE_REPLAY (2)
@@ -42,8 +50,8 @@ FD_PROTOTYPES_BEGIN
 ulong
 fd_runtime_lamports_per_signature( fd_firedancer_banks_t const * bank );
 
-ulong 
-fd_runtime_txn_lamports_per_signature( fd_exec_txn_ctx_t * txn_ctx, 
+ulong
+fd_runtime_txn_lamports_per_signature( fd_exec_txn_ctx_t * txn_ctx,
                                        fd_txn_t * txn_descriptor,
                                        fd_rawtxn_b_t const * txn_raw );
 
@@ -52,12 +60,12 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t * slot_ctx,
                                    fd_genesis_solana_t * genesis_block,
                                    fd_hash_t const * genesis_hash );
 
-void 
+void
 fd_runtime_init_program( fd_exec_slot_ctx_t * slot_ctx );
 
 int
-fd_runtime_block_execute( fd_exec_slot_ctx_t * slot_ctx, 
-                          fd_slot_meta_t *m, 
+fd_runtime_block_execute( fd_exec_slot_ctx_t * slot_ctx,
+                          fd_slot_meta_t *m,
                           const void* block,
                           ulong blocklen );
 
@@ -65,33 +73,33 @@ int
 fd_runtime_block_verify( fd_exec_slot_ctx_t * slot_ctx,
   fd_slot_meta_t *m, const void* block, ulong blocklen );
 
-int fd_runtime_block_verify_tpool( fd_exec_slot_ctx_t * slot_ctx, 
+int fd_runtime_block_verify_tpool( fd_exec_slot_ctx_t * slot_ctx,
                                    fd_slot_meta_t *m,
                                   const void* block, ulong blocklen, fd_tpool_t * tpool, ulong max_workers );
 
 int fd_runtime_block_eval( fd_exec_slot_ctx_t *slot_ctx,
                            fd_slot_meta_t * m,
-                           const void * block, 
+                           const void * block,
                            ulong blocklen );
 
 ulong
-fd_runtime_calculate_fee ( fd_exec_txn_ctx_t * txn_ctx, 
+fd_runtime_calculate_fee ( fd_exec_txn_ctx_t * txn_ctx,
                            fd_txn_t * txn_descriptor,
                            fd_rawtxn_b_t const * txn_raw,
-                           bool remove_congestion_multiplier, 
+                           bool remove_congestion_multiplier,
                            bool include_loaded_account_data_size_in_fee );
 
-void 
+void
 fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx );
 
 ulong
-fd_runtime_lamports_per_signature_for_blockhash( fd_exec_slot_ctx_t const * slot_ctx, 
+fd_runtime_lamports_per_signature_for_blockhash( fd_exec_slot_ctx_t const * slot_ctx,
                                                  fd_hash_t * blockhash );
 
-fd_funk_rec_key_t 
+fd_funk_rec_key_t
 fd_runtime_block_key( ulong slot );
 
-fd_funk_rec_key_t 
+fd_funk_rec_key_t
 fd_runtime_block_meta_key( ulong slot );
 
 fd_funk_rec_key_t
@@ -112,7 +120,7 @@ int
 fd_runtime_save_banks( fd_exec_slot_ctx_t * slot_ctx );
 
 int
-fd_global_import_solana_manifest( fd_exec_slot_ctx_t * slot_ctx, 
+fd_global_import_solana_manifest( fd_exec_slot_ctx_t * slot_ctx,
                                   fd_solana_manifest_t * manifest);
 
 /* fd_features_restore loads all known feature accounts from the
@@ -122,8 +130,8 @@ fd_global_import_solana_manifest( fd_exec_slot_ctx_t * slot_ctx,
 void
 fd_features_restore( fd_exec_slot_ctx_t * slot_ctx );
 
-static inline ulong 
-fd_rent_exempt( fd_firedancer_banks_t const * bank, 
+static inline ulong
+fd_rent_exempt( fd_firedancer_banks_t const * bank,
                 ulong                         sz ) {
   return (sz + 128) * ((ulong) ((double)bank->rent.lamports_per_uint8_year * bank->rent.exemption_threshold));
 }
