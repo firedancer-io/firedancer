@@ -318,6 +318,7 @@ install_openssl () {
   echo "[+] Configuring OpenSSL"
   ./config \
     -static \
+    -fPIC \
     --prefix="$PREFIX" \
     --libdir=lib \
     enable-quic \

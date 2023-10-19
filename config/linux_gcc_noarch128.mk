@@ -1,6 +1,7 @@
 BUILDDIR:=linux/gcc/noarch128
 
 include config/base.mk
+include config/with-security.mk
 include config/with-gcc.mk
 include config/with-debug.mk
 include config/with-brutality.mk
