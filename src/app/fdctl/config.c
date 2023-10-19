@@ -686,6 +686,13 @@ validate_ports( config_t * result ) {
                  "This must be outside the dynamic port range `%s`",
                  result->tiles.quic.quic_transaction_listen_port,
                  result->dynamic_port_range ));
+
+  if( FD_UNLIKELY( result->tiles.shred.shred_listen_port >= solana_port_min &&
+                   result->tiles.shred.shred_listen_port < solana_port_max ) )
+    FD_LOG_ERR(( "configuration specifies invalid [tiles.shred.shred_listen_port] `%hu`. "
+                 "This must be outside the dynamic port range `%s`",
+                 result->tiles.shred.shred_listen_port,
+                 result->dynamic_port_range ));
 }
 
 config_t
