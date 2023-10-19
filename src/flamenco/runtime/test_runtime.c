@@ -246,37 +246,35 @@ replay( global_state_t * state,
         fd_runtime_block_verify( state->slot_ctx, &m, val, fd_funk_val_sz(rec) );
     } else {
       FD_TEST (fd_runtime_block_eval( state->slot_ctx, &m, val, fd_funk_val_sz(rec) ) == FD_RUNTIME_EXECUTE_SUCCESS);
-    }
 
-    fd_bincode_destroy_ctx_t ctx = { .valloc = state->slot_ctx->valloc };
-    fd_slot_meta_destroy(&m, &ctx);
+      fd_hash_t const * known_bank_hash = fd_get_bank_hash( state->slot_ctx->acc_mgr->funk, slot );
+      if( known_bank_hash ) {
+        if( FD_UNLIKELY( 0!=memcmp( state->slot_ctx->bank.banks_hash.hash, known_bank_hash->hash, 32UL ) ) ) {
+          FD_LOG_WARNING(( "Bank hash mismatch! slot=%lu expected=%32J, got=%32J",
+              slot,
+              known_bank_hash->hash,
+              state->slot_ctx->bank.banks_hash.hash ));
+          if( state->abort_on_mismatch ) {
+            fd_solcap_writer_fini( state->slot_ctx->capture );
+            kill(getpid(), SIGTRAP);
+            return 1;
+          }
+        }
+      }
 
-    /* Read bank hash */
-
-    fd_hash_t const * known_bank_hash = fd_get_bank_hash( state->slot_ctx->acc_mgr->funk, slot );
-    if( known_bank_hash ) {
-      if( FD_UNLIKELY( 0!=memcmp( state->slot_ctx->bank.banks_hash.hash, known_bank_hash->hash, 32UL ) ) ) {
-        FD_LOG_WARNING(( "Bank hash mismatch! slot=%lu expected=%32J, got=%32J",
-                         slot,
-                         known_bank_hash->hash,
-                         state->slot_ctx->bank.banks_hash.hash ));
-        if( state->abort_on_mismatch ) {
-          fd_solcap_writer_fini( state->slot_ctx->capture );
-          kill(getpid(), SIGTRAP);
-          return 1;
+      if (NULL != state->capitalization_file) {
+        slot_capitalization_t *c = capitalization_map_query(state->map, slot, NULL);
+        if (NULL != c) {
+          if (state->slot_ctx->bank.capitalization != c->capitalization)
+            FD_LOG_ERR(( "capitalization missmatch!  slot=%lu got=%ld != expected=%ld  (%ld)", slot, state->slot_ctx->bank.capitalization, c->capitalization,  state->slot_ctx->bank.capitalization - c->capitalization  ));
         }
       }
     }
 
-    if (NULL != state->capitalization_file) {
-      slot_capitalization_t *c = capitalization_map_query(state->map, slot, NULL);
-      if (NULL != c) {
-        if (state->slot_ctx->bank.capitalization != c->capitalization)
-          FD_LOG_ERR(( "capitalization missmatch!  slot=%lu got=%ld != expected=%ld  (%ld)", slot, state->slot_ctx->bank.capitalization, c->capitalization,  state->slot_ctx->bank.capitalization - c->capitalization  ));
-      }
-    }
-
     prev_slot = slot;
+
+    fd_bincode_destroy_ctx_t ctx = { .valloc = state->slot_ctx->valloc };
+    fd_slot_meta_destroy(&m, &ctx);
   }
 
   // fd_funk_txn_publish( state->slot_ctx->acc_mgr->funk, state->slot_ctx->acc_mgr->funk_txn, 1);

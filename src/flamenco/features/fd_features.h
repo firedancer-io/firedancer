@@ -184,6 +184,11 @@ struct fd_features {
   ulong better_error_codes_for_tx_lamport_check;
   ulong enable_alt_bn128_compression_syscall;
   ulong programify_feature_gate_program;
+  ulong update_hashes_per_tick2;
+  ulong update_hashes_per_tick3;
+  ulong update_hashes_per_tick4;
+  ulong update_hashes_per_tick5;
+  ulong update_hashes_per_tick6;
 };
 typedef struct fd_features fd_features_t;
 
@@ -204,7 +209,7 @@ FD_PROTOTYPES_BEGIN
 extern fd_feature_id_t const ids[];
 
 /* FEATURE_ID_CNT is the number of featuers in ids */
-#define FD_FEATURE_ID_CNT (170UL)
+#define FD_FEATURE_ID_CNT (175UL)
 
 /* fd_features_disable_all disables all available features. */
 void

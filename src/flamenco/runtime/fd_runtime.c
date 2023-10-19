@@ -437,6 +437,8 @@ fd_runtime_block_verify( fd_exec_slot_ctx_t * slot_ctx,
   fd_bmtree_commit_t commit_mem[1];
 
   /* Loop across batches */
+  ulong thashcnt = 0;
+
   ulong blockoff = 0;
   while (blockoff < blocklen) {
     if ( blockoff + sizeof(ulong) > blocklen )
@@ -450,6 +452,9 @@ fd_runtime_block_verify( fd_exec_slot_ctx_t * slot_ctx,
         FD_LOG_ERR(("premature end of block"));
       fd_microblock_hdr_t * hdr = (fd_microblock_hdr_t *)((const uchar *)block + blockoff);
       blockoff += sizeof(fd_microblock_hdr_t);
+
+      // Add up all the poh hashes..
+      thashcnt += hdr->hash_cnt;
 
       if (hdr->txn_cnt == 0) {
         fd_poh_append(&slot_ctx->bank.poh, hdr->hash_cnt);
@@ -492,6 +497,11 @@ fd_runtime_block_verify( fd_exec_slot_ctx_t * slot_ctx,
 
   if (blockoff != blocklen)
     FD_LOG_ERR(("garbage at end of block"));
+
+  if ( FD_UNLIKELY(thashcnt != (slot_ctx->bank.ticks_per_slot * slot_ctx->bank.hashes_per_tick)) ) {
+    FD_LOG_ERR(("invalid poh hash count"));
+    return -1;
+  }
 
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
@@ -774,8 +784,8 @@ fd_runtime_calculate_fee( fd_exec_txn_ctx_t * txn_ctx, fd_txn_t * txn_descriptor
 
   double BASE_CONGESTION = 5000.0;
   double current_congestion = (BASE_CONGESTION > (double)lamports_per_signature) ? BASE_CONGESTION : (double)lamports_per_signature;
-  double congestion_multiplier = (lamports_per_signature == 0) ? 0.0 
-                                : remove_congestion_multiplier ? 1.0 
+  double congestion_multiplier = (lamports_per_signature == 0) ? 0.0
+                                : remove_congestion_multiplier ? 1.0
                                 : (BASE_CONGESTION / current_congestion);
 
 //  bool support_set_compute_unit_price_ix = false;
@@ -825,7 +835,7 @@ fd_runtime_calculate_fee( fd_exec_txn_ctx_t * txn_ctx, fd_txn_t * txn_descriptor
 //                    .last()
 //                    .map(|bin| bin.fee)
 //                    .unwrap_or_default()
-//            });  
+//            });
   double MEMORY_USAGE_COST = ((((double)vm_compute_budget.loaded_accounts_data_size_limit + (ACCOUNT_DATA_COST_PAGE_SIZE - 1)) / ACCOUNT_DATA_COST_PAGE_SIZE) * (double)vm_compute_budget.heap_cost);
   double loaded_accounts_data_size_cost = include_loaded_account_data_size_in_fee ? MEMORY_USAGE_COST : 0.0;
   double total_compute_units = loaded_accounts_data_size_cost + (double)vm_compute_budget.compute_unit_limit;
@@ -990,10 +1000,10 @@ fd_runtime_collect_rent_for_slot( fd_exec_slot_ctx_t * slot_ctx, ulong off ) {
         rec_ro != NULL;
         rec_ro = fd_funk_part_next( rec_ro, rec_map ) ) {
     fd_pubkey_t const * key = fd_type_pun_const( rec_ro->pair.key[0].uc );
-    
+
     FD_BORROWED_ACCOUNT_DECL(rec);
     int err = fd_acc_mgr_view( acc_mgr, txn, key, rec);
-    
+
     /* Account might not exist anymore in the current world */
     if( err==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
       continue;
@@ -1005,12 +1015,12 @@ fd_runtime_collect_rent_for_slot( fd_exec_slot_ctx_t * slot_ctx, ulong off ) {
     /* Check if latest version in this transaction */
     if ( rec_ro != rec->const_rec )
       continue;
-    
+
     /* Filter accounts that we've already visited */
     ulong epoch = slot_ctx->epoch_ctx->rent_epoch;
     if( rec->const_meta->info.rent_epoch > epoch )
       continue;
-    
+
     /* Upgrade read-only handle to writable */
     err = fd_acc_mgr_modify(
       acc_mgr, txn, key,
@@ -1021,10 +1031,10 @@ fd_runtime_collect_rent_for_slot( fd_exec_slot_ctx_t * slot_ctx, ulong off ) {
       FD_LOG_WARNING(( "fd_runtime_collect_rent_range: fd_acc_mgr_modify failed (%d)", err ));
       continue;
     }
-    
+
     /* Actually invoke rent collection */
     (void) fd_runtime_collect_rent_account( slot_ctx, rec->meta, key, epoch );
-    
+
     if ( !FD_FEATURE_ACTIVE( slot_ctx, skip_rent_rewrites ) )
       // By changing the slot, this forces the account to be updated
       // in the account_delta_hash which matches the "rent rewrite"
@@ -1590,6 +1600,18 @@ fd_process_new_epoch(
 
   // activate feature flags
   fd_features_restore( slot_ctx );
+
+  // Change the speed of the poh clock
+  if ( FD_FEATURE_ACTIVE( slot_ctx, update_hashes_per_tick6 ) )
+    slot_ctx->bank.hashes_per_tick = UPDATED_HASHES_PER_TICK6;
+  else if ( FD_FEATURE_ACTIVE( slot_ctx, update_hashes_per_tick5 ) )
+    slot_ctx->bank.hashes_per_tick = UPDATED_HASHES_PER_TICK5;
+  else if ( FD_FEATURE_ACTIVE( slot_ctx, update_hashes_per_tick4 ) )
+    slot_ctx->bank.hashes_per_tick = UPDATED_HASHES_PER_TICK4;
+  else if ( FD_FEATURE_ACTIVE( slot_ctx, update_hashes_per_tick3 ) )
+    slot_ctx->bank.hashes_per_tick = UPDATED_HASHES_PER_TICK3;
+  else if ( FD_FEATURE_ACTIVE( slot_ctx, update_hashes_per_tick2 ) )
+    slot_ctx->bank.hashes_per_tick = UPDATED_HASHES_PER_TICK2;
 
   // Add new entry to stakes.stake_history, set appropriate epoch and
   // update vote accounts with warmed up stakes before saving a
