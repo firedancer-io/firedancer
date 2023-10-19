@@ -39,6 +39,8 @@ void fd_bn254_g1_compress( fd_bn254_point_g1_t const * in, fd_bn254_point_g1_com
 
 void fd_bn254_g1_decompress( fd_bn254_point_g1_compressed_t const * in, fd_bn254_point_g1_t * out );
 
+int fd_bn254_g2_check( fd_bn254_point_g2_t const * p );
+
 void fd_bn254_g2_compress( fd_bn254_point_g2_t const * in, fd_bn254_point_g2_compressed_t * out );
 
 void fd_bn254_g2_decompress( fd_bn254_point_g2_compressed_t const * in, fd_bn254_point_g2_t * out );
