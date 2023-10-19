@@ -105,8 +105,9 @@ int cmd_disasm( char const * bin_path ) {
     .instrs              = (fd_sbpf_instr_t const *)fd_type_pun_const( tool_prog.prog->text ),
     .instrs_sz           = tool_prog.prog->text_cnt,
   };
-
-  int res = fd_vm_disassemble_program( ctx.instrs, ctx.instrs_sz, tool_prog.syscalls, tool_prog.prog->calldests, stdout );
+  char out[MAX_BUFFER_LEN*10];
+  int res = fd_vm_disassemble_program( ctx.instrs, ctx.instrs_sz, tool_prog.syscalls, tool_prog.prog->calldests, out );
+  printf(out);
   printf( "\n" );
 
   fd_vm_tool_prog_free( &tool_prog );
@@ -182,7 +183,7 @@ int cmd_trace( char const * bin_path, char const * input_path ) {
   ctx.register_file[10] = FD_VM_MEM_MAP_STACK_REGION_START + 0x1000;
 
   long  dt = -fd_log_wallclock();
-  ulong interp_res = fd_vm_interp_instrs_trace( &ctx, trace, trace_sz, &trace_used );
+  ulong interp_res = fd_vm_interp_instrs_trace( &ctx );
   dt += fd_log_wallclock();
 
   if( interp_res != 0 ) {
@@ -208,8 +209,9 @@ int cmd_trace( char const * bin_path, char const * input_path ) {
         trace_ent.register_file[10],
         trace_ent.pc+29 /* FIXME: THIS OFFSET IS FOR TESTING ONLY */
       );
-    fd_vm_disassemble_instr(&ctx.instrs[trace[i].pc], trace[i].pc, ctx.syscall_map, ctx.local_call_map, stdout);
-
+    char out[100];
+    fd_vm_disassemble_instr(&ctx.instrs[trace[i].pc], trace[i].pc, ctx.syscall_map, ctx.local_call_map, out, 0);
+    fprintf(stdout, out);
     fprintf(stdout, "\n");
   }
 

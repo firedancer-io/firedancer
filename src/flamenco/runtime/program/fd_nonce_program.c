@@ -40,7 +40,7 @@ int fd_load_nonce_account( fd_exec_txn_ctx_t * txn_ctx,
   fd_convert_txn_instr_to_instr(txn_descriptor, txn_raw, txn_instr, txn_ctx->accounts, txn_ctx->borrowed_accounts, &instr);
 
   // A little defense in depth?
-  int err = fd_account_sanity_check_raw(&instr, txn_descriptor, instr.program_id + 1);
+  int err = fd_account_sanity_check_raw(&instr, txn_descriptor->acct_addr_cnt, instr.program_id + 1);
   if (FD_EXECUTOR_INSTR_SUCCESS != err) {
     *opt_err = err;
     return 0;
@@ -70,7 +70,7 @@ int fd_load_nonce_account( fd_exec_txn_ctx_t * txn_ctx,
   if (fd_system_program_instruction_enum_advance_nonce_account != instruction.discriminant)
     return 0;
 
-  err = fd_account_sanity_check_raw(&instr, txn_descriptor, 3);
+  err = fd_account_sanity_check_raw(&instr, txn_descriptor->acct_addr_cnt, 3);
   if (FD_UNLIKELY(FD_EXECUTOR_INSTR_SUCCESS != err)) {
     *opt_err = err;
     return 0;

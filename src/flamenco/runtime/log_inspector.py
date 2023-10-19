@@ -36,6 +36,7 @@ def hex_to_hexdump(x):
   return res2.rstrip()
 
 def display_firedancer_accounts_delta_hash_extra(log_line):
+  # print(log_line)
   res = re.findall(r"pubkey: (\w+), slot: (\d+), lamports: (\d+), owner: (\w+), executable: (\d+), rent_epoch: (\d+), data_len: (\d+), data: (\[[\d\s,]*\]) = (\w+)", log_line)[0]
   res2 = [res[0], res[1], res[2], res[3], res[4], res[5], res[6], str_list_to_hexdump(res[7]), res[8]]
   return res2
@@ -102,7 +103,7 @@ class Breadcrumb:
     return tuple(self.firedancer_identifier(line)) if fd_flag else tuple(self.solana_identifier(line))
 
   @staticmethod
-  def extract_log_line(file_location: str, breadcrumbs: List[str], bakery: dict, fd_flag: bool, check_last_flag: bool) -> dict:
+  def extract_log_line(file_location: str, breadcrumbs: List[str], bakery: dict, fd_flag: bool, check_last_flag: bool, slot) -> dict:
     results = dict()
   
     for breadcrumb_name in breadcrumbs:
@@ -115,6 +116,8 @@ class Breadcrumb:
         for (i, line) in enumerate(log_file):
           if i % 10_000 == 0:
             print("Filtering: Line:", i, breadcrumb_name, len(breadcrumb_lines), flush=True, file=sys.stderr)
+          if slot and str(slot) not in line:
+            continue
           if breadcrumb._filter(line, fd_flag):
             key = breadcrumb._extract_identifier(line, fd_flag)
             if check_last_flag:
@@ -148,7 +151,10 @@ def main():
   argParser.add_argument("-c", "--check-last", help="Only check last from solana against firedancer", action="store_true")
   argParser.add_argument("-d", "--diff", help="Print info diff", action="store_true")
   argParser.add_argument("-q", "--hide-full", help="Hide full output", action="store_true")
+  argParser.add_argument("-x", "--slot", help="Check for slot number", default=None)
   args = argParser.parse_args()
+
+  slot = int(args.slot) if args.slot else None
 
   # Define all breadcrumbs
   BAKERY = {
@@ -196,13 +202,13 @@ def main():
 
   # Read in Solana log file
   print("Extracting Solana logs...", flush=True, file=sys.stderr)
-  solana_results = Breadcrumb.extract_log_line(file_location=args.solana, breadcrumbs=args.breadcrumbs, bakery=BAKERY, fd_flag=0, check_last_flag=args.check_last)
+  solana_results = Breadcrumb.extract_log_line(file_location=args.solana, breadcrumbs=args.breadcrumbs, bakery=BAKERY, fd_flag=0, check_last_flag=args.check_last, slot=slot)
   print("Done:", flush=True, file=sys.stderr)
   for key in solana_results:
     print(" ", key, len(solana_results[key]), flush=True, file=sys.stderr)
 
   print("Extracting Firedancer logs...", flush=True, file=sys.stderr)
-  firedancer_results = Breadcrumb.extract_log_line(file_location=args.firedancer, breadcrumbs=args.breadcrumbs, bakery=BAKERY, fd_flag=1, check_last_flag=args.check_last)
+  firedancer_results = Breadcrumb.extract_log_line(file_location=args.firedancer, breadcrumbs=args.breadcrumbs, bakery=BAKERY, fd_flag=1, check_last_flag=args.check_last, slot=slot)
   print("Done:", flush=True, file=sys.stderr)
   for key in firedancer_results:
     print(" ", key, len(firedancer_results[key]), flush=True, file=sys.stderr)
@@ -218,7 +224,7 @@ def main():
       if args.check_last:
         truth = Counter([list(truth.elements())[-1]])
       reality = firedancer_results[breadcrumb_name].get(key, Counter())
-      if len(reality) == 0 or len(truth - reality) == 0:
+      if len(truth - reality) == 0:
         continue
       total_diffs += 1
       print("----------------------------------------------------------------------------------------------------------------------------")
@@ -267,6 +273,63 @@ def main():
         print()
         print("Diff: ")
         diff = difflib.unified_diff(truth_strs, reality_strs, fromfile="Solana", tofile="Firedancer")
+        sys.stdout.writelines(diff)
+
+    for key in firedancer_results[breadcrumb_name]:
+      truth_pre = firedancer_results[breadcrumb_name].get(key, Counter())
+      truth = truth_pre
+      if args.check_last:
+        truth = Counter([list(truth.elements())[-1]])
+      reality = solana_results[breadcrumb_name].get(key, Counter())
+      if len(truth - reality) == 0:
+        continue
+      total_diffs += 1
+      print("----------------------------------------------------------------------------------------------------------------------------")
+      print("identifier:", BAKERY[breadcrumb_name].identifiers)
+      print("values:", BAKERY[breadcrumb_name].display_values)
+      print("Firedancer: (total: {})".format(len(list(truth_pre.elements()))))
+      values = BAKERY[breadcrumb_name].display_values
+
+      if args.hide_full:
+        for (ident_key, ident_val) in zip(BAKERY[breadcrumb_name].identifiers, key[0]):
+          print("{:<16}: {}".format(ident_key, ident_val))
+
+      truth_strs =[]
+      reality_strs = []
+
+      for result in truth:
+        if not args.hide_full:
+          print("result: ")
+        for res_key, res_value in zip(values, result):
+          truth_str = "{:<16}: {}\n".format(res_key, res_value)
+          truth_strs.extend(truth_str.splitlines(keepends=True))
+          if not args.hide_full:
+            print("  {}".format(truth_str), end="")
+        count_str = "count: {:>5}\n".format(truth[result])
+        truth_strs.extend(count_str.splitlines(keepends=True))
+        if not args.hide_full:
+          print(count_str, end="")
+
+      print()
+
+      print("Solana: (total: {})".format(len(list(reality.elements()))))
+      for result in reality:
+        if not args.hide_full:
+          print("result: ")
+        for res_key, res_value in zip(values, result):
+          reality_str = "{:<16}: {}\n".format(res_key, res_value)
+          reality_strs.extend(reality_str.splitlines(keepends=True))
+          if not args.hide_full:
+            print("  {}".format(reality_str), end="")
+        count_str = "count: {:>5}\n".format(reality[result])
+        reality_strs.extend(count_str.splitlines(keepends=True))
+        if not args.hide_full:
+          print(count_str, end="")
+
+      if args.diff:
+        print()
+        print("Diff: ")
+        diff = difflib.unified_diff(reality_strs, truth_strs, fromfile="Solana", tofile="Firedancer")
         sys.stdout.writelines(diff)
 
     print("----------------------------------------------------------------------------------------------------------------------------")

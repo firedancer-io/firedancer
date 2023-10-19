@@ -5112,7 +5112,7 @@ int fd_vote_state_1_14_11_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
   ulong epoch_credits_len;
   err = fd_bincode_uint64_decode( &epoch_credits_len, ctx );
   if ( FD_UNLIKELY(err) ) return err;
-  if ( epoch_credits_len > 35 ) return FD_BINCODE_ERR_SMALL_DEQUE;
+  if ( epoch_credits_len > 64 ) return FD_BINCODE_ERR_SMALL_DEQUE;
   for (ulong i = 0; i < epoch_credits_len; ++i) {
     err = fd_vote_epoch_credits_decode_preflight(ctx);
     if ( FD_UNLIKELY(err) ) return err;

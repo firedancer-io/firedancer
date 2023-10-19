@@ -16,25 +16,25 @@ typedef ulong fd_acc_lamports_t;
 static inline
 int fd_account_sanity_check_raw(
   fd_instr_info_t const * instr,
-  fd_txn_t *         txn_descriptor,
+  ulong acct_addr_cnt,
   int cnt
 ) {
   if (instr->acct_cnt < cnt)
     return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
 
   uchar const * instr_acc_idxs = instr->acct_txn_idxs;
-  ulong acct_addr_cnt = txn_descriptor->acct_addr_cnt;
 
   for (int i = 0; i < cnt; i++)
-    if (instr_acc_idxs[i] >= acct_addr_cnt)
+    if (instr_acc_idxs[i] >= acct_addr_cnt) {
       return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+    }
 
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
 static inline
 int fd_account_sanity_check(fd_exec_instr_ctx_t const * ctx, int cnt) {
-  return fd_account_sanity_check_raw(ctx->instr, ctx->txn_ctx->txn_descriptor, cnt);
+  return fd_account_sanity_check_raw(ctx->instr, ctx->txn_ctx->accounts_cnt, cnt);
 }
 
 static inline

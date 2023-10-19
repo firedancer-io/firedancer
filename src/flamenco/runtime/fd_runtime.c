@@ -272,6 +272,8 @@ fd_runtime_block_execute( fd_exec_slot_ctx_t * slot_ctx,
                           fd_slot_meta_t *  m,
                           void const *      block,
                           ulong             blocklen ) {
+  slot_ctx->bank.collected_fees = 0;
+  slot_ctx->bank.collected_rent = 0;
   fd_solcap_writer_set_slot( slot_ctx->capture, m->slot );
   if( slot_ctx->bank.slot != 0 ) {
     ulong slot_idx;
@@ -358,7 +360,11 @@ fd_runtime_block_execute( fd_exec_slot_ctx_t * slot_ctx,
           int err = fd_acc_mgr_view(slot_ctx->acc_mgr, slot_ctx->funk_txn, &txn_accs[i], accs_rec);
 #ifndef USER_jsiegel
           if( FD_UNLIKELY( err ==FD_ACC_MGR_SUCCESS ) )
-            FD_LOG_WARNING(("ACCT FOR TXN: %lu - %32J, lamps: %lu", i, &txn_accs[i], accs_rec->const_meta->info.lamports));
+            FD_LOG_DEBUG(("ACCT FOR TXN: %lu - %32J, lamps: %lu, slot: %lu, rent_epoch: %lu, owner: %32J", i, &txn_accs[i], 
+              accs_rec->const_meta->info.lamports,
+              accs_rec->const_meta->slot,
+              accs_rec->const_meta->info.rent_epoch,
+              accs_rec->const_meta->info.owner ));
 #else
           (void)err;
 #endif
@@ -374,7 +380,7 @@ fd_runtime_block_execute( fd_exec_slot_ctx_t * slot_ctx,
           if( FD_UNLIKELY( err !=FD_ACC_MGR_SUCCESS ) )
             FD_LOG_ERR(( "addr lut not found" ));
 
-          FD_LOG_WARNING(( "LUT ACC: idx: %lu, acc: %32J, meta.dlen; %lu", i, addr_lut_acc, lut_acc_rec->const_meta->dlen ));
+          FD_LOG_DEBUG(( "LUT ACC: idx: %lu, acc: %32J, meta.dlen; %lu", i, addr_lut_acc, lut_acc_rec->const_meta->dlen ));
 
           fd_address_lookup_table_state_t addr_lookup_table_state;
           fd_bincode_decode_ctx_t decode_ctx = {
@@ -392,15 +398,17 @@ fd_runtime_block_execute( fd_exec_slot_ctx_t * slot_ctx,
           fd_pubkey_t * lookup_addrs = (fd_pubkey_t *)&lut_acc_rec->const_data[56];
           uchar * writable_lut_idxs = (uchar *)rawtxn.raw + addr_lut->writable_off;
           for (ulong j = 0; j < addr_lut->writable_cnt; j++) {
-            FD_LOG_WARNING(( "LUT ACC WRITABLE: idx: %3lu, acc: %32J, lut_idx: %3lu, acct_idx: %3lu, %32J", i, addr_lut_acc, j, writable_lut_idxs[j], &lookup_addrs[writable_lut_idxs[j]] ));
+            FD_LOG_DEBUG(( "LUT ACC WRITABLE: idx: %3lu, acc: %32J, lut_idx: %3lu, acct_idx: %3lu, %32J", i, addr_lut_acc, j, writable_lut_idxs[j], &lookup_addrs[writable_lut_idxs[j]] ));
           }
 
           uchar * readonly_lut_idxs = (uchar *)rawtxn.raw + addr_lut->readonly_off;
           for (ulong j = 0; j < addr_lut->readonly_cnt; j++) {
-            FD_LOG_WARNING(( "LUT ACC READONLY: idx: %3lu, acc: %32J, lut_idx: %3lu, acct_idx: %3lu, %32J", i, addr_lut_acc, j, readonly_lut_idxs[j], &lookup_addrs[readonly_lut_idxs[j]] ));
+            FD_LOG_DEBUG(( "LUT ACC READONLY: idx: %3lu, acc: %32J, lut_idx: %3lu, acct_idx: %3lu, %32J", i, addr_lut_acc, j, readonly_lut_idxs[j], &lookup_addrs[readonly_lut_idxs[j]] ));
           }
         }
-        fd_execute_txn( slot_ctx, txn, &rawtxn );
+        if (FD_UNLIKELY( fd_execute_txn( slot_ctx, txn, &rawtxn ) ) ) {
+          FD_LOG_WARNING(("Transaction unsuccessful"));
+        }
 
         blockoff += pay_sz;
         txn_idx_in_block++;
@@ -417,6 +425,7 @@ fd_runtime_block_execute( fd_exec_slot_ctx_t * slot_ctx,
 
   int result = fd_update_hash_bank( slot_ctx, &slot_ctx->bank.banks_hash, signature_cnt );
   if (result != FD_EXECUTOR_INSTR_SUCCESS) {
+    FD_LOG_WARNING(( "hashing bank failed" ));
     return result;
   }
 
@@ -665,7 +674,8 @@ fd_runtime_block_eval( fd_exec_slot_ctx_t * slot_ctx, fd_slot_meta_t *m, const v
   if ( FD_RUNTIME_EXECUTE_SUCCESS == ret )
     ret = fd_runtime_block_execute( slot_ctx, m, block, blocklen );
 
-  if (FD_RUNTIME_EXECUTE_SUCCESS != ret ) {
+  // FIXME: better way of using starting slot
+  if (FD_RUNTIME_EXECUTE_SUCCESS != ret && slot_ctx->bank.slot == 179244883 ) {
     // Not exactly sure what I am supposed to do if execute fails to
     // this point...  is this a "log and fall over?"
     /*
@@ -677,7 +687,7 @@ fd_runtime_block_eval( fd_exec_slot_ctx_t * slot_ctx, fd_slot_meta_t *m, const v
     FD_LOG_ERR(( "need to rollback" ));
   }
 
-  return ret;
+  return 0;
 }
 
 ulong
@@ -805,7 +815,20 @@ fd_runtime_calculate_fee( fd_exec_txn_ctx_t * txn_ctx, fd_txn_t * txn_descriptor
   double prioritization_fee = (double)priority_fee;
 
   // let signature_fee = Self::get_num_signatures_in_message(message) .saturating_mul(fee_structure.lamports_per_signature);
-  double signature_fee = (double)fd_runtime_lamports_per_signature(&txn_ctx->slot_ctx->bank) * txn_descriptor->signature_cnt;
+  ulong num_signatures = txn_descriptor->signature_cnt;
+  for ( ushort i = 0; i < txn_descriptor->instr_cnt; ++i ) {
+    fd_txn_instr_t *  txn_instr = &txn_descriptor->instr[i];
+    fd_pubkey_t * program_id = &txn_ctx->accounts[txn_instr->program_id];
+    if (memcmp(program_id->uc, fd_solana_keccak_secp_256k_program_id.key, sizeof(fd_pubkey_t)) == 0 || 
+        memcmp(program_id->uc, fd_solana_ed25519_sig_verify_program_id.key, sizeof(fd_pubkey_t)) == 0) {
+      if (txn_instr->data_sz == 0) {
+        continue;
+      }
+      uchar * data = (uchar *)txn_raw->raw + txn_instr->data_off;
+      num_signatures = fd_ulong_sat_add(num_signatures, (ulong)(data[0]));
+    }
+  }
+  double signature_fee = (double)fd_runtime_lamports_per_signature(&txn_ctx->slot_ctx->bank) * (double)num_signatures;
 
 // TODO: as far as I can tell, this is always 0
 //
@@ -955,7 +978,6 @@ fd_runtime_collect_rent_account( fd_exec_slot_ctx_t *   slot_ctx,
       info->rent_epoch = ULONG_MAX;
       return 0;
     }
-
     return 1;
   }
 
@@ -1229,6 +1251,8 @@ fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx ) {
 
   fd_sysvar_recent_hashes_update ( slot_ctx );
 
+  fd_sysvar_fees_update( slot_ctx );
+
   if (slot_ctx->bank.collected_fees > 0) {
     // Look at collect_fees... I think this was where I saw the fee payout..
     FD_BORROWED_ACCOUNT_DECL(rec);
@@ -1239,11 +1263,10 @@ fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx ) {
       return;
     }
 
-    ulong fees = ( slot_ctx->bank.collected_fees / 2 );
-
-    FD_LOG_DEBUG(( "fd_runtime_freeze: slot:%ld global->collected_fees: %ld, sending %ld to leader (%32J), burning %ld", slot_ctx->bank.slot, slot_ctx->bank.collected_fees, fees, slot_ctx->leader, fees ));
+    ulong fees = (slot_ctx->bank.collected_fees - (slot_ctx->bank.collected_fees / 2) );;
 
     rec->meta->info.lamports += fees;
+    FD_LOG_DEBUG(( "fd_runtime_freeze: slot:%ld global->collected_fees: %ld, sending %ld to leader (%32J), burning %ld", slot_ctx->bank.slot, slot_ctx->bank.collected_fees, fees, slot_ctx->leader, fees ));
 
     ulong old = slot_ctx->bank.capitalization;
     slot_ctx->bank.capitalization = fd_ulong_sat_sub( slot_ctx->bank.capitalization, fees);

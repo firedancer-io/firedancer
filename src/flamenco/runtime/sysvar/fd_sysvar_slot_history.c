@@ -11,8 +11,19 @@ const ulong slot_history_max_entries = 1024 * 1024;
 
 /* TODO: move into seperate bitvec library */
 const ulong bits_per_block = 8 * sizeof(ulong);
-void fd_sysvar_slot_history_set( fd_slot_history_t * history,
-                                 ulong i ) {
+void fd_sysvar_slot_history_set( fd_slot_history_t* history, ulong i ) {
+  // Corrupt history, zero everything out
+  if ( i > history->next_slot && i - history->next_slot >= slot_history_max_entries ) {
+    for ( ulong j = 0; j < history->bits.bits->blocks_len; j++) {
+      history->bits.bits->blocks[ j ] = 0;
+    }
+  } else {
+    // Skipped slots, delete them from history
+    for (ulong j = history->next_slot; j < i; j++) {
+      ulong block_idx = (j / bits_per_block) % (history->bits.bits->blocks_len);
+      history->bits.bits->blocks[ block_idx ] &= ~( 1UL << ( j % bits_per_block ) );
+    }
+  }
   ulong block_idx = (i / bits_per_block) % (history->bits.bits->blocks_len);
   history->bits.bits->blocks[ block_idx ] |= ( 1UL << ( i % bits_per_block ) );
 }
@@ -74,8 +85,6 @@ fd_sysvar_slot_history_update( fd_exec_slot_ctx_t * slot_ctx ) {
   fd_slot_history_t history[1];
   if( fd_slot_history_decode( history, &ctx ) )
     FD_LOG_ERR(("fd_slot_history_decode failed"));
-
-  /* TODO: handle case where current_slot > max_entries */
 
   /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_history.rs#L48 */
   fd_sysvar_slot_history_set( history, slot_ctx->bank.slot );

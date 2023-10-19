@@ -68,6 +68,16 @@ static int transfer( fd_exec_instr_ctx_t               ctx,
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
+  // Case where sender and receiver are the same
+  if ( FD_UNLIKELY( memcmp(sender->uc, receiver->uc, sizeof(fd_pubkey_t)) == 0 ) ) {
+    FD_BORROWED_ACCOUNT_DECL(receiver_rec);
+    err = fd_acc_mgr_modify(ctx.txn_ctx->acc_mgr, ctx.txn_ctx->funk_txn, receiver, 0, 0UL, receiver_rec);
+    // FIXME: is this the correct error to return here? 
+    if (FD_EXECUTOR_INSTR_SUCCESS != err)
+      return err;
+    return FD_EXECUTOR_INSTR_SUCCESS;
+  }
+
   fd_borrowed_account_t * receiver_rec = NULL;
   err = fd_instr_borrowed_account_view( &ctx, receiver, &receiver_rec);
 
@@ -289,13 +299,12 @@ static int create_account(
   }
 
   fd_acc_lamports_t sender_lamports = from_rec->const_meta->info.lamports;
-
   if ( FD_UNLIKELY( sender_lamports < lamports ) ) {
     ctx.txn_ctx->custom_err = 1; /* SystemError::ResultWithNegativeLamports */
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
-  err = fd_instr_borrowed_account_modify(&ctx,  (fd_pubkey_t *) from,  0,  0UL, & from_rec);
+  err = fd_instr_borrowed_account_modify(&ctx,  (fd_pubkey_t *) from,  0,  0UL, &from_rec);
   FD_TEST( err == FD_ACC_MGR_SUCCESS );
   from_rec->meta->info.lamports = sender_lamports - lamports;
 
@@ -304,7 +313,7 @@ static int create_account(
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
-  err = fd_instr_borrowed_account_modify(&ctx,  (fd_pubkey_t *) to,  1,  space, & to_rec);
+  err = fd_instr_borrowed_account_modify(&ctx,  (fd_pubkey_t *) to,  1,  space, &to_rec);
   FD_TEST( err == FD_ACC_MGR_SUCCESS );
   /* Check that we are not exceeding the MAX_PERMITTED_DATA_LENGTH account size */
 

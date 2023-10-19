@@ -677,7 +677,7 @@
           { "name": "root_slot", "type": "option_slot" },
           { "name": "authorized_voters", "type": "vote_authorized_voters" },
           { "name": "prior_voters", "type": "vote_prior_voters" },
-          { "name": "epoch_credits", "type": "deque", "element": "vote_epoch_credits", "max":35 },
+          { "name": "epoch_credits", "type": "deque", "element": "vote_epoch_credits", "max":64 },
           { "name": "last_timestamp", "type": "vote_block_timestamp" }
       ],
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L310"

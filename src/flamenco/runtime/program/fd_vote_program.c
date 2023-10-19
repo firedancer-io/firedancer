@@ -1321,7 +1321,7 @@ vote_state_check_slots_are_valid( fd_vote_state_t *  vote_state,
     ulong * last_voted_slot = vote_state_last_voted_slot( vote_state );
     if ( FD_UNLIKELY( last_voted_slot &&
                       *deq_ulong_peek_index( vote_slots, i ) <= *last_voted_slot ) ) {
-      checked_add_expect(
+      i = checked_add_expect(
           i, 1, "`i` is bounded by `MAX_LOCKOUT_HISTORY` when finding larger slots" );
       continue;
     }
@@ -1745,6 +1745,12 @@ vote_state_withdraw(
   // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_state/mod.rs#L945
   rc = vote_account_checked_add_lamports( to_account->meta, lamports );
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
+
+  // TODO: is there a better way to add to dirty list?
+  if ( FD_UNLIKELY( lamports == 0 ) ) {
+    vote_account->meta->slot = ctx.slot_ctx->bank.slot;
+    to_account->meta->slot = ctx.slot_ctx->bank.slot;
+  }
   return OK;
 }
 
@@ -2218,8 +2224,10 @@ vote_state_double_lockouts( fd_vote_state_t * self ) {
          checked_add_expect(
              i,
              (ulong)v->lockout.confirmation_count,
-             "`confirmation_count` and tower_size should be bounded by `MAX_LOCKOUT_HISTORY`" ) )
+             "`confirmation_count` and tower_size should be bounded by `MAX_LOCKOUT_HISTORY`" ) ) {
       lockout_increase_confirmation_count( &v->lockout, 1 );
+    }
+    i++;
   }
 }
 

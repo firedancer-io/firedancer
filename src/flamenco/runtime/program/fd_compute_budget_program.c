@@ -122,26 +122,24 @@ int fd_executor_compute_budget_program_execute_instructions( fd_exec_txn_ctx_t *
 
     ctx->heap_size = updated_requested_heap_size;
   }
-  /* TODO: do we need to support default CUs per instr? */
 
   if( has_compute_units_limit_update ) {
     ctx->compute_unit_limit = fd_ulong_min(FD_MAX_COMPUTE_UNIT_LIMIT, updated_compute_unit_limit);
+  } else {
+    ctx->compute_unit_limit = fd_ulong_min(FD_MAX_COMPUTE_UNIT_LIMIT, fd_ulong_sat_mul((ulong)num_non_compute_budget_instrs, (ulong)DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT));
   }
 
   if( has_compute_units_price_update ) {
     ctx->prioritization_fee_type = prioritization_fee_type;
     ctx->compute_unit_price = updated_compute_unit_price;
 
-    if( !has_compute_units_limit_update ) {
-      ctx->compute_unit_limit = MAX_COMPUTE_UNIT_LIMIT;
-      // TODO: IF default_units_per_instruction do below
-      // ctx->compute_unit_limit = fd_ulong_min(FD_MAX_COMPUTE_UNIT_LIMIT, (ulong)num_non_compute_budget_instrs * (ulong)DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT);
-
+    // FIXME: this should not be here but solana is weird
+    if (!has_compute_units_limit_update) {
+      ctx->compute_unit_limit = FD_MAX_COMPUTE_UNIT_LIMIT;
     }
   }
 
-  /* TODO use this? */
-  (void)num_non_compute_budget_instrs;
+  ctx->compute_meter =  ctx->compute_unit_limit;
 
   return 0;
 }

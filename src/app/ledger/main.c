@@ -120,11 +120,12 @@ void SnapshotParser_parsefd_solana_accounts(struct SnapshotParser* self, char co
       /* Check existing account */
       FD_BORROWED_ACCOUNT_DECL(rec);
 
-      int read_result = fd_acc_mgr_view( acc_mgr, txn, acc_key, rec);
-
+      int read_result = FD_ACC_MGR_SUCCESS;
+      fd_account_meta_t const * acc_meta = fd_acc_mgr_view_raw( acc_mgr, txn, acc_key, &rec->const_rec, &read_result);
+      
       /* Skip if we previously inserted a newer version */
       if( read_result == FD_ACC_MGR_SUCCESS ) {
-        if( rec->const_meta->slot > slot ) break;
+        if( acc_meta->slot > slot ) break;
       } else if( FD_UNLIKELY( read_result != FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) ) {
         FD_LOG_ERR(( "database error while loading snapshot: %d", read_result ));
       }
@@ -453,7 +454,7 @@ main( int     argc,
   char const * reset        = fd_env_strip_cmdline_cstr ( &argc, &argv, "--reset",        NULL, "false"   );
   char const * cmd          = fd_env_strip_cmdline_cstr ( &argc, &argv, "--cmd",          NULL, NULL      );
   ulong        index_max    = fd_env_strip_cmdline_ulong( &argc, &argv, "--indexmax",     NULL, 350000000 );
-  ulong        xactions_max = fd_env_strip_cmdline_ulong( &argc, &argv, "--txnmax",       NULL,       100 );
+  ulong        xactions_max = fd_env_strip_cmdline_ulong( &argc, &argv, "--txnmax",       NULL,      1000 );
   char const * verifyfunky  = fd_env_strip_cmdline_cstr ( &argc, &argv, "--verifyfunky",  NULL, "false"   );
   char const * snapshotfile = fd_env_strip_cmdline_cstr ( &argc, &argv, "--snapshotfile", NULL, NULL      );
   char const * incremental  = fd_env_strip_cmdline_cstr ( &argc, &argv, "--incremental",  NULL, NULL      );
@@ -800,6 +801,13 @@ main( int     argc,
         continue;
       }
 
+      fd_hash_t acc_hash;
+      if( fd_hash_account_v0(acc_hash.uc, metadata, rec->pair.key->uc, fd_account_get_data(metadata), metadata->slot)==NULL )
+        FD_LOG_ERR(("error processing account hash"));
+
+      if( memcmp(acc_hash.uc, metadata->hash, 32) != 0 ) {
+        FD_LOG_ERR(("account hash mismatch - num_pairs: %lu, slot: %lu, acc: %32J, acc_hash: %32J, snap_hash: %32J", num_pairs, slot_ctx->bank.slot, rec->pair.key->uc, acc_hash.uc, metadata->hash));
+      }
 
       fd_memcpy(pairs[num_pairs].pubkey.key, rec->pair.key, 32);
       fd_memcpy(pairs[num_pairs].hash.hash, metadata->hash, 32);
@@ -808,7 +816,7 @@ main( int     argc,
     FD_LOG_NOTICE(("num_iter_accounts: %ld  zero_accounts: %lu", num_iter_accounts, zero_accounts));
 
     fd_hash_t accounts_hash;
-    fd_hash_account_deltas(pairs, num_pairs, &accounts_hash);
+    fd_hash_account_deltas(pairs, num_pairs, &accounts_hash, slot_ctx);
 
     free(pairs);
 
