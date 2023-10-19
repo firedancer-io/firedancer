@@ -456,6 +456,7 @@ MAP_(remove)( MAP_T * map,
 static inline void
 MAP_(clear)( MAP_T * map ) {
   MAP_(private_t) * hdr = MAP_(private_from_slot)( map );
+  hdr->key_cnt = 0UL;
   ulong slot_cnt  = 1UL<<hdr->lg_slot_cnt;
   MAP_T * slot = hdr->slot;
   for( ulong slot_idx=0UL; slot_idx<slot_cnt; slot_idx++ ) 

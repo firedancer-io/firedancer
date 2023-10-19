@@ -471,7 +471,7 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
   /*           ... that are so big they'll never run */
   if( FD_UNLIKELY( ord->compute_est >= FD_PACK_MAX_COST_PER_BLOCK       ) ) { trp_pool_ele_release( pack->pool, ord ); return; }
   /*           ... that we have seen before, this can happen if it comes in over gossip */
-  fd_ed25519_sig_t const * sig = fd_txn_get_signatures( txnp, txnp->payload );
+  fd_ed25519_sig_t const * sig = fd_txn_get_signatures( TXN(txnp), txnp->payload );
   if( FD_UNLIKELY( sig2txn_query( pack->signature_map, sig, NULL )      ) ) {
     FD_LOG_HEXDUMP_NOTICE(( "pack3", txnp->payload, txnp->payload_sz ));
     trp_pool_ele_release( pack->pool, ord ); return;
@@ -616,7 +616,13 @@ fd_pack_schedule_microblock_impl( fd_pack_t  * pack,
         fd_acct_addr_t acct_addr = acct[i];
 
         fd_pack_addr_use_t * in_wcost_table = acct_uses_query( writer_costs, acct_addr, NULL );
-        if( !in_wcost_table ) { in_wcost_table = acct_uses_insert( writer_costs, acct_addr );   in_wcost_table->total_cost = 0UL; }
+        if( !in_wcost_table ) {
+          in_wcost_table = acct_uses_insert( writer_costs, acct_addr );
+//          if ( ! in_wcost_table) {
+//            acct_uses_private_from_slot( writer_costs )
+//          }
+          in_wcost_table->total_cost = 0UL;
+        }
         in_wcost_table->total_cost += cur->compute_est;
 
         fd_pack_addr_use_t * use = acct_uses_insert( acct_in_use, acct_addr );
