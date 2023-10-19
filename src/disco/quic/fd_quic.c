@@ -306,11 +306,10 @@ before_frag( void * _ctx,
   int handled_port = dst_port == ctx->legacy_transaction_port ||
                      dst_port == ctx->quic->config.net.listen_udp_port;
 
+  /* Ignore traffic e.g. for shred tile */
   if( FD_UNLIKELY( !handled_port ) ) {
-    FD_LOG_ERR(( "Firedancer received a UDP packet on port %hu which was not expected. "
-                 "Only ports %hu and %hu should be configured to forward packets. Do "
-                 "you need to reload the XDP program?",
-                 dst_port, ctx->quic->config.net.listen_udp_port, ctx->legacy_transaction_port ));
+    *opt_filter = 1;
+    return;
   }
 
   int handled_ip_address = (src_ip_addr % ctx->round_robin_cnt) == ctx->round_robin_id;
