@@ -112,7 +112,7 @@ run( fd_tile_args_t * tile_args ) {
   fd_wksp_t * net_shred_wksp = fd_wksp_containing( net_shred_pod );
   if( FD_UNLIKELY( !net_shred_wksp ) ) FD_LOG_ERR(( "fd_wksp_containing( net_shred_pod ) failed." ));
   args.from_net_chunk0 = fd_disco_compact_chunk0( net_shred_wksp );
-  args.from_net_wmark  = fd_disco_compact_chunk0( net_shred_wksp );
+  args.from_net_wmark  = fd_disco_compact_wmark( net_shred_wksp, FD_NET_MTU );
 
   args.bank_shred_wksp = bank_shred_wksp;
 
