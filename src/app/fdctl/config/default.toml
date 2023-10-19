@@ -559,7 +559,7 @@ dynamic_port_range = "8900-9000"
         # underlying link bandwidth.  Supporting more streams per
         # connection currently has a memory footprint cost on the order
         # of kilobytes per stream, per connection.
-        max_concurrent_streams_per_connection = 16
+        max_concurrent_streams_per_connection = 256
 
         # QUIC has a handshake process which establishes a secure
         # connection between two endpoints.  The structures for this can
@@ -572,7 +572,7 @@ dynamic_port_range = "8900-9000"
         # above.
         #
         # TODO: This should be removed.
-        max_concurrent_handshakes = 32
+        max_concurrent_handshakes = 256
 
         # QUIC has a concept of a "QUIC packet", there can be multiple
         # of these inside a UDP packet.  Each QUIC packet we send to the

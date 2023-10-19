@@ -117,7 +117,7 @@ during_frag( void * _ctx,
     payload_sz = *(ushort*)(dcache_entry + sz - sizeof(ushort));
     uchar    const * payload = dcache_entry;
     fd_txn_t const * txn     = (fd_txn_t const *)( dcache_entry + fd_ulong_align_up( payload_sz, 2UL ) );
-    FD_LOG_HEXDUMP_NOTICE(( "pack0", dcache_entry, payload_sz ));
+    //FD_LOG_HEXDUMP_NOTICE(( "pack0", dcache_entry, payload_sz ));
     fd_memcpy( ctx->cur_slot->payload, payload, payload_sz                                                     );
     fd_memcpy( TXN(ctx->cur_slot),     txn,     fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
     ctx->cur_slot->payload_sz = payload_sz;
@@ -125,7 +125,7 @@ during_frag( void * _ctx,
     /* Here there is just a transaction payload, so it needs to be
        parsed.  We can parse right out into the pack structure. */
     payload_sz = sz;
-    FD_LOG_HEXDUMP_NOTICE(( "pack1", dcache_entry, payload_sz ));
+    //FD_LOG_HEXDUMP_NOTICE(( "pack1", dcache_entry, payload_sz ));
     fd_memcpy( ctx->cur_slot->payload, dcache_entry, sz );
     ulong txn_t_sz = fd_txn_parse( ctx->cur_slot->payload, sz, TXN(ctx->cur_slot), NULL );
     if( FD_UNLIKELY( !txn_t_sz ) ) {
