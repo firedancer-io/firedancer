@@ -12,6 +12,9 @@ int main( int     argc,
     175, 106, 75, 147, 236, 90, 101, 123, 219, 245, 151, 209, 202, 218, 104, 148, 8, 32,
     254, 243, 191, 218, 122, 42, 81, 193, 84
   } };
+
+  FD_TEST(fd_bn254_g1_check(&g1));
+  
   fd_bn254_point_g1_compressed_t g1c;
   fd_bn254_g1_compress(&g1, &g1c);
   FD_TEST(memcmp(g1.v, g1c.v, sizeof(g1c)) == 0);

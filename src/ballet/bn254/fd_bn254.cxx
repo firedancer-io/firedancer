@@ -13,53 +13,26 @@ extern "C" {
 
 static bool didinit = false;
 
-void
-fd_bn254_g1_compress( fd_bn254_point_g1 const * in, fd_bn254_point_g1_compressed * out ) {
-  /* Just pick off the X coordinate */
-  fd_memcpy(out->v, in->v, FD_BN254_FIELD_FOOTPRINT);
-}
-
 static void
 fd_bn254_Fq_sol_to_native(uchar const * sol, libff::alt_bn128_Fq * X) {
-  FD_STATIC_ASSERT( sizeof(X->mont_repr.data) == FD_BN254_FIELD_FOOTPRINT, fd_ballet );
+  libff::bigint<libff::alt_bn128_r_limbs> bi;
+  FD_STATIC_ASSERT( sizeof(bi.data) == FD_BN254_FIELD_FOOTPRINT, fd_ballet );
   /* Convert big-endian to little-endian while copying */
-  uchar * t = (uchar *)X->mont_repr.data;
+  uchar * t = (uchar *)(bi.data);
   for (ulong i = 0; i < FD_BN254_FIELD_FOOTPRINT; ++i)
     t[FD_BN254_FIELD_FOOTPRINT-1U-i] = sol[i];
+  new (X) libff::alt_bn128_Fq(bi);
 }
 
 static void
 fd_bn254_Fq_native_to_sol(libff::alt_bn128_Fq const * X, uchar * sol) {
-  FD_STATIC_ASSERT( sizeof(X->mont_repr.data) == FD_BN254_FIELD_FOOTPRINT, fd_ballet );
+  libff::bigint<libff::alt_bn128_r_limbs> bi;
+  FD_STATIC_ASSERT( sizeof(bi.data) == FD_BN254_FIELD_FOOTPRINT, fd_ballet );
+  bi = X->as_bigint();
   /* Convert little-endian to big-endian while copying */
-  const uchar * t = (const uchar *)X->mont_repr.data;
+  const uchar * t = (const uchar *)bi.data;
   for (ulong i = 0; i < FD_BN254_FIELD_FOOTPRINT; ++i)
     sol[i] = t[FD_BN254_FIELD_FOOTPRINT-1U-i];
-}
-
-void
-fd_bn254_g1_decompress( fd_bn254_point_g1_compressed const * in, fd_bn254_point_g1 * out ) {
-  if (!didinit) {
-    libff::init_alt_bn128_fields();
-    didinit = true;
-  }
-  /* Recover Y coordinate from X */
-  libff::alt_bn128_Fq X;
-  fd_bn254_Fq_sol_to_native(in->v, &X);
-  libff::alt_bn128_Fq X2(X);
-  X2.squared();
-  libff::alt_bn128_Fq X3_plus_b = X*X2 + libff::alt_bn128_coeff_b;
-  libff::alt_bn128_Fq Y(X3_plus_b.sqrt());
-  libff::alt_bn128_Fq negY = -Y;
-  if (negY.mont_repr < Y.mont_repr) Y = negY;
-  fd_bn254_Fq_native_to_sol(&X, out->v);
-  fd_bn254_Fq_native_to_sol(&Y, out->v + FD_BN254_FIELD_FOOTPRINT);
-}
-
-void
-fd_bn254_g2_compress( fd_bn254_point_g2 const * in, fd_bn254_point_g2_compressed * out ) {
-  /* Just pick off the X coordinate */
-  fd_memcpy(out->v, in->v, FD_BN254_G2_COMPRESSED_FOOTPRINT);
 }
 
 static void
@@ -74,6 +47,51 @@ fd_bn254_Fq2_native_to_sol(libff::alt_bn128_Fq2 const * X, uchar * sol) {
   fd_bn254_Fq_native_to_sol(&X->c1, sol + FD_BN254_G2_COMPRESSED_FOOTPRINT);
 }
 
+int
+fd_bn254_g1_check( fd_bn254_point_g1_t const * p ) {
+  if (!didinit) {
+    libff::init_alt_bn128_fields();
+    didinit = true;
+  }
+  libff::alt_bn128_Fq X;
+  fd_bn254_Fq_sol_to_native(p->v, &X);
+  libff::alt_bn128_Fq Y;
+  fd_bn254_Fq_sol_to_native(p->v + FD_BN254_FIELD_FOOTPRINT, &Y);
+  libff::alt_bn128_G1 g(X, Y, libff::alt_bn128_Fq::one());
+  return g.is_well_formed();
+}
+
+void
+fd_bn254_g1_compress( fd_bn254_point_g1 const * in, fd_bn254_point_g1_compressed * out ) {
+  /* Just pick off the X coordinate */
+  fd_memcpy(out->v, in->v, FD_BN254_FIELD_FOOTPRINT);
+}
+
+void
+fd_bn254_g1_decompress( fd_bn254_point_g1_compressed const * in, fd_bn254_point_g1 * out ) {
+  if (!didinit) {
+    libff::init_alt_bn128_fields();
+    didinit = true;
+  }
+  /* Recover Y coordinate from X */
+  libff::alt_bn128_Fq X;
+  fd_bn254_Fq_sol_to_native(in->v, &X);
+  libff::alt_bn128_Fq X2(X);
+  X2.square();
+  libff::alt_bn128_Fq X3_plus_b = X*X2 + libff::alt_bn128_coeff_b;
+  libff::alt_bn128_Fq Y(X3_plus_b.sqrt());
+  libff::alt_bn128_Fq negY = -Y;
+  if (negY.mont_repr < Y.mont_repr) Y = negY;
+  fd_bn254_Fq_native_to_sol(&X, out->v);
+  fd_bn254_Fq_native_to_sol(&Y, out->v + FD_BN254_FIELD_FOOTPRINT);
+}
+
+void
+fd_bn254_g2_compress( fd_bn254_point_g2 const * in, fd_bn254_point_g2_compressed * out ) {
+  /* Just pick off the X coordinate */
+  fd_memcpy(out->v, in->v, FD_BN254_G2_COMPRESSED_FOOTPRINT);
+}
+
 void
 fd_bn254_g2_decompress( fd_bn254_point_g2_compressed const * in, fd_bn254_point_g2 * out ) {
   if (!didinit) {
@@ -84,7 +102,7 @@ fd_bn254_g2_decompress( fd_bn254_point_g2_compressed const * in, fd_bn254_point_
   libff::alt_bn128_Fq2 X;
   fd_bn254_Fq2_sol_to_native(in->v, &X);
   libff::alt_bn128_Fq2 X2(X);
-  X2.squared();
+  X2.square();
   libff::alt_bn128_Fq2 X3_plus_b = X*X2 + libff::alt_bn128_twist_coeff_b;
   libff::alt_bn128_Fq2 Y(X3_plus_b.sqrt());
   libff::alt_bn128_Fq2 negY = -Y;

@@ -33,6 +33,8 @@ struct __attribute__((aligned(FD_BN254_ALIGN))) fd_bn254_point_g2_compressed {
 };
 typedef struct fd_bn254_point_g2_compressed fd_bn254_point_g2_compressed_t;
 
+int fd_bn254_g1_check( fd_bn254_point_g1_t const * p );
+
 void fd_bn254_g1_compress( fd_bn254_point_g1_t const * in, fd_bn254_point_g1_compressed_t * out );
 
 void fd_bn254_g1_decompress( fd_bn254_point_g1_compressed_t const * in, fd_bn254_point_g1_t * out );
