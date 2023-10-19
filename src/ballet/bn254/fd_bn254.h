@@ -45,6 +45,8 @@ void fd_bn254_g2_compress( fd_bn254_point_g2_t const * in, fd_bn254_point_g2_com
 
 void fd_bn254_g2_decompress( fd_bn254_point_g2_compressed_t const * in, fd_bn254_point_g2_t * out );
 
+void fd_bn254_g1_add( fd_bn254_point_g1_t const * x, fd_bn254_point_g1_t const * y, fd_bn254_point_g1_t * z );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_ballet_bn254_fd_bn254_h */
