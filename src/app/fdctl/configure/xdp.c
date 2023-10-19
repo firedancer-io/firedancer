@@ -125,11 +125,10 @@ check( config_t * const config ) {
   if( FD_UNLIKELY( result && errno == ENOENT ) ) NOT_CONFIGURED( "`%s` does not exist", xdp_path );
   else if( FD_UNLIKELY( result ) ) PARTIALLY_CONFIGURED( "`%s` cannot be statted (%i-%s)", xdp_path, errno, fd_io_strerror( errno ) );
 
-  CHECK( check_dir(  "/sys/fs/bpf", config->uid, config->uid, S_IFDIR | S_IRWXU | S_IRGRP | S_IXGRP ) );
-  CHECK( check_dir(  xdp_path,      config->uid, config->uid, S_IFDIR | S_IRWXU | S_IRGRP | S_IXGRP ) );
+  CHECK( check_dir(  xdp_path, config->uid, config->uid, S_IFDIR | S_IRWXU | S_IRGRP | S_IXGRP ) );
 
   snprintf1( xdp_path, PATH_MAX, "/sys/fs/bpf/%s/udp_dsts", config->name );
-  CHECK( check_file( xdp_path,      config->uid, config->uid, S_IFREG | S_IRUSR | S_IWUSR | S_IRGRP ) );
+  CHECK( check_file( xdp_path, config->uid, config->uid, S_IFREG | S_IRUSR | S_IWUSR | S_IRGRP ) );
 
   char * interfaces[] = { config->tiles.net.interface, "lo" };
   ulong interfaces_sz = !strcmp( config->tiles.net.interface, "lo" ) ? 1 : 2;
