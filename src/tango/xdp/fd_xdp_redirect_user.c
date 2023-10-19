@@ -79,8 +79,6 @@ fd_xdp_init( char const * app_name,
   if( FD_UNLIKELY( 0!=fd_xdp_validate_name_cstr( app_name, NAME_MAX, "app_name" ) ) )
     return -1;
 
-  fd_xdp_reperm( "/sys/fs/bpf", mode, uid, gid, 1 );
-
   /* Create UDP dsts map */
 
   union bpf_attr attr = {
