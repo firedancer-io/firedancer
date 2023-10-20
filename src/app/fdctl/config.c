@@ -507,7 +507,7 @@ topo_initialize( config_t * config ) {
   LINK( 1,                                FD_TOPO_LINK_KIND_DEDUP_TO_PACK,   FD_TOPO_WKSP_KIND_DEDUP_PACK,   config->tiles.verify.receive_buffer_size, FD_TPU_DCACHE_MTU,      1UL );
   /* FD_TOPO_LINK_KIND_GOSSIP_TO_PACK could be FD_TPU_MTU for now, since txns are not parsed, but better to just share one size for all the ins of pack */
   LINK( 1,                                FD_TOPO_LINK_KIND_GOSSIP_TO_PACK,  FD_TOPO_WKSP_KIND_DEDUP_PACK,   config->tiles.verify.receive_buffer_size, FD_TPU_DCACHE_MTU,      1UL );
-  LINK( 1,                                FD_TOPO_LINK_KIND_LSCHED_TO_PACK,  FD_TOPO_WKSP_KIND_DEDUP_PACK,   128UL,                                    16UL + 432000UL * 32UL, 1UL );
+  LINK( 1,                                FD_TOPO_LINK_KIND_LSCHED_TO_PACK,  FD_TOPO_WKSP_KIND_DEDUP_PACK,   128UL,                                    24UL + 432000UL * 32UL, 1UL );
   LINK( 1,                                FD_TOPO_LINK_KIND_PACK_TO_BANK,    FD_TOPO_WKSP_KIND_PACK_BANK,    128UL,                                    USHORT_MAX,             1UL );
   LINK( 1,                                FD_TOPO_LINK_KIND_POH_TO_SHRED,    FD_TOPO_WKSP_KIND_BANK_SHRED,   128UL,                                    USHORT_MAX,             1UL );
   /* See long comment in fd_shred_tile.c for an explanation about the size of this dcache. */
@@ -827,6 +827,7 @@ config_parse( int *    pargc,
       case FD_TOPO_TILE_KIND_PACK:
         tile->pack.max_pending_transactions = result.tiles.pack.max_pending_transactions;
         tile->pack.bank_tile_count = result.layout.bank_tile_count;
+        strncpy( tile->pack.identity_key_path, result.consensus.identity_path, sizeof(tile->pack.identity_key_path) );
         break;
       case FD_TOPO_TILE_KIND_BANK:
         break;

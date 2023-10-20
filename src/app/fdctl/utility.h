@@ -46,11 +46,15 @@ snprintf1( char * s,
    key_path must point to the first letter in a nul-terminated cstr that
    is the path on disk of the key file.  The key file must exist, be
    readable, and have the form of a Solana keypair (64 element JSON
-   array of bytes).  Returns a pointer to the first byte of the key in
-   binary format.  Terminates the process with FD_LOG_ERR on any error,
-   so from the perspective of the caller, it cannot fail. */
+   array of bytes).  If public_key_only is non-zero, zeros out the
+   private part of the key and returns a pointer to the first byte (of
+   32) of the public part of the key in binary format.  If
+   public_key_only is zero, returns a pointer to the first byte (of 64)
+   of the key in binary format.  Terminates the process by calling
+   FD_LOG_ERR with details on any error, so from the perspective of the
+   caller, it cannot fail. */
 uchar const *
-load_key_into_protected_memory( char const * key_path );
+load_key_into_protected_memory( char const * key_path, int public_key_only );
 
 /* self_exe() retrieves the full path of the current executable
    into the path. Path should be a buffer with at least PATH_MAX

@@ -440,11 +440,13 @@ send_shred( fd_shred_ctx_t *      ctx,
 
 static void
 after_frag( void *             _ctx,
+            ulong              in_idx,
             ulong *            opt_sig,
             ulong *            opt_chunk,
             ulong *            opt_sz,
             int *              opt_filter,
             fd_mux_context_t * mux ) {
+  (void)in_idx;
   (void)opt_sig;
   (void)opt_chunk;
   (void)opt_sz;
@@ -609,7 +611,7 @@ privileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( !strcmp( tile->shred.identity_key_path, "" ) ) )
     FD_LOG_ERR(( "identity_key_path not set" ));
 
-  ctx->shred_signing_key = load_key_into_protected_memory( tile->shred.identity_key_path );
+  ctx->shred_signing_key = load_key_into_protected_memory( tile->shred.identity_key_path, /* pubkey only: */ 0 );
 }
 
 static void

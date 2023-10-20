@@ -103,11 +103,13 @@ during_frag( void * _ctx,
 
 static inline void
 after_frag( void *             _ctx,
+            ulong              in_idx,
             ulong *            opt_sig,
             ulong *            opt_chunk,
             ulong *            opt_sz,
             int   *            opt_filter,
             fd_mux_context_t * mux ) {
+  (void)in_idx;
   (void)mux;
 
   fd_dedup_ctx_t * ctx = (fd_dedup_ctx_t *)_ctx;

@@ -465,11 +465,6 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
     trp_pool_ele_release( pack->pool, ord );
     return;
   }
-  /* Throw out transactions ... */
-  /*           ... that are unfunded */
-  if( FD_UNLIKELY( !fd_pack_can_fee_payer_afford( accts, ord->rewards ) ) ) { trp_pool_ele_release( pack->pool, ord ); return; }
-  /*           ... that are so big they'll never run */
-  if( FD_UNLIKELY( ord->compute_est >= FD_PACK_MAX_COST_PER_BLOCK       ) ) { trp_pool_ele_release( pack->pool, ord ); return; }
 
   fd_txn_acct_iter_t ctrl[1];
   int writes_to_sysvar = 0;
@@ -477,8 +472,18 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
       i=fd_txn_acct_iter_next( i, ctrl ) ) {
     writes_to_sysvar |= fd_pack_unwritable_contains( accts+i );
   }
-  /*           ... try to write to a sysvar */
-  if( FD_UNLIKELY( writes_to_sysvar )                                     ) { trp_pool_ele_release( pack->pool, ord ); return; }
+
+  fd_ed25519_sig_t const * sig = fd_txn_get_signatures( txn, payload );
+
+  /* Throw out transactions ... */
+  /*           ... that are unfunded */
+  if( FD_UNLIKELY( !fd_pack_can_fee_payer_afford( accts, ord->rewards ) ) ) { trp_pool_ele_release( pack->pool, ord ); return; }
+  /*           ... that are so big they'll never run */
+  if( FD_UNLIKELY( ord->compute_est >= FD_PACK_MAX_COST_PER_BLOCK       ) ) { trp_pool_ele_release( pack->pool, ord ); return; }
+  /*           ... that try to write to a sysvar */
+  if( FD_UNLIKELY( writes_to_sysvar                                     ) ) { trp_pool_ele_release( pack->pool, ord ); return; }
+  /*           ... that we already know about */
+  if( FD_UNLIKELY( sig2txn_query( pack->signature_map, sig, NULL )      ) ) { trp_pool_ele_release( pack->pool, ord ); return; }
 
   /* TODO: Add recent blockhash based expiry here */
 
