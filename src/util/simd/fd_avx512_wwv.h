@@ -135,11 +135,11 @@ static inline wwv_t wwv_ror_vector( wwv_t a, wwv_t b ) {
 
 #define wwv_to_wwi(x) wwv_and( (x), wwv_bcast( (ulong)UINT_MAX ) )
 #define wwv_to_wwu(x) wwv_and( (x), wwv_bcast( (ulong)UINT_MAX ) )
-#define wwv_to_wwv(x) (x)
+#define wwv_to_wwl(x) (x)
 
 #define wwv_to_wwi_raw(x) (x)
 #define wwv_to_wwu_raw(x) (x)
-#define wwv_to_wwv_raw(x) (x)
+#define wwv_to_wwl_raw(x) (x)
 
 /* Misc operations */
 

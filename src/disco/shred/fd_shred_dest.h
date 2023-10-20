@@ -44,6 +44,7 @@ struct pubkey_to_idx;
 typedef struct pubkey_to_idx pubkey_to_idx_t;
 
 #define FD_SHRED_DEST_ALIGN (128UL)
+FD_STATIC_ASSERT( FD_SHRED_DEST_ALIGN>=FD_SHA256_BATCH_ALIGN, fd_shred_dest_private_align );
 
 struct __attribute__((aligned(FD_SHRED_DEST_ALIGN))) fd_shred_dest_private {
   uchar      _sha256_batch[ FD_SHA256_BATCH_FOOTPRINT ]  __attribute__((aligned(FD_SHA256_BATCH_ALIGN)));
