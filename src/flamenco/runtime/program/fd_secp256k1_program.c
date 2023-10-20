@@ -138,11 +138,3 @@ int fd_executor_secp256k1_program_execute_instruction( fd_exec_instr_ctx_t ctx )
 
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
-
-#else
-
-int fd_executor_secp256k1_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
-  (void)ctx;
-  FD_LOG_WARNING(("secp256k1 not supported in this build"));
-  return FD_EXECUTOR_SIGN_ERR_SIGNATURE;
-}
