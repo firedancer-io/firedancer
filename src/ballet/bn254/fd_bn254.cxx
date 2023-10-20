@@ -81,6 +81,17 @@ fd_bn254_g2_libff_to_sol( libff::alt_bn128_G2 g, fd_bn254_point_g2_t * p ) {
 }
 */
 
+static libff::bigint<libff::alt_bn128_r_limbs>
+fd_bn254_bigint_sol_to_libff(fd_bn254_bigint_t const * sol) {
+  libff::bigint<libff::alt_bn128_r_limbs> bi;
+  FD_STATIC_ASSERT( sizeof(bi.data) == FD_BN254_BIGINT_FOOTPRINT, fd_ballet );
+  /* Convert big-endian to little-endian while copying */
+  uchar * t = (uchar *)(bi.data);
+  for (ulong i = 0; i < FD_BN254_FIELD_FOOTPRINT; ++i)
+    t[FD_BN254_BIGINT_FOOTPRINT-1U-i] = sol->v[i];
+  return bi;
+}
+
 int
 fd_bn254_g1_check( fd_bn254_point_g1_t const * p ) {
   if (!didinit) {
@@ -156,4 +167,13 @@ fd_bn254_g1_add( fd_bn254_point_g1_t const * x, fd_bn254_point_g1_t const * y, f
     didinit = true;
   }
   fd_bn254_g1_libff_to_sol( fd_bn254_g1_sol_to_libff(x) + fd_bn254_g1_sol_to_libff(y), z );
+}
+
+void
+fd_bn254_g1_mult( fd_bn254_point_g1_t const * x, fd_bn254_bigint_t const * y, fd_bn254_point_g1_t * z ) {
+  if (!didinit) {
+    libff::init_alt_bn128_params();
+    didinit = true;
+  }
+  fd_bn254_g1_libff_to_sol( fd_bn254_bigint_sol_to_libff(y) * fd_bn254_g1_sol_to_libff(x), z );
 }
