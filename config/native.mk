@@ -40,7 +40,7 @@ BUILDDIR?=native/$(CC)
 CPPFLAGS+=-march=native -mtune=native
 
 include config/with-brutality.mk
-#include config/with-optimization.mk
+include config/with-optimization.mk
 include config/with-debug.mk
 
 $(call map-define,FD_HAS_SHANI, __SHA__)
@@ -78,5 +78,3 @@ include config/x86-64-clang-flags.mk
 include config/with-clang.mk
 	endif
 endif
-
-include config/with-libff.mk
