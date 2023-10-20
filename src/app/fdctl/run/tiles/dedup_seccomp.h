@@ -13,30 +13,30 @@ static void populate_sock_filter_policy_dedup(struct sock_filter (*out) [static 
     /* Check: Jump to RET_KILL_PROCESS if the script's arch != the runtime arch */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, ( offsetof( struct seccomp_data, arch ) ) ),
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ARCH_NR, 0, /* RET_KILL_PROCESS */ 10 ),
-    /* loading syscall number in accumulator as it might have been evicted by the previous evaluation */
+    /* loading syscall number in accumulator */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, ( offsetof( struct seccomp_data, nr ) ) ),
-    /* begin write: (Symbol(or), (Symbol(eq), (Symbol(arg), 0), 2), (Symbol(eq), (Symbol(arg), 0), 3)) */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, __NR_write, 0, /* lbl_1 */ 4 ),
+    /* allow write based on expression */
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, __NR_write, /* check_write */ 2, 0 ),
+    /* allow fsync based on expression */
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, __NR_fsync, /* check_fsync */ 5, 0 ),
+    /* none of the syscalls matched */
+    { BFP_JMP | BPF_JA, 0, 0, /* RET_KILL_PROCESS */ 6 },
+//  check_write:
     /* load syscall argument 0 in accumulator */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[0])),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, 2, /* RET_ALLOW */ 7, /* lbl_2 */ 0 ),
-    /* lbl_2: */
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, 2, /* RET_ALLOW */ 5, /* lbl_1 */ 0 ),
+//  lbl_1:
     /* load syscall argument 0 in accumulator */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[0])),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, 3, /* RET_ALLOW */ 5, /* RET_KILL_PROCESS */ 4 ),
-    /* lbl_1: */
-    /* loading syscall number in accumulator as it might have been evicted by the previous evaluation */
-    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, ( offsetof( struct seccomp_data, nr ) ) ),
-    /* begin fsync: (Symbol(eq), (Symbol(arg), 0), 3) */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, __NR_fsync, 0, /* lbl_3 */ 2 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, 3, /* RET_ALLOW */ 3, /* RET_KILL_PROCESS */ 2 ),
+//  check_fsync:
     /* load syscall argument 0 in accumulator */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[0])),
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, 3, /* RET_ALLOW */ 1, /* RET_KILL_PROCESS */ 0 ),
-    /* lbl_3: */
-    /* RET_KILL_PROCESS: */
+//  RET_KILL_PROCESS:
     /* KILL_PROCESS is placed before ALLOW since it's the fallthrough case. */
     BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS ),
-    /* RET_ALLOW: */
+//  RET_ALLOW:
     /* ALLOW has to be reached by jumping */
     BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_ALLOW ),
   };
