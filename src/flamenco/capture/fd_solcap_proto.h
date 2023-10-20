@@ -28,11 +28,10 @@
      SOLCAP_V1_BANK:  Bank pre-image, version 0
                       (assumed to only contain SOLCAP_V1_BANK chunks)
 
-   Capture content is divided into variable-length chunks.  The size of
-   a chunk should be no larger than 128 MiB.  Each chunk contains a
-   fixed-size binary header containing type and length information.
-   Following the header is a serialized Protobuf object with chunk-
-   specific information.
+   Capture content is divided into variable-length chunks. Each chunk 
+   contains a fixed-size binary header containing type and length 
+   information. Following the header is a serialized Protobuf object 
+   with chunk-specific information.
 
    Typically, readers sequentially read in chunks, loading one chunk
    into memory at a time.  Within a chunk, data structures are laid out

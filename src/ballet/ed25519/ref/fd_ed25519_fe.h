@@ -75,6 +75,15 @@ fd_ed25519_fe_1( fd_ed25519_fe_t * h ) {
   return h;
 }
 
+static inline fd_ed25519_fe_t *
+fd_ed25519_fe_2( fd_ed25519_fe_t * h ) {
+  h->limb[0] = 2; h->limb[1] = 0;
+  h->limb[2] = 0; h->limb[3] = 0;
+  h->limb[4] = 0; h->limb[5] = 0;
+  h->limb[6] = 0; h->limb[7] = 0;
+  h->limb[8] = 0; h->limb[9] = 0;
+  return h;
+}
 /* fd_ed25519_fe_rand initializes h to a random field element whose
    limbs are normalized (approximately uniform random distributed).
    Returns h and, on return, the result will be stored in the fe pointed
@@ -392,6 +401,26 @@ fd_ed25519_fe_pow22523_2( fd_ed25519_fe_t * out0, fd_ed25519_fe_t const * z0,
 void
 fd_ed25519_fe_mul121666( fd_ed25519_fe_t *       h,
                          fd_ed25519_fe_t const * f );
+
+int
+fd_ed25519_fe_sqrt_ratio( fd_ed25519_fe_t *       h,
+                          fd_ed25519_fe_t const * f,
+                          fd_ed25519_fe_t const * g );
+
+static inline int
+fd_ed25519_fe_inv_sqrt( fd_ed25519_fe_t *       h,
+                       fd_ed25519_fe_t const * f ) {
+  fd_ed25519_fe_t g[1]; fd_ed25519_fe_1( g );
+  return fd_ed25519_fe_sqrt_ratio( h, g, f );
+}
+
+static inline void
+fd_ed25519_fe_abs( fd_ed25519_fe_t *       h,
+                   fd_ed25519_fe_t const * f ) {
+  fd_ed25519_fe_t fneg[1];
+  fd_ed25519_fe_neg( fneg, f );
+  fd_ed25519_fe_if( h, fd_ed25519_fe_isnegative( f ), fneg, f );
+}
 
 FD_PROTOTYPES_END
 

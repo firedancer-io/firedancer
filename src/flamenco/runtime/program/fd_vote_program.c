@@ -657,6 +657,11 @@ fd_executor_vote_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
     fd_vote_authorize_checked_with_seed_args_t const * args =
         &instruction.inner.authorize_checked_with_seed;
 
+    /* https://github.com/solana-labs/solana/blob/43daa37937907c10099e30af10a5a0b43e2dd2fe/programs/vote/src/vote_processor.rs#L122 */
+    if( !FD_FEATURE_ACTIVE( ctx.slot_ctx, vote_authorize_with_seed ) ) {
+      return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+    }
+
     // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_processor.rs#L116
     if ( FD_UNLIKELY( ctx.instr->acct_cnt < 4 ) ) {
       rc = FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
@@ -903,15 +908,6 @@ fd_executor_vote_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
 
       decode_compact_update( ctx, vote_state_update, &decode );
 
-#if 0
-      fd_flamenco_yaml_t * yaml =
-        fd_flamenco_yaml_init( fd_flamenco_yaml_new(
-            fd_valloc_malloc(ctx.valloc, fd_flamenco_yaml_align(), fd_flamenco_yaml_footprint() ) ),
-          stdout );
-
-      fd_vote_state_update_walk(yaml, &decode, fd_flamenco_yaml_walk, NULL, 0U );
-#endif
-
       rc = vote_state_process_vote_state_update( me, &slot_hashes, &clock, &decode, signers, ctx );
 
       decode.root      = ( fd_option_slot_t ){ .is_some = false, .slot = ULONG_MAX };
@@ -1038,6 +1034,11 @@ vote_processor_process_authorize_with_seed_instruction(
   int               rc;
   fd_exec_instr_ctx_t ctx = instruction_context;
 
+  /* https://github.com/solana-labs/solana/blob/43daa37937907c10099e30af10a5a0b43e2dd2fe/programs/vote/src/vote_processor.rs#L101 */
+  if( !FD_FEATURE_ACTIVE( ctx.slot_ctx, vote_authorize_with_seed ) ) {
+    return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+  }
+
   /* This is intentionally duplicative with the entrypoint to vote process instruction to match Labs
    * https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_processor.rs#L34-L36
    */
@@ -1053,10 +1054,7 @@ vote_processor_process_authorize_with_seed_instruction(
 
   // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_processor.rs#L32
   fd_pubkey_t * expected_authority_keys[SIGNERS_MAX] = { 0 };
-  for ( int i = 0; i < SIGNERS_MAX; i++ ) {
-    expected_authority_keys[i] =
-        (fd_pubkey_t *)fd_valloc_malloc( ctx.valloc, 1, sizeof( fd_pubkey_t ) );
-  }
+  fd_pubkey_t single_signer = { 0 };
 
   // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_processor.rs#L33
   if ( FD_UNLIKELY( fd_instr_acc_is_signer_idx( ctx.instr, 2 ) ) ) {
@@ -1065,6 +1063,7 @@ vote_processor_process_authorize_with_seed_instruction(
     fd_pubkey_t const * base_pubkey = &ctx.txn_ctx->accounts[ctx.instr->acct_txn_idxs[2]];
 
     // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_processor.rs#L37-L41
+    expected_authority_keys[0] = &single_signer;
     if ( FD_UNLIKELY(
              rc = fd_pubkey_create_with_seed( base_pubkey->uc,
                                               current_authority_derived_key_seed,
@@ -1084,9 +1083,6 @@ vote_processor_process_authorize_with_seed_instruction(
                              (fd_pubkey_t const **)expected_authority_keys,
                              &clock,
                              ctx );
-  for ( int i = 0; i < SIGNERS_MAX; i++ ) {
-    fd_valloc_free( ctx.valloc, expected_authority_keys[i] );
-  }
 
   return rc;
 }
@@ -1325,7 +1321,7 @@ vote_state_check_slots_are_valid( fd_vote_state_t *  vote_state,
     ulong * last_voted_slot = vote_state_last_voted_slot( vote_state );
     if ( FD_UNLIKELY( last_voted_slot &&
                       *deq_ulong_peek_index( vote_slots, i ) <= *last_voted_slot ) ) {
-      checked_add_expect(
+      i = checked_add_expect(
           i, 1, "`i` is bounded by `MAX_LOCKOUT_HISTORY` when finding larger slots" );
       continue;
     }
@@ -1642,10 +1638,11 @@ vote_state_verify_authorized_signer( fd_pubkey_t const * authorized,
                                      fd_pubkey_t const * signers[static SIGNERS_MAX] ) {
   // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_state/mod.rs#L881
   for ( ulong i = 0; i < SIGNERS_MAX; i++ ) {
-    if ( FD_UNLIKELY( signers[i] &&
-                      0 == memcmp( signers[i], authorized, sizeof( fd_pubkey_t ) ) ) ) {
-      return FD_EXECUTOR_INSTR_SUCCESS;
-    }
+    if (NULL != signers[i]) {
+      if (0 == memcmp( signers[i], authorized, sizeof( fd_pubkey_t ) ) )
+        return FD_EXECUTOR_INSTR_SUCCESS;
+    } else
+      break;
   }
   return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
 }
@@ -1748,6 +1745,12 @@ vote_state_withdraw(
   // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_state/mod.rs#L945
   rc = vote_account_checked_add_lamports( to_account->meta, lamports );
   if ( FD_UNLIKELY( rc != OK ) ) return rc;
+
+  // TODO: is there a better way to add to dirty list?
+  if ( FD_UNLIKELY( lamports == 0 ) ) {
+    vote_account->meta->slot = ctx.slot_ctx->bank.slot;
+    to_account->meta->slot = ctx.slot_ctx->bank.slot;
+  }
   return OK;
 }
 
@@ -2221,8 +2224,10 @@ vote_state_double_lockouts( fd_vote_state_t * self ) {
          checked_add_expect(
              i,
              (ulong)v->lockout.confirmation_count,
-             "`confirmation_count` and tower_size should be bounded by `MAX_LOCKOUT_HISTORY`" ) )
+             "`confirmation_count` and tower_size should be bounded by `MAX_LOCKOUT_HISTORY`" ) ) {
       lockout_increase_confirmation_count( &v->lockout, 1 );
+    }
+    i++;
   }
 }
 
@@ -2511,15 +2516,6 @@ get_state( fd_borrowed_account_t const *            self,
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
 
-#if 0
-  fd_flamenco_yaml_t * yaml =
-    fd_flamenco_yaml_init( fd_flamenco_yaml_new(
-        fd_valloc_malloc(ctx.valloc, fd_flamenco_yaml_align(), fd_flamenco_yaml_footprint() ) ),
-      stdout );
-
-  fd_vote_state_versioned_walk(yaml, versioned, fd_flamenco_yaml_walk, NULL, 0U );
-#endif
-
   return OK;
 }
 
@@ -2575,26 +2571,6 @@ set_state( fd_borrowed_account_t *     self,
     if ( FD_UNLIKELY( 0 != fd_vote_transcoding_state_versioned_encode( state, &encode ) ) )
       FD_LOG_ERR( ( "fd_vote_state_versioned_encode failed" ) );
   }
-
-#if 0
-  {
-    fd_vote_state_versioned_t p;
-
-    fd_bincode_decode_ctx_t decode = {
-      .data    = raw_acc_data,
-      .dataend = encode.dataend,
-      .valloc  = ctx.valloc
-    };
-
-    fd_flamenco_yaml_t * yaml =
-      fd_flamenco_yaml_init( fd_flamenco_yaml_new(
-          fd_valloc_malloc(ctx.valloc, fd_flamenco_yaml_align(), fd_flamenco_yaml_footprint() ) ),
-        stdout );
-
-    fd_vote_state_versioned_decode(&p, &decode);
-    fd_vote_state_versioned_walk(yaml, &p, fd_flamenco_yaml_walk, NULL, 0U );
-  }
-#endif
 
   return 0;
 }

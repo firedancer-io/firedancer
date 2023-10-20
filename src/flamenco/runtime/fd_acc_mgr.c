@@ -108,7 +108,7 @@ fd_acc_mgr_modify_raw( fd_acc_mgr_t *        acc_mgr,
   fd_funk_t *       funk = acc_mgr->funk;
   fd_funk_rec_key_t id   = fd_acc_mgr_key( pubkey );
 
-  int funk_err;
+  int funk_err = FD_FUNK_SUCCESS;
   fd_funk_rec_t * rec = fd_funk_rec_write_prepare( funk, txn, &id, sizeof(fd_account_meta_t)+min_data_sz, do_create, opt_con_rec, &funk_err );
 
   if( FD_UNLIKELY( !rec ) )  {
@@ -129,7 +129,6 @@ fd_acc_mgr_modify_raw( fd_acc_mgr_t *        acc_mgr,
   fd_account_meta_t * ret = fd_funk_val( rec, fd_funk_wksp(funk) );
   if( do_create && ret->magic == 0 )
     fd_account_meta_init(ret);
-
   FD_TEST( ret->magic == FD_ACCOUNT_META_MAGIC );
 
   return ret;

@@ -232,12 +232,15 @@ JT_CASE_END
   register_file[instr.dst_reg] = (uint)(-((int)register_file[instr.dst_reg]));
 JT_CASE_END
 /* 0x85 */ JT_CASE(0x85) // FD_BPF_OP_CALL_IMM
-  // if (instr.imm < ctx->instrs_sz ) {
-  //   register_file[10] += 0x2000;
-  //   cond_fault = 0;
-  //   pc = instr.imm;
-  // } else 
-  {
+  if ( (ulong)(pc + (int)instr.imm + 1L) < ctx->instrs_sz ) {
+    register_file[10] += 0x2000;
+    cond_fault = 0;
+    fd_vm_stack_push( &ctx->stack, (ulong)pc, &register_file[6] );
+    // printf("QQQ: %lu\n", instr.imm);
+    pc += (int)instr.imm;
+  } else {
+    ctx->compute_meter = fd_ulong_sat_sub(ctx->compute_meter, ctx->due_insn_cnt);
+    ctx->due_insn_cnt = 0;
     fd_sbpf_syscalls_t * syscall_entry_imm = fd_sbpf_syscalls_query( ctx->syscall_map, instr.imm, NULL );
     if( syscall_entry_imm==NULL ) {
       fd_sbpf_calldests_t * calldest_entry_imm = fd_sbpf_calldests_query( ctx->local_call_map, instr.imm, NULL );
@@ -254,6 +257,7 @@ JT_CASE_END
     } else {
       cond_fault = ((fd_vm_syscall_fn_ptr_t)( syscall_entry_imm->func_ptr ))(ctx, register_file[1], register_file[2], register_file[3], register_file[4], register_file[5], &register_file[0]);
     }
+    ctx->previous_instruction_meter = ctx->compute_meter;
   }
   goto *((cond_fault == 0) ? &&fallthrough_0x85 : &&JT_RET_LOC);
 fallthrough_0x85:
@@ -278,7 +282,7 @@ JT_CASE_END
   } else {
     fd_sbpf_syscalls_t * syscall_entry_reg = fd_sbpf_syscalls_query( ctx->syscall_map, (uint)register_file[instr.imm], NULL );
     if( syscall_entry_reg==NULL ) {
-      fd_sbpf_calldests_t * calldest_entry_reg = fd_sbpf_calldests_query( ctx->local_call_map, register_file[instr.imm], NULL );
+      fd_sbpf_calldests_t * calldest_entry_reg = fd_sbpf_calldests_query( ctx->local_call_map, (uint)register_file[instr.imm], NULL );
       if( calldest_entry_reg!=NULL ) {
         // FIXME: DO STACK STUFF correctly: move this r10 manipulation in the fd_vm_stack_t or on success.
         register_file[10] += 0x2000;
@@ -290,6 +294,7 @@ JT_CASE_END
         cond_fault = 1;
       }
     } else {
+      ctx->due_insn_cnt = fd_ulong_sat_add(ctx->due_insn_cnt, 1UL);
       cond_fault = ((fd_vm_syscall_fn_ptr_t)( syscall_entry_reg->func_ptr ))(ctx, register_file[2], register_file[2], register_file[3], register_file[4], register_file[5], &register_file[0]);
     }
   }
@@ -306,6 +311,12 @@ JT_CASE_END
   register_file[10] -= 0x2000;
   // FIXME: stack underflow fault.
   if( ctx->stack.frames_used==0 ) {
+    if (ctx->due_insn_cnt > ctx->previous_instruction_meter) {
+      ctx->due_insn_cnt = 0;
+      ctx->compute_meter = 0;
+      ctx->previous_instruction_meter = 0;
+      cond_fault = 1;
+    }
     goto JT_RET_LOC;
   }
   fd_vm_stack_pop( &ctx->stack, (ulong *)&pc, &register_file[6] );

@@ -16,6 +16,7 @@ const char *verbose = NULL;
 const char *fail_fast = NULL;
 
 static ulong scratch_mb = 0UL;
+long fail_before = -1;
 
 uchar do_leakcheck = 0;
 const char * do_dump = NULL;
@@ -351,35 +352,11 @@ int fd_executor_run_test(
     uint use_sysvar_instructions = 0;
     fd_executor_setup_accessed_accounts_for_txn( &txn_ctx, &raw_txn_b, &use_sysvar_instructions);
     fd_executor_setup_borrowed_accounts_for_txn( &txn_ctx );
-    // TODO: dirty hack to get around additional account parsed for testing
-    if (txn_ctx.txn_descriptor->acct_addr_cnt == test->accs_len + 1) {
-      txn_ctx.txn_descriptor->acct_addr_cnt = (ushort)test->accs_len;
-      txn_ctx.txn_descriptor->readonly_unsigned_cnt--;
-    }
 
     fd_instr_info_t instr;
     fd_convert_txn_instr_to_instr( (fd_txn_t const *)txn_descriptor, &raw_txn_b, txn_instr, txn_ctx.accounts, txn_ctx.borrowed_accounts, &instr );
 
-    fd_exec_instr_ctx_t ctx = {
-      .epoch_ctx      = epoch_ctx,
-      .slot_ctx       = slot_ctx,
-      .txn_ctx        = &txn_ctx,
-      .acc_mgr        = txn_ctx.acc_mgr,
-      .valloc         = txn_ctx.valloc,
-      .funk_txn       = txn_ctx.funk_txn,
-      .instr          = &instr,
-    };
-
-    execute_instruction_func_t exec_instr_func = fd_executor_lookup_native_program( &test->program_id );
-    if (NULL == exec_instr_func) {
-      char buf[50];
-      fd_base58_encode_32((uchar *) &test->program_id, NULL, buf);
-
-      log_test_fail( test, suite, "fd_executor_lookup_native_program failed: %s", buf );
-      ret = -1;
-      break;
-    }
-    int exec_result = exec_instr_func( ctx );
+    int exec_result = fd_execute_instr( &instr, &txn_ctx );
     if ( exec_result != test->expected_result ) {
       if (NULL != verbose)
         log_test_fail( test, suite, "expected transaction result %d, got %d: %s", test->expected_result, exec_result, test->bt );
@@ -390,8 +367,8 @@ int fd_executor_run_test(
     }
 
     if ( exec_result == FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR ) {
-      if ( ctx.txn_ctx->custom_err != test->custom_err) {
-        log_test_fail( test, suite, "expected custom error value %d, got %d: %s", test->custom_err, ctx.txn_ctx->custom_err, (!!verbose) ? test->bt : "" );
+      if ( txn_ctx.custom_err != test->custom_err) {
+        log_test_fail( test, suite, "expected custom error value %d, got %d: %s", test->custom_err, txn_ctx.custom_err, (!!verbose) ? test->bt : "" );
         ret = -1;
         break;
       }
@@ -403,7 +380,7 @@ int fd_executor_run_test(
         if( fd_pubkey_is_sysvar_id( &test->accs[i].pubkey ) ) continue;
 
         int    err = 0;
-        char * raw_acc_data = (char*) fd_acc_mgr_view_raw(ctx.acc_mgr, ctx.funk_txn, (fd_pubkey_t *) &test->accs[i].pubkey, NULL, &err);
+        char * raw_acc_data = (char*) fd_acc_mgr_view_raw( slot_ctx->acc_mgr, slot_ctx->funk_txn, (fd_pubkey_t *) &test->accs[i].pubkey, NULL, &err);
         if (NULL == raw_acc_data) {
           if ((test->accs[ i ].result_lamports != 0)) {
             log_test_fail( test, suite, "expected lamports %ld, found empty account: %s", test->accs[i].result_lamports, (NULL != verbose) ? test->bt : "");
@@ -567,6 +544,7 @@ main( int     argc,
                fail_fast        = fd_env_strip_cmdline_cstr ( &argc, &argv, "--fail_fast",        NULL, NULL      );
                do_dump          = fd_env_strip_cmdline_cstr ( &argc, &argv, "--do_dump",          NULL, NULL      );
                scratch_mb       = fd_env_strip_cmdline_ulong( &argc, &argv, "--scratch-mb",       NULL, 1024      );
+               fail_before      = fd_env_strip_cmdline_long ( &argc, &argv, "--fail_before",      NULL, -1        );
 
   if (-1 != do_test)
     test_start = test_end = (ulong)do_test;

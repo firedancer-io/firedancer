@@ -26,7 +26,7 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t ctx, ulong * sz, ulon
     uchar acc_idx = instr_acc_idxs[i];
 
     // fd_pubkey_t * acc = &txn_accs[acc_idx];
-    // FD_LOG_WARNING(( "START OF ACC: %32J %x %lu", acc, serialized_size, serialized_size ));
+    // FD_LOG_DEBUG(( "START OF ACC: %32J %x %lu", acc, serialized_size, serialized_size ));
 
     serialized_size++; // dup byte
     if( FD_UNLIKELY( acc_idx_seen[acc_idx] ) ) {
@@ -45,7 +45,7 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t ctx, ulong * sz, ulon
       } else if ( FD_UNLIKELY( read_result == FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) ) {
         acc_data_len = 0;
       } else {
-        FD_LOG_WARNING(( "failed to read account data - pubkey: %32J, err: %d", acc, read_result ));
+        FD_LOG_DEBUG(( "failed to read account data - pubkey: %32J, err: %d", acc, read_result ));
         return NULL;
       }
 
@@ -75,14 +75,14 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t ctx, ulong * sz, ulon
   FD_STORE( ulong, serialized_params, ctx.instr->acct_cnt );
   serialized_params += sizeof(ulong);
   for( ulong i = 0; i < ctx.txn_ctx->accounts_cnt; i++ ) {
-    FD_LOG_WARNING(( "TXN ACC: %3lu - %32J", i, &txn_accs[i] ));
+    FD_LOG_DEBUG(( "TXN ACC: %3lu - %32J", i, &txn_accs[i] ));
   }
   for( ushort i = 0; i < ctx.instr->acct_cnt; i++ ) {
-    FD_LOG_WARNING(( "SERIAL OF ACC: %x %lu", serialized_params - serialized_params_start, serialized_params-serialized_params_start ));
+    // FD_LOG_DEBUG(( "SERIAL OF ACC: %x %lu", serialized_params - serialized_params_start, serialized_params-serialized_params_start ));
     uchar acc_idx = instr_acc_idxs[i];
     fd_pubkey_t * acc = &txn_accs[acc_idx];
 
-    FD_LOG_WARNING(( "SERIAL OF ACC2: %lu, %lu, %32J %x %lu", i, acc_idx, acc, serialized_params - serialized_params_start, serialized_params-serialized_params_start ));
+    FD_LOG_DEBUG(( "SERIAL OF ACC2: %lu, %lu, %32J %x %lu", i, acc_idx, acc, serialized_params - serialized_params_start, serialized_params-serialized_params_start ));
 
     if( FD_UNLIKELY( acc_idx_seen[acc_idx] && dup_acc_idx[acc_idx] != i ) ) {
       // Duplicate
@@ -95,19 +95,23 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t ctx, ulong * sz, ulon
 
       int read_result = FD_ACC_MGR_SUCCESS;
       uchar * raw_acc_data = (uchar *)fd_acc_mgr_view_raw(ctx.acc_mgr, ctx.funk_txn, acc, NULL, &read_result);
-      if (FD_UNLIKELY(!FD_RAW_ACCOUNT_EXISTS(raw_acc_data))) {
-        // FD_LOG_WARNING(( "SERIAL OF ACC4: %32J UNK", acc ));
+      if (FD_UNLIKELY(raw_acc_data == NULL)) {
+        FD_LOG_DEBUG(( "SERIAL OF ACC4: %32J UNK", acc ));
 
         uchar is_signer = (uchar)fd_instr_acc_is_signer_idx( ctx.instr, (uchar)i );
         FD_STORE( uchar, serialized_params, is_signer );
         serialized_params += sizeof(uchar);
 
-        fd_memset( serialized_params, 0, sizeof(uchar)    // is_writable
-          + sizeof(uchar)                                 // is_executable
+        uchar is_writable = (uchar)fd_instr_acc_is_writable_idx( ctx.instr, (uchar)i );
+        FD_STORE( uchar, serialized_params, is_writable );
+        serialized_params += sizeof(uchar);
+
+        fd_memset( serialized_params, 0, //sizeof(uchar)    // is_writable
+          sizeof(uchar)                                 // is_executable
           + sizeof(uint));                                // original_data_len
 
-        serialized_params += sizeof(uchar)    // is_writable
-          + sizeof(uchar)                     // is_executable
+        serialized_params += //sizeof(uchar)    // is_writable
+          sizeof(uchar)                     // is_executable
           + sizeof(uint);                     // original_data_len
 
         fd_pubkey_t key = *acc;
@@ -129,14 +133,14 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t ctx, ulong * sz, ulon
         pre_lens[i] = 0;
         continue;
       } else if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
-        FD_LOG_WARNING(( "failed to read account data - pubkey: %32J, err: %d", acc, read_result ));
+        FD_LOG_DEBUG(( "failed to read account data - pubkey: %32J, err: %d", acc, read_result ));
         return NULL;
       }
 
       fd_account_meta_t * metadata = (fd_account_meta_t *)raw_acc_data;
       uchar * acc_data = fd_account_get_data( metadata );
 
-      FD_LOG_WARNING(( "SERIAL OF ACC3: pubkey: %32J, acc, flags: 0x%x, %lu %lu %lu", acc, ctx.instr->acct_flags[i], serialized_params - serialized_params_start, serialized_params-serialized_params_start, metadata->dlen ));
+      FD_LOG_DEBUG(( "SERIAL OF ACC3: pubkey: %32J, acc, flags: 0x%x, %lu %lu %lu", acc, ctx.instr->acct_flags[i], serialized_params - serialized_params_start, serialized_params-serialized_params_start, metadata->dlen ));
 
       uchar is_signer = (uchar)fd_instr_acc_is_signer_idx( ctx.instr, (uchar)i );
       FD_STORE( uchar, serialized_params, is_signer );
@@ -165,6 +169,7 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t ctx, ulong * sz, ulon
       ulong lamports = metadata->info.lamports;
       FD_STORE( ulong, serialized_params, lamports );
       serialized_params += sizeof(ulong);
+      FD_LOG_DEBUG(("Serialize lamports %lu for %32J", lamports, acc->uc));
 
       ulong acc_data_len = metadata->dlen;
       pre_lens[i] = acc_data_len;
@@ -201,7 +206,7 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t ctx, ulong * sz, ulon
 
   FD_TEST( serialized_params == serialized_params_start + serialized_size );
 
-  FD_LOG_NOTICE(( "SERIALIZE - sz: %lu, diff: %lu", serialized_size, serialized_params - serialized_params_start ));
+  FD_LOG_DEBUG(( "SERIALIZE - sz: %lu, diff: %lu", serialized_size, serialized_params - serialized_params_start ));
   *sz = serialized_size;
 
   return serialized_params_start;
@@ -221,11 +226,10 @@ fd_bpf_loader_input_deserialize_aligned( fd_exec_instr_ctx_t ctx,
   fd_pubkey_t * txn_accs =  ctx.txn_ctx->accounts;
 
   input_cursor += sizeof(ulong);
-
   for( ulong i = 0; i < ctx.instr->acct_cnt; i++ ) {
     uchar acc_idx = instr_acc_idxs[i];
     fd_pubkey_t * acc = &txn_accs[instr_acc_idxs[i]];
-
+    FD_LOG_DEBUG(( "DESERIAL OF ACC: %lu, %lu, %32J %x %lu", i, acc_idx, acc, input_cursor - input, input_cursor-input ));
     input_cursor++;
     if ( FD_UNLIKELY( acc_idx_seen[acc_idx] ) ) {
       input_cursor += 7;
@@ -241,6 +245,7 @@ fd_bpf_loader_input_deserialize_aligned( fd_exec_instr_ctx_t ctx,
       input_cursor += sizeof(fd_pubkey_t);
 
       ulong lamports = FD_LOAD(ulong, input_cursor);
+      FD_LOG_DEBUG(("Deserialize lamports %lu for account %32J", lamports, acc->uc));
       input_cursor += sizeof(ulong);
 
       ulong post_data_len = FD_LOAD(ulong, input_cursor);
@@ -250,45 +255,55 @@ fd_bpf_loader_input_deserialize_aligned( fd_exec_instr_ctx_t ctx,
 
       ulong acc_sz = sizeof(fd_account_meta_t) + post_data_len;
 
-      fd_funk_rec_t const * acc_const_data_rec = NULL;
-      int view_err = FD_ACC_MGR_SUCCESS;
-      void const * raw_data = fd_acc_mgr_view_raw(ctx.acc_mgr, ctx.funk_txn, acc, &acc_const_data_rec, &view_err);
+      fd_borrowed_account_t * view_acc = NULL;
+      int view_err = fd_instr_borrowed_account_view(&ctx, acc, &view_acc);
 
-      if (FD_UNLIKELY(FD_RAW_ACCOUNT_EXISTS(raw_data))) {
-        fd_account_meta_t * metadata = (fd_account_meta_t *)raw_data;
-        if ( fd_ulong_sat_sub( post_data_len, metadata->dlen ) > MAX_PERMITTED_DATA_INCREASE || post_data_len > MAX_PERMITTED_DATA_LENGTH ) {
-          fd_valloc_free( ctx.valloc, input );
+      if (FD_LIKELY(FD_RAW_ACCOUNT_EXISTS(view_acc->const_meta))) {
+        fd_account_meta_t const * metadata_check = (fd_account_meta_t *)view_acc->const_meta;
+        FD_LOG_DEBUG(("dlen %lu post data len %lu owner %32J for %32J", metadata_check->dlen, post_data_len, metadata_check->info.owner, acc->uc));
+        if ( fd_ulong_sat_sub( post_data_len, metadata_check->dlen ) > MAX_PERMITTED_DATA_INCREASE || post_data_len > MAX_PERMITTED_DATA_LENGTH ) {
+          fd_valloc_free( ctx.valloc, input ); // FIXME: need to return an invalid realloc error
           return -1;
         }
 
-        fd_funk_rec_t * acc_data_rec = NULL;
-        int modify_err = FD_ACC_MGR_SUCCESS;
-        void * raw_acc_data = fd_acc_mgr_modify_raw(ctx.acc_mgr, ctx.funk_txn, acc, 0, acc_sz, acc_const_data_rec, &acc_data_rec, &modify_err);
+        fd_borrowed_account_t * modify_acc = NULL;
+        int modify_err = fd_instr_borrowed_account_modify(&ctx, acc, 0, acc_sz, &modify_acc);
         if ( modify_err != FD_ACC_MGR_SUCCESS ) {
           fd_valloc_free( ctx.valloc, input );
           return -1;
         }
-        metadata = (fd_account_meta_t *)raw_acc_data;
+        fd_account_meta_t * metadata = (fd_account_meta_t *)modify_acc->meta;
 
         ulong pre_len = pre_lens[i];
 
         uchar * acc_data = fd_account_get_data( metadata );
         input_cursor += fd_ulong_align_up( pre_len, 8 );
 
-        metadata->dlen = post_data_len;
+        int err1;
+        int err2;
+        if (fd_account_can_data_be_resized(&ctx, metadata, post_data_len, &err1)
+            && fd_account_can_data_be_changed(&ctx, metadata, acc, &err2)) {
+          metadata->dlen = post_data_len;
+          fd_memcpy( acc_data, post_data, post_data_len );
+        } else if (metadata->dlen != post_data_len || memcmp(acc_data, post_data, post_data_len) != 0) {
+          FD_LOG_DEBUG(("Data resize failed"));
+          fd_valloc_free( ctx.valloc, input );  // FIXME: need to return an invalid realloc error
+          return -1;
+        }
+        
         metadata->info.lamports = lamports;
         fd_memcpy(metadata->info.owner, owner, sizeof(fd_pubkey_t));
 
-        fd_memcpy( acc_data, post_data, post_data_len );
-
-        if( fd_acc_mgr_commit_raw(ctx.acc_mgr, acc_data_rec, acc, raw_acc_data, ctx.slot_ctx) != FD_ACC_MGR_SUCCESS ) {
-          return -1;
-        }
+        // add to dirty list
+        metadata->slot = ctx.slot_ctx->bank.slot;
+        FD_LOG_DEBUG(("Deserialize success %32J", acc->uc));
       } else if ( view_err == FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
         // no-op
+        input_cursor += fd_ulong_align_up( pre_lens[i], 8 );
+        FD_LOG_DEBUG(("Account %32J unknown", acc->uc));
       } else {
-        fd_valloc_free( ctx.valloc, input );
-        return -1;
+        input_cursor += fd_ulong_align_up( pre_lens[i], 8 );
+        FD_LOG_DEBUG(("Account %32J not found in deserialize", acc->uc));
       }
 
       input_cursor += MAX_PERMITTED_DATA_INCREASE;
@@ -344,7 +359,7 @@ fd_bpf_loader_input_serialize_unaligned( fd_exec_instr_ctx_t ctx,
     uchar acc_idx = instr_acc_idxs[i];
 
     // fd_pubkey_t * acc = &txn_accs[acc_idx];
-    // FD_LOG_WARNING(( "START OF ACC: %32J %x", acc, serialized_size ));
+    // FD_LOG_DEBUG(( "START OF ACC: %32J %x", acc, serialized_size ));
 
     serialized_size++; // dup byte
     if( FD_LIKELY( !acc_idx_seen[acc_idx] ) ) {
@@ -355,16 +370,16 @@ fd_bpf_loader_input_serialize_unaligned( fd_exec_instr_ctx_t ctx,
       int read_result = FD_ACC_MGR_SUCCESS;
       uchar * raw_acc_data = (uchar *)fd_acc_mgr_view_raw(ctx.acc_mgr, ctx.funk_txn, acc, NULL, &read_result);
       fd_account_meta_t * metadata = (fd_account_meta_t *)raw_acc_data;
-      // FD_LOG_WARNING(( "START OF ACC 2: %d %d %d %d", !fd_account_is_sysvar( &ctx, acc ), fd_account_is_writable_idx(&ctx, i), i, instr_acc_idxs[i]));
+      // FD_LOG_DEBUG(( "START OF ACC 2: %d %d %d %d", !fd_account_is_sysvar( &ctx, acc ), fd_account_is_writable_idx(&ctx, i), i, instr_acc_idxs[i]));
 
       ulong acc_data_len = 0;
       if ( FD_LIKELY( read_result == FD_ACC_MGR_SUCCESS ) ) {
         acc_data_len = metadata->dlen;
       } else if ( FD_UNLIKELY( read_result == FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) ) {
-        // FD_LOG_WARNING(( "START OF ACC 3: %d %d %d %d", !fd_account_is_sysvar( &ctx, acc ), fd_account_is_writable_idx(&ctx, i), i, instr_acc_idxs[i]));
+        // FD_LOG_DEBUG(( "START OF ACC 3: %d %d %d %d", !fd_account_is_sysvar( &ctx, acc ), fd_account_is_writable_idx(&ctx, i), i, instr_acc_idxs[i]));
         acc_data_len = 0;
       } else {
-        FD_LOG_WARNING(( "failed to read account data - pubkey: %32J, err: %d", acc, read_result ));
+        FD_LOG_DEBUG(( "failed to read account data - pubkey: %32J, err: %d", acc, read_result ));
         return NULL;
       }
 
@@ -393,14 +408,14 @@ fd_bpf_loader_input_serialize_unaligned( fd_exec_instr_ctx_t ctx,
   serialized_params += sizeof(ulong);
 
   for( ulong i = 0; i < ctx.txn_ctx->accounts_cnt; i++ ) {
-    FD_LOG_WARNING(( "TXN ACC: %3lu - %32J", i, &txn_accs[i] ));
+    FD_LOG_DEBUG(( "TXN ACC: %3lu - %32J", i, &txn_accs[i] ));
   }
   for( ushort i = 0; i < ctx.instr->acct_cnt; i++ ) {
-    FD_LOG_WARNING(( "SERIAL OF ACC: %x %lu", serialized_params - serialized_params_start, serialized_params-serialized_params_start ));
+    FD_LOG_DEBUG(( "SERIAL OF ACC: %x %lu", serialized_params - serialized_params_start, serialized_params-serialized_params_start ));
     uchar acc_idx = instr_acc_idxs[i];
     fd_pubkey_t const * acc = &txn_accs[acc_idx];
 
-    FD_LOG_WARNING(( "SERIAL OF ACC2: %lu, %lu, %32J %x %lu", i, acc_idx, acc, serialized_params - serialized_params_start, serialized_params-serialized_params_start ));
+    FD_LOG_DEBUG(( "SERIAL OF ACC2: %lu, %lu, %32J %x %lu", i, acc_idx, acc, serialized_params - serialized_params_start, serialized_params-serialized_params_start ));
 
     if( FD_UNLIKELY( acc_idx_seen[acc_idx] && dup_acc_idx[acc_idx] != i ) ) {
       // Duplicate
@@ -413,7 +428,7 @@ fd_bpf_loader_input_serialize_unaligned( fd_exec_instr_ctx_t ctx,
       int read_result = FD_ACC_MGR_SUCCESS;
       uchar * raw_acc_data = (uchar *)fd_acc_mgr_view_raw(ctx.acc_mgr, ctx.funk_txn, acc, NULL, &read_result);
       if (FD_UNLIKELY(!FD_RAW_ACCOUNT_EXISTS(raw_acc_data))) {
-          FD_LOG_WARNING(( "SERIAL OF ACC4: %32J UNK", acc ));
+          FD_LOG_DEBUG(( "SERIAL OF ACC4: %32J UNK", acc ));
 
           fd_memset( serialized_params, 0, sizeof(uchar)  // is_signer
           + sizeof(uchar));              // is_writable
@@ -439,7 +454,7 @@ fd_bpf_loader_input_serialize_unaligned( fd_exec_instr_ctx_t ctx,
           + sizeof(ulong);              // rent_epoch
         continue;
       } else if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
-        FD_LOG_WARNING(( "failed to read account data - pubkey: %32J, err: %d", acc, read_result ));
+        FD_LOG_DEBUG(( "failed to read account data - pubkey: %32J, err: %d", acc, read_result ));
         return NULL;
       }
       fd_account_meta_t * metadata = (fd_account_meta_t *)raw_acc_data;
@@ -494,8 +509,8 @@ fd_bpf_loader_input_serialize_unaligned( fd_exec_instr_ctx_t ctx,
   serialized_params += sizeof(fd_pubkey_t);
 
   FD_TEST( serialized_params == serialized_params_start + serialized_size );
-  FD_LOG_NOTICE(( "SERIALIZE (UNALIGNED) - sz: %lu, diff: %lu", serialized_size, serialized_params - serialized_params_start ));
-  FD_LOG_HEXDUMP_WARNING(( "SERIALIZED", serialized_params_start, serialized_size));
+  // FD_LOG_NOTICE(( "SERIALIZE (UNALIGNED) - sz: %lu, diff: %lu", serialized_size, serialized_params - serialized_params_start ));
+  // FD_LOG_HEXDUMP_WARNING(( "SERIALIZED", serialized_params_start, serialized_size));
   *sz = serialized_size;
   return serialized_params_start;
 }
@@ -518,7 +533,7 @@ fd_bpf_loader_input_deserialize_unaligned( fd_exec_instr_ctx_t ctx, ulong const 
 
     input_cursor++;
     if( FD_UNLIKELY( acc_idx_seen[acc_idx] ) ) {
-      input_cursor += 7;
+      // no-op
     } else {
       fd_funk_rec_t * acc_data_rec = NULL;
       int modify_err;
@@ -544,14 +559,13 @@ fd_bpf_loader_input_deserialize_unaligned( fd_exec_instr_ctx_t ctx, ulong const 
       input_cursor += sizeof(fd_pubkey_t);
 
       /* Consume executable flag */
-      input_cursor += sizeof(ulong);
+      input_cursor += sizeof(uchar);
 
       metadata->info.lamports = lamports;
       fd_memcpy(metadata->info.owner, owner, sizeof(fd_pubkey_t));
 
-      fd_memcpy( acc_data, post_data, metadata->dlen );
-
-      // fd_acc_mgr_commit_data(ctx.acc_mgr, acc_data_rec, acc, raw_acc_data, ctx.bank.slot, 0);
+      metadata->dlen = pre_lens[i];
+      fd_memcpy( acc_data, post_data, pre_lens[i] );
 
       input_cursor += sizeof(ulong);
     }

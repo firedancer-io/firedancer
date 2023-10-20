@@ -493,6 +493,75 @@ test_fe_pow22523( fd_rng_t * rng ) {
 
 /* FIXME: ADD VMUL, VSQ, VSQN TESTS HERE */
 
+static void
+test_fe_sqrt_ratio( fd_rng_t * rng ) {
+  /* u and v zero */
+  do {
+    fd_ed25519_fe_t r[1];
+    fd_ed25519_fe_t u[1]; fd_ed25519_fe_0( u );
+    fd_ed25519_fe_t v[1]; fd_ed25519_fe_0( v );
+    int is_sq = fd_ed25519_fe_sqrt_ratio( r, u, v );
+    FD_TEST( is_sq==1 );
+    FD_TEST( !fd_ed25519_fe_isnonzero( r ) );  /* r==0 */
+  } while(0);
+
+  /* u zero, v non-zero */
+  do {
+    fd_ed25519_fe_t r[1];
+    fd_ed25519_fe_t u[1]; fd_ed25519_fe_0( u );
+    fd_ed25519_fe_t v[1]; fd_ed25519_fe_1( v );
+    int is_sq = fd_ed25519_fe_sqrt_ratio( r, u, v );
+    FD_TEST( is_sq==1 );
+    FD_TEST( !fd_ed25519_fe_isnonzero( r ) );  /* r==0 */
+  } while(0);
+
+  /* u non-zero, v zero */
+  do {
+    fd_ed25519_fe_t r[1];
+    fd_ed25519_fe_t u[1]; fd_ed25519_fe_1( u );
+    fd_ed25519_fe_t v[1]; fd_ed25519_fe_0( v );
+    int is_sq = fd_ed25519_fe_sqrt_ratio( r, u, v );
+    FD_TEST( is_sq==0 );
+    FD_TEST( !fd_ed25519_fe_isnonzero( r ) );  /* r==0 */
+  } while(0);
+
+  /* u/v is square */
+  ulong iter = 100000UL;
+  for( ulong rem=iter; rem; rem-- ) {
+    fd_ed25519_fe_t v[1]; fd_ed25519_fe_t u[1];
+    fd_ed25519_fe_rng( v, rng  );  /* v = rand() */
+    fd_ed25519_fe_sq ( u, v    );
+    fd_ed25519_fe_mul( u, u, v );  /* u = v^3 */
+    /* r = sqrt(u/v) */
+    fd_ed25519_fe_t r[1];
+    int is_sq = fd_ed25519_fe_sqrt_ratio( r, u, v );
+    FD_TEST( is_sq==1 );
+    FD_TEST(  fd_ed25519_fe_isnonzero ( r ) );
+    FD_TEST( !fd_ed25519_fe_isnegative( r ) );
+    /* u2 = r^2 * v */
+    fd_ed25519_fe_t u2[1];
+    fd_ed25519_fe_sq ( u2, r     );
+    fd_ed25519_fe_mul( u2, u2, v );
+    /* u2 = (sqrt(u/v))^2 * v = u/v * v = u */
+    uchar uc[ 32 ];                 uchar u2c[ 32 ];
+    fd_ed25519_fe_tobytes( uc, u ); fd_ed25519_fe_tobytes( u2c, u2 );
+    FD_TEST( 0==memcmp( uc, u2c, 32 ) );
+  }
+}
+
+static void
+test_fe_inv_sqrt( fd_rng_t * rng ) {
+  fd_ed25519_fe_t _f[1]; fd_ed25519_fe_t * f = _f;
+  fd_ed25519_fe_t _h[1]; fd_ed25519_fe_t * h = _h;
+
+  fd_ed25519_fe_rng( f, rng );
+  ulong iter = 100000UL;
+  long dt = fd_log_wallclock();
+  for( ulong rem=iter; rem; rem-- ) { FD_COMPILER_FORGET( f ); FD_COMPILER_FORGET( h ); fd_ed25519_fe_inv_sqrt( h, f ); }
+  dt = fd_log_wallclock() - dt;
+  log_bench( "fd_ed25519_fe_inv_sqrt", iter, dt );
+}
+
 /**********************************************************************/
 
 /* FIXME: ADD GE TESTS HERE */
@@ -862,6 +931,8 @@ main( int     argc,
   test_fe_isnegative( rng );
   test_fe_sq2       ( rng );
   test_fe_pow22523  ( rng );
+  test_fe_sqrt_ratio( rng );
+  test_fe_inv_sqrt  ( rng );
 
   test_sc_reduce    ( rng );
   test_sc_muladd    ( rng );

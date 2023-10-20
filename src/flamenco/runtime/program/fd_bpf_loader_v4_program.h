@@ -8,13 +8,15 @@
 
 struct __attribute__((packed)) fd_bpf_loader_v4_state {
   /* 0x00 */ ulong slot;
-  /* 0x08 */ uchar is_deployed;
-  /* 0x09 */ uchar has_authority;
-  /* 0x0a */ uchar authority_addr[ 32 ];
-  /* 0x2a */ uchar _pad2a[ 6 ];
+  /* 0x08 */ uchar authority_addr[ 32 ];
+  /* 0x28 */ ulong status;
 };
 
 typedef struct fd_bpf_loader_v4_state fd_bpf_loader_v4_state_t;
+
+#define FD_BPF_LOADER_V4_STATUS_RETRACTED (0x00UL)
+#define FD_BPF_LOADER_V4_STATUS_DEPLOYED  (0x01UL)
+#define FD_BPF_LOADER_V4_STATUS_FINALIZED (0x02UL)
 
 FD_PROTOTYPES_BEGIN
 

@@ -2,6 +2,7 @@
 #define HEADER_fd_src_flamenco_runtime_fd_hashes_h
 
 #include "fd_banks_solana.h"
+#include "../../funk/fd_funk_txn.h"
 #include "context/fd_exec_slot_ctx.h"
 
 typedef struct fd_exec_slot_ctx fd_exec_slot_ctx_t;
@@ -18,9 +19,15 @@ typedef struct fd_pubkey_hash_pair fd_pubkey_hash_pair_t;
 #undef VECT_NAME
 #undef VECT_ELEMENT
 
+#define VECT_NAME fd_funk_rec_vector
+#define VECT_ELEMENT fd_funk_rec_t const *
+#include "fd_vector.h"
+#undef VECT_NAME
+#undef VECT_ELEMENT
+
 FD_PROTOTYPES_BEGIN
 
-void fd_hash_account_deltas( fd_pubkey_hash_pair_t * pairs, ulong pairs_len, fd_hash_t * hash );
+void fd_hash_account_deltas( fd_pubkey_hash_pair_t * pairs, ulong pairs_len, fd_hash_t * hash, fd_exec_slot_ctx_t * slot_ctx );
 
 int fd_update_hash_bank( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t * hash, ulong signature_cnt );
 

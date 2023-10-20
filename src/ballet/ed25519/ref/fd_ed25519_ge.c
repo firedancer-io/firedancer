@@ -1,4 +1,5 @@
 #include "../fd_ed25519_private.h"
+#include "../fd_ed25519_ge.h"
 
 /* Internal use representations of a ed25519 group element:
 
@@ -108,6 +109,16 @@ fd_ed25519_ge_table_select( fd_ed25519_ge_precomp_t * t,
 }
 
 /**********************************************************************/
+
+static inline fd_ed25519_ge_p3_t *
+fd_ed25519_ge_p2_to_p3( fd_ed25519_ge_p3_t *       r,
+                        fd_ed25519_ge_p2_t const * p ) {
+  fd_ed25519_fe_mul( r->X, p->X, p->Z );
+  fd_ed25519_fe_mul( r->Y, p->Y, p->Z );
+  fd_ed25519_fe_sq ( r->Z, p->Z );
+  fd_ed25519_fe_mul( r->T, p->X, p->Y );
+  return r;
+}
 
 static inline fd_ed25519_ge_p2_t *
 fd_ed25519_ge_p3_to_p2( fd_ed25519_ge_p2_t *       r,
@@ -262,8 +273,8 @@ fd_ed25519_ge_frombytes_vartime( fd_ed25519_ge_p3_t * h,
   fd_ed25519_fe_t v3[1];
   fd_ed25519_fe_sq ( v3,   v       );
   fd_ed25519_fe_mul( v3,   v3, v   );       /* v3 = v^3 */
-  fd_ed25519_fe_sq ( h->X, v3      );      
-  fd_ed25519_fe_mul( h->X, h->X, v );      
+  fd_ed25519_fe_sq ( h->X, v3      );
+  fd_ed25519_fe_mul( h->X, h->X, v );
   fd_ed25519_fe_mul( h->X, h->X, u );       /* x = uv^7 */
 
   fd_ed25519_fe_pow22523( h->X, h->X     ); /* x = (uv^7)^((q-5)/8) */
@@ -505,3 +516,100 @@ fd_ed25519_ge_double_scalarmult_vartime( fd_ed25519_ge_p2_t *       r,
   return r;
 }
 
+/**********************************************************************/
+
+fd_ed25519_point_t *
+fd_ed25519_point_decompress( fd_ed25519_point_t * h_,
+                             uchar const          s[ static 32 ] ) {
+  fd_ed25519_ge_p3_t * h = fd_type_pun( h_ );
+  return fd_ed25519_ge_frombytes_vartime( h, s )==FD_ED25519_SUCCESS ? h_ : NULL;
+}
+
+uchar *
+fd_ed25519_point_compress( uchar                      s[ static 32 ],
+                           fd_ed25519_point_t const * f_ ) {
+  fd_ed25519_ge_p3_t const * f = fd_type_pun_const( f_ );
+  return fd_ed25519_ge_p3_tobytes( s, f );
+}
+
+fd_ed25519_point_t *
+fd_ed25519_point_0( fd_ed25519_point_t * h ) {
+  fd_ed25519_ge_p3_0( fd_type_pun( h ) );
+  return h;
+}
+
+fd_ed25519_point_t *
+fd_ed25519_point_add( fd_ed25519_point_t *       h_,
+                      fd_ed25519_point_t const * f_,
+                      fd_ed25519_point_t const * g_ ) {
+  fd_ed25519_ge_p3_t * h = (fd_ed25519_ge_p3_t *)h_;
+  fd_ed25519_ge_p3_t * f = (fd_ed25519_ge_p3_t *)f_;
+  fd_ed25519_ge_p3_t * g = (fd_ed25519_ge_p3_t *)g_;
+
+  fd_ed25519_ge_p1p1_t   r [1];
+  fd_ed25519_ge_cached_t gc[1];
+  fd_ed25519_ge_p3_to_cached( gc, g );
+  fd_ed25519_ge_add( r, f, gc );
+  /* Consider converting to p2 instead of p3 */
+  fd_ed25519_ge_p1p1_to_p3( h, r );
+  return h_;
+}
+
+fd_ed25519_point_t *
+fd_ed25519_point_sub( fd_ed25519_point_t *       h_,
+                      fd_ed25519_point_t const * f_,
+                      fd_ed25519_point_t const * g_ ) {
+  fd_ed25519_ge_p3_t * h = (fd_ed25519_ge_p3_t *)h_;
+  fd_ed25519_ge_p3_t * f = (fd_ed25519_ge_p3_t *)f_;
+  fd_ed25519_ge_p3_t * g = (fd_ed25519_ge_p3_t *)g_;
+
+  fd_ed25519_ge_p1p1_t   r [1];
+  fd_ed25519_ge_cached_t gc[1];
+  fd_ed25519_ge_p3_to_cached( gc, g );
+  fd_ed25519_ge_sub( r, f, gc );
+  /* Consider converting to p2 instead of p3 */
+  fd_ed25519_ge_p1p1_to_p3( h, r );
+  return h_;
+}
+
+fd_ed25519_point_t *
+fd_ed25519_point_scalarmult( fd_ed25519_point_t *       h_,
+                             uchar const                a[ static 32 ],
+                             fd_ed25519_point_t const * A_ ) {
+
+  fd_ed25519_ge_p3_t *       h = fd_type_pun      ( h_ );
+  fd_ed25519_ge_p3_t const * A = fd_type_pun_const( A_ );
+
+  /* TODO validate scalar */
+
+  int aslide[256]; fd_ed25519_ge_slide( aslide, a );
+
+  fd_ed25519_ge_cached_t Ai[8][1]; /* A,3A,5A,7A,9A,11A,13A,15A */
+  fd_ed25519_ge_p3_t     A2[1];
+  fd_ed25519_ge_p1p1_t   t[1];
+  fd_ed25519_ge_p3_t     u[1];
+
+  fd_ed25519_ge_p3_to_cached( Ai[0], A         );
+  fd_ed25519_ge_p3_dbl      ( t,     A         );
+  fd_ed25519_ge_p1p1_to_p3  ( A2,    t         );
+  for( int i=0; i<7; i++ ) {
+    fd_ed25519_ge_add         ( t,       A2, Ai[i] );
+    fd_ed25519_ge_p1p1_to_p3  ( u,       t         );
+    fd_ed25519_ge_p3_to_cached( Ai[i+1], u         );
+  }
+
+  fd_ed25519_ge_p2_t r[1];
+  fd_ed25519_ge_p2_0( r );
+
+  int i;
+  for( i=255; i>=0; i-- ) if( aslide[i] ) break;
+  for(      ; i>=0; i-- ) {
+    fd_ed25519_ge_p2_dbl( t, r );
+    if(      aslide[i] > 0 ) { fd_ed25519_ge_p1p1_to_p3( u, t ); fd_ed25519_ge_add ( t, u, Ai        [  aslide[i]  / 2] ); }
+    else if( aslide[i] < 0 ) { fd_ed25519_ge_p1p1_to_p3( u, t ); fd_ed25519_ge_sub ( t, u, Ai        [(-aslide[i]) / 2] ); }
+    fd_ed25519_ge_p1p1_to_p2( r, t );
+  }
+
+  fd_ed25519_ge_p2_to_p3( h, r );
+  return h_;
+}

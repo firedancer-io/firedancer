@@ -1,11 +1,14 @@
 // https://docs.solana.com/developing/runtime-facilities/programs#secp256k1-program
 // https://github.com/solana-labs/solana/blob/master/sdk/src/secp256k1_instruction.rs#L932
 
-#include "../fd_executor.h"
-
-#ifdef FD_HAS_SECP256K1
-
 #include "fd_secp256k1_program.h"
+
+#if !FD_HAS_SECP256K1
+#error "secp256k1 program requires libsecp256k1"
+#endif
+
+#include "../fd_executor.h"
+#include "../fd_runtime.h"
 #include "../context/fd_exec_txn_ctx.h"
 #include "../../../ballet/keccak256/fd_keccak256.h"
 #include "../../../ballet/secp256k1/fd_secp256k1.h"
@@ -62,7 +65,10 @@ int fd_executor_secp256k1_program_execute_instruction( fd_exec_instr_ctx_t ctx )
   if ( data_sz < 1 )
     return FD_EXECUTOR_SIGN_ERR_INSTRUCTION_DATA_SIZE;
   ulong numsigs = data[0];
-  if ( numsigs == 0 && data_sz > 1 )
+  if( (    FD_FEATURE_ACTIVE( ctx.slot_ctx, libsecp256k1_fail_on_bad_count  )
+        || FD_FEATURE_ACTIVE( ctx.slot_ctx, libsecp256k1_fail_on_bad_count2 ) )
+      && numsigs == 0
+      && data_sz > 1 )
     return FD_EXECUTOR_SIGN_ERR_INSTRUCTION_DATA_SIZE;
   if ( 1 + numsigs*SIGNATURE_OFFSETS_SERIALIZED_SIZE > data_sz )
     return FD_EXECUTOR_SIGN_ERR_INSTRUCTION_DATA_SIZE;
@@ -132,13 +138,3 @@ int fd_executor_secp256k1_program_execute_instruction( fd_exec_instr_ctx_t ctx )
 
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
-
-#else
-
-int fd_executor_secp256k1_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
-  (void)ctx;
-  FD_LOG_WARNING(("secp256k1 not supported in this build"));
-  return FD_EXECUTOR_SIGN_ERR_SIGNATURE;
-}
-
-#endif /* FD_HAS_SECP256K1 */

@@ -91,6 +91,9 @@ fd_ed25519_ge_p3_t *
 fd_ed25519_ge_scalarmult_base( fd_ed25519_ge_p3_t * h,
                                uchar const *        a );
 
+/* fd_ed25519_ge_double_scalarmult_vartime computes `r = [a]A + [b]B`
+   where B is the base point. */
+
 fd_ed25519_ge_p2_t *
 fd_ed25519_ge_double_scalarmult_vartime( fd_ed25519_ge_p2_t *       r,
                                          uchar const *              a,
@@ -107,20 +110,20 @@ fd_ed25519_ge_double_scalarmult_vartime( fd_ed25519_ge_p2_t *       r,
 
    The result can be represented as a 256-bit value and stored in a
    32-byte little endian form.  out points to where to store the result.
-   
+
    Does no input argument checking.  The caller takes a write interest
    in out and a read interest in in for the duration of the call.
    Returns out and, on return, out will be populated with the 256-bit
    result.  In-place operation fine. */
 
 uchar *
-fd_ed25519_sc_reduce( uchar *       out, 
+fd_ed25519_sc_reduce( uchar *       out,
                       uchar const * in );
 
 /* fd_ed25519_sc_muladd computes s = (a*b+c) mod l where a, b and c
    are 256-bit values.  a is stored in 32-byte little endian form and a
    points to the first byte of a.  Similarly for b and c.  l is:
-   
+
      2^252 + 27742317777372353535851937790883648493.
 
    The result can be represented as a 256-bit value and stored in a

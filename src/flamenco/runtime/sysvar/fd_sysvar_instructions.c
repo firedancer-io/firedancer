@@ -34,13 +34,13 @@ instructions_serialized_size( fd_instr_info_t const *  instrs,
 }
 
 int
-fd_sysvar_instructions_serialize_account( fd_exec_slot_ctx_t *   slot_ctx,
+fd_sysvar_instructions_serialize_account( fd_exec_txn_ctx_t *  txn_ctx,
                                           fd_instr_info_t const *  instrs,
                                           ushort              instrs_cnt ) {
   ulong serialized_sz = instructions_serialized_size( instrs, instrs_cnt );
 
   FD_BORROWED_ACCOUNT_DECL(rec);
-  int err = fd_acc_mgr_modify(slot_ctx->acc_mgr, slot_ctx->funk_txn, &fd_sysvar_instructions_id, 1, serialized_sz, rec);
+  int err = fd_acc_mgr_modify(txn_ctx->acc_mgr, txn_ctx->funk_txn, &fd_sysvar_instructions_id, 1, serialized_sz, rec);
   if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) )
     return FD_ACC_MGR_ERR_READ_FAILED;
 
@@ -108,16 +108,16 @@ fd_sysvar_instructions_serialize_account( fd_exec_slot_ctx_t *   slot_ctx,
 }
 
 int
-fd_sysvar_instructions_cleanup_account( fd_exec_slot_ctx_t * slot_ctx ) {
+fd_sysvar_instructions_cleanup_account( fd_exec_txn_ctx_t *  txn_ctx ) {
   fd_funk_rec_t * acc_data_rec = NULL;
   int modify_err = FD_ACC_MGR_SUCCESS;
 
   // This uses the raw interface since we are also willing to kill dead accounts here...
-  void * raw_acc_data = fd_acc_mgr_modify_raw( slot_ctx->acc_mgr, slot_ctx->funk_txn, &fd_sysvar_instructions_id, 0, 0, NULL, &acc_data_rec, &modify_err );
+  void * raw_acc_data = fd_acc_mgr_modify_raw( txn_ctx->acc_mgr, txn_ctx->funk_txn, &fd_sysvar_instructions_id, 0, 0, NULL, &acc_data_rec, &modify_err );
   if( FD_UNLIKELY( NULL == raw_acc_data ) )
     return FD_ACC_MGR_ERR_READ_FAILED;
 
-  int res = fd_funk_rec_remove(slot_ctx->acc_mgr->funk, acc_data_rec, 1);
+  int res = fd_funk_rec_remove(txn_ctx->acc_mgr->funk, acc_data_rec, 1);
   if( res != FD_FUNK_SUCCESS )
     return FD_ACC_MGR_ERR_WRITE_FAILED;
 
@@ -125,10 +125,10 @@ fd_sysvar_instructions_cleanup_account( fd_exec_slot_ctx_t * slot_ctx ) {
 }
 
 int
-fd_sysvar_instructions_update_current_instr_idx( fd_exec_slot_ctx_t *  slot_ctx,
+fd_sysvar_instructions_update_current_instr_idx( fd_exec_txn_ctx_t *  txn_ctx,
                                          ushort             current_instr_idx ) {
   FD_BORROWED_ACCOUNT_DECL(rec);
-  int err = fd_acc_mgr_modify(slot_ctx->acc_mgr, slot_ctx->funk_txn, &fd_sysvar_instructions_id, 0, 0, rec);
+  int err = fd_acc_mgr_modify(txn_ctx->acc_mgr, txn_ctx->funk_txn, &fd_sysvar_instructions_id, 0, 0, rec);
   if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) )
     return FD_ACC_MGR_ERR_READ_FAILED;
 

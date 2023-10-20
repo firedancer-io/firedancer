@@ -15,8 +15,10 @@
 #   black gen_c_tests.py
 
 import argparse
-import random
 import base58
+import base64
+import urllib
+from hashlib import sha256
 import json
 import os
 from pathlib import Path
@@ -318,7 +320,7 @@ def main():
                 if idx < len(test_case["transaction_accounts"]):
                     account["pubkey"] = test_case["transaction_accounts"][int(account["index_in_transaction"])]["pubkey"]
                 else:
-                    pkey = bytearray(random.getrandbits(8) for _ in range(0, 32))
+                    pkey = sha256(str(account).encode('utf-8')).digest()
                     account["pubkey"] = base58.b58encode(pkey).decode("utf-8")
             if bool(account["is_signer"]) and (account["pubkey"] not in signer_pubkeys):
                 num_signers += 1
@@ -341,6 +343,8 @@ def main():
 
         tx = Transaction().add(instruction)
         message = tx.serialize_message()
+
+        url = "https://explorer.solana.com/tx/inspector?message="+ urllib.parse.quote_plus(base64.b64encode(message).decode('utf-8'))
 
         components = signatures
         components.append(message)
@@ -369,6 +373,7 @@ def main():
         print("")
         print("  return fd_executor_run_test( &test, suite );")
         print("}")
+        print("// {}".format(url))
     #    sys.exit(0)
 
     set_stdout("test_native_programs.c")

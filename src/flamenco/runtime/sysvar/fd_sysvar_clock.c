@@ -241,6 +241,10 @@ void fd_calculate_stake_weighted_timestamp(
 
   FD_LOG_DEBUG(( "corrected stake weighted timestamp: %lu", *result_timestamp ));
 
+  if (*result_timestamp < clock.unix_timestamp) {
+    FD_LOG_DEBUG(("Updated timestamp to ancestor"));
+    *result_timestamp = clock.unix_timestamp;
+  }
   return;
 }
 

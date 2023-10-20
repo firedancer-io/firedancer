@@ -11,7 +11,9 @@
 #define FD_VM_SYSCALL_ERR_INVAL         (4UL)
 #define FD_VM_SYSCALL_ERR_INSTR_ERR     (5UL)
 #define FD_VM_SYSCALL_ERR_INVOKE_CONTEXT_BORROW_FAILED (6UL)
+#define FD_VM_SYSCALL_ERR_RETURN_DATA_TOO_LARGE        (7UL)
 #define FD_VM_SYSCALL_ERR_UNIMPLEMENTED (0xFFFFUL) /* TODO: remove when unused */
+#define MAX_RETURN_DATA                 (1024UL)
 
 #define FD_VM_SYSCALL_DECL(name) ulong fd_vm_syscall_##name ( \
     void * _ctx, \
@@ -27,10 +29,18 @@ fd_vm_register_syscall( fd_sbpf_syscalls_t *     syscalls,
                         char const *             name,
                         fd_sbpf_syscall_fn_ptr_t fn_ptr );
 
-/* Registers all standard syscalls with the VM */
+/* fd_vm_syscall_register all reigsters all syscalls implemented.
+   May change between Firedancer versions without warning. */
 
 void
 fd_vm_syscall_register_all( fd_sbpf_syscalls_t * syscalls );
+
+/* fd_vm_syscall_register_ctx registers all syscalls appropriate for
+   slot context. */
+
+void
+fd_vm_syscall_register_ctx( fd_sbpf_syscalls_t *       syscalls,
+                            fd_exec_slot_ctx_t const * slot_ctx );
 
 /* Syscall function declarations **************************************/
 

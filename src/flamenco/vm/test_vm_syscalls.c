@@ -6,7 +6,7 @@
 
 static void
 set_vm_heap_memory_region( fd_vm_exec_context_t * vm_ctx ) {
-    for (int i = 0; i < FD_VM_HEAP_SZ; i++) {
+    for (ulong i = 0; i < vm_ctx->heap_sz; i++) {
         vm_ctx->heap[i] = (uchar) (i % (UCHAR_MAX + 1));
     }
 }
@@ -220,7 +220,8 @@ main( int     argc,
         .input               = NULL,
         .input_sz            = 0,
         .read_only           = read_only_prog,
-        .read_only_sz        = read_only_sz
+        .read_only_sz        = read_only_sz,
+        .heap_sz             = FD_VM_DEFAULT_HEAP_SZ,
     };
 
     set_vm_read_only_memory_region( &vm_ctx );

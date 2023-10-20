@@ -1,5 +1,5 @@
 // This is an auto-generated file. To add entries, edit fd_types.json
-#define FD_TYPE_NAME_COUNT 176
+#define FD_TYPE_NAME_COUNT 179
 static char const * fd_type_names[FD_TYPE_NAME_COUNT] = {
  "fd_hash",
  "fd_signature",
@@ -177,4 +177,7 @@ static char const * fd_type_names[FD_TYPE_NAME_COUNT] = {
  "fd_gossip_push_msg",
  "fd_gossip_prune_msg",
  "fd_gossip_msg",
+ "fd_addrlut_create",
+ "fd_addrlut_extend",
+ "fd_addrlut_instruction",
 };

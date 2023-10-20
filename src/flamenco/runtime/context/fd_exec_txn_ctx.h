@@ -11,6 +11,13 @@
 #include "fd_exec_epoch_ctx.h"
 #include "fd_exec_instr_ctx.h"
 
+/* Return data for syscalls */
+struct transaction_return_data {
+  fd_pubkey_t program_id;
+  uchar * data;
+  ulong len;
+};
+typedef struct transaction_return_data fd_transaction_return_data_t;
 
 /* Context needed to execute a single transaction. */
 struct fd_exec_txn_ctx {
@@ -23,6 +30,8 @@ struct fd_exec_txn_ctx {
 
   ulong                 compute_unit_limit;              /* Compute unit limit for this transaction. */
   ulong                 compute_unit_price;              /* Compute unit price for this transaction. */
+  ulong                 compute_meter;                   /* Remaining compute units */
+  fd_transaction_return_data_t return_data;              /* Data returned from `return_data` syscalls */
   ulong                 heap_size;                       /* Heap size for VMs for this transaction. */
   ulong                 loaded_accounts_data_size_limit; /* Loaded accounts data size limit for this transaction. */
   ulong                 loaded_accounts_data_size_meter; /* Remaining accounts data size left */

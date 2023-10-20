@@ -11,6 +11,7 @@
 #include "fd_vm_log_collector.h"
 #include "fd_vm_stack.h"
 #include "fd_vm_cpi.h"
+#include "fd_vm_trace.h"
 
 #include "../runtime/fd_executor.h"
 
@@ -39,7 +40,8 @@
 #define FD_VM_MEM_MAP_REGION_SZ              (0x0FFFFFFFFUL)
 #define FD_VM_MEM_MAP_REGION_MASK            (~FD_VM_MEM_MAP_REGION_SZ)
 #define FD_VM_MEM_MAP_REGION_VIRT_ADDR_BITS  (32)
-#define FD_VM_HEAP_SZ (64*1024)
+#define FD_VM_MAX_HEAP_SZ (256*1024)
+#define FD_VM_DEFAULT_HEAP_SZ (32*1024)
 
 #define FD_VM_MEM_MAP_SUCCESS       (0)
 #define FD_VM_MEM_MAP_ERR_ACC_VIO   (1)
@@ -62,7 +64,6 @@ typedef ulong (*fd_vm_syscall_fn_ptr_t)(fd_vm_exec_context_t * ctx, ulong arg0, 
         removed in later runtime versions. */
 
 struct fd_vm_heap_allocator {
-  ulong heap_sz;  /* Total size of heap region */
   ulong offset;   /* Points to beginning of free region within heap,
                      relative to start of heap region. */
 };
@@ -195,23 +196,26 @@ struct fd_vm_exec_context {
   ulong                       instrs_sz;      /* The number of program instructions FIXME this should be _cnt, not _sz */
   ulong                       instrs_offset;  /* This is the relocation offset we must apply to indirect calls (callx/CALL_REGs) */
   uint                        check_align;    /* If non-zero, VM does alignment checks where necessary (syscalls) */
-  uint                        check_size;    /* If non-zero, VM does size checks where necessary (syscalls) */
+  uint                        check_size;     /* If non-zero, VM does size checks where necessary (syscalls) */
 
   /* Writable VM parameters: */
-  ulong                 register_file[11];    /* The sBPF register file */
-  ulong                 program_counter;      /* The current instruction index being executed */
-  ulong                 instruction_counter;  /* The number of instructions which have been executed */
-  fd_vm_log_collector_t log_collector;        /* The log collector used by `sol_log_*` syscalls */
-  ulong                 compute_meter;       /* The remaining CUs left for the transaction */
-  ulong                 cond_fault;           /* If non-zero, indicates a fault occured during execution */
+  ulong                 register_file[11];           /* The sBPF register file */
+  ulong                 program_counter;             /* The current instruction index being executed */
+  ulong                 instruction_counter;         /* The number of instructions which have been executed */
+  fd_vm_log_collector_t log_collector;               /* The log collector used by `sol_log_*` syscalls */
+  ulong                 compute_meter;               /* The remaining CUs left for the transaction */
+  ulong                 due_insn_cnt;                /* Currently executed instructions */
+  ulong                 previous_instruction_meter;  /* Last value of remaining compute units */
+  ulong                 cond_fault;                  /* If non-zero, indicates a fault occured during execution */
 
   /* Memory regions: */
-  uchar *       read_only;            /* The read-only memory region, typically just the relocated program binary blob */
-  ulong         read_only_sz;         /* The read-only memory region size */
-  uchar *       input;                /* The program input memory region */
-  ulong         input_sz;             /* The program input memory region size */
-  fd_vm_stack_t stack;                /* The sBPF call frame stack */
-  uchar         heap[FD_VM_HEAP_SZ];  /* The heap memory allocated by the bump allocator syscall */
+  uchar *       read_only;                /* The read-only memory region, typically just the relocated program binary blob */
+  ulong         read_only_sz;             /* The read-only memory region size */
+  uchar *       input;                    /* The program input memory region */
+  ulong         input_sz;                 /* The program input memory region size */
+  fd_vm_stack_t stack;                    /* The sBPF call frame stack */
+  ulong         heap_sz;                  /* The configured size of the heap */
+  uchar         heap[FD_VM_MAX_HEAP_SZ];  /* The heap memory allocated by the bump allocator syscall */
 
   /* Runtime context */
   fd_exec_instr_ctx_t instr_ctx;
@@ -221,22 +225,20 @@ struct fd_vm_exec_context {
      execution context.
      TODO Separate this out from the core virtual machine */
   fd_vm_heap_allocator_t alloc; /* Bump allocator provided through syscall */
+
+  fd_vm_trace_context_t * trace_ctx;
 };
 typedef struct fd_vm_exec_context fd_vm_exec_context_t;
 
-struct fd_vm_trace_entry {
-  ulong pc;
-  ulong ic;
-  ulong register_file[11];
-};
-typedef struct fd_vm_trace_entry fd_vm_trace_entry_t;
-
-
 FD_PROTOTYPES_BEGIN
 
+/* Consume `cost` compute units */
+ulong
+fd_vm_consume_compute_meter( fd_vm_exec_context_t * ctx, ulong cost );
 
 /* Validates the sBPF program from the given context. Returns success or an error code. */
-FD_FN_PURE ulong fd_vm_context_validate( fd_vm_exec_context_t const * ctx );
+FD_FN_PURE ulong
+fd_vm_context_validate( fd_vm_exec_context_t const * ctx );
 
 /* fd_vm_translate_vm_to_host{_const} translates a virtual memory area
    into the local address space.  ctx is the current execution context.

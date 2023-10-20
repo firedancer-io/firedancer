@@ -63,9 +63,9 @@ void fd_sysvar_slot_hashes_update( fd_exec_slot_ctx_t * slot_ctx ) {
   // https://github.com/firedancer-io/solana/blob/08a1ef5d785fe58af442b791df6c4e83fe2e7c74/runtime/src/bank.rs#L2371
     fd_slot_hash_t slot_hash = {
       .hash = slot_ctx->bank.banks_hash, // parent hash?
-      .slot = slot_ctx->bank.slot - 1,   // parent_slot
+      .slot = slot_ctx->bank.prev_slot,   // parent_slot
     };
-
+    FD_LOG_DEBUG(( "fd_sysvar_slot_hash_update:  slot %ld,  hash %32J", slot_hash.slot, slot_hash.hash.key ));
     fd_bincode_destroy_ctx_t ctx2 = { .valloc = slot_ctx->valloc };
 
     if (deq_fd_slot_hash_t_full( hashes ) )

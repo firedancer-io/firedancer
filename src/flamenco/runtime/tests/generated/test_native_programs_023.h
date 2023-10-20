@@ -3,7 +3,7 @@ int test_23(fd_executor_test_suite_t *suite) {
   fd_executor_test_t test;
   fd_memset( &test, 0, FD_EXECUTOR_TEST_FOOTPRINT );
   test.disable_cnt = 0;
-  test.bt = "   2: solana_vote_program::vote_processor::tests::process_instruction_as_one_arg             at ./src/vote_processor.rs:409:9   3: solana_vote_program::vote_processor::tests::test_spoofed_vote             at ./src/vote_processor.rs:1760:9   4: solana_vote_program::vote_processor::tests::test_spoofed_vote::{{closure}}             at ./src/vote_processor.rs:1751:28   5: core::ops::function::FnOnce::call_once             at /rustc/84c898d65adf2f39a5a98507f1fe0ce10a2b8dbc/library/core/src/ops/function.rs:250:5";
+  test.bt = "   2: solana_vote_program::vote_processor::tests::process_instruction_as_one_arg             at ./src/vote_processor.rs:392:9   3: solana_vote_program::vote_processor::tests::test_spoofed_vote             at ./src/vote_processor.rs:1743:9   4: solana_vote_program::vote_processor::tests::test_spoofed_vote::{{closure}}             at ./src/vote_processor.rs:1734:28   5: core::ops::function::FnOnce::call_once             at /rustc/cc66ad468955717ab92600c770da8c1601a4ff33/library/core/src/ops/function.rs:250:5";
   test.test_name = "vote_processor::tests::test_spoofed_vote";
   test.test_number = 23;
   test.sysvar_cache.clock = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==";
@@ -21,7 +21,7 @@ int test_23(fd_executor_test_suite_t *suite) {
 
  // {'clock': 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==', 'epoch_schedule': 'gJcGAAAAAACAlwYAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', 'epoch_rewards': '', 'fees': '', 'rent': 'AAAAAAAAAAAAAAAAAAAAQDI=', 'slot_hashes': 'AAAAAAAAAAA=', 'recent_blockhashes': '', 'stake_history': '', 'last_restart_slot': ''}
   fd_executor_test_acc_t* test_acc = test_accs;
-  fd_base58_decode_32( "SysvarEpochSchedu1e111111111111111111111111",  (uchar *) &test_acc->pubkey);
+  fd_base58_decode_32( "SysvarRent111111111111111111111111111111111",  (uchar *) &test_acc->pubkey);
   fd_base58_decode_32( "Sysvar1111111111111111111111111111111111111",  (uchar *) &test_acc->owner);
   fd_base58_decode_32( "Sysvar1111111111111111111111111111111111111",  (uchar *) &test_acc->result_owner);
   test_acc->lamports        = 1UL;
@@ -30,22 +30,12 @@ int test_23(fd_executor_test_suite_t *suite) {
   test_acc->result_executable= 0;
   test_acc->rent_epoch      = 0;
   test_acc->result_rent_epoch      = 0;
-  static uchar const fd_flamenco_native_prog_test_23_acc_0_data[] = { 0x80,0x97,0x06,0x00,0x00,0x00,0x00,0x00,0x80,0x97,0x06,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00 };
+  static uchar const fd_flamenco_native_prog_test_23_acc_0_data[] = { 0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x40,0x32 };
   test_acc->data            = fd_flamenco_native_prog_test_23_acc_0_data;
-  test_acc->data_len        = 33UL;
-  static uchar const fd_flamenco_native_prog_test_23_acc_0_post_data[] = { 0x80,0x97,0x06,0x00,0x00,0x00,0x00,0x00,0x80,0x97,0x06,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00 };
+  test_acc->data_len        = 17UL;
+  static uchar const fd_flamenco_native_prog_test_23_acc_0_post_data[] = { 0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x40,0x32 };
   test_acc->result_data     = fd_flamenco_native_prog_test_23_acc_0_post_data;
-  test_acc->result_data_len = 33UL;
-  test_acc++;
-  fd_base58_decode_32( "11111111111111111111111111111111",  (uchar *) &test_acc->pubkey);
-  fd_base58_decode_32( "Vote111111111111111111111111111111111111111",  (uchar *) &test_acc->owner);
-  fd_base58_decode_32( "Vote111111111111111111111111111111111111111",  (uchar *) &test_acc->result_owner);
-  test_acc->lamports        = 0UL;
-  test_acc->result_lamports = 0UL;
-  test_acc->executable      = 0;
-  test_acc->result_executable= 0;
-  test_acc->rent_epoch      = 0;
-  test_acc->result_rent_epoch      = 0;
+  test_acc->result_data_len = 17UL;
   test_acc++;
   fd_base58_decode_32( "SysvarC1ock11111111111111111111111111111111",  (uchar *) &test_acc->pubkey);
   fd_base58_decode_32( "Sysvar1111111111111111111111111111111111111",  (uchar *) &test_acc->owner);
@@ -56,14 +46,14 @@ int test_23(fd_executor_test_suite_t *suite) {
   test_acc->result_executable= 0;
   test_acc->rent_epoch      = 0;
   test_acc->result_rent_epoch      = 0;
-  static uchar const fd_flamenco_native_prog_test_23_acc_2_data[] = { 0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00 };
-  test_acc->data            = fd_flamenco_native_prog_test_23_acc_2_data;
+  static uchar const fd_flamenco_native_prog_test_23_acc_1_data[] = { 0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00 };
+  test_acc->data            = fd_flamenco_native_prog_test_23_acc_1_data;
   test_acc->data_len        = 40UL;
-  static uchar const fd_flamenco_native_prog_test_23_acc_2_post_data[] = { 0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00 };
-  test_acc->result_data     = fd_flamenco_native_prog_test_23_acc_2_post_data;
+  static uchar const fd_flamenco_native_prog_test_23_acc_1_post_data[] = { 0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00 };
+  test_acc->result_data     = fd_flamenco_native_prog_test_23_acc_1_post_data;
   test_acc->result_data_len = 40UL;
   test_acc++;
-  fd_base58_decode_32( "SysvarRent111111111111111111111111111111111",  (uchar *) &test_acc->pubkey);
+  fd_base58_decode_32( "SysvarEpochSchedu1e111111111111111111111111",  (uchar *) &test_acc->pubkey);
   fd_base58_decode_32( "Sysvar1111111111111111111111111111111111111",  (uchar *) &test_acc->owner);
   fd_base58_decode_32( "Sysvar1111111111111111111111111111111111111",  (uchar *) &test_acc->result_owner);
   test_acc->lamports        = 1UL;
@@ -72,12 +62,22 @@ int test_23(fd_executor_test_suite_t *suite) {
   test_acc->result_executable= 0;
   test_acc->rent_epoch      = 0;
   test_acc->result_rent_epoch      = 0;
-  static uchar const fd_flamenco_native_prog_test_23_acc_3_data[] = { 0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x40,0x32 };
-  test_acc->data            = fd_flamenco_native_prog_test_23_acc_3_data;
-  test_acc->data_len        = 17UL;
-  static uchar const fd_flamenco_native_prog_test_23_acc_3_post_data[] = { 0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x40,0x32 };
-  test_acc->result_data     = fd_flamenco_native_prog_test_23_acc_3_post_data;
-  test_acc->result_data_len = 17UL;
+  static uchar const fd_flamenco_native_prog_test_23_acc_2_data[] = { 0x80,0x97,0x06,0x00,0x00,0x00,0x00,0x00,0x80,0x97,0x06,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00 };
+  test_acc->data            = fd_flamenco_native_prog_test_23_acc_2_data;
+  test_acc->data_len        = 33UL;
+  static uchar const fd_flamenco_native_prog_test_23_acc_2_post_data[] = { 0x80,0x97,0x06,0x00,0x00,0x00,0x00,0x00,0x80,0x97,0x06,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00 };
+  test_acc->result_data     = fd_flamenco_native_prog_test_23_acc_2_post_data;
+  test_acc->result_data_len = 33UL;
+  test_acc++;
+  fd_base58_decode_32( "BadVote111111111111111111111111111111111111",  (uchar *) &test_acc->pubkey);
+  fd_base58_decode_32( "BadVote111111111111111111111111111111111111",  (uchar *) &test_acc->owner);
+  fd_base58_decode_32( "BadVote111111111111111111111111111111111111",  (uchar *) &test_acc->result_owner);
+  test_acc->lamports        = 0UL;
+  test_acc->result_lamports = 0UL;
+  test_acc->executable      = 0;
+  test_acc->result_executable= 0;
+  test_acc->rent_epoch      = 0;
+  test_acc->result_rent_epoch      = 0;
   test_acc++;
   fd_base58_decode_32( "SysvarS1otHashes111111111111111111111111111",  (uchar *) &test_acc->pubkey);
   fd_base58_decode_32( "Sysvar1111111111111111111111111111111111111",  (uchar *) &test_acc->owner);
@@ -95,9 +95,9 @@ int test_23(fd_executor_test_suite_t *suite) {
   test_acc->result_data     = fd_flamenco_native_prog_test_23_acc_4_post_data;
   test_acc->result_data_len = 20488UL;
   test_acc++;
-  fd_base58_decode_32( "BadVote111111111111111111111111111111111111",  (uchar *) &test_acc->pubkey);
-  fd_base58_decode_32( "BadVote111111111111111111111111111111111111",  (uchar *) &test_acc->owner);
-  fd_base58_decode_32( "BadVote111111111111111111111111111111111111",  (uchar *) &test_acc->result_owner);
+  fd_base58_decode_32( "11111111111111111111111111111111",  (uchar *) &test_acc->pubkey);
+  fd_base58_decode_32( "Vote111111111111111111111111111111111111111",  (uchar *) &test_acc->owner);
+  fd_base58_decode_32( "Vote111111111111111111111111111111111111111",  (uchar *) &test_acc->result_owner);
   test_acc->lamports        = 0UL;
   test_acc->result_lamports = 0UL;
   test_acc->executable      = 0;
@@ -117,3 +117,4 @@ int test_23(fd_executor_test_suite_t *suite) {
 
   return fd_executor_run_test( &test, suite );
 }
+// https://explorer.solana.com/tx/inspector?message=AQEBAwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAArXVMvUfoE71wNybNUICcJeHPbgE%2F4sLNwY1sAAAAAAHYUgdNXR0u3xNdiTr072z2DVec9EQQ%2FwNo1OAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQICAQAuCAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA%3D%3D

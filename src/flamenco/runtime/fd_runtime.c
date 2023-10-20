@@ -272,6 +272,8 @@ fd_runtime_block_execute( fd_exec_slot_ctx_t * slot_ctx,
                           fd_slot_meta_t *  m,
                           void const *      block,
                           ulong             blocklen ) {
+  slot_ctx->bank.collected_fees = 0;
+  slot_ctx->bank.collected_rent = 0;
   fd_solcap_writer_set_slot( slot_ctx->capture, m->slot );
   if( slot_ctx->bank.slot != 0 ) {
     ulong slot_idx;
@@ -307,7 +309,8 @@ fd_runtime_block_execute( fd_exec_slot_ctx_t * slot_ctx,
 
   // TODO: move all these out to a fd_sysvar_update() call...
   fd_sysvar_clock_update( slot_ctx );
-  fd_sysvar_fees_update( slot_ctx );
+  if( !FD_FEATURE_ACTIVE( slot_ctx, disable_fees_sysvar ) )
+    fd_sysvar_fees_update( slot_ctx );
   // It has to go into the current txn previous info but is not in slot 0
   if (slot_ctx->bank.slot != 0)
     fd_sysvar_slot_hashes_update( slot_ctx );
@@ -358,7 +361,11 @@ fd_runtime_block_execute( fd_exec_slot_ctx_t * slot_ctx,
           int err = fd_acc_mgr_view(slot_ctx->acc_mgr, slot_ctx->funk_txn, &txn_accs[i], accs_rec);
 #ifndef USER_jsiegel
           if( FD_UNLIKELY( err ==FD_ACC_MGR_SUCCESS ) )
-            FD_LOG_WARNING(("ACCT FOR TXN: %lu - %32J, lamps: %lu", i, &txn_accs[i], accs_rec->const_meta->info.lamports));
+            FD_LOG_DEBUG(("ACCT FOR TXN: %lu - %32J, lamps: %lu, slot: %lu, rent_epoch: %lu, owner: %32J", i, &txn_accs[i],
+              accs_rec->const_meta->info.lamports,
+              accs_rec->const_meta->slot,
+              accs_rec->const_meta->info.rent_epoch,
+              accs_rec->const_meta->info.owner ));
 #else
           (void)err;
 #endif
@@ -374,7 +381,7 @@ fd_runtime_block_execute( fd_exec_slot_ctx_t * slot_ctx,
           if( FD_UNLIKELY( err !=FD_ACC_MGR_SUCCESS ) )
             FD_LOG_ERR(( "addr lut not found" ));
 
-          FD_LOG_WARNING(( "LUT ACC: idx: %lu, acc: %32J, meta.dlen; %lu", i, addr_lut_acc, lut_acc_rec->const_meta->dlen ));
+          FD_LOG_DEBUG(( "LUT ACC: idx: %lu, acc: %32J, meta.dlen; %lu", i, addr_lut_acc, lut_acc_rec->const_meta->dlen ));
 
           fd_address_lookup_table_state_t addr_lookup_table_state;
           fd_bincode_decode_ctx_t decode_ctx = {
@@ -392,15 +399,17 @@ fd_runtime_block_execute( fd_exec_slot_ctx_t * slot_ctx,
           fd_pubkey_t * lookup_addrs = (fd_pubkey_t *)&lut_acc_rec->const_data[56];
           uchar * writable_lut_idxs = (uchar *)rawtxn.raw + addr_lut->writable_off;
           for (ulong j = 0; j < addr_lut->writable_cnt; j++) {
-            FD_LOG_WARNING(( "LUT ACC WRITABLE: idx: %3lu, acc: %32J, lut_idx: %3lu, acct_idx: %3lu, %32J", i, addr_lut_acc, j, writable_lut_idxs[j], &lookup_addrs[writable_lut_idxs[j]] ));
+            FD_LOG_DEBUG(( "LUT ACC WRITABLE: idx: %3lu, acc: %32J, lut_idx: %3lu, acct_idx: %3lu, %32J", i, addr_lut_acc, j, writable_lut_idxs[j], &lookup_addrs[writable_lut_idxs[j]] ));
           }
 
           uchar * readonly_lut_idxs = (uchar *)rawtxn.raw + addr_lut->readonly_off;
           for (ulong j = 0; j < addr_lut->readonly_cnt; j++) {
-            FD_LOG_WARNING(( "LUT ACC READONLY: idx: %3lu, acc: %32J, lut_idx: %3lu, acct_idx: %3lu, %32J", i, addr_lut_acc, j, readonly_lut_idxs[j], &lookup_addrs[readonly_lut_idxs[j]] ));
+            FD_LOG_DEBUG(( "LUT ACC READONLY: idx: %3lu, acc: %32J, lut_idx: %3lu, acct_idx: %3lu, %32J", i, addr_lut_acc, j, readonly_lut_idxs[j], &lookup_addrs[readonly_lut_idxs[j]] ));
           }
         }
-        fd_execute_txn( slot_ctx, txn, &rawtxn );
+        if (FD_UNLIKELY( fd_execute_txn( slot_ctx, txn, &rawtxn ) ) ) {
+          FD_LOG_WARNING(("Transaction unsuccessful"));
+        }
 
         blockoff += pay_sz;
         txn_idx_in_block++;
@@ -417,6 +426,7 @@ fd_runtime_block_execute( fd_exec_slot_ctx_t * slot_ctx,
 
   int result = fd_update_hash_bank( slot_ctx, &slot_ctx->bank.banks_hash, signature_cnt );
   if (result != FD_EXECUTOR_INSTR_SUCCESS) {
+    FD_LOG_WARNING(( "hashing bank failed" ));
     return result;
   }
 
@@ -437,6 +447,8 @@ fd_runtime_block_verify( fd_exec_slot_ctx_t * slot_ctx,
   fd_bmtree_commit_t commit_mem[1];
 
   /* Loop across batches */
+  ulong thashcnt = 0;
+
   ulong blockoff = 0;
   while (blockoff < blocklen) {
     if ( blockoff + sizeof(ulong) > blocklen )
@@ -450,6 +462,9 @@ fd_runtime_block_verify( fd_exec_slot_ctx_t * slot_ctx,
         FD_LOG_ERR(("premature end of block"));
       fd_microblock_hdr_t * hdr = (fd_microblock_hdr_t *)((const uchar *)block + blockoff);
       blockoff += sizeof(fd_microblock_hdr_t);
+
+      // Add up all the poh hashes..
+      thashcnt += hdr->hash_cnt;
 
       if (hdr->txn_cnt == 0) {
         fd_poh_append(&slot_ctx->bank.poh, hdr->hash_cnt);
@@ -492,6 +507,11 @@ fd_runtime_block_verify( fd_exec_slot_ctx_t * slot_ctx,
 
   if (blockoff != blocklen)
     FD_LOG_ERR(("garbage at end of block"));
+
+  if ( FD_UNLIKELY(thashcnt != (slot_ctx->bank.ticks_per_slot * slot_ctx->bank.hashes_per_tick)) ) {
+    FD_LOG_ERR(("invalid poh hash count"));
+    return -1;
+  }
 
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
@@ -655,7 +675,8 @@ fd_runtime_block_eval( fd_exec_slot_ctx_t * slot_ctx, fd_slot_meta_t *m, const v
   if ( FD_RUNTIME_EXECUTE_SUCCESS == ret )
     ret = fd_runtime_block_execute( slot_ctx, m, block, blocklen );
 
-  if (FD_RUNTIME_EXECUTE_SUCCESS != ret ) {
+  // FIXME: better way of using starting slot
+  if (FD_RUNTIME_EXECUTE_SUCCESS != ret && slot_ctx->bank.slot == 179244883 ) {
     // Not exactly sure what I am supposed to do if execute fails to
     // this point...  is this a "log and fall over?"
     /*
@@ -667,7 +688,7 @@ fd_runtime_block_eval( fd_exec_slot_ctx_t * slot_ctx, fd_slot_meta_t *m, const v
     FD_LOG_ERR(( "need to rollback" ));
   }
 
-  return ret;
+  return 0;
 }
 
 ulong
@@ -795,7 +816,20 @@ fd_runtime_calculate_fee( fd_exec_txn_ctx_t * txn_ctx, fd_txn_t * txn_descriptor
   double prioritization_fee = (double)priority_fee;
 
   // let signature_fee = Self::get_num_signatures_in_message(message) .saturating_mul(fee_structure.lamports_per_signature);
-  double signature_fee = (double)fd_runtime_lamports_per_signature(&txn_ctx->slot_ctx->bank) * txn_descriptor->signature_cnt;
+  ulong num_signatures = txn_descriptor->signature_cnt;
+  for ( ushort i = 0; i < txn_descriptor->instr_cnt; ++i ) {
+    fd_txn_instr_t *  txn_instr = &txn_descriptor->instr[i];
+    fd_pubkey_t * program_id = &txn_ctx->accounts[txn_instr->program_id];
+    if (memcmp(program_id->uc, fd_solana_keccak_secp_256k_program_id.key, sizeof(fd_pubkey_t)) == 0 ||
+        memcmp(program_id->uc, fd_solana_ed25519_sig_verify_program_id.key, sizeof(fd_pubkey_t)) == 0) {
+      if (txn_instr->data_sz == 0) {
+        continue;
+      }
+      uchar * data = (uchar *)txn_raw->raw + txn_instr->data_off;
+      num_signatures = fd_ulong_sat_add(num_signatures, (ulong)(data[0]));
+    }
+  }
+  double signature_fee = (double)fd_runtime_lamports_per_signature(&txn_ctx->slot_ctx->bank) * (double)num_signatures;
 
 // TODO: as far as I can tell, this is always 0
 //
@@ -946,7 +980,6 @@ fd_runtime_collect_rent_account( fd_exec_slot_ctx_t *   slot_ctx,
       info->rent_epoch = ULONG_MAX;
       return 0;
     }
-
     return 1;
   }
 
@@ -991,10 +1024,10 @@ fd_runtime_collect_rent_for_slot( fd_exec_slot_ctx_t * slot_ctx, ulong off ) {
         rec_ro != NULL;
         rec_ro = fd_funk_part_next( rec_ro, rec_map ) ) {
     fd_pubkey_t const * key = fd_type_pun_const( rec_ro->pair.key[0].uc );
-    
+
     FD_BORROWED_ACCOUNT_DECL(rec);
     int err = fd_acc_mgr_view( acc_mgr, txn, key, rec);
-    
+
     /* Account might not exist anymore in the current world */
     if( err==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
       continue;
@@ -1006,12 +1039,12 @@ fd_runtime_collect_rent_for_slot( fd_exec_slot_ctx_t * slot_ctx, ulong off ) {
     /* Check if latest version in this transaction */
     if ( rec_ro != rec->const_rec )
       continue;
-    
+
     /* Filter accounts that we've already visited */
     ulong epoch = slot_ctx->epoch_ctx->rent_epoch;
     if( rec->const_meta->info.rent_epoch > epoch )
       continue;
-    
+
     /* Upgrade read-only handle to writable */
     err = fd_acc_mgr_modify(
       acc_mgr, txn, key,
@@ -1022,10 +1055,10 @@ fd_runtime_collect_rent_for_slot( fd_exec_slot_ctx_t * slot_ctx, ulong off ) {
       FD_LOG_WARNING(( "fd_runtime_collect_rent_range: fd_acc_mgr_modify failed (%d)", err ));
       continue;
     }
-    
+
     /* Actually invoke rent collection */
     (void) fd_runtime_collect_rent_account( slot_ctx, rec->meta, key, epoch );
-    
+
     if ( !FD_FEATURE_ACTIVE( slot_ctx, skip_rent_rewrites ) )
       // By changing the slot, this forces the account to be updated
       // in the account_delta_hash which matches the "rent rewrite"
@@ -1220,6 +1253,9 @@ fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx ) {
 
   fd_sysvar_recent_hashes_update ( slot_ctx );
 
+  if( !FD_FEATURE_ACTIVE( slot_ctx, disable_fees_sysvar ) )
+    fd_sysvar_fees_update( slot_ctx );
+
   if (slot_ctx->bank.collected_fees > 0) {
     // Look at collect_fees... I think this was where I saw the fee payout..
     FD_BORROWED_ACCOUNT_DECL(rec);
@@ -1230,11 +1266,10 @@ fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx ) {
       return;
     }
 
-    ulong fees = ( slot_ctx->bank.collected_fees / 2 );
-
-    FD_LOG_DEBUG(( "fd_runtime_freeze: slot:%ld global->collected_fees: %ld, sending %ld to leader (%32J), burning %ld", slot_ctx->bank.slot, slot_ctx->bank.collected_fees, fees, slot_ctx->leader, fees ));
+    ulong fees = (slot_ctx->bank.collected_fees - (slot_ctx->bank.collected_fees / 2) );;
 
     rec->meta->info.lamports += fees;
+    FD_LOG_DEBUG(( "fd_runtime_freeze: slot:%ld global->collected_fees: %ld, sending %ld to leader (%32J), burning %ld", slot_ctx->bank.slot, slot_ctx->bank.collected_fees, fees, slot_ctx->leader, fees ));
 
     ulong old = slot_ctx->bank.capitalization;
     slot_ctx->bank.capitalization = fd_ulong_sat_sub( slot_ctx->bank.capitalization, fees);
@@ -1591,6 +1626,18 @@ fd_process_new_epoch(
 
   // activate feature flags
   fd_features_restore( slot_ctx );
+
+  // Change the speed of the poh clock
+  if ( FD_FEATURE_ACTIVE( slot_ctx, update_hashes_per_tick6 ) )
+    slot_ctx->bank.hashes_per_tick = UPDATED_HASHES_PER_TICK6;
+  else if ( FD_FEATURE_ACTIVE( slot_ctx, update_hashes_per_tick5 ) )
+    slot_ctx->bank.hashes_per_tick = UPDATED_HASHES_PER_TICK5;
+  else if ( FD_FEATURE_ACTIVE( slot_ctx, update_hashes_per_tick4 ) )
+    slot_ctx->bank.hashes_per_tick = UPDATED_HASHES_PER_TICK4;
+  else if ( FD_FEATURE_ACTIVE( slot_ctx, update_hashes_per_tick3 ) )
+    slot_ctx->bank.hashes_per_tick = UPDATED_HASHES_PER_TICK3;
+  else if ( FD_FEATURE_ACTIVE( slot_ctx, update_hashes_per_tick2 ) )
+    slot_ctx->bank.hashes_per_tick = UPDATED_HASHES_PER_TICK2;
 
   // Add new entry to stakes.stake_history, set appropriate epoch and
   // update vote accounts with warmed up stakes before saving a

@@ -4,13 +4,17 @@
 #include "fd_sbpf_loader.h"
 
 /* fd_sbpf_maps defines map types that the loader and VM depend on. */
-
-#define MAP_NAME         fd_sbpf_calldests
-#define MAP_T            fd_sbpf_calldests_t
-#define MAP_KEY_NULL     ULONG_MAX
-#define MAP_KEY_INVAL(k) ((k)==ULONG_MAX)
-#define MAP_MEMOIZE      0
-#define MAP_LG_SLOT_CNT  12
+#define MAP_NAME              fd_sbpf_calldests
+#define MAP_T                 fd_sbpf_calldests_t
+#define MAP_KEY_T             uint
+#define MAP_KEY_NULL          UINT_MAX
+#define MAP_KEY_INVAL(k)      ((k)==UINT_MAX)
+#define MAP_KEY_EQUAL(k0,k1)  (k0)==(k1)
+#define MAP_KEY_EQUAL_IS_SLOW 1
+#define MAP_KEY_HASH(k)       (k)
+#define MAP_QUERY_OPT         1
+#define MAP_MEMOIZE           1
+#define MAP_LG_SLOT_CNT       12
 /* FIXME use dynamic maps */
 #include "../../util/tmpl/fd_map.c"
 
@@ -31,7 +35,6 @@ fd_sbpf_calldests_upsert( fd_sbpf_calldests_t * calldests,
 
   return 1;
 }
-
 
 #define MAP_NAME              fd_sbpf_syscalls
 #define MAP_T                 fd_sbpf_syscalls_t

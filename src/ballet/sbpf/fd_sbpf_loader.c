@@ -943,6 +943,7 @@ fd_sbpf_r_bpf_64_32( fd_sbpf_loader_t   const * loader,
     REQUIRE( fd_sbpf_calldests_upsert( loader->calldests, hash, target_pc ) );
 
     V = (uint)hash;
+    //V = (uint)target_pc; // (uint)hash;
   } else {
     /* FIXME Should cache Murmur hashes.
              If max ELF size is 10MB, can fit about 640k relocs.
@@ -996,7 +997,7 @@ fd_sbpf_apply_reloc( fd_sbpf_loader_t   const * loader,
    does not overlap with the ELF file header, program header table, or
    section header table. */
 
-static int
+static FD_FN_UNUSED int
 fd_sbpf_hash_calls( fd_sbpf_loader_t *    loader,
                     fd_sbpf_program_t *   prog,
                     fd_sbpf_elf_t const * elf ) {
@@ -1180,8 +1181,8 @@ fd_sbpf_program_load( fd_sbpf_program_t *  prog,
   fd_memcpy( prog->rodata, elf->bin, prog->info.rodata_footprint );
 
   /* Convert calls with PC relative immediate to hashes */
-  if( FD_UNLIKELY( (err=fd_sbpf_hash_calls  ( &loader, prog, elf ))!=0 ) )
-    return err;
+  // if( FD_UNLIKELY( (err=fd_sbpf_hash_calls  ( &loader, prog, elf ))!=0 ) )
+  //   return err;
 
   /* Apply relocations */
   if( FD_UNLIKELY( (err=fd_sbpf_relocate    ( &loader, elf, elf_sz, prog->rodata, &prog->info ))!=0 ) )

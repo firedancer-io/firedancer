@@ -2,7 +2,12 @@
 
 #include "../../ballet/murmur3/fd_murmur3.h"
 #include "../../ballet/sbpf/fd_sbpf_maps.c"
+#include "../../util/bits/fd_sat.h"
+
 #include "fd_vm_context.h"
+#include "../runtime/fd_runtime.h"
+
+#include <stdio.h>
 
 /* Helper function for reading a uchar from VM memory. Returns success or a fault for the memory
  * access. Sets the value pointed to by `val` on success.
@@ -131,15 +136,37 @@ fd_vm_interp_instrs( fd_vm_exec_context_t * ctx ) {
   ulong * register_file = ctx->register_file;
   fd_memset(register_file, 0, sizeof(register_file));
 
+    // let heap_size = compute_budget.heap_size.unwrap_or(HEAP_LENGTH);
+    // let _ = invoke_context.consume_checked(
+    //     ((heap_size as u64).saturating_div(32_u64.saturating_mul(1024)))
+    //         .saturating_sub(1)
+    //         .saturating_mul(compute_budget.heap_cost),
+    // );
+    // let heap =
+
   ulong cond_fault = 0;
 
 #define JMP_TAB_ID interp
-#define JMP_TAB_PRE_CASE_CODE
+#define JMP_TAB_PRE_CASE_CODE \
+ctx->due_insn_cnt = fd_ulong_sat_add(ctx->due_insn_cnt, 1);
 #define JMP_TAB_POST_CASE_CODE \
   ic++; \
   instr = ctx->instrs[++pc]; \
+  if ( FD_UNLIKELY( ctx->due_insn_cnt >= ctx->previous_instruction_meter ) ) { \
+    ctx->compute_meter = 0; \
+    ctx->due_insn_cnt = 0; \
+    ctx->previous_instruction_meter = 0; \
+    cond_fault = 1; \
+    goto JT_RET_LOC; \
+  } \
   goto *(locs[instr.opcode.raw]);
 #include "fd_jump_tab.c"
+
+  ulong heap_cus_consumed = fd_ulong_sat_mul(fd_ulong_sat_sub(ctx->heap_sz / (32*1024), 1), vm_compute_budget.heap_cost);
+  cond_fault = fd_vm_consume_compute_meter(ctx, heap_cus_consumed);
+  if( cond_fault != 0 ) {
+    goto JT_RET_LOC;
+  }
 
   fd_sbpf_instr_t instr;
 
@@ -155,6 +182,9 @@ JT_START;
 #include "fd_vm_interp_dispatch_tab.c"
 JT_END;
 
+  ctx->compute_meter = fd_ulong_sat_sub(ctx->compute_meter, ctx->due_insn_cnt);
+  ctx->due_insn_cnt = 0;
+  ctx->previous_instruction_meter = ctx->compute_meter;
   ctx->program_counter = (ulong) pc;
   ctx->instruction_counter = ic;
   ctx->cond_fault = cond_fault;
@@ -169,30 +199,37 @@ JT_END;
 }
 
 ulong
-fd_vm_interp_instrs_trace( fd_vm_exec_context_t *       ctx,
-                           fd_vm_trace_entry_t *        trace,
-                           ulong trace_sz, ulong *      trace_used ) {
+fd_vm_interp_instrs_trace( fd_vm_exec_context_t *       ctx ) {
   long pc = ctx->entrypoint;
   ulong ic = ctx->instruction_counter;
   ulong * register_file = ctx->register_file;
   fd_memset( register_file, 0, sizeof(register_file) );
 
-  ulong cond_fault = 0;
-
-  *trace_used = 0;
+  ulong cond_fault = 994;
 
 #define JMP_TAB_ID interp_trace
 #define JMP_TAB_PRE_CASE_CODE \
-  fd_memcpy( trace[*trace_used].register_file, register_file, 11*sizeof(ulong)); \
-  trace[*trace_used].pc = (ulong)pc; \
-  trace[*trace_used].ic = ic; \
-  (*trace_used)++;
+  ctx->due_insn_cnt = fd_ulong_sat_add(ctx->due_insn_cnt, 1); \
+  fd_vm_trace_context_add_entry( ctx->trace_ctx, (ulong)pc, ic, ctx->previous_instruction_meter - ctx->due_insn_cnt, register_file );
 #define JMP_TAB_POST_CASE_CODE \
   ic++; \
-  if( ic > trace_sz ) goto JT_RET_LOC; \
+  if( ic > ctx->trace_ctx->trace_entries_sz ) goto JT_RET_LOC; \
   instr = ctx->instrs[++pc]; \
+  if ( FD_UNLIKELY( ctx->due_insn_cnt >= ctx->previous_instruction_meter ) ) { \
+    ctx->compute_meter = 0; \
+    ctx->due_insn_cnt = 0; \
+    ctx->previous_instruction_meter = 0; \
+    cond_fault = 1; \
+    goto JT_RET_LOC; \
+  } \
   goto *(locs[instr.opcode.raw]);
 #include "fd_jump_tab.c"
+
+  ulong heap_cus_consumed = fd_ulong_sat_mul(fd_ulong_sat_sub(ctx->heap_sz / (32*1024), 1), vm_compute_budget.heap_cost);
+  cond_fault = fd_vm_consume_compute_meter(ctx, heap_cus_consumed);
+  if( cond_fault != 0) {
+    goto JT_RET_LOC;
+  }
 
   fd_sbpf_instr_t instr;
 
@@ -207,7 +244,9 @@ fd_vm_interp_instrs_trace( fd_vm_exec_context_t *       ctx,
 JT_START;
 #include "fd_vm_interp_dispatch_tab.c"
 JT_END;
-
+  ctx->compute_meter = fd_ulong_sat_sub(ctx->compute_meter, ctx->due_insn_cnt);
+  ctx->due_insn_cnt = 0;
+  ctx->previous_instruction_meter = ctx->compute_meter;
   ctx->program_counter = (ulong) pc;
   ctx->instruction_counter = ic;
   ctx->cond_fault = cond_fault;

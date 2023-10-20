@@ -25,9 +25,9 @@ void fd_durable_nonce_from_blockhash(fd_hash_t *hash, fd_hash_t *out) {
   fd_sha256_fini( &sha, out->hash );
 }
 
-int fd_load_nonce_account( fd_exec_txn_ctx_t * txn_ctx, 
-                           fd_txn_t * txn_descriptor, 
-                           fd_rawtxn_b_t const * txn_raw, 
+int fd_load_nonce_account( fd_exec_txn_ctx_t * txn_ctx,
+                           fd_txn_t * txn_descriptor,
+                           fd_rawtxn_b_t const * txn_raw,
                            fd_nonce_state_versions_t * state,
                            int * opt_err ) {
   if (txn_descriptor->instr_cnt == 0) {
@@ -40,7 +40,7 @@ int fd_load_nonce_account( fd_exec_txn_ctx_t * txn_ctx,
   fd_convert_txn_instr_to_instr(txn_descriptor, txn_raw, txn_instr, txn_ctx->accounts, txn_ctx->borrowed_accounts, &instr);
 
   // A little defense in depth?
-  int err = fd_account_sanity_check_raw(&instr, txn_descriptor, instr.program_id + 1);
+  int err = fd_account_sanity_check_raw(&instr, txn_descriptor->acct_addr_cnt, instr.program_id + 1);
   if (FD_EXECUTOR_INSTR_SUCCESS != err) {
     *opt_err = err;
     return 0;
@@ -70,7 +70,7 @@ int fd_load_nonce_account( fd_exec_txn_ctx_t * txn_ctx,
   if (fd_system_program_instruction_enum_advance_nonce_account != instruction.discriminant)
     return 0;
 
-  err = fd_account_sanity_check_raw(&instr, txn_descriptor, 3);
+  err = fd_account_sanity_check_raw(&instr, txn_descriptor->acct_addr_cnt, 3);
   if (FD_UNLIKELY(FD_EXECUTOR_INSTR_SUCCESS != err)) {
     *opt_err = err;
     return 0;
@@ -109,7 +109,7 @@ int fd_advance_nonce_account( fd_exec_instr_ctx_t ctx ) {
 //        {pubkey: params.noncePubkey, isSigner: false, isWritable: true},
 //        {pubkey: SYSVAR_RECENT_BLOCKHASHES_PUBKEY, isSigner: false, isWritable: false,},
 //        {pubkey: params.authorizedPubkey, isSigner: true, isWritable: false},
-  if (ctx.txn_ctx->txn_descriptor->acct_addr_cnt < 2) {
+  if( ctx.instr->acct_cnt < 2 ) {
     return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
   }
 
@@ -234,7 +234,7 @@ int fd_withdraw_nonce_account(
   )
 {
 
-  if (ctx.txn_ctx->txn_descriptor->acct_addr_cnt < 2) {
+  if (ctx.instr->acct_cnt < 2) {
     return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
   }
 
@@ -349,9 +349,8 @@ int fd_initialize_nonce_account(
   fd_exec_instr_ctx_t   ctx,
   fd_pubkey_t        *initialize_nonce_account
   ) {
-  if (ctx.txn_ctx->txn_descriptor->acct_addr_cnt < 2) {
+  if( FD_UNLIKELY( ctx.instr->acct_cnt < 2 ) )
     return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
-  }
 
   if (!fd_instr_acc_is_writable_idx(ctx.instr, 0))
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
@@ -361,9 +360,18 @@ int fd_initialize_nonce_account(
 
   fd_pubkey_t * me   = &txn_accs[instr_acc_idxs[0]];
 
+  /* https://github.com/solana-labs/solana/blob/fb80288f885a62bcd923f4c9579fd0edeafaff9b/programs/system/src/system_processor.rs#L471 */
   if (0 != memcmp(&txn_accs[instr_acc_idxs[1]], fd_sysvar_recent_block_hashes_id.key, sizeof(fd_pubkey_t))) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
   }
+  /* TODO Check if recent blockhashes is empty */
+
+  /* https://github.com/solana-labs/solana/blob/fb80288f885a62bcd923f4c9579fd0edeafaff9b/programs/system/src/system_processor.rs#L483 */
+  if( FD_UNLIKELY( ctx.instr->acct_cnt < 3 ) )
+    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+  if( FD_UNLIKELY( 0!=memcmp( &txn_accs[instr_acc_idxs[2]], fd_sysvar_rent_id.key, sizeof(fd_pubkey_t) ) ) )
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+
   if (!fd_instr_acc_is_signer_idx(ctx.instr, 0))
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG; // Really? This was the error?!
 

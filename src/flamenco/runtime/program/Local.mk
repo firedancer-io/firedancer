@@ -11,6 +11,7 @@ $(call add-hdrs, \
 	fd_bpf_loader_v4_program.h \
 	fd_ed25519_program.h \
 	fd_secp256k1_program.h \
+	fd_address_lookup_table_program.h \
 	fd_bpf_loader_serialization.h \
 	fd_program_util.h \
 )
@@ -29,6 +30,7 @@ $(call add-objs, \
 	fd_bpf_loader_v4_program \
 	fd_ed25519_program \
 	fd_secp256k1_program \
+	fd_address_lookup_table_program \
 	fd_bpf_loader_serialization, \
 	fd_flamenco \
 )

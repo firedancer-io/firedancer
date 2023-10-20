@@ -26,7 +26,8 @@
    thus we store all Murmur3(PC) => PC mappings in this map. */
 
 struct __attribute__((aligned(16UL))) fd_sbpf_calldests {
-  ulong key;  /* hash of PC */
+  uint key;  /* hash of PC */
+  uint hash;
   /* FIXME salt map key with an add-rotate-xor */
   ulong pc;
 };

@@ -52,9 +52,11 @@ def read_traces_from_file(log_path, max_traces):
                 print("\rTraces:", len(traces), dt2, end="", file=sys.stderr)
                 dt2 = -time.time()
             trace.append((line.lstrip(), groups))
+    if len(trace) != 0:
+        traces.append(trace)
     dt += time.time()
     print(file=sys.stderr)
-    print("Trace time:", log_path, dt, file=sys.stderr)
+    print("Trace time:", log_path, dt, len(traces), file=sys.stderr)
     return traces
 
 def check_strict_match(fd_line, sl_line):
@@ -120,16 +122,23 @@ def traces_diff(fd_traces, sl_traces):
     print("TOTAL_TRACES:", len(fd_traces))
     print("GOOD_MATCHES:", n_good_matches, n_good_matches / len(fd_traces))
 
+def cache_sl(sl_traces):
+    for i,trace in enumerate(sl_traces):
+        with open(f'traces/sl_trace_{i}.log', 'w+') as f:
+            f.write('\n'.join([x[0] for x in trace]))
+
 def main():
     arg_parser = argparse.ArgumentParser()
     arg_parser.add_argument("-f", "--fd-log-path", help="Path to Firedancer log file", required=True)
     arg_parser.add_argument("-s", "--sl-log-path", help="Path to Solana log file", required=True)
     arg_parser.add_argument("-n", "--max-traces", help="Max number of traces to process", required=True, type=int)
+    arg_parser.add_argument("-m", "--skip-traces", help="Number of traces to skip", required=False, default=0)
     args = arg_parser.parse_args()
 
     fd_traces = read_traces_from_file(args.fd_log_path, args.max_traces)
     print("FD traces:", len(fd_traces))
     sl_traces = read_traces_from_file(args.sl_log_path, args.max_traces)
+    # cache_sl(sl_traces)
     print("SL traces:", len(sl_traces))
 
     traces_diff(fd_traces, sl_traces)

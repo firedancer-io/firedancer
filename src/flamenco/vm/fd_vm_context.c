@@ -2,6 +2,15 @@
 
 #include "../../ballet/sbpf/fd_sbpf_opcodes.h"
 #include "../../ballet/sbpf/fd_sbpf_maps.c"
+#include "../runtime/fd_runtime.h"
+
+ulong
+fd_vm_consume_compute_meter(fd_vm_exec_context_t * ctx, ulong cost) {
+  ulong exceeded = ctx->compute_meter < cost;
+  ctx->compute_meter = fd_ulong_sat_sub(ctx->compute_meter, cost);
+  // FD_LOG_WARNING(("CUs! consumed %lu cost %lu", ctx->compute_meter, cost));
+  return exceeded;
+}
 
 // Opcode validation success/error codes.
 #define FD_VALID        (0) /* Valid opcode */
@@ -154,31 +163,44 @@ fd_vm_translate_vm_to_host_private( fd_vm_exec_context_t *  ctx,
   ulong start_addr = vm_addr & FD_VM_MEM_MAP_REGION_SZ;
   ulong end_addr = start_addr + sz;
 
+  ulong host_addr = 0UL;
   switch( mem_region ) {
     case FD_VM_MEM_MAP_PROGRAM_REGION_START:
       /* Read-only program binary blob memory region */
       if( FD_UNLIKELY( ( write                        )
                      | ( end_addr > ctx->read_only_sz ) ) )
         return 0UL;
-      return (ulong)ctx->read_only + start_addr;
+
+      host_addr = (ulong)ctx->read_only + start_addr;
+      break;
     case FD_VM_MEM_MAP_STACK_REGION_START:
       /* Stack memory region */
       /* TODO: needs more of the runtime to actually implement */
       /* FIXME: check that we are in the current or previous stack frame! */
       if( FD_UNLIKELY( end_addr > (FD_VM_STACK_MAX_DEPTH * FD_VM_STACK_FRAME_WITH_GUARD_SZ ) ) )
         return 0UL;
-      return (ulong)ctx->stack.data + start_addr;
+      host_addr = (ulong)ctx->stack.data + start_addr;
+      break;
     case FD_VM_MEM_MAP_HEAP_REGION_START:
       /* Heap memory region */
-      if( FD_UNLIKELY( end_addr > FD_VM_HEAP_SZ ) )
+      if( FD_UNLIKELY( end_addr > ctx->heap_sz ) )
         return 0UL;
-      return (ulong)ctx->heap + start_addr;
+      host_addr = (ulong)ctx->heap + start_addr;
+      break;
     case FD_VM_MEM_MAP_INPUT_REGION_START:
       /* Program input memory region */
       if( FD_UNLIKELY( end_addr > ctx->input_sz ) )
         return 0UL;
-      return (ulong)ctx->input + start_addr;
+      host_addr = (ulong)ctx->input + start_addr;
+      break;
     default:
       return 0UL;
   }
+
+#ifdef FD_DEBUG_SBPF_TRACES
+if (ctx->instr_ctx.slot_ctx->bank.slot == 179244909) {
+  fd_vm_trace_context_add_mem_entry( ctx->trace_ctx, vm_addr, sz, host_addr, write );
+}
+#endif
+  return host_addr;
 }
