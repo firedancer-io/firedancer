@@ -580,27 +580,34 @@ int fd_executor_txn_check( fd_exec_slot_ctx_t * slot_ctx,  fd_exec_txn_ctx_t *tx
 
   for (ulong idx = 0; idx < txn->accounts_cnt; idx++) {
     fd_borrowed_account_t *b = &txn->borrowed_accounts[idx];
-    if (NULL != b->const_meta) {
-      ending_lamports += b->const_meta->info.lamports;
-      ending_dlen += b->const_meta->dlen;
+    if (NULL != b->meta) {
+      ending_lamports += b->meta->info.lamports;
+      ending_dlen += b->meta->dlen;
 
       // Lets prevent creating non-rent-exempt accounts...
-      uchar after_exempt = fd_rent_exempt_minimum_balance2( &rent, b->const_meta->dlen) <= b->const_meta->info.lamports;
+      uchar after_exempt = fd_rent_exempt_minimum_balance2( &rent, b->meta->dlen) <= b->meta->info.lamports;
 
       if (!after_exempt) {
         uchar before_exempt = (b->starting_dlen != ULONG_MAX) ?
           (fd_rent_exempt_minimum_balance2( &rent, b->starting_dlen) <= b->starting_lamports) : 1;
-        if (before_exempt || (b->const_meta->dlen != b->starting_dlen))
+        if (before_exempt || (b->meta->dlen != b->starting_dlen))
           return FD_EXECUTOR_INSTR_ERR_ACC_NOT_RENT_EXEMPT;
       }
-    }
 
-    if (b->starting_lamports != ULONG_MAX)
-      starting_lamports += b->starting_lamports;
-    if (b->starting_dlen != ULONG_MAX)
-      starting_dlen += b->starting_dlen;
+      if (b->starting_lamports != ULONG_MAX)
+        starting_lamports += b->starting_lamports;
+      if (b->starting_dlen != ULONG_MAX)
+        starting_dlen += b->starting_dlen;
+    } else if (NULL != b->const_meta) {
+      // Should these just kill the client?  They are impossible...
+      if (b->starting_lamports != b->const_meta->info.lamports)
+        return FD_EXECUTOR_INSTR_ERR_UNBALANCED_INSTR;
+      if (b->starting_dlen != b->const_meta->dlen)
+        return FD_EXECUTOR_INSTR_ERR_UNBALANCED_INSTR;
+    }
   }
 
+  // Should these just kill the client?  They are impossible yet solana just throws an error
   if (ending_lamports != starting_lamports)
     return FD_EXECUTOR_INSTR_ERR_UNBALANCED_INSTR;
 
