@@ -235,10 +235,13 @@ fd_topo_workspace_fill( fd_topo_t *      topo,
     switch( tile->kind ) {
       case FD_TOPO_TILE_KIND_PACK: {
         void * poh_slot = SCRATCH_ALLOC( 8UL, 8UL );
-        void * poh_parent_slot = SCRATCH_ALLOC( 8UL, 8UL );
+        void * poh_reset_slot = SCRATCH_ALLOC( 8UL, 8UL );
         if( FD_LIKELY( mode==FD_TOPO_FILL_MODE_NEW ) ) {
           INSERT_POD( "poh_slot", poh_slot );
-          INSERT_POD( "poh_parent_slot", poh_parent_slot );
+          INSERT_POD( "poh_reset_slot", poh_reset_slot );
+        } else if( FD_LIKELY( mode==FD_TOPO_FILL_MODE_JOIN ) ) {
+          tile->extra[ 0 ] = poh_slot;
+          tile->extra[ 1 ] = poh_reset_slot;
         }
         break;
       }
