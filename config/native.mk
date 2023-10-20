@@ -19,8 +19,8 @@ $(call check-define, FD_USING_CLANG, __clang__)
 
 $(call check-define, FD_IS_GNU, __GNUC__)
 ifeq ($(FD_IS_GNU),1)
-    ifneq ($(FD_USING_CLANG),1)
-        FD_USING_GCC := 1
+    ifneq ($(FD_USING_GCC),1)
+        FD_USING_CLANG := 1
     endif
 endif
 

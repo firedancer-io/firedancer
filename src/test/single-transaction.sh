@@ -13,7 +13,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 # start fddev, send a single transaction, and if everything works return 0
-FDDEV=./build/native/gcc/bin/fddev
+FDDEV=./build/native/clang/bin/fddev
 
 # TODO: For some reason /tmp does not work on the github runner for --log-path
 timeout --preserve-status --kill-after=20 15 $FDDEV configure init all --netns --log-path ./log
