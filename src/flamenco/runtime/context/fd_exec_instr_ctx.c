@@ -45,7 +45,7 @@ fd_instr_borrowed_account_modify_idx( fd_exec_instr_ctx_t * ctx,
   if( FD_UNLIKELY( idx >= ctx->instr->acct_cnt ) )
     return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
   if( FD_UNLIKELY( !fd_instr_acc_is_writable_idx( ctx->instr, idx ) ) )
-    FD_LOG_WARNING(( "unwritable account passed to fd_instr_borrowed_account_modify_idx" ));
+    FD_LOG_WARNING(( "unwritable account passed to fd_instr_borrowed_account_modify_idx (idx=%lu)", idx ));
 
   fd_borrowed_account_t * instr_account = ctx->instr->borrowed_accounts[idx];
   int err = fd_acc_mgr_modify( ctx->acc_mgr, ctx->funk_txn, &ctx->instr->acct_pubkeys[idx], do_create, min_data_sz, instr_account );

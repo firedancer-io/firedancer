@@ -58,7 +58,7 @@ fd_executor_lookup_native_program( fd_pubkey_t const * pubkey ) {
 }
 
 int
-fd_executor_lookup_program( fd_exec_slot_ctx_t * slot_ctx, 
+fd_executor_lookup_program( fd_exec_slot_ctx_t * slot_ctx,
                             fd_pubkey_t const * pubkey ) {
   if( fd_executor_bpf_upgradeable_loader_program_is_executable_program_account( slot_ctx, pubkey )==0 ) {
     return 0;
@@ -206,7 +206,7 @@ fd_executor_collect_fee( fd_exec_slot_ctx_t * slot_ctx,
     FD_LOG_WARNING(( "Not enough lamps" ));
     return -1;
   }
-  
+
   FD_LOG_DEBUG(( "fd_execute_txn: global->collected: %ld->%ld (%ld)", slot_ctx->bank.collected_fees, slot_ctx->bank.collected_fees + fee, fee));
   FD_LOG_DEBUG(( "calling set_lamports to charge the fee %lu", fee));
 
@@ -236,6 +236,7 @@ fd_execute_instr( fd_instr_info_t * instr, fd_exec_txn_ctx_t * txn_ctx ) {
 
   // defense in depth
   if (instr->program_id >= txn_ctx->txn_descriptor->acct_addr_cnt + txn_ctx->txn_descriptor->addr_table_adtl_cnt) {
+    FD_LOG_WARNING(( "INVALID PROGRAM ID, RUNTIME BUG!!!" ));
     int exec_result = FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
     txn_ctx->instr_stack_sz--;
 
