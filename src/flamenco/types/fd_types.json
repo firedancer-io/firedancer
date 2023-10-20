@@ -1846,6 +1846,33 @@
         { "name": "pong",      "type": "gossip_ping" }
       ],
       "comment": "UDP payloads of the Solana gossip protocol"
+    },
+    {
+      "name": "addrlut_create",
+      "type": "struct",
+      "fields": [
+        { "name": "recent_slot", "type": "ulong" },
+        { "name": "bump_seed",   "type": "uchar" }
+      ]
+    },
+    {
+      "name": "addrlut_extend",
+      "type": "struct",
+      "fields": [
+        { "name": "new_addrs", "type": "vector", "element": "pubkey" }
+      ]
+    },
+    {
+      "name": "addrlut_instruction",
+      "type": "enum",
+      "variants": [
+        { "name": "create_lut", "type": "addrlut_create" },
+        { "name": "freeze_lut" },
+        { "name": "extend_lut", "type": "addrlut_extend" },
+        { "name": "deactivate_lut" },
+        { "name": "close_lut" }
+      ],
+      "comment": "https://github.com/solana-labs/solana/blob/fb80288f885a62bcd923f4c9579fd0edeafaff9b/sdk/program/src/address_lookup_table/instruction.rs#L13"
     }
   ]
 }

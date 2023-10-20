@@ -2195,6 +2195,37 @@ typedef struct fd_gossip_msg fd_gossip_msg_t;
 #define FD_GOSSIP_MSG_FOOTPRINT sizeof(fd_gossip_msg_t)
 #define FD_GOSSIP_MSG_ALIGN (8UL)
 
+struct __attribute__((aligned(8UL))) fd_addrlut_create {
+  ulong recent_slot;
+  uchar bump_seed;
+};
+typedef struct fd_addrlut_create fd_addrlut_create_t;
+#define FD_ADDRLUT_CREATE_FOOTPRINT sizeof(fd_addrlut_create_t)
+#define FD_ADDRLUT_CREATE_ALIGN (8UL)
+
+struct __attribute__((aligned(8UL))) fd_addrlut_extend {
+  ulong new_addrs_len;
+  fd_pubkey_t* new_addrs;
+};
+typedef struct fd_addrlut_extend fd_addrlut_extend_t;
+#define FD_ADDRLUT_EXTEND_FOOTPRINT sizeof(fd_addrlut_extend_t)
+#define FD_ADDRLUT_EXTEND_ALIGN (8UL)
+
+union fd_addrlut_instruction_inner {
+  fd_addrlut_create_t create_lut;
+  fd_addrlut_extend_t extend_lut;
+};
+typedef union fd_addrlut_instruction_inner fd_addrlut_instruction_inner_t;
+
+/* https://github.com/solana-labs/solana/blob/fb80288f885a62bcd923f4c9579fd0edeafaff9b/sdk/program/src/address_lookup_table/instruction.rs#L13 */
+struct fd_addrlut_instruction {
+  uint discriminant;
+  fd_addrlut_instruction_inner_t inner;
+};
+typedef struct fd_addrlut_instruction fd_addrlut_instruction_t;
+#define FD_ADDRLUT_INSTRUCTION_FOOTPRINT sizeof(fd_addrlut_instruction_t)
+#define FD_ADDRLUT_INSTRUCTION_ALIGN (8UL)
+
 
 FD_PROTOTYPES_BEGIN
 
@@ -4435,6 +4466,52 @@ fd_gossip_msg_enum_push_msg = 2,
 fd_gossip_msg_enum_prune_msg = 3,
 fd_gossip_msg_enum_ping = 4,
 fd_gossip_msg_enum_pong = 5,
+}; 
+void fd_addrlut_create_new(fd_addrlut_create_t* self);
+int fd_addrlut_create_decode(fd_addrlut_create_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_addrlut_create_decode_preflight(fd_bincode_decode_ctx_t * ctx);
+void fd_addrlut_create_decode_unsafe(fd_addrlut_create_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_addrlut_create_encode(fd_addrlut_create_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_addrlut_create_destroy(fd_addrlut_create_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_addrlut_create_walk(void * w, fd_addrlut_create_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_addrlut_create_size(fd_addrlut_create_t const * self);
+ulong fd_addrlut_create_footprint( void );
+ulong fd_addrlut_create_align( void );
+
+void fd_addrlut_extend_new(fd_addrlut_extend_t* self);
+int fd_addrlut_extend_decode(fd_addrlut_extend_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_addrlut_extend_decode_preflight(fd_bincode_decode_ctx_t * ctx);
+void fd_addrlut_extend_decode_unsafe(fd_addrlut_extend_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_addrlut_extend_encode(fd_addrlut_extend_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_addrlut_extend_destroy(fd_addrlut_extend_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_addrlut_extend_walk(void * w, fd_addrlut_extend_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_addrlut_extend_size(fd_addrlut_extend_t const * self);
+ulong fd_addrlut_extend_footprint( void );
+ulong fd_addrlut_extend_align( void );
+
+void fd_addrlut_instruction_new_disc(fd_addrlut_instruction_t* self, uint discriminant);
+void fd_addrlut_instruction_new(fd_addrlut_instruction_t* self);
+int fd_addrlut_instruction_decode(fd_addrlut_instruction_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_addrlut_instruction_decode_preflight(fd_bincode_decode_ctx_t * ctx);
+void fd_addrlut_instruction_decode_unsafe(fd_addrlut_instruction_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_addrlut_instruction_encode(fd_addrlut_instruction_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_addrlut_instruction_destroy(fd_addrlut_instruction_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_addrlut_instruction_walk(void * w, fd_addrlut_instruction_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_addrlut_instruction_size(fd_addrlut_instruction_t const * self);
+ulong fd_addrlut_instruction_footprint( void );
+ulong fd_addrlut_instruction_align( void );
+
+FD_FN_PURE uchar fd_addrlut_instruction_is_create_lut(fd_addrlut_instruction_t const * self);
+FD_FN_PURE uchar fd_addrlut_instruction_is_freeze_lut(fd_addrlut_instruction_t const * self);
+FD_FN_PURE uchar fd_addrlut_instruction_is_extend_lut(fd_addrlut_instruction_t const * self);
+FD_FN_PURE uchar fd_addrlut_instruction_is_deactivate_lut(fd_addrlut_instruction_t const * self);
+FD_FN_PURE uchar fd_addrlut_instruction_is_close_lut(fd_addrlut_instruction_t const * self);
+enum {
+fd_addrlut_instruction_enum_create_lut = 0,
+fd_addrlut_instruction_enum_freeze_lut = 1,
+fd_addrlut_instruction_enum_extend_lut = 2,
+fd_addrlut_instruction_enum_deactivate_lut = 3,
+fd_addrlut_instruction_enum_close_lut = 4,
 }; 
 FD_PROTOTYPES_END
 

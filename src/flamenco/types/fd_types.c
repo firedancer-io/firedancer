@@ -17550,6 +17550,321 @@ int fd_gossip_msg_encode(fd_gossip_msg_t const * self, fd_bincode_encode_ctx_t *
   return fd_gossip_msg_inner_encode(&self->inner, self->discriminant, ctx);
 }
 
+int fd_addrlut_create_decode(fd_addrlut_create_t* self, fd_bincode_decode_ctx_t * ctx) {
+  void const * data = ctx->data;
+  int err = fd_addrlut_create_decode_preflight(ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  ctx->data = data;
+  fd_addrlut_create_new(self);
+  fd_addrlut_create_decode_unsafe(self, ctx);
+  return FD_BINCODE_SUCCESS;
+}
+int fd_addrlut_create_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
+  int err;
+  err = fd_bincode_uint64_decode_preflight(ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_uint8_decode_preflight(ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_addrlut_create_decode_unsafe(fd_addrlut_create_t* self, fd_bincode_decode_ctx_t * ctx) {
+  fd_bincode_uint64_decode_unsafe(&self->recent_slot, ctx);
+  fd_bincode_uint8_decode_unsafe(&self->bump_seed, ctx);
+}
+void fd_addrlut_create_new(fd_addrlut_create_t* self) {
+  fd_memset(self, 0, sizeof(fd_addrlut_create_t));
+}
+void fd_addrlut_create_destroy(fd_addrlut_create_t* self, fd_bincode_destroy_ctx_t * ctx) {
+}
+
+ulong fd_addrlut_create_footprint( void ){ return FD_ADDRLUT_CREATE_FOOTPRINT; }
+ulong fd_addrlut_create_align( void ){ return FD_ADDRLUT_CREATE_ALIGN; }
+
+void fd_addrlut_create_walk(void * w, fd_addrlut_create_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_addrlut_create", level++);
+  fun( w, &self->recent_slot, "recent_slot", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
+  fun( w, &self->bump_seed, "bump_seed", FD_FLAMENCO_TYPE_UCHAR,   "uchar",     level );
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_addrlut_create", level--);
+}
+ulong fd_addrlut_create_size(fd_addrlut_create_t const * self) {
+  ulong size = 0;
+  size += sizeof(ulong);
+  size += sizeof(char);
+  return size;
+}
+
+int fd_addrlut_create_encode(fd_addrlut_create_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  err = fd_bincode_uint64_encode(&self->recent_slot, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint8_encode(&self->bump_seed, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+
+int fd_addrlut_extend_decode(fd_addrlut_extend_t* self, fd_bincode_decode_ctx_t * ctx) {
+  void const * data = ctx->data;
+  int err = fd_addrlut_extend_decode_preflight(ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  ctx->data = data;
+  fd_addrlut_extend_new(self);
+  fd_addrlut_extend_decode_unsafe(self, ctx);
+  return FD_BINCODE_SUCCESS;
+}
+int fd_addrlut_extend_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
+  int err;
+  ulong new_addrs_len;
+  err = fd_bincode_uint64_decode(&new_addrs_len, ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  if (new_addrs_len != 0) {
+    for( ulong i = 0; i < new_addrs_len; ++i) {
+      err = fd_pubkey_decode_preflight(ctx);
+      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    }
+  }
+  return FD_BINCODE_SUCCESS;
+}
+void fd_addrlut_extend_decode_unsafe(fd_addrlut_extend_t* self, fd_bincode_decode_ctx_t * ctx) {
+  fd_bincode_uint64_decode_unsafe(&self->new_addrs_len, ctx);
+  if (self->new_addrs_len != 0) {
+    self->new_addrs = (fd_pubkey_t *)fd_valloc_malloc( ctx->valloc, FD_PUBKEY_ALIGN, FD_PUBKEY_FOOTPRINT*self->new_addrs_len);
+    for( ulong i = 0; i < self->new_addrs_len; ++i) {
+      fd_pubkey_new(self->new_addrs + i);
+      fd_pubkey_decode_unsafe(self->new_addrs + i, ctx);
+    }
+  } else
+    self->new_addrs = NULL;
+}
+void fd_addrlut_extend_new(fd_addrlut_extend_t* self) {
+  fd_memset(self, 0, sizeof(fd_addrlut_extend_t));
+}
+void fd_addrlut_extend_destroy(fd_addrlut_extend_t* self, fd_bincode_destroy_ctx_t * ctx) {
+  if (NULL != self->new_addrs) {
+    for (ulong i = 0; i < self->new_addrs_len; ++i)
+      fd_pubkey_destroy(self->new_addrs + i, ctx);
+    fd_valloc_free( ctx->valloc, self->new_addrs );
+    self->new_addrs = NULL;
+  }
+}
+
+ulong fd_addrlut_extend_footprint( void ){ return FD_ADDRLUT_EXTEND_FOOTPRINT; }
+ulong fd_addrlut_extend_align( void ){ return FD_ADDRLUT_EXTEND_ALIGN; }
+
+void fd_addrlut_extend_walk(void * w, fd_addrlut_extend_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_addrlut_extend", level++);
+  if (self->new_addrs_len != 0) {
+    fun(w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "new_addrs", level++);
+    for (ulong i = 0; i < self->new_addrs_len; ++i)
+      fd_pubkey_walk(w, self->new_addrs + i, fun, "pubkey", level );
+    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "new_addrs", level-- );
+  }
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_addrlut_extend", level--);
+}
+ulong fd_addrlut_extend_size(fd_addrlut_extend_t const * self) {
+  ulong size = 0;
+  size += sizeof(ulong);
+  for (ulong i = 0; i < self->new_addrs_len; ++i)
+    size += fd_pubkey_size(self->new_addrs + i);
+  return size;
+}
+
+int fd_addrlut_extend_encode(fd_addrlut_extend_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  err = fd_bincode_uint64_encode(&self->new_addrs_len, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  if (self->new_addrs_len != 0) {
+    for (ulong i = 0; i < self->new_addrs_len; ++i) {
+      err = fd_pubkey_encode(self->new_addrs + i, ctx);
+      if ( FD_UNLIKELY(err) ) return err;
+    }
+  }
+  return FD_BINCODE_SUCCESS;
+}
+
+FD_FN_PURE uchar fd_addrlut_instruction_is_create_lut(fd_addrlut_instruction_t const * self) {
+  return self->discriminant == 0;
+}
+FD_FN_PURE uchar fd_addrlut_instruction_is_freeze_lut(fd_addrlut_instruction_t const * self) {
+  return self->discriminant == 1;
+}
+FD_FN_PURE uchar fd_addrlut_instruction_is_extend_lut(fd_addrlut_instruction_t const * self) {
+  return self->discriminant == 2;
+}
+FD_FN_PURE uchar fd_addrlut_instruction_is_deactivate_lut(fd_addrlut_instruction_t const * self) {
+  return self->discriminant == 3;
+}
+FD_FN_PURE uchar fd_addrlut_instruction_is_close_lut(fd_addrlut_instruction_t const * self) {
+  return self->discriminant == 4;
+}
+void fd_addrlut_instruction_inner_new(fd_addrlut_instruction_inner_t* self, uint discriminant);
+int fd_addrlut_instruction_inner_decode_preflight(uint discriminant, fd_bincode_decode_ctx_t * ctx) {
+  int err;
+  switch (discriminant) {
+  case 0: {
+    err = fd_addrlut_create_decode_preflight(ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
+  }
+  case 1: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 2: {
+    err = fd_addrlut_extend_decode_preflight(ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
+  }
+  case 3: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 4: {
+    return FD_BINCODE_SUCCESS;
+  }
+  default: return FD_BINCODE_ERR_ENCODING;
+  }
+}
+void fd_addrlut_instruction_inner_decode_unsafe(fd_addrlut_instruction_inner_t* self, uint discriminant, fd_bincode_decode_ctx_t * ctx) {
+  switch (discriminant) {
+  case 0: {
+    fd_addrlut_create_decode_unsafe(&self->create_lut, ctx);
+    break;
+  }
+  case 1: {
+    break;
+  }
+  case 2: {
+    fd_addrlut_extend_decode_unsafe(&self->extend_lut, ctx);
+    break;
+  }
+  case 3: {
+    break;
+  }
+  case 4: {
+    break;
+  }
+  }
+}
+int fd_addrlut_instruction_decode(fd_addrlut_instruction_t* self, fd_bincode_decode_ctx_t * ctx) {
+  void const * data = ctx->data;
+  int err = fd_addrlut_instruction_decode_preflight(ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  ctx->data = data;
+  fd_addrlut_instruction_new(self);
+  fd_addrlut_instruction_decode_unsafe(self, ctx);
+  return FD_BINCODE_SUCCESS;
+}
+int fd_addrlut_instruction_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
+  uint discriminant = 0;
+  int err = fd_bincode_uint32_decode(&discriminant, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return fd_addrlut_instruction_inner_decode_preflight(discriminant, ctx);
+}
+void fd_addrlut_instruction_decode_unsafe(fd_addrlut_instruction_t* self, fd_bincode_decode_ctx_t * ctx) {
+  fd_bincode_uint32_decode_unsafe(&self->discriminant, ctx);
+  fd_addrlut_instruction_inner_decode_unsafe(&self->inner, self->discriminant, ctx);
+}
+void fd_addrlut_instruction_inner_new(fd_addrlut_instruction_inner_t* self, uint discriminant) {
+  switch (discriminant) {
+  case 0: {
+    fd_addrlut_create_new(&self->create_lut);
+    break;
+  }
+  case 1: {
+    break;
+  }
+  case 2: {
+    fd_addrlut_extend_new(&self->extend_lut);
+    break;
+  }
+  case 3: {
+    break;
+  }
+  case 4: {
+    break;
+  }
+  default: break; // FD_LOG_ERR(( "unhandled type"));
+  }
+}
+void fd_addrlut_instruction_new_disc(fd_addrlut_instruction_t* self, uint discriminant) {
+  self->discriminant = discriminant;
+  fd_addrlut_instruction_inner_new(&self->inner, self->discriminant);
+}
+void fd_addrlut_instruction_new(fd_addrlut_instruction_t* self) {
+  fd_memset(self, 0, sizeof(*self));
+  fd_addrlut_instruction_new_disc(self, UINT_MAX);
+}
+void fd_addrlut_instruction_inner_destroy(fd_addrlut_instruction_inner_t* self, uint discriminant, fd_bincode_destroy_ctx_t * ctx) {
+  switch (discriminant) {
+  case 0: {
+    fd_addrlut_create_destroy(&self->create_lut, ctx);
+    break;
+  }
+  case 2: {
+    fd_addrlut_extend_destroy(&self->extend_lut, ctx);
+    break;
+  }
+  default: break; // FD_LOG_ERR(( "unhandled type" ));
+  }
+}
+void fd_addrlut_instruction_destroy(fd_addrlut_instruction_t* self, fd_bincode_destroy_ctx_t * ctx) {
+  fd_addrlut_instruction_inner_destroy(&self->inner, self->discriminant, ctx);
+}
+
+ulong fd_addrlut_instruction_footprint( void ){ return FD_ADDRLUT_INSTRUCTION_FOOTPRINT; }
+ulong fd_addrlut_instruction_align( void ){ return FD_ADDRLUT_INSTRUCTION_ALIGN; }
+
+void fd_addrlut_instruction_walk(void * w, fd_addrlut_instruction_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_addrlut_instruction", level++);
+  switch (self->discriminant) {
+  case 0: {
+    fd_addrlut_create_walk(w, &self->inner.create_lut, fun, "create_lut", level);
+    break;
+  }
+  case 2: {
+    fd_addrlut_extend_walk(w, &self->inner.extend_lut, fun, "extend_lut", level);
+    break;
+  }
+  }
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_addrlut_instruction", level--);
+}
+ulong fd_addrlut_instruction_size(fd_addrlut_instruction_t const * self) {
+  ulong size = 0;
+  size += sizeof(uint);
+  switch (self->discriminant) {
+  case 0: {
+    size += fd_addrlut_create_size(&self->inner.create_lut);
+    break;
+  }
+  case 2: {
+    size += fd_addrlut_extend_size(&self->inner.extend_lut);
+    break;
+  }
+  }
+  return size;
+}
+
+int fd_addrlut_instruction_inner_encode(fd_addrlut_instruction_inner_t const * self, uint discriminant, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  switch (discriminant) {
+  case 0: {
+    err = fd_addrlut_create_encode(&self->create_lut, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    break;
+  }
+  case 2: {
+    err = fd_addrlut_extend_encode(&self->extend_lut, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    break;
+  }
+  }
+  return FD_BINCODE_SUCCESS;
+}
+int fd_addrlut_instruction_encode(fd_addrlut_instruction_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  err = fd_bincode_uint32_encode(&self->discriminant, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return fd_addrlut_instruction_inner_encode(&self->inner, self->discriminant, ctx);
+}
+
 #define REDBLK_T fd_vote_accounts_pair_t_mapnode_t
 #define REDBLK_NAME fd_vote_accounts_pair_t_map
 #define REDBLK_IMPL_STYLE 2
