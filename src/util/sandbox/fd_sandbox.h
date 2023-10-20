@@ -75,4 +75,21 @@ fd_sandbox( int    full_sandbox,
             ushort allow_syscalls_cnt,
             long * allow_syscalls );
 
+
+/* fd_sandbox_alloc_protected_pages allocates `page_cnt` regular (4 kB)
+   pages of memory protected by `guard_page_cnt` pages of unreadable and
+   unwritable memory on each side.  Additionally the OS is configured so
+   that the page_cnt pages in the middle will not be paged out to disk
+   in a swap file, appear in core dumps, or be inherited by any child
+   process forked off from this process.  Terminates the calling process
+   with FD_LOG_ERR with details if the operation fails.  Returns a
+   pointer to the first byte of the protected memory.  Precisely, if ptr
+   is the returned pointer, then ptr[i] for i in [0, 4096*page_cnt) is
+   readable and writable, but ptr[i] for i in [-4096*guard_page_cnt, 0)
+   U [4096*page_cnt, 4096*(page_cnt+guard_page_cnt) ) will cause a
+   SIGSEGV.  For current use cases, there's no use in freeing the pages
+   allocated by this function, so no free function is provided. */
+void *
+fd_sandbox_alloc_protected_pages( ulong page_cnt,
+                                  ulong guard_page_cnt );
 #endif /* HEADER_fd_src_util_sandbox_fd_sandbox_h */

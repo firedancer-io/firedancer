@@ -477,12 +477,10 @@ fd_ed25519_public_from_private( void *        A,
   /* WARNING!  Some implementations do a mod L here (including the go
      implementation but not OpenSSL).  The standard doesn't indicate to
      do this here but it does indicate to do it in the sign operation.
-     It is also highly suggestive there should be a mod L in the verify
-     operation ( see "as an integer S, in the range 0 <= s < L" in 5.1.7
-     (page 14) and "S is a member of the set {0, 1, ..., L-1}." in 3.4
-     (page 8) ) and OpenSSL does it there.  However, the standard is
-     quite sloppy here.  Commenting out for now to match the standard
-     and OpenSSL behavior. */
+     The standard does not explicitly indicate to do it in the verify
+     operation but it can be inferred following the sign operation,
+     and OpenSSL does it there. The standard is quite sloppy here.
+     Commenting out for now to match the standard and OpenSSL behavior. */
 
 //fd_ed25519_sc_reduce( h, h ); /* TODO: AVX-512 VERSION (THIS IS MOD _L_, NOT MOD P) */
 
@@ -680,9 +678,8 @@ fd_ed25519_verify( void const *  M,
                   r, 32UL ), A, 32UL ), M, sz ), k );
 
   /* Note: the spec does not explicitly indicate whether k should be reduced
-     mod l here.  However, it does implicitly mention that:
-        "... as an integer S, in the range 0 <= s < L" in 5.1.7 (page 14)
-        "... S is a member of the set {0, 1, ..., L-1}." in 3.4 (page  8)
+     mod l here.  However, it does indicate so when signing (Section 5.1.6
+     step 5, page 14): "... For efficiency, again reduce k modulo L first."
      This matches OpenSSL and sign implementation above. */
 
   fd_ed25519_sc_reduce( k, k ); /* TODO: make AVX-512 accelerated version */

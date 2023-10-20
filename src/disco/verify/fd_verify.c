@@ -49,12 +49,14 @@ during_frag( void * _ctx,
 }
 
 static inline void
-after_frag( void * _ctx,
-            ulong * opt_sig,
-            ulong * opt_chunk,
-            ulong * opt_sz,
-            int   * opt_filter ) {
+after_frag( void             * _ctx,
+            ulong            * opt_sig,
+            ulong            * opt_chunk,
+            ulong            * opt_sz,
+            int              * opt_filter,
+            fd_mux_context_t * mux         ) {
   (void)opt_sig;
+  (void)mux;
 
   verify_ctx_t * ctx = (verify_ctx_t *)_ctx;
 
@@ -157,6 +159,7 @@ fd_verify_tile( fd_cnc_t *              cnc,
                       mcache,
                       out_cnt,
                       out_fseq,
+                      1UL, /* burst */
                       cr_max,
                       lazy,
                       rng,

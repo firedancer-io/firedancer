@@ -126,25 +126,25 @@ fd_sha512_private_batch_avx( ulong          batch_cnt,
        the state computations for the inactive lane will be ignored). */
 
     wv_t W03 = wv_if( active_lane, W, W_sentinel );
-    ulong const * W0 = (ulong const *)wv_extract( W03, 0 );
-    ulong const * W1 = (ulong const *)wv_extract( W03, 1 );
-    ulong const * W2 = (ulong const *)wv_extract( W03, 2 );
-    ulong const * W3 = (ulong const *)wv_extract( W03, 3 );
+    uchar const * W0 = (uchar const *)wv_extract( W03, 0 );
+    uchar const * W1 = (uchar const *)wv_extract( W03, 1 );
+    uchar const * W2 = (uchar const *)wv_extract( W03, 2 );
+    uchar const * W3 = (uchar const *)wv_extract( W03, 3 );
 
     wv_t x0; wv_t x1; wv_t x2; wv_t x3;
     wv_transpose_4x4( wv_bswap( wv_ldu(W0   ) ), wv_bswap( wv_ldu(W1   ) ), wv_bswap( wv_ldu(W2   ) ), wv_bswap( wv_ldu(W3   ) ),
                       x0, x1, x2, x3 );
 
     wv_t x4; wv_t x5; wv_t x6; wv_t x7;
-    wv_transpose_4x4( wv_bswap( wv_ldu(W0+ 4) ), wv_bswap( wv_ldu(W1+ 4) ), wv_bswap( wv_ldu(W2+ 4) ), wv_bswap( wv_ldu(W3+ 4) ),
+    wv_transpose_4x4( wv_bswap( wv_ldu(W0+32) ), wv_bswap( wv_ldu(W1+32) ), wv_bswap( wv_ldu(W2+32) ), wv_bswap( wv_ldu(W3+32) ),
                       x4, x5, x6, x7 );
 
     wv_t x8; wv_t x9; wv_t xa; wv_t xb;
-    wv_transpose_4x4( wv_bswap( wv_ldu(W0+ 8) ), wv_bswap( wv_ldu(W1+ 8) ), wv_bswap( wv_ldu(W2+ 8) ), wv_bswap( wv_ldu(W3+ 8) ),
+    wv_transpose_4x4( wv_bswap( wv_ldu(W0+64) ), wv_bswap( wv_ldu(W1+64) ), wv_bswap( wv_ldu(W2+64) ), wv_bswap( wv_ldu(W3+64) ),
                       x8, x9, xa, xb );
 
     wv_t xc; wv_t xd; wv_t xe; wv_t xf;
-    wv_transpose_4x4( wv_bswap( wv_ldu(W0+12) ), wv_bswap( wv_ldu(W1+12) ), wv_bswap( wv_ldu(W2+12) ), wv_bswap( wv_ldu(W3+12) ),
+    wv_transpose_4x4( wv_bswap( wv_ldu(W0+96) ), wv_bswap( wv_ldu(W1+96) ), wv_bswap( wv_ldu(W2+96) ), wv_bswap( wv_ldu(W3+96) ),
                       xc, xd, xe, xf );
 
     /* Compute the SHA-512 state updates */

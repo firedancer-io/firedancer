@@ -19,18 +19,21 @@ FD_FN_CONST char *
 workspace_kind_str( workspace_kind_t kind ) {
   switch( kind ) {
     case wksp_netmux_inout: return "netmux_inout";
-    case wksp_quic_verify: return "quic_verify";
+    case wksp_quic_verify:  return "quic_verify";
     case wksp_verify_dedup: return "verify_dedup";
-    case wksp_dedup_pack: return "dedup_pack";
-    case wksp_pack_bank: return "pack_bank";
-    case wksp_bank_shred: return "bank_shred";
-    case wksp_net: return "net";
-    case wksp_netmux: return "netmux";
-    case wksp_quic: return "quic";
-    case wksp_verify: return "verify";
-    case wksp_dedup: return "dedup";
-    case wksp_pack: return "pack";
-    case wksp_bank: return "bank";
+    case wksp_dedup_pack:   return "dedup_pack";
+    case wksp_pack_bank:    return "pack_bank";
+    case wksp_bank_shred:   return "bank_shred";
+    case wksp_shred_store:  return "shred_store";
+    case wksp_net:          return "net";
+    case wksp_netmux:       return "netmux";
+    case wksp_quic:         return "quic";
+    case wksp_verify:       return "verify";
+    case wksp_dedup:        return "dedup";
+    case wksp_pack:         return "pack";
+    case wksp_bank:         return "bank";
+    case wksp_shred:        return "shred";
+    case wksp_store:        return "store";
   }
   return NULL;
 }
@@ -69,6 +72,7 @@ memlock_max_bytes( config_t * const config ) {
       case wksp_dedup_pack:
       case wksp_pack_bank:
       case wksp_bank_shred:
+      case wksp_shred_store:
         break;
       case wksp_net:
         TILE_MAX( net );
@@ -91,6 +95,12 @@ memlock_max_bytes( config_t * const config ) {
       case wksp_bank:
         TILE_MAX( bank );
         break;
+      case wksp_shred:
+        TILE_MAX( shred );
+        break;
+      case wksp_store:
+        TILE_MAX( shred );
+        break;
     }
   }
 
@@ -112,22 +122,22 @@ default_user( void ) {
   return name;
 }
 
-static void parse_key_value( config_t *   config,
-                             const char * section,
-                             const char * key,
-                             char * value ) {
+static int parse_key_value( config_t *   config,
+                            const char * section,
+                            const char * key,
+                            char * value ) {
 #define ENTRY_STR(edot, esection, ekey) do {                                         \
     if( FD_UNLIKELY( !strcmp( section, #esection ) && !strcmp( key, #ekey ) ) ) {    \
       ulong len = strlen( value );                                                   \
       if( FD_UNLIKELY( len < 2 || value[ 0 ] != '"' || value[ len - 1 ] != '"' ) ) { \
         FD_LOG_ERR(( "invalid value for %s.%s: `%s`", section, key, value ));        \
-        return;                                                                      \
+        return 1;                                                                    \
       }                                                                              \
       if( FD_UNLIKELY( len >= sizeof( config->esection edot ekey ) + 2 ) )           \
         FD_LOG_ERR(( "value for %s.%s is too long: `%s`", section, key, value ));    \
       strncpy( config->esection edot ekey, value + 1, len - 2 );                     \
       config->esection edot ekey[ len - 2 ] = '\0';                                  \
-      return;                                                                        \
+      return 1;                                                                      \
     }                                                                                \
   } while( 0 )
 
@@ -136,7 +146,7 @@ static void parse_key_value( config_t *   config,
       ulong len = strlen( value );                                                                   \
       if( FD_UNLIKELY( len < 2 || value[ 0 ] != '"' || value[ len - 1 ] != '"' ) ) {                 \
         FD_LOG_ERR(( "invalid value for %s.%s: `%s`", section, key, value ));                        \
-        return;                                                                                      \
+        return 1;                                                                                    \
       }                                                                                              \
       if( FD_UNLIKELY( len >= sizeof( config->esection edot ekey[ 0 ] ) + 2 ) )                      \
         FD_LOG_ERR(( "value for %s.%s is too long: `%s`", section, key, value ));                    \
@@ -145,7 +155,7 @@ static void parse_key_value( config_t *   config,
       strncpy( config->esection edot ekey[ config->esection edot ekey##_cnt ], value + 1, len - 2 ); \
       config->esection edot ekey[ config->esection edot ekey##_cnt ][ len - 2 ] = '\0';              \
       config->esection edot ekey##_cnt++;                                                            \
-      return;                                                                                        \
+      return 1;                                                                                      \
     }                                                                                                \
   } while( 0 )
 
@@ -153,7 +163,7 @@ static void parse_key_value( config_t *   config,
     if( FD_UNLIKELY( !strcmp( section, #esection ) && !strcmp( key, #ekey ) ) ) { \
       if( FD_UNLIKELY( strlen( value ) < 1 ) ) {                                  \
         FD_LOG_ERR(( "invalid value for %s.%s: `%s`", section, key, value ));     \
-        return;                                                                   \
+        return 1;                                                                   \
       }                                                                           \
       char * src = value;                                                         \
       char * dst = value;                                                         \
@@ -166,10 +176,10 @@ static void parse_key_value( config_t *   config,
       unsigned long int result = strtoul( value, &endptr, 10 );                   \
       if( FD_UNLIKELY( *endptr != '\0' || result > UINT_MAX ) ) {                 \
         FD_LOG_ERR(( "invalid value for %s.%s: `%s`", section, key, value ));     \
-        return;                                                                   \
+        return 1;                                                                 \
       }                                                                           \
       config->esection edot ekey = (uint)result;                                  \
-      return;                                                                     \
+      return 1;                                                                   \
     }                                                                             \
   } while( 0 )
 
@@ -177,7 +187,7 @@ static void parse_key_value( config_t *   config,
     if( FD_UNLIKELY( !strcmp( section, #esection ) && !strcmp( key, #ekey ) ) ) {    \
       if( FD_UNLIKELY( strlen( value ) < 1 ) ) {                                     \
         FD_LOG_ERR(( "invalid value for %s.%s: `%s`", section, key, value ));        \
-        return;                                                                      \
+        return 1;                                                                    \
       }                                                                              \
       char * src = value;                                                            \
       char * dst = value;                                                            \
@@ -190,7 +200,7 @@ static void parse_key_value( config_t *   config,
       unsigned long int result = strtoul( value, &endptr, 10 );                      \
       if( FD_UNLIKELY( *endptr != '\0' || result > UINT_MAX ) ) {                    \
         FD_LOG_ERR(( "invalid value for %s.%s: `%s`", section, key, value ));        \
-        return;                                                                      \
+        return 1;                                                                    \
       }                                                                              \
       config->esection edot ekey[ config->esection edot ekey##_cnt ] = (uint)result; \
       config->esection edot ekey##_cnt++;                                            \
@@ -201,16 +211,16 @@ static void parse_key_value( config_t *   config,
     if( FD_UNLIKELY( !strcmp( section, #esection ) && !strcmp( key, #ekey ) ) ) { \
       if( FD_UNLIKELY( strlen( value ) < 1 ) ) {                                  \
         FD_LOG_ERR(( "invalid value for %s.%s: `%s`", section, key, value ));     \
-        return;                                                                   \
+        return 1;                                                                 \
       }                                                                           \
       char * endptr;                                                              \
       unsigned long int result = strtoul( value, &endptr, 10 );                   \
       if( FD_UNLIKELY( *endptr != '\0' || result > USHORT_MAX ) ) {               \
         FD_LOG_ERR(( "invalid value for %s.%s: `%s`", section, key, value ));     \
-        return;                                                                   \
+        return 1;                                                                 \
       }                                                                           \
       config->esection edot ekey = (ushort)result;                                \
-      return;                                                                     \
+      return 1;                                                                   \
     }                                                                             \
   } while( 0 )
 
@@ -222,7 +232,7 @@ static void parse_key_value( config_t *   config,
         config->esection edot ekey = 0;                                           \
       else                                                                        \
         FD_LOG_ERR(( "invalid value for %s.%s: `%s`", section, key, value ));     \
-      return;                                                                     \
+      return 1;                                                                   \
     }                                                                             \
   } while( 0 )
 
@@ -267,7 +277,10 @@ static void parse_key_value( config_t *   config,
   ENTRY_BOOL  ( ., rpc,                 only_known                                                );
   ENTRY_BOOL  ( ., rpc,                 pubsub_enable_block_subscription                          );
   ENTRY_BOOL  ( ., rpc,                 pubsub_enable_vote_subscription                           );
-  ENTRY_BOOL  ( ., rpc,                 incremental_snapshots                                     );
+
+  ENTRY_BOOL  ( ., snapshots,           incremental_snapshots                                     );
+  ENTRY_UINT  ( ., snapshots,           full_snapshot_interval_slots                              );
+  ENTRY_UINT  ( ., snapshots,           incremental_snapshot_interval_slots                       );
 
   ENTRY_STR   ( ., layout,              affinity                                                  );
   ENTRY_UINT  ( ., layout,              net_tile_count                                            );
@@ -291,6 +304,7 @@ static void parse_key_value( config_t *   config,
   ENTRY_UINT  ( ., tiles.quic,          max_concurrent_handshakes                                 );
   ENTRY_UINT  ( ., tiles.quic,          max_inflight_quic_packets                                 );
   ENTRY_UINT  ( ., tiles.quic,          tx_buf_size                                               );
+  ENTRY_UINT  ( ., tiles.quic,          idle_timeout_millis                                       );
 
   ENTRY_UINT  ( ., tiles.verify,        receive_buffer_size                                       );
   ENTRY_UINT  ( ., tiles.verify,        mtu                                                       );
@@ -298,6 +312,9 @@ static void parse_key_value( config_t *   config,
   ENTRY_UINT  ( ., tiles.dedup,         signature_cache_size                                      );
 
   ENTRY_UINT  ( ., tiles.pack,          max_pending_transactions                                  );
+
+  ENTRY_UINT  ( ., tiles.shred,         max_pending_shred_sets                                    );
+  ENTRY_USHORT( ., tiles.shred,         shred_listen_port                                         );
 
   ENTRY_BOOL  ( ., development,         sandbox                                                   );
 
@@ -308,6 +325,9 @@ static void parse_key_value( config_t *   config,
   ENTRY_STR   ( ., development.netns,   interface1                                                );
   ENTRY_STR   ( ., development.netns,   interface1_mac                                            );
   ENTRY_STR   ( ., development.netns,   interface1_addr                                           );
+
+  /* We have encountered a token that is not recognized, return 0 to indicate failure. */
+  return 0;
 }
 
 void
@@ -335,7 +355,8 @@ replace( char *       in,
 }
 
 static void
-config_parse_array( config_t * config,
+config_parse_array( const char * path,
+                    config_t * config,
                     char * section,
                     char * key,
                     int * in_array,
@@ -354,23 +375,32 @@ config_parse_array( config_t * config,
     char * end = token + strlen( token ) - 1;
     while( FD_UNLIKELY( *end == ' ' ) ) end--;
     *(end+1) = '\0';
-    if( FD_LIKELY( end > token ) ) parse_key_value( config, section, key, token );
+    if( FD_LIKELY( end > token ) ) {
+      if( FD_UNLIKELY( !parse_key_value( config, section, key, token ) ) ) {
+        if( FD_UNLIKELY( path == NULL ) ) {
+          FD_LOG_ERR(( "Error while parsing the embedded configuration. The configuration had an unrecognized key [%s.%s].", section, key ));
+        } else {
+          FD_LOG_ERR(( "Error while parsing user configuration TOML file at %s. The configuration had an unrecognized key [%s.%s].", path, section, key ));
+        }
+      }
+    }
     token = strtok_r( NULL, ",", &saveptr );
   }
 }
 
 static void
-config_parse_line( uint       lineno,
-                   char *     line,
-                   char *     section,
-                   int *      in_array,
-                   char *     key,
-                   config_t * out ) {
+config_parse_line( const char * path,
+                   uint         lineno,
+                   char *       line,
+                   char *       section,
+                   int *        in_array,
+                   char *       key,
+                   config_t *   out ) {
   while( FD_LIKELY( *line == ' ' ) ) line++;
   if( FD_UNLIKELY( *line == '#' || *line == '\0' || *line == '\n' ) ) return;
 
   if( FD_UNLIKELY( *in_array ) ) {
-    config_parse_array( out, section, key, in_array, line );
+    config_parse_array( path, out, section, key, in_array, line );
     return;
   }
 
@@ -395,9 +425,15 @@ config_parse_line( uint       lineno,
 
   if( FD_UNLIKELY( *value == '[' ) ) {
     *in_array = 1;
-    config_parse_array( out, section, key, in_array, value );
+    config_parse_array( path, out, section, key, in_array, value );
   } else {
-    parse_key_value( out, section, key, value );
+    if( FD_UNLIKELY( !parse_key_value( out, section, key, value ) ) ) {
+      if( FD_UNLIKELY( path == NULL ) ) {
+        FD_LOG_ERR(( "Error while parsing the embedded configuration. The configuration had an unrecognized key [%s.%s].", section, key ));
+      } else {
+        FD_LOG_ERR(( "Error while parsing user configuration TOML file at %s. The configuration had an unrecognized key [%s.%s].", path, section, key ));
+      }
+    }
   }
 }
 
@@ -420,7 +456,7 @@ config_parse1( const char * config,
     strncpy( line_copy, line, sizeof( line_copy ) - 1 ); // -1 to silence linter
     line_copy[ n ] = '\0';
 
-    config_parse_line( lineno, line_copy, section, &in_array, key, out );
+    config_parse_line( NULL , lineno, line_copy, section, &in_array, key, out );
 
     if( FD_LIKELY( next_line ) ) next_line++;
     line = next_line;
@@ -444,7 +480,7 @@ config_parse_file( const char * path,
     if( FD_UNLIKELY( len==4095UL ) ) FD_LOG_ERR(( "line %u too long in `%s`", lineno, path ));
     if( FD_LIKELY( len ) ) {
       line[ len-1UL ] = '\0'; /* chop off newline */
-      config_parse_line( lineno, line, section, &in_array, key, out );
+      config_parse_line( path, lineno, line, section, &in_array, key, out );
     }
   }
   if( FD_UNLIKELY( ferror( fp ) ) )
@@ -505,7 +541,7 @@ init_workspaces( config_t * config ) {
   config->shmem.workspaces[ idx ].kind      = wksp_dedup_pack;
   config->shmem.workspaces[ idx ].name      = "dedup_pack";
   config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
-  config->shmem.workspaces[ idx ].num_pages = 1;
+  config->shmem.workspaces[ idx ].num_pages = 2;
   idx++;
 
   config->shmem.workspaces[ idx ].kind      = wksp_pack_bank;
@@ -518,6 +554,12 @@ init_workspaces( config_t * config ) {
   config->shmem.workspaces[ idx ].name      = "bank_shred";
   config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
   config->shmem.workspaces[ idx ].num_pages = 1;
+  idx++;
+
+  config->shmem.workspaces[ idx ].kind      = wksp_shred_store;
+  config->shmem.workspaces[ idx ].name      = "shred_store";
+  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
+  config->shmem.workspaces[ idx ].num_pages = 3;
   idx++;
 
   config->shmem.workspaces[ idx ].kind      = wksp_net;
@@ -562,6 +604,18 @@ init_workspaces( config_t * config ) {
   config->shmem.workspaces[ idx ].num_pages = 1;
   idx++;
 
+  config->shmem.workspaces[ idx ].kind      = wksp_shred;
+  config->shmem.workspaces[ idx ].name      = "shred";
+  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
+  config->shmem.workspaces[ idx ].num_pages = 3;
+  idx++;
+
+  config->shmem.workspaces[ idx ].kind      = wksp_store;
+  config->shmem.workspaces[ idx ].name      = "store";
+  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_HUGE_PAGE_SZ;
+  config->shmem.workspaces[ idx ].num_pages = 1;
+  idx++;
+
   config->shmem.workspaces_cnt = idx;
 }
 
@@ -589,6 +643,56 @@ username_to_uid( char * username ) {
   }
 
   FD_LOG_ERR(( "configuration file wants firedancer to run as user `%s` but it does not exist", username ));
+}
+
+static void
+validate_ports( config_t * result ) {
+  char dynamic_port_range[ 32 ];
+  fd_memcpy( dynamic_port_range, result->dynamic_port_range, sizeof(dynamic_port_range) );
+
+  char * dash = strstr( dynamic_port_range, "-" );
+  if( FD_UNLIKELY( !dash ) )
+    FD_LOG_ERR(( "configuration specifies invalid [dynamic_port_range] `%s`. "
+                 "This must be formatted like `<min>-<max>`",
+                 result->dynamic_port_range ));
+
+  *dash = '\0';
+  char * endptr;
+  ulong solana_port_min = strtoul( dynamic_port_range, &endptr, 10 );
+  if( FD_UNLIKELY( *endptr != '\0' || solana_port_min > USHORT_MAX ) )
+    FD_LOG_ERR(( "configuration specifies invalid [dynamic_port_range] `%s`. "
+                 "This must be formatted like `<min>-<max>`",
+                 result->dynamic_port_range ));
+  ulong solana_port_max = strtoul( dash + 1, &endptr, 10 );
+  if( FD_UNLIKELY( *endptr != '\0' || solana_port_max > USHORT_MAX ) )
+    FD_LOG_ERR(( "configuration specifies invalid [dynamic_port_range] `%s`. "
+                 "This must be formatted like `<min>-<max>`",
+                 result->dynamic_port_range ));
+  if( FD_UNLIKELY( solana_port_min > solana_port_max ) )
+    FD_LOG_ERR(( "configuration specifies invalid [dynamic_port_range] `%s`. "
+                 "The minimum port must be less than or equal to the maximum port",
+                 result->dynamic_port_range ));
+
+  if( FD_UNLIKELY( result->tiles.quic.regular_transaction_listen_port >= solana_port_min &&
+                   result->tiles.quic.regular_transaction_listen_port < solana_port_max ) )
+    FD_LOG_ERR(( "configuration specifies invalid [tiles.quic.transaction_listen_port] `%hu`. "
+                 "This must be outside the dynamic port range `%s`",
+                 result->tiles.quic.regular_transaction_listen_port,
+                 result->dynamic_port_range ));
+
+  if( FD_UNLIKELY( result->tiles.quic.quic_transaction_listen_port >= solana_port_min &&
+                   result->tiles.quic.quic_transaction_listen_port < solana_port_max ) )
+    FD_LOG_ERR(( "configuration specifies invalid [tiles.quic.quic_transaction_listen_port] `%hu`. "
+                 "This must be outside the dynamic port range `%s`",
+                 result->tiles.quic.quic_transaction_listen_port,
+                 result->dynamic_port_range ));
+
+  if( FD_UNLIKELY( result->tiles.shred.shred_listen_port >= solana_port_min &&
+                   result->tiles.shred.shred_listen_port < solana_port_max ) )
+    FD_LOG_ERR(( "configuration specifies invalid [tiles.shred.shred_listen_port] `%hu`. "
+                 "This must be outside the dynamic port range `%s`",
+                 result->tiles.shred.shred_listen_port,
+                 result->dynamic_port_range ));
 }
 
 config_t
@@ -734,6 +838,8 @@ config_parse( int *    pargc,
                  "This must be 6 more than [tiles.quic.regular_transaction_listen_port] `%hu`",
                  result.tiles.quic.quic_transaction_listen_port,
                  result.tiles.quic.regular_transaction_listen_port ));
+
+  validate_ports( &result );
 
   init_workspaces( &result );
 

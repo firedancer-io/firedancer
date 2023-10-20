@@ -227,7 +227,8 @@ solana_labs_main( void * args ) {
   if( FD_UNLIKELY( strcmp( config->dynamic_port_range, "" ) ) )
     ADD( "--dynamic-port-range", config->dynamic_port_range );
 
-  ADDU( "--tpu-port", config->tiles.quic.regular_transaction_listen_port );
+  ADDU( "--firedancer-tpu-port", config->tiles.quic.regular_transaction_listen_port );
+  ADDU( "--firedancer-tvu-port", config->tiles.shred.shred_listen_port              );
 
   char ip_addr[16];
   snprintf1( ip_addr, 16, FD_IP4_ADDR_FMT, FD_IP4_ADDR_FMT_ARGS(config->tiles.net.ip_addr) );
@@ -238,7 +239,7 @@ solana_labs_main( void * args ) {
   if( strcmp( config->consensus.vote_account_path, "" ) )
     ADD( "--vote-account", config->consensus.vote_account_path );
   if( !config->consensus.snapshot_fetch ) ADD1( "--no-snapshot-fetch" );
-  if( !config->consensus.genesis_fetch ) ADD1( "--no-genesis-fetch" );
+  if( !config->consensus.genesis_fetch  ) ADD1( "--no-genesis-fetch"  );
   if( !config->consensus.poh_speed_test ) ADD1( "--no-poh-speed-test" );
   if( strcmp( config->consensus.expected_genesis_hash, "" ) )
     ADD( "--expected-genesis-hash", config->consensus.expected_genesis_hash );
@@ -289,7 +290,11 @@ solana_labs_main( void * args ) {
   if( config->rpc.only_known ) ADD1( "--only-known-rpc" );
   if( config->rpc.pubsub_enable_block_subscription ) ADD1( "--rpc-pubsub-enable-block-subscription" );
   if( config->rpc.pubsub_enable_vote_subscription ) ADD1( "--rpc-pubsub-enable-vote-subscription" );
-  if( config->rpc.incremental_snapshots ) ADD1( "--incremental-snapshots" );
+
+  /* snapshots */
+  if( !config->snapshots.incremental_snapshots ) ADD1( "--no-incremental-snapshots" );
+  ADDU( "--full-snapshot-interval-slots", config->snapshots.full_snapshot_interval_slots );
+  ADDU( "--incremental-snapshot-interval-slots", config->snapshots.incremental_snapshot_interval_slots );
 
   argv[ idx ] = NULL;
 
@@ -351,6 +356,7 @@ main_pid_namespace( void * args ) {
       case wksp_dedup_pack:
       case wksp_pack_bank:
       case wksp_bank_shred:
+      case wksp_shred_store:
         break;
       case wksp_net:
         tile_cnt += config->layout.net_tile_count;
@@ -368,7 +374,11 @@ main_pid_namespace( void * args ) {
       case wksp_pack:
         tile_cnt++;
         break;
+      case wksp_shred:
+        tile_cnt++;
+        break;
       case wksp_bank:
+      case wksp_store:
         /* not included here, not a real pinned tile*/
         break;
     }
@@ -404,6 +414,7 @@ main_pid_namespace( void * args ) {
   for( ulong i=0; i<config->layout.verify_tile_count; i++ ) clone_tile( &spawner, &verify, i );
   clone_tile( &spawner, &dedup, 0 );
   clone_tile( &spawner, &pack , 0 );
+  clone_tile( &spawner, &shred, 0 );
 
   if( FD_UNLIKELY( sched_setaffinity( 0, sizeof(cpu_set_t), floating_cpu_set ) ) )
     FD_LOG_ERR(( "sched_setaffinity failed (%i-%s)", errno, fd_io_strerror( errno ) ));

@@ -157,7 +157,7 @@ fd_fec_resolver_t * fd_fec_resolver_join( void * shmem );
 int fd_fec_resolver_add_shred( fd_fec_resolver_t    * resolver,
                                fd_shred_t   const   *  shred,
                                ulong                  shred_sz,
-                               uchar  const   * leader_pubkey,
+                               uchar        const   * leader_pubkey,
                                fd_fec_set_t const * * out_fec_set,
                                fd_shred_t   const * * out_shred );
 

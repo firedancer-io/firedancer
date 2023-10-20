@@ -15,6 +15,8 @@ typedef struct {
 
   fd_mux_context_t * mux;
 
+  ushort allow_ports[ FD_NET_ALLOW_PORT_CNT ];
+
   void * in_wksp;
   ulong  in_chunk0;
   ulong  in_wmark;
@@ -68,16 +70,24 @@ net_rx_aio_send( void *                    _ctx,
     uchar const * udp = iphdr + iplen;
 
     /* Ignore if UDP header is too short */
-    if( FD_UNLIKELY( udp+4U > packet_end ) ) continue;
+    if( FD_UNLIKELY( udp+8U > packet_end ) ) continue;
 
     /* Extract IP dest addr and UDP dest port */
-    uint ip_srcaddr    = *(uint   *)( iphdr+12UL );
-    ushort udp_dstport = *(ushort *)( udp+2UL    );
+    uint ip_srcaddr    =                  *(uint   *)( iphdr+12UL );
+    ushort udp_dstport = fd_ushort_bswap( *(ushort *)( udp+2UL    ) );
+
+    int allow_port = 0;
+    for( ulong i=0UL; i<FD_NET_ALLOW_PORT_CNT; i++ ) allow_port |= udp_dstport==ctx->allow_ports[ i ];
+    if( FD_UNLIKELY( !allow_port ) )
+      FD_LOG_ERR(( "Firedancer received a UDP packet on port %hu which was not expected. "
+                   "Only ports %hu, %hu, and %hu should be configured to forward packets. Do "
+                   "you need to reload the XDP program?",
+                 udp_dstport, ctx->allow_ports[ 0 ], ctx->allow_ports[ 1 ], ctx->allow_ports[ 2 ] ));
 
     fd_memcpy( fd_chunk_to_laddr( ctx->out_wksp, ctx->out_chunk ), packet, batch[i].buf_sz );
 
     /* tile can decide how to partition based on src ip addr and port */
-    ulong sig = fd_disco_netmux_sig( ip_srcaddr, fd_ushort_bswap( udp_dstport ), SRC_TILE_NET, 0 );
+    ulong sig = fd_disco_netmux_sig( ip_srcaddr, udp_dstport, 14UL+8UL+iplen, SRC_TILE_NET, 0 );
 
     ulong tspub  = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
     fd_mux_publish( ctx->mux, sig, ctx->out_chunk, batch[i].buf_sz, 0, 0, tspub );
@@ -145,14 +155,16 @@ during_frag( void * _ctx,
 }
 
 static void
-after_frag( void *  _ctx,
-            ulong * opt_sig,
-            ulong * opt_chunk,
-            ulong * opt_sz,
-            int *   opt_filter ) {
+after_frag( void *             _ctx,
+            ulong *            opt_sig,
+            ulong *            opt_chunk,
+            ulong *            opt_sz,
+            int *              opt_filter,
+            fd_mux_context_t * mux ) {
   (void)opt_sig;
   (void)opt_chunk;
   (void)opt_filter;
+  (void)mux;
 
   fd_net_ctx_t * ctx = (fd_net_ctx_t *)_ctx;
 
@@ -176,6 +188,7 @@ fd_net_tile( fd_cnc_t *              cnc,
              uchar *                 dcache,
              ulong                   cr_max,
              long                    lazy,
+             ushort                  allow_ports[ static FD_NET_ALLOW_PORT_CNT ], /* indexed [0, allow_port_cnt) */
              fd_rng_t *              rng,
              void *                  scratch ) {
   fd_net_ctx_t ctx[1];
@@ -208,6 +221,11 @@ fd_net_tile( fd_cnc_t *              cnc,
     ctx->round_robin_cnt = round_robin_cnt;
     ctx->round_robin_id  = round_robin_id;
 
+    for( ulong i=0UL; i<FD_NET_ALLOW_PORT_CNT; i++ ) {
+      if( FD_UNLIKELY( !allow_ports[ i ] ) ) FD_LOG_ERR(( "net tile listen port %lu was 0", i ));
+      ctx->allow_ports[ i ] = allow_ports[ i ];
+    }
+
     ctx->xsk_aio_cnt = xsk_aio_cnt;
     ctx->xsk_aio = xsk_aio;
     ctx->tx = fd_xsk_aio_get_tx( xsk_aio[ 0 ] );
@@ -234,6 +252,7 @@ fd_net_tile( fd_cnc_t *              cnc,
                       mcache,
                       0, /* no reliable consumers, downstream tiles may be overrun */
                       NULL,
+                      1UL, /* burst */
                       cr_max,
                       lazy,
                       rng,

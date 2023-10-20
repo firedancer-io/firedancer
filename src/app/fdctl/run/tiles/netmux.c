@@ -24,8 +24,9 @@ run( fd_tile_args_t * args ) {
   if( FD_UNLIKELY( !net_tile_cnt ) ) FD_LOG_ERR(( "net_tile_cnt not set" ));
   ulong quic_tile_cnt = fd_pod_query_ulong( mux_pod, "quic-cnt", 0UL );
   if( FD_UNLIKELY( !quic_tile_cnt ) ) FD_LOG_ERR(( "quic_tile_cnt not set" ));
+  ulong shred_tile_cnt = 1UL;
 
-  ulong in_cnt = net_tile_cnt + quic_tile_cnt;
+  ulong in_cnt = net_tile_cnt + quic_tile_cnt + shred_tile_cnt;
   fd_frag_meta_t const ** in_mcache = (fd_frag_meta_t const **)fd_alloca( alignof(fd_frag_meta_t const *), sizeof(fd_frag_meta_t const *)*in_cnt );
   ulong ** in_fseq = (ulong **)fd_alloca( alignof(ulong *), sizeof(ulong *)*in_cnt );
   FD_TEST( in_mcache && in_fseq );
@@ -38,6 +39,8 @@ run( fd_tile_args_t * args ) {
     in_mcache[ net_tile_cnt + i ] = fd_mcache_join( fd_wksp_pod_map1( mux_pod, "quic-out-mcache%lu", i ) );
     in_fseq[ net_tile_cnt + i ] = fd_fseq_join( fd_wksp_pod_map1( mux_pod, "quic-out-fseq%lu", i ) );
   }
+  in_mcache[ net_tile_cnt + quic_tile_cnt ] = fd_mcache_join( fd_wksp_pod_map( mux_pod, "shred-out-mcache" ) );
+  in_fseq  [ net_tile_cnt + quic_tile_cnt ] = fd_fseq_join  ( fd_wksp_pod_map( mux_pod, "shred-out-fseq"   ) );
 
   fd_mux_callbacks_t callbacks[1] = { 0 };
   fd_rng_t _rng[ 1 ];
@@ -50,6 +53,7 @@ run( fd_tile_args_t * args ) {
                fd_mcache_join( fd_wksp_pod_map( mux_pod, "mcache" ) ),
                0, /* no reliable consumers, consumers are unreliable */
                NULL,
+               1UL, /* burst */
                0,
                0,
                fd_rng_join( fd_rng_new( _rng, 0, 0UL ) ),

@@ -31,8 +31,13 @@ generate_keypair( const char * keyfile,
 
   mode_t previous = umask( S_IRWXO | S_IRWXG | S_IXUSR );
 
-  fp = fopen( keyfile, "w" );
-  if( !fp ) FD_LOG_ERR(( "could not create keypair, fopen(%s) failed (%i-%s)", keyfile, errno, fd_io_strerror( errno ) ));
+  fp = fopen( keyfile, "wx" );
+  if( FD_UNLIKELY( !fp ) ) {
+    if( FD_LIKELY( errno == EEXIST ) )
+      FD_LOG_ERR(( "could not create keypair as the keyfile `%s` already exists", keyfile ));
+    else 
+      FD_LOG_ERR(( "could not create keypair, fopen(%s) failed (%i-%s)", keyfile, errno, fd_io_strerror( errno ) ));
+  }
 
   if( fwrite( "[", 1, 1, fp ) != 1 )
       FD_LOG_ERR(( "could not create keypair, fwrite() failed" ));

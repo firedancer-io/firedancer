@@ -3,23 +3,6 @@
 #include "fd_sha512.h"
 #include "../../util/simd/fd_avx512.h"
 
-/* TODO: consider adding this to fd_avx512_wwv (and its equivalent to
-   fd_avx512_wwl) */
-
-#define wwv_unpack( x, x0,x1,x2,x3,x4,x5,x6,x7 ) do {                       \
-    __m512i _wwv_unpack_x  = (x);                                           \
-    __m256i _wwv_unpack_xl = _mm512_extracti64x4_epi64( _wwv_unpack_x, 0 ); \
-    __m256i _wwv_unpack_xh = _mm512_extracti64x4_epi64( _wwv_unpack_x, 1 ); \
-    (x0) = (ulong)_mm256_extract_epi64( _wwv_unpack_xl, 0 );                \
-    (x1) = (ulong)_mm256_extract_epi64( _wwv_unpack_xl, 1 );                \
-    (x2) = (ulong)_mm256_extract_epi64( _wwv_unpack_xl, 2 );                \
-    (x3) = (ulong)_mm256_extract_epi64( _wwv_unpack_xl, 3 );                \
-    (x4) = (ulong)_mm256_extract_epi64( _wwv_unpack_xh, 0 );                \
-    (x5) = (ulong)_mm256_extract_epi64( _wwv_unpack_xh, 1 );                \
-    (x6) = (ulong)_mm256_extract_epi64( _wwv_unpack_xh, 2 );                \
-    (x7) = (ulong)_mm256_extract_epi64( _wwv_unpack_xh, 3 );                \
-  } while(0)
-
 FD_STATIC_ASSERT( FD_SHA512_BATCH_MAX==8UL, compat );
 
 void
@@ -149,10 +132,10 @@ fd_sha512_private_batch_avx512( ulong          batch_cnt,
 
     ulong _W0; ulong _W1; ulong _W2; ulong _W3; ulong _W4; ulong _W5; ulong _W6; ulong _W7;
     wwv_unpack( wwv_if( active_lane, W, W_sentinel ), _W0,_W1,_W2,_W3,_W4,_W5,_W6,_W7 );
-    ulong const * W0 = (ulong const *)_W0; ulong const * W1 = (ulong const *)_W1;
-    ulong const * W2 = (ulong const *)_W2; ulong const * W3 = (ulong const *)_W3;
-    ulong const * W4 = (ulong const *)_W4; ulong const * W5 = (ulong const *)_W5;
-    ulong const * W6 = (ulong const *)_W6; ulong const * W7 = (ulong const *)_W7;
+    uchar const * W0 = (uchar const *)_W0; uchar const * W1 = (uchar const *)_W1;
+    uchar const * W2 = (uchar const *)_W2; uchar const * W3 = (uchar const *)_W3;
+    uchar const * W4 = (uchar const *)_W4; uchar const * W5 = (uchar const *)_W5;
+    uchar const * W6 = (uchar const *)_W6; uchar const * W7 = (uchar const *)_W7;
 
     wwv_t x0; wwv_t x1; wwv_t x2; wwv_t x3; wwv_t x4; wwv_t x5; wwv_t x6; wwv_t x7;
     wwv_transpose_8x8( wwv_bswap( wwv_ldu( W0   ) ), wwv_bswap( wwv_ldu( W1   ) ),
@@ -161,10 +144,10 @@ fd_sha512_private_batch_avx512( ulong          batch_cnt,
                        wwv_bswap( wwv_ldu( W6   ) ), wwv_bswap( wwv_ldu( W7   ) ), x0, x1, x2, x3, x4, x5, x6, x7 );
 
     wwv_t x8; wwv_t x9; wwv_t xa; wwv_t xb; wwv_t xc; wwv_t xd; wwv_t xe; wwv_t xf;
-    wwv_transpose_8x8( wwv_bswap( wwv_ldu( W0+8 ) ), wwv_bswap( wwv_ldu( W1+8 ) ),
-                       wwv_bswap( wwv_ldu( W2+8 ) ), wwv_bswap( wwv_ldu( W3+8 ) ),
-                       wwv_bswap( wwv_ldu( W4+8 ) ), wwv_bswap( wwv_ldu( W5+8 ) ),
-                       wwv_bswap( wwv_ldu( W6+8 ) ), wwv_bswap( wwv_ldu( W7+8 ) ), x8, x9, xa, xb, xc, xd, xe, xf );
+    wwv_transpose_8x8( wwv_bswap( wwv_ldu( W0+64 ) ), wwv_bswap( wwv_ldu( W1+64 ) ),
+                       wwv_bswap( wwv_ldu( W2+64 ) ), wwv_bswap( wwv_ldu( W3+64 ) ),
+                       wwv_bswap( wwv_ldu( W4+64 ) ), wwv_bswap( wwv_ldu( W5+64 ) ),
+                       wwv_bswap( wwv_ldu( W6+64 ) ), wwv_bswap( wwv_ldu( W7+64 ) ), x8, x9, xa, xb, xc, xd, xe, xf );
 
     /* Compute the SHA-512 state updates */
 

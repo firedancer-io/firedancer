@@ -19,6 +19,7 @@ typedef enum {
   wksp_dedup_pack,
   wksp_pack_bank,
   wksp_bank_shred,
+  wksp_shred_store,
   wksp_net,
   wksp_netmux,
   wksp_quic,
@@ -26,6 +27,8 @@ typedef enum {
   wksp_dedup,
   wksp_pack,
   wksp_bank,
+  wksp_shred,
+  wksp_store,
 } workspace_kind_t;
 
 FD_FN_CONST char *
@@ -102,8 +105,13 @@ typedef struct {
     int    only_known;
     int    pubsub_enable_block_subscription;
     int    pubsub_enable_vote_subscription;
-    int    incremental_snapshots;
   } rpc;
+
+  struct {
+    int   incremental_snapshots;
+    uint  full_snapshot_interval_slots;
+    uint  incremental_snapshot_interval_slots;
+  } snapshots;
 
   struct {
     char affinity[ AFFINITY_SZ ];
@@ -156,6 +164,7 @@ typedef struct {
       uint max_concurrent_handshakes;
       uint max_inflight_quic_packets;
       uint tx_buf_size;
+      uint idle_timeout_millis;
 
     } quic;
 
@@ -171,6 +180,12 @@ typedef struct {
     struct {
       uint max_pending_transactions;
     } pack;
+
+    struct {
+      uint   max_pending_shred_sets;
+      ushort shred_listen_port;
+    } shred;
+
   } tiles;
 } config_t;
 

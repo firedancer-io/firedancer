@@ -18,35 +18,27 @@ enabled( config_t * const config ) {
 /* todo ... port this out of solana code */
 extern void solana_genesis_main( const char ** args );
 
+
 static void
 init( config_t * const config ) {
-  mkdir_all( config->scratch_directory, config->uid, config->gid );
   mkdir_all( config->ledger.path, config->uid, config->gid );
-
-  struct stat st;
-  if( FD_UNLIKELY( stat( config->consensus.identity_path, &st ) && errno == ENOENT ) )
-    generate_keypair( config->consensus.identity_path, config );
-
-  char faucet[ PATH_MAX ];
-  snprintf1( faucet, PATH_MAX, "%s/faucet.json", config->scratch_directory );
-  generate_keypair( faucet, config );
-
-  char stake[ PATH_MAX ];
-  snprintf1( stake, PATH_MAX, "%s/stake-account.json", config->scratch_directory );
-  generate_keypair( stake, config );
-
-  char vote[ PATH_MAX ];
-  snprintf1( vote, PATH_MAX, "%s/vote-account.json", config->scratch_directory );
-  generate_keypair( vote, config );
 
   uint idx = 0;
   char * argv[ 128 ];
   uint bufidx = 0;
-  char buffer[ 32 ][ 16 ];
+  char buffer[ 32 ][ 24 ];
 #define ADD1( arg ) do { argv[ idx++ ] = arg; } while( 0 )
 #define ADD( arg, val ) do { argv[ idx++ ] = arg; argv[ idx++ ] = val; } while( 0 )
-#define ADDU( arg, val ) do { argv[ idx++ ] = arg; snprintf1( buffer[ bufidx ], 16, "%u", val ); argv[ idx++ ] = buffer[ bufidx++ ]; } while( 0 )
-#define ADDH( arg, val ) do { argv[ idx++ ] = arg; snprintf1( buffer[ bufidx ], 16, "%hu", val ); argv[ idx++ ] = buffer[ bufidx++ ]; } while( 0 )
+#define ADDU( arg, val ) do { argv[ idx++ ] = arg; snprintf1( buffer[ bufidx ], 24, "%lu", val ); argv[ idx++ ] = buffer[ bufidx++ ]; } while( 0 )
+
+  char faucet[ PATH_MAX ];
+  snprintf1( faucet, PATH_MAX, "%s/faucet.json", config->scratch_directory );
+
+  char stake[ PATH_MAX ];
+  snprintf1( stake, PATH_MAX, "%s/stake-account.json", config->scratch_directory );
+
+  char vote[ PATH_MAX ];
+  snprintf1( vote, PATH_MAX, "%s/vote-account.json", config->scratch_directory );
 
   ADD1( "fddev" );
 
@@ -154,40 +146,16 @@ rmtree( char * path ) {
 
 static void
 fini( config_t * const config ) {
-  char path[ PATH_MAX ];
-  snprintf1( path, PATH_MAX, "%s/faucet.json", config->scratch_directory );
-  if( FD_UNLIKELY( unlink( path ) && errno != ENOENT ) )
-    FD_LOG_ERR(( "could not remove cluster file `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
-  snprintf1( path, PATH_MAX, "%s/stake-account.json", config->scratch_directory );
-  if( FD_UNLIKELY( unlink( path ) && errno != ENOENT ) )
-    FD_LOG_ERR(( "could not remove cluster file `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
-  snprintf1( path, PATH_MAX, "%s/vote-account.json", config->scratch_directory );
-  if( FD_UNLIKELY( unlink( path ) && errno != ENOENT ) )
-    FD_LOG_ERR(( "could not remove cluster file `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
   rmtree( config->ledger.path );
 }
 
 static configure_result_t
 check( config_t * const config ) {
-  char faucet[ PATH_MAX ], stake[ PATH_MAX ], vote[ PATH_MAX ];
-
-  snprintf1( faucet, PATH_MAX, "%s/faucet.json", config->scratch_directory );
-  snprintf1( stake, PATH_MAX, "%s/stake-account.json", config->scratch_directory );
-  snprintf1( vote, PATH_MAX, "%s/vote-account.json", config->scratch_directory );
-
   struct stat st;
-  if( FD_UNLIKELY( stat( faucet, &st ) && errno == ENOENT &&
-                   stat( stake, &st ) && errno == ENOENT &&
-                   stat( vote, &st ) && errno == ENOENT &&
-                   stat( config->ledger.path, &st ) && errno == ENOENT ) )
-    NOT_CONFIGURED( "faucet.json, stake-account.json, vote-account.json, and `%s` do not exist", config->ledger.path );
+  if( FD_UNLIKELY( stat( config->ledger.path, &st ) && errno == ENOENT ) )
+    NOT_CONFIGURED( "`%s` does not exist", config->ledger.path );
 
   CHECK( check_dir( config->ledger.path, config->uid, config->gid, S_IFDIR | S_IRUSR | S_IWUSR | S_IXUSR ) );
-  CHECK( check_dir( config->scratch_directory, config->uid, config->gid, S_IFDIR | S_IRUSR | S_IWUSR | S_IXUSR ) );
-
-  CHECK( check_file( faucet, config->uid, config->gid, S_IFREG | S_IRUSR | S_IWUSR ) );
-  CHECK( check_file( stake, config->uid, config->gid, S_IFREG | S_IRUSR | S_IWUSR ) );
-  CHECK( check_file( vote, config->uid, config->gid, S_IFREG | S_IRUSR | S_IWUSR ) );
 
   PARTIALLY_CONFIGURED( "genesis directory exists at `%s`", config->ledger.path );
 }

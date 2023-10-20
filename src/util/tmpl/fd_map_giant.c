@@ -109,7 +109,7 @@
     //
     // Critically, as this is used in high performance contexts where
     // the application already knows this, THE CALLER PROMISES THE KEY
-    // IS NOT IN THE MAP AND THAT THE MAP HAS SPACE FOR KEY. 
+    // IS NOT IN THE MAP AND THAT THE MAP HAS SPACE FOR KEY.
     //
     // This always succeeds (with the above requirements) and returns
     // non NULL.
@@ -190,7 +190,7 @@
 
     // mymap_verify returns 0 if the mymap is not obviously corrupt or a
     // -1 (i.e. ERR_INVAL) if it is obviously corrupt (logs details).
-    // join is the handle of a current local join to mymap.  
+    // join is the handle of a current local join to mymap.
 
     int mymap_verify( mymap_t const * join );
 
@@ -348,12 +348,12 @@ MAP_(private_const)( MAP_T const * join ) {
    address space of the map lists and elements.  The _const variants are
    for const correctness.  Assumes map is valid. */
 
-FD_FN_CONST static inline ulong *
+FD_FN_PURE static inline ulong *
 MAP_(private_list)( MAP_(private_t) * map ) {
   return ((ulong *)map) - map->list_cnt;
 }
 
-FD_FN_CONST static inline ulong const *
+FD_FN_PURE static inline ulong const *
 MAP_(private_list_const)( MAP_(private_t) const * map ) {
   return ((ulong const *)map) - map->list_cnt;
 }
@@ -527,7 +527,7 @@ MAP_(footprint)( ulong key_max ) {
   /* memory layout is:
 
        2 ulong | pad | list_cnt ulong | map_private_t | key_max map_t | pad
-       <------ meta_footprint, align multiple ------> 
+       <------ meta_footprint, align multiple ------>
        <------------------ footprint, align multiple -------------------->
 
      Noting that list_cnt is in [key_max/2,key_max], footprint is
@@ -581,7 +581,7 @@ MAP_(new)( void * shmem,
   map->seed     = seed;
   map->list_cnt = list_cnt;
   map->key_cnt  = 0UL;
-  
+
   /* Init the free stack */
 
   if( FD_UNLIKELY( !key_max ) ) map->free_stack = MAP_(private_box_next)( MAP_IDX_NULL, 1 );
@@ -709,7 +709,7 @@ MAP_(remove)( MAP_T *           join,
       *cur = ele->MAP_NEXT; /* already tagged empty */
       ele->MAP_NEXT = map->free_stack; /* already tagged free */
       map->free_stack = MAP_(private_box_next)( ele_idx, 1 );
-      map->key_cnt--; 
+      map->key_cnt--;
       return ele;
     }
     cur = &ele->MAP_NEXT; /* Retain the pointer to next so we can rewrite it later. */
@@ -868,4 +868,3 @@ MAP_(verify)( MAP_T const * join ) {
 #undef MAP_KEY_T
 #undef MAP_T
 #undef MAP_NAME
-

@@ -6,8 +6,9 @@
 
 #include "../util/wksp/fd_wksp_private.h"
 
-#define SRC_TILE_NET  (0UL)
-#define SRC_TILE_QUIC (1UL)
+#define SRC_TILE_NET   (0UL)
+#define SRC_TILE_QUIC  (1UL)
+#define SRC_TILE_SHRED (2UL)
 
 /* FD_NET_MTU is the max full packet size, with ethernet, IP, and UDP
    headers that can go in or out of the net tile.  2048 is the maximum
@@ -47,20 +48,38 @@
 
 #define FD_APP_CNC_DIAG_PID         (128UL)
 
+#define FD_NETMUX_SIG_MIN_HDR_SZ    ( 42UL) /* The default header size, which means no vlan tags and no IP options. */
+#define FD_NETMUX_SIG_IGNORE_HDR_SZ (102UL) /* Outside the allowable range, but still fits in 4 bits when compressed */
+
 FD_PROTOTYPES_BEGIN
 
+ /* hdr_sz is the total size of network headers, including eth, ip, udp.
+    Ignored for outgoing packets. */
 FD_FN_CONST static inline ulong
 fd_disco_netmux_sig( ulong  ip_addr,
                      ushort port,
+                     ulong  hdr_sz,
                      ushort src_tile,
                      ushort dst_idx ) {
-  return (((ulong)ip_addr)<<32UL) | (((ulong)port)<<16UL) | ((src_tile&0xFUL)<<12UL) | (dst_idx&0xFUL);
+  /* The size of an Ethernet header is 14+4k bytes, where 0<=k<=3 (?) is
+     the number of vlan tags.  The size of an IP header is 4j, where
+     5<=j<=15 is the size given in the header.  The size of a UDP header
+     is 8B.  Thus, the total sum of these is 42+4i, where i=k+j-5,
+     0<=i<=13.  Since bits are at a premium here, we compress the header
+     size by just storing i. */
+  ulong hdr_sz_i = ((hdr_sz - 42UL)>>2)&0xFUL;
+  return (((ulong)ip_addr)<<32UL) | (((ulong)port)<<16UL) | ((src_tile&0xFUL)<<12UL) | ((hdr_sz_i&0xFUL)<<4UL) | (dst_idx&0xFUL);
 }
 
 FD_FN_CONST static inline ulong  fd_disco_netmux_sig_ip_addr ( ulong sig ) { return (sig>>32UL) & 0xFFFFUL; }
 FD_FN_CONST static inline ushort fd_disco_netmux_sig_port    ( ulong sig ) { return (sig>>16UL) & 0xFFFFUL; }
 FD_FN_CONST static inline ushort fd_disco_netmux_sig_src_tile( ulong sig ) { return (sig>>12UL) & 0xFUL; }
 FD_FN_CONST static inline ushort fd_disco_netmux_sig_dst_idx ( ulong sig ) { return (sig>> 0UL) & 0xFUL; }
+/* fd_disco_netmux_sig_hdr_sz extracts the total size of the Ethernet,
+   IP, and UDP headers from the netmux signature field.  The UDP payload
+   of the packet stored in the corresponding frag begins at the returned
+   offset. */
+FD_FN_CONST static inline ulong  fd_disco_netmux_sig_hdr_sz  ( ulong sig ) { return 4UL*((sig>>4UL) & 0xFUL) + 42UL; }
 
 FD_FN_PURE static inline ulong
 fd_disco_compact_chunk0( void * wksp ) {

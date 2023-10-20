@@ -20,6 +20,7 @@
 #include <sched.h>        /* CLONE_*, setns, unshare */
 #include <stddef.h>
 #include <stdlib.h>       /* clearenv, mkdtemp*/
+#include <sys/mman.h>     /* For mmap, etc. */
 #include <sys/mount.h>    /* MS_*, MNT_*, mount, umount2 */
 #include <sys/prctl.h>
 #include <sys/resource.h> /* RLIMIT_*, rlimit, setrlimit */
@@ -273,4 +274,34 @@ fd_sandbox( int    full_sandbox,
     switch_user( uid, gid );
     FD_LOG_INFO(( "sandbox: no sandbox enabled" ));
   }
+}
+
+void *
+fd_sandbox_alloc_protected_pages( ulong page_cnt,
+                                  ulong guard_page_cnt ) {
+#define PAGE_SZ (4096UL)
+  void * pages = mmap( NULL, (2UL*guard_page_cnt+page_cnt)*PAGE_SZ, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0UL );
+  if( FD_UNLIKELY( pages==MAP_FAILED ) ) FD_LOG_ERR(( "mmap failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  uchar * middle_pages = (uchar *)( (ulong)pages + guard_page_cnt*PAGE_SZ );
+
+  /* Make the guard pages untouchable */
+  if( FD_UNLIKELY( mprotect( pages, guard_page_cnt*PAGE_SZ, PROT_NONE ) ) )
+    FD_LOG_ERR(( "mprotect failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  if( FD_UNLIKELY( mprotect( middle_pages+page_cnt*PAGE_SZ, guard_page_cnt*PAGE_SZ, PROT_NONE ) ) )
+    FD_LOG_ERR(( "mprotect failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  /* Lock the key page so that it doesn't page to disk */
+  if( FD_UNLIKELY( mlock( middle_pages, page_cnt*PAGE_SZ ) ) )
+    FD_LOG_ERR(( "mlock failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  /* Prevent the key page from showing up in core dumps. It shouldn't be
+     possible to fork this process typically, but we also prevent any
+     forked child from having this page. */
+  if( FD_UNLIKELY( madvise( middle_pages, page_cnt*PAGE_SZ, MADV_WIPEONFORK | MADV_DONTDUMP ) ) )
+    FD_LOG_ERR(( "madvise failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  return middle_pages;
+#undef PAGE_SZ
 }

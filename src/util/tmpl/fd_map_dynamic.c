@@ -76,8 +76,8 @@
     ulong mymap_slot_idx( mymap_t const * map, mymap_t const * slot );
 
     // Returns the "null" key, which is the canonical key that will
-    // never be inserted (typically zero). 
-    
+    // never be inserted (typically zero).
+
     ulong mymap_key_null( void ); // == MAP_KEY_NULL
 
     // Return the 1/0 if key is a key that will never/might be inserted.
@@ -90,9 +90,9 @@
 
     // Return the hash of key used by the map.  Should ideally be a
     // random mapping from MAP_KEY_T -> MAP_HASH_T.
-    
+
     uint mymap_key_hash( ulong key );
-    
+
     // Insert key into the map, fast O(1).  Returns a pointer to the map
     // entry with key on success and NULL on failure (i.e. key is
     // already in the map or there are too many keys in the map to
@@ -140,7 +140,7 @@
     mymap_t * slot = mymap_insert( map, cxx_key );
     if( FD_UNLIKELY( !slot ) ) ... handle failure (cxx_key was not moved)
     else {
-      ... mymap_insert did a MAP_KEY_MOVE of cxx_key into slot->key 
+      ... mymap_insert did a MAP_KEY_MOVE of cxx_key into slot->key
       ... clean cxx_key's shell here as necessary here
       ... initialize other slot fields as necessary
     }
@@ -337,7 +337,7 @@ MAP_(new)( void *  shmem,
 
   MAP_T * slot = map->slot; FD_COMPILER_FORGET( slot );
 
-  for( ulong slot_idx=0UL; slot_idx<slot_cnt; slot_idx++ ) 
+  for( ulong slot_idx=0UL; slot_idx<slot_cnt; slot_idx++ )
     slot[ slot_idx ].MAP_KEY = (MAP_KEY_NULL);
 
   return map;
@@ -353,10 +353,10 @@ MAP_(join)( void * shmap ) {
 static inline void * MAP_(leave) ( MAP_T * slot  ) { return (void *)MAP_(private_from_slot)( slot ); }
 static inline void * MAP_(delete)( void *  shmap ) { return shmap; }
 
-FD_FN_PURE  static inline ulong MAP_(key_cnt)    ( MAP_T const * slot ) { return MAP_(private_from_slot_const)( slot )->key_cnt;       }
-FD_FN_CONST static inline ulong MAP_(key_max)    ( MAP_T const * slot ) { return MAP_(private_from_slot_const)( slot )->slot_mask;     }
-FD_FN_CONST static inline int   MAP_(lg_slot_cnt)( MAP_T const * slot ) { return MAP_(private_from_slot_const)( slot )->lg_slot_cnt;   }
-FD_FN_CONST static inline ulong MAP_(slot_cnt)   ( MAP_T const * slot ) { return MAP_(private_from_slot_const)( slot )->slot_mask+1UL; }
+FD_FN_PURE static inline ulong MAP_(key_cnt)    ( MAP_T const * slot ) { return MAP_(private_from_slot_const)( slot )->key_cnt;       }
+FD_FN_PURE static inline ulong MAP_(key_max)    ( MAP_T const * slot ) { return MAP_(private_from_slot_const)( slot )->slot_mask;     }
+FD_FN_PURE static inline int   MAP_(lg_slot_cnt)( MAP_T const * slot ) { return MAP_(private_from_slot_const)( slot )->lg_slot_cnt;   }
+FD_FN_PURE static inline ulong MAP_(slot_cnt)   ( MAP_T const * slot ) { return MAP_(private_from_slot_const)( slot )->slot_mask+1UL; }
 
 FD_FN_CONST static inline ulong MAP_(slot_idx)( MAP_T const * map, MAP_T const * entry ) { return (ulong)(entry - map); }
 
@@ -458,7 +458,7 @@ MAP_(clear)( MAP_T * map ) {
   MAP_(private_t) * hdr = MAP_(private_from_slot)( map );
   ulong slot_cnt  = 1UL<<hdr->lg_slot_cnt;
   MAP_T * slot = hdr->slot;
-  for( ulong slot_idx=0UL; slot_idx<slot_cnt; slot_idx++ ) 
+  for( ulong slot_idx=0UL; slot_idx<slot_cnt; slot_idx++ )
     slot[ slot_idx ].MAP_KEY = (MAP_KEY_NULL);
 }
 
@@ -525,4 +525,3 @@ FD_PROTOTYPES_END
 #undef MAP_HASH_T
 #undef MAP_T
 #undef MAP_NAME
-
