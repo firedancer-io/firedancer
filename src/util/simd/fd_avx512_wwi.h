@@ -274,7 +274,7 @@ static inline wwi_t wwi_ror_vector( wwi_t a, wwi_t b ) {
     /**/  (cf)               = _mm512_unpackhi_epi32( _wwi_transpose_te, _wwi_transpose_tf );      \
   } while(0)
 
-/* wwi_transpose_2x8x8 transposes the 2 8x8 matrices whos rows are in
+/* wwi_transpose_2x8x8 transposes the 2 8x8 matrices whose rows are
    held in the lower and upper halves of wwi_t's r0,r1...r7 and
    stores the result in c0,c1...c7.  In-place operation fine. */
 
