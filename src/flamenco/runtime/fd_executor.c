@@ -358,15 +358,16 @@ fd_executor_setup_borrowed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
 }
 
 static void
-fd_executor_retrace( fd_exec_slot_ctx_t *          slot_ctx,
+fd_executor_retrace( fd_exec_slot_ctx_t *          slot_ctx FD_PARAM_UNUSED,
                      fd_soltrace_TxnInput const * trace_pre,
-                     fd_soltrace_TxnDiff  const * trace_post0 ) {
+                     fd_soltrace_TxnDiff  const * trace_post0,
+                     fd_wksp_t *                  local_wksp ) {
 
   FD_SCRATCH_SCOPED_FRAME;
 
   fd_soltrace_TxnDiff  _trace_post1[1];
   fd_soltrace_TxnDiff * trace_post1 =
-      fd_txntrace_replay( _trace_post1, trace_pre, slot_ctx->local_wksp );
+      fd_txntrace_replay( _trace_post1, trace_pre, local_wksp );
 
   if( FD_UNLIKELY( !trace_post1 ) )
     FD_LOG_ERR(( "fd_txntrace_replay failed" ));
@@ -376,9 +377,10 @@ fd_executor_retrace( fd_exec_slot_ctx_t *          slot_ctx,
                  fd_txntrace_diff_cstr() ));
 }
 
+
 int
 fd_execute_txn( fd_exec_slot_ctx_t *  slot_ctx,
-                fd_txn_t *            txn_descriptor,
+                fd_txn_t const *      txn_descriptor,
                 fd_rawtxn_b_t const * txn_raw ) {
   FD_SCRATCH_SCOPED_FRAME;
 
@@ -470,7 +472,7 @@ fd_execute_txn( fd_exec_slot_ctx_t *  slot_ctx,
 
   fd_instr_info_t instrs[txn_descriptor->instr_cnt];
   for ( ushort i = 0; i < txn_descriptor->instr_cnt; ++i ) {
-    fd_txn_instr_t *  txn_instr = &txn_descriptor->instr[i];
+    fd_txn_instr_t const * txn_instr = &txn_descriptor->instr[i];
     fd_convert_txn_instr_to_instr( txn_descriptor, txn_raw, txn_instr, txn_ctx.accounts, txn_ctx.borrowed_accounts, &instrs[i] );
   }
 
@@ -553,7 +555,7 @@ fd_execute_txn( fd_exec_slot_ctx_t *  slot_ctx,
         fd_executor_dump_txntrace( slot_ctx, sig0, &trace );
       }
       if( slot_ctx->trace_mode & FD_RUNTIME_TRACE_REPLAY ) {
-        fd_executor_retrace( slot_ctx, trace_pre, trace_post );
+        fd_executor_retrace( slot_ctx, trace_pre, trace_post, NULL /* FIXME: set this to a reasonable local_wksp */);
       }
     }
   }

@@ -16,8 +16,7 @@
 struct fd_acc_mgr;
 typedef struct fd_acc_mgr fd_acc_mgr_t;
 
-FD_PROTOTYPES_BEGIN
-
+/* Context needed to execute a single slot. */
 #define FD_EXEC_SLOT_CTX_ALIGN (8UL)
 struct __attribute__((aligned(FD_EXEC_SLOT_CTX_ALIGN))) fd_exec_slot_ctx {
   ulong magic; /* ==FD_EXEC_SLOT_CTX_MAGIC */
@@ -27,15 +26,16 @@ struct __attribute__((aligned(FD_EXEC_SLOT_CTX_ALIGN))) fd_exec_slot_ctx {
   // TODO: needs to move out
   fd_funk_txn_t * funk_txn_tower[32];
   ushort          funk_txn_index;
-  fd_wksp_t *     funk_wksp; // Workspace dedicated to funk, KEEP YOUR GRUBBY MITS OFF!
-  fd_wksp_t *     local_wksp; // Workspace for allocs local to this process
 
   fd_funk_txn_t *      funk_txn;
   fd_acc_mgr_t *       acc_mgr;
   fd_valloc_t          valloc;
+  
+  // TODO: the following 3 items need to move
   fd_solcap_writer_t * capture;
   int                  trace_dirfd;
   int                  trace_mode;
+
   fd_rng_t             rnd_mem;
   fd_rng_t *           rng;
 
@@ -50,6 +50,8 @@ struct __attribute__((aligned(FD_EXEC_SLOT_CTX_ALIGN))) fd_exec_slot_ctx {
 typedef struct fd_exec_slot_ctx fd_exec_slot_ctx_t;
 #define FD_EXEC_SLOT_CTX_FOOTPRINT ( sizeof(fd_exec_slot_ctx_t) )
 #define FD_EXEC_SLOT_CTX_MAGIC (0xC2287BA2A5E6FC3DUL) /* random */
+
+FD_PROTOTYPES_BEGIN
 
 void *
 fd_exec_slot_ctx_new( void * mem );

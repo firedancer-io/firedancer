@@ -100,7 +100,7 @@ fd_execute_instr( fd_instr_info_t * instr, fd_exec_txn_ctx_t * txn_ctx );
   Makes changes to the Funk accounts DB. */
 int
 fd_execute_txn( fd_exec_slot_ctx_t *  slot_ctx,
-                fd_txn_t *            txn_descriptor,
+                fd_txn_t const *      txn_descriptor,
                 fd_rawtxn_b_t const * txn_raw );
 
 void

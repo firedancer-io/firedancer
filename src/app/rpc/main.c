@@ -508,6 +508,7 @@ void prescan(void)  {
     const void * block = fd_funk_val(rec, fd_funk_wksp(funk));
     ulong blocklen = fd_funk_val_sz( rec );
 
+    // TODO: move to the block_info api!
     /* Loop across batches */
     ulong blockoff = 0;
     while (blockoff < blocklen) {
@@ -525,14 +526,20 @@ void prescan(void)  {
 
         /* Loop across transactions */
         for ( ulong txn_idx = 0; txn_idx < hdr->txn_cnt; txn_idx++ ) {
-          fd_txn_xray_result_t xray;
-          const uchar* raw = (const uchar *)block + blockoff;
-          ulong pay_sz = fd_txn_xray(raw, blocklen - blockoff, &xray);
+          uchar txn_out[FD_TXN_MAX_SZ];
+          uchar const * raw = (uchar const *)block + blockoff;
+          ulong pay_sz = 0;
+          ulong txn_sz = fd_txn_parse_core( (uchar const *)raw, fd_ulong_min(blocklen - blockoff, FD_TXN_MTU), txn_out, NULL, &pay_sz, 0 );
+          if ( txn_sz == 0 || txn_sz > FD_TXN_MTU ) {
+              FD_LOG_ERR(("failed to parse transaction %lu in microblock %lu in slot %lu", txn_idx, mblk, slot));
+          }
+          fd_txn_t const * txn = (fd_txn_t const *)txn_out;
+        
           if ( pay_sz == 0UL )
             FD_LOG_ERR(("failed to parse transaction %lu in microblock %lu in slot %lu", txn_idx, mblk, slot));
           
-          struct txn_map_key const * sigs = (struct txn_map_key const *)((ulong)raw + (ulong)xray.signature_off);
-          for ( ulong j = 0; j < xray.signature_cnt; j++ ) {
+          struct txn_map_key const * sigs = (struct txn_map_key const *)((ulong)raw + (ulong)txn->signature_off);
+          for ( ulong j = 0; j < txn->signature_cnt; j++ ) {
             txn_map_elem_t * elem = txn_map_elem_insert( txn_map, sigs+j );
             if ( FD_UNLIKELY( NULL == elem ) ) {
               FD_LOG_NOTICE(("scanned %lu transactions (reached max estimate)", txn_map_elem_key_cnt( txn_map )));

@@ -93,7 +93,6 @@
    accounts, no data) and as many address table lookups as possible. */
 #define FD_TXN_MAX_SZ                (860UL)
 
-
 /* FD_TXN_MTU: The maximum size (in bytes, inclusive) of a serialized
    transaction. */
 #define FD_TXN_MTU                  (1232UL)
@@ -356,7 +355,7 @@ FD_PROTOTYPES_BEGIN
    the struct.  Suppose x=fd_txn_get_address_tables( txn ), then x[ i ] is valid
    for i in [0, txn->addr_table_lookup_cnt ). */
 static inline fd_txn_acct_addr_lut_t *
-fd_txn_get_address_tables( fd_txn_t * txn ) {
+fd_txn_get_address_tables( fd_txn_t const * txn ) {
   return (fd_txn_acct_addr_lut_t *)(txn->instr + txn->instr_cnt);
 }
 
@@ -467,8 +466,8 @@ fd_txn_footprint( ulong instr_cnt,
    include_cat should be a compile-time constant, in which case this
    function typically compiles to about 3 instructions. */
 static inline ulong
-fd_txn_account_cnt( fd_txn_t * txn,
-                    int        include_cat ) {
+fd_txn_account_cnt( fd_txn_t const * txn,
+                    int              include_cat ) {
   ulong cnt = 0UL;
   if( include_cat & FD_TXN_ACCT_CAT_WRITABLE_SIGNER        ) cnt += (ulong)txn->signature_cnt - (ulong)txn->readonly_signed_cnt;
   if( include_cat & FD_TXN_ACCT_CAT_READONLY_SIGNER        ) cnt += (ulong)txn->readonly_signed_cnt;
@@ -542,7 +541,7 @@ typedef ulong fd_txn_acct_iter_t;
    actual value. */
 
 static inline ulong
-fd_txn_acct_iter_init( fd_txn_t * txn,
+fd_txn_acct_iter_init( fd_txn_t const * txn,
                        int        include_cat,
                        ulong *    ctrl     ) {
   /* Our goal is to output something that looks like [end0-1, start1-1,
@@ -656,17 +655,6 @@ fd_txn_parse_core( uchar const             * payload,
 static inline ulong fd_txn_parse( uchar const * payload, ulong payload_sz, void * out_buf, fd_txn_parse_counters_t * counters_opt ) {
   return fd_txn_parse_core(payload, payload_sz, out_buf, counters_opt, NULL, 0);
 }
-
-struct fd_txn_xray_result {
-  uchar       signature_cnt;
-  ushort      signature_off;
-};
-typedef struct fd_txn_xray_result fd_txn_xray_result_t;
-
-ulong
-fd_txn_xray( uchar const             * payload,
-             ulong                     payload_sz,
-             fd_txn_xray_result_t    * result );
 
 static inline int
 fd_txn_is_writable( fd_txn_t const * txn, int idx ) {

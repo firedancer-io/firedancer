@@ -25,9 +25,9 @@ void fd_durable_nonce_from_blockhash(fd_hash_t *hash, fd_hash_t *out) {
   fd_sha256_fini( &sha, out->hash );
 }
 
-int fd_load_nonce_account( fd_exec_txn_ctx_t * txn_ctx,
-                           fd_txn_t * txn_descriptor,
-                           fd_rawtxn_b_t const * txn_raw,
+int fd_load_nonce_account( fd_exec_txn_ctx_t * txn_ctx, 
+                           fd_txn_t const * txn_descriptor, 
+                           fd_rawtxn_b_t const * txn_raw, 
                            fd_nonce_state_versions_t * state,
                            int * opt_err ) {
   if (txn_descriptor->instr_cnt == 0) {
@@ -35,7 +35,7 @@ int fd_load_nonce_account( fd_exec_txn_ctx_t * txn_ctx,
     return 0;
   }
 
-  fd_txn_instr_t * txn_instr = &txn_descriptor->instr[0];
+  fd_txn_instr_t const * txn_instr = &txn_descriptor->instr[0];
   fd_instr_info_t instr;
   fd_convert_txn_instr_to_instr(txn_descriptor, txn_raw, txn_instr, txn_ctx->accounts, txn_ctx->borrowed_accounts, &instr);
 

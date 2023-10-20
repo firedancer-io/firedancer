@@ -216,8 +216,6 @@ int fd_executor_run_test(
 
   int ret = 0;
   slot_ctx->valloc     = suite->valloc;
-  slot_ctx->funk_wksp  = suite->wksp;
-  slot_ctx->local_wksp = suite->wksp;
 
   slot_ctx->bank.rent.lamports_per_uint8_year = 3480;
   slot_ctx->bank.rent.exemption_threshold = 2;

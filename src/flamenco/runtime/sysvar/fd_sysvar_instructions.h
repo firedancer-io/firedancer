@@ -4,7 +4,7 @@
 #include "../../fd_flamenco_base.h"
 #include "../fd_executor.h"
 #include "../fd_runtime.h"
-#include "../fd_instr_info.h"
+#include "../info/fd_instr_info.h"
 
 FD_PROTOTYPES_BEGIN
 

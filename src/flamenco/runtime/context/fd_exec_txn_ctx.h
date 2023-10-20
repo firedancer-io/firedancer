@@ -20,7 +20,10 @@ struct transaction_return_data {
 typedef struct transaction_return_data fd_transaction_return_data_t;
 
 /* Context needed to execute a single transaction. */
-struct fd_exec_txn_ctx {
+#define FD_EXEC_TXN_CTX_ALIGN (8UL)
+struct __attribute__((aligned(FD_EXEC_TXN_CTX_ALIGN))) fd_exec_txn_ctx {
+  ulong magic; /* ==FD_EXEC_TXN_CTX_MAGIC */
+
   fd_exec_epoch_ctx_t const * epoch_ctx;
   fd_exec_slot_ctx_t *        slot_ctx;
 
@@ -34,7 +37,7 @@ struct fd_exec_txn_ctx {
   fd_transaction_return_data_t return_data;       /* Data returned from `return_data` syscalls */
   ulong                 heap_size;                /* Heap size for VMs for this transaction. */
   uint                  prioritization_fee_type;  /* The type of prioritization fee to use. */
-  fd_txn_t *            txn_descriptor;           /* Descriptor of the transaction. */
+  fd_txn_t const *      txn_descriptor;           /* Descriptor of the transaction. */
   fd_rawtxn_b_t const * _txn_raw;                 /* Raw bytes of the transaction. */
   uint                  custom_err;               /* When a custom error is returned, this is where the numeric value gets stashed */
   uchar                 instr_stack_sz;           /* Current depth of the instruction execution stack. */
@@ -44,8 +47,23 @@ struct fd_exec_txn_ctx {
   fd_borrowed_account_t borrowed_accounts[128];   /* Array of borrowed accounts accessed by this transaction. */
 };
 typedef struct fd_exec_txn_ctx fd_exec_txn_ctx_t;
+#define FD_EXEC_TXN_CTX_FOOTPRINT ( sizeof(fd_exec_txn_ctx_t) )
+#define FD_EXEC_TXN_CTX_MAGIC (0x9AD93EE71469F4D7UL) /* random */
 
 FD_PROTOTYPES_BEGIN
+
+void *
+fd_exec_txn_ctx_new( void * mem );
+
+fd_exec_txn_ctx_t *
+fd_exec_txn_ctx_join( void * mem );
+
+void *
+fd_exec_txn_ctx_leave( fd_exec_txn_ctx_t * ctx );
+
+void *
+fd_exec_txn_ctx_delete( void * mem );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_context_fd_exec_txn_ctx_h */

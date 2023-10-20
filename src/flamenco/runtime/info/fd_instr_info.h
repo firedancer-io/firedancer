@@ -1,12 +1,12 @@
-#ifndef HEADER_fd_src_flamenco_runtime_fd_instr_info_h
-#define HEADER_fd_src_flamenco_runtime_fd_instr_info_h
+#ifndef HEADER_fd_src_flamenco_runtime_info_fd_instr_info_h
+#define HEADER_fd_src_flamenco_runtime_info_fd_instr_info_h
 
-#include "../../util/fd_util_base.h"
+#include "../../../util/fd_util_base.h"
 
-#include "../types/fd_types.h"
+#include "../../types/fd_types.h"
 
-#include "fd_borrowed_account.h"
-#include "fd_rawtxn.h"
+#include "../fd_borrowed_account.h"
+#include "../fd_rawtxn.h"
 
 
 #define FD_INSTR_ACCT_FLAGS_IS_SIGNER   (0x01)
@@ -72,4 +72,4 @@ fd_instr_acc_is_signer(fd_instr_info_t const * instr, fd_pubkey_t const * acc) {
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_flamenco_runtime_fd_instr_info_h */
+#endif /* HEADER_fd_src_flamenco_runtime_info_fd_instr_info_h */

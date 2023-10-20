@@ -6,7 +6,7 @@
 #define MAX_COMPUTE_UNIT_LIMIT                  (1400000)
 
 static inline int
-is_compute_budget_instruction( fd_exec_txn_ctx_t * ctx, fd_txn_instr_t * instr ) {
+is_compute_budget_instruction( fd_exec_txn_ctx_t * ctx, fd_txn_instr_t const * instr ) {
   fd_pubkey_t * txn_accs = ctx->accounts;
   fd_pubkey_t * program_pubkey = &txn_accs[instr->program_id];
   return !memcmp(program_pubkey, fd_solana_compute_budget_program_id.key, sizeof(fd_pubkey_t));
@@ -32,7 +32,7 @@ int fd_executor_compute_budget_program_execute_instructions( fd_exec_txn_ctx_t *
   uint prioritization_fee_type = FD_COMPUTE_BUDGET_PRIORITIZATION_FEE_TYPE_COMPUTE_UNIT_PRICE;
 
   for( ulong i = 0; i < ctx->txn_descriptor->instr_cnt; i++ ) {
-    fd_txn_instr_t * instr =  &ctx->txn_descriptor->instr[i];
+    fd_txn_instr_t const * instr =  &ctx->txn_descriptor->instr[i];
 
     if( !is_compute_budget_instruction(ctx, instr) ) { /* FIXME: is a compute budget instr */
       num_non_compute_budget_instrs++;

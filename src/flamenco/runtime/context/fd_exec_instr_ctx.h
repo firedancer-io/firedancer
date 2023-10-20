@@ -3,18 +3,20 @@
 
 #include "../../../util/fd_util_base.h"
 
-#include "../fd_instr_info.h"
+#include "../info/fd_instr_info.h"
 
 #include "fd_exec_epoch_ctx.h"
 #include "fd_exec_slot_ctx.h"
 
+
 struct fd_exec_txn_ctx;
 typedef struct fd_exec_txn_ctx fd_exec_txn_ctx_t;
 
-FD_PROTOTYPES_BEGIN
+/* Context needed to execute a single instruction. */
+#define FD_EXEC_INSTR_CTX_ALIGN (8UL)
+struct __attribute__((aligned(FD_EXEC_INSTR_CTX_ALIGN))) fd_exec_instr_ctx {
+  ulong magic; /* ==FD_EXEC_INSTR_CTX_MAGIC */
 
-/* Context needed to execute a single instruction. TODO: split into a hierarchy of layered contexts.  */
-struct fd_exec_instr_ctx {
   fd_exec_epoch_ctx_t const * epoch_ctx;
   fd_exec_slot_ctx_t *        slot_ctx; // TOOD: needs to be made const to be thread safe.
   fd_exec_txn_ctx_t *         txn_ctx;  /* The transaction context for this instruction */
@@ -26,6 +28,22 @@ struct fd_exec_instr_ctx {
   fd_instr_info_t const *     instr;    /* The instruction */
 };
 typedef struct fd_exec_instr_ctx fd_exec_instr_ctx_t;
+#define FD_EXEC_INSTR_CTX_FOOTPRINT ( sizeof(fd_exec_instr_ctx_t) )
+#define FD_EXEC_INSTR_CTX_MAGIC (0x18964FC6EDAAC5A8UL) /* random */
+
+FD_PROTOTYPES_BEGIN
+
+void *
+fd_exec_instr_ctx_new( void * mem );
+
+fd_exec_instr_ctx_t *
+fd_exec_instr_ctx_join( void * mem );
+
+void *
+fd_exec_instr_ctx_leave( fd_exec_instr_ctx_t * ctx );
+
+void *
+fd_exec_instr_ctx_delete( void * mem );
 
 int
 fd_instr_borrowed_account_view_idx( fd_exec_instr_ctx_t * ctx,

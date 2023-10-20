@@ -89,10 +89,12 @@ struct global_state {
   slot_capitalization_t  capitalization_map_mem[ 1UL << LG_SLOT_CNT ];
   slot_capitalization_t *map;
 
-  FILE                  *capture_file;
-  fd_tpool_t *           tpool;
-  ulong                  max_workers;
+  FILE * capture_file;
+  fd_tpool_t *     tpool;
+  ulong            max_workers;
   uchar                  abort_on_mismatch;
+
+  fd_wksp_t * local_wksp;
 };
 typedef struct global_state global_state_t;
 
@@ -182,10 +184,10 @@ replay( global_state_t * state,
   state->max_workers = max_workers;
 
   ulong  smax = 512 /*MiB*/ << 20;
-  void * smem = fd_wksp_alloc_laddr( state->slot_ctx->local_wksp, fd_scratch_smem_align(), smax, 1UL );
+  void * smem = fd_wksp_alloc_laddr( state->local_wksp, fd_scratch_smem_align(), smax, 1UL );
   if( FD_UNLIKELY( !smem ) ) FD_LOG_ERR(( "Failed to alloc scratch mem" ));
   ulong  scratch_depth = 4UL;
-  void * fmem = fd_wksp_alloc_laddr( state->slot_ctx->local_wksp, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( scratch_depth ), 2UL );
+  void * fmem = fd_wksp_alloc_laddr( state->local_wksp, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( scratch_depth ), 2UL );
   if( FD_UNLIKELY( !fmem ) ) FD_LOG_ERR(( "Failed to alloc scratch frames" ));
 
   fd_scratch_attach( smem, fmem, smax, scratch_depth );
@@ -239,11 +241,16 @@ replay( global_state_t * state,
     if( FD_UNLIKELY( !rec ) ) FD_LOG_ERR(("missing block record"));
     val = fd_funk_val( rec, fd_funk_wksp(state->slot_ctx->acc_mgr->funk) );
 
+   
     if ( justverify ) {
-      if ( tpool )
-        fd_runtime_block_verify_tpool( state->slot_ctx, &m, val, fd_funk_val_sz(rec), tpool, max_workers );
-      else
-        fd_runtime_block_verify( state->slot_ctx, &m, val, fd_funk_val_sz(rec) );
+      fd_block_info_t block_info;
+      int ret = fd_runtime_block_prepare( val, fd_funk_val_sz(rec), state->slot_ctx->valloc, &block_info );
+      FD_TEST( ret == FD_RUNTIME_EXECUTE_SUCCESS );
+      
+      fd_hash_t poh_hash;
+      fd_memcpy( poh_hash.hash, state->slot_ctx->bank.poh.hash, sizeof(fd_hash_t) );
+      ret = fd_runtime_block_verify( &block_info, &poh_hash );
+      FD_TEST( ret == FD_RUNTIME_EXECUTE_SUCCESS );
     } else {
       FD_TEST (fd_runtime_block_eval( state->slot_ctx, &m, val, fd_funk_val_sz(rec) ) == FD_RUNTIME_EXECUTE_SUCCESS);
 
@@ -424,8 +431,7 @@ main( int     argc,
     FD_LOG_ERR(( "fd_alloc_join failed" ));
   }
 
-  state.slot_ctx->funk_wksp = funk_wksp;
-  state.slot_ctx->local_wksp = local_wksp;
+  state.local_wksp = local_wksp;
   state.slot_ctx->valloc = fd_libc_alloc_virtual();
 
   if( capture_fpath ) {
@@ -546,9 +552,9 @@ main( int     argc,
   FD_TEST(fd_alloc_is_empty(alloc));
   fd_wksp_free_laddr( fd_alloc_delete( fd_alloc_leave( alloc ) ) );
 
-  fd_wksp_delete_anonymous( state.slot_ctx->local_wksp );
+  fd_wksp_delete_anonymous( state.local_wksp );
   if( state.name )
-    fd_wksp_detach( state.slot_ctx->funk_wksp );
+    fd_wksp_detach( funk_wksp );
 
   FD_LOG_NOTICE(( "pass" ));
 

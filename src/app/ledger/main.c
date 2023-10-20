@@ -194,9 +194,11 @@ SnapshotParser_moreData( void *        arg,
 #define VECT_ELEMENT fd_txnstatusidx_t
 #include "../../flamenco/runtime/fd_vector.h"
 
+// TODO: use new block_info API
 void
 ingest_txnstatus( fd_exec_slot_ctx_t * slot_ctx,
                   fd_rocksdb_t *    rocks_db,
+                  fd_wksp_t *       funk_wksp,
                   fd_slot_meta_t *  m,
                   void const *      block,
                   ulong             blocklen ) {
@@ -224,14 +226,16 @@ ingest_txnstatus( fd_exec_slot_ctx_t * slot_ctx,
 
       /* Loop across transactions */
       for ( ulong txn_idx = 0; txn_idx < hdr->txn_cnt; txn_idx++ ) {
-        fd_txn_xray_result_t xray;
-        const uchar* raw = (const uchar *)block + blockoff;
-        ulong pay_sz = fd_txn_xray(raw, blocklen - blockoff, &xray);
-        if ( pay_sz == 0UL )
-          FD_LOG_ERR(("failed to parse transaction %lu in microblock %lu in slot %lu", txn_idx, mblk, m->slot));
-
-        if ( xray.signature_cnt ) {
-          fd_ed25519_sig_t const * sigs = (fd_ed25519_sig_t const *)((ulong)raw + (ulong)xray.signature_off);
+        uchar txn_out[FD_TXN_MAX_SZ];
+        uchar const * raw = (uchar const *)block + blockoff;
+        ulong pay_sz = 0;
+        ulong txn_sz = fd_txn_parse_core( (uchar const *)raw, fd_ulong_min(blocklen - blockoff, FD_TXN_MTU), txn_out, NULL, &pay_sz, 0 );
+        if ( txn_sz == 0 || txn_sz > FD_TXN_MTU ) {
+            FD_LOG_ERR(("failed to parse transaction %lu in microblock %lu in slot %lu", txn_idx, mblk, m->slot));
+        }
+        fd_txn_t const * txn = (fd_txn_t const *)txn_out;
+        if ( txn->signature_cnt ) {
+          fd_ed25519_sig_t const * sigs = (fd_ed25519_sig_t const *)((ulong)raw + (ulong)txn->signature_off);
           ulong status_sz;
           void * status = fd_rocksdb_get_txn_status_raw( rocks_db, m->slot, sigs, &status_sz );
           if ( status ) {
@@ -245,7 +249,7 @@ ingest_txnstatus( fd_exec_slot_ctx_t * slot_ctx,
             pb_release( fd_solblock_TransactionStatusMeta_fields, &txn_status );
 #endif
 
-            for ( ulong i = 0; i < xray.signature_cnt; ++i) {
+            for ( ulong i = 0; i < txn->signature_cnt; ++i) {
               fd_txnstatusidx_t idx;
               fd_memcpy(idx.sig, sigs + i, sizeof(fd_ed25519_sig_t));
               idx.offset = datalen;
@@ -260,9 +264,8 @@ ingest_txnstatus( fd_exec_slot_ctx_t * slot_ctx,
 
             free(status);
           }
+          blockoff += pay_sz;
         }
-
-        blockoff += pay_sz;
       }
     }
   }
@@ -277,9 +280,9 @@ ingest_txnstatus( fd_exec_slot_ctx_t * slot_ctx,
   int ret;
   fd_funk_rec_t * rec = fd_funk_rec_modify( slot_ctx->acc_mgr->funk, fd_funk_rec_insert( slot_ctx->acc_mgr->funk, NULL, &key, &ret ) );
   if( FD_UNLIKELY( !rec ) ) FD_LOG_ERR(( "fd_funk_rec_modify failed with code %d", ret ));
-  rec = fd_funk_val_truncate( rec, totsize, (fd_alloc_t *)slot_ctx->valloc.self, slot_ctx->funk_wksp, &ret );
+  rec = fd_funk_val_truncate( rec, totsize, (fd_alloc_t *)slot_ctx->valloc.self, funk_wksp, &ret );
   if( FD_UNLIKELY( !rec ) ) FD_LOG_ERR(( "fd_funk_val_truncate failed with code %d", ret ));
-  uchar * val = (uchar*) fd_funk_val( rec, slot_ctx->funk_wksp );
+  uchar * val = (uchar*) fd_funk_val( rec, funk_wksp );
   *(ulong*)val = vec_idx.cnt;
   val += sizeof(ulong);
   fd_memcpy(val, vec_idx.elems, vec_idx.cnt*sizeof(fd_txnstatusidx_t));
@@ -292,13 +295,14 @@ ingest_txnstatus( fd_exec_slot_ctx_t * slot_ctx,
 
 void
 ingest_rocksdb( fd_exec_slot_ctx_t * slot_ctx,
+                fd_wksp_t *       funk_wksp,  
                 char const *      file,
                 ulong             end_slot,
                 char const *      verifypoh,
                 char const *      txnstatus,
-                fd_tpool_t *      tpool,
-                ulong             max_workers ) {
-
+                fd_tpool_t *      tpool FD_PARAM_UNUSED,
+                ulong             max_workers FD_PARAM_UNUSED ) {
+  (void)txnstatus;
   fd_rocksdb_t rocks_db;
   char *err = fd_rocksdb_init(&rocks_db, file);
   if (err != NULL) {
@@ -333,10 +337,10 @@ ingest_rocksdb( fd_exec_slot_ctx_t * slot_ctx,
   if (rec == NULL)
     FD_LOG_ERR(("funky insert failed with code %d", ret));
   ulong sz = fd_slot_meta_meta_size(&mm);
-  rec = fd_funk_val_truncate( rec, sz, (fd_alloc_t *)slot_ctx->valloc.self, slot_ctx->funk_wksp, &ret );
+  rec = fd_funk_val_truncate( rec, sz, (fd_alloc_t *)slot_ctx->valloc.self, funk_wksp, &ret );
   if (rec == NULL)
     FD_LOG_ERR(("funky insert failed with code %d", ret));
-  void * val = fd_funk_val( rec, slot_ctx->funk_wksp );
+  void * val = fd_funk_val( rec, funk_wksp );
   fd_bincode_encode_ctx_t ctx;
   ctx.data = val;
   ctx.dataend = (uchar *)val + sz;
@@ -365,9 +369,9 @@ ingest_rocksdb( fd_exec_slot_ctx_t * slot_ctx,
     rec = fd_funk_rec_modify( slot_ctx->acc_mgr->funk, fd_funk_rec_insert( slot_ctx->acc_mgr->funk, NULL, &key, &ret ) );
     if( FD_UNLIKELY( !rec ) ) FD_LOG_ERR(( "fd_funk_rec_modify failed with code (%d-%s)", ret, fd_funk_strerror( ret ) ));
     sz  = fd_slot_meta_size(&m);
-    rec = fd_funk_val_truncate( rec, sz, (fd_alloc_t *)slot_ctx->valloc.self, slot_ctx->funk_wksp, &ret );
+    rec = fd_funk_val_truncate( rec, sz, (fd_alloc_t *)slot_ctx->valloc.self, funk_wksp, &ret );
     if( FD_UNLIKELY( !rec ) ) FD_LOG_ERR(( "fd_funk_val_truncate failed with code (%d-%s)", ret, fd_funk_strerror( ret ) ));
-    val = fd_funk_val( rec, slot_ctx->funk_wksp );
+    val = fd_funk_val( rec, funk_wksp );
     fd_bincode_encode_ctx_t ctx2;
     ctx2.data = val;
     ctx2.dataend = (uchar *)val + sz;
@@ -385,9 +389,9 @@ ingest_rocksdb( fd_exec_slot_ctx_t * slot_ctx,
     rec = fd_funk_rec_modify( slot_ctx->acc_mgr->funk, fd_funk_rec_insert( slot_ctx->acc_mgr->funk, NULL, &key, &ret ) );
     if( FD_UNLIKELY( !rec ) ) FD_LOG_ERR(( "fd_funk_rec_modify failed with code %d", ret ));
     /* TODO messy valloc => alloc upcast */
-    rec = fd_funk_val_truncate( rec, block_sz, slot_ctx->valloc.self, slot_ctx->funk_wksp, &ret );
+    rec = fd_funk_val_truncate( rec, block_sz, slot_ctx->valloc.self, funk_wksp, &ret );
     if( FD_UNLIKELY( !rec ) ) FD_LOG_ERR(( "fd_funk_val_truncate failed with code %d", ret ));
-    fd_memcpy( fd_funk_val( rec, slot_ctx->funk_wksp ), block, block_sz );
+    fd_memcpy( fd_funk_val( rec, funk_wksp ), block, block_sz );
 
     /* Read bank hash from RocksDB */
 
@@ -400,23 +404,27 @@ ingest_rocksdb( fd_exec_slot_ctx_t * slot_ctx,
       rec = fd_funk_rec_modify( slot_ctx->acc_mgr->funk, fd_funk_rec_insert( slot_ctx->acc_mgr->funk, NULL, &key, &ret ) );
       if( FD_UNLIKELY( !rec ) ) FD_LOG_ERR(( "fd_funk_rec_modify failed with code %d", ret ));
       sz  = sizeof(fd_hash_t);
-      rec = fd_funk_val_truncate( rec, sz, (fd_alloc_t *)slot_ctx->valloc.self, slot_ctx->funk_wksp, &ret );
+      rec = fd_funk_val_truncate( rec, sz, (fd_alloc_t *)slot_ctx->valloc.self, funk_wksp, &ret );
       if( FD_UNLIKELY( !rec ) ) FD_LOG_ERR(( "fd_funk_val_truncate failed with code %d", ret ));
-      memcpy( fd_funk_val( rec, slot_ctx->funk_wksp ), hash.hash, sizeof(fd_hash_t) );
+      memcpy( fd_funk_val( rec, funk_wksp ), hash.hash, sizeof(fd_hash_t) );
       FD_LOG_DEBUG(( "slot=%lu bank_hash=%32J", slot, hash.hash ));
     }
 
     if ( strcmp(txnstatus, "true") == 0 )
-      ingest_txnstatus( slot_ctx, &rocks_db, &m, block, block_sz );
+      ingest_txnstatus( slot_ctx, &rocks_db, funk_wksp, &m, block, block_sz );
 
     // FD_LOG_NOTICE(("slot %lu: block size %lu", slot, block_sz));
     ++blk_cnt;
 
     if ( strcmp(verifypoh, "true") == 0 ) {
-      if ( tpool )
-        fd_runtime_block_verify_tpool( slot_ctx, &m, block, block_sz, tpool, max_workers );
-      else
-        fd_runtime_block_verify( slot_ctx, &m, block, block_sz );
+      fd_block_info_t block_info;
+      int ret = fd_runtime_block_prepare( val, fd_funk_val_sz(rec), slot_ctx->valloc, &block_info );
+      FD_TEST( ret == FD_RUNTIME_EXECUTE_SUCCESS );
+      
+      fd_hash_t poh_hash;
+      fd_memcpy( poh_hash.hash, slot_ctx->bank.poh.hash, sizeof(fd_hash_t) );
+      ret = fd_runtime_block_verify( &block_info, &poh_hash );
+      FD_TEST( ret == FD_RUNTIME_EXECUTE_SUCCESS );
     }
 
     fd_valloc_free( slot_ctx->valloc, block );
@@ -535,8 +543,6 @@ main( int     argc,
   if( FD_UNLIKELY( !alloc ) ) FD_LOG_ERR(( "fd_alloc_join(gaddr=%#lx) failed", funk->alloc_gaddr ));
   /* TODO leave */
 
-  slot_ctx->funk_wksp = wksp;
-  slot_ctx->local_wksp = NULL;
   slot_ctx->valloc = fd_alloc_virtual( alloc );
 
   fd_acc_mgr_t mgr[1];
@@ -740,7 +746,7 @@ main( int     argc,
     }
 
     if( rocksdb_dir ) {
-      ingest_rocksdb( slot_ctx, rocksdb_dir, end_slot, verifypoh, txnstatus, tpool, tcnt-1 );
+      ingest_rocksdb( slot_ctx, wksp, rocksdb_dir, end_slot, verifypoh, txnstatus, tpool, tcnt-1 );
 
       fd_hash_t const * known_bank_hash = fd_get_bank_hash( slot_ctx->acc_mgr->funk, slot_ctx->bank.slot );
 
