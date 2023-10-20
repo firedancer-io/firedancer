@@ -399,7 +399,7 @@ fd_execute_txn( fd_exec_slot_ctx_t *  slot_ctx,
   (void)compute_budget_status;
   fd_executor_setup_borrowed_accounts_for_txn( &txn_ctx );
 
-  ulong fee = fd_runtime_calculate_fee( &txn_ctx, txn_descriptor, txn_raw, FD_FEATURE_ACTIVE( slot_ctx, remove_congestion_multiplier_from_fee_calculation ), FD_FEATURE_ACTIVE( slot_ctx, include_loaded_accounts_data_size_in_fee_calculation ));
+  ulong fee = fd_runtime_calculate_fee( &txn_ctx, txn_descriptor, txn_raw );
   if( fd_executor_collect_fee( slot_ctx, &tx_accs[0], fee ) ) {
     return -1;
   }

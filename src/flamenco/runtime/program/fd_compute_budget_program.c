@@ -108,7 +108,7 @@ int fd_executor_compute_budget_program_execute_instructions( fd_exec_txn_ctx_t *
         break;
       }
       case fd_compute_budget_program_instruction_enum_set_loaded_accounts_data_size_limit: {
-          if ( FD_FEATURE_ACTIVE( ctx->slot_ctx, add_set_tx_loaded_accounts_data_size_instruction ) ) {
+          if ( !FD_FEATURE_ACTIVE( ctx->slot_ctx, add_set_tx_loaded_accounts_data_size_instruction ) ) {
             return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
           }
 

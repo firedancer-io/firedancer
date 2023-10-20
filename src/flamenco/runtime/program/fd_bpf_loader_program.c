@@ -113,7 +113,7 @@ int fd_executor_bpf_loader_program_execute_program_instruction( fd_exec_instr_ct
       FD_LOG_WARNING(("Loaded accounts size meter %lu is not sufficient for program len %lu", ctx.txn_ctx->loaded_accounts_data_size_meter, program_data_len));
       return FD_EXECUTOR_INSTR_ERR_MAX_ACCS_DATA_SIZE_EXCEEDED;
     };
-    fd_ulong_sat_sub(ctx.txn_ctx->loaded_accounts_data_size_meter, program_data_len);
+    ctx.txn_ctx->loaded_accounts_data_size_meter = fd_ulong_sat_sub(ctx.txn_ctx->loaded_accounts_data_size_meter, program_data_len);
   }
 
   fd_sbpf_elf_info_t elf_info;
