@@ -112,7 +112,7 @@ fetch () {
 }
 
 check_fedora_pkgs () {
-  local REQUIRED_RPMS=( perl autoconf gettext-devel automake flex bison cmake clang protobuf-compiler )
+  local REQUIRED_RPMS=( perl autoconf gettext-devel automake flex bison cmake clang protobuf-compiler llvm-toolset lcov )
 
   echo "[~] Checking for required RPM packages"
 
@@ -136,7 +136,8 @@ check_fedora_pkgs () {
 }
 
 check_debian_pkgs () {
-  local REQUIRED_DEBS=( perl autoconf gettext automake autopoint flex bison build-essential gcc-multilib protobuf-compiler )
+  local REQUIRED_DEBS=( perl autoconf gettext automake autopoint flex bison build-essential gcc-multilib protobuf-compiler llvm lcov )
+
 
   echo "[~] Checking for required DEB packages"
 
