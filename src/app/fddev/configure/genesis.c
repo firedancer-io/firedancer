@@ -26,10 +26,10 @@ init( config_t * const config ) {
   uint idx = 0;
   char * argv[ 128 ];
   uint bufidx = 0;
-  char buffer[ 32 ][ 16 ];
+  char buffer[ 32 ][ 24 ];
 #define ADD1( arg ) do { argv[ idx++ ] = arg; } while( 0 )
 #define ADD( arg, val ) do { argv[ idx++ ] = arg; argv[ idx++ ] = val; } while( 0 )
-#define ADDU( arg, val ) do { argv[ idx++ ] = arg; snprintf1( buffer[ bufidx ], 16, "%u", val ); argv[ idx++ ] = buffer[ bufidx++ ]; } while( 0 )
+#define ADDU( arg, val ) do { argv[ idx++ ] = arg; snprintf1( buffer[ bufidx ], 24, "%lu", val ); argv[ idx++ ] = buffer[ bufidx++ ]; } while( 0 )
 
   char faucet[ PATH_MAX ];
   snprintf1( faucet, PATH_MAX, "%s/faucet.json", config->scratch_directory );
