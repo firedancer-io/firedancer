@@ -1,0 +1,70 @@
+# On every PR and main commit:
+# - Build on GCC and Clang
+# - Test on GCC
+
+name: Tests (Highend)
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - next
+  merge_group:
+    types: [checks_requested]
+  workflow_dispatch:
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  test-with-sanitizers:
+    strategy:
+      matrix:
+        # add lowend once its fixed
+        # highend cannot be tested on the hosted runners due to lack of AVX-512
+        feature_set: [highend]
+    runs-on:
+      group: rhel85-icelake
+    env:
+      MACHINE: linux_clang_combi_${{ matrix.feature_set }}
+      EXTRAS: asan ubsan
+    steps:
+      - run: lscpu
+
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/deps
+      - uses: ./.github/actions/hugepages
+
+      - name: Build unit tests
+        run: make -j -Otarget unit-test
+
+      - name: Run unit tests
+        run: |
+          sudo prlimit --pid $$ --memlock=-1:-1
+          ./test.sh -j --page-sz gigantic
+  test-fuzz-regressions:
+    name: Test Fuzz Regressions on ${{ matrix.feature_set }}
+    needs: test-with-sanitizers
+    strategy:
+      matrix:
+        feature_set: [highend]
+    runs-on:
+      group: rhel85-icelake
+    env:
+      MACHINE: linux_clang_combi_${{ matrix.feature_set }}
+      EXTRAS: fuzz asan ubsan
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/deps
+
+      - uses: ./.github/actions/deps
+      - uses: ./.github/actions/hugepages
+
+      - name: Build Fuzz Tests
+        run: make -j -Otarget fuzz-test
+
+      - name: Run Fuzz Tests Against Corpora
+        run: |
+          sudo prlimit --pid $$ --memlock=-1:-1
+          make -k -j -Otarget run-fuzz-test
