@@ -613,6 +613,7 @@ int fd_executor_txn_check( fd_exec_slot_ctx_t * slot_ctx,  fd_exec_txn_ctx_t *tx
 
 #if 0
   // cap_accounts_data_allocations_per_transaction
+  //    TODO: I am unsure if this is the correct check...
   if (((long)ending_dlen - (long)starting_dlen) > MAX_PERMITTED_DATA_INCREASE)
     return FD_EXECUTOR_INSTR_ERR_MAX_ACCS_DATA_SIZE_EXCEEDED;
 #endif
