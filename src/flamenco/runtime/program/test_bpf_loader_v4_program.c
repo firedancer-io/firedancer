@@ -3,9 +3,8 @@
 
 
 FD_STATIC_ASSERT( offsetof( fd_bpf_loader_v4_state_t, slot           )==0x00UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_bpf_loader_v4_state_t, is_deployed    )==0x08UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_bpf_loader_v4_state_t, has_authority  )==0x09UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_bpf_loader_v4_state_t, authority_addr )==0x0aUL, layout );
+FD_STATIC_ASSERT( offsetof( fd_bpf_loader_v4_state_t, authority_addr )==0x08UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_bpf_loader_v4_state_t, status         )==0x28UL, layout );
 FD_STATIC_ASSERT( sizeof  ( fd_bpf_loader_v4_state_t                 )==0x30UL, layout );
 
 
