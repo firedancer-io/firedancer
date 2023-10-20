@@ -364,9 +364,9 @@ main( int     argc,
 
     /* Test conversions */
 
-    WWI_TEST( wwl_to_wwi(x),  (int)x0,0,  (int)x1,0,  (int)x2,0,  (int)x3,0,  (int)x4,0,  (int)x5,0,  (int)x6,0,  (int)x7,0 );
-    WWU_TEST( wwl_to_wwu(x), (uint)x0,0, (uint)x1,0, (uint)x2,0, (uint)x3,0, (uint)x4,0, (uint)x5,0, (uint)x6,0, (uint)x7,0 );
-    WWV_TEST( wwl_to_wwv(x), (ulong)x0,  (ulong)x1,  (ulong)x2,  (ulong)x3,  (ulong)x4,  (ulong)x5,  (ulong)x6,  (ulong)x7  );
+    WWI_TEST( wwv_to_wwi(x),  (int)x0,0,  (int)x1,0,  (int)x2,0,  (int)x3,0,  (int)x4,0,  (int)x5,0,  (int)x6,0,  (int)x7,0 );
+    WWU_TEST( wwv_to_wwu(x), (uint)x0,0, (uint)x1,0, (uint)x2,0, (uint)x3,0, (uint)x4,0, (uint)x5,0, (uint)x6,0, (uint)x7,0 );
+    WWL_TEST( wwv_to_wwl(x), (long)x0,   (long)x1,   (long)x2,   (long)x3,   (long)x4,   (long)x5,   (long)x6,   (long)x7   );
 
     /* Test misc operations */
 

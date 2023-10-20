@@ -282,7 +282,7 @@ static inline wwu_t wwu_ror_vector( wwu_t a, wwu_t b ) {
     /**/  (cf)               = _mm512_unpackhi_epi32( _wwu_transpose_te, _wwu_transpose_tf );      \
   } while(0)
 
-/* wwu_transpose_2x8x8 transposes the 2 8x8 matrices whos rows are in
+/* wwu_transpose_2x8x8 transposes the 2 8x8 matrices whose rows are
    held in the lower and upper halves of wwu_t's r0,r1...r7 and
    stores the result in c0,c1...c7.  In-place operation fine. */
 
