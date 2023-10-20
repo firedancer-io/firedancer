@@ -17,7 +17,6 @@ from collections import defaultdict
 # Globals holding relocation information.
 relo_label_counter = 0
 relo_abs_mapping = {}
-has_nr_loaded = False
 
 # new_relo_label provides a unique label on every call
 def new_relo_label():
@@ -25,6 +24,7 @@ def new_relo_label():
     relo_label_counter += 1
     return "lbl_%d" % relo_label_counter
 
+# reverse_multi_mapping is useful to turn the map of labels_name -> line to line -> [label_name, ...]
 def reverse_multi_mapping(mapping):
     res = defaultdict(list)
     for lbl, idx in mapping.items():
@@ -48,6 +48,7 @@ class ReloCondJump(object):
         self.t_label = replace_label(self.t_label, instr_idx=instr_idx)
         self.f_label = replace_label(self.f_label, instr_idx=instr_idx)
 
+# replace_labels replaces an instruction's jump target to the relative distance
 def replace_label(label, instr_idx):
     maybe_relo = relo_abs_mapping.get(label)
     if maybe_relo is not None:
@@ -63,7 +64,7 @@ class ReloJump(object):
         self.post_comment = post_comment
 
     def __str__(self):
-        return "{ BFP_JMP | BPF_JA, 0, 0, %d }" % (self.label)
+        return "{ BFP_JMP | BPF_JA, 0, 0, %s }" % (self.label)
     
     def relocate(self, instr_idx):
         self.label = replace_label(self.label, instr_idx=instr_idx)
@@ -77,32 +78,47 @@ class CommentedLiteral(object):
 
     def __str__(self):
         return self.lit
-        
+
+
 # append_prelude appends a prelude to the cBPF filter.
 def append_prelude(filter):
     filter.append(CommentedLiteral("BPF_STMT( BPF_LD | BPF_W | BPF_ABS, ( offsetof( struct seccomp_data, arch ) ) )", pre_comment="Check: Jump to RET_KILL_PROCESS if the script's arch != the runtime arch"))
     # filter.append("BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ARCH_NR, 1, 0 )")
     filter.append(ReloCondJump("BPF_JMP | BPF_JEQ | BPF_K, ARCH_NR", 0, "RET_KILL_PROCESS"))
+    filter.append(CommentedLiteral("BPF_STMT( BPF_LD | BPF_W | BPF_ABS, ( offsetof( struct seccomp_data, nr ) ) )", pre_comment="loading syscall number in accumulator"))
+
 
 # codegen generates by appending to filt the bpf code for the policy_lines. 
 def codegen(policy_lines, filt):
     append_prelude(filt)
+
+    # track all of the expressions that will be appended after the syscall jump table
+    syscall_to_expression = {}
+
     for line_number, line in enumerate(policy_lines):
         lineparts = line.split(':', maxsplit=1)
         lineparts[-1] = lineparts[-1].strip()
+
         if len(lineparts) == 1:
-            simple_allow(lineparts[0], filt)
+            syscall = lineparts[0]
+            filt.append(ReloCondJump("BPF_JMP | BPF_JEQ | BPF_K, %s" % ('__NR_'+syscall), 'RET_ALLOW', 0, pre_comment="simply allow %s" % syscall))
         elif len(lineparts) == 2:
-            # Evaluating the expression might trash the accumulator (evicting NR)
-            global has_nr_loaded
-            has_nr_loaded = False
-            expression(lineparts[0], lineparts[1], filt)
+            syscall = lineparts[0]
+            filt.append(ReloCondJump("BPF_JMP | BPF_JEQ | BPF_K, %s" % ('__NR_'+syscall), f'check_{syscall}', 0, pre_comment=f"allow {syscall} based on expression"))
+            syscall_to_expression[lineparts[0]] = lineparts[1]
         else:
             print("malformed line @ %s" % (line_number+1), file=sys.stderr)
             sys.exit(1)
 
+    # append the last jump to the syscall jump table
+    filt.append(ReloJump("RET_KILL_PROCESS", pre_comment="none of the syscalls matched")) 
+    # write all of the expression checks
+
+    for syscall, expr in syscall_to_expression.items():
+        expression(syscall, expr, filt)
+
     # register the RET_KILL_PROCESS label
-    # It's registered before RET_ALLOW because it's going to be the first fallthrough case for checks
+    # it's registered before RET_ALLOW because it's the first fallthrough case for checks
     relo_abs_mapping['RET_KILL_PROCESS'] = len(filt)
     filt.append(CommentedLiteral('BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS )', pre_comment="KILL_PROCESS is placed before ALLOW since it's the fallthrough case."))
 
@@ -113,43 +129,20 @@ def codegen(policy_lines, filt):
     for instr_idx, entry in enumerate(filt):
         if type(entry) is ReloCondJump or type(entry) is ReloJump:
             entry.relocate(instr_idx)
-    
-# simple_allow handles a simple rule without a symbolic expression
-def simple_allow(name, filter):
-    global has_nr_loaded
-    if not has_nr_loaded:
-        filter.append(CommentedLiteral("BPF_STMT( BPF_LD | BPF_W | BPF_ABS, ( offsetof( struct seccomp_data, nr ) ) )", pre_comment="loading syscall number in accumulator as it might have been evicted by the previous evaluation"))
-        has_nr_loaded = True
-    filter.append(ReloCondJump("BPF_JMP | BPF_JEQ | BPF_K, %s" % ('__NR_'+name), 'RET_ALLOW', 0, pre_comment="simply allow %s" % name)
-)
+
 # expression handles a rule with a symbolic expression attached
 def expression(name, expr, filt):
+    # The check for `name` starts at the next intruction
+    relo_abs_mapping[f"check_{name}"] = len(filt)
+
     expr = edn_format.loads(expr)
 
     if type(expr) is tuple:
         # Allow the call
         success = 'RET_ALLOW'
-        # Go to the next check (jump over the expression code)
-        end_of_expr = new_relo_label()
-
-        # Write the prelude
-        # If the call is not the one with `name`, jump over (just like a failure).
-        global has_nr_loaded
-        if not has_nr_loaded:
-            filt.append(CommentedLiteral("BPF_STMT( BPF_LD | BPF_W | BPF_ABS, ( offsetof( struct seccomp_data, nr ) ) )", pre_comment="loading syscall number in accumulator as it might have been evicted by the previous evaluation"))
-            has_nr_loaded = True
-        filt.append(ReloCondJump("BPF_JMP | BPF_JEQ | BPF_K, %s" % ('__NR_'+name), 0, end_of_expr, pre_comment="begin %s: %s" % (name, expr)))
 
         # Write the eval code
         eval_(expr, filt, success, 'RET_KILL_PROCESS')
-
-        # The eval res is in accu. Jump to false if it holds 0.
-        # filt.append(ReloBinaryJump("BPF_JMP | BPF_JEQ | BPF_K, 0", failure, success))
-        
-        # All expr code has been writen, this is the end of that expr eval.
-        # Register the failure relo label
-        relo_abs_mapping[end_of_expr] = len(filt)
-        has_nr_loaded = False
 
     elif type(expr) == edn_format.Symbol:
         # Treat the symbol as the desired effect
@@ -189,7 +182,6 @@ def eval_(expr, filt, label_t, label_f):
             if len(expr) < 2:
                 raise("not enough arguments to or")
             # Evaluate each operand and jump to the negative case if any is false. Ultimately jump to true.
-            # and_was_satisfied = new_relo_label()
 
             for idx, arg in enumerate(expr[1:]):
                 if idx == len(expr[1:])-1:
@@ -236,7 +228,7 @@ def eval_bit_and(filt, op1, op2, label_t, label_f):
     elif op2_type is tuple and op1_type is not tuple:
         # eval op2 and do operation with op1 imm
         eval_(op2, 0, 0)
-        # accu now contains the eval res of op1
+        # accu now contains the eval res of op2
         filt.append("{ BPF_ALU | BPF_AND | BPF_K, 0, 0, %s }" % str(op1))
     else:
     # Note: In the case where both are expressions: the res of the first eval must be sent to scratch
@@ -261,14 +253,12 @@ def eval_equal(filt, op1, op2, label_t, label_f):
         # eval op1 and do operation with op2 imm
         eval_(op1, filt, None, None)
         # accu now contains the eval res of op1
-        # filt.append("{ BPF_ALU | BPF_XOR | BPF_K, 0, 0, %s }" % str(op2))
         filt.append(ReloCondJump("BPF_JMP | BPF_JEQ | BPF_K, %s" % str(op2), label_t, label_f))
 
     elif op2_type is tuple and op1_type is not tuple:
         # eval op2 and do operation with op1 imm
         eval_(op2, None, None)
-        # accu now contains the eval res of op1
-        # filt.append("{ BPF_ALU | BPF_XOR | BPF_K, 0, 0, %s }" % str(op1))
+        # accu now contains the eval res of op2
         filt.append(ReloCondJump("BPF_JMP | BPF_JEQ | BPF_K, %s" % str(op1), label_t, label_f))
     else:
         # This is unsupported because I didn't pick a calling convention and this means that accu and x should be saved to scratch.
@@ -288,8 +278,6 @@ def resplit_lines(lines):
 
 
 if __name__ == '__main__':
-    # script_dir = os.path.dirname(os.path.realpath(__file__))
-
     src_path = sys.argv[1]
     filter_name = os.path.basename(src_path)
     if filter_name.endswith(".seccomppolicy"):
@@ -335,7 +323,7 @@ if __name__ == '__main__':
                 maybe_labels = line_to_labels.get(lineno, [])
 
                 for label in maybe_labels:
-                    of.write(f"{padding}/* {label}: */\n")
+                    of.write(f"//  {label}:\n")
 
                 if hasattr(line, 'pre_comment'):
                     comment = line.pre_comment
