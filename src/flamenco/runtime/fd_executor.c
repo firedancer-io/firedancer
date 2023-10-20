@@ -509,14 +509,16 @@ fd_execute_txn( fd_exec_slot_ctx_t *  slot_ctx,
     }
 
     int exec_result = fd_execute_instr( &instrs[i], &txn_ctx );
+
+    if( exec_result == FD_EXECUTOR_INSTR_SUCCESS )
+      exec_result = fd_executor_txn_check( slot_ctx, &txn_ctx );
+
     if( exec_result != FD_EXECUTOR_INSTR_SUCCESS ) {
       FD_LOG_DEBUG(( "fd_execute_instr failed (%d)", exec_result ));
       fd_funk_txn_cancel(txn_ctx.acc_mgr->funk, txn, 0);
       txn_ctx.funk_txn = parent_txn;
       return -1;
     }
-
-    /* TODO: sanity before/after checks: total lamports unchanged etc */
   }
 
   for( ulong i = 0; i < txn_ctx.accounts_cnt; i++ ) {
@@ -563,4 +565,50 @@ fd_execute_txn( fd_exec_slot_ctx_t *  slot_ctx,
   fd_funk_txn_merge(slot_ctx->acc_mgr->funk, txn, 0);
   slot_ctx->funk_txn = parent_txn;
   return 0;
+}
+
+int fd_executor_txn_check( fd_exec_slot_ctx_t * slot_ctx,  fd_exec_txn_ctx_t *txn ) {
+  // We really need to cache this...
+  fd_rent_t rent;
+  fd_rent_new( &rent );
+  fd_sysvar_rent_read( slot_ctx, &rent );
+
+  ulong ending_lamports = 0;
+  ulong ending_dlen = 0;
+  ulong starting_lamports = 0;
+  ulong starting_dlen = 0;
+
+  for (ulong idx = 0; idx < txn->accounts_cnt; idx++) {
+    fd_borrowed_account_t *b = &txn->borrowed_accounts[idx];
+    if (NULL != b->const_meta) {
+      ending_lamports += b->const_meta->info.lamports;
+      ending_dlen += b->const_meta->dlen;
+
+      // Lets prevent creating non-rent-exempt accounts...
+      uchar after_exempt = fd_rent_exempt_minimum_balance2( &rent, b->const_meta->dlen) <= b->const_meta->info.lamports;
+
+      if (!after_exempt) {
+        uchar before_exempt = (b->starting_dlen != ULONG_MAX) ?
+          (fd_rent_exempt_minimum_balance2( &rent, b->starting_dlen) <= b->starting_lamports) : 1;
+        if (before_exempt || (b->const_meta->dlen != b->starting_dlen))
+          return FD_EXECUTOR_INSTR_ERR_ACC_NOT_RENT_EXEMPT;
+      }
+    }
+
+    if (b->starting_lamports != ULONG_MAX)
+      starting_lamports += b->starting_lamports;
+    if (b->starting_dlen != ULONG_MAX)
+      starting_dlen += b->starting_dlen;
+  }
+
+  if (ending_lamports != starting_lamports)
+    return FD_EXECUTOR_INSTR_ERR_UNBALANCED_INSTR;
+
+#if 0
+  // cap_accounts_data_allocations_per_transaction
+  if (((long)ending_dlen - (long)starting_dlen) > MAX_PERMITTED_DATA_INCREASE)
+    return FD_EXECUTOR_INSTR_ERR_MAX_ACCS_DATA_SIZE_EXCEEDED;
+#endif
+
+  return FD_EXECUTOR_INSTR_SUCCESS;
 }

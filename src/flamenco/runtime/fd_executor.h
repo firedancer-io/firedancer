@@ -111,6 +111,13 @@ fd_executor_setup_accessed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx,
 void
 fd_executor_setup_borrowed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx );
 
+/*
+  Validate the txn after execution for violations of various lamport balance and size rules
+ */
+
+int
+fd_executor_txn_check( fd_exec_slot_ctx_t * slot_ctx,  fd_exec_txn_ctx_t *txn );
+
 
 FD_PROTOTYPES_END
 

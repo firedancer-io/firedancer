@@ -354,7 +354,11 @@ int fd_executor_run_test(
     fd_instr_info_t instr;
     fd_convert_txn_instr_to_instr( (fd_txn_t const *)txn_descriptor, &raw_txn_b, txn_instr, txn_ctx.accounts, txn_ctx.borrowed_accounts, &instr );
 
+    if (fail_before == test->test_number)
+      kill(getpid(), SIGTRAP);
+
     int exec_result = fd_execute_instr( &instr, &txn_ctx );
+
     if ( exec_result != test->expected_result ) {
       if (NULL != verbose)
         log_test_fail( test, suite, "expected transaction result %d, got %d: %s", test->expected_result, exec_result, test->bt );
@@ -373,6 +377,10 @@ int fd_executor_run_test(
     }
 
     if (FD_EXECUTOR_INSTR_SUCCESS == exec_result) {
+
+      if (fd_executor_txn_check( slot_ctx, &txn_ctx ) != FD_EXECUTOR_INSTR_SUCCESS)
+        log_test_fail(test, suite,  "bad dog.. no donut..  Ask josh to take a look at this test");
+
       /* Confirm account updates */
       for ( ulong i = 0; i < test->accs_len; i++ ) {
         if( fd_pubkey_is_sysvar_id( &test->accs[i].pubkey ) ) continue;
