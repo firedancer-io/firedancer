@@ -15,6 +15,11 @@
     FD_MUX_TILE_SCRATCH_ALIGN,   FD_MUX_TILE_SCRATCH_FOOTPRINT( in_cnt, out_cnt ) ),    \
     FD_VERIFY_TILE_SCRATCH_ALIGN )
 
+/* FD_NET_ALLOW_PORT_CNT specifies the number of UDP ports the net tile
+   recognizes.  If you update this, you also need to update the error
+   message if the related check fails. */
+#define FD_NET_ALLOW_PORT_CNT 3UL
+
 FD_PROTOTYPES_BEGIN
 
 int
@@ -31,6 +36,7 @@ fd_net_tile( fd_cnc_t *              cnc,                     /* Local join to t
              uchar *                 dcache,                  /* Local join to the quic's frag stream output dcache */
              ulong                   cr_max,                  /* Maximum number of flow control credits, 0 means use a reasonable default */
              long                    lazy,                    /* Lazyiness, <=0 means use a reasonable default */
+             ushort                  allow_ports[ static FD_NET_ALLOW_PORT_CNT ], /* The UDP ports to allow */
              fd_rng_t *              rng,                     /* Local join to the rng this quic should use */
              void *                  scratch );               /* Tile scratch memory */
 

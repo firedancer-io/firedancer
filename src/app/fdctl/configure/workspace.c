@@ -344,6 +344,9 @@ init( config_t * const config ) {
             fd_wksp_unmap( lo_shmem );
           }
         }
+        ushort1( pod, "transaction_listen_port",      config->tiles.quic.regular_transaction_listen_port, 0 );
+        ushort1( pod, "quic_transaction_listen_port", config->tiles.quic.quic_transaction_listen_port,    0 );
+        ushort1( pod, "shred_listen_port",            config->tiles.shred.shred_listen_port,              0 );
         break;
       case wksp_netmux:
         cnc   ( pod, "cnc" );

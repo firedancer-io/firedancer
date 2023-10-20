@@ -45,6 +45,12 @@ run( fd_tile_args_t * args ) {
   ulong cnt = fd_pod_query_ulong( mux_pod, "net-cnt", 0UL );
   if( FD_UNLIKELY( !cnt ) ) FD_LOG_ERR(( "net-cnt not set" ));
 
+  ushort allow_ports[ FD_NET_ALLOW_PORT_CNT ] = {
+    fd_pod_query_ushort( tile_pod, "transaction_listen_port",      0 ),
+    fd_pod_query_ushort( tile_pod, "quic_transaction_listen_port", 0 ),
+    fd_pod_query_ushort( tile_pod, "shred_listen_port",            0 )
+  };
+
   fd_rng_t _rng[ 1 ];
   fd_net_tile( fd_cnc_join( fd_wksp_pod_map1( tile_pod, "cnc%lu", args->tile_idx ) ),
                (ulong)args->pid,
@@ -59,6 +65,7 @@ run( fd_tile_args_t * args ) {
                fd_dcache_join( fd_wksp_pod_map1( mux_pod, "net-out-dcache%lu", args->tile_idx ) ),
                0,
                0,
+               allow_ports,
                fd_rng_join( fd_rng_new( _rng, 0, 0UL ) ),
                fd_alloca( FD_NET_TILE_SCRATCH_ALIGN, FD_NET_TILE_SCRATCH_FOOTPRINT( 1, 0 ) ) );
 }
