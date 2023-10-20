@@ -177,3 +177,12 @@ fd_bn254_g1_mult( fd_bn254_point_g1_t const * x, fd_bn254_bigint_t const * y, fd
   }
   fd_bn254_g1_libff_to_sol( fd_bn254_bigint_sol_to_libff(y) * fd_bn254_g1_sol_to_libff(x), z );
 }
+
+int
+fd_bn254_pairing( fd_bn254_point_g1_t const * x, fd_bn254_point_g2_t const * y ) {
+  if (!didinit) {
+    libff::init_alt_bn128_params();
+    didinit = true;
+  }
+  return libff::alt_bn128_pairing(fd_bn254_g1_sol_to_libff(x), fd_bn254_g2_sol_to_libff(y)) == libff::alt_bn128_Fq12::one();
+}

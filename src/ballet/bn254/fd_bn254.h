@@ -63,6 +63,9 @@ void fd_bn254_g1_add( fd_bn254_point_g1_t const * x, fd_bn254_point_g1_t const *
 /* Multiply a point by an integer */
 void fd_bn254_g1_mult( fd_bn254_point_g1_t const * x, fd_bn254_bigint_t const * y, fd_bn254_point_g1_t * z );
 
+/* Return true if the points are a pairing */
+int fd_bn254_pairing( fd_bn254_point_g1_t const * x, fd_bn254_point_g2_t const * y );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_ballet_bn254_fd_bn254_h */
