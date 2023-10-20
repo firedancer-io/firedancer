@@ -309,7 +309,8 @@ fd_runtime_block_execute( fd_exec_slot_ctx_t * slot_ctx,
 
   // TODO: move all these out to a fd_sysvar_update() call...
   fd_sysvar_clock_update( slot_ctx );
-  fd_sysvar_fees_update( slot_ctx );
+  if( !FD_FEATURE_ACTIVE( slot_ctx, disable_fees_sysvar ) )
+    fd_sysvar_fees_update( slot_ctx );
   // It has to go into the current txn previous info but is not in slot 0
   if (slot_ctx->bank.slot != 0)
     fd_sysvar_slot_hashes_update( slot_ctx );
@@ -360,7 +361,7 @@ fd_runtime_block_execute( fd_exec_slot_ctx_t * slot_ctx,
           int err = fd_acc_mgr_view(slot_ctx->acc_mgr, slot_ctx->funk_txn, &txn_accs[i], accs_rec);
 #ifndef USER_jsiegel
           if( FD_UNLIKELY( err ==FD_ACC_MGR_SUCCESS ) )
-            FD_LOG_DEBUG(("ACCT FOR TXN: %lu - %32J, lamps: %lu, slot: %lu, rent_epoch: %lu, owner: %32J", i, &txn_accs[i], 
+            FD_LOG_DEBUG(("ACCT FOR TXN: %lu - %32J, lamps: %lu, slot: %lu, rent_epoch: %lu, owner: %32J", i, &txn_accs[i],
               accs_rec->const_meta->info.lamports,
               accs_rec->const_meta->slot,
               accs_rec->const_meta->info.rent_epoch,
@@ -819,7 +820,7 @@ fd_runtime_calculate_fee( fd_exec_txn_ctx_t * txn_ctx, fd_txn_t * txn_descriptor
   for ( ushort i = 0; i < txn_descriptor->instr_cnt; ++i ) {
     fd_txn_instr_t *  txn_instr = &txn_descriptor->instr[i];
     fd_pubkey_t * program_id = &txn_ctx->accounts[txn_instr->program_id];
-    if (memcmp(program_id->uc, fd_solana_keccak_secp_256k_program_id.key, sizeof(fd_pubkey_t)) == 0 || 
+    if (memcmp(program_id->uc, fd_solana_keccak_secp_256k_program_id.key, sizeof(fd_pubkey_t)) == 0 ||
         memcmp(program_id->uc, fd_solana_ed25519_sig_verify_program_id.key, sizeof(fd_pubkey_t)) == 0) {
       if (txn_instr->data_sz == 0) {
         continue;
@@ -1251,7 +1252,8 @@ fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx ) {
 
   fd_sysvar_recent_hashes_update ( slot_ctx );
 
-  fd_sysvar_fees_update( slot_ctx );
+  if( !FD_FEATURE_ACTIVE( slot_ctx, disable_fees_sysvar ) )
+    fd_sysvar_fees_update( slot_ctx );
 
   if (slot_ctx->bank.collected_fees > 0) {
     // Look at collect_fees... I think this was where I saw the fee payout..

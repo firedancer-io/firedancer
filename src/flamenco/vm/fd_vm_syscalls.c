@@ -67,7 +67,7 @@ fd_vm_register_syscall( fd_sbpf_syscalls_t *     syscalls,
 }
 
 static uint
-is_signer( fd_pubkey_t const * account, 
+is_signer( fd_pubkey_t const * account,
            fd_pubkey_t const * signers,
            ulong signers_cnt ) {
   for (ulong i = 0; i < signers_cnt; i++) {
@@ -81,7 +81,7 @@ is_signer( fd_pubkey_t const * account,
 static ulong
 fd_vm_prepare_instruction(
   fd_instr_info_t const * caller_instr,
-  fd_instr_info_t * callee_instr, 
+  fd_instr_info_t * callee_instr,
   fd_exec_instr_ctx_t * instr_ctx,
   fd_instruction_account_t instruction_accounts[256],
   ulong * instruction_accounts_cnt,
@@ -150,7 +150,7 @@ fd_vm_prepare_instruction(
     fd_instruction_account_t * instruction_account = &deduplicated_instruction_accounts[i];
     fd_borrowed_account_t borrowed_account;
     borrowed_account.pubkey = &caller_instr->acct_pubkeys[instruction_account->index_in_caller];
-    
+
     if ( FD_UNLIKELY( instruction_account->is_writable && !fd_instr_acc_is_writable(instr_ctx->instr, borrowed_account.pubkey) ) ) {
       return 1;
     }
@@ -211,12 +211,16 @@ fd_vm_syscall_register_base( fd_sbpf_syscalls_t * syscalls ) {
 
   fd_vm_register_syscall( syscalls, "sol_get_clock_sysvar",          fd_vm_syscall_sol_get_clock_sysvar          );
   fd_vm_register_syscall( syscalls, "sol_get_epoch_schedule_sysvar", fd_vm_syscall_sol_get_epoch_schedule_sysvar );
-  fd_vm_register_syscall( syscalls, "sol_get_fees_sysvar",           fd_vm_syscall_sol_get_fees_sysvar           );
   fd_vm_register_syscall( syscalls, "sol_get_rent_sysvar",           fd_vm_syscall_sol_get_rent_sysvar           );
 
   fd_vm_register_syscall( syscalls, "sol_create_program_address",            fd_vm_syscall_sol_create_program_address            );
   fd_vm_register_syscall( syscalls, "sol_try_find_program_address",          fd_vm_syscall_sol_try_find_program_address          );
   fd_vm_register_syscall( syscalls, "sol_get_processed_sibling_instruction", fd_vm_syscall_sol_get_processed_sibling_instruction );
+}
+
+static void
+fd_vm_syscall_register_fees_sysvar( fd_sbpf_syscalls_t * syscalls ) {
+  fd_vm_register_syscall( syscalls, "sol_get_fees_sysvar", fd_vm_syscall_sol_get_fees_sysvar );
 }
 
 static void
@@ -240,6 +244,8 @@ void
 fd_vm_syscall_register_ctx( fd_sbpf_syscalls_t *       syscalls,
                             fd_exec_slot_ctx_t const * slot_ctx ) {
   fd_vm_syscall_register_base( syscalls );
+  if( !FD_FEATURE_ACTIVE( slot_ctx, disable_fees_sysvar ) )
+    fd_vm_syscall_register_fees_sysvar( syscalls );
   if( FD_FEATURE_ACTIVE( slot_ctx, secp256k1_recover_syscall_enabled ) )
     fd_vm_syscall_register_secp256k1( syscalls );
   if( FD_FEATURE_ACTIVE( slot_ctx, blake3_syscall_enabled ) )
@@ -250,10 +256,11 @@ fd_vm_syscall_register_ctx( fd_sbpf_syscalls_t *       syscalls,
 
 void
 fd_vm_syscall_register_all( fd_sbpf_syscalls_t * syscalls ) {
-  fd_vm_syscall_register_base      ( syscalls );
-  fd_vm_syscall_register_blake3    ( syscalls );
-  fd_vm_syscall_register_secp256k1 ( syscalls );
-  fd_vm_syscall_register_curve25519( syscalls );
+  fd_vm_syscall_register_base       ( syscalls );
+  fd_vm_syscall_register_fees_sysvar( syscalls );
+  fd_vm_syscall_register_blake3     ( syscalls );
+  fd_vm_syscall_register_secp256k1  ( syscalls );
+  fd_vm_syscall_register_curve25519 ( syscalls );
 }
 
 ulong
@@ -369,7 +376,7 @@ fd_vm_syscall_sol_keccak256(
     return FD_VM_SYSCALL_ERR_INVAL;
 
   ulong err = fd_vm_consume_compute_meter(ctx, vm_compute_budget.sha256_base_cost);
-  if ( FD_UNLIKELY( err ) ) return err; 
+  if ( FD_UNLIKELY( err ) ) return err;
   ulong slices_sz = slices_cnt * sizeof(fd_vm_vec_t);
 
   fd_vm_vec_t const * slices =
@@ -1237,10 +1244,10 @@ fd_vm_cpi_update_caller_account( fd_vm_exec_context_t * ctx,
   } else {
     fd_memset( caller_acc_owner, 0, sizeof(fd_pubkey_t) );
   }
-  
+
   // TODO: deal with all functionality in update_caller_account
   if (data_len == 0) {
-   fd_memset(caller_acc_data, 0, caller_acc_data_box->len); 
+   fd_memset(caller_acc_data, 0, caller_acc_data_box->len);
   }
   if( caller_acc_data_box->len != data_len ) {
     FD_LOG_WARNING(( "account size mismatch while updating CPI caller account - key: %32J, caller: %lu, callee: %lu", callee_acc_pubkey, caller_acc_data_box->len, data_len ));
@@ -1255,7 +1262,7 @@ fd_vm_cpi_update_caller_account( fd_vm_exec_context_t * ctx,
     *caller_len = data_len;
     // TODO return instruction error account data size too small.
   }
-  
+
   fd_memcpy( caller_acc_data, callee_acc_rec->const_data, data_len );
 
   return 0;
@@ -1293,7 +1300,7 @@ fd_vm_cpi_update_callee_account( fd_vm_exec_context_t * ctx,
     fd_memcpy( callee_acc_data, caller_account->serialized_data, callee_acc_metadata->dlen );
   }
 
-  if (!is_disable_cpi_setting_executable_and_rent_epoch_active && 
+  if (!is_disable_cpi_setting_executable_and_rent_epoch_active &&
       fd_account_is_executable(&ctx->instr_ctx, callee_acc_metadata, NULL) != caller_account->executable) {
     fd_pubkey_t const * program_acc = &ctx->instr_ctx.instr->acct_pubkeys[ctx->instr_ctx.instr->program_id];
     fd_account_set_executable(&ctx->instr_ctx, program_acc, callee_acc_metadata, (char)caller_account->executable);
@@ -1324,7 +1331,7 @@ static bool is_precompile(const uchar * program_id) {
 }
 
 static ulong check_authorized_program(const uchar * program_id, fd_exec_slot_ctx_t * slot_ctx, uchar const * instruction_data, ulong instruction_data_len) {
-  return ( check_id(program_id, fd_solana_native_loader_id.key) || 
+  return ( check_id(program_id, fd_solana_native_loader_id.key) ||
        check_id(program_id, fd_solana_bpf_loader_program_id.key) ||
        check_id(program_id, fd_solana_bpf_loader_deprecated_program_id.key) ||
        (check_id(program_id, fd_solana_bpf_loader_upgradeable_program_id.key) &&
@@ -1333,7 +1340,7 @@ static ulong check_authorized_program(const uchar * program_id, fd_exec_slot_ctx
        (FD_FEATURE_ACTIVE(slot_ctx, enable_bpf_loader_set_authority_checked_ix) && (instruction_data_len != 0 && instruction_data[0] == 4))
        || (instruction_data_len != 0 && instruction_data[0] == 5)))
        || is_precompile(program_id));
-       
+
 }
 
 static ulong
@@ -1390,7 +1397,7 @@ from_account_info(
   return 0;
 }
 
-static ulong 
+static ulong
 translate_and_update_accounts(
     fd_vm_exec_context_t * ctx,
     fd_instruction_account_t * instruction_accounts,
@@ -1410,7 +1417,7 @@ translate_and_update_accounts(
     fd_pubkey_t const * callee_account = &ctx->instr_ctx.instr->acct_pubkeys[instruction_accounts[i].index_in_caller];
     fd_pubkey_t const * account_key = &ctx->instr_ctx.txn_ctx->accounts[instruction_accounts[i].index_in_transaction];
     fd_account_meta_t const * acc_meta = (fd_account_meta_t const *)fd_acc_mgr_view_raw(ctx->instr_ctx.acc_mgr, ctx->instr_ctx.funk_txn, callee_account, NULL, NULL);
-    
+
     if (acc_meta && fd_account_is_executable(&ctx->instr_ctx, acc_meta, NULL)) {
       FD_LOG_WARNING(("CPI Acc data len %lu", acc_meta->dlen));
       ulong err = fd_vm_consume_compute_meter( ctx, acc_meta->dlen / vm_compute_budget.cpi_bytes_per_unit );
@@ -1560,7 +1567,7 @@ fd_vm_syscall_cpi_rust(
   if( instr_exec_res != 0) {
     return FD_VM_SYSCALL_ERR_INSTR_ERR;
   }
-  
+
   for( ulong i = 0; i < update_len; i++ ) {
     fd_pubkey_t const * callee = &ctx->instr_ctx.instr->acct_pubkeys[callee_account_keys[i]];
     res = fd_vm_cpi_update_caller_account(ctx, &acc_infos[caller_accounts_to_update[i]], callee);
