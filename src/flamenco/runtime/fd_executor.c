@@ -6,6 +6,8 @@
 #include "../../util/rng/fd_rng.h"
 #include "../nanopb/pb_encode.h"
 #include "../trace/fd_txntrace.h"
+#include "fd_system_ids.h"
+#include "program/fd_address_lookup_table_program.h"
 #include "program/fd_bpf_deprecated_loader_program.h"
 #include "program/fd_bpf_loader_program.h"
 #include "program/fd_bpf_loader_v4_program.h"
@@ -52,6 +54,8 @@ fd_executor_lookup_native_program( fd_pubkey_t const * pubkey ) {
     return fd_executor_compute_budget_program_execute_instruction_nop;
   } else if( !memcmp( pubkey, fd_solana_bpf_loader_v4_program_id.key, sizeof(fd_pubkey_t) ) ) {
     return fd_executor_bpf_loader_v4_program_execute_instruction;
+  } else if( !memcmp( pubkey, fd_solana_address_lookup_table_program_id.key, sizeof(fd_pubkey_t) ) ) {
+    return fd_executor_address_lookup_table_program_execute_instruction;
   } else {
     return NULL; /* FIXME */
   }

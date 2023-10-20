@@ -1,0 +1,13 @@
+#ifndef HEADER_fd_src_flamenco_runtime_program_fd_address_lookup_table_program_h
+#define HEADER_fd_src_flamenco_runtime_program_fd_address_lookup_table_program_h
+
+#include "../context/fd_exec_instr_ctx.h"
+
+FD_PROTOTYPES_BEGIN
+
+int
+fd_executor_address_lookup_table_program_execute_instruction( fd_exec_instr_ctx_t ctx );
+
+FD_PROTOTYPES_END
+
+#endif /* HEADER_fd_src_flamenco_runtime_program_fd_address_lookup_table_program_h */
