@@ -25,6 +25,7 @@ struct fd_exec_txn_ctx {
   ulong                 compute_unit_price;              /* Compute unit price for this transaction. */
   ulong                 heap_size;                       /* Heap size for VMs for this transaction. */
   ulong                 loaded_accounts_data_size_limit; /* Loaded accounts data size limit for this transaction. */
+  ulong                 loaded_accounts_data_size_meter; /* Remaining accounts data size left */
   uint                  prioritization_fee_type;         /* The type of prioritization fee to use. */
   fd_txn_t *            txn_descriptor;                  /* Descriptor of the transaction. */
   fd_rawtxn_b_t const * _txn_raw;                        /* Raw bytes of the transaction. */

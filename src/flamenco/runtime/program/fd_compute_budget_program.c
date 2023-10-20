@@ -108,6 +108,10 @@ int fd_executor_compute_budget_program_execute_instructions( fd_exec_txn_ctx_t *
         break;
       }
       case fd_compute_budget_program_instruction_enum_set_loaded_accounts_data_size_limit: {
+          if ( FD_FEATURE_ACTIVE( ctx->slot_ctx, add_set_tx_loaded_accounts_data_size_instruction ) ) {
+            return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+          }
+
           if( has_loaded_accounts_data_size_limit_update ) {
             /* FIXME: RETURN TXN ERR DUPLICATE TXN! */
             return 1;
@@ -154,7 +158,9 @@ int fd_executor_compute_budget_program_execute_instructions( fd_exec_txn_ctx_t *
   }
 
   if ( has_loaded_accounts_data_size_limit_update ) {
-    ctx->loaded_accounts_data_size_limit = fd_ulong_min(MAX_LOADED_ACCOUNTS_DATA_SIZE_BYTES, updated_loaded_accounts_data_size_limit);
+    ulong data_sz_set = fd_ulong_min(MAX_LOADED_ACCOUNTS_DATA_SIZE_BYTES, updated_loaded_accounts_data_size_limit);
+    ctx->loaded_accounts_data_size_limit = data_sz_set;
+    ctx->loaded_accounts_data_size_meter = data_sz_set;
   } 
 
   /* TODO use this? */
