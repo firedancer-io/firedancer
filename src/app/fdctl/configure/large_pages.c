@@ -48,39 +48,18 @@ try_defragment_memory( void ) {
 
 void
 expected_pages( config_t * const config, uint out[2] ) {
-  uint num_tiles = 0;
-
-  for( ulong i=0; i<config->shmem.workspaces_cnt; i++ ) {
-    switch( config->shmem.workspaces[ i ].kind ) {
-      case wksp_netmux_inout:
-      case wksp_quic_verify:
-      case wksp_verify_dedup:
-      case wksp_dedup_pack:
-      case wksp_pack_bank:
-      case wksp_bank_shred:
-      case wksp_shred_store:
-        break;
-      case wksp_net:
-      case wksp_netmux:
-      case wksp_quic:
-      case wksp_verify:
-      case wksp_dedup:
-      case wksp_pack:
-      case wksp_bank:
-      case wksp_shred:
-      case wksp_store:
-        num_tiles++;
-        break;
-    }
-
-    switch( config->shmem.workspaces[ i ].page_size ) {
-      case FD_SHMEM_GIGANTIC_PAGE_SZ:
-        out[ 1 ] += (uint)config->shmem.workspaces[ i ].num_pages;
-        break;
+  fd_topo_fill( &config->topo, FD_TOPO_FILL_MODE_FOOTPRINT );
+  for( ulong i=0; i<config->topo.wksp_cnt; i++ ) {
+    fd_topo_wksp_t * wksp = &config->topo.workspaces[ i ];
+    switch( wksp->page_sz ) {
       case FD_SHMEM_HUGE_PAGE_SZ:
-        out[ 0 ] += (uint)config->shmem.workspaces[ i ].num_pages;
+        out[ 0 ] += (uint)wksp->page_cnt;
+        break;
+      case FD_SHMEM_GIGANTIC_PAGE_SZ:
+        out[ 1 ] += (uint)wksp->page_cnt;
         break;
       default:
+        FD_LOG_ERR(( "invalid page size %lu", wksp->page_sz ));
         break;
     }
   }
@@ -88,7 +67,7 @@ expected_pages( config_t * const config, uint out[2] ) {
   /* each tile has 6 huge pages for its stack, and then the main solana
      labs thread, and the pid namespace parent thread also have 6 huge
      pages each for the stack */
-  out[ 0 ] += ( num_tiles + 2 ) * 6;
+  out[ 0 ] += ( (uint)config->topo.tile_cnt + 2 ) * 6;
 }
 
 static const char * ERR_MSG = "please confirm your host is configured for gigantic pages,";

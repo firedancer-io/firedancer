@@ -231,37 +231,37 @@ fd_shmem_join( char const *               name,
   return join;
 }
 
-void
+int
 fd_shmem_leave( void *                    join,
                 fd_shmem_joinleave_func_t leave_func,
                 void *                    context ) {
-  if( FD_UNLIKELY( !join ) ) { FD_LOG_WARNING(( "NULL join" )); return; }
+  if( FD_UNLIKELY( !join ) ) { FD_LOG_WARNING(( "NULL join" )); return 1; }
 
   FD_SHMEM_LOCK;
 
   if( FD_UNLIKELY( !fd_shmem_private_map_cnt ) ) {
     FD_SHMEM_UNLOCK;
     FD_LOG_WARNING(( "join is not a current join" ));
-    return;
+    return 1;
   }
   fd_shmem_join_info_t * join_info = fd_shmem_private_map_query_by_join( fd_shmem_private_map, join, NULL );
   if( FD_UNLIKELY( !join_info ) ) {
     FD_SHMEM_UNLOCK;
     FD_LOG_WARNING(( "join is not a current join" ));
-    return;
+    return 1;
   }
 
   long ref_cnt = join_info->ref_cnt;
   if( join_info->ref_cnt>1L ) {
     join_info->ref_cnt = ref_cnt-1L;
     FD_SHMEM_UNLOCK;
-    return;
+    return 0;
   }
 
   if( join_info->ref_cnt==-1L ) {
     FD_SHMEM_UNLOCK;
     FD_LOG_WARNING(( "join/leave circular dependency detected for %s", join_info->name ));
-    return;
+    return 1;
   }
 
   if( FD_UNLIKELY( join_info->ref_cnt!=1L ) ) /* Should be impossible */
@@ -277,14 +277,18 @@ fd_shmem_leave( void *                    join,
     leave_func( context, join_info );
   }
 
+  int error = 0;
   ulong sz = page_sz*page_cnt;
-  if( FD_UNLIKELY( munmap( shmem, sz ) ) )
+  if( FD_UNLIKELY( munmap( shmem, sz ) ) ) {
     FD_LOG_WARNING(( "munmap(\"%s\",%lu KiB) failed (%i-%s); attempting to continue",
                      name, sz>>10, errno, fd_io_strerror( errno ) ));
+    error = 1;
+  }
 
   fd_shmem_private_map_remove( fd_shmem_private_map, join_info );
   fd_shmem_private_map_cnt--;
   FD_SHMEM_UNLOCK;
+  return error;
 }
 
 int

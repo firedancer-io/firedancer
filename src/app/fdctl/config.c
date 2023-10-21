@@ -3,6 +3,7 @@
 #include "run/run.h"
 
 #include "../../util/net/fd_eth.h"
+#include "../../util/net/fd_ip4.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -14,100 +15,6 @@
 #include <arpa/inet.h>
 
 FD_IMPORT_CSTR( default_config, "src/app/fdctl/config/default.toml" );
-
-FD_FN_CONST char *
-workspace_kind_str( workspace_kind_t kind ) {
-  switch( kind ) {
-    case wksp_netmux_inout: return "netmux_inout";
-    case wksp_quic_verify:  return "quic_verify";
-    case wksp_verify_dedup: return "verify_dedup";
-    case wksp_dedup_pack:   return "dedup_pack";
-    case wksp_pack_bank:    return "pack_bank";
-    case wksp_bank_shred:   return "bank_shred";
-    case wksp_shred_store:  return "shred_store";
-    case wksp_net:          return "net";
-    case wksp_netmux:       return "netmux";
-    case wksp_quic:         return "quic";
-    case wksp_verify:       return "verify";
-    case wksp_dedup:        return "dedup";
-    case wksp_pack:         return "pack";
-    case wksp_bank:         return "bank";
-    case wksp_shred:        return "shred";
-    case wksp_store:        return "store";
-  }
-  return NULL;
-}
-
-static workspace_config_t *
-find_wksp( config_t * const config,
-           workspace_kind_t kind ) {
-  for( ulong i=0; i<config->shmem.workspaces_cnt; i++ ) {
-    workspace_config_t * wksp = &config->shmem.workspaces[ i ];
-    if( FD_UNLIKELY( kind == wksp->kind  ) ) return wksp;
-  }
-  FD_LOG_ERR(( "no workspace with kind `%s` found", workspace_kind_str( kind ) ));
-}
-
-ulong
-memlock_max_bytes( config_t * const config ) {
-  ulong memlock_max_bytes = 0;
-  for( ulong j=0; j<config->shmem.workspaces_cnt; j++ ) {
-    workspace_config_t * wksp = &config->shmem.workspaces[ j ];
-
-#define TILE_MAX( tile ) do {                                   \
-    ulong used_bytes = 0;                                       \
-    for( ulong i=0; i<tile.allow_workspaces_cnt; i++ ) {        \
-      workspace_kind_t kind = tile.allow_workspaces[ i ];       \
-      workspace_config_t * in_wksp = find_wksp( config, kind ); \
-      used_bytes += in_wksp->num_pages * in_wksp->page_size;    \
-    }                                                           \
-    memlock_max_bytes = fd_ulong_max( memlock_max_bytes,        \
-                                      used_bytes );             \
-  } while(0)
-
-    switch ( wksp->kind ) {
-      case wksp_netmux_inout:
-      case wksp_quic_verify:
-      case wksp_verify_dedup:
-      case wksp_dedup_pack:
-      case wksp_pack_bank:
-      case wksp_bank_shred:
-      case wksp_shred_store:
-        break;
-      case wksp_net:
-        TILE_MAX( net );
-        break;
-      case wksp_netmux:
-        TILE_MAX( netmux );
-        break;
-      case wksp_quic:
-        TILE_MAX( quic );
-        break;
-      case wksp_verify:
-        TILE_MAX( verify );
-        break;
-      case wksp_dedup:
-        TILE_MAX( dedup );
-        break;
-      case wksp_pack:
-        TILE_MAX( pack );
-        break;
-      case wksp_bank:
-        TILE_MAX( bank );
-        break;
-      case wksp_shred:
-        TILE_MAX( shred );
-        break;
-      case wksp_store:
-        TILE_MAX( shred );
-        break;
-    }
-  }
-
-  /* each process only has one thread, so there's only one set of stack pages mlocked */
-  ulong stack_pages = (FD_TILE_PRIVATE_STACK_SZ/FD_SHMEM_HUGE_PAGE_SZ)+2UL;
-  return memlock_max_bytes + FD_SHMEM_HUGE_PAGE_SZ * stack_pages;
-}
 
 static char *
 default_user( void ) {
@@ -317,6 +224,7 @@ static int parse_key_value( config_t *   config,
   ENTRY_USHORT( ., tiles.shred,         shred_listen_port                                         );
 
   ENTRY_BOOL  ( ., development,         sandbox                                                   );
+  ENTRY_BOOL  ( ., development,         no_solana_labs                                            );
 
   ENTRY_BOOL  ( ., development.netns,   enabled                                                   );
   ENTRY_STR   ( ., development.netns,   interface0                                                );
@@ -516,109 +424,6 @@ mac_address( const char * interface,
   fd_memcpy( mac, ifr.ifr_hwaddr.sa_data, 6 );
 }
 
-static void
-init_workspaces( config_t * config ) {
-  ulong idx = 0;
-
-  config->shmem.workspaces[ idx ].kind      = wksp_netmux_inout;
-  config->shmem.workspaces[ idx ].name      = "netmux_inout";
-  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
-  config->shmem.workspaces[ idx ].num_pages = 1;
-  idx++;
-
-  config->shmem.workspaces[ idx ].kind      = wksp_quic_verify;
-  config->shmem.workspaces[ idx ].name      = "quic_verify";
-  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
-  config->shmem.workspaces[ idx ].num_pages = 1;
-  idx++;
-
-  config->shmem.workspaces[ idx ].kind      = wksp_verify_dedup;
-  config->shmem.workspaces[ idx ].name      = "verify_dedup";
-  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
-  config->shmem.workspaces[ idx ].num_pages = 1;
-  idx++;
-
-  config->shmem.workspaces[ idx ].kind      = wksp_dedup_pack;
-  config->shmem.workspaces[ idx ].name      = "dedup_pack";
-  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
-  config->shmem.workspaces[ idx ].num_pages = 2;
-  idx++;
-
-  config->shmem.workspaces[ idx ].kind      = wksp_pack_bank;
-  config->shmem.workspaces[ idx ].name      = "pack_bank";
-  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
-  config->shmem.workspaces[ idx ].num_pages = 1;
-  idx++;
-
-  config->shmem.workspaces[ idx ].kind      = wksp_bank_shred;
-  config->shmem.workspaces[ idx ].name      = "bank_shred";
-  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
-  config->shmem.workspaces[ idx ].num_pages = 1;
-  idx++;
-
-  config->shmem.workspaces[ idx ].kind      = wksp_shred_store;
-  config->shmem.workspaces[ idx ].name      = "shred_store";
-  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
-  config->shmem.workspaces[ idx ].num_pages = 3;
-  idx++;
-
-  config->shmem.workspaces[ idx ].kind      = wksp_net;
-  config->shmem.workspaces[ idx ].name      = "net";
-  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
-  config->shmem.workspaces[ idx ].num_pages = 1;
-  idx++;
-
-  config->shmem.workspaces[ idx ].kind      = wksp_netmux;
-  config->shmem.workspaces[ idx ].name      = "netmux";
-  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_HUGE_PAGE_SZ;
-  config->shmem.workspaces[ idx ].num_pages = 1;
-  idx++;
-
-  config->shmem.workspaces[ idx ].kind      = wksp_quic;
-  config->shmem.workspaces[ idx ].name      = "quic";
-  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
-  config->shmem.workspaces[ idx ].num_pages = 1;
-  idx++;
-
-  config->shmem.workspaces[ idx ].kind      = wksp_verify;
-  config->shmem.workspaces[ idx ].name      = "verify";
-  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_HUGE_PAGE_SZ;
-  config->shmem.workspaces[ idx ].num_pages = 1;
-  idx++;
-
-  config->shmem.workspaces[ idx ].kind      = wksp_dedup;
-  config->shmem.workspaces[ idx ].name      = "dedup";
-  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
-  config->shmem.workspaces[ idx ].num_pages = 1;
-  idx++;
-
-  config->shmem.workspaces[ idx ].kind      = wksp_pack;
-  config->shmem.workspaces[ idx ].name      = "pack";
-  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
-  config->shmem.workspaces[ idx ].num_pages = 1;
-  idx++;
-
-  config->shmem.workspaces[ idx ].kind      = wksp_bank;
-  config->shmem.workspaces[ idx ].name      = "bank";
-  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_HUGE_PAGE_SZ;
-  config->shmem.workspaces[ idx ].num_pages = 1;
-  idx++;
-
-  config->shmem.workspaces[ idx ].kind      = wksp_shred;
-  config->shmem.workspaces[ idx ].name      = "shred";
-  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
-  config->shmem.workspaces[ idx ].num_pages = 3;
-  idx++;
-
-  config->shmem.workspaces[ idx ].kind      = wksp_store;
-  config->shmem.workspaces[ idx ].name      = "store";
-  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_HUGE_PAGE_SZ;
-  config->shmem.workspaces[ idx ].num_pages = 1;
-  idx++;
-
-  config->shmem.workspaces_cnt = idx;
-}
-
 static uint
 username_to_uid( char * username ) {
   FILE * fp = fopen( "/etc/passwd", "rb" );
@@ -643,6 +448,138 @@ username_to_uid( char * username ) {
   }
 
   FD_LOG_ERR(( "configuration file wants firedancer to run as user `%s` but it does not exist", username ));
+}
+
+/* topo_initialize initializes the provided topology structure from the
+   user configuration.  This should be called exactly once immediately
+   after Firedancer is booted. */
+static void
+topo_initialize( config_t * config ) {
+  fd_topo_t * topo = &config->topo;
+
+  /* Static configuration of all workspaces in the topology.  Workspace
+     sizing will be determined dynamically at runtime based on how much
+     space will be allocated from it. */
+  ulong wksp_cnt = 0;
+
+  topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_NETMUX_INOUT }; wksp_cnt++;
+  topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_QUIC_VERIFY  }; wksp_cnt++;
+  topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_VERIFY_DEDUP }; wksp_cnt++;
+  topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_DEDUP_PACK   }; wksp_cnt++;
+  topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_PACK_BANK    }; wksp_cnt++;
+  topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_BANK_SHRED   }; wksp_cnt++;
+  topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_SHRED_STORE  }; wksp_cnt++;
+
+  topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_NET    }; wksp_cnt++;
+  topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_NETMUX }; wksp_cnt++;
+  topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_QUIC   }; wksp_cnt++;
+  topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_VERIFY }; wksp_cnt++;
+  topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_DEDUP  }; wksp_cnt++;
+  topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_PACK   }; wksp_cnt++;
+  topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_BANK   }; wksp_cnt++;
+  topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_SHRED  }; wksp_cnt++;
+  topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_STORE  }; wksp_cnt++;
+
+  topo->wksp_cnt = wksp_cnt;
+
+  /* Static listing of all links in the topology. */
+  ulong link_cnt = 0;
+
+#define LINK( cnt, kind1, wksp, depth1, mtu1, burst1 ) do {                                   \
+    for( ulong i=0; i<cnt; i++ ) {                                                            \
+      topo->links[ link_cnt ] = (fd_topo_link_t){ .id      = link_cnt,                        \
+                                                  .kind    = kind1,                           \
+                                                  .kind_id = i,                               \
+                                                  .wksp_id = fd_topo_find_wksp( topo, wksp ), \
+                                                  .depth   = depth1,                          \
+                                                  .mtu     = mtu1,                            \
+                                                  .burst   = burst1 };                        \
+      link_cnt++;                                                                             \
+    }                                                                                         \
+  } while(0)
+
+  LINK( config->layout.net_tile_count,    FD_TOPO_LINK_KIND_NET_TO_NETMUX,   FD_TOPO_WKSP_KIND_NETMUX_INOUT, config->tiles.net.send_buffer_size,       FD_NET_MTU,             1UL );
+  LINK( 1,                                FD_TOPO_LINK_KIND_NETMUX_TO_OUT,   FD_TOPO_WKSP_KIND_NETMUX_INOUT, config->tiles.net.send_buffer_size,       0,                      1UL );
+  LINK( config->layout.verify_tile_count, FD_TOPO_LINK_KIND_QUIC_TO_NETMUX,  FD_TOPO_WKSP_KIND_NETMUX_INOUT, config->tiles.net.send_buffer_size,       FD_NET_MTU,             1UL );
+  LINK( 1,                                FD_TOPO_LINK_KIND_SHRED_TO_NETMUX, FD_TOPO_WKSP_KIND_NETMUX_INOUT, config->tiles.net.send_buffer_size,       FD_NET_MTU,             1UL );
+  LINK( config->layout.verify_tile_count, FD_TOPO_LINK_KIND_QUIC_TO_VERIFY,  FD_TOPO_WKSP_KIND_QUIC_VERIFY,  config->tiles.verify.receive_buffer_size, FD_TPU_DCACHE_MTU,      1UL );
+  LINK( config->layout.verify_tile_count, FD_TOPO_LINK_KIND_VERIFY_TO_DEDUP, FD_TOPO_WKSP_KIND_VERIFY_DEDUP, config->tiles.verify.receive_buffer_size, FD_TPU_DCACHE_MTU,      1UL );
+  LINK( 1,                                FD_TOPO_LINK_KIND_DEDUP_TO_PACK,   FD_TOPO_WKSP_KIND_DEDUP_PACK,   config->tiles.verify.receive_buffer_size, FD_TPU_DCACHE_MTU,      1UL );
+  /* FD_TOPO_LINK_KIND_GOSSIP_TO_PACK could be FD_TPU_MTU for now, since txns are not parsed, but better to just share one size for all the ins of pack */
+  LINK( 1,                                FD_TOPO_LINK_KIND_GOSSIP_TO_PACK,  FD_TOPO_WKSP_KIND_DEDUP_PACK,   config->tiles.verify.receive_buffer_size, FD_TPU_DCACHE_MTU,      1UL );
+  LINK( 1,                                FD_TOPO_LINK_KIND_LSCHED_TO_PACK,  FD_TOPO_WKSP_KIND_DEDUP_PACK,   128UL,                                    16UL + 432000UL * 32UL, 1UL );
+  LINK( 1,                                FD_TOPO_LINK_KIND_PACK_TO_BANK,    FD_TOPO_WKSP_KIND_PACK_BANK,    128UL,                                    USHORT_MAX,             1UL );
+  LINK( 1,                                FD_TOPO_LINK_KIND_POH_TO_SHRED,    FD_TOPO_WKSP_KIND_BANK_SHRED,   128UL,                                    USHORT_MAX,             1UL );
+  /* See long comment in fd_shred_tile.c for an explanation about the size of this dcache. */
+  LINK( 1,                                FD_TOPO_LINK_KIND_SHRED_TO_STORE,  FD_TOPO_WKSP_KIND_SHRED_STORE,  128UL,                                    4UL*FD_SHRED_STORE_MTU, 4UL+config->tiles.shred.max_pending_shred_sets );
+
+  topo->link_cnt = link_cnt;
+
+  ulong tile_cnt = 0UL;
+
+#define TILE( cnt, kind1, wksp, out_link_id_primary1 ) do {                                               \
+    for( ulong i=0; i<cnt; i++ ) {                                                                        \
+      topo->tiles[ tile_cnt ] = (fd_topo_tile_t){ .id                  = tile_cnt,                        \
+                                                  .kind                = kind1,                           \
+                                                  .kind_id             = i,                               \
+                                                  .wksp_id             = fd_topo_find_wksp( topo, wksp ), \
+                                                  .in_cnt              = 0,                               \
+                                                  .out_link_id_primary = out_link_id_primary1,            \
+                                                  .out_cnt             = 0 };                             \
+      tile_cnt++;                                                                                         \
+    }                                                                                                     \
+  } while(0)
+
+  TILE( config->layout.net_tile_count,    FD_TOPO_TILE_KIND_NET,    FD_TOPO_WKSP_KIND_NET,    fd_topo_find_link( topo, FD_TOPO_LINK_KIND_NET_TO_NETMUX,   i ) );
+  TILE( 1,                                FD_TOPO_TILE_KIND_NETMUX, FD_TOPO_WKSP_KIND_NETMUX, fd_topo_find_link( topo, FD_TOPO_LINK_KIND_NETMUX_TO_OUT,   i ) );
+  TILE( config->layout.verify_tile_count, FD_TOPO_TILE_KIND_QUIC,   FD_TOPO_WKSP_KIND_QUIC,   fd_topo_find_link( topo, FD_TOPO_LINK_KIND_QUIC_TO_VERIFY,  i ) );
+  TILE( config->layout.verify_tile_count, FD_TOPO_TILE_KIND_VERIFY, FD_TOPO_WKSP_KIND_VERIFY, fd_topo_find_link( topo, FD_TOPO_LINK_KIND_VERIFY_TO_DEDUP, i ) );
+  TILE( 1,                                FD_TOPO_TILE_KIND_DEDUP,  FD_TOPO_WKSP_KIND_DEDUP,  fd_topo_find_link( topo, FD_TOPO_LINK_KIND_DEDUP_TO_PACK,   i ) );
+  TILE( 1,                                FD_TOPO_TILE_KIND_PACK,   FD_TOPO_WKSP_KIND_PACK,   fd_topo_find_link( topo, FD_TOPO_LINK_KIND_PACK_TO_BANK,    i ) );
+  TILE( config->layout.bank_tile_count,   FD_TOPO_TILE_KIND_BANK,   FD_TOPO_WKSP_KIND_BANK,   ULONG_MAX                                                       );
+  TILE( 1,                                FD_TOPO_TILE_KIND_SHRED,  FD_TOPO_WKSP_KIND_SHRED,  fd_topo_find_link( topo, FD_TOPO_LINK_KIND_SHRED_TO_STORE,  i ) );
+  TILE( 1,                                FD_TOPO_TILE_KIND_STORE,  FD_TOPO_WKSP_KIND_STORE,  ULONG_MAX                                                       );
+
+  topo->tile_cnt = tile_cnt;
+
+#define TILE_IN( kind, kind_id, link, link_id, reliable ) do {                               \
+    ulong tile_id = fd_topo_find_tile( topo, kind, kind_id );                                \
+    if( FD_UNLIKELY( tile_id == ULONG_MAX ) )                                                \
+      FD_LOG_ERR(( "could not find tile %s %lu", fd_topo_tile_kind_str( kind ), kind_id ));  \
+    fd_topo_tile_t * tile = &topo->tiles[ tile_id ];                                         \
+    tile->in_link_id      [ tile->in_cnt ] = fd_topo_find_link( topo, link, link_id );       \
+    tile->in_link_reliable[ tile->in_cnt ] = reliable;                                       \
+    tile->in_cnt++;                                                                          \
+  } while(0)
+
+  /* TILE_OUT is used for specifying additional, non-primary outs for
+     the tile.  The primary output link is specified with the TILE macro
+     above and will not appear as a TILE_OUT. */
+#define TILE_OUT( kind, kind_id, link, link_id ) do {                                        \
+    ulong tile_id = fd_topo_find_tile( topo, kind, kind_id );                                \
+    if( FD_UNLIKELY( tile_id == ULONG_MAX ) )                                                \
+      FD_LOG_ERR(( "could not find tile %s %lu", fd_topo_tile_kind_str( kind ), kind_id ));  \
+    fd_topo_tile_t * tile = &topo->tiles[ tile_id ];                                         \
+    tile->out_link_id[ tile->out_cnt ] = fd_topo_find_link( topo, link, link_id );           \
+    tile->out_cnt++;                                                                         \
+  } while(0)
+
+  for( ulong i=0; i<config->layout.net_tile_count; i++ )    TILE_IN(  FD_TOPO_TILE_KIND_NET,    i,   FD_TOPO_LINK_KIND_NETMUX_TO_OUT,   0UL, 0 ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+  for( ulong i=0; i<config->layout.net_tile_count; i++ )    TILE_IN(  FD_TOPO_TILE_KIND_NETMUX, 0UL, FD_TOPO_LINK_KIND_NET_TO_NETMUX,   i,   0 ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+  for( ulong i=0; i<config->layout.verify_tile_count; i++ ) TILE_IN(  FD_TOPO_TILE_KIND_NETMUX, 0UL, FD_TOPO_LINK_KIND_QUIC_TO_NETMUX,  i,   0 ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+  /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_NETMUX, 0UL, FD_TOPO_LINK_KIND_SHRED_TO_NETMUX, 0UL, 0 ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+  for( ulong i=0; i<config->layout.verify_tile_count; i++ ) TILE_IN(  FD_TOPO_TILE_KIND_QUIC,   i,   FD_TOPO_LINK_KIND_NETMUX_TO_OUT,   0UL, 0 ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+  for( ulong i=0; i<config->layout.verify_tile_count; i++ ) TILE_OUT( FD_TOPO_TILE_KIND_QUIC,   i,   FD_TOPO_LINK_KIND_QUIC_TO_NETMUX,  i      );
+  for( ulong i=0; i<config->layout.verify_tile_count; i++ ) TILE_IN(  FD_TOPO_TILE_KIND_VERIFY, i,   FD_TOPO_LINK_KIND_QUIC_TO_VERIFY,  i,   0 ); /* No reliable consumers, verify tiles may be overrun */
+  for( ulong i=0; i<config->layout.verify_tile_count; i++ ) TILE_IN(  FD_TOPO_TILE_KIND_DEDUP,  0UL, FD_TOPO_LINK_KIND_VERIFY_TO_DEDUP, i,   1 );
+  /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_PACK,   0UL, FD_TOPO_LINK_KIND_DEDUP_TO_PACK,   0UL, 1 );
+  /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_PACK,   0UL, FD_TOPO_LINK_KIND_GOSSIP_TO_PACK,  0UL, 1 );
+  /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_PACK,   0UL, FD_TOPO_LINK_KIND_LSCHED_TO_PACK,  0UL, 1 );
+  for( ulong i=0; i<config->layout.bank_tile_count; i++ )   TILE_IN(  FD_TOPO_TILE_KIND_BANK,   i,   FD_TOPO_LINK_KIND_PACK_TO_BANK,    0UL, 1 );
+  /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_SHRED,  0UL, FD_TOPO_LINK_KIND_NETMUX_TO_OUT,   0UL, 0 ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+  /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_SHRED,  0UL, FD_TOPO_LINK_KIND_POH_TO_SHRED,    0UL, 1 );
+  /**/                                                      TILE_OUT( FD_TOPO_TILE_KIND_SHRED,  0UL, FD_TOPO_LINK_KIND_SHRED_TO_NETMUX, 0UL    );
+  /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_STORE,  0UL, FD_TOPO_LINK_KIND_SHRED_TO_STORE,  0UL, 1 );
 }
 
 static void
@@ -839,9 +776,75 @@ config_parse( int *    pargc,
                  result.tiles.quic.quic_transaction_listen_port,
                  result.tiles.quic.regular_transaction_listen_port ));
 
+  if( FD_LIKELY( !strcmp( result.consensus.identity_path, "" ) ) ) {
+    if( FD_UNLIKELY( result.is_live_cluster ) )
+      FD_LOG_ERR(( "configuration file must specify [consensus.identity_path] when joining a live cluster" ));
+
+    snprintf1( result.consensus.identity_path,
+               sizeof( result.consensus.identity_path ),
+               "%s/identity.json",
+               result.scratch_directory );
+  }
+
   validate_ports( &result );
 
-  init_workspaces( &result );
+  topo_initialize( &result );
+  fd_topo_validate( &result.topo );
+
+  for( ulong i=0; i<result.topo.tile_cnt; i++ ) {
+    fd_topo_tile_t * tile = &result.topo.tiles[ i ];
+    switch( tile->kind ) {
+      case FD_TOPO_TILE_KIND_NET:
+        strncpy( tile->net.app_name, result.name, sizeof(tile->net.app_name) );
+        strncpy( tile->net.interface, result.tiles.net.interface, sizeof(tile->net.interface) );
+        tile->net.xdp_aio_depth = result.tiles.net.xdp_aio_depth;
+        tile->net.xdp_rx_queue_size = result.tiles.net.xdp_rx_queue_size;
+        tile->net.xdp_tx_queue_size = result.tiles.net.xdp_tx_queue_size;
+        tile->net.allow_ports[ 0 ] = result.tiles.quic.regular_transaction_listen_port;
+        tile->net.allow_ports[ 1 ] = result.tiles.quic.quic_transaction_listen_port;
+        tile->net.allow_ports[ 2 ] = result.tiles.shred.shred_listen_port;
+        break;
+      case FD_TOPO_TILE_KIND_NETMUX:
+        break;
+      case FD_TOPO_TILE_KIND_QUIC:
+        tile->quic.depth = result.topo.links[ tile->out_link_id_primary ].depth;
+        tile->quic.max_concurrent_connections = result.tiles.quic.max_concurrent_connections;
+        tile->quic.max_concurrent_handshakes = result.tiles.quic.max_concurrent_handshakes;
+        tile->quic.max_inflight_quic_packets = result.tiles.quic.max_inflight_quic_packets;
+        tile->quic.tx_buf_size = result.tiles.quic.tx_buf_size;
+        tile->quic.max_concurrent_streams_per_connection = result.tiles.quic.max_concurrent_streams_per_connection;
+        tile->quic.ip_addr = result.tiles.net.ip_addr;
+        fd_memcpy( tile->quic.src_mac_addr, result.tiles.net.mac_addr, 6 );
+        tile->quic.quic_transaction_listen_port = result.tiles.quic.quic_transaction_listen_port;
+        tile->quic.legacy_transaction_listen_port = result.tiles.quic.regular_transaction_listen_port;
+        tile->quic.idle_timeout_millis = result.tiles.quic.idle_timeout_millis;
+        break;
+      case FD_TOPO_TILE_KIND_VERIFY:
+        break;
+      case FD_TOPO_TILE_KIND_DEDUP:
+        tile->dedup.tcache_depth = result.tiles.dedup.signature_cache_size;
+        break;
+      case FD_TOPO_TILE_KIND_PACK:
+        tile->pack.max_pending_transactions = result.tiles.pack.max_pending_transactions;
+        tile->pack.bank_tile_count = result.layout.bank_tile_count;
+        break;
+      case FD_TOPO_TILE_KIND_BANK:
+        break;
+      case FD_TOPO_TILE_KIND_SHRED:
+        tile->shred.depth = result.topo.links[ tile->out_link_id_primary ].depth;
+        tile->shred.ip_addr = result.tiles.net.ip_addr;
+        fd_memcpy( tile->shred.src_mac_addr, result.tiles.net.mac_addr, 6 );
+        tile->shred.fec_resolver_depth = result.tiles.shred.max_pending_shred_sets;
+        strncpy( tile->shred.identity_key_path, result.consensus.identity_path, sizeof(tile->shred.identity_key_path) );
+        tile->shred.expected_shred_version = result.consensus.expected_shred_version;
+        tile->shred.shred_listen_port = result.tiles.shred.shred_listen_port;
+        break;
+      case FD_TOPO_TILE_KIND_STORE:
+        break;
+      default:
+        FD_LOG_ERR(( "unknown tile kind %lu", tile->kind ));
+    }
+  }
 
   return result;
 }

@@ -269,10 +269,10 @@ typedef void (fd_mux_after_frag_fn)( void *             ctx,
    The ctx is a user-provided context object from when the mux tile was
    initialized. */
 
-typedef void (fd_mux_cnc_diag_write)( void *  ctx,
-                                      ulong * cnc_app );
+typedef void (fd_mux_cnc_diag_write_fn)( void *  ctx,
+                                         ulong * cnc_app );
 
-typedef void (fd_mux_cnc_diag_clear)( void * ctx );
+typedef void (fd_mux_cnc_diag_clear_fn)( void * ctx );
 
 /* fd_mux_callbacks_t will be invoked during mux tile execution, and can
    be used to alter behavior of the mux tile from the default of copying
@@ -289,8 +289,8 @@ typedef struct {
   fd_mux_during_frag_fn * during_frag;
   fd_mux_after_frag_fn  * after_frag;
 
-  fd_mux_cnc_diag_write * cnc_diag_write;
-  fd_mux_cnc_diag_clear * cnc_diag_clear;
+  fd_mux_cnc_diag_write_fn * cnc_diag_write;
+  fd_mux_cnc_diag_clear_fn * cnc_diag_clear;
 } fd_mux_callbacks_t;
 
 FD_PROTOTYPES_BEGIN
