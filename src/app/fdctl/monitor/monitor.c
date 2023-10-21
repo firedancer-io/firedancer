@@ -32,8 +32,8 @@ monitor_cmd_perm( args_t *         args,
                   config_t * const config ) {
   (void)args;
 
-  ulong limit = memlock_max_bytes( config );
-  fd_caps_check_resource( caps, "monitor", RLIMIT_MEMLOCK, limit, "increase `RLIMIT_MEMLOCK` to lock the workspace in memory with `mlock(2)`" );
+  ulong mlock_limit = fd_topo_mlock_all( &config->topo );
+  fd_caps_check_resource( caps, "monitor", RLIMIT_MEMLOCK, mlock_limit, "increase `RLIMIT_MEMLOCK` to lock the workspace in memory with `mlock(2)`" );
   if( getuid() != config->uid )
     fd_caps_check_capability( caps, "monitor", CAP_SETUID, "switch uid by calling `setuid(2)`" );
   if( getgid() != config->gid )
@@ -67,26 +67,13 @@ typedef struct {
   ulong fseq_diag_slow_cnt;
 } link_snap_t;
 
-typedef struct {
-  char const *     name;
-  fd_cnc_t *       cnc;
-} tile_t;
-
-typedef struct {
-  char const *     src_name;
-  char const *     dst_name;
-  fd_frag_meta_t * mcache;
-  ulong *          fseq;
-} link_t;
-
 static void
-tile_snap( tile_snap_t *     snap_cur,     /* Snaphot for each tile, indexed [0,tile_cnt) */
-           ulong             tile_cnt,     /* Number of tiles to snapshot */
-           tile_t *          tiles ) {     /* Joined IPC objects for each tile, indexed [0,tile_cnt) */
-  for( ulong tile_idx=0UL; tile_idx<tile_cnt; tile_idx++ ) {
+tile_snap( tile_snap_t * snap_cur,     /* Snaphot for each tile, indexed [0,tile_cnt) */
+           fd_topo_t *   topo ) {
+  for( ulong tile_idx=0UL; tile_idx<topo->tile_cnt; tile_idx++ ) {
     tile_snap_t * snap = &snap_cur[ tile_idx ];
 
-    fd_cnc_t const * cnc = tiles[ tile_idx ].cnc;
+    fd_cnc_t const * cnc = topo->tiles[ tile_idx ].cnc;
     snap->cnc_heartbeat = fd_cnc_heartbeat_query( cnc );
     snap->cnc_signal    = fd_cnc_signal_query   ( cnc );
     ulong const * cnc_diag = (ulong const *)fd_cnc_app_laddr_const( cnc );
@@ -104,29 +91,31 @@ tile_snap( tile_snap_t *     snap_cur,     /* Snaphot for each tile, indexed [0,
 
 static void
 link_snap( link_snap_t * snap_cur,
-           ulong         link_cnt,
-           link_t *      links) {
-  for( ulong link_idx=0UL; link_idx<link_cnt; link_idx++ ) {
-    link_snap_t * snap = &snap_cur[ link_idx ];
+           fd_topo_t *   topo ) {
+  ulong link_idx = 0UL;
+  for( ulong tile_idx=0UL; tile_idx<topo->tile_cnt; tile_idx++ ) {
+    for( ulong in_idx=0UL; in_idx<topo->tiles[ tile_idx ].in_cnt; in_idx++ ) {
+      link_snap_t * snap = &snap_cur[ link_idx ];
+      fd_frag_meta_t const * mcache = topo->links[ topo->tiles[ tile_idx ].in_link_id[ in_idx  ] ].mcache;
+      ulong const * seq = (ulong const *)fd_mcache_seq_laddr_const( mcache );
+      snap->mcache_seq = fd_mcache_seq_query( seq );
 
-    fd_frag_meta_t const * mcache = links[ link_idx ].mcache;
-    ulong const * seq = (ulong const *)fd_mcache_seq_laddr_const( mcache );
-    snap->mcache_seq = fd_mcache_seq_query( seq );
-
-    ulong const * fseq = links[ link_idx ].fseq;
-    snap->fseq_seq = fd_fseq_query( fseq );
-    ulong const * fseq_diag = (ulong const *)fd_fseq_app_laddr_const( fseq );
-    FD_COMPILER_MFENCE();
-    snap->fseq_diag_tot_cnt   = fseq_diag[ FD_FSEQ_DIAG_PUB_CNT   ];
-    snap->fseq_diag_tot_sz    = fseq_diag[ FD_FSEQ_DIAG_PUB_SZ    ];
-    snap->fseq_diag_filt_cnt  = fseq_diag[ FD_FSEQ_DIAG_FILT_CNT  ];
-    snap->fseq_diag_filt_sz   = fseq_diag[ FD_FSEQ_DIAG_FILT_SZ   ];
-    snap->fseq_diag_ovrnp_cnt = fseq_diag[ FD_FSEQ_DIAG_OVRNP_CNT ];
-    snap->fseq_diag_ovrnr_cnt = fseq_diag[ FD_FSEQ_DIAG_OVRNR_CNT ];
-    snap->fseq_diag_slow_cnt  = fseq_diag[ FD_FSEQ_DIAG_SLOW_CNT  ];
-    FD_COMPILER_MFENCE();
-    snap->fseq_diag_tot_cnt += snap->fseq_diag_filt_cnt;
-    snap->fseq_diag_tot_sz  += snap->fseq_diag_filt_sz;
+      ulong const * fseq = topo->tiles[ tile_idx ].in_link_fseq[ in_idx ];
+      snap->fseq_seq = fd_fseq_query( fseq );
+      ulong const * fseq_diag = (ulong const *)fd_fseq_app_laddr_const( fseq );
+      FD_COMPILER_MFENCE();
+      snap->fseq_diag_tot_cnt   = fseq_diag[ FD_FSEQ_DIAG_PUB_CNT   ];
+      snap->fseq_diag_tot_sz    = fseq_diag[ FD_FSEQ_DIAG_PUB_SZ    ];
+      snap->fseq_diag_filt_cnt  = fseq_diag[ FD_FSEQ_DIAG_FILT_CNT  ];
+      snap->fseq_diag_filt_sz   = fseq_diag[ FD_FSEQ_DIAG_FILT_SZ   ];
+      snap->fseq_diag_ovrnp_cnt = fseq_diag[ FD_FSEQ_DIAG_OVRNP_CNT ];
+      snap->fseq_diag_ovrnr_cnt = fseq_diag[ FD_FSEQ_DIAG_OVRNR_CNT ];
+      snap->fseq_diag_slow_cnt  = fseq_diag[ FD_FSEQ_DIAG_SLOW_CNT  ];
+      FD_COMPILER_MFENCE();
+      snap->fseq_diag_tot_cnt += snap->fseq_diag_filt_cnt;
+      snap->fseq_diag_tot_sz  += snap->fseq_diag_filt_sz;
+      link_idx++;
+    }
   }
 }
 
@@ -189,283 +178,31 @@ drain_to_buffer( char ** buf,
 
 void
 run_monitor( config_t * const config,
-             const uchar **   pods,
              int              drain_output_fd,
              long             dt_min,
              long             dt_max,
              long             duration,
              uint             seed,
              double           ns_per_tic ) {
-  ulong tile_cnt = 0;
-  for( ulong i=0; i<config->shmem.workspaces_cnt; i++ ) {
-    switch( config->shmem.workspaces[ i ].kind ) {
-      case wksp_netmux_inout:
-      case wksp_quic_verify:
-      case wksp_verify_dedup:
-      case wksp_dedup_pack:
-      case wksp_pack_bank:
-      case wksp_bank_shred:
-      case wksp_shred_store:
-        break;
-      case wksp_net:
-        tile_cnt += config->layout.net_tile_count;
-        break;
-      case wksp_netmux:
-        tile_cnt += 1;
-        break;
-      case wksp_quic:
-      case wksp_verify:
-        tile_cnt += config->layout.verify_tile_count;
-        break;
-      case wksp_dedup:
-        tile_cnt += 1;
-        break;
-      case wksp_pack:
-        tile_cnt += 1;
-        break;
-      case wksp_bank:
-        tile_cnt += config->layout.bank_tile_count;
-        break;
-      case wksp_shred:
-        tile_cnt += 1;
-        break;
-      case wksp_store:
-        tile_cnt += 1;
-        break;
-    }
-  }
-
-  ulong link_cnt =
-    config->layout.net_tile_count +    // net -> netmux
-    config->layout.net_tile_count +    // netmux -> net
-    config->layout.verify_tile_count + // quic -> netmux
-    config->layout.verify_tile_count + // netmux -> quic
-    config->layout.verify_tile_count + // quic -> verify
-    config->layout.verify_tile_count + // verify -> dedup
-    1 +                                // dedup -> pack
-    config->layout.bank_tile_count +   // pack -> bank
-    config->layout.bank_tile_count +   // bank -> shred
-    3;                                 // shred->store, shred <-> netmux
-
-  tile_t * tiles = fd_alloca( alignof(tile_t *), sizeof(tile_t)*tile_cnt );
-  link_t * links = fd_alloca( alignof(link_t *), sizeof(link_t)*link_cnt );
-  if( FD_UNLIKELY( (!tiles) | (!links)) ) FD_LOG_ERR(( "fd_alloca failed" )); /* paranoia */
-
-  ulong tile_idx = 0;
-  ulong link_idx = 0;
-  for( ulong j=0; j<config->shmem.workspaces_cnt; j++ ) {
-    workspace_config_t * wksp = &config->shmem.workspaces[ j ];
-    const uchar * pod = workspace_pod_join( config->name, wksp->name );
-
-    char buf[ 64 ];
-    switch( wksp->kind ) {
-      case wksp_netmux_inout:
-        for( ulong i=0; i<config->layout.net_tile_count; i++ ) {
-          links[ link_idx ].src_name = "net";
-          links[ link_idx ].dst_name = "netmux";
-          links[ link_idx ].mcache = fd_mcache_join( fd_wksp_pod_map( pods[ j ], snprintf1( buf, 64, "net-out-mcache%lu", i ) ) );
-          if( FD_UNLIKELY( !links[ link_idx ].mcache ) ) FD_LOG_ERR(( "fd_mcache_join failed" ));
-          links[ link_idx ].fseq = fd_fseq_join( fd_wksp_pod_map( pods[ j ], snprintf1( buf, 64, "net-out-fseq%lu", i ) ) );
-          if( FD_UNLIKELY( !links[ link_idx ].fseq ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
-          link_idx++;
-        }
-        for( ulong i=0; i<config->layout.verify_tile_count; i++ ) {
-          links[ link_idx ].src_name = "quic";
-          links[ link_idx ].dst_name = "netmux";
-          links[ link_idx ].mcache = fd_mcache_join( fd_wksp_pod_map( pods[ j ], snprintf1( buf, 64, "quic-out-mcache%lu", i ) ) );
-          if( FD_UNLIKELY( !links[ link_idx ].mcache ) ) FD_LOG_ERR(( "fd_mcache_join failed" ));
-          links[ link_idx ].fseq = fd_fseq_join( fd_wksp_pod_map( pods[ j ], snprintf1( buf, 64, "quic-out-fseq%lu", i ) ) );
-          if( FD_UNLIKELY( !links[ link_idx ].fseq ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
-          link_idx++;
-        }
-        for( ulong i=0; i<config->layout.net_tile_count; i++ ) {
-          links[ link_idx ].src_name = "netmux";
-          links[ link_idx ].dst_name = "net";
-          links[ link_idx ].mcache = fd_mcache_join( fd_wksp_pod_map( pods[ j ], "mcache" ) );
-          if( FD_UNLIKELY( !links[ link_idx ].mcache ) ) FD_LOG_ERR(( "fd_mcache_join failed" ));
-          links[ link_idx ].fseq = fd_fseq_join( fd_wksp_pod_map( pods[ j ], snprintf1( buf, 64, "net-in-fseq%lu", i ) ) );
-          if( FD_UNLIKELY( !links[ link_idx ].fseq ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
-          link_idx++;
-        }
-        for( ulong i=0; i<config->layout.verify_tile_count; i++ ) {
-          links[ link_idx ].src_name = "netmux";
-          links[ link_idx ].dst_name = "quic";
-          links[ link_idx ].mcache = fd_mcache_join( fd_wksp_pod_map( pods[ j ], "mcache" ) );
-          if( FD_UNLIKELY( !links[ link_idx ].mcache ) ) FD_LOG_ERR(( "fd_mcache_join failed" ));
-          links[ link_idx ].fseq = fd_fseq_join( fd_wksp_pod_map( pods[ j ], snprintf1( buf, 64, "quic-in-fseq%lu", i ) ) );
-          if( FD_UNLIKELY( !links[ link_idx ].fseq ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
-          link_idx++;
-        }
-        links[ link_idx ].src_name = "netmux";
-        links[ link_idx ].dst_name = "shred";
-        links[ link_idx ].mcache = fd_mcache_join( fd_wksp_pod_map( pods[ j ], "mcache" ) );
-        if( FD_UNLIKELY( !links[ link_idx ].mcache ) ) FD_LOG_ERR(( "fd_mcache_join failed" ));
-        links[ link_idx ].fseq = fd_fseq_join( fd_wksp_pod_map( pods[ j ], "shred-in-fseq" ) );
-        if( FD_UNLIKELY( !links[ link_idx ].fseq ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
-        link_idx++;
-
-        links[ link_idx ].src_name = "shred";
-        links[ link_idx ].dst_name = "netmux";
-        links[ link_idx ].mcache = fd_mcache_join( fd_wksp_pod_map( pods[ j ], "shred-out-mcache" ) );
-        if( FD_UNLIKELY( !links[ link_idx ].mcache ) ) FD_LOG_ERR(( "fd_mcache_join failed" ));
-        links[ link_idx ].fseq = fd_fseq_join( fd_wksp_pod_map( pods[ j ], "shred-out-fseq" ) );
-        if( FD_UNLIKELY( !links[ link_idx ].fseq ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
-        link_idx++;
-        break;
-      case wksp_quic_verify:
-        for( ulong i=0; i<config->layout.verify_tile_count; i++ ) {
-          links[ link_idx ].src_name = "quic";
-          links[ link_idx ].dst_name = "verify";
-          links[ link_idx ].mcache = fd_mcache_join( fd_wksp_pod_map( pods[ j ], snprintf1( buf, 64, "mcache%lu", i ) ) );
-          if( FD_UNLIKELY( !links[ link_idx ].mcache ) ) FD_LOG_ERR(( "fd_mcache_join failed" ));
-          links[ link_idx ].fseq = fd_fseq_join( fd_wksp_pod_map( pods[ j ], snprintf1( buf, 64, "fseq%lu", i ) ) );
-          if( FD_UNLIKELY( !links[ link_idx ].fseq ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
-          link_idx++;
-        }
-        break;
-      case wksp_verify_dedup:
-        for( ulong i=0; i<config->layout.verify_tile_count; i++ ) {
-          links[ link_idx ].src_name = "verify";
-          links[ link_idx ].dst_name = "dedup";
-          links[ link_idx ].mcache = fd_mcache_join( fd_wksp_pod_map( pods[ j ], snprintf1( buf, 64, "mcache%lu", i ) ) );
-          if( FD_UNLIKELY( !links[ link_idx ].mcache ) ) FD_LOG_ERR(( "fd_mcache_join failed" ));
-          links[ link_idx ].fseq = fd_fseq_join( fd_wksp_pod_map( pods[ j ], snprintf1( buf, 64, "fseq%lu", i ) ) );
-          if( FD_UNLIKELY( !links[ link_idx ].fseq ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
-          link_idx++;
-        }
-        break;
-      case wksp_dedup_pack:
-        links[ link_idx ].src_name = "dedup";
-        links[ link_idx ].dst_name = "pack";
-        links[ link_idx ].mcache = fd_mcache_join( fd_wksp_pod_map( pods[ j ], "mcache" ) );
-        if( FD_UNLIKELY( !links[ link_idx ].mcache ) ) FD_LOG_ERR(( "fd_mcache_join failed" ));
-        links[ link_idx ].fseq = fd_fseq_join( fd_wksp_pod_map( pods[ j ], "fseq" ) );
-        if( FD_UNLIKELY( !links[ link_idx ].fseq ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
-        link_idx++;
-        break;
-      case wksp_pack_bank:
-        for( ulong i=0; i<config->layout.bank_tile_count; i++ ) {
-          links[ link_idx ].src_name = "pack";
-          links[ link_idx ].dst_name = "bank";
-          links[ link_idx ].mcache = fd_mcache_join( fd_wksp_pod_map( pods[ j ], "mcache" ) ); /* shared mcache from mux tile */
-          if( FD_UNLIKELY( !links[ link_idx ].mcache ) ) FD_LOG_ERR(( "fd_mcache_join failed" ));
-          links[ link_idx ].fseq = fd_fseq_join( fd_wksp_pod_map( pods[ j ], snprintf1( buf, 64, "fseq%lu", i ) ) );
-          if( FD_UNLIKELY( !links[ link_idx ].fseq ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
-          link_idx++;
-        }
-        break;
-      case wksp_bank_shred:
-        for( ulong i=0; i<config->layout.bank_tile_count; i++ ) {
-          links[ link_idx ].src_name = "bank";
-          links[ link_idx ].dst_name = "shred";
-          links[ link_idx ].mcache = fd_mcache_join( fd_wksp_pod_map( pods[ j ], snprintf1( buf, 64, "mcache%lu", i ) ) );
-          if( FD_UNLIKELY( !links[ link_idx ].mcache ) ) FD_LOG_ERR(( "fd_mcache_join failed" ));
-          links[ link_idx ].fseq = fd_fseq_join( fd_wksp_pod_map( pods[ j ], snprintf1( buf, 64, "fseq%lu", i ) ) );
-          if( FD_UNLIKELY( !links[ link_idx ].fseq ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
-          link_idx++;
-        }
-        break;
-      case wksp_shred_store:
-        links[ link_idx ].src_name = "shred";
-        links[ link_idx ].dst_name = "store";
-        links[ link_idx ].mcache = fd_mcache_join( fd_wksp_pod_map( pods[ j ], "mcache" ) );
-        if( FD_UNLIKELY( !links[ link_idx ].mcache ) ) FD_LOG_ERR(( "fd_mcache_join failed" ));
-        links[ link_idx ].fseq = fd_fseq_join( fd_wksp_pod_map( pods[ j ], "fseq" ) );
-        if( FD_UNLIKELY( !links[ link_idx ].fseq ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
-        link_idx++;
-        break;
-      case wksp_net:
-        for( ulong i=0; i<config->layout.net_tile_count; i++ ) {
-          tiles[ tile_idx ].name = "net";
-          tiles[ tile_idx ].cnc = fd_cnc_join( fd_wksp_pod_map1( pod, "cnc%lu", i ) );
-          if( FD_UNLIKELY( !tiles[ tile_idx ].cnc ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
-          if( FD_UNLIKELY( fd_cnc_app_sz( tiles[ tile_idx ].cnc )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
-          tile_idx++;
-        }
-        break;
-      case wksp_netmux:
-        tiles[ tile_idx ].name = "netmux";
-        tiles[ tile_idx ].cnc = fd_cnc_join( fd_wksp_pod_map( pod, "cnc" ) );
-        if( FD_UNLIKELY( !tiles[ tile_idx ].cnc ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
-        if( FD_UNLIKELY( fd_cnc_app_sz( tiles[ tile_idx ].cnc )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
-        tile_idx++;
-        break;
-      case wksp_quic:
-        for( ulong i=0; i<config->layout.verify_tile_count; i++ ) {
-          tiles[ tile_idx ].name = "quic";
-          tiles[ tile_idx ].cnc = fd_cnc_join( fd_wksp_pod_map1( pod, "cnc%lu", i ) );
-          if( FD_UNLIKELY( !tiles[ tile_idx ].cnc ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
-          if( FD_UNLIKELY( fd_cnc_app_sz( tiles[ tile_idx ].cnc )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
-          tile_idx++;
-        }
-        break;
-      case wksp_verify:
-        for( ulong i=0; i<config->layout.verify_tile_count; i++ ) {
-          tiles[ tile_idx ].name = "verify";
-          tiles[ tile_idx ].cnc = fd_cnc_join( fd_wksp_pod_map1( pod, "cnc%lu", i ) );
-          if( FD_UNLIKELY( !tiles[tile_idx].cnc ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
-          if( FD_UNLIKELY( fd_cnc_app_sz( tiles[ tile_idx ].cnc )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
-          tile_idx++;
-        }
-        break;
-      case wksp_dedup:
-        tiles[ tile_idx ].name = "dedup";
-        tiles[ tile_idx ].cnc = fd_cnc_join( fd_wksp_pod_map( pod, "cnc" ) );
-        if( FD_UNLIKELY( !tiles[ tile_idx ].cnc ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
-        if( FD_UNLIKELY( fd_cnc_app_sz( tiles[ tile_idx ].cnc )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
-        tile_idx++;
-        break;
-      case wksp_pack:
-        tiles[ tile_idx ].name = "pack";
-        tiles[ tile_idx ].cnc = fd_cnc_join( fd_wksp_pod_map( pod, "cnc" ) );
-        if( FD_UNLIKELY( !tiles[ tile_idx ].cnc ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
-        if( FD_UNLIKELY( fd_cnc_app_sz( tiles[ tile_idx ].cnc )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
-        tile_idx++;
-        break;
-      case wksp_bank:
-        for( ulong i=0; i<config->layout.verify_tile_count; i++ ) {
-          tiles[ tile_idx ].name = "bank";
-          tiles[ tile_idx ].cnc = fd_cnc_join( fd_wksp_pod_map1( pod, "cnc%lu", i ) );
-          if( FD_UNLIKELY( !tiles[ tile_idx ].cnc ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
-          if( FD_UNLIKELY( fd_cnc_app_sz( tiles[ tile_idx ].cnc )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
-          tile_idx++;
-        }
-        break;
-      case wksp_shred:
-        tiles[ tile_idx ].name = "shred";
-        tiles[ tile_idx ].cnc = fd_cnc_join( fd_wksp_pod_map( pod, "cnc" ) );
-        if( FD_UNLIKELY( !tiles[ tile_idx ].cnc ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
-        if( FD_UNLIKELY( fd_cnc_app_sz( tiles[ tile_idx ].cnc )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
-        tile_idx++;
-        break;
-      case wksp_store:
-        tiles[ tile_idx ].name = "store";
-        tiles[ tile_idx ].cnc = fd_cnc_join( fd_wksp_pod_map( pod, "cnc" ) );
-        if( FD_UNLIKELY( !tiles[ tile_idx ].cnc ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
-        if( FD_UNLIKELY( fd_cnc_app_sz( tiles[ tile_idx ].cnc )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
-        tile_idx++;
-        break;
-    }
-  }
-
-  FD_TEST( tile_idx == tile_cnt );
-  FD_TEST( link_idx == link_cnt );
+  fd_topo_t * topo = &config->topo;
 
   /* Setup local objects used by this app */
   fd_rng_t _rng[1];
   fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, seed, 0UL ) );
 
-  tile_snap_t * tile_snap_prv = (tile_snap_t *)fd_alloca( alignof(tile_snap_t), sizeof(tile_snap_t)*2UL*tile_cnt );
+  tile_snap_t * tile_snap_prv = (tile_snap_t *)fd_alloca( alignof(tile_snap_t), sizeof(tile_snap_t)*2UL*topo->tile_cnt );
   if( FD_UNLIKELY( !tile_snap_prv ) ) FD_LOG_ERR(( "fd_alloca failed" )); /* Paranoia */
-  tile_snap_t * tile_snap_cur = tile_snap_prv + tile_cnt;
+  tile_snap_t * tile_snap_cur = tile_snap_prv + topo->tile_cnt;
 
+  ulong link_cnt = 0UL;
+  for( ulong tile_idx=0UL; tile_idx<topo->tile_cnt; tile_idx++ ) link_cnt += topo->tiles[ tile_idx ].in_cnt;
   link_snap_t * link_snap_prv = (link_snap_t *)fd_alloca( alignof(link_snap_t), sizeof(link_snap_t)*2UL*link_cnt );
   if( FD_UNLIKELY( !link_snap_prv ) ) FD_LOG_ERR(( "fd_alloca failed" )); /* Paranoia */
   link_snap_t * link_snap_cur = link_snap_prv + link_cnt;
 
   /* Get the inital reference diagnostic snapshot */
-  tile_snap( tile_snap_prv, tile_cnt, tiles );
-  link_snap( link_snap_prv, link_cnt, links );
+  tile_snap( tile_snap_prv, topo );
+  link_snap( link_snap_prv, topo );
   long then; long tic; fd_tempo_observe_pair( &then, &tic );
 
   /* Monitor for duration ns.  Note that for duration==0, this
@@ -488,8 +225,8 @@ run_monitor( config_t * const config,
        snapshot */
     fd_log_wait_until( then + dt_min + (long)fd_rng_ulong_roll( rng, 1UL+(ulong)(dt_max-dt_min) ) );
 
-    tile_snap( tile_snap_cur, tile_cnt, tiles );
-    link_snap( link_snap_cur, link_cnt, links );
+    tile_snap( tile_snap_cur, topo );
+    link_snap( link_snap_cur, topo );
     long now; long toc; fd_tempo_observe_pair( &now, &toc );
 
     /* Pretty print a comparison between this diagnostic snapshot and
@@ -517,10 +254,10 @@ run_monitor( config_t * const config,
     PRINT( "snapshot for %s" TEXT_NEWLINE, fd_log_wallclock_cstr( now, now_cstr ) );
     PRINT( "    tile |     pid |      stale | heart |        sig | in backp |           backp cnt |         sv_filt cnt " TEXT_NEWLINE );
     PRINT( "---------+---------+------------+-------+------------+----------+---------------------+---------------------" TEXT_NEWLINE );
-    for( ulong tile_idx=0UL; tile_idx<tile_cnt; tile_idx++ ) {
+    for( ulong tile_idx=0UL; tile_idx<topo->tile_cnt; tile_idx++ ) {
       tile_snap_t * prv = &tile_snap_prv[ tile_idx ];
       tile_snap_t * cur = &tile_snap_cur[ tile_idx ];
-      PRINT( " %7s", tiles[ tile_idx ].name );
+      PRINT( " %7s", fd_topo_tile_kind_str( topo->tiles[ tile_idx ].kind ) );
       PRINT( " | %7lu", cur->cnc_diag_pid );
       PRINT( " | " ); printf_stale   ( &buf, &buf_sz, (long)(0.5+ns_per_tic*(double)(toc - cur->cnc_heartbeat)), 1e8 /* 100 millis */ );
       PRINT( " | " ); printf_heart   ( &buf, &buf_sz, cur->cnc_heartbeat,        prv->cnc_heartbeat        );
@@ -534,34 +271,39 @@ run_monitor( config_t * const config,
     PRINT( "             link |  tot TPS |  tot bps | uniq TPS | uniq bps |   ha tr%% | uniq bw%% | filt tr%% | filt bw%% |           ovrnp cnt |           ovrnr cnt |            slow cnt |             tx seq" TEXT_NEWLINE );
     PRINT( "------------------+----------+----------+----------+----------+----------+----------+----------+----------+---------------------+---------------------+---------------------+-------------------" TEXT_NEWLINE );
     long dt = now-then;
-    for( ulong link_idx=0UL; link_idx<link_cnt; link_idx++ ) {
-      link_snap_t * prv = &link_snap_prv[ link_idx ];
-      link_snap_t * cur = &link_snap_cur[ link_idx ];
-      PRINT( " %7s->%-7s", links[ link_idx ].src_name, links[ link_idx ].dst_name );
-      ulong cur_raw_cnt = /* cur->cnc_diag_ha_filt_cnt + */ cur->fseq_diag_tot_cnt;
-      ulong cur_raw_sz  = /* cur->cnc_diag_ha_filt_sz  + */ cur->fseq_diag_tot_sz;
-      ulong prv_raw_cnt = /* prv->cnc_diag_ha_filt_cnt + */ prv->fseq_diag_tot_cnt;
-      ulong prv_raw_sz  = /* prv->cnc_diag_ha_filt_sz  + */ prv->fseq_diag_tot_sz;
 
-      PRINT( " | " ); printf_rate( &buf, &buf_sz, 1e9, 0., cur_raw_cnt,             prv_raw_cnt,             dt );
-      PRINT( " | " ); printf_rate( &buf, &buf_sz, 8e9, 0., cur_raw_sz,              prv_raw_sz,              dt ); /* Assumes sz incl framing */
-      PRINT( " | " ); printf_rate( &buf, &buf_sz, 1e9, 0., cur->fseq_diag_tot_cnt,  prv->fseq_diag_tot_cnt,  dt );
-      PRINT( " | " ); printf_rate( &buf, &buf_sz, 8e9, 0., cur->fseq_diag_tot_sz,   prv->fseq_diag_tot_sz,   dt ); /* Assumes sz incl framing */
+    ulong link_idx = 0UL;
+    for( ulong tile_idx=0UL; tile_idx<topo->tile_cnt; tile_idx++ ) {
+      for( ulong in_idx=0UL; in_idx<topo->tiles[ tile_idx ].in_cnt; in_idx++ ) {
+        link_snap_t * prv = &link_snap_prv[ link_idx ];
+        link_snap_t * cur = &link_snap_cur[ link_idx ];
+        PRINT( " %7s->%-7s", fd_topo_tile_kind_str( topo->tiles[ fd_topo_find_link_producer( topo, &topo->links[ topo->tiles[ tile_idx ].in_link_id[ in_idx ] ] ) ].kind ), fd_topo_tile_kind_str( topo->tiles[ tile_idx ].kind ) );
+        ulong cur_raw_cnt = /* cur->cnc_diag_ha_filt_cnt + */ cur->fseq_diag_tot_cnt;
+        ulong cur_raw_sz  = /* cur->cnc_diag_ha_filt_sz  + */ cur->fseq_diag_tot_sz;
+        ulong prv_raw_cnt = /* prv->cnc_diag_ha_filt_cnt + */ prv->fseq_diag_tot_cnt;
+        ulong prv_raw_sz  = /* prv->cnc_diag_ha_filt_sz  + */ prv->fseq_diag_tot_sz;
 
-      PRINT( " | " ); printf_pct ( &buf, &buf_sz, cur->fseq_diag_tot_cnt,  prv->fseq_diag_tot_cnt, 0.,
-                                   cur_raw_cnt,             prv_raw_cnt,            DBL_MIN );
-      PRINT( " | " ); printf_pct ( &buf, &buf_sz, cur->fseq_diag_tot_sz,   prv->fseq_diag_tot_sz,  0.,
-                                   cur_raw_sz,              prv_raw_sz,             DBL_MIN ); /* Assumes sz incl framing */
-      PRINT( " | " ); printf_pct ( &buf, &buf_sz, cur->fseq_diag_filt_cnt, prv->fseq_diag_filt_cnt, 0.,
-                                   cur->fseq_diag_tot_cnt,  prv->fseq_diag_tot_cnt,  DBL_MIN );
-      PRINT( " | " ); printf_pct ( &buf, &buf_sz, cur->fseq_diag_filt_sz,  prv->fseq_diag_filt_sz, 0.,
-                                   cur->fseq_diag_tot_sz,   prv->fseq_diag_tot_sz,  DBL_MIN ); /* Assumes sz incl framing */
+        PRINT( " | " ); printf_rate( &buf, &buf_sz, 1e9, 0., cur_raw_cnt,             prv_raw_cnt,             dt );
+        PRINT( " | " ); printf_rate( &buf, &buf_sz, 8e9, 0., cur_raw_sz,              prv_raw_sz,              dt ); /* Assumes sz incl framing */
+        PRINT( " | " ); printf_rate( &buf, &buf_sz, 1e9, 0., cur->fseq_diag_tot_cnt,  prv->fseq_diag_tot_cnt,  dt );
+        PRINT( " | " ); printf_rate( &buf, &buf_sz, 8e9, 0., cur->fseq_diag_tot_sz,   prv->fseq_diag_tot_sz,   dt ); /* Assumes sz incl framing */
 
-      PRINT( " | " ); printf_err_cnt( &buf, &buf_sz, cur->fseq_diag_ovrnp_cnt, prv->fseq_diag_ovrnp_cnt );
-      PRINT( " | " ); printf_err_cnt( &buf, &buf_sz, cur->fseq_diag_ovrnr_cnt, prv->fseq_diag_ovrnr_cnt );
-      PRINT( " | " ); printf_err_cnt( &buf, &buf_sz, cur->fseq_diag_slow_cnt,  prv->fseq_diag_slow_cnt  );
-      PRINT( " | " ); printf_seq(     &buf, &buf_sz, cur->mcache_seq,          prv->mcache_seq  );
-      PRINT( TEXT_NEWLINE );
+        PRINT( " | " ); printf_pct ( &buf, &buf_sz, cur->fseq_diag_tot_cnt,  prv->fseq_diag_tot_cnt, 0.,
+                                    cur_raw_cnt,             prv_raw_cnt,            DBL_MIN );
+        PRINT( " | " ); printf_pct ( &buf, &buf_sz, cur->fseq_diag_tot_sz,   prv->fseq_diag_tot_sz,  0.,
+                                    cur_raw_sz,              prv_raw_sz,             DBL_MIN ); /* Assumes sz incl framing */
+        PRINT( " | " ); printf_pct ( &buf, &buf_sz, cur->fseq_diag_filt_cnt, prv->fseq_diag_filt_cnt, 0.,
+                                    cur->fseq_diag_tot_cnt,  prv->fseq_diag_tot_cnt,  DBL_MIN );
+        PRINT( " | " ); printf_pct ( &buf, &buf_sz, cur->fseq_diag_filt_sz,  prv->fseq_diag_filt_sz, 0.,
+                                    cur->fseq_diag_tot_sz,   prv->fseq_diag_tot_sz,  DBL_MIN ); /* Assumes sz incl framing */
+
+        PRINT( " | " ); printf_err_cnt( &buf, &buf_sz, cur->fseq_diag_ovrnp_cnt, prv->fseq_diag_ovrnp_cnt );
+        PRINT( " | " ); printf_err_cnt( &buf, &buf_sz, cur->fseq_diag_ovrnr_cnt, prv->fseq_diag_ovrnr_cnt );
+        PRINT( " | " ); printf_err_cnt( &buf, &buf_sz, cur->fseq_diag_slow_cnt,  prv->fseq_diag_slow_cnt  );
+        PRINT( " | " ); printf_seq(     &buf, &buf_sz, cur->mcache_seq,          prv->mcache_seq  );
+        PRINT( TEXT_NEWLINE );
+        link_idx++;
+      }
     }
 
     /* write entire monitor output buffer */
@@ -594,13 +336,6 @@ signal1( int sig ) {
 void
 monitor_cmd_fn( args_t *         args,
                 config_t * const config ) {
-  ulong pods_cnt = 0;
-  const uchar * pods[ 256 ] = { 0 };
-  for( ulong i=0; i<config->shmem.workspaces_cnt; i++ ) {
-    workspace_config_t * wksp = &config->shmem.workspaces[ i ];
-    pods[ pods_cnt++ ] = workspace_pod_join( config->name, wksp->name );
-  }
-
   struct sigaction sa = {
     .sa_handler = signal1,
     .sa_flags   = 0,
@@ -632,6 +367,10 @@ monitor_cmd_fn( args_t *         args,
   ulong allow_fds_sz = args->monitor.drain_output_fd >= 0 ? num_fds : num_fds - 1;
   ushort allow_syscalls_cnt = args->monitor.drain_output_fd >= 0 ? num_syscalls : (ushort)(num_syscalls - 1);
 
+  /* join all workspaces needed by the toplogy before sandboxing, so
+     we can access them later */
+  fd_topo_join_workspaces( config->name, &config->topo );
+
   if( FD_UNLIKELY( close( 0 ) ) ) FD_LOG_ERR(( "close(0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   fd_sandbox( config->development.sandbox,
               config->uid,
@@ -641,8 +380,10 @@ monitor_cmd_fn( args_t *         args,
               allow_syscalls_cnt,
               allow_syscalls );
 
+  fd_topo_fill( &config->topo, FD_TOPO_FILL_MODE_FOOTPRINT );
+  fd_topo_fill( &config->topo, FD_TOPO_FILL_MODE_JOIN );
+
   run_monitor( config,
-               pods,
                args->monitor.drain_output_fd,
                args->monitor.dt_min,
                args->monitor.dt_max,

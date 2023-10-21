@@ -136,5 +136,6 @@ main( int     argc,
 
   /* run the command */
   action->fn( &args, &config );
+
   return 0;
 }

@@ -444,6 +444,13 @@ fd_log_sleep( long dt ) {
   return dt;
 }
 
+/* GLIBC sometimes appears to hang when fsync'ing here, maybe related to
+   cancellation points.  For now just invoke the syscall directly. */
+static int
+fd_log_fsync( int fd ) {
+  return (int)syscall( __NR_fsync, fd );
+}
+
 long
 fd_log_wait_until( long then ) {
   long now;
@@ -477,7 +484,7 @@ static int fd_log_private_dedup;        /*  0 outside boot/halt, init at boot */
 void
 fd_log_flush( void ) {
   int log_fileno = FD_VOLATILE_CONST( fd_log_private_fileno );
-  if( FD_LIKELY( log_fileno!=-1 ) ) fsync( log_fileno );
+  if( FD_LIKELY( log_fileno!=-1 ) ) fd_log_fsync( log_fileno );
 }
 
 static int fd_log_private_colorize;      /* 0 outside boot/halt, init at boot */
@@ -918,7 +925,7 @@ fd_log_private_cleanup( void ) {
       FD_VOLATILE( fd_log_private_fileno ) = -1;
 #     endif
 
-      fsync( log_fileno );
+      fd_log_fsync( log_fileno );
       sync();
       fd_log_private_fprintf_0( STDERR_FILENO, "Log at \"%s\"\n", fd_log_private_path );
     }
@@ -944,12 +951,12 @@ fd_log_private_sig_abort( int         sig,
   if( log_fileno!=-1 ) {
     fd_log_private_fprintf_0( log_fileno, "Caught signal %i, backtrace:\n", sig );
     backtrace_symbols_fd( btrace, btrace_cnt, log_fileno );
-    fsync( log_fileno );
+    fd_log_fsync( log_fileno );
   }
 
   fd_log_private_fprintf_0( STDERR_FILENO, "\nCaught signal %i, backtrace:\n", sig );
   backtrace_symbols_fd( btrace, btrace_cnt, STDERR_FILENO );
-  fsync( STDERR_FILENO );
+  fd_log_fsync( STDERR_FILENO );
 
 # else /* !FD_HAS_BACKTRACE */
 

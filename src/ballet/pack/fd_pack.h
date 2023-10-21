@@ -10,7 +10,7 @@
 #include "fd_est_tbl.h"
 
 
-#define FD_PACK_ALIGN     (32UL)
+#define FD_PACK_ALIGN     (128UL)
 
 #define FD_PACK_MAX_BANK_TILES 63UL
 

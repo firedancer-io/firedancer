@@ -1,12 +1,13 @@
 #ifndef HEADER_fd_src_app_fdctl_fdctl_h
 #define HEADER_fd_src_app_fdctl_fdctl_h
 
-#include "../../util/fd_util.h"
-#include "../../util/net/fd_ip4.h"
-
+#include "topology.h"
 #include "config.h"
 #include "caps.h"
 #include "utility.h"
+
+#include "../../util/fd_util.h"
+#include "../../util/net/fd_ip4.h"
 
 #include <unistd.h>
 #include <errno.h>
@@ -27,13 +28,18 @@ typedef union {
     int                      command;
     struct configure_stage * stages[ CONFIGURE_STAGE_COUNT ];
   } configure;
-  struct {
-    int tile;
-  } run1;
+
   struct {
     int monitor;
     int no_configure;
+    int no_solana_labs;
   } dev;
+
+  struct {
+    char tile_name[ 32 ];
+    int no_configure;
+  } dev1;
+
   struct {
     const char * payload_base64;
     ulong  count;

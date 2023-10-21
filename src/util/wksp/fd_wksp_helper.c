@@ -275,13 +275,13 @@ fd_wksp_attach( char const * name ) {
     fd_shmem_join( name, FD_SHMEM_JOIN_MODE_READ_WRITE, fd_wksp_private_join_func, NULL, NULL ); /* logs details */
 }
 
-void
+int
 fd_wksp_detach( fd_wksp_t * wksp ) {
   if( FD_UNLIKELY( !wksp ) ) {
     FD_LOG_WARNING(( "NULL wksp" ));
-    return;
+    return 1;
   }
-  fd_shmem_leave( wksp, fd_wksp_private_leave_func, NULL ); /* logs details */
+  return fd_shmem_leave( wksp, fd_wksp_private_leave_func, NULL ); /* logs details */
 }
 
 fd_wksp_t *
