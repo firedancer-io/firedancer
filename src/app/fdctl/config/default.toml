@@ -507,10 +507,10 @@ dynamic_port_range = "8900-9000"
         # handling.
         xdp_aio_depth = 256
 
-        # The maximum number of messages in-flight between a net tile
-        # and downstream consumers, after which additional messages
-        # begin being dropped.  TODO: ... Should this really be
-        # configurable?
+        # The maximum number of packets in-flight between a net tile and
+        # downstream consumers, after which additional packets begin to
+        # replace older ones, which will be dropped.  TODO: ... Should
+        # this really be configurable?
         send_buffer_size = 8192
 
     # QUIC tiles are responsible for serving network traffic, including
@@ -690,12 +690,27 @@ dynamic_port_range = "8900-9000"
     # debugging with the `--no-sandbox` argument to `fddev`.
     sandbox = true
 
+    # Firedancer currently hosts a Solana Labs client as a child process when
+    # it starts up, to provide functionality that has not yet been implemented.
+    # For development sometimes it is desirable to not launch this subprocess,
+    # although it will prevent the validator from operating correctly.
+    #
+    # In development, you can disable solana for testing and debugging with
+    # the `--no-solana-labs` argument to `fddev`.
+    no_solana_labs = false
+
     # It can be convenient during development to use a network namespace
     # for running Firedancer.  This allows us to send packets at a local
     # Firedancer instance and have them go through more of the kernel
     # XDP stack than would be possible by just using the loopback
-    # interface.  We have special support for creatign a pair of virtual
+    # interface.  We have special support for creating a pair of virtual
     # interfaces that are routable to each other.
+    #
+    # Because of how Firedancer uses UDP and XDP together, we do not
+    # receive packets when binding to the loopback interface.  This can
+    # make local developement difficult.  Network namespaces are one
+    # solution, they allow us to create a pair of virtual interfaces on
+    # the machine which can route to each other.
     #
     # If this configuration is enabled, `fdctl dev` will create two
     # network namespaces and a link between them to send packets back

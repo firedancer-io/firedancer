@@ -71,7 +71,7 @@ read_key( char const * key_path,
     if( FD_UNLIKELY( errno == ENOENT ) ) {
       FD_LOG_ERR((
           "The [consensus.identity_path] in your configuration expects a "
-          "keyfile at %s but there is no such file. Either update the "
+          "keyfile at `%s` but there is no such file. Either update the "
           "configuration file to point to your validator identity "
           "keypair, or generate a new validator identity key by running "
           "`fdctl keygen`", key_path ));

@@ -1,6 +1,56 @@
-#include "fd_quic.h"
+#include "tiles.h"
 
-#include "../mux/fd_mux.h"
+#include "../../../../tango/quic/fd_quic.h"
+#include "../../../../tango/xdp/fd_xsk_aio.h"
+#include "../../../../tango/xdp/fd_xsk.h"
+
+#include <openssl/err.h>
+#include <openssl/ssl.h>
+#include <linux/unistd.h>
+
+/* fd_quic provides a QUIC server tile.
+
+   At present, TPU is the only protocol deployed on QUIC.  It allows
+   clients to send transactions to block producers (this tile).  For
+   each txn to be transferred, the client opens a unidirectional QUIC
+   stream and sends its serialization (see fd_txn_parse).  In QUIC, this
+   can occur in as little as a single packet (and an ACK by the server).
+   For txn exceeding MTU size, the txn is fragmented over multiple
+   packets.  For more information, see the specification:
+   https://github.com/solana-foundation/specs/blob/main/p2p/tpu.md
+
+   The fd_quic tile acts as a plain old Tango producer writing to a cnc,
+   an mcache, and a dcache.  The tile will defragment multi-packet TPU
+   streams coming in from QUIC, such that each mcache/dcache pair forms
+   a complete txn.  This requires the dcache mtu to be at least that of
+   the largest allowed serialized txn size.
+
+   To facilitate defragmentation, the fd_quic tile stores non-standard
+   stream information in the dcache's application region.  (An array of
+   fd_quic_tpu_msg_ctx_t)
+
+   QUIC tiles don't service network devices directly, but rely on
+   packets being received by net tiles and forwarded on via. a mux
+   (multiplexer).  An arbirary number of QUIC tiles can be run, and
+   these will round-robin packets from the networking queues based on
+   the source IP address.
+
+   An fd_quic_tile will use the cnc application region to accumulate the
+   following tile specific counters:
+
+     TPU_CONN_LIVE_CNT  is the number of currently open QUIC conns
+
+     TPU_CONN_SEQ       is the sequence number of the last QUIC conn
+                        opened
+
+   As such, the cnc app region must be at least 64B in size.
+
+   Except for IN_BACKP, none of the diagnostics are cleared at tile
+   startup (as such that they can be accumulated over multiple runs).
+   Clearing is up to monitoring scripts. */
+
+#define FD_QUIC_CNC_DIAG_TPU_CONN_LIVE_CNT (6UL)
+#define FD_QUIC_CNC_DIAG_TPU_CONN_SEQ      (7UL)
 
 /* fd_quic_msg_ctx_t is the message context of a txn being received by
    the QUIC tile over the TPU protocol.  It is used to detect dcache
@@ -31,7 +81,7 @@ typedef struct __attribute__((aligned(32UL))) {
    tile code can later publish it the outgoing mcache. */
 #define QUEUE_NAME pubq
 #define QUEUE_T    fd_quic_msg_ctx_t *
-#include "../../util/tmpl/fd_queue_dynamic.c"
+#include "../../../../util/tmpl/fd_queue_dynamic.c"
 
 typedef struct {
   fd_quic_msg_ctx_t ** pubq;
@@ -52,25 +102,25 @@ typedef struct {
   ulong round_robin_cnt;
   ulong round_robin_id;
 
-  void * in_wksp;
-  ulong  in_chunk0;
-  ulong  in_wmark;
+  fd_wksp_t * in_mem;
+  ulong       in_chunk0;
+  ulong       in_wmark;
 
   fd_frag_meta_t * net_out_mcache;
   ulong *          net_out_sync;
   ulong            net_out_depth;
   ulong            net_out_seq;
 
-  void *  net_out_wksp;
-  ulong   net_out_chunk0;
-  ulong   net_out_wmark;
-  ulong   net_out_chunk;
+  fd_wksp_t * net_out_mem;
+  ulong       net_out_chunk0;
+  ulong       net_out_wmark;
+  ulong       net_out_chunk;
 
-  void  * verify_out_wksp;
-  uchar * verify_out_dcache_app;
-  ulong   verify_out_chunk0;
-  ulong   verify_out_wmark;
-  ulong   verify_out_chunk;
+  fd_wksp_t * verify_out_mem;
+  uchar *     verify_out_dcache_app;
+  ulong       verify_out_chunk0;
+  ulong       verify_out_wmark;
+  ulong       verify_out_chunk;
 } fd_quic_ctx_t;
 
 /* fd_quic_dcache_app_footprint returns the required footprint in bytes
@@ -81,23 +131,60 @@ fd_quic_dcache_app_footprint( ulong depth ) {
   return depth * sizeof(fd_quic_msg_ctx_t);
 }
 
-FD_FN_CONST ulong
-fd_quic_tile_scratch_align( void ) {
-  return FD_QUIC_TILE_SCRATCH_ALIGN;
+FD_FN_CONST static inline fd_quic_limits_t
+quic_limits( fd_topo_tile_t * tile ) {
+  fd_quic_limits_t limits = {
+    .conn_cnt                                      = tile->quic.max_concurrent_connections,
+    .handshake_cnt                                 = tile->quic.max_concurrent_handshakes,
+
+    /* While in TCP a connection is identified by (Source IP, Source
+       Port, Dest IP, Dest Port) in QUIC a connection is uniquely
+       identified by a connection ID. Because this isn't dependent on
+       network identifiers, it allows connection migration and
+       continuity across network changes. It can also offer enhanced
+       privacy by obfuscating the client IP address and prevent
+       connection-linking by observers.
+
+       Additional connection IDs are simply alises back to the same
+       connection, and can be created and retired during a connection by
+       either endpoint. This configuration determines how many different
+       connection IDs the connection may have simultaneously.
+
+       Currently this option must be hard coded to
+       FD_QUIC_MAX_CONN_ID_PER_CONN because it cannot exceed a buffer
+       size determined by that constant. */
+    .conn_id_cnt                                   = FD_QUIC_MAX_CONN_ID_PER_CONN,
+    .conn_id_sparsity                              = 0.0,
+    .inflight_pkt_cnt                              = tile->quic.max_inflight_quic_packets,
+    .tx_buf_sz                                     = tile->quic.tx_buf_size,
+    .stream_cnt[ FD_QUIC_STREAM_TYPE_BIDI_CLIENT ] = 0,
+    .stream_cnt[ FD_QUIC_STREAM_TYPE_BIDI_SERVER ] = 0,
+    .stream_cnt[ FD_QUIC_STREAM_TYPE_UNI_CLIENT  ] = tile->quic.max_concurrent_streams_per_connection,
+    .stream_cnt[ FD_QUIC_STREAM_TYPE_UNI_SERVER  ] = 0,
+    .stream_sparsity                               = 0.0,
+  };
+  return limits;
 }
 
-FD_FN_CONST ulong
-fd_quic_tile_scratch_footprint( ulong depth,
-                                ulong in_cnt,
-                                ulong out_cnt ) {
-  if( FD_UNLIKELY( in_cnt >FD_MUX_TILE_IN_MAX  ) ) return 0UL;
-  if( FD_UNLIKELY( out_cnt>FD_MUX_TILE_OUT_MAX ) ) return 0UL;
-  ulong scratch_top = 0UL;
+FD_FN_CONST static inline ulong
+scratch_align( void ) {
+  return 4096UL;
+}
 
+FD_FN_PURE static inline ulong
+scratch_footprint( fd_topo_tile_t * tile ) {
+  ulong scratch_top = 0UL;
+  SCRATCH_ALLOC( alignof( fd_quic_ctx_t ), sizeof( fd_quic_ctx_t ) );
+  SCRATCH_ALLOC( pubq_align(),   pubq_footprint( tile->quic.depth ) );
   SCRATCH_ALLOC( fd_aio_align(), fd_aio_footprint() );
-  SCRATCH_ALLOC( pubq_align(), pubq_footprint( depth ) );
-  SCRATCH_ALLOC( fd_mux_tile_scratch_align(), fd_mux_tile_scratch_footprint( in_cnt, out_cnt ) );
-  return fd_ulong_align_up( scratch_top, fd_quic_tile_scratch_align() );
+  fd_quic_limits_t limits = quic_limits( tile );
+  SCRATCH_ALLOC( fd_quic_align(), fd_quic_footprint( &limits ) );
+  return fd_ulong_align_up( scratch_top, scratch_align() );
+}
+
+FD_FN_CONST static inline void *
+mux_ctx( void * scratch ) {
+  return (void*)fd_ulong_align_up( (ulong)scratch, alignof( fd_quic_ctx_t ) );
 }
 
 FD_FN_CONST static inline ulong
@@ -163,7 +250,7 @@ legacy_stream_notify( fd_quic_ctx_t * ctx,
   fd_quic_msg_ctx_t * msg_ctx = fd_quic_dcache_msg_ctx( ctx->verify_out_dcache_app, ctx->verify_out_chunk0, chunk );
   msg_ctx->conn_id   = ULONG_MAX;
   msg_ctx->stream_id = ULONG_MAX;
-  msg_ctx->data      = fd_chunk_to_laddr( ctx->verify_out_wksp, chunk );
+  msg_ctx->data      = fd_chunk_to_laddr( ctx->verify_out_mem, chunk );
   msg_ctx->sz        = packet_sz;
   msg_ctx->tsorig    = (uint)fd_frag_meta_ts_comp( fd_tickcount() );
 
@@ -261,7 +348,7 @@ before_credit( void * _ctx,
 
     /* Create mcache entry */
 
-    ulong chunk  = fd_laddr_to_chunk( ctx->verify_out_wksp, msg->data );
+    ulong chunk  = fd_laddr_to_chunk( ctx->verify_out_mem, msg->data );
     ulong sz     = (ulong)msg_end - (ulong)msg->data;
     ulong sig    = 0; /* A non-dummy entry representing a finished transaction */
     ulong ctl    = fd_frag_meta_ctl( 0, 1 /* som */, 1 /* eom */, 0 /* err */ );
@@ -335,7 +422,7 @@ during_frag( void * _ctx,
   if( FD_UNLIKELY( chunk<ctx->in_chunk0 || chunk>ctx->in_wmark || sz > FD_NET_MTU ) )
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in_chunk0, ctx->in_wmark ));
 
-  uchar * src = (uchar *)fd_chunk_to_laddr( ctx->in_wksp, chunk );
+  uchar * src = (uchar *)fd_chunk_to_laddr( ctx->in_mem, chunk );
   fd_memcpy( ctx->buffer, src, sz ); /* TODO: Eliminate copy... fd_aio needs refactoring */
 }
 
@@ -431,7 +518,7 @@ quic_stream_new( fd_quic_stream_t * stream,
   fd_quic_msg_ctx_t * msg_ctx = fd_quic_dcache_msg_ctx( ctx->verify_out_dcache_app, ctx->verify_out_chunk0, chunk );
   msg_ctx->conn_id   = conn_id;
   msg_ctx->stream_id = stream_id;
-  msg_ctx->data      = fd_chunk_to_laddr( ctx->verify_out_wksp, chunk );
+  msg_ctx->data      = fd_chunk_to_laddr( ctx->verify_out_mem, chunk );
   msg_ctx->sz        = 0U;
   msg_ctx->tsorig    = (uint)fd_frag_meta_ts_comp( fd_tickcount() );
 
@@ -553,7 +640,7 @@ quic_tx_aio_send( void *                    _ctx,
   fd_quic_ctx_t * ctx = (fd_quic_ctx_t *)_ctx;
 
   for( ulong i=0; i<batch_cnt; i++ ) {
-    void * dst = fd_chunk_to_laddr( ctx->net_out_wksp, ctx->net_out_chunk );
+    void * dst = fd_chunk_to_laddr( ctx->net_out_mem, ctx->net_out_chunk );
     fd_memcpy( dst, batch[ i ].buf, batch[ i ].buf_sz );
 
     /* send packets are just round-robined by sequence number, so for now
@@ -582,121 +669,167 @@ quic_tx_aio_send( void *                    _ctx,
   return FD_AIO_SUCCESS;
 }
 
-int
-fd_quic_tile( fd_cnc_t *              cnc,
-              ulong                   pid,
-              ulong                   in_cnt,
-              const fd_frag_meta_t ** in_mcache,
-              ulong **                in_fseq,
-              ulong                   round_robin_cnt,
-              ulong                   round_robin_id,
-              fd_frag_meta_t *        net_mcache,
-              uchar *                 net_dcache,
-              fd_quic_t *             quic,
-              ushort                  legacy_transaction_port,
-              fd_frag_meta_t *        mcache,
-              uchar *                 dcache,
-              ulong                   cr_max,
-              long                    lazy,
-              fd_rng_t *              rng,
-              void *                  scratch ) {
-  fd_quic_ctx_t ctx[1];
+static void
+privileged_init( fd_topo_t *      topo,
+                 fd_topo_tile_t * tile,
+                 void *           scratch ) {
+  (void)topo;
+  (void)tile;
+  (void)scratch;
 
-  fd_mux_callbacks_t callbacks[1] = { 0 };
-  callbacks->during_housekeeping = during_housekeeping;
-  callbacks->before_credit       = before_credit;
-  callbacks->before_frag         = before_frag;
-  callbacks->during_frag         = during_frag;
-  callbacks->after_frag          = after_frag;
-  callbacks->cnc_diag_write      = cnc_diag_write;
+  /* call wallclock so glibc loads VDSO, which requires calling mmap while
+     privileged */
+  fd_log_wallclock();
+
+  /* OpenSSL goes and tries to read files and allocate memory and
+     other dumb things on a thread local basis, so we need a special
+     initializer to do it before seccomp happens in the process. */
+  if( FD_UNLIKELY( !OPENSSL_init_ssl( OPENSSL_INIT_LOAD_SSL_STRINGS , NULL ) ) )
+    FD_LOG_ERR(( "OPENSSL_init_ssl failed" ));
+  if( FD_UNLIKELY( !OPENSSL_init_crypto( OPENSSL_INIT_LOAD_CRYPTO_STRINGS | OPENSSL_INIT_NO_LOAD_CONFIG , NULL ) ) )
+    FD_LOG_ERR(( "OPENSSL_init_crypto failed" ));
+}
+
+static void
+unprivileged_init( fd_topo_t *      topo,
+                   fd_topo_tile_t * tile,
+                   void *           scratch ) {
+  if( FD_UNLIKELY( !tile->in_cnt ) ) FD_LOG_ERR(( "quic tile in cnt is zero" ));
+
+  ulong depth = tile->quic.depth;
+  if( topo->links[ tile->out_link_id_primary ].depth != depth )
+    FD_LOG_ERR(( "quic tile in depths are not equal" ));
+
+  void * dcache = topo->links[ tile->out_link_id_primary ].dcache;
+  if( FD_UNLIKELY( fd_dcache_app_sz( dcache ) < fd_quic_dcache_app_footprint( depth ) ) )
+
+  FD_LOG_ERR(( "dcache app sz too small (min=%lu have=%lu)",
+                fd_quic_dcache_app_footprint( depth ),
+                fd_dcache_app_sz( dcache ) ));
 
   ulong scratch_top = (ulong)scratch;
+  fd_quic_ctx_t * ctx = (fd_quic_ctx_t*)SCRATCH_ALLOC( alignof( fd_quic_ctx_t ), sizeof( fd_quic_ctx_t ) );
+  ctx->pubq = pubq_join( pubq_new( SCRATCH_ALLOC( pubq_align(), pubq_footprint( depth ) ), depth ) );
+  if( FD_UNLIKELY( !ctx->pubq ) ) FD_LOG_ERR(( "pubq_join failed" ));
+  fd_aio_t * quic_tx_aio = fd_aio_join( fd_aio_new( SCRATCH_ALLOC( fd_aio_align(), fd_aio_footprint() ), ctx, quic_tx_aio_send ) );
+  if( FD_UNLIKELY( !quic_tx_aio ) ) FD_LOG_ERR(( "fd_aio_join failed" ));
 
-  do {
-    if( FD_UNLIKELY( !quic ) ) { FD_LOG_WARNING(( "NULL quic" )); return 1; }
-    if( FD_UNLIKELY( !dcache ) ) { FD_LOG_WARNING(( "NULL dcache" )); return 1; }
+  fd_quic_limits_t limits = quic_limits( tile );
+  fd_quic_t * quic = fd_quic_join( fd_quic_new( SCRATCH_ALLOC( fd_quic_align(), fd_quic_footprint( &limits ) ), &limits ) );
+  if( FD_UNLIKELY( !quic ) ) FD_LOG_ERR(( "fd_quic_join failed" ));
 
-    quic->cb.conn_new         = quic_conn_new;
-    quic->cb.conn_hs_complete = NULL;
-    quic->cb.conn_final       = quic_conn_final;
-    quic->cb.stream_new       = quic_stream_new;
-    quic->cb.stream_receive   = quic_stream_receive;
-    quic->cb.stream_notify    = quic_stream_notify;
-    quic->cb.now              = quic_now;
-    quic->cb.now_ctx          = NULL;
-    quic->cb.quic_ctx         = ctx;
+  quic->config.role                       = FD_QUIC_ROLE_SERVER;
+  quic->config.net.ip_addr                = tile->quic.ip_addr;
+  quic->config.net.listen_udp_port        = tile->quic.quic_transaction_listen_port;
+  quic->config.idle_timeout               = tile->quic.idle_timeout_millis * 1000000UL;
+  quic->config.initial_rx_max_stream_data = 1<<15;
+  fd_memcpy( quic->config.link.src_mac_addr, tile->quic.src_mac_addr, 6 );
 
-    fd_aio_t * quic_tx_aio = fd_aio_join( fd_aio_new( SCRATCH_ALLOC( fd_aio_align(), fd_aio_footprint() ), ctx, quic_tx_aio_send ) );
-    fd_quic_set_aio_net_tx( quic, quic_tx_aio );
+  quic->cb.conn_new         = quic_conn_new;
+  quic->cb.conn_hs_complete = NULL;
+  quic->cb.conn_final       = quic_conn_final;
+  quic->cb.stream_new       = quic_stream_new;
+  quic->cb.stream_receive   = quic_stream_receive;
+  quic->cb.stream_notify    = quic_stream_notify;
+  quic->cb.now              = quic_now;
+  quic->cb.now_ctx          = NULL;
+  quic->cb.quic_ctx         = ctx;
 
-    if( FD_UNLIKELY( !fd_quic_init( quic ) ) ) { FD_LOG_WARNING(( "fd_quic_init failed" )); return 1; }
+  fd_quic_set_aio_net_tx( quic, quic_tx_aio );
+  if( FD_UNLIKELY( !fd_quic_init( quic ) ) ) FD_LOG_ERR(( "fd_quic_init failed" ));
 
-    ulong depth = fd_mcache_depth( mcache );
-    if( FD_UNLIKELY( !fd_dcache_compact_is_safe( fd_wksp_containing( dcache ), dcache, FD_TPU_DCACHE_MTU, depth  ) ) ) {
-      FD_LOG_WARNING(( "dcache not compatible with wksp base and mcache depth" ));
-      return 1;
-    }
+  /* Put a bound on chunks we read from the input, to make sure they
+      are within in the data region of the workspace. */
+  if( FD_UNLIKELY( !tile->in_cnt ) ) FD_LOG_ERR(( "quic tile in link cnt is zero" ));
+  fd_topo_link_t * link0 = &topo->links[ tile->in_link_id[ 0 ] ];
 
-    if( FD_UNLIKELY( fd_dcache_app_sz( dcache ) < fd_quic_dcache_app_footprint( depth ) ) ) {
-      FD_LOG_WARNING(( "dcache app sz too small (min=%lu have=%lu)",
-                       fd_quic_dcache_app_footprint( depth ),
-                       fd_dcache_app_sz( dcache ) ));
-      return 1;
-    }
+  for( ulong i=1; i<tile->in_cnt; i++ ) {
+    fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
 
-    ctx->in_wksp  = fd_wksp_containing( net_mcache );
+    if( FD_UNLIKELY( link0->wksp_id != link->wksp_id ) ) FD_LOG_ERR(( "quic tile reads input from multiple workspaces" ));
+    if( FD_UNLIKELY( link0->mtu != link->mtu         ) ) FD_LOG_ERR(( "quic tile reads input from multiple links with different MTUs" ));
+  }
 
-    /* Put a bound on chunks we read from the input, to make sure they
-       are within in the data region of the workspace. */
-    ctx->in_chunk0 = fd_disco_compact_chunk0( ctx->in_wksp );
-    ctx->in_wmark  = fd_disco_compact_wmark ( ctx->in_wksp, FD_NET_MTU );
+  ctx->in_mem    = topo->workspaces[ link0->wksp_id ].wksp;
+  ctx->in_chunk0 = fd_disco_compact_chunk0( ctx->in_mem );
+  ctx->in_wmark  = fd_disco_compact_wmark ( ctx->in_mem, link0->mtu );
 
-    ctx->net_out_mcache = net_mcache;
-    ctx->net_out_sync  = fd_mcache_seq_laddr( net_mcache );
-    ctx->net_out_depth = fd_mcache_depth( net_mcache );
-    ctx->net_out_seq    = fd_mcache_seq_query( ctx->net_out_sync );
-    ctx->net_out_chunk0 = fd_dcache_compact_chunk0( fd_wksp_containing( net_dcache ), net_dcache );
-    ctx->net_out_wksp   = fd_wksp_containing( net_dcache );
-    ctx->net_out_wmark  = fd_dcache_compact_wmark ( ctx->net_out_wksp, net_dcache, FD_NET_MTU );
-    ctx->net_out_chunk  = ctx->net_out_chunk0;
+  if( FD_UNLIKELY( tile->out_cnt != 1 || topo->links[ tile->out_link_id[ 0 ] ].kind != FD_TOPO_LINK_KIND_QUIC_TO_NETMUX ) )
+    FD_LOG_ERR(( "quic tile has none or unexpected netmux output link %lu %lu", tile->out_cnt, topo->links[ tile->out_link_id[ 0 ] ].kind ));
 
-    ctx->verify_out_wksp       = fd_wksp_containing( dcache );
-    ctx->verify_out_dcache_app = fd_dcache_app_laddr( dcache );
-    ctx->verify_out_chunk0     = fd_dcache_compact_chunk0( ctx->verify_out_wksp, dcache );
-    ctx->verify_out_wmark      = fd_dcache_compact_wmark ( ctx->verify_out_wksp, dcache, FD_TPU_DCACHE_MTU );
-    ctx->verify_out_chunk      = ctx->verify_out_chunk0;
+  fd_topo_link_t * net_out = &topo->links[ tile->out_link_id[ 0 ] ];
 
-    ctx->inflight_streams = 0UL;
-    ctx->conn_cnt = 0UL;
-    ctx->conn_seq = 0UL;
+  ctx->net_out_mcache = net_out->mcache;
+  ctx->net_out_sync   = fd_mcache_seq_laddr( ctx->net_out_mcache );
+  ctx->net_out_depth  = fd_mcache_depth( ctx->net_out_mcache );
+  ctx->net_out_seq    = fd_mcache_seq_query( ctx->net_out_sync );
+  ctx->net_out_chunk0 = fd_dcache_compact_chunk0( fd_wksp_containing( net_out->dcache ), net_out->dcache );
+  ctx->net_out_mem    = topo->workspaces[ net_out->wksp_id ].wksp;
+  ctx->net_out_wmark  = fd_dcache_compact_wmark ( ctx->net_out_mem, net_out->dcache, net_out->mtu );
+  ctx->net_out_chunk  = ctx->net_out_chunk0;
 
-    ctx->quic = quic;
-    ctx->quic_rx_aio = fd_quic_get_aio_net_rx( quic );
+  if( FD_UNLIKELY( tile->out_link_id_primary == ULONG_MAX ) )
+    FD_LOG_ERR(( "quic tile has no primary output link" ));
 
-    if( FD_UNLIKELY( !round_robin_cnt ) ) { FD_LOG_WARNING(( "round_robin_cnt is zero" )); return 1; }
-    if( FD_UNLIKELY( round_robin_id >= round_robin_cnt ) ) { FD_LOG_WARNING(( "round_robin_id is too large" )); return 1; }
-    ctx->round_robin_cnt = round_robin_cnt;
-    ctx->round_robin_id  = round_robin_id;
+  fd_topo_link_t * verify_out = &topo->links[ tile->out_link_id_primary ];
 
-    ctx->legacy_transaction_port = legacy_transaction_port;
+  ctx->verify_out_mem        = topo->workspaces[ verify_out->wksp_id ].wksp;
+  ctx->verify_out_dcache_app = fd_dcache_app_laddr( verify_out->dcache );
+  ctx->verify_out_chunk0     = fd_dcache_compact_chunk0( ctx->verify_out_mem, verify_out->dcache );
+  ctx->verify_out_wmark      = fd_dcache_compact_wmark ( ctx->verify_out_mem, verify_out->dcache, verify_out->mtu );
+  ctx->verify_out_chunk      = ctx->verify_out_chunk0;
 
-    ctx->pubq = pubq_join( pubq_new( SCRATCH_ALLOC( pubq_align(), pubq_footprint( depth ) ), depth ) );
-  } while(0);
+  ctx->inflight_streams = 0UL;
+  ctx->conn_cnt         = 0UL;
+  ctx->conn_seq         = 0UL;
 
-  return fd_mux_tile( cnc,
-                      pid,
-                      FD_MUX_FLAG_MANUAL_PUBLISH | FD_MUX_FLAG_COPY,
-                      in_cnt,
-                      in_mcache,
-                      in_fseq,
-                      mcache,
-                      0, /* no reliable consumers, verify tiles may be overrun */
-                      NULL,
-                      cr_max,
-                      1UL,
-                      lazy,
-                      rng,
-                      (void*)fd_ulong_align_up( scratch_top, FD_MUX_TILE_SCRATCH_ALIGN ),
-                      ctx,
-                      callbacks );
+  ctx->quic        = quic;
+  ctx->quic_rx_aio = fd_quic_get_aio_net_rx( quic );
+
+  ctx->round_robin_cnt = fd_topo_tile_kind_cnt( topo, tile->kind );
+  ctx->round_robin_id  = tile->kind_id;
+
+  ctx->legacy_transaction_port = tile->quic.legacy_transaction_listen_port;
+
+  if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
+    FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 }
+
+static long allow_syscalls[] = {
+  __NR_write,     /* logging */
+  __NR_fsync,     /* logging, WARNING and above fsync immediately */
+  __NR_getpid,    /* OpenSSL RAND_bytes checks pid, temporarily used as part of quic_init to generate a certificate */
+  __NR_getrandom, /* OpenSSL RAND_bytes reads getrandom, temporarily used as part of quic_init to generate a certificate */
+  __NR_madvise,   /* OpenSSL SSL_do_handshake() uses an arena which eventually calls _rjem_je_pages_purge_forced */
+  __NR_mmap,      /* OpenSSL again... deep inside SSL_provide_quic_data() some jemalloc code calls mmap */
+};
+
+static ulong
+allow_fds( void * scratch,
+           ulong  out_fds_cnt,
+           int *  out_fds ) {
+  (void)scratch;
+  if( FD_UNLIKELY( out_fds_cnt < 2 ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  out_fds[ 0 ] = 2; /* stderr */
+  out_fds[ 1 ] = 3; /* logfile */
+  return 2;
+}
+
+fd_tile_config_t fd_tile_quic = {
+  .mux_flags               = FD_MUX_FLAG_MANUAL_PUBLISH | FD_MUX_FLAG_COPY,
+  .burst                   = 1UL,
+  .mux_ctx                 = mux_ctx,
+  .mux_during_housekeeping = during_housekeeping,
+  .mux_before_credit       = before_credit,
+  .mux_before_frag         = before_frag,
+  .mux_during_frag         = during_frag,
+  .mux_after_frag          = after_frag,
+  .mux_cnc_diag_write      = cnc_diag_write,
+  .allow_syscalls_cnt      = sizeof(allow_syscalls)/sizeof(allow_syscalls[ 0 ]),
+  .allow_syscalls          = allow_syscalls,
+  .allow_fds               = allow_fds,
+  .scratch_align           = scratch_align,
+  .scratch_footprint       = scratch_footprint,
+  .privileged_init         = privileged_init,
+  .unprivileged_init       = unprivileged_init,
+};

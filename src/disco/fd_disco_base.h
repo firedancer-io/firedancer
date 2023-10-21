@@ -18,6 +18,10 @@
 /* FD_TPU_MTU is the max serialized byte size of a txn sent over TPU. */
 #define FD_TPU_MTU (1232UL)
 
+/* FD_SHRED_STORE_MTU is the size of an fd_shred34_t (statically
+   asserted in fd_shred_tile.c). */
+#define FD_SHRED_STORE_MTU (41792UL)
+
 /* FD_TPU_DCACHE_MTU is the max size of a dcache entry */
 #define FD_TPU_DCACHE_MTU (FD_TPU_MTU + FD_TXN_MAX_SZ + 2UL)
 

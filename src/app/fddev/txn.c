@@ -4,6 +4,7 @@
 #include "../../ballet/base64/fd_base64.h"
 #include "../../tango/quic/fd_quic.h"
 #include "../../tango/quic/tests/fd_quic_test_helpers.h"
+#include "../../util/net/fd_ip4.h"
 
 #include <linux/capability.h>
 
