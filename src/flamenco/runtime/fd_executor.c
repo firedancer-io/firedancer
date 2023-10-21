@@ -618,5 +618,8 @@ int fd_executor_txn_check( fd_exec_slot_ctx_t * slot_ctx,  fd_exec_txn_ctx_t *tx
     return FD_EXECUTOR_INSTR_ERR_MAX_ACCS_DATA_SIZE_EXCEEDED;
 #endif
 
+  /* TODO unused variables */
+  (void)ending_dlen; (void)starting_dlen;
+
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
