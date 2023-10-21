@@ -70,7 +70,7 @@ fd_borrowed_account_checked_sub_lamports( fd_borrowed_account_t * self, ulong la
 /* impl TransactionContext                                            */
 /**********************************************************************/
 
-int
+static FD_FN_UNUSED int
 fd_txn_ctx_get_key_of_account_at_index( fd_exec_txn_ctx_t const * self,
                                         uchar                     index_in_transaction,
                                         /* out */ fd_pubkey_t *   pubkey ) {
@@ -85,7 +85,7 @@ fd_txn_ctx_get_key_of_account_at_index( fd_exec_txn_ctx_t const * self,
 /* impl InstructionContext                                            */
 /**********************************************************************/
 
-int
+static FD_FN_UNUSED int
 fd_instr_ctx_check_number_of_instruction_accounts( fd_instr_info_t const * self,
                                                    uchar                   expected_at_least ) {
   if ( FD_UNLIKELY( self->acct_cnt < expected_at_least ) ) {
@@ -94,7 +94,7 @@ fd_instr_ctx_check_number_of_instruction_accounts( fd_instr_info_t const * self,
   return FD_PROGRAM_OK;
 }
 
-int
+static FD_FN_UNUSED int
 fd_instr_ctx_get_index_of_instruction_account_in_transaction(
     fd_instr_info_t const * self,
     uchar                   instruction_account_index,
@@ -106,7 +106,7 @@ fd_instr_ctx_get_index_of_instruction_account_in_transaction(
   return FD_PROGRAM_OK;
 }
 
-int
+static FD_FN_UNUSED int
 fd_instr_ctx_try_borrow_account( fd_exec_instr_ctx_t *     self,
                                  fd_exec_txn_ctx_t const * transaction_context,
                                  uchar                     index_in_transaction,
@@ -135,7 +135,7 @@ fd_instr_ctx_try_borrow_account( fd_exec_instr_ctx_t *     self,
   }
 }
 
-int
+static FD_FN_UNUSED int
 fd_instr_ctx_try_borrow_instruction_account( fd_exec_instr_ctx_t *     self,
                                              fd_exec_txn_ctx_t const * transaction_context,
                                              uchar                     instruction_account_index,
@@ -158,7 +158,7 @@ fd_instr_ctx_try_borrow_instruction_account( fd_exec_instr_ctx_t *     self,
 }
 
 // https://github.com/firedancer-io/solana/blob/v1.17/sdk/src/transaction_context.rs#L718
-int
+static FD_FN_UNUSED int
 fd_instr_ctx_is_instruction_account_signer( fd_instr_info_t const * self,
                                             uchar                   instruction_account_index,
                                             bool *                  out ) {
@@ -170,7 +170,7 @@ fd_instr_ctx_is_instruction_account_signer( fd_instr_info_t const * self,
 }
 
 // https://github.com/firedancer-io/solana/blob/v1.17/sdk/src/transaction_context.rs#L718
-int
+static FD_FN_UNUSED int
 fd_instr_ctx_get_signers( fd_instr_info_t const *   self,
                           fd_exec_txn_ctx_t const * transaction_context,
                           fd_pubkey_t const *       signers[static FD_TXN_SIG_MAX] ) {
@@ -234,7 +234,7 @@ fd_instr_ctx_signers_contains( fd_pubkey_t const * signers[FD_TXN_SIG_MAX],
   } while ( 0 )
 
 // https://github.com/firedancer-io/solana/blob/debug-master/program-runtime/src/sysvar_cache.rs#L236
-static int
+static FD_FN_UNUSED int
 fd_sysvar_clock_checked_read( fd_exec_instr_ctx_t const *       invoke_context,
                               fd_instr_info_t const *           instruction_context,
                               uchar                             instruction_account_index,
@@ -248,7 +248,7 @@ fd_sysvar_clock_checked_read( fd_exec_instr_ctx_t const *       invoke_context,
 }
 
 // https://github.com/firedancer-io/solana/blob/debug-master/program-runtime/src/sysvar_cache.rs#L249
-static int
+static FD_FN_UNUSED int
 fd_sysvar_rent_checked_read( fd_exec_instr_ctx_t const * invoke_context,
                              fd_instr_info_t const *     instruction_context,
                              uchar                       instruction_account_index,
@@ -262,7 +262,7 @@ fd_sysvar_rent_checked_read( fd_exec_instr_ctx_t const * invoke_context,
 }
 
 // https://github.com/firedancer-io/solana/blob/debug-master/program-runtime/src/sysvar_cache.rs#L289
-static int
+static FD_FN_UNUSED int
 fd_sysvar_stake_history_checked_read( fd_exec_instr_ctx_t const *    invoke_context,
                                       fd_instr_info_t const *        instruction_context,
                                       uchar                          instruction_account_index,
