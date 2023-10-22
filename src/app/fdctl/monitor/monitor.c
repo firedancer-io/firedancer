@@ -369,7 +369,7 @@ monitor_cmd_fn( args_t *         args,
 
   /* join all workspaces needed by the toplogy before sandboxing, so
      we can access them later */
-  fd_topo_join_workspaces( config->name, &config->topo );
+  fd_topo_join_workspaces( config->name, &config->topo, FD_SHMEM_JOIN_MODE_READ_ONLY );
 
   if( FD_UNLIKELY( close( 0 ) ) ) FD_LOG_ERR(( "close(0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   fd_sandbox( config->development.sandbox,

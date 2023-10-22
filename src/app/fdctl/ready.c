@@ -9,7 +9,7 @@ ready_cmd_fn( args_t *         args,
               config_t * const config ) {
   (void)args;
 
-  fd_topo_join_workspaces( config->name, &config->topo );
+  fd_topo_join_workspaces( config->name, &config->topo, FD_SHMEM_JOIN_MODE_READ_ONLY );
   fd_topo_fill( &config->topo, FD_TOPO_FILL_MODE_JOIN );
 
   for( ulong i=0; i<config->topo.tile_cnt; i++) {

@@ -19,49 +19,59 @@ fd_topo_workspace_align( void ) {
 
 static void
 fd_topo_join_workspace( char * const     app_name,
-                        fd_topo_wksp_t * wksp ) {
-  if( FD_UNLIKELY( !wksp->wksp ) ) {
-    char name[ PATH_MAX ];
-    snprintf( name, PATH_MAX, "%s_%s.wksp", app_name, fd_topo_wksp_kind_str( wksp->kind ) );
+                        fd_topo_wksp_t * wksp,
+                        int              mode ) {
+  char name[ PATH_MAX ];
+  snprintf( name, PATH_MAX, "%s_%s.wksp", app_name, fd_topo_wksp_kind_str( wksp->kind ) );
 
-    wksp->wksp = fd_wksp_join( fd_shmem_join( name, FD_SHMEM_JOIN_MODE_READ_WRITE, NULL, NULL, NULL ) );
-    if( FD_UNLIKELY( !wksp->wksp ) ) FD_LOG_ERR(( "fd_wksp_join failed" ));
+  wksp->wksp = fd_wksp_join( fd_shmem_join( name, mode, NULL, NULL, NULL ) );
+  if( FD_UNLIKELY( !wksp->wksp ) ) FD_LOG_ERR(( "fd_wksp_join failed" ));
+}
+
+FD_FN_PURE static int
+tile_needs_wksp( fd_topo_t * topo, fd_topo_tile_t * tile, ulong wksp_id ) {
+  for( ulong i=0UL; i<tile->in_cnt; i++ ) {
+    fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->links[ tile->in_link_id[ i ] ].wksp_id ];
+    if( FD_UNLIKELY( link_wksp->id == wksp_id ) ) return 1;
   }
+
+  for( ulong i=0UL; i<tile->out_cnt; i++ ) {
+    fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->links[ tile->out_link_id[ i ] ].wksp_id ];
+    if( FD_UNLIKELY( link_wksp->id == wksp_id ) ) return 1;
+  }
+
+  if( FD_LIKELY( tile->out_link_id_primary != ULONG_MAX ) ) {
+    fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->links[ tile->out_link_id_primary ].wksp_id ];
+    if( FD_UNLIKELY( link_wksp->id == wksp_id ) ) return 1;
+  }
+
+  fd_topo_wksp_t * tile_wksp = &topo->workspaces[ tile->wksp_id ];
+  if( FD_UNLIKELY( tile_wksp->id == wksp_id ) ) return 1;
+
+  return 0;
 }
 
 void
 fd_topo_join_tile_workspaces( char * const     app_name,
                               fd_topo_t *      topo,
                               fd_topo_tile_t * tile ) {
-  for( ulong i=0UL; i<tile->in_cnt; i++ ) {
-    fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->links[ tile->in_link_id[ i ] ].wksp_id ];
-    fd_topo_join_workspace( app_name, link_wksp );
+  for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {
+    if( FD_UNLIKELY( tile_needs_wksp( topo, tile, i ) ) )
+      fd_topo_join_workspace( app_name, &topo->workspaces[ i ], FD_SHMEM_JOIN_MODE_READ_WRITE );
   }
-
-  for( ulong i=0UL; i<tile->out_cnt; i++ ) {
-    fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->links[ tile->out_link_id[ i ] ].wksp_id ];
-    fd_topo_join_workspace( app_name, link_wksp );
-  }
-
-  if( FD_LIKELY( tile->out_link_id_primary != ULONG_MAX ) ) {
-    fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->links[ tile->out_link_id_primary ].wksp_id ];
-    fd_topo_join_workspace( app_name, link_wksp );
-  }
-
-  fd_topo_wksp_t * tile_wksp = &topo->workspaces[ tile->wksp_id ];
-  fd_topo_join_workspace( app_name, tile_wksp );
 }
 
 void
 fd_topo_join_workspaces( char * const app_name,
-                         fd_topo_t *  topo ) {
+                         fd_topo_t *  topo,
+                         int          mode ) {
   for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {
-    fd_topo_join_workspace( app_name, &topo->workspaces[ i ] );
+    fd_topo_join_workspace( app_name, &topo->workspaces[ i ], mode );
   }
 }
 
 void
-fd_topo_leave_workspaces( fd_topo_t *  topo ) {
+fd_topo_leave_workspaces( fd_topo_t * topo ) {
   for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {
     fd_topo_wksp_t * wksp = &topo->workspaces[ i ];
 
@@ -299,51 +309,13 @@ fd_topo_workspace_fill( fd_topo_t *      topo,
   }
 }
 
-FD_FN_PURE static int
-ulong_arr_contains( ulong   cnt,
-                    ulong * arr,
-                    ulong   val ) {
-  for( ulong i=0UL; i<cnt; i++ ) {
-    if( arr[ i ] == val ) return 1;
-  }
-  return 0;
-}
-
 void
 fd_topo_fill_tile( fd_topo_t *      topo,
                    fd_topo_tile_t * tile,
                    ulong            mode ) {
-  ulong wksp_seen_cnt = 0UL;
-  ulong wksp_seen[ FD_TOPO_MAX_WKSPS ];
-
-  for( ulong i=0UL; i<tile->in_cnt; i++ ) {
-    fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->links[ tile->in_link_id[ i ] ].wksp_id ];
-    if( FD_LIKELY( ulong_arr_contains( wksp_seen_cnt, wksp_seen, link_wksp->id ) ) ) continue;
-    wksp_seen[ wksp_seen_cnt++ ] = link_wksp->id;
-
-    fd_topo_workspace_fill( topo, link_wksp, mode );
-  }
-
-  for( ulong i=0UL; i<tile->out_cnt; i++ ) {
-    fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->links[ tile->out_link_id[ i ] ].wksp_id ];
-    if( FD_LIKELY( ulong_arr_contains( wksp_seen_cnt, wksp_seen, link_wksp->id ) ) ) continue;
-    wksp_seen[ wksp_seen_cnt++ ] = link_wksp->id;
-
-    fd_topo_workspace_fill( topo, link_wksp, mode );
-  }
-
-  if( FD_LIKELY( tile->out_link_id_primary != ULONG_MAX ) ) {
-    fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->links[ tile->out_link_id_primary ].wksp_id ];
-    if( FD_UNLIKELY( !ulong_arr_contains( wksp_seen_cnt, wksp_seen, link_wksp->id ) ) ) {
-      wksp_seen[ wksp_seen_cnt++ ] = link_wksp->id;
-      fd_topo_workspace_fill( topo, link_wksp, mode );
-    }
-  }
-
-  fd_topo_wksp_t * tile_wksp = &topo->workspaces[ tile->wksp_id ];
-  if( FD_UNLIKELY( !ulong_arr_contains( wksp_seen_cnt, wksp_seen, tile_wksp->id ) ) ) {
-    wksp_seen[ wksp_seen_cnt++ ] = tile_wksp->id;
-    fd_topo_workspace_fill( topo, tile_wksp, mode );
+  for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {
+    if( FD_UNLIKELY( tile_needs_wksp( topo, tile, i ) ) )
+      fd_topo_workspace_fill( topo, &topo->workspaces[ i ], mode );
   }
 }
 
@@ -356,46 +328,17 @@ fd_topo_fill( fd_topo_t * topo,
 }
 
 static ulong
-fd_topo_mlock_max_tile1( fd_topo_t * topo,
+fd_topo_mlock_max_tile1( fd_topo_t *      topo,
                          fd_topo_tile_t * tile ) {
-  #define ADD( wksp ) do {                          \
-      int found = 0;                                \
-      for( ulong j=0UL; j<wksp_seen_cnt; j++ ) {      \
-        if( wksp_seen[ j ] == wksp->id ) {          \
-          found = 1;                                \
-          break;                                    \
-        }                                           \
-      }                                             \
-      if( FD_LIKELY( !found ) ) {                   \
-        wksp_seen[ wksp_seen_cnt++ ] = wksp->id;    \
-        tile_mem += wksp->page_cnt * wksp->page_sz; \
-      }                                             \
-    } while( 0 )
-
-  ulong wksp_seen_cnt = 0UL;
-  ulong wksp_seen[ FD_TOPO_MAX_WKSPS ];
-
   ulong tile_mem = 0UL;
 
-  for( ulong j=0UL; j<tile->in_cnt; j++ ) {
-    fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->links[ tile->in_link_id[ j ] ].wksp_id ];
-    ADD( link_wksp );
+  for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {
+    if( FD_UNLIKELY( tile_needs_wksp( topo, tile, i ) ) )
+      tile_mem += topo->workspaces[ i ].page_cnt * topo->workspaces[ i ].page_sz;
   }
 
-  for( ulong i=0UL; i<tile->out_cnt; i++ ) {
-    fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->links[ tile->out_link_id[ i ] ].wksp_id ];
-    ADD( link_wksp );
-  }
-
-  if( FD_LIKELY( tile->out_link_id_primary!=ULONG_MAX ) ) {
-    fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->links[ tile->out_link_id_primary ].wksp_id ];
-    ADD( link_wksp );
-  }
-
-  fd_topo_wksp_t * tile_wksp = &topo->workspaces[ tile->wksp_id ];
-  ADD( tile_wksp );
-
-  if( FD_UNLIKELY( tile->kind == FD_TOPO_TILE_KIND_SHRED ) ) {
+  if( FD_UNLIKELY( tile->kind == FD_TOPO_TILE_KIND_SHRED ||
+                   tile->kind == FD_TOPO_TILE_KIND_PACK ) ) {
     /* Shred tile locks 5 scratch pages for storing private key material. */
     tile_mem += 5UL * FD_SHMEM_NORMAL_PAGE_SZ;
   }
@@ -411,13 +354,13 @@ ulong
 fd_topo_mlock_max_tile( fd_topo_t * topo ) {
   fd_topo_fill( topo, FD_TOPO_FILL_MODE_FOOTPRINT );
 
-  ulong result = 0UL;
+  ulong highest_tile_mem = 0UL;
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t * tile = &topo->tiles[ i ];
-    result = fd_ulong_max( result, fd_topo_mlock_max_tile1( topo, tile ) );
+    highest_tile_mem = fd_ulong_max( highest_tile_mem, fd_topo_mlock_max_tile1( topo, tile ) );
   }
 
-  return result;
+  return highest_tile_mem;
 }
 
 ulong
@@ -703,7 +646,7 @@ fd_topo_print_log( fd_topo_t * topo ) {
 
     char size[ 24 ];
     fd_topo_mem_sz_string( fd_dcache_req_data_sz( link->mtu, link->depth, link->burst, 1 ), size );
-    PRINT( "  %2lu (%6s): %12s  kind_id=%-2lu  wksp_id=%-2lu  depth=%-5lu  mtu=8%lu  burst=%lu\n", i, size, fd_topo_link_kind_str( link->kind ), link->kind_id, link->wksp_id, link->depth, link->mtu, link->burst );
+    PRINT( "  %2lu (%6s): %12s  kind_id=%-2lu  wksp_id=%-2lu  depth=%-5lu  mtu=%9lu  burst=%lu\n", i, size, fd_topo_link_kind_str( link->kind ), link->kind_id, link->wksp_id, link->depth, link->mtu, link->burst );
   }
 
 #define PRINTIN( ... ) do {                                                            \
