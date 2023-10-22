@@ -43,7 +43,7 @@ init( config_t * const config ) {
 
   fd_topo_fill( &config->topo, FD_TOPO_FILL_MODE_FOOTPRINT );
   fd_topo_create_workspaces( config->name, &config->topo );
-  fd_topo_join_workspaces( config->name, &config->topo );
+  fd_topo_join_workspaces( config->name, &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topo_fill( &config->topo, FD_TOPO_FILL_MODE_NEW );
   fd_topo_leave_workspaces( &config->topo );
 

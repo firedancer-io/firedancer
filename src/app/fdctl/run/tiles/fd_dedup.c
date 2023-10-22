@@ -122,7 +122,6 @@ after_frag( void *             _ctx,
     *opt_sig       = 0; /* indicate this txn is coming from dedup, and has already been parsed */
     ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, *opt_sz, ctx->out_chunk0, ctx->out_wmark );
   }
-  FD_LOG_NOTICE(( "sending packet %lu %lu", *opt_sz, *opt_sig ));
 }
 
 static void
