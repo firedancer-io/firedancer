@@ -44,7 +44,7 @@ jobs:
       with:
         submodules: recursive
 
-    - uses: dtolnay/rust-toolchain@1.69.0
+    - uses: dtolnay/rust-toolchain@1.73.0
 
     - uses: ./.github/actions/deps
 

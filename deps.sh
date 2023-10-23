@@ -112,7 +112,7 @@ fetch () {
 }
 
 check_fedora_pkgs () {
-  local REQUIRED_RPMS=( perl autoconf gettext-devel automake flex bison cmake clang )
+  local REQUIRED_RPMS=( perl autoconf gettext-devel automake flex bison cmake clang protobuf-compiler )
 
   echo "[~] Checking for required RPM packages"
 
@@ -132,7 +132,7 @@ check_fedora_pkgs () {
 }
 
 check_debian_pkgs () {
-  local REQUIRED_DEBS=( perl autoconf gettext automake autopoint flex bison build-essential gcc-multilib )
+  local REQUIRED_DEBS=( perl autoconf gettext automake autopoint flex bison build-essential gcc-multilib protobuf-compiler )
 
   echo "[~] Checking for required DEB packages"
 
@@ -152,7 +152,7 @@ check_debian_pkgs () {
 }
 
 check_alpine_pkgs () {
-  local REQUIRED_APKS=( perl autoconf gettext automake flex bison build-base linux-headers )
+  local REQUIRED_APKS=( perl autoconf gettext automake flex bison build-base linux-headers protobuf-dev )
 
   echo "[~] Checking for required APK packages"
 
@@ -172,7 +172,7 @@ check_alpine_pkgs () {
 }
 
 check_macos_pkgs () {
-  local REQUIRED_FORMULAE=( perl autoconf gettext automake flex bison )
+  local REQUIRED_FORMULAE=( perl autoconf gettext automake flex bison protobuf )
 
   echo "[~] Checking for required brew formulae"
 
