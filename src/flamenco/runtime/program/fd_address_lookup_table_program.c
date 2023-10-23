@@ -167,7 +167,9 @@ freeze_lookup_table( fd_exec_instr_ctx_t * ctx ) {
   /* TODO release authority_acct borrow
      https://github.com/solana-labs/solana/blob/abf3b3e527c8b24b122ab2cccb34d9aff05f8c15/programs/address-lookup-table/src/processor.rs#L190 */
 
-  /* Re-borrow LUT account */
+  /* TODO Re-borrow LUT account
+     https://github.com/solana-labs/solana/blob/abf3b3e527c8b24b122ab2cccb34d9aff05f8c15/programs/address-lookup-table/src/processor.rs#L192-L193 */
+
   uchar const * lut_data    = lut_acct->const_data;
   ulong         lut_data_sz = lut_acct->const_meta->dlen;
 
@@ -183,6 +185,51 @@ freeze_lookup_table( fd_exec_instr_ctx_t * ctx ) {
 static int
 extend_lookup_table( fd_exec_instr_ctx_t *       ctx,
                      fd_addrlut_extend_t const * extend ) {
+
+  /* https://github.com/solana-labs/solana/blob/abf3b3e527c8b24b122ab2cccb34d9aff05f8c15/programs/address-lookup-table/src/processor.rs#L230-L232 */
+  fd_borrowed_account_t * lut_acct;
+  int acct_err = fd_instr_ctx_try_borrow_instruction_account( ctx, ctx->txn_ctx, 0, &lut_acct );
+  if( FD_UNLIKELY( acct_err ) ) {
+    /* TODO return code */
+    return FD_EXECUTOR_INSTR_ERR_ACC_BORROW_FAILED;
+  }
+  fd_pubkey_t const * lut_key = lut_acct->pubkey;
+
+  /* https://github.com/solana-labs/solana/blob/abf3b3e527c8b24b122ab2cccb34d9aff05f8c15/programs/address-lookup-table/src/processor.rs#L233-L235 */
+  if( FD_UNLIKELY( 0!=memcmp( lut_acct->const_meta->info.owner, fd_solana_address_lookup_table_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
+  }
+  /* TODO release lut_acct borrow
+     https://github.com/solana-labs/solana/blob/56ccffdaa5394f179dce6c0383918e571aca8bff/programs/address-lookup-table/src/processor.rs#L236 */
+
+  /* https://github.com/solana-labs/solana/blob/abf3b3e527c8b24b122ab2cccb34d9aff05f8c15/programs/address-lookup-table/src/processor.rs#L238-240 */
+  fd_borrowed_account_t * authority_acct;
+  acct_err = fd_instr_ctx_try_borrow_instruction_account( ctx, ctx->txn_ctx, 1, &authority_acct );
+  if( FD_UNLIKELY( acct_err ) ) {
+    /* TODO return code */
+    return FD_EXECUTOR_INSTR_ERR_ACC_BORROW_FAILED;
+  }
+  fd_pubkey_t const * authority_key = authority_acct->pubkey;
+
+  /* https://github.com/solana-labs/solana/blob/abf3b3e527c8b24b122ab2cccb34d9aff05f8c15/programs/address-lookup-table/src/processor.rs#L241-244 */
+  if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( ctx->instr, 1UL ) ) ) {
+    /* TODO Log: "Authority account must be a signer" */
+    return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+  }
+  /* TODO release authority_acct borrow
+     https://github.com/solana-labs/solana/blob/abf3b3e527c8b24b122ab2cccb34d9aff05f8c15/programs/address-lookup-table/src/processor.rs#L245 */
+
+  /* TODO Re-borrow LUT account
+     https://github.com/solana-labs/solana/blob/abf3b3e527c8b24b122ab2cccb34d9aff05f8c15/programs/address-lookup-table/src/processor.rs#L247-248 */
+
+  uchar const * lut_data     = lut_acct->const_data;
+  ulong         lut_data_sz  = lut_acct->const_meta->dlen;
+  ulong         lut_lamports = lut_acct->const_meta->info.lamports;
+
+  /* TODO Implement AddressLookupTable::deserialize */
+  (void)lut_key; (void)authority_key;
+  (void)lut_data; (void)lut_data_sz; (void)lut_lamports;
+
   FD_LOG_WARNING(( "TODO" ));
   (void)ctx; (void)extend;
   return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
