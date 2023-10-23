@@ -49,12 +49,12 @@ fd_x509_gen_solana_cert( EVP_PKEY * pkey ) {
   X509_set_version( x, 2 );
 
   /* Generate serial number */
-  long serial;
-  if( FD_UNLIKELY( 1!=RAND_bytes( (uchar *)&serial, sizeof(long) ) ) ) {
+  ulong serial;
+  if( FD_UNLIKELY( 1!=RAND_bytes( (uchar *)&serial, sizeof(ulong) ) ) ) {
     FD_LOG_WARNING(( "RAND_bytes() failed" ));
     goto cleanup1;
   }
-  ASN1_INTEGER_set( X509_get_serialNumber(x), serial );
+  ASN1_INTEGER_set_uint64( X509_get_serialNumber(x), serial );
 
   /* Set public key (the only important part) */
   X509_set_pubkey( x, pkey );
