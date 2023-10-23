@@ -358,15 +358,16 @@ fd_executor_setup_borrowed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
 }
 
 static void
-fd_executor_retrace( fd_exec_slot_ctx_t *          slot_ctx,
+fd_executor_retrace( fd_exec_slot_ctx_t *          slot_ctx FD_PARAM_UNUSED,
                      fd_soltrace_TxnInput const * trace_pre,
-                     fd_soltrace_TxnDiff  const * trace_post0 ) {
+                     fd_soltrace_TxnDiff  const * trace_post0,
+                     fd_wksp_t *                  local_wksp ) {
 
   FD_SCRATCH_SCOPED_FRAME;
 
   fd_soltrace_TxnDiff  _trace_post1[1];
   fd_soltrace_TxnDiff * trace_post1 =
-      fd_txntrace_replay( _trace_post1, trace_pre, slot_ctx->local_wksp );
+      fd_txntrace_replay( _trace_post1, trace_pre, local_wksp );
 
   if( FD_UNLIKELY( !trace_post1 ) )
     FD_LOG_ERR(( "fd_txntrace_replay failed" ));
@@ -376,9 +377,10 @@ fd_executor_retrace( fd_exec_slot_ctx_t *          slot_ctx,
                  fd_txntrace_diff_cstr() ));
 }
 
+
 int
 fd_execute_txn( fd_exec_slot_ctx_t *  slot_ctx,
-                fd_txn_t *            txn_descriptor,
+                fd_txn_t const *      txn_descriptor,
                 fd_rawtxn_b_t const * txn_raw ) {
   FD_SCRATCH_SCOPED_FRAME;
 
@@ -470,7 +472,7 @@ fd_execute_txn( fd_exec_slot_ctx_t *  slot_ctx,
 
   fd_instr_info_t instrs[txn_descriptor->instr_cnt];
   for ( ushort i = 0; i < txn_descriptor->instr_cnt; ++i ) {
-    fd_txn_instr_t *  txn_instr = &txn_descriptor->instr[i];
+    fd_txn_instr_t const * txn_instr = &txn_descriptor->instr[i];
     fd_convert_txn_instr_to_instr( txn_descriptor, txn_raw, txn_instr, txn_ctx.accounts, txn_ctx.borrowed_accounts, &instrs[i] );
   }
 
@@ -507,14 +509,16 @@ fd_execute_txn( fd_exec_slot_ctx_t *  slot_ctx,
     }
 
     int exec_result = fd_execute_instr( &instrs[i], &txn_ctx );
+
+    if( exec_result == FD_EXECUTOR_INSTR_SUCCESS )
+      exec_result = fd_executor_txn_check( slot_ctx, &txn_ctx );
+
     if( exec_result != FD_EXECUTOR_INSTR_SUCCESS ) {
       FD_LOG_DEBUG(( "fd_execute_instr failed (%d)", exec_result ));
       fd_funk_txn_cancel(txn_ctx.acc_mgr->funk, txn, 0);
       txn_ctx.funk_txn = parent_txn;
       return -1;
     }
-
-    /* TODO: sanity before/after checks: total lamports unchanged etc */
   }
 
   for( ulong i = 0; i < txn_ctx.accounts_cnt; i++ ) {
@@ -553,7 +557,7 @@ fd_execute_txn( fd_exec_slot_ctx_t *  slot_ctx,
         fd_executor_dump_txntrace( slot_ctx, sig0, &trace );
       }
       if( slot_ctx->trace_mode & FD_RUNTIME_TRACE_REPLAY ) {
-        fd_executor_retrace( slot_ctx, trace_pre, trace_post );
+        fd_executor_retrace( slot_ctx, trace_pre, trace_post, NULL /* FIXME: set this to a reasonable local_wksp */);
       }
     }
   }
@@ -561,4 +565,61 @@ fd_execute_txn( fd_exec_slot_ctx_t *  slot_ctx,
   fd_funk_txn_merge(slot_ctx->acc_mgr->funk, txn, 0);
   slot_ctx->funk_txn = parent_txn;
   return 0;
+}
+
+int fd_executor_txn_check( fd_exec_slot_ctx_t * slot_ctx,  fd_exec_txn_ctx_t *txn ) {
+  // We really need to cache this...
+  fd_rent_t rent;
+  fd_rent_new( &rent );
+  fd_sysvar_rent_read( slot_ctx, &rent );
+
+  ulong ending_lamports = 0;
+  ulong ending_dlen = 0;
+  ulong starting_lamports = 0;
+  ulong starting_dlen = 0;
+
+  for (ulong idx = 0; idx < txn->accounts_cnt; idx++) {
+    fd_borrowed_account_t *b = &txn->borrowed_accounts[idx];
+    if (NULL != b->meta) {
+      ending_lamports += b->meta->info.lamports;
+      ending_dlen += b->meta->dlen;
+
+      // Lets prevent creating non-rent-exempt accounts...
+      uchar after_exempt = fd_rent_exempt_minimum_balance2( &rent, b->meta->dlen) <= b->meta->info.lamports;
+
+      if (!after_exempt) {
+        uchar before_exempt = (b->starting_dlen != ULONG_MAX) ?
+          (fd_rent_exempt_minimum_balance2( &rent, b->starting_dlen) <= b->starting_lamports) : 1;
+        if (before_exempt || (b->meta->dlen != b->starting_dlen))
+          return FD_EXECUTOR_INSTR_ERR_ACC_NOT_RENT_EXEMPT;
+      }
+
+      if (b->starting_lamports != ULONG_MAX)
+        starting_lamports += b->starting_lamports;
+      if (b->starting_dlen != ULONG_MAX)
+        starting_dlen += b->starting_dlen;
+    } else if (NULL != b->const_meta) {
+      // Should these just kill the client?  They are impossible...
+      if (b->starting_lamports != b->const_meta->info.lamports)
+        return FD_EXECUTOR_INSTR_ERR_UNBALANCED_INSTR;
+      if (b->starting_dlen != b->const_meta->dlen)
+        return FD_EXECUTOR_INSTR_ERR_UNBALANCED_INSTR;
+    }
+  }
+
+  // Should these just kill the client?  They are impossible yet solana just throws an error
+  if (ending_lamports != starting_lamports)
+    return FD_EXECUTOR_INSTR_ERR_UNBALANCED_INSTR;
+
+#if 0
+  // cap_accounts_data_allocations_per_transaction
+  //    TODO: I am unsure if this is the correct check...
+  if (((long)ending_dlen - (long)starting_dlen) > MAX_PERMITTED_DATA_INCREASE)
+    return FD_EXECUTOR_INSTR_ERR_MAX_ACCS_DATA_SIZE_EXCEEDED;
+#endif
+
+  /* TODO unused variables */
+  (void)ending_dlen; (void)starting_dlen;
+
+  return FD_EXECUTOR_INSTR_SUCCESS;
 }

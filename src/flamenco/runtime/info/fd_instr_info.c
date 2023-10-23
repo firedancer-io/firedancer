@@ -1,6 +1,6 @@
 #include "fd_instr_info.h"
 
-#include "fd_account.h"
+#include "../fd_account.h"
 
 void
 fd_convert_txn_instr_to_instr( fd_txn_t const *                 txn_descriptor,

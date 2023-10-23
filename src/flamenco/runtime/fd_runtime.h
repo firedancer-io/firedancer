@@ -12,7 +12,8 @@
 #include "sysvar/fd_sysvar.h"
 #include "context/fd_exec_slot_ctx.h"
 #include "context/fd_exec_txn_ctx.h"
-#include "fd_instr_info.h"
+#include "info/fd_block_info.h"
+#include "info/fd_instr_info.h"
 
 #define FD_RUNTIME_EXECUTE_SUCCESS                               ( 0 )  /* Slot executed successfully */
 #define FD_RUNTIME_EXECUTE_GENERIC_ERR                          ( -1 ) /* The Slot execute returned an error */
@@ -50,9 +51,9 @@ FD_PROTOTYPES_BEGIN
 ulong
 fd_runtime_lamports_per_signature( fd_firedancer_banks_t const * bank );
 
-ulong
-fd_runtime_txn_lamports_per_signature( fd_exec_txn_ctx_t * txn_ctx,
-                                       fd_txn_t * txn_descriptor,
+ulong 
+fd_runtime_txn_lamports_per_signature( fd_exec_txn_ctx_t * txn_ctx, 
+                                       fd_txn_t const * txn_descriptor,
                                        fd_rawtxn_b_t const * txn_raw );
 
 void
@@ -64,27 +65,28 @@ void
 fd_runtime_init_program( fd_exec_slot_ctx_t * slot_ctx );
 
 int
-fd_runtime_block_execute( fd_exec_slot_ctx_t * slot_ctx,
-                          fd_slot_meta_t *m,
-                          const void* block,
-                          ulong blocklen );
+fd_runtime_block_execute( fd_exec_slot_ctx_t * slot_ctx, 
+                          fd_slot_meta_t *m, 
+                          fd_block_info_t const * block_info );
 
 int
-fd_runtime_block_verify( fd_exec_slot_ctx_t * slot_ctx,
-  fd_slot_meta_t *m, const void* block, ulong blocklen );
+fd_runtime_block_verify( fd_block_info_t const * block_info,
+                         fd_hash_t * poh_hash );
 
-int fd_runtime_block_verify_tpool( fd_exec_slot_ctx_t * slot_ctx,
-                                   fd_slot_meta_t *m,
-                                  const void* block, ulong blocklen, fd_tpool_t * tpool, ulong max_workers );
+int
+fd_runtime_block_prepare( void const * buf,
+                          ulong buf_sz,
+                          fd_valloc_t valloc,
+                          fd_block_info_t * out_block_info );
 
-int fd_runtime_block_eval( fd_exec_slot_ctx_t *slot_ctx,
+int fd_runtime_block_eval( fd_exec_slot_ctx_t * slot_ctx,
                            fd_slot_meta_t * m,
                            const void * block,
                            ulong blocklen );
 
 ulong
 fd_runtime_calculate_fee ( fd_exec_txn_ctx_t * txn_ctx,
-                           fd_txn_t * txn_descriptor,
+                           fd_txn_t const * txn_descriptor,
                            fd_rawtxn_b_t const * txn_raw );
 
 void

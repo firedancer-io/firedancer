@@ -12,7 +12,6 @@ $(call add-hdrs, \
 	fd_rent_lists.h \
 	fd_borrowed_account.h \
 	fd_system_ids.h \
-	fd_instr_info.h \
 	fd_rawtxn.h \
 	fd_pubkey_utils.h \
 )
@@ -26,9 +25,9 @@ $(call add-objs, \
 	fd_hashes \
 	fd_runtime \
 	fd_system_ids \
-	fd_instr_info \
 	fd_pubkey_utils \
-	tests/fd_tests, \
+	tests/fd_tests \
+	, \
 	fd_flamenco \
 )
 
