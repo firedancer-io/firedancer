@@ -571,7 +571,7 @@ fd_quic_conn_error( fd_quic_conn_t * conn, uint reason ) {
   fd_quic_reschedule_conn( conn, 0 );
 }
 
-/* returns the enc level we should use for the next tx quic packet
+/* returns the encoding level we should use for the next tx quic packet
    or all 1's if nothing to tx */
 uint
 fd_quic_tx_enc_level( fd_quic_conn_t * conn ) {
@@ -1526,8 +1526,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
         return FD_QUIC_PARSE_FAIL;
       }
     } else {
-      /* not accepting incoming connections */
-      FD_DEBUG( FD_LOG_WARNING( ( "this endpoint is not a QUIC server: ignoring incoming packet" ) ) );
+      /* connection may have been torn down */
       return FD_QUIC_PARSE_FAIL;
     }
   }
@@ -5669,17 +5668,17 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
 }
 
 /* process ack range
-   applies to pkt_number in [largest_ack - first_ack_range, largest_ack] */
+   applies to pkt_number in [largest_ack - ack_range, largest_ack] */
 void
 fd_quic_process_ack_range( fd_quic_conn_t * conn,
                            uint             enc_level,
                            ulong            largest_ack,
-                           ulong            first_ack_range ) {
+                           ulong            ack_range ) {
   /* loop thru all packet metadata, and process individual metadata */
 
   /* inclusive range */
   ulong hi = largest_ack;
-  ulong lo = largest_ack - first_ack_range;
+  ulong lo = largest_ack - ack_range;
 
   /* start at oldest sent */
   fd_quic_pkt_meta_pool_t * pool     = &conn->pkt_meta_pool;
@@ -5734,6 +5733,12 @@ fd_quic_frame_handle_ack_frame(
 
   uint enc_level = context.pkt->enc_level;
 
+  if( FD_UNLIKELY( data->first_ack_range > data->largest_ack ) ) {
+    /* this is a protocol violation, so inform the peer */
+    fd_quic_conn_error( context.conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION );
+    return FD_QUIC_PARSE_FAIL;
+  }
+
   /* ack packets are not ack-eliciting (they are acked with other things) */
 
   /* process ack range
@@ -5745,31 +5750,59 @@ fd_quic_frame_handle_ack_frame(
 
   ulong ack_range_count = data->ack_range_count;
 
-  ulong cur_pkt_number = data->largest_ack - data->first_ack_range - 1u;
+  /* cur_pkt_number holds the packet number of the lowest processed
+     and acknowledged packet
+     This should always be a valid packet number >= 0 */
+  ulong cur_pkt_number = data->largest_ack - data->first_ack_range;
 
   /* walk thru ack ranges */
-  for( ulong j = 0; j < ack_range_count; ++j ) {
+  for( ulong j = 0UL; j < ack_range_count; ++j ) {
     if( FD_UNLIKELY(  p_end <= p ) ) return FD_QUIC_PARSE_FAIL;
 
     fd_quic_ack_range_frag_t ack_range[1];
     ulong rc = fd_quic_decode_ack_range_frag( ack_range, p, (ulong)( p_end - p ) );
-    if( rc == FD_QUIC_PARSE_FAIL ) return FD_QUIC_PARSE_FAIL;
+    if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) return FD_QUIC_PARSE_FAIL;
 
-    /* the number of packet numbers to skip (they are not being acked) */
-    cur_pkt_number -= ack_range->gap;
+    /* ensure we have ulong local vars, regardless of ack_range definition */
+    ulong gap    = (ulong)ack_range->gap;
+    ulong length = (ulong)ack_range->length;
+
+    /* sanity check before unsigned arithmetic */
+    if( FD_UNLIKELY( ( gap    > ( ~0x3UL ) ) |
+                     ( length > ( ~0x3UL ) ) ) ) {
+      /* This is an unreasonably large value, so fail with protocol violation
+         It's also likely impossible due to the encoding method */
+      fd_quic_conn_error( context.conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION );
+      return FD_QUIC_PARSE_FAIL;
+    }
+
+    /* The number of packet numbers to skip (they are not being acked) is
+       ack_range->gap + 2
+       This is +1 to get from the lowest acked packet to the highest unacked packet
+       and +1 because the count of packets in the gap is (ack_range->gap+1) */
+    ulong skip = gap + 2UL;
+
+    /* verify the skip and length values are valid */
+    if( FD_UNLIKELY( skip + length > cur_pkt_number ) ) {
+      /* this is a protocol violation, so inform the peer */
+      fd_quic_conn_error( context.conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION );
+      return FD_QUIC_PARSE_FAIL;
+    }
 
     /* process ack range */
-    fd_quic_process_ack_range( context.conn, enc_level, cur_pkt_number, ack_range->length );
+    fd_quic_process_ack_range( context.conn, enc_level, cur_pkt_number - skip, length );
 
-    /* adjust for next range */
-    cur_pkt_number -= ack_range->length - 1u;
+    /* Find the next lowest processed and acknowledged packet number
+       This should get us to the next lowest processed and acknowledged packet
+       number */
+    cur_pkt_number -= skip + length;
 
     p += rc;
   }
 
   /* ECN counts
      we currently ignore them, but we must process them to get to the following bytes */
-  if( data->type & 1u ) {
+  if( data->type & 1U ) {
     if( FD_UNLIKELY(  p_end <= p ) ) return FD_QUIC_PARSE_FAIL;
 
     fd_quic_ecn_counts_frag_t ecn_counts[1];
