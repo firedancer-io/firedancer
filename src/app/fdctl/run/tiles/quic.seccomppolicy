@@ -12,12 +12,3 @@ getpid
 
 # OpenSSL RAND_bytes reads getrandom, temporarily used as part of quic_init to generate a certificate
 getrandom
-
-# OpenSSL SSL_do_handshake() uses an arena which eventually calls _rjem_je_pages_purge_forced
-madvise: (eq (arg 2) MADV_DONTNEED)
-
-# OpenSSL again... deep inside SSL_provide_quic_data() some jemalloc code calls mmap
-mmap: (and (eq (arg 2) PROT_WRITE)
-           (eq (arg 3) "MAP_PRIVATE | MAP_ANONYMOUS") 
-           (eq (arg 4) -1)
-           (eq (arg 5) 0))

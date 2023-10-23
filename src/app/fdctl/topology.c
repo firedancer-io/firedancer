@@ -77,8 +77,9 @@ fd_topo_leave_workspaces( fd_topo_t * topo ) {
 
     if( FD_LIKELY( wksp->wksp ) ) {
       if( FD_UNLIKELY( fd_wksp_detach( wksp->wksp ) ) ) FD_LOG_ERR(( "fd_wksp_detach failed" ));
-      wksp->wksp      = NULL;
-      wksp->footprint = 0UL;
+      wksp->wksp            = NULL;
+      wksp->known_footprint = 0UL;
+      wksp->total_footprint = 0UL;
     }
   }
 }
@@ -100,15 +101,17 @@ fd_topo_create_workspaces( char *      app_name,
 
     void * shmem = fd_shmem_join( name, FD_SHMEM_JOIN_MODE_READ_WRITE, NULL, NULL, NULL ); /* logs details */
 
-    void * wkspmem = fd_wksp_new( shmem, name, 0U, 1UL, wksp->footprint + fd_topo_workspace_align() ); /* logs details */
+    void * wkspmem = fd_wksp_new( shmem, name, 0U, wksp->part_max, wksp->total_footprint ); /* logs details */
     if( FD_UNLIKELY( !wkspmem ) ) FD_LOG_ERR(( "fd_wksp_new failed" ));
 
     fd_wksp_t * join = fd_wksp_join( wkspmem );
     if( FD_UNLIKELY( !join ) ) FD_LOG_ERR(( "fd_wksp_join failed" ));
 
-    /* Footprint has been predetermined so that this alloc() call will
-       precisely succeed inside the data region. */
-    ulong offset = fd_wksp_alloc( join, fd_topo_workspace_align(), wksp->footprint, 1UL );
+    /* Footprint has been predetermined so that this alloc() call must
+       succeed inside the data region.  The difference between total_footprint
+       and known_footprint is given to "loose" data, that may be dynamically
+       allocated out of the workspace at runtime. */
+    ulong offset = fd_wksp_alloc( join, fd_topo_workspace_align(), wksp->known_footprint, 1UL );
     if( FD_UNLIKELY( !offset ) ) FD_LOG_ERR(( "fd_wksp_alloc failed" ));
 
     /* gaddr_lo is the start of the workspace data region that can be
@@ -134,7 +137,7 @@ fd_topo_workspace_fill( fd_topo_t *      topo,
   /* Our first (and only) allocation is always at gaddr_lo in the workspace. */
   ulong scratch_top = 0UL;
   if( FD_LIKELY( mode != FD_TOPO_FILL_MODE_FOOTPRINT ) )
-    scratch_top = fd_ulong_align_up( (ulong)wksp->wksp + fd_wksp_private_data_off( 1UL ), fd_topo_workspace_align() );
+    scratch_top = fd_ulong_align_up( (ulong)wksp->wksp + fd_wksp_private_data_off( wksp->part_max ), fd_topo_workspace_align() );
 
   char path[ FD_WKSP_CSTR_MAX ];
   void * pod1 = SCRATCH_ALLOC( fd_pod_align(), fd_pod_footprint( 16384 ) );
@@ -275,26 +278,39 @@ fd_topo_workspace_fill( fd_topo_t *      topo,
   }
 
   if( FD_LIKELY( mode == FD_TOPO_FILL_MODE_FOOTPRINT ) ) {
+    ulong loose_sz = 0UL;
+    for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+      fd_topo_tile_t * tile = &topo->tiles[ i ];
+      if( FD_LIKELY( tile->wksp_id!=wksp->id ) ) continue;
+
+      fd_tile_config_t * config = fd_topo_tile_to_config( tile );
+      if( FD_UNLIKELY( config->loose_footprint ) )
+        loose_sz += config->loose_footprint( tile );
+    }
+
+    /* Typical size is fd_alloc top level superblock-ish, and then one alloc for all of the scratch space */
+    ulong part_max = 1UL + (loose_sz / (64UL << 10));
+
     for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
       fd_topo_tile_t * tile = &topo->tiles[ i ];
       if( FD_LIKELY( tile->wksp_id!=wksp->id ) ) continue;
 
       fd_tile_config_t * config = fd_topo_tile_to_config( tile );
       if( FD_LIKELY( config->scratch_align ) ) {
-        ulong current_wksp_offset = fd_ulong_align_up( fd_wksp_private_data_off( 1UL ), fd_topo_workspace_align() ) + scratch_top;
+        ulong current_wksp_offset = fd_ulong_align_up( fd_wksp_private_data_off( part_max ), fd_topo_workspace_align() ) + scratch_top;
 
         ulong desired_scratch_align = config->scratch_align();
-        ulong pad_to_align = desired_scratch_align- (current_wksp_offset % desired_scratch_align);
+        ulong pad_to_align = desired_scratch_align - (current_wksp_offset % desired_scratch_align);
 
         ulong tile_mem_offset = (ulong)SCRATCH_ALLOC( 1UL, pad_to_align + config->scratch_footprint( tile ) );
-        tile->user_mem_offset = fd_ulong_align_up( fd_wksp_private_data_off( 1UL ), fd_topo_workspace_align() ) + tile_mem_offset + pad_to_align;
+        tile->user_mem_offset = fd_ulong_align_up( fd_wksp_private_data_off( part_max ), fd_topo_workspace_align() ) + tile_mem_offset + pad_to_align;
       }
     }
 
     ulong footprint = fd_ulong_align_up( scratch_top, fd_topo_workspace_align() );
-    /* Compute footprint for a workspace that can store our footprint, with an extra align of
-       padding incase gaddr_lo is not aligned. */
-    ulong total_wksp_footprint = fd_wksp_footprint( 1UL, footprint + fd_topo_workspace_align() );
+    /* Compute footprint for a workspace that can store our footprint,
+       with an extra align of padding incase gaddr_lo is not aligned. */
+    ulong total_wksp_footprint = fd_wksp_footprint( part_max, footprint + fd_topo_workspace_align() + loose_sz );
 
     ulong page_sz = FD_SHMEM_GIGANTIC_PAGE_SZ;
     if( FD_UNLIKELY( total_wksp_footprint < 4 * FD_SHMEM_HUGE_PAGE_SZ ) ) page_sz = FD_SHMEM_HUGE_PAGE_SZ;
@@ -303,7 +319,9 @@ fd_topo_workspace_fill( fd_topo_t *      topo,
 
     /* Give any leftover space in the underlying shared memory to the
        data region of the workspace, since we might as well use it. */
-    wksp->footprint = wksp_aligned_footprint - fd_ulong_align_up( fd_wksp_private_data_off( 1UL ), fd_topo_workspace_align() ) - fd_topo_workspace_align();
+    wksp->part_max = part_max;
+    wksp->known_footprint = footprint;
+    wksp->total_footprint = wksp_aligned_footprint - fd_ulong_align_up( fd_wksp_private_data_off( part_max ), fd_topo_workspace_align() );
     wksp->page_sz = page_sz;
     wksp->page_cnt = wksp_aligned_footprint / page_sz;
   }
@@ -637,7 +655,7 @@ fd_topo_print_log( fd_topo_t * topo ) {
 
     char size[ 24 ];
     fd_topo_mem_sz_string( wksp->page_sz * wksp->page_cnt, size );
-    PRINT( "  %2lu (%6s): %12s  page_cnt=%lu  page_sz=%-8s  footprint=%lu\n", i, size, fd_topo_wksp_kind_str( wksp->kind ), wksp->page_cnt, fd_shmem_page_sz_to_cstr( wksp->page_sz ), wksp->footprint );
+    PRINT( "  %2lu (%6s): %12s  page_cnt=%lu  page_sz=%-8s  footprint=%-10lu  loose=%lu\n", i, size, fd_topo_wksp_kind_str( wksp->kind ), wksp->page_cnt, fd_shmem_page_sz_to_cstr( wksp->page_sz ), wksp->known_footprint, wksp->total_footprint - wksp->known_footprint );
   }
 
   PRINT( "\nLINKS\n" );
@@ -646,7 +664,7 @@ fd_topo_print_log( fd_topo_t * topo ) {
 
     char size[ 24 ];
     fd_topo_mem_sz_string( fd_dcache_req_data_sz( link->mtu, link->depth, link->burst, 1 ), size );
-    PRINT( "  %2lu (%6s): %12s  kind_id=%-2lu  wksp_id=%-2lu  depth=%-5lu  mtu=%9lu  burst=%lu\n", i, size, fd_topo_link_kind_str( link->kind ), link->kind_id, link->wksp_id, link->depth, link->mtu, link->burst );
+    PRINT( "  %2lu (%6s): %12s  kind_id=%-2lu  wksp_id=%-2lu  depth=%-5lu  mtu=%-9lu  burst=%lu\n", i, size, fd_topo_link_kind_str( link->kind ), link->kind_id, link->wksp_id, link->depth, link->mtu, link->burst );
   }
 
 #define PRINTIN( ... ) do {                                                            \

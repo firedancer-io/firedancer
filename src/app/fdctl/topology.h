@@ -95,9 +95,11 @@ typedef struct {
   struct {
     ulong page_sz;  /* The size of the pages that this workspace is backed by.  One of FD_PAGE_SIZE_*. */
     ulong page_cnt; /* The number of pages that must be mapped to this workspace to store all the data needed by consumers. */
+    ulong part_max; /* The maximum number of partitions in the underlying workspace.  There can only be this many allocations made at any one time. */
 
-    fd_wksp_t * wksp;      /* The workspace memory in the local process. */
-    ulong       footprint; /* Total size in bytes of all data in Firedancer that will be stored in this workspace. */
+    fd_wksp_t * wksp;            /* The workspace memory in the local process. */
+    ulong       known_footprint; /* Total size in bytes of all data in Firedancer that will be stored in this workspace at startup. */
+    ulong       total_footprint; /* Total size in bytes of all data in Firedancer that could be stored in this workspace, includes known data and loose data. */
   };
 } fd_topo_wksp_t;
 

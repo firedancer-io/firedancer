@@ -168,6 +168,15 @@ quic_limits( fd_topo_tile_t * tile ) {
 }
 
 FD_FN_CONST static inline ulong
+loose_footprint( fd_topo_tile_t * tile ) {
+  (void)tile;
+
+  /* Ensure there is 64 MiB leftover for OpenSSL allocations out of the
+     workspace */
+  return 1UL << 24UL;
+}
+
+FD_FN_CONST static inline ulong
 scratch_align( void ) {
   return 4096UL;
 }
@@ -176,11 +185,71 @@ FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t * tile ) {
   ulong scratch_top = 0UL;
   SCRATCH_ALLOC( alignof( fd_quic_ctx_t ), sizeof( fd_quic_ctx_t ) );
+  SCRATCH_ALLOC( fd_alloc_align(), fd_alloc_footprint() );
   SCRATCH_ALLOC( pubq_align(),   pubq_footprint( tile->quic.depth ) );
   SCRATCH_ALLOC( fd_aio_align(), fd_aio_footprint() );
   fd_quic_limits_t limits = quic_limits( tile );
   SCRATCH_ALLOC( fd_quic_align(), fd_quic_footprint( &limits ) );
   return fd_ulong_align_up( scratch_top, scratch_align() );
+}
+
+/* OpenSSL allows us to specify custom memory allocation functions, which we
+   want to point to an fd_alloc_t, but it does not let us use a context
+   object.  Instead we stash it in this thread local, which is OK because the
+   parent workspace exists for the duration of the SSL context, and the
+   process only has one thread.
+
+   Currently fd_alloc doesn't support realloc, so it's implemented on top of
+   malloc and free, and then also it doesn't support getting the size of an
+   allocation from the pointer, which we need for realloc, so we pad each
+   alloc by 8 bytes and stuff the size into the first 8 bytes. */
+static FD_TL fd_alloc_t * fd_quic_ssl_mem_function_ctx = NULL;
+
+static void *
+crypto_malloc( ulong        num,
+               char const * file,
+               int          line ) {
+  (void)file;
+  (void)line;
+  void * result = fd_alloc_malloc( fd_quic_ssl_mem_function_ctx, 8UL, num + 8UL );
+  if( FD_UNLIKELY( !result ) ) return NULL;
+  *(ulong*)result = num;
+  return (uchar*)result + 8UL;
+}
+
+static void
+crypto_free( void *       addr,
+             char const * file,
+             int          line ) {
+  (void)file;
+  (void)line;
+
+  if( FD_UNLIKELY( !addr ) ) return;
+  fd_alloc_free( fd_quic_ssl_mem_function_ctx, (uchar*)addr - 8UL );
+}
+
+static void *
+crypto_realloc( void *       addr,
+                ulong        num,
+                char const * file,
+                int          line ) {
+  (void)file;
+  (void)line;
+
+  if( FD_UNLIKELY( !addr ) ) return crypto_malloc( num, file, line );
+  if( FD_UNLIKELY( !num ) ) {
+    crypto_free( addr, file, line );
+    return NULL;
+  }
+
+  void * new = fd_alloc_malloc( fd_quic_ssl_mem_function_ctx, 8UL, num + 8UL );
+  if( FD_UNLIKELY( !new ) ) return NULL;
+
+  ulong old_num = *(ulong*)( (uchar*)addr - 8UL );
+  fd_memcpy( (uchar*)new + 8, (uchar*)addr, fd_ulong_min( old_num, num ) );
+  fd_alloc_free( fd_quic_ssl_mem_function_ctx, (uchar*)addr - 8UL );
+  *(ulong*)new = num;
+  return (uchar*)new + 8UL;
 }
 
 FD_FN_CONST static inline void *
@@ -678,7 +747,6 @@ privileged_init( fd_topo_t *      topo,
                  void *           scratch ) {
   (void)topo;
   (void)tile;
-  (void)scratch;
 
   /* initialize fd_netlink */
   (void)fd_nl_get();
@@ -690,6 +758,14 @@ privileged_init( fd_topo_t *      topo,
   /* OpenSSL goes and tries to read files and allocate memory and
      other dumb things on a thread local basis, so we need a special
      initializer to do it before seccomp happens in the process. */
+  ulong scratch_top = (ulong)scratch;
+  SCRATCH_ALLOC( alignof( fd_quic_ctx_t ), sizeof( fd_quic_ctx_t ) );
+  fd_quic_ssl_mem_function_ctx = fd_alloc_join( fd_alloc_new( SCRATCH_ALLOC( fd_alloc_align(), fd_alloc_footprint() ), 1UL ), tile->kind_id );
+  if( FD_UNLIKELY( !fd_quic_ssl_mem_function_ctx ) )
+    FD_LOG_ERR(( "fd_alloc_join failed" ));
+  if( FD_UNLIKELY( !CRYPTO_set_mem_functions( crypto_malloc, crypto_realloc, crypto_free ) ) )
+    FD_LOG_ERR(( "CRYPTO_set_mem_functions failed" ));
+
   if( FD_UNLIKELY( !OPENSSL_init_ssl( OPENSSL_INIT_LOAD_SSL_STRINGS , NULL ) ) )
     FD_LOG_ERR(( "OPENSSL_init_ssl failed" ));
   if( FD_UNLIKELY( !OPENSSL_init_crypto( OPENSSL_INIT_LOAD_CRYPTO_STRINGS | OPENSSL_INIT_NO_LOAD_CONFIG , NULL ) ) )
@@ -715,6 +791,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   ulong scratch_top = (ulong)scratch;
   fd_quic_ctx_t * ctx = (fd_quic_ctx_t*)SCRATCH_ALLOC( alignof( fd_quic_ctx_t ), sizeof( fd_quic_ctx_t ) );
+  SCRATCH_ALLOC( fd_alloc_align(), fd_alloc_footprint() );
   ctx->pubq = pubq_join( pubq_new( SCRATCH_ALLOC( pubq_align(), pubq_footprint( depth ) ), depth ) );
   if( FD_UNLIKELY( !ctx->pubq ) ) FD_LOG_ERR(( "pubq_join failed" ));
   fd_aio_t * quic_tx_aio = fd_aio_join( fd_aio_new( SCRATCH_ALLOC( fd_aio_align(), fd_aio_footprint() ), ctx, quic_tx_aio_send ) );
@@ -806,8 +883,6 @@ static long allow_syscalls[] = {
   __NR_fsync,     /* logging, WARNING and above fsync immediately */
   __NR_getpid,    /* OpenSSL RAND_bytes checks pid, temporarily used as part of quic_init to generate a certificate */
   __NR_getrandom, /* OpenSSL RAND_bytes reads getrandom, temporarily used as part of quic_init to generate a certificate */
-  __NR_madvise,   /* OpenSSL SSL_do_handshake() uses an arena which eventually calls _rjem_je_pages_purge_forced */
-  __NR_mmap,      /* OpenSSL again... deep inside SSL_provide_quic_data() some jemalloc code calls mmap */
   __NR_sendto,    /* allows to make requests on netlink socket */
   __NR_recvfrom,  /* allows to receive responses on netlink socket */
 };
@@ -841,6 +916,7 @@ fd_tile_config_t fd_tile_quic = {
   .allow_syscalls_cnt      = sizeof(allow_syscalls)/sizeof(allow_syscalls[ 0 ]),
   .allow_syscalls          = allow_syscalls,
   .allow_fds               = allow_fds,
+  .loose_footprint         = loose_footprint,
   .scratch_align           = scratch_align,
   .scratch_footprint       = scratch_footprint,
   .privileged_init         = privileged_init,
