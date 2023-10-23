@@ -51,8 +51,8 @@ FD_PROTOTYPES_BEGIN
 ulong
 fd_runtime_lamports_per_signature( fd_firedancer_banks_t const * bank );
 
-ulong 
-fd_runtime_txn_lamports_per_signature( fd_exec_txn_ctx_t * txn_ctx, 
+ulong
+fd_runtime_txn_lamports_per_signature( fd_exec_txn_ctx_t * txn_ctx,
                                        fd_txn_t const * txn_descriptor,
                                        fd_rawtxn_b_t const * txn_raw );
 
@@ -65,8 +65,8 @@ void
 fd_runtime_init_program( fd_exec_slot_ctx_t * slot_ctx );
 
 int
-fd_runtime_block_execute( fd_exec_slot_ctx_t * slot_ctx, 
-                          fd_slot_meta_t *m, 
+fd_runtime_block_execute( fd_exec_slot_ctx_t * slot_ctx,
+                          fd_slot_meta_t *m,
                           fd_block_info_t const * block_info );
 
 int
@@ -85,10 +85,10 @@ int fd_runtime_block_eval( fd_exec_slot_ctx_t * slot_ctx,
                            ulong blocklen );
 
 ulong
-fd_runtime_calculate_fee( fd_exec_txn_ctx_t * txn_ctx, 
+fd_runtime_calculate_fee( fd_exec_txn_ctx_t * txn_ctx,
                           fd_txn_t const * txn_descriptor,
                           fd_rawtxn_b_t const * txn_raw,
-                          bool remove_congestion_multiplier, 
+                          bool remove_congestion_multiplier,
                           bool include_loaded_account_data_size_in_fee );
 
 void
@@ -144,6 +144,9 @@ fd_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
 
 void
 fd_runtime_update_leaders( fd_exec_slot_ctx_t * slot_ctx, ulong slot);
+
+int
+fd_accounts_hash( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t *accounts_hash );
 
 FD_PROTOTYPES_END
 
