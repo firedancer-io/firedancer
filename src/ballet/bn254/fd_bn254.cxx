@@ -179,10 +179,16 @@ fd_bn254_g1_mult( fd_bn254_point_g1_t const * x, fd_bn254_bigint_t const * y, fd
 }
 
 int
-fd_bn254_pairing( fd_bn254_point_g1_t const * x, fd_bn254_point_g2_t const * y ) {
+fd_bn254_pairing( fd_bn254_point_g1_t const * p_1, fd_bn254_point_g2_t const * q_1,
+                  fd_bn254_point_g1_t const * p_2, fd_bn254_point_g2_t const * q_2) {
   if (!didinit) {
     libff::init_alt_bn128_params();
     didinit = true;
   }
-  return libff::alt_bn128_pairing(fd_bn254_g1_sol_to_libff(x), fd_bn254_g2_sol_to_libff(y)) == libff::alt_bn128_Fq12::one();
+  auto p_1_pre = libff::alt_bn128_precompute_G1(fd_bn254_g1_sol_to_libff(p_1));
+  auto q_1_pre = libff::alt_bn128_precompute_G2(fd_bn254_g2_sol_to_libff(q_1));
+  auto p_2_pre = libff::alt_bn128_precompute_G1(fd_bn254_g1_sol_to_libff(p_2));
+  auto q_2_pre = libff::alt_bn128_precompute_G2(fd_bn254_g2_sol_to_libff(q_2));
+  auto r = libff::alt_bn128_final_exponentiation(libff::alt_bn128_double_miller_loop(p_1_pre, q_1_pre, p_2_pre, q_2_pre));
+  return r == libff::alt_bn128_GT::one();
 }
