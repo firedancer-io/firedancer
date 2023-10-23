@@ -8,7 +8,7 @@
 struct __attribute__((aligned(8UL))) fd_borrowed_account {
   ulong                       magic;
 
-  fd_pubkey_t const         * pubkey;
+  fd_pubkey_t                 pubkey[1];
 
   fd_account_meta_t const   * const_meta;
   uchar             const   * const_data;

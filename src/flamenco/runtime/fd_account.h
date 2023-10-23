@@ -38,7 +38,7 @@ int fd_account_sanity_check(fd_exec_instr_ctx_t const * ctx, int cnt) {
 }
 
 static inline
-void * fd_account_get_data(fd_account_meta_t *m) {
+void * fd_account_get_data(fd_account_meta_t * m) {
   return ((char *) m) + m->hlen;
 }
 

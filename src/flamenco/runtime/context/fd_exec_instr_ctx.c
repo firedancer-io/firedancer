@@ -2,7 +2,6 @@
 
 #include "../fd_acc_mgr.h"
 
-
 void *
 fd_exec_instr_ctx_new( void * mem ) {
   if( FD_UNLIKELY( !mem ) ) {

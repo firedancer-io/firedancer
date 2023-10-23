@@ -45,6 +45,8 @@ struct __attribute__((aligned(FD_EXEC_TXN_CTX_ALIGN))) fd_exec_txn_ctx {
   fd_exec_instr_ctx_t   instr_stack[6];           /* Instruction execution stack. */
   ulong                 accounts_cnt;             /* Number of account pubkeys accessed by this transaction. */
   fd_pubkey_t           accounts[128];            /* Array of account pubkeys accessed by this transaction. */
+  ulong                 executable_cnt;           /* Number of BPF upgradeable loader accounts. */
+  fd_borrowed_account_t executable_accounts[128]; /* Array of BPF upgradeable loader program data accounts */
   fd_borrowed_account_t borrowed_accounts[128];   /* Array of borrowed accounts accessed by this transaction. */
 };
 typedef struct fd_exec_txn_ctx fd_exec_txn_ctx_t;
@@ -52,6 +54,32 @@ typedef struct fd_exec_txn_ctx fd_exec_txn_ctx_t;
 #define FD_EXEC_TXN_CTX_MAGIC (0x9AD93EE71469F4D7UL) /* random */
 
 FD_PROTOTYPES_BEGIN
+int
+fd_txn_borrowed_account_view_idx( fd_exec_txn_ctx_t * ctx,
+                                  uchar idx,
+                                  fd_borrowed_account_t * * account );
+int
+fd_txn_borrowed_account_view( fd_exec_txn_ctx_t * ctx,
+                              fd_pubkey_t const *      pubkey,
+                              fd_borrowed_account_t * * account );
+                            
+int
+fd_txn_borrowed_account_executable_view( fd_exec_txn_ctx_t * ctx,
+                              fd_pubkey_t const *      pubkey,
+                              fd_borrowed_account_t * * account );
+
+int
+fd_txn_borrowed_account_modify_idx( fd_exec_txn_ctx_t * ctx,
+                                    uchar idx,
+                                    int do_create,
+                                    ulong min_data_sz,
+                                    fd_borrowed_account_t * * account );
+int
+fd_txn_borrowed_account_modify( fd_exec_txn_ctx_t * ctx,
+                                fd_pubkey_t const * pubkey,
+                                int do_create,
+                                ulong min_data_sz,
+                                fd_borrowed_account_t * * account );
 
 void *
 fd_exec_txn_ctx_new( void * mem );

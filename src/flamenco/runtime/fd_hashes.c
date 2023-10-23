@@ -36,7 +36,7 @@ fd_hash_account_deltas(fd_pubkey_hash_pair_t * pairs, ulong pairs_len, fd_hash_t
 
   for( ulong i = 0; i < pairs_len; ++i ) {
 
-    if (0) {
+    if (1) {
       FD_LOG_NOTICE(( "account delta hash X { \"key\":%ld, \"pubkey\":\"%32J\", \"hash\":\"%32J\" },", i, pairs[i].pubkey.key, pairs[i].hash.hash));
 
       /*
