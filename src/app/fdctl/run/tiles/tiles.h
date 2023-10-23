@@ -22,6 +22,7 @@ typedef struct {
   ushort allow_syscalls_cnt;
   long * allow_syscalls;
   ulong (*allow_fds          )( void * scratch, ulong out_fds_sz, int * out_fds );
+  ulong (*loose_footprint    )( fd_topo_tile_t * tile );
   ulong (*scratch_align      )( void );
   ulong (*scratch_footprint  )( fd_topo_tile_t * tile );
   void  (*privileged_init    )( fd_topo_t * topo, fd_topo_tile_t * tile, void * scratch );
