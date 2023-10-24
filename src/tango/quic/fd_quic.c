@@ -3109,21 +3109,17 @@ fd_quic_tls_cb_handshake_complete( fd_quic_tls_hs_t * hs,
 
         /* max streams
            set the initial max allowed by the peer */
-        uint stream_cnt = (uint)(
-            conn->quic->limits.stream_cnt[ 0x00 ] +
-            conn->quic->limits.stream_cnt[ 0x01 ] +
-            conn->quic->limits.stream_cnt[ 0x02 ] +
-            conn->quic->limits.stream_cnt[ 0x03 ] );
+        ulong * stream_cnts = conn->quic->limits.stream_cnt;
         if( conn->server ) {
           /* 0x01 server-initiated, bidirectional */
-          conn->max_streams[0x01] = fd_uint_min( stream_cnt, (uint)peer_tp->initial_max_streams_bidi );
+          conn->max_streams[0x01] = fd_uint_min( (uint)stream_cnts[0x01], (uint)peer_tp->initial_max_streams_bidi );
           /* 0x03 server-initiated, unidirectional */
-          conn->max_streams[0x03] = fd_uint_min( stream_cnt, (uint)peer_tp->initial_max_streams_uni );
+          conn->max_streams[0x03] = fd_uint_min( (uint)stream_cnts[0x03], (uint)peer_tp->initial_max_streams_uni );
         } else {
           /* 0x00 client-initiated, bidirectional */
-          conn->max_streams[0x00] = fd_uint_min( stream_cnt, (uint)peer_tp->initial_max_streams_bidi );
+          conn->max_streams[0x00] = fd_uint_min( (uint)stream_cnts[0x00], (uint)peer_tp->initial_max_streams_bidi );
           /* 0x02 client-initiated, unidirectional */
-          conn->max_streams[0x02] = fd_uint_min( stream_cnt, (uint)peer_tp->initial_max_streams_uni );
+          conn->max_streams[0x02] = fd_uint_min( (uint)stream_cnts[0x02], (uint)peer_tp->initial_max_streams_uni );
         }
 
         return;
@@ -6333,6 +6329,8 @@ fd_quic_frame_handle_stream_frame(
     /* update data received */
     stream->rx_tot_data = exp_offset + delivered;
     conn->rx_tot_data  += delivered;
+
+    stream->rx_max_stream_data += delivered;
 
     /* set max_data and max_data_frame to go out next packet */
     stream->upd_pkt_number = FD_QUIC_PKT_NUM_PENDING;

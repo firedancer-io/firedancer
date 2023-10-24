@@ -67,7 +67,7 @@ main( int     argc,
   if( cpu_idx>fd_shmem_cpu_cnt() ) cpu_idx = 0UL;
 
   char const * _page_sz  = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",   NULL, "gigantic"                   );
-  ulong        page_cnt  = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt",  NULL, 2UL                          );
+  ulong        page_cnt  = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt",  NULL, 5UL                          );
   ulong        numa_idx  = fd_env_strip_cmdline_ulong( &argc, &argv, "--numa-idx",  NULL, fd_shmem_numa_idx( cpu_idx ) );
 
   ulong page_sz = fd_cstr_to_shmem_page_sz( _page_sz );
@@ -78,13 +78,13 @@ main( int     argc,
   FD_TEST( wksp );
 
   fd_quic_limits_t const quic_limits = {
-    .conn_cnt         = 10,
+    .conn_cnt         = 128,
     .conn_id_cnt      = 10,
     .conn_id_sparsity = 4.0,
     .handshake_cnt    = 10,
-    .stream_cnt       = { 0, 0, 10, 0 },
-    .inflight_pkt_cnt = 100,
-    .tx_buf_sz        = 1<<20
+    .stream_cnt       = { 0, 0, 128, 0 },
+    .inflight_pkt_cnt = 1024,
+    .tx_buf_sz        = 1<<16
   };
 
   ulong quic_footprint = fd_quic_footprint( &quic_limits );
@@ -110,6 +110,9 @@ main( int     argc,
 
   server_quic->config.initial_rx_max_stream_data = 1<<20;
   client_quic->config.initial_rx_max_stream_data = 1<<20;
+
+  server_quic->config.idle_timeout = (ulong)120e9;
+  client_quic->config.idle_timeout = (ulong)120e9;
 
   FD_LOG_NOTICE(( "Creating virtual pair" ));
   fd_quic_virtual_pair_t vp;
@@ -174,7 +177,7 @@ main( int     argc,
   fd_quic_stream_t * client_stream = fd_quic_conn_new_stream( client_conn, FD_QUIC_TYPE_BIDIR );
   FD_TEST( client_stream );
 
-  char buf[ 256UL ] = "Hello world!\x00-   ";
+  char buf[ 1<<16 ] = "Hello world!\x00-   ";
   ulong buf_sz = sizeof(buf);
   fd_aio_pkt_info_t batch[1] = {{ buf, (ushort)buf_sz }};
   int rc = fd_quic_stream_send( client_stream, batch, 1, 0 );
