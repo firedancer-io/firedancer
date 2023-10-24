@@ -12,6 +12,7 @@
 #include "../../types/fd_types.h"
 
 #include "fd_exec_epoch_ctx.h"
+#include "fd_tower_ctx.h"
 
 struct fd_acc_mgr;
 typedef struct fd_acc_mgr fd_acc_mgr_t;
@@ -22,15 +23,13 @@ struct __attribute__((aligned(FD_EXEC_SLOT_CTX_ALIGN))) fd_exec_slot_ctx {
   ulong magic; /* ==FD_EXEC_SLOT_CTX_MAGIC */
 
   fd_exec_epoch_ctx_t * epoch_ctx;
-  
-  // TODO: needs to move out
-  fd_funk_txn_t * funk_txn_tower[32];
-  ushort          funk_txn_index;
+
+  fd_tower_ctx_t       tower;
 
   fd_funk_txn_t *      funk_txn;
   fd_acc_mgr_t *       acc_mgr;
   fd_valloc_t          valloc;
-  
+
   // TODO: the following 3 items need to move
   fd_solcap_writer_t * capture;
   int                  trace_dirfd;
@@ -43,7 +42,7 @@ struct __attribute__((aligned(FD_EXEC_SLOT_CTX_ALIGN))) fd_exec_slot_ctx {
   ulong                    signature_cnt;
   fd_hash_t                account_delta_hash;
   fd_hash_t                prev_banks_hash;
-  
+
   fd_pubkey_t const *  leader;   /* Current leader */
   fd_slot_bank_t       slot_bank;
 };

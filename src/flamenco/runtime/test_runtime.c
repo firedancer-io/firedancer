@@ -6,7 +6,7 @@ build/native/gcc/unit-test/test_runtime --load test_ledger_backup --cmd replay -
 
 build/native/gcc/bin/fd_shmem_cfg reset
 
-build/native/gcc/bin/fd_wksp_ctl new giant_wksp 200 gigantic 32-127 0666
+build/native/gcc/bin/fd_wksp_ctl new giant_wksp 200 gigantic 32-63 0666
 
 build/native/gcc/bin/fd_frank_ledger --wksp giant_wksp --reset true --cmd ingest --snapshotfile /home/jsiegel/mainnet-ledger/snapshot-179244883-2DyMb1qN8JuTijCjsW8w4G2tg1hWuAw2AopH7Bj9Qstu.tar.zst --incremental /home/jsiegel/mainnet-ledger/incremental-snapshot-179244883-179248368-6TprbHABozQQLjjc1HBeQ2p4AigMC7rhHJS2Q5WLcbyw.tar.zst --rocksdb /home/jsiegel/mainnet-ledger/rocksdb --endslot 179249378 --backup /home/asiegel/mainnet_backup
 
@@ -138,6 +138,16 @@ replay( global_state_t * state,
   fd_scratch_attach( smem, fmem, smax, scratch_depth );
 
   fd_features_restore( state->slot_ctx );
+
+  if ( justverify == 2) {
+    fd_hash_t accounts_hash;
+    fd_accounts_hash(state->slot_ctx, &accounts_hash);
+    FD_LOG_WARNING(("accounts_hash %32J", accounts_hash.hash));
+
+    fd_wksp_free_laddr( fd_scratch_detach( NULL ) );
+    fd_wksp_free_laddr( fmem                      );
+    return 0;
+  }
 
   fd_funk_rec_key_t key = fd_runtime_block_meta_key(ULONG_MAX);
   fd_funk_rec_t const * rec = fd_funk_rec_query( state->slot_ctx->acc_mgr->funk, NULL, &key );
@@ -499,8 +509,12 @@ main( int     argc,
     }
 
   }
+
   if (strcmp(state.cmd, "verifyonly") == 0)
     replay(&state, 1, tpool, tcnt);
+
+  if (strcmp(state.cmd, "hashonly") == 0)
+    replay(&state, 2, tpool, tcnt);
 
   fd_alloc_free( alloc, fd_solcap_writer_delete( fd_solcap_writer_fini( state.slot_ctx->capture ) ) );
   if( state.capture_file  ) fclose( state.capture_file );

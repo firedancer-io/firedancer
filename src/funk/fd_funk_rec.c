@@ -156,7 +156,8 @@ fd_funk_rec_t *
 fd_funk_rec_modify( fd_funk_t *           funk,
                     fd_funk_rec_t const * rec ) {
 
-  if( FD_UNLIKELY( (!funk) | (!rec) ) ) return NULL;
+  if( FD_UNLIKELY( (!funk) | (!rec) ) )
+    return NULL;
 
   fd_wksp_t * wksp = fd_funk_wksp( funk );
 
@@ -169,13 +170,15 @@ fd_funk_rec_modify( fd_funk_t *           funk,
   if( FD_UNLIKELY( (rec_idx>=rec_max) /* Out of map (incl NULL) */ | (rec!=(rec_map+rec_idx)) /* Bad alignment */ ) )
     return NULL;
 
-  if( FD_UNLIKELY( rec!=fd_funk_rec_map_query( rec_map, fd_funk_rec_pair( rec ), NULL ) ) ) return NULL; /* Not live */
+  if( FD_UNLIKELY( rec!=fd_funk_rec_map_query( rec_map, fd_funk_rec_pair( rec ), NULL ) ) )
+    return NULL; /* Not live */
 
   ulong txn_idx = fd_funk_txn_idx( rec->txn_cidx );
 
   if( fd_funk_txn_idx_is_null( txn_idx ) ) { /* Modifying last published transaction */
 
-    if( FD_UNLIKELY( fd_funk_last_publish_is_frozen( funk ) ) ) return NULL;
+    if( FD_UNLIKELY( fd_funk_last_publish_is_frozen( funk ) ) )
+      return NULL;
 
   } else { /* Modifying an in-prep tranaction */
 
@@ -185,7 +188,8 @@ fd_funk_rec_modify( fd_funk_t *           funk,
 
     if( FD_UNLIKELY( txn_idx>=txn_max ) ) FD_LOG_CRIT(( "memory corruption detected (bad idx)" ));
 
-    if( FD_UNLIKELY( fd_funk_txn_is_frozen( &txn_map[ txn_idx ] ) ) ) return NULL;
+    if( FD_UNLIKELY( fd_funk_txn_is_frozen( &txn_map[ txn_idx ] ) ) )
+      return NULL;
   }
 
   return (fd_funk_rec_t *)rec;
@@ -473,7 +477,7 @@ fd_funk_rec_remove( fd_funk_t *     funk,
           fd_funk_val_flush( rec, fd_funk_alloc( funk, wksp ), wksp ); /* TODO: consider testing wksp_gaddr has wksp_tag? */
 
           rec->flags |= FD_FUNK_REC_FLAG_ERASE;
-  
+
           return FD_FUNK_SUCCESS;
 
         }

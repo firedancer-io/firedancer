@@ -19,12 +19,14 @@
 void
 fd_hash_account_deltas(fd_pubkey_hash_pair_t * pairs, ulong pairs_len, fd_hash_t * hash, fd_exec_slot_ctx_t * slot_ctx ) {
   fd_sha256_t shas[FD_ACCOUNT_DELTAS_MAX_MERKLE_HEIGHT];
-  uchar num_hashes[FD_ACCOUNT_DELTAS_MAX_MERKLE_HEIGHT+1];
+  uchar       num_hashes[FD_ACCOUNT_DELTAS_MAX_MERKLE_HEIGHT+1];
 
   // Init the number of hashes
   fd_memset( num_hashes, 0, sizeof(num_hashes) );
 
+  FD_LOG_WARNING(("sorting %d", pairs_len));
   sort_pubkey_hash_pair_inplace( pairs, pairs_len );
+  FD_LOG_WARNING(("fancy bmtree started"));
   for( ulong j = 0; j < FD_ACCOUNT_DELTAS_MAX_MERKLE_HEIGHT; ++j ) {
     fd_sha256_init( &shas[j] );
   }
@@ -54,13 +56,13 @@ fd_hash_account_deltas(fd_pubkey_hash_pair_t * pairs, ulong pairs_len, fd_hash_t
       // fd_acc_mgr_get_owner( global->acc_mgr, global->funk_txn, &pairs[i].pubkey, &current_owner );
       // char encoded_owner[50];
       // fd_base58_encode_32((uchar *) &current_owner, 0, encoded_owner);
-      int err;
+      int     err;
       uchar * raw_acc_data = (uchar*) fd_acc_mgr_view_raw(slot_ctx->acc_mgr, slot_ctx->funk_txn, (fd_pubkey_t *) &pairs[i].pubkey, NULL, &err);
       if (NULL != raw_acc_data) {
 
         fd_account_meta_t * metadata = (fd_account_meta_t *)raw_acc_data;
-        uchar * acc_data = fd_account_get_data(metadata);
-        char * acc_data_str = malloc(5*metadata->dlen + 1);
+        uchar *             acc_data = fd_account_get_data(metadata);
+        char *              acc_data_str = malloc(5*metadata->dlen + 1);
 
         char * acc_data_str_cursor = acc_data_str;
         if (metadata->dlen > 0) {
@@ -107,7 +109,7 @@ fd_hash_account_deltas(fd_pubkey_hash_pair_t * pairs, ulong pairs_len, fd_hash_t
   }
 
 
-  FD_LOG_DEBUG(( "T %lu", height ));
+//  FD_LOG_DEBUG(( "T %lu", height ));
   for( ulong i = 0; i < height; ++i ) {
 
     if( num_hashes[i]==0 ) {
@@ -123,7 +125,7 @@ fd_hash_account_deltas(fd_pubkey_hash_pair_t * pairs, ulong pairs_len, fd_hash_t
     for (ulong k = 0; k < FD_ACCOUNT_DELTAS_MAX_MERKLE_HEIGHT; ++k ) {
       tot_num_hashes += num_hashes[k];
     }
-    FD_LOG_DEBUG(("N %lu", tot_num_hashes));
+//    FD_LOG_DEBUG(("N %lu", tot_num_hashes));
     if (i == (height-1)) {
       assert(tot_num_hashes == 1);
       return;
@@ -229,14 +231,14 @@ fd_hash_bank( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t * hash, fd_pubkey_hash_ve
       slot_ctx->signature_cnt );
 
   FD_LOG_DEBUG(( "bank_hash slot: %lu,  hash: %32J,  parent_hash: %32J,  accounts_delta: %32J,  signature_count: %ld,  last_blockhash: %32J",
-      slot_ctx->slot_bank.slot, hash->hash, slot_ctx->prev_banks_hash.hash, slot_ctx->account_delta_hash.hash, slot_ctx->signature_cnt, slot_ctx->slot_bank.poh.hash ));
+                 slot_ctx->slot_bank.slot, hash->hash, slot_ctx->prev_banks_hash.hash, slot_ctx->account_delta_hash.hash, slot_ctx->signature_cnt, slot_ctx->slot_bank.poh.hash ));
 }
 
 
 int
 fd_update_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
-                     fd_hash_t *       hash,
-                     ulong             signature_cnt ) {
+                     fd_hash_t *          hash,
+                     ulong                signature_cnt ) {
 
   fd_acc_mgr_t *       acc_mgr  = slot_ctx->acc_mgr;
   fd_funk_t *          funk     = acc_mgr->funk;
@@ -266,7 +268,7 @@ fd_update_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
     fd_pubkey_t const *       acc_key  = fd_type_pun_const( rec->pair.key[0].uc );
     fd_funk_rec_t const *     rec      = NULL;
 
-    int err = 0;
+    int           err = 0;
     uchar const * _raw = fd_acc_mgr_view_raw( acc_mgr, txn, acc_key, &rec, &err);
     if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) )
       return err;
@@ -415,4 +417,119 @@ fd_hash_account_current( uchar                      hash  [ static 32 ],
     return fd_hash_account_v1( hash, account, pubkey, data );
   else
     return fd_hash_account_v0( hash, account, pubkey, data, slot_ctx->slot_bank.slot );
+}
+
+struct accounts_hash {
+  fd_funk_rec_t * key;
+  ulong  hash;
+};
+typedef struct accounts_hash accounts_hash_t;
+
+#define MAP_NAME accounts_hash
+#define MAP_KEY_T fd_funk_rec_t *
+#define MAP_HASH_T ulong
+#define MAP_KEY_EQUAL(k0,k1) ((NULL != k0) && (NULL != k1) && fd_funk_rec_key_eq( k0->pair.key, k1->pair.key ))
+#define MAP_KEY_HASH(p) fd_funk_rec_key_hash( p->pair.key, 2887034UL )
+#define MAP_KEY_EQUAL_IS_SLOW 1
+
+#define MAP_KEY_NULL 0UL
+#define MAP_KEY_INVAL(k) (NULL == k)
+
+// #define MAP_KEY_COPY(kd,ks)   fd_funk_xid_key_pair_copy((kd),(ks))
+
+#define MAP_T    accounts_hash_t
+#include "../../util/tmpl/fd_map_dynamic.c"
+
+int
+fd_accounts_hash( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t *accounts_hash ) {
+  FD_LOG_WARNING(("accounts_hash start"));
+
+  fd_funk_t *     funk = slot_ctx->acc_mgr->funk;
+  fd_wksp_t *     wksp = fd_funk_wksp( funk );
+  fd_funk_rec_t * rec_map  = fd_funk_rec_map( funk, wksp );
+  fd_funk_txn_t * txn_map  = fd_funk_txn_map( funk, wksp );
+
+  // How many txns are we dealing with?
+  ulong txn_cnt = 1;
+  fd_funk_txn_t * txn = slot_ctx->funk_txn;
+  while (NULL != txn) {
+    txn_cnt++;
+    txn = fd_funk_txn_parent( txn, txn_map );
+  }
+
+  fd_funk_txn_t ** txns = fd_alloca_check(sizeof(fd_funk_txn_t *), sizeof(fd_funk_txn_t *) * txn_cnt);
+  if ( FD_UNLIKELY(NULL == txns))
+    FD_LOG_ERR(("Out of scratch space?"));
+
+  // Lay it flat to make it easier to walk backwards up the chain from
+  // the root
+  txn = slot_ctx->funk_txn;
+  ulong txn_idx = txn_cnt;
+  while (1) {
+    txns[--txn_idx] = txn;
+    if (NULL == txn)
+      break;
+    txn = fd_funk_txn_parent( txn, txn_map );
+  }
+
+  // How many total records are we dealing with?
+  ulong           num_iter_accounts = fd_funk_rec_map_key_cnt( rec_map );
+
+  int accounts_hash_slots = fd_ulong_find_msb(num_iter_accounts  ) + 1;
+
+  FD_LOG_WARNING(("allocating memory for hash.  num_iter_accounts: %d   slots: %d", num_iter_accounts, accounts_hash_slots));
+  void * hashmem = fd_valloc_malloc( slot_ctx->valloc, accounts_hash_align(), accounts_hash_footprint(accounts_hash_slots));
+  FD_LOG_WARNING(("initializing memory for hash"));
+  accounts_hash_t * hash_map = accounts_hash_join(accounts_hash_new(hashmem, accounts_hash_slots));
+
+  FD_LOG_WARNING(("copying in accounts"));
+
+  // walk up the transactions...
+  for (ulong idx = 0; idx < txn_cnt; idx++) {
+    FD_LOG_WARNING(("txn idx %d", idx));
+    for (fd_funk_rec_t const *rec = fd_funk_txn_first_rec( funk, txns[idx]);
+         NULL != rec;
+         rec = fd_funk_txn_next_rec(funk, rec)) {
+      if ( fd_acc_mgr_is_key( rec->pair.key ) ) {
+        accounts_hash_t * q = accounts_hash_query(hash_map, (fd_funk_rec_t *) rec, NULL);
+        if (NULL != q)
+          accounts_hash_remove(hash_map, q);
+        if (!(rec->flags & FD_FUNK_REC_FLAG_ERASE))
+          accounts_hash_insert(hash_map, (fd_funk_rec_t *) rec);
+      }
+    }
+  }
+
+  FD_LOG_WARNING(("creating flat array that account_deltas expects"));
+
+  ulong slot_cnt = accounts_hash_slot_cnt(hash_map);;
+
+  ulong                   num_pairs = 0;
+  fd_pubkey_hash_pair_t * pairs = fd_valloc_malloc( slot_ctx->valloc, 8UL, num_iter_accounts * sizeof(fd_pubkey_hash_pair_t) );
+  FD_TEST(NULL != pairs);
+  for( ulong slot_idx=0UL; slot_idx<slot_cnt; slot_idx++ ) {
+    accounts_hash_t *slot = &hash_map[slot_idx];
+    if (FD_UNLIKELY (NULL != slot->key)) {
+      fd_account_meta_t * metadata = (fd_account_meta_t *) fd_funk_val_const( slot->key, wksp );
+      if (FD_UNLIKELY (metadata->magic != FD_ACCOUNT_META_MAGIC) )
+        FD_LOG_ERR(("invalid magic on metadata"));
+
+      // Should this just be the dead check?!
+      if ((metadata->info.lamports == 0) | ((metadata->info.executable & ~1) != 0))
+        continue;
+
+      fd_memcpy(pairs[num_pairs].pubkey.key, slot->key->pair.key, 32);
+      fd_memcpy(pairs[num_pairs].hash.hash, metadata->hash, 32);
+      num_pairs++;
+    }
+  }
+
+  fd_hash_account_deltas(pairs, num_pairs, accounts_hash, slot_ctx);
+
+  fd_valloc_free( slot_ctx->valloc,pairs);
+  fd_valloc_free( slot_ctx->valloc,hashmem);
+
+  FD_LOG_WARNING(("accounts_hash %32J", accounts_hash->hash));
+
+  return 0;
 }

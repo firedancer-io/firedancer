@@ -3435,21 +3435,31 @@ int fd_solana_manifest_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_bincode_uint64_decode_preflight(ctx);
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bank_incremental_snapshot_persistence_decode_preflight(ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_hash_decode_preflight(ctx);
+  if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
 void fd_solana_manifest_decode_unsafe(fd_solana_manifest_t* self, fd_bincode_decode_ctx_t * ctx) {
   fd_deserializable_versioned_bank_decode_unsafe(&self->bank, ctx);
   fd_solana_accounts_db_fields_decode_unsafe(&self->accounts_db, ctx);
   fd_bincode_uint64_decode_unsafe(&self->lamports_per_signature, ctx);
+  fd_bank_incremental_snapshot_persistence_decode_unsafe(&self->bank_incremental_snapshot_persistence, ctx);
+  fd_hash_decode_unsafe(&self->epoch_accounts_hash, ctx);
 }
 void fd_solana_manifest_new(fd_solana_manifest_t* self) {
   fd_memset(self, 0, sizeof(fd_solana_manifest_t));
   fd_deserializable_versioned_bank_new(&self->bank);
   fd_solana_accounts_db_fields_new(&self->accounts_db);
+  fd_bank_incremental_snapshot_persistence_new(&self->bank_incremental_snapshot_persistence);
+  fd_hash_new(&self->epoch_accounts_hash);
 }
 void fd_solana_manifest_destroy(fd_solana_manifest_t* self, fd_bincode_destroy_ctx_t * ctx) {
   fd_deserializable_versioned_bank_destroy(&self->bank, ctx);
   fd_solana_accounts_db_fields_destroy(&self->accounts_db, ctx);
+  fd_bank_incremental_snapshot_persistence_destroy(&self->bank_incremental_snapshot_persistence, ctx);
+  fd_hash_destroy(&self->epoch_accounts_hash, ctx);
 }
 
 ulong fd_solana_manifest_footprint( void ){ return FD_SOLANA_MANIFEST_FOOTPRINT; }
@@ -3460,6 +3470,8 @@ void fd_solana_manifest_walk(void * w, fd_solana_manifest_t const * self, fd_typ
   fd_deserializable_versioned_bank_walk(w, &self->bank, fun, "bank", level);
   fd_solana_accounts_db_fields_walk(w, &self->accounts_db, fun, "accounts_db", level);
   fun( w, &self->lamports_per_signature, "lamports_per_signature", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
+  fd_bank_incremental_snapshot_persistence_walk(w, &self->bank_incremental_snapshot_persistence, fun, "bank_incremental_snapshot_persistence", level);
+  fd_hash_walk(w, &self->epoch_accounts_hash, fun, "epoch_accounts_hash", level);
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_solana_manifest", level--);
 }
 ulong fd_solana_manifest_size(fd_solana_manifest_t const * self) {
@@ -3467,6 +3479,8 @@ ulong fd_solana_manifest_size(fd_solana_manifest_t const * self) {
   size += fd_deserializable_versioned_bank_size(&self->bank);
   size += fd_solana_accounts_db_fields_size(&self->accounts_db);
   size += sizeof(ulong);
+  size += fd_bank_incremental_snapshot_persistence_size(&self->bank_incremental_snapshot_persistence);
+  size += fd_hash_size(&self->epoch_accounts_hash);
   return size;
 }
 
@@ -3477,6 +3491,10 @@ int fd_solana_manifest_encode(fd_solana_manifest_t const * self, fd_bincode_enco
   err = fd_solana_accounts_db_fields_encode(&self->accounts_db, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_bincode_uint64_encode(&self->lamports_per_signature, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bank_incremental_snapshot_persistence_encode(&self->bank_incremental_snapshot_persistence, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_hash_encode(&self->epoch_accounts_hash, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -7505,6 +7523,12 @@ int fd_epoch_bank_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_rent_decode_preflight(ctx);
   if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_decode_preflight(ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_uint64_decode_preflight(ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_uint64_decode_preflight(ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   return FD_BINCODE_SUCCESS;
 }
 void fd_epoch_bank_decode_unsafe(fd_epoch_bank_t* self, fd_bincode_decode_ctx_t * ctx) {
@@ -7519,6 +7543,9 @@ void fd_epoch_bank_decode_unsafe(fd_epoch_bank_t* self, fd_bincode_decode_ctx_t 
   fd_inflation_decode_unsafe(&self->inflation, ctx);
   fd_epoch_schedule_decode_unsafe(&self->epoch_schedule, ctx);
   fd_rent_decode_unsafe(&self->rent, ctx);
+  fd_bincode_uint64_decode_unsafe(&self->eah_start_slot, ctx);
+  fd_bincode_uint64_decode_unsafe(&self->eah_stop_slot, ctx);
+  fd_bincode_uint64_decode_unsafe(&self->eah_interval, ctx);
 }
 void fd_epoch_bank_new(fd_epoch_bank_t* self) {
   fd_memset(self, 0, sizeof(fd_epoch_bank_t));
@@ -7550,6 +7577,9 @@ void fd_epoch_bank_walk(void * w, fd_epoch_bank_t const * self, fd_types_walk_fn
   fd_inflation_walk(w, &self->inflation, fun, "inflation", level);
   fd_epoch_schedule_walk(w, &self->epoch_schedule, fun, "epoch_schedule", level);
   fd_rent_walk(w, &self->rent, fun, "rent", level);
+  fun( w, &self->eah_start_slot, "eah_start_slot", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
+  fun( w, &self->eah_stop_slot, "eah_stop_slot", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
+  fun( w, &self->eah_interval, "eah_interval", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_epoch_bank", level--);
 }
 ulong fd_epoch_bank_size(fd_epoch_bank_t const * self) {
@@ -7565,6 +7595,9 @@ ulong fd_epoch_bank_size(fd_epoch_bank_t const * self) {
   size += fd_inflation_size(&self->inflation);
   size += fd_epoch_schedule_size(&self->epoch_schedule);
   size += fd_rent_size(&self->rent);
+  size += sizeof(ulong);
+  size += sizeof(ulong);
+  size += sizeof(ulong);
   return size;
 }
 
@@ -7592,6 +7625,12 @@ int fd_epoch_bank_encode(fd_epoch_bank_t const * self, fd_bincode_encode_ctx_t *
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_rent_encode(&self->rent, ctx);
   if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_encode(&self->eah_start_slot, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_encode(&self->eah_stop_slot, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_encode(&self->eah_interval, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
 
@@ -7614,6 +7653,8 @@ int fd_slot_bank_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   err = fd_bincode_uint64_decode_preflight(ctx);
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_hash_decode_preflight(ctx);
+  if ( FD_UNLIKELY(err) ) return err;
   err = fd_hash_decode_preflight(ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_hash_decode_preflight(ctx);
@@ -7643,6 +7684,7 @@ void fd_slot_bank_decode_unsafe(fd_slot_bank_t* self, fd_bincode_decode_ctx_t * 
   fd_bincode_uint64_decode_unsafe(&self->prev_slot, ctx);
   fd_hash_decode_unsafe(&self->poh, ctx);
   fd_hash_decode_unsafe(&self->banks_hash, ctx);
+  fd_hash_decode_unsafe(&self->epoch_account_hash, ctx);
   fd_fee_rate_governor_decode_unsafe(&self->fee_rate_governor, ctx);
   fd_bincode_uint64_decode_unsafe(&self->capitalization, ctx);
   fd_bincode_uint64_decode_unsafe(&self->block_height, ctx);
@@ -7658,6 +7700,7 @@ void fd_slot_bank_new(fd_slot_bank_t* self) {
   fd_clock_timestamp_votes_new(&self->timestamp_votes);
   fd_hash_new(&self->poh);
   fd_hash_new(&self->banks_hash);
+  fd_hash_new(&self->epoch_account_hash);
   fd_fee_rate_governor_new(&self->fee_rate_governor);
   fd_vote_accounts_new(&self->epoch_stakes);
   fd_sol_sysvar_last_restart_slot_new(&self->last_restart_slot);
@@ -7667,6 +7710,7 @@ void fd_slot_bank_destroy(fd_slot_bank_t* self, fd_bincode_destroy_ctx_t * ctx) 
   fd_clock_timestamp_votes_destroy(&self->timestamp_votes, ctx);
   fd_hash_destroy(&self->poh, ctx);
   fd_hash_destroy(&self->banks_hash, ctx);
+  fd_hash_destroy(&self->epoch_account_hash, ctx);
   fd_fee_rate_governor_destroy(&self->fee_rate_governor, ctx);
   fd_vote_accounts_destroy(&self->epoch_stakes, ctx);
   fd_sol_sysvar_last_restart_slot_destroy(&self->last_restart_slot, ctx);
@@ -7683,6 +7727,7 @@ void fd_slot_bank_walk(void * w, fd_slot_bank_t const * self, fd_types_walk_fn_t
   fun( w, &self->prev_slot, "prev_slot", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
   fd_hash_walk(w, &self->poh, fun, "poh", level);
   fd_hash_walk(w, &self->banks_hash, fun, "banks_hash", level);
+  fd_hash_walk(w, &self->epoch_account_hash, fun, "epoch_account_hash", level);
   fd_fee_rate_governor_walk(w, &self->fee_rate_governor, fun, "fee_rate_governor", level);
   fun( w, &self->capitalization, "capitalization", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
   fun( w, &self->block_height, "block_height", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
@@ -7701,6 +7746,7 @@ ulong fd_slot_bank_size(fd_slot_bank_t const * self) {
   size += sizeof(ulong);
   size += fd_hash_size(&self->poh);
   size += fd_hash_size(&self->banks_hash);
+  size += fd_hash_size(&self->epoch_account_hash);
   size += fd_fee_rate_governor_size(&self->fee_rate_governor);
   size += sizeof(ulong);
   size += sizeof(ulong);
@@ -7725,6 +7771,8 @@ int fd_slot_bank_encode(fd_slot_bank_t const * self, fd_bincode_encode_ctx_t * c
   err = fd_hash_encode(&self->poh, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_hash_encode(&self->banks_hash, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_hash_encode(&self->epoch_account_hash, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_fee_rate_governor_encode(&self->fee_rate_governor, ctx);
   if ( FD_UNLIKELY(err) ) return err;

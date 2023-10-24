@@ -469,7 +469,7 @@ fd_runtime_microblock_execute( fd_exec_slot_ctx_t * slot_ctx,
   for ( ulong txn_idx = 0; txn_idx < hdr->txn_cnt; txn_idx++ ) {
     fd_txn_t const * txn = microblock_info->txn_ptrs[txn_idx];
     fd_rawtxn_b_t const * raw_txn = &microblock_info->raw_txns[txn_idx];
-    
+
     FD_LOG_DEBUG(( "executing txn - slot: %lu, txn_idx: %lu, sig: %64J", slot_ctx->slot_bank.slot, txn_idx, (uchar *)raw_txn->raw + txn->signature_off ));
     fd_execute_txn( slot_ctx, txn, raw_txn );
   }
@@ -483,7 +483,7 @@ fd_runtime_microblock_batch_execute( fd_exec_slot_ctx_t * slot_ctx,
   /* Loop across microblocks */
   for ( ulong i = 0; i < microblock_batch_info->microblock_cnt; i++ ) {
     fd_microblock_info_t const * microblock_info = &microblock_batch_info->microblock_infos[i];
-    
+
     FD_LOG_DEBUG(( "executing microblock - slot: %lu, mblk_idx: %lu", slot_ctx->slot_bank.slot, i ));
     fd_runtime_microblock_execute( slot_ctx, microblock_info );
   }
@@ -508,7 +508,7 @@ fd_runtime_microblock_batch_execute( fd_exec_slot_ctx_t * slot_ctx,
 // What slots exactly do cache'd account_updates go into?  how are
 // they hashed (which slot?)?
 
-int 
+int
 fd_runtime_block_sysvar_update_pre_execute( fd_exec_slot_ctx_t * slot_ctx ) {
    // let (fee_rate_governor, fee_components_time_us) = measure_us!(
   //     FeeRateGovernor::new_derived(&parent.fee_rate_governor, parent.signature_count())
@@ -622,8 +622,8 @@ fd_runtime_microblock_verify_info_collect( fd_microblock_info_t const * microblo
 }
 
 void
-fd_runtime_microblock_batch_verify_info_collect( fd_microblock_batch_info_t const * microblock_batch_info, 
-                                                 fd_hash_t const * in_poh_hash, 
+fd_runtime_microblock_batch_verify_info_collect( fd_microblock_batch_info_t const * microblock_batch_info,
+                                                 fd_hash_t const * in_poh_hash,
                                                  fd_poh_verification_info_t * poh_verification_info ) {
   for( ulong i = 0; i < microblock_batch_info->microblock_cnt; i++ ) {
     fd_microblock_info_t const * microblock_info = &microblock_batch_info->microblock_infos[i];
@@ -633,19 +633,19 @@ fd_runtime_microblock_batch_verify_info_collect( fd_microblock_batch_info_t cons
 }
 
 void
-fd_runtime_block_verify_info_collect( fd_block_info_t const * block_info, 
-                                      fd_hash_t const * in_poh_hash, 
+fd_runtime_block_verify_info_collect( fd_block_info_t const * block_info,
+                                      fd_hash_t const * in_poh_hash,
                                       fd_poh_verification_info_t * poh_verification_info ) {
   for( ulong i = 0; i < block_info->microblock_batch_cnt; i++ ) {
     fd_microblock_batch_info_t const * microblock_batch_info = &block_info->microblock_batch_infos[i];
 
     fd_runtime_microblock_batch_verify_info_collect( microblock_batch_info, in_poh_hash, poh_verification_info );
     in_poh_hash = (fd_hash_t const *)poh_verification_info[microblock_batch_info->microblock_cnt-1].microblock_info->microblock_hdr.hash;
-    poh_verification_info += microblock_batch_info->microblock_cnt; 
+    poh_verification_info += microblock_batch_info->microblock_cnt;
   }
 }
 
-static void 
+static void
 fd_runtime_poh_verify_task( void * tpool,
                             ulong  t0 FD_PARAM_UNUSED, ulong t1 FD_PARAM_UNUSED,
                             void * args FD_PARAM_UNUSED,
@@ -701,7 +701,7 @@ fd_runtime_poh_verify_tpool( fd_poh_verification_info_t * poh_verification_info,
                              fd_tpool_t * tpool,
                              ulong max_workers ) {
   fd_tpool_exec_all_taskq( tpool, 0, max_workers, fd_runtime_poh_verify_task, poh_verification_info, NULL, NULL, 1, 0, poh_verification_info_cnt );
-  
+
   for( ulong i = 0 ; i < poh_verification_info_cnt; i++ ) {
     if( poh_verification_info[i].success != 0) {
       return -1;
@@ -720,8 +720,8 @@ fd_runtime_block_verify_tpool( fd_block_info_t const * block_info,
                                ulong max_workers ) {
   fd_hash_t tmp_in_poh_hash = *in_poh_hash;
   ulong poh_verification_info_cnt = block_info->microblock_cnt;
-  fd_poh_verification_info_t * poh_verification_info = fd_valloc_malloc( valloc, 
-                                                                         alignof(fd_poh_verification_info_t), 
+  fd_poh_verification_info_t * poh_verification_info = fd_valloc_malloc( valloc,
+                                                                         alignof(fd_poh_verification_info_t),
                                                                          poh_verification_info_cnt * sizeof(fd_poh_verification_info_t) );
   fd_runtime_block_verify_info_collect( block_info, &tmp_in_poh_hash, poh_verification_info );
 
@@ -846,7 +846,7 @@ fd_runtime_microblock_batch_verify( fd_microblock_batch_info_t const * microbloc
       FD_LOG_WARNING(( "poh mismatch in microblock - idx: %lu", i ));
       return -1;
     }
-    
+
     tmp_poh_hash = *out_poh_hash;
   }
 
@@ -876,7 +876,7 @@ fd_runtime_block_verify( fd_block_info_t const * block_info,
 int
 fd_runtime_slot_ctx_setup_from_parent( fd_exec_slot_ctx_t * parent_slot_ctx,
                                        fd_exec_slot_ctx_t * child_slot_ctx ) {
-  // Clone 
+  // Clone
 
   child_slot_ctx->epoch_ctx = parent_slot_ctx->epoch_ctx;
   child_slot_ctx->acc_mgr = parent_slot_ctx->acc_mgr;
@@ -901,7 +901,7 @@ fd_runtime_slot_ctx_setup_from_parent( fd_exec_slot_ctx_t * parent_slot_ctx,
 }
 
 int
-fd_runtime_epoch_ctx_setup_from_parent( fd_exec_epoch_ctx_t const * parent_epoch_ctx, 
+fd_runtime_epoch_ctx_setup_from_parent( fd_exec_epoch_ctx_t const * parent_epoch_ctx,
                                         fd_exec_epoch_ctx_t * child_epoch_ctx ) {
   child_epoch_ctx->features = parent_epoch_ctx->features;
   child_epoch_ctx->valloc = parent_epoch_ctx->valloc;
@@ -917,10 +917,10 @@ fd_runtime_epoch_ctx_setup_from_parent( fd_exec_epoch_ctx_t const * parent_epoch
 // }
 
 int
-fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx, 
+fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
                              void const * block,
                              ulong blocklen,
-                             fd_tpool_t * tpool, 
+                             fd_tpool_t * tpool,
                              ulong max_workers ) {
   fd_funk_txn_t * parent_txn = slot_ctx->funk_txn;
   fd_funk_txn_xid_t xid;
@@ -934,13 +934,24 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
   if (NULL == txn)
     FD_LOG_ERR(("fd_funk_txn_prepare failed"));
 
-  slot_ctx->funk_txn_index = (slot_ctx->funk_txn_index + 1) & 0x1F;
-  fd_funk_txn_t * old_txn = slot_ctx->funk_txn_tower[slot_ctx->funk_txn_index];
+  slot_ctx->tower.funk_txn_index = (slot_ctx->tower.funk_txn_index + 1) & 0x1F;
+  fd_tower_entry_t *te = &slot_ctx->tower.funk_txn_tower[slot_ctx->tower.funk_txn_index];
+  fd_funk_txn_t * old_txn = te->txn;
+//  ulong old_slot = te->slot;
+
   if (old_txn != NULL ) {
-    FD_LOG_DEBUG(( "publishing funk txn in tower: idx: %u", slot_ctx->funk_txn_index ));
+    if (slot_ctx->tower.constipate) {
+      if (NULL != slot_ctx->tower.blockage)
+        fd_funk_txn_merge( slot_ctx->acc_mgr->funk, old_txn, 0);
+      else
+        slot_ctx->tower.blockage = old_txn;
+    } else
+      slot_ctx->tower.blockage = NULL;
+    FD_LOG_DEBUG(( "publishing funk txn in tower: idx: %u", slot_ctx->tower.funk_txn_index ));
     fd_funk_txn_publish( slot_ctx->acc_mgr->funk, old_txn, 0 );
   }
-  slot_ctx->funk_txn_tower[slot_ctx->funk_txn_index] = slot_ctx->funk_txn = txn;
+  te->txn = slot_ctx->funk_txn = txn;
+  te->slot = slot_ctx->slot_bank.slot;
 
   // This is simple now but really we need to execute block_verify in
   // its own thread/tile and IT needs to parallelize the
@@ -1006,8 +1017,8 @@ fd_runtime_lamports_per_signature_for_blockhash( fd_exec_slot_ctx_t const * slot
 }
 
 ulong
-fd_runtime_txn_lamports_per_signature( fd_exec_txn_ctx_t * txn_ctx, 
-                                       fd_txn_t const * txn_descriptor, 
+fd_runtime_txn_lamports_per_signature( fd_exec_txn_ctx_t * txn_ctx,
+                                       fd_txn_t const * txn_descriptor,
                                        fd_rawtxn_b_t const * txn_raw ) {
   // why is asan not detecting access to uninitialized memory here?!
   fd_nonce_state_versions_t state;
@@ -1082,8 +1093,8 @@ fd_runtime_calculate_fee( fd_exec_txn_ctx_t * txn_ctx, fd_txn_t const * txn_desc
 
   double BASE_CONGESTION = 5000.0;
   double current_congestion = (BASE_CONGESTION > (double)lamports_per_signature) ? BASE_CONGESTION : (double)lamports_per_signature;
-  double congestion_multiplier = (lamports_per_signature == 0) ? 0.0 
-                                : FD_FEATURE_ACTIVE( txn_ctx->slot_ctx, remove_congestion_multiplier_from_fee_calculation ) ? 1.0 
+  double congestion_multiplier = (lamports_per_signature == 0) ? 0.0
+                                : FD_FEATURE_ACTIVE( txn_ctx->slot_ctx, remove_congestion_multiplier_from_fee_calculation ) ? 1.0
                                 : (BASE_CONGESTION / current_congestion);
 
 //  bool support_set_compute_unit_price_ix = false;
@@ -1146,7 +1157,7 @@ fd_runtime_calculate_fee( fd_exec_txn_ctx_t * txn_ctx, fd_txn_t const * txn_desc
 //                    .last()
 //                    .map(|bin| bin.fee)
 //                    .unwrap_or_default()
-//            });  
+//            });
 
   double MEMORY_USAGE_COST = ((((double)txn_ctx->loaded_accounts_data_size_limit + (ACCOUNT_DATA_COST_PAGE_SIZE - 1)) / ACCOUNT_DATA_COST_PAGE_SIZE) * (double)vm_compute_budget.heap_cost);
   double loaded_accounts_data_size_cost = FD_FEATURE_ACTIVE( txn_ctx->slot_ctx, include_loaded_accounts_data_size_in_fee_calculation ) ? MEMORY_USAGE_COST : 0.0;
@@ -2037,40 +2048,4 @@ fd_runtime_bank_hash_key( ulong slot ) {
   id.ul[ 0 ] = slot;
   id.c[ FD_FUNK_REC_KEY_FOOTPRINT - 1 ] = FD_BANK_HASH_TYPE;
   return id;
-}
-
-int
-fd_accounts_hash( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t *accounts_hash ) {
-  fd_funk_t * funk = slot_ctx->acc_mgr->funk;
-  fd_wksp_t * wksp = fd_funk_wksp( funk );
-  fd_funk_rec_t * rec_map  = fd_funk_rec_map( funk, wksp );
-  ulong num_iter_accounts = fd_funk_rec_map_key_cnt( rec_map );
-
-  ulong num_pairs = 0;
-  fd_pubkey_hash_pair_t * pairs = fd_valloc_malloc( slot_ctx->valloc, 8UL, num_iter_accounts*sizeof(fd_pubkey_hash_pair_t));
-  for( fd_funk_rec_map_iter_t iter = fd_funk_rec_map_iter_init( rec_map );
-       !fd_funk_rec_map_iter_done( rec_map, iter );
-       iter = fd_funk_rec_map_iter_next( rec_map, iter ) ) {
-    fd_funk_rec_t * rec = fd_funk_rec_map_iter_ele( rec_map, iter );
-    if ( !fd_acc_mgr_is_key( rec->pair.key ) )
-      continue;
-
-    fd_account_meta_t * metadata = (fd_account_meta_t *) fd_funk_val_const( rec, wksp );
-    if ((metadata->magic != FD_ACCOUNT_META_MAGIC) || (metadata->hlen != sizeof(fd_account_meta_t))) {
-      FD_LOG_ERR(("invalid magic on metadata"));
-    }
-
-    if ((metadata->info.lamports == 0) | ((metadata->info.executable & ~1) != 0))
-      continue;
-
-    fd_memcpy(pairs[num_pairs].pubkey.key, rec->pair.key, 32);
-    fd_memcpy(pairs[num_pairs].hash.hash, metadata->hash, 32);
-    num_pairs++;
-  }
-
-  fd_hash_account_deltas(pairs, num_pairs, accounts_hash, slot_ctx);
-
-//  FD_LOG_WARNING(("accounts_hash %32J", accounts_hash->hash));
-
-  return 0;
 }

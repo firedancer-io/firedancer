@@ -72,6 +72,10 @@ fd_hash_account_current( uchar                      hash  [ static 32 ],
                          uchar const *              data,
                          fd_exec_slot_ctx_t const * slot_ctx );
 
+/* Generate a complete accounts_hash of the entire account database. */
+int
+fd_accounts_hash( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t *accounts_hash );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_hashes_h */

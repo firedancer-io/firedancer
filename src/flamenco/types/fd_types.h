@@ -585,6 +585,8 @@ struct __attribute__((aligned(16UL))) fd_solana_manifest {
   fd_deserializable_versioned_bank_t bank;
   fd_solana_accounts_db_fields_t accounts_db;
   ulong lamports_per_signature;
+  fd_bank_incremental_snapshot_persistence_t bank_incremental_snapshot_persistence;
+  fd_hash_t epoch_accounts_hash;
 };
 typedef struct fd_solana_manifest fd_solana_manifest_t;
 #define FD_SOLANA_MANIFEST_FOOTPRINT sizeof(fd_solana_manifest_t)
@@ -1157,6 +1159,9 @@ struct __attribute__((aligned(16UL))) fd_epoch_bank {
   fd_inflation_t inflation;
   fd_epoch_schedule_t epoch_schedule;
   fd_rent_t rent;
+  ulong eah_start_slot;
+  ulong eah_stop_slot;
+  ulong eah_interval;
 };
 typedef struct fd_epoch_bank fd_epoch_bank_t;
 #define FD_EPOCH_BANK_FOOTPRINT sizeof(fd_epoch_bank_t)
@@ -1169,6 +1174,7 @@ struct __attribute__((aligned(16UL))) fd_slot_bank {
   ulong prev_slot;
   fd_hash_t poh;
   fd_hash_t banks_hash;
+  fd_hash_t epoch_account_hash;
   fd_fee_rate_governor_t fee_rate_governor;
   ulong capitalization;
   ulong block_height;

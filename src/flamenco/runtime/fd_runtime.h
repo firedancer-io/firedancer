@@ -71,7 +71,7 @@ void
 fd_runtime_init_program( fd_exec_slot_ctx_t * slot_ctx );
 
 int
-fd_runtime_block_execute( fd_exec_slot_ctx_t * slot_ctx, 
+fd_runtime_block_execute( fd_exec_slot_ctx_t * slot_ctx,
                           fd_block_info_t const * block_info );
 
 int
@@ -165,9 +165,6 @@ fd_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
 
 void
 fd_runtime_update_leaders( fd_exec_slot_ctx_t * slot_ctx, ulong slot);
-
-int
-fd_accounts_hash( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t *accounts_hash );
 
 FD_PROTOTYPES_END
 
