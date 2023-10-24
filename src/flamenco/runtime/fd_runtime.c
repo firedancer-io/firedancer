@@ -689,7 +689,7 @@ int
 fd_runtime_microblock_batch_verify( fd_microblock_batch_info_t const * microblock_batch_info,
                                     fd_hash_t * poh_hash ) {
   for( ulong i = 0; i < microblock_batch_info->microblock_cnt; i++ ) {
-    if( fd_runtime_microblock_verify( &microblock_batch_info->microblock_infos[i], poh_hash ) != 0 ) {
+    if( fd_runtime_microblock_wide_verify( &microblock_batch_info->microblock_infos[i], poh_hash ) != 0 ) {
       FD_LOG_WARNING(( "poh mismatch in microblock - idx: %lu", i ));
       return -1;
     }
