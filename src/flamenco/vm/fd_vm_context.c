@@ -198,7 +198,7 @@ fd_vm_translate_vm_to_host_private( fd_vm_exec_context_t *  ctx,
   }
 
 #ifdef FD_DEBUG_SBPF_TRACES
-if (ctx->instr_ctx.slot_ctx->bank.slot == 179244909) {
+if (ctx->instr_ctx.slot_ctx->bank.slot == 179244897) {
   fd_vm_trace_context_add_mem_entry( ctx->trace_ctx, vm_addr, sz, host_addr, write );
 }
 #endif

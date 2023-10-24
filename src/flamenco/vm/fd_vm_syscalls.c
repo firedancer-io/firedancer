@@ -149,8 +149,8 @@ fd_vm_prepare_instruction(
   for( ulong i = 0; i < deduplicated_instruction_accounts_cnt; i++ ) {
     fd_instruction_account_t * instruction_account = &deduplicated_instruction_accounts[i];
     fd_borrowed_account_t borrowed_account;
-    borrowed_account.pubkey = &caller_instr->acct_pubkeys[instruction_account->index_in_caller];
-
+    fd_memcpy(borrowed_account.pubkey, &caller_instr->acct_pubkeys[instruction_account->index_in_caller], sizeof(fd_pubkey_t));
+    
     if ( FD_UNLIKELY( instruction_account->is_writable && !fd_instr_acc_is_writable(instr_ctx->instr, borrowed_account.pubkey) ) ) {
       return 1;
     }

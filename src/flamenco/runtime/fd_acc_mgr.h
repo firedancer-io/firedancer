@@ -126,7 +126,7 @@ fd_acc_mgr_view( fd_acc_mgr_t *          acc_mgr,
 
   FD_TEST(FD_BORROWED_ACCOUNT_MAGIC == account->magic);
 
-  account->pubkey = pubkey;
+  fd_memcpy(account->pubkey, pubkey, sizeof(fd_pubkey_t));
 
   fd_account_meta_t const * meta = (fd_account_meta_t const *)raw;
 
@@ -204,7 +204,7 @@ fd_acc_mgr_modify( fd_acc_mgr_t *         acc_mgr,
 
   FD_TEST(FD_BORROWED_ACCOUNT_MAGIC == account->magic);
 
-  account->pubkey = pubkey;
+  fd_memcpy(account->pubkey, pubkey, sizeof(fd_pubkey_t));
 
   fd_account_meta_t * meta = (fd_account_meta_t *)raw;
 

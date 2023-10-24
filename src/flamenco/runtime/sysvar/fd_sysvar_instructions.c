@@ -39,8 +39,8 @@ fd_sysvar_instructions_serialize_account( fd_exec_txn_ctx_t *  txn_ctx,
                                           ushort              instrs_cnt ) {
   ulong serialized_sz = instructions_serialized_size( instrs, instrs_cnt );
 
-  FD_BORROWED_ACCOUNT_DECL(rec);
-  int err = fd_acc_mgr_modify(txn_ctx->acc_mgr, txn_ctx->funk_txn, &fd_sysvar_instructions_id, 1, serialized_sz, rec);
+  fd_borrowed_account_t * rec = NULL;
+  int err = fd_txn_borrowed_account_modify(txn_ctx, &fd_sysvar_instructions_id, 1, serialized_sz, &rec);
   if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) )
     return FD_ACC_MGR_ERR_READ_FAILED;
 

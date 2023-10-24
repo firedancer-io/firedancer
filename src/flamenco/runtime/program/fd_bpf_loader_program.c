@@ -110,15 +110,16 @@ int fd_executor_bpf_loader_program_execute_program_instruction( fd_exec_instr_ct
 
   FD_LOG_NOTICE(("BPF V2 PROG INSTR RUN! - slot: %lu, addr: %32J", ctx.slot_ctx->bank.slot, program_acc));
 
-  int read_result = 0;
-  uchar * raw_program_acc_data = (uchar *)fd_acc_mgr_view_raw(ctx.acc_mgr, ctx.funk_txn, program_acc, NULL, &read_result);
-  if (FD_UNLIKELY(!FD_RAW_ACCOUNT_EXISTS(raw_program_acc_data))) {
-    FD_LOG_WARNING(( "HELLO !!!!"));
+  // FIXME: the program account is not in the instruction accounts?
+  fd_borrowed_account_t * program_acc_view = NULL;
+  int read_result = fd_txn_borrowed_account_view_idx( ctx.txn_ctx, ctx.instr->program_id, &program_acc_view );
+  if (FD_UNLIKELY(read_result != FD_ACC_MGR_SUCCESS)) {
+    FD_LOG_WARNING(( "HELLO !!!! Err %d", read_result));
     return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
   }
 
-  fd_account_meta_t * metadata = (fd_account_meta_t *)raw_program_acc_data;
-  uchar * program_data = fd_account_get_data( metadata );
+  fd_account_meta_t const * metadata = program_acc_view->const_meta;
+  uchar const * program_data               = program_acc_view->const_data;
   ulong program_data_len = metadata->dlen;
 
   if FD_FEATURE_ACTIVE( ctx.slot_ctx, cap_transaction_accounts_data_size ) {
@@ -203,7 +204,7 @@ int fd_executor_bpf_loader_program_execute_program_instruction( fd_exec_instr_ct
   (void) trace_ctx;
 
 #ifdef FD_DEBUG_SBPF_TRACES
-if (vm_ctx.instr_ctx.slot_ctx->bank.slot == 179244909) {
+if (vm_ctx.instr_ctx.slot_ctx->bank.slot == 179244897) {
   
   // fd_vm_trace_entry_t * trace = (fd_vm_trace_entry_t *)fd_valloc_malloc( ctx.global->valloc, 1UL, trace_sz * sizeof(fd_vm_trace_entry_t));
   trace = (fd_vm_trace_entry_t *)malloc( trace_sz * sizeof(fd_vm_trace_entry_t));
@@ -227,7 +228,7 @@ if (vm_ctx.instr_ctx.slot_ctx->bank.slot == 179244909) {
 
   ulong interp_res;
 #ifdef FD_DEBUG_SBPF_TRACES
-  if (vm_ctx.instr_ctx.slot_ctx->bank.slot == 179244909) {
+  if (vm_ctx.instr_ctx.slot_ctx->bank.slot == 179244897) {
     interp_res = fd_vm_interp_instrs_trace( &vm_ctx );
   } else {
     interp_res = fd_vm_interp_instrs( &vm_ctx );
@@ -241,7 +242,7 @@ if (vm_ctx.instr_ctx.slot_ctx->bank.slot == 179244909) {
 
 #ifdef FD_DEBUG_SBPF_TRACES
   // FILE * trace_fd = fopen("trace.log", "w");
-  if (vm_ctx.instr_ctx.slot_ctx->bank.slot == 179244909) {
+  if (vm_ctx.instr_ctx.slot_ctx->bank.slot == 179244897) {
     ulong prev_cus = 0;
     for( ulong i = 0; i < trace_ctx.trace_entries_used; i++ ) {
       fd_vm_trace_entry_t trace_ent = trace[i];
@@ -384,14 +385,13 @@ int fd_executor_bpf_loader_program_execute_instruction( fd_exec_instr_ctx_t ctx 
 
   fd_pubkey_t const * program_acc = &txn_accs[instr_acc_idxs[0]];
 
-  fd_funk_rec_t const * con_rec = NULL;
-  int read_result = 0;
-  uchar const * raw = fd_acc_mgr_view_raw( ctx.acc_mgr, ctx.funk_txn, program_acc, &con_rec, &read_result );
-  if (FD_UNLIKELY(!FD_RAW_ACCOUNT_EXISTS(raw))) {
-    FD_LOG_WARNING(( "failed to read account metadata" ));
+  fd_borrowed_account_t * acc = NULL;
+  int read_result = fd_instr_borrowed_account_view( &ctx, program_acc, &acc );
+  if (FD_UNLIKELY(!FD_RAW_ACCOUNT_EXISTS(acc->const_meta))) {
+    FD_LOG_WARNING(( "failed to read account metadata, err: %d", read_result ));
     return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
   }
-  fd_account_meta_t const * program_acc_metadata = (fd_account_meta_t const *)raw;
+  fd_account_meta_t const * program_acc_metadata = acc->const_meta;
   if ( memcmp(program_acc_metadata->info.owner, fd_solana_bpf_loader_program_id.key, sizeof(fd_pubkey_t) ) != 0 ) {
     return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
   }
@@ -402,15 +402,14 @@ int fd_executor_bpf_loader_program_execute_instruction( fd_exec_instr_ctx_t ctx 
       return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
     }
 
-    int err = 0;
-    uchar * raw_mut = fd_acc_mgr_modify_raw( ctx.acc_mgr, ctx.funk_txn, program_acc, 0, 0UL, con_rec, NULL, &err );
-    if( FD_UNLIKELY( !raw_mut ) ) {
+    fd_borrowed_account_t * modify_acc = NULL;
+    int err = fd_instr_borrowed_account_modify( &ctx, program_acc, 0, 0, &modify_acc );
+    if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
       FD_LOG_WARNING(( "failed to get writable handle to program data" ));
       return err;
     }
 
-    fd_account_meta_t * metadata_mut     = (fd_account_meta_t *)raw_mut;
-    uchar *             program_acc_data = raw_mut + metadata_mut->hlen;
+    uchar *             program_acc_data = modify_acc->data;
 
     fd_memcpy( program_acc_data + instruction.inner.write.offset, instruction.inner.write.bytes, instruction.inner.write.bytes_len );
 
@@ -423,15 +422,15 @@ int fd_executor_bpf_loader_program_execute_instruction( fd_exec_instr_ctx_t ctx 
 
     fd_pubkey_t const * program_acc = &txn_accs[instr_acc_idxs[0]];
 
-    int err = 0;
-    uchar * raw_mut = fd_acc_mgr_modify_raw( ctx.acc_mgr, ctx.funk_txn, program_acc, 0, 0UL, con_rec, NULL, &err );
-    if( FD_UNLIKELY( !raw_mut ) ) {
+    fd_borrowed_account_t * modify_acc = NULL;
+    int err = fd_instr_borrowed_account_modify(&ctx, program_acc, 0, 0, &modify_acc);
+    if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
       FD_LOG_WARNING(( "failed to get writable handle to program data" ));
       return err;
     }
 
-    fd_account_meta_t * metadata_mut     = (fd_account_meta_t *)raw_mut;
-    uchar *             program_acc_data = fd_account_get_data(metadata_mut);
+    fd_account_meta_t * metadata_mut     = modify_acc->meta;
+    uchar *             program_acc_data = modify_acc->data;
 
     // TODO: deploy program properly
     err = setup_program(ctx, program_acc_data, metadata_mut->dlen);
