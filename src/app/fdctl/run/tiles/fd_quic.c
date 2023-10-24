@@ -313,8 +313,7 @@ static void
 legacy_stream_notify( fd_quic_ctx_t * ctx,
                       uchar *         packet,
                       uint            packet_sz ) {
-  if( FD_UNLIKELY( packet_sz > FD_TPU_MTU ) ) FD_LOG_ERR(( "corrupt packet too large" ));
-
+  FD_TEST( packet_sz <= FD_TPU_DCACHE_MTU ); /* paranoia, not possible */
   ulong chunk = fd_dcache_compact_next( ctx->verify_out_chunk, FD_TPU_DCACHE_MTU, ctx->verify_out_chunk0, ctx->verify_out_wmark );
 
   fd_quic_msg_ctx_t * msg_ctx = fd_quic_dcache_msg_ctx( ctx->verify_out_dcache_app, ctx->verify_out_chunk0, chunk );
@@ -333,7 +332,7 @@ legacy_stream_notify( fd_quic_ctx_t * ctx,
     return;
   }
 
-  FD_TEST( packet_sz <= FD_TPU_MTU ); /* paranoia */
+  FD_TEST( packet_sz <= FD_TPU_DCACHE_MTU ); /* paranoia */
   fd_memcpy( msg_ctx->data, packet, packet_sz );
   pubq_push( ctx->pubq, msg_ctx );
 
@@ -518,8 +517,18 @@ after_frag( void *             _ctx,
     fd_aio_send( ctx->quic_rx_aio, &pkt, 1, NULL, 1 );
   } else if( FD_LIKELY( dst_port == ctx->legacy_transaction_port ) ) {
     ulong network_hdr_sz = fd_disco_netmux_sig_hdr_sz( *opt_sig );
-    if( FD_UNLIKELY( *opt_sz < network_hdr_sz ) )
-      FD_LOG_ERR(( "corrupt packet received (%lu bytes. header %lu)", *opt_sz, network_hdr_sz ));
+    if( FD_UNLIKELY( *opt_sz < network_hdr_sz ) ) {
+      /* Transaction not valid if the packet isn't large enough for the network
+         headers. */
+      return;
+    }
+
+    if( FD_UNLIKELY( *opt_sz > FD_TPU_MTU ) ) {
+      /* Transaction couldn't possibly be valid if it's longer than transaction
+         MTU so drop it. This is not required, as the txn will fail to parse,
+         but it's a nice short circuit. */
+      return;
+    }
 
     legacy_stream_notify( ctx, ctx->buffer+network_hdr_sz, (uint)(*opt_sz - network_hdr_sz) );
   }
