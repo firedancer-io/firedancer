@@ -49,20 +49,37 @@ fd_rent_lists_key_to_bucket( fd_acc_mgr_t * acc_mgr,
 static uint
 fd_rent_lists_cb(fd_funk_rec_t * rec, uint num_part, void * cb_arg) {
   (void)num_part;
-  fd_acc_mgr_t * acc_mgr = (fd_acc_mgr_t *)cb_arg;
-  if ( fd_acc_mgr_is_key( rec->pair.key ) )
+  fd_exec_slot_ctx_t * slot_ctx = (fd_exec_slot_ctx_t *) cb_arg;
+  fd_acc_mgr_t * acc_mgr = slot_ctx->acc_mgr;
+  if ( fd_acc_mgr_is_key( rec->pair.key ) ) {
+    if ( acc_mgr->skip_rent_rewrites ) {
+      void const * data = fd_funk_val( rec, fd_funk_wksp(acc_mgr->funk) );
+      fd_account_meta_t const * metadata = (fd_account_meta_t const *)fd_type_pun_const( data );
+
+      if (fd_rent_exempt_minimum_balance2( &slot_ctx->epoch_ctx->epoch_bank.rent, metadata->dlen) <= metadata->info.lamports)
+        return FD_FUNK_PART_NULL;
+    }
+
     return (uint)fd_rent_lists_key_to_bucket( acc_mgr, rec );
+  }
   return FD_FUNK_PART_NULL;
 }
 
 void
-fd_acc_mgr_set_slots_per_epoch( fd_acc_mgr_t * acc_mgr,
+fd_acc_mgr_set_slots_per_epoch( fd_exec_slot_ctx_t * slot_ctx,
                                 ulong slots_per_epoch ) {
-  if (slots_per_epoch == acc_mgr->slots_per_epoch )
+  fd_acc_mgr_t * acc_mgr = slot_ctx->acc_mgr;
+
+  uchar skip_rent_rewrites = FD_FEATURE_ACTIVE( slot_ctx, skip_rent_rewrites );
+
+  if ((slots_per_epoch == acc_mgr->slots_per_epoch ) && (skip_rent_rewrites == acc_mgr->skip_rent_rewrites))
     return;
-  acc_mgr->slots_per_epoch = slots_per_epoch;
-  acc_mgr->part_width      = fd_rent_partition_width( slots_per_epoch );
-  fd_funk_repartition(acc_mgr->funk, (uint)slots_per_epoch, fd_rent_lists_cb, acc_mgr);
+
+  acc_mgr->slots_per_epoch    = slots_per_epoch;
+  acc_mgr->skip_rent_rewrites = skip_rent_rewrites;
+  acc_mgr->part_width         = fd_rent_partition_width( slots_per_epoch );
+
+  fd_funk_repartition(acc_mgr->funk, (uint)slots_per_epoch, fd_rent_lists_cb, slot_ctx);
 }
 
 void const *
@@ -123,6 +140,8 @@ fd_acc_mgr_modify_raw( fd_acc_mgr_t *        acc_mgr,
   if (NULL != opt_out_rec)
     *opt_out_rec = rec;
 
+  // At this point, we don't know if the record WILL be rent exempt so
+  // it is safer to just stick it into the partition and look at it later.
   if ( acc_mgr->slots_per_epoch != 0 )
     fd_funk_part_set(funk, rec, (uint)fd_rent_lists_key_to_bucket( acc_mgr, rec ));
 
