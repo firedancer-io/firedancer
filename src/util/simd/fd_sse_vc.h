@@ -91,17 +91,15 @@ static inline vc_t
 vc_ld( int const * p ) {
   return _mm_xor_si128( _mm_set1_epi32( -1 ), _mm_cmpeq_epi32( _mm_load_si128(  (__m128i const *)p ), _mm_setzero_si128() ) );
 }
+static inline vc_t vc_ld_fast( int const * p ) { return _mm_load_si128(  (__m128i const *)p ); }
+static inline void vc_st( int * p, vc_t c ) { _mm_store_si128(  (__m128i *)p, c ); }
 
 static inline vc_t
-vc_ldu( int const * p ) {
+vc_ldu( void const * p ) {
   return _mm_xor_si128( _mm_set1_epi32( -1 ), _mm_cmpeq_epi32( _mm_loadu_si128( (__m128i const *)p ), _mm_setzero_si128() ) );
 }
-
-static inline vc_t vc_ld_fast(  int const * p ) { return _mm_load_si128(  (__m128i const *)p ); }
-static inline vc_t vc_ldu_fast( int const * p ) { return _mm_loadu_si128( (__m128i const *)p ); }
-
-static inline void vc_st(  int * p, vc_t c ) { _mm_store_si128(  (__m128i *)p, c ); }
-static inline void vc_stu( int * p, vc_t c ) { _mm_storeu_si128( (__m128i *)p, c ); }
+static inline vc_t vc_ldu_fast( void const * p ) { return _mm_loadu_si128( (__m128i const *)p ); }
+static inline void vc_stu( void * p, vc_t c ) { _mm_storeu_si128( (__m128i *)p, c ); }
 
 /* vc_ldif is an optimized equivalent to vc_and(c,vc_ldu(p)).  Similarly
    for vc_ldif_fast (either may have different behavior if c is not a

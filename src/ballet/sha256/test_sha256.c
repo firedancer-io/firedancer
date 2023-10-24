@@ -147,10 +147,10 @@ main( int     argc,
   FD_LOG_NOTICE(( "Benchmarking incremental (best case)" ));
   for( ulong idx=0U; idx<2UL; idx++ ) {
     ulong sz = bench_sz[ idx ];
-  
+
     /* warmup */
     for( ulong rem=10UL; rem; rem-- ) fd_sha256_fini( fd_sha256_append( fd_sha256_init( sha ), buf, sz ), hash );
-  
+
     /* for real */
     ulong iter = 100000UL;
     long  dt   = -fd_log_wallclock();
@@ -179,7 +179,7 @@ main( int     argc,
   FD_LOG_NOTICE(( "Benchmarking batched" ));
   for( ulong idx=0U; idx<2UL; idx++ ) {
     ulong sz = bench_sz[ idx ];
-    for( ulong batch_cnt=1UL; batch_cnt<32UL; batch_cnt++ ) {
+    for( ulong batch_cnt=1UL; batch_cnt<=48UL; batch_cnt++ ) {
 
       /* warmup */
       for( ulong rem=10UL; rem; rem-- ) {
@@ -239,4 +239,3 @@ main( int     argc,
   fd_halt();
   return 0;
 }
-

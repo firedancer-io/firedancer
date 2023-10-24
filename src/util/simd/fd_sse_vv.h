@@ -43,10 +43,11 @@
 
    Note: gcc knows a __m128i may alias. */
 
-static inline vv_t vv_ld(  ulong const * p   ) { return _mm_load_si128(  (__m128i const *)p ); }
-static inline vv_t vv_ldu( ulong const * p   ) { return _mm_loadu_si128( (__m128i const *)p ); }
-static inline void vv_st(  ulong * p, vv_t i ) { _mm_store_si128(  (__m128i *)p, i ); }
-static inline void vv_stu( ulong * p, vv_t i ) { _mm_storeu_si128( (__m128i *)p, i ); }
+static inline vv_t vv_ld( ulong const * p ) { return _mm_load_si128(  (__m128i const *)p ); }
+static inline void vv_st( ulong * p, vv_t i ) { _mm_store_si128(  (__m128i *)p, i ); }
+
+static inline vv_t vv_ldu( void const * p ) { return _mm_loadu_si128( (__m128i const *)p ); }
+static inline void vv_stu( void * p, vv_t i ) { _mm_storeu_si128( (__m128i *)p, i ); }
 
 /* vv_ldif is an optimized equivalent to vv_notczero(c,vv_ldu(p)) (may
    have different behavior if c is not a proper vector conditional).  It
@@ -91,18 +92,18 @@ vv_insert_variable( vv_t a, int n, ulong v ) {
 
 /* Arithmetic operations */
 
-/* Note: _mm_{min,max}_epu64 are missing in SSE pre AVX-512.  We emulate
-   these below.  Likewise, there is no _mm_mullo_epi64 in SSE.  Since
-   this is not cheap to emulate, we do not provide a wl_mul for the time
-   being.  There is a 64L*64L->64 multiply (where the lower 32-bits will
-   be zero extended to 64-bits beforehand) though and that is very
-   useful.  So we do provide that. */
-
 #define vv_neg(a) _mm_sub_epi64( _mm_setzero_si128(), (a) ) /* [ -a0  -a1  ] */
 #define vv_abs(a) (a)                                       /* [ |a0| |a1| ] */
 
-//#define vv_min(a,b)  _mm_min_epi64(   (a), (b) ) /* [ min(a0,b0) min(a1,b1) ] */
-//#define vv_max(a,b)  _mm_max_epi64(   (a), (b) ) /* [ max(a0,b0) max(a1,b1) ] */
+/* Note: _mm_{min,max}_epu64 are missing pre AVX-512.  We emulate these
+   on pre AVX-512 targets below (and use the AVX-512 versions if
+   possible).  Likewise, there is no _mm_mullo_epi64 pre AVX-512.  Since
+   this is not cheap to emulate, we do not provide a wl_mul for the time
+   being (we could consider exposing it on AVX-512 targets though).
+   There is a 64L*64L->64 multiply (where the lower 32-bits will be zero
+   extended to 64-bits beforehand) though and that is very useful.  So
+   we do provide that. */
+
 #define vv_add(a,b)    _mm_add_epi64(   (a), (b) ) /* [ a0 +b0     a1 +b1     ] */
 #define vv_sub(a,b)    _mm_sub_epi64(   (a), (b) ) /* [ a0 -b0     a1 -b1     ] */
 //#define vv_mul(a,b)  _mm_mullo_epi64( (a), (b) ) /* [ a0 *b0     a1 *b1     ] */
@@ -174,15 +175,19 @@ static inline vv_t vv_ror_vector( vv_t a, vl_t b ) {
 
 #define vv_if(c,t,f) _mm_blendv_epi8(  (f), (t), (c) ) /* [ c0?t0:f0  c1?t1:f1  ] */
 
-/* See note above */
-static inline vv_t vv_min( vv_t a, vv_t b ) { return vv_if( vv_lt( a, b ), a, b ); } 
+#if defined(__AVX512F__) && defined(__AVX512VL__) /* See note above */
+#define vv_min(a,b) _mm_min_epu64( (a), (b) )
+#define vv_max(a,b) _mm_max_epu64( (a), (b) )
+#else
+static inline vv_t vv_min( vv_t a, vv_t b ) { return vv_if( vv_lt( a, b ), a, b ); }
 static inline vv_t vv_max( vv_t a, vv_t b ) { return vv_if( vv_gt( a, b ), a, b ); }
+#endif
 
 /* Conversion operations */
 
 /* Summarizing:
 
-   vv_to_vc(d)     returns [ !!v0 !!v0 !!v1 !!v1 ] 
+   vv_to_vc(d)     returns [ !!v0 !!v0 !!v1 !!v1 ]
 
    vv_to_vf(l,i,0) returns [ (float)v0 (float)v1 f2 f3 ]
    vv_to_vf(l,i,1) returns [ f0 f1 (float)v0 (float)v1 ]

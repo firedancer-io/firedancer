@@ -13,16 +13,10 @@
 #define FD_ED25519_ERR_PUBKEY (-2) /* Operation failed because the public key was obviously invalid */
 #define FD_ED25519_ERR_MSG    (-3) /* Operation failed because the message didn't match the signature for the given key */
 
-/* FD_ED25519_PUB_SZ: the size of an Ed25519 public key in bytes. */
-#define FD_ED25519_PUB_SZ (32UL)
-
 /* FD_ED25519_SIG_SZ: the size of an Ed25519 signature in bytes. */
 #define FD_ED25519_SIG_SZ (64UL)
 
-/* A serialized Ed25519 public key. */
-typedef uchar fd_ed25519_pub_t[ FD_ED25519_PUB_SZ ];
-
-/* A serialized Ed25519 signature. */
+/* An Ed25519 signature. */
 typedef uchar fd_ed25519_sig_t[ FD_ED25519_SIG_SZ ];
 
 FD_PROTOTYPES_BEGIN
@@ -122,6 +116,7 @@ fd_ed25519_strerror( int err );
 
 FD_FN_PURE void const *
 fd_ed25519_validate_public_key( void const * public_key );
+
 
 FD_PROTOTYPES_END
 

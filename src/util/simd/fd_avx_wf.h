@@ -6,7 +6,7 @@
 
 /* A wf_t is a vector where each 32-bit wide lane holds a single
    precision IEEE 754 floating point value (a "float").
-   
+
    Inputs to all operations assume that the values aren't exotic (no
    NaNs, no +/-Infs, no denorms) and, if the output of an operation
    would produce an exotic value in the IEEE 754 standard, the results
@@ -182,7 +182,7 @@ wf_insert_variable( wf_t a, int n, float v ) {
    wf_copysign(a,b) returns [ copysignf(a0,b0) copysignf(a1,b1) ... copysignf(a7,b7) ]
    wf_flipsign(a,b) returns [ flipsignf(a0,b0) flipsignf(a1,b1) ... flipsignf(a7,b7) ]
 
-   wf_fma(a,b,c)    returns [  fmaf(a0,b0, c0)  fmaf(a1,b1, c1) ...  fmaf(a7,b7, c7) ] (i.e.  a.*b+c) 
+   wf_fma(a,b,c)    returns [  fmaf(a0,b0, c0)  fmaf(a1,b1, c1) ...  fmaf(a7,b7, c7) ] (i.e.  a.*b+c)
    wf_fms(a,b,c)    returns [  fmaf(a0,b0,-c0)  fmaf(a1,b1,-c1) ...  fmaf(a7,b7,-c7) ] (i.e.  a.*b-c)
    wf_fnma(a,b,c)   returns [ -fmaf(a0,b0,-c0) -fmaf(a1,b1,-c1) ... -fmaf(a7,b7,-c7) ] (i.e. -a.*b+c)
 
@@ -325,16 +325,24 @@ static inline __m256i wf_to_wv( wf_t f, int imm_hi ) { /* FIXME: workaround wv_t
 
 #define wf_to_wi_fast(a) _mm256_cvtps_epi32( (a) )
 
+/* Note: Given that _mm256_cvtps_epi32 existed for a long time, Intel
+   clearly had the hardware under the hood for _mm256_cvtps_epu32 but
+   didn't bother to expose it pre-Skylake-X ... sigh (all too typical
+   unfortunately).  We use _mm256_cvtps_epu32 where supported because
+   it is faster and it replicates the same IB behaviors as the compiler
+   generated scalar ASM for float to uint casts on these targets.
+
+   Pre-Skylake-X, we emulate it by noting that subtracting 2^31 from
+   a float holding an integer in [2^31,2^32) is exact and the result can
+   be exactly converted to a signed integer by _mm256_cvtps_epi32.  We
+   then use twos complement hacks to add back any shift.  This also
+   replicates the compiler's IB behaviors on these ISAs for float to
+   int casts. */
+
+#if defined(__AVX512F__) && defined(__AVX512VL__)
+#define wf_to_wu_fast( a ) _mm256_cvtps_epu32( (a) )
+#else
 static inline __m256i wf_to_wu_fast( wf_t a ) { /* FIXME: workaround wu_t isn't declared at this point */
-
-  /* Note: Given that _mm256_cvtps_epi32 exists, Intel clearly has the
-     hardware under the hood to support a _mm256_cvtps_epu32 but didn't
-     bother to expose it pre-AVX512 ... sigh (all too typical
-     unfortunately).  We note that floats in [2^31,2^32) are already
-     integers and we can exactly subtract 2^31 from them.  This allows
-     us to use _mm256_cvtps_epi32 to exactly convert to an integer.  We
-     then add back in any shift we had to apply. */
-
   /**/                                                                    /* Assumes a is integer in [0,2^32) */
   wf_t    s  = wf_bcast( (float)(1U<<31) );                               /* 2^31 */
   wc_t    c  = wf_lt ( a, s );                                            /* -1 if a<2^31, 0 o.w. */
@@ -343,6 +351,7 @@ static inline __m256i wf_to_wu_fast( wf_t a ) { /* FIXME: workaround wu_t isn't 
   __m256i us = _mm256_add_epi32( u, _mm256_set1_epi32( (int)(1U<<31) ) ); /* (uint)(a+2^31 if a<2^31, a      o.w.) */
   return _mm256_castps_si256( _mm256_blendv_ps( _mm256_castsi256_ps( us ), _mm256_castsi256_ps( u ), _mm256_castsi256_ps( c ) ) );
 }
+#endif
 
 #define wf_to_wc_raw(a) _mm256_castps_si256( (a) )
 #define wf_to_wi_raw(a) _mm256_castps_si256( (a) )

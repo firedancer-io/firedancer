@@ -1,7 +1,4 @@
 #include "../fd_util.h"
-
-#if FD_HAS_AVX
-
 #include "fd_avx.h"
 #include <math.h>
 
@@ -183,7 +180,7 @@ main( int     argc,
                                                     fabsf(x4),       fabsf(x5),       fabsf(x6),       fabsf(x7) ) );
 
     wf_t expected;
-    
+
     expected = wf( 1.f/sqrtf(x0+4.f), 1.f/sqrtf(x1+4.f), 1.f/sqrtf(x2+4.f), 1.f/sqrtf(x3+4.f),
                    1.f/sqrtf(x4+4.f), 1.f/sqrtf(x5+4.f), 1.f/sqrtf(x6+4.f), 1.f/sqrtf(x7+4.f) );
     FD_TEST( !wc_any( wf_gt( wf_abs( wf_div( wf_sub( wf_rsqrt_fast( wf_add( x, wf_bcast(4.f) ) ), expected ), expected ) ),
@@ -242,9 +239,14 @@ main( int     argc,
     FD_TEST( wi_test( wf_to_wi_fast( x ), (int)rintf(x0), (int)rintf(x1), (int)rintf(x2), (int)rintf(x3),
                                           (int)rintf(x4), (int)rintf(x5), (int)rintf(x6), (int)rintf(x7)) );
 
-    FD_TEST( wu_test( wf_to_wu( x ), (uint)x0, (uint)x1, (uint)x2, (uint)x3, (uint)x4, (uint)x5, (uint)x6, (uint)x7 ) );
-    FD_TEST( wu_test( wf_to_wu_fast( x ), (uint)rintf(x0), (uint)rintf(x1), (uint)rintf(x2), (uint)rintf(x3),
-                                          (uint)rintf(x4), (uint)rintf(x5), (uint)rintf(x6), (uint)rintf(x7)) );
+    /* The behaviour when converting from negative float to uint is highly
+       dependent on the compiler version and the flags used ( e.g. gcc 8.5
+       vs 9.3 with -march=native ).  Refer also to wf_to_wu_fast.  In order
+       to make the test portable, negative values need to be excluded. */
+    FD_TEST( wu_test( wf_to_wu( wf_abs( x ) ), (uint)fabsf(x0), (uint)fabsf(x1), (uint)fabsf(x2), (uint)fabsf(x3),
+                                               (uint)fabsf(x4), (uint)fabsf(x5), (uint)fabsf(x6), (uint)fabsf(x7) ) );
+    FD_TEST( wu_test( wf_to_wu_fast( wf_abs( x ) ), (uint)rintf(fabsf(x0)), (uint)rintf(fabsf(x1)), (uint)rintf(fabsf(x2)), (uint)rintf(fabsf(x3)),
+                                                    (uint)rintf(fabsf(x4)), (uint)rintf(fabsf(x5)), (uint)rintf(fabsf(x6)), (uint)rintf(fabsf(x7))) );
 
     FD_TEST( wd_test( wf_to_wd( x, 0 ), (double)x0, (double)x1, (double)x2, (double)x3 ) );
     FD_TEST( wd_test( wf_to_wd( x, 1 ), (double)x4, (double)x5, (double)x6, (double)x7 ) );
@@ -574,16 +576,3 @@ main( int     argc,
   fd_halt();
   return 0;
 }
-
-#else
-
-int
-main( int     argc,
-      char ** argv ) {
-  fd_boot( &argc, &argv );
-  FD_LOG_WARNING(( "skip: unit test requires FD_HAS_AVX capability" ));
-  fd_halt();
-  return 0;
-}
-
-#endif

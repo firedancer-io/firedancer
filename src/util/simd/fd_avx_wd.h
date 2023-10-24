@@ -160,7 +160,7 @@ wd_insert_variable( wd_t a, int n, double v ) {
    wd_copysign(a,b) returns [ copysign(a0,b0) copysign(a1,b1) ... copysign(a3,b3) ]
    wd_flipsign(a,b) returns [ flipsign(a0,b0) flipsign(a1,b1) ... flipsign(a3,b3) ]
 
-   wd_fma( a,b,c)   returns [  fma(a0,b0, c0)  fma(a1,b1, c1) ...  fma(a3,b3, c3) ] (i.e.  a.*b+c) 
+   wd_fma( a,b,c)   returns [  fma(a0,b0, c0)  fma(a1,b1, c1) ...  fma(a3,b3, c3) ] (i.e.  a.*b+c)
    wd_fms( a,b,c)   returns [  fma(a0,b0,-c0)  fma(a1,b1,-c1) ...  fma(a3,b3,-c3) ] (i.e.  a.*b-c)
    wd_fnma(a,b,c)   returns [ -fma(a0,b0,-c0) -fma(a1,b1,-c1) ... -fma(a3,b3,-c3) ] (i.e. -a.*b+c)
 
@@ -315,14 +315,23 @@ static inline __m256i wd_to_wv( wd_t d ) { /* FIXME: workaround wv_t isn't decla
 
 static inline wu_t wd_to_wu_fast( wd_t d, wu_t u, int imm_hi ) {
 
-  /* Note: Given that _mm256_cvtpd_epi32 exists, Intel clearly has the
-     hardware under the hood to support a _mm256_cvtpd_epu32 but didn't
-     bother to expose it pre-AVX512 ... sigh (all too typical
-     unfortunately).  We note that subtracting 2^31 from a double
-     storing an integer in [0,2^32) is exact and the result can be
-     exactly converted to a signed integer by _mm256_cvtpd_epi32.  We
-     then use twos complement hacks to add any shift. */
+/* Note: Given that _mm256_cvtpd_epi32 existed for a long time, Intel
+   clearly had the hardware under the hood for _mm256_cvtpd_epu32 but
+   didn't bother to expose it pre-Skylake-X ... sigh (all too typical
+   unfortunately).  We use _mm256_cvtpd_epu32 where supported because
+   it is faster and it replicates the same IB behaviors as the compiler
+   generated scalar ASM for float to uint casts on these targets.
 
+   Pre-Skylake-X, we emulate it by noting that subtracting 2^31
+   from a double holding an integer in [0,2^32) is exact and the
+   result can be exactly converted to a signed integer by
+   _mm256_cvtpd_epi32.  We then use twos complement hacks to add back
+   any shift.  This also replicates the compiler's IB behaviors on
+   these ISAs for float to int casts. */
+
+# if defined(__AVX512F__) && defined(__AVX512VL__)
+  __m128i v = _mm256_cvtpd_epu32( d );
+# else
   /**/                                                                                     // Assumes d is integer in [0,2^32)
   wd_t    s  = wd_bcast( (double)(1UL<<31) );                                              // (double)2^31
   wc_t    c  = wd_lt ( d, s );                                                             // -1L if d<2^31, 0L o.w.
@@ -334,6 +343,7 @@ static inline wu_t wd_to_wu_fast( wd_t d, wu_t u, int imm_hi ) {
   __m128i v1 = _mm_add_epi32( v0, _mm_set1_epi32( (int)(1U<<31) ) );                       // (uint)(d+2^31 if d<2^31, d      o.w.)
   __m128i v  = _mm_castps_si128( _mm_blendv_ps( _mm_castsi128_ps( v1 ),
                                                 _mm_castsi128_ps( v0 ), b ) );             // (uint)d
+# endif
   return imm_hi ? _mm256_insertf128_si256( u, v, 1 ) : _mm256_insertf128_si256( u, v, 0 ); // compile time
 
 }

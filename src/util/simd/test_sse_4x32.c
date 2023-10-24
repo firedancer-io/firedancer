@@ -1,7 +1,4 @@
 #include "../fd_util.h"
-
-#if FD_HAS_SSE
-
 #include "fd_sse.h"
 #include <math.h>
 
@@ -169,7 +166,7 @@ main( int     argc,
     FD_TEST( vf_test( vf_sqrt( vf_mul( x, x ) ), fabsf(x0), fabsf(x1), fabsf(x2), fabsf(x3) ) );
 
     vf_t expected;
-    
+
     expected = vf( 1.f/sqrtf(x0+4.f), 1.f/sqrtf(x1+4.f), 1.f/sqrtf(x2+4.f), 1.f/sqrtf(x3+4.f) );
     FD_TEST( !vc_any( vf_gt( vf_abs( vf_div( vf_sub( vf_rsqrt_fast( vf_add( x, vf_bcast(4.f) ) ), expected ), expected ) ),
                              vf_bcast( 1.f/1024.f ) ) ) );
@@ -217,8 +214,12 @@ main( int     argc,
     FD_TEST( vi_test( vf_to_vi( x ), (int)x0, (int)x1, (int)x2, (int)x3 ) );
     FD_TEST( vi_test( vf_to_vi_fast( x ), (int)rintf(x0), (int)rintf(x1), (int)rintf(x2), (int)rintf(x3) ) );
 
-    FD_TEST( vu_test( vf_to_vu( x ), (uint)x0, (uint)x1, (uint)x2, (uint)x3 ) );
-    FD_TEST( vu_test( vf_to_vu_fast( x ), (uint)rintf(x0), (uint)rintf(x1), (uint)rintf(x2), (uint)rintf(x3) ) );
+    /* The behaviour when converting from negative float to uint is highly
+       dependent on the compiler version and the flags used ( e.g. gcc 8.5
+       vs 9.3 with -march=native ).  Refer also to vf_to_vu_fast.  In order
+       to make the test portable, negative values need to be excluded. */
+    FD_TEST( vu_test( vf_to_vu( vf_abs( x ) ), (uint)fabsf(x0), (uint)fabsf(x1), (uint)fabsf(x2), (uint)fabsf(x3) ) );
+    FD_TEST( vu_test( vf_to_vu_fast( vf_abs( x ) ), (uint)rintf(fabsf(x0)), (uint)rintf(fabsf(x1)), (uint)rintf(fabsf(x2)), (uint)rintf(fabsf(x3)) ) );
 
     FD_TEST( vd_test( vf_to_vd( x, 0, 0 ), (double)x0, (double)x0 ) );
     FD_TEST( vd_test( vf_to_vd( x, 0, 1 ), (double)x0, (double)x1 ) );
@@ -639,16 +640,3 @@ main( int     argc,
   fd_halt();
   return 0;
 }
-
-#else
-
-int
-main( int     argc,
-      char ** argv ) {
-  fd_boot( &argc, &argv );
-  FD_LOG_WARNING(( "skip: unit test requires FD_HAS_SSE capability" ));
-  fd_halt();
-  return 0;
-}
-
-#endif
