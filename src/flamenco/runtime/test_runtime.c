@@ -118,61 +118,6 @@ usage( char const * progname ) {
       " --retrace     <bool>       Immediately replay captured traces\n" );
 }
 
-#define SORT_NAME sort_pubkey_hash_pair
-#define SORT_KEY_T fd_pubkey_hash_pair_t
-#define SORT_BEFORE(a,b) ((memcmp(&a, &b, 32) < 0))
-#include "../../util/tmpl/fd_sort.c"
-
-int
-accounts_hash( global_state_t *state ) {
-  fd_funk_t * funk = state->slot_ctx->acc_mgr->funk;
-  fd_wksp_t * wksp = fd_funk_wksp( funk );
-  fd_funk_rec_t * rec_map  = fd_funk_rec_map( funk, wksp );
-  ulong num_iter_accounts = fd_funk_rec_map_key_cnt( rec_map );
-
-  FD_LOG_NOTICE(( "NIA %lu", num_iter_accounts ));
-
-  ulong zero_accounts = 0;
-  ulong num_pairs = 0;
-  fd_pubkey_hash_pair_t * pairs = fd_valloc_malloc( state->slot_ctx->valloc, 8UL, num_iter_accounts*sizeof(fd_pubkey_hash_pair_t));
-  for( fd_funk_rec_map_iter_t iter = fd_funk_rec_map_iter_init( rec_map );
-       !fd_funk_rec_map_iter_done( rec_map, iter );
-       iter = fd_funk_rec_map_iter_next( rec_map, iter ) ) {
-    fd_funk_rec_t * rec = fd_funk_rec_map_iter_ele( rec_map, iter );
-    if ( !fd_acc_mgr_is_key( rec->pair.key ) )
-      continue;
-
-    if (num_pairs % 1000000 == 0) {
-      FD_LOG_NOTICE(( "PAIRS: %lu", num_pairs ));
-    }
-
-    fd_account_meta_t * metadata = (fd_account_meta_t *) fd_funk_val_const( rec, wksp );
-    if ((metadata->magic != FD_ACCOUNT_META_MAGIC) || (metadata->hlen != sizeof(fd_account_meta_t))) {
-      FD_LOG_ERR(("invalid magic on metadata"));
-    }
-
-    if ((metadata->info.lamports == 0) | ((metadata->info.executable & ~1) != 0)) {
-      zero_accounts++;
-      continue;
-    }
-
-
-    fd_memcpy(pairs[num_pairs].pubkey.key, rec->pair.key, 32);
-    fd_memcpy(pairs[num_pairs].hash.hash, metadata->hash, 32);
-    num_pairs++;
-  }
-
-  FD_LOG_WARNING(("num_iter_accounts %ld zero_accounts %lu", num_iter_accounts, zero_accounts));
-  FD_LOG_NOTICE(( "HASHING ACCOUNTS" ));
-  fd_hash_t accounts_hash;
-  fd_hash_account_deltas(pairs, num_pairs, &accounts_hash, state->slot_ctx);
-
-  FD_LOG_WARNING(("accounts_hash %32J", accounts_hash.hash));
-  FD_LOG_WARNING(("num_iter_accounts %ld", num_iter_accounts));
-
-  return 0;
-}
-
 int
 replay( global_state_t * state,
         int              justverify,
@@ -241,12 +186,12 @@ replay( global_state_t * state,
     if( FD_UNLIKELY( !rec ) ) FD_LOG_ERR(("missing block record"));
     val = fd_funk_val( rec, fd_funk_wksp(state->slot_ctx->acc_mgr->funk) );
 
-   
+
     if ( justverify ) {
       fd_block_info_t block_info;
       int ret = fd_runtime_block_prepare( val, fd_funk_val_sz(rec), state->slot_ctx->valloc, &block_info );
       FD_TEST( ret == FD_RUNTIME_EXECUTE_SUCCESS );
-      
+
       fd_hash_t poh_hash;
       fd_memcpy( poh_hash.hash, state->slot_ctx->bank.poh.hash, sizeof(fd_hash_t) );
       ret = fd_runtime_block_verify( &block_info, &poh_hash );
@@ -539,8 +484,6 @@ main( int     argc,
   }
   if (strcmp(state.cmd, "verifyonly") == 0)
     replay(&state, 1, tpool, tcnt);
-  if (strcmp(state.cmd, "accounts_hash") == 0)
-    accounts_hash(&state);
 
   fd_alloc_free( alloc, fd_solcap_writer_delete( fd_solcap_writer_fini( state.slot_ctx->capture ) ) );
   if( state.capture_file  ) fclose( state.capture_file );

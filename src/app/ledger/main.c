@@ -122,7 +122,7 @@ void SnapshotParser_parsefd_solana_accounts(struct SnapshotParser* self, char co
 
       int read_result = FD_ACC_MGR_SUCCESS;
       fd_account_meta_t const * acc_meta = fd_acc_mgr_view_raw( acc_mgr, txn, acc_key, &rec->const_rec, &read_result);
-      
+
       /* Skip if we previously inserted a newer version */
       if( read_result == FD_ACC_MGR_SUCCESS ) {
         if( acc_meta->slot > slot ) break;
@@ -295,7 +295,7 @@ ingest_txnstatus( fd_exec_slot_ctx_t * slot_ctx,
 
 void
 ingest_rocksdb( fd_exec_slot_ctx_t * slot_ctx,
-                fd_wksp_t *       funk_wksp,  
+                fd_wksp_t *       funk_wksp,
                 char const *      file,
                 ulong             end_slot,
                 char const *      verifypoh,
@@ -420,7 +420,7 @@ ingest_rocksdb( fd_exec_slot_ctx_t * slot_ctx,
       fd_block_info_t block_info;
       int ret = fd_runtime_block_prepare( val, fd_funk_val_sz(rec), slot_ctx->valloc, &block_info );
       FD_TEST( ret == FD_RUNTIME_EXECUTE_SUCCESS );
-      
+
       fd_hash_t poh_hash;
       fd_memcpy( poh_hash.hash, slot_ctx->bank.poh.hash, sizeof(fd_hash_t) );
       ret = fd_runtime_block_verify( &block_info, &poh_hash );
@@ -592,6 +592,12 @@ main( int     argc,
 
       SnapshotParser_destroy(&parser);
       snapshot_used = 1;
+
+      fd_hash_t accounts_hash;
+      fd_accounts_hash(slot_ctx, &accounts_hash);
+      FD_LOG_WARNING(("main snapshot accounts_hash %32J", accounts_hash.hash));
+
+      // TODO: regexp the hash out of the filename and compare..
     }
 
     if( incremental ) {
@@ -619,6 +625,12 @@ main( int     argc,
 
       SnapshotParser_destroy(&parser);
       snapshot_used = 1;
+
+      fd_hash_t accounts_hash;
+      fd_accounts_hash(slot_ctx, &accounts_hash);
+      FD_LOG_WARNING(("incremental accounts_hash %32J", accounts_hash.hash));
+
+      // TODO: regexp the hash out of the filename and compare..
     }
 
     if (snapshot_used) {
