@@ -1001,6 +1001,14 @@ fd_log_private_boot( int  *   pargc,
                               "log messages generated from clones (if any) may not be well sequenced; attempting to continue\n",
                               errno, fd_io_strerror( errno ) );
     shmem = fd_log_private_shared_lock_local;
+  } else {
+    if( FD_UNLIKELY( mlock( shmem, sizeof(int) ) ) ) {
+      fd_log_private_fprintf_0( STDERR_FILENO,
+                                "mlock(%p,sizeof(int)) (%i-%s); "
+                                "unable to lock log file shared lock in memory\n",
+                                shmem, errno, fd_io_strerror( errno ) );
+      shmem = fd_log_private_shared_lock_local;
+    }
   }
   fd_log_private_shared_lock = shmem;
 
