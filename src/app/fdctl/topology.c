@@ -345,7 +345,28 @@ fd_topo_fill( fd_topo_t * topo,
   }
 }
 
-static ulong
+FD_FN_CONST static ulong
+fd_topo_tile_extra_huge_pages( fd_topo_tile_t * tile ) {
+  (void)tile;
+
+  /* Every tile maps an additional set of pages for the stack. */
+  return (FD_TILE_PRIVATE_STACK_SZ/FD_SHMEM_HUGE_PAGE_SZ)+2UL;
+}
+
+FD_FN_PURE static ulong
+fd_topo_tile_extra_normal_pages( fd_topo_tile_t * tile ) {
+  ulong key_pages = 0UL;
+  if( FD_UNLIKELY( tile->kind == FD_TOPO_TILE_KIND_SHRED ||
+                   tile->kind == FD_TOPO_TILE_KIND_PACK ) ) {
+    /* Shred and pack tiles use 5 normal pages to hold key material. */
+    key_pages = 5UL;
+  }
+  
+  /* All tiles lock one normal page for the fd_log shared lock. */
+  return key_pages + 1UL;
+}
+
+FD_FN_PURE static ulong
 fd_topo_mlock_max_tile1( fd_topo_t *      topo,
                          fd_topo_tile_t * tile ) {
   ulong tile_mem = 0UL;
@@ -355,20 +376,12 @@ fd_topo_mlock_max_tile1( fd_topo_t *      topo,
       tile_mem += topo->workspaces[ i ].page_cnt * topo->workspaces[ i ].page_sz;
   }
 
-  if( FD_UNLIKELY( tile->kind == FD_TOPO_TILE_KIND_SHRED ||
-                   tile->kind == FD_TOPO_TILE_KIND_PACK ) ) {
-    /* Shred tile locks 5 scratch pages for storing private key material. */
-    tile_mem += 5UL * FD_SHMEM_NORMAL_PAGE_SZ;
-  }
-
-  /* Every tile locks an additional set of pages for the stack. */
-  ulong stack_pages = (FD_TILE_PRIVATE_STACK_SZ/FD_SHMEM_HUGE_PAGE_SZ)+2UL;
-  tile_mem += stack_pages * FD_SHMEM_HUGE_PAGE_SZ;
-
-  return tile_mem;
+  return tile_mem +
+      fd_topo_tile_extra_huge_pages( tile ) * FD_SHMEM_HUGE_PAGE_SZ +
+      fd_topo_tile_extra_normal_pages( tile ) * FD_SHMEM_NORMAL_PAGE_SZ;
 }
 
-ulong
+FD_FN_PURE ulong
 fd_topo_mlock_max_tile( fd_topo_t * topo ) {
   fd_topo_fill( topo, FD_TOPO_FILL_MODE_FOOTPRINT );
 
@@ -381,7 +394,49 @@ fd_topo_mlock_max_tile( fd_topo_t * topo ) {
   return highest_tile_mem;
 }
 
-ulong
+FD_FN_PURE ulong
+fd_topo_gigantic_page_cnt( fd_topo_t * topo ) {
+  fd_topo_fill( topo, FD_TOPO_FILL_MODE_FOOTPRINT );
+
+  ulong result = 0UL;
+  for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {
+    if( FD_LIKELY( topo->workspaces[ i ].page_sz == FD_SHMEM_GIGANTIC_PAGE_SZ ) ) {
+      result += topo->workspaces[ i ].page_cnt;
+    }
+  }
+  return result;
+}
+
+FD_FN_PURE ulong
+fd_topo_huge_page_cnt( fd_topo_t * topo ) {
+  fd_topo_fill( topo, FD_TOPO_FILL_MODE_FOOTPRINT );
+
+  ulong result = 0UL;
+  for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {
+    if( FD_LIKELY( topo->workspaces[ i ].page_sz == FD_SHMEM_HUGE_PAGE_SZ ) ) {
+      result += topo->workspaces[ i ].page_cnt;
+    }
+  }
+
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    result += fd_topo_tile_extra_huge_pages( &topo->tiles[ i ] );
+  }
+
+  return result;
+}
+
+FD_FN_PURE ulong
+fd_topo_normal_page_cnt( fd_topo_t * topo ) {
+  fd_topo_fill( topo, FD_TOPO_FILL_MODE_FOOTPRINT );
+
+  ulong result = 0UL;
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    result += fd_topo_tile_extra_normal_pages( &topo->tiles[ i ] );
+  }
+  return result;
+}
+
+FD_FN_PURE ulong
 fd_topo_mlock( fd_topo_t * topo ) {
   fd_topo_fill( topo, FD_TOPO_FILL_MODE_FOOTPRINT );
 
@@ -641,13 +696,16 @@ fd_topo_print_log( fd_topo_t * topo ) {
   ulong private_key_pages = 5UL * FD_SHMEM_NORMAL_PAGE_SZ;
   ulong total_bytes = fd_topo_mlock( topo ) + stack_pages + private_key_pages;
 
-  PRINT("  %20s: %lu\n", "Total Tiles", topo->tile_cnt );
-  PRINT("  %20s: %lu bytes (%lu GiB + %lu MiB + %lu KiB)\n",
+  PRINT("  %23s: %lu\n", "Total Tiles", topo->tile_cnt );
+  PRINT("  %23s: %lu bytes (%lu GiB + %lu MiB + %lu KiB)\n",
     "Total Memory Locked",
     total_bytes,
     total_bytes / (1 << 30),
     (total_bytes % (1 << 30)) / (1 << 20),
     (total_bytes % (1 << 20)) / (1 << 10) );
+  PRINT("  %23s: %lu\n", "Required Gigantic Pages", fd_topo_gigantic_page_cnt( topo ) );
+  PRINT("  %23s: %lu\n", "Required Huge Pages", fd_topo_huge_page_cnt( topo ) );
+  PRINT("  %23s: %lu\n", "Required Normal Pages", fd_topo_normal_page_cnt( topo ) );
 
   PRINT( "\nWORKSPACES\n");
   for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {
@@ -711,7 +769,8 @@ fd_topo_print_log( fd_topo_t * topo ) {
       snprintf1( out_link_id, 24, "%lu", tile->out_link_id_primary );
     char size[ 24 ];
     fd_topo_mem_sz_string( fd_topo_mlock_max_tile1( topo, tile ), size );
-    PRINT( "  %2lu (%6s): %12s  kind_id=%-2lu  wksp_id=%-2lu  out_link=%-2s  in=[%s]  out=[%s]\n", i, size, fd_topo_tile_kind_str( tile->kind ), tile->kind_id, tile->wksp_id, out_link_id, in, out );
+    PRINT( "  %2lu (%6s): %12s  kind_id=%-2lu  wksp_id=%-2lu  out_link=%-2s  in=[%s]  out=[%s]", i, size, fd_topo_tile_kind_str( tile->kind ), tile->kind_id, tile->wksp_id, out_link_id, in, out );
+    if( FD_LIKELY( i != topo->tile_cnt-1 ) ) PRINT( "\n" );
   }
 
   FD_LOG_NOTICE(( "%s", message ));

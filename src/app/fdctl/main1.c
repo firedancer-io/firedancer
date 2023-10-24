@@ -1,11 +1,14 @@
 #include "fdctl.h"
 
-action_t ACTIONS[ 5 ] = {
+action_t ACTIONS[ ACTIONS_CNT ] = {
   { .name = "run",       .args = NULL,               .fn = run_cmd_fn,       .perm = run_cmd_perm },
   { .name = "configure", .args = configure_cmd_args, .fn = configure_cmd_fn, .perm = configure_cmd_perm },
   { .name = "monitor",   .args = monitor_cmd_args,   .fn = monitor_cmd_fn,   .perm = monitor_cmd_perm },
   { .name = "keygen",    .args = NULL,               .fn = keygen_cmd_fn,    .perm = NULL },
   { .name = "ready",     .args = NULL,               .fn = ready_cmd_fn,     .perm = NULL },
+  { .name = "info",      .args = NULL,               .fn = info_cmd_fn,      .perm = NULL },
+  { .name = "mem",       .args = NULL,               .fn = info_cmd_fn,      .perm = NULL },
+  { .name = "topo",      .args = NULL,               .fn = info_cmd_fn,      .perm = NULL },
 };
 
 int
