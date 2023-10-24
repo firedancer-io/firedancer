@@ -36,7 +36,7 @@ fd_hash_account_deltas(fd_pubkey_hash_pair_t * pairs, ulong pairs_len, fd_hash_t
 
   for( ulong i = 0; i < pairs_len; ++i ) {
 
-    if (1) {
+    if (0) {
       FD_LOG_NOTICE(( "account delta hash X { \"key\":%ld, \"pubkey\":\"%32J\", \"hash\":\"%32J\" },", i, pairs[i].pubkey.key, pairs[i].hash.hash));
 
       /*
@@ -57,7 +57,7 @@ fd_hash_account_deltas(fd_pubkey_hash_pair_t * pairs, ulong pairs_len, fd_hash_t
       int err;
       uchar * raw_acc_data = (uchar*) fd_acc_mgr_view_raw(slot_ctx->acc_mgr, slot_ctx->funk_txn, (fd_pubkey_t *) &pairs[i].pubkey, NULL, &err);
       if (NULL != raw_acc_data) {
-        
+
         fd_account_meta_t * metadata = (fd_account_meta_t *)raw_acc_data;
         uchar * acc_data = fd_account_get_data(metadata);
         char * acc_data_str = malloc(5*metadata->dlen + 1);
@@ -154,6 +154,45 @@ fd_hash_account_deltas(fd_pubkey_hash_pair_t * pairs, ulong pairs_len, fd_hash_t
   // If the level at the `height' was rolled into, do something about it
 }
 
+// https://github.com/solana-labs/solana/blob/b0dcaf29e358c37a0fcb8f1285ce5fff43c8ec55/runtime/src/bank/epoch_accounts_hash_utils.rs#L13
+
+static int
+fd_should_include_epoch_accounts_hash(fd_exec_slot_ctx_t * slot_ctx) {
+  if( !FD_FEATURE_ACTIVE( slot_ctx, epoch_accounts_hash ) )
+    return 0;
+
+  // This came from the vote program.. maybe we need to put it into a header?
+  const ulong MAX_LOCKOUT_HISTORY = 31UL;
+
+  const ulong CALCULATION_INTERVAL_BUFFER = 150UL;
+  const ulong MINIMUM_CALCULATION_INTERVAL = MAX_LOCKOUT_HISTORY + CALCULATION_INTERVAL_BUFFER;
+
+  // The calculation buffer is a best-attempt at median worst-case for how many bank ancestors can
+  // accumulate before the bank is rooted.
+  // [brooks] On Wed Oct 26 12:15:21 2022, over the previous 6 hour period against mainnet-beta,
+  // I saw multiple validators reporting metrics in the 120s for `total_parent_banks`.  The mean
+  // is 2 to 3, but a number of nodes also reported values in the low 20s.  A value of 150 should
+  // capture the majority of validators, and will not be an issue for clusters running with
+  // normal slots-per-epoch; this really will only affect tests and epoch schedule warmup.
+
+  ulong slot_idx = 0;
+  ulong epoch = fd_slot_to_epoch( &slot_ctx->bank.epoch_schedule, slot_ctx->bank.slot, &slot_idx );
+
+  ulong slots_per_epoch = fd_epoch_slot_cnt( &slot_ctx->bank.epoch_schedule, epoch );
+  ulong calculation_offset_start = slots_per_epoch / 4;
+  ulong calculation_offset_stop = slots_per_epoch / 4 * 3;
+
+  ulong first_slot_in_epoch           = fd_epoch_slot0   ( &slot_ctx->bank.epoch_schedule, epoch );
+
+  ulong calculation_stop = first_slot_in_epoch + calculation_offset_stop;
+  ulong calculation_interval = fd_ulong_sat_sub(calculation_offset_stop, calculation_offset_start);
+
+  if (calculation_interval < MINIMUM_CALCULATION_INTERVAL)
+    return 0;
+
+  return slot_ctx->bank.prev_slot < calculation_stop && (slot_ctx->bank.slot >= calculation_stop);
+}
+
 static void
 fd_hash_bank( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t * hash, fd_pubkey_hash_vector_t * dirty_keys) {
   slot_ctx->prev_banks_hash = slot_ctx->bank.banks_hash;
@@ -168,6 +207,17 @@ fd_hash_bank( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t * hash, fd_pubkey_hash_ve
   fd_sha256_append( &sha, (uchar const *) &slot_ctx->bank.poh, sizeof( fd_hash_t ) );
 
   fd_sha256_fini( &sha, hash->hash );
+
+  if (fd_should_include_epoch_accounts_hash(slot_ctx)) {
+    fd_sha256_init( &sha );
+    fd_sha256_append( &sha, (uchar const *) &hash->hash, sizeof( fd_hash_t ) );
+
+    fd_hash_t epoch_accounts_hash;
+    fd_accounts_hash(slot_ctx, &epoch_accounts_hash);
+    fd_sha256_append( &sha, (uchar const *) &epoch_accounts_hash.hash, sizeof( fd_hash_t ) );
+
+    fd_sha256_fini( &sha, hash->hash );
+  }
 
   fd_solcap_write_bank_preimage(
       slot_ctx->capture,
@@ -301,7 +351,7 @@ fd_update_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
   for (ulong i = 0; i < erase_recs.cnt; i++) {
     fd_funk_rec_t const * erase_rec = erase_recs.elems[i];
     fd_funk_rec_remove(funk, fd_funk_rec_modify(funk, erase_rec), 1);
-  } 
+  }
 
   return FD_EXECUTOR_INSTR_SUCCESS;
 }

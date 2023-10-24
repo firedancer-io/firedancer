@@ -300,7 +300,7 @@ fd_runtime_parse_microblock_txns( void const *                buf,
     buf_off += payload_sz;
     out_txn_buf = (uchar *)out_txn_buf + FD_TXN_MAX_SZ;
   }
-  
+
   *out_signature_cnt = signature_cnt;
   *out_microblock_txns_sz = buf_off;
 
@@ -328,10 +328,10 @@ fd_runtime_microblock_prepare( void const * buf,
   microblock_info.txn_buf = fd_valloc_malloc( valloc, fd_txn_align(), txn_cnt * FD_TXN_MAX_SZ);
   microblock_info.txn_ptrs = fd_valloc_malloc( valloc, alignof(fd_txn_t *), txn_cnt * sizeof(fd_txn_t *) );
   microblock_info.raw_txns = fd_valloc_malloc( valloc, alignof(fd_rawtxn_b_t), txn_cnt * sizeof(fd_rawtxn_b_t) );
-  
+
   ulong txns_sz = 0;
-  if( fd_runtime_parse_microblock_txns( (uchar *)buf + buf_off, 
-                                        buf_sz - buf_off, 
+  if( fd_runtime_parse_microblock_txns( (uchar *)buf + buf_off,
+                                        buf_sz - buf_off,
                                         &microblock_info.microblock_hdr,
                                         microblock_info.txn_buf,
                                         microblock_info.raw_txns,
@@ -372,7 +372,7 @@ fd_runtime_microblock_batch_prepare( void const * buf,
 
   microblock_batch_info.microblock_cnt = microblock_cnt;
   microblock_batch_info.microblock_infos = fd_valloc_malloc( valloc, alignof(fd_microblock_info_t), microblock_cnt * sizeof(fd_microblock_info_t) );
-  
+
   ulong signature_cnt = 0;
   for( ulong i = 0; i < microblock_cnt; i++ ) {
     fd_microblock_info_t * microblock_info = &microblock_batch_info.microblock_infos[i];
@@ -416,7 +416,7 @@ fd_runtime_block_prepare( void const * buf,
     if( fd_runtime_microblock_batch_prepare( (uchar const *)buf + buf_off, buf_sz - buf_off, valloc, microblock_batch_info ) != 0 ) {
       return -1;
     }
-    
+
     signature_cnt += microblock_batch_info->signature_cnt;
     buf_off += microblock_batch_info->raw_microblock_batch_sz;
     microblock_batch_cnt++;
@@ -468,7 +468,7 @@ fd_runtime_microblock_execute( fd_exec_slot_ctx_t * slot_ctx,
   for ( ulong txn_idx = 0; txn_idx < hdr->txn_cnt; txn_idx++ ) {
     fd_txn_t const * txn = microblock_info->txn_ptrs[txn_idx];
     fd_rawtxn_b_t const * raw_txn = &microblock_info->raw_txns[txn_idx];
-    
+
     FD_LOG_NOTICE(( "executing txn - slot: %lu, txn_idx: %lu, sig: %64J", slot_ctx->bank.slot, txn_idx, (uchar *)raw_txn->raw + txn->signature_off ));
     fd_execute_txn( slot_ctx, txn, raw_txn );
   }
@@ -482,7 +482,7 @@ fd_runtime_microblock_batch_execute( fd_exec_slot_ctx_t * slot_ctx,
   /* Loop across microblocks */
   for ( ulong i = 0; i < microblock_batch_info->microblock_cnt; i++ ) {
     fd_microblock_info_t const * microblock_info = &microblock_batch_info->microblock_infos[i];
-    
+
     FD_LOG_NOTICE(( "executing microblock - slot: %lu, mblk_idx: %lu", slot_ctx->bank.slot, i ));
     fd_runtime_microblock_execute( slot_ctx, microblock_info );
   }
@@ -606,7 +606,7 @@ fd_runtime_microblock_verify( fd_microblock_info_t const * microblock_info,
         fd_bmtree_node_t leaf;
         fd_bmtree_hash_leaf( &leaf, &sigs[j], sizeof(fd_ed25519_sig_t) , 1);
         fd_bmtree_commit_append( tree, (fd_bmtree_node_t const *)&leaf, 1 );
-      }      
+      }
     }
 
     uchar * root = fd_bmtree_commit_fini( tree );
@@ -617,7 +617,7 @@ fd_runtime_microblock_verify( fd_microblock_info_t const * microblock_info,
     FD_LOG_WARNING(( "poh mismatch (bank: %32J, entry: %32J)", poh_hash->hash, microblock_info->microblock_hdr.hash ));
     return -1;
   }
-  
+
   return 0;
 }
 
@@ -660,7 +660,7 @@ int
 fd_runtime_block_eval( fd_exec_slot_ctx_t * slot_ctx, fd_slot_meta_t *m, const void* block, ulong blocklen ) {
   fd_funk_txn_t* parent_txn = slot_ctx->funk_txn;
   fd_funk_txn_xid_t xid;
-  
+
   xid.ul[0] = fd_rng_ulong( slot_ctx->rng );
   xid.ul[1] = fd_rng_ulong( slot_ctx->rng );
   xid.ul[2] = fd_rng_ulong( slot_ctx->rng );
@@ -1721,4 +1721,40 @@ fd_runtime_bank_hash_key( ulong slot ) {
   id.ul[ 0 ] = slot;
   id.c[ FD_FUNK_REC_KEY_FOOTPRINT - 1 ] = FD_BANK_HASH_TYPE;
   return id;
+}
+
+int
+fd_accounts_hash( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t *accounts_hash ) {
+  fd_funk_t * funk = slot_ctx->acc_mgr->funk;
+  fd_wksp_t * wksp = fd_funk_wksp( funk );
+  fd_funk_rec_t * rec_map  = fd_funk_rec_map( funk, wksp );
+  ulong num_iter_accounts = fd_funk_rec_map_key_cnt( rec_map );
+
+  ulong num_pairs = 0;
+  fd_pubkey_hash_pair_t * pairs = fd_valloc_malloc( slot_ctx->valloc, 8UL, num_iter_accounts*sizeof(fd_pubkey_hash_pair_t));
+  for( fd_funk_rec_map_iter_t iter = fd_funk_rec_map_iter_init( rec_map );
+       !fd_funk_rec_map_iter_done( rec_map, iter );
+       iter = fd_funk_rec_map_iter_next( rec_map, iter ) ) {
+    fd_funk_rec_t * rec = fd_funk_rec_map_iter_ele( rec_map, iter );
+    if ( !fd_acc_mgr_is_key( rec->pair.key ) )
+      continue;
+
+    fd_account_meta_t * metadata = (fd_account_meta_t *) fd_funk_val_const( rec, wksp );
+    if ((metadata->magic != FD_ACCOUNT_META_MAGIC) || (metadata->hlen != sizeof(fd_account_meta_t))) {
+      FD_LOG_ERR(("invalid magic on metadata"));
+    }
+
+    if ((metadata->info.lamports == 0) | ((metadata->info.executable & ~1) != 0))
+      continue;
+
+    fd_memcpy(pairs[num_pairs].pubkey.key, rec->pair.key, 32);
+    fd_memcpy(pairs[num_pairs].hash.hash, metadata->hash, 32);
+    num_pairs++;
+  }
+
+  fd_hash_account_deltas(pairs, num_pairs, accounts_hash, slot_ctx);
+
+//  FD_LOG_WARNING(("accounts_hash %32J", accounts_hash->hash));
+
+  return 0;
 }
