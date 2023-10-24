@@ -113,7 +113,7 @@ wc_exch_adj_quad( wc_t c ) { /* [ c4 c5 c6 c7 c0 c1 c2 c3 ] */
    location p (0/-1 for true/false).  wc_stu is the same but p does not
    have to be aligned.  Lane l will be at p[l].  FIXME: USE ATTRIBUTES
    ON P PASSED TO THESE?
-   
+
    Note: gcc knows that __m256i may alias. */
 
 static inline wc_t
@@ -121,18 +121,16 @@ wc_ld( int const * p ) {
   return _mm256_xor_si256( _mm256_set1_epi32( -1 ), _mm256_cmpeq_epi32( _mm256_load_si256(  (__m256i const *)p ),
                                                                         _mm256_setzero_si256() ) );
 }
+static inline wc_t wc_ld_fast( int const * p ) { return _mm256_load_si256(  (__m256i const *)p ); }
+static inline void wc_st( int * p, wc_t c ) { _mm256_store_si256(  (__m256i *)p, c ); }
 
 static inline wc_t
-wc_ldu( int const * p ) {
+wc_ldu( void const * p ) {
   return _mm256_xor_si256( _mm256_set1_epi32( -1 ), _mm256_cmpeq_epi32( _mm256_loadu_si256( (__m256i const *)p ),
                                                                         _mm256_setzero_si256() ) );
 }
-
-static inline wc_t wc_ld_fast(  int const * p ) { return _mm256_load_si256(  (__m256i const *)p ); }
-static inline wc_t wc_ldu_fast( int const * p ) { return _mm256_loadu_si256( (__m256i const *)p ); }
-
-static inline void wc_st(  int * p, wc_t c ) { _mm256_store_si256(  (__m256i *)p, c ); }
-static inline void wc_stu( int * p, wc_t c ) { _mm256_storeu_si256( (__m256i *)p, c ); }
+static inline wc_t wc_ldu_fast( void const * p ) { return _mm256_loadu_si256( (__m256i const *)p ); }
+static inline void wc_stu( void * p, wc_t c ) { _mm256_storeu_si256( (__m256i *)p, c ); }
 
 /* wc_ldif is an optimized equivalent to wc_and(c,wc_ldu(p)).  Similarly
    for wc_ldif_fast (either may have different behavior if c is not a

@@ -67,13 +67,14 @@ wl_permute( wl_t x, int imm_i0, int imm_i1, int imm_i2, int imm_i3 ) {
    32-byte sized location p as 4 longs.  wl_stu is the same but p does
    not have to be aligned.  In all these 64-bit lane l wlll be at p[l].
    FIXME: USE ATTRIBUTES ON P PASSED TO THESE?
-   
+
    Note: gcc knows a __m256i may alias. */
 
-static inline wl_t wl_ld(  long const * p   ) { return _mm256_load_si256(  (__m256i const *)p ); }
-static inline wl_t wl_ldu( long const * p   ) { return _mm256_loadu_si256( (__m256i const *)p ); }
-static inline void wl_st(  long * p, wl_t i ) { _mm256_store_si256(  (__m256i *)p, i ); }
-static inline void wl_stu( long * p, wl_t i ) { _mm256_storeu_si256( (__m256i *)p, i ); }
+static inline wl_t wl_ld( long const * p ) { return _mm256_load_si256(  (__m256i const *)p ); }
+static inline void wl_st( long * p, wl_t i ) { _mm256_store_si256(  (__m256i *)p, i ); }
+
+static inline wl_t wl_ldu( void const * p ) { return _mm256_loadu_si256( (__m256i const *)p ); }
+static inline void wl_stu( void * p, wl_t i ) { _mm256_storeu_si256( (__m256i *)p, i ); }
 
 /* wl_ldif is an optimized equivalent to wl_notczero(c,wl_ldu(p)) (may
    have different behavior if c is not a proper vector conditional).  It
@@ -92,7 +93,7 @@ static inline void wl_stu( long * p, wl_t i ) { _mm256_storeu_si256( (__m256i *)
    compile time known in 0:3.  wl_extract_variable and
    wl_insert_variable are the slower but the lane n does not have to be
    known at compile time (should still be in 0:3).
-   
+
    Note: C99 TC3 allows type punning through a union. */
 
 #define wl_extract(a,imm)  _mm256_extract_epi64( (a), (imm) )
@@ -118,18 +119,17 @@ wl_insert_variable( wl_t a, int n, long v ) {
 
 /* Arithmetic operations */
 
-/* Note: _mm256_{abs,min,max}_epi64 are missing in AVX.  We emulate
-   these below.  Likewise, there is no _mm256_mullo_epi64 in AVX.  Since
-   this is not cheap to emulate, we do not provide a wl_mul for the time
-   being.  There is a 64L*64L->64 multiply (where the lower 32-bits will
-   be sign extended to 64-bits beforehand) though and that is very
-   useful.  So we do provide that. */
-
 #define wl_neg(a)   _mm256_sub_epi64( _mm256_setzero_si256(), (a) ) /* [ -a0  -a1  ... -a3  ] (twos complement handling) */
-//#define wl_abs(a) _mm256_abs_epi64( (a) )                         /* [ |a0| |a1| ... |a3| ] (twos complement handling) */
 
-//#define wl_min(a,b)  _mm256_min_epi64(   (a), (b) ) /* [ min(a0,b0) min(a1,b1) ... min(a3,b3) ] */
-//#define wl_max(a,b)  _mm256_max_epi64(   (a), (b) ) /* [ max(a0,b0) max(a1,b1) ... max(a3,b3) ] */
+/* Note: _mm256_{abs,min,max}_epi64 are missing pre AVX-512.  We emulate
+   these below (and use the AVX-512 versions if possible).  Likewise,
+   there is no _mm256_mullo_epi64 pre AVX-512.  Since this is not cheap to
+   emulate, we do not provide a wl_mul for the time being (we could
+   consider exposing it on AVX-512 targets though).  There is a
+   64L*64L->64 multiply (where the lower 32-bits will be sign extended
+   to 64-bits beforehand) though and that is very useful.  So we do
+   provide that. */
+
 #define wl_add(a,b)    _mm256_add_epi64(   (a), (b) ) /* [ a0 +b0     a1 +b1     ... a3 +b3     ] */
 #define wl_sub(a,b)    _mm256_sub_epi64(   (a), (b) ) /* [ a0 -b0     a1 -b1     ... a3 -b3     ] */
 //#define wl_mul(a,b)  _mm256_mullo_epi64( (a), (b) ) /* [ a0 *b0     a1 *b1     ... a3 *b3     ] */
@@ -198,10 +198,16 @@ static inline wl_t wl_ror_vector( wl_t a, wl_t b ) {
 
 #define wl_if(c,t,f) _mm256_blendv_epi8(  (f), (t), (c) ) /* [ c0?t0:f0 c1?t1:f1 ... c3?t3:f3 ] */
 
-/* See note above */
+#if defined(__AVX512F__) && defined(__AVX512VL__) /* See note above */
+#define wl_abs(a)   _mm256_abs_epi64( (a) )
+#define wl_min(a,b) _mm256_min_epi64( (a), (b) )
+#define wl_max(a,b) _mm256_max_epi64( (a), (b) )
+#else
 static inline wl_t wl_abs( wl_t a )         { return wl_if( wl_lt( a, wl_zero() ), wl_neg( a ), a ); }
-static inline wl_t wl_min( wl_t a, wl_t b ) { return wl_if( wl_lt( a, b ), a, b ); } 
+static inline wl_t wl_min( wl_t a, wl_t b ) { return wl_if( wl_lt( a, b ), a, b ); }
 static inline wl_t wl_max( wl_t a, wl_t b ) { return wl_if( wl_gt( a, b ), a, b ); }
+#endif
+
 static inline wl_t wl_shr( wl_t a, int imm ) {
   wc_t c = wl_lt( a, wl_zero() ); /* Note that wc_t is binary compat with wl_t */
   return _mm256_xor_si256( _mm256_srli_epi64( _mm256_xor_si256( a, c ), imm ), c );
@@ -219,7 +225,7 @@ static inline wl_t wl_shr_vector( wl_t a, wl_t n ) {
 
 /* Summarizing:
 
-   wl_to_wc(d)     returns [ !!l0 !!l0 !!l1 !!l1 ... !!l3 !!l3 ] 
+   wl_to_wc(d)     returns [ !!l0 !!l0 !!l1 !!l1 ... !!l3 !!l3 ]
 
    wl_to_wf(l,i,0) returns [ (float)l0 (float)l1 (float)l2 (float)l3 f4 f5 f6 f7 ]
    wl_to_wf(l,i,1) returns [ f0 f1 f2 f3 (float)l0 (float)l1 (float)l2 (float)l3 ]

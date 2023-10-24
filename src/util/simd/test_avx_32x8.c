@@ -1,7 +1,4 @@
 #include "../fd_util.h"
-
-#if FD_HAS_AVX
-
 #include "fd_avx.h"
 
 int wc_test( wc_t c, int    c0, int    c1, int    c2, int    c3, int    c4, int    c5, int    c6, int    c7 );
@@ -223,16 +220,3 @@ main( int     argc,
   fd_halt();
   return 0;
 }
-
-#else
-
-int
-main( int     argc,
-      char ** argv ) {
-  fd_boot( &argc, &argv );
-  FD_LOG_WARNING(( "skip: unit test requires FD_HAS_AVX capability" ));
-  fd_halt();
-  return 0;
-}
-
-#endif

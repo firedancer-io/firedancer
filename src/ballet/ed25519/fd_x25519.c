@@ -1,4 +1,15 @@
 #include "fd_x25519.h"
+
+#ifndef FD_X25519_IMPL
+#if FD_HAS_AVX512
+#define FD_X25519_IMPL 1
+#else
+#define FD_X25519_IMPL 0
+#endif
+#endif
+
+#if FD_X25519_IMPL==0 /* Original scalar and AVX implementations */
+
 #include "fd_ed25519_private.h"
 
 #ifndef FD_X25519_VECTORIZE

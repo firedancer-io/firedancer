@@ -301,10 +301,10 @@ static inline vu_t vd_to_vu_fast( vd_t d, vu_t u, int imm_hi ) {
   vu_t v0 = _mm_cvtpd_epi32( vd_if( c, d, ds ) );      // (uint)(d      if d<2^31, d-2^31 o.w.), d/c lanes 2,3
   vu_t v1 = vu_add( v0, vu_bcast( 1U<<31) );           // (uint)(d+2^31 if d<2^31, d      o.w.), d/c lanes 2,3
   vu_t v  = vu_if( vc_permute( c, 0,2,0,2 ), v0, v1 ); // (uint)d, d/c lanes 2,3
+# endif
   /* Compile time */
-  if( imm_hi ) v = _mm_castps_si128( _mm_shuffle_ps( _mm_castsi128_ps( u ), _mm_castsi128_ps( v ), _MM_SHUFFLE(1,0,1,0) ) );
-  else         v = _mm_castps_si128( _mm_shuffle_ps( _mm_castsi128_ps( v ), _mm_castsi128_ps( u ), _MM_SHUFFLE(3,2,1,0) ) );
-  return v;
+  return imm_hi ? _mm_castps_si128( _mm_shuffle_ps( _mm_castsi128_ps( u ), _mm_castsi128_ps( v ), _MM_SHUFFLE(1,0,1,0) ) )
+                : _mm_castps_si128( _mm_shuffle_ps( _mm_castsi128_ps( v ), _mm_castsi128_ps( u ), _MM_SHUFFLE(3,2,1,0) ) );
 }
 
 /* FIXME: IS IT FASTER TO USE INSERT / EXTRACT FOR THESE? */

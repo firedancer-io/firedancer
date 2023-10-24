@@ -81,13 +81,14 @@ wu_exch_adj_quad( wu_t x ) { /* [ u4 u5 u6 u7 u0 u1 u2 u3 ] */
    32-byte sized location p as 8 uints.  wu_stu is the same but p does
    not have to be aligned.  In all these lane l will be at p[l].  FIXME:
    USE ATTRIBUTES ON P PASSED TO THESE?
-   
+
    Note: gcc knows a __m256i may alias. */
 
-static inline wu_t wu_ld(  uint const * p   ) { return _mm256_load_si256(  (__m256i const *)p ); }
-static inline wu_t wu_ldu( uint const * p   ) { return _mm256_loadu_si256( (__m256i const *)p ); }
-static inline void wu_st(  uint * p, wu_t i ) { _mm256_store_si256(  (__m256i *)p, i ); }
-static inline void wu_stu( uint * p, wu_t i ) { _mm256_storeu_si256( (__m256i *)p, i ); }
+static inline wu_t wu_ld( uint const * p ) { return _mm256_load_si256(  (__m256i const *)p ); }
+static inline void wu_st( uint * p, wu_t i ) { _mm256_store_si256(  (__m256i *)p, i ); }
+
+static inline wu_t wu_ldu( void const * p ) { return _mm256_loadu_si256( (__m256i const *)p ); }
+static inline void wu_stu( void * p, wu_t i ) { _mm256_storeu_si256( (__m256i *)p, i ); }
 
 /* wu_ldif is an optimized equivalent to wu_notczero(c,wu_ldu(p)) (may
    have different behavior if c is not a proper vector conditional).  It
@@ -106,7 +107,7 @@ static inline void wu_stu( uint * p, wu_t i ) { _mm256_storeu_si256( (__m256i *)
    constant in 0:7.  wu_extract_variable and wu_insert_variable are the
    slower but the lane n does not have to be known at compile time
    (should still be in 0:7).
-   
+
    Note: C99 TC3 allows type punning through a union. */
 
 #define wu_extract(a,imm)  ((uint)_mm256_extract_epi32( (a), (imm) ))

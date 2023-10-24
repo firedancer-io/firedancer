@@ -274,15 +274,6 @@ vf_insert_variable( vf_t a, int n, float v ) {
 #define vf_to_vu_fast( a ) _mm_cvtps_epu32( (a) )
 #else
 static inline __m128i vf_to_vu_fast( vf_t a ) { /* FIXME: workaround vu_t isn't declared at this point */
-
-  /* Note: Given that _mm_cvtps_epi32 exists, Intel clearly has the
-     hardware under the hood to support a _mm_cvtps_epu32 but didn't
-     bother to expose it pre-AVX512 ... sigh (all too typical
-     unfortunately).  We note that floats in [2^31,2^32) are already
-     integers and we can exactly subtract 2^31 from them.  This allows
-     us to use _mm_cvtps_epi32 to exactly convert to an integer.  We
-     then add back in any shift we had to apply. */
-
   /**/                                                              /* Assumes a is integer in [0,2^32) */
   vf_t    s  = vf_bcast( (float)(1U<<31) );                         /* 2^31 */
   vc_t    c  = vf_lt ( a, s );                                      /* -1 if a<2^31, 0 o.w. */
@@ -290,8 +281,8 @@ static inline __m128i vf_to_vu_fast( vf_t a ) { /* FIXME: workaround vu_t isn't 
   __m128i u  = _mm_cvtps_epi32( vf_if( c, a, as ) );                /* (uint)(a      if a<2^31, a-2^31 o.w.) */
   __m128i us = _mm_add_epi32( u, _mm_set1_epi32( (int)(1U<<31) ) ); /* (uint)(a+2^31 if a<2^31, a      o.w.) */
   return _mm_castps_si128( _mm_blendv_ps( _mm_castsi128_ps( us ), _mm_castsi128_ps( u ), _mm_castsi128_ps( c ) ) );
-
 }
+#endif
 
 #define vf_to_vc_raw(a) _mm_castps_si128( (a) )
 #define vf_to_vi_raw(a) _mm_castps_si128( (a) )

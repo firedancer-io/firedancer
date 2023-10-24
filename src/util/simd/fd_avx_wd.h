@@ -343,6 +343,7 @@ static inline wu_t wd_to_wu_fast( wd_t d, wu_t u, int imm_hi ) {
   __m128i v1 = _mm_add_epi32( v0, _mm_set1_epi32( (int)(1U<<31) ) );                       // (uint)(d+2^31 if d<2^31, d      o.w.)
   __m128i v  = _mm_castps_si128( _mm_blendv_ps( _mm_castsi128_ps( v1 ),
                                                 _mm_castsi128_ps( v0 ), b ) );             // (uint)d
+# endif
   return imm_hi ? _mm256_insertf128_si256( u, v, 1 ) : _mm256_insertf128_si256( u, v, 0 ); // compile time
 
 }

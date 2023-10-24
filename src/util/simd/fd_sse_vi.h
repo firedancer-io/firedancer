@@ -50,13 +50,14 @@ vi_bcast_wide( int i0, int i1 ) {
    16-byte sized location p as 4 ints.  vi_stu is the same but p does
    not have to be aligned.  In all these lane l will be at p[l].  FIXME:
    USE ATTRIBUTES ON P PASSED TO THESE?
-   
+
    Note: gcc knows a __m128i may alias. */
 
-static inline vi_t vi_ld(  int const * p   ) { return _mm_load_si128(  (__m128i const *)p ); }
-static inline vi_t vi_ldu( int const * p   ) { return _mm_loadu_si128( (__m128i const *)p ); }
-static inline void vi_st(  int * p, vi_t i ) { _mm_store_si128(  (__m128i *)p, i ); }
-static inline void vi_stu( int * p, vi_t i ) { _mm_storeu_si128( (__m128i *)p, i ); }
+static inline vi_t vi_ld( int const * p ) { return _mm_load_si128(  (__m128i const *)p ); }
+static inline void vi_st( int * p, vi_t i ) { _mm_store_si128(  (__m128i *)p, i ); }
+
+static inline vi_t vi_ldu( void const * p ) { return _mm_loadu_si128( (__m128i const *)p ); }
+static inline void vi_stu( void * p, vi_t i ) { _mm_storeu_si128( (__m128i *)p, i ); }
 
 /* vi_ldif is an optimized equivalent to vi_notczero(c,vi_ldu(p)) (may
    have different behavior if c is not a proper vector conditional).  It
@@ -75,7 +76,7 @@ static inline void vi_stu( int * p, vi_t i ) { _mm_storeu_si128( (__m128i *)p, i
    constant in 0:3.  vi_extract_variable and vi_insert_variable are the
    slower but the lane n does not have to be known at compile time
    (should be in 0:3).
-   
+
    Note: C99 TC3 allows type punning through a union. */
 
 #define vi_extract(a,imm)  _mm_extract_epi32( (a), (imm) )

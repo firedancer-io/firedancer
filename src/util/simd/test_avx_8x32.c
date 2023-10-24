@@ -1,7 +1,4 @@
 #include "../fd_util.h"
-
-#if FD_HAS_AVX
-
 #include "fd_avx.h"
 #include <math.h>
 
@@ -183,7 +180,7 @@ main( int     argc,
                                                     fabsf(x4),       fabsf(x5),       fabsf(x6),       fabsf(x7) ) );
 
     wf_t expected;
-    
+
     expected = wf( 1.f/sqrtf(x0+4.f), 1.f/sqrtf(x1+4.f), 1.f/sqrtf(x2+4.f), 1.f/sqrtf(x3+4.f),
                    1.f/sqrtf(x4+4.f), 1.f/sqrtf(x5+4.f), 1.f/sqrtf(x6+4.f), 1.f/sqrtf(x7+4.f) );
     FD_TEST( !wc_any( wf_gt( wf_abs( wf_div( wf_sub( wf_rsqrt_fast( wf_add( x, wf_bcast(4.f) ) ), expected ), expected ) ),
@@ -579,16 +576,3 @@ main( int     argc,
   fd_halt();
   return 0;
 }
-
-#else
-
-int
-main( int     argc,
-      char ** argv ) {
-  fd_boot( &argc, &argv );
-  FD_LOG_WARNING(( "skip: unit test requires FD_HAS_AVX capability" ));
-  fd_halt();
-  return 0;
-}
-
-#endif
