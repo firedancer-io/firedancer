@@ -491,7 +491,7 @@ fd_topo_fill( fd_topo_t * topo,
    would not need to included, and some kernel memory that tiles cause
    to be allocated (for example XSK buffers) is also not included.  The
    actual amount of memory used will not be less than this value. */
-ulong
+FD_FN_PURE ulong
 fd_topo_mlock_max_tile( fd_topo_t * topo );
 
 /* Same as fd_topo_mlock_max_tile, but for loading the entire topology
@@ -499,8 +499,22 @@ fd_topo_mlock_max_tile( fd_topo_t * topo );
    This is used, for example, by the configuration code when it creates
    all the workspaces, or the monitor that maps the entire system into
    one address space. */
-ulong
+FD_FN_PURE ulong
 fd_topo_mlock( fd_topo_t * topo );
+
+/* This returns the number of gigantic pages needed by the topology.
+   It includes pages needed by the workspaces, as well as additional
+   allocations like huge pages for process stacks and private key
+   storage. */
+FD_FN_PURE ulong
+fd_topo_gigantic_page_cnt( fd_topo_t * topo );
+
+/* This returns the number of gigantic pages needed by the topology.
+   It includes pages needed by the workspaces, as well as additional
+   allocations like huge pages for process stacks and private key
+   storage. */
+FD_FN_PURE ulong
+fd_topo_huge_page_cnt( fd_topo_t * topo );
 
 /* Check all invariants of the given topology to make sure it is valid.
    An invalid topology will cause the program to abort with an error
