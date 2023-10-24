@@ -633,12 +633,13 @@ fd_topo_validate( fd_topo_t * topo ) {
 
   /* Each link has exactly one producer */
   for( ulong i=0UL; i<topo->link_cnt; i++ ) {
-    /* gossip/lsched to pack is sent by solana, and not hosted in a tile for now */
+    /* gossip to pack is sent by solana, and not hosted in a tile for
+       now, nor are the stakes to pack and shred tile link, the contact
+       info to shred link, or the poh to shred link. */
     if( FD_UNLIKELY( topo->links[ i ].kind == FD_TOPO_LINK_KIND_GOSSIP_TO_PACK ) ) continue;
-    if( FD_UNLIKELY( topo->links[ i ].kind == FD_TOPO_LINK_KIND_LSCHED_TO_PACK ) ) continue;
-
-    /* poh to shred is sent by solana, and not hosted in a tile for now */
-    if( FD_UNLIKELY( topo->links[ i ].kind == FD_TOPO_LINK_KIND_POH_TO_SHRED ) ) continue;
+    if( FD_UNLIKELY( topo->links[ i ].kind == FD_TOPO_LINK_KIND_STAKE_TO_OUT   ) ) continue;
+    if( FD_UNLIKELY( topo->links[ i ].kind == FD_TOPO_LINK_KIND_CRDS_TO_SHRED  ) ) continue;
+    if( FD_UNLIKELY( topo->links[ i ].kind == FD_TOPO_LINK_KIND_POH_TO_SHRED   ) ) continue;
 
     ulong producer_cnt = 0;
     for( ulong j=0UL; j<topo->tile_cnt; j++ ) {

@@ -120,6 +120,16 @@ fd_shred_dest_t * fd_shred_dest_join( void * mem );
 void * fd_shred_dest_leave( fd_shred_dest_t * sdest );
 void * fd_shred_dest_delete( void * mem );
 
+/* fd_shred_dest_cnt_{staked, unstaked, all} returns the number of known
+   destination that are staked, unstaked, or either, respectively.  The
+   staked destinations have index [0, fd_shred_dest_cnt_staked()) and
+   the unstaked destinations have index [fd_shred_dest_cnt_staked(),
+   fd_shred_dest_cnt_all() ).  fd_shred_dest_cnt_all() ==
+   fd_shred_dest_cnt_staked() + fd_shred_dest_cnt_unstaked(). */
+static inline ulong fd_shred_dest_cnt_staked  ( fd_shred_dest_t * sdest ) { return sdest->staked_cnt                      ; }
+static inline ulong fd_shred_dest_cnt_unstaked( fd_shred_dest_t * sdest ) { return                     sdest->unstaked_cnt; }
+static inline ulong fd_shred_dest_cnt_all     ( fd_shred_dest_t * sdest ) { return sdest->staked_cnt + sdest->unstaked_cnt; }
+
 /* fd_shred_dest_compute_first computes the root of the Turbine tree for
    each of the provided shreds.  All the provided shreds must come from
    the same slot (and thus have the same leader).  This should only be
@@ -197,5 +207,10 @@ static inline fd_shred_dest_weighted_t *
 fd_shred_dest_idx_to_dest( fd_shred_dest_t * sdest, fd_shred_dest_idx_t idx ) {
   return fd_ptr_if( idx!=FD_SHRED_DEST_NO_DEST, sdest->all_destinations + idx, sdest->null_dest );
 }
+
+/* fd_shred_dest_idx_t maps a pubkey to a destination index, if the
+   pubkey is known as a destination.  If the pubkey is not know, returns
+   FD_SHRED_DEST_NO_DEST. */
+fd_shred_dest_idx_t fd_shred_dest_pubkey_to_idx( fd_shred_dest_t * sdest, fd_pubkey_t const * pubkey );
 
 #endif /* HEADER_fd_src_disco_shred_fd_shred_dest_h */
