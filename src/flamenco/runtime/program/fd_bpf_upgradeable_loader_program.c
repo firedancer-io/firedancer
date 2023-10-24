@@ -211,13 +211,6 @@ int fd_executor_bpf_upgradeable_loader_program_execute_program_instruction( fd_e
   fd_bpf_upgradeable_loader_state_destroy( &programdata_loader_state, &ctx_d );
 
   ulong program_data_len = programdata_metadata->dlen - PROGRAMDATA_METADATA_SIZE;
-  if FD_FEATURE_ACTIVE( ctx.slot_ctx, cap_transaction_accounts_data_size ) {
-    if ( ctx.txn_ctx->loaded_accounts_data_size_meter < program_data_len ) {
-      FD_LOG_WARNING(("Loaded accounts size meter %lu is not sufficient for program len %lu", ctx.txn_ctx->loaded_accounts_data_size_meter, program_data_len));
-      return FD_EXECUTOR_INSTR_ERR_MAX_ACCS_DATA_SIZE_EXCEEDED;
-    };
-    ctx.txn_ctx->loaded_accounts_data_size_meter = fd_ulong_sat_sub(ctx.txn_ctx->loaded_accounts_data_size_meter, program_data_len);
-  }
   uchar const * program_data = (uchar const *)programdata_metadata + programdata_metadata->hlen + PROGRAMDATA_METADATA_SIZE;
 
   fd_bpf_upgradeable_loader_state_destroy( &program_loader_state, &ctx_d );

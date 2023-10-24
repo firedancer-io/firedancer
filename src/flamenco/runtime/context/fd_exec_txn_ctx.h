@@ -38,7 +38,6 @@ struct __attribute__((aligned(FD_EXEC_TXN_CTX_ALIGN))) fd_exec_txn_ctx {
   fd_transaction_return_data_t return_data;              /* Data returned from `return_data` syscalls */
   ulong                 heap_size;                       /* Heap size for VMs for this transaction. */
   ulong                 loaded_accounts_data_size_limit; /* Loaded accounts data size limit for this transaction. */
-  ulong                 loaded_accounts_data_size_meter; /* Remaining accounts data size left */
   uint                  prioritization_fee_type;         /* The type of prioritization fee to use. */
   fd_txn_t const *      txn_descriptor;                  /* Descriptor of the transaction. */
   fd_rawtxn_b_t const * _txn_raw;                        /* Raw bytes of the transaction. */
