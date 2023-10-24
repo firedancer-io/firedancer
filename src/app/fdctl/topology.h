@@ -34,15 +34,16 @@
 #define FD_TOPO_WKSP_KIND_PACK_BANK    ( 4UL)
 #define FD_TOPO_WKSP_KIND_BANK_SHRED   ( 5UL)
 #define FD_TOPO_WKSP_KIND_SHRED_STORE  ( 6UL)
-#define FD_TOPO_WKSP_KIND_NET          ( 7UL)
-#define FD_TOPO_WKSP_KIND_NETMUX       ( 8UL)
-#define FD_TOPO_WKSP_KIND_QUIC         ( 9UL)
-#define FD_TOPO_WKSP_KIND_VERIFY       (10UL)
-#define FD_TOPO_WKSP_KIND_DEDUP        (11UL)
-#define FD_TOPO_WKSP_KIND_PACK         (12UL)
-#define FD_TOPO_WKSP_KIND_BANK         (13UL)
-#define FD_TOPO_WKSP_KIND_SHRED        (14UL)
-#define FD_TOPO_WKSP_KIND_STORE        (15UL)
+#define FD_TOPO_WKSP_KIND_STAKE_OUT    ( 7UL)
+#define FD_TOPO_WKSP_KIND_NET          ( 8UL)
+#define FD_TOPO_WKSP_KIND_NETMUX       ( 9UL)
+#define FD_TOPO_WKSP_KIND_QUIC         (10UL)
+#define FD_TOPO_WKSP_KIND_VERIFY       (11UL)
+#define FD_TOPO_WKSP_KIND_DEDUP        (12UL)
+#define FD_TOPO_WKSP_KIND_PACK         (13UL)
+#define FD_TOPO_WKSP_KIND_BANK         (14UL)
+#define FD_TOPO_WKSP_KIND_SHRED        (15UL)
+#define FD_TOPO_WKSP_KIND_STORE        (16UL)
 #define FD_TOPO_WKSP_KIND_MAX          ( FD_TOPO_WKSP_KIND_STORE+1 ) /* Keep updated with maximum tile IDX */
 
 /* FD_TOPO_LINK_KIND_* is an identifier for a particular kind of link. A
@@ -64,11 +65,12 @@
 #define FD_TOPO_LINK_KIND_VERIFY_TO_DEDUP ( 4UL)
 #define FD_TOPO_LINK_KIND_DEDUP_TO_PACK   ( 5UL)
 #define FD_TOPO_LINK_KIND_GOSSIP_TO_PACK  ( 6UL)
-#define FD_TOPO_LINK_KIND_LSCHED_TO_PACK  ( 7UL)
+#define FD_TOPO_LINK_KIND_STAKE_TO_OUT    ( 7UL)
 #define FD_TOPO_LINK_KIND_PACK_TO_BANK    ( 8UL)
 #define FD_TOPO_LINK_KIND_POH_TO_SHRED    ( 9UL)
 #define FD_TOPO_LINK_KIND_SHRED_TO_NETMUX (10UL)
 #define FD_TOPO_LINK_KIND_SHRED_TO_STORE  (11UL)
+#define FD_TOPO_LINK_KIND_CRDS_TO_SHRED   (12UL)
 
 /* FD_TOPO_TILE_KIND_* is an identifier for a particular kind of tile.
    There may be multiple or in some cases zero of a particular tile
@@ -323,6 +325,7 @@ fd_topo_wksp_kind_str( ulong kind ) {
     case FD_TOPO_WKSP_KIND_PACK_BANK:    return "pack_bank";
     case FD_TOPO_WKSP_KIND_BANK_SHRED:   return "bank_shred";
     case FD_TOPO_WKSP_KIND_SHRED_STORE:  return "shred_store";
+    case FD_TOPO_WKSP_KIND_STAKE_OUT:    return "stake_out";
     case FD_TOPO_WKSP_KIND_NET:          return "net";
     case FD_TOPO_WKSP_KIND_NETMUX:       return "netmux";
     case FD_TOPO_WKSP_KIND_QUIC:         return "quic";
@@ -350,11 +353,12 @@ fd_topo_link_kind_str( ulong kind ) {
     case FD_TOPO_LINK_KIND_VERIFY_TO_DEDUP: return "verify_dedup";
     case FD_TOPO_LINK_KIND_DEDUP_TO_PACK:   return "dedup_pack";
     case FD_TOPO_LINK_KIND_GOSSIP_TO_PACK:  return "gossip_pack";
-    case FD_TOPO_LINK_KIND_LSCHED_TO_PACK:  return "lsched_pack";
+    case FD_TOPO_LINK_KIND_STAKE_TO_OUT:    return "stake_out";
     case FD_TOPO_LINK_KIND_PACK_TO_BANK:    return "pack_bank";
     case FD_TOPO_LINK_KIND_POH_TO_SHRED:    return "poh_shred";
     case FD_TOPO_LINK_KIND_SHRED_TO_NETMUX: return "shred_netmux";
     case FD_TOPO_LINK_KIND_SHRED_TO_STORE:  return "shred_store";
+    case FD_TOPO_LINK_KIND_CRDS_TO_SHRED:   return "crds_shred";
     default: FD_LOG_ERR(( "unknown workspace kind %lu", kind )); return NULL;
   }
 }

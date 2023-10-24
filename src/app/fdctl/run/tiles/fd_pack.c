@@ -1,6 +1,9 @@
 #include "tiles.h"
 
 #include "generated/pack_seccomp.h"
+/* TODO: fd_stake_ci probably belongs elsewhere */
+#include "../../../../disco/shred/fd_stake_ci.h"
+
 #include "../../../../ballet/pack/fd_pack.h"
 
 #include <linux/unistd.h>
@@ -11,14 +14,9 @@
    multiple microblocks can execute in parallel, if they don't
    write to the same accounts. */
 
-#define LSCHED_IN_IDX (2UL)
+#define STAKE_INFO_IN_IDX (2UL)
 
 #define MAX_SLOTS_PER_EPOCH          432000UL
-#define NUM_CONSECUTIVE_LEADER_SLOTS 4UL
-
-#define SET_NAME lsched_bitset
-#define SET_MAX ((MAX_SLOTS_PER_EPOCH)/(NUM_CONSECUTIVE_LEADER_SLOTS))
-#include "../../../../util/tmpl/fd_set.c"
 
 #define BLOCK_DURATION_NS    (400UL*1000UL*1000UL)
 
@@ -47,13 +45,6 @@ const ulong CUS_PER_MICROBLOCK = 1500000UL;
 
 const float VOTE_FRACTION = 0.75;
 
-struct bit_lsched {
-  ulong epoch;
-  ulong start_slot;
-  ulong slot_cnt;
-  lsched_bitset_t lsched[ lsched_bitset_word_cnt ];
-};
-typedef struct bit_lsched bit_lsched_t;
 
 typedef struct {
   fd_wksp_t * mem;
@@ -68,7 +59,7 @@ typedef struct {
   long block_duration_ticks;
   long block_end;
 
-  fd_acct_addr_t identity_pubkey __attribute__((aligned(32UL)));
+  fd_pubkey_t identity_pubkey __attribute__((aligned(32UL)));
 
   /* These point to memory, each which is written atomically by the PoH recorder */
   ulong * _poh_slot;
@@ -81,15 +72,6 @@ typedef struct {
 
   ulong packing_for; /* The slot for which we are producing microblocks, or ULONG_MAX if we aren't leader. */
 
-  /* Keep two leader schedules around for the transition between epochs,
-     and a third for speculative processing.  The following three
-     pointers jump around between the three elements of _lsched as the
-     epochs progress. */
-  bit_lsched_t * even_epoch_lsched;
-  bit_lsched_t * odd_epoch_lsched;
-  bit_lsched_t * spare_lsched;
-  bit_lsched_t   _lsched[ 3 ];
-
   fd_pack_in_ctx_t in[ 32 ];
 
   ulong    out_cnt;
@@ -100,6 +82,8 @@ typedef struct {
   ulong       out_chunk0;
   ulong       out_wmark;
   ulong       out_chunk;
+
+  fd_stake_ci_t stake_ci[ 1 ];
 } fd_pack_ctx_t;
 
 FD_FN_CONST static inline ulong
@@ -140,23 +124,9 @@ during_housekeeping( void * _ctx ) {
 static inline int
 am_i_leader( fd_pack_ctx_t * ctx,
              ulong           slot ) {
-  bit_lsched_t const * even = ctx->even_epoch_lsched;
-  bit_lsched_t const * odd  = ctx->odd_epoch_lsched;
-
-  int is_even = (even->start_slot <= slot) & (slot-even->start_slot < even->slot_cnt);
-  int is_odd  = (odd->start_slot  <= slot) & (slot-odd->start_slot  < odd->slot_cnt);
-
-  if( FD_UNLIKELY( !(is_even | is_odd) ) ) {
-    FD_LOG_WARNING(( "Tried to query the leader for slot %lu, but we only knew about epochs: "
-          "%lu slots [%lu, %lu), and %lu slots [%lu, %lu)",
-          slot, even->epoch, even->start_slot, even->start_slot + even->slot_cnt,
-          odd->epoch, odd->start_slot, odd->start_slot + odd->slot_cnt ));
-    return 0;
-  }
-
-  ulong offset = (slot - fd_ulong_if( is_even, even->start_slot, odd->start_slot )) / NUM_CONSECUTIVE_LEADER_SLOTS;
-
-  return lsched_bitset_test( fd_ptr_if( is_even, even, odd )->lsched, offset );
+  fd_epoch_leaders_t * lsched = fd_stake_ci_get_lsched_for_slot( ctx->stake_ci, slot );
+  if( FD_UNLIKELY( !lsched ) ) return 0;
+  return !memcmp( fd_epoch_leaders_get( lsched, slot ), ctx->identity_pubkey.uc, sizeof(ctx->identity_pubkey) );
 }
 
 static inline int
@@ -300,21 +270,8 @@ during_frag( void * _ctx,
 
   uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->in[in_idx].mem, chunk );
 
-  if( FD_UNLIKELY( in_idx == LSCHED_IN_IDX ) ) {
-    bit_lsched_t * new_lsched = ctx->spare_lsched;
-    lsched_bitset_t * bit = lsched_bitset_join( lsched_bitset_new( new_lsched->lsched ) );
-
-    ulong * hdr = (ulong *)dcache_entry;
-    new_lsched->epoch      = hdr[ 0 ];
-    new_lsched->start_slot = hdr[ 1 ];
-    new_lsched->slot_cnt   = hdr[ 2 ] - hdr[ 1 ];
-
-    ulong offset = 3UL*sizeof(ulong);
-    for( ulong i=0UL; i<new_lsched->slot_cnt; i+=NUM_CONSECUTIVE_LEADER_SLOTS ) {
-      lsched_bitset_insert_if( bit, !memcmp( dcache_entry+offset, ctx->identity_pubkey.b, 32UL ), i/NUM_CONSECUTIVE_LEADER_SLOTS );
-      offset += NUM_CONSECUTIVE_LEADER_SLOTS * 32UL;
-    }
-
+  if( FD_UNLIKELY( in_idx == STAKE_INFO_IN_IDX ) ) {
+    fd_stake_ci_stake_msg_init( ctx->stake_ci, dcache_entry );
     return;
   }
 
@@ -382,41 +339,8 @@ after_frag( void *             _ctx,
 
   fd_pack_ctx_t * ctx = (fd_pack_ctx_t *)_ctx;
 
-  if( FD_UNLIKELY( in_idx == LSCHED_IN_IDX ) ) {
-    /* Swap the spare leader schedule we just populated into the spot
-       where it belongs. */
-    bit_lsched_t * temp;
-    ulong new_epoch = ctx->spare_lsched->epoch;
-    if( ctx->spare_lsched->epoch & 1 ) {
-      temp = ctx->odd_epoch_lsched;
-      ctx->odd_epoch_lsched = ctx->spare_lsched;
-    } else {
-      temp = ctx->even_epoch_lsched;
-      ctx->even_epoch_lsched = ctx->spare_lsched;
-    }
-    ctx->spare_lsched = temp;
-    lsched_bitset_delete( lsched_bitset_leave( temp->lsched ) );
-
-    /* The leader schedule for the first two epochs is always the
-       singular bootstrap validator chosen at genesis, so we fabricate
-       the leader schedule for epoch 0 from epoch 1. */
-    if( FD_UNLIKELY( new_epoch==1UL ) ) {
-      bit_lsched_t * new_lsched = temp;
-      lsched_bitset_t * bit = lsched_bitset_join( lsched_bitset_new( new_lsched->lsched ) );
-
-      new_lsched->epoch      = 0UL;
-      new_lsched->start_slot = 0UL;
-      new_lsched->slot_cnt   = ctx->odd_epoch_lsched->start_slot; /* must be epoch 1 */
-
-      /* Fill epoch 0 with the bit from the first slot of epoch 1. */
-      lsched_bitset_full_if( bit, lsched_bitset_test( ctx->odd_epoch_lsched->lsched, 0UL ) );
-
-      temp = ctx->even_epoch_lsched;
-      ctx->even_epoch_lsched = new_lsched;
-      ctx->spare_lsched = temp;
-      lsched_bitset_delete( lsched_bitset_leave( temp->lsched ) );
-    }
-
+  if( FD_UNLIKELY( in_idx == STAKE_INFO_IN_IDX ) ) {
+    fd_stake_ci_stake_msg_fini( ctx->stake_ci );
   } else {
     /* Normal transaction case */
     fd_pack_insert_txn_fini( ctx->pack, ctx->cur_spot );
@@ -440,7 +364,7 @@ privileged_init( fd_topo_t *      topo,
      really easy to load just the public key without also getting the
      private key. */
   void const * identity_pubkey = load_key_into_protected_memory( tile->pack.identity_key_path, 1 /* public_key_only */ );
-  ctx->identity_pubkey = *(fd_acct_addr_t const *)identity_pubkey;
+  ctx->identity_pubkey = *(fd_pubkey_t const *)identity_pubkey;
 }
 
 static void
@@ -476,11 +400,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->poh_slots_updated = 0;
 
   ctx->packing_for = ULONG_MAX;
-  ctx->even_epoch_lsched = ctx->_lsched + 0;
-  ctx->odd_epoch_lsched  = ctx->_lsched + 1;
-  ctx->spare_lsched      = ctx->_lsched + 2;
-  ctx->even_epoch_lsched->slot_cnt = 0UL;
-  ctx->odd_epoch_lsched->slot_cnt  = 0UL;
 
   ctx->out_cnt  = out_cnt;
   for( ulong i=0; i<out_cnt; i++ ) {
@@ -502,6 +421,8 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->out_chunk0 = fd_dcache_compact_chunk0( ctx->out_mem, topo->links[ tile->out_link_id_primary ].dcache );
   ctx->out_wmark  = fd_dcache_compact_wmark ( ctx->out_mem, topo->links[ tile->out_link_id_primary ].dcache, topo->links[ tile->out_link_id_primary ].mtu );
   ctx->out_chunk  = ctx->out_chunk0;
+
+  fd_stake_ci_join( fd_stake_ci_new( ctx->stake_ci, &(ctx->identity_pubkey) ) );
 
   FD_LOG_INFO(( "packing blocks of at most %lu transactions to %lu bank tiles", MAX_TXN_PER_MICROBLOCK, out_cnt ));
 

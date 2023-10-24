@@ -288,12 +288,16 @@ run_monitor( config_t * const config,
             producer = "poh";
             break;
           }
-          case FD_TOPO_LINK_KIND_LSCHED_TO_PACK: {
-            producer = "lsched";
+          case FD_TOPO_LINK_KIND_STAKE_TO_OUT: {
+            producer = "stakes";
             break;
           }
           case FD_TOPO_LINK_KIND_GOSSIP_TO_PACK: {
             producer = "gossip";
+            break;
+          }
+          case FD_TOPO_LINK_KIND_CRDS_TO_SHRED: {
+            producer = "crds";
             break;
           }
           default: {
