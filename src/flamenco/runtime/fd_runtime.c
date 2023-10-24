@@ -8,6 +8,7 @@
 #include "../../ballet/base58/fd_base58.h"
 #include "../../ballet/txn/fd_txn.h"
 #include "../../ballet/bmtree/fd_bmtree.h"
+#include "../../ballet/bmtree/fd_wbmtree.h"
 
 #include "../stakes/fd_stakes.h"
 #include "../rewards/fd_rewards.h"
@@ -579,6 +580,63 @@ fd_runtime_block_execute( fd_exec_slot_ctx_t * slot_ctx,
   }
 
   return fd_runtime_save_slot_bank( slot_ctx );
+}
+
+int
+fd_runtime_microblock_wide_verify(
+    fd_microblock_info_t const * microblock_info,
+    fd_hash_t * poh_hash )
+{
+  ulong hash_cnt = microblock_info->microblock_hdr.hash_cnt;
+  ulong txn_cnt = microblock_info->microblock_hdr.txn_cnt;
+  FD_LOG_WARNING(( "poh input %lu %lu %32J %32J", hash_cnt, txn_cnt, poh_hash->hash, microblock_info->microblock_hdr.hash ));
+
+  if (txn_cnt == 0)
+    fd_poh_append(poh_hash, hash_cnt);
+  else {
+    if (hash_cnt > 0)
+      fd_poh_append(poh_hash, hash_cnt - 1);
+
+    ulong leaf_cnt = 0;
+    for ( ulong txn_idx = 0; txn_idx < txn_cnt; txn_idx++ ) {
+      fd_txn_t const * txn = microblock_info->txn_ptrs[txn_idx];
+      leaf_cnt += txn->signature_cnt;
+    }
+
+    // TODO: optimize this... .. and, we cannot use alloca...
+    unsigned char *      commit = fd_alloca_check(FD_WBMTREE32_ALIGN, fd_wbmtree32_footprint(leaf_cnt));
+    fd_wbmtree32_leaf_t *leafs = fd_alloca_check(alignof(fd_wbmtree32_leaf_t), sizeof(fd_wbmtree32_leaf_t) * leaf_cnt);
+    unsigned char *      mbuf = fd_alloca_check(1UL, leaf_cnt * (sizeof(fd_ed25519_sig_t) + 1));
+
+    fd_wbmtree32_t * tree = fd_wbmtree32_init(commit, leaf_cnt);
+    fd_wbmtree32_leaf_t *l = &leafs[0];
+
+    /* Loop across transactions */
+    for ( ulong txn_idx = 0; txn_idx < txn_cnt; txn_idx++ ) {
+      fd_txn_t const * txn = microblock_info->txn_ptrs[txn_idx];
+      fd_rawtxn_b_t const * raw_txn = &microblock_info->raw_txns[txn_idx];
+      FD_LOG_WARNING(("sigs: %lu", txn->signature_cnt));
+
+      /* Loop across signatures */
+      fd_ed25519_sig_t const * sigs = (fd_ed25519_sig_t const *)((ulong)raw_txn->raw + (ulong)txn->signature_off);
+      for ( ulong j = 0; j < txn->signature_cnt; j++ ) {
+        l->data = (uchar *) &sigs[j];
+        l->data_len = sizeof(fd_ed25519_sig_t);
+        l++;
+      }
+    }
+
+    fd_wbmtree32_append(tree, leafs, leaf_cnt, mbuf);
+    uchar *root = fd_wbmtree32_fini(tree);
+    fd_poh_mixin( poh_hash, root );
+  }
+
+  if( FD_UNLIKELY( 0!=memcmp(microblock_info->microblock_hdr.hash, poh_hash->hash, sizeof(fd_hash_t) ) ) ) {
+    FD_LOG_WARNING(( "poh mismatch (bank: %32J, entry: %32J)", poh_hash->hash, microblock_info->microblock_hdr.hash ));
+    return -1;
+  }
+
+  return 0;
 }
 
 int
