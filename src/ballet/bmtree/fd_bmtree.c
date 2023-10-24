@@ -145,7 +145,11 @@ fd_bmtree_private_merge( fd_bmtree_node_t       * node,
 
 FD_FN_CONST ulong
 fd_bmtree_depth( ulong leaf_cnt ) {
-  return fd_ulong_if( leaf_cnt<=1UL, leaf_cnt, (ulong)fd_ulong_find_msb( leaf_cnt-1UL ) + 2UL );
+  return fd_ulong_if(
+    /* if */   leaf_cnt<=1UL,
+    /* then */ leaf_cnt, 
+    /* else */ (ulong)fd_ulong_find_msb_w_default( leaf_cnt-1UL, -1 /*irrelevant*/ ) + 2UL
+  );
 }
 
 FD_FN_CONST ulong
@@ -321,7 +325,7 @@ fd_bmtree_get_proof( fd_bmtree_commit_t * state,
 
   ulong leaf_cnt = state->leaf_cnt;
   ulong hash_sz  = state->hash_sz;
-
+  
   if( FD_UNLIKELY( leaf_idx >= leaf_cnt ) ) return 0UL;
 
   ulong inc_idx   = leaf_idx * 2UL;
