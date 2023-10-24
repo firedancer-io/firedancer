@@ -212,13 +212,13 @@ fd_executor_collect_fee( fd_exec_slot_ctx_t * slot_ctx,
     return -1;
   }
 
-  FD_LOG_DEBUG(( "fd_execute_txn: global->collected: %ld->%ld (%ld)", slot_ctx->bank.collected_fees, slot_ctx->bank.collected_fees + fee, fee));
+  FD_LOG_DEBUG(( "fd_execute_txn: global->collected: %ld->%ld (%ld)", slot_ctx->slot_bank.collected_fees, slot_ctx->slot_bank.collected_fees + fee, fee));
   FD_LOG_DEBUG(( "calling set_lamports to charge the fee %lu", fee));
 
   // TODO: I BELIEVE we charge for the fee BEFORE we create the funk_txn fork
   // since we collect reguardless of the success of the txn execution...
   rec->meta->info.lamports -= fee;
-  slot_ctx->bank.collected_fees += fee;
+  slot_ctx->slot_bank.collected_fees += fee;
 
   /* todo rent exempt check */
   if( FD_FEATURE_ACTIVE( slot_ctx, set_exempt_rent_epoch_max ) )
@@ -315,7 +315,7 @@ fd_executor_dump_txntrace( fd_exec_slot_ctx_t *         slot_ctx,
   char filename[ 128UL ];
   /* 118 (20+1+88+9) chars + null terminator */
   snprintf( filename, sizeof(filename), "%lu-%64J.txntrace",
-            slot_ctx->bank.slot, sig );
+            slot_ctx->slot_bank.slot, sig );
 
   /* Create file */
   int dump_fd = openat( slot_ctx->trace_dirfd, filename, O_WRONLY|O_CREAT|O_TRUNC, 0666 );
@@ -554,7 +554,7 @@ fd_execute_txn( fd_exec_slot_ctx_t *  slot_ctx,
       if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
         FD_LOG_ERR(( "account mgr modify failed for %32J", txn_ctx.accounts[i].uc ));
       }
-      writable_new->meta->slot = txn_ctx.slot_ctx->bank.slot;
+      writable_new->meta->slot = txn_ctx.slot_ctx->slot_bank.slot;
       memset(writable_new->meta->hash, 0xFF, sizeof(fd_hash_t));
     }
   }

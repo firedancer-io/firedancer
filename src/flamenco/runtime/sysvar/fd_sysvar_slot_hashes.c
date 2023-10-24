@@ -21,7 +21,7 @@ void write_slot_hashes( fd_exec_slot_ctx_t * slot_ctx, fd_slot_hashes_t* slot_ha
   if ( fd_slot_hashes_encode( slot_hashes, &ctx ) )
     FD_LOG_ERR(("fd_slot_hashes_encode failed"));
 
-  fd_sysvar_set( slot_ctx, fd_sysvar_owner_id.key, &fd_sysvar_slot_hashes_id, enc, sz, slot_ctx->bank.slot, NULL );
+  fd_sysvar_set( slot_ctx, fd_sysvar_owner_id.key, &fd_sysvar_slot_hashes_id, enc, sz, slot_ctx->slot_bank.slot, NULL );
 }
 
 //void fd_sysvar_slot_hashes_init( fd_slot_ctx_ctx_t* slot_ctx ) {
@@ -53,8 +53,8 @@ void fd_sysvar_slot_hashes_update( fd_exec_slot_ctx_t * slot_ctx ) {
         !deq_fd_slot_hash_t_iter_done( hashes, iter );
         iter = deq_fd_slot_hash_t_iter_next( hashes, iter ) ) {
     fd_slot_hash_t * ele = deq_fd_slot_hash_t_iter_ele( hashes, iter );
-    if ( ele->slot == slot_ctx->bank.slot ) {
-      memcpy( &ele->hash, &slot_ctx->bank.banks_hash, sizeof(fd_hash_t) );
+    if ( ele->slot == slot_ctx->slot_bank.slot ) {
+      memcpy( &ele->hash, &slot_ctx->slot_bank.banks_hash, sizeof(fd_hash_t) );
       found = 1;
     }
   }
@@ -62,8 +62,8 @@ void fd_sysvar_slot_hashes_update( fd_exec_slot_ctx_t * slot_ctx ) {
   if ( !found ) {
   // https://github.com/firedancer-io/solana/blob/08a1ef5d785fe58af442b791df6c4e83fe2e7c74/runtime/src/bank.rs#L2371
     fd_slot_hash_t slot_hash = {
-      .hash = slot_ctx->bank.banks_hash, // parent hash?
-      .slot = slot_ctx->bank.prev_slot,   // parent_slot
+      .hash = slot_ctx->slot_bank.banks_hash, // parent hash?
+      .slot = slot_ctx->slot_bank.prev_slot,   // parent_slot
     };
     FD_LOG_DEBUG(( "fd_sysvar_slot_hash_update:  slot %ld,  hash %32J", slot_hash.slot, slot_hash.hash.key ));
     fd_bincode_destroy_ctx_t ctx2 = { .valloc = slot_ctx->valloc };
@@ -83,7 +83,7 @@ int
 fd_sysvar_slot_hashes_read( fd_exec_slot_ctx_t *  slot_ctx,
                             fd_slot_hashes_t *    result ) {
 
-//  FD_LOG_INFO(( "SysvarS1otHashes111111111111111111111111111 at slot %lu: " FD_LOG_HEX16_FMT, slot_ctx->bank.slot, FD_LOG_HEX16_FMT_ARGS(     metadata.hash    ) ));
+//  FD_LOG_INFO(( "SysvarS1otHashes111111111111111111111111111 at slot %lu: " FD_LOG_HEX16_FMT, slot_ctx->slot_bank.slot, FD_LOG_HEX16_FMT_ARGS(     metadata.hash    ) ));
 
   FD_BORROWED_ACCOUNT_DECL(rec);
   int err = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, (fd_pubkey_t const *)&fd_sysvar_slot_hashes_id, rec );

@@ -880,7 +880,7 @@
       ]
     },
     {
-      "name": "firedancer_banks",
+      "name": "firedancer_bank",
       "type": "struct",
       "alignment": "16",
       "fields": [
@@ -904,6 +904,45 @@
         { "name": "inflation",             "type": "inflation" },
         { "name": "epoch_schedule",        "type": "epoch_schedule" },
         { "name": "rent",                  "type": "rent" },
+        { "name": "collected_fees",        "type": "ulong" },
+        { "name": "collected_rent",        "type": "ulong" },
+        { "name": "epoch_stakes",          "type": "vote_accounts" },
+        { "name": "last_restart_slot",     "type": "sol_sysvar_last_restart_slot" }
+      ]
+    },
+    {
+      "name": "epoch_bank",
+      "type": "struct",
+      "alignment": "16",
+      "fields": [
+        { "name": "stakes",                "type": "stakes" },
+        { "name": "lamports_per_signature","type": "ulong" },
+        { "name": "hashes_per_tick",       "type": "ulong" },
+        { "name": "ticks_per_slot",        "type": "ulong" },
+        { "name": "ns_per_slot",           "type": "uint128" },
+        { "name": "genesis_creation_time", "type": "ulong" },
+        { "name": "slots_per_year",        "type": "double" },
+        { "name": "max_tick_height",       "type": "ulong" },
+        { "name": "inflation",             "type": "inflation" },
+        { "name": "epoch_schedule",        "type": "epoch_schedule" },
+        { "name": "rent",                  "type": "rent" }
+      ]
+    },
+    {
+      "name": "slot_bank",
+      "type": "struct",
+      "alignment": "16",
+      "fields": [
+        { "name": "recent_block_hashes",   "type": "recent_block_hashes" },
+        { "name": "timestamp_votes",       "type": "clock_timestamp_votes" },
+        { "name": "slot",                  "type": "ulong" },
+        { "name": "prev_slot",             "type": "ulong" },
+        { "name": "poh",                   "type": "hash" },
+        { "name": "banks_hash",            "type": "hash" },
+        { "name": "fee_rate_governor",     "type": "fee_rate_governor" },
+        { "name": "capitalization",        "type": "ulong" },
+        { "name": "block_height",          "type": "ulong" },
+        { "name": "max_tick_height",       "type": "ulong" },
         { "name": "collected_fees",        "type": "ulong" },
         { "name": "collected_rent",        "type": "ulong" },
         { "name": "epoch_stakes",          "type": "vote_accounts" },

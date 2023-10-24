@@ -108,7 +108,7 @@ int fd_executor_bpf_loader_program_execute_program_instruction( fd_exec_instr_ct
   fd_pubkey_t * txn_accs = ctx.txn_ctx->accounts;
   fd_pubkey_t * program_acc = &txn_accs[ctx.instr->program_id];
 
-  FD_LOG_NOTICE(("BPF V2 PROG INSTR RUN! - slot: %lu, addr: %32J", ctx.slot_ctx->bank.slot, program_acc));
+  FD_LOG_NOTICE(("BPF V2 PROG INSTR RUN! - slot: %lu, addr: %32J", ctx.slot_ctx->slot_bank.slot, program_acc));
 
   // FIXME: the program account is not in the instruction accounts?
   fd_borrowed_account_t * program_acc_view = NULL;
@@ -197,7 +197,7 @@ int fd_executor_bpf_loader_program_execute_program_instruction( fd_exec_instr_ct
   (void) trace_ctx;
 
 #ifdef FD_DEBUG_SBPF_TRACES
-if (vm_ctx.instr_ctx.slot_ctx->bank.slot == 179244897) {
+if (vm_ctx.instr_ctx.slot_ctx->slot_bank.slot == 179244909) {
   
   // fd_vm_trace_entry_t * trace = (fd_vm_trace_entry_t *)fd_valloc_malloc( ctx.global->valloc, 1UL, trace_sz * sizeof(fd_vm_trace_entry_t));
   trace = (fd_vm_trace_entry_t *)malloc( trace_sz * sizeof(fd_vm_trace_entry_t));
@@ -221,7 +221,7 @@ if (vm_ctx.instr_ctx.slot_ctx->bank.slot == 179244897) {
 
   ulong interp_res;
 #ifdef FD_DEBUG_SBPF_TRACES
-  if (vm_ctx.instr_ctx.slot_ctx->bank.slot == 179244897) {
+  if (vm_ctx.instr_ctx.slot_ctx->slot_bank.slot == 179244909) {
     interp_res = fd_vm_interp_instrs_trace( &vm_ctx );
   } else {
     interp_res = fd_vm_interp_instrs( &vm_ctx );
@@ -235,7 +235,7 @@ if (vm_ctx.instr_ctx.slot_ctx->bank.slot == 179244897) {
 
 #ifdef FD_DEBUG_SBPF_TRACES
   // FILE * trace_fd = fopen("trace.log", "w");
-  if (vm_ctx.instr_ctx.slot_ctx->bank.slot == 179244897) {
+  if (vm_ctx.instr_ctx.slot_ctx->slot_bank.slot == 179244909) {
     ulong prev_cus = 0;
     for( ulong i = 0; i < trace_ctx.trace_entries_used; i++ ) {
       fd_vm_trace_entry_t trace_ent = trace[i];

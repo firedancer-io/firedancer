@@ -31,13 +31,13 @@
 #define FD_RUNTIME_TRACE_SAVE   (1)
 #define FD_RUNTIME_TRACE_REPLAY (2)
 
-#define FD_FEATURE_ACTIVE(_slot_ctx, _feature_name)  (_slot_ctx->bank.slot >= _slot_ctx->epoch_ctx->features. _feature_name)
+#define FD_FEATURE_ACTIVE(_slot_ctx, _feature_name)  (_slot_ctx->slot_bank.slot >= _slot_ctx->epoch_ctx->features. _feature_name)
 
 #define FD_ACC_MGR_KEY_TYPE ((uchar)0)
 #define FD_BLOCK_KEY_TYPE ((uchar)1)
 #define FD_BLOCK_META_KEY_TYPE ((uchar)2)
 
-/* FD_BLOCK_BANKS_TYPE stores fd_firedancer_banks_t bincode encoded */
+/* FD_BLOCK_BANKS_TYPE stores fd_firedancer_banks_t bincode encoded (obsolete)*/
 #define FD_BLOCK_BANKS_TYPE ((uchar)3)
 
 /* FD_BANK_HASH_TYPE stores the bank hash of each slot */
@@ -46,10 +46,16 @@
 /* FD_BLOCK_TXNSTATUS_TYPE stores the transaction metadata for a block */
 #define FD_BLOCK_TXNSTATUS_TYPE ((uchar)5)
 
+/* FD_BLOCK_SLOT_BANK_TYPE stores fd_slot_bank_t bincode encoded */
+#define FD_BLOCK_SLOT_BANK_TYPE ((uchar)6)
+
+/* FD_BLOCK_EPOCH_BANK_TYPE stores fd_epoch_bank_t bincode encoded */
+#define FD_BLOCK_EPOCH_BANK_TYPE ((uchar)7)
+
 FD_PROTOTYPES_BEGIN
 
 ulong
-fd_runtime_lamports_per_signature( fd_firedancer_banks_t const * bank );
+fd_runtime_lamports_per_signature( fd_slot_bank_t const * slot_bank );
 
 ulong
 fd_runtime_txn_lamports_per_signature( fd_exec_txn_ctx_t * txn_ctx,
@@ -65,8 +71,8 @@ void
 fd_runtime_init_program( fd_exec_slot_ctx_t * slot_ctx );
 
 int
-fd_runtime_block_execute( fd_exec_slot_ctx_t * slot_ctx,
-                          fd_slot_meta_t *m,
+fd_runtime_block_execute( fd_exec_slot_ctx_t * slot_ctx, 
+                          fd_slot_meta_t * m, 
                           fd_block_info_t const * block_info );
 
 int
@@ -105,7 +111,13 @@ fd_funk_rec_key_t
 fd_runtime_block_meta_key( ulong slot );
 
 fd_funk_rec_key_t
-fd_runtime_banks_key( void );
+fd_runtime_firedancer_bank_key( void );
+
+fd_funk_rec_key_t
+fd_runtime_epoch_bank_key( void );
+
+fd_funk_rec_key_t
+fd_runtime_slot_bank_key( void );
 
 fd_funk_rec_key_t
 fd_runtime_bank_hash_key( ulong slot );
@@ -119,7 +131,10 @@ fd_runtime_block_txnstatus_key( ulong slot ) {
 }
 
 int
-fd_runtime_save_banks( fd_exec_slot_ctx_t * slot_ctx );
+fd_runtime_save_slot_bank( fd_exec_slot_ctx_t * slot_ctx );
+
+int
+fd_runtime_save_epoch_bank( fd_exec_slot_ctx_t * slot_ctx );
 
 int
 fd_global_import_solana_manifest( fd_exec_slot_ctx_t * slot_ctx,
@@ -133,9 +148,9 @@ void
 fd_features_restore( fd_exec_slot_ctx_t * slot_ctx );
 
 static inline ulong
-fd_rent_exempt( fd_firedancer_banks_t const * bank,
-                ulong                         sz ) {
-  return (sz + 128) * ((ulong) ((double)bank->rent.lamports_per_uint8_year * bank->rent.exemption_threshold));
+fd_rent_exempt( fd_rent_t const * rent,
+                ulong             sz ) {
+  return (sz + 128) * ((ulong) ((double)rent->lamports_per_uint8_year * rent->exemption_threshold));
 }
 
 void

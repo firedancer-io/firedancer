@@ -16,7 +16,7 @@ void write_stake_history( fd_exec_slot_ctx_t * slot_ctx, fd_stake_history_t* sta
   if ( fd_stake_history_encode( stake_history, &ctx ) )
     FD_LOG_ERR(("fd_stake_history_encode failed"));
 
-  fd_sysvar_set( slot_ctx, fd_sysvar_owner_id.key, &fd_sysvar_stake_history_id, enc, sz, slot_ctx->bank.slot, NULL );
+  fd_sysvar_set( slot_ctx, fd_sysvar_owner_id.key, &fd_sysvar_stake_history_id, enc, sz, slot_ctx->slot_bank.slot, NULL );
 }
 
 int fd_sysvar_stake_history_read( fd_exec_slot_ctx_t * slot_ctx, fd_stake_history_t* result ) {

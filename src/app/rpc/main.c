@@ -45,7 +45,7 @@ txn_map_elem_t * txn_map = NULL;
 #define MATCH_STRING(_text_,_text_sz_,_str_) (_text_sz_ == sizeof(_str_)-1 && memcmp(_text_, _str_, sizeof(_str_)-1) == 0)
 
 static fd_funk_t* funk = NULL;
-static fd_firedancer_banks_t bank;
+static fd_slot_bank_t slot_bank;
 
 // Implementation of the "getAccountInfo" method
 int method_getAccountInfo(struct fd_web_replier* replier, struct json_values* values, long call_id) {
@@ -69,7 +69,7 @@ int method_getAccountInfo(struct fd_web_replier* replier, struct json_values* va
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
   if (rec == NULL) {
     fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" API_VERSION "\",\"slot\":%lu},\"value\":null},\"id\":%lu}" CRLF,
-                          bank.slot, call_id);
+                          slot_bank.slot, call_id);
     fd_web_replier_done(replier);
     return 0;
   }
@@ -147,7 +147,7 @@ int method_getAccountInfo(struct fd_web_replier* replier, struct json_values* va
   }
 
   fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" API_VERSION "\",\"slot\":%lu},\"value\":{\"data\":\"",
-                        bank.slot);
+                        slot_bank.slot);
 
   if (val_sz) {
     switch (enc) {
@@ -208,7 +208,7 @@ int method_getBalance(struct fd_web_replier* replier, struct json_values* values
   fd_account_meta_t * metadata = (fd_account_meta_t *)val;
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
   fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" API_VERSION "\",\"slot\":%lu},\"value\":%lu},\"id\":%lu}" CRLF,
-                        bank.slot, metadata->info.lamports, call_id);
+                        slot_bank.slot, metadata->info.lamports, call_id);
   fd_web_replier_done(replier);
   return 0;
 }
@@ -396,7 +396,7 @@ int method_getTransaction(struct fd_web_replier* replier, struct json_values* va
   if ( txn_sz == 0 || txn_sz > FD_TXN_MAX_SZ )
     FD_LOG_ERR(("failed to parse transaction"));
 
-  fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" API_VERSION "\",\"slot\":%lu},\"slot\":%lu,", bank.slot, elem->slot);
+  fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" API_VERSION "\",\"slot\":%lu},\"slot\":%lu,", slot_bank.slot, elem->slot);
   fd_txn_to_json( ts, (fd_txn_t *)txn_out, raw, val2, val2_sz, enc, 0, FD_BLOCK_DETAIL_FULL, 0 );
   fd_textstream_sprintf(ts, "},\"id\":%lu}" CRLF, call_id);
   fd_web_replier_done(replier);
@@ -614,7 +614,7 @@ int main(int argc, char** argv)
   }
 
   {
-    fd_funk_rec_key_t id = fd_runtime_banks_key();
+    fd_funk_rec_key_t id = fd_runtime_slot_bank_key();
     fd_funk_rec_t const * rec = fd_funk_rec_query_global(funk, NULL, &id);
     if ( rec == NULL )
       FD_LOG_ERR(("failed to read banks record"));
@@ -623,7 +623,7 @@ int main(int argc, char** argv)
     ctx.data = val;
     ctx.dataend = (uchar*)val + fd_funk_val_sz( rec );
     ctx.valloc = fd_libc_alloc_virtual();
-    if ( fd_firedancer_banks_decode(&bank, &ctx ) )
+    if ( fd_slot_bank_decode(&slot_bank, &ctx ) )
       FD_LOG_ERR(("failed to read banks record"));
   }
 
@@ -651,7 +651,7 @@ int main(int argc, char** argv)
   {
     fd_bincode_destroy_ctx_t ctx;
     ctx.valloc = fd_libc_alloc_virtual();
-    fd_firedancer_banks_destroy(&bank, &ctx);
+    fd_slot_bank_destroy(&slot_bank, &ctx);
   }
 
   fd_funk_leave( funk );

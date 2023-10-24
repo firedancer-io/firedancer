@@ -295,7 +295,7 @@ fd_bpf_loader_input_deserialize_aligned( fd_exec_instr_ctx_t ctx,
         fd_memcpy(metadata->info.owner, owner, sizeof(fd_pubkey_t));
 
         // add to dirty list
-        metadata->slot = ctx.slot_ctx->bank.slot;
+        metadata->slot = ctx.slot_ctx->slot_bank.slot;
         FD_LOG_DEBUG(("Deserialize success %32J", acc->uc));
       } else if ( view_err == FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
         // no-op
@@ -566,7 +566,7 @@ fd_bpf_loader_input_deserialize_unaligned( fd_exec_instr_ctx_t ctx, ulong const 
       metadata->dlen = pre_lens[i];
       fd_memcpy( acc_data, post_data, pre_lens[i] );
 
-      metadata->slot = ctx.slot_ctx->bank.slot;
+      metadata->slot = ctx.slot_ctx->slot_bank.slot;
       input_cursor += sizeof(ulong);
     }
   }

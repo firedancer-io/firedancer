@@ -20,10 +20,10 @@
 void fd_sysvar_recent_hashes_init( fd_exec_slot_ctx_t* slot_ctx ) {
   // https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/fee_calculator.rs#L110
 
-  if (slot_ctx->bank.slot != 0)
+  if (slot_ctx->slot_bank.slot != 0)
     return;
 
-  ulong sz = fd_recent_block_hashes_size(&slot_ctx->bank.recent_block_hashes);
+  ulong sz = fd_recent_block_hashes_size(&slot_ctx->slot_bank.recent_block_hashes);
   if (sz < 6008)
     sz = 6008;
   unsigned char *enc = fd_alloca(1, sz);
@@ -31,17 +31,17 @@ void fd_sysvar_recent_hashes_init( fd_exec_slot_ctx_t* slot_ctx ) {
   fd_bincode_encode_ctx_t ctx;
   ctx.data = enc;
   ctx.dataend = enc + sz;
-  if ( fd_recent_block_hashes_encode(&slot_ctx->bank.recent_block_hashes, &ctx) )
+  if ( fd_recent_block_hashes_encode(&slot_ctx->slot_bank.recent_block_hashes, &ctx) )
     FD_LOG_ERR(("fd_recent_block_hashes_encode failed"));
 
-  fd_sysvar_set(slot_ctx, fd_sysvar_owner_id.key, &fd_sysvar_recent_block_hashes_id, enc, sz, slot_ctx->bank.slot, NULL );
+  fd_sysvar_set(slot_ctx, fd_sysvar_owner_id.key, &fd_sysvar_recent_block_hashes_id, enc, sz, slot_ctx->slot_bank.slot, NULL );
 }
 
 void fd_sysvar_recent_hashes_update( fd_exec_slot_ctx_t* slot_ctx ) {
-  if (slot_ctx->bank.slot == 0)  // we already set this... as part of boot
+  if (slot_ctx->slot_bank.slot == 0)  // we already set this... as part of boot
     return;
 
-  fd_block_block_hash_entry_t * hashes = slot_ctx->bank.recent_block_hashes.hashes;
+  fd_block_block_hash_entry_t * hashes = slot_ctx->slot_bank.recent_block_hashes.hashes;
   fd_bincode_destroy_ctx_t ctx2 = { .valloc = slot_ctx->valloc };
   while (deq_fd_block_block_hash_entry_t_cnt(hashes) >= 150)
     fd_block_block_hash_entry_destroy( deq_fd_block_block_hash_entry_t_pop_tail_nocopy( hashes ), &ctx2 );
@@ -50,14 +50,14 @@ void fd_sysvar_recent_hashes_update( fd_exec_slot_ctx_t* slot_ctx ) {
   fd_block_block_hash_entry_t * elem = deq_fd_block_block_hash_entry_t_push_head_nocopy(hashes);
   fd_block_block_hash_entry_new(elem);
   // bank.poh is updated in fd_runtime_block_verify
-  fd_memcpy(elem->blockhash.hash, &slot_ctx->bank.poh, sizeof(slot_ctx->bank.poh)); 
+  fd_memcpy(elem->blockhash.hash, &slot_ctx->slot_bank.poh, sizeof(slot_ctx->slot_bank.poh)); 
 
   fd_exec_txn_ctx_t tmp_txn_ctx = {
     .slot_ctx = slot_ctx
   };
   elem->fee_calculator.lamports_per_signature = fd_runtime_txn_lamports_per_signature(&tmp_txn_ctx, NULL, NULL);
 
-  ulong sz = fd_recent_block_hashes_size(&slot_ctx->bank.recent_block_hashes);
+  ulong sz = fd_recent_block_hashes_size(&slot_ctx->slot_bank.recent_block_hashes);
   if (sz < 6008)
     sz = 6008;
   unsigned char *enc = fd_alloca(1, sz);
@@ -65,8 +65,8 @@ void fd_sysvar_recent_hashes_update( fd_exec_slot_ctx_t* slot_ctx ) {
   fd_bincode_encode_ctx_t ctx;
   ctx.data = enc;
   ctx.dataend = enc + sz;
-  if ( fd_recent_block_hashes_encode(&slot_ctx->bank.recent_block_hashes, &ctx) )
+  if ( fd_recent_block_hashes_encode(&slot_ctx->slot_bank.recent_block_hashes, &ctx) )
     FD_LOG_ERR(("fd_recent_block_hashes_encode failed"));
 
-  fd_sysvar_set(slot_ctx, fd_sysvar_owner_id.key, &fd_sysvar_recent_block_hashes_id, enc, sz, slot_ctx->bank.slot, NULL);
+  fd_sysvar_set(slot_ctx, fd_sysvar_owner_id.key, &fd_sysvar_recent_block_hashes_id, enc, sz, slot_ctx->slot_bank.slot, NULL);
 }

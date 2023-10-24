@@ -253,12 +253,16 @@ void REDBLK_(release_tree)( REDBLK_T * pool, REDBLK_T * root );
   Return the node in a tree that has the smallest key (leftmost).
 */
 REDBLK_T * REDBLK_(minimum)(REDBLK_T * pool, REDBLK_T * root);
+REDBLK_T const * REDBLK_(minimum_const)(REDBLK_T const * pool, REDBLK_T const * root);
+
 /*
   E.g. my_node_t * my_rb_maximum(my_node_t * pool, my_node_t * root);
 
   Return the node in a tree that has the largest key (rightmost).
 */
 REDBLK_T * REDBLK_(maximum)(REDBLK_T * pool, REDBLK_T * root);
+REDBLK_T const * REDBLK_(maximum_const)(REDBLK_T const * pool, REDBLK_T const * root);
+
 /*
   E.g. my_node_t * my_rb_successor(my_node_t * pool, my_node_t * node);
 
@@ -278,6 +282,7 @@ REDBLK_T * REDBLK_(maximum)(REDBLK_T * pool, REDBLK_T * root);
     }
 */
 REDBLK_T * REDBLK_(successor)(REDBLK_T * pool, REDBLK_T * node);
+REDBLK_T const * REDBLK_(successor_const)(REDBLK_T const * pool, REDBLK_T const * node);
 /*
   E.g. my_node_t * my_rb_predecessor(my_node_t * pool, my_node_t * node);
 
@@ -510,6 +515,12 @@ void REDBLK_(validate_element)( REDBLK_T * pool, REDBLK_T * node ) {
   if ( node && node->REDBLK_COLOR == REDBLK_FREE )
     FD_LOG_ERR(( "invalid redblack node" ));
 }
+void REDBLK_(validate_element_const)( REDBLK_T const * pool, REDBLK_T const * node ) {
+  if ( !REDBLK_POOL_(ele_test)( pool, node ) )
+    FD_LOG_ERR(( "invalid redblack node" ));
+  if ( node && node->REDBLK_COLOR == REDBLK_FREE )
+    FD_LOG_ERR(( "invalid redblack node" ));
+}
 #endif
 
 void REDBLK_(release)( REDBLK_T * pool, REDBLK_T * node ) {
@@ -556,6 +567,17 @@ REDBLK_T * REDBLK_(minimum)(REDBLK_T * pool, REDBLK_T * node) {
   }
   return node;
 }
+REDBLK_T const * REDBLK_(minimum_const)(REDBLK_T const * pool, REDBLK_T const * node) {
+  if (!node || node == &pool[REDBLK_NIL])
+    return NULL;
+#ifndef REDBLK_UNSAFE
+  REDBLK_(validate_element_const)(pool, node);
+#endif
+  while (node->REDBLK_LEFT != REDBLK_NIL) {
+    node = &pool[node->REDBLK_LEFT];
+  }
+  return node;
+}
 
 /*
   Return the node in a tree that has the largest key (rightmost).
@@ -565,6 +587,17 @@ REDBLK_T * REDBLK_(maximum)(REDBLK_T * pool, REDBLK_T * node) {
     return NULL;
 #ifndef REDBLK_UNSAFE
   REDBLK_(validate_element)(pool, node);
+#endif
+  while (node->REDBLK_RIGHT != REDBLK_NIL) {
+    node = &pool[node->REDBLK_RIGHT];
+  }
+  return node;
+}
+REDBLK_T const * REDBLK_(maximum_const)(REDBLK_T const * pool, REDBLK_T const * node) {
+  if (!node || node == &pool[REDBLK_NIL])
+    return NULL;
+#ifndef REDBLK_UNSAFE
+  REDBLK_(validate_element_const)(pool, node);
 #endif
   while (node->REDBLK_RIGHT != REDBLK_NIL) {
     node = &pool[node->REDBLK_RIGHT];
@@ -598,6 +631,29 @@ REDBLK_T * REDBLK_(successor)(REDBLK_T * pool, REDBLK_T * x) {
     x = y;
   }
 }
+REDBLK_T const * REDBLK_(successor_const)(REDBLK_T const * pool, REDBLK_T const * x) {
+#ifndef REDBLK_UNSAFE
+  REDBLK_(validate_element_const)(pool, x);
+#endif
+
+  // if the right subtree is not null,
+  // the successor is the leftmost node in the
+  // right subtree
+  if (x->REDBLK_RIGHT != REDBLK_NIL) {
+    return REDBLK_(minimum_const)(pool, &pool[x->REDBLK_RIGHT]);
+  }
+
+  // else it is the lowest ancestor of x whose
+  // left child is also an ancestor of x.
+  for (;;) {
+    if (x->REDBLK_PARENT == REDBLK_NIL)
+      return NULL;
+    REDBLK_T const * y = &pool[x->REDBLK_PARENT];
+    if (x == &pool[y->REDBLK_LEFT])
+      return y;
+    x = y;
+  }
+}
 
 /*
   Return the previous node which is smaller than the given node.
@@ -620,6 +676,29 @@ REDBLK_T * REDBLK_(predecessor)(REDBLK_T * pool, REDBLK_T * x) {
     if (x->REDBLK_PARENT == REDBLK_NIL)
       return NULL;
     REDBLK_T * y = &pool[x->REDBLK_PARENT];
+    if (x == &pool[y->REDBLK_RIGHT])
+      return y;
+    x = y;
+  }
+}
+REDBLK_T const * REDBLK_(predecessor_const)(REDBLK_T const * pool, REDBLK_T const * x) {
+#ifndef REDBLK_UNSAFE
+  REDBLK_(validate_element_const)(pool, x);
+#endif
+
+  // if the left subtree is not null,
+  // the predecessor is the rightmost node in the 
+  // left subtree
+  if (x->REDBLK_LEFT != REDBLK_NIL) {
+    return REDBLK_(maximum_const)(pool, &pool[x->REDBLK_LEFT]);
+  }
+
+  // else it is the lowest ancestor of x whose
+  // right child is also an ancestor of x.
+  for (;;) {
+    if (x->REDBLK_PARENT == REDBLK_NIL)
+      return NULL;
+    REDBLK_T const * y = &pool[x->REDBLK_PARENT];
     if (x == &pool[y->REDBLK_RIGHT])
       return y;
     x = y;

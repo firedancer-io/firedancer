@@ -217,9 +217,9 @@ int fd_executor_run_test(
   int ret = 0;
   slot_ctx->valloc     = suite->valloc;
 
-  slot_ctx->bank.rent.lamports_per_uint8_year = 3480;
-  slot_ctx->bank.rent.exemption_threshold = 2;
-  slot_ctx->bank.rent.burn_percent = 50;
+  epoch_ctx->epoch_bank.rent.lamports_per_uint8_year = 3480;
+  epoch_ctx->epoch_bank.rent.exemption_threshold = 2;
+  epoch_ctx->epoch_bank.rent.burn_percent = 50;
 
   memcpy(&slot_ctx->epoch_ctx->features, &suite->features, sizeof(suite->features));
   if (test->disable_cnt > 0) {
@@ -274,12 +274,12 @@ int fd_executor_run_test(
 
       /* wtf ... */
       if (memcmp(fd_sysvar_recent_block_hashes_id.key, &test->accs[i].pubkey, sizeof(test->accs[i].pubkey)) == 0) {
-        fd_recent_block_hashes_new( &slot_ctx->bank.recent_block_hashes );
+        fd_recent_block_hashes_new( &slot_ctx->slot_bank.recent_block_hashes );
         fd_bincode_decode_ctx_t ctx2;
         ctx2.data    = rec->data,
         ctx2.dataend = rec->data + rec->meta->dlen;
         ctx2.valloc  = slot_ctx->valloc;
-        if ( fd_recent_block_hashes_decode( &slot_ctx->bank.recent_block_hashes, &ctx2 ) ) {
+        if ( fd_recent_block_hashes_decode( &slot_ctx->slot_bank.recent_block_hashes, &ctx2 ) ) {
           FD_LOG_WARNING(("fd_recent_block_hashes_decode failed"));
           ret = FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
           goto fd_executor_run_cleanup;
@@ -287,7 +287,7 @@ int fd_executor_run_test(
       }
     }
 
-    slot_ctx->bank.slot = 200880004;
+    slot_ctx->slot_bank.slot = 200880004;
 
     /* Load sysvar cache */
     if( 0!=strcmp( test->sysvar_cache.clock, "" ) )
@@ -315,7 +315,7 @@ int fd_executor_run_test(
       fd_sol_sysvar_clock_t clock[1];
       int err = fd_sysvar_clock_read( slot_ctx, clock );
       if( err==0 )
-        slot_ctx->bank.slot = clock->slot;
+        slot_ctx->slot_bank.slot = clock->slot;
     } while(0);
 
     /* Parse the raw transaction */
@@ -531,7 +531,7 @@ int fd_executor_run_test(
 fd_executor_run_cleanup:
   fd_funk_txn_cancel( suite->funk, slot_ctx->funk_txn, 0 );
   fd_bincode_destroy_ctx_t destroy_ctx = { .valloc = slot_ctx->valloc };
-  fd_firedancer_banks_destroy(&slot_ctx->bank, &destroy_ctx);
+  fd_slot_bank_destroy(&slot_ctx->slot_bank, &destroy_ctx);
   return ret;
 }
 

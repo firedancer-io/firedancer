@@ -19,6 +19,8 @@ fd_exec_epoch_ctx_new( void * mem ) {
   // all features are disabled by default.
   fd_features_disable_all(&self->features);
 
+  fd_epoch_bank_new(&self->epoch_bank);
+
   FD_COMPILER_MFENCE();
   self->magic = FD_EXEC_EPOCH_CTX_MAGIC;
   FD_COMPILER_MFENCE();
@@ -75,6 +77,9 @@ fd_exec_epoch_ctx_delete( void * mem ) {
     FD_LOG_WARNING(( "bad magic" ));
     return NULL;
   }
+
+  fd_bincode_destroy_ctx_t ctx = { .valloc = hdr->valloc };
+  fd_epoch_bank_destroy(&hdr->epoch_bank, &ctx);
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( hdr->magic ) = 0UL;

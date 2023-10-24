@@ -14,7 +14,7 @@ write_fees( fd_exec_slot_ctx_t* slot_ctx, fd_sysvar_fees_t* fees ) {
   if ( fd_sysvar_fees_encode( fees, &ctx ) )
     FD_LOG_ERR(("fd_sysvar_fees_encode failed"));
 
-  fd_sysvar_set( slot_ctx, fd_sysvar_owner_id.key, &fd_sysvar_fees_id, enc, sz, slot_ctx->bank.slot, NULL );
+  fd_sysvar_set( slot_ctx, fd_sysvar_owner_id.key, &fd_sysvar_fees_id, enc, sz, slot_ctx->slot_bank.slot, NULL );
 }
 
 void
@@ -68,7 +68,7 @@ fd_sysvar_fees_new_derived(
         / me.target_signatures_per_slot
       )
     );
-    long gap = (long)desired_lamports_per_signature - (long)slot_ctx->bank.lamports_per_signature;
+    long gap = (long)desired_lamports_per_signature - (long)slot_ctx->epoch_ctx->epoch_bank.lamports_per_signature;
     if ( gap == 0 ) {
       lamports_per_signature = desired_lamports_per_signature;
     } else {
@@ -79,7 +79,7 @@ fd_sysvar_fees_new_derived(
         me.min_lamports_per_signature,
         fd_ulong_max(
           me.min_lamports_per_signature,
-          (ulong)((long) slot_ctx->bank.lamports_per_signature + gap_adjust)
+          (ulong)((long) slot_ctx->epoch_ctx->epoch_bank.lamports_per_signature + gap_adjust)
         )
       );
     }
@@ -89,8 +89,8 @@ fd_sysvar_fees_new_derived(
     me.max_lamports_per_signature = me.target_lamports_per_signature;
   }
 
-  slot_ctx->bank.lamports_per_signature = lamports_per_signature;
-  fd_memcpy(&slot_ctx->bank.fee_rate_governor, &me, sizeof(fd_fee_rate_governor_t));
+  slot_ctx->epoch_ctx->epoch_bank.lamports_per_signature = lamports_per_signature;
+  fd_memcpy(&slot_ctx->slot_bank.fee_rate_governor, &me, sizeof(fd_fee_rate_governor_t));
 
 }
 
@@ -101,7 +101,7 @@ fd_sysvar_fees_update( fd_exec_slot_ctx_t * slot_ctx ) {
   fd_sysvar_fees_t fees;
   fd_sysvar_fees_read( slot_ctx, &fees );
   /* todo: I need to the lamports_per_signature field */
-  fees.fee_calculator.lamports_per_signature = slot_ctx->bank.lamports_per_signature;
+  fees.fee_calculator.lamports_per_signature = slot_ctx->epoch_ctx->epoch_bank.lamports_per_signature;
   write_fees( slot_ctx, &fees );
 }
 

@@ -168,10 +168,10 @@ fd_stake_weights_by_node( fd_vote_accounts_t const * accs,
 
 /* https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L169 */
 void
-fd_stakes_activate_epoch( fd_exec_slot_ctx_t * global,
-                          ulong             next_epoch ) {
+fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
+                          ulong                 next_epoch ) {
 
-  fd_stakes_t* stakes = &global->bank.stakes;
+  fd_stakes_t* stakes = &slot_ctx->epoch_ctx->epoch_bank.stakes;
 
   /* Current stake delegations: list of all current delegations in stake_delegations
      https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L180 */
@@ -179,7 +179,7 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t * global,
      https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L181-L192 */
 
   fd_stake_history_t history;
-  fd_sysvar_stake_history_read( global,  &history);
+  fd_sysvar_stake_history_read( slot_ctx,  &history );
 
   fd_stake_history_entry_t accumulator = {
     .effective = 0,
@@ -202,7 +202,7 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t * global,
     .deactivating = accumulator.deactivating
   };
 
-  fd_sysvar_stake_history_update( global, &new_elem);
+  fd_sysvar_stake_history_update( slot_ctx, &new_elem);
 
   /* Update the current epoch value */
   stakes->epoch = next_epoch;
@@ -210,10 +210,10 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t * global,
   /* Refresh the stake distribution of vote accounts for the next epoch,
      using the updated Stake History.
      https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L194-L216 */
-  fd_stake_weight_t_mapnode_t * pool = fd_stake_weight_t_map_alloc(global->valloc, 10000);
+  fd_stake_weight_t_mapnode_t * pool = fd_stake_weight_t_map_alloc(slot_ctx->valloc, 10000);
   fd_stake_weight_t_mapnode_t * root = NULL;
 
-  fd_sysvar_stake_history_read( global,  &history);
+  fd_sysvar_stake_history_read( slot_ctx,  &history);
   for ( fd_delegation_pair_t_mapnode_t * n = fd_delegation_pair_t_map_minimum(stakes->stake_delegations_pool, stakes->stake_delegations_root); n; n = fd_delegation_pair_t_map_successor(stakes->stake_delegations_pool, n) ) {
     ulong delegation_stake = fd_stake_activating_and_deactivating( &n->elem.delegation, stakes->epoch, &history, new_rate_activation_epoch ).effective;
     fd_stake_weight_t_mapnode_t temp;

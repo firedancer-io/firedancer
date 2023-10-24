@@ -143,14 +143,14 @@ fd_acc_mgr_commit_raw( fd_acc_mgr_t *      acc_mgr FD_PARAM_UNUSED,
   fd_account_meta_t *     m      = (fd_account_meta_t *)raw_acc;
   void const *            data   = (void const *)( (ulong)raw_acc + m->hlen );
 
-  m->slot = slot_ctx->bank.slot;
+  m->slot = slot_ctx->slot_bank.slot;
 
   fd_hash_t hash[1];
   fd_hash_account_current( hash->hash, m, pubkey->key, data, slot_ctx );
 
   if( 0!=memcmp( &hash, m->hash, sizeof(hash) ) ) {
     FD_LOG_DEBUG(( "fd_acc_mgr_commit_raw: %32J slot: %ld lamports: %ld  owner: %32J  executable: %s,  rent_epoch: %ld, data_len: %ld, data: %s = %32J",
-                    pubkey->uc, slot_ctx->bank.slot, m->info.lamports, m->info.owner, m->info.executable ? "true" : "false", m->info.rent_epoch, m->dlen, "xx", hash->uc ));
+                    pubkey->uc, slot_ctx->slot_bank.slot, m->info.lamports, m->info.owner, m->info.executable ? "true" : "false", m->info.rent_epoch, m->dlen, "xx", hash->uc ));
 
     FD_TEST( rec );
   }

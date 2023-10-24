@@ -155,12 +155,12 @@ replay( global_state_t * state,
   if (mm.end_slot < state->end_slot)
     state->end_slot = mm.end_slot;
 
-  fd_runtime_update_leaders(state->slot_ctx, state->slot_ctx->bank.slot);
+  fd_runtime_update_leaders(state->slot_ctx, state->slot_ctx->slot_bank.slot);
 
-  ulong prev_slot = state->slot_ctx->bank.slot;
-  for ( ulong slot = state->slot_ctx->bank.slot+1; slot < state->end_slot; ++slot ) {
-    state->slot_ctx->bank.prev_slot = prev_slot;
-    state->slot_ctx->bank.slot      = slot;
+  ulong prev_slot = state->slot_ctx->slot_bank.slot;
+  for ( ulong slot = state->slot_ctx->slot_bank.slot+1; slot < state->end_slot; ++slot ) {
+    state->slot_ctx->slot_bank.prev_slot = prev_slot;
+    state->slot_ctx->slot_bank.slot      = slot;
 
     FD_LOG_INFO(("reading slot %ld", slot));
 
@@ -193,7 +193,7 @@ replay( global_state_t * state,
       FD_TEST( ret == FD_RUNTIME_EXECUTE_SUCCESS );
 
       fd_hash_t poh_hash;
-      fd_memcpy( poh_hash.hash, state->slot_ctx->bank.poh.hash, sizeof(fd_hash_t) );
+      fd_memcpy( poh_hash.hash, state->slot_ctx->slot_bank.poh.hash, sizeof(fd_hash_t) );
       ret = fd_runtime_block_verify( &block_info, &poh_hash );
       FD_TEST( ret == FD_RUNTIME_EXECUTE_SUCCESS );
     } else {
@@ -201,11 +201,11 @@ replay( global_state_t * state,
 
       fd_hash_t const * known_bank_hash = fd_get_bank_hash( state->slot_ctx->acc_mgr->funk, slot );
       if( known_bank_hash ) {
-        if( FD_UNLIKELY( 0!=memcmp( state->slot_ctx->bank.banks_hash.hash, known_bank_hash->hash, 32UL ) ) ) {
+        if( FD_UNLIKELY( 0!=memcmp( state->slot_ctx->slot_bank.banks_hash.hash, known_bank_hash->hash, 32UL ) ) ) {
           FD_LOG_WARNING(( "Bank hash mismatch! slot=%lu expected=%32J, got=%32J",
               slot,
               known_bank_hash->hash,
-              state->slot_ctx->bank.banks_hash.hash ));
+              state->slot_ctx->slot_bank.banks_hash.hash ));
           if( state->abort_on_mismatch ) {
             fd_solcap_writer_fini( state->slot_ctx->capture );
             kill(getpid(), SIGTRAP);
@@ -217,8 +217,8 @@ replay( global_state_t * state,
       if (NULL != state->capitalization_file) {
         slot_capitalization_t *c = capitalization_map_query(state->map, slot, NULL);
         if (NULL != c) {
-          if (state->slot_ctx->bank.capitalization != c->capitalization)
-            FD_LOG_ERR(( "capitalization missmatch!  slot=%lu got=%ld != expected=%ld  (%ld)", slot, state->slot_ctx->bank.capitalization, c->capitalization,  state->slot_ctx->bank.capitalization - c->capitalization  ));
+          if (state->slot_ctx->slot_bank.capitalization != c->capitalization)
+            FD_LOG_ERR(( "capitalization missmatch!  slot=%lu got=%ld != expected=%ld  (%ld)", slot, state->slot_ctx->slot_bank.capitalization, c->capitalization,  state->slot_ctx->slot_bank.capitalization - c->capitalization  ));
         }
       }
     }
@@ -378,6 +378,7 @@ main( int     argc,
 
   state.local_wksp = local_wksp;
   state.slot_ctx->valloc = fd_libc_alloc_virtual();
+  state.epoch_ctx->valloc = fd_libc_alloc_virtual();
 
   if( capture_fpath ) {
     state.capture_file = fopen( capture_fpath, "w+" );
@@ -412,8 +413,8 @@ main( int     argc,
   }
 
   {
-    FD_LOG_NOTICE(("reading banks record"));
-    fd_funk_rec_key_t id = fd_runtime_banks_key();
+    FD_LOG_NOTICE(("reading epoch bank record"));
+    fd_funk_rec_key_t id = fd_runtime_epoch_bank_key();
     fd_funk_rec_t const * rec = fd_funk_rec_query_global(state.slot_ctx->acc_mgr->funk, NULL, &id);
     if ( rec == NULL )
       FD_LOG_ERR(("failed to read banks record"));
@@ -422,19 +423,35 @@ main( int     argc,
     ctx2.data = val;
     ctx2.dataend = (uchar*)val + fd_funk_val_sz( rec );
     ctx2.valloc  = state.slot_ctx->valloc;
-    FD_TEST( fd_firedancer_banks_decode(&state.slot_ctx->bank, &ctx2 )==FD_BINCODE_SUCCESS );
+    FD_TEST( fd_epoch_bank_decode(&state.epoch_ctx->epoch_bank, &ctx2 )==FD_BINCODE_SUCCESS );
+
+    FD_LOG_NOTICE(( "decoded epoch" ));
+  }
+
+  {
+    FD_LOG_NOTICE(("reading slot bank record"));
+    fd_funk_rec_key_t id = fd_runtime_slot_bank_key();
+    fd_funk_rec_t const * rec = fd_funk_rec_query_global(state.slot_ctx->acc_mgr->funk, NULL, &id);
+    if ( rec == NULL )
+      FD_LOG_ERR(("failed to read banks record"));
+    void * val = fd_funk_val( rec, fd_funk_wksp(state.slot_ctx->acc_mgr->funk) );
+    fd_bincode_decode_ctx_t ctx2;
+    ctx2.data = val;
+    ctx2.dataend = (uchar*)val + fd_funk_val_sz( rec );
+    ctx2.valloc  = state.slot_ctx->valloc;
+    FD_TEST( fd_slot_bank_decode(&state.slot_ctx->slot_bank, &ctx2 )==FD_BINCODE_SUCCESS );
 
     FD_LOG_NOTICE(( "decoded slot=%ld banks_hash=%32J poh_hash %32J",
-                    (long)state.slot_ctx->bank.slot,
-                    state.slot_ctx->bank.banks_hash.hash,
-                    state.slot_ctx->bank.poh.hash ));
+                    (long)state.slot_ctx->slot_bank.slot,
+                    state.slot_ctx->slot_bank.banks_hash.hash,
+                    state.slot_ctx->slot_bank.poh.hash ));
 
-    state.slot_ctx->bank.collected_fees = 0;
-    state.slot_ctx->bank.collected_rent = 0;
+    state.slot_ctx->slot_bank.collected_fees = 0;
+    state.slot_ctx->slot_bank.collected_rent = 0;
 
     FD_LOG_NOTICE(( "decoded slot=%ld capitalization=%ld",
-                    (long)state.slot_ctx->bank.slot,
-                    state.slot_ctx->bank.capitalization));
+                    (long)state.slot_ctx->slot_bank.slot,
+                    state.slot_ctx->slot_bank.capitalization));
   }
 
   ulong tcnt = fd_tile_cnt();
@@ -457,7 +474,7 @@ main( int     argc,
     if (NULL != confirm_hash) {
       uchar h[32];
       fd_base58_decode_32( confirm_hash,  h);
-      FD_TEST(memcmp(h, &state.slot_ctx->bank.banks_hash, sizeof(h)) == 0);
+      FD_TEST(memcmp(h, &state.slot_ctx->slot_bank.banks_hash, sizeof(h)) == 0);
     }
 
     if (NULL != confirm_parent) {
@@ -478,7 +495,7 @@ main( int     argc,
     if (NULL != confirm_last_block) {
       uchar h[32];
       fd_base58_decode_32( confirm_last_block,  h);
-      FD_TEST(memcmp(h, &state.slot_ctx->bank.poh, sizeof(h)) == 0);
+      FD_TEST(memcmp(h, &state.slot_ctx->slot_bank.poh, sizeof(h)) == 0);
     }
 
   }

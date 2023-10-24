@@ -20,7 +20,7 @@ fd_exec_slot_ctx_new( void * mem ) {
 
   self->rng = fd_rng_join( fd_rng_new(&self->rnd_mem, (uint) time(0), 0) );;
 
-  fd_firedancer_banks_new(&self->bank);
+  fd_slot_bank_new(&self->slot_bank);
 
   FD_COMPILER_MFENCE();
   self->magic = FD_EXEC_SLOT_CTX_MAGIC;
@@ -80,7 +80,7 @@ fd_exec_slot_ctx_delete( void * mem ) {
   }
 
   fd_bincode_destroy_ctx_t ctx = { .valloc = hdr->valloc };
-  fd_firedancer_banks_destroy(&hdr->bank, &ctx);
+  fd_slot_bank_destroy(&hdr->slot_bank, &ctx);
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( hdr->magic ) = 0UL;

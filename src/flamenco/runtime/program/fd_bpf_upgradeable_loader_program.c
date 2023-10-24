@@ -136,7 +136,7 @@ int write_bpf_upgradeable_loader_state( fd_exec_instr_ctx_t * instr_ctx, fd_pubk
   if (encoded_loader_state_size > m->dlen)
     m->dlen = encoded_loader_state_size;
 
-  m->slot = instr_ctx->slot_ctx->bank.slot;
+  m->slot = instr_ctx->slot_ctx->slot_bank.slot;
   return 0;
 }
 
@@ -201,7 +201,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_program_instruction( fd_e
     return err;
   }
 
-  FD_LOG_NOTICE(("BPF PROG INSTR RUN! - slot: %lu, addr: %32J", ctx.slot_ctx->bank.slot, &txn_accs[ctx.instr->program_id]));
+  FD_LOG_NOTICE(("BPF PROG INSTR RUN! - slot: %lu, addr: %32J", ctx.slot_ctx->slot_bank.slot, &txn_accs[ctx.instr->program_id]));
 
   if( !fd_bpf_upgradeable_loader_state_is_program_data( &programdata_loader_state ) ) {
     fd_bpf_upgradeable_loader_state_destroy( &programdata_loader_state, &ctx_d );
@@ -282,7 +282,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_program_instruction( fd_e
   (void) trace;
   (void) trace_ctx;
 #ifdef FD_DEBUG_SBPF_TRACES
-if (vm_ctx.instr_ctx.slot_ctx->bank.slot == 179244897) {
+if (vm_ctx.instr_ctx.slot_ctx->slot_bank.slot == 179244909) {
   
   // fd_vm_trace_entry_t * trace = (fd_vm_trace_entry_t *)fd_valloc_malloc( ctx.global->valloc, 1UL, trace_sz * sizeof(fd_vm_trace_entry_t));
   trace = (fd_vm_trace_entry_t *)malloc( trace_sz * sizeof(fd_vm_trace_entry_t));
@@ -306,7 +306,7 @@ if (vm_ctx.instr_ctx.slot_ctx->bank.slot == 179244897) {
   // FD_LOG_WARNING(( "fd_vm_context_validate() success" ));
   ulong interp_res;
 #ifdef FD_DEBUG_SBPF_TRACES
-  if (vm_ctx.instr_ctx.slot_ctx->bank.slot== 179244897) {
+  if (vm_ctx.instr_ctx.slot_ctx->slot_bank.slot== 179244909) {
     interp_res = fd_vm_interp_instrs_trace( &vm_ctx );
   } else {
     interp_res = fd_vm_interp_instrs( &vm_ctx );
@@ -320,7 +320,7 @@ if (vm_ctx.instr_ctx.slot_ctx->bank.slot == 179244897) {
 
 #ifdef FD_DEBUG_SBPF_TRACES
   // FILE * trace_fd = fopen("trace.log", "w");
-  if (vm_ctx.instr_ctx.slot_ctx->bank.slot == 179244897) {
+  if (vm_ctx.instr_ctx.slot_ctx->slot_bank.slot == 179244909) {
     ulong prev_cus = 0;
     for( ulong i = 0; i < trace_ctx.trace_entries_used; i++ ) {
       fd_vm_trace_entry_t trace_ent = trace[i];
@@ -757,7 +757,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( fd_exec_inst
 
     fd_bpf_upgradeable_loader_state_t program_data_acc_loader_state = {
       .discriminant = fd_bpf_upgradeable_loader_state_enum_program_data,
-      .inner.program_data.slot = ctx.slot_ctx->bank.slot,
+      .inner.program_data.slot = ctx.slot_ctx->slot_bank.slot,
       .inner.program_data.upgrade_authority_address = (fd_pubkey_t *)authority_acc
     };
 
@@ -784,7 +784,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( fd_exec_inst
     fd_memcpy( acct_data+PROGRAMDATA_METADATA_SIZE, buffer_rec->const_data+BUFFER_METADATA_SIZE+sizeof(fd_account_meta_t), buffer_data_len );
     // fd_memset( acct_data+PROGRAMDATA_METADATA_SIZE+buffer_data_len, 0, instruction.inner.deploy_with_max_data_len.max_data_len-buffer_data_len );
       // FD_LOG_WARNING(("AAA: %x", *(acct_data+meta->dlen-3)));
-    programdata_rec->meta->slot = ctx.slot_ctx->bank.slot;
+    programdata_rec->meta->slot = ctx.slot_ctx->slot_bank.slot;
 
     write_result = fd_instr_borrowed_account_modify( &ctx, program_acc, 0, 0UL, &program_rec);
     if ( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) ) {

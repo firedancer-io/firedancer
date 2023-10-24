@@ -73,8 +73,8 @@ fd_hash_account_deltas(fd_pubkey_hash_pair_t * pairs, ulong pairs_len, fd_hash_t
           *acc_data_str_cursor = 0;
         }
 
-        FD_LOG_NOTICE(( "account_delta_hash_compare pubkey: (%32J) slot: (%lu) lamports: (%lu), owner: (%32J), executable: (%d), rent_epoch: (%lu), data_len: (%ld), hash: (%32J) ",  pairs[i].pubkey.uc, slot_ctx->bank.slot, metadata->info.lamports, metadata->info.owner, metadata->info.executable, metadata->info.rent_epoch, metadata->dlen, pairs[i].hash.hash ));
-        fprintf(stderr, "account_delta_hash pubkey: %32J, slot: %lu, lamports: %lu, owner: %32J, executable: %d, rent_epoch: %lu, data_len: %ld, data: [%s] = %32J\n",  pairs[i].pubkey.uc, slot_ctx->bank.slot, metadata->info.lamports, metadata->info.owner, metadata->info.executable, metadata->info.rent_epoch, metadata->dlen, acc_data_str, pairs[i].hash.hash );
+        FD_LOG_NOTICE(( "account_delta_hash_compare pubkey: (%32J) slot: (%lu) lamports: (%lu), owner: (%32J), executable: (%d), rent_epoch: (%lu), data_len: (%ld), hash: (%32J) ",  pairs[i].pubkey.uc, slot_ctx->slot_bank.slot, metadata->info.lamports, metadata->info.owner, metadata->info.executable, metadata->info.rent_epoch, metadata->dlen, pairs[i].hash.hash ));
+        fprintf(stderr, "account_delta_hash pubkey: %32J, slot: %lu, lamports: %lu, owner: %32J, executable: %d, rent_epoch: %lu, data_len: %ld, data: [%s] = %32J\n",  pairs[i].pubkey.uc, slot_ctx->slot_bank.slot, metadata->info.lamports, metadata->info.owner, metadata->info.executable, metadata->info.rent_epoch, metadata->dlen, acc_data_str, pairs[i].hash.hash );
 
         free(acc_data_str);
       }
@@ -176,13 +176,13 @@ fd_should_include_epoch_accounts_hash(fd_exec_slot_ctx_t * slot_ctx) {
   // normal slots-per-epoch; this really will only affect tests and epoch schedule warmup.
 
   ulong slot_idx = 0;
-  ulong epoch = fd_slot_to_epoch( &slot_ctx->bank.epoch_schedule, slot_ctx->bank.slot, &slot_idx );
+  ulong epoch = fd_slot_to_epoch( &slot_ctx->epoch_ctx->epoch_bank.epoch_schedule, slot_ctx->slot_bank.slot, &slot_idx );
 
-  ulong slots_per_epoch = fd_epoch_slot_cnt( &slot_ctx->bank.epoch_schedule, epoch );
+  ulong slots_per_epoch = fd_epoch_slot_cnt( &slot_ctx->epoch_ctx->epoch_bank.epoch_schedule, epoch );
   ulong calculation_offset_start = slots_per_epoch / 4;
   ulong calculation_offset_stop = slots_per_epoch / 4 * 3;
 
-  ulong first_slot_in_epoch           = fd_epoch_slot0   ( &slot_ctx->bank.epoch_schedule, epoch );
+  ulong first_slot_in_epoch           = fd_epoch_slot0   ( &slot_ctx->epoch_ctx->epoch_bank.epoch_schedule, epoch );
 
   ulong calculation_stop = first_slot_in_epoch + calculation_offset_stop;
   ulong calculation_interval = fd_ulong_sat_sub(calculation_offset_stop, calculation_offset_start);
@@ -190,21 +190,21 @@ fd_should_include_epoch_accounts_hash(fd_exec_slot_ctx_t * slot_ctx) {
   if (calculation_interval < MINIMUM_CALCULATION_INTERVAL)
     return 0;
 
-  return slot_ctx->bank.prev_slot < calculation_stop && (slot_ctx->bank.slot >= calculation_stop);
+  return slot_ctx->slot_bank.prev_slot < calculation_stop && (slot_ctx->slot_bank.slot >= calculation_stop);
 }
 
 static void
 fd_hash_bank( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t * hash, fd_pubkey_hash_vector_t * dirty_keys) {
-  slot_ctx->prev_banks_hash = slot_ctx->bank.banks_hash;
+  slot_ctx->prev_banks_hash = slot_ctx->slot_bank.banks_hash;
 
   fd_hash_account_deltas( dirty_keys->elems, dirty_keys->cnt, &slot_ctx->account_delta_hash, slot_ctx );
 
   fd_sha256_t sha;
   fd_sha256_init( &sha );
-  fd_sha256_append( &sha, (uchar const *) &slot_ctx->bank.banks_hash, sizeof( fd_hash_t ) );
+  fd_sha256_append( &sha, (uchar const *) &slot_ctx->slot_bank.banks_hash, sizeof( fd_hash_t ) );
   fd_sha256_append( &sha, (uchar const *) &slot_ctx->account_delta_hash, sizeof( fd_hash_t  ) );
   fd_sha256_append( &sha, (uchar const *) &slot_ctx->signature_cnt, sizeof( ulong ) );
-  fd_sha256_append( &sha, (uchar const *) &slot_ctx->bank.poh, sizeof( fd_hash_t ) );
+  fd_sha256_append( &sha, (uchar const *) &slot_ctx->slot_bank.poh, sizeof( fd_hash_t ) );
 
   fd_sha256_fini( &sha, hash->hash );
 
@@ -224,11 +224,11 @@ fd_hash_bank( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t * hash, fd_pubkey_hash_ve
       hash->hash,
       slot_ctx->prev_banks_hash.hash,
       slot_ctx->account_delta_hash.hash,
-      &slot_ctx->bank.poh.hash,
+      &slot_ctx->slot_bank.poh.hash,
       slot_ctx->signature_cnt );
 
   FD_LOG_DEBUG(( "bank_hash slot: %lu,  hash: %32J,  parent_hash: %32J,  accounts_delta: %32J,  signature_count: %ld,  last_blockhash: %32J",
-      slot_ctx->bank.slot, hash->hash, slot_ctx->prev_banks_hash.hash, slot_ctx->account_delta_hash.hash, slot_ctx->signature_cnt, slot_ctx->bank.poh.hash ));
+      slot_ctx->slot_bank.slot, hash->hash, slot_ctx->prev_banks_hash.hash, slot_ctx->account_delta_hash.hash, slot_ctx->signature_cnt, slot_ctx->slot_bank.poh.hash ));
 }
 
 
@@ -240,7 +240,7 @@ fd_update_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
   fd_acc_mgr_t *       acc_mgr  = slot_ctx->acc_mgr;
   fd_funk_t *          funk     = acc_mgr->funk;
   fd_funk_txn_t *      txn      = slot_ctx->funk_txn;
-  ulong                slot     = slot_ctx->bank.slot;
+  ulong                slot     = slot_ctx->slot_bank.slot;
   fd_solcap_writer_t * capture  = slot_ctx->capture;
 
   /* Collect list of changed accounts to be added to bank hash */
@@ -343,7 +343,7 @@ fd_update_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
 
   /* Sort and hash "dirty keys" to the accounts delta hash. */
 
-  FD_LOG_DEBUG(("slot %ld, dirty %ld", slot_ctx->bank.slot, dirty_keys.cnt));
+  FD_LOG_DEBUG(("slot %ld, dirty %ld", slot_ctx->slot_bank.slot, dirty_keys.cnt));
 
   slot_ctx->signature_cnt = signature_cnt;
   fd_hash_bank( slot_ctx, hash, &dirty_keys );
@@ -413,5 +413,5 @@ fd_hash_account_current( uchar                      hash  [ static 32 ],
   if( FD_FEATURE_ACTIVE( slot_ctx, account_hash_ignore_slot ) )
     return fd_hash_account_v1( hash, account, pubkey, data );
   else
-    return fd_hash_account_v0( hash, account, pubkey, data, slot_ctx->bank.slot );
+    return fd_hash_account_v0( hash, account, pubkey, data, slot_ctx->slot_bank.slot );
 }
