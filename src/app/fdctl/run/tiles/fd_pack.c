@@ -19,7 +19,12 @@
 #define SET_MAX ((MAX_SLOTS_PER_EPOCH)/(NUM_CONSECUTIVE_LEADER_SLOTS))
 #include "../../../../util/tmpl/fd_set.c"
 
-#define BLOCK_DURATION_NS (400UL*1000UL*1000UL)
+#define BLOCK_DURATION_NS    (400UL*1000UL*1000UL)
+
+/* Right now with no batching in pack, we want to make sure we don't
+   produce more than about 400 microblocks.  Setting this to 8ms gives
+   us about 50 microblocks per bank.  TODO: adjust this. */
+#define MICROBLOCK_DURATION_NS (8L*1000L*1000L)
 
 /* About 1.5 kB on the stack */
 #define FD_PACK_PACK_MAX_OUT (16UL)
@@ -28,6 +33,13 @@
 
 /* in bytes.  Defined this way to use the size field of mcache */
 #define MAX_MICROBLOCK_SZ USHORT_MAX
+
+/* Each block is limited to 32k parity shreds.  At worst, a microblock
+   batch contains 67 parity shreds.  Right now, we're using one
+   microblock per microblock batch, giving 32k/67 microblocks.  However,
+   the PoH service can also produce empty microblocks for ticks, so we
+   subtract 64. */
+#define FD_PACK_MAX_MICROBLOCKS_PER_BLOCK 425UL
 
 /* 1.5 M cost units, enough for 1 max size transaction */
 const ulong CUS_PER_MICROBLOCK = 1500000UL;
@@ -81,6 +93,7 @@ typedef struct {
 
   ulong    out_cnt;
   ulong *  out_busy[ FD_PACK_PACK_MAX_OUT ];
+  long     out_ready_at[ FD_PACK_PACK_MAX_OUT  ];
 
   fd_wksp_t * out_mem;
   ulong       out_chunk0;
@@ -119,7 +132,7 @@ during_housekeeping( void * _ctx ) {
   if( FD_UNLIKELY( (new_poh_slot!=ctx->poh_slot) | (new_reset_slot!=ctx->poh_reset_slot) ) ) {
     ctx->poh_slot          = new_poh_slot;
     ctx->poh_reset_slot    = new_reset_slot;
-    ctx->poh_slots_updated  = 1; /* Handle all the state transitions in before_credit below */
+    ctx->poh_slots_updated = 1; /* Handle all the state transitions in before_credit below */
   }
 }
 
@@ -214,7 +227,7 @@ before_credit( void * _ctx,
     ctx->poh_slots_updated = 0;
 
     /* Optimize for the non-leader -> leader transition */
-    if( FD_LIKELY( should_pack( ctx, ctx->poh_slot, ctx->poh_reset_slot ) ) ) {
+    if( FD_LIKELY( ctx->poh_slot>0 && should_pack( ctx, ctx->poh_slot, ctx->poh_reset_slot ) ) ) {
       if( FD_UNLIKELY( (ctx->packing_for==ULONG_MAX) | (ctx->poh_slot>ctx->packing_for) ) ) {
         /* Handle transition from non-leader to leader or transition
            from leader to the next leader slot that happened after the
@@ -240,10 +253,11 @@ after_credit( void *             _ctx,
   /* Am I leader? If not, nothing to do. */
   if( FD_UNLIKELY( ctx->packing_for == ULONG_MAX ) ) return;
 
+  long now = fd_tickcount();
   /* Is it time to schedule the next microblock? For each banking
      thread, if it's not busy... */
   for( ulong i=0UL; i<ctx->out_cnt; i++ ) {
-    if( FD_LIKELY( fd_fseq_query( ctx->out_busy[i] ) == *mux->seq ) ) { /* optimize for the case we send a microblock */
+    if( FD_LIKELY( (fd_fseq_query( ctx->out_busy[i] )==*mux->seq) & (ctx->out_ready_at[i]<now) ) ) { /* optimize for the case we send a microblock */
       fd_pack_microblock_complete( ctx->pack, i );
 
       void * microblock_dst = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
@@ -262,6 +276,7 @@ after_credit( void *             _ctx,
         fd_mux_publish( mux, sig, chunk, msg_sz, 0, 0UL, tspub );
 
         ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, msg_sz, ctx->out_chunk0, ctx->out_wmark );
+        ctx->out_ready_at[i] = now + MICROBLOCK_DURATION_NS;
       }
     }
   }
@@ -444,7 +459,8 @@ unprivileged_init( fd_topo_t *      topo,
   fd_rng_t *      rng = fd_rng_join( fd_rng_new( SCRATCH_ALLOC( fd_rng_align(), fd_rng_footprint() ), 0U, 0UL ) );
   if( FD_UNLIKELY( !rng ) ) FD_LOG_ERR(( "fd_rng_new failed" ));
 
-  ctx->pack = fd_pack_join( fd_pack_new( SCRATCH_ALLOC( fd_pack_align(), pack_footprint ), tile->pack.max_pending_transactions, out_cnt, MAX_TXN_PER_MICROBLOCK, rng ) );
+  ctx->pack = fd_pack_join( fd_pack_new( SCRATCH_ALLOC( fd_pack_align(), pack_footprint ), tile->pack.max_pending_transactions,
+                                                        out_cnt, MAX_TXN_PER_MICROBLOCK, FD_PACK_MAX_MICROBLOCKS_PER_BLOCK, rng ) );
   if( FD_UNLIKELY( !ctx->pack ) ) FD_LOG_ERR(( "fd_pack_new failed" ));
 
   ctx->cur_spot = NULL;
@@ -469,6 +485,7 @@ unprivileged_init( fd_topo_t *      topo,
   for( ulong i=0; i<out_cnt; i++ ) {
     ctx->out_busy[ i ] = tile->extra[ i ];
     if( FD_UNLIKELY( !ctx->out_busy[ i ] ) ) FD_LOG_ERR(( "banking tile %lu has no busy flag", i ));
+    ctx->out_ready_at[ i ] = 0L;
   }
 
   for( ulong i=0; i<tile->in_cnt; i++ ) {
