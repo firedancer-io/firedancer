@@ -1,0 +1,12 @@
+[32mNOTICE [0m large-pages ... already valid
+[32mNOTICE [0m shmem ... unconfigured ... mounts `/mnt/.fd/.huge` and `/mnt/.fd/.gigantic` do not exist
+[32mNOTICE [0m shmem ... configuring
+[32mNOTICE [0m sysctl ... already valid
+[32mNOTICE [0m xdp ... unconfigured ... `/sys/fs/bpf/fd1` does not exist
+[32mNOTICE [0m xdp ... configuring
+[32mNOTICE [0m Activated XDP environment at /sys/fs/bpf/fd1
+[32mNOTICE [0m xdp-leftover ... already valid
+[32mNOTICE [0m ethtool ... already valid
+[32mNOTICE [0m workspace-leftover ... already valid
+[32mNOTICE [0m workspace ... unconfigured ... no workspaces files found
+[32mNOTICE [0m workspace ... configuring
