@@ -56,7 +56,7 @@ fd_rent_lists_cb(fd_funk_rec_t * rec, uint num_part, void * cb_arg) {
       void const * data = fd_funk_val( rec, fd_funk_wksp(acc_mgr->funk) );
       fd_account_meta_t const * metadata = (fd_account_meta_t const *)fd_type_pun_const( data );
 
-      if (fd_rent_exempt_minimum_balance2( &slot_ctx->bank.rent, metadata->dlen) <= metadata->info.lamports)
+      if (fd_rent_exempt_minimum_balance2( &slot_ctx->epoch_ctx->epoch_bank.rent, metadata->dlen) <= metadata->info.lamports)
         return FD_FUNK_PART_NULL;
     }
 
