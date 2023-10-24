@@ -27,6 +27,7 @@ struct __attribute__((aligned(FD_ACC_MGR_ALIGN))) fd_acc_mgr {
   fd_funk_t * funk;
   ulong slots_per_epoch;
   ulong part_width;
+  uchar skip_rent_rewrites;
 };
 typedef struct fd_acc_mgr fd_acc_mgr_t;
 
@@ -54,7 +55,7 @@ fd_acc_mgr_is_key( fd_funk_rec_key_t const * id );
 /* Change the number of epochs per slot, repartition funk */
 
 void
-fd_acc_mgr_set_slots_per_epoch( fd_acc_mgr_t * acc_mgr,
+fd_acc_mgr_set_slots_per_epoch( fd_exec_slot_ctx_t * slot_ctx,
                                 ulong slots_per_epoch );
 
 /* fd_acc_mgr_view_raw requests a read-only handle to account data.

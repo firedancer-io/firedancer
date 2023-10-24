@@ -468,7 +468,7 @@ fd_runtime_microblock_execute( fd_exec_slot_ctx_t * slot_ctx,
   for ( ulong txn_idx = 0; txn_idx < hdr->txn_cnt; txn_idx++ ) {
     fd_txn_t const * txn = microblock_info->txn_ptrs[txn_idx];
     fd_rawtxn_b_t const * raw_txn = &microblock_info->raw_txns[txn_idx];
-    
+
     FD_LOG_NOTICE(( "executing txn - slot: %lu, txn_idx: %lu, sig: %64J", slot_ctx->slot_bank.slot, txn_idx, (uchar *)raw_txn->raw + txn->signature_off ));
     fd_execute_txn( slot_ctx, txn, raw_txn );
   }
@@ -482,7 +482,7 @@ fd_runtime_microblock_batch_execute( fd_exec_slot_ctx_t * slot_ctx,
   /* Loop across microblocks */
   for ( ulong i = 0; i < microblock_batch_info->microblock_cnt; i++ ) {
     fd_microblock_info_t const * microblock_info = &microblock_batch_info->microblock_infos[i];
-    
+
     FD_LOG_NOTICE(( "executing microblock - slot: %lu, mblk_idx: %lu", slot_ctx->slot_bank.slot, i ));
     fd_runtime_microblock_execute( slot_ctx, microblock_info );
   }
@@ -1112,7 +1112,7 @@ fd_runtime_collect_rent( fd_exec_slot_ctx_t * slot_ctx ) {
     ulong epoch = fd_slot_to_epoch( schedule, s, &off );
 
     /* Reconstruct rent lists if the number of slots per epoch changes */
-    fd_acc_mgr_set_slots_per_epoch( slot_ctx->acc_mgr, fd_epoch_slot_cnt( schedule, epoch ) );
+    fd_acc_mgr_set_slots_per_epoch( slot_ctx, fd_epoch_slot_cnt( schedule, epoch ) );
     fd_runtime_collect_rent_for_slot( slot_ctx, off, epoch );
   }
 
@@ -1490,7 +1490,7 @@ int fd_global_import_solana_manifest( fd_exec_slot_ctx_t * slot_ctx,
   fd_slot_bank_t * slot_bank = &slot_ctx->slot_bank;
   fd_slot_bank_destroy(slot_bank, &ctx);
   fd_slot_bank_new(slot_bank);
-  
+
   fd_epoch_bank_t * epoch_bank = &slot_ctx->epoch_ctx->epoch_bank;
   fd_epoch_bank_destroy(epoch_bank, &ctx);
   fd_epoch_bank_new(epoch_bank);
@@ -1657,7 +1657,7 @@ void fd_runtime_update_leaders( fd_exec_slot_ctx_t * slot_ctx, ulong slot) {
   ulong slot_cnt        = fd_epoch_slot_cnt( &schedule, epoch );
 
   FD_LOG_INFO(( "starting rent list init" ));
-  fd_acc_mgr_set_slots_per_epoch( slot_ctx->acc_mgr, fd_epoch_slot_cnt( &schedule, epoch ) );
+  fd_acc_mgr_set_slots_per_epoch( slot_ctx, fd_epoch_slot_cnt( &schedule, epoch ) );
   FD_LOG_INFO(( "rent list init done" ));
 
   ulong vote_acc_cnt = fd_vote_accounts_pair_t_map_size( epoch_vaccs->vote_accounts_pool, epoch_vaccs->vote_accounts_root );
