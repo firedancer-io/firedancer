@@ -13935,12 +13935,11 @@ void fd_lookup_table_meta_decode_unsafe(fd_lookup_table_meta_t* self, fd_bincode
   {
     uchar o;
     fd_bincode_option_decode_unsafe( &o, ctx );
+    self->has_authority = !!o;
     if( o ) {
-      self->authority = (fd_pubkey_t*)fd_valloc_malloc( ctx->valloc, FD_PUBKEY_ALIGN, FD_PUBKEY_FOOTPRINT );
-      fd_pubkey_new( self->authority );
-      fd_pubkey_decode_unsafe( self->authority, ctx );
-    } else
-      self->authority = NULL;
+      fd_pubkey_new( &self->authority );
+      fd_pubkey_decode_unsafe( &self->authority, ctx );
+    }
   }
   fd_bincode_uint16_decode_unsafe(&self->_padding, ctx);
 }
@@ -13948,10 +13947,9 @@ void fd_lookup_table_meta_new(fd_lookup_table_meta_t* self) {
   fd_memset(self, 0, sizeof(fd_lookup_table_meta_t));
 }
 void fd_lookup_table_meta_destroy(fd_lookup_table_meta_t* self, fd_bincode_destroy_ctx_t * ctx) {
-  if( NULL != self->authority ) {
-    fd_pubkey_destroy( self->authority, ctx );
-    fd_valloc_free( ctx->valloc, self->authority );
-    self->authority = NULL;
+  if( self->has_authority ) {
+    fd_pubkey_destroy( &self->authority, ctx );
+    self->has_authority = 0;
   }
 }
 
@@ -13963,10 +13961,10 @@ void fd_lookup_table_meta_walk(void * w, fd_lookup_table_meta_t const * self, fd
   fun( w, &self->deactivation_slot, "deactivation_slot", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
   fun( w, &self->last_extended_slot, "last_extended_slot", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
   fun( w, &self->last_extended_slot_start_index, "last_extended_slot_start_index", FD_FLAMENCO_TYPE_UCHAR,   "uchar",     level );
-  if( !self->authority ) {
+  if( !self->has_authority ) {
     fun( w, NULL, "authority", FD_FLAMENCO_TYPE_NULL, "pubkey", level );
   } else {
-    fd_pubkey_walk( w, self->authority, fun, "authority", level );
+    fd_pubkey_walk( w, &self->authority, fun, "authority", level );
   }
   fun( w, &self->_padding, "_padding", FD_FLAMENCO_TYPE_USHORT,  "ushort",    level );
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_lookup_table_meta", level--);
@@ -13977,8 +13975,8 @@ ulong fd_lookup_table_meta_size(fd_lookup_table_meta_t const * self) {
   size += sizeof(ulong);
   size += sizeof(char);
   size += sizeof(char);
-  if( NULL !=  self->authority ) {
-    size += fd_pubkey_size( self->authority );
+  if( self->has_authority ) {
+    size += fd_pubkey_size( &self->authority );
   }
   size += sizeof(ushort);
   return size;
@@ -13992,14 +13990,11 @@ int fd_lookup_table_meta_encode(fd_lookup_table_meta_t const * self, fd_bincode_
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_bincode_uint8_encode(&self->last_extended_slot_start_index, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  if( self->authority != NULL ) {
-    err = fd_bincode_option_encode( 1, ctx );
+  err = fd_bincode_option_encode( self->has_authority, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->has_authority ) {
+    err = fd_pubkey_encode( &self->authority, ctx );
     if( FD_UNLIKELY( err ) ) return err;
-    err = fd_pubkey_encode( self->authority, ctx );
-    if( FD_UNLIKELY( err ) ) return err;
-  } else {
-    err = fd_bincode_option_encode( 0, ctx );
-    if ( FD_UNLIKELY( err ) ) return err;
   }
   err = fd_bincode_uint16_encode(&self->_padding, ctx);
   if ( FD_UNLIKELY(err) ) return err;

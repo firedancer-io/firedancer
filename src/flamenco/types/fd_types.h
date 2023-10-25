@@ -1816,7 +1816,8 @@ struct __attribute__((aligned(8UL))) fd_lookup_table_meta {
   ulong deactivation_slot;
   ulong last_extended_slot;
   uchar last_extended_slot_start_index;
-  fd_pubkey_t* authority;
+  fd_pubkey_t authority;
+  uchar has_authority;
   ushort _padding;
 };
 typedef struct fd_lookup_table_meta fd_lookup_table_meta_t;
