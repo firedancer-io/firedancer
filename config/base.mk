@@ -2,11 +2,11 @@ BASEDIR?=build
 
 SHELL:=bash
 CPPFLAGS:=-isystem ./opt/include -DFD_LOG_UNCLEAN_EXIT=1 -DFD_WKSP_NO_LOCK_RECLAIM=1
-CC:=clang
+CC:=gcc
 CFLAGS:=-std=c17
-CXX:=clang++
+CXX:=g++
 CXXFLAGS:=-std=c++17
-LD:=clang++
+LD:=g++
 LDFLAGS:=-lm -lrt -ldl -L./opt/lib
 AR:=ar
 ARFLAGS:=rv
