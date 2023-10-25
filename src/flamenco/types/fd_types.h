@@ -8,7 +8,8 @@
 
 /* sdk/program/src/feature.rs#L22 */
 struct __attribute__((aligned(8UL))) fd_feature {
-  ulong* activated_at;
+  ulong activated_at;
+  uchar has_activated_at;
 };
 typedef struct fd_feature fd_feature_t;
 #define FD_FEATURE_FOOTPRINT sizeof(fd_feature_t)

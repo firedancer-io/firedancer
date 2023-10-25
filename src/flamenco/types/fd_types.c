@@ -132,20 +132,18 @@ void fd_feature_decode_unsafe(fd_feature_t* self, fd_bincode_decode_ctx_t * ctx)
   {
     uchar o;
     fd_bincode_option_decode_unsafe( &o, ctx );
+    self->has_activated_at = !!o;
     if( o ) {
-      self->activated_at = fd_valloc_malloc( ctx->valloc, 8, sizeof(ulong) );
-      fd_bincode_uint64_decode_unsafe( self->activated_at, ctx );
-    } else
-      self->activated_at = NULL;
+      fd_bincode_uint64_decode_unsafe( &self->activated_at, ctx );
+    }
   }
 }
 void fd_feature_new(fd_feature_t* self) {
   fd_memset(self, 0, sizeof(fd_feature_t));
 }
 void fd_feature_destroy(fd_feature_t* self, fd_bincode_destroy_ctx_t * ctx) {
-  if( NULL != self->activated_at ) {
-    fd_valloc_free( ctx->valloc, self->activated_at );
-    self->activated_at = NULL;
+  if( self->has_activated_at ) {
+    self->has_activated_at = 0;
   }
 }
 
@@ -154,17 +152,17 @@ ulong fd_feature_align( void ){ return FD_FEATURE_ALIGN; }
 
 void fd_feature_walk(void * w, fd_feature_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_feature", level++);
-  if( !self->activated_at ) {
+  if( !self->has_activated_at ) {
     fun( w, NULL, "activated_at", FD_FLAMENCO_TYPE_NULL, "ulong", level );
   } else {
-    fun( w, self->activated_at, "activated_at", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
+    fun( w, &self->activated_at, "activated_at", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   }
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_feature", level--);
 }
 ulong fd_feature_size(fd_feature_t const * self) {
   ulong size = 0;
   size += sizeof(char);
-  if( NULL !=  self->activated_at ) {
+  if( self->has_activated_at ) {
     size += sizeof(ulong);
   }
   return size;
@@ -172,14 +170,11 @@ ulong fd_feature_size(fd_feature_t const * self) {
 
 int fd_feature_encode(fd_feature_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  if( self->activated_at != NULL ) {
-    err = fd_bincode_option_encode( 1, ctx );
+  err = fd_bincode_option_encode( self->has_activated_at, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->has_activated_at ) {
+    err = fd_bincode_uint64_encode( &self->activated_at, ctx );
     if( FD_UNLIKELY( err ) ) return err;
-    err = fd_bincode_uint64_encode( self->activated_at, ctx );
-    if( FD_UNLIKELY( err ) ) return err;
-  } else {
-    err = fd_bincode_option_encode( 0, ctx );
-    if ( FD_UNLIKELY( err ) ) return err;
   }
   return FD_BINCODE_SUCCESS;
 }

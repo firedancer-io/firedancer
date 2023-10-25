@@ -198,11 +198,11 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *  slot_ctx,
         fd_feature_t feature;
         int err = fd_feature_decode( &feature, &decode );
         FD_TEST( err==FD_BINCODE_SUCCESS );
-        if( feature.activated_at ) {
-          FD_LOG_DEBUG(( "Feature %32J activated at %lu (genesis)", acc->key.key, *feature.activated_at ));
-          *fd_features_ptr( &slot_ctx->epoch_ctx->features, found ) = *feature.activated_at;
+        if( feature.has_activated_at ) {
+          FD_LOG_DEBUG(( "Feature %32J activated at %lu (genesis)", acc->key.key, feature.activated_at ));
+          *fd_features_ptr( &slot_ctx->epoch_ctx->features, found ) = feature.activated_at;
         } else {
-          FD_LOG_DEBUG(( "Feature %32J not activated (genesis)", acc->key.key, *feature.activated_at ));
+          FD_LOG_DEBUG(( "Feature %32J not activated (genesis)", acc->key.key, feature.activated_at ));
           *fd_features_ptr( &slot_ctx->epoch_ctx->features, found ) = ULONG_MAX;
         }
       }
@@ -1680,9 +1680,9 @@ fd_feature_restore( fd_exec_slot_ctx_t * slot_ctx,
     return;
   }
 
-  if( feature->activated_at ) {
-    FD_LOG_DEBUG(( "Feature %32J activated at %lu", acct, *feature->activated_at ));
-    *f = *feature->activated_at;
+  if( feature->has_activated_at ) {
+    FD_LOG_DEBUG(( "Feature %32J activated at %lu", acct, feature->activated_at ));
+    *f = feature->activated_at;
   }
 
   /* No need to call destroy, since we are using fd_scratch allocator. */

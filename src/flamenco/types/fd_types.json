@@ -29,7 +29,7 @@
       "name": "feature",
       "type": "struct",
       "fields": [
-        { "name": "activated_at", "type": "option", "element": "ulong" }
+        { "name": "activated_at", "type": "option", "element": "ulong", "flat": true }
       ],
       "comment": "sdk/program/src/feature.rs#L22"
     },
