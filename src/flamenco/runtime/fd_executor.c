@@ -215,7 +215,7 @@ fd_cap_transaction_accounts_data_size( fd_exec_txn_ctx_t * txn_ctx,
     fd_account_meta_t const * p_meta = p->const_meta ? p->const_meta : p->meta;
 
     fd_borrowed_account_t * o = NULL;
-    int err = fd_txn_borrowed_account_view( txn_ctx, (fd_pubkey_t const *) &p_meta->info.owner, &o );
+    err = fd_txn_borrowed_account_view( txn_ctx, (fd_pubkey_t const *) &p_meta->info.owner, &o );
     if ( FD_UNLIKELY( err ) ) {
       FD_LOG_WARNING(( "Error in ix borrowed acc view %d", err));
       return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
