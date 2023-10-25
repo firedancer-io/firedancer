@@ -241,23 +241,27 @@ FD_FN_CONST int
 test_duplicate( ulong request_units_deprecated_cnt,
                 ulong request_heap_frame_cnt,
                 ulong set_compute_unit_limit_cnt,
-                ulong set_compute_unit_price_cnt ) {
-  uchar const request_units_deprecated[ 9UL ] = { 0, 4,3,2,0, 8,7,6,5 };
-  uchar const request_heap_frame      [ 5UL ] = { 1, 0,0,1,0          };
-  uchar const set_compute_unit_limit  [ 5UL ] = { 2, 4,3,2,0          };
-  uchar const set_compute_unit_price  [ 9UL ] = { 3, 8,7,6,5,4,3,2,1  };
+                ulong set_compute_unit_price_cnt,
+                ulong set_max_loaded_accounts_data_size_limit_cnt ) {
+  uchar const request_units_deprecated               [ 9UL ] = { 0, 4,3,2,0, 8,7,6,5 };
+  uchar const request_heap_frame                     [ 5UL ] = { 1, 0,0,1,0          };
+  uchar const set_compute_unit_limit                 [ 5UL ] = { 2, 4,3,2,0          };
+  uchar const set_compute_unit_price                 [ 9UL ] = { 3, 8,7,6,5,4,3,2,1  };
+  uchar const set_max_loaded_accounts_data_size_limit[ 5UL ] = { 4, 8,0,0,0          };  
   fd_compute_budget_program_state_t state;
   fd_compute_budget_program_init( &state );
 
   int all_valid = 1;
   for( ulong i=0UL; i<request_units_deprecated_cnt; i++ )
-    all_valid &= fd_compute_budget_program_parse( request_units_deprecated, 9UL, &state );
+    all_valid &= fd_compute_budget_program_parse( request_units_deprecated,                  9UL, &state );
   for( ulong i=0UL; i<request_heap_frame_cnt;       i++ )
-    all_valid &= fd_compute_budget_program_parse( request_heap_frame,       5UL, &state );
+    all_valid &= fd_compute_budget_program_parse( request_heap_frame,                        5UL, &state );
   for( ulong i=0UL; i<set_compute_unit_limit_cnt;   i++ )
-    all_valid &= fd_compute_budget_program_parse( set_compute_unit_limit,   5UL, &state );
+    all_valid &= fd_compute_budget_program_parse( set_compute_unit_limit,                    5UL, &state );
   for( ulong i=0UL; i<set_compute_unit_price_cnt;   i++ )
-    all_valid &= fd_compute_budget_program_parse( set_compute_unit_price,   9UL, &state );
+    all_valid &= fd_compute_budget_program_parse( set_compute_unit_price,                    9UL, &state );
+  for( ulong i=0UL; i<set_max_loaded_accounts_data_size_limit_cnt;   i++ )
+    all_valid &= fd_compute_budget_program_parse( set_max_loaded_accounts_data_size_limit,   5UL, &state );  
   return all_valid;
 }
 
@@ -281,14 +285,14 @@ main( int     argc,
   *cu_limit = 1400000U; *ulamports = 1UL<<44;      test_txn( txn2, sizeof(txn2), 1400000UL, 24629060462183UL ); /* Product<2^64 */
   *cu_limit =       1U; *ulamports = 1UL;          test_txn( txn2, sizeof(txn2),       1UL, 1UL              ); /* Test ceil    */
 
-  FD_TEST( test_duplicate( 1, 1, 0, 0 ) == 1 );
-  FD_TEST( test_duplicate( 2, 0, 0, 0 ) == 0 );
-  FD_TEST( test_duplicate( 0, 1, 1, 1 ) == 1 );
-  FD_TEST( test_duplicate( 1, 1, 1, 1 ) == 0 );
-  FD_TEST( test_duplicate( 0, 0, 2, 1 ) == 0 );
-  FD_TEST( test_duplicate( 0, 0, 1, 2 ) == 0 );
-  FD_TEST( test_duplicate( 1, 0, 1, 0 ) == 0 );
-  FD_TEST( test_duplicate( 1, 0, 0, 1 ) == 0 );
+  FD_TEST( test_duplicate( 1, 1, 0, 0, 1 ) == 1 );
+  FD_TEST( test_duplicate( 2, 0, 0, 0, 0 ) == 0 );
+  FD_TEST( test_duplicate( 0, 1, 1, 1, 1 ) == 1 );
+  FD_TEST( test_duplicate( 1, 1, 1, 1, 1 ) == 0 );
+  FD_TEST( test_duplicate( 0, 0, 2, 1, 0 ) == 0 );
+  FD_TEST( test_duplicate( 0, 0, 1, 2, 0 ) == 0 );
+  FD_TEST( test_duplicate( 1, 0, 1, 0, 0 ) == 0 );
+  FD_TEST( test_duplicate( 1, 0, 0, 1, 0 ) == 0 );
 
   fd_rng_delete( fd_rng_leave( rng ) );
 

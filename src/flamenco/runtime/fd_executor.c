@@ -190,6 +190,48 @@ fd_set_exempt_rent_epoch_max( fd_exec_slot_ctx_t * slot_ctx,
   rec->meta->info.rent_epoch = ULONG_MAX;
 }
 
+// loaded account data size defined consists of data encapsulated within accounts pointed to by these pubkeys:
+// 1. static and dynamic account keys that are loaded for the message
+// 2. owner program which inteprets the opaque data for each instruction
+static int 
+fd_cap_transaction_accounts_data_size( fd_exec_txn_ctx_t * txn_ctx,
+                                       fd_instr_info_t const *  instrs,
+                                       ushort              instrs_cnt ) {
+  ulong total_accounts_data_size = 0UL;
+  for (ulong idx = 0; idx < txn_ctx->accounts_cnt; idx++) {
+    fd_borrowed_account_t *b = &txn_ctx->borrowed_accounts[idx];
+    ulong program_data_len = (NULL != b->meta) ? b->meta->dlen : (NULL != b->const_meta) ? b->const_meta->dlen : 0UL;
+    total_accounts_data_size = fd_ulong_sat_add(total_accounts_data_size, program_data_len);
+  }
+  for( ushort i = 0; i < instrs_cnt; ++i ) {
+    fd_instr_info_t const * instr = &instrs[i];
+    
+    fd_borrowed_account_t * p = NULL;
+    int err = fd_txn_borrowed_account_view( txn_ctx, (fd_pubkey_t const *) &instr->program_id_pubkey, &p );    
+    if ( FD_UNLIKELY( err ) ) {
+      FD_LOG_WARNING(( "Error in ix borrowed acc view %d", err));
+      return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
+    }
+    fd_account_meta_t const * p_meta = p->const_meta ? p->const_meta : p->meta;
+
+    fd_borrowed_account_t * o = NULL;
+    err = fd_txn_borrowed_account_view( txn_ctx, (fd_pubkey_t const *) &p_meta->info.owner, &o );
+    if ( FD_UNLIKELY( err ) ) {
+      FD_LOG_WARNING(( "Error in ix borrowed acc view %d", err));
+      return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
+    }
+    ulong o_dlen = (NULL != o->meta) ? o->meta->dlen : (NULL != o->const_meta) ? o->const_meta->dlen : 0UL;
+    total_accounts_data_size = fd_ulong_sat_add(total_accounts_data_size, o_dlen);
+  }
+
+  if ( total_accounts_data_size > txn_ctx->loaded_accounts_data_size_limit ) {
+    FD_LOG_WARNING(( "Total loaded accounts data size %lu has exceeded its set limit %lu", total_accounts_data_size, txn_ctx->loaded_accounts_data_size_limit ));
+    return FD_EXECUTOR_INSTR_ERR_MAX_ACCS_DATA_SIZE_EXCEEDED;
+  };
+  
+  return FD_EXECUTOR_INSTR_SUCCESS;
+}
+
 static int
 fd_executor_collect_fee( fd_exec_slot_ctx_t * slot_ctx,
                          fd_pubkey_t const *  account,
@@ -447,7 +489,7 @@ fd_execute_txn( fd_exec_slot_ctx_t *  slot_ctx,
   int compute_budget_status = fd_executor_compute_budget_program_execute_instructions( &txn_ctx, txn_raw );
   (void)compute_budget_status;
 
-  ulong fee = fd_runtime_calculate_fee( &txn_ctx, txn_descriptor, txn_raw, FD_FEATURE_ACTIVE( slot_ctx, remove_congestion_multiplier_from_fee_calculation ), FD_FEATURE_ACTIVE( slot_ctx, include_loaded_accounts_data_size_in_fee_calculation ));
+  ulong fee = fd_runtime_calculate_fee( &txn_ctx, txn_descriptor, txn_raw );
   if( fd_executor_collect_fee( slot_ctx, &tx_accs[0], fee ) ) {
     return -1;
   }
@@ -503,6 +545,12 @@ fd_execute_txn( fd_exec_slot_ctx_t *  slot_ctx,
   }
 
   int ret = 0L;
+  if ( FD_FEATURE_ACTIVE( slot_ctx, cap_transaction_accounts_data_size ) ) {    
+    int ret = fd_cap_transaction_accounts_data_size( &txn_ctx, instrs, txn_descriptor->instr_cnt );  
+    if ( ret != FD_EXECUTOR_INSTR_SUCCESS ) {
+      return -1;
+    }    
+  }  
   if ( FD_UNLIKELY( use_sysvar_instructions ) ) {
     fd_sysvar_instructions_serialize_account( &txn_ctx, instrs, txn_descriptor->instr_cnt );
     if( ret != FD_ACC_MGR_SUCCESS ) {

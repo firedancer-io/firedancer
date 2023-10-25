@@ -12459,6 +12459,9 @@ FD_FN_PURE uchar fd_compute_budget_program_instruction_is_set_compute_unit_limit
 FD_FN_PURE uchar fd_compute_budget_program_instruction_is_set_compute_unit_price(fd_compute_budget_program_instruction_t const * self) {
   return self->discriminant == 3;
 }
+FD_FN_PURE uchar fd_compute_budget_program_instruction_is_set_loaded_accounts_data_size_limit(fd_compute_budget_program_instruction_t const * self) {
+  return self->discriminant == 4;
+}
 void fd_compute_budget_program_instruction_inner_new(fd_compute_budget_program_instruction_inner_t* self, uint discriminant);
 int fd_compute_budget_program_instruction_inner_decode_preflight(uint discriminant, fd_bincode_decode_ctx_t * ctx) {
   int err;
@@ -12483,6 +12486,11 @@ int fd_compute_budget_program_instruction_inner_decode_preflight(uint discrimina
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     return FD_BINCODE_SUCCESS;
   }
+  case 4: {
+    err = fd_bincode_uint32_decode_preflight(ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
+  }
   default: return FD_BINCODE_ERR_ENCODING;
   }
 }
@@ -12502,6 +12510,10 @@ void fd_compute_budget_program_instruction_inner_decode_unsafe(fd_compute_budget
   }
   case 3: {
     fd_bincode_uint64_decode_unsafe(&self->set_compute_unit_price, ctx);
+    break;
+  }
+  case 4: {
+    fd_bincode_uint32_decode_unsafe(&self->set_loaded_accounts_data_size_limit, ctx);
     break;
   }
   }
@@ -12542,6 +12554,9 @@ void fd_compute_budget_program_instruction_inner_new(fd_compute_budget_program_i
   case 3: {
     break;
   }
+  case 4: {
+    break;
+  }
   default: break; // FD_LOG_ERR(( "unhandled type"));
   }
 }
@@ -12566,6 +12581,9 @@ void fd_compute_budget_program_instruction_inner_destroy(fd_compute_budget_progr
     break;
   }
   case 3: {
+    break;
+  }
+  case 4: {
     break;
   }
   default: break; // FD_LOG_ERR(( "unhandled type" ));
@@ -12597,6 +12615,10 @@ void fd_compute_budget_program_instruction_walk(void * w, fd_compute_budget_prog
   fun( w, &self->inner.set_compute_unit_price, "set_compute_unit_price", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
     break;
   }
+  case 4: {
+  fun( w, &self->inner.set_loaded_accounts_data_size_limit, "set_loaded_accounts_data_size_limit", FD_FLAMENCO_TYPE_UINT,    "uint",      level );
+    break;
+  }
   }
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_compute_budget_program_instruction", level--);
 }
@@ -12618,6 +12640,10 @@ ulong fd_compute_budget_program_instruction_size(fd_compute_budget_program_instr
   }
   case 3: {
     size += sizeof(ulong);
+    break;
+  }
+  case 4: {
+    size += sizeof(uint);
     break;
   }
   }
@@ -12645,6 +12671,11 @@ int fd_compute_budget_program_instruction_inner_encode(fd_compute_budget_program
   case 3: {
     err = fd_bincode_uint64_encode(&self->set_compute_unit_price, ctx);
     if ( FD_UNLIKELY(err) ) return err;
+    break;
+  }
+  case 4: {
+    err = fd_bincode_uint32_encode(&self->set_loaded_accounts_data_size_limit, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
     break;
   }
   }

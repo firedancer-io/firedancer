@@ -91,12 +91,9 @@ int fd_runtime_block_eval( fd_exec_slot_ctx_t * slot_ctx,
                            ulong blocklen );
 
 ulong
-fd_runtime_calculate_fee( fd_exec_txn_ctx_t * txn_ctx,
-                          fd_txn_t const * txn_descriptor,
-                          fd_rawtxn_b_t const * txn_raw,
-                          bool remove_congestion_multiplier,
-                          bool include_loaded_account_data_size_in_fee );
-
+fd_runtime_calculate_fee ( fd_exec_txn_ctx_t * txn_ctx,
+                           fd_txn_t const * txn_descriptor,
+                           fd_rawtxn_b_t const * txn_raw );
 void
 fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx );
 

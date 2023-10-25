@@ -25,6 +25,7 @@
 #define FD_COMPUTE_BUDGET_PROGRAM_FLAG_SET_FEE            ((ushort)0x02) /* ... SetComputeUnitPrice ... */
 #define FD_COMPUTE_BUDGET_PROGRAM_FLAG_SET_HEAP           ((ushort)0x04) /* ... RequestHeapFrame ... */
 #define FD_COMPUTE_BUDGET_PROGRAM_FLAG_SET_TOTAL_FEE      ((ushort)0x08) /* ... RequestUnitsDeprecated ... */
+#define FD_COMPUTE_BUDGET_PROGRAM_FLAG_SET_SZ             ((ushort)0x10) /* ... SetLoadedAccountsDataSizeLimit ... */
                                                                             /* ... so far? */
 
 
@@ -46,6 +47,9 @@ static const uchar FD_COMPUTE_BUDGET_PROGRAM_ID[FD_TXN_ACCT_ADDR_SZ] = {
 
 #define FD_COMPUTE_BUDGET_DEFAULT_INSTR_CU_LIMIT         ( 200000UL)
 #define FD_COMPUTE_BUDGET_MAX_CU_LIMIT                   (1400000UL)
+/* SetLoadedAccountsDataSizeLimit specfies the total accounts data a transaction 
+can load to be limited to 64MiB (64 * 1024 * 1024 bytes) to not break Mainnet-beta */ 
+#define FD_COMPUTE_BUDGET_MAX_LOADED_ACCOUNTS_DATA_SIZE_LIMIT (67108864UL) 
 
 /* ---- End consensus-critical constants */
 
@@ -55,7 +59,7 @@ struct fd_compute_budget_program_private_state {
      above for their meaning. */
   ushort  flags;
   /* compute_budge_instr_cnt: How many compute budget instructions have been
-     parsed so far? compute_budget_instr_cnt in [0, 3]. */
+     parsed so far? compute_budget_instr_cnt in [0, 4]. */
   ushort  compute_budget_instr_cnt;
   /* compute_units: if SET_CU is in flags, this stores the total requested
      compute units for the whole transaction. Otherwise 0. Realistically should
@@ -72,6 +76,9 @@ struct fd_compute_budget_program_private_state {
      this stores the requested prioritization fee in micro-lamports per compute
      unit. Otherwise, 0. */
   ulong   micro_lamports_per_cu;
+  /* loaded_account_data_size: if SET_SZ is in flags, this stores the account 
+  data size limit in bytes the transaction is allowed to load. Otherwise, 0. */
+  uint  loaded_account_data_size;
 };
 typedef struct fd_compute_budget_program_private_state fd_compute_budget_program_state_t;
 
@@ -130,6 +137,15 @@ fd_compute_budget_program_parse( uchar const * instr_data,
       if( FD_UNLIKELY( (state->flags & FD_COMPUTE_BUDGET_PROGRAM_FLAG_SET_FEE)!=0 ) ) return 0;
       state->micro_lamports_per_cu = *(ulong*)(instr_data+1);
       state->flags |= FD_COMPUTE_BUDGET_PROGRAM_FLAG_SET_FEE;
+      state->compute_budget_instr_cnt++;
+      return 1;
+    case 4: 
+      /* Parse a SetLoadedAccountsDataSizeLimit instruction */
+      if( FD_UNLIKELY( data_sz!=5 ) ) return 0;
+      if( FD_UNLIKELY( (state->flags & FD_COMPUTE_BUDGET_PROGRAM_FLAG_SET_SZ)!=0 ) ) return 0;
+      state->loaded_account_data_size = *(uint*)(instr_data+1);
+      if ( FD_UNLIKELY( state->loaded_account_data_size > FD_COMPUTE_BUDGET_MAX_LOADED_ACCOUNTS_DATA_SIZE_LIMIT ) ) return 0;
+      state->flags |= FD_COMPUTE_BUDGET_PROGRAM_FLAG_SET_SZ;
       state->compute_budget_instr_cnt++;
       return 1;
     default:

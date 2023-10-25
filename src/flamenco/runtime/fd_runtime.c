@@ -867,7 +867,7 @@ void compute_priority_fee( fd_exec_txn_ctx_t const * txn_ctx, ulong * fee, ulong
 #define ACCOUNT_DATA_COST_PAGE_SIZE ((double)32 * 1024)
 
 ulong
-fd_runtime_calculate_fee( fd_exec_txn_ctx_t * txn_ctx, fd_txn_t const * txn_descriptor, fd_rawtxn_b_t const * txn_raw, bool remove_congestion_multiplier, FD_PARAM_UNUSED bool include_loaded_account_data_size_in_fee ) {
+fd_runtime_calculate_fee( fd_exec_txn_ctx_t * txn_ctx, fd_txn_t const * txn_descriptor, fd_rawtxn_b_t const * txn_raw ) {
 // https://github.com/firedancer-io/solana/blob/08a1ef5d785fe58af442b791df6c4e83fe2e7c74/runtime/src/bank.rs#L4443
 // TODO: implement fee distribution to the collector ... and then charge us the correct amount
   ulong priority = 0;
@@ -877,8 +877,8 @@ fd_runtime_calculate_fee( fd_exec_txn_ctx_t * txn_ctx, fd_txn_t const * txn_desc
 
   double BASE_CONGESTION = 5000.0;
   double current_congestion = (BASE_CONGESTION > (double)lamports_per_signature) ? BASE_CONGESTION : (double)lamports_per_signature;
-  double congestion_multiplier = (lamports_per_signature == 0) ? 0.0
-                                : remove_congestion_multiplier ? 1.0
+  double congestion_multiplier = (lamports_per_signature == 0) ? 0.0 
+                                : FD_FEATURE_ACTIVE( txn_ctx->slot_ctx, remove_congestion_multiplier_from_fee_calculation ) ? 1.0 
                                 : (BASE_CONGESTION / current_congestion);
 
 //  bool support_set_compute_unit_price_ix = false;
@@ -941,10 +941,11 @@ fd_runtime_calculate_fee( fd_exec_txn_ctx_t * txn_ctx, fd_txn_t const * txn_desc
 //                    .last()
 //                    .map(|bin| bin.fee)
 //                    .unwrap_or_default()
-//            });
-  double MEMORY_USAGE_COST = ((((double)vm_compute_budget.loaded_accounts_data_size_limit + (ACCOUNT_DATA_COST_PAGE_SIZE - 1)) / ACCOUNT_DATA_COST_PAGE_SIZE) * (double)vm_compute_budget.heap_cost);
-  double loaded_accounts_data_size_cost = include_loaded_account_data_size_in_fee ? MEMORY_USAGE_COST : 0.0;
-  double total_compute_units = loaded_accounts_data_size_cost + (double)vm_compute_budget.compute_unit_limit;
+//            });  
+
+  double MEMORY_USAGE_COST = ((((double)txn_ctx->loaded_accounts_data_size_limit + (ACCOUNT_DATA_COST_PAGE_SIZE - 1)) / ACCOUNT_DATA_COST_PAGE_SIZE) * (double)vm_compute_budget.heap_cost);
+  double loaded_accounts_data_size_cost = FD_FEATURE_ACTIVE( txn_ctx->slot_ctx, include_loaded_accounts_data_size_in_fee_calculation ) ? MEMORY_USAGE_COST : 0.0;
+  double total_compute_units = loaded_accounts_data_size_cost + (double)txn_ctx->compute_unit_limit;
   /* unused */
   (void)total_compute_units;
   double compute_fee = 0;
