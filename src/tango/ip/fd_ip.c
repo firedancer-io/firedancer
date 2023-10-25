@@ -20,6 +20,7 @@ fd_ip_footprint( ulong arp_entries,
 
   l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, FD_IP_ALIGN, sizeof(fd_ip_t)                             );
+  l = FD_LAYOUT_APPEND( l, FD_IP_ALIGN, sizeof(fd_nl_t)                             );
   l = FD_LAYOUT_APPEND( l, FD_IP_ALIGN, arp_entries   * sizeof(fd_nl_arp_entry_t)   );
   l = FD_LAYOUT_APPEND( l, FD_IP_ALIGN, route_entries * sizeof(fd_nl_route_entry_t) );
 
@@ -48,6 +49,9 @@ fd_ip_new( void * shmem,
   fd_ip_t * ip = (fd_ip_t*)mem;
   l = FD_LAYOUT_APPEND( l, FD_IP_ALIGN, sizeof(fd_ip_t)                             );
 
+  ulong ofs_netlink = l;
+  l = FD_LAYOUT_APPEND( l, FD_IP_ALIGN, sizeof(fd_nl_t)                             );
+
   ulong ofs_arp_table   = FD_ULONG_ALIGN_UP( l, FD_IP_ALIGN );
   l = FD_LAYOUT_APPEND( l, FD_IP_ALIGN, arp_entries   * sizeof(fd_nl_arp_entry_t)   );
 
@@ -62,15 +66,13 @@ fd_ip_new( void * shmem,
   /* set values in ip */
   ip->num_arp_entries      = arp_entries;
   ip->num_route_entries    = route_entries;
+  ip->ofs_netlink          = ofs_netlink;
   ip->ofs_arp_table        = ofs_arp_table;
   ip->ofs_route_table      = ofs_route_table;
 
   /* set magic last, after a fence */
   FD_COMPILER_MFENCE();
   ip->magic                = FD_IP_MAGIC;
-
-  /* initialize netlink */
-  (void)fd_nl_get();
 
   return (void*)ip;
 }
@@ -96,7 +98,11 @@ fd_ip_join( void * mem ) {
   }
 
   /* initialize netlink */
-  (void)fd_nl_get();
+  fd_nl_t * netlink = fd_ip_netlink_get( ip );
+  if( fd_nl_init( netlink, 0 ) ) {
+    FD_LOG_ERR(( "Failed to initialize fd_netlink." ));
+    return NULL;
+  }
 
   return ip;
 }
@@ -115,6 +121,10 @@ fd_ip_leave( fd_ip_t * ip ) {
   /* then fence */
   FD_COMPILER_MFENCE();
 
+  /* finalize the netlink */
+  fd_nl_t * netlink = fd_ip_netlink_get( ip );
+  fd_nl_fini( netlink );
+
   fd_memset( ip, 0, sizeof( *ip ) );
 
   return (void*)ip;
@@ -124,8 +134,9 @@ fd_ip_leave( fd_ip_t * ip ) {
 /* get pointer to fd_nl_t */
 fd_nl_t *
 fd_ip_netlink_get( fd_ip_t * ip ) {
-  (void)ip;
-  return fd_nl_get();
+  ulong mem = (ulong)ip;
+
+  return (fd_nl_t*)( mem + ip->ofs_netlink );
 }
 
 

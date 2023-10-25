@@ -128,41 +128,13 @@ check_fds( ulong allow_fds_cnt,
 }
 
 static void
-install_seccomp( ushort allow_syscalls_cnt, long * allow_syscalls ) {
-  FD_TEST( allow_syscalls_cnt < 32 - 5 );
-
-  struct sock_filter filter [ 128 ] = {
-    /* validate architecture, load the arch number */
-    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, ( offsetof( struct seccomp_data, arch ) ) ),
-
-    /* do not jump (and die) if the compile arch is neq the runtime arch.
-       Otherwise, jump over the SECCOMP_RET_KILL_PROCESS statement. */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ARCH_NR, 1, 0 ),
-    BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_ALLOW ),
-
-    /* verify that the syscall is allowed, oad the syscall */
-    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, ( offsetof( struct seccomp_data, nr ) ) ),
+install_seccomp( ushort               seccomp_filter_cnt,
+                 struct sock_filter * seccomp_filter ) {
+  struct sock_fprog program = {
+    .len    = seccomp_filter_cnt,
+    .filter = seccomp_filter,
   };
-
-  for( ulong i=0; i<allow_syscalls_cnt; i++ ) {
-    /* If the syscall does not match, jump over RET_ALLOW */
-    struct sock_filter jmp = BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, (uint)allow_syscalls[i], 0, 1);
-    struct sock_filter ret = BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW);
-    filter[ 4+(i*2)   ] = jmp;
-    filter[ 4+(i*2)+1 ] = ret;
-  }
-
-  /* none of the syscalls approved were matched: die */
-  struct sock_filter kill = BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS);
-  filter[ 4+(allow_syscalls_cnt*2) ] = kill;
-
-  FD_TESTV( 0 == prctl( PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0 ) );
-
-  struct sock_fprog default_prog = {
-    .len = (ushort)(5+(allow_syscalls_cnt*2)),
-    .filter = filter,
-  };
-  FD_TESTV( 0 == syscall( SYS_seccomp, SECCOMP_SET_MODE_FILTER, 0, &default_prog ) );
+  FD_TESTV( 0 == syscall( SYS_seccomp, SECCOMP_SET_MODE_FILTER, 0, &program ) );
 }
 
 static void
@@ -259,17 +231,19 @@ sandbox_unthreaded( ulong allow_fds_cnt,
 }
 
 void
-fd_sandbox( int    full_sandbox,
-            uint   uid,
-            uint   gid,
-            ulong  allow_fds_cnt,
-            int *  allow_fds,
-            ushort allow_syscalls_cnt,
-            long * allow_syscalls ) {
+fd_sandbox( int                  full_sandbox,
+            uint                 uid,
+            uint                 gid,
+            ulong                allow_fds_cnt,
+            int *                allow_fds,
+            ulong                seccomp_filter_cnt,
+            struct sock_filter * seccomp_filter ) {
   if( FD_LIKELY( full_sandbox ) ) {
     sandbox_unthreaded( allow_fds_cnt, allow_fds, uid, gid );
-    install_seccomp( allow_syscalls_cnt, allow_syscalls );
-    FD_LOG_INFO(( "sandbox: full sandbox is now enabled" ));
+    FD_TESTV( !prctl( PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0 ) );
+    FD_TEST( seccomp_filter_cnt <= USHORT_MAX );
+    FD_LOG_INFO(( "sandbox: full sandbox is being enabled" )); /* log before seccomp in-case tile doesn't use logfile */
+    install_seccomp( (ushort)seccomp_filter_cnt, seccomp_filter );
   } else {
     switch_user( uid, gid );
     FD_LOG_INFO(( "sandbox: no sandbox enabled" ));

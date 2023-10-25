@@ -1,5 +1,6 @@
 #include "tiles.h"
 
+#include "generated/pack_seccomp.h"
 #include "../../../../ballet/pack/fd_pack.h"
 
 #include <linux/unistd.h>
@@ -508,15 +509,19 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 }
 
-static long allow_syscalls[] = {
-  __NR_write, /* logging */
-  __NR_fsync, /* logging, WARNING and above fsync immediately */
-};
+static ulong
+populate_allowed_seccomp( void *               scratch,
+                          ulong                out_cnt,
+                          struct sock_filter * out ) {
+  (void)scratch;
+  populate_sock_filter_policy_pack( out_cnt, out );
+  return sock_filter_policy_pack_instr_cnt;
+}
 
 static ulong
-allow_fds( void * scratch,
-           ulong  out_fds_cnt,
-           int *  out_fds ) {
+populate_allowed_fds( void * scratch,
+                      ulong  out_fds_cnt,
+                      int *  out_fds ) {
   (void)scratch;
   if( FD_UNLIKELY( out_fds_cnt < 2 ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
   out_fds[ 0 ] = 2; /* stderr */
@@ -525,19 +530,18 @@ allow_fds( void * scratch,
 }
 
 fd_tile_config_t fd_tile_pack = {
-  .mux_flags               = FD_MUX_FLAG_MANUAL_PUBLISH | FD_MUX_FLAG_COPY,
-  .burst                   = 1UL,
-  .mux_ctx                 = mux_ctx,
-  .mux_during_housekeeping = during_housekeeping,
-  .mux_before_credit       = before_credit,
-  .mux_after_credit        = after_credit,
-  .mux_during_frag         = during_frag,
-  .mux_after_frag          = after_frag,
-  .allow_syscalls_cnt      = sizeof(allow_syscalls)/sizeof(allow_syscalls[ 0 ]),
-  .allow_syscalls          = allow_syscalls,
-  .allow_fds               = allow_fds,
-  .scratch_align           = scratch_align,
-  .scratch_footprint       = scratch_footprint,
-  .privileged_init         = privileged_init,
-  .unprivileged_init       = unprivileged_init,
+  .mux_flags                = FD_MUX_FLAG_MANUAL_PUBLISH | FD_MUX_FLAG_COPY,
+  .burst                    = 1UL,
+  .mux_ctx                  = mux_ctx,
+  .mux_during_housekeeping  = during_housekeeping,
+  .mux_before_credit        = before_credit,
+  .mux_after_credit         = after_credit,
+  .mux_during_frag          = during_frag,
+  .mux_after_frag           = after_frag,
+  .populate_allowed_seccomp = populate_allowed_seccomp,
+  .populate_allowed_fds     = populate_allowed_fds,
+  .scratch_align            = scratch_align,
+  .scratch_footprint        = scratch_footprint,
+  .privileged_init          = privileged_init,
+  .unprivileged_init        = unprivileged_init,
 };

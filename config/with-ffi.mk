@@ -1,4 +1,5 @@
 CPPFLAGS+=-DFD_HAS_FFI=1 -fPIC
+FD_HAS_FFI:=1
 
 ##############################
 # Usage: $(call maybe-add-env-obj,env,lib)
