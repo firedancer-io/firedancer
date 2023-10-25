@@ -6,13 +6,7 @@ ifdef FD_HAS_DOUBLE
 .PHONY: fddev run monitor
 $(call make-bin-rust,fddev,main dev dev1 txn configure/netns configure/keygen configure/genesis,fd_fdctl fd_disco fd_flamenco fd_reedsol fd_ballet fd_tango fd_util fd_quic solana_validator solana_genesis)
 
-ifeq ($(RUST_PROFILE),release)
 solana/target/$(RUST_PROFILE)/libsolana_genesis.a: cargo
-	cd ./solana && env --unset=LDFLAGS ./cargo build --release --lib -p solana-genesis
-else
-solana/target/$(RUST_PROFILE)/libsolana_genesis.a: cargo
-	cd ./solana && env --unset=LDFLAGS ./cargo build --lib -p solana-genesis
-endif
 
 $(OBJDIR)/lib/libsolana_genesis.a: solana/target/$(RUST_PROFILE)/libsolana_genesis.a
 	$(MKDIR) $(dir $@) && cp solana/target/$(RUST_PROFILE)/libsolana_genesis.a $@
