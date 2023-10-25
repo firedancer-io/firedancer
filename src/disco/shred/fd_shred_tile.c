@@ -594,6 +594,12 @@ fd_shred_tile( fd_shred_tile_args_t * args, void * scratch ) {
     FD_LOG_ERR(( "shred->store dcache too small. It is %lu bytes but must be at least %lu bytes.", fd_dcache_data_sz( args->shred_store_dcache ), required_dcache_sz ));
   }
 
+  if( FD_UNLIKELY( !args->fec_resolver_depth ) ) FD_LOG_ERR(( "fec_resolver_depth not set" ));
+
+  uchar zero_mac_addr[6] = {0};
+  if( FD_UNLIKELY( fd_memeq( args->src_mac, zero_mac_addr, sizeof(zero_mac_addr ) ) ) ) FD_LOG_ERR(( "src_mac not set" ));
+  if( FD_UNLIKELY( !args->src_ip ) ) FD_LOG_ERR(( "src_ip not set" ));
+  if( FD_UNLIKELY( !args->shred_listen_port ) ) FD_LOG_ERR(( "shred_listen_port not set" ));
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   void * _lsched   = FD_SCRATCH_ALLOC_APPEND( l, fd_epoch_leaders_align(),   leaders_footprint                                  );
