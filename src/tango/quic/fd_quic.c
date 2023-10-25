@@ -127,13 +127,6 @@ fd_quic_footprint_ext( fd_quic_limits_t const * limits,
   if( FD_UNLIKELY( !tls_footprint ) ) { FD_LOG_WARNING(( "invalid fd_quic_tls_footprint" )); return 0UL; }
   offs                += tls_footprint;
 
-  /* allocate space for fd_ip_t */
-  offs                 = fd_ulong_align_up( offs, fd_ip_align() );
-  layout->ip_off       = offs;
-  ulong ip_footprint   = fd_ip_footprint( limits->arp_entries, limits->routing_entries );
-  if( FD_UNLIKELY( !ip_footprint ) ) { FD_LOG_WARNING(( "invalid fd_ip_footprint" )); return 0UL; }
-  offs                += ip_footprint;
-
   return offs;
 }
 
@@ -145,7 +138,8 @@ fd_quic_footprint( fd_quic_limits_t const * limits ) {
 
 FD_QUIC_API void *
 fd_quic_new( void * mem,
-             fd_quic_limits_t const * limits ) {
+             fd_quic_limits_t const * limits,
+             fd_ip_t * ip ) {
 
   /* Argument checks */
 
@@ -186,8 +180,11 @@ fd_quic_new( void * mem,
   /* Set limits */
   memcpy( &quic->limits, limits, sizeof( fd_quic_limits_t ) );
 
-  /* init fd_netlink */
-  (void)fd_nl_get();
+  if( !ip ) {
+    FD_LOG_WARNING(( "NULL fd_ip" ));
+    return NULL;
+  }
+  quic->ip = ip;
 
   FD_COMPILER_MFENCE();
   quic->magic = FD_QUIC_MAGIC;
@@ -209,9 +206,6 @@ fd_quic_limits_from_env( int  *   pargc,
   limits->handshake_cnt    = fd_env_strip_cmdline_uint ( pargc, pargv, "--quic-handshakes",    "QUIC_HANDSHAKE_CNT",    256UL );
   limits->inflight_pkt_cnt = fd_env_strip_cmdline_ulong( pargc, pargv, "--quic-inflight-pkts", "QUIC_MAX_INFLIGHT_PKTS", 64UL );
   limits->tx_buf_sz        = fd_env_strip_cmdline_ulong( pargc, pargv, "--quic-tx-buf-sz",     "QUIC_TX_BUF_SZ",    1UL<<15UL );
-
-  limits->arp_entries      = fd_env_strip_cmdline_ulong( pargc, pargv, "--quic-arp-entires",     "QUIC_ARP_ENTRIES",       32UL );
-  limits->routing_entries  = fd_env_strip_cmdline_ulong( pargc, pargv, "--quic-routing-entires", "QUIC_ROUTING_ENTRIES",   32UL );
 
   limits->stream_cnt[ FD_QUIC_STREAM_TYPE_BIDI_CLIENT ] = 0UL;
   limits->stream_cnt[ FD_QUIC_STREAM_TYPE_BIDI_SERVER ] = 0UL;
@@ -517,25 +511,6 @@ fd_quic_init( fd_quic_t * quic ) {
   FD_QUIC_TRANSPORT_PARAM_SET( tp, disable_active_migration,            1                        );
   FD_QUIC_TRANSPORT_PARAM_SET( tp, active_connection_id_limit,          limits->conn_id_cnt      ); /* TODO */
 
-  /* fd_ip */
-
-  /* new ip */
-  void * ip_mem = fd_ip_new( (void*)( (ulong)quic + (ulong)layout.ip_off ),
-                             limits->arp_entries,
-                             limits->routing_entries );
-
-  fd_ip_t * ip = fd_ip_join( ip_mem );
-  if( !ip ) {
-    FD_LOG_WARNING(( "NULL fd_ip" ));
-    return NULL;
-  }
-
-  /* set offset in quic */
-  quic->ip_off = (ulong)ip - (ulong)quic;
-
-  /* initialize arp and routing tables */
-  fd_ip_arp_fetch( ip );
-  fd_ip_route_fetch( ip );
 
   /* Initialize next ephemeral udp port */
   state->next_ephem_udp_port = config->net.ephem_udp_port.lo;
@@ -546,7 +521,7 @@ fd_quic_init( fd_quic_t * quic ) {
 /* get pointer to fd_ip_t */
 fd_ip_t *
 fd_quic_get_ip( fd_quic_t * quic ) {
-  return (fd_ip_t*)((ulong)quic + quic->ip_off);
+  return quic->ip;
 }
 
 /* fd_quic_enc_level_to_pn_space maps of encryption level in [0,4) to

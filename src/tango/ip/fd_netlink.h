@@ -80,14 +80,6 @@ typedef struct fd_nl_arp_entry fd_nl_arp_entry_t;
 FD_PROTOTYPES_BEGIN
 
 
-/* get's a thread local netlink object
-
-   calling this will attempt to initialize a thread local
-   netlink object, if one is not available, and return it. */
-fd_nl_t *
-fd_nl_get( void );
-
-
 /* Creates and configures a socket for netlink
 
    used by fd_nl_init */

@@ -1,80 +1,122 @@
 #ifndef HEADER_fd_src_util_sandbox_fd_sandbox_h
 #define HEADER_fd_src_util_sandbox_fd_sandbox_h
 
+#ifndef FD_HAS_FFI
+#ifdef FD_HAS_HOSTED
+
 #include "../fd_util_base.h"
 #include "../env/fd_env.h"
 #include "../log/fd_log.h"
 
+#include <linux/filter.h>
 #include <sys/types.h>
 
 /* The purpose of the sandbox is to reduce the impact of a Firedancer
    compromise.
 
-   When starting, before executing any task code and/or processing
-   user-provided input, a Firedancer process prepares everything it
-   needs in order to function properly. This initialization mostly
-   consists in:
+   A process should call fd_sandbox as soon as is practically possible,
+   by identifying the specific set of privileged actions it needs to
+   perform.  A typical boot sequence might look something like,
 
-   * Creating new tiles which will be used for task execution (clone
-      syscall)
-   * Opening the relevant workspaces which will be used to perform work
-      and communicate (mmap syscall)
-   * Immediately after performing those operations, Firedancer sandboxes
-      itself. Note that firedancer has to be started as root or with
-      various capabilities in order to be able to sandbox itself.
+      fd_boot();
+      perform_privileged_setup();
+      fd_sandbox();
+      run_as_sandboxed();
 
-   Here are the mechanisms currently used by Firedancer to achieve
-   sandboxing:
+   Calling fd_sandbox() itself requires root or CAP_SYS_ADMIN, which is
+   counterintuitive but a limitation of the Linux kernel.  This is not
+   because it is doing anything privileged, but unsharing a user
+   namespace is a privileged operation.
 
-   * The environment variable are cleared. Environment variables are
-      commonly used to hold secrets. If Firedancer is compromised, no
-      secrets living in the operator's environment will be leaked.
-   * The process loses access to network interfaces. The process
-      unshares the network namespace to keep the principle of least
-      privilege: in the event where the process was able to interact
-      with a network interface, it should not be able to perform any
-      communication.
-   * The process gets a restricted view of the filesystem. It is jailed
-      into a mount namespace with a root of its own. The process should
-      only be able to interact with files that it needs to function.
-   * The process is restricted from opening any new files with
-      restrictive resource limits. In the future, more resources types
-      can be limited. Firedancer processes have well understood expected
-      behaviors and resource needs. A process should not be able to
-      exceed those limits, potentially leading to availability issues.
-   * The process enters a new user namespace, and the user it runs as
-      inside the namespace is mapped to the overflow user outside of the
-      namespace. In the case where another control was to fail, the
-      process should be interacting with the system as an unprivileged
+   If full_sandbox is zero, then the sandbox is not enabled at all.  The
+   only step that will be performed is switching UID and GID to the
+   provided ones.  All other arguments are ignored.
+
+   The seccomp_filter argument is a list of BPF instructions which will
+   get loaded into the kernel seccomp filter.  You should never
+   construct such a filter by hand.  ALWAYS generate filters from a
+   policy file with the script in contrib/generate_filters.py
+
+   Note that it is preferable to minimize the amount of code that
+   happens before sandboxing, but it is even more preferable to have a
+   stronger sandbox by allowing less system calls.  Where these two are
+   in conflict, the privileged setup should do more, and the sandbox
+   should allow less.  For example, it is much better to call socket()
+   to open a socket during the privileged stage and save the descriptor
+   for the unprivileged phase, than to allow the socket() syscall while
+   sandboxed.
+
+   After sandboxing almost nothing will be available.  The process
+   cannot make syscalls except those allowed, has no filesystem, no
+   network access, no privileges or capabilities.  Almost all it can do
+   absent additional syscalls is read and write memory, and execute
+   already mapped code pages.
+
+   Typically the only things are process will need to do while
+   privileged are read files and map memory. 
+
+   Calling fd_sandbox will do each of the following, in order,
+
+    * The list of open file descriptors for the process is checked
+      against the allowed list, allow_fds.  If the file descriptor table
+      is not an exact match (an expected file descriptor is not present,
+      or an unexpected one is open) the program will abort with an
+      error.
+
+    * The real user ID, effective user ID, and the saved set-user-ID of
+      the process are switched to the provided uid, if they are not
+      already.  Your process will now be running as the unprivileged
       user.
-   * All file descriptors above a specified number are forcefully
-      closed. Similar to and more impactful than clearenv, an operator's
-      process can have FDs opened that are 1. not relevant to Firedancer
-      2. references to sensitive resources. Those resources should not
-      be made available to Firedancer.
-   * We prevent the usage of most syscalls, only allowing those
-      explicitly needed by the specific Firedancer component. Syscalls
-      are used to interact with the operating system. There exists close
-      to 400 syscalls. While running, A Firedancer process requires 14
-      syscalls out of those 400 in order to perform its functions.
-      Firedancer will crash if it attempts to use a syscall that is not
-      expected. Note: It also happens that the syscalls that Firedancer
-      is using are ubiquitous and well understood. They have stood the
-      test of time (not that time is an ultimate metric for greatness).
-      We have the luxury of disallowing all of the syscalls that might
-      have received less scrutiny. */
 
-/* fd_sandbox sandboxes the current process, performing both privileged and
-   private steps. */
+    * The real group ID, effecetive group ID, and the saved-set-group-ID
+      of the process are switched to the provided gid, if they are not
+      already.
+
+    * Almost all namespaces that can be unshared are unshared,
+      CLONE_NEWUSER, CLONE_NEWNS, CLONE_NEWNET, CLONE_NEWCGROUP,
+      CLONE_NEWIPC, CLONE_NEWUTS.  The PID namespace, CLONE_NEWPID is
+      not unshared, as it requires cloning a new child.
+
+    * The user namespace is set up so that Firedancer runs as root
+      inside it, but that the root user in the namespace maps to the
+      provided UID and GID outside.
+
+    * The dumpable bit is cleared, so the process will not produce core
+      dumps.
+
+    * The capability bounding set is cleared.
+
+    * The RLIMIT_NOFILE rlimit is set to zero, so no new files can be
+      opened.
+
+    * CLONE_NEWNS, the mount namespace is unshared.  The process is
+      given a new global mount namespace, a temporary directory with
+      nothing in it.
+
+    * All capabilities are dropped in the running process, which were
+      already only applying to the user namespace.
+
+    * Secure bits, (SECBIT_KEEP_CAPS_LOCKED, SECBIT_NO_SETUID_FIXUP,
+      ...) are all cleared.
+
+    * Ambient capabilities are cleared.
+
+    * The process environment is fully cleared, and the memory is
+      overwritten with zeros to prevent any secrets from being leaked.
+
+    * The PR_SET_NO_NEW_PRIVS bit is set.
+
+    * Finally, a seccomp filter is installed which restricts which
+      syscalls are allowed, and their arguments, to a list provided by
+      the user. */
 void
-fd_sandbox( int    full_sandbox,
-            uint   uid,
-            uint   gid,
-            ulong  allow_fds_sz,
-            int *  allow_fds,
-            ushort allow_syscalls_cnt,
-            long * allow_syscalls );
-
+fd_sandbox( int                  full_sandbox,
+            uint                 uid,
+            uint                 gid,
+            ulong                allow_fds_cnt,
+            int *                allow_fds,
+            ulong                seccomp_filter_cnt,
+            struct sock_filter * seccomp_filter );
 
 /* fd_sandbox_alloc_protected_pages allocates `page_cnt` regular (4 kB)
    pages of memory protected by `guard_page_cnt` pages of unreadable and
@@ -92,4 +134,8 @@ fd_sandbox( int    full_sandbox,
 void *
 fd_sandbox_alloc_protected_pages( ulong page_cnt,
                                   ulong guard_page_cnt );
+
+#endif /* FD_HAS_HOSTED */
+#endif /* FD_HAS_FFI */
+
 #endif /* HEADER_fd_src_util_sandbox_fd_sandbox_h */
