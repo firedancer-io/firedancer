@@ -655,7 +655,9 @@ unprivileged_init( fd_topo_t *      topo,
   }
 
   if( FD_UNLIKELY( !tile->shred.fec_resolver_depth ) ) FD_LOG_ERR(( "fec_resolver_depth not set" ));
-  if( FD_UNLIKELY( !tile->shred.src_mac_addr ) ) FD_LOG_ERR(( "src_mac_addr not set" ));
+
+  uchar zero_mac_addr[6] = {0};
+  if( FD_UNLIKELY( fd_memeq( tile->shred.src_mac_addr, zero_mac_addr, sizeof(zero_mac_addr ) ) ) ) FD_LOG_ERR(( "src_mac_addr not set" ));
   if( FD_UNLIKELY( !tile->shred.ip_addr ) ) FD_LOG_ERR(( "ip_addr not set" ));
   if( FD_UNLIKELY( !tile->shred.shred_listen_port ) ) FD_LOG_ERR(( "shred_listen_port not set" ));
 
